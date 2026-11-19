@@ -5,7 +5,7 @@
  * 文件坏了也不能让应用起不来），设置页写完之后开始的工具调用就读到新值，入口停止时也没有要关的句柄。
  */
 
-import {mkdir, open, readFile} from "node:fs/promises";
+import {mkdir, readFile} from "node:fs/promises";
 import {dirname} from "node:path";
 
 import {replaceLocked} from "@notnotype/nb-file-lock";
@@ -41,7 +41,8 @@ function parse(text: string): Parsed {
     }
     if (typeof value !== "object" || value === null) return {ok: false, detail: "keys file is not an object"};
     const {version, keys} = value as {version?: unknown; keys?: unknown};
-    if (version !== FORMAT_VERSION) return {ok: false, detail: `unsupported keys file version ${String(version)}`};
+    // 不把文件里的值带进详情：坏文件的内容不进诊断与响应（输出 14）。
+    if (version !== FORMAT_VERSION) return {ok: false, detail: "keys file has an unsupported version"};
     if (typeof keys !== "object" || keys === null || Array.isArray(keys)) return {ok: false, detail: "keys file has no keys object"};
     for (const entry of Object.values(keys)) if (typeof entry !== "string") return {ok: false, detail: "keys file has a non-string key"};
     return {ok: true, keys: keys as Keys};
@@ -73,23 +74,16 @@ export function createKeyStore(path: string, record: KeyStoreRecord): KeyStore {
     const write = async (change: (keys: Keys) => Keys): Promise<StatusRead> => {
         try {
             await mkdir(dirname(path), {recursive: true, mode: 0o700});
-            // 先按 0600 建出文件：`replaceLocked` 新建时用 0644，已有文件则保留原权限。
-            const handle = await open(path, "wx", 0o600).catch((error: unknown) => {
-                if (errorCode(error) === "EEXIST") return null;
-                throw error;
-            });
-            if (handle !== null) {
-                await handle.writeFile(serialize({}));
-                await handle.close();
-            }
         } catch (error) {
-            return {ok: false, detail: `cannot create keys file (${errorCode(error) ?? "unknown error"})`};
+            return {ok: false, detail: `cannot create the keys directory (${errorCode(error) ?? "unknown error"})`};
         }
         // `decide` 每次重做都重算，所以这两个值随最后一次决定。
         let replacedBroken = false;
         let next: Keys = {};
         const result = await replaceLocked<never, string>(path, {
             lockPath: `${path}.lock`,
+            // 每次写都设成只有本用户可读写，临时文件从建出来起就是：手工建的或从备份恢复的宽权限文件也在下一次写入时收紧。
+            mode: 0o600,
             report: (event, error) => record("warn", `web.keys-${event}`, "a secondary step of writing the keys file failed", {path, code: errorCode(error) ?? null}),
             decide: (current) => {
                 const parsed = current === null ? ({ok: true, keys: {}} as Parsed) : parse(new TextDecoder().decode(current.bytes));

@@ -50,6 +50,31 @@ const URLS = ["https://github.com/jina-ai/reader", "https://zh.wikipedia.org/wik
 
 const toolCalls = (path: readonly LogEvent[], type: "toolResult" | "nestedToolResult") => path.filter((event) => event.type === type).map((event) => event.data as {tool?: string; status?: string; code?: string; text?: string});
 
+/** 找出这样一次 eval：调用成功，里面的嵌套调用读了 `urls` 里的每个网址（按解析后的写法比）。交回它里面的 `web_fetch` 结局。 */
+function batchedFetches(path: readonly LogEvent[], urls: readonly string[]): ReadonlyArray<{readonly status: string}> | null {
+    const href = (value: unknown): string | null => {
+        try {
+            return typeof value === "string" ? new URL(value).href : null;
+        } catch {
+            return null;
+        }
+    };
+    const results = new Map(path.filter((event) => event.type === "toolResult").map((event) => {
+        const data = event.data as {callId: string; status: string};
+        return [data.callId, data.status] as const;
+    }));
+    const nested = path.filter((event) => event.type === "nestedToolResult").map((event) => event.data as {within: {invocation: string}; tool: string; args: {url?: unknown}; status: string});
+    for (const event of path) {
+        if (event.type !== "toolStarted") continue;
+        const started = event.data as {callId: string; tool: string; invocation: string};
+        if (started.tool !== "nbook.agent.eval" || results.get(started.callId) !== "ok") continue;
+        const fetches = nested.filter((call) => call.within.invocation === started.invocation && call.tool === FETCH_TOOL);
+        const read = new Set(fetches.map((call) => href(call.args.url)));
+        if (urls.every((url) => read.has(new URL(url).href))) return fetches;
+    }
+    return null;
+}
+
 describe.skipIf(config === null)("网页工具接真实模型", () => {
     test("模型自己用 web_search 查；再在一次 eval 里批量 web_fetch 三个网址，拿到结构值", async () => {
         const {provider, model} = splitReference(config!.model)!;
@@ -83,9 +108,10 @@ describe.skipIf(config === null)("网页工具接真实模型", () => {
         if (!second.ok || second.value.runId === null) throw new Error(`send failed: ${JSON.stringify(second)}`);
         await session.waitRun(second.value.runId);
         const path = await session.path();
-        const nested = toolCalls(path, "nestedToolResult").filter((result) => result.tool === FETCH_TOOL);
-        expect(nested.length).toBeGreaterThanOrEqual(3);
-        expect(nested.filter((result) => result.status === "ok").length).toBeGreaterThanOrEqual(2);
+        // 同一次成功的 eval 里读了三个网址，至少两个读到了（第三个站点可能拒绝机器读取）。
+        const batch = batchedFetches(path, URLS);
+        expect(batch).not.toBeNull();
+        expect(batch!.filter((result) => result.status === "ok").length).toBeGreaterThanOrEqual(2);
         expect(JSON.stringify(path)).not.toContain(config!.apiKey);
     }, 600_000);
 });

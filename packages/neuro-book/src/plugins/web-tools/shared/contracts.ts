@@ -25,7 +25,8 @@ export const WEB_FAILURE_CODES = [...PROVIDER_FAILURE_CODES, "no-key", "credenti
 export type WebFailureCode = (typeof WEB_FAILURE_CODES)[number];
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
-const ProviderSchema = Type.String({minLength: 1});
+/** 不在合同里限定取值：不认识的服务（含空串）由实现报 `invalid-value`（docs/specs/web/tools.md 输出 17），不是合同层的 `invalid-input`。 */
+const ProviderSchema = Type.String();
 
 const StatusSchema = Type.Object({
     providers: Type.Object({deepseek: Type.Object({hasKey: Type.Boolean()}, {additionalProperties: false})}, {additionalProperties: false}),

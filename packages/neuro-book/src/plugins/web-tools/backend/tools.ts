@@ -6,12 +6,14 @@
  */
 
 import type {JsonValue, ToolContext, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {agentTool} from "nbook/plugins/agent/shared/contracts";
 import type {AgentToolImplementation, AgentToolServices} from "nbook/plugins/agent/shared/contracts";
 
 import {FETCH_TOOL, SEARCH_TOOL} from "../shared/contracts";
 import type {WebFailureCode} from "../shared/contracts";
+import {clip, safeEnd} from "./clip";
 import type {KeyStore} from "./keys";
 import type {CallScope, ProviderFailure, SearchHit, WebProvider} from "./providers/types";
 
@@ -34,7 +36,7 @@ export type ToolRecord = (event: string, message: string, data: Readonly<Record<
 interface ToolDeps {
     readonly keys: KeyStore;
     readonly provider: WebProvider;
-    readonly now: () => number;
+    readonly clock: RuntimeClock;
     readonly record: ToolRecord;
 }
 
@@ -113,7 +115,8 @@ export function wrapLongLines(markdown: string, limit: number = ARCHIVE_LINE_LIM
                     break;
                 }
             }
-            if (cut <= 0) cut = limit;
+            // 标点都在 BMP 里，在它后面断不会切开代理对；硬断要避开。
+            if (cut <= 0) cut = safeEnd(rest, limit);
             out.push(rest.slice(0, cut));
             rest = rest.slice(cut);
         }
@@ -147,17 +150,20 @@ export function failureText(code: WebFailureCode, detail?: string, status?: numb
 
 const failed = (code: WebFailureCode, detail?: string, status?: number): ToolResult => ({text: failureText(code, detail, status), status: "error", code});
 
-/** 一次调用的总截止：到点或调用被中止都触发同一个信号；结束时撤掉计时与挂在调用信号上的监听。 */
-async function withDeadline<T>(parent: AbortSignal, ms: number, now: () => number, run: (scope: CallScope) => Promise<T>): Promise<T> {
+/**
+ * 一次调用的总截止（输出 9）：从调用开始算，读密钥也在里面。到点或调用被中止都触发同一个信号，发请求前看它（`postJson`），所以
+ * 读密钥时被取消的调用不再发出计费的请求；结束时撤掉计时与挂在调用信号上的监听。检测（`check`）也用它。
+ */
+export async function withDeadline<T>(parent: AbortSignal, ms: number, clock: RuntimeClock, run: (scope: CallScope) => Promise<T>): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ms);
+    const cancel = clock.schedule(() => controller.abort(), ms);
     const forward = (): void => controller.abort();
     if (parent.aborted) controller.abort();
     else parent.addEventListener("abort", forward, {once: true});
     try {
-        return await run({signal: controller.signal, deadline: now() + ms});
+        return await run({signal: controller.signal, deadline: clock.now() + ms});
     } finally {
-        clearTimeout(timer);
+        cancel();
         parent.removeEventListener("abort", forward);
     }
 }
@@ -182,7 +188,7 @@ function searchText(label: string, hits: readonly SearchHit[]): string {
     const lines = [`来自 ${label} 搜索，${String(hits.length)} 条结果。`, HINT];
     hits.forEach((hit, index) => {
         const meta = [hit.date === undefined ? null : `日期：${hit.date}`, hit.site === undefined ? null : `站点：${hit.site}`].filter((part) => part !== null).join("；");
-        const summary = hit.summary.length > SUMMARY_LIMIT ? `${hit.summary.slice(0, SUMMARY_LIMIT)}…` : hit.summary;
+        const summary = hit.summary.length > SUMMARY_LIMIT ? `${clip(hit.summary, SUMMARY_LIMIT)}…` : hit.summary;
         const body = [`${String(index + 1)}. ${hit.title}`, ...(meta === "" ? [] : [meta]), summary].join("\n");
         lines.push(`网址：${hit.url}`, block(hit.url, body));
     });
@@ -194,15 +200,16 @@ export function searchImplementation(deps: () => ToolDeps): AgentToolImplementat
         create: () => ({
             execute: async (args, context: ToolContext): Promise<ToolResult> => {
                 const current = deps();
-                const key = await keyFor(current);
-                if (!key.ok) return key.result;
                 const count = typeof args.count === "number" ? args.count : DEFAULT_COUNT;
                 const sites = strings(args.sites);
                 const after = optionalString(args.after);
                 const before = optionalString(args.before);
                 const request = {query: String(args.query), count, ...(sites === undefined ? {} : {sites}), ...(after === undefined ? {} : {after}), ...(before === undefined ? {} : {before})};
-                const outcome = await withDeadline(context.signal, SEARCH_DEADLINE_MS, current.now, (scope) => current.provider.search(request, key.key, scope));
-                if (!outcome.ok) return providerFailed(current, SEARCH_TOOL, outcome);
+                const outcome = await withDeadline(context.signal, SEARCH_DEADLINE_MS, current.clock, async (scope) => {
+                    const key = await keyFor(current);
+                    return key.ok ? current.provider.search(request, key.key, scope) : key;
+                });
+                if (!outcome.ok) return "result" in outcome ? outcome.result : providerFailed(current, SEARCH_TOOL, outcome);
                 const text = searchText(current.provider.label, outcome.value);
                 if (context.within === undefined) return {text};
                 return {text, details: {provider: current.provider.id, results: outcome.value} as unknown as JsonValue};
@@ -233,10 +240,12 @@ export function fetchImplementation(deps: () => ToolDeps): AgentToolImplementati
                 const current = deps();
                 const url = httpUrl(args.url);
                 if (url === null) return failed("invalid-request", "url must be an http or https address");
-                const key = await keyFor(current);
-                if (!key.ok) return key.result;
-                const outcome = await withDeadline(context.signal, FETCH_DEADLINE_MS, current.now, (scope) => current.provider.fetch(String(args.url), key.key, scope));
-                if (!outcome.ok) return providerFailed(current, FETCH_TOOL, outcome);
+                // 发请求、来源行与判定主机（`subjects`）用同一个解析后的网址。
+                const outcome = await withDeadline(context.signal, FETCH_DEADLINE_MS, current.clock, async (scope) => {
+                    const key = await keyFor(current);
+                    return key.ok ? current.provider.fetch(url.href, key.key, scope) : key;
+                });
+                if (!outcome.ok) return "result" in outcome ? outcome.result : providerFailed(current, FETCH_TOOL, outcome);
                 const page = outcome.value;
                 const long = page.markdown.length > FETCH_TEXT_LIMIT;
                 let address: string | undefined;
@@ -258,7 +267,7 @@ export function fetchImplementation(deps: () => ToolDeps): AgentToolImplementati
                 const header = long
                     ? `来自 ${current.provider.label} 读取，正文 ${String(page.markdown.length)} 字，这里是前 ${String(FETCH_TEXT_LIMIT)} 字。${address === undefined ? archiveNote : `全文：${address}，用 read 分页读。`}`
                     : `来自 ${current.provider.label} 读取，正文 ${String(page.markdown.length)} 字。`;
-                const body = `# ${page.title}\n\n${long ? page.markdown.slice(0, FETCH_TEXT_LIMIT) : page.markdown}`;
+                const body = `# ${page.title}\n\n${long ? clip(page.markdown, FETCH_TEXT_LIMIT) : page.markdown}`;
                 const text = [header, HINT, block(page.url, body)].join("\n");
                 if (context.within === undefined) return {text};
                 const truncated = page.markdown.length > STRUCTURED_MARKDOWN_LIMIT;
@@ -268,7 +277,7 @@ export function fetchImplementation(deps: () => ToolDeps): AgentToolImplementati
                         provider: current.provider.id,
                         url: page.url,
                         title: page.title,
-                        markdown: truncated ? page.markdown.slice(0, STRUCTURED_MARKDOWN_LIMIT) : page.markdown,
+                        markdown: truncated ? clip(page.markdown, STRUCTURED_MARKDOWN_LIMIT) : page.markdown,
                         truncated,
                         ...(address === undefined ? {} : {address}),
                     },

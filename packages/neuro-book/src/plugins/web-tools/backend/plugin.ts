@@ -14,7 +14,7 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {TOOLS_POINT} from "nbook/plugins/agent/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {stateRootKey} from "nbook/shared/host";
+import {clockKey, stateRootKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
 import {FETCH_TOOL, SEARCH_TOOL, webSettingsContract} from "../shared/contracts";
@@ -22,7 +22,7 @@ import {webSettings} from "../shared/settings";
 import {createKeyStore} from "./keys";
 import type {KeyStore, KeyStoreRecord} from "./keys";
 import {createDeepSeekProvider} from "./providers/deepseek";
-import {realSleep} from "./providers/http";
+import {sleepOn} from "./providers/http";
 import {webSettingsRemote} from "./settings-remote";
 import {fetchImplementation, fetchTool, searchImplementation, searchTool} from "./tools";
 
@@ -38,22 +38,23 @@ export function createWebBackendPlugin(keyStore: KeyStoreFactory): PluginDefinit
         entries: [defineEntry({
             id: "server",
             location: "server",
-            dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}],
+            dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}],
             activationEvents: [searchTool.activationEvent, fetchTool.activationEvent],
             contributions: [searchTool.contribution, fetchTool.contribution],
             remoteProvides: [webSettingsContract],
             activate: (context) => {
                 const diagnostics = context.services.require(diagnosticsKey);
                 const settings = context.services.require(settingsKey);
+                const clock = context.services.require(clockKey);
                 const record = (level: "info" | "warn", event: string, message: string, data: Readonly<Record<string, unknown>>): void => {
                     diagnostics.record({level, event, message, data, source: {plugin: descriptor.id}});
                 };
                 const keys = keyStore(join(context.services.require(stateRootKey).path, "web", "keys.json"), record);
-                const provider = createDeepSeekProvider(() => settings.get(webSettings.settings.deepseekBaseUrl), {fetch, now: Date.now, sleep: realSleep});
-                const deps = () => ({keys, provider, now: Date.now, record: (event: string, message: string, data: Readonly<Record<string, unknown>>) => record("warn", event, message, data)});
+                const provider = createDeepSeekProvider(() => settings.get(webSettings.settings.deepseekBaseUrl), {fetch, now: () => clock.now(), sleep: sleepOn(clock)});
+                const deps = () => ({keys, provider, clock, record: (event: string, message: string, data: Readonly<Record<string, unknown>>) => record("warn", event, message, data)});
                 return {
                     contributions: {[TOOLS_POINT]: {[SEARCH_TOOL]: searchImplementation(deps), [FETCH_TOOL]: fetchImplementation(deps)}},
-                    remote: [provideRemote(webSettingsContract, () => webSettingsRemote(keys, () => provider, Date.now))],
+                    remote: [provideRemote(webSettingsContract, () => webSettingsRemote(keys, () => provider, clock))],
                 };
             },
         })],

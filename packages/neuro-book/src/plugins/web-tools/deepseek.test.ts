@@ -8,7 +8,7 @@ import {afterAll, afterEach, describe, expect, it} from "bun:test";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createDeepSeekProvider, MAX_QUERY_CODE_POINTS} from "./backend/providers/deepseek";
-import {DETAIL_LIMIT, ERROR_BODY_LIMIT, SUCCESS_BODY_LIMIT} from "./backend/providers/http";
+import {DETAIL_LIMIT, ERROR_BODY_LIMIT, redact, SUCCESS_BODY_LIMIT} from "./backend/providers/http";
 import type {CallScope} from "./backend/providers/types";
 import {fakeDeepSeek, sampleHit} from "./testing/fake-deepseek";
 
@@ -110,6 +110,35 @@ describe("失败的归类与详情（输出 10、12）", () => {
             for (let start = 0; start + length <= KEY.length; start += 1) expect(result.detail).not.toContain(KEY.slice(start, start + length));
         }
     });
+
+    it("服务把密钥写在请求 id 的位置：请求 id 从遮盖过的文字里取，诊断里也没有密钥（输出 14）", async () => {
+        fake.script("/v1/tools/search", {status: 401, json: {error: {message: `bad key (request_id: ${KEY})`}}});
+        const result = await search("小说");
+        expect(result).toEqual({ok: false, code: "auth", status: 401, detail: "bad key (request_id: ***)"});
+    });
+
+    it("长密钥按 8 字窗口遮盖：整串与不短于 8 字的片段换掉，短于 8 字的留着", () => {
+        // 伪随机的 4,096 字密钥（线性同余），没有重复的 8 字窗口。
+        let seed = 7;
+        const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+        const long = Array.from({length: 4096}, () => {
+            seed = (seed * 1103515245 + 12345) % 2147483648;
+            return alphabet[seed % alphabet.length]!;
+        }).join("");
+        const short = long.slice(3000, 3007);
+        expect(redact(`x ${long.slice(100, 120)} y ${long} z ${short}`, long)).toBe(`x *** y *** z ${short}`);
+    });
+
+    it("成功响应里带着密钥原文：bad-response，不交出结果（输出 14）", async () => {
+        fake.script("/v1/tools/search", {json: {results: [{...sampleHit(0), title: `echo Bearer ${KEY}`}]}});
+        expect(await search("小说")).toEqual({ok: false, code: "bad-response", status: 200});
+    });
+
+    it("不跟随重定向：307 只发一次，按失败交回（输出 10）", async () => {
+        fake.script("/v1/tools/search", {status: 307, json: {}, headers: {location: "/v1/tools/search"}});
+        expect(await search("小说")).toMatchObject({ok: false, code: "failed", status: 307});
+        expect(fake.requests).toHaveLength(1);
+    });
 });
 
 describe("重试（输出 10）", () => {
@@ -125,6 +154,20 @@ describe("重试（输出 10）", () => {
         expect(await search("小说")).toMatchObject({ok: false, code: "rate-limited", detail: "b"});
         expect(fake.requests).toHaveLength(2);
         expect(waits).toEqual([1000]);
+    });
+
+    it("Retry-After 写成 HTTP 日期：按日期减现在等；已过的不等；不认识的写法按 1 秒；等完超过截止就不重试", async () => {
+        const at = (ms: number): string => new Date(ms).toUTCString();
+        const cases: Array<[header: string, waits: number[], requests: number]> = [];
+        clock = Date.parse("2026-11-19T12:00:00Z");
+        cases.push([at(clock + 3000), [3000], 2], [at(clock - 60_000), [0], 2], ["1.5", [1000], 2], ["", [1000], 2], [at(clock + 60_000), [], 1]);
+        for (const [header, expectedWaits, requests] of cases) {
+            fake.reset();
+            waits.length = 0;
+            fake.script("/v1/tools/search", {status: 429, json: {error: {message: "slow"}}, headers: {"retry-after": header}});
+            const result = await search("小说");
+            expect({header, waits: [...waits], requests: fake.requests.length, ok: result.ok}).toEqual({header, waits: expectedWaits, requests, ok: requests === 2});
+        }
     });
 
     it("等完会超过总截止就不重试", async () => {

@@ -3,7 +3,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {readFile, rm, stat, writeFile} from "node:fs/promises";
+import {chmod, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -22,8 +22,13 @@ afterAll(async () => {
 function store() {
     counter += 1;
     const events: string[] = [];
+    /** 诊断的全部内容，断言里面没有文件里的值。 */
+    const recorded: string[] = [];
     const path = join(root, `state-${String(counter)}`, "web", "keys.json");
-    return {path, events, keys: createKeyStore(path, (_level, event) => events.push(event))};
+    return {path, events, recorded, keys: createKeyStore(path, (_level, event, message, data) => {
+        events.push(event);
+        recorded.push(JSON.stringify({event, message, data}));
+    })};
 }
 
 describe("密钥文件（输出 15）", () => {
@@ -40,7 +45,10 @@ describe("密钥文件（输出 15）", () => {
         expect((await stat(path)).mode & 0o777).toBe(0o600);
         expect(await createKeyStore(path, () => undefined).read("deepseek")).toEqual({ok: true, key: "sk-first-not-real"});
 
+        // 手工改宽了权限（或从备份恢复）：下一次写入收紧回来。
+        await chmod(path, 0o644);
         expect((await keys.set("deepseek", "sk-second-not-real")).ok).toBe(true);
+        expect((await stat(path)).mode & 0o777).toBe(0o600);
         expect(await keys.read("deepseek")).toEqual({ok: true, key: "sk-second-not-real"});
 
         expect(await keys.clear("deepseek")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: false}}}});
@@ -63,12 +71,22 @@ describe("密钥文件（输出 15）", () => {
         expect(await keys.read("deepseek")).toEqual({ok: true, key: "sk-new-not-real"});
     });
 
-    it("不认识的版本按解析不了处理，不改写", async () => {
-        const {path, keys} = store();
+    it("不认识的版本按解析不了处理，读不改写；文件里的值不进详情与诊断；写入照常覆盖（输出 14、15）", async () => {
+        const {path, keys, recorded} = store();
         expect((await keys.set("deepseek", "sk-a-not-real")).ok).toBe(true);
         await writeFile(path, JSON.stringify({version: 2, keys: {deepseek: "sk-a-not-real"}}));
         expect(await keys.read("deepseek")).toMatchObject({ok: false});
         expect(JSON.parse(await readFile(path, "utf8"))).toEqual({version: 2, keys: {deepseek: "sk-a-not-real"}});
+
+        for (const version of ["sk-version-not-real", {toString: null}]) {
+            await writeFile(path, JSON.stringify({version, keys: {}}));
+            const read = await keys.status();
+            expect(read.ok).toBe(false);
+            expect(JSON.stringify(read)).not.toContain("sk-version-not-real");
+            expect((await keys.set("deepseek", "sk-b-not-real")).ok).toBe(true);
+            expect(await keys.read("deepseek")).toEqual({ok: true, key: "sk-b-not-real"});
+        }
+        expect(recorded.join("\n")).not.toContain("sk-version-not-real");
     });
 
     it("两个读者同时写不同的值：都成功，文件是其中一个、仍是合法的", async () => {

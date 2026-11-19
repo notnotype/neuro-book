@@ -18,6 +18,9 @@ export interface FakeDeepSeek {
     readonly requests: readonly SeenRequest[];
     /** 给某个路径排回复，按先后各用一次。 */
     script(path: "/v1/tools/search" | "/v1/tools/fetch", ...replies: readonly ScriptedReply[]): void;
+    /** 放开挂着的请求（以 500 作答），不清记录：断言要数这一轮实际收到了几次请求时用它。 */
+    release(): void;
+    /** 清掉记录与排好的回复，放开挂着的请求。 */
     reset(): void;
     stop(): void;
 }
@@ -68,6 +71,9 @@ export function fakeDeepSeek(): FakeDeepSeek {
         requests,
         script(path, ...replies) {
             queues.set(path, [...(queues.get(path) ?? []), ...replies]);
+        },
+        release() {
+            for (const release of hanging.splice(0)) release();
         },
         reset() {
             requests.length = 0;

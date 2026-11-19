@@ -6,15 +6,16 @@
 
 import {describe, expect, it} from "bun:test";
 
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 
 import {createDeepSeekProvider} from "./backend/providers/deepseek";
-import {realSleep} from "./backend/providers/http";
+import {sleepOn} from "./backend/providers/http";
 import type {CallScope} from "./backend/providers/types";
 import {DEFAULT_DEEPSEEK_BASE_URL} from "./shared/settings";
 
 const config = llmTestConfig();
-const provider = createDeepSeekProvider(() => DEFAULT_DEEPSEEK_BASE_URL, {fetch, now: Date.now, sleep: realSleep});
+const provider = createDeepSeekProvider(() => DEFAULT_DEEPSEEK_BASE_URL, {fetch, now: Date.now, sleep: sleepOn(systemClock)});
 const scope = (ms: number): CallScope => ({signal: AbortSignal.timeout(ms), deadline: Date.now() + ms});
 
 describe.skipIf(config === null)("真实 DeepSeek 接口", () => {
@@ -39,7 +40,9 @@ describe.skipIf(config === null)("真实 DeepSeek 接口", () => {
         expect(result.value.markdown.length).toBeGreaterThan(100);
     }, 70_000);
 
-    it("错误的归类：错的密钥得 auth，回环地址得 rejected，非 http 网址得 invalid-request；详情里没有密钥", async () => {
+    // 直接调客户端，所以 ftp 网址真的发到了服务：这里核对的是服务回 400、归为 invalid-request。工具在本地就拒收非 http 网址、不发
+    // 请求，那一条在 web.test.ts。
+    it("错误的归类：错的密钥得 auth，回环地址得 rejected，服务对非 http 网址回的 400 得 invalid-request；详情里没有密钥", async () => {
         const wrong = await provider.search({query: "测试", count: 1}, "sk-invalid-not-real-000000", scope(30_000));
         expect(wrong).toMatchObject({ok: false, code: "auth"});
         expect(JSON.stringify(wrong)).not.toContain("sk-invalid-not-real");

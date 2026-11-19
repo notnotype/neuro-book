@@ -96,13 +96,15 @@ describe("数据模块接真实服务端", () => {
         expect(store.checks.has("deepseek")).toBe(false);
 
         deepseek.script("/v1/tools/search", {hang: true});
+        const before = deepseek.requests.length;
         const first = store.check("deepseek");
         const second = store.check("deepseek");
-        await waitUntil("the check reached the endpoint", () => deepseek.requests.length >= 2 || undefined);
+        await waitUntil("the check reached the endpoint", () => deepseek.requests.length > before || undefined);
         expect(store.checks.get("deepseek")).toEqual({status: "running"});
-        deepseek.reset();
+        deepseek.release();
         await Promise.all([first, second]);
-        expect(deepseek.requests).toHaveLength(0);
+        // 两次 check 都结束了，端点只多收到一次请求。
+        expect(deepseek.requests.length - before).toBe(1);
         expect(store.checks.get("deepseek")?.status).toBe("done");
     });
 

@@ -28,11 +28,12 @@ export function composeQuery(request: SearchRequest): {readonly ok: true; readon
     return {ok: true, query};
 }
 
+/** 交出解析后的网址（`href`）而不是原串：空白、尖括号等在这里转成百分号写法，之后显示、存档与判定主机用的都是同一个。 */
 const httpUrl = (value: unknown): string | null => {
     if (typeof value !== "string") return null;
     try {
         const url = new URL(value);
-        return url.protocol === "http:" || url.protocol === "https:" ? value : null;
+        return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
     } catch {
         return null;
     }
