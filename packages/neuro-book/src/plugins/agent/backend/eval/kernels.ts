@@ -254,11 +254,12 @@ export function describeExit(exit: KernelExit): string {
 }
 
 /**
- * 登记表里一个会话的内核持有者（`tool.ts` 的 `SessionKernel`）。`holding` 为真（有活着的内核）时占一个名额；`evict` 由持有者
- * 结束内核并记下原因；`close` 在服务端停止时结束内核。
+ * 登记表里一个会话的内核持有者（`tool.ts` 的 `SessionKernel`）。`holding` 为真（有活着的内核）时占一个名额；`busy` 为真时正有
+ * 调用在执行（可能还在起内核）；`evict` 由持有者结束内核并记下原因；`close` 在服务端停止时结束内核。
  */
 export interface KernelHolder {
     readonly holding: boolean;
+    readonly busy: boolean;
     evict(): void;
     close(): Promise<void>;
 }
@@ -268,8 +269,9 @@ export interface KernelHolder {
  * 原因留在这里，会话再打开后新的工具实现接着用；内核照样按持有者自己计时的 30 分钟空闲与这里的总数上限回收，服务端停止时
  * 全部结束（`stop`）。上限是内存的兜底。
  *
- * 表按最近用过的顺序排（Map 的插入顺序，用一次就挪到末尾），回收从最久没用的开始。没有内核的持有者只为那个会话的下一次调用
- * 记着重置原因，表里至多留 `remembered` 个持有者，多了丢最久没用的、没有内核的：丢了的那个会话下一次的提示写不出具体原因。
+ * 表按最近用过的顺序排（Map 的插入顺序，用一次就挪到末尾），回收从最久没用的开始。正在执行的不回收（会把在跑的单元打断），
+ * 别的都在执行时暂时超过上限，下一次有内核起来时再回收。没有内核的持有者只为那个会话的下一次调用记着重置原因，表里至多留
+ * `remembered` 个持有者，多了丢最久没用的、没有内核也没在执行的：丢了的那个会话下一次的提示写不出具体原因。
  */
 export class KernelRegistry<H extends KernelHolder> {
     readonly #holders = new Map<string, H>();
@@ -285,7 +287,7 @@ export class KernelRegistry<H extends KernelHolder> {
         this.#holders.set(sessionId, holder);
         for (const [id, candidate] of this.#holders) {
             if (this.#holders.size <= this.remembered) break;
-            if (!candidate.holding && candidate !== holder) this.#holders.delete(id);
+            if (!candidate.holding && !candidate.busy && candidate !== holder) this.#holders.delete(id);
         }
         return holder;
     }
@@ -296,7 +298,7 @@ export class KernelRegistry<H extends KernelHolder> {
         for (const candidate of this.#holders.values()) if (candidate.holding) live += 1;
         for (const candidate of this.#holders.values()) {
             if (live <= this.limit) return;
-            if (candidate === holder || !candidate.holding) continue;
+            if (candidate === holder || !candidate.holding || candidate.busy) continue;
             candidate.evict();
             live -= 1;
         }

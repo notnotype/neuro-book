@@ -202,6 +202,7 @@ describe("内核登记表（eval.md 输出 11）", () => {
     const holder = (name: string, log: string[]) => {
         const self = {
             holding: true,
+            busy: false,
             evict: () => {
                 self.holding = false;
                 log.push(`evict ${name}`);
@@ -249,6 +250,24 @@ describe("内核登记表（eval.md 输出 11）", () => {
         expect(take("a", true)).toBe(a);
         take("b", false);
         expect(created).toEqual(["a", "b", "c", "d", "b"]);
+    });
+
+    test("正在执行的持有者不丢、不回收：超过上限时暂时多一个", () => {
+        const registry = new KernelRegistry<Holder>(1, 1);
+        const log: string[] = [];
+        const created: string[] = [];
+        const take = (id: string): Holder => registry.take(id, () => {
+            created.push(id);
+            return holder(id, log);
+        })!;
+        const a = take("a");
+        a.busy = true;
+        registry.admit(take("b"));
+        expect(log).toEqual([]);
+        a.holding = false;
+        take("c");
+        expect(take("a")).toBe(a);
+        expect(created).toEqual(["a", "b", "c"]);
     });
 
     test("停止时结束全部内核，之后不再交回持有者", async () => {

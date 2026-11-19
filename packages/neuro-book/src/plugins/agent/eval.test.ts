@@ -158,10 +158,10 @@ const reached = (path: string) => waitUntil(`代码写了 ${path}`, async () => 
 const pidsIn = (text: string): number[] => [...text.matchAll(/pid (\d+)/gu)].map((match) => Number(match[1]));
 
 /**
- * 等会话因空闲关闭（这次打开期间代码里要调过 `tool.probe`）。会话在运行结束、状态变成空闲之后才排关闭的计时，所以先等状态
+ * 等会话因空闲关闭（这次打开期间代码里要调过 `tool.probe`），交回推了多久。会话在运行结束、状态变成空闲之后才排关闭的计时，所以先等状态
  * 变成空闲，再边推时钟边等。推的时间也算进内核的空闲计时，推满 30 分钟就不再是“关闭期间内核还在”的场景，这时直接失败。
  */
-async function closeIdle(w: AgentWorld, session: SessionApi): Promise<void> {
+async function closeIdle(w: AgentWorld, session: SessionApi): Promise<number> {
     await waitUntil("会话的运行结束了", async () => ((await session.snapshot()).status as {state: string}).state === "idle" ? true : null);
     let advanced = 0;
     await waitUntil("会话关闭了", () => {
@@ -171,6 +171,7 @@ async function closeIdle(w: AgentWorld, session: SessionApi): Promise<void> {
         advanced += IDLE_CLOSE_MS;
         return null;
     }, {intervalMs: 50});
+    return advanced;
 }
 
 describe("eval", () => {
@@ -448,9 +449,16 @@ describe("eval", () => {
         const reopened = w.service.session(session.id);
         const again = await one(reopened, {code: "await tool.probe({}); kept + 1"});
         expect(again.text).toBe("42");
+        // 关闭不改空闲的截止：从最后一个单元结束算 30 分钟（这期间只有用例推时钟）。差 1 毫秒时再打开，变量还在；
+        // 再关一次、正好推到截止，内核与子进程结束。
         closedSessions.splice(0);
-        await closeIdle(w, reopened);
-        w.settings.clock.advance(EVAL_IDLE_MS);
+        let advanced = await closeIdle(w, reopened);
+        w.settings.clock.advance(EVAL_IDLE_MS - advanced - 1);
+        const before = w.service.session(session.id);
+        expect((await one(before, {code: "await tool.probe({}); kept"})).text).toBe("41");
+        closedSessions.splice(0);
+        advanced = await closeIdle(w, before);
+        w.settings.clock.advance(EVAL_IDLE_MS - advanced);
         await waitUntil("关闭期间空闲的内核与子进程结束了", () => (pids.some(alive) ? null : true));
         const after = await one(w.service.session(session.id), {code: "typeof kept"});
         expect(after.text.split("\n")[0]).toContain("内核已重置（空闲）");
@@ -471,12 +479,11 @@ describe("eval", () => {
         expect(alive(pid!)).toBe(false);
     });
 
-    test("输出 11、12：换了 Profile 之后再调，内核重置并提示", async () => {
+    test("输出 11、12：换了 Profile 之后再调，内核重置并提示；换走又换回来、中间没调的也一样", async () => {
         const w = await world();
         const {session} = await open(w);
         const [pid] = pidsIn((await one(session, {code: "globalThis.p = 1; 'pid ' + process.pid"})).text);
-        const changed = await session.changeProfile({commandId: cid(), profile: WIDE});
-        expect(changed.ok).toBe(true);
+        for (const profile of [WIDE, YOLO]) expect((await session.changeProfile({commandId: cid(), profile})).ok).toBe(true);
         const next = await one(session, {code: "typeof p"});
         expect(next.text.split("\n")[0]).toContain("内核已重置（换了 Profile）");
         expect(next.text).toContain("undefined");
@@ -531,9 +538,16 @@ describe("eval", () => {
         const [between] = pidsIn(next.text);
         process.kill(between!, "SIGKILL");
         await waitUntil("内核被外部杀掉了", () => (alive(between!) ? null : true));
-        const revived = await one(session, {code: "1 + 2"});
+        const revived = await one(session, {code: "1 + 2; 'pid ' + process.pid"});
         expect(revived.text.split("\n")[0]).toContain("内核已重置（意外退出）");
         expect(revived.text).toContain("3");
+        // 被外部杀掉之后又到了空闲的点：原因仍是意外退出。
+        const [idle] = pidsIn(revived.text);
+        process.kill(idle!, "SIGKILL");
+        await waitUntil("内核被外部杀掉了", () => (alive(idle!) ? null : true));
+        w.settings.clock.advance(EVAL_IDLE_MS);
+        const last = await one(session, {code: "1 + 3"});
+        expect(last.text.split("\n")[0]).toContain("内核已重置（意外退出）");
     });
 
     test("副作用与数据：结果超出窗口时全文另存，结果里写着全文的地址", async () => {
