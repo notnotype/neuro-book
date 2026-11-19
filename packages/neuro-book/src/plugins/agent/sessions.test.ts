@@ -216,6 +216,7 @@ describe("远程合同", () => {
         const {client, remote} = await w.window("a");
         const sessionId = ok(await client.create({profile: WRITER})).sessionId;
         const host = w.service.session(sessionId, {asUser: false, source: {label: "日程", ref: "r-1"}});
+        expect(NOTICE_SUMMARY_CHARS).toBe(200);
         // 超过摘要长度、含代理对：摘要按字符截，不切开它。
         const text = `${"提".repeat(NOTICE_SUMMARY_CHARS - 1)}😀${"醒".repeat(50)}`;
         const queued = await host.notice({commandId: cid(), text, key: "daily"});
@@ -237,6 +238,12 @@ describe("远程合同", () => {
         const removed = (await w.service.session(sessionId).log({afterSeq: 0})).events.find((event) => event.type === "noticeRemoved");
         expect(removed?.data).toMatchObject({ids: [queued.value.noticeId], reason: "cancelled"});
         expect(await client.removeNotice({sessionId, commandId: cid(), noticeId: queued.value.noticeId})).toMatchObject({ok: false, code: "notice-not-found"});
+        // 插件经 agentKey 拿到的视图能撤回自己发的。
+        const own = await host.notice({commandId: cid(), text: "过时了"});
+        if (!own.ok) throw new Error(`notice failed: ${JSON.stringify(own)}`);
+        expect((await host.removeNotice({commandId: cid(), noticeId: own.value.noticeId})).ok).toBe(true);
+        const withdrawn = (await w.service.session(sessionId).log({afterSeq: 0})).events.filter((event) => event.type === "noticeRemoved").at(-1);
+        expect(withdrawn?.data).toMatchObject({ids: [own.value.noticeId], reason: "withdrawn"});
 
         expect(Object.keys(agentSessionsContract.methods)).not.toContain("notice");
         const v1 = defineRemoteService({...agentSessionsContract, version: 1});

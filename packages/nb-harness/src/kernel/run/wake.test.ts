@@ -157,6 +157,37 @@ describe("输出 116：唤起", () => {
     });
 });
 
+describe("输出 116：收口批里的唤起", () => {
+    test("只压缩的运行里到了两条带唤起的提醒、没有推迟的话：收口批开一次唤起的运行，记成最早那条的发出者，第一次请求两条都带", async () => {
+        const entered = gate();
+        const hold = gate();
+        const slow: CompactionMethodImpl = async (job) => {
+            entered.open();
+            await hold.promise;
+            return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
+        };
+        const profile = defineProfile({id: "lab.wake-settle", version: "1", name: "压缩", description: "压缩测试", system: "系统", compaction: {onThreshold: ["slow"]}}) as AnyProfile;
+        await using session = await createTestSession({profile, compaction: {methods: {slow}}});
+        session.model.script("答一", "处理了两件");
+        await session.say("第一问");
+        const compacting = await session.raw.compact({commandId: id()});
+        if (!compacting.ok || compacting.value.runId === undefined) throw new Error("compact did not start");
+        await entered.promise;
+        await notice(session, "先结束的", {wake: true});
+        const other: Issuer = {kind: "host", source: {plugin: "lab.other", label: "别的插件"}};
+        expect((await session.raw.as(other).notice({commandId: id(), text: "后结束的", wake: true})).ok).toBe(true);
+        expect((await runsStarted(session)).filter((run) => run.kind === "chat")).toHaveLength(1);
+        hold.open();
+        await session.raw.waitRun(compacting.value.runId);
+        await settled(session);
+        const chats = (await runsStarted(session)).filter((run) => run.kind === "chat");
+        expect(chats).toHaveLength(2);
+        expect(chats[1]).toMatchObject({by: HOST, wake: true});
+        expect(session.requests.at(-1)!.outline().at(-1)).toBe("user: event:hostNotice | event:hostNotice");
+        expect((await session.raw.snapshot()).notices).toEqual([]);
+    });
+});
+
 describe("输出 114：没有进行中的一轮时", () => {
     /** 受理批的反应停住：测试在它之后排的指令先于唤起开的运行的第一个队列项。 */
     function pausingOnRunStarted() {
@@ -190,6 +221,40 @@ describe("输出 114：没有进行中的一轮时", () => {
         const ended = (await allEvents(session)).filter((event) => event.type === "runEnded").map((event) => (event.data as {reason: string}).reason);
         expect(ended).toEqual(["completed"]);
         expect((await session.raw.snapshot()).notices.map((item) => item.text)).toEqual(["不急的提醒"]);
+    });
+
+    test("唤起开的运行在第一个队列项之前来了用户的话：取这句话开一轮，提醒随第一次请求带上、排在它前面，不另开空的一轮", async () => {
+        const pause = pausingOnRunStarted();
+        await using session = await createTestSession({extensions: [pause.extension]});
+        session.model.script("一起处理了");
+        pause.arm();
+        const waking = session.raw.as(HOST).notice({commandId: id(), text: "后台任务结束了", wake: true});
+        await pause.reached;
+        const sent = session.raw.send({commandId: id(), input: {text: "用户的话"}});
+        pause.release();
+        expect((await waking).ok).toBe(true);
+        expect((await sent).ok).toBe(true);
+        await settled(session);
+        const events = await allEvents(session);
+        const queued = events.filter((event) => event.type === "inputQueued").map((event) => (event.data as {id: string}).id);
+        const turns = events.filter((event) => event.type === "turnStarted").map((event) => (event.data as {inputId: string | null}).inputId);
+        expect([queued.length, turns]).toEqual([1, [queued[0]]]);
+        expect(await runsStarted(session)).toHaveLength(1);
+        expect(session.model.requests).toHaveLength(1);
+        expect(session.requests[0]!.outline().at(-1)).toBe("user: event:hostNotice | event:input");
+    });
+
+    test("用户的继续：只有不带唤起的提醒时同样开一次运行、开一轮没有输入的", async () => {
+        await using session = await createTestSession();
+        session.model.script({fail: "provider"}, "看到了");
+        await session.say("会出错的问");
+        await notice(session, "不急的提醒");
+        const resumed = await session.raw.resume({commandId: id()});
+        if (!resumed.ok || resumed.value.runId === null) throw new Error(`resume did not start a run: ${JSON.stringify(resumed)}`);
+        await session.raw.waitRun(resumed.value.runId);
+        const turns = (await allEvents(session)).filter((event) => event.type === "turnStarted").map((event) => (event.data as {inputId: string | null}).inputId);
+        expect(turns.at(-1)).toBeNull();
+        expect(session.requests.at(-1)!.outline().at(-1)).toBe("user: event:hostNotice");
     });
 
     test("用户的继续：只有待发的提醒时开一次运行、开一轮没有输入的，并开门", async () => {
@@ -257,6 +322,50 @@ describe("输出 117：门", () => {
         await notice(session, "回退之后的提醒", {wake: true});
         expect((await session.raw.snapshot()).wakeGate.open).toBe(false);
         expect(await runsStarted(session)).toHaveLength(2);
+    });
+
+    test("开门的入口：用户空闲时的 enqueue、release 开起运行时开；宿主开的运行不开，宿主的停止照样关", async () => {
+        await using session = await createTestSession();
+        session.model.script({fail: "provider"}, "排的处理了");
+        await session.say("会出错的问");
+        expect((await session.raw.snapshot()).wakeGate).toEqual({open: false, cause: "error"});
+        const queued = await session.raw.enqueue({commandId: id(), input: {text: "空闲时排的"}, mode: "followup"});
+        if (!queued.ok || queued.value.runId === undefined) throw new Error(`enqueue did not start a run: ${JSON.stringify(queued)}`);
+        await session.raw.waitRun(queued.value.runId);
+        expect((await session.raw.snapshot()).wakeGate).toEqual({open: true, cause: "user"});
+
+        // 再关一次门（出错），宿主空闲时排的话留着；用户放行它开起运行时开门。
+        session.model.script({fail: "provider"}, "放行的处理了");
+        await session.say("又出错的问");
+        expect((await session.raw.snapshot()).wakeGate.open).toBe(false);
+        const held = await session.raw.as(HOST).enqueue({commandId: id(), input: {text: "宿主排的"}, mode: "followup"});
+        if (!held.ok) throw new Error(held.code);
+        const released = await session.raw.release({commandId: id(), inputIds: [held.value.inputId]});
+        if (!released.ok || released.value.runId === null) throw new Error(`release did not start a run: ${JSON.stringify(released)}`);
+        await session.raw.waitRun(released.value.runId);
+        expect((await session.raw.snapshot()).wakeGate).toEqual({open: true, cause: "user"});
+
+        // 宿主开的运行不开门；门开着时宿主停下它照样关。
+        session.model.script({fail: "provider"}, "宿主的处理了");
+        await session.say("第三次出错");
+        const hostRun = await session.raw.as(HOST).send({commandId: id(), input: {text: "宿主的话"}});
+        if (!hostRun.ok || hostRun.value.runId === null) throw new Error(`host send did not start a run: ${JSON.stringify(hostRun)}`);
+        await session.raw.waitRun(hostRun.value.runId);
+        expect((await session.raw.snapshot()).wakeGate.open).toBe(false);
+    });
+
+    test("宿主的停止也关门", async () => {
+        const block = blockingTool();
+        await using session = await createTestSession({tools: [block.tool]});
+        session.model.script({tools: [{tool: "lab.block"}]}, "不会用上");
+        const hostRun = await session.raw.as(HOST).send({commandId: id(), input: {text: "宿主的话"}});
+        if (!hostRun.ok || hostRun.value.runId === null) throw new Error("host send did not start a run");
+        await block.started;
+        const stopped = session.raw.as(HOST).abort({commandId: id()});
+        block.release();
+        expect((await stopped).ok).toBe(true);
+        await session.raw.waitRun(hostRun.value.runId);
+        expect((await session.raw.snapshot()).wakeGate).toEqual({open: false, cause: "stopped"});
     });
 
     test("只压缩的运行不改门：门关着时压缩成功不开，门开着时压缩失败不关", async () => {

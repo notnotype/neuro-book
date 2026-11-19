@@ -111,8 +111,23 @@ describe("输出 112：发提醒、撤回与取消", () => {
         expect(replaced.ok ? replaced.value.replaced : null).toBe(old);
         await notice(session, "别的插件的同名 key", {key: "eval-reset", issuer: OTHER_HOST});
         expect((await session.raw.snapshot()).notices.map((item) => item.text)).toEqual(["内核已重置（第二代）", "别的插件的同名 key"]);
-        const removed = (await session.raw.log({afterSeq: 0, limit: 500})).events.filter((event) => event.type === "noticeRemoved");
+        const events = (await session.raw.log({afterSeq: 0, limit: 500})).events;
+        const removed = events.filter((event) => event.type === "noticeRemoved");
         expect(removed.map((event) => event.data)).toEqual([{ids: [old], by: HOST, reason: "replaced"}]);
+        // 替换先写撤下旧的、再写新的，相邻两条。
+        const at = events.findIndex((event) => event.type === "noticeRemoved");
+        expect(events[at + 1]).toMatchObject({type: "noticeQueued", data: {text: "内核已重置（第二代）", key: "eval-reset"}});
+
+        // 待发到了条数上限：替换照样成，换成新的 key 就超出。
+        await using full = await createTestSession();
+        for (let index = 0; index < NOTICE_MAX_PENDING - 1; index += 1) await notice(full, `第 ${String(index)} 条`);
+        await notice(full, "可替换的", {key: "k"});
+        const swapped = await host(full).notice({commandId: id(), text: "替换后的", key: "k"});
+        expect(swapped.ok).toBe(true);
+        const extra = await host(full).notice({commandId: id(), text: "多出来的", key: "k2"});
+        expect(extra.ok ? null : extra.code).toBe("notice-budget");
+        const pending = (await full.raw.snapshot()).notices;
+        expect([pending.length, pending.at(-1)!.text]).toEqual([NOTICE_MAX_PENDING, "替换后的"]);
     });
 
     test("用户能取消任何一条，宿主只能撤回自己发的；不在的得 notice-not-found，取走了的得 notice-taken", async () => {
@@ -296,12 +311,13 @@ describe("Profile 的 queue 与 mergeSteers（profile.md 输入表、输出 21�
         const steer = (id: string, text: string, boundary?: string, attachments?: unknown[], payload?: unknown): LogEvent => ({id, seq: 1, at: 0, parent: null, scope: "path", kind: "conv", type: "steer", version: 1, source: "kernel", data: {text, queued: id, ...(boundary === undefined ? {} : {boundary}), ...(attachments === undefined ? {} : {attachments}), ...(payload === undefined ? {} : {payload})}});
         const image = {kind: "image", uri: "user://a.png", from: 0, to: 12};
         const turn = {id: "t", input: null, status: "running", attachments: [], steps: [{reply: {} as never, results: [], after: [
-            steer("a", "甲", "b1"), steer("b", "user://a.png", "b1", [image]), steer("c", "丙", "b2"), steer("d", "旧一"), steer("e", "旧二"),
+            {...steer("a", "甲", "b1"), data: {...steer("a", "甲", "b1").data as object, by: {kind: "host", source: {plugin: "lab.first", label: "先"}}}}, steer("b", "user://a.png", "b1", [image]), steer("c", "丙", "b2"), steer("d", "旧一"), steer("e", "旧二"),
             steer("f", "选区一", "b3", undefined, {selection: "A"}), steer("g", "选区二", "b3", undefined, {selection: "B"}), steer("h", "普通", "b3"),
         ]}]} as unknown as ConversationTurn<unknown>;
         const after = mergeSteers(turn).steps[0]!.after;
         expect(after.map((event) => event.id)).toEqual(["a", "c", "d", "e", "f", "g", "h"]);
         expect(after.slice(4).map((event) => (event.data as {payload?: unknown}).payload ?? null)).toEqual([{selection: "A"}, {selection: "B"}, null]);
-        expect(after[0]!.data).toMatchObject({text: "甲\n\nuser://a.png", attachments: [{...image, from: 3, to: 15}]});
+        // 合成的一条来源是第一条的（事件 id 与发出者）。
+        expect(after[0]!.data).toMatchObject({text: "甲\n\nuser://a.png", attachments: [{...image, from: 3, to: 15}], by: {source: {plugin: "lab.first"}}});
     });
 });

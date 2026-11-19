@@ -6,7 +6,8 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import type {AnyProfile, LogEvent, SessionEnv} from "../api/index.js";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import type {AnyProfile, CompactionMethodImpl, LogEvent, SessionEnv} from "../api/index.js";
 import {defineExtension, ext} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {createTestClock} from "../testing/clock.js";
@@ -648,6 +649,51 @@ describe("插件宿主", () => {
         const order = events.filter((event) => event.type === "profileChanged" || event.type === "runStarted").map((event) => event.type);
         expect(order.slice(-2)).toEqual(["profileChanged", "runStarted"]);
         expect((await session.diagnostics()).some((item) => item.code === "deferred-start-skipped")).toBe(true);
+        await host.close(session.id);
+    });
+
+    test("runtime 输出 116：收口时有待做的重新装配不唤起；装好之后再判一次，开唤起的运行", async () => {
+        const model = createTestModel();
+        const entered = gate();
+        const hold = gate();
+        const slow: CompactionMethodImpl = async (job) => {
+            entered.open();
+            await hold.promise;
+            return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
+        };
+        const compacting = defineProfile({id: "test.host-compact", version: "1", name: "c", description: "c", system: "系统", compaction: {onThreshold: ["slow"]}}) as AnyProfile;
+        const host = createAgentHost({...hostEnv(model), profiles: {resolve: (key) => (key === compacting.id ? compacting : undefined)}, compaction: {order: {onThreshold: ["slow"], onOverflow: ["slow"]}, methods: {slow}}});
+        const created = await host.create({profile: compacting.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        await waitIdleWrites(session);
+        model.script("答一", "处理了提醒");
+        const first = await session.send({commandId: "s1", input: {text: "第一问"}});
+        if (!first.ok || first.value.runId === null) throw new Error("no run");
+        await session.waitRun(first.value.runId);
+
+        // 只压缩的运行不取提醒、不改门；它进行中撤回扩展，收口时有待做的重新装配。
+        const compacted = await session.compact({commandId: "c1"});
+        if (!compacted.ok || compacted.value.runId === undefined) throw new Error("compact did not start");
+        await entered.promise;
+        host.extensions.revoke(handle, "deactivated");
+        expect((await session.as({kind: "host", source: {plugin: "lab.jobs", label: "后台任务"}}).notice({commandId: "n1", text: "压缩期间结束的", wake: true})).ok).toBe(true);
+        hold.open();
+        await session.waitRun(compacted.value.runId);
+        const runIdOf = (event: LogEvent) => (event.data as {runId: string}).runId;
+        const woken = await waitUntil("唤起的运行", async () => (await session.log({afterSeq: 0})).events.find((event) => event.type === "runStarted" && (event.data as {wake?: true}).wake === true));
+        await session.waitRun(runIdOf(woken));
+        const events = (await session.log({afterSeq: 0})).events;
+        const order = events.filter((event) => ["runStarted", "runEnded", "profileChanged"].includes(event.type)).map((event) => {
+            const data = event.data as {kind?: string; reason?: string; wake?: true};
+            return `${event.type}:${data.kind ?? data.reason ?? ""}${data.wake === true ? ":wake" : ""}`;
+        });
+        // 压缩收口时没唤起（重新装配还没做）；装好（plugin-removed）之后开唤起的运行。
+        expect(order.slice(-5)).toEqual(["runStarted:compact", "runEnded:completed", "profileChanged:plugin-removed", "runStarted:chat:wake", "runEnded:completed"]);
+        expect(JSON.stringify(model.requests.at(-1)!.messages.at(-1))).toContain("压缩期间结束的");
         await host.close(session.id);
     });
 
