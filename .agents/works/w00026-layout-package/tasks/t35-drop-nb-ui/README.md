@@ -54,7 +54,7 @@ worktree `w00026-t35-drop-nb-ui`（分支 `w00026/t35-drop-nb-ui`），四个提
 |---|---|---|
 | 1 文案 | `d387d5148` | nb-layout 自己的注入点 `LAYOUT_TEXT_KEY`（新子路径 `@notnotype/nb-layout/text`），缺省用自带 `zh-CN` 目录；应用 `web/host/host-text.ts` 三种形式，`mount.ts`、`boot.ts`、Lab 夹具 18 个、`shared/testing/text-port.ts` 改用；源码扫描拦直接提供 `TEXT_PORT_KEY` |
 | 2 类名 | `1526647be` | `nb-ui-drop-indicator*`、`nb-ui-drop-feedback*` 改名 `nb-layout-drop-*` |
-| 3 变量与焦点环 | `8fd3df19e` | 变量清单 `theme-vars.ts`（52 项）与扫描测试；Vue 层改读 `--nb-layout-*` 带回退；`layout-vars.ts` 给 JS 读变量补缺省；`vue/global.css`（减少动效、焦点环）；层级改变量；nb-ui `tokens.css` 桥接、`z-index.test.ts` 核对层级；`pack.ts` 跳过新名；应用宿主旋钮改新名；`theme-bridge.test.ts`；探针 e2e |
+| 3 变量与焦点环 | `8fd3df19e` | 变量清单 `theme-vars.ts`（50 项：经桥接 42、宿主旋钮 5、行内几何 3）与扫描测试；Vue 层改读 `--nb-layout-*` 带回退；`layout-vars.ts` 给 JS 读变量补缺省；`vue/global.css`（减少动效、焦点环）；层级改变量；nb-ui `tokens.css` 桥接、`z-index.test.ts` 核对层级；`pack.ts` 跳过新名；应用宿主旋钮改新名；`theme-bridge.test.ts`；探针 e2e |
 | 4 依赖与文档 | `52a97a76a` | 去掉 nb-ui 依赖、收紧 `boundary.test.ts`；README 变量表（有测试核对）与文字注入；组件 `.md`、`AGENTS.md`、`monorepo-boundaries.md`、nb-ui 规范 2.1 的例外、变更记录 |
 
 验证：
