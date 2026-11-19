@@ -93,7 +93,7 @@ updated: 2026-11-10
 | 3 | [t10](tasks/t10-setting-schema/README.md) | 内置 Component 的字段清单与设定表单（字段声明写法已并入 t27） | t27、t30 |
 | 3 | [t14](tasks/t14-plugin-split/README.md) | nb-memory 检索的复用、查看器进工作台（包切分已并入 t27） | t27 |
 | 4 | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t27、t19 |
-| 1 | [t31](tasks/t31-author-ui-v1/README.md) | 作者界面第一版（11-10 恢复）：第一批设定侧（11-18 完成：合入 master，`canon/author-ui.md` 晋升 `implemented`），第二批剧情侧（11-19 起自主推进，分四期，第一期计划在审） | t29、t34、t35 |
+| 1 | [t31](tasks/t31-author-ui-v1/README.md) | 作者界面第一版（11-10 恢复）：第一批设定侧（11-18 完成：合入 master，`canon/author-ui.md` 晋升 `implemented`），第二批剧情侧（11-19 起自主推进，分四期；第一期 B2-1 读的几张表与人物页 11-19 合入 master，`plot/author-ui.md` 待晋升） | t29、t34、t35 |
 | 2 | [t36](tasks/t36-writer-context-summaries/README.md) | 写手上下文：文风、三级 L 摘要、两两合并的 S 摘要、滚动摘要与五块排法（11-10 新建，等“不改 Profile 也能控制写手上下文”的方案） | t35 |
 | 1 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面的设计（设定侧的静态稿与原型已到第 3 轮；11-10 起补剧情侧的静态稿） | t27、t29 |
 | 5 | [t28](tasks/t28-entry-mdx-editing/README.md) | 作者编辑条目的主 MDX | t16 |

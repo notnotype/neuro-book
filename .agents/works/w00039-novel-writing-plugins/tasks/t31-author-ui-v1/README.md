@@ -187,7 +187,13 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 - 收口：master 并进来（`626b256d4`，没有冲突、没有新依赖）。受影响的测试（`neuro-book`、`nb-ui`、`neuro-book-test-support`、根 `scripts`，带类型检查）抓到一条本批的问题：命令域词表缺 `plot`，剧情的四条命令在窗口里被拒收；另有从 master 带来的失败（`builtin-names`、`server.test` 少了 stickers，`sdk.test` 少了 ImagePreviewDialog），不是本批的；eval、explorer、upload-route 的失败单独重跑都过（负载 30 时超时）。
 - 实现审查（[处理](evidences/b2-impl-review-resolution.txt)）：前端 Sonnet 16 条（重要 5），后端 omp 15 条（重要 11），都成立，处理在 `3d52eecb8`、`ae9b24183`、`1699115ec`；部分改的两条（子列表上限只截会变大的几处、几个判据没补的测试）在处理记录里写了理由。一处改上游：nb-canon 的列表字段另给没归纳的元素（`notReducedElements`，canon/components.md 输出 20）。每处修正都做了变异检查。
 
+- 合入前收口（11-19）：Lab 门禁 `lab-scenes.e2e.ts` 在负载 32 时 Lab 页面 15 秒内没就绪（环境），改用 `nbdev shot` 量本批新加与改过的 8 个场景：保密表的表格场景在手机画布越界 247 像素（前端审查第 7 条让表头固定时去掉了表格自己的滚动区），改成表格在自己的滚动区里（`575d1e224`），重量通过。
+- Spec 晋升核对（omp 逐句，[结论](evidences/b2-spec-promotion-omp.tsv)、[总结](evidences/b2-spec-promotion-omp-summary.txt)）：`plot/author-ui.md` 约 140 句缺能区分行为的断言，不晋升，留 planned、注册表写“待晋升”、补了实现入口、合同测试与 Smoke；按实现现状改写了 20 来句、方法表补 `plotLines`。核对查出的四个实现缺陷当场修了（`83e5efb54`：翻页以后前几页的名字丢了、截掉的条数算进了守卫、窄版缺信错了的那句、加上名字表超预算不重取），变异检查抓到。canon/author-ui 只去掉整个单元都有断言的标记（五行表格、输出 9 的括注、输出 12 的 FieldTable 句），knowledge 去掉输出 16；其余单元里还有缺断言的句子，标记留着。
+- 合入：master 再并进来一次（`b9e1b9121`，解了 test-support 导出的冲突；master 新加的宿主文字规则让 Lab 的剧情文字夹具改经 `provideHostText`，`e4a2cfd8b`），类型检查、剧情与 canon 的测试、nb-canon、nb-ui 都过，重建后 `plot-author.e2e.ts` 与 `canon-author.e2e.ts` 13 条全过；合进 master（`81a7b1b19`，不 push）。
+- 没做：1000 章规模测量没用审查修正后的脚本重跑（负载一直 7 到 32）；上一次量的数在 [证据](evidences/b2-plot-scale-1000.txt) 里，修正后的脚本多量了 `plotLines` 与没点名的保密表。
+
 ## 下一步
 
-1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C、A、W1 到 W3、M、D 已做，实现审查处理中；之后重跑 `plot-author.e2e.ts` 与 `canon-author.e2e.ts`、Spec 晋升核对、合入。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
-2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
+1. 第二批第一期（B2-1）已合入。下一期 B2-2（时间线与决策，[`plan-b2.md`](plan-b2.md) 的“第二批的分期”）先写计划；`plot/author-ui.md` 的晋升要先按核对结论补测试（缺的句子逐条列在 [`b2-spec-promotion-omp.tsv`](evidences/b2-spec-promotion-omp.tsv)）。
+2. 低负载（低于 3）时用修正后的 `plot-scale.ts` 重量 1000 章的八个作者读取。
+3. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
