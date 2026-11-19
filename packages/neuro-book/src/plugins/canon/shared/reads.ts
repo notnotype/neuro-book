@@ -3,7 +3,9 @@
  * 共用这些形状。实现在 `web/world.ts` 与 `web/reads-service.ts`；这里只放类型，共用目录不引前端的实现（Vue 只引类型）。
  */
 
-import type {ComputedRef, Ref} from "vue";
+import type {Component, ComputedRef, Ref} from "vue";
+
+import type {ReadPosition} from "@notnotype/nb-canon/schema";
 
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult} from "./contracts";
 
@@ -61,6 +63,16 @@ export interface LineOption {
     readonly depth: number;
 }
 
+/** 页头组件的属性（输出 35）：受控，位置的值与“按计划”存在页面自己的标签状态里；发 `update:position`、`update:planned`。 */
+export interface PageHeadProps {
+    readonly title: string;
+    /** 位置选择的值；空串是缺省位置（最新一章末尾）。 */
+    readonly position?: string;
+    readonly planned?: boolean;
+    /** 内容列封顶 1100 像素（表格页）；否则 760。 */
+    readonly wide?: boolean;
+}
+
 /**
  * 组合函数只在组件的 `setup` 或别的效果作用域里调：输入（一个返回输入的函数）变了换一个读取，旧的在新的读到（或读失败）之前
  * 接着显示；输入为 null 时不读；作用域结束时释放。窗口没有绑定项目时 `connection` 是 `no-project`，组合函数都给 null。
@@ -80,4 +92,11 @@ export interface CanonReads {
     setLine(line: string): void;
     /** 可选的线：主线在最前，其余按线的树先序。 */
     readonly lineOptions: ComputedRef<readonly LineOption[]>;
+    /**
+     * 位置选择的值换成读取位置：空串或那一章已不在章表里时是缺省位置；窗口选了线时带上它。`line` 是这个位置实际读的线。
+     * 章表还没读到时为 null。
+     */
+    usePosition(value: () => string): ComputedRef<{readonly position: ReadPosition; readonly line: string} | null>;
+    /** 页头组件（标题、线、位置、“按计划”、世界横幅），已绑好读取层与窗口的线。 */
+    readonly PageHead: Component<PageHeadProps>;
 }

@@ -8,7 +8,9 @@ import {useId} from "vue";
 import {DropdownMenu, IconButton, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
 import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
 
+import type {LineOption} from "../../shared/reads";
 import {useCanonText} from "../text";
+import LineSelect from "./LineSelect.vue";
 import WorldBanners from "./WorldBanners.vue";
 
 export type EntryPageStatus = "loading" | "failed" | "missing" | "deleted" | "normal";
@@ -34,12 +36,19 @@ const props = withDefaults(defineProps<{
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
     deletable?: boolean;
-}>(), {deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: ""});
+    /** 可选的线（输出 34）；只有主线时不画线选择。 */
+    lineOptions?: readonly LineOption[];
+    /** 窗口在看的线；空串是跟着章。 */
+    line?: string;
+    /** 这一页按自己的位置实际读的线。 */
+    resolvedLine?: string;
+}>(), {deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main"});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
     (event: "update:planned", value: boolean): void;
     (event: "update:tab", value: string): void;
+    (event: "update:line", value: string): void;
     (event: "open-entry", id: string): void;
     (event: "retry"): void;
     /** 选了“更多”里的“删除条目”。 */
@@ -81,6 +90,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         <p v-if="props.summary !== ''" class="mt-1 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ props.summary }}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-3">
+                        <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" @update:line="(value: string) => emit('update:line', value)" />
                         <Select class="w-52" size="sm" :aria-label="text('entry.position')" :options="[...props.positions]" :model-value="props.position" @update:model-value="(value: string) => emit('update:position', value)" />
                         <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
                             <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}

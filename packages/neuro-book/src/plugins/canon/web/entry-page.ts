@@ -7,8 +7,8 @@
  * 标题。
  */
 
-import {defineComponent, h, onMounted, reactive} from "vue";
-import type {PropType} from "vue";
+import {defineComponent, h, onMounted, reactive, ref} from "vue";
+import type {PropType, Ref} from "vue";
 
 import type {ReadPosition} from "@notnotype/nb-canon";
 
@@ -16,6 +16,7 @@ import type {EditorPageContext, EditorPageCrumb, EditorPageImplementation} from 
 import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 
 import type {CanonClient, CanonOutputs, EntryName} from "../shared/contracts";
+import type {LineOption} from "../shared/reads";
 import {canonText} from "../shared/text";
 import {OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND} from "./commands";
 import type {ComponentViewRegistry} from "./component-views";
@@ -55,6 +56,16 @@ export interface EntryHead {
     readonly ancestors: readonly EntryName[];
 }
 
+/** 页面要的那部分窗口的线：读哪条、可选哪些、改它。 */
+export interface PageLine {
+    readonly line: Readonly<Ref<string>>;
+    readonly options: Readonly<Ref<readonly LineOption[]>>;
+    set(line: string): void;
+}
+
+/** 没有窗口的线时（测试窗口）：总是跟着章，只有主线。 */
+const FOLLOW_ONLY: PageLine = {line: ref(""), options: ref([{id: "main", name: null, depth: 0}]), set: () => undefined};
+
 export interface EntryPageOptions {
     /** 窗口没有绑定项目时为 null。 */
     readonly world: () => CanonWorld | null;
@@ -70,8 +81,8 @@ export interface EntryPageOptions {
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
-    /** 窗口在看的线（输出 34）：空串是跟着章；不给时总是跟着章。 */
-    readonly line?: () => string;
+    /** 窗口在看的线（输出 34）；不给时总是跟着章、页头没有线选择。 */
+    readonly windowLine?: PageLine;
     /**
      * 一个条目页挂上了：设定视图据此选中它的条目。页面标签只在所在组的活动标签时挂载，挂上说明它刚显示出来：切到这个标签、把它拖到
      * 别的组、刷新后恢复都会挂一次，所以拆成几组时选中的是最后挂上的那一页，不一定是焦点所在的；在组之间换焦点不会再挂。编辑器的
@@ -101,7 +112,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, line: options.line ?? (() => ""), views: options.views, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
                     };
                 },
             });

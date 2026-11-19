@@ -15,13 +15,13 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonOutputs} from "../../shared/contracts";
 import type {ComponentViewContext, ComponentViewRegistry} from "../component-views";
-import type {EntryHead, EntryPageState} from "../entry-page";
+import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {useInPlaceEdit} from "../in-place-edit";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionLabel, positionOptions, positionValue} from "../positions";
+import {chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionLabel, positionOptions, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -53,7 +53,7 @@ const props = defineProps<{
      */
     client: Pick<CanonClient, "call">;
     /** 窗口在看的线（输出 34）：空串是跟着章，读取位置不写线。 */
-    line: () => string;
+    windowLine: PageLine;
     views: ComponentViewRegistry;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
@@ -94,7 +94,7 @@ watch(() => state.position, (now) => {
     if (now !== null) state.positionGone = false;
 });
 
-const windowLine = computed(() => props.line());
+const windowLine = computed(() => props.windowLine.line.value);
 // 窗口选了线时读取位置都带上它（输出 34）；换线不改这一页自己的位置。
 const position = computed<ReadPosition>(() => {
     const base = (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value);
@@ -359,6 +359,10 @@ const setPosition = (value: string): void => {
             :tabs="tabs"
             :tab="tab"
             :deletable="blocked === null"
+            :line-options="props.windowLine.options.value"
+            :line="windowLine"
+            :resolved-line="chapterLine(position, chapters)"
+            @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"
             @update:tab="(value: string) => (state.tab = value)"

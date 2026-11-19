@@ -222,7 +222,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 revert,
                 execute,
                 entriesView: ENTRIES_VIEW_ID,
-                line: () => windowLine.line.value,
+                windowLine: windowLine,
                 shown: (entry) => {
                     state.selected.value = entry;
                 },

@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {reactive} from "vue";
+import {effectScope, reactive} from "vue";
 import type {Component} from "vue";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
@@ -117,7 +117,10 @@ describe("窗口在看的线", () => {
         cleanups.push(() => wrapper.unmount());
         // 缺省位置是第 2 章末尾，跟着章读的是主线。
         await waitUntil("主线上的值", () => wrapper.find("[data-value]").exists() && wrapper.find("[data-value]").text().includes("900"));
-        expect(page.title(starId)).toBe("星瑾");
+        expect(page.title!(starId)).toBe("星瑾");
+        // 页头的线选择：跟着章时写这一页实际读的线。
+        expect(wrapper.find('[aria-label="看哪条线"]').exists()).toBe(true);
+        expect(wrapper.text()).toContain("跟着章（此刻：主线）");
 
         used.reads().setLine(line);
         expect(used.state("nbook.canon/line")).toBe(line);
@@ -125,7 +128,7 @@ describe("窗口在看的线", () => {
         await waitUntil("子线上的值", () => wrapper.find("[data-value]").text().includes("500"));
         expect(wrapper.text()).toContain("星瑾（回溯）");
         // 标签标题按缺省位置、不带窗口的线读。
-        expect(page.title(starId)).toBe("星瑾");
+        expect(page.title!(starId)).toBe("星瑾");
 
         // 撤掉分叉：子线不在了，回到跟着章，下一次选线时要说一句。
         const stored = await other.canon.call("object", {ref: {kind: "change", id: ids["tmp:fork"]!}});
@@ -135,5 +138,38 @@ describe("窗口在看的线", () => {
         expect(used.reads().lineOptions.value).toEqual([{id: "main", name: null, depth: 0}]);
         expect(port.t(item.implementation.text())).toBe("在看：主线");
         await waitUntil("回到主线上的值", () => wrapper.find("[data-value]").text().includes("900"));
+        // 只剩主线：页头不画线选择。
+        expect(wrapper.find('[aria-label="看哪条线"]').exists()).toBe(false);
+    });
+
+    it("别的插件经服务拿到的页头与位置：标题、线与位置选择；位置的值换成读取位置时带上窗口的线", async () => {
+        venue = await canonNodeWorld(tmp);
+        const used = services();
+        const diagnostics = createDiagnosticsPlugin({location: "browser", store: createDiagnosticsStore({identity: {location: "browser", instanceId: "mine"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
+        await venue.window("mine", [diagnostics, statePlugin, used.plugin]);
+        const other = await venue.window("other");
+        const star = person("星瑾");
+        const starId = (await publish(other.canon, [star]))[star.id]!;
+        const cut = change(starId, "1", "切口", 0);
+        const cutId = (await publish(other.canon, [cut]))[cut.ref.id]!;
+        const ids = await publish(other.canon, [{ref: {kind: "change", id: "tmp:fork"}, after: {...bare("tmp:fork", "1", 900), nature: "fork", fork: {line: "tmp:line", name: "回溯以后", parent: "main", cut: cutId, type: "branch"}}}]);
+        const line = ids["tmp:line"]!;
+        await waitUntil("读到两条线", () => used.reads().lineOptions.value.length === 2);
+
+        const scope = effectScope();
+        cleanups.push(() => scope.stop());
+        const chosen = {value: ""};
+        const position = scope.run(() => used.reads().usePosition(() => chosen.value))!;
+        await waitUntil("读到章表", () => position.value !== null);
+        expect(position.value).toEqual({position: {kind: "chapter", chapter: "2", edge: "end"}, line: "main"});
+        used.reads().setLine(line);
+        expect(position.value).toEqual({position: {kind: "chapter", chapter: "2", edge: "end", line}, line});
+
+        const head = mount(used.reads().PageHead, {props: {title: "谁知道什么", position: "1:start", wide: true}, global: {provide: provideText(port)}, attachTo: document.body});
+        cleanups.push(() => head.unmount());
+        await waitUntil("页头画出来", () => head.find("[data-page-head]").exists() && head.text().includes("第 1 章开头"));
+        expect(head.find("h1").text()).toBe("谁知道什么");
+        expect(head.find('[aria-label="看哪条线"]').exists()).toBe(true);
+        expect(head.text()).toContain("回溯以后");
     });
 });

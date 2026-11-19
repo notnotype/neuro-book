@@ -511,6 +511,8 @@
         "lostTitle": "原来看的那条线已经不在了",
         "placeholder": "选一条线",
         "follow": "跟着章",
-        "main": "主线"
+        "main": "主线",
+        "followNow": "跟着章（此刻：{{line}}）",
+        "label": "看哪条线"
     }
 }

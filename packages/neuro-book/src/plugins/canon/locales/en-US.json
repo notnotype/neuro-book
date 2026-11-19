@@ -511,6 +511,8 @@
         "lostTitle": "The line you were viewing no longer exists",
         "placeholder": "Pick a line",
         "follow": "Follow each chapter",
-        "main": "Main line"
+        "main": "Main line",
+        "followNow": "Follow each chapter (now: {{line}})",
+        "label": "World line"
     }
 }
