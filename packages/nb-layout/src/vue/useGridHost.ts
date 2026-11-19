@@ -35,7 +35,10 @@ export type GridHostBindings<T> = {
     readonly onGestureCommit: (commit: GridGestureCommit) => GridLayoutCommitResult;
     readonly onExtent: (extent: GridExtent | null) => void;
     readonly onIssues: (issues: readonly GridHostIssue[]) => void;
-    /** 开发模式的接线检查（Spec 输出 151）：手势开始时核对 `NestedGrid` 用的上下文与版本是不是包里的。宿主另写 `@gesture-start` 不受影响（同名监听合成数组）。 */
+    /**
+     * 开发模式的接线检查（Spec 输出 151）：手势开始时核对 `NestedGrid` 用的上下文与版本是不是包里的。模板里另写 `@gesture-start`
+     * 会和它合成数组、两个都调；渲染函数里展开 `bindings` 时不要用同名的键覆盖它，也不要放在它前面被它覆盖。
+     */
     readonly onGestureStart: (start: GridGestureStart) => void;
 };
 
@@ -93,11 +96,12 @@ export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
     const devOwner = {};
     const onGestureStart = (start: GridGestureStart): void => {
         const context = contextKey();
+        const grid = context === "" ? "the grid without a contextKey" : `grid "${context}"`;
         if (start.contextKey !== context) {
             layoutDevWarning(devOwner, "context-mismatch", `[nb-layout/useGridHost] NestedGrid started a gesture with contextKey "${start.contextKey}", but the host's is "${context}", so the resize will be rejected. Do not override context-key in the template; pass contextKey to useGridHost.`);
         }
         if (start.revision !== layoutHost.revision.value) {
-            layoutDevWarning(devOwner, "revision-mismatch", `[nb-layout/useGridHost] NestedGrid of grid "${context}" started a gesture at revision ${String(start.revision)}, but the host is at ${String(layoutHost.revision.value)}, so the resize will be rejected. Do not override revision in the template; bind host.bindings.value.`);
+            layoutDevWarning(devOwner, "revision-mismatch", `[nb-layout/useGridHost] NestedGrid of ${grid} started a gesture at revision ${String(start.revision)}, but the host is at ${String(layoutHost.revision.value)}, so the resize will be rejected. Do not override revision in the template; bind host.bindings.value.`);
         }
     };
     const bindings = computed<GridHostBindings<T>>(() => ({

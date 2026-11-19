@@ -3,7 +3,8 @@
  *
  * - 开关是模块级的、缺省关：库不读 `import.meta.env`。库模式构建会把它静态替换（提案标着“凭记忆，第二档发产物时核实”），
  *   宿主自己的开发构建才知道是不是开发模式，所以由宿主调 `setLayoutDevChecks(true)`。
- * - 状态放在全局符号上：发布产物里根入口与 `./vue` 入口如果各带一份本模块，宿主从根入口打开的开关仍然到得了 Vue 层的检查点。
+ * - 状态放在全局符号上：将来的发布产物里根入口与 `./vue` 入口如果各带一份本模块（推断：今天 `exports` 直接指向源码，只有一份），
+ *   宿主从根入口打开的开关仍然到得了 Vue 层的检查点。
  * - 每个检查点的“已经报过”按所属的组件或宿主记（`WeakMap`），寿命跟着它：一页里有几个网格时各报各的，`v-if` 摘掉再挂回的会再报一次。
  * - 只 `console.warn`，不走 `onIssues`：这是给写宿主的人看的接线错误，不是运行时诊断；被拒的提交照旧经 `issues` 事件交出。
  */
@@ -20,7 +21,10 @@ function state(): DevCheckState {
     return holder[STATE_KEY];
 }
 
-/** 打开或关闭开发模式的配置检查（缺省关）。宿主在自己的开发构建里打开，例如 `if (import.meta.env.DEV) setLayoutDevChecks(true)`。 */
+/**
+ * 打开或关闭开发模式的配置检查（缺省关）。宿主在自己的开发构建里打开，例如 `if (import.meta.env.DEV) setLayoutDevChecks(true)`。
+ * 在网格挂载之前调：开关不是响应式的，挂载之后才打开时，已经挂着的网格要到下一次布局变化才查分隔条那一条。
+ */
 export function setLayoutDevChecks(enabled: boolean): void {
     state().enabled = enabled;
 }

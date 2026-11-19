@@ -530,10 +530,15 @@ const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
             onPreview,
             onCommit(commit) {
                 emit("gesture-end", commit);
+                // 开发模式给接线的人的警告（输出 151）；失败本身照旧经 `useSashGesture` 的拒绝分支发。
+                if (props.onGestureCommit === undefined) warnDev("commit-handler-missing", `has no onGestureCommit, so drags are rolled back. Pass onGestureCommit as a prop (useGridHost's bindings carry it).`);
+                else if (typeof props.onGestureCommit !== "function") warnDev("commit-handler-not-function", `has an onGestureCommit that is not a function (${describe(props.onGestureCommit)}), so drags are rolled back. Writing @gesture-commit next to v-bind="host.bindings.value" merges the two into an array; drop the @gesture-commit.`);
                 const outcome = props.onGestureCommit?.(commit);
+                if (props.onGestureCommit !== undefined && !isCommitResult(outcome)) {
+                    warnDev("commit-handler-bad-return", `got ${describe(outcome)} from onGestureCommit, so the drag was rolled back. It must return {ok: true} or a failure; a handler written as an event (@gesture-commit) that returns nothing causes this.`);
+                }
                 if (outcome === undefined) {
-                    // 失败经 `useSashGesture` 的拒绝分支发一条（一个失败一条），这里不另发。开发模式另给接线的人一条警告（输出 151）。
-                    warnMissingHandler(props.onGestureCommit === undefined);
+                    // 失败经 `useSashGesture` 的拒绝分支发一条（一个失败一条），这里不另发。
                     releasePreview();
                     return commitFailure("handler-missing", "The host did not provide onGestureCommit; the resize was not applied");
                 }
@@ -595,18 +600,17 @@ watch(() => scope.active.size > 0, (active) => {
 const devOwner = {};
 watch(() => [props.node, props.layout, props.disabled, props.onGestureCommit] as const, ([node, layout, disabled, onCommit]) => {
     if (!layoutDevChecksEnabled() || disabled || onCommit === undefined) return;
-    if (onlyZeroWidthBoundaries(node, layout)) {
-        layoutDevWarning(devOwner, "sash-size-zero", `[nb-layout/NestedGrid] Every sash in grid "${props.contextKey}" is 0px wide, so nothing can be dragged. createGrid's sashSize defaults to 0; pass a positive sashSize.`);
-    }
+    if (onlyZeroWidthBoundaries(node, layout)) warnDev("sash-size-zero", `has 0px sashes on every boundary that could be dragged, so nothing can be dragged. createGrid's sashSize defaults to 0; pass a positive sashSize.`);
 }, {immediate: true});
 
-function warnMissingHandler(absent: boolean): void {
-    if (absent) {
-        layoutDevWarning(devOwner, "commit-handler-missing", `[nb-layout/NestedGrid] Grid "${props.contextKey}" has no onGestureCommit, so drags are rolled back. Pass onGestureCommit as a prop (useGridHost's bindings carry it).`);
-    } else {
-        layoutDevWarning(devOwner, "commit-handler-undefined", `[nb-layout/NestedGrid] onGestureCommit of grid "${props.contextKey}" returned undefined, so the drag was rolled back. Return {ok: true} or a failure; onGestureCommit is a prop, not an event (@gesture-commit does not work).`);
-    }
+/** 警告带上是哪个网格：没给 `contextKey` 的宿主也认得出（Spec 输出 151）。 */
+function warnDev(kind: string, problem: string): void {
+    const grid = props.contextKey === "" ? "A NestedGrid without a contextKey" : `NestedGrid "${props.contextKey}"`;
+    layoutDevWarning(devOwner, kind, `[nb-layout/NestedGrid] ${grid} ${problem}`);
 }
+
+const isCommitResult = (value: unknown): boolean => typeof value === "object" && value !== null && typeof (value as {ok?: unknown}).ok === "boolean";
+const describe = (value: unknown): string => (value === null ? "null" : Array.isArray(value) ? "an array" : value instanceof Promise ? "a Promise" : typeof value);
 
 onBeforeUnmount(() => {
     // 先收尾手势再通知：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。

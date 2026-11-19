@@ -88,8 +88,8 @@ const host = useGridHost({grid, onIssues: (issues) => console.warn(issues)});
 - 提交：同步核对上下文、版本与尺寸，一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result, before)`。`before` 是提交之前发布的布局（手势开始时呈现的那份），此时 `host.layout` 已经是之后的；要比较提交前后时用它。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错报成 `notify-failed`，不反悔已提交的几何；自身提交不造成预览自取消。
 - 收起与展开一块有收起策略的面板（按钮、快捷键）：`host.setCollapsed(id, collapsed)`。它只翻收起标记、按分配规则重排（见 [grid API](../grid.md)），标记变了才重发布局；不触发 `onApplied`，要存盘就用它返回的 `collapse`。分隔条上的 Enter 是另一种结果（邻居让位、恢复到记下的尺寸）。
 - 组件卸载前发 `extent` 为 null：组件被条件渲染摘掉时宿主的 `host.extent` 回到 null；宿主自己整个卸载时，宿主的侦听已经停了。
-- 提交处理 `onGestureCommit` 是属性不是事件：写成 `@gesture-commit` 不会被调用，拖完照样回滚。
-- 开发构建里调一次根入口的 `setLayoutDevChecks(true)`：接线错了（分隔线全是 0 宽、没接或接错提交处理、模板里另写了 `context-key` 或 `:revision`）时控制台警告，每个网格每种一次（[Spec](../../../../docs/specs/ui/nested-grid.md) 输出 151）。库不读 `import.meta.env`，开不开由宿主决定。
+- 提交处理 `onGestureCommit` 是属性，要返回 `{ok: true}` 或失败对象。写成 `@gesture-commit` 时处理函数会被当作这个属性调用，返回 void 就回滚；整包绑定之后再写它，会和包里的合成数组，提交时出错。
+- 开发构建里、网格挂载之前调一次根入口的 `setLayoutDevChecks(true)`：接线错了（能拖的边界全是 0 宽、没接或接错提交处理、模板里另写了 `context-key` 或 `:revision`）时控制台警告，每个网格每种一次（[Spec](../../../../docs/specs/ui/nested-grid.md) 输出 151）。库不读 `import.meta.env`，开不开由宿主决定。
 - 不经 `NestedGrid` 量尺寸的地方（例如量别的盒子做别的事）用 `useLayoutExtent(ref)`：它共享 `clientWidth`、`clientHeight` 与 `ResizeObserver`，`null` 表示还没挂载，0 是真实的零。
 
 ## 公开的标记与变量
