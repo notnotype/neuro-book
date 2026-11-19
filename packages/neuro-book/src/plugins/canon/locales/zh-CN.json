@@ -596,5 +596,22 @@
         "badValue": "“{{field}}”填得不对",
         "needKey": "先选这一行指向的条目",
         "needLabel": "给这一项起个名字"
+    },
+    "block": {
+        "empty": "还没有主文字",
+        "add": "＋ 加一段",
+        "edit": "改这一段",
+        "remove": "删掉这一段",
+        "editLabel": "改第 {{index}} 段",
+        "removeLabel": "删掉第 {{index}} 段",
+        "addTitle": "加一段主文字",
+        "editTitle": "改这一段主文字",
+        "source": "这一段的源文字（Markdown）",
+        "removeTitle": "删掉这一段主文字？",
+        "removeConfirm": "删掉",
+        "emptySource": "这一段还没写字",
+        "added": "给{{name}}加一段主文字",
+        "edited": "改{{name}}的一段主文字",
+        "removed": "删掉{{name}}的一段主文字"
     }
 }

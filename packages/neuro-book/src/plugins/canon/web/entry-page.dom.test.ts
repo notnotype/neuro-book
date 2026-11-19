@@ -635,6 +635,69 @@ describe("写入", () => {
         await waitUntil("关系加上了", async () => (await stored()).关系!.some((item) => item.id === ids[enemy.id]));
     });
 
+    it("主文字：没有时文字分页写“还没有主文字”（缺省先看设定）；加一段、改这一段（源文字预填）、删掉这一段", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.text = [];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const storedText = async () => {
+            const read = await other.canon.call("object", {ref: {kind: "entry", id}});
+            if (!read.ok) throw new Error(JSON.stringify(read.failure));
+            return (read.value.object as Entry).init.text;
+        };
+        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
+        const typeSource = (value: string) => {
+            const area = document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!;
+            area.value = value;
+            area.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        const {wrapper, state} = await open(id);
+        await waitUntil("文字分页也在", () => wrapper.findAll("[role='tab']").some((tab) => tab.text() === "文字"));
+        // 没有主文字时缺省先看第一组设定。
+        await waitUntil("缺省是一组设定", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() !== "文字");
+        expect(wrapper.find("[data-text-empty]").exists()).toBe(false);
+        state.tab = "text";
+        await waitUntil("还没有主文字", () => wrapper.find("[data-text-empty]").exists());
+
+        await wrapper.get("[data-add-block]").trigger("click");
+        await waitUntil("对话框", () => document.body.querySelector("[data-block-dialog] textarea") !== null);
+        typeSource("星瑕是第三魔法学院的学生。");
+        dialogButton("保存").click();
+        await waitUntil("加上了", async () => (await storedText()).some((block) => block.source === "星瑕是第三魔法学院的学生。"));
+        await waitUntil("页上有这一段", () => wrapper.find("[data-entry-text]").text().includes("第三魔法学院的学生"));
+        await waitUntil("提示", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("给星瑕加一段主文字"));
+
+        await wrapper.get("[aria-label='改第 1 段']").trigger("click");
+        await waitUntil("源文字预填", () => document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")?.value === "星瑕是第三魔法学院的学生。");
+        typeSource("星瑕是第三魔法学院的一年级学生。");
+        dialogButton("保存").click();
+        await waitUntil("改了", async () => (await storedText()).map((block) => block.source).join("|") === "星瑕是第三魔法学院的一年级学生。");
+
+        await wrapper.get("[aria-label='删掉第 1 段']").trigger("click");
+        await waitUntil("删掉的确认", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("删掉这一段主文字？") === true);
+        dialogButton("删掉").click();
+        await waitUntil("删掉了", async () => (await storedText()).length === 0);
+        await waitUntil("又是空的", () => wrapper.find("[data-text-empty]").exists());
+    });
+
+    it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("页头", () => wrapper.find("h1").exists());
+        state.tab = "data:character";
+        await waitUntil("态度", () => wrapper.find("[data-field='character.态度'] [data-value]").exists() || wrapper.find("[data-field='character.态度'] button").exists());
+        await wrapper.get("[data-field='character.态度'] button").trigger("click");
+        await waitUntil("记一句的表单", () => wrapper.find("[data-record-form]").exists());
+        expect(wrapper.findAll("[data-record-form] input")).toHaveLength(1);
+        const form = wrapper.get("[data-record-form]");
+        await form.get("input").setValue("对校长起了疑心");
+        await form.trigger("submit");
+        await waitUntil("记进去了", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("对校长起了疑心"));
+        await waitUntil("值后面多一句", () => wrapper.get("[data-field='character.态度']").text().includes("对校长起了疑心"));
+    });
+
     it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

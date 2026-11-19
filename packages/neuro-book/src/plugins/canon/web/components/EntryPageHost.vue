@@ -9,7 +9,7 @@ import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
-import {Dialog, SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {Dialog, SegmentedControl, Select, Textarea} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -168,7 +168,8 @@ const extraTabs = computed(() => {
 });
 const tabs = computed(() => {
     const items: {value: string; label: string; count?: number}[] = [];
-    if ((view.value?.text.length ?? 0) > 0) items.push({value: "text", label: text("entry.tabs.text")});
+    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
+    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
     for (const namespace of namespaces.value) {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
@@ -180,7 +181,9 @@ const tabs = computed(() => {
     items.push({value: "plot", label: text("entry.tabs.plot"), ...(total === undefined ? {} : {count: total})});
     return items;
 });
-const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : tabs.value[0]!.value));
+// 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
+const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0]! : tabs.value[0]!).value);
+const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : firstTab.value));
 const dataNamespace = computed(() => (tab.value.startsWith(DATA) ? tab.value.slice(DATA.length) : null));
 const extraTab = computed(() => (tab.value.startsWith(EXTRA) ? tab.value.slice(EXTRA.length) : null));
 
@@ -525,6 +528,40 @@ const confirmRemoveElement = async (): Promise<void> => {
     if (await runEntries([{op: "listRemove", at: {entry: props.id, path: `${draft.namespace}.${draft.field}[${draft.element}]`}}], title, draft.intent)) removeElementDraft.value = null;
 };
 
+/* ---------- 主文字的块（canon.revisions 输出 25 的 addBlock、removeBlock 与 text[块] 的 set） ---------- */
+
+// 改一段与加一段共用一个对话框；源文字取条目读取里所选位置上的那一块（不是渲染出来的文字）。不带 `after`：改设定时加在初值末尾，
+// 剧情里变了时加在这个位置上最后一块之后（内核的缺省）。
+const blockDraft = shallowRef<{readonly block: string | null; readonly source: string; readonly original: string; readonly intent: EditIntent} | null>(null);
+const blockOpen = shallowRef(false);
+const openBlock = (block: string | null): void => {
+    const source = block === null ? "" : view.value?.text.find((candidate) => candidate.id === block)?.source ?? "";
+    actionError.value = "";
+    blockDraft.value = {block, source, original: source, intent: intentsHere()[0]!};
+    blockOpen.value = true;
+};
+const confirmBlock = async (): Promise<void> => {
+    const draft = blockDraft.value;
+    if (draft === null) return;
+    if (draft.source.trim() === "") {
+        actionError.value = port.t(text("block.emptySource"));
+        return;
+    }
+    if (draft.block !== null && draft.source === draft.original) {
+        blockOpen.value = false;
+        return;
+    }
+    const name = view.value?.name ?? "";
+    const op: EntryOp = draft.block === null ? {op: "addBlock", entry: props.id, source: draft.source} : {op: "set", at: {entry: props.id, path: `text[${draft.block}]`}, value: draft.source};
+    if (await runEntries([op], port.t(text(draft.block === null ? "block.added" : "block.edited", {name})), draft.intent)) blockOpen.value = false;
+};
+const removeBlockDraft = shallowRef<{readonly block: string; readonly intent: EditIntent} | null>(null);
+const confirmRemoveBlock = async (): Promise<void> => {
+    const draft = removeBlockDraft.value;
+    if (draft === null) return;
+    if (await runEntries([{op: "removeBlock", at: {entry: props.id, path: `text[${draft.block}]`}}], port.t(text("block.removed", {name: view.value?.name ?? ""})), draft.intent)) removeBlockDraft.value = null;
+};
+
 // 去掉当前数据分页这组设定：先确认，数据留着。
 const removeOpen = shallowRef(false);
 const removableGroup = computed(() => (dataNamespace.value === null ? "" : typeLabel(view.value?.namespaces[dataNamespace.value]?.type ?? "")));
@@ -694,8 +731,13 @@ const setPosition = (value: string): void => {
                 :self="props.id"
                 :marks="marks"
                 :open="state.origin ?? undefined"
+                :editable="view !== null && !view.deleted"
+                :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
                 @value="toggleValue"
                 @entry="(id: string) => props.open({kind: 'entry', id})"
+                @edit-block="(id: string) => openBlock(id)"
+                @remove-block="(id: string) => { actionError = ''; removeBlockDraft = {block: id, intent: intentsHere()[0]!}; }"
+                @add-block="openBlock(null)"
             >
                 <template #origin="{address}">
                     <OriginList
@@ -788,6 +830,43 @@ const setPosition = (value: string): void => {
             <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
                 <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
                 <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeElementDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeElementDraft = removeElementDraft === null ? null : {...removeElementDraft, intent: value as EditIntent})" />
+            </div>
+            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+        </Dialog>
+        <Dialog
+            v-if="blockDraft !== null"
+            :open="blockOpen"
+            :title="text(blockDraft.block === null ? 'block.addTitle' : 'block.editTitle')"
+            show-cancel
+            :confirm-label="text('edit.save')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => (blockOpen = value)"
+            @confirm="confirmBlock()"
+        >
+            <div class="flex flex-col gap-3" data-block-dialog>
+                <Textarea :rows="8" :aria-label="text('block.source')" :model-value="blockDraft.source" @update:model-value="(value: string) => (blockDraft = {...blockDraft!, source: value})" />
+                <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
+                    <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+                    <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="blockDraft.intent" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (blockDraft = {...blockDraft!, intent: value as EditIntent})" />
+                </div>
+                <p v-if="actionError !== ''" role="alert" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+            </div>
+        </Dialog>
+        <Dialog
+            :open="removeBlockDraft !== null"
+            size="sm"
+            :title="text('block.removeTitle')"
+            show-cancel
+            :confirm-label="text('block.removeConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => { if (!value) removeBlockDraft = null; }"
+            @confirm="confirmRemoveBlock()"
+        >
+            <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
+                <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+                <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeBlockDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeBlockDraft = removeBlockDraft === null ? null : {...removeBlockDraft, intent: value as EditIntent})" />
             </div>
             <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
         </Dialog>

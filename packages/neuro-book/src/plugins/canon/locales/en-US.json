@@ -596,5 +596,22 @@
         "badValue": "“{{field}}” is not valid",
         "needKey": "Pick the entry this row points to first",
         "needLabel": "Give this item a name"
+    },
+    "block": {
+        "empty": "No main text yet",
+        "add": "+ Add a paragraph",
+        "edit": "Edit this paragraph",
+        "remove": "Delete this paragraph",
+        "editLabel": "Edit paragraph {{index}}",
+        "removeLabel": "Delete paragraph {{index}}",
+        "addTitle": "Add a paragraph of main text",
+        "editTitle": "Edit this paragraph of main text",
+        "source": "Source of this paragraph (Markdown)",
+        "removeTitle": "Delete this paragraph of main text?",
+        "removeConfirm": "Delete",
+        "emptySource": "This paragraph is empty",
+        "added": "Add a paragraph to the main text of {{name}}",
+        "edited": "Edit a paragraph of the main text of {{name}}",
+        "removed": "Delete a paragraph of the main text of {{name}}"
     }
 }

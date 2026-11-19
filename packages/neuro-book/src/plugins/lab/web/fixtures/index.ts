@@ -1919,7 +1919,10 @@ function canonEntryPageFixtures() {
             scenes: [
                 {id: "sample", label: "值、改过、未知、引用、出错的块", input: {props: {blocks, self: "xingxia", marks}}},
                 {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
-                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks}}},
+                {id: "editable", label: "能改：每一块旁边改、删，文末加一段", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
+                {id: "empty", label: "还没有主文字", input: {props: {blocks: [], self: "xingxia", editable: true}}},
+                {id: "blocked", label: "写不了：按钮不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先关掉按计划"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
             ],
             load: async () => (await import("./EntryTextFixture.vue")).default,
         }),

@@ -3,7 +3,7 @@
  * 数据分页的字段表界面（docs/specs/canon/author-ui.md 输出 12、13）：通用字段表，以及 canon 给人物交的界面（多列语义档的各句）。
  * 经 `context` 读字段与来历；展开着哪个字段记在 `context.state.open`，切走再回来还在。
  */
-import {computed} from "vue";
+import {computed, shallowRef} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -13,6 +13,7 @@ import {fieldRows, isSemantic, originRows, semanticNotes} from "../rows";
 import {useCanonText} from "../text";
 import FieldTable from "./FieldTable.vue";
 import OriginList from "./OriginList.vue";
+import RecordForm from "./RecordForm.vue";
 
 const props = withDefaults(defineProps<{
     context: ComponentViewContext;
@@ -55,6 +56,40 @@ const editReason = computed(() => (context.blocked === null ? "" : port.t(contex
 
 const toggle = (path: string): void => {
     open.value = open.value === path ? null : path;
+    recordError.value = "";
+};
+
+/*
+ * 记一句、记一笔（输出 17）：展开着的字段是语义档或数时，来历下面一行表单，落在所选位置。别的种类在剧情里变了走“改”。
+ * 填了一半的输入按字段存在分页状态里，切走再回来还在。
+ */
+interface RecordDraft {
+    readonly delta: string;
+    readonly text: string;
+}
+const recordable = (path: string): boolean => {
+    const declaration = declarationOf(path);
+    return isSemantic(declaration) || declaration?.kind === "number";
+};
+const drafts = computed(() => (context.state.records ?? {}) as Readonly<Record<string, RecordDraft>>);
+const draftOf = (path: string): RecordDraft => drafts.value[path] ?? {delta: "", text: ""};
+const setDraft = (path: string, patch: Partial<RecordDraft>): void => {
+    context.state.records = {...drafts.value, [path]: {...draftOf(path), ...patch}};
+};
+const recordReason = computed(() => (editReason.value !== "" ? editReason.value : context.position.kind === "initial" ? text("blocked.initial") : ""));
+const recordError = shallowRef("");
+const saving = shallowRef(false);
+const submit = async (path: string): Promise<void> => {
+    if (saving.value) return;
+    saving.value = true;
+    const draft = draftOf(path);
+    const delta = Number(draft.delta.trim().replace(/,/gu, ""));
+    const result = await context.record(fieldOf(path), {text: draft.text.trim(), ...(isSemantic(declarationOf(path)) ? {} : {delta})});
+    saving.value = false;
+    if (result.ok) {
+        setDraft(path, {delta: "", text: ""});
+        recordError.value = "";
+    } else recordError.value = port.t(result.reason);
 };
 </script>
 
@@ -82,6 +117,19 @@ const toggle = (path: string): void => {
                 @more="openPages.more()"
                 @retry="openPages.retry()"
                 @change="(id: string) => context.open({kind: 'change', id})"
+            />
+            <RecordForm
+                v-if="recordable(path)"
+                class="mt-2"
+                :semantic="isSemantic(declarationOf(path))"
+                :delta="draftOf(path).delta"
+                :text="draftOf(path).text"
+                :blocked-reason="recordReason"
+                :error="recordError"
+                :saving="saving"
+                @update:delta="(value: string) => setDraft(path, {delta: value})"
+                @update:text="(value: string) => setDraft(path, {text: value})"
+                @submit="submit(path)"
             />
         </template>
     </FieldTable>
