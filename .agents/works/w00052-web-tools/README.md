@@ -32,6 +32,11 @@ updated: 2026-11-19
 |---|---|---|
 | [t01](tasks/t01-design/README.md) | 设计：搜索后端、读取的引擎与正文抽取、与浏览器插件的关系 | 进行中：计划第 1 稿待开发者确认 |
 
+## 后续
+
+- 密钥框：`ApiKeyField`（本插件）与模型页 `ProviderDetail.vue` 的 `draftField` 合并，并与 `forms.md` 输出 31 的 `SecretInput` 对齐（t01 设计审查 Sonnet 第 5 条）。
+- 更多服务：Exa、Tavily 等（t01 决定 3）。
+
 ## 相关
 
 - [w00032 t12](../w00032-agent-integration/tasks/t12-builtin-tools/README.md)：定网页工具不进 Agent 插件。
