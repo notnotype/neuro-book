@@ -1,0 +1,117 @@
+核对完了：有 5 句没有断言守着，另有 8 处断言区分不了，其余核过没问题。下面的路径都相对 `packages/nb-layout/src/`。我没跑测试，也没做变异，结论来自读代码和断言。有一次想用 `bun -e` 探一下，被权限拦了，所以第二段"节点数"那条是从代码推断的。
+
+## 没有断言守着的句子
+
+1. **失败 5 开头的"建树……失败时返回 `{ok:false,…}`"**
+   - `createGrid` 没有失败路径：`grid.ts:91` 起的 `instantiate` 不校验，也不返回 `GridFailure`。
+   - 测试里只有 `splitLeaf` 与 `addLeaf` 触发的 `limit-exceeded`（`grid.test.ts:694-707`）。
+   - 建议把"建树"从这句里删掉；要保留就写明它怎么失败，再补断言。
+
+2. **失败 6 表里 `handler-threw` 的"`message` 带异常的文字"**
+   - `vue/NestedGrid.dom.test.ts:577-586` 抛的是 `new Error("boom")`，但断言走 `emittedIssues`（`:542`），它丢掉了 `message`，只比 `{code, ok}`。
+   - 源码 `vue/useSashGesture.ts:309` 确实拼了 `String(error)`，只是没有断言。
+   - 补法：断言 `issues` 事件原始元素的 `message` 含 `"boom"`；否则删掉括号，或留 planned。
+
+3. **输出 140：`gesture-update` 载荷的 `issues` 与 `layout.issues` 是这一次求解的全部诊断**
+   - 全部测试里没有读载荷 `.issues` 的断言。`grid.test.ts:400、413` 读的是会话的 `session.issues` getter，不是载荷。
+   - `NestedGrid.dom.test.ts` 里读 `gesture-update` 的地方只看 `layout`、`changes`。
+   - 补法：在 `NestedGrid.dom.test.ts:600-640` 那场三帧拖动里，断言每一帧载荷的 `.issues` 都含 `range-overflow`，而 `issues` 事件总共只发一条。这样也区分了"快照"与"只发新增"。
+
+4. **输出 140："拖动途中某一帧里抛出，手势照常进行，这一批诊断的键已经记下、这一场不再发"**
+   - 抛出的测试都在松手或卸载时（`NestedGrid.dom.test.ts:744-805`），没有拖动途中的用例。
+   - 这句本身也不够准确：`vue/useSashGesture.ts:335-337` 的 `flush` 先调 `onPreview`（触发 `gesture-update`），再调 `notifyGesture`。`gesture-update` 的监听在途中抛出时，`notifyGesture` 没跑，键没记下，下一帧才发。
+   - 只有 `issues` 监听抛出时，键才是先记（`take`）后发，这句才成立。
+   - 建议这句留 planned，或把两种监听分开写，各补一条拖动途中抛出的断言。
+
+5. **输出 139 表 `no-collapse-policy` 这一行**
+   - 没有任何测试产生这个码。`grid.test.ts:379` 只是反向断言"另一根轴没有策略时不报"。
+   - 这一行只有"只出现在直接求解收起的结果里"标了 planned，码本身与"要折叠的面板没有收起策略"当前行为没有正向断言。源码在 `sash-drag.ts:182`。
+   - 补法：在 `sash-drag.test.ts` 里对没有策略的面板直接求解收起，断言得到 `[["no-collapse-policy", {id}]]`；否则整行留 planned。
+
+## 断言区分不了的句子
+
+1. **输出 139"度量取两位小数，和 `message` 里的数一致"**
+   - `grid.test.ts:225-232` 只断言 `params.available` 是 `499.33`，没读 `message`。
+   - 整个测试集没有任何地方断言诊断的 `message` 是英文或含这些数，而失败那边有 `codeOf` 的 ASCII 检查（`grid.test.ts:1202`）。
+   - 补一条 `message` 含 `499.33` 且是 ASCII 的断言，或删掉"和 `message` 里的数一致"。
+
+2. **输出 139"`params` 的值只有字符串与数字"**
+   - 断言用的是 `toEqual`、`toContainEqual`，两者都忽略值为 `undefined` 的键。
+   - 删掉 `grid-issue.ts:36-40` 里过滤 `undefined` 的那段，可选的 `max`（`NestedGrid.dom.test.ts:636` 与 `sash-drag.test.ts:212` 是对照）照样通过。
+   - 补法：对 `Object.values(params)` 断言类型是 string 或 number。
+
+3. **输出 140"窄窗口下一次通知最多是节点数那么多条"**
+   - `vue/useGridLayout.dom.test.ts:270-276` 只有 3 个节点、3 条的一个例子，上限本身没有断言。
+   - 从代码看这句不成立：`leaf-min` 的键含 `axis`（`grid-geometry.ts:503-517`），叶两根轴都低于下限就是两条。分支还能同时有 `min-total`、`cross-min`、`sash-overflow`。
+   - 建议改成"每个键最多一条"，删掉"节点数"这半句。
+
+4. **输出 139"`cause` 只细分一个码"**
+   - 与同一节的表矛盾：`over-constrained`、`unabsorbed-space`、`swap-skipped` 三个码都带 `cause`。这句没有断言，措辞要改。
+
+5. **失败 5 `not-finite` 的 `side`**
+   - 表里写 `baseline` 或 `target`，但 `grid.test.ts:1259-1261` 的 `not-finite` 只测了 `baseline`。`target` 一侧只在 `size-negative` 里测了。
+   - 补一条目标侧是 NaN 的断言。
+
+6. **输出 139 表里 `min-total` 的"按最小值比例降级"与 `fixed-overflow` 的"压到最小值"**
+   - `grid.test.ts:205-215` 两个叶最小值都是 300，按比例与均分分不开。
+   - `grid.test.ts:335-342` 只断言了参数，没断言压到最小值后的尺寸。
+   - 这两处是原有行为，优先级低。
+
+7. **输出 140"每发生一次发一条"**
+   - 被拒提交测了两次（`NestedGrid.dom.test.ts:672`）。
+   - `not-published`（`:588`）、`swap-skipped`（`:1505`）、`notify-failed`（`useGridLayout.dom.test.ts:318`）各只测一次，重复发生时是否每次都发没有断言。优先级低。
+
+8. **输出 68 括号里的"并经 `issues` 交回原因"**
+   - `no-leaving` 有端到端断言（`NestedGrid.dom.test.ts:1505-1510`）。
+   - `busy` 只有单元级断言，且 `busy` 集合是注入的（`useGridMotion.dom.test.ts:187-190`、`grid-swap.test.ts:110-111`）。真实的 `busyLeaves()`（`vue/useGridMotion.ts:271`）和 `busy` 到 `issues` 事件这一段没有测试。
+   - 括号本身算有断言守着，`busy` 那半边偏弱，可补一条端到端断言。
+
+另有四处很小，不必退回：
+
+- **边界与兼容"码的写法"**
+  - `grid.test.ts:1227-1241` 的完整性靠 `satisfies` 与 `everyCodeListed` 的类型检查，运行期那条 `expect(true)` 恒真，只有 `typecheck`（tsc，覆盖 `src` 但不含 `src/vue`）才会失败，单跑 `bun test` 不会。
+  - 数组是手写的，码格式与不相交只对列出的码有效；"宿主可以拿码查自己目录里的文字"没有断言，是用法说明。
+  - 宿主自带码（`layout-locked`）原样进诊断有断言（`NestedGrid.dom.test.ts:765`、`:596` 附近）。
+- **输出 140"没有网格"**
+  - "发布空布局（承载盒隐藏、没有网格）不算消失"只测了承载盒隐藏（`useGridLayout.dom.test.ts:283-285`）。
+  - 两种情形走 `useGridLayout.ts:77-85` 同一个分支，影响很小。
+- **失败 7 的 `clamped`**
+  - "失败 5 的形状加 `dropped`、`clamped`"：成功侧的 `clamped`（`grid.test.ts:817`）与 `unresolved-root` 的 `dropped`（`:1322`）有断言。
+  - 失败结果带 `clamped: []`（`grid-snapshot.ts:84`）没有断言，`codeOf` 把它丢掉了。
+- **workbench-layout 失败头句**
+  - 头句的形状与英文断言（`nb-workbench-layout/src/layout-doc.test.ts:446-450`，`toEqual` 精确、没有 `params`）只覆盖 `rejected`、`not-found` 和 `validateLayoutDoc` 的 `unsupported-version`。
+  - `limit-exceeded` 只比码。`layout-drop.ts:393` 另写了一个失败字面量，没有形状断言。
+  - 构造都走 `layout-doc.ts:112` 的 `failure()`，所以头句保持晋升是合理的。
+
+## 核过没问题的
+
+- **失败 5**：除"建树"外的整句、"树不变"（`resizeBranch`、插入、拆分、移除、移动，`grid.test.ts:1254-1311`），以及表里每个码的 `params` 形状。
+  - `invalid-argument` 的各个 `field`、`not-finite` 的 `delta`、`ratio`、`intent` 与基线侧 `size`，都有断言。
+  - 同一个子节点基线与目标都不合法时报基线那侧，有断言（`:1262-1265`）。
+- **失败 6**：表里除 `handler-threw` 的 `message` 外的各码。
+  - `not-ready` 的两种 `missing`（`useGridLayout.dom.test.ts:337、347`）。
+  - `stale-context`、`stale-revision`（`:230、243`）。
+  - `stale-size` 的 `params` 为 undefined（`:245`）。
+  - `handler-missing`、`handler-threw`（`NestedGrid.dom.test.ts:561-586`）。
+  - 落账时结构操作的失败原样转交（`:246-249` 的 `stale-baseline`）。
+  - 宿主自带码拒绝、回滚预览、一个失败只发一条。
+- **失败 7**：整句。
+  - `invalid-snapshot` 的各个 `field`、`unsupported-version`、`unresolved-root` 与 `dropped`、`duplicate-id`、`limit-exceeded`（`grid.test.ts:710-785`、`1313-1325`）。
+  - 不留半棵树（`:826`）。
+- **边界与兼容**：开放码集合那句的格式部分（见上面第 6 小条的类型检查说明）。
+- **输出 139**：
+  - 形状与出口（`ok` 区分被拒提交）、码不相交。
+  - 表里除 `no-collapse-policy` 外各行。
+  - `over-constrained` 的 `min-total`（含数值取整）、`leaf-min`、`sash-overflow`、`cross-min`、`fixed-overflow`、`range-overflow`（含有、无 `max` 两种）。
+  - `unabsorbed-space` 的 `capped`、`no-weight`，`conflicting-bounds`（以下限优先）。
+  - `no-room-to-collapse`、`no-room-to-restore`、`swap-skipped` 的 `no-leaving`、`busy`。
+  - `not-published`、`notify-failed`。
+- **输出 140**：除第一段末尾的载荷全量、途中抛出、"节点数"上限、"每发生一次"的重复，以及上面指出的几条之外。
+  - 求解结果是全量快照（`layout.value.issues` 在 `useGridLayout.dom.test.ts:278`）。
+  - 闸门的键（`issue-gate.test.ts`）。
+  - 重算只发新出现的、消失再出现再发、`contextKey` 变了重新开始、承载盒隐藏不算消失、换 `grid` 实例不重新开始。
+  - 手势一场一次、下一场再发。
+  - 被拒提交每次都发。
+  - 松手、取消与卸载时回调抛出的收尾（`NestedGrid.dom.test.ts:744-805`），以及落账之后通知抛出被接住、提交照样算落账（`useGridLayout.dom.test.ts:298、318`）。
+- **输出 68**：括号里新加的部分，见上面第 8 小条的说明。
+- **workbench-layout 失败与恢复表头句**：见上面"很小"的第四项，守得住。

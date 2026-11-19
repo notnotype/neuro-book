@@ -192,7 +192,7 @@ owners:
 136. **分支的收起：长度为零的分隔线**：收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进指针命中、不能拖，展开后恢复。
 137. **分支的收起：最小尺寸**：收起为零的节点（叶或分支）在两根轴上的最小尺寸都按零算，窗口放不下时不把它和它里面的叶算作要收走的。
 138. **分支的收起：阈值与恢复**：收起的阈值、从零拉回、Enter 与显式恢复同叶（输出 18、20）。
-139. **诊断：形状与码**：诊断是 `{code, message, params?}`，和失败 5 同形少一个 `ok`：`code` 给程序分支，`message` 是英文、只给日志看，`params` 的值只有字符串与数字。`params` 里 `cause`（为什么）、`axis`、`id`（诊断所在的分支、叶或面板）三个名字在所有诊断里意思相同，其余是度量（取两位小数，和 `message` 里的数一致）。码集合开放，`cause` 只细分一个码，不认识的 `cause` 按码处理。诊断码与失败 5 到 7 的码不相交。
+139. **诊断：形状与码**：诊断是 `{code, message, params?}`，和失败 5 同形少一个 `ok`：`code` 给程序分支，`message` 是英文、只给日志看，`params` 的值只有字符串与数字（planned）。`params` 里 `cause`（为什么）、`axis`、`id`（诊断所在的分支、叶或面板）三个名字在所有诊断里意思相同，其余是度量（取两位小数）。码集合开放，`cause` 是码之下的细分，宿主不认识的 `cause` 按码处理。诊断码与失败 5 到 7 的码不相交。
 
     | 码 | `cause` | 什么时候 | 度量 |
     |---|---|---|---|
@@ -206,18 +206,17 @@ owners:
     | `conflicting-bounds` | | 节点的下限高于上限，以下限优先 | `min`、`max` |
     | `no-room-to-collapse` | | 拖到阈值以下但收起后没有边界吸收这块空间，保持展开 | |
     | `no-room-to-restore` | | 恢复空间不够，保持收起 | `available`、`required` |
-    | `no-collapse-policy` | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里（planned），手势不会发 | |
+    | `no-collapse-policy`（planned） | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里，手势不会发 | |
     | `swap-skipped` | `no-leaving`、`no-entering`（planned）、`busy` | 交换不成立（输出 68） | |
     | `not-published` | | 宿主接纳了提交但没有发布匹配的布局 | |
     | `notify-failed` | | 已经落账，通知宿主时它抛出 | |
 
     出口有两个：`NestedGrid` 的 `issues` 事件（手势的诊断、被拒的提交、`not-published`、`swap-skipped`）与 `useGridLayout` 的 `onIssues`（布局重算的诊断、`notify-failed`）。事件里带 `ok` 的元素（`"ok" in issue`）是被拒的提交，就是失败 6 的那个失败，已经回滚；它的码可能是宿主自己的。
 140. **诊断：结果是快照，通知只发新出现的**：
-    - 求解与预览的结果（`layout().issues`、`gesture-update` 载荷的 `issues` 与 `layout.issues`）是这一次求解的全部诊断，逐条、参数完整。要知道现在有哪些问题、数是多少，读它们；通知不说诊断什么时候消失。
+    - 求解与预览的结果（`layout().issues`；`gesture-update` 载荷的 `issues` 与 `layout.issues`，planned）是这一次求解的全部诊断，逐条、参数完整。要知道现在有哪些问题、数是多少，读它们；通知不说诊断什么时候消失。
     - 两个出口只发新出现的：键是码、`cause`、`axis`、`id`，同一次求解里同一个键最多一条。布局重算这一路，这次有、上一次重算没有的才发，消失再出现会再发；`contextKey` 变了算重新开始；发布空布局（承载盒隐藏、没有网格）不算消失，再显示时持续的诊断不重发；`grid` 换实例不算重新开始。手势这一路，一场手势里同一个键只发一次，下一场重新算；键盘每按一次键是一场手势，按住不放算一场（planned）。预览布局自己的诊断不经通知，松手落账后的布局重算照常发（planned）。
     - 被拒的提交、`not-published`、`swap-skipped`、`notify-failed` 每发生一次发一条。一个失败只发一条。
-    - 窄窗口下一次通知最多是节点数那么多条，之后每个键只发一次。
-    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行，这一批诊断的键已经记下、这一场不再发。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
+    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行（planned）。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
 
 ## 状态与转换
 
@@ -258,7 +257,7 @@ owners:
 2. 未知高版本拒绝恢复并保留原布局或安全默认；宿主禁止普通保存覆盖原件。
 3. 暂时缺少引用时可过滤当前呈现，但宿主保留原始记录，后续调整已知节点不能抹掉未知部分。
 4. 部分引用过滤与整体格式非法分别报告；重复身份无法可靠定位时整体拒绝，不任意覆盖同名节点。
-5. **结构操作的失败形状**：建树、改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
+5. **结构操作的失败形状**：改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -284,7 +283,7 @@ owners:
     | `stale-revision` | 提交带来的版本与宿主此刻的不同 | `expected`、`actual` |
     | `stale-size` | 容器尺寸在手势里变了 | 无 |
     | `handler-missing` | 宿主没有接 `onGestureCommit` | 无 |
-    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字） |
+    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字，planned） |
 7. **恢复的结果**：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
 
     | 码 | 什么时候 | `params` |

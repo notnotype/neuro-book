@@ -84,7 +84,7 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 | 5 | 卸载用例守的其实是取消的收尾顺序；`invalidate` 的 `try`/`finally` 是死代码；“先拖再折叠”用例改动前也过 | 用例名改成它守的东西；删掉死代码；`teardown` 的 `finally` 留着（防宿主回调抛出时监听留着，测试看不到）；“先拖再折叠”留作防另一种实现的回归 |
 | 6 | 没人用的参数值、过时的注释、类型夹在导入中间 | 照改 |
 
-去掉 planned 前补了三条用例（`7d7656755`）：度量取两位小数、被拒的提交每次都发、键盘每按一次是一场手势。还没有断言、留着 planned 的五句：预览布局的诊断不经通知、`reportError` 那一支、按住不放算一场、`swap-skipped` 的 `no-entering`、直接求解收起时的 `no-collapse-policy`。
+去掉 planned 前补了三条用例（`7d7656755`）：度量取两位小数、被拒的提交每次都发、键盘每按一次是一场手势。晋升后换模型逐句核了一遍（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)，连同 t34 的失败 5 到 7）：5 句没有断言、8 处断言区分不了。照改：失败 5 删掉“建树”（`createGrid` 没有失败路径）；“和 `message` 里的数一致”删掉；“窄窗口下一次最多节点数那么多条”删掉（按代码不成立：一片叶两根轴可以各一条）；“`cause` 只细分一个码”改成“`cause` 是码之下的细分”；`handler-threw` 的 `message`、载荷的 `issues` 是快照、拖动途中抛出、`params` 只有字符串与数字、`no-collapse-policy` 一行标回 planned；其余几处它判为优先级低（原有行为或只缺重复发生的断言），不动。此前自己核时留着 planned 的：预览布局的诊断不经通知、`reportError` 那一支、按住不放算一场、`swap-skipped` 的 `no-entering`、直接求解收起时的 `no-collapse-policy`。
 
 收口的 e2e 跑在审查修正之前。修正没有重跑 e2e：改的是交叉处会话的折叠只作用于一根轴（界面里只有键盘 Enter 会折叠，它开的是一根线的会话，走不到）、合并时同键去重、`range-overflow` 不给哨兵 `max`、文档与死代码，都由单元测试覆盖；e2e 里没有读这些诊断的地方。
 
