@@ -447,6 +447,60 @@ describe("写入", () => {
         expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toBe("先关掉按计划");
     });
 
+    it("页头改名、改简介：确认条在页头之下，文字分页上也能改；保存后页头换了名字、顶上有提示", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper} = await open(id);
+        const bar = await startEdit(wrapper, "entry.name");
+        await bar.get("textarea").setValue("夜王");
+        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("名字变了", () => wrapper.get("h1").text() === "夜王");
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("改名字");
+        const summary = await startEdit(wrapper, "entry.summary");
+        await summary.get("textarea").setValue("第三魔法学院一年级");
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("简介", () => wrapper.text().includes("第三魔法学院一年级"));
+    });
+
+    it("页头的别名、加去一组设定、删除后恢复：都是一次改几处，结果在页上看得到", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("别名一行", () => wrapper.find("[data-entry-aliases]").exists());
+        await buttonByText(wrapper, "＋别名")!.trigger("click");
+        const input = wrapper.get("[data-entry-aliases] input");
+        await input.setValue("小瑕");
+        await input.trigger("keydown", {key: "Enter"});
+        await waitUntil("加上别名", () => wrapper.get("[data-entry-aliases]").text().includes("小瑕"));
+        await wrapper.get("[data-entry-aliases] button[aria-label='去掉别名 小瑕']").trigger("click");
+        await waitUntil("去掉别名", () => !wrapper.get("[data-entry-aliases]").text().includes("小瑕"));
+
+        // 去掉人物这组设定：分页没了；再从“添加一组设定”加回来，标“恢复”，原来的数据还在。
+        state.tab = "data:character";
+        await waitUntil("人物分页", () => wrapper.find("[data-field='character.外观']").exists());
+        // “更多”菜单是弹出层，这里直接发它选中后的事件；菜单本身的项在 EntryPage 的组件测试里。
+        wrapper.findComponent(EntryPage).vm.$emit("remove-component");
+        await waitUntil("确认对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("数据会保留") === true);
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "去掉")!.click();
+        await waitUntil("人物分页没了", () => !wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
+        wrapper.findComponent(EntryPage).vm.$emit("add-component");
+        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("恢复“人物”") === true);
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "添加")!.click();
+        await waitUntil("人物分页回来", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
+
+        // 删除以后的页面有“恢复”。
+        wrapper.findComponent(EntryPage).vm.$emit("delete");
+        await waitUntil("删除对话框", () => document.body.querySelector("[role='dialog']") !== null);
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "删除")!.click();
+        await waitUntil("已删除", () => wrapper.find("[data-entry-restore]").exists());
+        await wrapper.get("[data-entry-restore]").trigger("click");
+        await waitUntil("恢复了", () => wrapper.find("[data-entry-aliases]").exists());
+    });
+
     it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

@@ -7,8 +7,8 @@
 import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
-import type {FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
-import {Dialog} from "@notnotype/nb-ui/components";
+import type {EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
+import {Dialog, Select} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -218,7 +218,14 @@ const toggleValue = (address: TextAddress): void => {
 const blocked = computed(() => writeBlocked(world));
 const readOnly = computed(() => readOnlyBanner(world));
 const editBlocked = computed(() => (state.planned ? canonText("blocked.planned") : blocked.value));
+/** 条目自己的名字与简介当作两个文字字段，确认条照字段的写法改它们（输出 16、页头的改名）。 */
+const HEAD_FIELDS: Readonly<Record<string, {readonly key: "name" | "summary"; readonly label: string}>> = {"entry.name": {key: "name", label: "entry.nameLabel"}, "entry.summary": {key: "summary", label: "entry.summaryLabel"}};
 const fieldAt = (path: string) => {
+    const head = HEAD_FIELDS[path];
+    if (head !== undefined) {
+        const value = view.value?.[head.key];
+        return {state: value === undefined ? undefined : ({value} as FieldState), declaration: {id: head.key, label: port.t(text(head.label as never)), kind: "text"} as FieldDeclaration};
+    }
     const split = path.indexOf(".");
     const namespace = path.slice(0, split);
     const field = path.slice(split + 1);
@@ -304,8 +311,66 @@ const confirmDelete = async (): Promise<void> => {
 
 const editHere = computed(() => {
     const draft = state.edit;
-    return draft !== null && dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
+    if (draft === null) return false;
+    // 名字、简介的确认条在哪个分页都显示；字段的只在它那个数据分页显示（切走再回来还在，输出 7）。
+    if (HEAD_FIELDS[draft.path] !== undefined) return true;
+    return dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
 });
+
+/* ---------- 页头的写入：别名、设定组的加去、移动、恢复（canon.revisions 输出 25 的一次改几处） ---------- */
+
+const actionError = shallowRef("");
+const acting = shallowRef(false);
+/** 发一批操作；成功给保存后的提示，失败把原因写在页头下面。 */
+const runEntries = async (ops: EntryOp[], title: string): Promise<boolean> => {
+    if (acting.value) return false;
+    acting.value = true;
+    actionError.value = "";
+    const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion: version(), title, position: position.value, ops}});
+    acting.value = false;
+    if (!result.ok) {
+        actionError.value = port.t(failureText(result.failure).text);
+        return false;
+    }
+    props.notices.show({revision: result.value.revision, title});
+    return true;
+};
+const changeAliases = (change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void => {
+    const name = view.value?.name ?? "";
+    const title = change.add !== undefined ? text("entry.aliasAdded", {name, alias: change.add.join("、")}) : text("entry.aliasRemoved", {name, alias: (change.remove ?? []).join("、")});
+    void runEntries([{op: "aliases", entry: props.id, ...(change.add === undefined ? {} : {add: [...change.add]}), ...(change.remove === undefined ? {} : {remove: [...change.remove]})}], port.t(title));
+};
+const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})));
+
+// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。
+const addOpen = shallowRef(false);
+const addType = shallowRef("");
+const addableTypes = computed(() => {
+    const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
+    const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
+    return (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id)).map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
+});
+const confirmAdd = async (): Promise<void> => {
+    const type = addType.value;
+    if (type === "") return;
+    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})))) {
+        addOpen.value = false;
+        state.tab = `${DATA}${componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? ""}`;
+    }
+};
+// 去掉当前数据分页这组设定：先确认，数据留着。
+const removeOpen = shallowRef(false);
+const removableGroup = computed(() => (dataNamespace.value === null ? "" : typeLabel(view.value?.namespaces[dataNamespace.value]?.type ?? "")));
+const confirmRemove = async (): Promise<void> => {
+    const namespace = dataNamespace.value;
+    const type = namespace === null ? undefined : view.value?.namespaces[namespace]?.type;
+    if (type === undefined) return;
+    if (await runEntries([{op: "component", entry: props.id, type, action: "remove"}], port.t(text("entry.groupRemoved", {name: typeLabel(type)})))) {
+        removeOpen.value = false;
+        // 去掉的分页没了：回到第一个分页。
+        state.tab = null;
+    }
+};
 
 /* ---------- 数据分页 ---------- */
 
@@ -419,6 +484,17 @@ const setPosition = (value: string): void => {
             :line-options="props.windowLine.options.value"
             :line="windowLine"
             :resolved-line="chapterLine(position, chapters)"
+            editable
+            :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
+            :aliases="view?.aliases ?? []"
+            :removable-group="removableGroup"
+            :action-error="actionError"
+            @edit-name="edit.open('entry.name')"
+            @edit-summary="edit.open('entry.summary')"
+            @aliases="changeAliases"
+            @restore="restore()"
+            @add-component="addType = addableTypes[0]?.value ?? ''; addOpen = true; actionError = ''"
+            @remove-component="removeOpen = true; actionError = ''"
             @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"
@@ -427,6 +503,17 @@ const setPosition = (value: string): void => {
             @retry="world.retry()"
             @delete="deleteOpen = true; deleteError = ''"
         >
+            <template #bar>
+                <ConfirmBar
+                    v-if="editHere && edit.bar.value !== null"
+                    v-bind="edit.bar.value"
+                    @update:value="edit.update"
+                    @update:intent="edit.setIntent"
+                    @save="edit.save()"
+                    @recheck="edit.recheck()"
+                    @cancel="edit.cancel()"
+                />
+            </template>
             <EntryText
                 v-if="tab === 'text'"
                 :blocks="blocks"
@@ -461,15 +548,6 @@ const setPosition = (value: string): void => {
                 @more="plot.more()"
             />
             <template v-else-if="dataNamespace !== null">
-                <ConfirmBar
-                    v-if="editHere && edit.bar.value !== null"
-                    v-bind="edit.bar.value"
-                    @update:value="edit.update"
-                    @update:intent="edit.setIntent"
-                    @save="edit.save()"
-                    @recheck="edit.recheck()"
-                    @cancel="edit.cancel()"
-                />
                 <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
                 <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
                 <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
@@ -481,6 +559,35 @@ const setPosition = (value: string): void => {
                 <component :is="extraView.component" v-else-if="extraView.component !== null" :key="extraTab" :context="tabContextFor(extraTab)" />
             </template>
         </EntryPage>
+        <Dialog
+            :open="addOpen"
+            size="sm"
+            :title="text('entry.addComponentTitle')"
+            show-cancel
+            :confirm-label="text('entry.addComponentConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => (addOpen = value)"
+            @confirm="confirmAdd()"
+        >
+            <p v-if="addableTypes.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.noMoreGroups") }}</p>
+            <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
+            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+        </Dialog>
+        <Dialog
+            :open="removeOpen"
+            size="sm"
+            :title="text('entry.removeComponent', {name: removableGroup})"
+            show-cancel
+            :confirm-label="text('entry.removeComponentConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => (removeOpen = value)"
+            @confirm="confirmRemove()"
+        >
+            <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.removeComponentDescription") }}</p>
+            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+        </Dialog>
         <Dialog
             :open="deleteOpen"
             size="sm"
