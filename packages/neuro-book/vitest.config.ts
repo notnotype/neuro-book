@@ -26,6 +26,9 @@ export default mergeConfig(viteConfig, defineConfig({
         // 构建、再在这里渲染的第三方插件。
         include: ["src/**/*.dom.test.ts", "plugin-sdk/*.dom.test.ts", "plugin-sdk/examples/**/*.dom.test.ts"],
         setupFiles: [testSupport],
+        // 存储分区的代码用 `bun:sqlite`，Node 加载不了；组件测试的场地要装存储（剧情插件依赖它），换成 `node:sqlite` 上的同一组调用
+        // （见那个文件的模块头）。
+        alias: {"bun:sqlite": fileURLToPath(import.meta.resolve("@notnotype/neuro-book-test-support/bun-sqlite"))},
         globalSetup: [testSupport],
     },
 }));

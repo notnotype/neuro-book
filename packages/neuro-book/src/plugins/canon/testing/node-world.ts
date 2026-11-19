@@ -62,8 +62,16 @@ async function started(app: Application, apps: Application[], what: string): Pro
     return app;
 }
 
+export interface CanonNodeWorldOptions {
+    /**
+     * 项目实例里另装的插件（例如剧情插件的项目入口与它依赖的存储）。存储的分区代码用 `bun:sqlite`，在 Vitest 里由别名换成
+     * `node:sqlite` 上的同一组调用（`@notnotype/neuro-book-test-support/bun-sqlite`）。
+     */
+    readonly project?: readonly PluginDefinition[];
+}
+
 /** 在 `root` 下建项目目录 `Book` 并打开世界；第一次读要等世界打开（调用方按 `status` 或事件等）。 */
-export async function canonNodeWorld(root: string): Promise<CanonNodeWorld> {
+export async function canonNodeWorld(root: string, options: CanonNodeWorldOptions = {}): Promise<CanonNodeWorld> {
     const apps: Application[] = [];
     const project = join(root, "Book");
     const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
@@ -79,7 +87,7 @@ export async function canonNodeWorld(root: string): Promise<CanonNodeWorld> {
     const projectNode = createRemoteNode({instance});
     const projectApp = createApplication(identity("project", instance.id), {
         capabilities: [{id: "project.current", key: currentProjectKey, create: () => ({id: "P", name: "book", generation: 1, root: project})}],
-        plugins: [diagnosticsFor("project", instance.id), definitionAt("project", descriptor, canonProjectPlugin)],
+        plugins: [diagnosticsFor("project", instance.id), definitionAt("project", descriptor, canonProjectPlugin), ...(options.project ?? [])],
         gates: [],
         remote: projectNode,
     });

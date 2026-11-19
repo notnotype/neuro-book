@@ -11,7 +11,8 @@
         "./wait": "./src/wait.ts",
         "./llm": "./src/llm.ts",
         "./import-boundary": "./src/import-boundary.ts",
-        "./style-tokens": "./src/style-tokens.ts"
+        "./style-tokens": "./src/style-tokens.ts",
+        "./bun-sqlite": "./src/bun-sqlite.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit -p tsconfig.json",

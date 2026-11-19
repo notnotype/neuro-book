@@ -1,0 +1,62 @@
+/**
+ * 剧情插件的项目入口装在进程内的世界场地上（canon/testing/node-world.ts）：剧情界面的组件测试建在它上面。项目入口依赖存储，
+ * 存储的分区在 Vitest 里跑在 `node:sqlite` 上（`@notnotype/neuro-book-test-support/bun-sqlite`）；这里确认窗口经远程读得到剧情的
+ * 读取，写作指示经存储写下以后，数据版本跟着变。
+ */
+
+import {rm} from "node:fs/promises";
+
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
+
+import type {DelegatedRemoteAccess} from "@notnotype/nb-runtime/plugins";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
+import {definitionAt} from "nbook/manifest";
+import {canonNodeWorld} from "nbook/plugins/canon/testing/node-world";
+import type {CanonNodeWorld} from "nbook/plugins/canon/testing/node-world";
+import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
+import {descriptor as storageDescriptor} from "nbook/plugins/storage/plugin";
+
+import {plotProjectPlugin} from "./backend/plugin";
+import {descriptor} from "./plugin";
+import {plotWorldContract} from "./shared/contracts";
+import {plotInstructionsContract} from "./shared/instructions";
+
+let tmp: string;
+let world: CanonNodeWorld | null = null;
+
+beforeEach(async () => {
+    tmp = await createTestTmpRoot("neuro-book-plot", "node-world");
+});
+
+afterEach(async () => {
+    await world?.close();
+    world = null;
+    await rm(tmp, {recursive: true, force: true});
+});
+
+describe("剧情插件在进程内的世界场地上", () => {
+    it("窗口读得到剧情的读取；写作指示写进存储以后数据版本跟着变", async () => {
+        world = await canonNodeWorld(tmp, {project: [definitionAt("project", storageDescriptor, storageBackendPlugin), definitionAt("project", descriptor, plotProjectPlugin)]});
+        let remote: DelegatedRemoteAccess | null = null;
+        const window = await world.window("w1", [{id: "test.plot-user", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            remote = context.remote;
+            return {};
+        }}]}]);
+        await waitUntil("世界打开", async () => (await window.canon.call("status", {})).ok, {timeoutMs: 10_000});
+        const plot = remote!.use(plotWorldContract);
+        const instructions = remote!.use(plotInstructionsContract);
+
+        const ledger = await plot.ledger({});
+        expect(ledger).toMatchObject({ok: true, value: {items: []}});
+
+        const before = await instructions.current({});
+        if (!before.ok) throw new Error(JSON.stringify(before));
+        const put = await instructions.put({chapter: "ch1", snapshot: {chapter: "ch1", version: "v1", ending: "停在门口"}, base: before.value.dataVersion});
+        if (!put.ok) throw new Error(JSON.stringify(put));
+        expect(put.value.dataVersion).not.toBe(before.value.dataVersion);
+        expect(await instructions.current({})).toEqual({ok: true, value: {dataVersion: put.value.dataVersion}});
+        await window.close();
+    });
+});
