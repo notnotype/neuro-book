@@ -1,0 +1,86 @@
+# t37 晋升前逐句核对（Claude Sonnet 5.5，claude -p，2026-11-19）：ui/layout-drag 输出 20、21 与签名段
+# 说明：.local/agent/works/w00026-layout-package/tasks/t37-drag-controller-tidy/reports/promotion/brief.md（本地）；报告即审查者的最终回复，原样保存。处理见 Task README 的“晋升”。
+
+核对完成：输出 20 共 21 句，输出 21 共 18 句，大部分已钉住；没钉住的有 2 句，部分的有 5 句，与实现不符的 0 句。`bun test` 跑 `drag-card.test.ts` 和 `frame-loop.test.ts`，19 条全过。
+
+没跑变异检查：在 /tmp 改副本再跑测试被权限拒绝。所以“没钉住”和“部分”都是读代码加手算推断的。完整稿已写入报告草稿文件。
+
+缩写：DC 是 `drag-card.test.ts`，FL 是 `frame-loop.test.ts`，LD 是 `neuro-book/src/plugins/workbench/web/live-drag.test.ts`。
+
+## 输出 20 拖动卡片
+
+| 句子 | 结论 | 断言位置与比较的值 |
+|---|---|---|
+| 1a 尺寸是这个矩形的 | 钉住 | DC:32，第一帧宽高等于 FROM 的 600×400 |
+| 1b 抓住的点是指针在它上面的比例 | 钉住 | DC:42-44，抓点 (0.5, 0.05) 每帧落在 PRESS 上；DC:32 的位置 (60, 70) 同理 |
+| 1c 夹在 0 到 1 | 钉住 | 上界 DC:83（x=800 在右外侧，追完右沿等于 800）；下界 LD:250（y=-40 在上方，追完上边等于 -40）；两轴共用一个 `clampUnit` |
+| 1d 追赶量是矩形与“抓点在指针下”位置之差 | 钉住 | DC:79 指针在矩形外时第一帧仍在矩形位置；DC:83 追完在指针下 |
+| 1e `from` 为 null、宽或高不是正的有限数时用 fallback、抓上沿中点、不追赶 | 部分 | DC:90 覆盖 null 和宽为 0，DC:105 覆盖宽为 ∞。没覆盖高为 0、高非有限、宽为负。所有用例的 fallback 都等于 target |
+| 2a 尺寸按 1−e^(−elapsed/τ) 逼近 target | 钉住 | DC:39 宽度 [600, 563, 532, 506]；DC:99 目标变了转向（522×350）；DC:112 `tauMs` 取 1 |
+| 2b 追赶量同样向 0 逼近 | 部分 | DC:79、83 只钉起点和终点。LD:247 只要求第二帧 y<0，一步清零也满足 |
+| 2c 离终点不到 `stillPx` 取终点 | 钉住 | DC:53（380.05 取 380 且 settling 为 false）；DC:47-48 最终落在 380×260 且交回 `{rect: null, settling: false}`；DC:113 |
+| 2d 第一次 step 不按时间逼近 | 钉住 | DC:32（elapsed=16.67 仍是 600×400）；DC:53 |
+| 2e `elapsed` 非有限数或负数按 0 | 钉住 | DC:120，elapsed 取 −16、NaN、∞，第二步都是 `{rect: null, settling: true}` |
+| 3a 相对 `origin`，宿主直接写在内容层上 | 部分 | “相对 origin”钉住（DC:32，x=100−40）。“宿主直接写”只到 LD:300 的 `placeCard` 回调；真正写 DOM 在 `layout-drag.ts` 和 e2e，我没逐条核 |
+| 3b 尺寸取整到像素 | 钉住 | DC:39（562.8→563）；LD:347 宽高都是整数 |
+| 3c 位置按画出来的尺寸算，抓点一直在指针下 | 钉住 | DC:42-44；DC:62（尺寸隔帧写时抓点仍每帧跟指针）；LD:349 |
+| 3d 再加上追赶量 | 钉住 | DC:79、83；LD:245（卡片重新拿起后第一帧 y=0） |
+| 4a 位置每帧跟手 | 钉住 | DC:58 每帧 rect 非 null；DC:62 抓点 x = PRESS.x+index |
+| 4b 尺寸至多每 `refreshMs` 变一次 | 钉住 | DC:60 宽度 [600, 600, 532, 532, 485, 485, 452, 452]；LD:345-346 |
+| 4c 时间戳差 `refreshSlackMs` 以内算到了 | 没钉住（推断） | DC:60 的时间戳是帧间隔的精确倍数，slack 起不了作用；没有带抖动的时间戳用例；LD:346 的下界 8 太松，分不出 slack 有无；`refreshSlackMs` 选项也没用例 |
+| 4d 尺寸到终点那一帧马上写 | 钉住 | DC:70，`refreshMs` 为 1000 时宽度只写 [600, 380]；DC:71 第二次的时刻小于 1000ms |
+| 4e 和上一次交回的矩形相同时交回 null | 钉住 | DC:48、72、84、120 |
+| 5a `settling` 为真是尺寸或追赶没到终点 | 部分 | “尺寸”半句钉住（DC:32 为 true，DC:48 为 false，DC:100 为 true）。“追赶”半句没钉：DC:79-84 只在末尾断言 false，此时尺寸也到了；没有“尺寸到了、只剩追赶”的用例 |
+| 5b 宿主要再排一帧 | 钉住（宿主层） | `live-drag.ts:171-177` 把 `settling` 当 tick 返回值；LD:373、395 停着 |
+| 5c 卡片不要了丢掉对象，再要时重新拿起 | 钉住（宿主层） | LD:245（重新拿起第一帧 y=0，不跳）；LD:322（重新拿起宽大于 700，是 other 面板的 800 宽） |
+
+## 输出 21 帧循环
+
+| 句子 | 结论 | 断言位置与比较的值 |
+|---|---|---|
+| 0 按需排帧，没事就停，按住不动不空转 | 钉住 | FL:44（pending 为 0）；LD:373 |
+| 1a `start()` 撤掉排着的帧并排第一帧 | 钉住 | FL:39；FL:121-123（连着两次 start，只剩 1 帧，frame 只跑一次） |
+| 1b `frame` 返回真才排下一帧，返回假就停 | 钉住 | FL:41、44 |
+| 1c 停着时 `wake()` 排一帧 | 钉住 | FL:46、48 |
+| 1d 没有 `start` 或 `stop()` 之后 `wake` 不排 | 钉住 | FL:104、109 |
+| 2a `elapsed` 是离上一帧的毫秒数 | 钉住 | FL:67，序列中的 16 和 18 |
+| 2b 时间戳回退时是 0 | 钉住 | FL:62 加 FL:67 第三项 |
+| 2c `start` 之后与停过之后的第一帧是 `nominalMs` | 部分 | “停过之后”钉住：FL:67 末项为 10（时间戳差 3970 却得 10）。缺省值钉住：FL:79。“`start` 之后”只在没跑过帧的新循环上钉住；跑过帧、`stop` 再 `start` 的第一帧没有用例 |
+| 2d 间隔可能好几秒，按它算一步就到终点（理由句） | 钉住（宿主层） | LD:397-403，停 2000ms 再动，第一帧宽在 (540, 600) |
+| 3a 帧里调 `wake` 不另排，由返回值决定 | 钉住 | FL:92-97，第一帧后 pending 为 1，第二帧返回假后为 0 |
+| 3b 帧里 `stop`，返回真也不再排 | 钉住 | FL:136 |
+| 3c 帧里 `stop` 又 `start`，只排 `start` 的那一帧 | 钉住 | FL:140，pending 为 1 |
+| 4a `frame` 抛错时异常照常抛出 | 钉住 | FL:151 |
+| 4b 循环回到停着 | 钉住 | FL:152，pending 为 0 |
+| 4c 之后 `wake` 照常排 | 钉住 | FL:154-155 |
+| 5a 宿主在指针移动时调 `wake` | 钉住（宿主层） | LD:381-386（x+50、y+20）；接线本身 `layout-drag.ts:335` 没有单元断言 |
+| 5b 这个监听要先于会话的 `pointermove` 监听挂上 | 没钉住 | 实现符合：`layout-drag.ts:335` 构造时挂，`drag-session.ts:116` 按下时挂，同在窗口捕获阶段。没有测试断言先后 |
+| 5c 挂反不报错，只多一次强制样式重算 | 没钉住（间接） | 只有 `workbench-drag-cost.e2e.ts:147` 量每帧样式重算不超过 1.3。挂反大概率超限，但没做过变异检查，不能算钉住这句话 |
+
+## 与实现不符
+
+没有发现。Spec 没写、实现里有的细节有三条，不算不符：
+
+- 尺寸下一次写的时刻：落后一个间隔以上就从当下算（`drag-card.ts:79`）。
+- 实现里的“第一次 step”是“还没交回过矩形”，总会交回矩形，所以等价。
+- 抛错后 `started` 仍为真，只是没排着帧，观察结果与“回到停着”一致。
+
+## 签名段
+
+与 `index.ts` 逐个核对，没有差异：
+
+- `DragCardSize`、`DragCardOptions`（缺省 90、0.1、2）、`DragCardFrame`（`refreshMs` 缺省 0）、`DragCard.step`、`createDragCard`（`options` 可选）。
+- `FrameLoopOptions`（`nominalMs` 缺省 1000/60）、`FrameLoop`、`createFrameLoop`。
+- 这些名字和签名引用的 `GridRect`、`GridDropRect`、`GridDropPoint`（`index.ts:92`、`139`、`140`）都已导出，包名 `@notnotype/nb-layout` 一致。
+
+## 没钉住或部分的句子与建议
+
+- **20-1e**：补 DC 用例，高为 0、高为 ∞、宽为负各取一个，断言按 `fallback` 拿起。
+- **20-2b**：补 DC 用例，追赶中间帧的 y 等于 `chase₀·e^(−k·dt/90)`，不能只看起点和终点。
+- **20-3a**：这句拆开。“宿主直接写在内容层上”挪到宿主侧说明，或补 `layout-drag.ts` 的 `placeCard` 写 DOM 的断言。
+- **20-4c**：补 DC 用例，时间戳带抖动（间隔 15.5ms、`refreshMs` 33.3，在差 2ms 以内的那帧写尺寸）。或者 Spec 的这句降级为“从代码推断”。
+- **20-5a**：补 DC 用例，`from` 尺寸等于 target、指针在矩形外，断言 `settling` 为真，追完后为假。
+- **21-2c**：补 FL 用例，跑过几帧、`stop()`，隔很久再 `start()`，第一帧 `elapsed` 等于 `nominalMs`。这是第二次拖动走的路径，漏了会一步缩到终点。
+- **21-5b、21-5c**：这两句只有 e2e 间接覆盖。要么补一个 e2e 变异检查（把 `wakeLive` 挂到会话监听之后，量每帧重算超 1.3），要么在 Spec 里标明“只靠 `workbench-drag-cost` 间接覆盖”。
+
+完整稿路径：`.local/agent/works/w00026-layout-package/tasks/t37-drag-controller-tidy/reports/promotion/report-draft.txt`。

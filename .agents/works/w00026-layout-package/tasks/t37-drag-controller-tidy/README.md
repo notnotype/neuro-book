@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t37-drag-controller-tidy
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -84,6 +84,16 @@ Claude Sonnet（`claude -p`），一轮，5 条，都是建议（阻断 0、重�
 
 master 并进分支（`6cc707752`），master 快进到它，2026-11-19 合入；worktree 与分支已删。
 
-## 下一步
+## 晋升
 
-晋升 `ui/layout-drag` 输出 20、21：去掉 planned、补实现入口与合同测试，晋升前换模型逐句核对。
+`ui/layout-drag` 输出 20、21 与“跟手的零件”签名段去掉 planned，证据补实现入口、合同测试、Smoke 与批准依据（`docs/specs/ui/layout-drag.md`）。
+
+晋升前换模型逐句核对（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）：输出 20 共 21 句、输出 21 共 18 句，与实现不符 0 句；没钉住 2 句、部分 5 句。处理：
+
+- 能用单元测试钉住的都补了（`11ce9d96c`）：退化矩形的高为 0、高为无穷、宽为负；追赶的中间帧（手算 113.9）；时间戳抖动时差 2ms 以内照写、容差设 0 就等；只剩追赶时还要帧；用过的帧循环停了再开始，第一帧是 `nominalMs`。
+- “宿主直接写在内容层上”是给宿主的说明，不是库的行为：从输出 20 删掉，留“宿主不用自己换算”。
+- “和会话一起用”的监听次序是对宿主的要求，没有单元测试：证据里写明由 `workbench-drag-cost.e2e.ts` 的每帧至多一次样式重算间接守着。
+
+## 结论
+
+完成：拖动控制器每场一个对象、判定几何与键盘停靠点拆成纯函数并有单元测试，卡片的逐帧步进与帧循环进了 nb-layout，工作台手感不变（e2e 与性能对照）。待开发者追认的两条在 [待确认清单](../../pending-confirmations.md)（新增导出、卡片位置换算的读法）。
