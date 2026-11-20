@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
+import {githubRepository, parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
 
 const HEAD = "a".repeat(40);
 const RELEASE_COMMIT = "b".repeat(40);
@@ -26,6 +26,7 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
     let pushedYet = false;
     const respond = (argv: readonly string[]): CommandResult => {
         const line = argv.join(" ");
+        if (line === "git remote get-url --push origin") return {code: 0, stdout: "git@github.com:notnotype/neuro-book.git\n"};
         if (line === "git rev-parse --abbrev-ref HEAD") return {code: 0, stdout: `${options.branch ?? "master"}\n`};
         if (line.startsWith("git merge-base --is-ancestor")) return {code: options.contains === false ? 1 : 0, stdout: ""};
         if (line === "git rev-parse HEAD") return {code: 0, stdout: `${head}\n`};
@@ -70,6 +71,15 @@ describe("命令行", () => {
     });
 });
 
+describe("仓库", () => {
+    it("从 origin 的推送地址取 owner/name；不是 GitHub 的报错", () => {
+        for (const url of ["git@github.com:notnotype/neuro-book.git", "ssh://git@github.com/notnotype/neuro-book", "https://github.com/notnotype/neuro-book.git\n", "https://github.com/notnotype/neuro-book/"]) {
+            expect(githubRepository(url), url).toBe("notnotype/neuro-book");
+        }
+        expect(() => githubRepository("git@gitlab.com:a/b.git")).toThrow(/不是 GitHub/);
+    });
+});
+
 describe("演练与触发的运行", () => {
     it("只看 HEAD 上已结束的手动演练，新的在前", () => {
         expect(rehearsalsOn([run({headSha: "c".repeat(40)}), run({event: "push"}), run({status: "in_progress", conclusion: null})], HEAD)).toEqual([]);
@@ -107,7 +117,9 @@ describe("发版", () => {
         expect(at("bun scripts/release/prepare.ts 0.15.0")).toBeGreaterThan(at("gh run view 1"));
         expect(order).toContain(`git tag v0.15.0 ${RELEASE_COMMIT}`);
         expect(at("git push --atomic")).toBeGreaterThan(at("git tag v0.15.0"));
-        expect(order).toContain("gh run watch 9 --interval 30 --exit-status");
+        expect(order).toContain("gh run watch 9 --interval 30 --exit-status --repo notnotype/neuro-book");
+        // gh 的每次调用都指明推送目标的仓库。
+        expect(order.filter((line) => line.startsWith("gh ")).every((line) => line.endsWith("--repo notnotype/neuro-book"))).toBe(true);
     });
 
     it("没有演练、不在 master、HEAD 不含 origin/master、标签已在：什么都不写就停", async () => {
@@ -145,7 +157,7 @@ describe("发版", () => {
         const pushRuns = [run({databaseId: 9, headSha: RELEASE_COMMIT, event: "push", createdAt: NOW})];
         const {command, lines} = fake({push: 128, remoteTag: RELEASE_COMMIT, pushRuns});
         expect(await command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: false})).toBe(true);
-        expect(lines()).toContain("gh run watch 9 --interval 30 --exit-status");
+        expect(lines()).toContain("gh run watch 9 --interval 30 --exit-status --repo notnotype/neuro-book");
     });
 });
 
@@ -155,7 +167,7 @@ describe("演练", () => {
         const {command, lines} = fake({runs: [run({databaseId: 4, createdAt: NOW})], dispatched});
         expect(await command.rehearse()).toBe(true);
         const order = lines();
-        expect(order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master"));
-        expect(order).toContain("gh run watch 5 --interval 30 --exit-status");
+        expect(order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master --repo notnotype/neuro-book"));
+        expect(order).toContain("gh run watch 5 --interval 30 --exit-status --repo notnotype/neuro-book");
     });
 });

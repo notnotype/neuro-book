@@ -56,7 +56,7 @@ describe("应用包", () => {
         expect(docs).toEqual(expect.arrayContaining(["package/docs/builtin/sdk/README.md", "package/docs/builtin/sdk/docs/exports.md", "package/docs/agent/addresses.md"]));
         // 内置表情包（docs/specs/agent/stickers.md 的内置来源）：两个包的清单与图片。
         const stickers = entries.filter((name) => name.startsWith("package/stickers/"));
-        expect(stickers).toEqual(expect.arrayContaining(["package/stickers/lyra/stickers.json", "package/stickers/lyra/开心.webp", "package/stickers/lyra-chibi/stickers.json"]));
+        expect(stickers).toEqual(expect.arrayContaining(["package/stickers/lyra/stickers.json", "package/stickers/lyra/kaixin.webp", "package/stickers/lyra-chibi/stickers.json"]));
         // 缺省 bot 的预设文件（docs/specs/bots/bots.md 输出 2、验收 1 的安装包形态）。
         const bots = entries.filter((name) => name.startsWith("package/bots/"));
         expect(bots.sort()).toEqual(["package/bots/lyra/avatar.webp", "package/bots/lyra/persona.md"]);

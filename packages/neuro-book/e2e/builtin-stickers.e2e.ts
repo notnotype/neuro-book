@@ -79,8 +79,9 @@ async function replyImageWidth(page: Page, text: string, raw: string): Promise<n
 }
 
 test("验收 13：全新的状态根里主创的槽列出内置星璃、回复显示成图；复制到我的、换图后同一写法显示我的那份，槽里内置的改写 id，表情包页标“被我的同名包盖住”", async ({page}) => {
-    const manifest = JSON.parse(await readFile(join(PACKAGE_ROOT, "src", "plugins", "stickers", "builtin", "lyra", "stickers.json"), "utf8")) as {stickers: Array<{file: string}>};
-    const names = manifest.stickers.map((item) => item.file.replace(/\.webp$/u, ""));
+    const manifest = JSON.parse(await readFile(join(PACKAGE_ROOT, "src", "plugins", "stickers", "builtin", "lyra", "stickers.json"), "utf8")) as {stickers: Array<{file: string; name?: string}>};
+    // 表情名写在清单里（文件名是 ASCII，见 desktop-payload 的 nonAsciiPaths），没写时取文件名。
+    const names = manifest.stickers.map((item) => item.name ?? item.file.replace(/\.webp$/u, ""));
 
     await script(":lyra/开心:");
     await openConversation(page);
@@ -107,7 +108,7 @@ test("验收 13：全新的状态根里主创的槽列出内置星璃、回复�
     const webpPath = join(stateRoot, "user", "stickers", "lyra", "kaixin.webp");
     execFileSync("bun", ["-e", `const pixel = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0)); await Bun.write(${JSON.stringify(webpPath)}, await new Bun.Image(pixel).resize(64, 64).webp().bytes());`]);
     // 页面随目录的通知更新：网格里的图换成新的，说明目录已经重扫。
-    await expect.poll(() => page.locator("[data-grid-key^='s:开心'] img").evaluate((element) => (element as HTMLImageElement).complete ? (element as HTMLImageElement).naturalWidth : 0)).toBe(64);
+    await expect.poll(() => page.locator("[data-grid-key^='s:kaixin.webp'] img").evaluate((element) => (element as HTMLImageElement).complete ? (element as HTMLImageElement).naturalWidth : 0)).toBe(64);
 
     await script(":lyra/开心:");
     await openConversation(page);
