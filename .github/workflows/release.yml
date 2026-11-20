@@ -299,7 +299,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    uses: ./.github/workflows/desktop-macos.yml
+    uses: ./.github/workflows/desktop-macos-build.yml
     with:
       tag: ${{ github.event_name == 'push' && github.ref_name || '' }}
 
