@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t43-models-ux",
+    "artifactId": "review",
+    "answerId": "20261120T052325052Z-034acab9",
+    "artifactVersion": 1,
+    "contentHash": "3adb01926ee6580d96642f5be2d075a9db7f29b6dedf3ce0333101f04bf891ce",
+    "submittedAt": "2026-11-20T05:23:24.139Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-roles": "grid",
+        "r1-effort": "seg",
+        "r1-shadow": "global",
+        "r1-add": "list"
+    },
+    "comments": {
+        "r1-effort": "样式还是可以优化一下"
+    },
+    "note": null
+}
