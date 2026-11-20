@@ -1,0 +1,204 @@
+# t43 计划前端部分设计审查（Sonnet 5.5，只读）
+
+### 1. 图标表放在 plugins/models/web/logos.ts，agent 插件的选择器拿不到它
+- 严重程度：重要；类别：不变量；位置：计划“packages/neuro-book/src/plugins/models/web/”的 logos.ts，与“agent/web/plugin.ts 与 session-host.ts：构造选择器的视图时带上图标”
+- 现象：选择器的 `ComposerModelView.icon/groupIcon`、`ComposerRoleView.modelIcon` 由 `agent/web/plugin.ts` 的 `modelOptions(snapshot)`、`roleOptions(snapshot)` 构造（packages/neuro-book/src/plugins/agent/web/plugin.ts:131-160）。计划却把 `iconOf(provider)` 放在 `models/web/logos.ts`。
+- 为什么是问题：`src/architecture.test.ts:121-126` 机检“跨插件的运行时导入只能指向对方的 shared/contracts.ts”，agent/web 运行时导入 models/web/logos.ts 会直接让该测试失败；而 shared 侧又不能引前端（同文件 :124 “共用代码引用了一侧的实现”），把 SVG 表塞进 `models/shared/contracts.ts` 会让后端 tsc 与服务端 bundle 带上 994 个图标的导入表。计划没有处理这个矛盾。另外 `iconOf` 要同步给出 `ComposerIcon`（视图是 computed 里同步构造的，session-host.ts:1905-1925 一带），而表是“动态导入成一个块”，异步到达后谁触发 computed 重算、到达前画什么，计划没写。
+- 如何核实：读 architecture.test.ts 的 violationsOf；grep agent/web 现有对 models 的引用，只有 `nbook/plugins/models/shared/contracts`（plugin.ts:22）。
+- 建议改法：把图标表放到跨插件允许的共享前端位置，例如 `src/ui/provider-icons/`（`src/ui/` 下已有 file-icons、brand，web 侧都能引，且没有被后端 tsc 包含）；表本身导出一个 `shallowRef` 式的“已加载”状态，加载完成前一律回退首字母方块，加载完才换（视图里的图标字段读这个 ref，自然触发重算）。同时写明后端 tsc（agent/web/plugin.ts 在 tsconfig.json 的 include 里）看不到 `*.svg?raw` 的模块声明，需要给 `?raw` 补一份 ambient 声明或把导入限制在 tsconfig.web.json 范围内的文件。
+- 补正（对第 1 条末句）：tsconfig.json 的 include 只有 `src/plugins/*/plugin.ts`、backend、shared，不含 `src/plugins/*/web`，所以“agent/web/plugin.ts 在 tsconfig.json 的 include 里”不准确；是否被后端 tsc 间接拉到取决于 `plugins/agent/plugin.ts` 是否导入 web 入口（plugin.ts:150 的注释自述“这个文件也由不带 DOM 类型的 tsc 检查”）。`?raw` 声明一点降为“实现时留意”，不影响第 1 条的结论。
+
+### 2. “--elevation-popover 取 --elevation-menu 的值”在 tokens.css 里是循环引用，在 nbook 暗色里会丢掉浮层的亮边
+- 严重程度：重要；类别：正确性；位置：计划“packages/nb-ui/”第一条（themes/nbook/vars.css 亮暗两处与 src/tokens.css）
+- 现象与依据：
+  - packages/nb-ui/src/tokens.css:73-75：`--elevation-popover` 是写死的四层投影，`--elevation-menu: var(--elevation-popover)`。“取现在 menu 的值”在这个文件里只能写成 `--elevation-popover: var(--elevation-menu)`，两条互相引用，计算值为 guaranteed-invalid，`box-shadow` 整条作废（没装主题的消费方浮层、Tooltip 全部没有投影）；要么得另写一个字面量，计划没说是什么。
+  - themes/nbook/vars.css:304-307 的 `--elevation-menu` 只有一份，注释写“明暗共用”（:298-303）；暗色块在 :443-447 单独给了加重的 popover（20%/35%/28% 和一圈 1px `--text-main` 10% 的亮边）。同一文件 :430 一带的注释写明理由：暗色里“压暗的边等于没有边”“环境投影加重”“层级撑不住”；tokens.css:59-64 记着“8% 的黑压在暗色底上等于没有影子……真回归”。把暗色 popover 换成菜单档，就把这两条一起退掉：菜单的外圈是 0.5px 的 `--shadow-color` 16%，在暗色底上不可见，投影 10%/24% 也比现在的暗色值轻。
+  - 定稿依据只有亮色：评审板 r1/shadow-menu.webp、shadow-popover.webp 都是亮色截图，没有暗色对比；决定 10 的“整档调轻”是在只看过亮色的情况下做的。
+- 影响面（这一档的消费者，grep `nb-ui-popover-surface`、`nb-ui-tooltip-surface`、`--elevation-popover`）：nb-ui 的 Popover、AnchoredPopover、Tooltip、DateInput；nb-agent-ui 的 AgentNoticeCard、AgentWizardFrame、AgentWizard 与 AgentDock 的收起条；markdown 插件的 MarkdownToolbar（bottom）、MarkdownCommentMargin 的批注卡片，以及经 AnchoredPopover 的 MarkdownSelectionMenu、ImageCard、StickerCard、CommentCard、TextPrompt、CommentLayer 与两个选择器。Dialog、AlertDialog、Drawer 用 `--elevation-dialog`，DropdownMenu、Select、ContextMenu、QuickPick、SuggestionMenu、ColorSwatches 已经是菜单档，不受影响。其中 AgentWizardFrame、AgentNoticeCard、AgentDock、批注卡片是常驻在页面里的“卡片”，不是弹出后一闪而过的气泡，它们靠这一档投影才和底色分开；t86 评审已经记过菜单档“在暖白的侧栏上几乎看不出浮起”（vars.css:301-303）。计划写“约 20 处一起变”但没有列出、没有逐个看过。
+- 如何核实：在 Lab 里用暗色主题打开 AgentWizardFrame、AgentNoticeCard、批注卡片与选择器，改变量前后各截一张（亮、暗各一）；或直接对比两档在 `--bg-main` 上的对比度。
+- 建议改法：(1) 把 nbook 的改动限定为亮色块，暗色块保持原值或另给一档“暗色菜单”；(2) tokens.css 写出字面量（或明说不改 tokens.css，只改 nbook 主题）；(3) 先把上面列的常驻卡片排除出“气泡档”：给它们换 `--elevation-raised` 或保留原值，只把弹出的气泡降档，而不是整档改；(4) 计划里写明需要亮暗各一份对照截图才能验收，而不是只说“亮色”。若开发者就是要全部变轻，把“暗色可能看不出浮起”作为已知代价写进决定 10。
+
+### 3. 网络页不能经 SettingsRow 写 nbook.models 声明的“自动更新模型目录”（写入授权 denied）
+- 严重程度：重要；类别：正确性；位置：计划“plugins/network/”的 web 一条（“自动更新模型目录”是 `nbook.models` 的设置项，`section` 指向 `nbook.network`）
+- 现象：网络页是 `nbook.network` 贡献的 page 分区，页面里的 `SettingsRow` 经页面所属插件的配置服务写设置（SettingsRow.md：`settings` 属性“页面传自己插件的”）。而 docs/specs/settings/configuration.md 输出 11：“`update` 只写调用方插件自己声明的项……调用方是声明者（否则 `denied`）”；settings-window.md:244、264 也写“page 分区经自己插件的配置服务写自己声明的项”“别的插件的页面只能写自己声明的项”。`section` 指向别的插件的分区只在 list 分区里成立（settings-window.md:166 的“指向 page 分区的项不在列表里画，由页面负责”），页面要画就得写它，写它就是 `denied`。
+- 为什么是问题：r3 稿里“自动更新模型目录”开关是页面里的一行，计划的做法会让这个开关点了写不进去（失败通知“设置没有保存”），而且 SettingsRow 的“已修改圆点、恢复默认”也走同一条写路径，一并失效。
+- 如何核实：读 configuration.md 输出 11、19 与 settings-window.md:166、244、264；对照 `SettingsRow.vue` 的 `run()` 经 `props.settings.update(...)`。
+- 建议改法：把设置项声明在 `nbook.network`（例如 `nbook.network/catalogAutoUpdate`），`nbook.models` 的服务端只读它（读别的插件声明的项没有限制，写才有）；或者整行不用 SettingsRow、改成经 `nbook.models` 远程合同写。前一种更省：开关、恢复默认与“已修改”都沿用现成的行。计划里还要写明 `nbook.models` 对 `nbook.network` 设置的读取方向，避免出现 models 依赖 network 的静态环（architecture.test.ts 只许跨插件运行时导入 shared/contracts.ts，读设置键本身只要引键声明，需要核对 `settingsKey` 的用法）。
+
+### 4. 代理地址“不收用户名密码”与开发者确认的第 3 轮稿、与系统代理的常见写法冲突
+- 严重程度：重要；类别：正确性；位置：计划“shared/settings.ts”（`url` 只收 http、https、socks5、socks5h，不收用户名密码）；README 决定 20；决定 16
+- 现象：开发者在 review v3 确认的“网络”页（artifacts/review/r3/network-custom.webp）里，“代理地址”行的说明文字写的是“http、https 或 socks5，可以带用户名和密码”，决定 16 以“按第 3 轮稿做”确认。计划又在决定 20 里自己定“代理地址不带用户名密码”（作者定、开发者没有异议），实现了就和已确认的稿面直接矛盾：说明写“可以带”，输入带了却被拒。
+- 为什么是问题：(a) 稿面与实现对不上，是开发者确认过的文案；(b) 带认证的 HTTP/SOCKS5 代理（公司网关、付费线路）很常见，拒收等于这类用户只能用“跟随系统”、再靠环境变量，而计划又要把环境变量里的地址原样读进来（见第 5 条），行为不一致；(c) 计划自己的理由只有一句“设置文件里不放凭据，信任边界同 models/service.md”，但 models/service.md 的凭据是放在凭据库里、设置里只有 `apiKeyEnv`，说明凭据可以有存放处，没有论证过“代理凭据也必须这样”。
+- 如何核实：看 r3/network-custom.webp 的“代理地址”说明；读 plan 与 README 决定 20。
+- 建议改法：二选一并写进决定：A) 代理凭据另存：设置里只放不带凭据的地址，用户名密码存凭据库（同服务商密钥），页面多一行“代理密码”（secret 项 `secret: true`，configuration.md 输出 20 已有机制），中继按上游 URL 拼接；B) 第一版不收凭据，那就必须同时改 r3 稿里这行说明（去掉“可以带用户名和密码”）、并在输入框里校验到 `user:pass@` 就报明确的出错文字（不是静默丢弃）。无论 A 或 B，都要把这条从“主 Agent 定”改成向开发者确认的决定，因为它改了已确认稿面的文案与能力。
+
+### 5. “现在用的是 <系统代理地址>”可能把环境变量里的代理密码显示给用户并写进日志、快照
+- 严重程度：重要；类别：安全与性能；位置：计划“backend/proxy.ts：describeSystemProxy”与远程合同 `systemProxy()`；web 页面“跟随系统时行下信息色写出现在用的代理与来源”
+- 现象：`describeSystemProxy(env)` 读 `HTTPS_PROXY` 等，返回 `{url, source}`，页面把 `url` 原样写在行下（r3 稿：“现在用的是 http://127.0.0.1:7890（来自环境变量 HTTPS_PROXY）”）。环境变量里的代理地址常带 `http://user:pass@host:port`；`os-proxy-config` 读到的系统设置同样可能带。
+- 为什么是问题：密码会出现在 DOM、远程合同返回值、本机服务端日志与诊断、截图里；这和“设置文件里不放凭据”的立场自相矛盾。检测面板（“测试代理”）失败时返回的“失败的类别与原文”（计划写“原文”）里也可能带出代理 URL（连接错误文本常含它）。
+- 如何核实：`HTTPS_PROXY=http://u:p@127.0.0.1:1 bun -e` 里 fetch 一次，看错误文本是否含 `u:p@`（Bun 的 ProxyConnectionRefused 一类文案在不同版本会不会带 URL，要实测）。
+- 建议改法：契约里只给 `{origin: "http://127.0.0.1:7890", hasCredentials: boolean, source}`，`url` 不出后端；错误原文经 `models/service.md` 已有的遮盖函数处理并加一条“把代理 URL 的 userinfo 遮成 ***”的用例；web 页的“现在用的”也写 `origin`，带凭据时在句尾加“（带认证）”。这条要进验收映射的 `network` 插件测试。
+
+### 6. 滑块换成分段按钮后，“停下才发一次”的约束没了；方向键一按就把“跟随”改成“明确选择”并逐次写设置
+- 严重程度：重要；类别：不变量；位置：计划“AgentRoleModelPicker.vue”（思考档 raised 分段、跟随时 `tentative`）；packages/nb-agent-ui/src/vue/composer/AgentRoleModelPicker.vue:78-97
+- 现象：现有选择器给滑块加了 200ms 的“停下才发”（`THINKING_SETTLE_MS`），注释写着原因：“一格一次写设置，多次写入的先后没有保证，停下时可能落在中间那一档”。计划换成 SegmentedControl，没提这条约束。SegmentedControl 的方向键行为是“选中随焦点走”：packages/nb-ui/src/components/controls/SegmentedControl.vue:127-142 在 `handleKeydown` 里对目标项直接 `selectOption`，每按一次发一次 `update:modelValue`；选择器的 `select-thinking` 又直接映射成 `thinking.set` → `changeSettings({effort})`（session-host.ts:1717-1719）。键盘用户在“关闭、低、中、高、极高”上连按 4 次方向键，就是 4 次并发写，落点可能不是最后一次。
+- 同一处还有语义问题：跟随状态下 `tentative` 那一档只是“显示默认”，键盘用户用方向键“看一眼邻档”就已经把会话钉成明确选择（`core.effort` 从 null 变成具体值），要再点“用 X 的默认”才能退回。点击已画细框的那一档同理：SegmentedControl 的 `selectOption` 不去重（:112-117），要选择器自己决定“点的就是默认值那一档”时发不发；老代码是 `level !== props.thinking` 才发，在新语义下 `thinking` 为 null，不会被挡，但若实现者把 `modelValue` 绑成显示用的“有效档位”再沿用旧的去重，就发不出去，用户没法把默认值钉成明确值。计划没写这几条。
+- 如何核实：读上面两处；在 dom 测试里对 SegmentedControl 连发 ArrowRight 数次，数 `update:modelValue` 次数。
+- 建议改法：选择器内给分段按钮包一层与旧滑块同样的合并（键盘连按只发最后一个，或把 SegmentedControl 的方向键改成“只移焦点、回车或空格确认”的一个 `selectOnFocus?: boolean` 开关——后者影响所有调用方，不建议）；跟随态下去掉 tentative 档与方向键的联动：方向键移动焦点不提交，点击或回车才提交；把“点中默认那一档也发”写进验收（dom 测试：跟随态点 tentative 档，期望发出一次 `select-thinking`）。
+
+### 7. 思考档的四种状态只给了名字，没有定义画法与读屏；跟随态“有效档位”该取夹取后的值没说
+- 严重程度：建议；类别：正确性；位置：计划“推理档的数据流”“AgentRoleModelPicker.vue”
+- 现象：
+  - `EffortLevels` 有 `declared`（一档时“画成固定”）、`generic`、`none` 三种加跟随/明确两种；计划只说“按 effortLevels 画四种状态”。r1 稿 effort-states.webp 里 none 是整条灰掉加一句“这个模型不支持思考”，generic 是“?”图标，只有一档是单个固定按钮加“只有这一档”。这些文字与图标的来源（`ComposerView` 没有对应字段）、读屏文字（整组 `aria-disabled` 的 radiogroup 没有“为什么停用”；SegmentedControl 根会透传 `aria-describedby`，所以可行，但计划没写）、“?”的悬停说明都没有定义；nb-agent-ui 的文案要走 `useAgentText` 的目录，两种语言都要补键。
+  - `thinkingFollow.level` 是 role 的原始档位还是夹取后的？角色上设了“极高”、模型只有 low/high 时，原始值不在 `levels` 里，分段按钮没有哪一档能画 tentative；内核的夹取在 omp.ts，选择器看不到。计划统一了 `EffortLevels` 的函数，但没有统一“夹取后显示的有效档位”（QaPage 里已经有一份自己的 `clampThinking`，nb-story/src/web/pages/QaPage.vue:269）。
+  - r3 稿 picker-raised-models.webp 里在模型库页直接选了模型（触发器只写“DeepSeek V4 · 高”，没有角色），行尾仍写“主力的默认”；按计划 `thinkingFollow.source` 在直接选模型时应是 `"model"`，文案该是“模型的默认”，稿与计划不一致，实现时会被当成回归。
+  - 直接选模型且模型没有默认档（“不发”）时，`level` 为 null：哪一档有细框、行尾写什么，计划没写。
+- 建议改法：在 `ComposerView` 里把这些写成视图字段（`effortNote?: Text`、`generic: boolean`）而不是让组件猜；`thinkingFollow.level` 明确定为“夹取后的有效档位”，由宿主（session-host）用与内核同一个夹取函数算；补 `none/单档/generic/跟随/明确` 五行的 dom 测试，每行断言可访问名称与描述。
+
+### 8. ComposerIcon 用 v-html：能用，但应收窄成 “mask 与 image”，而且 per-model 带图标的字段设计没定义
+- 严重程度：建议；类别：代码质量；位置：计划“类型（types.ts）”：`ComposerIcon = {kind: "svg"; svg: string} | …`、`ComposerModelView.icon?`、`groupIcon?`、`ComposerRoleView.modelIcon?`
+- 现象：
+  - 边界：nb-agent-ui 与应用无关，宿主把 SVG 原文塞进视图、组件 `v-html` 写进 DOM，等于让包信任任意宿主给的标记。本仓库已有先例（neuro-book/src/ui/file-icons/FileIcon.vue:14-15 的 `v-html`，但那是应用自己的组件、表来自生成脚本）；nb-agent-ui 里目前没有 `v-html`，规范里也没有这类约定。真正的 `<svg>` 里可以带 `<script>`、事件属性；计划只写了“同名 .md 写明调用方约束”，没有机检。另外 Vue 的 `v-html` 不会去重 `id`，彩色版图标里的渐变 `id="lobe-icons-…"`（research/magpie.md 已指出这是 lobehub 导出物的特征）在同一页面出现多次时，如果第一份所在的子树被 `display:none`（折叠的分组、关着的 Tab），后面的同 id 引用就画不出渐变。
+  - 更窄的做法：Magpie 的做法就是“单色版用 CSS mask（随主题着色），彩色版用 `<img>`”（research/magpie.md 第 1.1 节末）。`ComposerIcon` 改成 `{kind: "mask"; src}`（单色，用 `mask-image:url(...)` 加 `background:currentColor`）与 `{kind: "image"; src}`（彩色与上传图），`src` 是 data URL 或打包后的资源 URL，组件不再解析标记，也没有 id 冲突。上传的图本来就走 `image`，所以同一套代码路径。代价：mask 要求 SVG 是单色图形；lobehub 的单色版满足。
+  - 字段设计：视图里同一服务商下的几百个模型各带一份 `icon`（计划同时有 `icon?` 与 `groupIcon?`）：`icon` 是什么的图标没写——服务商图标重复 587 次、还是“系列”图标？若是前者就是多余的（按组取 `groupIcon` 即可），若把 SVG 原文按模型各存一份，587 个视图对象虽然引用同一个字符串，但 Lab 场景、序列化到测试快照、`v-html` 的 587 次解析都变大；若是后者，计划没有定义“系列图标”的来源（模板表只有服务商一级）。
+- 如何核实：grep nb-agent-ui 的 `v-html`（无）；看 FileIcon.vue 与 magpie.md 第 1.1 节；在 happy-dom 里渲染 600 行带 2 KB SVG 的列表量一次。
+- 建议改法：采用 mask/image 两种；删掉模型级 `icon`，保留 `groupIcon` 与角色的 `icon/modelIcon`；若坚持 `svg`，就在类型注释与 .md 里写明“只收宿主打包的静态资产”并在组件里加一道最小的白名单检查（以 `<svg` 开头、不含 `<script`、`on*=`）。
+
+### 9. 空白模板（自定义服务商）的创建流程没有了：对话框里的“名称、地址、协议”表单被 `addProvider({template, region?})` 取代，但空白模板没有地址
+- 严重程度：重要；类别：正确性；位置：计划“AddProviderDialog”“`addProvider({template, region?})`”“templates.ts 的 extra（三种空白协议）”
+- 现象：现有对话框（AddProviderDialog.vue:68-72、101-117）为自定义服务商弹出表单，要求名称、接口地址（校验 http/https 且能解析）与接口格式，才发 `add-custom`。计划把它换成“选模板即建”：`addProvider({template, region?})` 写 `template`、名称、`followSource: true`，“地址与协议不写，跟随模板”。空白模板 `blank-openai`、`blank-anthropic`、`blank-gemini` 的模板里没有地址（`extra.baseUrl` 对空白模板写什么？计划没说），所以新建出来的服务商地址为空、无法拉取模型、`online` 刷新必然失败。
+- 为什么是问题：中转站用户（计划里最常见的自定义场景）添加后第一眼是一个失败的刷新错误加一个空表单，且“添加即加入全部模型”对它不成立。名称也是空白模板的必填项（“空白 OpenAI 兼容”三家同名？），见第 10 条。
+- 如何核实：读 AddProviderDialog.vue 与 settings-pages.md 输出 3（“最后一项是‘自定义 OpenAI 兼容服务商’”“选中即添加”）。
+- 建议改法：计划写明空白模板的创建分支：选中空白模板后在对话框里进第二步（名称、地址、协议三栏，同现状的校验），确认才调 `addProvider({template, name, baseUrl})`；`addProvider` 的参数因此要有 `name?`、`baseUrl?`（独立设计 evidences/independent-design-opus.md:195 的 `addProvider({template, name?, baseUrl?, api?})` 已经想到了）；有地区的模板的地区也在这一步选，而不是“选中后在详情里选”（见第 12 条）。
+
+### 10. 同一模板可以建多家，但名称不要求唯一：选择器按组名合并、列表与角色下拉分不清是哪一家
+- 严重程度：重要；类别：正确性；位置：计划“ProviderConfig.id 由名字生成……openrouter、openrouter-2”“复制一份”；packages/neuro-book/src/plugins/agent/web/plugin.ts:131-143；AgentRoleModelPicker.vue:99-109
+- 现象：计划让 id 由名字生成并加后缀去重，但 `name` 本身没说唯一，复制一份时默认名也没说。选择器的模型库按 `group` 字符串分组（`groups` 里 `new Map<string, …>()` 以组名为键），`modelOptions` 把 `group: provider.name` 传进去：两家都叫“OpenRouter”的服务商，其模型会被合并进同一个分组、同一个标题，图标与个数也合并。`key` 是 `${provider.id}/${model.id}` 所以不会选错，但用户分不出模型属于哪个账号（一个付费一个免费、一个直连一个中转，这正是多开的原因）。ProviderRail、AllModelsView 的“服务商”列、角色页绑定模型的下拉也是按名称展示。
+- 为什么是问题：计划把“同一模板建多家”“复制一份”做成一等功能，但没有任何一处防止或区分重名；这是 UI 的一条硬约束，不能留给后端。
+- 如何核实：构造两个同名服务商的快照喂 `modelOptions`，看 `groups` 的结果（只有一组）。
+- 建议改法：创建与改名时强制名称唯一（重名自动加“ 2”、“ 3”后缀，与 id 的后缀一致；改名撞名时原位报错，不写）；选择器分组改用 `provider.id` 作键，组名只做标题；复制一份的默认名写“<原名> 副本”。在 `ProviderRail`、角色页下拉的 dom 测试里各加一条两家同名的用例。
+
+### 11. 几百个模型的前端处理只覆盖了选择器和“管理模型”，服务商详情、全部模型页、检测全部没有
+- 严重程度：重要；类别：测试；位置：计划“不做与风险”“几百个模型的界面”；决定 2 的末句；ProviderDetail.vue:263-283、AllModelsView.vue:41
+- 现象与依据：
+  - 决定 2：“服务商详情与选择器的模型列表按系列分组、搜索只渲染命中项，必要时虚拟列表；‘检测全部’先确认要检测的个数并限并发。”计划里这几句只剩选择器（“超过 30 个的组默认收起，搜索时只渲染命中项”）与“管理模型”。
+  - 添加 OpenRouter 后详情页的模型区就是 587 个启用的模型：现有 ProviderDetail 的系列分组默认全部展开（`folded = new Set()`，ProviderDetail.vue:169），每行是 ModelRow（285 行的组件：开关、能力图标、检测按钮、编辑按钮、角色小标，含 Tooltip）。一次渲染上千个组件，且详情页没有搜索框（只有 ManageModelsDialog 有）。AllModelsView 是一张 `<tr v-for>` 的全量表（587 行加其它服务商），同样没有分页与搜索。
+  - “检测全部”（`checkAll`，core.ts:526-541）按启用模型逐个发真实请求，并发有上限但总量不设限：587 个收费请求，且没有确认；决定 2 要求的“先确认个数”在计划里被丢了。
+  - 风险一节只写了“第 7、8 片用 600 个模型的场景量打开与搜索的耗时”，没有预算（多少毫秒算过）、没有失败后的做法。
+- 如何核实：读上述三个组件；在 Lab 里用 600 个模型的 fixture 打开详情页，量首屏时间与 DOM 节点数。
+- 建议改法：(1) 详情页：系列分组默认折叠（有搜索时展开命中组），顶部加搜索框，ModelRow 在折叠组里不渲染；超过 N（例如 200）个时再上虚拟列表，N 与预算写进计划；(2) AllModelsView 加搜索与按服务商折叠；(3) “检测全部”超过 20 个时先弹确认（写明个数与会产生的请求）；(4) 把 600 个模型的耗时预算写成验收（例如打开详情页 < 300 ms、搜索一次 < 100 ms，happy-dom 与 Lab 各一次），而不是“量一次”。(5) 选择器里当前选中的模型所在的组要自动展开，计划只说“超过 30 个的组默认收起”，当前模型在 OpenRouter 的组里时打开模型库看不到它。
+- 补充（第 6 条的证据）：现有 dom 测试把“停下才发”和“单档不显示”都固定了——AgentConversationComposer.dom.test.ts:181-194 的两条用例分别断言滑块连发两次只发最后一次、`thinkingLevels: ["high"]` 时没有 `[data-model-picker-thinking]`。新设计下这两条都要改写（后一条与决定 6“控件不再隐藏”直接相反），计划的验收映射只写了“新增 `AgentRoleModelPicker.dom.test.ts`”，没写这两条旧用例怎么处理；不改会让新实现被旧用例判红，改掉又没有变异检查就容易把“合并”的断言一起丢了。
+
+### 12. 窄宿主与英文下的版式没有规则：两列角色行、思考行（五档加“用主力的默认”）放不下时怎么办
+- 严重程度：重要；类别：正确性；位置：计划“版式照第 3 轮的稿”“验证：Lab 场景截图（亮色、390 宽、英文）”
+- 现象：面板宽度取输入框宽度（AgentRoleModelPicker.vue:152-155 的 `anchor.getBoundingClientRect().width`），带角色的选择器用在侧栏与停靠的窄栏里。第 3 轮稿（r3/picker-raised.webp）是 620px 左右的面板：两列每列约 290px，一行里放“角色图标、角色名、服务商图标、绑定的模型名、档位”；思考行放“思考图标、五个等宽档位、行尾‘主力的默认’”。
+  - 估算：面板 340px 时每列约 150px，一行至少要 14（角色图标）+ 40（“极轻量”）+ 14（服务商图标）+ 85（“DeepSeek Flash”）+ 24（“· 低”）+ 间距 ≈ 190px，放不下；模型名是这一行的信息本体，截断掉就失去意义。思考行：5 段 × 44px + 思考图标 20 + 行尾“用主力的默认”约 90px ≈ 330px，加上 20px 的内边距超出 340px；英文档位（Minimal、Medium、Extra high）每段至少 60px，5 段就 300px，右边的提示没位置。
+  - 计划的验证只写“截图（390 宽、英文）”，没有规则回答“放不下怎么办”：是两列退一列、模型名截断、还是提示换到分段按钮下面？没有规则的验收等于只验“没崩”。
+- 如何核实：在 Lab 里用 `vp=360x…` 与英文文案摆第 3 轮稿的草稿组件（.worktree/w00032-t43-drafts/…/models-ux/），量每行的 scrollWidth 与 clientWidth。
+- 建议改法：写进计划与 `.md`：(1) 面板内容宽 < 480px 时角色改单列（用容器查询而不是视口媒体查询，面板在 portal 里，视口宽度不等于面板宽度）；(2) 思考行拆成两行：上行“思考图标 + 分段按钮”（分段占满宽），下行右对齐放“X 的默认／用 X 的默认”；(3) 各档位文本过长时给 SegmentedControl 加 `title`（它已支持，`aria-label` 取 title）；(4) 验收写“面板宽 340px 时每行无横向溢出”，用 e2e 里读 `scrollWidth <= clientWidth`（Lab 场景 e2e 已经有读尺寸的先例）。
+
+### 13. Spec 改动清单漏了 settings-pages.md 的输出 1、2、7、8、9、11，且“地区”没有数据位置
+- 严重程度：重要；类别：文档；位置：计划“Spec 与文档改动”表的 settings-pages.md 行；“AddProviderDialog：有地区的模板选中后在详情里选地区”
+- 现象：计划只改输出 3、4、6、10、13 并新增标题区。对照 docs/specs/models/settings-pages.md：
+  - 输出 1（列表）：每项一行“名称，行尾启用了几个模型”——添加即全部加入后这一格是几百；列表条目要不要带图标（计划“添加”对话框与选择器带图标，列表没提）；
+  - 输出 2（开箱引导）：“本机端点也在目录里、中转站选自定义”——“自定义”这个说法被模板化取消，文案必须改；
+  - 输出 7（停用或移出被角色用着的模型要行内确认、列出受影响角色）：新增“移出”（`excluded`）与“关掉自动加入”之后，哪些操作要确认没写；
+  - 输出 8（检测）：见第 11 条；
+  - 输出 9（编辑模型：目录模型的能力与单价来自目录、不能改，只写用户改过的字段）：来源模型（含在线目录来的）是否仍不可改、改了写到 `models` 的覆盖里，计划没说；
+  - 输出 11（全部模型）：见第 11 条；
+  - 输出 12：计划按决定 19 保持，但“复制一份”要不要进列表条目的右键菜单、键盘怎么触发没写。
+- “地区”：`templates.ts` 有 `regions?: Array<{id,label}>`，`addProvider({template, region?})` 收 `region`，`ProviderConfig` 却没有 `region` 字段，也没有 `region → baseUrl / catalog` 的映射，界面“在详情里选地区”写到哪里？是写成 `baseUrl` 吗？那就和“恢复模板地址”冲突（地区本身就是不同的模板地址）。
+- 如何核实：逐条对照 settings-pages.md 的输出 1–18 与计划的 `ProviderConfig`。
+- 建议改法：Spec 清单补齐上述各条，并把“地区”定成：`ProviderConfig.region?: string`，模板表给每个地区一个 `{id,label,baseUrl,catalog?}`，详情里的下拉切换地区等价于改基地址，“恢复模板地址”恢复到当前地区的地址；地区在创建时就选（第 9 条）。
+
+### 14. 网络页：只有一个 `proxy` 对象设置，稿面却是两行；“现在用的”“测试”“现在更新”三行 SettingsRow 画不了，只能抄样式
+- 严重程度：建议；类别：代码质量；位置：计划“shared/settings.ts（`nbook.network/proxy = {mode, url?}`）”“web/：行用 SettingsRow；……页面自己画”
+- 现象：
+  - SettingsRow 的必填属性是 `settings` 与 `setting`（SettingsRow.vue:30-31），行的“已修改圆点、恢复默认、沿用标签”都围绕一个设置项。r3 稿的“代理方式”和“代理地址”是两行，计划却只声明一个对象设置：第二行（地址）不是任何一个设置，要么手画（脱离行的圆点与恢复默认），要么把两行塞进同一个对象的一个控件。“恢复默认”会把 mode 与 url 一起删（r3-custom 稿里圆点与恢复箭头出现在“代理方式”行，地址行没有）。
+  - “测试代理”“现在更新”两行不对应设置，SettingsRow 用不了；稿面里它们的右侧是普通按钮，行下有状态文字（“通了：出口 IP …，286 ms”绿色、“现在用的是 …”蓝色）。SettingsRow 没有“行下状态”的槽（只有 `reasons` 的图标加 Tooltip 与覆盖提示）。先例是 agent/web/components/ProfileDetail.vue 里“同 SettingsRow”的整套重抄（注释 :188、:226），样式 scoped 在组件里，无法复用。
+  - 状态文字没有 `aria-live`：点“测试”后结果出现，读屏不会念。
+- 如何核实：读 SettingsRow.vue 的 props 与 SettingsRow.md“数据”；对照 r3/network-*.webp。
+- 建议改法：声明成两个设置项 `nbook.network/proxyMode`（`system|custom|direct`）与 `nbook.network/proxyUrl`（只在 mode 为 custom 时画），两行都能用 SettingsRow；“测试”“现在更新”抽一个 ui 层的 `SettingsActionRow`（只有标题、说明、右端动作、行下一句状态与 `aria-live="polite"`），样式与 SettingsRow 共享一份变量，而不是再抄一遍；同名 `.md` 与 Lab 场景。
+
+### 15. SegmentedControl 加 `variant` 与 `tentative`：外观变体可以，`tentative` 的名字与细框语义要重想；指示块的过渡没定
+- 严重程度：建议；类别：代码质量；位置：计划“packages/nb-ui/ SegmentedControl”
+- 现象：
+  - `variant: "raised"` 是外观变体（和 `Tree` 的 `surface`、Button 的 `variant` 同类），可以放在通用组件里；但 raised 的指示块是面板色加投影、字用强调色，要同时改指示块、选中文字、分隔线隐去与 `will-change` 的阴影过渡（SegmentedControl.vue 的指示块写死 `bg-[var(--accent-main)]` 与蓝色阴影），实现量不是“加一个类”。
+  - `tentative`（“当前档只画细框，表示还没定”）带的是“值来自默认、尚未明确选择”的语义，名字像业务词；词表（ui-development-spec.md 4.3）要求同一个意思只有一个名字，设置行里同义的概念叫“沿用”（`inherited`）。若放进通用组件，应当叫通用的 `inherited`/`provisional`，并写进 `.md`：它只改外观，`aria-checked` 仍标当前档，不能让读屏听不出“这是默认值”——需要组件接受一个 `inheritedLabel` 之类的文字，或由调用方用 `aria-describedby` 指向“主力的默认”那句（选择器已经有这句话）。
+  - 指示块是绝对定位的滑块（`selectedIndex >= 0 && !wrap` 才画）；`tentative` 只画细框时，从“细框”到“实心浮起”的切换是平移、淡入，还是直接换，计划没写；dom 测试读不出过渡，Lab 要看。
+  - 规范（ui-development-spec.md 4.2）里 SegmentedControl 的职责是“换模式”和“三项以内的表单单选”；这里是 5 档有序量，与原来的滑块职责接近。不是反对，但应在 `.md` 写明“有序档位用 raised，且档数超过 5 时不适用”。
+- 建议改法：`variant` 保留；`tentative` 改名 `inherited` 并只做外观，a11y 由调用方给；在 SegmentedControl.md 的“状态”一节与 Lab 场景里各加 `raised`、`raised + inherited`、`readonly` 三格。
+
+### 16. ComposerView 加 `effortLevels`、`thinkingFollow`、动作 `thinking.reset`：与旧的 `thinkingLevels`/`thinking`、`applyComposerAction` 和其它宿主的关系没写
+- 严重程度：重要；类别：接口与合同；位置：计划“类型（types.ts）：`ComposerView` 加 `effortLevels`、`thinkingFollow`”“推理档的数据流：动作 `thinking.reset` 写 `{effort: null}`”
+- 现象：
+  - `ComposerView` 里已经有 `thinkingLevels: string[]` 与 `thinking: string | null`（types.ts:434-435）。计划新增 `effortLevels`（含 `declared/generic/none` 与档位列表）而没说旧字段保留还是删除：保留就有两份同义的数据（`thinkingLevels` 是否等于 `effortLevels.levels`？不一致谁优先），删除就是破坏 nb-agent-ui 的公开类型。
+  - 这个视图不止一个宿主：nb-story 的 QaPage（QaPage.vue:279-280，自己维护 `thinkingLevels`、用 `applyComposerAction` 更新视图）、Lab 的三处夹具（composer.scenes.ts、view.scenes.ts、wizard.scenes.ts、data.ts）、StatusLinePage.vue:64、`context.ts:46` 的空视图、不带角色的 `AgentModelPicker`。若新字段是必填，上面这些全部类型报错；若可选，这几个宿主和不带角色的选择器仍是旧语义，选择器要同时支持两套输入。计划两种都没选。
+  - `applyComposerAction`（composer-actions.ts:100-108）是包导出的纯函数，给“自己持有视图状态”的宿主用，现在处理 `thinking.set`（写 `thinking`）。新增 `thinking.reset` 之后它要处理（写 `thinking: null` 并重算 `thinkingFollow`），否则 QaPage 与 Lab 里点“用 X 的默认”没反应；而 `thinkingFollow` 的重算要知道默认档，纯函数里没有这个信息。计划没有列 composer-actions.ts，也没有为这个函数加用例。
+  - `AgentViewAction` 是个联合（types.ts:640-655），新增 `thinking.reset` 对所有按类型 switch 的宿主是新分支；其它宿主不处理就是静默吞掉，没有 `never` 兜底。
+- 如何核实：grep `thinkingLevels`（8 个文件）、`applyComposerAction`；读 context.ts:46。
+- 建议改法：新字段全部可选；`effortLevels` 缺省时从 `thinkingLevels` 推出（`declared`，少于一档为 `none`），旧宿主不改；`thinkingFollow` 缺省表示“没有跟随概念”（不画“用 X 的默认”）；`thinking.reset` 只有带 `thinkingFollow` 的宿主才会收到，在 .md 与类型注释里写明；`applyComposerAction` 处理 `thinking.reset` 时清 `thinking`、保持 `thinkingFollow` 原样（默认档由宿主在下一轮视图里给），补一条用例。
+
+### 17. 图标：data URL 存进设置的做法可行，但缺上限的口径、复用点、图标选择范围与角色图标类名的生成
+- 严重程度：建议；类别：代码质量；位置：计划“icon?: {kind: "image"; data: string} …≤48 KB”“logos.ts”“上传图标的缩放”“RoleConfig.icon（lucide 类名）”“RolesPage：自建角色可挑图标”
+- 现象：
+  1. “≤48 KB”是原始字节还是 data URL 字符串没写：base64 后膨胀约 33%，48 KB 的图是 64 KB 的 JSON 字符串。设置里放上限为字符串的 schema（`maxLength`）与浏览器端缩放（目标边长、输出格式：PNG 与 WebP 的取舍）必须用同一个口径，否则“上传成功但写入被 `invalid-value` 拒绝”。计划只写了“浏览器 `createImageBitmap` 加 `OffscreenCanvas`”，没有边长、没有“缩完仍超上限时怎么办”（报错文字？降质量重试？）。
+  2. 复用：“按魔数判类型”仓库里已有现成实现 `nbook/shared/image-type.ts` 的 `sniffStillImageType`（PNG、JPEG、WebP，不含 GIF、SVG，正好是计划要的三种）；封面、主题素材、bots 头像（plugins/bots/backend/avatar.ts）、表情包都已经这样做，计划里没有引用，容易再写一份。
+  3. 先例与代价：bots 头像、表情包都是“文件加路由”而不是写进设置；独立设计（evidences/independent-design-opus.md:388-393）也是这样做的，计划以“少一条路由”为由换成 data URL。代价没写全：用户层设置文件（`settings.json`，用户也会在“设置文件”视图里读写它）里会出现一行 64 KB 的 base64；每次任何设置写入（含无关的主题）都要重写整文件、重新解析一次；设置文件视图在 Monaco/CodeMirror 里显示一行 64 KB 会卡；快照每次推送带上所有服务商的图标（10 家自定义图标就是 640 KB 每次 `changed`）。可行，不阻断，但至少要把“服务商列表快照只带图标引用，data 只在详情里按需取”写进设计，否则“快照随全部加入变大”的预算（计划已提）会被图标吃掉一部分。
+  4. 内置图标的选择范围：弹出的“内置”是只列 logos.ts 里模板用到的几十到一百个，还是 994 个全部？前者没有搜索也够用，后者要搜索与按需加载分页；计划没写，`logos.ts` “按需动态导入成一个块”只对前者成立。
+  5. `RoleConfig.icon` 存“lucide 类名”：UnoCSS/Tailwind 的图标是按源码里的字面量类名生成的（packages/nb-ui/src/tailwind.css:31-70 的说明，动态拼的类名需要 `@source inline`）。`i-lucide-${name}` 拼出来的名字在产物里没有样式，选择器与角色页显示为空白。BUILTIN_ROLE_ICONS 与“自建角色可挑的图标”必须是一张写字面量类名的表（`{feather: "i-lucide-feather", …}`），schema 的 `icon` 收表里的键而不是任意字符串，表放在 nb-agent-ui 之外的宿主里并被 Tailwind 扫到。nb-models 是与应用无关的包，不应持有 `i-lucide-` 前缀的类名。
+  6. 商标：research/magpie.md 第 1.1 节明确写了“MIT 只覆盖 lobehub 的图形文件，品牌标志的商标归各厂商……NeuroBook 若打包同一批图标要自己判断商标风险”，计划的技术选型表只写了“MIT”，没有记录这一判断（开发者是否知情）。
+- 建议改法：1) 写明“≤48 KB 指 data URL 字符串长度”，缩放目标边长（如 128px）与超限处理；2) 引用 `sniffStillImageType`；3) 列表快照里 `icon.data` 换成内容哈希、详情按需取，或直接改回文件加路由（有 bots 头像的先例，代码可抄）；4) 定内置图标选择范围；5) 角色图标用键加字面量表；6) 把商标判断作为一条需要开发者确认的风险写进计划。
+- 补正（第 2 条）：AgentWizardFrame 的“停靠”形态已经单独压成一层 0 1px 2px 的轻阴影（e2e/agent-subagents.e2e.ts:125-131 断言 `/ 0px 1px 2px 0px$/`，design-language.md 的“停靠的面不用浮层的阴影档”），所以它不依赖气泡档，应从受影响名单里去掉，只剩它浮动形态的那一支。其余名单项（AgentNoticeCard、批注卡片、AnchoredPopover 系、Popover、Tooltip、DateInput、MarkdownToolbar bottom）我没有逐个核对它们是否也有各自的覆盖，建议在计划里逐个核对后再写“约 20 处”。markdown-comments.e2e.ts:743-760 只断言“当前卡片的 shadow 不是 none”，改档不会让它失败。
+- 补正（第 17 条第 3 点）：“设置文件视图里一行 64 KB 会卡”是推测，我没有实测那个视图用的编辑器；该项只当风险列出。
+
+### 18. 协议下拉“每家都有”：没有回到“跟随来源”的选项；检测结果的失效与取消没定
+- 严重程度：建议；类别：正确性；位置：计划“ProviderConfig.api?”“ProviderDetail：协议下拉每家都有，旁边‘检测协议’，结果就地列出”“models-store.ts：detectApi……寿命归数据模块”
+- 现象：
+  - `api` 不写表示“每个模型用来源给的协议”（OpenRouter 的专用协议、12 家混合协议的模板），写了表示“所有模型改用这个通用协议”。下拉里只有四种协议时，一旦选过（或点过检测结果里的“用这个”）就回不去“跟随来源”；“恢复模板地址”只恢复地址。对混合协议的模板，误点“用这个”会让一部分本来能用的模型改成不兼容的协议，且从界面上不可逆。未覆盖时下拉显示什么（空？“按模型”？）也没写。
+  - 检测发的是 4 条真实请求、每条最长 15 秒；`detectApi` 是一次调用返回全部，没有取消（对照 settings-pages.md 输出 8 的检测可取消、输出 10 的“对话框关闭后迟到的发现结果丢弃”）。结果按服务商记在数据模块里，但改了地址、协议、密钥或请求头之后，之前的结果就不再对应当前设置，计划没有写“这些改动清掉结果”。现有 `models-store.ts:apply` 只在模型消失时清检测结果，不看地址变化。
+  - 同一模型 id 在不同协议下的结果可能被“用这个”误导：检测挑的是“第一个启用的模型”（或含 claude/gemini 的），挑中的模型不一定能代表整个服务商（来源里有 587 个模型，第一个可能是图片模型之外的某个冷门模型）。结果行里没有写“用的是哪个模型”，用户无法判断。
+- 建议改法：下拉加第一项“按模型（跟随来源）”，仅在 `api` 未写时选中；选“用这个”前若服务商有混合协议则弹出确认写明影响；`detectApi` 接 `AbortSignal`，页面卸载与改地址时取消；结果带 `{checkedAt, baseUrl, model}`，地址、密钥、协议任一变化就清；结果行写出所用的模型名。
+
+### 19. 验收映射：旧用例的变化、关键交互与可访问性没有对应的断言
+- 严重程度：重要；类别：测试；位置：计划“验收映射”“验证”
+- 现象与依据：
+  - 前端相关的行为只有两行（“选择器四种思考档状态、两列角色、模型库分组与搜索 → AgentRoleModelPicker.dom.test.ts”“设置页的添加、图标、检测、代理、角色思考档、网络页 → dom 测试与 e2e/models.e2e.ts、settings.e2e.ts”）。下列行为都没有对应：
+    1. 跟随与明确的切换（点 tentative 档、方向键、“用 X 的默认”后回到跟随）与第 6 条的合并；
+    2. 已选模型所在的大组默认展开、搜索展开命中组、搜索清空后恢复；
+    3. 同名服务商（第 10 条）、两列退一列、390 宽与英文无横向溢出（第 12 条；e2e 里“390”现在只在 Lab 场景截图里，没有断言）；
+    4. 图标：`logos.ts` 的 `iconOf` 对每个模板键都能取到、没有登记的回退首字母方块、动态块加载失败时的回退（网络慢时模型库先画首字母再换成图标，计划没写这一帧）；上传图标超限、非图片、SVG 被拒的原位错误文字；
+    5. 标题区：名称就地改的 Enter、Esc、重名、空名；图标弹出的键盘与焦点归还；复制一份后焦点去哪、列表选中谁；
+    6. 网络页：每个 mode 的读写、url 校验（含带凭据，第 4 条）、“测试代理”的成功与失败态、`aria-live`；
+    7. 空态与失败态：服务商没有来源（空白模板没有地址、第 9 条）、来源失败时“旧数据 + stale”的显示（计划提到快照标 `stale` 与原因，页面与选择器各怎么画没写）；
+    8. 现有测试里要改写的：AgentConversationComposer.dom.test.ts:181-194（见第 6 条）、AddProviderDialog.dom.test.ts（自定义表单）、pages-focus.dom.test.ts、models.e2e.ts 里依赖 `data-add-provider="custom"` 的步骤；
+    9. `data-model-picker*` 这组钩子（agent-conversation.e2e.ts:530-545、691 在用）要保留，计划没写，改成别的名字 e2e 会成批失败。
+  - 计划要求“e2e 一次：5 个文件，开工前在起点上各跑一遍记基线”。已知 master 上就有的失败（themes、lab-scenes 的 ThemeEditor 404、files-explorer:634、workbench-views:754 等）会混进这 5 个文件里，计划没有预先列出“哪些失败归原有”，到收口时会再次花时间归因。
+  - 变异检查：计划没有任何一条“变异检查”，而本仓库最近的教训（否定断言易空过、去重让回调用例空过）正好适用于“只渲染命中项”“不发重复写入”这类断言。
+- 如何核实：grep 现有 e2e 与 dom 测试中的 `data-model-picker`、`custom`、`thinkingLevels: ["high"]`。
+- 建议改法：把上面 1–9 补成验收表的逐行条目，每行写“测试文件 + 一句判据”；“只渲染命中项”用节点计数断言并做变异（把过滤删掉看测试红）；列出 e2e 基线里已知的原有失败清单；`data-model-picker*` 钩子写进选择器 `.md` 的“数据”一节。
+
+### 20. 模型库与添加对话框的键盘与读屏：几百项的列表仍是“每行一个 Tab 停靠点”，折叠组与搜索的联动没写
+- 严重程度：建议；类别：测试；位置：计划“模型库按服务商分组带图标与个数，超过 30 个的组默认收起，搜索时只渲染命中的”“AddProviderDialog：分组、组内多列、登录组默认收起”
+- 现象：
+  - 现有模型库每个模型是一个 `<button>`（AgentRoleModelPicker.vue:279-292），没有方向键导航，Tab 逐个走。分组头加图标与个数后，每个展开的组最多 30 行，几组展开就是上百个 Tab 停靠点；搜索框之后键盘用户只能 Tab 一路下去。计划只写了“只渲染命中项”，没有写：(a) 组头是 `button` 加 `aria-expanded`、可访问名称带个数（“OpenRouter，587 个模型，已折叠”）；(b) 搜索有词时折叠组是否自动展开命中的组（不展开就搜了也看不到命中项，若展开则搜索词清掉后是否恢复）；(c) 搜索框里按 ↓ 进入结果、↑ 回到搜索框；(d) 命中为空时的读屏提示（现有 `noMatch` 是普通段落，没有 `role="status"`）。
+  - 添加对话框同理：登录组“默认收起”的组头、搜索时是否展开、多列时 Tab 顺序按行还是按列（DOM 顺序按组内顺序，视觉上多列网格从左到右，一般一致，但 390 宽退成单列时仍一致即可）。“已添加”不停用之后，行的可访问名称要写“OpenRouter，已添加 1 个”，否则读屏用户听不出点它会再建一个。
+- 建议改法：在 `.md` 与 dom 测试里把 (a)-(d) 逐条写出；选择器的模型库加上下方向键的 roving 焦点（现有 nb-ui `utils/roving` 就是给这种场景写的）；添加对话框每行的名称带“已添加 N 个”。
+
+## 未发现问题的方面
+- 决定 1–17 与三轮定稿的稿面逐条对照，除第 4、7、12 条所列（代理凭据文案、跟随态的“默认”文字、窄宽度版式）外，计划都有对应条目；决定 11（分组多列）、13（详情页五项）、15（角色页思考档）、17（头部排布）在计划里都有落点。
+- `?raw` 导入表、按需动态导入在 Vite 与 Vitest 下可行（dom 测试由 Vitest 跑，不经 Bun）；`@lobehub/icons-static-svg` 存在（npm 1.104.0，MIT，解包 2.5 MB），与调研一致。
+- 选择器面板的关闭、Esc 还焦点、点外面关闭、选角色不关面板等现有行为计划没有改动，没有发现冲突。
+- 角色页“跟随模型”一项、没绑定时停用并写原因，与现有 RolesPage 的结构兼容，没有发现问题。
+
+## 统计
+- 阻断 0；重要 13（1、2、3、4、5、6、9、10、11、12、13、16、19）；建议 7（7、8、14、15、17、18、20）；共 20 条，无撤回。
+
+## 对“不做与风险”各项的判断
+- 不做：OAuth 登录、Magpie 的粘贴 curl 与余额探测与导入、抓站点图标：合理，与前端无冲突；代理只管模型服务：合理，但第 5 条的凭据遮盖要在这个范围内先做对。
+- 风险“中继是新的长驻网络组件”：属后端审查范围，前端只关心它的状态不要经 `systemProxy()` 泄露凭据（第 5 条）。
+- 风险“OMP 来源合并规则随升级变化”：与前端无关；前端受影响的是来源失败时的 stale 显示，计划没写画法（第 19 条第 7 点）。
+- 风险“几百个模型的界面”：低估。计划只覆盖选择器与管理模型，漏了服务商详情、全部模型页、检测全部与当前模型所在组的展开（第 11 条），且“量一次”没有预算。
+- 风险“旧配置的读法”：属后端；前端注意旧的 `kind` 字段不会再从快照里出现，ProviderDetail 里的 `provider.kind === 'custom'` 等判断（ProviderDetail.vue:125、226、257）要全部换成基于模板的判断，计划的 ProviderDetail 一条没有提到这几处。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20

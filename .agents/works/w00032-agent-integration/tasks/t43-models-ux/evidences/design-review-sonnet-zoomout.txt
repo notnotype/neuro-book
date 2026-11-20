@@ -1,0 +1,106 @@
+# 拉远看审查：w00032 t43 实施计划（Sonnet 5.5，只读）
+
+### 1. 本机中继的前提已被上游修掉：Bun 1.4.3 起 `proxy: false` 就是“强制直连”，中继只剩 SOCKS5 一个理由
+严重程度：重要　类别：代码质量（方案选择）　位置：plan.md “网络出口：为什么要本机中继（探针结论）”、技术选型的 `socks`、切片 4；README 决定 18
+
+现象：计划的探针 2 写“环境里有 HTTPS_PROXY 时 `proxy: ""`、`NO_PROXY=*` 都关不掉它”，据此得出“直连做不到只设 fetch 的选项”，所以要起 127.0.0.1 中继。但同一台机器同一个 Bun 1.4.4 上，`fetch(url, {proxy: false})` 就是强制直连。我复测（/tmp/review-w00032-t43-design/lab/probe4.ts，进程里把 HTTP_PROXY、HTTPS_PROXY 设成假代理）：
+- `proxy: false`（http 与 https 目标）：ENOTFOUND，假代理命中数 0，即直连；
+- `proxy: ""`、`respectNoProxy: false`、显式 `proxy: "http://…"`：命中假代理（前两者与计划探针一致，第三者按预期走代理）；
+- `proxy: "socks5h://…"`：UnsupportedProxyProtocol（与计划探针一致）。
+上游出处：oven-sh/bun #44341 的维护者答复“`proxy: false`、`respectNoProxy: false`、`ERR_PROXY_TUNNEL` 在 #42692（2026-09-15 合入）里落地，随 1.4.3 发布”；#39352 同一修复也让 NO_PROXY 的 CIDR 生效。`node_modules/bun-types/globals.d.ts` 里没有 `proxy: false` 的类型（1960 行起的 `proxy?` 只有 string、URL、对象），所以按类型看不到，计划作者自然没试到。
+
+为什么是问题：这条探针是整套本机中继的起点（技术选型的 `socks`、`relay.ts`、`x-nbook-egress` 头、CONNECT 与绝对 URI 转发、随插件启停与断开在途连接、第 4 片要写的真实 HTTP CONNECT 与 SOCKS5 测试服务，以及“长驻网络组件”这条风险）。去掉“直连做不到”后，三种出口里只有 SOCKS5 还需要中继：跟随系统与自定义 HTTP 代理用按次 `proxy: <url>`，直连用 `proxy: false`，都是 Bun 原生。而 SOCKS5 是否值得为它建一个常驻中继，计划里没有需求证据：README 决定 7 只写“Bun 的 fetch 能否走 socks5 待验证”，决定 18 的“按推荐”是在作者给出“直连也做不到”的前提下做的；前提少了一半，推荐的取舍要重新摆给开发者。另外 Bun 上游有开放的“Add SOCKS support”（oven-sh/bun #16812），等它实现中继就整个作废。
+
+如何核实：`cd /tmp/review-w00032-t43-design/lab && bun run probe4.ts`（我用的是 Bun 1.4.4，与仓库一致）；上游用 `gh issue view 44341 --repo oven-sh/bun --comments`。
+
+建议改法：把决定 18 退回开发者重新定，按下面三档摆代价：
+1. 第一版不做中继：跟随系统、自定义（只收 http、https）、直连各用 Bun 原生的 `proxy: <url>` 与 `proxy: false`；`socks5` 在设置里拒收并提示“用代理软件的 HTTP 混合端口”（独立设计 Opus 的建议，计划却没采纳，理由只有“直连也做不到”这一条，现在不成立）。
+2. 系统里读到的只有 SOCKS 代理时在“现在用的”那行写出“检测到 SOCKS 代理，暂不支持”。
+3. 以后真有 SOCKS5 需求再单独加（等 Bun #16812，或只为 SOCKS5 起中继），做成可替换的出口实现，不动 `fetchFor` 的形状。
+同时核对 `packages/neuro-book/package.json` 的 `engines.bun >= 1.3.14`：`proxy: false` 要 1.4.3 起才有，低于它的 Bun 上会被当成没写（落回环境变量）。要么把下限抬到 1.4.3，要么在 `fetchFor` 里按版本回退（回退就又要中继，不如抬下限；ADR 0033 的应用包是否自带 Bun 要另查）。pi-ai 的 `withProxyInit`（`node_modules/@oh-my-pi/pi-ai/src/utils/proxy.ts` 约 190 行）判的是 `"proxy" in init && init.proxy`，`proxy: false` 会被当成没写：我们的 `fetchFor` 必须是传给 pi-ai 的最里层，且 pi-ai 只在设了 `PI_PROXY` 环境变量时才会包一层，影响小，但第 4 片要加一条断言（`PI_PROXY` 设置时 `proxy: false` 仍直连）。
+
+### 2. 网络出口放在应用插件里：与 nb-models 的“两个应用共用”不一致，还与 nbook.models 互相依赖、和“应用级代理”的名字不符
+严重程度：重要　类别：不变量（架构取舍）　位置：plan.md “packages/neuro-book/src/plugins/network/”与“不做与风险”；README 决定 5；ADR 0045 决策 2
+
+现象与依据：
+- ADR 0045 把模型服务抽成 nb-models 正是为了第二个应用（NeuroBot）共用；`packages/nb-models/src/app-neutral.test.ts` 守着“不出现应用名”。计划却把出口规则（`egressFor`）、系统代理读取（`describeSystemProxy`）、中继都放进 `neuro-book` 的 `nbook.network` 插件，nb-models 只收一个注入的 `fetchFor`。NeuroBot 要用同一套服务商代理，就得再写一份或反向依赖 NeuroBook 应用包（后者违反 monorepo-boundaries）。这些逻辑与应用无关，本应在 nb-host、nb-models 或一个小包里；计划没讲为什么放应用层。
+- 依赖成环：`nbook.models` 依赖 `networkKey.fetchFor`；而“网络”页的“模型目录”组是 `nbook.models` 的设置项（`section` 指向 `nbook.network`），“现在更新”按钮的 web 代码经 `nbook.models` 的远程合同调 `refreshCatalog()`。network 的 web 依赖 models 的合同，models 的后端依赖 network 的服务。
+- 名实不符：页面叫“网络”、行叫“代理方式”，像是应用级；但计划只把它接到模型请求。仓库里 `plugins/web-tools/backend/providers/http.ts:22` 的搜索与网页抓取已经收一个可注入的 `fetch`（`options.fetch`），接上 `fetchFor` 几乎是零成本，计划却写“网页工具等以后接”。用户在“网络”页设了 SOCKS 或直连，网页抓取仍走环境变量，这是个会被当成 bug 报的割裂。
+
+建议：先决定出口的 owner，写进计划。要么（A）把 `fetchFor`、出口规则、系统代理读取做成与应用无关的模块（nb-host 或 nb-models 的子路径），`nbook.network` 只剩设置项与页面；要么（B）第一版把这点逻辑留在 `nbook.models` 内（去掉 `nbook.network` 插件与 `networkKey`），等第二个使用方出现再抽。无论哪种，把 web-tools 的两个 provider 的 `fetch` 一并接上，或把页面文案改成“模型服务的网络”。去掉环依赖：目录更新开关与按钮放在 models 自己的页，网络页只放代理。
+
+### 3. 模型可用性从“随应用版本固定”变成“随外部目录漂移”：来源里没了的模型，被引用时应当仍可解析
+严重程度：重要　类别：不变量　位置：plan.md “服务核心”的“目录漂移（输出 9）改为来源里没有了”；docs/specs/models/service.md 输出 9
+
+现象：今天模型清单只随应用升级变（打包目录），所以“引用了不存在的模型”只发生在升级后一次。计划让清单在每次启动、每 24 小时（pi-catalog 缓存 TTL，`research/omp-catalog.md` 1.3）后台更新，OpenRouter、zenmux 这类聚合站每周都会下架模型。计划沿用输出 9：来源里没有了就标 `missing`、解析为 `unknown-model`。后果：用户把“主力”角色绑在某个模型上，某天后台刷新后这个模型下线，所有用该角色的对话、压缩、工作流在没有任何用户操作的情况下开始失败；会话进行中后台刷新换快照，也会让同一会话的下一轮请求变成 `unknown-model`。聚合站下架模型时，这是对的；但服务商还在、只是目录这一次的返回少了一行（接口分页、限流、部分失败）时，这是误杀。
+
+计划里同时写了“来源失败保留上一份并标 stale”，但没有处理“来源成功但少了一行”。
+
+依据：`research/omp-catalog.md` 1.1：`dynamicModelsAuthoritative` 为真时端点发现结果就是全集，会剪掉只在打包目录里的模型。
+
+建议：已被角色引用、或在设置里启用过的模型，从来源里消失时先保留上一次物化的 `Model`（缓存行里有完整物化结果）继续可调用，只在快照里标 `missing`（界面提示“服务商已不再提供，调用可能失败”），由用户决定是否移除，不自动解除解析。这样刷新对正在用的东西是加法；只有用户“重新拉取”后明确选择移除才变化。这条还和第 1 点同方向：先把能直接用的做稳，再叠加自动化。
+
+### 4. 配置 v2 是单向迁移，设置里还要放大对象与一次性冻结的大列表：回头成本被写成一句“不支持降级”
+严重程度：重要　类别：不变量（锁数据格式）　位置：plan.md “配置形状 v2”的“旧配置的读法”与 `icon.image`、`followSource` 关掉时“把此刻的有效列表全部写进 models”；docs/specs/settings/configuration.md 输出 4
+
+现象与依据：
+1. 设置层对不合 schema 的键整键丢弃（configuration.md 输出 4），计划用“schema 同时收新旧字段、读时归一、下次写入写新形状”应对升级，这是对的。但回头的代价没有写：旧版本读到含新字段（`template`、`followSource`、`excluded`，且 `kind` 不再写）的 `providers`，而现在的 `packages/nb-models/src/config/shapes.ts` 36、48、58、61 行全是 `additionalProperties: false`、`kind` 是必填，整份服务商被丢成空；角色同理：给角色加了 `effort`、`icon`，旧版本的 `RolesSchema` 会把整份角色（含所有绑定）丢掉。旧版本里任何一次保存会把用户的全部服务商与密钥引用冲掉。桌面端自动升级、用户偶尔装回旧版（发版出问题时尤其会）都会碰到。计划的写法是“不支持降级”，没有说清是这个后果，也没有记入发布说明或 Spec。
+2. 更稳的做法是新形状写进新的设置键（例如 `nbook.models/providers.v2`，读不到时才从旧键归一一次），旧键原封不动保留：旧版本继续看旧键，回滚零损失，代价是升级后新旧两份并存、旧键不再被新版本维护。这与现有 `compactAt` 先例不同：`compactAt` 是单字段的读旧写新，而这次是整个服务商模型的换形。
+3. `icon.image` 把最多 48 KB 的 data URL 放进设置：设置文件是用户可手改、可进版本库的文本，每次写任何一项都整份重写 `providers`；每次 `changed` 事件与快照都带上这些字节。独立设计（Opus）选了“文件加 HTTP 路由”，计划为少一条路由改成 inline，没有写出以后要改的代价（要改就是一次形状迁移）。如果保持 inline，把上限从 48 KB 降到 8 到 16 KB，并按缩放到 64 像素的 PNG 处理（计划已经用 `OffscreenCanvas` 缩放）。
+4. 关掉“自动加入”时把当前有效列表（OpenRouter 约 587 项）一次性写进 `models`：这是把一份会漂移的外部数据冻成用户配置，之后重新打开又要“去掉只有 id 的条目”（独立设计里写了，计划没写，两者对称性应在 Spec 里定）。我在 /tmp/review-w00032-t43-design/lab/size.ts 里量过：OpenRouter 587 个对话模型、每项按快照字段约 231 字节，约 135 KB，序列化 1.6 毫秒，所以体积不是问题；问题是“冻结”的语义与再打开时的往返要写明。
+
+建议：把“新旧并存的键”与“降级后果”这两件事交给开发者选，并在 Spec 的兼容节写明；`icon.image` 降上限。
+
+### 5. 一个 Task 承载九片、五个包、三个新依赖和一次数据迁移：边界可以切开，先交付根因部分
+严重程度：建议　类别：文档（范围与排期）　位置：plan.md “切片”“技术选型”
+
+现象：13 条反馈里，真正的根因改动只有两件：（a）服务商统一成模板实例（决定 1、2、3 与反馈 1、3、4、5），（b）模型来源与在线目录（解析不再只认打包目录）。其余是：代理与网络页（反馈 7）、推理档（反馈 8、10、11）、选择器与 nb-ui（反馈 9、12、13）、图标（反馈 2、9）。计划按依赖顺序排成九片，但依赖面比一个 Task 小得多：第 6、7 片（nb-ui 与选择器）只依赖类型与视图合同；第 4 片只要服务商配置里多一个可选的 `proxy` 字段；第 5 片只要角色多一个可选的 `effort`；它们都不需要“模板化、来源、followSource、excluded”这套数据迁移，可以在旧形状上各加一个可选字段先行（旧形状的 schema 也要放开这些字段，见发现 4）。合并到一个 Task、一个分支、一次 e2e 与一次实现审查，评审面积是五个包、新插件、新 Spec 和数十个文件，任何一处卡住（例如第 4 片的中继，见发现 1）都拖住全部。
+新依赖：`os-proxy-config`（经 `windows-system-proxy` 依赖原生模块 `registry-js`，`npm view` 可见）、`socks`、`@lobehub/icons-static-svg`（996 个文件、2.5 MB）。前两个正是发现 1 与发现 7 质疑的；图标包只用其中一小部分，计划已经用显式导入表按需加载，这点合理。
+
+建议：按“根因（配置 v2 加来源）”“网络”“推理档加选择器加图标”拆成三个 Task，各自独立合入与审查；第一个先做，因为它决定数据形状。每个 Task 的 Spec 改动也随之变小。计划的 Context 里没有解释为什么放在同一个 Task，如果理由是“开发者一次性确认了全部静态稿”，那只说明设计一起定、不说明实现一起交。
+
+### 6. “跟随系统代理”读操作系统设置的那一层，计划自己承认有两个平台没法验证，且依赖里带原生模块
+严重程度：建议　类别：测试（验证缺口）　位置：plan.md “技术选型”的 `os-proxy-config`、`backend/proxy.ts`、“验证”的“未验证边界”
+
+现象：`os-proxy-config` 在 Windows 经 `windows-system-proxy` 依赖原生模块 `registry-js`（`npm view windows-system-proxy dependencies` 可见），macOS 经 `mac-system-proxy`。计划写了“第 1 片核对它没有原生模块；有就改成调各平台的命令行读”，也承认“Windows、macOS 上的读法只在 Linux 跑”。也就是说：新增一层依赖，有两个平台的代码路径上线前没有人跑过，而且这个依赖在 Bun 上能否加载原生模块没有证据（仓库里 `@oh-my-pi/pi-natives` 是单独的预编译包，不是同一回事）。Magpie 的做法（research/magpie.md 第 4 节）是各平台各十几行调命令（`reg query`、`scutil --proxy`、`gsettings`），没有任何依赖。
+这一层的价值是真的：从桌面启动的程序读不到 shell 里 export 的 `HTTPS_PROXY`（Magpie 为此还专门加了读登录 shell 的一层）。但对应的取舍计划没写：Linux 与环境变量一级已经覆盖开发者自己的机器，另两个平台是未验证的承诺。
+
+建议：第一版“跟随系统”只做启动环境一级加 Linux 的 gsettings，页面上“现在用的”在读不到时写“没有检测到系统代理”，把 Windows 与 macOS 的读法单独成后续项，或者放到开发者的 Windows 机上（记忆里有 pc-notype 的桌面测试做法）验证后再放出；不要把一个自己都说无法验证的依赖放进第一次发布。若坚持保留，第 1 片先在 Bun 里 `import` 它并跑一次读取，把结果记进 `evidences/`，再决定依赖还是自写。
+
+### 7. 计划写成了字段与文件清单，三处真正的架构取舍没有集中讲，也没有 ADR 行
+严重程度：建议　类别：文档　位置：plan.md 全文；“Spec 与文档改动”表（没有 ADR 一行）；docs/adr/README.md 的“架构取舍以 ADR 为准”
+
+现象：计划的篇幅大部分在列类型、文件名、方法名（`createModelSources`、`effectiveModels`、`ComposerIcon` 的四个分支）。以下三个取舍会约束后来的人，却分散在各节的半句话里，也没有对应的 ADR 或 Spec 行：
+1. 模型清单的真相源：设置里的覆盖与手加（`models`、`excluded`、`followSource`）加外部目录与本机缓存 `models.db`。它让“设置文件 + 状态根缓存”共同决定模型清单，同一份设置在两台机器上可以得到不同清单。这是改变现状“清单只随应用版本变”的新前提，应在 Spec 的术语处写明，并说明为何不把目录快照随设置存（发现 3、4）。
+2. `Model.provider` 的身份规则（协议跟随模板时用模板的 OMP id，改了协议或空白模板时用我方 id，对外全名由宿主给）。这条规则的来源是 pi-ai 里 65 处按 `model.provider` 分支（独立设计实测），它把“身份”与“行为选择”绑在一个字段上；两家同模板、不同地址的服务商共用 `Model.provider` 时，pi-ai 里凡是按 provider 归并状态的东西会把两家当成一家（我抽查了 pi-ai 的模块级 Map，没有找到会出错的例子，所以这是风险提示，不是已证实的缺陷）。计划只写了结论，没有写“为什么不上游改（让 pi-ai 按 api 而非 provider 分支）”，也没有写“哪些东西会因同 provider 而共享”。
+3. 网络出口的 owner 与形状（发现 1、2）。
+repo 的约定是架构取舍写 ADR（AGENTS.md“文档真相源”）。决定 1（取消目录与自定义之分）还取代 t09 决定 11、12，这些在 Task 记录里，不在 ADR。
+
+建议：计划加一节“取舍”，三条各写：选了什么、没选什么、什么条件下回头；新增一个 ADR（编号接 0056 之后）记决定 1 与上述三条，Spec 的“改什么”表加这一行。全局规则里“质疑上游选择”的做法放在这里就是：第 2 条应写出“为让 pi-ai 不依赖 `model.provider` 做行为分支需要上游改什么、代价多大”，而不是只写我方补丁。我没有核实 pi-ai 里按 provider 缓存的具体位置，这一点是从代码结构推断，标为“未验证”。
+
+## 五个问题的结论
+1. 真问题吗、治根因吗：是真问题。根因有两个，计划都碰到了：目录服务商与自定义服务商之分（决定 1 统一成模板实例）、模型解析只认打包目录里的 id（来源与在线目录）。分的理由在 t09 决定 11、12 里只有结论没有理由（没有记录的理由，推断是“沿用 OMP 目录”），取消它有依据。例外是代理：为“直连”与 SOCKS5 建中继是在给 Bun 上游的缺口打补丁，而其中“直连”这半已在 Bun 1.4.3 修好（发现 1）。
+2. 更简单的做法：有。Bun 原生 `proxy: <url>` 与 `proxy: false` 覆盖跟随系统、自定义 HTTP、直连三种（发现 1）；系统代理读取先做环境变量与 Linux（发现 6）；出口 owner 放共用位置而不是应用插件（发现 2）。在线目录用 OMP 自带的 `createModelManager` 而不自己拉 models.dev 是对的，我没有发现更简单的做法。
+3. YAGNI：中继与 `socks`（发现 1）、两个未验证平台的系统代理读取（发现 6）。别的新增（协议检测、复制服务商、图标上传、角色图标）都在开发者确认的静态稿与决定里，不算多余。
+4. 死胡同：配置 v2 的单向迁移与旧版本整键丢弃（发现 4）、清单随外部目录漂移（发现 3）、`Model.provider` 身份规则（发现 7）。公开接口方面，远程合同升到版本 2 同一构建发布，没有跨版本调用方，没发现问题。
+5. 掉进实现细节：是（发现 7）。
+
+## 未发现问题的方面
+- 用 pi-catalog 的 `createModelManager`、`PROVIDER_DESCRIPTORS`、`modelsDevCatalogFallback`、`modelKind` 做在线目录：这些是 `@oh-my-pi/pi-catalog` 的公开导出（`index.ts` 与 `./provider-models`），版本在 nb-harness 里钉死为 18.14.0，且仓库已经在用 `compat/auth`、`build` 等子路径；缓存放状态根、不写 `~/.omp` 的要求计划已写。
+- 快照体积：我量了 OpenRouter 587 个对话模型，按快照字段约 135 KB、序列化 1.6 毫秒（lab/size.ts）；全部 79 家共 5703 个，即使全加也在可接受范围，计划“第 3 片量一次”的做法合适，不需要现在改成按服务商取。
+- 图标选型（`@lobehub/icons-static-svg`，MIT）与显式导入表按需加载，推理档的三种形状与优先级（决定 6），均合理。
+- 设置里不放代理凭据、上传图标不收 SVG：与信任边界一致。
+
+## 对“不做与风险”各项的判断
+- 不做 OAuth 登录：同意，OMP 的 OAuth 来源（google-antigravity、openai-codex）需要凭据库账号，本计划本来就没有。
+- 不做 Magpie 的“粘贴 curl 建服务商”、余额探测、导入别的应用的配置：同意，都不在反馈里。
+- 不做抓站点图标（决定 4）：同意。
+- 不把代理用于模型服务之外的请求：不同意，至少 web-tools 的两个 provider 已收可注入的 `fetch`，接上几乎没有成本，不接会让“网络”页的“应用级”与实际不符（发现 2）。
+- 风险“中继是新的长驻网络组件”：这条风险本身是由发现 1 的前提带来的，前提不成立则风险消失。
+- 风险“OMP 来源合并规则随升级变化，只经公开导出，boundary.test.ts 守住”：成立；补一条，`boundary.test.ts` 现在只守“依赖哪几个包”，没有守“用到的导出名仍存在”，类型检查会兜住大部分。
+- 风险“几百个模型的界面”：成立，量打开与搜索耗时的做法合适。
+- 风险“旧配置的读法”：不完整，漏了降级与角色表同样整键丢弃（发现 4）。
+
+## 数量与有效编号
+阻断 0；重要 4（1、2、3、4）；建议 3（5、6、7）；撤回 0。
+有效发现：1、2、3、4、5、6、7
