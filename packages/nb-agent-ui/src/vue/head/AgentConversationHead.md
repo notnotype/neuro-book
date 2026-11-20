@@ -38,6 +38,8 @@ type AgentConversationHeadProps = {
     pinned: ReadonlyArray<{id: string; icon: string; label: string}>;
     /** “⋯”的菜单项，已排好；空数组时不画“⋯”。 */
     overflowItems: ReadonlyArray<DropdownMenuItemData>;
+    /** 右列最后画“关闭”（`data-header-close`），点了发 `close`。 */
+    closable: boolean;
 };
 
 type AgentConversationHeadEmits = {
@@ -46,6 +48,7 @@ type AgentConversationHeadEmits = {
     (e: "update:sessionsOpen", open: boolean): void;
     (e: "header-action", id: string): void;
     (e: "overflow", value: string): void;
+    (e: "close"): void;
 };
 
 type AgentConversationHeadSlots = {

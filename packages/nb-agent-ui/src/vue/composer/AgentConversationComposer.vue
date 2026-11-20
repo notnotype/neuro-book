@@ -34,6 +34,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "action", action: ViewAction): void;
+    /** 编辑器里按了 Esc：补全菜单开着、输入法正在组字时编辑器自己处理，不发。 */
+    (e: "escape"): void;
 }>();
 
 const {t, text, locale} = useAgentText();
@@ -513,6 +515,7 @@ defineExpose({
                     @submit="submit($event.mod)"
                     :capture-shift-tab="canCycleMode"
                     @shift-tab="cycleMode"
+                    @escape="emit('escape')"
                     @menu-open="emit('action', {type: 'menu.opened', trigger: $event.trigger})"
                     @menu-select="emit('action', {type: 'menu.selected', trigger: $event.trigger, id: $event.id})"
                     @token-activate="onTokenActivate"

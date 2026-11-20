@@ -9,11 +9,12 @@ import type {LabFixtureDefinition} from "../index";
 import {conversationContext} from "./data";
 import {WELCOME_RECENT, WELCOME_STARTERS} from "./view.scenes";
 
-const HEAD = {targets: null, newSession: true, hasSessions: true, draftProfile: null, pinned: [], overflowItems: [{id: "raw", label: "原始视图"}]};
+const HEAD = {targets: null, newSession: true, hasSessions: true, draftProfile: null, pinned: [], overflowItems: [{id: "raw", label: "原始视图"}], closable: false};
 const CLOSED = {sessionsOpen: false};
 
 export const agentConversationHeadScenes: LabFixtureDefinition<typeof AgentConversationHead>["scenes"] = [
     {id: "session", label: "有会话：左边新建，中间标题开会话列表，右边更多", input: {props: {...HEAD, ctx: conversationContext()}, model: CLOSED}},
+    {id: "closable", label: "放在可关的面板里：右列最后是关闭", input: {props: {...HEAD, newSession: false, hasSessions: false, closable: true, ctx: conversationContext()}, model: CLOSED}},
     {id: "no-session", label: "没选会话：写“新对话”，左右都空", input: {props: {...HEAD, ctx: conversationContext({session: null, messages: []}), draftProfile: {name: "主创", icon: "i-lucide-feather"}}, model: CLOSED}},
     {
         id: "child",

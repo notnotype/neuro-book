@@ -40,7 +40,7 @@ import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import {Type} from "typebox";
 
-import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentViewRegistry, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE, SESSION_OWNERS_POINT, sessionOwnersPoint, stickerAllowlistUsageKey} from "../shared/contracts";
@@ -79,6 +79,9 @@ import {requestEntriesContribution} from "./request-entries";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
 export const CONVERSATION_PAGE = "nbook.agent.conversation";
+/** 对话位置：右栏的消息视图、编辑区页面、书房的看板娘面板。各有一个宿主，Skill 初始化的确认框与最近的会话按位置分开。 */
+type ConversationPosition = "view" | "page" | "desk";
+
 const ACTIVITY_ITEM = "nbook.agent.activity";
 export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
@@ -477,12 +480,14 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }, {immediate: true});
                 context.signal.addEventListener("abort", stopSeen, {once: true});
             };
-            const hostAt = (position: "view" | "page"): SessionHost => {
+            const hostAt = (position: ConversationPosition): SessionHost => {
                 let host = hosts.get(position);
                 if (host !== undefined) return host;
                 // 编辑区页面不开有归属的会话：交给消息视图（页面没有联系人列表，也不记“看到”）。
                 const owners: SessionOwners = position === "page" ? {...sessionOwners, elsewhere: (id) => void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id})} : sessionOwners;
-                host = createSessionHost({...hostDeps(position), owners});
+                // 书房的面板只开点看板娘打开的那个主对话：不恢复、不记最近的会话。
+                const deps = position === "desk" ? {...hostDeps(position), recent: {read: async () => null, write: () => undefined}} : hostDeps(position);
+                host = createSessionHost({...deps, owners});
                 hosts.set(position, host);
                 watchSeen(host);
                 return host;
@@ -621,10 +626,26 @@ export const agentBrowserPlugin: PluginDefinition = {
                 return {createAgentViewRegistry, baseContributions, renderers, servicesFor};
             };
 
+            /** 交给 `ConversationHost` 的那一大组属性：右栏、编辑区页面与书房的面板各按自己的宿主取一份。 */
+            const conversationProps = (position: ConversationPosition, host: SessionHost, registry: AgentViewRegistry, services: AgentConversationServices, renderers: Awaited<ReturnType<typeof conversationParts>>["renderers"]) => ({
+                host,
+                list,
+                recent: recentSessions,
+                welcome: welcomeOf(host),
+                draftProfile: draftProfileOf(host),
+                registry,
+                renderers,
+                services,
+                pickProfile,
+                labels: panelLabels(),
+                skillInit: initAt(position),
+                subagents: {profiles: profiles.value, seen: seenErrors, results: runResults},
+                statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})},
+            });
+
             const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
                 const {createAgentViewRegistry, baseContributions, renderers, servicesFor} = await conversationParts();
                 const {ConversationHost, MessagesHost} = await vueOnce();
-                const labels = panelLabels();
                 const {services} = servicesFor(() => hostAt(position).profileKey());
                 return defineComponent({
                     name: "AgentConversationPosition",
@@ -642,7 +663,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         });
                         return () => {
                             const host = hostAt(position);
-                            const conversation = {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry: registry.value, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}};
+                            const conversation = conversationProps(position, host, registry.value, services.value, renderers);
                             // 右栏是消息视图（列表、头像列加聊天区）；编辑区页面照旧只有对话，会话列表在头的下拉里。
                             if (position === "page" || props.context === null) return h(ConversationHost, {...conversation, head});
                             return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, memory: messagesMemory});
