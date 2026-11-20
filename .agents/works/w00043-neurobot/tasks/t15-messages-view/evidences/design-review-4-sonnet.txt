@@ -1,0 +1,139 @@
+### 1. 截住 pointerdown 冒泡既挡不住触摸，又会让其它浮层收不到“点外面”
+严重程度：阻断。类别：依赖的机制与计划所述不符。位置：plan-3 关键设计“nb-ui Drawer”的 swipeToClose；Drawer.vue。
+现象（已用 happy-dom 实验核实，实验在 /tmp/review-t15-desk-design/exp/）：
+- 计划写“文档级的点外面判断在捕获阶段，不受影响”。读 reka-ui 2.10.3 的 DismissableLayer/utils.js：`ownerDocument.addEventListener("pointerdown", handlePointerDown)` 没有 capture，是冒泡阶段；只有“指针在层内”的标记 `onPointerdownCapture` 在捕获阶段。
+- 实验 A：非模态抽屉，内容里包一层 `onPointerdown=stopPropagation`，先在内容里按一下，再在外面按一下。无包裹时抽屉关；有包裹时第一次外按没关，第二次才关（层内标记被捕获阶段置真，却因冒泡被截而没人复位）。
+- 实验 B：一个打开的 Reka Popover，在另一个元素上按下。无截停时 Popover 关；截停时 Popover 保持打开。也就是对话区里按一下，开着的 nb-ui 菜单、下拉、气泡（都建在 Reka 的 DismissableLayer 上）不会收起。
+- 实验 C（触摸）：useSwipeDismiss 另有 touchstart（passive）与 touchmove 路径，不看 pointerType。实验里先派 pointerdown(touch) 再派 touchstart、两次 touchmove：有包裹与无包裹都得到 `data-swiping` 为真、位移 70px。所以触摸屏与窄屏手机上 swipeToClose=false 完全无效。
+- 包裹只盖住默认插槽；Drawer 自己的标题区、正文的 px-5 py-4 内边距、页脚按下仍然开始滑动。
+为什么是问题：开关名叫 swipeToClose 却只对“鼠标按在插槽内容上”生效；计划列的风险“挡掉依赖冒泡的监听”不只是假设，已经证实挡掉了 Reka 自己的。仓库自己的约定相反：dialog-origin.ts 写明“捕获阶段是为了不被内容里的 stopPropagation 挡住”。
+如何核实：跑 /tmp/review-t15-desk-design/exp/drawer.test.ts 与 pop.test.ts（vitest，root 指向该目录，node_modules 软链到工作区的）；结果在 out.txt、out2.txt。
+建议改法：不要在 Reka Drawer 上叠截停。见第 2 条：换不带手势的原语。若坚持用 Reka Drawer，只能改上游（给 useSwipeDismiss 加 enabled 或 canStart 选项）或 patch，代价是跟随 reka 升级。
+
+### 2. 上游选择：Reka Drawer 不是这件事的原语；nb-ui Drawer 现在也没有“滑出”
+严重程度：重要。类别：上游选择、依赖的机制不存在。位置：plan-3 技术选型与“nb-ui Drawer”；Drawer.vue；nb-ui styles.css。
+现象：
+- 书房要的是：非模态、不压暗、没有滑动关闭、点外面不关、只有 Esc 与按钮关。给 Reka Drawer 关掉其中三样要补两个开关、还都关不干净（第 1 条）。剩下它还提供的只有 Esc、传送与层级、焦点作用域，这些 Reka Dialog（modal=false）同样有，且没有任何手势代码。
+- 仓库里已有先例：nb-agent-ui 的 AgentMessages.vue 开头写“抽屉是视图里自己画的一块（非模态），不用 nb-ui 的 Drawer：那个传送到页面、整页模态”。同一个需求这是第二次绕开 Drawer。
+- Drawer.vue 的内容层 class 是 `nb-ui-popover-surface nb-ui-dialog-surface nb-ui-drawer-surface fixed … transition-transform`，没有 `nb-ui-popover-motion`，styles.css 里没有任何 drawer 的 keyframes，Reka 写的 `--drawer-swipe-movement-x` 等变量也没人读（全仓库 grep swipe 只命中 Drawer.vue 一处）。就是说现在的 Drawer 打开是瞬间出现、关闭瞬间消失，拖动时视觉上不动、过阈值才突然关。styles.css 447 行附近自己写了“用关键帧而不是过渡：reka 关闭时等的是 animationend”。t03 决定 23 要的“从右边滑出”，计划没有列出这项动画工作。
+- 非模态 Drawer 仍进全局模态序列（useModalLayer），层级是 dialog 档：书房里卡片“更多”菜单等普通浮层会被开着的抽屉压在下面。
+建议改法：nb-ui 新增一个面板组件（暂名 SidePanel），建在 Reka DialogRoot/DialogContent（modal=false）上，自带入退场 keyframes（遵守 reduced-motion）、可选顶部偏移、无内边距正文；不碰现有模态 Drawer。代价：一个新组件加 .md、Lab 场景与测试，比给 Drawer 加两个开关多，但省掉第 1、3 条的全部补丁，也能让 AgentMessages 日后换用。第二选择是上游给 Reka 提 PR，周期不可控，不推荐。
+
+### 3. “读屏标题是联系人名字”“不给面板头”在现有 Drawer 上做不到，版面也对不上
+严重程度：重要。类别：接口与合同、遗漏。位置：plan-3“滑出聊天”面板条目；Drawer.vue 模板。
+现象：
+- 传 `title` 会渲染可见的标题区（`v-if="props.title || $slots.header"`），里面自带一个 X 关闭钮；只有没传 title 时才放 sr-only 的 DrawerTitle（读屏名固定“面板”）。要“读屏名是星璃、又不画面板头”，Drawer 没有这个组合。传 title 的结果是抽屉顶上多一条标题加 X，下面对话自己的头再带一个“关闭”，两个关闭钮。
+- 正文是 `<div class="flex-1 overflow-y-auto px-5 py-4">`：对话视图（`h-full w-full`，自带 acv-stream 滚动与底部输入框）被塞进一个带 20px 横向、16px 纵向内边距且会滚动的容器，宽度少 40px、输入框贴不到底。评审板 open-drawer 图里聊天是贴边的。
+- 定位：内容层 class 是 `inset-y-0 right-0 h-full w-[380px] max-w-[90cqw]`。计划用 contentClass 追加 `top: var(--nb-window-frame-offset, 0px)`，但 `h-full` 仍是视口 100%，top 下移后底边伸出视口 36px（桌面外框下输入框被切）。是否能改掉取决于原子 CSS 的生成次序，不取决于 class 书写顺序，这正是 AGENTS 里“靠选择器优先级碰巧成立”的类型。宽度 380px 也要靠 contentClass 改成 420px，同样是同属性冲突。
+- 计划“Spec 与文档改动”的组件 .md 清单里有 Drawer.md，但属性清单里只有 swipeToClose 与 closeOnOutside。
+建议改法：用第 2 条的新面板组件，一次给出：`label`（只读屏的名字）、`flush`（无内边距、正文不滚）、`top` 偏移（外框高度由组件自己读 `--nb-window-frame-offset`）、`width`。若仍改 Drawer，至少要再加这四项，并写进 Drawer.md 的数据一节。
+
+### 4. 抽屉默认盖住看板娘：“再点看板娘关上”点不到；焦点回到看板娘没有机制
+严重程度：重要。类别：与参照不符、验收映射。位置：plan-3“点击”“关闭”“验收映射”。
+现象：
+- 评审板 open-drawer 图（1276 宽）里抽屉从 x=858 起占 420px；草稿 ShelfBotDraft.vue 里看板娘 tile 在 left:1005、宽 150px（1005 到 1155），整块被抽屉盖住。真实页面内容列至多 1120px 居中，窗口宽度在约 1860px 以内时看板娘右缘都落在抽屉里（抽屉左缘 = 窗宽 - 420）。所以非模态抽屉开着时，用指针点不到看板娘：计划里“开着时再点关上”与“aria-expanded”只对键盘与读屏有意义，e2e 里 `click()` 会因被别的元素遮挡而等到超时或要 force。角标与气泡同样被盖住，“关闭后角标清零”只能靠 aria-label 断言。
+- “关闭后焦点回到看板娘”：Reka 非模态的 onCloseAutoFocusNonModal 只在 `triggerElement` 存在时聚焦它，并且总是 preventDefault（DrawerContent.js 第 62 行附近）。计划里看板娘不是 Drawer 的 trigger 插槽，所以关闭后 Reka 什么都不做，焦点落到 body。nb-ui 的 `closed` 事件（内容卸载后才发）可以用来手动 focus，但计划没写。
+建议改法：（a）把“再点看板娘关上”从验收中去掉或改成键盘路径，验收里写明点不到的原因；（b）关闭后焦点：在面板的 `closed` 里 `button.focus()`，不要在 update:open 里做（此时内容还没卸载，会被焦点作用域抢回）；（c）若用 Reka 原语，把看板娘按钮放进 trigger 插槽，可免费得到 aria-expanded、aria-controls、焦点归还与“点触发器不算点外面”；（d）打开时的初始焦点也没写：默认 Reka 会聚焦内容里第一个可聚焦元素（头上的按钮），建议 preventDefault 后聚焦输入框。
+
+### 5. 抽屉里没有“还没选 bot”的盖层：宿主没有会话又没有 pending 时露出普通第一屏，能建出无归属会话
+严重程度：重要。类别：遗漏、失败路径。位置：plan-3“打开联系人的公共部分”“盖层”；messages-model.ts 的 pickBot；session-host.ts 约 1950 行。
+现象：消息视图靠两层挡住这件事：pending 盖层，以及 `pickBot`（`pending === null && host.sessionId === null && tab === "bot"` 时盖“选一个 bot”）。计划拆出的 ContactOpener 只带走 pending，`pickBot` 与 `tab` 留在 messages-model 里。书房抽屉里 ConversationHost 挂上时 host.sessionId 为 null，`canCreate` 在没有会话时是 true（`canCreate: !owned`，没会话即 owned 为假）。以下情形盖层消失而宿主仍无会话：
+- openContact 途中 cancel() 被触发（提供者撤回、见第 6 条的竞态），pending 清空，sessionId 仍为 null；
+- bots 在抽屉开着时被停用，联系人没了。
+这时抽屉里是对话组件的普通第一屏（欢迎、starters、可建会话的头与输入框）。用户在里面发话会按 MAIN_PROFILE 建一个无归属、无项目的会话，写进用户层；书房没有会话列表，这个会话之后无处可找。计划“不做”一栏写了“书房里的会话列表与新建会话”，但没有任何机制阻止新建。
+如何核实：读 messages-model.ts 的 pickBot 与 session-host 的 interaction 构造；在 contact-opener.test.ts 里造“提供者撤回后宿主无会话”的状态即可断言。
+建议改法：抽屉里“没有会话时一律盖层”：ContactCover 的显示条件写成 `pending !== null || host.sessionId === null`，没有 pending 的那一支写“选择不到 bot”并带关闭；提供者撤回、联系人消失时同时关抽屉。或者只在 host.sessionId 有值时才挂 ConversationHost，其余画盖层。
+
+### 6. 打开联系人与 ConversationHost 挂上的先后：borrow 会触发 host.opened，误取消 pending；点同一个看板娘，结果取决于关了多久
+严重程度：重要。类别：时序、共享状态。位置：plan-3“打开联系人的公共部分”“滑出聊天”；session-host.ts 的 borrow()（2035 行附近）与 openHere；messages-model.ts 的 opening 与 `host.opened` 同步监视。
+现象：
+- 同步监视把“不是自己打开引起的 host.opened 变化”当作“聊天区被别处换了”，取消 pending。消息视图里 ConversationHost 一直挂着，所以只有真的别处换才会触发。抽屉里 ConversationHost 随抽屉挂载：关闭后 30 秒（RELEASE_DELAY_MS）宿主放开订阅、current 为 null、sessionId 留着；再打开时 `onMounted → borrow()` 会 `openHere(sessionId)`，`opened += 1`，而这时点击处理已经设了 pending（“正在打开”）且 `opening` 为 false，于是 cancel()：asking 加一、pending 清空，在途的 `await provider.open` 回来后因号不符直接 return。
+- 后果取决于时间：关抽屉后 30 秒内再点，current 还在，borrow 不重开，openContact 照常走到主对话；超过 30 秒再点，若上次停在别的会话（子代理入口 session.select 进了子会话，书房里能做到），则落在那个子会话，主对话没打开，也没有任何提示。若上次就停在主对话（单 bot 的常见情形），openContact 在 `pending === null && 已开着它` 处直接返回，没有问题。所以只在“停在别的会话”时出错，易被单 bot 的 e2e 漏掉。
+- 计划写“restore 与点看板娘时的 openContact 的先后”是待核实项，没给结论。
+建议改法：明确一个顺序并写进计划：点击先开面板、等 ConversationHost 挂上（borrow 已完成）再 openContact；或者让 opener 的 `opened` 监视只在自己 `pending` 之后收到“不是 borrow 引起”的变化时才取消（给 SessionHost 的 `opened` 加原因，或 borrow 的重开不递增 opened）。还要定：面板关闭时调 `opener.cancel()`，否则关着抽屉时模型配好，`watch(hasModel)` 会在没人借用的宿主上 `host.open`，订阅挂着没人放。
+
+### 7. `projects.desk` 的实现形状是同步的 `{component}`：书房首屏要么背上整套对话界面，要么悄悄依赖 ensureStarted 的次序
+严重程度：重要。类别：接口与合同、遗漏。位置：plan-3“案头的贡献位”“插件装配”；agent/web/plugin.ts 的 vueOnce、conversationParts、ensureStarted；projects/web/bookshelf-home.ts。
+现象：
+- 同类贡献点都带 `load`：`workbench.views` 的实现是 `{load: () => conversationComponent(...)}`，`workbench.home` 是 `load: async`，`bookshelf-home.ts` 开头还写了用渲染函数避开 bun 加载 .vue 的原因。计划的 `{component: Component}` 是同步值，而 `DeskCompanion` 里要放 nb-ui 面板、`ConversationHost`、AgentConversationView（连带 nb-markdown、Tiptap）。agent 浏览器入口在每个窗口都 onStartup 激活；若在 activate 里就 import，所有窗口（含项目窗口，它们根本不画案头）启动时都多拉这批包；若不想拉，就得自己包 defineAsyncComponent，计划没写。
+- 隐含时序：`hasModel` 只在 `ensureStarted()` 之后才会从 null 变成 true/false，而 ensureStarted 目前只被 conversationParts、命令与 FOCUS 命令调用。书房里如果点看板娘时 openContact 先跑、对话组件还没加载，`options.hasModel()` 为 null，进“opening”盖层等模型读到，但没有谁去读（Spinner 永转）。消息视图里不会发生，因为 MessagesHost 本身就由 conversationComponent 建出来。
+- 组件根：ShelfDesk 把 `shelf-desk__mascot`（grid-row、grid-column、width、border-radius、justify-self）这些 scoped 样式以 class 形式落在“第三列组件”的根上，靠属性透传命中。DeskCompanion 含按钮、角标、气泡、面板，若写成多根（Fragment），class 不透传还有 Vue 警告，格子位置与宽度全丢。计划“组件不带属性，填满那一格”没写这一条。
+建议改法：贡献实现写成 `{load: () => Promise<Component>}`；轻的一半（按钮、角标、气泡、读屏名）同步建在入口里，面板与 ConversationHost 用 defineAsyncComponent，在第一次点击或第一次打开时才加载并调 ensureStarted；写明 DeskCompanion 单根、`inheritAttrs` 默认透传，ShelfDesk 的 `.md` 写这条约束。
+
+### 8. 案头一格里挂角标与气泡：气泡盖住“最近写到”、尖角与窄格不对、焦点环与圆角没人管
+严重程度：建议。类别：遗漏、对照参照。位置：plan-3“案头的贡献位”“画法”；ShelfDesk.vue；NeuroBookMood.vue；草稿 ShelfBotDraft.vue。
+现象（读代码与草稿，未在浏览器里量）：
+- 草稿里 tile 150px、气泡 `top` 在 tile 下沿再下 10px，宽 ≤260px，右对齐，尖角 `right: 66px`（对准 150px 格的中心）。计划把格子在 ≤720px 时缩成 96px，尖角位置没重算：96px 格的中心离右缘 48px，沿用 66px 会指向格子左边。要写成“格宽的一半减尖角半宽”，或用 `calc`。
+- 窄版里 `.shelf-desk__recent` 是第二行整行（`grid-column: 1 / -1`），行间距是 `var(--space-7)`；气泡绝对定位在第一行猫的下方，高度约 30px 加尖角 5px，很可能压在第二行第一条“最近写到”的按钮上（可点）。宽版里气泡落在案头与书架之间 40px 的列间距里，勉强够。窄版还要看 390px 宽：格 96px，气泡 260px 右对齐向左伸出，没有溢出页面（页面 overflow-x:hidden，不会出横向滚动，但会被裁），可能盖住统计块的“继续写作”按钮。计划写“不超过案头宽”，没写落在哪里、谁给它留位。
+- 看板娘回退形态是 `.nb-brand-mood--still`，用 CSS `mask` 画猫：加在它自己身上的 outline、box-shadow 焦点环都会被 mask 掉，所以焦点环必须画在外面的 button 上，且 button 的圆角要等于格子的圆角（宽版 34px、窄版 22px，写在 ShelfDesk 的 scoped 样式里，组件内部读不到）。计划说“格子尺寸（含圆角）留在 ShelfDesk”，但没说怎么传给里面：建议 button 取 `border-radius: inherit`，ShelfDesk 把圆角落在根上。
+- 草稿的角标有一圈 `box-shadow: 0 0 0 2px var(--bg-panel)`、top/right 各 -7px，计划只说“与入口角标同一种”。入口角标在工作台里（WorkbenchToolStrip、entry-count.ts 的 entryCountText 给出 99+），计划没说复用 `entryCountText`，容易再写一份。
+建议改法：气泡的位置由 ShelfDesk 的案头版式决定（给第三列下方留出一行高度，或让窄版的案头在有气泡时给“最近写到”加上边距），写进 ShelfDesk.md；尖角用 `right: calc(50% - 4px)` 一类相对格宽的写法；button 用 `border-radius: inherit`；复用 entryCountText。
+
+### 9. “看到”的活动条件在书房里没有来源，窗口焦点逻辑会被复制一份
+严重程度：建议。类别：遗漏、重复。位置：plan-3“看到”与“contact-opener.ts”；MessagesHost.vue 的 focused、onFocus、onBlur。
+现象：消息视图的 active 是 `props.context.visible.value && focused`，`visible` 来自工作台的视图上下文，书房没有。计划写“抽屉开着、页面可见、窗口有焦点、没有盖层”，没说“页面可见”读什么（document.visibilityState？窗口外框的状态？）。窗口有焦点那段（hasFocus 初值、window 的 focus 与 blur 监听）是 MessagesHost 里 20 行左右的内联代码，书房会再抄一遍。现有 e2e（bots-chat 验收 2）用 `window.dispatchEvent(new Event("blur"))` 模拟失焦，书房的验收也会这样写，所以书房一侧必须监听 window 的 focus、blur 事件，而不能改读 `document.visibilityState` 或轮询 `hasFocus()`，否则同一种 e2e 手法失效。
+建议改法：把窗口焦点抽成一个小组合函数（例如 `useWindowFocus()`，放在 contact-opener.ts 旁），两处共用；“页面可见”在书房等价于抽屉开着，不另读 visibilityState，计划里这样写死；同时说明失焦重新聚焦时才补交 seen（watch 的第三项已是 active，行为同消息视图）。
+
+### 10. “第一个归属插件的第一个联系人”：排序是按插件 id 字典序，第三方可以顶掉 bots；联系人空、读不到与未读为 null 的画法没写全
+严重程度：建议。类别：边界。位置：plan-3“代表谁”；agent/web/plugin.ts 的 ownersReceiver（providers 按 plugin id 排序）。
+现象：providers 的次序稳定（`sort` 按插件 id 字典序），但稳定不等于合理：`agent.sessionOwners` 对第三方开放（贡献 id 以贡献方插件 id 开头即可），任何 id 排在 `nbook.bots` 前面的插件只要交出一个联系人，书房案头的看板娘就变成它的联系人，而 bots/view.md 与 t03 决定 22 里的“看板娘”是星璃。“第一版只有一个 bot”只是 bots 内部的事实。另：
+- “第一个归属插件”若它 `ready` 但联系人为空，而第二个插件有联系人：计划没说取哪个，应写“按次序取第一个有联系人的”。
+- `unread` 为 null（还没数完）：角标与气泡当 0 画，不要画“0”或闪一下；计划只写“有未读时”。
+- `last.text` 是摘要，可能含换行、很长；气泡写“单行截断”是 CSS 的事，但 `aria` 与 title 属性要不要带全文没写。
+- 联系人读不到（state 为 failed）：画不能点的看板娘，与“还没读到”无法区分，也没有重试入口（消息视图里 bot 一页有“重试”）；读不到的原因书房里完全看不到。至少给读屏名与 title 写原因。
+- 抽屉开着时联系人消失（bots 停用、provider 撤回）：见第 5 条，应关抽屉。
+建议改法：书房入口优先取 `nbook.bots` 的联系人（常量或由声明里的一个字段决定），没有再回落到次序第一；其余按上面逐条补进计划。
+
+### 11. 验收映射：书房 e2e 的触发条件缺一步，几条判据用真实运行时测不出来或测的是实现
+严重程度：建议。类别：验收映射。位置：plan-3“验收映射”“验证”；e2e/bots-chat.e2e.ts。
+- 新验收“书房案头……窗口失焦时到一条回复，看板娘右上角‘1’”：书房窗口里没有人发过话，bot 不会自己回复（现有 e2e 是先在聊天里 `send("在吗")` 再 `script("你还在吗？")`）。要么先开抽屉发一句、关掉、失焦后再让脚本端点推一条（需要端点支持无请求时推送，现有 agent-endpoint 是请求应答式），要么从另一个页面（项目窗口）发话、书房页面观察。计划没写，实施时会卡在这里。
+- 书房一组要用 `/`（不带 ?project），startProductServer 的状态根已有 projects.json，可行；但 bots-chat 的 `beforeAll` 里窗口失焦是靠 `window.dispatchEvent(new Event("blur"))`，见第 9 条。
+- “在聊天里拖选一句话，抽屉不动”：现有 Drawer 拖动时视觉上本来就不动（第 2 条：没有消费 swipe 位移变量），判据应改成“按下拖出去之后抽屉仍开着、选区文字非空”；用 Playwright 的 mouse 能测，touch 路径要另用 `hasTouch` 上下文，计划没覆盖，写“不测触摸”也要写明。
+- 第 1 片的 dom 测试“截住冒泡后内容按下不触发滑动”断言的是实现（有没有 stopPropagation）。happy-dom 里能派 pointer 与 touch 事件并读 `data-swiping`（我用它跑出了第 1 条的三个结果），建议改成断言行为：派 pointerdown、pointermove、touchstart、touchmove 后抽屉没有 `data-swiping`、没发 update:open(false)；同时加一条“开着的 Popover 在内容内按下仍然收起”的反向用例。
+- “关闭后焦点回到看板娘”“再点看板娘关上”：见第 4 条，后者用指针测不了。
+- 验证清单漏了：书房里 `project` 为 null 时 ConversationHost 的真实运行（会话列表、最近对话 refresh、附件上传、`@` 文件提及）。代码里 project 为 null 都有分支（`createRecentSessions`、`createFileMentions` 的 noProject），但这是 agent 对话第一次在没有作品的窗口里跑，e2e 里应发一条带附件的话与输入 `@` 各走一遍，计划只测了“能回复”。
+建议改法：补上述触发与反向用例；把第 4 条里不可点的那条判据换成键盘路径。
+
+### 12. 其余别扭与小处
+严重程度：建议。类别：别扭与反常之处。
+a. `hostAt(position: "view" | "page")` 与 `conversationComponent(position)`、`servicesFor`、`initAt(position: string)`、`hostDeps(position: string)` 签名各写一份联合类型；加 "desk" 时至少要同改 hostAt 与 conversationComponent 两处，另外 `lastPosition`（命令优先用最近位置）在 desk 里不应被写，计划没提。建议把位置类型提成一个导出的 `ConversationPosition`。
+b. `conversationComponent` 的 `conversation` 属性对象是写在组件 render 闭包里的一大行字面量（约 645 行），书房入口要同一份属性；计划写“做法同 MessagesHost”，但没说把它抽成函数。不抽就是第三处复制。
+c. 现有 `head-trailing` 插槽在头的右列里排在“新建会话”与“更多”前面，计划新加 `head-end` 在最后；两个名字几乎同义，又没有写清谁在谁前，易误用。建议在 AgentConversationView.md 里写次序，或把“关闭”做成头的一个具名 prop（`closable` 加 `@close`），不加第二个插槽。
+d. 抽屉里的向导（等你处理）按 Esc 会收起向导并 `stopPropagation`（AgentWizard.vue onKeydown），不会冒泡到 Reka 的 Esc，所以不会同时关抽屉，这是对的；但 PlainPromptEditor 的 Escape 只 emit 不 preventDefault，Reka 层在 document 上听 Esc，缺省输入框里按 Esc 会直接关抽屉。是否符合预期要写进计划（我倾向：输入框里按 Esc 也关）。
+e. `ConversationHost.sessionList=false` 时标题仍渲染成可点的按钮？`AgentConversationHead` 靠 `has-sessions` 判断，`slots.sessions` 缺席时已处理；计划里“点标题不开下拉”不需要新属性，只要不给 `#sessions` 槽。`ownList` 现在由 `titleAction` 推出，加 `sessionList` 之后要同时改 `ownList` 与 `watch(sessionsOpen)` 两处，否则 head 为 null 时这几行仍会读 props.head。
+f. 抽屉里“子代理入口照常在右列最前面”：SubagentsEntry 选中子会话会换掉宿主当前会话（session.select），书房没有会话列表也没有回主对话的入口，头里的路径（path）是唯一的路。再点看板娘会 openContact 回主对话（见第 6 条），但要写清这是回主对话的方式。
+
+### 13. Esc 在对话输入框里关不掉抽屉（修正第 12 条 d）
+严重程度：建议。类别：遗漏、交互。位置：plan-3“关闭：头上的‘关闭’、Esc、再点看板娘”；nb-markdown PromptEditor.vue 490 行；DismissableLayer。
+现象：12 条 d 里我把 PlainPromptEditor（宿主没注入编辑器时的回退）当成了产品里的输入框，结论作废。产品里用的是 nb-markdown 的 PromptEditor：它的 ProseMirror keydown 处理在 Esc 上 `emit("escape"); return true`（490 行），ProseMirror 对返回 true 的按键调用 `event.preventDefault()`；AgentConversationComposer 没有监听这个 escape 事件。Reka 的 Esc 监听挂在 window 上、在 `defaultPrevented` 为真时不关（DismissableLayer 对 escapeKeyDown 之后检查 defaultPrevented）。所以抽屉打开后焦点落在输入框（最自然的位置，第 4 条也建议打开时聚焦输入框）时，Esc 什么都不做；要先把焦点移到别处才关得掉。补全菜单开着时 Esc 收菜单（559 行），这是对的。
+为什么是问题：计划把 Esc 列为三种关闭方式之一，e2e 若在输入框里按 Esc 会失败；用户在聊天里想关抽屉，最顺手的按键无效，而点外面又被关掉了（待确认 3 自己选的）。
+如何核实：这一条是读代码与 ProseMirror 的约定得出，未跑真实浏览器；在 Lab 的抽屉场景里放 PromptEditor，聚焦后按 Esc 即可看到。
+建议改法：在 ConversationHost 或书房面板上接 composer 的 escape（若它会发出）或在面板的 keydown 捕获阶段处理“输入框为空且无菜单时 Esc 关面板”；或者在计划里写明“输入框里 Esc 不关”，把关闭只留给头上的按钮与看板娘，并从验收里去掉 Esc。需要开发者拍一下哪种。
+
+### 14. 与已定决定的对照：悄悄改变的两处、没写出的一处
+严重程度：建议。类别：与已定设计一致。位置：plan-3 Context 与待确认 1、2。
+- t03 决定 22 要“等你批准：……”，计划改成“等你处理”并已列为待确认 1，属于明示偏离，不是悄悄改。判断：同意。理由：后端没有“具体的事”的摘要，且 `ask`（提问）与审批都归“等你处理”，写“批准”对提问是错的；bots/view.md 第 2 条与 t15 决定 6 已用“等你处理”。草稿里“等你批准：”的加粗前缀仍可保留成“等你处理”加粗。
+- 看板娘的心情（待确认 2）：bookshelf.md 输出 2 现写 `idle`；计划把它改成按状态变，Spec 改动清单里写了。判断：可以加，但 `think`（在跑）与 `idle` 之间每次活动变化会触发 NeuroBookMood 的切换动画，bot 在后台频繁起停时看板娘会反复抽动；建议“在跑”不变心情，只让 `ask` 变，或对 think 做一个最短持续时间。这点没有证据，是从 NeuroBookMood.md 的“换心情时播切换动画”推断的。
+- 决定 23“头部与内容同消息视图的聊天”：消息视图宽版里头带头像、名字与第二行状态；第二行在 t15 决定 6 里是“正在回复…”“等你处理”。计划里“同宽版消息视图”但没确认 ConversationHost 的头在 head 为 null 时就会画这一行（它由 session-host 的 ctx.session 状态给，不由消息视图给）；实施时核对一次即可。
+- 决定 23 的“书房不压暗”：Reka 在 modal=false 时不渲染遮罩（DrawerOverlay 只在 modal 时渲染），符合；但 modal=false 也意味着没有 `useHideOthers`，书房里的内容照常被读屏读到，这是合理的。
+
+更正第 14 条第三点：“正在回复…”“等你处理”这类第二行写在消息视图的联系人行里（AgentMessagesList，locales/zh-CN.ts 有这句），不在聊天头里，所以书房抽屉的头不会有第二行，与评审板 open-drawer 图里头上的“正在整理读者评论…”不同。计划“头部与内容同消息视图的聊天”因此与图有一处差别：头没有活动说明行。这与 t15 决定 6（具体活动等后端有摘要再补）一致，建议在计划里写明“本阶段头不带第二行”，免得验收时按图找不到。
+
+## 未发现问题的方面
+- 拆出 contact-opener 后两处各自一份实例：两个宿主（view、desk）各自独立，实例互不共享 asking、opening、pending；共享的只有提供者表与 `provider.seen`，后者按“seq 超过已存的才交”幂等。书房窗口没有项目、没有右栏，消息视图与书房抽屉不会在产品窗口里并存，只可能在 Lab 里并存，没有干扰。时序问题只在抽屉的挂载先后上（第 6 条）。
+- 书房（project 为 null）里 hostAt 的其它依赖：草稿记录是用户层、附件地址不含项目、`createRecentSessions` 与 `createFileMentions` 都有 project 为 null 的分支、bot 的主对话不绑作品（backend/profile.ts 写明“不绑定某一本书”）、`nbook.agent` 与 `nbook.bots` 浏览器入口都是 onStartup。这些在代码上都能用；只是没有真实运行时的证据（第 11 条建议补）。
+- `interact-outside` 取消默认在非模态下够用：DismissableLayer 对指针外按与焦点外移都先发 interactOutside、再看 defaultPrevented 决定是否 dismiss（DismissableLayer.js 第 57 到 75 行），所以点外面与焦点移出都会被一并拦住；Esc 另走 escapeKeyDown，不受影响。
+- 提供者表次序稳定（按插件 id 排序、发布与撤回换整个列表），bots 停用时联系人读不到是一个定义清楚的状态（见第 10 条的补充）。
+- t03 决定 22、23 与 t15 决定 1、6 逐条覆盖：唯一的偏离是“等你批准”改“等你处理”，已列为待确认 1。
+- 依赖方向 agent → projects/shared：projects 不认识 agent，与 bots 向 `agent.sessionOwners` 贡献同型，可行。
+
+## 数量
+阻断 1（第 1 条）；重要 6（第 2 到 7 条）；建议 7（第 8 到 14 条）；共 14 条。
+
+## 待确认三项的判断
+1. 等你处理时气泡写“等你处理”：同意。理由见第 14 条。
+2. 心情跟着状态：可以加，但建议只让 `ask` 变；`think` 会随后台活动起停抽动，且 bookshelf.md 输出 2 现写 `idle`，改它要同步 Spec（第 14 条）。
+3. 宽 420px、点外面不关：宽度没问题；点外面不关本身合理（边看书架边聊），但抽屉在 ≤1860px 的窗口里盖住看板娘（第 4 条），Esc 在输入框里又关不掉（第 13 条），结果是指针用户只剩头上的“关闭”这一条路。要么承认这一点并写进验收，要么补 Esc 与键盘路径。
+
+## 一条总的建议
+先定第 2 条（用不带手势的新面板原语，还是继续改 Drawer）。选了新面板，第 1、3 条随之消失，第 4、13 条的焦点与 Esc 在新组件里一次做对；选继续改 Drawer，第 1 条要降级成“只保证鼠标、不保证触摸”并由开发者确认，同时补第 3 条的四个属性与滑出动画。
