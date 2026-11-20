@@ -72,25 +72,48 @@ const MODELS = [
 
 type RolePickerScene = LabFixtureDefinition<typeof AgentRoleModelPicker>["scenes"][number];
 
+const icon = (key: string, fallback: string) => ({kind: "key" as const, set: "provider" as const, key, fallback});
+const roleIcon = (name: string) => ({kind: "class" as const, name});
 const PICKER_ROLES = [
-    {key: "role:tiny", name: "极轻量", axis: "gradient" as const, modelLabel: "DeepSeek Flash"},
-    {key: "role:fast", name: "快速", axis: "gradient" as const, modelLabel: "DeepSeek Flash"},
-    {key: "role:main", name: "主力", axis: "gradient" as const, modelLabel: "DeepSeek V4"},
-    {key: "role:deep", name: "深度", axis: "gradient" as const, modelLabel: null, unavailable: "这个角色还没有绑定模型"},
-    {key: "role:compaction", name: "压缩", axis: "specialist" as const, modelLabel: "DeepSeek Flash"},
+    {key: "role:tiny", name: "极轻量", axis: "gradient" as const, modelLabel: "DeepSeek Flash", icon: roleIcon("i-lucide-feather"), modelIcon: icon("deepseek", "DeepSeek")},
+    {key: "role:fast", name: "快速", axis: "gradient" as const, modelLabel: "DeepSeek Flash", icon: roleIcon("i-lucide-zap"), modelIcon: icon("deepseek", "DeepSeek"), effort: "low"},
+    {key: "role:main", name: "主力", axis: "gradient" as const, modelLabel: "DeepSeek V4", icon: roleIcon("i-lucide-star"), modelIcon: icon("deepseek", "DeepSeek"), effort: "high"},
+    {key: "role:deep", name: "深度", axis: "gradient" as const, modelLabel: null, unavailable: "这个角色还没有绑定模型", icon: roleIcon("i-lucide-telescope")},
+    {key: "role:compaction", name: "压缩", axis: "specialist" as const, modelLabel: "DeepSeek Flash", icon: roleIcon("i-lucide-fold-vertical"), modelIcon: icon("deepseek", "DeepSeek")},
+    {key: "role:lore", name: "设定考据", axis: "specialist" as const, modelLabel: "GPT 6.1", icon: roleIcon("i-lucide-library"), modelIcon: icon("openai", "OpenAI"), effort: "medium"},
+];
+const PICKER_GROUPS = [
+    {id: "deepseek", name: "DeepSeek", icon: icon("deepseek", "DeepSeek")},
+    {id: "openai", name: "OpenAI", icon: icon("openai", "OpenAI")},
+    {id: "openrouter", name: "OpenRouter", icon: icon("openrouter", "OpenRouter")},
+    {id: "custom", name: "我的本地服务", icon: icon("", "我的本地服务")},
 ];
 const PICKER_MODELS = [
     {key: "", label: "跟随默认", supportsImages: false},
-    {key: "deepseek/v4", label: "DeepSeek V4", supportsImages: false, group: "DeepSeek", contextWindow: 1_000_000, reasoning: true, price: {input: 0.3, output: 1.2}},
-    {key: "deepseek/flash", label: "DeepSeek Flash", supportsImages: false, group: "DeepSeek", contextWindow: 256_000, reasoning: false, price: {input: 0.05, output: 0.2}},
-    {key: "openai/gpt", label: "GPT 6.1", supportsImages: true, group: "OpenAI", contextWindow: 400_000, reasoning: true, price: null},
-    {key: "openai/broken", label: "没有密钥的模型", supportsImages: true, group: "OpenAI", unavailable: "这家服务商没有设密钥"},
+    {key: "deepseek/v4", label: "DeepSeek V4", supportsImages: false, group: "DeepSeek", groupId: "deepseek", contextWindow: 1_000_000, reasoning: true, price: {input: 0.3, output: 1.2}},
+    {key: "deepseek/flash", label: "DeepSeek Flash", supportsImages: false, group: "DeepSeek", groupId: "deepseek", contextWindow: 256_000, reasoning: false, price: {input: 0.05, output: 0.2}},
+    {key: "openai/gpt", label: "GPT 6.1", supportsImages: true, group: "OpenAI", groupId: "openai", contextWindow: 400_000, reasoning: true, price: null},
+    {key: "openai/broken", label: "没有密钥的模型", supportsImages: true, group: "OpenAI", groupId: "openai", unavailable: "这家服务商没有设密钥"},
+    {key: "custom/qwen", label: "qwen3:8b", supportsImages: false, group: "我的本地服务", groupId: "custom", contextWindow: 32_768, reasoning: true},
 ];
+/** OpenRouter 这样的大组：几百个模型，当前模型在中间。 */
+const BIG_MODELS = Array.from({length: 587}, (_, index) => ({key: `openrouter/m-${String(index)}`, label: `vendor/model-${String(index)}`, supportsImages: index % 3 === 0, group: "OpenRouter", groupId: "openrouter", contextWindow: 128_000, reasoning: index % 2 === 0}));
+
+const effort = (patch: Partial<NonNullable<ComposerView["effort"]>> = {}): NonNullable<ComposerView["effort"]> => ({kind: "levels", levels: ["low", "medium", "high", "xhigh"], canOff: true, verified: true, value: "high", source: "role", follow: {source: "role", name: "主力"}, ...patch});
+const base = {roles: PICKER_ROLES, models: PICKER_MODELS, groups: PICKER_GROUPS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: [] as string[], thinking: null, canManage: true};
 
 export const agentRoleModelPickerScenes: RolePickerScene[] = [
-    {id: "role", label: "选了角色", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["off", "low", "medium", "high"], thinking: "high", canManage: true}}},
-    {id: "model", label: "选了模型，没有思考档", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "deepseek/flash", effectiveModel: "DeepSeek Flash", thinkingLevels: [], thinking: null}}},
-    {id: "unbound", label: "选的角色没绑定", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:deep", effectiveModel: null, thinkingLevels: [], thinking: null, canManage: true}}},
+    {id: "role", label: "选了角色，思考档跟随主力的默认（只画细框）", input: {props: {...base, effort: effort()}}},
+    {id: "role-session", label: "会话里明确选了档：有“用主力的默认”", input: {props: {...base, effort: effort({value: "medium", source: "session"}), thinking: "medium"}}},
+    {id: "lowest", label: "只能降到最低档的模型：没有“关闭”这一项", input: {props: {...base, effort: effort({canOff: false, levels: ["low", "high", "max"], value: "low", source: "session"})}}},
+    {id: "model-default", label: "选了模型，用模型自己的默认（协议默认就不思考）", input: {props: {...base, modelKey: "custom/qwen", effectiveModel: "qwen3:8b", effort: effort({value: "off", source: "model", follow: {source: "model"}})}}},
+    {id: "seven", label: "七档：窄面板里分段用缩写", input: {props: {...base, effort: effort({levels: ["minimal", "low", "medium", "high", "xhigh", "max"], value: "xhigh", source: "session"})}}},
+    {id: "unverified", label: "没写支持哪几档：通用档位，右边有问号", input: {props: {...base, effort: effort({verified: false, value: null, source: null, follow: null})}}},
+    {id: "fixed", label: "会思考但不能调档：没有分段，写原因", input: {props: {...base, effort: {kind: "fixed", levels: [], canOff: false, verified: true, value: null, source: null, follow: null}}}},
+    {id: "none", label: "选了模型，模型不支持思考", input: {props: {...base, modelKey: "deepseek/flash", effectiveModel: "DeepSeek Flash", effort: {kind: "none", levels: [], canOff: false, verified: true, value: null, source: null, follow: null}}}},
+    {id: "unbound", label: "选的角色没绑定", input: {props: {...base, modelKey: "role:deep", effectiveModel: null, effort: {kind: "none", levels: [], canOff: false, verified: true, value: null, source: null, follow: null}}}},
+    {id: "big-group", label: "OpenRouter 587 个模型，当前模型在中间（模型库页：只展开前后各 10 行）", input: {props: {...({labOpen: "models"} as object), ...base, models: [...PICKER_MODELS, ...BIG_MODELS], modelKey: "openrouter/m-300", effectiveModel: "vendor/model-300", effort: effort({value: null, source: null, follow: null})}}},
+    {id: "legacy", label: "旧宿主：只给档位列表（兼容）", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["off", "low", "medium", "high"], thinking: "high", canManage: true}}},
 ];
 
 type InspectorScene = LabFixtureDefinition<typeof AgentContextInspector>["scenes"][number];

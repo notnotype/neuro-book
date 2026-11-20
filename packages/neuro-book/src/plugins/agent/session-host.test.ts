@@ -113,6 +113,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         rememberRules: async () => ({ok: true}),
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
+        groups: () => [],
         providers: () => null,
         drafts: {read: async () => null, write: () => undefined},
         attachments: {upload: async () => ({ok: false, code: "not-used"})},
@@ -1833,6 +1834,23 @@ describe("中断、设置与模型（输出 7–9）", () => {
         expect(h.ctx().composer.modelKey).toBe("");
     });
 
+    test("推理档：选择器的档位状态来自内核的解析（角色的默认档、会话明确选的），选“跟随”回到角色的", async () => {
+        const local = localModelSettings(endpoint.baseUrl, {compactionRole: true});
+        const providers = (local["nbook.models/providers"] as {models: unknown[]}[]).map((provider) => ({...provider, models: [{id: "m", enabled: true, contextWindow: 32_000, reasoning: true}]}));
+        const roles = {items: (local["nbook.models/roles"] as {items: {id: string}[]}).items.map((item) => (item.id === "main" ? {...item, effort: "medium"} : item))};
+        const w = await world({"nbook.models/providers": providers, "nbook.models/roles": roles});
+        const h = await started(w);
+        await until("跟随角色的默认档", () => h.ctx().composer.effort?.source === "role");
+        expect(h.ctx().composer.effort).toMatchObject({kind: "levels", value: "medium", source: "role"});
+        h.host.act({type: "thinking.set", level: "high"});
+        await until("明确选了高", () => h.ctx().composer.effort?.source === "session");
+        expect(h.ctx().composer.effort).toMatchObject({value: "high", source: "session"});
+        h.host.act({type: "thinking.reset"});
+        await until("回到跟随", () => h.ctx().composer.effort?.source === "role");
+        expect(h.ctx().composer.effort).toMatchObject({value: "medium"});
+        expect(h.ctx().composer.thinking).toBeNull();
+    });
+
     test("模型能力提示（输出 32）：模型缺 Profile 要的能力时输入框上方写明，发送照常可用；满足时不说，查不到时不说", async () => {
         const w = await world();
         const models = shallowRef<readonly ComposerModelView[]>([{key: "local/m", label: "M", supportsImages: false, contextWindow: 1000}]);
@@ -1975,7 +1993,7 @@ describe("中断、设置与模型（输出 7–9）", () => {
 
     /** 提示卡用真的目录（严格模式：缺键、缺插值参数会抛），断言写出来的字。 */
     const zh = () => testTextPort("zh-CN", {[AGENT_TEXT_NAMESPACE]: agentCatalogs});
-    const DEEP_UNBOUND = {key: "role:deep", name: "深度", axis: "gradient", modelLabel: null, status: "unbound"} as const;
+    const DEEP_UNBOUND = {key: "role:deep", name: "深度", axis: "gradient", modelLabel: null, id: "deep", effort: null, status: "unbound"} as const;
 
     test("profileKey 是响应式的：打开一个会话时先是主创，快照到了换成它的 Profile（第一屏按它取开场指令，conversation.md 输出 41）", async () => {
         const w = await world();

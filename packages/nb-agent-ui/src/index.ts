@@ -9,7 +9,7 @@
 export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
     AgentSessionListItem, AgentSessionListState, MessagesContact, MessagesContactSection, MessagesRecentSession, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
-    SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, SessionTreeView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
+    SessionPanelFilter, ComposerApprovalOption, ComposerEffortView, ComposerGroupView, ComposerIcon, ComposerModelView, ComposerModeView, ComposerRoleView, SessionTreeView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
     InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputCommon, PendingInputView, PendingQuestionsView,
     PendingModeSwitchView,
     CompactionView, PendingQuestionView, PluginAgentViewAction,
@@ -18,7 +18,7 @@ export type {
     WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView, AgentWelcomeView,
 } from "./types";
 export type {
-    MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptBarenessPort, PromptAttachmentKind, PromptDraft,
+    AgentIconPort, AgentResolvedIcon, MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptBarenessPort, PromptAttachmentKind, PromptDraft,
     PromptEditorPortExpose, PromptEditorPortProps, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy,
     PromptTextViewPortProps, PromptToken, StickerPreviewRequest,
 } from "./ports";

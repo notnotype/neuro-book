@@ -85,6 +85,17 @@ export const THINKING_LEVEL_KEYS: Readonly<Record<string, AgentTextKey>> = {
     max: "composer.thinking.max",
 };
 
+/** 档位多或面板窄时分段里用的缩写（全名放悬停与说明里）。 */
+export const THINKING_SHORT_KEYS: Readonly<Record<string, AgentTextKey>> = {
+    off: "composer.thinkingShort.off",
+    minimal: "composer.thinkingShort.minimal",
+    low: "composer.thinkingShort.low",
+    medium: "composer.thinkingShort.medium",
+    high: "composer.thinkingShort.high",
+    xhigh: "composer.thinkingShort.xhigh",
+    max: "composer.thinkingShort.max",
+};
+
 /**
  * 有附件挡住发送时的原因：编辑器发出过、还没移除的附件里有失败的（优先，用户要先处理），或有还在上传的。没就绪的附件不在
  * 文字里，这时发送附件就丢了。不在 `states` 里的按上传中算：宿主还没登记它的状态。
@@ -106,7 +117,8 @@ export function applyComposerAction(composer: ComposerView, action: AgentViewAct
         case "composer.fill": return {...composer, draft: {text: action.text, version: composer.draft.version + 1}};
         case "mode.set": return {...composer, mode: action.mode};
         case "model.set": return {...composer, modelKey: action.modelKey};
-        case "thinking.set": return {...composer, thinking: action.level};
+        case "thinking.set": return {...composer, thinking: action.level, ...(composer.effort === undefined ? {} : {effort: {...composer.effort, value: action.level, source: "session" as const}})};
+        case "thinking.reset": return {...composer, thinking: null};
         default: return null;
     }
 }

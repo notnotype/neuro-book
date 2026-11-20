@@ -5,7 +5,7 @@
 
 import {describe, expect, it, vi} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
-import {DropdownMenu, Slider} from "@notnotype/nb-ui/components";
+import {DropdownMenu} from "@notnotype/nb-ui/components";
 
 import {createAgentContext, type AgentContextPatch} from "../../context";
 import {createAgentViewRegistry, type AgentViewContribution, type ToolbarPopoverProps} from "../../registry";
@@ -177,22 +177,152 @@ describe("AgentRoleModelPicker", () => {
         picker.unmount();
     });
 
-    it("拖滑块时停下才发一次", async () => {
-        const picker = await open({thinkingLevels: ["low", "medium", "high"], thinking: "low"});
-        const slider = picker.getComponent(Slider);
-        slider.vm.$emit("update:modelValue", 1);
-        slider.vm.$emit("update:modelValue", 2);
+    const levels = (patch: Partial<NonNullable<InstanceType<typeof AgentRoleModelPicker>["$props"]["effort"]>> = {}) => ({kind: "levels" as const, levels: ["low", "medium", "high"], canOff: true, verified: true, value: "low", source: "session" as const, follow: {source: "role" as const, name: "主力"}, ...patch});
+    const radios = () => [...panel().querySelectorAll<HTMLElement>("[data-model-picker-thinking] button[role='radio']")];
+
+    it("思考档：选了立刻显示、停下才发一次；连选只发最后一档（方向键即选中，宿主不会收到每一档）", async () => {
+        const picker = await open({effort: levels()});
+        // 面板窄于 400px 时分段里写缩写，全名在悬停与可访问名称里。
+        expect(radios().map((item) => item.textContent?.trim())).toEqual(["关", "低", "中", "高"]);
+        expect(radios()[0]!.getAttribute("title")).toBe("关闭");
+        radios()[2]!.click();
+        radios()[3]!.click();
         await nextTick();
-        expect(inside("[data-model-picker-thinking]").textContent).toBe("高");
+        expect(radios().map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "false", "true"]);
         expect(picker.emitted("select-thinking")).toBeUndefined();
         await vi.waitFor(() => expect(picker.emitted("select-thinking")).toEqual([["high"]]));
         picker.unmount();
     });
 
-    it("只有一个档位时没有滑块", async () => {
-        const picker = await open({thinkingLevels: ["high"]});
+    it("跟随来的档：写跟随谁，再选它就钉成明确选择；明确选了档时有“用默认”回到跟随", async () => {
+        const following = await open({effort: levels({value: "high", source: "role"})});
+        expect(inside("[data-model-picker-effort-note]").textContent).toContain("跟随主力的默认");
+        expect(inside("[data-model-picker-reset]")).toBeNull();
+        expect(radios()[3]!.getAttribute("aria-checked")).toBe("true");
+        radios()[3]!.click();
+        await vi.waitFor(() => expect(following.emitted("select-thinking")).toEqual([["high"]]));
+        following.unmount();
+
+        const pinned = await open({effort: levels({value: "low", source: "session"})});
+        expect(inside("[data-model-picker-effort-note]").textContent).not.toContain("跟随");
+        inside("[data-model-picker-reset]").click();
+        expect(pinned.emitted("reset-thinking")).toHaveLength(1);
+        expect(inside("[data-model-picker-reset]").textContent).toContain("用主力的默认");
+        pinned.unmount();
+    });
+
+    it("模型不推理或不能调档时没有控件，写原因；没验证的档位加问号说明；只能降档的模型没有“关闭”", async () => {
+        const none = await open({effort: {kind: "none", levels: [], canOff: false, verified: true, value: null, source: null}});
         expect(panel().querySelector("[data-model-picker-thinking]")).toBeNull();
-        picker.unmount();
+        expect(inside("[data-model-picker-effort-note]").textContent).toContain("这个模型不支持思考");
+        none.unmount();
+
+        const fixed = await open({effort: {kind: "fixed", levels: [], canOff: false, verified: true, value: null, source: null}});
+        expect(panel().querySelector("[data-model-picker-thinking]")).toBeNull();
+        expect(inside("[data-model-picker-effort-note]").textContent).toContain("会思考，但不能调档");
+        fixed.unmount();
+
+        const unverified = await open({effort: levels({verified: false, canOff: false})});
+        expect(radios().map((item) => item.textContent?.trim())).toEqual(["低", "中", "高"]);
+        expect(inside("[data-model-picker-effort-note] [role='img']").getAttribute("aria-label")).toContain("没写支持哪几档");
+        unverified.unmount();
+    });
+
+    it("旧宿主只给档位列表时照旧：多于一档才有控件", async () => {
+        const single = await open({thinkingLevels: ["high"]});
+        expect(panel().querySelector("[data-model-picker-thinking]")).toBeNull();
+        single.unmount();
+        const several = await open({thinkingLevels: ["off", "low", "high"], thinking: "low"});
+        expect(radios().map((item) => item.getAttribute("title"))).toEqual(["关闭", "低", "高"]);
+        several.unmount();
+    });
+
+    describe("模型库的大组", () => {
+        const big = Array.from({length: 587}, (_, index) => ({key: `or/m-${String(index)}`, label: `模型 ${String(index)}`, supportsImages: true, groupId: "or"}));
+        const bigModels = [{key: "", label: "跟随默认", supportsImages: false}, ...big, {key: "d/v4", label: "DeepSeek V4", supportsImages: false, groupId: "ds"}];
+        const groups = [{id: "or", name: "OpenRouter"}, {id: "ds", name: "DeepSeek"}];
+        const rows = () => panel().querySelectorAll("[data-model-picker-model]").length;
+        const toModels = async () => {
+            inside("[data-model-picker-pages] button:last-child").click();
+            await nextTick();
+        };
+
+        it("超过 30 个的组默认收起；当前模型在里面时只展开它前后各 10 行，“显示全部”才展开整组", async () => {
+            const away = await open({models: bigModels, groups, modelKey: "d/v4", roles: []});
+            await toModels();
+            expect(rows()).toBe(1);
+            expect(inside("[data-group-head='or']").getAttribute("aria-expanded")).toBe("false");
+            expect(inside("[data-group-head='or']").getAttribute("aria-label")).toBe("OpenRouter，587 个模型");
+            away.unmount();
+
+            const here = await open({models: bigModels, groups, modelKey: "or/m-300", roles: []});
+            await toModels();
+            expect(rows()).toBe(21 + 1);
+            expect(inside("[data-model-picker-model='or/m-300']").getAttribute("aria-current")).toBe("true");
+            inside("[data-model-picker-show-all]").click();
+            await nextTick();
+            expect(rows()).toBe(588);
+            expect(panel().querySelector("[data-model-picker-show-all]")).toBeNull();
+            here.unmount();
+        });
+
+        it("搜索时只渲染命中项，清空后回到默认的收起；焦点所在的行被收起时落到那一组的组头", async () => {
+            const picker = await open({models: bigModels, groups, modelKey: "d/v4", roles: []});
+            await toModels();
+            const input = inside("input[data-model-picker-search], [data-model-picker-search] input") as HTMLInputElement;
+            input.value = "模型 58";
+            input.dispatchEvent(new Event("input"));
+            await nextTick();
+            expect(rows()).toBe(8);
+            (inside("[data-model-picker-model='or/m-58']") as HTMLElement).focus();
+            input.value = "";
+            input.dispatchEvent(new Event("input"));
+            await nextTick();
+            await vi.waitFor(() => expect(document.activeElement).toBe(inside("[data-group-head='or']")));
+            expect(rows()).toBe(1);
+            picker.unmount();
+        });
+
+        it("键盘：搜索框、组头、行在同一条方向键序列里；Home、End 到首末", async () => {
+            const picker = await open({models: bigModels, groups, modelKey: "or/m-300", roles: []});
+            await toModels();
+            const input = inside("input[data-model-picker-search], [data-model-picker-search] input") as HTMLInputElement;
+            input.focus();
+            const press = (target: Element, key: string) => target.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true}));
+            press(input, "ArrowDown");
+            expect(document.activeElement).toBe(inside("[data-group-head='or']"));
+            press(document.activeElement!, "ArrowDown");
+            expect((document.activeElement as HTMLElement).dataset.modelPickerModel).toBe("or/m-290");
+            press(document.activeElement!, "ArrowUp");
+            press(document.activeElement!, "ArrowUp");
+            press(document.activeElement!, "ArrowUp");
+            expect(document.activeElement).toBe(input);
+            press(inside("[data-group-head='or']"), "End");
+            expect(document.activeElement).toBe(inside("[data-model-picker-model='d/v4']"));
+            press(document.activeElement!, "Home");
+            expect(document.activeElement).toBe(input);
+            picker.unmount();
+        });
+    });
+
+    it("图标只是视图里的键：表晚到时首字母块换成图标，不用重建视图", async () => {
+        const table = shallowRef<Record<string, string>>({});
+        const Host = defineComponent({
+            setup() {
+                provideAgentView({locale: () => "zh-CN", renderers: () => ({icons: (icon) => (icon.kind === "key" && table.value[icon.key] !== undefined ? {kind: "image", src: table.value[icon.key]!} : null)})});
+                return () => h(AgentRoleModelPicker, {roles: [{key: "role:main", name: "主力", axis: "gradient", modelLabel: "DeepSeek V4", modelIcon: {kind: "key", set: "provider", key: "deepseek", fallback: "DeepSeek"}}], models, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: [], thinking: null});
+            },
+        });
+        const view = mount(Host, {attachTo: document.body});
+        await view.get("[data-model-picker]").trigger("click");
+        await nextTick();
+        const row = () => document.body.querySelector("[data-model-picker-role='role:main']")!;
+        expect(row().querySelector("img")).toBeNull();
+        expect(row().textContent).toContain("D");
+        table.value = {deepseek: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"};
+        await nextTick();
+        expect(row().querySelector("img")?.getAttribute("src")).toContain("data:image/svg+xml");
+        view.unmount();
     });
 });
 

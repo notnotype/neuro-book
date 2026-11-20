@@ -10,7 +10,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-export {roleOfReference, roleReference} from "@notnotype/nb-models/config";
+export {roleOfReference, roleReference, splitReference} from "@notnotype/nb-models/config";
 export {hasCredentials} from "@notnotype/nb-models/contract";
 export type {ModelsService, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 export {builtinRoleNameKey, modelsText} from "./text";

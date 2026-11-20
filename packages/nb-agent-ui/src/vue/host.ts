@@ -10,9 +10,9 @@
 import type {Component, ComputedRef, InjectionKey} from "vue";
 import {computed, inject, provide} from "vue";
 
-import type {AgentLocale} from "../types";
+import type {AgentLocale, ComposerIcon} from "../types";
 import {firstLine, markdownPreviewLine} from "../format";
-import type {MarkdownPreviewPort, PromptBarenessPort} from "../ports";
+import type {AgentIconPort, AgentResolvedIcon, MarkdownPreviewPort, PromptBarenessPort} from "../ports";
 import PlainForm from "./fallback/PlainForm.vue";
 import PlainMarkdown from "./fallback/PlainMarkdown.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
@@ -33,6 +33,8 @@ export type AgentViewRenderers = {
     promptBareness?: PromptBarenessPort;
     /** 提问向导的表单：收 `schema`、`modelValue`，发 `update:modelValue`、`update:valid`。 */
     form?: Component;
+    /** 图标解析端口（服务商、角色图标）；不注入时 `key` 类的画首字母块。 */
+    icons?: AgentIconPort;
     /** 后台命令（`shell` 带 `async`）的节点：收 `ToolComponentProps`、发 `action`；不注入时画通用卡片。 */
     backgroundCommand?: Component;
 };
@@ -86,6 +88,19 @@ function guardPreview(port: MarkdownPreviewPort): MarkdownPreviewPort {
             }
             return markdownPreviewLine(text);
         }
+    };
+}
+
+/**
+ * 图标解析：在渲染里调用，端口读到的响应式状态（例如宿主的图标表）被当前渲染追踪，表到了之后自动重画。
+ * 没有端口时 `key` 类解析不出，`initial` 与 `class` 原样返回。
+ */
+export function useAgentIcons(): (icon: ComposerIcon) => AgentResolvedIcon | null {
+    const host = inject(hostKey, FALLBACK_HOST);
+    return (icon) => {
+        if (icon.kind === "initial") return icon;
+        if (icon.kind === "class") return {kind: "class", name: icon.name};
+        return host.renderers().icons?.(icon) ?? null;
     };
 }
 

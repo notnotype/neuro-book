@@ -672,12 +672,15 @@ defineExpose({
                         :effective-model="composer.effectiveModel ?? null"
                         :thinking-levels="composer.thinkingLevels"
                         :thinking="composer.thinking"
+                        :effort="composer.effort ?? null"
+                        :groups="composer.groups ?? []"
                         :anchor="frameRef"
                         :disabled="runtimeDisabled"
                         :show-image-support="acceptFiles"
                         :can-manage="props.ctx.interaction.canManageModels"
                         @select-model="emit('action', {type: 'model.set', modelKey: $event})"
                         @select-thinking="emit('action', {type: 'thinking.set', level: $event})"
+                        @reset-thinking="emit('action', {type: 'thinking.reset'})"
                         @manage="emit('action', {type: 'model.manage'})"
                     />
                     <AgentModelPicker

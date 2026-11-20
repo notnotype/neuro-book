@@ -16,13 +16,13 @@ import type {ComputedRef, ShallowRef} from "vue";
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
 import {findPromptLinks} from "@notnotype/nb-markdown";
 import type {KernelNotice, KernelQueued} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelIssuer, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerEffortView, ComposerGroupView, ComposerIcon, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelIssuer, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 import type {TextRef} from "@notnotype/nb-ui/text";
-import type {BranchPoint, PreviewResult, RewindTarget, SessionOwner} from "@notnotype/nb-harness/kernel/contracts";
+import type {BranchPoint, EffortSource, ModelReasoning, PreviewResult, RewindTarget, SessionOwner} from "@notnotype/nb-harness/kernel/contracts";
 
 import {roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
 import {MAIN_PROFILE} from "../shared/contracts";
@@ -124,6 +124,25 @@ const MODE_OPTIONS: readonly {readonly key: AgentMode; readonly icon: string}[] 
 ];
 
 /** 上方向键翻的内容：当前路径上用户说的话，最新在前，去重。补充说明与命令不算；回退掉的分支不在路径上，也不算（输出 29）。 */
+/** 选择器里思考档的状态：能力、夹取后的有效档与来源由内核按这次解析算好（`effectiveEffort`、`effortSource`），这里只翻成视图。 */
+function effortViewFor(reasoning: ModelReasoning, effective: string | null, source: EffortSource | null, follow: ComposerEffortView["follow"]): ComposerEffortView {
+    if (reasoning.kind !== "levels") return {kind: reasoning.kind, levels: [], canOff: false, verified: true, value: null, source: null, follow: null};
+    return {kind: "levels", levels: [...reasoning.levels], canOff: reasoning.off === "disable", verified: reasoning.verified, value: effective, source, follow};
+}
+
+/**
+ * “用默认”会回到哪里：会话选的是角色（或没选、按 Profile 的缺省角色）且那个角色设了默认档时是它；否则模型自己的默认
+ * （线上不指定档时确实有确定的行为）；都没有时没有默认，不画“用默认”。
+ */
+function followOf(selection: string | null, profileRole: string | undefined, roles: readonly ComposerRoleView[], reasoning: ModelReasoning): ComposerEffortView["follow"] {
+    const roleId = selection === null || selection === "" ? profileRole ?? "main" : roleOfReference(selection);
+    if (roleId !== null) {
+        const role = roles.find((item) => item.key === roleReference(roleId));
+        if (role !== undefined && role.effort !== undefined && role.effort !== null) return {source: "role", name: role.name};
+    }
+    return reasoning.kind === "levels" && reasoning.unset !== null ? {source: "model"} : null;
+}
+
 function recallOf(messages: readonly MessageView[]): string[] {
     const seen = new Set<string>();
     for (let index = messages.length - 1; index >= 0 && seen.size < RECALL_LIMIT; index -= 1) {
@@ -200,6 +219,8 @@ export interface SessionHostDeps {
     readonly models: () => readonly ComposerModelView[] | null;
     /** 模型角色；模型服务不在时为 null。`status` 是模型服务按解析规则算的有效性。 */
     readonly roles: () => readonly RoleOption[] | null;
+    /** 模型库的分组（服务商的名字与图标引用）；模型行只带 `groupId`。 */
+    readonly groups: () => readonly ComposerGroupView[];
     /** 模型服务快照里的服务商（提示卡查名字、判断一家都没有）；还没读到、模型服务不在时为 null。 */
     readonly providers: () => readonly {readonly id: string; readonly name: string}[] | null;
     readonly profiles: () => readonly ProfileEntry[];
@@ -257,11 +278,17 @@ export interface UploadedAttachment {
 /** 宿主从模型服务的快照映射来，界面文字在这里按 `status` 取。 */
 export interface RoleOption {
     readonly key: string;
+    /** 角色 id（`key` 去掉 `role:` 前缀）。 */
+    readonly id: string;
     /** 内置角色的名字是文字引用，按界面语言显示。 */
     readonly name: string | TextRef;
     readonly axis: "gradient" | "specialist";
     readonly modelLabel: string | null;
     readonly status: "ok" | "unbound" | "unknown-model" | "no-credentials";
+    readonly icon?: ComposerIcon;
+    readonly modelIcon?: ComposerIcon;
+    /** 角色的默认思考档（`off` 或档位）；没设为 null。 */
+    readonly effort: string | null;
 }
 
 export interface SessionHost {
@@ -1726,6 +1753,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "thinking.set":
                 await changeSettings({effort: action.level});
                 return;
+            case "thinking.reset":
+                await changeSettings({effort: null});
+                return;
             case "message.editStart": {
                 const message = current?.transcript.messages().find((item) => item.id === action.messageId);
                 if (message?.kind !== "user") return;
@@ -1907,7 +1937,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         // bot 档：当前会话有归属（还没读到时也按这一档，最严）。
         const owned = target !== null && target.owner !== null;
         const identity = target?.owner === null || target?.owner === undefined ? null : deps.owners?.identity(target.owner) ?? null;
-        const model = (meta?.model ?? null) as {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | ({ok: false} & ModelFailure) | null;
+        const model = (meta?.model ?? null) as {ok: true; id: string; contextWindow: number; efforts: readonly string[]; reasoning?: ModelReasoning; effectiveEffort?: string | null; effortSource?: EffortSource | null} | ({ok: false} & ModelFailure) | null;
         const usage = target?.transcript.usage();
         const run = target?.transcript.run();
         const warnCost = deps.warnCost();
@@ -1918,6 +1948,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             axis: role.axis,
             modelLabel: role.modelLabel,
             ...(role.status === "ok" ? {} : {unavailable: deps.text.t(agentText(ROLE_STATUS_KEYS[role.status]))}),
+            ...(role.icon === undefined ? {} : {icon: role.icon}),
+            ...(role.modelIcon === undefined ? {} : {modelIcon: role.modelIcon}),
+            effort: role.effort,
         }));
         const settings = (meta?.settings ?? {}) as {model?: string | null; effort?: string | null; approvalMode?: string};
         /**
@@ -1984,6 +2017,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 modelKey: settings.model ?? "",
                 thinkingLevels: model?.ok === true ? [...model.efforts] : [],
                 thinking: settings.effort ?? null,
+                ...(model?.ok === true && model.reasoning !== undefined ? {effort: effortViewFor(model.reasoning, model.effectiveEffort ?? null, model.effortSource ?? null, followOf(settings.model ?? null, profile?.role, roles, model.reasoning))} : {}),
+                groups: [...deps.groups()],
                 approval: {options: [...APPROVAL_OPTIONS], value: settings.approvalMode ?? "ask"},
                 // 模式扩展跟着切换模式的工具装（主创、bot 的岗位 Profile）；还没有会话时要建的就是主创。
                 modes: meta !== null && meta !== undefined && !hasModes(profile) ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),

@@ -7,6 +7,8 @@
  * 与参数。文字写法（标签、附件、粘贴块怎样写进文字）见 docs/specs/ui/prompt-editor.md。
  */
 
+import type {ComposerIcon} from "./types";
+
 /** 显示语言的标签；是字符串，加语言不改类型（docs/specs/ui/i18n.md）。 */
 export type PromptLocale = string;
 
@@ -183,3 +185,17 @@ export type MarkdownPreviewPort = (text: string) => string;
  * 表情目录晚到时重算）。
  */
 export type PromptBarenessPort = (texts: readonly string[]) => boolean;
+
+/**
+ * 图标解析端口（宿主注入，在渲染里调用）：把视图里的图标引用换成能画的东西。`key` 类的由宿主的图标表解析，表还没到或没登记时
+ * 返回 null，视图画首字母块；端口在渲染里读响应式的表，表到了之后用到图标的组件自动重画。
+ */
+export type AgentResolvedIcon =
+    /** 单色图：用文字色着色（CSS mask）。 */
+    | {kind: "mask"; src: string}
+    /** 多色图：原样显示。 */
+    | {kind: "image"; src: string}
+    | {kind: "class"; name: string}
+    | {kind: "initial"; text: string};
+
+export type AgentIconPort = (icon: ComposerIcon) => AgentResolvedIcon | null;

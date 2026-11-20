@@ -78,6 +78,11 @@ import {agentConversationViewScenes} from "./view.scenes";
 type SubjectName = Parameters<typeof import("./host")["agentSubject"]>[0];
 
 /** 渲染层的公开组件，包上 Lab 的宿主（翻译端口、Markdown 与编辑器）。 */
+/** 模型选择器：面板锚在输入框那样的宽框上（`host.ts` 的 `rolePickerSubject`）。 */
+async function rolePickerSubject(): Promise<{default: Component}> {
+    return (await import("./host")).rolePickerSubject();
+}
+
 function agentSubject(name: SubjectName): () => Promise<{default: Component}> {
     return async () => (await import("./host")).agentSubject(name);
 }
@@ -181,8 +186,8 @@ export const nbAgentUiFixtures: LabFixture[] = [
         events: ["activate", "copy"],
     }),
     defineSubjectFixture<typeof AgentRoleModelPicker>({
-        component: "AgentRoleModelPicker", scenes: agentRoleModelPickerScenes, subject: agentSubject("AgentRoleModelPicker"),
-        events: ["select-model", "select-thinking", "manage"],
+        component: "AgentRoleModelPicker", scenes: agentRoleModelPickerScenes, subject: rolePickerSubject,
+        events: ["select-model", "select-thinking", "reset-thinking", "manage"],
         writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
     }),
     defineLabFixture<typeof AgentStatusBar>({component: "AgentStatusBar", scenes: agentStatusBarScenes, load: async () => (await import("./AgentStatusBarFixture.vue")).default}),
