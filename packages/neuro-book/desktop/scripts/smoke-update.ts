@@ -176,11 +176,14 @@ async function smoke(options: Options): Promise<void> {
         await startApp(installed.launcher, webViewData(installed), {cdpPort: port});
         let connection = await connectPage(port, webViewData(installed));
         // 首次启动向导只在状态根第一次打开桌面版时出现：同一个作业里安装版冒烟已经用过缺省状态根、看过它，这里多半不出；
-        // 新的 runner 或上一版没有向导时也不出。所以等更新提示与向导谁先出来，是向导就先跳过。
+        // 新的 runner（上一版升级的作业）上会出，而且可能和更新提示同时在。向导是模态框，开着时页面其余部分对读屏隐藏，
+        // 按角色找不到“下载”（v0.15.0 的上一版升级就这样失败）。所以向导一出现就跳过，点“下载”之前再查一次。
         const offer = connection.page.getByText(`NeuroBook ${target} 可以更新`);
-        await offer.or(connection.page.locator("[data-first-run-wizard]")).first().waitFor({timeout: 90_000});
-        if (!(await offer.isVisible())) await skipFirstRun(connection.page, step);
+        const wizard = connection.page.locator("[data-first-run-wizard]");
+        await offer.or(wizard).first().waitFor({timeout: 90_000});
+        if (await wizard.isVisible()) await skipFirstRun(connection.page, step);
         await offer.waitFor({timeout: 90_000});
+        if (await wizard.isVisible()) await skipFirstRun(connection.page, step);
         await connection.page.getByRole("button", {name: "下载"}).first().click();
         await connection.page.getByText("已下载").first().waitFor({timeout: 300_000});
         await connection.browser.close().catch(() => undefined);
