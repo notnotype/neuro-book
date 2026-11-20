@@ -19,7 +19,7 @@ const GREEN: WorkflowJob[] = [{name: "门禁", conclusion: "success"}, {name: "�
  * `runs` 是手动触发的运行列表（演练检查读它）；`dispatched` 在 `gh workflow run` 之后才出现，`pushRuns` 在推送之后才出现：
  * 和真实的一样，触发前列出来的运行不是这次触发的。
  */
-function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; watch?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string}) {
+function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; conclusion?: string; pending?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string}) {
     const calls: string[][] = [];
     let head = HEAD;
     let dispatchedYet = false;
@@ -46,8 +46,15 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
         if (line.startsWith("gh workflow run")) dispatchedYet = true;
         if (line.startsWith("gh run list") && line.includes("--event push")) return {code: 0, stdout: JSON.stringify(pushedYet ? options.pushRuns ?? [] : [])};
         if (line.startsWith("gh run list")) return {code: 0, stdout: JSON.stringify([...(dispatchedYet ? options.dispatched ?? [] : []), ...(options.runs ?? [])])};
-        if (line.startsWith("gh run watch")) return {code: options.watch ?? 0, stdout: ""};
-        if (line.startsWith("gh run view")) return {code: 0, stdout: JSON.stringify({jobs: options.jobs ?? GREEN})};
+        // gh run watch 只显示进度；结论按 gh run view 等到 completed 再取（前 `pending` 次还在跑）。
+        if (line.startsWith("gh run watch")) return {code: 1, stdout: ""};
+        if (line.startsWith("gh run view")) {
+            if ((options.pending ?? 0) > 0) {
+                options.pending! -= 1;
+                return {code: 0, stdout: JSON.stringify({status: "in_progress", conclusion: null, jobs: options.jobs ?? GREEN})};
+            }
+            return {code: 0, stdout: JSON.stringify({status: "completed", conclusion: options.conclusion ?? "success", jobs: options.jobs ?? GREEN})};
+        }
         return {code: 0, stdout: ""};
     };
     const command = new ReleaseCommand(async (argv) => {
@@ -110,14 +117,14 @@ describe("演练与触发的运行", () => {
 describe("发版", () => {
     it("演练通过：prepare、在发版提交上打标签、原子推送、盯标签触发的那一轮；运行失败时交回 false", async () => {
         const pushRuns = [run({databaseId: 9, headSha: RELEASE_COMMIT, event: "push", conclusion: null, status: "in_progress", createdAt: NOW})];
-        const {command, lines} = fake({runs: [run({})], pushRuns, watch: 1});
+        const {command, lines} = fake({runs: [run({})], pushRuns, conclusion: "failure", pending: 2});
         expect(await command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: true})).toBe(false);
         const order = lines();
         const at = (prefix: string) => order.findIndex((line) => line.startsWith(prefix));
         expect(at("bun scripts/release/prepare.ts 0.15.0")).toBeGreaterThan(at("gh run view 1"));
         expect(order).toContain(`git tag v0.15.0 ${RELEASE_COMMIT}`);
         expect(at("git push --atomic")).toBeGreaterThan(at("git tag v0.15.0"));
-        expect(order).toContain("gh run watch 9 --interval 30 --exit-status --repo notnotype/neuro-book");
+        expect(order).toContain("gh run watch 9 --interval 30 --repo notnotype/neuro-book");
         // gh 的每次调用都指明推送目标的仓库。
         expect(order.filter((line) => line.startsWith("gh ")).every((line) => line.endsWith("--repo notnotype/neuro-book"))).toBe(true);
     });
@@ -157,7 +164,7 @@ describe("发版", () => {
         const pushRuns = [run({databaseId: 9, headSha: RELEASE_COMMIT, event: "push", createdAt: NOW})];
         const {command, lines} = fake({push: 128, remoteTag: RELEASE_COMMIT, pushRuns});
         expect(await command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: false})).toBe(true);
-        expect(lines()).toContain("gh run watch 9 --interval 30 --exit-status --repo notnotype/neuro-book");
+        expect(lines()).toContain("gh run watch 9 --interval 30 --repo notnotype/neuro-book");
     });
 });
 
@@ -170,6 +177,6 @@ describe("演练", () => {
         const pushed = order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`);
         expect(pushed).toBeGreaterThanOrEqual(0);
         expect(pushed).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master --repo notnotype/neuro-book"));
-        expect(order).toContain("gh run watch 5 --interval 30 --exit-status --repo notnotype/neuro-book");
+        expect(order).toContain("gh run watch 5 --interval 30 --repo notnotype/neuro-book");
     });
 });

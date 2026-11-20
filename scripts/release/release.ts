@@ -173,25 +173,36 @@ export class ReleaseCommand {
         throw new ReleaseCommandFailure(`3 分钟内没看到 ${head.slice(0, 9)} 上的 Release 流水线：到 Actions 页面看${event === "push" ? `，或稍后 bun run release watch <版本>` : ""}`);
     }
 
-    async #jobs(run: WorkflowRun): Promise<WorkflowJob[]> {
-        return (JSON.parse(await this.#must(await this.#gh(["run", "view", String(run.databaseId), "--json", "jobs"]))) as {jobs: WorkflowJob[]}).jobs;
+    async #view(run: WorkflowRun): Promise<{status: string; conclusion: string | null; jobs: WorkflowJob[]}> {
+        return JSON.parse(await this.#must(await this.#gh(["run", "view", String(run.databaseId), "--json", "status,conclusion,jobs"]))) as {status: string; conclusion: string | null; jobs: WorkflowJob[]};
     }
 
-    /** 盯到结束，列出各作业；交回作业的结果（判定由调用方按演练或发布的规则做）。 */
-    async #watch(run: WorkflowRun): Promise<{exit: number; jobs: WorkflowJob[]}> {
+    async #jobs(run: WorkflowRun): Promise<WorkflowJob[]> {
+        return (await this.#view(run)).jobs;
+    }
+
+    /**
+     * 盯到整轮结束，列出各作业；交回整轮的结论与作业的结果（判定由调用方按演练或发布的规则做）。`gh run watch` 只用来在终端里
+     * 显示进度：带 `--exit-status` 时它在第一个作业失败就退出（v0.15.0 的 macOS 失败时，CI 还在跑它就返回了），所以之后
+     * 再按运行的状态等到 `completed`。启动即失败的一轮没有作业，GitHub 页面上有原因。
+     */
+    async #watch(run: WorkflowRun): Promise<{conclusion: string | null; jobs: WorkflowJob[]}> {
         this.#log(`盯着 ${run.url}`);
-        // gh run watch 在运行结束前不退出；--exit-status 让失败的运行以非零退出。启动即失败的一轮没有作业，GitHub 页面上有原因。
-        const watched = await this.#run(await this.#gh(["run", "watch", String(run.databaseId), "--interval", "30", "--exit-status"]));
-        const jobs = await this.#jobs(run);
-        if (jobs.length === 0) this.#log(`  这一轮没有作业（多半是工作流文件在启动时就被拒，原因在 ${run.url}）`);
-        for (const job of jobs) this.#log(`  ${job.conclusion === "success" ? "✓" : job.conclusion === "skipped" ? "·" : "✗"} ${job.name}（${job.conclusion ?? "没结束"}）`);
-        return {exit: watched.code, jobs};
+        await this.#run(await this.#gh(["run", "watch", String(run.databaseId), "--interval", "30"]));
+        let view = await this.#view(run);
+        while (view.status !== "completed") {
+            await this.#sleep(30_000);
+            view = await this.#view(run);
+        }
+        if (view.jobs.length === 0) this.#log(`  这一轮没有作业（多半是工作流文件在启动时就被拒，原因在 ${run.url}）`);
+        for (const job of view.jobs) this.#log(`  ${job.conclusion === "success" ? "✓" : job.conclusion === "skipped" ? "·" : "✗"} ${job.name}（${job.conclusion ?? "没结束"}）`);
+        return {conclusion: view.conclusion, jobs: view.jobs};
     }
 
     /** 发布这一轮：全绿为成功；只有 macOS 失败时 Windows 与 npm 已经发出，照实说明、按失败退出，让开发者去补 macOS。 */
-    #releaseOutcome(result: {exit: number; jobs: WorkflowJob[]}): boolean {
-        if (result.exit !== 0 && rehearsalPassed(result.jobs)) this.#log("macOS 的构建没成功，Release 只带 Windows 的资产：用 Desktop macOS 工作流手动补包");
-        return result.exit === 0;
+    #releaseOutcome(result: {conclusion: string | null; jobs: WorkflowJob[]}): boolean {
+        if (result.conclusion !== "success" && rehearsalPassed(result.jobs)) this.#log("macOS 的构建没成功，Release 只带 Windows 的资产：在 Actions 里重跑失败的 macOS 作业，或用 Desktop macOS 工作流补包");
+        return result.conclusion === "success";
     }
 
     async rehearse(): Promise<boolean> {
@@ -203,9 +214,9 @@ export class ReleaseCommand {
         await this.#must(["git", "push", "--no-follow-tags", "origin", `${head}:refs/heads/master`], false);
         await this.#must(await this.#gh(["workflow", "run", WORKFLOW, "--ref", "master"]), false);
         const run = await this.#waitForRun(dispatchFilter, head, "workflow_dispatch", known);
-        const {exit, jobs} = await this.#watch(run);
+        const {conclusion, jobs} = await this.#watch(run);
         const ok = rehearsalPassed(jobs);
-        if (ok && exit !== 0) this.#log("macOS 的作业失败：不挡发布，发出去的 Release 只带 Windows 的资产");
+        if (ok && conclusion !== "success") this.#log("macOS 的作业失败：不挡发布，发出去的 Release 只带 Windows 的资产");
         this.#log(ok ? `✓ 演练通过（${head.slice(0, 9)}）：可以 bun run release <版本>` : "✗ 演练失败：看上面失败的作业，修好后再演练");
         return ok;
     }
