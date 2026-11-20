@@ -90,12 +90,18 @@ type AgentConversationViewProps = {
     draftProfile?: {name: string; icon: string} | null;
     /** 没有消息时的第一屏（见“消息”的空状态）；不给时写“还没有消息”。 */
     welcome?: {title?: string; recent: {id: string; title: string; at: number}[]; total: number; starters: {text: string; icon?: string}[]};
+    /** （planned）顶栏右列最后画“关闭”：宿主把对话放在可关的面板里时用；缺省 false。 */
+    closable?: boolean;
 };
 
 type AgentConversationViewEmits = {
     (e: "action", action: AgentViewAction): void;
     (e: "update:viewMode", mode: "turns" | "raw"): void;
     (e: "update:sessionsOpen", open: boolean): void;
+    /** （planned）点了顶栏的“关闭”。 */
+    (e: "close"): void;
+    /** （planned）输入框里按了 Esc（补全菜单开着、输入法组字时不发）：宿主可以拿它关掉放对话的面板。 */
+    (e: "escape"): void;
 };
 ```
 
@@ -232,7 +238,7 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 三列，高 32px，标题按整行的宽度居中；两侧至少放得下自己的内容，放不下时标题先截断。
 - 左列：子会话（`session.path` 不空）是返回，只有图标，发出 `session.select`，带父会话（`path` 的最后一项）；顶层会话且 `newSession` 为真是新建，发出 `session.create`；没选会话时空着。不画祖先的路径。
 - 中列：Profile 图标（子会话是子代理的；（planned）`session.avatar` 给了时换成圆形的头像图片）与会话标题，标题为空写“未命名会话”；没选会话时写“新对话”，图标是 `draftProfile` 的。悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开会话列表（`sessionsOpen`）。
-- 右列：`head-trailing` 插槽、常驻的顶栏动作（不超过两个）、溢出菜单。溢出菜单固定包含“原始视图”切换项；没选会话时没有溢出菜单。
+- 右列：`head-trailing` 插槽、常驻的顶栏动作（不超过两个）、溢出菜单，`closable` 时最后是“关闭”（planned）。溢出菜单固定包含“原始视图”切换项；没选会话时没有溢出菜单。
 - 登记的顶栏动作：允许常驻（`pinnable`）的按 `order` 取前两个放在顶栏，其余与不允许常驻的收进溢出菜单，排在内置项之后、“原始视图”之前；`when` 为假的不显示；角标写在名字后。点了发出它的 action。目标是面板的顶栏动作在面板实现之前构造注册表即失败。
 - 送到视图之外：给了 `headTargets` 时三列分别送进 `start`、`title`、`end`，内容顶上不画顶栏；`title` 在宿主的按钮里，只放图标与文字，会话列表锚在 `anchor` 上，按下由宿主经 `sessionsOpen` 转来。`headTargets` 来了又走时顶栏不重建，开着的会话列表与菜单不丢。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
