@@ -404,6 +404,8 @@ jobs:
   verify-feed:
     name: 自动更新的取法
     needs: [gate, github-release]
+    # 缺省的 success() 看所有上游作业：macOS 失败（尽力而为）会把它连带跳过，v0.15.0 就是这样没核对。只看 Release 发没发出去。
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -451,7 +453,7 @@ jobs:
   upgrade-from-previous:
     name: 上一版升级到本次
     needs: [gate, verify-feed]
-    if: needs.gate.outputs.previous != '' && needs.verify-feed.outputs.latest == 'true'
+    if: ${{ !cancelled() && needs.verify-feed.result == 'success' && needs.gate.outputs.previous != '' && needs.verify-feed.outputs.latest == 'true' }}
     runs-on: windows-2025
     timeout-minutes: 45
     defaults:
