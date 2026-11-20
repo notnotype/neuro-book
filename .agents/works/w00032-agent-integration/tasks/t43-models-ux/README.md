@@ -90,6 +90,13 @@ updated: 2026-11-20
 19. 删除服务商仍在列表条目上（`models/settings-pages.md` 输出 12），标题区只放图标、名称与“复制一份”；第 2 轮稿里标题区的“删除”是出稿时没核对 Spec。
 20. 复制服务商连密钥一起复制；代理地址不带用户名密码；上传图标不收 SVG、存成设置里 ≤48 KB 的图；模板建后不变（主 Agent 定，开发者没有异议）。
 
+计划设计审查之后（开发者 2026-11-20 会话；审查与处理见 [`evidences/design-review-disposition.md`](evidences/design-review-disposition.md)）：
+
+21. 不做本机中继，取代决定 18：跟随系统、自定义 HTTP 代理用 Bun 的按次 `proxy`，直连用 `proxy: false`（Bun 1.4.3 起；审查查出、主 Agent 复测）；SOCKS5 地址拒收，提示改用代理软件的 HTTP 端口。
+22. 网络设置连网页工具（`nbook.web-tools` 的搜索与抓取）一起接，扩大决定 5 的范围。
+23. 不为装回旧版本做保护：新的设置形状写入后旧版本会整项丢弃服务商与角色设置，Spec 的兼容一节与发布说明写明。
+24. 计划按审查意见整份重写，分三段（A 推理档与选择器、B 服务商模板化与模型来源、C 网络与代理），三段一起再审一轮，然后按顺序实施；每段单独合入。
+
 设计定稿（决定 1 到 17）。草稿在 `.worktree/w00032-t43-drafts` 的 `packages/neuro-book/src/plugins/drafts/web/components/models-ux/`（不合并），评审板 `artifacts/review` 三轮。
 
 ## 当前状态
