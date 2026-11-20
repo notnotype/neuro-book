@@ -6,6 +6,9 @@
  *
  * 持有主对话之后开始跟：先订阅日志帧、攒着，再从“看到”之后按页读日志补数，两边按 seq 去重。补完之前未读为 null。有归属的会话不改写
  * 历史（agent/sessions.md 输出 26），seq 在当前路径上只增不减，所以按 seq 算是稳的。
+ *
+ * 最后一句话（bots.md 输出 7 的 `last`）同样只在内存：在线收到计数消息就换；补数时“看到”之后那段有计数消息，取最后一条，那段是空的
+ * （都看过了）就从日志尾部往前至多 `TAIL` 条里找，找不到为 null。不存进“看到”的记录：存了要和几个窗口的写入合并，旧记录还没有它。
  */
 
 import {Type} from "typebox";
@@ -17,12 +20,16 @@ import {defineRecord} from "nbook/shared/storage";
 import type {RecordHandle, StorageService} from "nbook/shared/storage";
 
 import {BOT_ID_PATTERN, mainSessionId} from "../shared/contracts";
+import type {BotLast} from "../shared/contracts";
+import {messageSummary} from "./summary";
 
 const SEEN_RECORD = defineRecord({key: "bots-seen", scope: "user", locality: "shared", version: 1, schema: Type.Object({seen: Type.Record(Type.String({pattern: BOT_ID_PATTERN}), Type.Integer({minimum: 0}))})});
 type Seen = {seen: Record<string, number>};
 
 /** 补数时一页读多少条。 */
 const PAGE = 1_000;
+/** 找最后一句话时从日志尾部往前至多读多少条：读取有界，再往前的找不到就算没有。 */
+const TAIL = 200;
 
 /** 一条计数消息：模型回复的最终那一条（不带工具调用的 `assistant`）。中间调工具的几条在界面上折在这一轮里，不算。 */
 export const countsAsMessage = (event: LogEvent): boolean => event.type === "assistant" && ((event.data as {toolCalls?: readonly unknown[]}).toolCalls?.length ?? 0) === 0;
@@ -31,7 +38,13 @@ export interface UnreadItem {
     readonly unread: number | null;
     readonly latestSeq: number;
     readonly seenSeq: number;
+    readonly last: BotLast | null;
 }
+
+/** 一条计数消息的摘要；`seq` 只在内存里比新旧。 */
+type LastMessage = BotLast & {readonly seq: number};
+const lastOf = (event: LogEvent): LastMessage => ({seq: event.seq, at: event.at, text: messageSummary((event.data as {content?: Parameters<typeof messageSummary>[0]}).content ?? [])});
+const newer = (a: LastMessage | null, b: LastMessage | null): LastMessage | null => (a === null ? b : b === null || a.seq >= b.seq ? a : b);
 
 export type SeenResult = {readonly ok: true; readonly seenSeq: number} | {readonly ok: false; readonly code: "storage-failed"; readonly detail: string};
 
@@ -40,6 +53,8 @@ interface Tracked {
     seqs: number[] | null;
     /** 补数期间到的帧里的计数消息，补完时并进去。 */
     early: number[];
+    /** 最后一条计数消息；补完之前只有补数期间到的。 */
+    last: LastMessage | null;
     stop: () => void;
 }
 
@@ -73,18 +88,21 @@ export class UnreadTracker {
 
     item(botId: string): UnreadItem {
         const seenSeq = this.#seen.get(botId) ?? 0;
-        const seqs = this.#tracked.get(botId)?.seqs ?? null;
-        return {unread: seqs?.length ?? null, latestSeq: seqs?.at(-1) ?? seenSeq, seenSeq};
+        const tracked = this.#tracked.get(botId);
+        const seqs = tracked?.seqs ?? null;
+        const last = tracked === undefined || tracked.last === null ? null : {text: tracked.last.text, at: tracked.last.at};
+        return {unread: seqs?.length ?? null, latestSeq: seqs?.at(-1) ?? seenSeq, seenSeq, last};
     }
 
     /** 主对话持有了：订阅它的日志帧，再补数。已经在跟的不重来。 */
     track(botId: string): void {
         if (this.#tracked.has(botId)) return;
         const session = this.options.agent.session(mainSessionId(botId));
-        const tracked: Tracked = {seqs: null, early: [], stop: () => undefined};
+        const tracked: Tracked = {seqs: null, early: [], last: null, stop: () => undefined};
         this.#tracked.set(botId, tracked);
         tracked.stop = session.subscribe((frame) => {
             if (frame.type !== "log" || !countsAsMessage(frame.event)) return;
+            tracked.last = newer(tracked.last, lastOf(frame.event));
             if (tracked.seqs === null) tracked.early.push(frame.event.seq);
             else this.#add(botId, tracked, frame.event.seq);
         });
@@ -140,14 +158,27 @@ export class UnreadTracker {
         const session = this.options.agent.session(mainSessionId(botId));
         const from = this.#seen.get(botId) ?? 0;
         const found: number[] = [];
+        let last: LastMessage | null = null;
         let after = from;
+        let head = 0;
         for (;;) {
             const page = await session.log({afterSeq: after, limit: PAGE});
-            for (const event of page.events) if (countsAsMessage(event)) found.push(event.seq);
+            head = page.head;
+            for (const event of page.events) {
+                if (!countsAsMessage(event)) continue;
+                found.push(event.seq);
+                last = newer(last, lastOf(event));
+            }
             if (!page.more || page.through <= after) break;
             after = page.through;
         }
+        // “看到”之后没有计数消息：最后一句话在“看到”之前，从尾部往前有界地找。
+        if (last === null && head > 0) {
+            const tail = await session.log({afterSeq: Math.max(0, head - TAIL), limit: TAIL + 1});
+            for (const event of tail.events) if (countsAsMessage(event)) last = newer(last, lastOf(event));
+        }
         if (this.#tracked.get(botId) !== tracked) return;
+        tracked.last = newer(tracked.last, last);
         const seen = this.#seen.get(botId) ?? 0;
         tracked.seqs = [...new Set([...found, ...tracked.early])].filter((seq) => seq > seen).sort((a, b) => a - b);
         tracked.early = [];

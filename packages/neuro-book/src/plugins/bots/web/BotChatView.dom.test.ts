@@ -17,7 +17,7 @@ import {botsCatalogs} from "./text";
 
 const port = testTextPort("zh-CN", {[BOTS_TEXT_NAMESPACE]: botsCatalogs});
 
-const LYRA: BotItem = {id: "lyra", name: "星璃", main: {state: "held"}, unread: 0, latestSeq: 0, seenSeq: 0};
+const LYRA: BotItem = {id: "lyra", name: "星璃", main: {state: "held"}, unread: 0, latestSeq: 0, seenSeq: 0, last: null};
 
 const Conversation = defineComponent({props: {sessionId: {type: String, required: true}}, setup: (props) => () => h("div", {"data-conversation": props.sessionId})});
 

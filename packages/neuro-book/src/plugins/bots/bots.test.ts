@@ -109,7 +109,7 @@ describe("bot 与主对话", () => {
         const path = fresh();
         const first = await open(path);
         await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
-        expect(ok(await first.client.list({}))).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}, unread: null, latestSeq: 0, seenSeq: 0}]);
+        expect(ok(await first.client.list({}))).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}, unread: null, latestSeq: 0, seenSeq: 0, last: null}]);
         expect((await readdir(join(first.bots, "lyra"))).sort()).toEqual([".created.json", "avatar.webp", "persona.md"]);
         expect(events(first.w, "bots.main-opened")).toEqual([]);
         // 建 bot 不需要模型；记录只有这五个字段（模型、推理档、审批模式不另存）。
@@ -378,7 +378,7 @@ describe("bot 与主对话", () => {
         expect(spawned[0]?.code).toBeUndefined();
     });
 
-    test("主对话的未读：持有后数出计数消息，调工具的中间回复不算；markSeen 截到最新、只进不退；重启后照样数出来", async () => {
+    test("主对话的未读：持有后数出计数消息，调工具的中间回复不算；markSeen 截到最新、只进不退；重启后照样数出来；最后一句话跟着最新的计数消息，都看过之后重启从日志尾部取回", async () => {
         const path = fresh();
         const first = await open(path);
         await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
@@ -394,6 +394,7 @@ describe("bot 与主对话", () => {
         endpoint.script({tool: "switch_mode", args: {mode: "normal"}}, "第一句回复");
         await say("你好");
         await waitUntil("一条未读", async () => (await item())?.unread === 1);
+        expect((await item())?.last).toEqual({text: "第一句回复", at: expect.any(Number)});
         endpoint.script("第二句回复");
         await say("再说一句");
         await waitUntil("两条未读", async () => (await item())?.unread === 2);
@@ -407,12 +408,21 @@ describe("bot 与主对话", () => {
         endpoint.script("第三句回复");
         await say("还有");
         await waitUntil("新的一条未读", async () => (await item())?.unread === 1);
+        expect((await item())?.last?.text).toBe("第三句回复");
         expect(await first.client.markSeen({botId: "nope", through: 1})).toMatchObject({ok: false, code: "unknown-bot"});
 
         await close(first.w);
         const second = await open(path);
         await waitUntil("重启后数出来", async () => (await item(second))?.unread === 1);
         expect((await item(second))?.seenSeq).toBe(before.latestSeq);
+        // 补数读到的“看到”之后那段里的最后一条。
+        expect((await item(second))?.last?.text).toBe("第三句回复");
+        ok(await second.client.markSeen({botId: "lyra", through: 1_000_000}));
+        await close(second.w);
+        const third = await open(path);
+        await waitUntil("都看过之后重启", async () => (await item(third))?.unread === 0);
+        // “看到”之后没有计数消息：从日志尾部取回。
+        expect((await item(third))?.last?.text).toBe("第三句回复");
     });
 
     test("bot 输出 7：botsChanged 推出持有状态的变化", async () => {
