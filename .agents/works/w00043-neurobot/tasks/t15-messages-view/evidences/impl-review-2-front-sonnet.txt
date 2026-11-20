@@ -1,0 +1,133 @@
+### 1. 公开状态 `nbook.agent/active` 被加进“有未读”，皮肤的“工作中场景”会在没人干活时一直亮着
+- 严重程度：重要
+- 类别：正确性 / 违反公开合同
+- 位置：packages/neuro-book/src/plugins/agent/web/plugin.ts:808（`bindingsOf(agentState, {active: computed(() => activity.active.value || unreadTotal.value > 0)})`）；读取方 packages/neuro-book/src/plugins/workbench/web/plugin.ts:167-171（`agentWorking`）
+- 现象：为了让状态栏条目在“只有 bot 新消息”时也显示（条目的 `when` 是 `nbook.agent/active`），作者把公开状态本身改成“有会话在跑或等用户，或者联系人有未读”。
+- 为什么是问题：`nbook.agent/active` 是公开合同（conversation.md 输出 39、188），含义写在 theme/skins.md 输出 17：“Agent 工作中（有会话在运行或等用户处理）”，工作台据此换 `workingScene`。现在只要任一 bot 有一条未读，active 就为 true，皮肤一直停在“工作中”场景，直到用户把消息看掉；这与“状态栏‘Agent：1 运行中’的同一个信号”的定义不符。第三方插件也可能按这个键写 `when`。Spec 与测试都没有把这个键的含义改成含未读（grep docs/specs 只有上面三处）。
+- 如何核实：读 plugin.ts:808 与 workbench/web/plugin.ts:167；让一个 bot 有未读、无会话在跑，`stateService.read("nbook.agent/active")` 为 true，`agentWorking()` 为 true。从代码推断，未跑。
+- 建议改法：保持 `active` 的原义；状态栏条目的显隐另走（例如新增一个公开状态键 `nbook.agent/attention`，或让条目的 `when` 改成 `any` 两个键；若 `when` 不支持，就为条目单独发一个状态键）。同时给 e2e “窗口失焦的未读”那条加一个断言：未读时 `workingScene` 不生效，或至少对 `active` 键的单测。
+
+### 2. 聊天区的盖层（没有模型、正在打开、打开失败）只在自己的点击里清除，宿主被别处打开会话时盖层不撤
+- 严重程度：重要
+- 类别：正确性 / 共享状态
+- 位置：packages/neuro-book/src/plugins/agent/web/messages-model.ts:100-125（`openContact`）、`sessionOpened`（只被头像列和会话页的点击调用）；packages/neuro-book/src/plugins/agent/web/MessagesHost.vue 模板里的 `v-if="pending !== null || pickBot"` 盖层
+- 现象：`pending` 只有 `openContact` 成功、`sessionOpened()` 两处清零。宿主的当前会话被别的路径换掉（状态栏“N 条新消息”或“等你处理”触发的 `focus-session`、请求页/子代理卡片的 `focus-session`、命令“新建 Agent 会话”走 `host.create`）时，`pending` 仍在：聊天区被“打不开和星璃的对话（code）/先添加一个模型服务商”盖住，`selected` 还高亮着那个联系人，`watchSeen` 因 `pending !== null` 一直不交“看到”。
+- 为什么是问题：盖层与宿主真实状态脱钩。典型路径：没配模型时点联系人出现“去添加”盖层，用户再点状态栏的“1 条新消息”或新建会话，聊天区仍是盖层；点开失败的盖层后用状态栏跳转同理。未读也永远清不掉（`watchSeen` 被盖层挡住）。
+- 如何核实：我在 scratch 里用真实的 `createMessagesModel` 与响应式替身宿主复现：`openContact` 失败后令 `host.sessionId` 变成 "other"，`pending` 仍是 `{step:"failed"}`，`selected` 仍是该联系人（/tmp/w43-t15-r2/scratch/pending.test.ts，bun test 通过）。真实宿主走的是同一个 `sessionId`/`open` 接口，从代码看路径一致；e2e 里没有任何用例经过这些盖层（grep `data-messages-cover|open-failed|add-provider` 在 e2e 与测试里零命中）。
+- 建议改法：盖层只在“宿主的 `sessionId` 还是点联系人时那一个”时有效：在模型里 `watch(host.sessionId)`，不是自己 `host.open` 引起的变化就清 `pending`（或把 `pending` 存下点击时的 `sessionId`，渲染时比对）。补一个模型单测：打开失败后宿主换会话，盖层撤掉。
+
+### 3. 窄版标题的 `aria-haspopup/aria-expanded`（`titlePopup`）只在抽屉开关时写，换版式时不跟着改
+- 严重程度：重要
+- 类别：正确性 / 可访问性
+- 位置：packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:80-86
+- 现象：`watch(drawerOpen, (open) => { head.titlePopup.value = layout.value === "narrow" ? {expanded: open} : null }, {immediate: true})` 只监听 `drawerOpen`，不监听 `layout`。`layout` 初值取 `props.memory.layout`（视图重挂、换代时是上次的值）：记忆是 wide 时挂上，`immediate` 写成 null；随后量到窄版，`layout` 变 narrow、`claim` 变 true，面板头改由视图接管标题，但 `titlePopup` 仍是 null，直到用户第一次开关抽屉才补上。反方向（窄→宽）则把 `{expanded:false}` 留在宽版里，虽然 `claim=false` 时外壳不读它，再变回窄版时是旧值。
+- 为什么是问题：views.md 输出 19 与 conversation.md 输出 44 要求标题按钮写 `aria-haspopup`、`aria-expanded` 并开抽屉；此处在“记忆为 wide 的重挂 → 缩到窄版”这条路径上标题按钮没有弹出语义，读屏用户不知道它开抽屉。agent-conversation e2e 只走“默认窄版挂上”的路径，覆盖不到。
+- 如何核实：读代码即可确定；要复现：先把右栏拖宽到 600 以上再让视图换代重挂（或刷新），再缩到窄版，看标题按钮没有 `aria-expanded`。我没跑 e2e。
+- 建议改法：把来源改成 `watch([drawerOpen, layout], …, {immediate: true})`；同时补一个 MessagesHost 的 dom 测试（见第 12 条）。
+
+### 4. 在抽屉里用键盘选一项后抽屉关闭，焦点落在已隐藏的行上（掉到 body），没有回到开它的按钮
+- 严重程度：重要
+- 类别：可访问性 / 与 Spec 不符
+- 位置：packages/nb-agent-ui/src/vue/messages/AgentMessages.vue:71-74（`openContact` 调 `closeDrawer(false)`）；packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:98-105（`openSession`、`onSessionOpened` 直接 `drawerOpen.value = false`）
+- 现象：conversation.md 输出 2 写“点视图里抽屉外、`Esc`、选了一项都关，焦点回到开它的按钮”，AgentMessages.md 写“关闭后焦点回到开它的按钮”。实现里只有 `Esc` 走 `closeDrawer(true)`；选联系人传 `false`，选会话（会话面板的 `opened`）与头像列里点最近会话完全不碰焦点。抽屉用 `v-show` 收起，焦点所在的行成了 `display:none`，浏览器把焦点丢回 body；用键盘开抽屉、方向到某行回车的人，之后要从页面开头重新 Tab。
+- 如何核实：dom 测试“抽屉：点视图里的聊天区关…点了联系人关”只断言 `drawerOpen` 为 false，没断言 `document.activeElement`；加上断言会失败。
+- 建议改法：选中项触发的关闭也走 `closeDrawer(true)`（点击触发的关闭，焦点本来在被点的行上，回到开它的按钮同样合理）；MessagesHost 的 `openSession`/`onSessionOpened` 不要自己写 `drawerOpen`，改成发给 AgentMessages 关（或暴露一个 `close(restoreFocus)`）。顺带：宽版里收起/展开列表栏（`update:listCollapsed`）也有同样的焦点丢失——被点的按钮随 `v-show` 隐藏（dom 测试“宽版收起列表栏”没看焦点），收起后应把焦点放到头像列顶上的展开按钮，展开后放到收起按钮。
+
+### 5. 点已经打开着的联系人会把整个主对话重新打开（全屏“正在打开”盖层、重新订阅与加载）
+- 严重程度：建议
+- 类别：正确性 / 体验
+- 位置：packages/neuro-book/src/plugins/agent/web/messages-model.ts:100-125；packages/neuro-book/src/plugins/agent/web/session-host.ts:1021-1070（`openHere` 没有“已经是这个会话”的短路）
+- 现象：`openContact` 不看 `host.sessionId`。点当前选中的联系人（宽版列表栏里的选中行、窄版头像列里的当前头像，用户手滑或想“回到聊天”都会点）：先写 `pending={step:"opening"}`（盖层 + 转圈），`provider.open` 走一次 `ensureMain` RPC，再 `host.open(同一个 id)`，`openHere` 会 `closeCurrent()`、重新订阅、重取快照与路径，聊天区先闪成“加载中”，`shownSeq` 归 0，滚动位置丢失。
+- 为什么是问题：一次无意义的全量重载；运行中的 bot 会话重载期间也会让“看到”短暂停发。
+- 如何核实：读代码；`openHere` 里 `generation += 1; closeCurrent();` 无条件执行。
+- 建议改法：`openContact` 开头判断 `host.sessionId.value === found.sessionId`（联系人里已有 `sessionId`）且 `host.owner` 对得上时，只清 `pending`、必要时关抽屉，不调 `provider.open`/`host.open`。
+
+### 6. 读会话头失败写 `failed` 时不看已有的失败码，谁后到谁覆盖；恢复“最近的会话”据此决定要不要清记录，结果取决于两个请求的先后
+- 严重程度：建议
+- 类别：正确性（竞态）
+- 位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:1045-1053（`owners.ownerOf(id).then`）与 1100-1116（快照失败写 `target.failed`）、1165-1185（`restore` 的 `failureCode() !== "header-unreadable"`）
+- 现象：会话头请求和订阅/快照/路径是并行的，两边失败都直接 `target.failed = {code}`，没有“已有失败就不覆盖”的判断。
+  - 会话已被删除（最近的会话里那条不在了）：头读不到记 header-unreadable，快照也失败记 not-found 一类的码。头请求先回来时最终是快照的码，`restore` 清掉记录，行为同以前；头请求晚回来时最终是 header-unreadable，`restore` 保留记录——每次打开窗口都停在“打不开（header-unreadable）”加重试，而那个会话再也读不到，用户只能手动换会话；
+  - 服务端重启期间两个请求都失败时同理，结果看谁后到。
+- 为什么是问题：Spec（conversation.md 输出 52）要求的是“读不到会话头 ≠ 不在了，恢复时不清记录”，实现的判定依据是“最终的 failed 码”，不是“头读不读得到”，所以与请求完成顺序有关；错误提示里的码也不稳定。
+- 如何核实：从代码推断。session-host.test.ts 的“读不到会话头”用例用 `failing` 集合让头读失败而快照成功，没有覆盖“头与快照都失败”的顺序；加一个让头请求晚于快照失败的用例即可复现。
+- 建议改法：给 `Current` 记一个 `headerUnreadable: boolean`，`restore` 看它而不是 `failed.code`；`failed` 写入只在 `target.failed === null` 时才用 header-unreadable，快照失败等更具体的码优先。
+
+### 7. 消息列表的“bot / 会话”标签是手写的 `role="tab"` 原生按钮，没有 roving tabindex、方向键，也没有 `aria-controls`，没用 nb-ui 的 `Tabs`
+- 严重程度：建议
+- 类别：代码质量 / 可访问性 / 违反既有约定
+- 位置：packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue:57-72（模板）与 .acv-messages-list__tab 样式；对照 packages/nb-ui/docs/ui-development-spec.md 的“同类零件的分工”（`Tabs` 换去处）与 packages/nb-ui/src/components/controls/Tabs.md
+- 现象：`Tabs` 已经支持计数徽标（`count`）、`ArrowLeft/Right/Home/End` 自动激活、roving tabindex、`id`/`controls`。这里手写了两个 `<button role="tab">`，两个按钮都在 Tab 序列里，没有方向键，`role="tabpanel"` 没有 `aria-labelledby`、标签没有 `aria-controls`；样式里注释“原生按钮：没有 nb-ui 按钮自带的不可选”也说明是为绕过组件。
+- 为什么是问题：规范要求按用途用 nb-ui 的同类零件；标签语义不完整会让读屏报出 tablist 却不能按 tab 惯例操作。.md 也没写为什么不用 `Tabs`（没有记录的理由）。
+- 如何核实：读 Tabs.md 的 `count` 与键盘小节；AgentMessagesList.dom.test 里只断言 `aria-selected` 与点击。
+- 建议改法：换成 `Tabs`（`items` 两项，bot 项带 `count`，面板的 `id`/`controls` 对上），键盘与指示线随组件；若确有不能用的原因，在 .md 里写明。
+
+### 8. 头像列的“最近 5 个会话”取自会话面板的筛选结果，搜索词、Profile 过滤、作品范围一变，头像列跟着变
+- 严重程度：建议
+- 类别：隐含耦合 / 共享状态
+- 位置：packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:118（`sessions: () => props.list.items.value`）；packages/neuro-book/src/plugins/agent/web/messages-model.ts:150-153（`recentSessions`）；来源 packages/neuro-book/src/plugins/agent/web/session-list.ts:76-100（`items` 按 `query`、`selectedProfiles` 过滤，并带弱化的祖先）
+- 现象：Spec 写的是“最近 5 个根会话”，实现却复用会话面板那份 `items`。会话一页里在搜索框打字、选了 Profile 过滤、把范围切到“全部作品”，窄版头像列里的会话图标立刻换成筛选结果（搜不到时一个都没有）；筛选结果里因后代命中才列出的 `dimmed` 祖先也会进头像列。
+- 为什么是问题：头像列是常驻导航，不该被另一页的临时筛选改掉；用户在抽屉里搜“雨夜”，抽屉旁边的头像列同时变化，也看不出该点哪个。
+- 如何核实：读 `session-list.ts` 的 `items` 与 `recentSessions`；e2e/单测都没有“有筛选时头像列”的用例（messages-model.test 的 `sessions` 替身是固定数组）。
+- 建议改法：头像列改用不受筛选影响的数据——已有 `createRecentSessions`（第一屏最近对话，plugin.ts 里的 `recentSessions`）或会话列表里未筛选的 `entries`；如果刻意复用，Spec/注释写明并过滤 `dimmed`。
+
+### 9. 测试缺口：新增的几块行为没有任何测试碰到，变异后测试照过
+- 严重程度：重要
+- 类别：测试
+- 位置与缺口（逐项，均为我读测试与 grep 的结果，变异没有在仓库里做，只读审查）：
+  a. `MessagesHost.vue` 整个文件没有 dom 测试也没有 Lab 场景：盖层四种状态的模板、`claim` 随版式翻转、`titlePopup`（第 3 条）、`drawerAnchor`、`title-action` 接线都只靠 e2e 的“默认窄版”和“拖宽成宽版”两条路径。grep `data-messages-cover|open-failed|add-provider|opening|pick-bot` 在 e2e 与测试里零命中。把盖层里的 `v-else-if` 顺序或 `pending!.step` 判断写错，没有测试会失败。
+  b. `session-host.ts` 的 `open()`（页面宿主）里“读会话头期间又打开了别的就作废”（`asked !== routing`）没有用例：旧测试里“晚到的转交作废”被整段删掉，新用例只测了 `restore` 与点击的竞争（那个用例里根本没有 owners）。删掉 `open` 里的 `if (asked !== routing || disposed) return;`，session-host.test.ts 不会失败。页面宿主的 `restore`→`open`→`elsewhere` 路径同样没有测试。
+  c. 祖先路径的根写身份名（`item.owner` → `identity().name`）没有测试：grep 测试里 `path` 只有 2263 行的 `path?.[0]?.id`，没有断言根的 `title`。“在 bot 的聊天里打开子会话，头上路径根写身份名”这条 Spec 输出 53 的行为没有守住。
+  d. `session-host.test.ts` 的 `ownersFor` 自己重写了一份归属表逻辑（`known/ownerOf/identity`），真正的实现在 plugin.ts 里（`ownerTable`、`unreadable`、`providerOf`）没有被测到；plugin.ts 里新增的 `ownersReceiver`（每插件一条、按插件 id 排、撤回）、`ownedTree`、`unreadSession`、`hasModel`、状态栏“N 条新消息”与 `active` 都只有 e2e 的一条正路径（根有归属的 bot 主对话）；子会话的根有归属（`ancestors` 路径）、第二条贡献被拒、撤回都没有用例。
+  e. 活动栏/右栏入口角标：`WorkbenchToolStrip`/`WorkbenchRegionStrip` 的 dom 测试只传现成的 `count`；`WorkbenchShell.vue` 的 `containerCount`（几个视图求和、0 变 null）与 `stripEntries` 里“右栏用合计、底部面板用单个视图”的分流没有任何测试，e2e 里 `data-tool-count` 也零命中。把 `containerCount` 里的 `> 0` 去掉，所有测试照过。
+  f. e2e 的 workbench-shell“产品页”、workbench-containers、editor-area 现在跑在 probe 服务端 + 测试插件 `test.project-view` 上（`startProbeServer`），不再是 `startProductServer`：产品默认布局里“项目”容器现在只有资源管理器一个分节，这个真实构成不再被任何工作台 e2e 当默认布局检验（输出 1 的默认布局断言实际是对“产品 + 测试插件”的断言）。这是作者的有意取舍，但需要主 Agent 确认是否另有用例断言真实的默认布局。
+- 如何核实：见各项的 grep；b 项可在实现 worktree 之外复制 session-host.ts 做变异，我没做。
+- 建议改法：a 补 `MessagesHost` 的 dom 测试（挂在 `ViewContext` 替身上，覆盖盖层各态、claim 翻转、titlePopup、抽屉按标题开关）；b 恢复一条“头读取期间又开了别的”的用例；c 加一条祖先路径断言；d/e 补 plugin 层或 Shell 层的最小用例。
+
+### 10. 删掉“固定会话”与“转交”之后，注释和文档里还留着旧机制的描述，`open()` 的说明现在是错的
+- 严重程度：建议
+- 类别：代码质量（注释写为什么且要准）/ 文档一致
+- 位置：
+  - packages/neuro-book/src/plugins/agent/web/session-host.ts:1000-1001（`open` 的说明：“固定会话只开自己那一个，别的交给通用视图；通用宿主先读会话头，有归属、归属插件接手了就不在这里开……晚到的转交不抢界面”）。现在没有固定会话，也没有“归属插件接手”：真实行为是只有编辑区页面宿主（`owners.elsewhere` 有值）才查归属并交给消息视图，其余宿主直接 `openHere`。这是整个文件里最难懂的并发入口，说明与代码不符；
+  - session-host.ts:62、556、1202、1636（“固定会话”）；2027（borrow 回来重开的注释“已经过了转交的，不再查归属”：现在 `openHere` 会按表重读归属，写法与事实相反）；
+  - packages/neuro-book/src/plugins/agent/web/plugin.ts:465（`watchSeen` 的说明写“随组件挂卸的宿主（固定会话）卸载时调用”：现在唯一的调用（483 行，`hostAt`）丢弃返回的停止函数，返回值成了死代码）、558（“与固定会话的组件都用它”）；
+  - packages/neuro-book/src/plugins/agent/shared/remote.ts:239（“conversation.md 的转交”）；
+  - packages/nb-agent-ui/src/vue/AgentSessionPanel.md:14（“子会话……跟父会话在同一个日期组”，同一提交已经删了日期分组）；
+  - 主工作区 docs/specs/ui/agent-conversation-view.md:336 与 516 仍写 `pendingPlacement`（同文件 342、348 已改成 `interaction.placement`），Spec 内部自相矛盾。
+- 如何核实：`grep -rn "固定会话\|转交" packages/neuro-book/src/plugins/agent packages/nb-agent-ui/src`。
+- 建议改法：改写 `open` 的说明为现状（“编辑区页面：有归属的会话交给消息视图；其余宿主直接打开；读会话头期间又开了别的，这次作废”）；其余旧称按现状改；`watchSeen` 去掉返回值与 `removeEventListener`，或保留并说明谁用。
+
+### 11. 入口放不下收进“更多”后计数消失；几处文案与可访问名称的小问题
+- 严重程度：建议
+- 类别：UI / 文案
+- 位置与现象：
+  a. packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolStrip.vue:124、WorkbenchRegionStrip.vue:137：`moreItems` 只带 `label`，不带 `count`。活动栏矮、容器多时，消息容器被收进“更多”，角标与可访问名称里的计数都看不到（未读是这个功能唯一的入口提示）。建议菜单项 label 带上计数（同 `titleOf`），或至少 `aria-label`/文字里写数。
+  b. packages/neuro-book/src/plugins/agent/locales/en-US.json 的 `activity.unread`：`"{{count}} new messages"`，数量为 1 时是 “1 new messages”。同文件里别的计数文案若有复数写法应沿用；没有就写成 “New messages: {{count}}”。
+  c. packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:94（`contactsFailed: (plugin, code) => t("conversation.messages.contactsFailed", {name: plugin, code})`）把插件 id（如 `nbook.bots`）当“读不到 {name} 的联系人”里的名字显示给用户。归属插件没有给显示名的字段（`SessionOwnerProvider` 只有 contacts/state/reload/open/seen）；要么合同加一个 `title`，要么这句话不写名字（“读不到联系人（code）”）。
+  d. views.md 输出 17 写“可访问名称都是‘标题 数’”，实现把超过 99 的名称也写成“标题 99+”（WorkbenchToolStrip.vue:35/162、WorkbenchRegionStrip.vue:76-77 的 `countText`）；读屏会读“99 加”。不一定要改，但与 Spec 字面不一致，需要在 Spec 里写明或改回真实数字。
+- 如何核实：读上述位置；a 需要一个矮窗口的截图确认，我没截。
+
+### 12. 可简化与小的结构问题
+- 严重程度：建议
+- 类别：代码质量
+- 位置与现象：
+  a. packages/neuro-book/src/plugins/workbench/web/components/WorkbenchRegionStrip.vue:73-77：两条 JSDoc 叠在一起，第一条（“标题入口写的字……”）是 `titleOf` 的说明，被新加的 `countText` 的说明隔开，孤立在 `countText` 上面；`countText` 在 WorkbenchToolStrip.vue:35 又写了一份同样的函数，两个条带的“99+”规则要改两处，应收到 `items/item-strip` 一类的共用位置。
+  b. packages/neuro-book/src/plugins/agent/web/session-host.ts:1009：`owners.known(id) ?? await owners.ownerOf(id)`。`known` 的“已知没有归属”是 `null`，`??` 把它当成未读过而再走一遍 `ownerOf`（多一次微任务，虽然结果一样）；应写成 `const known = owners.known(id); const owner = known !== undefined ? known : await owners.ownerOf(id)`，也省得读者以为 `null` 与 `undefined` 在这里等价。
+  c. packages/nb-agent-ui/src/vue/messages/AgentMessages.vue:50 的 `recent = props.recentSessions.slice(0, 5)` 与 messages-model.ts 的 `.slice(0, 5)` 各截一次，`5` 在两处写死；AgentMessages.md 又说“宿主给，至多 5 个”。截一处即可（组件是纯展示，宿主决定个数更合适，组件不再截）。
+  d. packages/nb-agent-ui/src/vue/messages/AgentMessages.vue:77-88：两个监听同一个源（`props.drawerOpen`）各管一半，且依赖它们的定义顺序（第一个读 `opener`、第二个在关闭时清它）；合成一个 `watch` 里分支更清楚。
+  e. packages/nb-agent-ui/src/vue/AgentConversationView.dom.test.ts 新增用例里 `expect(focused).not.toBeNull()` 是空断言（`focused` 取自上一行聚焦的元素，永远非空），且该用例前后多了一个空行；断言应是“`document.activeElement` 仍是原来的按钮或在停靠区之外”，换会话那一步现在只靠 `not.toBe(dock)` 守着。
+- 如何核实：读上述位置。
+
+### 未发现问题的方面
+- 实现 worktree HEAD 为 46754ba9d，与被审提交一致。我跑过且通过：messages-model.test.ts（8）、AgentMessages.dom.test.ts（9）、session-host.test.ts “有归属的会话”组（7）、shared/views.test.ts 与 default-tree.test.ts（45）、WorkbenchToolStrip/WorkbenchRegionStrip dom 测试（7）；`vue-tsc --noEmit -p tsconfig.web.json` 退出码 0。没有跑 e2e 与开发服务。
+- `Current.owner` 三态在打开（`known` 同步取、未读过为 undefined 走严档）、借用重开（`openHere` 重新取表）、新建（经 `openHere`）、读不到会话头（记 header-unreadable、不放宽档位）的取值与 Spec 一致；`interaction`、发话（`ownedSend`）、`command.run` 守卫、停靠区 `docked` 都按同一个 `target.owner`；顶栏身份与祖先路径根名的取法正确（只是缺测试，见第 9 条）。
+- `useLayoutExtent` 量的是 `rootRef`（无 padding/border 的根），null 与 0 保持上次版式；`claim` 在 setup 同步写初值；宽窄只换显隐、聊天区不重挂（dom 测试守着）。
+- `replaces` 的前缀校验（按插件 id 加 `.`，拒自己、拒别的内置插件、拒第三方）、`retireReplacedViews` 对容器分节、浮动窗、隐式容器入口的处理与“没有改动返回原对象”的约定、与 `settleContainers` 的衔接，读下来没有发现错误。
+- 单格网格叠放没有改按钮的定位祖先（`offsetLeft/Top` 仍相对条目组），徽标 `pointer-events:none`，没有读出会影响拖动与按下块测量的问题；真实布局下的拖动、指示块、“更多”测量需要主 Agent 跑 e2e（workbench-containers、workbench-shell）确认。
+- 归属表与提供者接收器：每插件一条、第二条记诊断不接、按插件 id 排、撤回按贡献 id 摘；`focus-session` 先看会话自己的归属再看 `ancestors` 的根（列表最后一项），与 Spec 一致。
+- 需要截图确认的 UI 点（从代码无法判定）：390 宽下抽屉宽度 `min(300px, 85%)` 与头像列 52px 叠放；英文长名字、两位数未读在头像列与列表行里的截断（Lab 场景 narrow-english 已覆盖，需看图）；右栏图标入口的角标探出 -4/-6px 是否被入口条的 `overflow:hidden` 裁掉（第 11 条 a 之外的另一处，请在 1x 与 2x 缩放下看一眼）。
+
+### 数量
+- 阻断 0；重要 5（第 1、2、3、4、9 条）；建议 7（第 5、6、7、8、10、11、12 条）；撤回或收窄 0。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

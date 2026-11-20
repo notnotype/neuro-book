@@ -56,4 +56,4 @@ updated: 2026-11-19
   - 第 4 片代码 `cb3ffef43`：消息视图（`MessagesHost.vue` 加 `messages-model.ts`）、插件级归属表、提供者贡献点（每插件一条）、bots 改成提供者、删固定会话组件与 bot 视图与 bots 的界面文字、`focus-session` 按树根、状态栏“N 条新消息”、视图计数。单元与 dom 测试过（3 条失败是 master 原有的）。与计划的出入：`listCollapsed` 只记在内存（插件作用域），没进插件存储；会话列表的刷新沿用 `SessionPanelHost` 的定时器（会话一页常驻挂载），没收进 store。
   - 第 4 片 e2e `0da0019ad`、`ddaf6daeb`：bots-chat 改写、agent-conversation 的对话头与宽版、工作台的 e2e 改用测试插件 `test.project-view` 当“项目”容器里的第二个视图；入口角标改用单格网格叠放（第 1 片加的定位让按钮的 `offsetTop` 改成相对外框，`workbench-containers` 两条因此失败，已修）。Spec master `5babff80c`、`c36699fae`。
   - 收口：合并 master `46754ba9d`（`WorkbenchShell.md` 的冲突按两边都留）；nb-agent-ui 全过；neuro-book 单元 1286 过、4 条失败是 master 原有的（SDK 导出面与三条“同 id 的两条一起被拒”）；dom 217 过；7 个 e2e 文件 161 过、2 条失败：`files-explorer:629`（菜单项被盖住，原有失败）与 `agent-subagents:115`（大范围里两次失败，单独跑整个文件两次都过，判为负载）。
-  - 实现审查在跑：前端 Sonnet、后端与提供者合同 omp（审查 worktree `w00043-t15-review2`）。
+  - 实现审查：前端 Sonnet 12 条、后端 omp 8 条，处理见 [evidences/impl-review-2-disposition.md](evidences/impl-review-2-disposition.md)；修正 `06590bd46`，Spec master `658458c31`。受影响的 e2e 在重跑。

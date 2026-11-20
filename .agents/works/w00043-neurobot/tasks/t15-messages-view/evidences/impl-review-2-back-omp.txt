@@ -1,0 +1,92 @@
+### 1. 恢复最近会话时，真实的坏会话头会清掉记录；页面反而留下确实不存在的会话
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/plugin.ts:350–357`，`packages/neuro-book/src/plugins/agent/web/session-host.ts:1046–1052,1072–1087,1170–1186`。
+- **现象**：真实 `header` 回 `log-corrupt` 时，消息视图恢复后 `sessionId` 和最近记录均变为 `null`，没有重试入口。编辑区页面的最近记录若指向实际不存在的会话，则保留 id 并停在 `load-error`，而不是回到未选择。
+- **原因与基线**：读头、订阅和快照并行，各自覆盖 `target.failed`；`restore` 只看最后留下的一个码。页面分支则在 `open` 后直接返回，跳过了清除已不存在会话的步骤。基线没有 `header-unreadable` 合同，但页面的确实缺失会走恢复清理；新合同（conversation.md 输出 52）要求读头失败保留记录、允许重试。
+- **核实**：在实现工作区 `46754ba9d` 运行 `bun /tmp/w43-t15-r2/scratch/review-header.ts`。用真实 Agent 服务创建会话、关闭后在临时状态根损坏日志第一行，再从窗口经真实远程链路恢复：`header=log-corrupt`、`recent=null`、`availability=ready`；页面恢复缺失 id 得 `header=session-not-found`、`recent` 仍是原 id、`availability=load-error`。现有新用例只替换归属读头且会话能正常打开，未覆盖订阅也失败。
+- **建议**：恢复依据带结果码的读头判定“明确不存在”与“读头失败”；只对前者清记录，两位置共用。为读头失败保留独立状态或优先结果，不让订阅结束、快照失败覆盖 `header-unreadable`。用真实日志损坏和确实缺失分别验收两位置。
+
+### 2. 未读消息改写了公开的“Agent 工作中”状态
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/plugin.ts:100,808`、`packages/neuro-book/src/plugins/workbench/web/plugin.ts:167–171,284`；`docs/specs/theme/skins.md:92`。
+- **现象**：所有会话都空闲，只要有未读，`nbook.agent/active` 也为 `true`；有 `workingScene` 的主题会继续显示工作场景，直到未读清零。未打开过对话的窗口也受影响。
+- **原因与基线**：基线把 `active` 绑定到 `activity.active`；本轮为了让状态栏在空闲时也显示未读，直接把未读并进同一个公开键。决定 7 只增加状态栏入口，主题合同仍规定运行结束即换回普通场景。
+- **核实**：在 `46754ba9d` 用 `bun /tmp/w43-t15-r2/scratch/review-providers.ts` 装配真实浏览器插件宿主和公开状态服务。`activity=[]` 时发布一条有 7 条未读的联系人，读公开键由 `false` 变为 `true`、视图角标为 `7`；撤回后两者分别变回 `false`、`null`。主题后果由工作台对该键的直接读取确认，未运行截图或浏览器验收。
+- **建议**：保留 `nbook.agent/active` 的基线语义，另用一个只控制状态栏条目可见性的布尔量，合并“有活动或有未读”。测试空闲、未读大于 0 时状态栏可用、`active` 仍为 `false`。
+
+### 3. 提供者已停止，消息视图仍能读到它的实现
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/plugin.ts:331–360,367–373,653–655`，`packages/neuro-book/src/plugins/agent/web/messages-model.ts:109,169–171`；`packages/nb-runtime/src/plugins/contracts.ts:225–240`。
+- **现象**：归属插件进入停止、贡献已是 `revoked` 时，Agent 仍从先前缓存的提供者读联系人，视图角标还是 `7`；撤回回调完成后才回落。`open`、`seen` 也走同一个缓存，没有句柄门禁。
+- **原因与基线**：`published` 取一次 `implementation()`，之后全程递出这个对象。运行时合同要求每次业务使用经句柄取实现；入口停止和撤回回调不是同一步。基线旧转交器也曾缓存 `opener`，但不把实现散给常驻角标、身份、联系人状态、读回执和异步打开；本轮新加的这些路径也绕过门禁。
+- **核实**：在 `46754ba9d` 用 `bun /tmp/w43-t15-r2/scratch/review-providers.ts`，经真实插件宿主发布与关闭归属插件作用域。插件收到 `abort` 时查目录已为 `revoked`，实际 Agent 视图角标仍为 `7`；`close()` 完成后为 `null`，新代发布后为 `7`。没有手动调用接收器回调。
+- **建议**：登记存句柄而非提供者，按当前 `published` 取实现，撤回按句柄身份对账；`open` 返回前重新确认是同一个有效句柄，停止后丢弃它的结果。用同一真实装配覆盖首条发布、未接收的第二条撤回、停止与新代恢复。
+
+### 4. `agent.sessionOwners` 没有校验声明是空对象
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/shared/contracts.ts:220–225`。
+- **现象及影响**：`{unexpected: true}` 的声明通过验证并能成为这个插件唯一接收的提供者；同一插件下一条合法的 `{}` 被作为重复项忽略。清单写错不能从登记结果发现，还会占掉正常项的名额。
+- **原因与基线**：`Record<string, never>` 只在编译期约束定义里的类型；`validate` 运行时只核对位置，没有 `schema`。这一点在旧 `SessionOwnerOpener` 也有，本轮改形状后仍不符合对新贡献点公开的合同（conversation.md 输出 53）；不按新回归计。
+- **核实**：在 `46754ba9d` 用 `bun /tmp/w43-t15-r2/scratch/review-providers.ts` 经真实宿主登记上述两条贡献；改动第一条联系人的 `unread` 后角标为 `7`，合法第二条提供的 `100` 未计入，并记录 `agent.owner-duplicate`。
+- **建议**：若继续承诺空对象，在贡献点加 `Type.Object({}, {additionalProperties: false})`；在真实宿主中断言错误声明不生效、合法首条仍接收。
+
+### 4. `agent.sessionOwners` 没有校验声明是空对象（撤回）
+复核基线 `fb1384144` 的 `sessionOwnersPoint` 已接受非空声明；这不是本分支引入的验证缺口，不列入有效发现。
+
+### 5. `last.text` 把转义后用于展示的字面写法改成了表情占位
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/bots/backend/summary.ts:17–30`；`docs/specs/agent/stickers.md:79–98`、`docs/specs/bots/bots.md:61`。
+- **现象**：回复 `literal \:lyra/happy: and real :lyra/happy:` 在聊天里只有后一个是表情，`list().last.text` 却输出 `literal \[表情] and real [表情]`，第一个名称也丢了。原样保留 Markdown 标记的限制解释不了替换字面内容。
+- **原因与基线**：本轮新加的摘要逐字符调用 `stickerAt`，不检查冒号是否被转义，复用了写法的局部识别而不是它在 Markdown 语境中的含义。
+- **核实**：在 `46754ba9d` 用 `bun /tmp/w43-t15-r2/scratch/review-last.ts`，经真实 bot 主对话发送并读取 `last`，重启尾部补数得到相同错误；再用实际 Markdown codec 读同一行，输出第一个为 text，第二个为 sticker。
+- **建议**：保留字面写法，仅替换语法上成立的表情；回归用一个同时含转义和真实表情的回复，避免只测字符串有没有出现 `[表情]`。
+
+### 6. 子会话头不可读时，聚焦命令跳过了仍可查询的归属根
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/plugin.ts:363–369,777–788`；`docs/specs/agent/conversation.md` 输出 53。
+- **现象**：有归属的根及祖先关系仍可查，只损坏子会话头。最近用的是编辑区时，`nbook.agent.focus-session` 把这个子会话交给页面宿主，而不是消息视图；修复归属头的失败提示也不会纠正打开位置。
+- **原因与基线**：本轮新增的 `ownedTree` 在子会话 `header` 失败时提前返回 `false`，没有再问可独立返回根归属的 `ancestors`。基线还没有按树根路由的合同。
+- **核实**：在 `46754ba9d` 用 `bun /tmp/w43-t15-r2/scratch/review-focus.ts`，真实 `agent_spawn` 派出子会话，经命令服务调用真正的 `focus-session`。头完好时普通根写入 `agent.recent-session/page`，有归属的根与其子会话写入 `.../view`。只损坏子会话日志第一行后，真实 `header` 回 `log-corrupt`，`ancestors` 仍返回 `owner: {plugin: "test.agent-probe", id: "lyra"}` 的根，新窗口却把该子会话写入 `.../page`。验证的是实际宿主与远程请求，不把命令返回成功当作界面已揭示。
+- **建议**：不能从目标头确认它本身有归属时，仍用可读的祖先结果判定路由；这不允许用祖先归属代替目标的读头或放宽档位限制。测试分别断言消息视图位置与目标的失败状态。
+
+### 7. `focus-session` 打开了新会话，较早的联系人请求仍会抢回来
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/plugin.ts:777–788`，`packages/neuro-book/src/plugins/agent/web/messages-model.ts:98–115,150–171`，`packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:98–105,143–160`。
+- **现象**：点联系人 A，还在取主对话时从命令聚焦 B；聊天标题已经变成 B，A 的“正在打开对话…”仍盖住聊天、挡住“看到”。A 返回之后又把聊天换回 A。若先前的请求已失败，旧盖层同样不会因宿主打开新会话而清掉（从代码推断）。
+- **原因与基线**：本轮把联系人和命令并到同一个宿主，却只有会话列表的动作经过 `sessionOpened()`。聚焦命令直接 `host.open()`，不递增联系人请求代次，也不清 `pending`。基线的 bot 入口与普通会话视图未共用这个选择状态。现有模型测试只覆盖 `model.openSession()`，未走命令入口。
+- **核实**：在 `46754ba9d` 运行 `bun --tsconfig-override "$PWD/tsconfig.json" --preload /tmp/w43-t15-r2/scratch/preload-dom.ts /tmp/w43-t15-r2/scratch/review-pending.dom.test.ts`。Happy DOM 挂真实消息视图、经真实插件登记一个可延迟的归属提供者，两条真实会话经 RPC 打开。点 A 后用实际命令服务聚焦 B：标题“命令聚焦的人”，盖层“正在打开对话…”，`seen=[]`；释放先前的 A 请求后标题变为“先点的联系人”。未验证工作台容器的揭示或浏览器布局。
+- **建议**：让会话列表、命令、新建等显式选择共用一个代次与盖层失效入口；不要靠比较会话 id 清盖层（聚焦当前会话也应取代先前选择）。
+
+### 8. 补数逐条生成会丢弃的摘要，尾读仍从日志头定位
+- **严重程度**：建议；**类别**：安全与性能。
+- **位置**：`packages/neuro-book/src/plugins/bots/backend/unread.ts:100–108,157–184`、`packages/neuro-book/src/plugins/bots/backend/summary.ts:16–32`、`packages/nb-harness/src/kernel/session/session.ts:390–397`。
+- **现象**：补数扫到 N 条计数消息，就规范化 N 段全文、分配 N 份码点数组，最后只留一条。全部已读时，新增尾读最多返回 200 条旧事件，但内核 `findIndex` 仍从头找起点：连续 100,000 条的日志，从 `afterSeq=99,800` 查需检查 99,801 项，另加在原补数请求之后。
+- **原因与基线**：以前的补数循环只攒 seq；本轮先对每条候选执行 `lastOf` 再选赢家。线性定位是已有内核行为，不把原分页成本记成回归；本轮新增一次近全量定位。这里扫的是已加载的事件数组，不是重新读盘，也不是实测毫秒数。
+- **核实**：对照 `git diff fb1384144 ddaf6daeb -- packages/neuro-book/src/plugins/bots/backend/unread.ts` 与 `log()` 的定位和边界。`review-last.ts` 经真实会话重启验证尾窗：距头 198 条保留、距头 200 条返回 null；线性比较次数由源码计算。
+- **建议**：补数先按 seq 选候选事件，与实时帧对账后只生成实际保留的摘要。若要兑现尾读不随历史线性增长，在拥有有序数组的内核复用 `pathEventsAfter` 的二分定位做法，不另引持久化摘要或专用索引。
+
+第 3 条补充验证（不另计）：第 7 条同一脚本挂载真实消息视图，再点 A 后关闭它的提供者作用域，等 `scope.close()` 完成。当前仍是 B，标题已回落为“会话 B”，但“正在打开对话…”仍在。此时让旧 A 请求返回，实际标题变为“会话 A”，联系人已经撤回。停止后接受旧 `open()` 的结果不是假定；除了调用时核对句柄，提供者被撤回时也要作废请求、清掉那一层盖层。
+
+### 9. 同为版本 1，基线客户端已经读不出新的 bot 列表
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/bots/shared/contracts.ts:89–113,133`，`packages/nb-runtime/src/remote/node.ts:691–698`；`docs/specs/bots/bots.md` 输出 7、`docs/specs/runtime/plugin-channel.md` 的合同版本规则。
+- **现象**：基线的版本 1 客户端与新服务端能通过版本核对，但只要列表非空，`list()` 就返回 `provider-error`，不是 `version-changed`。当前两端配套时正常；本地标签未见包含阶段 ① 的发布，不计作已发版本回归。
+- **原因与基线**：新版本 1 要求 `last`；旧版本 1 的条目 `additionalProperties: false`，连 `last: null` 都拒绝。`botsChanged` 也复用这个形状；未单独运行跨版本事件验证。
+- **核实**：在 `46754ba9d` 用 `bun --tsconfig-override "$PWD/tsconfig.json" /tmp/w43-t15-r2/scratch/review-bots-v1.ts`，按 diff 还原 `fb1384144` 的客户端条目 schema，在真实 RPC 上用两个 v1 合同读同一个有星璃的服务。新合同返回 `last:null`，旧合同得 `返回值不符合合同：/0：must not have additional properties`。
+- **建议**：发布前为不兼容形状同步升级合同版本与 Spec，不为未发布旧版另加兼容层。若明确只支持同一构建的内置两端，也应在兼容边界说明为何允许版本 1 重定义。
+
+## 未发现问题的方面
+
+- **未读计算与尾窗**：无工具调用的 `assistant` 才计数；已看到位置向前合并，补数和实时帧按 seq 去重，旧候选不盖过较新的最后一句话。真实重启验证已读尾窗：距头 198 条仍取到，距头 200 条为 `null`。未把仍有未读时的正常补数误算为尾窗读取。
+- **祖先查询的授权边界**：`ancestors` 沿原有关系查原有索引，只加可选 `owner`，无需打开会话；能从中取得的归属原来就能按同一祖先 id 用 `header` 取得。未扩大可达范围，也未改用索引给写操作授权。真实合同用例仍拒绝远程创建时自带归属及对有归属根改写历史，派出的子会话不继承归属，仍能归档。现有祖先断言只匹配插件名是字符串；真实路由探针另外观察到了实际发布者 `test.agent-probe`。
+- **正常路由与档位**：最近位置为页面时，真实命令把普通根打开到 `page`，把有归属的根及子会话打开到 `view`；子会话仍按自己的无归属头取会话档。位置以真实最近记录写入核对，未把命令返回的 `ok` 当作布局已揭示。
+- **正常发布与撤回**：真实宿主中联系人 ref 变化会更新角标，同插件第二条贡献不接、有诊断；关闭完成后角标移除，新代发布后恢复。真实 `nbook.bots` 浏览器入口晚到的实验中，已打开会话的标题回到“星璃”，可见回复的服务端未读从 1 归零；停止后在途选择的问题另见第 3 条。
+
+## 验证范围
+
+- 静态按 `fb1384144..ddaf6daeb` 审查；运行于实现工作区 `46754ba9d`。核对 `ddaf6daeb..46754ba9d`：Agent、Bots、工作台状态消费者、`nb-runtime` 插件宿主和 `nb-harness` 内核路径无差异。
+- `bun test src/plugins/bots/backend/summary.test.ts src/plugins/bots/bots.test.ts src/plugins/agent/sessions.test.ts src/plugins/agent/session-host.test.ts src/plugins/agent/web/messages-model.test.ts --test-name-pattern '最后一句话|^.*有归属的会话（conversation\.md|^.*输出 25：有归属的后台根|消息视图的状态'`：20 通过、118 被过滤、0 失败，86 个断言，5 个文件。
+- `bun run typecheck`：通过（`tsc --noEmit`、`vue-tsc --noEmit -p tsconfig.web.json`、`vue-tsc --noEmit -p tsconfig.browser-test.json`）。另有本报告逐条记录的真实插件、会话、存储、远程与组件实验。Node/Vitest 无法导入真实后端的 `bun:ffi`，该尝试未执行用例；组件复现用 Bun + Happy DOM，未跑浏览器 e2e、开发服务、全量测试或真实模型。
+
+阻断 0 条，重要 5 条（1、2、3、6、7），建议 3 条（5、9、8）。第 4 条撤回，第 3 条补充验证不另计。
+有效发现：1、2、3、5、6、7、8、9
