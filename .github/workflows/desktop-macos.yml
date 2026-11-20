@@ -1,29 +1,9 @@
-# macOS 桌面版（w00046 t23、t24）：Apple Silicon 的桌面包。
-#
-# 两种用法：
-# - 发布流水线（release.yml）调用（workflow_call，t24）：应用包取同一轮的 `npm-packages` 产物，只构建、不上传；资产由
-#   release.yml 的 GitHub Release 作业与 Windows 资产一起放进草稿再公开。
-# - 手动触发（workflow_dispatch，t23）：给已经发布的版本补包，输入版本标签与那次 Release 流水线的运行编号，构建后补传到
-#   同一个 Release。
-#
-# 应用包与 Windows 版是同一份（同一个版本号对应同一份服务端，提案 4.1）；载荷在 ubuntu 上按 darwin-arm64 组装，壳与安装包
-# 在 macOS runner 上用 Hutch 构建。不签名、不公证，不跑冒烟（还没有 macOS 的冒烟脚本，由开发者在真机上试）。
-#
-# 资产名：安装包 `NeuroBook-macos-arm64.dmg`（不带版本号，releases/latest/download/<名> 是固定链接）；更新用的
-# `stable-macos-arm64-*` 由 Electrobun 定，与 Windows 的 `stable-win-x64-*` 互不相干；校验和另写 `SHA256SUMS-macos`。
+# 给已经发布的版本补 macOS 桌面包（w00046 t23、t24）：输入版本标签与那次 Release 流水线的运行编号，用
+# desktop-macos-build.yml 构建，再把资产补传到同一个 Release（只补缺的，同名而内容不同就失败）。发布流水线自己会构建 macOS 版，
+# 这个工作流只在那一轮的 macOS 构建失败、或给 t24 之前的版本补包时用。
 name: Desktop macOS
 
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: "要检出的版本标签；空串时检出调用方的提交（演练），版本取源码"
-        type: string
-        default: ""
-      # 只在被调用时为真（手动触发时没有这个输入）：调用方的事件可能也是 workflow_dispatch（演练），不能按事件名分。
-      called:
-        type: boolean
-        default: true
   workflow_dispatch:
     inputs:
       tag:
@@ -44,122 +24,24 @@ defaults:
   run:
     shell: bash
 
-# 被调用时与调用方同一轮，不另排队（调用方自己有并发组）；手动补包时同一个标签只跑一轮。
 concurrency:
-  group: desktop-macos-${{ inputs.called && format('run-{0}', github.run_id) || inputs.tag }}
+  group: desktop-macos-${{ inputs.tag }}
 
 jobs:
-  inputs:
-    name: macOS 的壳与载荷
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  build:
+    name: 构建
     permissions:
       contents: read
       actions: read
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.tag }}
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - id: version
-        run: |
-          source_version="$(bun -e 'console.log(JSON.parse(await Bun.file("packages/neuro-book/package.json").text()).version)')"
-          version="${TAG#v}"
-          if [ -z "$TAG" ]; then version="$source_version"; fi
-          if [ "$version" != "$source_version" ]; then echo "标签 $TAG 与源码版本 $source_version 不一致" >&2; exit 1; fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-        env:
-          TAG: ${{ inputs.tag }}
-      # 被调用时取同一轮的产物（不给 run-id），手动补包时取输入的那一轮。
-      - uses: actions/download-artifact@v4
-        if: inputs.called
-        with:
-          name: npm-packages
-          path: dist/release/
-      - uses: actions/download-artifact@v4
-        if: ${{ !inputs.called }}
-        with:
-          name: npm-packages
-          path: dist/release/
-          run-id: ${{ inputs.release-run }}
-          github-token: ${{ github.token }}
-      - name: 壳与载荷（darwin-arm64）
-        working-directory: packages/neuro-book
-        run: |
-          bun desktop/scripts/build.ts ../../dist/release/release-manifest.json --os darwin --cpu arm64
-          bun ../../scripts/release/tag.ts verify-built --version "${{ steps.version.outputs.version }}" --desktop desktop
-      - uses: actions/upload-artifact@v4
-        with:
-          name: desktop-macos-inputs
-          path: |
-            packages/neuro-book/desktop/bundle/
-            packages/neuro-book/desktop/payload/
-          retention-days: 14
-          if-no-files-found: error
-
-  build:
-    name: macOS 桌面包（Apple Silicon）
-    needs: inputs
-    runs-on: macos-15
-    timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: packages/neuro-book
-    env:
-      VERSION: ${{ needs.inputs.outputs.version }}
-    steps:
-      # 桌面工程（Electrobun 配置、macOS 图标、build-variant.ts）取触发这次运行的提交，不取标签：macOS 的支持是在
-      # 标签之后加的。壳与载荷来自上一个作业（按标签构建），版本由 build-variant.ts 核对。
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-        working-directory: .
-      # Hutch 的版本固定在 desktop/package.json 的 config.hutch（与 Windows 作业相同）。
-      - name: 装 Hutch
-        run: |
-          version="$(bun -e 'console.log(JSON.parse(await Bun.file("desktop/package.json").text()).config.hutch)')"
-          curl -fsSL https://hutch.blackboard.sh/hutch/install.sh | sh -s -- --version "$version" --no-modify-path
-          echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
-          installed="$("$HOME/.hutch/bin/hutch" --version)"
-          case "$installed" in *"$version"*) ;; *) echo "hutch --version 是 $installed，不是 $version" >&2; exit 1 ;; esac
-      - uses: actions/download-artifact@v4
-        with:
-          name: desktop-macos-inputs
-          path: ${{ runner.temp }}/inputs
-      - name: 正式变体
-        run: bun desktop/scripts/build-variant.ts --inputs "$RUNNER_TEMP/inputs" --out "$RUNNER_TEMP/variant" --version "$VERSION"
-      # 冻结：之后上传的都是这个目录。
-      - name: 发布资产
-        run: |
-          assets="$RUNNER_TEMP/release-assets"
-          mkdir -p "$assets"
-          cp "$RUNNER_TEMP/variant/artifacts/"* "$assets/"
-          mv "$assets/macos-arm64-NeuroBook.dmg" "$assets/NeuroBook-macos-arm64.dmg"
-          (cd "$assets" && shasum -a 256 * | grep -v ' SHA256SUMS' > SHA256SUMS-macos)
-          ls -l "$assets"
-          cat "$assets/SHA256SUMS-macos"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: desktop-macos-assets
-          path: ${{ runner.temp }}/release-assets/
-          retention-days: 35
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: desktop-macos-build-log
-          path: ${{ runner.temp }}/variant/hutch-build.log
-          retention-days: 14
-          if-no-files-found: warn
+    uses: ./.github/workflows/desktop-macos-build.yml
+    with:
+      tag: ${{ inputs.tag }}
+      release-run: ${{ inputs.release-run }}
 
   release:
     name: 补传到 Release
     needs: build
-    # 被调用时没有 publish 这个输入：上传由调用方做。
-    if: ${{ !inputs.called && inputs.publish }}
+    if: inputs.publish
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

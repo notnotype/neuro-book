@@ -38,6 +38,7 @@ const EXEMPTIONS: StyleExemptions = {
 const HOST_HOOK_VARS = new Map<string, string>([
     ["--nb-popover-scroll-fade", "弹出列表顶底渐隐的高度，缺省 22px"],
     ["--nb-collapsible-row-px", "CollapsibleRow 的左右内边距，缺省 8px；行排在已有缩进的列表里时宿主收窄（CollapsibleRow.md）"],
+    ["--nb-side-panel-inset-top", "SidePanel 上沿让出的高度，缺省 0；宿主设，例如桌面窗口自己画的标题行（SidePanel.md）"],
 ]);
 
 /** reka 在运行时写到元素上的尺寸、Tailwind 自己的内部变量，以及对话框入场的起点（useDialogOrigin 打开时量了写到面上）。 */

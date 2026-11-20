@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {parseCommand, pushArgv, ReleaseCommand, ReleaseCommandFailure, successfulRehearsal, triggeredRun, type CommandResult, type WorkflowRun} from "#scripts/release/release";
+import {parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
 
 const HEAD = "a".repeat(40);
 const RELEASE_COMMIT = "b".repeat(40);
@@ -13,7 +13,9 @@ function run(overrides: Partial<WorkflowRun>): WorkflowRun {
  * 记录调用的替身：按命令前缀给结果，没写的命令成功、输出为空。git、gh 的真实行为由开发者第一次运行时核对（t24 的证据）。
  * 状态随调用变：prepare 之后 HEAD 变成发版提交。
  */
-function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; watch?: number}) {
+const GREEN: WorkflowJob[] = [{name: "门禁", conclusion: "success"}, {name: "发 npm", conclusion: "skipped"}];
+
+function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; watch?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string}) {
     const calls: string[][] = [];
     let head = HEAD;
     const respond = (argv: readonly string[]): CommandResult => {
@@ -26,11 +28,15 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
             head = RELEASE_COMMIT;
             return {code: 0, stdout: ""};
         }
+        // 发版提交的父提交：别的会话插进一个提交时不是演练过的 HEAD。
+        if (line === `git rev-parse ${RELEASE_COMMIT}^`) return {code: 0, stdout: options.intruder === true ? "c".repeat(40) : HEAD};
+        if (line.startsWith("git log -1 --format=%s")) return {code: 0, stdout: "release: v0.15.0\n"};
+        if (line.startsWith("git ls-remote")) return {code: 0, stdout: options.remoteTag === undefined ? "" : `${options.remoteTag}\trefs/tags/v0.15.0\n`};
         if (line.startsWith("git push --atomic")) return {code: options.push ?? 0, stdout: ""};
         if (line.startsWith("gh run list") && line.includes("--event push")) return {code: 0, stdout: JSON.stringify(options.pushRuns ?? [])};
         if (line.startsWith("gh run list")) return {code: 0, stdout: JSON.stringify(options.runs ?? [])};
         if (line.startsWith("gh run watch")) return {code: options.watch ?? 0, stdout: ""};
-        if (line.startsWith("gh run view")) return {code: 0, stdout: JSON.stringify({jobs: [{name: "门禁", conclusion: "success"}]})};
+        if (line.startsWith("gh run view")) return {code: 0, stdout: JSON.stringify({jobs: options.jobs ?? GREEN})};
         return {code: 0, stdout: ""};
     };
     const command = new ReleaseCommand(async (argv) => {
@@ -55,9 +61,18 @@ describe("命令行", () => {
 });
 
 describe("演练与触发的运行", () => {
-    it("只认 HEAD 上已结束且成功的手动演练", () => {
-        expect(successfulRehearsal([run({conclusion: "failure"}), run({headSha: "c".repeat(40)}), run({event: "push"}), run({status: "in_progress", conclusion: null})], HEAD)).toBeNull();
-        expect(successfulRehearsal([run({databaseId: 7})], HEAD)?.databaseId).toBe(7);
+    it("只看 HEAD 上已结束的手动演练，新的在前", () => {
+        expect(rehearsalsOn([run({headSha: "c".repeat(40)}), run({event: "push"}), run({status: "in_progress", conclusion: null})], HEAD)).toEqual([]);
+        expect(rehearsalsOn([run({databaseId: 7, createdAt: "2026-11-20T09:00:00Z"}), run({databaseId: 8, conclusion: "failure"})], HEAD).map((item) => item.databaseId)).toEqual([8, 7]);
+    });
+
+    it("演练通过：除 macOS 外都成功或跳过；macOS 失败不算不通过；没有作业（启动即失败）不算通过", () => {
+        expect(rehearsalPassed(GREEN)).toBe(true);
+        expect(rehearsalPassed([...GREEN, {name: "macOS / macOS 桌面包（Apple Silicon）", conclusion: "failure"}])).toBe(true);
+        expect(rehearsalPassed([...GREEN, {name: "桌面包与 Windows 冒烟", conclusion: "failure"}])).toBe(false);
+        expect(rehearsalPassed([...GREEN, {name: "CI / 治理、文档与受影响的包", conclusion: "cancelled"}])).toBe(false);
+        expect(rehearsalPassed([])).toBe(false);
+        expect(rehearsalPassed([{name: "macOS / 构建", conclusion: "success"}])).toBe(false);
     });
 
     it("推送触发的：同一提交、同一事件、推送之后建的里最新的一轮", () => {
@@ -67,8 +82,8 @@ describe("演练与触发的运行", () => {
         expect(triggeredRun(runs, HEAD, "push", after)).toBeNull();
     });
 
-    it("master 与标签在同一次原子推送里", () => {
-        expect(pushArgv("0.15.0")).toEqual(["git", "push", "--atomic", "origin", "refs/heads/master:refs/heads/master", "refs/tags/v0.15.0:refs/tags/v0.15.0"]);
+    it("master 与标签在同一次原子推送里；master 的源是确切的提交号", () => {
+        expect(pushArgv("0.15.0", RELEASE_COMMIT)).toEqual(["git", "push", "--atomic", "origin", `${RELEASE_COMMIT}:refs/heads/master`, "refs/tags/v0.15.0:refs/tags/v0.15.0"]);
     });
 });
 
@@ -79,7 +94,7 @@ describe("发版", () => {
         expect(await command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: true})).toBe(false);
         const order = lines();
         const at = (prefix: string) => order.findIndex((line) => line.startsWith(prefix));
-        expect(at("bun scripts/release/prepare.ts 0.15.0")).toBeGreaterThan(at("gh run list"));
+        expect(at("bun scripts/release/prepare.ts 0.15.0")).toBeGreaterThan(at("gh run view 1"));
         expect(order).toContain(`git tag v0.15.0 ${RELEASE_COMMIT}`);
         expect(at("git push --atomic")).toBeGreaterThan(at("git tag v0.15.0"));
         expect(order).toContain("gh run watch 9 --interval 30 --exit-status");
@@ -87,7 +102,8 @@ describe("发版", () => {
 
     it("没有演练、不在 master、HEAD 不含 origin/master、标签已在：什么都不写就停", async () => {
         const cases: Array<[Parameters<typeof fake>[0], RegExp]> = [
-            [{runs: [run({conclusion: "failure"})]}, /没有成功的演练/],
+            [{runs: [run({conclusion: "failure"})], jobs: [{name: "桌面包与 Windows 冒烟", conclusion: "failure"}]}, /没有通过的演练/],
+            [{runs: []}, /没有通过的演练/],
             [{branch: "feat/x"}, /发版要在 master 上/],
             [{contains: false}, /不包含 origin\/master/],
             [{runs: [run({})], tagExists: true}, /已经存在/],
@@ -99,13 +115,26 @@ describe("发版", () => {
         }
     });
 
-    it("--no-rehearsal 不查演练；推送被拒时报错、写明远端没变与怎样重推", async () => {
+    it("prepare 前后有别的提交插进来（发版提交的父提交不是演练过的 HEAD）：不打标签、不推送", async () => {
+        const {command, lines} = fake({runs: [run({})], intruder: true});
+        await expect(command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: true})).rejects.toThrow(/有别的提交插了进来/);
+        expect(lines().filter((line) => line.startsWith("git tag") || line.startsWith("git push"))).toEqual([]);
+    });
+
+    it("--no-rehearsal 不查演练；推送失败而远端没有标签时报错，给出原样重推的命令", async () => {
         const {command, lines} = fake({push: 1});
         const result = command.release({kind: "release", version: "0.15.0", stage: "preview", rehearsal: false});
         await expect(result).rejects.toThrow(ReleaseCommandFailure);
-        await expect(result).rejects.toThrow(/远端什么都没变/);
+        await expect(result).rejects.toThrow(/远端没有 v0.15.0.*原样重推：git push --atomic/s);
         expect(lines().some((line) => line.startsWith("gh run list"))).toBe(false);
         expect(lines()).toContain("bun scripts/release/prepare.ts 0.15.0 --stage preview");
+    });
+
+    it("推送报错但远端的标签已经指向发版提交：按推上去了处理，接着盯", async () => {
+        const pushRuns = [run({databaseId: 9, headSha: RELEASE_COMMIT, event: "push", createdAt: NOW})];
+        const {command, lines} = fake({push: 128, remoteTag: RELEASE_COMMIT, pushRuns});
+        expect(await command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: false})).toBe(true);
+        expect(lines()).toContain("gh run watch 9 --interval 30 --exit-status");
     });
 });
 
@@ -115,7 +144,7 @@ describe("演练", () => {
         const {command, lines} = fake({runs});
         expect(await command.rehearse()).toBe(true);
         const order = lines();
-        expect(order.indexOf("git push origin refs/heads/master:refs/heads/master")).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master"));
+        expect(order.indexOf(`git push origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master"));
         expect(order).toContain("gh run watch 5 --interval 30 --exit-status");
     });
 });

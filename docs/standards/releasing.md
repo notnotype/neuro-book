@@ -40,7 +40,7 @@
 - `ci`：同一提交上整套 CI（`ci.yml`，选包用 `--all`）。
 - `npm-packages`：`release:smoke`、发布计划（`publish.ts --plan`）、正式桌面变体的壳与载荷。
 - `update-test-packages`：更新冒烟用的 B′（标签提交加一个只在 runner 上的测试提交，补丁号加 1）。
-- `desktop-macos`（与 Windows 的桌面作业并行，调用 `desktop-macos.yml`）：同一份应用包按 darwin-arm64 组装载荷，在 Apple Silicon runner 上用 Hutch 构建，安装包改名为 `NeuroBook-macos-arm64.dmg`，写 `SHA256SUMS-macos`。不签名、不公证、没有冒烟。它失败不挡发布：Release 只带 Windows 的资产，作业摘要写明；事后用 `desktop-macos.yml` 手动触发（输入标签与那一轮的运行编号）补传。
+- `desktop-macos`（与 Windows 的桌面作业并行，调用 `desktop-macos-build.yml`）：同一份应用包按 darwin-arm64 组装载荷，在 Apple Silicon runner 上用 Hutch 构建，安装包改名为 `NeuroBook-macos-arm64.dmg`，写 `SHA256SUMS-macos`。不签名、不公证、没有冒烟。它失败不挡发布：Release 只带 Windows 的资产，作业摘要写明；事后用 `desktop-macos.yml` 手动触发（输入标签与那一轮的运行编号）补传。
 - `desktop`（Windows）：用 Hutch 构建正式、A′、B′ 三个变体；冻结发布资产：安装包改名为 `NeuroBook-win-x64-Setup.zip`、从完整包打便携版 `NeuroBook-win-x64-portable.zip`、写 `SHA256SUMS`；跑安装版、便携版与更新的冒烟。两个名字不带版本号，`releases/latest/download/<名>` 是固定的最新版链接；更新用的文件名由 Electrobun 定（`stable-win-x64-…`，`stable` 是发布频道，不是阶段）。
 - `publish-npm`（Environment `release`，trusted publishing）：只发计划里本次发布的包，dist-tag 显式给（高于 `latest` 时 `latest`，否则 `history`）。
 - `registry-smoke`：先等本次的版本都能从 registry 取到（最多 30 分钟；刚发的版本 npm 要处理几分钟，大包更久），再装一遍（不挡 Release）。
