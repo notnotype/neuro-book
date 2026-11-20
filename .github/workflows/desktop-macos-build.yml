@@ -113,8 +113,17 @@ jobs:
         with:
           name: desktop-macos-inputs
           path: ${{ runner.temp }}/inputs
+      # 最多试 3 次：GitHub 的 macOS runner 上 `hdiutil create` 会偶发 “Resource busy”（XProtect 的竞态，
+      # actions/runner-images#7522；v0.15.0 的发布就撞上一次），通行的做法是重来。每次从空目录开始。
       - name: 正式变体
-        run: bun desktop/scripts/build-variant.ts --inputs "$RUNNER_TEMP/inputs" --out "$RUNNER_TEMP/variant" --version "$VERSION"
+        run: |
+          for attempt in 1 2 3; do
+            rm -rf "$RUNNER_TEMP/variant"
+            if bun desktop/scripts/build-variant.ts --inputs "$RUNNER_TEMP/inputs" --out "$RUNNER_TEMP/variant" --version "$VERSION"; then exit 0; fi
+            echo "::warning::macOS 构建第 $attempt 次失败"
+            sleep 20
+          done
+          exit 1
       # 冻结：之后上传的都是这个目录。
       - name: 发布资产
         run: |
