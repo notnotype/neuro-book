@@ -208,8 +208,11 @@ watch(() => open.value && cover.value === null && conversationRef.value !== null
     box-shadow: -1px -1px 0 0 var(--border-color);
 }
 
+/* 不随格子收缩（可以往左伸出格子）；至少从尖角盖到右缘，短句（“等你处理”）的尖角也落在气泡上。 */
 .desk-companion__bubble {
     position: relative;
+    flex-shrink: 0;
+    min-width: calc(50% + 16px);
     max-width: 260px;
     width: max-content;
     overflow: hidden;
