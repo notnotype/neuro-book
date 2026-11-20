@@ -98,7 +98,7 @@ test("从 npm 包装上的 nbook：打开作品（项目子进程）、装插件
     await expect(page.locator("[data-workbench-project]")).toHaveAttribute("data-workbench-project", "book");
     // 内置表情包（docs/specs/agent/stickers.md 的内置来源）：装好的包里服务端按 `<包>/stickers/` 找到它，取图路由给出图片。
     expect(await page.evaluate(async () => {
-        const response = await fetch(`/api/nbook.stickers/image/builtin.lyra/${encodeURIComponent("开心.webp")}`);
+        const response = await fetch("/api/nbook.stickers/image/builtin.lyra/kaixin.webp");
         return [response.status, response.headers.get("content-type")];
     })).toEqual([200, "image/webp"]);
 

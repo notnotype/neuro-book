@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
+import {githubRepository, parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
 
 const HEAD = "a".repeat(40);
 const RELEASE_COMMIT = "b".repeat(40);
@@ -15,11 +15,18 @@ function run(overrides: Partial<WorkflowRun>): WorkflowRun {
  */
 const GREEN: WorkflowJob[] = [{name: "门禁", conclusion: "success"}, {name: "发 npm", conclusion: "skipped"}];
 
-function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; watch?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string}) {
+/**
+ * `runs` 是手动触发的运行列表（演练检查读它）；`dispatched` 在 `gh workflow run` 之后才出现，`pushRuns` 在推送之后才出现：
+ * 和真实的一样，触发前列出来的运行不是这次触发的。
+ */
+function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; watch?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string}) {
     const calls: string[][] = [];
     let head = HEAD;
+    let dispatchedYet = false;
+    let pushedYet = false;
     const respond = (argv: readonly string[]): CommandResult => {
         const line = argv.join(" ");
+        if (line === "git remote get-url --push origin") return {code: 0, stdout: "git@github.com:notnotype/neuro-book.git\n"};
         if (line === "git rev-parse --abbrev-ref HEAD") return {code: 0, stdout: `${options.branch ?? "master"}\n`};
         if (line.startsWith("git merge-base --is-ancestor")) return {code: options.contains === false ? 1 : 0, stdout: ""};
         if (line === "git rev-parse HEAD") return {code: 0, stdout: `${head}\n`};
@@ -32,9 +39,13 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
         if (line === `git rev-parse ${RELEASE_COMMIT}^`) return {code: 0, stdout: options.intruder === true ? "c".repeat(40) : HEAD};
         if (line.startsWith("git log -1 --format=%s")) return {code: 0, stdout: "release: v0.15.0\n"};
         if (line.startsWith("git ls-remote")) return {code: 0, stdout: options.remoteTag === undefined ? "" : `${options.remoteTag}\trefs/tags/v0.15.0\n`};
-        if (line.startsWith("git push --atomic")) return {code: options.push ?? 0, stdout: ""};
-        if (line.startsWith("gh run list") && line.includes("--event push")) return {code: 0, stdout: JSON.stringify(options.pushRuns ?? [])};
-        if (line.startsWith("gh run list")) return {code: 0, stdout: JSON.stringify(options.runs ?? [])};
+        if (line.startsWith("git push --atomic")) {
+            pushedYet = true;
+            return {code: options.push ?? 0, stdout: ""};
+        }
+        if (line.startsWith("gh workflow run")) dispatchedYet = true;
+        if (line.startsWith("gh run list") && line.includes("--event push")) return {code: 0, stdout: JSON.stringify(pushedYet ? options.pushRuns ?? [] : [])};
+        if (line.startsWith("gh run list")) return {code: 0, stdout: JSON.stringify([...(dispatchedYet ? options.dispatched ?? [] : []), ...(options.runs ?? [])])};
         if (line.startsWith("gh run watch")) return {code: options.watch ?? 0, stdout: ""};
         if (line.startsWith("gh run view")) return {code: 0, stdout: JSON.stringify({jobs: options.jobs ?? GREEN})};
         return {code: 0, stdout: ""};
@@ -60,6 +71,15 @@ describe("命令行", () => {
     });
 });
 
+describe("仓库", () => {
+    it("从 origin 的推送地址取 owner/name；不是 GitHub 的报错", () => {
+        for (const url of ["git@github.com:notnotype/neuro-book.git", "ssh://git@github.com/notnotype/neuro-book", "https://github.com/notnotype/neuro-book.git\n", "https://github.com/notnotype/neuro-book/"]) {
+            expect(githubRepository(url), url).toBe("notnotype/neuro-book");
+        }
+        expect(() => githubRepository("git@gitlab.com:a/b.git")).toThrow(/不是 GitHub/);
+    });
+});
+
 describe("演练与触发的运行", () => {
     it("只看 HEAD 上已结束的手动演练，新的在前", () => {
         expect(rehearsalsOn([run({headSha: "c".repeat(40)}), run({event: "push"}), run({status: "in_progress", conclusion: null})], HEAD)).toEqual([]);
@@ -75,15 +95,15 @@ describe("演练与触发的运行", () => {
         expect(rehearsalPassed([{name: "macOS / 构建", conclusion: "success"}])).toBe(false);
     });
 
-    it("推送触发的：同一提交、同一事件、推送之后建的里最新的一轮", () => {
-        const after = new Date("2026-11-20T10:00:00Z");
+    it("触发的那一轮：同一提交、同一事件、触发前没有的里最新的一轮；不看时间", () => {
         const runs = [run({databaseId: 1, createdAt: "2026-11-20T09:00:00Z"}), run({databaseId: 2, createdAt: "2026-11-20T10:00:05Z"}), run({databaseId: 3, createdAt: "2026-11-20T10:00:09Z"}), run({databaseId: 4, headSha: "c".repeat(40), createdAt: "2026-11-20T10:01:00Z"})];
-        expect(triggeredRun(runs, HEAD, "workflow_dispatch", after)?.databaseId).toBe(3);
-        expect(triggeredRun(runs, HEAD, "push", after)).toBeNull();
+        expect(triggeredRun(runs, HEAD, "workflow_dispatch", new Set([3]))?.databaseId).toBe(2);
+        expect(triggeredRun(runs, HEAD, "workflow_dispatch", new Set([1, 2, 3]))).toBeNull();
+        expect(triggeredRun(runs, HEAD, "push", new Set())).toBeNull();
     });
 
     it("master 与标签在同一次原子推送里；master 的源是确切的提交号", () => {
-        expect(pushArgv("0.15.0", RELEASE_COMMIT)).toEqual(["git", "push", "--atomic", "origin", `${RELEASE_COMMIT}:refs/heads/master`, "refs/tags/v0.15.0:refs/tags/v0.15.0"]);
+        expect(pushArgv("0.15.0", RELEASE_COMMIT)).toEqual(["git", "push", "--atomic", "--no-follow-tags", "origin", `${RELEASE_COMMIT}:refs/heads/master`, "refs/tags/v0.15.0:refs/tags/v0.15.0"]);
     });
 });
 
@@ -97,7 +117,9 @@ describe("发版", () => {
         expect(at("bun scripts/release/prepare.ts 0.15.0")).toBeGreaterThan(at("gh run view 1"));
         expect(order).toContain(`git tag v0.15.0 ${RELEASE_COMMIT}`);
         expect(at("git push --atomic")).toBeGreaterThan(at("git tag v0.15.0"));
-        expect(order).toContain("gh run watch 9 --interval 30 --exit-status");
+        expect(order).toContain("gh run watch 9 --interval 30 --exit-status --repo notnotype/neuro-book");
+        // gh 的每次调用都指明推送目标的仓库。
+        expect(order.filter((line) => line.startsWith("gh ")).every((line) => line.endsWith("--repo notnotype/neuro-book"))).toBe(true);
     });
 
     it("没有演练、不在 master、HEAD 不含 origin/master、标签已在：什么都不写就停", async () => {
@@ -126,7 +148,8 @@ describe("发版", () => {
         const result = command.release({kind: "release", version: "0.15.0", stage: "preview", rehearsal: false});
         await expect(result).rejects.toThrow(ReleaseCommandFailure);
         await expect(result).rejects.toThrow(/远端没有 v0.15.0.*原样重推：git push --atomic/s);
-        expect(lines().some((line) => line.startsWith("gh run list"))).toBe(false);
+        // 不查演练：没有读手动触发的运行。
+        expect(lines().some((line) => line.startsWith("gh run list") && line.includes("workflow_dispatch"))).toBe(false);
         expect(lines()).toContain("bun scripts/release/prepare.ts 0.15.0 --stage preview");
     });
 
@@ -134,17 +157,19 @@ describe("发版", () => {
         const pushRuns = [run({databaseId: 9, headSha: RELEASE_COMMIT, event: "push", createdAt: NOW})];
         const {command, lines} = fake({push: 128, remoteTag: RELEASE_COMMIT, pushRuns});
         expect(await command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: false})).toBe(true);
-        expect(lines()).toContain("gh run watch 9 --interval 30 --exit-status");
+        expect(lines()).toContain("gh run watch 9 --interval 30 --exit-status --repo notnotype/neuro-book");
     });
 });
 
 describe("演练", () => {
-    it("推 master、对 master 触发演练、盯手动触发的那一轮", async () => {
-        const runs = [run({databaseId: 5, status: "in_progress", conclusion: null, createdAt: NOW})];
-        const {command, lines} = fake({runs});
+    it("推 master、对 master 触发演练、盯这次触发的那一轮（同一提交上刚结束的旧一轮不算）", async () => {
+        const dispatched = [run({databaseId: 5, status: "in_progress", conclusion: null, createdAt: NOW})];
+        const {command, lines} = fake({runs: [run({databaseId: 4, createdAt: NOW})], dispatched});
         expect(await command.rehearse()).toBe(true);
         const order = lines();
-        expect(order.indexOf(`git push origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master"));
-        expect(order).toContain("gh run watch 5 --interval 30 --exit-status");
+        const pushed = order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`);
+        expect(pushed).toBeGreaterThanOrEqual(0);
+        expect(pushed).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master --repo notnotype/neuro-book"));
+        expect(order).toContain("gh run watch 5 --interval 30 --exit-status --repo notnotype/neuro-book");
     });
 });

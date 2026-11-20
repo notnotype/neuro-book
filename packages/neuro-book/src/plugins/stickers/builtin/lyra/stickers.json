@@ -3,63 +3,78 @@
     "description": "NeuroBook 的看板娘星璃，Q 版近景，白色贴纸边。",
     "stickers": [
         {
-            "file": "开心.webp",
+            "file": "kaixin.webp",
+            "name": "开心",
             "common": true
         },
         {
-            "file": "嘿嘿.webp",
+            "file": "heihei.webp",
+            "name": "嘿嘿",
             "common": true
         },
         {
-            "file": "比心.webp",
+            "file": "bixin.webp",
+            "name": "比心",
             "common": true
         },
         {
-            "file": "害羞.webp",
+            "file": "haixiu.webp",
+            "name": "害羞",
             "common": true
         },
         {
-            "file": "期待.webp",
+            "file": "qidai.webp",
+            "name": "期待",
             "common": true
         },
         {
-            "file": "惊讶.webp",
+            "file": "jingya.webp",
+            "name": "惊讶",
             "common": true
         },
         {
-            "file": "疑问.webp",
+            "file": "yiwen.webp",
+            "name": "疑问",
             "common": true
         },
         {
-            "file": "嗯.webp",
+            "file": "en.webp",
+            "name": "嗯",
             "common": true
         },
         {
-            "file": "无语.webp",
+            "file": "wuyu.webp",
+            "name": "无语",
             "common": true
         },
         {
-            "file": "烦.webp",
+            "file": "fan.webp",
+            "name": "烦",
             "common": true
         },
         {
-            "file": "生气.webp",
+            "file": "shengqi.webp",
+            "name": "生气",
             "common": true
         },
         {
-            "file": "委屈.webp",
+            "file": "weiqu.webp",
+            "name": "委屈",
             "common": true
         },
         {
-            "file": "大哭.webp",
+            "file": "daku.webp",
+            "name": "大哭",
             "common": true
         },
         {
-            "file": "困.webp",
+            "file": "kun.webp",
+            "name": "困",
             "common": true
         },
         {
-            "file": "偷看.webp",
+            "file": "toukan.webp",
+            "name": "偷看",
             "common": true
         }
     ]

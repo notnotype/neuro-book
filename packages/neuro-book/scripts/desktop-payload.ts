@@ -145,6 +145,15 @@ export function lockMismatches(payload: ReadonlyMap<string, string>, closure: Re
     });
 }
 
+/**
+ * 路径里有非 ASCII 字符的文件。Windows 的桌面包由 Hutch 调系统自带的 `tar.exe`（bsdtar）打，它在英文代码页的 runner 上处理
+ * 不了这样的文件名，整个构建失败、日志里只有一行“command failed: tar.exe”（2026-11-20，内置表情包的中文文件名）。
+ * 在组装载荷时就拦下来，写清是哪些文件；要显示中文名的，文件名用 ASCII、显示名写进各自的清单（例如表情包的 `stickers.json`）。
+ */
+export function nonAsciiPaths(files: ReadonlyArray<{readonly path: string}>): string[] {
+    return files.map((file) => file.path).filter((path) => /[^\x20-\x7e]/u.test(path));
+}
+
 /** 目录下的全部文件（不跟符号链接），路径用 `/`、按路径排序。 */
 export async function listFiles(root: string): Promise<Array<{path: string; size: number; sha256: string}>> {
     const files: Array<{path: string; size: number; sha256: string}> = [];
@@ -240,6 +249,8 @@ export async function assembleDesktopPayload(options: PayloadOptions): Promise<P
         dependencies,
         files: await listFiles(app),
     };
+    const unportable = nonAsciiPaths(manifest.files);
+    if (unportable.length > 0) throw new Error(`载荷里这些文件的路径有非 ASCII 字符，Windows 打包用的 tar.exe 处理不了：\n${unportable.join("\n")}`);
     await writeFile(join(outDir, "payload-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     return manifest;
 }

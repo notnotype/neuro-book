@@ -85,11 +85,21 @@ export function rehearsalsOn(runs: readonly WorkflowRun[], head: string): Workfl
     return runs.filter((run) => run.event === "workflow_dispatch" && run.headSha === head && run.status === "completed").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** 刚推送触发的那一轮：`after` 之后建的、在这个提交上的最新一轮（同一提交上可能有更早被取消的轮次）。 */
-export function triggeredRun(runs: readonly WorkflowRun[], head: string, event: string, after: Date): WorkflowRun | null {
-    const matching = runs.filter((run) => run.headSha === head && run.event === event && new Date(run.createdAt).getTime() >= after.getTime() - 60_000);
+/**
+ * 刚触发的那一轮：在这个提交上、这个事件、触发前没有的运行里最新的一个。`known` 是触发前就有的运行编号：不按时间窗猜（开发机的钟
+ * 可能不准，同一提交上刚结束的旧一轮也可能落在窗里）。
+ */
+export function triggeredRun(runs: readonly WorkflowRun[], head: string, event: string, known: ReadonlySet<number>): WorkflowRun | null {
+    const matching = runs.filter((run) => run.headSha === head && run.event === event && !known.has(run.databaseId));
     matching.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return matching[0] ?? null;
+}
+
+/** git 远端地址里的 GitHub 仓库：`git@github.com:o/n.git`、`ssh://git@github.com/o/n`、`https://github.com/o/n(.git)`。不是 GitHub 时抛出。 */
+export function githubRepository(url: string): string {
+    const match = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/u.exec(url.trim());
+    if (match === null) throw new ReleaseCommandFailure(`origin 的推送地址（${url.trim()}）不是 GitHub 上的仓库`);
+    return match[1] as string;
 }
 
 /**
@@ -97,7 +107,8 @@ export function triggeredRun(runs: readonly WorkflowRun[], head: string, event: 
  * 提交号，不写分支名：主工作区几个会话共用，推送那一刻的本地 master 可能已经被别人推进。
  */
 export function pushArgv(version: string, commit: string): string[] {
-    return ["git", "push", "--atomic", "origin", `${commit}:refs/heads/master`, `refs/tags/v${version}:refs/tags/v${version}`];
+    // --no-follow-tags：开发者设了 push.followTags 时，Git 会顺带推提交链上远端没有的附注标签，可能带上别的 v* 标签。
+    return ["git", "push", "--atomic", "--no-follow-tags", "origin", `${commit}:refs/heads/master`, `refs/tags/v${version}:refs/tags/v${version}`];
 }
 
 export class ReleaseCommand {
@@ -111,6 +122,23 @@ export class ReleaseCommand {
         this.#log = log;
     }
 
+    #repo: string | null = null;
+
+    /**
+     * 推送目标 origin 的 GitHub 仓库（`owner/name`）。gh 的每次调用都显式带上它：gh 缺省按 `GH_REPO` 或 `gh repo set-default`
+     * 选仓库，可能与 git 推送的不是同一个，演练、触发与盯运行就落到别的仓库上。
+     */
+    async #repository(): Promise<string> {
+        if (this.#repo !== null) return this.#repo;
+        const url = await this.#must(["git", "remote", "get-url", "--push", "origin"]);
+        this.#repo = githubRepository(url);
+        return this.#repo;
+    }
+
+    async #gh(args: readonly string[]): Promise<string[]> {
+        return ["gh", ...args, "--repo", await this.#repository()];
+    }
+
     async #must(argv: readonly string[], capture = true): Promise<string> {
         const result = await this.#run(argv, {capture});
         if (result.code !== 0) throw new ReleaseCommandFailure(`${argv.join(" ")} 失败（退出码 ${String(result.code)}）`);
@@ -118,7 +146,7 @@ export class ReleaseCommand {
     }
 
     async #runs(filter: readonly string[]): Promise<WorkflowRun[]> {
-        return JSON.parse(await this.#must(["gh", "run", "list", "--workflow", WORKFLOW, "--limit", "30", "--json", RUN_FIELDS, ...filter])) as WorkflowRun[];
+        return JSON.parse(await this.#must(await this.#gh(["run", "list", "--workflow", WORKFLOW, "--limit", "30", "--json", RUN_FIELDS, ...filter]))) as WorkflowRun[];
     }
 
     /** 在 master 上、HEAD 包含刚取到的 origin/master（否则推送会被拒或要强推）。交回 HEAD。 */
@@ -132,9 +160,13 @@ export class ReleaseCommand {
     }
 
     /** 等推送触发的那一轮出现（GitHub 建运行有几秒到一两分钟的延迟），最多 3 分钟。 */
-    async #waitForRun(filter: readonly string[], head: string, event: string, after: Date): Promise<WorkflowRun> {
+    async #known(filter: readonly string[]): Promise<Set<number>> {
+        return new Set((await this.#runs(filter)).map((run) => run.databaseId));
+    }
+
+    async #waitForRun(filter: readonly string[], head: string, event: string, known: ReadonlySet<number>): Promise<WorkflowRun> {
         for (let attempt = 0; attempt < 36; attempt += 1) {
-            const run = triggeredRun(await this.#runs(filter), head, event, after);
+            const run = triggeredRun(await this.#runs(filter), head, event, known);
             if (run !== null) return run;
             await this.#sleep(5_000);
         }
@@ -142,14 +174,14 @@ export class ReleaseCommand {
     }
 
     async #jobs(run: WorkflowRun): Promise<WorkflowJob[]> {
-        return (JSON.parse(await this.#must(["gh", "run", "view", String(run.databaseId), "--json", "jobs"])) as {jobs: WorkflowJob[]}).jobs;
+        return (JSON.parse(await this.#must(await this.#gh(["run", "view", String(run.databaseId), "--json", "jobs"]))) as {jobs: WorkflowJob[]}).jobs;
     }
 
     /** 盯到结束，列出各作业；交回作业的结果（判定由调用方按演练或发布的规则做）。 */
     async #watch(run: WorkflowRun): Promise<{exit: number; jobs: WorkflowJob[]}> {
         this.#log(`盯着 ${run.url}`);
         // gh run watch 在运行结束前不退出；--exit-status 让失败的运行以非零退出。启动即失败的一轮没有作业，GitHub 页面上有原因。
-        const watched = await this.#run(["gh", "run", "watch", String(run.databaseId), "--interval", "30", "--exit-status"]);
+        const watched = await this.#run(await this.#gh(["run", "watch", String(run.databaseId), "--interval", "30", "--exit-status"]));
         const jobs = await this.#jobs(run);
         if (jobs.length === 0) this.#log(`  这一轮没有作业（多半是工作流文件在启动时就被拒，原因在 ${run.url}）`);
         for (const job of jobs) this.#log(`  ${job.conclusion === "success" ? "✓" : job.conclusion === "skipped" ? "·" : "✗"} ${job.name}（${job.conclusion ?? "没结束"}）`);
@@ -164,11 +196,13 @@ export class ReleaseCommand {
 
     async rehearse(): Promise<boolean> {
         const head = await this.#onMaster();
-        const started = new Date();
+        const dispatchFilter = ["--event", "workflow_dispatch", "--branch", "master"];
+        const known = await this.#known(dispatchFilter);
         // 推的是读到的那个提交，不是分支名：推送前别人推进了本地 master 时，演练的就不是推上去的提交。
-        await this.#must(["git", "push", "origin", `${head}:refs/heads/master`], false);
-        await this.#must(["gh", "workflow", "run", WORKFLOW, "--ref", "master"], false);
-        const run = await this.#waitForRun(["--event", "workflow_dispatch", "--branch", "master"], head, "workflow_dispatch", started);
+        // --no-follow-tags：演练承诺不发布，push.followTags 不能让它顺带推一个 v* 标签。
+        await this.#must(["git", "push", "--no-follow-tags", "origin", `${head}:refs/heads/master`], false);
+        await this.#must(await this.#gh(["workflow", "run", WORKFLOW, "--ref", "master"]), false);
+        const run = await this.#waitForRun(dispatchFilter, head, "workflow_dispatch", known);
         const {exit, jobs} = await this.#watch(run);
         const ok = rehearsalPassed(jobs);
         if (ok && exit !== 0) this.#log("macOS 的作业失败：不挡发布，发出去的 Release 只带 Windows 的资产");
@@ -201,7 +235,8 @@ export class ReleaseCommand {
             throw new ReleaseCommandFailure(`HEAD（${commit.slice(0, 9)}，“${subject}”）不是建在演练过的 ${head.slice(0, 9)} 上的 release: ${tag}：有别的提交插了进来。没打标签、没推送；看 git log 处理后重来`);
         }
         await this.#must(["git", "tag", tag, commit]);
-        const started = new Date();
+        const pushFilter = ["--event", "push", "--branch", tag];
+        const known = await this.#known(pushFilter);
         const push = pushArgv(command.version, commit);
         const pushed = await this.#run(push);
         if (pushed.code !== 0) {
@@ -215,13 +250,13 @@ export class ReleaseCommand {
             this.#log(`推送报了错，但远端的 ${tag} 已经指向 ${commit.slice(0, 9)}：按推上去了处理`);
         }
         this.#log(`✓ 推送了 master 与 ${tag}（${commit.slice(0, 9)}）`);
-        return this.#releaseOutcome(await this.#watch(await this.#waitForRun(["--event", "push", "--branch", tag], commit, "push", started)));
+        return this.#releaseOutcome(await this.#watch(await this.#waitForRun(pushFilter, commit, "push", known)));
     }
 
     async watchTag(version: string): Promise<boolean> {
         const tag = `v${version}`;
         const commit = await this.#must(["git", "rev-list", "-n", "1", `refs/tags/${tag}`]);
-        const run = triggeredRun(await this.#runs(["--event", "push", "--branch", tag]), commit, "push", new Date(0));
+        const run = triggeredRun(await this.#runs(["--event", "push", "--branch", tag]), commit, "push", new Set());
         if (run === null) throw new ReleaseCommandFailure(`没有 ${tag} 的 Release 流水线`);
         return this.#releaseOutcome(await this.#watch(run));
     }
