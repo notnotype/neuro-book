@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
+import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, reactive, shallowRef, watch} from "vue";
 import type {Component, ShallowRef} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -19,18 +19,18 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, roleReference} from "nbook/plugins/models/shared/contracts";
+import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, PROJECT_VIEW_CONTAINER, quickPickKey, VIEW_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, VIEW_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ViewHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
-import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
+import type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
@@ -43,8 +43,9 @@ import {Type} from "typebox";
 import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
-import {agentConversationKey, MAIN_PROFILE, SESSION_OWNERS_POINT, sessionOwnersPoint, stickerAllowlistUsageKey} from "../shared/contracts";
-import type {ProfileEntry, SessionOwnerOpener} from "../shared/contracts";
+import {MAIN_PROFILE, SESSION_OWNERS_POINT, sessionOwnersPoint, stickerAllowlistUsageKey} from "../shared/contracts";
+import type {ProfileEntry, SessionOwnerProvider} from "../shared/contracts";
+import type {SessionOwner} from "@notnotype/nb-harness/kernel/contracts";
 import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
 import {STATUS_ITEMS_POINT, statusItemsPoint} from "../shared/status-item-point";
@@ -69,14 +70,13 @@ import {createStickerPacksClient} from "./sticker-packs";
 import {profilesUsingSticker} from "./sticker-usage";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
-import type {RoleOption, SessionHost, SessionHostDeps, UploadedAttachment} from "./session-host";
+import type {RoleOption, SessionHost, SessionHostDeps, SessionOwners, UploadedAttachment} from "./session-host";
 import {createRecentSessions, createSessionList} from "./session-list";
 import {createRunResults, createSeenErrors} from "./subagents-panel";
 import {RequestsPage, useRequests} from "./requests-page";
 import {requestEntriesContribution} from "./request-entries";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
-export const SESSIONS_VIEW = "nbook.agent.sessions";
 export const CONVERSATION_PAGE = "nbook.agent.conversation";
 const ACTIVITY_ITEM = "nbook.agent.activity";
 export const OPEN_COMMAND = "nbook.agent.open";
@@ -90,8 +90,11 @@ export const OPEN_REQUESTS_COMMAND = "nbook.agent.open-requests";
 const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 const OPEN_VIEW_COMMAND = "nbook.view.open";
 
-const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-message-square", location: "auxiliarybar", order: 0, layout: "fill"};
-const SESSIONS_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "sidebar", order: 50, layout: "fill", container: PROJECT_VIEW_CONTAINER};
+/**
+ * “消息”视图（conversation.md 输出 1–3）：沿用对话视图的 id 与位置，已有的布局记录里它就在右栏，不用迁移；取代以前左侧栏的会话面板
+ * （`replaces`，workbench/views.md 输出 20）。
+ */
+const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "auxiliarybar", order: 0, layout: "fill", replaces: ["nbook.agent.sessions"]};
 const PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-message-square"};
 const REQUESTS_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-activity"};
 const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/active"]}};
@@ -171,11 +174,10 @@ export const agentBrowserPlugin: PluginDefinition = {
         location: "browser",
         activationEvents: ["onStartup"],
         receives: [STATUS_ITEMS_POINT, SESSION_OWNERS_POINT],
-        provides: [agentConversationKey, stickerAllowlistUsageKey],
+        provides: [stickerAllowlistUsageKey],
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}, {key: stickerPickerKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
-            {capability: WORKBENCH_VIEWS_POINT, id: SESSIONS_VIEW, declaration: SESSIONS_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: CONVERSATION_PAGE, declaration: PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: REQUESTS_PAGE, declaration: REQUESTS_PAGE_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: ACTIVITY_ITEM, declaration: ACTIVITY_DECLARATION},
@@ -254,6 +256,13 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 没过滤的快照：Profile 设置页要看已绑定但用不了的模型。 */
             const modelsSnapshot = shallowRef<ModelsSnapshot | null>(null);
             const modelsFailed = shallowRef(false);
+            /** 有没有可用的模型（点 bot 联系人之前看，bots/view.md）：模型服务读不到当成有，对话里的提示兜底；还没读到为 null。 */
+            const hasModel = computed(() => (modelsFailed.value ? true : modelsSnapshot.value === null ? null : modelsSnapshot.value.providers.length > 0));
+            const openModelSettings = (): void => {
+                void commands.execute(OPEN_SETTINGS_COMMAND, {section: PROVIDERS_SECTION, focus: "add", layer: "user"}).then((result) => {
+                    if (!result.ok) report("open-settings-failed", `opening the model providers failed: ${result.code}`);
+                });
+            };
             const takeModels = (snapshot: ModelsSnapshot): void => {
                 // 先换角色：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。
                 roles.value = roleOptions(snapshot);
@@ -316,29 +325,60 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
             /**
-             * 有归属的会话交给归属插件（conversation.md 的转交）：会话头的 `owner.plugin` 找到那个插件的贡献就交给它；读不到会话头、没有那个
-             * 插件的贡献或它揭示不成时照常在通用视图里打开。贡献按贡献 id 记，一个插件有几条时用最先登记的那条，撤掉一条不影响别的。
+             * 归属插件（conversation.md 输出 53）：每个插件至多一条贡献，第二条不接、记诊断。发布与撤回换整个列表：消息视图的 bot 一页、
+             * 视图计数、顶栏的身份都在计算里读它，晚激活或被停用的归属插件也跟着变。按插件 id 排。
              */
-            const openers = new Map<string, {readonly plugin: string; readonly opener: SessionOwnerOpener}>();
-            const ownersReceiver: ContributionReceiver<unknown, SessionOwnerOpener> = {
+            const providers = shallowRef<readonly {readonly plugin: string; readonly id: string; readonly provider: SessionOwnerProvider}[]>([]);
+            const ownersReceiver: ContributionReceiver<unknown, SessionOwnerProvider> = {
                 published: (handle) => {
-                    openers.set(handle.id, {plugin: handle.plugin, opener: handle.implementation()});
+                    if (providers.value.some((entry) => entry.plugin === handle.plugin)) {
+                        report("owner-duplicate", `${handle.plugin} 的第二条 ${SESSION_OWNERS_POINT} 贡献 ${handle.id} 不接：每个插件至多一条`);
+                        return;
+                    }
+                    providers.value = [...providers.value, {plugin: handle.plugin, id: handle.id, provider: handle.implementation()}].sort((a, b) => (a.plugin < b.plugin ? -1 : a.plugin > b.plugin ? 1 : 0));
                 },
                 revoke: (handle) => {
-                    openers.delete(handle.id);
+                    providers.value = providers.value.filter((entry) => entry.id !== handle.id);
                 },
             };
-            const sessionOwners: NonNullable<SessionHostDeps["owners"]> = {
+            const providerOf = (plugin: string): SessionOwnerProvider | null => providers.value.find((entry) => entry.plugin === plugin)?.provider ?? null;
+            /** 会话的归属表：插件级一份，几个宿主与 `focus-session` 共用。会话头里的归属建会话时定下、不会变，读到就记住。 */
+            const ownerTable = new Map<string, SessionOwner | null>();
+            const sessionOwners: SessionOwners = {
+                known: (id) => ownerTable.get(id),
                 ownerOf: async (id) => {
+                    const known = ownerTable.get(id);
+                    if (known !== undefined) return known;
                     const read = await remote.header({sessionId: id});
-                    return read.ok ? read.value.owner ?? null : null;
+                    if (!read.ok) return "unreadable";
+                    const owner = read.value.owner ?? null;
+                    ownerTable.set(id, owner);
+                    return owner;
                 },
-                open: async (id, owner) => {
-                    const found = [...openers.values()].find((entry) => entry.plugin === owner.plugin);
-                    return found === undefined ? false : found.opener.open(id, {plugin: owner.plugin, id: owner.id});
+                identity: (owner) => {
+                    const contact = providerOf(owner.plugin)?.contacts.value.find((candidate) => candidate.id === owner.id);
+                    return contact === undefined ? null : {name: contact.name, ...(contact.avatar === undefined ? {} : {avatar: contact.avatar})};
                 },
             };
-            /** 两个通用位置（右栏、编辑区页面）与固定会话共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
+            /** 会话树的根有没有归属（这个会话本身，或它的祖先链里的根）：`focus-session` 据此决定打开到消息视图。读不到时当成没有，照旧。 */
+            const ownedTree = async (id: string): Promise<boolean> => {
+                const owner = await sessionOwners.ownerOf(id);
+                if (owner !== null) return owner !== "unreadable";
+                const ancestors = await remote.ancestors({sessionId: id});
+                return ancestors.ok && ancestors.value.at(-1)?.owner !== undefined;
+            };
+            /** 第一个有未读、已经有主对话的联系人的会话：状态栏“N 条新消息”点进去打开它。 */
+            const unreadSession = (): string | null => {
+                for (const {provider} of providers.value) {
+                    const contact = provider.contacts.value.find((candidate) => (candidate.unread ?? 0) > 0 && candidate.sessionId !== null);
+                    if (contact !== undefined) return contact.sessionId;
+                }
+                return null;
+            };
+            /** 消息视图的版式与列表栏收起：插件作用域一份，视图换代时接着用（只在内存，重开窗口回到缺省）。 */
+            const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false});
+
+            /** 两个对话位置（右栏的消息视图、编辑区页面）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
             const hostDeps = (position: string): SessionHostDeps => ({
                     remote,
                     project,
@@ -436,7 +476,9 @@ export const agentBrowserPlugin: PluginDefinition = {
             const hostAt = (position: "view" | "page"): SessionHost => {
                 let host = hosts.get(position);
                 if (host !== undefined) return host;
-                host = createSessionHost({...hostDeps(position), owners: sessionOwners});
+                // 编辑区页面不开有归属的会话：交给消息视图（页面没有联系人列表，也不记“看到”）。
+                const owners: SessionOwners = position === "page" ? {...sessionOwners, elsewhere: (id) => void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id})} : sessionOwners;
+                host = createSessionHost({...hostDeps(position), owners});
                 hosts.set(position, host);
                 watchSeen(host);
                 return host;
@@ -494,12 +536,11 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             // 组件与渲染组件用到时才加载（nb-agent-ui 的 Vue 层不小）。
             const loadVue = async () => {
-                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: FixedConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}, {default: EvalDetail}, {evalContribution}] = await Promise.all([
+                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: MessagesHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}, {default: EvalDetail}, {evalContribution}] = await Promise.all([
                     import("@notnotype/nb-agent-ui/vue"),
                     import("@notnotype/nb-agent-ui"),
                     import("./ConversationHost.vue"),
-                    import("./FixedConversationHost.vue"),
-                    import("./SessionPanelHost.vue"),
+                    import("./MessagesHost.vue"),
                     import("./form-renderer.vue"),
                     import("./components/SubagentCard.vue"),
                     import("./components/BackgroundCommandCard.vue"),
@@ -507,7 +548,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     import("./components/EvalDetail.vue"),
                     import("./eval-renderer"),
                 ]);
-                return {builtinContributions, createAgentViewRegistry, ConversationHost, FixedConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution};
+                return {builtinContributions, createAgentViewRegistry, ConversationHost, MessagesHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution};
             };
             let vue: ReturnType<typeof loadVue> | null = null;
             const vueOnce = () => (vue ??= loadVue());
@@ -578,7 +619,7 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
                 const {createAgentViewRegistry, baseContributions, renderers, servicesFor} = await conversationParts();
-                const {ConversationHost} = await vueOnce();
+                const {ConversationHost, MessagesHost} = await vueOnce();
                 const labels = panelLabels();
                 const {services} = servicesFor(() => hostAt(position).profileKey());
                 return defineComponent({
@@ -597,45 +638,21 @@ export const agentBrowserPlugin: PluginDefinition = {
                         });
                         return () => {
                             const host = hostAt(position);
-                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry: registry.value, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, head, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}});
+                            const conversation = {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry: registry.value, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}};
+                            // 右栏是消息视图（列表、头像列加聊天区）；编辑区页面照旧只有对话，会话列表在头的下拉里。
+                            if (position === "page" || props.context === null) return h(ConversationHost, {...conversation, head});
+                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, memory: messagesMemory});
                         };
                     },
                 });
             };
 
             /**
-             * 固定会话的对话组件（conversation.md 的固定会话）：给别的插件经 `agentConversationKey` 用。每个挂载的实例有自己的宿主，只开属性
-             * 里的那个会话；`sessionId` 换了要调用方按它换 `key` 重挂。别的会话（子会话卡片、子代理浮层）交给通用视图打开。
+             * 消息视图：窄版接管面板头的标题区（头写会话，按标题开列表抽屉），宽版交还（conversation.md 输出 44）。计数是各归属插件联系人的未读
+             * 合计，写在面板头标题后与入口角标上（views.md 输出 17）；视图没打开时照样读。
              */
-            const fixedConversation = defineAsyncComponent(async () => {
-                const {createAgentViewRegistry, baseContributions, renderers, servicesFor} = await conversationParts();
-                const {FixedConversationHost} = await vueOnce();
-                return defineComponent({
-                    name: "AgentFixedConversation",
-                    inheritAttrs: false,
-                    props: {
-                        sessionId: {type: String, required: true},
-                        identity: {type: Object as () => {readonly name: string; readonly avatar?: string}, required: true},
-                        active: {type: Boolean, default: false},
-                    },
-                    emits: {seen: (seq: number) => typeof seq === "number"},
-                    setup(props, {emit}) {
-                        const host = createSessionHost({...hostDeps(`fixed:${props.sessionId}`), fixed: {sessionId: props.sessionId, openElsewhere: (id) => void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id})}});
-                        const stopSeen = watchSeen(host);
-                        const {services, stop} = servicesFor(() => host.profileKey());
-                        const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
-                        onBeforeUnmount(() => {
-                            stopSeen();
-                            stop();
-                            host.dispose();
-                        });
-                        return () => h(FixedConversationHost, {host, identity: props.identity, active: props.active, registry: registry.value, renderers, services: services.value, skillInit: initAt(`fixed:${props.sessionId}`), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}, onSeen: (seq: number) => emit("seen", seq)});
-                    },
-                });
-            });
-
-            /** 对话视图接管面板头的标题区：头写会话，按标题开会话列表（conversation.md 输出 44）。 */
-            const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true};
+            const unreadTotal = computed(() => providers.value.reduce((sum, {provider}) => sum + provider.contacts.value.reduce((inner, contact) => inner + (contact.unread ?? 0), 0), 0));
+            const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
             // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。
@@ -728,22 +745,6 @@ export const agentBrowserPlugin: PluginDefinition = {
                     });
                 },
             };
-            const sessionsView: ViewImplementation = {
-                load: async () => {
-                    ensureStarted();
-                    const {SessionPanelHost} = await vueOnce();
-                    const labels = panelLabels();
-                    return defineComponent({
-                        name: "AgentSessionsView",
-                        inheritAttrs: false,
-                        setup() {
-                            const host = hostAt("view");
-                            return () => h(SessionPanelHost, {store: list, host, pickProfile, labels, onOpened: () => void commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW})});
-                        },
-                    });
-                },
-            };
-
             /** 把活的对话位置带到前面：优先最近用过的，其次打开默认右栏。 */
             const reveal = async (): Promise<SessionHost> => {
                 ensureStarted();
@@ -775,11 +776,13 @@ export const agentBrowserPlugin: PluginDefinition = {
                     return done;
                 }},
                 [FOCUS_SESSION_COMMAND]: {run: async (args) => {
-                    const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value;
-                    // 有归属的会话交给归属插件，不揭示通用的对话视图、不写它的“最近的会话”（conversation.md 的转交）。
-                    if (sessionId !== null) {
-                        const owner = await sessionOwners.ownerOf(sessionId);
-                        if (owner !== null && await sessionOwners.open(sessionId, owner)) return done;
+                    const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value ?? unreadSession();
+                    // 会话树的根有归属（bot 的主对话本身或它的子会话）：打开到消息视图，不去编辑区页面（conversation.md 输出 53）。
+                    if (sessionId !== null && await ownedTree(sessionId)) {
+                        ensureStarted();
+                        await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
+                        await hostAt("view").open(sessionId);
+                        return done;
                     }
                     const host = await reveal();
                     if (sessionId !== null) await host.open(sessionId);
@@ -787,18 +790,24 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }},
             };
 
+            /**
+             * 状态栏的 Agent 活动条目：在跑、等你处理，没有这两样时写 bot 的新消息（t15 决定 7：右栏收起时角标看不到，这里补上），点了打开那个
+             * bot。等你处理优先。
+             */
             const item: ItemImplementation = {
                 text: () => {
                     const running = activity.running.value;
                     const waiting = activity.waiting.value;
                     if (running > 0 && waiting > 0) return agentText("conversation.activity.both", {running, waiting});
-                    return waiting > 0 ? agentText("conversation.activity.waiting", {waiting}) : agentText("conversation.activity.running", {running});
+                    if (waiting > 0) return agentText("conversation.activity.waiting", {waiting});
+                    if (running === 0 && unreadTotal.value > 0) return agentText("conversation.activity.unread", {count: unreadTotal.value});
+                    return agentText("conversation.activity.running", {running});
                 },
                 state: () => (activity.waiting.value > 0 ? "warning" : "normal"),
             };
-            const published = bindingsOf(agentState, {active: activity.active});
+            const published = bindingsOf(agentState, {active: computed(() => activity.active.value || unreadTotal.value > 0)});
             return {
-                services: [provideService(agentConversationKey, {FixedConversation: markRaw(fixedConversation)}), provideService(stickerAllowlistUsageKey, {
+                services: [provideService(stickerAllowlistUsageKey, {
                     profilesUsing: async (packId) => {
                         const listed = await remote.profiles({});
                         return listed.ok ? profilesUsingSticker(listed.value, settings.get(agentSettings.settings.profileSettings), packId) : null;
@@ -806,7 +815,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 })],
                 receivers: {[STATUS_ITEMS_POINT]: statusItems.receiver(), [SESSION_OWNERS_POINT]: ownersReceiver},
                 contributions: {
-                    [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view, [SESSIONS_VIEW]: sessionsView},
+                    [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view},
                     [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page, [REQUESTS_PAGE]: requestsPage},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,

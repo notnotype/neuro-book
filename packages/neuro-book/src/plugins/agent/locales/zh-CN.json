@@ -286,7 +286,8 @@
             "title": "Agent 活动",
             "both": "Agent：{{running}} 运行中 · {{waiting}} 等你处理",
             "waiting": "Agent：{{waiting}} 等你处理",
-            "running": "Agent：{{running}} 运行中"
+            "running": "Agent：{{running}} 运行中",
+            "unread": "{{count}} 条新消息"
         },
         "listFailed": "无法获取会话列表（{{code}}）。",
         "welcomeTitle": "NeuroBook 创作工作区",
@@ -438,14 +439,24 @@
         "continue": {
             "stopped": "这次运行已经结束，合并的话没有发出，可以再点继续。",
             "failed": "没能继续（{{code}}）。"
+        },
+        "messages": {
+            "noModel": {
+                "title": "先添加一个模型服务商",
+                "body": "bot 要用模型才能回话。添加服务商之后回到这里就能聊。",
+                "action": "去添加"
+            },
+            "opening": "正在打开对话…",
+            "openFailed": "打不开和 {{name}} 的对话（{{code}}）。",
+            "retry": "重试",
+            "pickBot": "选一个 bot 开始聊天",
+            "contactsFailed": "读不到 {{name}} 的联系人（{{code}}）。",
+            "untitled": "未命名会话"
         }
     },
     "views": {
         "conversation": {
-            "title": "对话"
-        },
-        "sessions": {
-            "title": "会话"
+            "title": "消息"
         }
     },
     "editorPages": {

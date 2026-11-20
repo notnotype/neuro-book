@@ -50,7 +50,6 @@ export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     // 作者模板的目录：模板的清单是 `_package.json`（create 时改名），不在上面按 package.json 找到的范围里。
     {path: "packages/neuro-book/plugin-sdk/template/locales", source: "zh-CN"},
     // 内置插件的目录（命名空间是插件 id），由 packages/neuro-book/src/web/plugins.ts 的 builtinPluginCatalogs 登记进窗口。
-    {path: "packages/neuro-book/src/plugins/bots/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/canon/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/plot/locales", source: "zh-CN"},
     // 命令表的失败原因：服务端翻不了文字引用，命令插件从目录取成语言映射（src/plugins/commands/shared/text.ts），不登记进窗口。

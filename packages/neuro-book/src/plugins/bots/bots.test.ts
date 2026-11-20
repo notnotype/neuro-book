@@ -459,7 +459,7 @@ describe("bot 视图的数据（bots/view.md 输出 1、4，失败与恢复）",
 
     const storeOf = (client: BotsClient, reported: string[] = []) => {
         const controller = new AbortController();
-        const store = createBotsStore({bots: client, models: null, openProviders: () => undefined, report: (code) => void reported.push(code), signal: controller.signal});
+        const store = createBotsStore({bots: client, report: (code) => void reported.push(code), signal: controller.signal});
         return {store, stop: () => controller.abort()};
     };
 

@@ -32,7 +32,6 @@ import {tasksCatalogs} from "nbook/plugins/tasks/web/text";
 import {agentBrowserPlugin} from "nbook/plugins/agent/web/plugin";
 import {stickersBrowserPlugin} from "nbook/plugins/stickers/web/plugin";
 import {botsBrowserPlugin} from "nbook/plugins/bots/web/plugin";
-import {botsCatalogs} from "nbook/plugins/bots/web/text";
 import {stickersCatalogs} from "nbook/plugins/stickers/web/text";
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
@@ -113,7 +112,6 @@ export interface BuiltinCatalogs {
  */
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.agent": agentCatalogs,
-    "nbook.bots": botsCatalogs,
     "nbook.canon": canonCatalogs,
     "nbook.plot": plotCatalogs,
     "nbook.desktop": desktopCatalogs,

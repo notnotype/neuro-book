@@ -10,6 +10,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
+import type {SessionOwner} from "@notnotype/nb-harness/kernel/contracts";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {computed, shallowRef} from "vue";
@@ -33,7 +34,7 @@ import {createAgentActivity} from "./web/activity";
 import {createSessionList} from "./web/session-list";
 import {agentCatalogs} from "./web/text";
 import {createSessionHost, displayToolName, pendingWithin, RELEASE_DELAY_MS} from "./web/session-host";
-import type {SessionHost, SessionHostDeps} from "./web/session-host";
+import type {SessionHost, SessionHostDeps, SessionOwners} from "./web/session-host";
 import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./web/request-entries";
 
 let root = "";
@@ -2322,33 +2323,89 @@ describe("Skill（skills.md 输出 26–28）", () => {
     });
 });
 
-describe("固定会话与转交（conversation.md 的固定会话、转交）", () => {
-    test("固定会话：只开给定的会话、不读写最近的会话；不新建；别的会话交给通用视图；不能改写历史，命令只有白名单", async () => {
+describe("有归属的会话（conversation.md 输出 53：档位按归属）", () => {
+    /** 像插件那样的归属表：读会话头、记住；`identities` 是归属插件给的身份，`failing` 里的会话读不到会话头。 */
+    async function ownersFor(w: AgentWorld, identities: Readonly<Record<string, {name: string; avatar?: string}>> = {}, failing: ReadonlySet<string> = new Set()): Promise<SessionOwners> {
+        windows += 1;
+        const {client} = await w.window(`owners-${String(windows)}`);
+        const table = new Map<string, SessionOwner | null>();
+        return {
+            known: (id) => table.get(id),
+            ownerOf: async (id) => {
+                if (failing.has(id)) return "unreadable";
+                const known = table.get(id);
+                if (known !== undefined) return known;
+                const read = await client.header({sessionId: id});
+                if (!read.ok) return "unreadable";
+                const owner = read.value.owner ?? null;
+                table.set(id, owner);
+                return owner;
+            },
+            identity: (owner) => identities[owner.id] ?? null,
+        };
+    }
+    async function ownedSession(w: AgentWorld, id = "lyra"): Promise<string> {
+        const created = await w.service.create({profile: PROFILE, owner: {id}});
+        if (!created.ok) throw new Error(created.code);
+        return created.value.id;
+    }
+
+    test("同一个宿主在 bot 主对话与普通会话之间切换：档位、命令白名单、新建跟着变；顶栏写归属插件给的身份；有归属的也写最近的会话，恢复照常打开", async () => {
         const w = await world();
-        const fixedId = (await started(w)).host.sessionId.value!;
-        const otherId = (await started(w)).host.sessionId.value!;
-        const elsewhere: string[] = [];
-        const h = await harness(w, {fixed: {sessionId: fixedId, openElsewhere: (id) => void elsewhere.push(id)}});
-        h.recent.value = otherId;
-        await h.host.restore();
-        await until("打开固定的会话", () => h.ctx().session?.id === fixedId);
-        expect(h.recent.value).toBe(otherId);
-        expect(h.ctx().interaction).toMatchObject({canMutateHistory: false, canOpenTree: false, canArchive: false, commands: ["compact", "plan", "mode"]});
-        expect(await h.host.create(PROFILE)).toBeNull();
-        h.host.act({type: "session.select", sessionId: otherId});
-        h.host.act({type: "command.run", name: "new", argsText: ""});
-        await until("交给通用视图", () => elsewhere.length === 1);
-        expect(elsewhere).toEqual([otherId]);
-        expect(h.host.sessionId.value).toBe(fixedId);
-        expect(h.host.shownSeq.value).toBeGreaterThan(0);
+        const ownedId = await ownedSession(w);
+        const plainId = (await started(w)).host.sessionId.value!;
+        const owners = await ownersFor(w, {lyra: {name: "星璃", avatar: "/api/nbook.bots/avatar/lyra"}});
+        const h = await harness(w, {owners});
+        await h.host.open(ownedId);
+        await until("bot 档", () => h.ctx().availability.status === "ready" && h.ctx().interaction.placement === "dock");
+        expect(h.ctx().interaction).toMatchObject({canMutateHistory: false, canOpenTree: false, canArchive: false, canCreate: false, commands: ["compact", "plan", "mode"]});
+        expect(h.ctx().session).toMatchObject({title: "星璃", avatar: "/api/nbook.bots/avatar/lyra"});
+        expect(h.host.owner.value).toMatchObject({id: "lyra"});
+        expect(h.recent.value).toBe(ownedId);
+
+        await h.host.open(plainId);
+        await until("会话档", () => h.ctx().session?.id === plainId && h.ctx().availability.status === "ready");
+        expect(h.ctx().interaction).toMatchObject({placement: "wizard", canCreate: true, canArchive: true});
+        expect(h.host.owner.value).toBeNull();
+
+        const fresh = await harness(w, {owners});
+        fresh.recent.value = ownedId;
+        await fresh.host.restore();
+        await until("恢复成 bot 档", () => fresh.ctx().session?.id === ownedId && fresh.ctx().interaction.placement === "dock");
     });
 
-    test("固定会话：等审批时输入框上方写会拒绝几项；这时发话一并以拒绝结算，运行接着处理这句话", async () => {
+    test("读不到会话头：记打开失败（可重试）、档位不放宽；恢复时不清最近的会话", async () => {
         const w = await world();
-        const fixedId = (await started(w)).host.sessionId.value!;
-        const h = await harness(w, {fixed: {sessionId: fixedId, openElsewhere: () => undefined}});
+        const ownedId = await ownedSession(w);
+        const owners = await ownersFor(w, {}, new Set([ownedId]));
+        const h = await harness(w, {owners});
+        h.recent.value = ownedId;
         await h.host.restore();
-        await until("打开", () => h.ctx().session?.id === fixedId && h.ctx().availability.status === "ready");
+        await until("打开失败", () => h.ctx().availability.status === "load-error");
+        expect(h.ctx().interaction).toMatchObject({placement: "dock", canCreate: false, canMutateHistory: false});
+        expect(h.recent.value).toBe(ownedId);
+    });
+
+    test("编辑区页面的宿主：有归属的会话交给消息视图，不在这里开；没有归属的照常开", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        const plainId = (await started(w)).host.sessionId.value!;
+        const elsewhere: string[] = [];
+        const owners = await ownersFor(w);
+        const h = await harness(w, {owners: {...owners, elsewhere: (id) => void elsewhere.push(id)}});
+        await h.host.open(ownedId);
+        expect(elsewhere).toEqual([ownedId]);
+        expect(h.host.sessionId.value).toBeNull();
+        await h.host.open(plainId);
+        expect(h.host.sessionId.value).toBe(plainId);
+    });
+
+    test("等审批时输入框上方写会拒绝几项；这时发话一并以拒绝结算，运行接着处理这句话", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        const h = await harness(w, {owners: await ownersFor(w)});
+        await h.host.open(ownedId);
+        await until("打开", () => h.ctx().session?.id === ownedId && h.ctx().availability.status === "ready" && h.ctx().interaction.placement === "dock");
         endpoint.script({tool: "write", args: {path: "session://一.md", content: "内容"}}, "好的，不写了", "收到");
         h.host.act({type: "composer.submit", text: "写个文件", delivery: "prompt"});
         await until("等审批", () => approvals(h.ctx()).length === 1);
@@ -2356,16 +2413,16 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         h.host.act({type: "composer.submit", text: "算了，别写了", delivery: "prompt"});
         await until("审批结算", () => h.ctx().pendingInputs.length === 0);
         await idle(h);
-        const page = await h.client.log({sessionId: fixedId, afterSeq: 0});
+        const page = await h.client.log({sessionId: ownedId, afterSeq: 0});
         if (!page.ok) throw new Error(page.code);
         const resolved = page.value.items.flatMap((item) => (item.kind === "event" && item.event.type === "interactionResolved" ? [item.event.data] : []));
         expect(resolved).toEqual([expect.objectContaining({decision: "deny", note: "用户发了新消息"})]);
         expect(h.ctx().composer.notice).toBeUndefined();
     });
 
-    test("固定会话：运行中插话（steer）带投递方式与 settlePending，结果未知后的重发带同样的两项；/rename、/fork 不受理", async () => {
+    test("运行中插话（steer）带投递方式与 settlePending，结果未知后的重发带同样的两项；/rename、/fork 不受理", async () => {
         const w = await world();
-        const fixedId = (await started(w)).host.sessionId.value!;
+        const ownedId = await ownedSession(w);
         const base = await harness(w);
         const sends: {commandId: string; mode?: unknown; settlePending?: unknown}[] = [];
         const rewrites: string[] = [];
@@ -2385,9 +2442,9 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
                 return target.send(input as never);
             };
         }}) as SessionsClient;
-        const h = await harness(w, {remote: flaky, fixed: {sessionId: fixedId, openElsewhere: () => undefined}});
-        await h.host.restore();
-        await until("打开", () => h.ctx().session?.id === fixedId && h.ctx().availability.status === "ready");
+        const h = await harness(w, {remote: flaky, owners: await ownersFor(w)});
+        await h.host.open(ownedId);
+        await until("打开", () => h.ctx().session?.id === ownedId && h.ctx().availability.status === "ready" && h.ctx().interaction.placement === "dock");
         h.host.act({type: "command.run", name: "rename", argsText: "改名"});
         h.host.act({type: "command.run", name: "fork", argsText: ""});
         endpoint.script({tool: "write", args: {path: "session://二.md", content: "内容"}}, "好的，不写了");
@@ -2404,78 +2461,23 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         expect(rewrites).toEqual([]);
     });
 
-    test("转交：有归属、归属插件接手了就不在通用视图里开、不写最近的会话；没有归属照常开；读会话头期间又开了别的，晚到的转交作废；最近的会话有归属时不恢复", async () => {
+    test("恢复在读“最近的会话”时用户点开了别的：让给用户点的，恢复不把它盖掉", async () => {
         const w = await world();
-        const owned = await w.service.create({profile: PROFILE, owner: {id: "lyra"}});
-        if (!owned.ok) throw new Error(owned.code);
-        const plainId = (await started(w)).host.sessionId.value!;
-        const handed: string[] = [];
-        let hold: Promise<void> | null = null;
-        let headers = 0;
-        const {client} = await w.window("owners");
-        const owners: NonNullable<SessionHostDeps["owners"]> = {
-            ownerOf: async (id) => {
-                headers += 1;
-                await hold;
-                const read = await client.header({sessionId: id});
-                return read.ok ? read.value.owner ?? null : null;
-            },
-            open: async (id, owner) => {
-                handed.push(`${id}:${owner.plugin}/${owner.id}`);
-                return accept;
-            },
-        };
-        let accept = true;
-        const h = await harness(w, {owners});
-        await h.host.open(owned.value.id);
-        expect(handed).toEqual([`${owned.value.id}:test.agent-probe/lyra`]);
-        expect(h.host.sessionId.value).toBeNull();
-        expect(h.recent.value).toBeNull();
-
-        await h.host.open(plainId);
-        expect(h.host.sessionId.value).toBe(plainId);
-
+        const recentId = (await started(w)).host.sessionId.value!;
+        const otherId = (await started(w)).host.sessionId.value!;
         let release!: () => void;
-        hold = new Promise<void>((resolve) => {
+        const gate = new Promise<void>((resolve) => {
             release = resolve;
         });
-        const late = h.host.open(owned.value.id);
-        hold = null;
-        await h.host.open(plainId);
+        const h = await harness(w, {recent: {read: async () => {
+            await gate;
+            return recentId;
+        }, write: () => undefined}});
+        const restoring = h.host.restore();
+        const clicked = h.host.open(otherId);
         release();
-        await late;
-        expect(handed).toHaveLength(1);
-        expect(h.host.sessionId.value).toBe(plainId);
-
-        const fresh = await harness(w, {owners});
-        fresh.recent.value = owned.value.id;
-        await fresh.host.restore();
-        expect(fresh.host.sessionId.value).toBeNull();
-        expect(fresh.recent.value).toBeNull();
-        expect(handed).toHaveLength(1);
-
-        // 恢复在读会话头时用户点开了别的：让给用户点的，恢复不把它盖掉（恢复的会话头先回来也一样）。
-        const otherId = (await started(w)).host.sessionId.value!;
-        const racing = await harness(w, {owners});
-        racing.recent.value = plainId;
-        let releaseBoth!: () => void;
-        hold = new Promise<void>((resolve) => {
-            releaseBoth = resolve;
-        });
-        const asked = headers;
-        const restoring = racing.host.restore();
-        await until("恢复在读会话头", () => headers === asked + 1);
-        const clicked = racing.host.open(otherId);
-        releaseBoth();
         await Promise.all([restoring, clicked]);
-        hold = null;
-        expect(racing.host.sessionId.value).toBe(otherId);
-
-        // 归属插件揭示不成：照常在通用视图里开，用户点了不会没反应。
-        accept = false;
-        await h.host.open(owned.value.id);
-        expect(handed).toHaveLength(2);
-        expect(h.host.sessionId.value).toBe(owned.value.id);
+        expect(h.host.sessionId.value).toBe(otherId);
     });
 
     test("模式选择器看 Profile 的工具里有没有切换模式：有就显示，没有就不显示", async () => {

@@ -1,34 +1,23 @@
 /**
- * `nbook.bots` 的浏览器入口（docs/specs/bots/view.md）：左侧栏的 bot 视图（未读数写在面板头的标题后），以及把有归属的主对话从通用的对话视图
- * 转到这里（`agent.sessionOwners`，agent/conversation.md 输出 53）。聊天本身是 `nbook.agent` 交出的固定会话组件。
+ * `nbook.bots` 的浏览器入口（docs/specs/bots/view.md）：给 `nbook.agent` 的消息视图当归属插件（`agent.sessionOwners`，agent/conversation.md
+ * 输出 53）。bot 一页的联系人、打开主对话、记“看到”都经这里；聊天本身是消息视图里的同一个聊天区，档位按会话的归属定。
  *
  * 浏览器入口不接收预设：预设只在服务端核对与使用。缺省预设是描述的顶层贡献，每个运行位置都登记，所以这里同样声明贡献点。
  */
 
-import {markRaw} from "vue";
-import type {Component} from "vue";
+import {computed} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {agentConversationKey, SESSION_OWNERS_POINT} from "nbook/plugins/agent/shared/contracts";
-import type {SessionOwnerOpener} from "nbook/plugins/agent/shared/contracts";
-import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
-import {modelsSettingsContract, PROVIDERS_SECTION} from "nbook/plugins/models/shared/contracts";
-import {OPEN_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
-import {OPEN_VIEW_COMMAND, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
-import type {ViewImplementation} from "nbook/plugins/workbench/web/contracts";
-import {boundComponent} from "nbook/ui/bound-component";
+import {SESSION_OWNERS_POINT} from "nbook/plugins/agent/shared/contracts";
+import type {OwnerContactsState, SessionOwnerProvider} from "nbook/plugins/agent/shared/contracts";
 
 import {descriptor} from "../plugin";
-import {botsContract, presetsPoint} from "../shared/contracts";
+import {avatarUrl, botsContract, mainSessionId, presetsPoint} from "../shared/contracts";
 import {createBotsStore} from "./store";
 
-/** bot 视图：左侧栏，自己的活动栏图标（不写容器）；标题取约定键 `views.chat.title`。 */
-export const BOT_VIEW = "nbook.bots.chat";
-const BOT_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-message-circle-heart", location: "sidebar", order: 60, layout: "fill"};
 const OWNER_CONTRIBUTION = "nbook.bots.main";
 
 export const botsBrowserPlugin: PluginDefinition = {
@@ -38,42 +27,33 @@ export const botsBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: agentConversationKey}],
+        dependencies: [{key: diagnosticsKey}],
         contributions: [
-            {capability: WORKBENCH_VIEWS_POINT, id: BOT_VIEW, declaration: BOT_VIEW_DECLARATION},
             {capability: SESSION_OWNERS_POINT, id: OWNER_CONTRIBUTION, declaration: {}},
         ],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
-            const commands = context.services.require(commandServiceKey);
             const report = (code: string, message: string): void => {
                 diagnostics.record({level: "warn", event: `bots.${code}`, message, source: {plugin: descriptor.id}});
             };
-            const reveal = async (): Promise<boolean> => {
-                const opened = await commands.execute(OPEN_VIEW_COMMAND, {viewId: BOT_VIEW});
-                if (!opened.ok) report("reveal-failed", opened.code);
-                return opened.ok;
+            // 入口启动即订阅：消息视图没打开时，入口角标与状态栏的未读照样更新。
+            const store = createBotsStore({bots: context.remote.use(botsContract), report, signal: context.signal});
+            const provider: SessionOwnerProvider = {
+                contacts: computed(() => store.items.value.map((item) => ({
+                    id: item.id,
+                    name: item.name,
+                    avatar: avatarUrl(item.id),
+                    unread: item.unread,
+                    last: item.last,
+                    // 主对话的 id 是定的；还没建（`none`）时没有会话可开、没有活动可对。
+                    sessionId: item.main.state === "none" ? null : mainSessionId(item.id),
+                }))),
+                state: computed((): OwnerContactsState => store.listState.value),
+                reload: () => store.reload(),
+                open: (id) => store.ensureMain(id),
+                seen: (id, seq) => store.markSeen(id, seq),
             };
-            const store = createBotsStore({
-                bots: context.remote.use(botsContract),
-                models: context.remote.use(modelsSettingsContract),
-                openProviders: () => void commands.execute(OPEN_SETTINGS_COMMAND, {section: PROVIDERS_SECTION, focus: "add", layer: "user"}),
-                report,
-                signal: context.signal,
-            });
-            const conversation = markRaw(context.services.require(agentConversationKey).FixedConversation as Component);
-            const view: ViewImplementation = {
-                ...boundComponent("BotChatView", () => import("./BotChatView.vue"), () => ({store, conversation})),
-                // 缺省 bot 的未读数（bots/view.md 输出 1）：0 与还没数完都不显示。
-                badge: () => store.items.value[0]?.unread ?? null,
-            };
-            // 第一版只有一个 bot：不论哪个 bot 的主对话，都揭示这个视图。
-            // 揭示不成时交回 false，`nbook.agent` 照常在通用视图里打开（agent/conversation.md 输出 53）。
-            const opener: SessionOwnerOpener = {open: () => reveal()};
-            return {contributions: {
-                [WORKBENCH_VIEWS_POINT]: {[BOT_VIEW]: view},
-                [SESSION_OWNERS_POINT]: {[OWNER_CONTRIBUTION]: opener},
-            }};
+            return {contributions: {[SESSION_OWNERS_POINT]: {[OWNER_CONTRIBUTION]: provider}}};
         },
     })],
 };
