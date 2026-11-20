@@ -65,6 +65,14 @@ const BUILTIN = new Set(BUILTIN_ROLES.map((role) => role.id));
  */
 const relay = (step: Failure): never => step as never;
 
+/** `setRole` 的补丁：省略不改，`null` 清除（`model` 清成未绑定，`effort`、`icon` 去掉键）。 */
+function patchRole(role: RoleConfig, patch: {readonly model?: string | null; readonly effort?: RoleConfig["effort"] | null; readonly icon?: string | null}): RoleConfig {
+    const {effort, icon, ...rest} = role;
+    const nextEffort = patch.effort === undefined ? effort : patch.effort ?? undefined;
+    const nextIcon = patch.icon === undefined ? icon : patch.icon ?? undefined;
+    return {...rest, model: patch.model === undefined ? role.model : patch.model, ...(nextEffort === undefined ? {} : {effort: nextEffort}), ...(nextIcon === undefined ? {} : {icon: nextIcon})};
+}
+
 export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const {config, credentials, env} = deps;
     const providers = (): readonly ProviderConfig[] => config.providers.read();
@@ -148,7 +156,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         if (role === undefined || role.model === null) return {ok: false, code: "role-unbound", role: id};
         // 失败带上角色：界面说的是“这个角色的模型用不了”，去改的是这个角色（docs/specs/models/service.md）。
         const resolved = resolveReference(role.model);
-        return resolved.ok ? resolved : {...resolved, role: id};
+        // 角色的默认档是这一次解析的属性，不进按引用缓存的 `info`：同一个模型绑给两个角色，各用各的。
+        if (resolved.ok) return role.effort === undefined ? resolved : {...resolved, defaultEffort: role.effort};
+        return {...resolved, role: id};
     };
     /** 会话里选的：模型引用或 `role:<id>`。选过的角色后来被删了是选择失效（`unknown-model`），和没绑定不同：去改的地方不一样。 */
     const resolveSelection = (selection: string): ModelResolution => {
@@ -178,11 +188,20 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             vision: model.vision ?? fromCatalog?.images ?? false,
             reasoning: model.reasoning ?? fromCatalog?.reasoning ?? false,
             efforts: [...(model.efforts ?? fromCatalog?.efforts ?? [])],
+            thinking: reasoningOfModel(provider, model),
             compaction: model.compaction ?? (model.compactAt === undefined ? null : {mode: "tokens", value: model.compactAt}),
             price,
             headers: {...model.headers},
             status,
         };
+    };
+
+    /** 这个模型的推理能力：按真实的 OMP 模型算；建不出模型（目录漂移、自定义缺窗口）时按配置的能力字段退一步。 */
+    const reasoningOfModel = (provider: ProviderConfig, model: ModelConfig): SnapshotModel["thinking"] => {
+        const built = buildResolution(targetOf(provider), modelTargetOf(model), access, transport);
+        const reasoning = built.ok ? built.resolution.info.reasoning : undefined;
+        if (reasoning !== undefined) return reasoning.kind === "levels" ? {...reasoning, levels: [...reasoning.levels]} : reasoning;
+        return {kind: (model.reasoning ?? catalogModel(provider.id, model.id)?.reasoning ?? false) ? "fixed" : "none"};
     };
 
     let missingReported = new Set<string>();
@@ -209,7 +228,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         missingReported = missing;
         snapshotCache = {
             providers: list,
-            roles: roles().map((role) => ({id: role.id, axis: role.axis, builtin: BUILTIN.has(role.id), name: role.name, description: role.description, model: role.model, status: roleStatus(role)})),
+            roles: roles().map((role) => ({id: role.id, axis: role.axis, builtin: BUILTIN.has(role.id), name: role.name, description: role.description, model: role.model, effort: role.effort ?? null, icon: role.icon ?? null, status: roleStatus(role)})),
         };
         return snapshotCache;
     }
@@ -437,8 +456,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                     if (role === undefined) return failure("unknown-role", `no role ${input.id}`);
                     const compaction = value.items.find((item) => item.id === MODEL_ROLE_IDS.compaction);
                     // 第一次绑快速档而压缩还没绑：压缩跟着它（输出 14）。
-                    const seedCompaction = input.id === MODEL_ROLE_IDS.fast && role.model === null && compaction !== undefined && compaction.model === null && input.model !== null;
-                    const items = value.items.map((item) => (item.id === input.id ? {...item, model: input.model} : seedCompaction && item.id === MODEL_ROLE_IDS.compaction ? {...item, model: input.model} : item));
+                    const seedCompaction = input.id === MODEL_ROLE_IDS.fast && role.model === null && compaction !== undefined && compaction.model === null && input.model !== undefined && input.model !== null;
+                    const items = value.items.map((item) => (item.id === input.id ? patchRole(item, input) : seedCompaction && item.id === MODEL_ROLE_IDS.compaction ? {...item, model: input.model!} : item));
                     return {ok: true, value: {next: {items}, result: null}};
                 });
                 return step.ok ? ctx.ok(null) : relay(step);

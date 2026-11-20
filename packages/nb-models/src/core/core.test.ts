@@ -184,6 +184,57 @@ describe("模型端口按选择顺序解析（输出 8）", () => {
         expect(await call("setRole", {id: "fast", model: "one/qwen3:8b"})).toEqual({ok: true, value: null});
         expect(store.roles.read().items.find((role) => role.id === "compaction")?.model).toBe("one/qwen3:8b");
     });
+
+    it("只改档或图标不动绑定：省略的字段不改，null 清除；第一次绑定才让压缩跟着", async () => {
+        const store = memoryModelsConfig({providers: [custom("one")], roles: bound({main: "one/qwen3:8b"})});
+        const {call} = await start(store);
+        const role = (id: string) => store.roles.read().items.find((item) => item.id === id)!;
+        expect(await call("setRole", {id: "main", effort: "high"})).toEqual({ok: true, value: null});
+        expect(role("main")).toMatchObject({model: "one/qwen3:8b", effort: "high"});
+        expect(await call("setRole", {id: "main", icon: "bolt"})).toEqual({ok: true, value: null});
+        expect(role("main")).toMatchObject({model: "one/qwen3:8b", effort: "high", icon: "bolt"});
+        // 只改档不会带出模型：未绑定的快速档设档，压缩仍然不跟着。
+        expect(await call("setRole", {id: "fast", effort: "off"})).toEqual({ok: true, value: null});
+        expect(role("fast")).toMatchObject({model: null, effort: "off"});
+        expect(role("compaction").model).toBeNull();
+        expect(await call("setRole", {id: "main", effort: null, icon: null})).toEqual({ok: true, value: null});
+        expect("effort" in role("main")).toBe(false);
+        expect("icon" in role("main")).toBe(false);
+        expect(role("main").model).toBe("one/qwen3:8b");
+        expect(await call("setRole", {id: "main", model: null})).toEqual({ok: true, value: null});
+        expect(role("main").model).toBeNull();
+    });
+
+    it("角色的默认档是这次解析的属性：同一个模型绑给两个角色，各用各的；会话选的档在内核里优先", async () => {
+        const store = memoryModelsConfig({providers: [custom("one")], roles: bound({main: "one/qwen3:8b", fast: "one/qwen3:8b"})});
+        const {core, call} = await start(store);
+        await call("setKey", {provider: "one", value: KEY});
+        await call("setRole", {id: "main", effort: "high"});
+        const port = core.service.port();
+        expect(port.resolve(query())).toMatchObject({ok: true, defaultEffort: "high"});
+        expect(port.resolve(query({purpose: "approval"})).ok).toBe(true);
+        expect("defaultEffort" in port.resolve(query({purpose: "approval"}))).toBe(false);
+        // 直接选模型（不经角色）没有角色默认档。
+        expect("defaultEffort" in port.resolve(query({settings: {...CORE, model: "one/qwen3:8b"}}))).toBe(false);
+    });
+
+    it("快照带角色的档与图标，以及每个模型的推理能力（绑定的模型没启用时角色页也能取到）", async () => {
+        const store = memoryModelsConfig({providers: [custom("one", {models: [{id: "qwen3:8b", enabled: false, contextWindow: 32_000, reasoning: true}, {id: "plain", enabled: true, contextWindow: 32_000}]})], roles: bound({main: "one/qwen3:8b"})});
+        const {core, call} = await start(store);
+        await call("setRole", {id: "main", effort: "low", icon: "bolt"});
+        const snapshot = core.service.snapshot();
+        expect(snapshot.roles.find((item) => item.id === "main")).toMatchObject({effort: "low", icon: "bolt"});
+        expect(snapshot.roles.find((item) => item.id === "fast")).toMatchObject({effort: null, icon: null});
+        // 自定义模型声明了会推理：档位按 OMP 对这个 id 与协议的判断（Qwen 系可以关）；没声明的不推理。
+        expect(snapshot.providers[0]!.models[0]!.thinking).toMatchObject({kind: "levels", off: "disable"});
+        expect(snapshot.providers[0]!.models[1]!.thinking).toEqual({kind: "none"});
+    });
+
+    it("不合法的档与图标键被拒收", async () => {
+        const store = memoryModelsConfig({providers: [custom("one")], roles: bound({main: "one/qwen3:8b"})});
+        const {call} = await start(store);
+        expect(await call("setRole", {id: "main", effort: "ultra" as never})).toMatchObject({ok: false});
+    });
 });
 
 describe("检测（输出 11）", () => {

@@ -7,7 +7,7 @@
 import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 
-import {ModelConfigSchema} from "../config/shapes";
+import {ModelConfigSchema, RoleEffort} from "../config/shapes";
 import {Api, Auth, CatalogModelSchema, CatalogProviderSchema, CheckResultSchema, DiscoveredSchema, Headers, KeyStatusSchema, ModelsSnapshotSchema, Nullable} from "./shapes";
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
@@ -57,7 +57,8 @@ const methods = {
     removeModel: {input: Type.Object({provider: Type.String(), id: Type.String()}, {additionalProperties: false}), output: None, effect: "write", errors: providerWriteErrors},
     /** “管理模型”的“完成”：一次写加入与移出的全部。 */
     setModels: {input: Type.Object({provider: Type.String(), add: Type.Array(ModelConfigSchema), remove: Type.Array(Type.String())}, {additionalProperties: false}), output: None, effect: "write", errors: {...providerWriteErrors, "model-incomplete": Detail}},
-    setRole: {input: Type.Object({id: Type.String(), model: Nullable(Type.String())}, {additionalProperties: false}), output: None, effect: "write", errors: {...writeErrors, "unknown-role": Detail}},
+    /** 按字段打补丁：省略的不改，`null` 清除（`model: null` 是解除绑定，`effort: null` 是跟随模型，`icon: null` 是默认图标）。 */
+    setRole: {input: Type.Object({id: Type.String(), model: Type.Optional(Nullable(Type.String())), effort: Type.Optional(Nullable(RoleEffort)), icon: Type.Optional(Nullable(Type.String({pattern: "^[a-z0-9][a-z0-9-]*$", maxLength: 40})))}, {additionalProperties: false}), output: None, effect: "write", errors: {...writeErrors, "unknown-role": Detail}},
     addRole: {input: Type.Object({name: Type.String({minLength: 1}), description: Type.String()}, {additionalProperties: false}), output: Type.Object({id: Type.String()}, {additionalProperties: false}), effect: "write", errors: writeErrors},
     updateRole: {input: Type.Object({id: Type.String(), name: Type.String({minLength: 1}), description: Type.String()}, {additionalProperties: false}), output: None, effect: "write", errors: {...writeErrors, "unknown-role": Detail, "builtin-role": Detail}},
     removeRole: {input: IdInput, output: None, effect: "write", errors: {...writeErrors, "unknown-role": Detail, "builtin-role": Detail}},
@@ -88,7 +89,7 @@ const methods = {
 const events = {changed: {filter: Type.Object({}, {additionalProperties: false}), payload: ModelsSnapshotSchema}} as const;
 
 /** 设置页用的远程合同的定义，缺 id。 */
-export const modelsSettingsSpec = {version: 1, provider: "server", callers: ["browser"], methods, events} as const;
+export const modelsSettingsSpec = {version: 2, provider: "server", callers: ["browser"], methods, events} as const;
 
 /** 应用以 `modelsSettingsSpec` 定义出的合同的类型；服务核心的远程实现按它写。 */
 export type ModelsSettingsContract = RemoteContract<typeof methods, typeof events, typeof modelsSettingsSpec.provider>;

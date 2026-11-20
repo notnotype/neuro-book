@@ -2,9 +2,12 @@
 
 import type {CatalogProvider, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 
-export const sampleModel = (id: string, patch: Partial<SnapshotModel> = {}): SnapshotModel => ({
-    id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, contextWindow: 128_000, maxOutput: 8_192, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", ...patch,
-});
+/** 没单独给 `thinking` 时按 `reasoning` 与 `efforts` 推：没档位的是“会推理但不能调档”，有档位的可调、能真关。 */
+export const sampleModel = (id: string, patch: Partial<SnapshotModel> = {}): SnapshotModel => {
+    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, contextWindow: 128_000, maxOutput: 8_192, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, ...patch};
+    const thinking: SnapshotModel["thinking"] = patch.thinking ?? (!model.reasoning ? {kind: "none"} : model.efforts.length === 0 ? {kind: "fixed"} : {kind: "levels", levels: model.efforts, off: "disable", unset: null, verified: true});
+    return {...model, thinking};
+};
 
 export const SAMPLE_PROVIDERS: SnapshotProvider[] = [
     {
@@ -43,7 +46,7 @@ export const SAMPLE_PROVIDERS: SnapshotProvider[] = [
     },
 ];
 
-const role = (id: string, axis: SnapshotRole["axis"], model: string | null, status: SnapshotRole["status"], extra: Partial<SnapshotRole> = {}): SnapshotRole => ({id, axis, builtin: true, name: "", description: "", model, status, ...extra});
+const role = (id: string, axis: SnapshotRole["axis"], model: string | null, status: SnapshotRole["status"], extra: Partial<SnapshotRole> = {}): SnapshotRole => ({id, axis, builtin: true, name: "", description: "", model, effort: null, icon: null, status, ...extra});
 
 export const SAMPLE_ROLES: SnapshotRole[] = [
     role("tiny", "gradient", null, "unbound"),

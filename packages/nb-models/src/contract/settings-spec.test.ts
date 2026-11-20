@@ -24,12 +24,12 @@ describe("设置页的远程合同", () => {
     it("应用加上 id 定义出的合同就是 ModelsSettingsContract，方法的输入、输出与失败码各有自己的类型", () => {
         const sameContract: Equals<typeof contract, ModelsSettingsContract> = true;
         const snapshotOutput: Equals<Static<ModelsSettingsContract["methods"]["snapshot"]["output"]>, ModelsSnapshot> = true;
-        const setRoleInput: Equals<Parameters<Methods["setRole"]>[0], {id: string; model: string | null}> = true;
+        const setRoleInput: Equals<Parameters<Methods["setRole"]>[0], {id: string; model?: string | null; effort?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null; icon?: string | null}> = true;
         const setKeyErrors: Equals<keyof ModelsSettingsContract["methods"]["setKey"]["errors"], "invalid-value" | "write-conflict" | "settings-unavailable" | "unknown-provider" | "credentials-unavailable" | "partially-applied"> = true;
         const changedPayload: Equals<Static<ModelsSettingsContract["events"]["changed"]["payload"]>, ModelsSnapshot> = true;
         expect([sameContract, snapshotOutput, setRoleInput, setKeyErrors, changedPayload]).toEqual([true, true, true, true, true]);
 
-        expect(contract).toMatchObject({id: "acme.models/settings", version: 1, provider: "server", callers: ["browser"]});
+        expect(contract).toMatchObject({id: "acme.models/settings", version: 2, provider: "server", callers: ["browser"]});
         expect(Object.keys(contract.methods).sort()).toEqual([
             "addProvider", "addRole", "catalogModels", "catalogProviders", "check", "checkAll", "clearKey", "discover", "removeModel",
             "removeProvider", "removeRole", "setKey", "setModels", "setRole", "snapshot", "updateProvider", "updateRole", "upsertModel",
