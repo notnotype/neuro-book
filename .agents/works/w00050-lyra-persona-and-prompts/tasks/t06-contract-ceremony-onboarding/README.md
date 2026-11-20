@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t06-contract-ceremony-onboarding
 status: active
-updated: 2026-11-19
+updated: 2026-11-20
 ---
 
 # 星璃真名契约仪式与初始记忆生成设计
@@ -78,6 +78,11 @@ updated: 2026-11-19
     17. **精修 Master 与星璃双人签名**：重构 `Master` 默认花体签名与星璃（Lyra）签名路径，告别潦草，达到优雅华丽的手写体水准。
     18. **结契后契约书魔法特效**：成契落印后为整张契约书叠加星轨流光、金粉符文浮散、契印共鸣光晕等高质感魔法特效。
 
+- **2026-11-20 第 3 轮 18 项精细化打磨及评审板发布（`review` v3，提交 `af9ba6e8b`）**：
+  - 在草稿 worktree `.worktree/w00050-t06-drafts` 逐条完成第 2 轮全部 18 项反馈：星璃洁净抠底立绘回归右侧并放大为上半身柔和渐隐构图、翻/合封面 3D 镜像对称并同步舞台居中、全元素平滑过渡、英文花体主导封面与收薄书脊、离线打包 SIL OFL 花体（`Pinyon Script` / `Great Vibes` / `Cormorant Garamond`）、根治第 1 幕扉页首帧闪烁跳过、支持指针拖拽跟手翻页且下一页空白待翻定后缓缓浮现、清除“温柔迎客”与“合回封面”等冗余 chrome UI、放慢全书与底栏打字机节奏、新增 `animation-clock.ts` 统一 `requestAnimationFrame` VSync + 60fps 节流、重绘第 2 幕拱门藏书票并彻底去 UI 化第 2/3 幕右页、实装第 4 幕夹页自上而下展卷动画、废除长按改做“先倾倒暖蜡成泊、再按压黄铜星印”二段火漆交互、精修 `Astria Lyra` / `Master` 花体署押及成契星轨金粉魔法共鸣，并同步修复第 5 幕落款与页码重叠、第 4 幕引言折行等视觉收口问题。
+  - 验证通过：草稿 worktree `packages/neuro-book` 执行 `bun run typecheck`（`tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`）通过；1280×760 / 960×700 / 390×844 共 22 组终版截图全数目检确认无重叠无裁切，选取 20 张 WebP 入库 `artifacts/review/r3/`。
+  - 已发布 `review` v3（待答 2 题：`r3-final-signoff`、`r3-wax-and-motion`）。
+
 ## 下一步
 
-- 在草稿 worktree `.worktree/w00050-t06-drafts` 中逐条落实第 2 轮评审提出的 18 项精细化改进，完成全链路实机验证后发布第 3 轮评审板（`review` v3）请开发者复核定稿。
+- 等待开发者在评审板（`review` v3）及 Component Lab（`ContractCeremonyWindow` 场景 `interactive`）复核第 3 轮视觉与交互定稿，记录最终决定后转入正式 Spec 与星璃 7 差分立绘生图立项。
