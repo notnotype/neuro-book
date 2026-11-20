@@ -11,6 +11,8 @@
 
 宽度由树里的条决定（48px），按钮 38px、竖排、间距 4px。入口多到放不下时，排在后面的收进上段末尾的“更多”，当前容器（`current`）的入口总在外面。底段贴着列底，不滚动、不让位。
 
+入口有 `count` 时图标右上角压一个小号强调色的 `Badge`（`data-tool-count`，`aria-hidden`，不挡点击），超过 99 写“99+”；可访问名称写成“标题 数”（`docs/specs/workbench/views.md` 输出 17）。
+
 ## 交互
 
 - 点入口发 `select(id)`，收在“更多”里的也一样。鼠标点不抢焦点：切容器、隐藏侧栏时焦点留在原处，原处看不见了去哪由宿主定。入口的 `aria-pressed` 是“当前容器且侧栏可见”，至多一项。按下的底色不画在按钮上，是条目区里一个独立的块（`data-tool-indicator`，`aria-hidden`；和右栏、底部面板入口条的按下的块共用 [`use-entry-indicator.ts`](use-entry-indicator.ts)），位置量按下的那个入口（沿 `offsetParent` 加到条目区，不含拖动中按钮外层的 `translate`）：`slideToken` 变了、按下的入口也换了的那一次它滑过去（`data-sliding`，`--motion-layout`、`--ease-layout`，和侧栏切换容器时的滚动同时走），滑到一半又换一次时从此刻接着滑，滑完（`transitionend`、没有别的 `transform` 过渡在走）才摘掉标记；别的原因换了按下的入口、窗口缩放、入口收进“更多”时直接到位；拖动中入口换位时直接到终点，和按钮的滑动差一段（已知限制）；没有按下的入口时在原处淡出，再按下时在新的位置淡入；挂上时第一次放下不淡入（`data-settled` 之前没有过渡）。
@@ -39,6 +41,8 @@ type ToolStripEntry = {
     current: boolean;
     /** 当前容器且侧栏可见。 */
     pressed: boolean;
+    /** 图标右上角的计数：容器里各视图 `badge()` 的合计；没有是 null 或不给。 */
+    count?: number | null;
 };
 
 type ToolStripItem = {

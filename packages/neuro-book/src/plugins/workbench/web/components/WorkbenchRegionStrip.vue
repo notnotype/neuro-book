@@ -5,7 +5,7 @@
  * 入口是拖动源（`data-tool-entry`，同活动栏），拖放由宿主的拖动会话接管，这里只画占位与并入的高亮。
  */
 import type {PanelName} from "@notnotype/nb-workbench-layout";
-import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
@@ -28,7 +28,7 @@ export interface RegionStripEntry {
     readonly current: boolean;
     /** 当前容器且区域可见；至多一项。 */
     readonly pressed: boolean;
-    /** 标题入口在标题后写的计数（只含一个视图的容器，同那个视图的标签，docs/specs/workbench/views.md 输出 17）；没有是 null 或不给。图标入口不写。 */
+    /** 计数（docs/specs/workbench/views.md 输出 17）：标题入口写在标题后（只含一个视图的容器，同那个视图的标签）；图标入口画在右上角（容器的合计）。没有是 null 或不给。 */
     readonly count?: number | null;
 }
 
@@ -72,7 +72,9 @@ const emit = defineEmits<{
 }>();
 
 /** 标题入口写的字：标题，有计数时后面接计数（“通知 2”），读屏名称同样带上。 */
-const titleOf = (entry: RegionStripEntry): string => (entry.count == null ? entry.label : `${entry.label} ${String(entry.count)}`);
+/** 计数的文字：超过 99 写“99+”。 */
+const countText = (count: number): string => (count > 99 ? "99+" : String(count));
+const titleOf = (entry: RegionStripEntry): string => (entry.count == null ? entry.label : `${entry.label} ${countText(entry.count)}`);
 
 /** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在入口下面。 */
 function onEntryContextMenu(id: string, event: MouseEvent): void {
@@ -171,7 +173,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             type="button"
                             class="workbench-region-strip__entry nb-ui-focus-ring-inset"
                             :class="{'workbench-region-strip__entry--merge': entry.id === highlighted}"
-                            :aria-label="variant === 'icons' ? entry.label : undefined"
+                            :aria-label="variant === 'icons' ? titleOf(entry) : undefined"
                             :aria-pressed="entry.pressed"
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-region-entry="entry.id"
@@ -187,6 +189,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             <span v-else class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
                         </button>
                     </Tooltip>
+                    <Badge v-if="variant === 'icons' && entry.count != null" size="sm" tone="accent" class="workbench-region-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ countText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="bottom" align="start" @select="(id: string) => emit('select', id)">
@@ -276,8 +279,17 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 .workbench-region-strip__frame {
+    position: relative;
     display: flex;
     flex: 0 0 auto;
+}
+
+/* 图标入口的角标压在右上角，不挡点击。入口只有 24px，角标往外探出半个身位。 */
+.workbench-region-strip__count {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    pointer-events: none;
 }
 
 .workbench-region-strip__frame--moving {

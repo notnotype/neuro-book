@@ -76,6 +76,11 @@ export const ViewDeclarationSchema = Type.Object({
      * 视图落回自己的隐式容器，所以这里不核对它存不存在。
      */
     container: Type.Optional(Type.String({pattern: "\\S"})),
+    /**
+     * 这个视图取代的旧视图 id（docs/specs/workbench/views.md 输出 20）：布局里留着它们的标签时拿掉，不留“声明不在了”的占位。SDK 的 `view()` 不收它；
+     * 只能点名声明方自己插件的视图（校验见 `validateViewContribution`），而且只在旧 id 此刻没有声明时生效。
+     */
+    replaces: Type.Optional(Type.Array(Type.String({pattern: "\\S"}), {maxItems: 8})),
 }, {additionalProperties: false});
 
 /** 声明是登记后不再改的数据；布局 store 的状态把目录变成深只读，类型就按深只读写，两边一致。 */
@@ -107,6 +112,12 @@ export function validateViewContribution(descriptor: ContributionDescriptor): st
         return `视图 ${id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
     }
     const declaration = descriptor.declaration as ViewDeclaration;
+    // 只认自己插件的旧视图：前缀用声明方的插件 id，不用内置插件“保留发布者开头即可”的宽规则，否则一个内置插件能从布局里删掉另一个内置插件的视图。
+    // 这样谁写了都只能删自己的旧视图；SDK 的 `view()` 辅助函数不收这个字段。
+    if (declaration.replaces !== undefined) {
+        const foreign = declaration.replaces.find((old) => !old.startsWith(`${descriptor.plugin}.`) || old === id);
+        if (foreign !== undefined) return `视图 ${id} 的 replaces 只能点名 ${descriptor.plugin} 自己别的视图：${foreign}`;
+    }
     for (const axis of ["width", "height"] as const) {
         const {min, max} = viewSizeLimits(declaration, axis);
         if (max < min) return `视图 ${id} 的 maximumSize.${axis} 低于有效最小值 ${min}`;

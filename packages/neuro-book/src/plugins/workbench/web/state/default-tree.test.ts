@@ -4,7 +4,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
-import {activateTab, applyLayoutDrop, barRef, enumerateDropCandidates, layoutSeamsOf, previewPanelRects, findTab, findTreeNode, insertTab, isPanelShown, moveTabToEdge, openPanelAtEdge, panelRef, removeTab, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeLeaves, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import {activateTab, applyLayoutDrop, floatTab, barRef, enumerateDropCandidates, layoutSeamsOf, previewPanelRects, findTab, findTreeNode, insertTab, isPanelShown, moveTabToEdge, openPanelAtEdge, panelRef, removeTab, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeLeaves, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {GridSnapshotNode} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 
@@ -186,6 +186,48 @@ describe("默认布局（输出 1、4）", () => {
     it("写的容器没有声明的视图：进自己的隐式容器", () => {
         const doc = defaultLayoutDoc(CATALOG, new Map());
         expect(containersIn(doc, "sidebar")).toEqual([["view:a", ["a"]], ["view:b", ["b"]], ["view:c", ["c"]]]);
+    });
+});
+
+describe("被取代的旧视图（views.md 输出 20）", () => {
+    /** 甲换成新视图甲二（声明 `replaces: ["a"]`），右栏的丁换成丁二。 */
+    const replacing = (): ViewCatalog => {
+        const next = new Map([...CATALOG].filter(([id]) => id !== "a" && id !== "d"));
+        next.set("a2", {...VIEW("sidebar", 1, GROUP), replaces: ["a"]});
+        next.set("d2", {...VIEW("auxiliarybar", 1), replaces: ["d"]});
+        return next;
+    };
+
+    it("容器里的分节、隐式容器的入口都拿掉，不留占位；新视图照常补进来", () => {
+        const before = defaultLayoutDoc(CATALOG, CONTAINERS);
+        const after = reconcileViews(before, replacing(), CONTAINERS);
+        expect(containersIn(after, "sidebar")).toEqual([[GROUP, ["b", "a2"]], ["view:c", ["c"]]]);
+        expect(containersIn(after, "auxiliarybar")).toEqual([["view:f", ["f"]], ["view:d2", ["d2"]]]);
+        expect(after.panels.auxiliarybar?.entries).not.toContain("view:d");
+        expect(findTab(after, "view:a")).toBeNull();
+        expect(findTab(after, "view:d")).toBeNull();
+        expect(fitsSkeleton(after)).toBe(true);
+        expect(validateLayoutDoc(after).ok).toBe(true);
+    });
+
+    it("旧视图被拖成浮动窗：照样拿掉，浮动窗跟着收掉", () => {
+        const base = defaultLayoutDoc(CATALOG, CONTAINERS);
+        const floated = settleContainers(must(floatTab(base, {tab: "view:a", rect: {x: 10, y: 10, width: 300, height: 200}}, createLayoutPolicy())));
+        expect(floated.floats).toHaveLength(1);
+        const after = reconcileViews(floated, replacing(), CONTAINERS);
+        expect(findTab(after, "view:a")).toBeNull();
+        expect(after.floats).toEqual([]);
+        expect(validateLayoutDoc(after).ok).toBe(true);
+    });
+
+    it("被点名的 id 此刻还有声明时不删；没有新视图要补、只摘了旧的，也照样摘", () => {
+        const stillDeclared = new Map([...CATALOG, ["a2", {...VIEW("sidebar", 1, GROUP), replaces: ["a"]}]]);
+        const full = defaultLayoutDoc(stillDeclared, CONTAINERS);
+        expect(reconcileViews(full, stillDeclared, CONTAINERS)).toBe(full);
+        const withA2 = defaultLayoutDoc(new Map([...CATALOG, ["a2", VIEW("sidebar", 1, GROUP)]]), CONTAINERS);
+        const after = reconcileViews(withA2, replacing(), CONTAINERS);
+        expect(findTab(after, "view:a")).toBeNull();
+        expect(findTab(after, "view:a2")).not.toBeNull();
     });
 });
 

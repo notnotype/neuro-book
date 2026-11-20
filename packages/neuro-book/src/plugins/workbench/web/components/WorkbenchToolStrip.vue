@@ -2,7 +2,7 @@
 /**
  * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
-import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
@@ -24,10 +24,15 @@ export interface ToolStripEntry {
     readonly current: boolean;
     /** 当前容器且侧栏可见；至多一项。 */
     readonly pressed: boolean;
+    /** 图标右上角的计数：容器里各视图 `badge()` 的合计（docs/specs/workbench/views.md 输出 17）；没有是 null 或不给。 */
+    readonly count?: number | null;
 }
 
 /** 没有图标可取的入口画它：和声明不在的视图的标签同一个。 */
 const PLACEHOLDER_ICON = "i-lucide-circle-help";
+
+/** 角标的文字：超过 99 写“99+”，图标角上放不下更多位。 */
+const countText = (count: number): string => (count > 99 ? "99+" : String(count));
 
 /** 底段的一个全局项（`workbench.activitybar-items`）。 */
 export interface ToolStripItem {
@@ -154,7 +159,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                         <IconButton
                             size="lg"
                             :icon-class="entry.icon ?? PLACEHOLDER_ICON"
-                            :aria-label="entry.label"
+                            :aria-label="entry.count == null ? entry.label : `${entry.label} ${countText(entry.count)}`"
                             :aria-pressed="entry.pressed"
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-tool-entry="entry.id"
@@ -167,6 +172,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             @contextmenu="onEntryContextMenu(entry.id, $event)"
                         />
                     </Tooltip>
+                    <Badge v-if="entry.count != null" size="sm" tone="accent" class="workbench-tool-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ countText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">
@@ -247,8 +253,17 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 .workbench-tool-strip__frame {
+    position: relative;
     display: flex;
     flex: 0 0 auto;
+}
+
+/* 角标压在图标右上角，不挡点击（点它就是点入口）。 */
+.workbench-tool-strip__count {
+    position: absolute;
+    top: 0;
+    right: 0;
+    pointer-events: none;
 }
 
 .workbench-tool-strip__frame--moving {

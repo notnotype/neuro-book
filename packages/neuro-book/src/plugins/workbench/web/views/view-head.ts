@@ -37,6 +37,7 @@ export function createViewHead(context: ViewContext): ViewHeadControl {
             };
         },
         titlePopup: ref<{readonly expanded: boolean} | null>(null),
+        claim: ref(true),
     };
     attachViewHead(context, head);
     return {
