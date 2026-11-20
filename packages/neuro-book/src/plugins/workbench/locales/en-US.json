@@ -266,6 +266,11 @@
         "project": {
             "title": "Project"
         },
+        "moveTo": {
+            "sidebar": "Move to Sidebar",
+            "auxiliarybar": "Move to Secondary Side Bar",
+            "panel": "Move to Panel"
+        },
         "reset": "Reset",
         "entryTooltip": "{{name}}: {{views}}",
         "viewSeparator": ", "

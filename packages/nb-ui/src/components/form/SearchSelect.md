@@ -4,11 +4,11 @@
 
 # SearchSelect
 
-`SearchSelect` 是可以打字搜索的单值下拉：一个 `role="combobox"` 的输入框，下面挂 `SuggestionMenu` 的候选列表。输入的文字只是搜索词，只有选中一个选项才改值；不选就离开时，输入框恢复显示已选项的名字（[`docs/specs/ui/forms.md`](../../../../../docs/specs/ui/forms.md) 输出 30）。选项多（表单里多于 15 项，或写了 `searchable`）时用它，项少用 `Select`。
+`SearchSelect` 是可以打字搜索的单值下拉：一个 `role="combobox"` 的输入框，下面挂 `SuggestionMenu` 的候选列表。输入的文字只是搜索词，只有选中一个选项才改值；不选就离开时，输入框恢复显示已选项的名字（[`docs/specs/ui/forms.md`](../../../../../docs/specs/ui/forms.md) 输出 30）。选项多（表单里多于 15 项，或写了 `searchable`）时用它，项少用 `Select`。选项要按搜索词去远处查（例如在几百个条目里按名字与别名找）时用远程模式：组件只发出搜索词，选项由宿主换。
 
 ## 布局
 
-外框与 `Input` 带前缀时相同：全宽、圆角、一档控件高，左边一个放大镜，右边一个下拉箭头（列表打开时转过来）。列表就是 `SuggestionMenu`：与外框同宽，弹出列表共用的一行（`.nb-ui-menu-item`），说明在右侧、放不下先截；下方空间不够时翻到上方，外框按可用高度收矮并滚动。`390×844` 下同样全宽，列表不超出视口。
+外框与 `Input` 带前缀时相同：全宽、圆角、一档控件高，左边一个放大镜，右边一个下拉箭头（列表打开时转过来）。可清空且已选时，箭头左边多一个清空按钮。列表就是 `SuggestionMenu`：与外框同宽，弹出列表共用的一行（`.nb-ui-menu-item`），说明在右侧、放不下先截；下方空间不够时翻到上方，外框按可用高度收矮并滚动。`390×844` 下同样全宽，列表不超出视口。
 
 ## 交互
 
@@ -18,6 +18,9 @@
 - Escape 关闭列表并丢掉搜索词（不冒泡到外面，不会顺带关掉所在的对话框）；失焦同样关闭并恢复显示。点选项不会先触发失焦：列表按下时不夺焦点。
 - 焦点一直在输入框里，高亮项经 `aria-activedescendant` 交给读屏；列表的 id 是 `<控件 id>-listbox`，打开时写在 `aria-controls` 上。列表的名字：给了 `listLabel` 用它，否则 `aria-labelledby` 指向 `Field` 的标签。
 - 只读：输入框可以聚焦、写 `aria-readonly`，打字、点击与方向键都不打开列表、不改值。停用：输入框停用，不可聚焦。
+- 列表打开时发出一次 `search`（空串），之后每次打字发出搜索词（组字中不发，组字结束后发上屏的字）。
+- 远程模式（`filter: false`）：不按名字在本地筛选，`options` 原样列出，由宿主按 `search` 换；高亮的规则不变（换了一批选项后高亮还在就留着，不在了落到第一个可选项）。当前值不在这一批选项里时，输入框显示 `selectedLabel`。
+- 清空（`clearable`）：已选、没停用也不是只读时，外框里有一个清空按钮（可读名“清除选择”），点了关闭列表、发出空串，焦点留在输入框里；按下它不开合列表。
 
 ## 数据
 
@@ -49,12 +52,22 @@ type SearchSelectProps = {
     /** 出错外观与 aria-invalid；与 Field 上下文的出错取或。 */
     invalid?: boolean;
     required?: boolean;
+    /** 按名字在本地筛选；false 是远程模式，选项由宿主按 `search` 换。缺省 true。 */
+    filter?: boolean;
+    /** 当前值不在 `options` 里时输入框显示的名字；远程模式下由宿主给。 */
+    selectedLabel?: string;
+    /** 已选时外框里有清空按钮。缺省 false。 */
+    clearable?: boolean;
+    /** 清空按钮的可读名；缺省按显示语言取“清除选择”。 */
+    clearLabel?: string;
 };
 
 type SearchSelectEmits = {
-    /** 选中一个选项时发出；只打字不发出。 */
+    /** 选中一个选项时发出；只打字不发出。清空时发出空串。 */
     "update:modelValue": [value: string];
     focus: [event: FocusEvent];
+    /** 列表打开时发出空串，之后每次打字发出搜索词。 */
+    search: [query: string];
 };
 ```
 
@@ -64,13 +77,14 @@ type SearchSelectEmits = {
 
 - **未选**：输入框空，显示占位文字。
 - **已选**：显示已选项的名字。
-- **搜索中**：显示搜索词，列表按它筛选；没有匹配时列表里只有 `emptyText` 一行。
+- **搜索中**：显示搜索词，列表按它筛选（远程模式下列出宿主给的选项）；没有选项时列表里只有 `emptyText` 一行。宿主在远程查找期间可以把 `emptyText` 换成“正在查找”这类字。
 - **出错**：外框标红，输入框写 `aria-invalid`。
 - **只读、停用**：见“交互”。
 
 ## 不支持
 
-- 多选、自由输入（打的字不能成为值）、异步加载选项、分组标题。
+- 多选、自由输入（打的字不能成为值）、分组标题。
+- 远程模式下的去抖、晚到结果作废与查找失败：由宿主处理，组件只发出搜索词、照当前的 `options` 显示。
 - 按拼音或说明搜索：只按名称包含。
 
 ## 上游边界
@@ -81,4 +95,4 @@ type SearchSelectEmits = {
 
 `state:local`：列表是否打开、搜索词与高亮项在组件内，卸载即丢。`state:inject`：读 `Field` 的上下文。`env:portal`：列表经 `SuggestionMenu` 传送到 `body`。
 
-`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取列表无匹配时的缺省提示，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `emptyText` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取列表无匹配时的缺省提示与清空按钮的可读名，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `emptyText` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

@@ -98,18 +98,13 @@ export default {
     },
     searchSelect: {
         empty: "没有匹配的选项",
+        clear: "清除选择",
     },
     slider: {
         thumb: "滑块 {{index}}",
     },
     spinner: {
         loading: "加载中",
-    },
-    splitter: {
-        resizeWidth: "调整 {{before}} 与 {{after}} 的宽度",
-        resizeHeight: "调整 {{before}} 与 {{after}} 的高度",
-        collapsed: "已收起",
-        pixels: "{{size}} 像素",
     },
     table: {
         empty: "暂无数据",

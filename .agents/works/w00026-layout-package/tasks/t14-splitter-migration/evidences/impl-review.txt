@@ -1,0 +1,79 @@
+# t14 实现审查（Claude Sonnet 5.5，claude -p，2026-11-19）：caed94657..717b1b171
+# 说明：.local/agent/works/w00026-layout-package/tasks/t14-splitter-migration/reports/impl-review/brief.md（本地）；报告即审查者的最终回复，原样保存。
+
+# t14 实现审查报告（只读）
+
+没有阻断和重要问题，共 5 条建议级发现。
+
+### 1. 依赖方向的两处文字没跟着加上 nb-layout
+**严重程度**：建议　**类别**：文档
+**位置**：`packages/nb-story/AGENTS.md:10`、`docs/specs/story/viewer.md:201`，次要的是 `packages/dev-panel/AGENTS.md:28`
+**现象**：nb-story 的网页现在导入 `@notnotype/nb-layout/vue`。AGENTS.md 的“依赖方向：只依赖……”清单没有 nb-layout。Spec `story/viewer` 的“owner 与依赖方向”逐个列了网页的依赖（Vue 3、nb-ui、Sigma.js、nb-agent-ui、nb-markdown、nb-form），也没有它。dev-panel 的 AGENTS.md 写“组件来自 nb-ui”。
+**为什么是问题**：计划说“没有 Spec 写两个宿主用哪个包的分栏”，这只对分栏行为成立。viewer.md 把网页依赖逐个列成了依赖方向合同。新依赖不登记，下次按清单审依赖的人会把 nb-layout 当成越界。
+**如何核实**：`rg nb-layout packages/nb-story/AGENTS.md docs/specs/story/viewer.md` 没有结果。`viewer.md:201` 列着 nb-form 但没有 nb-layout。
+**建议改法**：两处各加“分栏用 nb-layout（只进前端构建，devDependencies）”。dev-panel 那句改成“组件来自 nb-ui、分栏来自 nb-layout”。
+
+### 2. 迁移说明说“只有两处不同”，实际不止
+**严重程度**：建议　**类别**：文档、公开面
+**位置**：`packages/nb-ui/docs/migration-0.4.md`，新增小节第一段
+**现象**：说明写“属性、插槽与事件不变，只有两处不同”，指 `branchId`、`sashLineEnds` 没有了，以及收到 0 的一侧不再画静止接缝。同一 Task 的 `evidences/drift.txt` 还记了另外几处，说明里都没写：
+- 分隔线的 `aria-label` 和 `aria-valuetext` 原来走 nb-ui 的文字端口。目录键 `splitter.resizeWidth`、`resizeHeight`、`collapsed`、`pixels` 这次从 nb-ui 的 zh-CN 和 en-US 目录里删了。现在用 nb-layout 自带的中文目录，宿主要多语言得注入 `@notnotype/nb-layout/text` 的 `LAYOUT_TEXT_KEY`。原来靠 nb-ui 端口拿到英文或自定义文字的外部宿主，迁移后会静默变回中文。
+- 相邻面板吸收不了让出的空间时，新版拒绝收起（`no-room-to-collapse`），旧版不检查。
+- 焦点在 `aria-disabled` 的分隔线上时，按键被忽略。
+
+**为什么是问题**：迁移说明是 nb-ui 外部使用者改导入的唯一依据，“只有两处”不实。仓库内两个宿主不受影响，它们都没注入文字、语言都是中文，所以只是文档问题。
+**如何核实**：对照 `drift.txt` 的“行为差别”一节，再看 `git show caed94657:packages/nb-ui/src/locales/en-US.ts` 里的 `splitter` 块。
+**建议改法**：去掉“只有两处”的断言。补一行文字来源变化和 `splitter.*` 键的删除，写明 `LAYOUT_TEXT_KEY` 怎么接，或指到 nb-layout 的 `Splitter.md`。再补一句收起被拒绝的差别。
+
+### 3. 构建输入的清单靠手写，新测试只钉住“清单里现在有谁”
+**严重程度**：建议　**类别**：测试
+**位置**：`packages/dev-panel/src/server/build.ts:20`、`packages/dev-panel/tests/panel-server.test.ts` 新增的“编进网页的工作区包”用例、`tests/web-build.test.ts`
+**现象**：覆盖面本身是对的，也确实能抓到漏掉 nb-layout 的情况。
+- 网页源码只导入 nb-ui 和 nb-layout 两个工作区包（`rg "@notnotype/" src/web` 核过）。
+- nb-layout 没有工作区依赖，只有外部依赖 `tabbable`，由根 `node_modules` 和 `bun.lock` 管着。
+- `computeBuildHash` 与 `CODE_PATHS` 由同一份 `PANEL_SOURCE_PACKAGES` 生成。
+- 清单少了 nb-layout 时，我从代码推演新用例会失败：walk 不到它，哈希不变，`changed:true` 的断言不成立。没有改仓库做变异。
+- 新用例和 `web-build.test.ts` 我都跑了，通过。
+
+缺口有两处：
+- 新用例里的 `["nb-ui", "nb-layout"]` 是照抄常量的字面量。网页以后再导入第三个工作区包而没人改清单时，没有测试会失败。面板就会不重建、不提示“代码已更新”，正是本 Task 要消除的那类漏。
+- `web-build.test.ts` 只核 `backdrop-filter`，没有断言构建产物里带了 nb-layout 的 Splitter 样式。验收映射里“开发者面板的分栏照旧”这一格，构建通过并不能说明 nb-layout 的组件被编进去了。
+
+**如何核实**：读 `build.ts:20` 和新用例，`web-build.test.ts` 全文只有 35 行。
+**建议改法**：加一条测试，扫 `src/web` 里 `from "@notnotype/<名>"` 的工作区包名，断言都在 `PANEL_SOURCE_PACKAGES` 里。或者直接由 dev-panel `package.json` 里 `workspace:` 的依赖生成清单。
+
+### 4. `tokens.css` 注释指向的文档已不含那句话
+**严重程度**：建议　**类别**：注释
+**位置**：`packages/nb-ui/src/tokens.css:242-244`
+**现象**：注释改成“……碰到另一条同时亮着的边界的一端照旧连着（nb-layout 的 `src/vue/Splitter.md`）”。但同一个提交里 nb-layout 的 `Splitter.md` 删掉了连着的那半句，现在只剩“长轴两端按 `--nb-layout-sash-line-inset` 缩进”。T 形交汇连着的说法现在在 `NestedGrid.md:47` 和 `SashHandle.vue:401`。
+**为什么是问题**：读者按注释去 `Splitter.md` 找不到依据。
+**如何核实**：`rg 连着 packages/nb-layout/src/vue/Splitter.md packages/nb-layout/src/vue/NestedGrid.md`。
+**建议改法**：注释改指 `NestedGrid.md`。
+
+### 5. playground 验收定义的头注释改后语句不通
+**严重程度**：建议（nit）　**类别**：注释
+**位置**：`packages/nb-ui/playground/app/acceptance/definitions.ts:3-4`
+**现象**：原句“两个手势验收、一个勾选框聚焦滚动验收与弹出列表的尺寸与高亮验收”被删成“一个 / 勾选框聚焦滚动验收与弹出列表的尺寸与高亮验收”，数量词悬空。playground 现存的验收夹具有 5 个：`checkbox-focus`、`control-invalid`、`dialog-surfaces`、`popup-lists`、`suggestion-menu`，这条注释本来就已落后。
+**建议改法**：不写数量，或列出现有的验收。
+
+## 未发现问题的方面
+
+- **删干净与删多**：nb-ui 里剩下的 `layout/` 组件、composables、Lab 源（glob 排除项已去掉）、playground、e2e、locales、`tokens.css` 都不再引用被删的名字。`useLayoutExtent.ts` 删得对：我用 `git grep` 查了 `caed94657`，它只被冻结的 `Splitter.vue` 导入，nb-ui 的 composables 入口也没导出它。neuro-book 里的使用都来自 `@notnotype/nb-layout/vue`。`--sash-line-*`、`--divider` 和 `--nb-layout-*` 桥接都保留了。nb-ui 之外（排除旧应用）没有导入被删名字的地方。旧应用有 40 个文件早就导入不存在的 `@notnotype/nb-ui/layout`，夹具那一处与之同类，已记入待确认清单。
+- **我自己跑的验证**：nb-ui 的 `test`（43 文件 559 例）和 `typecheck`，dev-panel 与 nb-story 的 `typecheck`，`docs:check`，都通过。
+- **nb-story 发布**：
+  - nb-layout 是 devDependency `workspace:*`。发布清单检查允许 devDependencies 引用不发布的工作区包（`scripts/release/packages.ts:177-179`）。
+  - 包的 `files` 排除 `src/web`，源码里没有别处导入 nb-layout。
+  - `bun publish` 会把它改写成 `0.1.0` 留在 devDependencies，使用者不安装。这与现有的 `neuro-book-test-support`（`workspace:*`）是同一条路径，没有运行时引用。我没跑 `release:*`，这条是读脚本和 manifest 得出的。
+  - dev-panel 是 private，nb-layout 放在 dependencies 里没有发布问题。
+- **nb-layout 的 `global.css`**：随 `vue/index.ts` 进网页，只有减少动效时的根变量和焦点环类，不碰宿主选择器。
+- **迁移说明的链接与映射表**：锚点 `#04-之后splitter-移到-nb-layout`、ADR 0054 路径，以及导入映射表，都和 nb-layout 的实际导出一致（`index.ts:99,102,127,128`、`vue/index.ts:23`）。
+- **`BookFrame.vue` 过渡变量注释**：说得对。`tokens.css:280` 把 `--nb-layout-motion-move` 接到 `--motion-move`，减少动效时 nb-ui 也把 `--motion-move` 归零（`tokens.css:340`）。
+
+## 本次改动之外
+
+- **SDK 组件清单用例失败**：`packages/neuro-book/src/sdk/sdk.test.ts` 的“组件子路径逐个列名……”用例现在失败，缺 `ImagePreviewDialog`。与 Splitter 无关，从代码推断是 master 上原有的失败（记忆里 11-19 的五条原有失败含 SDK 组件清单）。我没在 `caed94657` 上跑对照。
+- **发布门禁不盯 nb-layout**：`releaseDirectories()` 不含 nb-layout，nb-story 打出的 `dist/web` 现在带着它的 Splitter，而原来 Splitter 在受门禁保护的 nb-ui 里。待确认清单第 109 行已记录并接受，不重复列为发现。
+
+数量：阻断 0、重要 0、建议 5。有效发现：1、2、3、4、5
+
+草稿也存在 `.../tasks/t14-splitter-migration/reports/impl-review/report-draft.txt`。

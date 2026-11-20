@@ -1,0 +1,145 @@
+# t14 两份 Splitter 的差异与换过去会变什么（Claude Sonnet 5.5，claude -p，只读调研，2026-11-19）
+# 说明：.local/agent/works/w00026-layout-package/tasks/t14-splitter-migration/reports/drift/brief.md（本地）；报告即调研者的最终回复，原样保存。
+
+**结论：三处使用方的模板和逻辑不用改。要改的是导入路径、两个 `package.json` 的依赖声明和几处注释。** 唯一看得见的变化，是一侧收到 0 时静止接缝不再画。
+
+证据是读源码对比，加一次实测：用 `bun test` 在 `/tmp` 里分别调两边的 `solveSashDrag` 和 `allocateSashPanels`，输入取 BookFrame 的三块面板配置。我没在浏览器里看过渲染，也没跑 `vite build` 和 `vue-tsc`，涉及外观和手感的结论都标了“从代码推断”。完整结果已写进 `report-draft.txt`，里面有三处行号写错，见文末。
+
+## 1. 公开面（只列不同）
+
+**props**
+- 旧版有 `branchId`（旧 `Splitter.vue:47`）和 `sashLineEnds`（`:52`），新版删了。它们原本给 Grid 内嵌用，新版 Grid 不再用 Splitter（新 `Splitter.vue:4-5`）。三处使用方都没传。
+- 新版 `Splitter.md:17` 还写着 `sashLineEnds`，组件里已经没有，是文档遗留。
+- 其余 props 相同：`direction`、`disabled`、`panels`、`sashSizes`、`sizesPx`，以及继承 `HTMLAttributes`。
+
+**事件与载荷**
+- 事件集合、触发时机、`SplitterGestureState` 的字段、`SplitterGestureCancellation` 的字段都相同。
+- 只有类型名变了：`source` 的类型改叫 `SashGestureSource`，取消 `reason` 的类型改叫 `SashGestureCancelReason`，取值不变。
+
+**类型导出位置**
+- 旧版全在 `@notnotype/nb-ui/components`（`nb-ui/src/components/index.ts:48、99-105`）。
+- 新版 `Splitter` 和 `SplitterPanelConfig` 在 `@notnotype/nb-layout/vue`（`vue/index.ts:12-13、25-27`）。
+- 新版 `SplitterGestureState` 和 `SplitterGestureCancellation` 在根入口（`src/index.ts:125-128`）。
+- 旧的 `SplitterGestureCancelReason`、`SplitterGestureSource` 在新版里没有，换成根入口的 `SashGestureCancelReason`、`SashGestureSource`（`src/index.ts:99-102`）。三处使用方都没用旧名。
+- 所以 App.vue 和 ArtifactPage.vue 的类型导入要拆成两条：组件和 `SplitterPanelConfig` 从 `/vue`，`SplitterGestureState` 从根入口。
+
+**`SplitterPanelConfig`**
+- 六个字段（`id`、`defaultSizePx`、`minSizePx`、`maxSizePx`、`sizing`、`collapse`）和类型都相同。
+- 新版 `collapse` 多一个可选的 `restoreToShare`：为 true 时，显式恢复（按钮、Enter）不读 `restoreSize`，回到按权重该得的份额。缺省 false，三处都没用。
+- 新版注释说 `restoreSize` “由网格在收起时记下”，这只发生在 NestedGrid。独立 Splitter 不回写，仍由宿主随 `panels` 给。
+
+**插槽和暴露方法**：都相同（`panel-<id>` 加 `default`），两边都没有 `defineExpose`。
+
+## 2. 行为差别
+
+**`panels` 换对象**
+- 两边是同一段代码：非受控且没在拖动时，`watch([measuredMain, sashSizesKey, panelIdsKey, () => props.panels])` 触发 `allocateLocal()`，按 `defaultSizePx` 重新分配（新 `Splitter.vue:246-259`，旧 `:305-318`）。
+- 所以 `App.vue:128-130` 和 `ArtifactPage.vue:176-177` 的注释依据仍成立，`panels` 照旧要用 computed 产出。
+- 分配算法新旧等价。实测 188/主区/400，总宽 1438，新旧都分出 `188,850,400`。
+
+**收起、拖到零、min/max、fixed 与 weight**
+- 求解规则相同。实测 BookFrame 配置：导航往左拖 -120 吸到 44 并报 `collapsed.nav`，抽屉往右拖 +300 吸到 0，拖到最大 640 夹住，新旧输出逐值相同。
+- 新版有三处边角差别，三处使用方基本碰不到：
+  - **兄弟面板的分配起点**：新版从上一帧的尺寸出发（`sash-drag.ts:353、388-395`），旧版每帧从按下时的基线出发。只有兄弟被推开又掉头才不同，只可能发生在 BookFrame 窗口窄到主区贴着 360 的时候。从代码推断。
+  - **收起拒绝**：另一侧吸收不了让出的空间时，新版拒绝收起并保持展开，报 `no-room-to-collapse`（`sash-drag.ts:197、336`），旧版没有这条检查。三处使用方的相邻面板都是不设上限的 weight 面板。
+  - **诊断形状**：旧版是中文字符串，新版是 `GridIssue`（带 code）。独立 Splitter 两边都没把诊断展示出来。
+
+**过渡**
+- 播放条件相同：`scope.active.size === 0 && collapseMotion.has(index)`（新 `:321`，旧 `:597`）。
+- 都是给面板的 `width`、`flex-basis`、`height` 做 CSS transition，逐帧改宽度，BookFrame:111 的注释依据成立。
+- 时长和缓动变量不同：
+  - 旧：`var(--motion-move)`、`var(--ease-layout)`，没有回退值（旧 `:749`）。
+  - 新：`var(--nb-layout-motion-move, 280ms)`、`var(--nb-layout-ease-layout, …)`（新 `:381-383`）。
+  - nb-ui 的 `tokens.css:278-283` 在 `:root` 上把它们桥接到旧名，值同为 280ms。减少动效时，两边都把对应变量归零。
+- `data-animating` 打上后不会摘掉，之后窗口缩放也会走过渡，新旧相同。
+- BookFrame 的 `motionMs()` 读 `--motion-move` 不用改。不要换成 nb-layout 的 `layoutMotionMs`，它读的是 `--nb-layout-motion-layout`（470ms），不是 Splitter 用的 move。
+
+**键盘与读屏名称**
+- 键盘逻辑相同：方向键每步 10px（Shift 为 1px）、Home/End、Enter 切换可收起面板、按键抬起时提交、Escape 取消。
+- 新版多一条：焦点在 `aria-disabled="true"` 的分隔线上时按键直接忽略（`vue/useSashGesture.ts:475-478`）。
+- 读屏文字：
+  - 旧：`useUiText()`（nb-ui 文字端口，目录 `nb-ui/src/locales/zh-CN.ts:109-114`，无宿主时固定 zh-CN）。
+  - 新：`useLayoutText()`。有宿主经 `LAYOUT_TEXT_KEY` 注入就用它，没有就用自带的 zh-CN 目录（`locales/zh-CN.ts:3-8`）。
+  - 两个宿主都没注入文字端口，我在两个包的 `src` 里没搜到，所以前后文字相同：“调整 导航 与 正文 的宽度”“已收起”“N 像素”。
+  - 以后宿主要做多语言，得自己注入 `LAYOUT_TEXT_KEY`，nb-ui 的端口不再管分隔线。
+
+**`sashSizes` 为 0、`disabled`、`inert`**
+- `sashSizes` 为 0：两边都不渲染接缝和装饰带，`aria-disabled="true"`、`data-disabled`、`tabindex=-1`、不响应指针（新 `SashHandle.vue:68-69、298、318`）。
+- `disabled`：两边手势都不起，装饰带不亮，静止接缝照画。
+- `inert`：是未声明属性，两边都落到根元素。
+
+**DOM**
+- 根元素：
+  - 旧：Tailwind 类 `flex h-full w-full overflow-hidden flex-row`。
+  - 新：`nb-splitter nb-splitter--horizontal`（scoped CSS）。
+  - `data-splitter`、`data-splitter-axis` 不变。
+- 面板：`nb-grid-panel`、`data-panel-id`、`data-state`、`data-animating`、内联 `width` 和 `flex` 都不变。
+- 分隔线：
+  - 元素和层级相同：`role="separator"`、`data-sash="panels:<i>"`、四个 `data-sash-*` 状态、内含 `.sash-seam` 和 `.sash-line`。
+  - 旧版的 Tailwind 类名换成 `nb-splitter__sash`、`nb-splitter__sash--horizontal|--vertical`、`nb-splitter__sash--seam`（`--horizontal` 对应竖线）。
+  - 新增 `.sash-seam` 上的 `data-beside-zero`（前后任一面板为 0 时，样式令 `visibility:hidden`，`SashHandle.vue:71、324、385-387`）。
+- 层叠：新版是不分层的 scoped 样式，会压过宿主分层的 Tailwind 工具类。现在传的 `h-full`、`min-h-0 flex-1` 不冲突；以后若在 Splitter 上加 `overflow-visible` 这类类，会输给 scoped 样式。
+
+## 3. 逐个使用方
+
+**共同的改动**
+- `dev-panel/package.json` 的 `dependencies` 加 `"@notnotype/nb-layout": "workspace:*"`。
+- `nb-story/package.json` 的 `devDependencies` 加 `"@notnotype/nb-layout": "workspace:^"`（它的网页打进 `dist/web`，与 nb-ui 同类）。
+- 然后 `bun install` 更新 `bun.lock`。根 `node_modules` 里已有 nb-layout 的软链，本地能解析，但声明要补。
+- 导入 `/vue` 会拉进整套 Vue 入口和 `global.css`，体积影响没量过。
+
+**`dev-panel/src/web/App.vue`**
+- 要改：
+  - `:2` 的导入按第 1 节拆成两条。
+  - `:21`、`:109`、`:128` 的注释把“nb-ui 的 Splitter”改掉。
+  - 模板 `:405-467` 和 `onNavGestureEnd`（`:163`）不用改。
+- 会坏的东西：没有。
+- 看得见的变化：左栏收起（用户收起或专注页自动收起，宽屏）时，内容区左缘那条 1px 接缝新版不画，旧版照画（旧 `:646-652`）。窄屏本来 `sash=0`，没有。
+- 另外，接缝按目标尺寸判断，不等动画跑完：收起一开始它就消失，展开一开始就出现。从代码推断。
+- 悬停线、拖动、键盘、nbook 主题的 `--sash-line-inset: 16px` 都不变。
+
+**`dev-panel/src/web/pages/ArtifactPage.vue`**
+- 要改：`:2` 的导入同上，`:29-30`、`:159`、`:176-178` 的注释改名。模板 `:245-283` 不用改，`toggleable: false` 两边都支持。
+- 会坏的东西：没有，`tests/web-*.test.ts` 没按分栏 DOM 写。
+- 看得见的变化：宽屏答题栏收起时，页面与答题栏之间的 1px 接缝不再画。展开后外观不变。
+
+**`nb-story/src/web/shell/BookFrame.vue`**
+- 要改：`:7`、`:9` 的导入（`Splitter` 和 `SplitterPanelConfig` 换到 `/vue`），`:111` 注释里的变量名改成 `--nb-layout-motion-move`。模板 `:257-298` 不用改，`onGestureEnd` 的结构类型可直接赋值。
+- 依赖点仍成立：逐帧改面板宽度；`absolute inset-y-0 right-0` 依赖面板 `relative` 加 `overflow:hidden`，两边都有；`StoryNetwork.vue:793` 的注释仍对。
+- e2e：`nb-story/e2e` 里没有按 Splitter、sash、`data-splitter`、`nb-grid-panel` 写的定位。“收起抽屉后重画”（`viewer.e2e.ts:262-273`）按 `data-testid` 和宽度轮询，没跑。
+- 看得见的变化：抽屉关闭（收到 0）时，主区右缘不再多一条线；展开后抽屉自己有 `border-l`，外观不变。导航收到 44px 不是 0，接缝照画。
+
+**其余几处**
+- `ready.ts`、`sample.ts`、`dev-ops.ts` 里的 `LineSplitter` 是按行切子进程输出的类，与分栏无关，不用动。
+- `web-scroll-containers.test.ts` 只在注释里提 Splitter，断言按 `.vue` 源码文本和 `app.css` 的 `.nbdev-scroll-y`，不会失败。`app.css:54` 同上，只是注释。
+- `StoryNetwork.vue:793` 只是注释，不变。
+- 在两个包的 `src`、`tests`、`e2e` 里，没有任何代码按 `data-splitter`、`data-panel-id`、`role="separator"`、`.sash-line` 找元素。
+
+## 4. 主题变量
+
+**新版 Splitter 读的变量**
+- 动效：`--nb-layout-motion-fast`（装饰线淡入淡出）、`--nb-layout-motion-move`、`--nb-layout-ease-layout`。
+- 悬停线：`--nb-layout-sash-line-color`、`-size`、`-inset`、`-radius`、`-glow`。
+- 静止接缝：`--nb-layout-divider`（桥接）、`--nb-layout-splitter-seam`、`--nb-layout-splitter-seam-inset`。后两个是宿主旋钮，不桥接。
+- 行内临时变量：`--nb-layout-sash-core-start`、`--nb-layout-sash-core-size`。
+
+**nb-ui 是否都接上：是。**
+- `tokens.css:276-314` 在 `:root` 上写了桥接，源变量 `--sash-line-*`（`:244-248`）、`--motion-move`、`--ease-layout`、`--divider`（`:223`）都有定义。
+- nbook 主题的覆盖（`vars.css:334` 的 `--sash-line-inset: 16px`）写在 `:root[data-nb-theme="nbook"]` 上，与桥接同一元素，会正确传到新变量。
+- 子树里改旧名 `--sash-line-*` 对新版无效，要直接改 `--nb-layout-*`。仓库里没人这么做。
+- 旧的 `--nb-splitter-seam`、`--nb-splitter-seam-inset` 改名为 `--nb-layout-splitter-seam`、`--nb-layout-splitter-seam-inset`，两个宿主都没设过旧名。
+- 悬停线颜色的回退值变了（旧 `--accent-main`，新系统色 `Highlight`），但 `tokens.css` 一直定义着 `--sash-line-color`，实际颜色相同。
+
+**样式入口要不要加东西：不用。**
+- `dev-panel/src/web/app.css:10-11` 和 `nb-story/src/web/app.css:9-12` 都已 `@import "@notnotype/nb-ui/tailwind.css"`，里面带桥接。
+- 两个宿主都把 nbook 主题装在 `<html>` 上。
+- nb-layout 的样式是 scoped CSS，不用宿主 `@source`。
+- `dev-panel/tests/web-build.test.ts` 会真跑 `vite build`，检查每条 `-webkit-backdrop-filter` 都有同值的无前缀写法。新带进来的 `DropIndicatorLabel.vue:32-33` 两条都写了，值相同，从代码推断不会触发失败。没跑构建核实。
+
+## 草稿里要订正的三处
+
+`report-draft.txt` 里三处行号写错，我想改但编辑被拒了，改正如下：
+- `dev-panel/src/web/app.css` 的焦点环规则在 `:41`（草稿写成 `:36-39`）。
+- 两个 `app.css` 的 `@import` 行号是 `dev-panel/src/web/app.css:10-11` 和 `nb-story/src/web/app.css:9-12`（草稿写的是 `12-13` 和 `10-13`）。
+
+没验证的：浏览器里的渲染与过渡、`vite build` 的体积、`vue-tsc` 对三处使用方的类型检查。

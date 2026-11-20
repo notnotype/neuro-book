@@ -1,0 +1,112 @@
+# t14 设计审查（Claude Sonnet 5.5，claude -p，2026-11-19）：计划第 1 稿
+# 说明：.local/agent/works/w00026-layout-package/tasks/t14-splitter-migration/reports/design-review/brief.md（本地）；报告即审查者的最终回复，原样保存。
+
+t14 计划第 1 稿设计审查（只读）。`vite build` 和 `vue-tsc` 的实验在本会话需要审批、被拒，没有跑成，涉及构建和类型的结论都是从代码推断的。
+
+### 1. 开发者面板的构建输入与“代码已更新”提示只认 nb-ui，迁移后 nb-layout 的改动不会触发重建
+**严重程度**：重要　**类别**：遗漏
+**位置**：`packages/dev-panel/src/server/build.ts:34-40`；`packages/dev-panel/src/server/state.ts:50`；`packages/dev-panel/docs/panel.md:381`；plan.md 没有提到
+**现象**：`computeBuildHash` 的输入写死为面板的 `src/web`、nb-ui 整个包目录、`vite.config.ts`、`tsconfig.web.json`、`package.json` 和根 `bun.lock`。`CODE_PATHS = ["packages/dev-panel", "packages/nb-ui", "bun.lock"]` 与它一致，用来判断“代码已更新”。面板网页除 nb-ui 外没有别的工作区源码依赖，nb-layout 是第一个。迁移后 `dist/web` 里编进了 `packages/nb-layout/src/**`，但它不在这两处。第一次合入会因为 `package.json` 与 `bun.lock` 变了而重建一次。之后 nb-layout 的任何改动（w00026 里它改得最密）都不改 `.build-hash`，`panel serve` 不重建，“代码已更新”横幅也不出。
+**为什么是问题**：面板是开发者每天用的工具，用旧前端不会有任何提示。nb-layout 的分栏修复，正是 t14 要让面板吃到的，送不到面板。nb-story 没有这个问题，因为 `web-stamp.ts` 按打包时见到的实际模块 id 记，路径含工作区其它包。这是面板独有的硬编码清单。
+**如何核实**：读上述三处；`rg -n "packages/nb-ui" packages/dev-panel/src/server`。`tests/panel-server.test.ts:756` 用 `computeBuildHash` 造哈希，加路径不会破坏它，因为 `walk` 对不存在的目录直接返回。
+**建议改法**：第 1 片把 `packages/nb-layout` 同时加进 `computeBuildHash`（整棵走，跳过 `node_modules`）和 `CODE_PATHS`。同步改 `build.ts:10-11` 的注释和 `panel.md:381` 的输入清单。补一条断言：改 nb-layout 里一个文件，哈希和 `readCodeKey` 都变，可加在 `panel-server.test.ts` 的夹具里。
+
+### 2. 验收映射覆盖不到迁移真正改的东西：拖动、键盘、读屏名称、`gesture-end` 载荷在 nb-story 里没有浏览器检查
+**严重程度**：重要　**类别**：验收映射
+**位置**：plan.md:62-75；`docs/specs/story/viewer.md:39`
+**现象**：
+- Spec `story/viewer` 输出 1 写的行为是：分隔条可拖，导航与抽屉拖过阈值收起、反向拖回展开，也可以用按钮。
+- 读 `packages/nb-story/e2e/*.e2e.ts`：没有一条用例拖分隔线、对 `role=separator` 按键、读 `aria-label` 或 `aria-valuetext`。与分栏有关的只有 `viewer.e2e.ts:263-276`（关抽屉后画布变宽）和几处 `setViewportSize` 的档位切换。
+- 验收表里“发布不受影响”挂的 `release:smoke`，其 `pack-smoke.ts:157-198` 的 `smokeServe` 只打开书架页与设置页，不进 `BookFrame`。它对“BookFrame 里的分栏照旧”没有证据价值。
+- 迁移改的正是事件接线：`BookFrame.vue:149-159` 读 `state.collapsed.nav/drawer` 与 `state.sizesPx[2]`，决定关抽屉、重开抽屉、记宽度。`App.vue:163-171`、`ArtifactPage.vue:193-201` 读 `state.collapsed[id]`、`state.sizesPx`。
+- 等价性只靠 drift.txt 的一次 `solveSashDrag` 实测，它只覆盖三种拖动：导航左拖吸到 44、抽屉右拖到 0、拖到最大 640。没测从收起状态拖开（`expandThreshold`、`restoreSize`），也没测键盘 Enter、Home、End。宿主的 `collapsed.drawer === false → book.reopenDrawer()` 走的就是这条。drift 自己列的三处求解差别（兄弟起点、`no-room-to-collapse`、诊断形状）也都标了“从代码推断”。
+- 计划里的截图探针同样看不到事件接线。
+**为什么是问题**：导入换错成别的组件、`gesture-end` 载荷字段不对、拖开收起面板的路径不通，e2e 与冒烟都会过。nb-layout 自己的 dom 测试守的是组件，不是两个宿主的接线。
+**如何核实**：`rg -n "separator|press\(|mouse\.(down|move)|aria-val" packages/nb-story/e2e`；读 `pack-smoke.ts` 的 `smokeServe`。
+**建议改法**：一次性探针里加三条真操作，改前改后各跑一遍对照。
+- 鼠标把抽屉分隔线拖窄一点、拖到 0（抽屉关闭）、再从 0 拖开（抽屉重开），读 `localStorage` 里的抽屉宽度。
+- 导航分隔线按 Home、End、Enter，读 `aria-label`、`aria-valuenow`、`aria-valuetext`。
+- `prefers-reduced-motion: reduce` 下收起抽屉，面板宽度不过渡。
+
+验收表里把 `release:smoke` 那一行收窄为“发布”，分栏照旧那一行改写为靠这三条探针与既有 e2e。
+
+### 3. 唯一看得见的变化落在计划不截图的那个宿主的日常路径上
+**严重程度**：建议　**类别**：验收映射
+**位置**：plan.md:74-75；pending-confirmations.md 最后一行
+**现象**：看得见的变化是“一侧为 0 时静止接缝不画”。开发者面板里它出现在两处：左栏收起时内容区左缘（`App.vue:131-143` 的 `collapsedSize: 0`），以及产物页答题栏收起时页面右缘（`ArtifactPage.vue:178-186`）。`App.vue:122-124` 在进评审板（路由元信息 `focus`）时自动收起左栏，评审板这一页的日常状态就是接缝消失。计划对面板“不截图、只有类型检查与构建”，`packages/dev-panel/tests/` 里也没有用例挂载 `App.vue` 或 `ArtifactPage.vue`，`web-scroll-containers.test.ts` 只读源码文本。drift 还指出接缝按目标尺寸判断、不等动画跑完（`SashHandle.vue:71`、`Splitter.vue:335-336`）：收起一开始线就消失，展开一开始线就出现。这条没进待确认清单。
+**为什么是问题**：待确认清单把这一处记为“低风险、展开时外观不变”，开发者拍板时没有任何收起态的图。
+**如何核实**：`rg -n "mount|App.vue|ArtifactPage" packages/dev-panel/tests`；读 `SashHandle.vue:70-71`。
+**建议改法**：`docs/cli.md:33` 写明 `nbdev panel serve` 有 `--port` 与 `--static-dir`。可以在 worktree 里用另一个端口、用 worktree 的构建产物起一份只读观察用的实例，再用 `nbdev shot --url` 或一次性探针截左栏展开/收起、答题栏展开/收起各一组（亮色）。起不来（状态根被占）就在汇报里照实写“没看过收起态”，并把动画头一帧接缝即消失或出现补进待确认清单。
+
+### 4. 迁移后仍写着“只给 nb-story、dev-panel 用”的文档，计划只列了一部分
+**严重程度**：建议　**类别**：遗漏
+**位置**：plan.md:29、36-38、52
+**现象**：迁移完成后下面这些说法变成假的，计划没有列全。
+- `packages/dev-panel/docs/panel.md:396` 与 `:406` 两处“nb-ui `Splitter`”。计划只写“产物页一行”，漏了 406 的外壳左栏那一行。
+- `docs/modules/monorepo-boundaries.md:18`：“nb-story、dev-panel 还在用 nb-ui 里冻结的 Splitter，t14 迁移”。plan.md:52 写“本 Task 不改”。
+- `packages/nb-layout/AGENTS.md:21`：“只给 nb-story、dev-panel 用……t14 迁移后删除”。
+- `packages/nb-ui/README.md:118` 与 `packages/nb-ui/src/components/layout/Splitter.md:7`：“冻结：只给 nb-story、dev-panel 用”。
+- 面板 `build.ts:10-11` 的注释与 `panel.md:381` 的输入清单（见第 1 条）。
+
+**为什么是问题**：删除延后之后，这些位置会长期留着“还有两个宿主在用”的错话，而 `monorepo-boundaries.md` 是包边界的真相源。
+**如何核实**：`rg -n "冻结|nb-ui 的 ?\`?Splitter|nb-ui \`Splitter\`" docs packages --glob '!**/node_modules/**' --glob '!packages/neuro-book-legacy/**'`。
+**建议改法**：第 1、2 片的提交里一并改，统一写成“宿主已迁到 nb-layout，只剩旧应用的夹具在用，留到旧应用退役再删”。
+
+### 5. 删除延后的理由“旧应用夹具挡住”站不住：旧应用对 nb-ui 的 `/layout` 子路径已有 39 个文件解析不到
+**严重程度**：建议　**类别**：上游选择、前提
+**位置**：plan.md:9、40-46；README.md“当前状态”第二条；pending-confirmations.md 倒数第二行
+**现象**：旧应用 `app/components/editor-workbench/EditorWorkbench.vue:12,22` 等 39 个文件从 `@notnotype/nb-ui/layout` 导入（`GridRenderer`、`SplitterGestureSource` 等）。`packages/nb-ui/package.json` 的 exports 里没有 `./layout`，只有 `.`、`./components`、`./composables` 等。旧应用对当前 nb-ui 早已编不过。夹具 `WorkbenchPanelSurfaceFixture.vue:14` 的 `import {Splitter} from "@notnotype/nb-ui/components"` 只是其中仍能解析的一处。
+**为什么是问题**：计划把“改旧应用那一行（连 `package.json` 加 nb-layout 依赖）”与“等旧应用退役”交给开发者选，却没说：改这一行没有功能收益（旧应用已经不可用），还要给旧应用加依赖。被迁就的不是“旧应用在用”，而是“旧应用只读”这条约束，旧应用的 nb-ui 导入早已失效。第三条路被漏掉：开发者同意把旧应用的这一处视为已失效、不为它保留，直接删 nb-ui 的 Splitter。
+**如何核实**：`rg 'nb-ui/layout' packages/neuro-book-legacy --glob '*.{vue,ts}' -c`；读 `packages/nb-ui/package.json` 的 exports。
+**建议改法**：待确认清单那一行补这条事实，选项写成三条（改旧应用一行／等退役／视旧应用的 nb-ui 导入已失效、直接删），交开发者定。
+
+### 6. 删除清单漏项，而且删的是已发布的 nb-ui 的公开导出
+**严重程度**：建议　**类别**：遗漏
+**位置**：plan.md:42-46；pending-confirmations.md 倒数第二行“回退成本”
+**现象**：计划写的删除对象是“组件、分隔线核心、导出、Lab 源、测试与文档”。读代码后还有这些：
+- `packages/nb-ui/e2e/splitter.spec.ts`；
+- `playground/app/acceptance/SplitterFixture.vue` 与 `definitions.ts:32`；
+- `src/components/default-text.test.ts:38,98`；
+- `src/locales/locales.test.ts:81-84`，以及 locales 目录里的 `splitter.*` 键；
+- `src/components/token-consumption.test.ts:39-40`（`--nb-splitter-seam*`）；
+- `components.test.ts:1789` 一带；
+- `README.md:118`；
+- `src/lab/sources.ts:6-15` 里排除 Splitter 的通配符。
+
+另外 nb-ui 在 `RELEASE_PACKAGES` 里（版本 0.4.0，已发布）。删 `Splitter` 与 `SplitterGesture*` 类型是发布包公开面的破坏性变化，计划没提版本与迁移说明（`docs/migration-0.4.md` 一类）。
+**为什么是问题**：待确认清单把删除写成“低成本、另起一个小 Task”。照这张清单做会漏 e2e、playground、locale 键，测试变红或留死代码，公开面破坏也没人登记。
+**如何核实**：`rg -n "Splitter" packages/nb-ui --glob '!**/node_modules/**' -l`。
+**建议改法**：把完整清单与“nb-ui 是发布包，删导出要写迁移说明、定版本”写进那一行。
+
+### 7. nb-layout 变成 nb-story 发布产物的构建输入，但不在发布门禁盯的目录里
+**严重程度**：建议　**类别**：边界（部分是已有做法）
+**位置**：`scripts/release/packages.ts:46-49`；`scripts/release/pack-smoke.ts:425-428`；`scripts/release/publish.ts:115-116`；plan.md:24-34、56-60
+**现象**：`prepack` 把 nb-layout 的源码编进 nb-story 的 `dist/web`（发布内容）。`releaseDirectories()` 只含 `RELEASE_PACKAGES` 的目录、应用包的源码目录与根 `LICENSE`，不含 `packages/nb-layout`。冒烟与发布的“没有未提交的改动、没有未跟踪的文件”门禁，以及“冒烟以来改过的文件”判断，都靠它。nb-layout 里有未提交的改动时，冒烟照样通过，打出的 nb-story 却“对不上任何提交”，`pack-smoke.ts:428` 要避免的正是这个。应用包 `packages/neuro-book` 早就把 nb-layout 编进去了，所以这是已有的缺口，t14 把它扩到 nb-story。
+
+另外，计划写的是 `workspace:*`，drift.txt 写的是 `workspace:^`。计划选 `*` 的依据是“同测试支持包”，这个依据成立。ADR 0054 第 6 条以后 nb-layout 要发布，那时 `checkReleasePackages` 会要求 nb-story 的这一项改回 `workspace:^`。
+**为什么是问题**：不影响这次迁移是否正确，但“打出来的包对应某个提交”的门禁多了一个盲区，而 nb-layout 是改得最勤的包。
+**如何核实**：读上述三处，对照 `RELEASE_PACKAGES`。
+**建议改法**：不必在 t14 修。在汇报或待确认清单里记一句“发布门禁没覆盖 nb-layout，应用包同样，第二档发布 nb-layout 时一并处理”。或者把 `releaseDirectories()` 加上“发布产物的构建输入包”一类（`private` 的 nb-layout、nb-workbench-layout）。
+
+## 未发现问题的方面
+- **发布前提成立**：
+  - `packages.ts:177-179` 允许 devDependencies 引用不在清单里的工作区包，`neuro-book-test-support` 已是 `workspace:*` 的先例。
+  - `files` 排除 `src/web`，`undeclaredImports` 只扫发布文件，`pack-smoke.ts:34` 的 FORBIDDEN 也含 `^package/src/web/`。
+  - 发出去的 nb-story 里 `src` 其余部分不导入 nb-layout，`dist/web` 是打包产物，没有运行时还要解析 nb-layout 的地方。
+- **两份 Splitter 的公开面一致**：props、事件载荷（对比 `splitter-gesture.ts`、`splitter-session.ts` 的 diff，只有类型名与诊断形状不同）、插槽都一致。三处使用方没传 `branchId`、`sashLineEnds`、`restoreToShare`，也没用旧类型名（grep）。
+- **`global.css` 对宿主**：只写 `--nb-layout-motion-*`（减少动效时归零）与 `.nb-layout-focus-ring`，宿主没有同名选择器。与 nb-ui `tokens.css:332-340` 归零 `--motion-move` 一致，`BookFrame.motionMs()` 读旧名结果相同。
+- **scoped 样式与 Tailwind 分层**：宿主在 Splitter 上只传 `h-full`、`min-h-0 flex-1`，与 scoped 的 `width/height: 100%` 同值或不冲突。nb-ui 旧 Splitter 的 `<style>` 是 scoped，不会渗进 nb-layout 的元素。
+- **同一页面两份**：迁移后两个宿主只有 nb-layout 一份。nb-ui、nb-agent-ui、nb-markdown、nb-form 都不导入 nb-layout，不会出现两份 nb-layout 的模块级注册表（`NestedGrid.md:210` 提醒的那个）。nb-ui 的 Splitter 只在 nb-ui 自己的 playground、e2e 与旧应用里用。
+- **`test:affected`**：`scripts/ci/workspace-graph.ts` 把 devDependencies 也算依赖，nb-layout 改动会带出 nb-story 与 dev-panel 的测试。
+- **nb-story 的“网页比源码旧”提示**：`web-stamp.ts` 按实际模块 id 记，nb-layout 的改动能被发现。
+- **类型**：dev-panel 的 `lib` 是 ES2022，nb-layout 是 ESNext，grep 没找到 ES2023 及以后的 API。vue-tsc 没能运行，未验证。
+- **体积**：`@notnotype/nb-layout/vue` 入口会带进整套 Vue 层与 `global.css`，nb-layout 没有声明 `sideEffects`，能否摇树我没验证（`vite build` 被拒）。计划已把这条列为风险并安排量产物，不重复。
+
+## 数量
+阻断 0；重要 2（第 1、2 条）；建议 5（第 3 至 7 条）。
+
+## 对待确认清单最后两行（t14）的判断
+- **倒数第二行（不删 nb-ui 里冻结的那一份）**：结论可接受，但事实依据要补。旧应用已有 39 处解析不到 `@notnotype/nb-ui/layout`，不是“夹具挡住”，而是“旧应用只读”这条约束，选项要写成三条。回退成本要补上漏掉的 e2e、playground、locale 键，并写明 nb-ui 是已发布的包（第 5、6 条）。
+- **最后一行（一侧为 0 时接缝不画）**：方向可接受，这是 nb-layout 的既有行为。但“展开时外观不变”之外要补两点：收起态没有看过图（评审板的日常就是收起态），以及接缝按目标尺寸判断、动画头一帧就消失或出现。回退成本里“宿主覆盖 `data-beside-zero` 的隐藏”，依赖的是没写进文档的内部属性与 scoped 选择器，改成“nb-layout 加一个主题变量”更稳（第 3 条）。
+
+有效发现编号：1、2、3、4、5、6、7

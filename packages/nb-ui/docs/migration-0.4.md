@@ -69,6 +69,33 @@
 
 不变：`@notnotype/nb-ui/grid` 仍是单独的入口，给不能带上 Vue 与 DOM 的消费者（插件激活时建的模型、Bun 里的测试）；`./layout` 含组件。
 
+## 0.4 之后：`Splitter` 移到 nb-layout
+
+nb-ui 不再导出 `Splitter` 与它的手势类型（w00026 t14）。同一个组件在 `@notnotype/nb-layout` 里：组件与配置类型从 `@notnotype/nb-layout/vue` 取，手势状态类型从 `@notnotype/nb-layout` 取。属性、插槽与事件的形状不变。不同的地方：
+
+- 只给内嵌网格用的 `branchId`、`sashLineEnds` 两个属性没有了。
+- 分隔线的读屏名称与数值说明（“调整 X 与 Y 的宽度”“已收起”“N 像素”）改由 nb-layout 取：没有注入时用它自带的中文目录；要别的语言，经 `@notnotype/nb-layout/text` 的 `LAYOUT_TEXT_KEY` 注入翻译函数（见 nb-layout 的 README“文字”）。nb-ui 文字目录里的 `splitter.*` 键已删，原来在 nb-ui 的文字端口里覆盖这几条的，要改到 nb-layout 那边。
+- 一侧收到 0 时不再画那条静止接缝。
+- 相邻面板吸收不了让出的空间时，收起被拒绝、面板保持展开（旧版照收）。
+- 焦点在禁用的分隔线上时，按键不起作用。
+
+| 名字 | 旧 | 新 |
+|---|---|---|
+| `Splitter`、`SplitterPanelConfig` | `@notnotype/nb-ui/components` | `@notnotype/nb-layout/vue` |
+| `SplitterGestureState`、`SplitterGestureCancellation` | `@notnotype/nb-ui/components` | `@notnotype/nb-layout` |
+| `SplitterGestureSource`、`SplitterGestureCancelReason` | `@notnotype/nb-ui/components` | 改名 `SashGestureSource`、`SashGestureCancelReason`，从 `@notnotype/nb-layout` 取 |
+
+```ts
+// 旧
+import {Splitter, type SplitterPanelConfig, type SplitterGestureState} from "@notnotype/nb-ui/components";
+
+// 新
+import type {SplitterGestureState} from "@notnotype/nb-layout";
+import {Splitter, type SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+```
+
+宿主要在 `package.json` 里加 `@notnotype/nb-layout` 依赖。nb-layout 目前还没有发布到 npm（发布排在 [ADR 0054](../../../docs/adr/0054-nb-layout-general-library.md) 的第二档）：在仓库外从 npm 用 nb-ui 的 `Splitter` 的，先留在 0.4。nb-layout 的组件样式自带；它读的主题变量（`--nb-layout-*`）由 nb-ui 的 `tokens.css` 接到 nb-ui 的主题变量上，宿主照常引入 `tokens.css` 即可。
+
 ## 发版时一起改
 
 - 四个内置主题 `themes/*/manifest.ts` 的 `hostVersion` 改成 `^0.4.0`，`src/version.ts` 的 `NB_UI_VERSION` 同步；否则主题装载器按 `^0.3.0` 拒绝全部内置主题。

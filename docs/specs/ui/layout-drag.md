@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 落点的几何与规则：工作台布局的在 [ui.workbench-layout](workbench-layout.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
-- 实时布局的让位、粘滞与稳定时长：见 [ui.workbench-layout](workbench-layout.md) 输出 38，这里只有放下规则的开关（`commitsUnderPointer`）。
+- 实时布局的让位、粘滞与稳定时长：见 [ui.workbench-layout](workbench-layout.md) 输出 38。这里只有放下规则的开关（`commitsUnderPointer`），和两样跟手的零件：拖动卡片的逐帧步进与按需排帧的帧循环（输出 20、21）；卡片缩到多大、什么时候要卡片由宿主定。
 - 分隔线手势：见 [ui.nested-grid](nested-grid.md)。
 - 跨窗口拖动。
 
@@ -113,6 +113,39 @@ export interface DragKeyboardOptions<S, R> {
     refocus(source: S): HTMLElement | null;
 }
 
+// 跟手的零件（@notnotype/nb-layout：纯 TS，时钟与排帧由调用方给）
+export interface DragCardSize { readonly width: number; readonly height: number }
+export interface DragCardOptions {
+    readonly tauMs?: number;          // 缺省 90
+    readonly stillPx?: number;        // 缺省 0.1
+    readonly refreshSlackMs?: number; // 缺省 2
+}
+export interface DragCardFrame {
+    readonly now: number;
+    readonly elapsed: number;
+    readonly pointer: GridDropPoint;
+    readonly origin: GridDropPoint;   // 网格根左上角的视口坐标
+    readonly target: DragCardSize;
+    readonly refreshMs?: number;      // 缺省 0：每帧都可以写尺寸
+}
+export interface DragCard {
+    step(frame: DragCardFrame): {readonly rect: GridRect | null; readonly settling: boolean};
+}
+export function createDragCard(from: GridDropRect | null, pointer: GridDropPoint, fallback: DragCardSize, options?: DragCardOptions): DragCard;
+
+export interface FrameLoopOptions {
+    requestFrame(run: (now: number) => void): number;
+    cancelFrame(frame: number): void;
+    frame(now: number, elapsed: number): boolean;
+    readonly nominalMs?: number; // 缺省 1000 / 60
+}
+export interface FrameLoop {
+    start(): void;
+    wake(): void;
+    stop(): void;
+}
+export function createFrameLoop(options: FrameLoopOptions): FrameLoop;
+
 // 落点登记
 export function registerDropTarget<T>(element: Element, kinds: ReadonlyArray<DropKind<T>>, data: () => T): () => void;
 export function useDropTarget<T>(element: Readonly<Ref<Element | null>>, kinds: ReadonlyArray<DropKind<T>>, data: () => T): void;
@@ -144,6 +177,18 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 17. **不画东西**：会话不创建元素，除了只读 `data-drag-feedback`，也不读写 DOM 标记。拖影、插入线、高亮都由宿主按 `state` 与 `onEnd` 画，所以换一种反馈不用改会话。
 18. **组件里的会话**：`useDragSession(root, createOptions)` 在有根时建会话：调用时根已有值就立即建，模板 ref 的根在组件挂载后的那次刷新里建（挂载回调里还是 null）。根换了先销毁旧的再建新的，根没了或所在的作用域结束时销毁；换根与销毁时进行中的拖动按销毁收尾。返回会话与它的 `state`，没有根时两者都是 null。
 19. **组件里的会话：选项**：`createOptions(root)` 每在一个根上建会话时调一次，交回这个会话的选项，会话建好后不再读（选项里读到的响应式值之后变了，会话不重建）。`createOptions` 抛错时这个根上没有会话（`session` 为 null），错误交给应用的错误处理。
+20. **拖动卡片**：拖动中跟手的那张卡片，逐帧缩放并追到指针下。
+    - **拿起**：`createDragCard(from, pointer, fallback)` 从内容此刻所在的矩形（视口坐标）拿起：尺寸是这个矩形的；抓住的点是指针在它上面的比例，夹在 0 到 1；追赶量是这个矩形与“抓住的点在指针下”的位置之差。`from` 为 null、宽或高不是正的有限数时，尺寸是 `fallback`，抓在上沿中点，不追赶。
+    - **一帧**：`step` 把尺寸按 `1 - e^(-elapsed / tauMs)` 的比例向 `target` 逼近，追赶量同样向 0 逼近；离终点不到 `stillPx` 就取终点，逼近才有尽头。第一次 `step` 不按时间逼近（离终点不到 `stillPx` 时照样取终点）。`elapsed` 不是有限数或为负时按 0。
+    - **交回的矩形**：相对 `origin`，宿主不用自己换算。尺寸取整到像素；位置按画出来的尺寸算，抓住的点一直在指针下（缩放中也是），再加上追赶量。
+    - **写的频率**：位置每帧跟手。尺寸至多每 `refreshMs` 变一次，帧的时间戳差 `refreshSlackMs` 以内算到了；尺寸到了终点那一帧马上写。和上一次交回的矩形相同时交回 `null`。
+    - `settling` 为真是尺寸或追赶还没到终点，宿主要再排一帧。卡片不要了就丢掉这个对象，再要时重新拿起。
+21. **帧循环**：`createFrameLoop` 按需排帧，没有要做的事就停，按住不动时不空转。
+    - `start()` 撤掉排着的帧并排第一帧。`frame` 返回真才排下一帧，返回假就停；停着时 `wake()` 排一帧。没有 `start` 或 `stop()` 之后，`wake` 不排。
+    - `elapsed` 是离上一帧的毫秒数，时间戳回退时是 0；`start` 之后与停过之后的第一帧是 `nominalMs`：真实间隔可能是好几秒，按它算，缩放一步就到了终点。
+    - 跑一帧的过程中调 `wake` 不另排，由这一帧的返回值决定。帧里调了 `stop`，返回真也不再排；帧里 `stop` 之后又 `start`，只排 `start` 的那一帧。
+    - `frame` 抛错时异常照常抛出，循环回到停着，之后 `wake` 照常排。
+    - 和会话一起用：宿主在指针移动时调 `wake`，这个监听要先于会话在按下时挂的 `pointermove` 监听挂上（例如建会话时就挂）。这样帧循环的帧排在会话发布的帧前面，一帧里先判定（读 DOM）、再写卡片；挂反了不报错，只是每帧多一次强制的样式重算。
 
 ## 状态与转换
 
@@ -190,11 +235,11 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 
 无头 Chrome 没有真实的窗口失焦与页面隐藏，这两种取消由派发 `blur`、`visibilitychange` 事件验证。
 
-Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`workbench-dnd.e2e.ts`、`editor-area.e2e.ts`、`files-explorer.e2e.ts`。
+Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`workbench-dnd.e2e.ts`、`editor-area.e2e.ts`、`files-explorer.e2e.ts`；拖动卡片与帧循环（输出 20、21）是 `workbench-live-drag.e2e.ts`、`workbench-drag-cost.e2e.ts`。
 
 ## 证据
 
-- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md) 第 3、10 节（开发者 2026-11-05 接受）；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。
-- 实现入口：[`nb-layout/src/drag-gesture.ts`](../../../packages/nb-layout/src/drag-gesture.ts)、[`nb-layout/src/vue/drag-session.ts`](../../../packages/nb-layout/src/vue/drag-session.ts)、[`nb-layout/src/vue/useDragSession.ts`](../../../packages/nb-layout/src/vue/useDragSession.ts)、[`nb-layout/src/vue/drop-targets.ts`](../../../packages/nb-layout/src/vue/drop-targets.ts)
-- 合同测试：[`nb-layout/src/drag-gesture.test.ts`](../../../packages/nb-layout/src/drag-gesture.test.ts)、[`nb-layout/src/vue/drag-session.dom.test.ts`](../../../packages/nb-layout/src/vue/drag-session.dom.test.ts)、[`nb-layout/src/vue/useDragSession.dom.test.ts`](../../../packages/nb-layout/src/vue/useDragSession.dom.test.ts)（输出 18、19）、[`nb-layout/src/vue/drop-targets.dom.test.ts`](../../../packages/nb-layout/src/vue/drop-targets.dom.test.ts)
-- Smoke：[`e2e/lab-drag-session.e2e.ts`](../../../packages/neuro-book/e2e/lab-drag-session.e2e.ts)、[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)、[`e2e/files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)
+- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md) 第 3、10 节（开发者 2026-11-05 接受）；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)；输出 20、21 依据[通用布局库提案](../../proposals/nb-layout-general-library.md)的“手感引擎分两步”（开发者 2026-11-18 接受）。
+- 实现入口：[`nb-layout/src/drag-gesture.ts`](../../../packages/nb-layout/src/drag-gesture.ts)、[`nb-layout/src/vue/drag-session.ts`](../../../packages/nb-layout/src/vue/drag-session.ts)、[`nb-layout/src/vue/useDragSession.ts`](../../../packages/nb-layout/src/vue/useDragSession.ts)、[`nb-layout/src/vue/drop-targets.ts`](../../../packages/nb-layout/src/vue/drop-targets.ts)、[`nb-layout/src/drag-card.ts`](../../../packages/nb-layout/src/drag-card.ts)、[`nb-layout/src/frame-loop.ts`](../../../packages/nb-layout/src/frame-loop.ts)（输出 20、21）
+- 合同测试：[`nb-layout/src/drag-gesture.test.ts`](../../../packages/nb-layout/src/drag-gesture.test.ts)、[`nb-layout/src/vue/drag-session.dom.test.ts`](../../../packages/nb-layout/src/vue/drag-session.dom.test.ts)、[`nb-layout/src/vue/useDragSession.dom.test.ts`](../../../packages/nb-layout/src/vue/useDragSession.dom.test.ts)（输出 18、19）、[`nb-layout/src/vue/drop-targets.dom.test.ts`](../../../packages/nb-layout/src/vue/drop-targets.dom.test.ts)、[`nb-layout/src/drag-card.test.ts`](../../../packages/nb-layout/src/drag-card.test.ts)（输出 20）、[`nb-layout/src/frame-loop.test.ts`](../../../packages/nb-layout/src/frame-loop.test.ts)（输出 21；“和会话一起用”的监听次序没有单元测试，由 `workbench-drag-cost.e2e.ts` 的每帧至多一次样式重算间接守着）
+- Smoke：[`e2e/lab-drag-session.e2e.ts`](../../../packages/neuro-book/e2e/lab-drag-session.e2e.ts)、[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)、[`e2e/files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)、[`e2e/workbench-live-drag.e2e.ts`](../../../packages/neuro-book/e2e/workbench-live-drag.e2e.ts)、[`e2e/workbench-drag-cost.e2e.ts`](../../../packages/neuro-book/e2e/workbench-drag-cost.e2e.ts)

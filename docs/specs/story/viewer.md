@@ -198,7 +198,7 @@ Smoke：真实独立服务与 Chromium，100 章样例书，宽屏与平板两�
 ## 实现合同
 
 - **公开入口**：页面地址（形状见“边界与兼容”）；页面组件取数只经注入的查询客户端（`STORY_CLIENT`，独立服务里是经 `POST /api/rpc` 的 HTTP 客户端），以后嵌进插件时换注入的客户端。
-- **owner 与依赖方向**：nb-story 的网页（`src/web`，Vue 3、nb-ui、Sigma.js 与 graphology；问答页另用 nb-agent-ui、nb-markdown，设置页用 nb-form，推送用 eventsource-parser 切事件）。网页只依赖本包的合同（`src/contract/`，不碰 node）与查询客户端，不导入核心库、书库与问答引擎；方法由 [`story.queries`](queries.md)、[`story.ingest`](ingest.md) 与 [`story.qa`](qa.md) 提供。问答页与设置页按需加载，不进其他页面的首屏。
+- **owner 与依赖方向**：nb-story 的网页（`src/web`，Vue 3、nb-ui、分栏用 nb-layout（只进前端构建）、Sigma.js 与 graphology；问答页另用 nb-agent-ui、nb-markdown，设置页用 nb-form，推送用 eventsource-parser 切事件）。网页只依赖本包的合同（`src/contract/`，不碰 node）与查询客户端，不导入核心库、书库与问答引擎；方法由 [`story.queries`](queries.md)、[`story.ingest`](ingest.md) 与 [`story.qa`](qa.md) 提供。问答页与设置页按需加载，不进其他页面的首屏。
 - **现状**：输出 25 的“点、名字互不重叠”标 `(planned)`：排版按名字宽度把点推开，名字只画在点的右边却按以点为中心的圆估算，个别名字仍会压到相邻的点。其余条目已实现。
 - **关键不变量**：
   - 阅读位置变了，旧位置请求晚到的结果一律丢弃，不显示到新位置的页面上（`viewer.e2e.ts` 的时序一组）。

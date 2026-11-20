@@ -30,7 +30,7 @@ import type {WorkbenchTextKey} from "../../shared/text";
 import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
+import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
 import {focusLandings, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
@@ -426,23 +426,41 @@ function toolHeadEvents(panelId: string): Record<string, (...args: never[]) => v
 
 // ── “移动到” ──────────────────────────────────────────────────────────────
 
-const moveMenu = shallowRef<{readonly viewId: string; readonly x: number; readonly y: number; readonly identity: string} | null>(null);
+/** `container`：从底部面板并成一行的入口打开时是那个容器，菜单末尾接上它的“移到”（`openStripMenu`）；从标题打开时是 null。 */
+const moveMenu = shallowRef<{readonly viewId: string; readonly x: number; readonly y: number; readonly identity: string; readonly container: string | null} | null>(null);
 
-function openMoveMenu(key: string, at: {readonly x: number; readonly y: number}): void {
+const canMoveView = (key: string): boolean => {
     const viewId = viewIdOf(key);
-    if (viewId === null || catalog.value.get(viewId)?.movable === false) return;
-    moveMenu.value = {viewId, ...at, identity: viewIdentity(viewId)};
+    return viewId !== null && catalog.value.get(viewId)?.movable !== false;
+};
+
+function openMoveMenu(key: string, at: {readonly x: number; readonly y: number}, container: string | null = null): void {
+    const viewId = viewIdOf(key);
+    if (viewId === null || !canMoveView(key)) return;
+    moveMenu.value = {viewId, ...at, identity: viewIdentity(viewId), container};
 }
 
 watch(() => (moveMenu.value === null ? null : viewIdentity(moveMenu.value.viewId)), (identity) => {
     if (moveMenu.value !== null && identity !== moveMenu.value.identity) moveMenu.value = null;
 });
 
-/** 键盘关掉或选完之后，焦点回到打开它的标签（选完时标签可能已经在别的面板）；标签不在界面上时回活动栏里它那个容器的入口。点到外面时焦点归点到的地方。 */
+/** 视图的“移动到”里选的是容器的“移到”时记下那个容器：菜单先跑选中项的动作、再请求关闭，关闭时焦点按容器的规则走（`focusContainer`）。 */
+let movedContainer: string | null = null;
+
+/**
+ * 键盘关掉或选完之后，焦点回到打开它的标签（选完时标签可能已经在别的面板）；标签不在界面上时回活动栏里它那个容器的入口。
+ * 选的是容器的“移到”时去这个容器在新区域里的入口（输出 44）。点到外面时焦点归点到的地方。
+ */
 function closeMoveMenu(reason: ContextMenuCloseReason): void {
     const opened = moveMenu.value;
+    const moved = movedContainer;
     moveMenu.value = null;
+    movedContainer = null;
     if (opened === null || reason === "outside") return;
+    if (moved !== null) {
+        focusContainer(moved);
+        return;
+    }
     void nextTick(() => {
         const root = hostEl.value;
         (root?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`) ?? root?.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewSection(doc.value, opened.viewId)?.container ?? "")}"]`))?.focus({preventScroll: true});
@@ -463,7 +481,16 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const home = panelOfView(opened.viewId);
     const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
     const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || alone ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
-    const sections = [into, fresh, float, reset].filter((section) => section.length > 0);
+    // 入口代表的容器只有这一节（并成一行，输出 47）：它的“重置”就是视图的“重置位置”，只接“移到”。
+    const {container: owner} = opened;
+    const container = owner === null ? [] : containerMoveItemsOf(owner).map((item): ContextMenuItem => ({
+        ...item,
+        action: () => {
+            movedContainer = owner;
+            item.action?.();
+        },
+    }));
+    const sections = [into, fresh, float, reset, container].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{separator: true}, ...section]));
 });
 
@@ -573,50 +600,62 @@ const stripEntriesOf = (region: PanelName): RegionStripEntry[] => (region === "s
 
 const containerMenu = shallowRef<{readonly container: string; readonly x: number; readonly y: number} | null>(null);
 
-/** 容器的菜单（输出 44）。现在只有“重置”：容器有声明的区域、此刻不在那里时才有这一项。 */
+/** 容器的“移到”另外两个区域（输出 44）：整个容器搬过去（`moveContainer`）。 */
+const containerMoveItemsOf = (container: string): ContextMenuItem[] => containerMoveTargets(doc.value, container).map((region): ContextMenuItem => ({
+    label: message(`viewContainers.moveTo.${region}`),
+    action: () => props.layout.actions.moveContainer(container, region),
+}));
+
+/** 容器的菜单（输出 44）：“移到”另外两个区域，然后是“重置”（容器有声明的区域、此刻不在那里时才有）。 */
 function containerMenuItemsOf(container: string): ContextMenuItem[] {
+    const moves = containerMoveItemsOf(container);
     const home = containerHomeRegion(container, catalog.value, state.value.containers);
-    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return [];
-    return [{label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
+    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return moves;
+    return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
 }
 
 const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));
 
 /**
  * 入口条上入口的右键与菜单键（输出 44、47）：容器的菜单。底部面板并成一行时那一节的头不写标题，按下的入口就是它的标题：
- * 这个入口开那个视图的“移动到”（输出 23），和别处点它的标题一样。
+ * 这个入口开那个视图的“移动到”（输出 23），和别处点它的标题一样，末尾接上容器的“移到”；视图不让移动时只开容器的菜单。
  */
 function openStripMenu(region: PanelName, merged: string | null, container: string, at: {readonly x: number; readonly y: number}): void {
     const section = merged === null ? undefined : renderedDoc.value.panels[merged];
     const key = section?.active ?? null;
-    if (region === "panel" && section?.container === container && key !== null) {
-        openMoveMenu(key, at);
+    if (region === "panel" && section?.container === container && key !== null && canMoveView(key)) {
+        openMoveMenu(key, at, container);
         return;
     }
     openContainerMenu(container, at);
 }
 
-/** 一项都没有时不开：空菜单只会吃掉一次按键。 */
+/** 一项都没有时不开（容器没有成员了）：空菜单只会吃掉一次按键。 */
 function openContainerMenu(container: string, at: {readonly x: number; readonly y: number}): void {
     if (containerMenuItemsOf(container).length > 0) containerMenu.value = {container, ...at};
 }
 
-// 开着的时候菜单项没了（容器被别的途径搬回去了、成员走光了）：关掉，不留一个空菜单。
+// 开着的时候菜单项没了（成员走光了）：关掉，不留一个空菜单。
 watch(() => containerMenu.value !== null && containerMenuItems.value.length === 0, (stale) => {
     if (stale) containerMenu.value = null;
 });
 
-/** 键盘关掉或选完之后，焦点回到打开它的入口；容器搬出侧栏后入口不在了，去它第一个分节的标题。点到外面时焦点归点到的地方。 */
+/** 键盘关掉或选完之后，焦点回到这个容器的入口。点到外面时焦点归点到的地方。 */
 function closeContainerMenu(reason: ContextMenuCloseReason): void {
     const opened = containerMenu.value;
     containerMenu.value = null;
     if (opened === null || reason === "outside") return;
+    focusContainer(opened.container);
+}
+
+/** 焦点去这个容器的入口（搬走了就是新区域里的那一个）；入口够不着（例如活动栏隐藏）时去它第一个分节的标题。等这一轮渲染做完：搬走的入口这时才在新区域里。 */
+function focusContainer(container: string): void {
     void nextTick(() => {
         const root = hostEl.value;
         if (root === null) return;
-        const region = containerRegion(doc.value, opened.container);
-        const first = region === null ? undefined : regionContainers(doc.value, region).find((container) => container.id === opened.container)?.sections[0];
-        const candidates = [landingElement(root, {kind: "entry", container: opened.container}), first === undefined ? null : landingElement(root, {kind: "tab", panel: first})];
+        const region = containerRegion(doc.value, container);
+        const first = region === null ? undefined : regionContainers(doc.value, region).find((item) => item.id === container)?.sections[0];
+        const candidates = [landingElement(root, {kind: "entry", container}), first === undefined ? null : landingElement(root, {kind: "tab", panel: first})];
         candidates.find(reachable)?.focus({preventScroll: true});
     });
 }

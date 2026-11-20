@@ -7,17 +7,18 @@
 import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
-import type {Entry, FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
-import {Dialog} from "@notnotype/nb-ui/components";
+import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
+import {displayText} from "@notnotype/nb-canon/schema";
+import {Dialog, SegmentedControl, Select, Textarea} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
-import type {CanonClient, CanonOutputs} from "../../shared/contracts";
+import type {CanonClient, CanonOutputs, FoundEntry} from "../../shared/contracts";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
-import {useInPlaceEdit} from "../in-place-edit";
+import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
@@ -38,7 +39,14 @@ import EntryText from "./EntryText.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
 import {addressKey} from "./entry-text";
 import FieldsDataView from "./FieldsDataView.vue";
+import AgentNotice from "./AgentNotice.vue";
 import NoticeBar from "./NoticeBar.vue";
+import MoveDialog from "./MoveDialog.vue";
+import ElementDialog from "./ElementDialog.vue";
+import type {ElementField} from "./element-dialog";
+import type {EditIntent} from "./confirm-bar";
+import type {MoveDraft} from "./move-dialog";
+import {useEntryFind} from "./entry-picker";
 import OriginList from "./OriginList.vue";
 import PlotList from "./PlotList.vue";
 
@@ -160,7 +168,8 @@ const extraTabs = computed(() => {
 });
 const tabs = computed(() => {
     const items: {value: string; label: string; count?: number}[] = [];
-    if ((view.value?.text.length ?? 0) > 0) items.push({value: "text", label: text("entry.tabs.text")});
+    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
+    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
     for (const namespace of namespaces.value) {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
@@ -172,7 +181,9 @@ const tabs = computed(() => {
     items.push({value: "plot", label: text("entry.tabs.plot"), ...(total === undefined ? {} : {count: total})});
     return items;
 });
-const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : tabs.value[0]!.value));
+// 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
+const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0]! : tabs.value[0]!).value);
+const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : firstTab.value));
 const dataNamespace = computed(() => (tab.value.startsWith(DATA) ? tab.value.slice(DATA.length) : null));
 const extraTab = computed(() => (tab.value.startsWith(EXTRA) ? tab.value.slice(EXTRA.length) : null));
 
@@ -217,7 +228,14 @@ const toggleValue = (address: TextAddress): void => {
 const blocked = computed(() => writeBlocked(world));
 const readOnly = computed(() => readOnlyBanner(world));
 const editBlocked = computed(() => (state.planned ? canonText("blocked.planned") : blocked.value));
+/** 条目自己的名字与简介当作两个文字字段，确认条照字段的写法改它们（输出 16、页头的改名）。 */
+const HEAD_FIELDS: Readonly<Record<string, {readonly key: "name" | "summary"; readonly label: string}>> = {"entry.name": {key: "name", label: "entry.nameLabel"}, "entry.summary": {key: "summary", label: "entry.summaryLabel"}};
 const fieldAt = (path: string) => {
+    const head = HEAD_FIELDS[path];
+    if (head !== undefined) {
+        const value = view.value?.[head.key];
+        return {state: value === undefined ? undefined : ({value} as FieldState), declaration: {id: head.key, label: port.t(text(head.label as never)), kind: "text"} as FieldDeclaration};
+    }
     const split = path.indexOf(".");
     const namespace = path.slice(0, split);
     const field = path.slice(split + 1);
@@ -272,7 +290,8 @@ const record = async (path: string, input: {readonly text: string; readonly delt
 };
 
 /**
- * 删除条目（输出 19）：读出存下的条目，发布加了墓碑的版本。对话框在结果回来前不关、按钮不可用；失败时原因写在对话框里。
+ * 删除条目（输出 19）：一次改几处里的一项 `delete`（加墓碑，canon.revisions 输出 25）。对话框在结果回来前不关、按钮不可用；失败时原因
+ * 写在对话框里。
  * 成功后标签留着，按输出 8 显示已删除。
  */
 const deleteOpen = shallowRef(false);
@@ -283,16 +302,14 @@ const confirmDelete = async (): Promise<void> => {
     deleting.value = true;
     deleteError.value = "";
     const name = view.value?.name ?? "";
-    const stored = await props.client.call("object", {ref: {kind: "entry", id: props.id}});
-    const entryNow = stored.ok ? (stored.value.object as Entry | null) : null;
     const baseVersion = world.status.value.data?.version;
-    if (entryNow === null || baseVersion === undefined) {
+    if (baseVersion === undefined) {
         deleting.value = false;
-        deleteError.value = port.t(failureText(stored.ok ? {code: "version-conflict"} : stored.failure).text);
+        deleteError.value = port.t(failureText({code: "version-conflict"}).text);
         return;
     }
     const title = text("entry.deleteSaved", {name});
-    const result = await world.write("publish", {request: {requestId: `delete-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, puts: [{ref: {kind: "entry", id: props.id}, after: {...entryNow, deleted: true}}]}});
+    const result = await world.write("editEntries", {input: {requestId: `delete-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, ops: [{op: "delete", entry: props.id}]}});
     deleting.value = false;
     if (!result.ok) {
         deleteError.value = port.t(failureText(result.failure).text);
@@ -304,8 +321,300 @@ const confirmDelete = async (): Promise<void> => {
 
 const editHere = computed(() => {
     const draft = state.edit;
-    return draft !== null && dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
+    if (draft === null) return false;
+    // 名字、简介的确认条在哪个分页都显示；字段的只在它那个数据分页显示（切走再回来还在，输出 7）。
+    if (HEAD_FIELDS[draft.path] !== undefined) return true;
+    return dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
 });
+
+/* ---------- 页头的写入：别名、设定组的加去、移动、恢复（canon.revisions 输出 25 的一次改几处） ---------- */
+
+/** 页头的写入（别名、恢复）与打开对话框前的读取失败的原因，写在页头下面；切到别的分页时清掉。 */
+const actionError = shallowRef("");
+const acting = shallowRef(false);
+/** 对话框里的写入失败的原因，写在对话框里。同一时刻只开一个对话框，打开时清掉。 */
+const dialogError = shallowRef("");
+watch(tab, () => {
+    actionError.value = "";
+});
+/**
+ * 对话框打开时条目的版本：保存时带它，对话框开着的时候别处改了这个条目就得到冲突，不把别人的改动无声盖掉（canon.revisions
+ * 验收 1）。冲突以后清成 null：再保存一次带那时的版本，以对话框里填的为准。
+ */
+let dialogBase: number | null = null;
+const openDialog = (): void => {
+    dialogError.value = "";
+    dialogBase = version();
+};
+/** 发一批操作；成功给保存后的提示。对话框里的写入带打开时的版本，失败写在对话框里；页头的写入（`head`）失败写在页头下面。 */
+const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative", from: "dialog" | "head" = "dialog"): Promise<boolean> => {
+    if (acting.value) return false;
+    acting.value = true;
+    const error = from === "dialog" ? dialogError : actionError;
+    error.value = "";
+    const baseVersion = from === "dialog" && dialogBase !== null ? dialogBase : version();
+    const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion, title, intent, position: position.value, ops}});
+    acting.value = false;
+    if (!result.ok) {
+        const changed = from === "dialog" && result.failure.code === "version-conflict";
+        if (changed) dialogBase = null;
+        error.value = port.t(changed ? text("edit.changedElsewhere") : failureText(result.failure).text);
+        return false;
+    }
+    props.notices.show({revision: result.value.revision, title});
+    return true;
+};
+const changeAliases = (change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void => {
+    const name = view.value?.name ?? "";
+    const title = change.add !== undefined ? text("entry.aliasAdded", {name, alias: change.add.join("、")}) : text("entry.aliasRemoved", {name, alias: (change.remove ?? []).join("、")});
+    void runEntries([{op: "aliases", entry: props.id, ...(change.add === undefined ? {} : {add: [...change.add]}), ...(change.remove === undefined ? {} : {remove: [...change.remove]})}], port.t(title), "creative", "head");
+};
+const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
+
+// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。
+const addOpen = shallowRef(false);
+const addType = shallowRef("");
+const addableTypes = computed(() => {
+    const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
+    const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
+    return (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id)).map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
+});
+const confirmAdd = async (): Promise<void> => {
+    const type = addType.value;
+    if (type === "") return;
+    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})))) {
+        addOpen.value = false;
+        state.tab = `${DATA}${componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? ""}`;
+    }
+};
+// 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
+/** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
+/** 查到的一项换成选择器的候选：按别名命中的、还没出场的各有一句说明，两句都在时并排写。 */
+const candidateOf = (item: FoundEntry) => {
+    const notes = [...(item.matchedAlias === undefined ? [] : [port.t(text("entryPicker.alias", {alias: item.matchedAlias}))]), ...(item.appeared ? [] : [port.t(text("entries.unappeared"))])];
+    return {id: item.id, name: item.name, kind: item.kind, ...(notes.length === 0 ? {} : {note: notes.join(" · ")})};
+};
+const finderFor = (kinds: readonly string[]) => (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20, ...(kinds.length === 0 ? {} : {kinds: [...kinds]})}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map(candidateOf)} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
+const finder = finderFor([]);
+const parentFind = useEntryFind(() => finder);
+const sameAsFind = useEntryFind(() => finder);
+// 确认条里引用字段的选择器：按字段声明的 `targets` 筛；当前值的名字按 id 读一次条目。
+const refFind = useEntryFind(() => finderFor(edit.bar.value?.targets ?? []));
+const refId = computed(() => (edit.bar.value?.kind === "ref" && typeof edit.bar.value.value === "string" ? edit.bar.value.value : null));
+const refRead = useWorldRead(world, "entry", () => (refId.value === null ? null : {id: refId.value, position: position.value, mode: "actual" as const}));
+const refName = computed(() => refRead.value?.data?.view?.name);
+const moveOpen = shallowRef(false);
+const moveDraft = shallowRef<MoveDraft | null>(null);
+let moveFrom: MoveDraft | null = null;
+const openMove = async (): Promise<void> => {
+    actionError.value = "";
+    const stored = await props.client.call("object", {ref: {kind: "entry", id: props.id}});
+    const raw = stored.ok ? (stored.value.object as Entry | null) : null;
+    if (raw === null) {
+        actionError.value = port.t(failureText(stored.ok ? {code: "version-conflict"} : stored.failure).text);
+        return;
+    }
+    openDialog();
+    moveFrom = {parent: raw.parent, parentName: entry.value?.ancestors?.at(-1)?.name ?? "", folder: raw.folder, kind: raw.type, order: "keep", appears: raw.appears?.kind === "chapter" ? raw.appears.chapter : null, sameAs: raw.sameAs ?? null, sameAsName: entry.value?.sameAs?.name ?? ""};
+    moveDraft.value = moveFrom;
+    moveOpen.value = true;
+};
+const confirmMove = async (): Promise<void> => {
+    const draft = moveDraft.value;
+    const from = moveFrom;
+    if (draft === null || from === null) return;
+    const op: Extract<EntryOp, {op: "place"}> = {
+        op: "place",
+        entry: props.id,
+        ...(draft.parent === from.parent ? {} : {parent: draft.parent}),
+        ...(draft.folder === from.folder ? {} : {folder: draft.folder}),
+        ...(draft.kind === from.kind ? {} : {kind: draft.kind}),
+        ...(draft.order === "first" ? {after: null} : {}),
+        ...(draft.appears === from.appears ? {} : {appears: draft.appears === null ? null : {kind: "chapter" as const, chapter: draft.appears, key: 0}}),
+        ...(draft.sameAs === from.sameAs ? {} : {sameAs: draft.sameAs}),
+    };
+    if (Object.keys(op).length === 2) {
+        moveOpen.value = false;
+        return;
+    }
+    if (await runEntries([op], port.t(text("move.saved", {name: view.value?.name ?? ""})))) moveOpen.value = false;
+};
+
+/* ---------- 列表的元素（canon.revisions 输出 25 的 listAdd、listRemove 与元素子字段的 set） ---------- */
+
+interface ElementDraft {
+    readonly mode: "add" | "edit";
+    readonly namespace: string;
+    readonly field: string;
+    readonly element?: string;
+    readonly keyed: boolean;
+    readonly key: string | null;
+    readonly keyName: string;
+    readonly label: string;
+    readonly values: Readonly<Record<string, unknown>>;
+    readonly original: Readonly<Record<string, unknown>>;
+    /** 作者动过的子字段。加一项时没动过的写未知：布尔的输入画不出“未知”，缺省画成“否”，不能当成填了“否”。 */
+    readonly touched: readonly string[];
+    readonly originalLabel: string;
+    readonly intent: EditIntent;
+}
+const elementDraft = shallowRef<ElementDraft | null>(null);
+/** 改一项时引用子字段当前值的名字（子字段 id 到名字），打开时按 id 读。 */
+const elementRefNames = shallowRef<Readonly<Record<string, string>>>({});
+let elementOpens = 0;
+const elementOpen = shallowRef(false);
+const listDeclaration = (namespace: string, field: string): FieldDeclaration | undefined => entry.value?.declarations?.[namespace]?.find((item) => item.id === field);
+const intentsHere = (): EditIntent[] => (position.value.kind === "initial" ? ["creative"] : ["creative", "story"]);
+const elementFields = computed<ElementField[]>(() => {
+    const draft = elementDraft.value;
+    const declaration = draft === null ? undefined : listDeclaration(draft.namespace, draft.field);
+    return (declaration?.item ?? []).map((sub) => ({id: sub.id, label: sub.label, kind: kindOf(sub), ...(sub.options === undefined ? {} : {options: sub.options}), ...(sub.unit === undefined ? {} : {unit: sub.unit}), ...(sub.precision === "semantic" ? {semantic: true} : {})}));
+});
+// 以条目为键的列表选“指向的条目”、引用子字段选条目：各按自己的 `targets` 查。
+const keyFind = useEntryFind(() => finderFor(elementDraft.value === null ? [] : listDeclaration(elementDraft.value.namespace, elementDraft.value.field)?.targets ?? []));
+const elementRefField = shallowRef<string | null>(null);
+const elementRefFind = useEntryFind(() => {
+    const draft = elementDraft.value;
+    const sub = draft === null ? undefined : listDeclaration(draft.namespace, draft.field)?.item?.find((item) => item.id === elementRefField.value);
+    return finderFor(sub?.targets ?? []);
+});
+const openElement = (namespace: string, field: string, element?: string): void => {
+    const declaration = listDeclaration(namespace, field);
+    if (declaration?.kind !== "list") return;
+    const items = (view.value?.namespaces[namespace]?.fields[field]?.value ?? []) as Array<Record<string, unknown>>;
+    const item = element === undefined ? undefined : items.find((candidate) => String(candidate.id) === element);
+    const values = Object.fromEntries((declaration.item ?? []).map((sub) => [sub.id, draftText(item === undefined ? undefined : {value: item[sub.id] ?? null}, kindOf(sub))]));
+    const label = typeof item?.label === "string" ? item.label : "";
+    openDialog();
+    // 以条目为键的一项没有 label，选择器里显示与列表行同样的文字。
+    elementDraft.value = {mode: element === undefined ? "add" : "edit", namespace, field, ...(element === undefined ? {} : {element}), keyed: declaration.keyedBy === "ref", key: element ?? null, keyName: item === undefined ? "" : displayText([item]), label, values, original: values, touched: [], originalLabel: label, intent: intentsHere()[0]!};
+    elementOpen.value = true;
+    // 引用子字段的当前值只有 id：按 id 各读一次条目取名字，输入框里显示名字。读回来时对话框已经换了一次打开的，丢掉。
+    const opened = ++elementOpens;
+    elementRefNames.value = {};
+    const refs = (declaration.item ?? []).flatMap((sub) => (kindOf(sub) === "ref" && typeof values[sub.id] === "string" && values[sub.id] !== "" ? [[sub.id, values[sub.id] as string] as const] : []));
+    void Promise.all(refs.map(async ([sub, id]) => {
+        const read = await props.client.call("entry", {id, position: position.value, mode: "actual"});
+        return [sub, read.ok ? read.value.view?.name : undefined] as const;
+    })).then((names) => {
+        if (opened === elementOpens) elementRefNames.value = Object.fromEntries(names.filter((pair): pair is readonly [string, string] => pair[1] !== undefined));
+    });
+};
+/** 填的值换成字段的值：空的是未知（null）；数填得不成形时为 undefined。 */
+const elementValue = (value: unknown, kind: ElementField["kind"]): unknown => (value === "" || value === null ? null : parsed(value, kind));
+const confirmElement = async (): Promise<void> => {
+    const draft = elementDraft.value;
+    if (draft === null) return;
+    const list = `${draft.namespace}.${draft.field}`;
+    const fieldLabel = listDeclaration(draft.namespace, draft.field)?.label ?? draft.field;
+    const name = view.value?.name ?? "";
+    let ops: EntryOp[];
+    if (draft.mode === "add") {
+        const element: Record<string, unknown> = {};
+        for (const field of elementFields.value) {
+            const value = draft.touched.includes(field.id) ? elementValue(draft.values[field.id], field.kind) : null;
+            if (value === undefined) {
+                dialogError.value = port.t(text("list.badValue", {field: field.label}));
+                return;
+            }
+            element[field.id] = value;
+        }
+        if (draft.keyed) {
+            if (draft.key === null) {
+                dialogError.value = port.t(text("list.needKey"));
+                return;
+            }
+            element.id = draft.key;
+        } else {
+            if (draft.label.trim() === "") {
+                dialogError.value = port.t(text("list.needLabel"));
+                return;
+            }
+            element.label = draft.label.trim();
+        }
+        ops = [{op: "listAdd", at: {entry: props.id, path: list}, element}];
+    } else {
+        ops = [];
+        for (const field of elementFields.value) {
+            if (field.semantic || JSON.stringify(draft.values[field.id]) === JSON.stringify(draft.original[field.id])) continue;
+            const value = elementValue(draft.values[field.id], field.kind);
+            if (value === undefined) {
+                dialogError.value = port.t(text("list.badValue", {field: field.label}));
+                return;
+            }
+            ops.push({op: "set", at: {entry: props.id, path: `${list}[${draft.element!}].${field.id}`}, value});
+        }
+        if (!draft.keyed && draft.label.trim() !== draft.originalLabel) ops.push({op: "set", at: {entry: props.id, path: `${list}[${draft.element!}].label`}, value: draft.label.trim()});
+        if (ops.length === 0) {
+            elementOpen.value = false;
+            return;
+        }
+    }
+    const title = port.t(text(draft.mode === "add" ? "list.added" : "list.edited", {name, field: fieldLabel}));
+    if (await runEntries(ops, title, draft.intent)) elementOpen.value = false;
+};
+// 去掉一项：先确认，可选意图。来自某章变更的一项按“改设定”去不掉（element-from-change），原因写在对话框里，改选“剧情里变了”再去。
+const removeElementDraft = shallowRef<{readonly namespace: string; readonly field: string; readonly element: string; readonly item: string; readonly intent: EditIntent} | null>(null);
+const openRemoveElement = (namespace: string, field: string, element: string): void => {
+    const items = (view.value?.namespaces[namespace]?.fields[field]?.value ?? []) as Array<Record<string, unknown>>;
+    const item = items.find((candidate) => String(candidate.id) === element);
+    openDialog();
+    removeElementDraft.value = {namespace, field, element, item: item === undefined ? element : displayText([item]), intent: intentsHere()[0]!};
+};
+const confirmRemoveElement = async (): Promise<void> => {
+    const draft = removeElementDraft.value;
+    if (draft === null) return;
+    const title = port.t(text("list.removed", {name: view.value?.name ?? "", field: listDeclaration(draft.namespace, draft.field)?.label ?? draft.field, item: draft.item}));
+    if (await runEntries([{op: "listRemove", at: {entry: props.id, path: `${draft.namespace}.${draft.field}[${draft.element}]`}}], title, draft.intent)) removeElementDraft.value = null;
+};
+
+/* ---------- 主文字的块（canon.revisions 输出 25 的 addBlock、removeBlock 与 text[块] 的 set） ---------- */
+
+// 改一段与加一段共用一个对话框；源文字取条目读取里所选位置上的那一块（不是渲染出来的文字）。不带 `after`：改设定时加在初值末尾，
+// 剧情里变了时加在这个位置上最后一块之后（内核的缺省）。
+const blockDraft = shallowRef<{readonly block: string | null; readonly source: string; readonly original: string; readonly intent: EditIntent} | null>(null);
+const blockOpen = shallowRef(false);
+const openBlock = (block: string | null): void => {
+    const source = block === null ? "" : view.value?.text.find((candidate) => candidate.id === block)?.source ?? "";
+    openDialog();
+    blockDraft.value = {block, source, original: source, intent: intentsHere()[0]!};
+    blockOpen.value = true;
+};
+const confirmBlock = async (): Promise<void> => {
+    const draft = blockDraft.value;
+    if (draft === null) return;
+    if (draft.source.trim() === "") {
+        dialogError.value = port.t(text("block.emptySource"));
+        return;
+    }
+    if (draft.block !== null && draft.source === draft.original) {
+        blockOpen.value = false;
+        return;
+    }
+    const name = view.value?.name ?? "";
+    const op: EntryOp = draft.block === null ? {op: "addBlock", entry: props.id, source: draft.source} : {op: "set", at: {entry: props.id, path: `text[${draft.block}]`}, value: draft.source};
+    if (await runEntries([op], port.t(text(draft.block === null ? "block.added" : "block.edited", {name})), draft.intent)) blockOpen.value = false;
+};
+const removeBlockDraft = shallowRef<{readonly block: string; readonly intent: EditIntent} | null>(null);
+const confirmRemoveBlock = async (): Promise<void> => {
+    const draft = removeBlockDraft.value;
+    if (draft === null) return;
+    if (await runEntries([{op: "removeBlock", at: {entry: props.id, path: `text[${draft.block}]`}}], port.t(text("block.removed", {name: view.value?.name ?? ""})), draft.intent)) removeBlockDraft.value = null;
+};
+
+// 去掉当前数据分页这组设定：先确认，数据留着。
+const removeOpen = shallowRef(false);
+const removableGroup = computed(() => (dataNamespace.value === null ? "" : typeLabel(view.value?.namespaces[dataNamespace.value]?.type ?? "")));
+const confirmRemove = async (): Promise<void> => {
+    const namespace = dataNamespace.value;
+    const type = namespace === null ? undefined : view.value?.namespaces[namespace]?.type;
+    if (type === undefined) return;
+    if (await runEntries([{op: "component", entry: props.id, type, action: "remove"}], port.t(text("entry.groupRemoved", {name: typeLabel(type)})))) {
+        removeOpen.value = false;
+        // 去掉的分页没了：回到第一个分页。
+        state.tab = null;
+    }
+};
 
 /* ---------- 数据分页 ---------- */
 
@@ -346,6 +655,9 @@ const contextFor = (namespace: string): ComponentViewContext => {
             origins: (path, cursor) => props.fetchOrigins({entry: props.id, path: `${namespace}.${path}`}, position.value, mode.value, cursor),
             edit: (path) => edit.open(`${namespace}.${path}`),
             record: (path, input) => record(`${namespace}.${path}`, input),
+            listAdd: (path) => openElement(namespace, path),
+            listEdit: (path, element) => openElement(namespace, path, element),
+            listRemove: (path, element) => openRemoveElement(namespace, path, element),
             open: props.open,
         };
         contexts.set(namespace, found);
@@ -400,6 +712,7 @@ const setPosition = (value: string): void => {
 <template>
     <div class="min-h-full">
         <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
+        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" :undone="props.notices.agent.value.undone === true" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
@@ -418,6 +731,18 @@ const setPosition = (value: string): void => {
             :line-options="props.windowLine.options.value"
             :line="windowLine"
             :resolved-line="chapterLine(position, chapters)"
+            editable
+            :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
+            :aliases="view?.aliases ?? []"
+            :removable-group="removableGroup"
+            :action-error="actionError"
+            @edit-name="edit.open('entry.name')"
+            @edit-summary="edit.open('entry.summary')"
+            @aliases="changeAliases"
+            @restore="restore()"
+            @add-component="addType = addableTypes[0]?.value ?? ''; openDialog(); addOpen = true"
+            @remove-component="openDialog(); removeOpen = true"
+            @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"
@@ -426,14 +751,33 @@ const setPosition = (value: string): void => {
             @retry="world.retry()"
             @delete="deleteOpen = true; deleteError = ''"
         >
+            <template #bar>
+                <ConfirmBar
+                    v-if="editHere && edit.bar.value !== null"
+                    v-bind="edit.bar.value"
+                    :ref-results="refFind.results.value"
+                    :ref-name="refName"
+                    @search-ref="refFind.search"
+                    @update:value="edit.update"
+                    @update:intent="edit.setIntent"
+                    @save="edit.save()"
+                    @recheck="edit.recheck()"
+                    @cancel="edit.cancel()"
+                />
+            </template>
             <EntryText
                 v-if="tab === 'text'"
                 :blocks="blocks"
                 :self="props.id"
                 :marks="marks"
                 :open="state.origin ?? undefined"
+                :editable="view !== null && !view.deleted"
+                :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
                 @value="toggleValue"
                 @entry="(id: string) => props.open({kind: 'entry', id})"
+                @edit-block="(id: string) => openBlock(id)"
+                @remove-block="(id: string) => { openDialog(); removeBlockDraft = {block: id, intent: intentsHere()[0]!}; }"
+                @add-block="openBlock(null)"
             >
                 <template #origin="{address}">
                     <OriginList
@@ -460,15 +804,6 @@ const setPosition = (value: string): void => {
                 @more="plot.more()"
             />
             <template v-else-if="dataNamespace !== null">
-                <ConfirmBar
-                    v-if="editHere && edit.bar.value !== null"
-                    v-bind="edit.bar.value"
-                    @update:value="edit.update"
-                    @update:intent="edit.setIntent"
-                    @save="edit.save()"
-                    @recheck="edit.recheck()"
-                    @cancel="edit.cancel()"
-                />
                 <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
                 <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
                 <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
@@ -480,6 +815,132 @@ const setPosition = (value: string): void => {
                 <component :is="extraView.component" v-else-if="extraView.component !== null" :key="extraTab" :context="tabContextFor(extraTab)" />
             </template>
         </EntryPage>
+        <Dialog
+            :open="addOpen"
+            size="sm"
+            :title="text('entry.addComponentTitle')"
+            show-cancel
+            :confirm-label="text('entry.addComponentConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => (addOpen = value)"
+            @confirm="confirmAdd()"
+        >
+            <p v-if="addableTypes.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.noMoreGroups") }}</p>
+            <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+        </Dialog>
+        <ElementDialog
+            v-if="elementDraft !== null"
+            :open="elementOpen"
+            :title="text(elementDraft.mode === 'add' ? 'list.addTitle' : 'list.editTitle', {field: listDeclaration(elementDraft.namespace, elementDraft.field)?.label ?? elementDraft.field})"
+            :keyed="elementDraft.keyed"
+            :editing="elementDraft.mode === 'edit'"
+            :key-value="elementDraft.key"
+            :key-name="elementDraft.keyName"
+            :key-results="keyFind.results.value"
+            :label="elementDraft.label"
+            :fields="elementFields"
+            :values="elementDraft.values"
+            :ref-results="elementRefFind.results.value"
+            :ref-names="elementRefNames"
+            :intents="intentsHere()"
+            :intent="elementDraft.intent"
+            :saving="acting"
+            :error="dialogError"
+            @update:open="(value: boolean) => (elementOpen = value)"
+            @update:key-value="(value: string | null) => (elementDraft = {...elementDraft!, key: value, keyName: ''})"
+            @search-key="keyFind.search"
+            @update:label="(value: string) => (elementDraft = {...elementDraft!, label: value})"
+            @update:value="(field: string, value: unknown) => (elementDraft = {...elementDraft!, values: {...elementDraft!.values, [field]: value}, touched: [...elementDraft!.touched, field]})"
+            @search-ref="(field: string, query: string) => { elementRefField = field; elementRefFind.search(query); }"
+            @update:intent="(value: EditIntent) => (elementDraft = {...elementDraft!, intent: value})"
+            @confirm="confirmElement()"
+        />
+        <Dialog
+            :open="removeElementDraft !== null"
+            size="sm"
+            :title="text('list.removeTitle', {item: removeElementDraft?.item ?? ''})"
+            show-cancel
+            :confirm-label="text('list.removeConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => { if (!value) removeElementDraft = null; }"
+            @confirm="confirmRemoveElement()"
+        >
+            <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
+                <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+                <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeElementDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeElementDraft = removeElementDraft === null ? null : {...removeElementDraft, intent: value as EditIntent})" />
+            </div>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+        </Dialog>
+        <Dialog
+            v-if="blockDraft !== null"
+            :open="blockOpen"
+            :title="text(blockDraft.block === null ? 'block.addTitle' : 'block.editTitle')"
+            show-cancel
+            :confirm-label="text('edit.save')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => (blockOpen = value)"
+            @confirm="confirmBlock()"
+        >
+            <div class="flex flex-col gap-3" data-block-dialog>
+                <Textarea :rows="8" :aria-label="text('block.source')" :model-value="blockDraft.source" @update:model-value="(value: string) => (blockDraft = {...blockDraft!, source: value})" />
+                <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
+                    <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+                    <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="blockDraft.intent" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (blockDraft = {...blockDraft!, intent: value as EditIntent})" />
+                </div>
+                <p v-if="dialogError !== ''" role="alert" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+            </div>
+        </Dialog>
+        <Dialog
+            :open="removeBlockDraft !== null"
+            size="sm"
+            :title="text('block.removeTitle')"
+            show-cancel
+            :confirm-label="text('block.removeConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => { if (!value) removeBlockDraft = null; }"
+            @confirm="confirmRemoveBlock()"
+        >
+            <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
+                <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+                <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeBlockDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeBlockDraft = removeBlockDraft === null ? null : {...removeBlockDraft, intent: value as EditIntent})" />
+            </div>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+        </Dialog>
+        <MoveDialog
+            v-if="moveDraft !== null"
+            :open="moveOpen"
+            :entry="{id: props.id, name: view?.name ?? ''}"
+            :draft="moveDraft"
+            :parent-results="parentFind.results.value"
+            :same-as-results="sameAsFind.results.value"
+            :chapters="chapters"
+            :saving="acting"
+            :error="dialogError"
+            @update:open="(value: boolean) => (moveOpen = value)"
+            @update:draft="(value: MoveDraft) => (moveDraft = value)"
+            @search-parent="parentFind.search"
+            @search-same-as="sameAsFind.search"
+            @confirm="confirmMove()"
+        />
+        <Dialog
+            :open="removeOpen"
+            size="sm"
+            :title="text('entry.removeComponent', {name: removableGroup})"
+            show-cancel
+            :confirm-label="text('entry.removeComponentConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => (removeOpen = value)"
+            @confirm="confirmRemove()"
+        >
+            <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.removeComponentDescription") }}</p>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+        </Dialog>
         <Dialog
             :open="deleteOpen"
             size="sm"

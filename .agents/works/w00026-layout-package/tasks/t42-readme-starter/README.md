@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t42-readme-starter
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -49,8 +49,38 @@ worktree `w00026-t42-readme`（分支 `w00026/t42-readme`）：
 
 ## 实现审查
 
-待处理：Claude Sonnet（按文档审准确、可用、可读），审查 worktree `review-t42-impl`。
+Claude Sonnet（[`evidences/impl-review.txt`](evidences/impl-review.txt)，按文档审准确、可用、可读，带实验）：16 条，阻断 0、重要 3、建议 13，都成立，修正提交 `08ae058d1`：
+
+- 重要：
+  - 约定没说快照不存保留像素、最小尺寸、收起策略。恢复后左栏会悄悄变成按比例分、收不起来。改法：写明快照只存什么，给一段解析函数的例子。
+  - 起步例子最外层 `height: 100%` 在普通项目里会塌成 0 高。改法：外层定高 480px，并写明另一种做法。
+  - 恢复那条的 `createGrid(null)` 没给 `sashSize`。改法：补上，并说明 `encodeRef`。
+- 建议：
+  - 起步例子：收起按钮的状态从网格读，拖动收起之后也对；拆分之后也存快照；解释收起策略的四个数与 `contextKey`；定义“宿主”“承载盒”。
+  - 新加“安装”一节：对等依赖、以源码发布、要能编译 TS 与 `.vue`。
+  - 约定一节：
+    - “两种坐标”改成两种矩形的形状，表里加 `placeGrid`；
+    - 层数上限写准：只在拆分与插入时拒绝，写出 16 与 256；
+    - `moveGridFocus` 写出签名、只有前后两个方向、有返回值，`NestedGrid.md` 里的参数名改成 `container`。
+  - `NestedGrid.md`：
+    - “留着缩回去”的条件补上“在分支一头”那一支；
+    - 自己接组件的一节补回“空尺寸时空布局”“不要等尺寸再渲染”两条；
+    - 删掉一处残留的“失败 6”。
+  - `drag-session.md`：补 `commitsUnderPointer`、`onActiveChange`，写出 `keyboard` 的子项与 `scroll`、`autoScroll` 的取值。
+  - 改掉几处只有仓库内的人才懂的说法：“验收台”、`vitest.setup.ts`、“实时布局”。
+  - `readme.test.ts`：
+    - 扫描认“输出、失败、验收”三种编号；
+    - 链接扫描查根相对路径、跳出包目录（带分隔符）、目标文件不存在；
+    - 新加一条核对导出对照表：表里每个名字都从那一行写的入口导出。它当场抓到一处 `invalidate()` 是宿主的方法、不是入口导出。三个变异都会红。
+- 不改，记下：
+  - 随包源码的注释里还有约 84 处“输出 N”，IDE 悬停时可见。本 Task 只管随包的 `.md`，测试里已写明；要清理另起一个 Task。
+  - 链接扫描不看引用式链接与 HTML 的 `href`，包里没有这两种写法。
+  - “约定”里恢复快照的那段示例没有测试编译或运行它（`readme.test.ts` 只钉住起步例子）。合入后按 advisor 复核改过一次（`9593a26e9`：解析函数按表给每个引用的策略，拆分出来的 `preview` 也认得），之后改它要自己核对。
+
+## 合入
+
+2026-11-19：并入 master（带进别的 Work 的 nb-agent-ui 改动，与本 Task 不相交）后快进合入 master `4afd9dcd4`，删掉 worktree `w00026-t42-readme`、`review-t42-impl` 与分支。Spec 不改：行为合同未变。
 
 ## 下一步
 
-1. 处理实现审查；合入。
+无。随包源码注释里的输出编号要清理的话另起 Task。

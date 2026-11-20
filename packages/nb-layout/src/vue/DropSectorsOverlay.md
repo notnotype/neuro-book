@@ -4,7 +4,7 @@
 
 # DropSectorsOverlay
 
-落点分区（[`ui/workbench-layout.md`](../../../../docs/specs/ui/workbench-layout.md)“落点分区”）：拖动经过面板正文时，把这块面板能往哪放画出来，形状就是判定的形状。它只画宿主给的东西：每块的 id 与多边形由宿主算（工作台用 `@notnotype/nb-workbench-layout` 的 `layoutDropSectors`），当前块、字与开关归宿主。
+落点分区（[`ui/workbench-layout.md`](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/workbench-layout.md)“落点分区”）：拖动经过面板正文时，把这块面板能往哪放画出来，形状就是判定的形状。它只画宿主给的东西：每块的 id 与多边形由宿主算（工作台用 `@notnotype/nb-workbench-layout` 的 `layoutDropSectors`），当前块、字与开关归宿主。
 
 ## 布局与交互
 

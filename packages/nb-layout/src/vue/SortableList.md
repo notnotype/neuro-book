@@ -5,7 +5,7 @@
 
 # SortableList
 
-几组竖排的项，能拖动或用键盘排序、可以跨组（行为合同 [`ui/sortable-list.md`](../../../../docs/specs/ui/sortable-list.md)）。拖动是实时布局：被拖的那一行跟手，邻居让开，预览就是放下后的样子，不画落点线；手势与工作台用同一个拖动会话，起拖门槛、Esc 取消与键盘一致。每一行除把手以外的内容由宿主用插槽画，组件不管行里的控件。逻辑都在 composable `useSortable`，不是这种版式（横排、自己的行结构）的地方直接用它。
+几组竖排的项，能拖动或用键盘排序、可以跨组（行为合同 [`ui/sortable-list.md`](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/sortable-list.md)）。拖动是实时布局：被拖的那一行跟手，邻居让开，预览就是放下后的样子，不画落点线；手势与工作台用同一个拖动会话，起拖门槛、Esc 取消与键盘一致。每一行除把手以外的内容由宿主用插槽画，组件不管行里的控件。逻辑都在 composable `useSortable`，不是这种版式（横排、自己的行结构）的地方直接用它。
 
 ## 布局
 

@@ -1,0 +1,21 @@
+# t37 第 4 片的性能对照（2026-11-19）
+
+脚本：packages/neuro-book/scripts/perf/layout-frames.ts，两份构建交替各跑 3 轮，表里是中位数。
+基线 base：8109e92ab（第 3 片，帧循环与卡片还在应用里），detached worktree，bun run build。
+分支 branch：1f51d1904（第 4 片，改用 nb-layout 的 createFrameLoop 与 createDragCard），bun run build。
+开跑时负载 5.02 4.11 3.45，跑完 2.98 3.70 3.40（同机还有 e2e 刚跑完）。
+单位与各列的含义见脚本头注释与 t26 的 evidences/perf-baseline.txt。
+
+场景	单位	构建	recalc/单位	layout/单位	raf/单位	mutations/单位	sashStyles/单位	raf/秒	帧数
+still	frame	base	0.32	0.00	0.00	0.00	0.00	0.0	120
+still	frame	branch	0.31	0.00	0.00	0.00	0.00	0.0	120
+tree-scroll	scroll	base	10.33	1.03	6.40	19.63	0.00	117.1	99
+tree-scroll	scroll	branch	10.33	1.03	6.40	19.63	0.00	116.7	99
+sidebar-sash	frame	base	2.71	0.98	0.64	14.46	1.91	30.7	188
+sidebar-sash	frame	branch	2.73	0.98	0.64	14.54	1.93	30.5	187
+resize	resize	base	10.00	6.00	2.00	62.50	5.00	28.8	61
+resize	resize	branch	10.00	6.00	2.00	62.50	5.00	28.3	61
+live-hold	frame	base	0.00	0.00	0.00	0.00	0.00	0.0	60
+live-hold	frame	branch	0.00	0.00	0.00	0.00	0.00	0.0	60
+live-path	frame	base	1.50	0.77	0.88	3.76	0.12	50.4	332
+live-path	frame	branch	1.51	0.77	0.89	3.77	0.12	50.8	330

@@ -35,7 +35,23 @@ updated: 2026-11-19
 1. 切法（开发者 2026-11-19，选“先能聊、再合并”）：分阶段各自合入。① `nbook.bots` 的浏览器入口、固定会话的对话宿主、一个单独的 bot 视图（IM 列表加聊天）与未读数，有归属的会话从活动条等处打开时转到它，做完就能聊；② 把它和会话面板合成两个标签的“消息”视图，取代会话面板与对话视图；③ 书房的看板娘入口与滑出聊天；④ 按天与未读分隔线等打磨与首屏指标。① 到 ② 之间 bot 与会话是两个视图，与 t03 定的最终样子不同。
 2. 过期的说法与占位不做：t06 决定 4 不设等用户的期限。
 3. 阶段 ① 的 bot 视图（开发者 2026-11-19 答“可以”，两处都按推荐）：只有一个 bot，视图里直接是聊天、不画联系人列表（列表在阶段 ②）；放左侧栏，有自己的活动栏图标。
+4. 活动栏的入口也显示未读数（开发者 2026-11-20 答“都同意”）：改 `workbench/views.md` 输出 17，视图的 `badge()` 除了写在面板头的标题后，也画在它的活动栏图标上；随阶段 ② 做。同一句答复同意 t06 的 Spec 晋升 implemented。
+5. 阶段 ② 的方向（开发者 2026-11-20）：bot 聊天与会话聊天共用一个聊天区，档位按打开的会话有没有归属定（开发者问“为什么不共用一个聊天组件”，答“可以，继续”）；计划 [plan-2.md](plan-2.md) 的三处待确认都按推荐（答“可以”）：消息视图在右栏、左侧栏不再有会话面板与 bot 入口；宽窄分界 600 像素；会话标签的滚到底分页这次不做。
+6. 阶段 ② 设计审查后的两题（开发者 2026-11-20，都按推荐）：bot 行的第二行先写通用状态（在跑“正在回复…”、等你“等你处理”，平时最后一句话），具体活动文字等后端有摘要再补；宽版时对话的头画在聊天区上方（同 t03 r5），只有窄版接管面板头。入口角标的范围从决定 4 的活动栏延到右栏入口条（消息视图在右栏）。
+7. 右栏收起时的未读（开发者 2026-11-20，第二轮设计审查后问，按推荐）：状态栏的 Agent 活动条目在有未读时也写“N 条新消息”，点了打开消息视图里那个 bot。
+
+阶段 ① 已完成并合入 master（`0fcdedc83`）：
+
+- 切片：`7c722c34c`（nb-agent-ui 的头像与停靠档）、`f2fcffa3f`（agent 浏览器入口的固定会话宿主与转交）、`957280a0f`（主对话的未读、看到与头像路由）、`56cd96691`（bot 视图与归属路由、e2e 验收 1、2）、`07928d3b9`（e2e 未读计数：失焦时记未读、拿回焦点清零，变异检查过）。
+- 实现审查：前端 Sonnet 9 条、后端 omp 3 条，全部成立，处理见 [evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；修正 `bcecfc7dc`、`ac9d48971`、`7f919f147`、`2aa01c20b`，Spec 改动 master `3b5530516`（`bots/view.md`、`agent/conversation.md` 输出 31、53）。
+- 验证：nb-agent-ui 192 条；neuro-book 的 bots 与 agent 576 条、bot 视图 dom 5 条；合并 master 后 e2e `bots-chat`、`agent-subagents`、`agent-conversation` 31 条全过。合并后的全量 bun 测试有 3 条确定失败（依赖方向、SDK 导出面、活动栏重复 id），分支没有改动这几处，失败的写法在 master 上也存在。
+- 后续：`agent-conversation.e2e.ts:687`（附件）在 master 上也时常失败；产品那一半（新建期间加附件另建会话）已修，测试那一半（`newSession` 在会话加载完之前返回）没修。
 
 ## 下一步
 
-阶段 ① 的计划（[plan.md](plan.md)）开发者已确认要点，在做设计审查：前端、后端各一个 Sonnet。
+- 阶段 ②：计划 [plan-2.md](plan-2.md) 两轮设计审查（Sonnet，19 条、14 条）已处理，定稿为草稿 3。进度（分支 `feat/w00043-neurobot`）：
+  - 第 1 片 `75a37dfcb`：图标入口画容器计数的合计、`ViewHead.claim`、视图声明 `replaces`；Spec master `a1cdb08b5`（views.md 输出 17、19、20）。
+  - 第 2 片 `9c0c6433f`：bot 列表的 `last`（摘要、日志尾部有界取回）、`AncestorItem.owner`；Spec master `e341c51fd`。
+  - 第 3 片 `c05227f82`、`ed01e79c7`、`48911fdb2`：档位改由 `ctx.interaction` 给（`placement`、`canCreate`），`AgentMessages`、`AgentMessagesList` 与 Lab 场景，会话面板不按日分组，bots 目录登记；Spec master `b7474061c`。
+  - 第 4 片代码 `cb3ffef43`：消息视图（`MessagesHost.vue` 加 `messages-model.ts`）、插件级归属表、提供者贡献点（每插件一条）、bots 改成提供者、删固定会话组件与 bot 视图与 bots 的界面文字、`focus-session` 按树根、状态栏“N 条新消息”、视图计数。单元与 dom 测试过（3 条失败是 master 原有的）。与计划的出入：`listCollapsed` 只记在内存（插件作用域），没进插件存储；会话列表的刷新沿用 `SessionPanelHost` 的定时器（会话一页常驻挂载），没收进 store。
+  - 下一步：e2e 迁移（先改辅助函数），Spec（conversation.md、bots/view.md），截图，收口。

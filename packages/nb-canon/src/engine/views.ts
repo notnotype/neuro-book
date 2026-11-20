@@ -61,8 +61,12 @@ export function buildEntryView(entry: Entry, fold: EntryFold | undefined, positi
     const {state} = fold;
     const namespaces: Record<string, NamespaceView> = {};
     const upcoming: UpcomingNamespace[] = [];
+    const removed: {namespace: string; type: string}[] = [];
     for (const [namespace, data] of Object.entries(state.data)) {
-        if (data.removed === true) continue;
+        if (data.removed === true) {
+            removed.push({namespace, type: data.type});
+            continue;
+        }
         const availability = namespaceAvailability(context.registry, namespace, data);
         if (!data.enabled) {
             if (availability === "ok") {
@@ -96,6 +100,7 @@ export function buildEntryView(entry: Entry, fold: EntryFold | undefined, positi
         namespaces,
         upcoming,
         components: [...(state.components ?? [])],
+        ...(removed.length === 0 ? {} : {removedComponents: removed}),
     };
 }
 

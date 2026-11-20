@@ -72,7 +72,7 @@ interface SessionHeader {
 | 字段 | 谁给 | 管什么 |
 |---|---|---|
 | `background` | 建会话的调用方 | 会话不进缺省列表、`running()` 与活动（后台跑的任务） |
-| `owner` | 宿主按调用方盖章（NeuroBook 见 [`agent/sessions.md`](../agent/sessions.md) 输出 23） | 会话归某个插件的对象（例如 bot 的主对话）：工具与扩展拿得到它，宿主据此决定列表与能不能改写历史；（planned，w00043 t15）浏览器据此决定打开到哪里 |
+| `owner` | 宿主按调用方盖章（NeuroBook 见 [`agent/sessions.md`](../agent/sessions.md) 输出 23） | 会话归某个插件的对象（例如 bot 的主对话）：工具与扩展拿得到它，宿主据此决定列表与能不能改写历史，浏览器据此决定打开到哪里（NeuroBook 见 [`agent/conversation.md`](../agent/conversation.md) 输出 53） |
 
 ### 事件
 

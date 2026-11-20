@@ -35,6 +35,8 @@ export const nbLayoutFixtures: LabFixture[] = [
                 {id: "panels", label: "内容层与跨面板位移", input: {props: base}},
                 // 交换：一组叶换成另一组时整块平移（e2e/lab-grid-swap.e2e.ts）。
                 {id: "swap", label: "交换（切换容器）", input: {props: base}},
+                // nb-layout README 的起步例子（e2e/lab-grid-structure.e2e.ts 的“起步例子”）。
+                {id: "starter", label: "README 的起步例子", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./NestedGridAcceptanceFixture.vue")).default,

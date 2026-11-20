@@ -75,12 +75,9 @@ const LEGACY: readonly Legacy[] = [
     {key: "numberInput.increase", zh: "增加"}, // form/NumberInput.vue 的 incrementLabel 缺省
     {key: "numberInput.decrease", zh: "减少"}, // 同上，decrementLabel 缺省
     {key: "searchSelect.empty", zh: "没有匹配的选项"}, // form/SearchSelect.vue 的 emptyText 缺省
+    {key: "searchSelect.clear", zh: "清除选择"}, // 同上，清空按钮的 aria-label（w00039 t37 新增）
     {key: "slider.thumb", params: {index: 2}, zh: "滑块 2"}, // form/Slider.vue 的 `滑块 ${index}`
     {key: "spinner.loading", zh: "加载中"}, // display/Spinner.vue 的 label 缺省
-    {key: "splitter.resizeWidth", params: {before: "outline", after: "editor"}, zh: "调整 outline 与 editor 的宽度"}, // layout/Splitter.vue 分隔线 aria-label，主轴为宽度
-    {key: "splitter.resizeHeight", params: {before: "outline", after: "editor"}, zh: "调整 outline 与 editor 的高度"}, // 同上，主轴为高度
-    {key: "splitter.collapsed", zh: "已收起"}, // 同上，aria-valuetext
-    {key: "splitter.pixels", params: {size: 200}, zh: "200 像素"}, // 同上，`${size} 像素`
     {key: "table.empty", zh: "暂无数据"}, // display/Table.vue 的 emptyText 缺省
     {key: "tabs.more", zh: "更多"}, // controls/Tabs.vue 的 moreLabel 缺省
     {key: "tagInput.remove", params: {item: "北山"}, zh: "移除 北山"}, // form/TagInput.vue 每项 × 的读屏名（w00025 t10 新增）

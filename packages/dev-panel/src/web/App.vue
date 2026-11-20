@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import {Badge, Banner, Button, Drawer, Input, IconButton, Popover, Splitter, Tooltip, type BannerTone, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
+import type {SplitterGestureState} from "@notnotype/nb-layout";
+import {Splitter, type SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+import {Badge, Banner, Button, Drawer, Input, IconButton, Popover, Tooltip, type BannerTone} from "@notnotype/nb-ui/components";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
@@ -18,7 +20,7 @@ import type {Meta, NotifyData, Overview} from "./host/types.js";
 /**
  * 外壳：左栏（`PanelNav`）、顶栏（搜索、状态点、通知要处理的计数、明暗）、顶栏下的横幅（代码已更新、前端构建失败、审计、后台重算失败）、页面。
  * 外壳与页面按组件规范豁免（它们是宿主）；左栏的展开、宽度、收起与明暗经 host/prefs.ts 记住。
- * 左栏与正文是 nb-ui 的 `Splitter` 的两块面板（t15 阶段 2c）：可拖宽度、可收起；窄于 1024px 时同一个 Splitter 把左栏收成 0、禁用拖动，
+ * 左栏与正文是 nb-layout 的 `Splitter` 的两块面板（t15 阶段 2c；w00026 t14 从 nb-ui 冻结的那一份迁过来）：可拖宽度、可收起；窄于 1024px 时同一个 Splitter 把左栏收成 0、禁用拖动，
  * 导航改由抽屉显示。面板按 id 渲染，断点来回切换时正文（RouterView 与页面实例）不重挂。
  */
 startPanelData();

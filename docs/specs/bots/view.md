@@ -7,46 +7,44 @@ owners:
   - nbook.bots
 ---
 
-# bot 视图
+# bot 在消息视图里
 
 ## 目标与非目标
 
-打开作品的窗口里，左侧栏的一个视图放 bot 的聊天：用户在这里和 bot 说话、批它要做的事；未读数写在面板头的视图标题后。之后会并进两个标签的“消息”视图（开发者 2026-11-19 定先做这一个视图，见“证据”）。
+打开作品的窗口里，用户在右栏的“消息”视图（[`agent/conversation.md`](../agent/conversation.md) 输出 2）里和 bot 说话、批它要做的事。`nbook.bots` 给消息视图当归属插件（同一份输出 53）：bot 一页的联系人、打开主对话、记“看到”都经它；聊天区与会话是同一个，档位按会话的归属定（输出 52）。
 
 不承诺：
 
-- 第一版只有一个 bot，视图里直接是它的聊天，没有联系人列表（开发者 2026-11-19）。
-- 不新建、不换、不分叉会话；不改写历史（编辑、重试、从此处分支、分支树、归档）。
+- 第一版只有一个 bot（开发者 2026-11-19）。
+- 不新建、不换、不分叉 bot 的会话；不改写历史（编辑、重试、从此处分支、分支树、归档）。
+- 第二行不写 bot 具体在做什么，只写在跑、等你处理（开发者 2026-11-20 定，等后端有活动摘要再补）。
 - 按天与未读的分隔线、书房入口、日程不在这里。
 - 人设不进提示词（另做）。
 
 ## 术语与参与者
 
 - **主对话**、**持有**：见 [`main-conversation.md`](main-conversation.md)。
-- **看到**：用户看过的位置，主对话日志的一个 seq，只进不退（[`main-conversation.md`](main-conversation.md) 的未读一节）。
+- **看到**：用户看过的位置，主对话日志的一个 seq，只进不退（[`main-conversation.md`](main-conversation.md) 输出 7）。
+- **联系人**：bot 一页的一行，一个 bot 一个。
 
 ## 输入与前置条件
 
-- 视图 `nbook.bots.chat`，`nbook.bots` 的浏览器入口贡献；入口 `onStartup` 激活。
-- 依赖：远程服务 `nbook.bots/bots`（[`bots.md`](bots.md) 输出 7）、`nbook.agent` 浏览器入口的固定会话对话组件（[`agent/conversation.md`](../agent/conversation.md)）、模型服务的“有没有可用的模型”。
+- `nbook.bots` 的浏览器入口（`onStartup` 激活）向 `agent.sessionOwners` 贡献一条 `nbook.bots.main`，实现 `SessionOwnerProvider`（`agent/shared/contracts.ts`）。
+- 依赖：远程服务 `nbook.bots/bots`（[`bots.md`](bots.md) 输出 7）、头像路由（同一份输出 9）。
 
 ## 输出与可观察行为
 
-1. 视图在左侧栏，有自己的活动栏图标，标题“bot”。`badge()` 是缺省 bot 的未读数（`list()` 的 `unread`），按工作台的规则显示在面板头的视图标题后，活动栏入口上不显示（[`workbench/views.md`](../workbench/views.md) 输出 17）；为 0 或 null 时不显示计数。入口启动即订阅 `botsChanged`，视图没打开时计数照样更新。
-2. 打开视图：
-   1. 没有可用的模型：显示引导卡（照对话视图现有的“没有模型”引导，去模型设置），不调 `ensureMain`；还没读到有没有模型时显示加载中、也不调；读不到（模型服务不在、订阅或读取失败）按有模型处理，对话里的模型提示兜底；
-   2. bot 列表读不到（订阅或 `list` 失败）时显示原因与“重试”（重读列表）；读到了、是空的，写“还没有可以聊的 bot”与“重试”；都不一直转圈；
-   3. 否则调 `ensureMain` 取主对话，期间显示加载中（期间列表再变不重取）；失败时显示原因与“重试”，列表再变也不自动重取，打字与加附件都不建会话；
-   4. 取到后画固定会话的对话：顶栏是 bot 的名字与头像（头像经 [`bots.md`](bots.md) 的头像地址），待处理事项在停靠区（[`ui/agent-conversation-view.md`](../ui/agent-conversation-view.md) 的 bot 档）。
-3. 发话与停止照固定会话的对话（[`agent/conversation.md`](../agent/conversation.md)）：运行中是插话；有挂着的同步事项时输入框上方写“发出会拒绝 N 项”（N 不含异步提问与后代会话的事项），发出时这些事项以拒绝结算，停靠区里填了一半的作废。
-4. 看到：视图可见、窗口有焦点时，把对话已经画出的最后一条计数消息的 seq 交给 `markSeen`；不可见或没有焦点时不前进。几个窗口共用服务端的一份。只在有未读、交的位置超过已存的“看到”时交；未读还没数完（`unread` 为 null）时先记下、等数完再交；bot 列表每次更新都按记下的位置重判一次，所以交失败了、或交的时候列表还没跟上，不用等下一条消息。
-5. 有归属的会话（会话头 `owner.plugin` 是 `nbook.bots`）从活动条、子代理卡片、请求页等处打开时，揭示这个视图，不在通用的对话视图里打开（[`agent/conversation.md`](../agent/conversation.md) 的转交）。
+1. 入口启动即订阅 `botsChanged` 再取 `list()`（`onResync` 重取），消息视图没打开时联系人与未读照样更新。订阅或 `list()` 失败时 `state` 是 `failed` 加码，bot 一页写原因与“重试”（调 `reload`：订阅还在只重读，订阅失败就重新订阅）。
+2. 联系人：`list()` 的每一项一个，`{id, name, avatar, unread, last, sessionId}`；`avatar` 是头像路由的地址；`sessionId` 是主对话的 id（`bot-<id>`），主对话还是 `none` 时为 null。bot 一页一行写头像、名字、时间、第二行（在跑时蓝字“正在回复…”，等你处理时黄字“等你处理”，按会话树的根算：子代理在跑或在等也算；平时是最后一句话）、未读数。窄版头像列里联系人头像有未读时右上角一个点，有等你处理的事时点是黄色。
+3. 点联系人：调 `open(id)`，即 `ensureMain`；取到后消息视图的聊天区打开主对话（bot 档：顶栏是名字与头像，等你处理的事在停靠区，发话会一并拒绝挂着的同步事项）。没有模型、取不到时的画面见 [`agent/conversation.md`](../agent/conversation.md) 输出 53。
+4. 看到：消息视图交来的 seq 交给 `markSeen`；只在有未读、交的位置超过已存的“看到”时交；未读还没数完（`unread` 为 null）时先记下、等数完再交；联系人列表每次更新都按记下的位置重判一次，交失败了、或交的时候列表还没跟上，不用等下一条消息。几个窗口共用服务端的一份。
+5. 计数：消息视图的计数（面板头标题后、入口角标）与状态栏的“N 条新消息”都是联系人未读的合计（[`agent/conversation.md`](../agent/conversation.md) 输出 2、53）。
 
 ## 状态与转换
 
-视图的内容：没有模型 → 引导卡；还没读到模型或 bot 列表、取会话中 → 加载中；列表读不到或是空的 → 原因与重试（重读列表，列表到了自动取会话）；取会话失败 → 原因与重试（再取一次）；已取到 → 对话。模型配好会重新走第 2 条。
+联系人一段：读联系人中 → 加载中；读不到 → 原因与重试；读到了、一个都没有 → “还没有 bot”；读到了 → 联系人。
 
-时序与寿命：视图卸载时对话组件放掉订阅；再打开重新取会话（`ensureMain` 已持有时直接交回）。
+时序与寿命：订阅随浏览器入口，入口停止时释放。
 
 ## 副作用与数据
 
@@ -54,23 +52,24 @@ owners:
 
 ## 失败与恢复
 
-| 情况 | 视图怎样 | 用户怎么办 |
+| 情况 | 界面怎样 | 用户怎么办 |
 |---|---|---|
-| `ensureMain` 失败（`owner-mismatch`、`session-busy`、`log-corrupt` 等） | 原因与“重试” | 按原因处理后重试 |
-| bot 列表读不到（订阅或 `list` 失败） | 原因与“重试” | 重试 |
-| `markSeen` 失败 | 不提示，计数照旧；下一次看到（窗口重新拿到焦点、来了新消息）或列表更新时再交 | 无 |
+| 订阅或 `list()` 失败 | bot 一页写原因与“重试” | 重试 |
+| `ensureMain` 失败（`owner-mismatch`、`session-busy`、`log-corrupt` 等） | 聊天区盖原因与“重试” | 按原因处理后重试 |
+| `markSeen` 失败 | 不提示，计数照旧；下一次看到或联系人列表更新时再交 | 无 |
 
 ## 边界与兼容
 
-公开接口只有视图 id `nbook.bots.chat`。阶段 ② 并进“消息”视图时这个视图 id 会换掉。
+公开接口只有贡献 `nbook.bots.main`（`agent.sessionOwners`）。阶段 ① 的 bot 视图（`nbook.bots.chat`）删掉：它没有随发布版本带出去，开发者本机布局里留着的标签按 [`workbench/views.md`](../workbench/views.md) 输出 7 的占位关掉。
 
 ## 验收与 Smoke
 
-1. 开发服务、配好模型：点活动栏的 bot 图标，顶栏是“星璃”与头像；发一句得到回复；她要改文件时停靠区里有审批、输入框可用；这时再发一句，审批以拒绝结算、她接着处理这句。
-2. 有未读时，侧栏换到别的视图再换回，面板头的标题后有计数；视图可见、窗口有焦点后计数清零。从状态栏的活动条目点主对话，揭示的是 bot 视图。
+1. 开发服务、配好模型：右栏消息视图的头像列点星璃，面板头是“星璃”与头像；发一句得到回复；她要改文件时停靠区里有审批、输入框可用；这时再发一句，审批以拒绝结算、她接着处理这句。
+2. 她等你批准时切到别的会话，点状态栏的活动条目，消息视图打开她的主对话、回到 bot 档。
+3. 窗口没有焦点时到的回复记为未读：头像列的名称写“星璃，1 条未读”，状态栏写“1 条新消息”；窗口拿回焦点后清零。
 
 Smoke：`packages/neuro-book/e2e/bots-chat.e2e.ts`。
 
 ## 证据
 
-- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md) 第四节第 11 小节；[w00043 t15](../../../.agents/works/w00043-neurobot/tasks/t15-messages-view/README.md) 的决定 1、3 与[计划](../../../.agents/works/w00043-neurobot/tasks/t15-messages-view/plan.md)。
+- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md) 第四节第 11 小节；[w00043 t15](../../../.agents/works/w00043-neurobot/tasks/t15-messages-view/README.md) 的决定 1–7 与[阶段 ② 的计划](../../../.agents/works/w00043-neurobot/tasks/t15-messages-view/plan-2.md)。

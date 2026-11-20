@@ -16,9 +16,9 @@
 - nb-ui 不依赖本包，也不重导出本包。
 - 入口导出的组件是受管组件，同名 `.md` 必有（`docs:check`）；内部组件写模块头注释。入口加了或删了组件，插件 SDK 的组件清单要跟着改，做法同 nb-ui（[`packages/nb-ui/AGENTS.md`](../nb-ui/AGENTS.md)）。
 
-## 与 nb-ui 里那份的关系
+## 谁还用这里的 Splitter
 
-nb-ui 暂留一份冻结的 Splitter 与分隔线核心，只给 nb-story、dev-panel 用，只修不加，w00026 t14 迁移后删除。改这里的 Splitter 不用同步那一份。
+nb-story 与开发者面板的分栏也用这里的 Splitter（w00026 t14 从 nb-ui 冻结的那一份迁来，那一份已删）。它们没有拖分隔线的 e2e：改 Splitter 的外观、手势或事件载荷时，在 nb-story 里走一遍拖、收起与重开、键盘（t14 的探针做法见它的 `evidences/probe.txt`）。
 
 ## 验证
 

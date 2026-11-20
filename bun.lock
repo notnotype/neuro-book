@@ -132,6 +132,7 @@
         "nbdev": "./src/cli.ts",
       },
       "dependencies": {
+        "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
         "@xterm/xterm": "6.0.0",
         "dompurify": "^3.3.3",
@@ -485,6 +486,7 @@
         "@iconify/tailwind4": "^1.2.3",
         "@notnotype/nb-agent-ui": "workspace:^",
         "@notnotype/nb-form": "workspace:^",
+        "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-markdown": "workspace:^",
         "@notnotype/nb-ui": "workspace:^",
         "@notnotype/neuro-book-test-support": "workspace:*",

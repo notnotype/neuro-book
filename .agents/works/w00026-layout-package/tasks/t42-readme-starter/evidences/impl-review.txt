@@ -1,0 +1,249 @@
+我找到 16 条问题：3 条重要，13 条建议，没有阻断。最后一次更新草稿时，写入权限被拒；草稿里有一处笔误，条目 11 里的“85 处”应为“84 处（不含 .md）”，下面的报告已更正。
+
+涉及渲染的结论（条目 2）是按 CSS 规则推断的：Chrome 命令被权限拦下，我没能在浏览器里实测。
+
+### 1. 约定第 1 条没说快照不存 sizing、最小尺寸、收起策略，恢复后左栏不再是固定宽、也收不起来
+**严重程度**：重要　**类别**：准确　**位置**：`packages/nb-layout/README.md:118`（起步例子 `:46` 的 `saved`）
+
+**现象**：
+- 起步例子的左栏是 `sizing: "fixed"`、`minimumSize` 160，带 `collapse`。
+- 实验 `exp/a.ts`、`exp/b.ts`：`serialize()` 里的叶只有 `id`、`ref`、`size`。
+- 用 `createGrid(null)` 加 `restore(snap, ref => ({ref}))` 恢复，返回 `ok` 且 `dropped` 为空，但 `files` 变成 `sizing: "weight"`、最小 0、没有 `collapse`。
+- 800 宽下 `files` 是 227.4（原 240）；拖到收起后再存、恢复，是 173.8。
+- 此时 `setCollapsed("files", true)` 返回 `not-collapsible`。
+- 只有解析函数返回 `{ref, sizing, minimumSize, collapse}` 才回到 240。
+- README 只写“可以顺带给约束与收起策略”，读起来像可选项。
+
+**为什么是问题**：
+- 体验审查第 7 条明确要求把“收起状态不进快照”和约束表示例放进 README。
+- Spec 实现合同也写了“快照 v2 不存运行约束”。
+- 现在的措辞让人以为只返回 `{ref}` 就够。
+- 退化是静默的：恢复成功、没有诊断，要等到左栏收不起来才发现。
+
+**建议改法**：
+- 改成“快照只存结构、ref 与两轴尺寸意图；sizing、最小/最大尺寸、收起策略（含 collapsed）都不存，解析函数要按 ref 重新给”。
+- 加一个三行的解析表例子，直接用 `files`。
+
+### 2. 起步例子最外层 `height: 100%` 依赖 README 没写的祖先高度，复制到新项目里可能塌成 0 高（推断）
+**严重程度**：重要　**类别**：可用　**位置**：`README.md:69`（`StarterScene.vue` 同处）
+
+**现象**：
+- 例子最外层是 `height:100%`，里面是 `flex:1; min-height:240px` 的框，再里面是 NestedGrid 根（`width:100%; height:100%`，`NestedGrid.vue:733`）。
+- Lab 里它被包在 `data-lab-subject` 的 `height:100%` 盒里，而那个盒子的祖先有确定高度。
+- 复制到普通 Vite 项目时，`html`、`body`、`#app` 都没设高度，最外层的 100% 会解析成 auto。
+- 按 flexbox 规则，高度不定的列容器里，flex 项的子元素百分比高度也是不定的。
+- NestedGrid 根很可能是 0 高，`extent` 高为 0，布局为空、分隔条停用，页面空白。`min-height` 只保证外盒 240px，不保证里面的 100% 能解析。
+- 我没在浏览器里量过；`exp/height.html` 是准备好的最小复现。
+
+**为什么是问题**：
+- README 自己说“承载盒要有确定的高度”，例子本身却没给出确定高度。
+- `readme.test.ts` 与 e2e 都在 Lab 的定高祖先里跑，“复制就能跑”没被验证。
+- 高为 0 本来就合法，读者看到空白页却没有任何诊断。
+
+**建议改法**：
+- 例子最外层改成显式高度，例如 `height: 480px`；或在例子前写明“放进有确定高度的父元素，`html`、`body`、`#app` 设 `height:100%`”。
+- 加一次“祖先无定高、外层 480px”的探针。
+
+### 3. 约定第 1 条的 `createGrid(null)` 缺 `sashSize`，照写出来的网格拖不动
+**严重程度**：重要　**类别**：准确　**位置**：`README.md:118`
+
+**现象**：
+- `sashSize` 是 `createGrid` 的选项，不在快照里，缺省 0。
+- README 起步一再强调要给正数，恢复这条却写 `createGrid(null)`。
+- 读者照写，恢复后每条分隔线 0 宽、不可交互。我的实验用的是 `createGrid<string>(null, {sashSize: 4})`。
+
+**为什么是问题**：这是 README 里唯一的恢复写法，又掉进它自己警告过的坑。而且是静默的，只有开了开发检查才警告。
+
+**建议改法**：
+- 写成 `createGrid(null, {sashSize: 4})`。
+- 非字符串引用时补一句要给 `encodeRef`（`grid.md` 里有）。
+
+### 4. 起步例子的“收起左栏”按钮状态与拖动收起脱节，第一下点击看不出效果
+**严重程度**：建议　**类别**：可用　**位置**：`README.md:61-66`（`StarterScene.vue` 同处）
+
+**现象**：
+- `filesCollapsed` 是例子自己的 ref，只在按钮里更新。
+- 左栏有收起策略（阈值 24），拖过最小尺寸再往里 24px 就收起。
+- 实验 `b.ts`：用 `resizeBranches` 带 `collapsed` 提交后，`find("files").collapse.collapsed` 为 true；此时再 `setCollapsed("files", true)` 返回 `changed: false`。
+- 按钮这时还写着“收起左栏”，点一下只把标签翻成“展开左栏”，再点才展开；反向同理。我没在浏览器里拖，这是从 grid 层行为推得的。
+
+**为什么是问题**：
+- 例子同时演示拖动收起和按钮收起，两者一起用就露馅。
+- 读者会照抄这个“本地布尔”写法。
+- e2e 只测了按钮收起再展开，没测拖动收起。
+
+**建议改法**：状态从网格读（以 `host.revision.value` 为依赖，读 `grid.value.find("files")` 的 `collapse.collapsed`），或在 `onApplied` 里按 `commit` 同步。
+
+### 5. “存快照”只在拖动落账后发生，拆分和收起之后存档是旧的
+**严重程度**：建议　**类别**：可用　**位置**：`README.md:46-52`、`:56-60`
+
+**现象**：
+- `saved` 只在 `onApplied` 里更新。
+- `split()` 之后只调 `invalidate()`。
+- `toggleFiles` 经 `host.setCollapsed`，不触发 `onApplied`（`useGridHost.md` 自己写了要存盘就存它返回的 `collapse`）。
+- 拆分后 `saved` 仍是拆分前的树。
+- `saved` 从没被读过：没有恢复，也没存到哪里。
+
+**为什么是问题**：注释写“拖完落账之后存快照”，五件事第 4 条说“要存盘就在这里”，读者会以为这样就存全了。
+
+**建议改法**：把存快照写成一个 `save()`，在 `onApplied`、`split` 成功后都调；注释说明收起状态不在快照里（见 1）。
+
+### 6. README 没有安装与环境说明
+**严重程度**：建议　**类别**：可读　**位置**：`README.md` 开头到“起步”之间
+
+**现象**：
+- `package.json` 的 `exports` 直接指向 `src/index.ts`、`src/vue/index.ts`。
+- `peerDependencies` 是 `vue ^3.5.24`（还有 `typescript`）。
+- README 没有安装命令、Vue 版本、“需要能编译 `.vue` 与 `.ts` 的工具链”这类前提。
+
+**为什么是问题**：站在从 npm 装包的人的位置，第一步就卡：用 webpack 或 Node 直接解析会拿到 `.ts` 语法错误。
+
+**建议改法**：起步前加三行，写安装命令、peer 依赖与版本，以及“包以源码发布，需要 Vite 这类能编译 TS 与 `.vue` 的构建工具”。
+
+### 7. 例子里有没定义的词，`collapse` 的四个数字没解释
+**严重程度**：建议　**类别**：可读　**位置**：`README.md:5`、`:20-60`、`:76-80`
+
+**现象**：
+- “宿主”第一段就用，没定义。
+- “承载盒”在五件事第 2 条才顺带带过。
+- “分隔条”（README）与“分隔线”（`NestedGrid.md`）混用，代码里是 sash。
+- `collapse: {collapsedSize, restoreSize, collapseThreshold, expandThreshold}` 直接出现，README 没解释也没链接。`grid.md` 讲 `restoreSize`，阈值在 `Splitter.md`。
+- `contextKey: "starter"` 在 README 里没说用途，只有 `useGridHost.md` 讲换了上下文旧手势不落账。
+
+**为什么是问题**：第三方想改左栏行为时只能猜这四个数。
+
+**建议改法**：例子下加一小段“左栏的收起策略”，解释四个字段；`contextKey` 一句话；“宿主”首次出现处括注“使用本库的应用”。
+
+### 8. 过渡一节对“留着缩回去”的条件缩写，漏了“在分支一头”那支
+**严重程度**：建议　**类别**：准确　**位置**：`src/vue/NestedGrid.md`“过渡”一节最后一条
+
+**现象**：
+- 新文写“一整棵子树离开、前后的兄弟相接、下面还有挂着的内容、又不在拖动中”。
+- Spec 输出 45 的第二个条件是：前后的兄弟这一帧相接，**或**它在分支一头而挨着的兄弟这一帧伸到了它原来的那一头（所在分支因此被摊平、兄弟换了分支也算）。
+
+**为什么是问题**：侧栏关掉这种边上的面板恰恰是“在分支一头”的情形，只有一个兄弟。按缩写读，宿主会以为它不满足条件，不给 `data-leaving` 写样式，实际它会留着缩回去。
+
+**建议改法**：条件二改成“前后的兄弟这一帧相接，或它在分支一头而挨着的兄弟伸到了它原来的那一头”。
+
+### 9. `moveGridFocus` 的第一个参数是容器，文档叫 `from`，README 又没给签名
+**严重程度**：建议　**类别**：准确　**位置**：`NestedGrid.md`（焦点一段）、`README.md:102`、`:122`
+
+**现象**：
+- 源码是 `moveGridFocus(container: Element | null, direction: "next" | "previous"): boolean`（`vue/grid-focus.ts:93`）。
+- 文档写 `from`，读者会传焦点元素。碰巧能用，因为 `container.contains(active)`；传别的就从容器里第一个 grid 开始。
+- README 的表和约定里都没有签名。
+- 也没写“只有 next/previous、没有上下左右”（体验 13 的第 3 点）。
+- 也没写“返回是否移动了”，而 F6 处理里要靠它决定是否 `preventDefault`。
+
+**建议改法**：约定的“键盘”条补一行签名和这三点；`NestedGrid.md` 里把 `from` 改成 `container`。
+
+### 10. “两种坐标”漏了两种矩形形状，“布局结果的矩形”指的东西不存在
+**严重程度**：建议　**类别**：准确　**位置**：`README.md:123`
+
+**现象**：
+- `layout()` 返回 `sizes`、`constraints`、`sashSizes`、`issues`，没有矩形。
+- 相对网格根的 `{x, y, width, height}`（`GridRect`）来自 `placeGrid`（`c.ts` 里 `items[].rect`）。
+- 落点几何用 `{left, top, right, bottom}`（`GridDropRect`，`grid-drop.ts:15`）。
+- 体验 14 的痛点正是两种形状：读者把 `GridDropRect` 传给了 `placeLifted`。这条只写了坐标原点。
+- `placeGrid` 也不在“我要做 X”表里。
+
+**建议改法**：
+- 改成“两种矩形：`placeGrid` 给 `{x,y,width,height}`，相对网格根；落点几何用 `{left,top,right,bottom}`，视口坐标；库不提供互转”。
+- 表里加 `placeGrid` 一行。
+
+### 11. 扫描测试只认“输出 N”，`NestedGrid.md:112` 还留着 Spec 编号，随包源码注释里还有 84 处
+**严重程度**：建议　**类别**：测试　**位置**：`readme.test.ts:29`；`NestedGrid.md:112`（“Spec `ui/nested-grid` 失败 6”）
+
+**现象**：
+- 正则 `输出 [0-9]+` 对“失败 6”“验收 3”这类同样指向 Spec 编号的写法是瞎的，`NestedGrid.md` 类型代码块里就留着一处。
+- 随包 `src` 下非测试的 `.ts`、`.vue`、`.css` 里还有 84 处“输出 N／失败 N／验收 N”，包括公开类型和 `useGridHost.ts` 选项的 JSDoc（如“Spec 输出 150”）。IDE 悬停时，npm 读者看到的就是这些。
+
+**为什么是问题**：任务目标是“第三方打不开的编号不再出现在随包文档里”，测试绿了但目标没达到。
+
+**建议改法**：
+- 正则扩成 `(输出|失败|验收) ?[0-9]+`，改掉 `NestedGrid.md:112`。
+- 公开入口的 JSDoc 是否清理，作为范围决定写进 Task 记录；不清理就在测试里注明只管 `.md`。
+
+### 12. `drag-session.md` 的选项表漏了 `commitsUnderPointer`、`onActiveChange`，`commit` 一行对实时布局不成立
+**严重程度**：建议　**类别**：准确　**位置**：`src/vue/drag-session.md`（选项表）
+
+**现象**：
+- `commitsUnderPointer?(keyboard)` 为真时，放下提交的是此刻判定的动作，不要求与最后显示的相同（实时布局）。表里 `commit`、`actionKey` 却写成“与最后显示过的动作相同才提交”，没提这个开关。
+- `onActiveChange` 是宿主写光标、禁选标记的入口，表里没有。
+- `keyboard` 只写“键盘拖动”，实际有 `sourceAt`、`regions`、`stops`、`start`、`refocus` 五个必填。
+- `scroll` 的取值 `"reevaluate" | "withdraw"` 没写，`autoScroll` 的形状也没写。
+- 示例里的 `rowAt`、`move` 没有出处。
+
+**为什么是问题**：库自己的 `useSortable` 就用了 `commitsUnderPointer`，读者照表实现实时布局会得到“放下不提交”的困惑。
+
+**建议改法**：补两项；`commit` 与 `actionKey` 的描述加“除非 `commitsUnderPointer`”；`keyboard` 列出子项；`scroll` 写出取值。
+
+### 13. 几处只有仓库内的人才懂的词留在随包文档里
+**严重程度**：建议　**类别**：可读　**位置**：`useLayoutExtent.md`；`README.md`（主题一节）；`NestedGrid.md`
+
+**现象**：
+- `useLayoutExtent.md` 写“验收台淡入时的 `scale(0.99)`”，“验收台”是仓库内部词。
+- README 主题一节写“本包的 `vitest.setup.ts`”，但 `package.json` 的 `files` 不含它。
+- `NestedGrid.md` 里 `lifted`“（实时布局）”没有定义。
+- `useLayoutExtent.md` 写“给网格量尺寸的承载盒不要有内边距”，但 NestedGrid 量的是自己的根（`width/height: 100%`，无内边距，`NestedGrid.vue:735`），承载盒有内边距并不影响。这句只对宿主自己用 `useLayoutExtent` 量的盒子成立，放在“给 NestedGrid 量尺寸不用它”上面一段，容易读反。
+
+**建议改法**：
+- “验收台”改成“淡入时带缩放的容器”。
+- `vitest.setup.ts` 那句改成“测试里要对每个元素设时长规则”，附两行样例。
+- “实时布局”首次出现时注一句。
+- 内边距那句挪到明确只指自量场景的位置。
+
+### 14. “树最多 16 层”写成绝对的，`createGrid` 与 `restore` 并不按这个卡
+**严重程度**：建议　**类别**：准确　**位置**：`README.md:120`
+
+**现象**：
+- 实验 `b.ts`：`createGrid` 传 300 个叶的根没有任何失败。
+- 上限只在 `addLeaf`、`splitLeaf` 里查（`grid.ts:561`、`:604`，grep 只有这两处调用 `scaleIssue`），`moveLeaf` 没查。
+- `grid.md` 自己写“17 层的快照还能恢复”。
+- 第 17 层拆分返回 `{ok:false, code:"limit-exceeded", params:{limit:"depth", max:16}}`，所以“拆分这类操作返回 `limit-exceeded`”这半句是对的，前面“树最多 16 层”不准。
+
+**建议改法**：改成“拆分与插入会在 16 层、256 个节点处被拒（`limit-exceeded`）；建树与恢复不按它拒绝”，并写出两个常数的值。
+
+### 15. `NestedGrid.md` 的“自己接组件”部分丢了两条对自接宿主仍有用的规则
+**严重程度**：建议　**类别**：可用　**位置**：`NestedGrid.md` 接入一节
+
+**现象**：
+- 原文的“没量到可用尺寸（null，或宽、高任一为 0）时布局为空、`disabled` 为真”现在只在 `useGridHost.md` 里。
+- 原文的“不要把它挂在‘有了尺寸才渲染’的条件后面”同样只在 `useGridHost.md` 里。
+- 这一节标题就是“不经 `useGridHost`、自己接组件时”，读它的人正是不看 `useGridHost.md` 的人。
+
+**建议改法**：补回这两条，或链到 `useGridHost.md` 的“尺寸从哪来”。
+
+### 16. `readme.test.ts` 的覆盖空隙
+**严重程度**：建议　**类别**：测试　**位置**：`src/readme.test.ts`
+
+- 起步例子“能跑”只靠 Lab 的 e2e，而 Lab 有定高祖先、有 nb-ui 令牌。没有“无 nb-ui、祖先无定高”的验证（见 2）。
+- 链接扫描只看 `](…)`：引用式链接、HTML 的 `href` 看不到。
+- 根相对路径（`/docs/…`）会被 `join` 吞成包内而放过。
+- 指向包内但不存在的文件（改名之后）不会红。
+- `startsWith(PACKAGE)` 没带分隔符，`nb-layout-x` 这类兄弟目录会放过。
+- “我要做 X 用哪个导出”表里的名字与入口没有机检，改名或搬入口时表会默默过期，而这张表是提案点名的一件。
+
+**建议改法**：
+- 给表加一条测试：取反引号里的标识符，对照四个入口的导出清单（`exports.test.ts` 已有清单可复用）。
+- 链接扫描补“目标文件存在”。
+
+### 未发现问题的方面
+- **导出表**：对照 `src/index.ts`、`src/vue/index.ts`、`./text`（`src/vue/text.ts`）、`./locales`，表里每个名字都从写的那个入口导出，入口栏没错。
+- **起步例子**：import 与类型对得上（`result.ok`、`result.collapse.collapsed`、`host.setCollapsed` 的返回型、`splitLeaf` 的参数形状）。`sashSize` 缺省 0 的说法、五件事与代码注释的编号也对得上。
+- **约定**：这几条经实验或源码核对是准确的。
+  - 读失败保留原件：`restore` 失败时树不变（`grid.ts:736-745`）。
+  - 窄窗口：100 宽给两条 `over-constrained`，根 `constraints` 最小 164。
+  - `data-drag-feedback` 的作用，以及 `sourceAt` 不排除交互元素（`drag-session.ts:79`、`:292`）。
+  - `moveGridFocus` 只停叶里可聚焦元素。
+- **`useGridHost.md`**：选项、交回的名字、只发新增的键（`issue-gate.ts`）、`onApplied` 的时序与 `before`、`setCollapsed` 的 `changed` 才重发布与 `not-ready`、`extent` 的 null、开发检查与 `@gesture-commit` 的描述，与 `useGridHost.ts`、`useGridLayout.ts`、`NestedGrid.vue` 一致。
+- **`useLayoutExtent.md`**：`null` 与 0 的区分、`clientWidth` 含内边距不含边框（源码注释写“不含 padding”是错的，文档写对了）、两轴没变不发新值，都一致。
+- **`drag-session.md`**：`useDragSession` 的时序（立即建、换根先销毁、`createOptions` 只读一次、抛错），以及 `invalidate`、`flush`、`abort`、`dispose`，都一致。
+- **第 3 片摘要**：摆放与取整、过渡判定与打断、交换、Tab 与 `moveGridFocus` 几段，对照 Spec 输出 27 到 34、35 到 60（除 8）、61 到 77、121 到 132，没发现说错。
+- **链接**：GitHub 绝对链接的目标文件与锚点标题都存在；包内相对链接都落在包目录内。
+- **测试本身**：`bun test src/readme.test.ts` 两条通过。加回“输出 12”或跳出包目录的相对链接会红。找不到标记、找不到 `vue` 块、CRLF 检出都会 `throw`，不会空过。
+
+数量：阻断 0；重要 3；建议 13。
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16
+
+草稿在 `reports/impl-review/report-draft.txt`，实验文件在同目录 `exp/`。

@@ -1,0 +1,124 @@
+# w00039 t37 前端实现审查报告（范围 46a224460..9b88b4232）
+
+### 1. 元素、主文字块、移动对话框的保存不带读到的值，基准版本取确认那一刻的，别处在对话框开着时的改动被无声覆盖
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：`packages/neuro-book/src/plugins/canon/web/components/EntryPageHost.vue` 的 `runEntries`（335-347 行，`baseVersion: version()`）、`confirmElement`（465-515）、`confirmBlock`（543-557）、`confirmMove`（397-416）
+- 现象：三类对话框打开时只存了“初值快照”（`original`、`moveFrom`），保存时 `set` 操作不带 `read`，`editEntries` 的 `baseVersion` 取的是确认那一刻条目读取的版本（`entry.value.version`）。对话框开着时别处（Agent 或另一窗口）改了同一个子字段或同一块正文，条目读取会重读到新版，保存时基准版本也跟着是新的，内核没有任何东西可比，作者的旧草稿直接覆盖别人的改动。对话框里显示的还是旧值，也没有任何提示。
+- 为什么是问题：revisions.md 验收 1“两人同时改”要求“读了版本 10、别人改成 11、再保存改同一个对象得到 version-conflict”；作者“要用户和 agent 都能改”是开发者说最重要的一条，而这条正好是两方同时写的路径。原有的就地改（`useInPlaceEdit`）是对的：打开时存 `read: {value, version}`，保存带 `read`，世界变了还会写“这个值刚刚变了”。新路径等于把这条不变量丢了。`EntryEditsSchema` 的 `set` 本来就有可选 `read`，也有 `readStamp`，接口是够的。
+- 如何核实：已做实验（临时在 `entry-page.dom.test.ts` 里加一条再 `git checkout` 恢复，已恢复，`git status` 干净）：真实世界里打开“改这一段”对话框，另一窗口用 `editEntries` 把 `text[b1]` 改成“别处改过的内容”，等条目页重读到新内容，再在仍开着的对话框里填“作者的覆盖”保存：写入成功，世界里正文变成“作者的覆盖”，没有冲突、对话框里也没有任何提示。
+- 建议改法：打开时记 `{version, value}`（元素：改的各子字段的原值；块：`original`），保存时 `set` 带 `read: 原值`（内核已支持，`value-conflict` 带当前值），`baseVersion` 用打开时的版本；`value-conflict` 时按就地改的做法把对话框里“原值”换成当前值并写一句“这个值刚刚变了”。移动的 `place` 没有 `read`，至少用打开时的 `baseVersion`，让别人动过这个条目时得到 `version-conflict`。
+
+### 2. 已选条目的名字显示不出来：选了以后再打开、搜不到词后失焦、改一项时的引用子字段，输入框是空的
+- 严重程度：重要
+- 类别：正确性（基本 UX）
+- 位置：`components/MoveDialog.vue:57,81`（选中后 `parentName: ''`、`sameAsName: ''`）；`EntryPageHost.vue:811`（`keyName: ''`）；`EntryPageHost.vue:793-818`（`ElementDialog` 没传 `:ref-names`，组件有这个 prop）；`packages/nb-ui/src/components/form/SearchSelect.vue` 的 `display`（`selected?.label ?? (modelValue === "" ? "" : selectedLabel ?? "")`）；`EntryPicker.vue` 的 `items`（只有 `done` 才有选项）
+- 现象：远程模式下输入框显示的名字只来自“当前这批结果里有这一项”或宿主给的 `selectedLabel`。宿主在选中后把名字清成空串，所以：(a) 在移动对话框里选了上级，再点开列表，打开时立即发 `search("")`，结果变 `searching`，选项变空，输入框立刻变空白（值还在）；结果回来时若所选条目不在前 20 条里仍然空白；(b) 输入一个搜不到的词后失焦，输入框同样是空白；(c) 元素对话框改一项时，引用子字段已有值，但宿主不传名字，输入框一开始就是空的（Task 记录写的是“显示 id”，实际是空白，与记录不符）；(d) 以条目为键的列表“加一项”里选了条目后同样（`keyName: ''`）。
+- 为什么是问题：作者看见空输入框会以为没选，可能重选、清空，或误以为保存会丢掉这一项；而值其实还在，保存会照发。这是“能改”的基本可用性。
+- 如何核实：已做实验（临时改 `entry-page.dom.test.ts` 的移动用例后恢复）：选中“学院”后 blur、focus、click 再读输入框，值是 `""`；再输入“不存在的词”等 600 毫秒、blur，值仍是 `""`。输出 `seen=["","不存在的词",""]`。
+- 建议改法：选中时宿主记下候选的名字（`EntryPicker` 的 `update:modelValue` 额外带 `{id, name}`，或宿主在 `useEntryFind` 的最近结果里按 id 查），写进 `parentName`、`keyName`；元素对话框的引用子字段按 id 读一次条目取名字，传进 `refNames`；或让 `EntryPicker` 自己缓存“最近选中的名字”，不依赖外面给。
+
+### 3. 从 Agent 提示撤销成功后，Agent 提示还留着，“撤销”仍指向已被还原的那次修订
+- 严重程度：重要
+- 类别：不变量 / 正确性
+- 位置：`components/EntryPageHost.vue:675`（`@undo="pageNotice.undo(props.notices.agent.value)"`，`ReceiptPageHost`、`ChangePageHost` 同）、`notices.ts` 的 `usePageNotice.undo`、`revert.ts:216-217`
+- 现象：还原成功只调 `notices.show(...)`（换掉作者自己那一格 `current`），没有任何地方调 `dismissAgent()`（全仓 `grep dismissAgent` 只在三个宿主的关闭按钮与测试里）。所以撤销 Agent 的修订成功后，页顶同时有“撤销成功”的提示和仍写着“Agent 改了设定：建校长”的那一行，那一行的“撤销”“看回执”仍指向被还原的修订。
+- 为什么是问题：再点那个“撤销”，补偿修订改过同一批地址，按 revisions.md 输出 12 它依赖原修订，预览会得到 `has-dependents` 并给“连同这些一起还原”，选了就是把 Agent 的改动重做回来，作者以为是在撤销。Spec 输出 18 对作者自己的提示写的是“还原成功后换成还原的那一条”，输出 42 说 Agent 提示的撤销“按输出 22”，没有写成功后怎么办；按同一个道理，被还原的那条不该再提供撤销。e2e 只断言树里“校长”没了，没看提示的状态，所以没测到。
+- 如何核实：从代码推断（未跑）：e2e 第二条用例在撤销后追加 `await expect(page.locator("[data-agent-notice]")).toHaveCount(0)` 应失败。
+- 建议改法：还原成功时，若还原的修订 id 等于 `agent.value.revision`，清掉 Agent 提示（或把 Agent 提示的“撤销”在成功后置灰）；`usePageNotice.undo` 对两类提示共用，可在 `createRevertRequests().open` 的成功回调里按修订 id 清。并补 e2e 断言。
+
+### 4. 页头写入的失败原因 `actionError` 是全页一份、没有关闭路径：取消对话框后残留在页头，对话框开着时页头与对话框各写一遍
+- 严重程度：重要
+- 类别：正确性（基本 UX）/ 共享状态
+- 位置：`components/EntryPageHost.vue:332`（`actionError`）、336-339（`runEntries` 开头清、失败时写）、`@update:open` 各处（791、810、827、844、864、883、897 附近，只改开关不清错误）；`EntryPage.vue:136,179`（`actionError` 画在页头下面）
+- 现象：同一个字符串同时给 `EntryPage`（页头下面）和每个对话框（对话框里）。(a) 元素/块/移动/加设定/去设定对话框里保存失败、或校验不过（`list.badValue`、`list.needLabel`、`block.emptySource`）时，错误既写在对话框里，也写在被遮住的页面里（两个 `role="alert"`，读屏会读两遍）；(b) 作者看了错误后点“取消”或按 Escape，对话框关了，页头下面那行红字还在，没有关闭键，直到下一次任何页头写入或打开别的对话框才被清掉；(c) 在别的对话框失败后再打开“添加一组设定”等，打开前才清，顺序依赖每个 open 处手写的 `actionError = ''`，漏一处就串（`removeBlockDraft` 打开处写了，`blockOpen`/`elementOpen` 的取消没写）。
+- 为什么是问题：开发者的“基本 UX”范围。显示一个已经无关的错误，会让作者以为刚才取消的操作还有问题；这也违背 Spec 输出 29 “失败时原因写在对话框里”（对话框里写了，页头不该再写）。
+- 如何核实：从代码推断，可用 dom 测试复现：让 `editEntries` 失败（例如去掉有 `element-from-change` 的元素）后取消对话框，断言 `[data-entry-action-error]` 不存在。
+- 建议改法：对话框各自持有错误（每个 `runEntries` 调用方传入要写的错误槽，或 `runEntries` 返回失败原因，由调用方写进对话框的 `error`）；`actionError` 只留给没有对话框的页头操作（别名、恢复），并加关闭键或在下次渲染前随位置、标签变化清掉。取消对话框时一并清它自己的错误。
+
+### 5. 元素对话框里有两个以上引用子字段时共用一份查找结果与一个“当前字段”，列表与目标种类会串
+- 严重程度：建议
+- 类别：正确性 / 共享状态
+- 位置：`components/EntryPageHost.vue:445-450`（`elementRefField`、`elementRefFind`）、815（`@search-ref` 先写 `elementRefField` 再 `search`）、805（所有 `FieldInput` 共用 `:ref-results`）；`ElementDialog.vue` 的 `FieldInput` 循环
+- 现象：一个 `useEntryFind` 与一个 `elementRefField` 服务所有引用子字段。`ref-results` 对每个引用子字段都是同一份：先在 A 字段里搜，再点开 B 字段，B 的下拉在新结果回来前先列 A 的结果（按 A 的 `targets` 查的）；打字去抖 200 毫秒里切到另一个字段，`run` 执行时 `elementRefField` 已是新字段，结果按新字段的 `targets` 查却可能被标成上一个词的。内核会按声明校验，写进去的引用不会错种类，但作者会短暂看到不该出现的候选。
+- 为什么是问题：窄场景；Task 记录里列表是“以条目为键或带引用子字段”的通用路径，随着人物闭环的 Component 加引用子字段会遇到。
+- 如何核实：从代码推断。
+- 建议改法：窄场景，可记为已知限制；或 `ElementDialog` 内每个引用子字段一个小的包装（各自 `useEntryFind`），不必在宿主里共用。
+
+### 6. `EntryPageHost.vue` 到 918 行，新增的三块写入逻辑与五个重复的意图选择器应拆出去
+- 严重程度：建议
+- 类别：代码质量
+- 位置：`components/EntryPageHost.vue` 330-577（页头写入、移动、列表元素、主文字块、去设定组）、778-916（九个 `Dialog`）；意图选择器的相同模板在 `ConfirmBar.vue:80`、`ElementDialog.vue:71`、`EntryPageHost.vue:830-833,849-852,867-870`
+- 现象：宿主同时是读取与分页的编排者，又内联了三类写入的草稿、校验、拼操作与全部对话框模板。`SegmentedControl` 的“意图”选择器带着同一段 `options.map(...)` 抄了五份；`openElement`、`openBlock`、`openRemoveElement` 都重复 `actionError = ''` + `intent: intentsHere()[0]!`。
+- 为什么是问题：后面人物闭环、更多 Component 都要往这里加；每加一种写入就要在这个文件里改三处（草稿、确认函数、模板），也是第 1、4 条这类漏掉共性（读到的值、错误槽）的根源：同一个“对话框草稿 + 提交”模式写了四遍，每遍都只做了一部分。
+- 如何核实：读代码。
+- 建议改法：(1) 抽 `IntentSwitch.vue`（受控，`intents`、`model-value`），五处共用；(2) 把列表元素、主文字块、移动各抽成组合式函数 `useElementEdit`、`useBlockEdit`、`useMoveEdit`（放在 `canon/web/` 下，参数是 `runEntries`、`position`、`entry` 读取），返回草稿与动作，宿主只接线；(3) 对话框模板另放 `EntryPageDialogs.vue`，宿主只传这些组合式函数的返回值；(4) `runEntries` 抽到 `entry-write.ts`，统一“读到的值、基准版本、错误返回”，第 1 条的修法只改这一处。
+
+### 7. 别名搜索命中的未出场条目丢了“未出场”说明
+- 严重程度：建议
+- 类别：正确性（小）
+- 位置：`components/EntryPageHost.vue:373`（`finderFor`：`...(item.appeared ? {} : {note: ...unappeared}), ...(item.matchedAlias === undefined ? {} : {note: ...alias})`）
+- 现象：两个展开都写 `note`，后者覆盖前者，一个既没出场、又是按别名命中的条目只显示“别名：小瑕”，不显示“未出场”。
+- 为什么是问题：两条说明本来都有用，作者选了尚未出场的条目建引用却看不到。
+- 如何核实：读代码；`EntryPicker` 的 `description` 只取一个 `note`。
+- 建议改法：把两句用“ · ”连成一个 `note`。
+
+### 8. 元素对话框里布尔子字段加一项时总写 `false`，不能保持“未知”；图片只填说明不填路径时没有提示
+- 严重程度：建议
+- 类别：正确性（小）
+- 位置：`components/EntryPageHost.vue:456`（`draftText(undefined, "boolean")` 得 `false`）与 `confirmElement` 的 `elementValue`；`components/ImageInput.vue`（`update` 只在两个都空时出 `null`，`reason` 只在 `path !== ""` 时判）；`FieldInput.vue` 没把服务退回的 `problem` 传给 `ImageInput`
+- 现象：加一项时没碰过的布尔子字段被写成 `false`（数、文字没填是 `null`），元素的“未知”与“否”分不开；图片先填说明、路径空着时发出 `{图片: "", 说明: "x"}`，没有任何提示，保存才被服务拒。`ImageInput` 的 `problem` prop（服务退回的原因优先）在 `FieldInput` 里没有接线。
+- 为什么是问题：小；与计划里 Spec 输出 16“图片路径不合规则时写原因”的口径略有差距。
+- 如何核实：读代码。
+- 建议改法：布尔输入加“未知”的第三态，或加一项时布尔默认不写；`ImageInput` 在有说明而路径为空时给“要填路径”；`FieldInput` 暴露 `problem`。
+
+### 9. `FieldsDataView` 的记一笔：错误与保存中各一份，输入改了错误也不清
+- 严重程度：建议
+- 类别：共享状态
+- 位置：`components/FieldsDataView.vue` 的 `recordError`、`saving`、`submit`
+- 现象：草稿是按字段存在 `context.state.records` 的，但 `recordError`、`saving` 是整个视图一份：`submit` 的 `await` 期间作者展开了另一个字段，失败原因会写到另一个字段的表单下面；失败后继续改输入，红字一直在直到再保存或收起（`toggle` 才清）。`saving` 期间别的字段的“记一笔”也一并不可用。
+- 为什么是问题：窄；开发者要的“失败时输入留着、原因写在输入下面”是满足的，只是错误挂错地方的可能。
+- 如何核实：从代码推断。
+- 建议改法：`recordError` 按 `path` 存（`Record<string, string>`），`saving` 记 `path`；`setDraft` 时清该字段的错误。
+
+### 10. Agent 提示在没有页面挂着的期间也累计，隔很久打开条目页还挂着旧的提示，“之前还改了 N 次”不区分条目
+- 严重程度：建议
+- 类别：行为（按 Spec，值得确认）
+- 位置：`notices.ts` 的 `agentRevised`、`plugin.ts:218-221`
+- 现象：窗口只要启用了 canon 插件，Agent 的每次发布都累加 `earlier`；没有条目页时不发通知，但提示留在 `agent` 格里。作者两小时后第一次打开某个条目页，页顶是“Agent 改了设定：X（之前还改了 14 次）”，X 往往与这个条目无关，关闭前每个条目页、回执页、变更详情页都带着它。
+- 为什么是问题：符合 Spec 输出 42 的字面（“世界发布的修订写入者是 Agent 时……条目页、回执页、变更详情页顶上另有一行”），但“之前”没有时间界限，作者没法判断它是否还相关。
+- 如何核实：读代码；e2e 第二条用例开页后，页顶的 Agent 提示已经带着第一次建学院的那条记录（`earlier` 为 1）。
+- 建议改法：低优先级。若要改，记下提示出现的时间、过了一段时间（例如页面不在前台挂着超过 N 分钟）后收起；先与开发者确认是否要这个口径。
+
+### 11. 测试只覆盖顺利路径：没有一条测写入失败的显示、意图“剧情里变了”、别处同时改、取消后的残留、Agent 提示撤销后的状态
+- 严重程度：建议
+- 类别：测试
+- 位置：`web/entry-page.dom.test.ts` 新增的八条、`e2e/canon-write.e2e.ts`、`components/*Dialog.dom.test.ts`
+- 现象：新增测试的断言都落在“写进世界里的值”（读 `object` 比对），这点是对的，没有固定等待，`waitUntil` 都是等可观察状态。但缺：(a) 失败路径——元素、块、移动保存被内核拒收（例如 `element-from-change`、`value-conflict`、`order-exhausted`）时错误写在哪里、取消后是否残留（见第 4 条）；(b) 所选位置是章时的“剧情里变了”意图，元素与块各自发出的 `intent`、`position`（宿主的 `intentsHere()[1]`）从没被走到；(c) 开着对话框时世界变了（第 1 条）；(d) 移动只测了换上级，分组、种类、放在最前、出场、另一个身份各自“只发改了的”没有断言（`confirmMove` 的 `Object.keys(op).length === 2` 分支也没测）；(e) Agent 提示：e2e 只在撤销后断言树里的“校长”没了，没断言提示的去向（第 3 条）；dom 层没有一条用真实世界的 Agent 写入驱动 `AgentNotice`；(f) 去掉一项只测了“盾”，没测“来自剧情变更的元素按改设定去不掉”这条被明写进 Task 记录的路径。
+- 为什么是问题：第 1、3、4 条都是这些缺口里的真缺陷，测试没拦住。
+- 如何核实：读测试。
+- 建议改法：按条补：第 1 条先写“对话框开着时别处改了同一块，保存得到冲突”的红测试；第 4 条加“失败后取消，页头没有 `[data-entry-action-error]`”；第 3 条在 e2e 末尾加 `[data-agent-notice]` 断言；移动补一条“只改了分组”发出的 `place` 只含 `folder`。
+
+### 12. nb-ui `SearchSelect` 的清空按钮没有可见的键盘焦点样式，键盘路径没测
+- 严重程度：建议
+- 类别：界面（可访问性）
+- 位置：`packages/nb-ui/src/components/form/SearchSelect.vue` 新增的 `<button v-if="showClear">`（266-273 行附近）；`SearchSelect.test.ts` 的“清空”用例
+- 现象：按钮只有 hover 样式，没有 `focus-visible` 的环；输入框 `@blur="closeMenu"`，Tab 从输入框到清空按钮时列表关闭、焦点落在一个没有可见焦点的小图标上。测试只覆盖鼠标（`mousedown`+`click`），没测 Tab 到按钮、Enter 清空、清空后焦点回输入框。
+- 为什么是问题：ui-development 的“三、UI 专属检查”要求可见焦点；清空按钮是新增的键盘可达控件。
+- 如何核实：读代码；Lab 里用 Tab 走一遍或补 dom 测试。
+- 建议改法：加 `focus-visible:shadow-[var(--focus-ring)]` 之类与其它控件一致的样式；补一条键盘用例。
+- 补充（第 12 条）：焦点环的现成写法是 `packages/nb-ui/src/styles.css` 里的 `.nb-ui-focus-ring`（`:focus-visible`），清空按钮没用它；建议改法写成“给按钮加 `nb-ui-focus-ring` 类”。
+
+## 未发现问题的方面
+- `useEntryFind` 的去抖、晚到结果作废（`sequence`）、作用域结束清计时器：读代码与现有测试一致，换 `targets` 时 SearchSelect 打开会立刻发 `search("")` 把旧结果换掉，没有发现旧结果被选中的路径。
+- `EntryPageHost` 拼的操作与 revisions.md 输出 25 一致：`listAdd`（以条目为键写 `id`、别的写 `label`）、改一项只发改过的子字段的 `set`（地址 `列表[元素].子字段`）、`listRemove`、`addBlock` 不带 `after`、`text[块]` 的 `set`、`removeBlock`；初值上只有“改设定”；`position` 带上窗口选的线。除第 1 条的读到的值缺失外，操作形状没有发现错误。
+- `SearchSelect` 远程模式本身（不在本地筛、`search` 事件在打开与打字时发出、`selectedLabel` 在当前值不在选项里时显示）与清空按钮的鼠标路径：按文档与测试读，没有发现问题；名字消失的问题（第 2 条）出在宿主传值，不在组件。
+- 空状态与文字分页：没有条目的空状态、不能写时禁用并写原因、没有主文字时仍有“文字”分页而缺省先看设定，实现与测试、Spec 输出 9、37、39 一致。
+- `world.onRevision` 的按修订 id 去重、晚于本窗口写入结果的事件仍交出：读代码与 `world.dom.test.ts` 一致，没有发现问题。
+- 新增 dom 测试在 `packages/neuro-book` 里 `bunx vitest run src/plugins/canon/web/components src/plugins/canon/web/notices.test.ts` 21 个文件 69 条全过；未跑 e2e 与类型检查（不在本审查范围的跑法里）。
+
+## 数量
+- 阻断 0；重要 4（第 1、2、3、4 条）；建议 8（第 5 到 12 条）。
+- 变异与实验：共两次临时改 `web/entry-page.dom.test.ts`（第 1、2 条的复现），都已 `git checkout --` 恢复，`git status` 干净；没有动过后端文件。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

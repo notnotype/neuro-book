@@ -214,6 +214,7 @@ export function useRevert(options: RevertOptions): Revert {
         if (requests.target.value !== target) return;
         if (result.ok) {
             requests.close();
+            options.notices.reverted(target.revision);
             options.notices.show({revision: result.value.revision, title: revertTitle});
             return;
         }

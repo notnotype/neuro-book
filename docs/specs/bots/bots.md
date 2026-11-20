@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: bots.bots
 owners:
   - nbook.bots
@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 第一版只有一个 bot：没有新建、删除、改名 bot 的入口，缺省 bot 的 id 固定；数据形状按多个 bot 设计。
-- 头像怎样交给浏览器、人设与记忆怎样进提示词、`bots://` 方案与写授权、日程，不在这里。
+- 头像怎样画在界面上（[`view.md`](view.md)）、人设与记忆怎样进提示词、`bots://` 方案与写授权、日程，不在这里。
 - 预设更新以后不覆盖已经建出来的 bot。
 
 ## 术语与参与者
@@ -57,13 +57,14 @@ owners:
    启动时，`<bot id>/` 在、记录不在：凭据读得懂、bot id 对得上，就是上次改名之后没写下记录的那份，照凭据补写记录，不再复制；没有凭据或读不懂的目录不登记、不覆盖，写诊断 `bots.directory-unknown`。`.staging-*` 里有凭据或是空的，是没做完的复制，删掉；别的不动。记录写下之后不再复制，bot 目录里的文件归 bot 自己演进。bot id 是 `[a-z0-9-]`、1–40 个字符。
 6. bot 记录：`{id, name, preset, profile, createdAt}`，`profile` 是建时预设的岗位 Profile。主对话的 id 由 bot id 定（[`main-conversation.md`](main-conversation.md) 输出 1），不另存；所用的模型、推理档、审批模式都以主对话的会话设置为准，不在记录里另存。记录读不懂（损坏、版本不认识）时不当成没有 bot：不建新的，写诊断 `bots.record-unreadable`。
 7. 远程服务 `nbook.bots/bots`，版本 1，服务端提供，调用方 `browser`：
-   - `list()` → `[{id, name, main}]`，`main` 是主对话的持有状态（[`main-conversation.md`](main-conversation.md) 输出 3）；
+   - `list()` → `[{id, name, main, unread, latestSeq, seenSeq, last}]`，`main` 是主对话的持有状态（[`main-conversation.md`](main-conversation.md) 输出 3），`unread`、`latestSeq`、`seenSeq` 见同一份的输出 7；
+   - `last`（planned）是最后一条计数消息的摘要 `{text, at}`：持有之后在线收到计数消息就换；补数时“看到”之后那段里有计数消息取最后一条，那段是空的就从日志尾部往前至多 200 条里找，找不到、没有持有时为 null。不存记录。摘要：只取文字块，表情写法换成“[表情]”，空白折叠成一个空格，按码点取前 80 个、超了加“…”；没有文字时有图片写“[图片]”，否则写“[消息]”；Markdown 标记原样留着（已知限制）；
    - `ensureMain({botId})`：见 [`main-conversation.md`](main-conversation.md) 输出 1；
    - 事件 `botsChanged`：`list()` 的结果变了时推一份新的。先订阅后取 `list()`，`onResync` 重取。
 
    不认识的 `botId` 得 `unknown-bot`。
 8. 内置插件显示名表登记 `nbook.bots`（“bot”）。
-9. （planned）**头像。** `GET /api/nbook.bots/avatar/<bot id>`：只给 bot 记录里有的 bot；在 bot 目录里按 `avatar.png`、`.jpg`、`.jpeg`、`.webp` 找，逐段核对、不跟链接；类型按文件开头的字节判定，判不出的、超过 1 MiB 的都得 404。安全头同表情包的取图路由（`Content-Security-Policy: sandbox`、`nosniff`），别的网页来的请求得 403；`cache-control: no-cache` 加 ETag，同一个 ETag 回 304。
+9. **头像。** `GET /api/nbook.bots/avatar/<bot id>`：只给 bot 记录里有的 bot；在 bot 目录里按 `avatar.png`、`.jpg`、`.jpeg`、`.webp` 找，逐段核对、不跟链接；类型按文件开头的字节判定，判不出的、超过 1 MiB 的都得 404。安全头同表情包的取图路由（`Content-Security-Policy: sandbox`、`nosniff`），别的网页来的请求得 403；`cache-control: no-cache` 加 ETag，同一个 ETag 回 304。
 
 ## 状态与转换
 
@@ -111,6 +112,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/bots/` 的插件测试。
 
+## 实现合同
+
+- **公开入口**：`nbook/plugins/bots/shared/contracts`（贡献点 `presetsPoint` 与 `BotPresetDeclaration`、远程合同 `botsContract` 与 `BotItem`、`COMPANION_PROFILE`、`mainSessionId`）。
+- **owner 与依赖方向**：`nbook.bots` 的服务端入口（`backend/plugin.ts`）持有预设表、bot 记录与创建流程、主对话的持有与远程服务；经 `agentKey` 用 `nbook.agent`，经插件存储记 bot 记录，经平台的插件包查询找第三方预设的文件；`nbook.agent` 不依赖 `nbook.bots`，会话头的 `owner` 只是它给归属插件留的一个字段（[`agent/sessions.md`](../agent/sessions.md) 输出 23）。
+- **关键不变量**：
+  - 激活里不读写会话：后台任务从自己的缺省预设声明交到接收方时开始，建 bot 与核对文件都在它里面（输出 4，`bots.test.ts`、`backend/service.test.ts`）。
+  - 建 bot 先在暂存目录里做完全部复制、写下创建凭据，再改名成 `<bot id>/`，最后写记录并读回；任何一步之后被杀，下次启动都能补完或不登记，不留两份（输出 5，`bots.test.ts`“bot 输出 5”）。
+  - 预设的文件核对按代次：撤回之后才查完的结果作废，不复活、也不盖掉同一个 id 后来发布的那份（输出 1，`backend/presets.test.ts`）。
+  - 记录读不懂（损坏、版本不认识、bot id 不合规则）时整份当读不懂：不建新的、不登记、不改写原数据（输出 6，`bots.test.ts`）。
+  - 停止信号一到就封住：不开始新的工作、不排重试，迟到交回的持有立即放掉（“时序与寿命”，`backend/main.test.ts`）。
+
 ## 证据
 
-- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md)（2026-11-18 接受）第四节第 3、4、12 小节与 2026-11-19 的决策记录；[w00043 t06](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/README.md) 的决定与设计审查的处理。
+- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md)（2026-11-18 接受）第四节第 3、4、12 小节与 2026-11-19 的决策记录；[w00043 t06](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/README.md) 的决定与设计审查的处理；开发者 2026-11-20 批准晋升为 `implemented`，逐句核对后晋升（[核对处理](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/evidences/promotion-check-disposition.md)）；头像路由（输出 9）仍是 `planned`。
+- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/bots/backend/plugin.ts)（服务端入口、远程服务）、[`backend/bots.ts`](../../../packages/neuro-book/src/plugins/bots/backend/bots.ts)（启动与 bot 列表）、[`backend/create.ts`](../../../packages/neuro-book/src/plugins/bots/backend/create.ts)（建 bot 与创建凭据）、[`backend/presets.ts`](../../../packages/neuro-book/src/plugins/bots/backend/presets.ts)（预设的文件核对）、[`backend/store.ts`](../../../packages/neuro-book/src/plugins/bots/backend/store.ts)（bot 记录）、[`backend/profile.ts`](../../../packages/neuro-book/src/plugins/bots/backend/profile.ts)（岗位 Profile）、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/bots/shared/contracts.ts)
+- 合同测试：[`bots.test.ts`](../../../packages/neuro-book/src/plugins/bots/bots.test.ts)（真实内核与 `nbook.agent`，输出 1–7 与验收 1、2）、[`backend/presets.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/presets.test.ts)（输出 1）、[`backend/service.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/service.test.ts)（输出 4、时序与寿命）、[`backend/main.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/main.test.ts)（停止的先后）
+- Smoke：[`bots.test.ts`](../../../packages/neuro-book/src/plugins/bots/bots.test.ts)（真实内核、真实 `nbook.agent`、本机假端点）

@@ -36,8 +36,6 @@ const EXEMPTIONS: StyleExemptions = {
 
 /** 组件读、库里不声明、由宿主按需设置的变量。每个都带缺省值（`var(--x, 缺省)`），没设时组件照常工作。 */
 const HOST_HOOK_VARS = new Map<string, string>([
-    ["--nb-splitter-seam", "Splitter 接缝颜色，工作台外壳按卡片或平铺设置（Splitter.vue 的注释）"],
-    ["--nb-splitter-seam-inset", "Splitter 接缝两端的缩进，缺省铺满"],
     ["--nb-popover-scroll-fade", "弹出列表顶底渐隐的高度，缺省 22px"],
     ["--nb-collapsible-row-px", "CollapsibleRow 的左右内边距，缺省 8px；行排在已有缩进的列表里时宿主收窄（CollapsibleRow.md）"],
 ]);

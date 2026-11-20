@@ -115,7 +115,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 ### 布局与导航
 
-- [`Splitter`](src/components/layout/Splitter.md)：冻结，只给 nb-story、dev-panel 用。布局树、分割面板与拖放反馈都在 [`@notnotype/nb-layout`](../nb-layout/README.md)。
+- 布局树、分割面板（`Splitter`）与拖放反馈不在 nb-ui，在 [`@notnotype/nb-layout`](../nb-layout/README.md)；改法见[迁移说明](docs/migration-0.4.md#04-之后splitter-移到-nb-layout)。
 - [`ScrollArea`](src/components/layout/ScrollArea.md)：自己建滚动容器、带自绘滑块。
 - [`OverlayScrollbar`](src/components/layout/OverlayScrollbar.md)：接到已有滚动元素上的叠加滑块。
 - [`Collapsible`](src/components/layout/Collapsible.md)：受控折叠。

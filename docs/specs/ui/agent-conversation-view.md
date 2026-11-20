@@ -90,8 +90,6 @@ type AgentConversationViewProps = {
     draftProfile?: {name: string; icon: string} | null;
     /** 没有消息时的第一屏（见“消息”的空状态）；不给时写“还没有消息”。 */
     welcome?: {title?: string; recent: {id: string; title: string; at: number}[]; total: number; starters: {text: string; icon?: string}[]};
-    /** （planned）阻塞的待处理事项放在哪：缺省 "wizard"，替换输入框；"dock" 也进停靠区（见“用法档”）。 */
-    pendingPlacement?: "wizard" | "dock";
 };
 
 type AgentConversationViewEmits = {
@@ -341,12 +339,13 @@ Markdown 扩展在本规范中只预留，不要求实现。
 
 ### 用法档
 
-（planned）宿主用同一个视图组件画两种对话；差别只在选项与 `ctx` 的取值，不传新选项时就是会话档，渲染与改动之前一致。会话加 bot 档（bot 视图与通用视图并排）在 bot 视图并进“消息”视图时写。
+（planned）宿主用同一个视图组件画两种对话；差别只在 `ctx` 的取值，按会话给：同一个视图里从普通会话切到 bot 的主对话，档位跟着变（消息视图就是这样用，[`agent/conversation.md`](../agent/conversation.md) 输出 53）。`ctx.interaction` 的 `placement`（缺省 `wizard`）与 `canCreate`（缺省 true）不给时就是会话档。
 
 | 项 | 会话档（通用的对话视图） | bot 档（bot 的主对话，[`bots/view.md`](../bots/view.md)） |
 |---|---|---|
-| 顶栏 | Profile 图标与会话标题；顶层会话可以有新建（`newSession`）与会话列表（`sessions` 插槽） | bot 的名字与头像（`session.title`、`session.avatar`）；没有新建与会话列表 |
-| 待处理事项 | `pendingPlacement` 缺省：阻塞的由向导替换输入框 | `pendingPlacement: "dock"`：都在停靠区，输入框照常可用 |
+| 顶栏 | Profile 图标与会话标题；顶层会话可以有新建（`newSession`）与会话列表（`sessions` 插槽） | bot 的名字与头像（`session.title`、`session.avatar`）；`interaction.canCreate` 为假：不画新建 |
+| 第一屏 | 没有消息时画第一屏（`welcome`） | `canCreate` 为假：给了 `welcome` 也不画，没说过话就是空的聊天（第一屏的“最近对话”会把聊天换成别的会话） |
+| 待处理事项 | `interaction.placement` 缺省：阻塞的由向导替换输入框 | `placement: "dock"`：都在停靠区，输入框照常可用；换了会话不算答完 |
 | 改写历史 | 宿主按 `interaction.canMutateHistory` 给 | `canMutateHistory`、`canOpenTree` 为假：编辑、重试、从此处分支、分支树都不显示 |
 | 命令 | 宿主做了的都列 | `interaction.commands` 只有 `compact`、`plan`、`mode` |
 | 发送 | 运行中回车是补充说明、Ctrl/⌘+回车排队 | 同左；宿主照 [`agent/conversation.md`](../agent/conversation.md) 的固定会话处理（带 `settlePending`） |

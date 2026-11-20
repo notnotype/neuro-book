@@ -94,18 +94,13 @@ export default {
     },
     searchSelect: {
         empty: "No matching options",
+        clear: "Clear selection",
     },
     slider: {
         thumb: "Slider {{index}}",
     },
     spinner: {
         loading: "Loading",
-    },
-    splitter: {
-        resizeWidth: "Resize width between {{before}} and {{after}}",
-        resizeHeight: "Resize height between {{before}} and {{after}}",
-        collapsed: "Collapsed",
-        pixels: "{{size}} pixels",
     },
     table: {
         empty: "No data",

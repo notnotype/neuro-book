@@ -7,6 +7,8 @@
 import {computed, defineComponent, h} from "vue";
 import type {PropType, VNodeChild} from "vue";
 
+import {Button} from "@notnotype/nb-ui/components";
+
 import type {EntryTextBlock, EntryTextNode, TextAddress} from "./entry-text";
 import {addressKey} from "./entry-text";
 import {useCanonText} from "../text";
@@ -19,13 +21,21 @@ const props = withDefaults(defineProps<{
     marks?: Readonly<Record<string, string>>;
     /** 展开着来历的值（`addressKey`）；没有时不写。 */
     open?: string;
-}>(), {marks: () => ({}), open: undefined});
+    /** 每一块旁边出“改这一段”“删掉这一段”，文末出“加一段”（输出 9、10）。 */
+    editable?: boolean;
+    /** 不能写的原因：非空时这几个按钮不可用，悬停写原因。 */
+    editReason?: string;
+}>(), {marks: () => ({}), open: undefined, editable: false, editReason: ""});
 
 const emit = defineEmits<{
     /** 点了一个值：展开或收起它的来历。 */
     (event: "value", address: TextAddress): void;
     /** 点了一个条目引用。 */
     (event: "entry", id: string): void;
+    /** 一块的“改这一段”“删掉这一段”，文末的“加一段”。 */
+    (event: "edit-block", id: string): void;
+    (event: "remove-block", id: string): void;
+    (event: "add-block"): void;
 }>();
 
 defineSlots<{
@@ -130,12 +140,18 @@ const openAddress = (): TextAddress | null => {
 
 <template>
     <div class="min-w-0 text-[length:var(--text-md)] leading-8 text-[var(--text-main)]" data-entry-text>
-        <section v-for="block in props.blocks" :key="block.id">
+        <p v-if="props.blocks.length === 0" class="my-2 text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
+        <section v-for="(block, index) in props.blocks" :key="block.id" class="group/block relative">
+            <div v-if="props.editable" class="flex justify-end gap-1 opacity-60 group-hover/block:opacity-100 group-focus-within/block:opacity-100" :data-block-actions="block.id">
+                <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('block.editLabel', {index: index + 1})" @click="emit('edit-block', block.id)">{{ text("block.edit") }}</Button>
+                <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('block.removeLabel', {index: index + 1})" @click="emit('remove-block', block.id)">{{ text("block.remove") }}</Button>
+            </div>
             <Block :block="block" />
             <div v-if="block.id === originBlock" class="my-2 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 leading-6">
                 <slot name="origin" :address="openAddress()!" />
             </div>
         </section>
+        <Button v-if="props.editable" class="mt-2" size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-add-block @click="emit('add-block')">{{ text("block.add") }}</Button>
     </div>
 </template>
 

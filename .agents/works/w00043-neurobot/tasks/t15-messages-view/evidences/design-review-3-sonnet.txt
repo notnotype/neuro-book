@@ -1,0 +1,136 @@
+# w00043 t15 阶段 ② 计划（草稿 2）设计审查，第二轮
+范围：只读审查；读了 session-host.ts、plugin.ts、ConversationHost/FixedConversationHost/SessionPanelHost、session-list.ts、AgentConversationView/Head、WorkbenchShell 的面板头与入口条、reconcileViews/settleContainers、unread.ts、bots/web、agent 后端 list/ownedTrees、views.md 输出 17/19、conversation.md 输出 44/52/53、t03 评审板 r2/r5 的图。没跑测试与类型检查，下文凡标“推断”的是读代码得出、未运行。
+
+### 1. 打开会话的失败通道自相矛盾：“不建 current”与“记成打开失败（同 current.failed）”不能同时成立（重要，合同/遗漏）
+位置：计划“宿主：档位按会话的归属”第 2、3 条；`session-host.ts` 的 `Current.failed`、`restore`、`failedToOpen`。
+现象：计划说读会话头失败时“记成打开失败（同现有的 current.failed）”，又说“归属读到之前不建 current，界面保持原来的会话”。`failed` 是 `Current` 的字段，`ctx.availability` 只从 `current` 推（`target?.failed`）；不建 current 就没有地方挂失败，界面上看不到原因也没有“重试”，用户点了一行会话没有任何反应。
+连带：(a) `restore()` 靠 `failedToOpen(id)`（`current?.id === id && current.failed`）判断“记录里的会话不在了，清记录”；current 不存在时这一支永远不触发，空白里没有说明，也不会清记录。(b) 反过来，若让失败走现有路径，`restore` 会因为一次读头的瞬时失败（服务端刚重启）把“最近的会话”记录清掉，用户的上次会话丢了；读不到头不等于会话不在了。(c) 点一行到出现聊天之间多一次 `header` 往返，旧会话还显示着，没有加载反馈。
+如何核实：读 `openHere` 起点、`restore` 末尾与 `ctx` 的 `availability` 分支；它们都只认 `current`。
+建议改法：不要等头再建 current。`openHere` 照旧立刻建 current，`Current.owner` 取三态 `SessionOwner | null | undefined`，undefined 表示还没读到：此时 `loading` 为真，`availability` 本来就是“加载中”、输入框与消息都不画，所以不存在“档位未知的中间态”可被看见；档位相关的 ctx 字段在 undefined 时取最严的一档（不能新建、不改历史、命令白名单窄、停靠）即可。读头失败写 `failed: {code: "header-unreadable"}`，走现有的重试；`restore` 遇到这个码时保留记录，不清。这样 `routing`、`generation` 的作废规则也不用另写一套。
+
+### 2. 点联系人到聊天出现之间的状态没人持有；宿主也缺“当前归属”与“关掉当前会话”两个出口（重要，接口/遗漏）
+位置：计划“归属插件的提供者”末四条（没有模型不调 `open`、`open` 失败写原因与重试、`open` 作废）、“标签与聊天区”；`SessionHost` 接口。
+现象：聊天区是宿主那一个 `AgentConversationView`，它画的永远是宿主当前会话。用户在聊着普通会话 A 时点 bot：
+- 没有模型：不调 `open`，宿主仍持有 A，聊天区还是 A，只有 `nbook.agent` 在 A 上自己的模型卡（仅当 A 解析失败时才出，`model-notice.ts` 的 `failure !== null` 条件），否则什么也不发生；
+- `open` 进行中（`ensureMain` 要建会话）：没有“正在打开”的画面，旧 `BotChatView` 有 loading/opening，新计划没写；
+- `open` 失败：“聊天区写原因与重试”，但聊天区被宿主的视图占着，没有说谁来画、盖在什么上面。
+同时 `SessionHost` 没有暴露“当前会话的 owner”，而计划多处要它：标签跟着归属切、看到交给哪个提供者、联系人行高亮选中、头像列选中态。也没有“关掉当前会话（回到未选择）”的方法，上面三种状态要“聊天区不是 A”就只能自己盖一层。
+如何核实：`SessionHost` 接口只有 ctx、sessionId、shownSeq、restore/open/create/act/profileKey/borrow；`BotChatView.vue` 的 `ChatState` 六态在计划里只迁了一半。
+建议改法：MessagesHost 持有 `selection: {kind:"contact", id, step: "no-model"|"opening"|"failed"|"ready"} | {kind:"session"} | null`，非 ready 时在聊天区位置盖对应画面（同一个组件，不卸载宿主视图，保持“宿主不重挂”），ready 才露出宿主的聊天；宿主加只读的 `owner: ShallowRef<SessionOwner | null>`。`open` 的作废号与 `selection` 合并成一个。
+
+### 3. 档位里“按会话变”的选项只搬了三个，`ConversationHost` 里还有一批静态属性会让 bot 聊天画出通用的东西（重要，遗漏）
+位置：计划“档位的视图选项改由 ctx 给”；`ConversationHost.vue` 模板、`FixedConversationHost.vue` 模板。
+现象：两个宿主组件的差别不止 `pending-placement` 与 `new-session`。通用版还传 `:welcome`、`:draft-profile`、`#sessions` 插槽、`sessions-open`、`head-targets`；固定版一概不传。`AgentConversationView.showWelcome = messages.length === 0 && availability !== loading && props.welcome !== null`：合并成一个组件后，一个还没说过话的 bot 主对话（新用户第一次点星璃正是这种状态）会画通用第一屏，里面是“最近对话”卡片（点了就在 bot 聊天区里打开别的会话，没有归属、档位换了）和该 Profile 的开场指令。计划只加了 `placement`、`canCreate`、`identity`。
+另：`session.identity?: {name, avatar?}` 与现有 `session.avatar`、`title` 重复——`FixedConversationHost` 就是把 `title` 与 `avatar` 覆盖成身份，`AgentConversationHead` 读的是 `session.avatar`。新增一个 `identity` 字段要两处同时读，容易漏一处。
+如何核实：对比两个 `.vue` 的 `<AgentConversationView>` 属性；`AgentConversationView.vue:250` 的 `showWelcome`。
+建议改法：宿主在有归属时直接把 `session.title` 与 `session.avatar` 设成身份（不另加 `identity`）；`welcome` 是否可用、是否画“开头的新建”并入 `interaction`（例如 `canCreate` 为假则不画新建与第一屏），MessagesHost 不再按位置传这些属性。把“固定版没传、通用版传了的属性”逐个列表，写进计划的第 3 片。
+
+### 4. “同一个插件有几条贡献时取贡献 id 最小的那条”与“bot 标签按贡献排、列出所有贡献的联系人”不一致（重要，接口）
+位置：计划“盖章”与“bot 标签的排序”两条。
+现象：会话头的归属只有 `{plugin, id}`，没有贡献 id。列表按贡献分组列出同一个插件的两条贡献各自的联系人，但打开其中第二条贡献的联系人所对应的会话时，身份、头像、`seen` 都按“最小那条贡献”去找：`contacts` 里按 `id` 找不到就没有身份，`seen(id, seq)` 发给错的提供者（`id` 空间可以撞）。几个贡献各有一个 `state`（加载中、失败、重试）也没说怎么合并成 bot 标签的一个空态。
+如何核实：`SessionOwnerProvider` 与 `owner` 的字段对照（`agent/shared/contracts.ts:187-199` 现状也只按 `owner.plugin` 找第一条）。
+建议改法：二选一并写进合同与校验：(a) 每个插件至多一条 `agent.sessionOwners` 贡献，第二条在 `validate` 里按 `descriptor.plugin` 拒绝（校验里有 `descriptor.plugin`，同一贡献点内“同插件重复”需要接收者记账或在 `validate` 里不可判，则在接收者里拒并记诊断）；(b) 允许多条，则身份与 `seen` 在同一插件的所有贡献的 `contacts` 里找 `id`，`id` 在插件内唯一写进合同。推荐 (a)：现在只有 bots 一个使用者，第三方插件这一条本来也冒不了别人的 bot，多贡献没有需求。
+
+### 5. 归属插件不在时：会话进了“bot 档”却没有身份，又在会话标签里列不出，成了孤儿；编辑区页面宿主打开有归属的会话时没人记“看到”（重要，遗漏/兼容）
+位置：计划“转交删掉：open 不再交给归属插件，归属只决定档位”；“最近的会话：有归属的也写，restore 照常恢复”；`plugin.ts` 里 `hostAt("page")`。
+现象：(a) 现状（Spec 输出 53）是“没有那个插件的贡献、或它揭示不成，照常在通用视图里打开，用户点了不会没反应”。新计划档位只看 `owner !== null`，bots 被禁用或贡献还没发布（晚激活）时：会话仍按停靠档打开，不能新建、不能改历史，身份取不到（计划没写缺省），而会话标签又因服务端 `list` 不列有归属的树（见第 9 条）列不出它，bot 标签里也没有联系人——会话成了任何入口都进不去的孤儿，只有恢复最近的会话时才会撞见。“用户点了没反应”的保护被拿掉了。(b) 编辑区页面宿主（`hostAt("page")`）同一个类，现在也会打开有归属的会话（例如页面里点祖先路径的根，或按“上次用的位置”走 `focus-session`），页面组件没有 `seen`，主对话的未读在页面里看了也不清零，而且页面里没有联系人列表。
+如何核实：`plugin.ts:331-339`（`ownerOf`/`open` 现状）、`ConversationHost.vue` 无 `seen` 事件、`backend/agent.ts:354` 的 `ownedTrees`。
+建议改法：计划里写明三条：身份取不到时的缺省（头与祖先路径回落到会话标题与 Profile 图标）；提供者缺席时按通用档打开，还是明确拒绝并给原因（Spec 要二选一，不要留给实现）；页面宿主对有归属的会话的处理——要么保留一条只给页面宿主的“转到消息视图”，要么页面宿主也接 `seen`。我倾向前者：归属会话只在消息视图里出现，页面宿主遇到它就 `commands.execute(FOCUS_SESSION_COMMAND)` 并退回。
+
+### 6. `focus-session` 对“bot 的子会话”没有定义，祖先路径的根身份缺数据来源（重要，合同）
+位置：计划“各入口的新行为”表第 3 行与最后一行；`plugin.ts` 的 `FOCUS_SESSION_COMMAND`、`activity.ts:34`、`shared/remote.ts` 的 `AncestorItem`。
+现象：(a) 状态栏活动条的目标是 `waiting → held → 第一个 running` 的会话 id，可能是 bot 的子代理会话（`ActivityItem` 是逐会话的，`root` 才是树根）。子会话没有归属（sessions.md 输出 23“子会话没有归属”），`ownerOf` 得 null，计划写“没有归属：照旧按上次用的位置”，于是点一下活动条，bot 的子代理会话会被开在编辑区页面或右栏的聊天区（取决于 `lastPosition`），而不是 bot 的聊天。计划表里却把“状态栏活动条、子代理卡片的打开会话”列成这个入口的调用者。(b) “祖先路径里根写归属的身份名”：`AncestorItem` 是 `{id, title, profile, icon, archived}`，没有 `owner`；宿主要为根再读一次会话头（还要缓存），计划没写，也没写这次读失败怎么办。(c) 归属表“宿主记 owners: Map”在宿主里，而 `focus-session` 在 `plugin.ts`，要在揭示前判断，得读同一份缓存；右栏与页面是两个宿主，各记一份会重复读头。
+如何核实：`activity.ts:34`、`shared/remote.ts:180`、`backend/remote.ts` 的 `ancestors` 实现。
+建议改法：把归属缓存提到插件级（`plugin.ts` 里一份，宿主经 deps 取）；`focus-session` 对 `ancestors` 的根查一次归属，根有归属就按根处理（揭示消息视图、打开这个子会话）。`AncestorItem` 加可选 `owner`，服务端 `ancestors` 本来就为每个祖先读索引，几乎免费；这样第 (b) 点也有了来源。
+
+### 7. `ViewHead.claim` 只改 `panelViewHead` 不够：`activateTab` 仍按“有标题区”处理，宽版普通面板头的点标题会失效（重要，被破坏的既有约定；推断，未运行）
+位置：计划“视图接管面板头改成可以随时交还”；`WorkbenchShell.vue` 的 `headOfPanel`（约 l.322）、`activateTab`（约 l.355）、`toolHeadProps` 的 `dragHint`。
+现象：计划只在 `panelViewHead` 里看 `claim`。但 `activateTab` 用的是 `headOfPanel(panelId)?.control`：`control !== null` 时跳过“点标题收起/展开”的折叠分支，转而 `control.press()`，折叠另靠 `toggleFold`，而 `toggleFold` 只有接管面板头时头组件才发。宽版 `claim=false` 时头是普通画法，用户点标题期望折叠（输出 20：标题行是开关），实际是 `press()`——宽版里没有人听它，什么也不发生，折叠失效；Enter 同样。`dragHint` 看 `viewHead !== null`，这条会对，但 `activateTab` 的判据是另一套。
+另：`claim` 默认 true，由视图挂载后量宽再写成 false；视图加载期间外壳按接管画三列头，量到宽版后翻成普通头，每次视图重新挂载（切容器再回来、浮动再停靠）头都闪一下。
+如何核实：读这两个函数；`WorkbenchPanelHead` 是否在非接管时发 `toggle-fold` 要对一下（我没跑）。
+建议改法：把 `claim` 并进 `headOfPanel`（`claim` 为假就返回 null），`activateTab`、`watchEffect` 的槽位分发、`panelViewHead` 三处自然一致；dom 测试加一条“claim=false 时点标题折叠”。初值：让视图在 `setup` 同步写 claim（读上次的版式），或让外壳在视图未就绪时按不接管画，避免首帧翻转。
+
+### 8. 窄版抽屉：点外面关、按标题切换、行菜单与小窗、`Esc`、焦点，几处交互照字面实现会互相打架（重要，交互/可达性）
+位置：计划“窄版·抽屉”；`SessionPanelHost.vue`（含改名 `Dialog`）；`WorkbenchPanelHead.vue` 的标题按钮。
+现象：
+- 点外面关 + 标题按钮切换：面板头标题按钮在工作台的 DOM 里，对视图的抽屉来说它是“外面”。按下标题：先触发外面点击把抽屉关了，随后 `onTitlePress` 又切换——重新打开。现有 `Popover` 把锚元素排除在外；自画抽屉要自己排除 `slots.handle`。
+- 改名 `Dialog` 在 `SessionPanelHost` 里，内容传送到 body，对抽屉也是“外面”：在抽屉里点行菜单“改名”，小窗一出来点它里面任何地方，抽屉就关了；若抽屉关时卸载内容（`v-if`），`SessionPanelHost` 连同 `renameOpen` 状态与小窗一起没了，改名半途丢失。`pickProfile` 的选 Profile 弹窗、行菜单自己的浮层同理。
+- `Esc`：没有说在哪里监听。挂在视图根上会抢输入框与向导的 `Esc`（`AgentWizard` 只在 `!defaultPrevented` 时处理）、搜索框清空、开着的行菜单；应只在焦点在抽屉内或在触发按钮上时关，并让嵌套浮层先吃。
+- 打开时焦点放哪、非模态时 Tab 能不能离开抽屉、`role` 与 `aria-expanded`（`titlePopup`）、抽屉盖住的聊天区要不要 `inert`，都没写。头像列按钮在抽屉开时是否仍可点（计划说抽屉“压在聊天区上”，没说从头像列右侧起还是盖住头像列；r2/drawer.webp 里头像列仍可见、抽屉从它右边起）。
+- 宽窄切换时抽屉收起并把焦点放到输入框：用户拖着分隔条跨过 600 像素时，焦点被抢走；若焦点在抽屉里的搜索框，窄变宽是列表“换了地方”，不是该抢焦点的场合。
+如何核实：`SessionPanelHost.vue` 的 `Dialog` 位置；`WorkbenchPanelHead.vue:186-188` 的标题按钮；`Popover` 的锚点排除可对照 `AgentConversationHead.vue` 末尾。
+建议改法：抽屉内容常驻（`v-show` 或只收起不卸载），外面点击判定忽略 `slots.handle` 与任何 `[data-nb-overlay]`/传送层里的点击；`Esc` 只在抽屉内或触发按钮得焦点时处理且 `defaultPrevented` 的不管；写明开启时焦点落在搜索框、关闭回触发按钮；宽窄切换只在“抽屉里没有焦点”时才挪焦点。dom 测试加：开着改名小窗点击不关抽屉、点标题关得掉。
+
+### 9. “列表按 owner 过滤”的前提不成立：服务端 `list` 本来就不列有归属的树；刷新“搬家”与“活动变化时重取”也有问题（建议，依赖的机制）
+位置：计划“列表”最后一条（`session-list.ts` 的 `items` 按 `owner` 过滤、编辑区下拉同样过滤）、“会话列表的刷新从 SessionPanelHost 搬到 MessagesHost”；验收映射第 6 行。
+现象：(a) `backend/agent.ts:353-358` 的 `list` 先算 `ownedTrees(all)`（有 `owner` 的会话与全部后代）再过滤，远程 `list` 就是它（`backend/remote.ts:183`），sessions.md 输出 25 与验收 6 也写了“`list` 不列它和它派的子会话”。`ListedSession` 条目现在带不带 `owner` 都不影响；客户端再按 `owner` 过滤是重复，且可能让人为 `ListedSession` 加字段。第一屏“最近对话”（`createRecentSessions`）用同一个 `list`，也已经不含。该删这一项，验收改成“读到的列表里没有 bot 主对话与它的子代理”，测试放后端已有的用例，e2e 保留。(b) 编辑区页面的会话下拉也用 `SessionPanelHost`，那份定时器要留；“搬”应改成“MessagesHost 也各开一个”。`list` 是整个插件共用的一个 store，两个位置同时挂载会各发一份 15 秒轮询，`latest` 令牌只管结果不管请求数。(c) “加上活动变化时重取”：状态（运行/等你）早就由 `items` 计算属性里的 `options.activity()` 响应式映射，不需要重取；重取只会让每次运行开始与结束都发一次全量 `list`，而计划自己的风险段落已说这个列表会随会话数增长变慢。
+建议改法：删去 owner 过滤；刷新逻辑收进 store（`start()`/`stop()` 引用计数，几个位置共用一个定时器）；去掉“活动变化时重取”，需要新会话及时出现时，在 `host.create` 成功后重取一次即可。
+
+### 10. “最后一句话”把日志里可导出的数据存进共享的用户级记录：要合并、会过期、旧记录留空；并且摘要规则会把标记原样露出来（建议，上游选择/遗漏）
+位置：计划“列表的最后一句话”；`unread.ts` 的 `#save`/`merge`、`SEEN_RECORD`（`scope: "user", locality: "shared"`）。
+现象：
+- `bots-seen` 是跨窗口共享、`update(merge)` 只进不退的记录。`merge` 现在只对 `seen[bot]` 取最大值；计划把 `last` 随同写入，但没写 `last` 的合并规则：窗口 A 记 seq 10 的 `last`、窗口 B 随后以 seq 8 保存，`seen` 保持 10 而 `last` 被 8 的内容盖掉（比 seen 旧）。需要按 seq 取大并和 `seen` 一起走。
+- `markSeen` 在 `next === current` 时直接返回不落盘，所以“只有 `last` 变、`seen` 没变”的情形永远写不进去（例如旧记录升级后第一次看到同一条）。
+- 旧记录没有 `last`，计划接受“下一条消息来了才有”：升级后所有 bot 行第二行是空的，且按 `last.at` 排序时全部落到“按记录顺序”。
+- 更小的做法：启动补数本来就要读日志。`session.log` 返回里带 `head`，先 `log({afterSeq: 0, limit: 1})` 取 `head`，再 `log({afterSeq: max(0, head - 200)})` 取尾部找最后一条计数消息，读取有界（至多 201 条），不用存任何东西，也没有合并与旧记录问题，找不到再回落为 null。这条读取不属于“从头扫日志”。若坚持存记录，则至少把这三个坑写进计划。
+- 摘要规则：只取 `text` 块、空白折叠、80 码点。回复是 Markdown，bot 常发表情包（`:包/名字:` 的写法，stickers.md 输出 14），只发表情时摘要是原始写法；加粗、链接、代码块的标记也原样出现。图片是 `image`/`imageRef` 两种块，规则只写“图片”。取文字请复用内核已有的 `replyText`（`api/reply.ts`，已拼好 `text` 块，不另写一份），并至少写明：纯表情写法与整行 Markdown 标记怎么处理（例如表情写成“[表情]”）。
+建议改法：优先改成尾部有界读取，删去存 `last` 与 `bots-seen` 记录的改动。
+
+### 11. 入口计数：右栏收起时没有任何入口显示未读；可访问名称写死“条未读”；底部面板与图标式入口的名称写法不一（建议，与已定设计一致/别扭）
+位置：计划“入口角标”；`WorkbenchRegionStrip.vue` 的 `titleOf`、views.md 输出 17。
+现象：
+- 决定 4 的目的是“有未读时入口上能看到”。消息视图在右栏，右栏的入口条随右栏一起隐藏；用户收起右栏时（很常见），活动栏（左）没有消息入口，状态栏只有“运行中/等你处理”条，没找到别的未读指示（我只搜了标题栏与 `part-commands`，没有穷尽，写“在这些范围内没搜到”）。计划把范围“延到右栏入口条”并记为决定 6 补充，但没说右栏收起时的未读去向。这是产品结果，应让开发者知道：要么接受“右栏收起就看不见”，要么在状态栏加一个未读项（状态栏条目有现成贡献点）。
+- `badge()` 是通用整数，当前只有通知和消息用；外壳写死“{n} 条未读”，以后别的视图用它表示别的计数（失败数等）就会读错。要么名称只写“消息 3”（现有底部面板入口 `titleOf` 就是这样），要么让视图同时给标签文案。
+- 同一个计数三处名称不同：面板头标题后“消息 3”、右栏图标“消息，3 条未读”、底部面板入口“照旧、规则同上”，没说底部那个用哪种。
+- 底部面板入口条当前只对“含一个视图的容器”写计数，原因是并成一行时头不写标题；改成合计后，非并行的多视图容器入口写合计、同时每节头写各自的数，同一个数出现两次，输出 17 里要写清这是有意的。
+建议改法：开发者决定右栏收起时的指示；名称统一成“标题 + 数”，由视图可选地给 `badgeLabel`。
+
+### 12. `replaces`：校验能不能做、清理与“声明的容器 id 留着”的既有规则冲突、已有布局的几种形态没列全（建议，兼容/遗漏）
+位置：计划“布局里的旧视图”；`default-tree.ts` 的 `reconcileViews`、`containers.ts` 的 `settleContainers`（注释“声明的容器与隐式容器的 id 留着：成员回来时入口回到原来的位置”）、`shared/views.ts` 的 `ViewDeclarationSchema`。
+现象与核对：
+- 前缀校验：`validateViewContribution(descriptor)` 有 `descriptor.plugin`，可以判 `replaces` 里每个 id 以 `plugin + "."` 开头；但 `ViewDeclarationSchema` 是 `additionalProperties: false` 的公开声明形状，加字段就进入第三方可见的合同（`WrittenViewDeclaration`）。views.md 输出 19 对“申请标题区”特意写“不经插件 SDK 公开”；`replaces` 要不要公开、要不要进 SDK 文档与 `plugin-manifest` 的贡献点条目，计划没说（建议只留内置插件用，沿用同一条“不经 SDK 公开”的写法）。
+- 清理：计划写“容器入口里的 `view:<旧 id>` 一并清掉”。`settleContainers` 的规则是声明的容器与隐式容器的入口 id 不删（只删 `custom:`）。要删就要说明这是对该规则的例外，并用 `removeTab` 之后再走 `settleContainers`，别直接改 `entries`。旧会话面板声明的是 `container: PROJECT_VIEW_CONTAINER`（与资源管理器同一个容器），所以发布版本的用户其实不涉及入口，只涉及这个容器的一个分节被摘掉（它的高度份额归还给资源管理器，由 `removeTab`+`settleEmptyPanel` 处理）。
+- 布局形态：旧会话面板可能是 (a) 容器里的一个分节（默认）；(b) 被用户拖进别的面板成为标签；(c) 浮动窗里唯一的标签；(d) 被用户拖成 `custom:` 容器、搬进右栏或底部面板；(e) 最大化着。计划只验收“标签消失、不留占位”。(c)(e) 要确认 `effectiveMaximized`（已处理不在了的情形）与 `floats` 一起清。`removeTab` 现成可用（`layout-doc.ts:750`，用在拖动与编辑器里）。
+- 删除是在每次重算的 `computed` 里做的、不写回，只有下次保存才落盘；这与“只补不删”的现有性质一致，但意味着降级回旧版本时会话面板又出现，可接受。要在计划里写一句。
+- 对 views.md 输出 7（声明消失留占位）：计划写“被 `replaces` 点名的例外”，且“只在被替换 id 此刻没有声明时生效”。这条条件恒真（旧声明已删），写成条件反而让读者以为有分支；真正的保护是前缀校验。
+- 不误删别的插件的视图：靠前缀校验，且前缀要用 `descriptor.plugin`，不要用内置插件“保留发布者 `nbook.`”那条宽的前缀规则（贡献 id 的前缀规则对内置插件是 `nbook.` 开头，不是自己的插件 id），否则 `nbook.agent` 能点名 `nbook.files.*`。验收映射里“别的前缀被拒”要覆盖“同为 `nbook.` 的另一个内置插件”。
+建议改法：补上述形态的测试用例，写明 `replaces` 不公开，前缀用 `descriptor.plugin`。
+
+### 13. 验收映射漏了几条会出问题的判据（建议，验收）
+位置：计划“验收映射”。
+没有对应测试的行为：
+- `ViewHead.claim`：宽版不接管、窄版接管、翻转时面板头内容正确、宽版点标题折叠（第 7 条）；现有映射只有入口角标那一行属于 workbench dom 测试。
+- 标签跟着会话归属切换（有归属切 bot、否则切会话）、用户点标签不换聊天区。
+- bot 行第二行的三种状态（在跑、等你、最后一句话）及“子代理在跑也算这个 bot 在跑”（`root === sessionId`）；`sessionId` 为 null 时的行（还没建主对话，没有活动）。
+- 窄版头像列：最近 5 个会话只含根会话、不含归档与有归属的；bot 头像上的点与“等你处理”的黄点。
+- `listCollapsed` 存插件存储并恢复。
+- `focus-session` 对有归属会话与对子会话（第 6 条）的路由，只有 e2e `bots-chat` 的一条主对话。
+- 看到的三个条件（视图可见、窗口有焦点、有归属会话在聊天区）分别变假时不发；`open` 作废；“归属表在 borrow 归零重开后仍有效”已有。
+- 第 1 条里“读会话头失败、可重试”的测试需要先定第 1 条的形态；变异检查：把 `owner` 判据反向，验收映射前两行应当失败——计划写了前两行但没写要做这次变异。
+- e2e 辅助函数迁移：除 6 个文件外，`nb-agent-ui` 的 Lab 场景（含新增的 390 宽）与 `workbench-shell` 里数“侧栏视图个数/入口”的断言会随会话面板移出而变；计划已提 e2e，Lab 场景的登记在第 3 片，没提旧场景的删除。
+建议改法：把以上行补进表里，并写明哪些是 dom、哪些是 e2e。
+
+### 14. “不做与风险”各项的判断（建议）
+- 不做“会话标签滚到底分页”：可以不做，但风险比计划写的大一点：消息视图常驻、每 15 秒全量取，再加第 9 条说的“活动变化时重取”，会话上千时每次要读全部索引并算 `ownedTrees`。去掉“活动变化时重取”、让几个位置共用一个定时器后，风险可接受。
+- 不做“多开（t03 决定 7）”：成立，开发者搁置的。
+- 不做“书房入口（③）”：成立。但阶段 ③ 的滑出聊天要“头部与内容同消息视图的聊天”（t03 决定 23），本计划删掉 `FixedConversation` 与 `agentConversationKey`、说“要用时再加”：③ 要的是一个能在别处挂的聊天区组件，而 MessagesHost 是整个视图；删除前确认 ③ 能否直接复用宿主加对话视图的组合（建议在“不做”里写这条依赖，免得 ③ 再造一遍固定宿主）。
+- 不做“按天与未读分隔线（④）”：成立。
+- 不做“第二行的具体活动文字”：成立，决定 6 已定。
+- 风险“读 deps.fixed 的 11 处”：低估了真正的风险。11 处读取是机械的；真正会出错的是第 1 条（失败通道）、第 3 条（静态属性）、第 5 条（归属插件缺席）这类计划没列的新边界。验收映射前两行兜底方向对，但要先把第 1 条定下来。
+- 风险“e2e 迁移面大”：成立；先改辅助函数的做法对。补一条：`data-bot-chat*` 选择器在 `bots-chat` 里的数量要先 grep 数清，窄版（默认右栏宽 400 像素，低于 600）才是默认版式，几乎所有 e2e 面对的是窄版头像列，不是宽版两栏。
+
+## 更正（对前文的两处收窄）
+- 第 10 条第二个子点（“`markSeen` 在 `next === current` 时不落盘，所以只有 `last` 变、`seen` 没变写不进去”）举的例子不成立：`last` 只有来了新消息才变，那时 `seen` 也要前进才满足 `latest.seq <= seenSeq`。其余几点（合并规则、旧记录留空、尾部有界读取、摘要露标记）不受影响。
+- 第 12 条“被替换 id 此刻没有声明时生效这条条件恒真”说得过头：这条条件是防止同插件仍有效的视图被误删的保险，应保留；真正拒绝跨插件点名的是前缀校验。
+
+## 未发现问题的方面
+- 与 t03 评审板的画法一致性：bot 与会话两个标签不混排、未读在右边、子会话不挂在列表里、窄版头像列加抽屉，计划与 r2/drawer.webp、r5/bots.webp 对得上；决定 4、5、6 没有被悄悄改动（决定 4 的范围扩展已在计划里明说）。
+- `useLayoutExtent` 的适用：返回 `clientWidth/clientHeight`，量到 null 或 0 保持上一次的做法与它“未挂载为 null、真实零为 0”的语义一致；宽窄切换不会反过来改变被量的根盒尺寸，没有振荡（头在窄版被接管后根的高度不变，宽版头画回内容里时根盒仍是同一个）。
+- 入口角标读 `badge()` 不加载视图：`ViewRegistry.badge` 读的是已发布句柄的 `implementation()`，视图未加载时可读，成立；前提是提供者的订阅在插件入口激活时就开始（bots 的 `createBotsStore` 现在就是这样，“视图没打开时计数照样更新”），计划应写明沿用。
+- 阶段 ① 的 e2e 清单与实际引用 `nbook.agent.sessions`、`data-bot-chat`、会话面板选择器的 e2e 文件（6 个）一致。
+- 子会话的限制：sessions.md 输出 26 明说子会话不受“有归属不改历史”限制，所以 bot 聊天里就地打开的子会话按通用档不会和后端拒绝冲突。
+
+## 各级数量
+阻断 0；重要 8（第 1、2、3、4、5、6、7、8 条）；建议 6（第 9、10、11、12、13、14 条）；撤回 0。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

@@ -15,7 +15,7 @@
 - 单击“再显示”行：发 `more`，参数是那一层的父条目（根是 `null`）。
 - 方向键、Home、End 与按字母跳转由 `Tree` 处理。
 - `creatable` 时有右键菜单（nb-ui `ContextMenu`）“在它下面新建”：右键一行，或焦点在一行上按菜单键、Shift+F10；选了发 `create`，参数是那一行的条目（分组、“再显示”“读取中”与空白处是 `null`，即根这一层）。
-- 根这一层正在读、还一项都没有时，只显示一行“读取中…”；读到了但一项也没有时显示“还没有条目”。
+- 根这一层正在读、还一项都没有时，只显示一行“读取中…”；读到了但一项也没有时：`creatable` 时是空状态（nb-ui `EmptyState`）：标题“还没有设定”，说明“人物、地点、物品、规矩，都可以建成设定”，主按钮“新建人物”（发 `create-person`）与按钮“新建条目”（发 `create`，`null`）；侧栏窄时两个按钮纵排。给了 `blockedReason` 时两个按钮禁用、悬停提示是它。不 `creatable` 时只写一行“还没有条目”。
 
 宽度 390 像素时结构不变，名字截断，“未出场”这类说明保留。
 
@@ -52,8 +52,10 @@ type EntryTreeProps = {
     selected?: string;
     /** 世界已断开（订阅被提供方结束）：树上面一条横幅“世界已断开”与“重试”，树留着。默认 false。 */
     disconnected?: boolean;
-    /** 有右键菜单“在它下面新建”。默认 false。 */
+    /** 有右键菜单“在它下面新建”，空着时是带新建按钮的空状态。默认 false。 */
     creatable?: boolean;
+    /** 现在不能写（世界只读、别人独占、断开）：空状态的按钮禁用，悬停提示是它。默认空。 */
+    blockedReason?: string;
 };
 
 type EntryTreeEmits = {
@@ -65,8 +67,10 @@ type EntryTreeEmits = {
     (event: "more", parent: string | null): void;
     /** 点了横幅上的“重试”。 */
     (event: "retry"): void;
-    /** 右键菜单里的“在它下面新建”；`parent` 为 null 是根这一层。 */
+    /** 右键菜单里的“在它下面新建”，或空状态的“新建条目”；`parent` 为 null 是根这一层。 */
     (event: "create", parent: string | null): void;
+    /** 空状态的“新建人物”：宿主打开预填了人物的新建对话框。 */
+    (event: "create-person"): void;
 };
 ```
 
@@ -76,7 +80,7 @@ type EntryTreeEmits = {
 
 - 默认：如上。
 - 加载中：根这一层还没读到时一行“读取中…”；展开的条目那一层还没读到时它下面一行“读取中…”。
-- 空数据：“还没有条目”。
+- 空数据：可以新建时是带两个新建按钮的空状态，否则一行“还没有条目”。
 - 世界断开：`disconnected` 时树上面一条警告色横幅（`role="status"`）“世界已断开”与“重试”按钮，树照常显示已读到的内容（author-ui.md 输出 27）。
 - 出错、禁用、只读：本组件没有这些状态。
 

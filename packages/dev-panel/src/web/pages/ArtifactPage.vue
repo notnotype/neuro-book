@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import {Badge, Button, Dialog, Select, Splitter, Tabs, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
+import type {SplitterGestureState} from "@notnotype/nb-layout";
+import {Splitter, type SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+import {Badge, Button, Dialog, Select, Tabs} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
@@ -26,7 +28,7 @@ import WriteResult from "../parts/WriteResult.vue";
 
 /**
  * 产物页（t03 第二轮产物页）：左边是产物来源上的原页（沙箱 iframe，不给同源），右边是问题侧栏与答复表单（t10）。
- * 版式（t23）：一行页头；页面与答题栏是 nb-ui `Splitter` 的两块面板，宽屏时答题栏可拖宽、可收起（收起后页面下面一条提交栏），
+ * 版式（t23）：一行页头；页面与答题栏是 nb-layout `Splitter` 的两块面板，宽屏时答题栏可拖宽、可收起（收起后页面下面一条提交栏），
  * 窄于 1024px 时页头下“页面”“答题”两个标签，同一个 `Splitter` 把没选中的一块收成 0：两块一直挂着，切换不重载页面、不重建表单。
  * 进这一页时外壳把左栏收起（路由元信息 `focus`）。
  * 页面文件不按版本保存，所以切版本只切换题表，iframe 上标“页面是当前版本”；磁盘内容与最新一版不同时标“有未发布的改动”。

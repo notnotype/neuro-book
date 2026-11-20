@@ -8,7 +8,7 @@ import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-workbench-l
 
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {ViewCatalog} from "../views/registry";
-import {canResetContainer, containerHomeRegion, containerLabel, containerRegion, moveContainerTo, regionContainers, sectionLanding, settleContainers, unresolvedContainerRefs, viewHome, viewSection} from "./containers";
+import {canResetContainer, containerHomeRegion, containerLabel, containerMoveTargets, containerRegion, moveContainerTo, regionContainers, sectionLanding, settleContainers, unresolvedContainerRefs, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc} from "./default-tree";
 import {createLayoutPolicy} from "./layout-constraints";
@@ -299,6 +299,14 @@ describe("容器声明的区域与“重置”（输出 44）", () => {
         expect(containerHomeRegion("custom:one", VIEWS, CONTAINERS)).toBeNull();
         expect(containerHomeRegion(PROJECT, VIEWS, new Map())).toBeNull();
         expect(containerHomeRegion("view:gone", VIEWS, CONTAINERS)).toBeNull();
+    });
+
+    it("“移到”是容器此刻所在区域之外的两个，按侧栏、右栏、底部面板的先后；没有成员时没有", () => {
+        const current = doc();
+        expect(containerMoveTargets(current, PROJECT)).toEqual(["auxiliarybar", "panel"]);
+        expect(containerMoveTargets(settleContainers(must(moveContainerTo(current, PROJECT, "auxiliarybar", POLICY))), PROJECT)).toEqual(["sidebar", "panel"]);
+        expect(containerMoveTargets(settleContainers(must(moveContainerTo(current, PROJECT, "panel", POLICY))), PROJECT)).toEqual(["sidebar", "auxiliarybar"]);
+        expect(containerMoveTargets(current, "view:nobody")).toEqual([]);
     });
 
     it("容器不在声明的区域时才有“重置”；已经在那里、没有声明的区域、没有成员时都没有", () => {
