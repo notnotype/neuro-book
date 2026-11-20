@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t43-models-ux",
+    "artifactId": "review",
+    "answerId": "20261120T061707005Z-a85bade2",
+    "artifactVersion": 3,
+    "contentHash": "874380f43e17ea7eb7353a7b4d91faabb34c316ef559a1a5e3ad8d9413d765df",
+    "submittedAt": "2026-11-20T06:17:06.001Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r3-network": true,
+        "r3-effort-layout": true
+    },
+    "comments": {},
+    "note": null
+}
