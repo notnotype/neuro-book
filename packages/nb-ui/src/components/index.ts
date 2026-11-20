@@ -28,6 +28,7 @@ export {default as DetailDialog} from "./feedback/DetailDialog.vue";
 export {default as ImagePreviewDialog} from "./feedback/ImagePreviewDialog.vue";
 export {default as FloatingWindow} from "./feedback/FloatingWindow.vue";
 export {default as Drawer} from "./feedback/Drawer.vue";
+export {default as SidePanel} from "./feedback/SidePanel.vue";
 export {default as InfoTip} from "./feedback/InfoTip.vue";
 export {default as Banner} from "./feedback/Banner.vue";
 export {default as Notification} from "./feedback/Notification.vue";

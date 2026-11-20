@@ -141,6 +141,8 @@ html[data-desktop-frame] {
     --nb-window-controls-lead: 18px;
     --nb-window-controls-width: calc(var(--nb-window-controls-lead) + 3 * var(--nb-window-control-width));
     --nb-window-frame-offset: 0px;
+    /* nb-ui 的侧面板（SidePanel）上沿让出窗口按钮那一行：书房自带标题行时 offset 是 0，这里取行高本身。 */
+    --nb-side-panel-inset-top: var(--nb-window-frame-height);
     --nb-viewport-block: 100%;
     overflow: hidden;
     scrollbar-gutter: auto;

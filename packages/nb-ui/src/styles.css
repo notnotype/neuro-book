@@ -581,6 +581,36 @@ input.nb-ui-native-input[type="number"] {
 }
 
 /*
+ * 侧面板（SidePanel）：贴右边、全高。上沿让出 `--nb-side-panel-inset-top`（宿主给，例如桌面窗口自己画的标题行；nb-ui 不认识
+ * 桌面壳）。自右滑入滑出用关键帧：reka 关闭时等 animationend；退场带 forwards，否则 animationend 到卸载之间弹回一帧。
+ * 系统减少动画时时长 token 归零，动画即刻结束。
+ */
+.nb-ui-side-panel {
+    top: var(--nb-side-panel-inset-top, 0px);
+    bottom: 0;
+}
+
+.nb-ui-side-panel[data-state="open"] {
+    animation: nb-ui-side-panel-in var(--motion-move) var(--ease-layout);
+}
+
+.nb-ui-side-panel[data-state="closed"] {
+    animation: nb-ui-side-panel-out var(--motion-fast) var(--ease-dialog-leave) forwards;
+}
+
+@keyframes nb-ui-side-panel-in {
+    from {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes nb-ui-side-panel-out {
+    to {
+        transform: translateX(100%);
+    }
+}
+
+/*
  * 对话框的标题与页脚（Dialog 的两种用法与 AlertDialog 共用）：标题与正文同字号，只差字重——这是 Apple 官方
  * UI Kit 的实测值（Alert 的 Title 是 Bold 13px，Description 是 Regular 13px）；页脚是一行按钮，间距一处给。
  */
