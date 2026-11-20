@@ -1,0 +1,163 @@
+# 第二轮前端设计审查（Sonnet）：w00032 t43 计划第二稿（提交 014cea7a2）
+审查范围：A.4–A.7、A.8 视图构造、B.8、C.2 的网络页与 SettingsActionRow、Spec/切片/验收/验证里的前端部分。只读，未改仓库。
+实验痕迹：lab/lobe/x/package（@lobehub/icons-static-svg 1.104.0 的 npm 包解包，仅用于查 SVG 内容）、lab/bunprobe。
+
+### 1. activation: "manual" 在现有键盘处理里走不动，且偏离 radiogroup 约定
+严重程度：重要
+类别：依赖的机制不成立 / 键盘与读屏
+位置：计划 A.4“写入：方向键只移焦点…”、A.5 `activation`；packages/nb-ui/src/components/controls/SegmentedControl.vue 的 `handleKeydown`（122–141 行，起点在 131 行）
+现象：现有代码非只读时，方向键的起点是“选中项的下标”（`enabled.findIndex(opt => opt.value === props.modelValue)`），而不是焦点所在项；只读分支才用 `document.activeElement.dataset.value` 作起点。manual 模式下选中值不随方向键变，所以第一次按右键焦点到“选中项+1”，第二次按右键起点仍是选中项，焦点又落回“选中项+1”，永远走不到更远的档。
+为什么是问题：思考档有 4 到 5 档，键盘用户只能在选中项与相邻项之间来回，走不到另一端；Home/End 可用，方向键不可用。计划只写“`activation: "manual"`”，没有写这条实现要点，也没有为它列用例（A5 验证只写“跟随与明确的切换”）。
+第二点（语义）：SegmentedControl 的根是 `role=radiogroup`、选项是 `role=radio`。ARIA 的 radio 组约定是方向键移动焦点同时选中；“只移焦点、回车才选”是 tablist 的手动激活约定，radio 上没有对应说法。计划没有说读屏用户在 manual 的 radio 组里听到的是什么（焦点在未选中项上，`aria-checked=false`，按方向键没有任何选中反馈）。docs/specs/ui/forms.md 输出 28 的只读行写的是“方向键不移动选中”，那是只读的合同，不能拿来当 manual 的依据。
+如何核实：读 handleKeydown；在 lab 里挂一个 `activation=manual` 的实现（把 `from` 改成焦点优先后才能走通）。
+建议改法：(a) 实现时 manual 与 readonly 共用“从焦点所在项起算”的分支，并给出 Home/End/循环/禁用项的 dom 用例；(b) 在 SegmentedControl.md 的“交互”里写明 manual 偏离 radio 的方向键约定，只给“选择会带来一次写入且写入有代价”的场景用；(c) 或不加 manual，选择器在宿主侧像现在的滑块那样合并写入（200 ms 停下才发），radio 语义原样保留，同时“跟随态方向键不钉成明确选择”这一条可以由宿主在跟随态下不把方向键引起的变化当作写入。若坚持 manual，请把 (a)(b) 写进 A5 的验证。
+
+### 2. 彩色图标改成 `<img>` 后，29 个 `-color` 图标里的 currentColor 部分在暗色下是黑的；单色/彩色的判据没写
+严重程度：重要
+类别：设计与现实不符 / 暗色
+位置：计划 A.6“单色的用 mask、彩色的用 image”、A.4 `ComposerIcon`；草稿 models-ux/logos.ts（用 `?raw` 内联，所以草稿看不出这个问题）
+现象：我解开 @lobehub/icons-static-svg 1.104.0（994 个文件）核对：255 个带 `-color` 后缀，其中 29 个含 `currentColor`（kimi-color、cerebras-color、aws-color、yi-color、longcat-color、poe-color、together-brand-color 等）。草稿 logos.ts 的 47 行导入里，kimi-color（一个 #1783FF 加一个 currentColor）与 cerebras-color（一个 currentColor 加一个 #F15A29）都在其中。SVG 作为 `<img>` 或 CSS `background-image` 加载时 currentColor 解析成黑色，暗色面板上这一半图形几乎看不见；作为 mask 则丢掉多色。另有 6 个 `-color` 图标含 #000 填充（cogvideo、llmapi、kiro、luma、openhands、unstructured），同样在暗色下看不见，这六个目前不在草稿表里，但“表”会随模板增长。
+为什么是问题：草稿用 `?raw` 内联，图标继承文字色，暗色没问题；计划改成 mask/image 的理由（不用 `v-html`，第 1 轮前端第 8 条）是对的，但没有重新验证暗色。计划也没写“彩色还是单色”靠什么判：Magpie 的做法是文件名带 `-color` 就当 `<img>`（research/magpie.md 第 17 行），照搬就会踩上面这条。这是第 2 条验证重点“暗色下单色 mask 的着色”的另一半：单色 mask 没问题（背景色取 currentColor 即可），问题在彩色那一半。
+如何核实：`grep -l currentColor *-color.svg` 得 29 个；把 kimi-color.svg 当 `<img>` 放到 #1a1a1a 底上看。
+建议改法：表的每一项显式登记 `kind: "mask" | "image"`，不按文件名推；登记时用脚本检查“image 类的 SVG 不含 currentColor 与黑色填充”，不合格的选单色变体（kimi.svg、cerebras.svg 都有）改用 mask；把这条检查写进 A4 的验证（每个键取得到之外，加“image 类无 currentColor”），暗色截图一张。若要保留双色，只能在构建时把 currentColor 替换成固定色字面量（再决定暗色用哪个）。
+
+### 3. 图标表“加载完经一个 ref 触发视图重算”：按 A.8 的写法 ref 不会被追踪，加载完不会重算
+严重程度：重要
+类别：依赖的机制不成立（响应式）/ 首字母占位
+位置：计划 A.6“加载完成前给首字母方块，加载完经一个 ref 触发视图重算”、A.8“构造选择器视图时带上角色图标、组图标”；packages/neuro-book/src/plugins/agent/web/plugin.ts:131（`modelOptions`）、:283（`takeModels`）、:442（`models: () => models.value`）；session-host.ts:1905、:2010
+现象：`modelOptions(snapshot)` 与 `roleOptions` 只在 `takeModels` 里调用，`takeModels` 是模型服务订阅的回调，不在任何响应式副作用里。session-host 读到的是 `deps.models()`，即 `shallowRef` 里已经算好的数组，只在数组换引用时（2010 行的 watch）重建视图。图标若在 `modelOptions` 里取（A.8 的写法），读到的 ref 在回调里没有被追踪，表动态导入完成后什么也不会重算，选择器会一直显示首字母方块，直到下一次快照变化。
+为什么是问题：首字母占位会变成永久占位（只有网络慢、首次加载时才暴露，开发机上动态导入几毫秒就完成，测试里更难复现）。另外每个模型都带同一个 `groupIcon` 对象（587 个 OpenRouter 模型各一份引用），重算时整个数组重建。
+如何核实：在 plugin.ts 的 `modelOptions` 里读一个 ref，看 takeModels 外是否有 effect 订阅它；读 session-host.ts 2010 行附近确认重建只看数组引用。
+建议改法：视图里只放图标的键（例如 `{kind: "provider", key}`）与服务商图标的覆盖，由 Vue 层经宿主注入的“图标解析端口”（nb-agent-ui 的 `host.ts` 已有 `provideAgentView({locale, renderers})` 这类宿主注入，加一个图标解析即可）在渲染时解析，渲染里读 ref 天然被追踪；或者让 session-host 构造 composer 视图的那一处直接读 ref。无论哪种，写清“ref 在哪里被读”，并加一条 dom 用例：表晚于第一次渲染到达时，首字母换成图标。顺带：`groupId`/`groupIcon` 在 587 个模型行上重复，建议改成 `ComposerView.groups?: {id, name, icon?}[]`，模型行只带 `groupId`。
+
+### 4. 段 B 之后设置页、角色页、Profile 页、agent 插件的“模型从哪来”没有定：快照里“启用模型列表”与“不带全表”互相抵消，且漏了 Profile 页等消费者
+严重程度：重要
+类别：数据模块的形状与寿命 / 遗漏
+位置：计划 B.5“快照…启用模型的列表只给选择器要的字段”与 `providerModels` 分页、B.8“全部模型页加搜索与按服务商收起”、A.7；现状代码：models/web/components/RolesPage.vue:44（`available`）、AllModelsView.vue:23、ProvidersPage.vue:115/159/222/282/286/431、models-store.ts:67（`apply`）与 :172（`checkAll`）、agent/web/plugin.ts:131 与 :151（`labels`）、agent/web/profile-view.ts:155–201（`findModel`、models 选项）
+现象：
+(a) 决定 2 让每家默认启用全部对话模型，所以“启用模型列表”在大服务商上就是全表（OpenRouter 587 个，8 家大服务商全加是上千项），B.5 把它留在快照里，`providerModels` 分页只服务“管理模型”这类弹窗，快照体积与每次 `changed` 的广播量几乎没有减少。计划只在 B7 说“量线上字节”，没有说超了怎么办；而 1 MiB 上限（omp 第 29 条）就是为这个问题引出的分页。
+(b) 消费者清单漏项：Profile 设置页（profile-view.ts 的 `findModel` 要找“已绑定但没启用”的模型，选项列表也来自 `provider.models`）、agent 插件的 `roleOptions.labels`（用全表给角色卡片写绑定的模型名）、models-store 的 `apply`（按全表清检测结果）、`checkAll`（从快照取启用模型）。计划写“旧宿主不改”“选择器、全部模型页、角色页”，没有这几处。
+(c) 角色页：`optionsFor` 用 `available` 做下拉，且 SearchSelect 本地过滤只搜 `label`（SearchSelect.vue:118–121），不搜服务商名；上千项时既不能分页也不好搜。SearchSelect 有远程模式（`filter=false` + `selectedLabel`），计划没说角色页用不用。
+(d) A.7 要“选项来自绑定模型的 `reasoning`”：绑定的模型若未启用或来源里没了（`missing`），启用列表里没有它，档的能力从哪来没写。
+为什么是问题：第 5 个重点正是问这个。不定下来，B6 实现者会各组件各取一次 `providerModels`，各自缓存、各自失效。
+如何核实：grep `provider.models` 与 `.models.` 在 packages/neuro-book/src/plugins/{models,agent} 下的使用点（不含测试我数到 21 处）。
+建议改法：在 B.5 明确两类数据：(1)“选用数据”= 全局的、紧凑的启用模型清单（id、名称、服务商、能力、窗口），给选择器/角色页/Profile 页/agent 标签用，快照里给，并在计划里写体积预算与超限的退路（改成按需订阅另一个 `enabledModels` 事件，不跟快照一起广播）；(2)“管理数据”= `providerModels` 分页，只在设置页数据模块里按“服务商 + 查询 + 页”缓存，快照变更时按 `modelsRevision` 失效。数据模块（models-store）要列出新增的状态与寿命（页缓存、查询、取消），并在 B6 的验证里写 store 的用例。角色页下拉用 SearchSelect 远程模式，或明确说本地过滤并写体积上限。
+
+### 5. 模型库“当前模型所在组展开”遇到大组会一次渲染几百行；没有预算也没有用例
+严重程度：重要
+类别：性能 / 与自己的设计矛盾
+位置：计划 A.4“超过 30 个的组默认收起，当前模型所在组展开”、A5 验证；AgentRoleModelPicker.vue 现状（`groups` 全量 `v-for`，无虚拟化）
+现象：规则是“超过 30 个的组默认收起，但当前模型所在组展开”。用户当前用的模型来自 OpenRouter（587 个）时，打开模型库页就渲染 587 行（每行带图标、窗口、单价、能力图标共约 5 个节点，约 3000 个节点，且是在弹出的 popover 里、每次打开都重建）。搜索时才只渲染命中项。验证里只有“只渲染命中项的节点计数”，没有“默认视图的节点计数”。B6 的 300 ms 预算只覆盖设置页详情，不覆盖选择器。
+为什么是问题：这条规则恰好让最常见的大组用户（决定 2 之后 OpenRouter 用户很多）拿不到“收起”的好处。当前模型还要滚动到可见位置（计划没写：展开后当前项在第几百行，焦点与滚动位置去哪）。
+如何核实：看 `groups` 与模板里没有 slice 或虚拟化；用 Lab 夹具造一个 587 项的组，打开并量节点数与耗时。
+建议改法：大组里“当前所在组展开”改成“只展开当前模型附近一页（例如当前项前后各 10 行）+‘显示全部 587 个’按钮”，或用 nb-ui 已有的列表方案；写明当前模型打开即可见（`scrollIntoView({block:"nearest"})`）；验收加“587 个模型的组默认视图节点数 < N”并做变异检查。
+
+### 6. `variant: "raised"` 与 `inherited` 只写了一句，现有组件里与它们相互作用的部分没有规定
+严重程度：建议（实现时会被迫现场决定，容易出各主题不一致）
+类别：组件 props 的形状 / 主题
+位置：计划 A.5；packages/nb-ui/src/components/controls/SegmentedControl.vue（滑块指示块、选中文字类、`count`、分隔线、`wrap`）；草稿 EffortControl.vue 的 `.is-following` 写法
+现象：草稿里“跟随”态是在外面用 `:deep(.absolute)` 把滑块改成透明加描边、用 `:deep(button[aria-checked])` 改字色（EffortControl.vue 约 120–130 行），raised 则是另写的 radiogroup，并不是 SegmentedControl 的变体。移进组件后至少这些没有写：(a) raised 下滑块、选中字色（现在写死 `--text-inverse` 压在 `--accent-main` 实底上）、轨道底色、投影分别取哪个 token，在 aurora、macos、editorial 三个主题里（`--elevation-raised` 在 editorial 是 none）有没有可读的对比；(b) `wrap`（没有滑块，选中项自己画实底）、`count`（徽章色按选中反色）、竖分隔线、`size="xs"` 在 raised 下怎么画，或者声明 raised 与 `wrap`、`count` 互斥；(c) `inherited` 下选项的 `aria-checked` 仍为 true（读屏说“已选中”），计划只说“读屏由调用方的 aria-describedby 给”，没写调用方给的文字是什么、挂在组上还是项上（Field 上下文已经占用组的 `aria-describedby`，模板里是 `:aria-describedby="field?.ariaDescribedby.value"`，组合时要拼接）；(d) 点已选中的那一档（inherited 下要钉成明确）会发出与当前值相同的 `update:modelValue`，SegmentedControl.md 写的是“用户选择另一个启用项时发出其 value”，文档要改；(e) 暗色下 raised 的“浮起的面板色”靠什么与轨道区分（`--elevation-raised` 暗色值要核对）。
+为什么是问题：这是 nb-ui 的公共组件，改动要过 `ui-development-spec` 的组件 `.md` 同步要求；选择器之外的调用方（Tabs 以外的十几处）不会用 raised，但文档要把边界写死。
+建议改法：A3 的验证加：四个主题 × 亮暗的 raised 截图一张表；`.md` 写“raised 不支持 wrap 与 count”并在组件里 `console.warn` 或类型上排除；`inherited` 写成“当前值的外观降级，语义不变”，并把 aria-describedby 的拼接规则写进 `.md`。
+
+### 7. “宿主用内核同一个夹取函数算跟随的有效档”：浏览器里的宿主拿不到这个函数
+严重程度：重要
+类别：依赖的机制不成立（包边界）
+位置：计划 A.1、A.4“跟随的档是夹取后的有效档，由宿主用内核同一个夹取函数算”；packages/nb-harness/package.json（exports 的 `./models` 指向 src/models/index.ts，依赖 pi-ai、pi-catalog 等）；agent/web/*.ts 目前对 nb-harness 只有 `import type`
+现象：会话视图在 agent 插件的浏览器入口（session-host.ts）构造，`composer.thinkingLevels` 现在来自远程拿到的 `ModelInfo.efforts`（session-host.ts:1976）。要在浏览器里算“夹取后的有效档”，要么运行时导入 nb-harness 的 `reasoning.ts`（那一包依赖 OMP 的运行时与原生模块，不是浏览器包；当前 web 代码只做类型导入，architecture 的边界测试也在盯这个），要么浏览器里再写一份（两份会分叉，第 1 轮前端第 7 条就是要避免这个）。计划没说函数放哪、怎么导出、浏览器怎么用。
+如何核实：看 nb-harness 的 exports 与 `src/models/index.ts` 的导入；grep agent/web 里对 nb-harness 的运行时导入（没有）。
+建议改法：由内核/远程合同直接交出结果：`ModelInfo`（或会话状态）里加 `effectiveEffort: Effort | "off" | null` 与 `effortSource: "session" | "role" | "model" | null`，宿主只展示；这样“夹取”只在服务端一处，Lab 夹具也只需给值。若坚持前端算，把 `clampEffort` 单独放进一个无运行时依赖的小子路径（如 `@notnotype/nb-harness/models/effort`，只导出纯函数与类型），并在边界测试里登记它可被浏览器代码导入。
+
+### 8. 段 A 先于段 B：图标表的键、校验与测试的措辞还是段 B 的
+严重程度：建议
+类别：段间自洽
+位置：计划 A.6“段 A 按现有的目录服务商 id 取图标，段 B 换成模板键”、切片 A4“每个模板键都取得到”
+现象：段 A 里没有模板，A4 的验证写“每个模板键都取得到”无从实现；现有快照有 `kind: "catalog" | "custom"`，按 id 取图标不需要再判 `kind`（nb-models core.ts 的 `providerIdFor` 生成自定义 id 时已经避开目录 id），自定义服务商自然落到首字母。段 B 再换键时，B.2 v1 读法让目录服务商的实例 id 保持目录 id、`template` 也取它，所以表可以不改，但这依赖“模板键 = OMP 目录 id”，B.1 的 `listTemplates()` 又加了 Ollama、LM Studio、SiliconFlow 等没有 OMP id 的模板和“地区”变体（如 minimax 的国内与海外），表键是否仍是同一套没有写。
+为什么是问题：中间状态本身自洽（没图标就首字母），但 A4 的验证无法按字面执行；换键那一步没有登记，B1/B6 实现者会各写各的键。
+建议改法：A4 改写成“表键 = 目录服务商 id；表里每个键都取得到、未登记（含全部自定义服务商）回退首字母”；B1 加“表键改为模板键，v1 迁移的实例与段 A 的取图结果逐项相同”的对照用例；表同时登记 `kind: "mask"|"image"`（见第 2 条）。
+
+### 9. 网络页：设置行没有“行下信息”位置，SettingsActionRow 与 SettingsRow 的右缘对不上，“测试代理”的目标站点没写
+严重程度：建议
+类别：组件复用 / 遗漏
+位置：计划 C.2“网络页”“新的 src/ui/settings/SettingsActionRow”、C.1 `test()`；packages/neuro-book/src/ui/settings/SettingsRow.md（布局、插槽）
+现象：
+(a) 第 3 轮稿里“代理方式”行下有“跟随系统时，信息色写出现在用的代理与来源”。SettingsRow 只有一个默认插槽，没有行下的位置；它自带的行下提示只有“本作品覆盖”这一种（SettingsRow.md“交互”），`reasons` 只画图标加悬停。计划只把行下状态（`aria-live`）给了 SettingsActionRow，“代理方式”这一行的信息文字由谁画、画在哪（放进插槽里会挤进控件的右侧）没写。
+(b) SettingsRow 控件右边固定一格 24px（放恢复默认、锁），保证各行控件右缘对齐。SettingsActionRow 若只“样式变量与 SettingsRow 共用”，没有这一格，“测试代理”“现在更新”按钮的右缘会比上下行的控件右缘靠右 24px；要不要留这一格计划没说。
+(c) “测试代理…行下写出口 IP 与耗时”意味着应用要向某个公网站点发请求才知道出口 IP；C.1 `test(override, signal)` 没写目标。这是新的第三方依赖，也会向它泄露用户的出口 IP，用户只是想测试代理能否连通；写不写、写哪个站、没有网络时的失败文案都影响页面的状态集。
+(d) 网络页的状态集合没有列：设置读不到时（用户层文件无效，SettingsRow 自己会停用）、`describe()` 失败/超时（读 gsettings 最多 2 秒）时行下写什么；测试进行中的取消（`signal` 在合同里有，界面没有“取消”）；离开页面时的取消。
+建议改法：(a) 给 SettingsRow 加一个具名插槽 `below`（或让 SettingsActionRow 覆盖这一行），并写进 SettingsRow.md；(b) SettingsActionRow 复用 SettingsRow 的右缘一格；(c) 写明测试请求打哪（建议只测“能否经代理连到模型服务商的主机”或用户已配置的服务商地址，不引入第三方 IP 回显站），或明说用哪个站并把它列入 Spec 的外联清单；(d) C3 的 dom 测试列出上述状态。
+
+### 10. 切片没有列 Lab 夹具与替身：合同升到版本 2 会同时弄坏 models 场景与 Profile、选择器的 Lab 场景，A、B 段验证里“Lab（亮色、390 宽、英文）”没有对应的夹具工作
+严重程度：建议
+类别：遗漏 / 验证
+位置：计划 B.5“远程合同升到版本 2”、B6 验证、A5 验证“Lab（亮色、390 宽、英文）”；lab/web/fixtures/models-scene/fake-remote.ts（145 行，类型是 `ModelsRemote`，实现 `catalogProviders`、`catalogModels`、`discover` 等）、sample.ts；lab/web/fixtures/nb-agent-ui/{data,composer.scenes,view.scenes,wizard.scenes}.ts（含 `thinkingLevels`）
+现象：fake-remote 的类型绑定当前合同，B5 把 `catalogProviders` 换成 `templates()`、加 `providerModels`、`detectApi`、`refreshModels`、`setIcon` 之后，它与 sample 必须一起重写（类型检查直接失败）；B6 写的“各组件 dom 测试、models-store.test.ts”里没有 Lab。设置页要验的状态（600 个模型的分页、来源失败、检测结果、地区、空白模板第二步、390 宽与英文）只有在 Lab 场景里才看得到图，而 e2e 用的是真实服务（fake-remote 的头注释写明了分工）。A 段同理：选择器要的四种能力状态、跟随与明确、大组、窄面板、彩色与单色图标需要新的 composer 场景；计划只写了“Lab 亮色、390 宽、英文”。
+为什么是问题：这是工作量与验证口径的遗漏，不是方向问题。不列进切片，实现时要么临时补（顺序混乱），要么把 Lab 验证略过，开发者想看的暗色、窄宽图就拿不到。
+如何核实：看 fake-remote 的签名与 `ModelsRemote` 的类型来源；grep `thinkingLevels` 的 Lab 夹具使用点（4 个文件）。
+建议改法：A5 与 B6 各加一行“Lab 夹具与场景：列出要新增的场景名（选择器：能力四态×跟随/明确、587 项大组、340px、暗色与彩色图标；设置页：来源失败、600 个模型、检测协议结果、390 宽英文）”，并写明 fake-remote 随合同 v2 同步重写；另外 Profile 页的 dom 测试夹具（profile-page.dom.test.ts、profile-view.test.ts）要随第 4 条的数据形状改。
+
+### 11. 角色页思考档：改绑模型后留下的档位不在新模型的档位里，界面怎么显示没写；新增控件会抢“去绑定”的焦点
+严重程度：建议
+类别：遗漏（失败态、焦点去向）
+位置：计划 A.2、A.3“只改档不带 model”、A.7；RolesPage.vue:116–122（`takeFocus` 后 `.roles-page__control button, .roles-page__control input` 取第一个聚焦）、RolesPage.md、spec settings-pages.md 输出 18（焦点放在模型下拉上）
+现象：
+(a) `RoleConfig.effort` 独立于 `model` 存。用户把“主力”绑到支持 xhigh 的模型并设档 xhigh，再改绑到只有 low/medium/high 的模型，或绑到 `none`/`fixed` 的模型：配置里仍是 xhigh，请求时由内核夹取（A.2），但角色页的下拉选项来自新模型的 `reasoning`，xhigh 不在其中，下拉显示空白或“未选择”（Select/SearchSelect 对不在选项里的值怎么画，计划没写，参照现状 `optionsFor` 要为绑定的不可用模型“补一个停用的项”，角色页自己就有这个先例）。`none`/`fixed` 时控件停用并写原因，但已存的档位去哪了没有显示，用户也无法清掉。
+(b) 设置窗口“打开到指定位置”（输出 18）要求焦点落在该角色的模型下拉上；现在的实现取行内 `.roles-page__control` 里第一个 button 或 input。新增“角色图标”按钮和“思考档”下拉后，若它们在同一个 `.roles-page__control` 容器里且排在模型下拉之前，焦点会落到图标按钮。计划 A6 的验证写了 `pages-focus.dom.test.ts` 但没说要增加这一断言。
+建议改法：(a) 已存档位不在选项里时补一个停用的项并带说明“当前模型没有这一档，实际用 X”（X 是夹取结果，可由快照的角色带出 `effectiveEffort`），`none`/`fixed` 时也显示已存档位并给“清除”；改绑模型时由服务端决定是保留还是清掉，写进 models/service.md 的输出。(b) 给模型下拉一个固定的钩子（例如 `data-role-model`），聚焦用它，不依赖 DOM 顺序；A6 的验证加“有图标与档位控件时 focus 仍落在模型下拉”。
+
+### 12. Task 记录里的决定 20 与计划 B.7 互相矛盾，README 没改
+严重程度：建议
+类别：与已定设计一致
+位置：README“决定 20”（“上传图标不收 SVG、存成设置里 ≤48 KB 的图”）与计划 B.7（≤256 KB、存状态根文件、设置里只存 `{kind:"file", name}`）；计划“技术选型”的“上传图标”一行
+现象：决定 20 是主 Agent 定的（可质疑），第一轮 omp 第 29 条（RPC 1 MiB 上限）之后计划改成文件存储，但 README 的决定 20 没有改，处理表（design-review-disposition.md 前端第 17 条）还写着“上限指 data URL 长度、缩到 64 像素”。三处互相矛盾；后来的读者按 README 实现会做出设置里存 data URL 的版本。
+另：决定 20 同条的“复制服务商连密钥一起复制”在计划 B.5 里变成“只复制有效的方式”，这是细化，不矛盾；但这条“上传图标缩到 64 像素”的客户端缩放在 B.7 里没了：服务端只收 PNG/JPEG/WebP ≤256 KB，选择器里每个服务商图标按 16px 显示，原图可能是 2000 像素（256 KB 的 WebP 常见），列表里 8 到 40 个这样的 `<img>` 会各解码一次大图。建议要么 B.7 保留“客户端缩到 128 像素再传”，要么服务端上传时缩。
+建议改法：README 加“决定 25：上传图标改存状态根文件，≤256 KB，只收 PNG、JPEG、WebP，客户端缩到 128 像素；取代决定 20 的相应部分”，并回写处理表的那一行。
+
+### 13. 思考档最多 7 档，英文与 340px 下分段会被截断成读不出的标签；“各档等宽”与它冲突
+严重程度：建议
+类别：遗漏（窄窗口、英文）
+位置：计划 A.4“各档等宽…面板 340px 无溢出”、A.5“raised…不超过 7 档”；THINKING_LEVEL_KEYS（nb-agent-ui/src/composer-actions.ts:78，共 7 个键：off、minimal、low、medium、high、xhigh、max）；SegmentedControl 的网格列是 `minmax(0,1fr)`，放不下时截断标签
+现象：面板 340px、内容宽约 316px，扣掉左边的思考图标与标签后，7 档各约 36 到 42px（按草稿第 3 轮的排法估算，未实测）。中文的两个字勉强放下；英文 “Minimal”“Medium”“X-High” 会被截成 “Mini…”“Medi…”。验收“340px 无横向溢出”会通过（因为是截断而不是溢出），但标签不可读。计划把窄时的退让只写成“档位占满一行”，没有处理这一行本身也放不下的情形。
+如何核实：用 Lab 把 `thinkingLevels` 设成 7 个、语言英文、面板 340px，看 `data-model-picker-thinking` 所在行。
+建议改法：档位超过 5 个或面板窄于 400px 时，分段里只写缩写或数字刻度、完整名称放 `title` 与当前档的说明文字（“高 · xhigh”）；或窄时换成 `Select`。把这一例写进 A5 的验证（7 档 × 英文 × 340px 的截图），并让 SegmentedControl.md 的“在 390×844 下默认不换行”那一段与 raised 对齐。
+
+### 14. 模型库的键盘模型没有闭合：搜索框到列表、组头、折叠组与 roving 的关系
+严重程度：建议
+类别：遗漏（键盘与读屏、焦点去向）
+位置：计划 A.4“方向键用 nb-ui 的 roving 焦点在行间移动；组头 aria-expanded、可访问名称带个数”；现状 AgentRoleModelPicker.vue（面板 `focus()`、`@focusout` 关闭、Esc 关闭并还焦点）；nb-ui roving.ts
+现象：现状所有行都是普通 button，靠 Tab 逐个走；面板打开时焦点在面板容器上。改成 roving 后没写：(a) 搜索框里按下方向键是否进入第一个命中行，在第一行按上方向键是否回到搜索框；(b) 组头是否在 roving 序列里，折叠的组里的行不在 DOM 里，方向键跨组怎么走，Home/End 是整个列表还是组内；(c) 搜索时命中组自动展开，清空后按“恢复”规则收回，焦点正落在被收起的行上时去哪（焦点掉到 body 会触发 `@focusout` 的 relatedTarget 为 null 分支，不关面板但键盘用户丢了位置）；(d) 当前模型行是否是进入列表时的落点；(e) 单选的语义：行是 button 加 `is-active` 类，没有 `aria-current`/`aria-pressed`，读屏用户听不到哪个模型是当前的（现状如此，但这次改键盘模型时应该一起补）。nb-ui 的 roving.ts 只是纯函数（`moveRoving` 在平铺列表上移动），跨折叠组与组头需要调用方自己拼序列。
+建议改法：在 A4 把这五点各写一句规则，并在 `AgentRoleModelPicker.md` 的“交互”里落成条目；验证加“搜索→方向键→回车选中”“折叠组与方向键”“焦点所在行被收起”三条 dom 用例。
+
+### 15. 第一轮前端 20 条落实情况的核对（含新问题的出处）
+严重程度：说明
+类别：核对
+逐条：
+- 1 图标表位置：落实（A.6 放 src/ui/provider-icons/）；加载与重算的写法有问题，见第 3 条；彩色图标暗色问题见第 2 条。
+- 2 投影：落实（字面量、只改亮色、暗色不动、常驻卡片亮暗截图）；未发现新问题。
+- 3 自动更新设置归属：落实（`catalogAutoUpdate` 声明在 `nbook.network`，models 只读）。
+- 6 停下才发与跟随态：落实为 `activation: "manual"`；实现起点有问题且偏离 radio 约定，见第 1 条。
+- 7 夹取后的有效档：写了“用内核同一个夹取函数”，浏览器拿不到这个函数，见第 7 条。
+- 8 `v-html`：落实；`ComposerModelView.groupIcon` 在每个模型行上重复，建议改成视图级的组表，见第 3 条末尾。
+- 10 分组键：落实（`groupId`）。
+- 11 几百个模型：设置页落实了搜索与收起；选择器的“当前组展开”、角色页下拉与 Profile 页没有覆盖，见第 4、5 条。
+- 12 窄宿主：单列与两行拆分落实；7 档英文窄面板见第 13 条。
+- 14 SettingsActionRow：落实；与 SettingsRow 的衔接见第 9 条。
+- 15 `inherited`：落实；周边规定见第 6 条。
+- 16 视图新字段：落实（全可选、缺省按旧字段推出、`thinking.reset`）。只有给了 `roles` 的宿主才走角色选择器（AgentConversationComposer.vue:638），nb-story 的 QaPage 没有 roles，仍用 AgentModelPicker，不受影响；未发现新问题。
+- 19 验收映射与钩子：大体落实；“`data-model-picker-thinking`”钩子原来挂在“当前档文字”上（AgentRoleModelPicker.vue 里的 span），新结构里没有这个节点，计划写“钩子保留，写进组件 .md”，需要写明它改挂在分段组上还是说明文字上；只有 AgentConversationComposer.dom.test.ts 引用它（e2e 只用 `[data-model-picker]`、`-panel`、`-pages`、`-search`、`-role`），影响小。
+- 20 模型库键盘与读屏：只落实了一半，见第 14 条。
+
+## 未发现问题的方面
+- 第 2 条投影改法：只改 nbook 亮色块、暗色不动、tokens.css 不动，与 themes/nbook/vars.css 的结构一致，没有看到成环或回归。
+- `setRole` 按字段打补丁、`thinking.reset` 写 `{effort: null}`、`applyComposerAction` 补用例：与现有 `thinking.set` 动作形状一致。
+- 图标放 `src/ui/provider-icons/` 与 architecture.test 的跨插件导入规则不冲突（src/ui 已被多个插件使用）。
+- Bun 对 `x.svg?url` 的导入我在 lab/bunprobe 里试了：Bun 1.4.4 解析成文件路径字符串，不会让 bun test 里的 dom 测试在导入时失败（Vite 构建里小于 4096 字节的 SVG 会内联成 data URL，草稿里的图标除 meta-color（6 KB）外都小于 4 KB，动态导入进分块，不进首屏包）。
+- 服务商图标 SVG 本身的许可与商标风险：计划“风险”一节已写。
+- 网络页放 `nbook.network` 且 models 只读 `catalogAutoUpdate`：与 settings/configuration.md 的“只能写自己声明的项”不冲突（读不受限）。
+
+## 汇总
+有效编号：1–14 为发现，15 为第一轮 20 条的核对说明。
+重要 6 条：1、2、3、4、5、7。
+建议 8 条：6、8、9、10、11、12、13、14。
+阻断 0 条。
+最严重的三条：第 4 条（段 B 之后模型数据的来源与消费者没有定，快照里“启用模型列表”几乎等于全表，Profile 页等 4 处消费者漏列）、第 2 条（`image` 模式下 29 个彩色图标含 currentColor，kimi-color、cerebras-color 在暗色下半个看不见，彩色/单色判据没写）、第 1 条（`activation: "manual"` 在现有键盘处理里方向键走不过一步，且偏离 radio 约定）。第 3 条（图标 ref 在 takeModels 回调里不被追踪，占位可能永远不换）与第 7 条（浏览器拿不到内核的夹取函数）紧随其后。
