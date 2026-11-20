@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：模型选择器与添加服务商</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img, .wide img { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--line); }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.wide { margin-top: 16px; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.pair figure { margin: 0; }
+.pair figcaption { font-size: 14px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：模型选择器与添加服务商</h1>
+
+<section data-nbdev-question="r1-roles" data-nbdev-type="single" data-nbdev-recommend="rows">
+  <h2>选择器里的角色排成一列还是两列？</h2>
+  <p class="rec"><strong>推荐 A 一列：角色名和绑定的模型、档位在一行里对齐好扫；输入框窄时两列的模型名会被截掉，自建专精角色多了也只是往下长。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="rows" data-nbdev-label="A 一列紧凑行">
+      <h3>A 一列紧凑行</h3>
+      <img src="r1/picker-rows.webp" alt="角色一列，每行 28 像素：图标、角色名，右边服务商图标、模型、角色的思考档">
+    </div>
+    <div class="cand" data-nbdev-option="grid" data-nbdev-label="B 两列紧凑行">
+      <h3>B 两列紧凑行</h3>
+      <img src="r1/picker-grid.webp" alt="角色两列，同样的单行项">
+    </div>
+  </div>
+  <div class="pair wide">
+    <figure><img src="r1/picker-models.webp" alt="模型库页：按服务商分组，带图标与个数，大的服务商默认收起"><figcaption>模型库页（两种排法共用）</figcaption></figure>
+    <figure><img src="r1/t28-roles.webp" alt="t28 第 1 轮的角色页稿"><figcaption>t28 第 1 轮的稿（卡片两列）</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="r1-effort" data-nbdev-type="single" data-nbdev-recommend="seg">
+  <h2>思考档用分段按钮还是信号格？</h2>
+  <p class="rec"><strong>推荐 A 分段按钮：档位名都看得见，点一下就是那一档；信号格要悬停才知道每格是哪档，只有右边一个字。</strong></p>
+  <div class="wide"><img src="r1/effort-states.webp" alt="两种控件在五种状态下的样子"></div>
+  <div class="cands wide">
+    <div class="cand" data-nbdev-option="seg" data-nbdev-label="A 分段按钮">
+      <h3>A 分段按钮</h3>
+      <img src="r1/picker-explicit.webp" alt="选择器里的分段按钮，会话里改成了中，右边是“用主力的默认”">
+    </div>
+    <div class="cand" data-nbdev-option="bars" data-nbdev-label="B 信号格">
+      <h3>B 信号格</h3>
+      <img src="r1/picker-bars.webp" alt="选择器里的信号格，跟随角色时是浅色">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="r1-shadow" data-nbdev-type="single" data-nbdev-recommend="global">
+  <h2>阴影是整档调轻，还是只换选择器？</h2>
+  <p class="rec"><strong>推荐 A 整档调轻：重的是气泡这一档本身（最远一层模糊 80 像素），同一档还有约 20 处（编辑器的选区菜单、批注卡片、人物选择等）；规范不许组件自己改投影。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="global" data-nbdev-label="A 气泡这档整体改成菜单那档的投影">
+      <h3>A 气泡这档整体改轻</h3>
+      <img src="r1/shadow-menu.webp" alt="菜单档的投影">
+    </div>
+    <div class="cand" data-nbdev-option="picker" data-nbdev-label="B 只让选择器换用菜单那档的外框">
+      <h3>B 只换选择器</h3>
+      <img src="r1/shadow-menu.webp" alt="同一张图：选择器外观相同，区别是别的气泡不变">
+      <p>选择器的样子与 A 相同；其它气泡保持现在的重投影（下图）。</p>
+    </div>
+  </div>
+  <div class="pair wide">
+    <figure><img src="r1/shadow-popover.webp" alt="现在的气泡档投影"><figcaption>现在</figcaption></figure>
+    <figure><img src="r1/shadow-menu.webp" alt="菜单档投影"><figcaption>菜单那档</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="r1-add" data-nbdev-type="single" data-nbdev-recommend="list">
+  <h2>“添加服务商”用多列的行还是方块？</h2>
+  <p class="rec"><strong>推荐 A 多列的行：79 家加我们补的十来家，行比方块密一倍，一屏能看到两组；长名字（Cloudflare AI Gateway、智谱 GLM Coding Plan）在方块里要折行。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="list" data-nbdev-label="A 分组、组内三列的行">
+      <h3>A 分组、组内三列的行</h3>
+      <img src="r1/add-list.webp" alt="分组，三列，每行图标、名称、地区、模型数或已添加">
+    </div>
+    <div class="cand" data-nbdev-option="tiles" data-nbdev-label="B 分组、组内方块">
+      <h3>B 分组、组内方块</h3>
+      <img src="r1/add-tiles.webp" alt="分组，图标在上名称在下的方块">
+    </div>
+  </div>
+  <div class="pair wide">
+    <figure><img src="r1/add-search.webp" alt="搜 mini：只留命中的组，收起的“需要登录”组也展开"><figcaption>搜索时只留命中的组</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>直接做，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>输入框上的触发器</td><td>角色图标、角色名、服务商图标、模型、思考档；跟随角色的档是灰字，会话里改过的是强调色</td></tr>
+      <tr><td>思考档的来源</td><td>跟随角色时控件画成描边（还没在会话里定），改过以后实心，旁边出现“用主力的默认”</td></tr>
+      <tr><td>模型不支持思考、没写档位、只有一档</td><td>不再隐藏：分别停用并写原因、给通用四档加“?”说明、显示成固定的一档</td></tr>
+      <tr><td>“跟随默认”</td><td>右边写出默认是哪个角色（t28 的稿里有，实现漏了）</td></tr>
+      <tr><td>角色图标</td><td>内置角色各有一个（极轻量羽毛、快速闪电、主力星、深度望远镜、压缩折叠）；自建角色在角色页挑</td></tr>
+      <tr><td>“只对这个会话生效”那行小字</td><td>去掉（设计语言不让常驻说明）</td></tr>
+      <tr><td>模型库</td><td>按服务商分组、带图标与个数；几百个模型的服务商默认收起，搜索时只渲染命中的</td></tr>
+      <tr><td>已添加的模板</td><td>标“已添加”但不停用：服务商是模板的复制，同一个模板可以建第二个（例如两把 OpenRouter 密钥）</td></tr>
+      <tr><td>只能登录的服务商</td><td>收进最后一组“需要登录（还不支持）”，默认收起</td></tr>
+      <tr><td>分组与模板</td><td>OMP 目录没有分类，分组表由我们维护，查不到的归“其它”；补上 OMP 没有的 Anthropic（密钥）、阿里云百炼、火山方舟、硅基流动、Ollama、LM Studio，地址与协议在第 2 轮核对</td></tr>
+      <tr><td>没有图标的服务商</td><td>首字母方块（中性底色，不按名字配色）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>服务商只有一种：都从模板复制，名称、协议、地址、图标都能改</li>
+    <li>添加后加入全部对话模型，几百个也加；设置里只记移除和改过的</li>
+    <li>在线目录默认开，给“自动更新模型目录”开关</li>
+    <li>图标用 @lobehub/icons-static-svg；自定义支持上传与首字母方块</li>
+    <li>代理：应用级在“网络”分区、服务商级在“高级”；跟随系统、自定义、直连</li>
+    <li>思考档：会话里选的 &gt; 角色上设的 &gt; 模型默认；控件不再隐藏</li>
+    <li>协议检测照 Magpie 并行发四种极小请求</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,128 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t43-models-ux",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：模型选择器与添加服务商",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "3adb01926ee6580d96642f5be2d075a9db7f29b6dedf3ce0333101f04bf891ce",
+    "files": [
+        "index.html",
+        "r1/add-list.webp",
+        "r1/add-search.webp",
+        "r1/add-tiles.webp",
+        "r1/effort-states.webp",
+        "r1/picker-bars.webp",
+        "r1/picker-explicit.webp",
+        "r1/picker-grid.webp",
+        "r1/picker-models.webp",
+        "r1/picker-rows.webp",
+        "r1/shadow-menu.webp",
+        "r1/shadow-popover.webp",
+        "r1/t28-roles.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-roles",
+            "type": "single",
+            "label": "选择器里的角色排成一列还是两列？",
+            "options": [
+                {
+                    "value": "rows",
+                    "label": "A 一列紧凑行"
+                },
+                {
+                    "value": "grid",
+                    "label": "B 两列紧凑行"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "rows"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-effort",
+            "type": "single",
+            "label": "思考档用分段按钮还是信号格？",
+            "options": [
+                {
+                    "value": "seg",
+                    "label": "A 分段按钮"
+                },
+                {
+                    "value": "bars",
+                    "label": "B 信号格"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "seg"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-shadow",
+            "type": "single",
+            "label": "阴影是整档调轻，还是只换选择器？",
+            "options": [
+                {
+                    "value": "global",
+                    "label": "A 气泡这档整体改成菜单那档的投影"
+                },
+                {
+                    "value": "picker",
+                    "label": "B 只让选择器换用菜单那档的外框"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "global"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-add",
+            "type": "single",
+            "label": "“添加服务商”用多列的行还是方块？",
+            "options": [
+                {
+                    "value": "list",
+                    "label": "A 分组、组内三列的行"
+                },
+                {
+                    "value": "tiles",
+                    "label": "B 分组、组内方块"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "list"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-20T05:10:46.906Z"
+}
