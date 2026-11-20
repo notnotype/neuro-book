@@ -53,4 +53,5 @@ updated: 2026-11-19
   - 第 1 片 `75a37dfcb`：图标入口画容器计数的合计、`ViewHead.claim`、视图声明 `replaces`；Spec master `a1cdb08b5`（views.md 输出 17、19、20）。
   - 第 2 片 `9c0c6433f`：bot 列表的 `last`（摘要、日志尾部有界取回）、`AncestorItem.owner`；Spec master `e341c51fd`。
   - 第 3 片 `c05227f82`、`ed01e79c7`、`48911fdb2`：档位改由 `ctx.interaction` 给（`placement`、`canCreate`），`AgentMessages`、`AgentMessagesList` 与 Lab 场景，会话面板不按日分组，bots 目录登记；Spec master `b7474061c`。
-  - 下一步：第 4 片（宿主的归属表与档位、删固定会话、提供者贡献点、`MessagesHost.vue`、bots 改成提供者、e2e 迁移），一个提交。
+  - 第 4 片代码 `cb3ffef43`：消息视图（`MessagesHost.vue` 加 `messages-model.ts`）、插件级归属表、提供者贡献点（每插件一条）、bots 改成提供者、删固定会话组件与 bot 视图与 bots 的界面文字、`focus-session` 按树根、状态栏“N 条新消息”、视图计数。单元与 dom 测试过（3 条失败是 master 原有的）。与计划的出入：`listCollapsed` 只记在内存（插件作用域），没进插件存储；会话列表的刷新沿用 `SessionPanelHost` 的定时器（会话一页常驻挂载），没收进 store。
+  - 下一步：e2e 迁移（先改辅助函数），Spec（conversation.md、bots/view.md），截图，收口。
