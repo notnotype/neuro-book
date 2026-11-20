@@ -1051,3 +1051,19 @@ describe("放在可关的面板里（closable、close、escape）", () => {
         wrapper.unmount();
     });
 });
+
+describe("focusComposer", () => {
+    it("输入框还是只读时（会话在加载）先记下，变成可写之后焦点进输入框", async () => {
+        const loading = {...context(), availability: {status: "loading" as const, message: "", actions: []}};
+        const wrapper = mountView("zh-CN", {}, {plain: true, ctx: loading});
+        await flushPromises();
+        (wrapper.vm as unknown as {focusComposer(): void}).focusComposer();
+        await flushPromises();
+        const input = wrapper.get("textarea").element;
+        expect(document.activeElement).not.toBe(input);
+        await wrapper.setProps({ctx: context()});
+        await flushPromises();
+        expect(document.activeElement).toBe(input);
+        wrapper.unmount();
+    });
+});

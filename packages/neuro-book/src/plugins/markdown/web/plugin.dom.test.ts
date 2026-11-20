@@ -68,10 +68,13 @@ function mountServed(component: Component, props: Record<string, unknown>) {
 const FIRST_MOUNT = {timeoutMs: 20_000};
 
 describe("markdownKey 交出的 nb-markdown 组件", () => {
-    it("PromptEditor 的外露方法穿过外面几层包装（对话视图的输入框调 focus、insertText、insertFiles）", async () => {
+    it("PromptEditor 的外露方法穿过外面几层包装（对话视图的输入框调 focus、insertText、insertFiles）；代码还没加载完时调的，加载完照样生效", async () => {
         const {PromptEditor} = await served();
-        const {handle} = mountServed(PromptEditor, {draft: {text: "", version: 1}, locale: "zh-CN"});
-        await waitUntil("PromptEditor 挂上", () => (typeof handle.value?.focus === "function" ? true : null), FIRST_MOUNT);
+        const {wrapper, handle} = mountServed(PromptEditor, {draft: {text: "", version: 1}, locale: "zh-CN"});
+        // 包装一挂上就调（对话的输入框拿到引用就当编辑器在了）：这时里面的编辑器还在加载。
+        expect(wrapper.find("[contenteditable]").exists()).toBe(false);
+        (handle.value?.insertText as (text: string) => void)("先写的一句");
+        await waitUntil("挂上后写进编辑器", () => (wrapper.find("[contenteditable]").exists() && wrapper.find("[contenteditable]").text().includes("先写的一句") ? true : null), FIRST_MOUNT);
         expect(["focus", "insertText", "insertFiles"].map((name) => typeof handle.value?.[name])).toEqual(["function", "function", "function"]);
     });
 

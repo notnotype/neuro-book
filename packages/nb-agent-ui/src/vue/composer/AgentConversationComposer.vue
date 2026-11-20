@@ -445,8 +445,23 @@ async function toggleExpanded(): Promise<void> {
     withEditor((editor) => editor.focus("end"));
 }
 
+/**
+ * 宿主要聚焦时输入框可能还是只读的（会话还在加载）：编辑器只读时聚焦不起作用（ProseMirror 只在可编辑时聚焦），先记下，变成可写之后
+ * 再聚焦。`post`：等编辑器自己按新的只读值改完可编辑状态再聚焦。
+ */
+let focusWhenWritable = false;
+watch(readonly, (now) => {
+    if (now || !focusWhenWritable) return;
+    focusWhenWritable = false;
+    withEditor((editor) => editor.focus("end"));
+}, {flush: "post"});
+
 defineExpose({
     focus(): void {
+        if (readonly.value) {
+            focusWhenWritable = true;
+            return;
+        }
         withEditor((editor) => editor.focus("end"));
     },
 });

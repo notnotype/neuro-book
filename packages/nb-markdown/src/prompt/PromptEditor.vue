@@ -269,6 +269,9 @@ onMounted(() => {
     lastText = props.draft.text;
     highWater = maxPromptNumbers(docNodes(instance.state.doc));
     docRevision.value += 1;
+    const pendingFocus = focusOnCreate;
+    focusOnCreate = null;
+    if (pendingFocus !== null) focusWhenAttached(instance, pendingFocus, 5);
 });
 
 onBeforeUnmount(() => {
@@ -980,9 +983,36 @@ function setAttribute(element: HTMLElement, name: string, value: string | null):
     }
 }
 
+/**
+ * 编辑器在挂载之后才建，正文元素还要再过一两拍才挂进文档：宿主拿到组件引用（早于挂载钩子）就调的 `focus`，或编辑器建好、正文还没挂进
+ * 文档时调的，先记下，挂进文档后再聚焦，否则静默落空（对话第一次打开时就是这样）。
+ */
+let focusOnCreate: "start" | "end" | null = null;
+
+/**
+ * 正文元素由 EditorContent 在它自己的 `nextTick` 里挂进文档，挂进去之前聚焦无效；和这里排的下一拍谁先谁后不好推，所以没挂进去就再等一拍，
+ * 最多 `tries` 拍（实测一两拍就挂上），编辑器换了或销毁了就不再试。
+ */
+function focusWhenAttached(instance: PromptTiptapEditor, side: "start" | "end", tries: number): void {
+    void nextTick(() => {
+        if (editor.value !== instance || instance.isDestroyed) return;
+        if (instance.view.dom.isConnected) focusAt(side);
+        else if (tries > 1) focusWhenAttached(instance, side, tries - 1);
+    });
+}
+
 defineExpose({
     focus(at: "start" | "end" | "keep" = "end"): void {
-        if (at === "keep") editor.value?.view.focus();
+        const current = editor.value;
+        if (current === null) {
+            focusOnCreate = at === "start" ? "start" : "end";
+            return;
+        }
+        if (!current.view.dom.isConnected) {
+            focusWhenAttached(current, at === "start" ? "start" : "end", 5);
+            return;
+        }
+        if (at === "keep") current.view.focus();
         else focusAt(at);
     },
     insertText(text: string): void {

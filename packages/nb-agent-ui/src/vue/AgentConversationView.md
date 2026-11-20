@@ -113,6 +113,7 @@ type AgentConversationViewSlots = {
 
 type AgentConversationViewExpose = {
     /** 聚焦输入框。 */
+    /** 聚焦输入框；输入框还是只读时（会话在加载）先记下，变成可写之后再聚焦。 */
     focusComposer(): void;
     /** 滚动消息流到最新内容。 */
     scrollToLatest(): void;
