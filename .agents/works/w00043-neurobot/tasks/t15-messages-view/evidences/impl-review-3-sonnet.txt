@@ -1,0 +1,109 @@
+### 1. 书房面板里“关闭”只在对话头里：盖层、对话还没加载出来时，鼠标没有任何关闭入口
+- 严重程度：重要
+- 类别：正确性、对照 Spec（agent/conversation.md 输出 54“关闭”）
+- 位置：`packages/neuro-book/src/plugins/agent/web/components/DeskCompanion.vue:147-153`；`ContactCover.vue` 的 `.contact-cover { position: absolute; inset: 0; z-index: 5 }`；`plugin.ts` 的 `deskConversation`（`defineAsyncComponent`，无 loading 与 error）
+- 现象：面板里唯一的“关闭”按钮是对话头的右列最后一个（`data-header-close`），而头在 `.desk-companion__conversation` 里。盖层（没有模型、正在打开、打不开、找不到 bot）铺满 `.desk-companion__chat`，把头整个盖住，下面的对话还设了 `inert`，所以这四种状态下“关闭”点不到也聚焦不到。面板里对话的代码块第一次加载慢或失败（`defineAsyncComponent` 没写 `errorComponent`）时，面板是一片空白，同样没有关闭按钮。
+- 为什么是问题：`DeskCompanion.md` 和 Spec 写“看板娘多半被面板盖住，关闭靠头上的‘关闭’、Esc”。窗口不到约 1500px 时 420px 的面板会盖住猫，鼠标用户在“没有模型（新用户最先遇到的状态）”“打不开（重试仍失败）”下只剩 Esc。决定 8（开发者已答“可以”）假定“关闭”随时可达，没有假定它会被盖层挡住。e2e 三组都只测对话已出来的状态，所以没人看到。
+- 如何核实：读 `DeskCompanion.vue` 模板与 `ContactCover.vue` 样式即可（盖层是 `.desk-companion__chat` 的绝对定位子元素，头在被盖的 `inert` 层里）；e2e 里把模型清掉后点看板娘、再找 `[data-header-close]` 可复现（我没跑 e2e）。
+- 建议改法：二选一。（a）盖层只盖对话正文，让头留在上面（把盖层放进头之下的区域，或头上移到盖层之外）；（b）把“关闭”从对话头挪到 `SidePanel` 外框上，由 `DeskCompanion` 提供，与对话是否加载无关。（b）还能顺手消掉异步组件加载中无关闭的问题。盖层的 e2e 场景（没有模型时点看板娘，断言能点关闭）要补。
+
+### 2. SidePanel 的“内层已处理过的 Esc 不算”这一支没有测试，变异存活；“补全菜单开着时 Esc 只关菜单”没有任何断言
+- 严重程度：重要
+- 类别：测试（否定断言空过）
+- 位置：`packages/nb-ui/src/components/feedback/SidePanel.test.ts`；`packages/neuro-book/e2e/bots-chat.e2e.ts` 书房第二组结尾的 `await page.keyboard.press("Escape")`
+- 现象：我在 /tmp 里复制 `SidePanel.vue`，逐个做变异后跑原测试。杀死的：去掉三条 `keepOpen`（2 条失败）、Esc 不看焦点位置、Esc 不认触发器、不判组字、去掉 `provide(NB_POPOVER_Z_INDEX)`。存活的：把 `const handled = event.defaultPrevented || event.isComposing || event.keyCode === 229` 里的 `event.defaultPrevented` 删掉，5 条全过。
+- 为什么是问题：`defaultPrevented` 这一支是书房对话的关键：PromptEditor 在补全菜单开着时按 Esc 走 `dismissTrigger` 并让 ProseMirror 对事件 `preventDefault`，面板靠这个才不跟着关（Spec 输出 54 写“补全菜单开着、输入法组字时除外”）。这条被改坏时，用户在 `@` 菜单里按 Esc 会把整个面板关掉，现有的单测与 e2e 都不会失败；e2e 第二组最后那次 `Escape` 之后没有任何断言。
+- 如何核实：见上，变异文件在 `/tmp/review-t15-desk-impl/exp2/SP_E_noPreventDefaultHandled.*`（我实际生成并跑过全部六个变异，E 是唯一存活的）。
+- 建议改法：`SidePanel.test.ts` 加一例：面板里的输入框 `keydown` 监听里对 Esc 调 `preventDefault`，按 Esc 后面板仍开。e2e 第二组的结尾改成：菜单开着时按 Esc，断言菜单关了且 `panel(page)` 仍可见；再按一次 Esc 面板才关。
+
+### 3. e2e 里有一条会在元素取不到时空过的断言，气泡与窄版只断言文字或根本没测
+- 严重程度：建议
+- 类别：测试
+- 位置：`packages/neuro-book/e2e/bots-chat.e2e.ts` 书房第一组 `const shelfPoint = await page.evaluate(() => document.elementFromPoint(200, 450)?.closest("[data-bookshelf-page]") !== null); expect(shelfPoint).toBe(true);`
+- 现象：`elementFromPoint` 返回 null 时（点落在视口外、页面没画好）`null?.closest(...)` 是 `undefined`，`undefined !== null` 为 true，断言通过。想证明“不压暗、下面点得到书架”，这一句在最坏的情况下什么也没证明。
+- 另外：（a）气泡只有 `toContainText("你回书架了吗？")`，不查 `toBeVisible`、尺寸与位置，而最后一个提交（525a51ae9）正是修气泡的几何（不随格子收缩、尖角落在气泡上），没有回归测试；（b）“案头窄于 720px 只留角标”（Spec 输出 54、`DeskCompanion.md`）在单测里无法测（happy-dom 没有容器查询），e2e 三组都在 1440 宽，所以这条合同没有任何测试；（c）“等你处理”的气泡与猫换提问表情只有单测（替身宿主）、没有真实运行时的 e2e。
+- 如何核实：读 e2e 文件；把 `elementFromPoint` 的坐标改到视口外，这句仍通过。
+- 建议改法：改成 `expect(await page.evaluate(...) === true)` 的形式：先取出元素再 `expect(el).not.toBeNull()`；加一例 e2e：视口 700 宽，断言 `[data-desk-bubble]` 不可见而 `[data-desk-badge]` 可见；1440 宽时气泡 `toBeVisible` 且其 `boundingBox` 的右缘不超出看板娘格子右缘。
+
+### 4. 输入框“只读时先记下、可写后再聚焦”的意图没有失效条件，可能很久之后抢焦点
+- 严重程度：建议
+- 类别：正确性、不变量（抢焦点）
+- 位置：`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue` 约 448-465 行（`focusWhenWritable`）
+- 现象：`focus()` 在 `readonly` 时只置 `focusWhenWritable = true`；之后 `readonly` 变 false 的任何时刻（`availability.status` 回到 ready，主机上 `canSend` 恒为 true）都会 `editor.focus("end")`。标志只在“变成可写”时清，不在换会话、焦点被用户移走、组件失活时清。
+- 为什么是问题：`readonly` 为真的原因是会话在加载或不可用（`availability.status !== "ready"`）。书房第二次打开走借用后重新订阅，会先经过一段加载；若用户在这段时间点了页面别处，或 Profile 不可用的状态持续到几分钟后用户修好设置，输入框会在那时抢焦点。`DeskCompanion` 里“用户把焦点挪走就不抢”的判断是在调用那一刻做的，排队之后就不再有这个判断。这个路径还会影响所有调 `focusComposer` 的地方（填入文字、答完向导），不只是书房。
+- 如何核实：从代码推断；复现：`AgentConversationView.dom.test.ts` 的 focusComposer 用例里，`focusComposer()` 之后先把焦点放到别的元素，再 `setProps({ctx: context()})`，焦点会被抢回输入框。
+- 建议改法：把意图收窄：记下时同时记当时的会话 id，换会话就作废；可写时只在 `document.activeElement` 仍是 body 或原先聚焦的元素时才聚焦；或者设一个短的有效期。该用例要补“焦点挪走后不抢”的反例。
+
+### 5. 书房“打开后聚焦输入框”把 `document.body` 当作“用户没有挪走焦点”
+- 严重程度：建议
+- 类别：对照 Spec
+- 位置：`DeskCompanion.vue:130-138`
+- 现象：判定是 `active === null || active === document.body || active === buttonRef.value || panel.contains(active)`。用户在面板还在加载时点了页面上不可聚焦的空白处，焦点回到 body，这里仍视为“没挪走”并把焦点放进输入框。
+- 为什么是问题：Spec 输出 54 写“用户已把焦点挪走时不抢”。点击空白处是最常见的“我去看别的了”的动作，body 在这里恰恰是挪走的信号；而打开瞬间 Reka 把焦点放进面板，所以不需要把 body 算作可抢的（首次满足条件时，焦点要么在面板里要么在触发器上）。
+- 如何核实：从代码推断。去掉 `active === document.body` 后，e2e 的 `toBeFocused` 仍应通过（Reka 已把焦点放进面板），可作验证。
+- 建议改法：删掉 `active === document.body`，只保留面板里与触发器两种；加一条单测覆盖“焦点已被挪到页面别处时不聚焦”。
+
+### 6. 作者对“联系人消失时关面板”变异存活的解释不成立：Reka 卸载时不会发关闭，这条 watch 必须有，也确实被杀得死
+- 严重程度：建议（结论：代码对，解释错，已有测试够用）
+- 类别：核对作者说法
+- 位置：`DeskCompanion.vue:107-110`；`DeskCompanion.dom.test.ts:154-169`
+- 现象：作者说去掉这条 watch 变异存活，因为 Reka 卸载时自己会发关闭。我读 `reka-ui/dist/Dialog/DialogRoot.js`：受控时 `open` 是 `useVModel` 的计算属性，只有显式 `open.value = x` 才 emit `update:open`；`DialogContent*`、`FocusScope` 卸载路径里没有 `update:open`。我在 /tmp 复制 `DeskCompanion.vue` 去掉这条 watch、跑原测试：`联系人消失…` 一例在 `expect(borrowed()).toBe(0)` 处失败（收到 1），其余三例通过。也就是变异被杀死，杀它的是“交还借用”这条断言。
+- 为什么是问题：去掉 watch 后 `open` 一直为 true，`giveBack` 不会调（借用泄露，宿主永不放开订阅），联系人回来时面板自己弹开。作者的解释若被当作“可以不写这条 watch”的依据，会误导后人。
+- 如何核实：`/tmp/review-t15-desk-impl/exp/DeskMut.dom.test.ts` 与 `DeskCompanionMut.vue`（命令：在实现 worktree 的 packages/neuro-book 里 `bunx vitest run --config /tmp/review-t15-desk-impl/exp/vitest.exp.config.mts`）。
+- 建议改法：不改代码。验收说明里更正理由；若作者当时变异的是只去掉 `open.value = false` 而保留别处，那是另一回事，要重做。另外测试里 `expect(panel()).toBeNull()` 在变异下同样通过（SidePanel 被 `v-if` 卸掉），真正有效的是借用数断言，别删。
+
+### 7. SidePanel 的 Esc 判定无条件 `preventDefault`：焦点在页面别处时按 Esc，浏览器默认动作与后注册的 window 监听都被吃掉
+- 严重程度：建议
+- 类别：不变量（非模态浮层对页面的影响）
+- 位置：`packages/nb-ui/src/components/feedback/SidePanel.vue` 的 `onEscapeKeyDown`（第一句 `event.preventDefault()` 在所有分支之前）
+- 现象：这段是照 `dialog-close.ts` 的模态写法抄的。模态对话框拥有整个页面的 Esc，非模态面板不是：它的 `.md` 写“焦点在页面别处时 Esc 归那里”，但这个函数对这种 Esc 同样调用了 `preventDefault`。Reka 的 Esc 监听挂在 window 的冒泡阶段，此时事件已经过了目标元素，所以目标元素自己的监听不受影响；受影响的是浏览器对 Esc 的默认动作（例如 `type=search` 输入框按 Esc 清空、原生 `<select>` 关闭）与此后注册、又检查 `defaultPrevented` 的 window 监听。
+- 为什么是问题：违反自己合同里“归那里”的说法。这是 Reka 的限制：它用 `defaultPrevented` 判断要不要关，想不关只能 prevent。所以要么接受并写进 `.md`，要么换办法。
+- 如何核实：未验证（没开浏览器）；书架页有搜索框时可验：开着面板、焦点在搜索框里按 Esc，看有没有被清掉。
+- 建议改法：接受时在 `SidePanel.md` 的“状态与边界”里写明“Esc 在页面别处时也被 `preventDefault`（Reka 的限制）”；或者不用 Reka 的 Esc，面板自己在 `keydown` 里判定，Reka 一侧始终 `preventDefault`，别的情况不碰事件。
+
+### 8. 输入框聚焦三层修复的几处小偏差：`keep` 被改成 `end`、排队与直调的先后、方法清单手写
+- 严重程度：建议
+- 类别：正确性、代码质量
+- 位置：`packages/nb-markdown/src/prompt/PromptEditor.vue` `defineExpose.focus`；`packages/neuro-book/src/plugins/markdown/web/parts/forward-expose.ts`
+- 现象：（a）`focus("keep")` 在编辑器还没建好或正文还没挂进文档时，被改成按 `"end"` 记下（`at === "start" ? "start" : "end"`），之后 `focusAt("end")` 会把光标移到末尾；而 `keep` 的合同是不动光标（弹层关闭后把焦点还给编辑器用的）。现在能到这个分支的只有首次挂载前后，实际影响小，但与 `.md` 的“光标不动”不一致。（b）`exposeOf` 的排队用 `watch(inner, …)` 冲队列，Vue 的 `watch` 默认在下一次刷新之前才跑；`inner` 刚被赋值、`watch` 还没跑的这个空档里再调方法会直调目标，排在更早排队的调用前面（例如先 `focus`、再 `insertText`，顺序反过来）。当前调用点都只在首次挂载附近各调一次，没出过问题。（c）`PROMPT_EDITOR_METHODS = ["focus", "insertText", "insertFiles", "openTrigger"]` 是手写的字符串列表，与 nb-markdown 的 `PromptEditorExpose` 没有类型上的联系：以后加一个无返回值方法，包装层静默给 undefined，调用处在首次加载时抛 TypeError。
+- 如何核实：读代码；（b）可写单测：包装一挂上就 `focus()`，再在 `inner` 赋值后、冲队列前同步调 `insertText`。没有跑。
+- 建议改法：（a）`keep` 单独记，聚焦时只调 `view.focus()`；（b）排队的冲洗改成在赋值处同步做（`shallowRef` 的 setter 无法拦，可以把 `forwardExpose` 里的 `inner` 换成自己的 setter 函数），或者直调前先看队列非空就也入队；（c）`const PROMPT_EDITOR_METHODS = [...] as const satisfies readonly (keyof PromptEditorExpose)[]`，再加一个测试断言它覆盖了 `PromptEditorExpose` 的全部键。
+
+### 9. plugin.ts 里三个对话位置的注释与结构没跟上：旧注释仍写“两个位置”，`deskConversation` 重复了注册表与组件骨架
+- 严重程度：建议
+- 类别：代码质量
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts` 约 253、397、483、`deskConversation` 与 `conversationComponent`
+- 现象：（a）三处注释仍写两个位置：`inits` 上方“每个位置一份，右栏与编辑区页面同时开着时只在选了 Skill 的那个位置弹出”、`hostDeps` 上方“两个对话位置（右栏的消息视图、编辑区页面）共用的依赖”、`hostAt` 之后“两个位置的宿主随插件活着”。（b）`deskConversation` 里的 `registry` 计算属性 `createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", …}])` 与 `conversationComponent` 里一字不差，改一处会忘另一处；`hostAt` 里 desk 的 `recent` 替换发生在 `hostDeps("desk")` 已经建出 `recent` 闭包（含 `openRecent("desk")`）之后，闭包立刻被覆盖，读的人要停下来想为什么。（c）`hostDeps(position: string)`、`initAt(position: string)`、`openRecent(position: string)` 仍是 `string`，新加的 `ConversationPosition` 没有用上，传错位置名没有类型保护。
+- 为什么是问题：本仓库规定注释写为什么且要跟着代码改；三处旧注释会让人以为 desk 不在列表里，而 desk 的“不记最近”恰恰是个例外，需要被读到。
+- 如何核实：读代码。
+- 建议改法：注释改成“三个位置”并在 `hostAt` 的 desk 分支说明“最近的会话与恢复只在 view、page”；把 `registry` 抽成 `conversationParts` 返回的一个函数（`registryOf()`）；三个 `position: string` 改成 `ConversationPosition`；`hostDeps` 接收 `recent` 开关而不是先建再盖。
+
+### 10. 对照 t03 评审板第 7 轮的图：图里有、实现没有的项
+- 严重程度：建议（前一项是已确认的决定，后一项未能核对）
+- 类别：对照需求
+- 位置：`r7/entry-waiting.webp`、`r7/open-drawer.webp`
+- 现象：（a）等你处理的气泡在图里写“等你批准：读取《长夜行》的设定”（类别加粗、后接对象），实现写固定的“等你处理”。这是开发者 2026-11-20 的决定 6，属于有意不同，不算缺陷，但图与实现不再一致，评审板或 Task 记录里应注明已被取代。（b）`open-drawer.webp` 的面板头在标题“星璃”下有一行动态状态（“正在整理读者评论…”）、右列有子代理计数“2”、历史图标、关闭；实现里头的标题下一行是否有这行状态、子代理计数是否出现，我没有运行界面，没法核对（e2e 只断言了 `[data-header-title]` 与 `[data-header-close]`）。猫、角标、气泡的位置与尖角在图 `entry-unread.webp` 里一致（气泡在格子正下方、右对齐、尖角对准猫）。
+- 如何核实：`nbdev shot` 在书房里把面板打开截一张，与 `open-drawer.webp` 对照头部。
+- 建议改法：（a）在 Task 记录里写一句“图里的‘等你批准：…’被决定 6 取代”；（b）截图核对后再定。
+
+## 未发现问题的方面
+- 层级：`sidePanel: 55` < `popover: 60`，`z-index.test.ts` 的顺序断言已加；面板向内容提供 `popover` 档，用 `F_noPopoverProvide` 变异确认测试会失败。`.nb-ui-side-panel` 的入退场关键帧不与 `.nb-ui-popover-motion` 等规则冲突（SidePanel 的规则在样式表里靠后，且选择器不同）；所用的 `--motion-move`、`--ease-layout`、`--motion-fast`、`--ease-dialog-leave` 在 `tokens.css` 里都有定义；减少动画时 `--motion-fast: 0ms !important`。
+- `SidePanel` 的“点外面不关、焦点移出不关、Esc 只在焦点在面板里或触发器上时关、焦点回到触发器、`closed` 在卸载后发”：单测对这些都有变异杀伤（见第 2 项，`defaultPrevented` 一支除外）。
+- `session-host.ts` 的 `reattach`：只有 `borrow()` 里一处调用；`opened` 在仓库里的消费者只有 `contact-opener.ts` 的同步 watch，消息视图的行为不变；`session-host.test.ts` 改过的那条断言覆盖了“不加 `opened`、不写最近”。
+- 关面板时“作废在途的打开”：`opener.cancel()` 作废的是 `provider.open` 之后的步骤；已经在 `host.open` 途中的那一次不会被撤，但 `giveBack()` 登记的 30 秒放开会在它完成之后收尾，所以不会留下订阅（我先怀疑过，核对 `borrow()` 的放开逻辑后排除）。
+- `projects.desk` 的接收：恰好一条才采用、`want()` 之前不加载、加载期间撤回作废、加载失败与多条记诊断，单测对得上；`ShelfDesk` 的猫不重挂有 `element` 同一性断言；`NeuroBookMood` 的眼睛跟随用的是 window 的 `pointermove`，不会被盖在上面的按钮挡住。
+- 联系人消失时关面板：见第 6 项，代码正确。
+- Lab：`SidePanel` 名字以 Panel 结尾，`deriveDisplayMode` 已落在撑满；`DeskCompanion` 与 `ContactCover` 的场景已登记，含一个英文场景。
+- `MessagesHost` 把盖层抽成 `ContactCover` 后保留了原来的全部 `data-messages-*` 属性；对话外加了一层包裹以便 `inert`，这层改变了 flex 链，我没有跑消息视图的 e2e，需要在收口时跑一遍（未验证）。
+- 跨包深导入：没有新增；agent 插件对 `projects/shared/desk` 的导入与既有的对 `workbench/shared` 的导入同类。没有按错误文案分支；没有新增静默 `catch`。
+
+## 执行与未验证
+- 在实现 worktree（HEAD 已核对为 525a51ae9）跑过：`vitest` 的 DeskCompanion、ShelfDesk、markdown `plugin.dom.test.ts`（9 通过）；`bun test` 的 `desk.test.ts` 与 `session-host.test.ts`（101 通过）；nb-ui 的 `SidePanel.test.ts` 与 `z-index.test.ts`（9 通过）；`bun run typecheck`（packages/neuro-book，退出码 0）。
+- 没有跑 e2e 与开发服务；没有跑 `PromptEditor.dom.test.ts` 与 `AgentConversationView.dom.test.ts`；第 1、3、4、5、7、8 项里标“推断”或“未验证”的，需要 e2e 或浏览器实测。
+- 实验文件都在 `/tmp/review-t15-desk-impl/exp` 与 `exp2`，未改仓库。
+- 更正：第 1 项里“窗口不到约 1500px 时面板会盖住猫”是我按 1440 视口与 420px 面板估的，没有量；`DeskCompanion.md` 自己写“看板娘多半被面板盖住”。
+
+## 数量
+- 阻断：0
+- 重要：2（第 1、2 项）
+- 建议：8（第 3 至 10 项）
