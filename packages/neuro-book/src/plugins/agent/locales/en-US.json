@@ -286,7 +286,8 @@
             "title": "Agent activity",
             "both": "Agent: {{running}} running · {{waiting}} need you",
             "waiting": "Agent: {{waiting}} need you",
-            "running": "Agent: {{running}} running"
+            "running": "Agent: {{running}} running",
+            "unread": "New messages: {{count}}"
         },
         "listFailed": "Couldn't get the session list ({{code}}).",
         "welcomeTitle": "NeuroBook writing workspace",
@@ -438,14 +439,24 @@
         "continue": {
             "stopped": "This run already ended; the merged message wasn't sent. You can continue again.",
             "failed": "Couldn't continue ({{code}})."
+        },
+        "messages": {
+            "noModel": {
+                "title": "Add a model provider first",
+                "body": "Bots need a model to reply. Add a provider, then come back here to chat.",
+                "action": "Add provider"
+            },
+            "opening": "Opening the conversation…",
+            "openFailed": "Couldn't open the conversation with {{name}} ({{code}}).",
+            "retry": "Retry",
+            "pickBot": "Pick a bot to start chatting",
+            "contactsFailed": "Couldn't load contacts ({{code}}).",
+            "untitled": "Untitled conversation"
         }
     },
     "views": {
         "conversation": {
-            "title": "Conversation"
-        },
-        "sessions": {
-            "title": "Sessions"
+            "title": "Messages"
         }
     },
     "editorPages": {
@@ -477,6 +488,9 @@
     "state": {
         "active": {
             "reason": "No session is running or waiting for you"
+        },
+        "attention": {
+            "reason": "No running or waiting sessions and no new messages"
         }
     },
     "settingsPages": {

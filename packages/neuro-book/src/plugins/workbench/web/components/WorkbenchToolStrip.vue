@@ -2,10 +2,11 @@
 /**
  * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
-import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
+import {entryCountText, entryTitle} from "./entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 上段的一个入口：侧栏里的一个容器（docs/specs/ui/workbench-layout.md 输出 22、41）。 */
@@ -24,6 +25,8 @@ export interface ToolStripEntry {
     readonly current: boolean;
     /** 当前容器且侧栏可见；至多一项。 */
     readonly pressed: boolean;
+    /** 图标右上角的计数：容器里各视图 `badge()` 的合计（docs/specs/workbench/views.md 输出 17）；没有是 null 或不给。 */
+    readonly count?: number | null;
 }
 
 /** 没有图标可取的入口画它：和声明不在的视图的标签同一个。 */
@@ -116,7 +119,7 @@ const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
     const next = props.entries.filter((entry) => strip.value.shown.includes(entry.id));
     return previous !== undefined && sameItems(previous, next) ? previous : next;
 });
-const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entryTitle(entry.label, entry.count), id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
 /** 按下的底色是条目区里一个独立的块（输出 22），侧栏切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
 const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
@@ -154,7 +157,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                         <IconButton
                             size="lg"
                             :icon-class="entry.icon ?? PLACEHOLDER_ICON"
-                            :aria-label="entry.label"
+                            :aria-label="entryTitle(entry.label, entry.count)"
                             :aria-pressed="entry.pressed"
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-tool-entry="entry.id"
@@ -167,6 +170,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             @contextmenu="onEntryContextMenu(entry.id, $event)"
                         />
                     </Tooltip>
+                    <Badge v-if="entry.count != null" size="sm" tone="accent" class="workbench-tool-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">
@@ -247,8 +251,20 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 .workbench-tool-strip__frame {
-    display: flex;
+    /* 单格网格：角标与按钮叠在同一格。不用定位：外框成了定位祖先，按钮的 offsetTop 就改成相对外框，按下的块按它量的位置会错。 */
+    display: grid;
     flex: 0 0 auto;
+}
+
+.workbench-tool-strip__frame > * {
+    grid-area: 1 / 1;
+}
+
+/* 角标压在图标右上角，不挡点击（点它就是点入口）。 */
+.workbench-tool-strip__count {
+    align-self: start;
+    justify-self: end;
+    pointer-events: none;
 }
 
 .workbench-tool-strip__frame--moving {

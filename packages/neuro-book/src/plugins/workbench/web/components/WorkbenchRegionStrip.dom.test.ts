@@ -40,12 +40,14 @@ describe("WorkbenchRegionStrip", () => {
         expect(titles.find("[data-region-entry]").attributes("aria-label")).toBeUndefined();
     });
 
-    it("标题入口在标题后写计数，读屏名称同样带上；图标入口不写（views.md 输出 17）", () => {
-        const counted = [{...entry("view:notes", "通知", true), count: 2}, entry("view:tasks", "后台任务")];
+    it("计数（views.md 输出 17）：标题入口写在标题后，图标入口画在右上角；读屏名称都是“标题 数”，超过 99 写 99+", () => {
+        const counted = [{...entry("view:notes", "通知", true), count: 2}, entry("view:tasks", "后台任务"), {...entry("view:mail", "消息"), count: 120}];
         const titles = mount(WorkbenchRegionStrip, {props: {region: "panel", label: "视图容器", moreLabel: "更多", entries: counted, variant: "titles"}, attachTo: document.body});
-        expect(titles.findAll("[data-region-entry]").map((button) => button.text())).toEqual(["通知 2", "后台任务"]);
+        expect(titles.findAll("[data-region-entry]").map((button) => button.text())).toEqual(["通知 2", "后台任务", "消息 99+"]);
+        expect(titles.find("[data-tool-count]").exists()).toBe(false);
         const icons = mount(WorkbenchRegionStrip, {props: {region: "auxiliarybar", label: "视图容器", moreLabel: "更多", entries: counted, variant: "icons"}, attachTo: document.body});
-        expect(icons.get("[data-region-entry='view:notes']").attributes("aria-label")).toBe("通知");
+        expect(icons.findAll("[data-region-entry]").map((button) => button.attributes("aria-label"))).toEqual(["通知 2", "后台任务", "消息 99+"]);
+        expect(icons.findAll("[data-tool-count]").map((badge) => [badge.attributes("data-tool-count"), badge.text()])).toEqual([["view:notes", "2"], ["view:mail", "99+"]]);
     });
 
     it("点入口发 select；入口是拖动源，同活动栏：只含一个视图的写着它的视图，含几个视图的拖的是容器（输出 46）", async () => {

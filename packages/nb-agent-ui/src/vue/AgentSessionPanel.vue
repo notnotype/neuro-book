@@ -6,7 +6,7 @@ let panelCount = 0;
 <script setup lang="ts">
 /**
  * 会话面板（docs/specs/agent/conversation.md 输出 2、3）：同一个组件放在点标题弹出的下拉和左栏视图里。纯受控：搜索、范围、过滤都发给宿主，
- * 宿主把筛好的行给回来。今天、昨天、更早按 `now` 分组：宿主要定期更新它，否则过了午夜分组不会变。
+ * 宿主把筛好的行给回来，按最近活动排、不按日分组（t03 决定 12）；时间列按 `now` 写，宿主要定期更新它。
  */
 import {computed, ref, watch} from "vue";
 import {Badge, DropdownMenu, IconButton, Input} from "@notnotype/nb-ui/components";
@@ -61,27 +61,8 @@ const emit = defineEmits<{
 
 const {t, locale} = provideAgentText(() => props.locale);
 
-const DAY = 86_400_000;
-function startOfDay(timestamp: number): number {
-    const date = new Date(timestamp);
-    date.setHours(0, 0, 0, 0);
-    return date.getTime();
-}
-
-/** 子会话跟父会话在同一个日期组：按顶层的会话分组（宿主让父会话的时间取自身与后代中最新的）。 */
-const groups = computed(() => {
-    const today = startOfDay(props.now);
-    const buckets: {key: "today" | "yesterday" | "earlier"; label: string; rows: SessionNode[]}[] = [
-        {key: "today", label: t("panel.today"), rows: []},
-        {key: "yesterday", label: t("panel.yesterday"), rows: []},
-        {key: "earlier", label: t("panel.earlier"), rows: []},
-    ];
-    for (const node of nestSessions(props.items)) {
-        const bucket = node.item.updatedAt >= today ? 0 : node.item.updatedAt >= today - DAY ? 1 : 2;
-        buckets[bucket]!.rows.push(node);
-    }
-    return buckets.filter((bucket) => bucket.rows.length > 0);
-});
+/** 子会话挂在父会话下（宿主让父会话的时间取自身与后代中最新的，所以跟着最新的子代理排到前面）。 */
+const rows = computed(() => nestSessions(props.items));
 
 // ─── 子会话的展开 ───────────────────────────────────────────────────────
 
@@ -188,9 +169,7 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
         <div class="acv-panel__list">
             <p v-if="props.error !== null" class="acv-panel__empty" role="alert">{{ props.error }}</p>
             <p v-if="props.error === null && props.items.length === 0" class="acv-panel__empty">{{ props.loading ? t("panel.loading") : t("panel.empty") }}</p>
-            <template v-for="group in groups" :key="group.key">
-                <div class="acv-panel__group">{{ group.label }}</div>
-                <template v-for="{item, children} in group.rows" :key="item.id">
+            <template v-for="{item, children} in rows" :key="item.id">
                 <div class="acv-panel__row" :class="{'is-current': item.id === props.selectedId, 'is-archived': item.archived === true, 'is-dimmed': item.dimmed === true, 'has-children': children.length > 0}">
                     <button type="button" class="acv-panel__open" :aria-current="item.id === props.selectedId ? 'true' : undefined" data-panel-row @click="emit('action', {type: 'session.select', sessionId: item.id})">
                         <span :class="[item.icon ?? 'i-lucide-bot', 'acv-panel__icon']" :title="item.iconTitle" aria-hidden="true" />
@@ -238,7 +217,6 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                     @select="emit('action', {type: 'session.select', sessionId: $event})"
                     @toggle="toggle"
                 />
-                </template>
             </template>
         </div>
     </div>
@@ -328,11 +306,6 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     text-align: center;
 }
 
-.acv-panel__group {
-    padding: 6px 8px 2px;
-    color: var(--text-muted);
-    font-size: var(--text-2xs);
-}
 
 .acv-panel__row {
     position: relative;

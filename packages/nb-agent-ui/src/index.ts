@@ -8,7 +8,7 @@
 // 公开类型逐个列出：新增类型默认是包内的，要给宿主用时在这里加一行。
 export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
-    AgentSessionListItem, AgentSessionListState, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
+    AgentSessionListItem, AgentSessionListState, MessagesContact, MessagesContactSection, MessagesRecentSession, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
     SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, SessionTreeView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
     InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputCommon, PendingInputView, PendingQuestionsView,
     PendingModeSwitchView,

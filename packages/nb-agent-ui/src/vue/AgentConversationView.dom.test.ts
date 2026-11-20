@@ -70,11 +70,10 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; promptBareness?: (texts: readonly string[]) => boolean; port?: TextPort; viewMode?: "turns" | "raw"; pendingPlacement?: "wizard" | "dock"} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; promptBareness?: (texts: readonly string[]) => boolean; port?: TextPort; viewMode?: "turns" | "raw"} = {}) {
     return mount(AgentConversationView, {
         ...(options.port === undefined ? {} : {global: {provide: {[TEXT_PORT_KEY as symbol]: options.port}}}),
         props: {
-            ...(options.pendingPlacement === undefined ? {} : {pendingPlacement: options.pendingPlacement}),
             ...(options.header === undefined ? {} : {header: options.header}),
             ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
             ...(options.viewMode === undefined ? {} : {viewMode: options.viewMode}),
@@ -746,9 +745,12 @@ describe("宿主每秒换 now", () => {
         view.unmount();
     });
 
-    it("pendingPlacement 为 dock：阻塞的提问与审批也进停靠区，输入框不隐藏、照常可用；不传时照旧进向导", async () => {
+    /** bot 档的会话：档位由 `ctx.interaction.placement` 给。 */
+    const dockCtx = (pendingInputs: AgentConversationContext["pendingInputs"], session = context().session): AgentConversationContext => ({...context(), session, interaction: {...context().interaction, placement: "dock", canCreate: false}, pendingInputs});
+
+    it("placement 为 dock：阻塞的提问与审批也进停靠区，输入框不隐藏、照常可用；不给时照旧进向导", async () => {
         const blocking = {kind: "question" as const, id: "q1", toolCallId: "c-q1", questions: [{question: "视角？", options: [{label: "第一人称"}, {label: "第三人称"}]}]};
-        const docked = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [blocking]}, pendingPlacement: "dock"});
+        const docked = mountView("zh-CN", {}, {ctx: dockCtx([blocking])});
         expect(docked.get("[data-agent-dock]").text()).toContain("视角？");
         expect(docked.find("[data-agent-wizard]").exists()).toBe(false);
         expect(docked.get(".acv-composer").isVisible()).toBe(true);
@@ -759,11 +761,10 @@ describe("宿主每秒换 now", () => {
         wizard.unmount();
     });
 
-    it("pendingPlacement 为 dock：“本会话都批准”一并提交同一会话里同一记住范围的其余审批，别的工具、别的会话的不动", async () => {
+    it("placement 为 dock：“本会话都批准”一并提交同一会话里同一记住范围的其余审批，别的工具、别的会话的不动", async () => {
         const approval = (id: string, tool: string, source?: {sessionId: string; name: string; icon: string}) => ({kind: "approval" as const, id, toolCallId: `c-${id}`, tool, args: {}, preview: {state: "ready" as const, files: []}, ...(source === undefined ? {} : {source})});
         const child = {sessionId: "child-1", name: "核对员", icon: "i-lucide-bot"};
-        const ctx = {...context(), pendingInputs: [approval("a1", "write"), approval("a2", "shell"), approval("a3", "write"), approval("a4", "write", child)]};
-        const view = mountView("zh-CN", {}, {ctx, pendingPlacement: "dock"});
+        const view = mountView("zh-CN", {}, {ctx: dockCtx([approval("a1", "write"), approval("a2", "shell"), approval("a3", "write"), approval("a4", "write", child)])});
         await view.get("[data-approval-decision='allow-session']").trigger("click");
         const submitted = (view.emitted("action") ?? []).map(([action]) => action as AgentViewAction).filter((action) => action.type === "input.submit");
         expect(submitted.map((action) => action.type === "input.submit" ? [action.batchKey, action.resolutions, action.sessionId ?? null] : null)).toEqual([
@@ -773,19 +774,29 @@ describe("宿主每秒换 now", () => {
         view.unmount();
     });
 
-    it("pendingPlacement 为 dock：答完一个，焦点到停靠区的容器（不落到按钮上）；都答完回到输入框", async () => {
+    it("placement 为 dock：答完一个，焦点到停靠区的容器（不落到按钮上）；都答完回到输入框；换了会话不算答完", async () => {
         const question = (id: string, text: string) => ({kind: "question" as const, id, toolCallId: `c-${id}`, questions: [{question: text, options: [{label: "是"}, {label: "否"}]}]});
-        const view = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [question("q1", "第一问"), question("q2", "第二问")]}, pendingPlacement: "dock"});
+        const view = mountView("zh-CN", {}, {ctx: dockCtx([question("q1", "第一问"), question("q2", "第二问")])});
         view.get<HTMLElement>("[data-agent-dock] button:not(:disabled)").element.focus();
         expect(view.get("[data-agent-dock]").element.contains(document.activeElement)).toBe(true);
-        await view.setProps({ctx: {...context(), pendingInputs: [question("q2", "第二问")]}});
+        await view.setProps({ctx: dockCtx([question("q2", "第二问")])});
         await flushPromises();
         expect(document.activeElement).toBe(view.get("[data-agent-dock]").element);
-        await view.setProps({ctx: {...context(), pendingInputs: []}});
+        await view.setProps({ctx: dockCtx([])});
         await flushPromises();
         expect(view.get(".acv-composer").element.contains(document.activeElement)).toBe(true);
+        // 换到另一个 bot 档的会话：前一个会话的事项不在了，不是答完，焦点不动。
+        await view.setProps({ctx: dockCtx([question("q3", "第三问")])});
+        view.get<HTMLElement>("[data-agent-dock] button:not(:disabled)").element.focus();
+        const focused = document.activeElement;
+        await view.setProps({ctx: dockCtx([question("q4", "第四问")], {...context().session!, id: "other-session"})});
+        await flushPromises();
+        // 焦点没被挪到停靠区的容器上：还在原来那个按钮上，或随按钮卸载落回页面。
+        expect(document.activeElement).not.toBe(view.get("[data-agent-dock]").element);
+        expect(document.activeElement === focused || document.activeElement === document.body).toBe(true);
         view.unmount();
     });
+
 
     it("会话给了头像：顶栏画头像图片，不画 Profile 图标；头像读不出来时换回图标；不给时照旧画图标", async () => {
         const withAvatar = mountHeadView({ctx: {...context(), session: {...context().session!, title: "星璃", avatar: "/api/nbook.bots/avatar/lyra"}}});
@@ -891,7 +902,7 @@ describe("第一屏（Spec“消息”的空状态）", () => {
     const empty = (): AgentConversationContext => ({...context(), session: null, messages: []});
 
     /** 像宿主那样处理输入框的动作：`composer.fill` 换草稿、加版本，视图跟着换编辑器里的文字。 */
-    function mountWelcome(welcome: AgentWelcomeView | null, ctx = empty()) {
+    function mountWelcome(welcome: AgentWelcomeView | null, ctx = empty(), extra: {readonly newSession?: boolean} = {}) {
         const current = shallowRef<AgentConversationContext>(ctx);
         const actions: AgentViewAction[] = [];
         const Host = defineComponent({
@@ -901,6 +912,7 @@ describe("第一屏（Spec“消息”的空状态）", () => {
                 locale: "zh-CN",
                 services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []})},
                 welcome,
+                ...extra,
                 onAction: (action: AgentViewAction) => {
                     actions.push(action);
                     const composer = applyComposerAction(current.value.composer, action);
@@ -911,6 +923,17 @@ describe("第一屏（Spec“消息”的空状态）", () => {
         const wrapper = mount(Host, {attachTo: document.body});
         return {wrapper, actions};
     }
+
+    it("canCreate 为 false（bot 的主对话）：给了 welcome 也不画第一屏，头上不画新建；为 true 时照画", () => {
+        const bot = mountWelcome(WELCOME, {...empty(), session: context().session, interaction: {...context().interaction, canCreate: false}}, {newSession: true});
+        expect(bot.wrapper.find("[data-agent-welcome]").exists()).toBe(false);
+        expect(bot.wrapper.find("[data-header-new]").exists()).toBe(false);
+        bot.wrapper.unmount();
+        const plain = mountWelcome(WELCOME, {...empty(), session: context().session}, {newSession: true});
+        expect(plain.wrapper.find("[data-agent-welcome]").exists()).toBe(true);
+        expect(plain.wrapper.find("[data-header-new]").exists()).toBe(true);
+        plain.wrapper.unmount();
+    });
 
     it("三块各只显示前 3 条；标题由宿主给，空标题写未命名会话；没有最近对话与指令时两块都不画；没给 welcome 时写还没有消息", async () => {
         const {wrapper} = mountWelcome(WELCOME);

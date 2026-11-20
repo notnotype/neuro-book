@@ -39,6 +39,10 @@ const props = defineProps<{
     head?: ViewHead | null;
     /** 状态栏的设置与它的两个动作（conversation.md 输出 45）：勾选改设置、“状态栏设置…”打开设置分区。 */
     statusLine: {readonly setting: StatusLineSetting; toggle(id: string): void; openSettings(): void};
+    /**
+     * 按面板头的标题做什么：不给时开头里的会话列表下拉（编辑区页面）；消息视图给开抽屉，列表在消息视图里，没有下拉，`titlePopup` 也由它写。
+     */
+    titleAction?: (() => void) | null;
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -59,8 +63,9 @@ const headTargets = computed(() => {
 });
 /** 会话列表开着没有：本地持有，按面板头的标题切换、写回标题按钮的 `aria-expanded`；头回到内容里时照旧开着。 */
 const sessionsOpen = ref(false);
+const ownList = computed(() => props.titleAction === undefined || props.titleAction === null);
 watch(sessionsOpen, (open) => {
-    if (props.head) props.head.titlePopup.value = {expanded: open};
+    if (props.head && ownList.value) props.head.titlePopup.value = {expanded: open};
 }, {immediate: true});
 
 let giveBack: (() => void) | null = null;
@@ -69,13 +74,14 @@ onMounted(() => {
     giveBack = props.host.borrow();
     void props.host.restore();
     stopTitlePress = props.head?.onTitlePress(() => {
-        sessionsOpen.value = !sessionsOpen.value;
+        if (props.titleAction) props.titleAction();
+        else sessionsOpen.value = !sessionsOpen.value;
     }) ?? null;
 });
 onBeforeUnmount(() => {
     giveBack?.();
     stopTitlePress?.();
-    if (props.head) props.head.titlePopup.value = null;
+    if (props.head && ownList.value) props.head.titlePopup.value = null;
 });
 
 // 第一屏出现时（切到没有消息的会话、新建、没选会话）重取最近对话：别处新建、改名、归档过，这里不知道（conversation.md 输出 41）。
@@ -123,7 +129,7 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         @update:sessions-open="(open: boolean) => (sessionsOpen = open)"
         @action="onAction"
     >
-        <template #sessions="{close}">
+        <template v-if="ownList" #sessions="{close}">
             <SessionPanelHost :store="props.list" :host="props.host" :pick-profile="props.pickProfile" :labels="props.labels" @opened="close()" />
         </template>
         <template #head-trailing>

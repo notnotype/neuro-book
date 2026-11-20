@@ -16,9 +16,9 @@ const items: AgentSessionListItem[] = [
 const panel = (props: Partial<InstanceType<typeof AgentSessionPanel>["$props"]> = {}) => mount(AgentSessionPanel, {props: {items, selectedId: "a", now, locale: "zh-CN", ...props}});
 
 describe("AgentSessionPanel", () => {
-    it("按今天、昨天、更早分组；图标写 Profile 名字；状态写明；未命名有占位", () => {
+    it("按最近活动排、不按日分组（没有分组标题）；图标写 Profile 名字；状态写明；未命名有占位", () => {
         const view = panel();
-        expect(view.findAll(".acv-panel__group").map((node) => node.text())).toEqual(["今天", "昨天", "更早"]);
+        expect(view.find(".acv-panel__group").exists()).toBe(false);
         expect(view.findAll(".acv-panel__state").map((node) => node.text())).toEqual(["运行中", "等你处理", "已中断"]);
         expect(view.get(".acv-panel__icon").attributes("title")).toBe("写作助手");
         expect(view.findAll(".acv-panel__title").map((node) => node.text())).toContain("未命名会话");
@@ -63,9 +63,8 @@ describe("AgentSessionPanel", () => {
             {id: "q1", title: "苏晴", updatedAt: at(20), status: "waiting", parentId: "q"},
         ];
 
-        it("挂在父会话下、跟父会话同一个日期组；开关写个数、是打开按钮的兄弟；父会话不在条目里的不列出", async () => {
+        it("挂在父会话下；开关写个数、是打开按钮的兄弟；父会话不在条目里的不列出", async () => {
             const view = panel({items: tree, selectedId: null, expanded: {}});
-            expect(view.findAll(".acv-panel__group").map((node) => node.text())).toEqual(["今天"]);
             expect(view.text()).not.toContain("没有父会话的");
             const toggle = view.get("[data-panel-children]");
             expect(toggle.text()).toContain("2 个子代理");

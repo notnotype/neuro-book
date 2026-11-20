@@ -1,6 +1,6 @@
 /**
  * 视图容器在真实 Chrome 中的验收（docs/specs/ui/workbench-layout.md 输出 22、41、42、43、45，验收 24、25、26、28、29、30、32）：切换容器、
- * 区域拖到零之后点入口、拖到活动栏（新建容器、并入）、当前容器拖空、拖动中容器被命令切走、有容器之前存的记录回落。生产构建的后端与前端；侧栏除了内置容器“项目”（会话、资源管理器两个分节），再用测试插件
+ * 区域拖到零之后点入口、拖到活动栏（新建容器、并入）、当前容器拖空、拖动中容器被命令切走、有容器之前存的记录回落。生产构建的后端与前端；侧栏除了内置容器“项目”（资源管理器与测试插件 `test.project-view` 的视图两个分节），再用测试插件
  * `test.sample-views` 的样例视图当别的容器（它们没写容器，各是自己的隐式容器）。等页面上可观察的变化，不按时长等待。
  *
  * 不在这里的：
@@ -23,16 +23,18 @@ import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
+import {PROJECT_TEST_VIEW} from "nbook/shared/testing/project-view-contract";
 import {SAMPLE_VIEWS_RUN_EVENT} from "nbook/shared/testing/sample-views-contract";
 
-import {startProbeServer, startProductServer} from "./fixtures";
+import {startProbeServer} from "./fixtures";
 import {pressEntry} from "./support/press-entry";
 import type {ProbeServer, ProductServer} from "./fixtures";
 
-const SESSIONS = "nbook.agent.sessions";
+/** “项目”容器里资源管理器之外的第二个视图（测试插件 `test.project-view`，声明同以前的会话面板）。 */
+const SESSIONS = PROJECT_TEST_VIEW;
 const EXPLORER = "nbook.explorer";
 const CONVERSATION = "nbook.agent.conversation";
-/** 内置容器“项目”：会话与资源管理器声明在它里面。 */
+/** 内置容器“项目”：资源管理器与测试视图声明在它里面。 */
 const PROJECT_CONTAINER = "nbook.workbench.project";
 const A = "test.sample-views.alpha";
 const B = "test.sample-views.beta";
@@ -103,7 +105,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await mkdir(join(tmp, "state"), {recursive: true});
         // 样例插件自己贡献编辑区的内容，和产品的编辑器只能留一个；这里不看编辑器。canon 与依赖它的剧情插件带着侧栏“设定”与
         // 底部面板的视图，会改变这里按样例插件假定的容器（同 workbench-views 的做法）。
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor,nbook.canon,nbook.plot"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views,test.project-view", NBOOK_EXCLUDE_PLUGINS: "nbook.editor,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {
@@ -342,7 +344,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
 
     test("底部面板的入口条：入口写容器的标题，第一个入口的文字和分节头的标题文字离卡片左缘一样（ui/workbench-layout 输出 47）", async ({page}) => {
         await open(page);
-        // 资源管理器移进底部面板的新容器，会话再移进它那个容器：底部面板这个容器左右两节，入口条只有入口，两节各自画头写标题。
+        // 资源管理器移进底部面板的新容器，测试视图再移进它那个容器：底部面板这个容器左右两节，入口条只有入口，两节各自画头写标题。
         await moveViaMenu(page, EXPLORER, "新容器（底部面板）");
         await moveViaMenu(page, SESSIONS, "资源管理器");
         const strip = page.locator('[data-region-strip="panel"]');
@@ -376,7 +378,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
 
     test("右栏当前容器有几节：入口条只有入口，各节在自己的叶里画头、能收起；全部收起时入口条在上，最后一节垫底到卡片的底，这一列的分隔线拖不动（ui/workbench-layout 输出 11、47）", async ({page}) => {
         await open(page);
-        // 资源管理器移进右栏的新容器，会话再移进它那个容器：右栏这个容器两节（都不接管标题区，标题按钮就是开关）。
+        // 资源管理器移进右栏的新容器，测试视图再移进它那个容器：右栏这个容器两节（都不接管标题区，标题按钮就是开关）。
         await moveViaMenu(page, EXPLORER, "新容器（右栏）");
         await moveViaMenu(page, SESSIONS, "资源管理器");
         const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
@@ -1169,7 +1171,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
     test("底部面板切换容器：从几节的容器切到一节的，头在点的那一刻并进入口条、离开的几节带着自己的头滑出去；切回来时入口条那一段空出来、新的头随内容滑进来，离开的那一节没有头；下划线和内容同时走，卡片外不画（ui/workbench-layout 输出 42、47）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
-        // 资源管理器移进底部面板的新容器，会话再移进它那个容器：底部面板的当前容器左右两节，入口条里没有并进来的头。
+        // 资源管理器移进底部面板的新容器，测试视图再移进它那个容器：底部面板的当前容器左右两节，入口条里没有并进来的头。
         await moveViaMenu(page, EXPLORER, "新容器（底部面板）");
         await moveViaMenu(page, SESSIONS, "资源管理器");
         const strip = page.locator('[data-region-strip="panel"]');
@@ -1579,7 +1581,7 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
     test.beforeAll(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-containers-drag");
         await mkdir(join(tmp, "state"), {recursive: true});
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor,nbook.canon,nbook.plot"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views,test.project-view", NBOOK_EXCLUDE_PLUGINS: "nbook.editor,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {
@@ -2000,7 +2002,7 @@ test.describe("有容器之前存的记录（验收 30）", () => {
         for (const [path, text] of Object.entries(files)) await writeFile(join(projectDir, path), text);
         await mkdir(join(stateRoot, "user"), {recursive: true});
         await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
-        server = await startProductServer(stateRoot);
+        server = await startProbeServer(stateRoot, {env: {NBOOK_TEST_PLUGINS: "test.project-view"}});
     });
 
     test.afterAll(async () => {

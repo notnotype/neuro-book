@@ -5,11 +5,12 @@
  * 入口是拖动源（`data-tool-entry`，同活动栏），拖放由宿主的拖动会话接管，这里只画占位与并入的高亮。
  */
 import type {PanelName} from "@notnotype/nb-workbench-layout";
-import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import "./panel-metrics.css";
+import {entryCountText, entryTitle} from "./entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 一个入口：区域里的一个容器（输出 41、47）。 */
@@ -28,7 +29,7 @@ export interface RegionStripEntry {
     readonly current: boolean;
     /** 当前容器且区域可见；至多一项。 */
     readonly pressed: boolean;
-    /** 标题入口在标题后写的计数（只含一个视图的容器，同那个视图的标签，docs/specs/workbench/views.md 输出 17）；没有是 null 或不给。图标入口不写。 */
+    /** 计数（docs/specs/workbench/views.md 输出 17）：标题入口写在标题后（只含一个视图的容器，同那个视图的标签）；图标入口画在右上角（容器的合计）。没有是 null 或不给。 */
     readonly count?: number | null;
 }
 
@@ -72,7 +73,7 @@ const emit = defineEmits<{
 }>();
 
 /** 标题入口写的字：标题，有计数时后面接计数（“通知 2”），读屏名称同样带上。 */
-const titleOf = (entry: RegionStripEntry): string => (entry.count == null ? entry.label : `${entry.label} ${String(entry.count)}`);
+const titleOf = (entry: RegionStripEntry): string => entryTitle(entry.label, entry.count);
 
 /** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在入口下面。 */
 function onEntryContextMenu(id: string, event: MouseEvent): void {
@@ -132,7 +133,7 @@ const strip = computed(() => {
     return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(floor, room - props.headMinWidth), ICON_ENTRY_PX, entryGap.value);
 });
 const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
-const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: titleOf(entry), id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
 /** 按下态（右栏的底色、底部面板的下划线）是入口这一组里一个独立的块，区域切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
 const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
@@ -171,7 +172,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             type="button"
                             class="workbench-region-strip__entry nb-ui-focus-ring-inset"
                             :class="{'workbench-region-strip__entry--merge': entry.id === highlighted}"
-                            :aria-label="variant === 'icons' ? entry.label : undefined"
+                            :aria-label="variant === 'icons' ? titleOf(entry) : undefined"
                             :aria-pressed="entry.pressed"
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-region-entry="entry.id"
@@ -187,6 +188,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             <span v-else class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
                         </button>
                     </Tooltip>
+                    <Badge v-if="variant === 'icons' && entry.count != null" size="sm" tone="accent" class="workbench-region-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="bottom" align="start" @select="(id: string) => emit('select', id)">
@@ -276,8 +278,21 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 .workbench-region-strip__frame {
-    display: flex;
+    /* 单格网格：角标与按钮叠在同一格。不用定位：外框成了定位祖先，按钮的 offsetLeft 就改成相对外框，按下的块按它量的位置会错。 */
+    display: grid;
     flex: 0 0 auto;
+}
+
+.workbench-region-strip__frame > * {
+    grid-area: 1 / 1;
+}
+
+/* 图标入口的角标压在右上角，不挡点击。入口只有 24px，角标往外探出半个身位。 */
+.workbench-region-strip__count {
+    align-self: start;
+    justify-self: end;
+    margin: -4px -6px 0 0;
+    pointer-events: none;
 }
 
 .workbench-region-strip__frame--moving {

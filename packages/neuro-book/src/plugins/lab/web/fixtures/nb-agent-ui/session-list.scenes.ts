@@ -52,7 +52,7 @@ const panelBase = {items: PANEL_ITEMS, selectedId: "1", now, locale: "zh-CN" as 
 const panelModel = {scope: {value: "project" as const}};
 
 export const agentSessionPanelScenes: PanelScene[] = [
-    {id: "list", label: "分组、图标、状态、已归档", input: {props: panelBase, model: panelModel}},
+    {id: "list", label: "按最近活动排、图标、状态、已归档", input: {props: panelBase, model: panelModel}},
     {id: "filtered", label: "选了过滤条件：过滤按钮上是条数", input: {props: {...panelBase, profiles: [{...PROFILES[0]!, active: true}, PROFILES[1]!]}, model: {...panelModel, showArchived: true}}},
     {id: "no-project", label: "没有打开作品：没有范围按钮", input: {props: panelBase, model: {scope: null}}},
     {id: "empty", label: "没有会话", input: {props: {...panelBase, items: []}, model: panelModel}},

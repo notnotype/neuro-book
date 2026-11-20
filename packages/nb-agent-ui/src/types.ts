@@ -244,6 +244,13 @@ export type InteractionView = {
     triggers?: readonly string[];
     /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
     commands?: readonly string[];
+    /**
+     * 阻塞的待处理事项放在哪（同名 .md 的“用法档”）：缺省 `wizard`（替换输入框）；`dock` 时也进停靠区，输入框不隐藏（bot 的主对话）。
+     * 按会话给：同一个视图里切到别的会话时跟着变。
+     */
+    placement?: "wizard" | "dock";
+    /** 能不能从这里新建会话，缺省 true。为 false 时头上不画新建，没有消息时也不画第一屏（bot 的主对话：第一屏的“最近对话”会把聊天换成别的会话）。 */
+    canCreate?: boolean;
 };
 
 export type RunStatus = "idle" | "running" | "waiting" | "stopping";
@@ -726,3 +733,30 @@ export type AgentSessionListState = "ready" | "loading" | "error";
 
 /** 会话面板过滤菜单的一项（Profile）。 */
 export type SessionPanelFilter = {id: string; label: string; icon?: string; active: boolean};
+
+/** “消息”视图 bot 一页的一个联系人（AgentMessagesList.md）。 */
+export type MessagesContact = {
+    /** 在所有段里唯一（宿主拼贡献方与 id）。 */
+    readonly key: string;
+    readonly name: string;
+    readonly avatar?: string;
+    /** 未读数；还没数完为 null，不写。 */
+    readonly unread: number | null;
+    /** 第二行：在跑、等你处理，或平时（写最后一句话）。 */
+    readonly activity: "idle" | "running" | "waiting";
+    readonly last: {readonly text: string; readonly at: number} | null;
+};
+
+/** 一个贡献方的联系人：读到没有与读到的联系人。 */
+export type MessagesContactSection = {
+    readonly key: string;
+    readonly state: {readonly kind: "loading"} | {readonly kind: "ready"} | {readonly kind: "failed"; readonly message: string};
+    readonly contacts: readonly MessagesContact[];
+};
+
+/** 窄版头像列里的一个最近会话。 */
+export type MessagesRecentSession = {
+    readonly id: string;
+    readonly title: string;
+    readonly icon: string;
+};

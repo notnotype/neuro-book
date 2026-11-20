@@ -62,7 +62,7 @@ describe("bot 服务的启动先后", () => {
             },
         } as unknown as MainConversations;
         const root = join(tmp, "user-bots");
-        const unread = {item: () => ({unread: null, latestSeq: 0, seenSeq: 0})} as unknown as UnreadTracker;
+        const unread = {item: () => ({unread: null, latestSeq: 0, seenSeq: 0, last: null})} as unknown as UnreadTracker;
         const service = new BotService({store, root, presets, main, unread, clock: {now: () => 7, schedule: () => () => undefined}, signal: new AbortController().signal, report: () => undefined});
         const pushed: string[][] = [];
         service.onChanged(() => pushed.push(service.list().map((bot) => bot.id)));
@@ -81,7 +81,7 @@ describe("bot 服务的启动先后", () => {
 
         open();
         expect(await early).toEqual({ok: true, sessionId: "bot-lyra"});
-        expect(service.list()).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}, unread: null, latestSeq: 0, seenSeq: 0}]);
+        expect(service.list()).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}, unread: null, latestSeq: 0, seenSeq: 0, last: null}]);
         expect(pushed.at(-1)).toEqual(["lyra"]);
         expect(saved).toEqual([{id: "lyra", name: "星璃", preset: DEFAULT_PRESET, profile: "nbook.bots.companion", createdAt: 7}]);
         expect((await readdir(join(root, "lyra"))).sort()).toEqual([".created.json", "avatar.webp", "persona.md"]);

@@ -408,6 +408,11 @@ export interface ViewHead {
     onTitlePress(listener: () => void): () => void;
     /** 标题按钮弹出的东西开着没有；null 是不弹出东西。视图写，工作台写到按钮的 `aria-haspopup`、`aria-expanded`。 */
     readonly titlePopup: Ref<{readonly expanded: boolean} | null>;
+    /**
+     * 视图此刻要不要接管标题区，缺省 true。视图写 false 时面板头按普通画法（标题、计数、点标题照常折叠），`slots` 交回 null，视图在自己的内容里
+     * 画头；写回 true 又接管。给按自己的宽窄换版式的视图用（消息视图宽版时头画在聊天区上方）。要在 `setup` 里同步写初值，免得首帧接管、再翻回去。
+     */
+    readonly claim: Ref<boolean>;
 }
 
 /** 以上下文为键：视图手里只有 `context`，不另开一条注入通道。 */

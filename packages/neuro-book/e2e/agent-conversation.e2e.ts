@@ -92,20 +92,57 @@ const CONVERSATION_VIEW = "nbook.agent.conversation";
 const conversationHandle = (page: Page) => page.locator(`[data-panel-tab="view:${CONVERSATION_VIEW}"]`);
 const panelHeadOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
 
-test("对话写在面板头上（conversation.md 输出 44）：头的三列在面板头里；按标题开会话列表，Esc 关掉回到标题；浮动窗里成了标签条时头回到内容里，对话不重建；回到只有一个标签时头又回到面板头", async ({page}) => {
+test("宽版（conversation.md 输出 1–3、44）：右栏拖到 600 像素以上是两栏，列表栏常驻、对话的头画在聊天区上方、面板头写“消息”；会话一页点一行在同一个视图打开；收起列表栏后左边换成头像列", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await openConversation(page);
+    await newSession(page);
+    const root = page.locator("[data-messages-layout]");
+    await expect(root).toHaveAttribute("data-messages-layout", "narrow");
+    // 右栏左边那条竖分隔线：往左拖，右栏变宽。
+    const view = (await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).boundingBox())!;
+    const sash = await page.locator("[data-workbench-surface] .nb-grid-sash").evaluateAll((elements, left) => elements.map((element) => element.getBoundingClientRect()).find((rect) => rect.height > rect.width && Math.abs(rect.right - left) < 24) ?? null, view.x);
+    expect(sash).not.toBeNull();
+    const x = sash!.x + sash!.width / 2;
+    const y = sash!.y + sash!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - (720 - view.width), y, {steps: 8});
+    await page.mouse.up();
+    await expect(root).toHaveAttribute("data-messages-layout", "wide");
+    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
+    await expect(page.locator("[data-messages-strip]")).toBeHidden();
+    // 头回到聊天区上方，面板头照常写视图标题。
+    await expect(page.locator("[data-agent-head]")).toBeVisible();
+    await expect(conversationHandle(page)).toHaveText("消息");
+    // 会话一页点一行：聊天区换成那个会话，还是这一个视图。
+    await page.locator("[data-messages-tab='sessions']").click();
+    const rows = page.locator("[data-messages-list-panel] [data-panel-row]");
+    await expect(rows.first()).toBeVisible();
+    await rows.first().click();
+    await expect(page.locator("[data-messages-chat] [data-agent-head]")).toBeVisible();
+    // 收起列表栏：左边换成头像列，按它的按钮展开。
+    await page.locator("[data-messages-collapse]").click();
+    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
+    await expect(page.locator("[data-messages-strip]")).toBeVisible();
+    await page.locator("[data-messages-toggle]").click();
+    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
+});
+
+test("对话写在面板头上（conversation.md 输出 44）：窄版时头的三列在面板头里；按标题开列表抽屉，Esc 关掉回到标题；浮动窗里成了标签条时头回到内容里，对话不重建；回到只有一个标签时头又回到面板头", async ({page}) => {
     await openConversation(page);
     await newSession(page);
     const handle = conversationHandle(page);
-    const sessions = page.locator(".acv-head__sessions");
+    // 列表在消息视图的抽屉里（右栏默认宽度是窄版）。
+    const sessions = page.locator("[data-messages-list-panel]");
     await expect(handle.locator("[data-header-title]")).toBeVisible();
     await expect(page.locator("[data-agent-head]")).toBeHidden();
 
-    // 按标题开会话列表（标题按钮写 aria-expanded）；Esc 关掉，焦点回到标题。
+    // 按标题开列表抽屉（标题按钮写 aria-expanded）；Esc 关掉，焦点回到标题。
     await handle.click();
     await expect(sessions).toBeVisible();
     await expect(handle).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Escape");
-    await expect(sessions).toHaveCount(0);
+    await expect(sessions).toBeHidden();
     await expect(handle).toBeFocused();
     await expect(handle).toHaveAttribute("aria-expanded", "false");
 
@@ -120,9 +157,9 @@ test("对话写在面板头上（conversation.md 输出 44）：头的三列在�
     await expect(handle.locator("[data-header-title]")).toBeVisible();
     const target = (await panelHeadOf(page, CONVERSATION_VIEW).getAttribute("data-panel-head"))!;
 
-    // 侧栏的会话分节拖进对话的窗（落在窗的中间是添加为标签）：成了标签条，头回到内容里。只有一个标签的浮动窗，按住标题拖的是整个窗，
+    // 侧栏的资源管理器分节拖进对话的窗（落在窗的中间是添加为标签）：成了标签条，头回到内容里。只有一个标签的浮动窗，按住标题拖的是整个窗，
     // 所以来源是树里的分节。
-    const SESSIONS_VIEW = "nbook.agent.sessions";
+    const SESSIONS_VIEW = "nbook.explorer";
     const box = (await page.locator(`[data-leaf="${target}"]`).first().boundingBox())!;
     const from = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
@@ -138,12 +175,13 @@ test("对话写在面板头上（conversation.md 输出 44）：头的三列在�
     await expect(page.locator("[data-agent-head] [data-header-title]")).toBeVisible();
     await expect(input(page)).toContainText("头搬家前写的字");
     expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
-    // 头在内容里时会话列表照样开：锚在内容里的标题上。
-    await page.locator("[data-header-sessions]").click();
+    // 头在内容里时列表照样开：头像列顶上的按钮开抽屉。
+    await page.locator("[data-messages-toggle]").click();
     await expect(sessions).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(sessions).toBeHidden();
 
-    // 把会话面板拖走，窗里又只剩对话一个标签：头回到面板头。
+    // 把资源管理器拖走，窗里又只剩对话一个标签：头回到面板头。
     const to = (await page.locator("[data-workbench-shell]").boundingBox())!;
     const tabBox = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
     await page.mouse.move(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
@@ -663,9 +701,9 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await page.locator("[data-header-new]").click();
     await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
-    // 头写在面板头上（输出 44）：按面板头的标题开会话列表。
+    // 头写在面板头上（输出 44）：按面板头的标题开列表抽屉，会话一页里选。
     await conversationHandle(page).click();
-    await page.getByRole("button", {name: /雨夜/u}).or(page.getByText("雨夜")).first().click();
+    await page.locator("[data-messages-list-panel] [data-panel-row]", {hasText: "雨夜"}).click();
     await expect(input(page)).toContainText("没写完的字");
     await page.reload();
     await expect(input(page)).toContainText("没写完的字");

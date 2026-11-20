@@ -256,11 +256,6 @@ async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(page.locator("[data-editor-group]").first()).toBeVisible();
-    // 侧栏的“项目”容器是会话、资源管理器两个分节，各占一半高（docs/specs/ui/workbench-layout.md 输出 4）：这个作品的文件
-    // 半高放不下，资源树只渲染视口附近的行，下面的行不在页面上，按行定位就找不到。这里不看会话，把它收成标题行，资源树占这一列。
-    // 分节的标题行是展开、收起的开关（输出 20），能收起时标题按钮带 `aria-expanded`。
-    const sessions = page.locator("[data-panel-head] [data-panel-tab=\"view:nbook.agent.sessions\"][aria-expanded]");
-    if (await sessions.getAttribute("aria-expanded") === "true") await sessions.click();
     await expand(page, "project://notes");
     await expect(item(page, "project://notes/a.md")).toBeVisible();
 }

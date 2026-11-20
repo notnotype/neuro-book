@@ -2,7 +2,7 @@
  * 子代理与任务的远程视图类型（docs/specs/agent/subagents.md 输出 21、25，jobs.md 输出 9、10）：服务端算、浏览器画，两边共用。
  */
 
-import type {IndexedRun, JsonValue} from "@notnotype/nb-harness/kernel/contracts";
+import type {IndexedRun, JsonValue, SessionOwner} from "@notnotype/nb-harness/kernel/contracts";
 
 /** `running` 在跑；`waiting` 等用户；`question` 等派它的 Agent 答；`idle` 空闲。 */
 export type TreeState = "running" | "waiting" | "question" | "idle";
@@ -46,6 +46,11 @@ export interface AncestorItem {
     readonly profile: string | null;
     readonly icon?: string;
     readonly archived: boolean;
+    /**
+     * 会话头的归属（只有树根可能有：子会话没有归属，sessions.md 输出 23）。浏览器据此判断一个子会话属于谁的树，打开到哪里、根写谁的名字
+     * （conversation.md 输出 53）；没有归属的不写。
+     */
+    readonly owner?: SessionOwner;
 }
 
 /** `jobs` 的一项（jobs.md 输出 9）。 */

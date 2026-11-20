@@ -192,7 +192,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 const indexed = await entry(id);
                 if (!indexed.ok) return {id, title: null, profile: null, archived: false};
                 const icon = icons.get(indexed.value.profile);
-                return {id, title: indexed.value.title, profile: indexed.value.profile, ...(icon === undefined ? {} : {icon}), archived: indexed.value.archived};
+                const {owner} = indexed.value;
+                return {id, title: indexed.value.title, profile: indexed.value.profile, ...(icon === undefined ? {} : {icon}), archived: indexed.value.archived, ...(owner === undefined ? {} : {owner})};
             }));
             return context.ok(items);
         },

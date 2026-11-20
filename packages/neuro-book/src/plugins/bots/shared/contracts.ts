@@ -81,8 +81,11 @@ const MainStateSchema = Type.Union([
 
 /**
  * `unread`：“看到”之后的计数消息数，还没数完（持有之后补数之前、没有持有）为 null；`latestSeq` 是最新一条计数消息的 seq，没有未读时
- * 等于 `seenSeq`；`seenSeq` 是“看到”的位置（main-conversation.md 的未读）。
+ * 等于 `seenSeq`；`seenSeq` 是“看到”的位置（main-conversation.md 的未读）。`last` 是最后一条计数消息的摘要与时间（bots.md 输出 7），
+ * 没有持有、还没补完时只有补数期间到的，再往前找不到为 null。
  */
+const BotLastSchema = Type.Object({text: Type.String(), at: Type.Number()}, {additionalProperties: false});
+export type BotLast = Static<typeof BotLastSchema>;
 const BotItemSchema = Type.Object({
     id: Type.String(),
     name: Type.String(),
@@ -90,6 +93,7 @@ const BotItemSchema = Type.Object({
     unread: Type.Union([Type.Integer({minimum: 0}), Type.Null()]),
     latestSeq: Type.Integer({minimum: 0}),
     seenSeq: Type.Integer({minimum: 0}),
+    last: Type.Union([BotLastSchema, Type.Null()]),
 }, {additionalProperties: false});
 export type BotItem = Static<typeof BotItemSchema>;
 
@@ -99,10 +103,10 @@ const AnyDetail = Type.Optional(Type.Record(Type.String(), Type.Unknown()));
 const OpenDetail = Type.Object({detail: AnyDetail}, {additionalProperties: false});
 const MAIN_CODES = ["session-busy", "log-corrupt", "log-broken", "needs-migration", "storage-failed", "session-not-found", "session-exists", "invalid-session-id", "unknown-profile", "open-failed", "profile-invalid", "invalid-initial", "invalid-owner", "extension-missing", "dependency-missing", "dependency-cycle"] as const;
 
-/** 远程服务（bots.md 输出 7）：先订阅 `botsChanged` 再取 `list`，`onResync` 时重取。 */
+/** 远程服务（bots.md 输出 7）：先订阅 `botsChanged` 再取 `list`，`onResync` 时重取。版本 2：`list` 的项多了必有的 `last`，版本 1 的客户端读不了。 */
 export const botsContract = defineRemoteService({
     id: "nbook.bots/bots",
-    version: 1,
+    version: 2,
     provider: "server",
     callers: ["browser"],
     methods: {

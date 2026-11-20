@@ -1,5 +1,5 @@
 /**
- * bot 视图在真实 Chrome 里的验收（docs/specs/bots/view.md 验收 1、2）：生产构建的后端与前端，状态根是全新的（首次启动建出星璃），
+ * 消息视图里 bot 的验收（docs/specs/bots/view.md 验收 1、2）：生产构建的后端与前端，状态根是全新的（首次启动建出星璃），
  * 模型是 Bun 子进程里的本机端点。等页面上可观察的变化，不按时长等待。
  */
 
@@ -53,14 +53,18 @@ test.afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-const botEntry = (page: Page) => page.locator("[data-tool-view='nbook.bots.chat']");
-const chat = (page: Page) => page.locator("[data-bot-chat]");
+/** 右栏的消息视图（右栏默认宽度下是窄版：头像列加聊天区，对话的头在面板头上）。 */
+const MESSAGES = "nbook.agent.conversation";
+const contact = (page: Page) => page.locator("[data-strip-contact='nbook.bots/lyra']");
+const chat = (page: Page) => page.locator("[data-messages-chat]");
+const handle = (page: Page) => page.locator(`[data-panel-tab="view:${MESSAGES}"]`);
 const input = (page: Page) => chat(page).getByRole("textbox", {name: "消息输入框"});
 
 async function openBot(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-explorer-row]").first()).toBeVisible();
-    await botEntry(page).click();
+    await contact(page).click();
+    await expect(handle(page).locator("[data-header-title]")).toHaveText("星璃");
     await expect(input(page)).toBeVisible();
 }
 
@@ -70,15 +74,16 @@ async function send(page: Page, text: string): Promise<void> {
     await page.keyboard.press("Enter");
 }
 
-test("验收 1：活动栏打开 bot 视图，顶栏是星璃与头像；说一句得到回复；等审批时停靠区里有审批、输入框可用，这时再发一句，审批以拒绝结算、她接着处理这句", async ({page}) => {
+test("验收 1：消息视图的头像列点星璃，顶栏是星璃与头像；说一句得到回复；等审批时停靠区里有审批、输入框可用，这时再发一句，审批以拒绝结算、她接着处理这句", async ({page}) => {
     await openBot(page);
-    await expect(chat(page).locator("[data-header-title]")).toHaveText("星璃");
-    const avatar = chat(page).locator("[data-header-avatar]");
+    // 产品的默认布局：右栏是消息视图；左侧栏的“项目”容器里没有以前的会话面板（它并进了消息视图，conversation.md 输出 2）。
+    await expect(page.locator(`[data-content="view:${MESSAGES}"]`)).toBeVisible();
+    await expect(page.locator('[data-content="view:nbook.agent.sessions"]')).toHaveCount(0);
+    const avatar = handle(page).locator("[data-header-avatar]");
     await expect(avatar).toBeVisible();
     await expect.poll(() => avatar.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-    // 不能新建、换会话，也没有会话列表。
-    await expect(chat(page).locator("[data-header-new]")).toHaveCount(0);
-    await expect(chat(page).locator("[data-header-sessions]")).toHaveCount(0);
+    // 不能新建、换会话：头上没有新建。
+    await expect(page.locator("[data-header-new]")).toHaveCount(0);
 
     await script("你好呀，Master。");
     await send(page, "你好");
@@ -99,35 +104,36 @@ test("验收 1：活动栏打开 bot 视图，顶栏是星璃与头像；说一�
     expect(JSON.stringify((await requests()).at(-1)!.messages)).toContain("算了，先别写");
 });
 
-test("验收 2：她等你批准时切到别的视图，状态栏活动条目点进去揭示的是 bot 视图，不是通用的对话视图", async ({page}) => {
+test("验收 2：她等你批准时切到别的会话，状态栏活动条目点进去在消息视图里打开她的主对话，回到 bot 档", async ({page}) => {
     await openBot(page);
     await script({tool: "write", args: {path: "session://二.md", content: "内容"}}, "好了。");
     await send(page, "写一个");
     await expect(chat(page).locator("[data-agent-dock]")).toBeVisible();
-    await page.locator("[data-tool-entry='nbook.workbench.project']").click();
-    await expect(chat(page)).toBeHidden();
+    // 新建一个普通会话：聊天区换成它，会话档。
+    await page.keyboard.press("Control+Shift+P");
+    await page.keyboard.type("新建 Agent 会话");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
+    await expect(chat(page).locator("[data-agent-dock]")).toHaveCount(0);
     const item = page.locator("[data-workbench-item='nbook.agent.activity']");
     await expect(item).toContainText("1 等你处理");
     await item.click();
+    await expect(handle(page).locator("[data-header-title]")).toHaveText("星璃");
     await expect(chat(page).locator("[data-agent-dock]")).toBeVisible();
-    // 右栏的通用对话视图没有换到这个会话。
-    const generic = page.getByRole("region", {name: "对话", exact: true});
-    await expect(generic.getByText("写一个", {exact: true})).toHaveCount(0);
-    await expect(generic.locator("[data-agent-dock]")).toHaveCount(0);
     await chat(page).locator("[data-approval-decision='deny']").click();
     await expect(chat(page).getByText("好了。")).toBeVisible();
 });
 
-test("验收 2：窗口没有焦点时到的回复记为未读，面板头的标题后写计数；窗口拿回焦点后计数清零", async ({page}) => {
+test("验收 2：窗口没有焦点时到的回复记为未读：头像列与 bot 标签写计数，状态栏写新消息；窗口拿回焦点后清零", async ({page}) => {
     await openBot(page);
-    const title = page.locator("[data-panel-tab$='nbook.bots.chat']");
-    await expect(title).toHaveText("bot");
+    await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
     // 窗口失焦：视图仍可见，但不算看到（bots/view.md 输出 4）。
     await page.evaluate(() => window.dispatchEvent(new Event("blur")));
     await script("你还在吗？");
     await send(page, "在吗");
     await expect(chat(page).getByText("你还在吗？")).toBeVisible();
-    await expect(title).toHaveText("bot 1");
+    await expect(contact(page)).toHaveAttribute("aria-label", "星璃，1 条未读");
+    await expect(page.locator("[data-workbench-item='nbook.agent.activity']")).toContainText("1 条新消息");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(title).toHaveText("bot");
+    await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
 });

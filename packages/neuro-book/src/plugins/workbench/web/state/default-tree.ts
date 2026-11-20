@@ -3,10 +3,11 @@
  */
 
 import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
-import {barOfRef, barRef, findTreeNode, isContainerAnchor, openPanelAtEdge, panelRef, REGION_ORIENTATION, setContainerEntries, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {barOfRef, barRef, findTreeNode, isContainerAnchor, openPanelAtEdge, panelRef, REGION_ORIENTATION, removeTab, setActiveContainer, setContainerEntries, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridOrientation} from "@notnotype/nb-layout";
 import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-workbench-layout";
 
+import {IMPLICIT_CONTAINER_PREFIX} from "../../shared/views";
 import type {ViewCatalog} from "../views/registry";
 import {SHELL_ACTIVITYBAR_WIDTH, SHELL_SIZE_DEFAULTS, SHELL_STATUSBAR_HEIGHT} from "../shell/sizes";
 import {containerRegion, NO_CONTAINERS, regionAnchor, sectionLanding, settleContainers, viewHome} from "./containers";
@@ -109,16 +110,46 @@ export function defaultLayoutDoc(catalog: ViewCatalog, containers: ContainerCata
 }
 
 /**
+ * 被别的视图声明 `replaces` 点名、此刻目录里又没有声明的旧视图（views.md 输出 20）：标签从所在面板拿掉（分节、别的面板里的标签、浮动窗、
+ * 用户拖出的容器都一样，`removeTab` 收空面板），它的隐式容器 `view:<旧 id>` 从入口顺序里清掉。后者是 `settleContainers`“声明的与隐式容器的 id
+ * 留着、成员回来时回到原位”的例外：被取代的视图不会回来。没有改动时返回原对象。
+ */
+function retireReplacedViews(doc: LayoutDoc, catalog: ViewCatalog): LayoutDoc {
+    const retired = new Set([...catalog.values()].flatMap((declaration) => declaration.replaces ?? []).filter((old) => !catalog.has(old)));
+    if (retired.size === 0) return doc;
+    let next = doc;
+    for (const old of retired) {
+        const key = tabKey({kind: "view", viewId: old});
+        for (let removed = removeTab(next, key); removed.ok; removed = removeTab(next, key)) next = removed.doc;
+        // 它是当前容器时先让 `settleContainers` 换到相邻的（成员没了），再从入口顺序里删；区域里只剩它一个时当前容器清空。
+        next = settleContainers(next);
+        const implicit = `${IMPLICIT_CONTAINER_PREFIX}${old}`;
+        for (const [anchor, panel] of Object.entries(next.panels)) {
+            if (panel.entries?.includes(implicit) !== true) continue;
+            if (panel.activeContainer === implicit) {
+                const cleared = setActiveContainer(next, anchor, null);
+                if (cleared.ok) next = cleared.doc;
+            }
+            const cleaned = setContainerEntries(next, anchor, panel.entries.filter((entry) => entry !== implicit));
+            if (cleaned.ok) next = cleaned.doc;
+        }
+    }
+    return next;
+}
+
+/**
  * 目录里有、文档里还没有的视图放进它的容器（输出 4）：成为容器最后一个分节。容器已经有成员时加在容器此刻所在的区域；还没有成员时容器放进声明的区域，
  * 入口排在那个区域入口顺序的最后。同时出现的几个之间按 `order`。区域隐藏着就保持隐藏，当前容器也不换；区域原来没有容器时它成为当前容器（`settleContainers`）。
  * 没有改动时返回原对象。
  *
  * 区域不用容器（锚上有标签）的文档不补：那种记录读不进来（`fitsSkeleton`），这里只会遇到默认布局与合骨架的记录。
  */
-export function reconcileViews(doc: LayoutDoc, catalog: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): LayoutDoc {
+export function reconcileViews(original: LayoutDoc, catalog: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): LayoutDoc {
+    // 先摘掉被取代的旧视图，再补缺的：不然没有缺失视图时直接返回，旧标签永远留着。
+    const doc = retireReplacedViews(original, catalog);
     const present = new Set(Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)));
     const missing = homesOf([...catalog.keys()].filter((id) => !present.has(`view:${id}`)), catalog, containers);
-    if (missing.length === 0) return doc;
+    if (missing.length === 0) return doc === original ? doc : settleContainers(doc);
     let next = doc;
     /** 这一次才出现的容器，按区域：补完分节之后按 (order, key) 排进入口顺序。 */
     const arrived = new Map<PanelName, ViewHome[]>();

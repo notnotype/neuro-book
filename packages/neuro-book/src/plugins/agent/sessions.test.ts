@@ -490,6 +490,8 @@ describe("有归属的会话（输出 23–27）", () => {
         expect(childHeader.caller).toMatchObject({kind: "session", id: owned.id});
         // 子会话没有归属（sessions.md 输出 23、26）：会话头不带 owner，改写历史不被拒。
         expect(childHeader.owner).toBeUndefined();
+        // 子会话的祖先路径带出根的归属：浏览器据此知道它属于谁的树（conversation.md 输出 53）。
+        expect(ok(await client.ancestors({sessionId: child}))).toEqual([expect.objectContaining({id: owned.id, owner: {plugin: expect.any(String), id: "lyra"}})]);
         expect(await client.archive({sessionId: child, commandId: cid(), archived: true})).toMatchObject({ok: true});
     });
 
