@@ -37,11 +37,11 @@
 
 1. 数值只在 [`src/theme/z-index.ts`](../src/theme/z-index.ts) 登记，组件与宿主应用用 `:style` 绑定登记表里的值，不在原子类或 CSS 里写同一个数。固定定位或传送出去的整页浮层必须从登记表取；组件内部的局部叠放（不超过 50，例如 `z-10`）可以写字面量。nb-ui 的层级测试扫描组件与组合函数，出现大于 50 的字面量即失败；宿主应用的整页浮层同样从 `@notnotype/nb-ui/theme` 取，刻意压在一切之上的（例如离线横幅）保留字面量并就地注释为什么。
    例外：nb-layout 不依赖 nb-ui、导入不了登记表，它的两个落点浮层（`DropSectorsOverlay`、`DropFeedbackOverlay`）读 `--nb-layout-z-drop-sectors`、`--nb-layout-z-drop-feedback`，由 `src/tokens.css` 的桥接写成登记表里 `dropSectors`、`dropFeedback` 的值（ADR 0054 第 3 条）；`theme/z-index.test.ts` 核对这两行等于登记表。
-2. 各档从低到高：页面里的局部浮层（下拉、提示、拖放落点）、工作台拖影、浮动窗口各层、模态各层、模态里的浮层、通知、右键菜单、命令面板、桌面窗口的外框（应用宿主画的窗口按钮与后备标题栏）、组件 Lab 的检查框。新增一档时放进这个顺序，并补进层级测试的顺序断言。
+2. 各档从低到高：贴窗口一边的非模态面板（`SidePanel`）、页面里的局部浮层（下拉、提示、拖放落点）、工作台拖影、浮动窗口各层、模态各层、模态里的浮层、通知、右键菜单、命令面板、桌面窗口的外框（应用宿主画的窗口按钮与后备标题栏）、组件 Lab 的检查框。新增一档时放进这个顺序，并补进层级测试的顺序断言。
 3. 三条动态规则：
    - 浮动窗口按**最近聚焦**叠放：互不嵌套的窗口各占一条车道，打开、点击、聚焦都把它提到最上；从窗口里开出的窗口跟着外层的车道、按嵌套深度压住外层；窗口里的局部浮层取窗口带的最上一格；
    - 同时打开的模态按**打开顺序**叠放，后打开的在上面，不靠 DOM 顺序（传送锚点在挂载时就定了，和打开顺序无关）；
-   - 容器**向内容提供浮层层级**：对话框、浮动窗口与抽屉经 `NB_POPOVER_Z_INDEX` 提供，内容里的浮层组件读这个注入，没有注入时回退到页面浮层档。新写的浮层组件必须读它（`usePopoverLayer` 或直接注入），否则放进对话框就被盖住。
+   - 容器**向内容提供浮层层级**：对话框、浮动窗口、抽屉与侧面板经 `NB_POPOVER_Z_INDEX` 提供，内容里的浮层组件读这个注入，没有注入时回退到页面浮层档。新写的浮层组件必须读它（`usePopoverLayer` 或直接注入），否则放进对话框就被盖住。
 4. 层级与遮罩只在产品页验收：组件 Lab 的画布本身是一个层叠上下文，会掩盖层级缺陷。
 
 ### 2.2 浮层外框
@@ -57,7 +57,7 @@
 | 对话框（`Dialog`） | `.nb-ui-dialog-surface`、`.nb-ui-surface-rim` | 圆角 `--radius-dialog`、面 `--dialog-surface`、投影 `--elevation-dialog`；镜面层 `--overlay-sheen`。叠在对话框上时加 `--nested`，面取 `--dialog-surface-nested` |
 | 浮动窗口（`FloatingWindow`） | 同上，加 `.nb-ui-dialog-surface--window` | 圆角 `--radius-window`；常开、占大块屏幕的窗口与工作台部件卡片是同一类面，圆角取同一档 |
 | 小确认框（`AlertDialog`） | `.nb-ui-dialog-surface`，加 `--compact` | 圆角 `--radius-dialog-compact`；不加镜面层 |
-| 抽屉（`Drawer`） | `.nb-ui-dialog-surface`、`.nb-ui-drawer-surface` | 面沿用小浮层的 `--overlay-surface` |
+| 抽屉（`Drawer`）、侧面板（`SidePanel`） | `.nb-ui-dialog-surface`、`.nb-ui-drawer-surface` | 面沿用小浮层的 `--overlay-surface` |
 | 对话内浮动面板（`AgentWizard`） | 无 | 不写模糊；设 `--nb-popover-pad` 为实际内边距，内圈半径由它推出 |
 
 小提示（`Tooltip`）不用基座，只用 `.nb-ui-tooltip-surface`：实心面板底，不用玻璃；无箭头，靠间隙与翻转表达关系；指针穿透。

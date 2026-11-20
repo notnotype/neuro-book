@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, ImagePreviewDialog, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, ImagePreviewDialog, InfoTip, Notification, NotificationStack, Popover, QuickPick, SidePanel, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -153,6 +153,24 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "left", label: "左侧、非模态", input: {props: {direction: "left", title: "素材", modal: false}, model: {open: false}, slots: {trigger: true, default: true}}},
         ],
         subject: nbUiSubject("Drawer"),
+    }),
+    defineSubjectFixture<typeof SidePanel>({
+        component: "SidePanel",
+        rootless: true,
+        slotPresets: {
+            trigger: trigger("和星璃聊"),
+            // 长文字与输入框：在真实浏览器里拖选文字、在输入框里拖动，面板不动。
+            default: () => h("div", {class: "flex h-full flex-col gap-3 p-4 text-sm leading-relaxed select-text"}, [
+                h("p", "雪线以北的驿站里，一个守灯人等一封永远不会来的信。他把灯放低一些，雪落在灯罩上，化成一圈细细的水痕。"),
+                h("p", "远处的狗叫了两声，又安静下来。火车没有停，只是慢了下来。"),
+                h("textarea", {class: "mt-auto min-h-[72px] rounded border border-[var(--divider)] bg-transparent p-2", placeholder: "输入消息"}),
+            ]),
+        },
+        scenes: [
+            {id: "closed", label: "关着（点按钮打开）", input: {props: {label: "星璃", width: "420px"}, model: {open: false}, slots: {trigger: true, default: true}}},
+            {id: "open", label: "开着", input: {props: {label: "星璃", width: "420px"}, model: {open: true}, slots: {trigger: true, default: true}}},
+        ],
+        subject: nbUiSubject("SidePanel"),
     }),
     defineSubjectFixture<typeof Popover>({
         component: "Popover",

@@ -23,6 +23,8 @@ type Props = {
     page: ShelfPage;
     /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`，由 `bookshelf-home.ts` 读好传入）：齿轮画成按下。 */
     settingsOpen: boolean;
+    /** 叠在案头看板娘上的贡献组件（`projects.desk`，由 `bookshelf-home.ts` 接收并加载后传入）；缺省 null。 */
+    companion?: Component | null;
 };
 ```
 

@@ -172,7 +172,7 @@ interface PromptEditorEmits {
 
 ```ts
 interface PromptEditorExpose {
-    /** 聚焦，光标落在开头或末尾；默认末尾。 */
+    /** 聚焦，光标落在开头或末尾；默认末尾。编辑器还没建好时（宿主一拿到引用就调）先记下，建好、正文挂进文档后再聚焦。 */
     focus(at?: "start" | "end" | "keep"): void;
     /** 在光标处插入文字，能识别的写法变成小块，发出 change；只读时不做任何事。 */
     insertText(text: string): void;

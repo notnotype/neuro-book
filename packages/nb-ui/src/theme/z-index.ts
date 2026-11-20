@@ -7,6 +7,8 @@
 import type {ComputedRef, InjectionKey} from "vue";
 
 export const NB_Z_INDEX = {
+    /** 贴窗口一边的非模态面板（`SidePanel`）：压在页面内容上，低于页面里的下拉，面板里的下拉取 `popover` 压在它上面 */
+    sidePanel: 55,
     /** DropdownMenu / Select 等局部浮层（不在对话框里时） */
     popover: 60,
     tooltip: 70,

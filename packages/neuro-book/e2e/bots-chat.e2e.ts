@@ -1,5 +1,5 @@
 /**
- * 消息视图里 bot 的验收（docs/specs/bots/view.md 验收 1、2）：生产构建的后端与前端，状态根是全新的（首次启动建出星璃），
+ * 消息视图与书房里 bot 的验收（docs/specs/bots/view.md 验收 1–4）：生产构建的后端与前端，状态根是全新的（首次启动建出星璃），
  * 模型是 Bun 子进程里的本机端点。等页面上可观察的变化，不按时长等待。
  */
 
@@ -136,4 +136,130 @@ test("验收 2：窗口没有焦点时到的回复记为未读：头像列与 bo
     await expect(page.locator("[data-workbench-item='nbook.agent.activity']")).toContainText("1 条新消息");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
+});
+
+/** 1×1 的 PNG：书房的面板里发附件用。 */
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+
+/** 书房（`/`，没有绑定作品）案头的看板娘与从右边滑出的面板（agent/conversation.md 输出 54）。 */
+const mascot = (page: Page) => page.locator("[data-desk-companion-button]");
+const panel = (page: Page) => page.getByRole("dialog", {name: "星璃"});
+const deskInput = (page: Page) => panel(page).getByRole("textbox", {name: "消息输入框"});
+
+async function openShelf(page: Page): Promise<void> {
+    // 作者界面的宽版：内容列居中、看板娘在案头右端。
+    await page.setViewportSize({width: 1440, height: 900});
+    await page.goto(new URL("/", server.url).href);
+    await expect(page.locator("[data-shelf-desk]")).toBeVisible();
+}
+
+async function deskSend(page: Page, text: string): Promise<void> {
+    await deskInput(page).click();
+    await page.keyboard.type(text);
+    await page.keyboard.press("Enter");
+}
+
+test("验收 4：书房里点看板娘，右边滑出她的主对话、书房不压暗；看着时到的回复不算未读，失焦时到的算：关上后看板娘带计数与那句话，拿回焦点再打开清零", async ({page}) => {
+    await openShelf(page);
+    // 前面的用例都看过了：从没有未读开始。
+    await expect(mascot(page)).toHaveAttribute("aria-label", "星璃");
+    await expect(page.locator("[data-desk-badge]")).toHaveCount(0);
+    await mascot(page).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(panel(page).locator("[data-header-title]")).toHaveText("星璃");
+    await expect(deskInput(page)).toBeFocused();
+    // 不压暗：没有遮罩，书架左边点得到的还是书架。
+    const shelfPoint = await page.evaluate(() => (document.elementFromPoint(200, 450)?.closest("[data-bookshelf-page]") ?? null) !== null);
+    expect(shelfPoint).toBe(true);
+
+    await script("书房里也能聊。");
+    await deskSend(page, "你好");
+    await expect(panel(page).getByText("书房里也能聊。")).toBeVisible();
+
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await script("你回书架了吗？");
+    await deskSend(page, "回头见");
+    await expect(panel(page).getByText("你回书架了吗？")).toBeVisible();
+    // 看着时到的那句已交“看到”：只多出失焦时到的这一句。
+    await expect(mascot(page)).toHaveAttribute("aria-label", "星璃，1 条未读");
+
+    // 输入框里按 Esc 关面板，焦点回到看板娘；角标与气泡露出来。
+    await deskInput(page).click();
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toHaveCount(0);
+    await expect(mascot(page)).toBeFocused();
+    await expect(page.locator("[data-desk-badge]")).toHaveText("1");
+    await expect(page.locator("[data-desk-bubble]")).toContainText("你回书架了吗？");
+    // 案头窄于 720px（看板娘缩到 96px）：气泡放不下，只留角标。
+    await page.setViewportSize({width: 700, height: 900});
+    await expect(page.locator("[data-desk-bubble]")).toBeHidden();
+    await expect(page.locator("[data-desk-badge]")).toHaveText("1");
+    await page.setViewportSize({width: 1440, height: 900});
+    await expect(page.locator("[data-desk-bubble]")).toBeVisible();
+
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await mascot(page).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(mascot(page)).toHaveAttribute("aria-label", "星璃");
+    await panel(page).locator("[data-header-close]").click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect(page.locator("[data-desk-badge]")).toHaveCount(0);
+});
+
+test("验收 4：书房的面板里（没有作品）发附件、@ 菜单压在面板上、文字能拖选", async ({page}) => {
+    await openShelf(page);
+    await mascot(page).click();
+    await expect(deskInput(page)).toBeFocused();
+
+    await script("收到图了");
+    await panel(page).locator(".acv-composer__file-input").setInputFiles({name: "封面.png", mimeType: "image/png", buffer: PNG});
+    await expect(panel(page).getByRole("list", {name: "附件"}).getByRole("listitem")).toHaveCount(1);
+    await deskSend(page, "看这张");
+    const reply = panel(page).getByText("收到图了");
+    await expect(reply).toBeVisible();
+
+    // 拖选回复里的字：面板没有拖动手势，选区里有字。
+    const box = (await reply.boundingBox())!;
+    await page.mouse.move(box.x + 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, {steps: 5});
+    await page.mouse.up();
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toContain("收到图");
+    await expect(panel(page)).toBeVisible();
+
+    // @ 菜单是页面浮层档，压在面板（侧面板档）上：菜单中心点命中的是菜单。
+    await deskInput(page).click();
+    await page.keyboard.type("@");
+    const menu = page.locator("[data-suggestion-menu]");
+    await expect(menu).toBeVisible();
+    // 菜单在面板的范围里（不然命中菜单说明不了它压在面板上）。
+    const panelLeft = await panel(page).evaluate((node) => node.getBoundingClientRect().left);
+    expect((await menu.boundingBox())!.x).toBeGreaterThanOrEqual(panelLeft);
+    const hit = await menu.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    });
+    expect(hit).toBe(true);
+    // 菜单开着时 Esc 只收菜单，面板还在。
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(panel(page)).toBeVisible();
+});
+
+test("验收 4：桌面窗口外框下，面板让出窗口按钮那一行：头上的“关闭”在 36px 之下", async ({page}) => {
+    // 只设外框的属性（不装壳的能力标记，免得首次启动向导挡住）：面板的上沿取 `--nb-side-panel-inset-top`。
+    await page.addInitScript(() => {
+        const mark = (): boolean => document.documentElement !== null && (document.documentElement.setAttribute("data-desktop-frame", ""), true);
+        if (!mark()) {
+            const observer = new MutationObserver(() => void (mark() && observer.disconnect()));
+            observer.observe(document, {childList: true});
+        }
+    });
+    await openShelf(page);
+    await mascot(page).click();
+    const close = panel(page).locator("[data-header-close]");
+    await expect(close).toBeVisible();
+    const top = await panel(page).evaluate((node) => node.getBoundingClientRect().top);
+    expect(top).toBe(36);
+    expect((await close.boundingBox())!.y).toBeGreaterThanOrEqual(36);
 });

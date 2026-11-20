@@ -30,11 +30,12 @@ describe("层级登记表", () => {
         expect(value("--nb-layout-z-drop-feedback")).toBe(NB_Z_INDEX.dropFeedback);
     });
 
-    it("各档从低到高：页面浮层 < 拖影 < 浮动窗口各层（含自己的浮层） < 模态各层 < 模态里的浮层 < 通知 < 右键菜单 < 命令面板 < 桌面窗口外框 < 检查框", () => {
+    it("各档从低到高：侧面板 < 页面浮层 < 拖影 < 浮动窗口各层（含自己的浮层） < 模态各层 < 模态里的浮层 < 通知 < 右键菜单 < 命令面板 < 桌面窗口外框 < 检查框", () => {
         /** 最上面一条车道里第 5 层嵌套的窗口。 */
         const highestWindowLane = NB_Z_INDEX.dialogWindow + (NB_DIALOG_WINDOW_MAX_LANES - 1) * NB_DIALOG_WINDOW_LANE + 4 * NB_DIALOG_WINDOW_Z_STEP;
         const highestModal = NB_Z_INDEX.dialog + (NB_MODAL_MAX_LAYERS - 1) * NB_MODAL_Z_STEP;
         const order = [
+            NB_Z_INDEX.sidePanel,
             Math.max(NB_Z_INDEX.popover, NB_Z_INDEX.tooltip, NB_Z_INDEX.dropFeedback),
             NB_Z_INDEX.dragFeedback,
             NB_Z_INDEX.dialogWindow,

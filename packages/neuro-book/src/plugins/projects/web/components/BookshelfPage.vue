@@ -4,6 +4,7 @@ import {Button, Select, IconButton, SegmentedControl, Skeleton} from "@notnotype
 import {useText} from "@notnotype/nb-ui/text-port";
 import {useElementSize} from "@vueuse/core";
 import {computed, ref} from "vue";
+import type {Component} from "vue";
 
 import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 
@@ -33,7 +34,9 @@ const props = withDefaults(defineProps<{
     coverSrc: (item: ShelfItem) => string | null;
     /** 本页的设置窗口开着：齿轮画成按下。 */
     settingsOpen?: boolean;
-}>(), {error: "", settingsOpen: false});
+    /** 叠在案头看板娘上的贡献组件（`projects.desk`）；没有为 null。 */
+    companion?: Component | null;
+}>(), {error: "", settingsOpen: false, companion: null});
 
 const emit = defineEmits<{
     (event: "update:view", view: ShelfView): void;
@@ -138,7 +141,7 @@ defineExpose({focusShelf});
             </div>
 
             <template v-else>
-                <ShelfDesk :items="items" :now="now" @continue="emit('continue', $event)" />
+                <ShelfDesk :items="items" :now="now" :companion="props.companion" @continue="emit('continue', $event)" />
 
                 <section class="bookshelf-page__shelf" :aria-label="text('bookshelfPage.shelf')">
                     <div class="bookshelf-page__shelf-head">

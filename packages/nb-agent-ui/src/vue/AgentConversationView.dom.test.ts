@@ -1021,3 +1021,64 @@ describe("只有表情的用户消息不画气泡（Spec“消息”）", () => 
         view.unmount();
     });
 });
+
+describe("放在可关的面板里（closable、close、escape）", () => {
+    it("头的右列最后是“关闭”，点了发 close；不给 closable 时没有它", async () => {
+        const plain = mountHeadView({trailing: true});
+        expect(plain.find("[data-header-close]").exists()).toBe(false);
+        plain.unmount();
+        const wrapper = mount(AgentConversationView, {
+            props: {ctx: context(), registry, locale: "zh-CN", services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []})}, closable: true},
+            slots: {"head-trailing": () => h("button", {type: "button", "data-probe-trailing": ""}, "子代理")},
+            attachTo: document.body,
+        });
+        const end = [...wrapper.get(".acv-head__end").element.querySelectorAll("button")];
+        expect(end.at(0)?.hasAttribute("data-probe-trailing")).toBe(true);
+        expect(end.at(-1)?.hasAttribute("data-header-close")).toBe(true);
+        expect(end.at(-1)?.getAttribute("aria-label")).toBe("关闭");
+        await wrapper.get("[data-header-close]").trigger("click");
+        expect(wrapper.emitted("close")).toHaveLength(1);
+        wrapper.unmount();
+    });
+
+    it("输入框里按 Esc 发 escape；输入法组字时不发", async () => {
+        const wrapper = mountView("zh-CN", {}, {plain: true});
+        const input = wrapper.get("textarea");
+        await input.trigger("keydown", {key: "Escape", isComposing: true});
+        expect(wrapper.emitted("escape")).toBeUndefined();
+        await input.trigger("keydown", {key: "Escape"});
+        expect(wrapper.emitted("escape")).toHaveLength(1);
+        wrapper.unmount();
+    });
+});
+
+describe("focusComposer", () => {
+    it("输入框还是只读时（会话在加载）先记下，变成可写之后焦点进输入框", async () => {
+        const loading = {...context(), availability: {status: "loading" as const, message: "", actions: []}};
+        const wrapper = mountView("zh-CN", {}, {plain: true, ctx: loading});
+        await flushPromises();
+        (wrapper.vm as unknown as {focusComposer(): void}).focusComposer();
+        await flushPromises();
+        const input = wrapper.get("textarea").element;
+        expect(document.activeElement).not.toBe(input);
+        await wrapper.setProps({ctx: context()});
+        await flushPromises();
+        expect(document.activeElement).toBe(input);
+        wrapper.unmount();
+    });
+
+    it("等可写的期间用户点了别处：变成可写后不再抢焦点", async () => {
+        const loading = {...context(), availability: {status: "loading" as const, message: "", actions: []}};
+        const wrapper = mountView("zh-CN", {}, {plain: true, ctx: loading});
+        const elsewhere = document.body.appendChild(document.createElement("button"));
+        await flushPromises();
+        (wrapper.vm as unknown as {focusComposer(): void}).focusComposer();
+        elsewhere.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        elsewhere.focus();
+        await wrapper.setProps({ctx: context()});
+        await flushPromises();
+        expect(document.activeElement).toBe(elsewhere);
+        wrapper.unmount();
+        elsewhere.remove();
+    });
+});

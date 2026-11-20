@@ -23,6 +23,7 @@ Agent 对话的纯视图：会话的头、消息流、待处理区、输入框�
 
 - 头的左边：子会话是返回，发 `session.select`，带父会话（`ctx.session.path` 的最后一项）；顶层会话且 `newSession` 为真是新建，发 `session.create`；没选会话时空着。
 - 有 `sessions` 插槽时点标题开会话列表（`sessionsOpen`）；送到视图之外时，按下由宿主经 `sessionsOpen` 转来。
+- `closable` 时头的右列最后是“关闭”，点了发 `close`。输入框里按 Esc 发 `escape`（补全菜单开着、输入法组字时不发）。
 - 头的溢出菜单（有会话时才有）在“分轮视图”和“原始视图”之间切换，发出 `update:viewMode`。
 - 登记的顶栏动作（注册表的 `headerActions`）：`when` 为假的不显示；允许常驻（`pinnable`）的按 `order` 取前两个，以图标按钮放在溢出菜单按钮左边，其余收进溢出菜单，排在内置项之后、“原始视图”之前；角标数写在名字后（`名字 (N)`）。点了发出它的 `target.action`。
 - 第一屏：点最近对话的卡片发 `session.select`；点“查看全部”打开会话列表（同点标题）；点一条开场指令发 `composer.fill`（带指令全文，宿主换掉输入框里的字），随后聚焦输入框。
@@ -86,6 +87,8 @@ type AgentConversationViewProps = {
     draftProfile?: {name: string; icon: string} | null;
     /** 第一屏的数据（欢迎、最近对话、开场指令，形状见 `stream/AgentWelcome.md`）；默认 null，没有消息时只写“还没有消息”。 */
     welcome?: AgentWelcomeView | null;
+    /** 头的右列最后画“关闭”（`data-header-close`），点了发 `close`：宿主把对话放在可关的面板里时用。默认 false。 */
+    closable?: boolean;
 };
 
 type AgentConversationViewEmits = {
@@ -95,6 +98,10 @@ type AgentConversationViewEmits = {
     (e: "update:viewMode", mode: AgentViewMode): void;
     /** 会话列表开或关时发出；受控时父组件回写 sessionsOpen 才生效。 */
     (e: "update:sessionsOpen", open: boolean): void;
+    /** 点了头上的“关闭”（`closable` 时才有）。 */
+    (e: "close"): void;
+    /** 输入框里按了 Esc；补全菜单开着、输入法正在组字时编辑器自己处理，不发。宿主可以拿它关掉放对话的面板。 */
+    (e: "escape"): void;
 };
 
 type AgentConversationViewSlots = {
@@ -106,6 +113,7 @@ type AgentConversationViewSlots = {
 
 type AgentConversationViewExpose = {
     /** 聚焦输入框。 */
+    /** 聚焦输入框；输入框还是只读时（会话在加载）先记下，变成可写之后再聚焦，等的期间用户按了键或点了鼠标就作罢。 */
     focusComposer(): void;
     /** 滚动消息流到最新内容。 */
     scrollToLatest(): void;

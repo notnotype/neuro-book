@@ -5,7 +5,7 @@
 
 # MarkdownHosted
 
-`nbook.markdown` 交出 nb-markdown 组件时套的一层（服务 `markdownKey` 的 `MarkdownDisplay`、`MarkdownImage`、`InlineChip`、`PromptEditor`、`PromptTextView`）。它不画任何东西：给子树提供 nbook 的宿主（`provideMarkdownHost`），再按 `component` 挂对应的组件，其余属性、事件与插槽原样转过去，外露方法也转出去（对话视图的输入框在交出的 PromptEditor 上调 `focus`、`insertText`）。
+`nbook.markdown` 交出 nb-markdown 组件时套的一层（服务 `markdownKey` 的 `MarkdownDisplay`、`MarkdownImage`、`InlineChip`、`PromptEditor`、`PromptTextView`）。它不画任何东西：给子树提供 nbook 的宿主（`provideMarkdownHost`），再按 `component` 挂对应的组件，其余属性、事件与插槽原样转过去，外露方法也转出去（对话视图的输入框在交出的 PromptEditor 上调 `focus`、`insertText`）；PromptEditor 的代码还没加载完时调的这几个方法先记下，加载完按先后执行（第一次打开对话时输入框一挂上就会调 `focus`）。
 
 ## 宿主
 

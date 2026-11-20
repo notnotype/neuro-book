@@ -9,6 +9,7 @@ export default {
         newConversation: "New conversation",
         back: "Back to the parent conversation",
         more: "More actions",
+        close: "Close",
         rawView: "Raw view",
         turnsView: "Turn view",
     },

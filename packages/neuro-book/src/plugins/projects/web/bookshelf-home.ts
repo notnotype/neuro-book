@@ -5,7 +5,7 @@
  */
 
 import {defineComponent, h, onBeforeUnmount} from "vue";
-import type {Component, Ref} from "vue";
+import type {Component, Ref, ShallowRef} from "vue";
 
 import type {ShelfPage} from "./shelf-page";
 
@@ -15,6 +15,8 @@ export interface BookshelfHomeOptions {
     /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`）：齿轮画成按下。 */
     readonly settingsOpen: Readonly<Ref<boolean>>;
     readonly createPage: () => ShelfPage;
+    /** 案头的贡献位（`desk.ts`）：书架画出来时才要组件。 */
+    readonly desk: {readonly companion: Readonly<ShallowRef<Component | null>>; want(): void};
 }
 
 export function createBookshelfHome(options: BookshelfHomeOptions): Component {
@@ -22,8 +24,9 @@ export function createBookshelfHome(options: BookshelfHomeOptions): Component {
         name: "BookshelfHome",
         setup() {
             const page = options.createPage();
+            options.desk.want();
             onBeforeUnmount(() => page.dispose());
-            return () => h(options.component, {page, settingsOpen: options.settingsOpen.value});
+            return () => h(options.component, {page, settingsOpen: options.settingsOpen.value, companion: options.desk.companion.value});
         },
     });
 }

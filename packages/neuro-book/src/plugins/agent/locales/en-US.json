@@ -440,6 +440,13 @@
             "stopped": "This run already ended; the merged message wasn't sent. You can continue again.",
             "failed": "Couldn't continue ({{code}})."
         },
+        "desk": {
+            "labelUnread": "{{name}}, {{count}} unread",
+            "labelWaiting": "{{name}}, waiting for you",
+            "waiting": "Waiting for you",
+            "failed": "Couldn't load bots ({{code}})",
+            "close": "Close"
+        },
         "messages": {
             "noModel": {
                 "title": "Add a model provider first",
@@ -449,6 +456,7 @@
             "opening": "Opening the conversation…",
             "openFailed": "Couldn't open the conversation with {{name}} ({{code}}).",
             "retry": "Retry",
+            "missing": "This bot isn't available.",
             "pickBot": "Pick a bot to start chatting",
             "contactsFailed": "Couldn't load contacts ({{code}}).",
             "untitled": "Untitled conversation"

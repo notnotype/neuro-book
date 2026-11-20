@@ -63,6 +63,8 @@ const props = withDefaults(defineProps<{
     welcome?: AgentWelcomeView | null;
     /** 用户的状态栏设置（显隐与次序，见 `status-line.ts`）；给了才有右键菜单，宿主处理 `statusLine.toggle`、`statusLine.openSettings`。 */
     statusLine?: StatusLineSetting;
+    /** 头的右列最后画“关闭”，点了发 `close`：宿主把对话放在可关的面板里时用。 */
+    closable?: boolean;
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -77,6 +79,7 @@ const props = withDefaults(defineProps<{
     sessionsOpen: undefined,
     draftProfile: null,
     welcome: null,
+    closable: false,
 });
 
 const slots = defineSlots<{
@@ -90,6 +93,10 @@ const emit = defineEmits<{
     (e: "action", action: AgentViewAction): void;
     (e: "update:viewMode", mode: AgentViewMode): void;
     (e: "update:sessionsOpen", open: boolean): void;
+    /** 点了头上的“关闭”（`closable` 时才有）。 */
+    (e: "close"): void;
+    /** 输入框里按了 Esc（补全菜单开着、输入法组字时不发）：宿主可以拿它关掉放对话的面板。 */
+    (e: "escape"): void;
 }>();
 
 const {t, text} = provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
@@ -460,6 +467,8 @@ defineExpose({focusComposer, scrollToLatest});
             :draft-profile="props.draftProfile"
             :pinned="pinnedHead"
             :overflow-items="overflowItems"
+            :closable="props.closable"
+            @close="emit('close')"
             @select="selectSession"
             @create="emit('action', {type: 'session.create'})"
             @update:sessions-open="setSessionsOpen"
@@ -567,6 +576,7 @@ defineExpose({focusComposer, scrollToLatest});
         <AgentConversationComposer
             v-show="!waitingForUser"
             ref="composerRef"
+            @escape="emit('escape')"
             :ctx="props.ctx"
             :services="props.services"
             :registry="props.registry"

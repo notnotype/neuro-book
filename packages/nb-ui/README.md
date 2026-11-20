@@ -102,6 +102,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`AlertDialog`](src/components/feedback/AlertDialog.md)：二次确认。
 - [`ImagePreviewDialog`](src/components/feedback/ImagePreviewDialog.md)：看一张图的大图：贴着图片的卡片，可下载原图、可带复制按钮。
 - [`Drawer`](src/components/feedback/Drawer.md)：四向滑出的抽屉。
+- [`SidePanel`](src/components/feedback/SidePanel.md)：贴右边、全高的非模态面板，不压暗页面、点外面不关、没有拖动手势。
 
 ### 反馈
 

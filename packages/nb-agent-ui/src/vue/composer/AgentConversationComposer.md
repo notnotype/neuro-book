@@ -63,6 +63,8 @@ type AgentConversationComposerProps = {
 
 type AgentConversationComposerEmits = {
     (e: "action", action: ViewAction): void;
+    /** 编辑器里按了 Esc（补全菜单开着、输入法组字时编辑器自己处理，不发）；视图往上转成自己的 `escape`。 */
+    (e: "escape"): void;
 };
 
 type AgentConversationComposerExpose = {

@@ -25,6 +25,8 @@ const props = defineProps<{
     draftProfile: {readonly name: string; readonly icon: string} | null;
     pinned: ReadonlyArray<{readonly id: string; readonly icon: string; readonly label: string}>;
     overflowItems: ReadonlyArray<DropdownMenuItemData>;
+    /** 右列最后画“关闭”（宿主把对话放在可关的面板里时）。 */
+    closable: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -33,6 +35,7 @@ const emit = defineEmits<{
     (e: "update:sessionsOpen", open: boolean): void;
     (e: "header-action", id: string): void;
     (e: "overflow", value: string): void;
+    (e: "close"): void;
 }>();
 
 const slots = defineSlots<{
@@ -125,6 +128,7 @@ const placed = computed(() => props.targets !== null);
                 <DropdownMenu v-if="session !== null && props.overflowItems.length > 0" :items="[...props.overflowItems]" root-class="acv-head__more" align="end" @select="(value: string) => emit('overflow', value)">
                     <IconButton size="xs" icon-class="i-lucide-ellipsis" :title="t('header.more')" :aria-label="t('header.more')" data-header-more />
                 </DropdownMenu>
+                <IconButton v-if="props.closable" size="xs" icon-class="i-lucide-x" :title="t('header.close')" :aria-label="t('header.close')" data-header-close @click="emit('close')" />
             </Teleport>
         </div>
     </header>

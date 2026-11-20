@@ -40,7 +40,7 @@ import {markdownPropertiesOpenKey, memoryPropertiesOpen, propertiesOpenPort, pro
 import type {PropertiesOpen} from "./properties-open";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
 import type {AssetUrls} from "./parts/asset-urls";
-import {forwardExpose} from "./parts/forward-expose";
+import {forwardExpose, PROMPT_EDITOR_METHODS} from "./parts/forward-expose";
 import {markdownReportKey} from "./parts/report";
 import type {MarkdownReport} from "./parts/report";
 import {markdownStickerPickerKey, markdownStickersKey} from "./parts/stickers";
@@ -64,7 +64,7 @@ interface Host {
  * 包一层：给组件交方言目录、图片地址服务、诊断出口与上次用过的颜色；属性、事件与插槽原样转给它。组件的代码加载失败（部署换了
  * 版本、网络断了）时记诊断，有 `fallback` 的按它显示（展示器按纯文字显示原文）。
  */
-function withHost(host: Host, name: string, load: () => Promise<Component>, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>, props: Record<string, unknown> = {}): Component {
+function withHost(host: Host, name: string, load: () => Promise<Component>, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>, props: Record<string, unknown> = {}, deferred: readonly string[] = []): Component {
     const failed = ref(false);
     const inner = defineAsyncComponent(() => load().catch((error: unknown) => {
         host.report("markdown.component.load-failed", `${name} 的代码加载失败`, error);
@@ -84,7 +84,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(markdownPropertiesDescribeKey, host.describeProperty);
             if (host.stickers !== null) provideToChildren(markdownStickersKey, host.stickers);
             if (host.picker !== null) provideToChildren(markdownStickerPickerKey, host.picker);
-            const exposed = forwardExpose(expose);
+            const exposed = forwardExpose(expose, deferred);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
     });
@@ -141,15 +141,16 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const picker = await context.services.resolve(stickerPickerKey);
             const host: Host = {catalog, assets, report, colors, propertiesOpen, media, describeProperty, stickers: stickers.status === "resolved" ? stickers.instance : null, picker: picker.status === "resolved" ? picker.instance : null};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
-            const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
-                withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});
+            const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>, deferred: readonly string[] = []): Component =>
+                withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component}, deferred);
             const service: MarkdownService = {
                 components: {
                     MarkdownControl: withHost(host, "MarkdownControlHost", async () => (await import("./components/MarkdownControl.vue")).default),
                     MarkdownDisplay: hosted("MarkdownDisplay", (attrs) => h("div", {class: "nb-markdown-display", style: {whiteSpace: "pre-wrap"}}, String(attrs.text ?? ""))),
                     InlineChip: hosted("InlineChip"),
                     MarkdownImage: hosted("MarkdownImage"),
-                    PromptEditor: hosted("PromptEditor"),
+                    // 这几层都是异步加载的：输入框一拿到引用就可能调这几个方法，代码到之前先记下（见 parts/forward-expose.ts）。
+                    PromptEditor: hosted("PromptEditor", undefined, PROMPT_EDITOR_METHODS),
                     PromptTextView: hosted("PromptTextView"),
                 },
             };

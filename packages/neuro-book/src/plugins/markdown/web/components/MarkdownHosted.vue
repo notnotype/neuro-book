@@ -47,7 +47,7 @@ import {computed, inject, shallowRef} from "vue";
 import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 
 import {NBOOK_IMAGE_MISSING, nbookChips, nbookMarkdownHost} from "../host";
-import {exposeOf} from "../parts/forward-expose";
+import {exposeOf, PROMPT_EDITOR_METHODS} from "../parts/forward-expose";
 import {markdownReportKey} from "../parts/report";
 import {markdownStickerPickerKey, markdownStickersKey} from "../parts/stickers";
 import {syntaxCatalogKey} from "../syntax-catalog";
@@ -81,8 +81,10 @@ const extra = EXTRA[props.component] ?? {};
 const inner = INNER[props.component];
 const isFailed = computed(() => failed.value.has(props.component));
 
+/** 提示词编辑器的方法在代码加载完之前先记下（见 forward-expose.ts）：对话的输入框一挂上就可能调 `focus`。 */
+const DEFERRED: Readonly<Partial<Record<HostedComponent, readonly string[]>>> = {PromptEditor: PROMPT_EDITOR_METHODS};
 const exposed = shallowRef<Record<PropertyKey, unknown> | null>(null);
-defineExpose(exposeOf(exposed));
+defineExpose(exposeOf(exposed, DEFERRED[props.component] ?? []));
 </script>
 
 <template>

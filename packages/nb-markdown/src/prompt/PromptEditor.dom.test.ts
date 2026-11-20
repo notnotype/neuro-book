@@ -7,7 +7,7 @@
 import type {Editor} from "@tiptap/core";
 import {closeHistory} from "@tiptap/pm/history";
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
-import {nextTick, shallowRef} from "vue";
+import {defineComponent, h, nextTick, onMounted, shallowRef} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import type {ChipEnv} from "../chip/chip";
@@ -519,5 +519,45 @@ describe("PromptEditor 表情（docs/specs/agent/stickers.md 输出 42、44）",
         exposed(wrapper).insertText(":lyra/困:");
         expect(changes(wrapper).at(-1)).toBe("备注:你好 :lyra/开心::lyra/困:");
         expect(stickers(wrapper)).toEqual([":lyra/开心:", ":lyra/困:"]);
+    });
+});
+
+describe("宿主一拿到引用就聚焦", () => {
+    it("引用早于编辑器建好（挂载钩子之前）：这时调的 focus 记下，建好后焦点在正文里", async () => {
+        let called = false;
+        const Host = defineComponent({
+            setup() {
+                // 函数引用在挂载钩子之前调用：对话输入框拿到引用就聚焦的时机。
+                return () => h(PromptEditor, {locale: "zh-CN", draft: {text: "", version: 1}, ref: (instance: unknown) => {
+                    if (instance === null || called) return;
+                    called = true;
+                    (instance as PromptEditorExpose).focus("end");
+                }});
+            },
+        });
+        const wrapper = mount(Host, {attachTo: document.body});
+        mounted.push(wrapper);
+        await flushPromises();
+        expect(called).toBe(true);
+        expect(document.activeElement).toBe(wrapper.element.querySelector(".ProseMirror"));
+    });
+
+    it("编辑器建好、正文还没挂进文档（父组件的挂载钩子里）：这时调的 focus 也等挂进去再聚焦", async () => {
+        let attachedAtCall: boolean | null = null;
+        const Host = defineComponent({
+            setup() {
+                const editorRef = shallowRef<PromptEditorExpose | null>(null);
+                onMounted(() => {
+                    attachedAtCall = document.querySelector(".ProseMirror")?.isConnected ?? false;
+                    editorRef.value?.focus("end");
+                });
+                return () => h(PromptEditor, {locale: "zh-CN", draft: {text: "", version: 1}, ref: editorRef});
+            },
+        });
+        const wrapper = mount(Host, {attachTo: document.body});
+        mounted.push(wrapper);
+        await flushPromises();
+        expect(attachedAtCall).toBe(false);
+        expect(document.activeElement).toBe(wrapper.element.querySelector(".ProseMirror"));
     });
 });

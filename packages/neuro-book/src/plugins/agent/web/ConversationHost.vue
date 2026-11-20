@@ -43,6 +43,10 @@ const props = defineProps<{
      * 按面板头的标题做什么：不给时开头里的会话列表下拉（编辑区页面）；消息视图给开抽屉，列表在消息视图里，没有下拉，`titlePopup` 也由它写。
      */
     titleAction?: (() => void) | null;
+    /** 放在可关的面板里（书房的看板娘面板）：头的右列最后画“关闭”，点它与输入框里按 Esc 都调它。 */
+    close?: (() => void) | null;
+    /** 不放会话列表（头的标题下拉）：书房的面板里只开 bot 的主对话。没传的布尔属性 Vue 当成 false，所以写成反向的。 */
+    noSessionList?: boolean;
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -63,7 +67,7 @@ const headTargets = computed(() => {
 });
 /** 会话列表开着没有：本地持有，按面板头的标题切换、写回标题按钮的 `aria-expanded`；头回到内容里时照旧开着。 */
 const sessionsOpen = ref(false);
-const ownList = computed(() => props.titleAction === undefined || props.titleAction === null);
+const ownList = computed(() => !props.noSessionList && (props.titleAction === undefined || props.titleAction === null));
 watch(sessionsOpen, (open) => {
     if (props.head && ownList.value) props.head.titlePopup.value = {expanded: open};
 }, {immediate: true});
@@ -126,8 +130,11 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         :status-line="props.statusLine.setting"
         :head-targets="headTargets"
         :sessions-open="sessionsOpen"
+        :closable="typeof props.close === 'function'"
         @update:sessions-open="(open: boolean) => (sessionsOpen = open)"
         @action="onAction"
+        @close="props.close?.()"
+        @escape="props.close?.()"
     >
         <template v-if="ownList" #sessions="{close}">
             <SessionPanelHost :store="props.list" :host="props.host" :pick-profile="props.pickProfile" :labels="props.labels" @opened="close()" />

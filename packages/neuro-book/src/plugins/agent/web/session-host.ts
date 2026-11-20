@@ -269,7 +269,10 @@ export interface SessionHost {
     readonly sessionId: ShallowRef<string | null>;
     /** 当前会话已经应用到的日志 seq（快照的 `head` 与之后到的日志帧）：bot 视图据此报“看到”。没有会话时为 0。 */
     readonly shownSeq: ShallowRef<number>;
-    /** 每打开一次会话（不论从哪里：列表、命令、新建、恢复）加一：消息视图据此知道聊天区被别处换了，撤掉自己的盖层。 */
+    /**
+     * 每打开一次会话（不论从哪里：列表、命令、新建、恢复）加一：消息视图与书房的面板据此知道聊天区被别处换了，撤掉自己的盖层。
+     * 借用时重新订阅同一个会话（借用数归零 30 秒后放开过）不算打开。
+     */
     readonly opened: ShallowRef<number>;
     /** 当前会话的归属：没有会话、没有归属为 null；还没读到为 undefined。消息视图据此切标签、交“看到”。 */
     readonly owner: ComputedRef<SessionOwner | null | undefined>;
@@ -1003,7 +1006,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         };
     }
 
-    /** 每打开一次会话加一（`SessionHost.opened`）。 */
+    /** 每打开一次会话加一，借用时重新订阅同一个会话不算（`SessionHost.opened`）。 */
     const opened = shallowRef(0);
     /**
      * 打开会话的入口。编辑区页面的宿主（`owners.elsewhere`）先读会话头：有归属的交给消息视图，不在这里开；读会话头期间又打开了别的
@@ -1025,7 +1028,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         await openHere(id, options);
     }
 
-    async function openHere(id: string, options: {readonly keepDraft?: boolean} = {}): Promise<void> {
+    /**
+     * `reattach`：借用数归零放开订阅之后，再借用时重新订阅同一个会话（`borrow()`）。它不是一次打开：不加 `opened`、不写最近的会话。
+     * 书房的面板随开关挂卸，若算一次打开，会作废用户刚点的联系人（`contact-opener.ts` 把不是自己引起的打开当成聊天区被别处换了）。
+     */
+    async function openHere(id: string, options: {readonly keepDraft?: boolean; readonly reattach?: boolean} = {}): Promise<void> {
         routing += 1;
         generation += 1;
         const token = generation;
@@ -1050,8 +1057,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         current = target;
         sessionId.value = id;
         shownSeq.value = 0;
-        opened.value += 1;
-        deps.recent.write(id);
+        if (options.reattach !== true) {
+            opened.value += 1;
+            deps.recent.write(id);
+        }
         bump();
         // 归属与快照同时读；读到之前按最严的档。读不到记打开失败、走现有的重试，不当成没有归属。
         if (owners !== undefined && target.owner === undefined) {
@@ -2037,7 +2046,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             cancelRelease?.();
             cancelRelease = null;
             // 归零期间取消了订阅：回来时重新打开同一个会话（归属从插件级的表里取，档位不变）。
-            if (current === null && sessionId.value !== null) void openHere(sessionId.value);
+            if (current === null && sessionId.value !== null) void openHere(sessionId.value, {reattach: true});
             let returned = false;
             return () => {
                 if (returned) return;

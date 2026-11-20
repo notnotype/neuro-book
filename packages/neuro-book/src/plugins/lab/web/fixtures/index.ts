@@ -94,6 +94,8 @@ import type {GridItem} from "nbook/plugins/stickers/web/pack-view";
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
 import type SubagentsEntry from "nbook/plugins/agent/web/components/SubagentsEntry.vue";
+import type ContactCover from "nbook/plugins/agent/web/components/ContactCover.vue";
+import type DeskCompanion from "nbook/plugins/agent/web/components/DeskCompanion.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
 import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
@@ -1339,6 +1341,29 @@ function shelfFixtures(): LabFixture[] {
                 {id: "empty", label: "没有后代：入口不画", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
             ],
             load: async () => withAgentPageText((await import("./agent-scene/SubagentsEntryFixture.vue")).default),
+        }),
+        defineLabFixture<typeof ContactCover>({
+            component: "ContactCover",
+            scenes: [
+                {id: "no-model", label: "没有模型：去添加", input: {props: {cover: {kind: "pending", pending: {key: "nbook.bots/lyra", name: "星璃", step: "no-model"}}}}},
+                {id: "opening", label: "正在打开", input: {props: {cover: {kind: "pending", pending: {key: "nbook.bots/lyra", name: "星璃", step: "opening"}}}}},
+                {id: "failed", label: "打不开：原因与重试", input: {props: {cover: {kind: "pending", pending: {key: "nbook.bots/lyra", name: "星璃", step: "failed", code: "session-busy"}}}}},
+                {id: "pick-bot", label: "还没选 bot", input: {props: {cover: {kind: "pick-bot"}}}},
+                {id: "missing", label: "找不到 bot", input: {props: {cover: {kind: "missing"}}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/ContactCoverFixture.vue")).default),
+        }),
+        defineLabFixture<typeof DeskCompanion>({
+            component: "DeskCompanion",
+            // 联系人、宿主与面板里的对话是运行时对象，不进场景输入：夹具按场景 id 自己造（见 DeskCompanionFixture.vue），这里只占位。
+            scenes: [
+                {id: "unread", label: "有未读：右上角计数，气泡写最后一句", input: {props: {providers: [], activity: [], hasModel: true, conversation: {}}}},
+                {id: "waiting", label: "等你处理：黄色感叹号，猫换提问的表情", input: {props: {providers: [], activity: [], hasModel: true, conversation: {}}}},
+                {id: "none", label: "没有联系人：不能点的猫", input: {props: {providers: [], activity: [], hasModel: true, conversation: {}}}},
+                {id: "failed", label: "读不到：悬停提示原因", input: {props: {providers: [], activity: [], hasModel: true, conversation: {}}}},
+                {id: "unread-english", label: "英文界面：长句截断", input: {props: {providers: [], activity: [], hasModel: true, conversation: {}}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/DeskCompanionFixture.vue")).default),
         }),
         defineLabFixture<typeof BackgroundCommandCard>({
             component: "BackgroundCommandCard",

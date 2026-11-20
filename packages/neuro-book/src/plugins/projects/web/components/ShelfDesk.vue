@@ -1,10 +1,15 @@
 <script setup lang="ts">
-/** 案头（同名 .md）：统计、最近写到与看板娘；空书架时是问候。只发事件。 */
+/**
+ * 案头（同名 .md）：统计、最近写到与看板娘；空书架时是问候。只发事件。看板娘那一格可以叠一个贡献的组件（`projects.desk`），猫照旧由
+ * 这里画：贡献晚到或换掉时不重挂猫（自定义元素重挂会从头播动画）。
+ */
 import {Button} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {computed} from "vue";
+import {computed, ref} from "vue";
+import type {Component} from "vue";
 
 import NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
+import type {NeuroBookMoodState} from "nbook/ui/brand/neurobook-mood";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
@@ -13,10 +18,12 @@ import {continueTarget, formatBooks, formatFiles, formatSigned, formatWhen, form
 
 defineOptions({name: "ShelfDesk"});
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     items: ReadonlyArray<ShelfItem>;
     now: string;
-}>();
+    /** 叠在看板娘上的贡献组件；没有为 null。 */
+    companion?: Component | null;
+}>(), {companion: null});
 
 const emit = defineEmits<{
     (event: "continue", id: string): void;
@@ -27,6 +34,9 @@ const text = useProjectsText();
 const totals = computed(() => shelfTotals(props.items));
 const target = computed(() => continueTarget(props.items));
 const recent = computed(() => recentPieces(props.items, 3));
+/** 猫的心情：贡献的组件发 `update:mood` 改它，没有贡献时空闲。 */
+const mood = ref<NeuroBookMoodState>("idle");
+const companionMood = computed(() => (props.companion === null ? "idle" : mood.value));
 const headline = computed(() => (totals.value.today === null
     ? {number: formatWords(totals.value.words, port).replace(/\s*(字|words)$/u, ""), label: text("shelfDesk.totalLabel")}
     : {number: formatSigned(totals.value.today, port.locale.value), label: text("shelfDesk.todayLabel")}));
@@ -69,7 +79,10 @@ const headline = computed(() => (totals.value.today === null
                 </ul>
             </div>
         </template>
-        <NeuroBookMood state="idle" class="shelf-desk__mascot" />
+        <div class="shelf-desk__mascot" data-shelf-mascot>
+            <NeuroBookMood :state="companionMood" class="shelf-desk__mood" />
+            <component :is="props.companion" v-if="props.companion !== null" class="shelf-desk__companion" @update:mood="(next: NeuroBookMoodState) => (mood = next)" />
+        </div>
         </div>
     </section>
 </template>
@@ -240,10 +253,19 @@ const headline = computed(() => (totals.value.today === null
     white-space: nowrap;
 }
 
+/* 看板娘那一格：猫与叠在上面的贡献组件同在一格（单格网格，不加定位），格子的宽与圆角在这里，里面的取 inherit。 */
 .shelf-desk__mascot {
+    display: grid;
     justify-self: end;
     width: 150px;
     border-radius: 34px;
+}
+
+.shelf-desk__mood,
+.shelf-desk__companion {
+    grid-area: 1 / 1;
+    width: 100%;
+    border-radius: inherit;
 }
 
 @container (max-width: 720px) {

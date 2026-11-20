@@ -6,7 +6,7 @@ import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/compone
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
-import {entryCountText, entryTitle} from "./entry-count";
+import {entryCountText, entryTitle} from "../../shared/entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 上段的一个入口：侧栏里的一个容器（docs/specs/ui/workbench-layout.md 输出 22、41）。 */

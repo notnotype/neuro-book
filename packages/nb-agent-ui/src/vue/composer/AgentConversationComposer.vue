@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, nextTick, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 import {AnchoredPopover, Button, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
@@ -34,6 +34,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "action", action: ViewAction): void;
+    /** 编辑器里按了 Esc：补全菜单开着、输入法正在组字时编辑器自己处理，不发。 */
+    (e: "escape"): void;
 }>();
 
 const {t, text, locale} = useAgentText();
@@ -443,8 +445,33 @@ async function toggleExpanded(): Promise<void> {
     withEditor((editor) => editor.focus("end"));
 }
 
+/**
+ * 宿主要聚焦时输入框可能还是只读的（会话还在加载）：编辑器只读时聚焦不起作用（ProseMirror 只在可编辑时聚焦），先记下，变成可写之后
+ * 再聚焦。`post`：等编辑器自己按新的只读值改完可编辑状态再聚焦。等的期间用户在页面上按了键或点了鼠标，就不再抢焦点。
+ */
+let focusWhenWritable = false;
+const dropPendingFocus = (): void => {
+    focusWhenWritable = false;
+    document.removeEventListener("pointerdown", dropPendingFocus, true);
+    document.removeEventListener("keydown", dropPendingFocus, true);
+};
+watch(readonly, (now) => {
+    if (now || !focusWhenWritable) return;
+    dropPendingFocus();
+    withEditor((editor) => editor.focus("end"));
+}, {flush: "post"});
+onBeforeUnmount(dropPendingFocus);
+
 defineExpose({
     focus(): void {
+        if (readonly.value) {
+            if (!focusWhenWritable) {
+                focusWhenWritable = true;
+                document.addEventListener("pointerdown", dropPendingFocus, true);
+                document.addEventListener("keydown", dropPendingFocus, true);
+            }
+            return;
+        }
         withEditor((editor) => editor.focus("end"));
     },
 });
@@ -513,6 +540,7 @@ defineExpose({
                     @submit="submit($event.mod)"
                     :capture-shift-tab="canCycleMode"
                     @shift-tab="cycleMode"
+                    @escape="emit('escape')"
                     @menu-open="emit('action', {type: 'menu.opened', trigger: $event.trigger})"
                     @menu-select="emit('action', {type: 'menu.selected', trigger: $event.trigger, id: $event.id})"
                     @token-activate="onTokenActivate"
