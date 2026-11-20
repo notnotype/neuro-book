@@ -94,6 +94,7 @@ import type {GridItem} from "nbook/plugins/stickers/web/pack-view";
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
 import type SubagentsEntry from "nbook/plugins/agent/web/components/SubagentsEntry.vue";
+import type ContactCover from "nbook/plugins/agent/web/components/ContactCover.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
 import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
@@ -1339,6 +1340,17 @@ function shelfFixtures(): LabFixture[] {
                 {id: "empty", label: "没有后代：入口不画", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
             ],
             load: async () => withAgentPageText((await import("./agent-scene/SubagentsEntryFixture.vue")).default),
+        }),
+        defineLabFixture<typeof ContactCover>({
+            component: "ContactCover",
+            scenes: [
+                {id: "no-model", label: "没有模型：去添加", input: {props: {cover: {kind: "pending", pending: {key: "nbook.bots/lyra", name: "星璃", step: "no-model"}}}}},
+                {id: "opening", label: "正在打开", input: {props: {cover: {kind: "pending", pending: {key: "nbook.bots/lyra", name: "星璃", step: "opening"}}}}},
+                {id: "failed", label: "打不开：原因与重试", input: {props: {cover: {kind: "pending", pending: {key: "nbook.bots/lyra", name: "星璃", step: "failed", code: "session-busy"}}}}},
+                {id: "pick-bot", label: "还没选 bot", input: {props: {cover: {kind: "pick-bot"}}}},
+                {id: "missing", label: "找不到 bot", input: {props: {cover: {kind: "missing"}}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/ContactCoverFixture.vue")).default),
         }),
         defineLabFixture<typeof BackgroundCommandCard>({
             component: "BackgroundCommandCard",

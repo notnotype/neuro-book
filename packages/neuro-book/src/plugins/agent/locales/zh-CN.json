@@ -449,6 +449,7 @@
             "opening": "正在打开对话…",
             "openFailed": "打不开和 {{name}} 的对话（{{code}}）。",
             "retry": "重试",
+            "missing": "找不到这个 bot。",
             "pickBot": "选一个 bot 开始聊天",
             "contactsFailed": "读不到联系人（{{code}}）。",
             "untitled": "未命名会话"

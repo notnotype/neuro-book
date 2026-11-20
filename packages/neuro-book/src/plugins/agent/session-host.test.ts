@@ -2062,7 +2062,7 @@ describe("中断、设置与模型（输出 7–9）", () => {
 });
 
 describe("寿命", () => {
-    test("组件都还回去之后等 30 秒才取消订阅；期间借回来不重新打开；之后借回来重新打开同一个", async () => {
+    test("组件都还回去之后等 30 秒才取消订阅；期间借回来不重新打开；之后借回来重新打开同一个，这不算一次打开（不加 opened、不写最近的会话）", async () => {
         const w = await world();
         const h = await started(w);
         const id = h.host.sessionId.value!;
@@ -2078,8 +2078,12 @@ describe("寿命", () => {
         w.settings.clock.advance(RELEASE_DELAY_MS + 1);
         // 只放开了订阅：记号还在，借回来重新打开。
         expect(h.host.sessionId.value).toBe(id);
+        const openedBefore = h.host.opened.value;
+        h.recent.value = null;
         const back = h.host.borrow();
         await until("重新打开", () => assistants(h.ctx().messages).length === 1);
+        expect(h.host.opened.value).toBe(openedBefore);
+        expect(h.recent.value).toBeNull();
         back();
     });
 });
