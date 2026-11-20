@@ -57,7 +57,8 @@ owners:
    启动时，`<bot id>/` 在、记录不在：凭据读得懂、bot id 对得上，就是上次改名之后没写下记录的那份，照凭据补写记录，不再复制；没有凭据或读不懂的目录不登记、不覆盖，写诊断 `bots.directory-unknown`。`.staging-*` 里有凭据或是空的，是没做完的复制，删掉；别的不动。记录写下之后不再复制，bot 目录里的文件归 bot 自己演进。bot id 是 `[a-z0-9-]`、1–40 个字符。
 6. bot 记录：`{id, name, preset, profile, createdAt}`，`profile` 是建时预设的岗位 Profile。主对话的 id 由 bot id 定（[`main-conversation.md`](main-conversation.md) 输出 1），不另存；所用的模型、推理档、审批模式都以主对话的会话设置为准，不在记录里另存。记录读不懂（损坏、版本不认识）时不当成没有 bot：不建新的，写诊断 `bots.record-unreadable`。
 7. 远程服务 `nbook.bots/bots`，版本 1，服务端提供，调用方 `browser`：
-   - `list()` → `[{id, name, main}]`，`main` 是主对话的持有状态（[`main-conversation.md`](main-conversation.md) 输出 3）；
+   - `list()` → `[{id, name, main, unread, latestSeq, seenSeq, last}]`，`main` 是主对话的持有状态（[`main-conversation.md`](main-conversation.md) 输出 3），`unread`、`latestSeq`、`seenSeq` 见同一份的输出 7；
+   - `last`（planned）是最后一条计数消息的摘要 `{text, at}`：持有之后在线收到计数消息就换；补数时“看到”之后那段里有计数消息取最后一条，那段是空的就从日志尾部往前至多 200 条里找，找不到、没有持有时为 null。不存记录。摘要：只取文字块，表情写法换成“[表情]”，空白折叠成一个空格，按码点取前 80 个、超了加“…”；没有文字时有图片写“[图片]”，否则写“[消息]”；Markdown 标记原样留着（已知限制）；
    - `ensureMain({botId})`：见 [`main-conversation.md`](main-conversation.md) 输出 1；
    - 事件 `botsChanged`：`list()` 的结果变了时推一份新的。先订阅后取 `list()`，`onResync` 重取。
 
