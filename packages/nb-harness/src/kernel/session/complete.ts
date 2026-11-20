@@ -4,6 +4,7 @@
  */
 
 import {NO_SPEND} from "../dispatch/core.js";
+import {requestEffort} from "../api/reasoning.js";
 import {addUsage} from "../run/results.js";
 import {retryDelay} from "../run/retry.js";
 import {replyText} from "../api/index.js";
@@ -44,7 +45,8 @@ export const complete: Complete = async (env, options) => {
     } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
     }
-    const request: ModelRequest = {purpose: "background", model: resolution.info.id, params: {}, headers: {}, system: rendered.system, messages: rendered.messages, tools: []};
+    const reasoning = requestEffort(null, resolution);
+    const request: ModelRequest = {purpose: "background", model: resolution.info.id, ...(reasoning.effort === undefined ? {} : {effort: reasoning.effort}), params: reasoning.disableReasoning === true ? {disableReasoning: true} : {}, headers: {}, system: rendered.system, messages: rendered.messages, tools: []};
     const signal = options.signal ?? NEVER;
     let response = await resolution.call(request, signal, () => undefined);
     let usage = response.usage;

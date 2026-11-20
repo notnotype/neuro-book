@@ -11,6 +11,7 @@
  */
 
 import type {ConversationTurn, DiagnosticCode, EntryPoint, Message, ModelRequest, PromptChild, RenderTable, RequestPurpose, ToolDeclaration} from "../api/index.js";
+import type {RequestEffort} from "../api/reasoning.js";
 import {committedTurns} from "../state/history.js";
 import type {Assembly} from "../extension/assemble.js";
 import {viewCtx, type StateAt, type ViewEnvironment} from "../extension/ctx.js";
@@ -45,7 +46,8 @@ export interface RequestInputs {
     readonly environment: ViewEnvironment;
     readonly purpose: RequestPurpose;
     readonly model: string;
-    readonly effort?: string;
+    /** 这次请求的档位与是否关思考（`requestEffort` 的结果）；不给表示不指定。 */
+    readonly reasoning?: RequestEffort;
     readonly tools: readonly ToolDeclaration[];
     readonly cache: ViewCache;
     /** 开发检查（前缀稳定、提交一致）；发请求时随开发模式，预览时关。 */
@@ -190,8 +192,8 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
         const request: ModelRequest = {
             purpose: inputs.purpose,
             model: inputs.model,
-            ...(inputs.effort === undefined ? {} : {effort: inputs.effort}),
-            params: {},
+            ...(inputs.reasoning?.effort === undefined ? {} : {effort: inputs.reasoning.effort}),
+            params: inputs.reasoning?.disableReasoning === true ? {disableReasoning: true} : {},
             headers: {},
             system: rendered.system,
             messages: rendered.messages,

@@ -58,7 +58,8 @@ function streamOf(response: ModelResponse): ModelDelta[] {
 }
 
 /** `info` 换掉模型信息（例如给 `compactAt`、小窗口）。 */
-export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
+/** `defaultEffort` 按这次解析的请求给角色的默认档（真实端口在解析到角色时给）。 */
+export function createTestModel(info: ModelInfo = TEST_MODEL_INFO, options: {readonly defaultEffort?: (query: ModelQuery) => string | undefined} = {}): TestModel {
     const unavailable = new Map<RequestPurpose, ModelResolutionCode>();
     const queries: ModelQuery[] = [];
     const queue: Reply[] = [];
@@ -89,6 +90,7 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
             resolve: (query) => (queries.push(query), unavailable.has(query.purpose)) ? {ok: false, code: unavailable.get(query.purpose)!} : ({
                 ok: true,
                 info,
+                ...(options.defaultEffort?.(query) === undefined ? {} : {defaultEffort: options.defaultEffort(query)!}),
                 call: async (request, signal, onDelta, meta) => {
                     requests.push(request);
                     metas.push(meta);

@@ -13,5 +13,6 @@ export {estimateImageTokens, estimateTokens} from "./compaction/compact.js";
 export {createAgentHost, ExtensionRejected} from "./session/agent-host.js";
 export {PreviewUnavailable} from "./session/preview.js";
 export {ompCall, ompModelInfo, type OmpTarget, type OmpTransport} from "./model/omp.js";
+export {reasoningOf} from "./model/reasoning.js";
 export {onProcessInterrupt, onProcessTermination, type TerminationSignal} from "./model/process.js";
 export {finalOnly, mapEventContent, mergeSteers, opening, reminder, standardLayout, withoutEvents, type ContentMap, type ContentWhere} from "./helpers/index.js";

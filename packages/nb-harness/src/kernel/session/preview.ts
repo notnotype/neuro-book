@@ -13,6 +13,7 @@ import {estimateImageTokens, estimateTokens, triggerPoint} from "../compaction/c
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import {requestEffort} from "../api/reasoning.js";
 import {chainLayers, runChain, type ChainFailure} from "../run/chain.js";
 import {takeBoundaryDrafts} from "../run/loop.js";
 import {ctrl} from "../run/writes.js";
@@ -125,7 +126,7 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
         projected = inTurn ? [...opening, ...takeBoundaryDrafts(core, runId, new Set(opening.length > 0 && next !== undefined ? [next.id] : []))] : [];
     }
     const state = projected.length > 0 ? core.project(projected) : core.stateAt(leaf);
-    const computed = computeRequest({assembly: core.assembly, state, environment, purpose: "turn", model: resolution.info.id, ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}), tools, cache: core.view, checks: false, inactive: (id) => core.revoked.has(id)});
+    const computed = computeRequest({assembly: core.assembly, state, environment, purpose: "turn", model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), tools, cache: core.view, checks: false, inactive: (id) => core.revoked.has(id)});
     if (!computed.ok) throw new PreviewUnavailable(computed.reason, `the next request cannot be computed (${computed.reason})`);
 
     const changes: RequestChange[] = [];

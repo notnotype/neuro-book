@@ -14,6 +14,7 @@ import {clampThinkingLevelForModel, getSupportedEfforts, type Effort, type Model
 import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelCallMeta, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
 import {extractProviderRetryHint} from "@oh-my-pi/pi-ai/utils/retry-after";
 import {classifyProviderError} from "./classify.js";
+import {reasoningOf} from "./reasoning.js";
 import {createFinishWatch} from "./finish-watch.js";
 import {redactText, sanitizeProviderText} from "./redact.js";
 import {takeRequestDumps} from "./request-dump.js";
@@ -73,6 +74,7 @@ export function ompModelInfo(model: Model): ModelInfo {
         ...(model.maxTokens ? {maxOutput: model.maxTokens} : {}),
         capabilities: {vision: model.input.includes("image"), thinking: model.reasoning},
         efforts: [...getSupportedEfforts(model)],
+        reasoning: reasoningOf(model),
     };
 }
 

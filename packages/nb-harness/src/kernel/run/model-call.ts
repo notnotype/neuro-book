@@ -7,10 +7,11 @@
 
 import {limitImages} from "../dispatch/attachments.js";
 import {createHash} from "node:crypto";
-import type {Message, ModelCaller, ModelCallMeta, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
+import type {Message, ModelCaller, ModelCallMeta, ModelDraft, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import {requestEffort, type RequestEffort} from "../api/reasoning.js";
 import {isSealed, seal} from "../state/freeze.js";
 import type {HistoryState} from "../state/history.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
@@ -149,6 +150,18 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
 }
 
 /**
+ * 非对话请求的档位：草稿自己带了档、或已经显式关了思考（审批草稿）的不动；否则按这次解析补。就地压缩（`sessionModel`）
+ * 沿用本轮对话的会话档，摘要压缩等按它自己模型解析到的角色默认档，不吃会话档（档位对另一个模型没有意义）。
+ */
+function draftReasoning(draft: ModelDraft, reasoning: RequestEffort): {readonly effort?: string; readonly params?: ModelRequest["params"]} {
+    if (draft.effort !== undefined || draft.params.disableReasoning === true) return {};
+    return {
+        ...(reasoning.effort === undefined ? {} : {effort: reasoning.effort}),
+        ...(reasoning.disableReasoning === true ? {params: {...draft.params, disableReasoning: true}} : {}),
+    };
+}
+
+/**
  * 给审批钩子、压缩方法的 `ctx.model`：非对话的请求同样经模型拦截链；成功写 `modelEnded`，失败写 `modelFailed`。
  * 失败不抛错，以 `stopReason: "error"` 的回复交回。
  */
@@ -161,7 +174,7 @@ export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpo
         const signal = options.signal === undefined ? runSignal : AbortSignal.any([runSignal, options.signal]);
         const resolution = options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
-        const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
+        const request: ModelRequest = {...draft, ...draftReasoning(draft, requestEffort(options.sessionModel === true ? host.core.session.kernel.core.effort : null, resolution)), purpose: options.purpose, model: draft.model ?? resolution.info.id};
         // 每次重新进链：费用这类检查要看发请求这一刻的累计（docs/specs/harness/runtime.md 输出 67）。
         for (let retries = 0; ; retries += 1) {
             const {response, request: number, failures} = await callModel(host, resolution, request, signal);

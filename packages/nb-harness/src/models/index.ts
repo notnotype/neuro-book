@@ -5,6 +5,8 @@
 
 export type {CatalogModel, CatalogProvider, CatalogSuggestion, DiscoveredModel, DiscoverModelsOptions, DiscoveryResult, ModelPrice, ProviderAccess, ThinkingEffort} from "./catalog.js";
 export {catalogModel, clampEffort, discoverModels, listCatalog, providerAccess, suggestFromCatalog, supportedEfforts, THINKING_EFFORTS} from "./catalog.js";
+export {reasoningOf, requestEffort} from "../kernel/index.js";
+export type {ModelReasoning, ReasoningOff, RequestEffort} from "../kernel/index.js";
 export type {CredentialStore} from "./credentials.js";
 export {openCredentials} from "./credentials.js";
 export type {StartupEnv} from "./env.js";

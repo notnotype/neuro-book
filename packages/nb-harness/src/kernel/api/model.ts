@@ -127,6 +127,37 @@ export interface ModelDelta {
     readonly text: string;
 }
 
+/**
+ * “关闭思考”在线上的含义（`reasoningOf` 由模型的协议策略算出）：
+ * - `disable`：协议有真正的关闭开关；
+ * - `lowest`：只能降到最低一档；
+ * - `none`：模型强制思考，不能关。
+ */
+export type ReasoningOff = "disable" | "lowest" | "none";
+
+/** 模型的推理能力：选择器、角色页画哪几档、“关闭”叫什么都按它。 */
+export type ModelReasoning =
+    /** 不推理。 */
+    | {readonly kind: "none"}
+    /** 会推理但不能调档。 */
+    | {readonly kind: "fixed"}
+    | {
+        readonly kind: "levels";
+        /** 从低到高。 */
+        readonly levels: readonly string[];
+        readonly off: ReasoningOff;
+        /**
+         * 请求里不指定档时线上实际发生什么：`off`（协议默认就不思考，例如 Qwen 的 `enable_thinking` 缺省为假）、
+         * 一个档位（强制思考的模型 OMP 会垫到最低档）、null（交给服务商，我们不知道）。只用于显示“模型的默认”。
+         */
+        readonly unset: string | null;
+        /** 档位是 OMP 对缺证据的模型物化的未验证梯级时为 false。 */
+        readonly verified: boolean;
+    };
+
+/** 这次请求用的档来自哪里：会话里明确选的、角色上设的、模型自己的默认。 */
+export type EffortSource = "session" | "role" | "model";
+
 export interface ModelInfo {
     readonly id: string;
     readonly contextWindow: number;
@@ -134,6 +165,8 @@ export interface ModelInfo {
     readonly capabilities: {readonly vision: boolean; readonly thinking: boolean};
     /** 模型支持的推理档；设置里的档按它夹取（t09 决定 6）。 */
     readonly efforts: readonly string[];
+    /** 推理能力；不给的端口（旧的、测试的）内核照 `efforts` 原样处理，不夹取也没有“关闭”。 */
+    readonly reasoning?: ModelReasoning;
     /** 自动压缩的触发点（token 数）；不写按窗口的比例（t11）。 */
     readonly compactAt?: number;
 }
@@ -156,7 +189,7 @@ export interface CoreSettings {
 export type ModelResolutionCode = "no-model" | "no-credentials" | "unknown-model" | "role-unbound";
 
 export type ModelResolution =
-    | {readonly ok: true; readonly info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta): Promise<ModelResponse>}
+    | {readonly ok: true; readonly info: ModelInfo; /** 解析到的角色上设的默认档（`off` 或档位）；会话没有明确选档时用它（一次解析的属性，不属于按模型共享的 `info`）。 */ readonly defaultEffort?: string; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta): Promise<ModelResponse>}
     | ({readonly ok: false; readonly code: ModelResolutionCode} & ModelResolutionChoice);
 
 /**

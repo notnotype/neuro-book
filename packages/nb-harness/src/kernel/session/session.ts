@@ -21,6 +21,7 @@ import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
 import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, noticeCommand, wakeIfDue, releaseCommand, removeCommand, removeNoticeCommand, resumeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
+import {requestEffort} from "../api/reasoning.js";
 import {resolveCommand} from "../run/interaction.js";
 import {previewRequest} from "./preview.js";
 import {ProcessInterrupt} from "../run/writes.js";
@@ -366,7 +367,10 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 usage: core.spend,
                 model: (() => {
                     const resolution = state.turnModel();
-                    if (resolution.ok) return {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts};
+                    if (resolution.ok) {
+                        const effort = requestEffort(kernel.core.effort, resolution);
+                        return {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts, ...(resolution.info.reasoning === undefined ? {} : {reasoning: resolution.info.reasoning, effectiveEffort: effort.effective, effortSource: effort.source})};
+                    }
                     return {ok: false as const, code: resolution.code, ...(resolution.role === undefined ? {} : {role: resolution.role}), ...(resolution.provider === undefined ? {} : {provider: resolution.provider})};
                 })(),
                 buffer: [...kernel.buffer],
