@@ -124,6 +124,8 @@ describe("本地资产目录", () => {
         expect(problems.filter((problem) => problem.startsWith("资产目录里有 macOS 的资产，却缺"))).toHaveLength(4);
         expect(problems).toContain("SHA256SUMS-macos 里 NeuroBook-macos-arm64.dmg 的摘要没有列出");
         expect(localAssetProblems(both, sums, macSums.replace("0".repeat(64), "9".repeat(64)))).toContain("SHA256SUMS-macos 里 NeuroBook-macos-arm64.dmg 的摘要与文件不同");
+        // 同名列两次（一行错、一行对）不能靠后一行蒙混过去。
+        expect(localAssetProblems(both, sums, `${"9".repeat(64)}  NeuroBook-macos-arm64.dmg\n${macSums}`)).toContain("SHA256SUMS-macos 里 NeuroBook-macos-arm64.dmg 列了不止一次");
     });
 });
 

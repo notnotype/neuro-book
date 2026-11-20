@@ -78,6 +78,8 @@ function sumsProblems(label: string, files: ReadonlyMap<string, string>, sums: s
         if (line.trim() === "") continue;
         const match = /^([a-f0-9]{64}) [ *](.+)$/.exec(line);
         if (match === null) problems.push(`${label} 的一行读不懂：${line}`);
+        // 同名的两行不让后一行盖掉前一行：用户 `shasum -c` 两行都会核对，有一行不对就失败。
+        else if (listed.has(match[2]!)) problems.push(`${label} 里 ${match[2]!} 列了不止一次`);
         else listed.set(match[2]!, match[1]!);
     }
     for (const [name, digest] of files) {

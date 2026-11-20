@@ -167,7 +167,9 @@ describe("演练", () => {
         const {command, lines} = fake({runs: [run({databaseId: 4, createdAt: NOW})], dispatched});
         expect(await command.rehearse()).toBe(true);
         const order = lines();
-        expect(order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master --repo notnotype/neuro-book"));
+        const pushed = order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`);
+        expect(pushed).toBeGreaterThanOrEqual(0);
+        expect(pushed).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master --repo notnotype/neuro-book"));
         expect(order).toContain("gh run watch 5 --interval 30 --exit-status --repo notnotype/neuro-book");
     });
 });

@@ -80,7 +80,8 @@ jobs:
           path: |
             packages/neuro-book/desktop/bundle/
             packages/neuro-book/desktop/payload/
-          retention-days: 14
+          # 与 Release 的其它产物一样留 35 天：构建作业失败后，30 天内重跑它还要用这份输入。
+          retention-days: 35
           if-no-files-found: error
 
   build:

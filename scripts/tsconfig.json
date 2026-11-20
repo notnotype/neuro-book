@@ -34,6 +34,7 @@
         "release/pack-smoke.ts",
         "release/publish.ts",
         "release/release-plan.ts",
+        "release/release.ts",
         "release/semver.ts",
         "release/tag.ts",
         "release/verify-update-feed.ts",
