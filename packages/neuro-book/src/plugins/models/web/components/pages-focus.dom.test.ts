@@ -57,6 +57,8 @@ describe("打开设置时定位", () => {
         render(RolesPage, focus);
         await waitUntil("定位完", () => document.activeElement?.closest("[data-role-row]")?.getAttribute("data-role-row") === "main", {timeoutMs: 10_000});
         expect(focus.focus.value).toBeNull();
+        // 行里有图标按钮、思考档下拉之后焦点仍在模型下拉上，不依赖控件的先后。
+        expect(document.activeElement?.closest("[data-role-model]")).not.toBeNull();
     });
 
     it("角色页：认不出的角色取走后不动焦点", async () => {

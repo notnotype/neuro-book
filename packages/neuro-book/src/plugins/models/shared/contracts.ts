@@ -10,7 +10,9 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-export {roleOfReference, roleReference} from "@notnotype/nb-models/config";
+export {roleOfReference, roleReference, splitReference} from "@notnotype/nb-models/config";
+/** 一次请求用的档位（纯函数，浏览器也用）：角色页据此告诉用户“当前模型没有这一档，实际用哪一档”。 */
+export {requestEffort} from "@notnotype/nb-harness/kernel/contracts";
 export {hasCredentials} from "@notnotype/nb-models/contract";
 export type {ModelsService, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 export {builtinRoleNameKey, modelsText} from "./text";

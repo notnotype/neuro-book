@@ -303,6 +303,35 @@ describe("nb-ui components", () => {
         wrapper.unmount();
     });
 
+    it("segmented control, inherited: the followed value stays checked for assistive tech, and choosing it (click or arrow key) still emits so the caller can pin it", async () => {
+        const options = [{label: "低", value: "low"}, {label: "中", value: "medium"}, {label: "高", value: "high"}];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: "medium", options, inherited: true, variant: "raised", describedby: "follow-note"}, attachTo: document.body});
+        const buttons = wrapper.findAll("button");
+
+        expect(buttons.map((button) => button.attributes("aria-checked"))).toEqual(["false", "true", "false"]);
+        expect(wrapper.get("[role='radiogroup']").attributes("aria-describedby")).toBe("follow-note");
+        await buttons[1]!.trigger("click");
+        await wrapper.get("[role='radiogroup']").trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["medium"], ["high"]]);
+        wrapper.unmount();
+    });
+
+    it("segmented control: the caller's description joins the Field's description in aria-describedby; raised variant keeps the radio group contract", () => {
+        const options = [{label: "低", value: "low"}, {label: "高", value: "high"}];
+        const wrapper = mount(Field, {
+            attachTo: document.body,
+            props: {label: "思考", description: "越高越慢", group: true},
+            slots: {default: () => h(SegmentedControl, {options, modelValue: "low", variant: "raised", describedby: "follow-note"})},
+        });
+        const group = wrapper.get("[role='radiogroup']");
+        const ids = (group.attributes("aria-describedby") ?? "").split(/\s+/u);
+        expect(ids).toHaveLength(2);
+        expect(ids.at(-1)).toBe("follow-note");
+        expect(wrapper.element.querySelector(`[id="${ids[0]}"]`)?.textContent).toBe("越高越慢");
+        expect(wrapper.findAll("button").map((button) => button.attributes("aria-checked"))).toEqual(["true", "false"]);
+        wrapper.unmount();
+    });
+
     it("banner: actions slot holds several buttons, error is announced as alert, icon can be replaced, dismiss only emits", async () => {
         const wrapper = mount(Banner, {
             props: {tone: "danger", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},

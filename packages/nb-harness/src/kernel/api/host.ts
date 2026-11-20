@@ -11,7 +11,7 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, HeldCause, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, SessionOwner, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionChoice, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
+import type {Spend, ApprovalMode, CoreSettings, EffortSource, Message, ModelCaller, ModelErrorKind, ModelReasoning, ModelPort, ModelRequest, ModelResolutionChoice, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
@@ -198,7 +198,7 @@ export interface SessionSnapshot {
     /** 这个会话累计的费用与 token。 */
     usage: Spend;
     /** 现在这个会话发对话请求会用哪个模型（runtime.md 输出 77）。 */
-    model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | ({ok: false; code: ModelResolutionCode} & ModelResolutionChoice);
+    model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]; reasoning?: ModelReasoning; effectiveEffort?: string | null; effortSource?: EffortSource | null; /** 解析走的角色与它的默认档：“用默认”回到哪里由它们定，不看会话的选择。 */ role?: string; defaultEffort?: string} | ({ok: false; code: ModelResolutionCode} & ModelResolutionChoice);
     buffer: BufferedInput[];
     /** 待发的提醒，含正文；同缓冲区的输入，不经出站过滤（runtime.md 输出 118）。 */
     notices: PendingNotice[];

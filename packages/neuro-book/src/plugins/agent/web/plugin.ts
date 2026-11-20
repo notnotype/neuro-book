@@ -19,7 +19,7 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference} from "nbook/plugins/models/shared/contracts";
+import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference, splitReference} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
@@ -38,11 +38,13 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
+import {providerIcon} from "nbook/ui/provider-icons";
+import {roleIconClass} from "nbook/ui/role-icons";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import {Type} from "typebox";
 
-import type {AgentConversationServices, AgentViewRegistry, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentViewRegistry, AgentWelcomeView, ComposerGroupView, ComposerIcon, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE, SESSION_OWNERS_POINT, sessionOwnersPoint, stickerAllowlistUsageKey} from "../shared/contracts";
@@ -135,6 +137,13 @@ const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])},
 const DRAFTS_RECORD = defineRecord({key: "agent.drafts", scope: "user", locality: "local", version: 1, keyed: true, schema: DraftsSchema});
 const recentRecord = (project: boolean) => defineRecord({key: "agent.recent-session", scope: project ? "project" : "user", locality: "local", version: 1, keyed: true, schema: RecentSchema});
 
+/** 服务商图标的引用：只放键，图标表在渲染时由图标解析端口取（表晚到时首字母换成图标）。 */
+const providerIconRef = (id: string, name: string): ComposerIcon => ({kind: "key", set: "provider", key: id, fallback: name});
+
+function modelGroups(snapshot: ModelsSnapshot): ComposerGroupView[] {
+    return snapshot.providers.filter(hasCredentials).map((provider) => ({id: provider.id, name: provider.name, icon: providerIconRef(provider.id, provider.name)}));
+}
+
 function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
     return snapshot.providers.filter(hasCredentials).flatMap((provider) => provider.models
         .filter((model) => model.enabled && model.status === "ok")
@@ -143,6 +152,7 @@ function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
             label: model.name,
             supportsImages: model.vision,
             group: provider.name,
+            groupId: provider.id,
             contextWindow: model.contextWindow,
             reasoning: model.reasoning,
             price: model.price === null ? null : {input: model.price[0], output: model.price[1]},
@@ -162,13 +172,22 @@ function roleNameOf(role: ModelsSnapshot["roles"][number]): RoleOption["name"] {
 
 function roleOptions(snapshot: ModelsSnapshot): RoleOption[] {
     const labels = new Map<string, string>(snapshot.providers.flatMap((provider) => provider.models.map((model) => [`${provider.id}/${model.id}`, model.name] as const)));
-    return snapshot.roles.map((role) => ({
-        key: roleReference(role.id),
-        name: roleNameOf(role),
-        axis: role.axis,
-        modelLabel: role.model === null ? null : labels.get(role.model) ?? role.model,
-        status: role.status,
-    }));
+    const providers = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
+    return snapshot.roles.map((role) => {
+        const bound = role.model === null ? null : splitReference(role.model);
+        const providerName = bound === null ? undefined : providers.get(bound.provider);
+        return {
+            key: roleReference(role.id),
+            id: role.id,
+            name: roleNameOf(role),
+            axis: role.axis,
+            modelLabel: role.model === null ? null : labels.get(role.model) ?? role.model,
+            status: role.status,
+            icon: {kind: "class", name: roleIconClass(role.id, role.icon)},
+            ...(bound === null || providerName === undefined ? {} : {modelIcon: providerIconRef(bound.provider, providerName)}),
+            effort: role.effort,
+        };
+    });
 }
 
 /** 这个文件也由不带 DOM 类型的 tsc 检查，所以按需要的那几个取。 */
@@ -267,6 +286,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
             const models = shallowRef<readonly ComposerModelView[] | null>(null);
             const roles = shallowRef<readonly RoleOption[] | null>(null);
+            const groups = shallowRef<readonly ComposerGroupView[]>([]);
             /** 没过滤的快照：Profile 设置页要看已绑定但用不了的模型。 */
             const modelsSnapshot = shallowRef<ModelsSnapshot | null>(null);
             const modelsFailed = shallowRef(false);
@@ -280,6 +300,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const takeModels = (snapshot: ModelsSnapshot): void => {
                 // 先换角色：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。
                 roles.value = roleOptions(snapshot);
+                groups.value = modelGroups(snapshot);
                 models.value = modelOptions(snapshot);
                 modelsSnapshot.value = snapshot;
                 modelsFailed.value = false;
@@ -449,6 +470,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     rememberRules: (rules) => rulesWriter.append(rules),
                     models: () => models.value,
                     roles: () => roles.value,
+                    groups: () => groups.value,
                     providers: () => modelsSnapshot.value?.providers.map((provider) => ({id: provider.id, name: provider.name})) ?? null,
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
@@ -579,6 +601,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const stickers = picker === null ? null : await stickersContribution(picker, (message, error) => report("sticker-picker-failed", `${message}: ${String(error)}`));
                 const baseContributions = [...builtinContributions, subagentContribution({card: SubagentCard}), evalContribution({detail: EvalDetail}), requestEntriesContribution, ...(stickers === null ? [] : [stickers.contribution])];
                 const renderers = {
+                    // 图标解析端口：在渲染里调，`providerIcon` 读的表是响应式的，表晚到时用到图标的地方自动重画。
+                    icons: (icon: ComposerIcon) => {
+                        if (icon.kind !== "key" || icon.set !== "provider") return null;
+                        return providerIcon(icon.key);
+                    },
                     form: markRaw(AgentFormRenderer),
                     backgroundCommand: markRaw(BackgroundCommandCard),
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),

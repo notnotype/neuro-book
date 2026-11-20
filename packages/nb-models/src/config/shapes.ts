@@ -15,6 +15,10 @@ export const PROVIDER_ID = "^[a-z0-9][a-z0-9._-]*$";
 const ENV_NAME = "^[A-Za-z_][A-Za-z0-9_]*$";
 const ROLE_ID = "^[a-z0-9][a-z0-9-]*$";
 
+/** 角色图标键：小写字母、数字与连字符。 */
+const ICON_KEY = "^[a-z0-9][a-z0-9-]*$";
+/** 角色的思考档：`off` 是关闭，其余是档位；模型没有这一档时请求时按模型夹取。 */
+export const RoleEffort = Type.Union([Type.Literal("off"), Type.Literal("minimal"), Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh"), Type.Literal("max")]);
 const Headers = Type.Record(Type.String({minLength: 1}), Type.String());
 const Price = Type.Union([Type.Tuple([Type.Number({minimum: 0}), Type.Number({minimum: 0}), Type.Number({minimum: 0}), Type.Number({minimum: 0})]), Type.Null()]);
 
@@ -55,6 +59,10 @@ export const RoleConfigSchema = Type.Object({
     description: Type.String(),
     /** `<服务商>/<模型>`；null 是未绑定。 */
     model: Type.Union([Type.String({minLength: 3}), Type.Null()]),
+    /** 这个角色的默认思考档；不写是跟随模型。会话里明确选的档优先（docs/specs/models/service.md“角色的思考档”）。 */
+    effort: Type.Optional(RoleEffort),
+    /** 角色图标的键，键到图标的表在应用里；不认识的键应用画默认图标。 */
+    icon: Type.Optional(Type.String({pattern: ICON_KEY, maxLength: 40})),
 }, {additionalProperties: false});
 
 export const ProvidersSchema = Type.Array(ProviderConfigSchema);

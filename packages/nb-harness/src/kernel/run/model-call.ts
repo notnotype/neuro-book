@@ -7,10 +7,11 @@
 
 import {limitImages} from "../dispatch/attachments.js";
 import {createHash} from "node:crypto";
-import type {Message, ModelCaller, ModelCallMeta, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
+import type {Message, ModelCaller, ModelCallMeta, ModelDraft, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import {requestEffort, type RequestEffort} from "../api/reasoning.js";
 import {isSealed, seal} from "../state/freeze.js";
 import type {HistoryState} from "../state/history.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
@@ -149,6 +150,18 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
 }
 
 /**
+ * 非对话请求的档位：草稿自己带了档、或已经显式关了思考（审批草稿）的不动；否则按这次解析补。就地压缩（`sessionModel`）
+ * 沿用本轮对话的会话档，摘要压缩等按它自己模型解析到的角色默认档，不吃会话档（档位对另一个模型没有意义）。
+ */
+function draftReasoning(draft: ModelDraft, reasoning: RequestEffort): {readonly effort?: string; readonly params?: ModelRequest["params"]} {
+    if (draft.effort !== undefined || draft.params.disableReasoning === true) return {};
+    return {
+        ...(reasoning.effort === undefined ? {} : {effort: reasoning.effort}),
+        ...(reasoning.disableReasoning === true ? {params: {...draft.params, disableReasoning: true}} : {}),
+    };
+}
+
+/**
  * 给审批钩子、压缩方法的 `ctx.model`：非对话的请求同样经模型拦截链；成功写 `modelEnded`，失败写 `modelFailed`。
  * 失败不抛错，以 `stopReason: "error"` 的回复交回。
  */
@@ -156,12 +169,23 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
  * 解析失败时不写任何模型事件（没有发出请求），码放在交回的回复的 `error.code` 里，由压缩方法、审批钩子处理
  * （docs/specs/harness/runtime.md）。
  */
-export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, runSignal: AbortSignal): ModelCaller {
+/** 当前请求边界上对话已经解析好的模型与档位；就地压缩（`sessionModel`）沿用它，不再解析第二次。 */
+export interface PinnedSessionModel {
+    readonly resolution: Extract<ModelResolution, {ok: true}>;
+    readonly effort: RequestEffort;
+}
+
+/**
+ * `pinned` 给了就用它：压缩拦截、等待之间设置可能被改（另一个窗口给角色加了默认档、换了绑定），第二次解析会让就地压缩的
+ * 请求与同一边界上的对话请求用不同的模型或档位（前缀也不再相同）。没给时（审批钩子等没有边界的调用方）按调用时的设置解析。
+ */
+export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, runSignal: AbortSignal, pinned?: PinnedSessionModel): ModelCaller {
     return async (draft, options) => {
         const signal = options.signal === undefined ? runSignal : AbortSignal.any([runSignal, options.signal]);
-        const resolution = options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
+        const usePinned = options.sessionModel === true && pinned !== undefined;
+        const resolution = usePinned ? pinned.resolution : options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
-        const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
+        const request: ModelRequest = {...draft, ...draftReasoning(draft, usePinned ? pinned.effort : requestEffort(options.sessionModel === true ? host.core.session.kernel.core.effort : null, resolution)), purpose: options.purpose, model: draft.model ?? resolution.info.id};
         // 每次重新进链：费用这类检查要看发请求这一刻的累计（docs/specs/harness/runtime.md 输出 67）。
         for (let retries = 0; ; retries += 1) {
             const {response, request: number, failures} = await callModel(host, resolution, request, signal);

@@ -387,12 +387,50 @@ export type ComposerModeView = {
     icon?: string;
 };
 
+/**
+ * 图标的引用：视图里只放键，由宿主注入的图标解析端口（`AgentIconPort`）在渲染时解析。这样图标表晚到、换了表都能重画，
+ * 视图数据也不带地址与 SVG。端口解析不出（表还没到、没登记）时画 `fallback` 的首字母块。
+ */
+export type ComposerIcon =
+    | {kind: "key"; set: "provider" | "role"; key: string; /** 解析不出时画它的首字母。 */ fallback?: string}
+    | {kind: "initial"; text: string}
+    | {kind: "class"; name: string};
+
+/** 模型库里的一组（服务商）。模型行只带 `groupId`，组的名字与图标在这里写一次。 */
+export type ComposerGroupView = {id: string; name: string; icon?: ComposerIcon};
+
+/**
+ * 思考档的状态（选择器与角色页共用的语义）：模型的能力、档位、当前显示的档与它的来源。缺省时选择器按 `thinkingLevels` 与
+ * `thinking` 推出。
+ */
+export type ComposerEffortView = {
+    /** `none` 不推理；`fixed` 会思考但不能调档；`levels` 可调。 */
+    kind: "none" | "fixed" | "levels";
+    /** 档位，从低到高，不含 `off`。 */
+    levels: string[];
+    /** 能真正关闭：档位前另有 `off` 一项。只能降到最低档的模型为假，最低档就在 `levels` 里。 */
+    canOff: boolean;
+    /** 档位是 OMP 对缺证据的模型物化的未验证梯级：界面加“?”说明。 */
+    verified: boolean;
+    /** 当前显示的档：明确选的；或跟随时夹取后的有效档（`off` 或档位）；没有则为 null。 */
+    value: string | null;
+    /** `session` 明确选的；`role`、`model` 是跟随来的；null 没有指定。 */
+    source: "session" | "role" | "model" | null;
+    /**
+     * “跟随”会用谁的默认：`role`（带角色的显示名，写“主力的默认”）或 `model`；null 是没有默认（交给服务商），这时没有
+     * “用默认”的按钮。明确选了档时它说明“用默认”会回到哪里。
+     */
+    follow?: {source: "role" | "model"; name?: string; /** 回到跟随后显示的档；宿主知道时给，不经服务端往返就地回写的宿主（Lab）靠它。 */ value?: string | null} | null;
+};
+
 export type ComposerModelView = {
     key: string;
     label: string;
     supportsImages: boolean;
     /** 分组名（例如服务商）；同组的排在一起、组名做小标题，不同组里的同名模型分得清。 */
     group?: string;
+    /** 分组键（服务商 id）：宿主给了 `ComposerView.groups` 时按它分组并取组的名字与图标，同名的两家分得开。 */
+    groupId?: string;
     /** 用不了的原因（例如密钥没有设置）；有它时这一项灰掉、不能选，悬停看原因。 */
     unavailable?: string;
     /** 下面三项只在给了 `roles` 的选择器里显示。 */
@@ -412,6 +450,12 @@ export type ComposerRoleView = {
     modelLabel: string | null;
     /** 用不了的原因。仍然能选：选了之后输入框说明原因，绑定好了就能用。 */
     unavailable?: string;
+    /** 角色自己的图标（内置角色有缺省图标，自建的可以挑）；缺省时选择器画通用图标。 */
+    icon?: ComposerIcon;
+    /** 绑定的模型的服务商图标。 */
+    modelIcon?: ComposerIcon;
+    /** 角色的默认思考档（`off` 或档位），写在行尾；没设为 null 或不写。 */
+    effort?: string | null;
 };
 
 /** 审批模式的一项；`danger` 的（全部放行）选中时，输入框工具栏上的审批模式控件画成警告色。 */
@@ -433,6 +477,10 @@ export type ComposerView = {
     /** 思考档位的取值，例如 `off`、`low`、`high`；常见取值由视图翻译，其余原样显示。 */
     thinkingLevels: string[];
     thinking: string | null;
+    /** 思考档的完整状态；不给时按 `thinkingLevels` 与 `thinking` 推出（旧宿主不改）。 */
+    effort?: ComposerEffortView;
+    /** 模型库的分组；不给时按每个模型的 `group` 名分组。 */
+    groups?: ComposerGroupView[];
     /** 第一项是普通模式；不是第一项时模式按钮用强调色。 */
     modes: ComposerModeView[];
     mode: string;
@@ -645,6 +693,8 @@ export type BuiltinAgentViewAction =
     | {type: "mode.set"; mode: string}
     | {type: "model.set"; modelKey: string}
     | {type: "thinking.set"; level: string}
+    /** 回到“跟随”：不再明确选档，用角色或模型的默认档。 */
+    | {type: "thinking.reset"}
     | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问

@@ -569,6 +569,44 @@ test.describe("输入框", () => {
         await expect.poll(() => lastAction(page)).toEqual({type: "model.set", modelKey: "deepseek-chat"});
     });
 
+    test("角色模型选择器：窄面板与英文下面板、分段与说明没有横向溢出，触发器的长名字被省略、档位留着；选档、回到跟随在 Lab 里来回", async ({page}) => {
+        for (const scene of ["narrow", "narrow-long-names", "english-narrow-seven", "wide"]) {
+            await openScene(page, "AgentRoleModelPicker", scene);
+            await page.locator("[data-model-picker]").click();
+            const panel = page.locator("[data-model-picker-panel]");
+            await expect(panel).toBeVisible();
+            // 面板内容与分段组都不超出面板：溢出会被面板裁掉，看不见的只有量得出。
+            const overflow = await panel.evaluate((element) => {
+                const box = element.getBoundingClientRect();
+                const outside = [...element.querySelectorAll<HTMLElement>("*")].filter((child) => {
+                    const rect = child.getBoundingClientRect();
+                    return rect.width > 0 && (rect.right > box.right + 1 || rect.left < box.left - 1);
+                });
+                return {scroll: element.scrollWidth - element.clientWidth, outside: outside.slice(0, 3).map((child) => child.className || child.tagName)};
+            });
+            expect(overflow, scene).toEqual({scroll: 0, outside: []});
+            await page.keyboard.press("Escape");
+        }
+
+        // 长名字：触发器里省略名字与模型，档位留着。
+        await openScene(page, "AgentRoleModelPicker", "narrow-long-names");
+        const trigger = page.locator("[data-model-picker]");
+        const ellipsis = await trigger.locator(".acv-role-picker__name").evaluate((element) => ({clipped: element.scrollWidth > element.clientWidth, overflow: getComputedStyle(element).textOverflow}));
+        expect(ellipsis).toEqual({clipped: true, overflow: "ellipsis"});
+        await expect(trigger.locator(".acv-role-picker__level")).toBeVisible();
+
+        // 选档：停在选的档上（Lab 里没有服务端，场景自己回写），“用默认”回到跟随。
+        await openScene(page, "AgentRoleModelPicker", "role");
+        await page.locator("[data-model-picker]").click();
+        const radios = page.locator("[data-model-picker-thinking] button[role='radio']");
+        await radios.nth(1).click();
+        await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+        await page.waitForTimeout(1_800);
+        await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+        await page.locator("[data-model-picker-reset]").click();
+        await expect(page.locator("[data-model-picker-effort-note]")).toContainText("跟随");
+    });
+
     test("只读：编辑器只读，添加附件、发送、模式与模型都不可用", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "readonly");
         await expect(editor(page)).toHaveAttribute("aria-readonly", "true");

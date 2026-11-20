@@ -6,7 +6,7 @@
 
 import {providerIdFor, referenceOf} from "@notnotype/nb-models/config";
 import type {ModelConfig} from "@notnotype/nb-models/config";
-import type {CheckResult, KeyStatus, ModelsSnapshot, SnapshotModel, SnapshotProvider} from "@notnotype/nb-models/contract";
+import type {CheckResult, KeyStatus, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 import type {RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
 import type {ModelsRemote} from "nbook/plugins/models/web/models-store";
@@ -38,7 +38,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         return ok(null);
     };
     const toSnapshot = (config: ModelConfig, previous?: SnapshotModel): SnapshotModel => sampleModel(config.id, {
-        ...previous,
+        ...(previous === undefined ? {} : (({thinking: _derived, ...rest}) => rest)(previous)),
         name: config.name ?? previous?.name ?? config.id,
         enabled: config.enabled,
         ...(config.group === undefined ? {} : {group: config.group}),
@@ -99,15 +99,21 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             if (result.ok) publish({...state, roles: unbind(provider, remove)});
             return result;
         },
-        setRole: async ({id, model}) => {
+        setRole: async ({id, model, effort, icon}) => {
             if (failing) return writeFailure;
-            publish({...state, roles: state.roles.map((role) => (role.id === id ? {...role, model, status: model === null ? "unbound" : "ok"} : role))});
+            const patch = (role: SnapshotRole): SnapshotRole => ({
+                ...role,
+                ...(model === undefined ? {} : {model, status: model === null ? "unbound" as const : "ok" as const}),
+                ...(effort === undefined ? {} : {effort}),
+                ...(icon === undefined ? {} : {icon}),
+            });
+            publish({...state, roles: state.roles.map((role) => (role.id === id ? patch(role) : role))});
             return ok(null);
         },
         addRole: async ({name, description}) => {
             if (failing) return writeFailure;
             const id = `custom-${String(state.roles.length + 1)}`;
-            publish({...state, roles: [...state.roles, {id, axis: "specialist", builtin: false, name, description, model: null, status: "unbound"}]});
+            publish({...state, roles: [...state.roles, {id, axis: "specialist", builtin: false, name, description, model: null, effort: null, icon: null, status: "unbound"}]});
             return ok({id});
         },
         updateRole: async ({id, name, description}) => {

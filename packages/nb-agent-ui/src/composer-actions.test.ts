@@ -124,6 +124,16 @@ describe("宿主起步：输入框动作", () => {
         expect(applyComposerAction(composer, {type: "thinking.set", level: "high"})?.thinking).toBe("high");
     });
 
+    it("思考档：选档把状态写成明确选的，“用默认”回到跟随的来源与档", () => {
+        const effort = {kind: "levels" as const, levels: ["low", "medium", "high"], canOff: false, verified: true, value: "medium", source: "role" as const, follow: {source: "role" as const, name: "主力", value: "medium"}};
+        const following = {...composer, effort};
+        const pinned = applyComposerAction(following, {type: "thinking.set", level: "high"});
+        expect(pinned).toMatchObject({thinking: "high", effort: {value: "high", source: "session"}});
+        expect(applyComposerAction(pinned!, {type: "thinking.reset"})).toMatchObject({thinking: null, effort: {value: "medium", source: "role"}});
+        // 没有可回到的默认时只清掉明确选的档。
+        expect(applyComposerAction({...composer, thinking: "high"}, {type: "thinking.reset"})?.thinking).toBeNull();
+    });
+
     it("附件与发送不在这里：返回 null，宿主要接着上传或执行", () => {
         expect(applyComposerAction(composer, {type: "composer.attachmentRetry", localId: "a1"})).toBeNull();
         expect(applyComposerAction(composer, {type: "composer.submit", text: "继续写", delivery: "prompt"})).toBeNull();

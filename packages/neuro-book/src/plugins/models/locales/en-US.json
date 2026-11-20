@@ -288,7 +288,47 @@
         "gradientHelp": "Four fixed tiers from light to strong; system features each use one",
         "specialist": "Specialist",
         "specialistHelp": "Models bound by purpose; you can add your own",
-        "unavailable": "Unavailable"
+        "unavailable": "Unavailable",
+        "effort": {
+            "follow": "Follow the model",
+            "unbound": "Bind a model first",
+            "none": "This model does not think",
+            "fixed": "Level cannot be set",
+            "unverified": "Levels not listed by the model",
+            "notOffered": "This model has no such level; using {{actual}}",
+            "clear": "Clear thinking level: {{name}}",
+            "of": "Thinking level: {{name}}",
+            "iconOf": "Role icon: {{name}}",
+            "pickIcon": "Choose an icon",
+            "levels": {
+                "off": "Off",
+                "minimal": "Minimal",
+                "low": "Low",
+                "medium": "Medium",
+                "high": "High",
+                "xhigh": "Extra high",
+                "max": "Max"
+            },
+            "storedWhy": "{{level}} ({{reason}})"
+        },
+        "icons": {
+            "feather": "Feather",
+            "bolt": "Bolt",
+            "star": "Star",
+            "telescope": "Telescope",
+            "fold-vertical": "Fold",
+            "library": "Library",
+            "pen": "Pen",
+            "brain": "Brain",
+            "book-open": "Open book",
+            "search": "Search",
+            "wand": "Wand",
+            "scale": "Scale",
+            "shield": "Shield",
+            "languages": "Languages",
+            "palette": "Palette",
+            "flask": "Flask"
+        }
     },
     "subject": {
         "key": "{{provider}} key",

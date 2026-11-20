@@ -14,6 +14,7 @@ import type {CompactionCut, CompactionJob, CompactionRestored, CompactionRestore
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
+import type {RequestEffort} from "../api/reasoning.js";
 import {chainLayers, failureDrafts, runChain} from "../run/chain.js";
 import {ctrl} from "../run/writes.js";
 import {committedTurns} from "../state/history.js";
@@ -130,6 +131,8 @@ export interface CompactArgs {
     readonly environment: ViewEnvironment;
     readonly tools: readonly ToolDeclaration[];
     readonly model: string;
+    /** 算请求用的模型这次用的档（对话沿用本轮，手动压缩按压缩模型的解析）。 */
+    readonly reasoning: RequestEffort;
     /** 算请求用的模型的窗口；交给放回。 */
     readonly contextWindow: number;
     readonly signal: AbortSignal;
@@ -175,7 +178,7 @@ export async function compact(host: CompactHost, args: CompactArgs): Promise<Com
     if (cuts.length === 0) return {ok: false, code: "nothing-to-compact"};
     const order = args.reason === "overflow" ? (setting?.onOverflow ?? host.order?.onOverflow ?? []) : (setting?.onThreshold ?? host.order?.onThreshold ?? []);
     const requirements = [...(setting?.require === undefined ? [] : [setting.require]), ...args.require];
-    const computed = computeRequest({assembly: core.assembly, state: core.stateAt(), environment: args.environment, purpose: "compaction", model: args.model, ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}), inactive: (extension) => core.revoked.has(extension), tools: args.tools, cache: core.view, checks: false});
+    const computed = computeRequest({assembly: core.assembly, state: core.stateAt(), environment: args.environment, purpose: "compaction", model: args.model, reasoning: args.reasoning, inactive: (extension) => core.revoked.has(extension), tools: args.tools, cache: core.view, checks: false});
     if (!computed.ok) {
         // 压缩前的请求算不出来（Profile 出错、请求不合格）：不拿空请求去压缩，这次压缩失败（runtime.md 输出 47）。
         for (const {error, ...problem} of computed.problems) core.diagnostics.add({...problem, ...(error === undefined ? {} : {cause: error})}, core.head);

@@ -7,6 +7,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 import {CompactionSettingSchema} from "../config/compaction";
+import {RoleEffort} from "../config/shapes";
 
 /** 包内几个形状共用的小块；不从入口导出。 */
 export const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);
@@ -24,6 +25,19 @@ export const KeyStatusSchema = Type.Union([
 ]);
 export type KeyStatus = Static<typeof KeyStatusSchema>;
 
+/** 模型的推理能力（nb-harness 的 `ModelReasoning`）：界面按它画哪几档、“关闭”叫什么。 */
+export const ReasoningSchema = Type.Union([
+    Type.Object({kind: Type.Literal("none")}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("fixed")}, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("levels"),
+        levels: Type.Array(Type.String()),
+        off: Type.Union([Type.Literal("disable"), Type.Literal("lowest"), Type.Literal("none")]),
+        unset: Nullable(Type.String()),
+        verified: Type.Boolean(),
+    }, {additionalProperties: false}),
+]);
+
 /**
  * 快照里的一个模型：目录模型的字段已与目录合好。`status`：`missing` 设置里引用了、目录里已经没有（目录漂移，输出 9）；
  * `incomplete` 自定义模型缺上下文窗口。
@@ -38,6 +52,7 @@ export const SnapshotModelSchema = Type.Object({
     vision: Type.Boolean(),
     reasoning: Type.Boolean(),
     efforts: Type.Array(Type.String()),
+    thinking: ReasoningSchema,
     compaction: Nullable(CompactionSettingSchema),
     price: Price,
     headers: Headers,
@@ -70,6 +85,10 @@ export const SnapshotRoleSchema = Type.Object({
     name: Type.String(),
     description: Type.String(),
     model: Nullable(Type.String()),
+    /** 角色的默认思考档；null 是跟随模型。 */
+    effort: Nullable(RoleEffort),
+    /** 角色图标的键；null 是用内置角色的默认图标或通用图标。 */
+    icon: Nullable(Type.String()),
     status: RoleStatusSchema,
 }, {additionalProperties: false});
 

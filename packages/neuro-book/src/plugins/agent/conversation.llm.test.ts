@@ -54,6 +54,7 @@ describe.skipIf(config === null)("对话宿主接真实模型", () => {
             rememberRules: async () => ({ok: true}),
             models: () => [],
             roles: () => null,
+            groups: () => [],
             providers: () => null,
             drafts: {read: async () => null, write: () => undefined},
             attachments: {upload: async () => ({ok: false, code: "not-used"})},
