@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: bots.main-conversation
 owners:
   - nbook.bots
@@ -54,7 +54,7 @@ owners:
 4. Profile 解析不到：主对话照会话的规则以只读打开（[`harness/session.md`](../harness/session.md) 的 `unknown-profile`），持有照样成功。用户经会话的 `changeProfile`（远程合同带 `commandId`）换成能用的 Profile。
 5. 归属的后果按 [`agent/sessions.md`](../agent/sessions.md)：主对话不进会话列表，它派的子代理也不进（输出 25）；`rewind`、`switchBranch`、`archive` 得 `owned-session`（输出 26）；子代理与 fork 出来的会话没有归属。用户在主对话里发话照常走 `send`，可以带 `settlePending: "deny"`（输出 27）。
 6. 长会话的指标：`hold` 实际打开了会话（不是复用已开的）时写一条诊断 `bots.main-opened`（info），带事件数（快照的 `head`）与打开耗时（会话表执行这次打开的时长，毫秒）；超过 2,000 毫秒时另写 `bots.main-open-slow`（warning）。重试的等待不算进耗时；刚由 `ensureMain` 建出来的会话已经开着，不记。
-7. （planned）**未读与看到。** 计数消息是主对话里一次模型回复的最终那一条（`assistant` 事件里不带工具调用的；中间调工具的几条不算）。“看到”是一个日志 seq，每个 bot 一份，存在 `nbook.bots` 的插件存储（`bots-seen`，应用级），几个窗口共用，只进不退：
+7. **未读与看到。** 计数消息是主对话里一次模型回复的最终那一条（`assistant` 事件里不带工具调用的；中间调工具的几条不算）。“看到”是一个日志 seq，每个 bot 一份，存在 `nbook.bots` 的插件存储（`bots-seen`，应用级），几个窗口共用，只进不退：
    - `list()` 的项带 `unread`（“看到”之后的计数消息数）、`latestSeq`（最新一条计数消息的 seq，没有未读时等于 `seenSeq`）、`seenSeq`；持有主对话、数完之前 `unread` 为 null；
    - 持有之后先订阅日志帧、再从“看到”之后读日志补数，按 seq 去重；之后每来一条计数消息推一次 `botsChanged`；补数失败写诊断 `bots.unread-failed`，`unread` 留在 null；
    - 远程方法 `markSeen({botId, through})` → `{seenSeq}`：`through` 截到 `latestSeq`，比已存的小时不动；`unknown-bot`；存储写不了得 `storage-failed`，记录读不懂时重写它；
@@ -96,6 +96,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/bots/` 的插件测试（真实内核、真实 `nbook.agent`、本机假端点）。
 
+## 实现合同
+
+- **公开入口**：`nbook/plugins/bots/shared/contracts`（远程合同 `botsContract` 的 `ensureMain`、`markSeen`、`list` 与 `MainState`、`BotItem`，`mainSessionId`）。
+- **owner 与依赖方向**：`nbook.bots` 的服务端入口持有主对话的持有与未读；经 `agentKey` 的 `header`、`create`、`hold` 用 `nbook.agent`（[`agent/sessions.md`](../agent/sessions.md) 输出 23–28）；`nbook.agent` 与 nb-harness 内核不认识 bot，只提供会话头的 `owner` 与持有。
+- **关键不变量**：
+  - 同一个 bot 的 `ensureMain` 与后台持有排成一条链：并发的依次跑，后到的看到已持有就交回同一个结果，只 `hold` 一次（输出 1，`backend/main.test.ts`）。
+  - 先读会话头再决定建还是持有：会话在而 `owner` 不是这个 bot 时得 `owner-mismatch`，不打开、不改动；读不懂的会话头不当成会话不在（输出 1、2，`bots.test.ts`“主对话验收 2”、`backend/main.test.ts`）。
+  - 持有到 `nbook.bots` 停止：`session-busy` 每 5 秒重试，别的码记进状态、不排重试，停止信号之后不再重试、迟到的持有立即放掉（输出 2，`backend/main.test.ts`）。
+  - 打开耗时只算实际打开的那一次，复用已开的与重试的等待不记（输出 6，`backend/main.test.ts`）。
+  - 未读只数最终回复、按 seq 算，“看到”只进不退，存在插件存储里、重启后照样数出来（输出 7，`bots.test.ts`“主对话的未读”）。
+
 ## 证据
 
-- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md)（2026-11-18 接受）第四节第 5、7 小节与 2026-11-19 的决策记录；[w00043 t06](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/README.md) 的决定与设计审查的处理。
+- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md)（2026-11-18 接受）第四节第 5、7 小节与 2026-11-19 的决策记录；[w00043 t06](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/README.md) 的决定与设计审查的处理；未读与看到（输出 7）见 [w00043 t15](../../../.agents/works/w00043-neurobot/tasks/t15-messages-view/README.md)；开发者 2026-11-20 批准晋升为 `implemented`，逐句核对后晋升（[核对处理](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/evidences/promotion-check-disposition.md)）。
+- 实现入口：[`backend/main.ts`](../../../packages/neuro-book/src/plugins/bots/backend/main.ts)（`ensureMain`、持有、指标）、[`backend/unread.ts`](../../../packages/neuro-book/src/plugins/bots/backend/unread.ts)（未读与看到）、[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/bots/backend/plugin.ts)（远程服务）、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/bots/shared/contracts.ts)；会话头归属与持有在 [`agent/backend/agent.ts`](../../../packages/neuro-book/src/plugins/agent/backend/agent.ts) 与 nb-harness 的 [`kit/sessions/table.ts`](../../../packages/nb-harness/src/kit/sessions/table.ts)
+- 合同测试：[`bots.test.ts`](../../../packages/neuro-book/src/plugins/bots/bots.test.ts)（输出 1–7 与验收 1–3；输出 7 是“主对话的未读”）、[`backend/main.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/main.test.ts)（输出 1–3、6 与时序与寿命）、[`backend/service.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/service.test.ts)（启动先后）；验收 3 的 `owned-session` 在 `bots.test.ts`，`settlePending` 的结算由 [`agent/sessions.test.ts`](../../../packages/neuro-book/src/plugins/agent/sessions.test.ts)（输出 27）与 nb-harness 的 [`kernel/run/interaction.test.ts`](../../../packages/nb-harness/src/kernel/run/interaction.test.ts)（验收 16）守住；验收 4 的耗时口径在 `backend/main.test.ts`（输出 6）
+- Smoke：[`bots.test.ts`](../../../packages/neuro-book/src/plugins/bots/bots.test.ts)（真实内核、真实 `nbook.agent`、本机假端点）

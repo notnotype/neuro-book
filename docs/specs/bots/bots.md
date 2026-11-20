@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: bots.bots
 owners:
   - nbook.bots
@@ -111,6 +111,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/bots/` 的插件测试。
 
+## 实现合同
+
+- **公开入口**：`nbook/plugins/bots/shared/contracts`（贡献点 `presetsPoint` 与 `BotPresetDeclaration`、远程合同 `botsContract` 与 `BotItem`、`COMPANION_PROFILE`、`mainSessionId`）。
+- **owner 与依赖方向**：`nbook.bots` 的服务端入口（`backend/plugin.ts`）持有预设表、bot 记录与创建流程、主对话的持有与远程服务；经 `agentKey` 用 `nbook.agent`，经插件存储记 bot 记录，经平台的插件包查询找第三方预设的文件；`nbook.agent` 不依赖 `nbook.bots`，会话头的 `owner` 只是它给归属插件留的一个字段（[`agent/sessions.md`](../agent/sessions.md) 输出 23）。
+- **关键不变量**：
+  - 激活里不读写会话：后台任务从自己的缺省预设声明交到接收方时开始，建 bot 与核对文件都在它里面（输出 4，`bots.test.ts`、`backend/service.test.ts`）。
+  - 建 bot 先在暂存目录里做完全部复制、写下创建凭据，再改名成 `<bot id>/`，最后写记录并读回；任何一步之后被杀，下次启动都能补完或不登记，不留两份（输出 5，`bots.test.ts`“bot 输出 5”）。
+  - 预设的文件核对按代次：撤回之后才查完的结果作废，不复活、也不盖掉同一个 id 后来发布的那份（输出 1，`backend/presets.test.ts`）。
+  - 记录读不懂（损坏、版本不认识、bot id 不合规则）时整份当读不懂：不建新的、不登记、不改写原数据（输出 6，`bots.test.ts`）。
+  - 停止信号一到就封住：不开始新的工作、不排重试，迟到交回的持有立即放掉（“时序与寿命”，`backend/main.test.ts`）。
+
 ## 证据
 
-- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md)（2026-11-18 接受）第四节第 3、4、12 小节与 2026-11-19 的决策记录；[w00043 t06](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/README.md) 的决定与设计审查的处理。
+- 批准依据：[提案：NeuroBook 的 bot](../../proposals/neurobot.md)（2026-11-18 接受）第四节第 3、4、12 小节与 2026-11-19 的决策记录；[w00043 t06](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/README.md) 的决定与设计审查的处理；开发者 2026-11-20 批准晋升为 `implemented`，逐句核对后晋升（[核对处理](../../../.agents/works/w00043-neurobot/tasks/t06-main-conversation/evidences/promotion-check-disposition.md)）；头像路由（输出 9）仍是 `planned`。
+- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/bots/backend/plugin.ts)（服务端入口、远程服务）、[`backend/bots.ts`](../../../packages/neuro-book/src/plugins/bots/backend/bots.ts)（启动与 bot 列表）、[`backend/create.ts`](../../../packages/neuro-book/src/plugins/bots/backend/create.ts)（建 bot 与创建凭据）、[`backend/presets.ts`](../../../packages/neuro-book/src/plugins/bots/backend/presets.ts)（预设的文件核对）、[`backend/store.ts`](../../../packages/neuro-book/src/plugins/bots/backend/store.ts)（bot 记录）、[`backend/profile.ts`](../../../packages/neuro-book/src/plugins/bots/backend/profile.ts)（岗位 Profile）、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/bots/shared/contracts.ts)
+- 合同测试：[`bots.test.ts`](../../../packages/neuro-book/src/plugins/bots/bots.test.ts)（真实内核与 `nbook.agent`，输出 1–7 与验收 1、2）、[`backend/presets.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/presets.test.ts)（输出 1）、[`backend/service.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/service.test.ts)（输出 4、时序与寿命）、[`backend/main.test.ts`](../../../packages/neuro-book/src/plugins/bots/backend/main.test.ts)（停止的先后）
+- Smoke：[`bots.test.ts`](../../../packages/neuro-book/src/plugins/bots/bots.test.ts)（真实内核、真实 `nbook.agent`、本机假端点）
