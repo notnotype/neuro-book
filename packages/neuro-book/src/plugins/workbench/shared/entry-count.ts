@@ -1,5 +1,5 @@
 /**
- * 入口计数的写法（docs/specs/workbench/views.md 输出 17）：活动栏与区域入口条共用。超过 99 写“99+”：图标角上放不下更多位。
+ * 入口计数的写法（docs/specs/workbench/views.md 输出 17）：活动栏与区域入口条共用，别处画同一种角标（书房案头的看板娘）也用它。超过 99 写“99+”：图标角上放不下更多位。
  */
 
 export const entryCountText = (count: number): string => (count > 99 ? "99+" : String(count));

@@ -35,6 +35,8 @@ type Props = {
     coverSrc: (item: ShelfItem) => string | null;
     /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`）：齿轮画成按下（`aria-pressed`）。缺省 false。 */
     settingsOpen?: boolean;
+    /** 叠在案头看板娘上的贡献组件，原样交给 `ShelfDesk`；缺省 null。 */
+    companion?: Component | null;
 };
 type Emits = {
     "update:view": [view]; "update:sort": [sort]; "update:activeId": [id: string];

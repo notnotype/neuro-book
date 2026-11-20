@@ -34,7 +34,9 @@ import {descriptor} from "../plugin";
 import {BACK_TO_SHELF_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import {projectCoverUrl} from "../shared/cover";
 import {projectsText} from "../shared/text";
+import {deskPoint, PROJECTS_DESK_POINT} from "../shared/desk";
 import {createBookshelfHome} from "./bookshelf-home";
+import {createDeskSlot} from "./desk";
 import {browseDirectory} from "./browse";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
 import type {OpenProjectHost} from "./open-project";
@@ -84,11 +86,13 @@ const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
 
 export const projectsBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
+    contributionPoints: [deskPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
         activationEvents: ["onStartup"],
+        receives: [PROJECTS_DESK_POINT],
         dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
@@ -126,10 +130,13 @@ export const projectsBrowserPlugin: PluginDefinition = {
             // 偏好记录在书架第一次渲染时才打开：绑定了项目的窗口不读它。
             let store: ShelfPreferencesStore | null = null;
             const preferences = (): ShelfPreferencesStore => (store ??= shelfPreferencesStore.create(context, {storage, diagnostics}));
+            // 案头看板娘那一格的贡献（bookshelf.md 输出 22）：书架画出来时才加载贡献方的组件。
+            const desk = createDeskSlot((event, message) => diagnostics.record({level: "warn", event, message, source: {plugin: descriptor.id}}));
             const home: WorkbenchHomeImplementation = {
                 load: async () => createBookshelfHome({
                     component: (await import("./components/BookshelfHost.vue")).default,
                     settingsOpen,
+                    desk,
                     createPage: () => createShelfPage({
                         remote,
                         clock,
@@ -188,7 +195,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                     report: (message) => diagnostics.record({level: "warn", event: "projects.welcome", message, source: {plugin: descriptor.id}}),
                 }),
             };
-            return {contributions: {
+            return {receivers: {[PROJECTS_DESK_POINT]: desk.receiver}, contributions: {
                 [COMMANDS_POINT]: {
                     [OPEN_PROJECT_COMMAND]: {run: () => openProject(host)},
                     // 与欢迎页原来的“回到书架”同一个动作；离开时的未保存保护是编辑器的 beforeunload（shared/host.ts 的 WindowNavigation）。

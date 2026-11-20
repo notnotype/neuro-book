@@ -10,7 +10,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import "./panel-metrics.css";
-import {entryCountText, entryTitle} from "./entry-count";
+import {entryCountText, entryTitle} from "../../shared/entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 一个入口：区域里的一个容器（输出 41、47）。 */

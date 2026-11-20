@@ -1,7 +1,8 @@
-/** ShelfDesk（同名 .md）：统计的大字取今天或总字数，最近写到按时间排，空书架是问候（docs/specs/workbench/bookshelf.md 输出 2、3）。 */
+/** ShelfDesk（同名 .md）：统计的大字取今天或总字数，最近写到按时间排，空书架是问候，看板娘那一格可叠贡献组件（docs/specs/workbench/bookshelf.md 输出 2、3、22）。 */
 
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
+import {defineComponent, h, nextTick, onMounted} from "vue";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
@@ -52,6 +53,29 @@ describe("ShelfDesk", () => {
         expect(wrapper.find("[data-shelf-stats]").exists()).toBe(false);
         expect(wrapper.find("[data-shelf-recent]").exists()).toBe(false);
         expect(wrapper.find(".nb-brand-mood").exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("看板娘那一格叠贡献的组件：晚到时猫不重挂，心情跟着它发的 update:mood；拿掉贡献后回到空闲", async () => {
+        const Companion = defineComponent({
+            emits: ["update:mood"],
+            setup(_, {emit}) {
+                onMounted(() => emit("update:mood", "ask"));
+                return () => h("button", {type: "button", "data-companion": ""}, "星璃");
+            },
+        });
+        const wrapper = mount(ShelfDesk, {global, props: {now: NOW, items: []}});
+        const cat = wrapper.get(".nb-brand-mood").element;
+        expect(cat.getAttribute("data-mood")).toBe("idle");
+        await wrapper.setProps({companion: Companion});
+        await nextTick();
+        expect(wrapper.get("[data-shelf-mascot] [data-companion]").text()).toBe("星璃");
+        expect(wrapper.get(".nb-brand-mood").element).toBe(cat);
+        expect(cat.getAttribute("data-mood")).toBe("ask");
+        await wrapper.setProps({companion: null});
+        expect(wrapper.find("[data-companion]").exists()).toBe(false);
+        expect(wrapper.get(".nb-brand-mood").element).toBe(cat);
+        expect(cat.getAttribute("data-mood")).toBe("idle");
         wrapper.unmount();
     });
 });

@@ -5,6 +5,7 @@
  */
 import {AlertDialog} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
+import type {Component} from "vue";
 
 import {TOGGLE_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
 
@@ -25,6 +26,8 @@ const props = defineProps<{
     page: ShelfPage;
     /** 本页的设置窗口开着：书架右上角的齿轮画成按下。 */
     settingsOpen: boolean;
+    /** 叠在案头看板娘上的贡献组件（`projects.desk`）；没有为 null。 */
+    companion?: Component | null;
 }>();
 
 const text = useProjectsText();
@@ -175,6 +178,7 @@ async function confirmRemove(): Promise<void> {
         :items="page.items.value"
         :now="page.now.value"
         :view="page.view.value"
+        :companion="props.companion ?? null"
         :sort="page.sort.value"
         :active-id="page.activeId.value"
         :library="library?.path ?? ''"
