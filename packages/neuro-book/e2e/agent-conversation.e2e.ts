@@ -92,6 +92,42 @@ const CONVERSATION_VIEW = "nbook.agent.conversation";
 const conversationHandle = (page: Page) => page.locator(`[data-panel-tab="view:${CONVERSATION_VIEW}"]`);
 const panelHeadOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
 
+test("宽版（conversation.md 输出 1–3、44）：右栏拖到 600 像素以上是两栏，列表栏常驻、对话的头画在聊天区上方、面板头写“消息”；会话一页点一行在同一个视图打开；收起列表栏后左边换成头像列", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await openConversation(page);
+    await newSession(page);
+    const root = page.locator("[data-messages-layout]");
+    await expect(root).toHaveAttribute("data-messages-layout", "narrow");
+    // 右栏左边那条竖分隔线：往左拖，右栏变宽。
+    const view = (await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).boundingBox())!;
+    const sash = await page.locator("[data-workbench-surface] .nb-grid-sash").evaluateAll((elements, left) => elements.map((element) => element.getBoundingClientRect()).find((rect) => rect.height > rect.width && Math.abs(rect.right - left) < 24) ?? null, view.x);
+    expect(sash).not.toBeNull();
+    const x = sash!.x + sash!.width / 2;
+    const y = sash!.y + sash!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - (720 - view.width), y, {steps: 8});
+    await page.mouse.up();
+    await expect(root).toHaveAttribute("data-messages-layout", "wide");
+    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
+    await expect(page.locator("[data-messages-strip]")).toBeHidden();
+    // 头回到聊天区上方，面板头照常写视图标题。
+    await expect(page.locator("[data-agent-head]")).toBeVisible();
+    await expect(conversationHandle(page)).toHaveText("消息");
+    // 会话一页点一行：聊天区换成那个会话，还是这一个视图。
+    await page.locator("[data-messages-tab='sessions']").click();
+    const rows = page.locator("[data-messages-list-panel] [data-panel-row]");
+    await expect(rows.first()).toBeVisible();
+    await rows.first().click();
+    await expect(page.locator("[data-messages-chat] [data-agent-head]")).toBeVisible();
+    // 收起列表栏：左边换成头像列，按它的按钮展开。
+    await page.locator("[data-messages-collapse]").click();
+    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
+    await expect(page.locator("[data-messages-strip]")).toBeVisible();
+    await page.locator("[data-messages-toggle]").click();
+    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
+});
+
 test("对话写在面板头上（conversation.md 输出 44）：窄版时头的三列在面板头里；按标题开列表抽屉，Esc 关掉回到标题；浮动窗里成了标签条时头回到内容里，对话不重建；回到只有一个标签时头又回到面板头", async ({page}) => {
     await openConversation(page);
     await newSession(page);
