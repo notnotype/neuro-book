@@ -344,6 +344,7 @@ describe("请求体的转交", () => {
                 async start(controller) {
                     controller.enqueue(chunk);
                     // 第二块要等处理函数确认读到了第一块；整体缓冲的转交永远等不到它。
+                    // test-lint-allow fixed-wait: 5 秒是判定上限，到点还没读到第一块就判失败；正常时 seen 先完成
                     await Promise.race([seen, new Promise((_, reject) => setTimeout(() => reject(new Error("处理函数没有在请求体发完之前读到数据")), 5_000))]);
                     release();
                     controller.enqueue(chunk);
@@ -369,7 +370,7 @@ describe("请求体的转交", () => {
                     if (done) break;
                     size += value.length;
                     // 读得比客户端发得慢：整个请求体若被另一条分支缓存下来，内存会随已读的量一路涨。
-                    await Bun.sleep(2);
+                    await Bun.sleep(2); // test-lint-allow fixed-wait: 读得慢是被测条件（制造背压），不是在等某个状态
                 }
                 return Response.json({size});
             },
@@ -424,7 +425,8 @@ describe("请求体的转交", () => {
             await waitUntil("处理函数开始读请求体", () => outcome !== null);
             controller.abort();
             await pending;
-            expect(await Promise.race([outcome!, new Promise<string>((resolve) => setTimeout(() => resolve("still reading"), 5_000))])).toBe("aborted");
+            // test-lint-allow fixed-wait: 5 秒是“读请求体的循环没有结束”的判定上限；正常时 outcome 先完成
+            expect(await Promise.race([outcome!,new Promise<string>((resolve) => setTimeout(() => resolve("still reading"), 5_000))])).toBe("aborted");
         } finally {
             await stop();
         }

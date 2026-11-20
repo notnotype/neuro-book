@@ -10,6 +10,7 @@ import {join} from "node:path";
 import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createPluginUploads} from "nbook/plugin-platform/backend/uploads";
 import {encodeFrameHeader} from "nbook/plugin-platform/shared/plugin-upload";
@@ -112,12 +113,11 @@ describe("上传路由", () => {
         });
         const sending = fetch(`${url}/uploads`, {method: "POST", body: stalled, duplex: "half", signal: controller.signal} as RequestInit).catch((error: unknown) => error);
         // 等第一个文件落盘（上传在接收中，登记了一个目录）。
-        for (let tries = 0; tries < 200 && (await readdir(root).catch(() => [])).length === 0; tries += 1) await Bun.sleep(25);
+        await waitUntil("登记了一个接收中的上传", async () => (await readdir(root).catch(() => [])).length > 0);
         expect((await readdir(root)).length).toBe(1);
         controller.abort();
         await sending;
-        for (let tries = 0; tries < 200 && (await readdir(root)).length > 0; tries += 1) await Bun.sleep(25);
-        expect(await readdir(root)).toEqual([]);
+        await waitUntil("断开的上传被删掉", async () => (await readdir(root)).length === 0);
         // 断开后新的上传照常收。
         expect((await post(url, chunked(frames({"b.txt": "1"})))).status).toBe(200);
         await uploads.stop();
@@ -133,8 +133,7 @@ describe("上传路由", () => {
     });
 
     it("上传满了（同时在接收的占满）：429 upload-busy", async () => {
-        const {url, uploads} = start();
-        void uploads;
+        const {url, root} = start();
         // 8 个都没收完：每个都发了帧头一半就停住。
         const open: Array<() => void> = [];
         const stalled = Array.from({length: 8}, () => {
@@ -146,7 +145,8 @@ describe("上传路由", () => {
             });
             return post(url, stream).catch(() => undefined);
         });
-        await Bun.sleep(100);
+        // 每个停住的上传都建了自己的目录，这时 8 个位都占了。
+        await waitUntil("8 个上传都在接收", async () => (await readdir(root).catch(() => [])).length === 8);
         const busy = await post(url, chunked(frames({"a.txt": "1"})));
         expect(busy.status).toBe(429);
         expect(((await busy.json()) as {code: string}).code).toBe("upload-busy");

@@ -8,6 +8,7 @@ import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {encodeFrameHeader, UploadError} from "nbook/plugin-platform/shared/plugin-upload";
 import type {UploadErrorCode} from "nbook/plugin-platform/shared/plugin-upload";
@@ -197,7 +198,7 @@ describe("个数上限与清理", () => {
     });
 
     it("正在接收的也占位：满了的时候新的接收被拒，而不是把没收完的淘汰掉", async () => {
-        const {uploads} = setup({maxUploads: 1});
+        const {uploads, root} = setup({maxUploads: 1});
         let push!: (chunk: Uint8Array) => void;
         let finish!: () => void;
         const stalled = new ReadableStream<Uint8Array>({
@@ -207,7 +208,8 @@ describe("个数上限与清理", () => {
             },
         });
         const receiving = uploads.receive(stalled);
-        await Bun.sleep(5);
+        // 它的目录建好时已经占了位（占位在建目录之前）。
+        await waitUntil("第一个上传开始接收", async () => (await listing(root)).length === 1);
         const busy = await uploads.receive(body(frames({"a.txt": "1"}))).catch((thrown: unknown) => thrown);
         expect((busy as UploadServerError).code).toBe("upload-busy");
         push(frames({"a.txt": "1"}));
@@ -226,7 +228,8 @@ describe("个数上限与清理", () => {
         clock.advance(50 * 60 * 1000);
         await uploads.use(touched.id, () => Promise.resolve());
         clock.advance(20 * 60 * 1000);
-        await Bun.sleep(20);
+        // 一轮清扫一次删完所有过期的：idle 的目录没了，这一轮就做完了。
+        await waitUntil("清扫删掉没被用过的", async () => !(await listing(root)).includes(idle.id));
         expect(await listing(root)).toEqual([busy.id, touched.id].sort());
         expect(await uploads.use(idle.id, () => Promise.resolve())).toEqual({ok: false});
         release();
@@ -254,7 +257,7 @@ describe("个数上限与清理", () => {
             },
         });
         const receiving = uploads.receive(stalled).catch((thrown: unknown) => thrown);
-        await Bun.sleep(5);
+        await waitUntil("停住的上传开始接收", async () => (await listing(root)).length === 2);
         await uploads.stop();
         expect(clock.pending()).toBe(0);
         const error = await receiving;
