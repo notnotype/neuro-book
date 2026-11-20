@@ -48,7 +48,7 @@ updated: 2026-11-20
 - 验证：nb-agent-ui 192 条；neuro-book 的 bots 与 agent 576 条、bot 视图 dom 5 条；合并 master 后 e2e `bots-chat`、`agent-subagents`、`agent-conversation` 31 条全过。合并后的全量 bun 测试有 3 条确定失败（依赖方向、SDK 导出面、活动栏重复 id），分支没有改动这几处，失败的写法在 master 上也存在。
 - 后续：`agent-conversation.e2e.ts:687`（附件）在 master 上也时常失败；产品那一半（新建期间加附件另建会话）已修，测试那一半（`newSession` 在会话加载完之前返回）没修。
 
-阶段 ③ 实现完成，实现审查 Sonnet 10 条已处理（[处理](evidences/impl-review-3-disposition.md)）（2026-11-20）：
+阶段 ③ 已完成并合入 master（`b1b266865`，2026-11-20）；实现审查 Sonnet 10 条已处理（[处理](evidences/impl-review-3-disposition.md)，修正 `6dc7e0d8f`）：
 
 - 切片：`b68ff259e`（nb-ui `SidePanel`、层级 `sidePanel` 一档）、`e332034ff`（拆出 `contact-opener`、`ContactCover`、窗口焦点；借用重开不算打开）、`9d8dd8ef1`（书架案头的贡献位 `projects.desk`）、`f2d590198`（对话视图的 `closable`、`escape`，`ConversationHost` 的 `close` 与 `noSessionList`）、`73713c190`（输入框第一次打开时聚焦落空的修复）、`041eacb69`（看板娘入口与滑出聊天、e2e 书房三组）、`525a51ae9`（气泡定位）。
 - 实施中查出、计划外修的：对话输入框第一次打开时聚焦落空，三层原因（markdown 插件的包装在 PromptEditor 代码加载完之前交出的方法是 undefined、PromptEditor 在挂载钩子里才建编辑器且正文还要过一两拍才挂进文档、输入框只读时聚焦不生效），各在拥有它的组件里修并补测试；消息视图第一次打开时同样会碰上，以前没有测到。
@@ -57,6 +57,6 @@ updated: 2026-11-20
 
 ## 下一步
 
-- 阶段 ③：书房案头的看板娘入口与从右边滑出的聊天（t03 决定 22、23），复用宿主加对话视图的组合。计划 [plan-3.md](plan-3.md)，开发者 2026-11-20 确认（决定 8）；实现完成，见上。
+- 阶段 ③：书房案头的看板娘入口与从右边滑出的聊天（t03 决定 22、23），复用宿主加对话视图的组合。计划 [plan-3.md](plan-3.md)，开发者 2026-11-20 确认（决定 8）；已合入，见上。
 - 阶段 ④：按天与未读的分隔线、首屏指标。
 - 后续（不阻塞）：会话标签的滚到底分页；第二行的具体活动文字（等后端的活动摘要）；`agent-conversation` 附件那条的测试时序（`newSession` 在会话加载完之前返回）。
