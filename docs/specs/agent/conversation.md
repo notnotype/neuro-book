@@ -36,7 +36,7 @@ owners:
 |---|---|---|
 | `workbench.views` | `nbook.agent.conversation` | 右栏，“消息”视图（输出 2；planned：标题“消息”、声明 `replaces: ["nbook.agent.sessions"]`，以前的会话面板并进来） |
 | `editor.pages` | `nbook.agent.conversation` | 编辑区的“Agent 对话”，和视图同一个宿主组件；命令 `nbook.agent.open-in-editor` 打开它 |
-| `workbench.statusbar-items` | `nbook.agent.activity` | 右侧；`when` 是公开状态 `nbook.agent/active` |
+| `workbench.statusbar-items` | `nbook.agent.activity` | 右侧；`when` 是公开状态 `nbook.agent/attention`（planned：在跑、等你处理或有新消息；之前是 `nbook.agent/active`） |
 
 视图与页面用同一个宿主组件，没有打开项目时也能用（产物放 `session://`）。浏览器入口 `onStartup` 激活，只放声明与活动条目，视图与宿主用到时才加载；Lab 窗口不启动活动条目。
 
@@ -185,7 +185,7 @@ owners:
 ## 边界与兼容
 
 - `nb-agent-ui` 仍是纯受控视图，不依赖内核；新内核的适配器在它的核心里，输入是 JSON。nb-story 迁移之前旧适配器留着。
-- 公开状态键 `nbook.agent/active`、命令 `nbook.agent.open`、`nbook.agent.open-in-editor`、`nbook.agent.new-session`、`nbook.agent.focus-session` 是公开合同。
+- 公开状态键 `nbook.agent/active`（有会话在跑或等你处理，主题据此换场景，不含新消息）、`nbook.agent/attention`（planned，状态栏条目的显隐：再加上有新消息）、命令 `nbook.agent.open`、`nbook.agent.open-in-editor`、`nbook.agent.new-session`、`nbook.agent.focus-session` 是公开合同。
 
 ## 验收与 Smoke
 
