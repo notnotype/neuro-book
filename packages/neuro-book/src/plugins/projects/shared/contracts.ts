@@ -17,6 +17,9 @@ import {defineSetting} from "nbook/shared/settings";
 
 import {projectsText} from "./text";
 
+/** 书架案头的贡献位（别的插件往看板娘那一格上叠入口），声明在 `./desk`。 */
+export {PROJECTS_DESK_POINT} from "./desk";
+
 export const OPEN_PROJECT_COMMAND = "nbook.project.open";
 /** 回到书架：本窗口整页导航到 `/`（docs/specs/workbench/commands.md 的“命令目录（项目）”）。 */
 export const BACK_TO_SHELF_COMMAND = "nbook.project.back-to-shelf";
