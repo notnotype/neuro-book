@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 第一版只有一个 bot：没有新建、删除、改名 bot 的入口，缺省 bot 的 id 固定；数据形状按多个 bot 设计。
-- 头像怎样交给浏览器、人设与记忆怎样进提示词、`bots://` 方案与写授权、日程，不在这里。
+- 头像怎样画在界面上（[`view.md`](view.md)）、人设与记忆怎样进提示词、`bots://` 方案与写授权、日程，不在这里。
 - 预设更新以后不覆盖已经建出来的 bot。
 
 ## 术语与参与者
@@ -63,7 +63,7 @@ owners:
 
    不认识的 `botId` 得 `unknown-bot`。
 8. 内置插件显示名表登记 `nbook.bots`（“bot”）。
-9. （planned）**头像。** `GET /api/nbook.bots/avatar/<bot id>`：只给 bot 记录里有的 bot；在 bot 目录里按 `avatar.png`、`.jpg`、`.jpeg`、`.webp` 找，逐段核对、不跟链接；类型按文件开头的字节判定，判不出的、超过 1 MiB 的都得 404。安全头同表情包的取图路由（`Content-Security-Policy: sandbox`、`nosniff`），别的网页来的请求得 403；`cache-control: no-cache` 加 ETag，同一个 ETag 回 304。
+9. **头像。** `GET /api/nbook.bots/avatar/<bot id>`：只给 bot 记录里有的 bot；在 bot 目录里按 `avatar.png`、`.jpg`、`.jpeg`、`.webp` 找，逐段核对、不跟链接；类型按文件开头的字节判定，判不出的、超过 1 MiB 的都得 404。安全头同表情包的取图路由（`Content-Security-Policy: sandbox`、`nosniff`），别的网页来的请求得 403；`cache-control: no-cache` 加 ETag，同一个 ETag 回 304。
 
 ## 状态与转换
 

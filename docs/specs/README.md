@@ -241,6 +241,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补 |
 | 网页工具 | [`web/tools.md`](web/tools.md) | `nbook.web-tools` 的 `web_search`、`web_fetch`：DeepSeek 的搜索与读取、结果与结构值、截止与重试、内容标记、密钥文件与远程合同 |
 | 网页工具的设置页 | [`web/settings-page.md`](web/settings-page.md) | 设置窗口“搜索与网页”页：密钥的写入、清除与检测 |
+| bot 与预设 | [`bots/bots.md`](bots/bots.md) | `nbook.bots`：预设贡献点与缺省预设、岗位 Profile、首次启动建 bot、bot 记录与目录、远程服务 |
+| bot 的主对话 | [`bots/main-conversation.md`](bots/main-conversation.md) | 主对话的 id 与 `ensureMain`、持有与状态、Profile 解析不到、归属的后果、打开耗时的指标、未读与看到 |
 
 ## 待实现规范
 
@@ -271,7 +273,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 图像提示词 | [`images/prompt.md`](images/prompt.md) | 项与数值权重、NovelAI 与 SD 两种读法、规范写法与原文的保留、随机项与图中文字、按空行切段、语法检查与一键改 |
 | 图像配方 | [`images/recipes.md`](images/recipes.md) | 配方、预设、片段、风格组合四种文件；节与角色框；预设的引用加差异、更新与换预设；本书默认；我的预设库与官方预设；展开、内容快照与恢复；id 索引与重复 id |
 | 剧情：作者界面（剧情侧） | [`plot/author-ui.md`](plot/author-ui.md) | 侧栏“剧情”、谁知道什么、伏笔账本、目标表，人物与秘密条目页的知道什么、目标与态度、经历、谁知道；按窗口在看的线读（第二批第一期）。待晋升 |
-| bot 与预设 | [`bots/bots.md`](bots/bots.md) | `nbook.bots`：预设贡献点与缺省预设、岗位 Profile、首次启动建 bot、bot 记录与目录、远程服务 |
 | bot 的主对话 | [`bots/main-conversation.md`](bots/main-conversation.md) | 主对话的 id 与 `ensureMain`、持有与状态、Profile 解析不到、归属的后果、打开耗时的指标 |
 | bot 视图 | [`bots/view.md`](bots/view.md) | 左侧栏的 bot 聊天：未读计数、取主对话与没有模型时的引导、看到的位置、有归属的会话转交到这里 |
 
