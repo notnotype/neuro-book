@@ -3,7 +3,7 @@
  * “消息”视图的列表（同名 .md）：bot、会话两个标签。bot 一页是联系人，会话一页是宿主经插槽给的会话面板。纯受控，只有搜索词是自己的。
  */
 import {computed, ref} from "vue";
-import {Badge, Button, Input} from "@notnotype/nb-ui/components";
+import {Badge, Button, Input, Tabs} from "@notnotype/nb-ui/components";
 
 import {formatListTime} from "../../format";
 import type {AgentLocale, MessagesContact, MessagesContactSection} from "../../types";
@@ -27,6 +27,9 @@ defineSlots<{sessions(): unknown}>();
 
 const {t, locale} = provideAgentText(() => props.locale);
 
+/** 每个挂上的列表一组面板 id：标签的 `aria-controls` 与面板的 `aria-labelledby` 对上。 */
+const ids = `acv-messages-${Math.random().toString(36).slice(2, 8)}`;
+
 const query = ref("");
 const unreadTotal = computed(() => props.sections.reduce((sum, section) => sum + section.contacts.reduce((inner, contact) => inner + (contact.unread ?? 0), 0), 0));
 
@@ -36,6 +39,10 @@ const shown = computed(() => {
     return props.sections.map((section) => ({...section, contacts: needle === "" ? section.contacts : section.contacts.filter((contact) => contact.name.toLocaleLowerCase().includes(needle))}));
 });
 const allReady = computed(() => props.sections.every((section) => section.state.kind === "ready"));
+const tabs = computed(() => [
+    {value: "bot", label: t("messages.tabBot"), ...(unreadTotal.value > 0 ? {count: unreadTotal.value} : {}), id: `${ids}-tab-bot`, controls: `${ids}-page-bot`, attrs: {"data-messages-tab": "bot"}},
+    {value: "sessions", label: t("messages.tabSessions"), id: `${ids}-tab-sessions`, controls: `${ids}-page-sessions`, attrs: {"data-messages-tab": "sessions"}},
+]);
 const total = computed(() => props.sections.reduce((sum, section) => sum + section.contacts.length, 0));
 const matched = computed(() => shown.value.reduce((sum, section) => sum + section.contacts.length, 0));
 
@@ -49,21 +56,15 @@ function markBroken(src: string): void {
 
 <template>
     <div class="acv-messages-list" data-messages-list>
-        <div class="acv-messages-list__tabs" role="tablist">
-            <button
-                type="button"
-                role="tab"
-                class="acv-messages-list__tab"
-                :aria-selected="props.tab === 'bot'"
-                :aria-label="unreadTotal > 0 ? t('messages.tabUnread', {count: unreadTotal}) : t('messages.tabBot')"
-                data-messages-tab="bot"
-                @click="emit('update:tab', 'bot')"
-            >
-                {{ t("messages.tabBot") }}<span v-if="unreadTotal > 0" class="acv-messages-list__tab-count" aria-hidden="true">{{ unreadTotal }}</span>
-            </button>
-            <button type="button" role="tab" class="acv-messages-list__tab" :aria-selected="props.tab === 'sessions'" data-messages-tab="sessions" @click="emit('update:tab', 'sessions')">{{ t("messages.tabSessions") }}</button>
-        </div>
-        <div v-show="props.tab === 'bot'" class="acv-messages-list__page" role="tabpanel" data-messages-page="bot">
+        <Tabs
+            class="acv-messages-list__tabs"
+            size="sm"
+            :model-value="props.tab"
+            :items="tabs"
+            :aria-label="t('messages.list')"
+            @update:model-value="(value: string) => emit('update:tab', value === 'bot' ? 'bot' : 'sessions')"
+        />
+        <div v-show="props.tab === 'bot'" :id="`${ids}-page-bot`" class="acv-messages-list__page" role="tabpanel" :aria-labelledby="`${ids}-tab-bot`" data-messages-page="bot">
             <div class="acv-messages-list__search">
                 <Input v-model="query" size="sm" :placeholder="t('messages.search')" :aria-label="t('messages.search')" data-messages-search />
             </div>
@@ -105,7 +106,7 @@ function markBroken(src: string): void {
                 <p v-else-if="total > 0 && matched === 0" class="acv-messages-list__empty" data-messages-no-match>{{ t("messages.noMatch") }}</p>
             </div>
         </div>
-        <div v-show="props.tab === 'sessions'" class="acv-messages-list__page" role="tabpanel" data-messages-page="sessions">
+        <div v-show="props.tab === 'sessions'" :id="`${ids}-page-sessions`" class="acv-messages-list__page" role="tabpanel" :aria-labelledby="`${ids}-tab-sessions`" data-messages-page="sessions">
             <slot name="sessions" />
         </div>
     </div>
@@ -121,37 +122,8 @@ function markBroken(src: string): void {
 }
 
 .acv-messages-list__tabs {
-    display: flex;
     flex-shrink: 0;
-    gap: 4px;
-    padding: 6px 8px 0;
-    border-bottom: var(--border-w) solid var(--border-color);
-}
-
-.acv-messages-list__tab {
-    /* 原生按钮：没有 nb-ui 按钮自带的不可选。 */
-    user-select: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 28px;
-    padding: 0 8px;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    background: none;
-    color: var(--text-secondary);
-    font: inherit;
-    cursor: pointer;
-}
-
-.acv-messages-list__tab[aria-selected="true"] {
-    border-bottom-color: var(--accent-main);
-    color: var(--text-main);
-}
-
-.acv-messages-list__tab-count {
-    color: var(--accent-text);
-    font-size: var(--text-2xs);
+    padding: 4px 8px 0;
 }
 
 .acv-messages-list__page {

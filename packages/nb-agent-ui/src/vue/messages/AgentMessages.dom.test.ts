@@ -87,13 +87,17 @@ describe("AgentMessages", () => {
         expect(chatMounts).toBe(1);
     });
 
-    it("宽版收起列表栏：左边换成头像列，顶上的按钮展开", async () => {
+    it("宽版收起列表栏：左边换成头像列，焦点到展开按钮；展开后焦点回到收起按钮", async () => {
         const frame = mountFrame({layout: "wide"});
         await frame.wrapper.get("[data-messages-collapse]").trigger("click");
+        await flushPromises();
         expect(frame.listCollapsed.value).toBe(true);
         expect(shown(frame.wrapper.get<HTMLElement>("[data-messages-strip]").element)).toBe(true);
+        expect(document.activeElement).toBe(frame.wrapper.get("[data-messages-toggle]").element);
         await frame.wrapper.get("[data-messages-toggle]").trigger("click");
+        await flushPromises();
         expect(frame.listCollapsed.value).toBe(false);
+        expect(document.activeElement).toBe(frame.wrapper.get("[data-messages-collapse]").element);
     });
 
     it("窄版头像列：联系人头像，有未读写点、等你处理的点是黄色；名称带未读数；最近会话；点了发事件", async () => {
@@ -143,11 +147,14 @@ describe("AgentMessages", () => {
         await flushPromises();
         expect(frame.drawerOpen.value).toBe(false);
 
-        frame.drawerOpen.value = true;
+        await frame.wrapper.get("[data-messages-toggle]").trigger("click");
         await flushPromises();
+        frame.wrapper.get<HTMLElement>("[data-messages-contact='nbook.bots/lyra']").element.focus();
         await frame.wrapper.get("[data-messages-contact='nbook.bots/lyra']").trigger("click");
         expect(frame.opened).toEqual(["nbook.bots/lyra"]);
         expect(frame.drawerOpen.value).toBe(false);
+        // 选了一项：被选的行跟着收起，焦点回到开抽屉的按钮。
+        expect(document.activeElement).toBe(frame.wrapper.get("[data-messages-toggle]").element);
     });
 
     it("窄变宽：开着的抽屉收起，列表成了列表栏、焦点不动；宽变窄：焦点在列表里的放到头像列的按钮", async () => {
@@ -175,8 +182,8 @@ describe("AgentMessagesList", () => {
 
     it("两个标签：bot 标签带未读合计，点标签发 update:tab；会话页是插槽", async () => {
         const wrapper = list(SECTIONS);
-        expect(wrapper.get("[data-messages-tab='bot']").text()).toBe("bot2");
-        expect(wrapper.get("[data-messages-tab='bot']").attributes("aria-label")).toBe("bot，2 条未读");
+        expect(wrapper.get("[data-messages-tab='bot']").text()).toContain("2");
+        expect(wrapper.get("[data-messages-tab='bot']").attributes("aria-controls")).toBe(wrapper.get("[data-messages-page='bot']").attributes("id"));
         await wrapper.get("[data-messages-tab='sessions']").trigger("click");
         expect(wrapper.emitted("update:tab")).toEqual([["sessions"]]);
         const sessions = list(SECTIONS, "sessions");

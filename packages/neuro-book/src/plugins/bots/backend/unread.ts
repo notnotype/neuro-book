@@ -158,7 +158,8 @@ export class UnreadTracker {
         const session = this.options.agent.session(mainSessionId(botId));
         const from = this.#seen.get(botId) ?? 0;
         const found: number[] = [];
-        let last: LastMessage | null = null;
+        // 只给最后留下的那一条生成摘要：补数可能扫过很多条计数消息。
+        let lastEvent: LogEvent | null = null;
         let after = from;
         let head = 0;
         for (;;) {
@@ -167,18 +168,18 @@ export class UnreadTracker {
             for (const event of page.events) {
                 if (!countsAsMessage(event)) continue;
                 found.push(event.seq);
-                last = newer(last, lastOf(event));
+                if (lastEvent === null || event.seq > lastEvent.seq) lastEvent = event;
             }
             if (!page.more || page.through <= after) break;
             after = page.through;
         }
-        // “看到”之后没有计数消息：最后一句话在“看到”之前，从尾部往前有界地找。
-        if (last === null && head > 0) {
+        // “看到”之后没有计数消息：最后一句话在“看到”之前，从尾部往前有界地找（至多 `TAIL` 条；内核按 seq 定位起点是线性的，已知限制）。
+        if (lastEvent === null && head > 0) {
             const tail = await session.log({afterSeq: Math.max(0, head - TAIL), limit: TAIL + 1});
-            for (const event of tail.events) if (countsAsMessage(event)) last = newer(last, lastOf(event));
+            for (const event of tail.events) if (countsAsMessage(event) && (lastEvent === null || event.seq > lastEvent.seq)) lastEvent = event;
         }
         if (this.#tracked.get(botId) !== tracked) return;
-        tracked.last = newer(tracked.last, last);
+        tracked.last = newer(tracked.last, lastEvent === null ? null : lastOf(lastEvent));
         const seen = this.#seen.get(botId) ?? 0;
         tracked.seqs = [...new Set([...found, ...tracked.early])].filter((seq) => seq > seen).sort((a, b) => a - b);
         tracked.early = [];

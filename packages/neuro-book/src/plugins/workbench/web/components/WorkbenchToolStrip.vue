@@ -6,6 +6,7 @@ import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/compone
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
+import {entryCountText, entryTitle} from "./entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 上段的一个入口：侧栏里的一个容器（docs/specs/ui/workbench-layout.md 输出 22、41）。 */
@@ -30,9 +31,6 @@ export interface ToolStripEntry {
 
 /** 没有图标可取的入口画它：和声明不在的视图的标签同一个。 */
 const PLACEHOLDER_ICON = "i-lucide-circle-help";
-
-/** 角标的文字：超过 99 写“99+”，图标角上放不下更多位。 */
-const countText = (count: number): string => (count > 99 ? "99+" : String(count));
 
 /** 底段的一个全局项（`workbench.activitybar-items`）。 */
 export interface ToolStripItem {
@@ -121,7 +119,7 @@ const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
     const next = props.entries.filter((entry) => strip.value.shown.includes(entry.id));
     return previous !== undefined && sameItems(previous, next) ? previous : next;
 });
-const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entryTitle(entry.label, entry.count), id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
 /** 按下的底色是条目区里一个独立的块（输出 22），侧栏切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
 const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
@@ -159,7 +157,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                         <IconButton
                             size="lg"
                             :icon-class="entry.icon ?? PLACEHOLDER_ICON"
-                            :aria-label="entry.count == null ? entry.label : `${entry.label} ${countText(entry.count)}`"
+                            :aria-label="entryTitle(entry.label, entry.count)"
                             :aria-pressed="entry.pressed"
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-tool-entry="entry.id"
@@ -172,7 +170,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             @contextmenu="onEntryContextMenu(entry.id, $event)"
                         />
                     </Tooltip>
-                    <Badge v-if="entry.count != null" size="sm" tone="accent" class="workbench-tool-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ countText(entry.count) }}</Badge>
+                    <Badge v-if="entry.count != null" size="sm" tone="accent" class="workbench-tool-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">

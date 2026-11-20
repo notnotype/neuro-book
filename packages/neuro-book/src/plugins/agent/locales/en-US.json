@@ -287,7 +287,7 @@
             "both": "Agent: {{running}} running · {{waiting}} need you",
             "waiting": "Agent: {{waiting}} need you",
             "running": "Agent: {{running}} running",
-            "unread": "{{count}} new messages"
+            "unread": "New messages: {{count}}"
         },
         "listFailed": "Couldn't get the session list ({{code}}).",
         "welcomeTitle": "NeuroBook writing workspace",
@@ -450,7 +450,7 @@
             "openFailed": "Couldn't open the conversation with {{name}} ({{code}}).",
             "retry": "Retry",
             "pickBot": "Pick a bot to start chatting",
-            "contactsFailed": "Couldn't load contacts from {{name}} ({{code}}).",
+            "contactsFailed": "Couldn't load contacts ({{code}}).",
             "untitled": "Untitled conversation"
         }
     },
@@ -488,6 +488,9 @@
     "state": {
         "active": {
             "reason": "No session is running or waiting for you"
+        },
+        "attention": {
+            "reason": "No running or waiting sessions and no new messages"
         }
     },
     "settingsPages": {

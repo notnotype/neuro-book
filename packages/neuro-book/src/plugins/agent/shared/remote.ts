@@ -236,7 +236,7 @@ const methods = {
         errors: errorsOf([...storageErrors, "profile-invalid", "invalid-initial", "open-failed"] as const),
     },
     snapshot: {input: Type.Object(BySession, {additionalProperties: false}), output: object<RemoteSessionSnapshot>(), effect: "read", errors: wholeErrors},
-    /** 只读会话头、不打开会话（sessions.md 输出 28）：浏览器打开会话之前据此看归属（conversation.md 的转交）。 */
+    /** 只读会话头、不打开会话（sessions.md 输出 28）：浏览器据此看归属定档位、决定打开到哪里（conversation.md 输出 52、53）。 */
     header: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionHeader>(), effect: "read", errors: queryErrors},
     log: {
         input: Type.Object({...BySession, afterSeq: Type.Integer({minimum: 0}), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 2000}))}, {additionalProperties: false}),

@@ -71,8 +71,9 @@ watch(listCollapsed, (collapsed) => {
     props.memory.listCollapsed = collapsed;
 });
 const drawerOpen = ref(false);
-watch(drawerOpen, (open) => {
-    if (head !== null) head.titlePopup.value = layout.value === "narrow" ? {expanded: open} : null;
+// 窄版的标题按钮开抽屉：写它的弹出状态；宽版标题区交还了，不写。版式变了也要重写（例如宽版挂上之后缩到窄版）。
+watch([drawerOpen, layout], ([open, current]) => {
+    if (head !== null) head.titlePopup.value = current === "narrow" ? {expanded: open} : null;
 }, {immediate: true});
 onBeforeUnmount(() => {
     if (head !== null) head.titlePopup.value = null;
@@ -89,19 +90,24 @@ const model = createMessagesModel({
     providers: () => props.providers,
     activity: () => props.activity,
     hasModel: () => props.hasModel,
-    sessions: () => props.list.items.value,
+    sessions: () => props.list.roots.value,
     selectSession: (id) => props.host.act({type: "session.select", sessionId: id}),
-    texts: {contactsFailed: (plugin, code) => t("conversation.messages.contactsFailed", {name: plugin, code}), untitled: () => t("conversation.messages.untitled")},
+    texts: {contactsFailed: (code) => t("conversation.messages.contactsFailed", {code}), untitled: () => t("conversation.messages.untitled")},
 });
 const {sections, selected, tab, pending, pickBot, recentSessions} = model;
 
+const messagesRef = ref<InstanceType<typeof AgentMessages> | null>(null);
+/** 选了会话：经外框关抽屉，焦点回到开它的按钮（被选的行跟着收起）。 */
+function closeDrawer(): void {
+    if (drawerOpen.value) messagesRef.value?.closeDrawer();
+}
 function openSession(id: string): void {
     model.openSession(id);
-    drawerOpen.value = false;
+    closeDrawer();
 }
 function onSessionOpened(): void {
     model.sessionOpened();
-    drawerOpen.value = false;
+    closeDrawer();
 }
 
 /** 窗口有没有焦点：视图可见还不够，切到别的程序时不算看到（bots/view.md 输出 4）。 */
@@ -126,6 +132,7 @@ model.watchSeen(() => props.context.visible.value && focused.value);
 <template>
     <div ref="rootRef" class="h-full w-full" data-messages-host>
         <AgentMessages
+            ref="messagesRef"
             v-model:list-collapsed="listCollapsed"
             v-model:drawer-open="drawerOpen"
             v-model:tab="tab"

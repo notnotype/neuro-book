@@ -20,7 +20,7 @@ function deferred<T>(): {readonly promise: Promise<T>; resolve(value: T): void} 
     return {promise, resolve};
 }
 
-function provider(contacts: OwnerContact[] = [{id: "lyra", name: "星璃", unread: 2, last: {text: "好了", at: 1}, sessionId: "bot-lyra"}]) {
+function provider(contacts: OwnerContact[] = [{id: "lyra", name: "星璃", unread: 2, last: {text: "好了", at: 1}, sessionId: "bot-lyra"}, {id: "vega", name: "织女", unread: 0, last: null, sessionId: "bot-vega"}]) {
     const opens: string[] = [];
     const seen: [string, number][] = [];
     let reloads = 0;
@@ -51,12 +51,14 @@ function setup(options: {hasModel?: boolean | null} = {}) {
     const sessionId = ref<string | null>(null);
     const owner = ref<SessionOwner | null | undefined>(null);
     const shownSeq = ref(0);
+    const openCount = ref(0);
     const opened: string[] = [];
     const selectedSessions: string[] = [];
     const host = {
-        sessionId, owner, shownSeq,
+        sessionId, owner, shownSeq, opened: openCount,
         open: async (id: string) => {
             opened.push(id);
+            openCount.value += 1;
             sessionId.value = id;
             // 同真宿主：换了会话，已应用的 seq 从 0 起。
             shownSeq.value = 0;
@@ -70,15 +72,17 @@ function setup(options: {hasModel?: boolean | null} = {}) {
         hasModel: () => hasModel.value,
         sessions: () => [
             {id: "s1", title: "一", icon: "i-lucide-feather"},
-            {id: "s1a", title: "子", parentId: "s1"},
-            {id: "s2", title: "", archived: true},
             {id: "s3", title: ""},
+            {id: "s4", title: "四"},
+            {id: "s5", title: "五"},
+            {id: "s6", title: "六"},
+            {id: "s7", title: "七"},
         ],
         selectSession: (id) => {
             selectedSessions.push(id);
             void host.open(id);
         },
-        texts: {contactsFailed: (plugin, code) => `读不到 ${plugin}（${code}）`, untitled: () => "未命名"},
+        texts: {contactsFailed: (code) => `读不到联系人（${code}）`, untitled: () => "未命名"},
     });
     return {model, bots, providers, activity, hasModel, host, opened, selectedSessions};
 }
@@ -90,7 +94,7 @@ describe("消息视图的状态", () => {
         activity.value = [{id: "child-1", state: "waiting", root: "bot-lyra"}, {id: "bot-lyra", state: "running", root: "bot-lyra"}];
         expect(model.sections.value[0]!.contacts[0]!.activity).toBe("waiting");
         bots.state.value = {kind: "failed", code: "disconnected"};
-        expect(model.sections.value[0]!.state).toEqual({kind: "failed", message: "读不到 nbook.bots（disconnected）"});
+        expect(model.sections.value[0]!.state).toEqual({kind: "failed", message: "读不到联系人（disconnected）"});
         providers.value = [];
         expect(model.sections.value).toEqual([]);
     });
@@ -154,9 +158,9 @@ describe("消息视图的状态", () => {
         expect(model.pickBot.value).toBe(false);
     });
 
-    it("头像列的最近会话：只取根会话、不含归档的，没有标题写未命名", () => {
+    it("头像列的最近会话：取前 5 个，没有标题写未命名", () => {
         const {model} = setup();
-        expect(model.recentSessions.value).toEqual([{id: "s1", title: "一", icon: "i-lucide-feather"}, {id: "s3", title: "未命名", icon: "i-lucide-bot"}]);
+        expect(model.recentSessions.value.map((item) => item.title)).toEqual(["一", "未命名", "四", "五", "六"]);
     });
 
     it("看到：有归属的会话开着、视图可见且窗口有焦点、没有盖层时才交；三样各自不满足时都不交", async () => {
@@ -176,11 +180,42 @@ describe("消息视图的状态", () => {
         expect(bots.seen).toEqual([["lyra", 7]]);
         await host.open("bot-lyra");
         bots.answer(() => new Promise(() => undefined));
-        void model.openContact("nbook.bots/lyra");
+        void model.openContact("nbook.bots/vega");
         host.shownSeq.value = 11;
         await nextTick();
         expect(bots.seen).toEqual([["lyra", 7]]);
         stop();
+    });
+
+    it("盖层跟着宿主：别处打开了会话（命令、新建、状态栏）就撤掉、较早的结果作废；归属插件停了也撤；点已经开着的联系人什么都不做", async () => {
+        const {model, bots, host, opened, providers} = setup();
+        bots.answer(async () => ({ok: false, code: "session-busy"}));
+        await model.openContact("nbook.bots/lyra");
+        expect(model.pending.value).toMatchObject({step: "failed"});
+        await host.open("s9");
+        expect(model.pending.value).toBeNull();
+        expect(model.selected.value).toEqual({kind: "session", id: "s9"});
+
+        const slow = deferred<{readonly ok: true; readonly sessionId: string}>();
+        bots.answer(() => slow.promise);
+        const opening = model.openContact("nbook.bots/lyra");
+        await host.open("s8");
+        slow.resolve({ok: true, sessionId: "bot-lyra"});
+        await opening;
+        expect(opened.at(-1)).toBe("s8");
+
+        bots.answer(() => new Promise(() => undefined));
+        void model.openContact("nbook.bots/lyra");
+        expect(model.pending.value).toMatchObject({step: "opening"});
+        providers.value = [];
+        await nextTick();
+        expect(model.pending.value).toBeNull();
+
+        const again = setup();
+        await again.model.openContact("nbook.bots/lyra");
+        await again.model.openContact("nbook.bots/lyra");
+        expect(again.bots.opens).toEqual(["lyra"]);
+        expect(again.opened).toEqual(["bot-lyra"]);
     });
 
     it("读不到联系人时重试：调那个归属插件的 reload", () => {

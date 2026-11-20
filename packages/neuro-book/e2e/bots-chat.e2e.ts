@@ -76,6 +76,9 @@ async function send(page: Page, text: string): Promise<void> {
 
 test("验收 1：消息视图的头像列点星璃，顶栏是星璃与头像；说一句得到回复；等审批时停靠区里有审批、输入框可用，这时再发一句，审批以拒绝结算、她接着处理这句", async ({page}) => {
     await openBot(page);
+    // 产品的默认布局：右栏是消息视图；左侧栏的“项目”容器里没有以前的会话面板（它并进了消息视图，conversation.md 输出 2）。
+    await expect(page.locator(`[data-content="view:${MESSAGES}"]`)).toBeVisible();
+    await expect(page.locator('[data-content="view:nbook.agent.sessions"]')).toHaveCount(0);
     const avatar = handle(page).locator("[data-header-avatar]");
     await expect(avatar).toBeVisible();
     await expect.poll(() => avatar.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);

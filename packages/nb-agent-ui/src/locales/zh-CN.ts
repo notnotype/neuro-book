@@ -409,7 +409,6 @@ export default {
     messages: {
         tabBot: "bot",
         tabSessions: "会话",
-        tabUnread: "bot，{{count}} 条未读",
         search: "搜索 bot",
         running: "正在回复…",
         waiting: "等你处理",

@@ -59,7 +59,7 @@ type PendingSend = {
     readonly commandId: string;
     readonly input: {readonly text: string; readonly attachments?: readonly UploadedAttachment[]};
     readonly replaces?: readonly {readonly id: string; readonly edits: number}[];
-    /** 固定会话：运行中的投递方式与一并结算（重发要带上，否则结果未知后重发会丢掉结算）。 */
+    /** 有归属的会话（bot 档）：运行中的投递方式与一并结算（重发要带上，否则结果未知后重发会丢掉结算）。 */
     readonly mode?: "steer" | "followup";
     readonly settlePending?: "deny";
     /** 恢复方式不是合并、写了字时的放行方式。 */
@@ -232,8 +232,11 @@ export interface SessionHostDeps {
 export interface SessionOwners {
     /** 表里有的同步交回；还没读过为 undefined。 */
     known(id: string): SessionOwner | null | undefined;
-    /** 查表，没有再读会话头；读不到为 `"unreadable"`（不当成没有归属：那会放宽限制）。 */
-    ownerOf(id: string): Promise<SessionOwner | null | "unreadable">;
+    /**
+     * 查表，没有再读会话头。会话不在为 `"missing"`（照常打开、失败，恢复时清记录）；别的读不出来为 `"unreadable"`（不当成没有归属：那会
+     * 放宽限制；恢复时记录留着，可能只是服务端刚重启）。
+     */
+    ownerOf(id: string): Promise<SessionOwner | null | "unreadable" | "missing">;
     /** 归属插件给的身份（名字与头像）；归属插件不在或没有这个联系人时为 null，头回落到会话标题与 Profile 图标。读的是响应式数据。 */
     identity(owner: SessionOwner): {readonly name: string; readonly avatar?: string} | null;
     /**
@@ -266,6 +269,8 @@ export interface SessionHost {
     readonly sessionId: ShallowRef<string | null>;
     /** 当前会话已经应用到的日志 seq（快照的 `head` 与之后到的日志帧）：bot 视图据此报“看到”。没有会话时为 0。 */
     readonly shownSeq: ShallowRef<number>;
+    /** 每打开一次会话（不论从哪里：列表、命令、新建、恢复）加一：消息视图据此知道聊天区被别处换了，撤掉自己的盖层。 */
+    readonly opened: ShallowRef<number>;
     /** 当前会话的归属：没有会话、没有归属为 null；还没读到为 undefined。消息视图据此切标签、交“看到”。 */
     readonly owner: ComputedRef<SessionOwner | null | undefined>;
     /** 子代理与后台命令卡片的数据与动作（见 `subagent-store.ts`）。 */
@@ -303,6 +308,8 @@ type Current = {
     ancestors: readonly AncestorItem[];
     /** 会话头的归属；还没读到为 undefined（这时按最严的档：加载中也画不出可操作的东西）。 */
     owner: SessionOwner | null | undefined;
+    /** 读不到会话头（不是“不在了”）：档位留在最严的一档；恢复时不清“最近的会话”的记录。与 `failed` 分开记，不和快照的失败码互相覆盖。 */
+    headerUnreadable: boolean;
 };
 
 /** 子代理卡片与后台命令卡片读的数据：按会话一份，宿主经 `provide` 交给卡片，不进 ctx（推送只替换变了的项）。 */
@@ -553,7 +560,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const pending = target.transcript.pending();
         for (const item of pending) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id, target.id);
         for (const child of target.tree) for (const item of child.pending ?? []) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id, child.id);
-        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。只看阻塞的：异步提问与后代的事项在停靠区，状态另存；固定会话（停靠档）
+        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。只看阻塞的：异步提问与后代的事项在停靠区，状态另存；有归属的会话（停靠档）
         // 自己的同步事项也在停靠区。
         if (!pending.some((item) => item.async !== true)) wizardState = undefined;
         const docked = (item: {readonly async?: boolean}): boolean => target.owner !== null || item.async === true;
@@ -996,9 +1003,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         };
     }
 
+    /** 每打开一次会话加一（`SessionHost.opened`）。 */
+    const opened = shallowRef(0);
     /**
-     * 打开会话的入口。固定会话只开自己那一个，别的交给通用视图；通用宿主先读会话头，有归属、归属插件接手了就不在这里开。读会话头期间
-     * 又打开了别的（`routing` 变了），这次作废，晚到的转交不抢界面。
+     * 打开会话的入口。编辑区页面的宿主（`owners.elsewhere`）先读会话头：有归属的交给消息视图，不在这里开；读会话头期间又打开了别的
+     * （`routing` 变了），这次作废。其余宿主直接打开，档位在打开时按归属定（`openHere`）。
      */
     let routing = 0;
     async function open(id: string, options: {readonly keepDraft?: boolean} = {}): Promise<void> {
@@ -1006,9 +1015,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         if (owners?.elsewhere === undefined) return openHere(id, options);
         // 编辑区页面：有归属的会话交给消息视图。读会话头期间又打开了别的，这次作废。
         const asked = (routing += 1);
-        const owner = owners.known(id) ?? await owners.ownerOf(id);
+        const known = owners.known(id);
+        const owner = known !== undefined ? known : await owners.ownerOf(id);
         if (asked !== routing || disposed) return;
-        if (owner !== null && owner !== "unreadable") {
+        if (owner !== null && owner !== "unreadable" && owner !== "missing") {
             owners.elsewhere(id);
             return;
         }
@@ -1036,18 +1046,22 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         // 作者按祖先算：祖先与路径一起取，路径上的话应用之前就到了（`authorOf` 读的是 `target.ancestors`）。
         const owners = deps.owners;
-        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by)}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: [], owner: owners === undefined ? null : owners.known(id)};
+        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by)}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: [], owner: owners === undefined ? null : owners.known(id), headerUnreadable: false};
         current = target;
         sessionId.value = id;
         shownSeq.value = 0;
+        opened.value += 1;
         deps.recent.write(id);
         bump();
         // 归属与快照同时读；读到之前按最严的档。读不到记打开失败、走现有的重试，不当成没有归属。
         if (owners !== undefined && target.owner === undefined) {
             void owners.ownerOf(id).then((owner) => {
                 if (current !== target) return;
-                if (owner === "unreadable") target.failed = {code: "header-unreadable"};
-                else target.owner = owner;
+                if (owner === "unreadable") {
+                    target.headerUnreadable = true;
+                    // 快照那边已有更具体的失败码时留着它；画面上照样是打开失败、可重试。
+                    target.failed ??= {code: "header-unreadable"};
+                } else target.owner = owner === "missing" ? null : owner;
                 afterChange(target);
                 bump();
             });
@@ -1164,21 +1178,18 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     const failedToOpen = (id: string): boolean => current?.id === id && current.failed !== null;
     /** 经函数读：`await` 之后 TypeScript 仍按之前的判断把 `current` 收窄成 null。 */
-    const failureCode = (): string | null => current?.failed?.code ?? null;
+    const headerUnreadable = (): boolean => current?.headerUnreadable === true;
 
     async function restore(): Promise<void> {
         // 恢复期间用户又打开了别的会话（`open` 记了号，还在读会话头）：让给它，不恢复。
         const asked = routing;
         const id = await deps.recent.read();
         if (id === null || current !== null || asked !== routing || disposed) return;
-        // 有归属的会话照常恢复：它就在消息视图里（编辑区页面的宿主经 `open` 交给消息视图）。
-        if (deps.owners?.elsewhere !== undefined) {
-            await open(id);
-            return;
-        }
-        await openHere(id);
+        // 有归属的会话照常恢复：它就在消息视图里（编辑区页面的宿主经 `open` 交给消息视图，自己不开）。
+        if (deps.owners?.elsewhere !== undefined) await open(id);
+        else await openHere(id);
         // 记录里的会话不在了：显示未选择，不留一个打不开的。读不到会话头不等于不在了（服务端刚重启），记录留着。
-        if (failedToOpen(id) && failureCode() !== "header-unreadable") {
+        if (failedToOpen(id) && !headerUnreadable()) {
             closeCurrent();
             sessionId.value = null;
             deps.recent.write(null);
@@ -1199,7 +1210,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         };
     }
 
-    /** 发出时会一并以拒绝结算的事项数（固定会话）：这个会话自己的同步事项，不含异步提问与后代会话的（runtime.md 输出 111）。 */
+    /** 发出时会一并以拒绝结算的事项数（有归属的会话）：这个会话自己的同步事项，不含异步提问与后代会话的（runtime.md 输出 111）。 */
     const settleCount = (target: Current | null): number => (target === null ? 0 : target.transcript.pending().filter((item) => item.async !== true).length);
 
     /**
@@ -1633,7 +1644,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 await submit(action.text, action.delivery);
                 return;
             case "command.run":
-                // 固定会话只做白名单里的命令（输入框也只列这几个；这里再挡一次，免得别处发来的 `/new`、`/fork` 换掉会话）。
+                // 有归属的会话只做白名单里的命令（输入框也只列这几个；这里再挡一次，免得别处发来的 `/new`、`/fork` 改写它）。
                 if (current !== null && current.owner !== null && !OWNED_COMMANDS.includes(action.name)) return;
                 if (action.name === "compact") await compactCommand(action.argsText);
                 else if (action.name === "new") await newCommand();
@@ -2013,6 +2024,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         ctx,
         sessionId,
         shownSeq,
+        opened,
         owner,
         subagents,
         restore,
@@ -2024,7 +2036,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             borrowers += 1;
             cancelRelease?.();
             cancelRelease = null;
-            // 归零期间取消了订阅：回来时重新打开同一个会话（已经过了转交的，不再查归属）。
+            // 归零期间取消了订阅：回来时重新打开同一个会话（归属从插件级的表里取，档位不变）。
             if (current === null && sessionId.value !== null) void openHere(sessionId.value);
             let returned = false;
             return () => {

@@ -17,6 +17,8 @@ export interface MessagesHostPart {
     readonly sessionId: Readonly<Ref<string | null>>;
     readonly shownSeq: Readonly<Ref<number>>;
     readonly owner: Readonly<Ref<SessionOwner | null | undefined>>;
+    /** 每打开一次会话加一（`SessionHost.opened`）。 */
+    readonly opened: Readonly<Ref<number>>;
     open(id: string): Promise<void>;
 }
 
@@ -26,12 +28,12 @@ export interface MessagesModelOptions {
     readonly activity: () => readonly ActivityItem[];
     /** 有没有可用的模型：没有为 false，还没读到为 null。 */
     readonly hasModel: () => boolean | null;
-    /** 会话一页的条目（按最近活动排）：头像列取前几个根会话。 */
-    readonly sessions: () => readonly {readonly id: string; readonly title: string; readonly icon?: string; readonly parentId?: string; readonly archived?: boolean}[];
+    /** 根会话（按最近活动排、不受搜索与过滤影响）：头像列取前 5 个。 */
+    readonly sessions: () => readonly {readonly id: string; readonly title: string; readonly icon?: string}[];
     /** 选会话（会话一页、头像列）。 */
     readonly selectSession: (id: string) => void;
     /** 文字：联系人读不到、未命名会话。 */
-    readonly texts: {contactsFailed(plugin: string, code: string): string; untitled(): string};
+    readonly texts: {contactsFailed(code: string): string; untitled(): string};
 }
 
 export type PendingStep = "no-model" | "opening" | "failed";
@@ -71,7 +73,7 @@ export function createMessagesModel(options: MessagesModelOptions): MessagesMode
         const state = provider.state.value;
         return {
             key: plugin,
-            state: state.kind === "failed" ? {kind: "failed", message: options.texts.contactsFailed(plugin, state.code)} : state,
+            state: state.kind === "failed" ? {kind: "failed", message: options.texts.contactsFailed(state.code)} : state,
             contacts: provider.contacts.value.map((contact) => ({
                 key: contactKey({plugin, id: contact.id}),
                 name: contact.name,
@@ -90,14 +92,31 @@ export function createMessagesModel(options: MessagesModelOptions): MessagesMode
     const contactOf = (key: string) => {
         for (const {plugin, provider} of options.providers()) {
             const contact = provider.contacts.value.find((candidate) => contactKey({plugin, id: candidate.id}) === key);
-            if (contact !== undefined) return {plugin, provider, id: contact.id, name: contact.name};
+            if (contact !== undefined) return {plugin, provider, id: contact.id, name: contact.name, sessionId: contact.sessionId};
         }
         return null;
     };
 
+    /** 作废还在路上的联系人、撤掉盖层：聊天区被别处换了（命令、新建、状态栏），或那个联系人的归属插件停了。 */
+    function cancel(): void {
+        asking += 1;
+        pending.value = null;
+    }
+    /** 自己正在 `host.open` 的那一次：它引起的打开不算“被别处换了”。 */
+    let opening = false;
+    // 同步回调：异步的话回调跑的时候 `opening` 已经复位，自己打开的那一次会被当成别处换的。
+    watch(() => host.opened.value, () => {
+        if (!opening && pending.value !== null) cancel();
+    }, {flush: "sync"});
+    watch(() => options.providers(), () => {
+        if (pending.value !== null && contactOf(pending.value.key) === null) cancel();
+    });
+
     async function openContact(key: string): Promise<void> {
         const found = contactOf(key);
         if (found === null) return;
+        // 已经开着它的主对话：什么都不用做（再开一次会整段重载，滚动与“看到”都断一下）。
+        if (pending.value === null && found.sessionId !== null && host.sessionId.value === found.sessionId) return;
         const asked = (asking += 1);
         // 没有模型不取主对话（bots/view.md）：建了也聊不了。还没读到时先等，读到再说（见下面的 watch）。
         const model = options.hasModel();
@@ -112,7 +131,12 @@ export function createMessagesModel(options: MessagesModelOptions): MessagesMode
             pending.value = {key, name: found.name, step: "failed", code: opened.code};
             return;
         }
-        await host.open(opened.sessionId);
+        opening = true;
+        try {
+            await host.open(opened.sessionId);
+        } finally {
+            opening = false;
+        }
         if (asked === asking) pending.value = null;
     }
 
@@ -142,14 +166,10 @@ export function createMessagesModel(options: MessagesModelOptions): MessagesMode
     const pickBot = computed(() => pending.value === null && host.sessionId.value === null && tab.value === "bot");
 
     const recentSessions = computed((): MessagesRecentSession[] => options.sessions()
-        .filter((item) => item.parentId === undefined && item.archived !== true)
         .slice(0, 5)
         .map((item) => ({id: item.id, title: item.title || options.texts.untitled(), icon: item.icon ?? "i-lucide-bot"})));
 
-    function sessionOpened(): void {
-        asking += 1;
-        pending.value = null;
-    }
+    const sessionOpened = cancel;
 
     return {
         sections,

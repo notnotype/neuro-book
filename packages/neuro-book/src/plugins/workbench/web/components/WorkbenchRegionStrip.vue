@@ -10,6 +10,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import "./panel-metrics.css";
+import {entryCountText, entryTitle} from "./entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 一个入口：区域里的一个容器（输出 41、47）。 */
@@ -72,9 +73,7 @@ const emit = defineEmits<{
 }>();
 
 /** 标题入口写的字：标题，有计数时后面接计数（“通知 2”），读屏名称同样带上。 */
-/** 计数的文字：超过 99 写“99+”。 */
-const countText = (count: number): string => (count > 99 ? "99+" : String(count));
-const titleOf = (entry: RegionStripEntry): string => (entry.count == null ? entry.label : `${entry.label} ${countText(entry.count)}`);
+const titleOf = (entry: RegionStripEntry): string => entryTitle(entry.label, entry.count);
 
 /** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在入口下面。 */
 function onEntryContextMenu(id: string, event: MouseEvent): void {
@@ -134,7 +133,7 @@ const strip = computed(() => {
     return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(floor, room - props.headMinWidth), ICON_ENTRY_PX, entryGap.value);
 });
 const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
-const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: titleOf(entry), id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
 /** 按下态（右栏的底色、底部面板的下划线）是入口这一组里一个独立的块，区域切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
 const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
@@ -189,7 +188,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             <span v-else class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
                         </button>
                     </Tooltip>
-                    <Badge v-if="variant === 'icons' && entry.count != null" size="sm" tone="accent" class="workbench-region-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ countText(entry.count) }}</Badge>
+                    <Badge v-if="variant === 'icons' && entry.count != null" size="sm" tone="accent" class="workbench-region-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="bottom" align="start" @select="(id: string) => emit('select', id)">

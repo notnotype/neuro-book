@@ -69,6 +69,7 @@ import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu}
 import {createStickerPacksClient} from "./sticker-packs";
 import {profilesUsingSticker} from "./sticker-usage";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
+import {gatedProvider} from "./owner-providers";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, SessionHostDeps, SessionOwners, UploadedAttachment} from "./session-host";
 import {createRecentSessions, createSessionList} from "./session-list";
@@ -97,7 +98,7 @@ const OPEN_VIEW_COMMAND = "nbook.view.open";
 const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "auxiliarybar", order: 0, layout: "fill", replaces: ["nbook.agent.sessions"]};
 const PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-message-square"};
 const REQUESTS_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-activity"};
-const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/active"]}};
+const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/attention"]}};
 const command = (description: string, args: WrittenCommandDeclaration["args"] = Type.Object({}, {additionalProperties: false})): WrittenCommandDeclaration => ({
     category: agentText("commands.category"),
     description,
@@ -115,6 +116,11 @@ const COMMANDS: Readonly<Record<string, WrittenCommandDeclaration>> = {
 
 const agentState = definePublicState(descriptor.id, {
     active: {type: "boolean", unready: false, reason: agentText("state.active.reason")},
+    /**
+     * 状态栏的 Agent 活动条目要不要出现：有会话在跑或等你处理，或者归属插件的联系人有未读（右栏收起时入口角标看不到，这里补上）。
+     * 不并进 `active`：主题按 `active` 换“工作中”场景（theme/skins.md 输出 17），有未读不算在工作。
+     */
+    attention: {type: "boolean", unready: false, reason: agentText("state.attention.reason")},
 });
 
 const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false});
@@ -335,7 +341,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         report("owner-duplicate", `${handle.plugin} 的第二条 ${SESSION_OWNERS_POINT} 贡献 ${handle.id} 不接：每个插件至多一条`);
                         return;
                     }
-                    providers.value = [...providers.value, {plugin: handle.plugin, id: handle.id, provider: handle.implementation()}].sort((a, b) => (a.plugin < b.plugin ? -1 : a.plugin > b.plugin ? 1 : 0));
+                    providers.value = [...providers.value, {plugin: handle.plugin, id: handle.id, provider: gatedProvider(handle)}].sort((a, b) => (a.plugin < b.plugin ? -1 : a.plugin > b.plugin ? 1 : 0));
                 },
                 revoke: (handle) => {
                     providers.value = providers.value.filter((entry) => entry.id !== handle.id);
@@ -350,7 +356,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     const known = ownerTable.get(id);
                     if (known !== undefined) return known;
                     const read = await remote.header({sessionId: id});
-                    if (!read.ok) return "unreadable";
+                    if (!read.ok) return read.code === "session-not-found" ? "missing" : "unreadable";
                     const owner = read.value.owner ?? null;
                     ownerTable.set(id, owner);
                     return owner;
@@ -363,7 +369,9 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 会话树的根有没有归属（这个会话本身，或它的祖先链里的根）：`focus-session` 据此决定打开到消息视图。读不到时当成没有，照旧。 */
             const ownedTree = async (id: string): Promise<boolean> => {
                 const owner = await sessionOwners.ownerOf(id);
-                if (owner !== null) return owner !== "unreadable";
+                if (owner === "missing") return false;
+                if (owner !== null && owner !== "unreadable") return true;
+                // 没有归属，或这个会话的头读不出来（祖先关系还在）：看祖先链的根。读不出来不代替它自己的档位，只决定打开到哪里。
                 const ancestors = await remote.ancestors({sessionId: id});
                 return ancestors.ok && ancestors.value.at(-1)?.owner !== undefined;
             };
@@ -462,16 +470,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                     },
                     report,
             });
-            /** 交回的函数停掉监视并摘掉插件关闭时的监听：随组件挂卸的宿主（固定会话）卸载时调用，不让插件级的 `signal` 留着它。 */
-            const watchSeen = (host: SessionHost): (() => void) => {
+            /** 两个位置的宿主随插件活着：插件关闭时停掉监视。 */
+            const watchSeen = (host: SessionHost): void => {
                 const stopSeen = watch(host.sessionId, (id) => {
                     if (id !== null) seenErrors.markSession(id, clock.now());
                 }, {immediate: true});
                 context.signal.addEventListener("abort", stopSeen, {once: true});
-                return () => {
-                    stopSeen();
-                    context.signal.removeEventListener("abort", stopSeen);
-                };
             };
             const hostAt = (position: "view" | "page"): SessionHost => {
                 let host = hosts.get(position);
@@ -555,7 +559,7 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             /**
              * 对话位置共用的部分：注册表的登记项、渲染组件，与按会话的 Profile 取白名单的菜单服务（`servicesFor` 每个对话一份，交回取消
-             * 监听的函数）。通用的两个位置与固定会话的组件都用它。
+             * 监听的函数）。两个对话位置都用它。
              */
             const conversationParts = async () => {
                 ensureStarted();
@@ -805,7 +809,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
                 state: () => (activity.waiting.value > 0 ? "warning" : "normal"),
             };
-            const published = bindingsOf(agentState, {active: computed(() => activity.active.value || unreadTotal.value > 0)});
+            const published = bindingsOf(agentState, {active: activity.active, attention: computed(() => activity.active.value || unreadTotal.value > 0)});
             return {
                 services: [provideService(stickerAllowlistUsageKey, {
                     profilesUsing: async (packId) => {

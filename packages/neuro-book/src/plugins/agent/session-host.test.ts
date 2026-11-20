@@ -2336,7 +2336,7 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
                 const known = table.get(id);
                 if (known !== undefined) return known;
                 const read = await client.header({sessionId: id});
-                if (!read.ok) return "unreadable";
+                if (!read.ok) return read.code === "session-not-found" ? "missing" : "unreadable";
                 const owner = read.value.owner ?? null;
                 table.set(id, owner);
                 return owner;
@@ -2398,6 +2398,64 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         expect(h.host.sessionId.value).toBeNull();
         await h.host.open(plainId);
         expect(h.host.sessionId.value).toBe(plainId);
+    });
+
+    test("编辑区页面读会话头期间又打开了别的：较早的那次作废，不交出去、不抢界面", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        const plainId = (await started(w)).host.sessionId.value!;
+        const owners = await ownersFor(w);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const elsewhere: string[] = [];
+        const h = await harness(w, {owners: {...owners, ownerOf: async (id) => {
+            if (id === ownedId) await gate;
+            return owners.ownerOf(id);
+        }, elsewhere: (id) => void elsewhere.push(id)}});
+        const late = h.host.open(ownedId);
+        await h.host.open(plainId);
+        release();
+        await late;
+        expect(elsewhere).toEqual([]);
+        expect(h.host.sessionId.value).toBe(plainId);
+    });
+
+    test("在 bot 的主对话里派出的子会话：会话档；头上祖先路径的根写归属插件给的身份名，不写会话标题", async () => {
+        const w = await world();
+        const created = await w.service.create({profile: MAIN_PROFILE, owner: {id: "lyra"}});
+        if (!created.ok) throw new Error(created.code);
+        endpoint.scriptFor("先读一遍", "读完了");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "先读一遍", initial: {role: "设定核对员"}}}, "好");
+        const sent = await created.value.send({commandId: crypto.randomUUID(), input: {text: "派"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await created.value.waitRun(sent.value.runId);
+        const spawned = (await created.value.path()).find((event) => event.type === "toolResult")?.data as {details?: {sessionId?: string}} | undefined;
+        const child = spawned?.details?.sessionId;
+        if (child === undefined) throw new Error("no child session");
+        const h = await harness(w, {owners: await ownersFor(w, {lyra: {name: "星璃"}})});
+        await h.host.open(child);
+        await until("子会话打开", () => h.ctx().availability.status === "ready" && (h.ctx().session?.path?.length ?? 0) > 0);
+        expect(h.ctx().interaction.placement).toBe("wizard");
+        expect(h.ctx().session?.path?.[0]).toMatchObject({id: created.value.id, title: "星璃"});
+    });
+
+    test("读不到会话头、快照也失败：不论谁后到，恢复都不清最近的会话；会话确实不在了照样清", async () => {
+        const w = await world();
+        const owners = await ownersFor(w);
+        const unreadable: SessionOwners = {...owners, ownerOf: async () => "unreadable"};
+        const h = await harness(w, {owners: unreadable});
+        h.recent.value = "no-such-session";
+        await h.host.restore();
+        await until("打开失败", () => h.ctx().availability.status === "load-error");
+        expect(h.recent.value).toBe("no-such-session");
+
+        const gone = await harness(w, {owners});
+        gone.recent.value = "no-such-session";
+        await gone.host.restore();
+        expect(gone.recent.value).toBeNull();
+        expect(gone.host.sessionId.value).toBeNull();
     });
 
     test("等审批时输入框上方写会拒绝几项；这时发话一并以拒绝结算，运行接着处理这句话", async () => {

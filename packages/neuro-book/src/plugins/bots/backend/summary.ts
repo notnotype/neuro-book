@@ -10,13 +10,19 @@ import {stickerAt} from "@notnotype/nb-markdown";
 export const SUMMARY_MAX = 80;
 
 /**
- * 只取文字块（`replyText`）；表情写法换成“[表情]”；空白折叠成一个空格；按码点截到 `SUMMARY_MAX`，超了加“…”。没有文字时有图片写“[图片]”，
+ * 只取文字块（`replyText`）；表情写法换成“[表情]”，转义的（`\:lyra/开心:`，聊天里显示成字面）去掉反斜杠、原样留着；空白折叠成一个空格；按码点截到 `SUMMARY_MAX`，超了加“…”。没有文字时有图片写“[图片]”，
  * 否则写“[消息]”。Markdown 标记（加粗、链接的写法）原样留着：列表一行放不下渲染结果，去标记要再解析一遍，收益小（已知限制）。
  */
 export function messageSummary(content: readonly ContentBlock[]): string {
     const raw = replyText(content);
     let text = "";
     for (let index = 0; index < raw.length;) {
+        // 转义的冒号：Markdown 显示成字面的冒号，后面那段不是表情。
+        if (raw[index] === "\\" && raw[index + 1] === ":") {
+            text += ":";
+            index += 2;
+            continue;
+        }
         const sticker = stickerAt(raw, index);
         if (sticker === null) {
             text += raw[index];

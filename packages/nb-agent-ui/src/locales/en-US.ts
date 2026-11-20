@@ -418,7 +418,6 @@ export default {
     messages: {
         tabBot: "Bots",
         tabSessions: "Sessions",
-        tabUnread: "Bots, {{count}} unread",
         search: "Search bots",
         running: "Replying…",
         waiting: "Needs you",

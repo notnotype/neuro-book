@@ -450,7 +450,7 @@
             "openFailed": "打不开和 {{name}} 的对话（{{code}}）。",
             "retry": "重试",
             "pickBot": "选一个 bot 开始聊天",
-            "contactsFailed": "读不到 {{name}} 的联系人（{{code}}）。",
+            "contactsFailed": "读不到联系人（{{code}}）。",
             "untitled": "未命名会话"
         }
     },
@@ -488,6 +488,9 @@
     "state": {
         "active": {
             "reason": "没有运行中或等用户的会话"
+        },
+        "attention": {
+            "reason": "没有运行中或等用户的会话，也没有新消息"
         }
     },
     "settingsPages": {

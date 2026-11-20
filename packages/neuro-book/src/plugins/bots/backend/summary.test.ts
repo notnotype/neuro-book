@@ -12,6 +12,8 @@ describe("最后一句话的摘要", () => {
     it("只取文字块，空白折叠成一个空格；表情写法换成“[表情]”", () => {
         expect(messageSummary([{kind: "thinking", text: "先想想"}, text("你好呀，\n\n  Master。"), text(":lyra/开心:")])).toBe("你好呀， Master。[表情]");
         expect(messageSummary([text(":builtin.lyra/挥手:")])).toBe("[表情]");
+        // 转义的写法是字面：留着原样（去掉反斜杠），只换真的表情。
+        expect(messageSummary([text("literal \\:lyra/happy: and real :lyra/happy:")])).toBe("literal :lyra/happy: and real [表情]");
     });
 
     it("按码点截到上限，超了加省略号；表情符号不被劈开", () => {

@@ -16,6 +16,8 @@ import type {ActivityItem, agentSessionsContract, ListedSession} from "../shared
 
 export interface SessionListStore {
     readonly items: ComputedRef<readonly AgentSessionListItem[]>;
+    /** 根会话（不含子会话、已归档的），按最近活动排；不受搜索与 Profile 过滤影响（消息视图的头像列）。 */
+    readonly roots: ComputedRef<readonly {readonly id: string; readonly title: string; readonly icon?: string}[]>;
     readonly query: Ref<string>;
     readonly scope: Ref<"project" | "all">;
     readonly canScope: boolean;
@@ -73,6 +75,17 @@ export function createSessionList(options: {
      * 子会话挂在父会话下（conversation.md 输出 3 的子会话部分）：个数与“子代理等你处理”按未过滤的会话算；过滤命中子会话时把它的祖先一并
      * 交进来、标 `dimmed`；父会话的时间取自身与后代中最新的，跟着最新的子代理排到前面。
      */
+    const roots = computed(() => {
+        const ids = new Set(entries.value.map((entry) => entry.id));
+        return entries.value
+            .filter((entry) => !entry.archived && (entry.parent === undefined || !ids.has(entry.parent)))
+            .sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+            .map((entry) => {
+                const icon = profileById.value.get(entry.profile)?.icon;
+                return {id: entry.id, title: entry.title ?? "", ...(icon === undefined ? {} : {icon})};
+            });
+    });
+
     const items = computed<readonly AgentSessionListItem[]>(() => {
         const activity = new Map(options.activity().map((item) => [item.id, item.state]));
         const needle = query.value.trim().toLowerCase();
@@ -122,6 +135,7 @@ export function createSessionList(options: {
 
     return {
         items,
+        roots,
         query,
         scope,
         canScope: options.project !== null,

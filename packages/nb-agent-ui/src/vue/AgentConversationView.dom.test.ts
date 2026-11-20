@@ -791,8 +791,9 @@ describe("宿主每秒换 now", () => {
         const focused = document.activeElement;
         await view.setProps({ctx: dockCtx([question("q4", "第四问")], {...context().session!, id: "other-session"})});
         await flushPromises();
+        // 焦点没被挪到停靠区的容器上：还在原来那个按钮上，或随按钮卸载落回页面。
         expect(document.activeElement).not.toBe(view.get("[data-agent-dock]").element);
-        expect(focused).not.toBeNull();
+        expect(document.activeElement === focused || document.activeElement === document.body).toBe(true);
         view.unmount();
     });
 

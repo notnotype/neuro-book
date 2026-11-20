@@ -47,7 +47,6 @@ const showStrip = computed(() => !wide.value || props.listCollapsed);
 /** 列表显示着：宽版是列表栏，窄版是抽屉。 */
 const listShown = computed(() => (wide.value ? !props.listCollapsed : props.drawerOpen));
 const contacts = computed(() => props.sections.flatMap((section) => section.contacts));
-const recent = computed(() => props.recentSessions.slice(0, 5));
 const selectedContact = computed(() => (props.selected?.kind === "contact" ? props.selected.key : null));
 
 /** 开抽屉的那个按钮：头像列的按钮，或宿主那边的（面板头的标题）。关抽屉后焦点回它。 */
@@ -56,6 +55,8 @@ let opener: HTMLElement | null = null;
 function toggleFromStrip(): void {
     if (wide.value) {
         emit("update:listCollapsed", false);
+        // 展开后头像列收起，按钮跟着不见：焦点放到列表栏的收起按钮上。
+        void nextTick(() => rootRef.value?.querySelector<HTMLElement>("[data-messages-collapse]")?.focus());
         return;
     }
     opener = toggleEl();
@@ -70,21 +71,32 @@ function closeDrawer(restoreFocus: boolean): void {
 
 function openContact(key: string): void {
     emit("open-contact", key);
-    if (!wide.value) closeDrawer(false);
+    // 选了一项：抽屉收起，被选的行跟着不见，焦点回到开它的按钮（同 Esc）。
+    if (!wide.value) closeDrawer(true);
 }
 
-// 抽屉打开时焦点进去（列表里第一个输入框）；记下是谁开的：不是头像列的按钮就是宿主那边的。
+function collapseList(): void {
+    emit("update:listCollapsed", true);
+    // 列表栏收起，收起按钮跟着不见：焦点放到头像列顶上的展开按钮。
+    void nextTick(() => toggleEl()?.focus());
+}
+
+/** 宿主选了会话之后关抽屉（会话一页在插槽里，选中由宿主处理）：焦点回到开它的按钮。 */
+defineExpose({closeDrawer: () => closeDrawer(true)});
+
+// 抽屉打开时焦点进去（列表里第一个输入框），记下是谁开的：不是头像列的按钮就是宿主那边的；关上时忘掉。
 watch(() => props.drawerOpen, (open) => {
-    if (!open || wide.value) return;
+    if (!open) {
+        opener = null;
+        return;
+    }
+    if (wide.value) return;
     if (opener === null) opener = props.drawerAnchor;
     void nextTick(() => {
         // 当前页里的第一个输入框（bot 页的搜索、会话面板的搜索）；没有就是第一个按钮。
         const page = [...(listRef.value?.querySelectorAll<HTMLElement>("[role='tabpanel']") ?? [])].find((element) => element.style.display !== "none");
         (page?.querySelector<HTMLElement>("input") ?? listRef.value?.querySelector<HTMLElement>("button") ?? null)?.focus();
     });
-});
-watch(() => props.drawerOpen, (open) => {
-    if (!open) opener = null;
 });
 
 // 换版式：窄变宽时开着的抽屉收起，列表留在原处变成列表栏，焦点不动；宽变窄时列表收起，焦点原来在列表里的放到头像列的按钮上。
@@ -148,9 +160,9 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
                 <span v-else class="acv-messages__strip-avatar acv-messages__strip-avatar--initial" aria-hidden="true">{{ Array.from(contact.name.trim())[0] ?? "?" }}</span>
                 <span v-if="contact.activity === 'waiting' || (contact.unread ?? 0) > 0" class="acv-messages__strip-dot" :data-strip-waiting="contact.activity === 'waiting' ? '' : undefined" aria-hidden="true" />
             </button>
-            <span v-if="contacts.length > 0 && recent.length > 0" class="acv-messages__strip-divider" aria-hidden="true" />
+            <span v-if="contacts.length > 0 && props.recentSessions.length > 0" class="acv-messages__strip-divider" aria-hidden="true" />
             <button
-                v-for="session in recent"
+                v-for="session in props.recentSessions"
                 :key="session.id"
                 type="button"
                 class="acv-messages__strip-item"
@@ -183,7 +195,7 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
             >
                 <template #sessions><slot name="sessions" /></template>
             </AgentMessagesList>
-            <IconButton v-if="wide" icon-class="i-lucide-panel-left-close" size="sm" class="acv-messages__collapse" :title="t('messages.collapseList')" :aria-label="t('messages.collapseList')" data-messages-collapse @click="emit('update:listCollapsed', true)" />
+            <IconButton v-if="wide" icon-class="i-lucide-panel-left-close" size="sm" class="acv-messages__collapse" :title="t('messages.collapseList')" :aria-label="t('messages.collapseList')" data-messages-collapse @click="collapseList" />
         </section>
         <div class="acv-messages__chat" data-messages-chat>
             <slot />
