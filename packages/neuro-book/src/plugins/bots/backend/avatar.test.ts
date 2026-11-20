@@ -41,6 +41,7 @@ describe("头像路由", () => {
         expect(ok.headers.get("content-type")).toBe("image/webp");
         expect(ok.headers.get("cache-control")).toBe("no-cache");
         expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(ok.headers.get("content-security-policy")).toBe("sandbox");
         const etag = ok.headers.get("etag")!;
         expect(new Uint8Array(await ok.arrayBuffer())).toEqual(new Uint8Array(webp));
         expect((await app.request("/avatar/lyra", {headers: {"if-none-match": etag}})).status).toBe(304);
