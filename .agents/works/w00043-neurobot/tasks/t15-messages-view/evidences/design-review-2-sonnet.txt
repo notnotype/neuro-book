@@ -1,0 +1,177 @@
+# t15 阶段 ② 设计审查（plan-2.md 副本）
+
+### 1. 列表第二行“正在……/等你批准：……”所依赖的数据不存在
+严重程度：阻断。类别：依赖的机制不存在。位置：计划“归属插件的贡献”第 2 条（“`nbook.agent` 的活动按 sessionId 已经知道哪个会话在跑、在等什么”）。
+现象：`agent/shared/remote.ts:180` 的 `ActivityItem` 只有 `{id, state: "running"|"waiting"|"held", root}`，没有任何文字；`agent/web/activity.ts` 也只存这三个字段。它知道“在跑/在等”，不知道“在跑什么”“等你批准什么”。t03 决定 13 的画法要的是具体的“正在整理读者评论……”“等你批准：写入 xx”。
+为什么是问题：照字面实现，实现者只能写死“正在……”“等你批准”两个空壳，或临时去订阅每个 bot 主对话的 frames 取阶段与审批摘要（列表里每个联系人一个订阅，bot 多了就是常驻订阅，且 bot 主对话是否在本窗口订阅过也不确定）。这是新数据源，不是“已经知道”。
+另一处遗漏：t03 评审板 r2/drawer 与 r5 里“资料收集 运行中”这类子代理的状态是挂在父会话下的；决定 13 把子会话挪进聊天头的子代理入口，但“bot 在跑”常常是子代理在跑、主对话本身空闲。按 `sessionId` 精确匹配会漏掉这种情况；`ActivityItem.root` 才是按会话树归并的字段（`activity.ts` 的 `running` 就是按 `root` 数的）。
+如何核实：grep `ActivityItem`；读 `activity.ts` 全文 51 行。
+建议改法：先定第二行文字的来源再写：要么第二行只写通用状态（“在跑”“等你处理”，不写具体内容，并改 t03 决定 13 的画法，交开发者确认），要么给 `ActivityItem` 或另一条轻量通道加一行摘要字段（后端改动，要进切片）。匹配用 `root === sessionId` 而不是 `id === sessionId`，并说明主对话空闲、后代在跑或在等时第二行写什么。
+
+### 2. `last`：“补数已经按页倒读，只多取一个字段”不成立；已读完的 bot 没有最后一句话
+严重程度：阻断。类别：依赖的机制不存在 / 边界。位置：计划“列表的最后一句话”；`bots/backend/unread.ts` `#catchUp`（约第 125 行）、`markSeen`；`nb-harness/src/kernel/session/session.ts:388` 的 `log`。
+现象：
+1. 补数读法是 `session.log({afterSeq: after, limit: PAGE})` 从“看到”的位置正向翻页；内核 `log` 只有 `afterSeq`，没有倒读（`host.ts:279` 签名）。没有“倒读”可用。
+2. 补数从 `seenSeq` 之后读，只收集 `seq > seen` 的计数消息。用户读完一切（最常见的状态）时，读到的是空，`last` 只能是 null：重启后所有已读 bot 的第二行是空的。在线跟踪也只在新帧到达时才有值，所以也只对“进程启动后新来的”有。
+3. 想“读 seenSeq 那一条”也不行：`markSeen` 记的是 `min(through, latest)`，`through` 是前端 `shownSeq`（已应用的最后一条任意日志），可以落在两条计数消息之间（例如夹在中间的工具事件），`seenSeq` 不一定是计数消息的 seq。
+4. 无界读：`seen=0`（从没看过）时补数要翻完整个日志；加 `last` 若改成从头扫，已读 bot 每次启动都要整本扫。
+5. 摘要取法没定：`assistant` 事件的 `content` 是 `ContentBlock[]`（`text`/`thinking`/`image`/`imageRef`，`nb-harness/src/kernel/api/model.ts:44`），“正文前 80 个字符”要只取 `kind: "text"` 并拼接；回复以 thinking 开头、只有图片（或 `stopReason: "length"` 被截断）、markdown 标题与 `<system-reminder>` 之类都没规定；“80 个字符”按 UTF-16 单元切会劈开代理对（emoji）。
+如何核实：读 `unread.ts` 的 `#catchUp`；读 `session.ts:388`；构造“全部已读后重启”的真实用例，`list()` 的 `last` 为 null。
+建议改法：把 `last` 和“看到”存在同一份 `bots-seen` 记录里（`markSeen` 时，跟踪器手里有这条消息，可顺手写 `last`，记录版本加字段）；补数只负责“看到之后”的那一段，`last` 取这一段最后一条，段为空时用记录里存的。或者给内核 `log` 加倒读，但那是内核合同改动，代价更大。摘要规则写进 Spec：只取 text 块、折叠空白、按码点切、没有 text 时用占位（如“[图片]”）。
+
+### 3. 宿主的 `owner` 只在 `open()` 里读一次：重开、读失败和读到之前三处档位错位
+严重程度：重要。类别：隐含的共享状态 / 失败路径。位置：计划“一个聊天区，档位跟着会话走”；`session-host.ts` 的 `open`（约 990 行）、`openHere`、`createSession`、`borrow`（约 2000 行）、`restore`。
+现象：
+1. `Current` 在每次 `openHere` 里重建（`current = target`），`owner` 若只在 `open()` 里读、传给 `openHere`，那么不经 `open()` 的入口都丢它：`borrow()` 在放开订阅（`closeCurrent()` 把 `current` 置 null，30 秒后）之后重新借用时走 `void openHere(sessionId.value)`，没有 owner，bot 会话会以通用档重新打开（出现归档、分支树、编辑、`/new`，发话不带 `settlePending`，有同步审批时向导会顶替输入框）。`restore` 与 `createSession` 也是 `openHere` 的调用方。`closeCurrent` 到下一次打开之间 `current === null`，`interaction` 按 `current.owner` 算也会变成通用档。
+2. 读会话头失败时：现有 `ownerOf` 在 `header` 失败时交回 null（`plugin.ts:333`），按计划这会静默变成“无归属”，bot 会话以通用档打开，是失败时放宽限制，方向反了。阶段 ① 的实现审查处理（前端 7）为“揭示失败用户点了没反应”加了兜底，现在这条兜底在计划里没了替代。
+3. “会话头读到之前（owner 未知）界面按哪个档画”计划没写。`open()` 里先 `await header` 再 `openHere` 的话，等待期间列表高亮、聊天区仍是上一个会话，没有加载态；若改成先开再补 owner，则这一段是通用档。
+4. 快照里没有 `owner`（`SessionSnapshot` 无该字段），所以不能指望 `applySnapshot` 顺带给；`header` 是单独一次 RPC，每次打开多一个串行往返。
+如何核实：读 `borrow()` 与 `closeCurrent`；`remote.header` 的定义在 `shared/remote.ts:240`。
+建议改法：`owner` 存在宿主上（按会话 id 缓存一份 `Map<id, SessionOwner|null|"unknown">`），`openHere` 一律从缓存取，未命中再读头；读头失败按“加载失败、可重试”处理，不放宽档位；未知窗口里把交互全部置为受限档（保守），读到再放开。测试要覆盖：借用归零后重开、读头失败、读头期间切走。
+
+### 4. 档位在视图层是静态属性，宿主只改 `ctx.interaction` 不够
+严重程度：重要。类别：合同与遗漏。位置：计划“一个聊天区”“Spec 与文档改动”（`ui/agent-conversation-view.md` 用法档）；`ConversationHost.vue` 与 `FixedConversationHost.vue` 的模板差异。
+现象：两档的差别不只在 `ctx.interaction`。`AgentConversationView` 上还有静态选项：`pending-placement`（bot 档 `dock`，通用档缺省 `wizard`）、`new-session`（通用档有，固定档没有）、`welcome`/`draft-profile`（通用档的第一屏，固定档没有）、`#sessions` 插槽与 `sessions-open`、`head-targets`。计划只写了 `interaction` 按 `current.owner` 算，没说这几项由谁在切换会话时切换。
+为什么是问题：`pendingPlacement` 是 `props`，切会话时翻转它会让 `AgentConversationView.vue:322` 的“答完一项焦点放回”监听在两个会话的事项 id 之间比较，把跨会话的差异当成“答完了”；`new-session` 在 bot 档下如果仍显示，点了会把 bot 聊天区换成一个通用会话；bot 档在没有会话（owner 未知）时会画通用的第一屏。ui spec 的用法档表写的是“选项与 ctx 的取值”，按会话切换的选项在 spec 里没有来源。
+如何核实：对比两个 Host 文件的 `<AgentConversationView>` 属性；读 `AgentConversationView.vue:311-330`。
+建议改法：让这几项由 `ctx` 导出（例如 `ctx.interaction.placement`、`ctx.interaction.canCreate`），视图从 `ctx` 读而不是靠宿主组件的静态属性；`pendingPlacement` 翻转时清掉停靠区焦点监听的状态。用法档表补“按会话切换时哪些随会话变”。
+
+### 5. `SessionOwnerProvider` 缺少从 `BotChatView` 搬走的那几种状态
+严重程度：重要。类别：接口与合同 / 遗漏。位置：计划“归属插件的贡献”“没有模型、取不到主对话”；`bots/web/BotChatView.vue`（五种状态）、`bots/view.md` 输出 2。
+现象：`BotChatView` 现在处理：没有模型引导卡（`noModel`，带“去添加服务商”按钮）、“还没读到有没有模型”时先等（阶段 ① 前端 4 的修正）、bot 列表读不到与列表为空的原因加重试、取主对话失败的原因加重试、`asking` 计数让较晚的结果作废。计划说“聊天区画现有的‘没有模型’引导”“聊天区写原因与重试”，但聊天区属于 `nbook.agent` 的 MessagesHost，它不认识 bots：
+- 合同里没有 `noModel`、`listState`（加载中/失败/空）、`reload`、`openProviders` 这样的通道，引导卡的文案还在 bots 的 i18n 里（`useBotsText`）。
+- `open(ownerId)` 并发没有作废规则：点 bot A（`ensureMain` 在途）再点会话 X，`host.open(X)` 之后 A 的结果回来再 `host.open(A 的 sessionId)` 抢掉用户后来的选择。现有 `open()` 的 `routing` 只管读头之后的阶段。
+- 删掉 `BotChatView.dom.test.ts`（126 行 5 条）等于这些失败路径没有测试了，计划的验收映射里没有顶上的。
+- 原来“打开视图自动取主对话”变成“点联系人才取”，`bots/view.md` 输出 2 与状态表要整体重写，计划只写“改写成 bot 标签与归属提供者”。
+- 没写 bot 标签联系人的排序（按 `last.at`？），多个贡献方时的先后（按贡献 id 排？），多个贡献方里 `ownerId` 重名时 `open(ownerId)` 怎么路由。
+如何核实：读 `BotChatView.vue` 全文与 `bots/view.md` 的输出 2、状态与转换、失败与恢复。
+建议改法：提供者加 `status: Ref<{kind: "loading"|"ready"|"failed"; code?}>`、`reload()`、`unavailable: Ref<{reason, action}|null>`（没有模型时给一张引导卡的数据），或者允许提供者给一个“空状态组件”；`open` 的结果在 MessagesHost 里按序号作废；列出被删的 5 条测试各自在哪里补。
+
+### 6. 贡献接收器不是响应式的；`contacts` 里的 `owner.plugin` 可被贡献方伪造
+严重程度：重要。类别：隐含的共享状态 / 合同。位置：计划“归属插件的贡献”；`agent/web/plugin.ts:322-341`（`openers` 与 `ownersReceiver`）、`agent/shared/contracts.ts:186-199`。
+现象：
+1. `openers` 是普通 `Map`，`published`/`revoke` 往里写不触发任何依赖。现在它只在点击时被读，所以没问题；改成“bot 标签列所有贡献方的 `contacts`”和 `badge()` 合计后，MessagesHost 与 `views.badge()`（外壳响应式读它）都要依赖“有哪些贡献方”。贡献方（bots 入口）与 agent 入口各自 `onStartup` 激活，先后不定：bots 晚到时，bot 标签为空且不会自己更新，`badge()` 也不更新，直到别的状态变化。撤回（插件被禁用）时同样列表不收。
+2. 贡献点原本的安全性来自“只有归属插件自己接得到它的会话”（`owner.plugin` 与 `handle.plugin` 对）。现在联系人自带 `owner: {plugin, id}` 和 `avatar`、`name`，宿主“按 owner 在 contacts 里找”身份：第三方插件（点校验只限浏览器入口与 id 前缀）可以交一个声称 `owner.plugin = "nbook.bots"` 的联系人，冒用名字与头像，或者抢占 `open`/`seen` 路由。
+如何核实：把 `ownersReceiver` 换成测试里先交付 agent、后交付 bots 的顺序，看 `contacts` 的消费方是否更新；第 2 点读 `sessionOwnersPoint.validate`，它不看联系人内容。
+建议改法：`openers` 用 `shallowRef` 持有，MessagesHost 与 `badge()` 都经计算属性读；`OwnerContact` 去掉 `plugin`，宿主用 `handle.plugin` 盖章（与 `agent.sessionOwners` 原来的“门面按调用方盖章”同一规则，`sessions.md` 输出 23）；同一 `handle.plugin` 下多个贡献的合并规则写明（计划只在阶段 ① 审查里留下“按贡献 id 存，按插件找第一条”）。
+
+### 7. 标签与当前会话谁说了算；没选会话时聊天区画什么；刷新后 bot 聊天不恢复
+严重程度：重要。类别：遗漏 / 反常之处。位置：计划“消息视图”“一个聊天区”第 5 条与 restore；`session-host.ts` `restore` 与 `openHere` 里的 `deps.recent.write`。
+现象：
+1. “记住上次停在哪个标签，存插件存储”把标签做成独立偏好，当前会话是宿主状态，二者可以不一致：bot 标签上聊天区是通用会话（从状态栏活动条点进了通用会话、`nbook.agent.new-session` 命令新建、点子代理卡片进了子会话），或会话标签上聊天区是 bot 主对话（点 `nbook.agent.focus-session` 打开 bot 的会话）。列表的高亮取 `host.sessionId`，会出现“标签是 bot、高亮在会话列表里的一行”的错位。没有规则说标签跟不跟着 `current.owner` 走。
+2. 没有选中会话（刷新后、新装、选中的会话被归档）时：聊天区是通用宿主的第一屏（最近对话、Profile 起手式、第一次发送自动新建 `createOnce`），放在 bot 标签下就是个通用输入框，发话会新建一个通用会话，与 bot 标签毫无关系。
+3. 计划自己写“归属会话不写最近的会话”，又写“`restore` 遇到有归属的会话不再清记录，照常恢复”。`recent` 对归属会话不再写，所以刷新后 bot 聊天永远不恢复（阶段 ① 刷新后回到同一会话，`bots/view.md` 验收 1 的前提；plan-2 没有替代）；需要每个标签各记一个“最近选中”，或 bot 标签默认选第一个联系人。
+如何核实：看 `openHere` 里 `if (deps.fixed === undefined) deps.recent.write(id)`；`ConversationHost.vue` 的 welcome 逻辑在 `messages.length === 0` 时显示。
+建议改法：标签派生自当前会话的 `owner`（用户点标签只是改“列表看哪一页”，不换聊天区），空状态按标签给：bot 标签没选联系人时画“选一个联系人”的空态而不是通用第一屏；`recent` 各标签各存一份，恢复按标签取。
+
+### 8. 计划只处理右栏的视图；编辑区页面、状态栏活动条、子代理卡片、请求页等入口没有着落
+严重程度：重要。类别：遗漏 / 被破坏的既有约定。位置：`agent/web/plugin.ts`：`hostAt("page")`、`FOCUS_SESSION_COMMAND`（约 777-787 行）、`NEW_SESSION_COMMAND`、`reveal()`、`openElsewhere`；`agent/conversation.md` 输出 53 的 `focus-session` 一句、输出 44 “编辑区页面的对话头照旧画在内容里”。
+现象：转交整体拿掉后：
+1. 编辑区页面（`CONVERSATION_PAGE`）仍是 `ConversationHost.vue` 加会话下拉，下拉里 `SessionPanelHost` 列的会话含 bot 主对话（见下一条）。点了它，`open()` 不再转交，宿主按 `owner` 开成 bot 档，但页面没有 `contacts` 身份、没有 `seen`，顶栏写的是 Profile 图标与会话标题，也没有“消息”标签——一个页面里的半成品 bot 聊天。计划没说页面是否也换成 MessagesHost。
+2. `nbook.agent.focus-session`（状态栏活动条、请求页的“打开会话”、`openElsewhere`）先 `ownerOf`→`open` 转交，再 `reveal()`+`host.open`。转交删掉后它要揭示的是“消息”视图并把标签切到 bot 或会话，再选会话；`reveal()` 里 `lastPosition === "page"` 时返回页面宿主，焦点会去页面。计划没写这条命令的新行为，`conversation.md` 输出 53 与 `bots/view.md` 输出 5、验收 2（“从状态栏的活动条目点主对话，揭示的是 bot 视图”）都要重写。
+3. 在 bot 聊天里点子代理入口/子代理卡片，`session.select` 会就地把聊天区换成子会话（通用档），而阶段 ① 是在通用视图开子会话、bot 聊天原地保留。现在 bot 聊天被顶掉，回去只能靠面包屑或重新点 bot；`ancestors` 的面包屑里父会话写的是会话标题而不是 bot 名。计划没写“从子会话回主对话”的路径，也没说子会话是否要继续用 `pinned` 语义。
+4. `NEW_SESSION_COMMAND` 在 bot 标签下：`host.create` 在 bot 标签里新建通用会话（同上一条标签错位）。
+如何核实：读 `plugin.ts` 里 `FOCUS_SESSION_COMMAND`、`reveal`、`hostAt` 与 `conversationComponent("page")`；对照 `bots/view.md` 输出 5。
+建议改法：列一张“入口表”（命令、页面、卡片、请求页、状态栏）各自的新行为；子会话从 bot 聊天里打开时的返回路径要写；页面位置要么不显示 bot 会话（下拉过滤，见下一条），要么也用 MessagesHost。
+
+### 9. 会话标签会列出 bot 主对话及其子代理，与“子会话不挂在列表里”冲突
+严重程度：重要。类别：与已定设计一致 / 遗漏。位置：计划“列表”“会话标签：现有的 AgentSessionPanel”；`agent/web/session-list.ts`（`items` 计算）；`SessionIndexEntry.owner`（`nb-harness/src/kernel/api/storage.ts:31`）。
+现象：`list` 的条目带 `owner` 字段，但 `createSessionList` 的 `items` 对 `owner` 没有任何过滤。现在 bot 主对话（`bot-lyra`）会出现在会话面板里，它的子代理会话（`caller` 是主对话，`parent` 被挂上）作为它的子行展开。阶段 ① 点它靠转交绕到 bot 视图，所以问题被盖住。转交去掉后：点这一行在会话标签下就地开成 bot 档，高亮与标签错位（第 7 条），行菜单里还有“归档”“改名”（`act` 的 `session.archive`/`session.rename` 不受 `FIXED_COMMANDS` 约束，后端对 owned 会话 `refuse: "owned-session"`，用户看到失败）。t03 决定 11/13 明确 bot 的子会话不挂在列表里，进聊天头的子代理入口。
+如何核实：读 `session-list.ts` 的 `items`；用真实服务端建一个 bot 主对话再看 `remote.list` 的结果。
+建议改法：会话标签的列表过滤掉 `owner !== undefined` 的会话及其全部后代；“最近 5 个会话”的头像列同样过滤。把“会话标签不含有归属的会话”写进 `agent/conversation.md` 输出 2 并给一条验收。
+
+### 10. 抽屉“用 nb-ui 的 Drawer”：它是整页模态，不是视图内的抽屉
+严重程度：重要。类别：依赖的机制与计划描述不符。位置：计划“技术选型”“版式”窄版；`nb-ui/src/components/feedback/Drawer.vue`、`composables/useTeleportTarget.ts`。
+现象：`Drawer` 传送到 `body`，遮罩是 `fixed inset-0` 加 `backdrop-blur`，内容 `inset-y-0 left-0 w-[380px] max-w-[90cqw]`，`modal` 缺省真（锁整页焦点与指针）。t03 评审板 `r2/drawer.webp` 是在右栏里从左边拉出的、压在聊天上的一块，宽约列宽的 70%。按默认用法，抽屉会从浏览器窗口左缘（活动栏、侧栏之上）弹出，宽 380 像素（比默认右栏 400 像素的 90% 还宽），整个工作台被虚化、失去交互。唯一收进视图的办法是 `provideTeleportTarget(selector, {contained: true})`（现在只有组件 Lab 用），目标要有 `contain: layout` 与尺寸容器，选择器要指到“这个视图的根”且多开视图（t03 决定 7 的后续）时要唯一。
+为什么是问题：窄版的“选了就收起”“按标题再按一次关”“Esc 关后焦点回到标题”（输出 44）都要落在这个实现上，计划没选它的传送目标、宽度与模态性。modal 抽屉打开时标题（在面板头里，是模态外的）按不到，输出 44 的“再按一次关掉”做不了，要么抽屉非模态（`modal: false`，焦点不锁）要自己管 Esc 与焦点归还。
+如何核实：读 `Drawer.vue` 全文与 `useTeleportTarget.ts`；在 Lab 里看现有的 `contained` 用法。
+建议改法：不用 `Drawer`，在视图根里画一块绝对定位的抽屉（非模态、点外面关、Esc 关、焦点按输出 44 回标题）；或明确用 `contained` 目标并给出选择器与宽度（`min(260px, 80%)`）。改法进 nb-agent-ui 的同名 `.md`。
+
+### 11. “容器查询加 `useLayoutExtent`”：这个组合在 nb-agent-ui 里拿不到；先例也不是这样做的
+严重程度：重要。类别：依赖的机制与计划描述不符 / 隐含耦合。位置：计划“技术选型”（“无新依赖”）。
+现象：`nb-ui/src/composables/useLayoutExtent.ts` 存在，但 `nb-ui/src/composables/index.ts` 没有导出它（nb-ui 的 package.json 只开 `./composables` 指向这个 index），它是一份 `nb-layout/src/vue/useLayoutExtent.ts` 的拷贝（仅一行 import 不同），工作区里实际使用方 `WorkbenchPanelHead.vue`、`ExplorerTree.vue` 都从 `@notnotype/nb-layout/vue` 引。`AgentMessagesList` 在 nb-agent-ui，其依赖只有 `nb-ui`，所以要么深导入 nb-ui 内部文件（违反“跨包只经公开入口”），要么 nb-agent-ui 加 `nb-layout` 依赖（`packages/AGENTS.md` 的包边界要看）。同时，“先例是 `AgentModelCatalog.vue` 的左栏收起”不准确：它没有用 `useLayoutExtent`，只用了 CSS `@container (max-width: 720px)` 与 `container-type: inline-size`。
+如何核实：`grep -n useLayoutExtent nb-ui/src/composables/index.ts nb-agent-ui -r`；读 `AgentModelCatalog.vue:253,546`。
+建议改法：宽窄切换只靠 CSS 容器查询（600 像素的分界与两种版式都在 CSS 里），不在 JS 里量；JS 只需要知道“抽屉是否可用”时由模板里两份结构的 `display` 控制。这同时解决下一条的重挂载问题。
+
+### 12. 宽窄切换会重挂聊天区、列表开合是同一个状态；底部面板宽而矮
+严重程度：重要。类别：边界 / 隐含的共享状态。位置：计划“版式”“按面板头的标题收起、展开列表栏 / 拉出抽屉”。
+现象：
+1. 宽版（左列表栏加聊天区）与窄版（头像列加聊天区加抽屉）若是两套模板（`v-if` 切换），聊天区在分界两侧会被卸载重建：滚动位置、输入框焦点与撤销栈、停靠区状态丢失（宿主的草稿虽留着，`AgentConversationView` 内部的滚动跟随、焦点、展开状态没有）。还有：`useLayoutExtent` 首次挂载前是 null、区域被拖到零时是真实的 0（源码头部注释区分这三态），“停放”本身是 `visibility: hidden` 且保留尺寸（`NestedGrid.vue:399`），不会量成 0；但 null 与 0 这两个值落进“窄”会造成一次挂载时的误判再重挂，所以仍要规定这两态保持上一次的版式。
+2. “列表开着没有”只有一个布尔：宽版默认开（列表栏常驻），窄版默认关（抽屉）。用户在宽版收起列表后把右栏拖窄，一个值会让抽屉在拖动途中意外弹开或相反；需要两个独立状态，并规定切分界时抽屉打开中怎么办（输出 44 要求 Esc 关后焦点回标题，宽度变化时这个焦点去哪里没写）。标题按钮的 `aria-expanded`（`titlePopup`）宽版是“列表栏展开”，窄版是“抽屉”，两种语义共用一个属性。
+3. 分界只看宽度。底部面板里的视图宽而矮（例如 1000×220），也会进两栏版，聊天区只剩不足 150 像素高；`views.md` 输出 19 的下限还是按宽度算的。
+4. 600 像素的依据：右栏默认 400 像素下是窄版，用户拖到 600 以上才是宽版，这条“待确认”开发者已答，不再评；但两栏版里聊天区最小宽度没有写（600 减 260 只剩 340，状态栏与输入框的窄档在 AgentConversationView 里是自己的容器查询，两层容器查询叠加没有验证）。
+如何核实：读 `useLayoutExtent.ts` 头部注释；让右栏宽度来回过 600，观察聊天区是否重挂（`data-` 标记加 mount 计数）。
+建议改法：聊天区只有一份 DOM，版式由 CSS 容器查询与定位切换，不用 `v-if`；两个开合状态各记各的；宽度为 0 或 null 时保持上一次的版式；分界条件加高度下限，或底部面板一律走窄版。
+
+### 13. 面板头接管下“面板头标题后写计数”不成立；宽版的头跨过列表栏
+严重程度：重要。类别：违反合同 / 与参照不符。位置：计划“消息视图”“计数”（“面板头标题后与活动栏入口都写它”）、“版式”；`workbench/views.md` 输出 17 末句、输出 19；`ConversationHost.vue` 的 `headTargets`；t03 `r5/bots.webp`、`r5/sessions.webp`。
+现象：
+1. `views.md` 输出 17 最后一句：视图接管了标题区时，标题按钮里不写计数，由视图自己决定画不画。消息视图保留接管（输出 44），所以外壳不会在面板头写计数。计划把“面板头标题后写计数”当成外壳会做的事，验收映射 2 也写“bot 标签、面板头与右栏入口都有计数”。要写的话是视图自己画进它的头里（头在 `AgentConversationView` 里，计数没有地方），或者视图的头在内容里（没有接管时）。
+2. 接管时头的三列在面板头里，标题按整行宽度居中。宽版版式左边 260 像素是列表栏，聊天头却在整行居中，覆盖在列表栏上方：t03 的 r5 评审板里聊天头（“星璃 正在整理读者评论……”、子代理计数、日程与更多按钮）只在聊天区上方，左栏顶是“bot / 会话”标签。接管的头与评审板画法冲突，且 r5 头里有“正在……”状态行，plan 的头只有名字与头像。
+3. 头回到内容里（没有标题区、浮动窗、标签条）时，“按标题收起列表/开抽屉”要有等价的内容内按钮，`sessions-open` 的受控状态在宽窄下的含义也要定（见上一条）。输出 44 的“头回到内容里时开着的列表不丢”要延伸到抽屉与列表栏收起状态。
+如何核实：读 `views.md` 输出 17、19 与 44；对照 `r5/bots.webp`。
+建议改法：二选一，由开发者定：①宽版取消接管（头画在聊天区上方，与 r5 一致，只在窄版接管），输出 44 与输出 19 的适用范围写明；②保留接管，改评审板的画法。计数由视图自己画在“bot”标签与入口上，验收 2 去掉“面板头”。
+
+### 14. `replaces`：依赖方向倒置、绝大部分用例不存在、没有防误删规则
+严重程度：重要。类别：上游选择 / 接口与合同 / 遗漏。位置：计划“布局里的旧视图”；`workbench/web/state/default-tree.ts:118` `reconcileViews`、`layout-doc-store.ts:117`（`doc = computed(settleContainers(reconcileViews(...)))`）、`shared/views.ts` 的 `ViewDeclarationSchema`。
+现象：
+1. 依赖方向：`replaces` 写在 agent 的视图声明里，里面有 `nbook.bots.chat`，那是 bots 的视图；`bots/main-conversation.md` 的“owner 与依赖方向”一节写明 `nbook.agent` 不认识 bot（bots 依赖 agent，反过来不行）。计划说“同插件或依赖方的旧视图 id”，等于允许 agent 点名依赖它的插件。
+2. 用例其实只有一个：`git tag --contains 0fcdedc83`（阶段 ① 合入）为空，`nbook.bots.chat` 从未随任何发布版本带出去（最新 v0.14.1）；只有开发者本机的布局里有它，留一个“声明消失”的占位手动关掉即可。`nbook.agent.sessions` 随 v0.13.0 起发布过，是同插件的旧 id。所以只需要“同插件”这一档。
+3. “新视图已经在树上的，旧标签位置不保留；新视图不在树上的，补在旧标签所在的分节”：新视图 id 沿用 `nbook.agent.conversation`，它在所有已存布局里本来就在（`reconcileViews` 保证声明着的视图总在树上，补不上的是“没有位置”，不是“不在树上”）。第三条没有场景，是死代码，却要实现“补到旧标签所在分节”这条与 `homesOf` 不同的放置路径。
+4. 没有防护：`ViewDeclarationSchema` 是公开 SDK 的声明形状，`replaces` 是自由字符串数组；任何第三方插件都能写 `replaces: ["nbook.explorer.files"]` 从用户布局里删掉别的插件仍然有效的视图。计划的回答只有“同插件或依赖方”，没有机检。至少要：被替换的 id 此刻在目录里没有已接受的声明才生效，且 id 前缀与声明方插件一致。
+5. 与既有规则的关系：`views.md` 输出 7“声明消失时留占位、可以关闭”要写成“例外：被某个视图的 `replaces` 点名的 id”；`reconcileViews` 开头 `if (missing.length === 0) return doc` 的早退要让路，否则没有缺失视图时旧标签永不删除。`settleContainers` 的注释：声明的与隐式容器的 id 在入口顺序里留着（“成员回来时入口回到原来位置”），所以 `view:nbook.agent.sessions` 这类 id 会永远留在锚的 `entries` 里；是不是要清要写。旧视图被最大化（`state.maximized`，只在内存）、在浮动窗、是多标签面板里的一个标签，各种位置的删法没写。
+如何核实：`git tag --contains 0fcdedc83`；读 `reconcileViews` 与 `layout-doc-store.ts:117`；`nbook.agent.sessions` 声明在 `agent/web/plugin.ts:94`（`container: PROJECT_VIEW_CONTAINER`，它和资源管理器同属一个容器，不是唯一成员）。
+建议改法：去掉 `nbook.bots.chat`；`replaces` 缩成“同插件前缀、目录里无声明才生效”，或者更简单：不加机制，把 `nbook.agent.sessions` 的占位留给用户关（`views.md` 输出 7 已规定可关闭），并在变更记录写一句。若坚持加，砍掉第三条，写清早退与各种位置的删法并加 dom 测试。
+
+### 15. 入口计数：遗漏文件、合计口径与范围
+严重程度：建议。类别：合同 / 与已定决定的关系。位置：计划“活动栏入口的计数”；`WorkbenchShell.vue:482,542`、`WorkbenchRegionStrip.vue`、`workbench/views.md` 输出 17。
+现象：
+1. 切片列的是 `WorkbenchToolStrip.vue` 加 `ToolStripEntry.count`；右栏的入口条用的是 `WorkbenchRegionStrip.vue`/`RegionStripEntry`（已有 `count`，但只被底部面板的文字入口画，右栏的图标入口不画）。计划没列这个文件，也没列两个组件的同名 `.md`（`WorkbenchToolStrip.md`、`WorkbenchShell.md` 第 28 行写着底部入口计数规则）与 `docs/specs/ui/workbench-layout.md` 输出 47。
+2. 口径不一致：活动栏与右栏是“容器内各视图 `badge()` 合计”，底部面板“照旧”是“只含一个视图的容器才写那个视图的数”。同一个容器放进底部面板和放进右栏，数字显示规则不同，输出 17 里要写这个差异的理由，或统一。
+3. 决定 4 的原话是“活动栏入口显示未读数”（开发者答“都同意”）。消息视图在右栏，左边的活动栏不再有 bot 入口，所以决定 4 的字面对象消失了；计划把范围扩到“右栏入口条”，这是延伸，应在 Task 记录里写成新的决定，不挂在决定 4 名下。
+4. 合计对不同含义的数求和（未读消息数加通知数），没写上限（99+）与图标右上角画不下时怎么办；可访问名称怎么读（“消息，7 条未读”还是“消息 7”）。
+建议改法：补文件与文档；上限与读法进输出 17；口径要么统一要么写理由。
+
+### 16. 窄版头像列里的“最近 5 个会话”没有数据源
+严重程度：建议。类别：隐含耦合。位置：计划“版式”窄版；`agent/web/session-list.ts`、`SessionPanelHost.vue:29-34`。
+现象：`createSessionList` 的 `refresh()` 只由 `SessionPanelHost` 在 `onMounted` 里调用并每 15 秒一次；`plugin.ts` 里没有别处调用。窄版下会话列表在抽屉里，抽屉关着时 `SessionPanelHost` 没挂载，头像列读 `list.items` 读到的是空（或上一次抽屉开过的旧数据）。另外“最近 5 个”的口径没定：是否含已归档、子会话、作品范围外（`scope`）、有归属的（见第 9 条），按 `updatedAt`（含后代）还是自身时间；活动状态用 `activity` 画点是响应式的，但会话增删改名没有推送，靠轮询。
+建议改法：把刷新搬到 MessagesHost（视图在就按固定间隔刷，或由 `activityChanged` 触发），头像列的口径写进同名 `.md`；列表与头像列共用一个 `items` 变换。
+
+### 17. 切片顺序让第 4 片之后到第 5 片之前类型检查与 e2e 都是断的；验收映射没有覆盖新增的风险点
+严重程度：建议。类别：验收映射 / 流程。位置：计划“切片”“验收映射”“验证”。
+现象：
+1. 第 4 片把 `agent/shared/contracts.ts` 的 `SessionOwnerOpener` 换成 `SessionOwnerProvider`、宿主不再转交；`bots/web/plugin.ts` 在第 5 片才改成提供者，并删 `BotChatView`。第 4 片结束时 bots 入口仍在贡献 `{open}`，agent 的接收者按新形状读 `contacts`，`typecheck` 与 `bots-chat` e2e 都会失败；计划却写“每片跑 typecheck”。要么 4、5 合并成一个提交，要么第 4 片保留兼容的旧形状直到第 5 片。第 2 片给 `BotItem` 加必填的 `last`，`BotChatView.dom.test.ts`、`service.test.ts:84` 的 `toEqual`、`unread` 的替身（`item: () => ({unread: null, ...})`）都要改，计划没有列。
+2. 验收映射只有四条，缺：同一宿主在 bot 与会话两种会话间切换时限制随会话翻转（发话是否带 `settlePending`、命令白名单、停靠区状态不串）；借用归零后重开仍是 bot 档；读会话头失败；没有模型与取主对话失败的引导与重试（原来在 `BotChatView.dom.test.ts` 里）；`last` 的各种形状（只有图片、被截断、全已读后重启）；第二行的活动状态；多个提供者与贡献方撤回；宽窄切换不重挂聊天区；抽屉的 Esc 与焦点归还；会话标签不含 bot 主对话。
+3. e2e 迁移清单（bots-chat、agent-conversation、workbench-shell、workbench-containers、editor-area、files-explorer）与 grep 到的引用旧 id 的 6 个 e2e 文件一致；但 `agent-subagents` 在“合入前跑一次”的 7 个里而不在迁移清单里：它覆盖子代理卡片、浮层进入子会话，正是第 8 条第 3 点（在 bot 聊天里点子会话就地替换）改变的路径，计划没写它的预期行为是变还是不变。
+建议改法：第 4、5 片合并或加兼容层；验收映射按上面补，每项写在哪个测试文件里。
+
+### 18. 对照 t03 评审板与既有交互，计划没写的项
+严重程度：建议。类别：与参照不符。位置：t03 `r5/bots.webp`、`r5/sessions.webp`、`r2/drawer.webp`；t03 决定 1、8、13。
+现象（参照有、计划没写）：
+1. bot 标签顶上有搜索框（r5/bots），计划的 bot 标签没有搜索；r2 里全局搜索“搜索 bot 与会话”已被 r5 的分标签取代，但每个标签一个搜索框是 r5 的画法。
+2. 决定 1：“关着时只留一个入口：头像加未读气泡，有等你处理的事时与普通未读区分”。计划的窄版头像“带未读点”，没有区分“等你处理”的黄色；活动栏/右栏入口上的数字也不区分。
+3. r5 的聊天头里有“正在……”状态行与子代理计数入口（`head-trailing` 已有），计划的头里没有状态行（见第 13 条）。
+4. r5/sessions 里没有“还有 12 个会话”，决定 8 明确不要；计划把分页推迟（待确认 3 已答），但没写现有 `AgentSessionPanel` 是否有“还有 N 个”截断需要先去掉，不去会和决定 8 冲突。
+5. 现有会话面板每行的运行状态、子会话展开、改名/归档菜单、过滤按钮、新建按钮（r5 里的“+”）：计划说“现有的 AgentSessionPanel，去掉按日分组”，那么 `SessionPanelHost` 里的改名小窗、Profile 选择也要搬进新列表；两处（抽屉里与列表栏里）是否同一个实例（改名小窗的状态、搜索词、展开记录）没写。
+6. 读屏：头像列的每个按钮要有名称（bot 名加未读数、会话标题），悬停写标题；未读数变化是否播报没写。
+建议改法：补到 `AgentMessagesList.md`；决定 1 的区分写进入口计数的画法。
+
+### 19. “不做与风险”逐项判断；`pinned` 与固定会话组件留成没有调用方的代码
+严重程度：建议。类别：别扭之处。位置：计划“不做与风险”“一个聊天区”第 3 条。
+逐项：
+- 不做：会话标签滚到底分页：可以不做，但“一次取全部”会随会话数无界增长（`list` 没有分页），消息视图常驻右栏比旧会话面板（按需打开）更常加载；至少在窄版头像列只取最近若干条。
+- 不做：多开（t03 决定 7）：成立。书房入口（③）、按天与未读分隔线（④）：成立，但 ③ 要用的 `pinned` 现在没有调用方（见下）。
+- 风险“宿主档位改成按会话定，11 处读 `deps.fixed`”：低估。除 `session-host.ts` 的 8 处 `deps.fixed` 与 `fixed` 派生值外，还有视图层的静态属性（第 4 条）、`borrow()` 重开丢 owner（第 3 条）、`agent.sessionOwners` 接收者（第 6 条）、`FOCUS_SESSION_COMMAND` 与页面位置（第 8 条）；“阶段 ① 的固定会话测试照新档位改写，不放宽断言”应改成列出每条被改写的测试和对应新断言。
+- 风险“e2e 迁移面大，先改辅助函数”：成立（和 `e2e-handles-before-wide-run` 的经验一致）；还要先列每个辅助函数依赖的旧选择器（`data-bot-chat*`、会话面板在侧栏的位置），因为删 `BotChatView` 与会话视图时这些钩子一起消失。
+- `pinned` 与 `agentConversationKey.FixedConversation`“保留，阶段 ② 没有调用方”：阶段 ② 把它留成没有调用方、但仍要随宿主改动维护的分支（`openElsewhere`、`createSession` 的守卫、`restore` 的分支），测试要么继续跑一份没有真实调用方的用例，要么没有测试。倾向：阶段 ② 里整个删掉固定会话组件与 `pinned`（只留宿主按 owner 定档），阶段 ③ 要滑出聊天时再按那时的需求加，不推测未来；或者至少注明 ③ 的哪个决定要求它保持这个形状（t03 决定 22、23 只说“头部与内容同消息视图的聊天”，没有要求“固定到一个会话”）。
+建议改法：同上各条。
+
+## 未发现问题的方面
+- t15 决定 1–5、t03 决定 6、8、12–14 的主干（两个标签不混排、会话标签不按日分组、bot 标签带未读、窄版头像列加抽屉、入口计数、位置在右栏）计划都有对应条目；上面几条是画法与数据来源上的缺口，不是方向性偏离。
+- 视图 id 沿用 `nbook.agent.conversation` 使右栏已有布局记录免于迁移：成立（已核实该 id 的视图已在右栏，editor 页面 id 同名但属另一命名空间）。
+- `badge()` 在视图未加载时仍能被外壳读到（`views/registry.ts:124` 读句柄实现，不加载视图）：成立；新增的是对“提供者集合”的响应式依赖（第 6 条）。
+- “看到”的发送端（`markSeen` 在 `store.ts` 里的去抖、未读为 null 时先记下、列表更新时重判）不变，计划“看到”一条只在语义上与现有实现不同：写“把画出的最后一条计数消息的 seq”，实际实现交的是 `host.shownSeq`（已应用的最后一条日志 seq，由服务端截到最新计数消息）。前端不认识“计数消息”，照字面实现会让 agent 插件去认 bot 的计数规则，应沿用 `shownSeq` 语义并改计划的措辞（并入第 5 条的接口修订即可，单独不成条）。
+
+## 数量
+阻断 2（1、2），重要 12（3 到 14），建议 5（15 到 19），撤回 0；共 19 条。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
