@@ -185,12 +185,20 @@ describe("AgentRoleModelPicker", () => {
         // 面板窄于 400px 时分段里写缩写，全名在悬停与可访问名称里。
         expect(radios().map((item) => item.textContent?.trim())).toEqual(["关", "低", "中", "高"]);
         expect(radios()[0]!.getAttribute("title")).toBe("关闭");
-        radios()[2]!.click();
-        radios()[3]!.click();
-        await nextTick();
-        expect(radios().map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "false", "true"]);
-        expect(picker.emitted("select-thinking")).toBeUndefined();
-        await vi.waitFor(() => expect(picker.emitted("select-thinking")).toEqual([["high"]]));
+        // 合并窗口是 200 毫秒的真实计时器：只有拨假时钟才能断言“窗口内不发、窗口一到只发最后一档”。
+        vi.useFakeTimers(); // test-lint-allow fake-timer: 见上
+        try {
+            radios()[2]!.click();
+            radios()[3]!.click();
+            await nextTick();
+            expect(radios().map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "false", "true"]);
+            vi.advanceTimersByTime(199); // test-lint-allow fake-timer: 见上
+            expect(picker.emitted("select-thinking")).toBeUndefined();
+            vi.advanceTimersByTime(1); // test-lint-allow fake-timer: 见上
+            expect(picker.emitted("select-thinking")).toEqual([["high"]]);
+        } finally {
+            vi.useRealTimers();
+        }
         picker.unmount();
     });
 
