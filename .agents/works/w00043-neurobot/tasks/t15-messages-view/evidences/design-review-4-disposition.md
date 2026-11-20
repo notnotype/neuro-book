@@ -22,3 +22,21 @@
 | 12 f 子会话里怎么回主对话 | 成立 | 写明头里的路径是回主对话的路。 |
 | 13 输入框里 Esc 关不掉 | 成立，要改 | `PromptEditor` 在组字与菜单之后才发 `escape`（核实 468–491 行），经输入框与对话视图往上发，书房面板接它关面板。 |
 | 14 与已定决定的对照 | 成立 | 心情只让“等你处理”换（在跑不换，免得反复播切换动画）；写明本阶段头没有第二行。 |
+
+## 第二轮（草稿 2 → 草稿 3）
+
+审查者：Claude Sonnet（子代理），报告 [design-review-5-sonnet.txt](design-review-5-sonnet.txt)。11 条：重要 4、建议 7，全部成立，都改进计划。
+
+| 条 | 处理 |
+|---|---|
+| 1 书房自带标题行时 `--nb-window-frame-offset` 是 0，“关闭”压在窗口按钮下；nb-ui 不该读应用变量 | 核实 `web/styles.css` 与 `desktop-frame.ts`。`SidePanel` 只认自己的 `--nb-side-panel-inset-top`，neuro-book 在桌面外框下设成 `--nb-window-frame-height`；验收改成矩形不相交。 |
+| 2 取消 `open-auto-focus` 后第一次打开与盖层期间焦点没着落 | 不取消缺省；第一次满足“没有盖层、输入框已挂上”且焦点没被用户挪走时再放进输入框；盖层时下面的对话加 `inert`（消息视图同改）。 |
+| 3 组字时 Reka 照样关；焦点在书架上 Esc 也关并抢焦点 | 复用 `dialog-close.ts` 的判断；只在焦点在面板里或触发器上时关；关闭前焦点在面板里才还焦点。 |
+| 4 层级没定，面板里的菜单靠 DOM 顺序 | `z-index.ts` 加 `sidePanel` 一档，面板向内容提供 `popover` 档；e2e 用 `elementFromPoint` 验。 |
+| 5 Tab 在面板里循环 | 接受，写进 `SidePanel.md` 与待确认 3。 |
+| 6 首次打开时会话可能在没人借用的宿主上一直订阅 | 面板开着期间 `DeskCompanion` 自己借用宿主。 |
+| 7 换组件时猫重挂 | 猫始终由 `ShelfDesk` 画，贡献叠在同一格上，经 `update:mood` 改心情。 |
+| 8 气泡定位没定；720 是案头容器宽 | 气泡绝对定位在格子下方、不可点；判据写成案头容器宽，截图加 780 宽。 |
+| 9 `SidePanel` 根不是元素；角标与气泡放哪 | 写明调用方自己包一层；角标与气泡是按钮的兄弟；最后一句话不进读屏名；宽窗口里再点看板娘也关。 |
+| 10 传送目标、尺寸单位、退场帧、读屏描述 | 照 Drawer 用 `useTeleportTarget`，`top`/`bottom` 定高、`min(…, 90cqw)` 定宽；退场带 `forwards`；`aria-describedby` 置空；复用 `close-handoff`。 |
+| 11 e2e 的写法与判据 | 书房单独一组、面板按 `role=dialog` 定位、起点读未读；加正向“看到”、Esc、层级、窗口按钮不相交；拖选只留“选区非空”；联系人消失放到 dom 测试。 |

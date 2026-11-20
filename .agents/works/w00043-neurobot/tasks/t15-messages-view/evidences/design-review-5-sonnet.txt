@@ -1,0 +1,136 @@
+# t15 阶段 ③ 设计审查第二轮（plan-3 草稿 2）
+
+### 1. 面板上沿让位读错了变量：书架上它是 0，头右端的“关闭”会压在窗口按钮下面
+严重程度：重要（桌面壳里直接让“关闭”点不到）。类别：依赖的机制与计划所述不符；包与应用的耦合。
+位置：plan-3 “nb-ui SidePanel”第一条（组件自己读 `--nb-window-frame-offset`）；验证小节“桌面外框下面板让出标题行，只断言计算样式”。
+现象：`--nb-window-frame-offset` 只在 `<html data-desktop-frame-bar>` 下才是 36px（packages/neuro-book/src/web/styles.css:137-151），该属性在“页面自己有标题栏”时被去掉（src/web/host/desktop-frame.ts:73，判据是 `#app` 里有 `[data-desktop-titlebar]`）。书架页恰好自带这个元素（projects/web/components/BookshelfPage.vue:105，`data-desktop-titlebar="plain"`），它自己的高度取的是 `--nb-window-frame-height`（BookshelfPage.vue:208）。所以在书房窗口（这个面板唯一出现的地方）offset 是 0px，面板顶到窗口上沿；窗口按钮组是固定在右上角的 120×36（`--nb-window-controls-width` = 18+3×34），层级 9300（theme/z-index.ts `desktopFrame`），高于面板。头的右列最后就是“关闭”（计划自己写的），正好落在窗口最小化/最大化/关闭三个按钮下面，点它点到的是窗口按钮。
+次生问题：
+- nb-ui 里没有任何地方读 `--nb-window-frame-*`（grep 过 packages/nb-ui/src、nb-layout、nb-agent-ui、nb-markdown 都没有），它们是 neuro-book 外壳的变量。计划让共享包 nb-ui 的组件硬编码读应用变量，是包对应用的反向耦合；第一轮处理表第 3 条“自己读”把这个问题当成了“调用方不用叠 class”的好处。
+- 验证写成“只断言计算样式（同 desktop-frame.e2e.ts）”会把这个错固化：断言 `top` 等于 offset 的计算值，测试照过，窗口按钮照样压着“关闭”。
+如何核实：读上面几处；在 e2e 的桌面外框下（`data-desktop-frame` 开、没有 bar）量 `.desktop-frame` 的按钮矩形与面板头“关闭”按钮矩形是否相交。
+建议改法：SidePanel 只认自己的一个公开自定义属性（例如 `--nb-side-panel-inset-top`，缺省 0），由 neuro-book 在 styles.css 的 `html[data-desktop-frame]` 里写成 `var(--nb-window-frame-height)`（书房与工作台两种情形都要让位，所以用 height 不用 offset），这样 nb-ui 不认识桌面壳。验收改成矩形不相交：面板头的可点区域与窗口按钮组的矩形求交为空。窗口按钮组下方那一条之外，面板的拖动区域不是问题（teleport 到 body 的子节点已被 `html[data-desktop-frame] body > :not(#app, …)` 规则统一设 no-drag）。
+
+### 2. “打开时焦点放进输入框”在第一次打开与盖层期间没有着落，取消默认后还丢了兜底
+严重程度：重要。类别：依赖机制的时序；遗漏（焦点与读屏）。
+位置：plan-3 “滑出聊天”倒数第四条（取消 `open-auto-focus`，调 `focusComposer()`）；“看板娘入口”点击一条；“面板里的对话部分用异步组件，第一次打开时才加载”。
+现象：Reka 的 FocusScope 只在内容挂上时发一次 mount-auto-focus（node_modules/reka-ui/dist/FocusScope/FocusScope.js:102-111，`watchEffect` 里 `await nextTick()` 后派发一次；`present` 由 false 变 true 时再派一次）。计划里那一刻有三种情形输入框还不存在或不能用：
+(a) 第一次打开：`ConversationHost` 是异步组件，`ref` 还是 null，`focusComposer()` 什么也不做；
+(b) 联系人还在打开（没模型、取主对话）：盖层在输入框上面，输入框要么没有、要么被盖着；
+(c) 打开之后才加载好的情形没有“稍后补放”的路径。
+更糟的是计划取消了默认行为：Reka 的缺省会把焦点放到容器上，取消后焦点留在触发器上，而触发器就在面板底下（窗宽约 1560px 以内被面板盖住）。键盘与读屏用户点开后焦点停在看不见的按钮上，Tab 进不了传送到 body 末尾的面板（FocusScope 非模态，不抓焦点）。
+另一面：盖层下的输入框仍可聚焦、读屏照读（盖层与 `ConversationHost` 是兄弟元素，计划继承了 MessagesHost 的写法，没给下面那一块 `inert`）。若 (a)(b) 之后补放焦点，会放进被盖住的输入框。
+对照现有做法：nb-ui 的 `dialog-close.ts:onOpenAutoFocus` 是“给选择器就取消并聚焦，找不到回落到面板自身”，有兜底。
+如何核实：dom 测试里把 `ConversationHost` 换成延后 resolve 的异步组件，点开，断言 `document.activeElement` 在面板内。
+建议改法：open-auto-focus 里不取消，让 Reka 先把焦点放到面板容器（或 SidePanel 自己兜底聚焦容器）；`DeskCompanion` 另外 watch “没有盖层且输入框已挂上”，第一次满足时若焦点仍在容器上或触发器上再 `focusComposer()`（焦点已被用户放到别处就不抢）。盖层显示时给下面的 `ConversationHost` 包一层 `inert`（盖层本身带 `role="status"` 或把说明放进 `aria-live`），`ContactCover` 的重试与“添加模型”按钮是此刻唯一的可聚焦物。另外，等你处理（owned 会话是停靠档，输入框仍在，见 session-host.ts:1950 的 `placement: owned ? "dock"`）时不受影响，这条不用为向导另做。
+
+### 3. Esc：组字时 Reka 照样关面板；焦点在书架上按 Esc 也关并抢焦点；仓库里已有现成写法没复用
+严重程度：重要。类别：依赖机制的行为；违反既有约定。
+位置：plan-3 “SidePanel”第三条（Esc 关）；“滑出聊天”的输入框 Esc 一条；待确认 3。
+现象：
+(a) DismissableLayer 的 Escape 是 window 冒泡阶段监听，只判断“是不是最上层”和 `event.defaultPrevented`，不看输入法（node_modules/reka-ui/dist/DismissableLayer/DismissableLayer.js 的 `onKeyStroke("Escape")`：`emits("escapeKeyDown")`，没被 preventDefault 就 `dismiss`）。nb-markdown 的 `PromptEditor.handleKeyDown` 在 `event.isComposing || keyCode === 229` 时 `return false`（PromptEditor.vue:457-459），不调 preventDefault；回退编辑器 `PlainPromptEditor` 同样（fallback/PlainPromptEditor.vue:59）。所以计划写的“组字时不发”只管了往上发的那条路；Reka 自己那条在组字时（凡是浏览器给 `key === "Escape"` 的情形，Safari、Firefox 与部分 macOS Chrome 输入法属此类，从代码推断、未实测）照样 dismiss，面板在用户取消一个候选词时被关掉。仓库里已经有这个坑的现成答案：`nb-ui/src/components/feedback/dialog-close.ts:51-56`，对 Reka 的 `escape-key-down` 一律 `preventDefault()`，自己判 `isComposing || keyCode === 229 || defaultPrevented` 再决定是否关；Dialog 与 FloatingWindow 都走它。计划的 SidePanel 没提，Drawer 也没有（Drawer 是 Reka 直接关），按“照 Drawer 写”会漏。
+(b) Escape 是 document 级的：面板开着、焦点在书架上（例如在案头的按钮上、某个下拉里）按 Esc，面板也关。关闭后 Reka 非模态内容的 close-auto-focus 把焦点交给触发器（DialogContentNonModal.js 的 `onCloseAutoFocus`）；计划对 `interact-outside` 一律取消默认，`hasInteractedOutsideRef` 永远不会为真，那段“用户点过外面就不抢焦点”的保护被关掉了，所以每次关闭都抢焦点：用户在别处操作时被 Esc 关掉面板，焦点被拉回看板娘。nb-ui 自己的规范（ui-development-spec 5.5 与 Popover.vue 的 `closedByEscape`）是“只有 Esc 关掉才还焦点，点外面关掉不抢”。对照 `AgentMessages` 的窄版抽屉：它只在焦点在抽屉里或触发按钮上时才处理 Esc（AgentMessages.vue:121-127）。
+(c) “联系人消失时关面板”是程序性关闭，也会走同一个 close-auto-focus 抢焦点；此刻焦点多半不在面板里。
+如何核实：(a) 在 dom 测试里对输入框派发 `keydown {key: "Escape", isComposing: true}`，断言面板仍开；(b) 焦点在面板外按 Esc，断言关闭路径与焦点去向。
+建议改法：SidePanel 复用 `dialog-close.ts`（或抽出它的 Esc 判断）：`escape-key-down` 里组字不关；是否在焦点不在面板内时也关，作为明确的合同写进 `SidePanel.md`（建议：焦点在面板内或触发器上才关，与 AgentMessages 一致；否则就写明“Esc 全局关闭”并接受抢焦点）。程序性关闭（联系人消失）时在 `close-auto-focus` 里判断焦点是否原本在面板内再决定还不还。dom 测试加这三条。
+
+### 4. “层级用浮层档，不进模态序列”没定数值；面板里的下拉与菜单靠 DOM 顺序才能压在面板上
+严重程度：重要。类别：依赖的机制；被破坏的既有约定（层级登记规则）；验收映射。
+位置：plan-3 “SidePanel”第三条（层级用浮层档）；“验证”小节。
+现象：层级只能从 `nb-ui/src/theme/z-index.ts` 取（ui-development-spec 2.1 第 1 条，nb-ui 的层级测试扫描大于 50 的字面量）。“浮层档”现有的值是 `popover: 60`（局部下拉）。面板内容是对话，里面有大量 nb-ui 浮层：状态栏的模型与模式菜单、会话头的子代理弹层、`@`、`/`、`$` 的 SuggestionMenu、图片预览等；它们经 `usePopoverLayer` 读 `NB_POPOVER_Z_INDEX`，只有 Dialog、浮动窗口、Drawer 会提供这个注入，SidePanel 按计划不提供，于是回退 `NB_Z_INDEX.popover = 60`（nb-ui/src/composables/usePopoverLayer.ts）。面板若也取 60，同层靠 DOM 顺序决胜：Reka 的 Portal 追加到 body 末尾，后打开的浮层碰巧在面板之后，结果对，但这是顺序碰巧而不是层级保证；面板若取更高（模态档以下的某个数），里面的下拉反而被面板自己盖住。规范 2.1 第 3 条要求“容器向内容提供浮层层级”，第 2 条要求“新增一档时放进顺序并补进层级测试的顺序断言”（theme/z-index.test.ts:32-52），计划没有这两项。
+另一面：书房页面上的下拉（排序 Select 等，层级 60）在面板打开时若开着，与面板同档，也靠 DOM 顺序。
+规范 2.1 第 4 条还说“层级与遮罩只在产品页验收，Lab 画布是层叠上下文会掩盖缺陷”，而计划的验收只有 Lab 场景与 dom 测试；e2e 里“输入 `@` 出现菜单”是可见性断言，看不出菜单被面板盖住（可见性不看遮挡）。
+如何核实：读 usePopoverLayer.ts 与 z-index.ts；在书房 e2e 里面板开着、点输入框输入 `@`，用 `document.elementFromPoint` 取菜单项中心点，断言命中的是菜单而不是面板。
+建议改法：在 z-index.ts 新增一档（例如 `sidePanel`，低于 `popover` 并高于页面内容；不同于 `dragFeedback`、不进模态序列），补进层级测试的顺序断言；SidePanel 向内容提供 `NB_POPOVER_Z_INDEX`（取 `popover` 档即可，因为它们本来就比面板高），这样下拉压面板不靠 DOM 顺序。验收加上面那条 `elementFromPoint` 的 e2e。
+
+### 5. 非模态面板的 Tab 在面板里循环，键盘用户走不到书架
+严重程度：建议（与“边看书架边聊”的目的有出入，键盘路径只剩 Esc）。类别：遗漏（焦点）；依赖的机制与计划所述不符。
+位置：plan-3 “SidePanel”：“非模态，点外面与焦点移出都不关”。
+现象：Reka 的 `DialogContentImpl` 无论模态与否都给 `FocusScope` 传 `loop`（node_modules/reka-ui/dist/Dialog/DialogContentImpl.js，`loop: ""`），`FocusScope.handleKeyDown`（FocusScope.js:142-160）在 `loop || trapped` 时拦 Tab：焦点在最后一个可聚焦元素时 Tab 回到第一个，Shift+Tab 反向同理，并且 preventDefault。非模态的 `trapFocus=false` 只关掉了 focusin 拉回，没关循环。结果：面板开着，键盘用户按 Tab 永远只在面板里转，到不了书架上的“继续写作”、书卡、设置；只能 Esc 关面板。点击不受影响。计划的“不压暗、边看书架边聊”对键盘用户不成立，读屏用户也一样。
+如何核实：dom 测试里在面板里放两个按钮，焦点在最后一个上派发 Tab，断言 `document.activeElement` 回到第一个（即 loop 生效）。
+建议改法：二选一，在 SidePanel.md 写明：(1) 面板内容的 DOM 紧跟触发器后面（现在是 teleport 到 body 末尾）无法靠 Tab 回到书架，所以给面板加一个不抓 Tab 的出口约定——最简单是 SidePanel 自己不走 Reka 的 `loop`（用 `DialogContentImpl` 之外的原语或在内容上 `@keydown.tab` 到边缘时把焦点交回触发器之后的元素）；(2) 接受并在 .md 的“边界”里写明“键盘用的关闭是 Esc 或头上的关闭按钮，Tab 不出面板”。倾向 (2)：窄场景选简单改法，但要写进合同并在 e2e 里按它测，别让它悄悄成为“没人想到的陷阱”。
+
+### 6. 首次打开时会话可能在没人借用的宿主上开好并一直订阅着；`opener.cancel()` 拦不住已开始的那一次
+严重程度：建议（窄场景，泄漏的是一个订阅）。类别：并发与资源释放；隐含的耦合。
+位置：plan-3 “滑出聊天”倒数第二条（关面板时 `opener.cancel()`）；agent/web/session-host.ts:2035-2062（`borrow()`）、1028（`openHere`）；messages-model.ts:115-143（`openContact`）。
+现象：`openHere` 不看借用数，开会话就订阅；订阅只在“借用数从 1 降到 0 后 30 秒”才放开（session-host.ts:2045-2060），而借用只在 `ConversationHost` 挂载时发生（ConversationHost.vue 的 `onMounted`）。书房面板里 `ConversationHost` 是异步组件：第一次点开，若 `provider.open` + `host.open` 比 `ConversationHost` 的 chunk 先完成（模型已读到、对话 chunk 慢），会话已开好、借用数是 0；这时用户关面板，`ConversationHost` 永远没挂上也就没有“交还”，没有任何路径排 30 秒释放，订阅一直开到插件停止。`cancel()` 只递增 `asking`，管不到已经进入 `host.open` 的那一次（`openContact` 里 `asked !== asking` 只在 await 前后检查，进了 `host.open` 就收不回）。计划写“免得关着面板时模型配好、在没人借用的宿主上打开会话”正是想防这个，但只防了尚未开始的一半。
+同类的另一面：`restore()` 对 desk 是空操作（`recent.read` 返回 null，`restore` 里 `id === null` 就返回，session-host.ts:1183-1187），所以这个宿主的会话只来自 `openContact`，没有第二个入口兜底。
+如何核实：用 `contact-opener.test.ts` 的替身宿主：`host.open` 延后 resolve，在它完成前 `cancel()`，断言之后借用数为 0 时没有未释放的订阅；或在真实宿主上跑：借用数 0 时 `open(id)`，推进 30 秒，断言订阅是否释放。
+建议改法：`DeskCompanion` 在面板开着期间自己借用宿主（`host.borrow()`，面板关闭时交还），而不是等 `ConversationHost` 挂载来借；`ConversationHost` 的借用与它叠加即可。这样“开会话”之前一定有借用，释放照现有 30 秒规则走。成本是 `DeskCompanion` 多一个 watch，不用改 `SessionHost`。
+
+### 7. 案头换组件时猫会被重挂：加载完成前后各画一只 `NeuroBookMood`，入口的状态也是后到的
+严重程度：建议。类别：失败路径与首帧体验；别扭之处。
+位置：plan-3 “案头的贡献位”第二条（`load` 没完成或失败时画现在的看板娘）；“看板娘入口”。
+现象：窗口打开 `/` 后，书架先画 `ShelfDesk` 里写死的 `NeuroBookMood`（ShelfDesk.vue 末尾 `.shelf-desk__mascot`）。贡献要等 `nbook.agent` 入口激活、发布、`projects.desk` 接收、再 `load()` 动态导入 `DeskCompanion.vue` 才到；到了之后 `ShelfDesk` 把整只猫换成 `DeskCompanion` 里另一份 `NeuroBookMood`。`<neurobook-mood>` 是带自己计时器与“跟随鼠标”脚本的自定义元素（NeuroBookMood.md），重挂意味着动画从头播、眼睛的跟随状态丢掉，用户第一眼看到的就是猫闪一下。联系人与未读也在这之后才到，所以角标与气泡再弹出一次，那一块的位置还要决定气泡是占位还是浮在上面（见第 8 条）。
+计划只写了“没完成或失败时画现在的看板娘”，没有处理“换的那一刻”。注意这不是 `home.load` 的问题：`home.load` 在 `BookshelfHost` 出现之前就 await 过，贡献位没有这个时机。
+如何核实：Lab 或 e2e 里给 `load` 加 300 ms 延迟，量猫的 DOM 节点在换前后是否同一个。
+建议改法（任选其一，倾向前者）：`ShelfDesk` 始终自己画猫，贡献只给“包住猫的东西”（作用域插槽，`companion` 得到的是一个渲染猫的插槽：`<component :is="companion"><template #mascot="{state}"><NeuroBookMood :state="state" /></template></component>`，或者更简单地由 `ShelfDesk` 画猫、贡献只画角标、气泡与触发按钮的覆盖层），猫不被重挂；`load` 失败时覆盖层不出现，猫原样。或者保留现在的设计，在 `ShelfDesk.md` 里写明“换组件时猫会重挂”并接受。
+
+### 8. 气泡的定位方式没定，压在书架工具条上或推着书架跳；“720px”是案头容器宽，不是窗口宽
+严重程度：建议。类别：与参照不符；遗漏。
+位置：plan-3 “看板娘入口”画法的气泡一条与待确认 4；`ShelfDesk.md`“约束”。
+现象：
+(a) 评审板图（r7/entry-unread.webp、entry-waiting.webp）里气泡在猫下面、工具条（卡片/列表、排序、打开已有作品、新建作品）上面，二者间只有一条窄缝。实现里案头网格 `padding` 底部是 0（ShelfDesk.vue 的 `.shelf-desk__grid`），案头与书架区之间是内容列的 `gap: 40px`（窄版 24px，BookshelfPage.vue:`.bookshelf-page__column`）。气泡高约 32 到 40px，加尖角与间隙，宽版刚好吃满这 40px，窄版（不画气泡）无事。计划没说气泡是在流里（出现时案头变高、整个书架下跳，用户正要点书卡时整页下移）还是绝对定位在 gap 里（压住工具条右端的“新建作品”等按钮，拦截点击；气泡 `pointer-events` 也没写）。无论哪种，“没有未读时不加东西”（t03 决定 22）与“来了一句话页面跳一下”是冲突的：在流里的方案违背它的精神。
+(b) 气泡最宽 260px、右对齐在 150px 的格子下，向左出格 110px，压到中栏“最近写到”的下方。宽版没问题，但中栏高度小于猫格时气泡会盖住最近写到的最后一条的摘录。
+(c) “窄于 720px”：`ShelfDesk` 的换列是对自己 `section` 的容器查询（`container-type: inline-size`，`@container (max-width: 720px)`，ShelfDesk.vue），量的是案头宽，不是窗口宽；案头宽 = 窗口宽减页面左右 40px 内边距（最宽 1120px）。计划与待确认 4 写成“窗口窄于 720px”，而 e2e/截图是按窗口宽 390 与 1440 写的，二者不一致时（例如窗口 740px 宽，案头 660px）按窗口宽实现会在应缩的时候不缩。DeskCompanion 的样式应当也用 `@container (max-width: 720px)` 查询同一个祖先容器，且 `ShelfDesk.md` 里要写明格子是容器查询的一部分，不要给格子再套一层 `container-type`。
+如何核实：在 1440 与 780 宽的窗口里造一个有未读的联系人，量气泡矩形与 `.bookshelf-page__shelf-head` 工具条矩形是否相交，量出现前后工具条的 `top`。
+建议改法：气泡绝对定位在猫格下方的 gap 里（`top: 100%`，不影响布局），为它预留不接指针的区域（`pointer-events: none`，气泡不是可点的，点的是猫按钮），或把案头的 gap 在有气泡时用 `margin-bottom` 预留固定高度并在没有未读时也预留（不跳）；二选一写进 `ShelfDesk.md`。窄版判定改写成“案头容器窄于 720px”，截图验收的两个宽度另加一个案头宽跨过 720 的窗口宽（约 780）。
+
+### 9. “单根”“按钮取 border-radius: inherit”与 `SidePanel` 的渲染结构对不上；角标与气泡放在触发器里还是外面没写
+严重程度：建议。类别：接口与合同；后续切片照字面实现会返工。
+位置：plan-3 “案头的贡献位”第三条（组件单根，按钮 `border-radius: inherit`）；“SidePanel”的 slots（`trigger` as-child）。
+现象：Reka 的 `DialogRoot` 只 `renderSlot`，不渲染元素（node_modules/reka-ui/dist/Dialog/DialogRoot.js:62-67）；它的子级是 `DialogTrigger`（as-child，落在调用方给的元素上）与 `DialogPortal`（Teleport）。所以 `SidePanel` 的根是一个片段（触发器元素加一个 Teleport 占位），`DeskCompanion` 若直接以 `SidePanel` 为根，根节点就是多根：`ShelfDesk` 传给它的任何 class 与 attrs 无处透传，Vue 开发构建会报“could not be automatically inherited because component renders fragment”；“单根”的约束与格子样式没法落。Drawer.md 对同样结构只写了“attrs 不属于稳定公共合同”。`trigger` 的 as-child 本身可行（触发器元素在 `DeskCompanion` 自己的模板里，内容 teleport 到 body，`DialogTrigger` 与内容经 provide 的 context 相连，我读过 DialogTrigger.js，`aria-expanded`、`aria-controls`、`onClick` 切换都挂在它上面），不是这里的问题。
+需要写明的几件事：
+- `DeskCompanion` 必须有自己的外层元素（格子里的那一个根），里面放 `SidePanel`（它的触发器按钮）、角标、气泡；`border-radius: inherit` 要经这层根才到按钮：`ShelfDesk` 的格子设圆角，`DeskCompanion` 根 `inherit`，按钮 `inherit`，两层都要写，只写按钮那层会落空。
+- 角标与气泡是按钮的子节点还是兄弟：as-child 要求 `trigger` 插槽只有一个元素。放进按钮里则读屏名要按钮自己的 `aria-label`（“星璃，3 条未读”），气泡里的最新一句不在名里（也不该整句读两遍）；放在兄弟位则要定它是否可点。计划只写了读屏名同头像列，没写最新一句读屏能否读到。等你处理时名字里有“等你处理”，足够；有未读时最新一句只有看得见的人读得到，这是个取舍，写进 `DeskCompanion.md`。
+- 触发器点击在面板开着、宽窗口（约 1560px 以上看板娘不被面板盖住）时是切换：`DialogTrigger` 的 `onClick` 是 `onOpenToggle`，第二次点看板娘会关面板。计划的“关闭靠头上的关闭与 Esc”与“点触发器不算点外面”互不矛盾，但验收与待确认 3 的措辞应写成“宽窗口里再点看板娘也关”，否则 e2e（视口 1280，看板娘被盖）与实际行为的差别没人记。
+如何核实：写 `DeskCompanion` 的 dom 测试时在 `ShelfDesk` 的格子里挂它，断言根元素是单个元素且 `getComputedStyle(button).borderRadius` 等于格子的圆角（happy-dom 对 `inherit` 的计算值支持有限，可改量 `button.className` 链上每层都有规则，或放进 Lab 场景用真实浏览器量）。
+建议改法：把上面三点写进 `ShelfDesk.md` 的约束与 `DeskCompanion.md`；`SidePanel.md` 的合同里写“唯一根不是元素，调用方自己包一层”。
+
+### 10. SidePanel 的尺寸、传送目标与退场帧缺几处与 nb-ui 同类组件的约定对齐
+严重程度：建议。类别：被破坏的既有约定；别扭之处。
+位置：plan-3 “SidePanel”：宽度、上沿一条（高度是视口减去它）、入退场一条。
+现象与改法：
+(a) 传送目标与容器单位。Drawer 与 Dialog 经 `useTeleportTarget` 取传送目标，尺寸用容器单位（Drawer.vue 的 `max-w-[90cqw]`、`inset-y-0`；useTeleportTarget.ts 的头注释写明 Lab 的画布是 `contain: layout` 的容器，浮层落进画布按画布定位）。计划的 SidePanel 写“高度是视口减去它”“不超过可用宽度的 90%”，没说用哪个目标、哪个单位。若用 `100dvh`/`vw` 且传送到 body，Lab 场景里面板按浏览器视口算，不按 Lab 的 390 或 844 画布算（甚至盖住 Lab 检查栏），Lab 场景就测不出窄屏行为；若传送到画布，`100dvh` 又会超出画布。改法：和 Drawer 一样 `useTeleportTarget`，高度用 `top: <让位>; bottom: 0`（不写高度），宽度用 `min(420px, 90cqw)`。
+(b) 退场帧。Reka 关闭时等 `animationend`；nb-ui 现有的退场关键帧里，遮罩的 `nb-ui-overlay-out` 带 `forwards`（styles.css:453），`nb-popover-out` 不带（styles.css:477）。面板自右滑出是位移，不带 `forwards` 时 `animationend` 到卸载之间的一帧会弹回原位（闪一下），按遮罩的写法带上 `forwards`。系统减少动画时 tokens.css 把时长 token 归零但关键帧名还在，Reka 的 Presence 仍会等 `animationend`（0 秒动画也派发），所以“减少动画时不动”靠时长 token 就够，不需要另写 `animation: none`（写了反而让 Presence 立即卸载，也行，但与 Popover 不一致，选一种写进 .md）。
+(c) 读屏名。`label` 只给对话框角色的名字，要渲染 `DialogTitle`（sr-only）；Reka 开发构建还会因为没有 `DialogDescription` 且 `aria-describedby` 指向不存在的 id 而 `console.warn`（node_modules/reka-ui/dist/Dialog/utils.js:17-19）。Drawer 同样有这条警告而没处理。若 e2e 或 dom 测试里有“没有 console 警告”的断言，会被它拦下；SidePanel 可以给内容传 `aria-describedby` 为 undefined 或渲染一个 sr-only 的 `DialogDescription`。
+(d) 同类现成实现可复用：`dialog-close.ts` 提供的 `closed` 交接（`useCloseHandoff`）、Esc 的组字判断（见第 3 条）；计划的 `closed` 语义（内容卸载、焦点归还之后）与 `close-handoff.ts` 一致，复用即可，别另写一套定时器。
+如何核实：Lab 场景里 `vp=390x844` 看面板的几何；dom 测试里观察关闭时 `data-state="closed"` 的计算 `animation-name`。
+
+### 11. 验收映射：书房 e2e 能用现有端点与 bots-chat 的工具写出来，但有两处判据空过、两处缺口、一处工具要重写
+严重程度：建议。类别：验收映射。
+位置：plan-3 “验收映射”最后一条（`bots/view.md` 新验收的 e2e 写法）；“验证”小节。
+核实结果：
+- 能写：`startProductServer(stateRoot)` 起的产品服务在 `/` 是书架（bookshelf.e2e.ts 的 `page.goto(new URL("/", server.url))` 同款）；bots-chat.e2e.ts 的 `/script` 端点（`script(...)`）、`window.dispatchEvent(new Event("blur"/"focus"))`（它已有的失焦写法，bots-chat.e2e.ts:131、:137）、`input()`、`send()` 的思路都可以搬。`@` 菜单在没有作品时有内容：`mentions` 的 `noProject` 文案（agent/web/plugin.ts:583）会让菜单出一条提示，不是空的，判据能写。
+- 要重写的工具：`chat()` 绑 `[data-messages-chat]`、`input()` 在它里面、`contact()` 绑头像列（bots-chat.e2e.ts:56-61）；书房面板里没有这些节点，要给面板按 `role=dialog` 加名字（`label` 是联系人名字）另写一套定位，不是搬来即用。
+- 空过的判据：“面板里拖选一句话后面板仍开着、选区非空”。把面板建在 Reka 非模态 Dialog 上之后，面板内容里没有任何滑动关闭手势（这正是弃用 Drawer 的理由），拖选本来就不可能关面板，这条断言在实现被改坏之前与之后都过，不能证明什么（本仓库的“否定断言要先变异”）。它真正要守的是“没有人往面板内容上加手势处理”，用 `SidePanel` 的 dom 测试断言内容元素上没有 pointer 类监听更直接；e2e 里留“选区非空”作为选字可用的正向判据即可（桌面外框开着时还要断言面板里的文字不继承外框的 `user-select: none`，见 styles.css:155-157 `html[data-desktop-frame] { user-select: none }`，对话视图在自己的根上写了 `user-select: text`，AgentConversationView.vue:682，teleport 到 body 的面板里需要实测一次）。
+- 缺口：①“联系人消失时关面板”（设计里有，验收映射里没有对应行）；②面板开着时书架上的 Esc / 焦点路径（第 3 条）、Tab 循环（第 5 条）、层级（第 4 条）、窗口按钮不相交（第 1 条）都没有判据；③“面板开着时窗口失焦 → 不算看到”与“面板关着时来的消息 → 不清零”需要各一条断言（计划里只有失焦、关闭、再点开这一条线，等价于只验了一次路径，没有对照：面板开着且有焦点时回复应当不产生未读，这是“看到”正向判据，现在没有）。
+- 状态残留：bots-chat.e2e.ts 的几个用例共用一个服务端与同一个 bot 主对话，书房组加在后面会继承前面用例留下的会话内容与未读；断言“角标是 1”前要先确认起点为 0（读头像列或联系人的未读，不要假设），并在书房组自己脚本里给回复带唯一文字。
+如何核实：照上面读 e2e/bots-chat.e2e.ts 全文（139 行）。
+建议改法：书房组用自己的 `describe`，先建面板定位函数；判据改为：正向“看到”（有焦点、面板开着，回复不产生未读）、反向“失焦或关着，回复产生未读并出现角标与气泡”、Esc、层级、与窗口按钮的矩形求交；拖选一条改为选区可读，并删掉“面板仍开着”作为判据。
+
+## 未发现问题的方面（逐项读过实现）
+
+- 宿主 `opened` 改语义：读 `opened` 的只有 `messages-model.ts:108` 一处（grep 过 plugins/agent、plugins/bots）；`restore()` 对 desk 因 `recent.read` 返回 null 是空操作，不会再引起 `openHere`；借用重开不加 `opened`，消息视图的作废语义（命令、新建、状态栏换会话）仍由其余的 `openHere` 调用点保持。实现时要做成 `openHere` 的一个选项（跳过 `opened` 加一与 `recent.write`），不要另写“重新订阅”函数：`openHere` 里的 `keepUiState`、向导与停靠区状态的取回（session-host.ts:1033-1040）重开时还要走。
+- `projects.desk` 贡献点的形状：`{load}` 同 `workbench.home` 的先例；拥有者缺席时贡献方照常激活、等待接收者（owner-contribution-points.test.ts 场景 13），所以没装 `nbook.projects` 的窗口不会拖垮 `nbook.agent`；按已接受的声明数裁决（HomeSlot.#choose）而不是按发布到达顺序，不依赖激活时序，计划“同 workbench.home 的裁决”成立。
+- 非模态 Dialog 的 `interact-outside` 取消默认：DismissableLayer 对 `pointerDownOutside`、`focusOutside` 都先发 `interactOutside`，没被 preventDefault 才 dismiss，取消默认后两路都不关；点触发器本来就被 Reka 豁免。面板里再开的 Reka 浮层（Popover、Select、模态的 SkillInitDialog）是更高的层，Esc 只给最上层（`isHighestLayer`），不会连带关面板。
+- 入退场与 Presence：`[data-state]` 两套不同名的关键帧（in/out）就是 nb-ui 现有 Popover 与遮罩的写法，Presence 靠名字变化判定等 `animationend`，计划的配法成立（细节见第 10 条的 forwards）。
+- `ShelfDesk` 的挂卸：`BookshelfPage` 里它在 `status` 的 `v-else` 下；`fetchOnce` 的刷新失败只记通知、保持 `ready`（shelf-page.ts:196-215），`focused()` 与定时刷新不会把状态退回 `loading`，所以开着的面板不会因书架刷新被卸掉；首次加载失败时没有案头也就没有入口，这是可接受的退化。
+- `ensureStarted()` 点开时调：`hasModel` 在读到之前是 null，`openContact` 走“等模型读到再开”并盖着“正在打开”；模型服务读不到时 `hasModel` 当成 true，对话里的提示兜底（plugin.ts:266），不会永远转圈。`activity.start` 在除 /lab 外的所有窗口启动时就开了（plugin.ts:232），书房里入口的活动态与未读不依赖点开。
+- 书房里对话的禁用项：owned 会话 `canCreate: false`、`canArchive: false`，所以抽屉里不会出现“新建会话”按钮、第一屏与归档入口（session-host.ts:1950）；`@`、`/`、`$` 三个触发器在书房里仍可用，`@` 在没有作品时给“没有作品”的提示（plugin.ts:583），符合计划的验收。
+- 输入框 Esc 往上发：真 `PromptEditor` 在组字时 `return false`、补全菜单开着时由菜单吃掉 Esc（`handleMenuKey` 返回 true）、其余才 `emit("escape")` 并 `return true`（PromptEditor.vue:456-492），所以“有菜单、组字时不发”成立；`AgentMessageEditor` 是另一个编辑器实例，它的 Esc 取消编辑不受影响；`AgentWizard` 自己 `stopPropagation` 的 Esc 也不会到面板。消息视图没给 `close` 时行为不变。组字时 Reka 那一路的问题在第 3 条。
+- `entryCountText` 搬到 `workbench/shared/`、依赖方向 `agent → projects/shared`、`agent → workbench/shared`：方向与现有 `workbench.home` 一致。
+
+## 汇总
+
+共 11 条：阻断 0、重要 4（第 1、2、3、4 条）、建议 7（第 5 到 11 条）。最严重的三条：
+1. 第 1 条：上沿让位读的是 `--nb-window-frame-offset`，在书架（自带标题栏，没有 `data-desktop-frame-bar`）上它是 0px，面板头右端的“关闭”会被窗口按钮盖住；验证写成“断言计算样式”会把错固化。
+2. 第 2 条：取消 `open-auto-focus` 后，第一次打开（异步组件未到）与盖层期间焦点没有着落，仍停在被面板盖住的触发器上。
+3. 第 3 条：Esc 的组字与全局作用域：Reka 的 Escape 不看输入法，仓库的 `dialog-close.ts` 已有现成写法，计划没复用；焦点在书架上按 Esc 也会关并抢焦点。
+第 4 条（层级数值与登记）与它们并列，影响面板里所有下拉与 `@` 菜单是否稳定压在面板之上。
+
+## 待确认项的判断（计划末尾实际是四项，brief 写三项）
+
+1. 气泡写“等你处理”而不是 t03 决定 22 的“等你批准：……”：同意。t15 决定 6 管的是消息视图 bot 行的第二行，不直接管气泡，但理由一致（没有后端摘要，等你处理也可能是提问），属于对决定 22 的收缩而非悄悄改变，计划已把它列为待确认，做法对。条件：气泡的“等你处理”要用警示色并与角标的“!”同状态，别出现只有一个的情形。
+2. 等你处理时猫换成 `ask`：可以，推荐。`NeuroBookMood` 的每种心情是循环动画（NeuroBookMood.md），“等你处理”可能持续数小时，一只一直做提问动画的猫加黄色“!”加气泡是三重提醒；若开发者觉得吵，保留角标与气泡、猫不换心情是同样可用的降级，系统减少动画时组件本身已停动。
+3. 420px、点外面不关、关闭靠头上的关闭与 Esc：宽度没问题；“点外面不关”是计划新定的，决定 23 只说了“书房不压暗”；它与键盘用户的 Tab 循环（第 5 条）、Esc 全局作用域与抢焦点（第 3 条）合在一起，面板对键盘用户实际是半模态的，这几条要同时写进 `SidePanel.md`。390 宽下面板占 90%，点外面不关意味着只剩头上的关闭，建议在窄版里确认关闭按钮始终可达。
+4. 窄于 720px 只留角标：同意取舍，但判据要改成“案头容器宽”（第 8 条 c），否则与 e2e 的窗口宽对不上。
