@@ -40,7 +40,7 @@
 - `ci`：同一提交上整套 CI（`ci.yml`，选包用 `--all`）。
 - `npm-packages`：`release:smoke`、发布计划（`publish.ts --plan`）、正式桌面变体的壳与载荷。
 - `update-test-packages`：更新冒烟用的 B′（标签提交加一个只在 runner 上的测试提交，补丁号加 1）。
-- `desktop-macos`（与 Windows 的桌面作业并行，调用 `desktop-macos.yml`）：同一份应用包按 darwin-arm64 组装载荷，在 Apple Silicon runner 上用 Hutch 构建，安装包改名为 `NeuroBook-macos-arm64.dmg`，写 `SHA256SUMS-macos`。不签名、不公证、没有冒烟。它失败不挡发布：Release 只带 Windows 的资产，作业摘要写明；事后用 `desktop-macos.yml` 手动触发（输入标签与那一轮的运行编号）补传。
+- `desktop-macos`（与 Windows 的桌面作业并行，调用 `desktop-macos-build.yml`）：同一份应用包按 darwin-arm64 组装载荷，在 Apple Silicon runner 上用 Hutch 构建，安装包改名为 `NeuroBook-macos-arm64.dmg`，写 `SHA256SUMS-macos`。不签名、不公证、没有冒烟。它失败不挡发布：Release 只带 Windows 的资产，作业摘要写明；事后用 `desktop-macos.yml` 手动触发（输入标签与那一轮的运行编号）补传。
 - `desktop`（Windows）：用 Hutch 构建正式、A′、B′ 三个变体；冻结发布资产：安装包改名为 `NeuroBook-win-x64-Setup.zip`、从完整包打便携版 `NeuroBook-win-x64-portable.zip`、写 `SHA256SUMS`；跑安装版、便携版与更新的冒烟。两个名字不带版本号，`releases/latest/download/<名>` 是固定的最新版链接；更新用的文件名由 Electrobun 定（`stable-win-x64-…`，`stable` 是发布频道，不是阶段）。
 - `publish-npm`（Environment `release`，trusted publishing）：只发计划里本次发布的包，dist-tag 显式给（高于 `latest` 时 `latest`，否则 `history`）。
 - `registry-smoke`：先等本次的版本都能从 registry 取到（最多 30 分钟；刚发的版本 npm 要处理几分钟，大包更久），再装一遍（不挡 Release）。
@@ -66,6 +66,7 @@
 - **被取消**：正式发布按推送先后排队（`queue: max`，至多 100 个等待中的）；满了以后新来的被取消，在 Actions 里重跑那一轮即可，标签不用重推。
 - **恢复不了**（产物过了保留期或被删，而 npm 已发、Release 没有公开）：流水线不自动重建替换。按 Release 草稿、`release-plan.json` 与 registry 只读对账，提高补丁号、重打标签发一个新版本；没公开的草稿由开发者删掉。
 - **`verify-feed` 或 `upgrade-from-previous` 失败**：Release 已经公开。先看作业摘要与证据（`feed-evidence.json`、`upgrade-evidence`）：是 GitHub 的临时问题就重跑作业；是资产或清单的问题，提高补丁号发一个修正版本，有问题的 Release 由开发者决定是否改回草稿。
+- **macOS 构建失败**（`desktop-macos`，不挡发布）：Release 先只带 Windows 的资产公开。在 Actions 里对这一轮“重跑失败的作业”：macOS 重新构建，`github-release` 跟着重跑、把 macOS 的一整套补传到已公开的 Release（缺 Windows 的资产仍然失败），`verify-feed` 与 `upgrade-from-previous` 也跟着重跑。超过可重跑期时用 `desktop-macos.yml` 手动补包。
 - **`registry-smoke` 失败**：npm 包已发。先看是不是版本还没在 registry 上可见（等待超过 30 分钟）；是的话等它出现后重跑这个作业。
 
 产物保留 35 天（覆盖首次运行后 30 天的可重跑期），冒烟证据保留 14 天。

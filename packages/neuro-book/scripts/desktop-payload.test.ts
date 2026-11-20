@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {appTarball, listFiles, lockClosure, lockedPackages, lockMismatches} from "./desktop-payload";
+import {appTarball, listFiles, lockClosure, lockedPackages, lockMismatches, nonAsciiPaths} from "./desktop-payload";
 import {APP_NAME} from "./pack-app";
 
 let tmp = "";
@@ -92,5 +92,13 @@ describe("文件清单", () => {
 
         await symlink(join(root, "README.md"), join(root, "link"));
         await expect(listFiles(root)).rejects.toThrow("符号链接");
+    });
+
+    it("路径有非 ASCII 字符的文件逐个列出（Windows 打包的 tar.exe 处理不了）；空格与常见符号不算", () => {
+        expect(nonAsciiPaths([{path: "stickers/builtin/lyra/kaixin.webp"}, {path: "stickers/builtin/lyra/开心.webp"}, {path: "a b/c-d_e.(1).js"}, {path: "café/x"}])).toEqual(["stickers/builtin/lyra/开心.webp", "café/x"]);
+    });
+
+    it("真实的应用源码里，会进载荷的内置资源路径都是 ASCII", async () => {
+        expect(nonAsciiPaths(await listFiles(join(import.meta.dir, "..", "src", "plugins", "stickers", "builtin")))).toEqual([]);
     });
 });

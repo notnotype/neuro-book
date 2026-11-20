@@ -1,0 +1,125 @@
+### 1. macOS 补传作业的权限声明让整条 Release 无法启动
+- 严重程度：阻断；类别：正确性、权限。
+- 位置：`.github/workflows/release.yml:296-304`；`.github/workflows/desktop-macos.yml:158-166`。
+- 现象与影响：调用方只给 `contents: read`，可复用工作流里的 `release` 作业声明 `contents: write`。GitHub 在求值作业 `if` 之前校验嵌套权限；`!inputs.called && inputs.publish` 必为假也救不了。整轮是 `startup_failure`，不是一个可选 macOS 作业失败；演练和标签发布都无法启动，`github-release` 的容错没有机会执行。
+- 核实：本仓库 [Release #12](https://github.com/notnotype/neuro-book/actions/runs/44722785765)（`63932c6`；两个工作流与 `8c788fa41` 无 diff）已经在 GitHub 实际失败，`gh run view 44722785765 --repo notnotype/neuro-book --json conclusion,jobs` 返回 `startup_failure`、`jobs: []`。页面注解原文：`The nested job 'release' is requesting 'contents: write', but is only allowed 'contents: read'.` 本地 `actionlint -ignore 'unexpected key "queue"'` 检查两文件仍退出 0，不能替代此验证。
+- 建议：拆出只有读权限的可复用构建工作流。手动补传入口调用它，再在入口自身的独立作业申请 `contents: write`；正式发布仍由 `github-release` 合并。不要为绕过校验给正式调用方不需要的写权限。修完用现有 `workflow_dispatch` 演练验证能进入门禁。
+
+### 2. 可选 macOS 的失败让必需的发布演练不合格
+- 严重程度：重要；类别：正确性。
+- 位置：`.github/workflows/release.yml:294-304,308-309,360-396`；`scripts/release/release.ts:69-70,126-151`；`docs/standards/releasing.md:28-29,43,51`。
+- 现象与影响：修复第 1 条后，`workflow_dispatch` 也会运行 macOS（无 job `if`，传空 `tag`），只跳过 npm 和公开 Release。macOS 构建失败且 CI、Windows 和其余必需冒烟全过时，整轮仍是 `failure`，`rehearse` 返回 1，正式发版拒绝这次 HEAD 的演练。开发者只能把可选构建修好、重跑到绿，或用 `--no-rehearsal` 连必需的冒烟门禁一起绕过。正式发布中，macOS 普通失败或被跳过且没取消整轮时，`!cancelled()` 取消默认 `success()` 限制，Windows/npm 两个必需结果成功就可发布；整轮被取消时则不发布。正式发布也会因仅 macOS 失败把总退出码报成 1，即使 Windows/npm 已发。
+- 核实：对照 [GitHub 状态函数](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions)、[可复用调用作业支持的键](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#supported-keywords-for-jobs-that-call-a-reusable-workflow) 和上述依赖图；调用点不能直接用 `continue-on-error`。实跑本仓库已完成的 `gh run watch … --exit-status`：失败轮 `44382213997` 退出 1，成功轮 `43712464803` 退出 0。仅 macOS 失败的组合未在本仓库重触发。
+- 建议：把可选构建失败表示成独立、明确的可选结果（继续记录故障），或用一项汇总判定作为 CLI 所认的必需演练结论。不要把未验证、启动失败或整轮取消当作演练通过。
+
+### 3. 演练通过的 HEAD 没和最终打标签的提交绑定
+- 严重程度：重要；类别：不变量、竞态。
+- 位置：`scripts/release/release.ts:80-83,146-165`；`scripts/release/prepare.ts:140-166,184-204`。
+- 现象与影响：在共享的主工作区，命令读 HEAD=A 并查 A 的演练；若另一个会话在 `prepare` 读 HEAD 前合入 B，`prepare` 只核对 B 包含 `origin/master`，在 B 上生成 C。随后标签和原子推送照常成功，但 C 的父提交是未经演练的 B，正好绕开本任务新增的保护。另一个窗口在 `prepare` 退出与下一次 `rev-parse HEAD` 之间提交时，甚至可能在另一个会话的提交上打标签。Git 的分支 refspec 还会在真正执行 `push` 时再取一次可移动的 `master`。
+- 核实：对照发布手册 `docs/standards/releasing.md:28` 要求演练提交恰为发版提交的父提交，跟踪上述三次独立读引用；`release.test.ts:18-27,76-86` 的替身只在 `prepare` 时把 HEAD 从 A 换成 C，没有并发推进路径。主工作区并用是 `AGENTS.md:42` 明示的环境条件。此为从代码确认的时序反例，未写入真实仓库复现。
+- 建议：让准备步骤接受唯一的预期基底并返回实际发版提交，打标前核对它的唯一父提交等于演练 SHA、同时核对分支仍在该提交；推送用该确切提交 SHA 作为 `master` 的源，不重新读可移动的分支。变化时停下说明可恢复状态，不代替开发者回退共享分支。
+
+### 4. 推送结果不明时断言远端没变；本地半成品无法用原命令接续
+- 严重程度：重要；类别：不变量、错误恢复。
+- 位置：`scripts/release/release.ts:123,153-173`；`scripts/release/release.test.ts:102-109`；`docs/standards/releasing.md:29,61-67`。
+- 现象与影响：`git push` 的非零不只表示服务器拒绝。服务端可原子落下两个引用、客户端丢失确认，同样非零；当前却断言“远端什么都没变”，并建议删本地标签。已创建的不可改指远端标签和触发的发布并不会因此消失。另有两种确定的本地残留：`prepare` 成功但 `git tag` 失败，只剩提版提交；推送明确被拒则提版提交和标签都留在本地。直接重跑受演练/同名标签/版本必须递增等检查阻断，删本地标签不撤销提版提交。成功推送后查不到运行时，报错建议 `bun run release watch` 又漏必需的版本参数。
+- 核实：[git-push 的 `--atomic` 与 `remote failure`](https://git-scm.com/docs/git-push#_output) 分别定义事务与收不到服务端确认的错误。对照代码可见所有非零共用文案，现有测试还把这个错误文案钉成断言；本审查未做写入或断网推送。
+- 建议：把“确认拒绝”和“尚不知道远端是否落地”分开，失败后只读核对远端 `master`、标签及预期 SHA。已推则打印 `bun run release watch <实际版本>`；仅本地准备完则提供复用该提交的安全接续步骤；不自动回退或建议在未核实前删标签。
+
+### 5. 演练的 `git push` 可被本机配置扩展为推发布标签
+- 严重程度：重要；类别：安全、发布授权。
+- 位置：`scripts/release/release.ts:80-83,135-140`；`docs/standards/releasing.md:28,33,51`。
+- 现象与影响：`git push origin refs/heads/master:refs/heads/master` 并不保证只推 master。开发者设置 `push.followTags=true` 时，Git 还会附带远端没有的、从 master 可达的附注标签（包括签名标签）。若其中有 `v*`，一次承诺不发布的演练会同时触发正式发布；同样设置也能让正式命令顺带推提交链上别的标签。受保护的 `v*` 规则不能阻止本来就有发布资格的开发者。
+- 核实：[git-push `--follow-tags` 合同](https://git-scm.com/docs/git-push#Documentation/git-push.txt---follow-tags) 明确该选项在显式 refspec 外补附注标签，`push.followTags` 会默认开启它；本机 Git 2.56.0 支持 `--no-follow-tags`，当前未设这项配置，未实际推送。
+- 建议：演练和正式推送都显式 `--no-follow-tags`，让是否写入发布标签只由命令的明确 refspec 决定。
+
+### 6. `rehearse` 会把上一轮当成本次触发的演练
+- 严重程度：重要；类别：正确性、竞态。
+- 位置：`scripts/release/release.ts:73-77,116-123,135-143`；`scripts/release/release.test.ts:63-68,113-120`。
+- 现象与影响：时间门槛实际是本机 `started - 60 秒`，而 `started` 又取在推 master 之前。前一轮同 SHA 的成功演练若在这 60 秒内建立、刚发出的新一轮尚不可见，第一次列表就会命中旧轮并打印“演练通过”；前一轮若失败或取消则错报这次失败。另一个操作者同秒触发也不能靠 `createdAt` 和 SHA 区分。若本机时间快过服务端超过 60 秒，正确的运行会从所有轮询里被滤掉，重试 36 次也无效。
+- 核实：直接调用本次 `ReleaseCommand.rehearse`，注入 dispatch 输出新运行 `/42`、列表暂只见 30 秒前同 SHA 的成功运行 `41`；第一次查询便盯 `41`，返回 true。真实 `gh` 2.97.0 的 [dispatch 实现](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/workflow/run/run.go#L329-L398) 支持 GitHub 返回创建的 ID 与 URL，旧服务还可能返回 204；本实现把输出交终端、不消费身份。未触发真实工作流。
+- 建议：使用 [dispatch REST 响应](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event) 的 ID，并核对该运行的 SHA；确需兼容无 ID 的服务就传关联标识，不把旧列表或时间猜测当作新运行。发标签的路径没有 dispatch ID，应用标签、确切提交及推送前已存在的运行身份关联，不依赖开发机时钟。
+
+### 7. macOS 用短 ref 检出，和标签同名的分支能替换正式桌面壳
+- 严重程度：重要；类别：安全、产物身份。
+- 位置：`.github/workflows/release.yml:302-304`；`.github/workflows/desktop-macos.yml:62-75,89-93,114-133`；`scripts/release/tag.ts:124-139`。
+- 现象与影响：正式调用传 `github.ref_name`（如 `v0.15.0`），macOS 的 Ubuntu 作业把它传给 `actions/checkout` 的 `ref`。同名分支与标签同时存在时，Checkout 先选分支。这会用分支代码构建 `bundle/main.js`，再与标签产物一起打包、进入正式 Release；同版本的分支可通过版本字符串核对。标签规则集保护 `refs/tags/v*`，不保证不存在同名分支；Windows 及 npm 仍是标签提交，造成发布的源码身份不一致。手动补包同样使用短名。
+- 核实：[`actions/checkout@v5` 的 `getRefSpec` / `getCheckoutInfo`](https://github.com/actions/checkout/blob/v5/src/ref-helper.ts) 对未限定 ref 取分支和标签，且先检查分支。本仓库 `verify-built --desktop` 只核对版本。未创建分支、标签或运行。
+- 建议：正式调用的两个构建作业都固定检出 `github.sha`（或用默认的事件 SHA）；手动路径明确 `refs/tags/<标签>`。若保留手动跨轮下载，顺手核对来源运行的提交与标签一致，不能拿相同版本号替代提交身份。
+
+### 8. Git 推往 `origin`，但演练、门禁和跟踪不固定 GitHub 仓库
+- 严重程度：重要；类别：正确性、授权边界。
+- 位置：`scripts/release/release.ts:96-112,126-150,159-173`（对照已有 `scripts/release/prepare.ts:130-147`）。
+- 现象与影响：Git 写 `origin`；所有 `gh run …` 和 `gh workflow run …` 却靠 gh 默认仓库。设置 `GH_REPO` 或 gh 的本检出默认仓库时，两者可分离：推送的是 A，在 B 触发演练；若 A/B 是共享提交的 fork/upstream，B 的成功也能给 A 的发布放行；成功推送 A 的标签后还会在 B 找不到运行。命令没有在副作用前核对这种错配。
+- 核实：本检出的 `git remote get-url --push --all origin` 是 `notnotype/neuro-book`；只读实测 `env GH_REPO=cli/cli gh run list --limit 1 --json url` 却返回 `https://github.com/cli/cli/actions/runs/44721504610`。另见 [`gh repo set-default`](https://cli.github.com/manual/gh_repo_set-default) 的 Actions 默认仓库规则。没有调度 B 的工作流。
+- 建议：在写入之前从唯一的 GitHub 推送目标解析仓库（与 `prepare` 共用），应对 fetch URL 与 push URL 不一致；所有 gh 调用显式 `--repo`，不允许不同目标分别为门禁、推送和监控提供依据。
+
+### 9. macOS 补包后，Windows-only 产物不能核对已公开的 Release
+- 严重程度：重要；类别：不变量、重跑。
+- 位置：`.github/workflows/release.yml:385-398`；`scripts/release/github-release.ts:110-120,237-244,249-257`；`docs/standards/releasing.md:43,63`。
+- 现象与影响：macOS 失败 → 正式流程公开 Windows-only → 按手册手动补齐 macOS → 重跑 `github-release`。本地没有 macOS，`assetUploads` 将远端每个合法 macOS 文件视为未知多出，重跑失败。反过来，若 Windows-only 已公开，再重跑先前失败的 macOS 并构建成功，GitHub 会重跑依赖它的 `github-release`；`draftRelease` 又拒绝给已公开 Release 补 5 个新资产。现在只有两侧可选集合完全相同才可正常重跑；文档允许的降级与补包不能收敛到这个条件。两个入口的不同并发组也没有为同一标签的写入互斥。
+- 核实：用 `gh release view v0.14.1 --repo notnotype/neuro-book --json isDraft,assets` 的真实公开快照和已下载的两份校验和调用被审代码：Windows 7 个在本地单独验过，合并 12 个也验过；本地只给这 7 个时，`assetUploads` 报 5 个“多了本地没有”；相反输入得到 5 个待上传，命中公开 Release 的拒绝分支。GitHub [重跑合同](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) 说明依赖作业一起重跑。例子借用真实补包后的资产，不是在旧标签上运行新工作流。
+- 建议：分别协调必需 Windows 集和可选 macOS 整套；对已公开且 Windows 匹配的 Release，校验并保留已有的完整 macOS 集（不要忽略残缺、覆盖同名不同内容或放过未知文件），没补的交给唯一补包入口。为同一标签定义写入互斥或明确只有一个作业负责补传。
+
+### 10. macOS 工件下载或校验失败仍会挡住 Windows Release
+- 严重程度：重要；类别：正确性、错误隔离。
+- 位置：`.github/workflows/desktop-macos.yml:132-149`；`.github/workflows/release.yml:377-398`；`scripts/release/github-release.ts:95-106,210-215,225-228`。
+- 现象与影响：`needs.desktop-macos.result == 'success'` 只证明上游步骤成功结束，不证明工件可下载或通过接收方的整套规则。已上传的工件被删、下载报错，或 Hutch 保留 4 个必要文件却多输出 1 个未在白名单里的文件，都会让必需的 `github-release` 步骤失败。它已等到 `publish-npm` 成功，因这一套可选文件，npm 已发但 Windows Release 发布也被挡住。此处摘要只覆盖 macOS 上游作业未成功，覆盖不到这两条路径。
+- 核实：`build-variant.ts:120-131` 只检查必有名和 v2 清单的版本/标识，不拒绝多出的文件。用被审 `readLocalAssets` 在 scratch 构造完整 Windows/macOS 及各自正确的校验和，再多放一个有正确摘要的 `macos-build-info.txt`，目录被拒；实测合法的公开包快照则通过。另见 [`download-artifact@v4` 源码](https://github.com/actions/download-artifact/blob/v4/src/download-artifact.ts)，找不到命名工件会失败。未注入真实 runner 故障。
+- 建议：macOS 下到独立目录并单独核验，成功才合并，无法取得/不合格时留下明确告警、使用已经验证的 Windows 集；Windows 下载、摘要及远端既有同名资产冲突仍须硬失败。
+
+### 11. macOS 中间产物只留 14 天，少于承诺的 30 天重跑窗口
+- 严重程度：建议；类别：不变量、文档。
+- 位置：`.github/workflows/desktop-macos.yml:94-101,103-105,128-131`；`docs/standards/releasing.md:63,71`。
+- 现象与影响：第 1 天载荷作业成功、macOS runner 构建失败；第 15 至 30 天重跑失败作业时，上游成功作业不重跑，但 `desktop-macos-inputs` 已达到 14 天保留期。下游无法按手册复用成功产物，只能显式重做载荷或走补包。短保留原本用于 t23 手动入口，这次复用进正式 Release 后与 Release 的约定冲突；35 天的最终 `desktop-macos-assets` 不能代替未构建成功时必需的输入。
+- 核实：对照上传的 14 天、下游按名必下、手册写 35 天和 [GitHub 重跑窗口与依赖规则](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)。未等待工件实际过期。
+- 建议：正式 Release 的可重用输入保留 35 天；构建日志等证据仍保留 14 天。
+
+### 12. 审查所用的脚本类型检查不包含新增命令
+- 严重程度：建议；类别：测试。
+- 位置：`scripts/tsconfig.json:19-41`；`package.json:52`；`scripts/AGENTS.md:7`。
+- 现象与影响：`package.json` 的新 `release` 入口由 Bun 直接运行，只有测试导入 `release.ts`。脚本 tsconfig 逐个列举入口却漏掉它，CI/本机的常规脚本 typecheck 变绿也不能发现该命令今后的类型错误。不是当前源码已有类型错误。
+- 核实：在包含被审提交且此范围文件相同的实现 worktree `4e590387c` 上，`bun x --no-install tsc --noEmit -p scripts/tsconfig.json --listFiles` 退出 0；名单有 `github-release.ts`、没有 `release.ts`。用同级目标、ESM、strict 和 Bun/Node 类型单独检查 `release.ts` 退出 0。
+- 建议：按脚本目录的规则把 `release/release.ts` 登记到现有 tsconfig 的 `include`，让 CI 覆盖真实入口。
+
+### 13. 用例没验证等到本次运行，也没验证 `watch` 的公开行为
+- 严重程度：建议；类别：测试。
+- 位置：`scripts/release/release.test.ts:16-40,63-72,76-120`；`scripts/release/github-release.test.ts:83-136,214-224`。
+- 现象与影响：新 CLI 测试的 `gh run list` 只识别是否出现 `--event push`，无视 `--branch`、提交条件、重复轮询；未知命令静默成功。演练次序断言 `indexOf(push) < indexOf(dispatch)` 在完全没有 push 时也会得到 `-1 < 正数`，不能防止漏推。`watch` 只覆盖参数解析，没有验证标签解析、运行筛选或实际退出码；macOS 新测试只覆盖本地函数，既有公开重跑用例没覆盖已补包的远端资产。
+- 核实：逐一查看两个替身及用例断言；在范围匹配的 `4e590387c` 上发布测试 11 文件、106 用例通过，未捕获第 6、9 条。实际对 `v0.14.1` 跑只读 CLI，确认可找到标签运行、失败退出 1，参数非法退出 2；这是命令验证，不是提交里的回归用例。
+- 建议：别让未知命令成功；Git 路径用临时仓库校验引用状态，而不是把整个 argv 钉死；`gh` 替身按对过的查询合同与状态序列回答（旧轮、暂不可见、新 ID、运行失败与 API 失败），从 CLI 入口测结果和退出码；给已公开后 macOS 补齐的状态补重跑回归。
+
+### 14. `SHA256SUMS-macos` 的重复项可掩盖摘要不符
+- 严重程度：建议；类别：校验。
+- 位置：`scripts/release/github-release.ts:72-86,105-106`；`scripts/release/desktop-release-notes.md:6`。
+- 现象与影响：解析器用 `Map.set`，同一文件的后一行覆盖前一行。Windows 原有的行为被带进新的 macOS 校验：一个既含错摘要又含正确摘要的 `SHA256SUMS-macos` 能过 Release 的校验，用户按原文件运行 `shasum -a 256 -c` 却得到失败。
+- 核实：在 scratch 构造合法 Windows/macOS 两套文件，在同一 DMG 的正确行前插入另一个摘要；调用 `readLocalAssets` 接受了 11 个资产，`shasum -a 256 -c SHA256SUMS-macos` 对 DMG 先报 `FAILED` 再报 `OK`，退出 1。实际公开 v0.14.1 的两份文件未发现重复项。
+- 建议：在运行共享校验时拒绝同一校验和文件里的重复资产名，不覆盖第一条；两平台用同一个规则。
+
+## 验证记录
+
+- 范围：`d7f6eeaea..8c788fa41` 指定的 8 个文件；不审测试规则提交 `d076d1403`。依赖齐全的实现 worktree `4e590387c` 包含被审提交，审查范围和测试配置一致。未改仓库文件、未提交、未推送、未派发或重跑工作流、未跑 e2e；未在 Mac 真机运行产物。
+- `bunx --no-install vitest run --config scripts/vitest.config.ts --configLoader runner --no-cache scripts/release`：11 文件、106 用例通过。
+- `bun x --no-install tsc --noEmit -p scripts/tsconfig.json --listFiles`：退出 0，漏检新入口见第 12 条。单独以 ESNext、Bundler、strict 和 Bun/Node 类型检查 `scripts/release/release.ts`：退出 0。
+- `actionlint -ignore 'unexpected key "queue"' .github/workflows/release.yml .github/workflows/desktop-macos.yml`：退出 0；第 1 条以 GitHub 实际启动结论和注解为准。
+
+## 反思回写建议（未写入规范）
+
+| 类别 | 依据 | 建议 | 位置 |
+| --- | --- | --- | --- |
+| 踩坑 | 第 1 条中 actionlint 通过，但 GitHub 在分配作业前以权限错误拒绝启动。 | 改写：修改可复用工作流的权限时，除了 actionlint，还逐级对照调用方令牌上限与被调作业声明的权限，不把作业的 `if` 当作权限豁免；有同版运行证据时检查启动结论和注解。 | `docs/testing/README.md` 工作流验证条目 |
+
+## 未发现问题的方面
+
+- 本地资产规则接受仅 Windows 或 Windows 加完整 macOS，拒绝单独 DMG、仅补丁、仅 macOS 校验和，以及跨平台校验和条目和未知文件。按 v0.14.1 真实资产元数据和校验和，两套均通过。重复条目的例外见第 14 条。
+- 推送的 refspec 属于同一个 Git 原子事务；实测 GitHub 的 SSH receive-pack 能力广告包含 `atomic`，探查未推任何引用。确认丢失与附带标签不在原子事务保证之内，见第 4、5 条。
+- `gh run list --workflow release.yml --branch v0.14.1 --event push` 能查到该标签触发的运行；`gh run watch --exit-status` 对现有成功轮退出 0、失败轮退出 1。实跑 `bun scripts/release/release.ts watch 0.14.1` 打印失败轮作业摘要并退出 1；带 `v` 的参数被拒并退出 2。没有据此验证本次派发与运行 ID 的绑定。
+- 在工作流通过启动检查的前提下，依赖图允许 macOS 普通构建失败后由 Windows 和 npm 成功结果放行 GitHub Release，未把 macOS 加入 `publish-npm` 的依赖。整轮结论及收取工件失败的例外见第 2、10 条。核对了代码和 GitHub 条件合同，未触发该组合。
+- v0.14.1 的旧手动运行 `44385399270` 成功补传：只读查询证实 7 个 Windows、5 个 macOS 资产均为 `uploaded`。这是既有手动入口的历史证据，不是 t24 新调用路径的成功运行。
+
+## 分级数量和有效编号
+
+- 阻断：1 条（第 1 条）。
+- 重要：9 条（第 2–10 条）。
+- 建议：4 条（第 11–14 条）。
+- 有效编号：1–14。

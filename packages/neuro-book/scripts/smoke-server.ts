@@ -54,12 +54,13 @@ function run(env: Record<string, string>): Running {
         }
         listening.reject(new Error("进程没有开始监听"));
     })();
-    void (async () => {
+    const stderrRead = (async () => {
         for await (const chunk of child.stderr.pipeThrough(new TextDecoderStream())) stderr += chunk;
     })();
     return {
         url: listening.promise,
-        exit: child.exited.then(() => child.exitCode),
+        // 等 stderr 读完再交回退出码：进程退出时管道里可能还有没读到的行（S10 在 CI 上读不到“占用中”那一行，2026-11-20）。
+        exit: Promise.all([child.exited, stderrRead]).then(() => child.exitCode),
         stderr: () => stderr,
         stop: (how) => {
             if (how === "SIGTERM") {

@@ -16,7 +16,7 @@
  * 退出码：0 通过；1 失败（原因在 stderr）；2 用法错误。
  */
 
-import {readdir, readFile, writeFile} from "node:fs/promises";
+import {copyFile, readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {sha256Of} from "#scripts/release/manifest";
@@ -78,6 +78,8 @@ function sumsProblems(label: string, files: ReadonlyMap<string, string>, sums: s
         if (line.trim() === "") continue;
         const match = /^([a-f0-9]{64}) [ *](.+)$/.exec(line);
         if (match === null) problems.push(`${label} 的一行读不懂：${line}`);
+        // 同名的两行不让后一行盖掉前一行：用户 `shasum -c` 两行都会核对，有一行不对就失败。
+        else if (listed.has(match[2]!)) problems.push(`${label} 里 ${match[2]!} 列了不止一次`);
         else listed.set(match[2]!, match[1]!);
     }
     for (const [name, digest] of files) {
@@ -110,8 +112,11 @@ export function localAssetProblems(local: ReadonlyMap<string, string>, sums: str
 export function assetUploads(local: ReadonlyMap<string, string>, remote: readonly ReleaseAsset[]): {upload: string[]; problems: string[]} {
     const problems: string[] = [];
     const present = new Set<string>();
+    // 这一轮没有 macOS 的资产（构建失败、或在 macOS 并入流水线之前发的）而 Release 上已有：那是手动补包补上的，不算多出来的。
+    const localHasMac = [...local.keys()].some(isMacAsset);
     for (const asset of remote) {
         present.add(asset.name);
+        if (!localHasMac && isMacAsset(asset.name)) continue;
         const expected = local.get(asset.name);
         if (expected === undefined) problems.push(`Release 上多了本地没有的资产 ${asset.name}`);
         else if (asset.state !== undefined && asset.state !== "uploaded") problems.push(`Release 上的 ${asset.name} 没有传完（${asset.state}）：在 GitHub 上删掉它再重跑`);
@@ -206,6 +211,31 @@ async function writeSums(directory: string): Promise<void> {
     process.stdout.write(text);
 }
 
+/**
+ * 把 macOS 构建的产物并进资产目录（release.yml 的 github-release 作业）：macOS 那一套齐全、没有不认识的文件、`SHA256SUMS-macos`
+ * 对得上才复制过去，交回空数组；否则一个也不复制，交回问题。macOS 是尽力而为：不合格时调用方只告警，Release 照常只带 Windows 的。
+ */
+export async function mergeMacAssets(from: string, into: string): Promise<string[]> {
+    const local = new Map<string, string>();
+    let names: string[];
+    try {
+        names = (await readdir(from)).sort();
+    } catch (error) {
+        return [`读不了 macOS 的产物目录 ${from}：${(error as Error).message}`];
+    }
+    for (const name of names) local.set(name, await sha256Of(join(from, name)));
+    const problems: string[] = [];
+    for (const name of MACOS_ASSETS) if (!local.has(name)) problems.push(`macOS 的产物里缺 ${name}`);
+    for (const name of local.keys()) if (!isMacAsset(name)) problems.push(`macOS 的产物里有不认识的文件 ${name}`);
+    if (local.has(MACOS_SUMS_ASSET)) {
+        const files = new Map([...local].filter(([name]) => name !== MACOS_SUMS_ASSET));
+        problems.push(...sumsProblems(MACOS_SUMS_ASSET, files, await readFile(join(from, MACOS_SUMS_ASSET), "utf8")));
+    }
+    if (problems.length > 0) return problems;
+    for (const name of local.keys()) await copyFile(join(from, name), join(into, name));
+    return [];
+}
+
 /** 读冻结的资产目录：文件名到 SHA-256；缺必有的、多了不认识的、校验和对不上时抛出。 */
 export async function readLocalAssets(directory: string): Promise<Map<string, string>> {
     const local = new Map<string, string>();
@@ -237,7 +267,14 @@ export async function draftRelease(github: GitHubReleases, version: string, dire
     const {upload, problems} = assetUploads(local, existing === undefined ? [] : await github.assets(tag));
     if (problems.length > 0) throw new ReleaseFailure(problems.join("\n"));
     if (existing !== undefined && !existing.isDraft) {
-        if (upload.length > 0) throw new ReleaseFailure(`${tag} 已经公开，却缺资产 ${upload.join("、")}：公开的 Release 不再补传，人工处理`);
+        // 已公开的只补 macOS 的一整套（上一轮 macOS 失败、Windows 先公开了，这一轮重跑 macOS 成功）；缺 Windows 的不补。
+        const missingWindows = upload.filter((name) => !isMacAsset(name));
+        if (missingWindows.length > 0) throw new ReleaseFailure(`${tag} 已经公开，却缺资产 ${missingWindows.join("、")}：公开的 Release 不再补传，人工处理`);
+        if (upload.length > 0) {
+            await github.upload(tag, upload.map((name) => join(directory, name)));
+            log(`✓ ${tag} 已经公开，补传了 macOS 的 ${String(upload.length)} 个资产`);
+            return;
+        }
         log(`✓ ${tag} 已经公开，资产齐全、摘要一致`);
         return;
     }
@@ -279,6 +316,14 @@ export async function spawnRun(argv: readonly string[]): Promise<RunResult> {
 
 async function main(argv: readonly string[]): Promise<void> {
     const [command, version, directory, ...extra] = argv;
+    if (command === "merge-macos") {
+        // 这里两个参数是目录：macOS 的产物、资产目录。不合格只告警（::warning 进作业摘要），退出码 0。
+        if (version === undefined || directory === undefined || extra.length > 0) throw new UsageError("用法：bun scripts/release/github-release.ts merge-macos <macOS 产物目录> <资产目录>");
+        const problems = await mergeMacAssets(version, directory);
+        if (problems.length === 0) console.log("✓ macOS 的资产并进了资产目录");
+        else for (const problem of problems) console.log(`::warning::macOS 的资产不并入，这个 Release 只带 Windows 的：${problem}`);
+        return;
+    }
     if (command === "sums") {
         // 这里第二个参数是目录。
         if (version === undefined || directory !== undefined) throw new UsageError("用法：bun scripts/release/github-release.ts sums <资产目录>");

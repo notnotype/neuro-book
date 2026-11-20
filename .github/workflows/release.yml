@@ -299,9 +299,8 @@ jobs:
     permissions:
       contents: read
       actions: read
-    uses: ./.github/workflows/desktop-macos.yml
-    with:
-      tag: ${{ github.event_name == 'push' && github.ref_name || '' }}
+    # 不传标签：检出事件提交（github.sha），与 Windows、npm 同一个提交；版本由 gate 已经核对过的源码给出。
+    uses: ./.github/workflows/desktop-macos-build.yml
 
   publish-npm:
     name: 发 npm
@@ -382,11 +381,16 @@ jobs:
         with:
           name: release-notes
           path: ${{ runner.temp }}/release-notes
+      # macOS 的产物先下到单独的目录，核过再并入：取不到或不合格只告警，不挡 Windows 的 Release（尽力而为）。
       - uses: actions/download-artifact@v4
         if: needs.desktop-macos.result == 'success'
+        continue-on-error: true
         with:
           name: desktop-macos-assets
-          path: ${{ runner.temp }}/release-assets
+          path: ${{ runner.temp }}/macos-assets
+      - name: 并入 macOS 的资产
+        if: needs.desktop-macos.result == 'success'
+        run: bun scripts/release/github-release.ts merge-macos "$RUNNER_TEMP/macos-assets" "$RUNNER_TEMP/release-assets"
       - name: macOS 没有资产
         if: needs.desktop-macos.result != 'success'
         env:
@@ -400,6 +404,8 @@ jobs:
   verify-feed:
     name: 自动更新的取法
     needs: [gate, github-release]
+    # 缺省的 success() 看所有上游作业：macOS 失败（尽力而为）会把它连带跳过，v0.15.0 就是这样没核对。只看 Release 发没发出去。
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -447,7 +453,7 @@ jobs:
   upgrade-from-previous:
     name: 上一版升级到本次
     needs: [gate, verify-feed]
-    if: needs.gate.outputs.previous != '' && needs.verify-feed.outputs.latest == 'true'
+    if: ${{ !cancelled() && needs.verify-feed.result == 'success' && needs.gate.outputs.previous != '' && needs.verify-feed.outputs.latest == 'true' }}
     runs-on: windows-2025
     timeout-minutes: 45
     defaults:
