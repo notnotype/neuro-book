@@ -97,7 +97,8 @@ export function triggeredRun(runs: readonly WorkflowRun[], head: string, event: 
  * 提交号，不写分支名：主工作区几个会话共用，推送那一刻的本地 master 可能已经被别人推进。
  */
 export function pushArgv(version: string, commit: string): string[] {
-    return ["git", "push", "--atomic", "origin", `${commit}:refs/heads/master`, `refs/tags/v${version}:refs/tags/v${version}`];
+    // --no-follow-tags：开发者设了 push.followTags 时，Git 会顺带推提交链上远端没有的附注标签，可能带上别的 v* 标签。
+    return ["git", "push", "--atomic", "--no-follow-tags", "origin", `${commit}:refs/heads/master`, `refs/tags/v${version}:refs/tags/v${version}`];
 }
 
 export class ReleaseCommand {
@@ -166,7 +167,8 @@ export class ReleaseCommand {
         const head = await this.#onMaster();
         const started = new Date();
         // 推的是读到的那个提交，不是分支名：推送前别人推进了本地 master 时，演练的就不是推上去的提交。
-        await this.#must(["git", "push", "origin", `${head}:refs/heads/master`], false);
+        // --no-follow-tags：演练承诺不发布，push.followTags 不能让它顺带推一个 v* 标签。
+        await this.#must(["git", "push", "--no-follow-tags", "origin", `${head}:refs/heads/master`], false);
         await this.#must(["gh", "workflow", "run", WORKFLOW, "--ref", "master"], false);
         const run = await this.#waitForRun(["--event", "workflow_dispatch", "--branch", "master"], head, "workflow_dispatch", started);
         const {exit, jobs} = await this.#watch(run);

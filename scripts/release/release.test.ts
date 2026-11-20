@@ -83,7 +83,7 @@ describe("演练与触发的运行", () => {
     });
 
     it("master 与标签在同一次原子推送里；master 的源是确切的提交号", () => {
-        expect(pushArgv("0.15.0", RELEASE_COMMIT)).toEqual(["git", "push", "--atomic", "origin", `${RELEASE_COMMIT}:refs/heads/master`, "refs/tags/v0.15.0:refs/tags/v0.15.0"]);
+        expect(pushArgv("0.15.0", RELEASE_COMMIT)).toEqual(["git", "push", "--atomic", "--no-follow-tags", "origin", `${RELEASE_COMMIT}:refs/heads/master`, "refs/tags/v0.15.0:refs/tags/v0.15.0"]);
     });
 });
 
@@ -144,7 +144,7 @@ describe("演练", () => {
         const {command, lines} = fake({runs});
         expect(await command.rehearse()).toBe(true);
         const order = lines();
-        expect(order.indexOf(`git push origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master"));
+        expect(order.indexOf(`git push --no-follow-tags origin ${HEAD}:refs/heads/master`)).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master"));
         expect(order).toContain("gh run watch 5 --interval 30 --exit-status");
     });
 });
