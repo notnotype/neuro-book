@@ -158,8 +158,9 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     // 角色页：给主力绑这个模型。
     await page.locator("[data-settings-nav='nbook.models.roles']").click();
     const main = page.locator("[data-role-row='main']");
-    await main.getByRole("combobox").click();
-    await main.getByRole("combobox").fill("story-model-a");
+    const mainModel = main.locator("[data-role-model]").getByRole("combobox");
+    await mainModel.click();
+    await mainModel.fill("story-model-a");
     await page.getByRole("option", {name: /story-model-a/u}).click();
     await expect(main.locator("[data-role-unbound]")).toHaveCount(0);
 
