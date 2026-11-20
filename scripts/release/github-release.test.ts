@@ -7,7 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {assetUploads, draftRelease, GitHubReleases, hasDesktopSetup, releaseTitle, localAssetProblems, previousDesktopRelease, publishRelease, REQUIRED_ASSETS, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
+import {assetUploads, draftRelease, GitHubReleases, hasDesktopSetup, releaseTitle, localAssetProblems, MACOS_ASSETS, previousDesktopRelease, publishRelease, REQUIRED_ASSETS, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
 
 const roots: string[] = [];
 
@@ -96,6 +96,22 @@ describe("本地资产目录", () => {
         expect(problems).toContain("资产目录里有不认识的文件 notes.txt");
         expect(problems).toContain("SHA256SUMS 里 NeuroBook-win-x64-Setup.zip 的摘要与文件不同");
         expect(problems).toContain("SHA256SUMS 里 notes.txt 的摘要没有列出");
+    });
+
+    it("macOS 的资产可有可无；有就要齐全，摘要在 SHA256SUMS-macos 里，SHA256SUMS 只管 Windows 的", async () => {
+        const {digests} = await assetDirectory();
+        const sums = sumsText(digests);
+        const mac = new Map(MACOS_ASSETS.filter((name) => name !== "SHA256SUMS-macos").map((name, index) => [name, String(index).repeat(64)]));
+        mac.set("stable-macos-arm64-abc123.patch", "f".repeat(64));
+        const macSums = [...mac].map(([name, digest]) => `${digest}  ${name}\n`).join("");
+        const both = new Map([...digests, ...mac, ["SHA256SUMS-macos", "e".repeat(64)]]);
+        expect(localAssetProblems(both, sums, macSums)).toEqual([]);
+        // 只有一部分 macOS 资产：缺的逐个报出；macOS 的摘要写进了 SHA256SUMS 也不算数。
+        const partial = new Map([...digests, ["NeuroBook-macos-arm64.dmg", "1".repeat(64)]]);
+        const problems = localAssetProblems(partial, sums, "");
+        expect(problems.filter((problem) => problem.startsWith("资产目录里有 macOS 的资产，却缺"))).toHaveLength(4);
+        expect(problems).toContain("SHA256SUMS-macos 里 NeuroBook-macos-arm64.dmg 的摘要没有列出");
+        expect(localAssetProblems(both, sums, macSums.replace("0".repeat(64), "9".repeat(64)))).toContain("SHA256SUMS-macos 里 NeuroBook-macos-arm64.dmg 的摘要与文件不同");
     });
 });
 

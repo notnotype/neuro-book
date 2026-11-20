@@ -49,6 +49,7 @@
     "governance:worktree": "bun scripts/cli/create-agent-worktree.ts",
     "docs:check": "bun scripts/ci/check-documentation.ts",
     "test:affected": "bun scripts/cli/test-affected.ts",
+    "release": "bun scripts/release/release.ts",
     "release:check": "bun scripts/release/packages.ts",
     "release:smoke": "bun scripts/release/pack-smoke.ts",
     "release:prepare": "bun scripts/release/prepare.ts",

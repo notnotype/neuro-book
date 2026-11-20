@@ -1,14 +1,29 @@
-# macOS 桌面版（w00046 t23）：给一个已发布的版本补上 Apple Silicon 的桌面包，资产补传到同一个 GitHub Release。
+# macOS 桌面版（w00046 t23、t24）：Apple Silicon 的桌面包。
 #
-# 手动触发，输入版本标签与那次发布流水线（release.yml）的运行编号：应用包取那次运行的 `npm-packages` 产物，与 Windows 版是
-# 同一份应用包（同一个版本号对应同一份服务端，提案 4.1）；载荷在 ubuntu 上按 darwin-arm64 组装，壳与安装包在 macOS runner
-# 上用 Hutch 构建。不签名、不公证，不跑冒烟（还没有 macOS 的冒烟脚本，由开发者在真机上试）。
+# 两种用法：
+# - 发布流水线（release.yml）调用（workflow_call，t24）：应用包取同一轮的 `npm-packages` 产物，只构建、不上传；资产由
+#   release.yml 的 GitHub Release 作业与 Windows 资产一起放进草稿再公开。
+# - 手动触发（workflow_dispatch，t23）：给已经发布的版本补包，输入版本标签与那次 Release 流水线的运行编号，构建后补传到
+#   同一个 Release。
+#
+# 应用包与 Windows 版是同一份（同一个版本号对应同一份服务端，提案 4.1）；载荷在 ubuntu 上按 darwin-arm64 组装，壳与安装包
+# 在 macOS runner 上用 Hutch 构建。不签名、不公证，不跑冒烟（还没有 macOS 的冒烟脚本，由开发者在真机上试）。
 #
 # 资产名：安装包 `NeuroBook-macos-arm64.dmg`（不带版本号，releases/latest/download/<名> 是固定链接）；更新用的
 # `stable-macos-arm64-*` 由 Electrobun 定，与 Windows 的 `stable-win-x64-*` 互不相干；校验和另写 `SHA256SUMS-macos`。
 name: Desktop macOS
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "要检出的版本标签；空串时检出调用方的提交（演练），版本取源码"
+        type: string
+        default: ""
+      # 只在被调用时为真（手动触发时没有这个输入）：调用方的事件可能也是 workflow_dispatch（演练），不能按事件名分。
+      called:
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       tag:
@@ -29,8 +44,9 @@ defaults:
   run:
     shell: bash
 
+# 被调用时与调用方同一轮，不另排队（调用方自己有并发组）；手动补包时同一个标签只跑一轮。
 concurrency:
-  group: desktop-macos-${{ inputs.tag }}
+  group: desktop-macos-${{ inputs.called && format('run-{0}', github.run_id) || inputs.tag }}
 
 jobs:
   inputs:
@@ -50,13 +66,21 @@ jobs:
       - run: bun install --frozen-lockfile
       - id: version
         run: |
-          version="${TAG#v}"
           source_version="$(bun -e 'console.log(JSON.parse(await Bun.file("packages/neuro-book/package.json").text()).version)')"
+          version="${TAG#v}"
+          if [ -z "$TAG" ]; then version="$source_version"; fi
           if [ "$version" != "$source_version" ]; then echo "标签 $TAG 与源码版本 $source_version 不一致" >&2; exit 1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
         env:
           TAG: ${{ inputs.tag }}
+      # 被调用时取同一轮的产物（不给 run-id），手动补包时取输入的那一轮。
       - uses: actions/download-artifact@v4
+        if: inputs.called
+        with:
+          name: npm-packages
+          path: dist/release/
+      - uses: actions/download-artifact@v4
+        if: ${{ !inputs.called }}
         with:
           name: npm-packages
           path: dist/release/
@@ -134,7 +158,8 @@ jobs:
   release:
     name: 补传到 Release
     needs: build
-    if: inputs.publish
+    # 被调用时没有 publish 这个输入：上传由调用方做。
+    if: ${{ !inputs.called && inputs.publish }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -25,9 +25,12 @@
 
 1. 源码包要发的，先各自提版、补好它的 `[Unreleased]`，合入 master。
 2. 这一版插件能用的接口（SDK 的公开面、内置插件导出的服务与合同、宿主共享给插件的模块）有不兼容的改动时，把 `packages/neuro-book/src/shared/product.ts` 的 `PLUGIN_API_SINCE` 改成这次的版本，并在应用记录的 `### 不兼容的改动` 写一条，合入 master；没有就不动它，已经构建的插件在新版本上照样能装（[`runtime/plugin-api.md`](../specs/runtime/plugin-api.md) 的“兼容”）。
-3. 在主工作区的 master 上（与 origin 同步）：`bun run release:prepare <版本> [--stage canary|preview]`。它先只读检查：在 master、包含 `origin/master`、会发布的目录与 `bun.lock` 干净、版本更高、应用的 `[Unreleased]` 有条目、与上一个桌面版本（与门禁同一来源：GitHub 上低于本次、有安装包的最高稳定版本，要本机的 `gh` 已登录）相比提了版本的源码包有记录且有条目、没有降版本的；全部通过才改两处产品版本与阶段、把这些记录的 `[Unreleased]` 定稿成 `[<各自的版本>] - <今天>`、刷新 `bun.lock`，提交 `release: v<版本>`；写入之后任何一步失败都把这些文件还原、不提交。版本没提而 `[Unreleased]` 有条目的源码包留到它下次提版，只打一行提示。
-4. 推 master（README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到）。
-5. 开发者在这个提交上打标签并推送：`git tag v<版本> && git push origin v<版本>`。
+3. 演练：在主工作区的 master 上运行 `bun run release rehearse`。它推 master、在 Actions 里对 master 跑一次 Release 演练（见下文“流水线”的最后一段）并盯到结束。演练要在打标签的那个提交的前一个提交（也就是现在的 HEAD）上通过：只在发布流水线上跑的冒烟，本机验证碰不到（v0.14.0 就是打了标签才发现冒烟被首次启动向导挡住，版本号作废）。
+4. 发版：`bun run release <版本> [--stage canary|preview]`。它确认 HEAD 上有成功的演练，跑下面的 `release:prepare` 提交 `release: v<版本>`，在这个提交上打标签，把 master 与标签用 `git push --atomic` 一次推送（两个一起成、一起不成），再盯标签触发的 Release 流水线到结束，最后列出各作业的结果。盯的终端断了用 `bun run release watch <版本>` 接着看。`--no-rehearsal` 跳过演练检查，只在明白为什么时用。
+
+`release:prepare <版本> [--stage canary|preview]` 也能单独运行（只提交，不推送）。它先只读检查：在 master、包含 `origin/master`、会发布的目录与 `bun.lock` 干净、版本更高、应用的 `[Unreleased]` 有条目、与上一个桌面版本（与门禁同一来源：GitHub 上低于本次、有安装包的最高稳定版本，要本机的 `gh` 已登录）相比提了版本的源码包有记录且有条目、没有降版本的；全部通过才改两处产品版本与阶段、把这些记录的 `[Unreleased]` 定稿成 `[<各自的版本>] - <今天>`、刷新 `bun.lock`，提交 `release: v<版本>`；写入之后任何一步失败都把这些文件还原、不提交。版本没提而 `[Unreleased]` 有条目的源码包留到它下次提版，只打一行提示。
+
+推送与打标签就是发布授权（标签规则集只允许开发者建 `v*`），所以 `bun run release` 只由开发者运行，或由开发者明确授权的 Agent 在开发者的机器上运行。
 
 ## 流水线
 
@@ -37,10 +40,11 @@
 - `ci`：同一提交上整套 CI（`ci.yml`，选包用 `--all`）。
 - `npm-packages`：`release:smoke`、发布计划（`publish.ts --plan`）、正式桌面变体的壳与载荷。
 - `update-test-packages`：更新冒烟用的 B′（标签提交加一个只在 runner 上的测试提交，补丁号加 1）。
+- `desktop-macos`（与 Windows 的桌面作业并行，调用 `desktop-macos.yml`）：同一份应用包按 darwin-arm64 组装载荷，在 Apple Silicon runner 上用 Hutch 构建，安装包改名为 `NeuroBook-macos-arm64.dmg`，写 `SHA256SUMS-macos`。不签名、不公证、没有冒烟。它失败不挡发布：Release 只带 Windows 的资产，作业摘要写明；事后用 `desktop-macos.yml` 手动触发（输入标签与那一轮的运行编号）补传。
 - `desktop`（Windows）：用 Hutch 构建正式、A′、B′ 三个变体；冻结发布资产：安装包改名为 `NeuroBook-win-x64-Setup.zip`、从完整包打便携版 `NeuroBook-win-x64-portable.zip`、写 `SHA256SUMS`；跑安装版、便携版与更新的冒烟。两个名字不带版本号，`releases/latest/download/<名>` 是固定的最新版链接；更新用的文件名由 Electrobun 定（`stable-win-x64-…`，`stable` 是发布频道，不是阶段）。
 - `publish-npm`（Environment `release`，trusted publishing）：只发计划里本次发布的包，dist-tag 显式给（高于 `latest` 时 `latest`，否则 `history`）。
 - `registry-smoke`：先等本次的版本都能从 registry 取到（最多 30 分钟；刚发的版本 npm 要处理几分钟，大包更久），再装一遍（不挡 Release）。
-- `github-release`：建草稿（标题 `NeuroBook <版本>（<阶段>）`，正文是 `gate` 生成的说明；草稿已在时换成这一轮的），只补缺的资产，公开；本次不低于当前最新时设为最新。
+- `github-release`：把 macOS 的资产（成功时）与 Windows 的放进同一个目录，建草稿（标题 `NeuroBook <版本>（<阶段>）`，正文是 `gate` 生成的说明；草稿已在时换成这一轮的），只补缺的资产，公开；本次不低于当前最新时设为最新。macOS 的资产可有可无，有就要齐全（安装包、`.app.tar.zst`、两份更新清单、`SHA256SUMS-macos`，补丁可以没有）。
 - `verify-feed`：按更新器的取法从 GitHub 取清单、完整包与补丁，核对与冻结的资产相同；失败时摘要写“发行没有完成，自动更新不可用”。
 - `upgrade-from-previous`（有上一个桌面版本、本次是最新时）：装上一版的正式安装包（v0.13.0 叫 `win-x64-NeuroBook-Setup.zip`，按 `*Setup.zip` 取），从 GitHub 发现本次、下载、换上。
 
