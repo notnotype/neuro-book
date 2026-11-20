@@ -189,16 +189,17 @@ describe("活动栏底部条目", () => {
         expect(items.runs).toHaveLength(1);
     });
 
-    it("同 id 的两条一起被拒；只接受浏览器入口的贡献；id 在自己的命名空间里；声明不认识的字段被拒", async () => {
+    it("id 要在自己的命名空间里（占用别人的 id 不算重复、挤不掉对方）；只接受浏览器入口的贡献；声明不认识的字段被拒", async () => {
         const {application, chrome} = await start([
             contributor({"test.items.same": declaration("一")}, control()),
             contributor({"test.items.same": declaration("二"), "other.item": declaration("三")}, control(), "test.two"),
             contributor({"test.three.extra": {...declaration("四"), extra: true} as ActivityBarItemDeclaration}, control(), "test.three"),
             contributor({"test.four.server": declaration("五")}, control(), "test.four", "server"),
         ]);
-        expect(chrome.activityEntries(textIn("zh-CN"))).toEqual([]);
+        // 别的插件用了不在自己命名空间里的同一个 id：那一条只因前缀被拒，不算重复者，挤不掉合法的这一条（runtime/plugins.md 输出 15）。
+        expect(chrome.activityEntries(textIn("zh-CN")).map((entry) => entry.id)).toEqual(["test.items.same"]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id).map((entry) => entry.validation);
-        expect(validation("test.items.same").map((entry) => entry.status)).toEqual(["rejected", "rejected"]);
+        expect(validation("test.items.same")).toEqual([{status: "accepted"}, expect.objectContaining({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：test.items.same"})]);
         expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
         expect(validation("test.three.extra")[0]).toMatchObject({status: "rejected"});
         expect(validation("test.four.server")[0]).toMatchObject({status: "rejected", detail: `${WORKBENCH_ACTIVITYBAR_ITEMS_POINT} 只接受浏览器入口的贡献`});

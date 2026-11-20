@@ -91,7 +91,7 @@ describe("页面浮层贡献点", () => {
         await expect(stale.load()).rejects.toThrow();
     });
 
-    it("同 id 的两条一起被拒；只接受浏览器入口；id 在自己的命名空间里；声明不认识的字段被拒", async () => {
+    it("id 要在自己的命名空间里（占用别人的 id 不算重复、挤不掉对方）；只接受浏览器入口；声明不认识的字段被拒", async () => {
         const contexts = new Map<string, ActivationContext>();
         const {application, slot} = await start([
             provider("test.a", {"test.a.same": {}}, contexts),
@@ -99,9 +99,10 @@ describe("页面浮层贡献点", () => {
             provider("test.c", {"test.c.extra": {extra: 1} as OverlayDeclaration}, contexts),
             provider("test.d", {"test.d.server": {}}, contexts, "server"),
         ]);
-        expect(ids(slot)).toEqual([]);
+        // 别的插件用了不在自己命名空间里的同一个 id：那一条只因前缀被拒，不算重复者，挤不掉合法的这一条（runtime/plugins.md 输出 15）。
+        expect(ids(slot)).toEqual(["test.a.same"]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_OVERLAYS_POINT, id).map((entry) => entry.validation);
-        expect(validation("test.a.same").map((entry) => entry.status)).toEqual(["rejected", "rejected"]);
+        expect(validation("test.a.same")).toEqual([{status: "accepted"}, expect.objectContaining({status: "rejected", detail: "贡献 id 要以插件 id test.b 加“.”开头：test.a.same"})]);
         expect(validation("other.window")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.b 加“.”开头：other.window"});
         expect(validation("test.c.extra")[0]).toMatchObject({status: "rejected"});
         expect(validation("test.d.server")[0]).toMatchObject({status: "rejected", detail: `${WORKBENCH_OVERLAYS_POINT} 只接受浏览器入口的贡献`});
