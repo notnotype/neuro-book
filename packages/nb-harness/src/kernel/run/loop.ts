@@ -218,7 +218,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const tools = offeredTools(host.box.current());
             const environment = host.environment(resolution.info, tools.map(toolInfo));
-            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
+            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal, session.ok ? {resolution: session, effort: requestEffort(core.session.kernel.core.effort, session)} : undefined), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
             if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
             if (outcome.ok) return await end("completed", {reason: "completed"});
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
@@ -286,7 +286,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
                 host.phase("compacting", null);
                 // 和中止赛跑：不理会信号的压缩方法或放回内容的回调挡不住中止（runtime.md 输出 51）；收口之后它们的写入被拒绝。
-                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools: offered, model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
+                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools: offered, model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal, {resolution, effort: requestEffort(core.session.kernel.core.effort, resolution)}), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                 if (outcome === "aborted" || (!outcome.ok && (outcome.code === "aborted" || signal.aborted))) return await end("aborted", {reason: "aborted"});
                 host.phase("requesting", null);
             }
@@ -345,7 +345,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     // 溢出：记下这次失败的请求，按溢出的顺序压缩，成功就把请求再发一次（runtime.md 输出 50）。
                     await write([...modelFailures, failure]);
                     host.phase("compacting", null);
-                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools: offered, model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), signal, write: guardedWrite, caller: modelCaller(modelHost, signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
+                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools: offered, model: resolution.info.id, reasoning: requestEffort(core.session.kernel.core.effort, resolution), signal, write: guardedWrite, caller: modelCaller(modelHost, signal, {resolution, effort: requestEffort(core.session.kernel.core.effort, resolution)}), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                     if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
                     if (outcome.ok) {
                         overflowRetried = true;

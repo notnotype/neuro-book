@@ -31,6 +31,8 @@ describe("requestEffort", () => {
         expect(requestEffort("off", {info: info(levels({off: "lowest"}))})).toEqual({effort: "low", effective: "low", source: "session"});
         expect(requestEffort("off", {info: info(levels({off: "none", unset: "medium"}))}).effort).toBe("medium");
         expect(requestEffort("off", {info: info(levels({off: "none"}))}).effort).toBe("low");
+        // 默认档不是最低档的可降档模型：选关闭落到最低档，不是默认档。
+        expect(requestEffort("off", {info: info(levels({off: "lowest", unset: "high"}))}).effort).toBe("low");
     });
 
     test("没有明确的档时，线上实际发生的事就是“模型的默认”", () => {

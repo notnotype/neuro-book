@@ -32,8 +32,8 @@ export function requestEffort(session: string | null, resolution: {readonly info
     if (reasoning.kind !== "levels") return {effective: null, source: null};
     if (chosen === null) return {effective: reasoning.unset, source: reasoning.unset === null ? null : "model"};
     if (chosen === "off" && reasoning.off === "disable") return {disableReasoning: true, effective: "off", source};
-    // 选了关闭但不能真关：落到 OMP 在强制思考时垫的那一档（`unset`），没有就是最低档。
-    const floor = reasoning.unset !== null && reasoning.unset !== "off" ? reasoning.unset : reasoning.levels[0]!;
+    // 选了关闭但不能真关：强制思考（`none`）落到 OMP 垫的那一档（`unset`），可降档（`lowest`）落到最低档。
+    const floor = reasoning.off === "none" && reasoning.unset !== null && reasoning.unset !== "off" ? reasoning.unset : reasoning.levels[0]!;
     const level = clamp(reasoning.levels, chosen === "off" ? floor : chosen);
     return level === undefined ? {effective: null, source: null} : {effort: level, effective: level, source};
 }

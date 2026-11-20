@@ -169,12 +169,23 @@ function draftReasoning(draft: ModelDraft, reasoning: RequestEffort): {readonly 
  * 解析失败时不写任何模型事件（没有发出请求），码放在交回的回复的 `error.code` 里，由压缩方法、审批钩子处理
  * （docs/specs/harness/runtime.md）。
  */
-export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, runSignal: AbortSignal): ModelCaller {
+/** 当前请求边界上对话已经解析好的模型与档位；就地压缩（`sessionModel`）沿用它，不再解析第二次。 */
+export interface PinnedSessionModel {
+    readonly resolution: Extract<ModelResolution, {ok: true}>;
+    readonly effort: RequestEffort;
+}
+
+/**
+ * `pinned` 给了就用它：压缩拦截、等待之间设置可能被改（另一个窗口给角色加了默认档、换了绑定），第二次解析会让就地压缩的
+ * 请求与同一边界上的对话请求用不同的模型或档位（前缀也不再相同）。没给时（审批钩子等没有边界的调用方）按调用时的设置解析。
+ */
+export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, runSignal: AbortSignal, pinned?: PinnedSessionModel): ModelCaller {
     return async (draft, options) => {
         const signal = options.signal === undefined ? runSignal : AbortSignal.any([runSignal, options.signal]);
-        const resolution = options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
+        const usePinned = options.sessionModel === true && pinned !== undefined;
+        const resolution = usePinned ? pinned.resolution : options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
-        const request: ModelRequest = {...draft, ...draftReasoning(draft, requestEffort(options.sessionModel === true ? host.core.session.kernel.core.effort : null, resolution)), purpose: options.purpose, model: draft.model ?? resolution.info.id};
+        const request: ModelRequest = {...draft, ...draftReasoning(draft, usePinned ? pinned.effort : requestEffort(options.sessionModel === true ? host.core.session.kernel.core.effort : null, resolution)), purpose: options.purpose, model: draft.model ?? resolution.info.id};
         // 每次重新进链：费用这类检查要看发请求这一刻的累计（docs/specs/harness/runtime.md 输出 67）。
         for (let retries = 0; ; retries += 1) {
             const {response, request: number, failures} = await callModel(host, resolution, request, signal);

@@ -216,6 +216,9 @@ describe("模型端口按选择顺序解析（输出 8）", () => {
         expect("defaultEffort" in port.resolve(query({purpose: "approval"}))).toBe(false);
         // 直接选模型（不经角色）没有角色默认档。
         expect("defaultEffort" in port.resolve(query({settings: {...CORE, model: "one/qwen3:8b"}}))).toBe(false);
+        // 解析带着走的是哪个角色（界面说“用主力的默认”）；直接选模型时没有角色。
+        expect(port.resolve(query())).toMatchObject({ok: true, role: "main"});
+        expect("role" in port.resolve(query({settings: {...CORE, model: "one/qwen3:8b"}}))).toBe(false);
     });
 
     it("快照带角色的档与图标，以及每个模型的推理能力（绑定的模型没启用时角色页也能取到）", async () => {

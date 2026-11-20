@@ -369,7 +369,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                     const resolution = state.turnModel();
                     if (resolution.ok) {
                         const effort = requestEffort(kernel.core.effort, resolution);
-                        return {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts, ...(resolution.info.reasoning === undefined ? {} : {reasoning: resolution.info.reasoning, effectiveEffort: effort.effective, effortSource: effort.source})};
+                        return {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts, ...(resolution.info.reasoning === undefined ? {} : {reasoning: resolution.info.reasoning, effectiveEffort: effort.effective, effortSource: effort.source, ...(resolution.role === undefined ? {} : {role: resolution.role}), ...(resolution.defaultEffort === undefined ? {} : {defaultEffort: resolution.defaultEffort})})};
                     }
                     return {ok: false as const, code: resolution.code, ...(resolution.role === undefined ? {} : {role: resolution.role}), ...(resolution.provider === undefined ? {} : {provider: resolution.provider})};
                 })(),

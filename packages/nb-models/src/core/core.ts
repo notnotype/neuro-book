@@ -157,7 +157,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         // 失败带上角色：界面说的是“这个角色的模型用不了”，去改的是这个角色（docs/specs/models/service.md）。
         const resolved = resolveReference(role.model);
         // 角色的默认档是这一次解析的属性，不进按引用缓存的 `info`：同一个模型绑给两个角色，各用各的。
-        if (resolved.ok) return role.effort === undefined ? resolved : {...resolved, defaultEffort: role.effort};
+        if (resolved.ok) return {...resolved, role: id, ...(role.effort === undefined ? {} : {defaultEffort: role.effort})};
         return {...resolved, role: id};
     };
     /** 会话里选的：模型引用或 `role:<id>`。选过的角色后来被删了是选择失效（`unknown-model`），和没绑定不同：去改的地方不一样。 */

@@ -189,7 +189,7 @@ export interface CoreSettings {
 export type ModelResolutionCode = "no-model" | "no-credentials" | "unknown-model" | "role-unbound";
 
 export type ModelResolution =
-    | {readonly ok: true; readonly info: ModelInfo; /** 解析到的角色上设的默认档（`off` 或档位）；会话没有明确选档时用它（一次解析的属性，不属于按模型共享的 `info`）。 */ readonly defaultEffort?: string; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta): Promise<ModelResponse>}
+    | {readonly ok: true; readonly info: ModelInfo; /** 解析到的角色上设的默认档（`off` 或档位）；会话没有明确选档时用它（一次解析的属性，不属于按模型共享的 `info`）。 */ readonly defaultEffort?: string; /** 解析走的是哪个角色（直接指名模型时没有）；界面说“用 X 的默认”时用。 */ readonly role?: string; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta): Promise<ModelResponse>}
     | ({readonly ok: false; readonly code: ModelResolutionCode} & ModelResolutionChoice);
 
 /**

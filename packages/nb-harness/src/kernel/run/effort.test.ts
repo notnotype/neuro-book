@@ -91,4 +91,24 @@ describe("压缩与摘要的档位", () => {
             expect(third.requests.find((request) => request.raw.purpose === "turn")?.raw.effort, name).toBe("low");
         }
     });
+
+    test("就地压缩与同一边界上的对话用同一次解析：压缩期间角色默认档被改了，两个请求仍同档", async () => {
+        let current = "medium";
+        const inplace: CompactionMethodImpl = async (job) => {
+            // 压缩拦截或方法运行期间，另一个窗口改了角色的默认档。
+            current = "high";
+            // 草稿不带 effort（压缩方法自己拼的请求），档位由调用者按解析补。
+            const response = await job.model({params: {}, headers: {}, system: job.request.system, messages: job.request.messages, tools: job.request.tools}, {purpose: "compaction", sessionModel: true});
+            return {method: job.method, firstKeptEntryId: job.cuts[0]!.entryId, replacement: response.content.map((block) => (block.kind === "text" ? block.text : "")).join(""), omitted: [], tokensBefore: job.tokens, tokensAfter: 1};
+        };
+        await using session = await createTestSession({modelInfo: REASONING, defaultEffort: () => current, profile: profileWith(["inplace"]), compaction: {methods: {inplace}}});
+        session.model.script("答一", {text: "答二", usage: HEAVY}, "摘要", "答三");
+        await session.say("第一问");
+        await session.say("第二问");
+        const third = await session.say("第三问");
+        const compaction = third.requests.find((request) => request.raw.purpose === "compaction");
+        const turn = third.requests.find((request) => request.raw.purpose === "turn");
+        expect(compaction?.raw.effort).toBe("medium");
+        expect(turn?.raw.effort).toBe("medium");
+    });
 });
