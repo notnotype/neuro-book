@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import {referenceOf} from "@notnotype/nb-models/config";
-import type {SnapshotRole} from "@notnotype/nb-models/contract";
-import {Badge, Button, IconButton, Input, SearchSelect, Tooltip} from "@notnotype/nb-ui/components";
+import type {RoleConfig} from "@notnotype/nb-models/config";
+import type {SnapshotModel, SnapshotRole} from "@notnotype/nb-models/contract";
+import {Badge, Button, DropdownMenu, IconButton, Input, SearchSelect, Select, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+import {ROLE_ICONS, roleIconClass} from "nbook/ui/role-icons";
+
+import {requestEffort} from "nbook/plugins/models/shared/contracts";
 
 import type {ModelsFailure, ModelsStore} from "../models-store";
 import {failureReason, roleDescription, roleName, useModelsText} from "../text";
@@ -42,6 +46,51 @@ function optionsFor(role: SnapshotRole) {
     if (role.model === null || base.some((option) => option.value === role.model)) return base;
     return [...base, {value: role.model, label: role.model, description: text("roles.unavailable"), disabled: true}];
 }
+
+/** 绑定的模型（含没启用的）：角色的思考档选项取自它的推理能力。 */
+const modelsByRef = computed(() => new Map((snapshot.value?.providers ?? []).flatMap((provider) => provider.models.map((model) => [referenceOf(provider.id, model.id), model] as const))));
+
+const LEVEL_LABELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const levelLabel = (level: string): string => ((LEVEL_LABELS as readonly string[]).includes(level) ? text(`roles.effort.levels.${level as (typeof LEVEL_LABELS)[number]}`) : level);
+
+type RoleEffort = NonNullable<RoleConfig["effort"]>;
+/** “跟随模型”这一项的值：下拉的选项值不能是空串（空串是“没选”，显示占位）。 */
+const FOLLOW = "__follow__";
+type EffortControl = {options: {value: string; label: string; description?: string; disabled?: boolean}[]; value: string; disabled: boolean; placeholder: string; clearable: boolean};
+
+/**
+ * 一行的思考档控件：选项来自绑定模型的推理能力，第一项“跟随模型”；没绑定、不推理、不能调档时停用并把原因写在框里（已存的档位
+ * 仍显示、可清除）；档位不在新模型的选项里（改绑模型后）时补一个停用的项说明实际用哪一档。
+ */
+function effortControl(role: SnapshotRole): EffortControl {
+    const stored = role.effort ?? "";
+    const follow = {value: FOLLOW, label: text("roles.effort.follow")};
+    const model: SnapshotModel | undefined = role.model === null ? undefined : modelsByRef.value.get(role.model);
+    const reasoning = model?.thinking;
+    const reason = role.model === null ? text("roles.effort.unbound") : model === undefined ? text("roles.unavailable") : reasoning?.kind === "none" ? text("roles.effort.none") : reasoning?.kind === "fixed" ? text("roles.effort.fixed") : "";
+    if (reasoning === undefined || reasoning.kind !== "levels") return {options: [follow], value: "", disabled: true, placeholder: stored === "" ? reason : `${levelLabel(stored)}（${reason}）`, clearable: stored !== ""};
+    const keys = [...(reasoning.off === "disable" ? ["off"] : []), ...reasoning.levels];
+    const options: EffortControl["options"] = [follow, ...keys.map((key) => ({value: key, label: levelLabel(key), ...(reasoning.verified ? {} : {description: text("roles.effort.unverified")})}))];
+    if (stored !== "" && !keys.includes(stored)) {
+        const actual = requestEffort(null, {info: {id: "", contextWindow: 0, capabilities: {vision: false, thinking: true}, efforts: reasoning.levels, reasoning}, defaultEffort: stored}).effective;
+        options.push({value: stored, label: levelLabel(stored), description: text("roles.effort.notOffered", {actual: actual === null ? "—" : levelLabel(actual)}), disabled: true});
+    }
+    return {options, value: stored === "" ? FOLLOW : stored, disabled: false, placeholder: "", clearable: false};
+}
+
+async function setEffort(role: SnapshotRole, value: string): Promise<void> {
+    const next = value === FOLLOW || value === "" ? null : value;
+    if (next === (role.effort ?? null)) return;
+    // 选项来自模型自己的档位，个别模型有合同枚举之外的档名：服务端的校验会拒收，失败走窗口通知。
+    const result = await props.store.call("setRole", {id: role.id, effort: next as RoleEffort | null});
+    if (!result.ok) report(role, result.failure);
+}
+
+async function setIcon(role: SnapshotRole, key: string): Promise<void> {
+    const result = await props.store.call("setRole", {id: role.id, icon: key});
+    if (!result.ok) report(role, result.failure);
+}
+const iconItems = Object.entries(ROLE_ICONS).map(([key, iconClass]) => ({id: key, label: key, iconClass}));
 
 const groups = computed(() => [
     {axis: "gradient" as const, title: text("roles.gradient"), help: text("roles.gradientHelp")},
@@ -118,7 +167,7 @@ watch([() => props.focus, () => snapshot.value?.roles], async ([focus, list]) =>
     await nextTick();
     const row = [...(page.value?.querySelectorAll<HTMLElement>("[data-role-row]") ?? [])].find((element) => element.dataset.roleRow === id);
     row?.scrollIntoView({block: "nearest"});
-    row?.querySelector<HTMLElement>(".roles-page__control button, .roles-page__control input")?.focus({preventScroll: true});
+    row?.querySelector<HTMLElement>("[data-role-model] button, [data-role-model] input")?.focus({preventScroll: true});
 }, {immediate: true});
 
 async function addRole(): Promise<void> {
@@ -172,6 +221,7 @@ function problem(role: SnapshotRole): string {
                         <div class="roles-page__label">
                             <template v-if="role.builtin">
                                 <span class="roles-page__name">
+                                    <span :class="roleIconClass(role.id, role.icon)" class="roles-page__icon" aria-hidden="true" />
                                     {{ roleName(text, role) }}
                                     <Badge v-if="role.status === 'unbound'" size="sm" variant="soft" tone="danger" data-role-unbound>{{ text("roles.unbound") }}</Badge>
                                 </span>
@@ -179,6 +229,9 @@ function problem(role: SnapshotRole): string {
                             </template>
                             <template v-else-if="drafts.get(role.id) !== undefined">
                                 <span class="roles-page__name">
+                                    <DropdownMenu :items="iconItems" :disabled="disabled" @select="(key: string) => setIcon(role, key)">
+                                        <IconButton size="xs" :icon-class="roleIconClass(role.id, role.icon)" :aria-label="text('roles.effort.iconOf', {name: role.name})" :title="text('roles.effort.pickIcon')" :disabled="disabled" data-role-icon />
+                                    </DropdownMenu>
                                     <Input v-model="drafts.get(role.id)!.name" size="sm" :aria-label="text('roles.nameOf', {name: role.name})" :disabled="disabled" @focusin="startEditing(role)" @focusout="finishEditing(role)" @keydown.enter="rename(role)" />
                                     <Badge v-if="role.status === 'unbound'" size="sm" variant="soft" tone="danger" data-role-unbound>{{ text("roles.unbound") }}</Badge>
                                 </span>
@@ -186,7 +239,7 @@ function problem(role: SnapshotRole): string {
                             </template>
                             <span v-if="problem(role) !== ''" class="roles-page__problem" data-role-problem>{{ problem(role) }}</span>
                         </div>
-                        <div class="roles-page__control">
+                        <div class="roles-page__control" data-role-model>
                             <SearchSelect
                                 :model-value="role.model ?? ''"
                                 :options="optionsFor(role)"
@@ -198,6 +251,20 @@ function problem(role: SnapshotRole): string {
                                 :aria-label="roleName(text, role)"
                                 @update:model-value="(value: string) => bind(role, value)"
                             />
+                        </div>
+                        <div class="roles-page__effort" data-role-effort>
+                            <Select
+                                :model-value="effortControl(role).value"
+                                :options="effortControl(role).options"
+                                size="sm"
+                                :placeholder="effortControl(role).placeholder"
+                                :disabled="disabled || effortControl(role).disabled"
+                                :aria-label="text('roles.effort.of', {name: roleName(text, role)})"
+                                @update:model-value="(value: string) => setEffort(role, value)"
+                            />
+                            <Tooltip v-if="effortControl(role).clearable" :text="text('roles.effort.clear', {name: roleName(text, role)})">
+                                <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text('roles.effort.clear', {name: roleName(text, role)})" :disabled="disabled" data-role-effort-clear @click="setEffort(role, '')" />
+                            </Tooltip>
                         </div>
                         <div class="roles-page__tail">
                             <Tooltip v-if="!role.builtin" :text="text('roles.remove', {name: role.name})">
@@ -255,7 +322,7 @@ function problem(role: SnapshotRole): string {
 
 .roles-page__row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(200px, 280px) 24px;
+    grid-template-columns: minmax(0, 1fr) minmax(200px, 280px) minmax(140px, 180px) 24px;
     align-items: center;
     gap: var(--space-4);
     padding-block: var(--space-3);
@@ -282,14 +349,53 @@ function problem(role: SnapshotRole): string {
     color: var(--status-danger);
 }
 
+.roles-page__icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: var(--text-secondary);
+}
+
+.roles-page__effort {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+/* 够宽三列；中等宽度时思考档换到模型下面；窄时模型与思考档各占一行。 */
+@container (max-width: 640px) {
+    .roles-page__row {
+        grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) 24px;
+    }
+
+    .roles-page__control {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .roles-page__effort {
+        grid-column: 2 / 4;
+        grid-row: 2;
+    }
+}
+
 @container (max-width: 520px) {
     .roles-page__row {
         grid-template-columns: minmax(0, 1fr) 24px;
     }
 
-    .roles-page__control {
+    .roles-page__control,
+    .roles-page__effort {
         grid-column: 1 / -1;
+    }
+
+    .roles-page__control {
         grid-row: 2;
+    }
+
+    .roles-page__effort {
+        grid-row: 3;
     }
 }
 </style>

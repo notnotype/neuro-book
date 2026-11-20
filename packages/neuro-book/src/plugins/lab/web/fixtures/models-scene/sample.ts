@@ -50,8 +50,9 @@ const role = (id: string, axis: SnapshotRole["axis"], model: string | null, stat
 
 export const SAMPLE_ROLES: SnapshotRole[] = [
     role("tiny", "gradient", null, "unbound"),
-    role("fast", "gradient", "deepseek/deepseek-flash", "ok"),
-    role("main", "gradient", "anthropic/claude-sonnet-4-5", "no-credentials"),
+    // fast 绑的模型不推理，存着的档位仍显示、能清除；main 设了默认档；自建的 polish 有自己的图标。
+    role("fast", "gradient", "deepseek/deepseek-flash", "ok", {effort: "low"}),
+    role("main", "gradient", "anthropic/claude-sonnet-4-5", "no-credentials", {effort: "high"}),
     role("deep", "gradient", "deepseek/deepseek-legacy", "unknown-model"),
     role("compaction", "specialist", "deepseek/deepseek-flash", "ok"),
     role("polish", "specialist", null, "unbound", {builtin: false, name: "润色", description: "改写段落的措辞"}),
