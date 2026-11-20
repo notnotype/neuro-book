@@ -136,11 +136,6 @@ async function open(page: Page, bound = true): Promise<void> {
     await page.goto(new URL(bound ? "/?project=book" : "/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(tree(page)).toBeVisible();
-    // 会话、资源管理器两个分节各占一半高：资源树只渲染视口附近的行，半高时下面的行不在页面上，按行定位就找不到（同 editor-area.e2e.ts 的 open）。
-    // 这里不看会话，把它收成标题行，资源树占这一列。
-    // 分节的标题行是展开、收起的开关（ui/workbench-layout.md 输出 20），能收起时标题按钮带 `aria-expanded`。
-    const sessions = page.locator("[data-panel-head] [data-panel-tab=\"view:nbook.agent.sessions\"][aria-expanded]");
-    if (await sessions.count() > 0 && await sessions.getAttribute("aria-expanded") === "true") await sessions.click();
     // 标题动作放不下的收进“⋯”（ui/workbench-layout.md 输出 20）。这里测的是动作本身，把侧栏拉到五个都放得下。
     const sidebar = await (await explorerLeaf(page)).boundingBox();
     if (sidebar !== null && sidebar.width < WIDE_SIDEBAR) {

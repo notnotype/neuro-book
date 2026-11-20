@@ -279,16 +279,20 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 .workbench-region-strip__frame {
-    position: relative;
-    display: flex;
+    /* 单格网格：角标与按钮叠在同一格。不用定位：外框成了定位祖先，按钮的 offsetLeft 就改成相对外框，按下的块按它量的位置会错。 */
+    display: grid;
     flex: 0 0 auto;
+}
+
+.workbench-region-strip__frame > * {
+    grid-area: 1 / 1;
 }
 
 /* 图标入口的角标压在右上角，不挡点击。入口只有 24px，角标往外探出半个身位。 */
 .workbench-region-strip__count {
-    position: absolute;
-    top: -4px;
-    right: -6px;
+    align-self: start;
+    justify-self: end;
+    margin: -4px -6px 0 0;
     pointer-events: none;
 }
 

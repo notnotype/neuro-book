@@ -25,7 +25,8 @@ import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
-import {startDevSession, startProductServer} from "./fixtures";
+import {startDevSession, startProbeServer} from "./fixtures";
+import {PROJECT_TEST_VIEW} from "nbook/shared/testing/project-view-contract";
 import type {DevSession, ProductServer} from "./fixtures";
 
 interface Box {
@@ -67,11 +68,14 @@ const leafRects = (page: Page): Promise<Record<string, number[]>> => page.evalua
     return [element.getAttribute("data-leaf")!, [x, y, width, height].map(Math.round)];
 })), LEAF);
 
-/** 内置声明下的默认布局（输出 1）：侧栏是容器“项目”的会话、资源管理器两个分节，右栏是对话一个分节，底部面板没有容器。 */
-const SESSIONS = "nbook.agent.sessions";
+/**
+ * 默认布局（输出 1）：侧栏是容器“项目”的资源管理器与测试视图（测试插件 `test.project-view`，声明同以前的会话面板）两个分节，右栏是消息视图
+ * 一个分节，底部面板没有容器。
+ */
+const SESSIONS = PROJECT_TEST_VIEW;
 const EXPLORER = "nbook.explorer";
 const CONVERSATION = "nbook.agent.conversation";
-/** 内置容器“项目”：会话与资源管理器声明在它里面，活动栏上是一个入口（输出 22、41）。 */
+/** 内置容器“项目”：资源管理器与测试视图声明在它里面，活动栏上是一个入口（输出 22、41）。 */
 const PROJECT_CONTAINER = "nbook.workbench.project";
 
 const content = (page: Page, view: string) => page.locator(`[data-content="view:${view}"]`);
@@ -129,7 +133,7 @@ test.describe("产品页", () => {
     test.beforeAll(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-shell");
         await mkdir(join(tmp, "state"), {recursive: true});
-        server = await startProductServer(join(tmp, "state"));
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.project-view"}});
     });
 
     test.afterAll(async () => {
@@ -463,11 +467,11 @@ test.describe("产品页", () => {
         await page.keyboard.press("Enter");
         await expect.poll(() => panelRegionHeight(page, sessions)).toBe(0);
         await expect(panelSash(page)).toBeVisible();
-        await parked(page, '[data-content="view:nbook.agent.sessions"]');
+        await parked(page, `[data-content="view:${SESSIONS}"]`);
         await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed).toBe(true);
         await page.keyboard.press("Enter");
         await expect.poll(() => panelRegionHeight(page, sessions)).toBe(200);
-        await unparked(page, '[data-content="view:nbook.agent.sessions"]');
+        await unparked(page, `[data-content="view:${SESSIONS}"]`);
     });
 
     test("侧栏这一列全部收成标题行：页面大小不变，标题行排在上面，最后一节垫底、卡片满高，内容照旧停放，这一列的分隔线拖不动；点标题展开能回来（输出 11）", async ({page}) => {

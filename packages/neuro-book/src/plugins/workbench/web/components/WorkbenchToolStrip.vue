@@ -253,16 +253,19 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 .workbench-tool-strip__frame {
-    position: relative;
-    display: flex;
+    /* 单格网格：角标与按钮叠在同一格。不用定位：外框成了定位祖先，按钮的 offsetTop 就改成相对外框，按下的块按它量的位置会错。 */
+    display: grid;
     flex: 0 0 auto;
+}
+
+.workbench-tool-strip__frame > * {
+    grid-area: 1 / 1;
 }
 
 /* 角标压在图标右上角，不挡点击（点它就是点入口）。 */
 .workbench-tool-strip__count {
-    position: absolute;
-    top: 0;
-    right: 0;
+    align-self: start;
+    justify-self: end;
     pointer-events: none;
 }
 

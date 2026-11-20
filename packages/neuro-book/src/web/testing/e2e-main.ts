@@ -6,16 +6,18 @@
 
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
+import {projectViewDescriptor} from "nbook/shared/testing/project-view-contract";
 import {sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 import {bootWindowUi} from "../boot";
 import {browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
 
 import {createRemoteProbeBrowserPlugin} from "./remote-probe";
+import {createProjectViewBrowserPlugin} from "./project-view";
 import {createSampleViewsBrowserPlugin} from "./sample-views";
 import {createTestMenusBrowserPlugin} from "./test-menus";
 
 await bootWindowUi({
-    builtin: [...builtinBrowserPlugins, remoteProbeDescriptor, sampleViewsDescriptor, testMenusDescriptor],
-    definitions: {...browserPluginDefinitions, [remoteProbeDescriptor.id]: createRemoteProbeBrowserPlugin(), [sampleViewsDescriptor.id]: createSampleViewsBrowserPlugin(), [testMenusDescriptor.id]: createTestMenusBrowserPlugin()},
+    builtin: [...builtinBrowserPlugins, remoteProbeDescriptor, sampleViewsDescriptor, testMenusDescriptor, projectViewDescriptor],
+    definitions: {...browserPluginDefinitions, [remoteProbeDescriptor.id]: createRemoteProbeBrowserPlugin(), [sampleViewsDescriptor.id]: createSampleViewsBrowserPlugin(), [testMenusDescriptor.id]: createTestMenusBrowserPlugin(), [projectViewDescriptor.id]: createProjectViewBrowserPlugin()},
 });
