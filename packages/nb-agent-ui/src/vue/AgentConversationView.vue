@@ -63,10 +63,6 @@ const props = withDefaults(defineProps<{
     welcome?: AgentWelcomeView | null;
     /** 用户的状态栏设置（显隐与次序，见 `status-line.ts`）；给了才有右键菜单，宿主处理 `statusLine.toggle`、`statusLine.openSettings`。 */
     statusLine?: StatusLineSetting;
-    /**
-     * 阻塞的待处理事项放在哪：缺省 `wizard`（替换输入框）；`dock` 时也进停靠区，输入框不隐藏（同名 .md 的“用法档”，bot 的主对话用）。
-     */
-    pendingPlacement?: "wizard" | "dock";
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -81,7 +77,6 @@ const props = withDefaults(defineProps<{
     sessionsOpen: undefined,
     draftProfile: null,
     welcome: null,
-    pendingPlacement: "wizard",
 });
 
 const slots = defineSlots<{
@@ -247,7 +242,10 @@ function fillComposer(text: string): void {
     void nextTick(focusComposer);
 }
 
-const showWelcome = computed(() => props.ctx.messages.length === 0 && props.ctx.availability.status !== "loading" && props.welcome !== null);
+/** 档位按会话给（`ctx.interaction`）：停靠还是向导、能不能新建。 */
+const placement = computed(() => props.ctx.interaction.placement ?? "wizard");
+const canCreate = computed(() => props.ctx.interaction.canCreate !== false);
+const showWelcome = computed(() => canCreate.value && props.ctx.messages.length === 0 && props.ctx.availability.status !== "loading" && props.welcome !== null);
 
 /** 消息流滚到顶了没有：离开顶部才给顶端加渐隐。只在变化时写，滚动时不反复触发渲染。 */
 const streamAtTop = ref(true);
@@ -308,7 +306,7 @@ function focusComposer() {
  * 等用户时向导替换输入框的位置。输入框隐藏但不卸载：草稿和撤销栈都在。只有阻塞的事项替换输入框；异步提问与子代理的事项进停靠区，
  * 输入框照常可用。
  */
-const docked = (item: PendingInputView): boolean => props.pendingPlacement === "dock" || isDocked(item);
+const docked = (item: PendingInputView): boolean => placement.value === "dock" || isDocked(item);
 const blockingInputs = computed(() => props.ctx.pendingInputs.filter((item) => !docked(item)));
 const dockedInputs = computed(() => props.ctx.pendingInputs.filter(docked));
 const dockRef = ref<InstanceType<typeof AgentDock> | null>(null);
@@ -318,8 +316,9 @@ const dockRef = ref<InstanceType<typeof AgentDock> | null>(null);
  * 它的按钮随之卸载，这时焦点原本在停靠区里的，放到停靠区的容器上（不落到某个按钮上，免得接着按回车收起或替用户作答），都答完了回
  * 输入框。`flush: "pre"` 在界面更新之前看焦点还在不在里面。
  */
-watch(() => dockedInputs.value.map((item) => item.id), (now, before) => {
-    if (props.pendingPlacement !== "dock" || !before.some((id) => !now.includes(id))) return;
+watch(() => ({session: props.ctx.session?.id ?? null, ids: dockedInputs.value.map((item) => item.id)}), (now, before) => {
+    // 换了会话不算答完：两个会话的事项不能互相比。
+    if (placement.value !== "dock" || now.session !== before.session || !before.ids.some((id) => !now.ids.includes(id))) return;
     const root = dockRef.value?.$el as HTMLElement | undefined;
     if (root?.contains(document.activeElement) !== true) return;
     void nextTick(() => {
@@ -356,7 +355,7 @@ function onAction(action: ViewAction) {
     }
     if (action.type === "composer.submit" || action.type === "command.run") scrollToLatest();
     emit("action", action);
-    if (props.pendingPlacement === "dock" && action.type === "input.submit") rememberAlongside(action);
+    if (placement.value === "dock" && action.type === "input.submit") rememberAlongside(action);
 }
 
 /**
@@ -455,7 +454,7 @@ defineExpose({focusComposer, scrollToLatest});
             v-if="props.header"
             :ctx="props.ctx"
             :targets="props.headTargets"
-            :new-session="props.newSession"
+            :new-session="props.newSession && canCreate"
             :has-sessions="slots.sessions !== undefined"
             :sessions-open="sessionsOpen"
             :draft-profile="props.draftProfile"

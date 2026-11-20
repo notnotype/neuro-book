@@ -79,10 +79,10 @@ function botScene(): Scene {
     const base = hostScene("bot", "bot 档：头像、停靠区里的审批、没有新建与会话列表", {
         ...WAITING,
         session: {...conversationContext().session!, title: "星璃", avatar: BOT_AVATAR},
-        interaction: {...conversationContext().interaction, canMutateHistory: false, canArchive: false, canRestore: false, canOpenTree: false, commands: ["compact", "plan", "mode"]},
+        interaction: {...conversationContext().interaction, canMutateHistory: false, canArchive: false, canRestore: false, canOpenTree: false, commands: ["compact", "plan", "mode"], placement: "dock", canCreate: false},
         pendingInputs: [editApproval("bot-a"), editApproval("bot-b", "project://正文/第四章.md")],
     });
-    return {...base, input: {...base.input, props: {...base.input.props, newSession: false, pendingPlacement: "dock"}}};
+    return base;
 }
 type Queued = AgentConversationContext["composer"]["queued"];
 const HELD_ZH: Queued = [

@@ -27,7 +27,7 @@ Agent 对话的纯视图：会话的头、消息流、待处理区、输入框�
 - 登记的顶栏动作（注册表的 `headerActions`）：`when` 为假的不显示；允许常驻（`pinnable`）的按 `order` 取前两个，以图标按钮放在溢出菜单按钮左边，其余收进溢出菜单，排在内置项之后、“原始视图”之前；角标数写在名字后（`名字 (N)`）。点了发出它的 `target.action`。
 - 第一屏：点最近对话的卡片发 `session.select`；点“查看全部”打开会话列表（同点标题）；点一条开场指令发 `composer.fill`（带指令全文，宿主换掉输入框里的字），随后聚焦输入框。
 - 点击整轮摘要行或思维链摘要行展开或收起；已结束的轮次默认收起，思维链默认折叠，手动操作过的轮次不再跟随自动收起。含 `ctx.activeCalls` 里调用的轮次（后台子代理、后台命令还在跑）不自动收起，手动收起照常。
-- 等用户的事项分两组：带 `source`（后代会话的）或 `async`（异步提问）的进停靠区，输入框照常可用；其余是阻塞的，由同步向导替换输入框。同步向导在时停靠区收成一条、排在它下面。`pendingPlacement` 为 `dock` 时（bot 的主对话），阻塞的事项也进停靠区，没有同步向导：答完一个时焦点在停靠区里的，放到下一个事项，都答完回输入框；“本会话都批准”或“一直批准”一并提交同一会话里同一记住范围的其余审批（向导里这一步是顺带选上，停靠区一次一个，所以在这里补）。停靠区的读屏播报在视图层常驻的 `role="status"` 区里（文字带来源），不随停靠区挂卸。切换会话（`ctx.session.id` 变化）时每一轮重新挂载，展开记录随之清空。
+- 等用户的事项分两组：带 `source`（后代会话的）或 `async`（异步提问）的进停靠区，输入框照常可用；其余是阻塞的，由同步向导替换输入框。同步向导在时停靠区收成一条、排在它下面。`ctx.interaction.placement` 为 `dock` 时（bot 的主对话），阻塞的事项也进停靠区，没有同步向导：答完一个时焦点在停靠区里的，放到停靠区的容器上，都答完回输入框（换了会话不算答完）；“本会话都批准”或“一直批准”一并提交同一会话里同一记住范围的其余审批（向导里这一步是顺带选上，停靠区一次一个，所以在这里补）。停靠区的读屏播报在视图层常驻的 `role="status"` 区里（文字带来源），不随停靠区挂卸。切换会话（`ctx.session.id` 变化）时每一轮重新挂载，展开记录随之清空。
 - 每条消息角色行右端有消息操作（复制、编辑、重试、从此处分支及插件登记的操作），点击发出对应 action。常显，颜色弱；有多个分支时分支切换在操作条最前。
 - 输入框由 [`AgentConversationComposer`](composer/AgentConversationComposer.md) 呈现：回车发送，运行中回车为 steer、Ctrl/⌘+回车为 followup，运行中且输入为空时按钮变为停止；`/` 命令、附件、模式与模型见其同名文档。发送后不自行清空，等宿主给出新版本草稿。
 - 点击用户消息里的图片（文字里的图片标签、附件条的图片卡片、旧消息的图片缩略图）打开原图预览对话框（nb-ui `ImagePreviewDialog`），地址取 `services.resolveAttachmentUrl(locator, "original")`，取不到时不打开。回复里 Markdown 的图片同样打开预览，地址经 `services.resolveMarkdownAsset` 换算（异步；又点了别的图片时取消上一次，关掉或换图时归还地址），没有这项服务或换算失败时不打开。预览是纯界面行为，不发 action；对话框渲染到 `teleportTarget`。引用、技能、文件的点击按 `AgentUserContent` 发出对应 action，回复里的引用与外链按 `AgentMarkdown` 发出 `reference.open`、`link.open`。
@@ -86,8 +86,6 @@ type AgentConversationViewProps = {
     draftProfile?: {name: string; icon: string} | null;
     /** 第一屏的数据（欢迎、最近对话、开场指令，形状见 `stream/AgentWelcome.md`）；默认 null，没有消息时只写“还没有消息”。 */
     welcome?: AgentWelcomeView | null;
-    /** 阻塞的待处理事项放在哪："wizard" 由同步向导替换输入框；"dock" 也进停靠区，输入框不隐藏。默认 "wizard"。 */
-    pendingPlacement?: "wizard" | "dock";
 };
 
 type AgentConversationViewEmits = {

@@ -80,7 +80,6 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         :registry="props.registry"
         :renderers="props.renderers"
         status-bar
-        pending-placement="dock"
         :status-line="props.statusLine.setting"
         @action="onAction"
     >

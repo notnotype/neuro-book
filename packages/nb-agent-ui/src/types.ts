@@ -244,6 +244,13 @@ export type InteractionView = {
     triggers?: readonly string[];
     /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
     commands?: readonly string[];
+    /**
+     * 阻塞的待处理事项放在哪（同名 .md 的“用法档”）：缺省 `wizard`（替换输入框）；`dock` 时也进停靠区，输入框不隐藏（bot 的主对话）。
+     * 按会话给：同一个视图里切到别的会话时跟着变。
+     */
+    placement?: "wizard" | "dock";
+    /** 能不能从这里新建会话，缺省 true。为 false 时头上不画新建，没有消息时也不画第一屏（bot 的主对话：第一屏的“最近对话”会把聊天换成别的会话）。 */
+    canCreate?: boolean;
 };
 
 export type RunStatus = "idle" | "running" | "waiting" | "stopping";
