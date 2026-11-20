@@ -733,3 +733,30 @@ export type AgentSessionListState = "ready" | "loading" | "error";
 
 /** 会话面板过滤菜单的一项（Profile）。 */
 export type SessionPanelFilter = {id: string; label: string; icon?: string; active: boolean};
+
+/** “消息”视图 bot 一页的一个联系人（AgentMessagesList.md）。 */
+export type MessagesContact = {
+    /** 在所有段里唯一（宿主拼贡献方与 id）。 */
+    readonly key: string;
+    readonly name: string;
+    readonly avatar?: string;
+    /** 未读数；还没数完为 null，不写。 */
+    readonly unread: number | null;
+    /** 第二行：在跑、等你处理，或平时（写最后一句话）。 */
+    readonly activity: "idle" | "running" | "waiting";
+    readonly last: {readonly text: string; readonly at: number} | null;
+};
+
+/** 一个贡献方的联系人：读到没有与读到的联系人。 */
+export type MessagesContactSection = {
+    readonly key: string;
+    readonly state: {readonly kind: "loading"} | {readonly kind: "ready"} | {readonly kind: "failed"; readonly message: string};
+    readonly contacts: readonly MessagesContact[];
+};
+
+/** 窄版头像列里的一个最近会话。 */
+export type MessagesRecentSession = {
+    readonly id: string;
+    readonly title: string;
+    readonly icon: string;
+};

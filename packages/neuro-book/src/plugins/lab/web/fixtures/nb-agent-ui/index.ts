@@ -5,7 +5,7 @@
  * 一起加载。要注入 Markdown 与编辑器的零件经 `host.ts` 包一层，`host.ts` 引用了 Markdown 插件的组件，只在选中场景时动态加载。
  */
 
-import type {AgentConversationView, AgentModelCatalog, AgentRequestTrace, AgentSessionList, AgentSessionPanel} from "@notnotype/nb-agent-ui/vue";
+import type {AgentConversationView, AgentMessages, AgentMessagesList, AgentModelCatalog, AgentRequestTrace, AgentSessionList, AgentSessionPanel} from "@notnotype/nb-agent-ui/vue";
 import type {
     AgentChainSummary,
     AgentCommandDetail,
@@ -50,6 +50,7 @@ import type {Component} from "vue";
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
+import {agentMessagesListScenes, agentMessagesScenes} from "./messages.scenes";
 import {agentApprovalWizardScenes, agentCompactionDetailScenes, agentDockScenes, agentModeSwitchWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionChildRowsScenes, agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
@@ -91,6 +92,15 @@ export const nbAgentUiFixtures: LabFixture[] = [
         component: "AgentSessionList", scenes: agentSessionListScenes, class: "h-[480px] w-[280px]",
         subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionList)}),
         events: ["action"],
+    }),
+    defineLabFixture<typeof AgentMessages>({
+        component: "AgentMessages", scenes: agentMessagesScenes,
+        load: async () => (await import("./AgentMessagesFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof AgentMessagesList>({
+        component: "AgentMessagesList", scenes: agentMessagesListScenes, class: "h-[480px] w-[300px]",
+        subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentMessagesList)}),
+        events: ["open-contact", "retry-contacts"],
     }),
     defineSubjectFixture<typeof AgentSessionPanel>({
         component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[360px]",
