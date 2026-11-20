@@ -66,6 +66,7 @@
 - **被取消**：正式发布按推送先后排队（`queue: max`，至多 100 个等待中的）；满了以后新来的被取消，在 Actions 里重跑那一轮即可，标签不用重推。
 - **恢复不了**（产物过了保留期或被删，而 npm 已发、Release 没有公开）：流水线不自动重建替换。按 Release 草稿、`release-plan.json` 与 registry 只读对账，提高补丁号、重打标签发一个新版本；没公开的草稿由开发者删掉。
 - **`verify-feed` 或 `upgrade-from-previous` 失败**：Release 已经公开。先看作业摘要与证据（`feed-evidence.json`、`upgrade-evidence`）：是 GitHub 的临时问题就重跑作业；是资产或清单的问题，提高补丁号发一个修正版本，有问题的 Release 由开发者决定是否改回草稿。
+- **macOS 构建失败**（`desktop-macos`，不挡发布）：Release 先只带 Windows 的资产公开。在 Actions 里对这一轮“重跑失败的作业”：macOS 重新构建，`github-release` 跟着重跑、把 macOS 的一整套补传到已公开的 Release（缺 Windows 的资产仍然失败），`verify-feed` 与 `upgrade-from-previous` 也跟着重跑。超过可重跑期时用 `desktop-macos.yml` 手动补包。
 - **`registry-smoke` 失败**：npm 包已发。先看是不是版本还没在 registry 上可见（等待超过 30 分钟）；是的话等它出现后重跑这个作业。
 
 产物保留 35 天（覆盖首次运行后 30 天的可重跑期），冒烟证据保留 14 天。
