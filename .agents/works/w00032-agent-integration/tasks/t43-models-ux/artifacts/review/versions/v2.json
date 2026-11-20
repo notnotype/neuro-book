@@ -1,0 +1,205 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t43-models-ux",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 2 轮：思考档样式、服务商详情、网络与角色页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "0dcc0282f29bd0521091279fc19db8ac2806eed1937bd368fb2602df1e45c205",
+    "files": [
+        "index.html",
+        "r1/add-list.webp",
+        "r1/add-search.webp",
+        "r1/add-tiles.webp",
+        "r1/effort-states.webp",
+        "r1/picker-bars.webp",
+        "r1/picker-explicit.webp",
+        "r1/picker-grid.webp",
+        "r1/picker-models.webp",
+        "r1/picker-rows.webp",
+        "r1/shadow-menu.webp",
+        "r1/shadow-popover.webp",
+        "r1/t28-roles.webp",
+        "r2/effort-styles.webp",
+        "r2/network-custom.webp",
+        "r2/network-system.webp",
+        "r2/picker-raised.webp",
+        "r2/picker-text.webp",
+        "r2/provider-detail.webp",
+        "r2/provider-detect.webp",
+        "r2/provider-icon.webp",
+        "r2/provider-proxy.webp",
+        "r2/roles-page.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-roles",
+            "type": "single",
+            "label": "选择器里的角色排成一列还是两列？",
+            "options": [
+                {
+                    "value": "rows",
+                    "label": "A 一列紧凑行"
+                },
+                {
+                    "value": "grid",
+                    "label": "B 两列紧凑行"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "rows"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-effort",
+            "type": "single",
+            "label": "思考档用分段按钮还是信号格？",
+            "options": [
+                {
+                    "value": "seg",
+                    "label": "A 分段按钮"
+                },
+                {
+                    "value": "bars",
+                    "label": "B 信号格"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "seg"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-shadow",
+            "type": "single",
+            "label": "阴影是整档调轻，还是只换选择器？",
+            "options": [
+                {
+                    "value": "global",
+                    "label": "A 气泡这档整体改成菜单那档的投影"
+                },
+                {
+                    "value": "picker",
+                    "label": "B 只让选择器换用菜单那档的外框"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "global"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-add",
+            "type": "single",
+            "label": "“添加服务商”用多列的行还是方块？",
+            "options": [
+                {
+                    "value": "list",
+                    "label": "A 分组、组内三列的行"
+                },
+                {
+                    "value": "tiles",
+                    "label": "B 分组、组内方块"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "list"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-effort-style",
+            "type": "single",
+            "label": "思考档的分段按钮用哪种样子？",
+            "options": [
+                {
+                    "value": "seg",
+                    "label": "保持现在的蓝色滑块"
+                },
+                {
+                    "value": "raised",
+                    "label": "C 浮起的纸"
+                },
+                {
+                    "value": "text",
+                    "label": "D 一排字加短线"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "raised"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-provider",
+            "type": "confirm",
+            "label": "服务商详情按这一稿做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-network",
+            "type": "confirm",
+            "label": "网络分区按这一稿做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-roles",
+            "type": "confirm",
+            "label": "角色页的思考档按这一稿做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-20T05:32:10.643Z"
+}
