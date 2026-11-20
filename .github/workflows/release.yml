@@ -299,9 +299,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    # 不传标签：检出事件提交（github.sha），与 Windows、npm 同一个提交；版本由 gate 已经核对过的源码给出。
     uses: ./.github/workflows/desktop-macos-build.yml
-    with:
-      tag: ${{ github.event_name == 'push' && github.ref_name || '' }}
 
   publish-npm:
     name: 发 npm
