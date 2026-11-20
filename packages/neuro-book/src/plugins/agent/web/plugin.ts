@@ -32,7 +32,7 @@ import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey} from "nbook/shared/host";
-import {PROJECTS_DESK_POINT} from "nbook/plugins/projects/shared/desk";
+import {PROJECTS_DESK_POINT} from "nbook/plugins/projects/shared/contracts";
 import type {DeskImplementation} from "nbook/plugins/projects/web/desk";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";

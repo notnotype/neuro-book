@@ -157,15 +157,16 @@ describe("条目注册表", () => {
         expect(ids.value).toEqual([]);
     });
 
-    it("同 id 的两条贡献一起被拒；标题栏只接受右侧；id 要在自己的命名空间里", async () => {
+    it("id 要在自己的命名空间里（占用别人的 id 不算重复、挤不掉对方）；标题栏只接受右侧", async () => {
         const {application, owner} = await start([
             contributor("test.one", {"test.one.same": declaration("1")}, control()),
             contributor("test.two", {"test.one.same": declaration("2"), "other.item": declaration("3")}, control()),
             contributor("test.three", {"test.three.left": declaration("4", {alignment: "left"})}, control(), WORKBENCH_TITLEBAR_ITEMS_POINT),
         ]);
-        expect(owner.status!.shown(workbenchTestText("zh-CN"))).toEqual([]);
+        // 别的插件用了不在自己命名空间里的同一个 id：那一条只因前缀被拒，不算重复者，挤不掉合法的这一条（runtime/plugins.md 输出 15）。
+        expect(owner.status!.shown(workbenchTestText("zh-CN")).map((item) => item.id)).toEqual(["test.one.same"]);
         expect(owner.title!.shown(workbenchTestText("zh-CN"))).toEqual([]);
-        expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "test.one.same").map((entry) => entry.validation.status)).toEqual(["rejected", "rejected"]);
+        expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "test.one.same").map((entry) => entry.validation)).toEqual([{status: "accepted"}, expect.objectContaining({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：test.one.same"})]);
         expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "other.item")[0]?.validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
         expect(application.plugins.contribution(WORKBENCH_TITLEBAR_ITEMS_POINT, "test.three.left")[0]?.validation).toMatchObject({status: "rejected", detail: "标题栏的条目只放在右侧：test.three.left"});
     });

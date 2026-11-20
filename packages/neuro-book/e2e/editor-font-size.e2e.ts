@@ -88,7 +88,7 @@ async function recordWheel(page: Page): Promise<void> {
         const seen: boolean[] = [];
         (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented = seen;
         // 先于页面的监听登记：到下一个宏任务再读，才看得到别人拦没拦。
-        window.addEventListener("wheel", (event) => void setTimeout(() => seen.push(event.defaultPrevented)));
+        window.addEventListener("wheel", (event) => void setTimeout(() => seen.push(event.defaultPrevented), 0));
     });
 }
 

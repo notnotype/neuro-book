@@ -257,7 +257,7 @@ describe("分帧的读取", () => {
         await readUploadStream(body, {
             open: () => Promise.resolve({
                 write: async (chunk) => {
-                    await Bun.sleep(1);
+                    await Bun.sleep(1); // test-lint-allow fixed-wait: 写得慢是被测条件（看读取会不会跑到写入前面），不是在等某个状态
                     written += chunk.length;
                     maxAhead = Math.max(maxAhead, pulled - Math.ceil((written + 4 + 40) / chunkSize));
                 },

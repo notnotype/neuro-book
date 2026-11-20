@@ -56,7 +56,7 @@ async function installShell(page: Page): Promise<void> {
         const wheels: boolean[] = [];
         (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented = wheels;
         // 同一目标上的监听按登记顺序执行，这里先于页面的监听：到下一个宏任务再读，才看得到别人拦没拦。
-        window.addEventListener("wheel", (event) => void setTimeout(() => wheels.push(event.defaultPrevented)), {passive: true});
+        window.addEventListener("wheel", (event) => void setTimeout(() => wheels.push(event.defaultPrevented), 0), {passive: true});
     });
 }
 

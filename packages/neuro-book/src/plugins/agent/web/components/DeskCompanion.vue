@@ -11,7 +11,7 @@ import type {Component} from "vue";
 
 import {Badge, SidePanel} from "@notnotype/nb-ui/components";
 
-import {entryCountText} from "nbook/plugins/workbench/shared/entry-count";
+import {entryCountText} from "nbook/plugins/workbench/shared/contracts";
 
 import type {SessionOwnerProvider} from "../../shared/contracts";
 import type {ActivityItem} from "../../shared/remote";

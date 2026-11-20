@@ -55,26 +55,54 @@ export const REQUIRED_ASSETS: readonly string[] = [
 ];
 
 /**
- * 本地资产目录（`release-assets/`，由桌面作业冻结）的问题：缺必有的、多了不认识的、`SHA256SUMS` 与文件对不上。
- * `local` 是文件名到 SHA-256；`sums` 是 `SHA256SUMS` 的内容（`<64 位十六进制>  <文件名>` 每行一个，覆盖除它以外的全部）。
+ * macOS 版（w00046 t24，Apple Silicon、不签名）的资产：可有可无，有就要齐全。由 desktop-macos.yml 构建，与 Windows 的资产放进
+ * 同一个目录再建草稿；它们的摘要另写在 `SHA256SUMS-macos`（macOS 作业自己写），`SHA256SUMS` 只管 Windows 的。macOS 构建失败
+ * 时 Release 照常只带 Windows 的资产（macOS 是尽力而为）。
  */
-export function localAssetProblems(local: ReadonlyMap<string, string>, sums: string): string[] {
+export const MACOS_SUMS_ASSET = "SHA256SUMS-macos";
+export const MACOS_ASSETS: readonly string[] = [
+    "NeuroBook-macos-arm64.dmg",
+    "stable-macos-arm64-NeuroBook.app.tar.zst",
+    "stable-macos-arm64-update.json",
+    "stable-macos-arm64-update-v2.json",
+    MACOS_SUMS_ASSET,
+];
+const MACOS_PATCH_ASSET = /^stable-macos-arm64-[a-z0-9]{1,13}\.patch$/;
+const isMacAsset = (name: string): boolean => MACOS_ASSETS.includes(name) || MACOS_PATCH_ASSET.test(name);
+
+/** 一份校验和文件与它该覆盖的文件比：读不懂的行、摘要不同或漏列的、列了不在的。 */
+function sumsProblems(label: string, files: ReadonlyMap<string, string>, sums: string): string[] {
     const problems: string[] = [];
-    const required = REQUIRED_ASSETS;
-    for (const name of required) if (!local.has(name)) problems.push(`资产目录里缺 ${name}`);
-    for (const name of local.keys()) if (!required.includes(name) && !PATCH_ASSET.test(name)) problems.push(`资产目录里有不认识的文件 ${name}`);
     const listed = new Map<string, string>();
     for (const line of sums.split("\n")) {
         if (line.trim() === "") continue;
         const match = /^([a-f0-9]{64}) [ *](.+)$/.exec(line);
-        if (match === null) problems.push(`SHA256SUMS 的一行读不懂：${line}`);
+        if (match === null) problems.push(`${label} 的一行读不懂：${line}`);
         else listed.set(match[2]!, match[1]!);
     }
-    for (const [name, digest] of local) {
-        if (name === SUMS_ASSET) continue;
-        if (listed.get(name) !== digest) problems.push(`SHA256SUMS 里 ${name} 的摘要${listed.has(name) ? "与文件不同" : "没有列出"}`);
+    for (const [name, digest] of files) {
+        if (listed.get(name) !== digest) problems.push(`${label} 里 ${name} 的摘要${listed.has(name) ? "与文件不同" : "没有列出"}`);
     }
-    for (const name of listed.keys()) if (!local.has(name)) problems.push(`SHA256SUMS 列了不在资产目录里的 ${name}`);
+    for (const name of listed.keys()) if (!files.has(name)) problems.push(`${label} 列了不在资产目录里的 ${name}`);
+    return problems;
+}
+
+/**
+ * 本地资产目录（`release-assets/`，由桌面作业冻结）的问题：缺必有的、多了不认识的、校验和与文件对不上。
+ * `local` 是文件名到 SHA-256；`sums` 是 `SHA256SUMS` 的内容（`<64 位十六进制>  <文件名>` 每行一个，覆盖 Windows 的全部其余文件），
+ * `macSums` 是 `SHA256SUMS-macos` 的内容（覆盖 macOS 的其余文件；没有 macOS 资产时不看）。
+ */
+export function localAssetProblems(local: ReadonlyMap<string, string>, sums: string, macSums = ""): string[] {
+    const problems: string[] = [];
+    for (const name of REQUIRED_ASSETS) if (!local.has(name)) problems.push(`资产目录里缺 ${name}`);
+    const hasMac = [...local.keys()].some(isMacAsset);
+    if (hasMac) for (const name of MACOS_ASSETS) if (!local.has(name)) problems.push(`资产目录里有 macOS 的资产，却缺 ${name}`);
+    for (const name of local.keys()) {
+        if (!REQUIRED_ASSETS.includes(name) && !PATCH_ASSET.test(name) && !isMacAsset(name)) problems.push(`资产目录里有不认识的文件 ${name}`);
+    }
+    const windows = new Map([...local].filter(([name]) => name !== SUMS_ASSET && !isMacAsset(name)));
+    problems.push(...sumsProblems(SUMS_ASSET, windows, sums));
+    if (hasMac) problems.push(...sumsProblems(MACOS_SUMS_ASSET, new Map([...local].filter(([name]) => name !== MACOS_SUMS_ASSET && isMacAsset(name))), macSums));
     return problems;
 }
 
@@ -178,11 +206,12 @@ async function writeSums(directory: string): Promise<void> {
     process.stdout.write(text);
 }
 
-/** 读冻结的资产目录：文件名到 SHA-256；缺必有的、多了不认识的、SHA256SUMS 对不上时抛出。 */
+/** 读冻结的资产目录：文件名到 SHA-256；缺必有的、多了不认识的、校验和对不上时抛出。 */
 export async function readLocalAssets(directory: string): Promise<Map<string, string>> {
     const local = new Map<string, string>();
     for (const name of (await readdir(directory)).sort()) local.set(name, await sha256Of(join(directory, name)));
-    const problems = localAssetProblems(local, local.has(SUMS_ASSET) ? await readFile(join(directory, SUMS_ASSET), "utf8") : "");
+    const read = async (name: string): Promise<string> => (local.has(name) ? await readFile(join(directory, name), "utf8") : "");
+    const problems = localAssetProblems(local, await read(SUMS_ASSET), await read(MACOS_SUMS_ASSET));
     if (problems.length > 0) throw new ReleaseFailure(problems.join("\n"));
     return local;
 }

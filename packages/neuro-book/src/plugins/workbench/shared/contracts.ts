@@ -144,6 +144,9 @@ export interface Notifications {
 export const notificationsKey: ServiceKey<Notifications> = defineServiceKey<Notifications>("nbook.workbench/notifications");
 
 export {WORKBENCH_THEMES_POINT} from "./themes";
+
+/** 入口计数的写法（活动栏、区域入口条的角标）；别的插件画同一种角标时用它。 */
+export {entryCountText} from "./entry-count";
 export type {ThemeDeclaration} from "./themes";
 
 /** 选项提供者（`settings.choices`），工作台的浏览器入口贡献。 */

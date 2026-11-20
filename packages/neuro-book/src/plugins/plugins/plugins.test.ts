@@ -16,6 +16,7 @@ import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createApplication} from "nbook/application";
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
@@ -156,8 +157,7 @@ describe("nbook.plugins/registry", () => {
         void registry.install({upload: id}).catch(() => undefined);
         await started.promise;
         expect(await window.stop()).toMatchObject({status: "closed"});
-        for (let tries = 0; tries < 200 && (await readdir(uploadsRoot)).length > 0; tries += 1) await new Promise((resolve) => setTimeout(resolve, 25));
-        expect(await readdir(uploadsRoot)).toEqual([]);
+        await waitUntil("暂存的上传被删掉", async () => (await readdir(uploadsRoot)).length === 0);
         // 安装确实做完了：安装目录里有它。
         expect(await readdir(join(base, "state", "plugins"))).toContain("example.closing");
     });

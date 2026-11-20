@@ -14,10 +14,10 @@ export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
     ContextMenu, CopyButton, DateInput, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
-    EmptyState, Field, IconButton, InfoTip, Input, Kbd,
+    EmptyState, Field, IconButton, ImagePreviewDialog, InfoTip, Input, Kbd,
     Menubar, Notification, NotificationStack, NumberInput, OverlayScrollbar,
     Popover, Progress, QuickPick, RadioGroup, ScrollArea, SearchSelect,
-    SegmentedControl, Select, Separator, Skeleton, Slider, Spinner,
+    SegmentedControl, Select, Separator, SidePanel, Skeleton, Slider, Spinner,
     SuggestionMenu, Switch, Table, Tabs, TagInput, Textarea,
     ToggleGroup, Toolbar, Tooltip, Tree,
 } from "@notnotype/nb-ui/components";

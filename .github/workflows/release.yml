@@ -291,6 +291,18 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # macOS 版（Apple Silicon，不签名，尽力而为，w00046 t24）：与 Windows 的桌面作业并行，用同一轮的 npm-packages。只构建；
+  # 资产由 github-release 作业与 Windows 的一起放进草稿。它失败不挡发布：Release 只带 Windows 的资产，摘要里写明。
+  desktop-macos:
+    name: macOS
+    needs: [gate, npm-packages]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/desktop-macos.yml
+    with:
+      tag: ${{ github.event_name == 'push' && github.ref_name || '' }}
+
   publish-npm:
     name: 发 npm
     needs: [gate, ci, desktop]
@@ -347,8 +359,9 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: [gate, desktop, publish-npm]
-    if: needs.gate.outputs.dry-run != 'true'
+    needs: [gate, desktop, publish-npm, desktop-macos]
+    # macOS 失败或被跳过时照常发（只带 Windows 的资产）；其余前置都要成功。
+    if: ${{ !cancelled() && needs.gate.outputs.dry-run != 'true' && needs.desktop.result == 'success' && needs.publish-npm.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -369,6 +382,18 @@ jobs:
         with:
           name: release-notes
           path: ${{ runner.temp }}/release-notes
+      - uses: actions/download-artifact@v4
+        if: needs.desktop-macos.result == 'success'
+        with:
+          name: desktop-macos-assets
+          path: ${{ runner.temp }}/release-assets
+      - name: macOS 没有资产
+        if: needs.desktop-macos.result != 'success'
+        env:
+          RESULT: ${{ needs.desktop-macos.result }}
+        run: |
+          echo "::warning::macOS 构建没有成功（$RESULT），这个 Release 只带 Windows 的资产；补包用 Desktop macOS 工作流手动触发"
+          echo "macOS 构建没有成功（$RESULT）：Release 只带 Windows 的资产。" >> "$GITHUB_STEP_SUMMARY"
       - run: bun scripts/release/github-release.ts draft "$VERSION" "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-notes/notes.md" "$STAGE"
       - run: bun scripts/release/github-release.ts publish "$VERSION" "$RUNNER_TEMP/release-assets"
 

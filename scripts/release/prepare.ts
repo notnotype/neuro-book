@@ -210,7 +210,8 @@ async function main(argv: readonly string[]): Promise<number> {
         return 1;
     }
     console.log(`✓ 提交了 release: v${version}（${paths.join("、")}）`);
-    console.log(`下一步：git push origin master；再由开发者打标签：git tag v${version} && git push origin v${version}`);
+    // 经 `bun run release` 运行时它接着打标签、推送；单独运行时由开发者自己推。
+    console.log(`下一步（单独运行 release:prepare 时）：git tag v${version} && git push --atomic origin master v${version}`);
     return 0;
 }
 
