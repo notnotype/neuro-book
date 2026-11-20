@@ -381,11 +381,16 @@ jobs:
         with:
           name: release-notes
           path: ${{ runner.temp }}/release-notes
+      # macOS 的产物先下到单独的目录，核过再并入：取不到或不合格只告警，不挡 Windows 的 Release（尽力而为）。
       - uses: actions/download-artifact@v4
         if: needs.desktop-macos.result == 'success'
+        continue-on-error: true
         with:
           name: desktop-macos-assets
-          path: ${{ runner.temp }}/release-assets
+          path: ${{ runner.temp }}/macos-assets
+      - name: 并入 macOS 的资产
+        if: needs.desktop-macos.result == 'success'
+        run: bun scripts/release/github-release.ts merge-macos "$RUNNER_TEMP/macos-assets" "$RUNNER_TEMP/release-assets"
       - name: macOS 没有资产
         if: needs.desktop-macos.result != 'success'
         env:

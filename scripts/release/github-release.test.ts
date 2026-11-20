@@ -7,7 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {assetUploads, draftRelease, GitHubReleases, hasDesktopSetup, releaseTitle, localAssetProblems, MACOS_ASSETS, previousDesktopRelease, publishRelease, REQUIRED_ASSETS, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
+import {assetUploads, draftRelease, GitHubReleases, hasDesktopSetup, releaseTitle, localAssetProblems, MACOS_ASSETS, mergeMacAssets, previousDesktopRelease, readLocalAssets, publishRelease, REQUIRED_ASSETS, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
 
 const roots: string[] = [];
 
@@ -35,6 +35,18 @@ async function assetDirectory(): Promise<{directory: string; digests: Map<string
     await writeFile(join(directory, "SHA256SUMS"), sums);
     digests.set("SHA256SUMS", sha256(sums));
     return {directory, digests};
+}
+
+/** macOS 构建的产物目录：一整套与它的 SHA256SUMS-macos（`extra` 是多放的文件）。 */
+async function macDirectory(extra: Record<string, string> = {}): Promise<string> {
+    const root = await createTestTmpRoot("release-github-mac", "github-release-test");
+    roots.push(root);
+    const directory = join(root, "macos-assets");
+    await mkdir(directory);
+    const files: Record<string, string> = {...Object.fromEntries(MACOS_ASSETS.filter((name) => name !== "SHA256SUMS-macos").map((name) => [name, `mac ${name}`])), ...extra};
+    for (const [name, content] of Object.entries(files)) await writeFile(join(directory, name), content);
+    await writeFile(join(directory, "SHA256SUMS-macos"), Object.entries(files).map(([name, content]) => `${sha256(content)}  ${name}\n`).join(""));
+    return directory;
 }
 
 /**
@@ -201,6 +213,37 @@ describe("草稿与公开", () => {
         const wrong = fakeGh({releases: [{tagName: TAG, isDraft: true, isPrerelease: false, isLatest: false}], assets: {[TAG]: [{...setup, digest: `sha256:${"0".repeat(64)}`}]}});
         await expect(draftRelease(wrong.github, VERSION, directory, NOTES, silent)).rejects.toThrow("摘要不同");
         expect(wrong.calls.some((call) => call[2] === "upload")).toBe(false);
+    });
+
+    it("macOS 的产物：齐全且摘要对得上才并入；缺文件、多了不认识的、摘要不对时一个也不并入，交回问题", async () => {
+        const {directory} = await assetDirectory();
+        expect(await mergeMacAssets(await macDirectory({"notes.txt": "x"}), directory)).toContain("macOS 的产物里有不认识的文件 notes.txt");
+        const broken = await macDirectory();
+        await writeFile(join(broken, "NeuroBook-macos-arm64.dmg"), "changed");
+        expect(await mergeMacAssets(broken, directory)).toContain("SHA256SUMS-macos 里 NeuroBook-macos-arm64.dmg 的摘要与文件不同");
+        expect((await mergeMacAssets(join(directory, "missing"), directory))[0]).toMatch(/读不了 macOS 的产物目录/);
+        expect((await readLocalAssets(directory)).size).toBe(7);
+        expect(await mergeMacAssets(await macDirectory(), directory)).toEqual([]);
+        expect((await readLocalAssets(directory)).size).toBe(12);
+    });
+
+    it("重跑：这一轮没有 macOS 而 Release 上已有（手动补过）不算多出来；已公开的只缺 macOS 时补传它们，缺 Windows 的仍然失败", async () => {
+        const {directory} = await assetDirectory();
+        const published = {tagName: TAG, isDraft: false, isPrerelease: false, isLatest: true};
+        const windows = await readLocalAssets(directory);
+        const remoteWindows = [...windows].map(([name, digest]) => ({name, digest: `sha256:${digest}`, state: "uploaded"}));
+        const remoteMac = MACOS_ASSETS.map((name) => ({name, digest: `sha256:${"9".repeat(64)}`, state: "uploaded"}));
+        expect(assetUploads(windows, [...remoteWindows, ...remoteMac])).toEqual({upload: [], problems: []});
+        const patched = fakeGh({releases: [published], assets: {[TAG]: [...remoteWindows, ...remoteMac]}});
+        await draftRelease(patched.github, VERSION, directory, NOTES, silent);
+        expect(patched.calls.some((call) => call[2] === "upload")).toBe(false);
+
+        expect(await mergeMacAssets(await macDirectory(), directory)).toEqual([]);
+        const windowsOnly = fakeGh({releases: [published], assets: {[TAG]: remoteWindows}});
+        await draftRelease(windowsOnly.github, VERSION, directory, NOTES, silent);
+        expect(windowsOnly.calls.find((call) => call[2] === "upload")?.filter((arg) => arg.startsWith(directory))).toHaveLength(5);
+        const missingSetup = fakeGh({releases: [published], assets: {[TAG]: remoteWindows.filter((asset) => !asset.name.endsWith("Setup.zip"))}});
+        await expect(draftRelease(missingSetup.github, VERSION, directory, NOTES, silent)).rejects.toThrow("公开的 Release 不再补传");
     });
 
     it("补发旧版本：公开时不设为最新，当前最新不变", async () => {
