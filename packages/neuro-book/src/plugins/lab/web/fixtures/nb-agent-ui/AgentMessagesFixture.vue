@@ -11,7 +11,7 @@ const subject = useLabSubject<typeof AgentMessages>(() => props.input, ["open-co
 </script>
 
 <template>
-    <div class="h-[520px]" :class="props.scene.startsWith('wide') ? 'w-[820px]' : props.scene.startsWith('phone') ? 'w-[390px]' : 'w-[400px]'">
+    <div class="h-[520px]" :class="props.scene.startsWith('wide') ? 'w-[820px] max-w-full' : props.scene.startsWith('phone') ? 'w-[390px] max-w-full' : 'w-[400px] max-w-full'">
         <Messages data-lab-subject v-bind="subject.bindings.value">
             <div class="grid h-full place-items-center text-sm text-[var(--text-muted)]">聊天区（AgentConversationView）</div>
             <template #sessions>
