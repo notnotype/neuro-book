@@ -3,51 +3,63 @@
     "description": "NeuroBook 的看板娘星璃，Q 版半身，白色贴纸边。",
     "stickers": [
         {
-            "file": "开心.webp",
+            "file": "kaixin.webp",
+            "name": "开心",
             "common": true
         },
         {
-            "file": "害羞.webp",
+            "file": "haixiu.webp",
+            "name": "害羞",
             "common": true
         },
         {
-            "file": "捂脸.webp",
+            "file": "wulian.webp",
+            "name": "捂脸",
             "common": true
         },
         {
-            "file": "思考.webp",
+            "file": "sikao.webp",
+            "name": "思考",
             "common": true
         },
         {
-            "file": "灵感.webp",
+            "file": "linggan.webp",
+            "name": "灵感",
             "common": true
         },
         {
-            "file": "疑问.webp",
+            "file": "yiwen.webp",
+            "name": "疑问",
             "common": true
         },
         {
-            "file": "好的.webp",
+            "file": "haode.webp",
+            "name": "好的",
             "common": true
         },
         {
-            "file": "困.webp",
+            "file": "kun.webp",
+            "name": "困",
             "common": true
         },
         {
-            "file": "委屈.webp",
+            "file": "weiqu.webp",
+            "name": "委屈",
             "common": true
         },
         {
-            "file": "生气.webp",
+            "file": "shengqi.webp",
+            "name": "生气",
             "common": true
         },
         {
-            "file": "惊讶.webp",
+            "file": "jingya.webp",
+            "name": "惊讶",
             "common": true
         },
         {
-            "file": "喝茶.webp",
+            "file": "hecha.webp",
+            "name": "喝茶",
             "common": true
         }
     ]

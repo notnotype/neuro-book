@@ -103,8 +103,8 @@ test("验收 13：全新的状态根里主创的槽列出内置星璃、回复�
     await expect(page.locator("[data-sticker-rail-item='user.lyra']")).toHaveAttribute("aria-current", "page");
     await expect(page.locator("[data-sticker-rail-item='builtin.lyra'] [data-sticker-rail-flag='shadowed']")).toBeVisible();
 
-    // 换掉我的“开心”：一张 64×64 的真 WebP（扩展名与字节相符才认）。测试进程是 Node，借 bun 现做。
-    const webpPath = join(stateRoot, "user", "stickers", "lyra", "开心.webp");
+    // 换掉我的“开心”（复制过来的清单里它的文件是 kaixin.webp）：一张 64×64 的真 WebP（扩展名与字节相符才认）。测试进程是 Node，借 bun 现做。
+    const webpPath = join(stateRoot, "user", "stickers", "lyra", "kaixin.webp");
     execFileSync("bun", ["-e", `const pixel = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0)); await Bun.write(${JSON.stringify(webpPath)}, await new Bun.Image(pixel).resize(64, 64).webp().bytes());`]);
     // 页面随目录的通知更新：网格里的图换成新的，说明目录已经重扫。
     await expect.poll(() => page.locator("[data-grid-key^='s:开心'] img").evaluate((element) => (element as HTMLImageElement).complete ? (element as HTMLImageElement).naturalWidth : 0)).toBe(64);
