@@ -54,7 +54,9 @@ type Providers = Array<{
     }>;
 }>;
 // nbook.models/roles
-type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: string; description: string; model: string | null}>};
+type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: string; description: string; model: string | null;
+    effort?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";   // 角色的默认思考档，不写是跟随模型（输出 18）
+    icon?: string;                                                              // 角色图标的键，键到图标的表在应用里}>};
 ```
 
 目录模型在设置里只存用户改过的字段，其余每次从目录读。缺省的角色是四档加 `compaction`，都未绑定。
@@ -82,11 +84,11 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 
    `settings.model` 除了模型引用，还可以是 `role:<角色 id>`（会话选的是角色，改绑后跟着变）：角色不存在或 id 为空得 `unknown-model`，存在但没绑定得 `role-unbound`。
 
-   走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在、没启用、自定义模型缺上下文窗口：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（同 harness）。失败结果带上选中了什么：走到角色时（包括角色绑定的模型解析失败）带 `role`（角色 id），`no-credentials` 带 `provider`（服务商 id）；会话直接选了模型引用时没有 `role`。对话的提示卡据此写哪个角色、哪家服务商（[agent.conversation](../agent/conversation.md)）。
+   走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在、没启用、自定义模型缺上下文窗口：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（输出 18）。失败结果带上选中了什么：走到角色时（包括角色绑定的模型解析失败）带 `role`（角色 id），`no-credentials` 带 `provider`（服务商 id）；会话直接选了模型引用时没有 `role`。对话的提示卡据此写哪个角色、哪家服务商（[agent.conversation](../agent/conversation.md)）。
 9. **目录漂移**：设置里引用的目录模型不在目录里了（OMP 升级），引用保留并在快照里标 `missing`（原服务商与模型 id），解析为 `unknown-model`，写一条诊断；用户在界面里重新选。
 10. **`modelsKey`**：`port(profileDefaults?)` 交出所有会话共用的模型端口，`profileDefaults(profile)` 每次解析都调，换 Profile、改 Profile 设置即时生效；`snapshot()` 给出启用的模型、角色及其有效性；`onChange`。
 11. **检测**：`check` 发一条很短的请求（最大输出 min(32, 模型上限)、不带推理、超时 30 秒），结果是通过，或失败的类别、一句话与服务商原文（遮盖过、截到 8 KB）；`checkAll` 并发至多 4。结果不落盘。
-12. **远程合同 `nbook.models/settings`**（版本 1，服务端提供，浏览器调用）：
+12. **远程合同 `nbook.models/settings`**（版本 2，服务端提供，浏览器调用；相对版本 1，`setRole` 改成字段补丁，快照的角色多了 `effort`、`icon`，模型多了 `thinking`）：
 
     | 方法 | 读写 | 业务码 |
     |---|---|---|
@@ -105,6 +107,11 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 14. **压缩角色的初值**：第一次绑 `fast` 而 `compaction` 未绑时，同一次写把 `compaction` 设成同一个模型（压缩先跟着快速档，之后各改各的）。
 15. **删除时解除绑定**：删服务商、删模型（含“管理模型”里移出）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。
 16. **请求的传输**：每次请求现读两个超时设置交给适配器（[`harness/models.md`](../harness/models.md) 输出 18），`maxHttpAttempts` 固定为 1；检测同样这样。
+18. **角色的思考档**：
+    - 角色可以设默认档 `effort`（`off` 或档位，不写是跟随模型）与图标键 `icon`。`setRole` 按字段打补丁：省略的不改，`null` 清除（`model: null` 解除绑定，`effort: null` 跟随模型，`icon: null` 用默认图标）；只改档或图标时不带出 `model`，也不触发输出 14（压缩跟着快速档只在 `fast` 从未绑定变成绑定时）。改绑模型时已存的档位保留，请求时按新模型的档夹取，界面说明实际用哪一档。
+    - 请求的档位：会话里明确选的 > 解析到的角色的默认档 > 不发（模型按自己的默认）。角色的默认档是**这一次解析的属性**（`ModelResolution.defaultEffort`），不写进按模型缓存的信息：同一个模型绑给两个角色，各用各的；会话直接选模型（不经角色）时没有角色默认档。走角色时解析也带角色 id（`ModelResolution.role`），会话快照的 `model` 带 `role` 与 `defaultEffort`：界面“用 X 的默认”回到哪个角色，按内核这次解析走的角色，不按 Profile 声明的角色自己推。夹取、`off` 的含义与各条请求怎么用见 [`harness/models.md`](../harness/models.md) 输出 12。
+    - 快照里每个模型带 `thinking`（推理能力：`none`、`fixed`、`levels` 加 `off`、`unset`、`verified`），按真实的 OMP 模型算；建不出模型（目录漂移、自定义缺窗口）时按配置的 `reasoning` 退成 `fixed` 或 `none`。
+    - 请求里的内容见验收 4。
 17. **压缩的触发点**：全局设置 `nbook.models/compaction`（在“运行可靠性”页的“上下文压缩”组）与模型配置的 `compaction` 同一个形状 `{mode, value?}`，模型的覆盖全局。`reserve`：留预留量，`value` 是把窗口当成这个数来算，没写就是内核的缺省；`percent`：窗口的百分比（`value` 必写、1 到 100，窗口未知时不给）；`tokens`：固定的触发点（`value` 必写）。超出范围的值在设置入口就按 `invalid-value` 拒绝。解析时窗口知道了才算成 `compactAt` 交给内核：超过窗口按窗口，没有意义或不大于 0 时不给，由内核按缺省算。全局设置改了，从下一次解析起生效。快照里的 `compaction` 是模型自己的配置，旧的 `compactAt` 给成 `{mode: "tokens"}`。
 
 ## 状态与转换
@@ -136,6 +143,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 ## 边界与兼容
 
 - 公开接口：`modelsKey`（`shared/contracts.ts`）、远程合同 `nbook.models/settings`、两个设置项的形状。
+- 降级：角色设置写了 `effort` 或 `icon` 之后再装回这之前的版本，旧版本按它的 schema 把整个“模型角色”设置项当成无效丢弃（读到的是缺省：四档加压缩都未绑定），主力等绑定看起来没了；没写过这两个字段的设置不受影响。不为降级做保护，应用的发布说明“数据与升级”写明。
 - 依赖 `@notnotype/nb-harness/models`（目录、凭据库、按配置建出解析结果）。OMP 升级时目录与能力随之变。
 - 信任边界：浏览器只拿到“有没有密钥”；设置文件里只有变量名，不放密钥。请求头的值写在设置文件里，界面在名称像凭据时提示改用 `env:`。
 
@@ -144,6 +152,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 1. 自定义服务商（本机假的 OpenAI 兼容端点）：添加、设密钥、拉取模型、加入并补上下文窗口、启用、绑定 `main`、Agent 一轮对话走到这个端点；删除服务商后 `main` 为 `role-unbound`。
 2. 两个窗口经真实 RPC 同时改两个不同的服务商，两处改动都在；设置文件视图在服务端合并期间写入，内容不丢。
 3. `setKey` 的 `env:` 与原文互换；启动环境里有、`process.env` 里后来才有的变量不算。
+4. 角色的思考档（输出 18）：本机假端点实收的请求体里，可真关闭的模型选“关闭”发关闭开关，只能降档的模型发最低档，强制思考的模型不选也发最低档，不推理与不能调档的模型不发推理字段；主力设了默认档、会话没选时请求用它，会话选了就用会话的、选“跟随”回到角色的；同一个模型绑给两个角色各用各的。
 
 Smoke：`packages/neuro-book/src/plugins/models/` 的插件测试与 `e2e/models.e2e.ts`。
 

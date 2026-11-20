@@ -102,8 +102,10 @@ updated: 2026-11-20
 
 ## 当前状态
 
-2026-11-20 建 Task；调研、三轮静态稿完成，设计定稿。计划第二稿经第二轮设计审查（omp 38 条、Sonnet 前端 14 条，全部成立、已处理），改为[第三稿](plan.md)。
+2026-11-20 建 Task；调研、三轮静态稿完成，设计定稿。计划第二稿经第二轮设计审查（omp 38 条、Sonnet 前端 14 条，全部成立、已处理），改为[第三稿](plan.md)，开发者确认后开工。
+
+段 A（推理档与选择器）：2026-11-20 合入 master（提交 84b810ad1）。实现审查后端 omp 8 条、前端 Sonnet 15 条，全部核实并处理（[处理](evidences/impl-review-a-disposition.md)，报告 [后端](evidences/impl-review-a-backend-omp.txt)、[前端](evidences/impl-review-a-frontend-sonnet.txt)）；四个包类型检查、`test:affected --since master`、e2e（models、agent-conversation、lab-agent-ui 共 79 条）通过，`lab-scenes` 的 ThemeEditor 404 是分支起点上就有的失败。Spec 与 ADR 0057 同日提交。证据：[`evidences/a1-reasoning.txt`](evidences/a1-reasoning.txt)。
 
 ## 下一步
 
-开发者看第三稿的要点；段 A 先开工（A、C 不再审计划）；段 B 开工前把第三稿的段 B 单独再审一轮（第三轮，最后一轮）。
+段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10）。然后段 B 开工前把第三稿的段 B 单独再审一轮（第三轮，最后一轮），再实施 B、C。

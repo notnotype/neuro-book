@@ -1,0 +1,18 @@
+w00032 t43 阶段 A1：推理能力与“关闭”语义的判定依据（实现提交 75ba93982，分支 feat/w00032-t43-a）
+
+结论
+- “能不能关”不能由 OMP 的 requiresEffort、suppressWhenOff 单独推出：协议策略 compat.reasoningDisableMode 为 lowest-effort 的模型（例如 openai/gpt-5.4）发 disableReasoning 时，线上实际是最低一档，不是关闭。
+- reasoningOf 把这些事实合成 off 三态：
+    disable  协议有真的关闭开关，选择器出“关闭”段，请求发 disableReasoning。
+    lowest   关闭实发最低一档；最低档本来就在 levels 里，不另出“关闭”段。
+    none     强制思考（requiresEffort 且 !suppressWhenOff），不能关；不选时 OMP 垫到最低档，记在 unset。
+- unset 表示请求里不指定档时线上实际发生的事：
+    "off"  协议缺省就不思考（reasoningDisableMode 属 zai-thinking-disabled、qwen-enable-thinking-false、qwen-template-false、chat-template-thinking-false，与 pi-ai 的 isImplicitDisableWhenNotRequested 一致）。
+    档位   强制思考的模型取 defaultSupportedEffort。
+    null   服务商自己定。
+- 早先把 kimi 的 unset 当成 defaultLevel 是误判，以 unset 为准。
+
+证据（本机假端点实收的请求体，packages/nb-harness/src/kernel/model/reasoning.test.ts）
+- reasoningOf 对真实目录：不推理、固定、可调档三类；只能降档的不叫可关闭；未验证梯级标 verified:false。
+- 线上请求体五类加两个反例：可关闭（选关闭发关闭开关；不选时协议本身关着，如 qwen 只发 enable_thinking:true 于选档时）、只能降档（选关闭发最低档）、强制思考（不选与选关闭都垫到最低档）、不能调档与不推理（不发推理字段）。
+- requestEffort 的优先级与夹取：packages/nb-harness/src/kernel/api/reasoning.test.ts；各请求点（对话、预览、就地压缩、摘要压缩、complete、审批）：kernel/run/effort.test.ts。

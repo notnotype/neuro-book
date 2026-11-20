@@ -151,7 +151,7 @@ owners:
 74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。
 75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
 76. 帧 `{type: "tool", callId, status}`：工具调用执行完时推，不进日志；权威仍是这批调用的 `toolResult`。中止宽限期过后才完成的调用不推（输出 25）。`toolArgs` 增量的第一块带 `tool`（工具 id），同一 `callId` 的片段按 `n` 连接就是参数的 JSON 文本。
-77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；失败时端口给了的 `role`、`provider` 原样带上（[`models.md`](models.md) 的 `ModelResolution`）；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。
+77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}`（端口给了推理能力时另带 `reasoning`、夹取后的 `effectiveEffort` 与它的来源 `effortSource`，以及这次解析走的角色 `role` 与它的默认档 `defaultEffort`（界面“用默认”回到哪里按它们定，不自己推），规则见 [`models.md`](models.md) 输出 12）或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；失败时端口给了的 `role`、`provider` 原样带上（[`models.md`](models.md) 的 `ModelResolution`）；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。
 78. `ToolSessionContext` 带 `background`；会话头有 `owner` 时也带 `owner`（同会话头，[`session.md`](session.md) 输出 25）。
 79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了工具或参数、和判定时不同时，这个调用按现在的重新判定，要问就按输出 39 再问一次。放行之后、轮到它之前只读或审批模式变了，也按现在的设置重新判定；已经拒绝的不重新判定。
 80. `treeNodes({afterSeq?, limit?})` 按 seq 分页读所有 path 事件的结构 `{id, parent, type, seq, label?}`，不读全文，所以再大的事件也不会让树断开；一页至多 2,000 个。`label` 是用户的话、回复文字或工具名的前 80 字，经出站过滤，过滤掉的节点还在，只是没有 `label`。

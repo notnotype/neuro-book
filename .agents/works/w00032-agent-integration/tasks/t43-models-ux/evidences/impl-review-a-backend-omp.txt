@@ -1,0 +1,78 @@
+### 1. Anthropic 自适应模型把降档或间歇思考报成“关闭”
+严重程度：重要；类别：正确性
+位置：packages/nb-harness/src/kernel/model/reasoning.ts:30–35；packages/nb-harness/src/kernel/api/reasoning.ts:34–38
+现象：`offOf` 把没有 OpenAI `reasoningDisableMode` 的模型默认判为 `disable`。真实目录的 `anthropic/claude-sonnet-4-6` 选 `off` 后，计算结果是 `effective: "off"`，但 `/v1/messages` 实收 `output_config: {effort:"low"}`，无 `thinking.type:"disabled"`；`claude-sonnet-5-5` 则实收 `thinking: {type:"between_tools"}`。
+影响：角色默认档和会话快照都承诺真正关掉思考，但仍允许模型推理，与 harness/models.md 输出 12 不符。这里是上一轮采纳三态后仍漏掉的具体协议分支，不是重报设计问题。
+核实：实现工作区 `bun test /tmp/review-t43a-impl/exp/omp-wire.test.ts`，经 `buildResolution` 和 pi-ai 18.14.0 实发到本机 SSE；两种模型都完成了请求。上游 `providers/anthropic.ts:5115–5134` 明确区分 `between_tools`、自适应最低档和 `disabled`。
+建议：按 Anthropic 实际关闭策略分类，覆盖兼容覆盖值、只支持自适应和 `between_tools`；仅有真正关闭编码的模型标 `disable`。补 `/v1/messages` 请求体与快照联动的契约用例。
+
+### 2. OpenAI 兼容路由无关闭控制或根本不发送档位，却在快照宣称有效
+严重程度：重要；类别：正确性
+位置：packages/nb-harness/src/kernel/model/reasoning.ts:13–18、30–35；packages/nb-harness/src/kernel/api/reasoning.ts:33–38
+现象：`moonshot/kimi-k2.7-code` 的关闭模式是 `omit`，被报为 `disable`，选择 `off` 实收请求与不选相同，两个都不含关闭字段；`github-copilot/grok-code-fast-1` 的 `supportsReasoningParams:false` 被忽略，快照能力仍为 `levels/off:lowest`；不选、选 `off`（报 `minimal`）、选 `high` 送到本机端点的模型 id 相同，三个请求都没有推理控制字段。
+影响：用户能设置一个服务端没有兑现的“关闭”或档位；快照无法区分端点自定行为和真的生效。与 harness/models.md 输出 12 及 models/service.md 输出 18 不符。
+核实：实现工作区 `bun test /tmp/review-t43a-impl/exp/omp-wire.test.ts`，真实目录、真实 OMP 编码和本机 SSE；两组请求均完成。pi-ai `openai-shared.ts:1129–1155、1204–1205` 分别解释省略和禁用参数。
+建议：能力描述以该路由是否实际能调档、能否编码关闭为准；`omit` 不在没有关闭证据时称为真关，参数禁用且没有档位路由的归为 `fixed`。补这两类模型的完整推理负载断言。
+
+### 3. 未选择档位时 Anthropic 与 Gemini 已发送关思考参数，快照却报默认未知
+严重程度：重要；类别：正确性
+位置：packages/nb-harness/src/kernel/model/reasoning.ts:21–27；packages/nb-harness/src/kernel/api/reasoning.ts:33
+现象：`unsetOf` 只识别强制档以及 OpenAI 的四种隐式关闭模式。真实目录的 `anthropic/claude-haiku-4-5` 无会话档、无角色默认档时，线上仍发 `thinking: {type:"disabled"}`；`google/gemini-2.5-flash` 发 `generationConfig.thinkingConfig: {includeThoughts:false, thinkingBudget:0}`。两者的 `unset`、`effective` 都为 null。
+影响：`unset:null` 按 Spec 表示由服务商决定；上述系列实际上由 OMP 明确关闭。会话快照丢了 `effectiveEffort:"off"`、`effortSource:"model"`，宿主无法展示已确定的默认值，依此判断的“用默认”也被隐藏。
+核实：实现工作区 `bun test /tmp/review-t43a-impl/exp/omp-wire.test.ts`，两条真实适配器路径都完成了本机流式请求。pi-ai `stream.ts:1833–1845、2097–2110` 在未指定时确实走关闭分支。
+建议：从实际协议策略推导未指定的行为，明确关闭才给 `unset:"off"`，强制档、降档及由服务商决定分别标记；用 “未设置” 与 “显式关” 两个实收样本做验收。
+
+### 4. 同一个请求边界的就地压缩与后续对话会用不同的角色默认档
+严重程度：重要；类别：不变量
+位置：packages/nb-harness/src/kernel/run/loop.ts:279–311；packages/nb-harness/src/kernel/run/model-call.ts:152–177
+现象：对话的 `resolution` 在压缩前取得。压缩拦截等待时，另一窗口经 v2 `setRole` 给当前角色加默认档；旧压缩草稿没有 `effort`、也没显式关，`modelCaller` 会二次解析并补新档，压缩结束后同一边界的对话却用旧解析。
+影响：同一个模型在同一边界的压缩与对话用了不同推理模式，新值开始生效的顺序也倒了。违反 plan.md A.2「沿用本轮对话的解析与档位」及 agent/compaction.md 输出 2；既有的模型重解析不一致，在 A 中新增默认档后不换模型也会发生。
+核实：在应用合同试验 `exp/app-contract.test.ts` 中，用真实扩展的压缩拦截作为闸门、真实 RPC 写设置、内置就地方法与本机 SSE；日志用途依次是 `compaction`、`turn`，端点实收 `reasoning_effort` 依次为 `high`、未设置，两个请求都完成。
+建议：就地方法复用当前边界选定的解析和档位，把“不发档”也当成已计算结果，不再给从该对话派生的压缩草稿套一遍默认；摘要、审批仍各按自己的规则解析。
+
+### 5. 会话宿主推错“跟随”的角色；模型默认值未知时不能清回跟随
+严重程度：重要；类别：正确性
+位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:133–143、2017–2020；packages/nb-harness/src/kernel/session/session.ts:368–374
+现象：`followOf` 用 Profile 声明的角色重新推导默认来源，未读取服务端实际选中的引用。Profile 声明 `main`、设置覆盖为 `deep` 时，快照给 `max/role`，但宿主产出 `follow:{source:"role",name:"main"}`。直接选模型、适配器 `unset:null` 再选 `high` 时，宿主产出 `follow:null`，没有回到不传档的动作数据；这与第 3 条不同，这里的默认值确实不可知。
+影响：跟随/重置说明会指向错的角色；直接指名模型时用户一旦明确选档，就无法在该选择器里清回“由模型决定”。已有重置指令能写入 `effort:null`，但宿主没有为此提供入口。
+核实：`exp/app-contract.test.ts` 以真实 Profile 贡献、用户配置、RPC、会话快照调用 `createSessionHost`，得到上述两个值；未挂载 UI。
+建议：快照返回不看会话覆盖时的解析来源及角色 id，由宿主只翻译名称；能清除明确档不应取决于是否知道模型默认对应的具体档。分别断言 Profile 覆盖与直指模型两种重置语义。
+
+### 6. 已打开会话换 Profile 后，宿主仍交出旧的有效档
+严重程度：重要；类别：状态同步
+位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:159–162、541–559；packages/nb-harness/src/kernel/session/session.ts:322–345
+现象：`changeProfile` 已重装配，服务端快照改用新 Profile 对应的角色。宿主只因模型目录或核心 `model`/`effort` 补丁重读解析，不处理 `profileChanged`，消费后续日志后 `composer.effort` 仍是旧的。
+影响：两份 Profile 就算绑定同一个模型，也会有不同的默认档；会话显示的有效档会与下一次请求用的档不一致。这不是第 5 条的说明名称错误：这里服务端解析值已经改变，宿主旧值没失效。
+核实：`exp/manual-and-profile.txt`：真实模型设置订阅使宿主从 `low` 更新到 `high`；随后用会话 `changeProfile` 换到 `deep`，等宿主消费该指令之后的日志，服务端快照是 `max/role`，宿主仍为 `high`，`profileKey()` 也仍是旧值。
+建议：会话 Profile 改变时，宿主一起更新 Profile 与解析到的模型，用日志进度和装配完成后的快照校验；增加在会话保持打开时换到同模型、不同档角色的合同用例。
+
+### 7. 可降档模型的显式 `off` 会误用 `unset` 而不是最低档
+严重程度：建议；类别：正确性
+位置：packages/nb-harness/src/kernel/api/reasoning.ts:34–38；packages/nb-harness/src/kernel/api/model.ts:145–154
+现象：端口传 `off:"lowest"`、`levels:["low","high","max"]`、`unset:"high"`（默认 high，要求关闭时只可降至 low）。`requestEffort` 把默认 high 用于 `off`；Spec 只在强制思考（`none`）时才取 `unset`。
+影响：外部 `ModelPort` 可以合法表达默认档与最低档不同，但选择关闭仍发送默认档。扫描当前打包目录，未观察到此组合，暂未见内置模型受影响。
+核实：`exp/request-paths.txt`：用提供上述默认策略的外部端口运行真实会话，并交给实际 OMP 适配器发送到本机 SSE；未设置与显式关闭均完成，实收 `["high","high"]`，应为 `["high","low"]`。
+建议：`off:"lowest"` 始终选首档；只有 `off:"none"` 且 `unset` 是档位时才用 `unset`。加默认档不等于最低档的用例。
+
+### 8. A1、A2 的新增测试缺少计划要求的请求体与版本边界用例
+严重程度：建议；类别：测试覆盖
+位置：packages/nb-harness/src/kernel/model/reasoning.test.ts:37–54、69–104；packages/nb-harness/src/kernel/run/effort.test.ts:1–94；packages/nb-models/src/contract/settings-spec.test.ts
+现象：A1 的“未验证”只给已有 Qwen 静态加标志，未实发；实收断言只取 `reasoning_effort` 和 `enable_thinking`，未覆盖单档可关的 Gemma，也没识别二值档伪装成梯级。A1 收据把预览、`complete`、审批列为 `effort.test.ts` 的覆盖，但该文件只测对话、快照和两个压缩桩。A2 的合同测试检查 v2 结构，没有实际 v1 调用/订阅拒绝。
+影响：纯字段断言能在有效档与线上请求不一致时照样通过；未来破坏版本边界不一定被产品合同测试抓住。
+核实：`exp/omp-wire-extra.txt` 以 OMP 自己物化的 Meta 未验证梯级实收：未设档不发 `reasoning`、选 `high` 发 `reasoning.effort:"high"`；`exp/omp-wire.txt` 实收 Gemma 4 的 `MINIMAL`/`HIGH`；`exp/app-contract.txt` 对真实 v2 端口证实旧查找、读、写和订阅均返回 `version-changed`。这些是额外审查试验，不是提交中的测试。
+建议：把上述临时用例移入验收；各协议断言完整的推理相关负载，同时断言快照结果；收据按实际覆盖填写。
+
+## 已报告问题的补充证据
+
+- 第 2 条：`aiand/qwen/qwen3.6-27b` 的开关有效，但 `low` 与 `high` 实收的完整请求体字节相同，只有 `enable_thinking:true`；能力却给四档并分别报告有效的 `low`/`high`。`exp/omp-wire-extra.txt`、pi-ai `openai-shared.ts:1224–1242`：只有支持模板档位的 Qwen 分支写入具体档位。修正能力时应保留二值开关，不把二值模型当可调多档，也不把它当完全不能控制。
+- 第 3 条：单档 `google/gemma-4-31b-it` 未设或显式关闭都发送 `thinkingLevel:"MINIMAL"`，启用发 `"HIGH"`；`pi-catalog/src/compat/rules/classes/gemma.kdl:14–22` 说明此模型的 `MINIMAL` 是关思考的编码，不是只隐藏思考输出；快照同样报 `unset:null`。
+
+## 核实范围与交接
+
+- 被审提交范围：`1a2716e41962db261734e3ea422cda31c8904044..e5b2ca9ba8bd7cd2528f0300c781a86596328c91`。有效编号：1–8。阻断 0，重要 6，建议 2。
+- 以下场景未发现问题：`setRole` 保留省略字段、`null` 删除档位/图标键、首次绑定 `fast` 只给未绑定的 `compaction` 复制模型；v1 RPC 拒绝与 v2 快照/事件（含正常、缺窗口、目录漂移的 `thinking`）；落盘未写新键及清除后按 v1 schema 读取，单独写任一新键时旧 schema 按已接受的降级规则拒绝整个角色项。
+- 真实服务与本机端点核实：同一模型的不同角色分别继承；会话覆盖和重置、直指模型绕过角色默认，后端快照/预览/对话一致；已打开会话收到普通角色默认档更新；`complete()` 用其角色默认档；413 摘要及无对话模型时手动摘要都用压缩角色自己的档；审批（独立 `fast` 或回落会话模型）保留显式关闭。
+- 仓库测试：`bun test` 分批运行 `api/reasoning.test.ts`、`model/reasoning.test.ts`、`run/effort.test.ts`、`contract/settings-spec.test.ts`、`core/core.test.ts`（32 过）；`models.test.ts`、`session-host.test.ts`（112 过）；`auto-review.test.ts`、`kit/approval/review.test.ts`、`kernel/session/host.test.ts`（57 过）。合计 201 过、0 失败。
+- 类型检查：`nb-harness`、`nb-models` 的 `bun run typecheck` 与 `neuro-book` 的 `bun x --no-install tsc --noEmit` 均退出 0。日志见 `exp/typecheck-{harness,models,app-server}.txt`。
+- 审查试验：`bun test` 执行 `exp/omp-wire.test.ts`、`exp/app-contract.test.ts`、`exp/request-paths.test.ts`（新增场景按名称过滤，应用试验用应用 `tsconfig.json`），20 过、5 个合同断言失败；失败对应第 2、4、5、6、7 条。实收日志在 `exp/omp-wire{,-extra}.txt`、`exp/app-contract.txt`、`exp/request-paths.txt`、`exp/manual-and-profile.txt`。
+- 未运行真实服务商调用、浏览器验收、e2e 或开发服务器。未修改仓库。

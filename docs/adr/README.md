@@ -56,3 +56,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0054](0054-nb-layout-general-library.md) | nb-layout 做成通用布局库：工作台层拆进不发布的 `nb-workbench-layout`，nb-layout 不依赖 nb-ui、失败一种形状、发 MIT 与编译产物；分两档做，手感编排进库与发布排在第二档，第一个外部使用方是 nb-story（部分取代 0044 第 6 条，补充 0029） |
 | [0055](0055-input-buffer-entry-states.md) | 输入缓冲区的每条话带状态（就绪、留着），状态由会话级事件归约，回到空闲时剩下的留着、与收口同批写，取与放行只在内核；发出者按调用方盖章（补充 0035 决策 1） |
 | [0056](0056-background-work-providers-and-session-notices.md) | 后台工作的清单（`nbook.tasks`）只汇总、状态归各自的提供方；会话的缓冲区收提示（与插话同处取走、排在前面、不进输入的状态机）；唤起的门挂在会话上（补充 0055） |
+| [0057](0057-models-ux-sources-identity-egress.md) | 服务商只有一种模板化实例；模型清单由设置、来源缓存与 OMP 元数据合成，发现与缓存自己做；发送前核对实例身份（`origin` 写进日志）；网络出口只选路、不做中继与重定向；角色的默认思考档是一次解析的属性 |

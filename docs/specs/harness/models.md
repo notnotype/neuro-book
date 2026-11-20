@@ -70,9 +70,12 @@ ompModelInfo(model: Model): ModelInfo;
 9. 流式增量（文字、思考、工具参数）只交给 `onDelta`，带工具调用 id（如有）；不进回复以外的任何地方。
 10. 用量带 OMP 的全部计数；单价未知时 `cost` 为 null；这次逻辑请求发出的 HTTP 请求多于一次（中间有被服务商层丢弃的尝试）或被中止时 `complete` 为 false。
 11. 请求里有适配器不支持的内容时不发请求，以 `local`、码 `unsupported-content` 失败。
-12. 推理档按模型支持的档夹取；不支持推理的模型不发推理参数。
+12. **推理档**（`reasoningOf`、`requestEffort`；用户看得到的规则见 [`models/service.md`](../models/service.md) 输出 18）：
+    - `reasoningOf(model)` 交出能力：`none`（不推理）、`fixed`（会推理但不能调档）、`levels`（档位从低到高，加 `off`、`unset`、`verified`）。`off` 说“关闭思考”在线上的含义：`disable` 协议有真的关闭开关，`lowest` 关闭实发最低一档（例如 `openai/gpt-5.4`；Anthropic 的自适应模型发最低档的 `effort` 或 `between_tools`，不接受 `thinking: disabled`；OpenAI 兼容路由里关闭策略是 `omit` 的什么都不发；Gemini 的分级且不抑制的模型只关掉思考内容的回传），`none` 强制思考不能关；它按各协议实际发什么由 `requiresEffort`、`suppressWhenOff` 与协议策略（`reasoningDisableMode`、Anthropic 的自适应思考、Gemini 的思考模式）合成，不能由前两者单独推出。路由不发推理参数（`supportsReasoningParams` 为假）的模型是 `fixed`。`unset` 是请求里不指定档时线上实际发生的事：`off`（协议缺省就不思考：Qwen 的 `enable_thinking`，以及关闭是真关的 Anthropic 与 Gemini 模型，OMP 不指定档时就发关闭）、一个档位（强制思考的模型 OMP 垫到最低档）、或 null（服务商自己定）。`verified` 为假是 OMP 对缺证据的模型物化的未验证梯级。
+    - `requestEffort(会话档, {info, defaultEffort})` 定这次请求的档：会话选的优先于解析带的角色默认档，都没有就不发；选的档按模型的档夹取（不在档里时取不高于它的最近一档，没有就取最低档）；`off` 在 `disable` 时显式关闭（请求的 `params.disableReasoning`），在 `lowest` 时落到最低档，在 `none`（强制思考）时落到 `unset` 那一档；不推理或不能调档的模型不发推理参数。结果还带夹取后的有效档与来源（`session`、`role`、`model`），会话快照照样给出。端口没给 `info.reasoning` 时选了什么发什么，由适配器夹取。
+    - 用在每条实际的请求：对话与预览用会话档，其次角色默认档；就地压缩沿用本轮对话在这一请求边界上已经解析好的模型与档位（压缩拦截、等待期间设置变了也不再解析第二次）；摘要压缩等经 `ctx.model` 的请求按它自己解析到的角色默认档，不吃会话档；`complete()` 照角色默认档；请求草稿自己带了 `effort` 或显式 `disableReasoning`（审批）时不套。
 13. `toolChoice` 按服务商的写法发出：`auto`、`none` 原样，指定工具时用换算后的名字。
-14. `ompModelInfo` 给出 `<服务商>/<模型>` 的 id、上下文窗口、最大输出、是否收图片与思考、支持的推理档。
+14. `ompModelInfo` 给出 `<服务商>/<模型>` 的 id、上下文窗口、最大输出、是否收图片与思考、支持的推理档与推理能力（输出 12 的 `reasoningOf`）。
 15. `target.headers` 随每个请求发出，在请求自己的 `headers` 之前（同名时请求的赢）。
 16. 端口解析失败的码由调用方原样交回：`send`、`start` 的受理失败，`complete()` 的失败，预览的 `PreviewUnavailable`；`ctx.model`（压缩方法、审批钩子）解析失败时不写模型事件，码在交回的回复的 `error.code`（[`runtime.md`](runtime.md) 输出 5）。`role-unbound`：调用要的角色没有绑定模型，宿主不回落到别的模型。
 17. `retryable` 取 OMP 对错误标记的判断（`AIError.retriable`），只有模型重复循环例外：它不重发，码 `thinking-loop`。建流时抛错、没有错误标记的失败不给 `retryable`。`retryAfterMs` 是服务商要求的等待时间，从 OMP 的错误文字里用它自己的函数取。

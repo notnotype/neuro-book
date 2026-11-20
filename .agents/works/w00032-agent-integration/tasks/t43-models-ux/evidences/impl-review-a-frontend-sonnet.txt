@@ -1,0 +1,163 @@
+F1
+严重程度：重要（自建角色的删除按钮错位；内置角色无可见影响）
+类别：布局 / 窄屏
+位置：packages/neuro-book/src/plugins/models/web/components/RolesPage.vue 的 @container (max-width: 640px) 块（约 l.370-386），对照 template l.269 的 .roles-page__tail
+现象：容器宽 521 至 640px 时，行被改成三列 `minmax(0,1fr) minmax(140px,180px) 24px`，control 显式放 (列1, 行2)、effort 显式放 (列2-3, 行2)，但 .roles-page__tail 没有写 grid-column / grid-row，靠自动摆放。按 grid 自动摆放（先放有明确位置的，再把 label 放 (1,1)，tail 沿游标落到下一个空格）它落进 (行1, 列2)，即 140–180px 那一列的最左边，而不是最右 24px 那一列。
+为什么是问题：自建角色的“删除”按钮在 521–640px 之间悬在行中间、正好压在下一行思考档下拉的上方，不再贴行尾；520px 以下的查询里 tail 落在 24px 列是对的，所以是这次新增的中间档独有的错位。
+如何核实：我用 /opt/google/chrome/chrome --headless=new 渲染了一份只含这几条规则的最小 HTML（/tmp/review-t43a-impl/exp/grid.html，规则逐字照抄），量得：容器 600px 时删除按钮 left=380、宽 24（行右缘应在 576）；560px 时 left=340；700px 时 left=676（四列，正常）；500px 时 left=476（正常）。即只有 521–640px 这一档错位。未在真实应用里复现（不跑开发服务），但布局规则与真实文件相同，.roles-page__tail 在文件里没有其它样式（grep 只有 template 一处）。
+建议改法：在 640px 查询里给 .roles-page__tail 写 `grid-column: 3; grid-row: 1;`（520px 查询里写 `grid-column: 2; grid-row: 1;`），并在 Lab 场景或 dom/e2e 里加一个 560px 宽、含自建角色的截图/量度用例（现有测试都不涉及布局，见 F? 测试一节）。
+
+F2
+严重程度：重要
+类别：正确性 / 竞态（200 ms 写入合并与外部回写）
+位置：packages/nb-agent-ui/src/vue/composer/AgentRoleModelPicker.vue 的 onEffort 与 releaseTimer（约 l.139-153）
+现象：settleTimer 触发 emit 之后挂一个 1500 ms 的 releaseTimer 把 pending 清空；onEffort 重入时只 clearTimeout(settleTimer)，不清 releaseTimer，宿主回写（watch 把 pending 置 null）时也不清它。结果是上一次选择留下的 releaseTimer 会在“下一次选择还没写出去”的时候把新的 pending 清掉，控件在宿主回写之前跳回旧档。
+为什么是问题：不需要宿主慢或失败，正常使用就会碰到：先选一档（宿主几十毫秒内回写），1.3 到 1.5 秒后再选一档，上一次的 releaseTimer 在 t=1500+ms 触发，新的 settleTimer（再过 200 ms）还没发，于是 pending=null、控件显示回旧档，直到新的 emit 与宿主回写完成才跳到新档。即用户点“高”，控件先亮“高”，然后闪回旧档约 200 ms 加一次往返，再亮“高”。这正是 pending 机制要消除的“跟手”问题。
+如何核实：在真实组件上用假时钟复现（实验文件 /tmp/review-t43a-impl/exp/race.dom.test.ts，用 vitest 在 nb-agent-ui 包里跑，挂载真 AgentRoleModelPicker，点真实的 radio 按钮；没有绕过运行时）。时间线：t0 点“中”；t200 emit medium；t1450 点“高”；t1650 emit high；t1700 上次的 releaseTimer 触发。radio 选中态（低/中/高）依次为：t1450+点击 后 fft（高亮在高）、t1690 fft、t1720 tff（回到“低”，即旧值），此时 emit 已经含 high、宿主未回写。
+建议改法：onEffort 开头与 pending 被 watch 清空时一并 clearTimeout(releaseTimer)；或者干脆把 release 改成“以最后一次 emit 的时刻为准”，只保留一个定时器句柄。补一条测试：第二次选择发生在第一次 release 窗口内，断言控件一直停在第二次选的档上。
+
+F3
+严重程度：建议（真实存在，窗口小）
+类别：正确性 / 竞态
+位置：AgentRoleModelPicker.vue 的“用默认”按钮（template 里 data-model-picker-reset，@click="emit('reset-thinking')"）与 onEffort
+现象：用户刚选了一档（pending 有值、200 ms 合并窗口内），马上点“用主力的默认”：reset-thinking 立即发出，之后窗口到点时 settleTimer 仍会发 select-thinking(刚选的档)，宿主按顺序处理，最后状态是“钉在刚选的档”，与用户最后一个动作（回到跟随）相反。
+如何核实：同一实验文件 race.dom.test.ts 第一条：点“高”，nextTick，点 data-model-picker-reset，advanceTimers(300)。picker.emitted() 得到 reset-thinking 一次、select-thinking [["high"]] 一次（顺序为先 reset 后 select）。组件级真实交互，没有伪造时序。
+为什么是问题：“跟随”按钮的效果被后到的写入盖掉，用户会看到界面上的“跟随”提示消失、又变回明确档。同类的还有“在 200 ms 内切角色”：select-model 立即发，thinking 写入晚于它发出，档位被钉到新角色上（对旧模型的档位），宿主要靠夹取自救。
+建议改法：reset 的点击里先清 settleTimer 与 pending（取消还没发的写入）；选角色/选模型发 select-model 之前也同样冲刷或取消 pending。至少在 .md 里写明语义：窗口内的后续动作是否取消待写档位。
+
+F4
+严重程度：建议
+类别：样式 / 与同名 .md 不一致
+位置：AgentRoleModelPicker.vue 的样式 `.acv-role-picker__trigger .acv-role-picker__text`（display: inline-flex）与 `.acv-role-picker__text`（text-overflow: ellipsis）
+现象：.md 写“过长省略”，但文字容器被 `.acv-role-picker__trigger .acv-role-picker__text` 设成 inline-flex，而 text-overflow 只对块容器自己的行内内容生效，对 flex 容器及其 flex 项不生效，结果是过长时硬裁切、没有“…”，还可能把字形从中间切掉。
+如何核实：用 /opt/google/chrome/chrome --headless=new 渲染一份只含这几条样式与同构 DOM 的最小 HTML（/tmp/review-t43a-impl/exp/ellipsis.html，截图 ellipsis.png）：长角色名后面直接被切成半个字，没有省略号，模型名完全看不到。未在真实应用里量（不跑开发服务）。
+建议改法：把省略放到 `.acv-role-picker__name` 一类的块级 span（min-width:0; overflow:hidden; text-overflow:ellipsis），或者让文字容器不用 flex（图标用 inline-block 对齐）。同时让模型名与角色名各自可收缩，否则长角色名会把“实际用的模型”整段挤掉。Lab 的 390 宽场景里加一个长名字的触发器截图。
+
+F5
+严重程度：建议
+类别：正确性 / 资源收口
+位置：AgentRoleModelPicker.vue 的 onBeforeUnmount
+现象：卸载时只 clearTimeout(settleTimer / releaseTimer)，合并窗口内选的档直接丢掉，没有冲刷也没有任何提示。面板关闭（Esc、点外面、disabled 变真）不受影响：定时器仍在、组件还在，200 ms 后照常 emit；只有组件在窗口内被卸载（切会话导致输入框卸载等）才丢。
+为什么是问题：计划要求“关闭/Esc 时冲刷”，实现靠“组件不卸载”间接满足，没有测试，也没写明；窗口很小，所以只是建议。
+如何核实：读代码，onBeforeUnmount 里没有 emit；仓库里没有覆盖“窗口内卸载或关闭”的测试（AgentConversationComposer.dom.test.ts 的思考档用例都只在窗口到点后断言）。从代码推断，未在真实运行时复现。
+建议改法：卸载前若 settleTimer !== null 就同步 emit 一次再清；并补一条 Esc 后窗口到点仍发出的测试（断言行为：关面板不丢写入）。
+
+F6
+严重程度：重要（计划里明列的验收没做，窄屏与英文是这次改动最容易出问题的地方）
+类别：测试 / Lab 场景覆盖
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/host.ts 的 rolePickerSubject（框写死 `width: 420px`）、composer.scenes.ts 的 agentRoleModelPickerScenes；AgentConversationComposer.dom.test.ts
+现象：计划 A5 的验证写“340px 无溢出、7 档 × 英文 × 340px”“Lab 新增场景：能力四态 × 跟随/明确、587 项大组、340px、暗色与彩色图标、英文”。实现里：(1) 所有选择器场景共用 rolePickerSubject 的 420px 宽框，没有 340px 场景，Lab 画布的 vp 宽度也改变不了它；(2) 没有任何英文场景（场景文字都是中文；agent 场景文字端口是中文），英文缩写 “Min/Med/XHigh”、“Following 主力's default” 这类较长文案在窄宽下是否截断没有任何证据；(3) 两列角色页（面板内容宽 ≥480px 的容器查询）没有场景，420px 框永远是单列，两列分支从未被渲染过；(4) 面板 <400px 才触发的缩写分支只靠“七档”场景（因档位多）间接覆盖，五档以内 + 窄面板的组合（计划里的 340px）没有；(5) dom 测试里 “面板窄于 400px 时写缩写” 是靠 happy-dom 里 getBoundingClientRect 为 0（width<400 恒真）碰巧成立，测试里的 radios 文字 ["关","低","中","高"] 并没有表达宽度，换成真实布局就不是这个结果。
+为什么是问题：计划把这几项列为验收并说明理由（340px 无溢出），现在没有产物能证明；SegmentedControl 的 full-width 等宽分段 + 缩写 + 说明换行，在窄宽下的溢出只有真实布局才看得出，happy-dom 无能为力。
+如何核实：读 host.ts rolePickerSubject（`width: 420px; margin-top: 460px`）与 composer.scenes.ts 全部场景；grep 全仓库 lab-agent-ui.e2e.ts 与 agent-conversation.e2e.ts 对 data-model-picker-thinking、data-model-picker-show-all、data-group-head 零命中。e2e 与 Lab 截图我没跑（规则不允许），所以这里只能确认“没有场景与断言”，不能确认“实际有溢出”。
+建议改法：rolePickerSubject 的框宽改成场景属性（如 labWidth），补 340px、英文（至少“七档英文 340px”与“长英文角色名+英文跟随说明”）、≥500px 两列各一个场景，并在 lab-agent-ui.e2e.ts 里按 scrollWidth<=clientWidth 断言面板与头部无横向溢出；dom 测试里要测缩写分支就显式给 anchor 宽度（mock getBoundingClientRect），不要靠 happy-dom 的零宽。
+
+F6 更正（覆盖 F6 第 (5) 点；其余点不变）
+F6 第 (5) 点的说法错了：dom 测试挂载时不给 anchor，面板宽取缺省 DEFAULT_WIDTH=360（`props.anchor?.getBoundingClientRect().width ?? DEFAULT_WIDTH`），不是 happy-dom 的零宽。正确的结论是：所有 dom 测试的面板宽恒为 360（<400），所以“≥400px 且档位≤5 时写全名”这条分支在 dom 层没有任何用例（只有 Lab 的 420px 场景能看到，且没有断言）；缩写分支的用例成立，但它不是“测了窄”，而是“没给宽度，恒窄”。建议在 dom 测试里给 anchor 一个 mock 的 getBoundingClientRect（如 480）补一条全名用例，并加变异检查（把 NARROW_WIDTH 比较反过来应有用例失败）。
+
+F7
+严重程度：重要
+类别：测试空过（变异检查）
+位置：packages/neuro-book/src/plugins/models/web/components/RolesPage.dom.test.ts；packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.dom.test.ts（AgentRoleModelPicker 一节）
+现象：在 /tmp/review-t43a-impl/exp 下复制组件与测试做变异（只改副本，跑原测试，两边基线都全绿：RolesPage 4/4，选择器所在文件 26/26），下面这些破坏行为的改动全部仍然通过：
+RolesPage（exp/roles/RolesPage.vue）：
+ - M1：setEffort 里去掉 `value === FOLLOW ||`，选“跟随模型”会把哨兵串 "__follow__" 当档位写出去（只有“清除按钮”那条用例走 ''，没人从下拉里选“跟随模型”）：4/4 通过。
+ - M2：setIcon 无论选哪个图标都写 "feather"：通过。图标菜单没有任何交互用例，只断言按钮存在。
+ - M3：去掉“关闭”这一项（canOff 为真时应有）：通过。没有用例断言选项集合。
+ - M4：未验证档位的选项说明（description）整句去掉：通过。
+ 另外，“选一个档位会写 effort: 该档”这个最基本的行为没有用例（只有清除与停用、补停用项三条）。M5（把补出来的“当前模型没有这一档”项改成可选）会被抓住，说明该条是有效的。
+选择器：
+ - P5：去掉“宿主回写后清 pending”的 watch：26/26 通过；P6：把 1500 ms 放手改成 15000000 ms：通过。即 pending 的两条收口路径（宿主回写、写失败放手）没有任何测试，F2 的竞态因此没被拦住。
+ - P8：去掉 SegmentedControl 的 `:describedby="noteId"`：通过。nb-ui 只测了组件本身转发 describedby，选择器是否把说明挂上去没有测（读屏用户听不到“跟随主力的默认”，计划与 .md 都靠它说明 aria-checked 的含义）。
+ - P11：去掉 onFocusOut（Tab 走出面板就关）：通过。
+ - P16：去掉 toggle() 里的 `override.value = new Map()`（再次打开时重置手动展开的组）：通过。
+为什么是问题：作者的验收口径是“变异检查”（计划 A5 明写“并做变异检查”），这些是新增的行为分支，却没有测试守护；其中 P8 是 aria 合同，F2 是竞态。
+如何核实：复现步骤：把组件副本放到 /tmp/review-t43a-impl/exp/{roles,picker}，用包自己的 vitest 配置（别名、插件同原包）跑原测试文件的副本；上述每个变异是一行 sed/字符串替换，保存在 exp 里对应副本旁。这些都在真实 happy-dom 挂载下完成，没有绕过运行时。
+建议改法：RolesPage 补“从下拉选档位写 effort”“选跟随模型写 null”“选图标写 icon”“canOff 与 verified 决定选项”四条（断言 store 里的角色字段，不断言内部）；选择器补“宿主回写后控件不再停在 pending”“写失败 1.5 秒后放手”“radiogroup 的 aria-describedby 指向的元素文本含跟随说明”“Tab 走出面板就关”“再次打开重置展开状态”。
+
+F8
+严重程度：建议
+类别：Lab 与 applyComposerAction 的写回不一致
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/index.ts（AgentRoleModelPicker 夹具的 writeBack）；packages/nb-agent-ui/src/composer-actions.ts l.121（thinking.reset）
+现象：(1) 夹具 writeBack 只有 `"select-thinking": {layer:"props", key:"thinking"}`，但新场景全是用 `effort` 属性驱动的（effortViewOf 里 effort 优先于 thinking），所以在 Lab 里点一档：控件先亮新档，1.5 秒后放手又跳回旧档，因为没有任何属性变化；`reset-thinking` 事件登记了但没有 writeBack，点“用主力的默认”什么也不发生。开发者就是用 Lab 评审交互的。(2) applyComposerAction 的 thinking.set 同步更新了 effort（value、source:"session"），thinking.reset 却只把 thinking 置 null，effort 仍是 {source:"session", value:旧}，用它做写回的宿主（Lab、AgentConversationView.dom.test、entry.dom.test）里“用默认”没有可见效果；composer-actions.test.ts 里也没有 thinking.reset 的用例，thinking.set 也没有断言 effort 的变化。
+如何核实：读代码即可；Lab 行为是从代码推断（不跑开发服务），composer-actions.test.ts 里 grep thinking.reset 零命中，我跑了 nb-agent-ui 全部 dom 测试 212 个全绿，说明没人拦。
+建议改法：thinking.reset 的 reducer 里把 effort 的 source 改成 follow?.source（value 用 follow 无法推出时置 null），补用例；夹具 writeBack 给 effort 写回（或在 reducer 里处理），为 reset-thinking 也登记写回。
+
+F9
+严重程度：建议
+类别：界面文案 / 国际化
+位置：RolesPage.vue 的 iconItems（`label: key`）与 DropdownMenu 图标菜单
+现象：自建角色的图标菜单每项的 label 是内部键原样（feather、bolt、fold-vertical、book-open、wand、flask……），中文与英文界面都是这些英文 slug；菜单里也没有标出当前选中的图标；图标是纯 class 渲染，没有可访问名称之外的说明。
+为什么是问题：违反“界面文案专业而易懂”（ui-development-spec 自检清单），slug 是实现细节；用户靠图标本身选，label 只对读屏和悬停有意义，应是“羽毛、闪电……”。ROLE_ICONS 与 role-icons.ts 的键没有翻译表。
+如何核实：读 RolesPage.vue（`const iconItems = Object.entries(ROLE_ICONS).map(([key, iconClass]) => ({id: key, label: key, iconClass}))`）与 locales 里 roles.effort 没有图标名；RolesPage.dom.test.ts 只断言图标按钮存在。
+建议改法：locale 里加 roles.icons.<key> 文案；给当前图标加选中态（DropdownMenu 的 radio 或 check 项）；加一条“选图标写 icon”的测试（见 F7）。
+
+F10
+严重程度：建议
+类别：国际化 / 死键
+位置：RolesPage.vue l.67 附近 `placeholder: stored === "" ? reason : \`${levelLabel(stored)}（${reason}）\``；packages/neuro-book/src/plugins/models/locales/{zh-CN,en-US}.json 的 roles.effort.label、roles.effort.off
+现象：(1) 停用的思考档框里已存档位后面写“高（先绑定模型）”，括号是代码里写死的全角括号，en-US 下显示成 “High（Bind a model first）”，混着全角符号；应当由 locale 的插值句子给出。(2) roles.effort.label 与 roles.effort.off 两个键在 zh-CN 与 en-US 里都有，代码里没有任何引用（我 grep 了 plugins 下 .vue 与 .ts 所有写法），是死键；zh-CN 与 en-US 两边键集合一致（我对照了 roles.effort 下 14 个键，agent 的 composer.model 与 composer.thinkingShort 也成对）。
+如何核实：grep 'effort\.label\|effort\.off' 在 plugins/models/web 下零命中；en-US 的括号看 RolesPage.vue 模板字符串。
+建议改法：locale 里加 `roles.effort.storedWhy: "{{level}} ({{reason}})"`（zh 用全角）；删掉两个死键或用上 label 作列头 aria。
+
+F11
+严重程度：建议
+类别：代码质量 / 性能
+位置：RolesPage.vue 模板里 effortControl(role) 在同一行内被调用 5 次（value、options、placeholder、disabled、clearable 的 v-if）
+现象：每次渲染每一行重复计算 5 遍（含 Map 遍历与组装选项，档位不在选项里时还调 requestEffort）。
+为什么是问题：量小（角色行数以个位计）所以只是代码质量：同一份数据多次推导，改一处易漏另一处；也和 modelsByRef 已经用 computed 缓存的写法不一致。
+如何核实：读 template（`effortControl(role).value` / `.options` / `.placeholder` / `.disabled` / `.clearable`）。
+建议改法：包成 `const efforts = computed(() => new Map(roles.map(r => [r.id, effortControl(r)])))`，模板里取一次。
+
+F12
+严重程度：建议
+类别：键盘交互
+位置：AgentRoleModelPicker.vue 的 navigables()/onBodyKeydown 与 `.acv-role-picker__roles` 的两列网格
+现象：方向键序列是 DOM 顺序（搜索框、组头、行）；角色页在面板内容宽 ≥480px 时是两列网格，行主序排列，ArrowDown 实际向“右边那一格”走，ArrowUp 向左，没有 ArrowLeft/ArrowRight。从“极轻量”按下箭头会跳到同一行右边的“快速”，不是正下方的“主力”。
+为什么是问题：方向键的方向与视觉位置相反，两列版式下与用户预期不符；.md 只写“搜索框、组头、行在同一条方向键序列里”，没有说明两列时的行为。
+如何核实：读代码；没有在真实布局里按键验证（规则不跑 e2e），所以标建议。navigables 只用 querySelectorAll 的文档顺序。
+建议改法：两列时 ArrowLeft/Right 按序列走、ArrowUp/Down 在同一列里跳 2；或在 .md 写明“两列时按行主序”这一决定并告知开发者。
+
+F13
+严重程度：建议
+类别：代码质量 / 注释
+位置：packages/neuro-book/src/plugins/agent/web/session-host.ts（新增的 effortViewFor 与 followOf 插在 `recallOf` 的文档注释与函数之间）
+现象：原来紧挨着 `function recallOf` 的那段 `/** 上方向键翻的内容……（输出 29）。*/` 现在后面跟着新函数的 `/** 选择器里思考档的状态……*/`、effortViewFor 与 followOf，最后才是 recallOf；上方向键那段注释脱离了它说明的函数，反而贴在 effortViewFor 上。
+如何核实：git diff 1a2716e..HEAD -- packages/neuro-book/src/plugins/agent/web/session-host.ts 的第 124-147 行附近。
+建议改法：把两个新函数移到 recallOf 之后（或之前整块），让旧注释回到 recallOf 上。
+
+F14
+严重程度：建议
+类别：文档 / 组件登记
+位置：packages/nb-agent-ui/src/vue/composer/AgentIcon.md
+现象：AgentIcon 是新组件（带同名 .md），但没有 Lab 夹具，frontmatter 里也没有 `验证入口: AgentRoleModelPicker`；它的全部输入来自宿主链（状态注入）。同级的 AgentContextMeter.md、AgentChainBlock.md 都写了验证入口。
+为什么是问题：components.md 约定“不能独立验证的零件登记验证入口”，否则 Component Lab 的索引把它当成“没有场景的组件”（从 component-index-model.ts 的逻辑推断，未跑 Lab）。
+如何核实：grep 验证入口 packages/nb-agent-ui/src/vue；packages/nb-agent-ui 的 Lab 入口里没有 AgentIcon。
+建议改法：在 AgentIcon.md frontmatter 加一行 `验证入口: AgentRoleModelPicker`。
+
+F15
+严重程度：建议
+类别：主题 / 注释失效
+位置：packages/nb-ui/themes/nbook/vars.css 暗色块里的“暗色的三处方向反转”注释第 ③ 条（约 l.436-441：“几何不变：18/48 与 36/100 亮暗同值”）
+现象：这次亮色 --elevation-popover 改成与菜单档同值（0.5px 圈、2px/6px 近投影、10px/28px/-6px 远投影），而暗色块的 popover 仍是 1px 圈加 6/16、20/48、36/80 三层，亮暗的 popover 几何不再相同；“亮暗同值”的注释已不成立。新写的注释已说明“暗色不改”，但没有回头改那一条。亮色改轻是决定 10 的明确内容，我没有质疑，只指出注释与 design-language.md 里关于 popover 档位的表述（l.187）没有同步。
+如何核实：对照 vars.css 亮色块（l.300-307）与暗色块（l.447-451）的两个 --elevation-popover。
+影响面：nbook 亮色下所有用 `.nb-ui-popover-surface` 的浮层与 Tooltip（`.nb-ui-tooltip-surface` 也吃 --elevation-popover）：我数到 28 个文件引用该类；暗色与 aurora、macos、editorial 主题没有变。我没有看截图，决定 10 的“约 20 处”没有核实。
+建议改法：把“亮暗同值”那一句改成“只有对话框档亮暗同几何”，design-language.md 的档位表如实写亮色 popover 与 menu 同档。
+
+F15 更正（降级）
+上面 F15 里“暗色块注释第 ③ 条已不成立”这一点我没有核实到位：那条注释里的 18/48 与 36/100 本来就不是现行 popover 的数值（现行是 6/16、20/48、36/80），属于改动之前就存在的陈旧注释，与这次改动无关，撤回。F15 只保留一点：design-language.md l.187 的档位表写“弹出列表走 --elevation-menu，主题可以单独收小”，nbook 亮色下 popover 与 menu 现在是同一组字面量，表述不再区分，建议在表里或 vars.css 注释里说明“亮色两档同值”，严重程度仍为建议（低）。
+
+----
+有效发现编号：F1 F2 F3 F4 F5 F6（第 5 点以“F6 更正”为准）F7 F8 F9 F10 F11 F12 F13 F14 F15（以“F15 更正”降级后的内容为准）
+共 15 条：阻断 0；重要 4（F1 F2 F6 F7）；建议 11（F3 F4 F5 F8 F9 F10 F11 F12 F13 F14 F15）。
+F1 的“F? 测试一节”是笔误，指的是 F6 与 F7。
+
+已核对、未发现问题的方面：
+- 验证：nb-agent-ui 全部 vitest 21 文件 212 例通过；nb-ui 的 components.test.ts 109 例通过（nb-ui 全量里 token-consumption 有 1 条失败：styles.css 用了未声明的 --nb-side-panel-inset-top，该文件与这次提交无关，分支起点上就有）；neuro-book 的 provider-icons（bun test 5 例）、RolesPage 与 pages-focus 两个 dom 文件 8 例通过；nb-agent-ui 与 neuro-book 的 typecheck（tsc 与 vue-tsc 三套）全部退出码 0。HEAD 为 e5b2ca9。
+- 图标：image 类 34 个文件我用脚本逐个扫过，没有 currentColor、没有无 fill 的图元、没有黑色填充，现有登记下 provider-icons.test.ts 的检查是够的（它只查 currentColor 与 fill="#000(000)"，未来新增“没写 fill 的默认黑色图元”不会被发现，是已知盲区，不构成现有问题）；mask 类 21 个文件全是单色 currentColor（lmstudio 含 .3 透明度，mask 取 alpha 可用）。maskUrl 对 data 地址加引号并转义 `"`，与 Vite 内联出的 data:image/svg+xml,%3csvg… 兼容。
+- 按需加载确实拆了块：已构建的 dist/web/assets 里 urls-DVHbqhX2.js 单独成块、88 KB，由 index 动态导入；大于 4 KB 的两张（antigravity、meta）是独立文件。
+- 表晚到时首字母换图标：AgentIcon 在 computed 里调端口，用例覆盖；providerIcon 对 shallowRef 的读取在渲染里被追踪，正确。
+- SegmentedControl 的 raised、inherited、describedby 与同名 .md、components.test.ts 一致；raised 遇到 wrap 或 count 退回 solid 的逻辑与 .md 相符。
+- nbook 暗色 --elevation-popover 未改；其它主题（aurora、macos、editorial）未改。
+- zh-CN 与 en-US 键成对（nb-agent-ui 与 models 两处）。
+- 桌面端图标加载：应用由本机 http 服务提供（views:// 只是启动壳），mask 的同源要求不受 file:// 影响；无 CSP 拦截 data: 图片。
+- 我没有跑 e2e 与开发服务（规则不允许），所以真实浏览器里的布局只靠 F1、F4 两处最小复现的 headless Chrome 验证；窄屏、英文、暗色的视觉没有核实，已在 F6 中指出缺少场景。
