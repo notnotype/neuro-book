@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, reactive, shallowRef, watch} from "vue";
+import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch} from "vue";
 import type {Component, ShallowRef} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -32,6 +32,8 @@ import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey} from "nbook/shared/host";
+import {PROJECTS_DESK_POINT} from "nbook/plugins/projects/shared/desk";
+import type {DeskImplementation} from "nbook/plugins/projects/web/desk";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
@@ -83,6 +85,8 @@ export const CONVERSATION_PAGE = "nbook.agent.conversation";
 type ConversationPosition = "view" | "page" | "desk";
 
 const ACTIVITY_ITEM = "nbook.agent.activity";
+/** 书房案头看板娘那一格上的入口（`projects.desk`）。 */
+const DESK_CONTRIBUTION = "nbook.agent.desk";
 export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
 export const FOCUS_SESSION_COMMAND = "nbook.agent.focus-session";
@@ -190,6 +194,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: CONVERSATION_PAGE, declaration: PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: REQUESTS_PAGE, declaration: REQUESTS_PAGE_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: ACTIVITY_ITEM, declaration: ACTIVITY_DECLARATION},
+            {capability: PROJECTS_DESK_POINT, id: DESK_CONTRIBUTION, declaration: {}},
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             {capability: SETTINGS_PAGES_POINT, id: PROFILES_SECTION, declaration: PROFILES_PAGE},
             {capability: SETTINGS_PAGES_POINT, id: PERMISSIONS_SECTION, declaration: PERMISSIONS_PAGE},
@@ -677,6 +682,55 @@ export const agentBrowserPlugin: PluginDefinition = {
              * 合计，写在面板头标题后与入口角标上（views.md 输出 17）；视图没打开时照样读。
              */
             const unreadTotal = computed(() => providers.value.reduce((sum, {provider}) => sum + provider.contacts.value.reduce((inner, contact) => inner + (contact.unread ?? 0), 0), 0));
+            /**
+             * 书房案头的看板娘入口与滑出聊天（conversation.md 输出 54）：只在书房画（`projects.desk`），书架画出来时才加载；面板里的对话第一次
+             * 打开时才加载，宿主是 `desk` 位置的那一个。
+             */
+            const deskConversation = async (): Promise<Component> => {
+                const {createAgentViewRegistry, baseContributions, renderers, servicesFor} = await conversationParts();
+                const {ConversationHost} = await vueOnce();
+                const {services} = servicesFor(() => hostAt("desk").profileKey());
+                return defineComponent({
+                    name: "AgentDeskConversation",
+                    props: {close: {type: Function, required: true}},
+                    setup(props, {expose}) {
+                        const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
+                        const inner = ref<{focusComposer(): void} | null>(null);
+                        expose({focusComposer: () => inner.value?.focusComposer()});
+                        return () => h(ConversationHost, {
+                            ...conversationProps("desk", hostAt("desk"), registry.value, services.value, renderers),
+                            head: null,
+                            close: props.close as () => void,
+                            noSessionList: true,
+                            ref: inner,
+                        });
+                    },
+                });
+            };
+            const desk: DeskImplementation = {
+                load: async () => {
+                    const {default: DeskCompanion} = await import("./components/DeskCompanion.vue");
+                    const conversation = defineAsyncComponent(deskConversation);
+                    return defineComponent({
+                        name: "AgentDeskCompanion",
+                        emits: ["update:mood"],
+                        setup(_, {emit}) {
+                            const host = hostAt("desk");
+                            return () => h(DeskCompanion, {
+                                providers: providers.value,
+                                activity: activity.items.value,
+                                hasModel: hasModel.value,
+                                host,
+                                conversation,
+                                openModelSettings,
+                                ensureStarted,
+                                "onUpdate:mood": (mood: string) => emit("update:mood", mood),
+                            });
+                        },
+                    });
+                },
+            };
+
             const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
@@ -842,6 +896,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view},
                     [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page, [REQUESTS_PAGE]: requestsPage},
+                    [PROJECTS_DESK_POINT]: {[DESK_CONTRIBUTION]: desk},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),

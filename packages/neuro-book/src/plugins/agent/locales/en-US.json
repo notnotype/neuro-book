@@ -440,6 +440,12 @@
             "stopped": "This run already ended; the merged message wasn't sent. You can continue again.",
             "failed": "Couldn't continue ({{code}})."
         },
+        "desk": {
+            "labelUnread": "{{name}}, {{count}} unread",
+            "labelWaiting": "{{name}}, waiting for you",
+            "waiting": "Waiting for you",
+            "failed": "Couldn't load bots ({{code}})"
+        },
         "messages": {
             "noModel": {
                 "title": "Add a model provider first",
