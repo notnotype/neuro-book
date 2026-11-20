@@ -288,9 +288,7 @@
         "specialistHelp": "按用途单独绑模型；可以自己加",
         "unavailable": "不可用",
         "effort": {
-            "label": "思考档",
             "follow": "跟随模型",
-            "off": "关闭",
             "unbound": "先绑定模型",
             "none": "这个模型不支持思考",
             "fixed": "不能调档",
@@ -308,7 +306,26 @@
                 "high": "高",
                 "xhigh": "极高",
                 "max": "最大"
-            }
+            },
+            "storedWhy": "{{level}}（{{reason}}）"
+        },
+        "icons": {
+            "feather": "羽毛",
+            "bolt": "闪电",
+            "star": "星标",
+            "telescope": "望远镜",
+            "fold-vertical": "折叠",
+            "library": "书库",
+            "pen": "钢笔",
+            "brain": "大脑",
+            "book-open": "翻开的书",
+            "search": "搜索",
+            "wand": "魔杖",
+            "scale": "天平",
+            "shield": "盾牌",
+            "languages": "语言",
+            "palette": "调色板",
+            "flask": "烧瓶"
         }
     },
     "subject": {

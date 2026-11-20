@@ -129,24 +129,59 @@ const resetLabel = computed(() => {
  * 跟随来的当前档被再次选中也要写（钉成明确选择），所以不按“值没变就不发”过滤。
  */
 const THINKING_SETTLE_MS = 200;
+/** 写出去之后等宿主回写的上限：写失败时放手，别让控件停在没生效的档上。 */
+const THINKING_RELEASE_MS = 1500;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+function clearTimers(): void {
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    if (releaseTimer !== null) clearTimeout(releaseTimer);
+    settleTimer = null;
+    releaseTimer = null;
+}
+/** 窗口内的选择立刻写出去（卸载、换角色或模型之前调：后到的动作不能排在它前面）。 */
+function flushPending(): void {
+    if (settleTimer === null || pending.value === null) return;
+    clearTimeout(settleTimer);
+    settleTimer = null;
+    writePending(pending.value);
+}
+/** 取消还没写出去的选择（用户随后点了“用默认”：最后一个动作赢）。 */
+function cancelPending(): void {
+    clearTimers();
+    pending.value = null;
+}
+function writePending(value: string): void {
+    emit("select-thinking", value);
+    // 上一次写出去留下的放手计时器要换掉：它到点会把新的 pending 清掉，控件在宿主回写之前跳回旧档。
+    if (releaseTimer !== null) clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(() => {
+        releaseTimer = null;
+        pending.value = null;
+    }, THINKING_RELEASE_MS);
+}
 function onEffort(value: unknown): void {
     if (typeof value !== "string") return;
     pending.value = value;
+    // 新的选择开始：上一次的放手计时器作废，宿主回写或新一轮的放手由这一次接管。
+    if (releaseTimer !== null) clearTimeout(releaseTimer);
+    releaseTimer = null;
     if (settleTimer !== null) clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
         settleTimer = null;
-        emit("select-thinking", value);
-        // 宿主没有跟上（写失败）时也要放手，别让控件停在没生效的档上。
-        releaseTimer = setTimeout(() => {
-            releaseTimer = null;
-            pending.value = null;
-        }, 1500);
+        writePending(value);
     }, THINKING_SETTLE_MS);
 }
+function onReset(): void {
+    cancelPending();
+    emit("reset-thinking");
+}
 watch(() => [effortView.value.value, effortView.value.source], () => {
-    if (pending.value !== null && effortView.value.source === "session" && effortView.value.value === pending.value && settleTimer === null) pending.value = null;
+    if (pending.value !== null && effortView.value.source === "session" && effortView.value.value === pending.value && settleTimer === null) {
+        pending.value = null;
+        if (releaseTimer !== null) clearTimeout(releaseTimer);
+        releaseTimer = null;
+    }
 });
 
 const triggerText = computed(() => [selectedName.value, usedModel.value, effortText.value].filter((part) => part !== null).join(" · "));
@@ -207,11 +242,13 @@ function priceText(model: ComposerModelView): string | null {
 
 function selectRole(key: string): void {
     // 选了角色通常还要看绑定的是谁、调思考档，面板不关。
+    flushPending();
     emit("select-model", key);
 }
 
 function selectModel(model: ComposerModelView): void {
     if (model.unavailable !== undefined) return;
+    flushPending();
     emit("select-model", model.key);
     close();
 }
@@ -315,8 +352,9 @@ watch(() => props.disabled, (disabled) => {
 });
 onBeforeUnmount(() => {
     document.removeEventListener("pointerdown", onDocumentPointerDown, true);
-    if (settleTimer !== null) clearTimeout(settleTimer);
-    if (releaseTimer !== null) clearTimeout(releaseTimer);
+    // 窗口内选的档不丢：输入框随会话卸载时也照样写出去。
+    flushPending();
+    clearTimers();
 });
 </script>
 
@@ -340,7 +378,7 @@ onBeforeUnmount(() => {
             <span class="acv-role-picker__name">{{ selectedName }}</span>
             <template v-if="usedModel !== null"> · </template>
             <AgentIcon v-if="currentRole !== null && usedModel !== null" :icon="currentModelIcon" :size="12" class="acv-role-picker__ticon" />
-            <template v-if="usedModel !== null">{{ usedModel }}</template>
+            <span v-if="usedModel !== null" class="acv-role-picker__used">{{ usedModel }}</span>
         </span>
         <span v-if="effortText !== null" class="acv-role-picker__level" :class="{'is-following': inherited}">· {{ effortText }}</span>
         <span class="i-lucide-chevron-down acv-role-picker__chevron" aria-hidden="true" />
@@ -386,7 +424,7 @@ onBeforeUnmount(() => {
                     />
                     <span :id="noteId" class="acv-role-picker__effort-note" data-model-picker-effort-note>
                         <template v-if="effortNote !== null">{{ effortNote }}</template>
-                        <button v-else-if="resetLabel !== null" type="button" class="acv-role-picker__reset" data-model-picker-reset @click="emit('reset-thinking')">
+                        <button v-else-if="resetLabel !== null" type="button" class="acv-role-picker__reset" data-model-picker-reset @click="onReset">
                             <span class="i-lucide-rotate-ccw" aria-hidden="true" />{{ resetLabel }}
                         </button>
                         <span v-if="effortView.kind === 'levels' && !effortView.verified" class="i-lucide-circle-help acv-role-picker__help" :title="t('composer.model.effortUnverified')" role="img" :aria-label="t('composer.model.effortUnverified')" />
@@ -547,6 +585,15 @@ onBeforeUnmount(() => {
     font-weight: 400;
 }
 
+/* text-overflow 只对块级的文字容器有效，对 flex 容器本身无效：省略写在各段文字自己身上，长了各段一起收缩。 */
+.acv-role-picker__trigger .acv-role-picker__name,
+.acv-role-picker__trigger .acv-role-picker__used {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .acv-role-picker__trigger .acv-role-picker__level {
     flex: none;
     color: var(--accent-text);
@@ -574,12 +621,11 @@ onBeforeUnmount(() => {
     height: 13px;
 }
 
-/* 省略只吃前两段：档位放不下就没有意义了。 */
+/* 省略只吃前两段（角色或模型名、实际用的模型）：档位放不下就没有意义了。 */
 .acv-role-picker__text {
     min-width: 0;
     max-width: 18em;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 

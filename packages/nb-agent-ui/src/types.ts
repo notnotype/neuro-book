@@ -420,7 +420,7 @@ export type ComposerEffortView = {
      * “跟随”会用谁的默认：`role`（带角色的显示名，写“主力的默认”）或 `model`；null 是没有默认（交给服务商），这时没有
      * “用默认”的按钮。明确选了档时它说明“用默认”会回到哪里。
      */
-    follow?: {source: "role" | "model"; name?: string} | null;
+    follow?: {source: "role" | "model"; name?: string; /** 回到跟随后显示的档；宿主知道时给，不经服务端往返就地回写的宿主（Lab）靠它。 */ value?: string | null} | null;
 };
 
 export type ComposerModelView = {

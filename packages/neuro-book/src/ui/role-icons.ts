@@ -5,7 +5,11 @@
  * class 必须是写死的字面量：图标集按源码里出现的 class 名生成，拼出来的名字不会被扫到。
  */
 
-export const ROLE_ICONS: Readonly<Record<string, string>> = {
+/** 角色图标的键，顺序就是选图标菜单里的顺序；每个键在语言目录里要有 `roles.icons.<键>` 的名字（模型设置页）。 */
+export const ROLE_ICON_KEYS = ["feather", "bolt", "star", "telescope", "fold-vertical", "library", "pen", "brain", "book-open", "search", "wand", "scale", "shield", "languages", "palette", "flask"] as const;
+export type RoleIconKey = (typeof ROLE_ICON_KEYS)[number];
+
+export const ROLE_ICONS: Readonly<Record<RoleIconKey, string>> = {
     feather: "i-lucide-feather",
     bolt: "i-lucide-zap",
     star: "i-lucide-star",
@@ -37,7 +41,8 @@ export const DEFAULT_ROLE_ICON = "i-lucide-sparkles";
 
 /** 角色图标的 class：显式写的键优先，其次内置角色的默认键，最后通用图标。 */
 export function roleIconClass(roleId: string, key: string | null | undefined): string {
-    if (key !== null && key !== undefined && ROLE_ICONS[key] !== undefined) return ROLE_ICONS[key]!;
+    const known: Readonly<Record<string, string | undefined>> = ROLE_ICONS;
+    if (key !== null && key !== undefined && known[key] !== undefined) return known[key]!;
     const builtin = BUILTIN_ROLE_ICONS[roleId];
-    return builtin === undefined ? DEFAULT_ROLE_ICON : ROLE_ICONS[builtin] ?? DEFAULT_ROLE_ICON;
+    return builtin === undefined ? DEFAULT_ROLE_ICON : known[builtin] ?? DEFAULT_ROLE_ICON;
 }

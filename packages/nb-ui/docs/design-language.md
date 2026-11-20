@@ -184,7 +184,7 @@ Material Design 3 曾经把面色绑在 elevation 上（dp 越高、叠色越多
 | 档 | 用在哪 | token |
 | --- | --- | --- |
 | raised | 键帽（`Kbd`）、拖放落点标记 | `--elevation-raised` |
-| popover | 气泡、小提示；弹出列表（菜单、下拉、选择器、命令面板、候选）走 `--elevation-menu`，缺省同 popover，主题可以单独收小 | `--elevation-popover` |
+| popover | 气泡、小提示；弹出列表（菜单、下拉、选择器、命令面板、候选）走 `--elevation-menu`，缺省同 popover，主题可以单独收小（`nbook` 亮色两档同值，暗色不同） | `--elevation-popover` |
 | dialog | 对话框、浮动窗口、抽屉 | `--elevation-dialog` |
 
 **停靠的面不用浮层的阴影档。** 停在某个面旁边、一直待在那里的条与卡片（对话视图里贴着输入框的向导收起的小条、异步提问），

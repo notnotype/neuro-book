@@ -100,6 +100,7 @@ const PICKER_MODELS = [
 const BIG_MODELS = Array.from({length: 587}, (_, index) => ({key: `openrouter/m-${String(index)}`, label: `vendor/model-${String(index)}`, supportsImages: index % 3 === 0, group: "OpenRouter", groupId: "openrouter", contextWindow: 128_000, reasoning: index % 2 === 0}));
 
 const effort = (patch: Partial<NonNullable<ComposerView["effort"]>> = {}): NonNullable<ComposerView["effort"]> => ({kind: "levels", levels: ["low", "medium", "high", "xhigh"], canOff: true, verified: true, value: "high", source: "role", follow: {source: "role", name: "主力"}, ...patch});
+const ENGLISH_ROLE_NAMES: Record<string, string> = {"role:tiny": "Tiny", "role:fast": "Fast", "role:main": "Main", "role:deep": "Deep", "role:compaction": "Compaction", "role:lore": "Lore research"};
 const base = {roles: PICKER_ROLES, models: PICKER_MODELS, groups: PICKER_GROUPS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: [] as string[], thinking: null, canManage: true};
 
 export const agentRoleModelPickerScenes: RolePickerScene[] = [
@@ -113,6 +114,11 @@ export const agentRoleModelPickerScenes: RolePickerScene[] = [
     {id: "none", label: "选了模型，模型不支持思考", input: {props: {...base, modelKey: "deepseek/flash", effectiveModel: "DeepSeek Flash", effort: {kind: "none", levels: [], canOff: false, verified: true, value: null, source: null, follow: null}}}},
     {id: "unbound", label: "选的角色没绑定", input: {props: {...base, modelKey: "role:deep", effectiveModel: null, effort: {kind: "none", levels: [], canOff: false, verified: true, value: null, source: null, follow: null}}}},
     {id: "big-group", label: "OpenRouter 587 个模型，当前模型在中间（模型库页：只展开前后各 10 行）", input: {props: {...({labOpen: "models"} as object), ...base, models: [...PICKER_MODELS, ...BIG_MODELS], modelKey: "openrouter/m-300", effectiveModel: "vendor/model-300", effort: effort({value: null, source: null, follow: null})}}},
+    {id: "narrow", label: "窄面板（340px）：五档写缩写，没有横向溢出", input: {props: {...({labWidth: 340} as object), ...base, effort: effort({levels: ["minimal", "low", "medium", "high"], value: "medium", source: "session"})}}},
+    {id: "narrow-long-names", label: "窄面板（340px），角色名与模型名都很长：触发器省略前两段，档位留着", input: {props: {...({labWidth: 340} as object), ...base, roles: PICKER_ROLES.map((role) => (role.key === "role:main" ? {...role, name: "主力（写长篇正文时专用的那一个）", modelLabel: "vendor/an-extremely-long-model-name-q4_k_m"} : role)), effectiveModel: "vendor/an-extremely-long-model-name-q4_k_m", effort: effort({value: "high", source: "session"})}}},
+    {id: "wide", label: "宽面板（520px）：角色页两列，五档写全名", input: {props: {...({labWidth: 520, labOpen: "roles"} as object), ...base, effort: effort({levels: ["low", "medium", "high", "xhigh"], value: "medium", source: "session"})}}},
+    {id: "english", label: "英文界面（420px）：缩写与说明不截断", input: {props: {...({labWidth: 420, labLocale: "en-US", labOpen: "roles"} as object), ...base, roles: PICKER_ROLES.map((role) => ({...role, name: ENGLISH_ROLE_NAMES[role.key] ?? role.name})), effort: effort({value: "high", source: "session", follow: {source: "role", name: "Main"}})}}},
+    {id: "english-narrow-seven", label: "英文界面、七档、340px", input: {props: {...({labWidth: 340, labLocale: "en-US"} as object), ...base, roles: PICKER_ROLES.map((role) => ({...role, name: ENGLISH_ROLE_NAMES[role.key] ?? role.name})), effort: effort({levels: ["minimal", "low", "medium", "high", "xhigh", "max"], value: "xhigh", source: "session", follow: {source: "role", name: "Main"}})}}},
     {id: "legacy", label: "旧宿主：只给档位列表（兼容）", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["off", "low", "medium", "high"], thinking: "high", canManage: true}}},
 ];
 

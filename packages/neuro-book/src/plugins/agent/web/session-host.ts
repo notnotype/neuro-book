@@ -123,7 +123,6 @@ const MODE_OPTIONS: readonly {readonly key: AgentMode; readonly icon: string}[] 
     {key: "plan", icon: "i-lucide-clipboard-list"},
 ];
 
-/** 上方向键翻的内容：当前路径上用户说的话，最新在前，去重。补充说明与命令不算；回退掉的分支不在路径上，也不算（输出 29）。 */
 /** 选择器里思考档的状态：能力、夹取后的有效档与来源由内核按这次解析算好（`effectiveEffort`、`effortSource`），这里只翻成视图。 */
 function effortViewFor(reasoning: ModelReasoning, effective: string | null, source: EffortSource | null, follow: ComposerEffortView["follow"]): ComposerEffortView {
     if (reasoning.kind !== "levels") return {kind: reasoning.kind, levels: [], canOff: false, verified: true, value: null, source: null, follow: null};
@@ -131,18 +130,16 @@ function effortViewFor(reasoning: ModelReasoning, effective: string | null, sour
 }
 
 /**
- * “用默认”会回到哪里：会话选的是角色（或没选、按 Profile 的缺省角色）且那个角色设了默认档时是它；否则模型自己的默认
- * （线上不指定档时确实有确定的行为）；都没有时没有默认，不画“用默认”。
+ * “用默认”会回到哪里：内核这次解析走的角色设了默认档时是它，否则是模型自己的默认（线上不指定档时模型决定，
+ * 不一定知道具体是哪一档）。会话钉了档之后总能回到跟随，所以只要模型能调档就有去处。
+ * 角色与它的默认档来自内核的解析（Profile 声明的角色、会话选的角色、设置覆盖都已经算进去），这里不再自己推。
  */
-function followOf(selection: string | null, profileRole: string | undefined, roles: readonly ComposerRoleView[], reasoning: ModelReasoning): ComposerEffortView["follow"] {
-    const roleId = selection === null || selection === "" ? profileRole ?? "main" : roleOfReference(selection);
-    if (roleId !== null) {
-        const role = roles.find((item) => item.key === roleReference(roleId));
-        if (role !== undefined && role.effort !== undefined && role.effort !== null) return {source: "role", name: role.name};
-    }
-    return reasoning.kind === "levels" && reasoning.unset !== null ? {source: "model"} : null;
+function followOf(model: {readonly role?: string; readonly defaultEffort?: string}, roles: readonly ComposerRoleView[]): ComposerEffortView["follow"] {
+    if (model.role !== undefined && model.defaultEffort !== undefined) return {source: "role", name: roles.find((item) => item.key === roleReference(model.role!))?.name ?? model.role};
+    return {source: "model"};
 }
 
+/** 上方向键翻的内容：当前路径上用户说的话，最新在前，去重。补充说明与命令不算；回退掉的分支不在路径上，也不算（输出 29）。 */
 function recallOf(messages: readonly MessageView[]): string[] {
     const seen = new Set<string>();
     for (let index = messages.length - 1; index >= 0 && seen.size < RECALL_LIMIT; index -= 1) {
@@ -155,9 +152,10 @@ function recallOf(messages: readonly MessageView[]): string[] {
     return [...seen];
 }
 
-/** 这条日志事件会不会让解析到的模型变：只有核心设置里的模型与推理档。 */
+/** 这条日志事件会不会让解析到的模型变：核心设置里的模型与推理档，或换了 Profile（解析按 Profile 声明的角色，默认档随之变）。 */
 function changesResolvedModel(event: unknown): boolean {
     const {type, data} = event as {readonly type?: unknown; readonly data?: {readonly extension?: unknown; readonly patch?: Readonly<Record<string, unknown>>}};
+    if (type === "profileChanged") return true;
     return type === "settingsChanged" && data?.extension === "core" && data.patch !== undefined && ("model" in data.patch || "effort" in data.patch);
 }
 
@@ -1937,7 +1935,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         // bot 档：当前会话有归属（还没读到时也按这一档，最严）。
         const owned = target !== null && target.owner !== null;
         const identity = target?.owner === null || target?.owner === undefined ? null : deps.owners?.identity(target.owner) ?? null;
-        const model = (meta?.model ?? null) as {ok: true; id: string; contextWindow: number; efforts: readonly string[]; reasoning?: ModelReasoning; effectiveEffort?: string | null; effortSource?: EffortSource | null} | ({ok: false} & ModelFailure) | null;
+        const model = (meta?.model ?? null) as {ok: true; id: string; contextWindow: number; efforts: readonly string[]; reasoning?: ModelReasoning; effectiveEffort?: string | null; effortSource?: EffortSource | null; role?: string; defaultEffort?: string} | ({ok: false} & ModelFailure) | null;
         const usage = target?.transcript.usage();
         const run = target?.transcript.run();
         const warnCost = deps.warnCost();
@@ -2017,7 +2015,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 modelKey: settings.model ?? "",
                 thinkingLevels: model?.ok === true ? [...model.efforts] : [],
                 thinking: settings.effort ?? null,
-                ...(model?.ok === true && model.reasoning !== undefined ? {effort: effortViewFor(model.reasoning, model.effectiveEffort ?? null, model.effortSource ?? null, followOf(settings.model ?? null, profile?.role, roles, model.reasoning))} : {}),
+                ...(model?.ok === true && model.reasoning !== undefined ? {effort: effortViewFor(model.reasoning, model.effectiveEffort ?? null, model.effortSource ?? null, followOf(model, roles))} : {}),
                 groups: [...deps.groups()],
                 approval: {options: [...APPROVAL_OPTIONS], value: settings.approvalMode ?? "ask"},
                 // 模式扩展跟着切换模式的工具装（主创、bot 的岗位 Profile）；还没有会话时要建的就是主创。

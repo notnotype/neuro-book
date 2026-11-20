@@ -118,7 +118,7 @@ export function applyComposerAction(composer: ComposerView, action: AgentViewAct
         case "mode.set": return {...composer, mode: action.mode};
         case "model.set": return {...composer, modelKey: action.modelKey};
         case "thinking.set": return {...composer, thinking: action.level, ...(composer.effort === undefined ? {} : {effort: {...composer.effort, value: action.level, source: "session" as const}})};
-        case "thinking.reset": return {...composer, thinking: null};
+        case "thinking.reset": return {...composer, thinking: null, ...(composer.effort?.follow == null ? {} : {effort: {...composer.effort, value: composer.effort.follow.value ?? composer.effort.value, source: composer.effort.follow.source}})};
         default: return null;
     }
 }

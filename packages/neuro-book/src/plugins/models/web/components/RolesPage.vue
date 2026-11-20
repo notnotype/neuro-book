@@ -6,7 +6,7 @@ import {Badge, Button, DropdownMenu, IconButton, Input, SearchSelect, Select, To
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
-import {ROLE_ICONS, roleIconClass} from "nbook/ui/role-icons";
+import {ROLE_ICON_KEYS, ROLE_ICONS, roleIconClass} from "nbook/ui/role-icons";
 
 import {requestEffort} from "nbook/plugins/models/shared/contracts";
 
@@ -68,7 +68,7 @@ function effortControl(role: SnapshotRole): EffortControl {
     const model: SnapshotModel | undefined = role.model === null ? undefined : modelsByRef.value.get(role.model);
     const reasoning = model?.thinking;
     const reason = role.model === null ? text("roles.effort.unbound") : model === undefined ? text("roles.unavailable") : reasoning?.kind === "none" ? text("roles.effort.none") : reasoning?.kind === "fixed" ? text("roles.effort.fixed") : "";
-    if (reasoning === undefined || reasoning.kind !== "levels") return {options: [follow], value: "", disabled: true, placeholder: stored === "" ? reason : `${levelLabel(stored)}（${reason}）`, clearable: stored !== ""};
+    if (reasoning === undefined || reasoning.kind !== "levels") return {options: [follow], value: "", disabled: true, placeholder: stored === "" ? reason : text("roles.effort.storedWhy", {level: levelLabel(stored), reason}), clearable: stored !== ""};
     const keys = [...(reasoning.off === "disable" ? ["off"] : []), ...reasoning.levels];
     const options: EffortControl["options"] = [follow, ...keys.map((key) => ({value: key, label: levelLabel(key), ...(reasoning.verified ? {} : {description: text("roles.effort.unverified")})}))];
     if (stored !== "" && !keys.includes(stored)) {
@@ -77,6 +77,9 @@ function effortControl(role: SnapshotRole): EffortControl {
     }
     return {options, value: stored === "" ? FOLLOW : stored, disabled: false, placeholder: "", clearable: false};
 }
+
+/** 每行的思考档控件：随快照算一次，模板里按角色取（一行要读五项）。 */
+const efforts = computed(() => new Map((snapshot.value?.roles ?? []).map((role) => [role.id, effortControl(role)] as const)));
 
 async function setEffort(role: SnapshotRole, value: string): Promise<void> {
     const next = value === FOLLOW || value === "" ? null : value;
@@ -90,7 +93,11 @@ async function setIcon(role: SnapshotRole, key: string): Promise<void> {
     const result = await props.store.call("setRole", {id: role.id, icon: key});
     if (!result.ok) report(role, result.failure);
 }
-const iconItems = Object.entries(ROLE_ICONS).map(([key, iconClass]) => ({id: key, label: key, iconClass}));
+/** 图标菜单：名字取自语言目录（`roles.icons.<键>`），当前的画勾（radio）。 */
+function iconItemsFor(role: SnapshotRole) {
+    const current = role.icon ?? null;
+    return ROLE_ICON_KEYS.map((key) => ({id: key, type: "radio" as const, label: text(`roles.icons.${key}`), iconClass: ROLE_ICONS[key], checked: current === key}));
+}
 
 const groups = computed(() => [
     {axis: "gradient" as const, title: text("roles.gradient"), help: text("roles.gradientHelp")},
@@ -229,7 +236,7 @@ function problem(role: SnapshotRole): string {
                             </template>
                             <template v-else-if="drafts.get(role.id) !== undefined">
                                 <span class="roles-page__name">
-                                    <DropdownMenu :items="iconItems" :disabled="disabled" @select="(key: string) => setIcon(role, key)">
+                                    <DropdownMenu :items="iconItemsFor(role)" :disabled="disabled" @select="(key: string) => setIcon(role, key)">
                                         <IconButton size="xs" :icon-class="roleIconClass(role.id, role.icon)" :aria-label="text('roles.effort.iconOf', {name: role.name})" :title="text('roles.effort.pickIcon')" :disabled="disabled" data-role-icon />
                                     </DropdownMenu>
                                     <Input v-model="drafts.get(role.id)!.name" size="sm" :aria-label="text('roles.nameOf', {name: role.name})" :disabled="disabled" @focusin="startEditing(role)" @focusout="finishEditing(role)" @keydown.enter="rename(role)" />
@@ -254,15 +261,15 @@ function problem(role: SnapshotRole): string {
                         </div>
                         <div class="roles-page__effort" data-role-effort>
                             <Select
-                                :model-value="effortControl(role).value"
-                                :options="effortControl(role).options"
+                                :model-value="efforts.get(role.id)!.value"
+                                :options="efforts.get(role.id)!.options"
                                 size="sm"
-                                :placeholder="effortControl(role).placeholder"
-                                :disabled="disabled || effortControl(role).disabled"
+                                :placeholder="efforts.get(role.id)!.placeholder"
+                                :disabled="disabled || efforts.get(role.id)!.disabled"
                                 :aria-label="text('roles.effort.of', {name: roleName(text, role)})"
                                 @update:model-value="(value: string) => setEffort(role, value)"
                             />
-                            <Tooltip v-if="effortControl(role).clearable" :text="text('roles.effort.clear', {name: roleName(text, role)})">
+                            <Tooltip v-if="efforts.get(role.id)!.clearable" :text="text('roles.effort.clear', {name: roleName(text, role)})">
                                 <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text('roles.effort.clear', {name: roleName(text, role)})" :disabled="disabled" data-role-effort-clear @click="setEffort(role, '')" />
                             </Tooltip>
                         </div>
@@ -378,6 +385,12 @@ function problem(role: SnapshotRole): string {
         grid-column: 2 / 4;
         grid-row: 2;
     }
+
+    /* 删除按钮留在第一行行尾；不写位置时自动摆放会把它落进中间那一列。 */
+    .roles-page__tail {
+        grid-column: 3;
+        grid-row: 1;
+    }
 }
 
 @container (max-width: 520px) {
@@ -396,6 +409,11 @@ function problem(role: SnapshotRole): string {
 
     .roles-page__effort {
         grid-row: 3;
+    }
+
+    .roles-page__tail {
+        grid-column: 2;
+        grid-row: 1;
     }
 }
 </style>

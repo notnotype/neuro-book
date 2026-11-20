@@ -1,6 +1,7 @@
 ---
 标签: [state:inject]
 别名: ["服务商与角色图标", "Agent Icon"]
+验证入口: AgentRoleModelPicker
 ---
 
 # AgentIcon

@@ -77,7 +77,57 @@ describe("角色的思考档", () => {
     });
 });
 
+/** 展开某个角色的思考档下拉，交回选项。 */
+async function openEffort(role: string): Promise<HTMLElement[]> {
+    triggerOf(role).dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+    await flushPromises();
+    return [...document.body.querySelectorAll<HTMLElement>("[role='option']")];
+}
+/** 选中一项：Reka 的 Select 按指针类型决定在按下、抬起还是点击时选，三个都发。 */
+function choose(item: HTMLElement): void {
+    item.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, pointerType: "mouse", button: 0}));
+    item.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerType: "mouse", button: 0}));
+    item.click();
+}
+/** 选项的名字：每项的第一段文字（说明紧跟在名字后面）。 */
+const labelsOf = (items: HTMLElement[]) => items.map((item) => ["跟随模型", "关闭", "极低", "极高", "低", "中", "高", "最大"].find((label) => item.textContent?.startsWith(label)) ?? item.textContent);
+const effortInStore = (store: {snapshot: {value: ModelsSnapshot | null}}, role: string) => store.snapshot.value?.roles.find((item) => item.id === role)?.effort;
+
+describe("选思考档", () => {
+    it("选项是“跟随模型”、能真关时的“关闭”和模型的档位；选一档写 effort，选“跟随模型”写 null", async () => {
+        const {store} = await render();
+        const items = await openEffort("main");
+        expect(labelsOf(items)).toEqual(["跟随模型", "关闭", "低", "中", "高"]);
+        choose(items.find((item) => item.textContent?.startsWith("低"))!);
+        await waitUntil("选低写进去", () => effortInStore(store, "main") === "low", {timeoutMs: 10_000});
+        const again = await openEffort("main");
+        choose(again.find((item) => item.textContent?.startsWith("跟随模型"))!);
+        await waitUntil("选跟随模型写 null", () => effortInStore(store, "main") === null, {timeoutMs: 10_000});
+    });
+
+    it("只能降到最低档的模型没有“关闭”；没写支持哪几档的梯级，选项旁有说明", async () => {
+        const providers = SAMPLE_SNAPSHOT.providers.map((provider) => (provider.id === "anthropic"
+            ? {...provider, models: [sampleModel("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"], thinking: {kind: "levels", levels: ["low", "medium"], off: "lowest", unset: null, verified: false}})]}
+            : provider));
+        await render({providers, roles: SAMPLE_SNAPSHOT.roles});
+        const items = await openEffort("main");
+        // main 已存的“高”不在这个模型的档里：补在最后一项（停用，说明实际用哪一档）。
+        expect(labelsOf(items)).toEqual(["跟随模型", "低", "中", "高"]);
+        expect(items.slice(1, 3).every((item) => item.textContent?.includes("没写支持哪几档"))).toBe(true);
+    });
+});
+
 describe("自建角色的图标", () => {
+    it("图标菜单每项有中文名，选了写 icon，当前的画勾", async () => {
+        const {store} = await render();
+        (document.querySelector("[data-role-row='polish'] [data-role-icon]") as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+        await flushPromises();
+        const items = [...document.body.querySelectorAll<HTMLElement>("[role='menuitemradio']")];
+        expect(items.map((item) => item.textContent?.trim())).toContain("烧瓶");
+        choose(items.find((item) => item.textContent?.trim() === "烧瓶")!);
+        await waitUntil("选图标写进去", () => store.snapshot.value?.roles.find((item) => item.id === "polish")?.icon === "flask", {timeoutMs: 10_000});
+    });
+
     it("内置角色画自己的图标；自建角色有选图标的按钮", async () => {
         await render();
         expect(document.querySelector("[data-role-row='main'] .i-lucide-star")).not.toBeNull();

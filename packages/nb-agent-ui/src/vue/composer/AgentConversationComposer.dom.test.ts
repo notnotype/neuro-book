@@ -202,6 +202,74 @@ describe("AgentRoleModelPicker", () => {
         picker.unmount();
     });
 
+    it("写出去之后到宿主回写之前控件停在选的档上：1.5 秒后写失败才放手；第二次选档不被上一次的放手计时清掉", async () => {
+        // 合并窗口与放手都是真实计时器：只有拨假时钟才能断言窗口内的状态。
+        vi.useFakeTimers(); // test-lint-allow fake-timer: 见上一条
+        try {
+            const picker = await open({effort: levels({value: "low", source: "session"})});
+            const checked = () => radios().map((item) => item.getAttribute("aria-checked"));
+            radios()[2]!.click();
+            vi.advanceTimersByTime(200); // test-lint-allow fake-timer: 见上
+            expect(picker.emitted("select-thinking")).toEqual([["medium"]]);
+            // 宿主还没回写：仍停在选的“中”，没有跳回“低”。
+            await nextTick();
+            expect(checked()).toEqual(["false", "false", "true", "false"]);
+            // 1.3 秒后再选一档：上一次的放手计时（到点会清掉待写的档）不能影响这一次。
+            vi.advanceTimersByTime(1_300); // test-lint-allow fake-timer: 见上
+            radios()[3]!.click();
+            vi.advanceTimersByTime(200); // test-lint-allow fake-timer: 见上
+            expect(picker.emitted("select-thinking")).toEqual([["medium"], ["high"]]);
+            vi.advanceTimersByTime(1_000); // test-lint-allow fake-timer: 见上
+            await nextTick();
+            expect(checked()).toEqual(["false", "false", "false", "true"]);
+            // 一直没有回写（写失败）：写出去 1.5 秒后放手，回到宿主的值。
+            vi.advanceTimersByTime(600); // test-lint-allow fake-timer: 见上
+            await nextTick();
+            expect(checked()).toEqual(["false", "true", "false", "false"]);
+            picker.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("宿主回写之后控件不再停在选的档上；点“用默认”取消还没发的选择；组件在窗口内卸载时选的档照样发出", async () => {
+        vi.useFakeTimers(); // test-lint-allow fake-timer: 见上
+        try {
+            const written = await open({effort: levels({value: "low", source: "session"})});
+            radios()[2]!.click();
+            vi.advanceTimersByTime(200); // test-lint-allow fake-timer: 见上
+            // 宿主写回了这一档、随后又被别处改成“高”：回写之后不能再被 pending 压着。
+            await written.setProps({effort: levels({value: "medium", source: "session"})});
+            await written.setProps({effort: levels({value: "high", source: "session"})});
+            expect(radios().map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "false", "true"]);
+            written.unmount();
+
+            const reset = await open({effort: levels({value: "low", source: "session"})});
+            radios()[3]!.click();
+            inside("[data-model-picker-reset]").click();
+            vi.advanceTimersByTime(2_000); // test-lint-allow fake-timer: 见上
+            expect(reset.emitted("select-thinking")).toBeUndefined();
+            expect(reset.emitted("reset-thinking")).toHaveLength(1);
+            reset.unmount();
+
+            const leaving = await open({effort: levels({value: "low", source: "session"})});
+            radios()[2]!.click();
+            leaving.unmount();
+            expect(leaving.emitted("select-thinking")).toEqual([["medium"]]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("分段的可访问说明指向右边的“跟随谁”；面板宽于 400 且不多于五档时写全名", async () => {
+        const wide = await open({effort: levels({value: "high", source: "role"}), anchor: {getBoundingClientRect: () => ({width: 480})} as unknown as HTMLElement});
+        const group = inside("[data-model-picker-thinking]");
+        const note = inside("[data-model-picker-effort-note]");
+        expect(group.getAttribute("aria-describedby") ?? group.querySelector("[aria-describedby]")?.getAttribute("aria-describedby")).toBe(note.id);
+        expect(radios().map((item) => item.textContent?.trim())).toEqual(["关闭", "低", "中", "高"]);
+        wide.unmount();
+    });
+
     it("跟随来的档：写跟随谁，再选它就钉成明确选择；明确选了档时有“用默认”回到跟随", async () => {
         const following = await open({effort: levels({value: "high", source: "role"})});
         expect(inside("[data-model-picker-effort-note]").textContent).toContain("跟随主力的默认");

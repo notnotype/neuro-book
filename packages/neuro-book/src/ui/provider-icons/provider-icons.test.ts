@@ -9,7 +9,8 @@ import {createRequire} from "node:module";
 import {dirname, join} from "node:path";
 
 import {PROVIDER_ICON_FILES} from "./files";
-import {BUILTIN_ROLE_ICONS, DEFAULT_ROLE_ICON, roleIconClass, ROLE_ICONS} from "../role-icons";
+import {BUILTIN_ROLE_ICONS, DEFAULT_ROLE_ICON, roleIconClass, ROLE_ICON_KEYS, ROLE_ICONS} from "../role-icons";
+import type {RoleIconKey} from "../role-icons";
 
 const icons = join(dirname(createRequire(import.meta.url).resolve("@lobehub/icons-static-svg/package.json")), "icons");
 const entries = Object.entries(PROVIDER_ICON_FILES);
@@ -38,12 +39,19 @@ describe("服务商图标表", () => {
 });
 
 describe("角色图标表", () => {
+    test("每个图标键在两种语言里都有名字（选图标菜单显示它）", () => {
+        for (const locale of ["zh-CN", "en-US"]) {
+            const names = (JSON.parse(readFileSync(join(import.meta.dir, `../../plugins/models/locales/${locale}.json`), "utf8")) as {roles: {icons: Record<string, string>}}).roles.icons;
+            expect(Object.keys(names).sort(), locale).toEqual([...ROLE_ICON_KEYS].sort());
+        }
+    });
+
     test("内置角色都有默认图标；不认识的键与没写键的自建角色用通用图标", () => {
         for (const id of ["tiny", "fast", "main", "deep", "compaction"]) {
             expect(BUILTIN_ROLE_ICONS[id]).toBeDefined();
-            expect(roleIconClass(id, null)).toBe(ROLE_ICONS[BUILTIN_ROLE_ICONS[id]!]!);
+            expect(roleIconClass(id, null)).toBe(ROLE_ICONS[BUILTIN_ROLE_ICONS[id] as RoleIconKey]);
         }
-        expect(roleIconClass("main", "bolt")).toBe(ROLE_ICONS.bolt!);
+        expect(roleIconClass("main", "bolt")).toBe(ROLE_ICONS.bolt);
         expect(roleIconClass("custom-1", null)).toBe(DEFAULT_ROLE_ICON);
         expect(roleIconClass("custom-1", "no-such-key")).toBe(DEFAULT_ROLE_ICON);
     });

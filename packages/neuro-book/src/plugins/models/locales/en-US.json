@@ -290,9 +290,7 @@
         "specialistHelp": "Models bound by purpose; you can add your own",
         "unavailable": "Unavailable",
         "effort": {
-            "label": "Thinking",
             "follow": "Follow the model",
-            "off": "Off",
             "unbound": "Bind a model first",
             "none": "This model does not think",
             "fixed": "Level cannot be set",
@@ -310,7 +308,26 @@
                 "high": "High",
                 "xhigh": "Extra high",
                 "max": "Max"
-            }
+            },
+            "storedWhy": "{{level}} ({{reason}})"
+        },
+        "icons": {
+            "feather": "Feather",
+            "bolt": "Bolt",
+            "star": "Star",
+            "telescope": "Telescope",
+            "fold-vertical": "Fold",
+            "library": "Library",
+            "pen": "Pen",
+            "brain": "Brain",
+            "book-open": "Open book",
+            "search": "Search",
+            "wand": "Wand",
+            "scale": "Scale",
+            "shield": "Shield",
+            "languages": "Languages",
+            "palette": "Palette",
+            "flask": "Flask"
         }
     },
     "subject": {

@@ -62,19 +62,47 @@ export function withAgentHost(inner: Component, options: {plain?: boolean} = {})
  */
 export function rolePickerSubject(): {default: Component} {
     const Picker = nbAgentUiLab.AgentRoleModelPicker as Component;
+    type Effort = {value: string | null; source: string | null; follow?: {source: string; value?: string | null} | null};
     const Framed = defineComponent({
         name: "LabRolePickerFrame",
         inheritAttrs: false,
         setup: (_props, {attrs}) => {
             const frame = shallowRef<HTMLElement | null>(null);
             const picker = shallowRef<{openPicker(search?: string): void} | null>(null);
-            // 场景属性 `labOpen: "models"`：挂上后直接打开面板的模型库页（截图要点面板里的页签，而面板传送在舞台外，点不到）。
-            const {labOpen, ...rest} = attrs as Record<string, unknown>;
+            // 场景属性：`labOpen: "models"` 挂上后直接打开面板的模型库页（截图要点面板里的页签，而面板传送在舞台外，点不到）；
+            // `labWidth` 是锚框的宽（面板同宽，窄屏与两列版式靠它）；`labLocale: "en-US"` 换成英文界面（英文比中文长一倍，截断只在英文里看得出）。
+            const {labOpen, labWidth, labLocale, ...rest} = attrs as Record<string, unknown>;
+            // 同一个 `setup` 里后调用的才覆盖祖先的端口，只给后代（选择器）英文的。
+            if (labLocale === "en-US") provideAgentSceneText(() => "en-US");
+            // 档位的写回在这里做：真实宿主选了档、点了“用默认”之后是服务端回写 `effort`，Lab 没有服务端，就地换成对应的视图，
+            // 才看得到选中、继承与“用默认”的来回。`effort` 属性没变（换场景）时沿用，换了就以场景给的为准。
+            const override = shallowRef<{from: unknown; effort: Effort} | null>(null);
+            const shown = (): Effort | undefined => {
+                const given = rest.effort as Effort | undefined;
+                return override.value !== null && override.value.from === given ? override.value.effort : given;
+            };
+            const forward = (name: string, ...args: unknown[]): void => {
+                const handler = rest[name];
+                if (typeof handler === "function") (handler as (...values: unknown[]) => void)(...args);
+            };
+            const onSelectThinking = (level: string): void => {
+                const current = shown();
+                if (current !== undefined) override.value = {from: rest.effort, effort: {...current, value: level, source: "session"}};
+                forward("onSelectThinking", level);
+            };
+            const onResetThinking = (): void => {
+                const current = shown();
+                if (current?.follow != null) override.value = {from: rest.effort, effort: {...current, value: current.follow.value ?? current.value, source: current.follow.source}};
+                forward("onResetThinking");
+            };
             onMounted(() => {
                 if (labOpen === "models") picker.value?.openPicker(" ");
                 else if (labOpen === "roles") picker.value?.openPicker();
             });
-            return () => h("div", {ref: frame, style: "width: 420px; margin-top: 460px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 12px;"}, [h(Picker, {...rest, ref: picker, anchor: frame.value})]);
+            return () => {
+                const width = typeof labWidth === "number" ? labWidth : 420;
+                return h("div", {ref: frame, style: `width: ${String(width)}px; margin-top: 460px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 12px; box-sizing: content-box;`}, [h(Picker, {...rest, effort: shown(), onSelectThinking, onResetThinking, ref: picker, anchor: frame.value})]);
+            };
         },
     });
     return {default: withAgentHost(Framed)};
