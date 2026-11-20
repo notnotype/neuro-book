@@ -22,6 +22,17 @@
 
 不按各段自己的宽度排：指示块的宽度与位移按「一段」计算，段宽不一时它对不上选中项。`wrap` 时不适用上面的等宽规则：各段按自己标签的宽度排，一行放不下就整段换到下一行，没有滑动指示块，选中项自己画同样的 `--accent-main` 实底；段与段之间靠 2px 间距分开，不画竖线（换行后行尾的竖线会悬着）。只有单独一段就比容器宽时，这一段仍收窄、截断标签。
 
+### 浮起的外观（`variant="raised"`）
+
+浅轨道（`--text-main` 6% 的底、无描边），当前项是一块浮起的面板色（`--bg-panel` 加 `--elevation-raised`），字用 `--accent-text`，不铺满蓝，没有分隔竖线；滑动、段宽与键盘都同默认外观。给有序档位这类“不是在换模式”的选择用（思考档），不用于换模式。
+
+- 不支持 `wrap` 与 `count`：任一同时给出时退回默认外观（换行时各段自己画选中底、计数徽章按蓝底反色，两者在浮起的外观下没有画法）。
+- 三个主题下都要读得出当前项：`--elevation-raised` 在 editorial 是 `none`，当前项只靠面板色与轨道的明度差与强调色字区分；暗色下面板色比轨道亮。验收看三个主题 × 亮暗的截图表。
+
+### 跟随来的当前值（`inherited`）
+
+当前值只是“跟随”某个默认来的、不是用户明确选的时，`inherited` 把当前项画成强调色细框（滑块退成 55% 强调色的 1px 内框、透明底，字用 `--accent-text`），默认与浮起的外观都适用。只改外观：`aria-checked` 仍为真，读屏会说“已选中”，所以调用方要用 `describedby` 说明这是跟随来的（例如“跟随主力的默认：高”）。点当前项或用方向键选中它都照常发出 `update:modelValue`，调用方借此把它钉成明确选择；`inherited` 与 `wrap` 同时给出时选中项只改字色，没有细框。
+
 在 `390×844` 下默认不换行；若段数乘以最宽一段超过可用空间，标签会截断，应设置 `wrap` 或缩短选项文字。`fullWidth` 只改变组宽度，不会改变每项均分指示块的计算方式。
 
 ## 交互
@@ -30,6 +41,7 @@
 - 按下选项时该项缩小到 0.96；只读和禁用时不缩。
 - 禁用选项不会响应点击或键盘导航。方向键 Right/Down 前进，Left/Up 后退，Home/End 跳到首/末个启用项；移动会循环并发出新值，同时把焦点移到目标选项。
 - `modelValue` 不对应任何选项时（例如当前尺寸是手动拖出来的、不属于任何预设）一个都不选中，键盘进入时停在第一个启用项；对应的是停用项时同样停在第一个启用项；方向键向后从第一项、向前从最后一项开始。
+- 键盘保持 radio 组的约定：方向键移动即选中。需要避免连续写入的调用方自己对 `update:modelValue` 做合并（思考档的选择器停 200 毫秒才写），组件不提供“只移焦点、回车才选”的模式。
 - 每个选项使用 `role="radio"`、`aria-checked` 和选中项 roving tabindex；根节点为 `role="radiogroup"`，可通过 `ariaLabel` 命名；放在 `Field` 的组形态里时，根拿字段的 `id`，经 `aria-labelledby` 以字段标签为名、`aria-describedby` 接字段说明（docs/specs/ui/forms.md 输出 27）。不写 `aria-pressed`（它是切换按钮的状态，与单选的 `aria-checked` 冲突）。
 - 只读（`readonly`）：根写 `aria-readonly`，选项照常可聚焦；点击不发出变化，方向键只把焦点移到相邻项、不改选中；悬停不变色、按下不缩。停用（`disabled`）：各项停用，不进 Tab 顺序（docs/specs/ui/forms.md 输出 28）。
 - `title` 优先作为选项可访问名称和悬停提示，否则使用 `label`。选项本身的 `iconClass` 是装饰性图标，不进入可访问名称。
@@ -76,6 +88,12 @@ type SegmentedControlProps = {
     readonly?: boolean;
     /** 出错：外框描红、写 aria-invalid，与 Field 上下文的出错取或；默认 false */
     invalid?: boolean;
+    /** 外观：solid 蓝色实底滑块，raised 浅轨道加浮起的当前项；默认 "solid" */
+    variant?: "solid" | "raised";
+    /** 当前值是跟随来的、不是明确选的：当前项只画细框；默认 false */
+    inherited?: boolean;
+    /** 补充说明的元素 id（空格分隔），与 Field 的说明拼在一起写进 aria-describedby；默认空 */
+    describedby?: string;
     /** 必填：写 aria-required，与 Field 上下文的必填取或；默认 false */
     required?: boolean;
 };
@@ -98,10 +116,13 @@ type SegmentedControlSlots = {};
 - 整组停用：整组降到 45% 透明度（同 `RadioGroup`），各项不可激活；各项不再各自变淡，选中块上的字仍读得出。
 - 只读：外观与可编辑相同，只是悬停与按下没有反馈。
 - 出错：外框用 `--status-danger` 描红。
+- 跟随来的（`inherited`）：当前项只画细框，其余同选中。
 - 加载：组件没有加载状态。
 
 ## 不支持
 
+- 不支持“只移焦点、回车才选”的手动激活：radio 组没有这个约定，选中会带来写入时由调用方合并。
+- `variant="raised"` 不支持 `wrap` 与 `count`（见上）。
 - 不支持多选、动态搜索、选项插槽或在组件内保存选择。
 - 不支持在 `wrap` 模式下显示连续滑动指示块。
 - `count` 仅展示为计数，不隐含数据过滤或状态语义。

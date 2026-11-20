@@ -87,6 +87,13 @@ const APPEARANCES = [
     {value: "system", label: "跟随系统"},
 ];
 
+const THINKING_FIVE = [{value: "off", label: "关闭"}, {value: "low", label: "低"}, {value: "medium", label: "中"}, {value: "high", label: "高"}, {value: "xhigh", label: "极高"}];
+/** 七档的缩写标签（全名放 title）：窄面板里全名会被截成读不出的样子。 */
+const THINKING_SEVEN = [
+    {value: "off", label: "Off", title: "Off"}, {value: "minimal", label: "Min", title: "Minimal"}, {value: "low", label: "Low", title: "Low"}, {value: "medium", label: "Med", title: "Medium"},
+    {value: "high", label: "High", title: "High"}, {value: "xhigh", label: "XHigh", title: "Extra high"}, {value: "max", label: "Max", title: "Max"},
+];
+
 export const controlsFixtures: LabFixture[] = [
     defineSubjectFixture<typeof Button>({
         component: "Button",
@@ -158,6 +165,12 @@ export const controlsFixtures: LabFixture[] = [
             {id: "readonly", label: "只读（可聚焦，不改值）", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm", readonly: true}, model: {modelValue: "system"}}},
             {id: "disabled", label: "整组停用", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm", disabled: true}, model: {modelValue: "system"}}},
             {id: "invalid", label: "出错", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm", invalid: true}, model: {modelValue: "system"}}},
+            // 浮起的外观与跟随来的当前值：思考档用；英文标签与 7 档在窄面板里的样子见 raised-seven。
+            {id: "raised", label: "浮起的外观", input: {props: {options: THINKING_FIVE, ariaLabel: "思考档", size: "xs", variant: "raised"}, model: {modelValue: "high"}}},
+            {id: "raised-inherited", label: "浮起的外观，跟随来的当前值（只画细框）", input: {props: {options: THINKING_FIVE, ariaLabel: "思考档", size: "xs", variant: "raised", inherited: true}, model: {modelValue: "high"}}},
+            {id: "inherited-solid", label: "默认外观，跟随来的当前值", input: {props: {options: THINKING_FIVE, ariaLabel: "思考档", size: "xs", inherited: true}, model: {modelValue: "medium"}}},
+            {id: "raised-seven", label: "七档英文，撑满一行（窄面板里标签用缩写）", input: {props: {options: THINKING_SEVEN, ariaLabel: "Thinking level", size: "xs", variant: "raised", fullWidth: true}, model: {modelValue: "xhigh"}}},
+            {id: "raised-disabled", label: "浮起的外观，整组停用", input: {props: {options: THINKING_FIVE, ariaLabel: "思考档", size: "xs", variant: "raised", disabled: true}, model: {modelValue: "high"}}},
             // 换行：拖窄画布（或选手机尺寸）看整段换到下一行；选中第二行的那一段，它自己画实底。
             {id: "wrap", label: "换行（选中第二行的一段）", input: {props: {options: [{value: "all", label: "全部", count: 5}, {value: "readerOnly", label: "只有读者知道", count: 0}, {value: "readerUnaware", label: "读者还不知道", count: 2}, {value: "noPlan", label: "没打算怎么揭", count: 1}], ariaLabel: "分段", size: "sm", wrap: true}, model: {modelValue: "noPlan"}}},
         ],

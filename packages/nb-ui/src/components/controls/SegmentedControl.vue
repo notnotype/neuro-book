@@ -16,10 +16,15 @@ import type {ControlSize} from "../shared-types";
  * 4. 无障碍与键盘：支持标准 WAI-ARIA RadioGroup 模式与 ArrowLeft/ArrowRight/Home/End 键盘巡检。
  * 5. 在表单里（三项以内、没有说明的单选）照表单控件的统一合同：名字来自 `Field` 的组形态，停用、只读、出错同其它控件
  *    （docs/specs/ui/forms.md 输出 26–28）。
+ * 6. `variant="raised"`：浅轨道，当前档是浮起的面板色（`--bg-panel` 加 `--elevation-raised`），字用强调色，不铺满蓝；
+ *    用于有序档位这类“不是在换模式”的选择。不支持 `wrap` 与 `count`，两者同时给时忽略 raised。
+ * 7. `inherited`：当前值只是“跟随”来的、不是用户明确选的：当前项只画强调色细框，语义不变（`aria-checked` 仍为真，
+ *    由调用方用 `describedby` 说明）；点它或用方向键选中它仍然发出 `update:modelValue`，调用方借此把它钉成明确选择。
  */
 
 export type SegmentedControlValue = string | number | boolean | null;
 export type SegmentedControlSize = Extract<ControlSize, "xs" | "sm">;
+export type SegmentedControlVariant = "solid" | "raised";
 
 export type SegmentedControlOption = {
     count?: number | string;
@@ -46,6 +51,12 @@ const props = withDefaults(defineProps<{
     invalid?: boolean;
     /** 必填：写 `aria-required`；与 `Field` 上下文的必填取或。 */
     required?: boolean;
+    /** 外观：`solid` 是蓝色实底的滑块；`raised` 见组件头第 6 条。 */
+    variant?: SegmentedControlVariant;
+    /** 当前值是跟随来的、不是明确选的：只画细框（组件头第 7 条）。 */
+    inherited?: boolean;
+    /** 补充说明的元素 id（空格分隔），与 `Field` 上下文的说明拼在一起写进 `aria-describedby`。 */
+    describedby?: string;
 } & /* @vue-ignore */ HTMLAttributes>(), {
     ariaLabel: "",
     size: "sm",
@@ -55,6 +66,9 @@ const props = withDefaults(defineProps<{
     readonly: false,
     invalid: false,
     required: false,
+    variant: "solid",
+    inherited: false,
+    describedby: "",
 });
 
 const emit = defineEmits<{
@@ -78,6 +92,10 @@ function optionKey(option: SegmentedControlOption): string {
 function isSelected(option: SegmentedControlOption): boolean {
     return option.value === props.modelValue;
 }
+
+/** raised 没有 `wrap` 的画法（换行时各段自己画选中底），也不画计数徽章：遇到就退回 solid。 */
+const raised = computed(() => props.variant === "raised" && !props.wrap && !props.options.some((option) => option.count !== undefined));
+const describedby = computed(() => [field?.ariaDescribedby.value, props.describedby].filter((id) => id !== undefined && id !== "").join(" ") || undefined);
 
 const selectedIndex = computed(() => props.options.findIndex((opt) => opt.value === props.modelValue));
 
@@ -110,6 +128,20 @@ const segmentLayoutClass = computed(() => {
     }
     return [props.fullWidth ? "grid w-full" : "inline-grid", "grid-flow-col auto-cols-[minmax(0,1fr)]"];
 });
+
+/** 滑块：solid 是蓝色实底；raised 是浮起的面板色；跟随来的（inherited）两种都退成强调色细框。 */
+const indicatorClass = computed(() => {
+    if (props.inherited) return "bg-transparent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent-main)_55%,transparent)]";
+    if (raised.value) return "bg-[var(--bg-panel)] shadow-[var(--elevation-raised)]";
+    return "bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)]";
+});
+
+/** 选中项的字色：压在蓝底上的是反色；浮起的与跟随来的细框里是强调色（跟随来的不加粗）。 */
+function selectedTextClass(): string[] {
+    if (props.inherited) return ["text-[var(--accent-text)]"];
+    if (raised.value) return ["text-[var(--accent-text)]"];
+    return ["text-[var(--text-inverse)] font-semibold", props.wrap ? "bg-[var(--accent-main)]" : ""];
+}
 
 function selectOption(option: SegmentedControlOption): void {
     if (optionDisabled(option) || props.readonly) {
@@ -150,19 +182,20 @@ function handleKeydown(event: KeyboardEvent): void {
         :id="field?.inputId.value"
         :aria-label="props.ariaLabel || undefined"
         :aria-labelledby="field?.labelId.value"
-        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-describedby="describedby"
         :aria-invalid="isInvalid ? 'true' : undefined"
         :aria-readonly="props.readonly || undefined"
         :aria-required="props.required || field?.required.value === true || undefined"
         :aria-disabled="props.disabled || undefined"
-        class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
-        :class="[segmentLayoutClass, isInvalid ? '!border-[color:var(--status-danger)]' : '', props.disabled ? 'opacity-45' : '']"
+        class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] p-[2px] select-none box-border outline-none"
+        :class="[raised ? 'border-transparent bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)]' : 'border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)]', segmentLayoutClass, isInvalid ? '!border-[color:var(--status-danger)]' : '', props.disabled ? 'opacity-45' : '']"
         @keydown="handleKeydown"
     >
         <!-- 舒缓平滑滑动背景指示块（单选且选项固定等分时连续 GPU 硬件滑动） -->
         <div
             v-if="selectedIndex >= 0 && !props.wrap"
-            class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] will-change-transform"
+            class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] will-change-transform"
+            :class="indicatorClass"
             :style="{
                 width: `calc((100% - 4px) / ${props.options.length})`,
                 transform: `translateX(calc(${selectedIndex} * 100%))`,
@@ -189,7 +222,7 @@ function handleKeydown(event: KeyboardEvent): void {
                     ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[length:var(--text-xs)]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[length:var(--text-xs)]')
                     : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),
                 isSelected(option)
-                    ? ['text-[var(--text-inverse)] font-semibold', props.wrap ? 'bg-[var(--accent-main)]' : '']
+                    ? selectedTextClass()
                     : props.readonly ? 'text-[var(--text-secondary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]',
                 // 整组停用时只在根上降一次透明度（同单选组的 45%），各项不再各自变淡：两层叠起来选中块上的字读不出来。
                 option.disabled === true && !props.disabled ? 'opacity-35' : '',
@@ -216,7 +249,7 @@ function handleKeydown(event: KeyboardEvent): void {
             <!-- 智能竖向分隔线：在未选中相邻项之间优雅显隐 -->
             <!-- 换行时不画：行尾那一条会悬在行末，段与段之间靠 2px 的间距分开 -->
             <span
-                v-if="idx < props.options.length - 1 && !props.wrap"
+                v-if="idx < props.options.length - 1 && !props.wrap && !raised"
                 class="absolute right-0 top-1.5 bottom-1.5 w-[1px] bg-[color-mix(in_srgb,var(--text-main)_14%,transparent)] pointer-events-none transition-opacity [transition-duration:var(--motion-fast)]"
                 :class="isSelected(option) || idx === selectedIndex - 1 ? 'opacity-0' : 'opacity-100'"
             />
