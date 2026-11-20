@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t43-models-ux",
+    "artifactId": "review",
+    "ackId": "20261120T061734400Z-403296ce",
+    "answers": [
+        "20261120T061707005Z-a85bade2"
+    ],
+    "through": "20261120T061707005Z-a85bade2",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t43-models-ux/README.md"
+    ],
+    "ackedAt": "2026-11-20T06:17:34.400Z"
+}
