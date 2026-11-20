@@ -48,8 +48,15 @@ updated: 2026-11-20
 - 验证：nb-agent-ui 192 条；neuro-book 的 bots 与 agent 576 条、bot 视图 dom 5 条；合并 master 后 e2e `bots-chat`、`agent-subagents`、`agent-conversation` 31 条全过。合并后的全量 bun 测试有 3 条确定失败（依赖方向、SDK 导出面、活动栏重复 id），分支没有改动这几处，失败的写法在 master 上也存在。
 - 后续：`agent-conversation.e2e.ts:687`（附件）在 master 上也时常失败；产品那一半（新建期间加附件另建会话）已修，测试那一半（`newSession` 在会话加载完之前返回）没修。
 
+阶段 ③ 实现完成，实现审查中（2026-11-20）：
+
+- 切片：`b68ff259e`（nb-ui `SidePanel`、层级 `sidePanel` 一档）、`e332034ff`（拆出 `contact-opener`、`ContactCover`、窗口焦点；借用重开不算打开）、`9d8dd8ef1`（书架案头的贡献位 `projects.desk`）、`f2d590198`（对话视图的 `closable`、`escape`，`ConversationHost` 的 `close` 与 `noSessionList`）、`73713c190`（输入框第一次打开时聚焦落空的修复）、`041eacb69`（看板娘入口与滑出聊天、e2e 书房三组）、`525a51ae9`（气泡定位）。
+- 实施中查出、计划外修的：对话输入框第一次打开时聚焦落空，三层原因（markdown 插件的包装在 PromptEditor 代码加载完之前交出的方法是 undefined、PromptEditor 在挂载钩子里才建编辑器且正文还要过一两拍才挂进文档、输入框只读时聚焦不生效），各在拥有它的组件里修并补测试；消息视图第一次打开时同样会碰上，以前没有测到。
+- 验证：e2e `bots-chat`、`bookshelf`、`agent-conversation`、`lab-agent-ui` 87 条全过；单元测试 nb-ui、nb-agent-ui（205）、nb-markdown 提示词（86）、应用 agent、markdown、projects、lab（vitest 357、bun 161）；类型检查四个包；新增否定断言都做了变异检查。`DeskCompanion` 的“联系人消失时关面板”那段变异时测试照过：面板随 `v-if` 卸载时 Reka 自己发关闭，保留显式的监视不依赖它。
+- Spec：master `9ecf84781`（planned）：`agent/conversation.md` 输出 54 与验收 10、`workbench/bookshelf.md` 输出 22、`bots/view.md` 验收 4、`ui/agent-conversation-view.md` 的 `closable` 与 `escape`。
+
 ## 下一步
 
-- 阶段 ③：书房案头的看板娘入口与从右边滑出的聊天（t03 决定 22、23），复用宿主加对话视图的组合。计划 [plan-3.md](plan-3.md)，开发者 2026-11-20 确认（决定 8），实施中。
+- 阶段 ③：书房案头的看板娘入口与从右边滑出的聊天（t03 决定 22、23），复用宿主加对话视图的组合。计划 [plan-3.md](plan-3.md)，开发者 2026-11-20 确认（决定 8）；实现完成，见上。
 - 阶段 ④：按天与未读的分隔线、首屏指标。
 - 后续（不阻塞）：会话标签的滚到底分页；第二行的具体活动文字（等后端的活动摘要）；`agent-conversation` 附件那条的测试时序（`newSession` 在会话加载完之前返回）。
