@@ -444,7 +444,8 @@
             "labelUnread": "{{name}}, {{count}} unread",
             "labelWaiting": "{{name}}, waiting for you",
             "waiting": "Waiting for you",
-            "failed": "Couldn't load bots ({{code}})"
+            "failed": "Couldn't load bots ({{code}})",
+            "close": "Close"
         },
         "messages": {
             "noModel": {

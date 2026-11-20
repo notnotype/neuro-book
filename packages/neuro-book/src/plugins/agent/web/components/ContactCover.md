@@ -25,13 +25,18 @@ type ContactCoverState =
     | {kind: "missing"}
     | {kind: "pending"; pending: PendingContact}; // contact-opener.ts
 
-type ContactCoverProps = {cover: ContactCoverState};
+type ContactCoverProps = {
+    cover: ContactCoverState;
+    /** 右上角画“关闭”（`data-messages-cover-close`），点了发 `close`：书房的面板里盖层盖住了对话的头。 */
+    closable?: boolean;
+};
 
 type ContactCoverEmits = {
     /** 点“去添加”。 */
     "add-provider": [];
     /** 点“重试”，带联系人的键。 */
     retry: [key: string];
+    close: [];
 };
 ```
 

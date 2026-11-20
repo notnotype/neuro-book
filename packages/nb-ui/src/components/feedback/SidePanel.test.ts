@@ -113,6 +113,19 @@ describe("SidePanel", () => {
         expect(document.activeElement).toBe(query("[data-trigger]"));
     });
 
+    it("面板里的控件自己处理了 Esc（preventDefault，例如补全菜单收起）：面板不关", async () => {
+        const {open} = mountHost(true);
+        await flushPromises();
+        const input = query<HTMLInputElement>("[data-input]")!;
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") event.preventDefault();
+        });
+        input.focus();
+        pressEscape(input);
+        await flushPromises();
+        expect(open.value).toBe(true);
+    });
+
     it("焦点在触发器上时 Esc 也关", async () => {
         const {open} = mountHost(true);
         await flushPromises();

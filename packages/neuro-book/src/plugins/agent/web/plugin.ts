@@ -252,7 +252,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             );
             /** 对话位置的确认框（输出 27）：每个位置一份，右栏与编辑区页面同时开着时只在选了 Skill 的那个位置弹出。 */
             const inits = new Map<string, SkillInit>();
-            const initAt = (position: string): SkillInit => {
+            const initAt = (position: ConversationPosition): SkillInit => {
                 let init = inits.get(position);
                 if (init === undefined) {
                     init = createSkillInit(remote, (message) => report("skill-init-failed", message));
@@ -319,7 +319,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 ensureModels();
             };
 
-            const openRecent = async (position: string) => {
+            const openRecent = async (position: ConversationPosition) => {
                 const opened = await storage.open(recentRecord(project !== null), position);
                 return opened.ok ? opened.handle : null;
             };
@@ -330,7 +330,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 });
             };
             /**
-             * 子代理管理（conversation.md 输出 43）：出错看过没有、收口结果的缓存，右栏与编辑区页面两个对话位置共用。激活之前收口的出错算看过；
+             * 子代理管理（conversation.md 输出 43）：出错看过没有、收口结果的缓存，几个对话位置（右栏、编辑区页面、书房的面板）共用。激活之前收口的出错算看过；
              * 切到哪个会话，它此前的出错就算看过（不论从卡片、停靠区还是浮层切过去）。
              */
             const seenErrors = createSeenErrors(clock.now());
@@ -394,8 +394,8 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 消息视图的版式与列表栏收起：插件作用域一份，视图换代时接着用（只在内存，重开窗口回到缺省）。 */
             const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false});
 
-            /** 两个对话位置（右栏的消息视图、编辑区页面）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
-            const hostDeps = (position: string): SessionHostDeps => ({
+            /** 对话位置（右栏的消息视图、编辑区页面、书房的面板）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
+            const hostDeps = (position: ConversationPosition): SessionHostDeps => ({
                     remote,
                     project,
                     now: () => clock.now(),
@@ -478,7 +478,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     },
                     report,
             });
-            /** 两个位置的宿主随插件活着：插件关闭时停掉监视。 */
+            /** 各位置的宿主随插件活着：插件关闭时停掉监视。 */
             const watchSeen = (host: SessionHost): void => {
                 const stopSeen = watch(host.sessionId, (id) => {
                     if (id !== null) seenErrors.markSession(id, clock.now());
@@ -510,7 +510,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 now: () => clock.now(),
             });
 
-            /** 第一屏的最近对话（conversation.md 输出 41）：两个对话位置共用一份，与会话面板那份分开。 */
+            /** 第一屏的最近对话（conversation.md 输出 41）：各对话位置共用一份，与会话面板那份分开。 */
             const recentSessions = createRecentSessions({remote, project});
             /** 第一屏只显示 3 张卡片；最近对话里不列当前会话。 */
             const WELCOME_RECENT = 3;
@@ -569,7 +569,7 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             /**
              * 对话位置共用的部分：注册表的登记项、渲染组件，与按会话的 Profile 取白名单的菜单服务（`servicesFor` 每个对话一份，交回取消
-             * 监听的函数）。两个对话位置都用它。
+             * 监听的函数）。各对话位置都用它。
              */
             const conversationParts = async () => {
                 ensureStarted();
@@ -631,8 +631,13 @@ export const agentBrowserPlugin: PluginDefinition = {
                 return {createAgentViewRegistry, baseContributions, renderers, servicesFor};
             };
 
+            type ConversationParts = Awaited<ReturnType<typeof conversationParts>>;
+            /** 状态栏里插件加的项随贡献的发布与撤回变：登记项变了重建注册表（注册表是只读的合并结果）。每个对话位置一份。 */
+            const positionRegistry = (create: ConversationParts["createAgentViewRegistry"], base: ConversationParts["baseContributions"]) =>
+                computed(() => create([...base, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
+
             /** 交给 `ConversationHost` 的那一大组属性：右栏、编辑区页面与书房的面板各按自己的宿主取一份。 */
-            const conversationProps = (position: ConversationPosition, host: SessionHost, registry: AgentViewRegistry, services: AgentConversationServices, renderers: Awaited<ReturnType<typeof conversationParts>>["renderers"]) => ({
+            const conversationProps = (position: ConversationPosition, host: SessionHost, registry: AgentViewRegistry, services: AgentConversationServices, renderers: ConversationParts["renderers"]) => ({
                 host,
                 list,
                 recent: recentSessions,
@@ -659,8 +664,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     props: {context: {type: Object, default: null}},
                     setup(props) {
                         const head = position === "view" && props.context !== null ? viewHeadOf(props.context) : null;
-                        // 状态栏里插件加的项随贡献的发布与撤回变：登记项变了重建注册表（注册表是只读的合并结果）。
-                        const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
+                        const registry = positionRegistry(createAgentViewRegistry, baseContributions);
                         lastPosition = position;
                         // 页面标签关了或切走了：命令回到右栏，不再把它开回来。
                         onBeforeUnmount(() => {
@@ -694,7 +698,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     name: "AgentDeskConversation",
                     props: {close: {type: Function, required: true}},
                     setup(props, {expose}) {
-                        const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
+                        const registry = positionRegistry(createAgentViewRegistry, baseContributions);
                         const inner = ref<{focusComposer(): void} | null>(null);
                         expose({focusComposer: () => inner.value?.focusComposer()});
                         return () => h(ConversationHost, {

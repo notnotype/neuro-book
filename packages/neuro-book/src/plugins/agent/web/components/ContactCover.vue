@@ -2,7 +2,7 @@
 /**
  * 聊天区上的盖层（同名 .md）：点联系人到聊天出现之间（没有模型、正在打开、打不开），还没选 bot，或面板里找不到 bot。只发事件。
  */
-import {Button, Spinner} from "@notnotype/nb-ui/components";
+import {Button, IconButton, Spinner} from "@notnotype/nb-ui/components";
 
 import type {PendingContact} from "../contact-opener";
 import {useAgentPageText} from "../text";
@@ -16,11 +16,14 @@ export type ContactCoverState =
 
 const props = defineProps<{
     cover: ContactCoverState;
+    /** 右上角画“关闭”（书房的面板）：盖层盖住了对话的头，头上的“关闭”这时点不到。 */
+    closable?: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "add-provider"): void;
     (e: "retry", key: string): void;
+    (e: "close"): void;
 }>();
 
 const t = useAgentPageText();
@@ -28,6 +31,7 @@ const t = useAgentPageText();
 
 <template>
     <div class="contact-cover" data-messages-cover>
+        <IconButton v-if="props.closable" size="xs" icon-class="i-lucide-x" class="contact-cover__close" :title="t('conversation.desk.close')" :aria-label="t('conversation.desk.close')" data-messages-cover-close @click="emit('close')" />
         <p v-if="props.cover.kind === 'pick-bot'" class="contact-cover__body" data-messages-pick-bot>{{ t("conversation.messages.pickBot") }}</p>
         <p v-else-if="props.cover.kind === 'missing'" class="contact-cover__body" data-messages-missing>{{ t("conversation.messages.missing") }}</p>
         <template v-else-if="props.cover.pending.step === 'no-model'">
@@ -60,6 +64,12 @@ const t = useAgentPageText();
     padding: var(--space-4);
     background: var(--bg-panel);
     text-align: center;
+}
+
+.contact-cover__close {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
 }
 
 .contact-cover__icon {

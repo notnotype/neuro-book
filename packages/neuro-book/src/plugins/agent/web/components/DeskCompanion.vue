@@ -122,19 +122,35 @@ const focused = useWindowFocus();
 opener.watchSeen(() => open.value && focused.value);
 
 /**
- * 焦点：打开时 Reka 先放进面板；第一次满足“没有盖层、输入框已挂上”时，焦点还在面板里、看板娘或页面上（用户没挪到别处）就放进输入框。
+ * 焦点：打开时 Reka 先放进面板；第一次满足“没有盖层、输入框已挂上”时，用户打开面板后还没在页面上按键或点鼠标，就放进输入框。不按焦点
+ * 落在哪判断：盖层出现时下面的对话变成 inert，原来在里面的焦点会被挤回 body，那不是用户挪走的。
  */
-const buttonRef = ref<HTMLButtonElement | null>(null);
 const conversationRef = ref<{focusComposer(): void} | null>(null);
 let composerFocused = false;
+/** 面板打开后用户在页面上按过键或点过鼠标：不再替他把焦点放进输入框。 */
+let userActed = false;
+const onUserAct = (): void => {
+    userActed = true;
+};
+watch(open, (now) => {
+    userActed = false;
+    if (now) {
+        document.addEventListener("pointerdown", onUserAct, true);
+        document.addEventListener("keydown", onUserAct, true);
+    } else {
+        document.removeEventListener("pointerdown", onUserAct, true);
+        document.removeEventListener("keydown", onUserAct, true);
+    }
+});
+onBeforeUnmount(() => {
+    document.removeEventListener("pointerdown", onUserAct, true);
+    document.removeEventListener("keydown", onUserAct, true);
+});
 watch(() => open.value && cover.value === null && conversationRef.value !== null, async (ready) => {
     if (!ready || composerFocused) return;
     composerFocused = true;
     await nextTick();
-    const active = document.activeElement;
-    const panelId = buttonRef.value?.getAttribute("aria-controls") ?? null;
-    const panel = panelId === null ? null : document.getElementById(panelId);
-    if (active === null || active === document.body || active === buttonRef.value || panel?.contains(active) === true) conversationRef.value?.focusComposer();
+    if (!userActed) conversationRef.value?.focusComposer();
 });
 </script>
 
@@ -142,14 +158,14 @@ watch(() => open.value && cover.value === null && conversationRef.value !== null
     <div class="desk-companion" :title="failure ?? undefined" data-desk-companion>
         <SidePanel v-if="contact !== null" v-model:open="open" :label="contact.name">
             <template #trigger>
-                <button ref="buttonRef" type="button" class="desk-companion__button nb-ui-focus-ring" :aria-label="label" data-desk-companion-button />
+                <button type="button" class="desk-companion__button nb-ui-focus-ring" :aria-label="label" data-desk-companion-button />
             </template>
             <div class="desk-companion__chat" data-desk-chat>
                 <!-- 盖着时下面的对话不可用：焦点与读屏只到盖层。 -->
                 <div class="desk-companion__conversation" :inert="cover !== null">
                     <component :is="props.conversation" ref="conversationRef" :close="close" />
                 </div>
-                <ContactCover v-if="cover !== null" :cover="cover" @add-provider="props.openModelSettings()" @retry="(key: string) => void opener.openContact(key)" />
+                <ContactCover v-if="cover !== null" :cover="cover" closable @add-provider="props.openModelSettings()" @retry="(key: string) => void opener.openContact(key)" @close="close" />
             </div>
         </SidePanel>
         <Badge v-if="badge !== null" size="sm" :tone="badge.tone" class="desk-companion__badge" aria-hidden="true" data-desk-badge>{{ badge.text }}</Badge>

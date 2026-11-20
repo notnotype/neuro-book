@@ -143,12 +143,17 @@ describe("书房的看板娘入口", () => {
         expect(panel()).toBeNull();
         expect(borrowed()).toBe(0);
 
-        // 面板开着、宿主却没有会话（例如主对话被别处关了）：盖“找不到 bot”，不露出会隐式新建会话的第一屏。
+        // 面板开着、宿主却没有会话（例如主对话被别处关了）：盖“找不到 bot”，不露出会隐式新建会话的第一屏。盖层盖住了对话的头，
+        // 它自己右上角有“关闭”。
         button()!.click();
         await flushPromises();
         host.sessionId.value = null;
         await flushPromises();
         expect(document.querySelector("[data-messages-missing]")).not.toBeNull();
+        (document.querySelector("[data-messages-cover-close]") as HTMLButtonElement).click();
+        await flushPromises();
+        expect(panel()).toBeNull();
+        expect(borrowed()).toBe(0);
     });
 
     it("联系人消失（bots 停用）时关面板、交还借用；联系人回来后面板不自己弹开", async () => {

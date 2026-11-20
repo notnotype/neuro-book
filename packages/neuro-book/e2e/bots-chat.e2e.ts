@@ -169,7 +169,7 @@ test("验收 4：书房里点看板娘，右边滑出她的主对话、书房不
     await expect(panel(page).locator("[data-header-title]")).toHaveText("星璃");
     await expect(deskInput(page)).toBeFocused();
     // 不压暗：没有遮罩，书架左边点得到的还是书架。
-    const shelfPoint = await page.evaluate(() => document.elementFromPoint(200, 450)?.closest("[data-bookshelf-page]") !== null);
+    const shelfPoint = await page.evaluate(() => (document.elementFromPoint(200, 450)?.closest("[data-bookshelf-page]") ?? null) !== null);
     expect(shelfPoint).toBe(true);
 
     await script("书房里也能聊。");
@@ -190,6 +190,12 @@ test("验收 4：书房里点看板娘，右边滑出她的主对话、书房不
     await expect(mascot(page)).toBeFocused();
     await expect(page.locator("[data-desk-badge]")).toHaveText("1");
     await expect(page.locator("[data-desk-bubble]")).toContainText("你回书架了吗？");
+    // 案头窄于 720px（看板娘缩到 96px）：气泡放不下，只留角标。
+    await page.setViewportSize({width: 700, height: 900});
+    await expect(page.locator("[data-desk-bubble]")).toBeHidden();
+    await expect(page.locator("[data-desk-badge]")).toHaveText("1");
+    await page.setViewportSize({width: 1440, height: 900});
+    await expect(page.locator("[data-desk-bubble]")).toBeVisible();
 
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await mascot(page).click();
@@ -224,14 +230,20 @@ test("验收 4：书房的面板里（没有作品）发附件、@ 菜单压在�
     // @ 菜单是页面浮层档，压在面板（侧面板档）上：菜单中心点命中的是菜单。
     await deskInput(page).click();
     await page.keyboard.type("@");
-    const menu = page.getByRole("listbox").first();
+    const menu = page.locator("[data-suggestion-menu]");
     await expect(menu).toBeVisible();
+    // 菜单在面板的范围里（不然命中菜单说明不了它压在面板上）。
+    const panelLeft = await panel(page).evaluate((node) => node.getBoundingClientRect().left);
+    expect((await menu.boundingBox())!.x).toBeGreaterThanOrEqual(panelLeft);
     const hit = await menu.evaluate((node) => {
         const rect = node.getBoundingClientRect();
         return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
     });
     expect(hit).toBe(true);
+    // 菜单开着时 Esc 只收菜单，面板还在。
     await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(panel(page)).toBeVisible();
 });
 
 test("验收 4：桌面窗口外框下，面板让出窗口按钮那一行：头上的“关闭”在 36px 之下", async ({page}) => {

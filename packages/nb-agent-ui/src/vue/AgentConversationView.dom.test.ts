@@ -1066,4 +1066,19 @@ describe("focusComposer", () => {
         expect(document.activeElement).toBe(input);
         wrapper.unmount();
     });
+
+    it("等可写的期间用户点了别处：变成可写后不再抢焦点", async () => {
+        const loading = {...context(), availability: {status: "loading" as const, message: "", actions: []}};
+        const wrapper = mountView("zh-CN", {}, {plain: true, ctx: loading});
+        const elsewhere = document.body.appendChild(document.createElement("button"));
+        await flushPromises();
+        (wrapper.vm as unknown as {focusComposer(): void}).focusComposer();
+        elsewhere.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        elsewhere.focus();
+        await wrapper.setProps({ctx: context()});
+        await flushPromises();
+        expect(document.activeElement).toBe(elsewhere);
+        wrapper.unmount();
+        elsewhere.remove();
+    });
 });

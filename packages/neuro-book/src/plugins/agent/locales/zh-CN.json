@@ -444,7 +444,8 @@
             "labelUnread": "{{name}}，{{count}} 条未读",
             "labelWaiting": "{{name}}，等你处理",
             "waiting": "等你处理",
-            "failed": "读不到 bot（{{code}}）"
+            "failed": "读不到 bot（{{code}}）",
+            "close": "关闭"
         },
         "messages": {
             "noModel": {
