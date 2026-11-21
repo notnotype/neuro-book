@@ -29,7 +29,7 @@ Everyone has a novel in them, and most of those novels die halfway — not from 
 
 ## Install and run
 
-Requires [Bun](https://bun.sh) 1.3.14 or newer (NeuroBook runs on Bun only).
+Requires [Bun](https://bun.sh) 1.4.4 or newer (NeuroBook runs on Bun only).
 
 ```sh
 bun add -g @notnotype/neuro-book

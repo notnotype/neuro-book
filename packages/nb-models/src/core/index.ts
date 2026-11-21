@@ -7,5 +7,6 @@ export {chooseModel} from "./choice";
 export type {ModelChoice} from "./choice";
 export {createModelsCore} from "./core";
 export type {IconStore, ModelsCore, ModelsCoreDeps} from "./core";
+export {ICON_NAME} from "./icons";
 export {listTemplates, templateOf} from "./templates";
 export type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotLayer, SlotWriteResult} from "./store";

@@ -7,7 +7,7 @@
  * `unavailable`；服务据此交回 `settings-unavailable`，`code` 分别是 `layer-invalid` 与 `unavailable`。
  */
 
-import type {ProviderConfig, RolesConfig} from "@notnotype/nb-models/config";
+import type {RolesConfig, StoredProvider} from "@notnotype/nb-models/config";
 import type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotLayer} from "@notnotype/nb-models/core";
 
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
@@ -35,7 +35,7 @@ function slot<T>(settings: SettingsService, setting: SettingDefinition<T>): Conf
 
 export function settingsModelsConfig(settings: SettingsService): ModelsConfigStore {
     return {
-        providers: slot(settings, providers as SettingDefinition<ProviderConfig[]>),
+        providers: slot(settings, providers as SettingDefinition<StoredProvider[]>),
         roles: slot(settings, roles as SettingDefinition<RolesConfig>),
         compaction: () => settings.get(compaction),
         stream: () => ({firstEventTimeoutSeconds: settings.get(streamFirstEventTimeoutSeconds), idleTimeoutSeconds: settings.get(streamIdleTimeoutSeconds)}),

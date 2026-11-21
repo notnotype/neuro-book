@@ -14,7 +14,7 @@ export {roleOfReference, roleReference, splitReference} from "@notnotype/nb-mode
 /** 一次请求用的档位（纯函数，浏览器也用）：角色页据此告诉用户“当前模型没有这一档，实际用哪一档”。 */
 export {requestEffort} from "@notnotype/nb-harness/kernel/contracts";
 export {hasCredentials} from "@notnotype/nb-models/contract";
-export type {ModelsService, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
+export type {ModelRow, ModelsService, ModelsSnapshot, SnapshotProvider, SnapshotRole, Template} from "@notnotype/nb-models/contract";
 export {builtinRoleNameKey, modelsText} from "./text";
 /** 两页的分区 id：对话的提示卡按它们打开设置并定位（docs/specs/agent/conversation.md 输出 42）。 */
 export {PROVIDERS_SECTION, ROLES_SECTION} from "./settings";

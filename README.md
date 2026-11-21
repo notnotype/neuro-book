@@ -29,7 +29,7 @@
 
 ## 安装与启动
 
-需要 [Bun](https://bun.sh) 1.3.14 或更新的版本（NeuroBook 只在 Bun 上运行）。
+需要 [Bun](https://bun.sh) 1.4.4 或更新的版本（NeuroBook 只在 Bun 上运行）。
 
 ```sh
 bun add -g @notnotype/neuro-book

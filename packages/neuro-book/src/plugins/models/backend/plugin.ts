@@ -5,6 +5,7 @@
 
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -18,6 +19,8 @@ import {startupEnvKey, stateRootKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
 import {modelsKey, modelsSettingsContract} from "../shared/contracts";
+import {createIconRoutes, fileIconStore} from "./icons";
+import {loadInstallSecret} from "./secret";
 import {settingsModelsConfig} from "./settings-store";
 
 export const modelsBackendPlugin: PluginDefinition = {
@@ -28,17 +31,24 @@ export const modelsBackendPlugin: PluginDefinition = {
         dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: startupEnvKey}],
         provides: [modelsKey],
         remoteProvides: [modelsSettingsContract],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const record = (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level, event, message, ...(data === undefined ? {} : {data}), source: {plugin: descriptor.id}});
             };
-            const credentials = await openCredentials(join(context.services.require(stateRootKey).path, "agent", "credentials.db"));
+            const agentRoot = join(context.services.require(stateRootKey).path, "agent");
+            const credentials = await openCredentials(join(agentRoot, "credentials.db"));
             context.scope.register({kind: "credential-store", label: `${descriptor.id} credentials`, value: credentials, release: (value) => value.close()});
-            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, record});
+            const iconsRoot = join(agentRoot, "provider-icons");
+            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(iconsRoot), record});
             // 后登记的先释放：核心先停（等写入走完），凭据库后关。
             context.scope.register({kind: "models-core", label: `${descriptor.id} core`, value: core, release: (value) => value.close()});
-            return {services: [provideService(modelsKey, core.service)], remote: [provideRemote(modelsSettingsContract, (consumer) => core.remote(consumer))]};
+            return {
+                services: [provideService(modelsKey, core.service)],
+                remote: [provideRemote(modelsSettingsContract, (consumer) => core.remote(consumer))],
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: createIconRoutes(iconsRoot)}},
+            };
         },
     })],
 };
