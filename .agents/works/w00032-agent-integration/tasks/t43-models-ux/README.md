@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t43-models-ux
 status: planned
-updated: 2026-11-20
+updated: 2026-11-21
 ---
 
 # 服务商、模型角色与模型选择器的体验改进
@@ -98,14 +98,22 @@ updated: 2026-11-20
 24. 计划按审查意见整份重写，分三段（A 推理档与选择器、B 服务商模板化与模型来源、C 网络与代理），三段一起再审一轮，然后按顺序实施；每段单独合入。
 25. 第二轮审查（[处理](evidences/design-review-r2-disposition.md)）后：上传图标改存状态根文件，PNG ≤ 64 KB、客户端缩到 128 像素、经 `setIcon` 的 RPC 上传，取代决定 20 里“存成设置里 ≤48 KB 的图”；出口不做重定向（模型请求遇 3xx 报错）；“检测协议”只测已保存的配置；“测试代理”访问 Cloudflare 的 `cdn-cgi/trace`；本机与空白模板里类型不明的模型默认启用。这几项由主 Agent 定，开发者没有异议前照做。
 
+第三轮计划审查之后（开发者 2026-11-21 会话；审查与处理见 [`evidences/design-review-r3-disposition.md`](evidences/design-review-r3-disposition.md)，47 条成立 46、接受取舍 1）：
+26. 段 B 拆成 B1（模板与身份：模板表、配置 v2 与 v1 读法、模型身份与完整线地址核对、`uid` 与日志 `origin`、图标、添加与标题区、选用数据模块；模型清单暂只用打包目录）与 B2（模型来源：在线列表、缓存、在线目录、自动更新、协议检测、来源状态界面）。B1 先做先合入；B2 开工前对照 B1 的实际形状微调计划，不再开计划审查，靠实现审查兜底。计划审查三轮已到上限。
+27. 改决定 25 的一处：本机与空白模板里类型不明的模型，有上下文窗口（列表给或用户填）才自动启用，没有窗口的进“需补字段”、不启用，不默填猜测值；云服务商模板的类型不明模型不自动启用，管理模型里可一键启用。
+28. 添加对话框里的登录类服务商不再默认收起，回到 `models/settings-pages.md` 现行写法：列在同一张表里、停用并写要登录，服务端同样拒绝。
+29. 应用的最低 Bun 版本在 B1 提到 1.4.4（CLI、服务入口、发布产物与桌面随包版本一起；按次 `proxy: false` 从 1.4.3 起），发布说明写明：设了环境代理的用户，模型请求在段 C 提供代理设置之前走直连。
+
+审查结论里主 Agent 定的办法（开发者没有异议前照做）：出站核对改比完整线请求地址；每个实例加永不复用的 `uid`；v1 里旧运行时本来忽略的字段首次 v2 写入时丢弃并写进发布说明；元数据查找按同模板且同协议；设置层预检与锁内写之间的窗口接受取舍；合同 v3 的 `setIcon` 收 base64、`providerModels` 分页带修订且不带 `query`、新增 `modelsByReference`；不做服务端 `checkAll`；协议检测用库自己的请求构造、采纳用单独的 `adoptApi`。
+
 设计定稿（决定 1 到 17）。草稿在 `.worktree/w00032-t43-drafts` 的 `packages/neuro-book/src/plugins/drafts/web/components/models-ux/`（不合并），评审板 `artifacts/review` 三轮。
 
 ## 当前状态
 
-2026-11-20 建 Task；调研、三轮静态稿完成，设计定稿。计划第二稿经第二轮设计审查（omp 38 条、Sonnet 前端 14 条，全部成立、已处理），改为[第三稿](plan.md)，开发者确认后开工。
+2026-11-20 建 Task；调研、三轮静态稿完成，设计定稿。计划第二稿经第二轮设计审查（omp 38 条、Sonnet 前端 14 条，全部成立、已处理），改为第三稿，开发者确认后开工；第三稿的段 B 经第三轮审查（omp 29 条、Sonnet 18 条）后拆成 B1 与 B2，改为[第四稿](plan.md)（决定 26 至 29）。
 
 段 A（推理档与选择器）：2026-11-20 合入 master（提交 84b810ad1）。实现审查后端 omp 8 条、前端 Sonnet 15 条，全部核实并处理（[处理](evidences/impl-review-a-disposition.md)，报告 [后端](evidences/impl-review-a-backend-omp.txt)、[前端](evidences/impl-review-a-frontend-sonnet.txt)）；四个包类型检查、`test:affected --since master`、e2e（models、agent-conversation、lab-agent-ui 共 79 条）通过，`lab-scenes` 的 ThemeEditor 404 是分支起点上就有的失败。Spec 与 ADR 0057 同日提交。证据：[`evidences/a1-reasoning.txt`](evidences/a1-reasoning.txt)。
 
 ## 下一步
 
-段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10）。然后段 B 开工前把第三稿的段 B 单独再审一轮（第三轮，最后一轮），再实施 B、C。
+段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10；截图已拍，在 Task 的 `shots/`）。然后实施 B1（分支 `feat/w00032-t43-b1`），实现审查后合入；再 B2，再段 C。
