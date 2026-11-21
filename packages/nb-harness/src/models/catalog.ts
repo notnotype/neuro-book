@@ -44,10 +44,32 @@ export const THINKING_EFFORTS: readonly ThinkingEffort[] = ["minimal", "low", "m
  */
 export type ProviderAccess = "keyless" | "login" | "key" | "unsupported";
 
+/**
+ * 能当对话模型用的线协议（模型清单只收这些，embedding、图片、语音、检索等不进）。OMP 给 OpenRouter 的复合协议 `openrouter` 在
+ * 这里换成它实际走的显式协议（环境变量 `PI_OPENROUTER_RESPONSES` 不为 `0` 时是 Responses），不让清单的协议随进程环境漂移。
+ */
+export type WireApi = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+
+export function wireApiOf(api: string): WireApi | null {
+    switch (api) {
+        case "openai-completions":
+        case "openai-responses":
+        case "anthropic-messages":
+        case "google-generative-ai":
+            return api;
+        case "openrouter":
+            return "openai-responses";
+        default:
+            return null;
+    }
+}
+
 export interface CatalogModel {
     readonly id: string;
     readonly name: string;
     readonly api: string;
+    /** 对话用的显式协议；不是对话模型（embedding、图片等）或走 `fetch` 之外的传输时为 null。 */
+    readonly wire: WireApi | null;
     /** 目录给的接口地址。 */
     readonly baseUrl: string;
     readonly contextWindow: number | null;
@@ -116,6 +138,7 @@ export function catalogModel(model: Model): CatalogModel {
         id: model.id,
         name: model.name,
         api: model.api,
+        wire: wireApiOf(model.api),
         baseUrl: model.baseUrl,
         contextWindow: positiveOrNull(model.contextWindow),
         maxTokens: positiveOrNull(model.maxTokens),
@@ -238,4 +261,24 @@ export async function discoverModels(options: DiscoverModelsOptions): Promise<Di
     if (status === 404) return {state: "not_supported", status};
     if (status === 401 || status === 403) return {state: "auth", status};
     return {state: "failed", status, message: status >= 200 && status < 300 ? "回应不是模型列表" : `服务回了 ${status}`};
+}
+
+/** 这家服务商打包目录里的对话模型（走 `fetch` 的显式协议）。 */
+export function chatModels(provider: string): readonly CatalogModel[] {
+    return listCatalog().find((item) => item.id === provider)?.models.filter((model) => model.wire !== null) ?? [];
+}
+
+/**
+ * 这家服务商各协议的对话地址：同一协议下取多数模型用的那个（混合协议的服务商，如 OpenCode Zen，各协议的地址不同）。地址里带
+ * 占位（`{region}`、`<account>`）的不给，要用户自己填。
+ */
+export function templateRoutes(provider: string): ReadonlyArray<{readonly api: WireApi; readonly baseUrl: string}> {
+    const counts = new Map<WireApi, Map<string, number>>();
+    for (const model of chatModels(provider)) {
+        if (model.wire === null || /[{}<>]/u.test(model.baseUrl) || model.baseUrl === "") continue;
+        const urls = counts.get(model.wire) ?? new Map<string, number>();
+        urls.set(model.baseUrl, (urls.get(model.baseUrl) ?? 0) + 1);
+        counts.set(model.wire, urls);
+    }
+    return [...counts].map(([api, urls]) => ({api, baseUrl: [...urls].sort((a, b) => b[1] - a[1])[0]![0]}));
 }

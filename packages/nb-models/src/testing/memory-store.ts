@@ -12,12 +12,13 @@ import {Value} from "typebox/value";
 import {DEFAULT_COMPACTION} from "../config/compaction";
 import type {CompactionSetting} from "../config/compaction";
 import {DEFAULT_ROLES, ProvidersSchema, RolesSchema} from "../config/shapes";
-import type {ProviderConfig, RolesConfig} from "../config/shapes";
+import type {RolesConfig, StoredProvider} from "../config/shapes";
+import type {IconStore} from "../core/core";
 import type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotLayer, SlotWriteResult} from "../core/store";
 
 type SlotKey = "providers" | "roles";
 type Stream = ReturnType<ModelsConfigStore["stream"]>;
-type Layer = {providers?: ProviderConfig[]; roles?: RolesConfig};
+type Layer = {providers?: StoredProvider[]; roles?: RolesConfig};
 
 export interface MemoryModelsConfig extends ModelsConfigStore {
     /** 别处改了可写那一层（另一个进程、用户手改文件）：只改磁盘，`undefined` 删掉这个键；视图等 `catchUp()`。 */
@@ -31,7 +32,7 @@ export interface MemoryModelsConfig extends ModelsConfigStore {
 }
 
 export interface MemoryModelsConfigOptions {
-    readonly providers?: ProviderConfig[];
+    readonly providers?: StoredProvider[];
     readonly roles?: RolesConfig;
     readonly compaction?: CompactionSetting;
     readonly stream?: Stream;
@@ -69,7 +70,7 @@ export function memoryModelsConfig(options: MemoryModelsConfigOptions = {}): Mem
     let compaction = frozen(options.compaction ?? DEFAULT_COMPACTION);
     let stream = frozen(options.stream ?? {firstEventTimeoutSeconds: 300, idleTimeoutSeconds: 300});
     const listeners = new Set<(changed: ReadonlySet<ConfigKey>) => void>();
-    const defaults = {providers: frozen<ProviderConfig[]>([]), roles: frozen(DEFAULT_ROLES)};
+    const defaults = {providers: frozen<StoredProvider[]>([]), roles: frozen(DEFAULT_ROLES)};
     const schemas = {providers: ProvidersSchema, roles: RolesSchema};
     const effective = (layer: Layer, key: SlotKey): string => canonical(layer[key] ?? defaults[key]);
 
@@ -110,7 +111,7 @@ export function memoryModelsConfig(options: MemoryModelsConfigOptions = {}): Mem
     });
 
     return {
-        providers: slot<ProviderConfig[]>("providers"),
+        providers: slot<StoredProvider[]>("providers"),
         roles: slot<RolesConfig>("roles"),
         compaction: () => compaction,
         stream: () => stream,
@@ -133,5 +134,16 @@ export function memoryModelsConfig(options: MemoryModelsConfigOptions = {}): Mem
         setStream: (value) => {
             stream = frozen(value);
         },
+    };
+}
+
+/** 内存里的图标文件存放（`IconStore`），给服务核心的测试。 */
+export function memoryIconStore(): IconStore & {readonly files: ReadonlyMap<string, Uint8Array>} {
+    const files = new Map<string, Uint8Array>();
+    return {
+        files,
+        save: async (name, bytes) => void files.set(name, bytes),
+        remove: async (name) => void files.delete(name),
+        list: async () => [...files.keys()],
     };
 }

@@ -4,17 +4,24 @@
  */
 
 export {
+    BLANK_API,
+    BLANK_TEMPLATES,
     BUILTIN_ROLES,
     DEFAULT_ROLES,
+    isBlankTemplate,
+    LegacyProviderConfigSchema,
     MODEL_ROLE_IDS,
     ModelConfigSchema,
     PROVIDER_ID,
+    ProviderApiSchema,
     ProviderConfigSchema,
+    ProviderIconSchema,
     ProvidersSchema,
     RoleConfigSchema,
     RolesSchema,
 } from "./shapes";
-export type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "./shapes";
+export type {BlankTemplate, LegacyProviderConfig, ModelConfig, ProviderApi, ProviderConfig, ProviderIcon, RoleConfig, RolesConfig, StoredProvider} from "./shapes";
+export {legacyUid, normalizeProvider, normalizeProviders} from "./normalize";
 export {missingContextWindow, providerIdFor, referenceOf, roleOfReference, roleReference, rolesUsing, seriesOf, splitReference} from "./rules";
 export {compactionTrigger, CompactionSettingSchema, DEFAULT_COMPACTION, effectiveCompaction} from "./compaction";
 export type {CompactionSetting} from "./compaction";

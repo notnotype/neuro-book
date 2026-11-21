@@ -70,8 +70,23 @@ export interface Message {
     readonly callId?: string;
     /** `tool` 消息：工具没有成功（出错、被拒、结果未知）。 */
     readonly isError?: boolean;
-    /** `assistant` 消息：作答的模型全名。适配器据此判断思考签名能不能原样送回（换了服务商的不送）。 */
+    /** `assistant` 消息：作答的模型全名。没有 `origin` 的旧日志，适配器据此判断思考签名能不能原样送回（换了服务商的不送）。 */
     readonly model?: string;
+    /** `assistant` 消息：签发这条回复的部署；适配器按它整组判断签名能不能原样送回。旧日志没有。 */
+    readonly origin?: ModelOrigin;
+}
+
+/**
+ * 一条回复是谁签发的（docs/specs/harness/models.md）。`provider`、`api`、`model` 是发给 OMP 的那一份模型身份（模板的 OMP id
+ * 或中性身份，同模板的两个实例可以相同）；`deployment` 区分实例与它当时的地址、协议；`credential` 是签名绑定凭据的协议另带的
+ * 凭据身份（HMAC，不含原文）。四项整组相同才还原签名与专用字段。
+ */
+export interface ModelOrigin {
+    readonly provider: string;
+    readonly api: string;
+    readonly model: string;
+    readonly deployment: string;
+    readonly credential?: string;
 }
 
 export interface ModelRequest {
@@ -112,8 +127,10 @@ export interface ModelResponse {
     readonly toolCalls: readonly ToolCall[];
     readonly stopReason: StopReason;
     readonly usage: Usage;
-    /** 实际作答的模型全名。 */
+    /** 实际作答的模型全名（`<公开服务商>/<模型>`，公开服务商是实例 id）。 */
     readonly model: string;
+    /** 签发身份；端口不给时（测试的）日志里没有这个字段。 */
+    readonly origin?: ModelOrigin;
     readonly responseId?: string;
     readonly error?: ModelFailure;
 }

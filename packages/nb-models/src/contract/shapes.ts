@@ -7,13 +7,13 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 import {CompactionSettingSchema} from "../config/compaction";
-import {RoleEffort} from "../config/shapes";
+import {ProviderApiSchema, ProviderIconSchema, RoleEffort} from "../config/shapes";
 
 /** 包内几个形状共用的小块；不从入口导出。 */
 export const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);
 export const Headers = Type.Record(Type.String(), Type.String());
 const Price = Nullable(Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()]));
-export const Api = Type.Union([Type.Literal("openai-completions"), Type.Literal("openai-responses"), Type.Literal("anthropic-messages")]);
+export const Api = ProviderApiSchema;
 export const Auth = Type.Union([Type.Literal("default"), Type.Literal("bearer"), Type.Literal("none")]);
 
 /** 这家的密钥从哪来、有没有：`env` 写出变量名与启动环境里有没有值；值本身从不出插件。 */
@@ -39,14 +39,17 @@ export const ReasoningSchema = Type.Union([
 ]);
 
 /**
- * 快照里的一个模型：目录模型的字段已与目录合好。`status`：`missing` 设置里引用了、目录里已经没有（目录漂移，输出 9）；
- * `incomplete` 自定义模型缺上下文窗口。
+ * 一个模型行：模板目录的字段已与用户的覆盖合好。`status`：`missing` 设置里引用了、目录里已经没有（目录漂移，输出 9）；
+ * `incomplete` 上下文窗口不明（目录没给、用户也没填）。`usable`：启用、状态 ok、这家有凭据，服务端按解析的同一条件算。
+ * `overridden`：用户改过、与来源值不同的字段（界面标“已改”、可恢复来源值）；手加的模型恒为空。
  */
-export const SnapshotModelSchema = Type.Object({
+export const ModelOverrideField = Type.Union([Type.Literal("name"), Type.Literal("contextWindow"), Type.Literal("maxOutput"), Type.Literal("vision"), Type.Literal("reasoning"), Type.Literal("price")]);
+export const ModelRowSchema = Type.Object({
     id: Type.String(),
     name: Type.String(),
     group: Type.String(),
     enabled: Type.Boolean(),
+    origin: Type.Union([Type.Literal("source"), Type.Literal("manual")]),
     contextWindow: Nullable(Type.Integer()),
     maxOutput: Nullable(Type.Integer()),
     vision: Type.Boolean(),
@@ -57,21 +60,42 @@ export const SnapshotModelSchema = Type.Object({
     price: Price,
     headers: Headers,
     status: Type.Union([Type.Literal("ok"), Type.Literal("missing"), Type.Literal("incomplete")]),
+    usable: Type.Boolean(),
+    overridden: Type.Array(ModelOverrideField),
 }, {additionalProperties: false});
+export type ModelRow = Static<typeof ModelRowSchema>;
 
+/** 服务商的模型清单来源；B1 只有打包目录。 */
+export const SourceStateSchema = Type.Object({kind: Type.Literal("packaged")}, {additionalProperties: false});
+
+/**
+ * 快照里的服务商：不带模型行（几百个模型的服务商会让每次快照都很大），行经 `providerModels` 分页读；`modelsRevision` 是这家
+ * 模型行的版本，行变了它就变。
+ */
 export const SnapshotProviderSchema = Type.Object({
     id: Type.String(),
-    kind: Type.Union([Type.Literal("catalog"), Type.Literal("custom")]),
+    template: Type.String(),
+    region: Nullable(Type.String()),
     name: Type.String(),
-    /** 实际发请求的地址（目录服务商没覆盖时是目录的）。 */
+    /** 用户选的图标；null 是跟随模板的图标。 */
+    icon: Nullable(ProviderIconSchema),
+    /** 实际发请求的地址（覆盖或模板的；混合协议模板各协议地址不同，取默认协议那条）；不明时为 null。 */
     baseUrl: Nullable(Type.String()),
-    /** 目录服务商在目录里的地址；自定义服务商为 null。 */
-    catalogBaseUrl: Nullable(Type.String()),
+    /** 模板给的地址（改回去的参照）；空白模板为 null。 */
+    templateBaseUrl: Nullable(Type.String()),
     api: Nullable(Type.String()),
+    /** 模板给的协议；空白模板是它的缺省协议。 */
+    templateApi: Nullable(Type.String()),
     auth: Auth,
     headers: Headers,
     key: KeyStatusSchema,
-    models: Type.Array(SnapshotModelSchema),
+    followSource: Type.Boolean(),
+    source: SourceStateSchema,
+    modelCount: Type.Integer(),
+    enabledCount: Type.Integer(),
+    /** 被移出的来源模型数。 */
+    excludedCount: Type.Integer(),
+    modelsRevision: Type.String(),
 }, {additionalProperties: false});
 
 /** 角色的有效性，与解析的结论一致（输出 8）。 */
@@ -95,27 +119,31 @@ export const SnapshotRoleSchema = Type.Object({
 export const ModelsSnapshotSchema = Type.Object({providers: Type.Array(SnapshotProviderSchema), roles: Type.Array(SnapshotRoleSchema)}, {additionalProperties: false});
 export type ModelsSnapshot = Static<typeof ModelsSnapshotSchema>;
 export type SnapshotProvider = Static<typeof SnapshotProviderSchema>;
-export type SnapshotModel = Static<typeof SnapshotModelSchema>;
 export type SnapshotRole = Static<typeof SnapshotRoleSchema>;
 
-export const CatalogProviderSchema = Type.Object({
-    id: Type.String(),
-    name: Type.String(),
-    access: Type.Union([Type.Literal("keyless"), Type.Literal("login"), Type.Literal("key"), Type.Literal("unsupported")]),
-    added: Type.Boolean(),
-}, {additionalProperties: false});
-export type CatalogProvider = Static<typeof CatalogProviderSchema>;
+/** 模板的分组：添加服务商的对话框按它分组。 */
+export const TemplateGroupSchema = Type.Union([Type.Literal("international"), Type.Literal("china"), Type.Literal("gateway"), Type.Literal("other"), Type.Literal("custom")]);
 
-export const CatalogModelSchema = Type.Object({
+/** 为什么不能用这个模板添加：要登录、传输不走 HTTP 请求、认证方式不支持、地址要用户自己给（带占位）。 */
+export const TemplateReasonSchema = Type.Union([Type.Literal("login"), Type.Literal("transport"), Type.Literal("unsupported-auth"), Type.Literal("needs-address")]);
+
+export const TemplateSchema = Type.Object({
     id: Type.String(),
     name: Type.String(),
-    contextWindow: Nullable(Type.Integer()),
-    maxOutput: Nullable(Type.Integer()),
-    vision: Type.Boolean(),
-    reasoning: Type.Boolean(),
-    efforts: Type.Array(Type.String()),
-    price: Price,
+    group: TemplateGroupSchema,
+    /** 图标表里的键；空白模板为 null（用首字母）。 */
+    logo: Nullable(Type.String()),
+    blank: Type.Boolean(),
+    addable: Type.Boolean(),
+    reason: Nullable(TemplateReasonSchema),
+    /** 打包目录里这家的对话模型数。 */
+    modelCount: Type.Integer(),
+    regions: Type.Array(Type.Object({id: Type.String(), baseUrl: Type.String()}, {additionalProperties: false})),
+    routes: Type.Array(Type.Object({api: Api, baseUrl: Type.String()}, {additionalProperties: false})),
+    /** 这家的密钥怎么来：不要密钥、要 API Key、要登录。 */
+    access: Type.Union([Type.Literal("keyless"), Type.Literal("key"), Type.Literal("login")]),
 }, {additionalProperties: false});
+export type Template = Static<typeof TemplateSchema>;
 
 /** 发现的候选：按名字在目录里找到参照时带建议值（只是建议，用户加入后可改）。 */
 export const DiscoveredSchema = Type.Object({

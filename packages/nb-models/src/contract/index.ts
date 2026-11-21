@@ -4,19 +4,18 @@
  */
 
 export {
-    CatalogModelSchema,
-    CatalogProviderSchema,
     CheckResultSchema,
     DiscoveredSchema,
     KeyStatusSchema,
+    ModelRowSchema,
     ModelsSnapshotSchema,
     RoleStatusSchema,
-    SnapshotModelSchema,
     SnapshotProviderSchema,
     SnapshotRoleSchema,
+    TemplateSchema,
 } from "./shapes";
-export type {CatalogProvider, CheckResult, KeyStatus, ModelsSnapshot, RoleStatus, SnapshotModel, SnapshotProvider, SnapshotRole} from "./shapes";
-export {modelsSettingsSpec} from "./settings-spec";
+export type {CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, SnapshotRole, Template} from "./shapes";
+export {MODEL_PAGE_SIZE, MODEL_REFERENCES_MAX, modelsSettingsSpec} from "./settings-spec";
 export type {ModelsSettingsContract} from "./settings-spec";
 export {hasCredentials} from "./service";
 export type {ModelsService, ProfileModelDefaults} from "./service";
