@@ -5,10 +5,14 @@
  *
  * 读法：
  * - 每次收到快照（`attach`），比对各家的 `modelsRevision`，只重读变了的那家；整批到齐后一次换掉 `rows`（只触发一次依赖它的刷新），
- *   到齐之前继续交出旧的。
+ *   到齐之前继续交出旧的。内容没变（没有要重读的、服务商的集合与顺序也没变）时不换引用、不通知。
  * - 一家分页读时带首页的 `revision`，中间这家变了服务端回 `revision-changed`，整家重读，最多重试 `RETRIES` 次。
- * - 又来了新快照：这一轮读到的结果作废，按新快照重来。
- * - `want` 登记要按引用取的模型（角色绑定的、Profile 指名的），按服务商版本缓存，一次不超过合同的上限。
+ * - 又来了新快照：在途的这一轮不再换 `rows`，但已经读完的那几家照样记进缓存（按它们被读时快照里的版本），新的一轮只重读剩下的；
+ *   快照来得比读取快时也会逐步到齐。
+ * - 第一轮读完（读失败的那家按没有行算，下一份快照再试）`ready` 就为真：一家读不到不该让选择器一直空着。
+ * - `want` 登记要按引用取的模型（角色绑定的、Profile 指名的），按服务商版本缓存，一次不超过合同的上限。`lookup` 里只有已经取到的
+ *   引用：没有这个键是还在取，值为 null 才是确认没有这个模型。
+ * - `lazy`：有人 `subscribe` 之前不读（设置页的数据模块一直跟着快照，但只有角色页要选用数据）。
  */
 
 import type {ModelRow, ModelsSnapshot} from "@notnotype/nb-models/contract";
@@ -41,6 +45,8 @@ export interface SelectionOptions {
     readonly usable: boolean;
     /** 读失败（不是业务上的版本换代）时通知；缺省不报。 */
     readonly onFailure?: (code: string) => void;
+    /** 第一次 `subscribe` 之前只记快照、不读；缺省 false。 */
+    readonly lazy?: boolean;
 }
 
 export interface SelectionData {
@@ -48,13 +54,14 @@ export interface SelectionData {
     readonly rows: Cell<readonly SelectionRow[]>;
     /** `rows` 的版本：各家 `modelsRevision` 的拼接；读取期间的新旧交替靠它判断，调用方不解析。 */
     readonly revision: Cell<string>;
-    /** 第一次读完（成功）之后为真。 */
+    /** 第一轮读完之后为真（读失败的服务商按没有行算）。 */
     readonly ready: Cell<boolean>;
-    /** 按引用取到的行；没有这个模型（服务商或模型不在、被移出）的值为 null。键是 `<服务商>/<模型>`。 */
+    /** 按引用取到的行；值为 null 是没有这个模型（服务商或模型不在、被移出）。键是 `<服务商>/<模型>`；登记了、还没取到的引用不在里面。 */
     readonly lookup: Cell<ReadonlyMap<string, ModelRow | null>>;
     /** `rows` 或 `lookup` 换了之后调用（只在换引用的那一刻，不逐页）；返回取消函数。 */
     subscribe(listener: () => void): () => void;
-    attach(snapshot: ModelsSnapshot): void;
+    /** 换上新快照；返回这份快照是否要重读行（为真时 `rows` 稍后会换，调用方可以等那次通知再刷新依赖 `rows` 的东西）。 */
+    attach(snapshot: ModelsSnapshot): boolean;
     /** 登记要按引用取的模型（替换上一次登记的）。 */
     want(references: readonly string[]): void;
     dispose(): void;
@@ -78,7 +85,13 @@ export function createSelectionData(options: SelectionOptions): SelectionData {
     let latest: ModelsSnapshot | null = null;
     let wanted: readonly string[] = [];
     let generation = 0;
+    /** 登记引用与新快照都让在途的取引用不再换 `lookup`（取到的照样进缓存，由后来的那一轮换）。 */
+    let lookupGeneration = 0;
     let disposed = false;
+    let active = options.lazy !== true;
+    /** 两份行是否逐项是同一个对象：相同就不换引用。 */
+    const sameRows = (a: readonly SelectionRow[], b: readonly SelectionRow[]): boolean => a.length === b.length && a.every((row, index) => row === b[index]);
+    const staleOf = (snapshot: ModelsSnapshot) => snapshot.providers.filter((provider) => cached.get(provider.id)?.revision !== provider.modelsRevision);
 
     const readProvider = async (id: string): Promise<SelectionRow[] | null> => {
         for (let attempt = 0; attempt < RETRIES; attempt += 1) {
@@ -105,28 +118,45 @@ export function createSelectionData(options: SelectionOptions): SelectionData {
         return null;
     };
 
+    /** 在途的读，按服务商：同一家同一版本只读一次（读到一半来了新快照，新的一轮接着等它，不再发一遍）。 */
+    const inflight = new Map<string, {readonly revision: string; readonly done: Promise<void>}>();
+    const readOnce = (id: string, version: string): Promise<void> => {
+        const running = inflight.get(id);
+        if (running?.revision === version) return running.done;
+        const done = readProvider(id).then((result) => {
+            // 期间这家已经按更新的版本另发了一次：旧的晚到不能盖掉新的。
+            const newer = inflight.get(id)?.revision ?? version;
+            if (result !== null && !disposed && newer === version) cached.set(id, {revision: version, rows: result});
+        }).finally(() => {
+            if (inflight.get(id)?.done === done) inflight.delete(id);
+        });
+        inflight.set(id, {revision: version, done});
+        return done;
+    };
+
     const refresh = async (snapshot: ModelsSnapshot, mine: number): Promise<void> => {
         const present = new Set(snapshot.providers.map((provider) => provider.id));
         for (const id of [...cached.keys()]) if (!present.has(id)) cached.delete(id);
-        const stale = snapshot.providers.filter((provider) => cached.get(provider.id)?.revision !== provider.modelsRevision);
-        // 各家并行读：多家同时变（例如启动时）不排队。
-        const results = await Promise.all(stale.map(async (provider) => [provider, await readProvider(provider.id)] as const));
+        // 各家并行读：多家同时变（例如启动时）不排队。每家读完就记进缓存，不管期间有没有新快照；读失败的那家保留旧结果与旧版本，
+        // 下一份快照再试。记的是快照里这家的版本（不是分页响应里的，那是另一个量）：下一份快照的版本不同就重读。
+        await Promise.all(staleOf(snapshot).map((provider) => readOnce(provider.id, provider.modelsRevision)));
         if (disposed || mine !== generation) return;
-        // 读失败的那家保留旧结果与旧版本，下一份快照再试。
-        // 记的是快照里这家的版本（不是分页响应里的，那是另一个量）：下一份快照的版本不同就重读。
-        for (const [provider, result] of results) if (result !== null) cached.set(provider.id, {revision: provider.modelsRevision, rows: result});
         const combined = snapshot.providers.flatMap((provider) => cached.get(provider.id)?.rows ?? []);
-        // 一次换引用：依赖 `rows` 的刷新（例如重读会话的模型）只触发一次。
-        rows.value = combined;
+        const changed = !sameRows(rows.value, combined);
+        // 一次换引用：依赖 `rows` 的刷新（例如重读会话的模型）只触发一次；内容没变就不换。
+        if (changed) rows.value = combined;
         revision.value = snapshot.providers.map((provider) => `${provider.id}:${cached.get(provider.id)?.revision ?? ""}`).join("|");
-        if (results.every(([, result]) => result !== null)) ready.value = true;
-        notify();
-        void refreshLookup(mine);
+        const first = !ready.value;
+        ready.value = true;
+        if (changed || first) notify();
+        void refreshLookup();
     };
 
-    const refreshLookup = async (mine: number): Promise<void> => {
+    const refreshLookup = async (): Promise<void> => {
         const snapshot = latest;
         if (snapshot === null) return;
+        lookupGeneration += 1;
+        const mine = lookupGeneration;
         const revisions = new Map(snapshot.providers.map((provider) => [provider.id, provider.modelsRevision] as const));
         const keep = new Set(wanted);
         for (const key of [...looked.keys()]) if (!keep.has(key)) looked.delete(key);
@@ -138,7 +168,7 @@ export function createSelectionData(options: SelectionOptions): SelectionData {
         for (let at = 0; at < missing.length; at += MODEL_REFERENCES_MAX) {
             const chunk = missing.slice(at, at + MODEL_REFERENCES_MAX);
             const result = await options.remote.modelsByReference({references: chunk});
-            if (disposed || mine !== generation) return;
+            if (disposed) return;
             if (!result.ok) {
                 options.onFailure?.(result.code);
                 return;
@@ -147,8 +177,15 @@ export function createSelectionData(options: SelectionOptions): SelectionData {
                 const provider = splitReference(item.reference)?.provider;
                 looked.set(item.reference, {revision: provider === undefined ? "" : revisions.get(provider) ?? "", row: item.row});
             }
+            if (mine !== lookupGeneration) return;
         }
-        lookup.value = new Map(wanted.map((reference) => [reference, looked.get(reference)?.row ?? null] as const));
+        const next = new Map(wanted.flatMap((reference) => {
+            const known = looked.get(reference);
+            return known === undefined ? [] : [[reference, known.row] as const];
+        }));
+        const previous = lookup.value;
+        if (next.size === previous.size && [...next].every(([key, row]) => previous.has(key) && previous.get(key) === row)) return;
+        lookup.value = next;
         notify();
     };
 
@@ -159,18 +196,28 @@ export function createSelectionData(options: SelectionOptions): SelectionData {
         lookup,
         subscribe: (listener) => {
             listeners.add(listener);
+            if (!active && !disposed) {
+                active = true;
+                if (latest !== null) {
+                    generation += 1;
+                    void refresh(latest, generation);
+                }
+            }
             return () => void listeners.delete(listener);
         },
         attach: (snapshot) => {
-            if (disposed) return;
+            if (disposed) return false;
             latest = snapshot;
+            if (!active) return false;
             generation += 1;
+            const rereads = staleOf(snapshot).length > 0;
             void refresh(snapshot, generation);
+            return rereads;
         },
         want: (references) => {
             wanted = [...new Set(references)];
-            if (disposed || latest === null) return;
-            void refreshLookup(generation);
+            if (disposed || latest === null || !active) return;
+            void refreshLookup();
         },
         dispose: () => {
             disposed = true;

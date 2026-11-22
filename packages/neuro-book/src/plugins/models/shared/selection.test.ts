@@ -32,20 +32,27 @@ const ok = <T>(result: {ok: boolean; value?: T}): T => {
     return result.value as T;
 };
 
-/** 记每次对服务端的调用与 `rows` 被换了几次的选用数据夹具。 */
-async function fixture(options: {usable: boolean}) {
+/**
+ * 记每次对服务端的调用与 `rows` 被换了几次的选用数据夹具。`hold` 给了时每次调用先等它交回的 Promise（测读到一半来了新快照、
+ * 并发登记引用）；`fail` 给了时这家的读取交回这个失败码（在真实服务端前面注入故障）。
+ */
+async function fixture(options: {usable: boolean; lazy?: boolean; hold?: (method: string, input: unknown) => Promise<void> | undefined; fail?: (provider: string) => string | undefined}) {
     counter += 1;
     const w = await modelsWorld(join(root, `world-${String(counter)}`));
     worlds.push(w);
     const client = await w.window("w");
     const calls: Array<{method: string; input: unknown}> = [];
     const remote: SelectionRemote = {
-        enabledModels: (input) => {
+        enabledModels: async (input) => {
             calls.push({method: "enabledModels", input});
+            await options.hold?.("enabledModels", input);
+            const failed = options.fail?.(input.providers?.[0] ?? "");
+            if (failed !== undefined) return {ok: false, code: failed};
             return client.enabledModels(input) as ReturnType<SelectionRemote["enabledModels"]>;
         },
-        modelsByReference: (input) => {
+        modelsByReference: async (input) => {
             calls.push({method: "modelsByReference", input});
+            await options.hold?.("modelsByReference", input);
             return client.modelsByReference(input) as ReturnType<SelectionRemote["modelsByReference"]>;
         },
     };
@@ -56,8 +63,12 @@ async function fixture(options: {usable: boolean}) {
         writes[id] = 0;
         return {get value() { return value; }, set value(next: T) { writes[id] = (writes[id] ?? 0) + 1; value = next; }};
     };
-    const selection = createSelectionData({remote, ref, usable: options.usable});
-    return {w, client, calls, selection, writes: () => Object.values(writes)};
+    const selection = createSelectionData({remote, ref, usable: options.usable, ...(options.lazy === undefined ? {} : {lazy: options.lazy})});
+    let notified = 0;
+    selection.subscribe(() => {
+        notified += 1;
+    });
+    return {w, client, calls, selection, writes: () => Object.values(writes), notified: () => notified};
 }
 
 describe("选用数据", () => {
@@ -116,5 +127,91 @@ describe("选用数据", () => {
         ok(await f.client.setModels({provider: id, add: [], remove: [removed.id]}));
         f.selection.attach(f.w.service.snapshot());
         await waitUntil("移出的取到 null", () => f.selection.lookup.value.get(`${id}/${removed.id}`) === null);
+    });
+
+    test("快照里各家的版本都没变（只改了角色）：不请求、不换 rows 与 lookup、不通知；attach 交回要不要重读", async () => {
+        const f = await fixture({usable: false});
+        const a = ok(await f.client.addProvider({template: "deepseek"})).id;
+        expect(f.selection.attach(f.w.service.snapshot())).toBe(true);
+        await waitUntil("第一次读完", () => f.selection.ready.value);
+        const model = f.selection.rows.value[0]!;
+        f.selection.want([`${a}/${model.id}`]);
+        await waitUntil("取到引用", () => f.selection.lookup.value.size === 1);
+        const rows = f.selection.rows.value;
+        const lookup = f.selection.lookup.value;
+        const notified = f.notified();
+        f.calls.length = 0;
+        ok(await f.client.setRole({id: "main", model: `${a}/${model.id}`}));
+        expect(f.selection.attach(f.w.service.snapshot())).toBe(false);
+        f.selection.want([`${a}/${model.id}`]);
+        // 等这一轮走完：再登记一个新引用、等它取到，前面那轮必然已经结束。
+        f.selection.want([`${a}/${model.id}`, `${a}/no-such-model`]);
+        await waitUntil("新引用取到", () => f.selection.lookup.value.has(`${a}/no-such-model`));
+        expect(f.calls.filter((call) => call.method === "enabledModels")).toEqual([]);
+        expect(f.selection.rows.value).toBe(rows);
+        expect(f.selection.lookup.value.get(`${a}/${model.id}`)).toBe(lookup.get(`${a}/${model.id}`));
+        expect(f.notified()).toBe(notified + 1);
+    });
+
+    test("并发登记引用：先完成的那次不把后登记、还没取到的引用说成没有", async () => {
+        const gates: Array<() => void> = [];
+        const f = await fixture({usable: false, hold: (method) => (method === "modelsByReference" ? new Promise<void>((resolve) => gates.push(resolve)) : undefined)});
+        const a = ok(await f.client.addProvider({template: "deepseek"})).id;
+        f.selection.attach(f.w.service.snapshot());
+        await waitUntil("第一次读完", () => f.selection.ready.value);
+        const [x, y] = f.selection.rows.value.map((row) => `${a}/${row.id}`);
+        f.selection.want([x!]);
+        await waitUntil("第一次登记在取", () => gates.length === 1);
+        f.selection.want([x!, y!]);
+        await waitUntil("第二次登记在取", () => gates.length === 2);
+        gates[0]!();
+        await waitUntil("第一次取完", () => f.calls.filter((call) => call.method === "modelsByReference").length === 2);
+        expect(f.selection.lookup.value.get(y!)).not.toBeNull();
+        gates[1]!();
+        await waitUntil("两个都取到", () => f.selection.lookup.value.size === 2);
+        expect(f.selection.lookup.value.get(y!)).toMatchObject({id: y!.slice(a.length + 1)});
+    });
+
+    test("快照来得比读取快：读完的那家记进缓存，新的一轮只读剩下的，最后到齐", async () => {
+        const gates: Array<() => void> = [];
+        const f = await fixture({usable: false, hold: (method) => (method === "enabledModels" ? new Promise<void>((resolve) => gates.push(resolve)) : undefined)});
+        const a = ok(await f.client.addProvider({template: "deepseek"})).id;
+        const b = ok(await f.client.addProvider({template: "moonshot"})).id;
+        f.selection.attach(f.w.service.snapshot());
+        await waitUntil("两家都在读", () => gates.length === 2);
+        // 第一家读完之前先来一份新快照（第二家改了名，版本变了）。
+        ok(await f.client.updateProvider({id: b, patch: {name: "改名"}}));
+        f.selection.attach(f.w.service.snapshot());
+        gates.shift()!();
+        gates.shift()!();
+        await waitUntil("新一轮在读", () => gates.length > 0);
+        // 新的一轮接着等第一轮在读的第一家，只给版本变了的第二家另发一次。
+        expect(f.calls.slice(2).map((call) => (call.input as {providers: string[]}).providers[0])).toEqual([b]);
+        while (!f.selection.ready.value) {
+            gates.shift()?.();
+            await Promise.resolve();
+        }
+        expect(new Set(f.selection.rows.value.map((row) => row.provider))).toEqual(new Set([a, b]));
+    });
+
+    test("一家读不到：其余的照样交出、ready 为真；lazy 时订阅之前不读", async () => {
+        let broken = "";
+        const f = await fixture({usable: false, fail: (provider) => (provider === broken ? "unavailable" : undefined)});
+        const a = ok(await f.client.addProvider({template: "deepseek"})).id;
+        broken = ok(await f.client.addProvider({template: "moonshot"})).id;
+        f.selection.attach(f.w.service.snapshot());
+        await waitUntil("第一次读完", () => f.selection.ready.value);
+        expect(new Set(f.selection.rows.value.map((row) => row.provider))).toEqual(new Set([a]));
+
+        const lazy = await fixture({usable: false, lazy: true});
+        // 夹具里已经订阅了：另建一份没有订阅的看“订阅之前不读”。
+        const quiet = createSelectionData({remote: {enabledModels: () => Promise.reject(new Error("should not read")), modelsByReference: () => Promise.reject(new Error("should not read"))}, ref: <T>(initial: T) => ({value: initial}), usable: false, lazy: true});
+        ok(await lazy.client.addProvider({template: "deepseek"}));
+        expect(quiet.attach(lazy.w.service.snapshot())).toBe(false);
+        quiet.want(["deepseek/x"]);
+        expect(quiet.ready.value).toBe(false);
+        quiet.dispose();
+        lazy.selection.attach(lazy.w.service.snapshot());
+        await waitUntil("订阅过的 lazy 照常读", () => lazy.selection.ready.value);
     });
 });

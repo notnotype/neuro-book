@@ -64,7 +64,8 @@ function optionsFor(role: SnapshotRole) {
     const base = [{value: "", label: text("roles.none")}, ...filtered.value];
     if (role.model === null || base.some((option) => option.value === role.model)) return base;
     const known = modelsByRef.value.get(role.model);
-    const usable = known !== undefined && known !== null && known.enabled && known.status === "ok";
+    // 还没取到（`undefined`）时只显示引用，不先说它不可用。
+    const usable = known === undefined || (known !== null && known.enabled && known.status === "ok");
     return [...base, {value: role.model, label: known?.name ?? role.model, ...(usable ? {} : {description: text("roles.unavailable"), disabled: true})}];
 }
 

@@ -313,15 +313,22 @@ export const agentBrowserPlugin: PluginDefinition = {
             let roleReferences: readonly string[] = [];
             let pageReferences: readonly string[] = [];
             const wantReferences = (): void => selection.value?.want([...roleReferences, ...pageReferences]);
-            /** 选用数据换了（行读完、引用取到）：重算角色的模型名与模型列表。角色先于模型换：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。 */
-            const rebuild = (): void => {
+            /**
+             * 选用数据换了（行读完、引用取到）或来了新快照：重算角色的模型名与模型列表。角色先于模型换：宿主看着 `models` 重读会话的模型，
+             * 这时角色应当已经是新的。`models` 只在它的两样输入（快照、行）真的换了时才重算：宿主每见一次新值就重取一次会话快照。
+             */
+            let modelsBuiltFrom: {readonly snapshot: ModelsSnapshot; readonly rows: readonly SelectionRow[]} | null = null;
+            const rebuild = (options: {readonly models: boolean} = {models: true}): void => {
                 const snapshot = modelsSnapshot.value;
                 const data = selection.value;
                 if (snapshot === null || data === null) return;
                 profileRows.value = data.rows.value;
                 profileLookup.value = data.lookup.value;
                 roles.value = roleOptions(snapshot, data.lookup.value);
-                if (data.ready.value) models.value = modelOptions(snapshot, data.rows.value);
+                if (!options.models || !data.ready.value) return;
+                if (modelsBuiltFrom?.snapshot === snapshot && modelsBuiltFrom.rows === data.rows.value) return;
+                modelsBuiltFrom = {snapshot, rows: data.rows.value};
+                models.value = modelOptions(snapshot, data.rows.value);
             };
             const takeModels = (snapshot: ModelsSnapshot): void => {
                 modelsSnapshot.value = snapshot;
@@ -329,8 +336,9 @@ export const agentBrowserPlugin: PluginDefinition = {
                 modelsFailed.value = false;
                 roleReferences = snapshot.roles.flatMap((role) => (role.model === null ? [] : [role.model]));
                 wantReferences();
-                selection.value?.attach(snapshot);
-                rebuild();
+                // 要重读行时先不重算模型列表：等行到齐的那次通知一起算，不交出新快照配旧行的中间状态。
+                const rereads = selection.value?.attach(snapshot) ?? false;
+                rebuild({models: !rereads});
             };
             let modelsStarted = false;
             /** 第一次有对话位置或打开 Profile 页时才取：两个都没打开的窗口不多发请求。 */
@@ -340,7 +348,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 void (async () => {
                     const modelsRemote = context.remote.use(modelsSettingsContract);
                     const data = createSelectionData({remote: modelsRemote as unknown as SelectionRemote, ref: (initial) => shallowRef(initial), usable: true, onFailure: (code) => report("models-failed", code)});
-                    data.subscribe(rebuild);
+                    data.subscribe(() => rebuild());
                     selection.value = data;
                     context.signal.addEventListener("abort", () => data.dispose(), {once: true});
                     const subscription = await modelsRemote.events.changed.subscribe({}, takeModels);
@@ -349,6 +357,9 @@ export const agentBrowserPlugin: PluginDefinition = {
                         report("models-failed", subscription.code);
                         modelsFailed.value = true;
                         modelsStarted = false;
+                        // 下一个对话位置会再建一份：这一份放掉。
+                        data.dispose();
+                        selection.value = null;
                         return;
                     }
                     context.signal.addEventListener("abort", () => subscription.value.release(), {once: true});

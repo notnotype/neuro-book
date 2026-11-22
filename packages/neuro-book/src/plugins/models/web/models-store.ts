@@ -109,6 +109,8 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         remote: remote as unknown as SelectionRemote,
         ref: (initial) => shallowRef(initial),
         usable: false,
+        // 只有角色页要选用数据：它订阅之前不读，打开“服务商与模型”不会把每家的模型都读一遍。
+        lazy: true,
     }) as unknown as StoreSelection;
     const checks = reactive(new Map<string, CheckState>());
     const checkErrors = reactive(new Map<string, ModelsFailure>());

@@ -171,7 +171,8 @@ function modelField(entry: ProfileEntry, setting: ProfileSetting | undefined, sn
     }
     const followRole = snapshot.roles.find((role) => role.id === (entry.role ?? DEFAULT_ROLE));
     const followName = followRole === undefined ? (entry.role ?? DEFAULT_ROLE) : roleName(followRole, text);
-    const findModel = (reference: string): ModelRow | null => selection.lookup.get(reference) ?? null;
+    /** 按引用取到的行；`undefined` 是还在取（这时不报“模型不在了”，免得一闪而过的误报），null 是确认没有。 */
+    const findModel = (reference: string): ModelRow | null | undefined => selection.lookup.get(reference);
     const providerName = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
     const modelName = (reference: string | null): string | undefined => (reference === null ? undefined : findModel(reference)?.name ?? reference);
     const roles = snapshot.roles.map((role): ProfileOption => ({
@@ -185,10 +186,11 @@ function modelField(entry: ProfileEntry, setting: ProfileSetting | undefined, sn
 
     // 解析顺序同服务端（agent.ts 的 `profileDefaults`）：模型，否则设置的角色、声明的角色。用不了的只说用不了，不说缺什么。
     const problem = ((): string | null => {
-        const gaps = (found: ModelRow | null): string | null => (found === null ? null : modelNeedsText(entry.modelNeeds, found, text) || null);
+        const gaps = (found: ModelRow | null | undefined): string | null => (found === null || found === undefined ? null : modelNeedsText(entry.modelNeeds, found, text) || null);
         const direct = setting?.model;
         if (direct !== undefined) {
             const found = findModel(direct);
+            if (found === undefined) return null;
             return found !== null && found.usable ? gaps(found) : text.t(agentText("profiles.model.modelGone"));
         }
         const id = setting?.role ?? entry.role ?? DEFAULT_ROLE;
