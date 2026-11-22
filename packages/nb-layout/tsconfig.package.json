@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
+        "types": [],
+        "strict": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "rootDir": "src",
+        "declaration": true,
+        "emitDeclarationOnly": true
+    },
+    "include": ["src/**/*.ts", "src/**/*.vue"],
+    "exclude": ["src/**/*.test.ts", "src/**/*-fixtures.ts", "src/**/test-fixtures", "src/vue/lab-sources.ts"]
+}

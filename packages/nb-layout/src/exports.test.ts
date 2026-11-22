@@ -19,8 +19,11 @@ const PACKAGE_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PACKAGE_ROOT, "../..");
 const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as {exports: Record<string, string>};
 
-/** `package.json` 的每个子路径，`./lab-sources` 除外：它给应用的 Component Lab 建索引，不进发布包。 */
-const ENTRIES = Object.entries(manifest.exports).filter(([subpath]) => subpath !== "./lab-sources").map(([subpath, file]) => ({
+/**
+ * `package.json` 的每个脚本子路径。`./lab-sources` 除外：它给应用的 Component Lab 建索引，不进发布包。`./style.css` 除外：
+ * 它是样式，没有导出名（走源码时指向 `global.css`，发布包里是全部样式）。
+ */
+const ENTRIES = Object.entries(manifest.exports).filter(([subpath, file]) => subpath !== "./lab-sources" && !file.endsWith(".css")).map(([subpath, file]) => ({
     specifier: subpath === "." ? "@notnotype/nb-layout" : `@notnotype/nb-layout/${subpath.slice(2)}`,
     file: join(PACKAGE_ROOT, file),
 }));

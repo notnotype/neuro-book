@@ -15,7 +15,8 @@
         "forceConsistentCasingInFileNames": true
     },
     "include": [
-        "src"
+        "src",
+        "scripts"
     ],
     "exclude": [
         "src/vue"

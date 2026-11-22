@@ -18,11 +18,13 @@
         "./vue": "./src/vue/index.ts",
         "./locales": "./src/locales/index.ts",
         "./text": "./src/vue/text.ts",
+        "./style.css": "./src/vue/global.css",
         "./lab-sources": "./src/vue/lab-sources.ts"
     },
     "scripts": {
         "test": "bun test && vitest run",
-        "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json"
+        "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json",
+        "build:package": "bun scripts/pack.ts"
     },
     "dependencies": {
         "tabbable": "^6.5.0"
@@ -33,7 +35,10 @@
         "@vitejs/plugin-vue": "^6.0.7",
         "@vue/test-utils": "^2.4.11",
         "happy-dom": "^20.10.6",
+        "rolldown": "~1.1.4",
+        "rolldown-plugin-dts": "0.27.14",
         "typescript": "^6.0.3",
+        "vite": "^8.1.4",
         "vitest": "^4.1.2",
         "vue": "^3.5.24",
         "vue-tsc": "^3.3.7"
