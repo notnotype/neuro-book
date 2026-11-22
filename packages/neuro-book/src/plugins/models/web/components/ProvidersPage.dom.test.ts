@@ -86,10 +86,11 @@ describe("标题区", () => {
         expect(query("[data-provider-name]").textContent).toBe("深度求索");
     });
 
-    it("复制一份：选中副本、名称加 2；换内置图标与恢复模板的图标", async () => {
+    it("复制一份：选中副本、焦点到名称、名称加 2；换内置图标与恢复模板的图标", async () => {
         const {store} = await render();
         query<HTMLButtonElement>("[data-provider-duplicate]").click();
         await waitUntil("选中副本", () => selected() === "deepseek-copy", {timeoutMs: 10_000});
+        await waitUntil("焦点在副本的名称上", () => document.activeElement?.matches("[data-provider-name]") === true && document.activeElement.textContent === "DeepSeek 2", {timeoutMs: 10_000});
         expect(store.snapshot.value?.providers.find((provider) => provider.id === "deepseek-copy")?.name).toBe("DeepSeek 2");
         query<HTMLButtonElement>("[data-provider-icon-button]").click();
         await waitUntil("图标面板", () => document.querySelector("[data-icon-choice]") !== null, {timeoutMs: 10_000});

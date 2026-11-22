@@ -341,7 +341,7 @@ test("验收 4：同一模板添加两份、改名、复制一份、上传图标
 
     // 复制一份：选中副本，焦点到名称。
     await page.locator("[data-provider-duplicate]").click();
-    await expect(page.locator("[data-provider-rail-item]")).toHaveCount(3);
+    await expect(page.locator("[data-provider-rail-item]:not([data-provider-rail-item='all'])")).toHaveCount(3);
     await expect(page.locator("[data-provider-name]")).toBeFocused();
 
     // 上传图标：浏览器里缩图、服务端校验后存成文件，标题区与左栏换成读取路由的图。

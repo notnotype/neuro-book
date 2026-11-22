@@ -171,7 +171,7 @@ const shownError = computed(() => (uploadError.value !== "" ? uploadError.value 
         </Popover>
         <div class="provider-header__name">
             <template v-if="!editing">
-                <h3 class="provider-header__title" data-provider-name>{{ provider.name }}</h3>
+                <h3 class="provider-header__title" tabindex="-1" data-provider-name>{{ provider.name }}</h3>
                 <Tooltip :text="text('header.rename')">
                     <IconButton ref="editButton" size="sm" icon-class="i-lucide-pencil" :aria-label="text('header.rename')" :disabled="disabled" data-provider-rename @click="startEditing" />
                 </Tooltip>
