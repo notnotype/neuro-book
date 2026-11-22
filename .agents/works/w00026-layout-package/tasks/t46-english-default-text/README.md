@@ -15,7 +15,7 @@ nb-layout 没有注入文字时改用英文目录、源语言改成 `en-US`（�
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿，等设计审查（Claude Sonnet）。
+2026-11-22：[计划](plan.md)第 2 稿：设计审查（Claude Sonnet）9 条（重要 5、建议 4）都成立，处理见计划的“修订记录”，[证据](evidences/design-review.txt)。
 
 ## 下一步
 
