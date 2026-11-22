@@ -227,6 +227,8 @@ export async function sendCommand(host: CommandHost, issuer: Issuer, args: Comma
             settled.push(ctrl("interactionResolved", {id: item.id, ...SETTLED_BY_MESSAGE, by: issuer}));
         }
         claims = taken;
+        // 没有认领到事项：等于不带 settlePending（输出 111），回执也照普通发话（输出 119 只管真结算了事项的应答）。
+        if (taken.size === 0) return delivered;
         const resolution = {...SETTLED_BY_MESSAGE, by: issuer};
         return {...delivered, drafts: [...settled, ...delivered.drafts], committed: () => {
             claims = null;

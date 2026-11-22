@@ -52,10 +52,14 @@ function errorsOf<const Codes extends readonly string[]>(codes: Codes): {readonl
     return Object.fromEntries(codes.map((code) => [code, Detail])) as {readonly [Code in Codes[number]]: typeof Detail};
 }
 
-/** 指令的失败码表：内核的码按 `COMMAND_DETAILS` 给详情、没列的不收详情；打开会话的码收可选的对象。 */
+/**
+ * 指令的失败码表：内核的码按 `COMMAND_DETAILS` 给详情、没列的不收详情；打开会话的码收可选的对象。同一个码两边都有（`log-broken`、
+ * `session-closed` 这类）时按打开会话的收：指令可能在打开那一步就失败（例如打开时恢复批写不下），那时带存储给的详情。
+ */
 function commandErrorsOf<const Codes extends readonly string[]>(codes: Codes) {
     const table: Record<string, TSchema> = {};
-    for (const code of codes) table[code] = code in COMMAND_DETAILS ? COMMAND_DETAILS[code as DetailCode] : NoDetail;
+    const opening = new Set<string>(OPEN_CODES);
+    for (const code of codes) table[code] = code in COMMAND_DETAILS ? COMMAND_DETAILS[code as DetailCode] : opening.has(code) ? Detail : NoDetail;
     for (const code of OPEN_CODES) table[code] ??= Detail;
     return table as {readonly [Code in Codes[number] | OpenCode]: Code extends DetailCode ? (typeof COMMAND_DETAILS)[Code] : Code extends OpenCode ? typeof Detail : typeof NoDetail};
 }

@@ -771,6 +771,13 @@ describe("受理批写下、反应批写失败（runtime.md 输出 119，session
         await expectBroken(session, states);
     });
 
+    test("send 带 settlePending 却没有可结算的同步事项：等于普通发话，反应批写失败时回执 log-broken（runtime.md 输出 111）", async () => {
+        const dir = join(root, "reaction-empty-settle");
+        await using session = await createTestSession({wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("inputQueued")]});
+        expect(await session.raw.send({commandId: id(), input: {text: "没什么要拒的"}, settlePending: "deny"})).toMatchObject({ok: false, code: "log-broken"});
+        expect(dataOf((await session.raw.log({afterSeq: 0})).events, "interactionResolved")).toEqual([]);
+    });
+
     test("健康时：结算的反应还在跑，等着的工具不往下走；反应写下之后才叫醒", async () => {
         const hold = gate();
         const entered = gate();
@@ -798,31 +805,30 @@ describe("受理批写下、反应批写失败（runtime.md 输出 119，session
         await session.raw.waitRun(runId);
     });
 
-    test("空闲时回答异步提问、它的反应批写失败：回执成功，不开运行（不取工具、模型没收到新请求）", async () => {
+    test("空闲时回答异步提问、它的反应批写失败：回执成功，不开运行（下一轮该退役的工具没有退役、模型没收到新请求）", async () => {
         const dir = join(root, "reaction-async");
-        let toolsAsked = 0;
+        let disposed = 0;
+        let declared = true;
         const question: TestTool = {id: "lab.later", execute: async (_args, ctx) => {
             await ctx.ask!({question: "以后再说？"}, {async: true});
             return "先这样";
+        }, dispose: () => {
+            disposed += 1;
         }};
-        await using session = await createTestSession({wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("interactionResolved")], tools: () => {
-            toolsAsked += 1;
-            return [question];
-        }});
+        // 第一轮之后不再声明这个工具：开了运行的话，第一个边界（写任何东西之前）就会退役它。
+        await using session = await createTestSession({wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("interactionResolved")], tools: () => (declared ? [question] : [])});
         session.model.script({tools: [{tool: "lab.later"}]}, "好");
         await session.say("问一个以后答的");
-        const pending = (await session.raw.snapshot()).status;
-        expect(pending.state).toBe("idle");
+        declared = false;
         const asyncId = dataOf<{id: string; async?: boolean}>((await session.raw.log({afterSeq: 0})).events, "interactionRequested").find((data) => data.async === true)!.id;
         const requestsBefore = session.model.requests.length;
-        const toolsBefore = toolsAsked;
         const answered = await session.raw.resolve({commandId: id(), id: asyncId, decision: "answer", answer: {text: "现在答"}});
-        expect(answered).toMatchObject({ok: true, replayed: false});
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (!answered.ok || answered.value.runId === undefined) throw new Error(JSON.stringify(answered));
+        expect(answered.replayed).toBe(false);
+        // 等这次运行的结果作检查点：开了运行的话它在第一个边界之后才结束，退役已经发生。
+        expect(await session.raw.waitRun(answered.value.runId)).toMatchObject({error: {code: "log-broken"}});
+        expect(disposed).toBe(0);
         expect(session.model.requests.length).toBe(requestsBefore);
-        // 受理时派发反应要取一次工具声明（反应的视图环境）；开了运行还会在第一个边界、写任何东西之前再取一次（模型那时还收不到请求，
-        // 所以只看模型请求数分不出开没开）。
-        expect(toolsAsked - toolsBefore).toBe(1);
         expect((await session.raw.snapshot()).status.state).toBe("broken");
     });
 
@@ -931,6 +937,37 @@ describe("损坏之后的等待者与停止（runtime.md 输出 13、30）", () 
         expect(await session.raw.send({commandId: id(), input: {text: "跑"}})).toMatchObject({ok: false, code: "log-broken"});
         expect(waited).not.toBeNull();
         expect(await waited).toMatchObject({error: {code: "log-broken"}});
+    });
+
+    test("回退后接着跑（复用 run id）、跑起来之后才坏：已登记的 waitRun 交回 log-broken，不拿旧分支的收口", async () => {
+        const block = gate();
+        const started = gate();
+        const failNext = {on: false};
+        const wrap = (store: LogStore): LogStore => ({...store, append: async (handle, events) => {
+            if (failNext.on) {
+                failNext.on = false;
+                return {ok: false, code: "storage-failed", detail: {message: "injected"}};
+            }
+            return store.append(handle, events);
+        }});
+        await using session = await createTestSession({wrapStore: wrap, tools: [{id: "lab.read", execute: () => "读到了"}, {id: "lab.block", execute: async () => {
+            started.open();
+            await block.promise;
+            return "完";
+        }}]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "答一");
+        await session.say("第一问");
+        const step = (await session.raw.rewindTargets()).filter((target) => target.kind === "after-step").at(-1)!;
+        await session.raw.rewind({commandId: id(), to: step.id});
+        session.model.script({tools: [{tool: "lab.block"}]}, "答二");
+        const resumed = await session.raw.start({commandId: id()});
+        if (!resumed.ok) throw new Error(resumed.code);
+        await started.promise;
+        const waiting = session.raw.waitRun(resumed.value.runId);
+        failNext.on = true;
+        expect(await session.raw.setTitle({commandId: id(), title: "坏"})).toMatchObject({ok: false, code: "log-broken"});
+        expect(await waiting).toMatchObject({reason: "error", error: {code: "log-broken"}});
+        block.open();
     });
 
     test("runEnded 写下、它的反应批写失败：损坏前登记的与之后再来的 waitRun 交回同一个结果（日志里的那次收口）", async () => {
