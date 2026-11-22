@@ -41,12 +41,15 @@ function setup(contacts: OwnerContact[] = [LYRA]) {
     const contactList = shallowRef(contacts);
     const state = shallowRef<OwnerContactsState>({kind: "ready"});
     const opens: string[] = [];
+    /** 面板打开时对宿主与提供者的调用先后：借用之后才重定未读线（借用可能就地重新订阅），再取主对话。 */
+    const calls: string[] = [];
     const provider: SessionOwnerProvider = {
         contacts: contactList,
         state,
         reload: () => undefined,
         open: async (id) => {
             opens.push(id);
+            calls.push("open");
             return {ok: true, sessionId: `bot-${id}`};
         },
         seen: () => undefined,
@@ -64,11 +67,12 @@ function setup(contacts: OwnerContact[] = [LYRA]) {
         },
         borrow: () => {
             borrowed += 1;
+            calls.push("borrow");
             return () => {
                 borrowed -= 1;
             };
         },
-        markOpened: () => undefined,
+        markOpened: () => void calls.push("markOpened"),
     };
     const moods: string[] = [];
     const Host = defineComponent({
@@ -82,7 +86,7 @@ function setup(contacts: OwnerContact[] = [LYRA]) {
     });
     const wrapper = mount(Host, {global, attachTo: document.body});
     mounted.push(wrapper);
-    return {wrapper, contactList, state, providers, activity, opens, moods, host, borrowed: () => borrowed};
+    return {wrapper, contactList, state, providers, activity, opens, calls, moods, host, borrowed: () => borrowed};
 }
 
 const button = (): HTMLButtonElement | null => document.querySelector("[data-desk-companion-button]");
@@ -129,13 +133,14 @@ describe("书房的看板娘入口", () => {
     });
 
     it("点开：借用宿主、取这个联系人的主对话并打开；关上交还借用；面板里没有会话时盖着“找不到 bot”", async () => {
-        const {opens, host, borrowed} = setup();
+        const {opens, calls, host, borrowed} = setup();
         await flushPromises();
         button()!.click();
         await flushPromises();
         expect(panel()).not.toBeNull();
         expect(borrowed()).toBe(1);
         expect(opens).toEqual(["lyra"]);
+        expect(calls).toEqual(["borrow", "markOpened", "open"]);
         expect(host.sessionId.value).toBe("bot-lyra");
         expect(document.querySelector("[data-messages-cover]")).toBeNull();
 

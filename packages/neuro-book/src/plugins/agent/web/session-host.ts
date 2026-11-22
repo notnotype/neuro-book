@@ -384,10 +384,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
      * 路径读完之后算一次：`undefined` 是还没算，算出来（消息 id 或 null）就不再变，之后到的回复不画线。
      */
     let unreadMark: {readonly sessionId: string; baseline: number | null; from: string | null | undefined} | null = null;
+    /** 联系人的“看到”。归属插件是别的插件，读它出错时记诊断、当作没读到：这次不画未读线，聊天照常打开。 */
+    const seenOf = (owner: SessionOwner): number | null => {
+        try {
+            return deps.owners?.seenOf(owner) ?? null;
+        } catch (error) {
+            deps.report("conversation-owner-failed", `seen of ${owner.plugin}/${owner.id}: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+        }
+    };
     const captureUnread = (target: Current): void => {
         const mark = unreadMark;
         if (mark === null || mark.sessionId !== target.id || current !== target) return;
-        if (mark.baseline === null && target.owner !== null && target.owner !== undefined) mark.baseline = deps.owners?.seenOf(target.owner) ?? null;
+        if (mark.baseline === null && target.owner !== null && target.owner !== undefined) mark.baseline = seenOf(target.owner);
         if (mark.baseline === null || mark.from !== undefined || target.loading) return;
         const baseline = mark.baseline;
         mark.from = target.transcript.messages().find((message) => (target.transcript.countedSeq(message.id) ?? 0) > baseline)?.id ?? null;
@@ -1143,6 +1152,13 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 } else target.owner = owner === "missing" ? null : owner;
                 afterChange(target);
                 captureUnread(target);
+                bump();
+            }).catch((error: unknown) => {
+                // 归属插件的身份读出错（`afterChange` 重算档位时读）：与读不到会话头同样处理，不让打开卡在读取中。
+                deps.report("conversation-owner-failed", `owner of session ${id}: ${error instanceof Error ? error.message : String(error)}`);
+                if (current !== target) return;
+                target.headerUnreadable = true;
+                target.failed ??= {code: "header-unreadable"};
                 bump();
             });
         }
@@ -2118,7 +2134,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     // 联系人的“看到”晚到（开会话时联系人还没读到、未读还没数完）：读到的那一刻同步拍下基线，不等下一次重算 ctx（见 `unreadMark`）。
     const stopWatchingSeen = watch(() => {
         const value = owner.value;
-        return value === null || value === undefined ? null : deps.owners?.seenOf(value) ?? null;
+        return value === null || value === undefined ? null : seenOf(value);
     }, () => {
         if (current !== null) captureUnread(current);
     }, {flush: "sync"});

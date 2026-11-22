@@ -1,9 +1,10 @@
 /**
  * 首屏指标（docs/specs/agent/conversation.md 输出 56）：有归属的会话，从宿主开始打开到快照与路径都应用完、视图画出下一帧的耗时。
  *
- * 宿主（`session-host.ts` 的 `painting`）在 `openHere` 开始时换一个新对象，应用完再换一个带 `loaded` 的；这里认第一个对象作起点，
- * 等第二个出现、视图画出下一帧（`afterPaint`）再记。中途换了起点（又开了一次、换了会话）作废。后台页不跑动画帧，量到的是等待切回来
- * 的时间，所以起点与画出时页面都可见、期间没有隐藏过才记。
+ * 宿主（`session-host.ts` 的 `painting`）在 `openHere` 开始时换一个新对象，应用完再换一个带 `loaded` 的（起点的时刻带在对象上）；
+ * 这里等带 `loaded` 的那个出现、视图画出下一帧（`afterPaint`）再记。挂上时打开已经读完的（书房面板的对话组件第一次加载，比打开还慢）
+ * 照样记。中途换了起点（又开了一次、换了会话）或停止了作废。同一个对象只记一次（`recorded`）：同一个宿主上挂着几个对话组件时不重复。
+ * 后台页不跑动画帧，量到的是等待切回来的时间，所以起点（看不到起点时按挂上时）与画出时页面都可见、期间没有隐藏过才记。
  *
  * 碰 DOM 的部分（动画帧、页面可见性）由调用方注入：本文件只给 `ConversationHost.vue` 用，不进 `plugin.ts`（后端 tsc 范围没有 DOM）。
  */
@@ -41,25 +42,26 @@ export interface PaintMetricOptions {
     readonly record: (level: "info" | "warning", record: PaintRecord) => void;
 }
 
-/** 开始看；交回停止函数。挂上时已经在读的那次照样跟（起点的可见性按挂上时算）。 */
+/** 记过的打开（宿主的 `painting` 对象），跨组件共用：一次打开只记一条。 */
+const recorded = new WeakSet<PaintStart>();
+
+/** 开始看；交回停止函数。 */
 export function watchPaint(options: PaintMetricOptions): () => void {
-    let started: PaintStart | null = null;
-    let hidden = false;
+    let stopped = false;
+    let hidden = !options.page.visible();
     const stopHidden = options.page.onHidden(() => {
         hidden = true;
     });
     const stopWatch = watch(options.host.painting, (paint) => {
         if (paint === null) return;
         if (paint.loaded === null) {
-            started = paint;
             hidden = !options.page.visible();
             return;
         }
-        const start = started;
-        if (start === null || start.sessionId !== paint.sessionId || start.startedAt !== paint.startedAt) return;
-        started = null;
+        if (recorded.has(paint)) return;
+        recorded.add(paint);
         void options.afterPaint().then(() => {
-            if (options.host.painting.value !== paint || hidden || !options.page.visible()) return;
+            if (stopped || options.host.painting.value !== paint || hidden || !options.page.visible()) return;
             const owner = options.host.owner.value;
             if (owner === null || owner === undefined) return;
             const record: PaintRecord = {
@@ -76,6 +78,7 @@ export function watchPaint(options: PaintMetricOptions): () => void {
         });
     }, {flush: "sync", immediate: true});
     return () => {
+        stopped = true;
         stopWatch();
         stopHidden();
     };

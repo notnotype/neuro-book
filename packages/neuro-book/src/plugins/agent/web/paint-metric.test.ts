@@ -1,6 +1,7 @@
 /**
- * 首屏指标（docs/specs/agent/conversation.md 输出 56）：起点与画出、有归属才记、隐藏过不记、换了起点作废、超过阈值另写警告。
- * 宿主换成照 `SessionHost.painting` 合同写的替身：真实宿主怎样换这两个对象由 `session-host.test.ts` 覆盖，这里只测计时与条件。
+ * 首屏指标（docs/specs/agent/conversation.md 输出 56）：起点与画出、有归属才记、隐藏过不记、换了起点或停止了作废、挂上时已经读完的照样记、
+ * 一次打开只记一条、超过阈值另写警告。宿主换成照 `SessionHost.painting` 合同写的替身：真实宿主怎样换这两个对象由 `session-host.test.ts`
+ * 的“首屏计时”覆盖，这里只测计时与条件。
  */
 import {describe, expect, test} from "bun:test";
 import {computed, shallowRef} from "vue";
@@ -11,8 +12,8 @@ import {PAINT_SLOW_MS, watchPaint} from "./paint-metric";
 import type {PaintRecord} from "./paint-metric";
 import type {PaintStart} from "./session-host";
 
-function setup(options: {owner?: SessionOwner | null; visible?: boolean} = {}) {
-    const painting = shallowRef<PaintStart | null>(null);
+function setup(options: {owner?: SessionOwner | null; visible?: boolean; painting?: PaintStart} = {}) {
+    const painting = shallowRef<PaintStart | null>(options.painting ?? null);
     const owner = shallowRef<SessionOwner | null | undefined>(options.owner === undefined ? {plugin: "nbook.bots", id: "lyra"} : options.owner);
     const messages = shallowRef<readonly unknown[]>([]);
     let now = 1_000;
@@ -113,12 +114,32 @@ describe("watchPaint", () => {
         for (const s of [plain, hidden, background, replaced]) s.stop();
     });
 
-    test("停止后不再记", async () => {
+    test("停止后不再记；读完之后、画出之前停止（视图收起、面板关上）也不记", async () => {
         const s = setup();
         s.stop();
         s.start();
         s.loaded(1);
         await s.paint();
         expect(s.records).toEqual([]);
+
+        const midway = setup();
+        midway.start();
+        midway.loaded(1);
+        midway.stop();
+        await midway.paint();
+        expect(midway.records).toEqual([]);
+    });
+
+    test("挂上时打开已经读完（对话组件加载比打开慢）：照样记，耗时从宿主记的起点算；同一次打开只记一条", async () => {
+        const loaded: PaintStart = {sessionId: "bot-lyra", startedAt: 1_000, reattach: false, loaded: {events: 7}};
+        const late = setup({painting: loaded});
+        late.advance(500);
+        await late.paint();
+        expect(late.records).toEqual([{level: "info", record: expect.objectContaining({events: 7, ms: 500})}]);
+        const second = setup({painting: loaded});
+        await second.paint();
+        expect(second.records).toEqual([]);
+        late.stop();
+        second.stop();
     });
 });

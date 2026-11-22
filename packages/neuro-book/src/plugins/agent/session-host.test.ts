@@ -13,7 +13,7 @@ import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {SessionOwner} from "@notnotype/nb-harness/kernel/contracts";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {computed, shallowRef} from "vue";
+import {computed, shallowRef, watch} from "vue";
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 import {PROVIDERS_SECTION, ROLES_SECTION} from "nbook/plugins/models/shared/contracts";
 import {testTextPort} from "nbook/shared/testing/text-port";
@@ -34,7 +34,7 @@ import {createAgentActivity} from "./web/activity";
 import {createSessionList} from "./web/session-list";
 import {agentCatalogs} from "./web/text";
 import {createSessionHost, displayToolName, pendingWithin, RELEASE_DELAY_MS} from "./web/session-host";
-import type {SessionHost, SessionHostDeps, SessionOwners} from "./web/session-host";
+import type {PaintStart, SessionHost, SessionHostDeps, SessionOwners} from "./web/session-host";
 import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./web/request-entries";
 
 let root = "";
@@ -2476,12 +2476,72 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         await until("重新订阅", () => assistants(h.ctx().messages).length === 2 && h.ctx().availability.status === "ready");
         expect(h.ctx().dividers).toEqual({day: true, unreadFrom: second!.id});
         back();
+        // 书房面板放开满 30 秒后再打开：借用就地重新订阅，紧接着 markOpened，线按此刻的“看到”重算（都看过了）。
+        const giveAgain = h.host.borrow();
+        giveAgain();
+        w.settings.clock.advance(RELEASE_DELAY_MS + 1);
+        const reopened = h.host.borrow();
+        h.host.markOpened();
+        await until("重开后重算", () => h.ctx().availability.status === "ready" && h.ctx().dividers?.unreadFrom === null);
+        reopened();
 
         const plainId = (await started(w)).host.sessionId.value!;
         await h.host.open(plainId);
         await h.host.open(ownedId);
         await until("换回来", () => h.ctx().session?.id === ownedId && h.ctx().availability.status === "ready" && h.ctx().dividers?.unreadFrom !== undefined);
         expect(h.ctx().dividers).toEqual({day: true, unreadFrom: null});
+    });
+
+    test("首屏计时（conversation.md 输出 56）：开始时换一个起点，快照与路径应用完再换一个带事件数的；重试换新的，借用后的重新订阅标 reattach", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        await replies(w, ownedId, ["第一句"]);
+        const h = await harness(w, {owners: await ownersFor(w)});
+        const seen: Array<PaintStart | null> = [];
+        const stop = watch(h.host.painting, (value) => void seen.push(value), {flush: "sync"});
+        const opening = h.host.open(ownedId);
+        expect(seen.at(-1)).toMatchObject({sessionId: ownedId, reattach: false, loaded: null});
+        const first = seen.at(-1)!;
+        await opening;
+        const head = (await w.service.session(ownedId).snapshot()).head;
+        expect(h.host.painting.value).toEqual({...first, loaded: {events: head}});
+        expect(h.ctx().availability.status).toBe("ready");
+
+        // 重试（打开同一个会话）是又一次计时：先换一个新起点，再换成读完的。
+        const firstLoaded = h.host.painting.value;
+        const before = seen.length;
+        await h.host.open(ownedId);
+        expect(seen.slice(before).map((value) => value?.loaded ?? null)).toEqual([null, {events: head}]);
+        expect(h.host.painting.value).not.toBe(firstLoaded);
+
+        const give = h.host.borrow();
+        give();
+        w.settings.clock.advance(RELEASE_DELAY_MS + 1);
+        const back = h.host.borrow();
+        expect(h.host.painting.value).toMatchObject({reattach: true, loaded: null});
+        await until("重新订阅读完", () => h.host.painting.value?.loaded !== null);
+        back();
+        stop();
+    });
+
+    test("归属插件读“看到”出错：记诊断，聊天照常打开、不画未读线（归属已知与晚到两条路）", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        await replies(w, ownedId, ["第一句"]);
+        const owners = await ownersFor(w);
+        const reports: string[] = [];
+        const broken: SessionOwners = {...owners, seenOf: () => {
+            throw new Error("联系人读不了");
+        }};
+        const h = await harness(w, {owners: broken, report: (code) => void reports.push(code)});
+        await h.host.open(ownedId);
+        await until("打开了", () => h.ctx().availability.status === "ready");
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: null});
+        expect(reports).toContain("conversation-owner-failed");
+        // 归属表里已有（`known`）时在打开的同步段里读：同样不抛出去。
+        const again = await harness(w, {owners: broken, report: () => undefined});
+        await again.host.open(ownedId);
+        await until("又打开了", () => again.ctx().availability.status === "ready");
     });
 
     test("读不到会话头：记打开失败（可重试）、档位不放宽；恢复时不清最近的会话", async () => {
