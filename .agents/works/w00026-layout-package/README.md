@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00026-layout-package
 issueId: null
 status: active
-updated: 2026-11-05
+updated: 2026-11-22
 ---
 
 # 布局工具独立成包
@@ -94,6 +94,12 @@ updated: 2026-11-05
 2026-11-19：[t14](tasks/t14-splitter-migration/README.md) 完成：nb-story、开发者面板的分栏改用 nb-layout 的 `Splitter`，nb-ui 冻结的那一套删掉（旧应用一处导入随之失效，与它早已失效的 39 处同类）；开发者面板改 nb-layout 也会重建、提示代码已更新；nb-story 用真操作探针改前改后对照，只有收到 0 的一侧不画接缝；打包安装冒烟通过。合入 master（`dd4b01ea6`）。
 
 第一档（t34、t38、t35、t36、t39 到 t42、t37、t32、t14）全部完成。
+
+2026-11-22 开发者：“然后可以继续第二档”。问 nb-story 改造做到哪一步，开发者选“加并排看卡片”：三栏改用 NestedGrid，右侧详情可以再开一张卡片并排对照、卡片能拖到左右两半，nb-story 自己检验拖动公开面；这是 nb-story 的新功能，先出静态稿、在评审板上定。第二档的顺序（[待确认清单](pending-confirmations.md)）：
+
+[t43 开工核实](tasks/t43-tier2-verification/README.md)（外部布局库的现状、编译产物原型构建）→ [t44 nb-story 三栏改用 NestedGrid](tasks/t44-story-nested-grid/README.md) → [t45 并排看卡片](tasks/t45-story-side-by-side-cards/README.md)（评审板等开发者时做 t46）→ [t46 默认英文文案](tasks/t46-english-default-text/README.md) → [t47 编译产物流水线](tasks/t47-build-pipeline/README.md) → [t48 API 报告与稳定性标注](tasks/t48-api-report-stability/README.md) → [t49 手感编排进库](tasks/t49-drag-orchestration/README.md) → [t50 官方示例应用](tasks/t50-example-app/README.md)（开工前再定要不要做）。
+
+w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，与 t44、t45 的网页外壳不重叠。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
