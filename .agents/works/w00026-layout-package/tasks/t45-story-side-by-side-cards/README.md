@@ -26,11 +26,25 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：设计定稿（上面的决定）。
+2026-11-22：**停下等开发者**。计划审查满三轮（上限），第 3 轮仍有 2 条重要问题，按 autonomous-delivery 的停止条件交开发者定是否开工。
 
-- 草稿：worktree `.worktree/w00026-t45-drafts`（分支 `w00026/t45-drafts`，不合并、不推送）里临时改了 `BookFrame.vue`，截图脚本是 `packages/nb-story/e2e/shoot-current.e2e.ts`，都不提交。截图用 e2e 夹具起的真实 `nbstory serve` 与 100 章样例书，亮色，1440×900；原图在本地 `shots/`。
-- 量到的宽度：两张各保持原宽时右侧详情 800、正文 450；各占一半时每张卡 199。
+- [计划](plan.md)第 4 稿。三轮设计审查（Claude Sonnet）都成立：
+  - 第 1 轮：重要 9、建议 5（[证据](evidences/design-review.txt)）；
+  - 第 2 轮：重要 7、建议 8（[证据](evidences/design-review-2.txt)）；
+  - 第 3 轮：重要 2、建议 7（[证据](evidences/design-review-3.txt)）；
+  - [结构探针](evidences/structure-probe.txt)。
+- 第 3 轮的 2 条重要问题，改法都是删机制，已改进第 4 稿，没有再审：
+  - 去掉“窗口窄时两张一起收紧”，交给网格压缩；
+  - 记着两张时主区那条线停用，只能用顶栏开关展开。
+- 三轮的问题集中在 nb-layout 公开面缺的几样，计划为此迁就成“张数变了就重建网格”加宿主自己管“正在关的内容”：
+  - 宿主没法设置一块保留像素叶的意图；
+  - 收起策略只能在建树时给；
+  - 只剩一个孩子的分支会被展平；
+  - 内容项没有“留到过渡结束”的入口；
+  - 求解器没有“一对卡一起动”。
+- 实施量：四个切片（详情模型与会话代理、四栏与内容层、拖动换边、收口），新增约 9 条 e2e 与一个纯模块的单测，改到 `qa`、`revisions`、`viewer` 三个 e2e 文件的选择器。
+- 草稿：worktree `.worktree/w00026-t45-drafts`（分支 `w00026/t45-drafts`，不合并、不推送）里临时改了 `BookFrame.vue`，截图脚本是 `packages/nb-story/e2e/shoot-current.e2e.ts`，都不提交；原图在本地 `shots/`。
 
 ## 下一步
 
-[计划](plan.md)第 3 稿：第 1 轮设计审查（Claude Sonnet）重要 9、建议 5，第 2 轮重要 7、建议 8，都成立（[第 1 轮](evidences/design-review.txt)、[第 2 轮](evidences/design-review-2.txt)、[结构探针](evidences/structure-probe.txt)）；等第 3 轮设计审查，这是同一对象的最后一轮，再有实质问题就停下交开发者。Spec 条目随计划定稿后写（planned）。
+等开发者定：按第 4 稿开工；或者缩小范围（例如先做并排打开与关闭，拖动换边另开 Task）；或者先做第二档别的 Task（t47）。

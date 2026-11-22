@@ -105,6 +105,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-22：t44 实现审查（重要 1、建议 6）处理完（`3ecc4f4f8`）。[t46](tasks/t46-english-default-text/README.md) 完成：nb-layout 没有注入时的文字改用英文、源语言 `en-US`，新增 `layoutCatalogTranslate`，nb-story 与开发者面板注入中文，合入 master（`6170f83ad`）。[t45](tasks/t45-story-side-by-side-cards/README.md) 计划第 1 稿在设计审查。
 
+2026-11-22：t44、t46 的实现审查处理完（`3ecc4f4f8`、`ec63bbaf8`）。[t45](tasks/t45-story-side-by-side-cards/README.md) 计划审查满三轮（第 3 轮仍有 2 条重要问题，已改进第 4 稿），按停止条件停下等开发者定是否开工；三轮的问题多来自 nb-layout 公开面的缺口，记在 t45 README。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。
