@@ -11,7 +11,7 @@ import {
 import type {UserMessageView} from "@notnotype/nb-agent-ui";
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import {builtinRolesContribution, builtinToolsContribution} from "@notnotype/nb-agent-ui/vue";
-import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentFileChanges, AgentFileContentDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/lab";
+import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentStreamDivider, AgentFileChanges, AgentFileContentDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/lab";
 import {buildTurns, type ConversationTurn, type TurnBlock} from "@notnotype/nb-agent-ui/lab";
 import type {LabFixtureDefinition} from "../index";
 import {labDomainToolsContribution} from "./domain-tools";
@@ -175,6 +175,17 @@ export const agentUserContentScenes: LabFixtureDefinition<typeof AgentUserConten
     {id: "omitted", label: "只公开了预览", input: {props: {message: userSample(2)}}},
     {id: "prompt-text", label: "文字写法：标签、附件与粘贴块", input: {props: {message: userSample(4)}}},
     {id: "text", label: "只有文字", input: {props: {message: userSample(6)}}},
+];
+
+/** 2026-11-22 的本地日序号（线上的今天、昨天按它算）；场景里的日子都相对它。 */
+const DIVIDER_TODAY = Date.UTC(2026, 10, 22) / 86_400_000;
+const localAt = (month: number, day: number, hour: number, year = 2026): number => new Date(year, month - 1, day, hour).getTime();
+export const agentStreamDividerScenes: LabFixtureDefinition<typeof AgentStreamDivider>["scenes"] = [
+    {id: "today", label: "按天：今天", input: {props: {kind: "day", at: localAt(11, 22, 9), today: DIVIDER_TODAY}}},
+    {id: "yesterday", label: "按天：昨天", input: {props: {kind: "day", at: localAt(11, 21, 22), today: DIVIDER_TODAY}}},
+    {id: "date", label: "按天：同一年写月日", input: {props: {kind: "day", at: localAt(11, 18, 21), today: DIVIDER_TODAY}}},
+    {id: "other-year", label: "按天：别的年加上年", input: {props: {kind: "day", at: localAt(11, 18, 21, 2025), today: DIVIDER_TODAY}}},
+    {id: "unread", label: "未读：以下是新消息", input: {props: {kind: "unread", today: DIVIDER_TODAY}}},
 ];
 
 /** 没有数据 prop，登记处声明 noInput，场景不带 input。 */

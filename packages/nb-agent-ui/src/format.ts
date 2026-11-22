@@ -12,7 +12,7 @@ export function formatClock(timestamp: number, locale: AgentLocale): string {
 const DAY_MS = 86_400_000;
 
 /** 本地时区的日历日序号：先取年月日再按 UTC 折成天数，夏令时那天的 23 或 25 小时不会把日子算错。 */
-function localDayIndex(timestamp: number): number {
+export function localDayIndex(timestamp: number): number {
     const date = new Date(timestamp);
     return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS;
 }
@@ -104,4 +104,16 @@ function stripInline(text: string): string {
         .replace(/(^|[\s\p{P}\p{S}])(__|_)(?=[^\s_])([^]*?[^\s_])\2(?=$|[\s\p{P}\p{S}])/gu, "$1$3")
         // 行尾落单的强调符号（流式中收尾的标记只到了一半）；前面也是标记符号的（`key=****`）是文字。
         .replace(/(?<=[^\s*_~=])(\*{1,3}|__|~~|==)$/u, "");
+}
+
+/**
+ * 按天的分隔线写什么（ui/agent-conversation-view.md 的“分轮视图”）：`today` 是 `now` 的日序号。与它同一天（晚于它的，多机时钟差，
+ * 也算）是今天，前一天是昨天，同一年写月日，否则加上年。今天、昨天的字由调用方按界面语言取。
+ */
+export function dayDividerLabel(timestamp: number, today: number, locale: AgentLocale): {readonly kind: "today" | "yesterday"} | {readonly kind: "date"; readonly text: string} {
+    const days = today - localDayIndex(timestamp);
+    if (days <= 0) return {kind: "today"};
+    if (days === 1) return {kind: "yesterday"};
+    const sameYear = new Date(timestamp).getFullYear() === new Date(today * DAY_MS).getUTCFullYear();
+    return {kind: "date", text: new Intl.DateTimeFormat(locale, sameYear ? {month: "short", day: "numeric"} : {year: "numeric", month: "short", day: "numeric"}).format(timestamp)};
 }

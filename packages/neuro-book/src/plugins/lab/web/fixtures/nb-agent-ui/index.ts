@@ -12,6 +12,7 @@ import type {
     AgentConversationComposer,
     AgentConversationTurn,
     AgentDeliveryNotice,
+    AgentStreamDivider,
     AgentFileChanges,
     AgentFileContentDetail,
     AgentMarkdown,
@@ -62,6 +63,7 @@ import {
     agentCommandDetailScenes,
     agentConversationTurnScenes,
     agentDeliveryNoticeScenes,
+    agentStreamDividerScenes,
     agentFileChangesScenes,
     agentFileContentDetailScenes,
     agentMarkdownScenes,
@@ -208,6 +210,7 @@ export const nbAgentUiFixtures: LabFixture[] = [
         component: "AgentDeliveryNotice", noInput: "只有“重新发送”“移除”两个事件，没有数据 prop", scenes: agentDeliveryNoticeScenes,
         subject: agentSubject("AgentDeliveryNotice"), events: ["resend", "dismiss"],
     }),
+    defineSubjectFixture<typeof AgentStreamDivider>({component: "AgentStreamDivider", scenes: agentStreamDividerScenes, subject: agentSubject("AgentStreamDivider"), class: "w-[480px]"}),
     defineSubjectFixture<typeof AgentRawView>({
         component: "AgentRawView", scenes: agentRawViewScenes, subject: agentSubject("AgentRawView"), events: ["action"], class: "w-full",
         runtimeProps: async () => {
