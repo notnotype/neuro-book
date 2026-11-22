@@ -170,8 +170,9 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         keptSize: without(move.keptSize),
         rightAnchored: without(move.rightAnchored),
         leaving: [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key)), ...plan.leaving],
-        // 交换里滑出去的叶不留内容：带只认这一帧在的项，留着的内容不会跟着滑、跟着裁（输出 155）。先送到终点时（`settle`）上一轮的叶不留，它们的内容也不留。
-        leavingContents: withTheirLeaves(move.leavingContents.filter((item) => !banded.has(`leaf:${item.leaf}`)), [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key))], zero),
+        // 先送到终点时（`settle`）上一轮的叶不留，它们的内容也不留。交换里滑出去的叶不会带着内容：兄弟没有合拢，`leavingPlacements` 不判它们离开，
+        // 上一帧带 `leaving` 的项也进不了交换的候选（输出 155）。
+        leavingContents: withTheirLeaves(move.leavingContents, [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key))], zero),
         swap: plan.band,
         ...(settle ? {settleFirst: true as const} : {}),
     };
