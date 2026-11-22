@@ -27,16 +27,23 @@ export const FrozenSlot = defineComponent({
     setup(props, {slots}) {
         const cache: VNode[] = [];
         let token: object = {};
-        onErrorCaptured(() => {
-            if (props.frozen) {
-                console.error(`[nb-layout/NestedGrid] ${props.name} is kept until the transition ends (leave: "retain") and something inside failed to render. `
-                    + "A component inside re-rendered on its own and read data the host has already removed; pass the item to it as a prop instead of looking it up by key in a slot.");
+        /** 这一次冻住期间报过了：一个过渡里同一项只补一条说明。 */
+        let explained = false;
+        onErrorCaptured((_error, _instance, info) => {
+            // 只管渲染时抛的（开发构建里 info 是 "render function"，生产构建里是错误码链接，渲染是 1 号）；事件、watcher、定时器里的错误与删数据未必有关。
+            if (props.frozen && !explained && (info === "render function" || info.endsWith("#runtime-1"))) {
+                explained = true;
+                console.error(`[nb-layout/NestedGrid] ${props.name} is kept until the transition ends (leave: "retain") and a component inside failed to render. `
+                    + "It may have re-rendered on its own and read data the host has already removed; pass the item to it as a prop instead of looking it up by key in a slot.");
             }
             // 不返回 false：原错误照常往上传给宿主的错误处理。
             return undefined;
         });
         return () => {
-            if (!props.frozen) token = {};
+            if (!props.frozen) {
+                token = {};
+                explained = false;
+            }
             return withMemo([token], () => h(Fragment, slots.default?.() ?? []), cache, 0);
         };
     },

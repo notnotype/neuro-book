@@ -3,6 +3,7 @@ import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick, ref} from "vue";
 import NestedGrid from "./NestedGrid.vue";
 import LeavingHost from "./test-fixtures/LeavingHost.vue";
+import {moveGridFocus} from "./grid-focus";
 import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
@@ -1624,7 +1625,7 @@ describe("NestedGrid 发出承载盒的尺寸（Spec 输出 144）", () => {
 });
 
 describe("离开的内容由库留到过渡结束（Spec ui/nested-grid 输出 155、156）", () => {
-    type Host = {refresh(): void; close(id: string): void; reopen(id: string, at: number): void; swapContent(leaf: string, content: string): void; collapseAndDrop(id: string): void; hide(id: string): void; log: string[]};
+    type Host = {refresh(): void; close(id: string): void; reopen(id: string, at: number): void; swapContent(leaf: string, content: string): void; collapseAndDrop(id: string): void; hide(id: string): void; closeColumn(): void; resizeTo(width: number): void; log: string[]};
 
     /** 真实 NestedGrid 加 SFC 编译的插槽（`test-fixtures/LeavingHost.vue`）。happy-dom 没有布局引擎：桩布局盒（同“降到零”那条），过渡用真实计时。 */
     async function mountHost(retain: boolean, byKeyInChildSlot = false, motion = true, errorHandler?: (error: unknown) => void) {
@@ -1733,6 +1734,36 @@ describe("离开的内容由库留到过渡结束（Spec ui/nested-grid 输出 1
         host.close("y");
         await nextTick();
         expect(wrapper.emitted("parked")).toEqual([["y"]]);
+    });
+
+    it("整列关掉、只有一块叶带着留着的内容：同列的叶一起留着，两块的面板头都停在关之前的样子", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.closeColumn();
+        await nextTick();
+        expect(stateOf(wrapper, "p")).toMatchObject({frame: {leaving: true, head: "hp"}, content: {leaving: true}});
+        expect(stateOf(wrapper, "q").frame).toEqual({leaving: true, inert: true, head: "hq"});
+        expect(host.log.filter((entry) => entry === "head:p" || entry === "head:q")).toEqual([]);
+        await gone(wrapper, "q");
+    });
+
+    it("过渡中容器尺寸变了（过渡送到终点）：留着的内容当即卸载，不等计时", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.close("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y").content).toMatchObject({leaving: true});
+        host.resizeTo(900);
+        await nextTick();
+        expect(stateOf(wrapper, "y")).toEqual({frame: null, content: null});
+    });
+
+    it("留着的内容不是 F6 的落点：从左边那张往后走，跳过它落到右边那张", async () => {
+        const {wrapper, host} = await mountHost(true);
+        const root = wrapper.element as HTMLElement;
+        root.querySelector<HTMLElement>("[data-focus='x']")?.focus();
+        host.close("y");
+        await nextTick();
+        expect(moveGridFocus(root.parentElement, "next")).toBe(true);
+        expect(document.activeElement?.getAttribute("data-focus")).toBe("z");
     });
 
     it("离开的叶没带着留着的内容（区域隐藏，宿主数据都在）：面板头照常渲染，读得到这一轮的", async () => {

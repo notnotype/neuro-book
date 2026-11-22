@@ -210,9 +210,9 @@ describe("decideMotion 与留着的内容（docs/specs/ui/nested-grid.md 输出 
         const withLeft = layersOf(["a", "c", "d"], ["a", "c", "d"], [...first.leaving, ...first.leavingContents]);
         const dragged = decideMotion(frame({items: layersOf(["a", "d"], ["a", "d"], [...first.leaving, ...first.leavingContents]), previous: withLeft, holding: true}), memory);
         if (dragged.kind !== "move") throw new Error("应当过渡");
-        const leftLeaves = dragged.leaving.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []));
-        for (const item of dragged.leavingContents) expect(leftLeaves).toContain(item.leaf);
-        expect(keys(dragged)).toEqual(leftLeaves.includes("b") ? ["content:b"] : []);
+        // 拖动中这一轮不新判离开的叶（c 当即消失、内容不留）；上一轮的 b 接着缩完，它的内容跟着。
+        expect(dragged.leaving.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))).toEqual(["b"]);
+        expect(keys(dragged)).toEqual(["content:b"]);
     });
 });
 
@@ -280,6 +280,35 @@ describe("decideMotion 与交换（docs/specs/ui/nested-grid.md 的“交换”�
         expect(second.swap.axis).toBe("width");
         expect(second.swap.groups.map((group) => [...group.leaves])).toEqual([["x1"], ["y1"]]);
         expect(second.leaving.some((item) => item.key === "leaf:a1")).toBe(false);
+    });
+
+    /** 渲染层：叶与分隔线加每块给出的叶一个内容项，都标了留住。 */
+    const withRetained = (items: GridPlacementItem<unknown>[], leaves: readonly string[]): GridLayerItem<unknown>[] =>
+        layerItems(items, placeContents(items, leaves.map((id) => ({key: id, leaf: id, insetTop: 0, active: true, leave: "retain" as const})), 1));
+
+    it("交换里滑出去的叶不留内容（输出 155）：宿主同一轮去掉了它们标了留住的内容项，照样当即卸载", () => {
+        const decision = decideMotion(frame({items: withRetained(column(["b1"]), ["b1"]), previous: withRetained(column(["a1", "a2"]), ["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), warmedColumn());
+        if (decision.kind !== "move" || decision.swap === undefined) throw new Error("应当按交换走");
+        expect(decision.leavingContents).toEqual([]);
+    });
+
+    it("先把进行中的过渡送到终点（另一处交换）：上一轮的叶不留，上一轮留着的内容也摘掉", () => {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: columns(["a1"], ["x1"])}), memory).kind).toBe("none");
+        const first = decideMotion(frame({items: columns(["b1"], ["x1"]), previous: columns(["a1"], ["x1"]), swap: swap(["a1"], ["b1"])}), memory);
+        if (first.kind !== "move" || first.swap === undefined) throw new Error("应当按交换走");
+        // 上一轮留着的一项内容（它的叶是正滑出去的 a1）：settle 时 a1 不再留，它也不留。
+        const kept = {...placeContents(columns(["a1"], ["x1"]), [{key: "a1", leaf: "a1", insetTop: 0, active: true, leave: "retain"}], 1)[0]!, leaving: true as const};
+        const second = decideMotion(frame({
+            items: [...columns(["b1"], ["y1"]), ...first.leaving, kept],
+            previous: [...columns(["b1"], ["x1"]), ...first.leaving],
+            swap: {...swap(["x1"], ["y1"]), token: 2, axis: "width"},
+            band: first.swap,
+            bandNow: [-200, 200],
+            busy: new Set(["b1"]),
+        }), memory);
+        if (second.kind !== "move" || second.settleFirst !== true) throw new Error("应当先送到终点");
+        expect(second.leavingContents).toEqual([]);
     });
 
     it("交换进行中点回正在滑出去的那组（和带相交）：不收尾，从此刻接着走，带上还是这两组", () => {

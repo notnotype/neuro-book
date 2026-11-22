@@ -160,11 +160,6 @@ const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()
 const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
-/**
- * 面板头（`leaf` 插槽）停在最后一次渲染的叶（输出 156）：带着库留着的内容一起离开的叶，宿主多半已经删了它的数据。别的离开的叶照常渲染：
- * 宿主还有它们（区域隐藏、交换里滑出去），插槽要读到这一轮的 `moving`、`swappingLeaves` 这些值（“时序与寿命”）。
- */
-const frozenLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leavingContents.value.flatMap((item) => (leavingLeaves.value.has(item.leaf) ? [item.leaf] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
 /**
@@ -305,6 +300,15 @@ const contentLayer = useContentLayer({
 });
 /** 渲染层的全部项，树序：每块叶后面紧跟属于它的内容。 */
 const layers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => layerItems(placement.value?.items ?? [], contentLayer.placements.value));
+/**
+ * 面板头（`leaf` 插槽）停在最后一次渲染的叶（输出 156）：有库留着的内容项时，留着缩回的离开的叶都冻。离开的叶按子树整组留（`leavingPlacements`），
+ * 一列里只要有一块带着留着的内容，同列别的叶也留着，宿主多半已经一起删了它们的数据。交换里滑出去的叶、没有留着的内容时的离开的叶（区域隐藏）照常渲染：
+ * 宿主还有它们，插槽要读到这一轮的 `moving`、`swappingLeaves` 这些值（“时序与寿命”）。读内容层去重之后的项：宿主又给回同一个 key 的不算。
+ */
+const frozenLeaves = computed<ReadonlySet<string>>(() => {
+    if (!contentLayer.placements.value.some((item) => item.leaving === true)) return new Set();
+    return new Set([...leavingLeaves.value].filter((id) => swapSide.value.leaves.get(id) !== "out"));
+});
 
 // 交换里滑出去的分隔线对读屏隐藏（`detached`），不列进 `aria-owns`。
 const order = useRenderOrder(layers, instanceId, (item) => (item.kind === "content" && contentLayer.isParked(item)) || (item.kind === "sash" && item.leaving === true));
@@ -896,9 +900,10 @@ defineExpose({
         border-radius var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5));
 }
 
-/* 离开了、在过渡里缩回去或滑出去的叶、它的内容与分隔线：已经不在布局里，不接指针，命中判定看到的是底下。 */
+/* 离开了、在过渡里缩回去或滑出去的叶、它的内容与分隔线，宿主已去掉而留着的内容（叶降到零时它没有 `data-leaving`）：已经不在布局里，不接指针，命中判定看到的是底下。 */
 .nb-grid-frame[data-leaving],
 .nb-grid-content[data-leaving],
+.nb-grid-content[data-content-leaving],
 .nb-nested-grid > .nb-grid-sash[data-leaving] {
     pointer-events: none;
 }

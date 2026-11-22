@@ -65,6 +65,20 @@ function closeAndRead(page: Page, id: string) {
     }), id);
 }
 
+/** 过渡走了大约三分之一时，叶外框与内容外层的宽度（关之前的宽度一并给出）。 */
+function widthsMidway(page: Page, id: string) {
+    return page.evaluate(({id, wait}) => {
+        const read = () => {
+            const frame = document.querySelector<HTMLElement>(`[data-lab-subject] > [data-leaf="${id}"]`);
+            const content = document.querySelector<HTMLElement>(`[data-lab-subject] > [data-content="${id}"]`);
+            return {frame: frame?.getBoundingClientRect().width ?? null, content: content?.getBoundingClientRect().width ?? null};
+        };
+        const before = read();
+        document.querySelector<HTMLElement>(`[data-leaving-action="close-${id}"]`)?.click();
+        return new Promise<{before: ReturnType<typeof read>; midway: ReturnType<typeof read>}>((resolve) => setTimeout(() => resolve({before, midway: read()}), wait));
+    }, {id, wait: DURATION / 3});
+}
+
 test("标了留住的卡片关掉时，内容与面板头停在关之前的样子跟着叶缩回去，过渡结束才卸载", async ({page}) => {
     const errors = await open(page);
     const during = await closeAndRead(page, "b");
@@ -72,6 +86,19 @@ test("标了留住的卡片关掉时，内容与面板头停在关之前的样�
     expect(during.content).toEqual({leaving: true, inert: true, visibility: "visible", text: "B 的正文"});
     await expect(page.locator("[data-lab-subject] > [data-content='b']")).toHaveCount(0, {timeout: DURATION * 3});
     await expect(page.locator("[data-lab-subject] > [data-leaf='b']")).toHaveCount(0);
+    expect(errors).toEqual([]);
+});
+
+test("留着的内容跟着叶一起缩：过渡走到一半时两者的宽度都在关之前与零之间", async ({page}) => {
+    const errors = await open(page);
+    const {before, midway} = await widthsMidway(page, "c");
+    expect(before.frame).toBeGreaterThan(100);
+    for (const width of [midway.frame, midway.content]) {
+        expect(width).not.toBeNull();
+        expect(width!).toBeGreaterThan(0);
+        expect(width!).toBeLessThan(before.frame! - 20);
+    }
+    expect(Math.abs(midway.frame! - midway.content!)).toBeLessThan(2);
     expect(errors).toEqual([]);
 });
 

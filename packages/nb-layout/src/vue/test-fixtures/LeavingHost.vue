@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * `NestedGrid.dom.test.ts` 的“离开的内容”（docs/specs/ui/nested-grid.md 输出 155、156）：SFC 编译的插槽（`v-if`、`v-for`、`Transition`、子组件）。
- * 一行叶 x、y、z，每块叶一个内容项；面板头读 `heads`，内容读 `store`。`close` 在同一个同步段里去掉叶、内容项和两份数据，像关掉一张卡片。
+ * 一行叶 x、y、z 加一列 col（p 在上、q 在下），x、y、z、p 各一个内容项，q 没有；面板头读 `heads`，内容读 `store`。
+ * `close` 在同一个同步段里去掉叶、内容项和两份数据，像关掉一张卡片；`closeColumn` 同样关掉整列。
  * 日志 `log` 记每次插槽调用，是普通数组，模板里写它不引起重渲染。
  */
 import {computed, reactive, shallowRef} from "vue";
@@ -19,7 +20,12 @@ type Card = {title: string; items: string[]};
 const IDS = ["x", "y", "z"] as const;
 const fresh = (id: string): Card => ({title: id.toUpperCase(), items: id === "y" ? ["y1", "y2"] : [`${id}1`]});
 const store = reactive<Record<string, Card | undefined>>(Object.fromEntries(IDS.map((id) => [id, fresh(id)])));
-const heads = reactive<Record<string, string | undefined>>(Object.fromEntries(IDS.map((id) => [id, `h${id}`])));
+const heads = reactive<Record<string, string | undefined>>(Object.fromEntries([...IDS, "p", "q"].map((id) => [id, `h${id}`])));
+store.p = fresh("p");
+/** 那一列还在吗。 */
+const column = shallowRef(true);
+/** 宿主发布的容器宽度（`layout()` 的根尺寸）。 */
+const width = shallowRef(1000);
 /** 叶与它的内容项（`content` 为 null 是叶在、内容项被去掉了）。 */
 const cards = shallowRef<ReadonlyArray<{id: string; content: string | null}>>(IDS.map((id) => ({id, content: id})));
 /** 收起的叶（保留像素、收起到 0）。 */
@@ -27,12 +33,20 @@ const collapsed = shallowRef<ReadonlySet<string>>(new Set());
 /** 区域隐藏：叶不在树里，内容项还在（挂在找不到的叶上，停放）。 */
 const hidden = shallowRef<ReadonlySet<string>>(new Set());
 
-const grid = computed(() => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: cards.value.filter((card) => !hidden.value.has(card.id)).map((card): GridNodeInput<string> => ({
-    kind: "leaf", id: card.id, ref: card.id, size: {width: 300, height: 0}, sizing: card.id === "z" ? "weight" : "fixed",
-    collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed: collapsed.value.has(card.id)},
-}))}, {sashSize: 1}));
-const layout = computed(() => grid.value.layout({width: 1000, height: 600}));
-const contents = computed<GridContentInput[]>(() => cards.value.flatMap((card) => (card.content === null ? [] : [{key: card.content, leaf: card.id, insetTop: 32, active: true, ...(props.retain ? {leave: "retain" as const} : {})}])));
+const COLUMN: GridNodeInput<string> = {kind: "branch", id: "col", orientation: "vertical", size: {width: 150, height: 0}, sizing: "fixed", children: [
+    {kind: "leaf", id: "p", ref: "p", size: {width: 0, height: 300}},
+    {kind: "leaf", id: "q", ref: "q", size: {width: 0, height: 300}},
+]};
+const grid = computed(() => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [...cards.value.filter((card) => !hidden.value.has(card.id)).map((card): GridNodeInput<string> => ({
+    kind: "leaf", id: card.id, ref: card.id, size: {width: 250, height: 0}, sizing: card.id === "z" ? "weight" : "fixed",
+    collapse: {collapsedSize: 0, restoreSize: 250, collapseThreshold: 24, expandThreshold: 24, collapsed: collapsed.value.has(card.id)},
+})), ...(column.value ? [COLUMN] : [])]}, {sashSize: 1}));
+const layout = computed(() => grid.value.layout({width: width.value, height: 600}));
+const retainFlag = (): {leave?: "retain"} => (props.retain ? {leave: "retain"} : {});
+const contents = computed<GridContentInput[]>(() => [
+    ...cards.value.flatMap((card) => (card.content === null ? [] : [{key: card.content, leaf: card.id, insetTop: 32, active: true, ...retainFlag()}])),
+    ...(column.value ? [{key: "p", leaf: "p", insetTop: 32, active: true, ...retainFlag()}] : []),
+]);
 const log: string[] = [];
 
 /** 再发布一次同样的布局：第一次布局回调只记尺寸、不过渡。 */
@@ -68,7 +82,18 @@ function collapseAndDrop(id: string): void {
 function hide(id: string): void {
     hidden.value = new Set([...hidden.value, id]);
 }
-defineExpose({refresh, close, reopen, swapContent, collapseAndDrop, hide, log});
+/** 关掉整列：p 的内容项、两块叶的面板头数据同一个同步段里删掉（q 没有内容项）。 */
+function closeColumn(): void {
+    column.value = false;
+    delete store.p;
+    delete heads.p;
+    delete heads.q;
+}
+/** 宿主发布的容器宽度变了（窗口缩放）。 */
+function resizeTo(next: number): void {
+    width.value = next;
+}
+defineExpose({refresh, close, reopen, swapContent, collapseAndDrop, hide, closeColumn, resizeTo, log});
 </script>
 
 <template>
