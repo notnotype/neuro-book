@@ -8,7 +8,7 @@ export type {ModelChoice} from "./choice";
 export {createModelsCore} from "./core";
 export type {IconStore, ModelsCore, ModelsCoreDeps} from "./core";
 export {ICON_NAME} from "./icons";
-export {SOURCE_STALE_MS} from "./sources";
+export {SOURCE_STALE_MS, sourceKeyOf} from "./sources";
 export type {SourceStore} from "./sources";
 export {listTemplates, templateOf} from "./templates";
 export type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotLayer, SlotWriteResult} from "./store";
