@@ -2492,6 +2492,29 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         expect(h.ctx().dividers).toEqual({day: true, unreadFrom: null});
     });
 
+    test("压缩失败的说法按归属：有归属的会话不提开新会话，普通会话照旧（宿主给适配器的 pinned）", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        await replies(w, ownedId, ["第一句", "第二句"]);
+        const plainId = (await started(w)).host.sessionId.value!;
+        await replies(w, plainId, ["第一句", "第二句"]);
+        const h = await harness(w, {owners: await ownersFor(w)});
+        const failedKey = async (id: string): Promise<unknown> => {
+            await h.host.open(id);
+            await until("打开", () => h.ctx().session?.id === id && h.ctx().availability.status === "ready");
+            // 压缩模型请求失败一次后重试一次：两次都失败，压缩的运行以 compaction-failed 收口。脚本不多留，免得漏给后面的用例。
+            const before = endpoint.requests.length;
+            endpoint.script({status: 400}, {status: 400});
+            h.host.act({type: "command.run", name: "compact", argsText: ""});
+            await until("压缩跑完", () => h.ctx().run.status === "idle" && h.ctx().messages.length > 4);
+            expect(endpoint.requests.length - before).toBe(2);
+            const failed = h.ctx().messages.filter((message) => message.kind === "system" && message.source === "reminder").at(-1);
+            return failed?.kind === "system" ? failed.label : null;
+        };
+        expect(await failedKey(ownedId)).toMatchObject({key: "kernel.error.compactionFailedPinned"});
+        expect(await failedKey(plainId)).toMatchObject({key: "kernel.error.compactionFailed"});
+    }, 40_000);
+
     test("首屏计时（conversation.md 输出 56）：开始时换一个起点，快照与路径应用完再换一个带事件数的；重试换新的，借用后的重新订阅标 reattach", async () => {
         const w = await world();
         const ownedId = await ownedSession(w);

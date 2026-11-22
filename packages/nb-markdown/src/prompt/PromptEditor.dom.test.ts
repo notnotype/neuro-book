@@ -510,6 +510,22 @@ describe("PromptEditor 表情（docs/specs/agent/stickers.md 输出 42、44）",
         expect(stickers(wrapper)).toEqual([":lyra/开心:"]);
     });
 
+    it("补全菜单开着时 Esc 只收菜单、不发 escape（宿主不会因此关掉放对话的面板）；菜单收了再按才发", async () => {
+        const {host} = stickerHost();
+        const wrapper = await mountHosted(host, {draft: {text: "", version: 1}, triggers: [":"], resolveMenu});
+        exposed(wrapper).focus("end");
+        prosemirror(wrapper).dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        exposed(wrapper).insertText(":开");
+        await nextTick();
+        expect(document.querySelector("[role='listbox']")).not.toBeNull();
+        prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(document.querySelector("[role='listbox']")).toBeNull();
+        expect(wrapper.emitted("escape")).toBeUndefined();
+        prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        expect(wrapper.emitted("escape")).toHaveLength(1);
+    });
+
     it("insertText 插入表情写法：会和前文连成别的写法时先补空格，否则紧挨着", async () => {
         const {host} = stickerHost();
         const wrapper = await mountHosted(host, {draft: {text: "备注:你好", version: 1}});
