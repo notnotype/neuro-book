@@ -138,6 +138,44 @@ test("验收 2：窗口没有焦点时到的回复记为未读：头像列与 bo
     await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
 });
 
+/** 未读线后面紧跟的那一轮的文字：线画在含第一条未读回复的那一轮之前（agent/conversation.md 输出 55）。 */
+const afterUnreadLine = (scope: ReturnType<Page["locator"]>) => scope.locator("[data-unread-divider]").evaluate((line) => line.nextElementSibling?.textContent ?? "");
+
+test("验收 2：未读线只标打开时就未读的回复：失焦时到的这次不画，切走再回来画在那一轮前、第一轮前有“今天”；拿回焦点后角标清零线还在，看着时到的不多画", async ({page}) => {
+    await openBot(page);
+    await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
+    await expect(chat(page).locator("[data-day-divider]").first()).toHaveAttribute("aria-label", "今天");
+    await expect(chat(page).locator("[data-unread-divider]")).toHaveCount(0);
+
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await script("你先忙，回来再看。");
+    await send(page, "我去改稿");
+    await expect(chat(page).getByText("你先忙，回来再看。")).toBeVisible();
+    await expect(contact(page)).toHaveAttribute("aria-label", "星璃，1 条未读");
+    // 开着时到的不画线：线在这次打开时就定了。
+    await expect(chat(page).locator("[data-unread-divider]")).toHaveCount(0);
+
+    // 切到一个普通会话再点回她：这是又一次打开。普通会话里没有线。
+    await page.keyboard.press("Control+Shift+P");
+    await page.keyboard.type("新建 Agent 会话");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
+    await expect(chat(page).locator("[data-day-divider]")).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await contact(page).click();
+    await expect(chat(page).getByText("你先忙，回来再看。")).toBeVisible();
+    await expect(chat(page).locator("[data-unread-divider]")).toHaveAttribute("aria-label", "以下是新消息");
+    expect(await afterUnreadLine(chat(page))).toContain("你先忙，回来再看。");
+    await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
+    await expect(chat(page).locator("[data-unread-divider]")).toHaveCount(1);
+
+    await script("好的，我在。");
+    await send(page, "回来了");
+    await expect(chat(page).getByText("好的，我在。")).toBeVisible();
+    await expect(chat(page).locator("[data-unread-divider]")).toHaveCount(1);
+    expect(await afterUnreadLine(chat(page))).toContain("你先忙，回来再看。");
+});
+
 /** 1×1 的 PNG：书房的面板里发附件用。 */
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
@@ -201,9 +239,19 @@ test("验收 4：书房里点看板娘，右边滑出她的主对话、书房不
     await mascot(page).click();
     await expect(panel(page)).toBeVisible();
     await expect(mascot(page)).toHaveAttribute("aria-label", "星璃");
+    // 面板每打开一次重新定未读线：关着时没看到的那句前面有线（agent/conversation.md 输出 55）。
+    await expect(panel(page).locator("[data-unread-divider]")).toHaveCount(1);
+    expect(await afterUnreadLine(panel(page))).toContain("你回书架了吗？");
     await panel(page).locator("[data-header-close]").click();
     await expect(panel(page)).toHaveCount(0);
     await expect(page.locator("[data-desk-badge]")).toHaveCount(0);
+    // 再打开：都看过了，没有线。
+    await mascot(page).click();
+    await expect(panel(page).getByText("你回书架了吗？")).toBeVisible();
+    await expect(panel(page).locator("[data-day-divider]").first()).toBeVisible();
+    await expect(panel(page).locator("[data-unread-divider]")).toHaveCount(0);
+    await panel(page).locator("[data-header-close]").click();
+    await expect(panel(page)).toHaveCount(0);
 });
 
 test("验收 4：书房的面板里（没有作品）发附件、@ 菜单压在面板上、文字能拖选", async ({page}) => {

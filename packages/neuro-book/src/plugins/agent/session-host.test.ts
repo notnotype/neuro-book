@@ -2360,7 +2360,7 @@ describe("Skill（skills.md 输出 26–28）", () => {
 
 describe("有归属的会话（conversation.md 输出 53：档位按归属）", () => {
     /** 像插件那样的归属表：读会话头、记住；`identities` 是归属插件给的身份，`failing` 里的会话读不到会话头。 */
-    async function ownersFor(w: AgentWorld, identities: Readonly<Record<string, {name: string; avatar?: string}>> = {}, failing: ReadonlySet<string> = new Set()): Promise<SessionOwners> {
+    async function ownersFor(w: AgentWorld, identities: Readonly<Record<string, {name: string; avatar?: string}>> = {}, failing: ReadonlySet<string> = new Set(), seen: {readonly value: number | null} = {value: null}): Promise<SessionOwners> {
         windows += 1;
         const {client} = await w.window(`owners-${String(windows)}`);
         const table = new Map<string, SessionOwner | null>();
@@ -2377,6 +2377,7 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
                 return owner;
             },
             identity: (owner) => identities[owner.id] ?? null,
+            seenOf: () => seen.value,
         };
     }
     async function ownedSession(w: AgentWorld, id = "lyra"): Promise<string> {
@@ -2407,6 +2408,80 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         fresh.recent.value = ownedId;
         await fresh.host.restore();
         await until("恢复成 bot 档", () => fresh.ctx().session?.id === ownedId && fresh.ctx().interaction.placement === "dock");
+    });
+
+    /** 在会话里说一句、等回复；交回日志里计数消息（不带工具调用的回复）的 id 与 seq，按先后。 */
+    async function replies(w: AgentWorld, id: string, texts: readonly string[]): Promise<{id: string; seq: number}[]> {
+        const session = w.service.session(id);
+        for (const text of texts) {
+            endpoint.script(text);
+            const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "说"}});
+            if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+            await session.waitRun(sent.value.runId);
+        }
+        return (await session.path()).filter((event) => event.type === "assistant" && (event.data as {toolCalls: unknown[]}).toolCalls.length === 0).map((event) => ({id: event.id, seq: event.seq}));
+    }
+
+    test("未读线（conversation.md 输出 55）：只标打开时就未读的回复；“看到”前进、看着时又来的回复都不挪它；markOpened 按此刻重算；普通会话不给", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        const [first, second] = await replies(w, ownedId, ["第一句", "第二句"]);
+        const seen = shallowRef<number | null>(first!.seq);
+        const h = await harness(w, {owners: await ownersFor(w, {}, new Set(), seen)});
+        await h.host.open(ownedId);
+        await until("线定了", () => h.ctx().dividers?.unreadFrom !== undefined && h.ctx().availability.status === "ready");
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: second!.id});
+
+        // 自己交的“看到”回来了，看着时又到一句：线不动。
+        seen.value = second!.seq;
+        endpoint.script("第三句");
+        h.host.act({type: "composer.submit", text: "再说", delivery: "prompt"});
+        await until("第三句", () => assistants(h.ctx().messages).length === 3);
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: second!.id});
+
+        // 书房面板重开：按此刻的“看到”重算，都看过了就没有线。
+        const third = assistants(h.ctx().messages)[2]!;
+        seen.value = (await replies(w, ownedId, [])).find((item) => item.id === third.id)!.seq;
+        h.host.markOpened();
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: null});
+
+        const plainId = (await started(w)).host.sessionId.value!;
+        await h.host.open(plainId);
+        await until("普通会话", () => h.ctx().session?.id === plainId && h.ctx().availability.status === "ready");
+        expect(h.ctx().dividers).toBeUndefined();
+    });
+
+    test("未读线：联系人晚到时读到的那一刻拍下基线，之后“看到”前进不改；重试与借用后的重新订阅沿用这次的线；换回来重新定", async () => {
+        const w = await world();
+        const ownedId = await ownedSession(w);
+        const [first, second] = await replies(w, ownedId, ["第一句", "第二句"]);
+        const seen = shallowRef<number | null>(null);
+        const h = await harness(w, {owners: await ownersFor(w, {}, new Set(), seen)});
+        await h.host.open(ownedId);
+        await until("读完", () => h.ctx().availability.status === "ready");
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: null});
+        // 联系人读到了；紧接着（同一拍里）自己交的“看到”也回来了：基线是第一次读到的。
+        seen.value = first!.seq;
+        seen.value = second!.seq;
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: second!.id});
+
+        // 重试打开的是同一个会话；借用放开满 30 秒再借回来也是：线都还在。
+        await h.host.open(ownedId);
+        await until("重开", () => h.ctx().availability.status === "ready");
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: second!.id});
+        const give = h.host.borrow();
+        give();
+        w.settings.clock.advance(RELEASE_DELAY_MS + 1);
+        const back = h.host.borrow();
+        await until("重新订阅", () => assistants(h.ctx().messages).length === 2 && h.ctx().availability.status === "ready");
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: second!.id});
+        back();
+
+        const plainId = (await started(w)).host.sessionId.value!;
+        await h.host.open(plainId);
+        await h.host.open(ownedId);
+        await until("换回来", () => h.ctx().session?.id === ownedId && h.ctx().availability.status === "ready" && h.ctx().dividers?.unreadFrom !== undefined);
+        expect(h.ctx().dividers).toEqual({day: true, unreadFrom: null});
     });
 
     test("读不到会话头：记打开失败（可重试）、档位不放宽；恢复时不清最近的会话", async () => {

@@ -3,6 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
+import type {PaintRecord} from "./paint-metric";
 import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch} from "vue";
 import type {Component, ShallowRef} from "vue";
 
@@ -240,6 +241,17 @@ export const agentBrowserPlugin: PluginDefinition = {
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, data, source: {plugin: descriptor.id}});
             };
+            /** 首屏指标（conversation.md 输出 56）：量在 `ConversationHost.vue` 里（碰 DOM），这里只给诊断出口。 */
+            const recordPaint = (level: "info" | "warning", record: PaintRecord): void => {
+                const slow = level === "warning";
+                diagnostics.record({
+                    level: slow ? "warn" : "info",
+                    event: slow ? "agent.conversation-paint-slow" : "agent.conversation-painted",
+                    message: `${record.position} 打开 ${record.sessionId} 到画出 ${String(record.ms)} 毫秒（${String(record.events)} 个事件、${String(record.messages)} 条消息）`,
+                    data: {...record},
+                    source: {plugin: descriptor.id},
+                });
+            };
             /** 菜单里勾选没写成功：与设置页同样交给通知（页面里走窗口的通知，这里没有窗口，直接发）。 */
             const reportStatusLineFailure = (result: SettingWriteResult): void => {
                 if (result.ok) return;
@@ -394,6 +406,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     const contact = providerOf(owner.plugin)?.contacts.value.find((candidate) => candidate.id === owner.id);
                     return contact === undefined ? null : {name: contact.name, ...(contact.avatar === undefined ? {} : {avatar: contact.avatar})};
                 },
+                seenOf: (owner) => providerOf(owner.plugin)?.contacts.value.find((candidate) => candidate.id === owner.id)?.seenSeq ?? null,
             };
             /** 会话树的根有没有归属（这个会话本身，或它的祖先链里的根）：`focus-session` 据此决定打开到消息视图。读不到时当成没有，照旧。 */
             const ownedTree = async (id: string): Promise<boolean> => {
@@ -678,6 +691,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                 skillInit: initAt(position),
                 subagents: {profiles: profiles.value, seen: seenErrors, results: runResults},
                 statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})},
+                // 与宿主同一个时钟：起点是宿主按它记的。
+                paint: {position, now: () => clock.now(), record: recordPaint},
             });
 
             const conversationComponent = async (position: "view" | "page"): Promise<Component> => {

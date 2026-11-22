@@ -26,7 +26,7 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const LYRA: OwnerContact = {id: "lyra", name: "星璃", unread: 0, last: null, sessionId: "bot-lyra"};
+const LYRA: OwnerContact = {id: "lyra", name: "星璃", unread: 0, seenSeq: 0, last: null, sessionId: "bot-lyra"};
 
 /** 面板里的对话替身：收 `close`，画一个“关闭”按钮。 */
 const Conversation = defineComponent({
@@ -68,6 +68,7 @@ function setup(contacts: OwnerContact[] = [LYRA]) {
                 borrowed -= 1;
             };
         },
+        markOpened: () => undefined,
     };
     const moods: string[] = [];
     const Host = defineComponent({
@@ -98,13 +99,13 @@ describe("书房的看板娘入口", () => {
         expect(bubble()).toBeNull();
         expect(moods.at(-1)).toBe("idle");
 
-        contactList.value = [{...LYRA, unread: 3, last: {text: "新书榜的类型我数完了，要看看吗？", at: 1}}];
+        contactList.value = [{...LYRA, unread: 3, seenSeq: 0, last: {text: "新书榜的类型我数完了，要看看吗？", at: 1}}];
         await flushPromises();
         expect(badge()).toBe("3");
         expect(bubble()).toBe("新书榜的类型我数完了，要看看吗？");
         expect(button()?.getAttribute("aria-label")).toBe("星璃，3 条未读");
 
-        contactList.value = [{...LYRA, unread: 120, last: {text: "又一句", at: 2}}];
+        contactList.value = [{...LYRA, unread: 120, seenSeq: 0, last: {text: "又一句", at: 2}}];
         await flushPromises();
         expect(badge()).toBe("99+");
 

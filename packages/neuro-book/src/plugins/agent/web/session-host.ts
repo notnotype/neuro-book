@@ -258,6 +258,8 @@ export interface SessionOwners {
     ownerOf(id: string): Promise<SessionOwner | null | "unreadable" | "missing">;
     /** 归属插件给的身份（名字与头像）；归属插件不在或没有这个联系人时为 null，头回落到会话标题与 Profile 图标。读的是响应式数据。 */
     identity(owner: SessionOwner): {readonly name: string; readonly avatar?: string} | null;
+    /** 这个联系人“看到”的位置；归属插件不在、没有这个联系人、未读还没数完时为 null。读的是响应式数据。 */
+    seenOf(owner: SessionOwner): number | null;
     /**
      * 只有编辑区页面的宿主给：有归属的会话不在这里开，交给它（打开到消息视图）。页面没有联系人列表，也不记“看到”。
      */
@@ -313,7 +315,25 @@ export interface SessionHost {
     profileKey(): string;
     /** 组件借用，交回归还函数。 */
     borrow(): () => void;
+    /**
+     * 这个聊天又一次出现在用户面前（书房的面板打开）：未读线按此刻重新定（agent/conversation.md 输出 55）。还没开着会话、或接着要开
+     * 别的会话时什么都不用做，`open` 会重新定。
+     */
+    markOpened(): void;
+    /**
+     * 这次打开的计时（输出 56 的首屏指标）：`openHere` 开始时换一个新对象，快照与路径都应用完后再换一个带 `loaded` 的。没打开过为 null。
+     */
+    readonly painting: ShallowRef<PaintStart | null>;
     dispose(): void;
+}
+
+export interface PaintStart {
+    readonly sessionId: string;
+    readonly startedAt: number;
+    /** 借用放开之后重新订阅（不是一次打开，见 `opened`）。 */
+    readonly reattach: boolean;
+    /** 快照与路径都应用完：`events` 是快照的 `head`。还在读、或打开失败为 null。 */
+    readonly loaded: {readonly events: number} | null;
 }
 
 type Current = {
@@ -353,6 +373,26 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     const {remote} = deps;
     const sessionId = shallowRef<string | null>(null);
     const shownSeq = shallowRef(0);
+    const painting = shallowRef<PaintStart | null>(null);
+
+    /**
+     * 这次打开的未读线（agent/conversation.md 输出 55）：只标打开时就已经未读的回复，定下来就不再挪。宿主打开另一个会话、或书房面板
+     * 打开（`markOpened`）时重来；重试与借用后的重新订阅打开的是同一个会话，沿用。
+     *
+     * 先后：`baseline` 是联系人的“看到”，在这次打开之后第一次读到时拍下，之后不再读。自己交的“看到”（`contact-opener` 的 `watchSeen`，
+     * 路径应用完 `shownSeq` 才前进）要等服务端往返、`botsChanged` 回来才改联系人的值，拍的那一刻读到的是交之前的。`from` 在基线拍到、
+     * 路径读完之后算一次：`undefined` 是还没算，算出来（消息 id 或 null）就不再变，之后到的回复不画线。
+     */
+    let unreadMark: {readonly sessionId: string; baseline: number | null; from: string | null | undefined} | null = null;
+    const captureUnread = (target: Current): void => {
+        const mark = unreadMark;
+        if (mark === null || mark.sessionId !== target.id || current !== target) return;
+        if (mark.baseline === null && target.owner !== null && target.owner !== undefined) mark.baseline = deps.owners?.seenOf(target.owner) ?? null;
+        if (mark.baseline === null || mark.from !== undefined || target.loading) return;
+        const baseline = mark.baseline;
+        mark.from = target.transcript.messages().find((message) => (target.transcript.countedSeq(message.id) ?? 0) > baseline)?.id ?? null;
+        bump();
+    };
     const showUpTo = (target: Current, seq: number): void => {
         if (current === target && seq > shownSeq.value) shownSeq.value = seq;
     };
@@ -1078,18 +1118,23 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         // 作者按祖先算：祖先与路径一起取，路径上的话应用之前就到了（`authorOf` 读的是 `target.ancestors`）。
         const owners = deps.owners;
-        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by)}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: [], owner: owners === undefined ? null : owners.known(id), headerUnreadable: false};
+        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by), pinned: () => target.owner !== null && target.owner !== undefined}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: [], owner: owners === undefined ? null : owners.known(id), headerUnreadable: false};
         current = target;
         sessionId.value = id;
         shownSeq.value = 0;
+        if (unreadMark?.sessionId !== id) unreadMark = {sessionId: id, baseline: null, from: undefined};
+        painting.value = {sessionId: id, startedAt: deps.now(), reattach: options.reattach === true, loaded: null};
+        captureUnread(target);
         if (options.reattach !== true) {
             opened.value += 1;
             deps.recent.write(id);
         }
         bump();
-        // 归属与快照同时读；读到之前按最严的档。读不到记打开失败、走现有的重试，不当成没有归属。
+        // 归属与快照同时读；读到之前按最严的档。读不到记打开失败、走现有的重试，不当成没有归属。路径等它读到再应用：适配器在合成消息
+        // 时按归属选说法（`pinned`），合成之后不改。
+        let ownerRead: Promise<void> = Promise.resolve();
         if (owners !== undefined && target.owner === undefined) {
-            void owners.ownerOf(id).then((owner) => {
+            ownerRead = owners.ownerOf(id).then((owner) => {
                 if (current !== target) return;
                 if (owner === "unreadable") {
                     target.headerUnreadable = true;
@@ -1097,6 +1142,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                     target.failed ??= {code: "header-unreadable"};
                 } else target.owner = owner === "missing" ? null : owner;
                 afterChange(target);
+                captureUnread(target);
                 bump();
             });
         }
@@ -1154,6 +1200,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         staleUntil = early.length;
         target.transcript.applySnapshot(snapshot.value);
         if (epoch !== modelEpoch) void refreshModel(target);
+        await ownerRead;
+        if (token !== generation) return;
         const loaded = await loadPath(target, snapshot.value.leaf);
         if (token !== generation) return;
         if (loaded) showUpTo(target, snapshot.value.head);
@@ -1172,6 +1220,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         });
         await target.chain;
         afterChange(target);
+        if (current !== target) return;
+        painting.value = {...painting.value!, loaded: {events: snapshot.value.head}};
+        captureUnread(target);
     }
 
     async function createSession(profile: string): Promise<string | null> {
@@ -2045,6 +2096,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 costState: warnCost > 0 && usage.cost >= warnCost ? "warned" : usage.unpriced > 0 ? "unpriced" : "ok",
             },
             now,
+            // 有归属的会话画按天与未读的线（agent/conversation.md 输出 55）；普通会话不给，画面不变。
+            ...(target !== null && target.owner !== null && target.owner !== undefined ? {dividers: {day: true, unreadFrom: unreadMark?.sessionId === target.id ? unreadMark.from ?? null : null}} : {}),
         });
     });
 
@@ -2061,6 +2114,14 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         void revision.value;
         return current === null ? null : current.owner;
     });
+
+    // 联系人的“看到”晚到（开会话时联系人还没读到、未读还没数完）：读到的那一刻同步拍下基线，不等下一次重算 ctx（见 `unreadMark`）。
+    const stopWatchingSeen = watch(() => {
+        const value = owner.value;
+        return value === null || value === undefined ? null : deps.owners?.seenOf(value) ?? null;
+    }, () => {
+        if (current !== null) captureUnread(current);
+    }, {flush: "sync"});
 
     return {
         ctx,
@@ -2101,10 +2162,18 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 }, RELEASE_DELAY_MS);
             };
         },
+        markOpened() {
+            if (current === null || unreadMark?.sessionId !== current.id) return;
+            unreadMark = {sessionId: current.id, baseline: null, from: undefined};
+            captureUnread(current);
+            bump();
+        },
+        painting,
         dispose() {
             flushDraft();
             disposed = true;
             stopWatchingModels();
+            stopWatchingSeen();
             generation += 1;
             cancelRelease?.();
             closeCurrent();
