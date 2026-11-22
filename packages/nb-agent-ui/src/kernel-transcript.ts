@@ -141,7 +141,8 @@ export type KernelTranscript = {
     attachmentsOf(messageId: string): readonly JsonValue[];
     /**
      * 计数消息的日志 seq：由不带工具调用的 `assistant` 事件合成的消息有，其余（半截文字、停止时补的空回复、正在生成的、带工具调用的）
-     * 为 null；之后被标成停止的那条仍算。与 bots 的未读同一口径，宿主据此找未读线的起点（agent/conversation.md 输出 55）。
+     * 为 null；之后被标成停止的那条仍算。与 bots 的未读同一口径，宿主据此找未读线的起点（agent/conversation.md 输出 55）。两处的差别：
+     * 这里只有当前路径上的（bots 数整份日志；有归属的会话不改写历史，没有别的分支），缺 `content` 或 `toolCalls` 的坏事件不合成消息。
      */
     countedSeq(messageId: string): number | null;
     /** 当前路径上所有 path 事件的 id，按路径顺序。 */
@@ -360,18 +361,20 @@ function queuedOf(data: JsonRecord, defaults: {readonly state?: unknown; readonl
     };
 }
 
-/**
- * `toolName`：工具 id 换成界面认的名字。`authorOf`：路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；
- * 不给时都画成用户。
- */
-/**
- * `pinned`：这是固定会话（bot 的主对话），出错的说法不提开新会话。在合成那条消息时读，之后读到的变化不改已经合成的。
- */
+/** 宿主给适配器的选项。 */
 export type KernelTranscriptOptions = {
+    /** 工具 id 换成界面认的名字。 */
     readonly toolName?: (id: string) => string;
+    /** 路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；不给时都画成用户。 */
     readonly authorOf?: (by: KernelIssuer) => UserMessageView["author"];
+    /**
+     * 这是固定会话（bot 的主对话）：出错的说法不提开新会话。在合成那条消息时读，之后的变化不改已经合成的，所以宿主要在应用路径
+     * 之前知道（NeuroBook 的宿主等会话头的归属读到再取路径）。
+     */
     readonly pinned?: () => boolean;
 };
+
+/** 建一个空的适配器：宿主按 docs/specs/agent/conversation.md 输出 5 的先后交给它快照、路径与帧。 */
 
 export function createKernelTranscript(options: KernelTranscriptOptions = {}): KernelTranscript {
     const toolName = options.toolName ?? ((id: string) => id);

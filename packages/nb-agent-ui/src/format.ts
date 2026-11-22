@@ -108,7 +108,8 @@ function stripInline(text: string): string {
 
 /**
  * 按天的分隔线写什么（ui/agent-conversation-view.md 的“分轮视图”）：`today` 是 `now` 的日序号。与它同一天（晚于它的，多机时钟差，
- * 也算）是今天，前一天是昨天，同一年写月日，否则加上年。今天、昨天的字由调用方按界面语言取。
+ * 也算）是今天，前一天是昨天，同一年写月日，否则加上年。今天、昨天的字由调用方从语言包取：线上的字单独成行，英文要首字母大写
+ * （Today），`Intl.RelativeTimeFormat` 给的是句中写法（today），会话列表的时间列用的那个。
  */
 export function dayDividerLabel(timestamp: number, today: number, locale: AgentLocale): {readonly kind: "today" | "yesterday"} | {readonly kind: "date"; readonly text: string} {
     const days = today - localDayIndex(timestamp);

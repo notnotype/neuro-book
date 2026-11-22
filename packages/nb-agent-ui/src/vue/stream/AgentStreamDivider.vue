@@ -26,15 +26,14 @@ const label = computed(() => {
 </script>
 
 <template>
+    <!-- 不用 role="separator"：分隔符的名字只能写在属性上，读屏的浏览模式常把它当装饰跳过，“以下是新消息”就听不到了。按普通文字读。 -->
     <p
         class="acv-stream-divider"
         :class="{'acv-stream-divider--unread': props.kind === 'unread'}"
-        role="separator"
-        :aria-label="label"
         :data-day-divider="props.kind === 'day' ? '' : undefined"
         :data-unread-divider="props.kind === 'unread' ? '' : undefined"
     >
-        <span aria-hidden="true">{{ label }}</span>
+        {{ label }}
     </p>
 </template>
 

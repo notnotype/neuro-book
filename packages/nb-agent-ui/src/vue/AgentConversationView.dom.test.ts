@@ -1098,12 +1098,11 @@ describe("轮与轮之间的分隔线（docs/specs/ui/agent-conversation-view.md
     });
     /** 内容列里线与轮次的先后：线写它的字，轮次写它的第一句话。 */
     const order = (view: ReturnType<typeof mountView>) => view.findAll(".acv-stream__content > [data-day-divider], .acv-stream__content > [data-unread-divider], .acv-stream__content > .acv-turn")
-        .map((node) => (node.classes("acv-turn") ? `轮:${node.text().match(/问 \d/u)![0]}` : `线:${node.attributes("aria-label")!}`));
+        .map((node) => (node.classes("acv-turn") ? `轮:${node.text().match(/问 \d/u)![0]}` : `线:${node.text()}`));
 
-    it("按天与未读：日子在轮前、同一天不重复，未读线在含起点的那一轮之前、日子之下；线是分隔符，名字是那行字", () => {
+    it("按天与未读：日子在轮前、同一天不重复，未读线在含起点的那一轮之前、日子之下", () => {
         const view = mountView("zh-CN", {}, {ctx: stream({day: true, unreadFrom: "a3"})});
         expect(order(view)).toEqual(["线:11月18日", "轮:问 1", "线:昨天", "轮:问 2", "线:今天", "线:以下是新消息", "轮:问 3", "轮:问 4"]);
-        expect(view.get("[data-unread-divider]").attributes("role")).toBe("separator");
         view.unmount();
     });
 
@@ -1129,15 +1128,14 @@ describe("轮与轮之间的分隔线（docs/specs/ui/agent-conversation-view.md
         view.unmount();
     });
 
-    it("线后来才出现（宿主算出未读起点）时轮次不重新挂载；now 每秒换时线不重画", async () => {
+    it("线后来才出现（宿主算出未读起点）时轮次不重新挂载；now 过了零点，“今天”变“昨天”", async () => {
         const view = mountView("zh-CN", {}, {ctx: stream({day: true})});
         const third = view.findAll(".acv-turn")[2]!.element;
         await view.setProps({ctx: stream({day: true, unreadFrom: "a3"})});
         expect(view.findAll(".acv-turn")[2]!.element).toBe(third);
         expect(view.find("[data-unread-divider]").exists()).toBe(true);
-        const line = view.get("[data-day-divider]").element;
-        await view.setProps({ctx: {...stream({day: true, unreadFrom: "a3"}), now: local(11, 22, 12) + 1_000}});
-        expect(view.get("[data-day-divider]").element).toBe(line);
+        await view.setProps({ctx: {...stream({day: true, unreadFrom: "a3"}), now: local(11, 23, 0) + 60_000}});
+        expect(order(view).filter((item) => item.startsWith("线:"))).toEqual(["线:11月18日", "线:11月21日", "线:昨天", "线:以下是新消息"]);
         view.unmount();
     });
 });
