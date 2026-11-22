@@ -122,7 +122,7 @@ async function setIcon(role: SnapshotRole, key: string): Promise<void> {
 /** 图标菜单：名字取自语言目录（`roles.icons.<键>`），当前的画勾（radio）。 */
 function iconItemsFor(role: SnapshotRole) {
     const current = role.icon ?? null;
-    return ROLE_ICON_KEYS.map((key) => ({id: key, type: "radio" as const, label: text(`roles.icons.${key}`), iconClass: ROLE_ICONS[key], checked: current === key}));
+    return ROLE_ICON_KEYS.map((key) => ({id: key, type: "radio" as const, group: "icon", label: text(`roles.icons.${key}`), iconClass: ROLE_ICONS[key], checked: current === key}));
 }
 
 const groups = computed(() => [
