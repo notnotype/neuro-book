@@ -118,6 +118,7 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 2026-11-22：[t47](tasks/t47-build-pipeline/README.md) 计划第 1 稿（开工前两个探针：nb-layout 的声明每次构建不同，改成先 `vue-tsc` 出声明再打包后稳定；nb-story 的三个 e2e 跑在压缩产物上全部通过），在 omp 设计审查。
 2026-11-22：[t47](tasks/t47-build-pipeline/README.md) 六个切片实施完（分支 `w00026/t47-build-pipeline`）：nb-layout 出编译产物（字节稳定）、改 MIT、发布脚本加版本独立的生成包（`private` 时只冒烟不发）、nb-story 的网页读产物、三处第三方声明补上 nb-layout；本机发布冒烟通过。待确认清单 5 行。实现审查（omp）待处理。首发 nb-layout 由开发者决定。
 2026-11-22：[t47](tasks/t47-build-pipeline/README.md) 完成，合入 master（`72cf32844`）：实现审查（omp）有效 4 条，修 2 条（nb-story 的 tarball 去掉带时间的新旧记录后两次打包字节相同；工作区声明先读再写），1 条接受取舍、1 条不改。[t48](tasks/t48-api-report-stability/README.md) 计划第 1 稿的设计审查（Sonnet）十条都成立，其中插件 SDK 的兼容承诺与 nb-layout 的稳定性标注对不上：按推荐让 SDK 转出的名字标 `@stable`、记进待确认清单（与 nb-layout 首发、晋升 `ui/nested-grid`、`ui/layout-drag` 一起交开发者），继续写第 2 稿。
+2026-11-22：t48 第 2 稿的设计审查（Sonnet，重要 7、建议 3）指出 `@stable` 该由谁定、稳定范围要不要连核心类型一起，牵涉对外承诺，**停下等开发者**（与 nb-layout 首发、晋升 Spec 一起定）；t49、t50 按顺序排在 t48 之后，没有开工。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 

@@ -1,0 +1,199 @@
+# t48 计划第 2 稿的设计审查（第 2 轮）
+
+读了计划、第 1 轮报告与探针、`pack.ts`、四个入口、`exports.test.ts`、`module-exports.ts`、SDK 的 `components.ts` 与 `sdk.test.ts`、CI、ADR 0054 与提案相关段、Spec `ui/sortable-list` 的成熟度字段。在主工作区跑了 `build:package`，对 `dist/package/*.d.ts` 做了一次性实验：TypeScript 检查器按引用关系遍历声明，vue-component-meta 换成 TypeScript 6.0.3 后复跑。实验都是内联命令，没有写进仓库。
+
+联网搜索（`WebSearch`）没有获得授权，第 4 条重点里的业界对照只来自记忆，没有核实，下面单独标出。
+
+### 1. 公开签名里“可达但没导出”的类型不进报告
+
+- **严重程度**：重要
+- **类别**：依赖的机制不成立 / 遗漏
+- **位置**：计划“API 报告”第一条（函数、常量、类型、接口、类各打印自己的声明节点）。
+- **现象**：对 `dist/package` 的四个入口，遍历 163 个公开名字的声明，找出声明里引用到、却不在任何入口导出的类型，共 9 个：
+  - `GridPlacement`、`GridPlacementItem`、`GridLeafPlacement`、`GridPathStep`、`GridSashPlacement`、`GridSashEnds`：从公开函数 `placeGrid` 的返回类型一路引出来。
+  - `GridRestoreReport`：由 `GridRestoreResult` 引出。
+  - `DragStops`、`DragActivation`：分别来自 `DragKeyboardOptions` 与 `DragSessionOptions`。
+  - 另有 `dropKindData`（`DropKind` 里引用）。
+  - 它们在共享块里是 `declare`，但没有进任何入口的导出列表。
+- **为什么是问题**：打印声明节点时，`placeGrid` 只写出 `GridPlacement` 这个名字。给 `GridPlacementItem` 加、删、改一个字段，报告一个字节都不变，`api:check` 通过，而使用方拿到的返回值结构已经变了。第 1 轮第 1 条的初衷就是“结构变化要看得见”，第 2 稿只补上了“名字本身是公开的类型”这一半。
+- **如何核实**：对四个入口声明建 TypeScript 程序，从每个公开符号出发递归取声明里的标识符，解析到声明在 `dist/package` 里、又不在公开导出集合里的符号（这次实验的做法）。或者直接读 `shared-*.d.ts`，看 `GridPlacementItem` 有没有出现在导出列表里。
+- **建议改法**：
+  - 报告里每个入口再加一段“由公开名字引到、没有导出的类型”：按名字打印它们的声明节点，遍历到不动点为止。
+  - 同时在 `api-report` 里对这类名字出一条告警，作为导出清单的审查线索：要么导出，要么承认它是公开签名的一部分。
+  - 对照 api-extractor（凭记忆，未核实）：它对这种情况有专门的 forgotten-export 诊断。
+
+### 2. `@stable` 的集合对类型不闭合，稳定组件的签名里全是 `@experimental` 的类型
+
+- **严重程度**：重要
+- **类别**：合同与自身矛盾
+- **位置**：计划“映射规则”第 1 条与“SDK 与 nb-layout 对齐的测试”。
+- **现象**：把 SDK 转出的 7 个组件加 16 个类型当根，沿声明引用遍历，到达 48 个公开名字，其中 23 个不在 SDK 的转出里：
+  - `GridNode`、`GridLeaf`、`GridLayoutResult`、`GridRect`、`GridContentInput`、`GridFloatInput`、`GridLeafShape`、`GridSwap`、`GridSwapWindow`、`GridExtent`、`GridConstraint`、`GridSizing`、`GridBranch`、`GridBranchResize`、`GridAxis`、`GridOrientation`、`GridFailureCode`、`GridDropRect`、`GridSashRef`、`SashCollapsePolicy`、`SashCollapseState`、`SortableMove`、`SortableSlot`。
+  - 计划的对齐测试只核对“SDK 直接转出的名字都是 `@stable`”，所以这 23 个全部落成 `@experimental`。
+  - `NestedGrid` 最核心的两个属性类型就是 `node: GridNode<unknown>` 与 `layout: GridLayoutResult`。
+- **为什么是问题**：
+  - 一个 `@stable` 的组件，签名里的核心类型标着“0.x 期间会变”，承诺等于没有。
+  - 改 `GridNode` 的字段，报告里出现的只是一个 `@experimental` 名字的变化，评审不会按“稳定签名变了”处理，也不会触发变更记录里的不兼容改动。
+  - ADR 0054 第 10 条承诺的是“标 `@stable` 的符号”，调用方能不能用上这些符号，取决于它引用的类型。
+- **如何核实**：用第 1 条的遍历，起点换成 SDK 的 23 个名字（7 个组件、`DropFeedbackPreview`、`SplitterPanelConfig` 和 14 个核心类型），数到达的公开名字。
+- **建议改法**：
+  - 规则里加一条闭合条件：`@stable` 名字的签名所引用的公开名字，也必须是 `@stable`，由 `api-report` 在报告生成时机检（同一份引用遍历，第 1 条已经需要它）。
+  - 现在的结果是，要么把这 23 个一并标 `@stable`，要么承认“SDK 转出的组件”不能标 `@stable`。这个取舍交开发者，不要让测试静默放过。
+  - 对照 api-extractor（凭记忆，未核实）：它有“公开签名引用了低级别发布标签的类型”这一类诊断，就是这个检查。
+
+### 3. 映射规则第 2 条既不可判，也与计划自己的断言矛盾
+
+- **严重程度**：重要
+- **类别**：合同 / 事实错误
+- **位置**：计划“映射规则”第 2 条与“现在”那一句。
+- **现象**：
+  - 计划写“第 2 条的 `ui/sortable-list` 与状态栏设置页落在第 1 条里”。实际上 `StatusLinePage.vue` 导入的是 `SortableList` 与类型 `SortableMove`（第 10、11 行），SDK 转出 `SortableList`，没有转出 `SortableMove`。
+  - 按第 2 条的字面（Spec `implemented` 且 Lab 之外的产品代码在用），`SortableMove` 应当 `@stable`，规则 1 得不出它。
+  - `ui/sortable-list` 的 `status` 是 `implemented`（实测）。`useSortable`、`SortableHandle`、`UseSortableOptions`、`sortableSlots` 等名字是否也属于这份 Spec，计划没有名字到 Spec 的映射表，第 1 轮第 6 条的这半条没有处理：“它所在的 Spec”仍然只能靠人判断。
+  - “有 Lab 之外的使用方”也没有判据：是 `rg` 导入点、还是只算 `packages/neuro-book/src`？`nb-story`、开发者面板、`nb-workbench-layout` 算不算？
+  - 第 2 条没有任何测试或机检，规则 1 有。以后产品代码新用一个名字，没有任何东西把它推向 `@stable`，规则会悄悄过期。
+- **为什么是问题**：计划自己的例子就判错了。规则 2 现在是描述性文字，不是规则。
+- **如何核实**：读 `StatusLinePage.vue` 第 10、11 行与 `sdk/components.ts` 的转出清单。
+- **建议改法**：
+  - 要么删掉第 2 条，只留一条可机检的口径，并如实写成“SDK 转出者与它的类型闭包”。
+  - 要么给出一张入口名字到 Spec 的表，让 `exports.test.ts` 核对每个名字都在表里，使用方判据写成具体的 `rg` 范围。
+  - 无论哪种，`SortableMove` 要有明确归属。
+
+### 4. “SDK 转出即 `@stable`”把 npm 上的承诺交给应用侧的一次转出，也与同一天的语义变动不协调
+
+- **严重程度**：重要
+- **类别**：上游选择 / 名不副实
+- **位置**：计划“映射规则”第 1 条；待确认清单 t48 那一行。
+- **现象**：
+  - 对齐测试的方向是“SDK 转出了、nb-layout 就必须标 `@stable`”。应用维护者往 `sdk/components.ts` 加一行转出时，测试变红，最省事的改法是把 nb-layout 入口那行的标注翻成 `@stable`：发到 npm 的承诺由应用侧的一次编辑做出。
+  - 这与 ADR 0054 第 10 条和提案第 238 行的方向相反。提案写的是“有外部使用方、Spec 实现之后才标 `@stable`”。ADR 第 8 条把第一个外部使用方定为 nb-story，由它校验形状。nb-story 的接入（t44、t45）完成后，计划没有把它作为判据。
+  - SDK 是应用对插件作者的承诺。SDK 完全可以像 `DEPRECATED_ALIASES` 那样本地再包一层来保护自己，不一定要让上游冻结。
+  - 同一天内 `NestedGrid` 与 `Grid` 的行为改了三次：t52 改了 `addLeaf` 与 `removeLeaf` 的语义，t53 改了离开内容的留存，t51 加了分隔线显示名。`ui/nested-grid` 还是 `planned`。报告与标注只看签名，行为变化它看不见，把 `NestedGrid` 标 `@stable` 的内容是什么，计划没有写。
+  - 计划也没有定义“`@stable` 名字的签名变了”算不算破坏性：加可选属性、放宽类型、加事件各算什么？提示语只要求“在变更记录里写”，没有任何检查保证它被写。
+- **为什么是问题**：全部标注的价值取决于“`@stable` 是谁、凭什么给的”。这条既没有改变方向，也没有把待追认的偏离写成条件：追认的是“SDK 已经许诺”，不是“以后 SDK 一转出就自动稳定”。
+- **如何核实**：对照提案第 238 行、ADR 第 8 与第 10 条与待确认清单第 145 行；看 t51、t52、t53 的 README。
+- **建议改法**：
+  - 把规则改成 nb-layout 一侧的决定，例如显式的稳定清单，由 `exports.test.ts` 核对；SDK 对齐测试改为“SDK 转出的名字必须在稳定清单里，否则 SDK 要么本地包一层，要么请开发者晋升”。
+  - README 的“版本承诺”写清 `@stable` 在 0.x 期间的含义：只含签名，不含行为，破坏性的判据是什么。
+  - 在待确认清单里，把这条的“影响”从“低：改标注”改成“发布到 npm 之后改标注等于改承诺”。
+
+### 5. 报告第一行的版本头没有覆盖真正决定声明字节的工具，TypeScript 实际有两个版本
+
+- **严重程度**：重要
+- **类别**：确定性 / 隐含耦合
+- **位置**：计划“API 报告”第一行（“生成它的工具版本（TypeScript、vue-component-meta）”）与风险一节。
+- **现象**：
+  - 被报告读取的 `dist/package/*.d.ts` 由 `vue-tsc`（子进程）与 `rolldown-plugin-dts` 生成。从 `packages/nb-layout` 解析 `vue-tsc` 所用的 `typescript`，得到仓库根 `node_modules` 里的 5.9.3，而 nb-layout 自己的 `typescript` 是 6.0.3（`packages/nb-layout/node_modules/typescript`）。
+  - 报告脚本在 `scripts/` 里 `import ts from "typescript"`，解析到 6.0.3。新装的 vue-component-meta 可能被提升到根，用的又是 5.9.3（我没安装，这一点需核实）。同一份报告里有两个 TypeScript 版本在打印，而头里写“TypeScript”只能写一个。
+  - 头里没有 `vue-tsc`、`rolldown`、`rolldown-plugin-dts`、`vue`。根 `typescript` 一升（别的包也会触发提升变化），声明字节可能变，正文变了，头不变，`api:check` 会按“公开面变了”报，正是第 1 轮第 9 条想避免的误导。
+  - 头和正文同时变（升级加一处真实改动）时，计划只处理“头变而正文同”，“都变”时看不出哪些是真改动。
+- **为什么是问题**：计划的缓解办法依赖头能区分“工具升级”和“公开面变化”，而现在头覆盖的是不决定声明字节的那个 TypeScript。
+- **如何核实**：在 `packages/nb-layout` 下用 `createRequire(vue-tsc 的入口)` 解析 `typescript` 并读版本；对照 `package.json` 里 `typescript` 的 `^6.0.3`。vue-component-meta 在 TypeScript 6.0.3 下可用（见“未发现问题的方面”），只是版本不同。
+- **建议改法**：
+  - 头里记全：vue-tsc 与它解析到的 `typescript`、报告脚本的 `typescript`、vue-component-meta 与它的 `typescript`、`rolldown-plugin-dts`、`vue`。
+  - 比较时头与正文分开：头不同就先提示“工具链变了”，并把正文差异归入同一次再生成，要求这一次再生成单独提交。
+  - 让报告脚本、vue-component-meta、vue-tsc 用同一个 `typescript`，或在计划里写明哪几个版本允许不同。
+
+### 6. 标注只写在入口行尾，既偏离业界做法，又让声明与入口两处各有一份真相
+
+- **严重程度**：重要
+- **类别**：别扭与反常 / 被破坏的既有约定
+- **位置**：计划“标注”第一、五条；“让 npm 上的使用方看得到”。
+- **现象**：
+  - 声明上带不了注释这一点只对 7 个组件成立。其余约 150 个名字的 JSDoc 会随声明进产物（`text.d.ts` 里 `LayoutTextParams` 的注释、`createGrid` 声明可见）。这些名字完全可以把 `@stable`/`@experimental` 直接写在源码声明的 JSDoc 上，不经过后处理。
+  - 第 1 轮第 10 条已经指出这个偏离，第 2 稿没有回应，只是把“入口行尾”保留了。
+  - 现在的方案：
+    - 真相在入口行尾，写入声明靠 `pack.ts` 按入口清单、按名字对声明做文本后处理。
+    - 仓库内的使用方（应用、工作台、nb-story）读源码，悬停看不到标注；`api/*.api.txt` 的标注行又来自入口。
+    - 同一个信息有三处：入口行、声明 JSDoc、报告首行，靠两个测试和一个构建步骤保持一致。
+  - 后处理的边界计划没有写：
+    - `createGrid` 在共享块里是两个重载声明，“加在产物声明的那个声明上”只能标其中一个。TypeScript 悬停按选中的重载取文档，另一个重载上看不到标签。
+    - “已有 JSDoc 的并进去”：已有 JSDoc 里本来就有 `@stable` 或 `@experimental` 时谁优先，没有规定。
+    - 声明合并（同名的接口与常量）与 `export {x as y}` 改名时按名字定位的规则也没有。
+  - 入口里 `text.ts` 与 `locales/index.ts` 本身就是实现文件。`LayoutTextKey` 是跨两行的联合类型，名字行是第一行，标注要写在一条联合类型中间；`exports.test.ts` 读行用的是 `moduleExports` 的 `line`，该函数按 `kind+name` 去重，只返回第一次出现的行。计划要读“去重前的原始行”，意味着改共享的 `packages/neuro-book-test-support/src/module-exports.ts`，而计划的改动清单里没有这个包，它的其他使用方（SDK 的测试）也受影响。
+  - `@stable` 不是 TSDoc 标准标签；`@experimental` 的地位我没有核实（凭记忆是 TSDoc 的发布修饰标签之一）。编辑器与工具对它们的处理只是原样显示。
+  - 对照（凭记忆，未核实）：api-extractor 把发布标签写在声明的 TSDoc 注释上、报告读声明，Angular 的公共 API golden 也是这样；组件是特例，用后处理补。本计划等于把特例推广到全部。
+- **为什么是问题**：开发者维护时要在入口与声明两处想同一件事，构建后处理还要吃所有的 TypeScript 声明形态。大部分名字不需要这条路。
+- **如何核实**：看 `dist/package/shared-*.d.ts` 里 `createGrid` 的两条声明；读 `module-exports.ts` 的 `seen` 去重；读 `text.ts` 第一个导出类型。
+- **建议改法**：
+  - 非组件的名字：标注写在源码声明的 JSDoc 上，入口文件仍然是名字清单；`exports.test.ts` 用 TypeScript 语法树读 JSDoc 标签，机检齐全一致。
+  - 组件：入口清单上写行尾标注，或在组件的 `.md` 里记，`pack.ts` 只对 `_default$N` 做后处理，范围缩到 7 个。
+  - 后处理写成基于语法树的编辑，重载每条都加，已有同类标签时报错而不是静默合并。
+  - 如果仍选行尾，要把 `module-exports.ts` 的改动、`text.ts` 的多行声明与 `locales` 的写法列进计划。
+
+### 7. 组件那一段的取法有几处没写全，已有的公开面会漏掉
+
+- **严重程度**：重要
+- **类别**：遗漏 / 边界
+- **位置**：计划“组件”四段（props、事件、插槽、expose）。
+- **现象**：
+  - **插槽**：计划“打印源码里 `defineSlots` 的类型参数”。`DropIndicatorLabel.vue` 没有 `defineSlots`，插槽 `icon` 是模板里 `<slot name="icon">` 推出来的。vue-component-meta 列得出（探针 4 与我的复跑都有 `icon`），按计划的写法这个公开插槽从报告里消失。需要规定：有 `defineSlots` 时以它为准并与 vue-component-meta 合并，没有时用 vue-component-meta。
+  - **透传**：“用 `& HTMLAttributes` 透传的组件另写一行”，没有说怎么判。`Splitter` 有 185 个来自 `@vue/runtime-dom` 的属性，是否按“声明文件不在 `src` 里、非全局”推出，还是读源码里的 `@vue-ignore` 注释，两种取法的结果不同（`Pick<HTMLAttributes, "id">` 这类写法会被整个丢掉，无声）。
+  - **`inheritAttrs: false`**：`DropFeedbackOverlay` 与 `DropSectorsOverlay` 都写了这一项，属性怎么落到哪个元素是使用方可见的行为，报告不记。把它改成默认，报告不变。
+  - **缺省值**：vue-component-meta 给的是求值后的字符串（`panels: () => []` 变成 `[]`，`sizesPx: undefined`），不是源码文字，改写缺省值的写法但值不变时报告不变，这是好事；但把一个原本没有缺省值的 prop 加上缺省 `undefined` 会算改动，计划没有说这种差异的归类。
+  - **事件**：`NestedGrid` 的事件名是 `gesture-start` 这类连字符名，`Splitter` 同。计划没有说报告里是否把 `onGestureStart` 与 `gesture-start` 当同一个，使用方两种写法都能用。
+  - 这些只是取法没定。vue-component-meta 本身对 7 个组件、72 项（props、事件、expose、插槽）打印出来都干净（没有 `import(`、绝对路径、`__VLS`、`$N`）。
+- **为什么是问题**：第 1 轮第 3 条修了“漏 expose”，但这几处是同一类漏。
+- **如何核实**：读 `DropIndicatorLabel.vue`、`DropFeedbackOverlay.vue` 第 58 行；对 `DropIndicatorLabel` 只读 `defineSlots` 看会得到什么。
+- **建议改法**：每一项各写一句取法，每一项加一个单测样本：无 `defineSlots` 的组件、`Pick<HTMLAttributes, …>`、`inheritAttrs: false`。
+
+### 8. CI 只在 `app-package` 里跑，与“CI 重跑本地门禁”的约定不符；全部名字同样严格，会让报告沦为橡皮图章
+
+- **严重程度**：建议
+- **类别**：被破坏的既有约定 / 价值
+- **位置**：计划“CI”与“与导出名测试的分工”。
+- **现象**：
+  - `.github/workflows/ci.yml` 开头写“CI 只把本地的验证门禁再跑一遍，不另立规则”，`docs/testing/README.md` 也这样描述。`api:check` 不在 `test:affected`、`governance:check`、`docs:check` 里，本地改了公开面要到 CI 才红，且只在 `app-package` 这个无条件作业里。
+  - `api:check` 要先 `build:package`（含 `vue-tsc` 出全部声明），作业里原来就有 `build:package`，计划把这一步“换成” `api:check`，作业名“产物能打出来”的含义变了。
+  - 现在 `@stable` 约 23 个，`@experimental` 约 140 个，而 nb-layout 的 API 当天还在变（t49、t51、t52、t53）。每个 PR 动到类型就会改 `api/*.api.txt`，提示语是“确认后 `api:report` 更新”。评审对 140 个 `@experimental` 的差异会习惯性点过，同一个提示用在 `@stable` 上时已经被稀释。
+  - 计划要求 `@stable` 名字的变化写进变更记录，但没有任何检查。
+- **为什么是问题**：报告的价值要靠“只有承诺过的名字变了才拦得严”体现。
+- **如何核实**：读 `ci.yml` 与 `docs/testing/README.md` 的验证门禁。
+- **建议改法**：
+  - 把 `api:check` 的失败分级：`@stable` 名字（含第 2 条的闭包）的差异必须同提交更新变更记录（至少机检 `CHANGELOG.md` 的 `[Unreleased]` 有改动），`@experimental` 名字的差异只提示。
+  - 把 `api:check` 接进本地门禁（例如 nb-layout 的 `test` 链或受影响选择），或在计划里明说为什么这是 CI 专有，并在 `docs/testing/README.md` 登记。
+
+### 9. 组件报告取自源码，其余取自发布声明；`removeComments` 还会抹掉弃用状态
+
+- **严重程度**：建议
+- **类别**：边界
+- **位置**：计划“组件：vue-component-meta（读源码 `.vue`）”与“去注释”。
+- **现象**：
+  - 组件的段读源码 `.vue`（`tsconfig.vue.json`），其余读 `dist/package`。使用方实际拿到的是 `vue-tsc` 出的 `declare const _default$N: typeof __VLS_export$N`，两条路径应当一致但没有任何东西核对。声明生成失败（TS4023 类）或 `rolldown-plugin-dts` 改写导致的公开类型变化，只会出现在 `build:package` 的报错或组件的结构里，不会进报告。
+  - `createPrinter({removeComments: true})` 同时去掉 `@deprecated`。SDK 就用 `@deprecated` 标旧别名，nb-layout 以后也会，弃用状态是公开面的一部分。
+- **为什么是问题**：两处小缺口。
+- **如何核实**：对任一带 `@deprecated` 的声明按计划的方式打印。
+- **建议改法**：
+  - 组件的 props 事件数量在报告生成时与 `dist/package/vue.d.ts` 实例类型的对应部分做一次交叉核对（探针 3 已经能取到），不一致就报错。
+  - 打印时保留 `@deprecated` 标签行（只去说明文字）。
+
+### 10. “压缩别名还原”这一步在当前产物里是多余的，真正要防的是将来的 `$N`
+
+- **严重程度**：建议
+- **类别**：别扭之处
+- **位置**：计划“API 报告”第一条后半句（`Z as GridRect` 还原成真名）。
+- **现象**：入口声明是 `import { Z as GridRect, … } from "./shared-….js"`，被导入的是压缩名、本地名是真名；共享块里声明本身用真名。按声明节点打印时，引用的是真名，不会出现 `Z`、`jt`。需要还原的情形只在第 1 轮实验里用 `typeToString` 加 `UseFullyQualifiedType` 时出现。声明节点路线下，这步没有对象。
+- **为什么是问题**：写进计划的代码路径，没有输入能触发，单测只能造一个人为样本。
+- **如何核实**：打印 `solveSashCollapse` 的声明节点，看参数类型是否是真名（本次读 `index.d.ts` 与共享块即可看到）。
+- **建议改法**：删掉还原步骤；改成一条断言：非组件的公开名字打印结果里不含 `\$\d` 与 `__VLS`，将来两个同名声明导致 rolldown 加 `$1` 时这条拦下。
+
+## 对待确认项的判断
+
+1. **“标注放入口行尾”**：不同意推广到全部名字。理由见第 6 条：非组件名字用声明 JSDoc 更直接，并且读它不需要改共享的 `module-exports.ts`。组件那 7 个用后处理可以接受。
+2. **“映射规则与现在全部 `@experimental`”**：这一格有误导，现在的实际结果不是“全部 `@experimental`”，而是“SDK 的 23 个 `@stable`、其余 `@experimental`”，并且这 23 个的闭包有 23 个 `@experimental` 类型（第 2 条）。规则 2 要么删、要么补可判口径（第 3 条）；SDK 转出即 `@stable` 的方向要由开发者重新判断（第 4 条）。待确认清单第 145 行的“影响”建议改写。
+3. **“自写报告、不用 api-extractor”**：自写可以接受（组件只看到 `typeof __VLS_export$N`，我对这一点没有异议），但要补上 api-extractor 会给的两类诊断：可达未导出的类型（第 1 条）、签名引用低级别标签的类型（第 2 条）。这是凭记忆的对照，未核实。
+4. **“报告格式”**：每个名字一段、首行 `<标注> <种类> <名字>` 可以。头的内容要扩充（第 5 条），组件段的取法要补（第 7 条）。
+
+## 未发现问题的方面
+
+- vue-component-meta 在 TypeScript 6.0.3 下可用：对 7 个组件按计划的口径取到 props（NestedGrid 17、Splitter 5、SortableList 4、DropFeedbackOverlay 3、DropSectorsOverlay 4、DropIndicatorLabel 2、FloatWindowHandles 4）、事件（NestedGrid 7、Splitter 5、FloatWindowHandles 3）、expose（NestedGrid 7）。72 项的类型串里没有 `import(`、绝对路径、`__VLS`、`$N`。
+- “声明在 `packages/nb-layout/src` 里”的过滤对这 7 个组件成立：`Splitter` 202→5，`& HTMLAttributes` 带来的 185 个被正确挡掉，`withDefaults` 的缺省值取得到。透传的识别与 `inheritAttrs: false` 见第 7 条。
+- tsc 的声明输出会丢掉入口里的行尾 `//` 注释（用 `ts.transpileDeclaration` 实测），所以入口行尾标注不会漏进发布声明、也不会与后处理的标签重复。
+- 第 1 轮的两个阻断（类型只出名字、压缩别名）按声明节点打印的路线已经解决；码元排序、去绝对路径、`api:check` 先自己构建的改法方向对。
+- 把 `api:check` 放在 `app-package` 的位置本身合理（该作业无条件跑，且已经有 `build:package`）。
+
+## 数量
+
+阻断 0，重要 7，建议 3，共 10 条。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10
