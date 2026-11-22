@@ -127,6 +127,7 @@ function toggleFiles(): void {
 | 浮动窗的把手 | `FloatWindowHandles` | `./vue` |
 | 换主题 | 设 `--nb-layout-*` 变量；全部名单 `NB_LAYOUT_THEME_VARS` | 根 |
 | 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；只有一种语言时用 `layoutCatalogTranslate`；目录在 `./locales` | `./text`、`./locales` |
+| 分隔线读屏时念出面板的名字，不念 id | `NestedGrid` 的 paneLabel 属性、`Splitter` 面板配置的 label | `./vue` |
 | 开发时查接线错误 | `setLayoutDevChecks(true)`，在网格挂载之前调 | 根 |
 
 ## 约定

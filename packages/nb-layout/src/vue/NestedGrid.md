@@ -129,6 +129,11 @@ type NestedGridProps = {
     /** 宿主让这条分隔线此刻不能拖（指针、键盘都不行，线照画），例如一列分节全部收成标题行时；缺省都能拖。 */
     sashDisabled?: (sash: {branch: string; before: string; after: string}) => boolean;
     /**
+     * 节点的显示名（宿主翻译好的），代进分隔线的读屏名称“调整 {before} 与 {after} 的宽度”；挨着分支时问分支 id。
+     * 没给、返回 undefined 或空串时用节点 id。滑出去、缩回去的分隔线用离开前最后一次的名字。默认不写。
+     */
+    paneLabel?: (id: string) => string | undefined;
+    /**
      * 叶在外框里画成的卡片：inset 是相对外框上右下左的内缩，radius 是左上、右上、右下、左下的圆角，都是 CSS 长度。过渡中外框露出、盖住保持尺寸的内层时按它裁；默认按外框的矩形裁。
      * 给了 fill 时形状可以伸出外框（内缩为负）：外框里的东西照旧裁在外框里，伸出去的部分画成 fill，这块外框画在别的外框下面，伸到邻居那里的部分被邻居盖住。
      */

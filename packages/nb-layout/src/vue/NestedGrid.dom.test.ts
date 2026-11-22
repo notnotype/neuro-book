@@ -183,6 +183,16 @@ describe("NestedGrid 按矩形摆放", () => {
         expect(sash.attributes("aria-label")).toMatch(/^Resize width between left and \S+$/u);
     });
 
+    it("分隔线的显示名（输出 152）：读屏名称用 paneLabel 给的名字，挨着分支时问分支 id；没给、返回 undefined 或空串时用节点 id", async () => {
+        const grid = nestedGrid();
+        const names: Record<string, string> = {left: "导航", right: "右侧", top: ""};
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {listeners: {paneLabel: (id: string) => names[id]}});
+        await nextTick();
+        expect(wrapper.get('[data-sash="root:0"]').attributes("aria-label")).toBe("Resize width between 导航 and 右侧");
+        // top 给的是空串、bottom 没给：都用 id。
+        expect(wrapper.get('[data-sash="right:0"]').attributes("aria-label")).toBe("Resize height between top and bottom");
+    });
+
     it("内容容器与外框一样大，Teleport 的目标带部件 id", async () => {
         const grid = nestedGrid();
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
@@ -1434,6 +1444,16 @@ describe("NestedGrid 交换", () => {
         const next = column(B);
         return {node: next.root(), layout: next.layout(CONTAINER)};
     };
+
+    it("滑出去的分隔线用离开前最后一次的显示名（输出 152）：宿主那时已经答不出离开的节点叫什么", async () => {
+        const wrapper = await mountColumn();
+        await wrapper.setProps({paneLabel: (id: string) => ({a1: "甲一", a2: "甲二"})[id]});
+        const sashOfA = () => wrapper.get('[data-sash="side:0"]');
+        expect(sashOfA().attributes("aria-label")).toBe("Resize height between 甲一 and 甲二");
+        await wrapper.setProps({swap: swap(1, A, B), ...toB(), paneLabel: (id: string) => ({b1: "乙一", main: "主区"})[id]});
+        const leaving = wrapper.findAll(".nb-grid-sash").find((item) => item.attributes("data-swap") === "out");
+        expect(leaving?.attributes("aria-label")).toBe("Resize height between 甲一 and 甲二");
+    });
 
     it("离开的一组提交那一刻停放、焦点交出，过渡结束前还画着；组里的分隔线留着、不能拖；换上来的标 in", async () => {
         const wrapper = await mountColumn();

@@ -81,4 +81,6 @@ export interface SplitterPanelConfig {
     sizing?: "fixed" | "weight";
     /** 收起策略与状态；缺省不可收起。 */
     collapse?: SashCollapseState;
+    /** 分隔线读屏名称里这块面板的显示名（宿主翻译好的）；缺省用面板 id。 */
+    label?: string;
 }

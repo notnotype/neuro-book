@@ -808,6 +808,18 @@ describe("splitter 程序发布尺寸", () => {
         expect(firstSash?.getAttribute("aria-valuenow")).toBe("0");
     });
 
+    it("分隔线的显示名（nested-grid 输出 152）：面板配置的 label 代进读屏名称，没给或空串时用面板 id", async () => {
+        const wrapper = mountSplitter([
+            {id: "outline", label: "大纲", defaultSizePx: 200},
+            {id: "editor", label: "", defaultSizePx: 300},
+            {id: "inspector", defaultSizePx: 200},
+        ]);
+        await nextTick();
+        const [first, second] = sashElements(wrapper);
+        expect(first?.getAttribute("aria-label")).toBe("Resize width between 大纲 and editor");
+        expect(second?.getAttribute("aria-label")).toBe("Resize width between editor and inspector");
+    });
+
     it("程序发布尺寸不重挂叶内容", async () => {
         const mounts: string[] = [];
         const Leaf = defineComponent({
