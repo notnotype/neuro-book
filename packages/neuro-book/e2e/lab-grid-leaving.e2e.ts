@@ -65,7 +65,7 @@ function closeAndRead(page: Page, id: string) {
     }), id);
 }
 
-/** 过渡中途（叶外框已经开始缩、还没缩到零）那一帧，叶外框与内容外层的宽度（关之前的宽度一并给出）。逐帧等这个状态，不按时长等。 */
+/** 过渡中途（叶外框缩到关之前的四分之一到四分之三之间）那一帧，叶外框与内容外层的宽度（关之前的宽度一并给出）。逐帧等这个状态，不按时长等。 */
 function widthsMidway(page: Page, id: string) {
     return page.evaluate((id) => {
         const read = () => {
@@ -78,7 +78,7 @@ function widthsMidway(page: Page, id: string) {
         return new Promise<{before: ReturnType<typeof read>; midway: ReturnType<typeof read>}>((resolve) => {
             const step = () => {
                 const now = read();
-                if (now.frame !== null && before.frame !== null && now.frame > 1 && now.frame < before.frame - 1) resolve({before, midway: now});
+                if (now.frame !== null && before.frame !== null && now.frame > before.frame * 0.25 && now.frame < before.frame * 0.75) resolve({before, midway: now});
                 else requestAnimationFrame(step);
             };
             requestAnimationFrame(step);
