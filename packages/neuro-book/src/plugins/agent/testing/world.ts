@@ -56,7 +56,8 @@ export interface AgentWorld {
 export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>; readonly withoutModels?: boolean; readonly env?: Readonly<Record<string, string>>; readonly capabilities?: ReadonlyArray<HostCapability>} = {}): Promise<AgentWorld> {
     const stateRoot = join(root, "state");
     await mkdir(stateRoot, {recursive: true});
-    if (options.userSettings !== undefined) await writeFile(join(stateRoot, "settings.json"), JSON.stringify(options.userSettings));
+    // 模型列表的自动更新缺省关（用例没写这一项时）：开着时模型服务启动就会去拉本机端点的 `/models`，改变服务商的模型清单。
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": false, ...options.userSettings}));
     let service: AgentService | null = null;
     const probe: PluginDefinition = {id: "test.agent-probe", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
         // 测试世界代替用户操作会话（sessions.md 输出 21 的 asUser）：现有用例按用户的身份写。按插件身份的另有用例。
