@@ -36,16 +36,12 @@ const disabled = computed(() => !props.store.available.value || !props.writable)
 onMounted(() => void props.store.start());
 
 const selection = props.store.selection;
-/** 选用数据换了（行读完、引用取到）：下面的计算属性随之重算。 */
-const version = ref(0);
-const stopSelection = selection.subscribe(() => {
-    version.value += 1;
-});
+// 选用数据是懒的：角色页订阅了它才开始读（`rows`、`lookup` 是 shallowRef，下面的计算属性读 `.value` 就跟着变）。
+const stopSelection = selection.subscribe(() => undefined);
 onBeforeUnmount(stopSelection);
 
 /** 可选的模型：启用、可用（不缺字段、不在目录漂移里）的；没有密钥的照样列出，角色状态会写明。 */
 const available = computed(() => {
-    void version.value;
     const names = new Map((snapshot.value?.providers ?? []).map((provider) => [provider.id, provider.name] as const));
     return selection.rows.value.filter((row) => row.status === "ok").map((row) => ({value: referenceOf(row.provider, row.id), label: row.name, description: names.get(row.provider) ?? row.provider}));
 });
@@ -70,10 +66,7 @@ function optionsFor(role: SnapshotRole) {
 }
 
 /** 绑定的模型（含没启用的）：名字与角色的思考档选项取自按引用取到的行。 */
-const modelsByRef = computed(() => {
-    void version.value;
-    return selection.lookup.value;
-});
+const modelsByRef = computed(() => selection.lookup.value);
 // 要名字的引用：每个角色绑着的。
 watch(() => snapshot.value?.roles, (list) => selection.want((list ?? []).flatMap((role) => (role.model === null ? [] : [role.model]))), {immediate: true});
 

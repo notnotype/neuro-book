@@ -47,8 +47,7 @@
         "envMissing": "Variable not set",
         "checkFailed": "A model failed its check",
         "models_one": "{{count}} model",
-        "models_other": "{{count}} models",
-        "manual": "Added manually"
+        "models_other": "{{count}} models"
     },
     "empty": {
         "title": "No providers yet",
@@ -101,9 +100,7 @@
             "hint": "Sent with every request; a model can add or override headers of the same name in its edit dialog"
         },
         "protocol": {
-            "label": "API format",
             "note": "After you change the API format or the address, requests are sent with the generic protocol, without this provider's special handling.",
-            "followsTemplate": "Follows the template",
             "changed": "Changed; the template uses {{value}}"
         },
         "region": {
@@ -151,14 +148,11 @@
             "hint": "Models newly added to the bundled catalog show up in the list on their own; turn this off to keep the list as it is."
         },
         "search": "Search model name or id",
-        "count": "{{count}}",
         "more": "{{count}} more; narrow the search",
         "noMatch": "No matching models",
         "loading": "Loading models",
         "loadFailed": "Could not load the models: {{reason}}",
         "retry": "Retry",
-        "more_menu": "More",
-        "removed": "{{count}} removed",
         "edited": "Edited",
         "manual": "Added manually",
         "restoreSource": "Restore the source value"
@@ -418,10 +412,8 @@
         "rename": "Rename",
         "nameLabel": "Provider name",
         "nameTaken": "A provider with this name already exists",
-        "nameEmpty": "The name cannot be empty",
         "duplicate": "Duplicate",
         "duplicateTip": "Copy the settings and model overrides, including the key",
-        "duplicated": "Duplicated as \"{{name}}\"",
         "keyNotCopied": "Duplicated as \"{{name}}\", but the key was not copied; enter it again.",
         "icon": {
             "button": "Change icon: {{name}}",

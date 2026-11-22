@@ -299,7 +299,7 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>
-            <label class="provider-detail__follow">
+            <label v-if="!blank" class="provider-detail__follow">
                 <Switch :model-value="provider.followSource" size="sm" :disabled="disabled" :aria-label="text('models.follow.label')" data-follow-source @update:model-value="(value: boolean) => emit('update', {followSource: value})" />
                 <span>{{ text("models.follow.label") }}<InfoTip :text="text('models.follow.hint')" /></span>
             </label>

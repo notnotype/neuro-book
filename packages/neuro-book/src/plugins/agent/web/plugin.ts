@@ -19,8 +19,8 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {builtinRoleNameKey, createSelectionData, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference, splitReference} from "nbook/plugins/models/shared/contracts";
-import type {ModelRow, ModelsSnapshot, SelectionRemote, SelectionRow, SnapshotProvider} from "nbook/plugins/models/shared/contracts";
+import {createSelectionData, modelsSettingsContract, PROVIDERS_SECTION} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot, SelectionRemote, SelectionRow} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
@@ -39,7 +39,6 @@ import {defineRecord} from "nbook/shared/storage";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {providerIcon} from "nbook/ui/provider-icons";
-import {roleIconClass} from "nbook/ui/role-icons";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import {Type} from "typebox";
@@ -75,6 +74,7 @@ import {profilesUsingSticker} from "./sticker-usage";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {gatedProvider} from "./owner-providers";
 import {createSessionHost} from "./session-host";
+import {modelGroups, modelOptions, roleOptions} from "./model-options";
 import type {RoleOption, SessionHost, SessionHostDeps, SessionOwners, UploadedAttachment} from "./session-host";
 import {createRecentSessions, createSessionList} from "./session-list";
 import {createRunResults, createSeenErrors} from "./subagents-panel";
@@ -137,65 +137,10 @@ const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])},
 const DRAFTS_RECORD = defineRecord({key: "agent.drafts", scope: "user", locality: "local", version: 1, keyed: true, schema: DraftsSchema});
 const recentRecord = (project: boolean) => defineRecord({key: "agent.recent-session", scope: project ? "project" : "user", locality: "local", version: 1, keyed: true, schema: RecentSchema});
 
-/**
- * 服务商图标的引用：用户选的内置图标与模板的图标只放键，图标表在渲染时由图标解析端口取（表晚到时首字母换成图标）；上传的是
- * 状态根里的文件，按读取路由的地址；选了首字母或没有图标可用时画首字母块。同模板的两个实例各用自己的图标。
- */
-function providerIconRef(provider: Pick<SnapshotProvider, "template" | "name" | "icon">): ComposerIcon {
-    const icon = provider.icon;
-    if (icon === null) return {kind: "key", set: "provider", key: provider.template, fallback: provider.name};
-    if (icon.kind === "builtin") return {kind: "key", set: "provider", key: icon.key, fallback: provider.name};
-    if (icon.kind === "file") return {kind: "url", src: `/api/${MODELS_PLUGIN}/icons/${icon.name}`, fallback: provider.name};
-    return {kind: "initial", text: Array.from(provider.name.trim())[0]?.toUpperCase() ?? "?"};
-}
-const MODELS_PLUGIN = "nbook.models";
-
-function modelGroups(snapshot: ModelsSnapshot): ComposerGroupView[] {
-    return snapshot.providers.filter(hasCredentials).map((provider) => ({id: provider.id, name: provider.name, icon: providerIconRef(provider)}));
-}
-
-function modelOptions(snapshot: ModelsSnapshot, rows: readonly SelectionRow[]): ComposerModelView[] {
-    const names = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
-    return rows.map((row) => ({
-        key: `${row.provider}/${row.id}`,
-        label: row.name,
-        supportsImages: row.vision,
-        group: names.get(row.provider) ?? row.provider,
-        groupId: row.provider,
-        contextWindow: row.contextWindow,
-        reasoning: row.reasoning,
-        price: row.price === null ? null : {input: row.price[0], output: row.price[1]},
-    }));
-}
-
 /** 附件地址换成读取路由。不是附件的（别的方案）不显示。 */
 function attachmentUrl(locator: string): string | null {
     const match = /^sessions:\/\/([^/]+)\/home\/attachments\/([^/]+)$/u.exec(locator);
     return match === null ? null : `/api/${descriptor.id}/sessions/${encodeURIComponent(match[1]!)}/attachments/${encodeURIComponent(match[2]!)}`;
-}
-
-function roleNameOf(role: ModelsSnapshot["roles"][number]): RoleOption["name"] {
-    const key = builtinRoleNameKey(role);
-    return key === null ? (role.name === "" ? role.id : role.name) : modelsText(key);
-}
-
-function roleOptions(snapshot: ModelsSnapshot, lookup: ReadonlyMap<string, {readonly name: string} | null>): RoleOption[] {
-    const providers = new Map(snapshot.providers.map((provider) => [provider.id, provider] as const));
-    return snapshot.roles.map((role) => {
-        const bound = role.model === null ? null : splitReference(role.model);
-        const provider = bound === null ? undefined : providers.get(bound.provider);
-        return {
-            key: roleReference(role.id),
-            id: role.id,
-            name: roleNameOf(role),
-            axis: role.axis,
-            modelLabel: role.model === null ? null : lookup.get(role.model)?.name ?? role.model,
-            status: role.status,
-            icon: {kind: "class", name: roleIconClass(role.id, role.icon)},
-            ...(provider === undefined ? {} : {modelIcon: providerIconRef(provider)}),
-            effort: role.effort,
-        };
-    });
 }
 
 /** 这个文件也由不带 DOM 类型的 tsc 检查，所以按需要的那几个取。 */

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {providerIconUrl} from "../../shared/icons";
 import type {ProviderIcon} from "@notnotype/nb-models/config";
 import {computed, ref, watch} from "vue";
 
@@ -20,7 +21,7 @@ const props = withDefaults(defineProps<{
 const key = computed(() => (props.icon === null ? props.template : props.icon.kind === "builtin" ? props.icon.key : null));
 /** 在 computed 里取：图标表晚到时（它是响应式的）这里重算，首字母换成图标。 */
 const resolved = computed(() => (key.value === null ? null : providerIcon(key.value)));
-const fileUrl = computed(() => (props.icon?.kind === "file" ? `/api/nbook.models/icons/${props.icon.name}` : null));
+const fileUrl = computed(() => (props.icon?.kind === "file" ? providerIconUrl(props.icon.name) : null));
 const broken = ref(false);
 watch(fileUrl, () => {
     broken.value = false;

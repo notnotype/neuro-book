@@ -18,6 +18,8 @@ export type {ModelRow, ModelsService, ModelsSnapshot, SnapshotProvider, Snapshot
 export {builtinRoleNameKey, modelsText} from "./text";
 /** 选用数据：选择器、角色页与 Profile 页按服务商分页读模型，浏览器入口各建一份（`selection.ts`）。 */
 export {createSelectionData} from "./selection";
+/** 上传的服务商图标的读取地址。 */
+export {providerIconUrl} from "./icons";
 export type {Cell, SelectionData, SelectionOptions, SelectionRemote, SelectionRow} from "./selection";
 /** 两页的分区 id：对话的提示卡按它们打开设置并定位（docs/specs/agent/conversation.md 输出 42）。 */
 export {PROVIDERS_SECTION, ROLES_SECTION} from "./settings";

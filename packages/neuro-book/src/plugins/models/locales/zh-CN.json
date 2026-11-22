@@ -46,8 +46,7 @@
         "keyMissing": "没有密钥",
         "envMissing": "环境变量没有值",
         "checkFailed": "有模型检测失败",
-        "models_other": "{{count}} 个模型",
-        "manual": "手动添加"
+        "models_other": "{{count}} 个模型"
     },
     "empty": {
         "title": "还没有服务商",
@@ -99,9 +98,7 @@
             "hint": "每个请求都带上；模型可以在编辑对话框里另加或覆盖同名的"
         },
         "protocol": {
-            "label": "接口格式",
             "note": "改了接口格式或地址以后，请求按通用协议发送，不再带这家服务商的专用处理。",
-            "followsTemplate": "跟随模板",
             "changed": "已改，模板是 {{value}}"
         },
         "region": {
@@ -149,14 +146,11 @@
             "hint": "打包目录里新增的模型自动出现在列表里；关掉后列表保持现在这样。"
         },
         "search": "搜索模型名或 id",
-        "count": "{{count}} 个",
         "more": "还有 {{count}} 条，缩小搜索词",
         "noMatch": "没有匹配的模型",
         "loading": "读取模型中",
         "loadFailed": "读取模型失败：{{reason}}",
         "retry": "重试",
-        "more_menu": "更多",
-        "removed": "已移出 {{count}} 个",
         "edited": "已改",
         "manual": "手动添加",
         "restoreSource": "恢复来源值"
@@ -416,10 +410,8 @@
         "rename": "改名",
         "nameLabel": "服务商名称",
         "nameTaken": "已有同名服务商",
-        "nameEmpty": "名称不能为空",
         "duplicate": "复制一份",
         "duplicateTip": "复制配置与模型设置；密钥一并复制",
-        "duplicated": "已复制为“{{name}}”",
         "keyNotCopied": "已复制为“{{name}}”，但密钥没有复制成功，请重新填写。",
         "icon": {
             "button": "更换图标：{{name}}",

@@ -56,8 +56,7 @@ watch(() => props.open, (open) => {
 
 /** 一次最多画这么多行（几百个模型的服务商不能整份渲染）：多出来的写“还有 N 条，缩小搜索词”。 */
 const LIMIT = 200;
-const hidden = ref(0);
-const groups = computed(() => {
+const shown = computed(() => {
     const needle = query.value.trim().toLowerCase();
     const byGroup = new Map<string, ModelCandidate[]>();
     let budget = LIMIT;
@@ -72,9 +71,10 @@ const groups = computed(() => {
         const group = seriesOf(item.id);
         byGroup.set(group, [...(byGroup.get(group) ?? []), item]);
     }
-    hidden.value = skipped;
-    return [...byGroup].map(([group, items]) => ({group, items}));
+    return {groups: [...byGroup].map(([group, items]) => ({group, items})), hidden: skipped};
 });
+const groups = computed(() => shown.value.groups);
+const hidden = computed(() => shown.value.hidden);
 
 const list = ref<HTMLElement | null>(null);
 
