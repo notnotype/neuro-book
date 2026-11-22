@@ -1,0 +1,25 @@
+# t48 计划前的探针（2026-11-22；读 t47 分支 398b019c3 的 build:package 产物 packages/nb-layout/dist/package/，只读）
+
+## 1. 组件的稳定性标注能放在哪里
+
+- vue.d.ts 里组件是 `declare const _default$4: typeof __VLS_export$6;`，末尾导出列表写 `_default$4 as NestedGrid`。这条声明上没有任何注释：
+  单文件组件的声明由 vue-tsc 生成，入口 `export {default as NestedGrid} from "./NestedGrid.vue";` 这一行上的注释也不会跟到声明里。
+- 所以组件（7 个：NestedGrid、Splitter、SortableList、DropFeedbackOverlay、DropSectorsOverlay、DropIndicatorLabel、FloatWindowHandles）的 `@stable`、`@experimental`
+  没法写成声明上的 JSDoc 让使用方在编辑器里看到，也没法让按声明读标注的工具（api-extractor 一类）读到。
+- 函数、类型、常量的 JSDoc 会跟到声明（t47 的产物里留着），这些可以在声明上标。
+- 推论：标注的真相源放在入口文件的显式清单（一行一个名字）上更一致，导出名测试顺带核对每个名字都有标注；声明上的 JSDoc 标注是给编辑器看的附带。
+
+## 2. 产物里的声明能不能直接当 API 报告
+
+- t47 之后四个入口的声明逐字节稳定（两次构建相同，tarball 也相同），去掉注释与 `//#region` 行就是一份按入口的公开签名。
+- 组件的 props、emits、slots 都在声明里（`__VLS_Props`、`__VLS_Slots`、事件的对象类型）；但类型名带 `$数字` 后缀（`_default$4`、`__VLS_export$6`），加一个组件、改一处导入顺序，编号就会整体挪动，报告的差异会很吵。
+- api-extractor 没有装（要新加依赖、联网），这次没有实测；它读的也是同一份声明，组件同样只有 `typeof __VLS_export$N`。
+
+## 3. 用类型检查器读产物的声明出报告（一次性脚本，放在本地 .local 的 t48 proto 目录）
+
+- 对 `vue.d.ts` 建一个 TypeScript 程序，`getExportsOfModule` 按导出名取符号；组件取构造签名的实例类型，读 `$props` 的属性：
+  7 个组件共 323 行“名字: 类型”，里面没有 `$N` 与 `__VLS_` 内部名（类型检查器按结构展开）。
+- 要处理的两件事：
+  - Vue 自带与透传的属性也在 `$props` 里（`key`、`ref`、`class`、`style`、`onVnode*`，`Splitter` 不关透传所以有 207 个，含全部 HTML 属性），报告只能列组件自己声明的；
+  - 引用产物里别的块的类型写成 `import("<绝对路径>/shared-XmI1bLya")…`，要按入口名改写，否则报告随路径与块名变。
+- 结论：报告由类型检查器读产物声明生成可行，组件的公开面（props、事件、插槽）也能进报告；过滤与改写的规则在计划里定。api-extractor 没有实测（同一份声明里组件只有 `typeof __VLS_export$N`，它要靠同样的展开才看得到 props）。
