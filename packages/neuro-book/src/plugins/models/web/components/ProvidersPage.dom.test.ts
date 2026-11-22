@@ -157,7 +157,7 @@ describe("几百个模型", () => {
 });
 
 describe("模型来源（service.md“模型来源”）", () => {
-    it("重新拉取：按钮先停用、写正在拉取，列表到了写更新时间；管理模型里类型不明的单独一组，加入没有窗口的先停用", async () => {
+    it("重新拉取：写正在拉取（按钮不停用），列表到了写更新时间；管理模型里类型不明的单独一组，加入没有窗口的先停用", async () => {
         const {store} = await render();
         query<HTMLElement>("[data-provider-rail-item='volcengine']").click();
         await waitUntil("选中火山方舟", () => selected() === "volcengine", {timeoutMs: 10_000});
@@ -168,7 +168,8 @@ describe("模型来源（service.md“模型来源”）", () => {
         // 假远端受理时同步标上在拉取，下一轮事件循环才交回列表：等到这一轮的渲染就看得到中间状态。
         await flushPromises();
         expect(query("[data-source-status]").textContent).toContain("正在拉取");
-        expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(true);
+        // 拉取进行中不停用（再点与在途的合并），焦点不会掉到页面上。
+        expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(false);
         await waitUntil("列表到了", () => query("[data-source-status]").textContent?.includes("更新于") === true, {timeoutMs: 10_000});
         expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(false);
 
@@ -190,6 +191,8 @@ describe("模型来源（service.md“模型来源”）", () => {
         query<HTMLElement>("[data-provider-rail-item='openai']").click();
         await waitUntil("选中 OpenAI", () => selected() === "openai", {timeoutMs: 10_000});
         expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(true);
+        // 停用的原因写成看得见的字（停用的按钮聚焦不了，悬停提示读屏读不到）。
+        expect(query("[data-source-needs-key]").textContent).toContain("先填密钥");
         expect(query("[data-source-status]").textContent).toContain("用内置的模型目录");
     });
 });

@@ -131,7 +131,7 @@
         "add": "Add manually",
         "checkAll": "Check all",
         "cancelChecks": "Cancel checks",
-        "empty": "No models yet. Set a key, then use “Manage models” to add some.",
+        "empty": "No models yet. Once a key is set, the provider's model list is fetched; you can also add one by hand.",
         "enable": "Enable {{name}}",
         "check": "Check {{name}}",
         "checkTip": "Check: send a very short request",
@@ -267,7 +267,7 @@
         "done": "Done",
         "confirmRemove": "After removing, these roles become unbound: {{roles}}.",
         "unknown": "Unknown type",
-        "unknownHint": "The provider does not say whether these are chat models; add them only if they are."
+        "unknownHint": "The provider does not say whether these are chat models. For relays and local endpoints they are listed on their own (those without a context window stay off until you fill it in); for provider templates, add them only if they are chat models."
     },
     "add": {
         "title": "Add provider",
@@ -425,10 +425,6 @@
         "unknown-role": "This role no longer exists",
         "builtin-role": "Built-in roles cannot be deleted or renamed",
         "no-credentials": "No key yet",
-        "not-supported": "This provider does not support fetching the model list",
-        "auth": "Authentication failed: check the key",
-        "unreachable": "Could not reach the provider",
-        "failed": "Fetching failed: {{detail}}",
         "unavailable": "The model service is not running",
         "unknown-outcome": "It may not have been saved; the settings are authoritative",
         "timeout": "Timed out",

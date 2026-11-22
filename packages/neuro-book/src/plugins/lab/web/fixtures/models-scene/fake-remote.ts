@@ -223,6 +223,9 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         refreshSource: async ({provider}) => {
             const state = providers.get(provider);
             if (state === undefined) return unknown(provider);
+            // 同真实服务：没有可用的密钥不受理。
+            const key = state.meta.key;
+            if (key.kind === "none" || (key.kind === "env" && !key.found)) return {ok: false as const, code: "no-credentials" as const, detail: {detail: "no credential for this provider"}};
             state.meta = {...state.meta, source: {...state.meta.source, refreshing: true}};
             publish();
             setTimeout(() => {

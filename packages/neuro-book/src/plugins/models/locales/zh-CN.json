@@ -129,7 +129,7 @@
         "add": "手动添加",
         "checkAll": "检测全部",
         "cancelChecks": "取消检测",
-        "empty": "还没有模型。设置密钥后点“管理模型”加入。",
+        "empty": "还没有模型。设好密钥后会去拉服务商的模型列表；也可以“手动添加”。",
         "enable": "启用 {{name}}",
         "check": "检测 {{name}}",
         "checkTip": "检测：发一条很短的请求",
@@ -265,7 +265,7 @@
         "done": "完成",
         "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。",
         "unknown": "类型不明",
-        "unknownHint": "服务商没说明这些是不是对话模型，确认是再加入。"
+        "unknownHint": "服务商没说明这些是不是对话模型。中转站与本机端点里的会自动列出（缺上下文窗口的补上才启用），服务商模板里的确认是对话模型再加入。"
     },
     "add": {
         "title": "添加服务商",
@@ -423,10 +423,6 @@
         "unknown-role": "这个角色已经不在了",
         "builtin-role": "内置角色不能删、不能改名",
         "no-credentials": "还没有密钥",
-        "not-supported": "这家不支持拉取模型列表",
-        "auth": "鉴权失败：核对密钥",
-        "unreachable": "连不上服务商",
-        "failed": "拉取失败：{{detail}}",
         "unavailable": "模型服务没有运行",
         "unknown-outcome": "可能没有保存，以设置为准",
         "timeout": "超时了",

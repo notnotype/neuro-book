@@ -61,15 +61,17 @@ const shown = computed(() => {
     const needle = query.value.trim().toLowerCase();
     const byGroup = new Map<string, ModelCandidate[]>();
     const unknown: ModelCandidate[] = [];
-    let budget = LIMIT;
+    // 类型不明的一组单独算预算：它排在最后，与别的组共用预算时最先被截掉，而这一组往往是加它们的唯一入口。
+    const budget = {known: LIMIT, unknown: LIMIT};
     let skipped = 0;
     for (const item of props.candidates ?? []) {
         if (needle !== "" && !item.name.toLowerCase().includes(needle) && !item.id.toLowerCase().includes(needle)) continue;
-        if (budget <= 0) {
+        const pool = item.unknown ? "unknown" : "known";
+        if (budget[pool] <= 0) {
             skipped += 1;
             continue;
         }
-        budget -= 1;
+        budget[pool] -= 1;
         if (item.unknown) {
             unknown.push(item);
             continue;

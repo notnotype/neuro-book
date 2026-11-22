@@ -142,10 +142,17 @@ function report(subject: string, failure: ModelsFailure): void {
 }
 const subjectOf = (provider: SnapshotProvider): string => text("subject.provider", {name: provider.name});
 
-/** 重新拉取列表：受理即回，结果经快照的 `source` 显示在模型区；没受理（没有密钥、服务商没了）走通知。 */
+/**
+ * 重新拉取列表：受理即回，结果经快照的 `source` 显示在模型区。没受理（没有可用的密钥、设置读不到、服务商不在了）的原因写在模型区的
+ * 来源一行下，不走“设置没保存”的通知：这不是一次写入，输入框也不用回到实际值。
+ */
+const sourceErrors = ref(new Map<string, string>());
 async function refreshSource(provider: SnapshotProvider): Promise<void> {
     const result = await props.store.call("refreshSource", {provider: provider.id});
-    if (!result.ok) report(subjectOf(provider), result.failure);
+    const next = new Map(sourceErrors.value);
+    if (result.ok) next.delete(provider.id);
+    else next.set(provider.id, failureReason(text, result.failure));
+    sourceErrors.value = next;
 }
 
 async function setKey(provider: SnapshotProvider, value: string): Promise<void> {
@@ -281,6 +288,8 @@ async function loadCandidates(provider: SnapshotProvider): Promise<void> {
     // 对话框关了或又发起了一次：迟到的结果丢掉（输出 10）。
     if (token !== manageToken || !managing.value) return;
     const failure = props.store.rowsOf(provider.id, "listed").failure ?? props.store.rowsOf(provider.id, "available").failure;
+    // “完成”只提交相对打开时的改动：以这次读到的列表为准（打开前刚拉过列表、选用数据还没换过来时，旧的缓存会少几行）。
+    manageOpenedWith.value = props.store.rowsOf(provider.id, "listed").rows.map((model) => model.id);
     if (failure !== null) manageError.value = failureReason(text, failure);
     else candidates.value = [...props.store.rowsOf(provider.id, "listed").rows, ...props.store.rowsOf(provider.id, "available").rows].map((model) => ({id: model.id, name: model.name, vision: model.vision, reasoning: model.reasoning, incomplete: model.status === "incomplete", unknown: model.kind === "unknown"}));
 }
@@ -489,6 +498,7 @@ function focusVisible(selectors: readonly string[]): void {
                         @edit-model="(id) => openEdit(current!.id, id)"
                         @add-model="openEdit(current!.id, null)"
                         @manage="openManage(current!)"
+                        :source-error="sourceErrors.get(current.id) ?? ''"
                         @refresh-source="refreshSource(current!)"
                     />
                 </template>

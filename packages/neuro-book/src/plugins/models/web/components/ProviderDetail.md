@@ -12,14 +12,14 @@
 
 | 状态 | 文字 | “重新拉取” |
 |---|---|---|
-| `refreshing` | 正在拉取服务商的模型列表 | 停用 |
+| `refreshing` | 正在拉取服务商的模型列表 | 可点（与在途的合并） |
 | 有 `error`、有可用的旧列表 | 拉取失败：原因；沿用某时的列表（红字） | 可点 |
 | 有 `error`、没有旧列表 | 拉取失败：原因（红字） | 可点 |
 | `changed` | 地址、协议或凭据改过，重新拉取后更新 | 可点 |
 | `ok` | 服务商的模型列表，更新于某时 | 可点 |
 | `none` | 目录模板：用内置的模型目录；空白模板：还没有拉到服务商的模型列表 | 可点 |
 
-没有可用的密钥（`none`、引用的变量没有值）时按钮停用，悬停写“先填密钥才能拉取”；只读时停用。点了发 `refresh-source`，结果随快照回来。
+没有可用的密钥（`none`、引用的变量没有值）时按钮停用，旁边写“先填密钥才能拉取”；只读时停用；拉取进行中不停用（再点与在途的合并，停用会让焦点掉到页面上）。点了发 `refresh-source`，结果随快照回来；没被受理的原因由页面经 `sourceError` 交进来，写在这一行下面（`role="alert"`）。时间按界面语言写。
 
 模型行由页面读完交进来（`rows`，来自选用数据）。超过 8 个模型时有搜索框（名称与 id，组件里过滤）。不搜索时：模型不多于 30 个系列默认展开，更多时默认收起，收起的组不渲染，用户点过的组按相反的来；搜索时命中的组全部展开、组头停用，至多画 200 行，多出的写“还有 N 条，缩小搜索词”。读行失败时写原因与“重试”（发 `reload-rows`）。
 
@@ -40,6 +40,7 @@ defineProps<{
     disabled?: boolean;                                     // 只读，缺省 false
     resetToken?: number;                                    // 变了就把密钥、地址的草稿换回实际值、请求头编辑器重建（页面在写失败后加一），缺省 0
     checkError?: string;                                    // 这家最近一次“没检成”的原因，写在模型列表头上，缺省空
+    sourceError?: string;                                   // “重新拉取”没被受理的原因，写在来源一行下，缺省空
 }>();
 defineEmits<{
     (e: "set-key", value: string): void;                    // 原文或 `env:<变量名>`
@@ -58,7 +59,7 @@ defineEmits<{
 }>();
 ```
 
-钩子：`data-region-select`、`data-api-select`、`data-api-note`、`data-source-status`、`data-source-refresh`、`data-follow-source`、`data-models-search`、`data-models-more`、`data-rows-failure`、`data-models-add`。
+钩子：`data-region-select`、`data-api-select`、`data-api-note`、`data-source-status`、`data-source-refresh`、`data-source-needs-key`、`data-source-error`、`data-follow-source`、`data-models-search`、`data-models-more`、`data-rows-failure`、`data-models-add`。
 
 没有 slots 与 expose，attrs 落在根元素上。
 

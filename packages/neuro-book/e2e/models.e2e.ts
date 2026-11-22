@@ -18,8 +18,12 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
-/** 本机假端点：`/models` 给两个目录里没有的模型；`failNext` 时下一次补全以 401 失败。 */
+/**
+ * 本机假端点：`/models` 给目录里没有的三个模型（两个类型不明的对话模型，一个 id 像向量模型、不自动加入），`listed` 数收到几次列表请求；
+ * `failNext` 时下一次补全以 401 失败。
+ */
 let failNext = false;
+let listed = 0;
 const endpoint = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk: Buffer) => {
@@ -27,8 +31,9 @@ const endpoint = createServer((request, response) => {
     });
     request.on("end", () => {
         if (request.url?.endsWith("/models") === true) {
+            listed += 1;
             response.writeHead(200, {"content-type": "application/json"});
-            response.end(JSON.stringify({object: "list", data: [{id: "story-model-a", object: "model"}, {id: "story-model-b", object: "model"}]}));
+            response.end(JSON.stringify({object: "list", data: [{id: "story-model-a", object: "model"}, {id: "story-model-b", object: "model"}, {id: "story-embedding", object: "model"}]}));
             return;
         }
         if (failNext) {
@@ -133,12 +138,24 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉到服务商�
     await expect(model(page, "story-model-a")).toContainText("缺上下文窗口");
     await expect(model(page, "story-model-b")).toBeVisible();
     await expect(model(page, "story-model-a").getByRole("switch")).toBeDisabled();
-    // 重新拉取：完成后照样是这两个。
+    // 重新拉取：端点再收到一次列表请求，完成后照样是这两个。
+    const before = listed;
     const refresh = detail(page).locator("[data-source-refresh]");
     await refresh.click();
-    await expect(refresh).toBeEnabled();
+    await expect.poll(() => listed).toBe(before + 1);
     await expect(source).toContainText("更新于");
     await expect(page.locator("[data-model-row]")).toHaveCount(2);
+
+    // 管理模型：像向量模型的不自动加入，在“类型不明”一组里；加入后进列表，缺上下文窗口、不启用。
+    await detail(page).locator("[data-models-manage]").click();
+    const manage = page.locator("[data-manage-models-dialog]");
+    const unknown = manage.locator("[data-manage-group='unknown']");
+    await expect(unknown).toContainText("类型不明");
+    await unknown.getByRole("button", {name: "加入 story-embedding"}).click();
+    await manage.getByRole("button", {name: "完成"}).click();
+    await expect(manage).toHaveCount(0);
+    await expect(model(page, "story-embedding")).toContainText("缺上下文窗口");
+    await expect(model(page, "story-embedding").getByRole("switch")).toBeDisabled();
 
     // 补上下文窗口后能启用。
     await model(page, "story-model-a").getByRole("button", {name: "编辑 story-model-a"}).click();
