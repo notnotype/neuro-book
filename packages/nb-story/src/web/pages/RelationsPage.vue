@@ -64,6 +64,8 @@ const menuItems = computed<ContextMenuItem[]>(() => {
     if (target === null || node === undefined) return [];
     return [
         {label: isPerson(node.kind) ? `打开${node.label}的人物卡` : `${node.label}的连线说明`, iconClass: isPerson(node.kind) ? "i-lucide-id-card" : "i-lucide-share-2", shortcut: "双击 / Enter", action: () => open(node.id)},
+        // 在旁边打开（输出 67）：开在另一半；窄档只显示一张，没有这一项。
+        ...(book.tier.value === "wide" ? [{label: "在旁边打开", iconClass: "i-lucide-columns-2", action: () => book.openBeside(isPerson(node.kind) ? {kind: "card" as const, entity: node.id, tab: "relations" as const} : {kind: "node" as const, id: node.id, label: node.label})}] : []),
         {label: neighborhood.value ? "看全图" : "只看它的周边", iconClass: neighborhood.value ? "i-lucide-maximize-2" : "i-lucide-focus", shortcut: "F", action: () => (neighborhood.value = !neighborhood.value)},
         {separator: true},
         {label: "取消选中", shortcut: "Esc", action: () => (selected.value = null)},

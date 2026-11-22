@@ -1,13 +1,26 @@
 <script setup lang="ts">
-import {useBook, type Tab} from "../host/book";
+import {inject} from "vue";
 
-/** 人名：点开人物卡，不离开当前页（viewer 输出 20）。 */
-withDefaults(defineProps<{id: string; label: string; tab?: Tab; strong?: boolean}>(), {tab: "summary", strong: false});
+import {useBook, type Tab} from "../host/book";
+import {NAME_MENU} from "../host/name-menu";
+
+/** 人名：点开人物卡，不离开当前页（viewer 输出 20）；Ctrl（macOS 上 ⌘）点与右键“在旁边打开”开在另一半（输出 67）。 */
+const props = withDefaults(defineProps<{id: string; label: string; tab?: Tab; strong?: boolean}>(), {tab: "summary", strong: false});
 const book = useBook();
+const menu = inject(NAME_MENU, null);
+
+function onClick(event: MouseEvent): void {
+    // macOS 上 Ctrl 点是右键，到不了这里，⌘ 点走这条。在旁边打开不传页签：另一张里已开着的人只激活，不改它的页签。
+    if (event.ctrlKey || event.metaKey) book.openBeside({kind: "card", entity: props.id});
+    else book.openCard(props.id, props.tab);
+}
+function onContextMenu(event: MouseEvent): void {
+    if (menu?.open({x: event.clientX, y: event.clientY}, {kind: "card", entity: props.id}) === true) event.preventDefault();
+}
 </script>
 
 <template>
-    <button type="button" class="name-link" :class="strong ? 'is-strong' : ''" @click.stop="book.openCard(id, tab)">{{ label }}</button>
+    <button type="button" class="name-link" :class="strong ? 'is-strong' : ''" @click.stop="onClick" @contextmenu.stop="onContextMenu">{{ label }}</button>
 </template>
 
 <style scoped>

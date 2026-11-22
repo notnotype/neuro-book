@@ -9,7 +9,7 @@
  */
 
 import {createGrid} from "@notnotype/nb-layout";
-import type {Grid} from "@notnotype/nb-layout";
+import type {Grid, GridExtent, GridFailure} from "@notnotype/nb-layout";
 
 import {DRAWER_WIDTH_RANGE} from "../host/prefs";
 
@@ -101,4 +101,25 @@ export function createBookGrid(input: BookGridInput): Grid<BookPane> {
             return index === 1 && input.compact() ? 0 : 1;
         },
     });
+}
+
+/**
+ * 换并排的张数（宿主在张数变了时调，之后要发布一次布局）。先展开或收起第二张，再设详情的宽度：反过来 `details` 会被一张卡时的上限
+ * （640）夹住。开第二张时把两张拉平：两张按比例分，上次拖过中间那条线的份额会留着，关一张再开一张时不等宽又回来；关的时候第二张
+ * 收着，拉不平，所以在开的时候拉。整块收起着、或还没量到容器时没有呈现可比，不拉。
+ */
+export function setCardCount(grid: Grid<BookPane>, input: {readonly cards: number; readonly cardWidth: number; readonly extent: GridExtent | null}): {ok: true} | GridFailure {
+    const two = input.cards >= 2;
+    const collapsed = grid.setCollapsed("drawer2", !two);
+    if (!collapsed.ok) return collapsed;
+    const sized = grid.setSize("details", detailsWidth(input.cardWidth, input.cards));
+    if (!sized.ok) return sized;
+    if (!two || input.extent === null || grid.find("details")?.collapse?.collapsed === true) return {ok: true};
+    const sizes = grid.layout(input.extent).sizes;
+    const left = sizes.drawer?.width ?? 0;
+    const right = sizes.drawer2?.width ?? 0;
+    if (Math.abs(left - right) < 0.5) return {ok: true};
+    const half = (left + right) / 2;
+    const evened = grid.resizeBranches([{branchId: "details", axis: "width", baseline: {drawer: left, drawer2: right}, target: {drawer: half, drawer2: half}}]);
+    return evened.ok ? {ok: true} : evened;
 }

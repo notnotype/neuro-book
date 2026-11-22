@@ -37,7 +37,7 @@ defineEmits<{
 ## 呈现
 
 - 根元素是 `aside`，带 `data-testid="drawer"`、`data-detail-key`（这一张的 `key`）、`data-detail-index`（0 或 1）；`tabindex="-1"`，关掉另一张时焦点能交到这里，不进 Tab 顺序。
-- 读屏名称：一张时“详情”，两张时“左边的详情”“右边的详情”（与分隔线的显示名同一张表）；两张时最近点过的那张带 `aria-current="true"`。
+- 读屏名称：一张时“详情”，两张时“左边的详情”“右边的详情”（与分隔线的显示名同一张表）；两张时最近点过的那张带 `aria-current="true"`，上边一条 2 像素的强调色线。
 
 ## 注意事项
 

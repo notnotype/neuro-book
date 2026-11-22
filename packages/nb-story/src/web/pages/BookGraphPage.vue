@@ -61,6 +61,8 @@ const menuItems = computed<ContextMenuItem[]>(() => {
     if (target === null || node === undefined) return [];
     return [
         {label: ACTION[node.type], shortcut: "双击 / Enter", action: () => openNode(node.id)},
+        // 在旁边打开（输出 67）：只有人物点会开详情（情节、秘密这些点是跳页）；窄档只显示一张，没有这一项。
+        ...(node.type === "entity" && book.tier.value === "wide" ? [{label: "在旁边打开", action: () => book.openBeside({kind: "card" as const, entity: node.id})}] : []),
         {label: neighborhood.value ? "看全图" : "只看它的周边", shortcut: "F", action: () => (neighborhood.value = !neighborhood.value)},
         {separator: true},
         {label: "取消选中", shortcut: "Esc", action: () => (selected.value = null)},

@@ -19,7 +19,7 @@ import type {Router} from "vue-router";
 
 import type {IngestStatusView, PositionInput, StoryResult} from "../../contract/contract";
 import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
-import {activeDetail, close, collapse, EMPTY_DETAILS, expand, fromView, openBeside, openIn, swap, toView, touch, type DetailRequest, type DetailsState, type DetailTarget} from "./details";
+import {activeDetail, close, collapse, expand, fromView, openBeside, openIn, swap, toView, touch, type DetailRequest, type DetailsState, type DetailTarget} from "./details";
 
 export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "revisions", "stats"] as const;
 export type Page = (typeof PAGES)[number];
@@ -59,11 +59,13 @@ export type DrawerContent =
  */
 export type JumpTarget = {kind: "arc"; id: string} | {kind: "secret"; id: string} | {kind: "question"; id: string} | {kind: "episode"; id: string} | {kind: "entity"; id: string};
 
-/** 存进书库的界面状态（`reading.set` 的 view）。 */
+/** 存进书库的界面状态（`reading.set` 的 view）：`entity`、`tab` 是左边那张人物卡，`entity2`、`tab2` 是右边那张（输出 69）。 */
 interface SavedView {
     page: Page;
     entity: string | null;
     tab: Tab | null;
+    entity2: string | null;
+    tab2: Tab | null;
     perspective: string;
 }
 
@@ -165,6 +167,8 @@ function readSavedView(view: unknown): Partial<SavedView> {
         ...(isPage(value.page) ? {page: value.page} : {}),
         ...(typeof value.entity === "string" ? {entity: value.entity} : {}),
         ...(isTab(value.tab) ? {tab: value.tab} : {}),
+        ...(typeof value.entity2 === "string" ? {entity2: value.entity2} : {}),
+        ...(isTab(value.tab2) ? {tab2: value.tab2} : {}),
         ...(typeof value.perspective === "string" ? {perspective: value.perspective} : {}),
     };
 }
@@ -211,8 +215,17 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     }
     const page = ref<Page>(initialPage);
     let perspective = typeof query.perspective === "string" ? query.perspective : (savedView.perspective ?? "reader");
-    let entity: string | null = typeof query.entity === "string" ? query.entity : (savedView.entity ?? null);
-    const tab: Tab = isTab(query.tab) ? query.tab : (savedView.tab ?? "summary");
+    // 人物卡的四个参数按组取（输出 4）：地址里出现任一个，四个都取地址（没写的当没有，页签缺省概况）；一个都没出现才整组用存下的。
+    // 命令行给的地址只写 `entity` 时，页签不从存下的状态补。
+    const cardKeys = ["entity", "tab", "entity2", "tab2"] as const;
+    const fromUrl = cardKeys.some((name) => query[name] !== undefined);
+    const pick = (name: (typeof cardKeys)[number]): unknown => (fromUrl ? query[name] : savedView[name]);
+    const requested: Array<{entity: string; tab: Tab}> = [];
+    for (const [entityKey, tabKey] of [["entity", "tab"], ["entity2", "tab2"]] as const) {
+        const value = pick(entityKey);
+        const tabValue = pick(tabKey);
+        if (typeof value === "string" && value !== "") requested.push({entity: value, tab: isTab(tabValue) ? tabValue : "summary"});
+    }
 
     if (perspective !== "reader") {
         try {
@@ -223,32 +236,35 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             perspective = "reader";
         }
     }
-    if (entity !== null) {
+    // 两张并行核对，按规范化之后的 id 去重（同一个人只留左边那张）；没出现的那张去掉，留下的放在左边，每张一句提示。
+    const checked = await Promise.all(requested.map(async (card) => {
         try {
-            entity = (await client.call("entity.card", {book: bookId, at: at.value, entity})).id;
+            return {...card, entity: (await client.call("entity.card", {book: bookId, at: at.value, entity: card.entity})).id};
         } catch (error) {
             if (!(error instanceof StoryCallError)) throw error;
-            notices.push(`对象“${entity}”在这个阅读位置还没出现，已关掉它的人物卡`);
-            entity = null;
+            notices.push(`对象“${card.entity}”在这个阅读位置还没出现，已关掉它的人物卡`);
+            return null;
         }
-    }
+    }));
+    const cards = checked.filter((card): card is {entity: string; tab: Tab} => card !== null);
 
     const perspectiveRef = ref(perspective);
     const urlChapter = typeof query.chapter === "string" && /^\d+$/u.test(query.chapter) ? Number(query.chapter) : null;
     const sourceChapter = ref<number | null>(urlChapter !== null && urlChapter >= 1 && urlChapter <= info.chapters ? urlChapter : null);
     const qaConversation = ref<string | null>(typeof query.c === "string" && query.c !== "" ? query.c : null);
-    const details = shallowRef<DetailsState>(entity === null ? EMPTY_DETAILS : fromView({entity, tab, entity2: null, tab2: null}));
+    const details = shallowRef<DetailsState>(fromView({entity: cards[0]?.entity ?? null, tab: cards[0]?.tab ?? null, entity2: cards[1]?.entity ?? null, tab2: cards[1]?.tab ?? null}));
     const drawer = computed<DrawerContent | null>(() => (details.value.open ? (activeDetail(details.value)?.content ?? null) : null));
     const notice = ref<string | null>(notices.length ? notices.join("；") : null);
     const saveFailed = ref(false);
     const atEnd = computed(() => isEnd(infoRef.value, at.value));
     const atLabel = computed(() => (atEnd.value ? "全部读完" : at.value.paragraph === undefined ? `第 ${at.value.chapter} 章` : `第 ${at.value.chapter} 章第 ${at.value.paragraph} 段`));
     const pendingJump = ref<JumpTarget | null>(null);
+    const tierRef = ref<"wide" | "tablet" | "phone">("wide");
     const pages = computed(() => allowedPages(infoRef.value.features));
 
     function viewState(): SavedView {
         const view = toView(details.value);
-        return {page: page.value, entity: view.entity, tab: view.tab, perspective: perspectiveRef.value};
+        return {page: page.value, entity: view.entity, tab: view.tab, entity2: view.entity2, tab2: view.tab2, perspective: perspectiveRef.value};
     }
     /** 进地址与存下的状态的那部分详情：只改“最近点过的那张”不算变化，不写地址、不存。 */
     const detailsView = computed(() => JSON.stringify(toView(details.value)));
@@ -261,6 +277,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         next.perspective = view.perspective;
         if (view.entity) next.entity = view.entity;
         if (view.entity && view.tab) next.tab = view.tab;
+        if (view.entity2) next.entity2 = view.entity2;
+        if (view.entity2 && view.tab2) next.tab2 = view.tab2;
         if (view.page === "source" && sourceChapter.value !== null) next.chapter = String(sourceChapter.value);
         if (view.page === "qa" && qaConversation.value !== null) next.c = qaConversation.value;
         return {path: `/book/${encodeURIComponent(bookId)}/${view.page}`, query: next};
@@ -449,7 +467,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         drawer,
         notice,
         saveFailed,
-        tier: ref<"wide" | "tablet" | "phone">("wide"),
+        tier: tierRef,
         sourceChapter,
         qaConversation,
         wideRecords: ref(null),
@@ -493,7 +511,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         },
         openDetail,
         openBeside(request) {
-            afterFresh(() => (details.value = openBeside(details.value, request)));
+            // 窄档（平板、手机）只显示一张，看不出并排：等于普通打开（输出 67）。
+            afterFresh(() => (details.value = tierRef.value === "wide" ? openBeside(details.value, request) : openIn(details.value, request, "active")));
         },
         closeDetail(key) {
             details.value = close(details.value, key);

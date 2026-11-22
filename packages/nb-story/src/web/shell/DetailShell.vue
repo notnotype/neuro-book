@@ -75,3 +75,10 @@ const label = (): string => (props.count < 2 ? "详情" : props.index === 0 ? "�
         </div>
     </aside>
 </template>
+
+<style scoped>
+/* 两张并排时最近点过的那张：上边一条 2 像素的强调色线（读屏另有 aria-current）。 */
+.detail-shell[aria-current="true"] {
+    box-shadow: inset 0 2px 0 var(--accent-main);
+}
+</style>

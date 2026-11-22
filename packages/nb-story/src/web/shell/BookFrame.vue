@@ -7,13 +7,14 @@
 import type {GridContentInput, GridGestureCommit} from "@notnotype/nb-layout";
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 import type {GridHostIssue} from "@notnotype/nb-layout/vue";
-import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
-import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
+import {ContextMenu, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem, DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 
 import {BOOK_SESSION, type BookSession, type Page} from "../host/book";
-import {visibleDetails, type DetailItem} from "../host/details";
+import {visibleDetails, type DetailItem, type DetailRequest} from "../host/details";
+import {NAME_MENU} from "../host/name-menu";
 import {ingestBadge} from "../host/ingest";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {DRAWER_WIDTH_RANGE, readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed} from "../host/prefs";
@@ -21,7 +22,7 @@ import {LAYOUT_MOTION} from "../host/motion";
 import ReadingControl from "../parts/ReadingControl.vue";
 import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
-import {cardWidthOf, createBookGrid, type BookPane} from "./book-grid";
+import {cardWidthOf, createBookGrid, setCardCount, type BookPane} from "./book-grid";
 import DetailShell from "./DetailShell.vue";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
@@ -129,12 +130,25 @@ function onApplied(commit: GridGestureCommit): void {
         if (change.active.includes("details") && detailsTarget !== undefined && detailsTarget >= DRAWER_WIDTH_RANGE.min) writeDrawerWidth(cardWidthOf(detailsTarget, cardCount()));
     }
 }
-watch([navIsCollapsed, drawerIsCollapsed], ([nav, drawer]) => {
+/** 并排着两张（整块收起时按记着的张数）。盯这个原始值，不盯 `details` 对象：点一下、聚焦一下就换对象，盯它会把拖出来的宽度弹回偏好。 */
+const twoCards = computed(() => book.details.value.items.length >= 2);
+/**
+ * 收起状态与张数推给网格，固定先后：先导航与详情整块的收起，再张数（第二张的收起、详情的宽度、拉平两张），最后发布一次布局。
+ * 用 `grid.*` 而不是 `host.setCollapsed`：后者每次都发布，几步会发出几份中间布局。写 `details` 与这里在同一次刷新里，
+ * 网格才判得出关掉的那张要不要留到过渡结束（ui/nested-grid 输出 155）。
+ */
+watch([navIsCollapsed, drawerIsCollapsed, twoCards], ([nav, drawer, two], [, , wasTwo]) => {
     for (const [id, collapsed] of [["nav", nav], ["details", drawer]] as const) {
-        const result = host.setCollapsed(id, collapsed);
+        const result = grid.setCollapsed(id, collapsed);
         if (!result.ok) console.warn({result}, `书页分栏收起或展开 ${id} 没成`);
     }
+    if (two !== wasTwo) applyCardCount(two);
+    host.invalidate();
 });
+function applyCardCount(two: boolean): void {
+    const result = setCardCount(grid, {cards: two ? 2 : 1, cardWidth: readDrawerWidth(), extent: host.extent.value});
+    if (!result.ok) console.warn({result}, "书页详情换张数没成");
+}
 /** 分隔线读屏时念的名字（ui/nested-grid 输出 152）：一张时详情一栏就叫“详情”，两张时分左右。 */
 function paneLabel(id: string): string | undefined {
     const pane = id as BookPane;
@@ -191,6 +205,20 @@ function closeDetail(key: number, shell: HTMLElement): void {
     }
     book.closeDetail(key);
 }
+// ---- 名字上的右键菜单（输出 67）：外壳里只有这一个，`NameLink` 经注入打开。窄档看不出并排，不打开，名字照常走浏览器的菜单。 ----
+const nameMenu = ref<{x: number; y: number; request: DetailRequest} | null>(null);
+provide(NAME_MENU, {
+    open(at, request) {
+        if (tier.value !== "wide") return false;
+        nameMenu.value = {x: at.x, y: at.y, request};
+        return true;
+    },
+});
+const nameMenuItems = computed<ContextMenuItem[]>(() => {
+    const target = nameMenu.value;
+    return target === null ? [] : [{label: "在旁边打开", iconClass: "i-lucide-columns-2", action: () => book.openBeside(target.request)}];
+});
+
 /** 兜底：被停放的详情里还有焦点（例如拖到 0 收起）时交给还看得见的那张，没有就交给主区。不按事件里的 key 查：那一张可能已经关掉了。 */
 function onContentParked(): void {
     const rest = shownDetails.value[0];
@@ -371,6 +399,7 @@ watch(notice, value => {
             </template>
         </div>
 
+        <ContextMenu :open="nameMenu !== null" :x="nameMenu?.x ?? 0" :y="nameMenu?.y ?? 0" :items="nameMenuItems" @request-close="nameMenu = null" />
         <div v-if="notice" class="absolute left-1/2 z-40 -translate-x-1/2 rounded-[var(--radius-control)] bg-[var(--status-warning-bg)] px-3 py-1.5 text-[length:var(--text-sm)]" data-testid="notice" :class="tier === 'phone' ? 'bottom-14' : 'bottom-4'">{{ notice }}</div>
     </div>
 </template>
