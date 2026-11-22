@@ -65,9 +65,9 @@ function closeAndRead(page: Page, id: string) {
     }), id);
 }
 
-/** 过渡走了大约三分之一时，叶外框与内容外层的宽度（关之前的宽度一并给出）。 */
+/** 过渡中途（叶外框已经开始缩、还没缩到零）那一帧，叶外框与内容外层的宽度（关之前的宽度一并给出）。逐帧等这个状态，不按时长等。 */
 function widthsMidway(page: Page, id: string) {
-    return page.evaluate(({id, wait}) => {
+    return page.evaluate((id) => {
         const read = () => {
             const frame = document.querySelector<HTMLElement>(`[data-lab-subject] > [data-leaf="${id}"]`);
             const content = document.querySelector<HTMLElement>(`[data-lab-subject] > [data-content="${id}"]`);
@@ -75,8 +75,15 @@ function widthsMidway(page: Page, id: string) {
         };
         const before = read();
         document.querySelector<HTMLElement>(`[data-leaving-action="close-${id}"]`)?.click();
-        return new Promise<{before: ReturnType<typeof read>; midway: ReturnType<typeof read>}>((resolve) => setTimeout(() => resolve({before, midway: read()}), wait));
-    }, {id, wait: DURATION / 3});
+        return new Promise<{before: ReturnType<typeof read>; midway: ReturnType<typeof read>}>((resolve) => {
+            const step = () => {
+                const now = read();
+                if (now.frame !== null && before.frame !== null && now.frame > 1 && now.frame < before.frame - 1) resolve({before, midway: now});
+                else requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+        });
+    }, id);
 }
 
 test("标了留住的卡片关掉时，内容与面板头停在关之前的样子跟着叶缩回去，过渡结束才卸载", async ({page}) => {
