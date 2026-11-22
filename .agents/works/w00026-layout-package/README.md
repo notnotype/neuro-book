@@ -115,6 +115,7 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 2026-11-22：[t53](tasks/t53-leaving-contents/README.md) 完成，合入 master（`e85dbbd11`）：内容项标 `leave: "retain"` 时由库留到过渡结束，带着它离开的叶面板头停在最后一次渲染；新 Lab 场景 `leaving` 与 e2e。[t45](tasks/t45-story-side-by-side-cards/README.md) 计划第 5 稿在设计审查。
 2026-11-22：[t45](tasks/t45-story-side-by-side-cards/README.md) 四个切片实施完（分支 `w00026/t45-side-by-side`，5 个提交）：宽屏两张详情并排、Ctrl 点与右键“在旁边打开”、拖头部换边、地址记两张；张数变化原地完成，不重建网格。产品取舍 12 行记进[待确认清单](pending-confirmations.md)，接入记录写在 t45 README。实现审查（Claude Sonnet）待处理，处理完合入。
 2026-11-22：[t45](tasks/t45-story-side-by-side-cards/README.md) 完成，合入 master（`a00200087`）：实现审查重要 2、建议 6 都成立，修正在 `6c5fa770b`；补 e2e 时发现关系图右键会先让抽屉跟着换，“在旁边打开”不起作用，改成右键的选中不换（Spec 输出 27、待确认清单）。下一个是 [t47](tasks/t47-build-pipeline/README.md)。
+2026-11-22：[t47](tasks/t47-build-pipeline/README.md) 计划第 1 稿（开工前两个探针：nb-layout 的声明每次构建不同，改成先 `vue-tsc` 出声明再打包后稳定；nb-story 的三个 e2e 跑在压缩产物上全部通过），在 omp 设计审查。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 

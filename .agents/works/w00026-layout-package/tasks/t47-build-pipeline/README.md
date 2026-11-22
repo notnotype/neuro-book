@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t47-build-pipeline
-status: planned
+status: active
 updated: 2026-11-22
 ---
 
@@ -11,7 +11,7 @@ updated: 2026-11-22
 
 nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加“独立版本的生成包”通道、MIT 许可证与第三方声明按包判断（ADR 0054 第 5、6 条，提案“第二档：发布流水线”“MIT：要处理的事实”）；nb-story 的网页构建改读编译产物。发到 npm 由开发者执行。形状按 t43 的核实与 nb-story 的接入定。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`story/cli-skill`](../../../../../docs/specs/story/cli-skill.md) 输出 19（网页包比源码旧的提示）补一句范围：读编译产物的工作区包记它的源文件；nb-layout 的行为合同（`ui/nested-grid` 等）不变。发布形态按 ADR 0054 第 6 条，写在包 README 与[发布手册](../../../../../docs/standards/releasing.md)。
 
 ## 输入
 
@@ -20,8 +20,8 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 
 ## 当前状态
 
-2026-11-22 经 nbdev 新建，尚未开工。
+2026-11-22：[计划](plan.md)第 1 稿，开工前跑了两个探针（[证据](evidences/probes.txt)）：声明文件按 t43 的做法每次构建不同、tarball 跟着变，改成先 `vue-tsc` 一次出全部声明再打包后稳定；nb-story 的 `frame`、`side-by-side`、`viewer` e2e 跑在压缩产物加显式 `style.css` 上。计划交 omp 设计审查（`--model @review`）。
 
 ## 下一步
 
-待补充。
+设计审查 → 处理 → 按切片实施。

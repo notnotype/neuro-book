@@ -1,0 +1,38 @@
+# t47 计划前的探针（2026-11-22；nb-layout 源码取 master b7c735c22，脚本放在本地 .local 的 t47 proto 目录，不入库）
+
+工具版本同 t43 原型：vite 8.1.4、rolldown 1.1.5、rolldown-plugin-dts 0.27.14、@vitejs/plugin-vue 6.0.7、vue-tsc 3.3.7。
+
+## 1. 字节稳定
+
+### 1a. 照 t43 原型（Vite 库模式出 JS 与 CSS，rolldown 加 rolldown-plugin-dts 的 vue: true 出声明），连续构建 4 次，逐文件比摘要
+  same index.d.ts / index.js / locales-*.js / locales.d.ts / locales.js / sortable-*.d.ts / style.css / text.d.ts / text.js / theme-vars-*.js / vue.js
+  DIFF vue.d.ts（4 次里 3 种）
+  文件名 4 次相同。
+  不同之处：组件类型字面量里成员的先后。FloatWindowHandles 的事件 preview、commit 在 emits 对象里的位置；另一个组件的 disabled 属性的位置。
+  推断：类型检查器按文件被处理的先后给字面量类型编号，联合类型按编号排，插件里文件的处理顺序不固定。
+
+### 1b. 打 tarball（bun pm pack）
+  同一个目录打两次：SHA-256 相同（1ee32382f2858364…）
+  第 2 次构建的目录：4800f7341cd9b529…（与第 1 次不同，只因 vue.d.ts）
+  所以 tarball 的字节随声明变；发布计划比的是整个 tarball 的 integrity。
+
+### 1c. eager: true（插件先准备 tsconfig 里的全部文件）
+  vue.d.ts 5 次里 2 种：仍不稳。
+
+### 1d. 先 vue-tsc 一次出全部声明，再打包
+  vue-tsc -p tsconfig.dts.json --declaration --emitDeclarationOnly，4 次：每次 65 个 .d.ts，整体摘要相同（d1fa3b2faf20）。
+  rolldown + rolldown-plugin-dts（dtsInput: true，入口名带 .d），从同一个固定目录读，3 次：五个文件（index.d.ts、locales.d.ts、sortable-*.d.ts、text.d.ts、vue.d.ts）整体摘要相同（4be2a032a0ea）。
+  注意：打包出的声明带 //#region <相对路径> 注释，路径随输入目录名变；固定输入目录即可。
+
+### 1e. 声明里的 Spec 编号
+  压缩后的 JS 与 CSS：0 处。声明（保留 JSDoc）：约 25 处（“输出 139”“docs/specs/ui/nested-grid.md”等，分布在 vue.d.ts、共享声明块、text.d.ts）。
+
+## 2. nb-story 的网页构建改读产物
+
+一次性 worktree（detached，master 54a31ebdb，t45 合入之后），产物是 1a 第一次构建的压缩输出（含 rolldown-plugin-dts 直接出的声明，网页构建不读声明）。
+改动（不提交）：
+  - vite.config.ts 加 resolve.alias：@notnotype/nb-layout、/vue、/text、/locales、/style.css 精确匹配到 packages/nb-layout/dist/probe/ 里的文件；
+  - src/web/main.ts 在 app.css 之后导入 @notnotype/nb-layout/style.css。
+结果：
+  - bun run build:web 通过；dist/web/build-stamp.json 里记了 6 个产物文件（nb-layout/dist/probe/…），0 个 nb-layout 源文件：网页包比源码旧的提示（story/cli-skill 输出 19）在改读产物之后看不到 nb-layout 源码的改动，计划要补。
+  - e2e：frame、side-by-side、viewer 三个文件 53 条全部通过（2.9 分钟，负载约 4）。
