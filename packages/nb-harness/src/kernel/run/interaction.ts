@@ -148,6 +148,9 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
     let claimedId = "";
     const result = await accept(host, "resolve", args, async () => {
         const {core, control} = host;
+        // 应答会改变对话（结算事项、回答进缓冲区）：只读会话不受理新的（session.md 失败表的 unknown-profile）。在判定里查，已提交的键
+        // 先按记录重放：受理之后会话才变只读（重开时 Profile 不在了）的应答，重发得到原来的结果。
+        if (host.readOnly() !== null) return {fail: "read-only"};
         const item = core.leafState.kernel.pending.find((pending) => pending.id === args.id);
         if (item === undefined) {
             const resolved = core.pathTo().find((event) => event.type === "interactionResolved" && (event.data as {id: string}).id === args.id);
@@ -219,9 +222,11 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         // 推迟到收口的回答不进正在收口的那次运行：不交 runId（同 send 的 later）。
         const runId = launch ?? (deferred ? undefined : control.active?.runId);
         const answerId = deferred ? (drafts.at(-1)!.data as {id: string}).id : null;
-        return {value: runId === undefined ? {} : {runId}, drafts, ...(launch === undefined ? {} : {launch}), written: async () => {
+        // 叫醒放在 `committed`：结算写下了就按它叫醒，之后的反应批写失败也一样（等它的调用拿到的与日志一致）。
+        return {value: runId === undefined ? {} : {runId}, drafts, ...(launch === undefined ? {} : {launch}), committed: () => {
             claimed = undefined;
             wake?.wake(resolution);
+        }, written: async () => {
             if (answerId !== null) control.defer({issuer, mode: "keep", inputIds: [answerId]});
         }};
     });

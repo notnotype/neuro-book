@@ -67,10 +67,10 @@ export class RunControl {
         core.onBroken(() => {
             const active = this.#active;
             this.#setStatus({state: "broken", code: "log-broken"});
-            if (active !== null) {
-                active.controller.abort();
-                this.#settle(active.runId, BROKEN_RESULT(active.runId, core.head));
-            }
+            active?.controller.abort();
+            // 等运行的调用一个都不留（不只当前运行的：受理批写下了、因为反应批写失败没开起来的运行也有人在等）：日志里已有这次的
+            // `runEnded` 交回它（与之后再来的 `waitRun` 一致），否则 log-broken（runtime.md 输出 13）。
+            for (const runId of [...this.#waiters.keys()]) this.#settle(runId, runResultOf(core.events, runId, core.byId) ?? BROKEN_RESULT(runId, core.head));
             // 收口批写不下了：等着的停止照实交回（运行已经停了），不挂住。
             this.#releaseStopWaiters();
         });
@@ -123,7 +123,12 @@ export class RunControl {
         return this.#active === null ? (this.#core.leafState.kernel.run?.runId ?? null) : null;
     }
 
+    /**
+     * 状态只从这里发布（含快照读的值）。句柄坏了以后只认 `broken`：事项报告、运行循环的阶段回调与收口都还可能晚到，不能把它盖掉
+     * （session.md 输出 12）。
+     */
     #setStatus(status: RunStatus): void {
+        if (this.#core.broken && status.state !== "broken") return;
         this.#status = status;
         this.#core.emit({type: "status", status, afterSeq: this.#core.head});
     }

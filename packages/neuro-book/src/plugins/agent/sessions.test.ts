@@ -104,6 +104,10 @@ async function runOnServer(w: AgentWorld, sessionId: string, text: string): Prom
 }
 
 describe("远程合同", () => {
+    test("句柄坏了以后新的停止得 log-broken（harness/runtime.md 输出 30）：远程 abort 声明了这个码，不会被当成没声明的错误改报成提供方异常", () => {
+        expect(JSON.stringify(agentSessionsContract.methods.abort.errors)).toContain('"log-broken"');
+    });
+
     test("场景 1、输出 7、8：窗口 A 发起运行后退订，窗口 B 订阅再用 log 补齐；增量按 100 毫秒合并、按订阅从 1 编号，日志帧之前先推出", async () => {
         const w = await world();
         const a = (await w.window("a")).client;

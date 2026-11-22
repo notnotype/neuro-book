@@ -17,7 +17,7 @@ export const commandErrors = {
     removeNotice: ["not-allowed", "notice-not-found", "notice-taken", "command-id-conflict", "session-closed", "log-broken"],
     resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     start: ["already-running", "nothing-to-continue", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
-    abort: ["not-allowed", "command-id-conflict", "session-closed"],
+    abort: ["not-allowed", "command-id-conflict", "session-closed", "log-broken"],
     resume: ["nothing-to-resume", "held-by-user", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     release: ["nothing-to-release", "held-by-user", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "not-allowed", "command-id-conflict", "session-closed", "log-broken"],

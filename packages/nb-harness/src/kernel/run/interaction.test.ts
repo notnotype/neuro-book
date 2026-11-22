@@ -6,8 +6,9 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import type {ApproveHook, InteractionSummary, LogEvent, QuestionAnswer} from "../api/index.js";
+import type {AnyProfile, ApproveHook, InteractionSummary, LogEvent, LogStore, QuestionAnswer, RunStatus} from "../api/index.js";
 import {defineExtension} from "../extension/define.js";
+import {defineProfile} from "../extension/profile.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 import {closeSession} from "../session/session.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
@@ -689,5 +690,260 @@ describe("会话之间的输入与交回的运行", () => {
         expect(answered.value.runId).not.toBe(second);
         await session.raw.waitRun(answered.value.runId);
         expect(dataOf(await session.events(), "input").at(-1)).toMatchObject({text: "三章", by: parent});
+    });
+});
+
+describe("受理批写下、反应批写失败（runtime.md 输出 119，session.md 输出 12）", () => {
+    /** 只让引出 `extensionFailed` 的那一批（反应批）写失败一次：受理批照常写下。 */
+    const failReactionOnce = () => {
+        let failed = false;
+        return (store: LogStore): LogStore => ({...store, append: async (handle, events) => {
+            if (!failed && events.some((event) => event.type === "extensionFailed")) {
+                failed = true;
+                return {ok: false, code: "storage-failed", detail: {message: "injected reaction-batch failure"}};
+            }
+            return store.append(handle, events);
+        }});
+    };
+    /** 对 `type` 事件起反应时抛错的扩展：内核把它记成一批 `extensionFailed`，这批就是要写失败的反应批。 */
+    const throwsOn = (type: string) => defineExtension({id: "lab.reacts", on: {[type]: () => {
+        throw new Error("reaction fails");
+    }}});
+    /** 记下状态帧的先后。 */
+    const statusesOf = (session: TestSession) => {
+        const states: RunStatus["state"][] = [];
+        session.raw.subscribe((frame) => {
+            if (frame.type === "status") states.push(frame.status.state);
+        });
+        return states;
+    };
+    /** 同步提问的工具：记下 `ctx.ask` 交回什么。 */
+    const asker = () => {
+        const answered = Promise.withResolvers<string>();
+        const tool: TestTool = {id: "lab.ask", execute: async (_args, ctx) => {
+            const reply = await ctx.ask!({question: "继续吗？"});
+            answered.resolve(reply.kind === "unavailable" ? reply.code : reply.kind);
+            return "问过了";
+        }};
+        return {tool, answered: answered.promise};
+    };
+    /** 损坏之后：状态与快照停在 broken，新指令得 log-broken。 */
+    async function expectBroken(session: TestSession, states: readonly string[]): Promise<void> {
+        const first = states.indexOf("broken");
+        expect(first).toBeGreaterThanOrEqual(0);
+        expect(states.slice(first).every((state) => state === "broken")).toBe(true);
+        expect((await session.raw.snapshot()).status.state).toBe("broken");
+        expect(await session.raw.setTitle({commandId: id(), title: "之后"})).toMatchObject({ok: false, code: "log-broken"});
+    }
+
+    test("resolve：回执成功，等着的工具拿到与日志一致的结算；状态停在 broken、之后的指令 log-broken；同键重发与重开后重发都成功", async () => {
+        const dir = join(root, "reaction-resolve");
+        const {tool, answered} = asker();
+        await using session = await createTestSession({wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("interactionResolved")], tools: [tool]});
+        session.model.script({tools: [{tool: "lab.ask"}]}, "好");
+        const waiting = waitingFor(session, 1);
+        const runId = await sendRaw(session, "问一下");
+        const [item] = await waiting;
+        const states = statusesOf(session);
+        const args = {commandId: id(), id: item!.id, decision: "deny"} as const;
+        expect(await session.raw.resolve(args)).toMatchObject({ok: true, replayed: false});
+        expect(await answered).toBe("declined");
+        const log = (await session.raw.log({afterSeq: 0})).events;
+        expect(dataOf<{decision: string}>(log, "interactionResolved").map((data) => data.decision)).toEqual(["deny"]);
+        expect(await session.raw.waitRun(runId)).toMatchObject({reason: "error"});
+        await expectBroken(session, states);
+        expect(await session.raw.resolve(args)).toMatchObject({ok: true, replayed: true});
+        await session.reopen();
+        expect(await session.raw.resolve(args)).toMatchObject({ok: true, replayed: true});
+    });
+
+    test("send{settlePending}：回执成功，等着的工具拿到 deny 的结算；状态停在 broken", async () => {
+        const dir = join(root, "reaction-settle");
+        const {tool, answered} = asker();
+        await using session = await createTestSession({wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("interactionResolved")], tools: [tool]});
+        session.model.script({tools: [{tool: "lab.ask"}]}, "好");
+        const waiting = waitingFor(session, 1);
+        await sendRaw(session, "问一下");
+        await waiting;
+        const states = statusesOf(session);
+        expect(await session.raw.send({commandId: id(), input: {text: "不用了"}, settlePending: "deny"})).toMatchObject({ok: true, replayed: false});
+        expect(await answered).toBe("declined");
+        await expectBroken(session, states);
+    });
+
+    test("健康时：结算的反应还在跑，等着的工具不往下走；反应写下之后才叫醒", async () => {
+        const hold = gate();
+        const entered = gate();
+        const slow = defineExtension({id: "lab.slow", on: {interactionResolved: async () => {
+            entered.open();
+            await hold.promise;
+        }}});
+        const {tool, answered} = asker();
+        let woke = false;
+        void answered.then(() => {
+            woke = true;
+        });
+        await using session = await createTestSession({extensions: [slow], tools: [tool]});
+        session.model.script({tools: [{tool: "lab.ask"}]}, "好");
+        const waiting = waitingFor(session, 1);
+        const runId = await sendRaw(session, "问一下");
+        const [item] = await waiting;
+        const resolving = session.raw.resolve({commandId: id(), id: item!.id, decision: "deny"});
+        await entered.promise;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(woke).toBe(false);
+        hold.open();
+        expect(await resolving).toMatchObject({ok: true});
+        expect(await answered).toBe("declined");
+        await session.raw.waitRun(runId);
+    });
+
+    test("空闲时回答异步提问、它的反应批写失败：回执成功，不开运行（不取工具、模型没收到新请求）", async () => {
+        const dir = join(root, "reaction-async");
+        let toolsAsked = 0;
+        const question: TestTool = {id: "lab.later", execute: async (_args, ctx) => {
+            await ctx.ask!({question: "以后再说？"}, {async: true});
+            return "先这样";
+        }};
+        await using session = await createTestSession({wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("interactionResolved")], tools: () => {
+            toolsAsked += 1;
+            return [question];
+        }});
+        session.model.script({tools: [{tool: "lab.later"}]}, "好");
+        await session.say("问一个以后答的");
+        const pending = (await session.raw.snapshot()).status;
+        expect(pending.state).toBe("idle");
+        const asyncId = dataOf<{id: string; async?: boolean}>((await session.raw.log({afterSeq: 0})).events, "interactionRequested").find((data) => data.async === true)!.id;
+        const requestsBefore = session.model.requests.length;
+        const toolsBefore = toolsAsked;
+        const answered = await session.raw.resolve({commandId: id(), id: asyncId, decision: "answer", answer: {text: "现在答"}});
+        expect(answered).toMatchObject({ok: true, replayed: false});
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(session.model.requests.length).toBe(requestsBefore);
+        // 受理时派发反应要取一次工具声明（反应的视图环境）；开了运行还会在第一个边界、写任何东西之前再取一次（模型那时还收不到请求，
+        // 所以只看模型请求数分不出开没开）。
+        expect(toolsAsked - toolsBefore).toBe(1);
+        expect((await session.raw.snapshot()).status.state).toBe("broken");
+    });
+
+    test("只读重开（原 Profile 不在了）：已提交的 resolve 同键重发交回原结果，新的应答得 read-only", async () => {
+        const dir = join(root, "reaction-readonly");
+        const {tool, answered} = asker();
+        const own = defineProfile({id: "lab.gone", version: "1", name: "会消失的", description: "重开时解析不到"}) as AnyProfile;
+        const first = await createTestSession({profile: own, wrapStore: () => failReactionOnce()(createJsonlStore({root: dir})), extensions: [throwsOn("interactionResolved")], tools: [tool]});
+        first.model.script({tools: [{tool: "lab.ask"}]}, "好");
+        const waiting = waitingFor(first, 1);
+        await sendRaw(first, "问一下");
+        const [item] = await waiting;
+        const args = {commandId: id(), id: item!.id, decision: "deny"} as const;
+        const accepted = await first.raw.resolve(args);
+        if (!accepted.ok) throw new Error(accepted.code);
+        await answered;
+        await first.close();
+        await using reopened = await createTestSession({store: {root: dir}, open: first.id});
+        expect((await reopened.raw.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+        expect(await reopened.raw.resolve(args)).toEqual({...accepted, replayed: true});
+        expect(await reopened.raw.resolve({commandId: id(), id: item!.id, decision: "deny"})).toEqual({ok: false, code: "read-only"});
+    });
+
+    test("changeProfile（不是应答）：回执照旧 log-broken；不卸载旧扩展、不装新 Profile 的扩展，快照仍是旧 Profile", async () => {
+        let newMounts = 0;
+        let oldCleanups = 0;
+        const fresh = defineExtension({id: "lab.fresh", mount: () => {
+            newMounts += 1;
+        }});
+        const other = defineProfile({id: "lab.other", version: "1", name: "另一个", description: "换过去的", extensions: [fresh]}) as AnyProfile;
+        // 只对用户换 Profile 起反应时抛错：建会话时的 profileChanged 照常。
+        const watcher = defineExtension({id: "lab.watcher", on: {profileChanged: (event) => {
+            if ((event.data as {reason: string}).reason === "user") throw new Error("reaction fails");
+        }}, mount: () => () => {
+            oldCleanups += 1;
+        }});
+        await using session = await createTestSession({profiles: [other], extensions: [watcher], wrapStore: failReactionOnce()});
+        expect(await session.raw.changeProfile({commandId: id(), profile: "lab.other"})).toMatchObject({ok: false, code: "log-broken"});
+        expect((await session.raw.snapshot()).profile.id).toBe("test.profile");
+        expect(newMounts).toBe(0);
+        expect(oldCleanups).toBe(0);
+    });
+});
+
+/** 只让对 `type` 起反应的那一批（`extensionFailed`，cause 是这条事件）写失败一次。 */
+function failReactionOnceFor(type: string) {
+    let failed = false;
+    const causes = new Set<string>();
+    return (store: LogStore): LogStore => ({...store, append: async (handle, events) => {
+        for (const event of events) if (event.type === type) causes.add(event.id);
+        if (!failed && events.some((event) => event.type === "extensionFailed" && event.cause !== undefined && causes.has(event.cause))) {
+            failed = true;
+            return {ok: false, code: "storage-failed", detail: {message: "injected reaction-batch failure"}};
+        }
+        return store.append(handle, events);
+    }});
+}
+
+/** 记下状态帧的先后（从调用时起）。 */
+function statusesOf2(session: TestSession): RunStatus["state"][] {
+    const states: RunStatus["state"][] = [];
+    session.raw.subscribe((frame) => {
+        if (frame.type === "status") states.push(frame.status.state);
+    });
+    return states;
+}
+
+describe("损坏之后的等待者与停止（runtime.md 输出 13、30）", () => {
+    test("句柄坏了以后新的 abort 得 log-broken，不登记；之后没有非 broken 的状态帧", async () => {
+        const block = gate();
+        const failNext = {on: false};
+        const wrap = (store: LogStore): LogStore => ({...store, append: async (handle, events) => {
+            if (failNext.on) {
+                failNext.on = false;
+                return {ok: false, code: "storage-failed", detail: {message: "injected"}};
+            }
+            return store.append(handle, events);
+        }});
+        await using session = await createTestSession({wrapStore: wrap, tools: [{id: "lab.block", execute: async () => {
+            await block.promise;
+            return "完";
+        }}]});
+        session.model.script({tools: [{tool: "lab.block"}]}, "好");
+        const runId = await sendRaw(session, "跑");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const states = statusesOf2(session);
+        failNext.on = true;
+        expect(await session.raw.setTitle({commandId: id(), title: "坏"})).toMatchObject({ok: false, code: "log-broken"});
+        expect(await session.raw.abort({commandId: id()})).toEqual({ok: false, code: "log-broken"});
+        block.open();
+        expect(await session.raw.waitRun(runId)).toMatchObject({error: {code: "log-broken"}});
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(states.length).toBeGreaterThan(0);
+        expect(states.every((state) => state === "broken")).toBe(true);
+    });
+
+    test("受理批写下、因反应批失败没开起来的运行：订阅到 runStarted 时登记的 waitRun 交回 log-broken，不挂住", async () => {
+        const dir = join(root, "reaction-waitrun");
+        await using session = await createTestSession({wrapStore: () => failReactionOnceFor("runStarted")(createJsonlStore({root: dir})), extensions: [defineExtension({id: "lab.reacts", on: {runStarted: () => {
+            throw new Error("reaction fails");
+        }}})]});
+        let waited: Promise<unknown> | null = null;
+        session.raw.subscribe((frame) => {
+            if (frame.type === "log" && frame.event.type === "runStarted" && waited === null) waited = session.raw.waitRun((frame.event.data as {runId: string}).runId);
+        });
+        expect(await session.raw.send({commandId: id(), input: {text: "跑"}})).toMatchObject({ok: false, code: "log-broken"});
+        expect(waited).not.toBeNull();
+        expect(await waited).toMatchObject({error: {code: "log-broken"}});
+    });
+
+    test("runEnded 写下、它的反应批写失败：损坏前登记的与之后再来的 waitRun 交回同一个结果（日志里的那次收口）", async () => {
+        const dir = join(root, "reaction-runended");
+        await using session = await createTestSession({wrapStore: () => failReactionOnceFor("runEnded")(createJsonlStore({root: dir})), extensions: [defineExtension({id: "lab.reacts", on: {runEnded: () => {
+            throw new Error("reaction fails");
+        }}})]});
+        session.model.script("好");
+        const runId = await sendRaw(session, "跑");
+        const early = await session.raw.waitRun(runId);
+        const late = await session.raw.waitRun(runId);
+        expect(early).toMatchObject({reason: "completed"});
+        expect(late).toEqual(early);
+        expect((await session.raw.snapshot()).status.state).toBe("broken");
     });
 });
