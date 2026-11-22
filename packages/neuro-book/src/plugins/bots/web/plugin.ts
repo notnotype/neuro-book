@@ -44,6 +44,7 @@ export const botsBrowserPlugin: PluginDefinition = {
                     name: item.name,
                     avatar: avatarUrl(item.id),
                     unread: item.unread,
+                    seenSeq: item.unread === null ? null : item.seenSeq,
                     last: item.last,
                     // 主对话的 id 是定的；还没建（`none`）时没有会话可开、没有活动可对。
                     sessionId: item.main.state === "none" ? null : mainSessionId(item.id),

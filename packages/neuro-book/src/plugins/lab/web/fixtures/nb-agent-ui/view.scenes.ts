@@ -84,6 +84,40 @@ function botScene(): Scene {
     });
     return base;
 }
+
+/** 本地时区的时刻：按天的线按本地的日历日分。 */
+const localAt = (month: number, day: number, hour: number, minute = 0): number => new Date(2026, month - 1, day, hour, minute).getTime();
+const chatTurn = (id: string, at: number, ask: string, answer: string): MessageView[] => [
+    {kind: "user", id: `${id}-u`, timestamp: at, intent: "normal", blocks: [{kind: "text", text: ask}], contentOmitted: false},
+    {kind: "assistant", id: `${id}-a`, timestamp: at + 40_000, status: "done", text: answer, thinking: "", model: "deepseek/deepseek-flash", toolCalls: [], contentOmitted: false},
+];
+const DIVIDER_CHATS = {
+    "zh-CN": [
+        chatTurn("t1", localAt(11, 18, 21, 5), "第三章写到哪了？", "写到雨夜进药铺，柜台后面没有人那一段。"),
+        chatTurn("t2", localAt(11, 21, 22, 30), "明早帮我把读者评论整理一下。", "好，明早整理好放在这里。"),
+        chatTurn("t3", localAt(11, 22, 8, 0), "早。", "早！昨晚的评论整理好了：三条说第三章节奏慢，两条想多看苏晴。"),
+        chatTurn("t4", localAt(11, 22, 9, 10), "节奏慢的那三条具体说哪段？", "都指回忆那两段，建议合并成一段。"),
+    ],
+    "en-US": [
+        chatTurn("t1", localAt(11, 18, 21, 5), "Where did chapter three stop?", "At the rainy night in the apothecary, with nobody behind the counter."),
+        chatTurn("t2", localAt(11, 21, 22, 30), "Sort the reader comments for me tomorrow morning.", "Sure, they will be here in the morning."),
+        chatTurn("t3", localAt(11, 22, 8, 0), "Morning.", "Morning! Last night's comments are sorted: three say chapter three drags, two want more of Su Qing."),
+        chatTurn("t4", localAt(11, 22, 9, 10), "Which part do the three mean?", "Both flashback passages; they suggest merging them."),
+    ],
+};
+
+/** bot 档的按天与未读的线（ui/agent-conversation-view.md 的“分轮视图”）：四轮跨三天，今天早上那条回复起是新消息。 */
+function botDividersScene(locale: "zh-CN" | "en-US"): Scene {
+    const messages = DIVIDER_CHATS[locale].flat();
+    const scene = hostScene(locale === "zh-CN" ? "bot-dividers" : "bot-dividers-en", locale === "zh-CN" ? "bot 档：按天的线与“以下是新消息”" : "bot 档：按天与未读的线（英文）", {
+        session: {...conversationContext().session!, title: locale === "zh-CN" ? "星璃" : "Xingli", avatar: BOT_AVATAR},
+        interaction: {...conversationContext().interaction, canMutateHistory: false, canArchive: false, canRestore: false, canOpenTree: false, commands: ["compact", "plan", "mode"], placement: "dock", canCreate: false},
+        messages,
+        now: localAt(11, 22, 12),
+        dividers: {day: true, unreadFrom: "t3-a"},
+    });
+    return {...scene, input: {...scene.input, props: {...scene.input.props, locale}}};
+}
 type Queued = AgentConversationContext["composer"]["queued"];
 const HELD_ZH: Queued = [
     {id: "h1", text: "保留雨夜那段对话，别删。", delivery: "steer", held: {reason: "上一轮出错"}},
@@ -163,6 +197,8 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("approval-long", "审批：长 diff，向导内部滚动", {...WAITING, pendingInputs: [editApproval("long", CHAPTER, LONG_BEFORE, LONG_AFTER)]}),
     hostScene("approval-batch", "审批：一条回复三个调用，一步一个", {...WAITING, pendingInputs: [editApproval("a"), shellApproval, editApproval("c", "project://正文/第四章.md")]}),
     botScene(),
+    botDividersScene("zh-CN"),
+    botDividersScene("en-US"),
     hostScene("modes-normal", "两个控件并排：普通模式", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
     hostScene("modes-plan-allow-writes", "两个控件并排：计划模式加放行写入，审批控件变淡", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
     hostScene("modes-with-role", "选了模型角色：角色名、实际用的模型、思考档位", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}, roles: [{key: "role:main", name: "主力", axis: "gradient", modelLabel: "Claude Sonnet"}], modelKey: "role:main", effectiveModel: "Claude Sonnet", thinkingLevels: ["low", "medium", "high"], thinking: "medium"}}),

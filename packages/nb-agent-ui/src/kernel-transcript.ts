@@ -139,6 +139,12 @@ export type KernelTranscript = {
     anchorOf(messageId: string): KernelAnchor | null;
     /** 这句话带的附件（事件里写的样子）：编辑重发时带上，不然图就丢了。 */
     attachmentsOf(messageId: string): readonly JsonValue[];
+    /**
+     * 计数消息的日志 seq：由不带工具调用的 `assistant` 事件合成的消息有，其余（半截文字、停止时补的空回复、正在生成的、带工具调用的）
+     * 为 null；之后被标成停止的那条仍算。与 bots 的未读同一口径，宿主据此找未读线的起点（agent/conversation.md 输出 55）。两处的差别：
+     * 这里只有当前路径上的（bots 数整份日志；有归属的会话不改写历史，没有别的分支），缺 `content` 或 `toolCalls` 的坏事件不合成消息。
+     */
+    countedSeq(messageId: string): number | null;
     /** 当前路径上所有 path 事件的 id，按路径顺序。 */
     pathIds(): readonly string[];
     usage(): KernelUsage;
@@ -189,16 +195,24 @@ const CODE_KEYS: {readonly [code: string]: AgentTextKey} = {
     "first-event-timeout": "kernel.error.firstEventTimeout",
     "compaction-failed": "kernel.error.compactionFailed",
 };
+/**
+ * 固定会话（bot 的主对话）里换掉的说法：这些码的通用说法提到开新会话，固定会话开不了（ui/agent-conversation-view.md 的“用法档”）。
+ * 只换说法，不复制语言包。
+ */
+const PINNED_CODE_KEYS: {readonly [code: string]: AgentTextKey} = {
+    "compaction-failed": "kernel.error.compactionFailedPinned",
+};
 const RETRYABLE_KINDS = new Set(["network", "rate_limit", "provider"]);
 
 /** 不变成消息、也不影响别的状态的内核事件。列出来是为了和“认不出”分开：认不出的记问题。 */
 const IGNORED = new Set(["sessionCreated", "turnStarted", "turnEnded", "toolsAnnounced", "modelEnded", "profileChanged", "approvalRemembered", "extensionFailed", "reactionLimit"]);
 const USAGE_EVENTS = new Set(["assistant", "modelEnded", "modelFailed"]);
 
-function errorText(error: JsonRecord): Text {
+function errorText(error: JsonRecord, pinned: boolean): Text {
     const code = stringField(error, "code");
     const kind = stringField(error, "kind") ?? "local";
-    return agentRef((code === null ? undefined : CODE_KEYS[code]) ?? ERROR_KEYS[kind] ?? ERROR_KEYS.local!);
+    const byCode = code === null ? undefined : (pinned ? PINNED_CODE_KEYS[code] : undefined) ?? CODE_KEYS[code];
+    return agentRef(byCode ?? ERROR_KEYS[kind] ?? ERROR_KEYS.local!);
 }
 
 /** 压缩事件里能给界面的部分（数字与字符串）；缺字段、认不出的不显示，不报错。 */
@@ -347,12 +361,24 @@ function queuedOf(data: JsonRecord, defaults: {readonly state?: unknown; readonl
     };
 }
 
-/**
- * `toolName`：工具 id 换成界面认的名字。`authorOf`：路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；
- * 不给时都画成用户。
- */
-export function createKernelTranscript(options: {readonly toolName?: (id: string) => string; readonly authorOf?: (by: KernelIssuer) => UserMessageView["author"]} = {}): KernelTranscript {
+/** 宿主给适配器的选项。 */
+export type KernelTranscriptOptions = {
+    /** 工具 id 换成界面认的名字。 */
+    readonly toolName?: (id: string) => string;
+    /** 路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；不给时都画成用户。 */
+    readonly authorOf?: (by: KernelIssuer) => UserMessageView["author"];
+    /**
+     * 这是固定会话（bot 的主对话）：出错的说法不提开新会话。在合成那条消息时读，之后的变化不改已经合成的，所以宿主要在应用路径
+     * 之前知道（NeuroBook 的宿主等会话头的归属读到再取路径）。
+     */
+    readonly pinned?: () => boolean;
+};
+
+/** 建一个空的适配器：宿主按 docs/specs/agent/conversation.md 输出 5 的先后交给它快照、路径与帧。 */
+
+export function createKernelTranscript(options: KernelTranscriptOptions = {}): KernelTranscript {
     const toolName = options.toolName ?? ((id: string) => id);
+    const pinned = (): boolean => options.pinned?.() === true;
     const problems: KernelTranscriptProblem[] = [];
     const problem = (source: string, reason: string): void => void problems.push({source, reason});
 
@@ -365,6 +391,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let lastCacheHitRate: number | null = null;
     let anchors = new Map<string, KernelAnchor>();
     let inputAttachments = new Map<string, readonly JsonValue[]>();
+    /** 计数消息（不带工具调用的 `assistant` 事件合成的）的 id 到日志 seq：未读的口径（bots/main-conversation.md 输出 7）。 */
+    let counted = new Map<string, number>();
     let pathIds: string[] = [];
     let anchorTurn: string | null = null;
     let anchorModelParent: string | null = null;
@@ -525,7 +553,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     }
 
     /** 路径上的事件。session 事件走 `reduceSession`。 */
-    function reducePath(type: string, data: JsonRecord, id: string, at: number): void {
+    function reducePath(type: string, data: JsonRecord, id: string, at: number, seq: number | null): void {
         const source = `${type} ${id}`;
         switch (type) {
             case "input":
@@ -546,6 +574,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 }
                 settleRequest(numberField(data, "request"));
                 logged.push(assistantFrom(data, id, at, "done", data.content, data.toolCalls));
+                if (data.toolCalls.length === 0 && seq !== null) counted.set(id, seq);
                 contextOf(data);
                 return;
             }
@@ -646,7 +675,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     // 只压缩的运行没有这一轮：上一轮的回复不是它的，不改；停止与失败各给一行自己的说明。失败也写成系统条目，
                     // 不是错误块：错误块会接在上一轮后面，让上一轮的状态变成出错。
                     if (reason === "aborted") logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.compactionStopped"), text: ""});
-                    else if (reason === "error") logged.push({kind: "system", id, timestamp: at, source: "reminder", label: errorText(isRecord(data.error) ? data.error : {}), text: ""});
+                    else if (reason === "error") logged.push({kind: "system", id, timestamp: at, source: "reminder", label: errorText(isRecord(data.error) ? data.error : {}, pinned()), text: ""});
                 } else if (reason === "aborted") {
                     const last = logged.at(-1);
                     if (last?.kind === "assistant") logged[logged.length - 1] = {...last, status: "stopped"};
@@ -654,7 +683,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     else logged.push({kind: "assistant", id, timestamp: at, status: "stopped", text: "", thinking: "", model: "", toolCalls: [], contentOmitted: false});
                 } else if (reason === "error") {
                     const error = isRecord(data.error) ? data.error : {};
-                    logged.push({kind: "error", id, timestamp: at, message: errorText(error), retryable: RETRYABLE_KINDS.has(stringField(error, "kind") ?? "")});
+                    logged.push({kind: "error", id, timestamp: at, message: errorText(error, pinned()), retryable: RETRYABLE_KINDS.has(stringField(error, "kind") ?? "")});
                 }
                 return;
             }
@@ -878,6 +907,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         lastCacheHitRate = null;
         anchors = new Map();
         inputAttachments = new Map();
+        counted = new Map();
         pathIds = [];
         anchorTurn = null;
         anchorModelParent = null;
@@ -946,7 +976,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 if (isExtensionEvent(parsed)) continue;
                 // 重建时路径上已经有这条话：按受理它的指令清掉对应的乐观消息，不会多出一份（旧日志没有 commandId，不清）。
                 if ((parsed.type === "input" || parsed.type === "steer") && typeof parsed.data.commandId === "string") confirmOptimistic(parsed.data.commandId);
-                reducePath(parsed.type, parsed.data, parsed.id, parsed.at);
+                reducePath(parsed.type, parsed.data, parsed.id, parsed.at, parsed.seq);
             }
             // 打开时运行已在跑：开始时刻在路径里读到了，补进状态。
             run = {...run, startedAt};
@@ -971,7 +1001,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             if (parsed.type === "leafChanged") return "leaf-changed";
             notePath(parsed);
             if (isExtensionEvent(parsed) || reduceSession(parsed.type, parsed.data)) return null;
-            reducePath(parsed.type, parsed.data, parsed.id, parsed.at);
+            reducePath(parsed.type, parsed.data, parsed.id, parsed.at, parsed.seq);
             return null;
         },
 
@@ -1024,6 +1054,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         run: () => (run.status === "idle" || runKind === null ? run : {...run, kind: runKind}),
         anchorOf: (messageId) => anchors.get(messageId) ?? null,
         attachmentsOf: (messageId) => inputAttachments.get(messageId) ?? [],
+        countedSeq: (messageId) => counted.get(messageId) ?? null,
         pathIds: () => pathIds,
         usage: () => ({...usage, context, lastCacheHitRate}),
         // 有乐观消息代表的那条不在排队区重复显示（合并发出的那一条）。

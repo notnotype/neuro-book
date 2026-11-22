@@ -33,8 +33,8 @@ type DeskCompanionProps = {
     activity: readonly ActivityItem[];
     /** 有没有可用的模型：没有为 false，还没读到为 null。 */
     hasModel: boolean | null;
-    /** `desk` 位置的宿主（`SessionHost` 的子集加 `borrow`）。 */
-    host: ContactHostPart & {borrow(): () => void};
+    /** `desk` 位置的宿主（`SessionHost` 的子集加 `borrow`；面板每打开一次调 `markOpened`，未读线按此刻重新定）。 */
+    host: ContactHostPart & {borrow(): () => void; markOpened(): void};
     /** 面板里的对话：收 `close`，暴露 `focusComposer()`；第一次打开时才加载。 */
     conversation: Component;
     openModelSettings: () => void;

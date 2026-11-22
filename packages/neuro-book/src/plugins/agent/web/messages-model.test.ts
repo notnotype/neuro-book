@@ -20,7 +20,7 @@ function deferred<T>(): {readonly promise: Promise<T>; resolve(value: T): void} 
     return {promise, resolve};
 }
 
-function provider(contacts: OwnerContact[] = [{id: "lyra", name: "星璃", unread: 2, last: {text: "好了", at: 1}, sessionId: "bot-lyra"}, {id: "vega", name: "织女", unread: 0, last: null, sessionId: "bot-vega"}]) {
+function provider(contacts: OwnerContact[] = [{id: "lyra", name: "星璃", unread: 2, seenSeq: 0, last: {text: "好了", at: 1}, sessionId: "bot-lyra"}, {id: "vega", name: "织女", unread: 0, seenSeq: 0, last: null, sessionId: "bot-vega"}]) {
     const opens: string[] = [];
     const seen: [string, number][] = [];
     let reloads = 0;

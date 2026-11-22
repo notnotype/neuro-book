@@ -603,6 +603,66 @@ describe("压缩（runtime.md 输出 46–52，t11）", () => {
     });
 });
 
+describe("计数消息（agent/conversation.md 输出 55）与固定会话的说法（ui/agent-conversation-view.md 验收 44）", () => {
+    /** bots 的未读口径（bots/main-conversation.md 输出 7）：不带工具调用的 `assistant` 事件。按日志算，与适配器无关。 */
+    const countedInLog = async (session: TestSession) => (await session.eventsOf("assistant")).filter((event) => ((event.data as {toolCalls: unknown[]}).toolCalls.length === 0)).map((event) => event.seq);
+    const countedIn = (transcript: KernelTranscript) => transcript.messages().map((message) => transcript.countedSeq(message.id)).filter((seq) => seq !== null);
+
+    test("最终回复给日志 seq；带工具调用的、模型失败的半截不算；跟着的与重建的相同，都与日志的计数一致", async () => {
+        await using session = await createTestSession({tools: [{id: "lab.first", execute: () => "好了"}]});
+        const {transcript, stop} = await follow(session.raw);
+        session.model.script({tools: [{tool: "lab.first"}]}, "完", {fail: "provider", partial: "半截"});
+        await session.say("跑");
+        await session.say("再问");
+        stop();
+        const [withTools, final, partial] = assistants(transcript.messages());
+        expect(partial).toMatchObject({status: "error", text: "半截"});
+        expect(transcript.countedSeq(withTools!.id)).toBeNull();
+        expect(transcript.countedSeq(partial!.id)).toBeNull();
+        expect(transcript.countedSeq(final!.id)).not.toBeNull();
+        const expected = await countedInLog(session);
+        expect(expected).toHaveLength(1);
+        expect(countedIn(transcript)).toEqual(expected);
+        expect(countedIn(await rebuilt(session.raw))).toEqual(expected);
+    });
+
+    test("停止时补的空回复不算；被标成停止的最终回复仍算；重建路径时清掉旧的", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyPath([
+            {id: "i1", seq: 1, type: "input", at: 1, data: {text: "问"}},
+            {id: "a1", seq: 2, type: "assistant", at: 2, data: {content: [{kind: "text", text: "答"}], toolCalls: []}},
+            {id: "r1", seq: 3, type: "runEnded", at: 3, data: {runId: "x", reason: "aborted"}},
+            {id: "i2", seq: 4, type: "input", at: 4, data: {text: "再问"}},
+            {id: "r2", seq: 5, type: "runEnded", at: 5, data: {runId: "y", reason: "aborted"}},
+        ]);
+        const [answered, filler] = assistants(transcript.messages());
+        expect(answered).toMatchObject({id: "a1", status: "stopped"});
+        expect(transcript.countedSeq("a1")).toBe(2);
+        expect(filler).toMatchObject({status: "stopped", text: ""});
+        expect(transcript.countedSeq(filler!.id)).toBeNull();
+        transcript.applyPath([{id: "i1", seq: 1, type: "input", at: 1, data: {text: "问"}}]);
+        expect(transcript.countedSeq("a1")).toBeNull();
+    });
+
+    test("pinned 为真时压缩失败的系统条目与运行出错都不提开新会话；为假或不给时照旧；在合成时读", () => {
+        const compactFailed = [{id: "c1", type: "runStarted", at: 1, data: {runId: "x", kind: "compact"}}, {id: "c2", type: "runEnded", at: 2, data: {runId: "x", reason: "error", error: {kind: "local", code: "compaction-failed"}}}];
+        const runFailed = {id: "e1", type: "runEnded", at: 3, data: {runId: "y", reason: "error", error: {kind: "local", code: "compaction-failed"}}};
+        let pinned = true;
+        const transcript = createKernelTranscript({pinned: () => pinned});
+        transcript.applyPath([...compactFailed, runFailed]);
+        const [system, error] = transcript.messages().slice(-2);
+        expect(system).toMatchObject({kind: "system", label: {key: "kernel.error.compactionFailedPinned"}});
+        expect(error).toMatchObject({kind: "error", message: {key: "kernel.error.compactionFailedPinned"}});
+        pinned = false;
+        transcript.applyEvent({...runFailed, id: "e2", at: 4});
+        expect(transcript.messages().at(-1)).toMatchObject({kind: "error", message: {key: "kernel.error.compactionFailed"}});
+        expect(transcript.messages().at(-2)).toBe(error);
+        const plain = createKernelTranscript();
+        plain.applyPath([...compactFailed, runFailed]);
+        expect(plain.messages().slice(-2).map((message) => (message.kind === "system" ? message.label : message.kind === "error" ? message.message : null))).toEqual([expect.objectContaining({key: "kernel.error.compactionFailed"}), expect.objectContaining({key: "kernel.error.compactionFailed"})]);
+    });
+});
+
 describe("回复出自哪次请求", () => {
     test("真发给模型的回复带上请求序号；拦截层不调 next、直接交回的回复没有", async () => {
         const direct = defineExtension({id: "lab.direct", intercept: {model: async (request, next) => {

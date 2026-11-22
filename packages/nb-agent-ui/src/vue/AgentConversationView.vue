@@ -18,9 +18,12 @@ import {visibleEntries} from "../registry";
 import type {AgentViewRegistry, HeaderActionEntry} from "../registry";
 import type {StatusLineSetting} from "../status-line";
 import {assignTurnKeys, reuseTurnGroups, splitIntoTurnGroups} from "../conversation-turns";
+import {localDayIndex} from "../format";
+import {dividersBefore} from "../stream-dividers";
 import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
+import AgentStreamDivider from "./stream/AgentStreamDivider.vue";
 import AgentWelcome from "./stream/AgentWelcome.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
 import AgentConversationHead from "./head/AgentConversationHead.vue";
@@ -224,6 +227,13 @@ const turnGroups = computed(() => {
     previousTurnGroups = reuseTurnGroups(previousTurnGroups, splitIntoTurnGroups(props.ctx.messages));
     return previousTurnGroups;
 });
+
+/**
+ * 轮与轮之间的线（`ctx.dividers`，同名 Spec 的“分轮视图”）：按首条消息 id 索引。线上的日子按 `now` 的日序号写，宿主每秒换 `now`
+ * 时日序号不变，线不重画。
+ */
+const streamDividers = computed(() => dividersBefore(turnGroups.value, props.ctx.dividers));
+const today = computed(() => localDayIndex(props.ctx.now));
 
 /** 上一次分配的 key 只用来让下一次沿用，不参与渲染依赖。 */
 let previousTurnKeys = new Map<string, string>();
@@ -522,19 +532,27 @@ defineExpose({focusComposer, scrollToLatest});
                         </div>
 
                         <!-- 分轮视图 -->
+                        <!-- 线与轮次是内容列的直接子元素（吃到封顶宽度）。线的 v-for 编译成固定在轮次前面的一个片段，线出现或消失时轮次不重新挂载。 -->
                         <template v-if="currentViewMode === 'turns'">
-                            <AgentConversationTurn
-                                v-for="(group, index) in turnGroups"
-                                :key="`${props.ctx.session?.id ?? ''}:${turnKeys.get(group[0]!.id)}`"
-                                :messages="group"
-                                :ctx="props.ctx"
-                                :services="props.services"
-                                :registry="props.registry"
-                                :latest="index === turnGroups.length - 1"
-                                :first="index === 0"
-                                :process-disclosure="props.processDisclosure"
-                                @action="onAction"
-                            />
+                            <template v-for="(group, index) in turnGroups" :key="`${props.ctx.session?.id ?? ''}:${turnKeys.get(group[0]!.id)}`">
+                                <AgentStreamDivider
+                                    v-for="divider in streamDividers.get(group[0]!.id) ?? []"
+                                    :key="divider.kind"
+                                    :kind="divider.kind"
+                                    :at="divider.kind === 'day' ? divider.at : undefined"
+                                    :today="today"
+                                />
+                                <AgentConversationTurn
+                                    :messages="group"
+                                    :ctx="props.ctx"
+                                    :services="props.services"
+                                    :registry="props.registry"
+                                    :latest="index === turnGroups.length - 1"
+                                    :first="index === 0"
+                                    :process-disclosure="props.processDisclosure"
+                                    @action="onAction"
+                                />
+                            </template>
                         </template>
 
                         <!-- 原始视图：一条消息一个块，系统条目全部可见 -->
