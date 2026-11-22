@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t51-layout-api-gaps
-status: active
+status: done
 updated: 2026-11-22
 ---
 
@@ -31,6 +31,15 @@ updated: 2026-11-22
 
 API 形状审查第 1 条（没有运行时改收起策略的入口，t45 两张时“拖不出收起”仍要它）不在开发者定的三样里，记进 t45 的输入，t45 重写计划时再定。
 
+## 完成
+
+2026-11-22 合入 master（`4aebbc14d`，合并提交 `161219dd0`）。`ui/nested-grid` 输出 152 去掉 planned。
+
+- 改动：`NestedGrid` 加 `paneLabel(id)`，分隔线读屏名称的两侧用显示名，挨着分支时问分支 id，没给或空串用 id；滑出去、缩回去的分隔线并进 `sashLooks`，用离开前最后一次的名字。`Splitter` 面板配置加 `label`。文档：`NestedGrid.md`、`Splitter.md`、README 的“我要做 X”表（属性名不加反引号：表里加反引号的名字由 `readme.test.ts` 核对必须是入口导出）；应用 `CHANGELOG.md` 的 `[Unreleased]` 新增一行（插件 SDK 重导出 `NestedGrid`）。
+- 验证：nb-layout `typecheck`、`test`（Bun 398 条、Vitest 含新增 3 条）；应用 `typecheck`。变异：离开的线不用记下的名字时，“滑出去的分隔线”那条变红。
+- 动 `NestedGrid` 之前在分支起点跑了 e2e 基线（给 t52、t53 用）：应用 `workbench-live-drag`、`workbench-dnd`、`editor-area`、`workbench-views`、`lab-grid-structure` 166 条过 165 条，`editor-area.e2e.ts:2202`（编辑器标签并入别的组，实时布局）在起点上就失败，与已知的 2171、2207 同一类；nb-story `frame.e2e.ts` 8 条全过。
+- 宿主没有采用：nb-story 在 t45 用；工作台要用时另提（它的 e2e 与性能脚本按 id 匹配）。
+
 ## 下一步
 
-实施显示名 → 实现审查；然后 t52、t53 各自写计划、审查、实施。
+实现审查（Claude Sonnet，不阻塞）；然后 t52。
