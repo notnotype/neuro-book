@@ -1,0 +1,165 @@
+# t51 计划第 1 稿设计审查
+
+结论：阻断 1 条，重要 5 条，建议 4 条。探针脚本在 `/tmp/t51-probe/`（p1 到 p6、`vt/`），草稿已写入 `report-draft.txt`，内容与本报告相同。
+
+### 1. 离开的叶只有在“此刻还有内容项挂在它上面”时才会被留住，计划的主场景（叶与内容同一轮被删）留不住
+- **严重程度**：阻断
+- **类别**：依赖的机制（维度 2）、遗漏
+- **位置**：`packages/nb-layout/src/grid-motion.ts:293、316`；`NestedGrid.vue:408-429`；`useContentLayer.ts:72`；计划第三节与“风险”第 2 条
+- **现象**：
+  - `leavingPlacements` 用这一帧 `items` 里的内容项算 `mounted`。没有内容项挂着的离开的叶直接 `continue`。注释写明：“关掉的编辑组，内容已经卸了，留着只是一张空卡片”。
+  - `contentLayer.placements` 只读 `props.contents`，`motion.update` 在 layers 的 watcher 里先于 `contentLayer.update` 跑。
+  - 探针 p5：三叶横排，删中间一叶 b。矩形变了，`placementMoved` 为真，所以 `moving` 会开。内容 y 同一轮从 contents 去掉时，`leavingPlacements` 返回 `[]`。y 留在 contents 里时返回 `["leaf:b"]`。
+- **为什么是问题**：
+  - 计划要“离开的内容挂在已经离开的叶上，按 `leavingPlacements` 摆放”。内容要等 `moving` 为真才留，`moving` 和离开的叶要等 `motion.update` 判完，而判叶留不留又要看内容项在不在，互相等。
+  - 照计划写，t45 关一张卡片（叶与内容同时没）得到的是：`moving` 为真，没有离开的叶，内容项 `rect: null`。它被停放，`visibility: hidden`，是一个看不见却挂了约 470ms 的实例。
+  - 计划里“dom 测试与 Lab e2e 都覆盖删一个带内容的叶”会在这里失败。
+- **如何核实**：`bun /tmp/t51-probe/p5.ts`。
+- **建议改法**：
+  - 留不留拆成两步。同一个 watcher 里，先把“上一轮 layers 里有、这一轮 contents 里没有”的内容项按上一轮输入补进 `items`，交给 `motion.update`，让 `leavingPlacements` 看得见 `mounted`。
+  - 判完后，只留下叶在 `outgoingLeaves` 里的内容项，其余当即卸载。留下的并进 `useContentLayer` 的 contents 输入（见第 6 条）。
+  - 给 `grid-motion.test.ts` 加一条“内容已去掉、叶同轮被删”。
+
+### 2. 默认开启会改掉所有现有 `contents` 使用方（工作台）的卸载时机，保留范围也没限定到“叶在缩回去”
+- **严重程度**：重要
+- **类别**：对照参照（维度 5）、被破坏的既有约定
+- **位置**：计划第三节与“不做与风险”；`WorkbenchSurface.vue:182-192、608-619`；`NestedGrid.vue:709`
+- **现象**：
+  - 触发条件只有“内容从 contents 去掉且 `moving` 为真”。`moving` 是整个网格一个标志，任何一次过渡期间去掉一项都满足。
+  - 工作台的 contents 来自文档，关视图就是去掉一项，内容槽里是编辑器、终端等真实组件。
+- **为什么是问题**：
+  - 内容挂在仍然存在、不缩回去的叶上时（关标签、叶里换活动标签），计划没定义怎么摆。它还是上一次的 `active: true`，会叠在新的活动内容上，最多 470ms（`--nb-layout-motion-layout` 的值）。
+  - 工作台组件的卸载逻辑（保存、释放模型、还焦点）被推迟到过渡结束，此时宿主数据已经删了。`inert` 挡不住组件自己的计时器与订阅。计划写“工作台不改”，没有分析这条路。回归清单里也没有“关视图时实例及时卸载”的断言。
+  - `data-leaving` 已被占用：`NestedGrid.vue:709` 上它表示“它的叶是离开的叶”（`leavingLeaves.has(item.leaf)`）。计划再给“自己离开了”的内容项用同名，e2e 与宿主分不出两种。
+  - 计划的 dom 测试“它还在（`data-leaving`、`inert`）”也证明不了新机制生效，因为挂在离开的叶上的内容项本来就带它。
+- **建议改法**：
+  - 保留范围限定为“它的叶此刻在 `outgoingLeaves` 里”，其余照旧当即卸载。
+  - 再加一个默认关的属性开关，工作台不开，t45 开。
+  - 属性名另起，例如 `data-content-leaving`。
+
+### 3. “按比例分的兄弟让出或吸收”的细则没写：收起中的兄弟、权重单位、与 `resize` 共用的 `shiftSiblings`
+- **严重程度**：重要
+- **类别**：边界、遗漏（维度 1、4）
+- **位置**：`grid.ts:162-173`（`shiftSiblings`）、`:266`（`resize` 也调它）；计划第一节第 2、3 条
+- **现象与探针**：
+  - **收起中的按比例分的兄弟**：计划写“收起中的兄弟照旧参与（意图不变的规则对它们同样成立）”，两种读法结果相反。
+    - 若仍作为候选交给 `shareAxis`，它沿主轴是刚性的 `collapsedSize`，会被当 rigid 写回意图。
+    - p1/p3：collapsed 的 c（意图 300）在插入一个按比例分的叶后意图变 0。展开后呈现 100（最小值）而不是 300。
+    - 这正是 `grid.ts:373` 注释“收起绝不能把 0 写进尺寸记录”要防的事。
+    - 收起中的保留像素兄弟，现在也被写成 0（p1 的 D：nav 188 变 0）。按新规则不动，这半边是对的。
+  - **权重单位**：插进来的叶的意图用什么单位没规定。
+    - p2：`[main:1]` 插进权重 1，main 意图变 0，呈现 0px。
+    - `[nav 固定 188, main:1]` 插进权重 1，同样 main 为 0、新叶 812px。
+    - 旧规则下混合分支里这种事被固定栏的像素掩盖，新规则让它成为常态，而 t45 正是这种分支。
+    - 需要写明：新叶权重 w ≥ 兄弟权重和 W 时是清零兄弟，还是按相对比例。
+  - **`resize` 共用 helper**：`shiftSiblings` 也被 `resize` 用（`grid.ts:266`）。计划没说改 helper 还是改调用处。
+    - p4：现在 `resize("nav","width",50)`（nav 固定，兄弟权重 1、1）applied 只有 2，main 与 side 意图都变 0。
+    - 改 helper 则 `resize` 悄悄换语义，计划测试里没有它。只改三处调用则 `addLeaf` 与 `resize` 对同一棵树用两套规则。
+  - **`moveLeaf` 跨方向**：跨不同方向的分支时，被移动的固定叶沿新主轴的意图是 0（p2：nav 放进竖向分支，`size.height` 为 0）。
+- **建议改法**：
+  - 把候选集合写成谓词：`sizing !== "fixed"`、未收起、范围可分，用 `sharesByWeight` 的同一判据。收起中的兄弟意图原样保留。
+  - 明确新叶权重的单位与 w ≥ W 的结果，并说明 `resize` 怎么办。
+  - `moveLeaf` 跨方向时按目标主轴重算意图，或者失败。
+  - 补测试：收起中的 weight 兄弟、w ≥ W、混合分支里的 `resize`。
+
+### 4. 展平单孩子分支与 `splitLeaf` 不带 `sizing`：混合分支里保留像素与按比例分会互换
+- **严重程度**：重要
+- **类别**：被破坏的既有约定、上游选择（维度 8）
+- **位置**：`grid.ts:175-189`（`collapse`：`survivor.size = {...parent.size}`）、`:610-631`（`splitLeaf`：新分支 `sizing: "weight"`，继承 `leaf.size`）；计划第一节“`splitLeaf` 不变”“展平分支不变”与“不做”
+- **现象**（p3、p6）：
+  - **展平**：权重 1 的分支里有固定叶 t（200px）和按比例叶 u，删 u 后 t 成了 `[fixed, 意图 1]`，呈现 1px（m 999，t 1）。反过来，固定 300px 的分支里两个 weight 叶，删一个后幸存叶是 `[weight, 300]`，m（权重 1）3px，t 997px。
+  - **`splitLeaf`**：拆固定叶 nav（188），新分支是 `sizing: "weight"`、意图 188。水平拆时兄弟 main、side 各被挤到 5px，竖直拆时 nav 变 989x1。
+- **为什么是问题**：
+  - 计划把“按 `sizing` 区分意图单位”当作这次的关键，却把两个会换掉节点的操作留在旧语义。
+  - t45 正是“固定抽屉加按比例分”的混合分支，增删后一展平就坏。
+  - 计划里“宿主要一组栏常在就保留两个孩子或重建”只覆盖单孩子分支被展平这一点，不覆盖幸存者的单位错配。
+- **建议改法**：
+  - 展平时幸存者在父分支主轴上的意图，按分支的 `sizing` 解释（分支 fixed 而幸存者 weight 时，幸存者也记成 fixed，反之同理）。
+  - `splitLeaf` 的新分支继承目标叶的 `sizing`、`minimumSize`、`maximumSize`，并写明 `collapse` 留在原叶还是搬到分支。
+  - 至少在计划与 `grid.md` 里列为已知问题，不要写“不变”了事。
+
+### 5. `setSize` 的失败码与既有码表不一致，对收起中的节点只改一半
+- **严重程度**：重要
+- **类别**：接口与合同（维度 3）
+- **位置**：`grid-failure.ts:16-36`（`GridFailureParams`）、`grid-types.ts:209`；`grid.ts:242-272`（`resize`）、`:493-500`（`collapsedRemembering`）；计划第二节
+- **现象**：
+  - `wrong-node-kind` 的 `params.expected` 类型是 `"leaf" | "branch"`。计划写 `expected: "fixed"`，类型映射不接受，语义也不是“节点种类”。
+  - 非有限数：现有 `resize` 用 `not-finite {field: "delta"}`。计划把非有限与负数都归 `invalid-argument`，与码表分工相反。`invalid-argument` 的 `field` 联合里也没有适合 `setSize` 的项（`size-negative` 带 `side`，其余都不是）。
+  - 提交码（失败 6）原样转交失败 5 的码，新增参数形状会进 `GridCommitFailureParams`。Spec 失败 5、6 两张表与 `grid.test.ts` 的“码的写法逐码”都要改。
+  - 收起中的保留像素节点：`collapsedRemembering` 收起时把当时的意图写进 `collapse.restoreSize`。计划说“收起中的节点改的是意图，展开时回到它”，但分隔条 Enter 的展开用 `restoreSize`（`grid.md` 写明），`setCollapsed(false)` 走意图。`setSize` 之后两条展开路径给出两个宽度。
+  - 名字与签名：`resize(id, axis, delta)` 有 axis 与 `wrong-axis`。`setSize(id, px)` 的轴隐含为父分支主轴，竖向分支里设的是高度，名字里看不出来。拒绝按比例分的节点，也让“设置权重”只能走拖动。
+- **建议改法**：
+  - 失败码另给新码（例如 `wrong-sizing`，`params: {id, expected: "fixed"}`），或允许 `setSize` 对按比例分的节点设权重（单位由 `sizing` 决定，文档写明）。这样就没有 kind 错误。
+  - 非有限用 `not-finite`，负数用 `invalid-argument` 加一个新 `field`。
+  - 收起中的节点同时更新 `collapse.restoreSize`（不低于 `collapsedSize`），返回里带 `collapse`，与 `setCollapsed` 同形。
+  - Spec 失败 5、6 表同步。
+
+### 6. 离开的内容与停放、焦点、`content-parked` 的接线没落到具体入口
+- **严重程度**：重要
+- **类别**：隐含的耦合与共享状态（维度 4）
+- **位置**：`useContentLayer.ts:87-110`（`update` 只遍历 `placements`，`memory` 在不在 `alive` 时删除）；`useGridFocus.ts:27-33`；`NestedGrid.vue:298-300`、`:408-446`
+- **现象**：计划写“焦点在离开的内容里：照旧发 `content-parked`”“不接指针”，但：
+  - `content-parked` 只在 `update()` 里对 `placements` 里的项判 `holdsFocus`。离开中的内容若只在渲染列表里，永远不发。焦点在里面时，`inert` 会让浏览器静默把焦点放到 body。
+  - `memory`（停放时保持的最后矩形与尺寸）在项不在 `alive` 时被清掉。离开中内容的 `bodyStyle` 退回当前矩形（可能是 0），内容在缩回去的过程里会重排一次。
+  - `useGridFocus` 的 `items()` 把 `active && rect !== null` 的内容项算作一站（Tab 接管与 F6）。离开中的内容沿用上次的 `active: true`，会成为 F6 落点，对 `inert` 元素 `focus()` 无效，焦点卡住。
+  - `isParked` 不含“离开中”，可见与否靠 `frameStyle` 的 `showing`。计划写的 `inert` 要新增一个状态，`aria-owns` 的 `parked` 判据（`NestedGrid.vue:298`）也要认它。
+  - 计划只给 `lifted`、`swap` 各写一句，`dragging` 写当即卸载。`maximized`（`obscuredLeaves`）与离开的叶同时出现时没有说明。
+- **建议改法**：
+  - 把离开中的内容做成 `useContentLayer` 的输入之一（contents 并上 retained，`active` 固定为 false，新增“离开中”标记）。`update()`、`memory`、`isParked`、`aria-owns`、焦点站点都经这一处。
+  - 在计划里写一张表：离开中的内容项对 `inert`、`aria-owns`、F6、`content-parked`、`memory` 各取什么值。
+
+### 7. 缓存插槽 VNode：探针不是 NestedGrid 的形态，证据文字与代码对不上，还改变插槽的依赖追踪
+- **严重程度**：建议
+- **类别**：依赖的机制、证据（维度 2）
+- **位置**：`evidences/probe.txt`；`NestedGrid.vue:718`（`<slot name="content">`）
+- **现象**：
+  - probe.txt 贴的“原文”断言日志是 `["mount A","mount B","unmount A","mount A2","unmount B"]`，而说明与计划写的是 `[mount A, mount B, unmount B]`。我把原文代码改成只打印日志重跑（`vt/`，vitest 4.1.10 与 happy-dom），实际是 `["mount A","mount B","unmount B"]`，B 在宿主改数据后仍在。结论成立，但贴的那份断言会失败，说明贴的不是跑过的版本。
+  - 探针用手写 `h()`。NestedGrid 是 SFC 模板里的 `<slot>`，编译后是 `renderSlot` 的 Fragment 块。要缓存与重用，得换成渲染函数或按项的子组件，计划没说。
+  - 换成按项子组件会改变依赖追踪：内容槽的更新范围从整网格缩小到单项，是性能与时序都可见的变化。计划没提。
+  - 缓存的是上一次 VNode，内含上一次的 props 与闭包。每项都缓存要在每次渲染写 Map，卸载时清。
+- **建议改法**：证据换成实际跑过的原文，再加一条用真实 `NestedGrid` 的探针。计划写明用哪种包装、缓存何时写入与清理。
+
+### 8. Lab 场景与测试：旧语义数值的风险条没有对象，加内容层会扰动现有 e2e，happy-dom 要桩布局盒
+- **严重程度**：建议
+- **类别**：测试（维度 5、6）
+- **位置**：`GridStructureScene.vue`；`lab-grid-structure.e2e.ts`（413 行）；计划“测试”与“风险”第 3 条
+- **现象**：
+  - **旧语义数值**：`GridStructureScene` 只有 `#leaf` 插槽，没有 `contents`，叶全是按比例分的，也没有 `addLeaf` 调用（只有 `splitLeaf`、`removeLeaf("n")`、`moveLeaf`）。新规则对纯 weight 分支结果不变，所以“旧语义数值要跟着改”在这个场景里没有对象。反过来，新规则在真实浏览器里没有任何覆盖，因为场景里没有固定叶。
+  - **既有测试里的调用**：`grid.test.ts` 里 addLeaf、removeLeaf、moveLeaf 的 25 处用例，我读到的都是 `leaf()` 默认的 weight 叶，固定叶只出现在 328-346、896-1402 行的布局与收起用例里。`useGridLayout.dom.test.ts` 只用 `splitLeaf`，不涉及增删。“现有快照要改哪些数”很可能是一个都没有，计划应当直说。
+  - **加内容层的代价**：要换掉 `#leaf` 里的 `GridStructureLeaf`（实例编号、输入框、`ResizeObserver` 次数）。e2e 的 DOM 序、`aria-owns`、F6、Tab 接管、“离开的叶立即消失”（155 行）都按 `[data-grid-scope] > [data-leaf]` 与叶内元素断言，内容层会插进内容项。
+  - **happy-dom**：“按组件真实计时走、不用假计时器”可行。但 happy-dom 没有布局引擎，矩形全 0 时 `moving` 永远不开，“过渡结束后卸载”的用例会空过。既有做法是桩 `clientWidth`、`clientHeight`（`NestedGrid.dom.test.ts:1226-1237`）加 `vi.waitFor`，计划没写。
+- **建议改法**：
+  - 另开一个场景（放在已有 contents 的 `GridSwapScene` 或 `NestedGridAcceptanceFixture` 旁），不动 `GridStructureScene`。新场景里加一个固定栏的混合分支覆盖新规则。
+  - 计划写明要桩布局盒，并加一条变异（保留条件改成永远卸载）确认用例会红。
+
+### 9. `paneLabel` 对已离开的分隔线问宿主会得到错的结果，且与 `sashKind` 的形状不一致
+- **严重程度**：建议
+- **类别**：接口形状（维度 3、4）
+- **位置**：`NestedGrid.vue:306-313`（`sashLookOf` 对 `leaving` 的线沿用上一次）、`:335-376`（`sashProps` 两处 `text(...)`）；`Splitter.vue:339`；计划第四节
+- **现象**：
+  - 交换里滑出去的线（`sash.frozen`）两侧已不在宿主的布局里，`sashKind` 与 `sashStyle` 为此记“离开前最后一次”。
+  - 计划的 `paneLabel(id)` 在 `sashProps` 的 frozen 分支（`:348`）也会被调用。宿主按已不存在的 id 查名字会得到 `undefined`，读屏名称在离开那一刻从显示名变成 id。
+  - `sashKind` 等入参是 `{branch, before, after}` 对象，`paneLabel` 只收 id。
+  - 分隔线挨着分支时，分支 id 是结构 id，多数宿主没有名字可给。
+- **建议改法**：frozen 分支沿用“最后一次的显示名”（并入 `sashLooks` 的记录），或在文档写明 `paneLabel` 对已离开的节点必须仍能答。分支的缺省名在文档写明是 id。
+
+### 10. Spec 输出 152 到 155 还没有条目，验收映射指向不存在的编号
+- **严重程度**：建议
+- **类别**：验收映射（维度 6）
+- **位置**：`docs/specs/ui/nested-grid.md`（最后一条是 151）；计划“Spec 与文档改动”“验收映射”
+- **现象**：
+  - README 写“planned，计划定稿时写”，所以审这一稿时四条合同只存在于计划里，没有黑盒条目可核对。
+  - 计划表里的“输出 152 到 155”对不到文字。“37、38、82 到 92 不退”也没写哪种情形不退。
+- **建议改法**：审查前先把四条写成 Spec 条目，含第 1、2、5 条的取舍：新叶权重单位、收起中兄弟、离开的内容的保留范围与开关、`setSize` 的失败码。验收映射再逐条对。
+
+## 未发现问题的方面
+- 缓存 VNode 重用组件实例这个机制本身成立。重跑日志里，B 在宿主改数据后仍在，不再保留时才卸载。
+- 判过渡与 contents 变化是同一轮（读代码，未跑）：layers 的 watcher 是 pre-flush，在 `NestedGrid` 渲染前的同一 tick 里先判 `motion.update` 再 `contentLayer.update`。`moving` 由 `setTimeout(duration + 50)` 收（`useGridMotion.ts:240`）。减少动态效果时 `layoutMotionMs` 为 0 走 `stop()`，与计划“当即卸载”一条一致。
+- 工作台与应用不调用结构操作：全仓 `rg` 只有 nb-layout 测试、两个 Lab 场景与旧应用。旧应用 `neuro-book-legacy` 的 `createGrid` 是它自己的（`editor-groups.ts:9`），不是 nb-layout，不受影响。
+- `outgoingLeaves` 仍保留，工作台的 `lastPresented` 与 `drawnAsBefore` 读的是它，不受影响。`lifted` 那一项由宿主自己留，库不碰，也一致。
+- `host.setSize` 照 `setCollapsed` 的“变了才重发、没有网格 `not-ready`”写，与现有形状一致（`useGridHost.ts:116-122`）。
+
+## 数量
+阻断 1，重要 5，建议 4。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10

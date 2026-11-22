@@ -27,8 +27,10 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿，探针见 [证据](evidences/probe.txt)；等设计审查与 API 形状审查（Claude Sonnet 各一）。
+2026-11-22：[计划](plan.md)第 1 稿（三样一起）的设计审查（阻断 1、重要 5、建议 4，[证据](evidences/design-review.txt)）与 API 形状审查（重要 6、建议 5，[证据](evidences/api-review.txt)）之后，拆成三个 Task：本 Task 只做分隔线的显示名（计划第 2 稿）；结构操作的语义与 `setSize` 拆到 [t52](../t52-grid-structure-semantics/README.md)；离开的内容拆到 [t53](../t53-leaving-contents/README.md)（[待确认清单](../../pending-confirmations.md)）。显示名改动小、缺省行为不变，按 reviewing 的“按任务大小降级”不再做设计审查（API 形状审查第 9 条已看过它的形状），做实现审查。
+
+API 形状审查第 1 条（没有运行时改收起策略的入口，t45 两张时“拖不出收起”仍要它）不在开发者定的三样里，记进 t45 的输入，t45 重写计划时再定。
 
 ## 下一步
 
-探针与基线 → `ui/nested-grid` 新条目（planned）→ 计划 → 设计审查（Claude Sonnet）加 API 形状审查。
+实施显示名 → 实现审查；然后 t52、t53 各自写计划、审查、实施。
