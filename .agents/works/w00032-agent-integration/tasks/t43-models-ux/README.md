@@ -124,10 +124,17 @@ updated: 2026-11-22
 - 新组件只有英文的 Lab 场景，没有 390 宽的：组件内部溢出 Lab 量不到，改由 e2e 验收 4 在真实页面上断言 390 宽没有横向溢出。
 - 段 C 之前模型请求一律直连（按次 `proxy: false`），设了环境代理的用户照决定 29 走直连。
 
+段 B2a（模型来源）：2026-11-22 合入 master（合并提交 a69d38485）。开工时按 B1 的实际形状改写了计划的 B2 节并拆成 B2a、B2b（决定 26），核对记在 [`evidences/b2a-probes.txt`](evidences/b2a-probes.txt)。合入前的验证：nb-harness、nb-models（含浏览器侧）、nb-story、neuro-book 的类型检查，`test:affected --since master` 全部通过；e2e models、settings、agent-conversation、agent-request-trace 共 51 条通过（审查修正后 models、agent-request-trace 重跑 7 条通过）。Spec（`models/service.md` 输出 25 与相关条目、`models/settings-pages.md` 输出 6、10、20）与 `CHANGELOG` 同日提交。实现审查后端 omp（`review` 角色 `aihub/gpt-6.2-sol:max`）21 条（阻断 2、重要 14）、前端 Sonnet 10 条（重要 2），逐条核实：后端改 18 条、接受 2 条（Cloudflare 改写 id 的在线行价目未知、单家状态变化全量重算）、不改 1 条（`304` 用内存副本）；前端改 8 条、部分 2 条，见[处理](evidences/impl-review-b2a-disposition.md)。与计划不同的地方：
+- 删 `pinned.json`：缓存按部署判可用、凭据只判 `changed`；在线目录只补打包里没有的模型（打包优先）；目录查询对所有非空白模板的实例都做；“本机”就是空白模板。
+- `catalogAutoUpdate` 归 `nbook.models`，显示在 `nbook.network` 的“网络”分区（插件壳只声明分区与文字）；关着时添加、设密钥之后也不跟着拉，只剩手动“重新拉取”。
+- 没有条目、缺上下文窗口的来源模型按停用算（决定 27 的“不启用”）；管理模型里加入后不启用、补上窗口才启用。
+- 新增启动环境 `NBOOK_MODELS_CATALOG_URL`：改在线目录地址，设空不取；e2e 夹具、Bun 测试预加载与各测试场地都设空，测试不出本机。
+- 删了模型服务的 `discover`（管理模型对所有服务商读来源行），但 nb-harness 根入口的 `discoverModels` 保留：nb-story 的问答服务还在用（审查查出，第一次跑 `test:affected` 时 nb-story 的失败被误判成 worktree 缺构建）。
+
 ## 下一步
 
 段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10；截图已拍，在 Task 的 `shots/`）。
 
-段 B2a（模型来源）：2026-11-22 按 B1 的实际形状改写了[计划](plan.md#段-b2模型来源与协议检测)的 B2 节（决定 26），并拆成 B2a 与 B2b 两条分支；B2a 在 `feat/w00032-t43-b2a` 上实施。然后 B2b（协议检测，届时删 `checkAll`，B1 后端审查第 20 条）、段 C。
+段 B2b（协议检测，[计划](plan.md#段-b2模型来源与协议检测)的 B2b 节）：新分支实施；界面改成逐个 `check` 时删掉 `checkAll`（B1 后端审查第 20 条）。然后段 C（代理与网络出口，加进 B2a 建的 `nbook.network`）。
 
 待查：`lab-agent-ui:572`（模型选择器窄面板与英文）在 B1 起点上就失败，段 A 合入时是通过的，原因没查。

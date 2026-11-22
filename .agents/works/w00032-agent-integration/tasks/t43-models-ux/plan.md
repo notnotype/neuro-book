@@ -204,7 +204,7 @@ type ProviderConfig = {
 
 - `parseOnlineCatalog(bytes)`：按帧魔数判 zstd，`zstdDecompressSync(bytes, {maxOutputLength: 32 MiB})`（Bun 1.4.4 超限抛 `RangeError`，已核对），`JSON.parse`，复用 pi-catalog 公开的 `mapModelsDevToModels(payload, MODELS_DEV_PROVIDER_DESCRIPTORS)` 与 `buildModel`，按 provider 归组成 `Model`。**价目是否存在看原文**（`cost` 字段在不在），不靠四个 0 倒推；自报档位随 `buildModel` 的策略。坏数据整份拒收。
 - `fetchOnlineCatalog({etag, signal, url?})`：`GET`、`redirect: "manual"`、`proxy: false`；传输字节流式计数、超 8 MiB 中止；`304` 只在调用方给了 `etag` 时成立；交回 `{status: 200, bytes, etag} | {status: 304} | {failed, reason}`，不落盘、不解析（调用方先 `parseOnlineCatalog` 成功才一起提交正文与 ETag）。截止由调用方的 `signal` 定。
-- `createCatalogView(online?)`：`chatModels(provider)`、`row(provider, id)`、`unsendable(provider, id)`；打包为底，在线同（provider，id）的行优先、新出的追加。只有实例跟随模板（B1 的 `follows`）时用在线行；协议不同时仍按 B1 只借能力字段。
+- `createCatalogView(online?)`：`chatModels(provider)`、`row(provider, id)`、`unsendable(provider, id)`；打包为底，在线目录只补打包里没有的模型（同 id 的用打包的：打包时做过修正，开工核对见 `evidences/b2a-probes.txt` 第 2 条）。只有实例跟随模板（B1 的 `follows`）时用在线行；协议不同时仍按 B1 只借能力字段。
 - `ModelTarget.row?: Model`：调用方给的目录行盖过打包行（`materialize` 里 `config.row ?? bundledRow(...)`，`unsendable` 也按这一行判）。
 
 ### B2a.2 列表适配器（nb-harness `models/listing.ts`）
