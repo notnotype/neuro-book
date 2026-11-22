@@ -33,4 +33,4 @@ updated: 2026-11-22
 
 ## 下一步
 
-[计划](plan.md)第 2 稿：第 1 轮设计审查（Claude Sonnet）重要 9、建议 5 都成立（[证据](evidences/design-review.txt)），另用 Bun 探针核了新结构（[证据](evidences/structure-probe.txt)）；等第 2 轮设计审查。Spec 条目随计划定稿后写（planned）。
+[计划](plan.md)第 3 稿：第 1 轮设计审查（Claude Sonnet）重要 9、建议 5，第 2 轮重要 7、建议 8，都成立（[第 1 轮](evidences/design-review.txt)、[第 2 轮](evidences/design-review-2.txt)、[结构探针](evidences/structure-probe.txt)）；等第 3 轮设计审查，这是同一对象的最后一轮，再有实质问题就停下交开发者。Spec 条目随计划定稿后写（planned）。
