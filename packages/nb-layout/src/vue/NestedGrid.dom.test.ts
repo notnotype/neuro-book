@@ -179,6 +179,8 @@ describe("NestedGrid 按矩形摆放", () => {
         expect(sash.attributes("aria-valuenow")).toBe("300");
         expect(sash.attributes("aria-valuemin")).toBe(String(layout.constraints.left!.minimumSize.width));
         expect(sash.attributes("aria-controls")).toBe(wrapper.get('[data-leaf="left"]').attributes("id"));
+        // 没有注入文字：读屏名称用自带的源语言（英文）目录（输出 143）。
+        expect(sash.attributes("aria-label")).toMatch(/^Resize width between left and \S+$/u);
     });
 
     it("内容容器与外框一样大，Teleport 的目标带部件 id", async () => {

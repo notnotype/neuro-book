@@ -780,7 +780,8 @@ describe("splitter 程序发布尺寸", () => {
         // 约束只作为可访问性范围发布，单位是 px：min 来自声明，now 来自当前呈现
         expect(firstSash?.getAttribute("aria-valuemin")).toBe("150");
         expect(firstSash?.getAttribute("aria-valuenow")).toBe("2");
-        expect(firstSash?.getAttribute("aria-valuetext")).toBe("2 像素");
+        // 没有注入文字：读屏文字用自带的源语言（英文）目录（nested-grid 输出 143）。
+        expect(firstSash?.getAttribute("aria-valuetext")).toBe("2 pixels");
     });
 
     it("发布的收起状态与呈现、可访问性一致", async () => {
@@ -802,7 +803,8 @@ describe("splitter 程序发布尺寸", () => {
         expect(outline?.getAttribute("data-state")).toBe("collapsed");
         expect(panelSizes(wrapper)).toEqual([0, 498, 200]);
         const [firstSash] = sashElements(wrapper);
-        expect(firstSash?.getAttribute("aria-valuetext")).toBe("已收起");
+        expect(firstSash?.getAttribute("aria-valuetext")).toBe("Collapsed");
+        expect(firstSash?.getAttribute("aria-label")).toBe("Resize width between outline and editor");
         expect(firstSash?.getAttribute("aria-valuenow")).toBe("0");
     });
 

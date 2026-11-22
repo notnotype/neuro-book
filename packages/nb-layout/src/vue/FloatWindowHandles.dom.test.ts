@@ -72,6 +72,8 @@ describe("FloatWindowHandles", () => {
         const focusable = wrapper.findAll("button");
         expect(focusable).toHaveLength(2);
         expect(wrapper.findAll("[tabindex=\"-1\"]")).toHaveLength(7);
+        // 没有注入文字：两个控件的读屏名称用自带的源语言（英文）目录（nested-grid 输出 143）。
+        expect(focusable.map((button) => button.attributes("aria-label")).sort()).toEqual(["Move the floating window with the arrow keys", "Resize the floating window with the arrow keys"]);
         await wrapper.get("[data-float-handle=\"bottom-right\"]").trigger("keydown", {key: "ArrowRight"});
         expect(wrapper.emitted("commit")?.at(-1)).toEqual([{...RECT, width: 410}]);
         await wrapper.get("[data-float-move-handle]").trigger("keydown", {key: "ArrowDown", shiftKey: true});

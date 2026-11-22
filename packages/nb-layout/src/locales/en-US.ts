@@ -1,4 +1,4 @@
-/** nb-layout 自带的英文目录，键与 `zh-CN.ts` 相同。 */
+/** nb-layout 自带的英文目录（命名空间 `nb-layout`，源语言，没有注入时组件用它），写法见同目录的 `index.ts`。 */
 export default {
     splitter: {
         resizeWidth: "Resize width between {{before}} and {{after}}",

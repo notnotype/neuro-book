@@ -3,7 +3,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {h, ref} from "vue";
 
 import SortableList from "./SortableList.vue";
-import {LAYOUT_TEXT_KEY} from "./text";
+import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "./text";
 import type {LayoutTranslate} from "./text";
 import type {SortableMove} from "./useSortable";
 
@@ -23,13 +23,16 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-/** 挂上并等一拍：会话在列表根挂上之后才建（`useSortable` 看着根）。 */
-async function mountList(onMove: (move: SortableMove) => void | Promise<unknown>, sections = SECTIONS, translate?: LayoutTranslate) {
+/**
+ * 挂上并等一拍：会话在列表根挂上之后才建（`useSortable` 看着根）。缺省注入中文目录，下面的读屏文字按中文断言；`null` 是不注入，
+ * 用自带的源语言（英文）目录。
+ */
+async function mountList(onMove: (move: SortableMove) => void | Promise<unknown>, sections = SECTIONS, translate: LayoutTranslate | null = layoutCatalogTranslate("zh-CN")) {
     const wrapper = mount(SortableList, {
         props: {sections, label: (key: string) => TITLES[key] ?? key, onMove},
         slots: {item: ({itemKey}: {itemKey: string}) => h("span", TITLES[itemKey])},
         attachTo: document.body,
-        ...(translate === undefined ? {} : {global: {provide: {[LAYOUT_TEXT_KEY as symbol]: translate}}}),
+        ...(translate === null ? {} : {global: {provide: {[LAYOUT_TEXT_KEY as symbol]: translate}}}),
     });
     await flushPromises();
     return wrapper;
@@ -42,7 +45,13 @@ const order = (wrapper: Mounted) => wrapper.findAll("[data-sortable-key]").map((
 const handleOf = (wrapper: Mounted, key: string) => wrapper.get(`[data-sortable-key="${key}"] [data-sortable-handle]`).element as HTMLElement;
 
 describe("SortableList", () => {
-    it("文字（nested-grid 输出 143）：宿主经 LAYOUT_TEXT_KEY 注入时用宿主的，换语言后跟着变；下一条用例没有注入，用自带的源语言目录", async () => {
+    it("文字（nested-grid 输出 143）：没有注入时用自带的源语言（英文）目录", async () => {
+        const wrapper = await mountList(() => undefined, SECTIONS, null);
+        expect(handleOf(wrapper, "c2").getAttribute("aria-label")).toBe("Move 旧码头");
+        expect(wrapper.find('[data-sortable-placeholder][data-sortable-section="v2"]').text()).toBe("Drop here");
+    });
+
+    it("文字（nested-grid 输出 143）：宿主经 LAYOUT_TEXT_KEY 注入时用宿主的，换语言后跟着变", async () => {
         const locale = ref("en-US");
         const catalogs: Record<string, Partial<Record<string, string>>> = {"en-US": {"sortable.handle": "Move {{name}}"}, fr: {"sortable.handle": "Déplacer {{name}}"}};
         // 读 `locale.value`：同真实宿主的端口，渲染期调用时建立依赖。

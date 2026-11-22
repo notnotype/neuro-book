@@ -8,7 +8,7 @@
 import {createGrid, NB_LAYOUT_THEME_VARS} from "@notnotype/nb-layout"; // 纯 TS：树、尺寸、落点、变量清单，不依赖 Vue 与 DOM
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";     // 组件与组合式函数，只依赖 vue 与 tabbable
 import {LAYOUT_TEXT_KEY} from "@notnotype/nb-layout/text";              // 宿主接文字的注入点
-import {NB_LAYOUT_CATALOGS} from "@notnotype/nb-layout/locales";        // 自带的 zh-CN、en-US 文字目录
+import {NB_LAYOUT_CATALOGS} from "@notnotype/nb-layout/locales";        // 自带的 en-US（缺省）、zh-CN 文字目录
 ```
 
 ## 安装
@@ -126,7 +126,7 @@ function toggleFiles(): void {
 | 可排序的列表 | `SortableList`、`useSortable` | `./vue` |
 | 浮动窗的把手 | `FloatWindowHandles` | `./vue` |
 | 换主题 | 设 `--nb-layout-*` 变量；全部名单 `NB_LAYOUT_THEME_VARS` | 根 |
-| 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；目录在 `./locales` | `./text`、`./locales` |
+| 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；只有一种语言时用 `layoutCatalogTranslate`；目录在 `./locales` | `./text`、`./locales` |
 | 开发时查接线错误 | `setLayoutDevChecks(true)`，在网格挂载之前调 | 根 |
 
 ## 约定
@@ -193,4 +193,14 @@ function toggleFiles(): void {
 
 ## 文字
 
-分隔条、可排序列表与浮动窗把手的读屏名称与提示经 `LAYOUT_TEXT_KEY`（`@notnotype/nb-layout/text`）注入的翻译函数取：`(key, params) => string`，键不带命名空间，宿主按命名空间 `nb-layout` 查自己的目录（`@notnotype/nb-layout/locales` 有 `zh-CN` 与 `en-US`）。函数要在每次调用时读宿主的当前语言，组件才会跟着换语言。没有注入时用自带的 `zh-CN` 目录。
+分隔条、可排序列表与浮动窗把手的读屏名称与提示经 `LAYOUT_TEXT_KEY`（`@notnotype/nb-layout/text`）注入的翻译函数取：`(key, params) => string`，键不带命名空间，宿主按命名空间 `nb-layout` 查自己的目录（`@notnotype/nb-layout/locales` 有 `en-US` 与 `zh-CN`，源语言 `NB_LAYOUT_SOURCE_LOCALE` 是 `en-US`）。函数要在每次调用时读宿主的当前语言，组件才会跟着换语言。没有注入时用自带的 `en-US` 目录。
+
+只有一种语言、没有翻译引擎的宿主，用 `layoutCatalogTranslate` 按自带目录注入：
+
+```ts
+import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "@notnotype/nb-layout/text";
+
+createApp(App).provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("zh-CN"));
+```
+
+它固定这一种语言、不跟着宿主换；传自带目录里没有的语言（例如 `"zh"`）会抛 `RangeError`。目录不处理复数，`{{size}} pixels` 在 1 时读成“1 pixels”。
