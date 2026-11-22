@@ -293,8 +293,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         remove: (args) => closedGuard(() => removeCommand(host, issuer, args)),
         notice: (args) => closedGuard(() => noticeCommand(host, issuer, args)),
         removeNotice: (args) => closedGuard(() => removeNoticeCommand(host, issuer, args)),
-        // 应答会改变对话（结算事项、回答进缓冲区）：只读会话不受理（session.md 失败表的 unknown-profile）。
-        resolve: (args) => closedGuard(async () => (state.readOnly !== null ? {ok: false, code: "read-only"} as const : resolveCommand({...host, interactions: control.interactions}, issuer, args))),
+        resolve: (args) => closedGuard(() => resolveCommand({...host, interactions: control.interactions}, issuer, args)),
         rewind: (args) => closedGuard(() => rewindCommand(host, issuer, args)),
         switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
         fork: (args) => closedGuard(() => accept(host, "fork", args, async (): Promise<Outcome<"fork">> => {
@@ -583,11 +582,13 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
                 drafts.push({type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: assembly.profile.id, hash: assembly.hash, from: previous?.hash ?? null, reason: "code-updated", manifest: assembly.manifest as unknown as JsonValue}});
             }
             await core.queue.run(() => core.write(drafts));
-            const recovery = recoveryDrafts(core);
-            await core.queue.run(() => core.write(recovery));
         } else {
             core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: profileId, reason: readOnly}, message: `profile ${profileId} could not be assembled; the session is read-only`}, core.head);
         }
+        // 上次没收口的运行：只读打开也在这里收口（session.md 输出 15）。恢复批只有内核事件、不派发反应，用不到解析不到的 Profile；
+        // 不收口的话，换回能用的 Profile 之后那次运行会被当成暂停的接着跑。只读限制的是调用方的指令，不是内核补齐中断。
+        const recovery = recoveryDrafts(core);
+        await core.queue.run(() => core.write(recovery));
         const api = buildApi(env, core, readOnly, {kind: "user"});
         state = internals.get(api)!;
         if (readOnly === null) {

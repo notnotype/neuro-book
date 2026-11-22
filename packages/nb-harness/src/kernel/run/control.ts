@@ -30,7 +30,7 @@ const BROKEN_RESULT = (runId: string, head: number): RunResult => ({
 });
 
 export class RunControl {
-    #active: (ActiveRun & {done: Promise<void>}) | null = null;
+    #active: (ActiveRun & {done: Promise<void>; from: number}) | null = null;
     #status: RunStatus = {state: "idle"};
     readonly #waiters = new Map<string, ((result: RunResult) => void)[]>();
     readonly #core: SessionCore;
@@ -67,9 +67,14 @@ export class RunControl {
         core.onBroken(() => {
             const active = this.#active;
             this.#setStatus({state: "broken", code: "log-broken"});
-            if (active !== null) {
-                active.controller.abort();
-                this.#settle(active.runId, BROKEN_RESULT(active.runId, core.head));
+            active?.controller.abort();
+            // 等运行的调用一个都不留（不只当前运行的：受理批写下了、因为反应批写失败没开起来的运行也有人在等）：日志里已有这次的
+            // `runEnded` 交回它（与之后再来的 `waitRun` 一致），否则 log-broken（runtime.md 输出 13）。
+            for (const runId of [...this.#waiters.keys()]) {
+                const logged = runResultOf(core.events, runId, core.byId);
+                // 在跑的那次只认这次开始之后写下的收口（runEnded 已写下、它的反应批才失败）；之前的是旧分支的。
+                const own = logged !== null && (active?.runId !== runId || logged.entries.last > active.from) ? logged : null;
+                this.#settle(runId, own ?? BROKEN_RESULT(runId, core.head));
             }
             // 收口批写不下了：等着的停止照实交回（运行已经停了），不挂住。
             this.#releaseStopWaiters();
@@ -123,7 +128,12 @@ export class RunControl {
         return this.#active === null ? (this.#core.leafState.kernel.run?.runId ?? null) : null;
     }
 
+    /**
+     * 状态只从这里发布（含快照读的值）。句柄坏了以后只认 `broken`：事项报告、运行循环的阶段回调与收口都还可能晚到，不能把它盖掉
+     * （session.md 输出 12）。
+     */
     #setStatus(status: RunStatus): void {
+        if (this.#core.broken && status.state !== "broken") return;
         this.#status = status;
         this.#core.emit({type: "status", status, afterSeq: this.#core.head});
     }
@@ -178,7 +188,8 @@ export class RunControl {
                 const result = runResultOf(this.#core.events, runId, this.#core.byId);
                 if (result !== null) this.#settle(runId, result);
             });
-        this.#active = {...run, done};
+        // `from`：开这次（或接着跑这次）的受理批已经写下，它之后写的才是这一次的；回退后接着跑会复用 run id，日志里可能还有旧分支的收口。
+        this.#active = {...run, done, from: this.#core.head};
     }
 
     /**

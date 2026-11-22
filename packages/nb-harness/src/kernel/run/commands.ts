@@ -15,7 +15,7 @@ import type {RunControl} from "./control.js";
 import {blockedByUser, canAbort, canContinue, canEdit, canRemove, continuableEnded, ownerOf, sameIssuer} from "./permissions.js";
 import {openRunDrafts, projectSession, releaseDrafts} from "./settle.js";
 import {ctrl} from "./writes.js";
-import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
+import {reactToWritten, writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import {defaultSettings, type ViewEnvironment} from "../extension/ctx.js";
 import {byField, interceptInput, queuedData} from "./input.js";
 import {settingsProblem} from "./settings.js";
@@ -42,10 +42,13 @@ export interface CommandHost {
 const AFTER_REASSEMBLY = Symbol("after-reassembly");
 
 /**
- * `written`：受理批写下之后、还在这一个队列项里做的事（写失败就不做，内存不会领先日志）。
- * `after`：队列项结束之后再做的事（例如装上扩展：它自己要排队写日志，不能在这一项里等）。
+ * 受理之后的收尾分两类（runtime.md 的应答条目）：
+ * - `committed`：受理批写下就必须让内存跟上的事，只放同步、不写日志的（现在只有应答叫醒认领到的等待者）。在反应阶段结束之后执行，
+ *   不论反应批写没写下：反应还在跑时等着的工具不能先往下走。带它的指令（应答）在反应批写失败时回执成功。
+ * - `written`、`launch`、`after`：要会话健康才做的事。`written` 在这一个队列项里、受理批与它引出的反应都写下之后做；`after` 在队列项
+ *   结束之后做（例如装上扩展：它自己要排队写日志，不能在这一项里等）。反应批写失败时都不做，内存停在受理批，重开以文件为准。
  */
-export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; launchOptions?: {compact?: {require: readonly string[]}}; written?: () => Promise<void>; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
+export type Outcome<K extends CommandName> = {value: CommandMap[K]["value"]; drafts: EventDraft[]; launch?: string; launchOptions?: {compact?: {require: readonly string[]}}; committed?: () => void; written?: () => Promise<void>; after?: () => Promise<void>} | {fail: string; detail?: Attributed | Record<string, JsonValue>};
 
 /** 受理一条指令：查重发、校验、写受理批、需要时开始运行。 */
 export async function accept<K extends CommandName>(host: CommandHost, name: K, args: CommandMap[K]["args"] & {commandId: string}, decide: () => Outcome<K> | Promise<Outcome<K>>): Promise<CommandResult<K>> {
@@ -71,16 +74,31 @@ export async function accept<K extends CommandName>(host: CommandHost, name: K, 
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
         let written: readonly LogEvent[];
         try {
-            ({events: written} = await writeAndReact(core, [...outcome.drafts, ...gate, accepted], host.react));
+            written = await core.write([...outcome.drafts, ...gate, accepted]);
         } catch (error) {
+            // 受理批的写入结果不确定：认领到的等待者由调用方收尾（`releaseClaims`）。
             if (error instanceof LogBrokenError) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
             throw error;
         }
+        // 受理批写下了：反应批写失败不改这个事实（句柄进损坏状态，之后的写入都得 log-broken）。别的异常照旧交给调用方。
+        let reactionsBroken = false;
+        try {
+            await reactToWritten(core, written, host.react);
+        } catch (error) {
+            if (!(error instanceof LogBrokenError)) throw error;
+            reactionsBroken = true;
+        } finally {
+            outcome.committed?.();
+        }
+        const done = {ok: true, value: outcome.value, seq: written.at(-1)!.seq, replayed: false} as CommandResult<K>;
+        // 反应批写失败：句柄坏了，需要健康会话的收尾都不做、不开运行。应答的回执已由日志定下（重发、重开都说成功），照实交回；
+        // 别的指令照旧交回 log-broken（重发得到成功的不一致是原有的，runtime.md 已知限制）。
+        if (reactionsBroken) return outcome.committed !== undefined ? done : {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
         await outcome.written?.();
         // 写下之后关闭才开始的：不开运行，已写下的 runStarted 由重开时的恢复收口（runtime.md 输出 104）。
         if (outcome.launch !== undefined && !host.closed()) host.control.launch(outcome.launch, outcome.launchOptions);
         after = outcome.after;
-        return {ok: true, value: outcome.value, seq: written.at(-1)!.seq, replayed: false} as CommandResult<K>;
+        return done;
     });
     if (result === AFTER_REASSEMBLY) {
         await waitFor;
@@ -209,11 +227,12 @@ export async function sendCommand(host: CommandHost, issuer: Issuer, args: Comma
             settled.push(ctrl("interactionResolved", {id: item.id, ...SETTLED_BY_MESSAGE, by: issuer}));
         }
         claims = taken;
+        // 没有认领到事项：等于不带 settlePending（输出 111），回执也照普通发话（输出 119 只管真结算了事项的应答）。
+        if (taken.size === 0) return delivered;
         const resolution = {...SETTLED_BY_MESSAGE, by: issuer};
-        return {...delivered, drafts: [...settled, ...delivered.drafts], written: async () => {
+        return {...delivered, drafts: [...settled, ...delivered.drafts], committed: () => {
             claims = null;
             for (const claim of taken.values()) claim.wake(resolution);
-            await delivered.written?.();
         }};
     });
     if (claims !== null) releaseClaims(host.core, claims);
@@ -362,6 +381,8 @@ export function abortCommand(host: CommandHost, issuer: Issuer, args: CommandMap
     aborting.set(core, inflight);
     const running = inflight.get(args.commandId);
     if (running !== undefined) return running.then((result) => (result.ok ? {...result, replayed: true} : result));
+    // 句柄坏了：新的停止写不下受理记录，不登记、不中止（损坏时运行已经停了）。已提交的键在上面按记录重放。
+    if (core.broken) return Promise.resolve({ok: false, code: "log-broken"} as CommandResult<"abort">);
     if (control.active !== null && !canAbort(core.header, core.leafState.kernel.runBy ?? USER, issuer)) return Promise.resolve({ok: false, code: "not-allowed"} as CommandResult<"abort">);
     const settled = control.recordStop({by: issuer, keep: args.keepQueue === true, scope: core.session.kernel.buffer.map((item) => item.id)}, {commandId: args.commandId, argsHash});
     if (settled === null) return Promise.resolve({ok: true, value: {aborted: false}, seq: core.head, replayed: false});

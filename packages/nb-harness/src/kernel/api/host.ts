@@ -547,7 +547,10 @@ export interface SessionApi extends SessionCommands, SessionQueries {
     as(issuer: Issuer): SessionApi;
     /** 进程内订阅（远程服务里是 `frames` 事件）。 */
     subscribe(listener: (frame: Frame) => void): () => void;
-    /** 等这次运行结束；写日志失败时以 `{reason: "error", error: {kind: "local", code: "log-broken"}}` 完成。 */
+    /**
+     * 等这次运行结束。句柄坏了（写日志失败）时：日志里已有这次运行的收口就交回它，否则以
+     * `{reason: "error", error: {kind: "local", code: "log-broken"}}` 完成（harness/runtime.md 输出 13）。
+     */
     waitRun(runId: string): Promise<RunResult>;
 }
 

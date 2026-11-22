@@ -10,6 +10,8 @@ import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
+import type {TSchema} from "typebox";
+import {Value} from "typebox/value";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createJsonlStore, defineExtension, defineProfile} from "@notnotype/nb-harness/kernel";
@@ -104,6 +106,18 @@ async function runOnServer(w: AgentWorld, sessionId: string, text: string): Prom
 }
 
 describe("远程合同", () => {
+    test("同一个码内核与打开会话都会给（log-broken）：远程按打开会话的收，不带详情与带存储详情都合合同；内核自己的码照旧不收详情", () => {
+        // 指令可能在打开那一步就失败（例如打开时恢复批写不下）：那时 log-broken 带存储给的 {message}。收窄成“不收详情”的话，
+        // 远程会把它当成不合合同的详情、改报成提供方异常。
+        for (const method of ["abort", "send", "resolve"] as const) {
+            const schema = (agentSessionsContract.methods[method].errors as Record<string, TSchema>)["log-broken"]!;
+            expect(Value.Check(schema, undefined)).toBe(true);
+            expect(Value.Check(schema, {message: "the session log is broken: a write failed earlier"})).toBe(true);
+        }
+        const notAllowed = (agentSessionsContract.methods.abort.errors as Record<string, TSchema>)["not-allowed"]!;
+        expect(Value.Check(notAllowed, {message: "x"})).toBe(false);
+    });
+
     test("场景 1、输出 7、8：窗口 A 发起运行后退订，窗口 B 订阅再用 log 补齐；增量按 100 毫秒合并、按订阅从 1 编号，日志帧之前先推出", async () => {
         const w = await world();
         const a = (await w.window("a")).client;

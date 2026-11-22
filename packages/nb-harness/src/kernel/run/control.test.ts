@@ -8,8 +8,11 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
-import type {LogEvent} from "../api/index.js";
+import type {AnyProfile, LogEvent} from "../api/index.js";
 import {defineExtension} from "../extension/define.js";
+import {defineProfile} from "../extension/profile.js";
+import {createJsonlStore} from "../log/jsonl-store.js";
+import {nodeFiles} from "../log/files.js";
 import {createTestModel} from "../testing/model.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 
@@ -364,8 +367,8 @@ describe("崩溃与恢复", () => {
     const fixture = join(import.meta.dir, "../../../tests/kernel/fixtures/crash-session.ts");
 
     /** 每种崩溃一个子目录：子进程里的会话 id 都从 test-1 起。 */
-    async function crash(mode: "in-tool" | "after-accept" | "compacting" | "retry-wait"): Promise<{store: {root: string}; open: string}> {
-        const dir = join(root, mode);
+    async function crash(mode: "in-tool" | "after-accept" | "compacting" | "retry-wait" | "waiting-approval", dirName: string = mode): Promise<{store: {root: string}; open: string}> {
+        const dir = join(root, dirName);
         const child = Bun.spawn(["bun", fixture, dir, mode], {stdout: "pipe", stderr: "inherit"});
         try {
             const reader = child.stdout.getReader();
@@ -376,7 +379,7 @@ describe("崩溃与恢复", () => {
                 text += new TextDecoder().decode(value);
             }
             const [what, sessionId] = text.trim().split(" ");
-            expect(what).toBe(mode === "in-tool" ? "started" : mode === "compacting" ? "compacting" : mode === "retry-wait" ? "retrying" : "accepted");
+            expect(what).toBe(mode === "in-tool" ? "started" : mode === "compacting" ? "compacting" : mode === "retry-wait" ? "retrying" : mode === "waiting-approval" ? "waiting" : "accepted");
             return {store: {root: dir}, open: sessionId!};
         } finally {
             child.kill(9);
@@ -427,5 +430,116 @@ describe("崩溃与恢复", () => {
         expect(dataOf(events, "modelFailed")).toContainEqual({request: compactionRequest.request, kind: "interrupted"});
         expect(dataOf(events, "runEnded").at(-1)).toMatchObject({reason: "interrupted"});
         expect(types(events)).not.toContain("compaction");
+    });
+
+    /** 重开时只认得这个 Profile：子进程建会话用的缺省 Profile 解析不到，会话以只读打开（session.md 输出 15 的只读分支）。 */
+    const elsewhere = defineProfile({id: "lab.elsewhere", version: "1", name: "别处", description: "重开时唯一认得的 Profile"}) as AnyProfile;
+    const headOf = async (dir: string, sessionId: string): Promise<LogEvent[]> => {
+        const store = createJsonlStore({root: dir});
+        const opened = await store.open(sessionId);
+        if (!opened.ok) throw new Error(opened.code);
+        await store.close(opened.value);
+        return [...opened.value.events];
+    };
+
+    test("session.md 输出 15：等审批时被 kill -9、Profile 不在了，只读打开也收口：审批 interrupted、工具 denied、运行 interrupted，就绪的话转成留着，门关上，异步提问还在；再开不重复写；换回 Profile 后发话开新运行", async () => {
+        const crashed = await crash("waiting-approval", "readonly-waiting");
+        const runId = (dataOf<{runId: string}>(await headOf(crashed.store.root, crashed.open), "runStarted")[0]!).runId;
+        {
+            await using session = await createTestSession({...crashed, profile: elsewhere});
+            const snapshot = await session.raw.snapshot();
+            expect(snapshot.readOnly).toEqual({code: "unknown-profile"});
+            const events = await session.events();
+            expect(dataOf(events, "interactionResolved")).toEqual([expect.objectContaining({decision: "interrupted", code: "interrupted-before-approval"})]);
+            expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.asker", "ok", null], ["lab.gated", "denied", "interrupted-before-approval"]]);
+            expect(dataOf(events, "runEnded").at(-1)).toMatchObject({runId, reason: "interrupted"});
+            expect(snapshot.buffer.map((item) => [item.input.text, item.state])).toEqual([["排着的", "held"]]);
+            expect(snapshot.wakeGate).toMatchObject({open: false});
+            const asked = dataOf<{id: string; async?: boolean}>(events, "interactionRequested").find((data) => data.async === true)!;
+            expect(dataOf<{id: string}>(events, "interactionResolved").map((data) => data.id)).not.toContain(asked.id);
+        }
+        const afterFirst = (await headOf(crashed.store.root, crashed.open)).length;
+        {
+            await using again = await createTestSession({...crashed, profile: elsewhere});
+            expect((await again.raw.log({afterSeq: 0})).events.length).toBe(afterFirst);
+        }
+        await using restored = await createTestSession(crashed);
+        restored.model.script("好");
+        const sent = await restored.raw.send({commandId: id(), input: {text: "回来了"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        expect(sent.value.runId).not.toBe(runId);
+        await restored.raw.waitRun(sent.value.runId);
+        expect(types(await restored.events())).not.toContain("runResumed");
+    });
+
+    test("session.md 输出 15：只读打开时，工具执行中与压缩请求在途被杀的也收口（已开始的 unknown、没开始的 denied、在途的模型请求 interrupted）", async () => {
+        {
+            await using session = await createTestSession({...(await crash("in-tool", "readonly-in-tool")), profile: elsewhere});
+            const events = await session.events();
+            expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code])).toEqual([["lab.block", "unknown", "interrupted"], ["lab.never", "denied", "interrupted-before-approval"]]);
+            expect(dataOf(events, "runEnded").at(-1)).toMatchObject({reason: "interrupted"});
+        }
+        await using compacted = await createTestSession({...(await crash("compacting", "readonly-compacting")), profile: elsewhere});
+        const events = await compacted.events();
+        const request = dataOf<{request: number; purpose: string}>(events, "modelStarted").find((data) => data.purpose === "compaction")!;
+        expect(dataOf(events, "modelFailed")).toContainEqual({request: request.request, kind: "interrupted"});
+        expect(dataOf(events, "runEnded").at(-1)).toMatchObject({reason: "interrupted"});
+    });
+
+    test("反例：回退到运行中途造的真暂停，只读打开时不写恢复批", async () => {
+        const dir = join(root, "readonly-paused");
+        let sessionId = "";
+        {
+            await using session = await createTestSession({store: {root: dir}, tools: [{id: "lab.read", execute: () => "读到了"}]});
+            sessionId = session.id;
+            session.model.script("答一", {tools: [{tool: "lab.read"}]}, "答二");
+            await session.say("第一问");
+            await session.say("第二问");
+            const lastStep = (await session.raw.rewindTargets()).filter((target) => target.kind === "after-step").at(-1)!;
+            await session.raw.rewind({commandId: id(), to: lastStep.id});
+        }
+        const before = (await headOf(dir, sessionId)).length;
+        {
+            await using session = await createTestSession({store: {root: dir}, open: sessionId, profile: elsewhere});
+            expect((await session.raw.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+        }
+        expect((await headOf(dir, sessionId)).length).toBe(before);
+    });
+
+    test("只读打开时恢复批写失败：log-broken、放锁；写之前失败的下次补写，写完整后同步报错的下次以文件为准、不再写", async () => {
+        for (const point of ["write", "sync"] as const) {
+            const crashed = await crash("in-tool", `readonly-fault-${point}`);
+            const dir = crashed.store.root;
+            const before = (await headOf(dir, crashed.open)).length;
+            let armed = true;
+            const files = {...nodeFiles, async openAppend(path: string) {
+                const file = await nodeFiles.openAppend(path);
+                return {...file, async write(bytes: Uint8Array, position: number) {
+                    if (armed && point === "write" && new TextDecoder().decode(bytes).includes('"type":"runEnded"')) {
+                        armed = false;
+                        throw Object.assign(new Error("injected write fault"), {code: "ENOSPC"});
+                    }
+                    await file.write(bytes, position);
+                }, async sync() {
+                    await file.sync();
+                    if (armed && point === "sync") {
+                        armed = false;
+                        throw Object.assign(new Error("injected sync fault"), {code: "EIO"});
+                    }
+                }};
+            }};
+            await expect(createTestSession({...crashed, profile: elsewhere, wrapStore: () => createJsonlStore({root: dir, files})})).rejects.toThrow("log-broken");
+            // 两次打开之间看文件：写之前失败的没有新批；写完整的已经有整个恢复批。
+            const between = await headOf(dir, crashed.open);
+            const recovered = between.filter((event) => event.type === "runEnded");
+            if (point === "write") expect(between.length).toBe(before);
+            else expect(recovered.at(-1)?.data).toMatchObject({reason: "interrupted"});
+            // 放了锁：同一进程能再开；第二次打开时写之前失败的补写，同步报错的不再写、保留原批。
+            await using reopened = await createTestSession({...crashed, profile: elsewhere});
+            const after = (await reopened.raw.log({afterSeq: 0})).events;
+            expect(after.filter((event) => event.type === "runEnded" && (event.data as {reason: string}).reason === "interrupted")).toHaveLength(1);
+            if (point === "sync") expect(after.map((event) => [event.id, event.seq])).toEqual(between.map((event) => [event.id, event.seq]));
+            else expect(after.length).toBeGreaterThan(before);
+        }
     });
 });

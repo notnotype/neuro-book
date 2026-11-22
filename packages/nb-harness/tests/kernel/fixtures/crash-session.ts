@@ -4,7 +4,8 @@
  *
  * - in-tool：缓冲区先排一条 followup，再发一条话；模型调用 `lab.block`（开始执行后停住）与 `lab.never`（排在后面，没开始）。
  * - after-accept：`runStarted` 的反应停住：受理批已经落盘，运行循环还没开始。
- * - waiting-approval：模型先调用 `lab.asker`（提一个异步问题就返回），下一条回复调用 `lab.gated`（审批判定 ask），运行进 waiting 时停住。
+ * - waiting-approval：模型先调用 `lab.asker`（提一个异步问题就返回），下一条回复调用 `lab.gated`（审批判定 ask），运行进 waiting 后排一条
+ *   followup，受理之后停住（缓冲区里有一条就绪的话）。
  * - compacting：一轮对话之后开一次只压缩的运行，压缩方法的模型请求（`modelStarted{purpose: "compaction"}`）写下后停住。
  * - retry-wait：模型请求失败，在等重发（时钟没人推，一直等）。
  * - nested-approval：模型调用 `lab.coder`（声明了 `invokes`），它在代码里调 `lab.gated`，运行进 waiting 时停住（runtime.md 输出 101）。
@@ -59,8 +60,13 @@ if (mode === "compacting") {
     await session.say("第一问");
     void session.raw.compact({commandId: "compact"});
 } else if (mode === "waiting-approval" || mode === "nested-approval") {
+    let announced = false;
     session.raw.subscribe((frame) => {
-        if (frame.type === "status" && frame.status.state === "waiting") announce("waiting");
+        if (frame.type !== "status" || frame.status.state !== "waiting" || announced) return;
+        announced = true;
+        // 等审批的运行里排一条就绪的话：受理写下之后才宣布，父进程杀的时候它一定在日志里。
+        if (mode === "waiting-approval") void session.raw.enqueue({commandId: "queued", input: {text: "排着的"}, mode: "followup"}).then(() => announce("waiting"));
+        else announce("waiting");
     });
     if (mode === "waiting-approval") session.model.script({tools: [{tool: "lab.asker"}]}, {tools: [{tool: "lab.gated"}]});
     else session.model.script({tools: [{tool: "lab.coder"}]});

@@ -43,10 +43,18 @@ type Settled = {kind: "done"} | {kind: "threw"; error: unknown} | {kind: "timeou
 /** 写一个批并派发它引出的反应。只能在队列的一项里调用。 */
 export async function writeAndReact(core: SessionCore, drafts: readonly EventDraft[], host: ReactHost, runSignal?: AbortSignal): Promise<Reacted> {
     const events = await core.write(drafts);
+    return {events, continues: await reactToWritten(core, events, host, runSignal)};
+}
+
+/**
+ * 派发刚写下的那一批引出的反应。必须紧接着写这一批的 `core.write` 调用、中间不再写别的：各条事件之后的状态只保留到下一次写入
+ * （`stateAfter`）。受理指令用它把“受理批写下了”与“反应批写失败”分开（runtime.md 输出 104 之后的应答条目）。
+ */
+export async function reactToWritten(core: SessionCore, events: readonly LogEvent[], host: ReactHost, runSignal?: AbortSignal): Promise<Reacted["continues"]> {
     const states = events.map((event) => core.stateAfter(event.id));
     const continues: {extension: string; text: string}[] = [];
     for (let index = 0; index < events.length; index += 1) await reactTo(core, events[index]!, states[index]!, host, runSignal, continues);
-    return {events, continues};
+    return continues;
 }
 
 async function reactTo(core: SessionCore, event: LogEvent, state: StateAt, host: ReactHost, runSignal: AbortSignal | undefined, continues: {extension: string; text: string}[]): Promise<void> {
