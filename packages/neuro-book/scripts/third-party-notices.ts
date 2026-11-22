@@ -66,7 +66,15 @@ export async function packageNotices(directories: Iterable<string>): Promise<Not
 export async function workspaceNotices(manifestPath: string, packagesRoot: string): Promise<Notice[]> {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {dependencies?: Record<string, string>; devDependencies?: Record<string, string>};
     const names = [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})].filter((name) => name.startsWith("@notnotype/"));
-    const directories = [...new Set(names)].map((name) => join(packagesRoot, name.slice("@notnotype/".length))).filter((directory) => existsSync(join(directory, "package.json")));
+    const directories: string[] = [];
+    for (const name of new Set(names)) {
+        const directory = join(packagesRoot, name.slice("@notnotype/".length));
+        if (!existsSync(join(directory, "package.json"))) continue;
+        const own = JSON.parse(await readFile(join(directory, "package.json"), "utf8")) as {license?: string; private?: boolean};
+        // 没写许可的私有包是不发布的工具（测试支持包），不会打进产物。
+        if (own.license === undefined && own.private === true) continue;
+        directories.push(directory);
+    }
     return packageNotices(directories);
 }
 

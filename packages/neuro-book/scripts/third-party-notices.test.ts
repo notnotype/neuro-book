@@ -61,8 +61,11 @@ describe("列谁", () => {
             await writeFile(join(packages, dir, "package.json"), JSON.stringify({name: `@notnotype/${dir}`, version: "0.1.0", license}));
             await writeFile(join(packages, dir, "LICENSE"), `${license} text`);
         }
+        // 测试支持包：私有、没写许可，不会打进产物。
+        await mkdir(join(packages, "test-support"), {recursive: true});
+        await writeFile(join(packages, "test-support", "package.json"), JSON.stringify({name: "@notnotype/test-support", version: "0.0.0", private: true}));
         const manifest = join(tmp, "app-package.json");
-        await writeFile(manifest, JSON.stringify({dependencies: {"@notnotype/nb-ui": "workspace:^", vue: "^3.5.0"}, devDependencies: {"@notnotype/nb-layout": "workspace:^", "@notnotype/not-here": "workspace:*"}}));
+        await writeFile(manifest, JSON.stringify({dependencies: {"@notnotype/nb-ui": "workspace:^", vue: "^3.5.0"}, devDependencies: {"@notnotype/nb-layout": "workspace:^", "@notnotype/not-here": "workspace:*", "@notnotype/test-support": "workspace:*"}}));
         const notices = await workspaceNotices(manifest, packages);
         expect(notices.map((notice) => `${notice.name} ${notice.license}`)).toEqual(["@notnotype/nb-layout MIT"]);
         expect(notices[0]!.texts).toEqual(["MIT text"]);
