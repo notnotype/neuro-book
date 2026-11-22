@@ -42,9 +42,10 @@ const storyRange = ref<ChapterWindow | null>(null);
  */
 const selected = ref<string | null>(null);
 const ACTION = {entity: "打开人物卡", arc: "看这条主线的情节", episode: "到情节页看这段", secret: "到秘密页看这一行", question: "到悬念页看这一条"} as const;
-function onSelect(id: string): void {
+function onSelect(id: string, via: "click" | "menu"): void {
     selected.value = id;
-    if (book.drawer.value !== null && data.data.value?.nodes.find(node => node.id === id)?.type === "entity") book.openCard(id);
+    // 抽屉开着时人物点跟着换；右键顺带的选中不换（输出 27），菜单里有打开与在旁边打开。
+    if (via === "click" && book.drawer.value !== null && data.data.value?.nodes.find(node => node.id === id)?.type === "entity") book.openCard(id);
 }
 /** 选中的点；被隐藏的类型、换粒度后不在图里的点不算选中（浮条随之消失，图上也没有它）。 */
 const selectedNode = computed(() => {

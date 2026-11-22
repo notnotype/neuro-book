@@ -19,7 +19,7 @@ import type {Router} from "vue-router";
 
 import type {IngestStatusView, PositionInput, StoryResult} from "../../contract/contract";
 import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
-import {activeDetail, close, collapse, expand, fromView, openBeside, openIn, swap, toView, touch, type DetailRequest, type DetailsState, type DetailTarget} from "./details";
+import {activeDetail, checkCards, close, collapse, expand, fromView, isTab, openBeside, openIn, requestedCards, swap, toView, touch, type DetailRequest, type DetailsState, type DetailTarget, type Tab} from "./details";
 
 export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "revisions", "stats"] as const;
 export type Page = (typeof PAGES)[number];
@@ -44,8 +44,7 @@ function closedPage(features: Features, page: Page): string | null {
     return gate && !features[gate.feature] ? gate.missing : null;
 }
 
-export const TABS = ["summary", "relations", "records", "episodes"] as const;
-export type Tab = (typeof TABS)[number];
+export {TABS, type Tab} from "./details";
 
 export type DrawerContent =
     | {kind: "card"; entity: string; tab: Tab}
@@ -156,10 +155,6 @@ function isPage(value: unknown): value is Page {
     return typeof value === "string" && (PAGES as readonly string[]).includes(value);
 }
 
-function isTab(value: unknown): value is Tab {
-    return typeof value === "string" && (TABS as readonly string[]).includes(value);
-}
-
 function readSavedView(view: unknown): Partial<SavedView> {
     if (typeof view !== "object" || view === null) return {};
     const value = view as Record<string, unknown>;
@@ -215,17 +210,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     }
     const page = ref<Page>(initialPage);
     let perspective = typeof query.perspective === "string" ? query.perspective : (savedView.perspective ?? "reader");
-    // 人物卡的四个参数按组取（输出 4）：地址里出现任一个，四个都取地址（没写的当没有，页签缺省概况）；一个都没出现才整组用存下的。
-    // 命令行给的地址只写 `entity` 时，页签不从存下的状态补。
-    const cardKeys = ["entity", "tab", "entity2", "tab2"] as const;
-    const fromUrl = cardKeys.some((name) => query[name] !== undefined);
-    const pick = (name: (typeof cardKeys)[number]): unknown => (fromUrl ? query[name] : savedView[name]);
-    const requested: Array<{entity: string; tab: Tab}> = [];
-    for (const [entityKey, tabKey] of [["entity", "tab"], ["entity2", "tab2"]] as const) {
-        const value = pick(entityKey);
-        const tabValue = pick(tabKey);
-        if (typeof value === "string" && value !== "") requested.push({entity: value, tab: isTab(tabValue) ? tabValue : "summary"});
-    }
+    // 人物卡的四个参数按组取（输出 4、69，`requestedCards`）：命令行给的地址只写 `entity` 时，页签不从存下的状态补。
+    const requested = requestedCards(query, savedView);
 
     if (perspective !== "reader") {
         try {
@@ -236,23 +222,22 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             perspective = "reader";
         }
     }
-    // 两张并行核对，按规范化之后的 id 去重（同一个人只留左边那张）；没出现的那张去掉，留下的放在左边，每张一句提示。
-    const checked = await Promise.all(requested.map(async (card) => {
+    // 两张并行核对，按规范化之后的 id 去重（同一个人只留左边那张，`fromView`）；没出现的那张去掉，留下的放在左边，每张一句提示。
+    const checked = await checkCards(requested, async (entity) => {
         try {
-            return {...card, entity: (await client.call("entity.card", {book: bookId, at: at.value, entity: card.entity})).id};
+            return (await client.call("entity.card", {book: bookId, at: at.value, entity})).id;
         } catch (error) {
             if (!(error instanceof StoryCallError)) throw error;
-            notices.push(`对象“${card.entity}”在这个阅读位置还没出现，已关掉它的人物卡`);
             return null;
         }
-    }));
-    const cards = checked.filter((card): card is {entity: string; tab: Tab} => card !== null);
+    });
+    for (const entity of checked.missing) notices.push(`对象“${entity}”在这个阅读位置还没出现，已关掉它的人物卡`);
 
     const perspectiveRef = ref(perspective);
     const urlChapter = typeof query.chapter === "string" && /^\d+$/u.test(query.chapter) ? Number(query.chapter) : null;
     const sourceChapter = ref<number | null>(urlChapter !== null && urlChapter >= 1 && urlChapter <= info.chapters ? urlChapter : null);
     const qaConversation = ref<string | null>(typeof query.c === "string" && query.c !== "" ? query.c : null);
-    const details = shallowRef<DetailsState>(fromView({entity: cards[0]?.entity ?? null, tab: cards[0]?.tab ?? null, entity2: cards[1]?.entity ?? null, tab2: cards[1]?.tab ?? null}));
+    const details = shallowRef<DetailsState>(fromView(checked.view));
     const drawer = computed<DrawerContent | null>(() => (details.value.open ? (activeDetail(details.value)?.content ?? null) : null));
     const notice = ref<string | null>(notices.length ? notices.join("；") : null);
     const saveFailed = ref(false);

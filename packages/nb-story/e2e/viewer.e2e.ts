@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {expect, test, type Page} from "@playwright/test";
 
-import {login, makeLibrary, readingState, runCli, startServe, type StoryServer} from "./fixtures";
+import {centerOn, login, makeLibrary, readingState, runCli, settle, startServe, type StoryServer} from "./fixtures";
 
 let server: StoryServer;
 let cleanup: () => Promise<void>;
@@ -94,30 +94,6 @@ test("回到上次（验收 2）：换一个浏览器配置打开回到同一画
     await expect(next.getByTestId("reading-label")).toContainText("第 7 章");
     await other.close();
 });
-
-/** 等画布稳定：相隔 300ms 的两次轮询截图相同（WebGL 动画中连着两帧也可能一样，间隔太短会误判）。 */
-async function settle(page: Page): Promise<void> {
-    const graph = page.getByTestId("relation-graph");
-    let previous: Buffer | null = null;
-    await expect.poll(async () => {
-        const current = await graph.screenshot();
-        const same = previous !== null && current.equals(previous);
-        previous = current;
-        return same;
-    }, {intervals: [300]}).toBe(true);
-}
-
-/** 用“在图里找”把镜头移到一个点上：命中的点被移到画布中央。 */
-async function centerOn(page: Page, name: string): Promise<{x: number; y: number}> {
-    const graph = page.getByTestId("relation-graph");
-    await settle(page);
-    const before = await graph.screenshot();
-    await page.getByPlaceholder("在图里找").fill(name);
-    await expect.poll(async () => !(await graph.screenshot()).equals(before)).toBe(true);
-    await settle(page);
-    const box = (await graph.boundingBox())!;
-    return {x: box.x + box.width / 2, y: box.y + box.height / 2};
-}
 
 test("关系图挪阅读位置（输出 25，issue 268）：往后挪时新数据回来之前留着旧图、不出现“正在取”，数据到了图变；往前挪仍先清空，不把后文的图留在前面的位置上", async ({page}) => {
     await open(page, "/book/fox/relations?at=7&perspective=reader");

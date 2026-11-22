@@ -10,8 +10,8 @@ import {IconButton} from "@notnotype/nb-ui/components";
 import {computed, provide, ref} from "vue";
 
 import {BOOK_SESSION, type BookSession} from "../host/book";
-import type {DetailItem} from "../host/details";
-import {DETAIL_SCOPE} from "../host/detail-scope";
+import {detailLabel, type DetailItem} from "../host/details";
+import {DETAIL_SCOPE, scopeSession} from "../host/detail-scope";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
 import DrawerParagraph from "./DrawerParagraph.vue";
@@ -37,19 +37,8 @@ const emit = defineEmits<{
 }>();
 
 const shell = ref<HTMLElement | null>(null);
-const key = props.item.key;
-/**
- * 会话的代理：原型是会话本身（`info` 是 getter，用展开语法会把它求值成那一刻的旧值），只覆盖换哪一张、关哪一张。
- * 这一张的 `key` 在建外壳时定下：同一个外壳只对应一张详情（换内容会换 `key`、换外壳）。
- */
-const scoped: BookSession = Object.create(props.session, {
-    openCard: {value: (entity: string, tab?: Parameters<BookSession["openCard"]>[1]) => props.session.openDetail(tab === undefined ? {kind: "card", entity} : {kind: "card", entity, tab}, {key})},
-    openSource: {value: (ref: string) => props.session.openDetail({kind: "source", ref}, {key})},
-    openParagraph: {value: (chapter: number, paragraph: number) => props.session.openDetail({kind: "para", chapter, paragraph}, {key})},
-    openNode: {value: (id: string, label: string) => props.session.openDetail({kind: "node", id, label}, {key})},
-    closeDrawer: {value: () => close()},
-});
-provide(BOOK_SESSION, scoped);
+// 这一张的 `key` 在建外壳时定下（`scopeSession`）：同一个外壳只对应一张详情，换内容时宿主换 `key`、换外壳。
+provide(BOOK_SESSION, scopeSession(props.session, props.item.key, () => close()));
 const paired = computed(() => props.count > 1);
 provide(DETAIL_SCOPE, {paired, swap: () => emit("swap")});
 
@@ -59,7 +48,7 @@ function close(): void {
 function touch(): void {
     if (!props.active) emit("touch");
 }
-const label = (): string => (props.count < 2 ? "详情" : props.index === 0 ? "左边的详情" : "右边的详情");
+const label = (): string => detailLabel(props.index, props.count);
 /** 原文、段落、节点三种的头部标题（人物卡的头部是它自己的名字那一行）：拖动换边的把手要有字。 */
 const title = computed(() => {
     const content = props.item.content;
@@ -71,10 +60,10 @@ const title = computed(() => {
 </script>
 
 <template>
-    <!-- tabindex="-1"：关掉另一张时焦点要能交到这里（不进 Tab 顺序）。 -->
+    <!-- tabindex="-1"：关掉另一张时焦点要能交到这里（不进 Tab 顺序）；键盘用户看得到交到了哪里（内嵌焦点线）。 -->
     <aside
         ref="shell" tabindex="-1"
-        class="detail-shell flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)] outline-none"
+        class="detail-shell nb-ui-focus-ring-inset flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)] outline-none"
         data-testid="drawer" :data-detail-key="item.key" :data-detail-index="index" :aria-label="label()" :aria-current="count > 1 && active ? 'true' : undefined" :data-paired="paired ? '' : undefined"
         @pointerdown.capture="touch" @focusin="touch" @wheel.passive="touch"
     >

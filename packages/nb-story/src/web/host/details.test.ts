@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {close, collapse, EMPTY_DETAILS, expand, fromView, openBeside, openIn, swap, toView, touch, visibleDetails, type DetailsState} from "./details";
+import {checkCards, close, collapse, detailLabel, EMPTY_DETAILS, expand, fromView, openBeside, openIn, requestedCards, swap, toView, touch, visibleDetails, type DetailsState} from "./details";
 
 const card = (entity: string, tab?: "summary" | "relations" | "records" | "episodes") => ({kind: "card" as const, entity, ...(tab === undefined ? {} : {tab})});
 /** 每张写成“对象:页签”或内容种类，最近点过的那张加星号。 */
@@ -125,5 +125,44 @@ describe("地址与存下的状态（输出 69）", () => {
         expect(shape(fromView({entity: "林雨", tab: null, entity2: "林雨", tab2: "records"}))).toEqual(["林雨:summary*"]);
         expect(shape(fromView({entity: "林雨", tab: null, entity2: "王五", tab2: "records"}))).toEqual(["林雨:summary", "王五:records*"]);
         expect(fromView({entity: null, tab: null, entity2: null, tab2: null}).open).toBe(false);
+    });
+});
+
+describe("打开书页时要哪几张（输出 4、69）", () => {
+    const saved = {entity: "s1", tab: "records", entity2: "s2", tab2: "episodes"};
+    it("地址里一个都没写：整组用存下的", () => {
+        expect(requestedCards({}, saved)).toEqual([{entity: "s1", tab: "records"}, {entity: "s2", tab: "episodes"}]);
+    });
+    it("地址里写了任一个：四个都取地址，没写的当没有，页签缺省概况", () => {
+        expect(requestedCards({entity: "u1"}, saved)).toEqual([{entity: "u1", tab: "summary"}]);
+        expect(requestedCards({entity2: "u2"}, saved)).toEqual([{entity: "u2", tab: "summary"}]);
+        expect(requestedCards({tab: "relations"}, saved)).toEqual([]);
+        expect(requestedCards({entity: "u1", tab: "nope", entity2: "u2", tab2: "relations"}, saved)).toEqual([{entity: "u1", tab: "summary"}, {entity: "u2", tab: "relations"}]);
+    });
+    it("空串与没有值的参数当没写：不丢存下的", () => {
+        expect(requestedCards({entity: "", tab: null}, saved)).toEqual(requestedCards({}, saved));
+    });
+    it("逐张核对：换成规范化之后的 id；没出现的去掉、按左右的次序列出，留下的放左边", async () => {
+        // 右边那张先回来、左边的后回来：提示的次序仍按左右。
+        const answers = new Map<string, (id: string | null) => void>();
+        const pending = checkCards([{entity: "a", tab: "records"}, {entity: "b", tab: "summary"}], (entity) => new Promise((resolve) => answers.set(entity, resolve)));
+        answers.get("b")!(null);
+        await Promise.resolve();
+        answers.get("a")!(null);
+        expect(await pending).toEqual({view: {entity: null, tab: null, entity2: null, tab2: null}, missing: ["a", "b"]});
+        const right = await checkCards([{entity: "a", tab: "records"}, {entity: "b", tab: "episodes"}], async (entity) => (entity === "a" ? null : "b-main"));
+        expect(right).toEqual({view: {entity: "b-main", tab: "episodes", entity2: null, tab2: null}, missing: ["a"]});
+    });
+    it("两张规范化之后是同一个人：只留左边那张", async () => {
+        const checked = await checkCards([{entity: "a", tab: "records"}, {entity: "a-alias", tab: "summary"}], async () => "a");
+        const state = fromView(checked.view);
+        expect(visibleDetails(state).map((item) => item.content)).toEqual([{kind: "card", entity: "a", tab: "records"}]);
+    });
+});
+
+describe("显示名", () => {
+    it("一张时“详情”；两张时“左边的详情”“右边的详情”", () => {
+        expect(detailLabel(0, 1)).toBe("详情");
+        expect([detailLabel(0, 2), detailLabel(1, 2)]).toEqual(["左边的详情", "右边的详情"]);
     });
 });

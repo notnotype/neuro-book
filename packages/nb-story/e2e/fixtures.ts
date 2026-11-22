@@ -8,7 +8,7 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {gunzipSync} from "node:zlib";
 
-import type {BrowserContext} from "@playwright/test";
+import {expect, type BrowserContext, type Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const PACKAGE = join(import.meta.dirname, "..");
@@ -193,4 +193,28 @@ export async function makePartialLibrary(name: string, committed: number, total:
     await mkdir(dir, {recursive: true});
     await writeFile(join(dir, "source.json"), JSON.stringify({id: "fox", title: "转生反派萝莉，找茬魔法少女", chapters: full.sources.filter(chapter => chapter.chapter <= total), preambleChars: 0, volumeLines: 0, createdAt: "2026-10-27T00:00:00.000Z"}));
     return {root, library, cleanup: () => rm(root, {recursive: true, force: true})};
+}
+
+/** 等画布稳定：相隔 300ms 的两次轮询截图相同（WebGL 动画中连着两帧也可能一样，间隔太短会误判）。 */
+export async function settle(page: Page): Promise<void> {
+    const graph = page.getByTestId("relation-graph");
+    let previous: Buffer | null = null;
+    await expect.poll(async () => {
+        const current = await graph.screenshot();
+        const same = previous !== null && current.equals(previous);
+        previous = current;
+        return same;
+    }, {intervals: [300]}).toBe(true);
+}
+
+/** 用“在图里找”把镜头移到一个点上：命中的点被移到画布中央。 */
+export async function centerOn(page: Page, name: string): Promise<{x: number; y: number}> {
+    const graph = page.getByTestId("relation-graph");
+    await settle(page);
+    const before = await graph.screenshot();
+    await page.getByPlaceholder("在图里找").fill(name);
+    await expect.poll(async () => !(await graph.screenshot()).equals(before)).toBe(true);
+    await settle(page);
+    const box = (await graph.boundingBox())!;
+    return {x: box.x + box.width / 2, y: box.y + box.height / 2};
 }

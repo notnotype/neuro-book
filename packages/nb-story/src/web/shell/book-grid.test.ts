@@ -96,11 +96,15 @@ describe("张数变了（setCardCount，输出 66）", () => {
         expect(widthsNow()).toMatchObject({main: 449, drawer: 520, drawer2: 280});
     });
 
-    it("1280 宽开两张：网格按最小值压缩（主区 360，两张各约 369），拉平时按压缩后的呈现算", () => {
+    it("1280 宽开两张：网格按最小值压缩（主区停在 360，两张一样宽、都不小于 280），拉平时按压缩后的呈现算", () => {
         const narrow = {width: 1280, height: 800};
         const {grid, widthsNow, setCards} = build(1, narrow);
         setCards(2);
-        expect(widthsNow()).toMatchObject({nav: 178.3, main: 360, drawer: 369.4, drawer2: 369.4});
+        // 压缩的分法是 nb-layout 的事，这里只看本模块承诺的几样：主区到最小值、两张拉平、都不小于 280。
+        const squeezed = widthsNow();
+        expect(squeezed.main).toBe(360);
+        expect(Math.abs(squeezed.drawer - squeezed.drawer2)).toBeLessThan(0.5);
+        expect(Math.min(squeezed.drawer, squeezed.drawer2)).toBeGreaterThanOrEqual(280);
         const now = widthsNow();
         grid.resizeBranches([{branchId: "details", axis: "width", baseline: {drawer: now.drawer, drawer2: now.drawer2}, target: {drawer: now.drawer + 50, drawer2: now.drawer2 - 50}}]);
         setCards(1);

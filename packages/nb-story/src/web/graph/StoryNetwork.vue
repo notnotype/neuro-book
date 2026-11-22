@@ -78,7 +78,8 @@ const props = withDefaults(defineProps<{
  * 点空白处或按 Escape → clear。快捷键只在焦点在图上时生效（按下画布时焦点移到图上）。
  */
 const emit = defineEmits<{
-    (event: "select", id: string): void;
+    /** 选中了一个点。`via`：左键单击是 `"click"`；右键开菜单顺带选中是 `"menu"`，页面据此不让详情跟着换（菜单里有打开与在旁边打开）。 */
+    (event: "select", id: string, via: "click" | "menu"): void;
     (event: "open", id: string): void;
     (event: "menu", payload: {id: string; x: number; y: number}): void;
     (event: "neighborhood", value: boolean): void;
@@ -671,7 +672,7 @@ function bindEvents(instance: Sigma, target: Graph): void {
         instance.refresh({skipIndexation: true});
         if (props.neighborhood) enterNeighborhood();
         else if (props.layout === "concentric") relayout(false);
-        emit("select", node);
+        emit("select", node, "click");
     });
     // 双击打开，不做 Sigma 默认的双击放大。
     instance.on("doubleClickNode", ({node, event}) => {
@@ -684,7 +685,7 @@ function bindEvents(instance: Sigma, target: Graph): void {
             focus!.selected = node;
             instance.refresh({skipIndexation: true});
             if (props.neighborhood) enterNeighborhood();
-            emit("select", node);
+            emit("select", node, "menu");
         }
         const original = event.original as MouseEvent;
         emit("menu", {id: node, x: original.clientX, y: original.clientY});

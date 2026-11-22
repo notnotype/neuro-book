@@ -7,7 +7,15 @@
  * - `active` 是最近点过的那张：主区里的链接换它，读 `drawer` 的页面看的是它。
  */
 
-import type {DrawerContent, Tab} from "./book";
+import type {DrawerContent} from "./book";
+
+/** 人物卡的四个页签（`book.ts` 原样转出）。放在这里：地址参数的判断要用，`book.ts` 又从这里取状态函数。 */
+export const TABS = ["summary", "relations", "records", "episodes"] as const;
+export type Tab = (typeof TABS)[number];
+
+export function isTab(value: unknown): value is Tab {
+    return typeof value === "string" && (TABS as readonly string[]).includes(value);
+}
 
 export interface DetailItem {
     readonly key: number;
@@ -147,6 +155,57 @@ export function toView(state: DetailsState): DetailsView {
     const cards = visibleDetails(state).flatMap((item) => (item.content.kind === "card" ? [item.content] : []));
     const [left, right] = cards;
     return {entity: left?.entity ?? null, tab: left?.tab ?? null, entity2: right?.entity ?? null, tab2: right?.tab ?? null};
+}
+
+/** 地址或存下的状态里人物卡的四个参数，原样（地址里是字符串、`null` 或数组，存下的是任意值）。 */
+export interface CardParams {
+    readonly entity?: unknown;
+    readonly tab?: unknown;
+    readonly entity2?: unknown;
+    readonly tab2?: unknown;
+}
+
+export interface CardRequest {
+    readonly entity: string;
+    readonly tab: Tab;
+}
+
+const CARD_KEYS = ["entity", "tab", "entity2", "tab2"] as const;
+
+/**
+ * 打开书页时要哪几张人物卡（输出 4、69）：四个参数按组取。地址里写了任一个，四个都取地址（没写的当没有，页签不合法时按概况）；
+ * 一个都没写才整组用存下的。空串与没有值的 `?entity` 当没写：`?entity=` 不该丢掉存下的两张。
+ */
+export function requestedCards(url: CardParams, saved: CardParams): CardRequest[] {
+    const written = (value: unknown): value is string => typeof value === "string" && value !== "";
+    const source = CARD_KEYS.some((name) => written(url[name])) ? url : saved;
+    const cards: CardRequest[] = [];
+    for (const [entityKey, tabKey] of [["entity", "tab"], ["entity2", "tab2"]] as const) {
+        const entity = source[entityKey];
+        const tab = source[tabKey];
+        if (written(entity)) cards.push({entity, tab: isTab(tab) ? tab : "summary"});
+    }
+    return cards;
+}
+
+/**
+ * 逐张核对（并行）：`check` 给出规范化之后的 id，这个阅读位置还没有这个对象时给 null。没出现的去掉，`missing` 按左右的次序列出
+ * 原来的 id（提示按它写，不按请求完成的先后）。去重与“留下的放左边”由 `fromView` 做。
+ */
+export async function checkCards(cards: readonly CardRequest[], check: (entity: string) => Promise<string | null>): Promise<{view: DetailsView; missing: string[]}> {
+    const ids = await Promise.all(cards.map((card) => check(card.entity)));
+    const found = cards.flatMap((card, index) => (ids[index] === null ? [] : [{entity: ids[index]!, tab: card.tab}]));
+    const [left, right] = found;
+    return {
+        view: {entity: left?.entity ?? null, tab: left?.tab ?? null, entity2: right?.entity ?? null, tab2: right?.tab ?? null},
+        missing: cards.filter((_card, index) => ids[index] === null).map((card) => card.entity),
+    };
+}
+
+/** 一张详情的显示名：分隔线（`paneLabel`）与外壳的读屏名称共用。一张时“详情”，两张时“左边的详情”“右边的详情”。 */
+export function detailLabel(index: number, count: number): string {
+    if (count < 2) return "详情";
+    return index === 0 ? "左边的详情" : "右边的详情";
 }
 
 /** 从地址或存下的状态建：同一个人只留左边那张；右边那张成为最近的（与“最后打开”一致）。 */

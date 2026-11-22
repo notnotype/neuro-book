@@ -9,7 +9,7 @@ import LibraryPage from "./shell/LibraryPage.vue";
 const SettingsPage = () => import("./shell/SettingsPage.vue");
 
 /**
- * 地址的形状见 docs/specs/story/viewer.md 的“边界与兼容”：`/book/<书 id>/<页面>?at=&perspective=&entity=&tab=`，另有
+ * 地址的形状见 docs/specs/story/viewer.md 的“边界与兼容”：`/book/<书 id>/<页面>?at=&perspective=&entity=&tab=&entity2=&tab2=`，另有
  * 导入页 `/import`、进度页 `/ingest/<书 id>` 与设置页 `/settings`。
  */
 export const router = createRouter({

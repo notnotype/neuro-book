@@ -8,7 +8,7 @@
 
 import {expect, test, type Locator, type Page} from "@playwright/test";
 
-import {login, makeLibrary, startServe, type StoryServer} from "./fixtures";
+import {centerOn, login, makeLibrary, readingState, startServe, type StoryServer} from "./fixtures";
 
 let server: StoryServer;
 let cleanup: () => Promise<void>;
@@ -52,6 +52,10 @@ async function widths(page: Page) {
 function nameInMain(page: Page, label: string): Locator {
     return page.getByTestId("main").getByRole("button", {name: label, exact: true}).first();
 }
+/** 主区里第一个不是苏天晴、南嘉鱼的名字。 */
+function thirdName(page: Page): Locator {
+    return page.getByTestId("main").locator("button.name-link").filter({hasNotText: new RegExp(`^(${LIN}|${NAN})$`, "u")}).first();
+}
 async function openBeside(page: Page, label: string): Promise<void> {
     await nameInMain(page, label).click({modifiers: ["ControlOrMeta"]});
 }
@@ -93,14 +97,23 @@ test.describe("宽屏 1440", () => {
         await openBeside(page, LIN);
         await expect(card(page, 0)).toHaveAttribute("aria-current", "true");
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        // 两张时 Ctrl 点第三个人：换掉不是最近的那张（右边），左边不动，新开的成为最近的。
+        await thirdName(page).click({modifiers: ["ControlOrMeta"]});
+        await expect(card(page, 1).getByTestId("card-name")).not.toHaveText(NAN);
+        await expect(card(page, 1)).toHaveAttribute("aria-current", "true");
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(LIN);
     });
 
-    test("普通点击换最近点过的那张；在右边那张里滚一下也算最近；卡内切页签外壳不重挂", async ({page}) => {
+    test("普通点击：主区里的名字换最近点过的那张（在左边那张里滚一下也算最近）；卡内切页签外壳不重挂", async ({page}) => {
         await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
         await card(page, 0).hover();
         await page.mouse.wheel(0, 40);
         await expect(card(page, 0)).toHaveAttribute("aria-current", "true");
+        // 主区里的名字换最近点过的那张（左边），右边不动。
+        await thirdName(page).click();
+        await expect(card(page, 0).getByTestId("card-name")).not.toHaveText(LIN);
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
         const shell = await card(page, 1).elementHandle();
         await card(page, 1).getByRole("tab", {name: /关系/u}).click();
         await expect(card(page, 1)).toHaveAttribute("aria-current", "true");
@@ -115,11 +128,52 @@ test.describe("宽屏 1440", () => {
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
     });
 
-    test("关右边那张：回到一张 400、主区 850，焦点在剩下那张；关左边那张：右边那张占满、位置不变、元素还连着；关最后一张焦点到主区", async ({page}) => {
+    test("关系图上的人右键“在旁边打开”", async ({page}) => {
+        await open(page, "/book/fox/relations?at=38&perspective=reader&entity=e1-1");
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(LIN);
+        await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+        const center = await centerOn(page, NAN);
+        await page.mouse.move(center.x, center.y);
+        await page.mouse.down({button: "right"});
+        await page.mouse.up({button: "right"});
+        await page.getByRole("menuitem", {name: "在旁边打开"}).click();
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(LIN);
+    });
+
+    test("原文开在旁边（Ctrl 点出处）：头部写出处、是拖动的把手；头部的按钮与另一张对调", async ({page}) => {
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1");
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(LIN);
+        const ref = page.getByTestId("main").locator("button.ref-link").first();
+        const refText = (await ref.textContent())!.trim();
+        await ref.click({modifiers: ["ControlOrMeta"]});
+        await expect(card(page, 1).locator("[data-detail-handle]").getByTestId("detail-title")).toHaveText(`原文 ${refText}`);
+        await card(page, 1).getByRole("button", {name: "与另一张对调"}).click();
+        await expect(card(page, 0).getByTestId("detail-title")).toHaveText(`原文 ${refText}`);
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(LIN);
+    });
+
+    test("关右边那张：回到一张 400、主区 850，缩的每一帧里刚关掉的那张都还在，焦点在剩下那张；关左边那张：右边那张占满、位置不变、元素还连着；关最后一张焦点到主区", async ({page}) => {
         await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        // 逐帧记右边那一栏的宽度与南嘉鱼还在不在：栏在缩的每一帧（0 与 400 之间）里，刚关掉的那张都还画着（输出 66）。
+        await page.evaluate((name) => {
+            const frames: Array<{width: number; shown: boolean}> = [];
+            (window as unknown as {__closing: typeof frames}).__closing = frames;
+            const start = performance.now();
+            const step = () => {
+                const width = document.querySelector("[data-testid='book-frame'] [data-leaf='drawer2']")?.getBoundingClientRect().width ?? 0;
+                const shown = [...document.querySelectorAll<HTMLElement>("[data-content] [data-testid='card-name']")].some((element) => element.textContent === name && element.getBoundingClientRect().width > 0);
+                frames.push({width, shown});
+                if (performance.now() - start < 1500) requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+        }, NAN);
         await card(page, 1).getByRole("button", {name: "关闭"}).click();
         await expect.poll(() => widths(page)).toEqual({main: 850, drawer: 400, drawer2: 0});
+        const closing = (await page.evaluate(() => (window as unknown as {__closing: Array<{width: number; shown: boolean}>}).__closing)).filter((frame) => frame.width > 0.5 && frame.width < 399.5);
+        expect(closing.length).toBeGreaterThan(3);
+        expect(closing.every((frame) => frame.shown)).toBe(true);
         expect(await activeElement(page)).toEqual({testid: "drawer", index: "0"});
 
         await openBeside(page, NAN);
@@ -129,9 +183,25 @@ test.describe("宽屏 1440", () => {
         await expect(settled(page)).toHaveCount(0);
         const right = await card(page, 1).elementHandle();
         const before = (await card(page, 1).boundingBox())!;
+        // 关左边那张：它当即消失（输出 66）。逐帧记，第二栏在缩的每一帧里都已经看不到苏天晴。
+        await page.evaluate((name) => {
+            const frames: Array<{width: number; shown: boolean}> = [];
+            (window as unknown as {__closing: typeof frames}).__closing = frames;
+            const start = performance.now();
+            const step = () => {
+                const width = document.querySelector("[data-testid='book-frame'] [data-leaf='drawer2']")?.getBoundingClientRect().width ?? 0;
+                const shown = [...document.querySelectorAll<HTMLElement>("[data-content] [data-testid='card-name']")].some((element) => element.textContent === name && element.getBoundingClientRect().width > 0);
+                frames.push({width, shown});
+                if (performance.now() - start < 1500) requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+        }, LIN);
         await card(page, 0).getByRole("button", {name: "关闭"}).click();
         await expect(card(page, 0).getByTestId("card-name")).toHaveText(NAN);
         await expect.poll(() => widths(page)).toEqual({main: 850, drawer: 400, drawer2: 0});
+        const leftClosing = (await page.evaluate(() => (window as unknown as {__closing: Array<{width: number; shown: boolean}>}).__closing)).filter((frame) => frame.width > 0.5 && frame.width < 399.5);
+        expect(leftClosing.length).toBeGreaterThan(3);
+        expect(leftClosing.some((frame) => frame.shown)).toBe(false);
         await expect(settled(page)).toHaveCount(0);
         const after = (await card(page, 0).boundingBox())!;
         expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
@@ -275,6 +345,20 @@ test.describe("宽屏 1440", () => {
         await expect(card(page, 0).getByTestId("card-name")).toHaveText(LIN);
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
         await expect(page).toHaveURL(/entity2=e8-2&tab2=records/u);
+    });
+
+    test("回到上次（输出 69）：存下两张，换一个浏览器配置打开不带参数的书页，两张都回来", async ({page, browser}) => {
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1&tab=relations&entity2=e8-2");
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await expect.poll(async () => (await readingState(page.context(), server)).view, {timeout: 10_000}).toEqual(expect.objectContaining({entity: "e1-1", tab: "relations", entity2: "e8-2"}));
+        const other = await browser.newContext({viewport: {width: 1440, height: 900}});
+        await login(other, server);
+        const next = await other.newPage();
+        await next.goto(`${server.base}/book/fox`);
+        await expect(card(next, 0).getByTestId("card-name")).toHaveText(LIN);
+        await expect(card(next, 1).getByTestId("card-name")).toHaveText(NAN);
+        await expect(card(next, 0).getByRole("tab", {name: /关系/u})).toHaveAttribute("aria-selected", "true");
+        await other.close();
     });
 
     test("两张开着没有横向溢出", async ({page}) => {

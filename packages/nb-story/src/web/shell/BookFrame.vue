@@ -13,7 +13,7 @@ import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref
 import {useRouter} from "vue-router";
 
 import {BOOK_SESSION, type BookSession, type Page} from "../host/book";
-import {visibleDetails, type DetailItem, type DetailRequest} from "../host/details";
+import {detailLabel, visibleDetails, type DetailItem, type DetailRequest} from "../host/details";
 import {NAME_MENU} from "../host/name-menu";
 import {ingestBadge} from "../host/ingest";
 import {StoryCallError, useStoryClient} from "../host/client";
@@ -155,8 +155,8 @@ function paneLabel(id: string): string | undefined {
     if (pane === "nav") return "导航";
     if (pane === "main") return "正文";
     if (pane === "details") return "详情";
-    if (pane === "drawer") return cardCount() >= 2 ? "左边的详情" : "详情";
-    if (pane === "drawer2") return "右边的详情";
+    if (pane === "drawer") return detailLabel(0, cardCount());
+    if (pane === "drawer2") return detailLabel(1, 2);
     return undefined;
 }
 /**
@@ -198,12 +198,14 @@ function detailOf(contentKey: string): {item: DetailItem; index: number} | null 
  * 网格的 `content-parked` 不会发，所以不能等它。
  */
 function closeDetail(key: number, shell: HTMLElement): void {
-    if (shell.contains(document.activeElement)) {
-        const rest = shownDetails.value.find((item) => item.key !== key);
-        const target = rest === undefined ? root.value?.querySelector<HTMLElement>("[data-testid='main']") : root.value?.querySelector<HTMLElement>(`[data-detail-key="${rest.key}"]`);
-        target?.focus();
-    }
+    if (shell.contains(document.activeElement)) focusRemaining(key);
     book.closeDetail(key);
+}
+/** 焦点交给还看得见的那张（除了 `except`），没有就交给主区。 */
+function focusRemaining(except?: number): void {
+    const rest = shownDetails.value.find((item) => item.key !== except);
+    const target = rest === undefined ? root.value?.querySelector<HTMLElement>("[data-testid='main']") : root.value?.querySelector<HTMLElement>(`[data-detail-key="${rest.key}"]`);
+    target?.focus();
 }
 // ---- 拖详情换边（输出 68）：两张都在时按住头部拖，在另一张上松手对调 ----
 // 会话的根是包着网格的那一层：内容层是网格根的子元素，两张不在同一块叶里。选项只在建会话时读一次，里面读的响应式值每次调用时现读。
@@ -254,9 +256,7 @@ const nameMenuItems = computed<ContextMenuItem[]>(() => {
 
 /** 兜底：被停放的详情里还有焦点（例如拖到 0 收起）时交给还看得见的那张，没有就交给主区。不按事件里的 key 查：那一张可能已经关掉了。 */
 function onContentParked(): void {
-    const rest = shownDetails.value[0];
-    const target = rest === undefined ? root.value?.querySelector<HTMLElement>("[data-testid='main']") : root.value?.querySelector<HTMLElement>(`[data-detail-key="${rest.key}"]`);
-    target?.focus();
+    focusRemaining();
 }
 function setNavCollapsed(value: boolean): void {
     navCollapsed.value = value;
@@ -375,7 +375,7 @@ watch(notice, value => {
                             <IconButton v-if="tier === 'wide'" size="xs" :icon-class="navCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" :aria-label="navCollapsed ? '展开导航' : '收起导航'" @click="setNavCollapsed(!navCollapsed)" />
                         </div>
                     </nav>
-                    <main v-else-if="node.id === 'main'" class="h-full min-w-0 outline-none" tabindex="-1" data-testid="main">
+                    <main v-else-if="node.id === 'main'" class="nb-ui-focus-ring-inset h-full min-w-0 outline-none" tabindex="-1" data-testid="main">
                         <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
                         <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
                     </main>
@@ -390,7 +390,7 @@ watch(notice, value => {
                     </template>
                 </template>
             </NestedGrid>
-            <main v-else class="h-full min-w-0 pb-12 outline-none" tabindex="-1" data-testid="main">
+            <main v-else class="nb-ui-focus-ring-inset h-full min-w-0 pb-12 outline-none" tabindex="-1" data-testid="main">
                 <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
                 <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
             </main>

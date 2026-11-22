@@ -1,5 +1,5 @@
 ---
-标签: ["state:inject", "io:read", "state:local"]
+标签: ["state:inject", "io:read", "io:mutate", "state:local"]
 ---
 
 # 人物卡
@@ -29,6 +29,7 @@ defineProps<{
 
 - `state:inject`：经 `useBook()` 取书的会话（切页签、关闭、跳页、阅读位置）；经可选的 `DETAIL_SCOPE` 取外壳给的“并排着两张”与“对调”，浮层里没有外壳，就没有那一项。人物卡里的入口很多，逐层传成属性与事件会让外壳与浮层各写一遍。
 - `io:read`：自己按对象查卡片、说法、情节（`useStoryQuery`、`usePagedQuery`），按页签按需取。卡片会在详情外壳、浮层两处出现，查询跟着对象与页签走。
+- `io:mutate`：“同一身份”一栏的“断开”与“撤销”（输出 64）经 `useRevise()` 直接发 `revisions.reject`、`revisions.undo`。按钮与结果都只在这张卡里，没有别的地方要知道这次改动；改完由书的数据版本让各处重读。这是 t45 之前就有的做法，t45 补文档时如实登记。
 
 ## 注意事项
 

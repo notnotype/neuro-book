@@ -93,10 +93,11 @@ function open(id: string): void {
     if (node && isPerson(node.kind)) book.openCard(id, "relations");
     else book.openNode(id, node?.label ?? id);
 }
-function onSelect(id: string): void {
+function onSelect(id: string, via: "click" | "menu"): void {
     selected.value = id;
-    // 抽屉开着时跟着换；关着时只选中，等用户在小卡片上点打开。
-    if (book.drawer.value !== null) open(id);
+    // 抽屉开着时跟着换；关着时只选中，等用户在小卡片上点打开。右键顺带的选中不换（输出 27）：菜单里有打开与在旁边打开，
+    // 先换掉的话“在旁边打开”就只剩让已开着的那张成为最近的。
+    if (via === "click" && book.drawer.value !== null) open(id);
 }
 </script>
 
