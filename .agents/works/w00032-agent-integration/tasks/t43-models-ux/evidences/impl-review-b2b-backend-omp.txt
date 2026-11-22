@@ -1,0 +1,74 @@
+### 1. 协议检测把供应商回显的密钥与环境请求头交给浏览器
+- **严重程度**：阻断；**类别**：安全与性能
+- **位置**：packages/nb-harness/src/models/probe.ts:52–69、79–84、121–124；packages/nb-harness/src/kernel/model/redact.ts:24–30
+- **现象**：非 2xx 先按字节截正文，再对原始字符串做精确替换。真实 Bun HTTP + OMP 实测：供应商用 JSON 回显含引号、反斜线的测试密钥和 `env:` 请求头，四种协议的 `message` 都保留了两者的完整 JSON 转义形式，解码即可还原。正文前缀占 8,184 字节时，结果还漏出跨越 8 KiB 边界的 8 个密钥字符。另一个反例在明文密钥中间插入 NUL：替换先于去控制字符，最终返回的反而是完整密钥。
+- **为什么是问题**：违反 service.md 输出 12、草稿输出 26。普通 `check` 已用同一旧遮盖器，但本次新增的是不经适配器错误格式化的原始正文通道，新增了“先截断再遮盖”和结构化转义回显路径；测试只覆盖了无转义的完整回显。
+- **如何核实**：`bun /tmp/review-t43-b2b-impl/lab/probe-cases.ts json-echo`；将末参数分别换成 `raw-echo`、`control-echo`。仅使用本机端点和合成凭据。
+- **建议改法**：在同一个有界出口内处理 JSON 转义与控制字符；截断时保留足够尾部重叠用于遮盖跨界值，无法安全处理时退回结构化状态，不把未核对过的供应商正文交给调用方。
+
+### 2. 无流式 JSON 的兼容网关一律判失败，SSE 的输出计数也可能被内层重试吃掉
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-harness/src/models/probe.ts:99–106、126–147；packages/nb-harness/src/kernel/model/omp.ts:398–418、425–439
+- **现象**：四个协议的真实适配器均按 SSE 解码。一个忽略 `stream`、用对应协议的标准 JSON 终态返回 `pong` 和 1 个输出 token 的本机网关，四行全失败（Chat/Responses/Anthropic 为 `no-content`，Gemini 为 `network`）。即便改成 SSE，用干净终态报 1 个输出 token、不发内容增量，四行也都因适配器的空回复重试而变成 `no-content`；发送挂钩拦住的是重试，不会把第一次的正常终态还给第 147 行。
+- **为什么是问题**：草稿输出 26 明示正常收尾且报输出 token 的非流式网关通过。`response.usage.output` 并不是直接从 HTTP 正文读取的计数，只能看适配器成功交回的终态；没有证明这条分支能覆盖合同。此能力在 master 上未承诺，属于本次新功能遗漏。
+- **如何核实**：`bun /tmp/review-t43-b2b-impl/lab/probe-cases.ts json-success`，以及 `… probe-cases.ts token-only-sse`。两场景每个端点均只收到 1 次 POST。
+- **建议改法**：保留库自己的请求构造；决定是否确实支持非流式网关。若保留合同，给识别出的协议终态 JSON 做有界解码，同时单独禁用“空回复重试”，让 SSE 的真实终态先交给判定；不要把握手里的使用量或任意 JSON 的字段当证据。
+
+### 3. 400 仍把请求诊断和供应商正文留在 OMP 的磁盘日志里
+- **严重程度**：重要；**类别**：不变量
+- **位置**：packages/nb-harness/src/models/probe.ts:121–124；packages/nb-harness/src/models/target.ts:158；packages/nb-harness/src/kernel/model/omp.ts:331–342、474–481
+- **现象**：检测已从原始 400 得到结果并中止，却把同一个 400 与未遮盖的正文重建后交给供应商库。用普通 `bun`（非 `bun test`）、隔离 `HOME`、真实 HTTP 和 OMP，四种各收 1 次 400，Chat Completions、Responses、Gemini 合计留下 3 个 `http-400-requests/*.json`；Anthropic 本例没有留下。OMP 的写盘函数在 Bun 测试运行器中直接跳过；检测发出的中止让已有 `ompCall` 的 `aborted` 分支绕过提取路径及清理。
+- **为什么是问题**：计划明确检测“不写文件”。诊断还可能保留供应商回显的正文及名字不匹配 OMP 内置遮盖正则的自定义请求头；后续删除不能满足不写盘。master 已有对话的日志限制，但本次新增的探测不应走到该副作用。
+- **如何核实**：`lab=/tmp/review-t43-b2b-impl/lab; HOME="$lab/trace-home" bun "$lab/probe-cases.ts" 400`；读取该隔离 HOME 下诊断中的 `api` 字段。不要用 `bun test` 复现。
+- **建议改法**：探测消费非 2xx 后别把真实状态和未遮盖正文交给对话库的错误诊断路径；保留本地已记录的状态和详情，或在上游提供明确禁用请求诊断落盘的探测选项（也覆盖 SSE 内的 400）。
+
+### 4. 首个流内错误会被留样分支拖到超时，错误原文消失
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-harness/src/models/probe.ts:52–69、99–106、127–145；OMP 18.14.0 的 `google-shared.ts` 中 `consumeGoogleStream` 与 `pi-utils` 的 SSE 读流代码
+- **现象**：同一条 Gemini `error` 帧（503 / `UNAVAILABLE`，HTTP 200），发完关流时用 41 ms 返回 `network` 和 `upstream overloaded`；发完不关流时用 15,028 ms 返回 `timeout`、空 `message`。SSE 解码器退出时等待取消自己的流分支；`tee` 的另一路还在等 8 KiB 或 EOF，取消没完成。等到总时限才打断源流，随后第 143 行抢过已经发生的服务商错误。Anthropic 在短时限实验中也复现了 `timeout`；Chat/Responses 同类暂态错误可以变成重发分支的 `no-content`。
+- **为什么是问题**：草稿要求证据之前的错误优先，流内错误按适配器结果交回。问题由新加的留样分支和结算逻辑引入，不是服务商没有发错误，也不是第二次 HTTP。
+- **如何核实**：`PROBE_TIMEOUT=15000 bun /tmp/review-t43-b2b-impl/lab/probe-cases.ts long-429-stream 3` 与 `… probe-cases.ts stalled-after-error 3`；两边均实收 1 次。
+- **建议改法**：在单读者的数据流上顺便采集有界前缀，不建立独立等待的第二路；让适配器交回的原始终态和真正触发的超时/取消按先后结算，而不是靠第二次 `fetch` 猜原始结局。
+
+### 5. 混合模板的两行实际发同一种协议，采纳后快照仍说是另一种
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-models/src/core/core.ts:181–203、716–721、1056–1062、1068–1072；packages/nb-harness/src/models/target.ts:250–257
+- **现象**：OpenCode Zen 的缺省协议是 Chat Completions，选它时 `withApi` 删除覆盖；`materialize` 却在没有覆盖时优先用所测模型目录行的协议。用真实设置/RPC、本机覆盖地址，选 `gemini-3-flash`：四行合计 4 个 HTTP，但 Gemini 路径收到 2 次，`/chat/completions` 收到 0 次。端点只支持 Gemini，标成 Chat Completions 的行也通过。采纳该行后快照仍是 `openai-completions`，随后同模型的普通 `check` 实发 Gemini；采纳前显式覆盖下它实发 Chat Completions。
+- **为什么是问题**：把“显式改成某种线协议”和“清除覆盖、由每个模型跟随模板”做成同一动作，使两种不同的入口在合同中有同一个名字。master 已允许混合模板按模型选协议；回归是新检测把这个行为当成硬指定并据此写设置，不应改坏正常对话的混合路由。
+- **如何核实**：`bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t43-b2b-impl/lab/models-cases.ts mixed`。
+- **建议改法**：检测和采纳指定 `api` 时都明确固定该线协议；把“恢复模板每模型路由”作为独立状态/动作，不拿模板首路由代表它。加一个混合模板断言四种实际请求路径各只出现一次，采纳后同模型重查请求路径。
+
+### 6. 连接版本相同，不代表采纳后用的是检测试过的认证或地址
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-models/src/core/core.ts:184–205、236–237、708–710、1061、1068–1072；packages/nb-harness/src/models/target.ts:204–242、250–257
+- **现象**：`connectionOf` 只哈希服务商级已解析请求头，丢了模型级头和 `auth.missing`。真实 RPC 下，模型 `x-tenant` 从 `env:TENANT`（端点实收 4 次 A）改为 B，旧检测行仍能采纳，随后 `check` 实发 B，快照连接版本等于旧行。直接给服务商加一个未设置的 `env:` 头，版本也不变，旧行可采纳，但再检测立即 `no-credentials`。
+- **为什么是问题**：写队列与 CAS 确实会重新计算，但对输入不完备的版本重算也无法防止误采纳。服务商快照版本不能同时证明某个模型的真实请求身份；草稿“写进去的总是检测试过的”与其只列服务商级请求头也自相矛盾。
+- **如何核实**：运行 `/tmp/review-t43-b2b-impl/lab/models-cases.ts`，末参数分别换成 `model-header-cas`、`missing-provider-env-cas`。
+- **建议改法**：分开服务商快照版本与逐行采纳校验；后者关联所测模型，比较同一套请求解析得到的线协议、有效路径、身份、实际合并头、密钥与缺失状态。地址继承/覆盖必须在能改变实际路由时被版本区分。模型级变化也要让失败原因可识别。
+
+### 7. 凭据预检看错层：会拒绝本来能发的模型，也会把缺凭据当检测成功受理
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-models/src/core/core.ts:724–727、1045–1061；packages/nb-harness/src/models/target.ts:204–213
+- **现象**：服务商的 `x-tenant: env:ABSENT` 被模型的同名 `x-tenant: env:TENANT` 覆盖时，真实 `check` 发出正确的头且通过，`detectApi` 却在选模型之前直接返回 `no-credentials`。反过来，只在模型上配置未定义的 `env:`，`detectApi` 返回外层 `ok:true`，四次不出站，由适配器各报 `missing-key`，而不是方法的 `no-credentials`。
+- **为什么是问题**：输出 4 明确模型级覆盖服务商级；草稿输出 26 明确请求头引用无值为 `no-credentials`。预检和发送使用两份不同的请求头集合，现有两条应用用例只测了服务商 API Key。
+- **如何核实**：运行第 5 条命令，末参数改为 `missing-model-env`；对照 `absentHits: 0` 与随后的单行 `check` 实收租户头。
+- **建议改法**：先选定模型，再用实际 `ModelTarget` 与发请求相同的认证解析做一次预检；没有值就从外层返回合同业务码，不分别发起四个注定失败的适配器调用。
+
+### 8. 检测结果直接暴露含认证信息的完整地址（只计新增检测行）
+- **严重程度**：阻断；**类别**：安全与性能
+- **位置**：`packages/nb-models/src/core/core.ts:1056–1062`；`packages/nb-harness/src/models/probe.ts:108–110`；`packages/nb-models/src/contract/shapes.ts:188–203`
+- **现象**：配置含 userinfo 与查询凭据时，真实设置 RPC 的四行 `ApiCheck.baseUrl` 原样返回 `http://fixture-user:fixture-base-password@127.0.0.1:<port>/v1?key=fixture-query-secret`；同一请求的 `url` 只保留 origin/path。`SnapshotProvider.baseUrl` 也会返回完整地址，但这是 master 已有字段，不能将其作为本次新增影响。
+- **为什么是问题**：协议检测是本次新增的浏览器可见通道；合同只说 `baseUrl` 为协议使用的地址，没有说明它可以携带可回放认证信息。现有 `validAddress` 允许 userinfo 与查询串，故 user-supplied URL 可把凭据送入每一行检测结果；正文净化器不保护 `baseUrl` 字段。
+- **如何核实**：`bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t43-b2b-impl/lab/models-cases.ts base-secret`；仅本机 HTTP 与合成凭据。
+- **建议改法**：请求继续使用完整配置；检测行交付前解析 URL，移除 userinfo、查询串和片段，或拒绝带 userinfo/敏感查询参数的地址。连接 HMAC 仍覆盖真实地址。不要把既有快照字段的收紧混入本条。
+
+### 9. 统计
+- **有效发现**：1、2、3、4、5、6、7、8。
+- **严重程度**：阻断 2；重要 6。
+- **类别**：安全与性能 2（1、8）；正确性 5（2、4、5、6、7）；不变量 1（3）。
+- **未发现问题的方面**：真实远程取消能返回 `cancelled` 并关闭四条在途 HTTP 流；写队列串行执行，`mutate` 在设置冲突后等待变化并重读重试，`adoptApi` 在队列内重新计算并核对连接版本；四种协议各发一次且未跟随 3xx，服务端已移除 `checkAll`；合同 v5 的版本与 `detectApi`、`adoptApi` 形状和声明一致。没有把撤回的路径 URL 条目计入有效发现。
+- **已撤回/收窄**：原“错误正文中的 URL 路径 token 泄露”条目未计入；专门实验只证明查询串被遮盖，未证明路径文本是凭据，且一概删除路径会损失诊断信息。
+
+
+
+
