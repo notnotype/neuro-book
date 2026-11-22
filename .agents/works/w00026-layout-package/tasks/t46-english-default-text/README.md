@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t46-english-default-text
-status: planned
+status: active
 updated: 2026-11-22
 ---
 
@@ -9,14 +9,14 @@ updated: 2026-11-22
 
 ## 目标与范围
 
-nb-layout 没有注入文字时改用英文目录（提案第二档第 5 项）；nb-story 与开发者面板今天不注入、会静默变成英文，同一 Task 里给它们注入中文；改 ui/i18n 输出 8 与说缺省是 zh-CN 的文档。
+nb-layout 没有注入文字时改用英文目录、源语言改成 `en-US`（提案第二档第 5 项）；nb-story 与开发者面板今天不注入、会静默变成英文，同一 Task 里给它们注入中文；改 `ui/i18n` 输出 8 与说缺省是 zh-CN 的文档。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`ui/i18n`](../../../../../docs/specs/ui/i18n.md) 输出 8、[`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md) 输出 143。
 
 ## 当前状态
 
-2026-11-22 经 nbdev 新建，尚未开工。
+2026-11-22：[计划](plan.md)第 1 稿，等设计审查（Claude Sonnet）。
 
 ## 下一步
 
-待补充。
+处理设计审查，按计划实施。
