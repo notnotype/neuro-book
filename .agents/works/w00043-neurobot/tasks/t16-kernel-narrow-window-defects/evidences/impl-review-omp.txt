@@ -1,0 +1,57 @@
+### 1. 给 abort 加 log-broken 后，打开恢复失败会被远程改报为 provider-error
+
+- **严重程度**：重要；**类别**：正确性／远程合同回归。
+- **位置**：`packages/nb-harness/src/kernel/api/codes.ts:20`；`packages/neuro-book/src/plugins/agent/shared/remote.ts:55-60`；`packages/neuro-book/src/plugins/agent/sessions.test.ts:107-109`。
+- **现象**：向尚未打开、上次崩溃的会话发远程 `abort`，打开时恢复批写失败，内核经 `abandon` 返回 `log-broken` 并带 `{message}`。新增码让 `commandErrorsOf` 先给该码放入 `Type.Undefined()`；随后 `OPEN_CODES` 的 `??=` 不再放入允许详情对象的 schema。真实远程返回 `provider-error`，详情为“失败 log-broken 的详情不符合合同：/：must be undefined”。
+- **为什么是问题**：新增前该码由存储错误表补入，允许打开失败携带详情；此次增加码缩窄了已有的远程错误合同。`SessionTable.#use` 对打开失败原样转交详情，调用方失去可识别的 `log-broken`。新增应用测试只搜序列化合同里有没有这个字符串，不能检测详情被缩窄。
+- **如何核实**：在 HEAD `febfeb583` 的实现 worktree 运行 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t16-impl/lab NBOOK_AGENT_TEMP_ROOT=/tmp/review-t16-impl/lab/agent-temp bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t16-impl/lab/remote-abort-fault.ts`。真实 `agentWorld`、JSON 链路、JSONL 和 `kill -9` 崩溃夹具；只在恢复写入注入 EIO，命中 1 次，返回上述 `provider-error`，退出 0。没有直接调内部受理函数或伪造时序。
+- **建议改法**：合同生成时兼容同码的内核失败与打开失败详情；`log-broken` 同时允许无详情与存储详情对象。把应用测试改为真实远程打开恢复失败，另保留已打开坏句柄、无详情的停止失败作为对照。
+
+### 2. 新增远程停止用例移除本次码表修复仍通过，没有覆盖声称的远程失败
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/agent/sessions.test.ts:107-109`。
+- **现象**：用例只断言 `JSON.stringify(errors)` 含 `"log-broken"`。该码早就在 `storageErrors`，`commandErrorsOf` 会给所有远程指令补入；删除本次 `commandErrors.abort` 的新增码，该断言仍通过。用例没有创建坏句柄、没有调用远程 `abort`，也没有观察 `provider-error`。
+- **为什么是问题**：它给“远程可传输 log-broken”的验收提供了无区分力的证据，并漏掉第 1 条的真实详情校验回归。该结论是新增测试的覆盖缺口，不表示内核损坏门无效。
+- **如何核实**：只在 `/tmp/review-t16-impl/lab/harness-copy/src/kernel/api/codes.ts` 去掉新增码，经 Bun preload 将 `@notnotype/nb-harness/kernel/contracts` 解析到该副本。在实现 worktree 的 `packages/neuro-book` 执行 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t16-impl/lab NBOOK_AGENT_TEMP_ROOT=/tmp/review-t16-impl/lab/agent-temp bun test --preload /tmp/review-t16-impl/lab/contract-mutation.ts src/plugins/agent/sessions.test.ts -t '句柄坏了以后新的停止得 log-broken'`：1 pass、16 filtered out、1 次断言，退出 0。源码和被审 worktree 未改。
+- **建议改法**：经真实远程运行时分别测已打开坏句柄的停止，以及打开时恢复失败的停止；断言实际业务码和详情。删掉字符串包含断言，测试名只承诺真正观测的行为。
+
+### 3. 没有同步事项时，`settlePending` 仍改变 `send` 的首次失败回执
+
+- **严重程度**：建议；**类别**：正确性／合同不一致。
+- **位置**：`packages/nb-harness/src/kernel/run/commands.ts:218-234,96`；`harness/runtime.md` 输出 111、119。
+- **现象**：没有待处理的同步事项时，`send` 仍为 `settlePending: "deny"` 安装 `committed`。如果 `inputQueued` 引出的反应批写失败，不带该选项的首次调用交回 `log-broken`；带选项的首次调用成功（`placement: "taken"`、`seq: 9`、`replayed: false`）。两次都写了受理批、结算 0 个事项、发送 0 个模型请求，状态都是 `broken`。
+- **为什么是问题**：输出 111 说“没有待处理的同步事项时等于不带这个选项”；输出 119 则用“带 `settlePending` 的 `send`”指称应答，没有说明空结算是否例外。实现按选项分流，使两个除此选项外完全相同的发话得到不同回执；客户端在并发应答等情况下不能用有无真实结算解释这个结果。
+- **如何核实**：在实现 worktree 运行 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t16-impl/lab NBOOK_AGENT_TEMP_ROOT=/tmp/review-t16-impl/lab/agent-temp bun run /tmp/review-t16-impl/lab/send-empty-settle.ts`（首次运行需用两个空实验根）。原生内核与 JSONL，只拦截扩展对 `inputQueued` 抛错后的追加批；分别发普通话和带选项的话，得到上述差异。
+- **建议改法**：按输出 111，将本批实际写了 `interactionResolved` 的 `send` 归为应答；没有认领到事项时沿用 `delivered`。也可保留按参数分流，但应在输出 111 明写反应批损坏时的例外；无论选哪条，都用空结算的故障对照锁定回执。
+
+第 1 条对照证据（不另计）：在相同真实远程运行时仅恢复旧 `abort` 码表，仍在 `runEnded` 恢复写入命中 1 次 EIO，客户端返回 `log-broken`，保留 `detail.message: "the session log is broken: a write failed earlier"`。命令：`NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t16-impl/lab NBOOK_AGENT_TEMP_ROOT=/tmp/review-t16-impl/lab/agent-temp bun run --preload /tmp/review-t16-impl/lab/old-abort-codes.ts --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t16-impl/lab/remote-abort-fault.ts /tmp/review-t16-impl/lab/remote-abort-baseline`（末尾路径须为新实验根）。
+
+### 4. 续跑已经启动后才坏，故障前登记的 `waitRun` 也会拿到旧分支的成功
+
+- **严重程度**：重要；**类别**：正确性／等待者回归。
+- **位置**：`packages/nb-harness/src/kernel/run/control.ts:67-74,262-272`、`packages/nb-harness/src/kernel/run/results.ts:25-39`。
+- **现象**：完成一轮，回退到它的工具步骤，`start` 复用原 run id；等新分支已写 `modelStarted` 后登记 `waitRun`，此时它尚未完成。再让 `setTitle` 的受理批写失败。基线 `523d159e9` 的这个已登记等待者得到 `reason: "error"`、`log-broken`，当前 `febfeb583` 却给 `reason: "completed"`、旧分支的文字、seq 范围 `5–18`。两版都只存在 1 条 `runEnded`、都在旧分支；故障后新登记的等待者在两版都取到旧分支。
+- **为什么是问题**：旧结果已经被记录为已知限制，但这次扩大了受影响的窗口：实际启动以后、在损坏前开始等待的调用，以前仍能区分续跑失败；现在会把旧文字、用量及成功误当成这次续跑的结果。输出 13 说的是已有「这次运行」的收口，单用 run id 不足以识别这一次执行。
+- **如何核实**：在实现 worktree 设 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t16-impl/lab`、`NBOOK_AGENT_TEMP_ROOT=/tmp/review-t16-impl/lab/agent-temp`，运行 `bun run /tmp/review-t16-impl/lab/wait-run-before-new-end.ts "$PWD/packages/nb-harness"`，再以 `git archive 523d159e9` 解到实验目录的包根作参数。真实 `send`、`rewind`、`start`、`waitRun`、`setTitle` 和 JSONL；以新分支的 `modelStarted` 为门闩，只注入 1 次写失败，两次探针都退出 0。
+- **建议改法**：至少让 active 运行的故障结算只认本次启动／恢复边界之后的 `runEnded`；不要求此处解决所有复用 id 的历史查询歧义。用续跑启动后的故障覆盖已登记等待者，保留本次 `runEnded` 确实已提交时按日志结算的对照。
+
+### 5. 异步回答的测试没有覆盖“反应失败后不退役旧工具”
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-harness/src/kernel/run/interaction.test.ts:801-826`；`packages/nb-harness/src/kernel/run/loop.ts:256-259`。
+- **现象**：用例一直声明同一个工具，没有可退役的实例、也没有观察 `dispose`。它等 20 ms 后检查模型请求数及工具声明读取次数；只在实验副本强行 `launch` 时，声明读取增量确实从 1 变 2、原用例失败，但模型请求仍增加 0 次。它能抓住当前的直接启动路径，没有验证计划草稿 4 在第三轮设计审查之后明确要求的工具寿命。
+- **为什么是问题**：工具声明读取是内部取数，读一次或两次不是合同；退役会调用工具实现的 `dispose`，是在任何新日志写入之前已经发生的、宿主可见的副作用。测试也不应固定等待 20 ms 再判断没有发生。
+- **如何核实**：在实现 worktree 运行 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-t16-impl/lab NBOOK_AGENT_TEMP_ROOT=/tmp/review-t16-impl/lab/agent-temp bun run /tmp/review-t16-impl/lab/async-answer-retire.ts "$PWD/packages/nb-harness"`。真实内核与 JSONL：先让工具提异步问题并结束运行，再撤下声明、注入 1 次反应批写失败，经另一条入队指令作检查点。原版关闭前 `dispose` 0 次；同命令传实验副本包根，强开运行的变异是 1 次，断言失败；两版模型新增请求都是 0 次。
+- **建议改法**：用上述工具实例寿命检查替换工具声明计数与固定延时，保留错误回执、模型请求与 `broken` 状态的断言。
+
+## 未发现问题的方面
+
+- **受理与收尾**：逐一核对公共 `accept` 调用方。普通 `send` 和其他非应答指令未意外带上 `committed`。受理批失败仍交 `log-broken`；受理批成功后，反应阶段结束才叫醒已认领的事项。产品实跑中反应批写失败没有启动新运行、退役旧工具或卸载／挂载 Profile 扩展。
+- **状态、停止与关闭**：快照读 `RunControl.status`，运行阶段、事项报告和收口都经 `#setStatus`；仔细检查后没有发现绕过损坏门的状态更新。新 `abort` 的损坏门在已提交键重放和在途加入之后；不涉及 t17 的在途停止。真实 `SessionTable` 加 JSONL 的探针 `table-broken.ts` 中，已登记等待者得到 `log-broken`，释放引用后推进 30,000 ms，关闭 1 次，同 id 随即重新打开成功。没有复用 run id 时，已有 `runEnded` 和尚未启动两类等待者按输出 13 收口。
+- **只读打开与重放**：已提交 `resolve` 在只读门前重放，新键拒绝。只读恢复写入不派发反应、不挂载扩展；可写顺序仍为 `profileChanged`、恢复、挂载。真实子进程检查了工具执行、审批等待、压缩请求在途、真暂停，以及写前失败和完整写入后同步报错两类故障；再次打开能取锁，只有未落盘的恢复需要补写。新增排队步骤改变了 `waiting-approval` 夹具的缓冲区前提，现有可写恢复用例仍通过；`nested-approval` 不走这个步骤。
+- **验证**：`bun test` 定向运行 `nb-harness` 的 `interaction.test.ts`、`control.test.ts`、`session.test.ts`（81 通过）、`tree.test.ts`、`invoke.test.ts`、`table.test.ts`（45 通过），以及应用 `src/plugins/agent/sessions.test.ts`（17 通过），合计 143 通过、0 失败；`nb-harness` 的 `tsc --noEmit` 通过。实验对照与变异不计入上述单测；应用整包类型检查、e2e 和开发服务未运行。
+
+**各级数量**：阻断 0，重要 2，建议 3。
+
+有效发现编号（按影响）：1、4、3、2、5

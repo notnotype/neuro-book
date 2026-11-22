@@ -23,7 +23,6 @@ owners:
 - 检查点快照：第一版打开时从头归约；以后要加，快照只是缓存、不改日志格式。
 - 旧格式（`nb-session`、内核分支的会话条目）的读取：由迁移脚本一次性转换。
 - 已知限制：建会话时会话头与第一个写入批分两次写，两次之间进程被杀，留下只有会话头的日志；再建同一个 id 得 `session-exists`，打开它得到一个没有初始事件的会话。
-- 已知限制：Profile 解析不到、以只读打开的会话不做恢复（输出 15）；换回能用的 Profile 之后，上次没收口的运行被当成暂停的运行接着跑。
 
 ## 术语与参与者
 
@@ -135,10 +134,10 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 9. 超过阈值的字符串写成 `blobs/<sha256>`，事件里只留引用；文件在引用它的批写入之前写完并同步到盘。读回事件时引用换回原字符串，调用方看不到引用。内容相同的大块内容只存一份。
 10. 被脱敏的原文（`redacted`）只记 SHA-256，不写进日志，也不产生大块内容文件：会话目录里搜不到原文。
 11. 会话同一时刻只能被打开一次：另一个进程或同一进程再次打开时得 `session-busy`，`detail` 带持有者的进程号与取锁时刻。持有者关闭会话或进程结束（含被杀）时锁随之释放，下一次打开不需要任何清理。
-12. 写入或同步到盘失败时：这一批的结果对调用方不确定，句柄进损坏状态，之后同一句柄上的写入都得 `log-broken`；这一批不归约、不推给订阅者。关闭损坏的句柄只释放锁，同一进程可以立即重新打开；重开以文件为准（输出 5、6）。建会话或打开会话时写入（初始事件、打开时的 `profileChanged` 与恢复的结算）或装上扩展失败：摘下已装上的、释放锁，以 `log-broken` 交回，下次打开照常恢复。
+12. 写入或同步到盘失败时：这一批的结果对调用方不确定，句柄进损坏状态，之后同一句柄上的写入都得 `log-broken`；这一批不归约、不推给订阅者。关闭损坏的句柄只释放锁，同一进程可以立即重新打开；重开以文件为准（输出 5、6）。建会话或打开会话时写入（初始事件、打开时的 `profileChanged` 与恢复的结算）或装上扩展失败：摘下已装上的、释放锁，以 `log-broken` 交回，下次打开照常恢复。损坏之后运行状态与快照一直是 `broken`，后到的事项报告、运行阶段与收口都不改它。
 13. 打开会话照日志归约出全部状态，不跑反应；当前叶子是最后一条 path 事件或 `leafChanged` 指向的节点。
 14. 扩展事件的版本高于扩展当前声明的版本时：事件留在日志里，归约跳过它，写诊断 `event-version-unsupported`。
-15. 打开时结算上一次进程没有收口的运行，作为一个写入批写入：开始执行但没有结果的工具调用写成 `status: "unknown"`（码 `interrupted`）；等审批的调用写成 `status: "denied"`（码 `interrupted-before-approval`），对应的事项结算为 `interrupted`；让运行停下等待的提问结算为 `interrupted`；发出但没有回复的模型请求写 `modelFailed{kind: "interrupted"}`；最后写 `turnEnded`、`runEnded`，原因都是 `interrupted`。异步提问不属于运行，不结算。缓冲区里还就绪的输入在同一批转成留着（`inputHeld{cause: {end: "interrupted"}}`，[`runtime.md`](runtime.md) 输出 104），不自动发出。
+15. 打开时结算上一次进程没有收口的运行，作为一个写入批写入：开始执行但没有结果的工具调用写成 `status: "unknown"`（码 `interrupted`）；等审批的调用写成 `status: "denied"`（码 `interrupted-before-approval`），对应的事项结算为 `interrupted`；让运行停下等待的提问结算为 `interrupted`；发出但没有回复的模型请求写 `modelFailed{kind: "interrupted"}`；最后写 `turnEnded`、`runEnded`，原因都是 `interrupted`。异步提问不属于运行，不结算。缓冲区里还就绪的输入在同一批转成留着（`inputHeld{cause: {end: "interrupted"}}`，[`runtime.md`](runtime.md) 输出 104），不自动发出。Profile 解析不到、以只读打开时同样写这个批（只有内核事件，不派发反应、不装扩展）。这个批完整写进了文件、只是同步报错时，下次打开按文件归约，不再写。
 16. 宿主登记进程中断与终止的收口后，进程退出前对每个运行中的会话走输出 15 的同一套结算，原因同为 `interrupted`。
 17. 被受理的指令在受理批里写一条 `commandAccepted{commandId, name, value, argsHash}`，与指令立即写的事件同批；`argsHash` 是指令参数（去掉 `commandId`）按键排序后的 SHA-256。同一会话里重发同一个 `commandId`、指令与参数都相同，返回第一次的 `value` 与 `replayed: true`，不再写事件；重启之后同样成立。指令或参数不同得 `command-id-conflict`，不当成重发（早先没有 `argsHash` 的记录只比指令名）。校验失败的指令不写日志，重发时重新校验。fork 的复制批没写下时（新会话只有会话头），重发同一个 `commandId` 补写复制批。
 18. 空闲时会开始运行的指令（`send`、用户的 `enqueue`、`start`、`resume`、`compact`、带 `resend` 的 `rewind`、开得起运行的异步回答），受理批里含 `runStarted`（接着跑暂停的运行时是 `runResumed`）；开新一轮的另含取走就绪的第一条的 `inputConsumed`、`turnStarted` 与 `input`。受理之后、循环开始之前进程退出时，重开按输出 15 把这次运行结算为 `interrupted`。
@@ -166,7 +165,7 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 - `open` 返回之前已完成：取锁、修复尾部、校验、读回大块内容。之后的顺序由内核保证：按会话头解析 Profile 并装配扩展 → 归约 → 比对 Profile 哈希（不同就写 `profileChanged{reason: "code-updated"}`）→ 恢复（输出 15）→ 装上扩展（`mount`）。这些都完成之后才受理指令。
 - 一个会话的写入只有一个顺序：所有写入排进同一条队列。`append` 成功返回之后，这一批才归约、才推给订阅者；订阅者收到的 `seq` 严格递增。
 - 指令成功结果里的 `seq` 是受理批最后一条事件的 `seq`：订阅追到它，就读得到这条指令写下的全部事件。
-- 句柄进损坏状态之后：等待中的运行立即以 `{reason: "error", error: {kind: "local", code: "log-broken"}}` 完成（不写日志），运行状态变为 `broken` 并推一条状态帧；之后的指令得 `log-broken`。
+- 句柄进损坏状态之后：等运行的调用按 [runtime.md](runtime.md) 输出 13 完成（不写日志），运行状态变为 `broken` 并推一条状态帧，之后不再变；之后的指令得 `log-broken`（已提交的键照样重放）。
 - `close` 返回时锁已释放；关闭之后迟到的回调与工具结果不写日志，只写诊断。
 - 锁的寿命与句柄相同；进程结束时由操作系统释放。
 
