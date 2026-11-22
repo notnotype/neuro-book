@@ -215,3 +215,68 @@ describe("失败的分类与完整性", () => {
         }
     });
 });
+
+describe("审查补的边界", () => {
+    test("失败的说明只有状态码：正文里回显的认证头不带出来", async () => {
+        const server = serve(() => new Response("invalid key sk-secret-echoed-0001", {status: 401}));
+        try {
+            const result = await list("openai", server.base, listingHeaders("openai", "sk-secret-echoed-0001", {}, false));
+            expect(result).toMatchObject({ok: false, reason: "auth", status: 401});
+            expect(JSON.stringify(result)).not.toContain("sk-secret");
+        } finally {
+            server.stop();
+        }
+    });
+
+    test("不是列表的信封与坏分页标志不当成功：Gemini 的错误信封、无关对象、数字游标，Anthropic 的字符串 has_more", async () => {
+        const cases: Array<[ListingFlavor, unknown]> = [
+            ["gemini", {error: {code: 500, message: "boom"}}],
+            ["gemini", {unrelated: true}],
+            ["gemini", {models: [], nextPageToken: 123}],
+            ["anthropic", {data: [{id: "claude-a"}], has_more: "true", last_id: "claude-a"}],
+        ];
+        for (const [flavor, body] of cases) {
+            const server = serve(() => json(body));
+            try {
+                expect(await list(flavor, server.base)).toMatchObject({ok: false, reason: "bad-response"});
+            } finally {
+                server.stop();
+            }
+        }
+        const empty = serve(() => json({}));
+        try {
+            expect(await list("gemini", empty.base)).toEqual({ok: true, rows: []});
+        } finally {
+            empty.stop();
+        }
+    });
+
+    test("兼容服务的 `models` 信封照收；过长的名称截断；重复行也计入行数上限", async () => {
+        const long = "名".repeat(LISTING_LIMITS.nameLength + 50);
+        const envelope = serve(() => json({models: [{id: "compatible-model", name: long}]}));
+        const duplicates = serve(() => json({data: Array.from({length: LISTING_LIMITS.rows + 1}, () => ({id: "same"}))}));
+        try {
+            const result = await list("openai", envelope.base);
+            expect(result.ok && result.rows[0]!.id).toBe("compatible-model");
+            expect(result.ok && [...result.rows[0]!.name!].length).toBe(LISTING_LIMITS.nameLength);
+            expect(await list("openai", duplicates.base)).toMatchObject({ok: false, reason: "bad-response"});
+        } finally {
+            envelope.stop();
+            duplicates.stop();
+        }
+    });
+
+    test("翻页期间认证不再是当前的：下一页不发，整次 cancelled", async () => {
+        let current = true;
+        const server = serve(() => {
+            current = false;
+            return json({data: [{id: "claude-a"}], has_more: true, last_id: "claude-a"});
+        });
+        try {
+            expect(await listModels({flavor: "anthropic", baseUrl: server.base, headers: {}, signal: new AbortController().signal, stillCurrent: () => current})).toMatchObject({ok: false, reason: "cancelled"});
+            expect(server.seen).toHaveLength(1);
+        } finally {
+            server.stop();
+        }
+    });
+});

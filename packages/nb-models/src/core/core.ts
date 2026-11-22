@@ -160,6 +160,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         resolutions.clear();
         rowCache.clear();
         sourcesCache.clear();
+        // 配置或凭据变了：身份已不是当前的在途拉取立刻停（下一页不再带着旧的认证发）。
+        sources.reconcile();
         const next = snapshot();
         for (const listener of [...listeners]) listener();
         changed.emit(next);
@@ -268,10 +270,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const auth = requestAuth(targetOf(provider), null, access);
         const key = provider.auth === "none" ? null : auth.key;
         const ready = auth.missing.length === 0 && (key !== null || provider.auth === "none");
+        // 凭据按真正发出去的头算：协议的缺省认证头随“跟随模板”变（Anthropic 的 `x-api-key` 与 `Authorization`），同一个密钥换了头也是换了认证。
+        const headers = listingHeaders(flavor, key, auth.headers, follows(provider));
         return {
             deployment: createHash("sha256").update(`${provider.uid}\n${flavor}\n${api}\n${baseUrl}`).digest("hex").slice(0, 32),
-            credential: createHmac("sha256", secret).update(authInput(key, auth.headers)).digest("hex").slice(0, 32),
-            request: ready ? {flavor, baseUrl, headers: listingHeaders(flavor, key, auth.headers, follows(provider))} : null,
+            credential: createHmac("sha256", secret).update(authInput(key, headers)).digest("hex").slice(0, 32),
+            request: ready ? {flavor, baseUrl, headers} : null,
         };
     };
     const sources = createSources({
@@ -308,7 +312,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             for (const listed of listing) {
                 const found = blank ? undefined : view.find(provider.template, listed.id);
                 const catalogChat = found === undefined ? null : found.info.chat && found.info.wire !== null;
-                const kind = listed.kind !== "unknown" ? listed.kind : catalogChat === null ? "unknown" : catalogChat ? "chat" : "other";
+                // 目录认得这个 id 时以目录为准：列表的“能生成内容”分不出图片模型（Gemini 的 `generateContent`），目录说不是对话模型的不收。
+                const kind = catalogChat !== null ? (catalogChat ? "chat" : "other") : listed.kind;
                 if (kind === "other") continue;
                 if (found !== undefined && catalogChat === true) {
                     models.set(listed.id, {...found.info, kind, auto: true, row: {model: found.model, priceKnown: found.priceKnown}});
@@ -586,7 +591,15 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         };
     };
     /** 开着自动加入时，只含 id 与“启用”的来源条目没有信息量，不存。 */
-    const redundant = (provider: ProviderConfig, entry: ModelConfig): boolean => provider.followSource && entry.origin === "source" && entry.enabled && Object.keys(entry).length === 3;
+    /**
+     * 只含 id、来历与启用的来源条目，去掉之后这一行照样在列表里、启用与否也一样时没有信息量，不存。不自动加入的（类型不明）与缺窗口的
+     * 来源模型，条目就是“加入”与“启用”本身，要留着。
+     */
+    const redundant = (provider: ProviderConfig, entry: ModelConfig): boolean => {
+        if (!provider.followSource || entry.origin !== "source" || Object.keys(entry).length !== 3) return false;
+        const source = sourcesFor(provider).models.get(entry.id);
+        return source !== undefined && source.auto && entry.enabled === enabledOf({source, entry: undefined});
+    };
 
     const incomplete = (provider: ProviderConfig, models: readonly ModelConfig[]): Failure | null => {
         const sources = sourcesFor(provider).models;
@@ -614,12 +627,15 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         if (provider.followSource === follow) return provider;
         if (!follow) {
             const entries = new Set(provider.models.map((entry) => entry.id));
-            const frozen: ModelConfig[] = listedMembers(provider, sourcesFor(provider)).filter((row) => row.source !== undefined && !entries.has(row.id)).map((row) => ({id: row.id, origin: "source", enabled: true, frozen: true}));
+            // 冻结的是此刻的样子：缺窗口、没启用的照样记成没启用。
+            const frozen: ModelConfig[] = listedMembers(provider, sourcesFor(provider)).filter((row) => row.source !== undefined && !entries.has(row.id)).map((row) => ({id: row.id, origin: "source", enabled: enabledOf(row), frozen: true}));
             return {...provider, followSource: false, models: [...provider.models, ...frozen]};
         }
         const models = provider.models.flatMap((entry): ModelConfig[] => {
             if (entry.frozen !== true) return [entry];
-            if (entry.enabled && Object.keys(entry).length === 4) return [];
+            // 纯冻结条目（只有 id、来历、启用与冻结标记，启用与否也还是缺省的）删掉；用户改过的去掉标记留下。
+            const source = sourcesFor(provider).models.get(entry.id);
+            if (Object.keys(entry).length === 4 && source !== undefined && entry.enabled === enabledOf({source, entry: undefined})) return [];
             const {frozen: _frozen, ...rest} = entry;
             return [rest];
         });
@@ -987,7 +1003,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             refreshSource: (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                return sources.refresh(provider, "user") === "accepted" ? ctx.ok(null) : ctx.fail("no-credentials", {detail: "no credential for this provider"});
+                const accepted = sources.refresh(provider, "user");
+                if (accepted === "settings-unavailable") return ctx.fail("settings-unavailable", {code: "layer-invalid", detail: "the providers setting is not readable; fix the settings file first"});
+                return accepted === "accepted" ? ctx.ok(null) : ctx.fail("no-credentials", {detail: "no credential for this provider"});
             },
             check: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);

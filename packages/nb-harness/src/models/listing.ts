@@ -33,7 +33,7 @@ export type ListingResult =
     | {readonly ok: false; readonly reason: ListingFailure; readonly status: number | null; readonly message: string};
 
 /** 完整性的上限：超了算失败。现在最大的公开列表（OpenRouter）约 600 行、1 MiB。 */
-export const LISTING_LIMITS = {pages: 20, pageBytes: 8 * 1024 * 1024, rows: 5000, idLength: 256} as const;
+export const LISTING_LIMITS = {pages: 20, pageBytes: 8 * 1024 * 1024, rows: 5000, idLength: 256, nameLength: 200} as const;
 
 export interface ListModelsOptions {
     readonly flavor: ListingFlavor;
@@ -42,6 +42,11 @@ export interface ListModelsOptions {
     /** 认证头与配置的请求头，调用方合好（`listingHeaders`）。 */
     readonly headers: Readonly<Record<string, string>>;
     readonly signal: AbortSignal;
+    /**
+     * 每一页发出之前问一次：这份认证还是实例的当前认证吗（翻页期间用户清了密钥、改了地址，下一页不能再带着旧的发）。为假时整次
+     * 以 `cancelled` 结束。不给时不问。
+     */
+    readonly stillCurrent?: () => boolean;
 }
 
 /** 按协议与模板定变体：OpenRouter 的模板用它自己的列表形状，其余按协议。 */
@@ -102,8 +107,10 @@ export async function listModels(options: ListModelsOptions): Promise<ListingRes
     const rows = new Map<string, ListedModel>();
     const cursors = new Set<string>();
     let cursor: string | null = null;
+    let seenRows = 0;
     for (let page = 1; ; page += 1) {
         if (page > LISTING_LIMITS.pages) return bad(null, `the list has more than ${String(LISTING_LIMITS.pages)} pages`);
+        if (options.stillCurrent?.() === false) return {ok: false, reason: "cancelled", status: null, message: "the provider was changed while its models were being listed"};
         let response: Response;
         try {
             response = await fetch(listingUrl(options.flavor, options.baseUrl, cursor), {method: "GET", headers: {...options.headers}, redirect: "manual", signal: options.signal, proxy: false} as RequestInit);
@@ -128,8 +135,10 @@ export async function listModels(options: ListModelsOptions): Promise<ListingRes
             if (error instanceof BadResponse) return bad(200, error.message);
             throw error;
         }
+        // 上限按原始行数算（重复的 id 也算），免得一页几万个重复行被去重后当成小表放过。
+        seenRows += parsed.rows.length;
+        if (seenRows > LISTING_LIMITS.rows) return bad(200, `the list has more than ${String(LISTING_LIMITS.rows)} models`);
         for (const row of parsed.rows) if (!rows.has(row.id)) rows.set(row.id, row);
-        if (rows.size > LISTING_LIMITS.rows) return bad(200, `the list has more than ${String(LISTING_LIMITS.rows)} models`);
         if (parsed.next === null) return {ok: true, rows: [...rows.values()]};
         if (cursors.has(parsed.next)) return bad(200, "the list repeated a page cursor");
         cursors.add(parsed.next);
@@ -144,20 +153,17 @@ function thrown(error: unknown, signal: AbortSignal): ListingResult {
     return {ok: false, reason: "unreachable", status: null, message: error instanceof Error ? error.message : String(error)};
 }
 
-/** 失败的响应只取前一段原文作说明（不读完一个可能很大的错误页）。 */
+/**
+ * 失败的响应：只按状态码说明，不读正文。服务商、网关可能在错误正文里回显收到的认证头，说明会进快照与事件（浏览器可读），所以正文
+ * 一个字都不带出去；也不为一段用不上的正文等到截止。
+ */
 async function drain(response: Response, reason: ListingFailure): Promise<ListingResult> {
-    let text = "";
-    try {
-        text = (await readBounded(response, 2048, true)).trim();
-    } catch {
-        // 说明读不到不影响分类。
-    }
-    const status = response.status;
-    return {ok: false, reason, status, message: `the endpoint answered ${String(status)}${text === "" ? "" : `: ${text.slice(0, 300)}`}`};
+    await response.body?.cancel().catch(() => undefined);
+    return {ok: false, reason, status: response.status, message: `the endpoint answered ${String(response.status)}`};
 }
 
-/** 按字节读响应体；超过上限时取消读取，`truncate` 为真时交回已读的一段，否则抛 `BadResponse`。 */
-async function readBounded(response: Response, limit: number, truncate = false): Promise<string> {
+/** 按字节读响应体；超过上限时取消读取并抛 `BadResponse`。 */
+async function readBounded(response: Response, limit: number): Promise<string> {
     const reader = response.body?.getReader();
     if (reader === undefined) return "";
     const chunks: Uint8Array[] = [];
@@ -168,9 +174,7 @@ async function readBounded(response: Response, limit: number, truncate = false):
         size += value.byteLength;
         if (size > limit) {
             await reader.cancel();
-            if (!truncate) throw new BadResponse(`a page is larger than ${String(limit)} bytes`);
-            chunks.push(value.subarray(0, value.byteLength - (size - limit)));
-            break;
+            throw new BadResponse(`a page is larger than ${String(limit)} bytes`);
         }
         chunks.push(value);
     }
@@ -179,7 +183,8 @@ async function readBounded(response: Response, limit: number, truncate = false):
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const positive = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined);
-const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined);
+/** 显示名：去掉首尾空白，过长的截断（名称是外部输入，一行要能放进一帧 RPC）。 */
+const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? [...value.trim()].slice(0, LISTING_LIMITS.nameLength).join("") : undefined);
 
 function modelId(value: unknown): string {
     if (typeof value !== "string" || value === "" || value.length > LISTING_LIMITS.idLength || /[\u0000-\u001f]/u.test(value)) throw new BadResponse("a model in the list has no usable id");
@@ -190,7 +195,8 @@ function parsePage(flavor: ListingFlavor, body: unknown): {rows: ListedModel[]; 
     switch (flavor) {
         case "openai":
         case "openrouter": {
-            const data = Array.isArray(body) ? body : isRecord(body) ? body.data : undefined;
+            // OpenAI 是 `{data: [...]}`；兼容服务里还见过顶层数组与 `models`、`result`、`items`（同 OMP 的发现）。只认数组。
+            const data = Array.isArray(body) ? body : isRecord(body) ? [body.data, body.models, body.result, body.items].find(Array.isArray) : undefined;
             if (!Array.isArray(data)) throw new BadResponse("the response is not a model list");
             return {rows: data.map((item) => (flavor === "openrouter" ? openRouterRow(item) : openAiRow(item))), next: null};
         }
@@ -202,13 +208,16 @@ function parsePage(flavor: ListingFlavor, body: unknown): {rows: ListedModel[]; 
                 // Anthropic 的列表只有对话模型；窗口与上限它不给，由目录或用户补。
                 return {id: modelId(item.id), kind: "chat", ...(name === undefined ? {} : {name})};
             });
+            if (body.has_more !== undefined && typeof body.has_more !== "boolean") throw new BadResponse("the list has an invalid has_more flag");
             const more = body.has_more === true;
             const last = typeof body.last_id === "string" && body.last_id !== "" ? body.last_id : null;
             if (more && last === null) throw new BadResponse("the list says it has more pages but gives no cursor");
             return {rows, next: more ? last : null};
         }
         case "gemini": {
-            if (!isRecord(body) || (body.models !== undefined && !Array.isArray(body.models))) throw new BadResponse("the response is not a model list");
+            // 没有模型时 Gemini 回 `{}`；带别的键（`error` 之类）、`models` 不是数组、游标不是字符串的都不是列表。
+            if (!isRecord(body) || (body.models !== undefined && !Array.isArray(body.models)) || (body.nextPageToken !== undefined && typeof body.nextPageToken !== "string")) throw new BadResponse("the response is not a model list");
+            if (body.models === undefined && Object.keys(body).length > 0) throw new BadResponse("the response is not a model list");
             const rows = ((body.models ?? []) as unknown[]).map((item): ListedModel => {
                 if (!isRecord(item) || typeof item.name !== "string") throw new BadResponse("a model in the list has no name");
                 const id = modelId(item.name.startsWith("models/") ? item.name.slice("models/".length) : item.name);

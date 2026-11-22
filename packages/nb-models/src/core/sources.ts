@@ -10,6 +10,8 @@
  * `close()` 先让代次全部作废、取消在途请求，限时等它们收尾，再等写盘。
  */
 
+import {createHash} from "node:crypto";
+
 import type {CatalogView, ListedModel, ListingFlavor} from "@notnotype/nb-harness/models";
 import {createCatalogView, fetchOnlineCatalog, listModels, OnlineCatalogError, parseOnlineCatalog} from "@notnotype/nb-harness/models";
 import type {OnlineCatalog} from "@notnotype/nb-harness/models";
@@ -31,14 +33,15 @@ const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const CLOSE_WAIT_MS = 2_000;
 
 /**
- * 来源文件的存放（应用给：状态根下的目录）。`read` 没有这个文件时交回 null；读坏了、写失败抛错。`write` 要原子（同目录暂存再改名），
- * 崩溃时不留下半个文件。
+ * 来源文件的存放（应用给：状态根下的目录）。按键存取：键是 `uid` 的定长摘要（`sourceKeyOf`，32 位十六进制，能直接当文件名；`uid` 的
+ * 字符与长度由设置的形状定，不能直接当文件名），文件里另存原 `uid` 供核对。`read` 没有这个文件时交回 null；读坏了、写失败抛错。
+ * `write` 要原子（同目录暂存再改名），崩溃时不留下半个文件。
  */
 export interface SourceStore {
-    read(uid: string): Promise<unknown>;
-    write(uid: string, value: unknown): Promise<void>;
-    remove(uid: string): Promise<void>;
-    /** 现有的缓存文件对应的 `uid`。 */
+    read(key: string): Promise<unknown>;
+    write(key: string, value: unknown): Promise<void>;
+    remove(key: string): Promise<void>;
+    /** 现有的缓存文件的键。 */
     list(): Promise<readonly string[]>;
     readCatalog(): Promise<unknown>;
     writeCatalog(value: unknown): Promise<void>;
@@ -72,6 +75,9 @@ const CatalogCacheSchema = Type.Object({
     bytes: Type.String({maxLength: 12 * 1024 * 1024}),
 }, {additionalProperties: false});
 type CatalogCache = Static<typeof CatalogCacheSchema>;
+
+/** 来源文件的键：`uid` 的 SHA-256 前 32 位十六进制。 */
+export const sourceKeyOf = (uid: string): string => createHash("sha256").update(uid).digest("hex").slice(0, 32);
 
 /** 一个实例此刻的部署与凭据身份，以及发列表请求要的东西（没有可用凭据时 `request` 为 null）。 */
 export interface SourceDeployment {
@@ -114,7 +120,10 @@ export interface Sources {
     state(provider: ProviderConfig): ListingState;
     /** 这家的列表或目录视图换过就变：模型行的版本号带上它。 */
     rowsVersion(provider: ProviderConfig): string;
-    refresh(provider: ProviderConfig, cause: RefreshCause): "accepted" | "no-credentials";
+    /** `settings-unavailable`：设置此刻读不到（只对 `user` 交回），不出站。 */
+    refresh(provider: ProviderConfig, cause: RefreshCause): "accepted" | "no-credentials" | "settings-unavailable";
+    /** 配置或凭据变了：身份已不是当前的在途拉取立刻停（不等它取完再丢）。服务核心在作废快照时调用。 */
+    reconcile(): void;
     /** 删服务商之后回收它的缓存文件。 */
     collect(): Promise<void>;
     /** 自动更新的设置变了：开着就看一遍有没有过期的。 */
@@ -136,6 +145,11 @@ interface Entry {
     error: ListingState["error"];
     /** 最近一次发出拉取的时间（内存里；重启后重新算）。失败的也算，免得一家坏掉的端点每小时被打一次。 */
     attemptedAt: number | null;
+    /**
+     * 最近一次拉取（成功或失败）或读到的缓存的部署与凭据。自动拉取只给“从没拉过”或“与它相同”的身份：第一次拉取失败之后改了地址，
+     * 也不会在后台带着原来的密钥去新地址（进程内；重启后只看缓存）。
+     */
+    lastKey: string | null;
     writes: Promise<void>;
 }
 
@@ -156,7 +170,7 @@ export function createSources(deps: SourcesDeps): Sources {
     const entryOf = (uid: string): Entry => {
         let entry = entries.get(uid);
         if (entry === undefined) {
-            entry = {cache: null, rows: 0, generation: 0, inflight: null, error: null, attemptedAt: null, writes: Promise.resolve()};
+            entry = {cache: null, rows: 0, generation: 0, inflight: null, error: null, attemptedAt: null, lastKey: null, writes: Promise.resolve()};
             entries.set(uid, entry);
         }
         return entry;
@@ -173,8 +187,9 @@ export function createSources(deps: SourcesDeps): Sources {
     async function run(uid: string, entry: Entry, generation: number, deployment: SourceDeployment, controller: AbortController): Promise<void> {
         const request = deployment.request!;
         const deadline = AbortSignal.timeout(LISTING_TIMEOUT_MS);
-        const result = await listModels({...request, signal: AbortSignal.any([controller.signal, deadline])});
         const key = keyOf(deployment);
+        // 每一页发出前都核对一次：翻页期间清了密钥、改了地址，下一页不再带着旧的认证发。
+        const result = await listModels({...request, signal: AbortSignal.any([controller.signal, deadline]), stillCurrent: () => stillCurrent(uid, entry, generation, key)});
         if (!stillCurrent(uid, entry, generation, key)) return;
         if (!result.ok) {
             const timedOut = result.reason === "cancelled" && deadline.aborted && !controller.signal.aborted;
@@ -182,8 +197,18 @@ export function createSources(deps: SourcesDeps): Sources {
             return;
         }
         const cache: SourceCache = {version: 1, uid, deployment: deployment.deployment, credential: deployment.credential, checkedAt: deps.now(), rows: result.rows.map((row) => ({...row}))};
-        const written = await write(entry, () => deps.store?.write(uid, cache));
-        if (!stillCurrent(uid, entry, generation, key)) return;
+        // 排到写盘时再核对一次（排队期间可能改了配置、到了截止）：作废的结果不写盘，下次启动不会把它读回来。核对与改名之间只剩
+        // 一次文件写的时长，这个窗口接受。
+        const written = await write(entry, () => {
+            if (!stillCurrent(uid, entry, generation, key)) return "skipped";
+            if (deadline.aborted) return "late";
+            return deps.store?.write(sourceKeyOf(uid), cache);
+        });
+        if (written === "late") {
+            entry.error = {reason: "timeout", message: "the model list did not arrive in time"};
+            return;
+        }
+        if (written === "skipped" || !stillCurrent(uid, entry, generation, key)) return;
         if (!written) {
             entry.error = {reason: "storage", message: "the model list could not be saved"};
             return;
@@ -193,11 +218,13 @@ export function createSources(deps: SourcesDeps): Sources {
         entry.rows += 1;
     }
 
-    /** 同一 `uid` 的写盘排成一串；交回是否写成（失败写诊断）。 */
-    const write = (entry: Entry, work: () => Promise<void> | undefined): Promise<boolean> => {
-        const done = entry.writes.then(async () => {
+    /** 同一 `uid` 的写盘排成一串；交回是否写成（失败写诊断），或 `work` 在队头决定不写时交回的原因。 */
+    const write = <Skip extends string>(entry: Entry, work: () => Promise<void> | undefined | Skip): Promise<boolean | Skip> => {
+        const done = entry.writes.then(async (): Promise<boolean | Skip> => {
             try {
-                await work();
+                const outcome = work();
+                if (typeof outcome === "string") return outcome;
+                await outcome;
                 return true;
             } catch (error) {
                 deps.record("warn", "models.sources.write-failed", "Saving a provider model list failed", {error: message(error)});
@@ -208,8 +235,10 @@ export function createSources(deps: SourcesDeps): Sources {
         return done;
     };
 
-    const refresh = (provider: ProviderConfig, cause: RefreshCause): "accepted" | "no-credentials" => {
+    const refresh = (provider: ProviderConfig, cause: RefreshCause): "accepted" | "no-credentials" | "settings-unavailable" => {
         if (closed || (cause === "implicit" && (!started || !deps.autoUpdate()))) return "accepted";
+        // 设置读不到（文件改坏了，读到的是上一次的有效值）时不出站：地址与请求头可能已不是用户现在要的。
+        if (!deps.confirmed()) return cause === "user" ? "settings-unavailable" : "accepted";
         const deployment = deps.deploymentOf(provider);
         if (deployment === null || deployment.request === null) return "no-credentials";
         const entry = entryOf(provider.uid);
@@ -220,6 +249,7 @@ export function createSources(deps: SourcesDeps): Sources {
         const generation = (entry.generation += 1);
         const controller = new AbortController();
         entry.attemptedAt = deps.now();
+        entry.lastKey = key;
         const done = run(provider.uid, entry, generation, deployment, controller)
             .catch((error: unknown) => deps.record("warn", "models.sources.failed", "Fetching a provider model list failed", {error: message(error)}))
             .finally(() => {
@@ -292,14 +322,14 @@ export function createSources(deps: SourcesDeps): Sources {
      * （新部署不接手旧部署的认证，等用户重新拉取或设密钥）。最近试过、失败了的也等满一天。
      */
     function check(): void {
-        if (closed || !started || !deps.autoUpdate()) return;
+        if (closed || !started || !deps.autoUpdate() || !deps.confirmed()) return;
         if (deps.catalogUrl !== null && stale(catalog?.cache.fetchedAt ?? null) && stale(catalogAttemptedAt)) refreshCatalog();
         for (const provider of deps.providers()) {
             const entry = entryOf(provider.uid);
             const deployment = deps.deploymentOf(provider);
             if (deployment === null || deployment.request === null || entry.inflight !== null || !stale(entry.attemptedAt)) continue;
-            const cache = entry.cache;
-            if (cache !== null && (cache.deployment !== deployment.deployment || cache.credential !== deployment.credential || !stale(cache.checkedAt))) continue;
+            if (entry.lastKey !== null && entry.lastKey !== keyOf(deployment)) continue;
+            if (entry.cache !== null && !stale(entry.cache.checkedAt)) continue;
             refresh(provider, "implicit");
         }
     }
@@ -308,12 +338,15 @@ export function createSources(deps: SourcesDeps): Sources {
         if (deps.store === undefined || !deps.confirmed()) return;
         try {
             const known = new Set(deps.providers().map((provider) => provider.uid));
-            for (const uid of await deps.store.list()) {
+            // 删掉的服务商：在途的拉取不管有没有缓存文件都停。
+            for (const [uid, entry] of entries) {
                 if (known.has(uid)) continue;
-                entries.get(uid)?.inflight?.controller.abort();
+                entry.generation += 1;
+                entry.inflight?.controller.abort();
                 entries.delete(uid);
-                await deps.store.remove(uid);
             }
+            const keys = new Set([...known].map(sourceKeyOf));
+            for (const key of await deps.store.list()) if (!keys.has(key)) await deps.store.remove(key);
         } catch (error) {
             deps.record("warn", "models.sources.collect-failed", "Removing unused provider model lists failed", {error: message(error)});
         }
@@ -324,7 +357,7 @@ export function createSources(deps: SourcesDeps): Sources {
         if (store === undefined) return;
         for (const provider of deps.providers()) {
             try {
-                const value = await store.read(provider.uid);
+                const value = await store.read(sourceKeyOf(provider.uid));
                 if (value === null) continue;
                 if (!Value.Check(SourceCacheSchema, value) || value.uid !== provider.uid) {
                     deps.record("warn", "models.sources.invalid", "A provider model list file is invalid and was ignored", {provider: provider.id});
@@ -332,6 +365,7 @@ export function createSources(deps: SourcesDeps): Sources {
                 }
                 const entry = entryOf(provider.uid);
                 entry.cache = value;
+                entry.lastKey = `${value.deployment}\n${value.credential}`;
                 entry.rows += 1;
             } catch (error) {
                 deps.record("warn", "models.sources.read-failed", "Reading a provider model list failed", {provider: provider.id, error: message(error)});
@@ -378,6 +412,16 @@ export function createSources(deps: SourcesDeps): Sources {
         },
         rowsVersion: (provider) => `${String(catalogVersion)}.${String(entries.get(provider.uid)?.rows ?? 0)}`,
         refresh,
+        reconcile: () => {
+            for (const [uid, entry] of entries) {
+                if (entry.inflight === null) continue;
+                const provider = deps.providers().find((item) => item.uid === uid);
+                const deployment = provider === undefined ? null : deps.deploymentOf(provider);
+                if (deployment !== null && keyOf(deployment) === entry.inflight.key) continue;
+                entry.generation += 1;
+                entry.inflight.controller.abort();
+            }
+        },
         collect,
         autoUpdateChanged: check,
         close: async () => {
@@ -396,10 +440,11 @@ export function createSources(deps: SourcesDeps): Sources {
                 catalogInflight.controller.abort();
                 pending.push(catalogInflight.done);
             }
+            // 在途请求与写盘一起至多等 2 秒：写盘卡住（磁盘挂起）时不让插件的收口一直等下去。
+            const writes = [...[...entries.values()].map((entry) => entry.writes), catalogWrites];
             let wait: ReturnType<typeof setTimeout> | undefined;
-            await Promise.race([Promise.allSettled(pending), new Promise((resolve) => (wait = setTimeout(resolve, CLOSE_WAIT_MS)))]);
+            await Promise.race([Promise.allSettled([...pending, ...writes]), new Promise((resolve) => (wait = setTimeout(resolve, CLOSE_WAIT_MS)))]);
             clearTimeout(wait);
-            await Promise.allSettled([...[...entries.values()].map((entry) => entry.writes), catalogWrites]);
         },
     };
 }

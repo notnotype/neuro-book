@@ -36,6 +36,17 @@ describe("解析与目录视图", () => {
         expect(createCatalogView().find("anthropic", "claude-brand-new")).toBeUndefined();
     });
 
+    test("坏行丢掉、其余照收：窗口不是整数、价目不是数字的不当成已知", () => {
+        const view = createCatalogView(parseOnlineCatalog(zstd({anthropic: {models: {
+            ...payload.anthropic.models,
+            "claude-bad-window": {id: "claude-bad-window", name: "Bad Window", tool_call: true, limit: {context: 7.25, output: 10}, cost: {input: 1, output: 1}},
+            "claude-bad-price": {id: "claude-bad-price", name: "Bad Price", tool_call: true, limit: {context: 100_000, output: 10}, cost: {input: "not-a-price", output: 1}},
+        }}})));
+        expect(view.find("anthropic", "claude-bad-window")).toBeUndefined();
+        expect(view.find("anthropic", "claude-bad-price")).toBeUndefined();
+        expect(view.find("anthropic", "claude-brand-new")).toBeDefined();
+    });
+
     test("价目按原文：有 cost 且全为 0 是免费，没有 cost 是未知", () => {
         const view = createCatalogView(parseOnlineCatalog(zstd(payload)));
         expect(view.find("anthropic", "claude-brand-new")).toMatchObject({priceKnown: true, info: {price: {input: 3, output: 15}}});

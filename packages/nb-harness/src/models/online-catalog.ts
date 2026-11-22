@@ -59,12 +59,34 @@ export function parseOnlineCatalog(bytes: Uint8Array): OnlineCatalog {
     for (const spec of mapModelsDevToModels(data, MODELS_DEV_PROVIDER_DESCRIPTORS)) {
         const descriptor = MODELS_DEV_PROVIDER_DESCRIPTORS.find((item) => item.providerId === spec.provider);
         const rawRow = descriptor === undefined ? undefined : rawModel(data, descriptor.modelsDevKey, spec.id);
+        // OMP 的映射是容错的：缺的字段补默认、价目不是数字时当 0、窗口不要求整数。这里逐行验，不合格的行丢掉（不让一行坏数据变成
+        // “已知免费”或页面上放不下的窗口），其余照收。
+        if (!rowValid(spec, rawRow)) continue;
+        const model = buildModel({...spec, name: [...spec.name].slice(0, NAME_LIMIT).join("")}) as Model;
         const rows = providers.get(spec.provider) ?? [];
-        rows.push({model: buildModel(spec) as Model, priced: rawRow !== undefined && typeof rawRow.cost === "object" && rawRow.cost !== null});
+        rows.push({model, priced: rawRow !== undefined && typeof rawRow.cost === "object" && rawRow.cost !== null});
         providers.set(spec.provider, rows);
     }
     if (providers.size === 0) throw new OnlineCatalogError("malformed", "the catalog has no providers");
     return {providers};
+}
+
+/** 显示名的上限（同列表请求）：一行要能放进一帧 RPC。 */
+const NAME_LIMIT = 200;
+const positiveInteger = (value: unknown): boolean => typeof value === "number" && Number.isInteger(value) && value > 0;
+const price = (value: unknown): boolean => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0);
+
+/** 一行能不能收：id 有界；窗口与上限是正整数或没有；原文的价目字段都是非负的有限数。 */
+function rowValid(spec: {id: unknown; contextWindow?: unknown; maxTokens?: unknown}, raw: Record<string, unknown> | undefined): boolean {
+    if (typeof spec.id !== "string" || spec.id === "" || spec.id.length > 256) return false;
+    for (const value of [spec.contextWindow, spec.maxTokens]) if (value !== null && value !== undefined && !positiveInteger(value)) return false;
+    const cost = raw?.cost;
+    if (cost !== undefined && (typeof cost !== "object" || cost === null)) return false;
+    if (cost !== undefined) {
+        const fields = cost as Record<string, unknown>;
+        if (![fields.input, fields.output, fields.cache_read, fields.cache_write].every(price)) return false;
+    }
+    return true;
 }
 
 function rawModel(data: Record<string, unknown>, key: string, id: string): Record<string, unknown> | undefined {

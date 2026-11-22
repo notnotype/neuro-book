@@ -6,7 +6,7 @@
  */
 
 import {afterEach, describe, expect, test} from "bun:test";
-import {clampEffort, listCatalog, MissingModelKeyError, providerKeyReady, resolveModel, suggestFromCatalog} from "../src";
+import {clampEffort, discoverModels, listCatalog, MissingModelKeyError, providerKeyReady, resolveModel, suggestFromCatalog} from "../src";
 
 const touched = new Set<string>();
 function setEnv(name: string, value: string | undefined): void {
@@ -106,5 +106,78 @@ describe("目录模型的密钥", () => {
         setEnv("ZENMUX_API_KEY", undefined);
         const resolved = resolveModel(`zenmux/${provider("zenmux").models[0]!.id}`);
         expect(() => resolved.apiKey()).not.toThrow();
+    });
+});
+
+describe("读 /models", () => {
+    /** 本机的 OpenAI 兼容服务：按路径给出固定的回应；记下收到的认证头。 */
+    function serve(respond: () => Response) {
+        const authorizations: (string | null)[] = [];
+        const server = Bun.serve({
+            port: 0,
+            hostname: "127.0.0.1",
+            fetch(request) {
+                authorizations.push(request.headers.get("authorization"));
+                return new URL(request.url).pathname === "/v1/models" ? respond() : new Response("no", {status: 404});
+            },
+        });
+        return {url: `http://127.0.0.1:${server.port}/v1`, authorizations, stop: () => server.stop(true)};
+    }
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status, headers: {"content-type": "application/json"}});
+
+    test("读到模型：带认证头；认得的模型名给出目录里的参照", async () => {
+        const server = serve(() => json({data: [{id: "gpt-5.6-sol"}, {id: "house-model"}]}));
+        try {
+            const result = await discoverModels({api: "openai-completions", baseUrl: server.url, apiKey: "fake-key-for-test"});
+            expect(result.state).toBe("found");
+            const models = result.state === "found" ? result.models : [];
+            expect(models.map(model => model.id)).toEqual(["gpt-5.6-sol", "house-model"]);
+            expect(models[0]!.suggested).toMatchObject({from: "openai/gpt-5.6-sol", contextWindow: 1_050_000});
+            expect(models[1]!.suggested).toBeNull();
+            expect(server.authorizations).toEqual(["Bearer fake-key-for-test"]);
+        } finally {
+            server.stop();
+        }
+    });
+
+    test("空列表、404、401、403、别的状态码与坏回应各自分开", async () => {
+        const cases: [() => Response, string, number | null][] = [
+            [() => json({data: []}), "empty", null],
+            [() => new Response("missing", {status: 404}), "not_supported", 404],
+            [() => new Response("denied", {status: 401}), "auth", 401],
+            [() => new Response("denied", {status: 403}), "auth", 403],
+            [() => new Response("boom", {status: 500}), "failed", 500],
+            [() => new Response("not json", {status: 200}), "failed", 200],
+        ];
+        for (const [respond, state, status] of cases) {
+            const server = serve(respond);
+            try {
+                const result = await discoverModels({api: "openai-completions", baseUrl: server.url});
+                expect(result.state).toBe(state as never);
+                if (status !== null) expect(result).toMatchObject({status});
+            } finally {
+                server.stop();
+            }
+        }
+    });
+
+    test("连不上，或者回了响应头、响应体超时没发完：unreachable", async () => {
+        const server = serve(() => json({data: []}));
+        const url = server.url;
+        server.stop();
+        expect((await discoverModels({api: "openai-completions", baseUrl: url})).state).toBe("unreachable");
+
+        // 先发响应头与半个 JSON，之后不再发。
+        let stall: ReadableStreamDefaultController<Uint8Array> | null = null;
+        const slow = serve(() => new Response(new ReadableStream<Uint8Array>({start(controller) {
+            stall = controller;
+            controller.enqueue(new TextEncoder().encode('{"data":['));
+        }}), {status: 200, headers: {"content-type": "application/json"}}));
+        try {
+            expect(await discoverModels({api: "openai-completions", baseUrl: slow.url, timeoutMs: 200})).toMatchObject({state: "unreachable"});
+        } finally {
+            (stall as ReadableStreamDefaultController<Uint8Array> | null)?.close();
+            slow.stop();
+        }
     });
 });

@@ -133,9 +133,10 @@ const methods = {
     },
     /**
      * 重新拉取这家的模型列表：受理即交回，结果经 `changed` 的快照交（`source.refreshing` 先为真，完成后 `state`、`error` 更新）。
-     * 同一部署与凭据的在途拉取合并；没有可用凭据为 `no-credentials`。
+     * 同一部署与凭据的在途拉取合并；没有可用凭据为 `no-credentials`；设置读不到时不出站，为 `settings-unavailable`。会写缓存，所以是
+     * `write`：链路断在返回之前时，调用方按快照核对受理没有，不当成没执行。
      */
-    refreshSource: {input: ProviderInput, output: None, effect: "read", errors: {"unknown-provider": Detail, "no-credentials": Detail}},
+    refreshSource: {input: ProviderInput, output: None, effect: "write", errors: {"unknown-provider": Detail, "no-credentials": Detail, "settings-unavailable": SettingsDetail}},
     check: {input: Type.Object({provider: Type.String(), model: Type.String()}, {additionalProperties: false}), output: CheckResultSchema, effect: "read", errors: {"unknown-provider": Detail, "unknown-model": Detail}},
     checkAll: {input: ProviderInput, output: Type.Array(Type.Object({model: Type.String(), result: CheckResultSchema}, {additionalProperties: false})), effect: "read", errors: {"unknown-provider": Detail}},
 } as const;

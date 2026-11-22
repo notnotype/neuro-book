@@ -9,6 +9,7 @@
 import {getEnvApiKey} from "@oh-my-pi/pi-ai";
 import {
     clampThinkingLevelForModel,
+    fetchOpenAICompatibleModels,
     getBundledModel,
     getBundledModelReferenceIndex,
     getBundledModels,
@@ -198,6 +199,80 @@ export function suggestFromCatalog(modelId: string): CatalogSuggestion | null {
 
 function positiveOrNull(value: number | null | undefined): number | null {
     return typeof value === "number" && value > 0 ? value : null;
+}
+
+/**
+ * 给 nb-story 的问答服务用的一次性发现（读 OpenAI 兼容服务的 `/models`）；模型服务的列表走 `listing.ts`。
+ */
+/** 读 OpenAI 兼容服务的 `/models` 得到的一个模型；`suggested` 是按模型名在目录里找到的参照，只是建议。 */
+export interface DiscoveredModel {
+    readonly id: string;
+    readonly name: string;
+    readonly suggested: CatalogSuggestion | null;
+}
+
+/**
+ * 读 `/models` 的结果：`found` 读到模型；`empty` 服务回了空列表；`not_supported` 服务没有这个接口（404）；`auth` 密钥
+ * 被拒（401、403）；`unreachable` 连不上或超时；`failed` 其余（别的状态码、回的不是模型列表）。
+ */
+export type DiscoveryResult =
+    | {readonly state: "found"; readonly models: readonly DiscoveredModel[]}
+    | {readonly state: "empty"}
+    | {readonly state: "not_supported"; readonly status: number}
+    | {readonly state: "auth"; readonly status: number}
+    | {readonly state: "unreachable"; readonly message: string}
+    | {readonly state: "failed"; readonly status: number | null; readonly message: string};
+
+export interface DiscoverModelsOptions {
+    readonly api: "openai-completions" | "openai-responses";
+    readonly baseUrl: string;
+    /** 不给时不带认证头。 */
+    readonly apiKey?: string;
+    /** 另带的请求头（宿主配置的，`env:` 已解析）。 */
+    readonly headers?: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
+    /** 不给 `signal` 时的超时，缺省用 OMP 的（10 秒）。 */
+    readonly timeoutMs?: number;
+}
+
+/**
+ * 读 OpenAI 兼容服务的 `/models`（同 OMP 的 `openai-models-list` 发现）。OMP 的 `fetchOpenAICompatibleModels` 失败时
+ * 只回 `null`，所以把 `fetch` 包一层，记下这次请求的状态码或网络错误来分原因，不按错误文案猜。响应体也在这一层读完：
+ * OMP 读响应体出错（包括超时中止）同样只回 `null`，读不完要算连不上，不能落到“回应不是模型列表”。
+ */
+export async function discoverModels(options: DiscoverModelsOptions): Promise<DiscoveryResult> {
+    let status: number | null = null;
+    let networkError: unknown = null;
+    const recording = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
+        try {
+            const response = await fetch(input, init);
+            // 请求的 signal（OMP 的超时）同样中止响应体的读取。
+            const body = await response.text();
+            status = response.status;
+            return new Response(body, {status: response.status, statusText: response.statusText, headers: response.headers});
+        } catch (error) {
+            networkError = error;
+            throw error;
+        }
+    };
+    const specs = await fetchOpenAICompatibleModels({
+        api: options.api,
+        provider: "custom",
+        baseUrl: options.baseUrl,
+        ...(options.apiKey === undefined ? {} : {apiKey: options.apiKey}),
+        ...(options.headers === undefined ? {} : {headers: {...options.headers}}),
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
+        ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+        fetch: recording as typeof fetch,
+    });
+    if (specs !== null) {
+        if (specs.length === 0) return {state: "empty"};
+        return {state: "found", models: specs.map(spec => ({id: spec.id, name: spec.name, suggested: suggestFromCatalog(spec.id)}))};
+    }
+    if (networkError !== null || status === null) return {state: "unreachable", message: networkError instanceof Error ? networkError.message : "连不上，或者超时"};
+    if (status === 404) return {state: "not_supported", status};
+    if (status === 401 || status === 403) return {state: "auth", status};
+    return {state: "failed", status, message: status >= 200 && status < 300 ? "回应不是模型列表" : `服务回了 ${status}`};
 }
 
 /** 这家服务商打包目录里的对话模型（对话类、走 `fetch` 的显式协议）。 */

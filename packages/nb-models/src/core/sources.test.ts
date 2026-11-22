@@ -22,7 +22,7 @@ import {memoryIconStore, memoryModelsConfig, memorySourceStore} from "../testing
 import type {MemoryModelsConfig} from "../testing/memory-store";
 import {createModelsCore} from "./core";
 import type {ModelsCore} from "./core";
-import {SOURCE_STALE_MS} from "./sources";
+import {SOURCE_STALE_MS, sourceKeyOf} from "./sources";
 
 type Methods = ModelsSettingsContract["methods"];
 const CONSUMER: ConsumerIdentity = {instanceId: "browser-1", location: "browser", client: null, plugin: "acme.settings", entry: "browser", generation: null, via: null};
@@ -238,7 +238,7 @@ describe("来源缓存", () => {
         await first.settled(id);
         await first.close();
         const uid = (config.providers.read() as Array<StoredProvider & {uid: string}>)[0]!.uid;
-        expect([...sources.files.keys()]).toEqual([uid]);
+        expect([...sources.files.keys()]).toEqual([sourceKeyOf(uid)]);
 
         const second = await start({config, sources, credentials, clock: {now: 1_800_000_000_000 + HOUR}});
         expect(second.provider(id).source).toMatchObject({state: "ok"});
@@ -246,7 +246,7 @@ describe("来源缓存", () => {
         expect(local.seen).toHaveLength(1);
         await second.close();
 
-        sources.files.set(uid, {...(sources.files.get(uid) as object), uid: "someone-else"});
+        sources.files.set(sourceKeyOf(uid), {...(sources.files.get(sourceKeyOf(uid)) as object), uid: "someone-else"});
         const third = await start({config, sources, credentials});
         expect(third.provider(id).source.state).toBe("none");
         expect(third.events).toContain("models.sources.invalid");
@@ -381,5 +381,95 @@ describe("在线目录", () => {
         while (!events.includes("models.catalog.rejected")) await Bun.sleep(5);
         await close();
         expect(sources.catalog).toBeNull();
+    });
+});
+
+describe("审查补的边界", () => {
+    const [known] = chatModels("deepseek");
+
+    it("目录模板里类型不明、列表给了窗口的模型：在管理模型里加入就进列表、启用、可用（决定 27 的一键启用）", async () => {
+        const local = endpoint(models({id: known!.id}, {id: "deepseek-account-only", context_length: 32_000}));
+        const {call, rows, settled} = await start();
+        const added = await call("addProvider", {template: "deepseek", baseUrl: local.baseUrl});
+        if (!added.ok) throw new Error(added.code);
+        const id = added.value.id;
+        await call("setKey", {provider: id, value: "sk-deepseek-0001"});
+        await settled(id);
+        expect((await rows(id, "available")).map((row) => row.id)).toEqual(["deepseek-account-only"]);
+        expect(await call("setModels", {provider: id, add: [{id: "deepseek-account-only", enabled: true}], remove: []})).toMatchObject({ok: true});
+        expect((await rows(id)).find((row) => row.id === "deepseek-account-only")).toMatchObject({kind: "unknown", enabled: true, usable: true});
+    });
+
+    it("关掉自动加入：缺窗口、没启用的照样记成没启用；再打开时这条纯冻结的条目删掉", async () => {
+        const local = endpoint(models({id: "house-bare"}));
+        const {call, rows, settled, store} = await start({config: memoryModelsConfig({autoUpdate: true})}).then((context) => ({...context, store: context.config}));
+        const id = await addBlank(call, local.baseUrl);
+        await call("setKey", {provider: id, value: "sk-local-0001"});
+        await settled(id);
+        await call("updateProvider", {id, patch: {followSource: false}});
+        expect((await rows(id)).map((row) => [row.id, row.enabled])).toEqual([["house-bare", false]]);
+        await call("updateProvider", {id, patch: {followSource: true}});
+        expect((store.providers.read() as Array<{models: unknown[]}>)[0]!.models).toEqual([]);
+    });
+
+    it("第一次拉取失败后改了地址：过了一天也不在后台带着原来的密钥去新地址", async () => {
+        const first = endpoint(() => Response.json({error: "overloaded"}, {status: 503}));
+        const other = endpoint(models({id: "elsewhere"}));
+        const {call, provider, settled, config, clock} = await start();
+        const id = await addBlank(call, first.baseUrl);
+        await call("setKey", {provider: id, value: "sk-local-0001"});
+        await settled(id);
+        expect(provider(id).source.error).toMatchObject({reason: "bad-response"});
+        await call("updateProvider", {id, patch: {baseUrl: other.baseUrl}});
+        clock.now += SOURCE_STALE_MS + HOUR;
+        config.setAutoUpdate(false);
+        config.setAutoUpdate(true);
+        expect(provider(id).source.refreshing).toBe(false);
+        expect(other.seen).toEqual([]);
+    });
+
+    it("设置读不到时不出站：重新拉取得 settings-unavailable", async () => {
+        const local = endpoint(models({id: "house-chat", context_length: 32_000}));
+        const {call, config, settled} = await start();
+        const id = await addBlank(call, local.baseUrl);
+        await call("setKey", {provider: id, value: "sk-local-0001"});
+        await settled(id);
+        const before = local.seen.length;
+        config.setLayer("invalid");
+        expect(await call("refreshSource", {provider: id})).toMatchObject({ok: false, code: "settings-unavailable"});
+        expect(local.seen).toHaveLength(before);
+    });
+
+    it("目录说不是对话模型的，列表说能生成内容也不收（Gemini 的图片模型）", async () => {
+        const local = endpoint(() => Response.json({models: [
+            {name: "models/gemini-2.5-flash-image", supportedGenerationMethods: ["generateContent"]},
+            {name: "models/house-gemini", supportedGenerationMethods: ["generateContent"], inputTokenLimit: 100_000},
+        ]}));
+        const {call, rows, settled} = await start();
+        const added = await call("addProvider", {template: "google", baseUrl: `${local.baseUrl}beta`});
+        if (!added.ok) throw new Error(added.code);
+        const id = added.value.id;
+        await call("setKey", {provider: id, value: "g-key-0001"});
+        await settled(id);
+        const all = [...await rows(id), ...await rows(id, "available")].map((row) => row.id);
+        expect(all).toEqual(["house-gemini"]);
+    });
+
+    it("翻页时清了密钥：在途的拉取立刻停，下一页不发", async () => {
+        let release: () => void = () => undefined;
+        const local = endpoint(() => new Promise<Response>((resolve) => {
+            release = () => resolve(Response.json({data: [{id: "claude-a"}], has_more: true, last_id: "claude-a"}));
+        }));
+        const {call, settled, provider} = await start();
+        const added = await call("addProvider", {template: "blank-anthropic", name: "Relay", baseUrl: local.baseUrl});
+        if (!added.ok) throw new Error(added.code);
+        const id = added.value.id;
+        await call("setKey", {provider: id, value: "sk-relay-0001"});
+        while (local.seen.length < 1) await Bun.sleep(5);
+        await call("clearKey", {provider: id});
+        release();
+        await settled(id);
+        expect(local.seen).toHaveLength(1);
+        expect(provider(id).source.state).toBe("none");
     });
 });
