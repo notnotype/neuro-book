@@ -77,7 +77,8 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         ...(options.plugins ?? []),
         probe,
     ], {hubCapabilities: [
-        {id: "host.startup-env", key: startupEnvKey, create: () => ({env: Object.freeze({...options.env})})},
+        // 模型服务不取在线目录（docs/specs/models/service.md“模型来源”）：测试不出本机。
+        {id: "host.startup-env", key: startupEnvKey, create: () => ({env: Object.freeze({NBOOK_MODELS_CATALOG_URL: "", ...options.env})})},
         {id: "host.running-work", key: runningWorkKey, create: () => work.provision},
         ...(options.capabilities ?? []),
     ]});

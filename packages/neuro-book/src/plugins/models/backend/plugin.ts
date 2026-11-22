@@ -41,7 +41,10 @@ export const modelsBackendPlugin: PluginDefinition = {
             const agentRoot = join(context.services.require(stateRootKey).path, "agent");
             const credentials = await openCredentials(join(agentRoot, "credentials.db"));
             context.scope.register({kind: "credential-store", label: `${descriptor.id} credentials`, value: credentials, release: (value) => value.close()});
-            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), sources: fileSourceStore(context.services.require(stateRootKey).path), record});
+            const env = context.services.require(startupEnvKey).env;
+            // 在线目录的地址可由启动环境改（镜像）；设成空串不取在线目录（离线环境；e2e 也这样，免得用例出本机）。
+            const catalogUrl = env.NBOOK_MODELS_CATALOG_URL === undefined ? {} : {catalogUrl: env.NBOOK_MODELS_CATALOG_URL.trim() === "" ? null : env.NBOOK_MODELS_CATALOG_URL.trim()};
+            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env, ...catalogUrl, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), sources: fileSourceStore(context.services.require(stateRootKey).path), record});
             // 后登记的先释放：核心先停（取消在途的列表请求、等写入走完），凭据库后关。
             context.scope.register({kind: "models-core", label: `${descriptor.id} core`, value: core, release: (value) => value.close()});
             // 读完来源缓存与在线目录再交出服务：会话一开始解析的引用就能看到列表里的模型。后台拉取不等。

@@ -39,6 +39,9 @@ export function track(child: ChildProcessWithoutNullStreams): ProcessHandle {
     };
 }
 
+/** 模型服务不取在线模型目录（docs/specs/models/service.md“模型来源”）：用例不出本机，模型清单只随打包目录。 */
+const NO_ONLINE_CATALOG = {NBOOK_MODELS_CATALOG_URL: ""};
+
 export interface ProductServer extends ProcessHandle {
     readonly url: string;
     /** 经标准输入有序停止，返回退出码。 */
@@ -51,7 +54,7 @@ export async function startProductServer(stateRoot: string, options: number | {r
     const child = spawn("bun", ["dist/server/main.js", "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
         // `env` 盖在进程环境上：用例可以把 HOME 指到场地，让缺省作品目录与 ~ 都落在临时目录里。
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(resolved.port), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "dist/web", ...resolved.env},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(resolved.port), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "dist/web", ...NO_ONLINE_CATALOG, ...resolved.env},
     });
     const handle = track(child);
     const url = (await handle.waitFor(/Listening on (\S+)/u))[1] as string;
@@ -77,7 +80,7 @@ export interface ProbeServer extends ProductServer {
 export async function startProbeServer(stateRoot: string, options: {readonly port?: number; readonly env?: Readonly<Record<string, string>>} = {}): Promise<ProbeServer> {
     const child = spawn("bun", [join("src", "server", "testing", "fixture-entry.ts"), "--stop-stdin"], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(options.port ?? 0), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join("dist", "e2e", "web"), NBOOK_TEST_PLUGINS: "test.remote-probe", ...options.env},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: String(options.port ?? 0), NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join("dist", "e2e", "web"), NBOOK_TEST_PLUGINS: "test.remote-probe", ...NO_ONLINE_CATALOG, ...options.env},
     });
     const handle = track(child);
     const rpcUrl = (await handle.waitFor(/RPC listening on (\S+)/u))[1] as string;
@@ -100,7 +103,7 @@ export interface DevSession extends ProcessHandle {
 export async function startDevSession(stateRoot: string): Promise<DevSession> {
     const child = spawn("bun", [join("src", "server", "dev", "main.ts")], {
         cwd: PACKAGE_ROOT,
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_DEV_PORT: "0", NBOOK_DEV_BACKEND_PORT: "0", NBOOK_DEV_RPC_PORT: "0"},
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_DEV_PORT: "0", NBOOK_DEV_BACKEND_PORT: "0", NBOOK_DEV_RPC_PORT: "0", ...NO_ONLINE_CATALOG},
     });
     const handle = track(child);
     const pageUrl = (await handle.waitFor(/\[dev\] page-ready (\S+)/u))[1] as string;

@@ -103,7 +103,7 @@ async function addCustom(page: Page, name: string): Promise<void> {
 }
 const model = (page: Page, id: string) => page.locator(`[data-model-row="${id}"]`);
 
-test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入模型、补字段后启用、检测失败看原因、绑主力、停用先确认、删除后焦点与角色", async ({page}) => {
+test("验收 1：添加自定义服务商、填密钥与 env:、拉到服务商的列表、重新拉取、补字段后启用、检测失败看原因、绑主力、停用先确认、删除后焦点与角色", async ({page}) => {
     await openProviders(page);
     // 开箱：引导与“添加服务商”。
     await expect(page.getByText("还没有服务商")).toBeVisible();
@@ -127,16 +127,18 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     await expect(detail(page).locator("[data-key-clear]")).toBeVisible();
     await expect(key).toHaveValue("");
 
-    // 管理模型：拉取 /models，两个都加入；拉取的结果不报上下文窗口，加入后停用、标“缺上下文窗口”。
-    await detail(page).locator("[data-models-manage]").click();
-    const manage = page.locator("[data-manage-models-dialog]");
-    await expect(manage.locator("[data-manage-item='story-model-a']")).toBeVisible();
-    await manage.getByRole("button", {name: "加入 story-model-a"}).click();
-    await manage.getByRole("button", {name: "加入 story-model-b"}).click();
-    await manage.getByRole("button", {name: "完成"}).click();
-    await expect(manage).toHaveCount(0);
+    // 设了密钥就拉服务商的列表：空白模板里类型不明的两个模型都列出来；列表不报上下文窗口，标“缺上下文窗口”、不启用。
+    const source = detail(page).locator("[data-source-status]");
+    await expect(source).toContainText("更新于");
     await expect(model(page, "story-model-a")).toContainText("缺上下文窗口");
+    await expect(model(page, "story-model-b")).toBeVisible();
     await expect(model(page, "story-model-a").getByRole("switch")).toBeDisabled();
+    // 重新拉取：完成后照样是这两个。
+    const refresh = detail(page).locator("[data-source-refresh]");
+    await refresh.click();
+    await expect(refresh).toBeEnabled();
+    await expect(source).toContainText("更新于");
+    await expect(page.locator("[data-model-row]")).toHaveCount(2);
 
     // 补上下文窗口后能启用。
     await model(page, "story-model-a").getByRole("button", {name: "编辑 story-model-a"}).click();

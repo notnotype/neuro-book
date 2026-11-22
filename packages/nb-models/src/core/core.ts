@@ -27,7 +27,7 @@ import type {ModelsSettingsContract} from "../contract/settings-spec";
 import type {CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, Template} from "../contract/shapes";
 import {chooseModel} from "./choice";
 import {checkPng, ICON_NAME} from "./icons";
-import {availableMembers, findMember, listedMembers, windowOf} from "./members";
+import {availableMembers, enabledOf, findMember, listedMembers, windowOf} from "./members";
 import type {MemberRow, MemberSources, SourceModel} from "./members";
 import {createSources} from "./sources";
 import type {SourceStore} from "./sources";
@@ -65,8 +65,8 @@ export interface ModelsCoreDeps {
     readonly sources?: SourceStore;
     /** 时钟（毫秒）；缺省 `Date.now`。来源的“超过一天”按它算。 */
     readonly now?: () => number;
-    /** 在线目录的地址；缺省用 stencil 的（测试给本机端点）。 */
-    readonly catalogUrl?: string;
+    /** 在线目录的地址；缺省用 stencil 的；null 是不取在线目录（离线环境、e2e）。 */
+    readonly catalogUrl?: string | null;
     /** 诊断；事件名见各处 `record` 的调用（`models.catalog.*`、`models.sources.*`、`models.credentials.failed` 等）。 */
     readonly record: (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
@@ -349,7 +349,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             const target = splitReference(reference);
             const provider = target === null ? undefined : current().find((item) => item.id === target.provider);
             const row = target === null || provider === undefined ? undefined : findMember(provider, sourcesFor(provider), target.model);
-            if (provider === undefined || row === undefined || row.entry?.enabled === false) return {ok: false, code: "unknown-model"};
+            if (provider === undefined || row === undefined || !enabledOf(row)) return {ok: false, code: "unknown-model"};
             // 目录漂移（输出 9）与上下文窗口不明：先于凭据判断，界面才能指出是模型的问题。
             if (statusOf(row) !== "ok") return {ok: false, code: "unknown-model"};
             if (!keyReady(keyStatusOf(provider))) return {ok: false, code: "no-credentials", provider: provider.id};
@@ -404,7 +404,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         if (cached !== undefined) return cached;
         const {entry, source} = row;
         const status = statusOf(row);
-        const enabled = entry?.enabled ?? true;
+        const enabled = enabledOf(row);
         const overridden = row.origin === "source" && source !== undefined && entry !== undefined
             ? OVERRIDES.filter((field) => {
                 switch (field) {
@@ -466,7 +466,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 followSource: provider.followSource,
                 source: sources.state(provider),
                 modelCount: members.length,
-                enabledCount: members.filter((row) => row.entry?.enabled !== false).length,
+                enabledCount: members.filter(enabledOf).length,
                 excludedCount: provider.excluded.length,
                 modelsRevision: revisionOf(provider, key),
             };
@@ -718,7 +718,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const [bg, bn, bi] = sortKey(b);
         return ag === bg ? (an === bn ? (ai < bi ? -1 : ai > bi ? 1 : 0) : an < bn ? -1 : 1) : ag < bg ? -1 : 1;
     };
-    const usableMember = (provider: ProviderConfig, row: MemberRow, ready: boolean): boolean => row.entry?.enabled !== false && statusOf(row) === "ok" && ready && effectiveBaseUrl(provider) !== null && effectiveApi(provider) !== null;
+    const usableMember = (provider: ProviderConfig, row: MemberRow, ready: boolean): boolean => enabledOf(row) && statusOf(row) === "ok" && ready && effectiveBaseUrl(provider) !== null && effectiveApi(provider) !== null;
     /**
      * 一页：至多 `limit` 行，且编码后不超过 `PAGE_BYTES`（RPC 单帧 1 MiB；行里有用户写的 id、名称与请求头，只按行数截保证不了帧大小）。
      * 至少给一行（单行受设置的帧预算约束，不会超过一帧）；截短时 `nextOffset` 接着这页实际交出的最后一行。
@@ -873,7 +873,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 const items = scope.flatMap((provider) => {
                     const ready = keyReady(keyStatusOf(provider));
                     return listedMembers(provider, sourcesFor(provider))
-                        .filter((row) => (input.usable === true ? usableMember(provider, row, ready) : row.entry?.enabled !== false))
+                        .filter((row) => (input.usable === true ? usableMember(provider, row, ready) : enabledOf(row)))
                         .sort(byMember)
                         .map((row) => ({provider, row, ready}));
                 });
@@ -999,7 +999,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             checkAll: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                const members = listedMembers(provider, sourcesFor(provider)).filter((row) => row.entry?.enabled !== false).sort(byMember);
+                const members = listedMembers(provider, sourcesFor(provider)).filter(enabledOf).sort(byMember);
                 const pending = [...members];
                 const results: {model: string; result: CheckResult}[] = [];
                 const worker = async (): Promise<void> => {

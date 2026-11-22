@@ -318,7 +318,8 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
         }})]};
         const h = await projectHarness(tmp, {
             plugins: [...serverPlugins(), definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", modelsDescriptor, modelsBackendPlugin), plotServerPlugin],
-            capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => Object.freeze({env: {}})}],
+            // 模型服务不取在线目录：测试不出本机。
+            capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => Object.freeze({env: {NBOOK_MODELS_CATALOG_URL: ""}})}],
             prepare: async (paths) => {
                 const dir = join(paths.project.path, "manuscripts.binder");
                 await mkdir(dir, {recursive: true});

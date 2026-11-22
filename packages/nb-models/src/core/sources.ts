@@ -94,8 +94,8 @@ export interface SourcesDeps {
     readonly deploymentOf: (provider: ProviderConfig) => SourceDeployment | null;
     /** 列表、状态或目录变了：服务核心作废快照。 */
     readonly changed: () => void;
-    /** 在线目录的地址；缺省用 stencil 的。 */
-    readonly catalogUrl?: string;
+    /** 在线目录的地址；缺省用 stencil 的；null 是不取在线目录（只用打包目录与已存的副本）。 */
+    readonly catalogUrl?: string | null;
 }
 
 /**
@@ -237,7 +237,7 @@ export function createSources(deps: SourcesDeps): Sources {
         const controller = new AbortController();
         catalogAttemptedAt = deps.now();
         const done = (async () => {
-            const fetched = await fetchOnlineCatalog({etag: catalog?.cache.etag ?? null, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(CATALOG_TIMEOUT_MS)]), ...(deps.catalogUrl === undefined ? {} : {url: deps.catalogUrl})});
+            const fetched = await fetchOnlineCatalog({etag: catalog?.cache.etag ?? null, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(CATALOG_TIMEOUT_MS)]), ...(deps.catalogUrl === undefined || deps.catalogUrl === null ? {} : {url: deps.catalogUrl})});
             if (closed) return;
             if (fetched.status === "failed") {
                 deps.record("warn", "models.catalog.fetch-failed", "Fetching the online model catalog failed", {reason: fetched.reason, error: fetched.message});
@@ -293,7 +293,7 @@ export function createSources(deps: SourcesDeps): Sources {
      */
     function check(): void {
         if (closed || !started || !deps.autoUpdate()) return;
-        if (stale(catalog?.cache.fetchedAt ?? null) && stale(catalogAttemptedAt)) refreshCatalog();
+        if (deps.catalogUrl !== null && stale(catalog?.cache.fetchedAt ?? null) && stale(catalogAttemptedAt)) refreshCatalog();
         for (const provider of deps.providers()) {
             const entry = entryOf(provider.uid);
             const deployment = deps.deploymentOf(provider);

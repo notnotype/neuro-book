@@ -80,3 +80,9 @@ export function findMember(provider: ProviderConfig, sources: MemberSources, id:
 
 /** 这一行当前的有效上下文窗口：用户填的，否则来源的。 */
 export const windowOf = (row: Pick<MemberRow, "source" | "entry">): number | null => row.entry?.contextWindow ?? row.source?.contextWindow ?? null;
+
+/**
+ * 启用与否：条目写了的照它；没有条目的来源模型启用，缺上下文窗口的除外（来源没给窗口、用户也没填：列出来待补字段，补上之前不启用，
+ * 决定 27）。
+ */
+export const enabledOf = (row: Pick<MemberRow, "source" | "entry">): boolean => row.entry?.enabled ?? windowOf(row) !== null;

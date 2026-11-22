@@ -127,7 +127,7 @@ describe("空白模板的列表（决定 27）", () => {
         await settled(id);
         expect(provider(id).source).toMatchObject({state: "ok", error: null});
         expect(local.seen).toEqual([{path: "/v1/models", authorization: "Bearer sk-local-0001", team: null}]);
-        expect((await rows(id)).map((row) => [row.id, row.kind, row.status, row.enabled]).sort()).toEqual([["house-bare", "unknown", "incomplete", true], ["house-chat", "unknown", "ok", true]]);
+        expect((await rows(id)).map((row) => [row.id, row.kind, row.status, row.enabled]).sort()).toEqual([["house-bare", "unknown", "incomplete", false], ["house-chat", "unknown", "ok", true]]);
         expect((await rows(id, "available")).map((row) => row.id)).toEqual(["text-embedding-small"]);
     });
 
