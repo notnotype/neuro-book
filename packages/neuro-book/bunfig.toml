@@ -1,3 +1,5 @@
 [test]
+# 模型服务不取在线目录：测试不出本机（src/server/testing/offline-env.ts）。
+preload = ["./src/server/testing/offline-env.ts"]
 # 组件测试由 Vitest 运行（vitest.config.ts）：Bun 不能加载 .vue。
 pathIgnorePatterns = ["**/*.dom.test.ts"]

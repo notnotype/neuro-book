@@ -34,11 +34,11 @@ export interface ModelsWorld {
 }
 
 /**
- * `autoUpdate`：模型列表与在线目录的自动更新（`catalogAutoUpdate`），缺省关：开着时启动会去取真实的在线目录，添加、设密钥后会去拉
- * 列表。场地在启动前把它写进用户设置文件（文件已有时不动：同一个根可以重启）。
+ * `autoUpdate`：模型列表与在线目录的自动更新（`catalogAutoUpdate`），缺省关：开着时添加、设密钥后会去拉列表。场地在启动前把它写进用户设置文件（文件已有时不动：同一个根可以重启）。
  */
 export async function modelsWorld(root: string, options: {readonly env?: Readonly<Record<string, string>>; readonly autoUpdate?: boolean} = {}): Promise<ModelsWorld> {
-    const env = Object.freeze({...options.env});
+    // 开着自动更新也不取真实的在线目录：测试不出本机（要测在线目录时传本机端点的 `NBOOK_MODELS_CATALOG_URL`）。
+    const env = Object.freeze({NBOOK_MODELS_CATALOG_URL: "", ...options.env});
     await mkdir(join(root, "state"), {recursive: true});
     // 已有设置文件（同一个根重启）时不动它。
     await writeFile(join(root, "state", "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": options.autoUpdate ?? false}), {flag: "wx"}).catch((error: unknown) => {
