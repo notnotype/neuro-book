@@ -1,0 +1,143 @@
+报告文件写不进去（权限被拒），完整报告如下。读了计划、探针、原型提交、Vue 3.5.39 源码、WorkbenchSurface、BookFrame 和 t51 两份审查，并在 worktree 里跑了探针（7 条通过；P7 的抛错是预期的）。下面的结论大多来自读代码，第 4 条没有跑过。
+
+### 1. 冻结所有离开的叶的 leaf 插槽，破坏 Spec 已有的“插槽渲染时读到的是这一轮的”，工作台正好依赖它
+- **严重程度**：重要
+- **类别**：被破坏的既有约定、隐含的耦合
+- **位置**：计划第 51 行（输出 156）；原型 `NestedGrid.vue` 的 `<FrozenSlot :frozen="leavingLeaves.has(...)">`。Spec“时序与寿命”末条：`moving`、`shapedLeaves`、`swappingLeaves` 在插槽渲染时读到的是这一轮的。`WorkbenchSurface.vue:587`（`swappingLeaves.has(node.id) ? undefined : sceneOf(...)`）、`:372`（`capLeaves` 读 `shapedLeaves`、`outgoingLeaves`、`swappingLeaves`）。
+- **现象**：叶在这一轮才变成“离开的叶”时，`frozen` 在这次渲染里翻成真，FrozenSlot 不调宿主插槽，返回上一轮（叶还没离开时）的结果。宿主在插槽里读 `swappingLeaves`、`outgoingLeaves`、`shapedLeaves`、`moving`，对离开的叶永远读不到这一轮的值。
+- **为什么是问题**：
+  - 交换里滑出去的叶（`plan.leaving`，带 `leaving: true`）也被冻。计划的理由是“同 t51 的 `sashLooks`”。但 `sashLooks` 记的是分隔线两侧数据确实没了；交换里的叶宿主数据通常还在，冻它没有数据上的理由。
+  - 工作台 `:587` 对滑出去的叶本该去掉场景名，冻结后保留，会画出主题场景图。这是可见变化，不在计划“风险”第 2 条里。
+  - 回归清单只有 `editor-area`、`workbench-views` 与两个 Lab e2e，没有工作台的交换用例。
+- **如何核实**：dom 测试里让 leaf 插槽读 `swappingLeaves` 或 `outgoingLeaves`，让一块叶在交换里滑出去，对比冻与不冻。
+- **建议改法**：只冻宿主已经没有的叶，交换里滑出去的叶不冻。Spec 输出 156 写明冻住的叶读不到这一轮的 `moving`、`swappingLeaves`、`outgoingLeaves`。回归加上工作台交换。
+
+### 2. 输出 156“面板头停在最后一次渲染”对工作台不成立，风险第 2 条的论断与自己的 P7 矛盾
+- **严重程度**：重要
+- **类别**：自身证据不一致、验收映射
+- **位置**：计划第 108 行；`WorkbenchSurface.vue:593-598`（`<slot name="head" :panel-id>`、`strip`、`empty-region`）；探针 P1 的面板头只是 `<span>{{ heads[id] }}</span>`。
+- **现象**：工作台 leaf 插槽里的 head、strip 是转发的插槽，渲染的是按 `panel-id` 查文档的子组件。FrozenSlot 只冻插槽调用，子组件照自己的响应式依赖更新。文档里叶删掉后，它们自己重渲染并按 id 读已删的数据，也就是 P7 的写法。
+- **为什么是问题**：
+  - 输出 156 写成无条件的“停在最后一次渲染”，实际只对插槽里直接读数据的元素成立。
+  - 验收只用 P1 的纯 span，选了冻得住的形态。P7 的限制只写进了内容插槽，没写进 leaf 插槽。
+  - 这些组件在离开的叶里原本就挂到过渡结束，所以不是新增故障，但计划把它当成这次冻结解决了。
+- **如何核实**：dom 测试让 leaf 插槽渲染 `<HeadComp :id="node.id">`，组件内按 id 读已删数据，看叶离开时是否重渲染、是否抛。
+- **建议改法**：Spec 输出 156 与 `NestedGrid.md` 把“冻的是插槽调用，不含里面的组件”同样写进 leaf 插槽，改正风险第 2 条。dom 用例加一个“头是子组件”的形态，确认行为就是写下的合同。
+
+### 3. 合同限制 P7 覆盖面太宽，推荐写法在 SFC 里很难做到，留法有更稳的选择
+- **严重程度**：重要
+- **类别**：合同、上游选择
+- **位置**：计划第 53 行；探针 P7（`<SlotTaker>{{ store[contentKey]!.title }}</SlotTaker>` 抛 TypeError）。
+- **现象**：内容插槽里用带插槽的壳组件（卡片、Tooltip 之类），壳的插槽里按 key 读宿主会删的数据，就抛。这是模板里最常见的写法。推荐的“先取出这一项、经属性传下去”在模板里没有地方先取，因为 `store[contentKey]` 在壳的插槽里才求值。
+- **为什么是问题**：
+  - 失败只在“关闭且数据已删”那一帧出现，开发时不关就看不到。抛在 FrozenSlot 外的子组件里，那一项空白，难以归因。
+  - 子组件继续存活：定时器、订阅在留着的 300 到 470ms 里照跑，`onUnmounted` 推迟到过渡结束。t51 设计审查第 2 条担心的“保存、释放被推迟”仍在，只是靠缺省“不留”限了范围。
+- **建议改法**（供开发者比较，下面的取舍没探过）：
+  - **A. 留 DOM 快照代替留 Vue 子树。**
+    - 做法：内容被去掉的那一轮，用 `cloneNode(true)` 把内容体静态画到过渡结束，同一轮卸掉宿主的组件。留着的内容本来就是 `inert`，只活一个过渡时长。
+    - 好处：P7 整类消失，宿主 `onUnmounted` 当即执行，不需要 FrozenSlot 与 `withMemo`。
+    - 代价：canvas、video、iframe、输入值、滚动位置不进快照，Vue `Transition` 的离开动画丢掉。nb-story 的抽屉是文本卡片，大概可接受，但要先探。
+  - **B. 保持现状，补防护。**
+    - 开发模式在 FrozenSlot 里捕获子树渲染错误并报“被留住的内容在读已删的数据”。
+    - `NestedGrid.md` 给出模板里能照抄的写法（子组件包一层，或 `v-for` 取值）。
+- 计划“技术选型”只比较了“冻插槽”与“连子组件一起冻”，没有比较快照。
+
+### 4. `leavingContents` 与 `leaving` 在三条路径上不同步（读代码，未跑）
+- **严重程度**：重要（后果轻：一张空卡片或一个看不见的实例）
+- **类别**：时序、遗漏
+- **位置**：`useGridMotion.ts` 的 `decideMotion`，原型 133–147、158–170 行；`start` 里的 `leaving.value = move.leaving; leavingContentItems.value = move.leavingContents`。
+- **现象**：
+  - **settle**（别处的交换先把进行中的送到终点）：`leaving` 用 `settle ? leaving : move.leaving`，不含上一轮的 `still`（叶）。`leavingContents` 用 `move.leavingContents`，里面有 `stillContents`，只按 `banded` 过滤。`update` 先 `stop()` 清空，再 `start` 写入内容，而它们的叶已不在 `leaving` 里。内容项 `rect` 为 null，被停放，叶不在 `outgoingLeaves` 里所以不可见，成了一个看不见、冻结着、挂到本轮过渡结束的实例。
+  - **holding**：`leavingContents` 为空，而 `still`（叶）不受 `holding` 限制。叶接着缩，内容当即被摘，缩回去的是空卡片。
+  - **计时器**：每次 `start` 重置，先关的内容活到最后一轮结束，寿命由别人的操作延长。叶之前就这样，内容现在也一样。
+- **如何核实**：给 `decideMotion` 的纯函数测试喂一个带 `leaving` 的内容项与叶、`swap` 加不相交的 `band`，看返回里内容在而叶不在。
+- **建议改法**：在 `decideMotion` 末尾统一按最终的 `leaving` 与 `zero` 过滤候选内容，叶与内容要么都留要么都摘。`holding` 时对 `stillContents` 与 `still` 同样处理。给 settle、holding、接着留各加一条 `decideMotion` 用例，计划的纯函数测试清单里没有。
+
+### 5. 留着的内容不分活动与否
+- **严重程度**：建议
+- **类别**：边界
+- **位置**：原型 `leavingContents` 没有 `item.active` 条件；`frameStyle` 的 `showing` 要求 `item.active`。
+- **现象**：叶带多张标签、叶被关掉时，每张标了 `retain` 的内容都留。非活动的是 `visibility: hidden`，看不见，却挂满一个过渡、冻着、带 `data-content-leaving`，宿主组件也迟迟不卸载。
+- **建议改法**：只留 `active` 的，非活动的当即卸载。或在计划里写明留它们的理由，并写明 `content-parked` 在非活动项上不发（`holdsFocus` 为假）。
+
+### 6. `content-parked` 带宿主已去掉的 key，合同要写明
+- **严重程度**：建议
+- **类别**：合同
+- **位置**：计划取值表第 46 行；探针 P6。
+- **现象**：P6 通过，时机也对：`update()` 在 DOM 修补前调，焦点还在里面。但接收方通常按 key 查自己的数据决定焦点去哪，查到的是 undefined。
+- **回答第 5 点**：发是合理的。它是宿主知道焦点要丢的唯一通知，不发更糟。
+- **建议改法**：Spec 与 `NestedGrid.md` 写明 `retain` 的内容被去掉时 key 可能已不在宿主数据里。t45 的处理函数不要查 key，直接按布局选落点。
+
+### 7. 合入 master 时 `retain` 没有任何真实浏览器覆盖
+- **严重程度**：建议
+- **类别**：验收映射
+- **位置**：计划第 100 行；t51 API 审查第 8 条。
+- **现象**：计划把手感推到 t45，本 Task 不做 Lab 场景。happy-dom 验不到两样：`inert` 让浏览器把焦点放到 body，以及外框按 `clip-path` 裁着缩回去时内容跟着。
+- **回答第 6 点**：
+  - 视觉部分走的是现有“叶降到零、内容挂着”的 `byLeafRect`、`keptSize` 路径，风险小。
+  - dom 测试能真测到状态：探针已在 happy-dom 里跑出结果，用了桩布局盒与 60ms 真实计时。
+  - “过渡结束靠计时器”没问题，换成 `transitionend` 反而不可靠。
+  - 站不住的是“不另做场景”：新增部分（留着内容出现那一帧的元素复用、FrozenSlot 的 Fragment 锚点）没有真实浏览器证据，而合入后 `retain` 已是公开选项。
+- **建议改法**：给 `GridSwapScene` 或 `lab-grid-panels` 里已有内容层的一项加 `leave: "retain"`，写一条 e2e（关一张卡片，过渡中内容还在、`inert`，结束后没有）。至少把 t45 的 `frame.e2e.ts` 写成本 Task 的阻塞前置。
+- **夹具**：放 `test-fixtures/` 并从 `files` 排除的做法可行。只有入口导出的 `.vue` 才要同名契约文档（`scripts/ci/check-documentation.ts:59-61`），计划说不需要是对的。既有排除写法是 `!src/**/*-fixtures.ts`，新目录写法要用 `bun pm pack --dry-run` 实测被排除。
+
+### 8. `withMemo` 只在 3.5.39 上验证，peer 范围是 `^3.5.24`
+- **严重程度**：建议
+- **类别**：依赖的机制
+- **位置**：`frozen-slot.ts`；`runtime-core.cjs.js` 7871–7873、8601–8625。
+- **核对结果**（读 3.5.39 源码）：计划说的行为全部成立。
+  - `cloneIfMounted` 对带 `memo` 的 VNode 原样返回。
+  - 记号相同时 `withMemo` 返回缓存的同一个 VNode，`patch` 的 `n1 === n2` 直接返回。
+  - 不冻时每次换记号，重新渲染。
+  - `frozen` 由真回假时记号变，走正常修补。
+  - `unmount` 把 `parentComponent.renderCache[0]` 置空，这里 parent 是 FrozenSlot 自己，无害。
+  - `isMemoSame` 往 `currentBlock` 推的那句，在组件更新里 `currentBlock` 为空，不触发。
+- **问题**：`withMemo` 是 `v-memo` 的编译产物 helper，不是面向使用者的接口。peer 下限 3.5.24 没跑过。
+- **建议改法**：
+  - 临时目录装 `vue@3.5.24` 跑 P1、P3 两条用例，或抬高 peer 下限。
+  - `FrozenSlot` 文件头写明依赖的三个行为，保留 P1 里“插槽没再被调”的断言作升级报警。
+  - 组件第一次就以 `frozen` 渲染会调一次宿主插槽，因为缓存为空。留着的项都来自上一帧，所以不会发生，但没有测试钉住。可以在 `frozen` 且缓存为空时在开发模式警告。
+
+### 9. 上游选择：叶与内容靠“已挂载内容”互相留住，是旧规则的遗留
+- **严重程度**：建议
+- **类别**：上游选择、别扭之处
+- **位置**：`leavingPlacements` 的 `mounted`；t51 API 审查第 3 条（“两条路径一个规则”）。
+- **现象**：`mounted` 的理由是“内容已卸、留着只是一张空卡片”。现在 leaf 插槽也被冻住，外框自己有东西可画，这个理由对有 leaf 内容的宿主（nb-story 的 `nav`、工作台的面板头）不再成立。原型为保持旧条件，在 `leavingPlacements` 里加了“上一帧标了 `retain` 且这一帧被去掉的内容也算 mounted”，`decideMotion` 又反过来按叶留内容，互相引用的结构被保留并多了一个旁路。
+- 计划“不做”写了“leaf 插槽的删叶也缩回去另立 Task”，没写为什么不做。BookFrame 现在是 leaf-only，靠 `lastDrawer`，t45 要搬进内容层，正是在躲这条限制。
+- **建议改法**：不要求本 Task 做，但计划里写明“没有记录的理由，只是范围”。叶是否留可以考虑一个比“看内容有没有 `retain`”更直白的开关，交开发者决定。
+
+### 10. `GridContentPlacement` 新字段是否公开
+- **严重程度**：建议（结论：不用公开）
+- **类别**：接口
+- **位置**：`grid-rects.ts`；`src/index.ts:90` 只导出 `GridContentInput`。
+- **核对**：`GridContentPlacement` 不在包入口导出，`retain`、`leaving` 是内部字段，无需决定。`leave?: "unmount" | "retain"` 的形状和缺省“不留”与 t51 审查建议一致，也接近 dockview `renderer` 的显式选择。`data-content-leaving` 是外部可见标记，要进数据属性表，计划已写。
+
+### 未发现问题的方面
+- **时序**：
+  - `layers` watcher 里 `motion.update` → `parking.update` → `contentLayer.update` 的先后成立。
+  - `motion.update` 写 `leavingContents` 后 `layers` 再变，带回调的 watcher 允许递归，会再跑一次。这次 `withoutLeaving` 把叶与内容里带 `leaving` 的都滤掉，`placementMoved` 为假，判 `none`，不会多开一轮。`stop` 清空后同理。
+  - `content-parked` 在 `contentLayer.update()` 里发，DOM 未动，焦点还在里面。
+  - `leavingContents` 非空时 `moving` 一定为真，`stop` 一定会走到清空，没发现留着的内容卸不掉的路径。
+  - 宿主又给同 key 时 `placements` 以宿主的为准，同一个元素沿用，探针 P3 印证。
+- **更新次序**：宿主的更新先于 NestedGrid，再先于 FrozenSlot，`frozen` 由父更新带入并 `invalidateJob` 掉子的排队任务，同一个同步段里删数据不会先渲染一遍已删的数据。
+  - **一个口子**：宿主数据先删、`contents` 与树晚一个 tick 才变时，FrozenSlot 自己的任务会先拿已删数据渲染。原型没覆盖，Spec 要写明“数据删除与 `contents`、树变化在同一次刷新里”。`useGridHost` 的布局是 computed，同步段内同拍到，所以 t45 的写法没问题。
+- **依赖移位**：含 `<slot>` 出口的包裹插槽在 v-for 内被编译成动态插槽，FrozenSlot 随父更新而更新。计划“依赖从 NestedGrid 挪到每项”的说法成立，宿主改一项只重渲染那一项，没找到依赖整网格重渲染的写法。
+- **取值表**：与代码一致。
+  - `inert` 来自 `isParked` 含 `outgoingLeaves`。
+  - 可见来自 `showing`。
+  - `aria-owns` 不列，因为停放的 detach。
+  - F6 排除来自 `useGridFocus` 的 `item.leaving !== true`。
+  - `content-parked` 经 `update()`。
+- **t51 交给本 Task 的几条**：
+  - 设计审查第 1 条（阻断）已处理，输出 45 第 3 个条件的改写成立。
+  - 第 2 条靠缺省“不留”与按叶在缩回去收窄处理。
+  - 第 6 条靠并进 `placements` 处理，第 7 条靠 SFC 探针与源码核对处理，第 8 条靠桩布局盒与变异检查处理。
+  - API 审查第 2、11 条同理。
+  - API 审查第 3 条的“leaf 插槽也留”未采纳，见本报告第 9 条。
+- **Fragment 与键**：多一层 Fragment（两个空文本锚点），内层 `renderSlot` 自带 Fragment，不影响布局与 `:empty`。键是外层 v-for 的 `item.key`，实例随键复用，无重复键。
+- **失败隔离**：P7 的抛错只让那一项空白，不使 NestedGrid 崩。
+
+### 数量
+阻断 0，重要 4，建议 6，撤回 0。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10
