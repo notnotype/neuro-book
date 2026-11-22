@@ -1,0 +1,308 @@
+# w00026 t45 设计审查（计划第 1 稿）
+
+只读审查，没跑 e2e 和开发服务。标 [推断] 的是读代码得出、没跑探针确认的。草稿已写入 `report-draft.txt`。其中第 4 条 b 的一处修正没能写进草稿（Edit 被拒），以本回复为准。
+
+## 发现
+
+### 1. 被关的内容没有来源，`outgoingLeaves` 经 `contents` 属性读不到这一轮的
+- **严重程度**：重要
+- **类别**：内容层寿命
+- **位置**：`plan.md:24、43、111`；`BookFrame.vue:159-162`；`NestedGrid.vue:156-158`；`NestedGrid.md` 的 expose 读数一节
+
+**现象**：计划说关整块时，被关的项在 `outgoingLeaves` 含它们所在的叶时保留在 `contents` 里，内容从 `lastDetails` 取。这有三处缺口。
+- **a）`lastDetails` 只在 `closeDrawer()` 里记。**
+  - `closeDetail(1)` 不记，拖中间线到右边缘也不记。
+  - 被关的那张没有地方取，`drawer2` 收向 0 的过渡里是空的。
+  - t44 的 `paneDrawer` 靠 `lastDrawer` 才成立。
+- **b）`outgoingLeaves` 只保证在插槽渲染时读到这一轮的值。**
+  - 它是 NestedGrid 里的 computed，由 `motion.shrinking` 与 `leavingLeaves` 得出。
+  - 文档只保证“在插槽渲染时读到的是这一轮的”。
+  - 计划把它放进给 NestedGrid 的 `contents` 属性。属性在父组件渲染时算，那时子组件还没收到新 layout、`shrinking` 还是上一轮的值 [推断]。
+  - 结果是关上那一帧 `contents` 里没有这一项，内容被卸载，随后被加回来，DrawerCard 重建、重新取数，出现一帧空白加闪烁。
+  - t44 能成立，是因为读的位置在插槽里。
+- **c）关左边那张（`closeDetail(0)`）没写想要什么样子。**
+  - 剩下的卡从 `drawer2` 换到 `drawer`（按位置分配叶，`plan.md:42`）。
+  - 被关的那张所在的 `drawer` 没收起、不在 `outgoingLeaves`，直接卸载。
+  - 左半瞬间消失，右边的卡从旁边飞进来盖上去。
+
+**为什么是问题**：这是计划自己列的头号风险（`plan.md:111`），而它的缓解办法按文档读不通。
+
+**如何核实**：
+- 读 `NestedGrid.vue:156-158`、`useGridMotion.ts:233` 和 `NestedGrid.md` 最后一段。
+- 在 Lab 里让父组件的 computed 读 `gridRef.outgoingLeaves` 作为 `contents`，关闭时逐帧记 `[data-content]` 是否连着。这条要先跑探针，再写计划。
+
+**建议改法**：
+- 不读 `outgoingLeaves` 决定去留。宿主自己维护 `closing` 列表。
+  - 关闭时把被关的项（含 key 与 content）放进去，仍留在 `contents`。
+  - 在 `gridRef.moving` 回到 false 的 watch 里清掉。
+  - 减少动态效果时 `moving` 恒为假，在 nextTick 清。
+- 关整块、`closeDetail(0)`、`closeDetail(1)` 三种都走它。
+- 写明 `closeDetail(0)` 里被关的是立即消失，还是也留到过渡结束。
+
+### 2. “原样要过”的 t44 过渡用例必然失败，数据标记与数值的落点没写
+- **严重程度**：重要
+- **类别**：验收映射、既有约定
+- **位置**：`plan.md:43、88、101`；`frame.e2e.ts:152`；`book-grid.test.ts:20、31`；`qa.e2e.ts:107、183、188-189`；`revisions.e2e.ts:219`；`viewer.e2e.ts:338、432`
+
+**现象**：
+- **a）t44 过渡用例的选择器会落空。**
+  - `frame.e2e.ts:152` 用 `[data-leaf='drawer'] [data-testid='card-name']` 判“还看得见的每一帧里都是刚关掉的内容”。
+  - 内容层是叶外框的同级兄弟，不是它的后代，选择器恒为空，`shown.every(card)` 必败。
+  - 计划写“原样要过”，做不到，要改选择器。这条用例守的正是第 1 条的风险。
+- **b）`data-testid="drawer"` 与 `data-closing` 落在哪里没定。**
+  - 它们现在在叶槽的 aside 上（`BookFrame.vue:285-289`）。
+  - `qa.e2e` 靠它们判卡片文字在 drawer 里、× 在 drawer 里、`:not([data-closing])` 数 0 表示关完。`viewer.e2e` 的溢出量测也靠它。
+  - 放内容项上时，两张开着 `getByTestId("drawer")` 会命中两个，严格模式报错。
+- **c）回归清单漏了几处。** 切片 1 的验证只列 `viewer.e2e` 和 `frame.e2e`，`qa.e2e`、`revisions.e2e` 不在里面。
+- **d）单张时的数值也会变。**
+  - `book-grid.test.ts:20` 断言 `sashes: [1, 1]`、主区 850。多一条线后是 `[1, 1, 1]`、主区 849。
+  - 平板那条 `1024 - 44 - 1` 也要重算。
+  - “现有页面不改行为”（`plan.md:88`）对数值不成立。第 11 条给了保持不变的改法。
+
+**如何核实**：`rg "data-leaf='drawer'|getByTestId\(\"drawer\"\)|data-closing" packages/nb-story/e2e`。
+
+**建议改法**：
+- 先定标记：内容外壳（`content` 插槽最外层）带 `data-testid="drawer"` 与 `data-closing`，另给每张 `data-detail-index`；叶槽的 aside 去掉 testid。
+- 把上面几处改选择器列进切片 1，回归清单加上 `qa`、`revisions` e2e 和 `rg` 能找到的全部引用。
+
+### 3. watch 只盯计算值 `drawer`：对调、关一张都不触发写地址与保存
+- **严重程度**：重要
+- **类别**：地址与存下的状态
+- **位置**：`plan.md:20、26`；`book.ts:348-351、235`
+
+**现象**：`book.ts:348` 的 `watch([at, page, perspectiveRef, drawer], …, {deep: true})` 是写地址与存状态的唯一触发。`drawer` 改成 `details[active]?.content` 之后：
+- `swapDetails` 后，被拖的那张成为 `active`。它在数组里换了位置，`details[active]` 还是同一个对象，computed 值不变，watch 不触发。地址里的 `entity` 与 `entity2` 没对调，存下的状态也没变。
+- `closeDetail` 关掉非 active 的一张，剩下的正好是原 active 时，值同样不变，`entity2` 留在地址里。
+- 反过来，只改 `active`（`touchDetail`）会让 computed 变，白排一次 1 秒的保存，而 `active` 不进 `viewState`。
+
+**为什么是问题**：输出 69“地址与存下的状态记两张”会在最常用的两步（对调、关一张）之后与界面不同步，刷新回到旧布局。e2e 7 只测打开后刷新，测不到。
+
+**如何核实**：读 `book.ts:348`；单测里对调之后看 `router.currentRoute` 的 `entity` 与 `entity2`。
+
+**建议改法**：watch 改成盯 `details` 与 `viewState()` 的序列化结果，不盯 `drawer`；`touchDetail` 不触发保存。
+
+### 4. 关闭与换内容的入口没分“哪一张”
+- **严重程度**：重要
+- **类别**：接口与合同
+- **位置**：`DrawerCard.vue:105-107、124`；`BookFrame.vue:291、314`；`NameLink.vue`；`RefLink.vue`；`plan.md:24、45、49-50`
+
+**现象**：
+- **a）关闭按钮写死 `closeDrawer()`。**
+  - 人物卡的 × 是 `book.closeDrawer()`（`DrawerCard.vue:124`），其余三种的 × 在 `BookFrame.vue:291`。
+  - 计划定义了 `closeDetail(index)`，但没写这些按钮怎么知道自己是第几张。不改的话，点哪张的 × 都是两张一起收。
+- **b）卡内“换哪一张”靠 `active` 的事件时序。**
+  - 卡里的 `setTab`（`DrawerCard.vue:105`）、`NameLink`、`RefLink` 都经 `openCard`、`openSource`，换哪一张全靠 `active`。
+  - `wheel` 也算“最近”（`plan.md:45`），但它不动焦点。
+  - 复现序列：焦点在左卡的名字上（`active`=左）；滚轮滚了一下右卡（`active`=右）；对左卡里那个聚焦的名字按 Enter，换掉的是右卡 [推断，可用 e2e 复现]。
+  - 决定 3 的“卡片里的名字换它自己那张”靠的是一个隐含的事件顺序。
+- **c）关最后一张的语义没写。** 关掉最后一张必须等于 `closeDrawer`（记进 `lastDetails`）。否则顶栏开关 `!drawerOpen && !book.lastDrawer.value`（`BookFrame.vue:253`）会变成禁用，`frame.e2e` 的“按钮”用例就变了。
+
+**建议改法**：
+- 给内容外壳 provide 一个 `DETAIL_SCOPE`（所在卡的 key）。
+- `DrawerCard` 与 `BookFrame` 的 × 读它，调 `closeDetail(key)`。
+- 卡内的 `NameLink`、`RefLink`、`setTab` 有 scope 时调 `replaceDetail(key, content)`，没有 scope（主区里）才走 `active`。
+- `closeDetail` 与 `swapDetails` 都用 key，不用下标。
+
+### 5. 地址与存下状态的合并规则没定：逐键合并会拼出一对不是用户要的卡
+- **严重程度**：重要
+- **类别**：边界
+- **位置**：`plan.md:26、74`；`book.ts:199-219`；`viewer.md` 输出 4 与“边界与兼容”
+
+**现象**：现有规则是逐键合并（`query.entity ?? savedView.entity`，`tab` 同理）。`entity2`、`tab2` 照抄会出现：
+- 地址只写 `?entity=A`（别人分享的单卡链接），存下的是 X|Y：结果 A|Y。
+- 地址写 `entity2=B` 没写 `entity`，存下的 `entity` 是 X：结果 X|B。
+- 左边是原文、右边是人物卡：`viewState` 只记人物卡，`entity` 为 null、`entity2` 为 B。重载后只剩 B 一张，且位置从右变左，计划没说。
+- `entity` 与 `entity2` 相同（手改地址或 Ctrl 点同一个人）：去不去重没写。
+- `entity` 不存在而 `entity2` 存在：哪张补位、`tab` 与 `tab2` 怎么对应没写。
+- “`entity2` 照 `entity` 的做法核对”是再串行多一次 `entity.card` 请求，两个可以并行。
+- “边界与兼容”里的页面地址形状是公开接口，要写进 `entity2`、`tab2`。计划的 Spec 改动只列输出 66 到 69，没改它；`web/router.ts:12` 的注释也要改。
+
+**建议改法**：规则写成“地址里出现 `entity`、`entity2`、`tab`、`tab2` 任一个，这四个键整组取地址，缺的当没有；一个都没出现才整组用存下的”。列一张情形表，核对并行，相同的去重成一张。
+
+### 6. 两张卡时，中间线与主区线的收起映射对不上
+- **严重程度**：重要
+- **类别**：四栏的收起与线
+- **位置**：`plan.md:35-37`；`BookFrame.vue:117-126`；`sash-drag.ts` 文件头注释
+
+**现象**：
+- **a）拖中间线向左。**
+  - 左侧邻居 `drawer` 先缩，理想尺寸低于 280−80 时收起，落账里是 `collapsed.drawer === true`。
+  - 计划的映射是“`drawer` 收起 = `closeDrawer()`”，用户拖的是中间线，想关左边那张，得到的是两张都关。
+  - `closeDetail(0)` 又要把右卡换到 `drawer` 叶，而这个叶刚被网格收到 0。同一次落账里要把 `drawer` 翻回展开、`drawer2` 翻成收起，计划没写。
+- **b）拖主区线向右。**
+  - 求解按“由近到远”传播（`sash-drag.ts` 文件头）。`drawer` 先缩到 280 停住，剩下的位移让 `drawer2` 从 400 缩到 280。
+  - 理想尺寸 400−d 低于 200（d>200）时 `drawer` 才收起，此时 `drawer2` 约 320。
+  - 松手后映射成 `closeDrawer`，`drawer2` 又从 320 动画收到 0。用户看到“拖了很远，左卡才没，右卡再滑走”，不是计划写的“拖到 0 收起整块”。
+  - 松在 d=150：`drawer` 280、`drawer2` 370，两张不一样宽。
+- **c）`onApplied` 写偏好的条件太宽。**
+  - 现在是 `change.active.includes("drawer")` 就写偏好（`BookFrame.vue:124`）。
+  - 拖中间线时 `active` 是 `[drawer, drawer2]`，也含 `drawer`，会把 `drawer` 的宽度写成偏好。
+  - 计划说“拖中间那条只改分配，不写偏好”（`plan.md:37`），要改这行：只在 `active` 含 `main` 时写。
+- **d）中间线上按 Enter。** “切换相邻可收起面板”，两边都可收起，收哪边计划没写，e2e 也没覆盖。
+
+**如何核实**：在 `book-grid.test.ts` 里给 `createBookGrid` 加 `drawer2`，直接调 `grid.resizeBranches` 或手势求解，量各叶尺寸。
+
+**建议改法**：
+- 落账映射按“哪条线”分：`active` 含 `main` 时 `drawer` 收起 = `closeDrawer`；`active` 是 `[drawer, drawer2]` 时，`drawer` 收起 = `closeDetail(0)`，`drawer2` 收起 = `closeDetail(1)`。
+- 更简单的做法：中间线设成不能收起，只做两张的分配，收起只经 × 与顶栏开关。这符合“窄场景选简单改法”。选哪个写进计划。
+
+### 7. 窗口宽度不够时两张卡的约束：计划没写
+- **严重程度**：重要
+- **类别**：约束
+- **位置**：`plan.md:35-37、67`；`BookFrame.vue:133-139`；`nested-grid.md` 已知限制第三条
+
+**现象**：
+- 约束是 188 + 360（主区最小）+ 2×偏好 + 3 条线。偏好 400 时窗口要 ≥1351，偏好上限 640 时要 ≥1831。
+- 窗口 1100：可用 1097。固定尺寸合计 188+400+400=988，超过 1097−360=737，按“向最小值压缩”得 nav 约 153、两张约 282、主区 360。
+- 窗口 1440、偏好 460：1437−188−920=329，低于 360，同样压缩。
+- `onIssues` 把 `over-constrained` 全部压掉（`BookFrame.vue:137-139`），没有任何提示。
+- Spec 已知限制（`nested-grid.md:29`）：落账时被压缩、这次没动的保留像素节点的意图会被写成压缩后的值。
+  - 两张卡在窄窗口里拖一次导航线，两张的意图就变成压缩后的 282，放宽窗口回不到 400。
+  - t44 只有一张卡，窗口刚够时 188+360+460+2=1010≤1100，没碰到这条。
+- 决定 1 的数字（1440 宽、两张各 400、正文 450）只在偏好 400、窗口≥1351 时成立，计划的 e2e 1 只测了这一种。
+
+**如何核实**：用 `createBookGrid` 加 `drawer2`，在 1100×800 和 1440 加偏好 460 下调 `layout()`，看 `sizes` 与 `issues`；再 `resizeBranches` 一次看意图。
+
+**建议改法**（二选一，写进计划）：
+- ①并排要求窗口够宽（≥188+360+2×偏好+3）。不够时 `openBeside` 退化成普通打开，右键菜单项置灰或隐藏。把“并排的最小宽度”写进决定请开发者认。
+- ②接受压缩，补 1100 与偏好 460 的 e2e，把“压缩后意图被写回”记进已知限制。
+- 我倾向①。
+
+### 8. `drawer2` 的展开宽度是建树时的偏好，和 `drawer` 对不齐
+- **严重程度**：重要
+- **类别**：与已定决定一致
+- **位置**：`plan.md:30、37`；`book-grid.ts:56、60`；`nested-grid.md` 输出 148
+
+**现象**：
+- `drawer2` 的 `restoreSize: input.drawerWidth` 在建树时取，`BookFrame.vue:115` 的 `readDrawerWidth()` 只读一次。
+- 用户拖主区线把 `drawer` 拉到 460（偏好 460），再展开 `drawer2`，它回到建树时的 `restoreSize`（如 400）。结果 `drawer` 460、`drawer2` 400。
+- 拖主区线放大时求解“由近到远”先动 `drawer`，`drawer2` 不跟着变。
+- 偏好说的是“一张卡的宽度”（`plan.md:37`），而界面上两张不一样宽，也无法用拖一次主区线修齐。
+- 关一张后，剩下的卡换到 `drawer` 叶时尺寸也会变。
+
+**如何核实**：1440 宽，开一张卡，拖主区线 −60，再 Ctrl 点开第二张，量两叶宽度。
+
+**建议改法**：
+- 开第二张前由宿主把 `drawer2` 的意图调到当前偏好。
+- 先查 `grid.resizeBranches` 能否由宿主程序调用。不能的话记成 nb-layout 的缺口（见第 14 条）。
+- 或接受两张可以不同宽，改写决定 1 的验收。
+
+### 9. 拖动会话：缺 `structure`，来源用下标，根元素与非人物卡的“头部”没定
+- **严重程度**：重要
+- **类别**：合同
+- **位置**：`plan.md:56-61`；`drag-session.md`；`layout-drag.md` 输出 7、15；`BookFrame.vue:289-298、314`
+
+**现象**：
+- **a）没用 `structure?()`。**
+  - `layout-drag.md` 输出 7 写明“结构键变化整场取消”。
+  - 拖着时 `details` 变了（`refresh` 完成后 `afterFresh` 开了新卡、关了一张），`sourceAt` 返回的下标是按下那一刻的，`commit` 时对调的可能是别的卡，或下标越界。
+  - 应传 `structure: () => details 的 key 序列`，来源用 key。
+- **b）根元素只能是整个网格或它外面的包装。**
+  - 两张卡在内容层，是 NestedGrid 根的子元素，不在任何一个叶里。“抽屉两栏的共同容器”（`plan.md:56`）在 DOM 里不存在。
+  - 网格有 `v-if="tier !== 'phone'"`，root 要用包一层的 div 的模板 ref。
+  - root 是整个网格时，pointerdown、click、键盘监听覆盖主区与导航，`sourceAt` 必须只认 `[data-detail-handle]`，pointer capture 也落在这个根上。
+- **c）非人物卡三种的“头部”没有名字，也没有把手。**
+  - 它们的头部是 `BookFrame.vue:291` 那条 `justify-end px-2 pt-1` 的行，只有一个 × 按钮。
+  - 拖影“写着名字的小块”（`plan.md:60`）对原文、段落、节点没有名字可写。原文是出处，段落是章与段，节点有 `label`，要各定一个。
+  - 空白条约 28px 高，也没有可见的把手与 `cursor: grab`，用户不会知道能拖。
+- **d）对调只有鼠标能做。**
+  - 计划写“会话支持键盘，本 Task 不接”。
+  - 仓库先例是拖动源可聚焦、有可访问描述（`workbench-layout.md` 输出 20，`sortable-list.md` 输出 7）。
+  - 至少要有一个不靠拖动的对调入口，例如卡头菜单里“与另一张对调”。
+- **e）`DropFeedbackOverlay` 的输入没写全。**
+  - 它的输入是 `{areaRect, indicator, orientation}`（viewport 坐标），`label` 必填；空白就不显示药丸、也不播报。
+  - 计划没写 `label` 文案（如“与右边那张对调”）和 `areaRect` 的取值。内容在过渡中会动，取叶矩形比取内容外壳稳。
+
+**如何核实**：读 `drag-session.md`、`layout-drag.md` 输出 7、`DropFeedbackOverlay.md` 的“数据”一节。
+
+**建议改法**：补 root 用包网格的 div、`structure` 与 key 来源、四种内容的名字与头部画法、`label` 文案、一个非拖动的对调入口。
+
+### 10. 窄档的语义没写：关闭、遮罩、“旁边打开”
+- **严重程度**：建议
+- **类别**：遗漏
+- **位置**：`plan.md:45、52`；`BookFrame.vue:97-100、308、314`
+
+**现象**：
+- 平板与手机只显示 `active` 那张，`details` 里还有另一张。浮层的 ×、遮罩点击、Escape 都调 `closeDrawer()`，两张一起关并记进 `lastDetails`。
+- 放宽后“两张回来”（决定的八条之一）只在没关过时成立，关过之后一张都没有。
+- 反过来若 × 只关 `active`，隐藏的那张会立刻顶上来，用户看到“关了又出现一张”。计划没写取舍。
+- 窄档下 Ctrl 点与右键“在旁边打开”会换掉 `active`（或加一张看不见的），用户看不出效果。
+
+**建议改法**：窄档的关闭一律是 `closeDrawer`，写明“放宽后不恢复”；窄档隐藏“在旁边打开”，Ctrl 点退化成普通打开（与第 7 条①一致）。
+
+### 11. 第三条分隔线在单张或没有卡时仍占 1 像素
+- **严重程度**：建议
+- **类别**：别扭
+- **位置**：`plan.md:28、34`；`book-grid.ts:65`
+
+**现象**：
+- 三根线宽度都是 1，现在只有主区与抽屉那条在平板返回 0。
+- `drawer2` 收起时（一张卡、没有卡）第三条线仍占 1 像素，主区 850 变 849，画在窗口右缘。
+- `sashDisabled` 只停手势，线照画。命中带的外扩范围可能盖住右卡的滚动条边缘 [推断，需量]。
+
+**建议改法**：`sashSize` 里 `index === 2` 在 `drawer2` 收起时返回 0（同 `compact`），状态变了调 `host.invalidate()`。单张时与 t44 数值完全一致，现有数值断言不用改。
+
+### 12. 测试与验收映射的缺口
+- **严重程度**：建议
+- **类别**：验收映射
+- **位置**：`plan.md:65-75、93-101`
+
+**“先查”的答案**：
+- `host/` 下没有会话测试文件，只有 `query.test.ts` 与 `relations-view.test.ts`。
+- bun test 没有 DOM 全局，根 `bunfig` 只有路径忽略。
+- `openBookSession` 在 `book.ts:343` 就调 `document.addEventListener`，直接测会失败。
+- 建议把详情模型抽成不碰 DOM 的纯模块（open、`openBeside`、close、swap、`lastDetails`、`viewState` 的序列化与解析）单测它，不要给测试做 `document` 桩。
+
+**缺的用例**：
+- 输出 66 的“中间的线”：e2e 1、5、6 都没有拖中间线、Enter、拖到边缘收起。
+- 输出 68 的“拖到抽屉外松手不动”“只有一张不能拖”“点关闭按钮不起拖”只在风险段提到，没有用例。
+- e2e 4 的“人物卡不重建”只覆盖对调，没覆盖关左边那张（第 1 条 c）和关整块过渡中又打开两张。
+- 输出 69：`tab2`、`readSavedView`、“还没出现”提示、地址与存下状态冲突（第 5 条）都没有用例。
+
+**变异检查**：除计划的四条外，建议加这几条。
+- 不保留 `closing` 项。
+- `sashDisabled` 总返回 false。
+- 不传 `structure`。
+- watch 不盯 `details`（第 3 条）。
+- `onApplied` 写偏好不分线（第 6 条 c）。
+
+**⌘ 的说明**：Linux 的 Chrome 里用 `keyboard.down("Meta")` 点击可行。macOS 上 Ctrl 点是右键，会弹菜单、不走 `click`。`plan.md:49` 的 `ctrlKey` 分支在 mac 上到不了，不算错，写进 Spec 说明即可。
+
+### 13. 右键菜单每个 NameLink 挂一个，以及几处小边界
+- **严重程度**：建议
+- **类别**：效率与细节
+- **位置**：`plan.md:49-51`；`NameLink.vue`；`RosterPage.vue:29`；`RevisionsPage.vue:79`
+
+- `NameLink` 在 11 个文件里用，一页上可能几百个。每个实例带一个 `ContextMenu`（`plan.md:49`）不划算。
+  - 改成 BookFrame 里一个共用的菜单，`NameLink` 只经注入的函数传位置与卡片。
+  - 关系图页与全书图页现有的 `ContextMenu` 也可以并进去。
+- 打开同一个人（同一 `entity`）两张时的行为没写：重复，还是让已有那张成为 `active`。
+- 重载后 `active` 的初值没写。建议最后打开的那张，与“最近点过”一致。
+- `RosterPage`、`RevisionsPage` 的高亮只读 `drawer`（`active` 那张），两张并排时另一张的人没有高亮。想两张都高亮，要另提供 `book.openEntities`。
+- `viewer.md` 输出 1“抽屉里每种内容右上角都有关闭按钮”，两张卡下指每张的右上角，输出 66 里写一句。
+
+### 14. 上游选择（不要求本 Task 改）
+- **严重程度**：建议
+- **类别**：上游
+
+- **结构固定四叶、只翻收起（`plan.md:38`）。** 这迁就的是 t44 的选择，带来第 1、6、8、11 条：叶按位置分配而收起按叶，宽度意图只在建树时给。
+  - 另一种是把两张卡放进一个收起的分支：`main | 详情组[detail1 | detail2]`。
+  - 关整块 = 收起这个分支，拖主区线只动整块，中间线是组内分配，天然没有第 6 条 a、b。
+  - 代价：组的宽度意图要在开第二张时变成 2×偏好，而 nb-layout 公开面里没有“宿主设置意图”的入口。
+  - 先查 `grid.resizeBranches` 能否程序调用（`NestedGrid.md` 只写了手势落账时用）。不能的话是 nb-layout 的缺口，记进接入记录。
+- **`outgoingLeaves` 只保证在插槽里读（第 1 条）。** 对 `contents` 属性没有“保留到过渡结束”的公开入口。可记为 nb-layout 缺口：叶收起时，网格自己把它的内容项保留到过渡结束（t44 的 `paneDrawer` 也是在迁就这一点）。
+
+## 未发现问题的方面
+
+- **`drawer` 的写入点。** `drawer.value =` 只在 `book.ts:448-474`。读的地方有 `RelationsPage.vue:55、97`、`BookGraphPage.vue:47`、`RosterPage.vue:29`、`RevisionsPage.vue:79` 和 `BookFrame`，读 computed 都行得通。
+- **服务端。** `reading.set` 的 `view` 是不透明值（`Type.Unknown()`），确认不用改。旧版本读到多出的键会忽略。
+- **内容项换叶。** “换叶不重建、从旧矩形滑到新矩形”在 Spec 输出 82、92 有明文保证。对调两项换 `leaf` 的做法成立。
+- **拖动反馈的输入。** `DropFeedbackOverlay` 吃 viewport 坐标的 `areaRect` 合适；`state.point` 存在，可定位跟手小块；会话判定落点时确实跳过 `[data-drag-feedback]`。
+- **分隔线与会话的冲突。** 分隔线命中带里被内层停止传播的 pointerdown，不会起拖，不会冲突。
+- **`openBeside` 的基数。** 没有详情、一张、两张三种结果自洽。
+
+## 汇总
+
+阻断 0，重要 9（第 1 到 9 条），建议 5（第 10 到 14 条）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

@@ -1,0 +1,36 @@
+# t45 第 2 稿之前的结构探针（2026-11-22）
+
+## 读代码：removeLeaf 会展平单孩子的分支
+
+packages/nb-layout/src/grid.ts 的 removeLeaf：删掉之后父分支只剩一个孩子时 collapse(parent, 唯一的孩子)，分支被它的孩子替换；一个孩子都不剩时分支也被拿掉。所以“详情分支里按需增删卡片的叶”做不成：只剩一张卡时分支连同它的收起策略与保留像素一起没了。
+
+## Bun 探针：分支 [drawer, drawer2]，第二张收起在 0（1440×900，偏好 400）
+
+```
+-- 检查 2：分支收起
+一张 {"nav":188,"main":850,"details":400,"drawer":399,"drawer2":0} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":281,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+两张 {"nav":188,"main":450,"details":800,"drawer":399.5,"drawer2":399.5} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":561,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+setCollapsed(details,true) {"ok":true,"changed":true,"collapse":{"collapsedSize":0,"restoreSize":800,"collapseThreshold":80,"expandThreshold":40,"collapsed":true}}
+两张收起 {"nav":188,"main":1250,"details":0,"drawer":0,"drawer2":0} sashes {"frame":[1,1],"details":[0]} issues [] constraints.details {"minimumSize":{"width":0,"height":0},"maximumSize":{"width":0,"height":9007199254740991}}
+setCollapsed(details,false) {"ok":true,"changed":true,"collapse":{"collapsedSize":0,"restoreSize":800,"collapseThreshold":80,"expandThreshold":40,"collapsed":false}}
+两张展开 {"nav":188,"main":450,"details":800,"drawer":399.5,"drawer2":399.5} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":561,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+-- 检查 3：一张加宽成两张（一次 resizeBranches，含 drawer2 展开）
+1440 resizeBranches {"ok":false,"code":"not-conserved","message":"The gesture target of branch details is not conserved: 800 != 399","params":{"id":"details","target":800,"baseline":399}}
+1440 之后 {"nav":188,"main":850,"details":400,"drawer":399,"drawer2":0} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":281,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+1100 resizeBranches {"ok":false,"code":"not-finite","message":"The gesture target of branch frame cannot be turned into finite size intents","params":{"field":"intent","id":"frame"}}
+1100 之后 {"nav":188,"main":510,"details":400,"drawer":399,"drawer2":0} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":281,"height":0},"maximumSize":{"width":588,"height":9007199254740991}}
+-- 只翻 drawer2 的收起标记（不改分支意图）
+{"ok":true,"changed":true,"collapse":{"collapsedSize":0,"restoreSize":400,"collapseThreshold":80,"expandThreshold":40,"collapsed":false}}
+翻 drawer2 {"nav":188,"main":689,"details":561,"drawer":280,"drawer2":280} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":561,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+-- 分支意图加宽：resize(details)
+{"ok":true,"applied":278}
+resize details +400 {"nav":150,"main":610,"details":678,"drawer":677,"drawer2":0} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":281,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+{"ok":true,"changed":true,"collapse":{"collapsedSize":0,"restoreSize":400,"collapseThreshold":80,"expandThreshold":40,"collapsed":false}}
+再翻 drawer2 {"nav":150,"main":610,"details":678,"drawer":338.5,"drawer2":338.5} sashes {"frame":[1,1],"details":[1]} issues [] constraints.details {"minimumSize":{"width":561,"height":0},"maximumSize":{"width":928,"height":9007199254740991}}
+```
+
+结论：
+- 分支收起（setCollapsed 分支 id）成立：收起时整块 0、里面的线 0，展开回到 800。
+- 一张卡时里面那条线仍占 1 像素（drawer 399）。
+- 宿主把分支加宽一张卡没有干净的入口：resizeBranches 要求每个分支内部守恒（not-conserved），窄窗口时报 not-finite；resize(details) 会连带把保留像素的导航压到最小值 150；只翻 drawer2 的收起标记时两张被压到最小值 280。公开面缺“设置一个保留像素节点的意图”的入口（记进接入记录）。
+- 所以第 2 稿改成：张数变了就按当前的意图（导航宽度与收起、抽屉宽度）重新建树，这是 Grid.setCollapsed 注释里写的“宿主改了自己的记录、重新建树”那一种。
