@@ -57,6 +57,19 @@ export async function packageNotices(directories: Iterable<string>): Promise<Not
     return notices.filter((notice) => !sameLicenseAsRelease(notice.name, notice.license));
 }
 
+/**
+ * 工作区里许可不同的依赖（nb-layout 的 MIT）：Vite 的 `build.license` 只收 `node_modules` 里的包，工作区的包经链接解析到
+ * `packages/<目录>`，不在它的清单里；Bun 的 metafile 同理。按 `manifestPath` 的 `dependencies` 与 `devDependencies` 里的
+ * `@notnotype/*` 找到 `packagesRoot/<名字>`，与发布包同一许可的不列。声明了依赖就当打进去了：应用、SDK 与 nb-story 的网页
+ * 把用到的工作区包都打进产物，多列一份不碍事，漏列才是问题。
+ */
+export async function workspaceNotices(manifestPath: string, packagesRoot: string): Promise<Notice[]> {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {dependencies?: Record<string, string>; devDependencies?: Record<string, string>};
+    const names = [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})].filter((name) => name.startsWith("@notnotype/"));
+    const directories = [...new Set(names)].map((name) => join(packagesRoot, name.slice("@notnotype/".length))).filter((directory) => existsSync(join(directory, "package.json")));
+    return packageNotices(directories);
+}
+
 interface ViteLicense {
     readonly name: string;
     readonly version: string;

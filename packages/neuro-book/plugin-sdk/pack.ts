@@ -46,7 +46,7 @@ import {isInside} from "../src/plugin-platform/backend/paths";
 import {SDK_ENTRIES, SDK_NAME} from "../src/sdk/entries";
 import type {SdkEntry} from "../src/sdk/entries";
 import {PRODUCT_VERSION} from "../src/shared/product";
-import {noticeSection, packageDirectories, packageNotices, viteLicenseNotices} from "../scripts/third-party-notices";
+import {noticeSection, packageDirectories, packageNotices, viteLicenseNotices, workspaceNotices} from "../scripts/third-party-notices";
 
 import {AUTHOR_PACKAGES, BUILD_DEPENDENCIES} from "./dependencies";
 
@@ -434,6 +434,7 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         "这个包里的 `*.js` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明；`vue`、`typebox` 与构建预设的工具是 peer 依赖或普通依赖，不在其中。",
         noticeSection("构建期实现（index.js、browser.js、components.js 等）", libraryNotices),
         noticeSection("构建预设与作者命令（build.js、cli.js）", await packageNotices(packageDirectories(toolModules))),
+        noticeSection("工作区里许可不同的包（打进上面的产物）", await workspaceNotices(join(packageRoot, "package.json"), join(repoRoot, "packages"))),
     ].join("\n\n") + "\n");
     await cp(join(repoRoot, "LICENSE"), join(outDir, "LICENSE"));
     // 命令的声明文件用不上：它只作 bin。

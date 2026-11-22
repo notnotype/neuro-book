@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {packageNotices, viteLicenseNotices} from "./third-party-notices";
+import {packageNotices, viteLicenseNotices, workspaceNotices} from "./third-party-notices";
 
 let tmp: string;
 const modules = () => join(tmp, "node_modules");
@@ -52,5 +52,19 @@ describe("列谁", () => {
         ]));
         const notices = await viteLicenseNotices(file, modules());
         expect(notices.map((notice) => notice.name)).toEqual(["@notnotype/nb-layout", "agpl-lib"]);
+    });
+
+    it("工作区里的依赖：Vite 与 Bun 的清单看不见它们，按声明的依赖找，自家 AGPL 的不列、MIT 的列", async () => {
+        const packages = join(tmp, "packages");
+        for (const [dir, license] of [["nb-ui", "AGPL-3.0-only"], ["nb-layout", "MIT"]] as const) {
+            await mkdir(join(packages, dir), {recursive: true});
+            await writeFile(join(packages, dir, "package.json"), JSON.stringify({name: `@notnotype/${dir}`, version: "0.1.0", license}));
+            await writeFile(join(packages, dir, "LICENSE"), `${license} text`);
+        }
+        const manifest = join(tmp, "app-package.json");
+        await writeFile(manifest, JSON.stringify({dependencies: {"@notnotype/nb-ui": "workspace:^", vue: "^3.5.0"}, devDependencies: {"@notnotype/nb-layout": "workspace:^", "@notnotype/not-here": "workspace:*"}}));
+        const notices = await workspaceNotices(manifest, packages);
+        expect(notices.map((notice) => `${notice.name} ${notice.license}`)).toEqual(["@notnotype/nb-layout MIT"]);
+        expect(notices[0]!.texts).toEqual(["MIT text"]);
     });
 });

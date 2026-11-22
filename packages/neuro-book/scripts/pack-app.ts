@@ -41,7 +41,7 @@ import {queryNeuroBook} from "../src/server/instance";
 import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
 import {buildAgentDocs} from "./agent-docs";
-import {noticeSection, packageDirectories, packageNotices, viteLicenseNotices} from "./third-party-notices";
+import {noticeSection, packageDirectories, packageNotices, viteLicenseNotices, workspaceNotices} from "./third-party-notices";
 
 export const APP_NAME = "@notnotype/neuro-book";
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -221,6 +221,7 @@ async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: s
         "这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。",
         noticeSection("服务端（server/nbook.js、server/main.js、server/project.js、server/eval-kernel.js）", await packageNotices(serverPackages)),
         noticeSection("前端（web/）", web),
+        noticeSection("工作区里许可不同的包（打进上面的产物）", await workspaceNotices(join(packageRoot, "package.json"), join(repoRoot, "packages"))),
         ["## 字体", ...fonts.map(({file, text}) => `### web/assets/${file}\n\n\`\`\`\n${text}\n\`\`\``)].join("\n\n"),
     ].join("\n\n") + "\n";
 }
