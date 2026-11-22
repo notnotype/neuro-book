@@ -149,7 +149,8 @@ test.describe("宽屏", () => {
                 frames.push({
                     moving: document.querySelector("[data-testid='book-frame'] [data-moving]") !== null,
                     drawer: Math.round(document.querySelector("[data-leaf='drawer']")?.getBoundingClientRect().width ?? 0),
-                    card: document.querySelector("[data-leaf='drawer'] [data-testid='card-name']") !== null,
+                    // 详情画在网格的内容层，挂在抽屉那一栏上（不在叶的外框里）。
+                    card: document.querySelector("[data-content-leaf='drawer'] [data-testid='card-name']") !== null,
                     canvas: Math.round(graphCanvas?.getBoundingClientRect().width ?? 0),
                 });
                 if (performance.now() - start < 1500) requestAnimationFrame(step);

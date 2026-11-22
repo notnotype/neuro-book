@@ -19,6 +19,7 @@ import type {Router} from "vue-router";
 
 import type {IngestStatusView, PositionInput, StoryResult} from "../../contract/contract";
 import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
+import {activeDetail, close, collapse, EMPTY_DETAILS, expand, fromView, openBeside, openIn, swap, toView, touch, type DetailRequest, type DetailsState, type DetailTarget} from "./details";
 
 export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "revisions", "stats"] as const;
 export type Page = (typeof PAGES)[number];
@@ -86,7 +87,10 @@ export interface BookSession {
     readonly atEnd: ComputedRef<boolean>;
     readonly perspective: Ref<string>;
     readonly page: Ref<Page>;
-    readonly drawer: Ref<DrawerContent | null>;
+    /** 右侧的详情（最多两张，输出 66 到 69）：只经下面的写入口改。 */
+    readonly details: Readonly<ShallowRef<DetailsState>>;
+    /** 最近点过、看得见的那张详情的内容；整块收起或没有时为 null。读它的页面（人物页、关系图、待确认）按它高亮。 */
+    readonly drawer: Readonly<Ref<DrawerContent | null>>;
     /** 打开时去掉了地址里不存在的对象或视角等，给页面角落的一次性提示。 */
     readonly notice: Ref<string | null>;
     readonly saveFailed: Ref<boolean>;
@@ -96,10 +100,9 @@ export interface BookSession {
     readonly sourceChapter: Ref<number | null>;
     /** 问答页选中的对话 id；null 是新对话。写进地址（`c`），只进地址、不进存下的状态。 */
     readonly qaConversation: Ref<string | null>;
-    /** 最近一次关掉的抽屉内容：宽屏下把收起的抽屉再拖开或点“展开”时恢复它（输出 1）。 */
-    readonly lastDrawer: Ref<DrawerContent | null>;
     /** 在主区打开某人的记录宽表（输出 10）；不进地址。 */
     readonly wideRecords: Ref<string | null>;
+    /** 整块展开：收起时记着的详情都回来（输出 1）。没有记着的时什么也不做。 */
     reopenDrawer(): void;
     /** 打开一页并带上要定位的目标。 */
     jump(page: Page, target: JumpTarget): void;
@@ -108,10 +111,22 @@ export interface BookSession {
     /** 换阅读位置；`"end"` 是抽取到的最后位置（落后时按换成新数据之后的终点算）。 */
     setAt(at: PositionInput | "end"): void;
     goPage(page: Page): void;
+    /** 打开人物卡：换最近点过的那张。`tab` 不给时，已开着的人不换页签，新开的停在概况（`details.ts` 的 `openIn`）。 */
     openCard(entity: string, tab?: Tab): void;
     openSource(ref: string): void;
     openParagraph(chapter: number, paragraph: number): void;
     openNode(id: string, label: string): void;
+    /** 打开到指定的那张（卡片里的链接经外壳的会话代理走这里）。 */
+    openDetail(request: DetailRequest, at: DetailTarget): void;
+    /** 在旁边打开（Ctrl 点、“在旁边打开”）。 */
+    openBeside(request: DetailRequest): void;
+    /** 关掉一张；是最后一张时等于整块收起。 */
+    closeDetail(key: number): void;
+    /** 成为最近点过的那张。 */
+    touchDetail(key: number): void;
+    /** 左右对调，被拖的那张成为最近的。 */
+    swapDetails(movedKey: number): void;
+    /** 整块收起，记着这几张。 */
     closeDrawer(): void;
     dispose(): void;
 }
@@ -222,8 +237,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     const urlChapter = typeof query.chapter === "string" && /^\d+$/u.test(query.chapter) ? Number(query.chapter) : null;
     const sourceChapter = ref<number | null>(urlChapter !== null && urlChapter >= 1 && urlChapter <= info.chapters ? urlChapter : null);
     const qaConversation = ref<string | null>(typeof query.c === "string" && query.c !== "" ? query.c : null);
-    const lastDrawer = ref<DrawerContent | null>(null);
-    const drawer = ref<DrawerContent | null>(entity === null ? null : {kind: "card", entity, tab});
+    const details = shallowRef<DetailsState>(entity === null ? EMPTY_DETAILS : fromView({entity, tab, entity2: null, tab2: null}));
+    const drawer = computed<DrawerContent | null>(() => (details.value.open ? (activeDetail(details.value)?.content ?? null) : null));
     const notice = ref<string | null>(notices.length ? notices.join("；") : null);
     const saveFailed = ref(false);
     const atEnd = computed(() => isEnd(infoRef.value, at.value));
@@ -232,9 +247,11 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     const pages = computed(() => allowedPages(infoRef.value.features));
 
     function viewState(): SavedView {
-        const card = drawer.value?.kind === "card" ? drawer.value : null;
-        return {page: page.value, entity: card?.entity ?? null, tab: card?.tab ?? null, perspective: perspectiveRef.value};
+        const view = toView(details.value);
+        return {page: page.value, entity: view.entity, tab: view.tab, perspective: perspectiveRef.value};
     }
+    /** 进地址与存下的状态的那部分详情：只改“最近点过的那张”不算变化，不写地址、不存。 */
+    const detailsView = computed(() => JSON.stringify(toView(details.value)));
 
     // ---- 地址 ----
     function routeTarget() {
@@ -345,7 +362,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
 
     // 原文页的章与问答页的对话只进地址，不进存下的状态；变了只同步地址。
     const stopChapter = watch([sourceChapter, qaConversation], () => syncRoute());
-    const stopWatch = watch([at, page, perspectiveRef, drawer], () => {
+    const stopWatch = watch([at, page, perspectiveRef, detailsView], () => {
         syncRoute();
         scheduleSave();
     }, {deep: true});
@@ -405,6 +422,11 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         }
     }
     const INGEST_POLL_MS = 5000;
+
+    /** 打开都要取新数据，经 `afterFresh`：落后时先换数据再打开，回来时目标那张可能已经不在，`openIn` 按最近点过的那张。 */
+    function openDetail(request: DetailRequest, target: DetailTarget): void {
+        afterFresh(() => (details.value = openIn(details.value, request, target)));
+    }
     polling = setInterval(() => void poll(), INGEST_POLL_MS);
     void poll();
 
@@ -423,13 +445,13 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         atEnd,
         perspective: perspectiveRef,
         page,
+        details,
         drawer,
         notice,
         saveFailed,
         tier: ref<"wide" | "tablet" | "phone">("wide"),
         sourceChapter,
         qaConversation,
-        lastDrawer,
         wideRecords: ref(null),
         jump(next, target) {
             if (!pages.value.includes(next)) return;
@@ -445,7 +467,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             return target.id;
         },
         reopenDrawer() {
-            if (drawer.value === null && lastDrawer.value !== null) drawer.value = lastDrawer.value;
+            details.value = expand(details.value);
         },
         setAt(next) {
             afterFresh(() => {
@@ -457,21 +479,33 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             if (!pages.value.includes(next)) return;
             afterFresh(() => (page.value = next));
         },
-        openCard(entityId, tabName = "summary") {
-            afterFresh(() => (drawer.value = {kind: "card", entity: entityId, tab: tabName}));
+        openCard(entityId, tabName) {
+            openDetail(tabName === undefined ? {kind: "card", entity: entityId} : {kind: "card", entity: entityId, tab: tabName}, "active");
         },
         openSource(refText) {
-            afterFresh(() => (drawer.value = {kind: "source", ref: refText}));
+            openDetail({kind: "source", ref: refText}, "active");
         },
         openParagraph(chapter, paragraph) {
-            afterFresh(() => (drawer.value = {kind: "para", chapter, paragraph}));
+            openDetail({kind: "para", chapter, paragraph}, "active");
         },
         openNode(id, label) {
-            afterFresh(() => (drawer.value = {kind: "node", id, label}));
+            openDetail({kind: "node", id, label}, "active");
+        },
+        openDetail,
+        openBeside(request) {
+            afterFresh(() => (details.value = openBeside(details.value, request)));
+        },
+        closeDetail(key) {
+            details.value = close(details.value, key);
+        },
+        touchDetail(key) {
+            details.value = touch(details.value, key);
+        },
+        swapDetails(movedKey) {
+            details.value = swap(details.value, movedKey);
         },
         closeDrawer() {
-            if (drawer.value !== null) lastDrawer.value = drawer.value;
-            drawer.value = null;
+            details.value = collapse(details.value);
         },
         dispose() {
             if (polling !== null) clearInterval(polling);

@@ -186,7 +186,8 @@ test("@ 引用：选人物、段落与章插进问题，模型收到带 id 的�
     await expect(page.locator("[data-qa-page]")).not.toContainText("entity://");
     // 抽屉开着会记在这本书的阅读状态里，关上，免得盖住后面用例的输入框。
     await page.getByTestId("drawer").getByRole("button", {name: "关闭"}).click();
-    await expect(page.locator("[data-testid='drawer']:not([data-closing])")).toHaveCount(0);
+    // 关掉的那张在收起的过渡里由网格留着（带 data-content-leaving），不算开着的。
+    await expect(page.locator("[data-content]:not([data-content-leaving]) [data-testid='drawer']")).toHaveCount(0);
 });
 
 test("没有配置时：写明要先配置并给去设置的链接，不能发送", async ({page}) => {
