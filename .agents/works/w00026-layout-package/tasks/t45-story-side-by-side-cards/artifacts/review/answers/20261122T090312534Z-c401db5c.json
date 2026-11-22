@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t45-story-side-by-side-cards",
+    "artifactId": "review",
+    "answerId": "20261122T090312534Z-c401db5c",
+    "artifactVersion": 1,
+    "contentHash": "b1a22047bfca4eb17ec91b983f31eb908b795e1b5ee9c8994811edeb6e8154d8",
+    "submittedAt": "2026-11-22T09:03:11.449Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "drawer-width": "double",
+        "open-second": [
+            "modifier",
+            "menu"
+        ],
+        "click-target": "last",
+        "drag-look": true
+    },
+    "comments": {},
+    "note": null
+}

@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t45-story-side-by-side-cards",
+    "artifactId": "review",
+    "ackId": "20261122T090343438Z-695e20da",
+    "answers": [
+        "20261122T090312534Z-c401db5c"
+    ],
+    "through": "20261122T090312534Z-c401db5c",
+    "included": [
+        ".agents/works/w00026-layout-package/tasks/t45-story-side-by-side-cards/README.md"
+    ],
+    "ackedAt": "2026-11-22T09:03:43.438Z"
+}
