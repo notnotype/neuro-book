@@ -26,7 +26,27 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：t51、t52、t53 都做完并合入，[计划](plan.md)第 7 稿，开始实施。
+2026-11-22：四个切片都实施完，在分支 `w00026/t45-side-by-side`（worktree `.worktree/w00026-t45-side-by-side`），实现审查待处理（Claude Sonnet）。Spec [`story/viewer`](../../../../../docs/specs/story/viewer.md) 输出 1、4、20 与地址形状已改，输出 66 到 69、验收 15 标着 planned，合入时去掉。待确认清单新增 12 行（t45）。
+
+### 提交
+
+| 提交 | 切片 |
+|---|---|
+| `9f4ff9462` | 1：详情改成最多两张的状态模型（`host/details.ts`），一张详情画进网格的内容层（`leave: "retain"`）；`DetailShell` 与会话代理 |
+| `88c868dfa` | 2a：分栏改成导航、主区、详情分支（里面 `drawer`、`drawer2`，一张时第二张收着）；分隔线读屏念显示名 |
+| `69b4ce036` | 2b：Ctrl 点与右键“在旁边打开”、两张的宽度与拉平、地址记两张、关之前移交焦点、最近那张的强调线、窄档退化 |
+| `9a0ecaff1` | 3：拖详情的头换边（落点指示、跟手的标题小块、Escape 取消）与“与另一张对调”；原文、段落、节点的头部标题 |
+| `a2e6333f5` | 变异检查补的用例：点一下另一张时两张的分法也不弹回 |
+
+### 验证
+
+- 单测：`details.test.ts` 15 条、`book-grid.test.ts` 10 条。
+- e2e：新增 `side-by-side.e2e.ts` 14 条（1440、1280、1100、1024 四档）；`frame.e2e.ts`、`qa.e2e.ts` 的选择器跟着改。
+- 变异检查（改一处、重建、只跑覆盖它的用例、恢复），四处都被抓住：
+  - 去掉 `leave: "retain"`：顶栏开关与过渡两条失败；
+  - 关之前不移交焦点：“关右边那张”失败；
+  - 张数的 watch 改成盯整个 `details`（每次变化都重新拉平）：第一次没被抓住（点之前两张本来等宽），补用例先把中间那条线拖偏，之后“中间那条线”失败；
+  - 外壳不提供会话代理：“关右边那张”失败（卡片的关闭按钮变成整块收起）。代理里 `openCard` 这几项的覆盖在 e2e 里分不出来：在卡片里按下指针或获得焦点时它已经成了最近的那张，按“最近的”换结果一样；覆盖只在打开要先取新数据、回来时最近的那张已经换了的情况下有区别（从代码推断，没有用例）。
 
 - 第 5 稿用上新入口：t51 的分隔线显示名；t53 的内容项 `leave: "retain"`，替掉宿主自己管“正在关的内容”的一整套（`closing` 列表、按 `moving` 清理、`data-closing`）。
 - 第 5 稿的设计审查（Claude Sonnet，重要 2、建议 10，[证据](evidences/design-review-5.txt)）十二条都成立。第 3 条指出 t52 之后可以不重建网格：先跑了[分支探针](evidences/branch-probe.txt)，可行，第 6 稿改成两张卡是常驻的嵌套分支（`details` 里 `drawer`、`drawer2`），张数变化走 `setCollapsed` 加 `setSize`。第 4 稿为重建做的几条让步随之去掉（两张时拖不出收起、记着两张时主区线停用、导航宽度写偏好、两张时主区线只改左边那张），[待确认清单](../../pending-confirmations.md)那一行改写。
@@ -51,6 +71,18 @@ updated: 2026-11-22
 - 实施量：四个切片（详情模型与会话代理、四栏与内容层、拖动换边、收口），新增约 9 条 e2e 与一个纯模块的单测，改到 `qa`、`revisions`、`viewer` 三个 e2e 文件的选择器。
 - 草稿：worktree `.worktree/w00026-t45-drafts`（分支 `w00026/t45-drafts`，不合并、不推送）里临时改了 `BookFrame.vue`，截图脚本是 `packages/nb-story/e2e/shoot-current.e2e.ts`，都不提交；原图在本地 `shots/`。
 
+## 接入记录（nb-story 并排两张用 nb-layout 公开面的体验）
+
+接着 [t44 的接入记录](../t44-story-nested-grid/README.md#接入记录第一个外部使用方用-nb-layout-公开面的体验)，给 t47（发布）、t48（API 报告与稳定性标注）、t49（手感编排进库）看。t44 记的缺口里，t51 的 `paneLabel` 补了分隔线显示名；计划第 1 到 4 稿撞到的几处，t52（`setSize`、结构操作不改兄弟意图）与 t53（`leave: "retain"`）补上之后，张数变化原地完成、不重建网格，宿主也不再自己管“正在关的内容”。实施中仍为下面几处写了补丁或接受了差别：
+
+- **“这一栏此刻不存在”仍靠收起模拟**（t44 第 3 条）：一张卡时第二张是收到 0 的叶，收起阈值取 100 000（拖不到）、`toggleable: false`（Enter 不翻），中间那条线由 `sashSize` 返回 0 藏掉。三处配合才表达出“隐藏、保留 id”，读的人要拼起来。
+- **拉平两张要宿主自己算**：开第二张时取此刻的呈现（`layout(extent).sizes`）做基线，再用 `resizeBranches` 设成各半。缺“把分支的孩子设成等份”的入口，或展开时按等份恢复的选项。
+- **冻住的只是插槽调用**（`ui/nested-grid` 输出 155 的限制）：关掉的那张在过渡里留着，但外壳组件自己读的响应式数据照常更新，所以外壳不能读会话的 `details`，要的几样都经属性给。这条约束只写在 Spec 的限制里，没有类型或开发期提示兜底。
+- **关一张时焦点由宿主在关之前移交**：关的不是最后一张时被关的那项当即卸载，网格不发 `content-parked`；`content-parked` 只作拖到 0 收起时的兜底。焦点的去处因此在两处写。
+- **收起状态对账仍要宿主写**（t44 第 5 条）：`onApplied` 把 `change.collapsed.details` 映射回会话，张数与收起又经一个合并的 watch 写回网格。
+- **拖动换边**：通用的 `useDragSession`（`sourceAt`、`structure`、`resolve`、`commit`）加 `DropFeedbackOverlay` 就够；跟手的标题小块宿主自己 Teleport 画（`nb-layout/vue` 的导出里没搜到拖影组件）。会话的根要选包住网格的那一层（内容层是网格根的子元素，两张不在同一块叶里），文档里看不出来。
+- 顺手的地方：嵌套分支加 `setCollapsed`、`setSize`，两张的宽度与整块收起都留在树里；`paneLabel` 一张名字表；`leave: "retain"` 删掉了第 4 稿里宿主自己的 `closing` 列表与 `data-closing`。
+
 ## 下一步
 
-实施四个切片（worktree `.worktree/w00026-t45-side-by-side`）→ 实现审查。
+处理实现审查 → 把 master 并进分支、合入、Spec 去掉 planned → 删 worktree。
