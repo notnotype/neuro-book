@@ -9,7 +9,7 @@
 import {getEnvApiKey} from "@oh-my-pi/pi-ai";
 import {
     clampThinkingLevelForModel,
-    fetchOpenAICompatibleModels,
+    getBundledModel,
     getBundledModelReferenceIndex,
     getBundledModels,
     getBundledProviders,
@@ -20,6 +20,8 @@ import {
 } from "@oh-my-pi/pi-catalog";
 import {authPolicyFor} from "@oh-my-pi/pi-catalog/compat/auth";
 import {providerEntry} from "@oh-my-pi/pi-catalog/compat/providers";
+
+import type {OnlineCatalog} from "./online-catalog.js";
 
 
 export interface ModelPrice {
@@ -131,12 +133,13 @@ export function listCatalog(): readonly CatalogProvider[] {
         name: authPolicyFor(id)?.name ?? id,
         access: providerAccess(id),
         keyEnvs: providerKeyEnvs(id),
-        models: (getBundledModels(id as BundledProvider) as Model[]).map(catalogModel),
+        models: (getBundledModels(id as BundledProvider) as Model[]).map((model) => catalogModel(model)),
     }));
     return catalog;
 }
 
-export function catalogModel(model: Model): CatalogModel {
+/** `priced`：在线目录的行按原文判断价目是否存在（在而全为 0 是免费）；不给时按打包目录的规则（全为 0 当未知）。 */
+export function catalogModel(model: Model, priced?: boolean): CatalogModel {
     return {
         id: model.id,
         name: model.name,
@@ -150,7 +153,7 @@ export function catalogModel(model: Model): CatalogModel {
         reasoning: model.reasoning,
         efforts: supportedEfforts(model),
         images: model.input.includes("image"),
-        price: catalogPrice(model),
+        price: priced === undefined ? catalogPrice(model) : priced ? {input: model.cost.input, output: model.cost.output, cacheRead: model.cost.cacheRead, cacheWrite: model.cost.cacheWrite, currency: "USD"} : null,
     };
 }
 
@@ -197,77 +200,6 @@ function positiveOrNull(value: number | null | undefined): number | null {
     return typeof value === "number" && value > 0 ? value : null;
 }
 
-/** 读 OpenAI 兼容服务的 `/models` 得到的一个模型；`suggested` 是按模型名在目录里找到的参照，只是建议。 */
-export interface DiscoveredModel {
-    readonly id: string;
-    readonly name: string;
-    readonly suggested: CatalogSuggestion | null;
-}
-
-/**
- * 读 `/models` 的结果：`found` 读到模型；`empty` 服务回了空列表；`not_supported` 服务没有这个接口（404）；`auth` 密钥
- * 被拒（401、403）；`unreachable` 连不上或超时；`failed` 其余（别的状态码、回的不是模型列表）。
- */
-export type DiscoveryResult =
-    | {readonly state: "found"; readonly models: readonly DiscoveredModel[]}
-    | {readonly state: "empty"}
-    | {readonly state: "not_supported"; readonly status: number}
-    | {readonly state: "auth"; readonly status: number}
-    | {readonly state: "unreachable"; readonly message: string}
-    | {readonly state: "failed"; readonly status: number | null; readonly message: string};
-
-export interface DiscoverModelsOptions {
-    readonly api: "openai-completions" | "openai-responses";
-    readonly baseUrl: string;
-    /** 不给时不带认证头。 */
-    readonly apiKey?: string;
-    /** 另带的请求头（宿主配置的，`env:` 已解析）。 */
-    readonly headers?: Readonly<Record<string, string>>;
-    readonly signal?: AbortSignal;
-    /** 不给 `signal` 时的超时，缺省用 OMP 的（10 秒）。 */
-    readonly timeoutMs?: number;
-}
-
-/**
- * 读 OpenAI 兼容服务的 `/models`（同 OMP 的 `openai-models-list` 发现）。OMP 的 `fetchOpenAICompatibleModels` 失败时
- * 只回 `null`，所以把 `fetch` 包一层，记下这次请求的状态码或网络错误来分原因，不按错误文案猜。响应体也在这一层读完：
- * OMP 读响应体出错（包括超时中止）同样只回 `null`，读不完要算连不上，不能落到“回应不是模型列表”。
- */
-export async function discoverModels(options: DiscoverModelsOptions): Promise<DiscoveryResult> {
-    let status: number | null = null;
-    let networkError: unknown = null;
-    const recording = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
-        try {
-            const response = await fetch(input, init);
-            // 请求的 signal（OMP 的超时）同样中止响应体的读取。
-            const body = await response.text();
-            status = response.status;
-            return new Response(body, {status: response.status, statusText: response.statusText, headers: response.headers});
-        } catch (error) {
-            networkError = error;
-            throw error;
-        }
-    };
-    const specs = await fetchOpenAICompatibleModels({
-        api: options.api,
-        provider: "custom",
-        baseUrl: options.baseUrl,
-        ...(options.apiKey === undefined ? {} : {apiKey: options.apiKey}),
-        ...(options.headers === undefined ? {} : {headers: {...options.headers}}),
-        ...(options.signal === undefined ? {} : {signal: options.signal}),
-        ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
-        fetch: recording as typeof fetch,
-    });
-    if (specs !== null) {
-        if (specs.length === 0) return {state: "empty"};
-        return {state: "found", models: specs.map(spec => ({id: spec.id, name: spec.name, suggested: suggestFromCatalog(spec.id)}))};
-    }
-    if (networkError !== null || status === null) return {state: "unreachable", message: networkError instanceof Error ? networkError.message : "连不上，或者超时"};
-    if (status === 404) return {state: "not_supported", status};
-    if (status === 401 || status === 403) return {state: "auth", status};
-    return {state: "failed", status, message: status >= 200 && status < 300 ? "回应不是模型列表" : `服务回了 ${status}`};
-}
-
 /** 这家服务商打包目录里的对话模型（对话类、走 `fetch` 的显式协议）。 */
 export function chatModels(provider: string): readonly CatalogModel[] {
     return listCatalog().find((item) => item.id === provider)?.models.filter((model) => model.wire !== null && model.chat) ?? [];
@@ -297,4 +229,59 @@ export function templateRoutes(provider: string): ReadonlyArray<{readonly api: W
         counts.set(model.wire, urls);
     }
     return [...counts].map(([api, urls]) => ({api, baseUrl: [...urls].sort((a, b) => b[1] - a[1])[0]![0]}));
+}
+
+/** 目录里的一行：OMP 的模型对象、给界面的只读视图与价目是否已知。 */
+export interface CatalogRow {
+    readonly model: Model;
+    readonly info: CatalogModel;
+    readonly priceKnown: boolean;
+}
+
+/**
+ * 模型元数据的视图：打包目录为底，在线目录只补打包里没有的模型（同 id 的用打包的：打包时做过修正）。按（OMP 服务商，模型 id）查。
+ * 一个视图是不可变的；在线目录换了，调用方换一个新的视图。
+ */
+export interface CatalogView {
+    /** 这家的对话模型（对话类、走 `fetch` 的显式协议），打包的在前。 */
+    chatModels(provider: string): readonly CatalogModel[];
+    /** 任何种类的一行；没有为 undefined。 */
+    find(provider: string, id: string): CatalogRow | undefined;
+    /** 有这一行但不能当对话模型发时说为什么（同 `unsendableReason`）。 */
+    unsendable(provider: string, id: string): "not-chat" | "transport" | null;
+}
+
+export function createCatalogView(online?: OnlineCatalog): CatalogView {
+    const extra = new Map<string, Map<string, CatalogRow>>();
+    for (const [provider, rows] of online?.providers ?? []) {
+        const bundled = new Set(listCatalog().find((item) => item.id === provider)?.models.map((model) => model.id) ?? []);
+        const map = new Map<string, CatalogRow>();
+        for (const row of rows) if (!bundled.has(row.model.id) && !map.has(row.model.id)) map.set(row.model.id, {model: row.model, info: catalogModel(row.model, row.priced), priceKnown: row.priced});
+        if (map.size > 0) extra.set(provider, map);
+    }
+    const chat = new Map<string, readonly CatalogModel[]>();
+    const find = (provider: string, id: string): CatalogRow | undefined => {
+        const added = extra.get(provider)?.get(id);
+        if (added !== undefined) return added;
+        if (!(getBundledProviders() as readonly string[]).includes(provider)) return undefined;
+        const model = getBundledModel(provider as BundledProvider, id) as Model | undefined;
+        return model === undefined ? undefined : {model, info: catalogModel(model), priceKnown: catalogPrice(model) !== null};
+    };
+    return {
+        chatModels: (provider) => {
+            let found = chat.get(provider);
+            if (found === undefined) {
+                found = [...chatModels(provider), ...[...(extra.get(provider)?.values() ?? [])].map((row) => row.info).filter((model) => model.wire !== null && model.chat)];
+                chat.set(provider, found);
+            }
+            return found;
+        },
+        find,
+        unsendable: (provider, id) => {
+            const row = find(provider, id);
+            if (row === undefined) return null;
+            if (!row.info.chat) return "not-chat";
+            return row.info.wire === null ? "transport" : null;
+        },
+    };
 }

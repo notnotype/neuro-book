@@ -4,7 +4,7 @@ NeuroBook 的 Agent harness：只经 Profile 运行的 Agent。按 Profile 与�
 
 行为合同见 [`agent.harness`](../../docs/specs/agent/harness.md)；OMP 能力的调研见 [docs/omp-capabilities.md](docs/omp-capabilities.md)。
 
-- `@notnotype/nb-harness`：`createHarness`、`complete`、模型目录与解析（`listCatalog`、`resolveModel`、`discoverModels`）、工具登记与内置工具、SSE 序列化、进程中断与终止信号的收口。
+- `@notnotype/nb-harness`：`createHarness`、`complete`、模型目录与解析（`listCatalog`、`resolveModel`）、工具登记与内置工具、SSE 序列化、进程中断与终止信号的收口。
 - `@notnotype/nb-harness/testing`：给宿主测试用的替身。
 
 新内核在开发中（[提案](../../docs/proposals/agent-harness-event-model.md)、[ADR 0035](../../docs/adr/0035-harness-log-driven-kernel.md)、[`harness/session.md`](../../docs/specs/harness/session.md)）：harness 是一台由会话日志驱动的状态机，Profile 与插件都是扩展。完成迁移之前，上面的入口仍是旧实现。
