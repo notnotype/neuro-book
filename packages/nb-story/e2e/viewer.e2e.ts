@@ -676,11 +676,13 @@ test("明暗切换与设置入口（输出 34，t27）：书架、导入、设�
     await expect(page).toHaveURL(/\/book\/fox\/relations/u);
 });
 
-test("外壳（输出 1、3、4、5、34、35）：第一次打开是全部读完；明暗切换并保持；书架入口与换书；没有页脚，保存失败提示在顶栏", async ({page}) => {
+test("外壳（输出 1、3、4、5、34、35）：第一次打开是全部读完；分栏的读屏文字是中文；明暗切换并保持；书架入口与换书；没有页脚，保存失败提示在顶栏", async ({page}) => {
     // 另导入一本从没打开过的书：第一次打开读到抽取到的最后位置。
     const file = `${server.library}/../sample.json`;
     expect((await runCli(["import", file, "--title", "第二本", "--id", "fox2", "--library", server.library])).code).toBe(0);
     await open(page, "/book/fox2");
+    // 网页根注入了 nb-layout 的中文目录：它没有注入时是英文（docs/specs/ui/i18n.md 输出 8）。
+    await expect(page.getByRole("separator", {name: "调整 nav 与 main 的宽度"})).toHaveCount(1);
     await expect(page.getByTestId("reading-label")).toContainText("全部读完");
     await expect(page).toHaveURL(/at=100/u);
     await expect(page.getByTestId("reading-end")).toHaveCount(0);
