@@ -40,6 +40,7 @@ updated: 2026-11-22
 
 ### 验证
 
+- 收口（`a2e6333f5`，负载约 1.4）：`typecheck` 通过；`bun test src/web` 117 条通过；`side-by-side`、`frame`、`qa`、`viewer`、`revisions` 五个 e2e 文件 74 条通过。
 - 单测：`details.test.ts` 15 条、`book-grid.test.ts` 10 条。
 - e2e：新增 `side-by-side.e2e.ts` 14 条（1440、1280、1100、1024 四档）；`frame.e2e.ts`、`qa.e2e.ts` 的选择器跟着改。
 - 变异检查（改一处、重建、只跑覆盖它的用例、恢复），四处都被抓住：
