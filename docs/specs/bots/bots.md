@@ -58,7 +58,7 @@ owners:
 6. bot 记录：`{id, name, preset, profile, createdAt}`，`profile` 是建时预设的岗位 Profile。主对话的 id 由 bot id 定（[`main-conversation.md`](main-conversation.md) 输出 1），不另存；所用的模型、推理档、审批模式都以主对话的会话设置为准，不在记录里另存。记录读不懂（损坏、版本不认识）时不当成没有 bot：不建新的，写诊断 `bots.record-unreadable`。
 7. 远程服务 `nbook.bots/bots`，版本 2（planned：版本 2 的 `list()` 项多了必有的 `last`，版本 1 的客户端读不了；之前是版本 1），服务端提供，调用方 `browser`：
    - `list()` → `[{id, name, main, unread, latestSeq, seenSeq, last}]`，`main` 是主对话的持有状态（[`main-conversation.md`](main-conversation.md) 输出 3），`unread`、`latestSeq`、`seenSeq` 见同一份的输出 7；
-   - `last`（planned）是最后一条计数消息的摘要 `{text, at}`：持有之后在线收到计数消息就换；补数时“看到”之后那段里有计数消息取最后一条，那段是空的就从日志尾部往前至多 200 条里找，找不到、没有持有时为 null。不存记录。摘要：只取文字块，表情写法换成“[表情]”，空白折叠成一个空格，按码点取前 80 个、超了加“…”；没有文字时有图片写“[图片]”，否则写“[消息]”；Markdown 标记原样留着（已知限制）；
+   - `last` 是最后一条计数消息的摘要 `{text, at}`：持有之后在线收到计数消息就换；补数时“看到”之后那段里有计数消息取最后一条，那段是空的就从日志尾部往前找（（planned）至多 200 条，找不到、没有持有时为 null）。（planned）不存记录。摘要：只取文字块，表情写法换成“[表情]”，转义的表情写法（`\:lyra/开心:`）去掉反斜杠、照字面留着，空白折叠成一个空格，按码点取前 80 个、超了加“…”；没有文字时有图片写“[图片]”，否则写“[消息]”；（planned）Markdown 标记原样留着（已知限制）；
    - `ensureMain({botId})`：见 [`main-conversation.md`](main-conversation.md) 输出 1；
    - 事件 `botsChanged`：`list()` 的结果变了时推一份新的。先订阅后取 `list()`，`onResync` 重取。
 

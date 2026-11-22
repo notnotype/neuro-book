@@ -1,0 +1,181 @@
+# w00043 t15 planned 标记晋升核对（ui/agent-conversation-view.md，nb-agent-ui）
+
+核对基于主工作区 master 的 Spec；单元测试在 .worktree/w00043-neurobot 跑过（stream-dividers、kernel-transcript、format 三份 87 条通过，dom 测试见后文）。路径省略前缀 packages/nb-agent-ui/src/。
+
+### agent-conversation-view.md 49 行“按天的线”
+- day 为真时轮前画线，第一轮之前总有一条 | 有断言 | stream-dividers.ts:29-39；vue/AgentConversationView.vue:235,537-544 | stream-dividers.test.ts:24-29；vue/AgentConversationView.dom.test.ts:1103-1107 | keys 恰为 u1,u2,u3；dom 里内容列顺序为“线:11月18日, 轮1, 线:昨天, …”
+- 与上一轮同一天不画 | 字面不符（轻） | stream-dividers.ts:31,36-38 | stream-dividers.test.ts:31-40 | 实现与“上一条有日子的轮”比，整轮没时间的轮被跳过、不参与比较（测试 31-40 明确断言 u4 与 live 同日不画）；Spec 写“与上一轮”更窄。建议 Spec 改成“与上一个有日子的轮”
+- 一轮的日子取第一条 timestamp>0 的消息；跨零点时线在轮前 | 有断言 | stream-dividers.ts:12-15 | stream-dividers.test.ts:27,39 | at 等于 23:50 那条；live(0) 轮的 at 取 a2 的时间
+- 整轮都没有时间的不画 | 有断言 | stream-dividers.ts:36 | stream-dividers.test.ts:38 | keys 里没有 "empty"
+- 本地时区日历日：今天/昨天/同年月日/别年加年；晚于 now 写今天 | 有断言 | format.ts:15-18,114-120；vue/stream/AgentStreamDivider.vue:20-25 | stream-dividers.test.ts:57-74；dom.test.ts:1109-1113,1131-1139 | dayDividerLabel 各分支的返回值；dom 里 now 过零点后“今天”变“昨天”
+- 居中文字加两边细线、次级色 | 没有测试 | vue/stream/AgentStreamDivider.vue:42-56（--text-muted、::before/::after 细线） | 无 | 纯样式；可接受为目测项，或在 Lab e2e 量 ::before 的 border-top-width 与 color
+- 线只在轮与轮之间，不进轮内 | 有断言 | AgentConversationView.vue:537-554（线与 AgentConversationTurn 并列为内容列直接子元素） | dom.test.ts:1100-1107 | 以 `.acv-stream__content > [data-day-divider]` 直接子选择器取到顺序
+
+### agent-conversation-view.md 50 行“未读线”
+- unreadFrom 指向已加载消息时，含它的轮前画“以下是新消息” | 有断言 | stream-dividers.ts:41；AgentStreamDivider.vue:21 | stream-dividers.test.ts:42-45；dom.test.ts:1103-1113 | 指向 a3（轮内第二条）时线在 u3 之前；中英文字
+- 样子同按天的线、用强调色 | 没有测试 | AgentStreamDivider.vue:58-65（--accent-text、--accent-main） | 无 | 纯样式，同上
+- 同一轮两条都有时日子在上 | 有断言 | stream-dividers.ts:34-41（先 day 后 unread） | stream-dividers.test.ts:43；dom.test.ts:1105 | 数组顺序 [day, unread]；dom 顺序“线:今天, 线:以下是新消息”
+- 指向的消息不在已加载里时不画 | 有断言 | stream-dividers.ts:41 | stream-dividers.test.ts:45；dom.test.ts:1116-1117 | size 0；[data-unread-divider] 不存在
+- 翻到更早一页、加载进来后才画 | 有断言（分层） | AgentConversationView.vue:235（computed 只依赖 messages 与 dividers） | stream-dividers.test.ts:42-45 两种状态 | 纯函数两态都测了；没有“messages 追加更早一页后出现”的 dom 用例，可选补在 dom.test.ts 1131 用例旁：先 stream 去掉轮 3 再 setProps 加回，断言出现
+- 视图不因它滚动 | 没有测试 | 实现靠不写：滚动代码不读 ctx.dividers（grep 只有 235 行） | 无 | happy-dom 无布局；建议在 dom.test.ts 1131 用例里记录 scrollTo/scrollTop 调用（stub Element.prototype.scrollTo）并断言 setProps 加 unreadFrom 后没有调用
+- 原始视图不画这两种线 | 有断言 | AgentConversationView.vue:536（v-if turns 包住线） | dom.test.ts:1119-1121 | raw 下两种选择器都不存在
+
+（dom 测试 vue/AgentConversationView.dom.test.ts 在 worktree 跑过：58 条全过。）
+
+### agent-conversation-view.md 95、103、105 行 Props 与事件 closable、close、escape
+- closable 缺省 false，为真时顶栏右列最后画“关闭” | 有断言 | vue/AgentConversationView.vue:70,85,480-481；vue/head/AgentConversationHead.vue:131 | vue/AgentConversationView.dom.test.ts:1026-1041 | 不给时 [data-header-close] 不存在；给了时 .acv-head__end 里最后一个按钮是它、aria-label“关闭”，第一个是 head-trailing 插槽
+- 点“关闭”发 close | 有断言 | AgentConversationHead.vue:131；AgentConversationView.vue:481 | dom.test.ts:1039-1040 | emitted("close") 长度 1
+- 输入框里按 Esc 发 escape | 有断言 | AgentConversationView.vue:597；vue/composer/AgentConversationComposer.vue:543；vue/fallback/PlainPromptEditor.vue:61-63；nb-markdown/src/prompt/PromptEditor.vue:492-495 | dom.test.ts:1044-1052（缺省编辑器）；nb-markdown/src/prompt/PromptEditor.dom.test.ts:315-319,497-498（真编辑器） | 视图一层 emitted("escape") 为 1；真编辑器菜单不显示时 Esc 发 escape
+- 输入法组字时不发 | 有断言 | PlainPromptEditor.vue:59；PromptEditor.vue:471-473 | dom.test.ts:1046-1048 | isComposing 的 Esc 后 emitted("escape") 为 undefined（只测了缺省编辑器；真编辑器同一守卫与回车共用，PlainPromptEditor.dom.test.ts:12-13 只测回车）
+- 补全菜单开着时不发 | 没有测试 | nb-markdown/src/prompt/PromptEditor.vue:486-488,562-565（menuShown 时 Esc 走 dismissTrigger 并返回 true，到不了 emit） | 无 | 建议补在 nb-markdown/src/prompt/PromptEditor.dom.test.ts 的“`:` 菜单”或 `/` 菜单用例里：菜单弹出（[role='listbox'] 存在）后按 Escape，断言 emitted("escape") 为 undefined 且菜单关了，再按一次 Escape 才为 1
+
+### agent-conversation-view.md 243 行 中列 session.avatar 换成圆形头像
+- 给了 session.avatar 时中列画头像图片、不画 Profile 图标 | 有断言 | AgentConversationHead.vue:53-57,102-103,110-111；types.ts:204 | dom.test.ts:801-804 | [data-header-avatar] 的 src 等于给的地址；.acv-head__icon 不存在
+- 不给时照旧是图标 | 有断言 | 同上 | dom.test.ts:809-811 | 没有 [data-header-avatar]、有 .acv-head__icon
+- 圆形 | 没有测试 | AgentConversationHead.vue:196-202（border-radius:50%、20px） | 无 | 纯样式，可接受为目测项
+- 头像读不出来时换回图标 | 字面不符（实现宽） | AgentConversationHead.vue:52-57 | dom.test.ts:805-807 | 实现与测试多了一条 Spec 没写的行为（error 后回到图标，换了地址再试）。建议 Spec 这半句补“读不出来时仍画图标”
+- 附带：ctx 表 `session` 一行（Spec 120 行附近）没列 avatar，只在顶栏一节出现 | 字面不符（Spec 窄） | types.ts:203-204 | — | 晋升时顺手在 ctx 表 session 行加“可选的头像 avatar”
+
+### agent-conversation-view.md 244 行 右列 closable 时最后是“关闭”
+- 右列顺序：head-trailing、常驻动作、溢出菜单，closable 时最后是“关闭” | 有断言 | AgentConversationHead.vue:115-131 | dom.test.ts:1026-1041 | end 按钮列表第一个是插槽探针、最后一个是 [data-header-close]（这条用例的 ctx 有会话、有溢出菜单，夹在中间）
+- 送到视图之外时“关闭”也跟着进 end | 有断言？否——没有测试 | AgentConversationHead.vue:114（整列在同一个 Teleport 里） | 无 | Spec 没单独写这句，属推断，不要求补
+（更正上一节最后一行：“送到视图之外时关闭也跟着进 end”Spec 没写，不归类、不计数。）
+
+### agent-conversation-view.md 134 行 ctx 表 dividers
+- dividers 可选，形状 {day?, unreadFrom?} | 有断言 | types.ts:179-184,624 | stream-dividers.test.ts:42-51；vue/AgentConversationView.dom.test.ts:1093-1098 | 测试按这个形状构造 ctx 并区分各值的结果
+- day 为真时轮次之间画按天的线 | 有断言 | 见 49 行一节 | stream-dividers.test.ts:24-29；dom.test.ts:1103-1107 | 同 49 行
+- unreadFrom 是未读线起点的消息 id | 有断言 | 见 50 行一节 | stream-dividers.test.ts:42-45 | 同 50 行
+- 不给时两种线都不画 | 有断言 | stream-dividers.ts:29-30 | stream-dividers.test.ts:48-51；dom.test.ts:1125-1129 | undefined 与 {} 时 size 0；dom 内容列只有四个轮次
+
+### agent-conversation-view.md 351 行 harness 适配器 countedSeq 与 pinned
+- 不带工具调用的 assistant 事件合成的消息给事件 seq | 有断言 | kernel-transcript.ts:570-579（577 行），1057 | kernel-transcript.test.ts:611-628 | 真内核 createTestSession 跑两轮：最终回复非 null，跟随与重建的计数都等于日志里 toolCalls 为空的 assistant 事件的 seq
+- 带工具调用的为 null | 有断言 | kernel-transcript.ts:577 | kernel-transcript.test.ts:620 | toBeNull
+- 模型失败时的半截文字为 null | 有断言 | kernel-transcript.ts:645-653（从 modelFailed 合成，不写 counted） | kernel-transcript.test.ts:617-621 | partial 的 status 为 error、text“半截”，countedSeq 为 null
+- 停止时补的空回复为 null | 有断言 | kernel-transcript.ts:674-677 | kernel-transcript.test.ts:630-642 | filler（status stopped、text 空）为 null
+- 正在生成的为 null | 没有测试 | kernel-transcript.ts:847（live 消息 id 为 `live-<request>`，counted 只在 577 行写） | 无 | 按构造成立；建议补在 kernel-transcript.test.ts 611 用例旁：applyPath 后只喂 assistantDelta 帧，断言 messages() 末条 id 以 live- 开头且 countedSeq 为 null
+- 之后被标成停止的那条仍算 | 有断言 | kernel-transcript.ts:673-675 | kernel-transcript.test.ts:639-640 | a1 的 status 为 stopped，countedSeq 为 2
+- （附带）重建路径时清掉旧的 | 有断言 | kernel-transcript.ts:910 | kernel-transcript.test.ts:643-644 | 只剩 i1 时 a1 为 null（Spec 没写这句，不计数）
+- pinned() 为真时压缩失败出固定会话的说法：系统条目 | 有断言 | kernel-transcript.ts:200-204,211-215,676-678 | kernel-transcript.test.ts:647-655 | 只压缩的运行 runEnded error code compaction-failed 后系统条目 label 键为 compactionFailedPinned；内核侧 nb-harness/src/kernel/compaction/compaction.test.ts:236,445 断言真内核以这个形状收口（分层）
+- 同上：运行出错 | 有断言（分层，见备注） | kernel-transcript.ts:684-687 | kernel-transcript.test.ts:649-655 | 非压缩运行 runEnded error code compaction-failed 时错误块 message 键为 compactionFailedPinned。备注（从代码推断）：真内核只在只压缩的运行上以 compaction-failed 收口（nb-harness/src/kernel/run/loop.ts:225；对话中的自动压缩失败是继续或以 context_overflow 收口，loop.ts:290,354-356），所以这条分支只在适配器没看到带 kind 的 runStarted 时走到，测试事件是自造的组合
+- 为假或不给时是“……或者开一个新会话” | 有断言 | kernel-transcript.ts:214 | kernel-transcript.test.ts:656-662 | pinned 改 false 后新错误块键为 compactionFailed；不给选项时两处都是 compactionFailed；文案见 locales/zh-CN.ts:560-561
+- 在合成那一刻读 | 有断言 | kernel-transcript.ts:678,686 | kernel-transcript.test.ts:656-659 | pinned 改 false 后先前那条仍是同一个对象（toBe(error)）
+
+### agent-conversation-view.md 356 行起“用法档”（开头一段）
+- 同一个视图组件画两种对话，差别只在 ctx 取值、按会话给 | 有断言 | vue/AgentConversationView.vue:263-265（档位只读 ctx.interaction） | vue/AgentConversationView.dom.test.ts:748-797,927-935 | 同一组件仅换 ctx.interaction 就得到两种结果
+- 同一视图从普通会话切到 bot 主对话，档位跟着变 | 有断言（分层） | AgentConversationView.vue:263-264 是 computed；宿主 neuro-book/src/plugins/agent/web/session-host.ts:2116 等 | neuro-book/src/plugins/agent/session-host.test.ts:2389-2412（宿主一侧，归 brief B）；视图一侧 dom.test.ts:788-796（换会话后仍是 dock） | 宿主切会话后 interaction 从 dock 变 wizard；视图里没有“同一实例 setProps 从 wizard 切到 dock”的用例，可选补
+- placement 缺省 wizard、canCreate 缺省 true，不给时就是会话档 | 有断言 | AgentConversationView.vue:263-265；types.ts:259-261 | dom.test.ts:757-760（不给 placement 进向导）、931-934（不给 canCreate 有第一屏与新建） | wizard 存在、dock 不存在；welcome 与 data-header-new 存在
+（更正：上一段“宿主 session-host.ts:2116 等”应为 session-host.ts:2057（interaction 的 placement、canCreate 等按 owned 给），2116 是 dividers。）
+
+### agent-conversation-view.md 用法档 表（顶栏、第一屏、待处理事项）
+- 会话档顶栏：Profile 图标与标题；顶层会话可有新建与会话列表 | 有断言（原有行为） | vue/head/AgentConversationHead.vue:80-112 | dom.test.ts:809-811（图标）、931-934（新建） | 不在 t15 新增范围，原有用例覆盖
+- bot 档顶栏：bot 的名字与头像（session.title、session.avatar） | 有断言 | AgentConversationHead.vue:53-58,102-111 | dom.test.ts:801-804；宿主给值 session-host.test.ts:2398 | src 等于 avatar、标题来自 session.title
+- bot 档 canCreate 为假时不画新建 | 有断言 | AgentConversationView.vue:264,474 | dom.test.ts:927-930 | newSession 为真时仍无 [data-header-new]
+- 会话档没有消息时画第一屏 | 有断言（原有） | AgentConversationView.vue:265,504 | dom.test.ts:931-933 | [data-agent-welcome] 存在
+- bot 档 canCreate 为假：给了 welcome 也不画 | 有断言 | AgentConversationView.vue:265 | dom.test.ts:928-929 | [data-agent-welcome] 不存在
+- 会话档 placement 缺省：阻塞的由向导替换输入框 | 有断言 | AgentConversationView.vue:326-327,346 | dom.test.ts:757-760 | wizard 在、dock 不在
+- bot 档 placement dock：都在停靠区，输入框照常可用 | 有断言（“可用”只断言了可见） | AgentConversationView.vue:326-328,346,592-596（inert 只随 waitingForUser） | dom.test.ts:751-756 | 断言 dock 里有题目、无 wizard、.acv-composer isVisible。建议同一用例补 `expect(docked.get(".acv-composer").attributes("inert")).toBeUndefined()` 或在 textarea 输入后能发 composer.submit
+- 换了会话不算答完 | 有断言 | AgentConversationView.vue:336-345 | dom.test.ts:788-796 | 换 session id 后焦点不被挪到停靠区容器
+
+### agent-conversation-view.md 用法档 表（改写历史、命令、发送、分隔线、文案）与“Lab 两档各一个场景”
+- 会话档改写历史由宿主按 canMutateHistory 给 | 有断言（原有） | vue/builtin-message-actions.ts:27,34,41 | 原有用例（dom.test.ts:28 缺省 true） | 不在 t15 新增范围
+- bot 档 canMutateHistory、canOpenTree 为假：编辑、重试、从此处分支、分支树都不显示 | 没有测试（视图一侧） | builtin-message-actions.ts:27,34,41（when 读 canMutateHistory）；AgentConversationView.vue:154（canOpenTree===true 才有“分支树”项） | 宿主给值有：neuro-book/src/plugins/agent/session-host.test.ts:2397；视图一侧在 nb-agent-ui 里没搜到断言“canMutateHistory 为假时没有编辑/重试/分支按钮”或“canOpenTree 为假时溢出菜单没有分支树” | 建议补在 vue/AgentConversationView.dom.test.ts 的 dockCtx 一组：canMutateHistory:false 时空闲轮次上没有 edit、retry、branch-from 三个消息动作；canOpenTree:false 时打开溢出菜单没有“分支树”
+- 会话档命令：宿主做了的都列 | 有断言 | vue/builtin-composer.ts:21 | registry.test.ts:151-158 | commands 不给时含 clear
+- bot 档 interaction.commands 只有 compact、plan、mode | 有断言（分层） | builtin-composer.ts:21；宿主 session-host.ts:2057（OWNED_COMMANDS） | registry.test.ts:155-156（给 ["compact"] 只剩 compact）；session-host.test.ts:2397（宿主给的正是这三个） | 视图按白名单过滤、宿主给三项
+- 发送：同左；宿主按固定会话处理（带 settlePending） | 有断言（宿主一侧，归 brief B） | session-host.ts:1380-1383 | session-host.test.ts:2651-2687 | 运行中插话带 ["steer","deny"]；视图一侧无新行为
+- 分隔线：会话档不给 dividers 时没有线 | 有断言 | stream-dividers.ts:29-30 | vue/AgentConversationView.dom.test.ts:1125-1129 | 内容列只有轮次
+- 分隔线：bot 档两种都画 | 有断言（分层） | 视图见 49、50 行；宿主 session-host.ts:2116 | 视图 dom.test.ts:1103-1107；宿主 session-host.test.ts:2432-2451（有归属给 {day:true, unreadFrom}，普通会话 undefined，归 brief B） | —
+- 文案：会话档压缩失败写“……或者开一个新会话” | 有断言 | kernel-transcript.ts:196,214；locales/zh-CN.ts:560 | kernel-transcript.test.ts:656-662 | 不给 pinned 时两处键为 compactionFailed
+- 文案：宿主给适配器 pinned，写“……可以换一个压缩模型再试”，系统条目与运行出错两处 | 适配器有断言；宿主接线没有测试 | 适配器见 351 行一节；宿主 neuro-book/src/plugins/agent/web/session-host.ts:1130（pinned: target.owner 非空） | 适配器 kernel-transcript.test.ts:647-655；宿主一侧在 neuro-book/src 与 e2e 里没搜到 compactionFailedPinned 或“再试”文案的断言 | 建议补在 session-host.test.ts 2389 用例旁：有归属的会话跑一次失败的只压缩运行（或注入 compaction-failed），断言 ctx.messages 末条系统条目 label 键为 kernel.error.compactionFailedPinned；普通会话为 compactionFailed。另：pinned 在合成时读，若归属晚于路径到达会落成通用说法，宿主注释称先等归属再取路径（kernel-transcript.ts:369-373），这个先后也没有测试
+- Lab 两档各一个场景（AgentConversationView 的 bot 场景是 bot 档） | 有断言（存在性） | neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/view.scenes.ts:75-87（bot：avatar、placement dock、canCreate false、白名单命令）；另有 bot-dividers、bot-dividers-en（109-117） | neuro-book/e2e/lab-scenes.e2e.ts:70-108 逐个挂载全部场景、等 ready | 只证明能挂上；场景内容未逐项断言，按 Spec 这句的要求足够
+
+### agent-conversation-view.md 验收 41
+- dock + 阻塞提问：提问在停靠区、没有同步向导 | 有断言 | vue/AgentConversationView.vue:326-328 | vue/AgentConversationView.dom.test.ts:751-755 | [data-agent-dock] 含题目，[data-agent-wizard] 不存在
+- 同上：输入框可见可用 | 有断言（只到“可见”） | AgentConversationView.vue:595,602 | dom.test.ts:755 | isVisible 为真；“可用”（不 inert、能输入发送）没断言，建议同上一节补 inert 断言
+- 不给 placement 时提问由向导替换输入框 | 有断言 | AgentConversationView.vue:327,346,595 | dom.test.ts:757-760 | wizard 存在、dock 不存在（输入框隐藏由原有向导用例覆盖）
+- 两个同会话 write、一个 shell、一个后代 write，第一个选“本会话都批准”，发两条 input.submit：第一个与另一个同会话 write | 有断言 | AgentConversationView.vue:375,382-393 | dom.test.ts:764-775 | 过滤出的 input.submit 恰为 [a1 allow-session 无 sessionId]、[a3 allow-session 无 sessionId]，a2（shell）、a4（后代）没有。“一直批准”（allow-always）同一分支，Spec 349 行写了、本验收没写，未测
+- 焦点在停靠区里、答完的事项被去掉，焦点到停靠区里的下一个 | 字面不符（验收说法宽） | AgentConversationView.vue:336-345（focusRoot 放到停靠区容器） | dom.test.ts:777-784 | 测试断言 activeElement 是 [data-agent-dock] 容器本身；Spec 349 行正文也写“放到停靠区的容器上”。验收“到停靠区里的下一个”可读成落到下一个事项的按钮上，与实现、正文不一致。建议验收改成“焦点在停靠区的容器上（显示下一个）”
+- 都答完回到输入框 | 有断言 | AgentConversationView.vue:343-344 | dom.test.ts:785-787 | .acv-composer 包含 activeElement
+
+### agent-conversation-view.md 验收 42
+- 给 session.avatar 时中列是头像图片、没有 Profile 图标 | 有断言 | vue/head/AgentConversationHead.vue:53-57,102-111 | dom.test.ts:801-804 | img src 与给的一致；.acv-head__icon 不存在
+- 不给时照旧是图标 | 有断言 | 同上 | dom.test.ts:809-811 | 无 img、有图标
+
+### agent-conversation-view.md 验收 43
+- 三轮在前天 23:50（跨到昨天 00:10）、昨天、今天：三轮之前依次是两天前的月日、“昨天”、“今天” | 有断言（分层） | stream-dividers.ts:12-15,31-39；format.ts:114-120 | stream-dividers.test.ts:16-29（位置与 at，数据正是跨零点的三天）、57-63（at 对应的字）；dom.test.ts:1103-1107（另一组日子的整条渲染：月日、昨天、今天） | 位置与字分两层断言；dom 那组不跨零点，跨零点只在纯函数层
+- 跨零点的那一轮只在轮前有一条 | 有断言 | stream-dividers.ts:34-39 | stream-dividers.test.ts:26-28 | keys 只有 u1,u2,u3，u1 的 at 是 23:50，没有第二条
+- 第一条消息没有时间的轮按下一条有时间的算 | 有断言 | stream-dividers.ts:13 | stream-dividers.test.ts:31-39 | live(0) 轮的 at 取 a2
+- 消息时间晚于 now 写“今天” | 有断言 | format.ts:116 | stream-dividers.test.ts:66-68 | 晚一天的 timestamp 得 today
+- unreadFrom 指向第三轮的回复：第三轮之前是“今天”再“以下是新消息” | 有断言 | stream-dividers.ts:34-41 | stream-dividers.test.ts:43；dom.test.ts:1103-1106 | [day, unread] 顺序；dom 顺序“线:今天, 线:以下是新消息, 轮:问 3”
+- 指向不在已加载消息里的 id 时没有未读线 | 有断言 | stream-dividers.ts:41 | stream-dividers.test.ts:45；dom.test.ts:1115-1117 | 无 [data-unread-divider]
+- 原始视图两种都没有 | 有断言 | AgentConversationView.vue:536 | dom.test.ts:1119-1121 | 两种选择器都不存在
+- 不给 dividers 时渲染与改动前相同 | 有断言 | stream-dividers.ts:29-30 | dom.test.ts:1125-1129 | 内容列直接子元素只有四个 .acv-turn（只证明没多出线，不是整页快照；够用）
+
+### agent-conversation-view.md 验收 44
+- pinned() 为真：压缩失败的系统条目与因压缩失败结束的运行（运行出错）两处都是固定会话说法 | 有断言 | kernel-transcript.ts:211-215,676-687 | kernel-transcript.test.ts:647-655 | system.label 与 error.message 键都是 compactionFailedPinned（运行出错那条的事件组合真内核不产生，见 351 行一节备注）
+- 为假或不给时是“……或者开一个新会话” | 有断言 | kernel-transcript.ts:214 | kernel-transcript.test.ts:656-662 | 键为 compactionFailed
+- countedSeq 对最终回复给 seq | 有断言 | kernel-transcript.ts:577,1057 | kernel-transcript.test.ts:611-628 | 真内核会话，非 null 且等于日志口径
+- 对带工具调用的、半截文字、补的空回复给 null | 有断言 | kernel-transcript.ts:577,645-653,674-677 | kernel-transcript.test.ts:620-621,641-642 | 三者 toBeNull
+
+## 汇总
+
+计数（共 80 句；不计 244 节里已更正的那行与 351 节“附带”一行）：有断言 68（其中分层 7、只断言到“可见”的 2）；没实现 0；字面不符 4；没有测试 8（含“适配器有断言、宿主接线没有测试”1 句，样式 3 句）。没发现代码缺陷。
+
+### 可以去掉标记
+- 95、103 行（closable、close）；244 行（closable 时最后是“关闭”）
+- 134 行 ctx 表 dividers
+- 243 行 session.avatar（顺手在 Spec 补“图片读不出来时仍画图标”，ctx 表 session 行补 avatar）
+- 356 行用法档开头一段；表里的 366 行“分隔线”；“Lab 两档各一个场景”
+- 验收 42、43、44
+- 49 行按天的线：把“与上一轮不在同一个日历日”改成“与上一个有日子的轮不在同一天”之后可去掉（样式半句视为目测项；要严格就把标记挪到“居中文字加两边细线，次级色”）
+
+### 标记要挪到哪几句
+- 50 行未读线：挪到“视图不因它滚动”（样式半句“用强调色”同上处理）；其余句子有断言
+- 105 行 escape：挪到括号里“补全菜单开着时不发”
+- 351 行：挪到 countedSeq 的“正在生成的”为 null；pinned 部分有断言
+- 用法档表“改写历史”一行：bot 档那格（canMutateHistory、canOpenTree 为假时编辑、重试、从此处分支、分支树都不显示）视图一侧没有断言
+- 367 行“文案”：挪到 bot 档那格的“宿主给 harness 适配器 pinned”（适配器有断言，宿主接线没有）
+- 验收 41：改焦点措辞前保留；改后再补“可用”断言即可去掉。另：41 是 349 行停靠区 dock 档（同样带 planned）的验收，349 行不在本 brief 范围，需另核
+
+### 要补测试或修代码（无代码缺陷，只补测试与改 Spec 措辞）
+1. nb-markdown/src/prompt/PromptEditor.dom.test.ts：补全菜单弹出时按 Escape，emitted("escape") 为 undefined、菜单关闭；再按一次才发
+2. nb-agent-ui/src/vue/AgentConversationView.dom.test.ts（dockCtx 一组）：canMutateHistory:false 时没有 edit、retry、branch-from 消息动作；canOpenTree:false 时溢出菜单没有“分支树”
+3. neuro-book/src/plugins/agent/session-host.test.ts（2389 用例旁）：有归属的会话压缩失败时系统条目键为 kernel.error.compactionFailedPinned，普通会话为 compactionFailed（宿主 session-host.ts:1130 的 pinned 接线）
+4. AgentConversationView.dom.test.ts:751-756：dock 档输入框不 inert（或能输入并发出 composer.submit），对应验收 41 与用法档“输入框照常可用”
+5. AgentConversationView.dom.test.ts:1131 用例：stub scrollTo/scrollTop，加 unreadFrom 后视图没有滚动
+6. kernel-transcript.test.ts:611 旁：只喂流式增量时末条 live- 消息 countedSeq 为 null
+7. 可选：更早一页消息加载进来后未读线出现的 dom 用例；同一视图实例 setProps 从 wizard 档切到 dock 档
+8. Spec 措辞：49 行“与上一轮”；243 行补头像失败回退；ctx 表 session 补 avatar；验收 41“焦点到停靠区里的下一个”改为“焦点在停靠区的容器上”
+9. 待开发者判断（从代码推断）：真内核只在只压缩的运行上以 compaction-failed 收口（nb-harness/src/kernel/run/loop.ts:225），适配器的“运行出错”那条固定说法分支只在没看到带 kind 的 runStarted 时走到；验收 44 与 367 行“两处都是”成立，但运行出错那处的测试事件是自造组合
+
+## 复核更正（覆盖上面“汇总”里与之冲突的部分）
+
+1. 行号：kernel-transcript.ts 里“被标成停止”是 681 行，“停止时补空回复”是 683 行（runEnded 分支 665 起）；上文写的 673-675、674-677 作废。
+2. Lab：bot、bot-dividers、bot-dividers-en 都在 view.scenes.ts:199-201 进了 agentConversationViewScenes（index.ts:94 登记给 AgentConversationView）；会话档对应同一列表里的 idle-host（178 行）等 hostScene 场景。原归类不变。
+3. pinned 的“运行出错”一处，重新核过真内核：nb-harness/src/kernel 里以 compaction-failed 收口的只有 run/loop.ts:225（只压缩的运行）；只压缩的运行的 runStarted 带 kind compact、属路径范围（session/session.ts:319，compaction.test.ts:227 断言），所以按路径重建与跟随都会走系统条目分支。普通运行里压缩失败的去向是继续（loop.ts:290）或以 context_overflow 收口（loop.ts:355），文案“对话太长，超出了模型能读的长度。”（locales/zh-CN.ts:335）不提开新会话，固定会话里没有缺口；zh-CN 语言包里提“新会话”的只有 compactionFailed（560 行）。结论：系统条目那一半分层成立（内核断言 runStarted kind 与 runEnded 码，适配器按同一形状测）；“运行出错”那一半的测试事件组合真内核不产生，按判据不算断言，改归**字面不符（Spec 写多了）**：351 节“同上：运行出错”、用法档表“文案”行的“运行出错”、验收 44 的“一次因压缩失败结束的运行（运行出错）”三句都改这一类。计划 plan-4.md:19,31 没写这条分支对应哪个真实场景。建议：Spec 367 行与验收 44 去掉“运行出错”那处（适配器保留这条分支无害，可在注释里写明是防御）；或开发者另指出产生它的场景再补真内核测试。
+4. 判据：docs/specs/README.md“两种成熟度”写明去掉标记要这一句有测试断言守着，没有“目测项”的例外；writing-specs 第 6 步要求对不上时修代码或把 Spec 改成贴实现。所以三句纯样式（49 行“居中文字加两边细线，次级色”、50 行“用强调色”、243 行“圆形”）不能按目测项去标记，49、243 行的措辞修改也属第三张清单。
+
+## 修订后的汇总
+
+计数（80 句）：有断言 66；没实现 0；字面不符 7（49 行“与上一轮”、243 行头像失败回退、ctx 表 session 缺 avatar、验收 41 焦点措辞、pinned“运行出错”三句）；没有测试 7（样式 3、escape 补全菜单、未读线不滚动、正在生成的 countedSeq、改写历史视图一侧；另有宿主 pinned 接线 1 句记在这里共 8，上面“适配器有断言；宿主接线没有测试”那句按没有测试计，故有断言 66 = 68 − 运行出错 2 句；验收 44 的那句原本就在 68 里，故实为 68 − 3 + 1 不成立，按逐句重数：有断言 65、字面不符 7、没有测试 8）。
+
+### 可以去掉标记
+- 95、103 行（closable、close）；244 行
+- 134 行 ctx 表 dividers
+- 356 行用法档开头一段；表里 366 行“分隔线”；“Lab 两档各一个场景”
+- 验收 42、43
+
+### 标记要挪到哪几句
+- 49 行：挪到“居中文字加两边细线，次级色”（且先改“与上一轮”措辞）
+- 50 行：挪到“样子同按天的线、用强调色”与“视图不因它滚动”
+- 105 行：挪到“补全菜单开着时不发”
+- 243 行：挪到“圆形”（并补头像失败回退一句）
+- 351 行：挪到“正在生成的”为 null；pinned 的“运行出错”按更正 3 处理
+- 用法档表“改写历史”行的 bot 档那格
+- 367 行“文案”：挪到 bot 档那格的“宿主给 harness 适配器 pinned”，并删或改“运行出错”
+- 验收 41：改焦点措辞、补“可用”断言前保留（349 行停靠区 planned 不在本 brief 范围，需另核）
+- 验收 44：删去或改写“运行出错”那处后可去掉
+
+### 要补测试或修代码（没有代码缺陷）
+同上文 1–8 条；第 9 条改为更正 3 的结论；另加：样式三句要么在 Lab e2e 量计算样式（::before 的 border-top 与 color 取 --text-muted、未读线取 --accent-text，头像 border-radius 50%），要么从 Spec 删掉样式描述。
+
+（计数以此为准，取代上面“修订后的汇总”里那段算式：80 句 = 有断言 66 + 字面不符 6 + 没有测试 8 + 没实现 0。改类的是 351 节“同上：运行出错”与验收 44 第一句，由有断言改为字面不符；用法档“文案”行仍按没有测试（宿主接线）计，“运行出错”的问题记在备注。字面不符 6：49 行“与上一轮”、243 行头像失败回退、ctx 表 session 缺 avatar、验收 41 焦点措辞、351 运行出错、验收 44 运行出错。没有测试 8：三句样式、escape 补全菜单、未读线不滚动、正在生成的 countedSeq、改写历史视图一侧、宿主 pinned 接线。）
