@@ -1,0 +1,82 @@
+## 审查报告：w00026 t53（`419055123..HEAD`）
+
+**范围与限制**
+- 我读了完整 diff、Spec 输出 44 到 46、155、156 和“时序与寿命”，也读了实现、测试、夹具、Lab 场景、e2e 和文档。
+- `bun test src/grid-motion.test.ts`：47 条通过。`vitest run` 跑 `useGridMotion.dom.test.ts` 和 `NestedGrid.dom.test.ts`：102 条通过。
+- 往 `.local/.../impl-review/` 写探针被拒绝，改 worktree 做变异检查也被拒绝，所以没有实跑探针或变异。凡标“静态”的，只是读代码和测试清单得出的，没有实跑。
+- 报告文件同样写不进去，完整报告只在这里。
+
+### 1. 同一棵离开的子树里，没有留着内容的叶，面板头没有冻结
+- 严重程度：重要（静态推断，未实跑）。
+- 类别：正确性、对照合同。
+- 位置：`NestedGrid.vue:167`（`frozenLeaves`），`grid-motion.ts:300` 前后（`mounted` 与 `leaves.some(mounted)`）。
+- 现象：`leavingPlacements` 按组判断，组里任何一块叶有挂着的内容，整组叶都留着。这次 `mounted` 又加入了“宿主去掉、标了留住的活动内容项”，所以关一列时，只要其中一块叶带着留住的内容，同列另一块叶也会被留着缩回去。`frozenLeaves` 只冻“有留着的内容”的叶（`leavingContents` 与 `leavingLeaves` 的交集）。同列另一块叶的情形有：没有内容项，内容没标 `retain`，或内容不活动。它的面板头插槽照常被调用，传入的是已离开的 node，而宿主在同一个同步段里已经删掉了它的数据。
+- 为什么是问题：在这次改动之前，这样一组只有宿主保留着挂着的内容时才会被留，数据也还在。现在宿主删光数据的组也会被留，插槽会读到没了的数据，例如 `heads[node.id]!.title` 抛 TypeError。Spec 156 写“别的离开的叶照常渲染”，针对的是区域隐藏和交换里滑出去（数据都在），没有考虑这条新来源。
+- 如何核实：用 `LeavingHost` 夹具再加一个竖分支，里面两块叶，只有一块有标 `retain` 的内容。同步删分支、两块叶的 `heads` 和那一项内容，再看错误处理收到什么。
+- 建议改法：把这组里因留住的内容而留着的叶都冻住。例如 `leavingContents` 非空时，不在交换带上的 `leavingLeaves`（`move.leaving` 里非 `plan.leaving` 的）一起冻。或者 Spec 156 明确写出“同组没有留着内容的叶，宿主要自己保留面板头的数据”，并给用例。
+
+### 2. Spec 155、156 有几句没有任何用例，变异后测试仍会通过
+- 严重程度：重要（静态；变异未跑）。
+- 类别：测试。
+- 位置：`useGridFocus.ts:31`，`useGridMotion.ts:173`（交换分支里的 `leavingContents` 过滤）和 `settle` 分支，`useGridMotion.ts` 的 `stop`。
+- 现象，逐句对照：
+  - “不进 F6 与 Tab 的站点”：新增用例里没有任何一条断言焦点站点或 Tab、F6。`NestedGrid.dom.test.ts` 里和 Tab 有关的只有旧用例 1305 行。删掉 `useGridFocus.ts:31` 的 `&& item.leaving !== true`，全部测试仍通过。
+  - “不进 `aria-owns`”：没有断言。
+  - “过渡结束（含容器尺寸变化把过渡送到终点）才卸载”：只有计时到点这一条，没有 resize 路径。
+  - “交换里滑出去的叶不留”：`decideMotion` 的交换分支里 `banded.has(\`leaf:${item.leaf}\`)` 过滤和 `settle` 分支都没有用例。新增的 `decideMotion` 用例一个交换都没涉及，dom 里只有 `hide`，那是区域隐藏。删掉这一行测试不会红。
+  - 156“只冻带着留着内容离开的叶”：只有 `hide` 一条反例，没有“交换里滑出去的叶面板头照常渲染”，也没有问题 1 的同组情形。
+  - e2e：夹具里的 `data-leaving-input` 输入框没有被任何用例用到，焦点交接只在 dom 里有。
+- 建议改法：补四条用例，分别覆盖焦点站点与 `aria-owns`、容器 resize 提前卸载、交换里的 `decideMotion`（含 `settle`）、问题 1 的同组场景。补完后对每一句各做一次变异。
+
+### 3. 用例里有随结果分支的断言，e2e 没落在“缩回去”上
+- 严重程度：建议。
+- 类别：测试。
+- 位置：`useGridMotion.dom.test.ts` 新增块的“拖动中”用例末行；`lab-grid-leaving.e2e.ts:68-76`。
+- 现象：
+  - `expect(keys(dragged)).toEqual(leftLeaves.includes("b") ? ["content:b"] : [])` 按结果选期望值，叶留或不留都通过，只剩前一行“内容的叶都在 `leftLeaves` 里”的约束。应写死这一轮应得的结果。
+  - e2e 的第一条用例只断言属性（`data-content-leaving`、`inert`、`visibility`、文字）。Spec 155 的“看得见、跟着叶缩回去”没有量矩形：内容保持全尺寸不缩，也能通过。
+- 建议改法：e2e 里过渡中间（例如点击后约 300ms）读内容外层和叶外框的宽度，断言 0 < 宽度 < 原宽，且两者同步变化。
+
+### 4. 说明报错对任何后代错误都说“渲染失败”，生产环境也输出
+- 严重程度：建议。
+- 类别：代码质量。
+- 位置：`frozen-slot.ts:28-35`。
+- 现象：`onErrorCaptured` 会收到后代的所有错误，包括事件处理、watcher、定时器、生命周期，不只是渲染。冻住期间任一错误都会输出“something inside failed to render … read data the host has already removed”。例如留着的组件里一个 `setInterval` 每次抛错，过渡期间每次都输出一条，而原因可能与宿主删数据无关。`console.error` 也没有只在开发期输出的判断。
+- 建议改法：只在错误是渲染期抛出的时候补说明，或把措辞改成“可能是”。同一项冻住期间只报一次，或者限定在开发构建。
+
+### 5. 宿主在叶仍在缩回去时补回同一个内容 key，`leavingContents` 不会被修剪
+- 严重程度：建议（静态）。
+- 类别：不变量。
+- 位置：`useGridMotion.ts` 的 `update`，`decision.kind === "none"` 时不动 `leavingContentItems`；`useContentLayer.ts` 的 `placements` 去重。
+- 现象：补回的是内容、叶仍离开，布局没变时，这一轮 `placementMoved` 为假，走 `none`，旧的 `leavingContents` 留着。内容层靠 `placements` 的 `present.has(key)` 去重，所以不叠两份。但 `frozenLeaves` 读的是没修剪的 `leavingContents`，这块叶的面板头继续冻着，直到下一次布局变化或 `stop`。
+- 影响：窗口小，只在叶仍离开时补回内容，面板头多冻一段过渡时间。
+
+### 6. 留着的内容没有 `data-leaving` 时不吃 `pointer-events: none`
+- 严重程度：建议（静态，影响不确定）。
+- 类别：一致性。
+- 位置：`NestedGrid.vue:900` 的样式（`.nb-grid-content[data-leaving]`）与第 733 行的模板。
+- 现象：`data-leaving` 只在叶是离开的叶时才有。内容的叶是“降到零但还在树里”时（`collapseAndDrop` 那种），留着的内容只有 `data-content-leaving` 和 `inert`，没有 `pointer-events: none`。样式注释说这样做是为了命中判定看到底下。`inert` 是否等价取决于宿主的命中实现，我没验证。
+- 建议改法：把 `.nb-grid-content[data-content-leaving]` 加进同一条选择器，或在 e2e 里用 `elementFromPoint` 断言。
+
+### 7. 每块叶、每个内容项多一个组件实例，并依赖 Vue 3.5 的内部行为
+- 严重程度：建议。
+- 类别：代码质量。
+- 位置：`frozen-slot.ts`、`NestedGrid.vue:717、742`。
+- 现象：
+  - 每块叶、每个内容项各多一层 `FrozenSlot` 组件实例，插槽的依赖现在记在它身上，不再记在 `NestedGrid` 的渲染上。这是行为变化：宿主数据变了只重渲染那一个 `FrozenSlot`，不再带动 `NestedGrid`。
+  - 它依赖 `withMemo` 的记号、已挂载的 VNode 不克隆、`patch(n1 === n2)` 早返回。文件头已写明这点，也说“插槽没再被调”的断言会先红。但 `peerDependencies` 是 `vue ^3.5.24`，放开了后续 3.x。
+- 建议改法：保持现状，但在 Vue 升级的清单里单列这一条。
+
+### 未发现问题的方面
+- `decideMotion` 的跨轮逻辑：`fresh`、`stillContents`、`withTheirLeaves` 与叶的一致性，我没找到叶留着内容没留、或内容留着叶没留的路径。
+- 第二次触发 `layers` watcher 时，`withoutLeaving` 把留着的叶和内容都剔除，不会引起二次判定。
+- 两处 `holding` 判断一致，`start` 总是先置 `moving` 再设 `leavingContentItems`，`stop` 一并清掉，不会有卸不掉的路径。
+- `useContentLayer` 的 `placements` 去重、重算矩形、`memory`（不会被删，也不会被零尺寸覆盖）、`content-parked` 的发出时机（`motion.update` 在 `contentLayer.update` 之前）。
+- `FrozenSlot` 的 `withMemo` 与 `onErrorCaptured` 的结构：没吞错误，返回 `undefined`，原错误继续往上传。叶与内容的 `frozen` 在同一次刷新里切换，子任务被父组件更新失效，顺序没有问题。
+- 文档（`NestedGrid.md`、README、CHANGELOG）与 Spec 155、156 和实现的文字一致，推荐写法能照抄。
+- `package.json` 的 `files` 排除写法形式没问题，`lab-sources.ts` 的 glob 是 `./*.vue`，不会收到子目录。我没跑 `npm pack`，所以打包结果没核实。
+
+### 数量与有效发现
+重要 2，建议 5，阻断 0，撤回 0。
+
+有效发现：1、2、3、4、5、6、7
