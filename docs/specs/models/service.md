@@ -18,12 +18,19 @@ owners:
 不承诺：
 
 - OAuth 登录（用订阅账号）；发现方式之外的协议（Ollama、LM Studio、LiteLLM 的专用接口）；兼容选项、扩展窗口、用命令取密钥；阶梯价；代理设置。重试次数在 [`agent.run-guards`](../agent/run-guards.md)。
+- 不经 HTTP 请求的传输（Cursor、Bedrock 的签名认证、Codex 这类登录通道）：模板列出但不能添加（输出 19）。
+- 模型清单只来自 OMP 的打包目录：在线列表、在线目录与自动更新还没有。
 - 凭据库被外部工具修改时的热更新：重开应用才看得到。
 - 目录模型改名后的自动迁移：引用按“目录漂移”处理（输出 9）。
+- 已知限制：写入前检查设置层是否可写，与锁内写之间用户恰好把设置文件改坏的窗口挡不住（要改设置拥有者的写入合同）。
 
 ## 术语与参与者
 
-- **服务商**：一个模型来源。**目录服务商**来自 OMP 的内置目录（Anthropic、DeepSeek……），能力与单价按目录；**自定义服务商**是用户填地址与接口格式的 OpenAI 兼容端点（中转站、本机的 vLLM 等）。
+- **模板**：添加服务商时的起点。OMP 打包目录里的每个服务商是一个模板（协议、各协议的地址、模型元数据都来自目录），另有三个**空白模板** `blank-openai`、`blank-anthropic`、`blank-gemini`（没有目录，协议与地址由用户给）。
+- **服务商**：模板的一个实例，同一模板可以建多份。名称、协议、地址、图标都能改；`template` 建后不变，只决定初始值和去哪查模型元数据。协议与地址都没改时称**跟随模板**。
+- **`uid`**：服务商创建时生成的随机 128 位标识，永不复用；会话日志里的部署身份只认它（同名删建得到新的 `uid`）。v1 设置里的服务商没有 `uid`，读作 `legacy:<id>`，首次写入时原样写下。
+- **来源模型**：模板在打包目录里的对话模型；**手加的模型**是用户自己添加的（空白模板只有这一种）。设置里的模型条目带来历 `origin: "source" | "manual"`。
+- **中性身份**：改了协议或地址、或空白模板的服务商，发请求时不用模板的 OMP 服务商 id，用 `generic-endpoint`（[`harness/models.md`](../harness/models.md) 输出 21）。
 - **模型角色**：梯度四档 `tiny`、`fast`、`main`、`deep`，专精角色 `compaction` 与用户自建的；每个角色绑一个模型（[模型角色合同](../../proposals/model-roles-contract.md)）。
 - **凭据库**：`<状态根>/agent/credentials.db`，OMP 的 `AuthStorage`，明文 SQLite。
 - **启动环境**：服务端进程启动时 `process.env` 的快照，早于任何导入 OMP 的模块（OMP 导入时会把家目录等处的 `.env` 并进 `process.env`，那些不算，口径同 ADR 0032）。
@@ -33,24 +40,31 @@ owners:
 两个设置项（[`settings/configuration.md`](../settings/configuration.md)），都只允许用户层，只由 `nbook.models` 的服务端写（输出 6）：
 
 ```ts
-// nbook.models/providers
+// nbook.models/providers（v2；v1 形状的读法见下文）
 type Providers = Array<{
-    id: string;                       // [a-z0-9][a-z0-9._-]*，不含 /；目录服务商即目录 id
-    kind: "catalog" | "custom";
-    name: string;
-    baseUrl?: string;                 // 自定义必填；目录服务商写了就覆盖目录的地址
-    api?: "openai-completions" | "openai-responses" | "anthropic-messages";   // 自定义必填
+    id: string;                       // [a-z0-9][a-z0-9._-]*，不含 /；由名称生成（输出 5），建后不变
+    uid: string;                      // 见“术语”
+    template: string;                 // 模板 id，建后不变
+    region?: string;                  // 有地区的模板（Moonshot、MiniMax）选的地区
+    name: string;                     // 不分大小写不重名
+    icon?: {kind: "builtin"; key: string} | {kind: "file"; name: string} | {kind: "initial"};   // 不写是模板的图标（输出 21）
+    api?: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";   // 覆盖模板的协议；空白模板建立时写入
+    baseUrl?: string;                 // 覆盖模板（或地区）的地址；空白模板必填
     apiKeyEnv?: string;               // 有值时密钥取这个环境变量，盖过凭据库
     auth: "default" | "bearer" | "none";
-    headers: Record<string, string>;  // 值可写 env:<变量名>
+    headers?: Record<string, string>; // 值可写 env:<变量名>
+    followSource: boolean;            // 服务商新出的模型自动加入（输出 22）
+    excluded: string[];               // 用户移出的来源模型 id
     models: Array<{
         id: string;                   // 第一个 / 之后的整体（OpenRouter 的 id 自带 /）
+        origin?: "source" | "manual"; // 来历；不写按 manual
+        frozen?: true;                // 关掉自动加入时补的条目（输出 22）
         name?: string; group?: string; enabled: boolean;
-        contextWindow?: number;       // 自定义模型启用时必填、正整数
+        contextWindow?: number;       // 来源没给窗口时，启用前必填、正整数
         maxOutput?: number; vision?: boolean; reasoning?: boolean; efforts?: string[];
         compaction?: {mode: "reserve" | "percent" | "tokens"; value?: number};   // 自动压缩的触发点，覆盖全局；旧的 compactAt 读作 {mode: "tokens"}，保存时写新形状
         price?: [number, number, number, number] | null;   // 美元每百万 token：输入、输出、缓存读、缓存写；null 未知
-        headers: Record<string, string>;
+        headers?: Record<string, string>;
     }>;
 }>;
 // nbook.models/roles
@@ -59,7 +73,17 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
     icon?: string;                                                              // 角色图标的键，键到图标的表在应用里}>};
 ```
 
-目录模型在设置里只存用户改过的字段，其余每次从目录读。缺省的角色是四档加 `compaction`，都未绑定。
+来源模型在设置里只存用户改过的字段与启用开关，其余每次从打包目录读；没有条目的来源模型按目录值、启用。缺省的角色是四档加 `compaction`，都未绑定。
+
+**v1 形状的读法**：设置里每个服务商可以是 v2，也可以是 v1 的 `{id, kind: "catalog" | "custom", name, baseUrl?, api?, apiKeyEnv?, auth, headers?, models}`，读的时候按 v1 运行时的语义归一，行为与升级前相同；第一次写服务商设置时整份写成 v2：
+
+| v1 | 读作 |
+|---|---|
+| 目录服务商 | `template` 是它的 id；旧的 `api` 不起作用（v1 就是这样），`baseUrl` 是覆盖；`followSource: false`（只有显式加入的模型在列表里）；条目 `origin: "source"`，只保留 v1 运行时认的字段 `enabled`、`name`、`group`、`price`、`headers` 与压缩触发点，写在目录条目上的 `contextWindow`、`vision` 等本来就被忽略，首次写入后不再保留 |
+| 自定义服务商 | `template` 是 `blank-anthropic`（`api` 是 `anthropic-messages` 时）或 `blank-openai`；字段全部保留，条目 `origin: "manual"` |
+| 都没有 `uid` | `legacy:<id>`，首次写入时写下 |
+
+写入带的 `expect` 是磁盘上的原值，不是归一后的值，所以 v1 的值不会因归一被误判为冲突（输出 6）。
 
 进程内服务 `modelsKey` 与远程合同 `nbook.models/settings` 见输出 10、12。
 
@@ -69,11 +93,11 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 
 1. **密钥的来源**：服务商 `auth: "none"` 时不带密钥；`apiKeyEnv` 有值时取启动环境里的这个变量；否则取凭据库里这家的 API Key。请求头的值写 `env:<变量名>` 时同样取启动环境。只认启动环境：之后再设的变量要重启才生效。
 2. **凭据库**：只经 OMP 的公开接口读写，只管 API Key 行。写入是 OMP 的替换语义：同一服务商在库里的其它凭据一并软删除（第一版库里只有本插件写的 API Key）。目录不存在时以 0700 建，库文件 0600；已有目录不改权限，做不到的平台（Windows）尽力而为。本进程是唯一写者（一个状态根一个服务端），内存里的状态以本进程的写为准。
-3. **认证方式**：`default` 按接口格式（OpenAI 系 `Authorization: Bearer`，Anthropic `x-api-key`）；`bearer` 另加 `Authorization: Bearer <密钥>`；`none` 见输出 1。
+3. **认证方式**：`default` 按接口格式（OpenAI 系 `Authorization: Bearer`，Anthropic `x-api-key`，Gemini `x-goog-api-key`；中性身份的 Anthropic 协议发 `Authorization: Bearer`）；`bearer` 另加 `Authorization: Bearer <密钥>`；`none` 见输出 1。
 4. **请求头**：服务商级与模型级合在一起随每个请求发出，同名时模型的赢；它们的值与密钥一样在错误文字里遮盖（[`harness/models.md`](../harness/models.md) 输出 4）。
-5. **配置的校验**：自定义服务商的 id 由名字生成（转成 `[a-z0-9._-]`，中文名转成 `custom`），与已添加的和目录里的 id 冲突时加 `-2`、`-3`，建后不变；自定义模型 `enabled` 时上下文窗口必须是正整数，缺字段的模型只能停用；不合校验的写入为 `invalid-value`。
-6. **写入只经服务端**：两个设置项的每次改动都经远程方法按 id 打补丁；服务端一个串行队列，每次读本层当前值、合并这一处、带 `expect` 写回（[`configuration.md`](../settings/configuration.md) 输出 25），得 `conflict` 就重读重合并，最多 3 次，仍冲突为 `write-conflict`。同一窗口连着改、两个窗口改不同的项、设置文件视图同时编辑都不会互相覆盖；两处改同一项的同一字段，后到的生效。直接改设置文件照常生效。
-7. **快照**：服务端在内存里维护目录、两个设置项、凭据库里有 API Key 的服务商、启动环境里 `apiKeyEnv` 有没有值；设置变化、本进程写完凭据之后重算（与写入同一个串行队列）。入口激活时先打开凭据库并读完一次，之后才提供 `modelsKey`。
+5. **配置的校验**：服务商的 id 由名称生成（转成 `[a-z0-9._-]`，转不出字符时用 `provider`），与已添加的冲突时加 `-2`、`-3`，建后不变；名称不分大小写不能与别家重名（新建与复制时自动加“ 2”“ 3”，改名重名为 `invalid-value`）；地址必须是 `http:` 或 `https:` 的 URL；空白模板不能没有地址；选的协议在模板里没有地址又没给覆盖地址时为 `invalid-value`。有效上下文窗口（用户填的，否则来源的）不明的模型只能停用，启用为 `model-incomplete`；不合校验的写入为 `invalid-value`。服务商设置整份序列化、再作为文本编码一层（写盘时设置全文就是这样进 RPC 帧的）后超过 768 KiB 的写入为 `invalid-value`；几百个模型的覆盖也远在其下。
+6. **写入只经服务端**：两个设置项的每次改动都经远程方法按 id 打补丁；设置文件里这一项写着、但没通过设置的校验（设置层拒收、原文还在）时，写入为 `settings-unavailable`（`layer-invalid`），不把它当成空值整份盖掉，用户先去设置文件里修；服务端一个串行队列，每次读本层当前值、合并这一处、带 `expect` 写回（[`configuration.md`](../settings/configuration.md) 输出 25），得 `conflict` 就重读重合并，最多 3 次，仍冲突为 `write-conflict`。同一窗口连着改、两个窗口改不同的项、设置文件视图同时编辑都不会互相覆盖；两处改同一项的同一字段，后到的生效。直接改设置文件照常生效。
+7. **快照**：服务端在内存里维护目录、两个设置项、凭据库里有 API Key 的服务商、启动环境里 `apiKeyEnv` 有没有值；设置变化、本进程写完凭据之后重算（与写入同一个串行队列）。入口激活时先打开凭据库并读完一次，之后才提供 `modelsKey`。远程合同的快照里服务商带模板、地区、图标、实际与模板的协议和地址、密钥状态、`followSource`、模型清单来源（现在恒为 `packaged`）、模型数、启用数、移出数与这家的 `modelsRevision`，**不带模型行**（行经输出 23 分页读）；`modelsRevision` 在这家的模型行有任何变化（条目、移出、密钥状态）时变，别家的不受影响。
 8. **解析**（模型端口 `resolve(query)`）：
 
    | 用途 | 取模型 |
@@ -84,19 +108,23 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 
    `settings.model` 除了模型引用，还可以是 `role:<角色 id>`（会话选的是角色，改绑后跟着变）：角色不存在或 id 为空得 `unknown-model`，存在但没绑定得 `role-unbound`。
 
-   走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在、没启用、自定义模型缺上下文窗口：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（输出 18）。失败结果带上选中了什么：走到角色时（包括角色绑定的模型解析失败）带 `role`（角色 id），`no-credentials` 带 `provider`（服务商 id）；会话直接选了模型引用时没有 `role`。对话的提示卡据此写哪个角色、哪家服务商（[agent.conversation](../agent/conversation.md)）。
-9. **目录漂移**：设置里引用的目录模型不在目录里了（OMP 升级），引用保留并在快照里标 `missing`（原服务商与模型 id），解析为 `unknown-model`，写一条诊断；用户在界面里重新选。
+   走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在列表里（含已移出）、没启用、有效上下文窗口不明、目录里有但不能当对话模型发（行的状态 `unsupported`）：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（输出 18）。失败结果带上选中了什么：走到角色时（包括角色绑定的模型解析失败）带 `role`（角色 id），`no-credentials` 带 `provider`（服务商 id）；会话直接选了模型引用时没有 `role`。对话的提示卡据此写哪个角色、哪家服务商（[agent.conversation](../agent/conversation.md)）。
+9. **目录漂移**：设置里来历是 `source` 的条目在打包目录里没有了（OMP 升级），条目保留、模型行标 `missing`，解析为 `unknown-model`，写一条诊断；用户在界面里重新选。目录里有这一行、但它不能当对话模型发（传输不走 HTTP 请求的 Bedrock、Cursor、Codex，或图片生成这类不是对话类的模型）时，行标 `unsupported`，同样解析为 `unknown-model`。
 10. **`modelsKey`**：`port(profileDefaults?)` 交出所有会话共用的模型端口，`profileDefaults(profile)` 每次解析都调，换 Profile、改 Profile 设置即时生效；`snapshot()` 给出启用的模型、角色及其有效性；`onChange`。
 11. **检测**：`check` 发一条很短的请求（最大输出 min(32, 模型上限)、不带推理、超时 30 秒），结果是通过，或失败的类别、一句话与服务商原文（遮盖过、截到 8 KB）；`checkAll` 并发至多 4。结果不落盘。
-12. **远程合同 `nbook.models/settings`**（版本 2，服务端提供，浏览器调用；相对版本 1，`setRole` 改成字段补丁，快照的角色多了 `effort`、`icon`，模型多了 `thinking`）：
+12. **远程合同 `nbook.models/settings`**（版本 3，服务端提供，浏览器调用；相对版本 2：`templates` 取代 `catalogProviders` 与 `catalogModels`，快照不带模型行、去掉服务商的 `kind`，新增复制、图标与三种读模型行的方法；补丁一律“省略不改、`null` 清除”）：
 
     | 方法 | 读写 | 业务码 |
     |---|---|---|
-    | `catalogProviders()` | read | 无 |
-    | `catalogModels(provider)` | read | `unknown-provider` |
+    | `templates()` | read | 无 |
     | `snapshot()`，事件 `changed` | read | 无 |
-    | `addProvider`、`updateProvider`、`removeProvider` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable` |
-    | `upsertModel`、`removeModel`、`setModels` | write | 同上，加 `model-incomplete` |
+    | `addProvider({template, region?, name?, baseUrl?, api?})` | write | `unknown-template`、`template-unavailable`、`invalid-value`、`write-conflict`、`settings-unavailable`、`credentials-unavailable` |
+    | `duplicateProvider(id)` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable`、`credentials-unavailable`、`partially-applied` |
+    | `updateProvider({id, patch})`（`name`、`region`、`baseUrl`、`api`、`auth`、`headers`、`followSource`）、`removeProvider` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable`（删除另有 `credentials-unavailable`） |
+    | `setIcon({provider, icon})` | write | 同上，加 `icon-rejected` |
+    | `providerModels({provider, scope?, offset, limit, revision?})`、`enabledModels({providers?, usable?, offset, limit, revision?})` | read | `unknown-provider`（前者）、`revision-changed` |
+    | `modelsByReference({references})` | read | 无 |
+    | `upsertModel`、`removeModel`、`setModels` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable`，加 `model-incomplete` |
     | `setRole`、`addRole`、`updateRole`、`removeRole` | write | `unknown-role`、`builtin-role`、`invalid-value`、`write-conflict`、`settings-unavailable` |
     | `setKey`、`clearKey` | write | `unknown-provider`、`invalid-value`、`credentials-unavailable`、`settings-unavailable`、`partially-applied` |
     | `discover(provider)` | read | `unknown-provider`、`no-credentials`、`not-supported`、`auth`、`unreachable`、`failed` |
@@ -105,7 +133,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
     设置写入失败的映射：`invalid-value` 原样；`conflict` 重试后仍冲突为 `write-conflict`；层文件有错、写盘失败、连不上为 `settings-unavailable`。任何响应、事件与诊断里都没有密钥；`keyStatus` 只说有没有、读的是哪个变量、变量有没有值。请求头的值照设置文件原样出现在快照与事件里（设置文件对浏览器本来可读，设置页要显示与编辑它们），不进诊断与错误原文；凭据类的值应写成 `env:<变量名>`（见“边界与兼容”的信任边界）。
 13. **`setKey`**：值以 `env:` 开头时先写 `apiKeyEnv`、再删库里的密钥；否则先写库、再清 `apiKeyEnv`。`apiKeyEnv` 有值时盖过库里的密钥，所以后一步失败时生效的仍是前一步之前的或之后的那一个、不会混用；这时返回 `partially-applied`，详情带写后的实际密钥状态。
 14. **压缩角色的初值**：第一次绑 `fast` 而 `compaction` 未绑时，同一次写把 `compaction` 设成同一个模型（压缩先跟着快速档，之后各改各的）。
-15. **删除时解除绑定**：删服务商、删模型（含“管理模型”里移出）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。
+15. **删除时解除绑定**：删服务商、删模型、移出来源模型（进 `excluded`）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。
 16. **请求的传输**：每次请求现读两个超时设置交给适配器（[`harness/models.md`](../harness/models.md) 输出 18），`maxHttpAttempts` 固定为 1；检测同样这样。
 18. **角色的思考档**：
     - 角色可以设默认档 `effort`（`off` 或档位，不写是跟随模型）与图标键 `icon`。`setRole` 按字段打补丁：省略的不改，`null` 清除（`model: null` 解除绑定，`effort: null` 跟随模型，`icon: null` 用默认图标）；只改档或图标时不带出 `model`，也不触发输出 14（压缩跟着快速档只在 `fast` 从未绑定变成绑定时）。改绑模型时已存的档位保留，请求时按新模型的档夹取，界面说明实际用哪一档。
@@ -113,6 +141,12 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
     - 快照里每个模型带 `thinking`（推理能力：`none`、`fixed`、`levels` 加 `off`、`unset`、`verified`），按真实的 OMP 模型算；建不出模型（目录漂移、自定义缺窗口）时按配置的 `reasoning` 退成 `fixed` 或 `none`。
     - 请求里的内容见验收 4。
 17. **压缩的触发点**：全局设置 `nbook.models/compaction`（在“运行可靠性”页的“上下文压缩”组）与模型配置的 `compaction` 同一个形状 `{mode, value?}`，模型的覆盖全局。`reserve`：留预留量，`value` 是把窗口当成这个数来算，没写就是内核的缺省；`percent`：窗口的百分比（`value` 必写、1 到 100，窗口未知时不给）；`tokens`：固定的触发点（`value` 必写）。超出范围的值在设置入口就按 `invalid-value` 拒绝。解析时窗口知道了才算成 `compactAt` 交给内核：超过窗口按窗口，没有意义或不大于 0 时不给，由内核按缺省算。全局设置改了，从下一次解析起生效。快照里的 `compaction` 是模型自己的配置，旧的 `compactAt` 给成 `{mode: "tokens"}`。
+19. **模板与添加**：`templates()` 列出打包目录里有对话模型的服务商（加上 Cursor、Bedrock、Azure、Vertex、Codex 这类没有可发的对话模型、但用户会找的几家）与三个空白模板；每个带分组（国际、国内、网关、其他、自定义）、图标键、地区、各协议的地址（`routes`）、打包目录里的对话模型数、密钥怎么来（不要、API Key、登录），与能否添加：要登录（`login`）、认证方式不支持（`unsupported-auth`）、传输不经 HTTP 请求（`transport`）、地址带占位要用户给（`needs-address`）的不能添加。`addProvider` 对不能添加的模板为 `template-unavailable`，没有这个模板为 `unknown-template`；空白模板必须给名称与地址，协议缺省按模板；有地区的模板给的地区必须在表里；选的协议在模板里没有地址又没给地址为 `invalid-value`。新建与复制都先清掉凭据库里最后真正用到的那个 id 的遗留密钥（写设置时这个 id 被别处占了就换下一个、清那一个），再写设置，生成新的 `uid`；模板服务商 `followSource: true`（打包目录里的对话模型全部在列表里），空白模板 `false`、没有模型；免认证的模板 `auth: "none"`。
+20. **复制**：`duplicateProvider` 复制整份配置（id 由原 id 加 `-copy` 生成，名称加“ 2”，新 `uid`）；凭据只复制有效的那一种：`apiKeyEnv` 随配置复制，库里的密钥复制一行。配置复制成了、密钥没复制成时为 `partially-applied`，带副本 id 与副本实际的密钥状态。
+21. **图标**：`setIcon` 收内置图标的键、首字母块、`null`（回到模板的图标），或上传的 PNG（base64）：编码串至多 90 000 字符，解码后至多 64 KB、边长至多 256 像素、不是动图（第一块图像数据之前没有 `acTL`），并且能解码；不合格为 `icon-rejected`，`reason` 是 `not-png`、`too-large`、`animated`、`undecodable`、`write-failed`。上传的图存成状态根 `agent/provider-icons/<内容的 SHA-256>.png`（先写暂存文件再改名），设置里只存文件名；设置没写成时、删服务商之后、换图标之后，没有任何服务商引用的文件被回收（回收失败只记诊断）。图标文件经 `GET /api/nbook.models/icons/<文件名>` 读取：文件名必须是 64 位十六进制加 `.png`，不跟符号链接，带 `nosniff` 与 `sandbox` 的安全头，跨站请求被拒。
+22. **模型清单**：一家的列表 = 来源模型（开着 `followSource` 时是打包目录里的全部对话模型——对话类、走 HTTP 请求的，图片生成等不进；关着时只有设置里有条目的），去掉 `excluded`，加上手加的模型。手加的条目优先：目录后来有了同 id 的模型，这一行仍是手加的（不借目录的窗口与能力，移出时删掉而不是进 `excluded`）；手加的模型没覆盖协议时用模板的缺省协议。行上的开关就是 `enabled`；“管理模型”里移出的来源模型进 `excluded`、其覆盖不保留，可以找回。`setModels` 的 `add`：来源模型取消移出（关着自动加入时补一条条目），手加的新建或整条替换；`remove`：来源模型移出，手加的删除；绑着被移出模型的角色先解除绑定（输出 15）。关掉 `followSource` 时，给此刻在列表里、还没有条目的来源模型补 `{enabled: true, frozen: true}` 的条目，列表不变；重新打开时删掉仍只有冻结标记的条目，用户改过的去掉标记保留。来源模型的条目只存与来源值不同的字段。
+23. **读模型行**：`providerModels` 按系列、名称、id 的稳定顺序分页交回一家的行（一页至多 200 行、编码后至多 512 KiB，按字节截短时 `nextOffset` 接着实际交出的最后一行；`scope: "available"` 是打包目录里有、不在列表里的），`enabledModels` 跨服务商交回启用的行，`usable: true` 时只交可用的（启用、状态 ok、这家有可用的密钥、协议与地址都有）。响应带 `revision`、`total`、`nextOffset`；后续页带首页的 `revision`，期间这家（或这几家）的行变了为 `revision-changed`，调用方从头重读。`modelsByReference` 一次至多 50 个引用，按 `<服务商>/<模型>` 取行（含未启用的），找不到的 `row` 为 null。行的状态 `missing`（输出 9）、`incomplete`（有效上下文窗口不明）与 `usable` 都在服务端算，`overridden` 列出用户改过、与来源值不同的字段，有这样的字段时 `source` 带这几项的来源值（编辑时恢复用），否则为 null。
+24. **发出请求的身份**：解析结果按 [`harness/models.md`](../harness/models.md) 输出 21、22 建：公开引用是 `<服务商 id>/<模型 id>`；部署身份 `deployment` 由 `uid`、有效协议与有效地址算出；签名绑定凭据的协议（OpenAI 兼容的 completions 之外）另带凭据身份，是认证输入（密钥与生效的服务商、模型请求头）经安装密钥（状态根 `agent/identity.key`，0600，首次启动随机生成，内容不合格时重新生成）做的 HMAC。解析之后服务商被改了协议、地址、认证方式、密钥来源、密钥值或请求头，已解析的结果再发请求为 `endpoint-mismatch`；会话下一轮重新解析。代理设置还没有：模型请求一律直连，不读进程环境里的代理变量。
 
 ## 状态与转换
 
@@ -124,8 +158,8 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 
 ## 副作用与数据
 
-- 设置文件（用户层）的两个键；凭据库文件。都在状态根下，不随作品走。
-- 诊断：写入（不记值）、目录漂移、权限做不到。
+- 设置文件（用户层）的两个键；凭据库文件；上传的服务商图标 `agent/provider-icons/*.png`（没有服务商引用时回收）；安装密钥 `agent/identity.key`（0600，换了它旧回复的签名不再送回）。都在状态根下，不随作品走。
+- 诊断：写入（不记值）、目录漂移、权限做不到、图标写入与回收失败。
 
 ## 失败与恢复
 
@@ -137,39 +171,49 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 | `write-conflict` | 重试 3 次仍有别处同时在写 | 稍后重试 |
 | `settings-unavailable` | 设置文件有错或写不进去 | 先修好设置文件 |
 | `credentials-unavailable` | 凭据库读写失败 | 看诊断 |
-| `partially-applied` | `setKey` 两步只成了一步 | 按返回的实际状态再操作 |
-| `model-incomplete` | 启用的自定义模型缺上下文窗口 | 补字段后再启用 |
+| `partially-applied` | `setKey` 或复制服务商两步只成了一步 | 按返回的实际状态再操作 |
+| `model-incomplete` | 启用的模型有效上下文窗口不明 | 补字段后再启用 |
+| `unknown-template` | 没有这个模板 | 重新读模板表 |
+| `template-unavailable` | 模板不能添加（要登录、传输或认证不支持、地址带占位） | 换模板，或用空白模板填地址 |
+| `icon-rejected` | 上传的图标不合格，`reason` 写原因 | 换一张图 |
+| `revision-changed` | 分页读到一半，这家的模型行变了 | 从第一页重读 |
+| `endpoint-mismatch` | 请求地址与配置不符，或解析之后服务商被改过 | 不重发；下一轮重新解析 |
 
 ## 边界与兼容
 
 - 公开接口：`modelsKey`（`shared/contracts.ts`）、远程合同 `nbook.models/settings`、两个设置项的形状。
-- 降级：角色设置写了 `effort` 或 `icon` 之后再装回这之前的版本，旧版本按它的 schema 把整个“模型角色”设置项当成无效丢弃（读到的是缺省：四档加压缩都未绑定），主力等绑定看起来没了；没写过这两个字段的设置不受影响。不为降级做保护，应用的发布说明“数据与升级”写明。
+- 降级：角色设置写了 `effort` 或 `icon` 之后再装回这之前的版本，旧版本按它的 schema 把整个“模型角色”设置项当成无效丢弃（读到的是缺省：四档加压缩都未绑定），主力等绑定看起来没了；没写过这两个字段的设置不受影响。服务商设置第一次写成 v2 之后再装回旧版本，旧版本同样把整个服务商设置项当成无效丢弃（读到的是空表，密钥仍在凭据库里）。不为降级做保护，应用的发布说明“数据与升级”写明。
+- 升级：v1 设置照“输入与前置条件”的读法归一，行为不变；目录条目上被 v1 运行时忽略的字段首次写入后不再保留；v1 里已存的 Bedrock、Cursor、Codex 这类不经 HTTP 请求的模型保留条目，标 `unsupported`、不能发送。OpenRouter 照旧按启动环境的 `PI_OPENROUTER_RESPONSES` 选 Chat Completions 或 Responses。应用的最低 Bun 版本是 1.4.4，CLI 与服务入口都在启动时核对；设了环境代理的用户，模型请求改为直连。
 - 依赖 `@notnotype/nb-harness/models`（目录、凭据库、按配置建出解析结果）。OMP 升级时目录与能力随之变。
 - 信任边界：浏览器只拿到“有没有密钥”；设置文件里只有变量名，不放密钥。请求头的值写在设置文件里，界面在名称像凭据时提示改用 `env:`。
 
 ## 验收与 Smoke
 
-1. 自定义服务商（本机假的 OpenAI 兼容端点）：添加、设密钥、拉取模型、加入并补上下文窗口、启用、绑定 `main`、Agent 一轮对话走到这个端点；删除服务商后 `main` 为 `role-unbound`。
+1. 空白模板的服务商（本机假的 OpenAI 兼容端点）：添加、设密钥、拉取模型、加入并补上下文窗口、启用、绑定 `main`、Agent 一轮对话走到这个端点；删除服务商后 `main` 为 `role-unbound`。
 2. 两个窗口经真实 RPC 同时改两个不同的服务商，两处改动都在；设置文件视图在服务端合并期间写入，内容不丢。
 3. `setKey` 的 `env:` 与原文互换；启动环境里有、`process.env` 里后来才有的变量不算。
 4. 角色的思考档（输出 18）：本机假端点实收的请求体里，可真关闭的模型选“关闭”发关闭开关，只能降档的模型发最低档，强制思考的模型不选也发最低档，不推理与不能调档的模型不发推理字段；主力设了默认档、会话没选时请求用它，会话选了就用会话的、选“跟随”回到角色的；同一个模型绑给两个角色各用各的。
+5. 模板与身份（输出 19 到 24）：同一模板添加两份，各有自己的 `uid`、公开引用与图标；v1 设置文件经真实设置场地读进来行为不变、第一次写入整份换成 v2；环境变量改写地址（含只改路径）时请求不发出；同名删了重建或同址换凭据之后，经会话关闭重开的回放不送回旧签名。
 
 Smoke：`packages/neuro-book/src/plugins/models/` 的插件测试与 `e2e/models.e2e.ts`。
 
 ## 实现合同
 
-- **公开入口**：`nbook/plugins/models/shared/contracts`（服务键 `modelsKey`、远程合同 `modelsSettingsContract`，转出别的插件在用的快照形状与 `hasCredentials`、`roleReference`、`roleOfReference`）、`nbook/plugins/models/shared/settings`（设置项 `nbook.models.providers`、`nbook.models.roles` 的登记）；`@notnotype/nb-models`：`./config`（配置形状、内置角色 `BUILTIN_ROLES` 与 `MODEL_ROLE_IDS`、引用与服务商 id 的规则、压缩触发点）、`./contract`（快照与结果形状、远程合同的定义 `modelsSettingsSpec` 与 `ModelsSettingsContract`、`ModelsService`）、`./core`（`createModelsCore`、选择顺序 `chooseModel`、配置存储接口 `ModelsConfigStore`）；`@notnotype/nb-harness/models`（目录、发现、凭据库 `openCredentials`、`env:` 的读法、`buildResolution`）与 `@notnotype/nb-harness/process-guard`（`takeOverOmpProcessHandlers`）。
+- **公开入口**：`nbook/plugins/models/shared/contracts`（服务键 `modelsKey`、远程合同 `modelsSettingsContract`，转出别的插件在用的快照形状与 `hasCredentials`、`roleReference`、`roleOfReference`）、`nbook/plugins/models/shared/settings`（设置项 `nbook.models.providers`、`nbook.models.roles` 的登记）；`@notnotype/nb-models`：`./config`（配置形状、内置角色 `BUILTIN_ROLES` 与 `MODEL_ROLE_IDS`、引用与服务商 id 的规则、压缩触发点）、`./contract`（快照与结果形状、远程合同的定义 `modelsSettingsSpec` 与 `ModelsSettingsContract`、`ModelsService`）、`./core`（`createModelsCore`、选择顺序 `chooseModel`、配置存储接口 `ModelsConfigStore`、模板表 `listTemplates`、图标校验 `checkPng` 与存储接口 `IconStore`）；`@notnotype/nb-harness/models`（目录、发现、凭据库 `openCredentials`、`env:` 的读法、`buildResolution`）与 `@notnotype/nb-harness/process-guard`（`takeOverOmpProcessHandlers`）。
 - **owner 与依赖方向**：配置形状、规则、选择顺序、合同定义与服务核心（快照、串行写入、检测与发现）在 nb-models，与应用无关；id、设置项与远程合同实例在 `nbook.models`（[ADR 0045](../../adr/0045-shared-host-packages-for-second-app.md)）。`nbook.models` 的服务端入口打开凭据库、把设置服务适配成 `ModelsConfigStore`（`backend/settings-store.ts`）、建核心并交出服务键与远程合同；浏览器入口只是远程合同的调用方（设置页见 [`models.settings-pages`](settings-pages.md)）。它依赖 `nbook.settings`（配置服务）、nb-models 与 `nb-harness/models`；`nb-harness/models` 只引用内核公开入口与允许的几个 OMP 包。Agent 内核经模型端口取解析结果，不直接读设置。OMP 不打进 bundle、服务端入口先于它接管进程级处理（[ADR 0036](../../adr/0036-app-package-installs-omp.md)）。
 - **关键不变量**：
   - 配置只经服务端写，每次写是对一个设置项的读改写；设置文件被别处改过时重读再合并，两个窗口同时改不同服务商两处都在（输出 5、6，`models.test.ts`“配置的校验与写入”，nb-models `core/core.test.ts`）。核心依赖的存储语义写在 `ModelsConfigStore` 的接口注释里，由 nb-models 的合同测试对内存实现与应用的适配器（`settings-store.test.ts`，真实设置场地）各跑一遍。
   - 密钥只在凭据库或启动环境里：`env:` 存成变量名、只认启动时拍下的环境，原文写库；任何响应、事件与诊断里都没有密钥（输出 1、2、12、13，`models.test.ts`“密钥”）。
   - 目录模型在设置里只存用户改过的字段，快照照样合出目录的值；目录里没有了的模型标 missing、绑着它的角色为 unknown-model（输出 9，`models.test.ts`“目录模型只存用户改过的”“目录漂移”）。
   - 删除模型或服务商之后没有角色指向它（输出 15，`models.test.ts`“配置的校验与写入”）。
+  - 设置里的服务商新旧形状都接受，读的时候归一（`config/normalize.ts`），第一次写入整份写成 v2；`expect` 用磁盘原值（nb-models `providers.test.ts`“v1 设置的读法”，`models.test.ts`“v1 设置文件与图标路由”）。
+  - 模型清单由打包目录与设置里的覆盖现算（`core/members.ts`），设置里不存目录的副本（`providers.test.ts`“自动加入、冻结与移出”）。
+  - 请求发出前在最内层核对完整地址，解析之后服务商被改过的结果不能再发（nb-harness `tests/models.test.ts`、`kernel/model/omp.test.ts`）。
   - 加载 OMP 之前接管它挂在 `process` 上的处理，服务端停止结算后再跑它登记的清理，每个退出出口都等这次清理（`nb-harness` 的 `process-guard.test.ts`，`server.test.ts` 的停止与退出码）。
 
 ## 证据
 
-- 批准依据：w00032 t09 决定 1 到 32（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)）、[模型角色合同](../../proposals/model-roles-contract.md)；开发者 2026-11-01 批准晋升为 `implemented`；配置形状、合同定义与核心抽进 nb-models 依据 [ADR 0045](../../adr/0045-shared-host-packages-for-second-app.md)（开发者 2026-11-10 同意）。解析失败带 `role`、`provider`：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。
-- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/models/backend/plugin.ts)、[`backend/settings-store.ts`](../../../packages/neuro-book/src/plugins/models/backend/settings-store.ts)、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/models/shared/contracts.ts)、nb-models [`core/core.ts`](../../../packages/nb-models/src/core/core.ts)、[`core/choice.ts`](../../../packages/nb-models/src/core/choice.ts)、[`core/store.ts`](../../../packages/nb-models/src/core/store.ts)、[`nb-harness/src/models/`](../../../packages/nb-harness/src/models/index.ts)、[`server/omp-process.ts`](../../../packages/neuro-book/src/server/omp-process.ts)
-- 合同测试：[`models.test.ts`](../../../packages/neuro-book/src/plugins/models/models.test.ts)（真实设置场地、真实凭据库、真实远程合同与本机的 OpenAI 兼容端点）、[`settings-store.test.ts`](../../../packages/neuro-book/src/plugins/models/backend/settings-store.test.ts)、nb-models [`core.test.ts`](../../../packages/nb-models/src/core/core.test.ts)、[`choice.test.ts`](../../../packages/nb-models/src/core/choice.test.ts)、[`memory-store.test.ts`](../../../packages/nb-models/src/testing/memory-store.test.ts)、[`roles.test.ts`](../../../packages/nb-models/src/config/roles.test.ts)、[`compaction.test.ts`](../../../packages/nb-models/src/config/compaction.test.ts)、[`nb-harness/tests/models.test.ts`](../../../packages/nb-harness/tests/models.test.ts)、[`boundary.test.ts`](../../../packages/nb-harness/src/models/boundary.test.ts)、[`process-guard.test.ts`](../../../packages/nb-harness/tests/process-guard.test.ts)；真实模型：[`models.llm.test.ts`](../../../packages/neuro-book/src/plugins/models/models.llm.test.ts)（`test:llm`）；解析失败带 `role`、`provider`（输出 8）：[`models.test.ts`](../../../packages/neuro-book/src/plugins/models/models.test.ts)、[`core.test.ts`](../../../packages/nb-models/src/core/core.test.ts)；快照原样带上：[`session.test.ts`](../../../packages/nb-harness/src/kernel/session/session.test.ts)
+- 批准依据：w00032 t09 决定 1 到 32（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)）、[模型角色合同](../../proposals/model-roles-contract.md)；开发者 2026-11-01 批准晋升为 `implemented`；配置形状、合同定义与核心抽进 nb-models 依据 [ADR 0045](../../adr/0045-shared-host-packages-for-second-app.md)（开发者 2026-11-10 同意）。解析失败带 `role`、`provider`：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。服务商是模板的实例、身份与发送前核对、合同 v3、图标：[w00032 t43](../../../.agents/works/w00032-agent-integration/tasks/t43-models-ux/README.md) 决定 1、2、4、13、20、23、25 至 29 与[计划](../../../.agents/works/w00032-agent-integration/tasks/t43-models-ux/plan.md)的段 B1，取舍见 [ADR 0057](../../adr/0057-models-ux-sources-identity-egress.md) 与 [ADR 0058](../../adr/0058-models-wire-identity-full-url-and-uid.md)。
+- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/models/backend/plugin.ts)、[`backend/settings-store.ts`](../../../packages/neuro-book/src/plugins/models/backend/settings-store.ts)、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/models/shared/contracts.ts)、nb-models [`core/core.ts`](../../../packages/nb-models/src/core/core.ts)、[`core/choice.ts`](../../../packages/nb-models/src/core/choice.ts)、[`core/store.ts`](../../../packages/nb-models/src/core/store.ts)、[`core/templates.ts`](../../../packages/nb-models/src/core/templates.ts)、[`core/members.ts`](../../../packages/nb-models/src/core/members.ts)、[`config/normalize.ts`](../../../packages/nb-models/src/config/normalize.ts)、[`backend/icons.ts`](../../../packages/neuro-book/src/plugins/models/backend/icons.ts)、[`backend/secret.ts`](../../../packages/neuro-book/src/plugins/models/backend/secret.ts)、[`nb-harness/src/models/`](../../../packages/nb-harness/src/models/index.ts)、[`server/omp-process.ts`](../../../packages/neuro-book/src/server/omp-process.ts)
+- 合同测试：[`models.test.ts`](../../../packages/neuro-book/src/plugins/models/models.test.ts)（真实设置场地、真实凭据库、真实远程合同与本机的 OpenAI 兼容端点）、[`settings-store.test.ts`](../../../packages/neuro-book/src/plugins/models/backend/settings-store.test.ts)、nb-models [`core.test.ts`](../../../packages/nb-models/src/core/core.test.ts)、[`providers.test.ts`](../../../packages/nb-models/src/core/providers.test.ts)（模板、添加与复制、v1 读法、冻结与移出、分页、图标、身份）、[`backend/icons.test.ts`](../../../packages/neuro-book/src/plugins/models/backend/icons.test.ts)、[`choice.test.ts`](../../../packages/nb-models/src/core/choice.test.ts)、[`memory-store.test.ts`](../../../packages/nb-models/src/testing/memory-store.test.ts)、[`roles.test.ts`](../../../packages/nb-models/src/config/roles.test.ts)、[`compaction.test.ts`](../../../packages/nb-models/src/config/compaction.test.ts)、[`nb-harness/tests/models.test.ts`](../../../packages/nb-harness/tests/models.test.ts)、[`boundary.test.ts`](../../../packages/nb-harness/src/models/boundary.test.ts)、[`process-guard.test.ts`](../../../packages/nb-harness/tests/process-guard.test.ts)；真实模型：[`models.llm.test.ts`](../../../packages/neuro-book/src/plugins/models/models.llm.test.ts)（`test:llm`）；解析失败带 `role`、`provider`（输出 8）：[`models.test.ts`](../../../packages/neuro-book/src/plugins/models/models.test.ts)、[`core.test.ts`](../../../packages/nb-models/src/core/core.test.ts)；快照原样带上：[`session.test.ts`](../../../packages/nb-harness/src/kernel/session/session.test.ts)
 - Smoke：[`models.e2e.ts`](../../../packages/neuro-book/e2e/models.e2e.ts)（验收 1 的界面部分，删除后角色未绑定）

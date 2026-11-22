@@ -1,0 +1,158 @@
+# w00032 t43 段 B1 前端实现审查（Sonnet）
+审查提交范围 56a4d61c0..e3ecdbba4，HEAD 核对为 e3ecdbba4。条目按核实顺序追加，末尾有按严重程度排序的索引。
+
+### 1. 快照里服务商版本没变时，选用数据仍整份换 rows 与 lookup 并通知 3 次，agent 插件因此多发会话快照请求
+- 严重程度：重要　类别：不变量　位置：packages/neuro-book/src/plugins/models/shared/selection.ts:112-135（refresh 与 refreshLookup）；packages/neuro-book/src/plugins/agent/web/plugin.ts:327-333（takeModels）、plugin.ts:318-326（rebuild）；packages/neuro-book/src/plugins/agent/web/session-host.ts:2053（`watch(() => deps.models(), …, {flush:"sync"})`）
+- 现象：refresh 在 stale 为空时仍无条件执行 `rows.value = combined`（flatMap 产生新数组）、`notify()`；随后 refreshLookup 无条件 `lookup.value = new Map(...)` 再 `notify()`。agent 插件的 takeModels 又在 attach 之后同步 `rebuild()`，`want()` 在 attach 之前也会同步走一遍 refreshLookup。结果是任何快照事件（改角色名、改某家的非模型字段以外的一切、重连后的 resync）都让 `models.value` 被赋新数组多次。
+- 实验（/tmp/review-t43b1-impl/exp-frontend/exp1.ts，用真实 selection.ts 与计数用的假远端）：两家服务商、一个被引用的模型，第二份快照只改角色、两家 `modelsRevision` 不变：服务端请求 0 次（这部分对），但 `rows` 引用换了、`lookup` 引用换了，订阅回调被调 3 次（want 1 次 + rows 1 次 + lookup 1 次）。
+- 为什么是问题：计划 B6a 写明“到齐后一次换引用（只触发一次 refreshModel）”，Spec 的选用数据一节也以此为卖点。session-host 对 `deps.models()` 用 sync 的 watch，每次赋值都是一次 `remote.snapshot({sessionId})` 的 RPC（整份会话快照）。agent 插件里 takeModels 的同步 rebuild（旧 rows + 新快照）加上读完后的 rows 通知与 lookup 通知，一份快照最多触发 3 到 4 次 refreshModel，而且其中第一次拿旧 rows 配新快照，交出的是新旧混合的中间状态。selection.test.ts 只断言了“版本变了的那家换 rows 一次”，没有“版本没变时不换引用”的用例，所以抓不到。
+- 如何核实：`cd /tmp/review-t43b1-impl/exp-frontend && bun exp1.ts`，输出第二行 `notifies 3 … rows ref changed true lookup ref changed true`。
+- 建议改法：refresh 里 stale 为空且 present 集合没变时不换 rows、不通知；rows 与 lookup 的新值先按内容比较（逐项引用相同则保留原数组）；lookup 的通知并入 rows 的同一次（refresh 先等 refreshLookup 的结果再一次 notify），或者让 plugin 的 rebuild 只在 rows 或 lookup 真的换了引用时改 `models.value`。takeModels 里的同步 rebuild 去掉（rows 未换时不用重算 models，只有 groups 与 roles 需要立即换）。补一条“版本没变的快照不换引用、不通知”的测试，并给 plugin 层加“一份快照触发 models 变化的次数”的断言。
+
+### 2. 选用数据 lookup：连续两次 want 时，先完成的那次把还没取到的引用报成 null（“模型不存在”）
+- 严重程度：重要　类别：正确性　位置：packages/neuro-book/src/plugins/models/shared/selection.ts:133（`lookup.value = new Map(wanted.map(... looked.get(reference)?.row ?? null))`）
+- 现象：refreshLookup 结束时用“当前的 wanted”重建整张 lookup，没取到的键（`looked` 里没有）一律写成 null，而 null 的合同含义是“没有这个模型（服务商或模型不在、被移出）”。`mine !== generation` 只挡新快照，挡不住 `want()` 的并发：want 不增加 generation。
+- 实验（exp2.ts 第二段）：快照就绪后 want(["a/x"])，10ms 后 want(["a/x","a/y"])，远端每次 60ms。订阅收到的两次 lookup 依次是 `[x:有值, y:null]`、`[x:有值, y:有值]`。即 y 先被当成“已不存在”再变成有值。
+- 为什么是问题：Profile 页打开时 `watch([snapshot, settingEdits])` 立即 want 一次，用户在页内改一个 Profile 的模型、或快照事件在途时，角色页与 Profile 页都会短暂把绑定的模型显示成“模型已不存在/用不了”（profile-view 里 `found === null` 走 `profiles.model.modelGone`，问题条是 role="alert" 一类的告警位），之后又消失，用户看到闪烁的误报。agent 标签的 `modelLabel` 也会短暂退成原始引用字符串。
+- 建议改法：lookup 只写已经取到的键，未取到的键不进 Map（调用方区分“没取到”与“确认不存在”：Map 里没有键 = 还在读）；或者每次 refreshLookup 带自己的 wanted 序号，结束时序号不是最新的就丢弃；`looked` 里没有的键不能写 null。补一条“want 并发”的测试（可以复用 selection.test.ts 的真实服务端夹具，在 modelsByReference 前加延迟）。
+
+### 3. 选用数据：新快照到来就丢弃整轮已读完的结果，快照间隔短于读取耗时时永远不到齐
+- 严重程度：建议　类别：不变量　位置：packages/neuro-book/src/plugins/models/shared/selection.ts:104-107（`if (disposed || mine !== generation) return;`）
+- 现象：每份快照 `generation += 1`，在途那轮 refresh 读完之后整体丢弃，已经读完的各家结果也不写进 `cached`；新一轮又从 stale 集合（缓存没动，仍是全部）重读。在途的旧请求也没有取消，只是结果作废。
+- 实验（exp2.ts 第一段）：读一家要 100ms，每 40ms 来一份版本不同的快照，连发 10 份：`ready` 一直为 false，发出 10 次请求；安静下来之后才到 true。
+- 为什么是问题：设置页里连续改几项（例如数密钥时每输入一次 setKey 不会，但改名、拖动开关、批量 setModels 会连发快照），选择器的模型列表与 agent 标签在这期间一直停在旧数据（或第一次打开时一直是空的，`ready` 为假则 `models` 不更新）。真实后端快照频率不高，所以只列建议；作者在注释里写“这一轮读到的结果作废”是有意的，但代价没有写。
+- 建议改法：读完的一家按它读到的版本写进 `cached`（key 是 provider.id，值带 revision），不管 generation；generation 只决定最后要不要换 `rows`。这样新一轮 stale 只剩没读完的。
+
+### 4. models-store.loadRows：三轮 revision-changed 用完后 `loading` 停在 true，页面一直写“正在读取模型”
+- 严重程度：建议　类别：正确性　位置：packages/neuro-book/src/plugins/models/web/models-store.ts:191-229（loadRows 的 for round<3 循环）
+- 现象：每轮开始都 `rowCache.set(key, {…loading: true, failure: null})`；读到 `revision-changed` 时 `continue`；第三轮也 revision-changed 之后循环结束，函数无声返回，缓存条目仍是 `loading: true、failure: null`、`revision` 是旧值。选用数据那边（selection.ts）用尽重试会 `onFailure("revision-changed")`，这里没有对应处理。
+- 为什么是问题：ProviderDetail 在 `rows.length === 0 && rowsLoading` 时一直显示“正在读取”，没有重试按钮（重试按钮只在 failure 非空时出现）；除非又来一份该家的快照才会重新读。服务商在三次分页读取期间连续变化的概率很低，所以是建议级。
+- 如何核实：从代码推断；构造 fake remote 让 providerModels 连续回 revision-changed 三次即可复现（现有 models-store.test.ts 没有“用尽重试”的用例）。
+- 建议改法：循环结束后写 `failure: {code: "revision-changed", detail: …}` 并 `loading: false`，让详情页出现重试按钮；补测试。
+
+### 5. “复制一份”密钥没复制成功时，用户只看到泛用的“只完成了一半”，写好的专用文案没有被用
+- 严重程度：建议　类别：正确性/文档　位置：packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue:104-113；locales/zh-CN.json:421-424（`header.duplicated`、`header.keyNotCopied`、`header.nameEmpty`）；ProvidersPage.md:23
+- 现象：partially-applied 分支调用 `report(subjectOf(provider), {code: "partially-applied", detail})`，经 `failureReason` 得到的是通用文案 `failure.partially-applied`：“只完成了一半，已按实际状态显示”。locales 里为此写的 `header.keyNotCopied`（“已复制为‘X’，但密钥没有复制成功，请重新填写”）与 `header.duplicated`、`header.nameEmpty` 在源码里没有任何引用（用 bun 脚本对 locales 的键做了静态查找，/tmp/review-t43b1-impl/exp-frontend/unused-keys.ts）。ProvidersPage.md 却写“经窗口通知说密钥没复制成功”。
+- 为什么是问题：计划 B6b 写明“partially-applied 时选中副本并通知密钥没复制成功”。现在的通知没说是哪一半、也没有提示去填密钥，文档与实现不符。该分支没有任何测试（ProvidersPage.dom.test.ts 只测了复制成功）。
+- 建议改法：partially-applied 分支用 `header.keyNotCopied`（带副本名）作 reason；删掉没人用的 `header.duplicated`、`header.nameEmpty`、`models.more_menu`、`models.removed`、`models.count`、`connection.protocol.label`、`connection.protocol.followsTemplate`（静态查找未发现引用；删前再按动态键拼接确认），或者给它们用起来；补一条 partially-applied 的 dom 测试（fake-remote 已经能造这个失败吗，没有的话加一个钩子）。
+
+### 6. Profile 页：按引用取行还没回来时，没取到的引用被当成“模型已不存在”，选一个模型就闪一条告警
+- 严重程度：重要　类别：正确性　位置：packages/neuro-book/src/plugins/agent/web/profile-view.ts:174（`findModel = reference => selection.lookup.get(reference) ?? null`）、:190-195（problem）、:158 与 plugin.ts roleOptions 的 `lookup.get(role.model)?.name ?? role.model`；packages/neuro-book/src/plugins/agent/web/profile-page.ts:163-168
+- 现象：`lookup` 里没有这个键（还没取、正在取）与值为 null（服务端确认没有这个模型）在 `?? null` 之后分不开。Profile 页用户在下拉里改选一个模型：setting.model 变成新引用，profile-page 的 watch 才去 `want`，在 modelsByReference 回来之前 `lookup.get(新引用)` 是 undefined，直接走 `profiles.model.modelGone` 的告警文案（hint 带 `warning: true`，图标变警示），回来之后消失。第一次打开页面时每个直接指名模型的 Profile 也会闪一次。角色名同理：agent 标签的 `modelLabel` 在取到之前显示原始引用字符串。
+- 为什么是问题：Spec/计划里 lookup 的合同是“没有这个模型的值为 null”，调用方把“还没取到”也当成“不存在”，等于把一个加载态当成了业务错误；且告警位 `warning` 会触发图标。profile-view.test.ts 的夹具一次性给齐了 lookup，所以没有“未取到”的用例。
+- 建议改法：lookup 用 `Map<string, ModelRow | null>`，未取到的键不在 Map 里（同第 2 条），调用方用 `lookup.has(reference)` 区分“读取中”（不显示问题、名字先用引用的模型部分）与 null（确认不存在）；补 profile-view 测试：lookup 缺键时 `warning` 为假。
+
+### 7. 全部模型页：200 行的预算在不搜索时也跨服务商共用，展开第二家得到空表；没有加载中、失败与无命中的状态
+- 严重程度：重要　类别：正确性/界面　位置：packages/neuro-book/src/plugins/models/web/components/AllModelsView.vue:48-58（sections）、:63 `<table v-if="section.open">`；AllModelsView.md 第 7 行
+- 现象：`budget` 从 200 起，每个展开的节减去自己画的行数，没有区分搜索与否。展开一家 600 个启用模型的服务商（OpenRouter）画 200 行、预算归 0；再展开第二家（比如 DeepSeek），`matched.slice(0, 0)` 得到 0 行，只有表头加页脚一句“还有 N 条，缩小搜索词”，而且没有搜索框内容可缩——这第二家与 OpenRouter 的另外 400 行在不搜索时根本看不到。AllModelsView.md 写的是“搜索时…一共至多画 200 行”，实现不一致。
+- 另外：节展开后行还没读到（`rows[provider.id]` 无键）、读失败（页面只传 rows，不传 failure）时是一张只有表头的空表，没有“加载中”也没有重试；搜索词无命中时 sections 为空，什么也不显示（ProviderDetail 有“没有匹配的模型”，这里没有）。ProvidersPage 传给它的 `rows` 是模板里内联 `Object.fromEntries(...)`，每次父组件渲染都是新对象，sections 随之整体重算。
+- 如何核实：代码推断，预算语句无条件作用于所有展开的节；ProvidersPage.dom.test.ts 的“全部模型”用例只展开 moonshot 一家、1 个模型，抓不到。
+- 建议改法：预算只在搜索时共用；不搜索时每节单独封顶（或不封顶并虚拟化），页脚文案区分“搜索”与“展开”；传入每家 `{rows, loading, failure}`，节内写加载中与失败重试；无命中时写“没有匹配的模型”；rows 用 computed 构造而不是模板里内联。补测试：先展开一家大服务商再展开另一家，第二家的行数 > 0。
+
+### 8. 编辑模型：“恢复来源值”只给了 2 个字段按钮，点了不显示来源值，且整条新增行为没有 dom 测试
+- 严重程度：重要　类别：正确性/测试　位置：packages/neuro-book/src/plugins/models/web/components/ModelEditDialog.vue:36-41、:177、:192（只有 contextWindow 与 price 有 `data-restore` 按钮）；ModelEditDialog.md 第 7 行；ModelEditDialog.dom.test.ts（B1 只改了类型与夹具，没有加用例）
+- 现象：`ModelRow.overridden` 可含 name、contextWindow、maxOutput、vision、reasoning、price 六个字段，代码里为六个字段都写了 `isRestored(...)` 分支（readonly、保存时不带），但 `restore()` 只有 contextWindow 与 price 两处调用，其余四个字段的恢复路径是死代码：行上标了“已改”，进对话框却无法恢复名称、最大输出、视觉、推理。.md 却写“用户改过的字段（行的 overridden）旁有‘恢复来源值’…点了这个字段变只读、显示来源值”。
+- 第二处不一致：`restore()` 只把字段加进集合，表单值并没有换成来源值（ModelRow 里只有合并后的值，客户端没有来源值）。点“恢复来源值”后用户看到的是同一个数字变灰，直到保存才会变，文案“显示来源值”不成立。
+- 测试：来源模型保存只带用户改过字段、`efforts` 不带、恢复后保存不带该字段、手加模型整条交出，这些 B1 新行为都没有测试（ModelEditDialog.dom.test.ts 的 diff 只有类型替换）。
+- 建议改法：要么给六个字段都做按钮并在点击时把表单值换成来源值（需要合同带来源值，或让服务端在 `overridden` 外再给 `source` 字段），要么把按钮收窄成“重置全部覆盖”并删掉死分支；.md 与实现对齐；补 dom 测试（含 `data-restore` 点击后 `save` 的载荷）。
+
+### 9. 计划验收映射里的两类覆盖没有落地：选用数据“节点数与计算次数”预算与变异检查、同模板两实例图标与选择器里的上传图标
+- 严重程度：重要　类别：测试　位置：plan.md 验收映射（“选用数据：只重读变了的服务商、到齐后一次换引用、节点数与计算次数 | models-store.test.ts 与各组件 dom 测试（变异检查）”；“同模板两实例的图标各自不同、上传图标在选择器里出现 | AgentConversationComposer.dom.test.ts、e2e/agent-conversation.e2e.ts”；B6a“8 家 × 600 的最大输入下……选项数组只算一次，并做变异检查”）
+- 现象：`git diff --name-only 56a4d61c0..e3ecdbba4` 里没有 AgentConversationComposer.dom.test.ts 与 agent-conversation.e2e.ts；models-store.test.ts 的 5 个用例都是检测、释放、订阅，没有计数；全仓库没有“8 家 × 600”的用例（grep 600 只在 ProvidersPage.dom.test.ts 的一家 openrouter）。`providerIconRef`（builtin 走键、file 走 url、initial 走首字母、同模板两实例）在 agent 插件里没有任何测试；models.e2e.ts 验了标题区上传出现读取路由的图，但没验选择器里那份。
+- 为什么是问题：计划把这两项写成 B1 的验收，实现却只覆盖了单家 600 个模型的行数；“一份快照 models 只换一次”恰好是第 1 条里没被抓到的缺陷，说明这条预算断言缺位是真问题。
+- 建议改法：补 agent 插件层的测试（用 modelsWorld 真服务端：改非模型字段的快照后 `models` 的赋值次数、同模板两份服务商 `groups[].icon` 各自、上传后 `kind:"url"`）；补 8×600 的 selection 用例，断言 enabledModels 调用数与 rows 写入次数；做一次变异检查（把 refresh 的 stale 过滤去掉，应当有用例变红）。
+
+### 10. 新增的回车处理没有避开输入法组字：搜索框回车会直接添加服务商，名称框回车会提交
+- 严重程度：重要　类别：界面/正确性　位置：packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue:163（`@keydown.enter.prevent="pickFirst"`）；ProviderHeader.vue:180（`@keydown.enter.prevent="commit"`、`@keydown.esc.prevent.stop="cancel"`）
+- 现象：这两处都是 B1 新写的。搜索框是中文用户的主要输入场景（“火山”“深度求索”），拼音上屏的回车会触发 `pickFirst`：第一个能点的模板直接 `emit("add")`，即发 `addProvider` 写设置，不是只导航。名称框同样，组字中回车会提交一个半截的名字。仓库里同类处都避开了：nb-ui 的 SearchSelect（`event.isComposing || event.keyCode === 229`）、QuickPick、ExplorerRow、dialog-close。（空白模板第二步的 `@keydown.enter="create"` 是 base 就有的，不算本次回归，但同一问题。）
+- 如何核实：从代码与同类组件的写法推断，未在真实输入法下验证；Chrome 在组字回车的 keydown 上 `isComposing` 为真、`keyCode` 为 229。dom 测试不模拟组字，所以没有覆盖。
+- 建议改法：新的 keydown 处理第一行 `if (event.isComposing || event.keyCode === 229) return;`，或者抽一个 `onEnter` 工具函数供设置页复用；补一条带 `isComposing: true` 的 keydown 不触发 add 的测试。
+
+### 11. ProviderDetail：系列“默认展开或收起”的阈值按模型总数判断，跨过 30 时用户的展开收起选择整体取反
+- 严重程度：建议　类别：正确性　位置：packages/neuro-book/src/plugins/models/web/components/ProviderDetail.vue:166-172（`AUTO_OPEN_LIMIT`、`isOpen`）
+- 现象：`isOpen(group) = (rows.length <= 30) !== toggled.has(group)`。`toggled` 记的是“用户点过的组”，语义是“与默认相反”，而默认由行数决定。服务商从 30 个变成 31 个（管理模型里加一个、别处加了、`followSource` 自动加入）时默认翻转：用户合上的组（在 toggled 里）一下全部展开，其余全部收起。
+- 如何核实：从代码推断，逻辑不依赖运行环境。
+- 为什么是问题：作者自选的“≤30 默认展开”（计划写默认收起）把一条绝对的用户选择存成相对的，阈值边上的服务商体验不可预测。
+- 建议改法：toggled 存绝对状态（`Map<group, boolean>`），没有记录时才按阈值给默认；或照计划一律默认收起，去掉阈值。
+
+### 12. 上传图标的文件输入是覆在按钮上的透明 input，键盘用户有两个停靠点且看不见焦点
+- 严重程度：建议　类别：界面　位置：packages/neuro-book/src/plugins/models/web/components/ProviderHeader.vue:152-154、样式 `.provider-header__file`（opacity 0、inset 0）
+- 现象：`<label>` 里放了一个 nb-ui `Button` 和一个全覆盖的 `opacity:0` 的 `<input type=file>`。鼠标点击落在 input 上；键盘 Tab 先到 Button（回车/空格没有任何动作，button 在 label 里不触发 input），再到不可见的 input（焦点环被 opacity 0 吞掉）。读屏读到一个无动作的按钮加一个没有可见标识的文件框。
+- 对照：仓库里同类场景的做法是隐藏 input 加 Button 的点击调用 `input.click()`（ProjectInfoDialog.vue:197 的 `data-project-cover-input`、StickerPacksPage.vue:442）。
+- 建议改法：同 ProjectInfoDialog：`<input hidden>` + `Button @click="fileInput.click()"`，上传中停用 Button。
+
+### 13. 添加服务商第二步的“地区”用原生 radio，没用 nb-ui 的 RadioGroup；已添加模板的可访问名称抛掉了可见文字，英文界面混入全角括号
+- 严重程度：建议　类别：界面/代码质量　位置：packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue:211-217（`<input type="radio">`）、:174（`:aria-label="`${nameOf(template)}（${text('add.added')}）`"`）
+- 现象：nb-ui 有 RadioGroup（选项可带描述，正好放地址），这里手写 fieldset 加原生 radio，样式与主题 token、焦点环不跟其它表单一致。`aria-label` 覆盖了按钮内容，读屏听不到模型数、“再添加一份”、keyless 小标（WCAG 2.5.3 标签含可见文字）；拼接用的全角括号在英文界面里变成“DeepSeek（Added）”。
+- 建议改法：地区用 RadioGroup；可访问名称用 `aria-describedby` 指向行内小字，或把“已添加”放进按钮内容里让名称自然带出，不用 aria-label 拼括号。
+
+### 14. 标题区名称编辑按 Esc：焦点回铅笔的那一步抛 TypeError，焦点丢到 body；.md 与测试名都说有 Esc 回退但没有被测
+- 严重程度：重要　类别：正确性/测试　位置：packages/neuro-book/src/plugins/models/web/components/ProviderHeader.vue:47（`const editButton = ref<HTMLElement | null>(null)`）、:79（`editButton.value?.focus()`）、:176（`<IconButton ref="editButton" …>`）；ProviderHeader.md“名称”一条；ProvidersPage.dom.test.ts:“改名：回车提交；重名……；空名与 Esc 回退”
+- 现象：`ref="editButton"` 绑在组件 `IconButton` 上，拿到的是组件实例，不是元素；nb-ui 的 IconButton 没有 `defineExpose`（controls/IconButton.vue），所以 `.focus` 不是函数。`cancel()` 是 async：先 `editing = false`，`await nextTick()` 之后调用 `editButton.value?.focus()` 抛 `TypeError: editButton.value?.focus is not a function`，成为 unhandled rejection。结果：输入框已关掉，但焦点没有回到铅笔（落在 body），键盘用户丢了位置；还多一条未处理的拒绝（宿主的诊断端口会记一次错误）。类型声明 `HTMLElement | null` 也与实际不符，所以 vue-tsc 没报。
+- 如何核实（实验，未改仓库）：/tmp/review-t43b1-impl/exp-frontend/more.exp.dom.test.ts 的“header Esc”用例，用 `bunx vitest run --config /tmp/review-t43b1-impl/exp-frontend/vitest.exp.config.ts more --silent=false`：输出 `ESC: editing still? false focus: null emitted: undefined`，并带 `Unhandled Rejection TypeError: editButton.value?.focus is not a function ❯ cancel ProviderHeader.vue:79`。
+- 测试：用例标题写“空名与 Esc 回退”，正文只测了空名（输入“   ”回车）；Esc 从未被触发。ProviderHeader.dom.test.ts 也只测了重名。这是“标题声称的判据没被测到”。
+- 建议改法：给铅笔换成元素引用（IconButton 的 attrs 落在根元素上，可以用 `data-provider-rename` 选择器查，或让 IconButton 暴露 `focus()`）；补 Esc 用例：断言输入框关闭、`rename` 未发出、`document.activeElement` 是铅笔；顺带测 blur 提交与重名行内提示在失焦时的行为。
+
+### 15. 添加服务商对话框打开时初始焦点在“关闭”按钮，不在搜索框：新写的“搜索框回车选第一个命中”要多按一次 Tab 才用得上
+- 严重程度：建议　类别：界面　位置：packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue（`<Dialog …>` 没有 `initial-focus`）；nb-ui Dialog.vue:45-46（“不给时是第一个可聚焦元素”）
+- 现象：实验（/tmp/review-t43b1-impl/exp-frontend/focus.exp.dom.test.ts 的“dialog initial focus”）：挂载 `open: true` 之后 `document.activeElement` 是 aria-label 为“关闭”的按钮。第二步（表单）有 watch 把焦点放到第一个 input，第一步没有对应处理，两步不对称。
+- 为什么是问题：计划 B6b 的键盘约定是“模板按钮按 DOM 顺序 Tab，搜索框里回车选第一个命中”，意图是打开后直接打字再回车；现在要先 Tab 一次，而 Tab 的第一个落点是搜索框，回车的流程可用但不顺；读屏用户进入对话框先听到“关闭”。未在真实浏览器里验证，happy-dom 与 Reka 的首个可聚焦元素规则一致。
+- 建议改法：`<Dialog … initial-focus="[data-add-provider-search] input, input[data-add-provider-search]">`（或 nb-ui 的 Input 暴露的钩子）。补一条断言打开后焦点在搜索框的测试。
+
+### 16. 补充核实：第 4、7、8、11 条的现象已用实验复现
+- 第 4 条（loadRows 用尽重试后卡在 loading）：more.exp.dom.test.ts“loadRows stuck”，让假远端的 providerModels 一律回 revision-changed，`await store.loadRows(id)` 返回后 `rowsOf(id)` 是 `{"revision":null,"rows":0,"loading":true,"failure":null}`：加载中永远不结束，没有失败也没有重试入口。
+- 第 7 条（全部模型页预算共用）：focus.exp.dom.test.ts“all models budget”，两家服务商（600 与 3 个启用模型），不搜索、依次展开：deepseek 画 200 行，第二家 anthropic 0 行，页脚“还有 402 条，缩小搜索词”。
+- 第 8 条（恢复来源值）：“model edit restore”，来源模型 `overridden: [contextWindow, name, vision]`：只渲染出一个 `data-restore` 按钮（contextWindow）；点了之后输入框仍显示 123456，只是 readOnly 为真。
+- 第 11 条（阈值翻转）：“provider detail flip at 30”，30 个模型时八个系列全展开；合上第一个；rows 变成 31 个后输出 `true,false,false,false,false,false,false,false`，即用户合上的那个变成展开、其余全部收起。
+
+### 17. 数据模块无条件挂选用数据：只开“服务商”页、没人用角色下拉时也读全部服务商的启用模型，之后每次改某家的任何配置又整家重读两次
+- 严重程度：建议　类别：不变量（规模）　位置：packages/neuro-book/src/plugins/models/web/models-store.ts:131（`apply` 里的 `selection.attach(next)`）；packages/neuro-book/src/plugins/models/web/components/RolesPage.vue（唯一消费者）
+- 现象：store 是两页共用的，`start()` 订阅快照后第一份快照就 `attach`，选用数据（`usable: false`，全部启用的模型）立即对每家发 `enabledModels`；只有角色页读 `store.selection.rows`。实验（/tmp/review-t43b1-impl/exp-frontend/store.exp.dom.test.ts，Lab 假远端的 6 家服务商，没挂任何页面）：`store.start()` 之后 `enabledModels` 被调 6 次；随后只改一家的名称，又调 1 次。8 家 × 600 个模型的最大输入就是 24 页 JSON，而服务商页自己的 `providerModels` 读（详情、管理模型、全部模型）还要再读一遍同样的行。服务端的 `modelsRevision` 是整份服务商配置的哈希（nb-models/core/core.ts:114：`revisionOf(provider, key)`），所以改名、换图标、加请求头都会让这家 600 个模型的两份读取（选用数据与详情）各重来一遍。
+- 为什么是问题：计划 B6a 说“只重读变了的那家”，实现做到了，但“变了”的判据太宽（后端的哈希把与行无关的字段也算进去），且服务商页本身用不到那份数据。本条不在前端范围内改版本号，但前端可以让 attach 延迟到角色页第一次挂载（`selection.start()`/`attach` 由 RolesPage 触发，store 在有快照后补一次）。
+- 建议改法：store 里 `selection` 惰性：RolesPage 挂载时调用 `store.selection.attach(snapshot.value)`，之后 `apply` 才跟着 attach；或者把后端的 `modelsRevision` 收窄到影响行的字段（密钥状态、models、excluded、followSource、模板与地区），那样改名不触发重读。把这条与第 1 条一起处理。
+
+### 18. 图标面板的失败原因是页面级的状态，换一家服务商或重开面板仍显示上一次的失败
+- 严重程度：建议　类别：正确性　位置：packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue:90-100（`iconBusy`、`iconError`）；ProviderHeader.vue:148、`shownError`
+- 现象：`iconError` 只在下一次 `setIcon` 开头清空。A 服务商上传被服务端拒绝后，切到 B 打开图标面板，面板里的 `role="alert"` 直接显示 A 的那一条原因；回到 A 重开面板也还在。`iconBusy` 同理是页面级：A 的写入还在进行时切到 B，B 的面板控件也被停用。ProviderHeader 的 `watch(iconOpen)` 只清自己的 `uploadError`，不清 props 传来的 `iconError`。
+- 如何核实：从代码推断（ProviderHeader 以 `header-${id}` 做 key 重建，但 `iconError` 与 `iconBusy` 来自 ProvidersPage 的单个 ref，没有按服务商分，也没有随 `selected` 重置）。
+- 建议改法：按服务商 id 记 `iconErrors: Map<string, string>`，面板打开时清；或者把 setIcon 的写入状态交给 ProviderHeader 自己管（`emit` 返回 Promise），不放页面级。补一条“换一家后不显示上一家的失败”的 dom 测试。
+
+### 19. 选用数据：首次读取里有一家失败，整个选择器的模型列表一直不出；重试时 agent 插件会再建一份选用数据且旧的不释放
+- 严重程度：建议　类别：正确性　位置：packages/neuro-book/src/plugins/models/shared/selection.ts:108-118（`ready` 只在“这一轮每一家都成功”时置真）；packages/neuro-book/src/plugins/agent/web/plugin.ts:322-325（`rebuild` 以 `data.ready.value` 为门）、:339-348（`ensureModels` 失败后 `modelsStarted = false`，下一个对话位置再进来会再 `createSelectionData`）
+- 现象：第一次读时只要有一家读失败（`onFailure` 只会报告），`ready` 就不会为真，`models.value` 一直是空，其余读成功的服务商的模型也出不来，直到失败的那家被下一份快照重新读成功。另外订阅失败的分支里 `modelsStarted = false` 让下一个对话位置再走一遍：第一份 `data` 已经 `subscribe(rebuild)`、挂了 abort 监听，第二次又新建一份并覆盖 `selection.value`，旧的只在窗口停用时才释放。
+- 建议改法：`ready` 的意思改成“已读过一轮”，行里带哪几家失败；失败的那几家不挡其它家。重试时复用已建的 `data`（`selection.value ??= create…`）。
+
+### 20. 没有被用到的新增文案，加上组件说明与实现不符的几处
+- 严重程度：建议　类别：文档　位置：models/locales/*.json、各组件 .md
+- 列表（用 /tmp/review-t43b1-impl/exp-frontend/unused-keys.ts 静态查找，动态拼接的键已排除）：`header.duplicated`、`header.keyNotCopied`（见第 5 条）、`header.nameEmpty`、`models.more_menu`、`models.removed`、`models.count`、`connection.protocol.label`、`connection.protocol.followsTemplate`、`rail.manual`。其中 `models.more_menu` 与 `models.removed` 是计划里“收进更多”“已移出”那两项的文案，对应功能作者已声明没做，文案就不该留着。
+- AllModelsView.md 的标签是 `[state:inject, env:portal]`，而这一版新增了 `query`、`expanded` 两个本地状态；components.md 要求 `state:local` 必须声明。该组件的 `data-all-models-*` 钩子（e2e 在用）也没有写进 .md，计划 B6a 要求“保留的 data- 钩子列表写进组件 .md”。
+- ProviderHeader.md 写“点铅笔变成输入框”，计划写“点名称或铅笔”：名称 `h3` 没有点击处理（实验：点名称不进编辑）。要么按计划做，要么在 .md 里标为取舍。
+- 建议改法：删未用文案；补 `state:local` 与钩子列表。
+
+### 21. 小的代码质量问题
+- ManageModelsDialog.vue:57-76：在 `computed`（groups）里写 `hidden.value = skipped`。computed 里改别的 ref，渲染读 `hidden` 时会多触发一次更新，也违反“computed 应无副作用”。改成同一个 computed 同时返回 `{groups, hidden}`。另外 200 行的预算是在分组之前按候选顺序截的，分组标题里显示的数量与实际可见的不是一回事。
+- RolesPage.vue:38-44：`version` 与 `selection.subscribe` 多余：`selection.rows` 与 `selection.lookup` 是 `shallowRef`，computed 读 `.value` 已经被追踪。这套订阅加 `onBeforeUnmount` 加 `void version.value` 可以删。
+- `/api/nbook.models/icons/<name>` 的地址在 ProviderIcon.vue:23 与 agent/web/plugin.ts:148 各写一遍，插件 id 字面量一处写死在 ProviderIcon、一处在 plugin.ts 底部的 `MODELS_PLUGIN`（定义在使用之后，靠函数提升才不报错）。应在 `models/shared/contracts.ts` 导出一个 `providerIconUrl(name)`，两边引用（brief 里“跨插件只能引对方的 shared/contracts.ts”也要求如此）。
+- ProviderDetail.vue：`followSource` 开关对空白模板服务商也显示，而空白模板没有打包目录可跟，开关无效果（core 里 `followSource: !template.blank`）。`v-if="!blank"`。
+- Profile 页（profile-view.ts:184 `selection.rows.map`）为每个 Profile 各建一份“全部可用模型”的选项数组，再交给不虚拟化的 SearchSelect：8 家 × 600 个时每个 Profile 4800 项，每次 rows 或 lookup 变化全部重算；角色页已按计划改成远程模式截 100 项，Profile 页没有。属于规模上的不一致。
+
+## 索引（按严重程度，编号对应上面的条目）
+- 阻断：0 条。
+- 重要：8 条——1（快照版本没变也整份换 rows/lookup 并多次通知，session-host 多发会话快照 RPC）、2（lookup 并发 want 把未取到的引用写成 null）、6（Profile 页“未取到”被当成“模型已不存在”并闪告警）、7（全部模型页 200 行预算不搜索时也跨节共用，第二家展开得空表，且无加载与失败与无命中状态；与 Spec 输出 11 不符）、8（编辑模型“恢复来源值”只做了 2 个字段、不显示来源值、无测试）、9（计划验收映射里的预算断言与选择器图标覆盖没落地）、10（新加的回车处理不避开输入法组字，搜索框回车可直接添加服务商）、14（名称编辑按 Esc 抛 TypeError，焦点丢失；测试名称称测了 Esc 实际没测）。
+- 建议：12 条——3、4、5、11、12、13、15、17、18、19、20、21。
+- 16 是对 4、7、8、11 的实验补充，不单独计数。
+- 有效发现编号：1 至 15、17 至 21（共 20 条；其中第 21 条由 5 个小项合成）。
+
+## 实验与证据位置
+- /tmp/review-t43b1-impl/exp-frontend/exp1.ts、exp2.ts：选用数据的通知次数、饥饿、lookup 竞态（bun 直接跑，用的是 worktree 里 selection.ts 的副本）。
+- /tmp/review-t43b1-impl/exp-frontend/focus.exp.dom.test.ts、more.exp.dom.test.ts、store.exp.dom.test.ts 加 vitest.exp.config.ts：组件与数据模块的实验，用 `cd packages/neuro-book && bunx vitest run --config /tmp/review-t43b1-impl/exp-frontend/vitest.exp.config.ts <文件名片段> --silent=false --reporter=verbose` 运行；没有改动 worktree 里的任何文件。
+- 仓库自带用例：`bunx vitest run src/plugins/models` 在 HEAD e3ecdbba4 上 7 个文件 32 条全过（所以上述缺陷都不在现有用例的覆盖里）。未跑 e2e 与类型检查。
+- 未验证项：输入法组字下回车的真实行为（第 10 条，从代码与同类组件推断）；添加服务商后 `focusKeyInput()` 与对话框关闭时焦点归还的先后（ProvidersPage.vue 的 addProvider：`adding = false` 之后 `nextTick` 就聚焦密钥框，真实浏览器里对话框的关闭动画与 Reka 的焦点归还可能晚于它；dom 测试没有过渡，e2e 验收 4 断言了焦点在密钥框但我没有跑）。
+
+## 未发现问题的方面
+- 读取点迁移：`provider.models`、`providerKind`、`kind === "catalog"` 在 models/web、agent/web、Lab 夹具里没有残留（grep 为空）；models-store、ProviderRail、ProvidersPage、RolesPage、profile-view、agent plugin 的迁移都已落到选用数据或 `modelsByReference`。
+- 选用数据的“只重读变了的那家”、分页中途 `revision-changed` 整家重试并有上限、释放（`dispose` 清监听、在途结果丢弃）、两个插件各建一份互不影响：按读法与现有测试看是对的（问题在第 1 至 3 条的“没变时也换引用”与“并发 want”）。
+- `AgentIcon` 的 `url` 类：不经解析端口、加载失败换首字母、`src` 变了清失败标记，用例与实现一致；同模板两实例的图标在 `providerIconRef` 里按快照的 `icon` 与 `template` 区分，写法正确（只是没有测试，见第 9 条）。`data-model-picker*` 钩子所在文件（nb-agent-ui 的选择器）没有被这批改动碰到。
+- 图标文件名由 schema 约束为 64 位十六进制加 `.png`，拼进地址没有注入面；客户端缩图的 60 KB 上限与服务端 64 KB 上限对得上。
+- 重名判断（trim 加小写）与服务端 `updateProvider` 的判据一致；同名行内提示在输入框下、保持编辑状态、不发事件。
+- 窄屏与英文：每个新组件里只有 ProviderHeader、ProviderDetail、AddProviderDialog 有英文 Lab 场景；390 宽按作者已声明改由 e2e 的无横向溢出断言覆盖，我没有对这条另提发现，只指出它是“只在中文、只在服务商页”的断言（没有英文与添加对话框、全部模型页）。

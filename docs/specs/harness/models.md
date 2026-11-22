@@ -46,7 +46,9 @@ type ModelResolution =
     // 失败时选中了什么：走到某个角色时带角色 id，卡在没有凭据时带服务商 id；端口不给时按没有处理。
 
 // OMP 适配器（@notnotype/nb-harness/kernel）
-ompCall(target: {model: Model; apiKey: () => string | Promise<string>; priceKnown: boolean; headers?: Record<string, string>}): ModelResolution["call"];
+ompCall(target: {model: Model; name?: string; identity?: {deployment: string; credential?: string; legacyProvider: string};
+    guard?: (url: URL) => {code: string; message: string} | null; keyless?: boolean;
+    apiKey: () => string | Promise<string>; priceKnown: boolean; headers?: Record<string, string>}): ModelResolution["call"];
 ompModelInfo(model: Model): ModelInfo;
 ```
 
@@ -82,6 +84,13 @@ ompModelInfo(model: Model): ModelInfo;
 18. `target.transport` 给了时：`firstEventTimeoutMs` 由适配器自己计时，收到第一个内容事件前到时交回 `network`、码 `first-event-timeout`、`retryable` 为真，0 表示不计时，OMP 那一层的第一事件超时总是关掉（否则 `anthropic-messages` 会把超时再重试 10 次）；`idleTimeoutMs` 原样传给 OMP，0 表示不计时；`maxHttpAttempts` 原样传；并关掉 OMP 的空回复重试。不给 `transport` 时这些都按 OMP 的缺省。
 19. 错误文字里 OMP 写的落盘诊断行（请求全文的路径）在交回前去掉，不论它在文字的哪个位置；路径交给 `target.onRequestDump`。`buildResolution` 的实现只删 OMP 日志目录下 `http-400-requests` 里的文件（路径行可能是服务商在错误正文里伪造的），文件已经没了算达成，其它删除失败写进错误文字末尾。
 20. 调用说明里带了观察者时（[`runtime.md`](runtime.md) 输出 89），适配器把这一次请求的每次 HTTP 尝试交给它：地址、发出的请求头（含 OMP 加上的鉴权头）与请求体、响应状态与响应头或网络错误；交出之前把其中出现的配置密钥原值换成 `[REDACTED]`。第一块内容（文字、思考或工具调用参数的第一个增量）到达时另告诉它一次，没有内容的失败不告诉。不经 HTTP 的传输只交请求体。观察者抛错不影响请求，适配器不等它。不带观察者时行为不变。（planned）
+21. **模型身份与发送前核对**（`buildResolution` 与 `OmpTarget`）：
+    - `Model.provider` 在服务商的协议与地址都跟随模板时是模板的 OMP id，否则（改了协议或地址、空白模板）是中性身份 `generic-endpoint`，只带本次协议需要的字段。OMP 的复合协议 `openrouter` 物化成显式的 `openai-responses`（服务端进程环境的 `PI_OPENROUTER_RESPONSES` 为 `0` 时 `openai-completions`），之后线协议不再随环境变量变。只收能当对话模型用的协议：`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`，且目录行的类别是对话（图片生成、裁判等独立的模型不收）。目录里有这一行、但不能当对话模型发时，`buildResolution` 交回 `transport-unsupported` 与原因（`not-chat`、`transport`），宿主对会话映射成 `unknown-model`；`ModelTarget.manual` 为真的（手加的）不查目录行，`ProviderTarget.defaultApi` 是它们没覆盖协议时用的协议。
+    - `OmpTarget.name` 是公开引用 `<实例 id>/<模型 id>`，回复的 `model` 与 `ompModelInfo` 的 id 用它；不给时用 `<Model.provider>/<Model.id>`。
+    - `OmpTarget.guard` 在每个请求发出前核对完整地址：源、路径与查询必须是这一协议在有效地址下会请求的那几个（OpenAI 兼容 `/chat/completions`、`/responses`，不带查询；Anthropic `/messages` 或 `/v1/messages`，查询只许 `beta`；Gemini `/models/<模型>:generateContent` 或 `:streamGenerateContent`，查询只许 `alt`），地址里不能带用户信息；`buildResolution` 另核对解析之后实例的 `uid`、有效协议与地址、认证方式与密钥都没变。不符时不发请求、整次调用立即结束（不让 OMP 按退避重试），以 `local`、码 `endpoint-mismatch` 失败（优先于适配器自己报的通用错误）。OMP 按环境变量（`MOONSHOT_BASE_URL` 等）改写的地址，连只改路径的，都在这里被拦下。请求一律 `redirect: "error"`：服务商回 3xx 时请求失败，不跟随。
+    - `OmpTarget.keyless` 为真时，发出前剥掉值恰好是占位哨兵（或 `Bearer <哨兵>`）的 `Authorization`、`x-api-key`、`x-goog-api-key`；用户自己配的同名头照发。
+    - `OmpTarget.direct` 为真时每个请求按次关掉代理（Bun 的 `proxy: false`，盖过 `HTTP_PROXY`、`HTTPS_PROXY` 与 OMP 按服务商配的代理）；`buildResolution` 建的都是直连。
+22. **回复的签发身份**：回复带 `origin = {provider, api, model, deployment, credential?}`（`provider`、`api`、`model` 是发给 OMP 的身份；`deployment` 由宿主给，区分实例与它当时的有效地址和协议；`credential` 只在签名绑定凭据的协议上有，是凭据值的 HMAC，不含原文）。它经 `modelEnded` 事件写进会话日志、在重开后的历史投影与 `Message` 里保留。下一次请求送回历史时，思考签名与服务商元数据只在 `origin` 整组相同（OMP 身份、协议、作答的模型、部署、`credential`）时原样送回；旧日志没有 `origin` 时按 `model` 的第一段等于当前实例 id 判断，模型 id 照历史交给 OMP，换了模型时由它不送签名；不相同时送回不带专用元数据的历史，不报错。同名删了重建（新 `uid`）、换地址或协议、同址换凭据（密钥或认证头）、同一实例换了模型之后，旧回复的签名都不再送回。
 
 ## 状态与转换
 
@@ -99,6 +108,7 @@ ompModelInfo(model: Model): ModelInfo;
 | `unsupported-content` | 请求里有适配器不支持的内容 | 去掉该内容或换模型 |
 | `first-event-timeout` | 等第一个事件超时 | 内核重发；一直这样时调大超时 |
 | `thinking-loop` | 模型陷入重复循环 | 不重发；换说法或换模型再试 |
+| `endpoint-mismatch` | 请求地址与配置的不符，或解析之后服务商被改过 | 不重发；重新解析（会话下一轮自动），地址被环境变量改写时去掉那个变量 |
 | `no-model`、`no-credentials`、`unknown-model` | 端口解析不到模型或凭据 | 让用户在设置里选模型、配凭据 |
 | `role-unbound` | 要的角色没有绑定模型 | 让用户在模型角色里绑定 |
 
@@ -116,4 +126,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:ll
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）解析失败带 `role`、`provider`：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）模型身份、发送前核对与签发身份（输出 21、22）：[w00032 t43](../../../.agents/works/w00032-agent-integration/tasks/t43-models-ux/README.md) 段 B1，取舍见 [ADR 0057](../../adr/0057-models-ux-sources-identity-egress.md) 与 [ADR 0058](../../adr/0058-models-wire-identity-full-url-and-uid.md)。解析失败带 `role`、`provider`：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。

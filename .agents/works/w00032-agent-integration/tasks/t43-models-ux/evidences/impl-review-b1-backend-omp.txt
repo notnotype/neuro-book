@@ -1,0 +1,213 @@
+# w00032 t43 段 B1 后端只读实现审查
+
+对象：`feat/w00032-t43-b1` 的 `56a4d61c0..e3ecdbba4` 后端差异。取证版本为 `e3ecdbba4d`、Bun 1.4.4、pi-ai 与 pi-catalog 18.14.0。已接受的设置预检至锁内写的 CAS 窗口、不保护降级、B1 仅用打包目录，不列为缺陷。
+
+## 重要
+
+### 1. 模型请求并没有按决定 29 改为直连
+- 严重程度：重要；类别：正确性、安全与性能。
+- 位置：`packages/nb-harness/src/kernel/model/omp.ts:350-361`；`packages/neuro-book/CHANGELOG.md:20`。
+- 现象：最后一层 `fetch` 覆盖了 `redirect`，却没有覆盖 `proxy`。Bun 仍读 `HTTP_PROXY`／`HTTPS_PROXY`；pi-ai 的 `utils/transport-fetch.ts:25-42` 也能先写入 provider proxy，随后被该处的 `...init` 保留。URL 核对成功不等于直连。
+- 影响：应当直连的请求仍可能经过环境或传输配置的代理；尤其是 HTTP，模型正文与认证能经过旧代理。开发者决定 29 原文：“应用的最低 Bun 版本在 B1 提到 1.4.4（CLI、服务入口、发布产物与桌面随包版本一起；按次 `proxy: false` 从 1.4.3 起），发布说明写明：设了环境代理的用户，模型请求在段 C 提供代理设置之前走直连。”基线也继承环境代理；本条是 B1 承诺未实现，不是旧版本曾直连。
+- 核实：实现工作区 HEAD 仍为 `e3ecdbba4d` 时在根目录运行 `bun /tmp/review-t43b1-impl/exp/proxy.ts`。真实 pi-ai、本机目标和本机代理、假密钥：模型回复 `stop`，目标 0 次、代理 1 次；显式指定 `proxy: false` 的对照让目标增加到 1、代理仍是 1。
+- 建议：在受模型服务管控的最内层传输覆盖 `proxy: false`（放在 `...init` 后）；补目标／代理分别计数的验收。避免无意改掉不受 NeuroBook 策略管控的其他 harness 宿主。
+
+### 2. 同服务商、同协议切换模型仍会重放原模型的签名
+- 严重程度：重要；类别：会话回放与合同。
+- 位置：`packages/nb-harness/src/kernel/model/omp.ts:223-230,240-248`；pi-ai 18.14.0 `src/providers/transform-messages.ts:523-528`。
+- 现象：`restorable` 比较 `provider`、`api`、`deployment`、`credential`，不比较 `origin.model`。命中后还把历史回复的 `model` 写成当前模型，使 pi-ai 把另一模型发出的回复判成自己的。旧日志分支也被这一步改写；基线适配器 `omp.ts:192-199` 会保留历史模型 id。
+- 影响：同一实例从一个 Claude 型号切到另一个，会带旧型号的原签名，对比 harness 输出 22 的“`origin` 整组相同”违反合同；可能收到历史签名无效的服务商拒绝，影响继续对话。
+- 核实：`bun /tmp/review-t43b1-impl/exp/identity.ts` 走真实 pi-ai Anthropic HTTP 和 JSONL 关会话重开，从 `claude-sonnet-4-6` 切到 `claude-opus-4-6`；后者实际收到了旧 `fixture-sig`。不是手构造历史消息。
+- 建议：新日志比较 `origin.model === model.id`；旧日志保持原有实例 id 兼容规则，但把真实历史模型 id 交给 pi-ai，不伪造同模型。用一次日志重开并换模型的请求断言出站签名。
+
+### 3. 自定义认证头换号，旧解析和旧签名都仍可使用
+- 严重程度：重要；类别：凭据隔离与会话回放。
+- 位置：`packages/nb-models/src/core/core.ts:198-213`；`packages/nb-harness/src/models/target.ts:121,131-141,182-186`。
+- 现象：`credential` 和 `stillCurrentFor` 只认 `requestAuth(...).key`，不认能覆盖它的服务商/模型认证头。Anthropic 的自定义地址可直接用配置的 `Authorization`；保持库密钥不变、只换这个头，相当于实际认证换了而指纹不变。
+- 影响：旧解析在修改后仍带旧认证发出；重新解析虽带新认证，却把上一账号的历史签名原样送回。基线没有 B1 的签发保护；这是新保护漏掉现有的认证输入。
+- 核实：同一条 `identity.ts` 探针中，库密钥不变，服务商头从假值 A 换到 B。关会话重开后目标实收 B 和旧签名、会话 `origin` 相同；旧解析随后仍成功，实收 A。无真实账号或服务商调用。
+- 建议：用与最终协议鉴权来源一致的凭据输入计算 HMAC；`stillCurrent` 核对本次实际使用的认证配置（含实例和模型的覆盖）。若任意自定义头无法可靠分类，保守地让签发身份一起绑定生效的头，不把原值写进日志。
+
+### 4. 已被设置层标为 `problems` 的服务商设置会整份被覆盖
+- 严重程度：重要；类别：正确性（用户配置丢失）。
+- 位置：`packages/neuro-book/src/plugins/models/backend/settings-store.ts:24-33`；`packages/neuro-book/src/plugins/settings/shared/instance.ts:213-219`；`packages/nb-models/src/core/core.ts:383-409`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:203-211`。
+- 现象：键不合 schema 时，设置层保留磁盘原文、发布 `problems`，但 `inspect(...).user` 只交回 `status: ok` 和空值。模型核心把它当成键从未存在；锁内 `expect` 也只比较过滤后的 `values`，写入成功。
+- 影响：一次添加就可能把用户尚可修复的全部服务商、成员与角色所依赖的引用替换掉。基线使用同一个设置适配器；本段明确要补首写前的 `problems` 核对却未实现。这不是第三轮接受的“预检通过之后恰好被写坏”的窗口。
+- 核实：从固定提交源码运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t43b1-impl/exp/product.ts`，启动真实设置场地并经远程合同添加。先已有 `settings.layer.dropped` 诊断（`nbook.models/providers: invalid-value`），添加仍 `ok`，磁盘只剩 `fresh`。
+- 建议：设置设施提供按层、按键的拒绝状态，模型写入前识别 `problems` 并返回 `settings-unavailable` 和设置编辑器修复提示，拒绝把坏值当缺省；不需要为本轮扩大锁内 CAS 范围。
+
+### 5. 768 KiB 量的是值，不是设置全文的 JSON 线字节
+- 严重程度：重要；类别：正确性、RPC 帧预算。
+- 位置：`packages/nb-models/src/core/core.ts:403-409`；`packages/neuro-book/src/plugins/settings/backend/owner-link.ts:38-44`；`packages/nb-host/src/shared/socket.ts:15-16`。
+- 现象：只检查 `JSON.stringify(nextProviders)`，没有把将落盘的设置文本作为 `{text: ...}` 进行第二层转义，也没计入设置的其它键。层文件写入不经浏览器的 WebSocket 入站限额。
+- 影响：成功写入后，设置全文作为 `writeText` 的输入已超 1 MiB，无法经原有帧预算完整回写。基线没有 768 KiB 屏障。Task README 的实现记要明确记的是设置项字节；它和 `plan.md:140`、第三轮后端第 11 条要求的转义后帧字节不是一个口径。
+- 核实：同一 `product.ts`，经应用远程合同写入 310,000 个反斜杠的普通头值，返回成功；实际设置文件 620,491 字节，仅 `JSON.stringify({text:disk})` 已 1,240,562 字节，未算 RPC 信封和 revision。这是字节对照，不声称已在真实 WebSocket 上观察到断开。
+- 建议：在设置服务能看到拟写出的完整文本时按真实线形状测 UTF-8；若需要由模型服务发起预算校验，让适配器/拥有者返回 `invalid-value`，不要让核心自己近似计算磁盘格式或复制 RPC 编码。
+
+### 6. 托管服务入口没有 Bun 1.4.4 门禁
+- 严重程度：重要；类别：启动合同。
+- 位置：`packages/neuro-book/src/server/main.ts:10-14`、`src/server/process.ts:136-156`、`src/cli/run.ts:170-176`、`scripts/pack-app.ts:278,288`（均在 `packages/neuro-book/`）。
+- 现象：CLI 检查 `Bun.version`，发布包的 README 和 `engines` 也读取新常量；直接运行打包的 `server/main.js` 不走 CLI，不比较版本，就读取配置、认领状态根并装配。`package.json:9` 的 `engines` 不是运行时门禁。基线的托管入口也没有门禁。
+- 影响：使用不合格的 Bun 托管服务时，不能保证收到明确的版本错误，可能更晚因运行时不兼容而失败。开发者决定 29 原文：“应用的最低 Bun 版本在 B1 提到 1.4.4（CLI、服务入口、发布产物与桌面随包版本一起；按次 `proxy: false` 从 1.4.3 起），发布说明写明：设了环境代理的用户，模型请求在段 C 提供代理设置之前走直连。”不是质疑决定。
+- 核实：对被审提交只读追踪 `package.json:21,28` → `server/main.ts` → `runServerProcess`；`rg 'BUN_ENGINE|bun-too-old'` 在这些入口中只找到 CLI 的检查。本机只有 Bun 1.4.4，没运行低版本产品。桌面固定 Electrobun 2.0.6；既有 w00046/t01 Windows 产物证据为 Bun 1.4.4，不计作本轮桌面实测或缺陷。
+- 建议：在服务入口加载产品清单和原生依赖前用同一个 `BUN_ENGINE` 提前退出；发布验收分别执行 CLI 与 `server/main.js` 的低版本拒绝路径。
+
+### 7. 图标路由会跟随 `provider-icons` 目录本身的符号链接
+- 严重程度：重要；类别：正确性与文件边界。
+- 位置：`packages/neuro-book/src/plugins/models/backend/plugin.ts:40-50`、`backend/icons.ts:63-80`；`packages/neuro-book/src/plugin-platform/backend/plugin-files.ts:40-55`。
+- 现象：`entryInside(directory, [name], "file")` 只 `lstat` 末段。测试覆盖了图标文件是链接，但 `directory` 本身或状态根下的 `agent` 被链接时，末段仍是普通文件，照常返回。保存和回收也直接以该目录为根。
+- 影响：服务端可从该目录实际指向的别处返回同名 PNG，违反输出 21 的“不跟符号链接”；不是远端请求可自行创建链接的结论。`Bun.file().arrayBuffer()` 也没有像同类头像路由那样在打开的句柄上有界读。
+- 核实：固定提交源码的 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t43b1-impl/exp/icons-probe.ts`，真实文件＋Hono。`provider-icons` 为目录链接，普通目标文件仍返回 200、70 字节和 `sandbox`；同一请求标为跨站时为 403。
+- 建议：把已认领的状态根和固定路径段一起传入校验；用同一已检查的文件句柄做有界读取。写入和回收也按同一个目录边界；补目录链接拒绝用例。旧版没有这条模型图标路由。
+
+### 8. 复制到有遗留库密钥的 id 会接上并非来自原实例的密钥
+- 严重程度：重要；类别：凭据隔离、正确性。
+- 位置：`packages/nb-models/src/core/core.ts:602-617`，对照 `:581-599`；`packages/nb-harness/src/models/credentials.ts:41-52`。
+- 现象：`duplicateProvider` 从当前设置的 id 选副本名，不清目标 id 的旧凭据，先发布副本。源没有有效库密钥时直接成功；有密钥但第二步失败时，遗留凭据也能留为生效状态。
+- 影响：无密钥的源复制成看似已配置、可发送的实例，接手另一个旧实例的认证。这违背输出 20“凭据只复制有效的那一种”和本段创建世代的隔离。删除设置成功、清库失败等真实路径能留下这种孤儿行；复制方法是本段新增，不是基线回归的归因错误。
+- 核实：固定提交的 `product.ts` 使用真实 SQLite 与应用远程合同，在临时状态根预先留 `src-copy` 的测试库密钥；`src` 的状态为 `none`，复制返回 `ok`，新 `src-copy` 的状态却为 `stored`。
+- 建议：只在确认目标 id 仍未被占用时清理目标凭据，再公开副本；与新建共用目标 id 认领/清理逻辑。第二步失败的用例同时覆盖“存在遗留目标密钥”，确保副本不会用它。
+
+### 9. 添加时接受模板没有的协议和空地址
+- 严重程度：重要；类别：正确性、合同。
+- 位置：`packages/nb-models/src/core/core.ts:574-600,640-646`；`packages/nb-models/src/contract/settings-spec.ts:40-46`。
+- 现象：添加只校验显式地址的格式，不校验选定协议是否有可用模板路由；更新却有 `effectiveApi`／`effectiveBaseUrl` 校验。`service.md` 输入要求无匹配路由又不给地址时返回 `invalid-value`。
+- 影响：添加成功就保存一个不可用的实例；快照还称 OpenAI 的 66 个默认成员已启用。调用方无法用结果区分“添加完可以配密钥”与“先得补上地址”。基线没有这个模板协议组合入口。
+- 核实：固定提交的 `product.ts`，经真实远程合同 `addProvider({template:"openai", name:"bad-combination", api:"anthropic-messages"})` 返回 `ok`；快照的 `api` 是 `anthropic-messages`、`baseUrl` 为 `null`、`enabledCount` 为 66。
+- 建议：新建前用与更新同一个校验，验证协议对应的显式／地区／模板地址，再动凭据或设置。
+
+### 10. 非 fetch 行只报目录漂移，没有 `transport-unsupported`
+- 严重程度：重要；类别：失败语义与诊断。
+- 位置：`packages/nb-harness/src/models/catalog.ts:53-65,267-269`、`models/target.ts:112-115,233-237`；`packages/nb-models/src/core/core.ts:223-235,264,348-349,531-535`。
+- 现象：不在四种协议的行先被滤出 `chatModels`，其 v1 配置还在；服务核心已经分不清“目录真的少了”与“目录存在但传输不能核对”。`BuildResult` 没有合同计划要求的 `transport-unsupported` 分支，诊断反说模型从目录消失。
+- 影响：会话得到 `unknown-model` 是正确映射；后端的行状态、检测结果或诊断没有可区分的原因，和 B1.1、B1.4 不符。现行 Spec 的升级段要求保留 `missing` 的显示状态，不排斥另带原因。
+- 核实：固定提交的 `transport-probe.ts` 从原始目录选 `amazon-bedrock/anthropic.claude-3-5-haiku-20241022-v1:0`、`cursor/claude-4-sonnet`、`openai-codex/gpt-5.6-luna`，三者均有目录行且 `wire: null`。写入 v1 设置后，经实际模型合同与会话，三者均显示为 `missing`，`check` 与会话 `send` 均报 `unknown-model`。会话在解析阶段拒绝，未调用外部 SDK。
+- 建议：按原始目录行的真实传输先分类，在模型服务保留 `transport-unsupported`（含原因）；只在转入 `ModelPort` 时映射成 `unknown-model`，不用增加内核命令错误码。
+
+### 11. 目录模板里手加的模型显示可用，实际无法解析
+- 严重程度：重要；类别：正确性、清单与解析合同。
+- 位置：`packages/nb-models/src/core/core.ts:168-177,223-235,567`；`packages/nb-harness/src/models/target.ts:233-241`。
+- 现象：设置核心用模板的默认协议判断 `usable`，但传给 harness 的 `api` 是可省略的覆盖字段；没有同 id 的打包行时，`materialize` 只剩 `provider.api ?? null`。给实例明确写了地址也没补默认协议。
+- 影响：这是本段开放给所有模板的手加路径。用户给了地址、凭据与上下文窗口，`upsertModel` 成功，选择器得到 `usable:true`，实际会话按 `unknown-model` 拒绝。
+- 核实：固定提交的 `member-probe.ts`，产品远程合同给 OpenAI 模板实例手加 `custom-local-id`，带有效的本地地址、4096 窗口和测试库密钥。`modelsByReference` 回 `manual`、`status:ok`、`usable:true`，同一服务的 `port().resolve` 回 `unknown-model`。
+- 建议：为每个成员先统一求有效协议、地址与传输资格：来源模型可继承打包行，手加模型在未覆盖时走实例的模板默认路由；读行的 `usable` 与解析共用该判断。
+
+### 12. OpenRouter 忽略已设置的 `PI_OPENROUTER_RESPONSES=0`
+- 严重程度：重要；类别：升级兼容、出站协议。
+- 位置：`packages/nb-harness/src/models/catalog.ts:47-61`、`models/target.ts:233-247`；`packages/nb-harness/tests/models.test.ts:288-301`。
+- 现象：Spec `harness/models.md` 输出 21 要求物化时 `0` 选显式 Completions，其余选 Responses，然后请求不再受 pi-ai 的全局变量改写。代码无条件返回 Responses，测试也只断言固定值。基线直接把复合 `openrouter` 给 pi-ai，由它读取该变量（开工探针已记录）。
+- 影响：已有的 OpenRouter Chat Completions 配置升级后变成 Responses；依赖原协议的网关或模型会收到不同的路径和请求体。避免解析后漂移不需要丢掉解析前/启动时用户的选择。
+- 核实：固定提交的 `egress-rest.ts` 用真实 OpenRouter provider 代码与本机端点，分别在物化前设 `0` 与 `1`；两次实收的都是 `/v1/responses`，且返回的物化协议都是 `openai-responses`。
+- 建议：用启动环境一次决定默认线协议，目录和物化共用该决定；两种值用不同启动环境验证实收路径，然后验证给定解析结果不再漂移。
+
+### 15. 200 行限制不能保证分页响应满足 1 MiB 合同
+- 严重程度：重要；类别：正确性、RPC 容量。
+- 位置：`packages/nb-models/src/config/shapes.ts:34-48`、`src/contract/settings-spec.ts:31,83-101`、`src/core/core.ts:295-309,695-723`。
+- 现象：输入的 id、名称、组名、头等没有逐行预算，分页仅卡行数。模型行会把一个 id 原样输出到 `id`，并在没配置名称或系列时再用于 `name` 与 `group`。设置全文没超 768 KiB 也不能保证行输出合规；和第 5 条是两条独立边界。
+- 影响：可经合同写入、也能经设置编辑器往返的数据，模型清单却能产生超过运行时单消息合同的响应；只调低默认每页行数也不能给大单行兜底。
+- 核实：固定提交 `page-wire-probe.ts` 用产品远程合同保存 20 个手加模型（长 id），`setModels` 成功；用真实 JSON 编码器量得设置 `{text}` 404,764 字节，`providerModels` 的 20 行结果 1,205,876 字节，未计 RPC 信封，超过 1,048,576。实际套接字出站没有对称的长度检查，本轮未声称页面会断开。
+- 建议：写入与读入都约束单条可编码的大小，并按实际页字节预算截页、按实际交付行数续页；批量引用与事件也有自己的总量边界。先保住访问旧行的修复路径，不把过大行静默丢弃。
+
+### 17. 目录准入只认传输协议，把图片生成与裁判模型也加入对话清单
+- 严重程度：重要；类别：正确性、目录准入。
+- 位置：`packages/nb-harness/src/models/catalog.ts:136-147,267-269`；`packages/nb-models/src/core/members.ts:29-49`、`src/core/core.ts:227-235`。
+- 现象：`catalogModel` 用 `wireApiOf(model.api)` 决定行是否有 `wire`，没看 pi-catalog 的 `Model.kind`。同一个 HTTP 协议可用于对话与独立 runner。`chatModels` 只看 `wire !== null`，所以新模板的 `followSource: true` 将这些行默认加入并启用。
+- 影响：Google 和 OpenAI 的图片生成模型等被当成对话候选；用户设好密钥后可能选到不能当普通对话模型使用的行。开发者决定 2 要的是“全部对话模型”，明确不加非对话模型。基线也不按类别过滤目录，但只加入用户显式选的条目；B1 改成默认加入后影响扩大。
+- 核实：固定提交用 `getBundledModels` 与实际 `wireApiOf` 枚举：通过线协议的 5,222 行中，11 行为 `image`，1 行为 `judge`，例如 `google/gemini-3.1-flash-image`、`openai/gpt-image-2`、`openrouter/typesafe/jev-router`。未向这些模型发请求。
+- 建议：传输资格和会话模型资格分别判断；按 pi-catalog 的类别（缺省为 `chat`）过滤打包清单与物化入口。补一个与对话共用同协议的图片行反例。
+
+### 18. 手加条目的 `origin` 不能保护它不被同名目录行接管
+- 严重程度：重要；类别：正确性、成员来历与升级。
+- 位置：`packages/nb-models/src/core/members.ts:40-53,64-73`、`src/core/core.ts:182-193,436-455,462-465`；`packages/nb-harness/src/models/target.ts:233-258`。
+- 现象：同 id 只要在打包目录命中，读取、写回和移出一律把条目当来源模型，物化也重新按模板与 id 找目录。与 B1.2“手加的不看来源”、手加窗口须独立提供不符。
+- 影响：用户保存的手加行，在新版目录恰好新增同 id 后，即使关着自动加入，也会改变窗口、推理、图像能力；下次保存可能变成来源覆盖，移出也改走 `excluded`，不再是删除手加行。
+- 核实：固定提交 `compat-rest.ts`，实际设置文件和远程合同中保留 `origin:manual` 的 `deepseek-flash`，未指定窗口、关着自动加入。读回变成 `source`，窗口 1,000,000、`usable:true`；解析成功并带目录视觉和推理能力。基线没有显式成员来历，也没有这一升级承诺。
+- 建议：先按条目的来历决定是否查来源以及如何增删；当手加 id 与后来出现的目录 id 撞上，手加优先且不隐式改来历。用同 id 且有无手加窗口各验证一次。另有协议不匹配仍借目录能力的现象：同一探针覆写 DeepSeek 为 Anthropic，仍给 1,000,000 窗口；合并修理时明确协议切换是要保留展示参照，还是要把这些值用于实际解析，不把 B2 的在线补值方案当成本轮验收。
+
+### 22. 新建在设置冲突后重选号，没有清理最终 id 的遗留密钥
+- 严重程度：重要；类别：凭据隔离、并发写入。
+- 位置：`packages/nb-models/src/core/core.ts:383-395,574-600`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:203-218`。
+- 现象：先在缓存的列表上计算并清理 `id`；设置 CAS 冲突后会随新的列表生成 `finalId`，而清库不在该重试循环。原 id 已被外部设置编辑认领时，清的是原 id；新创建的替代 id 没清。
+- 影响：一次正常的外部设置并发编辑即可让新实例接上遗留密钥；与第 8 条的复制遗漏不同，这是新建虽调用了清库，清理对象却与提交对象不一致。基线没有新建清库承诺。
+- 核实：固定提交 `new-id-probe.ts` 用真实设置文件、远程合同和 SQLite。视图仍有 0 家时，外部文件已加入 `raced`；首次 CAS 冲突，等拥有者载入新值再重试。`addProvider` 成功创建 `raced-2`，该实例的密钥状态已为 `stored`（实验预放了旧行）。
+- 建议：配置认领若因冲突改变 id，清理必须针对最终认领的那个 id，且不能先清一个已被外部认领的 id。短期可在配置写成之前不允许有凭据的目标 id 被复用；若需要长期把凭据随实例一同管理，比较按 `uid` 存库的迁移代价，不只修补两条创建路径。
+
+## 建议
+
+### 14. 免认证按子串剥除请求头，会删掉非哨兵值
+- 严重程度：建议；类别：正确性、认证头。
+- 位置：`packages/nb-harness/src/kernel/model/omp.ts:357-361`。
+- 现象：`headers.get(name)?.includes(NO_AUTH_SENTINEL)` 不是判断头“值是占位哨兵”。免认证表示不发送内置密钥，并不禁用用户配置的请求头。
+- 影响：自管认证、但不使用应用密钥库的服务商，如果合法 token 含 `N/A`，将静默失去该头。基线没有这条剥离逻辑；本段要求剥的是适配器注入的占位。
+- 核实：固定提交 `egress-rest.ts` 本机 Gemini 分别不设头、显式设 `x-goog-api-key: BAN/ANA`；两次均实际收到请求但该头均为 null。前者是预期，后者不是。
+- 建议：只去掉哨兵的完整值或 `Bearer N/A`（并保留显式用户覆盖）。增加一组“哨兵不发、包含相同字符的用户头会发”的出站断言。
+
+### 13. 新建时清理遗留密钥失败，返回合同外的错误
+- 严重程度：建议；类别：合同与失败处理。
+- 位置：`packages/nb-models/src/core/core.ts:498-505,581-584`、`contract/settings-spec.ts:41-46`；`packages/nb-runtime/src/remote/node.ts:867-871`。
+- 现象：`addProvider` 在写设置前清库，失败走 `relay(credentials-unavailable)`；但该方法没有声明 `credentials-unavailable`。`relay` 的类型断言把矛盾隐藏到远程层。
+- 影响：凭据库写失败时，调用方得到 `provider-error`，不能按“凭据库不可用”的合同处理；不会导致本次服务商写入成功。基线的添加没有清库步骤。
+- 核实：静态对照三处调用链，远程提供方明确拒绝声明以外的失败码；未故障注入 SQLite。
+- 建议：把 `credentials-unavailable` 加到 `addProvider` 的错误表；用库写失败的夹具经远程合同核对失败码，并断言设置未写。
+
+### 16. 分页限制了返回的行数，没有限制每页的扫描、排序和序列化
+- 严重程度：建议；类别：性能与维护性。
+- 位置：`packages/nb-models/src/core/core.ts:114,142-147,320-349,561-568,695-717`；`packages/nb-harness/src/models/catalog.ts:266-283`。
+- 现象：`providerModels` 每页重建整家成员并排序、序列化整份配置算修订；`enabledModels` 每页重做这几步，覆盖范围内所有服务商。快照为计数和目录漂移分别构造完整成员。跟随模板且没覆盖地址时，`usableMember` 每判断一行又调用 `templateRoutes` 扫一次目录；`rowCache` 只缓存页内输出，没缓存这些工作。
+- 影响：按 8 × 600 读 24 页，单是全量分页过滤就访问 115,200 个候选，而不是 4,800 个，未计排序比较或地址路由扫描。增加页数会重复做跟返回内容无关的工作。基线是全量快照，没有这条新增分页路径。
+- 核实：固定提交 `pages-probe.ts` 用真实应用合同和短字段，24 页交完 4,800 个不同引用，最大页值 61,071 字节；页调用观测 44–121 ms，非 CPU 隔离环境，不当验收时限。重复计算数量由循环界限推出，没做变异计数。
+- 建议：每家按其有效配置代次缓存有效路由、修订和成员索引／稳定排序；快照计数与漂移复用它，分页直接切片。不相关的变更继续复用已有结果。
+
+### 19. 已存在的 `identity.key` 不受 0600 权限约束，重生也保留旧权限
+- 严重程度：建议；类别：本地数据保护。
+- 位置：`packages/neuro-book/src/plugins/models/backend/secret.ts:10-28`；`docs/specs/models/service.md:161`、ADR 0058 的 HMAC 取舍。
+- 现象：合法文件直接返回，既有坏文件走 `writeFile(..., {mode: 0o600, flag: "w"})`；`mode` 只约束创建，不改变既有文件的权限。
+- 影响：从迁移、恢复、人工维护等渠道来的宽权限文件不会收紧；在父目录也允许读取时，得到该安装密钥和日志的人可离线验证短凭据候选。默认新建的文件与默认 0700 父目录不受该反例影响；重生取舍本身不算缺陷。
+- 核实：固定提交 `compat-rest.ts`，预放 0644 的坏文件，再启动真实 models 插件；重生后 `stat` 仍为 0644。现有测试只验证内容和首次新建，不验证既有文件权限。
+- 建议：打开既有文件时核对/收紧权限，重生用 0600 的同目录新文件原子置换；平台做不到时按现有权限诊断惯例处理，不在日志里写密钥内容。旧版没有这个文件。
+
+### 20. 旧的整批 `checkAll` 仍在合同里，B1 默认清单扩大了调用规模
+- 严重程度：建议；类别：基线既有风险、合同范围。
+- 位置：`packages/nb-models/src/contract/settings-spec.ts:137-138`、`src/core/core.ts:847-859`；`packages/neuro-book/src/plugins/models/models.test.ts:337-349`。
+- 现象：B1 标的是“`check` 保持现状（B2 改探测）”。实际保留了基线的按一家全部启用模型检测、并发 4、单次回全量结果的 `checkAll`。第三轮处理及 Task 的总记说“不做服务端 `checkAll`”，计划把同一句写在 B2.2；Spec 输出 11、12 和本提交合同仍要求它。
+- 影响：按旧合同可用，不判 B1 本应移除的缺陷；但 B1 让打包大目录默认启用，这个端点不用逐条明确名单就会检测整家。慢响应会拉长批次，长错误又可撑大同一返回帧。不能把“不做 `checkAll`”写成 B1 已完成。
+- 核实：基线 `core.ts:545-555` 就有四 worker；被审提交改为 `listedMembers(provider).filter(...enabled)`，应用测试运行通过的是单行批次。未发大批请求。
+- 建议：对齐 B1 与 B2 的合同过渡文字；B2 落实逐个 `check` 时一起删旧远程方法和对应测试，避免保留第二条检测路径。
+
+### 21. 合同 v3 的模型行只有被覆盖字段名，没有 Spec 的来源值
+- 严重程度：建议；类别：合同、审查基准差异。
+- 位置：`packages/nb-models/src/contract/shapes.ts:41-65`、`src/core/core.ts:283-313`；主工作区 `docs/specs/models/service.md` 输出 23。
+- 现象：被审提交的模型行只带 `overridden`，没有 `source`，并关闭额外字段；主工作区的对照草稿要求有覆盖时带来源值，否则为 null。
+- 影响：固定提交的调用方不能只靠读行合同把恢复值与当前值一并展示。审查依据在过程中演进，本条不算 `56a4d61c0` 的回归。
+- 核实：`git show e3ecdbba4:packages/nb-models/src/contract/shapes.ts` 与草稿对照；活动分支在所审提交之后已经有 `0fe628b60` 加上 `source` 及对应核心与测试。本轮没在新提交重跑，不把该提交结果算入 B1 固定基准。
+- 建议：验收时用合入候选的合同核对“有覆盖有来源值、无覆盖为 null”；不要据固定提交的报告在后续分支上再实现一遍。
+
+## 未发现问题的方面
+
+- 完整线地址与重定向：已跑用例覆盖 `MOONSHOT_BASE_URL` 同主机只改路径、换主机、3xx 拒绝跟随；另核对四种协议允许的后缀、查询参数以及 URL 用户信息拒绝。未在这些已覆盖分支发现额外问题；不包含第 1 条的代理选择、第 12 条的默认线协议。
+- 正常签发身份：已跑用例经过 JSONL 关会话重开，身份一致时保留思考签名，部署或凭据身份不符时退回不含专用元数据的历史。核心用例另覆盖同名同址删建换 `deployment`、同址换库密钥换 `credential`。不把这些用例当作第 2、3 条所涉反例的覆盖。
+- 配置迁移与成员编辑：已跑用例中，v1 目录条目的旧运行时忽略字段不进入 v2，第一次成功写入迁移全份配置；v1 自定义模型省略协议时也实际解析成 `openai-completions`。`expect` 用原设置值、正常冲突重读合并、冻结后解冻、移出解绑及改名重名的已覆盖分支未发现额外问题。第 4、5、18、22 条不在此结论内。
+- 合同常规分页：已跑用例覆盖稳定排序、页上限 200、带旧修订续页返回 `revision-changed`，以及 `modelsByReference` 至多 50 项、可按引用取未启用模型。真实场地中 8 家 × 600 行读出 24 页、4,800 个不同引用；快照值 3,818 字节、最大页值 61,071 字节。改 `local-0` 后，`local-1` 按原修订续页成功，全局续页返回 `revision-changed`。这是短字段样本，不替代第 5、15、16 条的字节或计算预算。
+- 图标验收与引用回收：已跑用例覆盖无效 base64、非 PNG、超尺寸、含 `acTL`、解码失败、最终文件链接、跨站请求、ETag 与响应安全头；另用真实设置及文件确认同 PNG 两份引用共用一个文件，移除其一后仍保留，设置 JSON 损坏导致写图失败时没有多留上传文件。未发现第 7 条父目录边界以外的额外问题。
+
+## 实际验证范围
+
+- 环境：运行前取 `/proc/loadavg` 并确认提交；主要运行在 `exp/pinned` 的 `e3ecdbba4d` 源码，相关工作区依赖指向该副本。`NBOOK_HOST_SYSTEM_TEMP_ROOT` 设为实验目录，`NBOOK_AGENT_TEMP_ROOT` 设为其 `agent` 子目录。第 1 至 3 条的早期 harness 探针从实现 worktree 加载，相关实现已与被审提交核对；不把后续前端提交上的测试结果算进固定基准。
+- 固定副本根目录 `bun test` 指定 `packages/nb-harness/src/kernel/model/omp.test.ts`、`packages/nb-harness/tests/models.test.ts`、`packages/nb-models/src/core/{providers,core}.test.ts`、`packages/nb-models/src/contract/settings-spec.test.ts`、`packages/neuro-book/src/shared/product.test.ts`：6 文件，69 通过、0 失败、365 个 `expect`（3.75 秒）。
+- 固定副本的 `packages/neuro-book` 执行 `bun test`，指定 `src/plugins/models/models.test.ts`、`src/plugins/models/backend/{icons,settings-store}.test.ts`：3 文件，23 通过、0 失败、126 个 `expect`（1.85 秒）。
+- 固定副本 `nb-models`、`nb-harness` 分别运行 `tsc --noEmit`，退出码均为 0（合计 34.14 秒）；未查整个应用的类型。
+- 额外实验脚本留在 `exp/`。应用探针用固定副本的 `packages/neuro-book/tsconfig.json`，经过真实模型远程合同、设置拥有者、SQLite、Hono 或 JSONL；出站实收使用本机端点和测试凭据。容量反例实际编码，计算次数来自源码循环。8 × 600 的首个探针进程在 35 秒期限内未完成，修正探针参数并补页级观测后完成；不据两次耗时判性能回退。
+- 未运行完整测试套件、e2e、开发服务、真实供应商调用、低版本 Bun 或桌面／发布包。未实测 WebSocket 超限断开、SQLite 故障分支或非 fetch SDK 出站。未修改仓库、未做 Git 写操作、未启子审查。
+
+## 规范口径待对齐
+
+- 第 5 条：将 Task 的实现记要与 B1.2、模型服务配置校验统一到同一计量对象，明确是经 JSON 线编码的设置全文，不是设置项或磁盘文本。
+- 第 20 条：在现行模型服务 Spec 标明 `checkAll` 的保留阶段和移除阶段，避免把 B2 的删除算成 B1 待办。本轮只读，未回写真相源。
+
+## 数量
+
+- 阻断：0。
+- 重要：16（1–12、15、17、18、22）。
+- 建议：6（13、14、16、19、20、21）。第 20 条为基线既有端点的影响扩大与阶段差异；第 21 条为固定提交与 Spec 草稿的差异，后续已有对应代码，不计作基线回归。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18、19、20、21、22。

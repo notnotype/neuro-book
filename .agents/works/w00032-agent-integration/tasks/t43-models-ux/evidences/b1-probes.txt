@@ -1,0 +1,56 @@
+t43 段 B1 开工时的核对（2026-11-21，分支 feat/w00032-t43-b1，依赖 @oh-my-pi/pi-catalog 18.14.0）
+
+做法：读 node_modules/@oh-my-pi 的源码；两个本机脚本：
+  - /tmp/b1-probe1.ts：按 nb-harness 的 listCatalog() 列每个打包服务商的接入方式、对话模型数、各协议的模型数与地址；
+  - /tmp/b1-probe/wire.ts：本机假端点（一律回 500），用 pi-ai 的 streamSimple 对同一模型发一次请求，记下实收的地址与三种认证头。
+密钥用占位串 SECRET-KEY-123，端口打成 PORT。
+
+1. stencil 在线目录的公开导出
+   - pi-catalog/src/provider-models/openai-compat.ts:97 MODELS_DEV_URL = https://catalog.stencil.so/models.json.zstd；
+     :218 export function fetchWellKnownModels(fetchImpl?, signal?)，经包根 export * 公开，可注入 fetch 与 signal。
+   - zstd：按帧魔数判断（不信 content-type），Bun.zstdDecompress 解开；纯 JSON 响应同样解析（:206-266）。
+   - 条件 GET 与同一 fetch 上下文共享一次传输，失败时沿用内存里的上一份。
+   - 没做：真实联网拉一次、看解压后的自报档位原文。留到 B2.1 接在线目录时做（B1 不接在线目录）。
+
+2. 会按环境变量改址的 pi-ai 分支
+   - pi-ai/src/providers/openai-shared.ts:274-277 MOONSHOT_BASE_URL；connection-prewarm.ts:23 还提到 XAI_BASE_URL；
+     anthropic-http-options.ts:140 ANTHROPIC_BASE_URL。
+   - 实测（wire.ts）：moonshot 模型 baseUrl=<端点>/v1 时实收 /v1/chat/completions；
+     设 MOONSHOT_BASE_URL=<同主机>/other/v1（只改路径）实收变成 /other/v1/chat/completions；
+     设成 localhost（换主机）实收打到 localhost/zzz/v1。即环境变量会把已配置的地址整体改掉，含只改路径的情形。
+   - 结论：B1.3 的出站核对必须比完整线地址（不只比源），已按此实现（nb-harness models/target.ts 的 wireGuard）。
+
+3. OpenRouter 的线协议
+   - 打包目录里 OpenRouter 对话模型的 api 是复合的 "openrouter"（588 个；另有 video、images、embeddings、rerank 等非对话行）。
+   - pi-ai/src/stream.ts:925、1759、2008：PI_OPENROUTER_RESPONSES 不为 "0" 时走 /responses，为 "0" 时走 /chat/completions。
+   - 实测：api=openrouter 缺省实收 /api/v1/responses，设 PI_OPENROUTER_RESPONSES=0 实收 /api/v1/chat/completions；
+     显式 api=openai-responses 在 PI_OPENROUTER_RESPONSES=0 下仍是 /responses，显式 openai-completions 仍是 /chat/completions。
+   - 结论：物化时把 "openrouter" 换成显式协议，线协议不随环境变量漂移（nb-harness models/catalog.ts）。
+
+4. OpenCode Zen、CommandCode 与混合协议模板
+   probe1 的输出（接入方式 / 对话模型数 / 协议分布 / 地址）：
+   - opencode-zen  key   123  openai-completions:58 anthropic-messages:21 google-generative-ai:9 openai-responses:33 typesafe:2
+                    https://opencode.ai/zen/v1、https://opencode.ai/zen、https://opencode.ai/inference/google/v1beta
+   - opencode-go   key    49  openai-completions:35 anthropic-messages:5 openai-responses:8 google-generative-ai:1
+   - commandcode   keyless 97 openai-completions:50 openai-responses:35 anthropic-messages:11 typesafe:1
+                    https://api.commandcode.ai/provider/v1、https://api.commandcode.ai/provider
+                    （compat/rules/providers/commandcode.kdl：allow-unauthenticated、dynamic-models-authoritative）
+   - 同一模板内多协议、多地址的还有 cloudflare-ai-gateway、minimax-code(-cn)、zai、zenmux、github-copilot（登录类）。
+   - 结论：模板的 routes 按协议各记一个地址（不是每家一个 baseUrl）；typesafe 等非对话协议不进模型清单；
+     改了协议或地址的实例用中性身份发送（实现里的 id 是 generic-endpoint，计划写的 nbook-compatible 被 nb-harness 的
+     应用中立检查拒绝，改名）。
+   - 传输准入：amazon-bedrock（bedrock-converse-stream）、cursor（cursor-agent）、openai-codex、google-gemini-cli 等
+     不是 fetch 可发的协议，模板 addable=false 并写原因；v1 里已存的这类配置保留、解析时报 transport-unsupported。
+
+5. 中性身份四种协议的实收（wire.ts，baseUrl=<端点>/gw/v1）
+   - openai-completions → /gw/v1/chat/completions，Authorization: Bearer
+   - openai-responses   → /gw/v1/responses，Authorization: Bearer
+   - anthropic-messages → /gw/v1/messages，Authorization: Bearer（中性身份下不是 x-api-key）
+   - google-generative-ai → /gw/v1/models/m-1:streamGenerateContent?alt=sse，x-goog-api-key
+   wireGuard 按这几种后缀与查询参数核对完整地址。
+
+6. 库自己的请求构造做协议检测（B2 用的小实验，部分完成）
+   - 同一脚本里假端点回 500、选项给了 maxHttpAttempts: 1：completions 与 google 各实收 1 次，
+     responses 实收 6 次、anthropic-messages 实收 11 次（库在内层自己重试，maxHttpAttempts 没挡住这两种）。
+   - 结论：检测不能指望关重试，要在注入的 fetch 里拿到第一个请求就中止（或直接回应、不放行），确认恰好一次 HTTP。
+     “抓第一个请求后中止”本身还没写成实验，留到 B2.3 先做。
