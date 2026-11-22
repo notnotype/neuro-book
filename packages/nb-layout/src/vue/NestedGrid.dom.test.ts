@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
-import {h, nextTick} from "vue";
+import {h, nextTick, ref} from "vue";
 import NestedGrid from "./NestedGrid.vue";
 import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
@@ -191,6 +191,18 @@ describe("NestedGrid 按矩形摆放", () => {
         expect(wrapper.get('[data-sash="root:0"]').attributes("aria-label")).toBe("Resize width between 导航 and 右侧");
         // top 给的是空串、bottom 没给：都用 id。
         expect(wrapper.get('[data-sash="right:0"]').attributes("aria-label")).toBe("Resize height between top and bottom");
+    });
+
+    it("分隔线的显示名跟着宿主的语言变（输出 152）：paneLabel 是同一个函数、读宿主的语言，换语言后读屏名称跟着变", async () => {
+        const grid = nestedGrid();
+        const locale = ref<"zh" | "en">("zh");
+        const names = {zh: {left: "导航"}, en: {left: "Navigation"}} as const;
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {listeners: {paneLabel: (id: string) => (names[locale.value] as Record<string, string>)[id]}});
+        await nextTick();
+        expect(wrapper.get('[data-sash="root:0"]').attributes("aria-label")).toBe("Resize width between 导航 and right");
+        locale.value = "en";
+        await nextTick();
+        expect(wrapper.get('[data-sash="root:0"]').attributes("aria-label")).toBe("Resize width between Navigation and right");
     });
 
     it("内容容器与外框一样大，Teleport 的目标带部件 id", async () => {
