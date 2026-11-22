@@ -58,6 +58,11 @@ export interface ModelTarget {
     readonly id: string;
     /** 用户手加的模型：不查目录行（目录后来恰好有了同 id 的，也不改它的能力与来历），窗口必须自己给。 */
     readonly manual?: boolean;
+    /**
+     * 调用方查到的目录行（目录视图 `CatalogView.find` 的结果，打包或在线目录）：给了就用它，不再查打包目录。在线目录里新出的模型
+     * 只能这样交进来。
+     */
+    readonly row?: {readonly model: Model; readonly priceKnown: boolean};
     readonly name?: string;
     readonly contextWindow?: number;
     readonly maxOutput?: number;
@@ -242,11 +247,11 @@ interface Materialized {
  * 身份用 `buildModel` 建。自定义（没有目录行）的上下文窗口必须是正整数（压缩要用），缺了不能用。
  */
 function materialize(provider: ProviderTarget, config: ModelTarget): Materialized | {readonly unsendable: "not-chat" | "transport"} | null {
-    if (config.manual !== true && provider.template !== null) {
-        const unsendable = unsendableReason(provider.template, config.id);
+    const bundled = provider.template === null || config.manual === true ? undefined : config.row?.model ?? bundledRow(provider.template, config.id);
+    if (bundled !== undefined) {
+        const unsendable = config.row === undefined ? unsendableReason(provider.template!, config.id) : (config.row.model.kind ?? "chat") !== "chat" ? "not-chat" : wireApiOf(config.row.model.api) === null ? "transport" : null;
         if (unsendable !== null) return {unsendable};
     }
-    const bundled = provider.template === null || config.manual === true ? undefined : bundledRow(provider.template, config.id);
     const bundledWire = bundled === undefined ? null : wireApiOf(bundled.api);
     const api = provider.api ?? bundledWire ?? provider.defaultApi ?? null;
     if (api === null) return null;
@@ -254,7 +259,7 @@ function materialize(provider: ProviderTarget, config: ModelTarget): Materialize
     const route = sameProtocol ? bundled.baseUrl : provider.template === null ? undefined : templateRoutes(provider.template).find((item) => item.api === api)?.baseUrl;
     const baseUrl = provider.baseUrl ?? route;
     if (baseUrl === undefined || baseUrl === "" || !URL.canParse(baseUrl)) return null;
-    const priceKnown = config.price === undefined ? bundled !== undefined && catalogPrice(bundled) !== null : config.price !== null;
+    const priceKnown = config.price === undefined ? bundled !== undefined && (config.row?.priceKnown ?? catalogPrice(bundled) !== null) : config.price !== null;
     const priced = config.price === undefined ? null : config.price;
     if (provider.follows && sameProtocol) {
         const model: Model = {

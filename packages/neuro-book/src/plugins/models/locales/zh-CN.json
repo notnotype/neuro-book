@@ -16,6 +16,10 @@
             "title": "流中途的时限（秒）",
             "description": "回复到一半，这么久没有新内容就算卡死；0 表示不设"
         },
+        "catalogAutoUpdate": {
+            "title": "自动更新模型列表",
+            "description": "每天在后台向各服务商取一次模型列表，并取一次 OMP 的在线模型目录（catalog.stencil.so）；添加服务商、设好密钥后也会马上取一次；关掉后只在点“重新拉取”时取"
+        },
         "compaction": {
             "title": "自动压缩的触发点",
             "description": "上下文用到这个量就自动压缩。可以留预留量、按窗口的百分比，或者写固定的 token 数；每个模型也可以单独设置。"
@@ -125,7 +129,7 @@
         "add": "手动添加",
         "checkAll": "检测全部",
         "cancelChecks": "取消检测",
-        "empty": "还没有模型。设置密钥后点“管理模型”加入。",
+        "empty": "还没有模型。设好密钥后会去拉服务商的模型列表；也可以“手动添加”。",
         "enable": "启用 {{name}}",
         "check": "检测 {{name}}",
         "checkTip": "检测：发一条很短的请求",
@@ -133,7 +137,7 @@
         "editTip": "编辑模型",
         "incomplete": "缺上下文窗口",
         "incompleteTip": "要补上下文窗口才能启用",
-        "missing": "目录里没有了",
+        "missing": "服务商已不再提供",
         "unsupported": "不能当对话模型用",
         "priceUnknown": "单价未知",
         "free": "免费",
@@ -144,7 +148,28 @@
         "enabled": "{{count}} 个启用",
         "follow": {
             "label": "服务商新出的模型自动加入",
-            "hint": "打包目录里新增的模型自动出现在列表里；关掉后列表保持现在这样。"
+            "hint": "服务商的列表（没有列表时是内置目录）里新出的模型自动出现在列表里；关掉后列表保持现在这样。"
+        },
+        "source": {
+            "refresh": "重新拉取",
+            "refreshing": "正在拉取服务商的模型列表",
+            "ok": "服务商的模型列表，更新于 {{time}}",
+            "failed": "拉取失败：{{reason}}",
+            "failedKept": "拉取失败：{{reason}}；沿用 {{time}} 的列表",
+            "changed": "地址、协议或凭据改过，重新拉取后更新",
+            "catalog": "用内置的模型目录，还没有拉到服务商的列表",
+            "none": "还没有拉到服务商的模型列表",
+            "needsKey": "先填密钥才能拉取",
+            "reasons": {
+                "auth": "密钥被拒绝",
+                "not-found": "这家服务商没有模型列表接口",
+                "unreachable": "连不上服务商",
+                "bad-response": "服务商回的不是完整的模型列表",
+                "cancelled": "已取消",
+                "timeout": "超时",
+                "no-credentials": "没有可用的密钥",
+                "storage": "列表存不下来"
+            }
         },
         "search": "搜索模型名或 id",
         "more": "还有 {{count}} 条，缩小搜索词",
@@ -229,7 +254,6 @@
     "manage": {
         "title": "管理模型：{{name}}",
         "search": "搜索模型名或 id",
-        "refetch": "重新拉取",
         "add": "加入 {{name}}",
         "remove": "移出 {{name}}",
         "addTip": "加入列表",
@@ -239,7 +263,9 @@
         "empty": "没有可加入的模型",
         "noMatch": "没有匹配的模型",
         "done": "完成",
-        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。"
+        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。",
+        "unknown": "类型不明",
+        "unknownHint": "服务商没说明这些是不是对话模型。中转站与本机端点里的会自动列出（缺上下文窗口的补上才启用），服务商模板里的确认是对话模型再加入。"
     },
     "add": {
         "title": "添加服务商",
@@ -397,10 +423,6 @@
         "unknown-role": "这个角色已经不在了",
         "builtin-role": "内置角色不能删、不能改名",
         "no-credentials": "还没有密钥",
-        "not-supported": "这家不支持拉取模型列表",
-        "auth": "鉴权失败：核对密钥",
-        "unreachable": "连不上服务商",
-        "failed": "拉取失败：{{detail}}",
         "unavailable": "模型服务没有运行",
         "unknown-outcome": "可能没有保存，以设置为准",
         "timeout": "超时了",

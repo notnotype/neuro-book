@@ -1,0 +1,10 @@
+{
+    "settingsSections": {
+        "nbook": {
+            "network": {
+                "title": "Network",
+                "description": "Network requests NeuroBook makes on its own"
+            }
+        }
+    }
+}

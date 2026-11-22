@@ -1,0 +1,182 @@
+# w00032 t43 B2a 后端只读实现审查
+范围：3b2ac0687..88e68fcbdd434dbb9c07d1b03b5ecbd1409a4966（feat/w00032-t43-b2a）；Bun 1.4.4；不审前端、未联网。
+依据：固定计划段 B2a.1–B2a.4、开工探针、决定 26/27/29、B1 Spec 与 ADR 0058。以下文件位置相对于审查检出。
+
+### 2. 列表错误正文把凭据原文送进 `snapshot` 和 `changed`
+严重程度：阻断；类别：安全与性能。
+位置：packages/nb-harness/src/models/listing.ts:113-115、147-156；packages/nb-models/src/core/sources.ts:179-181、371-377；packages/nb-models/src/core/core.ts:158-169、465-470。
+现象：列表出站使用生效密钥和请求头；HTTP 非 200 的正文切出最多 300 字符，未经遮盖直接作为 `source.error.message` 进入快照与所有 `changed` 事件。服务商、网关或本机代理只要在 401/503 里回显所收认证头，浏览器就能读到凭据库中的密钥或 `env:` 请求头的展开值。此前 `discover` 用状态生成固定失败说明，不把 HTTP 错误响应正文公开；模型探测走的是有遮盖的 `buildResolution` 适配器。违反 `models/service.md` 输出 12 与 `harness/models.md` 输出 4，截断不是脱敏。
+核实：对照基线 `git show 3b2ac0687:packages/nb-models/src/core/core.ts` 的 `discover`，以及当前 `drain` → `entry.error` → `sources.state` → `snapshot/changed`。本机假端点可用自造密钥回显；具体实验与结果见报告末尾。
+建议：源状态只传原因、HTTP 状态和固定短文案；获得错误头即取消响应体。这样也不会为一段无须展示的正文等到 30 秒截止。测试同时检查事件和 RPC 快照都不含凭据原文。
+
+### 4. 删 `discoverModels` 遗漏 nb-story 的服务端消费者
+严重程度：阻断；类别：正确性。
+位置：packages/nb-harness/src/index.ts（本次删除导出）；packages/nb-story/src/server/qa-service.ts:33、560。
+现象：`qa-service.ts` 仍静态导入 `@notnotype/nb-harness` 的 `discoverModels`，并依赖旧的结果联合。升级后该模块无法链接，剧情图谱问答服务依赖它的入口无法加载；不只是在点「发现」时才坏。`llmlint` 的同名函数来自自己的 `./model-client`，不受影响。
+核实：`git grep -n -w discoverModels 88e68fcbdd -- packages/nb-harness packages/nb-story packages/llmlint`；和 `git show 3b2ac0687:packages/nb-harness/src/index.ts` 对照，基线有这个导出。
+建议：在同一切片迁移 nb-story 真实消费者到列表适配器，同时保留其提示与失败语义；跑 nb-story 类型检查和问答入口的窄合同测试。
+
+### 6. 来源缓存尚未成功建立时，修改端点后后台仍会把原密钥发给新端点
+严重程度：重要；类别：不变量。
+位置：packages/nb-models/src/core/sources.ts:131-139、218-223、288-305；packages/nb-models/src/core/core.ts:777-812、953-976。
+现象：`check()` 只用成功缓存识别部署或凭据是否改变。设置密钥后第一次列表请求失败（例如 503），`entry.cache` 仍是 null，只记了一个没有身份的 `attemptedAt`。这时修改地址，不做手动拉取也不再设密钥，过 24 小时（或满足间隔后关开自动更新）便向新地址发出原密钥。失败一次与成功一次的配置变更保护不同。计划 B2a.3 明确改地址、协议、认证头后不自动拉；基线只有用户主动 `discover`。
+核实：在两个本机端点上用注入时钟验证「第一次失败 → 改地址 → 加 25 小时 → 关闭再打开自动更新」，观察第二个端点是否收到旧密钥；报告末尾列实际结果。
+建议：把上一次已授权的拉取身份（含失败）与成功缓存分开维护；用户修改了有效身份后标记需手动刷新，不能将「没有可用缓存」等同于「当前部署已获后台刷新资格」。
+
+### 19. 清除密钥成功后，在途列表仍会用旧密钥请求下一页
+严重程度：重要；类别：安全与性能。
+位置：packages/nb-harness/src/models/listing.ts:101-137；packages/nb-models/src/core/sources.ts:165-178、211-229、307-315；packages/nb-models/src/core/core.ts:161-171、979-986。
+现象：拉取受理时捕获请求头，后续每一页复用。改设置或清除密钥只作废快照，不会撤销这个在途任务；`stillCurrent` 等整个列表取完才检查。第一请求可以已授权，但在 `clearKey` 成功之后发送第二个 HTTP 请求时已没有有效密钥。最终不提交列表，不能撤销额外出站。删服务商但尚无缓存文件时，`collect` 也不会遍历和中止这家的在途任务。旧版 `discover` 只有单个 HTTP 请求；B1 对话的前置身份核对位于每次真实发送处。
+核实：`pagination-probes.ts` 走实际设置 RPC 和回环 Anthropic 形状端点：阻住第一响应，`clearKey` 实返 `{kind:"none"}` 后放回下一页游标；第二页实收 1 次，仍用旧自造密钥，最终 `source.state:"none"`。
+建议：每次出站前按捕获的部署及凭据身份复核；配置或凭据失效时同步中止该代次，不以磁盘上是否已有文件决定能否停止请求。
+
+### 3. 作废只拦内存发布，已经过检查的旧列表仍能覆盖磁盘（收窄）
+严重程度：重要；类别：不变量。
+位置：packages/nb-models/src/core/sources.ts:165-193、197-208、307-315、383-402；packages/neuro-book/src/plugins/models/backend/source-store.ts:61-69。
+现象：第一次 `stillCurrent` 在入写队列前，不在队头开始写时，更不在最终 `rename` 前；第二次检查在写完整份文件后。等暂存写入期间改认证头、清密钥或停止，旧结果虽不进内存，却能替换磁盘上的最后有效列表。缓存按部署可用、凭据变化仍沿用，下一次启动会实际采用本来已作废的列表。同一 `uid` 串行只能管写的先后，不能阻止旧写，也不串行化 `collect` 的删除。
+核实：沿 `run` → `write` → `writeJson` 查提交点。在核心合同门面与真实文件存储间闩住 `write`，改生效认证头，再放行并重启核心。已验证过了协调器检查、写尚未实际开始的窗口；未把 `rename` 系统调用本身挂起。B1 没有列表缓存；现有测试在服务商还没回 HTTP 时就改配置。
+建议：把暂存与提交拆开，在真正替换前以当前身份复核，并明确最终提交与配置变更的线性化点；删除和停止也通过同一个 `uid` 的提交所有权协调。测试断言重启不采用被淘汰结果，而不只检查当前内存。
+
+### 7. 设置不可读时只禁止回收，没有禁止出站
+严重程度：重要；类别：不变量。
+位置：packages/nb-models/src/core/sources.ts:211-222、294-315、165-178；packages/neuro-book/src/plugins/models/backend/settings-store.ts:29-35；packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:140-145、154-163。
+现象：B2a.3 的回收条款要求设置不可读时「不回收、不出站」。实际 `confirmed()` 只在 `collect()` 查，手动受理、自动检查和提交均不查。真实设置文件从合法变成不合法 JSON 时保留上次有效值（不是空表）；后台过期检查可以继续用这些旧地址、请求头及库中的密钥发列表和在线目录请求，手动要求也会被受理。基线不存在这类后台出站。
+核实：从真实 `layer-owner` 的「保留上次有效内容」追到 `settingsModelsConfig.providers.editable()` 与 `sources.check/refresh`；可用真实设置文件使层进入 `invalid`，观察手动 RPC 和定时检查。`sources.test.ts` 仅断言孤立缓存不被删，没有断言没有请求，也没有让替身保留一个带凭据的实例。
+建议：在受理和实际提交处使用同一可读性判据；明确设置不可用时手动方法的业务失败，不能回应已受理或误报没密钥。等设置恢复时再按规定检查。
+
+### 1. 云模板「加入并启用」时，后端把唯一的加入记录删掉
+严重程度：重要；类别：正确性。
+位置：packages/nb-models/src/core/core.ts:309-327、589-602、885-911；packages/nb-models/src/core/members.ts:50-55、71-76。
+现象：云模板下，目录里没有的 `unknown`（也包括空白模板里按名称不自动加的行）是 `auto:false`。对一条列表已提供窗口的这类模型提交 `setModels`/`upsertModel`，只选中启用、不改字段时，`storedEntry` 得到 `{id, enabled:true, origin:"source"}`；`redundant` 仅凭 `followSource` 判该条目冗余，在写入前丢掉。RPC 成功后，模型仍在 `available`，不在 `listed`，角色也解析不到。这直接违反决定 27 的「管理模型里可一键启用」。
+核实：对照 `git show 3b2ac0687:packages/nb-models/src/core/members.ts`：基线的目录来源都会自动加入，B2a 新增了必须保留显式加入条目的 `auto:false` 来源。`sources.test.ts` 只断言该行可加，没有接着加入并读回；回环 RPC 证据见末尾。
+建议：只有去掉条目后仍会自动加入且启用的行才省略条目；测试用有窗口的目录外云模型验证 RPC 成功后可读、可解析。
+
+### 12. 在线目录未逐行验证，坏窗口与坏价目被持久化
+严重程度：重要；类别：正确性。
+位置：packages/nb-harness/src/models/online-catalog.ts:52-69；packages/nb-models/src/core/sources.ts:253-266、341-347；packages/nb-models/src/contract/shapes.ts:57-58、70-72。
+现象：`parseOnlineCatalog` 只验顶层和「至少映射出一家」。OMP 的 mapper 是容错映射器，坏行可被忽略，错误字段会补默认值，正数窗口并不要求整数。实测同一份目录里有合法 Moonshot 行、数字形状的坏行、以及 `context:7.25`、`cost.input:"not-a-price"` 的模型，解析仍成功，后者被输出为窗口 7.25、输入价 0；随后正文与 ETag 一起覆盖上一份可用目录。`ModelRowSchema` 又要求窗口整数，包含该模型的分页结果可整页成为 `provider-error`。这违反 B2a.1 的坏目录整份拒收，并把坏价目当作已知零价。
+核实：`harness-probes.ts` 输出 `catalog-malformed`，并对照 OMP 18.14.0 的 `mapModelsDevToModels`/`toPositiveNumber` 与远程输出 schema。
+建议：映射前验证受支持的原始目录结构、允许的缺失字段和价格类型；映射后再验证可展示/物化行（整数窗口、非负有限价格、合法 id 和有界字符串）。任一被支持的行不合格，保留旧正文/ETag。
+
+### 9. 分页损坏可以被提交为成功短表，清掉真实模型成员
+严重程度：重要；类别：正确性。
+位置：packages/nb-harness/src/models/listing.ts:129-133、197-228；packages/nb-models/src/core/sources.ts:184-193。
+现象：Gemini 的 `200 {"error":{…}}` 或 `200 {"unrelated":true}` 没有 `models`，直接当成功空表；`nextPageToken:123` 被当作末页。Anthropic 的 `has_more:"true"` 也被当作 false，即使附了合法 `last_id` 也不翻页。这些回应本应是 `bad-response`；提交后会用空表/第一页覆盖最后一份完整列表，已有来源条目变 `missing`、未覆盖模型消失。基线没有这种持久权威提交；B2a.2 明确「读到末页才成功」。
+核实：用本机端点分别交回这三种正文，观察适配器结果和请求页数（见末尾）；现有测试只覆盖游标重复、明确说有下一页但不给游标、以及正常结束。
+建议：区分「合法省略」与「错误类型/错误信封」。对 Gemini 保留协议允许的空响应，但拒收非列表信封或错误类型的游标；对 Anthropic 要求合法的分页标志，指标冲突不当作末页。
+
+### 11. 外部列表行可用一个名称冲过 RPC 帧上限，重启后同份缓存又被拒收
+严重程度：重要；类别：正确性。
+位置：packages/nb-harness/src/models/listing.ts:181-185、234-238；packages/nb-models/src/core/sources.ts:47-64、184-193、325-335；packages/nb-models/src/core/core.ts:721-735、856-866。
+现象：列表适配器不限 `name` 长度，写缓存前也不执行 `SourceCacheSchema` 的 512 字符上限；分页为「至少交出一行」会无条件放入巨型第一行，旧的安全依据是所有用户条目受设置帧上限约束，对列表输入不成立。1 050 000 个 ASCII 字符的名称（远不到 8 MiB 响应上限）能入内存、落盘，随后一行就超过 1 MiB RPC 边界；重启则把同份自写缓存整体判坏。在线目录同样未给字符串施加行预算。
+核实：`harness-probes.ts` 实测 HTTP 列表接受长名称；`semantics-probes.ts` 的真实设置 RPC（内存 JSON 链路）成功返回单行，行 JSON 为 1 050 311 字节，超过单条消息上限 1 048 576 字节；重启后来源状态变 `none`。未实测产品 WebSocket 是否断开。B1 没有此类外部名称。
+建议：在接纳列表和在线目录时限制投影后的行字段与最坏编码字节，写之前用与重启相同的校验；分页对任何一行都不应产生超过合同上限的成功响应。
+
+### 18. Gemini 图像模型被列表标成可用，但角色解析拒绝同一行
+严重程度：重要；类别：正确性。
+位置：packages/nb-harness/src/models/listing.ts:211-224；packages/nb-models/src/core/core.ts:309-324、345-358、721；packages/nb-models/src/core/members.ts:50-55、71-75；packages/nb-harness/src/models/target.ts:249-255。
+现象：Gemini 的 `generateContent` 表示请求方法，不足以区分文本和图片输出。列表把有该方法的行写成 `chat`，`sourcesFor` 即使发现同 id 的打包行不是对话，也照样用列表字段把它自动加入且标为可用；实际解析却不接受它，因为 `materialize` 又按打包行把它判为 `not-chat`。设置列表、角色选择器和模型端口给出相互矛盾的答案。B1 从打包行筛时不会自动加入这条图像模型。
+核实：`semantics-probes.ts` 用真实设置 RPC 和本机 Gemini 形状列表返回打包已知的 `gemini-2.5-flash-image`；`providerModels` 实返 `kind:chat/status:ok/usable:true`，绑定 `main` 后同一快照的角色为 `unknown-model`。只验证了回环列表和打包分类，未向 Gemini 发请求。
+建议：区分「支持生成」和「能作为本产品的对话模型」；目录已知的非对话或不支持传输不能被一般的列表能力升级成可用。行、角色和端口复用同一个可用性判断。
+
+### 8. Anthropic 列表换了线认证头，仍被判为同一凭据、同一在途请求
+严重程度：重要；类别：正确性。
+位置：packages/nb-models/src/core/core.ts:175-197、233、262-275；packages/nb-models/src/core/sources.ts:165-170、215-219；packages/nb-harness/src/models/listing.ts:59-72。
+现象：在 Anthropic 模板上把 `baseUrl` 显式填成原来的模板地址（或把 `api` 设置为原协议），有效地址和协议没变，但 `follows` 由 true 变 false，列表请求从 `x-api-key` 换成 `Authorization: Bearer`。`deployment` 没有变，`credential` 哈希的却是加协议缺省头之前的 `auth.headers`，所以也不变。旧结果可在编辑后提交为当前结果；编辑后立刻手动刷新还会合并到旧认证请求。这不是换凭据仍沿用旧列表的有意取舍：状态没有标 `changed`，新请求根本没有发出。
+核实：对照 B1 的 `stillCurrentFor` 明确包含 `follows`；本次新增协调器只比两种摘要。令同一实例从跟随切到显式相同地址，核对两个 `listingHeaders` 的实际输出和 `deploymentOf` 的输入。
+建议：请求头去重并规范化一次，用真正交给 fetch 的生效头构造凭据标记，覆盖缺省认证策略及 `auth:none`；以同值覆盖模板地址的 Anthropic 用例验收。
+
+### 5. 关掉自动加入把「缺窗口、未启用」的模型写成已启用
+严重程度：重要；类别：正确性。
+位置：packages/nb-models/src/core/members.ts:81-88；packages/nb-models/src/core/core.ts:613-625、808。
+现象：空白模板的类型不明模型缺窗口时，B2a 正确列为 `incomplete`、`enabled:false`。但只调用 `updateProvider({patch:{followSource:false}})`，`withFollow` 为无条目的成员一律冻结成 `enabled:true`，且该写入绕过 `incomplete()`。该行仍不能解析，却被快照计为启用，并出现在 `enabledModels`（未指定 `usable:true`）里。若之后列表给出了窗口，关闭自动加入的服务商会直接使它可用，而冻结时它明明未启用。
+核实：基线 `withFollow` 同样写 true，但基线没有本次引入的默认未启用来源行；与 `models/service.md` 输出 22 的冻结后清单不变、决定 27 的缺窗口不得启用对照。实验从真实设置 RPC 读取冻结前后的 `enabled`（见末尾）。
+建议：冻结时保存行的实际启用状态；重新打开时移除未被用户改动的纯冻结条目，不以 `enabled:true` 识别纯冻结。
+
+### 14. 来源文件的编码不覆盖设置层允许的 uid，且先建目录才检查链接
+严重程度：重要；类别：不变量。
+位置：packages/nb-models/src/config/shapes.ts:67-71、89-93；packages/neuro-book/src/plugins/models/backend/source-store.ts:21-33、54-64；packages/neuro-book/src/plugin-platform/backend/plugin-files.ts:40-56。
+现象一：十六进制跨大小写文件系统可区分 ASCII uid，但按 UTF-8 字节扩成两倍。Schema 接受 50 个汉字的 uid（150 字节），最终文件名已经 305 字节，常见文件系统直接 `ENAMETOOLONG`；ASCII `legacy:<id>` 也没有 id 长度约束，暂存后缀还会抬高限制。`list` 接受的文件名范围与实际平台能写出的范围无共同判据。
+现象二：`mkdir(..., {recursive:true})` 在逐段 `lstat` 之前。实测把状态根下的 `agent` 指向另一个临时目录后，写入虽拒绝，已在目标目录创建 `model-sources`。暂存文件名还使用 PID/毫秒且非排他写，碰到残留同名文件不能保证只写当前操作创建的文件。旧图标也有先 mkdir 的同类缺陷，本次把这个缺陷带给了新缓存。
+核实：`harness-probes.ts` 的 `uid-file`（`schema:true`、`ENAMETOOLONG`）和 `linked-directory`（`["model-sources"]`）。
+建议：使用定长摘要作文件键，文件体保留原 uid、列举时校验映射；逐段验证现有目录后才建下一段，短随机名以排他方式建立暂存并在失败时收尾。
+
+### 17. 30 秒截止只覆盖 HTTP，写入阶段可无限处在 `refreshing`
+严重程度：重要；类别：不变量。
+位置：packages/nb-models/src/core/sources.ts:174-193、197-208、383-402；packages/neuro-book/src/plugins/models/backend/source-store.ts:54-65；固定计划 B2a.3「协调器」「停止」。
+现象：30 秒信号只传给 `listModels`。HTTP 一成功，等待写队列、临时文件写入与提交都不再检查此截止；写慢时会超过截止仍提交，写不返回则永远保持进行中。关闭只对 `inflight.done` 等 2 秒，而后无截止地等写队列，因此同一次挂起写还能使插件收口不完成。这是新增的磁盘路径，不是 B1 的对话超时问题；与第 3 条的「身份已作废却写盘」共享缺失的提交门禁，但在身份始终不变时也成立。
+核实：沿 `AbortSignal.timeout` 到唯一消费者 `listModels`，再查 `run` 和 `close` 的等待次序。现有停止测试挂起的是 HTTP 响应体，没验写入阶段。未让实际磁盘卡住 30 秒。
+建议：允许暂存与提交分离，让同一个受理截止和代次管排队、写入结果及最终替换；超时不得被后来完成的暂存复活。无法取消的文件系统操作明确所有权与收口方式，不要把表面停止和实际写完混为一谈。
+
+### 10. 快速合同测试仍会访问真实 stencil 目录
+严重程度：重要；类别：测试。
+位置：packages/neuro-book/src/server/server.test.ts:57-63、237-251、265-276；packages/neuro-book/src/server/testing/fixture-entry.ts:85-97；packages/neuro-book/src/server/testing/claimed-server.ts:10-13；packages/neuro-book/src/server/start.ts:122-124、199-207；packages/neuro-book/src/plugins/models/testing/world.ts:36-46。
+现象：e2e 的三个启动方式都置空该变量；普通合同测试的产品入口、`spawnServer`/`fixture-entry` 和进程内 `startClaimedServer` 却仍继承启动环境。它们装载产品的 `nbook.models`，新状态根的自动更新默认开、无目录缓存，每次启动都直接发往 stencil。`modelsWorld({autoUpdate:true})` 也没有默认禁外网；其注释反而写了会联网，当前应用级来源用例都默认关，只测手动拉取，没有验证计划要求的真实设置「开时自动拉、关时不出站」。
+核实：沿三个入口查 `startupEnvKey` → models backend → `sources.start/check`；与基线对照，过去同一批测试不会自动 fetch。无需也未访问真实站点。
+建议：在测试专用装配边界默认关闭目录地址，只允许显式注入本机假目录；覆盖子进程与进程内宿主。应用级自动触发用例保持设置缺省，用本机端点验收。
+
+### 15. `refreshSource` 会写缓存，却声明成可确定失败、可重试的读方法
+严重程度：建议；类别：不变量。
+位置：packages/nb-models/src/contract/settings-spec.ts:134-139；packages/nb-models/src/core/core.ts:987-992；packages/nb-models/src/core/sources.ts:184-193、221-229；docs/specs/runtime/plugin-channel.md:85-94。
+现象：受理会启动一个不绑定调用方取消信号的后台任务，成功替换磁盘缓存与模型清单。若请求帧已发出、但返回前断线或取消，当前 `effect:"read"` 让远程层按可重试的读报告失败；旧任务实际上可能已经受理甚至提交。合并只覆盖任务在途时，不能保证重试不再次拉取。v3 的 `discover` 只返回查询结果，不存在该写入语义。
+核实：沿 v4 `refreshSource` 到 `write`，对照 RPC 的 `failureFor(phase,effect,cause)` 和中断结果表。
+建议：标记为 `write`，仍保持受理即回；这样链路中断后调用方必须用订阅或快照核对是否受理，而不是把失败当成未执行。
+
+### 20. 原来支持的 OpenAI 兼容列表信封不再可发现
+严重程度：建议；类别：正确性。
+位置：packages/nb-harness/src/models/listing.ts:189-195；基线 `packages/nb-harness/src/models/catalog.ts:236-268`；`@oh-my-pi/pi-catalog` 18.14.0 `src/discovery/openai-compatible.ts` 的 `extractModelEntriesFromNode`。
+现象：空白模板原来经 OMP 支持 `{models:[…]}`、`{result:[…]}`、`{items:[…]}` 等兼容信封。B2a 删除旧发现方法后只认顶层数组或 `{data:[…]}`。已手加的模型不受影响，但同一端点在「重新拉取」再也不能列出新模型，且没有旧入口退回。不是要求放松第 9 条的失败判定；形状明确的兼容信封可以独立校验。
+核实：`pagination-probes.ts` 让同一个回环端点返回 `200 {models:[{id:"compatible-model"}]}`，用基线调用的同版本 OMP 解析器得到 `compatible-model`，新适配器返回 `bad-response`。未测真实服务商使用这些形状的比例。
+建议：保留已支持的明确列表信封并给例子；有意缩小兼容面时记录迁移限制，不把兼容变化隐藏在删除旧方法中。
+
+### 13. 价目存在性用转写后的 id 反查，Cloudflare 在线新行的已知价目变成未知
+严重程度：建议；类别：正确性。
+位置：packages/nb-harness/src/models/online-catalog.ts:62-80；`@oh-my-pi/pi-catalog` 18.14.0 `provider-models/openai-compat.ts:7708-7720`。
+现象：mapper 的两个描述符都可输出 `cloudflare-ai-gateway`，Workers AI 从 `cloudflare-workers-ai` 读取，再给 id 加 `workers-ai/`。`find` 只取第一个同 provider 的描述符，又用转写后的 id 反查；这类行即使原文明确有 `{input:1,output:2}`，`CatalogView` 也给出未知价目，传入物化时 `priceKnown` 同样为 false。
+核实：`harness-probes.ts` 构造一个只有 `cloudflare-workers-ai` 的目录；`workers-ai/new-pricing-probe` 的 `model.cost` 正确是 1/2，但 `find(...).info.price` 为 null、`priceKnown:false`。B1 没有该在线路径；打包优先本身不受影响。
+建议：映射时保留原始行出处（描述符、原始 id），不要从转换后的键反推；用会变 id 或一行扩多行的描述符验收。
+
+### 16. 304 用内存副本当作「本地缓存可读」，会复活被移除的目录
+严重程度：建议；类别：正确性。
+位置：packages/nb-models/src/core/sources.ts:239-252、270-283；packages/neuro-book/src/plugins/models/backend/source-store.ts:86-87；固定计划 B2a.3「在线目录」。
+现象：运行中缓存文件已被移除或替换后，过期检查仍带内存中的 ETag；304 分支只检查 `catalog !== null`，直接用内存正文重写文件并推进 `fetchedAt`。既未确认本地文件仍可读/与条件请求相符，也没有拿无 ETag 的新正文验证。和计划要求「304 且本地文件可读才刷新」不同。正常文件未变情形不受影响。
+核实：`readCatalog` 仅在启动的 `load()` 被调用；`sources.test.ts` 的 304 用例只覆盖本地副本仍可读。
+建议：如果要求磁盘状态有权威性，发送条件请求及提交 304 前核对持久副本归属/可用性；已无副本时应走无条件拉取或保留过期状态。若作者有意把有效内存副本视为充分，明确调整计划与 304 验收，而不是保留相反的注释。
+
+### 21. 单家状态变化会清空全部来源投影并立即重算所有服务商
+严重程度：建议；类别：安全与性能。
+位置：packages/nb-models/src/core/core.ts:158-171、262-275、294-333、448-476；packages/nb-models/src/core/sources.ts:221-229、351-379；packages/nb-harness/src/models/catalog.ts:264-268。
+现象：一次列表受理和一次结束各触发一次全局 `invalidate`；每次都清空按部署和 `rowsVersion` 建的缓存，立刻为全部服务商重建投影，即使只有 `refreshing` 变了、没有人订阅。`snapshot` 对同一家还各构造成员数组两次（计数、missing 诊断）。例：8 家各 5000 行，8 家各刷新一次，单是这 16 次快照就做 128 次服务商来源投影与 256 次成员遍历（按行全已存在计，不是实测耗时）。分页复用来源投影，但每页仍重建成员集并排序。基线已有两次成员遍历；新协调器使后台拉取也触发全量计算。
+核实：对照 `git show 3b2ac0687:packages/nb-models/src/core/core.ts` 的 `invalidate/snapshot`；跟踪当前 `refresh` 与结束分支，并核对 `sourcesCache` 的使用和清空点。
+建议：状态变化与行版本分开失效；同一份行代次复用来源投影与读取次序，快照只算一次成员并复用诊断所需结果。让缓存键真实表达投影依赖，不同时保留全局清空和细粒度版本两套机制。
+## 已运行的补充证据（对应编号）
+
+- #1、#2、#5、#7：在隔离回环下执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t43-b2a/lab/core-probes.ts rpc`。真实设置与 v4 RPC：#1，设置返回 `{ok:true,value:null}`，32768 窗口的目录外模型仍只在 `available`；#2，401 后 RPC 快照含自造密钥和展开的 `env:` 头，服务更改回调取得的快照也含自造密钥；#5，同一 `incomplete` 行从 `enabled:false` 变 `true`、启用数变 1；#7，实际文件进入 `settings.layer.invalid` 后，手动 RPC 仍受理且回环实收 1 次。
+- #3、#6：同脚本 `coordinator`。#3 改生效头后放行：进程中还读 `first`，文件与重启均读 `obsolete-identity-result`，重启状态 `changed`。#6 用两个回环端点和注入时钟：第一次 503，改址并前推 25 小时、关开自动更新后，新端点实收 1 次旧自造密钥。
+- #4：隔离回环下从 `packages/nb-story` 加载 `./src/server/qa-service.ts`，模块链接报 `SyntaxError: Export named 'discoverModels' not found in module …/packages/nb-harness/src/index.ts`；单独类型检查也报 `src/server/qa-service.ts(33,23): error TS2305: Module '"@notnotype/nb-harness"' has no exported member 'discoverModels'.`
+- #9、#11–#14：隔离回环下 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t43-b2a/lab/harness-probes.ts`。#9 三个坏分页均 `ok:true`、各实收 1 页。另外一页 5001 个重复 id 被去重成 1 行而成功，说明 5000 上限对唯一 id 而非原始行计数；若合同按原始行计，应在去重前累计。#11–#14 的输入与结果列在各条中。
+
+- #18、#19、#20：以同一参数分别运行 `lab/semantics-probes.ts` 和 `lab/pagination-probes.ts`，结果列在各条。另将真实设置文件的服务商键改成不合 schema 的对象后重启：服务商为 0，原缓存仍在，没有被当成空配置回收。
+
+## 基线已有问题（不计入本次）
+
+- `3b2ac0687:packages/neuro-book/src/plugins/models/backend/icons.ts:32-33` 已经先递归 `mkdir`、再逐段检查；第 14 条只计本次来源缓存新增的路径及其 `uid` 编码问题。
+- `3b2ac0687:packages/nb-models/src/core/core.ts:771-776` 的 `modelsByReference` 已按条数、未按输出字节限量；第 11 条只计新增的外部列表字段让单条分页结果越界且重启后自写缓存被丢弃。
+
+## 实际验证
+
+- 在审查 HEAD `88e68fcbdd434dbb9c07d1b03b5ecbd1409a4966`、Bun 1.4.4 运行。实验前核对了 HEAD 和涉及的包未偏离该提交；回环实验与合同测试在隔离网络命名空间运行，仅启用 `lo`。合同测试用空的 `NBOOK_MODELS_CATALOG_URL`，探针按需使用回环端点；没有连接公网或真实模型。两个临时根分别为 `/tmp/review-t43-b2a/lab` 和其下的 `agent-tests`。
+- `nb-harness`：`bun test tests/listing.test.ts tests/online-catalog.test.ts tests/models.test.ts`，37 通过、0 失败。
+- `nb-models`：`bun test src/core/sources.test.ts src/contract/settings-spec.test.ts`，13 通过、0 失败。
+- `neuro-book`：`bun test src/plugins/models/models.test.ts src/plugins/models/backend/source-store.test.ts src/plugins/network/locales.test.ts`，21 通过、0 失败。
+- `bun run --cwd packages/nb-harness typecheck`、`bun run --cwd packages/nb-models typecheck` 均通过；在 `packages/neuro-book` 运行 `bun x --no-install tsc --noEmit` 通过；在 `packages/nb-story` 同命令失败，诊断见第 4 条。
+- 未跑 e2e、开发服务、真实模型、前端类型检查、完整测试套件或变异检查；未修改仓库。
+
+## 未发现问题的方面
+
+- 在定向用例覆盖的输入内，打包目录的同 id 优先、常规模型的价目有无区分、zstd 解压上限、传输字节上限、正常的 ETag 条件请求，以及无 ETag 拒绝 304，没有发现问题。坏原文、转写 id 与磁盘副本变化是第 12、13、16 条的不同边界。
+- 正常的列表地址和单一认证头覆盖、拒绝跟随重定向、重复游标与独立 id 超限、合法空表、HTTP 响应体读到一半时停止，定向用例通过；没有把响应、写盘和最终发送的其他边界视为通过。
+- v4 的合同定义与应用后端使用同一份 `modelsSettingsSpec`；定向用例中 `refreshSource` 可先受理、随后发布快照，成功缓存可跨重启读取。未发现另一个后端调用方仍按 v3 调 `discover`；跨包删除的遗漏是第 4 条。
+
+阻断 2 条，重要 14 条，建议 5 条。第 3 条收窄核实范围后仍有效；基线问题不计。
+有效编号（按影响排序）：2、4、6、19、3、7、1、12、9、11、18、8、5、14、17、10、15、20、13、16、21

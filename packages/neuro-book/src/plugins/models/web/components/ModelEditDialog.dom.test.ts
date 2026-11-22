@@ -22,7 +22,7 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const model = (patch: Partial<ModelRow> = {}): ModelRow => ({id: "m", name: "m", group: "g", enabled: true, origin: "manual", contextWindow: 200_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], source: null, ...patch});
+const model = (patch: Partial<ModelRow> = {}): ModelRow => ({id: "m", name: "m", group: "g", enabled: true, origin: "manual", kind: "chat", contextWindow: 200_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], source: null, ...patch});
 
 async function open(snapshot: ModelRow) {
     const wrapper = mount(ModelEditDialog, {global, props: {open: true, model: snapshot}, attachTo: document.body});

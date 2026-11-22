@@ -33,7 +33,7 @@ export interface ConfigSlot<T> {
 }
 
 /** 有效值变化的配置项。 */
-export type ConfigKey = "providers" | "roles" | "compaction";
+export type ConfigKey = "providers" | "roles" | "compaction" | "autoUpdate";
 
 export interface ModelsConfigStore {
     /** 设置里存着的值：新旧两种形状都可能出现，读的人先归一（`normalizeProviders`）。 */
@@ -41,6 +41,8 @@ export interface ModelsConfigStore {
     readonly roles: ConfigSlot<RolesConfig>;
     /** 全局的压缩触发点；服务不写它。 */
     compaction(): CompactionSetting;
+    /** 模型列表与在线目录的自动更新（`catalogAutoUpdate`）；每次现读，服务不写它。 */
+    autoUpdate(): boolean;
     /** 流的两个时限（秒，0 表示不限）；每次请求现读，服务不写它们。 */
     stream(): {readonly firstEventTimeoutSeconds: number; readonly idleTimeoutSeconds: number};
     /**

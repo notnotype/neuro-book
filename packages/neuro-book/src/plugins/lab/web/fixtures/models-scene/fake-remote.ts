@@ -12,7 +12,7 @@ import type {RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
 import type {ModelsRemote} from "nbook/plugins/models/web/models-store";
 
-import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_ROWS, SAMPLE_TEMPLATES, sampleRow} from "./sample";
+import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_ROWS, SAMPLE_TEMPLATES, sampleRow, SOURCE_CATALOG} from "./sample";
 
 export interface FakeModelsRemote {
     readonly remote: ModelsRemote;
@@ -98,7 +98,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             const state: ProviderState = {
                 meta: {
                     id, template, region: region ?? null, name: display, icon: null, baseUrl: baseUrl ?? (blank ? null : `https://api.${id}.example`), templateBaseUrl: blank ? null : `https://api.${id}.example`,
-                    api: api ?? "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, key: {kind: "none"}, followSource: !blank, source: {kind: "packaged"},
+                    api: api ?? "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, key: {kind: "none"}, followSource: true, source: SOURCE_CATALOG,
                     modelCount: 0, enabledCount: 0, excludedCount: 0, modelsRevision: "r1",
                 },
                 listed: rows,
@@ -219,7 +219,23 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         },
         setKey: async ({provider, value}) => setKey(provider, value.startsWith("env:") ? {kind: "env", name: value.slice(4), found: false} : {kind: "stored"}),
         clearKey: async ({provider}) => setKey(provider, {kind: "none"}),
-        discover: async () => ok(SAMPLE_CANDIDATES.map((item) => ({id: item.id, name: item.name, suggested: item.incomplete ? null : {contextWindow: 256_000, maxOutput: 32_768, vision: item.vision, reasoning: item.reasoning}}))),
+        // 重新拉取：先标在拉取，下一轮事件循环交回列表（空白模板把示例候选里还不在列表的放进可加的，目录模板的行不变）。
+        refreshSource: async ({provider}) => {
+            const state = providers.get(provider);
+            if (state === undefined) return unknown(provider);
+            // 同真实服务：没有可用的密钥不受理。
+            const key = state.meta.key;
+            if (key.kind === "none" || (key.kind === "env" && !key.found)) return {ok: false as const, code: "no-credentials" as const, detail: {detail: "no credential for this provider"}};
+            state.meta = {...state.meta, source: {...state.meta.source, refreshing: true}};
+            publish();
+            setTimeout(() => {
+                if (state.meta.templateBaseUrl === null) state.available = SAMPLE_CANDIDATES.filter((item) => !state.listed.some((row) => row.id === item.id)).map((item) => sampleRow(item.id, {name: item.name, kind: item.unknown ? "unknown" : "chat", vision: item.vision, reasoning: item.reasoning, ...(item.incomplete ? {contextWindow: null, status: "incomplete", usable: false} : {})}));
+                state.version += 1;
+                state.meta = {...state.meta, source: {state: "ok", refreshing: false, checkedAt: Date.now(), error: null}};
+                publish();
+            }, 0);
+            return ok(null);
+        },
         check: async ({provider, model}) => ok(checkResult(provider, model)),
         checkAll: async ({provider}) => ok(providers.get(provider)?.listed.filter((model) => model.enabled).map((model) => ({model: model.id, result: checkResult(provider, model.id)})) ?? []),
         events: {changed: {subscribe: async (_filter, listener) => {

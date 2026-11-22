@@ -1,0 +1,22 @@
+t43 段 B2a 开工时的核对（2026-11-22，分支 feat/w00032-t43-b2a，@oh-my-pi/pi-catalog 18.14.0，Bun 1.4.4）
+
+1. 在线目录（stencil）真实取一次
+   - GET https://catalog.stencil.so/models.json.zstd：200，content-type application/zstd，ETag 有，传输 235 179 字节，
+     解压后 3 577 345 字节（约 3.4 MiB），顶层 324 个键。用时约 2 秒。
+   - 上限定为传输 8 MiB、解压 32 MiB：约为现在的 35 倍与 9 倍。
+   - node:zlib 的 zstdDecompressSync(bytes, {maxOutputLength}) 在 Bun 1.4.4 超限时抛 RangeError（ERR_BUFFER_TOO_LARGE），
+     本机脚本用 10 MB 的压缩样本对 1 MB 上限核对过。
+   - 包根公开 mapModelsDevToModels 与 MODELS_DEV_PROVIDER_DESCRIPTORS；映射出 2128 行、39 个服务商，其中 278 行打包目录里没有
+     （kilo 94、nanogpt 66、venice 18、bedrock 17、cloudflare-ai-gateway 12、opencode-zen 11、huggingface 10……
+     anthropic 1：claude-fable-5-2，buildModel 后协议、地址、窗口、档位 low…max、单价都齐）。OpenRouter 不在映射里（它的模型靠自己的列表）。
+   - 价目原文：2586 行原始数据里 23 行没有 cost 字段，其余有；“价目是否存在”按 cost 字段判。
+
+2. 在线行与打包行对比（同 provider、同 id，buildModel 后比协议、地址、窗口、上限、推理、档位、输入模态）
+   - 1709 行相同、141 行不同。不同的多是打包目录生成时另做的修正：例如 google 的 deep-research 预览窗口打包为 131072、
+     在线为 1048576；cline-pass 几个模型的档位打包为空或不同；gpt-image 的窗口打包为 10000、在线为空。
+   - 结论（改计划 B2a.1 的“在线优先”）：打包目录里已有的行用打包的，在线目录只补打包里没有的模型。在线优先会把打包时做过的
+     修正盖掉；只补新模型已经达到“不升级也能拿到新模型”。
+
+3. 本机服务商模板
+   - OMP 的 ollama、lm-studio、vllm、litellm 在 compat 里有登记，但没有打包模型，B1 的模板表不收；本机端点都经空白模板添加。
+     决定 27 的“本机与空白模板”在实现里就是空白模板。

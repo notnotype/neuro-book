@@ -1,5 +1,5 @@
 /**
- * 设置页经远程合同看到的形状（docs/specs/models/service.md 输出 10、12）：快照、目录、发现的候选与检测结果。任何响应与事件
+ * 设置页经远程合同看到的形状（docs/specs/models/service.md 输出 10、12）：快照、模板、列表状态与检测结果。任何响应与事件
  * 里都没有密钥；请求头的值是设置里写的原样（设置文件本来就对所有已声明项可读），`env:` 不解析。
  */
 
@@ -52,6 +52,8 @@ export const ModelRowSchema = Type.Object({
     group: Type.String(),
     enabled: Type.Boolean(),
     origin: Type.Union([Type.Literal("source"), Type.Literal("manual")]),
+    /** `unknown`：服务商的列表没说明类型、目录里也没有这一行（决定启不启用的规则见 service.md“模型来源”）；手加的与目录里的是 `chat`。 */
+    kind: Type.Union([Type.Literal("chat"), Type.Literal("unknown")]),
     contextWindow: Nullable(Type.Integer()),
     maxOutput: Nullable(Type.Integer()),
     vision: Type.Boolean(),
@@ -75,8 +77,24 @@ export const ModelRowSchema = Type.Object({
 }, {additionalProperties: false});
 export type ModelRow = Static<typeof ModelRowSchema>;
 
-/** 服务商的模型清单来源；B1 只有打包目录。 */
-export const SourceStateSchema = Type.Object({kind: Type.Literal("packaged")}, {additionalProperties: false});
+/** 列表请求失败的原因：nb-harness 的五类，加上超时、没有凭据、存不下。 */
+export const ListingErrorReasonSchema = Type.Union([
+    Type.Literal("auth"), Type.Literal("not-found"), Type.Literal("unreachable"), Type.Literal("bad-response"), Type.Literal("cancelled"),
+    Type.Literal("timeout"), Type.Literal("no-credentials"), Type.Literal("storage"),
+]);
+
+/**
+ * 这家服务商的列表（docs/specs/models/service.md“模型来源”）。`state`：`none` 还没有这个部署的列表（成员来自目录，空白模板没有成员）；
+ * `ok` 有、且是当前凭据拉到的；`changed` 有一份，但地址、协议或凭据改过（地址或协议改了时成员退回目录，凭据改了时照用旧列表），要重新拉取。
+ * `checkedAt`：可用的那份列表是什么时候拉到的（毫秒）；`error`：最近一次拉取失败的原因（成功后清掉）。
+ */
+export const ListingStateSchema = Type.Object({
+    state: Type.Union([Type.Literal("none"), Type.Literal("ok"), Type.Literal("changed")]),
+    refreshing: Type.Boolean(),
+    checkedAt: Nullable(Type.Integer()),
+    error: Nullable(Type.Object({reason: ListingErrorReasonSchema, message: Type.String()}, {additionalProperties: false})),
+}, {additionalProperties: false});
+export type ListingState = Static<typeof ListingStateSchema>;
 
 /**
  * 快照里的服务商：不带模型行（几百个模型的服务商会让每次快照都很大），行经 `providerModels` 分页读；`modelsRevision` 是这家
@@ -100,7 +118,7 @@ export const SnapshotProviderSchema = Type.Object({
     headers: Headers,
     key: KeyStatusSchema,
     followSource: Type.Boolean(),
-    source: SourceStateSchema,
+    source: ListingStateSchema,
     modelCount: Type.Integer(),
     enabledCount: Type.Integer(),
     /** 被移出的来源模型数。 */
@@ -154,13 +172,6 @@ export const TemplateSchema = Type.Object({
     access: Type.Union([Type.Literal("keyless"), Type.Literal("key"), Type.Literal("login")]),
 }, {additionalProperties: false});
 export type Template = Static<typeof TemplateSchema>;
-
-/** 发现的候选：按名字在目录里找到参照时带建议值（只是建议，用户加入后可改）。 */
-export const DiscoveredSchema = Type.Object({
-    id: Type.String(),
-    name: Type.String(),
-    suggested: Nullable(Type.Object({contextWindow: Nullable(Type.Integer()), maxOutput: Nullable(Type.Integer()), vision: Type.Boolean(), reasoning: Type.Boolean()}, {additionalProperties: false})),
-}, {additionalProperties: false});
 
 /** 检测结果：失败时 `kind` 是模型失败的类别，`raw` 是遮盖、截断过的服务商原文。 */
 export const CheckResultSchema = Type.Union([

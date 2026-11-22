@@ -1,0 +1,81 @@
+# w00032 t43 B2a 前端实现审查报告（范围 3b2ac0687..HEAD 的前端部分）
+验证：`bunx vitest run src/plugins/models` 8 个文件 38 条通过；`bunx vue-tsc --noEmit -p tsconfig.web.json` 退出码 0。未跑 e2e。
+
+## 1. 【重要】测试：e2e 验收 1 里“重新拉取”的断言空过，去掉重新拉取的实现照样通过
+位置：packages/neuro-book/e2e/models.e2e.ts:137-142（`refresh.click()` 之后的四行）
+现象：点击前，来源行已经含“更新于”（第 131 行刚断言过）、模型行已是 2 个。点击后依次断言：`refresh` 为 enabled（点击瞬间快照里的 `refreshing` 还没回来，按钮本来就是可用的）、来源行含“更新于”（点击前就含）、`[data-model-row]` 数量为 2（点击前就是 2）。这四条在“点击没有任何效果”时全部成立，所以删掉 `@refresh-source` 的绑定或让 `refreshSource` 什么都不做，这个用例照过。
+为什么是问题：验收 1 的标题与注释声称覆盖了“重新拉取”，实际没有覆盖；这是 brief 重点 5 里“断言会不会空过”的典型。
+如何核实：从代码推断（未跑 e2e）：第 131 行与第 142 行的断言对象相同、点击前后文本都满足。
+建议：让断言依赖“重新拉取真的发生过”。例如在 e2e 的假端点里数 `GET /models` 的次数，点击后等次数加一；或把假端点的 `/models` 回应改成第二次多出一个模型 id，断言它出现；或用固定时钟让“更新于”的时间在点击后变化。再补一条失败路径（假端点回 401，来源行出现“密钥被拒绝”、按钮仍可点），因为现在界面的失败文案五类原因没有任何 e2e 覆盖。
+
+## 2. 【重要】交互与文案：“重新拉取”被受理前就失败时，弹的是“设置没有保存”，还会把连接区的草稿重置
+位置：packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue:139-149（`report`、`refreshSource`）；通知出口 packages/neuro-book/src/plugins/settings/web/settings-window.ts:461-463，文案 settings/locales/*.json 的 `model.notSavedTitle`、`model.unknownTitle`
+现象：`refreshSource` 失败（`no-credentials`，或服务商刚被别处删掉的 `unknown-provider`）走的是 `report()`，也就是 `reportWriteFailure`。窗口把它渲染成标题“设置没有保存”，内容“服务商 X：还没有密钥”；若失败码是 `unknown-outcome`，标题成了“设置可能没有保存”。这次操作什么都没写，用户会去查设置有没有丢。`report()` 里还有 `resetToken += 1`，它的用途是“写失败后让输入框回到实际值”（见 ProvidersPage.vue:136-138 的注释），拉取失败也会触发：详情里密钥框、地址框的草稿被换回快照值，`HeadersEditor` 因 `:key="resetToken"` 被重建。
+为什么是问题：失败类别与通知文案不符；一次与输入框无关的失败顺带清掉用户正在输入的内容。触发条件窄（按钮只在 `keyReady` 时可点，所以只会在别处刚清了密钥、或服务商被删的竞态里），但文案错误是确定的。
+如何核实：读 `notifyNotSaved`（settings-window.ts:461）与上面两个文案键即可，从代码推断，未在界面里触发。
+建议：拉取失败不要借写入失败的通道。最小改法是单独走一个只弹 warning 的通知（页面上下文若没有这种出口，可在来源行里就地写“没拉取：原因”，因为 `no-credentials` 已经在 `source.error` 里有 `no-credentials` 文案可用）；至少不要让 `refreshSource` 触发 `resetToken`。
+
+## 3. 【建议】可访问性：停用的“重新拉取”靠原生 title 说明原因，键盘与读屏用户看不到；点击后按钮停用会丢焦点
+位置：packages/neuro-book/src/plugins/models/web/components/ProviderDetail.vue:322-333（Button 的 `:disabled`、`:title`）、第 59 行 `keyReady`；locale `models.source.needsKey`
+现象：
+(a) 原因只写在 `title` 上，且只在没密钥时给。停用的 button 不能获得焦点，键盘用户进不去，触屏看不到悬停，读屏在浏览模式外读不到；`source.refreshing`（来源行已写“正在拉取”，这一种没问题）与只读（`disabled`）两种停用没有任何原因。nb-ui 规范第 199 行也说 tooltip 不能替代名称，这里的做法更弱（原生 title）。同文件别处用的是 `InfoTip`。
+(b) 键盘用户在“重新拉取”上按回车，随即 `refreshing` 为真、按钮变 `disabled`，焦点会落回 body（从代码推断，浏览器对聚焦元素被停用的处理不一，未实测）；拉取完成后焦点不会回来。
+(c) 没密钥时来源行写的是“用内置的模型目录；还没有拉到服务商的列表”，没有说“因为没填密钥”，原因只在悬停里。env 引用的变量没值（`key.kind === "env" && !found`）时提示写“先填密钥”也不准。
+建议：没有可用密钥时把原因直接写进来源行（可见文字），按钮保留停用；拉取中用 `aria-disabled` 或 Button 的 `loading` 但保持可聚焦，或完成后把焦点还给按钮。若保留 title，同时用 `aria-describedby` 指向可见文字。
+
+## 4. 【建议】英文与时区：“更新于”的时间用 `toLocaleString()`，不跟界面语言，Lab 截图随浏览器时区变
+位置：packages/neuro-book/src/plugins/models/web/components/ProviderDetail.vue:60；Lab 夹具 packages/neuro-book/src/plugins/lab/web/fixtures/models-scene/sample.ts:5-6（`SOURCE_AT`）与 fixtures/index.ts 的 `source-failed-english`
+现象：`new Date(at).toLocaleString()` 取的是浏览器的默认语言，不是设置里选的界面语言。界面选 English、浏览器是中文时，来源行是“Provider's model list, updated 2026/11/22 09:30:00”，一句里两种语言格式；反之亦然。带秒数，也比“更新于”需要的精度高。`SOURCE_AT` 注释写“截图不随运行时间变”，但它按本机时区显示，不同机器的截图仍不一样。
+为什么是问题：brief 重点 1 点名的一项；仓库里已有按界面语言格式化的做法：`packages/neuro-book/src/shared/short-time.ts` 的 `fullTime(at, locale)`，`TasksView.vue:55` 与 `WorkbenchNotificationsView.vue:91` 用 `port.locale.value` 调它。`ModelRow.vue:57` 的检测时间同样用 `toLocaleTimeString()`，是同类旧问题，不必一起改。
+如何核实：读代码；dom 与 Lab 都没有按语言断言时间。
+建议：用 `fullTime(at, locale)`，locale 取自文本端口（与 TasksView 同一来源）；Lab 的英文场景断言一条含年月日的英文格式。
+
+## 5. 【建议】状态一致：管理模型的“打开时已有”与候选来自两次读取，紧挨着“重新拉取”时可能错位
+位置：packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue:289-296（`manageOpenedWith`、`openManage`）与第 273-285 行（`loadCandidates`）
+现象：`openManage` 同步用 `store.rowsOf(id).rows`（缓存里的 listed 行，可能是上一个 `modelsRevision` 的）算 `manageOpenedWith`，随后 `loadCandidates` 才 `loadRows` 重读。重新拉取刚完成、或正在拉取时点“管理模型”（两个按钮就在上下两行），若缓存还是旧版本，候选里新出现的、已因“自动加入”进了列表的模型不在 `current` 里：对话框把它们画成“+”（未加入），用户点“+”再“完成”时会把它们作为 `add` 写一遍，其中被用户手动停用过的会被写成 `enabled: true`（`enabled: !item.incomplete`）。B1 时只有后台变更才会碰到这种错位，B2a 加了用户自己触发的列表变化，窗口变大。
+如何核实：从代码推断，未复现；复现路径：dom 里先 `refresh`、不等完成就点管理模型，并让假远端在这期间给 listed 加一行。
+建议：对话框的 `current` 取 `loadRows` 完成之后的 listed 行（候选与 `current` 来自同一次读取），或“重新拉取进行中”时停用“管理模型”。这里不用加机制，换一下取值时刻即可。
+
+## 6. 【建议】文案与规则：决定 27 要求“界面写明规则”，现在只有一句固定提示，且对已加入的模型是错的；空列表提示也过时
+位置：packages/neuro-book/src/plugins/models/web/components/ManageModelsDialog.vue:79-81、locale `manage.unknownHint`；locale `models.empty`（zh-CN.json:132）、`models.follow.hint`
+现象：
+(a) 类型不明那一组的提示固定写“服务商没说明这些是不是对话模型，确认是再加入”。但空白模板里有窗口的类型不明模型已经自动加入（决定 27），它们在这一组里显示为“−”（已加入），提示对它们不成立；没有窗口的、含 embed 等词的、云服务商的各有各的结果（需补字段、不自动启用、加入即启用），界面没有一处写出这三种差别。“自动加入”开关的提示（`models.follow.hint`）也只提列表与目录，没提类型不明的规则。
+(b) `models.empty`“还没有模型。设置密钥后点‘管理模型’加入。”对空白模板已不对：设了密钥会自动拉列表并加入；列表为空时应指向“重新拉取”或来源行的状态。
+(c) 这组下的“加入”不分有无窗口，没窗口的加入后是停用的（`enabled: !item.incomplete`），行上有“要补字段”徽标，这点没问题，但 plan B2a.5 写的是“没有窗口的加入时要求先填”，实现是先加入再去编辑对话框补字段，二者不一致，应在 Task 记录里说明采用了哪种。
+建议：提示按这家的情形写（空白模板：有窗口的已自动加入，没窗口的、名字像向量模型的在这里手动加；云服务商：都需要手动加入）；ProviderDetail 或管理模型里至少一处写出完整规则。
+
+## 7. 【建议】Lab 假远端与 dom 用例：与真实服务不同的几处，使“拉取”的几条路径没被覆盖，中间状态的断言靠宏任务先后
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/models-scene/fake-remote.ts:222-235（`refreshSource`）、第 101 行（新建服务商 `followSource: true`）；packages/neuro-book/src/plugins/models/web/components/ProvidersPage.dom.test.ts 新增用例
+现象：
+(a) 假的 `refreshSource` 不看密钥：没密钥也受理，从不回 `no-credentials`，也从不产生 `error`；所以 ProvidersPage 里“没受理走通知”的分支、来源行红字的真实交互都没有任何 dom 用例（Lab 场景只有静态的失败行）。
+(b) 新建的空白模板服务商 `followSource: true`（第 101 行从 `!blank` 改过来），但 `refreshSource` 对空白模板只把候选放进 `available`，不按 `followSource` 自动加入有窗口的模型；真实服务在 `followSource` 开着时会把它们放进 listed。在 Lab 里“添加空白模板 → 重新拉取”得到的是真实服务不会出现的状态。dom 用例恰好用的是 `followSource: false` 的 volcengine，没有暴露。
+(c) “正在拉取”那一断言：点击后 `await flushPromises()` 再断言中间状态，而假远端用 `setTimeout(0)` 完成。能通过靠 `flushPromises` 的 `setImmediate` 先于 0ms 定时器；在负载高、时钟被换成假时钟的环境里这条会飘。更稳的做法是让假远端用一个可手动放行的 deferred（参数或返回的句柄），测试先断言中间状态、再放行。
+(d) 新用例里管理模型加入的是 `house-router`（没窗口），`enabled: false` 被断言；“类型不明且有窗口 → 加入后启用”（云服务商手动启用的主路径）、“云服务商模板里类型不明不自动加入”没有用例。
+建议：假远端按真实规则补 `followSource` 与密钥；dom 补 (a)(d) 各一条；(c) 改成手动放行。
+
+## 8. 【建议】失败信息：只显示五类原因的固定一句，服务商返回的 `error.message` 不展示；旧 discover 的失败文案成了死键
+位置：packages/neuro-book/src/plugins/models/web/components/ProviderDetail.vue:62-72（`sourceLine`）；packages/neuro-book/src/plugins/models/locales/zh-CN.json:426、429（`failure.not-supported`、`failure.failed`）与 en-US 对应
+现象：`ListingState.error` 有 `{reason, message}`，界面只用 `reason`。`bad-response` 与 `unreachable` 是最常见也最难自查的两类（“服务商回的不是完整的模型列表”“连不上服务商”），原文（如 HTTP 状态、解析哪里错）看不到，用户只能去翻日志；Lab 里场景的 `message: "401"`、`"503"` 也从没有出现在画面上。nb-ui 规范里“检查失败的原文可选”的做法在 ProviderDetail 里已有先例（检测失败行点开看原文）。反过来，`discover` 删掉后，locale 里 `failure.not-supported`（“这家不支持拉取模型列表”）、`failure.failed`（“拉取失败：{{detail}}”）以及与来源 `reasons` 重复的 `failure.auth`、`failure.unreachable` 不再被任何界面用到（`FAILURE_CODES` 读的是 locale 的键，没有被机检提醒）；我没查到 `not-supported` 在合同错误表里的出现。
+建议：来源行的失败项用 `title` 之外的可见方式给原文（悬停不够，参见第 3 条），或失败时给一个可展开的原文；删掉死键前确认 `FAILURE_CODES` 没有别的用处。
+
+## 9. 【建议】管理模型的 200 行上限先砍掉类型不明那一组；该组条数显示的是“已画出的”
+位置：packages/neuro-book/src/plugins/models/web/components/ManageModelsDialog.vue:62-84（`shown`）
+现象：预算 `budget` 按候选顺序消耗，候选顺序是 listed 在前、available 在后。类型不明的模型多数在 available，所以几百个模型的服务商（OpenRouter 型网关、本机端点列了很多）一超过 200，最后被丢掉的就是这一组：组头显示“类型不明 3”，下面只有“还有 N 条，缩小搜索词”，用户不知道这 N 条里有多少是这一组，也无从得知这一组本来更长。组头的数字也是已画出的条数。这是这一组独有的新问题（以前 `kind` 没有分组）。
+为什么影响：决定 27 让类型不明的模型只能在这里手动加入，它们被预算吞掉等于入口消失，只能靠搜索。
+建议：类型不明的单独计预算（例如先画完它们，或各组分别限额），或在 `data-manage-more` 处区分“其中类型不明 N 条”。
+
+## 10. 【建议】e2e：验收 1 删掉了“空白模板里管理模型加入”的路径，类型不明一组与手动加入没有 e2e 覆盖
+位置：packages/neuro-book/e2e/models.e2e.ts:130-141（原 130-137 的管理模型步骤被换成来源行断言）；验收 4（320-380 行）仍有“移出一个来源模型再从管理模型加回来”
+现象：验收 4 走的是目录模板里的 chat 模型，验收 1 原来覆盖的“自定义服务商的管理模型→加入→缺窗口停用”换成了“自动拉到列表”。现在整套 e2e 里没有任何一条打开过“类型不明”一组、或手动加入类型不明的模型；该组的合同（`data-manage-group="unknown"`、加入后启用与否）只有 dom 用例经假远端覆盖，假远端与真实服务的差异见第 7 条。
+建议：验收 1 里保留一次“管理模型→在类型不明组加入→补窗口→启用”的完整步骤（假端点已经返回两个类型不明的模型，且自动加入后它们已在列表里，需要换成一个含 `embed` 之类字样的 id 让它不自动加入，才能走到手动加入）。
+
+## 未发现问题的方面
+- 六种来源状态的文字与 `ListingState` 的取值一一对应，`state="changed"` 且 `error` 非空、`state="none"` 且 `error` 非空两种组合落到 `failed`/`failedKept` 没有错位（核对了 `sources.ts` 的 `state()`：`checkedAt` 在地址或协议不符时为 null，所以“沿用某时的列表”不会误写）。
+- “重新拉取”的停用条件与后端 `keyReady` 的判定一致（stored、keyless、env 且找到）；`ProviderDetail` 以 `:key="current.id"` 挂载，切换服务商不会重复播报 `aria-live` 内容。
+- `aria-live="polite"` 放在 p 上、不是 `role="alert"`，对“失败”这种用户自己触发的操作可以接受。
+- 390 宽：来源行 `flex-wrap`，文字与按钮会换行，没有横向溢出的结构性原因（只读 CSS，未截图）。
+- 管理模型 `UNKNOWN_KEY` 的 NUL 前缀不会与系列名相撞；搜索只作用于名称与 id，不会让这一组吞掉别的组；`applyManage` 只写 `{id, enabled}` 对来源模型够用（`withAdded` 的语义是取消移出或补一条，能力字段跟着来源；这一点依赖后端，未审）。
+- 旧的 `discover`、`discoverable`、`refetch` 在前端已删净（`vue-tsc` 通过，Lab 场景的事件表也同步）。
+
+## 数量
+阻断 0；重要 2（第 1、2 条）；建议 8（第 3 至 10 条）。
