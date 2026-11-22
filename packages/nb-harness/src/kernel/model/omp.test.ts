@@ -3,9 +3,13 @@
  * 这里的密钥都是假的，只发往本机端点。
  */
 
+import {rm} from "node:fs/promises";
+
 import {afterAll, describe, expect, test} from "bun:test";
 import {defineModel} from "@notnotype/nb-harness";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ModelDelta, ModelRequest, ToolDeclaration} from "../api/index.js";
+import {createTestSession} from "../testing/test-session.js";
 import {lacksWebp, ompCall, ompModelInfo} from "./omp.js";
 import {REDACTED_KEY} from "./redact.js";
 
@@ -330,6 +334,41 @@ describe("签发身份与回放（models.md 输出 19 之后的 origin）", () =
         // 没给身份的目标不写 origin。
         replies = [{text: "好"}];
         expect("origin" in (await call(request(), new AbortController().signal, () => undefined))).toBe(false);
+    });
+});
+
+describe("签发身份经会话日志往返（models.md 输出 22）", () => {
+    /**
+     * 真实的会话日志（JSONL）与真实适配器：第一轮的回复带着思考与 origin 写进日志，关掉会话再打开，下一轮送回的历史从日志投影
+     * 出来。部署身份在重开前后不变时思考原样送回；换了（同名删了重建、同址换凭据）就不送回、退成文字。
+     */
+    async function secondTurnAfterReopen(before: {deployment: string; credential: string}, after: {deployment: string; credential: string}): Promise<string> {
+        const root = await createTestTmpRoot("nb-harness", "omp-origin-reopen");
+        try {
+            let identity = {...before, legacyProvider: "inst"};
+            const models = {resolve: () => ({ok: true as const, info: ompModelInfo(resolved.model, "inst/m"),
+                call: (...args: Parameters<ReturnType<typeof ompCall>>) => ompCall({model: resolved.model, apiKey: resolved.apiKey, priceKnown: false, name: "inst/m", identity})(...args)})};
+            await using session = await createTestSession({store: {root}, models});
+            replies = [{reasoning: "先想想", text: "答"}];
+            await session.say("你好");
+            await session.reopen();
+            identity = {...after, legacyProvider: "inst"};
+            replies = [{text: "好"}];
+            const sentBefore = bodies.length;
+            await session.say("再来");
+            expect(bodies.length).toBe(sentBefore + 1);
+            return JSON.stringify(bodies.at(-1)!.messages.find((item) => item.role === "assistant"));
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    }
+
+    test("重开后部署与凭据身份没变：思考原样送回；换了部署或凭据：不送回", async () => {
+        const same = {deployment: "dep-1", credential: "cred-1"};
+        expect(await secondTurnAfterReopen(same, same)).toContain('"reasoning_content":"先想想"');
+        // 不送回签名时 OMP 把思考退成文字，不再是 reasoning_content。
+        expect(await secondTurnAfterReopen(same, {deployment: "dep-2", credential: "cred-1"})).not.toContain("reasoning_content");
+        expect(await secondTurnAfterReopen(same, {deployment: "dep-1", credential: "cred-2"})).not.toContain("reasoning_content");
     });
 });
 
