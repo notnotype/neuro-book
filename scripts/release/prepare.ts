@@ -23,7 +23,7 @@ import {parseArgs} from "node:util";
 
 import {finalizeUnreleased, isEmpty, parseChangelog, ChangelogError} from "#scripts/release/changelog";
 import {GitHubReleases, hasDesktopSetup, previousDesktopRelease, spawnRun} from "#scripts/release/github-release";
-import {RELEASE_PACKAGES, releaseDirectories} from "#scripts/release/packages";
+import {releaseDirectories, VERSIONED_DIRECTORIES, versionedPackage} from "#scripts/release/packages";
 import {compareVersions} from "#scripts/release/semver";
 import {sourceVersions, type ReleaseStage} from "#scripts/release/tag";
 
@@ -156,12 +156,12 @@ async function collectState(target: string): Promise<PrepareState> {
         appPackageJson: read(APP_PACKAGE_JSON),
         product: read(PRODUCT_TS),
         appChangelog: read(APP_CHANGELOG),
-        packages: RELEASE_PACKAGES.map((dir) => {
-            const version = (JSON.parse(read(`packages/${dir}/package.json`)) as {version: string}).version;
+        packages: VERSIONED_DIRECTORIES.flatMap((dir) => {
             const shown = previousTag === null ? null : git(["show", `${previousTag}:packages/${dir}/package.json`]);
-            const previousVersion = shown !== null && shown.code === 0 ? (JSON.parse(shown.stdout) as {version: string}).version : null;
+            const versions = versionedPackage(JSON.parse(read(`packages/${dir}/package.json`)) as {version: string; private?: boolean}, shown !== null && shown.code === 0 ? (JSON.parse(shown.stdout) as {version: string; private?: boolean}) : null);
+            if (versions === null) return [];
             const changelogPath = join(REPOSITORY, "packages", dir, "CHANGELOG.md");
-            return {dir, version, previousVersion, changelog: existsSync(changelogPath) ? readFileSync(changelogPath, "utf8") : null};
+            return [{dir, ...versions, changelog: existsSync(changelogPath) ? readFileSync(changelogPath, "utf8") : null}];
         }),
     };
 }

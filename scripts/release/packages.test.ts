@@ -7,6 +7,8 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {PRODUCT_PACKAGES, VERSIONED_DIRECTORIES, versionedPackage} from "./packages";
+
 // 检查要用 Bun 的转译器扫导入，测试在 Node 里跑，所以经子进程跑真实的命令。
 const REPOSITORY = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SCRIPT = join(REPOSITORY, "scripts", "release", "packages.ts");
@@ -155,5 +157,58 @@ describe("发布清单检查", () => {
 
         expect(result.status).toBe(2);
         expect(result.stderr).toContain("--bogus");
+    });
+});
+
+describe("生成包：版本独立、MIT（ADR 0054 第 5、6 条，nb-layout）", () => {
+    /** 用一个 Bun 子进程跑检查：源码包 `app`，加一个版本独立、MIT 的生成包 `lib`（生成目录 `dist/package`）。 */
+    function checkWithBuilt(root: string): CheckOutput["findings"] {
+        const built = {name: "@notnotype/lib", source: "lib", script: "build", outDir: "dist/package", repositoryDirectory: "packages/lib", version: "own", license: "MIT", bun: false};
+        const code = `import {checkReleasePackages, loadBuiltPackages, loadReleasePackages} from ${JSON.stringify(SCRIPT)};
+const root = ${JSON.stringify(root)};
+console.log(JSON.stringify(checkReleasePackages(root, [...loadReleasePackages(root, ["app"]), ...loadBuiltPackages(root, [${JSON.stringify(built)}])])));`;
+        const result = spawnSync("bun", ["-e", code], {encoding: "utf8"});
+        if (result.status !== 0) throw new Error(result.stderr);
+        return JSON.parse(result.stdout) as CheckOutput["findings"];
+    }
+
+    async function writeBuilt(root: string, extra: Record<string, unknown>): Promise<void> {
+        const path = join(root, "packages", "lib", "dist", "package");
+        await mkdir(path, {recursive: true});
+        await writeFile(join(path, "package.json"), JSON.stringify({...manifest("lib", {license: "MIT", engines: undefined, files: ["*.js", "README.md", "LICENSE"]}), ...extra}));
+        await writeFile(join(path, "LICENSE"), "MIT License\n\nCopyright (c) 2026 notnotype\n");
+        await writeFile(join(path, "README.md"), "# lib\n");
+        await writeFile(join(path, "index.js"), "export const lib = 1;\n");
+    }
+
+    it("产品版本的只有应用与 SDK；版本手工提的目录有源码包与 nb-layout", () => {
+        expect([...PRODUCT_PACKAGES].sort()).toEqual(["@notnotype/nb-plugin-sdk", "@notnotype/neuro-book"]);
+        expect(VERSIONED_DIRECTORIES).toEqual(expect.arrayContaining(["nb-story", "nb-runtime", "nb-layout"]));
+    });
+
+    it("发版准备与 Release 说明：现在是 private 的不看；上一个标签下是 private 的按新包", () => {
+        expect(versionedPackage({version: "0.1.0", private: true}, {version: "0.1.0", private: true})).toBeNull();
+        expect(versionedPackage({version: "0.1.0"}, {version: "0.1.0", private: true})).toEqual({version: "0.1.0", previousVersion: null});
+        expect(versionedPackage({version: "0.2.0"}, {version: "0.1.0"})).toEqual({version: "0.2.0", previousVersion: "0.1.0"});
+        expect(versionedPackage({version: "0.1.0"}, null)).toEqual({version: "0.1.0", previousVersion: null});
+    });
+
+    it("MIT 的生成包：LICENSE 不与仓库根比、不要求 engines.bun；还是 private 时不报、也不算发布的包", async () => {
+        const root = await fixtureRoot();
+        await writePackage(root, "app", manifest("app", {devDependencies: {"@notnotype/lib": "workspace:*"}}), {"src/index.ts": "export const app = 1;\n"});
+        await writeBuilt(root, {private: true});
+        expect(checkWithBuilt(root)).toEqual([]);
+
+        // 首发之后（去掉 private）：它是发布的包了，内部依赖要写 workspace:^，哪怕是 devDependencies。
+        await writeBuilt(root, {});
+        expect(checkWithBuilt(root).map((finding) => `${finding.package} ${finding.code}`)).toEqual(["@notnotype/app internal_dependency"]);
+    });
+
+    it("MIT 的生成包换成了别的许可文本、license 写错：报出", async () => {
+        const root = await fixtureRoot();
+        await writePackage(root, "app", manifest("app"), {"src/index.ts": "export const app = 1;\n"});
+        await writeBuilt(root, {license: "AGPL-3.0-only"});
+        await writeFile(join(root, "packages", "lib", "dist", "package", "LICENSE"), LICENSE_TEXT);
+        expect(checkWithBuilt(root).map((finding) => finding.code).sort()).toEqual(["license", "license_file"]);
     });
 });

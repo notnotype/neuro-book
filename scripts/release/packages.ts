@@ -28,17 +28,54 @@ export const RELEASE_PACKAGES = [
     "nb-story",
 ] as const;
 
-/**
- * 先生成、再从生成的目录发布的包（ADR 0033）：应用包与插件 SDK，都由新应用的脚本生成，版本是产品版本。
- * `release:smoke` 运行生成命令并打 tarball，`release:publish` 发布那些 tarball。加包时同步根 README 两份的包表。
- */
-export const BUILT_PACKAGES = [
-    // SDK 在应用之前：应用包的 README 让用户用 SDK 写插件，先发它，应用发出去时 SDK 已经装得到。
-    {name: "@notnotype/nb-plugin-sdk", source: "neuro-book", script: "build:sdk", outDir: "dist/plugin-sdk", repositoryDirectory: "packages/neuro-book/plugin-sdk"},
-    {name: "@notnotype/neuro-book", source: "neuro-book", script: "build:app-package", outDir: "dist/app-package", repositoryDirectory: "packages/neuro-book"},
-] as const;
+/** 先生成、再从生成的目录发布的包。 */
+export type BuiltPackage = {
+    readonly name: string;
+    /** 生成它的源码包（`packages/` 下的目录名）。 */
+    readonly source: string;
+    readonly script: string;
+    readonly outDir: string;
+    readonly repositoryDirectory: string;
+    /**
+     * `"product"`：版本就是产品版本（应用与 SDK，ADR 0033）。`"own"`：版本独立、手工提，写在源码包的 `package.json`，
+     * 提了版本号就是这次发（与源码包一样）；源码包还是 `private` 时只冒烟、不发（首发由开发者决定）。
+     */
+    readonly version: "product" | "own";
+    /** 发布清单检查要求的许可。不是 `RELEASE_LICENSE` 的包，`LICENSE` 不与仓库根比，只要求是那种许可的全文。 */
+    readonly license: typeof RELEASE_LICENSE | "MIT";
+    /** 要不要写 `engines.bun`：给浏览器的库（nb-layout）不要求。 */
+    readonly bun: boolean;
+};
 
-export type BuiltPackage = (typeof BUILT_PACKAGES)[number];
+/**
+ * 先生成、再从生成的目录发布的包：应用包与插件 SDK 由新应用的脚本生成，版本是产品版本（ADR 0033）；nb-layout 发编译产物，
+ * 版本独立、许可 MIT（ADR 0054 第 5、6 条）。`release:smoke` 运行生成命令并打 tarball，`release:publish` 发布那些 tarball。
+ * 加包时同步根 README 两份的包表。
+ */
+export const BUILT_PACKAGES: readonly BuiltPackage[] = [
+    // SDK 在应用之前：应用包的 README 让用户用 SDK 写插件，先发它，应用发出去时 SDK 已经装得到。
+    {name: "@notnotype/nb-plugin-sdk", source: "neuro-book", script: "build:sdk", outDir: "dist/plugin-sdk", repositoryDirectory: "packages/neuro-book/plugin-sdk", version: "product", license: "AGPL-3.0-only", bun: true},
+    {name: "@notnotype/neuro-book", source: "neuro-book", script: "build:app-package", outDir: "dist/app-package", repositoryDirectory: "packages/neuro-book", version: "product", license: "AGPL-3.0-only", bun: true},
+    {name: "@notnotype/nb-layout", source: "nb-layout", script: "build:package", outDir: "dist/package", repositoryDirectory: "packages/nb-layout", version: "own", license: "MIT", bun: false},
+];
+
+/** 版本就是产品版本的生成包（应用与 SDK）：发布计划里它们不会是历史包。 */
+export const PRODUCT_PACKAGES: readonly string[] = BUILT_PACKAGES.filter((entry) => entry.version === "product").map((entry) => entry.name);
+
+/** 版本手工提的包所在的目录：源码包与版本独立的生成包。发版准备与 Release 说明按它们看这次提了版本没有。 */
+export const VERSIONED_DIRECTORIES: readonly string[] = [...RELEASE_PACKAGES, ...BUILT_PACKAGES.filter((entry) => entry.version === "own").map((entry) => entry.source)];
+
+type VersionedManifest = {readonly version: string; readonly private?: boolean};
+
+/**
+ * 一个版本手工提的包在这次发版里怎么看（`prepare.ts`、`release-notes.ts` 共用）：现在还是 `private` 的（nb-layout 首发之前）
+ * 这次不发，返回 null，不定稿它的记录、不列进说明；上一个标签下是 `private` 的，那时没有发，`previousVersion` 按新包给 null，
+ * 首发要有它的版本段。
+ */
+export function versionedPackage(current: VersionedManifest, previous: VersionedManifest | null): {version: string; previousVersion: string | null} | null {
+    if (current.private === true) return null;
+    return {version: current.version, previousVersion: previous === null || previous.private === true ? null : previous.version};
+}
 
 export const APP_PACKAGE = "@notnotype/neuro-book";
 export const SDK_PACKAGE = "@notnotype/nb-plugin-sdk";
@@ -48,7 +85,7 @@ export function releaseDirectories(dirs: readonly string[] = RELEASE_PACKAGES): 
     return ["LICENSE", ...new Set([...dirs, ...BUILT_PACKAGES.map((entry) => entry.source)].map((dir) => join("packages", dir)))];
 }
 
-export const RELEASE_LICENSE = "AGPL-3.0-only";
+export const RELEASE_LICENSE = "AGPL-3.0-only" as const;
 const REPOSITORY_URL = "git+https://github.com/notnotype/neuro-book.git";
 const SCOPE = "@notnotype/";
 
@@ -77,6 +114,12 @@ export type ReleasePackage = {
     /** `repository.directory` 应写的值。 */
     repositoryDirectory: string;
     manifest: PackageManifest;
+    /** 要求的许可：源码包都是 `RELEASE_LICENSE`，生成包按 `BuiltPackage.license`。 */
+    license: BuiltPackage["license"];
+    /** 要不要写 `engines.bun`。 */
+    bun: boolean;
+    /** 版本独立、源码包还是 `private` 的生成包（首发之前）：照样检查、打包、冒烟，但不算发布的包、不进发布清单。 */
+    held: boolean;
 };
 
 export type Finding = {
@@ -100,7 +143,7 @@ export type Finding = {
 export function loadReleasePackages(root: string, dirs: readonly string[] = RELEASE_PACKAGES): ReleasePackage[] {
     return dirs.map((dir) => {
         const path = join(root, "packages", dir);
-        return {dir, path, repositoryDirectory: `packages/${dir}`, manifest: JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as PackageManifest};
+        return {dir, path, repositoryDirectory: `packages/${dir}`, manifest: JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as PackageManifest, license: RELEASE_LICENSE, bun: true, held: false};
     });
 }
 
@@ -115,7 +158,7 @@ export function loadBuiltPackages(root: string, built: readonly BuiltPackage[] =
             throw new Error(`${entry.name} 还没有生成（${relative(root, path)}）：先在 packages/${entry.source} 里 bun run ${entry.script}`, {cause: error});
         }
         if (manifest.name !== entry.name) throw new Error(`${relative(root, path)} 里的是 ${manifest.name ?? "没有名字的包"}，不是 ${entry.name}`);
-        return {dir: entry.source, path, repositoryDirectory: entry.repositoryDirectory, manifest};
+        return {dir: entry.source, path, repositoryDirectory: entry.repositoryDirectory, manifest, license: entry.license, bun: entry.bun, held: entry.version === "own" && manifest.private === true};
     });
 }
 
@@ -152,19 +195,21 @@ function runtimeDependencyNames(manifest: PackageManifest): string[] {
 export function checkReleasePackages(root: string, packages: readonly ReleasePackage[]): Finding[] {
     const findings: Finding[] = [];
     const rootLicense = readFileSync(join(root, "LICENSE"));
-    const releaseNames = new Set(packages.map((entry) => entry.manifest.name));
+    // 首发之前的生成包不算发布的包：别的包的发布依赖不能指向它（它还不在 registry 上）。
+    const releaseNames = new Set(packages.filter((entry) => !entry.held).map((entry) => entry.manifest.name));
     for (const entry of packages) {
         const report = (code: Finding["code"], message: string) => findings.push({package: entry.manifest.name, code, message});
         const {manifest} = entry;
-        if (manifest.private !== undefined) report("private", "去掉 private：发布的包不能是私有的");
-        if (manifest.license !== RELEASE_LICENSE) report("license", `license 要写 ${RELEASE_LICENSE}，现在是 ${manifest.license ?? "空"}`);
+        if (manifest.private !== undefined && !entry.held) report("private", "去掉 private：发布的包不能是私有的");
+        if (manifest.license !== entry.license) report("license", `license 要写 ${entry.license}，现在是 ${manifest.license ?? "空"}`);
         const license = readOptional(join(entry.path, "LICENSE"));
         if (!license) report("license_file", "包目录里没有 LICENSE");
-        else if (!license.equals(rootLicense)) report("license_file", "LICENSE 与仓库根的不同");
+        else if (entry.license === RELEASE_LICENSE && !license.equals(rootLicense)) report("license_file", "LICENSE 与仓库根的不同");
+        else if (entry.license === "MIT" && !license.toString("utf8").startsWith("MIT License")) report("license_file", "LICENSE is not the MIT license text");
         if (!readOptional(join(entry.path, "README.md"))) report("readme", "包目录里没有 README.md（npm 的包页面显示它）");
         if (!manifest.files?.length) report("files", "缺少 files 白名单");
         else if (!manifest.files.includes("LICENSE") || !manifest.files.includes("README.md")) report("files", "files 要包括 LICENSE 与 README.md");
-        if (!manifest.engines?.bun) report("engines", "engines 要写 bun 的最低版本");
+        if (entry.bun && !manifest.engines?.bun) report("engines", "engines 要写 bun 的最低版本");
         if (manifest.publishConfig?.access !== "public") report("publish_config", "publishConfig.access 要写 public（scope 包缺省是私有）");
         const directory = entry.repositoryDirectory;
         if (manifest.repository?.url !== REPOSITORY_URL || manifest.repository.directory !== directory) {

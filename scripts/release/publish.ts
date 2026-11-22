@@ -24,7 +24,7 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {integrityOf, RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
-import {BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, releaseDirectories, type ReleasePackage} from "#scripts/release/packages";
+import {BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, PRODUCT_PACKAGES, releaseDirectories, type ReleasePackage} from "#scripts/release/packages";
 import {blockingStalePackages, buildReleasePlan, distTagFor, parseLatestTag, parseRegistryVersion, planManifestProblems, publishSteps, RELEASE_PLAN, type RegistryVersion, type ReleasePlan} from "#scripts/release/release-plan";
 
 // 不用 import.meta.dir：测试在 Node 里导入本文件。
@@ -248,7 +248,8 @@ async function writePlan(): Promise<number> {
     const {plan, problems: planProblems} = buildReleasePlan({
         manifest,
         commitTime: shown.stdout.trim(),
-        productPackages: new Set(BUILT_PACKAGES.map((entry) => entry.name)),
+        // 版本独立的生成包（nb-layout）不是产品包：registry 上早就有的同版本按历史包处理，与源码包一样。
+        productPackages: new Set(PRODUCT_PACKAGES),
         integrityOf: integrityOfPackage,
         dependenciesOf,
         registry,

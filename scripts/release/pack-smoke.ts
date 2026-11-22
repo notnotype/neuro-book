@@ -468,16 +468,24 @@ if (import.meta.main) {
             const findings = checkReleasePackages(REPOSITORY, packages);
             if (findings.length > 0) fail(`发布清单检查失败：\n${findings.map((finding) => `${finding.package} [${finding.code}] ${finding.message}`).join("\n")}`);
             const builtPaths = new Set(built.map((entry) => entry.path));
-            for (const entry of packages) tarballs.set(entry.manifest.name, await packPackage(entry, RELEASE_DIRECTORY, builtPaths.has(entry.path)));
-            manifest = {commit, packages: await Promise.all(packages.map(async (entry) => {
+            // 首发之前的生成包（`held`）打在冒烟目录里：装进空项目照样验，但不进 dist/release/ 与发布清单，release:publish 碰不到它。
+            const held = join(root, "held");
+            await mkdir(held, {recursive: true});
+            for (const entry of packages) tarballs.set(entry.manifest.name, await packPackage(entry, entry.held ? held : RELEASE_DIRECTORY, builtPaths.has(entry.path)));
+            manifest = {commit, packages: await Promise.all(packages.filter((entry) => !entry.held).map(async (entry) => {
                 const tarball = tarballs.get(entry.manifest.name) as string;
                 return {name: entry.manifest.name, version: entry.manifest.version, tarball: basename(tarball), sha256: await sha256Of(tarball)};
             }))};
-            step(`生成 ${built.length} 个包，${packages.length} 个包的发布清单检查、打包与入口检查通过；tarball 在 dist/release/`);
+            const heldNames = packages.filter((entry) => entry.held).map((entry) => entry.manifest.name);
+            step(`生成 ${built.length} 个包，${packages.length} 个包的发布清单检查、打包与入口检查通过；tarball 在 dist/release/${heldNames.length > 0 ? `（${heldNames.join("、")} 还是 private，只冒烟、不进发布清单）` : ""}`);
         } else {
-            // registry 模式不生成：生成的包的版本就是产品版本，与源码包一起按 package.json 取。
-            const product = loadReleasePackages(REPOSITORY, [BUILT_PACKAGES[0].source])[0] as ReleasePackage;
-            packages = [...loadReleasePackages(REPOSITORY), ...BUILT_PACKAGES.map((entry): ReleasePackage => ({dir: entry.source, path: product.path, repositoryDirectory: entry.repositoryDirectory, manifest: {...product.manifest, name: entry.name}}))];
+            // registry 模式不生成，与源码包一起按 package.json 取版本：产品版本的生成包取应用的版本；版本独立的取它源码包的版本，
+            // 源码包还是 private 的（首发之前）registry 上没有，不装。
+            packages = [...loadReleasePackages(REPOSITORY), ...BUILT_PACKAGES.flatMap((entry): ReleasePackage[] => {
+                const source = loadReleasePackages(REPOSITORY, [entry.version === "product" ? "neuro-book" : entry.source])[0] as ReleasePackage;
+                if (entry.version === "own" && source.manifest.private === true) return [];
+                return [{...source, repositoryDirectory: entry.repositoryDirectory, manifest: {...source.manifest, name: entry.name}, license: entry.license, bun: entry.bun}];
+            })];
         }
         const from = sources(packages, tarballs);
         if (options.waitMinutes > 0) {

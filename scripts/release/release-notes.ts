@@ -18,7 +18,7 @@ import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
 import {CATEGORIES, isEmpty, mergeSections, parseChangelog, type Category, type Section} from "#scripts/release/changelog";
-import {RELEASE_PACKAGES} from "#scripts/release/packages";
+import {VERSIONED_DIRECTORIES, versionedPackage} from "#scripts/release/packages";
 import {compareVersions} from "#scripts/release/semver";
 import type {ReleaseStage} from "#scripts/release/tag";
 
@@ -111,17 +111,15 @@ function git(args: readonly string[]): {code: number; stdout: string} {
     return {code: result.status ?? 1, stdout: result.stdout};
 }
 
-/** 源码包现在的版本、上一个桌面版本标签下的版本（`git show`；那时还没有这个包为 null）与 CHANGELOG。 */
+/** 版本手工提的包现在的版本、上一个桌面版本标签下的版本（`git show`；那时还没有或还是 `private` 的为 null）与 CHANGELOG；现在还是 `private` 的不列（`versionedPackage`）。 */
 function sourcePackages(previous: string | null): SourcePackage[] {
-    return RELEASE_PACKAGES.map((dir) => {
-        const manifest = JSON.parse(readFileSync(join(REPOSITORY, "packages", dir, "package.json"), "utf8")) as {name: string; version: string};
-        let previousVersion: string | null = null;
-        if (previous !== null) {
-            const shown = git(["show", `${previous}:packages/${dir}/package.json`]);
-            if (shown.code === 0) previousVersion = (JSON.parse(shown.stdout) as {version: string}).version;
-        }
+    return VERSIONED_DIRECTORIES.flatMap((dir) => {
+        const manifest = JSON.parse(readFileSync(join(REPOSITORY, "packages", dir, "package.json"), "utf8")) as {name: string; version: string; private?: boolean};
+        const shown = previous === null ? null : git(["show", `${previous}:packages/${dir}/package.json`]);
+        const versions = versionedPackage(manifest, shown !== null && shown.code === 0 ? (JSON.parse(shown.stdout) as {version: string; private?: boolean}) : null);
+        if (versions === null) return [];
         const changelogPath = join(REPOSITORY, "packages", dir, "CHANGELOG.md");
-        return {dir, name: manifest.name, version: manifest.version, previousVersion, changelog: existsSync(changelogPath) ? readFileSync(changelogPath, "utf8") : null};
+        return [{dir, name: manifest.name, ...versions, changelog: existsSync(changelogPath) ? readFileSync(changelogPath, "utf8") : null}];
     });
 }
 
