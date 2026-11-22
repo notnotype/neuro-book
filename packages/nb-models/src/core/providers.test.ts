@@ -362,4 +362,55 @@ describe("身份（输出 8）", () => {
         expect(port.resolve(query({settings: {...CORE, model: `${one}/${model}`}}))).toMatchObject({ok: true, info: {id: `${one}/${model}`}});
         expect(port.resolve(query({settings: {...CORE, model: `${two}/${model}`}}))).toMatchObject({ok: true, info: {id: `${two}/${model}`}});
     });
+
+    it("回复的签发身份：同名同址删了重建换部署身份，同址换密钥换凭据身份；没变时两次相同（service.md 输出 24）", async () => {
+        const event = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({type, ...data})}\n\n`;
+        const server = Bun.serve({port: 0, hostname: "127.0.0.1", async fetch(request) {
+            const body = JSON.parse(await request.text()) as {model: string};
+            const sse = event("message_start", {message: {id: "m", type: "message", role: "assistant", content: [], model: body.model, stop_reason: null, stop_sequence: null, usage: {input_tokens: 1, output_tokens: 0}}})
+                + event("content_block_start", {index: 0, content_block: {type: "text", text: ""}})
+                + event("content_block_delta", {index: 0, delta: {type: "text_delta", text: "好"}})
+                + event("content_block_stop", {index: 0})
+                + event("message_delta", {delta: {stop_reason: "end_turn", stop_sequence: null}, usage: {output_tokens: 1}})
+                + event("message_stop", {});
+            return new Response(sse, {headers: {"content-type": "text/event-stream"}});
+        }});
+        try {
+            const {core, call} = await start(memoryModelsConfig({}));
+            const create = async (): Promise<string> => {
+                const id = await added(call, {template: "blank-anthropic", name: "网关", baseUrl: `http://127.0.0.1:${String(server.port)}`});
+                expect((await call("upsertModel", {provider: id, model: {id: "m", enabled: true, contextWindow: 32_000}})).ok).toBe(true);
+                return id;
+            };
+            const origin = async (id: string) => {
+                const resolved = core.service.port().resolve(query({settings: {...CORE, model: `${id}/m`}}));
+                if (!resolved.ok) throw new Error(`resolve: ${resolved.code}`);
+                const text = {kind: "text" as const, text: "你好", origin: {kind: "fixed" as const, by: "kernel" as const}};
+                const response = await resolved.call({purpose: "turn", model: `${id}/m`, params: {}, headers: {}, system: [], messages: [{role: "user", content: [text]}], tools: []}, new AbortController().signal, () => undefined);
+                expect(response.stopReason).toBe("stop");
+                return response.origin!;
+            };
+            const id = await create();
+            await call("setKey", {provider: id, value: "sk-first-key-0001"});
+            const first = await origin(id);
+            expect(first).toMatchObject({provider: "generic-endpoint", api: "anthropic-messages", model: "m"});
+            expect(first.credential).toBeString();
+            expect(await origin(id)).toEqual(first);
+
+            await call("setKey", {provider: id, value: "sk-second-key-0002"});
+            const rekeyed = await origin(id);
+            expect(rekeyed.deployment).toBe(first.deployment);
+            expect(rekeyed.credential).not.toBe(first.credential);
+
+            expect((await call("removeProvider", {id})).ok).toBe(true);
+            const again = await create();
+            expect(again).toBe(id);
+            await call("setKey", {provider: again, value: "sk-first-key-0001"});
+            const recreated = await origin(again);
+            expect(recreated.deployment).not.toBe(first.deployment);
+            expect(recreated.credential).toBe(first.credential);
+        } finally {
+            await server.stop(true);
+        }
+    });
 });
