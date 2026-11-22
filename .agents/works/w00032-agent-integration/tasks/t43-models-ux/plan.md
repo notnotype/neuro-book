@@ -12,7 +12,7 @@
 
 依据：[`models/service.md`](../../../../../docs/specs/models/service.md)、[`models/settings-pages.md`](../../../../../docs/specs/models/settings-pages.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的“输入框与待处理区”、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 7、22、[`harness/models.md`](../../../../../docs/specs/harness/models.md)、[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`web/tools.md`](../../../../../docs/specs/web/tools.md)；[ADR 0036](../../../../../docs/adr/0036-app-package-installs-omp.md)、[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md)。取代 t09 决定 11、12（目录与自定义两种服务商）。
 
-工作方式：分四段，**A 推理档与选择器（已合入）→ B1 模板与身份 → B2 模型来源 → C 网络与代理**。每段一条分支、单独实现审查（后端 omp、前端 Claude Sonnet）、单独合入。计划审查：A、C 已审两轮，B 已审三轮（上限）；**不再开第四轮**，B2 开工前对照 B1 的实际形状微调本稿，靠实现审查兜底（决定 26）。主会话自己写代码。代码在 Work 的 worktree 上做（`.worktree/w00032-agent-integration` 快进到 master；有别的会话在用时另开 `feat/w00032-t43-<段>`）。Spec 与 Task 记录在主工作区改，随各段合入的同一窗口更新，只写已合入的行为（第二轮 omp 第 37 条）。
+工作方式：分五段，**A 推理档与选择器（已合入）→ B1 模板与身份（已合入）→ B2a 模型来源 → B2b 协议检测 → C 网络与代理**。每段一条分支、单独实现审查（后端 omp、前端 Claude Sonnet）、单独合入。计划审查：A、C 已审两轮，B 已审三轮（上限）；**不再开第四轮**，B2 开工前对照 B1 的实际形状微调本稿，靠实现审查兜底（决定 26）。主会话自己写代码。代码在 Work 的 worktree 上做（`.worktree/w00032-agent-integration` 快进到 master；有别的会话在用时另开 `feat/w00032-t43-<段>`）。Spec 与 Task 记录在主工作区改，随各段合入的同一窗口更新，只写已合入的行为（第二轮 omp 第 37 条）。
 
 ## 取舍
 
@@ -187,34 +187,71 @@ type ProviderConfig = {
 - 编辑模型：所有服务商一种，“手动添加”都有；来源（打包目录）给的字段显示来源值，可覆盖，覆盖后标“已改”并可“恢复来源值”；缺的字段直接可填。快照的 `kind` 去掉，`ModelEditDialog`、`ProviderDetail`、`ProvidersPage`、`ProviderRail` 的 `kind` 分支逐处改。
 - 窄与英文：每个新组件在 390 宽与英文各一个 Lab 场景，e2e 对“设置页 390 宽无横向溢出”断言；模型区头把次要操作收进“更多”，搜索框窄时独占一行；组件 `.md` 写交互与状态表。
 
-## 段 B2：模型来源
+## 段 B2：模型来源与协议检测
 
-B1 合入后再写 B2 的实现细节（开工前对照 B1 的实际形状微调本节，不再开计划审查，靠实现审查兜底；决定 26）。第三轮审查对 B2 的要求在此逐条落实：
+2026-11-22 按 B1 合入后的实际形状改写本节（决定 26：不再开计划审查，靠实现审查兜底）。B2 再拆两条分支、各自审查与合入：**B2a 模型来源**（在线列表、来源缓存、在线目录与自动更新、类型不明模型的启用规则、来源状态界面），**B2b 协议检测**（库自己的请求构造、`adoptApi`、界面逐个 `check`、删 `checkAll`）。拆开是因为两块没有共用的代码，B2a 一段的后端改动已经与 B1 相当。
 
-### B2.1 来源（`nb-harness/src/models/sources/`）
+与第四稿原 B2 节不同的地方（理由各一句）：
 
-- `listing.ts`：三种列表协议的适配器加 OpenRouter 的变体，按实例的**有效**协议、地址、认证发 `GET`，`redirect: "manual"`；`listingAuth: "optional"` 时有密钥就带。每行交回 `{id, name?, kind: "chat" | "other" | "unknown", evidence, meta?}`（Gemini 的 `supportedGenerationMethods` 只作路由证据；`inputTokenLimit`、`outputTokenLimit`、OpenRouter 的 `context_length` 进 `meta`；OpenAI 兼容按（模板 provider，id）查目录）。失败按 `no-credentials`、`auth`、`not-found`、`unreachable`、`bad-response` 分类。**完整性**：只有声明到末页且每页有效才发布；重复游标、超页数、超字节都算失败，不截断。
-- **成员与模板的关系**：列表型模板：有已验证全集时只用它决定在供成员，没有快照时用打包目录作离线种子；`static` 模板（无可用列表适配器）：成员是“打包目录加在线目录里同 provider 的行”，经同一套路由准入；空白模板与改了协议或地址的实例只用列表自带字段加用户填写。
-- **`unknown` 的处理（改决定 25）**：窗口已知（列表给或用户填）才自动启用；本机与空白模板里 `unknown` 且有窗口的默认启用（id 含 `embed`、`rerank`、`whisper` 的除外），没有窗口的进“需补字段”、不启用，不默填猜测值；云服务商模板的 `unknown` 不自动启用，在“管理模型”里可一键启用；界面写明规则。
-- `cache.ts`：每个实例一份 `<状态根>/agent/model-sources/<uid>.json`：`{version, identity, lastAttemptAt, lastSuccessAt, members}`；`identity` 是规范化后的有效列表请求（地址、列表协议、认证方式、凭据值、有效请求头的名与值）用状态根里随机密钥做的 HMAC，不落原文；**文件按 `uid` 命名并校验 `uid`**（同名重建不继承旧清单，崩溃后孤立文件只被回收）；**缓存存原生字段与证据**，模板补值与物化策略在当前部署下现算（协议变了不读旧模式物化的能力）；成功的完整空表也是权威成员；写入暂存同目录再原子替换，提交时校验代次；版本或边界校验失败按“不可用”，不当成功空表。
-- **`pinned.json`**（同实例、按 `uid`、无凭据）：被角色或冻结引用的行的物化数据，只用来让这些行在来源消失或换凭据后仍可解析，不充当新账号的来源成员；来源消失的行标 `missing`、可被用户移除。
-- `catalog.ts`：在线目录（stencil）自己取：**传输字节与流式解压输出分别设上限并共用截止**，只在正文验证成功后才一起提交正文与 ETag；`304` 找不到匹配且可读的快照就无条件重取（同一总预算）或按失败结算，不刷新成功时间；元数据按（模板的 OMP provider，模型 id）查，在线优先、打包兜底，只对跟随模板且同协议的实例；**价目是否存在与自报档位从原文判断**（缺价保持 `null`，不能靠四个 0 倒推）。
-- `coordinator.ts`：每个实例一个配置代次：身份变了取消旧代次的在途请求，结果只在代次仍是当前时提交；同一身份的在途请求合并。**改了地址、协议或认证头后暂停自动拉取**，用户明确“重新拉取”或设了密钥才继续，新部署不接手旧部署的认证。**区分“确认删除”与“配置不可用”**：设置层不可读、该键被 schema 拒绝时不出站也不回收缓存。手动“重新拉取”只受理任务、用状态事件交结果，**截止从受理起算**，覆盖排队、读体、解压、暂存与提交资格；超时未取得提交资格的工作撤掉。自动更新开着时：启动先用缓存，过期（24 小时）的后台更新；`catalogAutoUpdate` 设置项（缺省开）此时加进 `nbook.network` 壳。
-- 停止：先让当前代次不可提交、取消在途请求，限时等收尾，再关缓存句柄；夹具覆盖“响应体不结束时停止”与“刷新将到期时写队列堵住”。
+- **删 `pinned.json`**：它防的是“换了凭据后旧缓存作废，被角色引用、只在列表里有的模型物化不了”（第三轮 omp 第 6 条）。改为缓存按**部署**（`uid`、列表协议、有效地址）判有效，凭据只用来判**过期**：换了密钥或认证头，旧列表照用、标“需要重新拉取”，设了密钥会自动重拉；只有换了地址或协议（另一个端点）旧列表才不用。少一个文件与一套“谁被引用”的计算，那条发现要防的情形照样不坏。
+- **不建 `static` 模板表**：每个模板按有效协议都有列表适配器；从没拉成功过（例如回 404）的实例用目录作成员，与“没有快照时用打包目录作离线种子”是同一条规则。
+- **“本机”就是空白模板**：模板表里没有本机服务商（OMP 的 ollama、lm-studio、vllm 没有打包模型，B1 的模板表不收），本机端点都经空白模板添加。
+- **`catalogAutoUpdate` 归 `nbook.models` 所有**，显示在 `nbook.network` 声明的“网络”分区里（与两个流超时显示在 Agent 的“运行可靠性”分区同一做法）：读它的是模型服务，不用跨插件读设置定义。`nbook.network` 插件壳在 B2a 只声明分区与文字，段 C 再加代理项。
+- **删 `discover`**（B1 给空白模板的“管理模型”现取 `/models`）：空白模板也有了来源，管理模型对所有服务商都读 `listed` 与 `available` 两种行。nb-harness 的 `discoverModels` 一起删。
+- **模板表的 `modelCount` 仍按打包目录算**：添加对话框只用它示意规模，不随在线目录变。
 
-### B2.2 协议检测（`nb-harness/src/models/probe.ts`）
+### B2a.1 目录视图与在线目录（nb-harness `models/catalog.ts`、新 `models/online-catalog.ts`）
 
-走**库自己的请求构造**（B1 的小实验定做法）：每种协议走与对话同一路径与认证（含 OpenCode Zen 这类特判），不带推理参数，每种协议恰好一次 HTTP、不重试、不写文件，四种并行，整次 15 秒、可取消。**“可用”的判定是逐协议的首个生成证据**：握手、角色帧、created/start、空候选不算；证据之前的错误优先；证据到达即取消读取、中止 fetch。参数被拒的 4xx 原文显示，不判“协议不支持”。模型 id 依次取：调用方给的、第一个启用的、来源列表里的第一个对话模型；都没有时界面要求填一个。结果带规范化地址、所用模型、配置版本、`{ok, status, ms, message}`。**采纳用单独的 `adoptApi` 方法**，带检测时的端点、协议、模型与认证版本，在写队列里核对库版本、在设置 CAS 里核对原值，冲突不重基成无条件写。界面里改了地址要先保存再检测。**不做服务端 `checkAll`**：界面逐个 `check`（并发 4，取消只停领新项）。
+- `parseOnlineCatalog(bytes)`：按帧魔数判 zstd，`zstdDecompressSync(bytes, {maxOutputLength: 32 MiB})`（Bun 1.4.4 超限抛 `RangeError`，已核对），`JSON.parse`，复用 pi-catalog 公开的 `mapModelsDevToModels(payload, MODELS_DEV_PROVIDER_DESCRIPTORS)` 与 `buildModel`，按 provider 归组成 `Model`。**价目是否存在看原文**（`cost` 字段在不在），不靠四个 0 倒推；自报档位随 `buildModel` 的策略。坏数据整份拒收。
+- `fetchOnlineCatalog({etag, signal, url?})`：`GET`、`redirect: "manual"`、`proxy: false`；传输字节流式计数、超 8 MiB 中止；`304` 只在调用方给了 `etag` 时成立；交回 `{status: 200, bytes, etag} | {status: 304} | {failed, reason}`，不落盘、不解析（调用方先 `parseOnlineCatalog` 成功才一起提交正文与 ETag）。截止由调用方的 `signal` 定。
+- `createCatalogView(online?)`：`chatModels(provider)`、`row(provider, id)`、`unsendable(provider, id)`；打包为底，在线同（provider，id）的行优先、新出的追加。只有实例跟随模板（B1 的 `follows`）时用在线行；协议不同时仍按 B1 只借能力字段。
+- `ModelTarget.row?: Model`：调用方给的目录行盖过打包行（`materialize` 里 `config.row ?? bundledRow(...)`，`unsendable` 也按这一行判）。
 
-### B2.3 前端（B6d 与来源状态）
+### B2a.2 列表适配器（nb-harness `models/listing.ts`）
 
-- 模型区：来源状态（枚举加时间：`ok`、`refreshing`、`failed`+原因、`stale`）、“重新拉取”（进行中状态、失败文案六类、沿用 N 小时前的列表、拉取中服务商被删时静默）、个数、“服务商新出的模型自动加入”开关；`missing` 行写“服务商已不再提供”与移除按钮；“需补字段”行说明缺什么；`unknown` 单独一组。
+- `listModels({api, baseUrl, flavor, headers, signal})`，`flavor` 是 `openai`、`openrouter`（模板为 OpenRouter 时）、`anthropic`、`gemini`：`GET`，`redirect: "manual"`，`proxy: false`。认证头由调用方给（`requestAuth` 的结果加协议缺省头：OpenAI 系 `Authorization: Bearer`；Anthropic 跟随模板时 `x-api-key`、否则 `Authorization: Bearer`（与对话请求一致，B1 探针第 5 条），另带 `anthropic-version`；Gemini `x-goog-api-key`）。免认证（`auth: "none"`）不带。
+- 每行 `{id, name?, kind: "chat" | "other" | "unknown", contextWindow?, maxOutput?, vision?}`：Gemini 按 `supportedGenerationMethods` 有无 `generateContent` 判 `chat`/`other`，`inputTokenLimit`、`outputTokenLimit` 进窗口与上限；OpenRouter 按输出模态判、`context_length` 与 `top_provider.max_completion_tokens`；OpenAI 兼容只有 id（个别带 `context_length` 的照收）→ `unknown`，由调用方查目录。
+- 失败分类：`auth`（401、403）、`not-found`（404、405）、`unreachable`（连不上、超时）、`bad-response`（其余状态、3xx、不是列表、超限）、`cancelled`。**完整性**：分页（Anthropic `has_more`/`after_id`，Gemini `nextPageToken`）读到末页才成功；重复游标、超 20 页、单页超 8 MiB、超 5000 行都算 `bad-response`，不截断。
+
+### B2a.3 来源与协调器（nb-models 新 `core/sources.ts`；应用 `plugins/models/backend/source-store.ts`）
+
+- **存储接口** `SourceStore`（同 `IconStore`，应用给）：`read(uid)`、`write(uid, value)`（同目录暂存再改名）、`remove(uid)`、`list()`；另 `readCatalog()`、`writeCatalog(value)`。文件 `<状态根>/agent/model-sources/<uid>.json` 与 `<状态根>/agent/model-catalog.json`（`{version, etag, fetchedAt, bytes(base64)}`）；路径安全照 B1 的图标目录（从状态根逐段 `lstat`、有界读）。
+- **缓存形状 v1**：`{version: 1, uid, deployment, credential, checkedAt, rows}`，TypeBox 校验、`uid` 必须与文件名一致；不合格按“没有缓存”并写诊断，不当成功空表。只存列表原生字段，目录补值与物化在读时按当前部署现算。成功的完整空表是权威的空成员。
+- **身份**：`deployment` = SHA-256（`uid`、列表协议与 flavor、有效地址）；`credential` = 安装密钥对认证输入（B1 的 `authInput`）的 HMAC。`deployment` 不同 → 缓存不用（成员退回目录种子）；`credential` 不同 → 照用、状态 `stale`。
+- **每家的来源行**（`sourcesOf(provider)`，按配置与缓存代次缓存）：有可用缓存 → 列表行逐行分类：列表自带 `kind` 优先；`unknown` 时实例跟随模板就查目录视图的同 id 行（有 → 按它的 `chat`；`other` 丢弃）；仍不明为 `unknown`。没有可用缓存 → 目录视图里模板的对话行（空白模板没有）。来源行形状沿用 B1 的 `CatalogModel` 加 `kind: "chat" | "unknown"`、`auto`（自动加入）、`row?`（物化用的目录 `Model`）。
+- **类型不明的启用规则（决定 27）**：空白模板里 `unknown` 有窗口、且 id 不含 `embed`、`rerank`、`whisper`、`tts`、`moderation` 的自动加入；没有窗口的照样列出、状态 `incomplete`（“需补字段”，不默填猜测值）；含那几个词的与云模板里的 `unknown` 都不自动加入，只出现在“管理模型”的可加列表里（加入即启用，没有窗口的要先填）。
+- **成员**：B1 的 `members.ts` 改为收 `sources` 参数（不再自己读打包目录），规则不变：开着自动加入时取 `auto` 的来源行去掉 `excluded`，加上条目；关着时只取有条目的。空白模板新建时 `followSource: true`（B1 是 false），界面对空白模板也显示这个开关；已存的值不改。`storedEntry`、`withRemoved`、`incomplete`、`withFollow` 一并改用 `sources`。来源里没了的来源条目照 B1 标 `missing`（界面写“服务商已不再提供”、可移除）。
+- **协调器**：每个 `uid` 一个代次与在途任务。`refresh(uid)`：同部署同凭据的在途任务合并；否则取消旧任务、代次加一再发。截止 30 秒从受理起算，覆盖请求、读体、解析、写盘。提交前核对代次仍是当前、部署与凭据仍与发出时相同，否则丢弃；同一 `uid` 的写串行。失败不动旧缓存，只记 `lastError` 与时间（内存里，进快照）。
+- **触发**：启动（自动更新开着时，对有密钥、缓存没有或超过 24 小时、且身份与当前相同的实例；身份不同的不自动拉，界面写“配置改了，重新拉取后更新”）；添加服务商、`setKey` 成功后（用户动作，不看自动更新开关）；`refreshSource`（手动）。改地址、协议、认证头后不自动拉。自动更新开着时另有每小时一次的过期检查（`unref` 的定时器）。
+- **在线目录**：启动读 `model-catalog.json`（坏的按没有）；自动更新开着且超过 24 小时就带 ETag 重取：`200` 解析成功才写盘、换视图、作废快照；`304` 且本地文件可读才刷新 `fetchedAt`；失败沿用、写诊断。
+- **回收**：只在服务商设置可读（`editable()` 为 `ok`）时删不在配置里的 `uid` 的缓存文件：启动时与删服务商后。设置不可读时不回收、不出站。
+- **停止**：`close()` 先让全部代次不可提交、取消在途请求，限时 2 秒等收尾，再等写队列。夹具覆盖“响应体不结束时停止”。
+
+### B2a.4 合同与设置（nb-models `contract/`、应用 `plugins/models/shared/settings.ts`、新 `plugins/network/`）
+
+- 快照的 `source`：`{kind: "catalog"}`（没有列表缓存，用目录）或 `{kind: "listing", state: "ok" | "stale" | "refreshing" | "failed", checkedAt: number | null, error: ListingFailure | null}`；`stale` 含“凭据变了”“超过 24 小时”。模型行加 `kind: "chat" | "unknown"`。`providerModels` 的 `available` 包含不自动加入的 `unknown`。
+- 新方法 `refreshSource({provider})`：受理即交回 `null`，结果经 `changed` 的快照交（`refreshing` → `ok` 或 `failed`）；失败码 `unknown-provider`、`no-credentials`。删 `discover`；`checkAll` 留给 B2b。
+- 设置项 `nbook.models.catalogAutoUpdate`（布尔、缺省开、只用户层、分区 `nbook.network`）；`ModelsConfigStore` 加 `autoUpdate()`，订阅变化（关 → 开时补一次过期检查）。
+- `nbook.network` 插件壳：描述、分区声明（分类 app，排“外观”之后，表单分区）、两种语言的文字、`architecture.test.ts` 的登记。
+
+### B2a.5 前端（`plugins/models/web/`）
+
+- 模型区头：来源状态一行（“服务商的列表，N 小时前更新”“正在拉取”“拉取失败：<原因>，沿用 N 小时前的列表”“配置改了，重新拉取后更新”“用内置目录”）、“重新拉取”按钮（进行中停用、拉取中服务商被删时静默）；空白模板也显示“服务商新出的模型自动加入”。失败原因五类各一句文案（`auth`、`not-found`、`unreachable`、`bad-response`、`cancelled`）加 `no-credentials`。
+- 管理模型：所有服务商都读 `listed` 与 `available`；`unknown` 单独一组，写明规则（“服务商没说明类型，确认是对话模型再加入”）；没有窗口的加入时要求先填。删 `ProvidersPage` 里的 `discover` 分支。
+- Lab：fake-remote 的快照与 `refreshSource`、来源状态的几个场景（含英文）；组件 `.md` 加状态表。
+
+### B2b 协议检测（`nb-harness/src/models/probe.ts`）
+
+B2a 合入后开工；内容照第四稿原 B2.2 与 B2.3 的检测部分：
+
+走**库自己的请求构造**（B1 的小实验定做法）：每种协议走与对话同一路径与认证（含 OpenCode Zen 这类特判），不带推理参数，每种协议恰好一次 HTTP、不重试、不写文件，四种并行，整次 15 秒、可取消。**“可用”的判定是逐协议的首个生成证据**：握手、角色帧、created/start、空候选不算；证据之前的错误优先；证据到达即取消读取、中止 fetch。参数被拒的 4xx 原文显示，不判“协议不支持”。模型 id 依次取：调用方给的、第一个启用的、来源列表里的第一个对话模型；都没有时界面要求填一个。结果带规范化地址、所用模型、配置版本、`{ok, status, ms, message}`。**采纳用单独的 `adoptApi` 方法**，带检测时的端点、协议、模型与认证版本，在写队列里核对库版本、在设置 CAS 里核对原值，冲突不重基成无条件写。界面里改了地址要先保存再检测。**不做服务端 `checkAll`**：界面逐个 `check`（并发 4，取消只停领新项），删掉合同里的 `checkAll`。
+
 - 协议检测块：点击时先提交草稿再检测（按钮不因“未保存”停用，只因“正在检测”或“没有密钥且需要密钥（写先填密钥）”停用）；结果带版本，变了就整块置灰写“配置已改，请重新检测”；失败行带“复制”、当前协议标“正在用”、成功的非当前协议显示“用这个”；390 宽换成上下两行。状态表进组件 `.md`。
 - 检测全部：`CheckState` 加 `unknown`，进度“已检 N / 共 M”、只标当前批为 running，超过 20 个用 `AlertDialog` 确认个数与“会产生真实调用”；取消后停发后面的批。
 
 ## 段 C 的前提
 
-B1 已把最低 Bun 版本提到 1.4.4、建了 `nbook.network` 壳与 `fetchFor`；C 在此之上加代理项、系统代理读取与网络页。B 的合同不含 `proxy`，C 再加。
+B1 已把最低 Bun 版本提到 1.4.4，B2a 建了 `nbook.network` 壳（只有分区）；C 在此之上加代理项、`fetchFor`、系统代理读取与网络页，模型、列表、在线目录、探测的请求点从直连换成 `fetchFor`。B 的合同不含 `proxy`，C 再加。
 
 ## 段 C：网络与代理
 
@@ -281,12 +318,18 @@ createEgress(options: {
 - B1.6c 模型区、管理模型、全部模型、编辑模型、窄与英文的 Lab 场景。
 - B1.7 段 B1 收口：8 家 × 600 个的最大输入下快照、分页与设置全文的 UTF-8 线字节；e2e、实现审查（后端 omp、前端 Sonnet）、处理、合入；Spec、ADR、`CHANGELOG`；真实模型 smoke 经授权才跑。
 
-**段 B2**（B1 合入后，新分支；开工前对照 B1 实际形状微调 B2 节）
-- B2.1 列表适配器、缓存（HMAC 身份、`uid` 命名、原子写、`pinned`）、在线目录、协调器、停止顺序；`catalogAutoUpdate` 设置项进 `nbook.network` 壳。验证：本机假端点（OpenAI 兼容、Anthropic、Gemini、OpenRouter 的模态字段与匿名、分页中途 503 与重复游标、401、404、503、空表、响应体不结束时停止），断言实收的地址与认证头、身份变化（含自定义请求头）不读旧缓存、成功空表的权威性、代次丢弃、写入中断、删除后同名重建、字节上限与解压上限。
-- B2.2 `unknown` 的启用规则与 `pinned` 行、来源消失的标记。
-- B2.3 协议检测（库自己的请求构造、首个生成证据、`adoptApi`）；客户端逐个 `check`。验证：`models.test.ts`（每种协议实收恰好一次且是首事件、取消、采纳的 `expect`、批量去重与总预算）。
-- B2.6d 来源状态、重新拉取、检测块、检测全部的界面与 Lab 场景。
-- B2.7 段 B2 收口：e2e、实现审查、合入、Spec 与 `CHANGELOG`。
+**段 B2a**（分支 `feat/w00032-t43-b2a`）
+- B2a.0 基线：`e2e/models.e2e.ts`、`e2e/settings.e2e.ts` 在起点各跑一遍；真实取一次 stencil 在线目录，核对解压后的大小、各 provider 的行数与价目、档位原文（记 `evidences/b2a-probes.txt`）。
+- B2a.1 目录视图、在线目录的取与解析、`ModelTarget.row`；列表适配器，删 `discoverModels`。验证：nb-harness 测试用本机假端点（四种 flavor、分页中途 503 与重复游标、401、404、3xx、空表、超页超字节、响应体不结束时取消、zstd 解压超限、`304`），断言实收的地址与认证头。
+- B2a.2 nb-models 的来源、协调器、成员改收 `sources`、合同（快照 `source`、行 `kind`、`refreshSource`，删 `discover`）。验证：nb-models 测试（部署与凭据变化、成功空表、代次丢弃、提交前身份变了、同名重建、坏缓存、回收要设置可读、停止时在途请求）。
+- B2a.3 应用的 `SourceStore`、`catalogAutoUpdate`、`nbook.network` 壳。验证：`models.test.ts`（真实状态根与设置：添加后自动拉、改地址后不自动拉、设密钥后拉、重启读缓存、自动更新关时不出站）。
+- B2a.4 前端与 Lab。验证：组件 dom 测试、e2e 验收（假端点列表进模型区、重新拉取、失败沿用）。
+- B2a.5 收口：e2e、实现审查（后端 omp、前端 Sonnet）、处理、合入；Spec、`CHANGELOG`。
+
+**段 B2b**（B2a 合入后，新分支 `feat/w00032-t43-b2b`）
+- B2b.1 协议检测（库自己的请求构造、首个生成证据、`adoptApi`）；客户端逐个 `check`，删 `checkAll`。验证：`models.test.ts`（每种协议实收恰好一次且是首事件、取消、采纳的 `expect`、批量去重与总预算）。
+- B2b.2 检测块、检测全部的界面与 Lab 场景。
+- B2b.3 收口：e2e、实现审查、合入、Spec 与 `CHANGELOG`。
 
 **段 C**
 - C1 `nb-host/network`：选路、系统代理的各平台解析（喂样本输出）。验证：本机真实 HTTP 代理与两个目标端点，断言实收线路与头、直连盖过 `HTTPS_PROXY`、`PI_PROXY` 设着时仍直连、`NO_PROXY` 命中时 `describe` 返回旁路、SOCKS 与 PAC 样本经模型、列表、探测、网页工具都得到带原因的失败且没有连接。
@@ -310,16 +353,18 @@ createEgress(options: {
 | 设置页各交互、空白模板第二步、同名、图标、窄与英文、390 宽无横向溢出 | B1 | 组件 dom 测试、`e2e/models.e2e.ts` |
 | 同模板两实例的图标各自不同、上传图标在选择器里出现 | B1 | `AgentConversationComposer.dom.test.ts`、`e2e/agent-conversation.e2e.ts` |
 | `data-model-picker*` 钩子仍在 | B1 | `e2e/agent-conversation.e2e.ts` |
-| 列表请求的地址与认证、分类、分页完整性、身份（含请求头）变化、代次、停止、字节与解压上限 | B2 | nb-harness `sources` 测试 |
-| `unknown` 与“需补字段”的启用规则；来源消失的 `missing` | B2 | `models.test.ts` |
-| 探测每种协议实收一次且是首事件、取消、采纳；批量检测去重与总预算 | B2 | `models.test.ts` |
-| 来源状态、检测结果失效、检测全部的确认与取消 | B2 | 组件 dom 测试、`e2e/models.e2e.ts` |
+| 列表请求的地址与认证、分类、分页完整性、字节与解压上限；在线目录的 `304` 与坏数据 | B2a | nb-harness `listing`、`online-catalog` 测试 |
+| 部署与凭据变化、代次、停止、成功空表、回收、触发规则 | B2a | nb-models `sources` 测试、`models.test.ts` |
+| `unknown` 与“需补字段”的启用规则；来源消失的 `missing` | B2a | `models.test.ts` |
+| 探测每种协议实收一次且是首事件、取消、采纳；批量检测去重与总预算 | B2b | `models.test.ts` |
+| 来源状态、重新拉取、失败沿用 | B2a | 组件 dom 测试、`e2e/models.e2e.ts` |
+| 检测结果失效、检测全部的确认与取消 | B2b | 组件 dom 测试、`e2e/models.e2e.ts` |
 | 选路、系统代理解析、SOCKS 与 PAC 拒绝、`NO_PROXY` 旁路、脱敏 | C | nb-host `network` 测试 |
 | 网络页 | C | dom 测试、`e2e/settings.e2e.ts` |
 
 ## 验证
 
-- 每段合入前的 e2e：B1 `models`、`settings`、`agent-conversation`、`lab-agent-ui`；B2 `models`；C `settings`、`models`。已知的原有失败（`lab-scenes` 的 ThemeEditor 404 四条、`workbench-views:754` 等，见 Agent 记忆）先对照，不算本段。实施中只重跑改到的文件。
+- 每段合入前的 e2e：B1 `models`、`settings`、`agent-conversation`、`lab-agent-ui`；B2a `models`、`settings`；B2b `models`；C `settings`、`models`。已知的原有失败（`lab-scenes` 的 ThemeEditor 404 四条、`workbench-views:754` 等，见 Agent 记忆）先对照，不算本段。实施中只重跑改到的文件。
 - 每段收口跑 `docs:check` 与受影响包的 `--typecheck`；本机合同测试必跑，真实模型 smoke 经开发者授权才跑，写明包与文件，没有授权或凭据记“未验证”。
 - 未验证边界：macOS 的系统代理读法；需要登录的服务商（不在范围）。
 
