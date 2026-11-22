@@ -243,12 +243,16 @@ describe("协议检测（输出 21）", () => {
     });
 
     it("密钥框里换了密钥直接点检测：等密钥写完再检测，结果对得上新密钥（不置灰）", async () => {
-        await render({slowWrites: true});
+        const {store} = await render({slowWrites: true});
+        const before = store.snapshot.value?.providers[0]?.connection;
         const key = query<HTMLInputElement>("[data-key-input] input, input[data-key-input]");
         await type(key, "sk-new-key-0123456789");
         key.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         query<HTMLButtonElement>("[data-api-detect-start]").click();
         await waitUntil("结果出来", () => document.querySelectorAll("[data-api-detect-row]").length === 4, {timeoutMs: 10_000});
+        // 新密钥写进去了（连接版本变了）之后再看：检测用的是它，结果不置灰。
+        await waitUntil("密钥写完", () => store.snapshot.value?.providers[0]?.connection !== before, {timeoutMs: 10_000});
+        await flushPromises();
         expect(document.querySelector("[data-api-detect-stale]")).toBeNull();
         expect(query("[data-api-detect-row='openai-completions'] [data-api-detect-using]")).not.toBeNull();
     });
