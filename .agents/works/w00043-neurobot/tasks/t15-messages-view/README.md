@@ -65,6 +65,8 @@ updated: 2026-11-22
 - Lab 截图（亮色，390 与 1440 宽，中英文）：线在那一轮之前，没有横向溢出、没有页面错误。
 - Spec：master `2573f860e`、`23ce2585f`（planned）：`ui/agent-conversation-view.md` 的 `dividers`、按天与未读的线、用法档两行、验收 43、44；`agent/conversation.md` 输出 55、56 与验收 11；`bots/view.md` 输出 2。
 
+Spec 晋升（开发者 2026-11-22 让晋升）：两个 Opus 逐句核对 255 句（[处理](evidences/promotion-check-disposition.md)），没有代码缺陷；补了 Esc 与补全菜单、改写历史关掉、停靠档可用、未读线不滚动、计数口径、固定会话的说法、bots 浏览器入口的列表与看到等测试（`2471493d6`，合入 `6f957815f`），按实现改了几处说法，`bots/view.md` 改 `implemented`，没测到的句子各自挂“（planned）”（master `cd4132db0`）。
+
 ## 下一步
 
 - 阶段 ③：书房案头的看板娘入口与从右边滑出的聊天（t03 决定 22、23），复用宿主加对话视图的组合。计划 [plan-3.md](plan-3.md)，开发者 2026-11-20 确认（决定 8）；已合入，见上。
