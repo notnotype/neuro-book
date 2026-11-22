@@ -35,11 +35,20 @@ API 形状审查第 1 条（没有运行时改收起策略的入口，t45 两张
 
 2026-11-22 合入 master（`4aebbc14d`，合并提交 `161219dd0`）。`ui/nested-grid` 输出 152 去掉 planned。
 
-- 改动：`NestedGrid` 加 `paneLabel(id)`，分隔线读屏名称的两侧用显示名，挨着分支时问分支 id，没给或空串用 id；滑出去、缩回去的分隔线并进 `sashLooks`，用离开前最后一次的名字。`Splitter` 面板配置加 `label`。文档：`NestedGrid.md`、`Splitter.md`、README 的“我要做 X”表（属性名不加反引号：表里加反引号的名字由 `readme.test.ts` 核对必须是入口导出）；应用 `CHANGELOG.md` 的 `[Unreleased]` 新增一行（插件 SDK 重导出 `NestedGrid`）。
+- 改动：`NestedGrid` 加 `paneLabel(id)`，分隔线读屏名称的两侧用显示名，挨着分支时问分支 id，没给或空串用 id；交换里滑出去的分隔线并进 `sashLooks`，用离开前最后一次的名字。`Splitter` 面板配置加 `label`。文档：`NestedGrid.md`、`Splitter.md`、README 的“我要做 X”表（属性名不加反引号：表里加反引号的名字由 `readme.test.ts` 核对必须是入口导出）；应用 `CHANGELOG.md` 的 `[Unreleased]` 新增一行（插件 SDK 重导出 `NestedGrid`）。
 - 验证：nb-layout `typecheck`、`test`（Bun 398 条、Vitest 含新增 3 条）；应用 `typecheck`。变异：离开的线不用记下的名字时，“滑出去的分隔线”那条变红。
 - 动 `NestedGrid` 之前在分支起点跑了 e2e 基线（给 t52、t53 用）：应用 `workbench-live-drag`、`workbench-dnd`、`editor-area`、`workbench-views`、`lab-grid-structure` 166 条过 165 条，`editor-area.e2e.ts:2202`（编辑器标签并入别的组，实时布局）在起点上就失败，与已知的 2171、2207 同一类；nb-story `frame.e2e.ts` 8 条全过。
 - 宿主没有采用：nb-story 在 t45 用；工作台要用时另提（它的 e2e 与性能脚本按 id 匹配）。
 
+## 实现审查
+
+Claude Sonnet，建议 4 条（[证据](evidences/impl-review.txt)），修正 `caf0b8e0d`：
+
+1. 一次渲染里每条线问 `paneLabel` 多次（模板三处取 look）：与 `sashKind`、`sashStyle` 一样，不加缓存；Spec 输出 152 与 `NestedGrid.md` 改成“一次渲染里可能问几次，要便宜、没有副作用”。
+2. 文档写了不存在的“缩回去的分隔线”（标 `leaving` 的只有交换里滑出去的）：去掉；交换小节补 `paneLabel`；“默认不写”改成“缺省用节点 id”；`state:inject` 一句补 `paneLabel`。
+3. 离开的线保留显示名对读屏没有可观察效果（它是 `aria-hidden`）：审查者建议保留，不改。
+4. 补用例：`paneLabel` 是同一个函数、读宿主的语言，换语言后读屏名称跟着变；`Splitter` 挂载后改 `label` 跟着变、竖向念高度。
+
 ## 下一步
 
-实现审查（Claude Sonnet，不阻塞）；然后 t52。
+t52。
