@@ -1,0 +1,189 @@
+# t44 计划设计审查报告
+
+这是只读审查,没跑 e2e 和开发服务。下面写“读代码得出”的几条,都没在真实浏览器里复现。同一份内容已写入 `reports/design-review/report-draft.txt`。
+
+### 1. 抽屉开合时,内容的动法与旧版不同
+- **严重程度**:重要
+- **类别**:与已定设计不一致,依赖的机制不是计划说的那样
+- **位置**:`plan.md:42`;`BookFrame.vue:286-287`;`nb-layout/src/grid-motion.ts:368-387`(`rightAnchored`);`NestedGrid.vue:931-936`
+- **现象**:
+  - 计划说 NestedGrid 对降到零的叶保持内层尺寸、按外框裁切,“即现在‘贴右边滑出’的效果”,所以手写的 `absolute inset-y-0 right-0` 和 `width` 可以删。
+  - 读 `rightAnchored`:只有“左边不动、右边在动”的叶才带 `data-anchor-right`(内层贴右)。注释写明“左边在动时贴左边本来就跟着它走”。
+  - 抽屉是最右一块,开合时右边贴容器右缘不动,动的是左边(起点 x=W,终点 x=W-宽度)。所以它不会被判为贴右,内层是 `top:0;left:0` 的固定宽度盒,跟着外框左边缘一路向左平移。
+- **为什么是问题**:
+  - 旧版内容 `right:0` 相对外框右边,外框右边在屏幕上不动,所以内容静止,外框像幕布从右往左擦开,先露出内容右侧(关闭按钮、卡片右半)。
+  - 新版内容跟着左边缘走,先露出内容左侧。
+  - 只有过渡中间帧看得出来。静止截图、拖动、偏好都对得上,而计划的验收是“用户看不出差别”。
+- **如何核实**:在抽屉从 0 展开的过渡里,每 40ms 取一次抽屉内标题与关闭按钮的 `getBoundingClientRect().x`。旧版几乎不变,新版随左边缘变化。
+- **建议改法**:二选一并写进计划。
+  - 甲:接受“滑进滑出”,在 README 写成有意变化并让开发者知情。Spec 输出 1 的字面“看起来从右边滑进滑出”其实更贴近新版。
+  - 乙:保留旧画法。在 `drawer` 叶的插槽里仍写一层 `absolute inset-y-0 right-0`,宽度取叶的最终宽度(读 `host.layout.value.sizes.drawer` 或停放的最后尺寸,不读过渡中的尺寸)。
+  - 无论选哪个,探针都要加“过渡中间帧”取样。现在只比静止状态和关抽屉后的第一帧。
+
+### 2. 收起状态的两个来源只在布尔值“翻转”时对账
+- **严重程度**:重要
+- **类别**:遗漏的失败路径,隐含共享状态
+- **位置**:`plan.md:35-38`;`useGridHost.ts:118-124`;`host/book.ts:447-448`(`reopenDrawer` 在 `lastDrawer` 为空时是空操作);`useGridLayout.ts:160-167`
+- **已核实的事实**(你问的第 1 点):
+  - `onApplied` 的 `commit.changes[*].collapsed` 确实有“有变化的收起标记”(`grid-gesture.ts:41`)。Enter 与拖到阈值走同一条。
+  - `setCollapsed` 不触发 `onApplied`,所以“手势→book→watch→setCollapsed”不成环。第二次调用 `changed:false`,不重发布局。
+  - `setCollapsed` 一旦 `changed:true` 会让 revision 递增,进行中的手势被取消。手势期间能让这两个布尔值翻转的只有档位变化和路由让 `book.drawer` 变空,影响小。
+- **问题在反方向**:网格是收起状态的持有者,手势直接改树。watch 只在 book 一侧布尔值翻转时才写回网格。下面几种手势结果与 book 不一致,watch 不会再触发。
+  - **(a)** 一本书没开过任何内容(`lastDrawer` 为 null)时,宽屏把抽屉线从最右边拖开。
+    - `onApplied` 里 `reopenDrawer()` 是空操作,`book.drawer` 仍为 null,“该不该收起”是 true→true,不触发 watch。
+    - 网格里抽屉已展开 400px,里面是空的。
+    - 旧版靠受控的 `collapsed: book.drawer===null` 加偏好变化引起的 `panels` 重算回弹(我推断如此,没实测)。新版没有这层。
+  - **(b)** 平板档导航被强制收起,计划只给抽屉线加了 `sashDisabled`,导航线仍可拖、可 Enter。
+    - 拖开后网格里 nav 已展开,但 `navIsCollapsed`(平板强制为 true)没翻转。导航面板 188px 宽,内容却按图标条画。
+    - `onApplied` 里“导航变了写偏好”会把 `nav-collapsed=false` 写进去,与计划自己写的“平板档导航强制收起但不写偏好”冲突。
+  - **(c)** `onApplied` 抛错只报 `notify-failed`,而计划没接 `onIssues`(见第 7 条),网格与 book 分歧后无人知晓。
+- **如何核实**:(a) 进总览(地址不带 entity),宽屏拖最右分隔线。(b) 宽 900 下按导航分隔线 Enter,读 `localStorage["nbstory:nav-collapsed"]`。
+- **建议改法**:
+  - `onApplied` 末尾无条件调一个幂等的 `reconcile()`:对 nav 与 drawer 各 `host.setCollapsed(id, 期望值)`,没变不重发布局。
+  - 写偏好前判 `tier !== "wide"` 就不写。
+  - 抽屉线在 `!book.drawer && !book.lastDrawer` 时 `sashDisabled`,与顶栏开关“还没有打开过内容”时禁用一致。
+  - 平板档导航线同样 `sashDisabled`,或靠 reconcile 回弹。
+  - README“起步”建议从网格读收起状态。计划保留一份并行状态,所以更需要 reconcile。
+
+### 3. 验收映射落空:现有 e2e 里没有输出 1 的这些用例
+- **严重程度**:重要
+- **类别**:验收映射
+- **位置**:`plan.md:46-50、62-70`;`packages/nb-story/e2e/viewer.e2e.ts`
+- **现象**:
+  - 计划写“viewer.e2e.ts 现有的 56 条照跑”,验收表里输出 1(拖分隔条、阈值收起展开、按钮、过渡中图不逐帧重画)、输出 32、偏好都标“现有用例”。
+  - 实数是 28 条用例(`^test(` 28 处),`playwright.config.ts` 只有一个项目,没有按视口翻倍。
+  - 与分栏有关的只有:263 行“收起抽屉后重画”、328 行“宽度”(1440 与 900 无横向溢出)、429 行与 445 行(平板抽屉是浮层、跨档内容不变)。
+  - 全文没有拖分隔线(`mouse.down` 只用在图上)、没有 `separator`、`toggle-drawer`、`nav-collapsed`、`drawer-width`、`data-panel-id`。LAYOUT_MOTION 没有任何断言。
+- **为什么是问题**:核心验证落在不提交的一次性探针上。本次换掉的正是这些行为的实现,t45 又要在这棵树上继续改,后面没有回归护栏。
+- **建议改法**:把探针里确定的几条写成提交的 e2e(1440 视口)。
+  1. 拖抽屉线变宽后偏好为 460,拖到 0 后收起且偏好仍 460,从 0 拖开回到 460。
+  2. 抽屉线 Enter,导航线 Home、End、Enter。
+  3. 顶栏按钮和卡片关闭按钮收起后 `data-leaf=drawer` 宽为 0。
+  4. 平板(900)下主区与抽屉之间的线 `tabindex=-1`、`aria-disabled`。
+  5. 过渡中图的画布宽不变,结束后铺满(以 `data-moving` 摘掉为界,不靠定时器)。
+  6. 宽屏关抽屉后第一帧内容仍在(`outgoingLeaves` 的时机)。
+  - 这些都要先变异检查:删掉 `closeDrawer` 回写、删掉 outgoing 分支各一次,用例应当失败。
+  - “56 条”改成实数。
+
+### 4. 档位切换时,抽屉内容与浮层同时被画出
+- **严重程度**:重要
+- **类别**:遗漏,边界
+- **位置**:`plan.md:32、42`;`BookFrame.vue:284、306-321`
+- **现象**:
+  - 旧版平板与手机给 Splitter 的配置里没有抽屉(`panels.slice(0,2)`、`#panel-drawer` 带 `v-if`)。
+  - 新版抽屉叶永远在树里,计划没写 leaf 插槽在平板档渲染什么。按“`outgoingLeaves` 里画 `lastDrawer`,否则画 `book.drawer`”写,宽屏→平板这一刻的走法如下。
+    1. 宽度跨过 1100,BookFrame 的 `ResizeObserver` 先到,`tier` 变 tablet,watch 调 `setCollapsed`。
+    2. 此时用旧的容器尺寸发布一次布局(NestedGrid 自己的根盒测量晚一个回调,`useGridMotion.ts` 顶部注释写的就是这种“晚一拍”)。
+    3. 这一次是真移动:`moving` 为真,抽屉叶进入 `shrinking`,`outgoingLeaves` 含 `drawer`,叶里画着抽屉内容。
+    4. 同时 `overlayDrawer` 已为真,浮层 `aside` 也在画同一张卡。
+    5. 第二次发布(尺寸变了)判 `resized` 走 `stop()`,过渡被收掉。
+  - 结果是一两帧里有两个 `data-testid="drawer"`、两个 `DrawerCard`(各发一次 `entity.card` 请求)。
+  - e2e 445 行末尾 `getByTestId("card-name")` 在严格模式下可能因两个匹配失败。
+- **如何核实**:单独跑 e2e 445 行那段;或宽屏开抽屉后 `setViewportSize({width:900})`,立即数 `[data-testid=drawer]`。
+- **建议改法**:
+  - 计划里写明抽屉叶的内容只在 `!overlayDrawer`(宽屏档)时画,平板与手机档叶的插槽渲染空。`outgoingLeaves` 分支也受这条限制。
+  - 宽屏→平板的收起不要依赖过渡:在 tier 变化的同一个同步段里先 `grid.setCollapsed` 再 `invalidate()`,或接受它被 `stop()`。以探针里数到的 `data-moving` 出现次数为准。
+
+### 5. 给 t45 留的路:抽屉写成固定的叶会让 t45 返工,t44 还回避了 t45 最需要验证的路径
+- **严重程度**:重要
+- **类别**:与后续任务的耦合,上游选择
+- **位置**:`plan.md:16-25、32-34`;ADR 0054 第 8 条
+- **现象**:
+  - **(a) 抽屉是一片叶,收起策略挂在叶上。**
+    - BookFrame 里按 `node.id==="drawer"` 画内容,按 `outgoingLeaves.has("drawer")` 找关闭中的内容,`host.setCollapsed("drawer")`。
+    - t45 把详情拆成两张卡后,`drawer` 要变成分支。
+    - 到那时 leaf 插槽的 key 变成卡片 id。`outgoingLeaves` 里出现的是叶 id,不是分支 id。收起策略要搬到分支,这条路本计划没走过。
+  - **(b) 内容模型是单个 `DrawerContent`。**`book.drawer` 与 `lastDrawer` 都是单个,两张卡需要两份内容和各自的“最后一次”。`shownDrawer` 整个要重写,这是 book 会话的模型,不只是 BookFrame。
+  - **(c) 偏好前提在 t45 失效。**偏好只记一个 `drawer-width`,计划还把“结构固定所以不存快照”当作设计理由。t45 之后结构随开着几张卡变,要存总宽加比例或存快照。
+  - **(d) t44 回避了 t45 的核心路径。**
+    - 计划为了“过渡与 revision 的先后更难推”,让树在宽屏与平板相同、不增删叶。
+    - 但按需增删叶(拆出第二张卡、关掉一张)正是 t45 的核心路径。nb-layout 为它做了一整套:离开的叶留着缩回去、`data-leaving`、`outgoingLeaves` 里“已不在 node 里”的那一半。
+    - ADR 0054 第 8 条要 nb-story 校验公开面的形状,t44 只校验了“降到零”这一半。
+- **建议改法**:
+  - `createBookGrid` 的参数从布尔改成“抽屉里有哪几张卡的 id 列表”(t44 固定一张,id 取 `drawer`)。
+  - BookFrame 抽出按叶 id 取内容的 `contentOf(id)`,t44 只返回 `book.drawer`。
+  - 偏好 key 加版本或把宽度存成对象,免得 t45 迁移旧值。
+  - t44 加一条单测或探针级别的“拆一张卡再关掉”(对树做 `split` 与 `invalidate`,量 `outgoingLeaves` 与 `moving`)。哪怕不进产品,接入记录里也能写出这条路径的缺口。
+
+### 6. 平板档“drawer 叶收起到 0 加 `sashDisabled`”的代价
+- **严重程度**:建议
+- **类别**:对照参照
+- **位置**:`plan.md:32、82`;`SashHandle.vue:69-71、294-298、385`;`NestedGrid.vue:366`;`grid-geometry.ts:532-537`
+- **已核实成立的几点**(你问的第 2 点):
+  - Tab 落不上:禁用的线 `tabindex=-1`。
+  - 指针不命中:`useSashGesture.ts:149、158` 对 `aria-disabled` 的线 `enabled:false`。所以不挡主区右边缘的指针和滚动条。
+  - `afterPx<=0` 时 `data-beside-zero` 为真,静止接缝 `visibility:hidden`,不画线。
+- **代价**:
+  - **多 1px。**
+    - `sashSize:1` 对每条线固定,没有“邻居为零就不占”的规则。
+    - 旧版平板:主区 = W-44-1。新版:W-44-1-1。
+    - 宽屏关抽屉时旧版也是 [1,1],所以只有平板差 1px。
+    - 计划要“逐像素比较”,平板这一档会错位,应提前写成已知差异。
+  - **读屏多读一条。**这条线仍是 `role=separator`、`aria-disabled=true`,`aria-valuenow` 取的是主区宽度,旧版平板没有这一条。
+  - **多一条 1px 光标条。**元素本身的 `cursor: col-resize` 还写在那 1px 上。
+- **建议改法**:
+  - 用 `createGrid` 的 `sashSize` 函数形式(`grid-types.ts:299`)让平板时这一条为 0。此时它是 `seamOnly`:`pointer-events:none`,不画接缝,主区与旧版同宽。
+  - 函数读平板状态后要显式 `host.invalidate()`。抽屉本来就收起时 `setCollapsed` 返回 `changed:false`,不会重发布局。
+  - 读屏仍会多一条停用的分隔条,这是公开面的限制,列入第 10 条。
+
+### 7. `onIssues` 没接,偏好写入条件也沿用了旧版的偶然行为
+- **严重程度**:建议
+- **类别**:遗漏,违反“不静默吞错”
+- **位置**:`plan.md:30、37`;`useGridHost.ts:86-91`;`useGridLayout.ts:160-167`
+- **现象**:
+  - **(a) 诊断被丢弃。**
+    - `onIssues` 是诊断的唯一出口,不给就丢。`onApplied` 里 `closeDrawer()` 或写偏好抛错只变成没人听的 `notify-failed`,用户看到的是“拖了但抽屉没关”。
+    - 宽屏档下界 1100(`BookFrame.vue:75`),而 188+360+640+2=1190。偏好里抽屉宽度大于 550 时,1100 到 1190 之间会有 `over-constrained`。旧版静默压缩,新版会产生诊断但无人看。
+  - **(b) 偏好写入条件。**
+    - 旧 `onGestureEnd` 读 `sizesPx[2]`,所有手势都带。拖导航线、窗口较窄时抽屉被压缩,压缩后的宽度也会写进偏好。
+    - 新版读 `host.layout.value.sizes.drawer.width` 同样如此。应只在 `commit.changes` 的 `active` 含 `drawer` 时才写。这与旧版是有意差异,要写进计划。
+- **建议改法**:接 `onIssues`,至少 `console.warn` 一次诊断码(`useGridHost` 已“只发新增”,不会刷屏)。`onApplied` 写偏好前判 `active`。
+
+### 8. 过渡时长覆盖:不在库的保证之内,280 与 470 该交给开发者定
+- **严重程度**:建议
+- **类别**:违反合同的方式,上游选择
+- **位置**:`plan.md:40、84`;`docs/specs/ui/nested-grid.md` 输出 59、142;`NestedGrid.vue:851-854`;`useGridMotion.ts:288`;`nb-ui/src/tokens.css:87-92、340`
+- **现象**:
+  - 时长由 `layoutMotionMs(root)` 在 NestedGrid 根上读,继承有效。CSS 在叶与线上用同一变量。
+  - 所以设在祖先或根本身都生效,计划的“风险:读的位置不在承载盒后代上”不成立。Lab 的 `lab-grid-structure.e2e.ts:228` 就这样设。
+  - 但 Spec 输出 142 写明:减少动态效果时“宿主在根上设的时长也压不过;设在子树元素上的时长不在这个保证之内”。
+  - 本计划设在子树元素上,能归零只因为 nb-ui 把 `--motion-move` 也在 reduce 下归零(`tokens.css:340`)。这是传递性成立,不是库的保证。探针里“减少动效时关抽屉”要保留,并写明依赖这一点。
+  - nb-ui 的设计语言有意让布局外框移动(470)比控件形变(280)慢。
+  - Splitter 用 280。迁移到库之后继续压成 280,等于第一个外部使用方绕过库的缺省,t47 以后会照抄。计划写了“改 470 是另一个决定”,但没列为交给开发者的决定。
+- **建议改法**:覆盖写在 `NestedGrid` 元素自己的 `style`(落到它的根,范围最小)。把“280 还是 470”列为待开发者确认的条目。
+
+### 9. 首帧与档位:创建网格时 `tier` 还是默认的宽屏
+- **严重程度**:建议
+- **类别**:边界(未核实,是读代码的推断)
+- **位置**:`plan.md:20-25、32-34`;`BookFrame.vue:74-75、84-89`
+- **现象**:
+  - `width` 初值 1440,`tier` 在第一次 RO 回调前恒为 wide。窗口宽 900 时首次载入,网格先按宽屏参数创建。
+  - 若网格根盒的 RO 回调早于 BookFrame 的,第一次发布已是收起后的布局。`first` 为真,不过渡。
+  - 若顺序反过来(规范上是浅层先投递,所以多半不会),第一次发布是宽屏布局,随后的 `setCollapsed` 是一次真的过渡。页面每次在平板宽度打开都会播一次导航和抽屉收起动画,`moving` 为真,图延后换尺寸。
+- **如何核实**:e2e 把视口设成 900 再 `goto`,立即断言没有 `[data-moving]`,`.nb-grid-frame` 的 `getAnimations()` 为空,`data-leaf=nav` 宽为 44 且从未是 188。
+- **建议改法**:在 tier 第一次确定的同一个同步段里 `grid.setCollapsed` 再 `invalidate()`,或在 `onMounted` 里先同步读 `root.clientWidth` 再挂网格,不依赖 RO 次序。
+
+### 10. 本计划不得不迁就的 nb-layout 公开面(不要求本 Task 改,要写清代价)
+- **严重程度**:建议
+- **类别**:上游选择
+- **关闭中的内容怎么留着**
+  - 宿主要经模板 ref 读 `outgoingLeaves`。它写在 `NestedGrid.md:190、194`,但 Spec 的时序与寿命(`nested-grid.md:261`)只列了 `moving`、`shapedLeaves`、`swappingLeaves`,所以它是组件文档的约定,不是 Spec 合同。
+  - `NestedGrid.md:186` 还写着“expose 三个方法”,与后面的读数列表不一致。
+  - 代价:BookFrame 要持 `gridRef`。平板→手机会卸载网格,`gridRef.value` 为 null,所有读数都要 `?.` 并回退。
+  - 更自然的公开面:`leaf` 插槽作用域给 `outgoing: boolean`。
+- **内容贴哪边**:最右一块的卡片(抽屉、详情栏)是最常见的“从右边滑进来”,却恰好是 `rightAnchored` 认为“不用记”的那种(见第 1 条)。缺一个按叶的旋钮,例如 `leafAnchor(leaf)`。
+- **平板档“这个区域不存在”**:公开面只有“收起到 0 加停用”和“删叶”。前者留下 1px 与一条读屏分隔线(第 6 条),后者要走计划避开的增删叶路径。缺“叶隐藏但保留 id”的状态,或“零邻居不占接缝”的规则。
+- **过渡时长**:库只有一个 `--nb-layout-motion-layout`,没有“这块用控件形变时长”,nb-story 只能覆盖变量(第 8 条)。
+- **收起状态双向同步**:库推荐从网格读收起状态,但宿主要映射回自己的模型(`book.drawer` 为空等价于收起)。没有“收起状态变化”的事件,只有 `onApplied`(仅手势)和 `setCollapsed` 的返回值(仅宿主主动调),对账只能宿主自己做(第 2 条)。
+
+### 未发现问题的方面
+- `onApplied` 的 `commit.changes` 里确实有 `collapsed`,Enter 与拖到阈值走同一条。`setCollapsed` 不触发 `onApplied`,所以不会循环。网格→book 方向不会丢一次回写,丢的是反方向(第 2 条)。
+- `moving` 是 `computed` 暴露,经模板 ref 读时自动解包,是响应式的。插槽内读到的是这一轮的(`NestedGrid.md:194`、Spec 输出 60 与 261)。减少动效时 `moving` 一直为假,与旧版“时长 0”的结果一致。
+- 禁用的分隔线 Tab 落不上、指针不命中、不挡主区右边缘。`data-beside-zero` 下不画静止接缝。
+- `--nb-layout-motion-layout` 在祖先或 NestedGrid 根上覆盖,JS 读与 CSS 用在同一变量上,覆盖生效。
+- 窗口缩放跨档、重发布布局时,进行中的手势被 `scope.invalidate()` 取消,提交处核对 `revision` 与尺寸,不会落错账。
+- `data-panel-id`、`.nb-grid-panel`、`.nb-splitter` 在 nb-story 里没有任何选择器引用,e2e 也没有。
+- 抽屉偏好的恢复值:`setCollapsed` 把 `restoreSize` 记成保留像素叶的意图(Spec 输出 148)。“拖到 0 后仍是 460”的说法成立。
+
+有效发现:阻断 0,重要 5(1、2、3、4、5),建议 5(6、7、8、9、10)。
+有效发现的编号:1, 2, 3, 4, 5, 6, 7, 8, 9, 10

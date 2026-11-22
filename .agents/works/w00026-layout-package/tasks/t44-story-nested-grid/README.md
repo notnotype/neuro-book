@@ -15,7 +15,7 @@ nb-story 网页的“导航 | 正文 | 右侧详情”从 `Splitter` 改成 nb-l
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿，等设计审查（Claude Sonnet）。
+2026-11-22：[计划](plan.md)第 2 稿：设计审查（Claude Sonnet）10 条（重要 5、建议 5）都成立，第 5 条部分采纳，处理见计划的“修订记录”，[证据](evidences/design-review.txt)。改前探针已在分支起点跑过。
 
 ## 下一步
 
