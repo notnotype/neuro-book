@@ -18,7 +18,7 @@
  * 放在仓库里会用到仓库根提升的依赖，漏写的依赖就查不出来。第三方依赖从 registry 装，直连慢时整条命令前加 `prox`。
  */
 
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {cp, mkdir, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {basename, join} from "node:path";
 
 import {chromium} from "playwright-core";
@@ -26,7 +26,7 @@ import {chromium} from "playwright-core";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
-import {APP_PACKAGE, BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, releaseDirectories, SDK_PACKAGE, type ReleasePackage} from "#scripts/release/packages";
+import {APP_PACKAGE, BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, releaseDirectories, SDK_PACKAGE, type BuiltPackage, type ReleasePackage} from "#scripts/release/packages";
 import {defaultRegistry, waitForRegistry} from "#scripts/release/registry-wait";
 
 const REPOSITORY = join(import.meta.dir, "..", "..");
@@ -254,6 +254,128 @@ async function smokeVueHost(root: string, from: ReturnType<typeof sources>): Pro
     step(`Vite 宿主导入 ${entries.length} 个公开入口与样式入口，构建通过`);
 }
 
+/** 从 README 里取“起步”那段单文件组件（`<!-- starter: … -->` 之后的第一个 vue 代码块）。 */
+function starterComponent(readme: string): string {
+    const marker = readme.indexOf("<!-- starter:");
+    const start = marker < 0 ? -1 : readme.indexOf("```vue\n", marker);
+    const end = start < 0 ? -1 : readme.indexOf("\n```", start + 7);
+    if (end < 0) throw new SmokeFailure("README 里找不到起步的 vue 代码块（<!-- starter: … --> 之后）");
+    return readme.slice(start + 7, end + 1);
+}
+
+/**
+ * nb-layout 的发布包（ADR 0054 第 6 条：承诺的宿主是 Vue 3 加 Vite）。空的 Vite 项目只装它：`App.vue` 原样取包里 README
+ * 的“起步”，`types.ts` 从四个入口各导入值与类型；`vue-tsc` 不跳过库检查、`vite build`，再在浏览器里拖一次、按一次方向键
+ * 改宽度，样式生效、页面没有报错。拖动会话、落点反馈、内容层这些在 nb-story 的 e2e 里，它的网页构建读的就是产物。
+ */
+async function smokeLayoutHost(root: string, from: ReturnType<typeof sources>): Promise<void> {
+    const host = join(root, "layout-host");
+    await mkdir(join(host, "src"), {recursive: true});
+    await writeJson(join(host, "package.json"), {
+        name: "nb-layout-host-smoke",
+        private: true,
+        type: "module",
+        dependencies: {"@notnotype/nb-layout": from.spec("@notnotype/nb-layout"), vue: "^3.5.24", vite: "^8.1.4", "@vitejs/plugin-vue": "^6.0.7", "vue-tsc": "^3.3.7", typescript: "^5.9.3"},
+        overrides: from.overrides,
+    });
+    await writeJson(join(host, "tsconfig.json"), {
+        compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", lib: ["ESNext", "DOM", "DOM.Iterable"], types: [], strict: true, noEmit: true, skipLibCheck: false},
+        include: ["src"],
+    });
+    await writeFile(join(host, "vite.config.ts"), `import vue from "@vitejs/plugin-vue";\nimport {defineConfig} from "vite";\n\nexport default defineConfig({plugins: [vue()]});\n`);
+    await writeFile(join(host, "index.html"), `<!doctype html>\n<html><body><div id="app"></div><script type="module" src="/src/main.ts"></script></body></html>\n`);
+    await writeFile(join(host, "src", "main.ts"), [
+        `import "@notnotype/nb-layout/style.css";`,
+        `import {createApp} from "vue";`,
+        `import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "@notnotype/nb-layout/text";`,
+        `import App from "./App.vue";`,
+        `import {typesSeen} from "./types";`,
+        `createApp(App).provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("en-US")).mount("#app");`,
+        `document.body.dataset.types = String(typesSeen);`,
+        "",
+    ].join("\n"));
+    // 四个入口的值与类型都用上一次：起步例子只碰根入口与 ./vue，text、locales 的声明断了它发现不了。
+    await writeFile(join(host, "src", "types.ts"), [
+        `import {createGrid, NB_LAYOUT_THEME_VARS, type GridNodeInput} from "@notnotype/nb-layout";`,
+        `import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";`,
+        `import {LAYOUT_TEXT_KEY, layoutCatalogTranslate, type LayoutTranslate, type LayoutTextKey} from "@notnotype/nb-layout/text";`,
+        `import {NB_LAYOUT_CATALOGS, NB_LAYOUT_NAMESPACE, NB_LAYOUT_SOURCE_LOCALE} from "@notnotype/nb-layout/locales";`,
+        `const node: GridNodeInput<string> = {kind: "branch", id: "root", orientation: "horizontal", children: [{kind: "leaf", id: "a", ref: "a"}]};`,
+        `const translate: LayoutTranslate = layoutCatalogTranslate("zh-CN");`,
+        `const key: LayoutTextKey = "splitter.resizeWidth";`,
+        `export const typesSeen = [createGrid(node).layout({width: 10, height: 10}).sizes.a?.width === 10, typeof NB_LAYOUT_THEME_VARS, typeof NestedGrid, typeof useGridHost, typeof LAYOUT_TEXT_KEY, translate(key, {before: "a", after: "b"}), Object.keys(NB_LAYOUT_CATALOGS).length, NB_LAYOUT_NAMESPACE, NB_LAYOUT_SOURCE_LOCALE].join(" ");`,
+        "",
+    ].join("\n"));
+    await mustRun("安装 nb-layout 宿主", ["bun", "install"], {cwd: host});
+    await installedVersions(host, from.expected);
+    await writeFile(join(host, "src", "App.vue"), starterComponent(await readFile(join(host, "node_modules", "@notnotype", "nb-layout", "README.md"), "utf8")));
+    await mustRun("nb-layout 宿主的类型检查（不跳过库检查）", [join(host, "node_modules", ".bin", "vue-tsc"), "--noEmit", "-p", "tsconfig.json"], {cwd: host});
+    await mustRun("构建 nb-layout 宿主", [join(host, "node_modules", ".bin", "vite"), "build"], {cwd: host});
+    const dist = join(host, "dist");
+    const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: (request) => {
+        const path = new URL(request.url).pathname;
+        return new Response(Bun.file(join(dist, path === "/" ? "index.html" : path)));
+    }});
+    try {
+        await checkLayoutPage(`http://127.0.0.1:${server.port}/`);
+    } finally {
+        await server.stop(true);
+    }
+    step("nb-layout 宿主：README 的起步例子与四个入口的类型检查通过，Vite 构建通过，浏览器里拖动与方向键都改了宽度、样式生效");
+}
+
+async function checkLayoutPage(url: string): Promise<void> {
+    const browser = await chromium.launch({channel: "chrome", headless: true});
+    try {
+        const page = await browser.newPage({viewport: {width: 1000, height: 700}});
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(url);
+        const sash = page.getByRole("separator").first();
+        await sash.waitFor({timeout: 15_000});
+        const files = page.locator("[data-leaf='files']");
+        const width = async () => Math.round((await files.boundingBox())?.width ?? 0);
+        if ((await width()) !== 240) fail(`起步例子的左栏不是 240 宽：${await width()}`);
+        // 样式在 style.css 里：没导入或没进包时，分隔线没有调宽度的光标。
+        const cursor = await sash.evaluate((element) => getComputedStyle(element).cursor);
+        if (cursor !== "col-resize") fail(`分隔线的光标是 ${cursor}，不是 col-resize：style.css 没生效`);
+        await sash.focus();
+        await page.keyboard.press("ArrowRight");
+        await page.waitForFunction(() => Math.round(document.querySelector("[data-leaf='files']")?.getBoundingClientRect().width ?? 0) !== 240, undefined, {timeout: 5_000}).catch(() => fail("按方向键之后左栏的宽度没变"));
+        const before = await width();
+        const box = (await sash.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, {steps: 8});
+        await page.mouse.up();
+        await page.waitForFunction((was) => Math.round(document.querySelector("[data-leaf='files']")?.getBoundingClientRect().width ?? 0) > was + 40, before, {timeout: 5_000}).catch(() => fail("拖动分隔线之后左栏没有变宽"));
+        const types = await page.evaluate(() => document.body.dataset.types ?? "");
+        if (!types.startsWith("true ")) fail(`四个入口的值在页面里没有拿到：${types}`);
+        if (errors.length > 0) fail(`nb-layout 宿主的页面报错：${errors.join("；")}`);
+    } finally {
+        await browser.close();
+    }
+}
+
+/**
+ * 版本独立的生成包连生成两次，产物逐文件相同才往下：发布计划比的是整个 tarball，同一份源码两次不同，整轮重跑就会报
+ * “前一轮发出的不是这一批”（nb-layout 的声明曾经这样，见 `packages/nb-layout/scripts/pack.ts`）。
+ */
+async function sameBytesTwice(entry: BuiltPackage, root: string): Promise<void> {
+    const outDir = join(REPOSITORY, "packages", entry.source, entry.outDir);
+    const first = join(root, `first-${entry.source}`);
+    await cp(outDir, first, {recursive: true});
+    await mustRun(`再生成一次 ${entry.name}`, ["bun", "run", entry.script], {cwd: join(REPOSITORY, "packages", entry.source)});
+    const files = (await readdir(outDir, {recursive: true})).map(String).sort();
+    const firstFiles = (await readdir(first, {recursive: true})).map(String).sort();
+    if (files.join("\n") !== firstFiles.join("\n")) fail(`${entry.name} 两次生成的文件不同：${files.length} 个与 ${firstFiles.length} 个`);
+    for (const file of files) {
+        const path = join(outDir, file);
+        if ((await stat(path)).isDirectory()) continue;
+        if (!(await readFile(path)).equals(await readFile(join(first, file)))) fail(`${entry.name} 两次生成的 ${file} 字节不同`);
+    }
+}
+
 /** 读子进程标准输出的第一行（`--json` 的结果对象写在第一行）。 */
 async function firstLine(child: {readonly stdout: ReadableStream<Uint8Array>}): Promise<string> {
     const reader = child.stdout.getReader();
@@ -463,6 +585,7 @@ if (import.meta.main) {
             // 字节从工作区打出来，所以打之前就要求会发布的目录是干净的、记下是哪个提交；结束时再核对那些目录没变。
             const commit = await cleanCommit();
             for (const entry of BUILT_PACKAGES) await mustRun(`生成 ${entry.name}`, ["bun", "run", entry.script], {cwd: join(REPOSITORY, "packages", entry.source)});
+            for (const entry of BUILT_PACKAGES.filter((item) => item.version === "own")) await sameBytesTwice(entry, root);
             const built = loadBuiltPackages(REPOSITORY);
             packages = publishOrder([...loadReleasePackages(REPOSITORY), ...built]);
             const findings = checkReleasePackages(REPOSITORY, packages);
@@ -476,6 +599,9 @@ if (import.meta.main) {
                 const tarball = tarballs.get(entry.manifest.name) as string;
                 return {name: entry.manifest.name, version: entry.manifest.version, tarball: basename(tarball), sha256: await sha256Of(tarball)};
             }))};
+            // nb-story 的网页打进了 MIT 的 nb-layout：声明要随包走（ADR 0054 第 5 条）。打包时 prepack 刚生成了它。
+            const storyNotices = await readFile(join(REPOSITORY, "packages", "nb-story", "dist", "web", "THIRD-PARTY-NOTICES.md"), "utf8").catch(() => "");
+            if (!storyNotices.includes("@notnotype/nb-layout")) fail("nb-story 的 dist/web/THIRD-PARTY-NOTICES.md 里没有 @notnotype/nb-layout：MIT 的声明没随包走");
             const heldNames = packages.filter((entry) => entry.held).map((entry) => entry.manifest.name);
             step(`生成 ${built.length} 个包，${packages.length} 个包的发布清单检查、打包与入口检查通过；tarball 在 dist/release/${heldNames.length > 0 ? `（${heldNames.join("、")} 还是 private，只冒烟、不进发布清单）` : ""}`);
         } else {
@@ -499,6 +625,8 @@ if (import.meta.main) {
         }
         await smokeStory(root, from);
         await smokeVueHost(root, from);
+        if (from.expected.has("@notnotype/nb-layout")) await smokeLayoutHost(root, from);
+        else step("nb-layout 还是 private、registry 上没有，跳过它的宿主冒烟");
         await smokeAppAndPlugin(root, from, tarballs, manifest);
         if (manifest !== null) {
             // master 被几个会话共用，冒烟期间别处的提交照常进来；只要会发布的目录没变，打出的字节就还是开始时那份代码的。
