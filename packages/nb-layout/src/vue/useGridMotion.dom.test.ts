@@ -4,7 +4,7 @@ import {defineComponent, ref} from "vue";
 
 import {createGrid} from "../grid";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "../grid-rects";
-import type {GridPlacementItem} from "../grid-rects";
+import type {GridContentPlacement, GridLayerItem, GridPlacementItem} from "../grid-rects";
 import type {GridNodeInput} from "../grid-types";
 import {EMPTY_GRID_MOTION_MEMORY, decideMotion, useGridMotion} from "./useGridMotion";
 import type {GridMotionFrame, GridMotionMemory} from "./useGridMotion";
@@ -152,6 +152,56 @@ describe("decideMotion", () => {
         const now = items([200, 200, 150, 150]);
         expect(decideMotion(frame({items: now, previous: now}), memory).kind).toBe("none");
         expect(decideMotion(frame({items: items([300, 100, 150, 150]), previous: now}), memory).kind).toBe("move");
+    });
+});
+
+describe("decideMotion 与留着的内容（docs/specs/ui/nested-grid.md 输出 155）", () => {
+    /** 一行叶加每块叶一个内容项；`retained` 里的标了 `leave: "retain"`。 */
+    function layersOf(ids: string[], retained: readonly string[] = ids, extra: GridLayerItem<unknown>[] = []): GridLayerItem<unknown>[] {
+        const tree = row(ids.map((id) => [id, 1] as [string, number]));
+        const placed = [...tree, ...extra.filter((item): item is GridPlacementItem<unknown> => item.kind !== "content")];
+        const live = placeContents(placed, ids.map((id) => ({key: id, leaf: id, insetTop: 0, active: true, ...(retained.includes(id) ? {leave: "retain" as const} : {})})), 1);
+        return layerItems(placed, [...live, ...extra.filter((item): item is GridContentPlacement => item.kind === "content")]);
+    }
+    function warmedRow(ids: string[]): GridMotionMemory {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: layersOf(ids)}), memory).kind).toBe("none");
+        return memory;
+    }
+    const keys = (decision: ReturnType<typeof decideMotion>): string[] => (decision.kind === "move" ? decision.leavingContents.map((item) => item.key) : []);
+
+    it("关一张：叶与内容一起留；下一轮别处又关一张，上一轮留下的接着留、这一轮的也留", () => {
+        const memory = warmedRow(["a", "b", "c", "d"]);
+        const first = decideMotion(frame({items: layersOf(["a", "c", "d"]), previous: layersOf(["a", "b", "c", "d"])}), memory);
+        if (first.kind !== "move") throw new Error("应当过渡");
+        expect(keys(first)).toEqual(["content:b"]);
+        // 第二轮的渲染层里带着上一轮留下的叶与内容项（NestedGrid 并进去的）。
+        const withLeft = layersOf(["a", "c", "d"], ["a", "c", "d"], [...first.leaving, ...first.leavingContents]);
+        expect(decideMotion(frame({items: withLeft, previous: layersOf(["a", "c", "d"])}), memory).kind).toBe("none");
+        const second = decideMotion(frame({items: layersOf(["a", "d"], ["a", "d"], [...first.leaving, ...first.leavingContents]), previous: withLeft}), memory);
+        expect(keys(second).sort()).toEqual(["content:b", "content:c"]);
+    });
+
+    it("宿主在过渡中又给回同一个 key：不再留", () => {
+        const memory = warmedRow(["a", "b", "c", "d"]);
+        const first = decideMotion(frame({items: layersOf(["a", "c", "d"]), previous: layersOf(["a", "b", "c", "d"])}), memory);
+        if (first.kind !== "move") throw new Error("应当过渡");
+        const withLeft = layersOf(["a", "c", "d"], ["a", "c", "d"], [...first.leaving, ...first.leavingContents]);
+        const back = decideMotion(frame({items: layersOf(["a", "b", "c", "d"], ["a", "b", "c", "d"], [...first.leaving, ...first.leavingContents]), previous: withLeft}), memory);
+        expect(keys(back)).toEqual([]);
+    });
+
+    it("拖动中：新去掉的不留；上一轮留下的只在它的叶接着留时才留，叶与内容一起", () => {
+        expect(keys(decideMotion(frame({items: layersOf(["a", "c", "d"]), previous: layersOf(["a", "b", "c", "d"]), holding: true}), warmedRow(["a", "b", "c", "d"])))).toEqual([]);
+        const memory = warmedRow(["a", "b", "c", "d"]);
+        const first = decideMotion(frame({items: layersOf(["a", "c", "d"]), previous: layersOf(["a", "b", "c", "d"])}), memory);
+        if (first.kind !== "move") throw new Error("应当过渡");
+        const withLeft = layersOf(["a", "c", "d"], ["a", "c", "d"], [...first.leaving, ...first.leavingContents]);
+        const dragged = decideMotion(frame({items: layersOf(["a", "d"], ["a", "d"], [...first.leaving, ...first.leavingContents]), previous: withLeft, holding: true}), memory);
+        if (dragged.kind !== "move") throw new Error("应当过渡");
+        const leftLeaves = dragged.leaving.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []));
+        for (const item of dragged.leavingContents) expect(leftLeaves).toContain(item.leaf);
+        expect(keys(dragged)).toEqual(leftLeaves.includes("b") ? ["content:b"] : []);
     });
 });
 

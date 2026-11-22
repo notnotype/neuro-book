@@ -95,6 +95,14 @@ const EXTENT_TOLERANCE_PX = 0.5;
 
 const sameExtent = (left: GridExtent, right: GridExtent): boolean => Math.abs(left.width - right.width) <= EXTENT_TOLERANCE_PX && Math.abs(left.height - right.height) <= EXTENT_TOLERANCE_PX;
 
+const leafIds = (list: ReadonlyArray<GridLeavingItem>): string[] => list.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []));
+
+/** 只留叶这一轮还在缩回去的内容项：留着缩回的离开的叶，或此刻为零的叶。 */
+function withTheirLeaves(contents: ReadonlyArray<GridContentPlacement>, leaving: ReadonlyArray<GridLeavingItem>, zero: ReadonlySet<string>): GridContentPlacement[] {
+    const outgoing = new Set([...leafIds(leaving), ...zero]);
+    return contents.filter((item) => outgoing.has(item.leaf));
+}
+
 /**
  * 要不要过渡（纯函数，改 `memory`）。来源是数据：预览进行中，或上一次还在预览中（松手、取消、被拒撤下预览的那一次），都算手势引起的。
  * 不靠谁先调了什么、watcher 谁先建。
@@ -127,12 +135,11 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const still = input.items.filter((item): item is GridLeavingItem => item.kind !== "content" && item.leaving === true && !present.has(item.key));
     const shrinking = shrinkingLeaves(frame.items, frame.previous);
     const zero = zeroLeaves(frame.items);
-    const leafIds = (list: ReadonlyArray<GridLeavingItem>): string[] => list.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []));
-    // 留着的内容项跟着它的叶：叶这一轮新判成缩回去的，新去掉的内容项留下；上一轮留下的，叶还在缩回去（接着留的离开的叶、仍为零的叶）就接着留，宿主又加回来的不算。
+    // 留着的内容项跟着它的叶（输出 155）：叶这一轮新判成缩回去的，新去掉的内容项留下（拖动中不留）；上一轮留下的接着留，宿主又加回来的不算。
+    // 两样最后都按这一轮最终留着的叶过滤（`withTheirLeaves`），叶与内容要么一起留、要么一起摘。
     const fresh = leavingContents(frame.items, frame.previous, new Set([...leafIds(leaving), ...shrinking]), frame.holding === true);
-    const carriedOutgoing = new Set([...leafIds([...still, ...leaving]), ...zero]);
     const freshKeys = new Set(fresh.map((item) => item.key));
-    const stillContents = input.items.filter((item): item is GridContentPlacement => item.kind === "content" && item.leaving === true && !present.has(item.key) && !freshKeys.has(item.key) && carriedOutgoing.has(item.leaf));
+    const stillContents = input.items.filter((item): item is GridContentPlacement => item.kind === "content" && item.leaving === true && !present.has(item.key) && !freshKeys.has(item.key));
     const move: GridMotionMove = {
         kind: "move",
         entering: new Map([...entering, ...kept]),
@@ -143,7 +150,7 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
         shrinking,
         zero,
-        leavingContents: frame.holding === true ? [] : [...stillContents, ...fresh],
+        leavingContents: withTheirLeaves([...stillContents, ...fresh], [...still, ...leaving], zero),
     };
     if (input.swap == null || frame.holding === true) return move;
     // 同时只有一条带：别处的另一次交换先把进行中的送到终点，这一轮当作静止时开始（docs/specs/ui/nested-grid.md 输出 73）。
@@ -163,8 +170,8 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         keptSize: without(move.keptSize),
         rightAnchored: without(move.rightAnchored),
         leaving: [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key)), ...plan.leaving],
-        // 交换里滑出去的叶不留内容：带只认这一帧在的项，留着的内容不会跟着滑、跟着裁（输出 155）。
-        leavingContents: move.leavingContents.filter((item) => !banded.has(`leaf:${item.leaf}`)),
+        // 交换里滑出去的叶不留内容：带只认这一帧在的项，留着的内容不会跟着滑、跟着裁（输出 155）。先送到终点时（`settle`）上一轮的叶不留，它们的内容也不留。
+        leavingContents: withTheirLeaves(move.leavingContents.filter((item) => !banded.has(`leaf:${item.leaf}`)), [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key))], zero),
         swap: plan.band,
         ...(settle ? {settleFirst: true as const} : {}),
     };

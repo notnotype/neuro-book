@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
@@ -203,6 +203,33 @@ describe("离开的叶留着缩回去（ui/nested-grid 输出 44 到 48）", () 
     it("拿起内容拖动中：一个都不留", () => {
         const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
         expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ALL), before, true)).toEqual([]);
+    });
+});
+
+describe("离开的内容由库留到过渡结束（ui/nested-grid 输出 45、155）", () => {
+    /** 一行叶，每个内容项默认挂在同名的叶上；`retain` 是宿主给了 `leave: "retain"`。 */
+    type ContentSpec = {readonly id: string; readonly leaf?: string; readonly retain?: boolean; readonly active?: boolean};
+    const frameOf = (ids: string[], contents: ContentSpec[]): GridLayerItem<string>[] => {
+        const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children: ids.map((id) => leaf(id))}, 4, {width: 1000, height: 300});
+        const items = placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+        const inputs = contents.map((content) => ({key: content.id, leaf: content.leaf ?? content.id, insetTop: 0, active: content.active ?? true, ...(content.retain === true ? {leave: "retain" as const} : {})}));
+        return layerItems(items, placeContents(items, inputs, 1));
+    };
+    const closedB = (): GridLayerItem<string>[] => frameOf(["a", "c"], [{id: "a"}, {id: "c"}]);
+
+    it("叶与标了留住的活动内容同一轮被删：叶留着缩回；没标的、不活动的照旧立即消失", () => {
+        expect(leavingPlacements(closedB(), frameOf(["a", "b", "c"], [{id: "a"}, {id: "b", retain: true}, {id: "c"}]), false).map((item) => item.node.id)).toEqual(["b"]);
+        expect(leavingPlacements(closedB(), frameOf(["a", "b", "c"], [{id: "a"}, {id: "b"}, {id: "c"}]), false)).toEqual([]);
+        expect(leavingPlacements(closedB(), frameOf(["a", "b", "c"], [{id: "a"}, {id: "b", retain: true, active: false}, {id: "c"}]), false)).toEqual([]);
+    });
+
+    it("要留的内容项：叶在缩回去才留，带 leaving；叶不动、宿主还给着同一个 key、不活动、拖动中都不留", () => {
+        const before = frameOf(["a", "b", "c"], [{id: "a"}, {id: "b", retain: true}, {id: "c"}]);
+        expect(leavingContents(closedB(), before, new Set(["b"]), false).map((item) => [item.key, item.leaving])).toEqual([["content:b", true]]);
+        expect(leavingContents(closedB(), before, new Set(), false)).toEqual([]);
+        expect(leavingContents(frameOf(["a", "c"], [{id: "a"}, {id: "c"}, {id: "b", leaf: "c"}]), before, new Set(["b"]), false)).toEqual([]);
+        expect(leavingContents(closedB(), frameOf(["a", "b", "c"], [{id: "a"}, {id: "b", retain: true, active: false}, {id: "c"}]), new Set(["b"]), false)).toEqual([]);
+        expect(leavingContents(closedB(), before, new Set(["b"]), true)).toEqual([]);
     });
 });
 

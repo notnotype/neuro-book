@@ -290,11 +290,11 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
     /** 这一帧还在的节点，以及上一帧下面有留下的叶的节点：都不算离开的子树，要往下找。 */
     const staying = new Set([...now, ...oldLeaves.filter((item) => present.has(item.key)).flatMap((item) => item.path.map((step) => step.id))]);
     /**
-     * 内容项还挂着的叶：停放（区域隐藏），不是卸掉（关掉）。宿主这一轮去掉、标了留住的内容项也算（输出 155）：叶与内容同一轮被删时，
+     * 内容项还挂着的叶：停放（区域隐藏），不是卸掉（关掉）。宿主这一轮去掉、标了留住的活动内容项也算（输出 155）：叶与内容同一轮被删时，
      * 内容要等叶留下才留得住，所以这里按上一帧的内容项判，不等内容层。
      */
     const mounted = new Set(items.flatMap((item) => (item.kind === "content" ? [item.leaf] : [])));
-    for (const item of previous) if (item.kind === "content" && item.retain === true && !present.has(item.key)) mounted.add(item.leaf);
+    for (const item of previous) if (item.kind === "content" && item.retain === true && item.active && !present.has(item.key)) mounted.add(item.leaf);
     const seamNow = (step: GridPathStep) => sashes.find((sash) => sash.before === step.before && sash.after === step.after);
     const nowRects = nodeRectsOf(items);
     const oldRects = nodeRectsOf(previous);
@@ -335,12 +335,12 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
 /**
  * 宿主这一轮去掉、要留到过渡结束的内容项（docs/specs/ui/nested-grid.md 输出 155）：上一帧的内容项，标了留住（`retain`），这一帧不在，
  * 它的叶这一轮在缩回去（`outgoing`：留着缩回的离开的叶、降到零的叶）。返回上一帧的那一项，带 `leaving`；矩形由内容层按这一帧的叶重算。
- * 拖动中一个都不留（同 `leavingPlacements`）。
+ * 只留活动的：不活动的本来就藏着，留着只是推迟宿主组件的卸载。拖动中一个都不留（同 `leavingPlacements`）。
  */
 export function leavingContents(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, outgoing: ReadonlySet<string>, holding: boolean): GridContentPlacement[] {
     if (holding) return [];
     const present = new Set(items.map((item) => item.key));
-    return previous.flatMap((item) => (item.kind === "content" && item.retain === true && !present.has(item.key) && outgoing.has(item.leaf) ? [{...item, leaving: true as const}] : []));
+    return previous.flatMap((item) => (item.kind === "content" && item.retain === true && item.active && !present.has(item.key) && outgoing.has(item.leaf) ? [{...item, leaving: true as const}] : []));
 }
 
 /**

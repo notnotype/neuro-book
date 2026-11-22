@@ -27,6 +27,7 @@ import {
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 import {Checkbox} from "@notnotype/nb-ui/components";
 
+import GridLeavingScene from "./GridLeavingScene.vue";
 import GridPanelsScene from "./GridPanelsScene.vue";
 import GridStructureScene from "./GridStructureScene.vue";
 import GridSwapScene from "./GridSwapScene.vue";
@@ -434,6 +435,7 @@ function formatPx(val?: number): string {
     <GridStructureScene v-if="scene === 'structure'" />
     <GridPanelsScene v-else-if="scene === 'panels'" />
     <GridSwapScene v-else-if="scene === 'swap'" />
+    <GridLeavingScene v-else-if="scene === 'leaving'" />
     <!-- README 的起步例子原样搬来（nb-layout 的 readme.test.ts 核对两边一字不差），Lab 要的标记包在外面。 -->
     <div v-else-if="scene === 'starter'" data-lab-subject style="height: 100%; padding: 8px">
         <StarterScene />

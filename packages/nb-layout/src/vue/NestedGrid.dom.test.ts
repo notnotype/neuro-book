@@ -2,6 +2,7 @@ import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick, ref} from "vue";
 import NestedGrid from "./NestedGrid.vue";
+import LeavingHost from "./test-fixtures/LeavingHost.vue";
 import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
@@ -1619,5 +1620,143 @@ describe("NestedGrid 发出承载盒的尺寸（Spec 输出 144）", () => {
         box.height = 500;
         fire();
         expect(seen).toEqual([{width: 1000, height: 600}, {width: 800, height: 600}, {width: 800, height: 500}]);
+    });
+});
+
+describe("离开的内容由库留到过渡结束（Spec ui/nested-grid 输出 155、156）", () => {
+    type Host = {refresh(): void; close(id: string): void; reopen(id: string, at: number): void; swapContent(leaf: string, content: string): void; collapseAndDrop(id: string): void; hide(id: string): void; log: string[]};
+
+    /** 真实 NestedGrid 加 SFC 编译的插槽（`test-fixtures/LeavingHost.vue`）。happy-dom 没有布局引擎：桩布局盒（同“降到零”那条），过渡用真实计时。 */
+    async function mountHost(retain: boolean, byKeyInChildSlot = false, motion = true, errorHandler?: (error: unknown) => void) {
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => 1000);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => 600);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const wrapper = mount(LeavingHost, {attachTo: attachContainer(), props: {retain, byKeyInChildSlot}, ...(errorHandler === undefined ? {} : {global: {config: {errorHandler}}})});
+        wrappers.push(wrapper);
+        if (motion) (wrapper.element as HTMLElement).style.setProperty("--nb-layout-motion-layout", "40ms");
+        const host = wrapper.vm as unknown as Host;
+        host.refresh();
+        await nextTick();
+        host.log.length = 0;
+        return {wrapper, host};
+    }
+
+    function stateOf(wrapper: VueWrapper, id: string) {
+        const root = wrapper.element as HTMLElement;
+        const frame = root.querySelector<HTMLElement>(`[data-leaf='${id}']`);
+        const content = root.querySelector<HTMLElement>(`[data-content='${id}']`);
+        return {
+            frame: frame === null ? null : {leaving: frame.hasAttribute("data-leaving"), inert: frame.hasAttribute("inert"), head: frame.querySelector("[data-head]")?.textContent ?? null},
+            content: content === null ? null : {leaving: content.hasAttribute("data-content-leaving"), inert: content.hasAttribute("inert"), visibility: content.style.visibility, body: content.querySelector("[data-body]")?.textContent?.replace(/\s+/gu, " ").trim() ?? null},
+        };
+    }
+
+    const gone = (wrapper: VueWrapper, id: string): Promise<void> => vi.waitFor(() => expect(stateOf(wrapper, id)).toEqual({frame: null, content: null}));
+
+    it("叶与标了留住的内容同一轮被删：两者都留着缩回去，面板头与内容停在删之前的样子，宿主的插槽不再被调；过渡结束才卸载", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.close("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y")).toEqual({
+            frame: {leaving: true, inert: true, head: "hy"},
+            content: {leaving: true, inert: true, visibility: "", body: "Ymanyy1y2Yt"},
+        });
+        expect(host.log.filter((entry) => entry.endsWith(":y"))).toEqual([]);
+        await gone(wrapper, "y");
+    });
+
+    it("没标留住：当即卸载，叶也不留着（下面没有挂着的内容）", async () => {
+        const {wrapper, host} = await mountHost(false);
+        host.close("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y")).toEqual({frame: null, content: null});
+    });
+
+    it("减少动态效果（过渡时长 0）：标了留住的也当即卸载", async () => {
+        const {wrapper, host} = await mountHost(true, false, false);
+        host.close("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y")).toEqual({frame: null, content: null});
+    });
+
+    it("过渡中宿主又给回同一个 key：沿用同一个元素，回到照常渲染", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.close("y");
+        await nextTick();
+        const kept = wrapper.element.querySelector("[data-content='y']");
+        host.reopen("y", 1);
+        await nextTick();
+        expect(wrapper.element.querySelector("[data-content='y']")).toBe(kept);
+        expect(wrapper.element.querySelectorAll("[data-content='y']")).toHaveLength(1);
+        expect(stateOf(wrapper, "y").content).toMatchObject({leaving: false, inert: false});
+        expect(host.log).toEqual(expect.arrayContaining(["head:y", "slot:y"]));
+    });
+
+    it("叶不动、只是内容被换掉：旧内容当即卸载，同一轮别处有过渡也一样", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.close("x");
+        host.swapContent("y", "w");
+        await nextTick();
+        expect(stateOf(wrapper, "y").content).toBeNull();
+        expect(wrapper.element.querySelector("[data-content='w']")).not.toBeNull();
+    });
+
+    it("过渡中又关一张：上一轮留下的接着留，这一轮的也留", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.close("y");
+        await nextTick();
+        host.close("x");
+        await nextTick();
+        expect(stateOf(wrapper, "y").content).toMatchObject({leaving: true});
+        expect(stateOf(wrapper, "x").content).toMatchObject({leaving: true});
+        await gone(wrapper, "y");
+        await gone(wrapper, "x");
+    });
+
+    it("叶收起到 0（还在树里）且内容同一轮被去掉：内容留到过渡结束，看得见、不可交互", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.collapseAndDrop("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y").content).toEqual({leaving: true, inert: true, visibility: "", body: "Ymanyy1y2Yt"});
+        await vi.waitFor(() => expect(stateOf(wrapper, "y").content).toBeNull());
+        expect(stateOf(wrapper, "y").frame).not.toBeNull();
+    });
+
+    it("焦点在留着的内容里：发 content-parked，key 是宿主刚去掉的那个", async () => {
+        const {wrapper, host} = await mountHost(true);
+        (wrapper.element as HTMLElement).querySelector<HTMLElement>("[data-focus='y']")?.focus();
+        host.close("y");
+        await nextTick();
+        expect(wrapper.emitted("parked")).toEqual([["y"]]);
+    });
+
+    it("离开的叶没带着留着的内容（区域隐藏，宿主数据都在）：面板头照常渲染，读得到这一轮的", async () => {
+        const {wrapper, host} = await mountHost(true);
+        host.hide("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y").frame).toMatchObject({leaving: true});
+        expect(host.log).toContain("head:y");
+    });
+
+    it("合同的限制：交给子组件的插槽里按 key 查已删的数据会抛错，库补一条说明原因的报错，原错误照常往上传", async () => {
+        // test-lint-allow spy: 断言库补的那条报错；Vue 的警告同时收走，不弄脏输出
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        // test-lint-allow spy: 同上，收走 Vue 的警告
+        const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        onTestFinished(() => {
+            errors.mockRestore();
+            warnings.mockRestore();
+        });
+        // 原错误交到宿主的错误处理（应用的 errorHandler），库不吞掉它。
+        const caught: unknown[] = [];
+        const {host} = await mountHost(true, true, true, (error) => void caught.push(error));
+        host.close("y");
+        await vi.waitFor(() => expect(caught.some((error) => error instanceof TypeError)).toBe(true));
+        expect(errors.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([expect.stringContaining("[nb-layout/NestedGrid] content y is kept until the transition ends")]));
     });
 });

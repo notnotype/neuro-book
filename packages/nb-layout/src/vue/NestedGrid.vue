@@ -160,6 +160,11 @@ const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()
 const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
+/**
+ * 面板头（`leaf` 插槽）停在最后一次渲染的叶（输出 156）：带着库留着的内容一起离开的叶，宿主多半已经删了它的数据。别的离开的叶照常渲染：
+ * 宿主还有它们（区域隐藏、交换里滑出去），插槽要读到这一轮的 `moving`、`swappingLeaves` 这些值（“时序与寿命”）。
+ */
+const frozenLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leavingContents.value.flatMap((item) => (leavingLeaves.value.has(item.leaf) ? [item.leaf] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
 /**
@@ -709,7 +714,7 @@ defineExpose({
                 :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...swapClipStyle(item, growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
-                    <FrozenSlot :frozen="leavingLeaves.has(item.node.id)"><slot name="leaf" :node="item.node"></slot></FrozenSlot>
+                    <FrozenSlot :frozen="frozenLeaves.has(item.node.id)" :name="`leaf ${item.node.id}`"><slot name="leaf" :node="item.node"></slot></FrozenSlot>
                 </div>
             </div>
             <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashLookOf(item).kind" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
@@ -734,7 +739,7 @@ defineExpose({
             >
                 <slot v-if="contentLayer.isLifted(item)" name="lifted-head" :content-key="item.contentKey"></slot>
                 <div class="nb-grid-content__body" :style="contentLayer.bodyStyle(item)">
-                    <FrozenSlot :frozen="item.leaving === true"><slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot></FrozenSlot>
+                    <FrozenSlot :frozen="item.leaving === true" :name="`content ${item.contentKey}`"><slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot></FrozenSlot>
                 </div>
             </div>
         </template>

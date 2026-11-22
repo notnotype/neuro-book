@@ -50,6 +50,7 @@
         "!src/**/*.test.ts",
         "!src/**/*.test.tsx",
         "!src/**/*-fixtures.ts",
+        "!src/**/test-fixtures",
         "README.md",
         "LICENSE"
     ]
