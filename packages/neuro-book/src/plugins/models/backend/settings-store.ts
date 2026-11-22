@@ -4,7 +4,8 @@
  * 用真实的设置场地跑）。
  *
  * 用户层的状态这样对应：`ok` 照实交回，`invalid` 为 `invalid`，`unavailable` 与 `absent`（本实例没有这一层）都是
- * `unavailable`；服务据此交回 `settings-unavailable`，`code` 分别是 `layer-invalid` 与 `unavailable`。
+ * `unavailable`；服务据此交回 `settings-unavailable`，`code` 分别是 `layer-invalid` 与 `unavailable`。这个键在文件里写着、但没通过
+ * 校验（`problem`）时也是 `invalid`：读到的是“没有值”，照它整份写回会盖掉用户还能修的原文（docs/specs/models/service.md 输出 6）。
  */
 
 import type {RolesConfig, StoredProvider} from "@notnotype/nb-models/config";
@@ -26,7 +27,8 @@ function slot<T>(settings: SettingsService, setting: SettingDefinition<T>): Conf
         read: () => settings.get(setting) as T,
         editable: (): SlotLayer<T> => {
             const user = settings.inspect(setting).user;
-            if (user.status === "ok") return {status: "ok", value: user.value as T | undefined};
+            if (user.status === "ok" && user.problem === undefined) return {status: "ok", value: user.value as T | undefined};
+            if (user.status === "ok") return {status: "invalid"};
             return {status: user.status === "invalid" ? "invalid" : "unavailable"};
         },
         write: (next, expect) => settings.update(setting, next, {expect: {value: expect.value}}),

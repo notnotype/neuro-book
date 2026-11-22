@@ -42,7 +42,7 @@ const methods = {
         input: Type.Object({template: Type.String(), region: Type.Optional(Type.String()), name: Type.Optional(Type.String({minLength: 1})), baseUrl: Type.Optional(Type.String({minLength: 1})), api: Type.Optional(Api)}, {additionalProperties: false}),
         output: Type.Object({id: Type.String()}, {additionalProperties: false}),
         effect: "write",
-        errors: {...writeErrors, "unknown-template": Detail, "template-unavailable": Detail},
+        errors: {...writeErrors, "unknown-template": Detail, "template-unavailable": Detail, "credentials-unavailable": Detail},
     },
     /** 复制配置（新 uid）；密钥只复制有效的方式。第二步失败时 `partially-applied` 带副本 id 与实际密钥状态。 */
     duplicateProvider: {

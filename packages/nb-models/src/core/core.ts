@@ -115,6 +115,8 @@ const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.has
 
 /** 写入设置的整份服务商值的帧字节上限（RPC 单帧 1 MiB，留余量）：按 JSON 转义后的字节算。 */
 const SETTINGS_FRAME_LIMIT = 768 * 1024;
+/** 一页模型行编码后的上限：给 RPC 信封与转义留出余量。 */
+const PAGE_BYTES = 512 * 1024;
 
 /** 唯一的随机 128 位标识。 */
 const newUid = (): string => randomBytes(16).toString("hex");
@@ -174,6 +176,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             follows: follows(provider),
             auth: provider.auth,
             ...(api === null || api === undefined ? {} : {api}),
+            // 手加的模型没有目录行可借协议：没覆盖时用模板的缺省协议（读行的 `usable` 也按它算，两边一致）。
+            ...(isBlankTemplate(provider.template) || defaultApi(provider.template) === null ? {} : {defaultApi: defaultApi(provider.template)!}),
             ...(baseUrl === undefined ? {} : {baseUrl}),
             ...(provider.apiKeyEnv === undefined ? {} : {apiKeyEnv: provider.apiKeyEnv}),
             ...(provider.headers === undefined ? {} : {headers: provider.headers}),
@@ -181,6 +185,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     };
     const modelTargetOf = (id: string, entry: ModelConfig | undefined): ModelTarget => ({
         id,
+        ...(entry?.origin === "manual" ? {manual: true} : {}),
         ...(entry?.name === undefined ? {} : {name: entry.name}),
         ...(entry?.contextWindow === undefined ? {} : {contextWindow: entry.contextWindow}),
         ...(entry?.maxOutput === undefined ? {} : {maxOutput: entry.maxOutput}),
@@ -194,23 +199,33 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const secret = typeof deps.secret === "string" ? deps.secret : Buffer.from(deps.secret);
     /** 签名绑定凭据的协议另带凭据身份；OpenAI 兼容的对话没有签名。 */
     const signsWithCredential = (api: WireApi): boolean => api !== "openai-completions";
-    /** 部署身份：实例的 `uid` 加有效地址与协议；同名重建（新 `uid`）、换地址与协议后都不同，旧日志的签名不再还原。 */
-    const identityOf = (provider: ProviderConfig) => (effective: {readonly api: WireApi; readonly baseUrl: string; readonly key: string | null}) => ({
+    /** 认证用到的全部输入：密钥与生效的请求头（自定义的 `Authorization` 这类头能盖过密钥，换了它也是换了账号）。 */
+    const authInput = (key: string | null, headers: Readonly<Record<string, string>>): string => JSON.stringify([key, Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]);
+    /**
+     * 部署身份：实例的 `uid` 加有效地址与协议；同名重建（新 `uid`）、换地址与协议后都不同，旧日志的签名不再还原。凭据身份是认证输入
+     * （密钥与请求头）的 HMAC：换了其中任何一样，旧签名也不再还原。
+     */
+    const identityOf = (provider: ProviderConfig) => (effective: {readonly api: WireApi; readonly baseUrl: string; readonly key: string | null; readonly headers: Readonly<Record<string, string>>}) => ({
         deployment: createHash("sha256").update(`${provider.uid}\n${effective.api}\n${effective.baseUrl}`).digest("hex").slice(0, 32),
-        ...(effective.key !== null && signsWithCredential(effective.api) ? {credential: createHmac("sha256", secret).update(effective.key).digest("hex").slice(0, 32)} : {}),
+        ...(signsWithCredential(effective.api) && (effective.key !== null || Object.keys(effective.headers).length > 0) ? {credential: createHmac("sha256", secret).update(authInput(effective.key, effective.headers)).digest("hex").slice(0, 32)} : {}),
         legacyProvider: provider.id,
     });
-    /** 解析之后实例被改了（地址、协议、认证方式、`uid`）或密钥换了，旧解析不能再发（防止新密钥发往旧地址）。 */
-    const stillCurrentFor = (provider: ProviderConfig) => {
-        const fingerprint = (item: ProviderConfig): string => JSON.stringify([item.uid, effectiveApi(item), effectiveBaseUrl(item), item.auth, item.apiKeyEnv ?? null, follows(item)]);
+    /**
+     * 解析之后实例被改了（地址、协议、认证方式、`uid`）或认证输入换了（密钥、服务商与模型的请求头），旧解析不能再发（防止新的认证
+     * 发往旧地址，或旧解析带着旧认证继续发）。
+     */
+    const stillCurrentFor = (provider: ProviderConfig, modelId: string) => {
+        const fingerprint = (item: ProviderConfig): string => {
+            const auth = requestAuth(targetOf(item), {headers: findMember(item, modelId)?.entry?.headers ?? {}}, access);
+            return JSON.stringify([item.uid, effectiveApi(item), effectiveBaseUrl(item), item.auth, item.apiKeyEnv ?? null, follows(item), authInput(auth.key, auth.headers)]);
+        };
         const resolvedWith = fingerprint(provider);
-        const key = requestAuth(targetOf(provider), null, access).key;
         return (): boolean => {
             const now = current().find((item) => item.uid === provider.uid);
-            return now !== undefined && fingerprint(now) === resolvedWith && requestAuth(targetOf(now), null, access).key === key;
+            return now !== undefined && fingerprint(now) === resolvedWith;
         };
     };
-    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider)});
+    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id)});
 
     const keyStatusOf = (provider: ProviderConfig): KeyStatus => {
         if (provider.auth === "none") return {kind: "keyless"};
@@ -260,8 +275,11 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     };
 
     // ---- 模型行 ----
-    /** `missing`：设置里是来源模型、目录里已经没有；`incomplete`：上下文窗口不明（目录没给、用户也没填）。 */
-    const statusOf = (row: MemberRow): ModelRow["status"] => (row.origin === "source" && row.source === undefined ? "missing" : windowOf(row) === null ? "incomplete" : "ok");
+    /**
+     * `unsupported`：来源条目在目录里有，但不能当对话模型发（不是对话类，或传输不走 HTTP 请求，例如 v1 留下的 Bedrock、Cursor）；
+     * `missing`：设置里是来源模型、目录里已经没有；`incomplete`：上下文窗口不明（目录没给、也没填）。
+     */
+    const statusOf = (row: MemberRow): ModelRow["status"] => (row.unsendable !== null ? "unsupported" : row.origin === "source" && row.source === undefined ? "missing" : windowOf(row) === null ? "incomplete" : "ok");
 
     /** 这个模型的推理能力：按真实的 OMP 模型算；建不出模型（目录漂移、窗口不明）时按配置的能力字段退一步。 */
     const reasoningOfRow = (provider: ProviderConfig, row: MemberRow): ModelRow["thinking"] => {
@@ -406,7 +424,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         mutate<StoredProvider[], R>("providers", config.providers, [], (stored) => {
             const step = transform(normalizeProviders(stored));
             if (!step.ok) return step;
-            if (Buffer.byteLength(JSON.stringify(step.value.next)) > SETTINGS_FRAME_LIMIT) return failure("invalid-value", "the providers setting would exceed the 768 KiB limit; remove models or providers first");
+            // 设置写盘时整份文本还要作为字符串再编码一层进 RPC 帧：按两层转义后的字节核对，给其它设置项与信封留出余量。
+            if (Buffer.byteLength(JSON.stringify(JSON.stringify(step.value.next))) > SETTINGS_FRAME_LIMIT) return failure("invalid-value", "the providers setting would exceed the 768 KiB limit; remove models or providers first");
             return {ok: true, value: {next: step.value.next, result: step.value.result}};
         });
     const editRoles = <R>(transform: (value: RolesConfig) => Step<{next: RolesConfig; result: R}>) => mutate<RolesConfig, R>("roles", config.roles, structuredClone(DEFAULT_ROLES), transform);
@@ -435,8 +454,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      * 整条存。请求头为空时不存。
      */
     const storedEntry = (provider: ProviderConfig, model: ModelConfig): ModelConfig => {
-        const source = sourceModels(provider.template).get(model.id);
         const previous = provider.models.find((item) => item.id === model.id);
+        const manual = (model.origin ?? previous?.origin) === "manual";
+        const source = manual ? undefined : sourceModels(provider.template).get(model.id);
         if (source === undefined) {
             const {frozen: _frozen, ...rest} = model;
             return {...rest, origin: model.origin ?? previous?.origin ?? "manual"};
@@ -462,7 +482,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
 
     const incomplete = (provider: ProviderConfig, models: readonly ModelConfig[]): Failure | null => {
         const sources = sourceModels(provider.template);
-        const bad = models.find((model) => model.enabled && missingContextWindow(model, sources.get(model.id)?.contextWindow ?? null));
+        // 手加的模型不借目录的窗口（目录里恰好有同 id 的也一样）。
+        const bad = models.find((model) => model.enabled && missingContextWindow(model, model.origin === "manual" ? null : sources.get(model.id)?.contextWindow ?? null));
         return bad === undefined ? null : failure("model-incomplete", `model ${bad.id} needs a context window before it can be enabled`);
     };
 
@@ -477,7 +498,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const withRemoved = (provider: ProviderConfig, ids: readonly string[]): ProviderConfig => {
         const sources = sourceModels(provider.template);
         const gone = new Set(ids);
-        return {...provider, excluded: [...new Set([...provider.excluded, ...ids.filter((id) => sources.has(id))])], models: provider.models.filter((entry) => !gone.has(entry.id))};
+        const manual = new Set(provider.models.filter((entry) => entry.origin === "manual").map((entry) => entry.id));
+        return {...provider, excluded: [...new Set([...provider.excluded, ...ids.filter((id) => sources.has(id) && !manual.has(id))])], models: provider.models.filter((entry) => !gone.has(entry.id))};
     };
     /** 打开或关闭“自动加入”：关的时候给此刻有效、还没有条目的来源成员补冻结条目；开的时候只删仍是纯冻结的条目，用户改过的去掉冻结标记。 */
     const withFollow = (provider: ProviderConfig, follow: boolean): ProviderConfig => {
@@ -494,6 +516,29 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             return [rest];
         });
         return {...provider, followSource: true, models};
+    };
+
+    /**
+     * 新建一份服务商（添加、复制）：先清掉凭据库里这个 id 的遗留密钥（上一个同名服务商没清干净的），再写设置，新服务商不能一出生就
+     * 带着别人的密钥。写的时候这个 id 已经被别处占了（设置冲突后重读到的），换下一个 id 重来，清的始终是最后真正用的那个。
+     */
+    const createProvider = async (base: string, make: (id: string, list: readonly ProviderConfig[]) => ProviderConfig): Promise<Step<string>> => {
+        for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
+            const id = providerIdFor(base, new Set(current().map((item) => item.id)));
+            const cleared = await credentialStep(() => credentials.clear(id));
+            if (!cleared.ok) return cleared;
+            let taken = false;
+            const step = await editProviders<string>((list) => {
+                if (list.some((item) => item.id === id)) {
+                    taken = true;
+                    return failure("write-conflict", `provider id ${id} was taken meanwhile`);
+                }
+                return {ok: true, value: {next: [...list, make(id, list)], result: id}};
+            });
+            if (!taken) return step;
+            await changeOf("providers");
+        }
+        return failure("write-conflict", "the provider list kept changing while adding");
     };
 
     // ---- 凭据 ----
@@ -566,7 +611,23 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         return ag === bg ? (an === bn ? (ai < bi ? -1 : ai > bi ? 1 : 0) : an < bn ? -1 : 1) : ag < bg ? -1 : 1;
     };
     const usableMember = (provider: ProviderConfig, row: MemberRow, ready: boolean): boolean => row.entry?.enabled !== false && statusOf(row) === "ok" && ready && effectiveBaseUrl(provider) !== null && effectiveApi(provider) !== null;
-    const pageOf = <T>(items: readonly T[], offset: number, limit: number): {page: readonly T[]; nextOffset: number | null} => ({page: items.slice(offset, offset + limit), nextOffset: offset + limit < items.length ? offset + limit : null});
+    /**
+     * 一页：至多 `limit` 行，且编码后不超过 `PAGE_BYTES`（RPC 单帧 1 MiB；行里有用户写的 id、名称与请求头，只按行数截保证不了帧大小）。
+     * 至少给一行（单行受设置的帧预算约束，不会超过一帧）；截短时 `nextOffset` 接着这页实际交出的最后一行。
+     */
+    const pageOf = <T, R>(items: readonly T[], offset: number, limit: number, toRow: (item: T) => R): {page: R[]; nextOffset: number | null} => {
+        const page: R[] = [];
+        let bytes = 0;
+        for (let at = offset; at < Math.min(items.length, offset + limit); at += 1) {
+            const row = toRow(items[at]!);
+            const size = Buffer.byteLength(JSON.stringify(row));
+            if (page.length > 0 && bytes + size > PAGE_BYTES) break;
+            page.push(row);
+            bytes += size;
+        }
+        const next = offset + page.length;
+        return {page, nextOffset: next < items.length ? next : null};
+    };
 
     const remote = (_consumer: ConsumerIdentity): RemoteImplementation<ModelsSettingsContract> => ({
         methods: {
@@ -579,36 +640,27 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (input.region !== undefined && !template.regions.some((region) => region.id === input.region)) return ctx.fail("invalid-value", {detail: `template ${input.template} has no region ${input.region}`});
                 if (template.blank && (input.name === undefined || input.baseUrl === undefined)) return ctx.fail("invalid-value", {detail: "a blank template needs a name and an address"});
                 if (input.baseUrl !== undefined && !validAddress(input.baseUrl)) return ctx.fail("invalid-value", {detail: "the address must be an http or https URL"});
-                // 同 id 的遗留密钥（上一个同名服务商没清干净的）先清掉，新服务商不能一出生就带着别人的密钥。
-                const id = providerIdFor(input.name ?? template.name, new Set(current().map((item) => item.id)));
-                const cleared = await credentialStep(() => credentials.clear(id));
-                if (!cleared.ok) return relay(cleared);
-                const step = await editProviders<string>((list) => {
-                    const taken = new Set(list.map((item) => item.id));
-                    const finalId = taken.has(id) ? providerIdFor(input.name ?? template.name, taken) : id;
-                    const name = uniqueName(input.name ?? template.name, new Set(list.map((item) => item.name.trim().toLowerCase())));
-                    const api = template.blank ? input.api ?? BLANK_API[template.id as BlankTemplate] : input.api;
-                    const created: ProviderConfig = {
-                        id: finalId, uid: newUid(), template: template.id, name,
-                        ...(input.region === undefined ? {} : {region: input.region}),
-                        ...(api === undefined ? {} : {api}),
-                        ...(input.baseUrl === undefined ? {} : {baseUrl: input.baseUrl}),
-                        auth: template.access === "keyless" ? "none" : "default",
-                        followSource: !template.blank, excluded: [], models: [],
-                    };
-                    return {ok: true, value: {next: [...list, created], result: finalId}};
+                const api = template.blank ? input.api ?? BLANK_API[template.id as BlankTemplate] : input.api;
+                const draft = (id: string, list: readonly ProviderConfig[]): ProviderConfig => ({
+                    id, uid: newUid(), template: template.id,
+                    name: uniqueName(input.name ?? template.name, new Set(list.map((item) => item.name.trim().toLowerCase()))),
+                    ...(input.region === undefined ? {} : {region: input.region}),
+                    ...(api === undefined ? {} : {api}),
+                    ...(input.baseUrl === undefined ? {} : {baseUrl: input.baseUrl}),
+                    auth: template.access === "keyless" ? "none" : "default",
+                    followSource: !template.blank, excluded: [], models: [],
                 });
+                // 与改协议同一条：选的协议在模板里没有地址、又没给地址的，建出来也发不了。
+                const probe = draft("probe", current());
+                if (effectiveApi(probe) === null || effectiveBaseUrl(probe) === null) return ctx.fail("invalid-value", {detail: "this protocol has no address in the template; give an address"});
+                const step = await createProvider(input.name ?? template.name, draft);
                 return step.ok ? ctx.ok({id: step.value}) : relay(step);
             }),
             duplicateProvider: (input, ctx) => queue(async () => {
                 const source = current().find((item) => item.id === input.id);
                 if (source === undefined) return relay(unknownProvider(input.id));
                 const copyKey = source.apiKeyEnv === undefined && source.auth !== "none" ? credentials.get(source.id) : null;
-                const step = await editProviders<string>((list) => {
-                    const id = providerIdFor(`${source.id}-copy`, new Set(list.map((item) => item.id)));
-                    const copy: ProviderConfig = {...structuredClone(source), id, uid: newUid(), name: uniqueName(source.name, new Set(list.map((item) => item.name.trim().toLowerCase())))};
-                    return {ok: true, value: {next: [...list, copy], result: id}};
-                });
+                const step = await createProvider(`${source.id}-copy`, (id, list) => ({...structuredClone(source), id, uid: newUid(), name: uniqueName(source.name, new Set(list.map((item) => item.name.trim().toLowerCase())))}));
                 if (!step.ok) return relay(step);
                 const id = step.value;
                 // 凭据只复制有效的方式：环境变量引用已随配置复制；库里的密钥复制一行（第二步失败时副本在、密钥没复制，如实交回）。
@@ -698,9 +750,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 const revision = revisionOf(provider, keyStatusOf(provider));
                 if (input.revision !== undefined && input.revision !== revision) return ctx.fail("revision-changed", {detail: `${provider.id} changed while its models were being read`});
                 const members = (input.scope === "available" ? availableMembers(provider) : listedMembers(provider)).sort(byMember);
-                const {page, nextOffset} = pageOf(members, input.offset, input.limit);
                 const ready = keyReady(keyStatusOf(provider));
-                return ctx.ok({rows: page.map((row) => rowOf(provider, row, ready)), revision, total: members.length, nextOffset});
+                const {page, nextOffset} = pageOf(members, input.offset, input.limit, (row) => rowOf(provider, row, ready));
+                return ctx.ok({rows: page, revision, total: members.length, nextOffset});
             },
             enabledModels: (input, ctx) => {
                 const scope = current().filter((provider) => input.providers === undefined || input.providers.includes(provider.id));
@@ -713,8 +765,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                         .sort(byMember)
                         .map((row) => ({provider, row, ready}));
                 });
-                const {page, nextOffset} = pageOf(items, input.offset, input.limit);
-                return ctx.ok({rows: page.map(({provider, row, ready}) => ({provider: provider.id, ...rowOf(provider, row, ready)})), revision, total: items.length, nextOffset});
+                const {page, nextOffset} = pageOf(items, input.offset, input.limit, ({provider, row, ready}) => ({provider: provider.id, ...rowOf(provider, row, ready)}));
+                return ctx.ok({rows: page, revision, total: items.length, nextOffset});
             },
             modelsByReference: (input, ctx) => ctx.ok(input.references.map((reference) => {
                 const target = splitReference(reference);

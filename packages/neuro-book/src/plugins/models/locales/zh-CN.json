@@ -134,6 +134,7 @@
         "incomplete": "缺上下文窗口",
         "incompleteTip": "要补上下文窗口才能启用",
         "missing": "目录里没有了",
+        "unsupported": "不能当对话模型用",
         "priceUnknown": "单价未知",
         "free": "免费",
         "price": "${{input}} / ${{output}}",

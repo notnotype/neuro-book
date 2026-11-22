@@ -136,6 +136,7 @@
         "incomplete": "No context window",
         "incompleteTip": "Fill in the context window to enable it",
         "missing": "No longer in the catalog",
+        "unsupported": "Not usable as a chat model",
         "priceUnknown": "Price unknown",
         "free": "Free",
         "price": "${{input}} / ${{output}}",

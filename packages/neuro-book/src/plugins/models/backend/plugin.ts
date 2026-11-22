@@ -40,14 +40,13 @@ export const modelsBackendPlugin: PluginDefinition = {
             const agentRoot = join(context.services.require(stateRootKey).path, "agent");
             const credentials = await openCredentials(join(agentRoot, "credentials.db"));
             context.scope.register({kind: "credential-store", label: `${descriptor.id} credentials`, value: credentials, release: (value) => value.close()});
-            const iconsRoot = join(agentRoot, "provider-icons");
-            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(iconsRoot), record});
+            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), record});
             // 后登记的先释放：核心先停（等写入走完），凭据库后关。
             context.scope.register({kind: "models-core", label: `${descriptor.id} core`, value: core, release: (value) => value.close()});
             return {
                 services: [provideService(modelsKey, core.service)],
                 remote: [provideRemote(modelsSettingsContract, (consumer) => core.remote(consumer))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: createIconRoutes(iconsRoot)}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: createIconRoutes(context.services.require(stateRootKey).path)}},
             };
         },
     })],

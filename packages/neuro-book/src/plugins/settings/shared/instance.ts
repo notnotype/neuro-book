@@ -216,7 +216,8 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         if (state.status !== "live") return {status: "unavailable"};
         const values = state.snapshot.values;
         const value = Object.hasOwn(values, key) ? {value: values[key] as DeepReadonly<T>} : {};
-        return state.snapshot.status === "ok" ? {status: "ok", ...value} : {status: "invalid", detail: state.snapshot.detail, ...value};
+        const problem = state.snapshot.problems.find((item) => item.key === key)?.reason;
+        return state.snapshot.status === "ok" ? {status: "ok", ...value, ...(problem === undefined ? {} : {problem})} : {status: "invalid", detail: state.snapshot.detail, ...value};
     };
 
     const facade = (consumer: ConsumerIdentity): SettingsFacade => {

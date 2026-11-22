@@ -32,6 +32,8 @@ const confirming = ref(false);
 const detailOpen = ref(false);
 const incomplete = computed(() => props.model.status === "incomplete");
 const missing = computed(() => props.model.status === "missing");
+/** 目录里有、但不能当对话模型发（v1 留下的 Bedrock、Cursor 这类，或图片生成模型）。 */
+const unsupported = computed(() => props.model.status === "unsupported");
 
 function toggle(enabled: boolean): void {
     if (!enabled && props.roles.length > 0) {
@@ -78,6 +80,7 @@ async function retry(): Promise<void> {
             <span v-else-if="model.origin === 'manual'" class="model-row__role" data-model-manual>{{ text("models.manual") }}</span>
             <CapabilityIcons :vision="model.vision" :reasoning="model.reasoning" :efforts="model.efforts" />
             <span v-if="missing" class="model-row__warn">{{ text("models.missing") }}</span>
+            <span v-else-if="unsupported" class="model-row__warn" data-model-unsupported>{{ text("models.unsupported") }}</span>
             <span v-else-if="incomplete" class="model-row__warn">{{ text("models.incomplete") }}</span>
             <template v-else>
                 <span class="model-row__fact">{{ model.contextWindow === null ? "" : tokensText(model.contextWindow) }}</span>
