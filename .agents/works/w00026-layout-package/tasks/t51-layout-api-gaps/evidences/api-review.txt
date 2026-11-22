@@ -1,0 +1,394 @@
+下面是完整报告，内容和草稿文件一致，只把方法里的临时目录路径去掉了。
+
+# t51 API 形状审查：nb-layout 新增公开面（计划第 1 稿）
+
+## 方法与限定
+
+- 我站在第三方 Vue 3 宿主的位置读了这些：
+  - README、`NestedGrid.md`、`grid.md`、`useGridHost.md`、`Splitter.md`、`grid.ts` 的签名与实现。
+  - `ui/nested-grid` 的输出 37、38、44、45、82 到 92，ADR 0054，`docs/research/layout-libraries.md`。
+  - t45 计划第 4 稿与 t45 README 的“决定”。
+- 计划里的新入口都还没实现。草稿里标 [新] 的写法按计划第 1 稿的字面写，不保证实现后能这样编译。
+- 凡写“实测”的，是我在仓库之外的临时目录里用 `bun` 直接 `import` 现有的 `createGrid` 跑出来的，没有改仓库。这些是现有代码的行为，不是计划的新行为。
+- `NestedGrid` 的渲染行为（离开的叶、离开的内容）没有在浏览器或 happy-dom 里跑，只按 Spec 与计划的字面推断，写“推断”。
+- 业界比较只用 `docs/research/layout-libraries.md` 里有出处的事实。该文件没写的（dockview 增删面板的 API 形状、allotment 的属性名）不比较。
+
+---
+
+## 接入草稿一：nb-story 右侧详情“开两张、关一张、同宽、关掉时滑出”
+
+需求出处是 t45 README“决定”：并排两张各保持原宽；关掉一张回到一张卡的宽度；对调；关掉时内容滑出。
+
+设计取舍：每张卡一块叶，叶 id 由卡片的 key 派生，叶放在 `frame` 分支末尾。不把两张放进一个子分支，因为 `removeLeaf` 会把只剩一个孩子的分支展平（发现 4）。
+
+```ts
+// shell/book-grid.ts
+import {createGrid} from "@notnotype/nb-layout";
+import type {Grid, GridLeafInput} from "@notnotype/nb-layout";
+
+export type BookPane = "nav" | "main" | "card";
+export const cardLeafId = (key: number): string => `card-${key}`;
+
+const UNBOUNDED = Number.MAX_SAFE_INTEGER; // 现在的 book-grid.ts 写 maximumSize {width, height: 0}：height 的 0 是“上限 0”，不是“不限”（发现 10）
+
+export function cardLeaf(key: number, width: number, collapsed: boolean): GridLeafInput<BookPane> {
+    return {
+        kind: "leaf",
+        id: cardLeafId(key),
+        ref: "card",
+        size: {width, height: 0},
+        sizing: "fixed",
+        minimumSize: {width: 280, height: 0},
+        maximumSize: {width: 640, height: UNBOUNDED},
+        // 收起策略只能在这里给，之后没有入口改它（发现 1）：一张时需要它（拖到 0 收起整块），两张时 t45 要去掉。
+        collapse: {collapsed, collapsedSize: 0, restoreSize: width, collapseThreshold: 80, expandThreshold: 40},
+    };
+}
+
+export function createBookGrid(input: {navWidth: number; navCollapsed: boolean; compact: () => boolean}): Grid<BookPane> {
+    return createGrid<BookPane>({
+        kind: "branch", id: "frame", orientation: "horizontal",
+        children: [
+            {kind: "leaf", id: "nav", ref: "nav", size: {width: input.navWidth, height: 0}, sizing: "fixed",
+                minimumSize: {width: 150, height: 0}, maximumSize: {width: 300, height: UNBOUNDED},
+                collapse: {collapsed: input.navCollapsed, collapsedSize: 44, restoreSize: input.navWidth, collapseThreshold: 60, expandThreshold: 40}},
+            {kind: "leaf", id: "main", ref: "main", size: {width: 600, height: 0}, minimumSize: {width: 360, height: 0}},
+        ],
+    }, {sashSize: (_branch, index) => (index === 1 && input.compact() ? 0 : 1)});
+}
+```
+
+```ts
+// shell/BookFrame.vue <script setup>
+const grid = shallowRef(createBookGrid({navWidth: readNavWidth(), navCollapsed: navIsCollapsed.value, compact: () => tier.value === "tablet"}));
+const host = useGridHost({grid, contextKey: "book-frame", onApplied: persistWidths});
+
+// 内容层：每张详情一项；去掉一项就是“关掉一张”，库在过渡里替它留着 [新]。
+const contents = computed(() => details.value.items.map((item) => ({key: `detail-${item.key}`, leaf: cardLeafId(item.key), insetTop: 0, active: true})));
+
+// 读屏名称：不给时是“调整 card-3 与 card-5 的宽度” [新]
+const paneLabel = (id: string): string | undefined =>
+    id === "nav" ? "导航" : id === "main" ? "正文" : cardTitleByLeaf(id); // 关掉的那张查不到时返回 undefined，回退到 id
+
+/** 1 开一张：新叶放在末尾；两张同宽。 */
+function addCard(key: number, items: readonly DetailItem[]): GridFailure | null {
+    const g = grid.value;
+    const width = readDrawerWidth();
+    const added = g.addLeaf("frame", g.root()!.kind === "branch" ? g.root()!.children.length : 0, cardLeaf(key, width, false)); // 保留像素的叶：兄弟的意图都不动 [新规则]
+    if (!added.ok) return added; // limit-exceeded、duplicate-id
+    for (const item of items) {
+        const sized = g.setSize(cardLeafId(item.key), width); // [新] 已经开着的那张也设成偏好宽度；收起中的改的是意图
+        if (!sized.ok) return sized;
+    }
+    host.invalidate(); // 直接调 grid 就要自己通知；漏了画面不变、也没有任何提示
+    return null;
+}
+
+/** 2 关一张：剩一张时回到一张卡的宽度。 */
+function removeCard(key: number, rest: readonly DetailItem[]): GridFailure | null {
+    const g = grid.value;
+    const removed = g.removeLeaf(cardLeafId(key)); // 保留像素的叶：兄弟意图不动 [新规则]；主区吸收腾出来的宽度
+    if (!removed.ok) return removed;
+    if (rest.length === 1) {
+        const sized = g.setSize(cardLeafId(rest[0]!.key), readDrawerWidth()); // [新]
+        if (!sized.ok) return sized;
+    }
+    host.invalidate();
+    return null;
+}
+
+/** 3 只想把已开着的卡片统一成偏好宽度（例如设置里改了偏好）：单步，用宿主的包装，它自己通知。 */
+function applyPreferredWidth(items: readonly DetailItem[], width: number): void {
+    for (const item of items) host.setSize(cardLeafId(item.key), width); // [新] 每次变了才发布，N 张就是 N 次发布
+}
+
+/** 4 整块收起与展开（顶栏开关）：每张一次发布。 */
+function setDrawerCollapsed(items: readonly DetailItem[], collapsed: boolean): void {
+    for (const item of items) host.setCollapsed(cardLeafId(item.key), collapsed);
+}
+```
+
+```vue
+<NestedGrid ref="gridRef" v-bind="host.bindings.value" :contents="contents" :pane-label="paneLabel" :sash-disabled="sashDisabled">
+    <template #leaf="{node}"><!-- 面板头：nav、main 的内容；卡片叶只放它的头 --></template>
+    <!-- 关掉时内容滑出：不再需要 closing 列表、不再读 gridRef.moving / outgoingLeaves。
+         details 里已经没有这张的数据，v-if 为假、什么也不渲染；库重用关掉前最后一次渲染的结果 [新] -->
+    <template #content="{contentKey}">
+        <DetailShell v-if="detailByKey(contentKey)" :detail="detailByKey(contentKey)!" />
+    </template>
+</NestedGrid>
+```
+
+草稿一里要注意的几处：
+
+- 开一张要三步：`addLeaf`、每张 `setSize`、`invalidate`。用 `host.setSize` 包装会多发布几次；用 `grid.setSize` 则要自己 `invalidate`（发现 6）。
+- 两张时“拖主区那条线只改左边那张、拖不出收起”没有入口（发现 1）。草稿里两张都带着收起策略，拖到 0 时左边那张自己收起、右边那张留着，和 t45 的决定不一致。
+- 关右边那张：右边的叶缩向分支右头，左边那张的叶伸到右头（Spec 输出 45、46 的第二种情形），内容靠发现 2、3 的规则留着。关左边那张：主区与右边那张这一帧相接。两种都落在输出 45 的前两个条件里，但第 3 个条件（下面有挂着的内容）与新规则互相引用，见发现 3。
+- 对调：同分支重排 `moveLeaf` 即可，意图不变（`grid.ts` 同分支那条路）。这一项不在 t51 里，只是确认用这个形状时它能写。
+
+---
+
+## 接入草稿二：第三方的“可增删的侧栏面板组”
+
+需求：固定宽度的侧栏加按比例分的编辑区，侧栏能加一块、删一块。
+
+我把“一块侧栏”理解为根分支下的一列保留像素的叶（形状 B）。另一种理解是一列竖着叠的面板组放在一个保留像素的分支里（形状 A），它在发现 4、5 里作为写错的例子。草稿只用公开入口，并且为了有关闭动画走内容层（原因见发现 3）。
+
+```vue
+<script setup lang="ts">
+import {computed, shallowRef} from "vue";
+import {createGrid} from "@notnotype/nb-layout";
+import type {GridFailure, GridLeafInput} from "@notnotype/nb-layout";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
+
+const SIDEBAR_WIDTH = 240;
+let serial = 0;
+
+function sidebarLeaf(id: string, width = SIDEBAR_WIDTH): GridLeafInput<string> {
+    return {
+        kind: "leaf", id, ref: id, size: {width, height: 0}, sizing: "fixed",
+        minimumSize: {width: 160, height: 0}, maximumSize: {width: 480, height: Number.MAX_SAFE_INTEGER},
+    };
+}
+
+const grid = shallowRef(createGrid<string>({
+    kind: "branch", id: "root", orientation: "horizontal",
+    children: [sidebarLeaf("side-0"), {kind: "leaf", id: "editor", ref: "editor", size: {width: 800, height: 0}, minimumSize: {width: 320, height: 0}}],
+}, {sashSize: 4}));
+const host = useGridHost({grid, contextKey: "sidebars"});
+const sidebars = shallowRef<string[]>(["side-0"]); // 宿主自己记有哪几块：内容层要按它列 contents
+
+function report(failure: GridFailure): void { console.warn(failure.code, failure.params); }
+
+function addSidebar(): void {
+    const id = `side-${++serial}`;
+    const root = grid.value.root();
+    // 删到只剩编辑区时，根分支已经被展平成一块叶（发现 4）：addLeaf("root", …) 会报 not-found，要换成 splitLeaf 重建根。
+    const result = root?.kind === "branch"
+        ? grid.value.addLeaf("root", sidebars.value.length, sidebarLeaf(id)) // 插在编辑区之前；保留像素的叶，兄弟意图不动 [新规则]
+        : grid.value.splitLeaf("editor", {branchId: "root", orientation: "horizontal", side: "before", ratio: 0.3, leaf: {kind: "leaf", id, ref: id, sizing: "fixed", minimumSize: {width: 160, height: 0}, maximumSize: {width: 480, height: Number.MAX_SAFE_INTEGER}}});
+    if (!result.ok) return report(result);
+    if (root?.kind !== "branch") {
+        const sized = grid.value.setSize(id, SIDEBAR_WIDTH); // [新] splitLeaf 给新叶的意图是编辑区的 30%（实测 312），要改回 240
+        if (!sized.ok) return report(sized);
+    }
+    sidebars.value = [...sidebars.value, id];
+    host.invalidate();
+}
+
+function removeSidebar(id: string): void {
+    const result = grid.value.removeLeaf(id); // 保留像素的叶：兄弟意图不动 [新规则]
+    if (!result.ok) return report(result);
+    sidebars.value = sidebars.value.filter((item) => item !== id);
+    host.invalidate();
+}
+
+function widen(id: string): void {
+    const result = host.setSize(id, 320); // [新] 单步：自己重发布局
+    if (!result.ok) report(result); // not-found、wrong-node-kind（按比例分的节点）、not-ready
+}
+
+const contents = computed(() => [
+    ...sidebars.value.map((id) => ({key: id, leaf: id, insetTop: 28, active: true})),
+    {key: "editor", leaf: "editor", insetTop: 0, active: true},
+]);
+const paneLabel = (id: string): string | undefined => (id === "editor" ? "Editor" : id.replace("side-", "Sidebar "));
+</script>
+
+<template>
+    <div style="height: 480px">
+        <NestedGrid v-bind="host.bindings.value" :contents="contents" :pane-label="paneLabel">
+            <template #leaf="{node}">
+                <div style="height: 28px; display: flex; justify-content: space-between">
+                    {{ paneLabel(node.id) }}
+                    <button v-if="node.id !== 'editor'" type="button" @click="removeSidebar(node.id)">×</button>
+                </div>
+            </template>
+            <template #content="{contentKey}"><!-- 宿主自己的内容，按 contentKey 取 --></template>
+        </NestedGrid>
+    </div>
+</template>
+```
+
+草稿二里要注意的几处：
+
+- 起步例子只用 `leaf` 插槽，不用内容层，也能增删，但删一块时那一块立刻消失、没有缩回去的动画（发现 3）。要动画就要整体改成内容层，README 没有这一步的提示。
+- 删光侧栏后根分支变成叶，`addLeaf("root", …)` 报 `not-found`，宿主要自己写 `splitLeaf` 的分支。而 `splitLeaf` 给新叶的意图又不是想要的值，要再 `setSize` 一次（发现 4）。这是 `setSize` 在草稿里最实在的用处。
+- 选形状 A 会掉进发现 4、5：展平后侧栏不再固定宽度，新加的按比例分的面板被压到最小高度。
+
+---
+
+## 总评
+
+- **缺什么**：t51 三样做完，t45 仍不能完全原地增删。
+  - 收起策略不能运行时改（发现 1）。
+  - 对保留像素的叶 `splitLeaf`、对一列保留像素的面板 `removeLeaf`，会让它变成按比例分。这是 t45 当初不用“详情分支”的原因，计划没动它（发现 4）。
+  - 第三方的“侧栏加一块删一块”还会在删光侧栏时碰到根分支被展平。
+- **好不好用**：
+  - 单步的 `host.setSize`、`host.setCollapsed` 好用。
+  - 多步（开第二张就是三步）要在“包装各发布一次”和“直接改 `grid` 再手动通知”之间选，后者漏了通知没有提示（发现 6）。
+  - 离开的内容把 t45 的 `closing` 列表、`moving` 读数、`nextTick` 时序整套省掉，方向对。但触发条件太宽、没有退出口，且和 Spec 输出 45 对不上（发现 2、3）。
+- **概念多不多**：要记的“坑”比能力多：展平、策略不可改、只有内容层才有离开动画、按比例分的意图要用像素量级、`maximumSize` 的 0 不是不限。新增三个入口本身不难记，难记的是它们之间的缝（发现 11）。
+- **名字与形状是否一致**：
+  - 一致的：`setSize` 与 `setCollapsed` 的返回值形状（`{ok, changed}`）、`not-found`、根节点 `invalid-argument`。
+  - 不一致的：失败码（`not-finite` 与 `invalid-argument` 的分工，`wrong-node-kind` 被用来表示分配策略，发现 7）；`addLeaf` 收 `size` 而 `splitLeaf` 只收 `ratio`，两个入口对“按比例分的新叶”形状不一致（发现 5）。
+  - `paneLabel` 的参数形状与 `leafShape(leaf)` 一致，但 pane 是库里的第三个词（发现 9）。
+- **哪里会写错**：见各发现里的代码。忘了 `invalidate()`（6）、同叶换内容遇到别处过渡（2）、对固定叶 `splitLeaf`（4）、`addLeaf` 给按比例分的叶传“份额”（5）、`fixed` 不给 `size`（10）。
+
+---
+
+## 发现
+
+### 1. 收起策略只能在建树时给，t45“两张时拖不出收起”没有入口
+- **严重程度**：重要
+- **位置**：计划“不做与风险”第一条；`grid.ts` 的 `setCollapsed`（只翻标记）；草稿一的 `cardLeaf`。
+- **现象**：一张卡时它要有收起策略（拖到 0 收起整块），t45 又定两张时 `drawer` 没有收起策略、拖主区那条线拖不出收起。节点上的 `collapse` 是 grid 里可变的字段，库为它提供了原地改状态的 `setCollapsed`，却没有设置或取消策略的入口。
+- **为什么是问题**：宿主只剩两条路。
+  - 两张都带策略：用户把主区那条线拖到最左，左边那张自己收起、右边留着，成了半收起的状态。`useGridHost` 的提交处理不让宿主否决，只能事后补救。
+  - 张数变了就重建网格，也就是 t45 第 4 稿的做法，t51 想去掉的恰是它。
+  结果是 t51 三样做完，t45 第 5 稿仍写不出“原地增删”。第三方想要“只剩一块时不可收起、多块时可收起”也是同一个缺口。
+- **建议改法**：
+  - 加 `grid.setCollapsePolicy(id, policy | null)` 与 `host.setCollapsePolicy`，写法同 `setCollapsed`：变了才重发布局；`null` 取消，已收起的先展开。
+  - 或者 t45 改决定：两张时拖到 0 允许收起左边那张。
+  - 无论哪条，Task README 要写明 t51 之后这条缺口还在，别让 t45 以为补齐了。
+
+### 2. 离开的内容：触发条件看整个网格有没有过渡、对所有内容项默认开启、没有退出口
+- **严重程度**：重要
+- **位置**：计划“三”第一个子要点（“如果这次布局变化开了过渡（`moving` 为真），它变成‘离开的内容’”）；`NestedGrid.md` 的 `contents`。
+- **现象**：条件是整个网格的 `moving`，不是“这一项所在的叶这一轮有没有动或离开”。计划也没说清“这次布局变化”是只算同一轮，还是也算已在走的过渡。
+- **为什么是问题**：
+  - 同一叶换内容（`detail-5` 换成 `detail-6`，叶不动）遇到别处的过渡（导航收起），旧内容按字面会被留到过渡结束，和新内容挤在同一叶里。（推断，没跑）
+  - 没有退出口：现有宿主（工作台）去掉内容项时原来立即卸载，之后在有过渡的那一轮里会多活一个过渡时长（缺省 470ms），期间 `inert`、带 `data-leaving`。计划写“工作台不改”，行为却变了；回归的六个 e2e 里有没有断言卸载时机，计划没写。
+  - 业界对照：研究文档记 dockview 把“元素留不留在 DOM”做成每个面板可选的渲染方式（缺省 `onlyWhenVisible` 会把元素移出 DOM，`renderer: 'always'` 不离开），是显式选择；这里是隐式的全局行为。
+- **会写错的代码**：
+  ```ts
+  details.value = replaceCard(details.value, 5, content); // key detail-5 换成 detail-6，叶不动
+  host.setCollapsed("nav", true);                         // 同一个同步段里导航收起，网格有过渡
+  // 按计划字面：detail-5 留到导航过渡结束，和 detail-6 在同一叶里叠着
+  ```
+- **建议改法**：
+  - 留着的条件收窄为“这一项所在的叶这一轮在 `outgoingLeaves` 里（离开或降到零）”，其余一律立即卸载。
+  - 再给内容项一个退出口，例如 `GridContentInput` 加 `leave?: "retain" | "unmount"`。缺省我倾向“不留”，让新行为由 nb-story 的内容项显式开。
+  - 若开发者要缺省留，至少让回归 e2e 覆盖“关最后一个标签”的卸载时机，并把行为变化写进 CHANGELOG。
+
+### 3. 离开动画只在内容层路径上有，Spec 输出 45 的第 3 个条件与新规则互相引用
+- **严重程度**：重要
+- **位置**：Spec `ui/nested-grid` 输出 44、45；README 起步（只用 `leaf` 插槽）；计划“三”。
+- **现象**：输出 44、45 说，离开的叶立即消失，只有四个条件同时成立才留着缩回去，第 3 个是“它下面还有挂着的内容（隐藏，不是关掉）”。
+  - 按字面只有内容层的项算挂着的内容。只用 `leaf` 插槽的宿主（README 起步就是这样）删叶时没有缩回去的动画，叶一帧消失，别的叶却在过渡。（推断，没跑过）
+  - 计划想让“内容项一起被去掉”的叶也留着，但“关掉”在输出 45 里恰恰不算挂着。新规则靠叶留内容，旧条件靠内容留叶，计划“三”没写输出 45 怎么改。风险一节写的 `leavingPlacements` 只覆盖叶已被留着的情形。
+- **为什么是问题**：第三方照 README 起步写完、加上 `removeLeaf`，得到的是“删得突然”；要读到 Spec 才知道得改成内容层。这是一条看不出的断崖，草稿二就踩了。
+- **建议改法**：
+  - 输出 45 第 3 个条件改成“下面有挂着的内容，或有在这一轮同时离开的内容项”，并写进计划“三”。
+  - 把“记下最后一次渲染结果、留到过渡结束”同样用在 `leaf` 插槽（按叶 id 缓存），两条路径一个规则：这一轮被去掉的东西在这一轮的过渡里留着，不再有“叶要靠内容留”。
+  - 至少在 README“我要做 X”表加一行“删一块并带缩回去的动画”，写明要走内容层。
+
+### 4. `removeLeaf` 展平与 `splitLeaf` 丢掉 `sizing`，新规则的开关因此失效
+- **严重程度**：重要
+- **位置**：`grid.ts` 的 `collapse(parent, survivor)`（只复制 `size`）与 `splitLeaf`（新分支写死 `sizing: "weight"`、无约束，留下的叶保留原 `sizing`）；计划“一”的“`splitLeaf` 不变”“展平不变”；`grid.md`“宿主要一组栏常在就保留两个孩子或重建”。
+- **现象（均为现有代码实测）**：
+  - E14（草稿二的结构 `[side-0 保留像素 240, editor]`）：删掉最后一块侧栏后，`root()` 成了叶 `editor`，`find("root")` 为 null，`addLeaf("root", …)` 报 `not-found`。editor 是唯一永远在的孩子，“保留两个孩子”做不到。想加回侧栏只能 `splitLeaf("editor", …)`，新叶的意图是 editor 的意图乘 ratio（实测 312），不是 240。
+  - E3（形状 A）：侧栏是保留像素的分支（`sizing: "fixed"`、最小宽 160，里面两块面板），删掉一块后存活的叶顶替了分支，只拿到分支的 `size`，`sizing` 是它自己的 `weight`，分支的最小宽度没了。侧栏宽度从固定 240 变成按比例：1000 宽时 285，1400 宽时 400。
+  - E8'：对保留像素的叶 `splitLeaf`（给只有一块的侧栏“加一块”最顺手的写法）：新分支是按比例分的、没有约束；保留下来的叶仍是 `sizing: "fixed"`，现在落在竖向分支里，意图 `height: 0.5`，是一块 0.5px 高的固定面板。1000 宽时侧栏 254px，1400 宽时 356px，也不再固定。
+- **为什么是问题**：t51 的新规则就是“看被插入或拿走的节点的 `sizing` 决定谁动”。展平和拆分悄悄改了 `sizing`，下一次结构操作换了一套规则，且没有任何诊断。
+  - 根因是 `sizing` 只有一个值，却只管“沿父分支主轴”；节点换了父分支的方向（拆分、`moveLeaf` 跨方向），它还是同一个值。
+  - 这也是 t45 放弃“详情做成一个分支、里面两张卡”的原因。那本来是更自然的建模：一个保留像素的分支加一次 `setSize`，而不是对每张卡各设一次。
+- **建议改法**：
+  - 展平时存活的节点继承被展平分支的外部属性：`sizing`、`minimumSize`、`maximumSize`、`collapse`。`splitLeaf` 的注释写的原则是“外部分配整份继承”，展平只做了一半。
+  - `splitLeaf` 的新分支继承目标叶的 `sizing`、沿主轴的约束与收起策略，留下的叶按新轴重置成 `weight`。
+  - 或给 `createGrid` 一个“不展平”选项（建树本来就不展平，`instantiate` 没有展平的代码），让“一列永远在”的宿主用。
+  - 最低限度：计划“展平单孩子分支的提醒”要写出会丢什么（`sizing`、约束、收起策略、分支 id），并给 `splitLeaf` 重建根的配方（草稿二那一段）。
+
+### 5. 按比例分的节点的 `size` 没有稳定单位：`addLeaf`、`removeLeaf` 把它当像素夹进最小尺寸
+- **严重程度**：重要
+- **位置**：`grid.ts` 的 `shiftSiblings`（走 `shareAxis`）；`addLeaf` 的 `leaf.size`；计划“一”第二个子要点（“同现在的 `shareAxis`，只是候选集合去掉保留像素的”）。新规则对按比例分的兄弟沿用的就是这个函数。
+- **现象（现有代码实测）**：
+  - E1、E12：竖着两块按比例分的面板，意图各 1（或 `splitLeaf` 自己给的 0.5、0.5），最小高 80px。`addLeaf` 第三块，不论给 1 还是 1/3，兄弟的意图都被夹成 80、80，新块 1。容器 600 时呈现是 259、259、80：新块只得到最小高度，不是三分之一。按像素想、给 200，则新块得 499。
+  - E13：三块意图 0.6、0.3、0.1，最小 80px，删掉最后一块，剩下两块的意图变成 80、80，原来的 2 比 1 变成 1 比 1。意图取像素量级（360、180、60）时则保持 2 比 1。
+- **为什么是问题**：
+  - README 与 `grid.md` 说“其余按比例分余量”，读起来与尺度无关；实际结构操作把意图直接当“要分的像素”，与以像素给的最小、最大尺寸混算。
+  - `splitLeaf` 自己就造 0.5 量级的权重，所以库自己拆出来的分支也会中招。
+  - `splitLeaf` 刻意不开放 `size`（`grid-types.ts` 的注释：“否则初始意图会有两个 authority，测得的 px 还会被当成权重”），`addLeaf` 却收 `size`，两个入口对“按比例分的新叶”形状不一致。
+  - 业界对照：研究文档记 reka-ui 的 `SplitterPanel` 用 `sizeUnit` 显式选百分比或像素；这里的单位是隐式的。
+- **会写错的代码**：
+  ```ts
+  // 三块等分的侧栏再加一块，想要四等分
+  grid.addLeaf("side", 3, {kind: "leaf", id: "p3", ref: "p3", size: {width: 0, height: 1 / 4}, minimumSize: {width: 0, height: 80}});
+  // 兄弟的意图被夹到 80，新块只有 80px
+  ```
+  这段按 E1 的两块实测推断，没有单独跑三块的版本。
+- **建议改法**：
+  - `addLeaf` 对按比例分的叶也收 `ratio`（份额，同 `splitLeaf`），内部换算成与兄弟相同的尺度。
+  - 或者让 `shiftSiblings` 在按比例分的候选里只按权重比例缩放、不夹像素边界（夹边界留给布局）。
+  - 最低限度：`grid.md`、README 写明“按比例分的意图要取与容器同量级的数”。`grid.test.ts` 加一条“意图量级小于最小尺寸”的用例。
+
+### 6. 多步编辑没有一次性入口；直接改 `grid` 忘了通知时没有任何提示
+- **严重程度**：重要
+- **位置**：`useGridHost.md`“交回什么”表；计划“二”第二个子要点（`host.setSize` 同 `setCollapsed`）；`useGridLayout.ts` 的 `invalidate`（立即 `publish`）。
+- **现象**：宿主入口里只有 `setCollapsed`、`setSize` 两个单步包装，其余结构操作要 `grid.xxx` 加 `host.invalidate()`。真实的编辑是多步（草稿一：加叶、每张 `setSize`、通知）。
+  - 用包装，每步都 `publish()` 一次：算布局、版本递增（进行中的手势因此结束）、按“只发新出现的”发诊断。中间态放不下时，`onIssues` 会收到终态里并不存在的 `over-constrained`（读 `useGridLayout.ts` 得出，没跑）。
+  - 用 `grid.setSize` 就得自己调 `invalidate`。
+- **为什么是问题**：每多一个变更入口，库就要在 host 上再包一份，且都要处理 `not-ready`。用户在“包装各发布一次”与“直接改再手动通知”之间选，后者漏了通知时画面不变、也没有诊断（README 只在 `setCollapsed` 那一行提过）。
+- **会写错的代码**：
+  ```ts
+  grid.value.setSize("card-1", 400); // 忘了 host.invalidate()：画面不变，revision 不变，下一场手势还拿旧布局
+  ```
+- **建议改法**：加通用的 `host.update((grid) => { … })`：回调里随意调 `grid` 的任何变更入口，返回后只发布一次；`host.setCollapsed`、`host.setSize` 可以是它的薄包装。README“我要做 X”表写“改树用 `host.update`”，把“直接改 `grid` 再 `invalidate()`”降为高级用法。
+
+### 7. `setSize` 的失败码与库里已有的约定不一致
+- **严重程度**：建议
+- **位置**：计划“二”的失败列表；`grid-failure.ts` 的参数表。
+- **现象**：
+  - 计划：非有限或负数都报 `invalid-argument`。库里已有的分工：非有限数报 `not-finite`（`resize` 的 `delta`，用 `field` 区分），负数报 `invalid-argument` 的 `size-negative`。
+  - 计划：按比例分的节点报 `wrong-node-kind`、`params.expected: "fixed"`。`wrong-node-kind` 的参数是 `expected: "leaf" | "branch"`，说的是节点种类；`fixed` 是分配策略。“节点没有这项能力”在库里有专用码：`setCollapsed` 对没有收起策略的节点报 `not-collapsible`。
+  - 一致的：`not-found`；根节点 `invalid-argument` 加 `field: "root"`（同 `resize`、`setCollapsed`）；`{ok: true, changed}`（同 `setCollapsed`）。
+- **为什么是问题**：失败码是宿主分支的依据（ADR 0054 第 4 条）。同类的参数错报不同的码，宿主要为 `setSize` 单独写分支；把种类与策略塞进同一个码，`expected` 的联合变成 `"leaf" | "branch" | "fixed"`，按 `expected` 分支的宿主会错。新增码不算破坏（同一条），改的成本低。
+- **建议改法**：
+  - 非有限 → `not-finite`，新增一个 `field` 形状（现有的 `field: "size"` 带 `side`、`id`，对 `setSize` 不适用）。
+  - 负数 → `invalid-argument` 的 `size-negative`，现有形状要带 `side`，同样要新增形状。
+  - 按比例分的节点 → 新码 `not-fixed {id}`（仿 `not-collapsible`）。
+  - `wrong-node-kind` 的 `expected` 保持只有 leaf、branch。
+
+### 8. `setSize` 的语义有几处没写
+- **严重程度**：建议
+- **位置**：计划“二”。
+- **现象与问题**：
+  - **名字与形状**：库里 `node.size` 是 `GridExtent`（宽高），`resize(id, axis, delta)` 带轴；`setSize(id, px)` 没有轴、取父分支主轴、只认保留像素的节点。读 `grid.find(id).size` 的人容易以为 `setSize` 收宽高对象，TS 会拦，但错误信息不指路。名字叫 `setFixedSize` 或 `setSizePx` 更直白，也和失败码 `not-fixed` 对得上。
+  - **不夹**：`setSize("drawer", 200)` 而最小宽 280，意图存 200，呈现 280，返回 `{ok: true, changed: true}`，宿主看不到有效值。`resize` 返回 `applied`。建议返回存下的 `size`，并写明“呈现仍按约束夹取”。
+  - **收起中**：计划写“改的是意图，展开时回到它”。但分隔条上 Enter 恢复到的是 `collapse.restoreSize`（`grid.md`：保留像素的面板在收起那一刻记它的意图）。`setSize` 改了意图却不改 `restoreSize`，两条展开路径回到不同的宽度。计划的测试只列了 `setCollapsed(false)` 那条。建议收起中的 `setSize` 同时更新 `restoreSize`，并加 Enter 路径的用例。
+  - **入口并存**：改一个保留像素节点的意图现在有三个入口：`resize`（delta，兄弟共同吸收）、`resizeBranch(es)`（px，要整支的基线）、`setSize`。`grid.md` 要写清选哪个，`resize` 注释里“新消费者应优先使用 `resizeBranches`”也要改。
+  - **不触发 `onApplied`**（同 `setCollapsed`）：宿主要存的偏好（nb-story 的宽度偏好）要自己存，写进 `useGridHost.md`。
+- **建议改法**：见各条。
+
+### 9. `paneLabel` 与 `Splitter` 的 `label`
+- **严重程度**：建议
+- **位置**：计划“四”；`NestedGrid.vue` 的 `sashProps`。
+- **现象与问题**：
+  - **词汇**：库里叶、节点、分支叫 leaf、node、branch（`leafShape`、`sashKind` 的 `branch`、`before`、`after`），Splitter 叫 panel（`SplitterPanelConfig`、`panel-<id>` 插槽）。`paneLabel` 引入第三个词 pane。它同时问叶与分支，叫 `nodeLabel` 与 `leafShape(leaf)` 并列更一致。
+  - **一致的**：参数是 id 字符串，同 `leafShape`；返回 `undefined` 时回退，同 `sashKind`；`Splitter` 用配置字段、`NestedGrid` 用函数，各自与所在组件一致。空串也回退是新约定，要写进文档。
+  - **冻结的分隔线**：交换里滑出去的线（`detached`）两侧已不在宿主的布局里，`NestedGrid.vue` 对 `sashKind`、`sashStyle` 专门沿用离开前最后一次的结果（`sashLooks`）。`ariaLabel` 在 `sashProps` 里为冻结的线和普通的线各算一次，计划没说 `paneLabel` 对前者用哪个。宿主的数据没了会问到 `undefined` 退回 id，是小问题，但同一类问题库里已有先例。
+  - **响应式**：`ariaLabel` 在 `NestedGrid` 的渲染里读（`sashProps`），所以 `paneLabel` 读到的响应式数据变了会跟着重算（读代码得出，没跑）；写进文档。
+  - **缺省仍是 id**：宿主不给，读屏听到“调整 card-3 与 card-5 的宽度”。
+- **建议改法**：改名 `nodeLabel`（或保留 `paneLabel` 并在文档说明它等同于节点）；冻结的线沿用 `sashLooks` 那套记录；文档写空串回退与响应式。
+
+### 10. 两个现有的小坑，新入口会放大
+- **严重程度**：建议
+- **位置**：`GridLeafInput`；`grid-geometry.ts` 的 `constraintOnAxis`；nb-story 的 `book-grid.ts`。
+- **现象与问题**：
+  - `sizing: "fixed"` 不给 `size` 时意图是 0，呈现宽度 0，没有诊断（实测 E4：`addLeaf` 一块 `{sizing: "fixed"}` 的叶，宽 0）。保留像素时缺了 `size` 最容易写错；`setSize` 事后能补，但静默的 0 宽仍在。建议 `fixed` 且没有 `size` 时报 `invalid-argument`，或在开发检查里提示。
+  - `maximumSize: {width: 640, height: 0}`：README 起步写 `size: {width, height: 0}`，nb-story 的 `book-grid.ts` 把同样的写法用在 `maximumSize`，但 `maximumSize` 的 0 是“上限 0”，不是不限。叶一旦放进竖向分支（拆分、`moveLeaf` 跨方向），高度上限就是 0。我写发现 4 的第一版实验就这样写错，得到 0 高。README“约定”里加一句即可。
+- **建议改法**：见各条。
+
+### 11. 验证缺口：缓存 VNode 的探针没走编译后的插槽；要记的概念
+- **严重程度**：建议
+- **位置**：计划“前置探针”与“测试”；README“我要做 X”表。
+- **现象与问题**：
+  - 探针用手写的 `h()` 子组件加 `cloneVNode`。真实宿主的 `content` 插槽是模板编译出来的（块树、`v-if`、`v-for` 片段、patchFlag、`dynamicChildren`），重用一棵挂载过的块里的 VNode 在这种插槽下是否安全，探针没覆盖。我没有读 Vue 源码核实，只说“探针没覆盖”，不说“会坏”。建议 dom 测试至少用一个 SFC 编译的插槽（含 `v-if`、`v-for`、`Transition` 子树），再测“离开中宿主又渲染一次”和“同 key 回来”。
+  - 概念数：宿主要同时记住意图与呈现、`sizing` 两种、`setSize` 只认保留像素、改树要 `invalidate`（或用 `host.setSize`、`host.setCollapsed`）、收起策略只能建树时给、展平会丢什么、只有内容层有离开动画、离开的内容何时留着、`moving`、`outgoingLeaves`、`shapedLeaves`、`swappingLeaves` 四个读数、`paneLabel`。必须记的多半是“坑”（展平、策略不可改、内容层才有动画、意图量级），不是能力。发现 1、3、4、6 做了，坑能少四个。README 加一节“增删一块”的配方（草稿二那一段），比再加入口更值。
+- **建议改法**：见各条。
+
+---
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11
+
+草稿已写入 `reports/api-review/report-draft.txt`（t51 任务目录下）。
