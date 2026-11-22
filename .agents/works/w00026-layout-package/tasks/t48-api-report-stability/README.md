@@ -15,11 +15,11 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿的设计审查（Claude Sonnet，阻断 2、重要 5、建议 3，[证据](evidences/design-review.txt)）十条都成立，计划要重写；其中一件要开发者定，**停在这里等开发者**（改推进顺序、先做 t49 也要开发者同意）。
+2026-11-22：[计划](plan.md)第 1 稿的设计审查（Claude Sonnet，阻断 2、重要 5、建议 3，[证据](evidences/design-review.txt)）十条都成立，计划要重写。其中一件按推荐先做、记进待确认清单（“待开发者追认”），不停下：
 
-**要开发者定的**（与 nb-layout 首发、晋升 `ui/nested-grid`、`ui/layout-drag` 是同一组决定）：插件 SDK（`packages/neuro-book/src/sdk/components.ts`）转出了 nb-layout 的 7 个组件与约 16 个类型，文件头写着“这里每一项都是兼容承诺”，SDK 已经发布；ADR 0054 第 10 条说 nb-layout 只承诺标 `@stable` 的符号，而按映射规则这些名字现在会标 `@experimental`。两个承诺对不上，要选一个：
-- 推荐：SDK 转出的这些名字在 nb-layout 里标 `@stable`（以 SDK 已经许下的承诺为准；代价是这些名字在 nb-layout 的 0.x 里也不能随便改）；
-- 或者 SDK 的承诺对转出的 nb-layout 名字写例外（跟着 nb-layout 的标注走）；代价是已经用 SDK 的插件作者失去原来的承诺。
+**按推荐先做、待开发者追认的**（与 nb-layout 首发、晋升 `ui/nested-grid`、`ui/layout-drag` 一起交开发者）：插件 SDK（`packages/neuro-book/src/sdk/components.ts`）转出了 nb-layout 的 7 个组件与约 16 个类型，文件头写着“这里每一项都是兼容承诺”，SDK 已经发布；ADR 0054 第 10 条说 nb-layout 只承诺标 `@stable` 的符号，而按映射规则这些名字现在会标 `@experimental`。两个承诺对不上，要选一个：
+- 照做：SDK 转出的这些名字在 nb-layout 里标 `@stable`（以 SDK 已经许下的承诺为准；代价是这些名字在 nb-layout 的 0.x 里也不能随便改）。nb-layout 还是 `private`，改回去便宜。
+- 另一个方向只有开发者能定：SDK 的承诺对转出的 nb-layout 名字写例外（跟着 nb-layout 的标注走），已经用 SDK 的插件作者会失去原来的承诺。
 
 **第 2 稿要改的**（审查各条的改法都采纳）：
 1. 非组件的名字不用类型检查器打印类型，改用 `ts.createPrinter` 打印声明节点本身（结构变化才看得见；打包后的声明里类型、接口、函数是真名）。
@@ -35,4 +35,4 @@ updated: 2026-11-22
 
 ## 下一步
 
-开发者定 SDK 承诺与 nb-layout 标注怎么对齐（连同首发、晋升 Spec）→ 按上面十条写第 2 稿 → 第 2 轮设计审查。
+第 2 稿之前先补两个探针：`vue-component-meta` 能不能出组件的 props、事件、插槽、expose（含 `panel-${string}` 插槽与 `HTMLAttributes` 透传）；把标注写进声明之后产物与 tarball 是否仍逐字节稳定。然后按上面十条写第 2 稿 → 第 2 轮设计审查。
