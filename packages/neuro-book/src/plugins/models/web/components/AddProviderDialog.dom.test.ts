@@ -73,13 +73,17 @@ describe("AddProviderDialog 的第一步", () => {
         expect(wrapper.emitted("add")).toEqual([[{template: "deepseek"}]]);
     });
 
-    it("搜索按名称与地区名匹配；搜索框里回车选第一个能点的", async () => {
+    it("搜索按名称与地区名匹配；搜索框里回车选第一个能点的，组字时的回车不算", async () => {
         const wrapper = await openDialog();
         const search = query<HTMLInputElement>("[data-add-provider-search] input, input[data-add-provider-search]");
         search.value = "大陆";
         search.dispatchEvent(new Event("input", {bubbles: true}));
         await flushPromises();
         expect([...document.body.querySelectorAll("[data-add-provider]")].map((row) => row.getAttribute("data-add-provider"))).toEqual(["moonshot"]);
+        // 输入法组字时的回车是选字：不选模板。
+        search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true, isComposing: true}));
+        await flushPromises();
+        expect(document.querySelector("[data-region]")).toBeNull();
         search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await flushPromises();
         // 有地区的模板进第二步：选地区。

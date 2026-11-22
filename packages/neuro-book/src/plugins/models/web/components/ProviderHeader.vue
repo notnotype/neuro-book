@@ -5,6 +5,7 @@ import {computed, nextTick, ref, watch} from "vue";
 
 import {IconScaleError, scaleIcon} from "../icon-scale";
 import type {IconCodec} from "../icon-scale";
+import {composing} from "../composing";
 import {useModelsText} from "../text";
 import ProviderIcon from "./ProviderIcon.vue";
 
@@ -44,7 +45,8 @@ const editing = ref(false);
 const draft = ref(props.provider.name);
 const nameProblem = ref("");
 const nameInput = ref<{$el?: HTMLElement} | HTMLElement | null>(null);
-const editButton = ref<HTMLElement | null>(null);
+/** 标题区的根元素：铅笔是 nb-ui 的 `IconButton`（组件实例上没有 `focus`），按钩子在根里找它的元素。 */
+const root = ref<HTMLElement | null>(null);
 
 async function startEditing(): Promise<void> {
     if (props.disabled) return;
@@ -72,11 +74,17 @@ function commit(): void {
     emit("rename", value);
 }
 
+function onEnter(event: KeyboardEvent): void {
+    if (composing(event)) return;
+    event.preventDefault();
+    commit();
+}
+
 async function cancel(): Promise<void> {
     editing.value = false;
     nameProblem.value = "";
     await nextTick();
-    editButton.value?.focus();
+    root.value?.querySelector<HTMLElement>("[data-provider-rename]")?.focus();
 }
 watch(() => props.provider.name, (name) => {
     if (!editing.value) draft.value = name;
@@ -133,7 +141,7 @@ const shownError = computed(() => (uploadError.value !== "" ? uploadError.value 
 </script>
 
 <template>
-    <div class="provider-header" data-provider-header>
+    <div ref="root" class="provider-header" data-provider-header>
         <Popover v-model:open="iconOpen" side="bottom" align="start" content-class="provider-header__panel">
             <template #trigger>
                 <button type="button" class="provider-header__icon nb-ui-focus-ring" :aria-label="text('header.icon.button', {name: provider.name})" :disabled="disabled" data-provider-icon-button>
@@ -171,13 +179,13 @@ const shownError = computed(() => (uploadError.value !== "" ? uploadError.value 
         </Popover>
         <div class="provider-header__name">
             <template v-if="!editing">
-                <h3 class="provider-header__title" tabindex="-1" data-provider-name>{{ provider.name }}</h3>
+                <h3 class="provider-header__title" tabindex="-1" data-provider-name @click="startEditing">{{ provider.name }}</h3>
                 <Tooltip :text="text('header.rename')">
-                    <IconButton ref="editButton" size="sm" icon-class="i-lucide-pencil" :aria-label="text('header.rename')" :disabled="disabled" data-provider-rename @click="startEditing" />
+                    <IconButton size="sm" icon-class="i-lucide-pencil" :aria-label="text('header.rename')" :disabled="disabled" data-provider-rename @click="startEditing" />
                 </Tooltip>
             </template>
             <div v-else class="provider-header__edit">
-                <Input ref="nameInput" v-model="draft" size="sm" :aria-label="text('header.nameLabel')" :invalid="nameProblem !== ''" data-provider-name-input @keydown.enter.prevent="commit" @keydown.esc.prevent.stop="cancel" @blur="commit" />
+                <Input ref="nameInput" v-model="draft" size="sm" :aria-label="text('header.nameLabel')" :invalid="nameProblem !== ''" data-provider-name-input @keydown.enter="onEnter" @keydown.esc.prevent.stop="cancel" @blur="commit" />
                 <p v-if="nameProblem !== ''" class="provider-header__error" role="alert" data-name-problem>{{ nameProblem }}</p>
             </div>
         </div>
@@ -220,11 +228,16 @@ const shownError = computed(() => (uploadError.value !== "" ? uploadError.value 
 
 .provider-header__title {
     margin: 0;
+    cursor: text;
     overflow: hidden;
     font-size: var(--text-lg);
     font-weight: var(--weight-strong);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+/* 标题只作程序聚焦的落点（复制之后焦点到名称）：它不是控件，不画焦点环。 */
+.provider-header__title:focus {
+    outline: none;
 }
 
 .provider-header__edit {

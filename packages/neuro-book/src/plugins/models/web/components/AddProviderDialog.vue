@@ -5,6 +5,7 @@ import type {Template} from "@notnotype/nb-models/contract";
 import {Badge, Button, Dialog, Input, Select} from "@notnotype/nb-ui/components";
 import {computed, nextTick, reactive, ref, watch} from "vue";
 
+import {composing} from "../composing";
 import {useModelsText} from "../text";
 import ProviderIcon from "./ProviderIcon.vue";
 
@@ -115,8 +116,14 @@ function choose(template: Template): void {
 }
 
 /** 回车选第一个命中的模板（搜索框里）。 */
-function pickFirst(): void {
+function pickFirst(event: KeyboardEvent): void {
+    if (composing(event)) return;
+    event.preventDefault();
     if (firstAddable.value !== null) choose(firstAddable.value);
+}
+
+function createOnEnter(event: KeyboardEvent): void {
+    if (!composing(event)) create();
 }
 
 function create(): void {
@@ -160,7 +167,7 @@ watch(step, async (value) => {
         @request-close="(reason) => (reason === 'cancel' ? (step = null) : emit('update:open', false))"
     >
         <div v-if="step === null" class="add-provider">
-            <Input v-model="query" size="sm" icon-class="i-lucide-search" :placeholder="text('add.search')" :aria-label="text('add.search')" data-add-provider-search @keydown.enter.prevent="pickFirst" />
+            <Input v-model="query" size="sm" icon-class="i-lucide-search" :placeholder="text('add.search')" :aria-label="text('add.search')" data-add-provider-search @keydown.enter="pickFirst" />
             <p v-if="error !== ''" class="add-provider__error" role="alert">{{ error }}</p>
             <p v-if="templates === null" class="add-provider__muted">{{ text("add.loading") }}</p>
             <p v-else-if="sections.length === 0" class="add-provider__muted">{{ text("add.noMatch") }}</p>
@@ -196,11 +203,11 @@ watch(step, async (value) => {
             <template v-if="step.blank">
                 <label class="add-provider__field">
                     <span>{{ text("add.customName") }}</span>
-                    <Input v-model="form.name" size="sm" :invalid="touched && form.name.trim() === ''" data-field="name" @keydown.enter="create" />
+                    <Input v-model="form.name" size="sm" :invalid="touched && form.name.trim() === ''" data-field="name" @keydown.enter="createOnEnter" />
                 </label>
                 <label class="add-provider__field">
                     <span>{{ text("add.customUrl") }}</span>
-                    <Input v-model="form.baseUrl" size="sm" placeholder="https://example.com/v1" :invalid="(touched && form.baseUrl.trim() === '') || (touched && urlProblem !== '')" data-field="baseUrl" @keydown.enter="create" />
+                    <Input v-model="form.baseUrl" size="sm" placeholder="https://example.com/v1" :invalid="(touched && form.baseUrl.trim() === '') || (touched && urlProblem !== '')" data-field="baseUrl" @keydown.enter="createOnEnter" />
                     <small v-if="touched && urlProblem !== ''" class="add-provider__error" role="alert">{{ urlProblem }}</small>
                 </label>
                 <div class="add-provider__field">

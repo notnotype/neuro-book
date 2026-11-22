@@ -64,7 +64,7 @@ describe("添加：按模板", () => {
 });
 
 describe("标题区", () => {
-    it("改名：回车提交；重名在输入框下写原因、不发；空名与 Esc 回退", async () => {
+    it("改名：回车提交；重名在输入框下写原因、不发；空名回退；点名称也能改、组字时的回车不提交、Esc 取消并还焦点给铅笔", async () => {
         const {store} = await render();
         query<HTMLButtonElement>("[data-provider-rename]").click();
         await flushPromises();
@@ -84,6 +84,18 @@ describe("标题区", () => {
         input().dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await flushPromises();
         expect(query("[data-provider-name]").textContent).toBe("深度求索");
+        // 点名称也能改；输入法组字时的回车不提交；Esc 取消，焦点回到铅笔。
+        query<HTMLElement>("[data-provider-name]").click();
+        await flushPromises();
+        await type(input(), "组字中");
+        input().dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true, isComposing: true}));
+        await flushPromises();
+        expect(document.querySelector("[data-provider-name-input]")).not.toBeNull();
+        input().dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        await waitUntil("焦点回到铅笔", () => document.activeElement?.matches("[data-provider-rename]") === true, {timeoutMs: 5_000});
+        expect(document.querySelector("[data-provider-name-input]")).toBeNull();
+        expect(query("[data-provider-name]").textContent).toBe("深度求索");
+        expect(store.snapshot.value?.providers[0]?.name).toBe("深度求索");
     });
 
     it("复制一份：选中副本、焦点到名称、名称加 2；换内置图标与恢复模板的图标", async () => {
