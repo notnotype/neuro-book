@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t45-story-side-by-side-cards
-status: active
+status: done
 updated: 2026-11-22
 ---
 
@@ -26,7 +26,7 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：四个切片都实施完，在分支 `w00026/t45-side-by-side`（worktree `.worktree/w00026-t45-side-by-side`），实现审查待处理（Claude Sonnet）。Spec [`story/viewer`](../../../../../docs/specs/story/viewer.md) 输出 1、4、20 与地址形状已改，输出 66 到 69、验收 15 标着 planned，合入时去掉。待确认清单里 t45 共 12 行（设计时 2 行，实施完补 10 行）。
+2026-11-22 完成，合入 master（`a00200087`；实现审查的修正 `6c5fa770b`）。Spec [`story/viewer`](../../../../../docs/specs/story/viewer.md) 输出 66 到 69、验收 15 去掉 planned，输出 1、4、20、27 与地址形状已改。待确认清单里 t45 共 14 行（设计时 2 行，实施完 10 行，实现审查后 2 行）。worktree 与分支已删。
 
 ### 提交
 
@@ -72,6 +72,26 @@ updated: 2026-11-22
 - 实施量：四个切片（详情模型与会话代理、四栏与内容层、拖动换边、收口），新增约 9 条 e2e 与一个纯模块的单测，改到 `qa`、`revisions`、`viewer` 三个 e2e 文件的选择器。
 - 草稿：worktree `.worktree/w00026-t45-drafts`（分支 `w00026/t45-drafts`，不合并、不推送）里临时改了 `BookFrame.vue`，截图脚本是 `packages/nb-story/e2e/shoot-current.e2e.ts`，都不提交；原图在本地 `shots/`。
 
+### 实现审查
+
+Claude Sonnet，重要 2、建议 6，[证据](evidences/impl-review.txt)。八条都成立，修正在 `6c5fa770b`：
+
+1. 开书时地址与存下状态的合并没有测：按组取与逐张核对抽成 `details.ts` 的 `requestedCards`、`checkCards`，补单测（按组取、空串、去重、提示次序）；补 e2e“回到上次”（存下两张，换一个浏览器配置打开不带参数的书页）。
+2. 测试缺口与两条标题不符：
+   - 卡片里的会话代理抽成 `detail-scope.ts` 的 `scopeSession`，单测四种打开都到 `{key}`、getter 现读。
+   - 补 e2e：主区名字换最近点过的那张、两张时 Ctrl 点换掉不是最近的、原文开在旁边（头部写出处、头部的对调按钮）、关系图右键“在旁边打开”。
+   - “关右边那张”补逐帧断言（栏在缩的每一帧里刚关掉的那张都还在）；“关左边那张”补逐帧断言（当即消失），Spec 输出 66 的说法照实收窄（advisor 也指出了这一处）。
+   - 改正两条标题。
+   - 补关系图那条时发现一个真问题：右键一个点会先选中它，抽屉开着时跟着换成它，“在旁边打开”只剩让它成为最近的。改成右键顺带的选中不换（`StoryNetwork` 的 `select` 带 `via`），关系图与全书图同改；Spec 输出 27 跟着改，记进待确认清单。全书图那一项没有 e2e，同一段改法，按代码核对。
+3. 运行中按原始 id 比“同一内容”：接受取舍，写进 Spec 的已知限制与待确认清单。
+4. 文档：`DetailShell.md` 补 `swap`；显示名改成共用的 `detailLabel`；`DrawerCard.md` 补 `io:mutate` 与理由（“断开同一身份”是 t45 之前就有的写入）；`router.ts` 的地址注释。
+5. 焦点：两处找交接目标合成 `focusRemaining`；外壳与主区加内嵌焦点线（`nb-ui-focus-ring-inset`），键盘用户看得到焦点交到了哪里。
+6. 提示次序与空串：`checkCards` 按左右次序给出没出现的；空串与没有值的参数当没写。
+7. 窄档关浮层后放宽两张不回来：照现状（关了就是整块收起），Spec 输出 66 写明，待确认那一行改写。
+8. `book-grid.test.ts` 的压缩数值：去掉，只断言主区 360、两张拉平、都不小于 280。
+
+修正后：`typecheck` 通过；`bun test src/web` 125 条通过；`side-by-side`、`frame`、`viewer` 三个 e2e 文件通过（`frame` 在第一轮修正后跑过，之后的改动不碰它）。
+
 ## 接入记录（nb-story 并排两张用 nb-layout 公开面的体验）
 
 接着 [t44 的接入记录](../t44-story-nested-grid/README.md#接入记录第一个外部使用方用-nb-layout-公开面的体验)，给 t47（发布）、t48（API 报告与稳定性标注）、t49（手感编排进库）看。t44 记的缺口里，t51 的 `paneLabel` 补了分隔线显示名；计划第 1 到 4 稿撞到的几处，t52（`setSize`、结构操作不改兄弟意图）与 t53（`leave: "retain"`）补上之后，张数变化原地完成、不重建网格，宿主也不再自己管“正在关的内容”。实施中仍为下面几处写了补丁或接受了差别：
@@ -86,4 +106,4 @@ updated: 2026-11-22
 
 ## 下一步
 
-处理实现审查，同时补一处没核实的：输出 66 与验收 15 写“关掉的那张在过渡里停在关之前的样子”，用例只量了宽度与焦点，变异 M1 也只跑了顶栏开关与过渡两条；关左边那张时被关的那项当即卸载，这句只对关右边那张、关最后一张成立。先在浏览器里看清两种关法，再补逐帧断言并对它重跑 M1，或收窄 Spec 的说法 → 把 master 并进分支、合入、Spec 去掉 planned → 删 worktree。
+无。

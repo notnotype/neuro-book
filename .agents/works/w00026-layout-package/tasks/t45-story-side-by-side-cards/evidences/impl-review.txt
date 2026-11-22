@@ -1,0 +1,117 @@
+## 实现审查报告：w00026 t45 并排看两张详情
+
+范围：`master..HEAD` 的五个提交，只读审查。`bun test src/web` 117 条通过，`bun run typecheck` 通过；没有跑 e2e 与开发服务。
+
+`details.ts` 的纯函数我读完逐条核了边界（`openIn`、`openBeside`、`close`、`swap`、`fromView`，含目标已不在、整块收起、同内容在另一张），没有发现逻辑错误。问题集中在测试覆盖、一处没处理的身份合并，以及文档登记。
+
+### 1. 开会话时的地址与存下状态的合并规则，没有任何自动化验证
+- 严重程度：重要
+- 类别：测试
+- 位置：`src/web/host/book.ts:218-250`；`e2e/side-by-side.e2e.ts:271-278`
+- 现象：这段新逻辑包括四个参数按组取、`fromUrl` 判定、两张并行核对、去重、“某张没出现就提示并把留下的放左边”。`host/` 下没有 `book.test.ts`，`openBookSession` 没有单测。e2e 里只有“地址带 `entity2`、`tab2`，刷新后仍并排”这一条。
+- 为什么是问题：
+  - 这条 e2e 刷新后地址还在，走的是地址分支。Spec 69 与验收 15 的“回到上次”（地址里一个都没写，整组用存下的 `entity2`、`tab2`）没有测。
+  - 验收 15 的“刷新后仍并排”只被地址路径满足。
+  - 以下情形都没有用例：地址只写 `tab` 或只写 `entity2`；两张规范化后是同一人；其中一张在当前阅读位置不存在（要有提示、留下的在左）；`?entity=` 空串。
+  - 改回旧的逐字段合并，或去掉去重，现有测试都不会失败。
+- 如何核实：在 `book.ts` 里把 `pick` 改成 `query[name] ?? savedView[name]`，跑 `side-by-side` 全部用例，应该全过。
+- 建议改法：把“按组取并核对”抽成不依赖会话的纯函数（输入 query、savedView、核对函数，输出 cards 与 notices），补单测。另补一条 e2e：先存下两张，再打开不带参数的书页。
+
+### 2. 卡片里的会话代理、主区普通点击、两处右键菜单、关一张的过渡保留都没有断言；两条用例的标题与断言不符
+- 严重程度：重要
+- 类别：测试
+- 位置：`e2e/side-by-side.e2e.ts:83`、`:98`、`:118`；`src/web/shell/DetailShell.vue:430-436`
+- 现象：
+  - `DetailShell.vue:430-436` 的代理里 `openCard`、`openSource`、`openParagraph`、`openNode` 四个覆盖项没有任何测试。README 已承认 e2e 分不出，但没有补单测。计划里写的“单测核对 `refresh()` 之后 `scoped.info === book.info`”也没写。现在只有 `closeDrawer` 被“关右边那张”间接盖到。
+  - Spec 67 的核心“普通点击：主区里的换最近点过的那张”，两个 e2e 都没点主区名字。第 98 行标题是“普通点击换最近点过的那张”，函数体只有滚轮、点页签、看地址。
+  - 第 83 行标题写“再 Ctrl 点换掉不是最近的那张”，函数体只测了对已开着的人 Ctrl 点。“换掉不是最近的”只在 `details.test.ts` 里有单测。
+  - 第 98 行标题写“在右边那张里滚一下”，实际滚的是左边那张（`card(page, 0)`）。
+  - 计划列的“关系图右键在旁边打开”“全书图右键”没有 e2e。`RelationsPage.vue:67`、`BookGraphPage.vue:64` 这两项零覆盖。
+  - 验收 15 写的是“关右边那张回到一张，过渡中还是刚关掉的那张”。关右边那张这条（第 121-123 行）只断言了最终宽度与焦点。过渡中保留只在“整块收起”那条测了。关一张时靠 `leave: "retain"` 与 `setCollapsed("drawer2")` 同一次刷新才成立，这正是脆的地方，却没有断言。
+  - Spec 68 的“原文、段落、节点的头部标题作把手”与“头部按钮里的与另一张对调”也只测了人物卡。
+- 如何核实：
+  - 把 `DetailShell.vue:431` 的 `openCard` 覆盖项整行删掉（让它落到原型的 `openCard`），跑 e2e，应该仍然全过。
+  - 把 `BookFrame.vue:152` 的 `rest` 逻辑弄坏，再看 `closeDetail` 的移交焦点是否被测到（这条有）；对“保留”则没有对应变异。
+- 建议改法：
+  - 代理抽成 `scopeSession(session, key, close)` 之类的纯函数，用带 getter 的假会话单测。
+  - 补一条 e2e：两张开着，滚左边那张后点主区名字，断言换的是左边那张。
+  - 关右边那张时用 `toggle-drawer` 那条的逐帧采样法，断言过渡中被关的那张还在。
+  - 改正两条标题。
+
+### 3. 运行中的“同一内容”按原始 id 比较，规范化只在开会话时做一次
+- 严重程度：建议
+- 类别：正确性
+- 位置：`src/web/host/details.ts:447-458`（`sameContent`）；`src/web/host/book.ts:240-250`
+- 现象：`entityCard` 返回的 `id` 是同一身份分组的代表（`core/queries/entities.ts:83`），原始 id 和它可以不同。开会话时按规范化后的 `id` 去重，运行时点出来的人只比原始字符串。
+- 为什么是问题：
+  - 左边开着 A，从别处点到 A 的另一个成员 id（例如名册、关系图、问答的 `@`），或者阅读位置往后拨、两个身份合并后，会出现两张显示同一个人的卡。
+  - 地址里是 `entity=A&entity2=A'`，刷新后按输出 69 只剩一张。状态与刷新后的结果不一致，也没有提示。
+- 如何核实：`bun -e` 对 `openBeside` 先后传 `"a"` 与 `"a-alias"`，得到两张（我跑过，`toView` 也写出 `entity2=a-alias`）。要看真实数据，需要一本有身份合并的书。
+- 建议改法：窄场景，按“窄边角倾向简单”的约定，在 Spec 输出 69 或 README 记为已知限制即可。不要为此在运行时再调 `entity.card`。
+
+### 4. 文档与登记与实现不一致
+- 严重程度：建议
+- 类别：代码质量
+- 位置：
+  - `src/web/shell/DetailShell.md:19-26`
+  - `src/web/shell/DetailShell.md:57`
+  - `src/web/shell/DrawerCard.md:2`
+  - `src/web/router.ts:12`
+- 现象：
+  - `DetailShell.md` 的 emits 只列 `close`、`touch`，代码 `DetailShell.vue:415-422` 还有 `swap`。
+  - 同一份文档“呈现”一节与 `DetailShell.vue` 的 `label()` 写“与分隔线的显示名同一张表”。实际是两份各自的逻辑：`DetailShell.vue:447` 的 `label()` 按 `count` 与 `index`，`BookFrame.vue:152-161` 的 `paneLabel` 按 `cardCount()`。以后改一处会漂。
+  - 新写的 `DrawerCard.md` 标签是 `state:inject, io:read, state:local`。组件里有 `useRevise()` 发的 `revisions.reject` 与 `revisions.undo`（`DrawerCard.vue:68-78`），按 `docs/standards/code/components.md` 应含 `io:mutate`，也应写明理由。
+  - 计划第 3 节写了“`web/router.ts` 头注释跟着改”，`router.ts:12` 的地址形状仍是 `...&entity=&tab=`，没有 `entity2`、`tab2`。
+- 如何核实：直接对照上述行。
+- 建议改法：补 `swap` emit；把显示名抽成一个共用函数，或把“同一张表”改成如实描述；DrawerCard 补标签与理由；改 `router.ts` 注释。
+
+### 5. 焦点交接的目标看不见，找目标的代码写了两遍
+- 严重程度：建议
+- 类别：a11y，代码质量
+- 位置：`src/web/shell/BookFrame.vue:150-157`（`closeDetail`）、`:206-210`（`onContentParked`）；`DetailShell.vue:462`
+- 现象：
+  - 两处各写一遍“剩下那张，没有就主区”的查询。差别只在排除哪个 key。
+  - 交接目标是 `tabindex="-1"` 且 `outline-none` 的 `aside` 或 `main`。键盘用户关掉一张后，焦点落在没有任何可见指示的容器上，只有读屏有 `aria-label`。
+- 为什么是问题：计划已经把 `outline-none` 的容器当焦点终点。键盘用户关完卡片后看不到焦点在哪，下一次 Tab 的起点也不明。
+- 如何核实：键盘 Tab 到右边卡的关闭按钮，Enter，看焦点环。
+- 建议改法：合成一个 `focusRemaining(exclude?: number)`；交接后的容器用 `:focus-visible` 给一圈弱描边。
+
+### 6. 提示顺序取决于请求完成顺序；空串参数会让存下的状态整组被丢掉
+- 严重程度：建议
+- 类别：正确性
+- 位置：`src/web/host/book.ts:240-250`、`:221-229`
+- 现象：
+  - 两张都不存在时，`notices.push` 在各自的 `catch` 里，顺序是请求完成的先后，提示文字顺序会随网络抖动变。
+  - `?entity=` 这类空串：`fromUrl` 为真，整组存下的值被丢弃，又因 `value !== ""` 被静默跳过，没有提示。旧代码会给“对象 ‘’ 在这个阅读位置还没出现”。
+- 如何核实：把 `entity.card` 的假实现做成后调用的先返回，看 `notice` 文字顺序。
+- 建议改法：`catch` 里返回原因，`Promise.all` 之后按顺序 push；空串按没写处理（不计入 `fromUrl`）。
+
+### 7. 窄档关浮层后放宽，两张不会回来
+- 严重程度：建议
+- 类别：需求对照
+- 位置：`src/web/host/book.ts:526`（`closeDrawer`）；Spec 66
+- 现象：平板或手机上点遮罩、按 Escape 调的是 `closeDrawer()`，等于整块收起（`open=false`）。放宽回宽屏时详情仍是收起的，要点顶栏开关才回来。Spec 66 写“回到宽屏两张回来”，e2e 的平板用例（第 307-317 行）先点遮罩、再 Ctrl 点，才放宽，这条路径被绕开了。
+- 为什么是问题：这条规则没有被明确。你们可能认为“用户关了就关了”，但 Spec 没有写。
+- 建议改法：要么在 Spec 66 写明“在窄档里关掉浮层就是整块收起，放宽后要用顶栏开关展开”，要么让窄档的关浮层只记“浮层不显示”。我倾向前者，复杂度低。
+
+### 8. `book-grid.test.ts` 里的魔法数绑死 nb-layout 的压缩算法
+- 严重程度：建议
+- 类别：测试
+- 位置：`src/web/shell/book-grid.test.ts` 的“1280 宽开两张”一条
+- 现象：`nav: 178.3`、`drawer: 369.4` 是 nb-layout 按比例压缩的结果，保留一位小数。
+- 为什么是问题：nb-layout 调整压缩算法时，这条会无关地失败。它真正要证明的是“拉平后两张差不到 0.5”，那一句已经有了。
+- 建议改法：删掉具体数字，保留 `main === 360`、两张各不小于 280、拉平后差小于 0.5。
+
+### 未发现问题的方面
+- `details.ts` 的纯函数：目标那张已不在、整块收起时打开与在旁边打开、关最后一张、对调、`fromView` 的去重与右边最近，都与 Spec 66 到 69 一致。
+- `book.ts`：`detailsView` 只盯 `toView` 的序列化结果，`touch` 不写地址、不存，设计成立。`afterFresh` 回来时 `tierRef` 现读，窄档退化正确。`reading.set` 的 `view` 是 `Type.Unknown()`，新增字段不破坏合同。
+- `book-grid.ts`：`setCollapsed`、`setSize` 的先后与注释一致，整块收起时 `setSize` 改的是恢复尺寸。我用 `bun -e` 看了整块收起、两张时的分隔线：`details:0` 的尺寸是 0，不会成为看不见的可聚焦控件。
+- `BookFrame.vue`：`twoCards` 只盯原始值，所以点一下、聚焦一下不会把拖出来的宽度弹回偏好。`onApplied` 只在 `details` 参与时写偏好，并换算成一张卡的宽度。`shownDetails` 在 `touch` 时数组引用不变，不会引起内容层重算。`content-parked` 只在焦点在里面时发，兜底不会乱抢焦点。
+- 拖动换边：`resolve` 用视口坐标，与 `DropFeedbackOverlay` 的坐标一致。
+- `NameLink`、`RefLink`、两个页面的右键菜单：窄档判断一致。
+- 没有静默吞错、跨包深导入，也没有为过测试放宽断言（`near()` 的 1 像素容差有落账取整的理由）。
+
+### 数量
+重要 2 条，建议 6 条，阻断 0 条。
+
+有效发现：1、2、3、4、5、6、7、8
