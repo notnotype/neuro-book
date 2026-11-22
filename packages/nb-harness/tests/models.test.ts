@@ -310,17 +310,18 @@ describe("模板的实例：身份、地址与发送前核对（models.md 输出
             proxied += 1;
             return new Response("proxy", {status: 502});
         }});
-        const saved = {http: process.env.HTTP_PROXY, https: process.env.HTTPS_PROXY, no: process.env.NO_PROXY};
+        const names = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"] as const;
+        const saved = new Map(names.map((name) => [name, process.env[name]] as const));
         try {
-            process.env.HTTP_PROXY = `http://127.0.0.1:${String(proxy.port)}`;
-            process.env.HTTPS_PROXY = process.env.HTTP_PROXY;
-            delete process.env.NO_PROXY;
+            for (const name of names.slice(0, 4)) process.env[name] = `http://127.0.0.1:${String(proxy.port)}`;
+            // 空串而不是删掉：没设时运行时对回环地址可能自己就不走代理，测不出直连有没有生效。
+            process.env.NO_PROXY = process.env.no_proxy = "";
             const {response, paths} = await sendOnce(resolved(follows()));
             expect(response.stopReason).toBe("stop");
             expect(paths).toEqual(["/v1/chat/completions"]);
             expect(proxied).toBe(0);
         } finally {
-            for (const [name, value] of [["HTTP_PROXY", saved.http], ["HTTPS_PROXY", saved.https], ["NO_PROXY", saved.no]] as const) {
+            for (const [name, value] of saved) {
                 if (value === undefined) delete process.env[name];
                 else process.env[name] = value;
             }
