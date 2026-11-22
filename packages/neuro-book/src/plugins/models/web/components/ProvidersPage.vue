@@ -78,6 +78,15 @@ watch(() => current.value?.modelsRevision, () => {
 watch(current, (provider) => {
     if (provider !== null) void props.store.loadRows(provider.id);
 });
+/** “全部模型”要的各家行与读取状态（数据模块按服务商缓存）。 */
+const allRows = computed(() => {
+    const states = providers.value.map((provider) => [provider.id, props.store.rowsOf(provider.id)] as const);
+    return {
+        rows: Object.fromEntries(states.map(([id, state]) => [id, state.rows])),
+        loading: new Set(states.filter(([, state]) => state.loading).map(([id]) => id)),
+        failures: Object.fromEntries(states.flatMap(([id, state]) => (state.failure === null ? [] : [[id, failureReason(text, state.failure)]]))),
+    };
+});
 const currentRows = computed(() => (current.value === null ? null : props.store.rowsOf(current.value.id)));
 const currentTemplate = computed(() => templates.value?.find((template) => template.id === current.value?.template) ?? null);
 /** 内置图标可选的键：模板用到的 logo，且图标表里有。 */
@@ -498,7 +507,7 @@ function focusVisible(selectors: readonly string[]): void {
                 </template>
                 <template v-else>
                     <h3 class="providers-page__heading">{{ text("rail.all") }}</h3>
-                    <AllModelsView :providers="providers" :rows="Object.fromEntries(providers.map((provider) => [provider.id, store.rowsOf(provider.id).rows]))" :checks="store.checks" :disabled="disabled" @edit="openEdit" @load="(id) => store.loadRows(id)" />
+                    <AllModelsView :providers="providers" :rows="allRows.rows" :loading="allRows.loading" :failures="allRows.failures" :checks="store.checks" :disabled="disabled" @edit="openEdit" @load="(id) => store.loadRows(id)" />
                 </template>
             </div>
         </div>

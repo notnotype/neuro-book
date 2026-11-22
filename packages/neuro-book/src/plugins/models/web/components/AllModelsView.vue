@@ -11,15 +11,19 @@ import ProviderIcon from "./ProviderIcon.vue";
 
 /**
  * “全部模型”（docs/specs/models/settings-pages.md 输出 11）：每家服务商一节，默认收起、收起的不渲染；展开才读这家的行，每行可打开
- * 编辑对话框。搜索时读全部服务商的行，命中的节展开，最多画 200 行。
+ * 编辑对话框。每节至多画 200 行；搜索时读全部服务商的行，命中的节展开，一共至多画 200 行。
  */
 const props = withDefaults(defineProps<{
     providers: readonly SnapshotProvider[];
     /** 各家已读到的模型行（`ModelsStore.rowsOf`），按服务商 id；没读到的没有键。 */
     rows?: Readonly<Record<string, readonly ModelRow[]>>;
+    /** 正在读行的服务商 id。 */
+    loading?: ReadonlySet<string>;
+    /** 读行失败的服务商 id → 原因。 */
+    failures?: Readonly<Record<string, string>>;
     checks?: ReadonlyMap<string, CheckState>;
     disabled?: boolean;
-}>(), {rows: () => ({}), checks: () => new Map(), disabled: false});
+}>(), {rows: () => ({}), loading: () => new Set(), failures: () => ({}), checks: () => new Map(), disabled: false});
 
 const emit = defineEmits<{
     (e: "edit", provider: string, model: string): void;
@@ -45,17 +49,22 @@ watch(needle, (value, previous) => {
     if (value !== "" && previous === "") for (const provider of props.providers) emit("load", provider.id);
 });
 
+/** 不搜索时每节各自封顶（展开一家几百个的不挤掉别家）；搜索时所有命中一共封顶。 */
 const sections = computed(() => {
+    const searching = needle.value !== "";
     let budget = LIMIT;
     return props.providers.map((provider) => {
         const enabled = (props.rows[provider.id] ?? []).filter((row) => row.enabled);
-        const matched = needle.value === "" ? enabled : enabled.filter((row) => row.name.toLowerCase().includes(needle.value) || row.id.toLowerCase().includes(needle.value));
-        const open = needle.value === "" ? expanded.value.has(provider.id) : matched.length > 0;
-        const rows = open ? matched.slice(0, Math.max(0, budget)) : [];
-        budget -= rows.length;
-        return {provider, open, rows, hidden: open ? matched.length - rows.length : 0};
-    }).filter((section) => needle.value === "" || section.open);
+        const matched = searching ? enabled.filter((row) => row.name.toLowerCase().includes(needle.value) || row.id.toLowerCase().includes(needle.value)) : enabled;
+        const open = searching ? matched.length > 0 : expanded.value.has(provider.id);
+        const rows = open ? matched.slice(0, searching ? Math.max(0, budget) : LIMIT) : [];
+        if (searching) budget -= rows.length;
+        const state = props.failures[provider.id] !== undefined ? "failed" : props.loading.has(provider.id) && enabled.length === 0 ? "loading" : "ready";
+        return {provider, open, rows, hidden: open ? matched.length - rows.length : 0, state};
+    }).filter((section) => !searching || section.open);
 });
+/** 搜索时还有服务商的行没读到：先写“读取中”，不急着说没有匹配。 */
+const searchPending = computed(() => needle.value !== "" && props.providers.some((provider) => props.loading.has(provider.id)));
 const hiddenTotal = computed(() => sections.value.reduce((sum, section) => sum + section.hidden, 0));
 const nothing = computed(() => props.providers.every((provider) => provider.enabledCount === 0));
 </script>
@@ -71,7 +80,9 @@ const nothing = computed(() => props.providers.every((provider) => provider.enab
                     <ProviderIcon :icon="section.provider.icon" :template="section.provider.template" :name="section.provider.name" :size="16" />
                     {{ section.provider.name }}<span class="all-models__muted">{{ text("all.collapsed", {count: section.provider.enabledCount}) }}</span>
                 </button>
-                <table v-if="section.open" class="all-models__table">
+                <p v-if="section.open && section.state === 'loading'" class="all-models__muted" data-all-models-loading>{{ text("models.loading") }}</p>
+                <p v-else-if="section.open && section.state === 'failed'" class="all-models__muted all-models__failed" role="alert" data-all-models-failure>{{ text("models.loadFailed", {reason: failures[section.provider.id] ?? ""}) }}</p>
+                <table v-if="section.open && section.rows.length > 0" class="all-models__table">
                     <thead>
                         <tr>
                             <th scope="col">{{ text("all.model") }}</th>
@@ -101,6 +112,7 @@ const nothing = computed(() => props.providers.every((provider) => provider.enab
                     </tbody>
                 </table>
             </section>
+            <p v-if="needle !== '' && sections.length === 0" class="all-models__muted" data-all-models-none>{{ text(searchPending ? "models.loading" : "models.noMatch") }}</p>
             <p v-if="hiddenTotal > 0" class="all-models__muted" data-all-models-more>{{ text("models.more", {count: hiddenTotal}) }}</p>
         </template>
     </div>

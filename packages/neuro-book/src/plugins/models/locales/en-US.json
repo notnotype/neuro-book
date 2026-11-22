@@ -398,7 +398,7 @@
         "settings-unavailable": "The settings file has errors or cannot be written; fix it first",
         "credentials-unavailable": "Could not read or write the credential store",
         "partially-applied": "Only half of it was applied; the actual state is shown",
-        "model-incomplete": "A custom model needs a context window before it can be enabled",
+        "model-incomplete": "The model needs a context window before it can be enabled",
         "unknown-provider": "This provider no longer exists",
         "unknown-model": "This model no longer exists",
         "unknown-role": "This role no longer exists",
@@ -411,6 +411,7 @@
         "unavailable": "The model service is not running",
         "unknown-outcome": "It may not have been saved; the settings are authoritative",
         "timeout": "Timed out",
+        "revision-changed": "The model list kept changing; try again shortly",
         "other": "Failed ({{code}})"
     },
     "header": {

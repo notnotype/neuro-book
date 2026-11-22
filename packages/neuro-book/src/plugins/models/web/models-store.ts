@@ -194,6 +194,9 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
                 }
                 if (snapshot.value?.providers.find((item) => item.id === provider)?.modelsRevision === target.modelsRevision) return;
             }
+            // 三轮都撞上换代：不能停在“读取中”，交出失败让页面写原因、给“重试”。
+            const left = rowCache.get(key);
+            if (left?.loading === true) rowCache.set(key, {...left, loading: false, failure: {code: "revision-changed", detail: ""}});
         })().finally(() => {
             loading.delete(key);
         });

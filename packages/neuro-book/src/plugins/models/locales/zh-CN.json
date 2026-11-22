@@ -396,7 +396,7 @@
         "settings-unavailable": "设置文件有错或写不进去，先修好设置文件",
         "credentials-unavailable": "凭据库读写失败",
         "partially-applied": "只完成了一半，已按实际状态显示",
-        "model-incomplete": "自定义模型启用前要填上下文窗口",
+        "model-incomplete": "模型启用前要填上下文窗口",
         "unknown-provider": "这家服务商已经不在了",
         "unknown-model": "这个模型已经不在了",
         "unknown-role": "这个角色已经不在了",
@@ -409,6 +409,7 @@
         "unavailable": "模型服务没有运行",
         "unknown-outcome": "可能没有保存，以设置为准",
         "timeout": "超时了",
+        "revision-changed": "模型列表一直在变，稍后再试",
         "other": "失败了（{{code}}）"
     },
     "header": {
