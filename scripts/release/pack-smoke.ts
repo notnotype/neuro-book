@@ -312,9 +312,11 @@ async function smokeLayoutHost(root: string, from: ReturnType<typeof sources>): 
     await mustRun("nb-layout 宿主的类型检查（不跳过库检查）", [join(host, "node_modules", ".bin", "vue-tsc"), "--noEmit", "-p", "tsconfig.json"], {cwd: host});
     await mustRun("构建 nb-layout 宿主", [join(host, "node_modules", ".bin", "vite"), "build"], {cwd: host});
     const dist = join(host, "dist");
-    const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: (request) => {
+    // 浏览器会顺手要 /favicon.ico：不在的文件回 404，不把读文件的错误抛给 Bun（未处理的错误会让整个冒烟以 1 退出）。
+    const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: async (request) => {
         const path = new URL(request.url).pathname;
-        return new Response(Bun.file(join(dist, path === "/" ? "index.html" : path)));
+        const file = Bun.file(join(dist, path === "/" ? "index.html" : path));
+        return (await file.exists()) ? new Response(file) : new Response("not found", {status: 404});
     }});
     try {
         await checkLayoutPage(`http://127.0.0.1:${server.port}/`);
