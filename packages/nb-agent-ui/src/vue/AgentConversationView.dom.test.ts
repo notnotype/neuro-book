@@ -748,12 +748,38 @@ describe("宿主每秒换 now", () => {
     /** bot 档的会话：档位由 `ctx.interaction.placement` 给。 */
     const dockCtx = (pendingInputs: AgentConversationContext["pendingInputs"], session = context().session): AgentConversationContext => ({...context(), session, interaction: {...context().interaction, placement: "dock", canCreate: false}, pendingInputs});
 
+    /** 打开头上的溢出菜单，交回菜单项的文字。 */
+    async function overflowLabels(view: ReturnType<typeof mountView>): Promise<string[]> {
+        const trigger = view.get("[aria-label='更多操作']");
+        await trigger.trigger("pointerdown", {button: 0, ctrlKey: false, pointerType: "mouse"});
+        await trigger.trigger("keydown", {key: "Enter"});
+        await flushPromises();
+        return [...document.querySelectorAll("[role='menuitem']")].map((item) => item.textContent?.trim() ?? "");
+    }
+
+    it("用法档的改写历史：canMutateHistory 为假时消息上没有编辑、重新生成、从此处新开分支；canOpenTree 为假时溢出菜单里没有分支树", async () => {
+        const labels = (view: ReturnType<typeof mountView>) => view.findAll("button[aria-label]").map((button) => button.attributes("aria-label"));
+        const open = mountView("zh-CN", {}, {ctx: {...context(), interaction: {...context().interaction, canMutateHistory: true, canOpenTree: true}}});
+        expect(labels(open)).toEqual(expect.arrayContaining(["编辑", "重新生成", "从此处新开分支"]));
+        expect(await overflowLabels(open)).toContain("分支树");
+        open.unmount();
+        const pinned = mountView("zh-CN", {}, {ctx: {...context(), interaction: {...context().interaction, canMutateHistory: false, canOpenTree: false, placement: "dock", canCreate: false}}});
+        expect(labels(pinned).filter((label) => ["编辑", "重新生成", "从此处新开分支"].includes(label!))).toEqual([]);
+        const items = await overflowLabels(pinned);
+        expect(items).toContain("原始视图");
+        expect(items).not.toContain("分支树");
+        pinned.unmount();
+    });
+
     it("placement 为 dock：阻塞的提问与审批也进停靠区，输入框不隐藏、照常可用；不给时照旧进向导", async () => {
         const blocking = {kind: "question" as const, id: "q1", toolCallId: "c-q1", questions: [{question: "视角？", options: [{label: "第一人称"}, {label: "第三人称"}]}]};
         const docked = mountView("zh-CN", {}, {ctx: dockCtx([blocking])});
         expect(docked.get("[data-agent-dock]").text()).toContain("视角？");
         expect(docked.find("[data-agent-wizard]").exists()).toBe(false);
         expect(docked.get(".acv-composer").isVisible()).toBe(true);
+        // 可用：不在 inert 里、编辑器可写。
+        expect(docked.get(".acv-composer").element.closest("[inert]")).toBeNull();
+        expect(docked.get(".acv-composer [contenteditable], .acv-composer textarea").attributes("readonly")).toBeUndefined();
         docked.unmount();
         const wizard = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [blocking]}});
         expect(wizard.find("[data-agent-wizard]").exists()).toBe(true);
@@ -1126,6 +1152,34 @@ describe("轮与轮之间的分隔线（docs/specs/ui/agent-conversation-view.md
         const view = mountView("zh-CN", {}, {ctx: stream()});
         expect(order(view)).toEqual(["轮:问 1", "轮:问 2", "轮:问 3", "轮:问 4"]);
         view.unmount();
+    });
+
+    it("未读线出现时视图不滚动：不把线滚进视口，滚动位置不变（打开时照旧在最新，t03 决定 1）", async () => {
+        // happy-dom 没有布局：记下视图对滚动接口的调用。
+        const scrolled: string[] = [];
+        const original = {into: Element.prototype.scrollIntoView, to: Element.prototype.scrollTo};
+        Element.prototype.scrollIntoView = function () {
+            scrolled.push("into");
+        };
+        Element.prototype.scrollTo = function () {
+            scrolled.push("to");
+        } as typeof Element.prototype.scrollTo;
+        try {
+            const view = mountView("zh-CN", {}, {ctx: stream({day: true})});
+            await flushPromises();
+            const stream_ = view.get(".acv-stream").element as HTMLElement;
+            stream_.scrollTop = 40;
+            scrolled.length = 0;
+            await view.setProps({ctx: stream({day: true, unreadFrom: "a3"})});
+            await flushPromises();
+            expect(view.find("[data-unread-divider]").exists()).toBe(true);
+            expect(scrolled).toEqual([]);
+            expect(stream_.scrollTop).toBe(40);
+            view.unmount();
+        } finally {
+            Element.prototype.scrollIntoView = original.into;
+            Element.prototype.scrollTo = original.to;
+        }
     });
 
     it("线后来才出现（宿主算出未读起点）时轮次不重新挂载；now 过了零点，“今天”变“昨天”", async () => {
