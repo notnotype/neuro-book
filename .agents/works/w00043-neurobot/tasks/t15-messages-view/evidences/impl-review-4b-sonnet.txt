@@ -1,0 +1,76 @@
+# w00043 t15 阶段 4 第 2 片实现审查（审查对象 8e49fa75b，范围 4b526813d..8e49fa75b，只读）
+验证：实现 worktree HEAD 核对为 8e49fa75b；`bun test session-host.test.ts paint-metric.test.ts` 105 通过；`tsc --noEmit`、`vue-tsc -p tsconfig.web.json` 无报错；DeskCompanion.dom.test 4 通过。未跑 e2e（按说明）。
+
+### 1. 书房面板的第一次打开大概率不记首屏指标：起点只在“挂载时看见起点”才算
+严重程度：重要　类别：正确性 / 对照需求（conversation.md 输出 56）
+位置：`packages/neuro-book/src/plugins/agent/web/paint-metric.ts:55-62`（`watchPaint` 的 `started` 判定）；`ConversationHost.vue:94-97`；`plugin.ts:735-755`（`deskConversation` 异步组件）；`components/DeskCompanion.vue:93-101`
+现象：`watchPaint` 只认“自己先看到 `loaded === null` 的那个对象”作起点。挂载时若 `painting` 已经是 `loaded !== null`（打开已经走完），`started` 为 null，第二个对象来了也直接 return，一条都不记，且没有诊断。
+为什么是问题：书房面板里的对话（`AgentDeskConversation`）是异步组件，第一次打开面板时才动态加载 `conversationParts()` 与 `vueOnce()`（plugin.ts:736-737，书架窗口里这些模块多半还没加载）。而 `DeskCompanion` 的 `watch(open)` 同时发 `borrow()` 与 `opener.openContact`，后者是“ensureMain 的 RPC，再 `host.open`”，只有几次本机往返。两条路谁先完成不定：组件加载慢于整个打开时，`ConversationHost` 挂上时 `painting` 已是 `loaded`，这次打开不记。冷启动正是最慢、最值得量的一次，指标恰好漏掉它。同类的还有：视图没挂载时由命令（状态栏“N 条新消息”经 `focus-session`）先 `host.open`，挂载时已经读完。`desk` 位置在 Spec 里是三个位置之一，e2e 与单测里没有任何一处断言它会记（见第 2 条）。
+如何核实：从代码推断，未跑。可写一个 `paint-metric.test.ts` 用例：先 `start()` 再 `loaded()`、之后才 `watchPaint`，断言应有一条记录（现在是 0 条）；真实复现要在书房里冷启动后点看板娘、读诊断。
+建议改法：起点不必“被看见”，`PaintStart.startedAt` 已是时间戳。挂载时遇到 `loaded !== null` 且这个对象还没被记过（宿主上给一个“已记”标记，或组件内按对象记）时，也记，`ms` 照旧用 `now() - startedAt`；可见性只能按挂载时的状态算，必要时 `hidden` 起始值按“挂载时可见”处理。同时把“同一个对象只记一次”从组件挪到宿主，也顺便解决同一宿主上挂多个 `ConversationHost` 时重复记。
+
+### 2. `painting` 没有任何对真实宿主的测试，paint-metric.test 头注释说“由 session-host.test.ts 覆盖”不实；接线与诊断出口也无测试
+严重程度：重要　类别：测试
+位置：`packages/neuro-book/src/plugins/agent/web/paint-metric.test.ts:2-3`（头注释）；`session-host.ts:1126、1224`；`ConversationHost.vue:94-97`；`plugin.ts:244-254`
+现象：`grep -n "painting" session-host.test.ts` 为空；`grep -rn "conversation-painted|paint-slow|watchPaint|painting" src e2e` 只命中实现文件与 paint-metric 自己。`paint-metric.test.ts` 用手写替身喂 `painting`，头注释写“真实宿主怎样换这两个对象由 session-host.test.ts 覆盖”，但那里这一片新增的两条只测未读线。
+为什么是问题：以下变异现有测试一条也杀不死（逐条按代码推断，未逐一执行）：
+- 把 `painting.value = {...loaded}` 提前到 `loadPath` 之后、`await target.chain` 之前：首屏记到快照与路径应用完之前，不符合“应用完”。
+- 删掉 `reattach: options.reattach === true` 或写反。
+- 重试（`act retry` → `open(target.id)`）、`reattach` 不换新对象（沿用旧 `startedAt`）。
+- `loaded` 的 `events` 不取 `snapshot.value.head`。
+- `ConversationHost` 把 `watchPaint` 挪到 `borrow()` 之后：就地 `reattach` 的起点看不到（挂载先后正是第 1 条类问题），也杀不死。
+- `recordPaint` 写错事件名或等级。
+e2e `bots-chat.e2e.ts` 新增的两处也没有读诊断。这片的指标整条链路（宿主换对象、组件接线、诊断名）实际没有一处验证。
+如何核实：`cd` 到实现 worktree 对 `session-host.ts:1224` 那行做变异（删 `loaded` 赋值）后跑 `bun test src/plugins/agent/session-host.test.ts src/plugins/agent/web/paint-metric.test.ts`，预期仍全过。
+建议改法：在 `session-host.test.ts` 的“有归属的会话”组里加一条：`open` 前后断言 `painting`（起点、`loaded.events === head`、重试换新对象、`borrow` 重新订阅 `reattach: true`、普通会话照样给对象但组件层不记）；`ConversationHost` 加一条 dom 测试（假 `afterPaint`/`page`）验证“挂载先后：先开后挂”“就地 reattach”。更正 paint-metric.test.ts 的头注释。
+
+#### 第 1 条补充核实（已在 /tmp/review-t15-impl-4b/probe.test.ts 里跑过）
+把真实 `watchPaint` 接到一个替身 `painting` 上：先 `start`、`loaded`，之后才挂载（`watchPaint`），帧走完后 `records.length === 0`（实测 0）。即“打开先于挂载完成就一条不记”成立；宿主与组件的真实时序仍是从代码推断。
+
+### 3. 首屏指标在组件卸载时不撤销在途的那一次：loaded 之后、两帧之内卸载，照样记一条
+严重程度：建议　类别：正确性 / 测试
+位置：`paint-metric.ts:50-77`（`stopWatch`/`stopHidden` 之外没有“已停止”标记，`afterPaint().then` 里不查）；`ConversationHost.vue:104-105`；`paint-metric.test.ts` 的“停止后不再记”
+现象：`stop()` 只停 watch 与可见性监听。`loaded` 已出现、`afterPaint` 在途时调用 `stop()`，两帧后 `.then` 里 `host.painting.value === paint`、页面可见、owner 在，照记。实测：probe 第二个用例 `records after stop mid-flight` = 1。
+为什么是问题：Spec 输出 56 是“视图画出下一帧”才记；视图收起、书房面板关闭（`ConversationHost` 卸载）时没有画出，却写了 `agent.conversation-painted`，位置还是那个已经不在的 `view`/`desk`。窗口很窄（两帧约 33 毫秒），所以只算建议。现有的“停止后不再记”只在起点之前停，杀不死这个。
+如何核实：见 probe.test.ts 第二条。
+建议改法：`watchPaint` 里加 `let stopped = false`，`stop()` 置真，`.then` 开头 `if (stopped) return`；测试补“loaded 后、帧走完前 stop”。
+
+### 4. `await ownerRead` 把“读归属的 then 回调”也变成打开的必经步骤：回调抛错时打开卡在读取中，没有失败码
+严重程度：建议　类别：不变量 / 失败路径
+位置：`session-host.ts:1135-1146`（`ownerRead` 的 then 回调）、`1203-1204`（`await ownerRead`）
+现象：以前是 `void owners.ownerOf(id).then(...)`：回调里出错只是一个未处理的拒绝，打开照走（档位按最严的）。现在 `await ownerRead` 遇到拒绝会让 `openHere` 抛出：`target.loading` 仍为 true、`target.failed` 为 null，画面一直是读取中，`await host.open()` 的调用方（`contact-opener.openContact` 的 try/finally、`restore`）把拒绝一直抛上去；既不是“打开失败、可重试”，也不是旧行为。
+拒绝的来源：`ownerOf` 本身按合同返回 `"unreadable"`/`"missing"`，不会抛；会抛的是 then 回调里新加的 `captureUnread`（`deps.owners.seenOf` → 归属插件的 `contacts` getter，经 `gatedProvider` 读第三方实现）和既有的 `afterChange`。归属插件的实现是别的插件，不能假定不抛。
+另外，这一步把读会话头放进了所有有未知归属会话（包括编辑区页面宿主上第一次打开的普通会话）的必经路径；会话头与快照/祖先是并行启动的，一般不增加耗时，只是 `remote.header` 比快照加祖先慢时才多等，数量级很小，不单列。
+如何核实：用现有 `ownersFor(...)` 造一个 `seenOf: () => {throw new Error("x")}` 的归属表、打开有归属的会话，预期 `availability` 停在 loading（目前没有这样的用例；从代码推断，未跑）。
+建议改法：`ownerRead` 末尾 `.catch((error) => { target.headerUnreadable = true; target.failed ??= {code: "header-unreadable"}; deps.report(...) })`，与“读不到会话头”同一条失败路径；或把 `captureUnread` 放在 then 回调之外、`await ownerRead` 之后再调。第 1 片处理记录里决定不为“归属晚到时说法”补测试，这里只为拒绝路径补一条。
+
+### 5. 进子会话再回主对话也算“又一次打开”：看过主对话后线被收掉，Spec 没明说这条
+严重程度：建议　类别：对照需求 / 边界（conversation.md 输出 55）
+位置：`session-host.ts:1127`（`if (unreadMark?.sessionId !== id) unreadMark = {...}`，`unreadMark` 单槽、按会话 id）；`session-host.ts:1867`（`open(action.sessionId)`，子代理卡片进子会话与头上路径回主对话都走它）
+现象：`unreadMark` 只有一个槽。主对话 A 打开、线定了；点子代理进子会话 C（C 没有归属，换成 C 的记号）；经头上的路径回 A：`open(A)` 的 id 与 C 不同，记号重来，基线取此刻的 `seenSeq`（看 A 时早已交出去并回来），线消失。用户全程没有离开这个聊天，也没有新消息，只是点开又回来，“以下是新消息”就没了。
+Spec 输出 55 对“这次打开”的列举是“点联系人、启动时恢复、从活动条转来、书房面板打开”，没写进子会话再回来；输出 54 写了书房面板里“进了子会话后头上的路径回主对话”，所以这是一条会实际走到的路径。实现取了“按会话 id 比较”这一种读法，没有记录说这是有意的。
+如何核实：从代码推断，未跑。可在 `session-host.test.ts` 第二条未读线用例里，`open(ownedId)` 之后 `open(child)`、再 `open(ownedId)`，断言 `unreadFrom`：现在是 null。
+建议改法：向开发者确认。若子会话往返不该收线，记号改为按“主对话根”存（`ancestors` 末项/归属相同的根）而不是当前会话 id，或进子会话时不丢弃主对话的记号（两槽或 Map 按根 id）。若认为这就是“又一次打开”，在 Spec 输出 55 的“这次打开”里写上，并给一条测试，免得以后被当成回归。
+
+### 6. `DeskCompanion` 调 `markOpened` 的时机与次序没有单测：dom 测试里的宿主替身是空函数
+严重程度：建议　类别：测试
+位置：`components/DeskCompanion.dom.test.ts:71`（`markOpened: () => undefined`）；`DeskCompanion.vue:93-101`
+现象：次序是 `borrow()` → `markOpened()` → `ensureStarted()` → `openContact`。这个次序是有意义的：借用放开满 30 秒后再开面板，`borrow()` 就地 `reattach`（同步设 `current`），`markOpened` 必须在它之后才不会因 `current === null` 直接返回、把旧线沿用下去。dom 测试里 `markOpened` 是空函数，没有断言它被调用，也没有断言在 `borrow` 之后、`openContact` 之前。
+e2e 的书房用例（关面板立刻再开，30 秒内、没有重新订阅）能杀死“删掉 `markOpened()` 调用”这个变异，但覆盖不到“`markOpened` 挪到 `borrow()` 之前”：那条路径要放开满 `RELEASE_DELAY_MS` 之后才走到，e2e 与 `session-host.test.ts`（直接调 `host.markOpened()`）都没走。
+如何核实：把 `markOpened()` 挪到 `borrow()` 之前后跑 `DeskCompanion.dom.test.ts` 与 `bots-chat.e2e.ts` 的书房用例，按代码推断都会过；只有放开满 30 秒再开面板才暴露（未跑）。
+建议改法：dom 测试里让替身记调用序列，断言面板打开时 `borrow`、`markOpened`、`openContact` 依次发生；`session-host.test.ts` 再加一条“放开满 30 秒、`borrow` 就地重新订阅后立刻 `markOpened`，线按此刻重算”。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- 基线是不是自己交“看到”之前的值：开会话时联系人已读到的，在 `openHere` 同步拍下，早于 `shownSeq` 前进；联系人晚到的，`bots/web/store.ts` 的 `setItems` 先赋 `items.value`（同步 watch 拍基线）再 `flushSeen`，且 `flushSeen` 在 `unread === null` 时不交，所以晚到的第一次读到一定在自己交之前；归属晚读到的，`await ownerRead` 保证在 `showUpTo` 之前拍。唯一的窄窗口是“关面板后不到一次往返就再开”，人手点击达不到，不记。
+- 锁存的两种先后（路径先读完/基线先拍到）：`target.loading` 守卫加两处调用（`ownerRead` 回调、打开收尾）与同步 watch 三个入口，第二条未读线用例按“同一拍里连改两次”覆盖了晚到一侧；`from` 只算一次，之后到的回复不画线，与 Spec 一致。
+- 普通会话不给 `dividers`、画面不变：`owner` 为 null/undefined 时不展开 `dividers`，第一条用例断言 `toBeUndefined()`。
+- 重试与 `reattach` 沿用线、换回来与 `markOpened` 重算：按会话 id 判断，重试走 `open(target.id)`，`reattach` 走 `borrow()`，行为与 Spec 一致（边界见第 5 条）。
+- 作废（`generation`）：`await ownerRead` 之后有 `token !== generation` 检查，订阅在 `target.release` 赋值之后由 `closeCurrent` 释放，无泄漏；`early` 帧的 `staleUntil` 在等待前取，等待期间到的状态帧按快照之后的变化处理，与等路径时一致。
+- 读不到会话头（`"unreadable"`）：`headerUnreadable` 与 `failed` 仍按原样落，路径仍加载，行为同改前；编辑区页面宿主在 `open()` 里先读头并缓存，`openHere` 时多数已 `known`，不再等。
+- 画出时间：`afterPaint` 用 `nextTick` 加两次 rAF；`painting` 赋值先于 `captureUnread` 的 `bump()`，但两次 rAF 都在渲染冲刷之后，量到的帧没有早于最终渲染；时钟用 `clock.now()`，与宿主的 `deps.now` 同源（plugin.ts:435、695）。`PaintRecord` 只以类型导入进 `plugin.ts`，`paint-metric.ts` 不碰 DOM，`tsc --noEmit` 通过。
+- 页面可见性、换会话作废、两个位置各记一条：宿主各自一份 `painting`；起点对不上（会话或 `startedAt` 不同）、`painting` 被换对象都不记，单测覆盖。
+- `seenSeq` 契约：`bots/web/plugin.ts` 的 `unread === null ? null : seenSeq` 与 `bots/view.md` 输出 2 一致。
+
+## 统计
+阻断 0；重要 2（第 1、2 条）；建议 4（第 3、4、5、6 条）。
+有效发现编号：1, 2, 3, 4, 5, 6
