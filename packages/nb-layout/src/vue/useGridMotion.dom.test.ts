@@ -191,6 +191,17 @@ describe("decideMotion 与留着的内容（docs/specs/ui/nested-grid.md 输出 
         expect(keys(back)).toEqual([]);
     });
 
+    it("过渡中叶回到树里、宿主给了别的内容：上一轮留着的那项摘掉，不叠在活的叶上", () => {
+        const memory = warmedRow(["a", "b", "c", "d"]);
+        const first = decideMotion(frame({items: layersOf(["a", "c", "d"]), previous: layersOf(["a", "b", "c", "d"])}), memory);
+        if (first.kind !== "move") throw new Error("应当过渡");
+        const withLeft = layersOf(["a", "c", "d"], ["a", "c", "d"], [...first.leaving, ...first.leavingContents]);
+        const tree = row([["a", 1], ["b", 1], ["c", 1], ["d", 1]]);
+        const live = placeContents(tree, ["a", "c", "d"].map((id) => ({key: id, leaf: id, insetTop: 0, active: true})).concat([{key: "b2", leaf: "b", insetTop: 0, active: true}]), 1);
+        const back = decideMotion(frame({items: layerItems(tree, [...live, ...first.leavingContents]), previous: withLeft}), memory);
+        expect(keys(back)).toEqual([]);
+    });
+
     it("拖动中：新去掉的不留；上一轮留下的只在它的叶接着留时才留，叶与内容一起", () => {
         expect(keys(decideMotion(frame({items: layersOf(["a", "c", "d"]), previous: layersOf(["a", "b", "c", "d"]), holding: true}), warmedRow(["a", "b", "c", "d"])))).toEqual([]);
         const memory = warmedRow(["a", "b", "c", "d"]);
