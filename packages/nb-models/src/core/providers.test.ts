@@ -495,6 +495,15 @@ describe("新建、来历与传输（后端审查的修正）", () => {
         expect(stored(store)[0]).toMatchObject({excluded: [], models: []});
     });
 
+    it("服务商设置按写盘后再编码一层的字节核对：一层编码没到 768 KiB、两层超了的写入被拒，设置没变", async () => {
+        const store = memoryModelsConfig({});
+        const {call} = await start(store);
+        const id = await added(call, {template: "blank-openai", name: "大请求头", baseUrl: "http://127.0.0.1:9/v1"});
+        const before = structuredClone(store.providers.read());
+        expect(await call("updateProvider", {id, patch: {headers: {"x-blob": "\\".repeat(300_000)}}})).toMatchObject({ok: false, code: "invalid-value"});
+        expect(store.providers.read()).toEqual(before);
+    });
+
     it("一页按字节截：几行很大的手加模型不会让一页超过上限，接着读能读完", async () => {
         const {call, allRows} = await start();
         const id = await added(call, {template: "blank-openai", name: "大行", baseUrl: "http://127.0.0.1:9/v1"});
