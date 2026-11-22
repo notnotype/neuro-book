@@ -176,14 +176,16 @@ describe("生成的 SDK 包", () => {
         expect(manifest.exports["./build"]).toEqual({types: "./build.d.ts", import: "./build.js"});
     });
 
-    it("发布用的元数据：许可、源码仓库、公开访问；tarball 里带 AGPL 的 LICENSE 与打进去的第三方包的许可", async () => {
+    it("发布用的元数据：许可、源码仓库、公开访问；tarball 里带 AGPL 的 LICENSE 与打进去的第三方包的许可（自家 MIT 的 nb-layout 也列）", async () => {
         const manifest = JSON.parse(await readFile(join(installed, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({license: "AGPL-3.0-only", repository: {directory: "packages/neuro-book/plugin-sdk"}, publishConfig: {access: "public"}, files: expect.arrayContaining(["LICENSE", "THIRD-PARTY-NOTICES.md"])});
         expect(manifest).toMatchObject({keywords: expect.arrayContaining(["neurobook", "plugin"]), homepage: expect.stringContaining("plugin-sdk"), bugs: {url: expect.stringContaining("/issues")}});
         expect(await readFile(join(installed, "LICENSE"), "utf8")).toContain("GNU AFFERO GENERAL PUBLIC LICENSE");
         const notices = await readFile(join(installed, "THIRD-PARTY-NOTICES.md"), "utf8");
         expect(notices).toContain("## 构建期实现");
-        expect(notices).not.toContain("@notnotype/");
+        // 自家与发布包同许可（AGPL）的包不列；许可不同的自家包（MIT 的 nb-layout，SDK 把它打进 components.js）要列（ADR 0054 第 5 条）。
+        const ownListed = [...notices.matchAll(/^### (@notnotype\/[^@]+)@[^（]+（([^）]+)）$/gmu)].map((match) => `${match[1]} ${match[2]}`);
+        expect(ownListed).toEqual(["@notnotype/nb-layout MIT"]);
     });
 
     it("tarball 里有示例插件的源码与模板（含 `_gitignore`）；不带场景测试、场地、测试文件与构建产物；模板的开发依赖带上作者项目自己装的包", async () => {
