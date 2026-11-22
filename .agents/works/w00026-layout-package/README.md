@@ -103,6 +103,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-22：[t43](tasks/t43-tier2-verification/README.md) 完成（外部布局库的现状写成[调研](../../../docs/research/layout-libraries.md)；编译产物原型构建核过凭记忆写的坑，另发现声明文件不可复现；与 Trellis 源码机械比对，没有逐字复制）。[t45](tasks/t45-story-side-by-side-cards/README.md) 评审板第 1 轮四题开发者都按推荐答了，设计定稿。[t44](tasks/t44-story-nested-grid/README.md) 完成：nb-story 三栏换成 `NestedGrid` 加 `useGridHost`，合入 master（`6c97c957b`），设计审查 10 条处理完，改前改后探针一致（差别逐条解释、记进待确认清单），新增分栏的 e2e；第一个外部使用方的“接入记录”写在 t44 README。
 
+2026-11-22：t44 实现审查（重要 1、建议 6）处理完（`3ecc4f4f8`）。[t46](tasks/t46-english-default-text/README.md) 完成：nb-layout 没有注入时的文字改用英文、源语言 `en-US`，新增 `layoutCatalogTranslate`，nb-story 与开发者面板注入中文，合入 master（`6170f83ad`）。[t45](tasks/t45-story-side-by-side-cards/README.md) 计划第 1 稿在设计审查。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。

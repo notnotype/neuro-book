@@ -225,7 +225,7 @@ owners:
 
 141. **主题变量**：Vue 层读的 CSS 变量都是 `--nb-layout-*`；除组件自己写在行内的几何外，每处 `var()` 都带清单（`NB_LAYOUT_THEME_VARS`）里的回退；装了 nb-ui 的宿主经它的桥接取主题的值（[`theme/system`](../theme/system.md) 的“变量体系”），外观与过渡同今天；不装时用回退。输出 35、112 与组件文档里写的 `--motion-layout`、`--layout-card-*` 这类名字是主题写的旧名，库读的是对应的 `--nb-layout-*`。宿主旋钮（`--nb-layout-splitter-seam` 这类主题不写的）由宿主直接设新名，不经桥接。
 142. **过渡：缺省时长**：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走：CSS 的回退与库里等过渡收尾时读到的缺省取清单里的同一个值。时长要写成 `ms` 或 `s` 的字面值；写成别的（`none`、`calc()`）时库的计时当 0。系统减少动态效果时 nb-layout 读的时长在根上全部归零，宿主在根上设的时长也压不过（输出 59）；设在子树元素上的时长不在这个保证之内。
-143. **文案**：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。
+143. **文案**：组件的读屏名称与提示（分隔条、可排序列表、浮动窗把手）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `en-US` 目录（源语言），参数照旧代入。只有一种语言的宿主用 `./text` 的 `layoutCatalogTranslate(语言)` 注入自带目录里的那一种（`en-US` 或 `zh-CN`），这种语言里缺的键取源语言（[`ui/i18n`](i18n.md) 输出 8 的例外）。
 144. **承载盒的尺寸**：`NestedGrid` 量自己的根盒的布局尺寸（`clientWidth`、`clientHeight`，不随祖先的变换缩放），挂载后量到就发 `extent` 事件，两轴变了才再发；同步发，监听在同一个调用栈里拿到。卸载前发 `null`，`NestedGrid` 被条件渲染摘掉时父组件的监听收得到；宿主自己整个卸载时，宿主作用域里的侦听已经停了，收不到。
 145. **宿主接线**：`useGridHost` 交回一包 `bindings`（树、布局、版本、上下文键、停用、提交处理、接 `extent`、`issues` 与 `gesture-start` 的处理），整包绑到 `NestedGrid` 上就能接手势；尺寸取自 `NestedGrid` 发的 `extent`，没量到可用尺寸（null，或宽、高为 0）时布局为空、`disabled` 为真。布局重算的诊断与 `NestedGrid` 的 `issues` 事件都交给 `useGridHost` 的 `onIssues` 一个出口。
 146. **承载盒为零**：量到的宽或高为 0 时布局为空、分隔条停用（`aria-disabled`，不在 Tab 序里）；叶照常挂着，只是没有尺寸。
