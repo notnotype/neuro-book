@@ -74,6 +74,7 @@
         "!src/**/*.test.ts",
         "!src/**/*.test.tsx",
         "dist/web",
+        "!dist/web/build-stamp.json",
         "skill",
         "README.md",
         "LICENSE"

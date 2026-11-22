@@ -1,4 +1,4 @@
-import {appendFile, readFile} from "node:fs/promises";
+import {readFile, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
@@ -37,7 +37,8 @@ function webStamp(): Plugin {
             return null;
         },
         async writeBundle(options) {
-            // 打进去的 nb-layout 产物换成生成它的源文件：它的源码改了，网页包照样算旧（cli-skill 输出 19）。
+            // 打进去的 nb-layout 产物换成生成它的全部源文件：它的源码改了，网页包照样算旧（cli-skill 输出 19）。按整份产物算，
+            // nb-story 用不到的那部分改了也会提示旧，多提示一次重打无害；要精确得让产物记每个输出块的源文件。
             await writeWebStamp(options.dir ?? resolve(packageRoot, "dist/web"), packageRoot, await withPrebuiltSources(ids, [{directory: LAYOUT_BUILD, packageRoot: LAYOUT_ROOT}]));
         },
     };
@@ -63,7 +64,12 @@ function workspaceNotices(): Plugin {
                 if (own.license === "AGPL-3.0-only" || (own.license === undefined && own.private === true)) continue;
                 sections.push(`## ${name} - ${own.license ?? "see below"} (${own.version})\n\n\`\`\`\n${(await readFile(join(directory, "LICENSE"), "utf8")).trim()}\n\`\`\``);
             }
-            if (sections.length > 0) await appendFile(join(options.dir ?? resolve(packageRoot, "dist/web"), NOTICES_FILE), `\n${sections.join("\n\n")}\n`);
+            if (sections.length === 0) return;
+            // 时序：`vite:license` 在 generateBundle 里把这份文件作为产物发出（Vite 8），Rollup 写完全部产物才调各插件的
+            // writeBundle，所以这里读得到它。先读再写：它要是没写出来（例如关了 build.license），这里失败，不留一份只有工作区包的声明。
+            const file = join(options.dir ?? resolve(packageRoot, "dist/web"), NOTICES_FILE);
+            const listed = await readFile(file, "utf8");
+            await writeFile(file, `${listed.trimEnd()}\n\n${sections.join("\n\n")}\n`);
         },
     };
 }

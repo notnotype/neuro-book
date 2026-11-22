@@ -64,8 +64,9 @@ export async function writeWebStamp(webRoot: string, packageRoot: string, ids: I
 
 /**
  * 打进网页的是别的工作区包的编译产物时（nb-layout 的 `dist/web-build`），把产物文件换成生成它的源文件：产物旁边的
- * `inputs.json` 列着那次构建处理过的源文件（相对那个包的目录）。这样那个包的源码改了照样算旧；没进产物的文件
- * （组件说明、README）不在清单里，改了不算。不在任何产物目录里的 id 原样留着。
+ * `inputs.json` 列着那次构建处理过的全部源文件（相对那个包的目录）。这样那个包的源码改了照样算旧；没进产物的文件
+ * （组件说明、README）不在清单里，改了不算。按整份产物展开：网页只用到产物的一部分时，没用到的源文件改了也算旧
+ * （多提示一次重打）。不在任何产物目录里的 id 原样留着。
  */
 export async function withPrebuiltSources(ids: Iterable<string>, prebuilt: ReadonlyArray<{readonly directory: string; readonly packageRoot: string}>): Promise<string[]> {
     const result = new Set<string>();
