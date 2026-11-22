@@ -11,6 +11,8 @@ export type {FetchOnlineCatalogOptions, OnlineCatalog, OnlineCatalogFetch, Onlin
 export {fetchOnlineCatalog, ONLINE_CATALOG_LIMITS, ONLINE_CATALOG_URL, OnlineCatalogError, parseOnlineCatalog} from "./online-catalog.js";
 export {reasoningOf, requestEffort} from "../kernel/index.js";
 export type {ModelReasoning, ReasoningOff, RequestEffort} from "../kernel/index.js";
+export type {ProbeOptions, ProbeOutcome} from "./probe.js";
+export {probeProtocol} from "./probe.js";
 export type {CredentialStore} from "./credentials.js";
 export {openCredentials} from "./credentials.js";
 export type {StartupEnv} from "./env.js";
