@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {checkWebFreshness, STAMP_FILE, writeWebStamp} from "./web-stamp";
+import {checkWebFreshness, STAMP_FILE, withPrebuiltSources, writeWebStamp} from "./web-stamp";
 
 let root = "";
 let counter = 0;
@@ -69,6 +69,32 @@ describe("网页包新旧", () => {
         const f = await fixture();
         await writeFile(f.dependency, "dep v2");
         expect(await checkWebFreshness(f.webRoot, f.packageRoot)).toEqual({state: "fresh"});
+    });
+
+    test("打进去的是别的包的编译产物（nb-layout 的 dist/web-build）：记它的源文件；进了产物的源码改了算旧，没进产物的文件改了不算", async () => {
+        counter += 1;
+        const workspace = join(root, `case-${counter}`);
+        const packageRoot = join(workspace, "nb-story");
+        const own = join(packageRoot, "src", "web", "main.ts");
+        const layoutRoot = join(workspace, "nb-layout");
+        const prebuilt = join(layoutRoot, "dist", "web-build");
+        const source = join(layoutRoot, "src", "grid.ts");
+        const readme = join(layoutRoot, "README.md");
+        const webRoot = join(packageRoot, "dist", "web");
+        for (const directory of [join(packageRoot, "src", "web"), join(layoutRoot, "src"), prebuilt, webRoot]) await mkdir(directory, {recursive: true});
+        await writeFile(own, "main v1");
+        await writeFile(source, "grid v1");
+        await writeFile(readme, "readme v1");
+        await writeFile(join(prebuilt, "index.js"), "built");
+        await writeFile(join(prebuilt, "inputs.json"), JSON.stringify(["src/grid.ts"]));
+        await writeFile(join(webRoot, "index.html"), "<html></html>");
+        const ids = await withPrebuiltSources([own, join(prebuilt, "index.js"), join(prebuilt, "style.css")], [{directory: prebuilt, packageRoot: layoutRoot}]);
+        expect(ids.sort()).toEqual([source, own].sort());
+        await writeWebStamp(webRoot, packageRoot, ids);
+        await writeFile(readme, "readme v2");
+        expect(await checkWebFreshness(webRoot, packageRoot)).toEqual({state: "fresh"});
+        await writeFile(source, "grid v2");
+        expect(await checkWebFreshness(webRoot, packageRoot)).toMatchObject({state: "stale", changed: ["../nb-layout/src/grid.ts"]});
     });
 
     test("有网页包没有记录（早先版本打的）：no-stamp；连网页包都没有：unbuilt", async () => {

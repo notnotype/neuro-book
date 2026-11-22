@@ -62,6 +62,28 @@ export async function writeWebStamp(webRoot: string, packageRoot: string, ids: I
     await writeFile(join(webRoot, STAMP_FILE), JSON.stringify(stamp, null, 1));
 }
 
+/**
+ * 打进网页的是别的工作区包的编译产物时（nb-layout 的 `dist/web-build`），把产物文件换成生成它的源文件：产物旁边的
+ * `inputs.json` 列着那次构建处理过的源文件（相对那个包的目录）。这样那个包的源码改了照样算旧；没进产物的文件
+ * （组件说明、README）不在清单里，改了不算。不在任何产物目录里的 id 原样留着。
+ */
+export async function withPrebuiltSources(ids: Iterable<string>, prebuilt: ReadonlyArray<{readonly directory: string; readonly packageRoot: string}>): Promise<string[]> {
+    const result = new Set<string>();
+    const expanded = new Set<string>();
+    for (const id of ids) {
+        const owner = prebuilt.find((entry) => id.startsWith(`${entry.directory}${sep}`) || id.startsWith(`${entry.directory}/`));
+        if (owner === undefined) {
+            result.add(id);
+            continue;
+        }
+        if (expanded.has(owner.directory)) continue;
+        expanded.add(owner.directory);
+        const sources = JSON.parse(await readFile(join(owner.directory, "inputs.json"), "utf8")) as string[];
+        for (const source of sources) result.add(join(owner.packageRoot, source));
+    }
+    return [...result];
+}
+
 /** 对照记录检查网页包：记录里的源文件内容变了或不见了，就是比源码旧。 */
 export async function checkWebFreshness(webRoot: string, packageRoot: string): Promise<WebFreshness> {
     let raw: string;

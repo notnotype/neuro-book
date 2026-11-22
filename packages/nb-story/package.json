@@ -25,7 +25,7 @@
         "test": "bun test",
         "nbstory": "bun src/cli.ts",
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.web-test.json && tsc --noEmit -p e2e/tsconfig.json",
-        "build:web": "vite build",
+        "build:web": "bun run --cwd ../nb-layout build:package --web && vite build",
         "test:e2e": "bun run build:web && playwright test -c e2e/playwright.config.ts",
         "prepack": "bun run build:web"
     },
