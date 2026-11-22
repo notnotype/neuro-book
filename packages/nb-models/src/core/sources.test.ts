@@ -171,7 +171,7 @@ describe("目录模板的列表", () => {
 
     it("拉取失败沿用上一次的列表并写明原因；改了地址退回目录、不自动去新地址拉；改了认证头照用旧列表、标 changed，重新拉取后恢复", async () => {
         const local = endpoint(models({id: known!.id}));
-        const {id, call, rows, provider, settled, config, until} = await deepseek(local);
+        const {id, call, rows, provider, settled, config, until, clock} = await deepseek(local);
         local.set(() => Response.json({error: "overloaded"}, {status: 503}));
         await call("refreshSource", {provider: id});
         await settled(id);
@@ -191,16 +191,19 @@ describe("目录模板的列表", () => {
         const other = endpoint(models());
         config.setAutoUpdate(true);
         await call("updateProvider", {id, patch: {baseUrl: other.baseUrl}});
+        // 过了一天：同一部署的话就该自动重拉了。
+        clock.now += SOURCE_STALE_MS + HOUR;
         config.setAutoUpdate(false);
         config.setAutoUpdate(true);
-        expect(provider(id).source).toMatchObject({state: "changed", checkedAt: null});
+        // 拉取一受理快照里就是 refreshing（同步），所以这里能直接断言没有开始。
+        expect(provider(id).source).toMatchObject({state: "changed", checkedAt: null, refreshing: false});
         expect((await rows(id)).length).toBe(chatModels("deepseek").length);
         expect(other.seen).toEqual([]);
     });
 
     it("拉取在途时认证换了：旧的结果到了也不提交", async () => {
         const local = endpoint(models({id: known!.id}));
-        const {id, call, rows, provider, settled} = await deepseek(local);
+        const {id, call, rows, provider, settled, sources} = await deepseek(local);
         let release: () => void = () => undefined;
         local.set(() => new Promise<Response>((resolve) => {
             release = () => resolve(Response.json({data: [{id: "late-model"}]}));
@@ -213,6 +216,8 @@ describe("目录模板的列表", () => {
         expect(provider(id).source.state).toBe("changed");
         expect((await rows(id)).map((row) => row.id)).toEqual([known!.id]);
         expect((await rows(id, "available")).map((row) => row.id)).not.toContain("late-model");
+        // 也没有写盘：重启后不会把它当成旧凭据的列表读回来。
+        expect(JSON.stringify([...sources.files.values()])).not.toContain("late-model");
     });
 });
 
