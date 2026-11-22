@@ -202,12 +202,11 @@ const hiddenCount = computed(() => (needle.value === "" ? 0 : Math.max(0, matche
 const enabledCount = computed(() => props.provider.enabledCount);
 /** 模型不多（30 个以内）时系列默认展开；更多的默认收起、收起的不渲染。用户点过的组按相反的来。 */
 const AUTO_OPEN_LIMIT = 30;
-const toggled = ref(new Set<string>());
-const isOpen = (group: string): boolean => (props.rows.length <= AUTO_OPEN_LIMIT) !== toggled.value.has(group);
+/** 用户点过的组记下展开与否（不是“与默认相反”）：模型数跨过阈值时，点过的组不跟着翻。 */
+const chosen = ref(new Map<string, boolean>());
+const isOpen = (group: string): boolean => chosen.value.get(group) ?? props.rows.length <= AUTO_OPEN_LIMIT;
 function fold(group: string): void {
-    const next = new Set(toggled.value);
-    if (!next.delete(group)) next.add(group);
-    toggled.value = next;
+    chosen.value = new Map([...chosen.value, [group, !isOpen(group)]]);
 }
 const checking = computed(() => props.rows.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
 </script>

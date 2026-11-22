@@ -6,6 +6,8 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {MODELS_TEXT_NAMESPACE} from "../../shared/text";
@@ -59,15 +61,17 @@ async function openCustomForm() {
 }
 
 describe("AddProviderDialog 的第一步", () => {
-    it("按分组列出模板：登录类在同一张表里停用并写原因；已添加的不停用、可访问名称带“已添加”；普通模板点一下就发 add", async () => {
+    it("按分组列出模板：打开时焦点在搜索框；登录类在同一张表里停用并写原因；已添加的不停用、可访问名称带“已添加”；普通模板点一下就发 add", async () => {
         const wrapper = await openDialog({added: ["deepseek"]});
+        await waitUntil("焦点在搜索框", () => document.activeElement?.closest("[data-add-provider-search]") != null || document.activeElement?.matches("[data-add-provider-search]") === true, {timeoutMs: 5_000});
         expect([...document.body.querySelectorAll("[data-add-group]")].map((group) => group.getAttribute("data-add-group"))).toEqual(["international", "china", "other", "custom"]);
         const login = query<HTMLButtonElement>("[data-add-provider='anthropic']");
         expect(login.disabled).toBe(true);
         expect(login.textContent).toContain("要登录");
         const added = query<HTMLButtonElement>("[data-add-provider='deepseek']");
         expect(added.disabled).toBe(false);
-        expect(added.getAttribute("aria-label")).toContain("已添加");
+        expect(added.getAttribute("aria-label")).toBeNull();
+        expect(added.textContent).toContain("已添加");
         expect(added.textContent).toContain("再添加一份");
         added.click();
         expect(wrapper.emitted("add")).toEqual([[{template: "deepseek"}]]);
@@ -83,11 +87,11 @@ describe("AddProviderDialog 的第一步", () => {
         // 输入法组字时的回车是选字：不选模板。
         search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true, isComposing: true}));
         await flushPromises();
-        expect(document.querySelector("[data-region]")).toBeNull();
+        expect(document.querySelector("[data-region-group]")).toBeNull();
         search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await flushPromises();
         // 有地区的模板进第二步：选地区。
-        query<HTMLInputElement>("[data-region='cn']").click();
+        [...document.body.querySelectorAll<HTMLElement>("[data-region-group] [role='radio']")].find((radio) => radio.closest("label")?.textContent?.includes("中国大陆"))!.click();
         buttonNamed("添加").click();
         await flushPromises();
         expect(wrapper.emitted("add")).toEqual([[{template: "moonshot", region: "cn"}]]);

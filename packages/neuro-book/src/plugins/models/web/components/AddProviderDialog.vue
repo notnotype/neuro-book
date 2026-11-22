@@ -2,7 +2,7 @@
 import {BLANK_API} from "@notnotype/nb-models/config";
 import type {BlankTemplate, ProviderApi} from "@notnotype/nb-models/config";
 import type {Template} from "@notnotype/nb-models/contract";
-import {Badge, Button, Dialog, Input, Select} from "@notnotype/nb-ui/components";
+import {Badge, Button, Dialog, Input, RadioGroup, Select} from "@notnotype/nb-ui/components";
 import {computed, nextTick, reactive, ref, watch} from "vue";
 
 import {composing} from "../composing";
@@ -162,6 +162,7 @@ watch(step, async (value) => {
         :busy="busy"
         :status="step !== null ? error : ''"
         data-add-provider-dialog
+        initial-focus="[data-add-provider-search] input, input[data-add-provider-search]"
         :close-on-request="false"
         @confirm="create"
         @request-close="(reason) => (reason === 'cancel' ? (step = null) : emit('update:open', false))"
@@ -180,7 +181,6 @@ watch(step, async (value) => {
                                 type="button"
                                 class="add-provider__row nb-ui-focus-ring-inset"
                                 :disabled="!template.addable || busy"
-                                :aria-label="addedSet.has(template.id) ? `${nameOf(template)}（${text('add.added')}）` : undefined"
                                 :data-add-provider="template.id"
                                 @click="choose(template)"
                             >
@@ -217,11 +217,7 @@ watch(step, async (value) => {
             </template>
             <fieldset v-else class="add-provider__field add-provider__regions">
                 <legend>{{ text("add.region.label") }}</legend>
-                <label v-for="region in step.regions" :key="region.id" class="add-provider__region">
-                    <input v-model="form.region" type="radio" name="add-provider-region" :value="region.id" :data-region="region.id">
-                    <span>{{ regionName(region.id) }}</span>
-                    <span class="add-provider__muted">{{ region.baseUrl }}</span>
-                </label>
+                <RadioGroup v-model="form.region" :options="step.regions.map((region) => ({value: region.id, label: regionName(region.id), description: region.baseUrl}))" size="sm" :aria-label="text('add.region.label')" data-region-group />
             </fieldset>
         </div>
     </Dialog>
@@ -334,11 +330,4 @@ watch(step, async (value) => {
     border: 0;
 }
 
-.add-provider__region {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    font-size: var(--text-sm);
-    color: var(--text-main);
-}
 </style>

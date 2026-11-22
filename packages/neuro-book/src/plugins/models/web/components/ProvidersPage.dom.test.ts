@@ -59,7 +59,7 @@ describe("添加：按模板", () => {
         expect(document.querySelector("[data-add-provider-dialog]")).toBeNull();
         query<HTMLButtonElement>("[data-provider-add]").click();
         await waitUntil("再开添加窗口", () => document.querySelector("[data-add-provider='zai']") !== null, {timeoutMs: 10_000});
-        expect(query("[data-add-provider='zai']").getAttribute("aria-label")).toContain("已添加");
+        expect(query("[data-add-provider='zai']").textContent).toContain("已添加");
     });
 });
 

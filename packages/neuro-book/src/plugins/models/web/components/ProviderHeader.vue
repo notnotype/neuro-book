@@ -121,6 +121,7 @@ function choose(icon: IconChoice): void {
     emit("set-icon", icon);
 }
 
+const fileInput = ref<HTMLInputElement | null>(null);
 async function onFile(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -162,10 +163,9 @@ const shownError = computed(() => (uploadError.value !== "" ? uploadError.value 
                     <p v-else class="provider-header__muted">{{ text("header.icon.none") }}</p>
                 </template>
                 <template v-else-if="tab === 'upload'">
-                    <label class="provider-header__upload">
-                        <Button size="sm" variant="secondary" icon-class="i-lucide-upload" :disabled="iconBusy || uploading">{{ uploading || iconBusy ? text("header.icon.uploading") : text("header.icon.chooseFile") }}</Button>
-                        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="provider-header__file" :disabled="iconBusy || uploading" data-icon-file @change="onFile">
-                    </label>
+                    <Button class="provider-header__upload" size="sm" variant="secondary" icon-class="i-lucide-upload" :disabled="iconBusy || uploading" data-icon-choose @click="fileInput?.click()">{{ uploading || iconBusy ? text("header.icon.uploading") : text("header.icon.chooseFile") }}</Button>
+                    <!-- 文件框藏起来、由上面的按钮打开：键盘只有一个停靠点，焦点环画在按钮上。 -->
+                    <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden :disabled="iconBusy || uploading" data-icon-file @change="onFile">
                     <p class="provider-header__muted">{{ text("header.icon.uploadHint") }}</p>
                 </template>
                 <template v-else>
@@ -284,16 +284,7 @@ const shownError = computed(() => (uploadError.value !== "" ? uploadError.value 
 }
 
 .provider-header__upload {
-    display: inline-flex;
-    position: relative;
     align-self: flex-start;
-}
-
-.provider-header__file {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
 }
 
 .provider-header__muted {

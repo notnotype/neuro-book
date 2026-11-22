@@ -97,6 +97,10 @@ const takenNames = computed(() => new Set(providers.value.filter((provider) => p
 const iconBusy = ref(false);
 const iconError = ref("");
 const duplicating = ref(false);
+// 换一家服务商时上一家的图标失败不再显示。
+watch(selected, () => {
+    iconError.value = "";
+});
 async function renameProvider(provider: SnapshotProvider, name: string): Promise<void> {
     await updateProvider(provider, {name});
 }
@@ -116,7 +120,8 @@ async function duplicateProvider(provider: SnapshotProvider): Promise<void> {
         if (result.failure.code === "partially-applied") {
             const id = (result.failure.detail as {id?: string}).id;
             if (id !== undefined) selected.value = id;
-            report(subjectOf(provider), {code: "partially-applied", detail: result.failure.detail});
+            const copy = providers.value.find((item) => item.id === id)?.name ?? provider.name;
+            props.reportWriteFailure(subjectOf(provider), {reason: text("header.keyNotCopied", {name: copy}), uncertain: false});
             return;
         }
         report(subjectOf(provider), result.failure);
