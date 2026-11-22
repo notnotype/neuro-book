@@ -1,0 +1,77 @@
+### 1. nb-story 的内嵌网页会绕过过期版本阻断
+严重程度：重要；类别：正确性；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:73,86,90,123`。
+现象：计划把 nb-layout 加为 nb-story 的 `devDependencies`，并在 `build:web`/`prepack` 重建并打包 `dist/web`；但 `release-plan.ts` 的 `runtimeDependencies` 只读取 `dependencies` 与 `peerDependencies`（`scripts/release/publish.ts:109-110,247`），`blockingStalePackages` 因而不会把 nb-story 的内嵌网页视为依赖 nb-layout。布局源码和版本更新后，`release:smoke` 会重建 nb-story tarball；若 nb-story 自己没提版本，它会被计划归为已发历史包，字节不同只提示，nb-layout 待发布也不会反向阻断。
+为什么是问题：npm 上已发布的 nb-story 版本是预构建网页；用户安装新 nb-layout 不会更新这个网页。流水线可以只发布新 nb-layout，留下仍嵌入旧布局的 nb-story 版本，第一外部使用方不会得到与本次布局版本对应的网页。单纯把所有 `devDependencies` 纳入运行时依赖图也不对，会误把测试和构建工具当发布依赖。
+如何核实：静态调用链为 `packages/nb-story/package.json` 的 `prepack` → `build:web` → Vite 产物；`release-plan.ts` 的过期判定只沿 `runtimeDependencies`。可在实现验收场景中：nb-layout 提版本并改一个进入网页 bundle 的模块，不提 nb-story 版本，执行 `release:smoke` 后生成计划，确认计划当前会把 nb-story 作为 history 而不阻断 nb-layout 发布；本审查未运行命令。
+建议改法：显式记录“发布包构建时消费的工作区包”关系（不要复用运行时依赖字段）；当 pending 的 nb-layout 版本使已发布 nb-story 的预构建 tarball 变化而 nb-story 未提版时，计划必须失败并要求同批提升、发布 nb-story 版本。补对应的 `release-plan` 行为测试。
+### 2. nb-story 的 skip-types 构建会覆盖待发布的完整包
+严重程度：阻断；类别：不变量；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:29,34,86,88,109-113`。
+现象：发布冒烟先在 `pack-smoke.ts` 第 465 行对 BUILT_PACKAGES 做完整 `build:package`，再在第 471 行逐项 `bun pm pack`。nb-story 是源码发布包，打包会触发计划列出的 `prepack` → `build:web`；新 `build:web` 又在同一个 `packages/nb-layout/dist/package/` 上运行 `build:package --skip-types`，而该模式只产 JS/CSS。若这次 Vite build 清空同一输出目录（常规库构建行为），前面完整构建生成的 `.d.ts` 会消失，随后 nb-layout tarball 的 `exports.types` 指向缺失文件。即使实现选择保留旧文件，也会让构建是否完整依赖前一条命令留下的目录状态。
+为什么是问题：干净发布构建把发布包目录同时当作网页临时构建目录；发布冒烟之后的结果取决于构建调用顺序和隐式残留。按字面实现的常规清理会使 `release:smoke` 失败；保留残留则 `build:web` 单独运行时产物不自描述，也无法保证 tarball 的声明来自本轮完整构建。
+如何核实：按计划构建顺序在干净 checkout 执行 `release:smoke`，在 nb-story 的 `prepack` 触发后检查 `dist/package` 中所有 `exports.types` 目标及最终 nb-layout tarball；本审查按要求未运行构建或 release 命令。
+建议改法：网页构建使用独立输出目录（例如 `dist/web-layout/`），alias 指向它；`dist/package/` 只由完整发布构建写入。或者在打 nb-layout tarball 前明确重建完整包并验证清单，但不要让网页构建覆盖发布目录。
+### 3. 按 AGPL 许可证过滤会误删第三方声明
+严重程度：重要；类别：正确性；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:80`。
+现象：计划把 `packageNotices` 与 `viteLicenseNotices` 的“忽略所有 `@notnotype/*`”改成“只忽略许可证为 `AGPL-3.0-only` 的包”。这会同时过滤名称不属于本仓库、但恰好以 AGPL-3.0-only 授权的第三方依赖；`noticeOf` 已经读取 `package.json` 的许可证，Vite 的 `build.license` 也有 `identifier`，两类输入都会受影响。
+为什么是问题：该改动为保留 MIT 的第一方 nb-layout 声明，却把许可类型误当成包归属。应用与 SDK 仍会静默丢掉第三方 AGPL 依赖的声明文本，放松 ADR 0054 第 5 条要求的“第三方声明按包区分”，而且改变声明列表无法由“MIT 的 @notnotype 样本”测试发现。
+如何核实：静态追踪 `scripts/third-party-notices.ts:27-69`：`packageNotices` 对目录先 `noticeOf` 再过滤，`viteLicenseNotices` 按清单条目过滤。可用一个名字非 `@notnotype/`、license/identifier 为 `AGPL-3.0-only` 且带 NOTICE 的样本核对输出；本审查未运行测试。
+建议改法：过滤第一方而非过滤 AGPL 许可证：保留所有第三方依赖（任何许可证）的声明；只对本仓库包按各自许可证决定是否输出，确保 MIT 的 `@notnotype/nb-layout` 被列出。测试同时覆盖第一方 AGPL 不列、第一方 MIT 列、第三方 AGPL 列。
+### 4. nb-story 发布包会新增未声明的 MIT 代码
+严重程度：重要；类别：许可证；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:81,86-90,135`。
+现象：计划把 nb-layout 的编译 JS/CSS 与 Vue、sigma 等一起打进 `nb-story` 的 `dist/web`，但明确不为 `dist/web` 增加第三方声明。当前 `packages/nb-story/package.json:71-79` 白名单包含 `dist/web` 与单独的 `LICENSE`，没有 `THIRD-PARTY-NOTICES.md`；计划的许可声明改动只针对 neuro-book 与 SDK。
+为什么是问题：新增的 nb-layout MIT 实现会随 AGPL 的 nb-story tarball 分发，MIT 许可要求在软件的所有副本或实质部分中包含版权与许可声明。将既有 vue/sigma 声明缺口列为后续，不能覆盖本 Task 新增、且计划已知会进入 tarball 的 MIT 内容。
+如何核实：核对 nb-story `files` 白名单、`vite.config.ts` 的 `dist/web` 输出路径、计划的产物别名与 `nb-layout/LICENSE` 的拟变更；声明生成器 `third-party-notices.ts` 目前仅由应用包与 SDK 调用，nb-story 没有对应调用。
+建议改法：至少把 nb-layout 的 MIT 完整许可文本/版权声明放入 nb-story 随包文件，并检查打包结果确实包含它；更完整的做法是为 `dist/web` 生成并携带所有实际打入依赖的第三方声明，避免只修新增的一个包。
+### 5. 仍为 private 的 nb-layout 会被定稿并列入 Release 说明
+严重程度：阻断；类别：发布流程；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:48-49,71,140-146`。
+现象：计划将 `prepare.ts` 与 `release-notes.ts` 的版本清单扩为“手工提版的源码包加 own 生成包”，并把上个标签中的 `private` 按 `previousVersion: null` 处理，却没有规定跳过当前仍为 `private` 的包。`preparePlan` 对 `previousVersion === null` 且当前版本 `0.1.0` 的包会视为新包并定稿其 `[Unreleased]`；`releaseNotes` 也会把 `previousVersion !== version` 的项列入“同时发布的 npm 包”。
+为什么是问题：在开发者尚未决定首发、源码包仍 `private: true` 时，常规产品发版会先把 nb-layout 的 CHANGELOG 定稿成 `[0.1.0]`，发布说明也会声称同时发布 nb-layout；但 `release:smoke` 按计划把它从 `release-manifest.json` 排除。首发开关因此不再表示“由开发者决定发布时再提版”，并造成 Release 文案与实际发布清单不一致。
+如何核实：静态追踪 `prepare.ts:90-110` 与 `release-notes.ts:84-100` 的筛选条件。前者对所有输入 packages 处理，后者只比较版本，不看当前 `private`。未运行 release 命令。
+建议改法：将“当前可发布”作为显式版本包筛选条件：当前 manifest 为 `private` 时，prepare 不定稿，release notes 不校验、不列入；开发者删掉 `private` 后，若上个标签仍是 private，才按新包要求本次版本与 `[<版本>]` 段。
+### 6. webStamp 会把未打入网页的 nb-layout 源码也当成网页依赖
+严重程度：建议；类别：正确性；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:89-90`。
+现象：计划要求 `webStamp` 在看到“产物文件”时改为记录 `nb-layout/src` 中除测试、夹具外的所有文件。`lab-sources.ts` 是唯一明确排除的运行时特殊文件，但 nb-layout 还有 `*.md` 组件说明、测试、README、CHANGELOG、构建脚本、package manifest 等没有被 `build:web` 编译的文件；其中组件 `.md` 由 README/Lab 使用，不是运行时模块。
+为什么是问题：当前 `webStamp` 的合同是“记实际进网页 bundle 的模块”（`web-stamp.ts` 文件头与 `writeWebStamp` 都以实际 Vite `transform` 观察到的 id 为输入）。把整个 `src` 当成消费清单会在改动仅限于不进入网页 bundle 的源码时误报 `网页包比源码旧`，且日后新增编译期工具文件仍需维护排除表。
+如何核实：静态追踪 `vite.config.ts` 的 `transform` 把实际处理的模块 id 加入集合，`writeWebStamp` 只对这些 id 写摘要；`NestedGrid.vue` 等模块会进入，而 README、组件 `.md` 与 `lab-sources.ts` 不会作为该网页构建的应用模块（lab-sources 由新应用的 Lab 单独导入）。现有 web-stamp 测试还确认它按传入 id 记录而非目录扫描。
+建议改法：在 alias 映射产物文件时，保留产物模块到其对应源文件的映射，只将 Vite 实际处理到的 nb-layout 产物模块映射回对应源文件后加入 stamp；另外覆盖“未打入的包文件变化不报旧、已打入源码变化会报旧”。
+严重程度：建议；类别：验证缺口；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:29,36-40,92-96,136`。
+现象：包公开四个声明入口（`.`, `./vue`, `./text`, `./locales`），但 `smokeLayoutHost` 的起步样例只从根入口与 `./vue` 使用类型，并导入 `./style.css`。计划中的构建自查是运行时 `Object.keys`，`packPackage` 只验证 exports 目标文件存在；均不让 TypeScript 解析 `text.d.ts`、`locales.d.ts`。
+为什么是问题：声明打包针对四个入口和共享声明块；入口文件存在、JS 能导入，不代表 `.d.ts` 的导入图在 tarball 外可被 Vue/TypeScript 消费。`text`、`locales` 的类型断链或指向未发布内部声明时，计划的完整产物验收仍会通过。
+如何核实：静态比较计划的 exports 清单与 `smokeLayoutHost` 描述；README 起步段只用 `createGrid`、`NestedGrid`、`useGridHost`，没有 `LAYOUT_TEXT_KEY`、`layoutCatalogTranslate` 或 `NB_LAYOUT_CATALOGS`。未运行宿主构建。
+建议改法：在同一个空项目的类型 fixture 中分别从四个入口导入值与类型，实际消费 `LAYOUT_TEXT_KEY`/`layoutCatalogTranslate` 和 locale 目录类型，再用 `vue-tsc --noEmit --skipLibCheck false` 对 tarball 类型检查；避免只靠运行时导出名与目标存在检查。
+### 8. 新的发布构建脚本不会在常规 PR CI 执行
+严重程度：建议；类别：验证缺口；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:109-113,127-130`。
+现象：切片 1 把 `build:package` 完整构建留在本机验证及 `release:smoke`；常规 `.github/workflows/ci.yml` 的 `test:affected --typecheck` 只按包脚本跑测试和 typecheck，`app-package` job 只构建 neuro-book 与 SDK。NB-layout 的包 `typecheck` 只覆盖 `src`，新建的 `scripts/pack.ts` 与实际产物组装流程没有 CI 构建门禁。release.yml 的 `npm-packages` 才执行 `release:smoke`，触发条件是标签或 Release 演练，而不是每个 PR。
+为什么是问题：新包入口、Vite/Rolldown 插件选项、声明 emit 与输出清理的集成错误可在 PR 的源码测试和类型检查全绿后合入；首次自动化完整验证推迟到发版演练/标签作业。8 秒构建超出单条快速测试的预算，不等于不能放在独立 CI 步骤。
+如何核实：静态对照 `.github/workflows/ci.yml:68-88`、`scripts/cli/test-affected.ts` 对包脚本的选择规则，以及 `release.yml` 的 `release:smoke` 调用；未运行 CI。
+建议改法：给 `nb-layout` 的包改动增加常规 CI 构建检查（可按 `packages/nb-layout/**` 选择），至少运行一次 `build:package` 并核对输出入口；将耗时/浏览器冒烟继续留给 release smoke。
+
+
+### 9. CI 未覆盖 nb-layout 完整产物构建
+严重程度：建议；类别：验证缺口；位置：`.agents/works/w00026-layout-package/tasks/t47-build-pipeline/plan.md:109-113,127-130`。
+现象：计划把 `build:package` 放在本机切片验证与 `release:smoke`；常规 `.github/workflows/ci.yml` 的 `test:affected --typecheck` 只按包脚本运行测试和 typecheck，`app-package` 作业只构建 neuro-book 与 SDK。新增的 `pack.ts`、声明 emit、Rolldown 声明打包和产物自查不在 PR CI 的执行路径；`release.yml` 只有标签或演练才运行 `release:smoke`。
+为什么是问题：入口配置、输出清理和声明组装的集成错误可以在源码测试与 typecheck 全绿后合入，首次完整构建验证推迟到发版演练或正式标签。
+如何核实：静态对照 `.github/workflows/ci.yml:68-88`、`scripts/cli/test-affected.ts:100-167` 与 `.github/workflows/release.yml:106-128`；未运行 CI。
+建议改法：给 `nb-layout` 的包改动增加常规 CI 构建检查，至少运行一次 `build:package` 并核对输出入口；浏览器与发布清单冒烟可继续留在 release smoke。
+
+### 待确认清单判断
+- 源码包 `private` 作为首发开关：成立，但计划必须同时让 private 包跳过 prepare、release notes、发布计划和发布清单；否则会出现发现 5 的不一致。
+- 声明保留 JSDoc、去掉 Spec 编号：方向可行；需由声明产物的静态检查确认路径与编号均不再泄漏，不能只依赖源码注释改动。
+- nb-story 网页构建一律读产物：方向成立，但必须使用独立网页输出目录，不能让 `--skip-types` 覆盖 `dist/package`；否则触发发现 2。
+- nb-story 发布包的 `dist/web` 不补第三方声明：不接受作为本 Task 的既定结论；既然本 Task 把 nb-layout MIT 代码打入该 tarball，至少要随包携带其许可声明，见发现 4。
+- 变更记录在首发之前建：成立；但首发前 private 包不应被常规 release prepare 或 release notes 定稿、列入说明，见发现 5。
+
+### 未发现问题的方面
+- Vue SFC 的生产 scope ID 使用相对包根的路径和源码生成，静态上不依赖绝对 checkout 路径；当前没有证据把跨工作目录差异列为有效缺陷。
+- `tag.ts` 的 `verify-built` 只核对应用包和 SDK，不会强制仍为 private 的 nb-layout 进入 manifest；原“private 包被 verify-built 强制要求”的怀疑无效，不计入发现。
+- 现有 `webStamp` 的实现按 Vite 实际看到的模块 ID 记录源文件，明确过滤虚拟模块与 `node_modules`；问题在计划把整个 `nb-layout/src` 当清单，而非当前函数本身目录扫描。
+- `smokeLayoutHost` 计划覆盖 Vite 构建、浏览器可访问性、键盘与拖动、样式及页面错误；剩余缺口是四个公开声明入口的外部类型消费者覆盖，而不是冒烟目标本身不存在。
+- 计划未改变 `nbstory serve` 的“只提示网页过期、不暗中构建”合同；既有未构建页面的精确错误文案也有静态依据。
+
+### 严重程度统计
+- 阻断：2 项（发现 2、发现 5）。
+- 重要：3 项（发现 1、发现 3、发现 4）。
+- 建议：4 项（发现 6、发现 7、发现 8、发现 9）。
+- 未验证的动态事项：完整构建、release smoke、e2e、CI 与 registry 均未运行；上述判断来自静态审查和既有 t43/t47 探针，不替代运行证据。
+
+有效发现编号：1、2、3、4、5、6、7、8、9。

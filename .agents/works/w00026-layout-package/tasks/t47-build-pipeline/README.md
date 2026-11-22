@@ -20,8 +20,8 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿，开工前跑了两个探针（[证据](evidences/probes.txt)）：声明文件按 t43 的做法每次构建不同、tarball 跟着变，改成先 `vue-tsc` 一次出全部声明再打包后稳定；nb-story 的 `frame`、`side-by-side`、`viewer` e2e 跑在压缩产物加显式 `style.css` 上。计划交 omp 设计审查（`--model @review`）。
+2026-11-22：[计划](plan.md)第 1 稿，开工前跑了两个探针（[证据](evidences/probes.txt)）：声明文件按 t43 的做法每次构建不同、tarball 跟着变，改成先 `vue-tsc` 一次出全部声明再打包后稳定；nb-story 的 `frame`、`side-by-side`、`viewer` e2e 跑在压缩产物加显式 `style.css` 上。第 1 轮设计审查（omp `--model @review`，阻断 2、重要 3、建议 4，[证据](evidences/design-review.txt)）除第 1 条（t47 之前就如此，补一句进发布手册）都成立，[计划](plan.md)改到第 2 稿，不再开第 2 轮，开始实施。
 
 ## 下一步
 
-设计审查 → 处理 → 按切片实施。
+按计划第 2 稿的六个切片实施（worktree `.worktree/w00026-t47-build-pipeline`）→ 实现审查（omp）。
