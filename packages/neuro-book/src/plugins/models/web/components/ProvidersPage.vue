@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import {referenceOf, rolesUsing} from "@notnotype/nb-models/config";
 import type {ModelConfig} from "@notnotype/nb-models/config";
-import type {CatalogProvider, SnapshotModel, SnapshotProvider} from "@notnotype/nb-models/contract";
+import {PROVIDER_ICON_FILES} from "nbook/ui/provider-icons";
+import type {ModelRow, SnapshotProvider} from "@notnotype/nb-models/contract";
 import {AlertDialog, Button, EmptyState, IconButton, Select, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
+import {detailText} from "../models-store";
 import type {ModelsFailure, ModelsRemote, ModelsStore} from "../models-store";
 import {failureReason, roleName, useModelsText} from "../text";
 import AddProviderDialog from "./AddProviderDialog.vue";
+import type {AddInput} from "./AddProviderDialog.vue";
 import AllModelsView from "./AllModelsView.vue";
 import ManageModelsDialog from "./ManageModelsDialog.vue";
 import type {ModelCandidate} from "./ManageModelsDialog.vue";
 import ModelEditDialog from "./ModelEditDialog.vue";
 import ProviderDetail from "./ProviderDetail.vue";
+import ProviderHeader from "./ProviderHeader.vue";
 import ProviderRail from "./ProviderRail.vue";
 
 /**
@@ -22,7 +26,6 @@ import ProviderRail from "./ProviderRail.vue";
  * 数据模块；写失败交给窗口通知（`reportWriteFailure`），控件随后以快照为准。
  */
 type ProviderPatch = Parameters<ModelsRemote["updateProvider"]>[0]["patch"];
-type ProviderSource = Parameters<ModelsRemote["addProvider"]>[0]["source"];
 
 const props = withDefaults(defineProps<{
     store: ModelsStore;
@@ -67,6 +70,54 @@ function roleUsage(provider: SnapshotProvider): Map<string, string[]> {
     return usage;
 }
 
+// ---- 当前这家的模型行 ----
+// 这家的版本变了（别处改了、自己写了）就重读；模板表也在页面打开时读好（地区与协议要用）。
+watch(() => current.value?.modelsRevision, () => {
+    if (current.value !== null) void props.store.loadRows(current.value.id);
+}, {immediate: true});
+watch(current, (provider) => {
+    if (provider !== null) void props.store.loadRows(provider.id);
+});
+const currentRows = computed(() => (current.value === null ? null : props.store.rowsOf(current.value.id)));
+const currentTemplate = computed(() => templates.value?.find((template) => template.id === current.value?.template) ?? null);
+/** 内置图标可选的键：模板用到的 logo，且图标表里有。 */
+const builtinKeys = computed(() => [...new Set((templates.value ?? []).flatMap((template) => (template.logo !== null && template.logo in PROVIDER_ICON_FILES ? [template.logo] : [])))].sort());
+const takenNames = computed(() => new Set(providers.value.filter((provider) => provider.id !== current.value?.id).map((provider) => provider.name.trim().toLowerCase())));
+
+// ---- 标题区：改名、图标、复制 ----
+const iconBusy = ref(false);
+const iconError = ref("");
+const duplicating = ref(false);
+async function renameProvider(provider: SnapshotProvider, name: string): Promise<void> {
+    await updateProvider(provider, {name});
+}
+async function setIcon(provider: SnapshotProvider, icon: Parameters<ModelsRemote["setIcon"]>[0]["icon"]): Promise<void> {
+    iconBusy.value = true;
+    iconError.value = "";
+    const result = await props.store.call("setIcon", {provider: provider.id, icon});
+    iconBusy.value = false;
+    if (!result.ok) iconError.value = result.failure.code === "icon-rejected" ? text("header.icon.errors.rejected", {detail: detailText(result.failure.detail)}) : failureReason(text, result.failure);
+}
+async function duplicateProvider(provider: SnapshotProvider): Promise<void> {
+    duplicating.value = true;
+    const result = await props.store.call("duplicateProvider", {id: provider.id});
+    duplicating.value = false;
+    if (!result.ok) {
+        // 密钥没复制成功：副本在，选中它并说明；别的失败照常通知。
+        if (result.failure.code === "partially-applied") {
+            const id = (result.failure.detail as {id?: string}).id;
+            if (id !== undefined) selected.value = id;
+            report(subjectOf(provider), {code: "partially-applied", detail: result.failure.detail});
+            return;
+        }
+        report(subjectOf(provider), result.failure);
+        return;
+    }
+    selected.value = result.value.id;
+    await nextTick();
+    page.value?.querySelector<HTMLElement>("[data-provider-name]")?.focus();
+}
+
 // ---- 写入 ----
 /** 写入失败交给窗口通知；`partially-applied` 之外失败的控件随快照回到实际值。 */
 /** 写失败后详情里的输入框回到实际值（输出 15）：快照没变时它们自己看不出要回去，靠这个序号。 */
@@ -93,11 +144,12 @@ async function updateProvider(provider: SnapshotProvider, patch: ProviderPatch):
     if (!result.ok) report(subjectOf(provider), result.failure);
 }
 
-/** 快照里的模型转回设置的形状（启用开关只改 `enabled`，其余照原样；服务端会去掉目录模型没改过的字段）。 */
-function configOf(model: SnapshotModel, enabled: boolean): ModelConfig {
+/** 模型行转回设置的形状（启用开关只改 `enabled`，其余照原样；服务端会去掉来源模型没改过的字段）。 */
+function configOf(model: ModelRow, enabled: boolean): ModelConfig {
     return {
         id: model.id,
         enabled,
+        origin: model.origin,
         name: model.name,
         group: model.group,
         ...(model.contextWindow === null ? {} : {contextWindow: model.contextWindow}),
@@ -112,7 +164,7 @@ function configOf(model: SnapshotModel, enabled: boolean): ModelConfig {
 }
 
 async function toggleModel(provider: SnapshotProvider, id: string, enabled: boolean): Promise<void> {
-    const model = provider.models.find((item) => item.id === id);
+    const model = props.store.rowsOf(provider.id).rows.find((item) => item.id === id);
     if (model === undefined) return;
     const result = await props.store.call("upsertModel", {provider: provider.id, model: configOf(model, enabled)});
     if (!result.ok) report(text("subject.model", {name: model.name}), result.failure);
@@ -128,22 +180,21 @@ function checkError(provider: SnapshotProvider): string {
 
 // ---- 添加服务商 ----
 const adding = ref(false);
-const addCatalog = ref<readonly CatalogProvider[] | null>(null);
 const addError = ref("");
 const addBusy = ref(false);
+const templates = props.store.templates;
+const addedTemplates = computed(() => [...new Set(providers.value.map((provider) => provider.template))]);
 
 async function openAdd(): Promise<void> {
     adding.value = true;
     addError.value = "";
-    addCatalog.value = null;
-    const result = await props.store.call("catalogProviders", {});
-    if (result.ok) addCatalog.value = result.value;
-    else addError.value = failureReason(text, result.failure);
+    await props.store.loadTemplates();
+    if (templates.value === null) addError.value = failureReason(text, {code: "unavailable", detail: ""});
 }
 
-async function addProvider(source: ProviderSource): Promise<void> {
+async function addProvider(input: AddInput): Promise<void> {
     addBusy.value = true;
-    const result = await props.store.call("addProvider", {source});
+    const result = await props.store.call("addProvider", input);
     addBusy.value = false;
     if (!result.ok) {
         addError.value = failureReason(text, result.failure);
@@ -156,7 +207,8 @@ async function addProvider(source: ProviderSource): Promise<void> {
 // ---- 编辑与手动添加 ----
 const editTarget = ref<{readonly provider: string; readonly model: string | null} | null>(null);
 const editProvider = computed(() => providers.value.find((provider) => provider.id === editTarget.value?.provider) ?? null);
-const editModel = computed(() => editProvider.value?.models.find((model) => model.id === editTarget.value?.model) ?? null);
+const editModel = computed(() => (editProvider.value === null ? null : props.store.rowsOf(editProvider.value.id).rows.find((model) => model.id === editTarget.value?.model) ?? null));
+const editRows = computed(() => (editProvider.value === null ? [] : props.store.rowsOf(editProvider.value.id).rows));
 const editBusy = ref(false);
 const editError = ref("");
 
@@ -169,6 +221,7 @@ watch([editProvider, editModel], ([provider, model]) => {
 function openEdit(provider: string, model: string | null): void {
     editError.value = "";
     editTarget.value = {provider, model};
+    void props.store.loadRows(provider);
 }
 
 async function saveModel(model: ModelConfig): Promise<void> {
@@ -196,12 +249,14 @@ async function loadCandidates(provider: SnapshotProvider): Promise<void> {
     const token = (manageToken += 1);
     candidates.value = null;
     manageError.value = "";
-    if (provider.kind === "catalog") {
-        const result = await props.store.call("catalogModels", {provider: provider.id});
+    if (provider.templateBaseUrl !== null) {
+        // 有目录的模板：候选是目录里的全部（在列表里的，加上已移出、没加过的）。
+        await Promise.all([props.store.loadRows(provider.id, "listed"), props.store.loadRows(provider.id, "available")]);
         // 对话框关了或又发起了一次：迟到的结果丢掉（输出 10）。
         if (token !== manageToken || !managing.value) return;
-        if (result.ok) candidates.value = result.value.map((model) => ({id: model.id, name: model.name, vision: model.vision, reasoning: model.reasoning, incomplete: false}));
-        else manageError.value = failureReason(text, result.failure);
+        const failure = props.store.rowsOf(provider.id, "listed").failure ?? props.store.rowsOf(provider.id, "available").failure;
+        if (failure !== null) manageError.value = failureReason(text, failure);
+        else candidates.value = [...props.store.rowsOf(provider.id, "listed").rows, ...props.store.rowsOf(provider.id, "available").rows].map((model) => ({id: model.id, name: model.name, vision: model.vision, reasoning: model.reasoning, incomplete: model.status === "incomplete"}));
         return;
     }
     const result = await props.store.call("discover", {provider: provider.id});
@@ -219,7 +274,7 @@ async function loadCandidates(provider: SnapshotProvider): Promise<void> {
 const manageOpenedWith = ref<readonly string[]>([]);
 
 function openManage(provider: SnapshotProvider): void {
-    manageOpenedWith.value = provider.models.map((model) => model.id);
+    manageOpenedWith.value = props.store.rowsOf(provider.id).rows.map((model) => model.id);
     managing.value = true;
     void loadCandidates(provider);
 }
@@ -234,7 +289,7 @@ watch(current, (provider, previous) => {
 
 async function applyManage(provider: SnapshotProvider, change: {add: ModelCandidate[]; remove: string[]}): Promise<void> {
     const add: ModelConfig[] = change.add.map((item) => {
-        if (provider.kind === "catalog") return {id: item.id, enabled: true};
+        if (provider.templateBaseUrl !== null) return {id: item.id, enabled: true};
         const suggested = discovered.get(item.id);
         return {
             id: item.id,
@@ -278,11 +333,12 @@ function openRemove(id: string): void {
 const removeDescription = computed(() => {
     const target = removeTarget.value;
     if (target === null) return "";
+    const known = props.store.rowsOf(target.id).rows;
     const affected = rolesUsing(roles.value, target.id).map((role) => {
-        const model = target.models.find((item) => referenceOf(target.id, item.id) === role.model);
+        const model = known.find((item) => referenceOf(target.id, item.id) === role.model);
         return `${roleName(text, role)}（${model?.name ?? role.model}）`;
     });
-    const models = text("remove.models", {count: target.models.length});
+    const models = text("remove.models", {count: target.modelCount});
     return affected.length === 0 ? models : `${models}${text("remove.roles", {roles: affected.join("、")})}`;
 });
 const page = ref<HTMLElement | null>(null);
@@ -394,10 +450,27 @@ function focusVisible(selectors: readonly string[]): void {
                     </template>
                 </EmptyState>
                 <template v-else-if="current !== null">
-                    <h3 class="providers-page__heading">{{ current.name }}</h3>
+                    <ProviderHeader
+                        :key="`header-${current.id}`"
+                        :provider="current"
+                        :taken-names="takenNames"
+                        :builtin-keys="builtinKeys"
+                        :disabled="disabled"
+                        :icon-busy="iconBusy"
+                        :icon-error="iconError"
+                        :duplicating="duplicating"
+                        @rename="(name) => renameProvider(current!, name)"
+                        @set-icon="(icon) => setIcon(current!, icon)"
+                        @duplicate="duplicateProvider(current!)"
+                    />
                     <ProviderDetail
                         :key="current.id"
                         :provider="current"
+                        :rows="currentRows?.rows ?? []"
+                        :rows-loading="currentRows?.loading ?? false"
+                        :rows-failure="currentRows?.failure === null || currentRows === null ? '' : failureReason(text, currentRows.failure)"
+                        :template="currentTemplate"
+                        @reload-rows="store.loadRows(current!.id)"
                         :checks="store.checks"
                         :role-usage="roleUsage(current)"
                         :disabled="disabled"
@@ -418,17 +491,16 @@ function focusVisible(selectors: readonly string[]): void {
                 </template>
                 <template v-else>
                     <h3 class="providers-page__heading">{{ text("rail.all") }}</h3>
-                    <AllModelsView :providers="providers" :checks="store.checks" :disabled="disabled" @edit="openEdit" />
+                    <AllModelsView :providers="providers" :rows="Object.fromEntries(providers.map((provider) => [provider.id, store.rowsOf(provider.id).rows]))" :checks="store.checks" :disabled="disabled" @edit="openEdit" @load="(id) => store.loadRows(id)" />
                 </template>
             </div>
         </div>
-        <AddProviderDialog v-model:open="adding" :catalog="addCatalog" :error="addError" :busy="addBusy" @add-catalog="(id) => addProvider({kind: 'catalog', id})" @add-custom="(source) => addProvider({kind: 'custom', ...source})" />
+        <AddProviderDialog v-model:open="adding" :templates="templates" :added="addedTemplates" :error="addError" :busy="addBusy" @add="addProvider" />
         <ModelEditDialog
             v-if="editProvider !== null"
             :open="editTarget !== null"
-            :provider-kind="editProvider.kind"
             :model="editModel"
-            :taken-ids="editProvider.models.map((model) => model.id)"
+            :taken-ids="editRows.map((model) => model.id)"
             :busy="editBusy"
             :error="editError"
             @update:open="(value) => { if (!value) editTarget = null; }"
@@ -438,7 +510,7 @@ function focusVisible(selectors: readonly string[]): void {
             v-if="current !== null"
             v-model:open="managing"
             :provider-name="current.name"
-            :discoverable="current.kind === 'custom'"
+            :discoverable="current.templateBaseUrl === null"
             :candidates="candidates"
             :current="manageOpenedWith"
             :role-usage="roleUsage(current)"

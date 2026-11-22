@@ -3,7 +3,7 @@
  * 不改就不写，改了写新的形状；百分比不能超过 100。
  */
 
-import type {SnapshotModel} from "@notnotype/nb-models/contract";
+import type {ModelRow} from "@notnotype/nb-models/contract";
 import {NumberInput, Select} from "@notnotype/nb-ui/components";
 import {flushPromises, mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
@@ -22,10 +22,10 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const model = (patch: Partial<SnapshotModel> = {}): SnapshotModel => ({id: "m", name: "m", group: "g", enabled: true, contextWindow: 200_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", ...patch});
+const model = (patch: Partial<ModelRow> = {}): ModelRow => ({id: "m", name: "m", group: "g", enabled: true, origin: "manual", contextWindow: 200_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], ...patch});
 
-async function open(snapshot: SnapshotModel) {
-    const wrapper = mount(ModelEditDialog, {global, props: {open: true, providerKind: "custom", model: snapshot}, attachTo: document.body});
+async function open(snapshot: ModelRow) {
+    const wrapper = mount(ModelEditDialog, {global, props: {open: true, model: snapshot}, attachTo: document.body});
     mounted.push(wrapper);
     await flushPromises();
     return wrapper;

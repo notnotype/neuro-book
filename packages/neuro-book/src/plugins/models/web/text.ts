@@ -4,7 +4,7 @@
  * 还有两页共用的几处措辞：失败原因、角色名、单价。
  */
 
-import type {SnapshotModel, SnapshotRole} from "@notnotype/nb-models/contract";
+import type {ModelRow, SnapshotRole} from "@notnotype/nb-models/contract";
 
 import type {PluginCatalogs} from "nbook/shared/convention-keys";
 import {usePluginText} from "nbook/shared/use-plugin-text";
@@ -49,7 +49,7 @@ export function roleDescription(text: ModelsText, role: Role): string {
 }
 
 /** 单价：`null` 未知、输入与输出都是 0 为免费（决定 7）。 */
-export function priceText(text: ModelsText, price: SnapshotModel["price"]): string {
+export function priceText(text: ModelsText, price: ModelRow["price"]): string {
     if (price === null) return text("models.priceUnknown");
     if (price[0] === 0 && price[1] === 0) return text("models.free");
     return text("models.price", {input: formatPrice(price[0]), output: formatPrice(price[1])});

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type {SnapshotProvider} from "@notnotype/nb-models/contract";
-import {Button, Collapsible, InfoTip, Input, Select} from "@notnotype/nb-ui/components";
+import type {ModelRow as ModelRowData, SnapshotProvider, Template} from "@notnotype/nb-models/contract";
+import {Button, Collapsible, InfoTip, Input, Select, Switch} from "@notnotype/nb-ui/components";
 import {computed, ref, useId, watch} from "vue";
 
 import type {CheckState} from "../models-store";
@@ -13,10 +13,17 @@ import ModelRow from "./ModelRow.vue";
  * 一家服务商的详情（docs/specs/models/settings-pages.md 输出 4 到 8）：上面是连接（密钥、地址、接口格式、默认收起的高级），下面是按
  * 系列分组的模型列表。受控：改了什么就发对应的事件，写入由页面做；输入框在失焦或回车时才发（改了就写，没有保存按钮）。
  */
-type ProviderPatch = {name?: string; baseUrl?: string | null; api?: "openai-completions" | "openai-responses" | "anthropic-messages"; auth?: "default" | "bearer" | "none"; headers?: Record<string, string>};
+type ProviderPatch = {name?: string; region?: string | null; baseUrl?: string | null; api?: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai" | null; auth?: "default" | "bearer" | "none"; headers?: Record<string, string>; followSource?: boolean};
 
 const props = withDefaults(defineProps<{
     provider: SnapshotProvider;
+    /** 这家的模型行（`providerModels` 读完的）；还没读到时为空。 */
+    rows?: readonly ModelRowData[];
+    rowsLoading?: boolean;
+    /** 读模型行失败的原因；没有为空。 */
+    rowsFailure?: string;
+    /** 这家的模板（地区与路由）；模板表还没读到时为 null。 */
+    template?: Template | null;
     checks?: ReadonlyMap<string, CheckState>;
     /** 模型 id → 绑着它的角色名。 */
     roleUsage?: ReadonlyMap<string, readonly string[]>;
@@ -25,7 +32,7 @@ const props = withDefaults(defineProps<{
     resetToken?: number;
     /** 这家最近一次“没检成”的原因（服务停了、服务商不在了），写在模型列表头上；没有为空。 */
     checkError?: string;
-}>(), {checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: ""});
+}>(), {rows: () => [], rowsLoading: false, rowsFailure: "", template: null, checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: ""});
 
 const emit = defineEmits<{
     (e: "set-key", value: string): void;
@@ -39,6 +46,7 @@ const emit = defineEmits<{
     (e: "edit-model", id: string): void;
     (e: "add-model"): void;
     (e: "manage"): void;
+    (e: "reload-rows"): void;
 }>();
 
 const text = useModelsText();
@@ -107,8 +115,9 @@ function commitKey(): void {
 }
 
 // ---- 地址与接口 ----
-const ENDPOINT: Record<string, string> = {"openai-completions": "/chat/completions", "openai-responses": "/responses", "anthropic-messages": "/v1/messages"};
-const effectiveUrl = computed(() => props.provider.baseUrl ?? props.provider.catalogBaseUrl ?? "");
+const ENDPOINT: Record<string, string> = {"openai-completions": "/chat/completions", "openai-responses": "/responses", "anthropic-messages": "/v1/messages", "google-generative-ai": "/models/<模型>:streamGenerateContent"};
+const effectiveUrl = computed(() => props.provider.baseUrl ?? props.provider.templateBaseUrl ?? "");
+const blank = computed(() => props.provider.templateBaseUrl === null);
 const urlDraft = ref(effectiveUrl.value);
 const urlField = draftField(() => effectiveUrl.value, urlDraft);
 /** 地址写不对时原位写原因、不写进设置（http 或 https，能解析）。 */
@@ -122,7 +131,7 @@ const validUrl = (value: string): boolean => {
         return false;
     }
 };
-const overridden = computed(() => props.provider.kind === "catalog" && props.provider.baseUrl !== null && props.provider.baseUrl !== props.provider.catalogBaseUrl);
+const overridden = computed(() => !blank.value && props.provider.baseUrl !== null && props.provider.baseUrl !== props.provider.templateBaseUrl && props.provider.region === null);
 const requestUrl = computed(() => `${effectiveUrl.value.replace(/\/$/u, "")}${ENDPOINT[props.provider.api ?? ""] ?? ""}`);
 
 function commitUrl(): void {
@@ -138,14 +147,23 @@ function commitUrl(): void {
     }
     urlProblem.value = "";
     if (!urlField.claim(value)) return;
-    emit("update", {baseUrl: props.provider.kind === "catalog" && value === props.provider.catalogBaseUrl ? null : value});
+    emit("update", {baseUrl: !blank.value && value === props.provider.templateBaseUrl ? null : value});
 }
 
 const API_OPTIONS = [
     {value: "openai-completions", label: "OpenAI Chat Completions"},
     {value: "openai-responses", label: "OpenAI Responses"},
     {value: "anthropic-messages", label: "Anthropic Messages"},
+    {value: "google-generative-ai", label: "Google Gemini"},
 ];
+/** 协议与模板的不同：改了就按通用协议发送（写在旁边的说明里）。 */
+const apiChanged = computed(() => !blank.value && props.provider.api !== props.provider.templateApi);
+const regionOptions = computed(() => (props.template?.regions ?? []).map((region) => ({value: region.id, label: region.id === "global" || region.id === "cn" ? text(`add.region.${region.id}`) : region.id})));
+function changeApi(value: string): void {
+    const api = value as NonNullable<ProviderPatch["api"]>;
+    // 非空白模板改回模板的协议就清掉覆盖，回到“跟随模板”。
+    emit("update", {api: !blank.value && api === props.provider.templateApi ? null : api});
+}
 const authOptions = computed(() => [
     {value: "default", label: text("connection.auth.default")},
     {value: "bearer", label: text("connection.auth.bearer")},
@@ -160,19 +178,35 @@ watch(() => props.resetToken, () => {
 });
 
 // ---- 模型 ----
+/** 搜索时最多画这么多行；几百个模型的服务商不能整份渲染。 */
+const SEARCH_LIMIT = 200;
+const search = ref("");
+const needle = computed(() => search.value.trim().toLowerCase());
+const matched = computed(() => (needle.value === "" ? props.rows : props.rows.filter((row) => row.name.toLowerCase().includes(needle.value) || row.id.toLowerCase().includes(needle.value))));
 const groups = computed(() => {
-    const byGroup = new Map<string, SnapshotProvider["models"][number][]>();
-    for (const model of props.provider.models) byGroup.set(model.group, [...(byGroup.get(model.group) ?? []), model]);
+    const byGroup = new Map<string, ModelRowData[]>();
+    for (const row of matched.value) byGroup.set(row.group, [...(byGroup.get(row.group) ?? []), row]);
     return [...byGroup].map(([group, models]) => ({group, models}));
 });
-const enabledCount = computed(() => props.provider.models.filter((model) => model.enabled).length);
-const folded = ref(new Set<string>());
+/** 搜索时展开命中的组并限 200 行；不搜索时系列默认收起，收起的不渲染。 */
+const shown = computed(() => {
+    if (needle.value === "") return groups.value.map((group) => ({...group, open: expanded.value.has(group.group), rows: expanded.value.has(group.group) ? group.models : []}));
+    let budget = SEARCH_LIMIT;
+    return groups.value.map((group) => {
+        const rows = group.models.slice(0, Math.max(0, budget));
+        budget -= rows.length;
+        return {...group, open: true, rows};
+    }).filter((group) => group.rows.length > 0);
+});
+const hiddenCount = computed(() => (needle.value === "" ? 0 : Math.max(0, matched.value.length - SEARCH_LIMIT)));
+const enabledCount = computed(() => props.provider.enabledCount);
+const expanded = ref(new Set<string>());
 function fold(group: string): void {
-    const next = new Set(folded.value);
+    const next = new Set(expanded.value);
     if (!next.delete(group)) next.add(group);
-    folded.value = next;
+    expanded.value = next;
 }
-const checking = computed(() => props.provider.models.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
+const checking = computed(() => props.rows.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
 </script>
 
 <template>
@@ -221,11 +255,16 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                         @keydown.enter="commitUrl"
                     />
                     <p v-if="urlProblem !== ''" :id="`${id}-url-problem`" class="provider-detail__hint provider-detail__hint--error" role="alert" data-url-problem>{{ urlProblem }}</p>
-                    <p v-if="overridden" class="provider-detail__hint">{{ text("connection.url.overridden", {url: provider.catalogBaseUrl ?? ""}) }}</p>
+                    <p v-if="overridden" class="provider-detail__hint">{{ text("connection.url.overridden", {url: provider.templateBaseUrl ?? ""}) }} {{ text("connection.protocol.note") }}</p>
                 </div>
-                <div v-if="provider.kind === 'custom'" class="provider-detail__field">
+                <div v-if="regionOptions.length > 0" class="provider-detail__field">
+                    <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.region.label") }}</span></div>
+                    <Select :model-value="provider.region ?? regionOptions[0]!.value" :options="regionOptions" size="sm" :disabled="disabled" :aria-label="text('connection.region.label')" data-region-select @update:model-value="(value: string) => emit('update', {region: value})" />
+                </div>
+                <div class="provider-detail__field">
                     <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.api.label") }}</span></div>
-                    <Select :model-value="provider.api ?? 'openai-completions'" :options="API_OPTIONS" size="sm" :disabled="disabled" :aria-label="text('connection.api.label')" @update:model-value="(value: string) => emit('update', {api: value as ProviderPatch['api']})" />
+                    <Select :model-value="provider.api ?? 'openai-completions'" :options="API_OPTIONS" size="sm" :disabled="disabled" :aria-label="text('connection.api.label')" data-api-select @update:model-value="changeApi" />
+                    <p v-if="apiChanged" class="provider-detail__hint" data-api-note>{{ text("connection.protocol.changed", {value: provider.templateApi ?? ""}) }} {{ text("connection.protocol.note") }}</p>
                 </div>
                 <Collapsible>
                     <template #trigger>
@@ -254,20 +293,28 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                 <span class="provider-detail__muted">{{ text("models.enabled", {count: enabledCount}) }}</span>
                 <span class="provider-detail__spacer" />
                 <Button size="sm" variant="ghost" icon-class="i-lucide-list-checks" :disabled="disabled" data-models-manage @click="emit('manage')">{{ text("models.manage") }}</Button>
-                <Button v-if="provider.kind === 'custom'" size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" data-models-add @click="emit('add-model')">{{ text("models.add") }}</Button>
+                <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" data-models-add @click="emit('add-model')">{{ text("models.add") }}</Button>
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>
+            <label class="provider-detail__follow">
+                <Switch :model-value="provider.followSource" size="sm" :disabled="disabled" :aria-label="text('models.follow.label')" data-follow-source @update:model-value="(value: boolean) => emit('update', {followSource: value})" />
+                <span>{{ text("models.follow.label") }}<InfoTip :text="text('models.follow.hint')" /></span>
+            </label>
             <p v-if="checkError !== ''" class="provider-detail__hint provider-detail__hint--error" role="alert" data-check-error>{{ checkError }}</p>
-            <p v-if="provider.models.length === 0" class="provider-detail__empty">{{ text("models.empty") }}</p>
-            <section v-for="group in groups" :key="group.group" class="provider-detail__series">
-                <button type="button" class="provider-detail__series-title nb-ui-focus-ring" :aria-expanded="!folded.has(group.group)" @click="fold(group.group)">
-                    <span :class="folded.has(group.group) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" aria-hidden="true" />
+            <p v-if="rowsFailure !== ''" class="provider-detail__hint provider-detail__hint--error" role="alert" data-rows-failure>{{ text("models.loadFailed", {reason: rowsFailure}) }} <button type="button" class="provider-detail__link nb-ui-focus-ring" @click="emit('reload-rows')">{{ text("models.retry") }}</button></p>
+            <Input v-if="rows.length > 8" v-model="search" size="sm" icon-class="i-lucide-search" :placeholder="text('models.search')" :aria-label="text('models.search')" data-models-search />
+            <p v-if="rowsLoading && rows.length === 0" class="provider-detail__empty">{{ text("models.loading") }}</p>
+            <p v-else-if="rows.length === 0 && rowsFailure === ''" class="provider-detail__empty">{{ text("models.empty") }}</p>
+            <p v-else-if="needle !== '' && matched.length === 0" class="provider-detail__empty">{{ text("models.noMatch") }}</p>
+            <section v-for="group in shown" :key="group.group" class="provider-detail__series">
+                <button type="button" class="provider-detail__series-title nb-ui-focus-ring" :aria-expanded="group.open" :disabled="needle !== ''" @click="fold(group.group)">
+                    <span :class="group.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" aria-hidden="true" />
                     {{ group.group }}<span class="provider-detail__series-count">{{ group.models.length }}</span>
                 </button>
-                <ul v-if="!folded.has(group.group)" class="provider-detail__models">
+                <ul v-if="group.open" class="provider-detail__models">
                     <ModelRow
-                        v-for="model in group.models"
+                        v-for="model in group.rows"
                         :key="model.id"
                         :model="model"
                         :check="checks.get(checkKey(provider.id, model.id))"
@@ -280,6 +327,7 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
                     />
                 </ul>
             </section>
+            <p v-if="hiddenCount > 0" class="provider-detail__hint" data-models-more>{{ text("models.more", {count: hiddenCount}) }}</p>
         </section>
     </div>
 </template>
@@ -324,6 +372,14 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
 
 .provider-detail__title--actions > :deep(button) {
     flex-shrink: 0;
+}
+
+.provider-detail__follow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
 }
 
 .provider-detail__spacer {

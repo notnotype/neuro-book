@@ -7,10 +7,10 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {createFakeModelsRemote} from "nbook/plugins/lab/web/fixtures/models-scene/fake-remote";
-import {SAMPLE_SNAPSHOT, sampleModel} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {SAMPLE_ROWS, SAMPLE_SNAPSHOT, sampleRow} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
-import type {ModelsSnapshot} from "@notnotype/nb-models/contract";
+import type {ModelRow, ModelsSnapshot} from "@notnotype/nb-models/contract";
 
 import {MODELS_TEXT_NAMESPACE} from "../../shared/text";
 import {createModelsStore} from "../models-store";
@@ -26,13 +26,17 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-async function render(snapshot: ModelsSnapshot = SAMPLE_SNAPSHOT) {
-    const fake = createFakeModelsRemote(snapshot);
+async function render(snapshot: ModelsSnapshot = SAMPLE_SNAPSHOT, rows: Readonly<Record<string, readonly ModelRow[]>> = SAMPLE_ROWS) {
+    const fake = createFakeModelsRemote(snapshot, {rows});
     const store = createModelsStore(fake.remote);
     stores.push(store);
     const wrapper = mount(RolesPage, {global, props: {store, writable: true, reportWriteFailure: () => undefined}, attachTo: document.body});
     mounted.push(wrapper);
     await waitUntil("角色行", () => document.querySelector("[data-role-row]") !== null, {timeoutMs: 10_000});
+    // 绑着的模型名与推理能力经选用数据按引用取：等取到再断言。
+    const bound = snapshot.roles.filter((role) => role.model !== null).length;
+    await waitUntil("选用数据到齐", () => store.selection.ready.value && store.selection.lookup.value.size >= new Set(snapshot.roles.flatMap((role) => (role.model === null ? [] : [role.model]))).size && bound >= 0, {timeoutMs: 10_000});
+    await flushPromises();
     return {wrapper, fake, store};
 }
 
@@ -62,11 +66,8 @@ describe("角色的思考档", () => {
     });
 
     it("改绑到没有这一档的模型后：下拉里补一个停用的项，说明实际用哪一档", async () => {
-        const providers = SAMPLE_SNAPSHOT.providers.map((provider) => (provider.id === "anthropic"
-            ? {...provider, models: [sampleModel("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"]})]}
-            : provider));
         const roles = SAMPLE_SNAPSHOT.roles.map((role) => (role.id === "main" ? {...role, effort: "xhigh" as const} : role));
-        await render({providers, roles});
+        await render({providers: SAMPLE_SNAPSHOT.providers, roles}, {...SAMPLE_ROWS, anthropic: [sampleRow("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"]})]});
         // 控件显示已存的档位；展开下拉，停用的项写“实际用”。
         triggerOf("main").dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
         await flushPromises();
@@ -106,10 +107,7 @@ describe("选思考档", () => {
     });
 
     it("只能降到最低档的模型没有“关闭”；没写支持哪几档的梯级，选项旁有说明", async () => {
-        const providers = SAMPLE_SNAPSHOT.providers.map((provider) => (provider.id === "anthropic"
-            ? {...provider, models: [sampleModel("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"], thinking: {kind: "levels", levels: ["low", "medium"], off: "lowest", unset: null, verified: false}})]}
-            : provider));
-        await render({providers, roles: SAMPLE_SNAPSHOT.roles});
+        await render(SAMPLE_SNAPSHOT, {...SAMPLE_ROWS, anthropic: [sampleRow("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"], thinking: {kind: "levels", levels: ["low", "medium"], off: "lowest", unset: null, verified: false}})]});
         const items = await openEffort("main");
         // main 已存的“高”不在这个模型的档里：补在最后一项（停用，说明实际用哪一档）。
         expect(labelsOf(items)).toEqual(["跟随模型", "低", "中", "高"]);

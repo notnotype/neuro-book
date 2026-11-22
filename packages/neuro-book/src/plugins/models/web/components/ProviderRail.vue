@@ -5,8 +5,8 @@ import type {ContextMenuCloseReason} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref} from "vue";
 
 import type {CheckState} from "../models-store";
-import {checkKey} from "../models-store";
 import {useModelsText} from "../text";
+import ProviderIcon from "./ProviderIcon.vue";
 
 /**
  * “服务商与模型”页的左栏（docs/specs/models/settings-pages.md 输出 1、12）：顶上“全部模型”，下面是添加过的服务商，最后“添加服务商”。
@@ -35,19 +35,16 @@ const emit = defineEmits<{
 const text = useModelsText();
 const root = ref<HTMLElement | null>(null);
 
-const total = (): number => props.providers.reduce((sum, provider) => sum + provider.models.filter((model) => model.enabled).length, 0);
+const total = (): number => props.providers.reduce((sum, provider) => sum + provider.enabledCount, 0);
 
 type Status = {readonly text: string; readonly tone: "muted" | "warning" | "error"; readonly icon: string | null; readonly count: number};
 
 /** 行尾一格：密钥的问题先说，再说检测失败，都没有时写启用了几个模型。有问题时是图标，原因在提示与读屏描述里。 */
 function status(provider: SnapshotProvider): Status {
-    const count = provider.models.filter((model) => model.enabled).length;
+    const count = provider.enabledCount;
     if (provider.key.kind === "none" && provider.auth !== "none") return {text: text("rail.keyMissing"), tone: "warning", icon: "i-lucide-key-round", count};
     if (provider.key.kind === "env" && !provider.key.found) return {text: text("rail.envMissing"), tone: "error", icon: "i-lucide-circle-alert", count};
-    if (provider.models.some((model) => {
-        const state = props.checks.get(checkKey(provider.id, model.id));
-        return state?.status === "done" && !state.result.ok;
-    })) return {text: text("rail.checkFailed"), tone: "error", icon: "i-lucide-circle-alert", count};
+    if ([...props.checks].some(([key, state]) => key.startsWith(`${provider.id}/`) && state.status === "done" && !state.result.ok)) return {text: text("rail.checkFailed"), tone: "error", icon: "i-lucide-circle-alert", count};
     return {text: text("rail.models", {count}), tone: "muted", icon: null, count};
 }
 
@@ -153,7 +150,7 @@ function onKeydown(event: KeyboardEvent): void {
                     :data-provider-rail-item="provider.id"
                     @click="emit('select', provider.id)"
                 >
-                    <span :class="provider.kind === 'catalog' ? 'i-lucide-cloud' : 'i-lucide-server'" class="provider-rail__icon" aria-hidden="true" />
+                    <ProviderIcon class="provider-rail__icon" :icon="provider.icon" :template="provider.template" :name="provider.name" :size="16" />
                     <span class="provider-rail__name">{{ provider.name }}</span>
                     <span class="provider-rail__end" :data-provider-status="statusOf(provider).tone" aria-hidden="true">
                         <span v-if="statusOf(provider).icon !== null" :class="[statusOf(provider).icon, `provider-rail__flag--${statusOf(provider).tone}`]" class="provider-rail__flag" />

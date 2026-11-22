@@ -75,6 +75,8 @@ import type ManageModelsDialog from "nbook/plugins/models/web/components/ManageM
 import type ModelEditDialog from "nbook/plugins/models/web/components/ModelEditDialog.vue";
 import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
+import type ProviderHeader from "nbook/plugins/models/web/components/ProviderHeader.vue";
+import type ProviderIcon from "nbook/plugins/models/web/components/ProviderIcon.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
 import type StatusLinePage from "nbook/plugins/agent/web/components/StatusLinePage.vue";
@@ -160,7 +162,7 @@ import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./ag
 import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {withWebText} from "./web-tools-scene/web-text";
-import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
+import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
@@ -1642,12 +1644,13 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof ModelRow>({
             component: "ModelRow",
             scenes: [
-                {id: "enabled", label: "启用、带角色小标、检测通过", input: {props: {model: SAMPLE_PROVIDERS[0]!.models[0]!, roles: ["快速", "压缩"], check: {status: "done", at: 0, result: {ok: true}}}}},
-                {id: "failed", label: "检测失败（点开看原因）", input: {props: {model: SAMPLE_PROVIDERS[1]!.models[0]!, check: {status: "done", at: 0, result: {ok: false, kind: "auth", code: "401", raw: "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}"}}}}},
-                {id: "running", label: "检测中", input: {props: {model: SAMPLE_PROVIDERS[2]!.models[0]!, check: {status: "running"}}}},
-                {id: "incomplete", label: "缺上下文窗口（开关停用）", input: {props: {model: SAMPLE_PROVIDERS[2]!.models[2]!}}},
-                {id: "missing", label: "目录里没有了", input: {props: {model: SAMPLE_PROVIDERS[1]!.models[1]!}}},
-                {id: "free", label: "免费的本机模型", input: {props: {model: SAMPLE_PROVIDERS[5]!.models[0]!}}},
+                {id: "enabled", label: "启用、带角色小标、检测通过", input: {props: {model: SAMPLE_ROWS.deepseek![0]!, roles: ["快速", "压缩"], check: {status: "done", at: 0, result: {ok: true}}}}},
+                {id: "failed", label: "检测失败（点开看原因）", input: {props: {model: SAMPLE_ROWS.anthropic![0]!, check: {status: "done", at: 0, result: {ok: false, kind: "auth", code: "401", raw: "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}"}}}}},
+                {id: "running", label: "检测中", input: {props: {model: SAMPLE_ROWS.volcengine![0]!, check: {status: "running"}}}},
+                {id: "incomplete", label: "缺上下文窗口（开关停用）", input: {props: {model: SAMPLE_ROWS.volcengine![2]!}}},
+                {id: "edited", label: "来源模型改过字段（标“已改”）", input: {props: {model: SAMPLE_ROWS.deepseek![1]!}}},
+                {id: "missing", label: "目录里没有了", input: {props: {model: SAMPLE_ROWS.anthropic![1]!}}},
+                {id: "free", label: "免费的本机模型", input: {props: {model: SAMPLE_ROWS.ollama![0]!}}},
             ],
             load: async () => withModelsText(createSubjectFixture<typeof ModelRow>((await import("nbook/plugins/models/web/components/ModelRow.vue")).default, {events: ["toggle", "check", "edit"], class: "w-full list-none"})),
         }),
@@ -1659,36 +1662,60 @@ function shelfFixtures(): LabFixture[] {
             ],
             load: async () => withModelsText(createSubjectFixture<typeof ProviderRail>((await import("nbook/plugins/models/web/components/ProviderRail.vue")).default, {events: ["select", "add"], writeBack: {select: {layer: "props", key: "current"}}, class: "h-[420px]"})),
         }),
+        defineLabFixture<typeof ProviderHeader>({
+            component: "ProviderHeader",
+            scenes: [
+                {id: "default", label: "模板的图标、名称与“复制一份”", input: {props: {provider: SAMPLE_PROVIDERS[0]!, builtinKeys: ["anthropic", "deepseek", "moonshot", "openai", "openrouter"]}}},
+                {id: "initial", label: "空白模板：首字母块", input: {props: {provider: SAMPLE_PROVIDERS[2]!, builtinKeys: ["anthropic", "deepseek", "moonshot"]}}},
+                {id: "custom-icon", label: "选过内置图标（面板里有“恢复模板的图标”）", input: {props: {provider: {...SAMPLE_PROVIDERS[3]!, icon: {kind: "builtin", key: "openai"}}, builtinKeys: ["anthropic", "deepseek", "openai"]}}},
+                {id: "icon-error", label: "换图标失败（面板里写原因）", input: {props: {provider: SAMPLE_PROVIDERS[0]!, builtinKeys: ["deepseek"], iconError: "服务端没有接受这张图：the image was rejected (too-large)"}}},
+                {id: "long-name", label: "名称很长（省略号截断）", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, name: "这是一个名字特别特别长的服务商名称用来看标题区在窄屏下怎么处理"}, builtinKeys: []}}},
+                {id: "english", label: "英文界面", input: {props: {provider: SAMPLE_PROVIDERS[4]!, builtinKeys: ["moonshot"]}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderHeader>((await import("nbook/plugins/models/web/components/ProviderHeader.vue")).default, {events: ["rename", "set-icon", "duplicate"], class: "w-full max-w-[560px]"})),
+        }),
+        defineLabFixture<typeof ProviderIcon>({
+            component: "ProviderIcon",
+            scenes: [
+                {id: "template", label: "跟随模板的图标", input: {props: {icon: null, template: "deepseek", name: "DeepSeek", size: 28}}},
+                {id: "initial", label: "首字母块", input: {props: {icon: {kind: "initial"}, template: "deepseek", name: "火山方舟", size: 28}}},
+                {id: "unknown", label: "图标表里没有的模板", input: {props: {icon: null, template: "blank-openai", name: "本地 Ollama", size: 28}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderIcon>((await import("nbook/plugins/models/web/components/ProviderIcon.vue")).default, {class: "p-4"})),
+        }),
         defineLabFixture<typeof ProviderDetail>({
             component: "ProviderDetail",
             scenes: [
-                {id: "catalog", label: "目录服务商，密钥已设置", input: {props: {provider: SAMPLE_PROVIDERS[0]!}}},
-                {id: "overridden", label: "目录服务商改过地址，环境变量没有值", input: {props: {provider: SAMPLE_PROVIDERS[1]!}}},
-                {id: "custom", label: "自定义服务商：接口格式、请求头、缺字段的模型", input: {props: {provider: SAMPLE_PROVIDERS[2]!}}},
-                {id: "keyless", label: "不要认证的本机端点（没有密钥框）", input: {props: {provider: SAMPLE_PROVIDERS[5]!}}},
-                {id: "no-key", label: "还没有密钥（“未设置”）", input: {props: {provider: SAMPLE_PROVIDERS[3]!}}},
-                {id: "env-found", label: "密钥取环境变量、已读到", input: {props: {provider: SAMPLE_PROVIDERS[4]!}}},
-                {id: "check-error", label: "没检成（原因写在模型列表头上）", input: {props: {provider: SAMPLE_PROVIDERS[0]!, checkError: "没检成：模型服务没有运行"}}},
-                {id: "english", label: "英文界面", input: {props: {provider: SAMPLE_PROVIDERS[2]!}}},
+                {id: "catalog", label: "模板服务商，密钥已设置，系列默认收起", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: SAMPLE_ROWS.deepseek!}}},
+                {id: "overridden", label: "改过地址与协议（旁边写“按通用协议发送”），环境变量没有值", input: {props: {provider: SAMPLE_PROVIDERS[1]!, rows: SAMPLE_ROWS.anthropic!}}},
+                {id: "custom", label: "空白模板：接口格式、请求头、缺字段的模型", input: {props: {provider: SAMPLE_PROVIDERS[2]!, rows: SAMPLE_ROWS.volcengine!}}},
+                {id: "keyless", label: "不要认证的本机端点（没有密钥框）", input: {props: {provider: SAMPLE_PROVIDERS[5]!, rows: SAMPLE_ROWS.ollama!}}},
+                {id: "no-key", label: "还没有密钥（“未设置”）", input: {props: {provider: SAMPLE_PROVIDERS[3]!, rows: SAMPLE_ROWS.openai!}}},
+                {id: "env-found", label: "有地区的模板：选了中国大陆，密钥取环境变量、已读到", input: {props: {provider: SAMPLE_PROVIDERS[4]!, rows: SAMPLE_ROWS.moonshot!, template: SAMPLE_TEMPLATES.find((item) => item.id === "moonshot")!}}},
+                {id: "check-error", label: "没检成（原因写在模型列表头上）", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: SAMPLE_ROWS.deepseek!, checkError: "没检成：模型服务没有运行"}}},
+                {id: "big", label: "几百个模型：有搜索框，系列默认收起、收起的不渲染", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, modelCount: 600, enabledCount: 600}, rows: generatedRows(600)}}},
+                {id: "loading", label: "模型行读取中", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: [], rowsLoading: true}}},
+                {id: "rows-failed", label: "读取模型失败（可重试）", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: [], rowsFailure: "服务没有回应"}}},
+                {id: "english", label: "英文界面", input: {props: {provider: SAMPLE_PROVIDERS[2]!, rows: SAMPLE_ROWS.volcengine!}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage"], class: "w-full"})),
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage", "reload-rows"], class: "w-full"})),
         }),
         defineLabFixture<typeof AllModelsView>({
             component: "AllModelsView",
             scenes: [
-                {id: "models", label: "全部启用的模型", input: {props: {providers: SAMPLE_PROVIDERS}}},
+                {id: "models", label: "每家一节，默认收起（已读到各家的行）", input: {props: {providers: SAMPLE_PROVIDERS, rows: SAMPLE_ROWS}}},
                 {id: "empty", label: "没有启用的模型", input: {props: {providers: []}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof AllModelsView>((await import("nbook/plugins/models/web/components/AllModelsView.vue")).default, {events: ["edit"], class: "w-full"})),
+            load: async () => withModelsText(createSubjectFixture<typeof AllModelsView>((await import("nbook/plugins/models/web/components/AllModelsView.vue")).default, {events: ["edit", "load"], class: "w-full"})),
         }),
         defineLabFixture<typeof AddProviderDialog>({
             component: "AddProviderDialog",
             scenes: [
-                {id: "catalog", label: "目录列表：已添加、不要密钥、要登录", input: {model: {open: true}, props: {catalog: SAMPLE_CATALOG}}},
-                {id: "loading", label: "目录还在读", input: {model: {open: true}, props: {catalog: null}}},
-                {id: "english", label: "英文界面", input: {model: {open: true}, props: {catalog: SAMPLE_CATALOG}}},
+                {id: "templates", label: "分组多列：已添加（可再加一份）、不要密钥、要登录", input: {model: {open: true}, props: {templates: SAMPLE_TEMPLATES, added: ["deepseek", "anthropic"]}}},
+                {id: "loading", label: "模板表还在读", input: {model: {open: true}, props: {templates: null}}},
+                {id: "english", label: "英文界面", input: {model: {open: true}, props: {templates: SAMPLE_TEMPLATES, added: ["deepseek"]}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof AddProviderDialog>((await import("nbook/plugins/models/web/components/AddProviderDialog.vue")).default, {events: ["update:open", "add-catalog", "add-custom"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
+            load: async () => withModelsText(createSubjectFixture<typeof AddProviderDialog>((await import("nbook/plugins/models/web/components/AddProviderDialog.vue")).default, {events: ["update:open", "add"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
         }),
         defineLabFixture<typeof ManageModelsDialog>({
             component: "ManageModelsDialog",
@@ -1702,10 +1729,10 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof ModelEditDialog>({
             component: "ModelEditDialog",
             scenes: [
-                {id: "custom", label: "自定义模型（都能改）", input: {model: {open: true}, props: {providerKind: "custom", model: SAMPLE_PROVIDERS[2]!.models[0]!}}},
-                {id: "catalog", label: "目录模型（能力与单价只读）", input: {model: {open: true}, props: {providerKind: "catalog", model: SAMPLE_PROVIDERS[0]!.models[0]!}}},
-                {id: "add", label: "手动添加", input: {model: {open: true}, props: {providerKind: "custom", model: null, takenIds: ["doubao-seed-2-0-pro"]}}},
-                {id: "error", label: "保存失败（页脚写原因）", input: {model: {open: true}, props: {providerKind: "custom", model: SAMPLE_PROVIDERS[2]!.models[1]!, error: "设置文件有错或写不进去，先修好设置文件"}}},
+                {id: "manual", label: "手动添加的模型（都能改）", input: {model: {open: true}, props: {model: SAMPLE_ROWS.volcengine![0]!}}},
+                {id: "source", label: "来源模型：改过的字段标“已改”、可恢复来源值", input: {model: {open: true}, props: {model: SAMPLE_ROWS.deepseek![1]!}}},
+                {id: "add", label: "手动添加", input: {model: {open: true}, props: {model: null, takenIds: ["doubao-seed-2-0-pro"]}}},
+                {id: "error", label: "保存失败（页脚写原因）", input: {model: {open: true}, props: {model: SAMPLE_ROWS.volcengine![1]!, error: "设置文件有错或写不进去，先修好设置文件"}}},
             ],
             load: async () => withModelsText(createSubjectFixture<typeof ModelEditDialog>((await import("nbook/plugins/models/web/components/ModelEditDialog.vue")).default, {events: ["update:open", "save"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
         }),

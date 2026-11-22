@@ -9,12 +9,12 @@
 import {computed, reactive, shallowRef, toRaw} from "vue";
 import type {Ref} from "vue";
 
-import type {CheckResult, ModelRow, ModelsSnapshot} from "@notnotype/nb-models/contract";
+import type {CheckResult, ModelRow, ModelsSnapshot, Template} from "@notnotype/nb-models/contract";
 import type {RemoteClient, RemoteResultFor, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
 import type {modelsSettingsContract} from "../shared/contracts";
 import {createSelectionData} from "../shared/selection";
-import type {SelectionData, SelectionRemote} from "../shared/selection";
+import type {SelectionRemote, SelectionRow} from "../shared/selection";
 
 type Contract = typeof modelsSettingsContract;
 export type ModelsRemote = RemoteClient<Contract>;
@@ -44,6 +44,20 @@ export interface ProviderRows {
 
 export type RowScope = "listed" | "available";
 
+/**
+ * 选用数据（`shared/selection.ts`）在数据模块里的样子：响应式的量写成 Vue 的 `Ref`，Lab 场景的类型检查据此把 `store` 当成不能写进
+ * 场景数据的对象（页面的 `store` 由夹具造，不是场景输入）。
+ */
+export interface StoreSelection {
+    readonly rows: Readonly<Ref<readonly SelectionRow[]>>;
+    readonly lookup: Readonly<Ref<ReadonlyMap<string, ModelRow | null>>>;
+    readonly ready: Readonly<Ref<boolean>>;
+    subscribe(listener: () => void): () => void;
+    attach(snapshot: ModelsSnapshot): void;
+    want(references: readonly string[]): void;
+    dispose(): void;
+}
+
 export interface ModelsStore {
     /** 服务端的快照；第一次取到之前为 null。交出的是普通对象（不是只读代理），可以直接放进远程调用的载荷。 */
     readonly snapshot: Readonly<Ref<ModelsSnapshot | null>>;
@@ -59,7 +73,11 @@ export interface ModelsStore {
      * 选用数据：全部启用的模型（角色页的绑定下拉）与按引用取到的行（角色页的名字与档位）。服务商的行数多，不随快照整份带；
      * 设置页的服务商详情、管理模型与全部模型按家经 `loadRows` 读。
      */
-    readonly selection: SelectionData;
+    readonly selection: StoreSelection;
+    /** 模板表（添加服务商、地区与协议的选项用）；还没读到时为 null。读一次，之后不变。 */
+    readonly templates: Readonly<Ref<readonly Template[] | null>>;
+    /** 读模板表（重复调用不重复读；失败后下次再读）。 */
+    loadTemplates(): Promise<void>;
     /** 一家的模型行；第一次显示前、读失败时为空，`loading` 与 `failure` 说明原因。 */
     rowsOf(provider: string, scope?: RowScope): ProviderRows;
     /** 读这家的行（版本没变且已读过时不重读）；组件在看到 `modelsRevision` 变了时调用。 */
@@ -83,12 +101,15 @@ export const checkKey = (provider: string, model: string): string => `${provider
 export function createModelsStore(remote: ModelsRemote, now: () => number = Date.now): ModelsStore {
     const snapshot = shallowRef<ModelsSnapshot | null>(null);
     const available = shallowRef(true);
+    const templates = shallowRef<readonly Template[] | null>(null);
+    let loadingTemplates: Promise<void> | null = null;
     const rowCache = reactive(new Map<string, {revision: string | null; rows: readonly ModelRow[]; loading: boolean; failure: ModelsFailure | null}>());
+    // 选用数据的量用 `shallowRef` 造，所以可以当 `Ref` 交出（`StoreSelection` 的说明）。
     const selection = createSelectionData({
         remote: remote as unknown as SelectionRemote,
         ref: (initial) => shallowRef(initial),
         usable: false,
-    });
+    }) as unknown as StoreSelection;
     const checks = reactive(new Map<string, CheckState>());
     const checkErrors = reactive(new Map<string, ModelsFailure>());
     /** 进行中的检测：单独检测按 `<服务商>/<模型>`，“检测全部”按服务商 id。 */
@@ -117,6 +138,16 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         if (result.ok && !disposed) apply(result.value);
     };
 
+    const loadTemplates = (): Promise<void> => {
+        if (templates.value !== null) return Promise.resolve();
+        loadingTemplates ??= (async () => {
+            const result = await call("templates", {});
+            if (result.ok && !disposed) templates.value = result.value;
+        })().finally(() => {
+            loadingTemplates = null;
+        });
+        return loadingTemplates;
+    };
     const rowKey = (provider: string, scope: RowScope): string => `${provider}\n${scope}`;
     const NO_ROWS: ProviderRows = {rows: [], revision: null, loading: false, failure: null};
     const rowsOf = (provider: string, scope: RowScope = "listed"): ProviderRows => rowCache.get(rowKey(provider, scope)) ?? NO_ROWS;
@@ -199,6 +230,7 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
             }
             subscription = result.value;
             available.value = true;
+            void loadTemplates();
         })();
         return started;
     };
@@ -286,6 +318,8 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         snapshot: computed(() => snapshot.value),
         available: computed(() => available.value),
         selection,
+        templates: computed(() => templates.value),
+        loadTemplates,
         rowsOf,
         loadRows,
         checks,

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {referenceOf} from "@notnotype/nb-models/config";
 import type {RoleConfig} from "@notnotype/nb-models/config";
-import type {SnapshotModel, SnapshotRole} from "@notnotype/nb-models/contract";
+import type {ModelRow, SnapshotRole} from "@notnotype/nb-models/contract";
 import {Badge, Button, DropdownMenu, IconButton, Input, SearchSelect, Select, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import {ROLE_ICON_KEYS, ROLE_ICONS, roleIconClass} from "nbook/ui/role-icons";
@@ -35,20 +35,46 @@ const disabled = computed(() => !props.store.available.value || !props.writable)
 
 onMounted(() => void props.store.start());
 
-/** 可选的模型：启用、可用（不缺字段、不在目录漂移里）的；没有密钥的照样列出，角色状态会写明。 */
-const available = computed(() => (snapshot.value?.providers ?? []).flatMap((provider) => provider.models
-    .filter((model) => model.enabled && model.status === "ok")
-    .map((model) => ({value: referenceOf(provider.id, model.id), label: model.name, description: provider.name}))));
+const selection = props.store.selection;
+/** 选用数据换了（行读完、引用取到）：下面的计算属性随之重算。 */
+const version = ref(0);
+const stopSelection = selection.subscribe(() => {
+    version.value += 1;
+});
+onBeforeUnmount(stopSelection);
 
-/** 一行的选项：绑着的模型现在不可用时补一个停用的项，下拉仍显示绑的是谁。 */
+/** 可选的模型：启用、可用（不缺字段、不在目录漂移里）的；没有密钥的照样列出，角色状态会写明。 */
+const available = computed(() => {
+    void version.value;
+    const names = new Map((snapshot.value?.providers ?? []).map((provider) => [provider.id, provider.name] as const));
+    return selection.rows.value.filter((row) => row.status === "ok").map((row) => ({value: referenceOf(row.provider, row.id), label: row.name, description: names.get(row.provider) ?? row.provider}));
+});
+
+/** 绑定下拉的搜索：本地过滤，最多给 100 项（几百个模型的服务商不能整份塞进下拉）。 */
+const MENU_LIMIT = 100;
+const searching = ref("");
+const filtered = computed(() => {
+    const needle = searching.value.trim().toLowerCase();
+    const list = needle === "" ? available.value : available.value.filter((option) => option.label.toLowerCase().includes(needle) || option.value.toLowerCase().includes(needle) || option.description.toLowerCase().includes(needle));
+    return list.slice(0, MENU_LIMIT);
+});
+
+/** 一行的选项：绑着的模型不在这一批里（被搜索截掉、停用了、不可用）时补一个项，下拉仍显示绑的是谁。 */
 function optionsFor(role: SnapshotRole) {
-    const base = [{value: "", label: text("roles.none")}, ...available.value];
+    const base = [{value: "", label: text("roles.none")}, ...filtered.value];
     if (role.model === null || base.some((option) => option.value === role.model)) return base;
-    return [...base, {value: role.model, label: role.model, description: text("roles.unavailable"), disabled: true}];
+    const known = modelsByRef.value.get(role.model);
+    const usable = known !== undefined && known !== null && known.enabled && known.status === "ok";
+    return [...base, {value: role.model, label: known?.name ?? role.model, ...(usable ? {} : {description: text("roles.unavailable"), disabled: true})}];
 }
 
-/** 绑定的模型（含没启用的）：角色的思考档选项取自它的推理能力。 */
-const modelsByRef = computed(() => new Map((snapshot.value?.providers ?? []).flatMap((provider) => provider.models.map((model) => [referenceOf(provider.id, model.id), model] as const))));
+/** 绑定的模型（含没启用的）：名字与角色的思考档选项取自按引用取到的行。 */
+const modelsByRef = computed(() => {
+    void version.value;
+    return selection.lookup.value;
+});
+// 要名字的引用：每个角色绑着的。
+watch(() => snapshot.value?.roles, (list) => selection.want((list ?? []).flatMap((role) => (role.model === null ? [] : [role.model]))), {immediate: true});
 
 const LEVEL_LABELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const levelLabel = (level: string): string => ((LEVEL_LABELS as readonly string[]).includes(level) ? text(`roles.effort.levels.${level as (typeof LEVEL_LABELS)[number]}`) : level);
@@ -65,7 +91,7 @@ type EffortControl = {options: {value: string; label: string; description?: stri
 function effortControl(role: SnapshotRole): EffortControl {
     const stored = role.effort ?? "";
     const follow = {value: FOLLOW, label: text("roles.effort.follow")};
-    const model: SnapshotModel | undefined = role.model === null ? undefined : modelsByRef.value.get(role.model);
+    const model: ModelRow | undefined = role.model === null ? undefined : modelsByRef.value.get(role.model) ?? undefined;
     const reasoning = model?.thinking;
     const reason = role.model === null ? text("roles.effort.unbound") : model === undefined ? text("roles.unavailable") : reasoning?.kind === "none" ? text("roles.effort.none") : reasoning?.kind === "fixed" ? text("roles.effort.fixed") : "";
     if (reasoning === undefined || reasoning.kind !== "levels") return {options: [follow], value: "", disabled: true, placeholder: stored === "" ? reason : text("roles.effort.storedWhy", {level: levelLabel(stored), reason}), clearable: stored !== ""};
@@ -256,6 +282,9 @@ function problem(role: SnapshotRole): string {
                                 :invalid="role.status !== 'ok'"
                                 :disabled="disabled"
                                 :aria-label="roleName(text, role)"
+                                :filter="false"
+                                :selected-label="role.model === null ? '' : modelsByRef.get(role.model)?.name ?? role.model"
+                                @search="(query: string) => (searching = query)"
                                 @update:model-value="(value: string) => bind(role, value)"
                             />
                         </div>
