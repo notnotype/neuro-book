@@ -30,6 +30,7 @@ export {default as AgentMarkdown} from "./parts/AgentMarkdown.vue";
 export {default as AgentChainSummary} from "./stream/AgentChainSummary.vue";
 export {default as AgentConversationTurn} from "./stream/AgentConversationTurn.vue";
 export {default as AgentDeliveryNotice} from "./stream/AgentDeliveryNotice.vue";
+export {default as AgentStreamDivider} from "./stream/AgentStreamDivider.vue";
 export {default as AgentFileChanges} from "./stream/AgentFileChanges.vue";
 export {default as AgentMessageActions} from "./stream/AgentMessageActions.vue";
 export {default as AgentRawView} from "./stream/AgentRawView.vue";

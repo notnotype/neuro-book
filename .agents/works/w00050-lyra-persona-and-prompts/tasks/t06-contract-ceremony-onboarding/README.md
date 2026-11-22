@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t06-contract-ceremony-onboarding
 status: active
-updated: 2026-11-20
+updated: 2026-11-21
 ---
 
 # 星璃真名契约仪式与初始记忆生成设计
@@ -91,7 +91,18 @@ updated: 2026-11-20
     5. **移除独立「契约鉴证录」页并强化成契魔法光效**：契约完成后不再切去单独的鉴证录页，大幅增强成契瞬间的魔法光效表现。
     6. **删除契约页底部的「合上《万界真典》，嵌印宝石」操作栏**：腾出垂直空间，保持舞台纯净。
     7. **点击记忆宝石自动合书嵌宝**：成契后直接在书页上凝结浮现记忆宝石，点击宝石即自动触发合书并精准嵌印封面空槽。
+- **2026-11-21 第 4 轮流畅度、魔法具象化与终幕精修及评审板发布（`review` v4，提交 `571ae35d0`）**：
+  - 在草稿 worktree `.worktree/w00050-t06-drafts` 逐条落实第 3 轮 7 项核心升级要求：
+    1. 重构翻封面与翻页渲染为 3 段嵌套 `preserve-3d` 铰接书页（`applyTurnDom` 直接更新 GPU 合成层变换，静止书本保持 `transform-style: flat` 隔离重排），根治卡顿并呈现真实 3D 拱起翻折与动态书脊阴影；终幕 `closed-sealed` 嵌宝后开放点击书封与「自由翻阅」重开至第 1 幕并在第 1–4 幕间自由前后翻页。
+    2. 放宽舞台总宽至 `1380px` 并扩充 `.lyra-companion` 宽度（`clamp(308px, 32.5cqi, 442px)`），扩大右侧星璃立绘构图空间。
+    3. 新增 `calligraphy-paths.ts` 并重写 `CalligraphyStrokeText.vue`，改用真实多段 SVG 贝塞尔路径 `stroke-dashoffset` 逐笔书写英文花体并配金星光笔尖追踪（封面保持烫金浮雕），同时为第 1–3 幕编排差异化舞台小故事入场节拍（`story-beat-act1` / `act2` / `act3`）。
+    4. 新增 `ArcaneConjurationStage.vue` 实现魔法书具象变出器物：第 2 幕延续藏书票星羽笔具象；第 4 幕移除底部火漆栏，改为书页左右翼三座魔法阵分别具象变出**星羽笔、绯红暖蜡、黄铜星印**并支持点击/拖拽完成二段封缄。
+    5. 彻底移除独立 `act5`（「契约鉴证录」）页并将顶栏精简为 5 步，大幅增强第 4 幕落印成契的多层旋转符文环、金粉扩散与圣光脉冲特效。
+    6. 删除契约页底部「合上《万界真典》，嵌印宝石」冗长操作栏。
+    7. 成契后在火漆印位凝结浮现可点击记忆宝石（`data-ceremony-action="click-memory-gem"`），点击宝石即自动触发合书并将宝石精准嵌印封面空槽。
+  - 验证通过：草稿 worktree `packages/neuro-book` 执行 `bun run typecheck`（`tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`）通过；三视口（1280×760 / 960×700 / 390×844）共 23 组 `lab:shot` 截图全部零报错零溢出；内置浏览器实机完成全流程交互走查（开封→翻页→三法阵滴蜡落印→点击记忆宝石自动合书嵌印→重开封面并在第 1–4 幕自由来回翻页，0 `pageerror` / 0 控制台报错），补截 5 帧 3D 翻页、逐笔手写、成契光效与嵌宝动态中帧，共 27 张 WebP 入库 `artifacts/review/r4/`。
+  - 已发布 `review` v4（待答 2 题：`r4-final-signoff`、`r4-motion-and-conjuration`）。
 
 ## 下一步
 
-- 在草稿 worktree `.worktree/w00050-t06-drafts` 中逐条落实第 3 轮评审提出的 7 项流畅度、魔法具象化与终幕重做要求，完成实机流畅度与多视口验证后发布第 4 轮评审板（`review` v4）。
+- 等待开发者完成第 4 轮评审板（`review` v4）及 Lab 实机体验答复；确认定稿后锁定本版视觉与交互基线，推进正式 Spec（对齐 `w00043` `nbook.bots` / `bot://memory/`）与星璃 7 差分全身立绘生图。

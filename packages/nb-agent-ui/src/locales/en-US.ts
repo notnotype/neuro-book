@@ -28,6 +28,9 @@ export default {
         loading: "Loading the conversation",
         phraseSeparator: ", ",
         jumpToLatest: "Jump to latest",
+        today: "Today",
+        yesterday: "Yesterday",
+        unread: "New messages",
     },
     history: {
         more: "Earlier content",
@@ -566,6 +569,7 @@ export default {
             thinkingLoop: "The model's thinking kept repeating, and the run stopped.",
             firstEventTimeout: "The model service didn't start responding. Please try again later.",
             compactionFailed: "Compaction did not succeed and the conversation is unchanged. You can switch the compaction model or start a new session.",
+            compactionFailedPinned: "Compaction did not succeed and the conversation is unchanged. You can switch the compaction model and try again.",
         },
         compactionStopped: "Compaction stopped",
         tool: {

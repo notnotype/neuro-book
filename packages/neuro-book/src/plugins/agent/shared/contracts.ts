@@ -195,6 +195,8 @@ export interface OwnerContact {
     readonly avatar?: string;
     /** 未读数；还没数完为 null。 */
     readonly unread: number | null;
+    /** “看到”的位置（主对话日志的 seq）；未读还没数完时为 null。聊天区据此定这次的未读线（agent/conversation.md 输出 55）。 */
+    readonly seenSeq: number | null;
     /** 最后一条消息的摘要与时间；没有为 null。 */
     readonly last: {readonly text: string; readonly at: number} | null;
     /** 主对话的会话 id；还没建为 null。 */

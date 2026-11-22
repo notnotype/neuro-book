@@ -1,0 +1,173 @@
+# t43 编译产物原型构建（2026-11-22，nb-layout 源码取 master 上最后改它的提交 717b1b171；一次性原型，脚本放在本地 .local，不入库，原文附在本文件末尾）
+
+工具版本：vite 8.1.4、rolldown 1.1.5、rolldown-plugin-dts 0.27.14（vue: true）、@vitejs/plugin-vue 6.0.7、vue-tsc 3.3.7、typescript 5.9.3（仓库根）。
+做法照插件 SDK 的 plugin-sdk/pack.ts：Vite 库模式出 ESM 与 CSS，rolldown 加 rolldown-plugin-dts 只出声明。入口四个：index（src/index.ts）、vue（src/vue/index.ts）、text、locales；lab-sources 不进（它用 import.meta.glob，只有 Vite 宿主能用）。外置 vue 与 tabbable。
+
+## 1. 构建
+- js+css 约 1.1 到 1.6 秒，声明约 5 到 6.4 秒；没有报错，声明生成没有 TS2742、TS4023。
+- 产物（不压缩）：
+  12966  index.d.ts
+  37951  index.js
+  2752  locales-Df6_sh-C.js
+  1594  locales.d.ts
+  198  locales.js
+  45554  sortable-D7PFTZiy.d.ts
+  31346  style.css
+  1270  text.d.ts
+  335  text.js
+  97578  theme-vars-DOnEhYTP.js
+  31292  vue.d.ts
+  238280  vue.js
+- 压缩后（minify: true）的 raw 与 gzip -9 字节：
+  index.js raw=24625 gzip=7145
+  locales-CvOYo6BE.js raw=1733 gzip=780
+  locales.js raw=156 gzip=147
+  text.js raw=150 gzip=147
+  theme-vars-8RRiQYFL.js raw=50220 gzip=14474
+  vue.js raw=120101 gzip=34064
+  style.css raw=19107 gzip=3300
+
+## 2. 纯 TS 入口不带 vue
+各文件的静态导入（不压缩产物）：
+  index.js: "./theme-vars-DOnEhYTP.js" 
+  locales-Df6_sh-C.js: 
+  locales.js: "./locales-Df6_sh-C.js" 
+  text.js: 
+  theme-vars-DOnEhYTP.js: 
+  vue.js: "./theme-vars-DOnEhYTP.js" "./locales-Df6_sh-C.js" "./text.js" "vue" "tabbable" 
+index.js 只导入共享块 theme-vars-*.js，共享块没有导入；vue 与 tabbable 只出现在 vue.js。所以根入口的产物不拉进 Vue。共享块按第一个模块命名（theme-vars、sortable），名字只是外观，可用 chunkFileNames 改。
+
+## 3. import.meta.env
+产物里 import.meta 只出现在注释里：1 处（dev-checks.ts 的说明）。开发模式检查是 t41 的运行时开关 setLayoutDevChecks，库不读 import.meta.env，所以库模式构建的静态替换碰不到它。
+
+## 4. 样式
+- 组件的 scoped CSS 与 vue/index.ts 导入的 global.css 都抽进 style.css（31,346 字节不压缩，带 data-v 的组件 7 个）。JS 里没有导入 CSS：使用方必须自己 import "@notnotype/nb-layout/style.css"，不导入时组件没有样式，减少动效与焦点环也没有。
+- 空项目使用方（README 起步例子原样，main.ts 导入 style.css，Vite 8 构建）：package.json 的 sideEffects 写 ["**/*.css"] 与写 false，两次构建的 CSS 都是 31,346 字节、内容相同。Vite 不按 sideEffects 摇掉显式导入的 CSS；webpack 等别的打包器没有测（不承诺）。
+
+## 5. 声明文件
+- 空项目使用方 vue-tsc --noEmit（skipLibCheck: false）通过：README 起步例子用 createGrid、NestedGrid、useGridHost，类型都解析得到。
+- 组件的事件声明是 Vue 的标准写法 (payload) => any。
+- **不可复现**：同一份源码连续构建两次，JS 与 CSS 逐字节相同，vue.d.ts 不同：FloatWindowHandles 的事件（preview、commit 等）在声明里的先后两次不一样。registry 上同版本字节不同的处理（提案“第二档：发布流水线”）要考虑这一条：要么排序或规范化声明，要么那条通道只比 JS 与 CSS。
+
+## 6. 注释与随包文字
+不压缩的产物保留源码注释，里面有中文说明与 Spec 的输出编号引用（例如 style.css 开头的 global.css 注释）。t42 只清了随包 .md 里的编号；发产物时压缩或去注释，编号就不进包。
+
+## 原型脚本原文
+
+### build.ts
+```
+// 一次性原型（w00026 t43）：nb-layout 的编译产物怎么出、有哪些坑。不进仓库。
+import {build as vite} from "vite";
+import vue from "@vitejs/plugin-vue";
+import {rolldown} from "rolldown";
+import {dts} from "rolldown-plugin-dts";
+import {resolve} from "node:path";
+
+const here = import.meta.dir;
+const pkg = resolve(here, "../../../../../../../packages/nb-layout");
+const out = resolve(here, process.argv[2] ?? "dist");
+const ENTRIES = {
+    index: `${pkg}/src/index.ts`,
+    vue: `${pkg}/src/vue/index.ts`,
+    text: `${pkg}/src/vue/text.ts`,
+    locales: `${pkg}/src/locales/index.ts`,
+};
+const EXTERNAL = [/^vue($|\/)/u, /^tabbable($|\/)/u];
+
+const t0 = performance.now();
+await vite({
+    configFile: false,
+    root: pkg,
+    logLevel: "warn",
+    plugins: [vue()],
+    build: {
+        outDir: out,
+        emptyOutDir: true,
+        minify: false,
+        lib: {entry: ENTRIES, formats: ["es"], fileName: (_format, name) => `${name}.js`, cssFileName: "style"},
+        rolldownOptions: {external: EXTERNAL},
+    },
+});
+const t1 = performance.now();
+const warnings: string[] = [];
+await rolldown({
+    cwd: pkg,
+    input: ENTRIES,
+    external: EXTERNAL,
+    plugins: [dts({cwd: pkg, tsconfig: resolve(here, "tsconfig.dts.json"), vue: true, emitDtsOnly: true})],
+    output: {dir: out},
+    onLog: (level, log) => { warnings.push(`${level}: ${log.code ?? ""} ${log.message}`); },
+    checks: {pluginTimings: false},
+}).then((bundle) => bundle.write({dir: out}));
+const t2 = performance.now();
+console.log(`js+css ${(t1 - t0).toFixed(0)}ms, dts ${(t2 - t1).toFixed(0)}ms`);
+for (const w of warnings) console.log(w);
+```
+
+### tsconfig.dts.json
+```
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
+        "types": [],
+        "strict": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["../../../../../../../packages/nb-layout/src/**/*.ts", "../../../../../../../packages/nb-layout/src/**/*.vue"],
+    "exclude": ["../../../../../../../packages/nb-layout/src/**/*.test.ts", "../../../../../../../packages/nb-layout/src/vue/lab-sources.ts"]
+}
+```
+
+### pkg.ts
+```
+// 把 dist 装成 consumer/node_modules/@notnotype/nb-layout，sideEffects 由参数给（false 或 css）。
+import {cp, mkdir, rm, writeFile} from "node:fs/promises";
+import {resolve} from "node:path";
+const here = import.meta.dir;
+const mode = process.argv[2];
+const target = resolve(here, "consumer/node_modules/@notnotype/nb-layout");
+await rm(target, {recursive: true, force: true});
+await mkdir(target, {recursive: true});
+await cp(resolve(here, "dist"), resolve(target, "dist"), {recursive: true});
+const sub = (name: string) => ({types: `./dist/${name}.d.ts`, import: `./dist/${name}.js`});
+await writeFile(resolve(target, "package.json"), JSON.stringify({
+    name: "@notnotype/nb-layout", version: "0.0.0-proto", type: "module",
+    sideEffects: mode === "css" ? ["**/*.css"] : false,
+    exports: {".": sub("index"), "./vue": sub("vue"), "./text": sub("text"), "./locales": sub("locales"), "./style.css": "./dist/style.css"},
+    peerDependencies: {vue: "^3.5.24"}, dependencies: {tabbable: "^6.5.0"},
+}, null, 4));
+```
+
+### consumer-build.ts
+```
+import {build} from "vite";
+import vue from "@vitejs/plugin-vue";
+import {resolve} from "node:path";
+const here = import.meta.dir;
+await build({configFile: false, root: resolve(here, "consumer"), logLevel: "warn", plugins: [vue()], build: {outDir: resolve(here, process.argv[2]), emptyOutDir: true, minify: false}});
+```
+
+### consumer/src/main.ts
+```
+import {createApp} from "vue";
+import "@notnotype/nb-layout/style.css";
+import Starter from "./Starter.vue";
+
+createApp(Starter).mount("#app");
+```
+
+### consumer/tsconfig.json
+```
+{
+    "compilerOptions": {
+        "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"], "types": [], "strict": true, "noEmit": true,
+        "skipLibCheck": false
+    },
+    "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts"]
+}
+```

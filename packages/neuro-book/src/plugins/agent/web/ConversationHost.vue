@@ -2,7 +2,7 @@
 /**
  * 对话位置的组件：右栏的视图和编辑区的页面是同一个。状态都在插件级的宿主里（`session-host.ts`），这里借用它，把视图接上，再放切换会话的面板。
  */
-import {computed, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 
 import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import type {AgentConversationServices, AgentViewAction, AgentViewRegistry, AgentWelcomeView, StatusLineSetting} from "@notnotype/nb-agent-ui";
@@ -14,6 +14,8 @@ import type {SkillInit} from "./skill-init";
 import type {RecentSessions, SessionListStore} from "./session-list";
 import {subagentStoreKey, toolActionKey, toolActionOf} from "./subagent-store";
 import SessionPanelHost from "./SessionPanelHost.vue";
+import {watchPaint} from "./paint-metric";
+import type {PaintPosition, PaintRecord} from "./paint-metric";
 import SubagentsEntry from "./components/SubagentsEntry.vue";
 import type {ProfileEntry} from "../shared/contracts";
 import type {RunResults, SeenErrors} from "./subagents-panel";
@@ -47,6 +49,8 @@ const props = defineProps<{
     close?: (() => void) | null;
     /** 不放会话列表（头的标题下拉）：书房的面板里只开 bot 的主对话。没传的布尔属性 Vue 当成 false，所以写成反向的。 */
     noSessionList?: boolean;
+    /** 首屏指标（conversation.md 输出 56）：这个位置叫什么、记到哪。 */
+    paint?: {readonly position: PaintPosition; readonly now: () => number; readonly record: (level: "info" | "warning", record: PaintRecord) => void} | null;
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -74,7 +78,22 @@ watch(sessionsOpen, (open) => {
 
 let giveBack: (() => void) | null = null;
 let stopTitlePress: (() => void) | null = null;
+let stopPaint: (() => void) | null = null;
+/** 视图画出下一帧：Vue 先把这次的改动写进 DOM，再等浏览器画一帧、下一帧开始时就画过了。 */
+const afterPaint = (): Promise<void> => nextTick().then(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+const page = {
+    visible: () => document.visibilityState === "visible",
+    onHidden: (listener: () => void) => {
+        const onChange = (): void => {
+            if (document.visibilityState === "hidden") listener();
+        };
+        document.addEventListener("visibilitychange", onChange);
+        return () => document.removeEventListener("visibilitychange", onChange);
+    },
+};
 onMounted(() => {
+    // 先挂上指标再借用：借用可能就地开始重新订阅（`reattach`），起点要被看到。
+    if (props.paint) stopPaint = watchPaint({host: props.host, position: props.paint.position, now: props.paint.now, afterPaint, page, record: props.paint.record});
     giveBack = props.host.borrow();
     void props.host.restore();
     stopTitlePress = props.head?.onTitlePress(() => {
@@ -83,6 +102,7 @@ onMounted(() => {
     }) ?? null;
 });
 onBeforeUnmount(() => {
+    stopPaint?.();
     giveBack?.();
     stopTitlePress?.();
     if (props.head && ownList.value) props.head.titlePopup.value = null;

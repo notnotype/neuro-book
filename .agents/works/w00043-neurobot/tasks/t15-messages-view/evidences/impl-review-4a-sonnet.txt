@@ -1,0 +1,77 @@
+# w00043 t15 阶段 ④ 切片 1 实现审查（提交 43e3cbc51）
+
+加载的版本：在实现 worktree 跑测试与类型检查。`git diff 43e3cbc51 -- packages/nb-agent-ui packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui` 为空，被审的就是实际跑的版本（该 worktree 里别处另有未提交改动，不影响本片）。
+
+### 1. `pinned` 只在合成时读一次：宿主的“是不是固定会话”晚于首次合成时，错的说法留到下次重建
+严重程度：建议（依赖切片 2 的宿主装配，本片内无法复现）
+类别：隐含的时序耦合 / 两份真相
+位置：packages/nb-agent-ui/src/kernel-transcript.ts:206-215、675、683（`pinned()` 在 `runEnded` 归约时读）
+现象：`errorText(error, pinned())` 在归约那一刻取值，已合成的消息对象不再改。会话打开时 `applyPath` 一次合成全部历史，其中压缩失败的系统条目与出错条目的 `AgentTextKey` 在此刻定死。
+为什么是问题：
+- 宿主装配 `createKernelTranscript` 时 `session-host.ts:1081` 的 `Current` 里 `owner` 是 `owners.known(id)`，可能是“还不知道”。如果归属在路径加载之后才到，历史里的压缩失败会一直写“……或者开一个新会话”，而固定会话开不了新会话，这正是这句话要避免的误导。
+- 同一件事现在有两份来源：`ctx.interaction.placement/canCreate`（视图在渲染时读）与 `pinned()`（适配器在合成时读），两者可以不一致（Lab 的 `bot-dividers` 场景 canCreate 为 false 但没有适配器）。
+- Spec 明写了“在合成那一刻读”，所以这是已定的取舍，不是实现偏差；但 Spec 没写宿主的义务（归属必须先于首次 `applyPath` 知道，或归属变化时重建路径）。
+如何核实：写一个测试：先 `pinned = false` 做 `applyPath`，再改 `pinned = true`，消息仍是旧 key（本片测试里 `expect(transcript.messages().at(-2)).toBe(error)` 正是在断言这个）；再看切片 2 的 `session-host` 是否保证归属先到。
+建议改法（二选一）：a) 在 Spec 与 `KernelTranscriptOptions` 注释里写明宿主义务，并在切片 2 加“归属晚到时重建路径”的测试；b) 质疑上游选择：让视图在渲染时按 `ctx.interaction`（固定会话档）把 `compactionFailed` 换成固定会话的 key，适配器不再带这个选项；代价是视图要认一个 key 映射，但消除了“合成时读”的时序假设。
+
+### 2. 非单调的时间（多机时钟差）会连出多条“今天”：线按原始日子去重，不按写出来的字
+严重程度：建议（窄场景，可记为已知限制）
+类别：边界 / 对照 IM 常规
+位置：packages/nb-agent-ui/src/stream-dividers.ts:31-38，format.ts 的 `dayDividerLabel`
+现象：`dividersBefore` 用 `own.day !== previousDay` 判断要不要画线，`dayDividerLabel` 又把晚于 `now` 的统一写成“今天”。两个规则的口径不同：消息时间不单调（乐观消息用浏览器时钟、事件用别处的时钟、多机时钟差）时，会出现几条写着一样字的线。
+实验（/tmp/review-t15-impl-4a/exp1.ts，now=11/22 12:00）：三轮时间分别是 11/22 09:00、11/23 00:03（晚于 now）、11/22 10:00，输出三条线都是 `{"kind":"today"}`，即“今天、今天、今天”各占一行。
+为什么是问题：Spec 只规定了“晚于 `now` 的写今天”，没有规定次序乱了怎么办；IM 的做法是按渲染后的日期标签去重或把时间钳到 now。读者会看到连续重复的线。
+如何核实：运行上面的脚本。
+建议改法：最简单的是在 `dividersBefore` 里对日子取 `Math.min(day, today)`，需要把 `today` 作为参数传入（目前刻意不传，注释说“不看 now”）；或者记为已知限制并在 Spec 写一句“时间不单调时线按相邻两轮比较，可能重复”。按“窄场景选简单改法”，写成已知限制即可。
+
+### 3. 文档注释叠在一起，`createKernelTranscript` 原来的说明挂到了类型上；`KernelTranscriptOptions` 没从包入口导出
+严重程度：建议
+类别：代码质量 / 注释
+位置：packages/nb-agent-ui/src/kernel-transcript.ts:363-376；packages/nb-agent-ui/src/index.ts:44
+现象：原本紧贴 `createKernelTranscript` 的 JSDoc（“`toolName`：……`authorOf`：……”）后面又插了一段 `pinned` 的 JSDoc，再接 `export type KernelTranscriptOptions`。两个 JSDoc 连着，TypeScript 只认最后一个挂到类型上，前一个悬空，函数本身没有说明；`pinned` 的说明挂在整个类型上而不是 `pinned` 字段上，`toolName`、`authorOf` 的说明也不在字段上。另外 `KernelTranscriptOptions` 没有从 `index.ts` 导出，宿主要给选项标类型只能用 `Parameters<typeof createKernelTranscript>[0]`。
+为什么是问题：违反本仓库“最难懂的地方先写”与注释贴着对象的规则，读者在编辑器里悬停看不到字段说明。
+如何核实：读 363-376 行。
+建议改法：把三个字段的说明各自写在字段上，函数上留一句；`index.ts` 的类型导出里补 `KernelTranscriptOptions`（宿主在切片 2 要传 `pinned`）。
+
+### 4. `AgentStreamDivider`：`role="separator"` + `aria-label` + 可见文字 `aria-hidden`，把唯一的文字内容藏起来了；`day` 缺 `at` 时静默写 1970 年
+严重程度：建议
+类别：无障碍 / 类型设计
+位置：packages/nb-agent-ui/src/vue/stream/AgentStreamDivider.vue:12-20、29-39；.md 的数据一节
+现象与问题：
+a) 可见文字 `aria-hidden`，名字只放在 `role="separator"` 的 `aria-label` 上。读屏的浏览模式常把 separator 当装饰、只报“分隔符”或直接跳过，名字不一定读出来，而“以下是新消息”是未读线唯一的信息。仓库里已有先例 `AgentRequestDetail.vue:356` 是 `role="separator"` 里放可见 `<span>` 文字，不用 aria-label。读屏行为是从代码与 ARIA 规范推断的，未用真实读屏器验证。
+b) 测试 `order()` 取 `aria-label` 当线的文字，测试与这种写法绑定；改成可见文字的写法后测试会失败，不是只测行为。
+c) props 是 `kind: "day"|"unread"; at?: number`，`kind="day"` 不给 `at` 合法，走 `props.at ?? 0` 写出 1970 年的日子，掩盖调用方的错。
+建议改法：a) 去掉 `aria-hidden` 与 `aria-label`，让可见文字当名字，或至少让未读线的文字能被读到；b) 测试按可见文字（`text()`）断言；c) props 改成可辨识联合 `{kind: "day"; at: number; today: number} | {kind: "unread"; today: number}`，`at` 缺失在类型上就挡掉（`today` 对未读线也是多余的，可以只给 day 那一支）。
+
+### 5. 测试里“线不重画”的断言空过；计数口径只与测试自己写的过滤函数对
+严重程度：建议
+类别：测试
+位置：packages/nb-agent-ui/src/vue/AgentConversationView.dom.test.ts 新增的最后一条（`now` 每秒换那段）；packages/nb-agent-ui/src/kernel-transcript.test.ts:`countedInLog`
+现象：
+a) “now 每秒换时线不重画”只断言 `view.get("[data-day-divider]").element` 同一个。Vue 重新渲染时是原地打补丁，元素本来就是同一个，所以即使 `today` 每秒变、标签重算，这条断言也照样过；它杀不死“把 `today` 误传成 `ctx.now`”之外的任何变异。要测“不重画”应数渲染次数（给 `AgentStreamDivider` 一个计数的 mock，或看组件的 `onUpdated`）。跨零点时 `now` 换日、“今天”变“昨天”这条行为也没有测。
+b) `countedSeq` 与后端同口径的测试，对照物是测试里手写的 `countedInLog`（`toolCalls.length === 0`），不是后端真正的 `countsAsMessage`（bots/backend/unread.ts:35）。两处各写一份，后端改了口径测试不会发现；nb-agent-ui 不能导入 bots，所以这条应当在切片 2 的 neuro-book 侧写一条合同测试：同一份日志，`countsAsMessage` 的 seq 集合等于适配器 `countedSeq` 的集合。
+c) 口径还有两处未写出来的假设：后端 `countsAsMessage` 对缺 `toolCalls` 的 `assistant` 事件按“0 个”计数，适配器在 `reducePath` 里把这种事件记 problem 并不合成消息，两边会差一条（只发生在坏数据上，harness 正常不会写）；后端数日志里所有 `assistant` 事件，适配器只读当前路径，固定会话若出现过分支（回退、编辑重发），分支外的计数消息后端计、适配器没有。bot 的主对话 `canMutateHistory: false`，大概率没有分支，但没有写成假设，也没有测。
+建议改法：a) 改成数渲染次数并补跨零点用例；b) 切片 2 补合同测试；c) 在 `countedSeq` 的 JSDoc 里写明这两条前提。
+
+### 6. `dayDividerLabel` 与 `formatListTime` 把“昨天/同一年写月日/别的年加年”各写了一份，“昨天”两处取法不同
+严重程度：建议
+类别：代码质量 / 重复
+位置：packages/nb-agent-ui/src/format.ts:23-40（`formatListTime`）与 :109-119（`dayDividerLabel`）
+现象：两个函数都先算日差、`<= 0` 当今天、`=== 1` 当昨天、再按 `sameYear` 选 `Intl.DateTimeFormat` 的两种选项。`formatListTime` 的“昨天”来自 `Intl.RelativeTimeFormat`，`dayDividerLabel` 的“昨天”来自语言包 `stream.yesterday`。
+为什么是问题：同一个界面里会话列表与消息流的“昨天”由两条路径产生，英文是 `yesterday`（Intl，小写）与 `Yesterday`（语言包），以后改一处另一处不跟。
+建议改法：抽一个 `dateText(timestamp, sameYear, locale)`，两处共用；“昨天”统一走语言包（会话列表那边不动也可以，但在 `dayDividerLabel` 的注释里写明为什么不用 `RelativeTimeFormat`）。
+
+## 未发现问题的方面
+- 轮次重新挂载：`<template v-for :key>` 里线的 `v-for` 编译成固定在 `AgentConversationTurn` 前面的一个 Fragment，线出现或消失不改轮次的位置与 key；dom 测试按元素身份验证了第三轮不重新挂载，实现与测试一致。
+- 滚动锚定：`useStreamScroll` 的阅读锚点候选链是“自己、下一个兄弟、父元素……”，线被移除或插入时落到下一个兄弟，位置补偿正确；`overflow-anchor: none` 仍由 `.acv-stream` 声明。`.acv-stream__content > *` 的 800px 封顶与 `margin-inline: auto` 对线的根 `<p>` 生效（线与轮次都是内容列直接子元素）。
+- 缺省回归：不给 `dividers` 时 `dividersBefore` 返回空表，模板多出来的只是空 Fragment 锚点（不是元素）；`order()` 的缺省用例与全部既有 dom 测试通过（`AgentConversationView.dom.test.ts` 58 条全过）。
+- 时区与跨年：`stream-dividers.test.ts` 与 `format.test.ts` 在 Pacific/Auckland、America/Los_Angeles、Asia/Kolkata、Pacific/Kiritimati、UTC 下都是 46 条全过；年初最后一天写“昨天”、再往前带年份的用例成立。
+- `now` 每秒变化：线的 props 是 `kind`、`at`、`today` 三个原语值，日序号不变时子组件不重新渲染；`dividersBefore` 只依赖消息与 `ctx.dividers`，开销是对轮数的线性扫描。
+- 计数口径的主路径：重建、增量、`leafChanged` 后重建（`resetPath` 清 `counted`）、模型失败的半截（不算）、停止时补的空回复（不算）、之后被标成停止的最终回复（仍算）、压缩的运行（不产生 `assistant` 事件，`modelEnded` 另走）都与 `countsAsMessage` 一致。
+- 样式 token：`--text-muted`、`--divider`、`--accent-text`、`--accent-main`、`--text-2xs`、`--border-w` 都是现成角色，没有字面颜色；未读线用强调色是开发者决定 9 定的，线本身是 1px 细线，不是被设计语言禁止的容器色条。
+- 同名 `.md`：frontmatter、`state:inject` 标签（用了 `useAgentText`）、数据一节、隐藏通道理由都按 components.md 写了；`docs:check` 无失败。
+- 类型检查：nb-agent-ui 的 `tsc --noEmit` 与 `vue-tsc` 通过；`bun test` 全包 299 条、0 失败。
+
+## 数量
+阻断 0，重要 0，建议 6。
+有效发现的编号：1、2、3、4、5、6（均为建议级；本片没有发现会让功能出错的缺陷，最值得处理的是 1 的宿主义务与 4 的读屏写法）。

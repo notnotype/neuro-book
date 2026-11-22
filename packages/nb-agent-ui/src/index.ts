@@ -10,7 +10,7 @@ export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
     AgentSessionListItem, AgentSessionListState, MessagesContact, MessagesContactSection, MessagesRecentSession, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
     SessionPanelFilter, ComposerApprovalOption, ComposerEffortView, ComposerGroupView, ComposerIcon, ComposerModelView, ComposerModeView, ComposerRoleView, SessionTreeView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
-    InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputCommon, PendingInputView, PendingQuestionsView,
+    DividersView, InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputCommon, PendingInputView, PendingQuestionsView,
     PendingModeSwitchView,
     CompactionView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
@@ -42,7 +42,7 @@ export type {ResolvedStatusItem, StatusLineItem, StatusLineSetting, StatusLineSi
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf, modelErrorText} from "./harness";
 export {createKernelTranscript, NOTICE_SUMMARY_CHARS} from "./kernel-transcript";
-export type {KernelAnchor, KernelIssuer, KernelMeta, KernelNotice, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
+export type {KernelAnchor, KernelIssuer, KernelMeta, KernelNotice, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptOptions, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";

@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t15-messages-view
 status: active
-updated: 2026-11-20
+updated: 2026-11-22
 ---
 
 # “消息”视图：bot 与会话两个标签、固定会话的对话宿主、未读与书房入口
@@ -40,6 +40,7 @@ updated: 2026-11-20
 6. 阶段 ② 设计审查后的两题（开发者 2026-11-20，都按推荐）：bot 行的第二行先写通用状态（在跑“正在回复…”、等你“等你处理”，平时最后一句话），具体活动文字等后端有摘要再补；宽版时对话的头画在聊天区上方（同 t03 r5），只有窄版接管面板头。入口角标的范围从决定 4 的活动栏延到右栏入口条（消息视图在右栏）。
 7. 右栏收起时的未读（开发者 2026-11-20，第二轮设计审查后问，按推荐）：状态栏的 Agent 活动条目在有未读时也写“N 条新消息”，点了打开消息视图里那个 bot。
 8. 阶段 ③ 的计划 [plan-3.md](plan-3.md)（草稿 3，设计审查两轮）的四处待确认都按推荐（开发者 2026-11-20 答“可以”）：等你处理时气泡写“等你处理”；看板娘只在等你处理时换成提问的表情；滑出聊天宽 420px、点外面不关，关闭靠头上的“关闭”与 Esc，Tab 在面板里循环；案头窄于 720px 时只留角标、不画气泡。滑出面板做成 nb-ui 新组件 `SidePanel`（nb-ui `Drawer` 的滑动关闭关不掉）。
+9. 阶段 ④ 的计划 [plan-4.md](plan-4.md)（草稿 1）的六处待确认都按推荐（开发者 2026-11-22 答“同意”）：未读线画在含第一条未读回复的那一轮之前；按天的线只在 bot 档画；两种线沿用压缩分隔线的画法，未读线用强调色写“以下是新消息”；基线只在这次挂上时拍（换联系人、视图收起再展开、书房面板重开会重拍，窗口失焦再回来不重拍）；首屏指标只记主对话、页面隐藏时不记、超过 2,000 毫秒另写警告；主对话只读解除的实时推送不做，记为后续（开工时的待定项就此定了）。日子按浏览器的本地时区算（提案写的“注入的时区”落成视图所在环境的时区）。
 
 阶段 ① 已完成并合入 master（`0fcdedc83`）：
 
@@ -55,8 +56,17 @@ updated: 2026-11-20
 - 验证：e2e `bots-chat`、`bookshelf`、`agent-conversation`、`lab-agent-ui` 87 条全过；单元测试 nb-ui、nb-agent-ui（205）、nb-markdown 提示词（86）、应用 agent、markdown、projects、lab（vitest 357、bun 161）；类型检查四个包；新增否定断言都做了变异检查。（“联系人消失时关面板”那段我曾记为变异活下来，实现审查重做后测试会失败，是我那次变异没改到位。）
 - Spec：master `9ecf84781`（planned）：`agent/conversation.md` 输出 54 与验收 10、`workbench/bookshelf.md` 输出 22、`bots/view.md` 验收 4、`ui/agent-conversation-view.md` 的 `closable` 与 `escape`。
 
+阶段 ④ 已完成并合入 master（`87c4e103b`，2026-11-22）：
+
+- 设计审查 Sonnet 9 条（[处理](evidences/design-review-6-disposition.md)）：草稿 1 依赖的“消息 id 能反推日志 seq”只对旧适配器成立，改成内核适配器标出计数消息；未读线改成打开后算一次就锁存（草稿 1 按基线每次重算，看着时到的回复也会画线，与决定 9 第 4 条的说明不符）；重试与借用后的重新订阅沿用这次的线，所以决定 9 第 4 条里“视图收起再展开会重拍”那半句不成立（它原本取决于收起满不满 30 秒）。
+- 切片：`43e3cbc51`（nb-agent-ui：`ctx.dividers`、`AgentStreamDivider`、适配器的 `countedSeq` 与 `pinned`、Lab 场景 `bot-dividers`、`bot-dividers-en`）、`ab2105f90`（应用：联系人带 `seenSeq`、宿主的基线与锁存、书房面板 `markOpened`、首屏指标 `agent.conversation-painted`）、`8e49fa75b`（e2e 单独跑也成立）。
+- 实现审查：第 1 片 Sonnet 6 条（[处理](evidences/impl-review-4a-disposition.md)，修正 `4b526813d`），第 2 片 Sonnet 6 条（[处理](evidences/impl-review-4b-disposition.md)，修正 `863f6483b`）。接受取舍、交开发者知悉的：进子会话再回主对话也算又一次打开，看过的线收掉（Spec 输出 55 写成已知限制）；消息时间不单调（多机时钟差）时可能连出两条“今天”。
+- 验证：nb-agent-ui bun 299 条、vitest 220 条；应用 agent 与 bots bun 604 条、agent、bots、Lab vitest 125 条；类型检查两个包。e2e 收口 `bots-chat`、`lab-agent-ui`、`agent-conversation`、`bookshelf` 89 条：87 条一次过，`lab-agent-ui` 两条（392 的 Lab 就绪超时、572 的角色模型选择器）单独重跑都过，归为负载；审查修正后重跑 `bots-chat`、`bookshelf` 14 条全过。变异检查：适配器的计数口径、`pinned`、宿主的锁存、重试沿用，单测都能杀死；e2e 去掉锁存后“开着时到的不画线”失败。
+- Lab 截图（亮色，390 与 1440 宽，中英文）：线在那一轮之前，没有横向溢出、没有页面错误。
+- Spec：master `2573f860e`、`23ce2585f`（planned）：`ui/agent-conversation-view.md` 的 `dividers`、按天与未读的线、用法档两行、验收 43、44；`agent/conversation.md` 输出 55、56 与验收 11；`bots/view.md` 输出 2。
+
 ## 下一步
 
 - 阶段 ③：书房案头的看板娘入口与从右边滑出的聊天（t03 决定 22、23），复用宿主加对话视图的组合。计划 [plan-3.md](plan-3.md)，开发者 2026-11-20 确认（决定 8）；已合入，见上。
-- 阶段 ④：按天与未读的分隔线、首屏指标。
-- 后续（不阻塞）：会话标签的滚到底分页；第二行的具体活动文字（等后端的活动摘要）；`agent-conversation` 附件那条的测试时序（`newSession` 在会话加载完之前返回）。
+- 阶段 ④：按天与未读的分隔线、首屏指标、固定会话档的文案。计划 [plan-4.md](plan-4.md)，开发者 2026-11-22 确认（决定 9）；已合入，见上。
+- 后续（不阻塞）：主对话只读解除的实时推送（决定 9）；会话标签的滚到底分页；第二行的具体活动文字（等后端的活动摘要）；`agent-conversation` 附件那条的测试时序（`newSession` 在会话加载完之前返回）。

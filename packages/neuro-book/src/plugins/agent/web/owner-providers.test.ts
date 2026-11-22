@@ -25,7 +25,7 @@ describe("经句柄用提供者", () => {
         const seen: [string, number][] = [];
         let finish!: (value: {ok: true; sessionId: string}) => void;
         const provider: SessionOwnerProvider = {
-            contacts: shallowRef([{id: "lyra", name: "星璃", unread: 3, last: null, sessionId: "bot-lyra"}]),
+            contacts: shallowRef([{id: "lyra", name: "星璃", unread: 3, seenSeq: 0, last: null, sessionId: "bot-lyra"}]),
             state: shallowRef({kind: "ready" as const}),
             reload: () => undefined,
             open: () => new Promise((resolve) => {

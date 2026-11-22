@@ -175,6 +175,14 @@ export type ErrorMessageView = {
 
 export type MessageView = UserMessageView | AssistantMessageView | SystemMessageView | ErrorMessageView;
 
+/** 轮与轮之间的分隔线（ui/agent-conversation-view.md 的“分轮视图”）。 */
+export type DividersView = {
+    /** 为真时画按天的线：每一轮之前与上一轮不在同一个日历日时一条，第一轮之前总有一条。 */
+    readonly day?: boolean;
+    /** 未读线起点的消息 id：线画在含它的那一轮之前；它不在已加载的消息里时不画。 */
+    readonly unreadFrom?: string | null;
+};
+
 // ─── ctx 各部分 ─────────────────────────────────────────────────────────
 
 export type SessionView = {
@@ -614,6 +622,8 @@ export type AgentConversationContext = {
     panels: PanelsView;
     /** 宿主提供的当前时间（毫秒）。视图不自己计时，运行中的用时按它计算。 */
     now: number;
+    /** 消息流里轮与轮之间的分隔线（同名 Spec 的“分轮视图”）；按会话给，不给时两种都不画。 */
+    dividers?: DividersView;
     /** 按插件 id 分区的数据，供插件登记的渲染器读取。 */
     extensions: {[pluginId: string]: JsonValue};
 };

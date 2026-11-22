@@ -1,0 +1,100 @@
+### 1. 未读线依赖的“消息到日志 seq”在 NeuroBook 的适配器里不存在
+严重程度：阻断。类别：依赖的机制不存在（维度 2）。
+位置：plan-4 第 12 行与第 64 行；`packages/nb-agent-ui/src/kernel-transcript.ts:455-471、539、548、624、654`；`session-host.ts:1081`（用的是 `createKernelTranscript`）；`packages/nb-agent-ui/src/harness.ts:120`。
+现象：计划说“适配器给日志合成的消息 id 是 `h<seq>`，`logSeqOf` 能反推 seq”。这是旧适配器 `createHarnessTranscript` 的做法，只有 nb-story 在用（全仓只有 `nb-story/src/web/qa/turns.ts` 调 `logSeqOf`）。NeuroBook 的宿主用 `createKernelTranscript`，消息 id 取内核事件的 `id` 字段（`reducePath(parsed.type, parsed.data, parsed.id, parsed.at)`），`LogEvent.id` 与 `seq` 是两个字段（`nb-harness/src/kernel/api/events.ts:279-285`）。`logSeqOf` 对这条路径上的每条消息都返回 null；`MessageView` 没有 seq 字段，`parseEvent` 解出的 seq 只用来去重（`lastSeq`），不落到消息上。
+为什么是问题：“已加载的消息里第一条日志 seq 大于基线的助手消息”按现有接口写不出来，`unreadFrom` 永远是 null，线永远不画，而单测若用旧适配器会假通过。
+另有口径坑（计划写“与后端计数同一口径”，但按消息过滤做不到）：内核适配器里“不带工具调用的 assistant 消息”还有三种后端不计数的来源：`modelFailed` 带半截文字落成的 assistant（624 行，status 为 stopped/interrupted/error）、`runEnded` 为 aborted 且前面没有助手消息时补的空 assistant（654 行）、正在生成的 `live-<request>` 消息（817 行）。后端 `countsAsMessage` 只认 `type === "assistant"` 且无 toolCalls 的事件。反过来，652 行把已有的最后一条 assistant 改成 stopped，后端仍计数。
+如何核实：`grep -rn logSeqOf packages --include=*.ts` 只命中 nb-agent-ui 与 nb-story；在 `kernel-transcript.test.ts` 里喂一条 assistant 事件，看 `messages()[0].id` 是事件 id。
+建议改法：在 `createKernelTranscript` 里为“计数消息”留标记：事件类型为 `assistant` 且无 toolCalls 时记 `seq`（`MessageView` 加可选字段，或 transcript 加 `countedSeqOf(id)`），按事件类型而不是按消息形状判；`unreadFrom` 由宿主按标记算。计划需把这个改动列进切片 1，并在 `kernel-transcript.test.ts` 补停止、半截、出错三种用例，让 `unreadFrom` 与 `countsAsMessage` 对同一份日志逐条对拍。
+
+### 2. 基线固定在打开那一刻：聊天开着时来的每条新回复都会被画上“以下是新消息”，且计划自相矛盾
+严重程度：阻断。类别：设计缺陷与前后不一致（维度 1、5、6）。
+位置：plan-4 第 63–66 行、第 96 行、第 118 行；`contact-opener.ts:143`；`bots/web/store.ts:46-50`。
+现象：`unreadFrom` = “seq 大于基线的第一条计数消息”，基线只拍一次，不随“看到”前进。于是：
+(a) 打开时没有未读（基线=已看到的最新位置）、用户在看着聊天（窗口有焦点、视图可见）并发了话，bot 回复到达的瞬间它的 seq 大于基线，线立刻画在含这条回复的那一轮前，即用户自己刚发的那句的上面，而这条回复是用户眼看着到的，已经被 `watchSeen` 当场交“看到”。IM 里没有这种线（微信、Telegram 的未读线只标打开时就已未读的）。每个 bot 聊天的每次对话都会出现，不是边角。
+(b) 全新 bot（seenSeq 0）同理，第一条回复就带线。
+(c) 计划里三处说法互相打架：第 64 行“角标为 0 时没有线”；第 96 行 e2e“拿回焦点后角标清零、线还在”；第 118 行待确认 4“失焦期间来的话，回来后角标清零，但不画线”。按第 63 行的实现，第 118 行的“不画线”是错的（失焦期间到的回复 seq 也大于基线，必然有线），第 64 行也是错的。提案原话是“打开那一刻的最后看到固定为这次的基线”，没有说打开后到的消息也算。
+如何核实：用 `session-host.test.ts` 的现有场地，开会话（unread 0、seenSeq 10），再推一条 seq 11 的 assistant 帧，按计划的算法 `unreadFrom` 就是它。
+建议改法：先定语义再写。推荐“线只标这一刻之前就未读、或在窗口无焦点/视图不可见期间到的消息”：基线在 `active()` 为真期间随到达的消息前进（即“看到”的本地镜像，只在 active 时前进），失焦或隐藏期间不前进；`unreadFrom` 在首次得出非 null 后锁存（latch），不再每次重算，这样角标清零后线还在，也不会在用户眼前新增线。待确认 4 要重写，写清“看着时到的不画、失焦时到的画、打开时就未读的画”，e2e 三种各一条。若开发者想保持字面的“只拍一次”，则需明说“打开后到的回复也画线”这个后果。
+
+### 3. 固定会话档的文案变体：视图里没有统一的翻译拦截点，也没有“键不在宿主包里”的判断手段
+严重程度：重要。类别：接口与合同、依赖的机制不存在（维度 2、3）。
+位置：plan-4 第 53–54 行；`nb-agent-ui/src/vue/text.ts:24-54`；`nb-ui/src/text-port/index.ts:21-26`；`kernel-transcript.ts:190-203`；`stream/AgentTurnBlock.vue:50、141`；`neuro-book/src/web/host/text-engine.ts:164`。
+现象：(a) 压缩失败的文字是适配器在 `errorText` 里生成的 `TextRef`（`agentRef("kernel.error.compactionFailed")`），出现在系统条目的 `label`（648–649 行）、错误块的 `message`（657 行），并在 `AgentTurnBlock`、`AgentConversationTurn`、`AgentRawView` 各自 `useAgentText().text(ref)` 翻译。计划写“视图在 `canCreate === false` 时把带变体的键换成变体再翻译”，但根视图不经手这些翻译调用；要换就得在根视图重新 provide 一个包装过的 `TextPort`（会同时盖掉嵌进来的 nb-ui 与 nb-markdown 控件的端口，且与“宿主注入的端口优先”的说明冲突），或让每个下游组件读 ctx。(b) `TextPort` 只有 `t`、`variants`、`locale`，没有“有没有这个键”；缺键时 `minimal.ts:81` 只上报 `missing-key` 诊断并回显键，没有退回内置目录的路径，所以“变体键不在宿主的包里时退回内置”无法实现。实际上 NeuroBook 宿主直接登记整份 `NB_AGENT_UI_CATALOGS`，新键一定在，退回分支是为不存在的场景写的复杂度。
+为什么是问题：按计划字面做，要么只换了一处（例如只换系统条目，错误块仍说“开一个新会话”），要么为退回分支发明端口 API；验收 44 只测一个条目会漏掉另一处。
+建议改法：在源头换。`createKernelTranscript` 已经接收宿主选项（`toolName`、`authorOf`），再加 `pinned` 之类的选项（宿主按 `target.owner !== null` 给，owner 读到后用 `applyPath` 重建或让 `errorText` 读一个闭包取值），由适配器直接产出变体键；视图与端口都不动，也不需要退回逻辑。若坚持在视图层，则先把 `errorText` 的引用统一收到一个出口再换，并把“退回内置”从计划里删掉。验收 44 要覆盖系统条目与运行出错两条路径。
+
+### 4. 基线重拍的触发清单与“视图收起超过 30 秒”的实际行为对不上，漏了重试与整页恢复
+严重程度：重要。类别：并发与多窗口、遗漏（维度 4、6）。
+位置：plan-4 第 15 行、第 63–65 行、第 96 行；`session-host.ts:1859`（可用性“重试”走 `open(target.id)`）、`2077-2098`（`borrow` 与 30 秒放开）、`1060-1085`（`openHere`）。
+现象：(1) 计划把基线绑在 `Current`，凡 `openHere` 都重拍。除换联系人、启动恢复、reattach 外，可用性条上的“重试”（`act` 的 retry，1859 行）也走 `open` 重新开同一会话：用户在读时订阅断了点重试，新 `Current` 读到的 `seenSeq` 已是读过的位置，线凭空消失。计划的“算这次的情形”清单没有它。(2) “视图收起再展开、书房面板关了再开重拍”只在借用数归零满 30 秒（`RELEASE_DELAY_MS`）之后成立：不到 30 秒再借用时 `cancelRelease`，`current` 仍在，不走 `reattach`，基线与线都保留，用户上次已读的消息上还挂着旧线；超过 30 秒则线消失。同一个“收起再展开”两种结果，取决于一个与未读语义无关的资源释放定时器。e2e“重开聊天后线没了”在不加说明时是否稳定取决于是否等过 30 秒。(3) 同一个 bot 的主对话在消息视图与书房面板各有一个宿主、各自一份基线，一个宿主看过后另一个宿主的线不会收，这是预期的，但计划没写。
+如何核实：`session-host.ts:1859` 与 2082 行；`RELEASE_DELAY_MS` 的值与 `deps.schedule` 在测试场地里是否可注入。
+建议改法：基线不要挂在 `Current`/订阅生命周期上，挂在“这个宿主上这个会话的‘看着’的区间”：窗口失焦、视图隐藏、收起、换会话时结束区间，回来时在 `active()` 变真的那一刻拍（与第 2 条的 latch 一并设计）；重试沿用原基线（`open` 同一 id 时保留）。至少把“重试”列进触发清单，并把 30 秒阈值写进 Spec 输出 55，别让它成为隐含行为。
+
+### 5. 基线要在“列表项换进来”的同一同步段里读，计划没有写出读取的机制，容易写成惰性读而读到已前进的值
+严重程度：重要。类别：时序与共享状态（维度 1，重点 1）。
+位置：plan-4 第 63 行；`bots/web/store.ts:41-50、68-75`；`contact-opener.ts:143`；`agent/web/session-host.ts:2057-2064`（`owner` 是 computed）。
+现象：核对后计划的核心论断成立：`unread` 为 null 时 store 不发（`flushSeen` 的 `item.unread === null` 早退），列表项更新时 `setItems` 先换 `items.value` 再同一同步段里 `flushSeen` 发请求，`seenSeq` 要等服务端 `botsChanged` 往返之后才变，所以 Vue 的 pre-flush 微任务一定先于它。但这个论断只对“在列表项变化时立刻读”的实现成立。计划写“`seenOf` 第一次不是 null 时拍下”，没说用什么触发；若写成 `ctx` computed 里惰性读（宿主的做法很常见：`owner` 就是 computed），首次求值可能发生在视图隐藏、面板盖层、`ctx` 未被读的很久之后，那时 `seenSeq` 可能已被本窗口自己的 `markSeen` 推进（正是计划要避免的情形）。测试里 mock 的远端若在微任务里立刻回包，pre-flush 也可能晚于回包。
+另有一条退化路径：`unread` 一直为 null（补数失败，`bots.unread-failed`）时基线永远拍不到，线不画，store 也不交“看到”，这与“拍不到就不画”一致，但计划没提这时角标也是 null，建议在 Spec 里写一句。
+建议改法：宿主用 `watch(() => deps.owners.seenOf(owner), …, {flush: "sync"})`（与 `contact-opener.ts:96` 的做法、`session-host.ts` 里 `stopWatchingModels` 同款），在首次非 null 时写入 `Current.baseline` 并停掉自己；计划里写明“同步读”，验收加一条用延迟回包的 mock：`botsChanged` 带 `seenSeq` 前进的第二次推送先于视图读 `ctx`，基线仍是第一次的值。同时 `unreadFrom` 由 `baseline` 与已加载消息算一次后锁存（见第 2 条），不要放在每秒重算的 `ctx` computed 里扫描全部消息（长会话是几千条）。
+
+### 6. 轮次只在“普通用户消息”处切开：主动发来的回复与未读线、日期线都落在很早的一轮前
+严重程度：建议（从代码与提案推断，当前仓库里还没有会主动唤醒 bot 的插件，未验证）。类别：被破坏的约定、遗漏（维度 4、5）。
+位置：plan-4 第 39、47、115 行；`conversation-turns.ts:227-238`（`splitIntoTurnGroups`）；`kernel-transcript.ts:673-678`（`hostNotice` 落成 `system` 消息）。
+现象：新一轮只在 `kind === "user" && intent === "normal"` 处开始。宿主提醒（`hostNotice`、带 `wake` 的提醒）是 system 消息，留在上一轮里。bot 是常驻的，提案里有日程（`nbook.schedule`）会主动唤醒它；这类回复进的是“用户上次说话”的那一轮，该轮可能已经跨了几天。后果：(a) 未读线按计划画在该轮之前，离真正的未读消息隔着整轮折叠区；(b) 日期线只看轮首消息的 `timestamp`，隔天主动发来的回复下面没有日期线，页面上看起来都是“用户上次说话那天”。计划待确认 1 只讨论了“用户自己那句在线的下面”，没有提这个更大的偏差。提案的“一轮跨零点时线画在轮前”本来就接受了这个粒度，但提案当时没有把“轮可以是几天”算进去。
+建议改法：不改轮次，但按消息而不是按轮取日子：日期线若落在轮内的计数消息之间也画（画在轮内要拆进 `AgentConversationTurn`，工作量大，可作为后续，记入已知限制）；至少在待确认 1 里补上这个情形，让开发者知道“线在轮前”的含义是“该轮最早一条消息之前”。
+
+### 7. 首屏指标的口径有几处会量到不是“画出来”的时间，两个宿主位置的事件分不开
+严重程度：建议。类别：口径与遗漏（维度 4、6，重点 4）。
+位置：plan-4 第 70–73 行；`session-host.ts:1146-1172`（`target.loading = false` 在整条路径读完之后）、`1859`；`components/DeskCompanion.vue:99-105`（盖层）；`MessagesHost.vue:121`。
+现象：
+(1) 可见性只在终点判（“页面不可见时不记”）：起点在隐藏期间、终点前切回来的情形，量到的是等待切回来的时间；要在起点与终点都为可见、且期间没有 `visibilitychange` 才记。
+(2) 页面可见不等于视图可见：消息视图在折叠的右栏里、书房面板盖着 `ContactCover`（对话在 `inert` 下面）时，两次 rAF 照样跑，但画面没被用户看到，且视图被 `display:none` 时布局根本没做。应与 `visible`（`MessagesHost` 已有 `context.visible`）、`cover === null` 一并判。
+(3) 起点是 `openHere` 开始，不含点联系人后的 `provider.open`（`ensureMain`，冷启动时后端 `hold` 打开主对话，可达秒级）与 `ownerOf` 读头；用户感知的“点开到能看”比这个长。这与后端的 `bots.main-opened` 正好互补，但应在 Spec 输出 56 里写明“不含 ensureMain”，别让人拿它与点击到出现的体感对账。
+(4) `loading` 为假之前整条路径（`loadPath` 把所有分页读完，长会话是 N 页往返）都在计时内，这是想量的，没问题；但事件里要带 `pages` 或路径事件数，否则 `events`（快照 `head`，含 session 事件与不在当前路径上的事件）与实际渲染的 `messages` 之间看不出是读得慢还是画得慢。
+(5) 同一个 bot 主对话在消息视图与书房面板各有宿主，两处各记一条，事件没有位置字段，聚合时会双计；加 `position`（`view`/`desk`）。
+(6) 代码位置：`plugin.ts` 在后端 tsc 范围里（`src/plugins/*/plugin.ts`，lib 无 DOM），只能传诊断出口，`requestAnimationFrame` 与 `document` 必须只在 `.vue` 与 `paint-metric.ts` 里碰，且 `plugin.ts` 不要 import `paint-metric.ts` 的实现；`web/**/*.test.ts` 被后端 tsc 排除，单测放那里没问题。计划的方向对，但要写成约束。
+建议改法：按上面 1、2、5 补条件与字段；Spec 输出 56 写“从 openHere 到画出，不含 ensureMain”。
+
+### 8. 日期线与分隔线组件的几处具体坑
+严重程度：建议。类别：边界与既有约定（维度 4、7，重点 3）。
+位置：plan-4 第 39–42、47–48 行；`nb-agent-ui/src/format.ts:14-30`；`stream/AgentTurnBlock.vue:149-150、342-351`；`AgentConversationView.dom.test.ts:234-269`；`kernel-transcript.ts:809`；`vue/AgentConversationView.vue:527-538`。
+现象：
+(1) `localDayIndex` 在 `format.ts` 里不是导出函数，计划说“沿用”，要先导出（小事，但 `format.ts` 有测试与 Spec 对应，别漏）。
+(2) 与 `now` 的比较要照 `formatListTime` 的做法：`days <= 0` 都按“今天”（该函数注释写明“`timestamp` 晚于 `now`（多机时钟差）时按同一天写”）。计划只写了“与 now 同一天写今天”，没有写未来日期：客户端 23:59:58、服务端事件 `at` 是 00:00:03 时，会冒出“11月19日”这种线。
+(3) `kernel-transcript.ts:809` 缺 `at` 时 `at` 取 0，消息 `timestamp` 为 0，日期线会写“1970年1月1日”。要么日期线跳过 `timestamp <= 0` 的消息、取下一条有时间的，要么在 Spec 里写明。乐观消息用客户端时钟、确认后换成服务端事件，轮首 id 变化，日子可能因此在零点附近跳一次，可接受，但值得一句话。
+(4) 视图里 `AgentConversationTurn` 目前直接在 `v-for` 里并带 key，要加线就得改成 `<template v-for :key>`，key 搬到 template 上；`.acv-stream__content > *` 给直接子元素加了 `max-width: 800px; margin-inline: auto`，新组件根元素要在这个选择器下（不要再包 fragment 以外的层）；`.acv-turn` 底部有 24px 间距，线的上下间距要按它定，否则按天线紧贴上一轮的底部。
+(5) `.acv-divider` 是 `AgentTurnBlock.vue` 的 scoped 样式（含 `::before/::after`），“沿用”要么复制一份要么抽成共享样式；并且现有 dom 测试以 `[data-divider]` 选压缩分隔线（`AgentConversationView.dom.test.ts:234-269`），新线不要复用这个属性，用 `data-day-divider`、`data-unread-divider`，否则现有用例会误选。
+(6) NeuroBook 的宿主 ctx 没给 `history`（`createAgentContext` 缺省 `hasMore: false`），`loadPath` 一次把整条路径读完、视图整页渲染，所以“历史分页时线跟着挪、视口不动”“不在已加载的消息里不画”在真实宿主里走不到，只有 Lab 与手造 ctx 的 dom 测试能覆盖；计划第 48 行的锚定论述对这个应用是死分支，验收 43 的对应项不要写成“e2e 也覆盖”。
+建议改法：按上面逐条落进切片 1 的说明；(3)(2) 写进 `stream-dividers.test.ts` 的用例。
+
+### 9. 验收映射里有三处在真实运行时写不出或会空过
+严重程度：建议。类别：验收映射（维度 6，重点 6）。
+位置：plan-4 第 96–97、104 行；`docs/testing`（测试场地时钟是手动的）；`session-host.ts:48`。
+现象：
+(1) 输出 55 的 e2e“失焦时到一条回复，拿回焦点后角标清零、线还在”：这条在第 2 条的语义修正前是对的（因为字面实现会画线），修正后仍要保留，但还要加“窗口有焦点时到一条回复，不出现线”，否则（a）类缺陷（看着时到的回复被画线）没有任何用例拦住；变异检查“把基线改成读活的 seenSeq”也只验证了一个方向。
+(2) “重开聊天后线没了”受 30 秒释放定时器影响（第 4 条）：e2e 若通过关面板再开实现，要么真的等 30 秒，要么需要测试场地把 `RELEASE_DELAY_MS`/`deps.schedule` 接到手动时钟；计划没写用哪种方式。改成“切到别的会话再切回”则走 `openHere`，稳定，但它测的是 `openHere` 路径而不是 `reattach`。
+(3) `paint-metric` 的单测里“页面隐藏不记”“换了会话作废”可以用注入的替身写，没问题；e2e“只断言事件与字段在”需要诊断出口能被 e2e 读到，计划没说从哪读（`diagnostics` 服务的记录是否经 probe 暴露），要先确认，否则这条 e2e 写不出。
+(4) 未读线位置的单测必须用能产生真实内核事件的 fixture（对第 1 条）：用 `harness.ts` 的 `h<seq>` id 造数据会通过，却与应用无关；`session-host.test.ts` 要走 `createKernelTranscript` 的真路径，并含停止、半截、出错三种事件。
+建议改法：把以上四点写进验收映射表对应行；第 2 条语义定下来后再重排 e2e。
+
+## 未发现问题的方面
+- 基线读到“交看到之后的值”的竞态：按 `store.ts` 的 `flushSeen`（`unread` 为 null 不发、请求要等服务端往返再经 `botsChanged` 回来才改 `seenSeq`）核对，只要读取在列表项更新的同一同步段或其后的 pre-flush 里做，计划的论断成立；只剩读取机制没写出来（见第 5 条）。
+- `OwnerContact` 加 `seenSeq`、`SessionOwners.seenOf`、`gatedProvider` 透传：接口形状可行，没有发现与 `bots/view.md` 输出 4 冲突。
+- `reuseTurnGroups` 与 `assignTurnKeys`：线放在轮次循环里不改 `splitIntoTurnGroups` 的输出，两者按组首消息 id 索引，不受影响；`now` 每秒换时只要线的计算只依赖日序号（计算属性值相同不触发下游），不会打掉沿用。
+- 后端 tsc 范围：`paint-metric.ts` 本身不在范围（`src/plugins/*/web/**/*.test.ts` 也被排除），只要 `plugin.ts` 不引入它的 DOM 实现就行（第 7 条第 6 点）。
+- Spec 编号：`agent/conversation.md` 输出 55、56 与 `ui/agent-conversation-view.md` 验收 43、44 目前都空着，没有撞号。
+- 多窗口：基线按宿主各一份，窗口之间只共享服务端的 `seenSeq`，没有发现需要跨窗口同步的共享状态。
+
+## 数量
+阻断 2，重要 3，建议 4，合计 9 条。
+
+## 对六条待确认的判断
+1. 未读线画在含第一条未读回复的那一轮之前：同意，但补一句“该轮可能跨几天、含主动发来的回复”（第 6 条）；做法 B（轮内画）工作量大，不推荐这版做。
+2. 按天的线只在 bot 档画：同意，普通会话缺省回归最稳。
+3. 两种线的样子：同意沿用压缩分隔线的画法；注意 scoped 样式与 `data-divider` 撞名（第 8 条第 5 点）。
+4. 基线只在打开时拍：不同意现写法。这一条的文字与设计（第 63 行）、与 e2e（第 96 行）互相矛盾，字面实现会让看着时到的每条回复都画线（第 2 条）；先按第 2、4 条重定语义再请开发者确认，推荐“失焦或隐藏期间到的才画、打开时就未读的才画，线锁存”。
+5. 首屏指标只记主对话、隐藏不记、2,000 毫秒另写警告：同意方向，补可见性两端判断、视图可见与无盖层、`position` 字段（第 7 条）。
+6. 主对话只读解除不做实时推送：同意，不在本片范围，记后续即可。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9

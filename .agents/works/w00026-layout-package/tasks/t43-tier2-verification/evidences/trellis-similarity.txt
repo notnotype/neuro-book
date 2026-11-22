@@ -1,0 +1,69 @@
+# t43 与 Trellis 源码的机械比对（2026-11-22）
+
+目的：ADR 0054 第 5 条要求 nb-layout 改 MIT 之前核对没有从 Trellis 逐字复制代码（Trellis 是 source-available，非商业免费，见 docs/research/layout-libraries.md）。t37 整理控制器时没有记这次核对，所以在 t43 补上。
+
+比对对象：
+- 我们这边：packages/nb-layout/src、packages/nb-workbench-layout/src 下的 .ts、.vue、.css（不含测试与 .d.ts），加工作台的 layout-drag.ts、live-drag.ts、drag-geometry.ts、drag-keyboard.ts，共 78 个文件（master 19f5ac4c8）。
+- Trellis：GitHub DanFessler/trellis 默认分支 main 的源码包（2026-11-22 下载，codeload tar.gz，1300955 字节）里 packages/ 下的 .ts、.tsx、.js、.css，共 26 个文件。只做机械比对，没有阅读它的实现。
+
+做法：两边去掉注释、按标识符、数字与单个符号切 token，取长 K 的连续 token 片段，报告两边都有的片段；另比去掉空白后不短于 40 字符的行。脚本原文附在末尾。
+
+## 结果
+K=12 ours files=78 shingles=143486 theirs files=26 shingles=78284 shared=215
+K=20 ours files=78 shingles=151607 theirs files=26 shingles=82759 shared=21
+K=30 ours files=78 shingles=153509 theirs files=26 shingles=83889 shared=7
+lines>=40 ours=4382 theirs=2035 shared=0
+
+- K=12 的 215 段共有片段逐段看过，全是通用写法（分布在 32 个我们的文件里，最多的是 SortableList.vue 31 段、layout-doc.ts 24 段）：按 id 遍历树（if (node.id === id) return node; if (node.kind === "…、children.findIndex((child) => child.id === id)、{...node, children: node.children.map(…)}）、求外框（Math.min(...rects.map(…))）、方向的字符串联合（"left" | "right" | "top" | "bottom"）、(() => void) | null = null 这类声明、CSS 的 position: absolute; inset: 0; pointer-events: none、@media (prefers-reduced-motion: reduce)、系统字体栈、color-mix(in srgb, var(--…))。
+- K=30 还剩 7 段，都在同一处：SortableList.vue 的视觉隐藏样式 position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap。这是读屏专用文字的通用写法，旧应用 packages/neuro-book-legacy/app/components/workbench/ 的 WorkbenchViewSection.vue、WorkbenchPartHost.vue 里也有（旧应用早于 w00026 接触 Trellis）。
+- 去掉空白后不短于 40 字符的行：两边没有一行相同。
+
+结论（只就比对范围）：上面这些文件里没有发现从 Trellis 源码逐字复制的代码块；共有的片段都是通用写法。代码里两处“照 Trellis”的注释（live-drag.ts 的撕下标签、layout-drag.ts 的收起后指针再动才重判）与 grid 动效的 470ms、5 次幂缓出，是对行为的参照（t01、t02 的观察与逐帧采样），不是代码。
+
+## 比对脚本原文
+```ts
+// 机械比对：nb-layout（以及工作台拖动的两个文件、nb-workbench-layout）与 Trellis 源码之间有没有逐字相同的代码。
+// 去掉注释、空白归一后按 token 切成长 K 的片段，报告两边共有的片段；另报共有的、去空白后不短于 40 字符的行。
+import {readdirSync, readFileSync, statSync} from "node:fs";
+import {join, relative} from "node:path";
+const repo = "/home/notnotype/CodeRepository/neuro-book";
+const K = Number(process.argv[2] ?? 12);
+function walk(dir: string, out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+        if (name === "node_modules" || name === "dist" || name.startsWith(".")) continue;
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) walk(p, out);
+        else if (/\.(ts|tsx|vue|js|css)$/u.test(name) && !/\.(test|spec)\.|\.d\.ts$/u.test(name)) out.push(p);
+    }
+    return out;
+}
+const ours = [
+    ...walk(join(repo, "packages/nb-layout/src")),
+    ...walk(join(repo, "packages/nb-workbench-layout/src")),
+    join(repo, "packages/neuro-book/src/plugins/workbench/web/layout-drag.ts"),
+    join(repo, "packages/neuro-book/src/plugins/workbench/web/live-drag.ts"),
+    join(repo, "packages/neuro-book/src/plugins/workbench/web/drag-geometry.ts"),
+    join(repo, "packages/neuro-book/src/plugins/workbench/web/drag-keyboard.ts"),
+];
+const theirs = walk(join(import.meta.dir, "x/trellis-main/packages"));
+const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//gu, " ").replace(/(^|[^:"'`])\/\/.*$/gmu, "$1").replace(/<!--[\s\S]*?-->/gu, " ");
+const tokens = (s: string) => strip(s).match(/[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|[^\s\w]/gu) ?? [];
+function shingles(files: string[]) {
+    const map = new Map<string, string>();
+    let count = 0;
+    for (const f of files) {
+        const t = tokens(readFileSync(f, "utf8"));
+        for (let i = 0; i + K <= t.length; i++) { const key = t.slice(i, i + K).join(" "); if (!map.has(key)) map.set(key, f); count++; }
+    }
+    return {map, count};
+}
+const a = shingles(ours), b = shingles(theirs);
+const shared = [...a.map.keys()].filter((k) => b.map.has(k));
+console.log(`K=${K} ours files=${ours.length} shingles=${a.map.size} theirs files=${theirs.length} shingles=${b.map.size} shared=${shared.length}`);
+for (const k of shared.slice(0, 60)) console.log(`  [${relative(repo, a.map.get(k)!)} | ${relative(import.meta.dir, b.map.get(k)!)}] ${k}`);
+const lines = (files: string[]) => { const m = new Map<string, string>(); for (const f of files) for (const l of strip(readFileSync(f, "utf8")).split("\n")) { const n = l.replace(/\s+/gu, ""); if (n.length >= 40 && !m.has(n)) m.set(n, f); } return m; };
+const la = lines(ours), lb = lines(theirs);
+const sharedLines = [...la.keys()].filter((k) => lb.has(k));
+console.log(`lines>=40 ours=${la.size} theirs=${lb.size} shared=${sharedLines.length}`);
+for (const l of sharedLines.slice(0, 30)) console.log(`  [${relative(repo, la.get(l)!)}] ${l}`);
+```

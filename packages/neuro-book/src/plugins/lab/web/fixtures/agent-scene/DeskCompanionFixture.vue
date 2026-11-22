@@ -18,7 +18,7 @@ const props = defineProps<LabFixtureProps>();
 
 const english = props.scene.endsWith("-english");
 const last = english ? {text: "I finished counting the genres on the new-release chart. Want to take a look at what changed this week?", at: 1} : {text: "新书榜的类型我数完了，要看看吗？", at: 1};
-const contacts: OwnerContact[] = props.scene === "none" || props.scene === "failed" ? [] : [{id: "lyra", name: english ? "Lyra" : "星璃", unread: props.scene === "waiting" ? 0 : 3, last, sessionId: "bot-lyra"}];
+const contacts: OwnerContact[] = props.scene === "none" || props.scene === "failed" ? [] : [{id: "lyra", name: english ? "Lyra" : "星璃", unread: props.scene === "waiting" ? 0 : 3, seenSeq: 0, last, sessionId: "bot-lyra"}];
 const state: OwnerContactsState = props.scene === "failed" ? {kind: "failed", code: "disconnected"} : {kind: "ready"};
 const provider: SessionOwnerProvider = {
     contacts: shallowRef(contacts),
@@ -39,6 +39,7 @@ const host = {
         sessionId.value = id;
     },
     borrow: () => () => undefined,
+    markOpened: () => undefined,
 };
 const Conversation = defineComponent({
     props: {close: {type: Function, required: true}},

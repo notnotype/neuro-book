@@ -1,0 +1,99 @@
+我整理好了报告。草稿同样存在 `.local/agent/works/w00026-layout-package/tasks/t46-english-default-text/reports/design-review/report-draft.txt`。草稿里的条目数写得有误：一处写了 22 项目录，一处数量统计前后矛盾，以本回复为准。
+
+# t46 计划设计审查
+
+按影响排序。阻断 0 条，重要 5 条（第 1、2、3、4、5 条），建议 4 条（第 6、7、8、9 条）。
+
+### 1. 目录一致性核对不存在，`layout-text.ts` 的注释和提案的前提都不成立
+- 严重程度：重要。类别：已定设计、依赖的机制。
+- 位置：`packages/nb-layout/src/vue/layout-text.ts:14`、`scripts/ci/message-catalogs.ts:46-75`、`docs/proposals/nb-layout-general-library.md:249-250`、`plan.md:5、35`。
+- 现象（回答重点 3，查清了）：仓库里没有任何地方核对 nb-layout 的两份目录。
+  - `message-catalogs` 只查 JSON，查的是 `CATALOG_DIRECTORIES` 登记的 20 项加清单里列出的目录，里面没有 nb-layout。
+  - `i18n.md` 目录检查那段（第 123 行）写明共享包的 `.ts` 目录不在这里核对。
+  - nb-form、nb-agent-ui、nb-markdown、nb-ui 各有 `locales.test.ts`，nb-layout 没有。
+  - neuro-book 的 `host-text.test.ts` 只用到 `sortable.handle`、`floatWindow.move` 两个键，`text-engine.test.ts` 没提 nb-layout。
+- 为什么是问题：`layout-text.ts:14` 写着“键与目录的对应由 `LayoutTextKey` 与消息目录检查守着”，这两样都没有。`LayoutTextKey` 的 14 个键与目录对象互不引用。en-US 少一个键，缺省路径就返回键名字符串。改源语言后 en-US 成了缺省和回退链的唯一兜底，这个洞更要紧。plan 第 5 行照搬了提案“message-catalogs 的检查要跟着改”，这个前提不成立。
+- 如何核实：读 `message-catalogs.ts` 的 `CATALOG_DIRECTORIES`；`rg "NB_LAYOUT_CATALOGS"` 只出现在 `layout-text.ts`、`text-engine.ts` 和 `locales/index.ts`。
+- 建议：补 `src/locales/locales.test.ts`，用 `const KEYS = {...} satisfies Record<LayoutTextKey, true>` 让联合类型和表双向穷尽。再核对两份目录的叶子恰好是这 14 个键，占位符规则见第 4 条。plan 的 Context 和提案 249-250 行改成“message-catalogs 不查 `.ts` 目录，由包内测试查”。
+
+### 2. `layoutCatalogTranslate` 放进 `./locales` 会让核心依赖 `vue/text`
+- 严重程度：重要。类别：已定设计、接口。
+- 位置：`plan.md:21-23`、`packages/nb-layout/AGENTS.md` 边界一节、`docs/specs/ui/nested-grid.md:352`、`packages/nb-layout/tsconfig.json`（exclude `src/vue`）、`src/boundary.test.ts`。
+- 现象：函数签名是 `(locale) => LayoutTranslate`，而 `LayoutTranslate` 和 `LayoutTextKey` 定义在 `src/vue/text.ts`，该文件 `import type ... from "vue"`。`src/locales/` 属于核心（“`src/` 下除 `vue/` 以外的文件”）。
+- 为什么是问题：AGENTS 和 Spec 352 行都写核心“不依赖 Vue、DOM”，plan 说“只依赖目录与 `./text` 的类型”其实是核心导入 Vue 层文件。`boundary.test.ts` 抓不住，因为 CORE 规则只要求相对导入落在 `src/` 内（`within: SOURCE_ROOT`）。核心 tsconfig 虽然排除 `src/vue`，tsc 仍会顺着导入把 `vue` 类型拖进核心类型检查。
+- 如何核实：读 `boundary.test.ts` 的 CORE 规则和 `import-boundary.ts` 的 `offendingSpecifiers`。
+- 建议：把函数放进 `./text`（`src/vue/text.ts`）。Vue 层本来可以依赖核心，`layout-text.ts` 已经在导入 `../locales`。宿主已经从这里导入 `LAYOUT_TEXT_KEY`，两个名字出自同一个子路径。代价是改 `text.ts` 头注释“只放注入键与类型”一句，两份约 1 KB 的目录跟着进来。备选是把三个类型挪进核心再由 `text.ts` 重导出，改动更大，不推荐。
+
+### 3. `layoutCatalogTranslate(locale)` 的行为细节没定
+- 严重程度：重要。类别：接口与合同。
+- 位置：`plan.md:21-23`、`layout-text.ts:15-25`。
+- 现象与问题：
+  - a. “不是目录里的语言按源语言”：如果用 `NB_LAYOUT_CATALOGS[locale]` 取，`"constructor"`、`"toString"`、`"__proto__"` 取到的是原型上的函数，不是 `undefined`，结果得到键名而不是回退到源语言。要用 `Object.hasOwn` 或 Map。
+  - b. plan 只写了“未知语言”，没写“已知语言里缺键”。宿主引擎和 nb-ui 最小实现的链都是“当前语言 → 源语言 → en-US → 键名”（`i18n.md` 输出 4），现有 `lookup` 缺键直接返回键名。要写明缺键回源语言再回键名，并用测试固定。
+  - c. 没有规范化：`"zh"`、`"zh-cn"`、`"zh-Hans"`、`"zh_CN"` 都会静默变英文。目标用户是只写中文界面的宿主，最容易传 `navigator.language`。建议把参数类型收窄成 `keyof typeof NB_LAYOUT_CATALOGS`，拼错时编译就报；运行期放宽的话要写明不做前缀匹配。
+  - d. 返回的是固定一种语言的函数，README 现有的约束“函数要在每次调用时读宿主的当前语言”对它不适用。文档要写“不能运行时换语言”，否则第三方会拿它当通用入口。
+  - e. 与 `useLayoutText` 缺省翻译共用一份实现后行为有没有变：把 `lookup` 加 `replace` 原样搬过去，行为不变。`PLACEHOLDER` 只用于 `replace`，带 `g` 标志也不受 `lastIndex` 影响。`inject(LAYOUT_TEXT_KEY, sourceTranslate)` 不传第三参数，函数默认值原样返回，不当工厂调用。风险只在重构时顺手改了缺键行为，所以 b 要先定。
+- 有没有更小的做法：宿主自己写不会更小。nb-story 和开发者面板已依赖 nb-ui，可以用 `registerDefaultCatalog("nb-layout", …)` 加 `defaultTextPort().t(textRef(…))` 约 4 行，但每个宿主一份。第三方没有 nb-ui，需要一个公开函数。ADR 0054 第 8 条把 nb-story 定为第一个外部使用方，保留这个函数是合理的。
+
+### 4. nb-layout 的翻译实现与另两处在占位符语法上分叉
+- 严重程度：建议。类别：对照参照。
+- 位置：`layout-text.ts:11`、`packages/nb-ui/src/text/minimal.ts:30`、`message-catalogs.ts:73`。
+- 现象：`i18n.md` 输出 9 要求两个翻译器在 `{{name}}` 与 `{{name, number}}` 上结果相同。nb-layout 的正则不认 `, number`，会原样留着。函数公开后它就是第三个翻译器，对外承诺的语法比目录检查放行的少一种。
+- 建议：第 1 条的新测试里取 `message-catalogs` 的同一条正则，遇到 `, number` 就报错，明写“nb-layout 目录不用数字格式”。这比让正则支持数字格式更小。
+
+### 5. 测试迁移面写少了，缺省英文的覆盖也有洞
+- 严重程度：重要。类别：验收映射。
+- 位置：`plan.md:33-34、50-56`、`SortableList.dom.test.ts:60、62、70、74、93`、`splitter.dom.test.ts:783、805`。
+- 现象：plan 只点名了“2 像素”“已收起”“拖到这里”和“没有注入”那条。实际依赖缺省中文的断言是 splitter 2 处加 SortableList 5 处（60、62、70、74、93 行）。全改成英文会得到 `Move 旧码头`、`Position 1 in 第二卷` 这种夹着中文夹具名的断言。
+- 覆盖洞：nb-layout 内没有任何测试断言分隔线的读屏名，即 `splitter.resizeWidth`/`resizeHeight`，对应 `NestedGrid.vue:348、369` 和 `Splitter.vue:339` 三处调用。`floatWindow.*` 和 `sortable.hint/picked/cancelled` 也没有。应用里六个 e2e 断言“调整 … 的宽度”，但都经宿主注入，测的是引擎而不是缺省。plan 里“没有注入是英文、注入中文是中文”各一条，覆盖不到 14 个键里的 7 个。
+- 如何核实：`rg "调整|宽度\"|高度\"" packages/nb-layout/src --glob '*.test.ts'` 只命中 `grid.test.ts` 里与文案无关的用例名。
+- 建议：
+  - 夹具的 `mountList` 默认注入 `layoutCatalogTranslate("zh-CN")`，原有五处中文断言不动，只把“没有注入”那条改成英文。
+  - 加一条表驱动：14 个键各调一次缺省函数和 zh-CN 函数，结果都不等于键名，占位符都被代入。
+  - Splitter 和 NestedGrid 各加一条 dom 用例，读分隔线 `aria-label` 是 `Resize width between a and b`；FloatWindowHandles 读两个把手的 `aria-label`。
+
+### 6. 两个宿主的注入没有守卫，开发者面板完全没有
+- 严重程度：建议。类别：验收映射、失败路径。
+- 位置：`plan.md:29、36、55`、`packages/dev-panel/src/web/main.ts`、`packages/nb-story/src/web/main.ts`、`packages/dev-panel/tests/`。
+- 核实结果（回答重点 4）：两个宿主都只有一个 `createApp(App).use(router).mount("#app")`，没有第二个根。Teleport 的 inject 按组件树取，不受挂到 body 影响。产品代码里其余直接挂载的只有 neuro-book 的 `mount.ts`、`boot.ts`，已走 `provideAppHostText`。我没有发现遗漏的根。
+- 守卫情况：开发者面板的 `tests/` 里没有测试挂载 `App.vue` 或 `ArtifactPage.vue`，`web-build.test.ts` 只构建后查 CSS。以后有人删掉 `.provide(...)`，界面静默变英文，没有测试会红。nb-story 的 `viewer.e2e.ts` 要真实构建和本机 Chrome，不在日常测试里。
+- 建议：
+  - nb-story 的 e2e 在 1440 宽度（`tier === "wide"`）断言 `getByRole("separator", {name: "调整 nav 与 main 的宽度"})`。面板 id 是 `nav`、`main`、`drawer`，不是“导航”。写完删掉 provide 跑一次，确认变红。
+  - 加一条源码扫描测试，仿 `host-text.test.ts`：凡导入 `@notnotype/nb-layout/vue` 的前端包，`main.ts` 必须含 `LAYOUT_TEXT_KEY`。nb-story 和开发者面板共用，进日常测试。
+
+### 7. 文档与注释漏列，plan 里还有两处说法不准
+- 严重程度：建议。类别：遗漏（回答重点 5）。
+- 漏列的位置：
+  - `packages/nb-ui/docs/migration-0.4.md:77`：“没有注入时用它自带的中文目录”。
+  - `packages/nb-layout/src/vue/SortableList.md:12、51`：“拖到这里”写成定值。
+  - `src/locales/zh-CN.ts:1`（“源语言”）和 `en-US.ts:1`（“键与 zh-CN.ts 相同”）：两处头注释要对调。
+  - `packages/neuro-book/src/web/host/text-engine.ts:158` 的块注释“源语言都是 `zh-CN`”。plan 只改了 166 行的字面量。其余四个共享包仍写死 `"zh-CN"`，只有 nb-layout 读常量，要在注释里说明这个例外，否则下次容易被“统一”回去。
+  - `packages/nb-layout/AGENTS.md` 的文字一句。
+  - `docs/specs/ui/nested-grid.md:228`：输出 143 要加 `layoutCatalogTranslate` 一句，新增的句子要有对应测试。
+  - `docs/proposals/nb-layout-general-library.md:249-250`：提案里“message-catalogs 要跟着改”的前提不成立（见第 1 条）。
+- plan 里不准的两处：
+  - “`exports.test.ts` 的 `./locales` 一项多一个名字”不成立：`exports.test.ts` 没有按入口列名字的清单。起作用的是“一行一个导出”“文档导入的名字在入口里”，以及 `readme.test.ts` 里 README 表的名字必须出自所写入口。要改的是 README 表加一行。
+  - README 和随包的 `.md` 不得出现“输出 N”这类 Spec 编号（`readme.test.ts` 第 2 条会红），新写的文字要避开。
+- CHANGELOG：plan 把“不兼容的改动要进变更记录”只写在自己的计划里，t47 的 plan 或 README 里没有对应的输入，会丢。
+
+### 8. 默认语言不对称：nb-ui 缺省端口仍固定 zh-CN
+- 严重程度：建议。类别：被破坏的既有约定。
+- 位置：`docs/specs/ui/i18n.md:106`（输出 8）、`packages/nb-ui/src/text-port/index.ts`（`defaultTextPort` 固定 zh-CN）。
+- 现象：改完后，没有宿主的树里 nb-ui 系列是中文，nb-layout 是英文，同屏中英混排。plan 只把“已知限制”那句的 zh-CN 改成 en-US，没写这种混合。
+- 限制本身的方向也反了：共享包根组件按自己的 `locale` 建缺省端口，`locale="zh-CN"` 时里面嵌的 nb-layout 现在是英文，错的变成最常见的中文情形。今天没有共享包嵌 nb-layout（nb-form、nb-agent-ui、nb-markdown 都不导入它），所以只需写进已知限制。
+- 建议：输出 8 写明“没有宿主时 nb-ui 系列是 zh-CN、nb-layout 是 en-US，同屏会混，要一致就注入”。
+
+### 9. 上游选择：公开面被迁就的几处（不要求本 Task 改）
+- 严重程度：建议。类别：上游选择。
+- 位置：`Splitter.vue:339`、`NestedGrid.vue:348、369`、`Splitter.md:25-39`（`SplitterPanelConfig` 没有 `label`）。
+- 现象：分隔线读屏名的 `before`/`after` 直接取面板 id 或叶 id。nb-story 的 id 是 `nav`、`main`、`drawer`，应用里是 `section:<id>`、`center`、`g0`（e2e 的正则就按这些写）。英文模板下读成 `Resize width between nav and main`，第三方得把 id 起成人话才可读，不传 id 时是 `panel-0`。
+- 代价：宿主靠 id 兼做显示名，改 id 会破坏 e2e 和持久化的布局，因为 id 同时是身份。公开面补一个可选的 `label`（Splitter 的面板配置、NestedGrid 的叶）就能脱钩。这属于 ADR 0054 第 8 条“第二档由 nb-story 校验公开面”的自然一条，这里只列不做。
+- 另外，英文目录 `splitter.pixels` 是 `{{size}} pixels`，size 为 1 时读成 `1 pixels`。库不处理复数（提案 248 行已写明），范围小，记为已知限制即可。
+
+### 未发现问题的方面
+- 应用窗口的显示：`text-engine.ts:166` 改源语言后，回退链去重。中文窗口前后都是 `[zh-CN, en-US]`，英文窗口从 `[en-US, zh-CN]` 变成 `[en-US]`。两份目录键全，宿主语言只有 zh-CN 和 en-US 两种（`HOST_LOCALES`），显示不变，plan 的判断成立。
+- 应用里依赖中文读屏名的 e2e 和脚本（workbench-shell、workbench-containers、editor-area、workbench-views、workbench-dnd、lab-sortable-list、`scripts/perf/layout-frames.ts`）都在宿主注入的根下，不受影响。`provideText` 经 `hostTextProvides` 带上了 `LAYOUT_TEXT_KEY`，应用的 dom 测试不依赖缺省。
+- SDK 的 `plugin-sdk/pack.ts` 只给 `nb-layout` 和 `nb-layout/vue` 建类型路径，不涉及目录，组件文档生成不受影响。
+- nb-workbench-layout 只有 `TabStrip` 和 `DropSectorsOverlay` 的测试，不依赖缺省文字。
+
+有效发现：1、2、3、4、5、6、7、8、9

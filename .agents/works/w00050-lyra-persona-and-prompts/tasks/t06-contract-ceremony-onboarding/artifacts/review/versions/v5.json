@@ -1,0 +1,402 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t06-contract-ceremony-onboarding",
+    "artifactId": "review",
+    "version": 5,
+    "supersedes": 4,
+    "action": "close",
+    "kind": "design",
+    "title": "星璃「真名契约仪式」设计稿视觉与交互评审",
+    "state": "closed",
+    "entry": "index.html",
+    "contentHash": "344429bbc0cd7cfca780f19aaf20836b368b65379aa6f58e536738930f65e82d",
+    "files": [
+        "index.html",
+        "r1/act1.webp",
+        "r1/act2-390.webp",
+        "r1/act2-960.webp",
+        "r1/act2-emcee.webp",
+        "r1/act2.webp",
+        "r1/act3.webp",
+        "r1/act4-390.webp",
+        "r1/act4-960.webp",
+        "r1/act4-seal.webp",
+        "r1/act4.webp",
+        "r1/act5.webp",
+        "r1/archive.webp",
+        "r1/cover.webp",
+        "r1/history-1280.webp",
+        "r1/history-390.webp",
+        "r1/invite.webp",
+        "r2/act1.webp",
+        "r2/act2-390.webp",
+        "r2/act2-960.webp",
+        "r2/act2.webp",
+        "r2/act3.webp",
+        "r2/act4-390.webp",
+        "r2/act4-960.webp",
+        "r2/act4-seal.webp",
+        "r2/act4.webp",
+        "r2/act5.webp",
+        "r2/archive.webp",
+        "r2/closed-sealed.webp",
+        "r2/cover-390.webp",
+        "r2/cover.webp",
+        "r2/history-1280.webp",
+        "r2/history-390.webp",
+        "r2/invite.webp",
+        "r3/act1.webp",
+        "r3/act2-390.webp",
+        "r3/act2-960.webp",
+        "r3/act2.webp",
+        "r3/act3.webp",
+        "r3/act4-390.webp",
+        "r3/act4-960.webp",
+        "r3/act4-seal.webp",
+        "r3/act4-sealed-magic.webp",
+        "r3/act4-wax-pooled.webp",
+        "r3/act4.webp",
+        "r3/act5.webp",
+        "r3/archive.webp",
+        "r3/closed-sealed.webp",
+        "r3/cover-390.webp",
+        "r3/cover-960.webp",
+        "r3/cover.webp",
+        "r3/history-1280.webp",
+        "r3/history-390.webp",
+        "r3/invite.webp",
+        "r4/act1.webp",
+        "r4/act2-390.webp",
+        "r4/act2-960.webp",
+        "r4/act2.webp",
+        "r4/act3.webp",
+        "r4/act4-390.webp",
+        "r4/act4-960.webp",
+        "r4/act4-seal.webp",
+        "r4/act4-sealed-magic-390.webp",
+        "r4/act4-sealed-magic-960.webp",
+        "r4/act4-sealed-magic.webp",
+        "r4/act4-wax-pooled.webp",
+        "r4/act4.webp",
+        "r4/archive.webp",
+        "r4/closed-sealed-390.webp",
+        "r4/closed-sealed.webp",
+        "r4/cover-390.webp",
+        "r4/cover-960.webp",
+        "r4/cover.webp",
+        "r4/history-1280.webp",
+        "r4/history-390.webp",
+        "r4/invite.webp",
+        "r4/motion-3d-turn-next.webp",
+        "r4/motion-3d-turn-prev.webp",
+        "r4/motion-calligraphy-stroke.webp",
+        "r4/motion-gem-inlay.webp",
+        "r4/motion-sealed-magic-live.webp"
+    ],
+    "questions": [
+        {
+            "id": "overall-visual-direction",
+            "type": "single",
+            "label": "《万界真典》整体视觉基调（暗夜星案、赤金精装书、书侧星璃、底部极轻字幕条）是否符合预期？",
+            "options": [
+                {
+                    "value": "approve",
+                    "label": "A 认可当前基调"
+                },
+                {
+                    "value": "lighter-backdrop",
+                    "label": "B 调亮书庭背景明暗"
+                },
+                {
+                    "value": "rework-book",
+                    "label": "C 重做书页材质或排版"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "approve"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "lyra-framing",
+            "type": "single",
+            "label": "书侧星璃的构图比例：定制 7 张半身差分，还是沿用全身立绘？",
+            "options": [
+                {
+                    "value": "bust-7-diff",
+                    "label": "A 定制 7 张半身立绘差分"
+                },
+                {
+                    "value": "fullbody-reuse",
+                    "label": "B 沿用当前全身立绘比例"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "bust-7-diff"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "act4-signature-default",
+            "type": "single",
+            "label": "第 4 幕落款区默认呈现手写星墨签名板，还是朱砂藏书印花押？",
+            "options": [
+                {
+                    "value": "handwrite-default",
+                    "label": "A 默认手写签名板"
+                },
+                {
+                    "value": "seal-default",
+                    "label": "B 默认朱砂藏书印花押"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "handwrite-default"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "host-mode-chrome",
+            "type": "single",
+            "label": "V1 上线范围：仅开放星璃自主持，还是同步开放 V2「真典司仪」宣礼条？",
+            "options": [
+                {
+                    "value": "v1-lyra-only",
+                    "label": "A V1 仅星璃自主持"
+                },
+                {
+                    "value": "ship-both",
+                    "label": "B V1 同步开放 V2 司仪模式"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "v1-lyra-only"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "responsive-and-history",
+            "type": "confirm",
+            "label": "认可窄屏单页切换与右侧对话回顾抽屉布局",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-realism-signoff",
+            "type": "single",
+            "label": "第 2 轮拟真装帧、纯纸墨交互与全流程收口（第 0 幕至合书嵌宝与典藏态）是否达到定稿标准？",
+            "options": [
+                {
+                    "value": "approve",
+                    "label": "A 认可定稿，转入 Spec 与素材阶段"
+                },
+                {
+                    "value": "tweak-details",
+                    "label": "B 主体满意，需微调局部细节"
+                },
+                {
+                    "value": "rework-visual",
+                    "label": "C 仍有较大方向需重做"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "approve"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-act4-charter-layout",
+            "type": "single",
+            "label": "第 4 幕采用“书页间夹入一张纵向羊皮纸契约书、双人并肩署押”方案，是否满意？",
+            "options": [
+                {
+                    "value": "insert-sheet",
+                    "label": "A 保留当前纵向夹页羊皮纸契约书"
+                },
+                {
+                    "value": "full-spread",
+                    "label": "B 改为铺满左右双页的大跨页合同"
+                },
+                {
+                    "value": "insert-adjust",
+                    "label": "C 保留夹页，微调条款或落款排版"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "insert-sheet"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-responsive-and-motion",
+            "type": "confirm",
+            "label": "认可响应式适配与实机动态效果手感",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r3-final-signoff",
+            "type": "single",
+            "label": "第 3 轮 18 项精细化重做后的全流程视觉与交互质感，是否达到正式定稿标准？",
+            "options": [
+                {
+                    "value": "approve",
+                    "label": "A 认可定稿，转入 Spec 与立绘生图"
+                },
+                {
+                    "value": "tweak-details",
+                    "label": "B 主体满意，个别细节再修一轮"
+                },
+                {
+                    "value": "rework",
+                    "label": "C 仍有结构级方向需重做"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "approve"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-wax-and-motion",
+            "type": "single",
+            "label": "第 4 幕“先倾倒红蜡再按压铜章”二段火漆、成契魔法特效与实机动效节奏是否满意？",
+            "options": [
+                {
+                    "value": "approve-motion",
+                    "label": "A 认可二段火漆与实机动效节奏"
+                },
+                {
+                    "value": "adjust-pacing",
+                    "label": "B 喜欢二段火漆，微调动效速度或特效强度"
+                },
+                {
+                    "value": "adjust-wax",
+                    "label": "C 调整火漆交互手势或表现"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "approve-motion"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r4-final-signoff",
+            "type": "single",
+            "label": "第 4 轮 7 项流畅度、魔法具象化与终幕精修后的整套设计稿，是否正式定稿？",
+            "options": [
+                {
+                    "value": "approve",
+                    "label": "A 正式定稿，锁定基线"
+                },
+                {
+                    "value": "tweak-details",
+                    "label": "B 方向已对，再微调局部细节"
+                },
+                {
+                    "value": "rework-stage",
+                    "label": "C 仍有较大改动方向"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "approve"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 5,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "r4-motion-and-conjuration",
+            "type": "single",
+            "label": "真 3D 拱起翻页、逐笔英文手写、三法阵器物具象化与记忆宝石自动嵌印的实机动效体验如何？",
+            "options": [
+                {
+                    "value": "approve-motion",
+                    "label": "A 认可流畅度、逐笔手写与魔法具象化动效"
+                },
+                {
+                    "value": "tune-timing",
+                    "label": "B 喜欢这套魔法演绎，微调节奏或光效强度"
+                },
+                {
+                    "value": "adjust-conjuration",
+                    "label": "C 调整三法阵器物或宝石嵌印交互细节"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "approve-motion"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 5,
+                "reason": "closed"
+            }
+        }
+    ],
+    "publishedAt": "2026-11-21T13:16:34.392Z"
+}

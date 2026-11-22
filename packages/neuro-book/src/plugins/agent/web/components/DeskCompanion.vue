@@ -29,7 +29,7 @@ const props = defineProps<{
     activity: readonly ActivityItem[];
     /** 有没有可用的模型：没有为 false，还没读到为 null。 */
     hasModel: boolean | null;
-    host: ContactHostPart & {borrow(): () => void};
+    host: ContactHostPart & {borrow(): () => void; markOpened(): void};
     /** 面板里的对话：收 `close`，暴露 `focusComposer()`。第一次打开时才加载（异步组件）。 */
     conversation: Component;
     openModelSettings: () => void;
@@ -93,6 +93,8 @@ let giveBack: (() => void) | null = null;
 watch(open, (now) => {
     if (now) {
         giveBack = props.host.borrow();
+        // 面板每打开一次算一次打开：未读线按此刻重新定（conversation.md 输出 55）。已经开着这个主对话时 `openContact` 不再打开。
+        props.host.markOpened();
         props.ensureStarted();
         if (contact.value !== null) void opener.openContact(contact.value.key);
         return;

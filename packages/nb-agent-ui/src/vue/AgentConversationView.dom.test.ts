@@ -1082,3 +1082,60 @@ describe("focusComposer", () => {
         elsewhere.remove();
     });
 });
+
+describe("轮与轮之间的分隔线（docs/specs/ui/agent-conversation-view.md 的“分轮视图”、验收 43）", () => {
+    /** 本地时区的时刻：线按本地的日历日分。 */
+    const local = (month: number, day: number, hour: number, year = 2026) => new Date(year, month - 1, day, hour).getTime();
+    const turn = (n: number, at: number): AgentConversationContext["messages"] => [
+        {kind: "user", id: `u${String(n)}`, timestamp: at, intent: "normal", blocks: [{kind: "text", text: `问 ${String(n)}`}], contentOmitted: false},
+        {kind: "assistant", id: `a${String(n)}`, timestamp: at + 60_000, status: "done", text: `答 ${String(n)}`, thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+    ];
+    const stream = (dividers?: AgentConversationContext["dividers"]): AgentConversationContext => ({
+        ...context(),
+        messages: [...turn(1, local(11, 18, 9)), ...turn(2, local(11, 21, 20)), ...turn(3, local(11, 22, 8)), ...turn(4, local(11, 22, 10))],
+        now: local(11, 22, 12),
+        ...(dividers === undefined ? {} : {dividers}),
+    });
+    /** 内容列里线与轮次的先后：线写它的字，轮次写它的第一句话。 */
+    const order = (view: ReturnType<typeof mountView>) => view.findAll(".acv-stream__content > [data-day-divider], .acv-stream__content > [data-unread-divider], .acv-stream__content > .acv-turn")
+        .map((node) => (node.classes("acv-turn") ? `轮:${node.text().match(/问 \d/u)![0]}` : `线:${node.text()}`));
+
+    it("按天与未读：日子在轮前、同一天不重复，未读线在含起点的那一轮之前、日子之下", () => {
+        const view = mountView("zh-CN", {}, {ctx: stream({day: true, unreadFrom: "a3"})});
+        expect(order(view)).toEqual(["线:11月18日", "轮:问 1", "线:昨天", "轮:问 2", "线:今天", "线:以下是新消息", "轮:问 3", "轮:问 4"]);
+        view.unmount();
+    });
+
+    it("英文界面：Today、Yesterday、月日与 New messages", () => {
+        const view = mountView("en-US", {}, {ctx: stream({day: true, unreadFrom: "a4"})});
+        expect(order(view)).toEqual(["线:Nov 18", "轮:问 1", "线:Yesterday", "轮:问 2", "线:Today", "轮:问 3", "线:New messages", "轮:问 4"]);
+        view.unmount();
+    });
+
+    it("未读起点不在已加载的消息里时没有未读线；原始视图两种线都没有", () => {
+        const missing = mountView("zh-CN", {}, {ctx: stream({day: true, unreadFrom: "older"})});
+        expect(missing.find("[data-unread-divider]").exists()).toBe(false);
+        missing.unmount();
+        const raw = mountView("zh-CN", {}, {ctx: stream({day: true, unreadFrom: "a3"}), viewMode: "raw"});
+        expect(raw.find("[data-day-divider]").exists()).toBe(false);
+        expect(raw.find("[data-unread-divider]").exists()).toBe(false);
+        raw.unmount();
+    });
+
+    it("缺省回归：不给 dividers 时没有线，内容列里只有轮次", () => {
+        const view = mountView("zh-CN", {}, {ctx: stream()});
+        expect(order(view)).toEqual(["轮:问 1", "轮:问 2", "轮:问 3", "轮:问 4"]);
+        view.unmount();
+    });
+
+    it("线后来才出现（宿主算出未读起点）时轮次不重新挂载；now 过了零点，“今天”变“昨天”", async () => {
+        const view = mountView("zh-CN", {}, {ctx: stream({day: true})});
+        const third = view.findAll(".acv-turn")[2]!.element;
+        await view.setProps({ctx: stream({day: true, unreadFrom: "a3"})});
+        expect(view.findAll(".acv-turn")[2]!.element).toBe(third);
+        expect(view.find("[data-unread-divider]").exists()).toBe(true);
+        await view.setProps({ctx: {...stream({day: true, unreadFrom: "a3"}), now: local(11, 23, 0) + 60_000}});
+        expect(order(view).filter((item) => item.startsWith("线:"))).toEqual(["线:11月18日", "线:11月21日", "线:昨天", "线:以下是新消息"]);
+        view.unmount();
+    });
+});

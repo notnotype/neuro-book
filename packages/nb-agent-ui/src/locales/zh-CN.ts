@@ -34,6 +34,9 @@ export default {
         loading: "正在加载会话",
         phraseSeparator: "，",
         jumpToLatest: "回到最新",
+        today: "今天",
+        yesterday: "昨天",
+        unread: "以下是新消息",
     },
     history: {
         more: "更早的内容",
@@ -555,6 +558,7 @@ export default {
             thinkingLoop: "模型的思考内容不断重复，运行已停止。",
             firstEventTimeout: "模型服务未开始响应，请稍后重试。",
             compactionFailed: "压缩没有成功，对话没有改动。可以换一个压缩模型，或者开一个新会话。",
+            compactionFailedPinned: "压缩没有成功，对话没有改动。可以换一个压缩模型再试。",
         },
         compactionStopped: "已停止压缩",
         tool: {
