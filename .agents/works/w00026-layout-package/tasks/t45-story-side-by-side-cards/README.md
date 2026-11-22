@@ -26,7 +26,7 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：四个切片都实施完，在分支 `w00026/t45-side-by-side`（worktree `.worktree/w00026-t45-side-by-side`），实现审查待处理（Claude Sonnet）。Spec [`story/viewer`](../../../../../docs/specs/story/viewer.md) 输出 1、4、20 与地址形状已改，输出 66 到 69、验收 15 标着 planned，合入时去掉。待确认清单新增 12 行（t45）。
+2026-11-22：四个切片都实施完，在分支 `w00026/t45-side-by-side`（worktree `.worktree/w00026-t45-side-by-side`），实现审查待处理（Claude Sonnet）。Spec [`story/viewer`](../../../../../docs/specs/story/viewer.md) 输出 1、4、20 与地址形状已改，输出 66 到 69、验收 15 标着 planned，合入时去掉。待确认清单里 t45 共 12 行（设计时 2 行，实施完补 10 行）。
 
 ### 提交
 
@@ -86,4 +86,4 @@ updated: 2026-11-22
 
 ## 下一步
 
-处理实现审查 → 把 master 并进分支、合入、Spec 去掉 planned → 删 worktree。
+处理实现审查，同时补一处没核实的：输出 66 与验收 15 写“关掉的那张在过渡里停在关之前的样子”，用例只量了宽度与焦点，变异 M1 也只跑了顶栏开关与过渡两条；关左边那张时被关的那项当即卸载，这句只对关右边那张、关最后一张成立。先在浏览器里看清两种关法，再补逐帧断言并对它重跑 M1，或收窄 Spec 的说法 → 把 master 并进分支、合入、Spec 去掉 planned → 删 worktree。
