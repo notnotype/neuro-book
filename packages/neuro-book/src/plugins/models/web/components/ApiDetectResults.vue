@@ -75,6 +75,10 @@ function lineOf(row: ApiCheck): string {
 
 // ---- 没有模型时填一个 ----
 const modelDraft = ref("");
+/**
+ * 回车要拦下默认动作：页面随后把焦点交给“检测协议”按钮（这时是“取消协议检测”），不拦时同一次按键的 keypress 落到按钮上，
+ * 刚开始的检测就被取消了。
+ */
 function detectWith(): void {
     const model = modelDraft.value.trim();
     if (model !== "" && !props.disabled) emit("detect", model);
@@ -88,7 +92,7 @@ function detectWith(): void {
         <template v-else-if="state.status === 'failed' && state.code === 'no-model'">
             <p class="api-detect__note">{{ text("connection.detect.needModel") }}</p>
             <div class="api-detect__model">
-                <Input :id="`${id}-model`" v-model="modelDraft" size="sm" :aria-label="text('connection.detect.modelLabel')" :placeholder="text('connection.detect.modelLabel')" :disabled="disabled" data-api-detect-model @keydown.enter="detectWith" />
+                <Input :id="`${id}-model`" v-model="modelDraft" size="sm" :aria-label="text('connection.detect.modelLabel')" :placeholder="text('connection.detect.modelLabel')" :disabled="disabled" data-api-detect-model @keydown.enter.prevent="detectWith" />
                 <Button size="sm" variant="secondary" :disabled="disabled || modelDraft.trim() === ''" data-api-detect-run @click="detectWith">{{ text("connection.detect.run") }}</Button>
             </div>
         </template>
