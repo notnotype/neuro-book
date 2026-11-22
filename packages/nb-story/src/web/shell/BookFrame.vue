@@ -21,7 +21,7 @@ import {LAYOUT_MOTION} from "../host/motion";
 import ReadingControl from "../parts/ReadingControl.vue";
 import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
-import {createBookGrid} from "./book-grid";
+import {cardWidthOf, createBookGrid, type BookPane} from "./book-grid";
 import DetailShell from "./DetailShell.vue";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
@@ -110,28 +110,41 @@ const navIsCollapsed = computed(() => tier.value === "tablet" || navCollapsed.va
 /** 抽屉那一栏该不该收起：不是宽屏（抽屉画成浮层）或没有打开的内容。 */
 const drawerIsCollapsed = computed(() => overlayDrawer.value || book.drawer.value === null);
 
-// ---- 三栏（输出 1、32）：nb-layout 的网格，收起状态以上面两个期望值为准 ----
-// 期望值变了推给网格；网格自己改收起（拖过阈值、分隔线上按 Enter）时，落账后把变化映射回宿主（导航偏好、抽屉开关），期望值
-// 随之变成网格的样子。映射不回去的两种由停用分隔线挡住（`sashDisabled`）：没打开过内容时拖开抽屉（`reopenDrawer` 什么也不
+// ---- 分栏（输出 1、32、66）：nb-layout 的网格，收起状态以上面两个期望值为准 ----
+// 期望值变了推给网格；网格自己改收起（拖过阈值、分隔线上按 Enter）时，落账后把变化映射回宿主（导航偏好、详情开关），期望值
+// 随之变成网格的样子。映射不回去的两种由停用分隔线挡住（`sashDisabled`）：没打开过内容时拖开详情（`reopenDrawer` 什么也不
 // 做）、平板档拖开导航（导航固定是图标条）。
-const grid = createBookGrid({drawerWidth: readDrawerWidth(), navCollapsed: navIsCollapsed.value, drawerCollapsed: drawerIsCollapsed.value, compact: () => overlayDrawer.value});
+/** 此刻并排的张数（1 或 2）：整块收起时按记着的张数，没有详情时按 1。 */
+const cardCount = (): number => Math.min(2, Math.max(1, book.details.value.items.length));
+const grid = createBookGrid({drawerWidth: readDrawerWidth(), navCollapsed: navIsCollapsed.value, drawerCollapsed: drawerIsCollapsed.value, compact: () => overlayDrawer.value, cardCount});
 const host = useGridHost({grid, contextKey: "book-frame", onApplied, onIssues});
 function onApplied(commit: GridGestureCommit): void {
     for (const change of commit.changes) {
         if (change.collapsed.nav !== undefined) setNavCollapsed(change.collapsed.nav);
-        if (change.collapsed.drawer === true) book.closeDrawer();
-        if (change.collapsed.drawer === false) book.reopenDrawer();
-        // 只在抽屉参与了这次拖动时记它的宽度：拖导航线时抽屉可能被挤窄（在 `compensated` 里），那不是用户选的宽度。收到 0 的不记。
-        const drawerTarget = change.target.drawer;
-        if (change.active.includes("drawer") && drawerTarget !== undefined && drawerTarget >= DRAWER_WIDTH_RANGE.min) writeDrawerWidth(drawerTarget);
+        if (change.collapsed.details === true) book.closeDrawer();
+        if (change.collapsed.details === false) book.reopenDrawer();
+        // 只在详情这一栏参与了这次拖动时记卡宽：拖导航线时它可能被挤窄（在 `compensated` 里），那不是用户选的宽度；中间那条线只分配两张，
+        // 落账在 `details` 分支里、`active` 不含它，不记。收到 0 的不记。两张时记一张卡的宽度。
+        const detailsTarget = change.target.details;
+        if (change.active.includes("details") && detailsTarget !== undefined && detailsTarget >= DRAWER_WIDTH_RANGE.min) writeDrawerWidth(cardWidthOf(detailsTarget, cardCount()));
     }
 }
 watch([navIsCollapsed, drawerIsCollapsed], ([nav, drawer]) => {
-    for (const [id, collapsed] of [["nav", nav], ["drawer", drawer]] as const) {
+    for (const [id, collapsed] of [["nav", nav], ["details", drawer]] as const) {
         const result = host.setCollapsed(id, collapsed);
-        if (!result.ok) console.warn({result}, `书页三栏收起或展开 ${id} 没成`);
+        if (!result.ok) console.warn({result}, `书页分栏收起或展开 ${id} 没成`);
     }
 });
+/** 分隔线读屏时念的名字（ui/nested-grid 输出 152）：一张时详情一栏就叫“详情”，两张时分左右。 */
+function paneLabel(id: string): string | undefined {
+    const pane = id as BookPane;
+    if (pane === "nav") return "导航";
+    if (pane === "main") return "正文";
+    if (pane === "details") return "详情";
+    if (pane === "drawer") return cardCount() >= 2 ? "左边的详情" : "详情";
+    if (pane === "drawer2") return "右边的详情";
+    return undefined;
+}
 /**
  * 布局诊断只发新出现的。宽屏的下界 1100 放不下“导航 + 主区最小 360 + 较宽的抽屉偏好”时会有 `over-constrained`，网格按比例压缩，
  * 这是这个外壳的正常状态（换成网格之前的分栏也是静默压缩），不打；其余的照打，别让接线错误没人看见。
@@ -139,7 +152,7 @@ watch([navIsCollapsed, drawerIsCollapsed], ([nav, drawer]) => {
 function onIssues(issues: readonly GridHostIssue[]): void {
     for (const issue of issues) if (issue.code !== "over-constrained") console.warn({issue}, "书页三栏的布局诊断");
 }
-// 平板档主区与抽屉之间那条线宽 0（`createBookGrid` 的 `compact`）：档位变了让网格按新的线宽重算。
+// 平板档主区与详情之间那条线宽 0（`createBookGrid` 的 `compact`）：档位变了让网格按新的线宽重算。
 watch(overlayDrawer, () => host.invalidate());
 
 /** 停用的分隔线：平板档导航那条（导航固定是图标条）；没打开过任何内容时抽屉那条（顶栏的开关这时也不可用）。 */
@@ -282,7 +295,7 @@ watch(notice, value => {
 
         <div class="relative min-h-0 flex-1">
             <!-- 过渡时长接到控件形变那一档（与换成网格之前的分栏一样）；设在网格根上，减少动态效果时照样归零（ui/nested-grid 输出 142）。 -->
-            <NestedGrid v-if="tier !== 'phone'" ref="gridRef" v-bind="host.bindings.value" :sash-disabled="sashDisabled" :contents="detailContents" class="h-full" style="--nb-layout-motion-layout: var(--nb-layout-motion-move)" @content-parked="onContentParked">
+            <NestedGrid v-if="tier !== 'phone'" ref="gridRef" v-bind="host.bindings.value" :sash-disabled="sashDisabled" :pane-label="paneLabel" :contents="detailContents" class="h-full" style="--nb-layout-motion-layout: var(--nb-layout-motion-move)" @content-parked="onContentParked">
                 <template #leaf="{node}">
                     <nav v-if="node.id === 'nav'" class="flex h-full flex-col gap-0.5 overflow-y-auto py-2" :class="navIsCollapsed ? 'items-center px-1' : 'px-2'" aria-label="页面">
                         <button

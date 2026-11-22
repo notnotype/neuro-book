@@ -38,7 +38,7 @@ function pane(page: Page, id: "nav" | "main" | "drawer"): Locator {
     return page.locator(`[data-testid='book-frame'] [data-leaf='${id}']`);
 }
 function sash(page: Page, which: "nav" | "drawer"): Locator {
-    return page.getByRole("separator", {name: which === "nav" ? "调整 nav 与 main 的宽度" : "调整 main 与 drawer 的宽度"});
+    return page.getByRole("separator", {name: which === "nav" ? "调整 导航 与 正文 的宽度" : "调整 正文 与 详情 的宽度"});
 }
 async function width(locator: Locator): Promise<number> {
     return Math.round((await locator.boundingBox())?.width ?? 0);
