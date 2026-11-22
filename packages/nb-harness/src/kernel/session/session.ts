@@ -582,11 +582,13 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
                 drafts.push({type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: assembly.profile.id, hash: assembly.hash, from: previous?.hash ?? null, reason: "code-updated", manifest: assembly.manifest as unknown as JsonValue}});
             }
             await core.queue.run(() => core.write(drafts));
-            const recovery = recoveryDrafts(core);
-            await core.queue.run(() => core.write(recovery));
         } else {
             core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: profileId, reason: readOnly}, message: `profile ${profileId} could not be assembled; the session is read-only`}, core.head);
         }
+        // 上次没收口的运行：只读打开也在这里收口（session.md 输出 15）。恢复批只有内核事件、不派发反应，用不到解析不到的 Profile；
+        // 不收口的话，换回能用的 Profile 之后那次运行会被当成暂停的接着跑。只读限制的是调用方的指令，不是内核补齐中断。
+        const recovery = recoveryDrafts(core);
+        await core.queue.run(() => core.write(recovery));
         const api = buildApi(env, core, readOnly, {kind: "user"});
         state = internals.get(api)!;
         if (readOnly === null) {
