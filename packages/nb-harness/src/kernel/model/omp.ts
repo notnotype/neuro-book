@@ -57,6 +57,11 @@ export interface OmpTarget {
     readonly headers?: Readonly<Record<string, string>>;
     /** 宿主接管重发时给：不给时超时与服务商层的重试都按 OMP 的缺省。 */
     readonly transport?: OmpTransport;
+    /**
+     * 最内层的发送，在地址核对、剥占位认证头之后，替代全局 `fetch`（收到的参数与全局 `fetch` 的相同，已带上重定向与直连的选项）。
+     * 协议检测用它只放行一次请求、读到首个生成证据就停（`models/probe.ts`）；不给用全局 `fetch`。
+     */
+    readonly send?: typeof fetch;
     /** 错误文字里 OMP 写的请求全文路径（docs/specs/harness/models.md 输出 19）。抛错的原因追加到错误文字末尾。内核不碰文件系统，由宿主删。 */
     readonly onRequestDump?: (path: string) => Promise<void>;
 }
@@ -371,7 +376,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             if (target.keyless === true) for (const name of AUTH_HEADERS) if (isSentinel(headers.get(name))) headers.delete(name);
             // 重定向交给调用方改地址，不替它跟随：跟随会把密钥带到没核对过的地址（docs/specs/harness/models.md）。
             // `proxy: false` 是 Bun 的按次直连（1.4.3 起），类型声明里没有 `false` 这一项。
-            return fetch(input, {...init, headers, redirect: "error", ...(target.direct === true ? {proxy: false as unknown as string} : {})});
+            return (target.send ?? fetch)(input, {...init, headers, redirect: "error", ...(target.direct === true ? {proxy: false as unknown as string} : {})});
         }) as typeof fetch;
         const observed = observedFetch(guarded, observer, secrets);
         const counted = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

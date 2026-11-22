@@ -7,12 +7,12 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {createFakeModelsRemote} from "nbook/plugins/lab/web/fixtures/models-scene/fake-remote";
-import {SAMPLE_SNAPSHOT} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {generatedRows, SAMPLE_ROWS, SAMPLE_SNAPSHOT} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {MODELS_TEXT_NAMESPACE} from "../../shared/text";
-import {createModelsStore} from "../models-store";
+import {checkKey, createModelsStore} from "../models-store";
 import {modelsCatalogs} from "../text";
 import ProvidersPage from "./ProvidersPage.vue";
 
@@ -25,8 +25,8 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-async function render() {
-    const fake = createFakeModelsRemote(SAMPLE_SNAPSHOT);
+async function render(options: Parameters<typeof createFakeModelsRemote>[1] = {}) {
+    const fake = createFakeModelsRemote(SAMPLE_SNAPSHOT, options);
     const store = createModelsStore(fake.remote);
     stores.push(store);
     const wrapper = mount(ProvidersPage, {global, props: {store, writable: true, reportWriteFailure: () => undefined}, attachTo: document.body});
@@ -194,5 +194,112 @@ describe("模型来源（service.md“模型来源”）", () => {
         // 停用的原因写成看得见的字（停用的按钮聚焦不了，悬停提示读屏读不到）。
         expect(query("[data-source-needs-key]").textContent).toContain("先填密钥");
         expect(query("[data-source-status]").textContent).toContain("用内置的模型目录");
+    });
+});
+
+describe("协议检测（输出 21）", () => {
+    it("地址框里改了地址直接点检测：先写地址再检测、焦点留在按钮上；四行结果，当前的“正在用”，点“用这个”后跟着换；之后换了密钥整块置灰、不能再采纳；换服务商时结果不留", async () => {
+        // 写入要过一会儿才生效：页面不等写完就检测时，检测读到的是旧地址。
+        const {store} = await render({slowWrites: true});
+        const relay = "https://relay.example.com/v1";
+        const url = query<HTMLInputElement>("[data-url-input] input, input[data-url-input]");
+        await type(url, relay);
+        // 鼠标点按钮：地址框先失焦（交出草稿），再点击。
+        url.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        const start = query<HTMLButtonElement>("[data-api-detect-start]");
+        start.focus();
+        start.click();
+        await flushPromises();
+        // 同一个按钮换成“取消协议检测”，焦点没有掉。
+        expect(document.activeElement).toBe(start);
+        expect(start.hasAttribute("data-api-detect-cancel")).toBe(true);
+        expect(start.textContent).toContain("取消协议检测");
+        await waitUntil("结果出来", () => document.querySelectorAll("[data-api-detect-row]").length === 4, {timeoutMs: 10_000});
+        expect(query("[data-api-detect-announce]").textContent).toBe("检测完成：2 种协议能用");
+        // 检测读到的是新地址：草稿先写进去了。
+        expect(store.snapshot.value?.providers[0]?.baseUrl).toBe(relay);
+        expect(query("[data-api-detect-row='openai-completions']").textContent).toContain(`${relay}/chat/completions`);
+        expect(query("[data-api-detect-row='openai-completions'] [data-api-detect-using]")).not.toBeNull();
+        expect(query("[data-api-detect-row='anthropic-messages']").textContent).toContain("HTTP 404");
+        expect(document.querySelector("[data-api-detect-row='anthropic-messages'] [data-api-detect-adopt]")).toBeNull();
+        expect(document.querySelector("[data-api-detect-row='anthropic-messages'] [data-api-detect-copy]")).not.toBeNull();
+
+        query<HTMLButtonElement>("[data-api-detect-row='openai-responses'] [data-api-detect-adopt]").click();
+        await waitUntil("协议改了", () => store.snapshot.value?.providers[0]?.api === "openai-responses", {timeoutMs: 10_000});
+        await flushPromises();
+        expect(query("[data-api-detect-row='openai-responses'] [data-api-detect-using]")).not.toBeNull();
+        expect(document.querySelector("[data-api-detect-stale]")).toBeNull();
+
+        await store.call("clearKey", {provider: "deepseek"});
+        await waitUntil("整块置灰", () => document.querySelector("[data-api-detect-stale]") !== null, {timeoutMs: 10_000});
+        expect(query<HTMLButtonElement>("[data-api-detect-row='openai-completions'] [data-api-detect-adopt]").disabled).toBe(true);
+        // 没有密钥了：检测按钮停用，原因写成看得见的字。
+        expect(query<HTMLButtonElement>("[data-api-detect-start]").disabled).toBe(true);
+        expect(query("[data-api-detect-needs-key]").textContent).toContain("先填密钥");
+
+        query<HTMLElement>("[data-provider-rail-item='volcengine']").click();
+        await waitUntil("选中火山方舟", () => selected() === "volcengine", {timeoutMs: 10_000});
+        expect(document.querySelector("[data-api-detect]")).toBeNull();
+    });
+
+    it("密钥框里换了密钥直接点检测：等密钥写完再检测，结果对得上新密钥（不置灰）", async () => {
+        const {store} = await render({slowWrites: true});
+        const before = store.snapshot.value?.providers[0]?.connection;
+        const key = query<HTMLInputElement>("[data-key-input] input, input[data-key-input]");
+        await type(key, "sk-new-key-0123456789");
+        key.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        query<HTMLButtonElement>("[data-api-detect-start]").click();
+        await waitUntil("结果出来", () => document.querySelectorAll("[data-api-detect-row]").length === 4, {timeoutMs: 10_000});
+        // 新密钥写进去了（连接版本变了）之后再看：检测用的是它，结果不置灰。
+        await waitUntil("密钥写完", () => store.snapshot.value?.providers[0]?.connection !== before, {timeoutMs: 10_000});
+        await flushPromises();
+        expect(document.querySelector("[data-api-detect-stale]")).toBeNull();
+        expect(query("[data-api-detect-row='openai-completions'] [data-api-detect-using]")).not.toBeNull();
+    });
+
+    it("地址框里的草稿不合格：不检测，焦点回到地址框", async () => {
+        await render();
+        const input = query<HTMLInputElement>("[data-url-input] input, input[data-url-input]");
+        await type(input, "not a url");
+        query<HTMLButtonElement>("[data-api-detect-start]").click();
+        await flushPromises();
+        expect(document.querySelector("[data-url-problem]")).not.toBeNull();
+        expect(document.querySelector("[data-api-detect]")).toBeNull();
+        expect(document.activeElement).toBe(input);
+    });
+});
+
+describe("检测全部", () => {
+    it("超过 20 个先确认个数，确认后检测的正是这一份、进度写已检几个，取消则什么都不发、焦点回到按钮", async () => {
+        const many = generatedRows(25);
+        const {store} = await render({rows: {...SAMPLE_ROWS, deepseek: many}, slowWrites: true});
+        await waitUntil("模型行读到", () => store.rowsOf("deepseek").rows.length === 25, {timeoutMs: 10_000});
+
+        query<HTMLButtonElement>("[data-models-check-all]").click();
+        await waitUntil("确认对话框", () => document.querySelector("[role='alertdialog']") !== null, {timeoutMs: 10_000});
+        expect(query("[role='alertdialog']").textContent).toContain("检测DeepSeek的 25 个模型？");
+        expect(query("[role='alertdialog']").textContent).toContain("同时检测 4 个");
+        const button = (label: string): HTMLButtonElement => [...document.querySelectorAll<HTMLButtonElement>("[role='alertdialog'] button")].find((item) => item.textContent?.trim() === label)!;
+        button("取消").click();
+        await waitUntil("对话框关上、焦点回到按钮", () => document.querySelector("[role='alertdialog']") === null && document.activeElement?.hasAttribute("data-models-check-all") === true, {timeoutMs: 10_000});
+        expect(many.some((row) => store.checks.has(checkKey("deepseek", row.id)))).toBe(false);
+
+        query<HTMLButtonElement>("[data-models-check-all]").click();
+        await waitUntil("确认对话框", () => document.querySelector("[role='alertdialog']") !== null, {timeoutMs: 10_000});
+        button("检测").click();
+        await waitUntil("进度写已检几个", () => /^已检 [1-9]\d* \/ 共 25$/u.test(document.querySelector("[data-models-check-progress]")?.textContent?.trim() ?? ""), {timeoutMs: 10_000});
+        expect(query("[data-models-check-announce]").textContent).toBe("正在检测 25 个模型");
+        await waitUntil("全部检完", () => many.every((row) => store.checks.get(checkKey("deepseek", row.id))?.status === "done"), {timeoutMs: 10_000});
+        expect(store.checkRuns.has("deepseek")).toBe(false);
+        await flushPromises();
+        expect(document.querySelector("[data-models-check-progress]")).toBeNull();
+        expect(query("[data-models-check-announce]").textContent).toBe("检测全部已结束");
+    });
+
+    it("20 个以内不确认，直接检测（并发、进度与取消由 models-store.test.ts 对真实服务验）", async () => {
+        const {store} = await render();
+        query<HTMLButtonElement>("[data-models-check-all]").click();
+        await waitUntil("两个都检完", () => store.checks.get(checkKey("deepseek", "deepseek-flash"))?.status === "done" && store.checks.get(checkKey("deepseek", "deepseek-pro"))?.status === "done", {timeoutMs: 10_000});
+        expect(document.querySelector("[role='alertdialog']")).toBeNull();
     });
 });

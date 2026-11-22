@@ -105,6 +105,9 @@ async function retry(): Promise<void> {
                         <Button size="sm" variant="secondary" icon-class="i-lucide-play" @click="retry">{{ text("check.retry") }}</Button>
                     </div>
                 </Popover>
+                <Tooltip v-else-if="check?.status === 'unknown'" :text="text('check.unknown')">
+                    <span class="i-lucide-circle-help model-row__unknown" role="img" :aria-label="text('check.unknown')" data-check-unknown />
+                </Tooltip>
                 <Tooltip v-else-if="check?.status === 'done'" :text="text('check.okAt', {time: checkedAt})">
                     <span class="i-lucide-circle-check model-row__ok" role="img" :aria-label="text('check.okAt', {time: checkedAt})" data-check-ok />
                 </Tooltip>
@@ -198,6 +201,10 @@ async function retry(): Promise<void> {
 
 .model-row__ok {
     color: var(--status-success);
+}
+
+.model-row__unknown {
+    color: var(--text-muted);
 }
 
 .model-row__spin {

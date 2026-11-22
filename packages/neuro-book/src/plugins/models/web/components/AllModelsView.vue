@@ -101,6 +101,7 @@ const nothing = computed(() => props.providers.every((provider) => provider.enab
                                 <template v-for="check in [checks.get(checkKey(section.provider.id, row.id))]" :key="row.id">
                                     <span v-if="check?.status === 'done' && check.result.ok" class="i-lucide-circle-check all-models__ok" role="img" :aria-label="text('check.ok')" />
                                     <span v-else-if="check?.status === 'done'" class="i-lucide-circle-alert all-models__failed" role="img" :aria-label="text('check.failed')" />
+                                    <span v-else-if="check?.status === 'unknown'" class="i-lucide-circle-help all-models__unknown" role="img" :aria-label="text('check.unknown')" />
                                 </template>
                             </td>
                             <td>
@@ -172,6 +173,10 @@ const nothing = computed(() => props.providers.every((provider) => provider.enab
 
 .all-models__failed {
     color: var(--status-danger);
+}
+
+.all-models__unknown {
+    color: var(--text-muted);
 }
 
 .sr-only {

@@ -1,7 +1,7 @@
 /**
  * 模型服务的设置页（docs/specs/models/settings-pages.md 的“验收与 Smoke”）：生产构建的服务端、真实浏览器、本机的 OpenAI 兼容
  * 假端点。验收 1 走完一家空白模板服务商的一生；验收 2 两个窗口同开；验收 3 窄窗口、本作品标签与写失败；验收 4 模板服务商的
- * 多份、改名、复制、图标与模型清单。
+ * 多份、改名、复制、图标与模型清单；验收 5 检测协议与检测全部。
  */
 
 import {randomUUID} from "node:crypto";
@@ -20,10 +20,13 @@ import type {ProductServer} from "./fixtures";
 
 /**
  * 本机假端点：`/models` 给目录里没有的三个模型（两个类型不明的对话模型，一个 id 像向量模型、不自动加入），`listed` 数收到几次列表请求；
- * `failNext` 时下一次补全以 401 失败。
+ * `bigList` 时改给 24 个带上下文窗口的（自动加入并启用）。只会说 OpenAI Chat Completions：别的协议的路径回 404。`posts` 记下列表之外
+ * 每个请求的路径；`failNext` 时下一次补全以 401 失败。
  */
 let failNext = false;
 let listed = 0;
+let bigList = false;
+const posts: string[] = [];
 const endpoint = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk: Buffer) => {
@@ -33,7 +36,16 @@ const endpoint = createServer((request, response) => {
         if (request.url?.endsWith("/models") === true) {
             listed += 1;
             response.writeHead(200, {"content-type": "application/json"});
-            response.end(JSON.stringify({object: "list", data: [{id: "story-model-a", object: "model"}, {id: "story-model-b", object: "model"}, {id: "story-embedding", object: "model"}]}));
+            const data = bigList
+                ? Array.from({length: 24}, (_, index) => ({id: `relay-${String(index + 1).padStart(2, "0")}`, object: "model", context_length: 32_000}))
+                : [{id: "story-model-a", object: "model"}, {id: "story-model-b", object: "model"}, {id: "story-embedding", object: "model"}];
+            response.end(JSON.stringify({object: "list", data}));
+            return;
+        }
+        posts.push(new URL(request.url ?? "/", "http://localhost").pathname);
+        if (request.url?.endsWith("/chat/completions") !== true) {
+            response.writeHead(404, {"content-type": "application/json"});
+            response.end(JSON.stringify({error: {message: `no route ${request.url ?? ""}`}}));
             return;
         }
         if (failNext) {
@@ -203,6 +215,59 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉到服务商�
     await expect(page.locator("[data-provider-add]:visible")).toBeFocused();
     await page.locator("[data-settings-nav='nbook.models.roles']").click();
     await expect(page.locator("[data-role-row='main'] [data-role-unbound]")).toBeVisible();
+});
+
+test("验收 5：检测协议（没有可用的模型时填一个、每种协议恰好一次请求、换了密钥后结果置灰）；检测全部超过 20 个先确认，取消什么都不发，确认后逐个检完", async ({page}) => {
+    await openProviders(page);
+    await addCustom(page, "中转站");
+    const key = detail(page).locator("[data-key-input]");
+    await key.fill("sk-e2e-not-real-0002");
+    await key.press("Enter");
+    await expect(detail(page).locator("[data-source-status]")).toContainText("更新于");
+
+    // 列表里的都类型不明、没有窗口：没有能用来检测的模型，填一个再检测。
+    await detail(page).locator("[data-api-detect-start]").click();
+    const modelInput = detail(page).locator("[data-api-detect-model] input, input[data-api-detect-model]").first();
+    await expect(modelInput).toBeVisible();
+    posts.length = 0;
+    await modelInput.fill("story-model-a");
+    await modelInput.press("Enter");
+    const rows = detail(page).locator("[data-api-detect-row]");
+    await expect(rows).toHaveCount(4);
+    // 输入框随块换掉，焦点交给“检测协议”按钮（检测中是同一个按钮）。
+    await expect(detail(page).locator("[data-api-detect-start], [data-api-detect-cancel]")).toBeFocused();
+    await expect(detail(page).locator("[data-api-detect-row='openai-completions'] [data-api-detect-using]")).toBeVisible();
+    await expect(detail(page).locator("[data-api-detect-row='openai-completions']")).toHaveAttribute("data-ok", "");
+    for (const api of ["openai-responses", "anthropic-messages", "google-generative-ai"]) await expect(detail(page).locator(`[data-api-detect-row='${api}']`)).toContainText("HTTP 404");
+    // 每种协议恰好一次（OMP 对 Responses 与 Anthropic 的失败会在内层重发）。
+    expect(posts).toHaveLength(4);
+    expect(new Set(posts.map((path) => (path.endsWith("/chat/completions") ? "completions" : path.endsWith("/responses") ? "responses" : path.endsWith("/messages") ? "anthropic" : path.includes(":streamGenerateContent") ? "gemini" : path)))).toEqual(new Set(["completions", "responses", "anthropic", "gemini"]));
+    // 换了密钥：结果对不上现在的配置，整块置灰。
+    await key.fill("sk-e2e-not-real-0003");
+    await key.press("Enter");
+    await expect(detail(page).locator("[data-api-detect-stale]")).toBeVisible();
+
+    // 检测全部：列表换成 24 个带窗口的（自动加入并启用），超过 20 个先确认。
+    bigList = true;
+    try {
+        await detail(page).locator("[data-source-refresh]").click();
+        await expect(page.locator("[data-model-row]")).toHaveCount(24);
+        posts.length = 0;
+        const checkAll = detail(page).locator("[data-models-check-all]");
+        await checkAll.click();
+        const alert = page.getByRole("alertdialog");
+        await expect(alert).toContainText("检测中转站的 24 个模型？");
+        await alert.getByRole("button", {name: "取消"}).click();
+        await expect(alert).toHaveCount(0);
+        await expect(checkAll).toBeFocused();
+        expect(posts).toHaveLength(0);
+        await checkAll.click();
+        await page.getByRole("alertdialog").getByRole("button", {name: "检测"}).click();
+        await expect(page.locator("[data-model-row] [data-check-ok]")).toHaveCount(24);
+        expect(posts).toHaveLength(24);
+    } finally {
+        bigList = false;
+    }
 });
 
 test("验收 2：两个窗口同开“服务商与模型”，一处添加、改地址，另一处即时跟上", async ({browser}) => {

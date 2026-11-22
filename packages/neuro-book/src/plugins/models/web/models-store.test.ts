@@ -16,9 +16,11 @@ import {checkKey, createModelsStore} from "./models-store";
 import type {ModelsStore} from "./models-store";
 
 /**
- * 模型 id 是 `hang` 的请求挂着不答，直到请求被中止（看检测的取消）；`slow` 等测试放行才答（看并发：两路请求都到了再放）。
+ * 模型 id 以 `hang` 开头的请求挂着不答，直到请求被中止（看检测的取消）；以 `slow` 开头的等测试放行才答（看并发）。
  */
 const slowWaiting: Array<() => void> = [];
+/** 到了端点的 `hang` 类请求（看取消之后不再发）。 */
+const hangArrivals: string[] = [];
 const releaseSlow = (): void => {
     for (const release of slowWaiting.splice(0)) release();
 };
@@ -27,11 +29,12 @@ const endpoint = Bun.serve({
     hostname: "127.0.0.1",
     async fetch(request) {
         const body = await request.json().catch(() => ({})) as {model?: string};
-        if (body.model === "hang") {
+        if (body.model?.startsWith("hang") === true) {
+            hangArrivals.push(body.model);
             await new Promise((resolve) => request.signal.addEventListener("abort", resolve));
             return new Response(null, {status: 499});
         }
-        if (body.model === "slow") await new Promise<void>((resolve) => slowWaiting.push(resolve));
+        if (body.model?.startsWith("slow") === true) await new Promise<void>((resolve) => slowWaiting.push(resolve));
         if (body.model === "broken") return Response.json({error: {message: "model not found"}}, {status: 404});
         const chunk = (payload: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...payload})}\n\n`;
         return new Response(chunk({choices: [{index: 0, delta: {role: "assistant", content: "好"}, finish_reason: null}]}) + chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]}) + "data: [DONE]\n\n", {headers: {"content-type": "text/event-stream"}});
@@ -84,7 +87,7 @@ describe("数据模块", () => {
         expect(failed).toMatchObject({ok: false, failure: {code: "unknown-provider"}});
     });
 
-    test("检测：进行中是 running，完成后记下结果与时间；失败带类别与原文；检测全部按模型记；中止时回到原样", async () => {
+    test("检测：进行中是 running，完成后记下结果与时间；失败带类别与原文；检测全部按模型记、只检确认过的那份", async () => {
         const {store} = await setup();
         await store.start();
         ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
@@ -101,54 +104,94 @@ describe("数据模块", () => {
         const broken = store.checks.get(checkKey("provider", "broken"));
         expect(broken).toMatchObject({status: "done", result: {ok: false, kind: "provider"}});
 
-        await store.checkAll("provider");
-        expect(store.checks.get(checkKey("provider", "good"))).toMatchObject({status: "done", result: {ok: true}});
         // 停用的模型不在“检测全部”里。
-        expect(store.checks.has(checkKey("provider", "hang"))).toBe(false);
-
-        ok(await store.call("upsertModel", {provider: "provider", model: {id: "hang", enabled: true, contextWindow: 8000}}));
-        await waitUntil("hang 启用", async () => {
-            await store.loadRows("provider");
-            return store.rowsOf("provider").rows.find((item) => item.id === "hang")?.enabled === true;
-        });
-        const hang = store.check("provider", "hang");
-        await waitUntil("检测开始", () => store.checks.get(checkKey("provider", "hang"))?.status === "running");
-        store.cancel("provider", "hang");
-        await hang;
+        const targets = await store.checkTargets("provider");
+        expect([...targets].sort()).toEqual(["broken", "good"]);
+        await store.checkAll("provider", ["good"]);
+        expect(store.checks.get(checkKey("provider", "good"))).toMatchObject({status: "done", result: {ok: true}});
+        expect(store.checks.get(checkKey("provider", "broken"))).toBe(broken);
         expect(store.checks.has(checkKey("provider", "hang"))).toBe(false);
     });
 
-    test("单独检测与检测全部同时进行：检测全部不重标正在单独检测的模型，两边各自结算，不会留下永远转圈的；检测全部进行中取消，各自回到开始之前", async () => {
+    test("检测全部在客户端逐个发、同时至多 4 个，只把在检测的标 running，进度按已结算的个数走；正在单独检测的跳过、两边各自结算", async () => {
         const {store} = await setup();
         await store.start();
         ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
         ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
-        ok(await store.call("setModels", {provider: "provider", remove: [], add: [{id: "good", enabled: true, contextWindow: 8000}, {id: "slow", enabled: true, contextWindow: 8000}]}));
-        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 2);
+        const ids = ["slow-1", "slow-2", "slow-3", "slow-4", "slow-5", "slow-6"];
+        ok(await store.call("setModels", {provider: "provider", remove: [], add: ids.map((id) => ({id, enabled: true, contextWindow: 8000}))}));
+        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 6);
+        const targets = await store.checkTargets("provider");
+        expect([...targets].sort()).toEqual(ids);
 
-        const single = store.check("provider", "slow");
+        const single = store.check("provider", "slow-1");
         await waitUntil("单独检测的请求到了端点", () => slowWaiting.length === 1);
-        const everything = store.checkAll("provider");
-        // 检测全部在服务端也检 slow：两路请求都到了再一起放行。
-        await waitUntil("检测全部的请求也到了端点", () => slowWaiting.length === 2);
+        const all = store.checkAll("provider", targets);
+        // 单独检测占着 slow-1：检测全部跳过它，另发 4 个。
+        await waitUntil("四路请求到了端点", () => slowWaiting.length === 5);
+        const running = () => ids.filter((id) => store.checks.get(checkKey("provider", id))?.status === "running");
+        expect(running()).toHaveLength(5);
+        expect(store.checkRuns.get("provider")).toEqual({done: 1, total: 6});
         releaseSlow();
-        await Promise.all([everything, single]);
-        expect(store.checks.get(checkKey("provider", "good"))).toMatchObject({status: "done", result: {ok: true}});
-        expect(store.checks.get(checkKey("provider", "slow"))).toMatchObject({status: "done", result: {ok: true}});
+        await waitUntil("剩下的一个发出", () => slowWaiting.length === 1);
+        expect(running()).toHaveLength(1);
+        expect(store.checkRuns.get("provider")).toEqual({done: 5, total: 6});
+        releaseSlow();
+        await Promise.all([all, single]);
+        expect(ids.map((id) => store.checks.get(checkKey("provider", id))?.status)).toEqual(ids.map(() => "done"));
+        expect(store.checkRuns.has("provider")).toBe(false);
+    });
 
-        // 检测全部进行中取消：两个都回到开始之前（上一次的结果）。
-        ok(await store.call("setModels", {provider: "provider", remove: ["slow"], add: [{id: "hang", enabled: true, contextWindow: 8000}]}));
-        await waitUntil("hang 在列表里", async () => {
-            await store.loadRows("provider");
-            return store.rowsOf("provider").rows.some((item) => item.id === "hang");
-        });
-        const before = JSON.stringify(store.checks.get(checkKey("provider", "good")));
-        const all = store.checkAll("provider");
-        await waitUntil("检测全部开始", () => store.checks.get(checkKey("provider", "hang"))?.status === "running");
+    test("检测全部进行中停用了还没领到的模型：读到的行里它已停用，就不再发，也算进进度", async () => {
+        const {store} = await setup();
+        await store.start();
+        ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
+        const ids = ["slow-1", "slow-2", "slow-3", "slow-4", "slow-5", "slow-6"];
+        ok(await store.call("setModels", {provider: "provider", remove: [], add: ids.map((id) => ({id, enabled: true, contextWindow: 8000}))}));
+        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 6);
+        const all = store.checkAll("provider", await store.checkTargets("provider"));
+        await waitUntil("四路请求到了端点", () => slowWaiting.length === 4);
+        ok(await store.call("upsertModel", {provider: "provider", model: {id: "slow-6", enabled: false, contextWindow: 8000}}));
+        await waitUntil("快照换了版本", () => store.snapshot.value?.providers[0]?.enabledCount === 5);
+        await store.loadRows("provider");
+        releaseSlow();
+        await waitUntil("剩下的一个发出", () => slowWaiting.length === 1);
+        releaseSlow();
+        await all;
+        expect(store.checks.has(checkKey("provider", "slow-6"))).toBe(false);
+        expect(ids.slice(0, 5).map((id) => store.checks.get(checkKey("provider", id))?.status)).toEqual(ids.slice(0, 5).map(() => "done"));
+        expect(store.checkRuns.has("provider")).toBe(false);
+    });
+
+    test("检测全部进行中取消：已发出的标 unknown，没领到的保持原样、不再发；单独检测取消也标 unknown", async () => {
+        const {store} = await setup();
+        await store.start();
+        ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
+        const hangs = ["hang-1", "hang-2", "hang-3", "hang-4", "hang-5"];
+        ok(await store.call("setModels", {provider: "provider", remove: [], add: [...hangs, "good"].map((id) => ({id, enabled: true, contextWindow: 8000}))}));
+        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 6);
+        await store.check("provider", "good");
+        const before = store.checks.get(checkKey("provider", "good"));
+        expect(before).toMatchObject({status: "done"});
+
+        hangArrivals.length = 0;
+        const all = store.checkAll("provider", [...hangs, "good"]);
+        await waitUntil("四路请求到了端点", () => hangArrivals.length === 4);
         store.cancel("provider");
         await all;
-        expect(JSON.stringify(store.checks.get(checkKey("provider", "good")))).toBe(before);
-        expect(store.checks.has(checkKey("provider", "hang"))).toBe(false);
+        expect(hangs.slice(0, 4).map((id) => store.checks.get(checkKey("provider", id)))).toEqual(hangs.slice(0, 4).map(() => ({status: "unknown", at: 1_000})));
+        expect(store.checks.has(checkKey("provider", "hang-5"))).toBe(false);
+        expect(store.checks.get(checkKey("provider", "good"))).toEqual(before);
+        expect(hangArrivals).toHaveLength(4);
+        expect(store.checkRuns.has("provider")).toBe(false);
+
+        const single = store.check("provider", "hang-5");
+        await waitUntil("单独检测开始", () => hangArrivals.length === 5);
+        store.cancel("provider", "hang-5");
+        await single;
+        expect(store.checks.get(checkKey("provider", "hang-5"))).toEqual({status: "unknown", at: 1_000});
     });
 
     test("没检成（服务商不在了）记在服务商上、不算模型的检测失败；服务商删掉后它的检测结果清掉；释放后不再可用", async () => {

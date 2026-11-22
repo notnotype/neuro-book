@@ -1,0 +1,96 @@
+### 1. 点“检测协议”后按钮换成“取消检测”，焦点掉到 body，与文档“焦点留在原处”相反
+**严重程度**：重要
+**类别**：交互与可访问性
+**位置**：`ProviderDetail.vue:317-319`（`v-if="detecting"` / `v-else` 两个 `Button`）；`ProviderDetail.md` 按钮表“检测进行中……不停用，焦点留在原处”；模板注释“焦点留在按钮上”
+**现象**：键盘用户 Tab 到“检测协议”按回车，按钮被换成另一个元素，`document.activeElement` 变成 `body`。
+**为什么是问题**：Vue 3 给 `v-if`/`v-else` 的每个分支自动加不同的 key，两个 `Button` 不会原地复用，而是卸载一个、挂载另一个。检测完成、取消时再换回来，焦点又掉一次。填模型 id 后在输入框按回车也一样：输入框随 `no-model` 块消失，焦点落空。键盘用户要从页首重新 Tab，读屏用户听不到“取消检测”获得焦点。文档与注释的承诺是假的。同一文件里“检测全部”换“取消检测”也是这个写法，页面为它写了 `onCheckConfirmClosed` 补焦点，检测协议这边没有。
+**如何核实**：在仓库外的副本里（`/tmp/review-t43-b2b-impl/lab-fe/exp.dom.test.ts`，用 `--config` 指向同目录的 vitest 配置）挂 `ProvidersPage`，`focus()` 到 `[data-api-detect-start]`，点击后读 `document.activeElement`：`[data-api-detect-cancel]` 存在，`activeElement === body` 为 true。
+**建议改法**：二选一。(a) 只用一个 `Button`，按 `detecting` 换 `icon-class`、文字与点击处理，不换元素，焦点自然留下，文档就成立。(b) 保留两个按钮，换出后 `nextTick` 把焦点交给新按钮，完成与取消时再还回“检测协议”。选 (a) 更简单。同时给 e2e 加“按回车后焦点仍在按钮上”的断言。
+
+### 2. `setKey`、`clearKey` 没登记进 `pendingWrites`：换密钥后用鼠标直接点“检测协议”，检测测的是旧密钥
+**严重程度**：重要
+**类别**：正确性（竞态）
+**位置**：`ProvidersPage.vue:158-169`（`setKey`、`clearKey` 直接 `store.call`）对照 `:171-181`（只有 `updateProvider`、`adoptApi` 走 `tracked`）；服务端 `packages/nb-models/src/core/core.ts:1000`（`setKey` 在 `queue` 里）与 `:1045`（`detectApi` 不在 `queue` 里，直接读 `current()`）
+**现象**：密钥框里改了密钥后，鼠标直接点“检测协议”：mousedown 让密钥框 `focusout`，`commitKey` 发出 `set-key`，click 紧接着发 `detect`。页面没有等 `setKey` 写完。`detectApi` 在服务端不排队，会在 `credentials.set` 完成之前读到旧凭据。
+**为什么是问题**：结果块用旧密钥试，随后快照的 `connection` 因新密钥变化，块立刻置灰、写“配置已改，请重新检测”。用户的操作是“换密钥后验证”，这条路径每次都要点两次。注释“只测已保存的配置”与 Spec“先把地址框里的草稿交出去、等写完”只对地址与协议成立，密钥草稿不在内。键盘路径（Tab 离开密钥框再回车）人速足够慢，一般测不出，只有鼠标路径中招。
+**如何核实**：从代码推断，没有复现：Lab 的 `fake-remote.ts` 在调用时同步改状态，复现不了这个时序；e2e 的真实服务端可以：在密钥框 `fill` 后不按回车、直接 `click` 检测按钮，断言结果块不置灰。
+**建议改法**：`setKey`、`clearKey` 也包进 `tracked(...)`，一行改动。
+
+### 3. dom 测试的“先写地址再检测”断言对 `await Promise.allSettled(pendingWrites)` 空过；鼠标（失焦）路径与密钥草稿都没测
+**严重程度**：重要
+**类别**：测试
+**位置**：`ProvidersPage.dom.test.ts` 新增的“地址框里改了地址直接点检测”；`fake-remote.ts:123-135`（`updateProvider` 在调用时同步改状态）与 `:242-251`（`detectApi` 读调用时的 `state.meta`）
+**现象**：这条用例用来证明“检测读到的是新地址”。替身的 `updateProvider` 是 `async` 函数但第一个 `await` 之前就已改完 `state.meta`，页面就算不等 `pendingWrites`、直接发 `detectApi`，替身也读到新地址，断言 `baseUrl === relay` 与行里的 URL 照样成立。删掉那行 `await` 用例仍过（从代码推断，没有在仓库内做变异）。用例也是用 `.click()` 触发，不产生 `focusout`，走的是 `startDetect` 里自己的 `commitUrl`，不是真实鼠标路径（先失焦、`lastSent` 去重、再点击）。
+**为什么是问题**：计划重点 1 的核心保证在这里没有被测到；发现 2 的缺口也因此没被拦。e2e 的验收 5 同样没有“改了地址不按回车直接点检测”的步骤。
+**建议改法**：让替身的写入先 `await` 一个宏任务（或测试里给 `remote.updateProvider` 包一层延迟），再断言检测读到新地址；加一条先对地址框触发 `focusout` 再点按钮的用例，再加一条改密钥后点检测的用例。变异检查在仓库外的副本里做：删掉 `await Promise.allSettled`，用例必须失败。
+
+### 4. `unknown` 的三处渲染、“已检 N / 共 M”进度、窄容器与英文都没有测试或 Lab 场景；“进度写已检几个”的用例标题没断言进度
+**严重程度**：建议
+**类别**：测试、组件规范
+**位置**：`ProvidersPage.dom.test.ts` “超过 20 个先确认个数，确认后检测的正是这一份、进度写已检几个……”；`lab/web/fixtures/index.ts` 的 `ModelRow`（1647-1655 行）、`AllModelsView`（1731-1735 行）、`ApiDetectResults`（1713-1722 行）场景
+**现象**：(1) 全仓 grep 不到任何用例或场景对着 `data-check-unknown`、`check.unknown` 或 AllModelsView 的 `all-models__unknown`；`ModelRow` 与 `AllModelsView` 的 Lab 场景没有 `status: "unknown"`。(2) 上面那条用例标题写“进度写已检几个”，断言里只有对话框标题、取消后无检测、确认后全部 done、`checkRuns` 清空，没有读 `[data-models-check-progress]`，也没断言检测中“取消检测”按钮在。进度只在 store 层测了数字，界面从数字到文字没有测。(3) `.md` 与 CSS 都写“宽度不到约 480px 时上下排”，`ApiDetectResults` 的 7 个场景全在 `max-w-[560px]` 里，没有一个窄容器的场景，英文场景也在宽布局里；`ui-development/SKILL.md`“UI 专属检查”第 5 条要求“单行截断的组件至少一个英文场景并按 390 宽截图”。`ProviderDetail` 的 `detect-done` 也没有英文场景。
+**为什么是问题**：`unknown` 是本段新增的第三种状态，哪一处漏认都没有测试会报；窄布局的 grid 区域重排（`action` 跨两行）没人看过。
+**建议改法**：`ModelRow`、`AllModelsView` 各加一个 `unknown` 场景（ModelRow 的 dom 测试里加一条）；那条用例补读进度文字；`ApiDetectResults` 加 `done-narrow`、`done-english-narrow`（给夹具一个 360px 宽的包装），并按 390 宽截图。
+
+### 5. “检测全部”按开始时的名单一路检下去：中途被停用或移出的模型照样发真实请求，被移出的还会弹“没检成”
+**严重程度**：建议
+**类别**：正确性（边界）
+**位置**：`models-store.ts:327-346`（`pending = [...models]`，`worker` 里只查 `checks` 是否 running）；服务端 `core.ts:1034-1039`（`check` 找不到模型报 `unknown-model`）
+**现象**：确认的名单在检测全部开始时固定。24 个模型检测要几十秒，期间用户停用、移出某个模型（或来源刷新把它拿掉），`loadRows` 只清 `checks` 与单独检测的控制器，批量的 `pending` 里还留着它。worker 领到它时：被移出的 `check` 返回 `unknown-model`，`runCheck` 把它记成服务商级的 `checkErrors`，详情头冒出“没检成：……”；只是停用的，服务端 `check` 不看 `enabled`，照样发一次真实计费请求。旧实现由服务端在检测时重新取启用名单，没有这个问题。
+**为什么是问题**：“确认的就是检测的”是本段的设计点，但副作用是用户已经表态不要的模型还被检；窄边角，后果是多一次请求加一条误导的失败提示。
+**建议改法**：worker 领到模型时，对着 `rowsOf(provider).rows` 现状再核一次（还在、仍启用才发，否则跳过并计入进度），一行判断，不改“名单固定”的口径。若认为这种边角不值得，就在 `checkAll` 的注释里写明已知限制。
+
+### 6. 结果块里失败原因一列单行截断且没有悬停全文；英文与窄容器下原因被“…”吃掉
+**严重程度**：建议
+**类别**：布局与溢出（从代码推断，没有量过）
+**位置**：`ApiDetectResults.vue` 样式 `.api-detect__outcome`（`overflow:hidden; text-overflow:ellipsis; white-space:nowrap`，模板里没有 `title`）；英文 `connection.detect.codes.endpoint-mismatch`、`no-address`
+**现象**：宽布局下结果列宽 = 容器宽 − 两侧内边距 − 图标 − 协议名列（固定 `11rem`，约 176px）− 动作列（至少 4rem）− 列间距，容器 480 到 540px 时只剩约 180 到 240px；窄布局（容器不到 480px，手机 390 宽时约 220px）结果列占整行减动作列。英文原因“Address doesn't match this protocol's path”（42 字符）、“The template has no address for this protocol”（45 字符）按 12px 字号约 250px 以上，放不下，被截成“…”。淡色一行有 `title`，这一列没有。
+**为什么是问题**：这一列是整块最要紧的信息（为什么失败）。中文短，没问题；英文界面与窄窗口下用户看不到完整原因，鼠标悬停也没有。`SKILL.md` 的 UI 专属检查第 5 条正是为这种情况写的。
+**如何核实**：Lab 里加窄容器与英文窄容器场景，390 宽截图；或在 e2e 里把窗口设为 390、切英文，读 `scrollWidth > clientWidth`。
+**建议改法**：结果列允许换行（去掉 `nowrap`，保留 `min-width:0`），行高随之变化；或至少给它加 `:title="outcomeText(row)"`。前者更好，原因是必须读到的东西。
+
+### 7. 两个按钮同名“取消检测”；“用这个”的可访问名称不含可见文字
+**严重程度**：建议
+**类别**：可访问性
+**位置**：`zh-CN.json` `connection.detect.cancel`（“取消检测”）与 `models.cancelChecks`（“取消检测”）；`connection.detect.adoptLabel`（“改用 {{name}}”）对照可见文字 `connection.detect.adopt`（“用这个”）；`ApiDetectResults.vue` 的采纳按钮
+**现象**：协议检测与“检测全部”可以同时进行，此时页面上有两个名称相同的“取消检测”按钮（英文同为 “Cancel detection”），读屏的按钮列表与语音控制分不清哪个取消哪个。采纳按钮的可见文字是“用这个”，`aria-label` 是“改用 OpenAI Responses”，“用这个”不是后者的子串（WCAG 2.5.3 名称中的标签），语音控制说“点击 用这个”会失败。
+**为什么是问题**：计划重点 2 要求的读屏名称；协议检测的取消按钮用的是模型检测的文案，没有按它取消的东西来命名。
+**建议改法**：协议检测的取消改成“取消协议检测”（en：Cancel protocol detection）；采纳按钮的 `aria-label` 改成“用这个：OpenAI Responses”（en：“Use this: …”），把可见文字放在最前。
+
+### 8. `aria-live` 区域是随内容一起插入的，读屏多半不播报；进度每检完一个就播一次
+**严重程度**：建议
+**类别**：可访问性
+**位置**：`ApiDetectResults.vue:84`（`<p v-if="running" aria-live="polite">`）与 `:92`/`:96` 两处（`v-else-if` 渲染的 `p` 带 `aria-live`、`role="alert"`）；`ProviderDetail.vue:355`（`v-if="checkRun !== null"` 的 `aria-live` 进度）
+**现象**：live region 要先存在于文档、内容再变化才会被播报；这几处都是整个元素连同内容在状态切换时才插入，常见读屏对这种插入不播。`role="alert"` 例外，会播报。检测中（running）、检测完成（done，标题那句“用模型 X 试的”）、置灰（stale）这几个状态切换，读屏用户听不到。进度那一处相反：区域存在期间每检完一个模型文字变一次，24 个模型就是 24 次“已检 N / 共 M”，一直插播。
+**为什么是问题**：检测与检测全部是几十秒级的操作，读屏用户没有任何完成信号；进度又吵。
+**建议改法**：在块外放一个常驻的 `role="status"`（`aria-live="polite"`、`aria-atomic="true"`）区域，按状态变化写“正在试四种协议”“检测完成，N 种协议可用”“配置已改，请重新检测”；进度不放进 live 区域，只在开始与结束时由那个常驻区域播一句。
+
+### 9. `ApiDetectResults` 只按行的连接版本判断有效，文档与合同写的是“检测时的或某一行的”两个条件
+**严重程度**：建议
+**类别**：对照合同与文档
+**位置**：`ApiDetectResults.vue` 的 `currentApi`/`stale`（只查 `detection.results.find(row => row.connection === props.connection)`）；`ApiDetectResults.md`“结果只对检测时的连接配置成立：快照里的连接版本既不是检测时的、也不是哪一行改用之后的……”；`packages/nb-models/src/contract/shapes.ts` `ApiDetectionSchema` 的注释；Spec 草稿输出 21
+**现象**：`detection.connection`（检测时的版本）完全没有读。现在靠一条没写下来的不变量：当前协议那一行的 `connection` 恒等于检测时的版本，所以只查行就够。这个不变量由服务端 `withApi` 与 `connectionOf` 的实现保证（我读过 `core.ts:708-722`，当前成立），但组件文档写的是两个条件，实现只做了一个，哪天服务端的 `withApi` 为某种模板多钉一个地址（它已经为 `effectiveBaseUrl(next) === null` 的情况这样做），当前行与检测时版本就会分开，结果块一出来就整块置灰且无法采纳。
+**为什么是问题**：文档、合同与实现三处对不上，且没有测试。把防止过期的判断建在合同没承诺的不变量上。
+**建议改法**：`stale = detection.connection !== props.connection && currentApi === null`，一行，与合同、`.md` 字面一致；`currentApi` 仍按行查，用来标“正在用”。再在 `ApiDetectResults` 的场景里加一个“检测时的版本与行都不同、快照等于检测时的”的场景。
+
+### 10. 几处小问题：确认文案写死“4 个”、复制失败用户看不到、确认对话框没写服务商名、两处口语文案
+**严重程度**：建议
+**类别**：代码质量、文案
+**位置**：(a) `zh-CN.json`/`en-US.json` `models.confirmCheckAll.description`（“同时检测 4 个”）对照 `models-store.ts` `CHECK_CONCURRENCY = 4`；(b) `ApiDetectResults.vue` `copy()` 的 `catch`；(c) `ProvidersPage.vue` `checkAll`/`checkConfirm`；(d) `connection.detect.codes.network`（“连不上”）、`unknown-model`（“建不出这个模型”）
+**现象**：(a) 并发数改了，文案不跟着变，应当把数字当参数传进 `text(..., {n})`。(b) 剪贴板写失败只 `console.warn`，按钮保持原样，用户点了没有任何反馈；注释说“原文仍在悬停提示里”，悬停提示键盘到不了。诊断有了，但界面上也应有一个失败态（图标换成“复制失败”，名称同步）。(c) `checkTargets` 要 `await loadRows`，行没读过或版本变了时要等几个往返，期间按钮没有忙状态，可以连点；等待期间切到别家，确认对话框会落在另一家的页面上，标题只有“检测 25 个模型？”，没写是哪一家。常规情形（行已缓存）瞬间返回，不触发。(d) 按 `SKILL.md`“界面文案专业而易懂”，“连不上”“建不出”是口语，可写“无法连接”“无法按这个模型 id 构造请求”。
+**建议改法**：(a) 改成参数。(b) 加失败态或用已有通知通道。(c) 对话框标题或描述带服务商名；等待时给按钮 `busy`。(d) 改措辞。优先级都低。
+
+## 未发现问题的方面
+- `models-store.ts` 的 `checkAll`/`runCheck`/`cancel`：取消时在途的标 `unknown`、没领到的保持原样且不再发，`apply` 中止已删服务商的批量控制器，进度 `tick` 对跳过的模型也计数，`checkRuns` 在正常结束与取消后都清；我对着代码与 `models-store.test.ts` 的三个用例逐个核对过，没有发现遗漏。该测试用 `Bun.serve` 端点加真实的 `nb-models` 服务，`hangArrivals` 的计数确实断言了“取消后不再发”，不是空过。
+- `AlertDialog tone="neutral"` 存在；`confirm` 先于 `closed` 触发，`confirmCheckAll` 读 `checkConfirm` 时它还没被清；关闭后焦点落到 `[data-models-cancel], [data-models-check-all]`，确认后按钮已换成“取消检测”，焦点去向正确。dom 测试已断言取消路径的焦点。
+- `ProviderRail` 只认 `done` 且失败：不认 `unknown`，这是合理的（结果未知不等于有检测失败），没记为问题。
+- `ProvidersPage` 的检测状态在页面、`watch(selected, stopDetect)` 与 `onBeforeUnmount`：换服务商、离开页面都会取消并丢弃结果；`ProviderDetail` 以 `:key="current.id"` 重挂，不会串；`adoptApi` 的 `connection-changed` 不通知，别的失败走 `report`，与 Spec 草稿一致。
+- `commitUrl` 的 `claim`/`lastSent` 去重：鼠标先失焦再点按钮时第二次不重复发 `update`，`pendingWrites` 里仍有第一次的那一条，页面会等它。
+- 标签与实现：`ApiDetectResults` 的 `state:local`（模型 id 草稿、已复制）、`state:inject`（`useModelsText`）、`env:clipboard`（`navigator.clipboard`）都与实现一致；`.md` 的数据一节与实际 props/emits 一致。
+- 验收 5 的否定断言（取消后 `posts` 为 0）：若取消后误发了检测，“检测全部”会换成“取消检测”，紧随其后的 `toBeFocused` 会先失败，不会空过。
+- `master` 上本来就有的问题：未发现与本段无关的原有缺陷需要另记。
+
+## 数量
+阻断 0，重要 3（1、2、3），建议 7（4 到 10）。我跑过 `ProvidersPage.dom.test.ts`（11 条全过），并在仓库外做了发现 1 的实验（`/tmp/review-t43-b2b-impl/lab-fe/`）。发现 2、3、5、6 来自代码推断，没有复现。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

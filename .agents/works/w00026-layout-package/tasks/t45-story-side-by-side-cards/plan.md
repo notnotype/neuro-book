@@ -38,7 +38,7 @@
   - `collapse(state)`、`expand(state)`：整块收起与展开。
   - `swap(state, movedKey)`：对调左右，被拖的那张成为 `active`。
   - `toView(state)`、`fromView(view)`：地址与存下的状态（见下）。`open` 为假时等于没有详情（同 t44：收起后地址与存下的状态里没有 `entity`）。
-- 页签“给了”与“没给”分开（第 2 轮第 5 条）：`openCard(entity, tab?)` 的 `tab` 缺省是“没给”，不是 `summary`；新开一张时没给才用 `summary`。`NameLink` 的 `tab` 属性缺省改成不传（现在缺省 `"summary"`），关系图与迷你图显式传 `"relations"` 的照旧换到关系页签。
+- 页签“给了”与“没给”分开（第 2 轮第 5 条）：`openCard(entity, tab?)` 的 `tab` 缺省是“没给”，不是 `summary`；新开一张时没给才用 `summary`。普通点击照旧传页签（`NameLink` 的 `tab` 缺省 `"summary"` 不变，关系图与迷你图传 `"relations"`），一张卡时的行为同现在（`story/viewer` 输出 10：“默认停在概况”）；只有 Ctrl 点（`openBeside`）不传页签，另一张里已开着的只激活、不改它的页签。
 - 同一内容的判定：人物卡按 `entity`（页签不同也算同一个）；原文按出处；段落按章与段；节点按 id。换页签保 `key`：内容项的键不变，外壳与 `DrawerCard` 不重挂，滚动与焦点（键盘切页签时焦点在页签上）都在。
 
 ### 会话：`packages/nb-story/src/web/host/book.ts`
@@ -68,6 +68,7 @@
   - `details`：宽度意图是“抽屉”的宽度，带整块收起的策略（收到 0，阈值 80，同 t44 的抽屉）。
   - `drawer`、`drawer2`：各 280 到 640，按比例分 `details` 的宽度（缺省各一份，等宽）。`drawer2` 带收起策略：一张卡时收起到 0；收起阈值 100000（拖不到）、`toggleable: false`，里面那条线拖到底停在 280，不会把第二张拖没，Enter 也不翻它。
   - `details` 里那条线一张卡时 0 像素（`sashSize` 按分支返回，读张数），两张时 1 像素。
+- **建树时带上初始张数**：网格只在 `BookFrame` 的 setup 里建一次，`createBookGrid` 收 `cards`（此刻的 `items.length`，整块收起时照样按记着的张数）与卡宽：两张时直接建成 `drawer2` 展开、`details` 为 `2 × 卡宽 + 1`（从地址载入两张，e2e 9）。下面的 watch 只管之后的变化。
 - **张数变了**（第 2 轮第 3 条）：一个 `watch` 盯原始值 `items.length >= 2`（不盯 `details` 对象：`touch` 每次点击、聚焦都换对象，盯它会把用户拖出来的宽度弹回偏好），与现有的收起 watch 放进同一个函数，顺序固定；用 `grid.setCollapsed`、`grid.setSize`（不用 `host.setCollapsed`：它每次都发布布局，三步会发出两份中间布局），最后一次 `host.invalidate()`。
   - 打开第二张：先 `setCollapsed("drawer2", false)`，再 `setSize("details", 2 × 卡宽 + 1)`（顺序反了 `details` 会被一张卡时的上限夹住）；然后把两张的份额拉平：按此刻的布局 `grid.resizeBranches([{branchId: "details", axis: "width", baseline: 两张此刻的呈现, target: 各一半}])`（第 2 轮第 1 条：按比例分的叶没有设份额的入口，上次拖过里面那条线的份额会留着，关一张再开一张时不等宽又回来；关的时候 `drawer2` 收起了，拉不平，所以在开的时候拉）；
   - 关掉一张：先 `setCollapsed("drawer2", true)`，再 `setSize("details", 卡宽)`；
@@ -235,4 +236,5 @@
 - 第 7 稿（第 2 轮设计审查，重要 2、建议 6，[证据](evidences/design-review-6.txt)；没有再审）：
   - 第 1 条：开第二张时用 `resizeBranches` 把两张的份额拉平。第 2 条：删掉并排门槛与提示，宽屏档一律并排；e2e 8 换成 1280 与 1100 两档。
   - 第 3 条：张数的 watch 盯 `items.length >= 2`，三步用 `grid.*`、最后一次 `invalidate`；e2e 加“点一下不弹回”。第 4 条：`open` 为假时 `openBeside` 丢掉记着的。第 5 条：页签“给了”与“没给”分开，`NameLink` 缺省不传。
-  - 第 6 条：移交焦点写在代理的 `closeDrawer` 里、外壳根 `tabindex="-1"`，整块收起不移交。第 7 条：压缩态下拖主区线改窄导航，记进待确认。第 8 条：拖到 0 与 Enter 当即消失，只有顶栏开关的收起留住内容。
+  - 第 6 条：移交焦点写在代理的 `closeDrawer` 里、外壳根 `tabindex="-1"`，整块收起不移交。
+  - 开工核对时补的两处：普通点击照旧传页签（输出 10 的“默认停在概况”，不改一张卡时的行为），只有 Ctrl 点不传；`createBookGrid` 带初始张数（从地址载入两张）。第 7 条：压缩态下拖主区线改窄导航，记进待确认。第 8 条：拖到 0 与 Enter 当即消失，只有顶栏开关的收起留住内容。

@@ -113,6 +113,7 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 2026-11-22：[t51](tasks/t51-layout-api-gaps/README.md) 分隔线显示名完成，合入 master（`4aebbc14d`）。
 2026-11-22：[t52](tasks/t52-grid-structure-semantics/README.md) 完成，合入 master（`787cf9ca6`）：结构操作与 `resize` 不改保留像素兄弟的意图，加 `grid.setSize`；计划两轮审查、实现审查 8 条处理完；跨方向移动保留像素的节点改为失败等四项记进[待确认清单](pending-confirmations.md)。下一个是 t53。
 2026-11-22：[t53](tasks/t53-leaving-contents/README.md) 完成，合入 master（`e85dbbd11`）：内容项标 `leave: "retain"` 时由库留到过渡结束，带着它离开的叶面板头停在最后一次渲染；新 Lab 场景 `leaving` 与 e2e。[t45](tasks/t45-story-side-by-side-cards/README.md) 计划第 5 稿在设计审查。
+2026-11-22：[t45](tasks/t45-story-side-by-side-cards/README.md) 四个切片实施完（分支 `w00026/t45-side-by-side`，5 个提交）：宽屏两张详情并排、Ctrl 点与右键“在旁边打开”、拖头部换边、地址记两张；张数变化原地完成，不重建网格。产品取舍 12 行记进[待确认清单](pending-confirmations.md)，接入记录写在 t45 README。实现审查（Claude Sonnet）待处理，处理完合入。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 

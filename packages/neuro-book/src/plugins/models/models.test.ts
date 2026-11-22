@@ -30,6 +30,8 @@ const endpoint = Bun.serve({
         seen.push({path, authorization: request.headers.get("authorization")});
         if (path.endsWith("/models")) return Response.json({object: "list", data: [{id: "qwen3:8b", object: "model"}, {id: "gemma3:12b", object: "model"}]});
         await request.text();
+        // 只会说 OpenAI Chat Completions：别的协议的路径一律 404（协议检测的那三行）。
+        if (!path.endsWith("/chat/completions")) return Response.json({error: {message: `no route ${path}`}}, {status: 404});
         if (overloadedNext) {
             overloadedNext = false;
             return Response.json({error: {message: "Service overloaded"}}, {status: 503});
@@ -352,7 +354,7 @@ describe("密钥（输出 1、2、12、13）", () => {
 });
 
 describe("检测（输出 11、12）", () => {
-    test("检测通过或给出失败的类别与遮盖过的原文；检测全部带着结果", async () => {
+    test("检测通过或给出失败的类别与遮盖过的原文", async () => {
         const w = await world();
         const client = await w.window("w");
         const id = await addLocal(client);
@@ -362,8 +364,114 @@ describe("检测（输出 11、12）", () => {
         const failed = ok(await client.check({provider: id, model: "qwen3:8b"}));
         expect(failed).toMatchObject({ok: false, kind: "auth"});
         expect(JSON.stringify(failed)).not.toContain(KEY);
-        expect(ok(await client.checkAll({provider: id}))).toEqual([{model: "qwen3:8b", result: {ok: true}}]);
         expect(ok(await client.templates({})).find((template) => template.id === "deepseek")).toMatchObject({addable: true});
+    });
+});
+
+describe("协议检测（输出 26）", () => {
+    test("四种协议各发一次，只有端点会说的那种通过；采纳交回那一行的连接版本，写进去的正是试过的配置，地址或密钥此后变过就拒绝", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        const id = await addLocal(client);
+        expect(await client.detectApi({provider: id})).toMatchObject({ok: false, code: "no-credentials"});
+        ok(await client.setKey({provider: id, value: KEY}));
+        seen.length = 0;
+        const detection = ok(await client.detectApi({provider: id}));
+        expect(detection.model).toBe("qwen3:8b");
+        expect(detection.connection).toBe(w.service.snapshot().providers.find((item) => item.id === id)!.connection);
+        expect(detection.results.map((row) => [row.api, row.ok, row.status])).toEqual([
+            ["openai-completions", true, 200],
+            ["openai-responses", false, 404],
+            ["anthropic-messages", false, 404],
+            ["google-generative-ai", false, 404],
+        ]);
+        expect(detection.results.every((row) => row.baseUrl === BASE)).toBe(true);
+        expect(detection.results[1]!.message).toContain("no route");
+        // 每种协议恰好一次（OMP 对 Responses、Anthropic 的失败会在内层重发）。
+        expect(seen.map((item) => item.path).sort()).toEqual(detection.results.map((row) => new URL(row.url!).pathname).sort());
+        expect(seen).toHaveLength(4);
+        expect(JSON.stringify(detection)).not.toContain(KEY);
+
+        // 当前协议那一行的连接版本就是检测时的。
+        expect(detection.results[0]!.connection).toBe(detection.connection);
+        const responses = detection.results[1]!;
+        ok(await client.adoptApi({provider: id, api: "openai-responses", connection: responses.connection}));
+        const adopted = w.service.snapshot().providers.find((item) => item.id === id)!;
+        expect(adopted).toMatchObject({api: "openai-responses", baseUrl: BASE, connection: responses.connection});
+        // 同一次检测的别的行照样能采纳（改用它之后的配置没变）。
+        ok(await client.adoptApi({provider: id, api: "openai-completions", connection: detection.results[0]!.connection}));
+        expect(w.service.snapshot().providers.find((item) => item.id === id)!.connection).toBe(detection.connection);
+        // 检测之后改了地址：试过的配置不在了，不写。
+        ok(await client.updateProvider({id, patch: {baseUrl: `${BASE}/other`}}));
+        expect(await client.adoptApi({provider: id, api: "openai-responses", connection: responses.connection})).toMatchObject({ok: false, code: "connection-changed"});
+        // 换了密钥也一样（认证输入进连接版本）。
+        ok(await client.updateProvider({id, patch: {baseUrl: BASE}}));
+        const again = ok(await client.detectApi({provider: id}));
+        ok(await client.setKey({provider: id, value: `${KEY}-2`}));
+        expect(await client.adoptApi({provider: id, api: "openai-responses", connection: again.results[1]!.connection})).toMatchObject({ok: false, code: "connection-changed"});
+        expect(w.service.snapshot().providers.find((item) => item.id === id)!.api).toBe("openai-completions");
+    });
+
+    test("没有可用的模型时为 no-model，给了模型 id（不在列表里的也行）照样检测；目录模板选回模板的协议恢复跟随", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        const {id} = ok(await client.addProvider({template: "blank-openai", name: "空的", baseUrl: BASE, api: "openai-completions"}));
+        ok(await client.setKey({provider: id, value: KEY}));
+        expect(await client.detectApi({provider: id})).toMatchObject({ok: false, code: "no-model"});
+        const typed = ok(await client.detectApi({provider: id, model: "typed-model"}));
+        expect(typed.model).toBe("typed-model");
+        expect(typed.results[0]).toMatchObject({api: "openai-completions", ok: true});
+
+        const {id: deepseek} = ok(await client.addProvider({template: "deepseek", baseUrl: BASE}));
+        ok(await client.setKey({provider: deepseek, value: KEY}));
+        const before = w.service.snapshot().providers.find((item) => item.id === deepseek)!;
+        const first = ok(await client.detectApi({provider: deepseek}));
+        expect(first.results.every((row) => row.baseUrl === BASE)).toBe(true);
+        ok(await client.adoptApi({provider: deepseek, api: "openai-responses", connection: first.results[1]!.connection}));
+        expect(w.service.snapshot().providers.find((item) => item.id === deepseek)!.api).toBe("openai-responses");
+        const back = first.results.find((row) => row.api === before.templateApi)!;
+        ok(await client.adoptApi({provider: deepseek, api: back.api, connection: back.connection}));
+        const restored = w.service.snapshot().providers.find((item) => item.id === deepseek)!;
+        expect(restored.api).toBe(before.templateApi);
+        expect(restored.connection).toBe(before.connection);
+    });
+
+    test("混合协议的模板：每行发的就是那一行的协议，采纳模板的缺省协议也钉住；凭据按与发请求同一份合好的请求头预检；结果里的地址不带凭据", async () => {
+        const w = await world({TENANT: "tenant-a"});
+        const client = await w.window("w");
+        // OpenCode Zen 没有覆盖时每个模型按目录各用各的协议（gemini-3-flash 用 Gemini）。
+        const {id: zen} = ok(await client.addProvider({template: "opencode-zen", baseUrl: BASE}));
+        ok(await client.setKey({provider: zen, value: KEY}));
+        seen.length = 0;
+        const mixed = ok(await client.detectApi({provider: zen, model: "gemini-3-flash"}));
+        expect(seen.map((item) => item.path).sort()).toEqual(["/v1/chat/completions", "/v1/messages", "/v1/models/gemini-3-flash:streamGenerateContent", "/v1/responses"]);
+        const completions = mixed.results.find((row) => row.api === "openai-completions")!;
+        expect(completions.ok).toBe(true);
+        ok(await client.adoptApi({provider: zen, api: "openai-completions", connection: completions.connection}));
+        seen.length = 0;
+        expect(ok(await client.check({provider: zen, model: "gemini-3-flash"}))).toEqual({ok: true});
+        expect(seen.map((item) => item.path)).toEqual(["/v1/chat/completions"]);
+
+        const local = await addLocal(client);
+        ok(await client.setKey({provider: local, value: KEY}));
+        const plain = w.service.snapshot().providers.find((item) => item.id === local)!.connection;
+        ok(await client.updateProvider({id: local, patch: {headers: {"x-tenant": "env:ABSENT"}}}));
+        // 引用的环境变量没有值也进连接版本：之前的检测结果对不上了。
+        expect(w.service.snapshot().providers.find((item) => item.id === local)!.connection).not.toBe(plain);
+        expect(await client.detectApi({provider: local})).toMatchObject({ok: false, code: "no-credentials"});
+        // 模型级的同名头盖过服务商级的（输出 4）：发出去的有值，检测照常。
+        ok(await client.upsertModel({provider: local, model: {id: "qwen3:8b", enabled: true, contextWindow: 32_000, headers: {"x-tenant": "env:TENANT"}}}));
+        expect(ok(await client.detectApi({provider: local})).results[0]).toMatchObject({api: "openai-completions", ok: true});
+        ok(await client.updateProvider({id: local, patch: {headers: {}}}));
+        ok(await client.upsertModel({provider: local, model: {id: "qwen3:8b", enabled: true, contextWindow: 32_000, headers: {"x-tenant": "env:ABSENT"}}}));
+        expect(await client.detectApi({provider: local})).toMatchObject({ok: false, code: "no-credentials"});
+
+        ok(await client.upsertModel({provider: local, model: {id: "qwen3:8b", enabled: true, contextWindow: 32_000}}));
+        const port = new URL(BASE).port;
+        ok(await client.updateProvider({id: local, patch: {baseUrl: `http://fixture-user:fixture-pass@127.0.0.1:${port}/v1?token=fixture-query`}}));
+        const shown = ok(await client.detectApi({provider: local}));
+        expect(shown.results.every((row) => row.baseUrl === BASE)).toBe(true);
+        expect(JSON.stringify(shown)).not.toMatch(/fixture-pass|fixture-query/u);
     });
 });
 

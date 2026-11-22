@@ -1,13 +1,14 @@
 /**
- * 模型服务两页在 Lab 里用的远程合同替身（合同版本 3）：服务商与模型行在内存里，写方法照服务端的语义改它们并推 `changed`
+ * 模型服务两页在 Lab 里用的远程合同替身（合同版本 5）：服务商与模型行在内存里，写方法照服务端的语义改它们并推 `changed`
  * （docs/specs/models/service.md 输出 12 到 15 里页面看得到的部分）。每个返回值与事件都过一遍 JSON 编解码，像真实链路那样不带
  * 共享引用与函数。只服务 Lab 场景，不进测试：页面与服务端的真实来回由 `e2e/models.e2e.ts` 验。
- * 检测与拉取不发请求，给固定的结果；`failWrites` 打开时所有写方法以 `settings-unavailable` 失败（看窗口通知）。
+ * 检测、协议检测与拉取不发请求，给固定的结果（协议检测：两种 OpenAI 通过，Anthropic 404，Gemini 400）；连接版本由地址、协议与密钥
+ * 状态拼出（真实服务是 HMAC，这里只要“配置变了就变”）；`failWrites` 打开时所有写方法以 `settings-unavailable` 失败（看窗口通知）。
  */
 
 import {providerIdFor, referenceOf} from "@notnotype/nb-models/config";
 import type {ModelConfig} from "@notnotype/nb-models/config";
-import type {CheckResult, KeyStatus, ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
+import type {ApiCheck, CheckResult, KeyStatus, ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 import type {RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
 import type {ModelsRemote} from "nbook/plugins/models/web/models-store";
@@ -24,20 +25,30 @@ const ok = <T>(value: T) => ({ok: true as const, value: json(value)});
 
 interface ProviderState {
     meta: SnapshotProvider;
+    /** 设过的密钥原文：进连接版本（同真实服务，换密钥就换版本）。 */
+    secret: string;
     listed: ModelRow[];
     available: ModelRow[];
     version: number;
 }
 
-export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readonly unavailable?: boolean; readonly rows?: Readonly<Record<string, readonly ModelRow[]>>} = {}): FakeModelsRemote {
+/**
+ * `slowWrites`：改服务商、密钥的写入与单个检测过 20 毫秒才完成（真实服务的写入要排队、落盘，检测要等服务商），用来测“先等写完
+ * 再检测”、检测全部的进度这类时序。
+ */
+export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readonly unavailable?: boolean; readonly rows?: Readonly<Record<string, readonly ModelRow[]>>; readonly slowWrites?: boolean} = {}): FakeModelsRemote {
     const seeded = options.rows ?? SAMPLE_ROWS;
-    const providers = new Map<string, ProviderState>(initial.providers.map((meta) => [meta.id, {meta: json(meta), listed: json([...(seeded[meta.id] ?? [])]), available: [], version: 1}]));
+    const providers = new Map<string, ProviderState>(initial.providers.map((meta) => [meta.id, {meta: json(meta), secret: "", listed: json([...(seeded[meta.id] ?? [])]), available: [], version: 1}]));
+    const settled = async (): Promise<void> => {
+        if (options.slowWrites === true) await new Promise((resolve) => setTimeout(resolve, 20));
+    };
     let roles: SnapshotRole[] = json(initial.roles);
     let failing = false;
     const listeners = new Set<(snapshot: ModelsSnapshot) => void>();
 
+    const connectionOf = (state: Pick<ProviderState, "meta" | "secret">, api = state.meta.api): string => `${api ?? ""}@${state.meta.baseUrl ?? state.meta.templateBaseUrl ?? ""}#${state.meta.key.kind}:${state.secret}`;
     const snapshotOf = (): ModelsSnapshot => ({
-        providers: [...providers.values()].map((state) => ({...state.meta, modelCount: state.listed.length, enabledCount: state.listed.filter((row) => row.enabled).length, excludedCount: state.available.length, modelsRevision: `r${String(state.version)}`})),
+        providers: [...providers.values()].map((state) => ({...state.meta, modelCount: state.listed.length, enabledCount: state.listed.filter((row) => row.enabled).length, excludedCount: state.available.length, modelsRevision: `r${String(state.version)}`, connection: connectionOf(state)})),
         roles,
     });
     const publish = (): void => {
@@ -75,9 +86,11 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         const hit = role.model !== null && role.model.startsWith(`${provider}/`) && (models === undefined || models.includes(role.model.slice(provider.length + 1)));
         return hit ? {...role, model: null, status: "unbound"} : role;
     });
-    const setKey = (id: string, status: KeyStatus) => {
+    const setKey = async (id: string, status: KeyStatus, secret: string) => {
+        await settled();
         const result = change(id, (state) => {
             state.meta = {...state.meta, key: status};
+            state.secret = secret;
         });
         return result.ok ? ok(status) : result;
     };
@@ -99,8 +112,9 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
                 meta: {
                     id, template, region: region ?? null, name: display, icon: null, baseUrl: baseUrl ?? (blank ? null : `https://api.${id}.example`), templateBaseUrl: blank ? null : `https://api.${id}.example`,
                     api: api ?? "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, key: {kind: "none"}, followSource: true, source: SOURCE_CATALOG,
-                    modelCount: 0, enabledCount: 0, excludedCount: 0, modelsRevision: "r1",
+                    modelCount: 0, enabledCount: 0, excludedCount: 0, modelsRevision: "r1", connection: "",
                 },
+                secret: "",
                 listed: rows,
                 available: [],
                 version: 1,
@@ -114,23 +128,26 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             const source = providers.get(id);
             if (source === undefined) return unknown(id);
             const copyId = providerIdFor(`${id}-copy`, new Set(providers.keys()));
-            providers.set(copyId, {meta: {...json(source.meta), id: copyId, name: `${source.meta.name} 2`}, listed: json(source.listed), available: json(source.available), version: 1});
+            providers.set(copyId, {meta: {...json(source.meta), id: copyId, name: `${source.meta.name} 2`}, secret: source.secret, listed: json(source.listed), available: json(source.available), version: 1});
             publish();
             return ok({id: copyId});
         },
-        updateProvider: async ({id, patch}) => change(id, (state) => {
-            const meta = state.meta;
-            state.meta = {
-                ...meta,
-                ...(patch.name === undefined ? {} : {name: patch.name}),
-                ...(patch.region === undefined ? {} : {region: patch.region}),
-                ...(patch.baseUrl === undefined ? {} : {baseUrl: patch.baseUrl ?? meta.templateBaseUrl}),
-                ...(patch.api === undefined ? {} : {api: patch.api ?? meta.templateApi}),
-                ...(patch.auth === undefined ? {} : {auth: patch.auth}),
-                ...(patch.headers === undefined ? {} : {headers: patch.headers}),
-                ...(patch.followSource === undefined ? {} : {followSource: patch.followSource}),
-            };
-        }),
+        updateProvider: async ({id, patch}) => {
+            await settled();
+            return change(id, (state) => {
+                const meta = state.meta;
+                state.meta = {
+                    ...meta,
+                    ...(patch.name === undefined ? {} : {name: patch.name}),
+                    ...(patch.region === undefined ? {} : {region: patch.region}),
+                    ...(patch.baseUrl === undefined ? {} : {baseUrl: patch.baseUrl ?? meta.templateBaseUrl}),
+                    ...(patch.api === undefined ? {} : {api: patch.api ?? meta.templateApi}),
+                    ...(patch.auth === undefined ? {} : {auth: patch.auth}),
+                    ...(patch.headers === undefined ? {} : {headers: patch.headers}),
+                    ...(patch.followSource === undefined ? {} : {followSource: patch.followSource}),
+                };
+            });
+        },
         setIcon: async ({provider, icon}) => change(provider, (state) => {
             state.meta = {...state.meta, icon: icon === null ? null : icon.kind === "upload" ? {kind: "file", name: `${"a".repeat(64)}.png`} : icon.kind === "builtin" ? {kind: "builtin", key: icon.key} : {kind: "initial"}};
         }),
@@ -217,8 +234,8 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             publish();
             return ok(null);
         },
-        setKey: async ({provider, value}) => setKey(provider, value.startsWith("env:") ? {kind: "env", name: value.slice(4), found: false} : {kind: "stored"}),
-        clearKey: async ({provider}) => setKey(provider, {kind: "none"}),
+        setKey: async ({provider, value}) => setKey(provider, value.startsWith("env:") ? {kind: "env", name: value.slice(4), found: false} : {kind: "stored"}, value),
+        clearKey: async ({provider}) => setKey(provider, {kind: "none"}, ""),
         // 重新拉取：先标在拉取，下一轮事件循环交回列表（空白模板把示例候选里还不在列表的放进可加的，目录模板的行不变）。
         refreshSource: async ({provider}) => {
             const state = providers.get(provider);
@@ -236,8 +253,34 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             }, 0);
             return ok(null);
         },
-        check: async ({provider, model}) => ok(checkResult(provider, model)),
-        checkAll: async ({provider}) => ok(providers.get(provider)?.listed.filter((model) => model.enabled).map((model) => ({model: model.id, result: checkResult(provider, model.id)})) ?? []),
+        check: async ({provider, model}) => {
+            await settled();
+            return ok(checkResult(provider, model));
+        },
+        detectApi: async ({provider, model}) => {
+            const state = providers.get(provider);
+            if (state === undefined) return unknown(provider);
+            const key = state.meta.key;
+            if (key.kind === "none" || (key.kind === "env" && !key.found)) return {ok: false as const, code: "no-credentials" as const, detail: {detail: "no credential for this provider"}};
+            const used = model ?? state.listed.find((row) => row.enabled)?.id;
+            if (used === undefined) return {ok: false as const, code: "no-model" as const, detail: {detail: "no model to check with; give a model id"}};
+            const base = (state.meta.baseUrl ?? state.meta.templateBaseUrl ?? "https://relay.example/v1").replace(/\/$/u, "");
+            const row = (api: ApiCheck["api"], path: string, patch: Partial<ApiCheck>): ApiCheck => ({api, baseUrl: base, connection: connectionOf(state, api), url: `${base}${path}`, ok: true, status: 200, ms: 312, code: null, message: "", ...patch});
+            return ok({model: used, connection: connectionOf(state), results: [
+                row("openai-completions", "/chat/completions", {ms: 312}),
+                row("openai-responses", "/responses", {ms: 418}),
+                row("anthropic-messages", "/messages", {ok: false, status: 404, ms: 96, code: "http", message: `{"error":{"message":"Not Found: ${new URL(base).pathname}/messages"}}`}),
+                row("google-generative-ai", `/models/${used}:streamGenerateContent`, {ok: false, status: 400, ms: 120, code: "http", message: `{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}`}),
+            ]});
+        },
+        adoptApi: async ({provider, api, connection}) => {
+            const state = providers.get(provider);
+            if (state === undefined) return unknown(provider);
+            if (connectionOf(state, api) !== connection) return {ok: false as const, code: "connection-changed" as const, detail: {detail: "the provider changed after the check"}};
+            return change(provider, (target) => {
+                target.meta = {...target.meta, api};
+            });
+        },
         events: {changed: {subscribe: async (_filter, listener) => {
             if (options.unavailable === true) return unavailable;
             listeners.add(listener);

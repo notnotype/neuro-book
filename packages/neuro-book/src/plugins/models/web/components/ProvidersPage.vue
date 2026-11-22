@@ -4,16 +4,17 @@ import type {ModelConfig} from "@notnotype/nb-models/config";
 import {PROVIDER_ICON_FILES} from "nbook/ui/provider-icons";
 import type {ModelRow, SnapshotProvider} from "@notnotype/nb-models/contract";
 import {AlertDialog, Button, EmptyState, IconButton, Select, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
-import {detailText} from "../models-store";
+import {CHECK_CONCURRENCY, CHECK_CONFIRM_ABOVE, detailText} from "../models-store";
 import type {ModelsFailure, ModelsRemote, ModelsStore} from "../models-store";
 import {failureReason, roleName, useModelsText} from "../text";
 import AddProviderDialog from "./AddProviderDialog.vue";
 import type {AddInput} from "./AddProviderDialog.vue";
 import AllModelsView from "./AllModelsView.vue";
+import type {ApiDetectState} from "./ApiDetectResults.vue";
 import ManageModelsDialog from "./ManageModelsDialog.vue";
 import type {ModelCandidate} from "./ManageModelsDialog.vue";
 import ModelEditDialog from "./ModelEditDialog.vue";
@@ -155,20 +156,87 @@ async function refreshSource(provider: SnapshotProvider): Promise<void> {
     sourceErrors.value = next;
 }
 
+/**
+ * 还没回来的连接写入（地址、协议、认证、密钥）：协议检测要等它们写完，只测已保存的配置。鼠标从密钥框直接点“检测协议”时，失焦交出的
+ * 密钥与检测几乎同时发出，服务端的检测不排在写队列里，不等就会读到旧密钥。
+ */
+const pendingWrites = new Set<Promise<unknown>>();
+function tracked<T>(work: Promise<T>): Promise<T> {
+    pendingWrites.add(work);
+    void work.finally(() => pendingWrites.delete(work));
+    return work;
+}
+
 async function setKey(provider: SnapshotProvider, value: string): Promise<void> {
-    const result = await props.store.call("setKey", {provider: provider.id, value});
+    const result = await tracked(props.store.call("setKey", {provider: provider.id, value}));
     // `partially-applied` 也走通知：快照随后给出实际的密钥状态（service.md 输出 13）。
     if (!result.ok) report(text("subject.key", {provider: provider.name}), result.failure);
 }
 
 async function clearKey(provider: SnapshotProvider): Promise<void> {
-    const result = await props.store.call("clearKey", {provider: provider.id});
+    const result = await tracked(props.store.call("clearKey", {provider: provider.id}));
     if (!result.ok) report(text("subject.key", {provider: provider.name}), result.failure);
 }
 
 async function updateProvider(provider: SnapshotProvider, patch: ProviderPatch): Promise<void> {
-    const result = await props.store.call("updateProvider", {id: provider.id, patch});
+    const result = await tracked(props.store.call("updateProvider", {id: provider.id, patch}));
     if (!result.ok) report(subjectOf(provider), result.failure);
+}
+
+// ---- 协议检测（输出 21）----
+// 状态在页面：换服务商、离开页面时取消在途的检测，结果不跨服务商留。
+const detection = ref<{provider: string; state: ApiDetectState} | null>(null);
+let detectController: AbortController | null = null;
+const IDLE: ApiDetectState = {status: "idle"};
+const detectState = (provider: SnapshotProvider): ApiDetectState => (detection.value?.provider === provider.id ? detection.value.state : IDLE);
+function stopDetect(): void {
+    detectController?.abort();
+    detectController = null;
+    detection.value = null;
+}
+async function detectApi(provider: SnapshotProvider, model?: string): Promise<void> {
+    detectController?.abort();
+    const controller = new AbortController();
+    detectController = controller;
+    detection.value = {provider: provider.id, state: {status: "running"}};
+    // 点按钮前地址框里的草稿已经交出去了（失焦或点击时）：等它写完，检测读到的才是新地址。
+    await Promise.allSettled([...pendingWrites]);
+    if (controller.signal.aborted) return;
+    const result = await props.store.call("detectApi", {provider: provider.id, ...(model === undefined ? {} : {model})}, {signal: controller.signal});
+    if (controller.signal.aborted) return;
+    detectController = null;
+    detection.value = {provider: provider.id, state: result.ok ? {status: "done", detection: result.value} : {status: "failed", code: result.failure.code, reason: failureReason(text, result.failure)}};
+}
+async function adoptApi(provider: SnapshotProvider, api: NonNullable<ProviderPatch["api"]>, connection: string): Promise<void> {
+    const result = await tracked(props.store.call("adoptApi", {provider: provider.id, api, connection}));
+    // 检测之后配置变过：快照随之换了连接版本，结果块自己置灰并写“请重新检测”，不另发通知。
+    if (!result.ok && result.failure.code !== "connection-changed") report(subjectOf(provider), result.failure);
+}
+watch(selected, stopDetect);
+onBeforeUnmount(stopDetect);
+
+// ---- 检测全部 ----
+/** 超过 `CHECK_CONFIRM_ABOVE` 个先确认：个数与“会产生真实调用”。确认的是这一份名单，检测的也是它。 */
+const checkConfirm = ref<{provider: string; name: string; models: readonly string[]} | null>(null);
+const checkConfirmOpen = ref(false);
+async function checkAll(provider: SnapshotProvider): Promise<void> {
+    const models = await props.store.checkTargets(provider.id);
+    if (models.length <= CHECK_CONFIRM_ABOVE) {
+        void props.store.checkAll(provider.id, models);
+        return;
+    }
+    checkConfirm.value = {provider: provider.id, name: provider.name, models};
+    checkConfirmOpen.value = true;
+}
+function confirmCheckAll(): void {
+    const target = checkConfirm.value;
+    if (target !== null) void props.store.checkAll(target.provider, target.models);
+}
+/** 对话框没有触发器：关上后焦点回到模型区头上（确认了就是“取消检测”，取消了就是“检测全部”）。 */
+async function onCheckConfirmClosed(): Promise<void> {
+    checkConfirm.value = null;
+    await nextTick();
+    page.value?.querySelector<HTMLElement>("[data-models-cancel], [data-models-check-all]")?.focus();
 }
 
 /** 模型行转回设置的形状（启用开关只改 `enabled`，其余照原样；服务端会去掉来源模型没改过的字段）。 */
@@ -492,7 +560,12 @@ function focusVisible(selectors: readonly string[]): void {
                         @toggle-model="(id, enabled) => toggleModel(current!, id, enabled)"
                         :check-error="checkError(current)"
                         @check="(id) => store.check(current!.id, id)"
-                        @check-all="store.checkAll(current!.id)"
+                        @check-all="checkAll(current!)"
+                        :check-run="store.checkRuns.get(current.id) ?? null"
+                        :detect="detectState(current)"
+                        @detect="(model) => detectApi(current!, model)"
+                        @cancel-detect="stopDetect"
+                        @adopt="(api, connection) => adoptApi(current!, api, connection)"
                         @cancel-checks="store.cancel(current!.id)"
                         @cancel-check="(id) => store.cancel(current!.id, id)"
                         @edit-model="(id) => openEdit(current!.id, id)"
@@ -529,6 +602,17 @@ function focusVisible(selectors: readonly string[]): void {
             :error="manageError"
             :busy="manageBusy"
             @done="(change) => applyManage(current!, change)"
+        />
+        <AlertDialog
+            v-if="checkConfirm !== null"
+            v-model:open="checkConfirmOpen"
+            :title="text('models.confirmCheckAll.title', {count: String(checkConfirm.models.length), provider: checkConfirm.name})"
+            :description="text('models.confirmCheckAll.description', {concurrency: String(CHECK_CONCURRENCY)})"
+            :confirm-label="text('models.confirmCheckAll.action')"
+            tone="neutral"
+            data-check-all-confirm
+            @confirm="confirmCheckAll"
+            @closed="onCheckConfirmClosed"
         />
         <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-label="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
     </div>

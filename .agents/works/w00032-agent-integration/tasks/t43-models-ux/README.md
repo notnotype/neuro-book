@@ -131,10 +131,18 @@ updated: 2026-11-22
 - 新增启动环境 `NBOOK_MODELS_CATALOG_URL`：改在线目录地址，设空不取；e2e 夹具、Bun 测试预加载与各测试场地都设空，测试不出本机。
 - 删了模型服务的 `discover`（管理模型对所有服务商读来源行），但 nb-harness 根入口的 `discoverModels` 保留：nb-story 的问答服务还在用（审查查出，第一次跑 `test:affected` 时 nb-story 的失败被误判成 worktree 缺构建）。
 
+段 B2b（协议检测）：2026-11-22 合入 master（合并提交 2579cd196）。合入前的验证：nb-harness、nb-models（含浏览器侧）、neuro-book（后端与 web）的类型检查；`probe.test.ts` 33 条、`models.test.ts`、`models-store.test.ts` 7 条、models 的 8 个组件 dom 测试文件 44 条、nb-harness 的 `omp.test.ts`、`models.test.ts`、`provider.test.ts` 52 条通过（第一轮实现之后跑过 `test:affected --since master`，只有负载下偶发的 SnippetsPage dom 测试，单独重跑通过；审查修正之后只跑上面这些受影响的）；e2e models 7 条通过（acceptance 5 修正后单独重跑）；lab-scenes 只剩 ThemeEditor 的 4 条原有 404，临时滤掉它们后版面比对里没有本段组件的项（报出的 SubagentCard、ProfileSettingsPage 等不在本段范围）；`ApiDetectResults` 按 390 宽截图（中、英、置灰、混合模板跟随、没有模型），没有溢出。Spec（`models/service.md` 输出 11、12、26 与合同 v5，`models/settings-pages.md` 输出 4、8、21 与验收 5）与 `CHANGELOG` 同日提交。实现审查后端 omp（`review` 角色 `aihub/gpt-6.2-sol:max`）8 条（阻断 2、重要 6）、前端 Sonnet 10 条（重要 3），逐条核实：后端改 6 条、部分 2 条（不流式的 JSON 网关判失败不改，对话也用不了；模型级请求头不进连接版本），前端改 10 条，见[处理](evidences/impl-review-b2b-disposition.md)；变异检查 12 个全部杀掉。与计划不同的地方：
+- 检测状态放在页面（`ProvidersPage`），不在数据模块；换服务商、离开页面就取消，结果不留。结果块 `ApiDetectResults` 是受控组件。
+- 采纳的核对用“那一行改用之后的连接版本”，不是检测时的端点、模型与认证版本：采纳一种之后，同一次检测的别的行仍能采纳。连接版本含引用了却没有值的环境变量，不含模型级请求头（协议是服务商级的选择）。
+- 模板没有某协议的路由时那一行试现在的地址，采纳时把地址钉成覆盖值；混合协议的模板（OpenCode Zen 这类）选哪种都钉住，不恢复跟随（恢复跟随时每个模型各用各的协议，试的就不是选的那种，审查查出）。
+- “恰好一次 HTTP”靠 `ompCall` 新加的最内层发送挂钩 `send`，不靠 `maxHttpAttempts`；检测给一个空的 `transport` 只为关掉适配器的空回复重发（思考不外露、只报输出 token 的回应判通过）。不流式、整段回 JSON 的网关判失败。
+- 单个检测被取消也标“结果未知”（计划只说检测全部）；检测进行中“检测协议”换成“取消协议检测”，不停用。
+- 检测全部的名单在确认时定下，途中被停用或移出的跳过。
+
 ## 下一步
 
 段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10；截图已拍，在 Task 的 `shots/`）。
 
-段 B2b（协议检测，[计划](plan.md#段-b2模型来源与协议检测)的 B2b 节）：新分支实施；界面改成逐个 `check` 时删掉 `checkAll`（B1 后端审查第 20 条）。然后段 C（代理与网络出口，加进 B2a 建的 `nbook.network`）。
+段 C（代理与网络出口，加进 B2a 建的 `nbook.network`；协议检测的请求点也换成 `fetchFor`），[计划](plan.md#段-c网络与代理)的 C 节。
 
 待查：`lab-agent-ui:572`（模型选择器窄面板与英文）在 B1 起点上就失败，段 A 合入时是通过的，原因没查。
