@@ -238,6 +238,11 @@ owners:
     - 要提交时没有提交处理；提交处理不是函数（例如整包绑定之后又写了 `@gesture-commit`，两者合成数组）；提交处理的返回值不是 `{ok: …}` 的形状（例如返回 `undefined`、Promise、布尔值）。三种是三条警告；
     - 整包绑定的宿主：手势开始时 `NestedGrid` 用的 `contextKey` 与宿主此刻的不同（模板里另写了 `context-key`）；`revision` 与宿主此刻的不同（模板里另写了 `:revision`）。
 152. **分隔线的显示名**：`NestedGrid` 的 `paneLabel(id)` 返回的显示名代进分隔线的读屏名称（输出 143 的“调整 {before} 与 {after} 的宽度”），挨着分支时问分支 id，一次渲染里可能问几次（同 `sashKind`）；没给、返回空或空串时用节点 id。交换里滑出去的分隔线用它离开前最后一次的显示名。独立 `Splitter` 的面板配置 `label` 同样代进读屏名称，没给时用面板 id。显示名由宿主翻译好再给。
+153. **结构操作与 `resize` 不改兄弟的意图**：`addLeaf`、`removeLeaf`、`moveLeaf` 不改兄弟的尺寸意图（保留像素的、按比例分的、收起中的都不改）。布局时按比例分的份额按比例重分，保留像素的兄弟呈现不变（约束与容器放不下时照常压缩）；空出或多出的空间由按比例分且没收起的兄弟吸收，没有这样的兄弟就留白并给 `unabsorbed-space`（planned）。
+    - 按比例分的新叶没给主轴意图（省略或为 0）时，取这一支里不是保留像素的兄弟（收起中的也算）的正意图的平均；这些兄弟的意图全是 0 时取 0；没有这样的兄弟时取 1。
+    - 按比例分的节点移到别的分支时，同样按新叶重取目标分支的平均；保留像素的节点移到同向的分支时意图不变，移到方向不同的分支返回 `invalid-argument`（`field: "fixed-cross-axis"`），树不变。
+    - `resize` 改保留像素的节点时只改它自己的意图（夹在它自己的约束里），兄弟不动，返回的 `applied` 是它自己实际变的量；改按比例分的节点时仍由兄弟分摊。
+154. **设一块保留像素的尺寸**：`grid.setSize(id, px)` 把保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`，夹进它自己在这根轴上的最小与最大（收起中也按展开时的约束夹）；兄弟不动，不读布局。收起中的节点同时把记忆的恢复尺寸改成 `max(collapsedSize, 夹过的值)`，`setCollapsed(false)` 与分隔条上的 Enter 回到同一个尺寸。返回 `{ok: true, changed, size}`：`size` 是存下的意图；`changed` 是意图或恢复尺寸有没有变，都没变时树不变；有收起策略时另带 `collapse`（同输出 147）。失败依次判：`id` 不存在 `not-found`；`id` 是根 `invalid-argument`（`field: "root"`）；按比例分的节点 `wrong-sizing`；`px` 不是有限数 `not-finite`（`field: "px"`）；`px` 为负 `invalid-argument`（`field: "px-negative"`）（planned）。
 
 ## 状态与转换
 
@@ -278,21 +283,22 @@ owners:
 2. 未知高版本拒绝恢复并保留原布局或安全默认；宿主禁止普通保存覆盖原件。
 3. 暂时缺少引用时可过滤当前呈现，但宿主保留原始记录，后续调整已知节点不能抹掉未知部分。
 4. 部分引用过滤与整体格式非法分别报告；重复身份无法可靠定位时整体拒绝，不任意覆盖同名节点。
-5. **结构操作的失败形状**：改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
+5. **结构操作的失败形状**：改尺寸、设尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
     | `not-found` | 节点、分支或父节点不在 | `id` |
     | `wrong-node-kind` | 要叶给了分支，或要分支给了叶 | `id`、`expected`（`leaf` 或 `branch`） |
     | `wrong-axis` | 不沿主轴调整 | `id`、`orientation`；调整的是节点时加父分支 `parent` |
-    | `not-finite` | 调整量、尺寸、比例或尺寸意图不是有限数 | `field`，加 `value` 或 `id`（尺寸另加 `side`：`baseline` 或 `target`） |
-    | `invalid-argument` | 根节点没有可调整的父分支、手势尺寸没有覆盖全部直接子节点、尺寸为负、方向或插入侧不认识、比例不在 0 与 1 之间 | `field`（`root`、`sizes-cover`、`size-negative`、`orientation`、`side`、`ratio-range`），加 `id`、`side` 或 `value` |
+    | `not-finite` | 调整量、尺寸、比例、尺寸意图或设的尺寸不是有限数 | `field`，加 `value` 或 `id`（尺寸另加 `side`：`baseline` 或 `target`；设的尺寸是 `field: "px"` 加 `id`） |
+    | `invalid-argument` | 根节点没有可调整的父分支、手势尺寸没有覆盖全部直接子节点、尺寸为负、方向或插入侧不认识、比例不在 0 与 1 之间、保留像素的节点移到方向不同的分支、设的尺寸为负 | `field`（`root`、`sizes-cover`、`size-negative`、`orientation`、`side`、`ratio-range`、`fixed-cross-axis`、`px-negative`），加 `id`、`side` 或 `value`（后两种只加 `id`） |
     | `limit-exceeded` | 超过 256 个节点或 16 层 | `limit`（`nodes` 或 `depth`）、`max` |
     | `duplicate-id` | id 已被占用 | `id`、`with`（`existing`：树里已有；`new-leaf`：新分支与新叶同 id） |
     | `into-own-subtree` | 把节点移进它自己的子树 | `id`、`parent` |
     | `not-conserved` | 手势目标的总量与基线不等 | `id`、`target`、`baseline` |
     | `stale-baseline` | 手势的基线已经失效 | `id` |
     | `not-collapsible` | 要收起的面板没有收起策略 | `id`、`branch` |
+| `wrong-sizing` | 要保留像素的节点给了按比例分的 | `id`、`expected`（`fixed`） |
 
     同一个子节点基线与目标都不合法时报基线那一侧。传进来的非法值在 `value` 里写成字符串（`NaN` 写作 `"NaN"`）。
 6. **提交的返回**：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。宿主自己写这个回调时可以用自己的码拒绝（写法见“边界与兼容”）。`useGridHost` 接提交时，落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
