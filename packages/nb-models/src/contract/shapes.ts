@@ -41,7 +41,8 @@ export const ReasoningSchema = Type.Union([
 /**
  * 一个模型行：模板目录的字段已与用户的覆盖合好。`status`：`missing` 设置里引用了、目录里已经没有（目录漂移，输出 9）；
  * `incomplete` 上下文窗口不明（目录没给、用户也没填）。`usable`：启用、状态 ok、这家有凭据，服务端按解析的同一条件算。
- * `overridden`：用户改过、与来源值不同的字段（界面标“已改”、可恢复来源值）；手加的模型恒为空。
+ * `overridden`：用户改过、与来源值不同的字段（界面标“已改”、可恢复来源值）；手加的模型恒为空。`source`：这些字段的来源值（编辑对话框
+ * “恢复来源值”时显示）；没有改过的字段时为 null，免得几百行都多带一份。
  */
 export const ModelOverrideField = Type.Union([Type.Literal("name"), Type.Literal("contextWindow"), Type.Literal("maxOutput"), Type.Literal("vision"), Type.Literal("reasoning"), Type.Literal("price")]);
 export const ModelRowSchema = Type.Object({
@@ -62,6 +63,14 @@ export const ModelRowSchema = Type.Object({
     status: Type.Union([Type.Literal("ok"), Type.Literal("missing"), Type.Literal("incomplete")]),
     usable: Type.Boolean(),
     overridden: Type.Array(ModelOverrideField),
+    source: Nullable(Type.Object({
+        name: Type.String(),
+        contextWindow: Nullable(Type.Integer()),
+        maxOutput: Nullable(Type.Integer()),
+        vision: Type.Boolean(),
+        reasoning: Type.Boolean(),
+        price: Price,
+    }, {additionalProperties: false})),
 }, {additionalProperties: false});
 export type ModelRow = Static<typeof ModelRowSchema>;
 

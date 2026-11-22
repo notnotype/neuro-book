@@ -310,6 +310,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             status,
             usable: usableMember(provider, row, ready),
             overridden,
+            source: overridden.length === 0 || source === undefined ? null : {name: source.name, contextWindow: source.contextWindow, maxOutput: source.maxTokens, vision: source.images, reasoning: source.reasoning, price: sourcePriceOf(source)},
         };
         rowCache.set(cacheKey, value);
         return value;

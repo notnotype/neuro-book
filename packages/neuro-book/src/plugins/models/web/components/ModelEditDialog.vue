@@ -32,15 +32,36 @@ const emit = defineEmits<{
 const text = useModelsText();
 const adding = computed(() => props.model === null);
 type Overridable = ModelRow["overridden"][number];
-/** 要恢复成来源值的字段：保存时不带它们，服务端就不存这些覆盖（来源值随目录走）。 */
-const restored = ref(new Set<Overridable>());
-const overridden = (field: Overridable): boolean => (props.model?.overridden ?? []).includes(field);
-const isRestored = (field: Overridable): boolean => restored.value.has(field);
-function restore(field: Overridable): void {
-    restored.value = new Set([...restored.value, field]);
-}
-
 const blank = (value: number | null | undefined): string => (value === null || value === undefined ? "" : String(value));
+/**
+ * 来源值在表单里的写法。“恢复来源值”就是把它填回表单：服务端存条目时去掉与来源值相同的字段，保存之后这个覆盖就没了，
+ * 来源值以后随目录更新。
+ */
+const sourceForm = computed(() => {
+    const source = props.model?.source ?? null;
+    if (source === null || props.model === null) return null;
+    return {
+        name: source.name === props.model.id ? "" : source.name,
+        contextWindow: blank(source.contextWindow),
+        maxOutput: blank(source.maxOutput),
+        vision: source.vision,
+        reasoning: source.reasoning,
+        price: source.price === null ? ["", "", "", ""] : source.price.map(String),
+    };
+});
+/** 这个字段改过（行的 `overridden`），而且表单里现在还不是来源值；来源没给窗口时不能恢复成“不明”。 */
+function canRestore(field: Overridable): boolean {
+    const source = sourceForm.value;
+    if (source === null || !(props.model?.overridden ?? []).includes(field)) return false;
+    if (field === "contextWindow" && source.contextWindow === "") return false;
+    return JSON.stringify(form[field]) !== JSON.stringify(source[field]);
+}
+function restore(field: Overridable): void {
+    const source = sourceForm.value;
+    if (source === null) return;
+    if (field === "price") form.price = [...source.price];
+    else Object.assign(form, {[field]: source[field]});
+}
 const form = reactive({id: "", name: "", group: "", contextWindow: "", maxOutput: "", vision: false, reasoning: false, compactMode: "follow" as "follow" | CompactionSetting["mode"], compactValue: "", price: ["", "", "", ""] as string[]});
 const headers = ref<Record<string, string>>({});
 /** 请求头里有没填完的行：保存要拦住，不悄悄丢掉它们。 */
@@ -52,7 +73,6 @@ watch(() => props.open, (open) => {
     if (!open) return;
     const model = props.model;
     touched.value = false;
-    restored.value = new Set();
     Object.assign(form, {
         id: model?.id ?? "",
         name: model === null || model.name === model.id ? "" : model.name,
@@ -84,13 +104,11 @@ const problems = computed(() => {
         if (form.id.trim() === "") found.id = text("edit.required");
         else if (props.takenIds.includes(form.id.trim())) found.id = text("edit.idTaken");
     }
-    // 恢复成来源值的字段不校验；窗口不明（目录没给、也没填）时必填。
-    if (!isRestored("contextWindow")) {
-        if (form.contextWindow.trim() === "") found.contextWindow = text("edit.required");
-        else if (!positive(form.contextWindow)) found.contextWindow = text("edit.positive");
-    }
-    if (!isRestored("maxOutput") && form.maxOutput.trim() !== "" && !positive(form.maxOutput)) found.maxOutput = text("edit.positive");
-    if (!isRestored("price") && form.price.some((value) => value.trim() !== "" && !PRICE.test(value.trim()))) found.price = text("edit.nonNegative");
+    // 窗口不明（目录没给、也没填）时必填。
+    if (form.contextWindow.trim() === "") found.contextWindow = text("edit.required");
+    else if (!positive(form.contextWindow)) found.contextWindow = text("edit.positive");
+    if (form.maxOutput.trim() !== "" && !positive(form.maxOutput)) found.maxOutput = text("edit.positive");
+    if (form.price.some((value) => value.trim() !== "" && !PRICE.test(value.trim()))) found.price = text("edit.nonNegative");
     // 预留量的基数可以留空（按窗口）；百分比与固定值要填，百分比不超过 100。
     const value = form.compactValue.trim();
     if (form.compactMode === "percent" && (!positive(value) || Number(value) > 100)) found.compactValue = text("edit.percent");
@@ -111,7 +129,7 @@ function save(): void {
     const base: ModelConfig = {
         id: adding.value ? form.id.trim() : props.model!.id,
         enabled: props.model?.enabled ?? true,
-        ...optional("name", name === "" || isRestored("name") ? undefined : name),
+        ...optional("name", name === "" ? undefined : name),
         ...optional("group", group === "" ? undefined : group),
         ...optional("compaction", form.compactMode === "follow" ? undefined : {mode: form.compactMode, ...(form.compactValue.trim() === "" ? {} : {value: Number(form.compactValue)})} as CompactionSetting),
         ...optional("headers", Object.keys(headers.value).length === 0 ? undefined : headers.value),
@@ -119,15 +137,15 @@ function save(): void {
     const prices = form.price.map((value) => value.trim());
     emit("save", {
         ...base,
-        // 来源模型只带用户改过的字段：恢复成来源值的不带（服务端也会把与来源值相同的字段去掉）。
-        ...(isRestored("contextWindow") ? {} : {contextWindow: Number(form.contextWindow)}),
-        ...(isRestored("maxOutput") || form.maxOutput.trim() === "" ? {} : {maxOutput: Number(form.maxOutput)}),
-        ...(isRestored("vision") ? {} : {vision: form.vision}),
-        ...(isRestored("reasoning") ? {} : {reasoning: form.reasoning}),
+        // 来源模型的字段照表单交出：服务端存条目时去掉与来源值相同的，只留用户改过的。
+        contextWindow: Number(form.contextWindow),
+        ...(form.maxOutput.trim() === "" ? {} : {maxOutput: Number(form.maxOutput)}),
+        vision: form.vision,
+        reasoning: form.reasoning,
         // 推理档对话框里不编辑，原样带回（整条替换写入，漏了就丢了）。
         ...optional("efforts", props.model === null || props.model.efforts.length === 0 || props.model.origin === "source" ? undefined : [...props.model.efforts]),
         // 全部留空是“未知”；填了一部分时没填的按 0。
-        ...(isRestored("price") ? {} : {price: prices.every((value) => value === "") ? null : prices.map((value) => (value === "" ? 0 : Number(value))) as [number, number, number, number]}),
+        price: prices.every((value) => value === "") ? null : prices.map((value) => (value === "" ? 0 : Number(value))) as [number, number, number, number],
     });
 }
 
@@ -161,7 +179,7 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
                         <small v-if="shown('id')" class="model-edit__problem">{{ shown("id") }}</small>
                     </label>
                     <label class="model-edit__field">
-                        <span>{{ text("edit.name") }}</span>
+                        <span>{{ text("edit.name") }}<button v-if="canRestore('name')" type="button" class="model-edit__restore" data-restore="name" @click.prevent="restore('name')">{{ text("models.restoreSource") }}</button></span>
                         <Input v-model="form.name" size="sm" :placeholder="text('edit.namePlaceholder')" data-field="name" />
                     </label>
                     <label class="model-edit__field">
@@ -174,26 +192,26 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
                 <h4>{{ text("edit.capabilities") }}</h4>
                 <div class="model-edit__grid">
                     <label class="model-edit__field">
-                        <span>{{ text("edit.contextWindow") }}<button v-if="overridden('contextWindow') && !isRestored('contextWindow')" type="button" class="model-edit__restore" data-restore="contextWindow" @click.prevent="restore('contextWindow')">{{ text("models.restoreSource") }}</button></span>
-                        <NumberInput v-model="form.contextWindow" :readonly="isRestored('contextWindow')" :placeholder="text('edit.required')" :invalid="shown('contextWindow') !== undefined" data-field="contextWindow" />
+                        <span>{{ text("edit.contextWindow") }}<button v-if="canRestore('contextWindow')" type="button" class="model-edit__restore" data-restore="contextWindow" @click.prevent="restore('contextWindow')">{{ text("models.restoreSource") }}</button></span>
+                        <NumberInput v-model="form.contextWindow" :placeholder="text('edit.required')" :invalid="shown('contextWindow') !== undefined" data-field="contextWindow" />
                         <small v-if="shown('contextWindow')" class="model-edit__problem">{{ shown("contextWindow") }}</small>
                     </label>
                     <label class="model-edit__field">
-                        <span>{{ text("edit.maxOutput") }}</span>
-                        <NumberInput v-model="form.maxOutput" :readonly="isRestored('maxOutput')" :invalid="shown('maxOutput') !== undefined" data-field="maxOutput" />
+                        <span>{{ text("edit.maxOutput") }}<button v-if="canRestore('maxOutput')" type="button" class="model-edit__restore" data-restore="maxOutput" @click.prevent="restore('maxOutput')">{{ text("models.restoreSource") }}</button></span>
+                        <NumberInput v-model="form.maxOutput" :invalid="shown('maxOutput') !== undefined" data-field="maxOutput" />
                         <small v-if="shown('maxOutput')" class="model-edit__problem">{{ shown("maxOutput") }}</small>
                     </label>
-                    <div class="model-edit__switch"><Switch v-model="form.vision" size="sm" :readonly="isRestored('vision')" :aria-label="text('caps.vision')" /><span>{{ text("caps.vision") }}</span></div>
-                    <div class="model-edit__switch"><Switch v-model="form.reasoning" size="sm" :readonly="isRestored('reasoning')" :aria-label="text('caps.reasoning')" /><span>{{ text("caps.reasoning") }}</span></div>
+                    <div class="model-edit__switch"><Switch v-model="form.vision" size="sm" :aria-label="text('caps.vision')" /><span>{{ text("caps.vision") }}</span><button v-if="canRestore('vision')" type="button" class="model-edit__restore" data-restore="vision" @click.prevent="restore('vision')">{{ text("models.restoreSource") }}</button></div>
+                    <div class="model-edit__switch"><Switch v-model="form.reasoning" size="sm" :aria-label="text('caps.reasoning')" /><span>{{ text("caps.reasoning") }}</span><button v-if="canRestore('reasoning')" type="button" class="model-edit__restore" data-restore="reasoning" @click.prevent="restore('reasoning')">{{ text("models.restoreSource") }}</button></div>
                 </div>
             </section>
             <section class="model-edit__section">
                 <h4>{{ text("edit.price") }}</h4>
-                <p class="model-edit__hint">{{ text("edit.priceHint") }}<button v-if="overridden('price') && !isRestored('price')" type="button" class="model-edit__restore" data-restore="price" @click.prevent="restore('price')">{{ text("models.restoreSource") }}</button></p>
+                <p class="model-edit__hint">{{ text("edit.priceHint") }}<button v-if="canRestore('price')" type="button" class="model-edit__restore" data-restore="price" @click.prevent="restore('price')">{{ text("models.restoreSource") }}</button></p>
                 <div class="model-edit__grid model-edit__grid--four">
                     <label v-for="(label, index) in PRICE_LABELS" :key="label" class="model-edit__field">
                         <span>{{ text(label) }}</span>
-                        <NumberInput v-model="form.price[index]" :readonly="isRestored('price')" :invalid="shown('price') !== undefined" />
+                        <NumberInput v-model="form.price[index]" :invalid="shown('price') !== undefined" />
                     </label>
                 </div>
                 <small v-if="shown('price')" class="model-edit__problem">{{ shown("price") }}</small>

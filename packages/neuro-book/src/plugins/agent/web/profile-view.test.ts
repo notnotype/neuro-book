@@ -21,7 +21,7 @@ engine.register("nbook.models", modelsCatalogs.catalogs, modelsCatalogs.source);
 const text = engine.port;
 
 const entry = (over: Partial<ProfileEntry> = {}): ProfileEntry => ({key: "x", name: "X", description: "", source: "nbook.agent", status: "ok", tools: {required: [], optional: []}, ...over});
-const model = (id: string, over: Record<string, unknown> = {}) => ({id, name: id.toUpperCase(), group: "g", enabled: true, contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", origin: "source", overridden: [], ...over});
+const model = (id: string, over: Record<string, unknown> = {}) => ({id, name: id.toUpperCase(), group: "g", enabled: true, contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", origin: "source", overridden: [], source: null, ...over});
 /** 每份快照配套的选用数据：快照本身不带模型行，行与按引用取到的结果另给。 */
 const SELECTION = new WeakMap<object, ProfileModels>();
 const snapshot = (over: {roles?: unknown[]; models?: unknown[]; key?: unknown} = {}): ModelsSnapshot => {

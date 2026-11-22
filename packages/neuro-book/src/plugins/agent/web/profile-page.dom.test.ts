@@ -45,7 +45,7 @@ const TOOLS: readonly ToolCatalogEntry[] = [
     {id: "nbook.agent.edit-replace", description: "换", providerName: "edit", effect: "write", plugin: "nbook.agent"},
     {id: "plot.search", description: "查\n第二行", providerName: "plot_search", effect: "read", plugin: "nbook.plot"},
 ];
-const ROW_A = {id: "a", name: "模型 A", group: "g", enabled: true, origin: "source", contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: []};
+const ROW_A = {id: "a", name: "模型 A", group: "g", enabled: true, origin: "source", contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], source: null};
 const SNAPSHOT = {
     providers: [{id: "p", template: "deepseek", region: null, name: "P", icon: null, baseUrl: null, templateBaseUrl: null, api: null, templateApi: null, key: {kind: "stored"}, followSource: true, source: {kind: "packaged"}, modelCount: 1, enabledCount: 1, excludedCount: 0, modelsRevision: "r"}],
     roles: [{id: "main", axis: "gradient", builtin: false, name: "主力", description: "", model: "p/a", status: "ok"}],

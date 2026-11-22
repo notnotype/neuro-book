@@ -251,9 +251,10 @@ describe("自动加入、冻结与移出（输出 15、22）", () => {
         const {call, store, allRows} = await start();
         const id = await added(call, {template: "deepseek"});
         const row = (await allRows(id))[0]!;
+        expect(row.source).toBeNull();
         expect(await call("upsertModel", {provider: id, model: {id: row.id, enabled: true, name: "自己的名字", contextWindow: row.contextWindow!, maxOutput: 777}})).toEqual({ok: true, value: null});
         expect(stored(store)[0]!.models).toEqual([{id: row.id, enabled: true, origin: "source", name: "自己的名字", maxOutput: 777}]);
-        expect((await allRows(id)).find((item) => item.id === row.id)).toMatchObject({name: "自己的名字", maxOutput: 777, overridden: ["name", "maxOutput"]});
+        expect((await allRows(id)).find((item) => item.id === row.id)).toMatchObject({name: "自己的名字", maxOutput: 777, overridden: ["name", "maxOutput"], source: {name: row.name, maxOutput: row.maxOutput}});
         expect(await call("upsertModel", {provider: id, model: {id: row.id, enabled: true}})).toEqual({ok: true, value: null});
         expect(stored(store)[0]!.models).toEqual([]);
     });

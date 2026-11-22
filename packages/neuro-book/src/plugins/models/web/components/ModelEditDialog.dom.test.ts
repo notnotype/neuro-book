@@ -22,7 +22,7 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const model = (patch: Partial<ModelRow> = {}): ModelRow => ({id: "m", name: "m", group: "g", enabled: true, origin: "manual", contextWindow: 200_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], ...patch});
+const model = (patch: Partial<ModelRow> = {}): ModelRow => ({id: "m", name: "m", group: "g", enabled: true, origin: "manual", contextWindow: 200_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], source: null, ...patch});
 
 async function open(snapshot: ModelRow) {
     const wrapper = mount(ModelEditDialog, {global, props: {open: true, model: snapshot}, attachTo: document.body});
@@ -96,5 +96,30 @@ describe("触发点", () => {
         await save(wrapper);
         expect(wrapper.emitted("save")).toBeUndefined();
         expect(document.body.textContent).toContain("要是正整数");
+    });
+});
+
+describe("来源模型的覆盖", () => {
+    const edited = model({
+        id: "deepseek-pro", name: "自己起的名字", origin: "source", maxOutput: 777, vision: true, price: [9, 9, 0, 0],
+        overridden: ["name", "maxOutput", "vision", "price"],
+        source: {name: "DeepSeek Pro", contextWindow: 200_000, maxOutput: 16_384, vision: false, reasoning: false, price: [0.55, 2.19, 0.14, 0]},
+    });
+
+    it("改过的字段旁有“恢复来源值”：点了表单换成来源值、按钮消失，保存交出的就是来源值（服务端据此不再存覆盖）", async () => {
+        const wrapper = await open(edited);
+        const restorable = () => [...document.body.querySelectorAll("[data-restore]")].map((button) => button.getAttribute("data-restore"));
+        expect(restorable()).toEqual(["name", "maxOutput", "vision", "price"]);
+        for (const field of ["name", "maxOutput", "vision", "price"]) document.body.querySelector<HTMLButtonElement>(`[data-restore="${field}"]`)!.click();
+        await flushPromises();
+        expect(restorable()).toEqual([]);
+        expect(document.body.querySelector<HTMLInputElement>("[data-field='name'] input, input[data-field='name']")!.value).toBe("DeepSeek Pro");
+        await save(wrapper);
+        expect(wrapper.emitted("save")!.at(-1)![0]).toMatchObject({id: "deepseek-pro", name: "DeepSeek Pro", maxOutput: 16_384, vision: false, price: [0.55, 2.19, 0.14, 0]});
+    });
+
+    it("没有改过的字段、手加的模型都没有“恢复来源值”", async () => {
+        await open(model({origin: "manual"}));
+        expect(document.body.querySelectorAll("[data-restore]").length).toBe(0);
     });
 });

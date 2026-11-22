@@ -4,7 +4,7 @@ import type {ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole, Template}
 
 /** 没单独给 `thinking` 时按 `reasoning` 与 `efforts` 推：没档位的是“会推理但不能调档”，有档位的可调、能真关。 */
 export const sampleRow = (id: string, patch: Partial<ModelRow> = {}): ModelRow => {
-    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, origin: "source" as const, contextWindow: 128_000 as number | null, maxOutput: 8_192 as number | null, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, usable: true, overridden: [] as ModelRow["overridden"], ...patch};
+    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, origin: "source" as const, contextWindow: 128_000 as number | null, maxOutput: 8_192 as number | null, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, usable: true, overridden: [] as ModelRow["overridden"], source: null as ModelRow["source"], ...patch};
     const thinking: ModelRow["thinking"] = patch.thinking ?? (!model.reasoning ? {kind: "none"} : model.efforts.length === 0 ? {kind: "fixed"} : {kind: "levels", levels: model.efforts, off: "disable", unset: null, verified: true});
     return {...model, thinking};
 };
@@ -18,7 +18,7 @@ const provider = (patch: Partial<SnapshotProvider> & Pick<SnapshotProvider, "id"
 export const SAMPLE_ROWS: Record<string, ModelRow[]> = {
     deepseek: [
         sampleRow("deepseek-flash", {name: "DeepSeek Flash", group: "deepseek", price: [0.27, 1.1, 0.07, 0]}),
-        sampleRow("deepseek-pro", {name: "DeepSeek Pro", group: "deepseek", reasoning: true, efforts: ["high"], maxOutput: 32_768, price: [0.55, 2.19, 0.14, 0], overridden: ["maxOutput"]}),
+        sampleRow("deepseek-pro", {name: "DeepSeek Pro", group: "deepseek", reasoning: true, efforts: ["high"], maxOutput: 32_768, price: [0.55, 2.19, 0.14, 0], overridden: ["maxOutput"], source: {name: "DeepSeek Pro", contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, price: [0.55, 2.19, 0.14, 0]}}),
     ],
     anthropic: [
         sampleRow("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", group: "Claude Sonnet", contextWindow: 200_000, maxOutput: 64_000, vision: true, reasoning: true, efforts: ["low", "medium", "high"], price: [3, 15, 0.3, 3.75]}),
