@@ -4,7 +4,7 @@
  */
 
 export type {CatalogModel, CatalogProvider, CatalogSuggestion, DiscoveredModel, DiscoverModelsOptions, DiscoveryResult, ModelPrice, ProviderAccess, ThinkingEffort, WireApi} from "./catalog.js";
-export {catalogModel, chatModels, clampEffort, discoverModels, listCatalog, providerAccess, suggestFromCatalog, supportedEfforts, templateRoutes, THINKING_EFFORTS, wireApiOf} from "./catalog.js";
+export {catalogModel, chatModels, clampEffort, discoverModels, listCatalog, providerAccess, suggestFromCatalog, supportedEfforts, templateRoutes, THINKING_EFFORTS, unsendableReason, wireApiOf} from "./catalog.js";
 export {reasoningOf, requestEffort} from "../kernel/index.js";
 export type {ModelReasoning, ReasoningOff, RequestEffort} from "../kernel/index.js";
 export type {CredentialStore} from "./credentials.js";

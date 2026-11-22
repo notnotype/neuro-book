@@ -19,7 +19,7 @@ import {getLogsDir} from "@oh-my-pi/pi-utils";
 
 import {ompCall, ompModelInfo} from "../kernel/index.js";
 import type {ModelInfo, ModelResolution, OmpFetchFailure, OmpIdentity, OmpTransport} from "../kernel/index.js";
-import {catalogPrice, templateRoutes, wireApiOf} from "./catalog.js";
+import {catalogPrice, templateRoutes, unsendableReason, wireApiOf} from "./catalog.js";
 import type {WireApi} from "./catalog.js";
 import {envRefName, envValue, type StartupEnv} from "./env.js";
 
@@ -44,6 +44,8 @@ export interface ProviderTarget {
     readonly follows: boolean;
     /** 覆盖模板的协议；空白模板必填。 */
     readonly api?: WireApi;
+    /** 模板的缺省协议：没有覆盖、又没有同 id 的目录行（手加的模型）时用它。 */
+    readonly defaultApi?: WireApi;
     /** 覆盖模板的地址（或地区地址）；空白模板必填。 */
     readonly baseUrl?: string;
     /** 有值时密钥取这个环境变量，盖过凭据库里的。 */
@@ -54,6 +56,8 @@ export interface ProviderTarget {
 
 export interface ModelTarget {
     readonly id: string;
+    /** 用户手加的模型：不查目录行（目录后来恰好有了同 id 的，也不改它的能力与来历），窗口必须自己给。 */
+    readonly manual?: boolean;
     readonly name?: string;
     readonly contextWindow?: number;
     readonly maxOutput?: number;
@@ -78,7 +82,7 @@ export interface ResolveHooks {
     /** `call` 每次请求现读。 */
     readonly transport?: () => OmpTransport;
     /** 这次解析得到的有效协议与地址，宿主据此算部署身份（`deployment`）与凭据身份（`credential`，要用到 `key`）。 */
-    readonly identityOf?: (effective: {readonly api: WireApi; readonly baseUrl: string; readonly key: string | null}) => OmpIdentity;
+    readonly identityOf?: (effective: {readonly api: WireApi; readonly baseUrl: string; readonly key: string | null; readonly headers: Readonly<Record<string, string>>}) => OmpIdentity;
     /** 发出前再问一次：这份解析用的配置现在还是实例的当前配置吗（解析后实例被改了地址或换了凭据，旧解析不能再发）。 */
     readonly stillCurrent?: () => boolean;
     /** 公开引用的实例名；不给用 `ProviderTarget.id`。 */
@@ -93,7 +97,11 @@ export interface BuiltModel {
     readonly api: WireApi;
     readonly baseUrl: string;
 }
-export type BuildResult = BuiltModel | {readonly ok: false; readonly code: "unknown-model"};
+/**
+ * 建不出来：`unknown-model` 是目录里没有、缺上下文窗口或协议与地址凑不齐；`transport-unsupported` 是目录里有这一行、但它不能当对话
+ * 模型发（不是对话类，或传输不走 HTTP 请求），`reason` 说是哪一种。对会话两者都是 `unknown-model`，由模型服务映射。
+ */
+export type BuildResult = BuiltModel | {readonly ok: false; readonly code: "unknown-model"} | {readonly ok: false; readonly code: "transport-unsupported"; readonly reason: "not-chat" | "transport"};
 
 /**
  * 删 `pi-ai` 落盘的请求全文（docs/specs/harness/models.md 输出 19）。路径是从错误文字里取的，而错误文字含服务商的正文，可以伪造：
@@ -112,13 +120,14 @@ async function discardRequestDump(path: string): Promise<void> {
 export function buildResolution(provider: ProviderTarget, config: ModelTarget, access: KeyAccess, hooks: ResolveHooks = {}): BuildResult {
     const built = materialize(provider, config);
     if (built === null) return {ok: false, code: "unknown-model"};
+    if ("unsendable" in built) return {ok: false, code: "transport-unsupported", reason: built.unsendable};
     const {model, priceKnown, api, baseUrl} = built;
     const name = `${hooks.publicName ?? provider.id}/${config.id}`;
     const base = ompModelInfo(model, name);
     const compactAt = config.compactAtFor?.(base.contextWindow) ?? config.compactAt;
     const info: ModelInfo = {...base, ...(compactAt === undefined ? {} : {compactAt})};
     const wire = wireGuard(api, baseUrl);
-    const identity = hooks.identityOf?.({api, baseUrl, key: keyOf(provider, access, [])});
+    const identity = hooks.identityOf?.({api, baseUrl, key: keyOf(provider, access, []), headers: requestAuth(provider, config, access).headers});
     return {
         ok: true,
         model,
@@ -137,6 +146,8 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
                     ...(identity === undefined ? {} : {identity}),
                     guard: (url) => (hooks.stillCurrent?.() === false ? {code: "endpoint-mismatch", message: "the provider was changed after this model was resolved; resolve it again"} : wire(url)),
                     ...(provider.auth === "none" ? {keyless: true} : {}),
+                    // 代理设置要到网络出口（w00032 t43 段 C）才有：在那之前模型请求一律直连，不吃进程环境里的代理变量。
+                    direct: true,
                     onRequestDump: discardRequestDump,
                     ...(hooks.transport === undefined ? {} : {transport: hooks.transport()}),
                     apiKey: () => {
@@ -230,10 +241,14 @@ interface Materialized {
  * 元数据加实例覆盖得到 OMP 模型。同模板且同协议的目录行整行沿用（专用处理随它）；协议不同或空白模板时只借能力字段、按中性
  * 身份用 `buildModel` 建。自定义（没有目录行）的上下文窗口必须是正整数（压缩要用），缺了不能用。
  */
-function materialize(provider: ProviderTarget, config: ModelTarget): Materialized | null {
-    const bundled = provider.template === null ? undefined : bundledRow(provider.template, config.id);
+function materialize(provider: ProviderTarget, config: ModelTarget): Materialized | {readonly unsendable: "not-chat" | "transport"} | null {
+    if (config.manual !== true && provider.template !== null) {
+        const unsendable = unsendableReason(provider.template, config.id);
+        if (unsendable !== null) return {unsendable};
+    }
+    const bundled = provider.template === null || config.manual === true ? undefined : bundledRow(provider.template, config.id);
     const bundledWire = bundled === undefined ? null : wireApiOf(bundled.api);
-    const api = provider.api ?? bundledWire;
+    const api = provider.api ?? bundledWire ?? provider.defaultApi ?? null;
     if (api === null) return null;
     const sameProtocol = bundled !== undefined && bundledWire === api;
     const route = sameProtocol ? bundled.baseUrl : provider.template === null ? undefined : templateRoutes(provider.template).find((item) => item.api === api)?.baseUrl;

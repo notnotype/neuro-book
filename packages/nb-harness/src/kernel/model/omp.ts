@@ -39,6 +39,11 @@ export interface OmpTarget {
     /** 不要认证的目标：发出前剥掉值是占位哨兵的认证头（`Authorization`、`x-api-key`、`x-goog-api-key`），不把它当密钥送出去。 */
     readonly keyless?: boolean;
     /**
+     * 直连：每个请求都按次关掉代理（Bun 的 `proxy: false`，盖过 `HTTP_PROXY`、`HTTPS_PROXY` 与 OMP 按服务商配的代理）。不给时照
+     * 运行时的缺省（读环境变量）。
+     */
+    readonly direct?: boolean;
+    /**
      * 取密钥，每次请求取一次（凭据库是异步的，OAuth 令牌以后要刷新）；取不到时抛错或 reject，适配器在发请求前以 `auth`、
      * 码 `missing-key` 失败。只用宿主指定的来源。
      */
@@ -74,6 +79,7 @@ export interface OmpIdentity {
 
 /** 认证头：免认证时它们的值是哨兵，不能真的发出去。 */
 const AUTH_HEADERS = ["authorization", "x-api-key", "x-goog-api-key"] as const;
+const isSentinel = (value: string | null): boolean => value === NO_AUTH_SENTINEL || value === `Bearer ${NO_AUTH_SENTINEL}`;
 
 /** 请求的传输（docs/specs/harness/models.md 输出 18）。超时的 0 表示不计时。 */
 export interface OmpTransport {
@@ -217,13 +223,14 @@ function mergeAdjacentUsers(messages: OmpMessage[]): OmpMessage[] {
 }
 
 /**
- * 这条历史回复的思考签名与服务商元数据能不能原样送回：有 `origin` 时整组（OMP 身份、协议、部署、凭据）相同才行；旧日志没有
- * `origin`，按旧运行时的规则，`model` 的第一段是同一个实例 id。目标没有 `identity` 时（直接用 OMP 模型的宿主）退回 `Model.provider`。
+ * 这条历史回复的思考签名与服务商元数据能不能原样送回：有 `origin` 时整组（OMP 身份、协议、作答的模型、部署、凭据）相同才行；旧日志
+ * 没有 `origin`，按旧运行时的规则，`model` 的第一段是同一个实例 id（模型 id 照历史交给 OMP，由它按模型再判一次）。目标没有
+ * `identity` 时（直接用 OMP 模型的宿主）退回 `Model.provider`。
  */
 function restorable(message: Message, model: Model, identity: OmpIdentity | undefined): boolean {
     const origin = message.origin;
     if (origin !== undefined) {
-        if (origin.provider !== model.provider || origin.api !== model.api) return false;
+        if (origin.provider !== model.provider || origin.api !== model.api || origin.model !== model.id) return false;
         return identity === undefined || (origin.deployment === identity.deployment && (origin.credential ?? null) === (identity.credential ?? null));
     }
     if (message.model === undefined) return true;
@@ -245,7 +252,8 @@ function toContext(request: ModelRequest, model: Model, now: number, identity?: 
                 // 能还原时沿用当前的身份与 api：OMP 按服务商与 api 是否相同决定思考签名要不要原样送回；不能还原时 api 写 unknown。
                 api: same ? model.api : "unknown",
                 provider: same ? model.provider : message.origin?.provider ?? first ?? model.provider,
-                model: same ? model.id : message.origin?.model ?? rest.join("/"),
+                // 有 `origin` 且整组相同时就是这个模型；旧日志只核对了实例，交出历史里真正作答的模型 id，让 OMP 换了模型时不送签名。
+                model: same && message.origin !== undefined ? model.id : message.origin?.model ?? (rest.length > 0 ? rest.join("/") : model.id),
                 usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
                 stopReason: (message.toolCalls?.length ?? 0) > 0 ? "toolUse" : "stop",
                 timestamp: now,
@@ -356,9 +364,11 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             }
             const headers = new Headers(input instanceof Request ? input.headers : undefined);
             if (init?.headers !== undefined) new Headers(init.headers).forEach((value, name) => headers.set(name, value));
-            if (target.keyless === true) for (const name of AUTH_HEADERS) if (headers.get(name)?.includes(NO_AUTH_SENTINEL) === true) headers.delete(name);
+            // 只剥适配器垫的占位值本身（或 `Bearer <占位>`）：用户自己配的同名头哪怕含有同样的字符也照发。
+            if (target.keyless === true) for (const name of AUTH_HEADERS) if (isSentinel(headers.get(name))) headers.delete(name);
             // 重定向交给调用方改地址，不替它跟随：跟随会把密钥带到没核对过的地址（docs/specs/harness/models.md）。
-            return fetch(input, {...init, headers, redirect: "error"});
+            // `proxy: false` 是 Bun 的按次直连（1.4.3 起），类型声明里没有 `false` 这一项。
+            return fetch(input, {...init, headers, redirect: "error", ...(target.direct === true ? {proxy: false as unknown as string} : {})});
         }) as typeof fetch;
         const observed = observedFetch(guarded, observer, secrets);
         const counted = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

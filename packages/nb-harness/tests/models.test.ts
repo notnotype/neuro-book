@@ -8,7 +8,7 @@ import {mkdir, readdir, readFile, stat, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ModelRequest, ModelWireAttempt} from "@notnotype/nb-harness/kernel";
-import {buildResolution, chatModels, discoverModels, hasCredential, openCredentials, templateRoutes, wireGuard, type ProviderTarget} from "@notnotype/nb-harness/models";
+import {buildResolution, chatModels, discoverModels, hasCredential, listCatalog, openCredentials, templateRoutes, unsendableReason, wireApiOf, wireGuard, type ProviderTarget} from "@notnotype/nb-harness/models";
 
 let root = "";
 const seen: {path: string; headers: Headers}[] = [];
@@ -302,6 +302,72 @@ describe("模板的实例：身份、地址与发送前核对（models.md 输出
         expect(templateRoutes("opencode-zen").length).toBe(4);
         expect(buildResolution({id: "x", template: "moonshot", follows: false, api: "anthropic-messages", auth: "default"}, {id: model}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
         expect(buildResolution({id: "x", template: "moonshot", follows: true, auth: "default"}, {id: "no-such"}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
+    });
+
+    test("直连：进程环境设了 HTTP_PROXY 时模型请求照样直达端点，代理一次也没收到", async () => {
+        let proxied = 0;
+        const proxy = Bun.serve({port: 0, hostname: "127.0.0.1", fetch() {
+            proxied += 1;
+            return new Response("proxy", {status: 502});
+        }});
+        const saved = {http: process.env.HTTP_PROXY, https: process.env.HTTPS_PROXY, no: process.env.NO_PROXY};
+        try {
+            process.env.HTTP_PROXY = `http://127.0.0.1:${String(proxy.port)}`;
+            process.env.HTTPS_PROXY = process.env.HTTP_PROXY;
+            delete process.env.NO_PROXY;
+            const {response, paths} = await sendOnce(resolved(follows()));
+            expect(response.stopReason).toBe("stop");
+            expect(paths).toEqual(["/v1/chat/completions"]);
+            expect(proxied).toBe(0);
+        } finally {
+            for (const [name, value] of [["HTTP_PROXY", saved.http], ["HTTPS_PROXY", saved.https], ["NO_PROXY", saved.no]] as const) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+            await proxy.stop(true);
+        }
+    });
+
+    test("免认证只剥占位值：用户自己配的认证头（含同样的字符）照发", async () => {
+        const built = resolved(follows({auth: "none", headers: {authorization: "Bearer team-N/A-token"}}));
+        seen.length = 0;
+        await built.resolution.call(request, new AbortController().signal, () => undefined);
+        expect(seen[0]!.headers.get("authorization")).toBe("Bearer team-N/A-token");
+    });
+
+    test("OpenRouter 的复合协议按进程环境定：PI_OPENROUTER_RESPONSES 为 0 时是 Chat Completions，否则 Responses", () => {
+        const saved = process.env.PI_OPENROUTER_RESPONSES;
+        try {
+            process.env.PI_OPENROUTER_RESPONSES = "0";
+            expect(wireApiOf("openrouter")).toBe("openai-completions");
+            delete process.env.PI_OPENROUTER_RESPONSES;
+            expect(wireApiOf("openrouter")).toBe("openai-responses");
+        } finally {
+            if (saved === undefined) delete process.env.PI_OPENROUTER_RESPONSES;
+            else process.env.PI_OPENROUTER_RESPONSES = saved;
+        }
+    });
+
+    test("不能当对话模型发的目录行：图片生成等不进清单，解析得 transport-unsupported 并写明原因；不走 HTTP 的传输同样", () => {
+        const image = listCatalog().find((item) => item.id === "google")!.models.find((row) => !row.chat)!;
+        expect(chatModels("google").some((row) => row.id === image.id)).toBe(false);
+        expect(unsendableReason("google", image.id)).toBe("not-chat");
+        const google = {id: "g", template: "google", follows: true, auth: "default" as const};
+        expect(buildResolution(google, {id: image.id}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "transport-unsupported", reason: "not-chat"});
+        const bedrock = listCatalog().find((item) => item.id === "amazon-bedrock")!.models[0]!;
+        expect(buildResolution({id: "b", template: "amazon-bedrock", follows: false, api: "openai-completions", baseUrl: BASE, auth: "default"}, {id: bedrock.id}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "transport-unsupported", reason: "transport"});
+    });
+
+    test("手加的模型不借目录行（目录后来有了同 id 的也一样），窗口要自己给；没覆盖协议时用模板的缺省协议", () => {
+        const plain = follows({follows: false, defaultApi: "openai-completions"});
+        expect(buildResolution(plain, {id: model, manual: true}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
+        const manual = buildResolution(plain, {id: model, manual: true, contextWindow: 4096}, {stored: () => KEY, env: {}});
+        if (!manual.ok) throw new Error(manual.code);
+        expect(manual.resolution.info.contextWindow).toBe(4096);
+        expect(manual.model.provider).toBe("generic-endpoint");
+        const custom = buildResolution({id: "moon", template: "moonshot", follows: false, defaultApi: "openai-completions", baseUrl: BASE, auth: "default"}, {id: "my-local", manual: true, contextWindow: 8192}, {stored: () => KEY, env: {}});
+        if (!custom.ok) throw new Error(custom.code);
+        expect(custom.api).toBe("openai-completions");
     });
 
     test("wireGuard：各协议只放行自己会请求的完整地址（路径、查询、主机与端口都核对）", () => {

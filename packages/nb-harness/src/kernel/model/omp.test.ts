@@ -342,17 +342,21 @@ describe("签发身份经会话日志往返（models.md 输出 22）", () => {
      * 真实的会话日志（JSONL）与真实适配器：第一轮的回复带着思考与 origin 写进日志，关掉会话再打开，下一轮送回的历史从日志投影
      * 出来。部署身份在重开前后不变时思考原样送回；换了（同名删了重建、同址换凭据）就不送回、退成文字。
      */
-    async function secondTurnAfterReopen(before: {deployment: string; credential: string}, after: {deployment: string; credential: string}): Promise<string> {
+    /** 同一实例、同一地址的另一个模型：重开后换它答，签名不能跟过去。 */
+    const other = defineModel({provider: "local-test", api: "openai-completions", baseUrl: `http://127.0.0.1:${server.port}/v1`, id: "m2", apiKeyEnv: "NB_KERNEL_ADAPTER_TEST_KEY", contextWindow: 32_000, maxTokens: 4_000});
+    async function secondTurnAfterReopen(before: {deployment: string; credential: string}, after: {deployment: string; credential: string}, switchModel = false): Promise<string> {
         const root = await createTestTmpRoot("nb-harness", "omp-origin-reopen");
         try {
             let identity = {...before, legacyProvider: "inst"};
-            const models = {resolve: () => ({ok: true as const, info: ompModelInfo(resolved.model, "inst/m"),
-                call: (...args: Parameters<ReturnType<typeof ompCall>>) => ompCall({model: resolved.model, apiKey: resolved.apiKey, priceKnown: false, name: "inst/m", identity})(...args)})};
+            let current = resolved;
+            const models = {resolve: () => ({ok: true as const, info: ompModelInfo(current.model, `inst/${current.model.id}`),
+                call: (...args: Parameters<ReturnType<typeof ompCall>>) => ompCall({model: current.model, apiKey: current.apiKey, priceKnown: false, name: `inst/${current.model.id}`, identity})(...args)})};
             await using session = await createTestSession({store: {root}, models});
             replies = [{reasoning: "先想想", text: "答"}];
             await session.say("你好");
             await session.reopen();
             identity = {...after, legacyProvider: "inst"};
+            if (switchModel) current = other;
             replies = [{text: "好"}];
             const sentBefore = bodies.length;
             await session.say("再来");
@@ -363,12 +367,14 @@ describe("签发身份经会话日志往返（models.md 输出 22）", () => {
         }
     }
 
-    test("重开后部署与凭据身份没变：思考原样送回；换了部署或凭据：不送回", async () => {
+    test("重开后部署、凭据与作答的模型都没变：思考原样送回；换了部署、凭据或模型：不送回", async () => {
         const same = {deployment: "dep-1", credential: "cred-1"};
         expect(await secondTurnAfterReopen(same, same)).toContain('"reasoning_content":"先想想"');
         // 不送回签名时 OMP 把思考退成文字，不再是 reasoning_content。
         expect(await secondTurnAfterReopen(same, {deployment: "dep-2", credential: "cred-1"})).not.toContain("reasoning_content");
         expect(await secondTurnAfterReopen(same, {deployment: "dep-1", credential: "cred-2"})).not.toContain("reasoning_content");
+        // 同一实例换了一个模型答：部署与凭据都相同，签名仍不送回。
+        expect(await secondTurnAfterReopen(same, same, true)).not.toContain("reasoning_content");
     });
 });
 
