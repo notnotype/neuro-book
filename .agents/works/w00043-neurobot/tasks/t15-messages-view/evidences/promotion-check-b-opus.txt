@@ -1,0 +1,301 @@
+# w00043 t15 晋升核对 B（应用的 agent 与 bots）
+路径缩写：AM=packages/nb-agent-ui/src/vue/messages/AgentMessages.vue，AMT=同目录 AgentMessages.dom.test.ts，MH=packages/neuro-book/src/plugins/agent/web/MessagesHost.vue，MM=agent/web/messages-model.ts，MMT=agent/web/messages-model.test.ts，CO=agent/web/contact-opener.ts，AP=agent/web/plugin.ts，SH=agent/web/session-host.ts，SHT=agent/session-host.test.ts，BE=e2e/bots-chat.e2e.ts，ACE=e2e/agent-conversation.e2e.ts（agent/... 均在 packages/neuro-book/src/plugins 下）
+
+### docs/specs/agent/conversation.md 输出 2 的“消息视图”段（51 行）
+右栏视图里一个列表一个聊天区 | 有断言 | AP:108（auxiliarybar、replaces）、MH:126-151 | BE:79-80 | 默认布局右栏有消息视图、没有旧会话面板视图
+列表顶上 bot、会话两个标签；会话一页是会话面板 | 有断言 | AgentMessagesList.vue | AMT:183 | 点标签发 update:tab；sessions 页显示插槽；ACE:117-121 会话页点一行在同一视图打开
+bot 一页按归属插件分段列联系人 | 有断言 | MM:46-60 | MMT:91 | 分段键、联系人字段，providers 清空后 sections 为空
+标签只决定列表看哪页，宿主打开会话时按归属切换 | 有断言 | MM:63-67 | MMT:102、137 | 打开 bot-lyra 后 tab=bot；打开 s1 后 tab=sessions
+宽版判据：根宽>=600 且高>=360 | 没有测试 | MH:59-62 | ACE:95 只拖到约 720 宽看到 wide | 阈值两边都没测：600 改 500 或去掉高度条件测试照过。建议把判定抽成纯函数在 MMT 旁测 599/600、359/360，或 MH 的 dom 测试替换 useLayoutExtent
+宽版列表栏 260 像素 | 没有测试 | AM:302-306 | 无 | 只有 CSS；建议 ACE:95 量 [data-messages-list-panel] 宽度为 260
+宽版列表栏可收起，收起后换头像列 | 有断言 | AM:77-81 | AMT:90；ACE:122-127 | 收起后 strip 显示、焦点到展开按钮
+宽版对话的头画在聊天区上方 | 有断言 | MH:67-70 | ACE:113-115、122 | [data-agent-head] 可见、面板头写“消息”
+窄版头像列：开列表按钮、联系人头像与未读点（等你处理时黄点） | 有断言 | AM:150-162 | AMT:103 | aria-label 带未读数、有未读有点、waiting 有 data-strip-waiting、0 未读无点
+窄版头像列：最近 5 个根会话 | 有断言 | MM:79-81、MH:96 | MMT:161；AMT:103 | 六个里取前五、无标题写未命名；点头像发 open-session
+窄版对话的头接管面板头 | 有断言 | MH:67-70 | ACE:131-140 | 窄版面板头里有 header-title、[data-agent-head] 隐藏
+抽屉从头像列右边拉出 | 没有测试 | AM:309-318（left:52px） | 无 | 只有 CSS；可在 ACE:131 量抽屉 left 等于头像列 right
+抽屉非模态 | 没有测试 | AM:182（role=dialog，无 aria-modal、无焦点陷阱） | AMT:116 只断言 role=dialog | 建议 AMT 断言没有 aria-modal、Tab 能出抽屉
+点视图里抽屉外、Esc、选了联系人都关，焦点回开它的按钮 | 有断言 | AM:66-75、115-128 | AMT:116、139 | Esc 关且焦点回 toggle，已处理的 Esc 不关；点聊天区关、点视图外不关；点联系人关且焦点回 toggle
+选了会话一页的一项也关抽屉 | 没有测试 | MH:107-118（经 closeDrawer 暴露方法） | 无 | AMT 的会话页是假插槽；建议在 ACE:131 窄版抽屉里点会话行后断言抽屉隐藏、焦点回标题
+换版式时聊天区不重挂 | 有断言 | AM（v-show） | AMT:76 | 宽窄来回后 chatMounts 仍为 1；ACE:131 另验对话节点同一个
+没有打开会话、停在 bot 一页写“选一个 bot 开始聊天” | 有断言（分层） | MM:77、MH:101-104、ContactCover.vue:35 | MMT:153 | pickBot 只在 bot 页为真；盖层文字没有 dom 断言（可接受）
+不画第一屏 | 字面不符 | MH:143-146 | 无 | 第一屏仍挂在盖层下（inert、被不透明盖层遮住），Spec 说“不画”更窄；功能上看不到也点不到。建议 Spec 改成“盖住第一屏”，或补断言看不到 [data-agent-welcome]
+视图计数是各归属插件联系人未读合计 | 没有测试 | AP:730、780 | 无（BE:127 标题写“头像列与 bot 标签写计数”，实际只断言头像 aria-label 与状态栏） | 建议 BE:127 断言面板头计数为 1、拿回焦点后消失
+小结：有断言 13，没有测试 6，字面不符 1
+（更正上面小结：有断言 12，没有测试 6，字面不符 1）
+
+### docs/specs/agent/conversation.md 输出 52（档位按会话的归属）
+有归属的会话在消息视图里按 bot 档 | 有断言 | SH:2002、2063 | SHT:2389；BE:77 | placement=dock、commands=[compact,plan,mode]、canCreate/canArchive/canOpenTree/canMutateHistory 均 false；换回普通会话变 wizard、canCreate true
+……“与编辑区页面里都按 bot 档” | 字面不符 | SH:1086-1100（page 宿主有 elsewhere，有归属的直接交给 focus-session） | SHT:2559 | 编辑区页面根本不开有归属的会话（同条输出 53 第三项），只有会话头读不到时才在页面里以 bot 档显示失败。Spec 两句互相矛盾、比实现宽；建议 52 删掉“与编辑区页面”或改成“编辑区页面不开它们（输出 53）”
+顶栏写归属插件给的名字与头像 | 有断言 | SH:2045-2046 | SHT:2398；BE:81-83 | session.title=星璃、avatar 为头像地址；e2e 头像 naturalWidth>0
+找不到身份时回落到会话标题与 Profile 图标 | 没有测试 | SH:2045-2050 | 无 | 建议 SHT“有归属的会话”组里 identities 为空时断言 title=会话标题、无 avatar、profileIcon 为 Profile 图标
+没有新建与第一屏 | 有断言 | SH:2063 canCreate | SHT:2398；BE:84 | canCreate=false；页面上 [data-header-new] 数量 0
+不能改写历史、命令只有 compact/plan/mode | 有断言 | SH:1749、2063 | SHT:2398、2651 | 标志位全 false；/rename、/fork 不发远程调用（rewrites 为空）
+等你处理的事都在停靠区，输入框照常可用 | 有断言 | SH:643、2063 | SHT:2389、2631；BE:94-97 | placement=dock；e2e 停靠区可见、向导数 0、输入框可见
+发送一律走 send，运行中带投递方式：插话 | 有断言 | SH:1380-1391 | SHT:2651 | 两次 send 的 mode=steer
+……排队（Ctrl/⌘+回车）也走 send 带 mode | 没有测试 | 同上 | 无 | 只测了 steer；建议 SHT:2651 旁加 delivery=queue 断言 send 收到 mode=queue、enqueue 没被调用
+有挂着的同步事项时带 settlePending:"deny"，提示“发出会拒绝 N 项” | 有断言 | SH:1383、2098 | SHT:2631、2651；BE:96-100 | notice count=1；日志里 interactionResolved decision=deny；send 的 settlePending=deny
+同步事项只算这个会话自己的、不含异步提问与后代会话的 | 没有测试 | SH:1315 | 无 | 建议 SHT 造一个 async 提问（或子会话审批）时断言没有 settleNotice、send 不带 settlePending
+结果未知后的重发带同样两项 | 有断言 | SH:1391、1801 | SHT:2651 | 末两次 send 的 [mode,settlePending] 都是 [steer,deny]、commandId 相同
+归属在打开会话时读（插件级一张表，几个位置共用） | 有断言（读）/没有测试（共用） | AP:392-404、SH:1144-1162 | SHT:2389 用测试自写的 ownersFor；BE:77 经真插件表 | 打开时读归属有断言；AP 那张表本身（缓存、几个宿主共用）没有单元测试，测试里是复制的一份逻辑。共用属于实现细节，可不补
+读到归属之前按这一档、显示加载中 | 没有测试 | SH:2002、2033-2034 | 无 | 建议 SHT 把 ownerOf 挡住，断言 availability=loading、placement=dock、canCreate=false，放开后再变
+读不到会话头记打开失败（header-unreadable，可重试），不当成没有归属 | 有断言 | SH:1148-1161、2035-2036 | SHT:2547、2614 | status=load-error，placement=dock、canCreate=false；码本身与“重试”动作没断言（可在 2547 加 actions[0].id=retry、message 含 header-unreadable）
+恢复“最近的会话”时也不清记录 | 有断言 | SH 恢复路径 | SHT:2547、2614 | recent 仍为原 id；会话真不在时清为 null
+两档之间切换时停靠区与向导状态按会话记、不串 | 有断言（同一机制） | SH:441-449、1112-1122 | SHT:1046（普通会话之间）、2277 | 状态按会话 id 存，与档位无关；切到别的会话 wizardState 为 undefined，切回来还在。没有专门的 bot↔普通 用例，机制同一，可接受
+小结：有断言 11（含 1 条半有），没有测试 4，字面不符 1
+
+（更正输出 52 小结：有断言 12，没有测试 4，字面不符 1）
+
+### docs/specs/agent/conversation.md 输出 53（归属插件）
+结构问题（先修 Spec）：输出 50 末句“宿主按恢复方式（输出 47）调用内核：”后面的那张表（143-149 行）与“继续是一个操作……”段（151 行）是输出 50 的正文，现在被 51、52、53 插在中间，缩进挂在 53 底下，读起来像归属插件的内容；且表里“运行中写了字……enqueue 照常发”与 52“有归属的会话一律走 send”对不上（52 是例外，但没写）。应把表与段挪回 50 末尾，去标记前先挪。
+贡献点只收浏览器入口的贡献 | 没有测试 | agent/shared/contracts.ts:223-228 | 无 | 建议在 agent 的贡献点测试里像 settings/web/choices.test.ts:153 那样断言 location=server 的贡献被拒
+贡献 id 以贡献方插件 id 开头 | 没有测试 | contracts.ts:226 idPrefix | 无（运行时的 idPrefix 规则另有测试，这个点有没有设没测） | 同上，断言前缀不对的被拒
+每个插件至多一条，第二条不接、记诊断 | 没有测试 | AP:379-384 | 无 | 建议抽出 ownersReceiver 或在插件激活测试里发布两条同插件贡献，断言只有一条进 providers、诊断 agent.owner-duplicate
+声明是空对象 | 字面不符 | contracts.ts:223（没有 schema） | 无 | 实现不核对声明，任何声明都收；Spec 比实现窄。要么加 schema（空对象、additionalProperties:false），要么 Spec 改成“声明不用”
+SessionOwnerProvider 的形状：contacts{id,name,avatar?,unread,seenSeq,last,sessionId} 响应式、state、reload、open 交回会话 id、seen | 有断言（类型与分层） | contracts.ts:190-222 | 类型检查；MMT:91-221 按此形状驱动；owner-providers.test.ts:24 | 形状靠类型守；行为按形状测
+seenSeq 在未读没数完时为 null | 没有测试 | bots/web/plugin.ts:47 | 无 | 见 bots/view 输出 2
+会话头 owner.plugin 按贡献句柄对上，联系人不带插件 id | 有断言 | AP:385、391、405-409 | BE:81-83 | 真插件下顶栏头像来自 identity（owner.plugin→nbook.bots 的句柄）；没有单元测试
+bot 页点联系人：没有模型时不调 open、盖“没有模型” | 有断言 | CO:107-111、ContactCover.vue:37-41 | MMT:117 | step=no-model、bots.opens 为空；配好后接着 open
+open 期间盖“正在打开” | 有断言 | CO:113 | MMT:117（hasModel=null 时）、190 | pending.step=opening
+失败盖原因与“重试” | 有断言 | CO:116-118、ContactCover.vue:47-49 | MMT:102 | step=failed、code=session-busy；再 openContact 取到后打开
+点了别的之后较早的结果不再打开 | 有断言 | CO:84-90、115 | MMT:137、190 | open 慢时点会话或别处换会话，迟到的结果不 host.open。联系人换联系人没有专门用例，走同一计数，可接受
+focus-session：会话本身有归属时揭示消息视图并在那里打开 | 有断言 | AP:903-910 | BE:107-125 | 状态栏条目点进去，面板头写“星璃”、停靠区可见
+……远程 ancestors 的根带 owner（子会话）时也到消息视图 | 没有测试 | AP:411-419 | 无 | 建议 BE 或 SHT 外的插件级测试：对 bot 子会话执行 focus-session，断言打开在 view 位置而不是编辑区页面
+……否则照旧按上次用的位置 | 有断言（原有行为） | AP:911-913 | 已有 focus-session 用例 | 未改
+编辑区页面的宿主不开有归属的会话，交给 focus-session | 有断言 | SH:1086-1100、AP:527 | SHT:2559、2573 | elsewhere 收到 ownedId、页面宿主 sessionId 仍 null；读头期间又开别的，较早那次作废
+bot 聊天里打开子会话：就地会话档，路径的根写身份名，点它回主对话 | 有断言 | SH:2054 | SHT:2595 | placement=wizard、path[0]={id:主对话, title:星璃}；点路径回去是原有行为（输出 35）
+状态栏条目没在跑、没等你处理时写“N 条新消息”（未读合计） | 有断言 | AP:928 | BE:136 | 失焦收到回复后条目含“1 条新消息”
+……点了打开第一个有未读联系人的主对话 | 没有测试 | AP:420-427、904 | 无 | 建议 BE:127 在点条目前切到普通会话，点条目后断言面板头是“星璃”
+看到：会话有归属、视图可见、窗口有焦点、没有盖层时交已应用 seq 给 seen | 有断言 | CO:143-146、MH:120-121 | MMT:166；BE:127-140 | 三样任一不满足都不交，满足时交 [lyra,7]；e2e 失焦时记未读、拿回焦点清零。“视图可见”这一项只在 MH 里组合，没有单测（低风险）
+小结：有断言 13，没有测试 6，字面不符 1；另有 Spec 结构问题 1
+
+### docs/specs/agent/conversation.md 输出 54（书房的看板娘入口与滑出聊天）
+DC=agent/web/components/DeskCompanion.vue，DCT=同目录 DeskCompanion.dom.test.ts，SP=packages/nb-ui/src/components/feedback/SidePanel.vue，SPT=SidePanel.test.ts
+向书架 projects.desk 贡献入口 | 有断言 | AP:756-778、945 | BE:204-207 | 书房里看板娘按钮 aria-label=星璃
+代表谁：按提供者表次序，第一个有联系人的插件的第一个联系人 | 没有测试（次序） | DC:55-61 | DCT 只有一个提供者一个联系人 | 建议 DCT 给两个提供者（前一个没有联系人），断言代表的是第二个的第一个
+没有联系人时不能点；读不到时悬停写原因 | 有断言 | DC:62-66、166 | DCT:125 | 没有按钮；title=“读不到 bot（disconnected）”
+角标：未读计数、超过 99 写 99+；等你处理（按会话树的根）换“!”；都没有时不画 | 有断言 | DC:71-75 | DCT:98；BE:208、233、251 | 3、99+、子代理 waiting 时“!”、无未读时没有角标；警示色（tone）没断言
+气泡位置：下方、右对齐、尖角对猫、单行截断、最宽 260 | 没有测试 | DC:206-245 CSS | 无 | 只有 CSS；可在 BE:234 量气泡右缘与格子右缘对齐、宽不超过 260
+气泡内容：等你处理写“等你处理”，否则有未读写最后一句，都没有不画 | 有断言 | DC:76-81 | DCT:98；BE:234 | 文本逐种断言
+案头窄于 720 不画气泡、只留角标 | 有断言 | DC:251-255 | BE:236-238 | 视口 700 时气泡 hidden、角标仍为 1
+读屏名同头像列，最后一句只在气泡里 | 有断言 | DC:82-87、167 | DCT:98 | aria-label=“星璃，3 条未读”“星璃，等你处理”，不含最后一句；气泡 aria-hidden
+表情：等你处理换提问，其余空闲，在跑不换 | 有断言（在跑一项没有） | DC:69-70 | DCT:98 | moods 先 idle 后 ask；没有 running 活动时仍 idle 的断言，建议 DCT 加一条 running→idle
+点看板娘滑出 SidePanel，420px，书房不压暗、点外面不关 | 有断言（420 没有） | SP:22、63、76-78 | SPT:77；BE:213-215 | 点外面不关；e2e elementFromPoint 命中书架。宽 420 无断言（可加在 SPT:60）
+面板里是这个联系人的主对话，取法同输出 53 | 有断言 | DC:95-104 | DCT:135 | calls=[borrow,markOpened,open]、host.sessionId=bot-lyra；盖层与消息视图同一 opener（MMT 已测）
+面板里没有会话时盖“找不到这个 bot”，不画第一屏 | 有断言 | DC:122-125 | DCT:150-158 | sessionId 置 null 后出现 data-messages-missing（同输出 2：第一屏实际挂在 inert 盖层下）
+对话的头画在面板里，右列最后是“关闭”，没有会话列表 | 有断言（部分） | AP:740-750（head:null、close、noSessionList） | BE:211、248 | 面板里有 header-title、点 header-close 关面板；“最后一个”与“没有会话列表”没断言（建议 BE:211 后断言按标题不开列表、右列最后一个按钮是 header-close）
+子代理入口照常；进了子会话后路径回主对话 | 没有测试（书房位置） | 同一 ConversationHost | 无 | 消息视图里同一行为见 SHT:2595；书房位置没有，低风险
+面板有自己的宿主（第三位置），不恢复、不记最近的会话，命令不落到它 | 没有测试 | AP:523-530、873-878 | 无 | 建议在插件级测试里：desk 宿主打开会话后 recent 存储没写；执行 nbook.agent.open 不揭示 desk 宿主
+面板开着期间借用宿主 | 有断言 | DC:93-109 | DCT:135、165 | borrowed 开 1、关 0；联系人消失也交还
+关闭：头上的“关闭” | 有断言 | AP:747 | BE:248-249 | 点后面板数量 0
+关闭：Esc（焦点在面板里或看板娘上；输入框里也关；补全菜单开着、组字时除外） | 有断言 | SP:52-60 | SPT:90、116、129；BE:229-231、291-293 | 面板里 Esc 关、触发器上 Esc 关、组字与已处理的不关；e2e 输入框里 Esc 关，@ 菜单开着时 Esc 只收菜单
+宽窗口里看板娘露在外面时再点也关 | 有断言（组件层） | SP:64-66 DialogTrigger | SPT:60 | 触发器切换开关；书房里没有 e2e
+关闭后焦点回到看板娘 | 有断言 | SP | SPT:90；BE:231 | mascot toBeFocused
+打开后对话可用时焦点进输入框（用户已挪走不抢） | 有断言（前半） | DC:148-153 | BE:212、264 | deskInput toBeFocused；“用户挪走不抢”没有测试，建议 DCT 在打开后先发一次 pointerdown 再让对话挂上，断言 focusComposer 没被调
+Tab 在面板里循环，出口是 Esc 与“关闭” | 没有测试 | Reka FocusScope loop（SP 非模态，未设 trapFocus） | 无 | 只有 loop：从最后一个 Tab 回第一个，但 Shift+Tab/鼠标可以出去；建议 SPT 加 Tab 循环断言
+联系人消失时关面板 | 有断言 | DC:111-113 | DCT:165 | providers 清空后面板为 null、回来不自动开
+关面板时作废在途的打开 | 没有测试 | DC:105-106（opener.cancel） | 无 | 建议 DCT：open 挂住时关面板，放行后断言 host.open 没被调
+看到：面板开着、窗口有焦点、没有盖层时交给归属插件 | 有断言 | DC:137-138、CO:143 | BE:221-226 | 看着时到的不计未读、失焦时到的计 1
+桌面窗口自己画标题行时面板让出那一行 | 有断言 | SP（--nb-side-panel-inset-top） | BE:301-316 | 面板 top=36、关闭按钮 y>=36
+小结：有断言 19（其中 5 条只有部分），没有测试 7
+
+### docs/specs/agent/conversation.md 输出 55（未读线与按天的线）
+有归属的会话给 ctx.dividers，按天的线都画；普通会话不给 | 有断言 | SH:2115-2116 | SHT:2425、2445-2448；BE:150、166 | dividers.day=true；普通会话 dividers undefined；e2e 普通会话里没有 data-day-divider、第一轮前写“今天”
+未读线只标这次打开时已未读的回复，定下就不挪 | 有断言 | SH:378-404 | SHT:2425；BE:154-158、176-180 | 看到前进、看着时又来一句，unreadFrom 仍是第二句；e2e 开着时失焦到的不画线、之后再来的不多画
+这次打开：宿主打开另一个会话（点联系人、恢复、活动条转来） | 有断言 | SH:1134 | SHT:2488-2491；BE:160-170 | 切到普通会话再回来重新定线；三种来源走同一个 open，恢复与活动条没有各自的用例（可接受）
+书房面板打开也算，已开着同一主对话时也重算 | 有断言 | DC:96-98、SH:2181-2186 | SHT:2437-2441、2479-2485；DCT:135；BE:243-256 | markOpened 后按此刻“看到”重算为 null；面板 calls 含 markOpened；e2e 再开面板线消失
+重试与借用后的重新订阅沿用这次的线 | 有断言 | SH:1134（同 id 不重建） | SHT:2468-2477 | 同 id 再 open、借用放开 30 秒再借回，unreadFrom 不变
+进子会话再回主对话也是又一次打开（已知限制） | 有断言（机制） | SH:1134 | SHT:2488 | 换会话即重来；已知限制不另测
+读“看到”出错记 agent.conversation-owner-failed，这次不画线，聊天照常 | 有断言 | SH:388-394、AP:241-242 | SHT:2527 | reports 含 conversation-owner-failed、unreadFrom null、status ready；known 与晚到两条路都测
+基线：这次打开后 seenSeq 第一次读到时拍下，之后不再读 | 有断言 | SH:396-399、2134-2138 | SHT:2454-2466 | 同一拍里 seen 从 first 变 second，线仍以 first 为基线
+未读一直没数完时拍不到、不画线 | 有断言 | SH:399-400 | SHT:2461-2462 | seen=null 时 unreadFrom=null
+线在哪：路径读完后算一次，第一条 seq 大于基线的计数消息（不带工具调用的最终回复）；没有就没线 | 有断言（分层） | SH:400-403、nb-agent-ui/src/kernel-transcript.ts:1057 | SHT:2425；nb-agent-ui/src/kernel-transcript.test.ts:609-644 | unreadFrom=second.id；带工具调用与半截回复 countedSeq 为 null
+消息视图与书房面板各算各的 | 没有测试 | 每个位置一个宿主（AP:523-532），各有 unreadMark | 无 | 结构上天然分开；如要守，在 BE:204 前先在消息视图看过，再开面板断言线仍按面板这次打开算
+打开时照旧停在最新内容，不滚到未读线 | 没有测试 | nb-agent-ui 滚动（未改） | 无 | 建议 BE:166 后断言消息流滚到底（scrollTop+clientHeight≈scrollHeight）
+小结：有断言 10，没有测试 2
+
+### docs/specs/agent/conversation.md 输出 56（首屏指标）
+PM=agent/web/paint-metric.ts，PMT=agent/web/paint-metric.test.ts
+有归属的会话从宿主开始打开到快照与路径应用完、画出下一帧记一条 | 有断言 | PM:55-78、SH:1135、1240 | PMT:63；SHT:2495 | 读完前不记、afterPaint 后记一条；宿主起点在 open 同步段换、读完换成带 loaded 的
+含重试与重新订阅（reattach） | 有断言 | SH:1135 | SHT:2512-2523 | 同一会话再 open 换新起点；借用放开 30 秒后再借回 reattach=true
+挂上时已经读完的从挂上起等下一帧；同一次打开只记一条 | 有断言 | PM:46、61-62、79 immediate | PMT:133 | 挂上时 loaded 已有照样记、ms 从宿主起点算；第二个组件对同一对象不再记
+诊断名 agent.conversation-painted（info）、超过 2000 毫秒另写 agent.conversation-paint-slow（warning） | 有断言（级别）/没有测试（事件名） | PM:76-77、AP:245-253 | PMT:76 | 2001 毫秒时记 info 与 warning 两条；事件名与 diagnostics 的 level 映射在 AP 里没有测试，建议在插件激活测试里收 diagnostics 断言 event 名
+带 sessionId、owner（插件 id）、position、reattach、events、messages、ms | 有断言 | PM:67-75 | PMT:63 | 整条 record toEqual 逐字段
+events 是快照的 head，与 bots.main-opened 同一口径 | 有断言 | SH:1240 | SHT:2508-2510；bots/backend/main.test.ts:80 | loaded.events 等于 snapshot().head；后端事件数也取 head
+position 取 view/page/desk | 有断言（desk）/没有测试（view、page 的接线） | AP:695 | PMT 固定 desk | 接线是一行传参，低风险
+不含点联系人之后取主对话的时间 | 没有测试 | SH:1135（起点在 openHere 里，provider.open 在它之前） | 无 | 结构上成立；如要守，在 MMT 里让 provider.open 慢，断言 painting 起点晚于 open 完成
+开始与画出时页面都可见、期间没隐藏过才记 | 有断言 | PM:51-64 | PMT:86 | 期间隐藏过、开始就隐藏着都不记
+画出之前换了会话、宿主关掉或对话组件卸载不记 | 有断言 | PM:64、80-84 | PMT:86（换起点）、117（停止） | 换起点与读完后停止都不记；“宿主关掉”经组件卸载停止，同一条路径
+没有归属的会话不记 | 有断言 | PM:66 | PMT:86 | owner=null 不记
+小结：有断言 10（2 条部分），没有测试 1
+
+### docs/specs/agent/conversation.md 验收 10
+点看板娘，右边滑出星璃的主对话、书房不压暗 | 有断言 | DC、SP | BE:209-215 | 面板（名为星璃的 dialog）可见、header-title=星璃、elementFromPoint(200,450) 在书架里；“右边”没量位置（SP 用 right-0，可接受）
+看着时到的回复不算未读，失焦时到的算 | 有断言 | CO:143、DC:138 | BE:217-226 | 看着时一句后 label 仍无未读；失焦后一句 label=“星璃，1 条未读”
+关上后看板娘带计数与那句话 | 有断言 | DC:71-81 | BE:229-234 | badge=1、bubble 含那句
+拿回焦点再打开清零 | 有断言 | 同上 | BE:240-243、251 | 打开后 label=星璃，关上后没有角标
+面板里发附件、@ 菜单压在面板上、文字能拖选 | 有断言 | SP z-index 档、无拖动手势 | BE:261-294 | 附件列表 1 项、回复可见；拖选后 selection 含字、面板还在；菜单中心命中菜单且在面板范围内
+桌面窗口外框下“关闭”在标题行之下 | 有断言 | SP inset-top | BE:301-316 | 面板 top=36、关闭 y>=36
+小结：有断言 6
+
+### docs/specs/agent/conversation.md 验收 11
+消息视图里切到别的会话，期间星璃回了一句；切回来那句之前是“以下是新消息” | 字面不符 | SH:1134、396-404 | BE:144-170 | e2e 里那句是在开着她、窗口失焦时到的，之后才切到普通会话；没有“切走期间她回一句”（bot 没有自发回复的触发办法）。线文字“以下是新消息”与位置有断言（BE:168-169）。建议验收改成“窗口失焦时她回一句，切到别的会话再切回来”贴实现，或 e2e 用后台消息让她在切走期间回
+第一轮之前有“今天” | 有断言（时机不同） | nb-agent-ui 分轮视图 | BE:150 | 切走之前断言了第一条 day-divider 为“今天”；切回来之后没再断言，建议 BE:169 后补一句
+看着时她再回一句，不多出线 | 有断言 | SH:403 | BE:174-178 | 新回复后 unread-divider 仍 1 条、仍在原那一轮前
+窗口失焦再拿回焦点，角标清零、线还在 | 字面不符 | MH:121、CO:143 | BE:165、170-171 | e2e 是先拿回焦点再点回她（打开即看到），没有“打开之后失焦再拿回焦点”这一步；角标清零与线 1 条有断言。建议在 BE:178 后再 blur、focus 一次，断言线仍 1 条
+小结：有断言 2，字面不符 2
+
+### docs/specs/bots/view.md 输出 1
+BS=bots/web/store.ts，BW=bots/web/plugin.ts，BT=bots/bots.test.ts，AML=nb-agent-ui/src/vue/messages/AgentMessagesList.vue
+入口 onStartup 激活即订阅 botsChanged 再取 list()，onResync 重取 | 没有测试 | BW:29、BS:75-87 | 无（BT 的 store 用例只测“看到”） | 建议 BT“bot 视图的数据”组：用代理记录调用次序，断言 subscribe 先于 list；触发 onResync 后 list 再调一次
+消息视图没打开时联系人与未读照样更新 | 没有测试 | BW:39-40 | 无 | 同上，store 建好、不挂视图时推一次 botsChanged，断言 items 跟着变
+订阅或 list() 失败时 state 是 failed 加码 | 没有测试（store） | BS:68-82 | 无；视图侧 MMT:91 用替身 | 建议 BT 用代理让 list 返回失败，断言 listState={failed,code}、报 list-failed
+bot 一页写原因与“重试”，重试调 reload | 有断言 | AML:73-80、MM:96 | AMT:205；MMT:221 | 失败行含码、点重试发 retry-contacts；retryContacts 调到 reload
+reload：订阅还在只重读，订阅失败就重新订阅 | 没有测试 | BS:92-98 | 无 | 建议 BT：list 失败后 reload 只调 list 不再 subscribe；subscribe 失败后 reload 再 subscribe
+小结：有断言 1，没有测试 4
+
+### docs/specs/bots/view.md 输出 2
+联系人是 list() 每项一个 {id,name,avatar,unread,seenSeq,last,sessionId} | 没有测试（映射） | BW:42-51 | 无 | 建议 BT 激活浏览器入口或抽出映射，断言字段
+seenSeq 在 unread 为 null 时也为 null | 没有测试 | BW:47 | 无 | 同上，补数中（unread=null）断言 seenSeq=null
+avatar 是头像路由的地址 | 有断言 | BW:45 | BE:81-83 | 面板头头像 naturalWidth>0（经 identity 取 avatar）
+sessionId 是 bot-<id>，主对话还是 none 时为 null | 没有测试 | BW:50 | 无 | 同映射测试
+一行写头像、名字、时间、第二行、未读数 | 有断言（时间、头像没有） | AML:86-101 | AMT:194 | 第二行三种文字、未读徽标有无、选中行；时间与头像 img 没断言（建议 AMT:194 断言 .acv-messages-list__time 文本与 img src）
+第二行：在跑蓝字“正在回复…”，等你处理黄字“等你处理”（按根，子代理在跑在等也算），平时最后一句 | 有断言 | CO:68-73、AML | AMT:194；MMT:91 | 文字与 data-activity=waiting；子代理 waiting 时联系人 activity=waiting。颜色只靠 data-activity，可接受
+窄版头像列有未读时右上角点，等你处理时点是黄色 | 有断言 | AM:161 | AMT:103 | 有点、waiting 带 data-strip-waiting
+小结：有断言 4，没有测试 3
+
+### docs/specs/bots/view.md 输出 3
+点联系人调 open(id)，即 ensureMain | 有断言 | BW:54、BS:99-102 | BE:63-67；MMT:102 | e2e 点头像后面板头写星璃、输入框可见；单元层 opens=[lyra]
+取到后聊天区打开主对话（bot 档：顶栏名字与头像、停靠区、发话一并拒绝挂着的同步事项） | 有断言 | 见 conversation 输出 52 | BE:77-105 | 头像、无新建、停靠区、“发出会拒绝 1 项”、拒绝后接着处理
+没有模型、取不到时的画面见 conversation 输出 53 | 有断言 | CO | MMT:102、117 | 同 53
+小结：有断言 3
+
+### docs/specs/bots/view.md 输出 4
+消息视图交来的 seq 交给 markSeen | 有断言 | BS:103-107 | BT:466、477 | 交后计数清零、seenSeq=latest
+只在有未读、交的位置超过已存“看到”时才交 | 没有测试 | BS:48 | 无 | 建议 BT：计数为 0 或 through<=seenSeq 时报 markSeen，用代理断言远程 markSeen 没被调
+未读还没数完时先记下、等数完再交 | 有断言 | BS:48、58-61 | BT:466 | 重启后补数前先报，数完后清零
+列表每次更新按记下的位置重判：列表还没跟上时 | 有断言 | BS:58-61 | BT:466 | 列表晚到后照样交上
+……交失败了不用等下一条消息（靠列表更新重交） | 没有测试（列表更新这条路） | BS:51-53、60 | BT:477 只测“同一位置再报一次” | 建议 BT:477 失败后不再 markSeen，改为推一次 botsChanged（或 reload），断言计数清零
+几个窗口共用服务端的一份 | 没有测试 | 服务端存（main-conversation.md） | 无（BT:381 只有一个客户端） | 低风险；如要守，两个 store 共用一个世界，一个交后另一个的 unread 清零
+小结：有断言 3，没有测试 3
+
+### docs/specs/bots/view.md 输出 5
+消息视图计数（面板头标题后、入口角标）是联系人未读合计 | 没有测试 | AP:730、780 | 无 | 同 conversation 输出 2 最后一条
+状态栏“N 条新消息”是未读合计 | 有断言 | AP:928 | BE:136 | “1 条新消息”；合计（多 bot）只有一个 bot，不能区分合计与单个，可接受（第一版一个 bot）
+书房看板娘角标是它代表的那个联系人的未读 | 有断言 | DC:71-75 | DCT:98 | 3、99+
+小结：有断言 2，没有测试 1
+
+### docs/specs/bots/view.md 状态与转换
+读联系人中→加载中；读不到→原因与重试；读到了一个都没有→“还没有 bot”；读到了→联系人 | 有断言 | AML:73-106 | AMT:205；MMT:91 | loading、failed（含码与重试）、empty、联系人行各有 data 标记断言；“还没有 bot”文字没断言（只断言 data-messages-empty 存在，可接受）
+订阅随浏览器入口，入口停止时释放 | 没有测试 | BS:86 | 无 | 建议 BT：stop()（abort）后服务端推变化，断言 items 不再变或订阅已释放
+小结：有断言 1，没有测试 1
+
+### docs/specs/bots/view.md 失败与恢复
+订阅或 list() 失败：bot 一页写原因与“重试” | 有断言（视图）/没有测试（store） | BS:68-82、AML | AMT:205 | 同输出 1
+ensureMain 失败（owner-mismatch、session-busy、log-corrupt 等）：聊天区盖原因与“重试” | 有断言 | CO:116-118 | MMT:102；ensureMain 失败码本身 BT:310、bots/backend/main.test.ts:153 | step=failed、code=session-busy，重试再取
+markSeen 失败：不提示、计数照旧；下一次看到或列表更新时再交 | 有断言（看到）/没有测试（列表更新） | BS:51-53 | BT:477 | 报 seen-failed、unread 仍 2；再报一次后清零。列表更新重交见输出 4
+小结：有断言 3（2 条部分）
+
+### docs/specs/bots/view.md 验收 1–4
+验收 1：头像列点星璃，面板头是星璃与头像；发一句得回复；改文件时停靠区有审批、输入框可用；再发一句审批以拒绝结算、她接着处理 | 有断言 | — | BE:77-105 | 逐步断言，末尾核对下一次请求里有这句
+验收 2：她等批准时切到别的会话，点状态栏条目，消息视图打开她的主对话、回到 bot 档 | 有断言 | AP:903-910 | BE:107-125 | 条目含“1 等你处理”，点后面板头星璃、停靠区可见
+验收 3：失焦时到的回复记未读：头像列“星璃，1 条未读”、状态栏“1 条新消息”；拿回焦点清零 | 有断言（状态栏清零没有） | — | BE:127-141 | 拿回焦点后只断言头像 label 回到“星璃”；建议加状态栏条目不再含“新消息”。另：e2e 测试名写“验收 2”，对应的是 Spec 验收 3，测试名要改
+验收 4（planned）：书房点看板娘滑出、不压暗；看着时不算未读；失焦到一条，关上后角标“1”、气泡那句；拿回焦点再打开清零；面板里拖选一句面板不动 | 有断言 | — | BE:204-258、261-279 | 同 conversation 验收 10；“面板不动”只断言面板仍可见、没量位置（SP 没有拖动手势，SPT:139 另有断言）
+小结：有断言 4（1 条部分）
+
+### docs/specs/bots/bots.md 输出 7 的 last（61 行，含版本 2 的说明）
+BU=bots/backend/unread.ts，BSM=bots/backend/summary.ts，BST=bots/backend/summary.test.ts
+远程服务版本 2，list 项多了必有的 last，版本 1 客户端读不了 | 没有测试（本合同） | bots/shared/contracts.ts:96、106-109 | 无 | 版本不符的拒绝由运行时通用规则守；本合同 version=2 与 last 非可选只靠 schema，低风险
+last 是最后一条计数消息的摘要 {text, at} | 有断言 | BU:46、93 | BT:396-397 | last toEqual {text:"第一句回复", at:Number}；前面那条带工具调用的不算
+持有之后在线收到计数消息就换 | 有断言 | BU:105 | BT:410 | 第三句后 last.text=第三句回复
+补数时“看到”之后那段有计数消息取最后一条 | 有断言 | BU:162-172 | BT:413-418 | 重启后 last=第三句回复（看到之后那段里的）
+那段是空的从日志尾部往前至多 200 条里找 | 有断言（找到）/没有测试（200 上限） | BU:32、177-180 | BT:422-425 | 都看过后重启 last 从尾部取回；上限没测。建议 BT 造超过 200 条非计数事件压在最后一条计数消息之后，断言 last=null
+找不到、没有持有时为 null | 没有测试 | BU:93 | 无 | 建议 BT:381 在 ensureMain 之前与持有后还没回复时断言 list()[0].last===null
+不存记录 | 没有测试 | BU:10 注释（只在内存） | 无（BT:422 能说明可从日志复原，但不说明没存） | 可断言 bot 记录文件里没有 last 字段；低风险
+摘要只取文字块、空白折叠成一个空格、表情写法换成“[表情]” | 有断言 | BSM:16-35 | BST:12 | thinking 块不取、换行与空格折叠、两种表情写法都换
+按码点取前 80 个，超了加“…” | 有断言 | BSM:37-38 | BST:19 | 85 个 emoji 截成 80 个加…，不劈开
+没有文字时有图片写“[图片]”，否则“[消息]” | 有断言 | BSM:36 | BST:27 | image→[图片]，空白、空数组→[消息]
+Markdown 标记原样留着（已知限制） | 没有测试 | BSM:14 注释 | 无 | 已知限制，可在 BST 加一条 **粗** 原样的断言
+转义的表情写法（\:lyra/开心:）去掉反斜杠、原样留着 | 字面不符 | BSM:20-25 | BST:16 | 实现与测试多了一条 Spec 没写的规则，实现比 Spec 宽；建议 Spec 补“转义的表情写法照字面留着”
+小结：有断言 7（1 条部分），没有测试 4，字面不符 1
+
+### docs/specs/workbench/bookshelf.md 输出 22（101 行，案头的贡献位）
+PD=projects/web/desk.ts，PDT=projects/web/desk.test.ts，SD=projects/web/components/ShelfDesk.vue，SDT=同目录 ShelfDesk.dom.test.ts
+只收浏览器入口的贡献 | 没有测试 | projects/shared/desk.ts:14 | 无 | 建议 PDT 断言 deskPoint.validate 对 location=server 交回原因（同 settings/web/choices.test.ts:153）
+贡献 id 以贡献方插件 id 开头 | 没有测试 | projects/shared/desk.ts:13 | 无 | 同上，断言 idPrefix 为 plugin 或经运行时登记前缀不对的被拒
+声明是空对象 | 字面不符 | projects/shared/desk.ts:10-15（没有 schema） | 无 | 同 conversation 输出 53：不核对声明，实现比 Spec 宽
+实现是 {load(): Promise<Component>}，交回叠在那一格上的组件 | 有断言 | PD:21-23 | PDT:34 | 采用后 companion 是 load 交回的组件
+恰好一条时采用；没有或多于一条都不采用，多于一条记诊断 | 有断言 | PD:38-42 | PDT:34、51 | 两条时 companion null、报 projects.desk-ambiguous
+load 失败记诊断、不采用 | 有断言 | PD:48-50 | PDT:51 | companion null、报 projects.desk-load-failed；加载期间撤回也不采用（PDT:73）
+书架画出来时才调 load | 有断言（分层） | PD:44、bookshelf-home.ts:27 | PDT:34 | want 之前 loads=0；want 在书架组件 setup 里调，没有单测，可接受
+绑定了项目的窗口不加载 | 没有测试 | 只在书架首页的 setup 里 want（bookshelf-home.ts:27） | 无 | 结构上成立；如要守，在 e2e 打开作品窗口时断言没有请求 DeskCompanion 的块，或 PDT 外的插件测试
+猫始终由书架画，贡献组件在同一格；贡献晚到、撤回时猫不重挂 | 有断言 | SD:82-85 | SDT:59 | setProps 加上与拿掉 companion 前后 .nb-brand-mood 是同一个元素
+……换掉（换成另一条贡献）时猫不重挂 | 没有测试 | 同上 | 无 | 建议 SDT:59 再 setProps 换一个组件，断言猫元素不变
+组件发 update:mood 改猫的心情，没有贡献时 idle | 有断言 | SD:38-39、84 | SDT:59 | 组件挂上发 ask 后 data-mood=ask，拿掉后回 idle
+组件不收属性、单个根元素、铺满那一格（150px，窄于 720 时 96px）、圆角跟格子 | 没有测试 | SD:262-285 CSS、DC:183-186 | 无（BE:234 注释说缩到 96px，但只断言气泡隐藏） | 建议 BE:234 量 [data-desk-companion] 宽 150/96、与 [data-shelf-mascot] 同尺寸
+宽窄按案头的容器查询，不另设容器 | 有断言（e2e） | DC:251-255、SD:270 | BE:236-238 | 视口 700 时气泡隐藏、1440 时可见
+超出格子的部分（气泡）自己定位、不推动案头布局 | 没有测试 | DC:206-215（absolute） | 无 | 建议 BE:234 气泡出现前后量 [data-shelf-desk] 高度不变
+现在的贡献方是 nbook.agent | 有断言 | AP:945 | BE:204-207 | 书房里有看板娘按钮
+小结：有断言 8（1 条分层），没有测试 6，字面不符 1
+
+## 汇总
+按上面每行的归类统计（共 174 句）：有断言 120（其中约 15 句只覆盖一部分，行内已写明缺哪半句），没有测试 47，字面不符 7，没实现 0。另有 Spec 结构问题 1 处（conversation 输出 50 的表与“继续是一个操作”段被 51–53 隔开）。单元测试在 w00043 worktree 里跑过：session-host“有归属的会话”14 条、bots“bot 视图的数据/主对话的未读”3 条、messages-model/paint-metric/owner-providers/desk/summary 21 条、DeskCompanion/ShelfDesk dom 7 条、AgentMessages dom 9 条，全过。e2e 只读代码判断，没跑。
+晋升前置：bots/view.md 的“证据”只有批准依据，缺实现入口、合同测试、Smoke 三条证据标签；conversation.md 的证据里没有 t15 的实现入口与测试（messages-model、contact-opener、DeskCompanion、paint-metric、bots-chat.e2e）。bookshelf 输出 22 的证据也没写 desk.test.ts。
+
+### 清单一：可以去掉标记
+- conversation.md 验收 10（6 句都有断言）。
+- bots/view.md 输出 3（3 句都有断言）。
+- bots/view.md 验收 1、2、4（验收 4 去掉行内标记；验收 3 只差“状态栏清零”一句，见清单三）。
+- 补一两条小测试或把对应句子明确列为已知限制后可去：conversation 输出 56（只差“不含取主对话的时间”，结构上成立）、输出 55（差“两处各算各的”“不滚到未读线”）。
+- 其余（输出 2 的消息视图段、52、53、54、验收 11，bots/view 整份，bots.md 的 last，bookshelf 输出 22）这次都不能整条去掉。
+
+### 清单二：标记要挪到哪几句（整条去标记、只给没守住的句子留“（planned）”）
+- 输出 2 消息视图段：宽版判据 600×360、列表栏 260 像素、抽屉从头像列右边拉出、抽屉非模态、选了会话一页的一项也关抽屉、视图计数是未读合计；“不画第一屏”先改字面。
+- 输出 52：身份找不到时的回落、排队（Ctrl/⌘+回车）也走 send、同步事项不含异步与后代、读到归属之前按 bot 档显示加载中；“与编辑区页面”先改字面。
+- 输出 53：贡献点只收浏览器入口、id 前缀、每插件至多一条、ancestors 根带 owner 时 focus-session 到消息视图、状态栏“N 条新消息”点进去打开第一个有未读的；“声明是空对象”先改字面或加 schema。
+- 输出 54：代表谁的次序、气泡的位置与 260 宽、子代理入口与路径（书房位置）、第三宿主不恢复不记最近命令不落到它、Tab 循环、关面板作废在途打开；“用户挪走不抢焦点”“在跑不换表情”“420px”三个半句。
+- 输出 55：两处各算各的、不滚到未读线。输出 56：不含取主对话的时间、诊断事件名映射。
+- 验收 11：整条留着，先按清单三改字面。
+- bots/view.md：输出 1 除“原因与重试”之外的四句；输出 2 的映射三句（字段、seenSeq 为 null、sessionId 规则）；输出 4 的“只在有未读且超过已存时交”“交失败靠列表更新重交”“几个窗口共用”；输出 5 的视图计数；“订阅随入口释放”。
+- bots.md 输出 7：版本 2（低风险可去）、200 条上限、没有时为 null、不存记录、Markdown 原样；转义规则补进 Spec。
+- bookshelf 输出 22：只收浏览器入口、id 前缀、绑定项目的窗口不加载、换掉时猫不重挂、格子尺寸与圆角、超出部分不推动布局；“声明是空对象”同 53。
+
+### 清单三：要补测试或修代码、修 Spec
+Spec 要改（没有发现代码缺陷，以下都是 Spec 与实现或测试对不上）：
+1. conversation.md 输出 50 的表与“继续是一个操作”段挪回 50 末尾（现挂在 53 下面）；52 要写明有归属的会话是表里“enqueue 照常发”那行的例外。
+2. 输出 52“在消息视图与编辑区页面里都按 bot 档”与 53“编辑区页面的宿主不开有归属的会话”矛盾，按实现删“与编辑区页面”。
+3. “声明是空对象”（agent.sessionOwners、projects.desk）：实现不核对声明。二选一：贡献点加空对象 schema（additionalProperties:false），或 Spec 改成“声明不用”。
+4. 输出 2 与 54 的“不画第一屏”：实际是第一屏挂在不透明、inert 的盖层下，Spec 改成“盖住”，或补断言看不见 [data-agent-welcome]。
+5. 验收 11 的顺序与 e2e（BE:144）不一致：她的回复是开着、失焦时到的，不是切走期间；“失焦再拿回焦点、线还在”在 e2e 里是先拿回焦点再打开。改验收贴 e2e，或改 e2e 贴验收。
+6. bots.md 输出 7 摘要补“转义的表情写法照字面留着”（BSM:20-25、BST:16 已有）。
+7. bots/view.md、conversation.md、bookshelf.md 的证据补 t15 的实现入口、合同测试与 Smoke。
+测试要补（按价值排）：
+a. bots/web/store.ts 没有直接测试的部分：先订阅后取 list、onResync 重取、failed 状态、reload 两条路、入口停止时释放、交失败后靠列表更新重交、没有未读时不交（都补在 bots.test.ts“bot 视图的数据”组）。
+b. bots/web/plugin.ts 的联系人映射：seenSeq 随 unread 为 null、sessionId 在 main=none 时为 null。
+c. agent.sessionOwners 接收：每插件第二条不接并报 agent.owner-duplicate；只收浏览器入口、id 前缀（projects.desk 同）。
+d. session-host.test.ts：身份回落、queue 投递走 send 带 mode=queue、异步与后代事项不计入 settlePending、归属读到之前是 loading 与 dock。
+e. focus-session 对 bot 子会话（ancestors 根带 owner）打开到消息视图；状态栏“N 条新消息”点进去打开第一个有未读的主对话（BE:127 加一步）。
+f. 消息视图版式阈值 599/600、359/360（抽纯函数或 MH dom 测试）。
+g. BE:127 的测试名“验收 2”应为“验收 3”，并补“拿回焦点后状态栏不再写新消息”与面板头计数。
+h. DeskCompanion：多个提供者时的代表、在跑不换表情、关面板作废在途打开、用户挪走后不抢焦点；SidePanel 的 420 宽与 Tab 循环。
+i. bots.md last：没有持有与找不到时为 null、尾部 200 条上限。
+
+## 复核更正（advisor 复核后补查，以本节为准）
+搜索范围补查：在 packages/neuro-book/e2e 全部与 packages/*/src 里按 data-messages-、data-strip-、data-desk-、data-side-panel、owner-duplicate、seen-failed、list-failed、conversation-painted 搜过（含 Lab 的 e2e）。下面各条原写“无”的，改读作“在上述范围内没搜到”：列表栏 260、抽屉位置、抽屉非模态、气泡位置与 260 宽、SidePanel 420 宽、格子尺寸、Tab 循环、视图计数、owner-duplicate、store 的 list-failed 与订阅顺序。Lab 的 messages.scenes.ts 只是场景，没有断言这些数值。ACE:706 在窄版抽屉里点了会话行，但没断言抽屉关上，“选了会话一页的一项也关抽屉”仍是没有测试。
+SidePanel.test.ts 与 bots/backend/main.test.ts:80 已打开核对断言：SPT:60 断言触发器开关、role=dialog、焦点进面板；SPT:77 点外面、焦点移出不关；SPT:90 组字与焦点在别处不关、Esc 关后焦点回触发器；SPT:116 已处理的 Esc 不关；SPT:129 触发器上 Esc 关；main.test.ts:80、91 断言 bots.main-opened 的 events=快照 head（42）。原归类不变。
+输出 53“否则照旧按上次用的位置”的测试改为 ACE:474-486（没有归属的会话经状态栏条目在原位置打开、向导出现）。
+### 输出 2 补拆一句（新增）
+点视图里抽屉外关抽屉后，焦点回到开它的按钮 | 字面不符 | AM:115-119（closeDrawer(false)，焦点留在点到的地方） | AMT:139 | 只有 Esc 与选了一项回焦点；点外面时焦点跟着点击走。Spec 一句话把三种关法都接上“焦点回到开它的按钮”，比实现宽。建议 Spec 改成“Esc 与选了一项之后焦点回到开它的按钮”
+（原“点视图里抽屉外、Esc、选了联系人都关，焦点回开它的按钮 | 有断言”一行改读作只管“三种都关”与 Esc、选项的回焦点）
+### 输出 54 改一行
+面板里没有会话时盖“找不到这个 bot”，不画第一屏 | 字面不符（原记有断言） | DC:122-125、nb-agent-ui/src/vue/AgentConversationView.vue:265 | DCT:150-158 | 盖层有断言；但没有会话时 canCreate 为真，第一屏（AgentWelcome）照样挂在 inert 的不透明盖层下，与输出 2 同一机制，同一归类（从代码推断，未在浏览器里看）
+### 输出 54 Tab 那行更正
+Reka 的 FocusScope 设了 loop，两头都回绕（Tab 与 Shift+Tab）；原文“Shift+Tab 可以出去”不对，删去。非模态没有陷阱，鼠标可以点到面板外。归类仍是没有测试。
+### 更正后的数量（以此为准；各节小结里手写的数字有几处与行数不符，以本行为准）
+共 175 句：有断言 119（其中 21 句是“有断言（部分）”或“有断言/没有测试”的混合行，按前半归到有断言，缺的半句已在行内写明；严格只算整句守住的是 98），没有测试 47，字面不符 9，没实现 0；另有 Spec 结构问题 1 处。
+清单补充：
+- 清单二的输出 2 加一句：“点抽屉外关后焦点回按钮”先改字面。输出 54 的“不画第一屏”同输出 2 先改字面。
+- 清单三第 4 条同时管输出 2 与输出 54；新增第 8 条：输出 2 的回焦点只对 Esc 与选了一项成立，Spec 改字面。
+- bots/view.md 的建议只有一个：这次不晋升。要晋升 implemented，需同时补齐三条证据标签，并把清单二列的那些句子改成行内“（planned）”；做不到就整份保持 planned。
+- conversation.md 里另有几处 planned 标记不在本次清单里，也不在 brief-a（它只核 ui/agent-conversation-view.md）：37 行（视图标题与 replaces）、39 行（nbook.agent/attention）、40 行（projects.desk 入口）、49 行（会话面板不按日分组）、126 行（输出 44 只在窄版接管）、133 行（输出 51 会话发的提醒）、209 行（attention 状态键）。没有核对。
+（再更正上一行的混合行数：逐行数过，有断言里部分覆盖或“有断言/没有测试”的混合行是 14 句，整句守住的是 105；其余带括号的“分层”“机制”“原有行为”“组件层”“e2e”是整句守住、只说明在哪一层测的。）

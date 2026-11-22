@@ -46,8 +46,8 @@ owners:
 - **结果节点**：工具渲染器声明为结果、以 `node` 呈现且调用成功的工具调用，例如问答里交答案的收尾工具。被退回（出错）的那几次属于过程，在思维链里显示为一行，不画 `node` 组件；全部被退回时这一轮没有结果区。
 - **结果与过程**：结果是一轮末尾连续的最终回复、错误与结果节点；其余内容都是过程。
 - **整轮收起**：已结束的轮次把过程收成一行整轮摘要，只露出结果与轮末汇总。
-- （planned）**按天的线**：`ctx.dividers.day` 为真时，每一轮之前与上一轮不在同一个日历日时画一条，第一轮之前总有一条。一轮的日子取它第一条 `timestamp` 大于 0 的消息（一轮跨零点时线在轮前；整轮都没有时间的不画）；按本地时区的日历日写：与 `now` 同一天写“今天”（晚于 `now` 的也写今天），前一天“昨天”，同一年写月日，否则加上年。居中文字加两边细线，次级色；线只在轮与轮之间，不进轮内。
-- （planned）**未读线**：`ctx.dividers.unreadFrom` 指向已加载的一条消息时，含它的那一轮之前画“以下是新消息”，样子同按天的线、用强调色；同一轮之前两条都有时日子在上。指向的消息不在已加载的消息里时不画，翻到更早一页、它加载进来后才画。视图不因它滚动。原始视图不画这两种线。
+- **按天的线**：`ctx.dividers.day` 为真时，每一轮之前与上一条有日子的轮不在同一个日历日时画一条，第一条有日子的轮之前总有一条。一轮的日子取它第一条 `timestamp` 大于 0 的消息（一轮跨零点时线在轮前；整轮都没有时间的不画）；按本地时区的日历日写：与 `now` 同一天写“今天”（晚于 `now` 的也写今天），前一天“昨天”，同一年写月日，否则加上年。线只在轮与轮之间，不进轮内（画法见组件 `AgentStreamDivider` 的同名 .md）。
+- **未读线**：`ctx.dividers.unreadFrom` 指向已加载的一条消息时，含它的那一轮之前画“以下是新消息”，与按天的线区分开（强调色）；同一轮之前两条都有时日子在上。指向的消息不在已加载的消息里时不画，翻到更早一页、它加载进来后才画。视图不因它滚动。原始视图不画这两种线。
 - **角色**：消息的说话者，现在是用户与 Agent；登记在注册表里，为第三种角色预留。
 - **原始视图**：一条消息对应一个块、按时间顺序平铺的调试视图。
 - **注册表**：各扩展点登记项的集合，内置功能与插件使用同一套登记方式。
@@ -92,7 +92,7 @@ type AgentConversationViewProps = {
     draftProfile?: {name: string; icon: string} | null;
     /** 没有消息时的第一屏（见“消息”的空状态）；不给时写“还没有消息”。 */
     welcome?: {title?: string; recent: {id: string; title: string; at: number}[]; total: number; starters: {text: string; icon?: string}[]};
-    /** （planned）顶栏右列最后画“关闭”：宿主把对话放在可关的面板里时用；缺省 false。 */
+    /** 顶栏右列最后画“关闭”：宿主把对话放在可关的面板里时用；缺省 false。 */
     closable?: boolean;
 };
 
@@ -100,9 +100,9 @@ type AgentConversationViewEmits = {
     (e: "action", action: AgentViewAction): void;
     (e: "update:viewMode", mode: "turns" | "raw"): void;
     (e: "update:sessionsOpen", open: boolean): void;
-    /** （planned）点了顶栏的“关闭”。 */
+    /** 点了顶栏的“关闭”。 */
     (e: "close"): void;
-    /** （planned）输入框里按了 Esc（补全菜单开着、输入法组字时不发）：宿主可以拿它关掉放对话的面板。 */
+    /** 输入框里按了 Esc（补全菜单开着、输入法组字时不发）：宿主可以拿它关掉放对话的面板。 */
     (e: "escape"): void;
 };
 ```
@@ -113,7 +113,7 @@ type AgentConversationViewEmits = {
 
 | 部分 | 内容 |
 |---|---|
-| `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；子会话另有祖先路径 `path`（见“顶栏”）；未选择会话时为 `null` |
+| `session` | 当前会话的标题、摘要、Profile 名称与图标、头像（`avatar`，可选，bot 的主对话给）、状态、后台摘要状态；子会话另有祖先路径 `path`（见“顶栏”）；未选择会话时为 `null` |
 | `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作；可选的标题 `title` 与图标 `icon`，提示卡用（见“输入框与待处理区”） |
 | `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、停止并清空排队（`stopClearing: {count} | null`，`count` 是会被清掉的条数）、宿主正在执行一次继续（`continuing`，这时发送键与排队区的“继续”不可用，编辑器照常可写）、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方、宿主做了的输入框命令（`commands`）与触发字符（`triggers`，没列的不打开菜单）、能不能给上下文详情与分支树 |
 | `run` | 运行状态 `idle`、`running`、`waiting`、`stopping`，当前运行阶段文案，正在运行的轮次 |
@@ -131,7 +131,7 @@ type AgentConversationViewEmits = {
 | `connection` | 连接状态与是否需要用户操作 |
 | `panels` | 附件列表页、关联 Agent、系统提示、会话列表页、分支树、上下文检查数据 |
 | `now` | 宿主提供的当前时间，用于显示运行中的用时 |
-| `dividers` | （planned）可选：`day` 为真时轮次之间画按天的线；`unreadFrom` 是未读线起点的消息 id（见“分轮视图”）；不给时两种线都不画 |
+| `dividers` | 可选：`day` 为真时轮次之间画按天的线；`unreadFrom` 是未读线起点的消息 id（见“分轮视图”）；不给时两种线都不画 |
 | `extensions` | 按插件 id 分区的数据，供插件登记的渲染器读取 |
 
 ### 消息
@@ -240,8 +240,8 @@ Markdown 扩展在本规范中只预留，不要求实现。
 
 - 三列，高 32px，标题按整行的宽度居中；两侧至少放得下自己的内容，放不下时标题先截断。
 - 左列：子会话（`session.path` 不空）是返回，只有图标，发出 `session.select`，带父会话（`path` 的最后一项）；顶层会话且 `newSession` 为真是新建，发出 `session.create`；没选会话时空着。不画祖先的路径。
-- 中列：Profile 图标（子会话是子代理的；（planned）`session.avatar` 给了时换成圆形的头像图片）与会话标题，标题为空写“未命名会话”；没选会话时写“新对话”，图标是 `draftProfile` 的。悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开会话列表（`sessionsOpen`）。
-- 右列：`head-trailing` 插槽、常驻的顶栏动作（不超过两个）、溢出菜单，`closable` 时最后是“关闭”（planned）。溢出菜单固定包含“原始视图”切换项；没选会话时没有溢出菜单。
+- 中列：Profile 图标（子会话是子代理的；`session.avatar` 给了时换成头像图片，（planned）图片读不出来时换回 Profile 图标）与会话标题，标题为空写“未命名会话”；没选会话时写“新对话”，图标是 `draftProfile` 的。悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开会话列表（`sessionsOpen`）。
+- 右列：`head-trailing` 插槽、常驻的顶栏动作（不超过两个）、溢出菜单，`closable` 时最后是“关闭”。溢出菜单固定包含“原始视图”切换项；没选会话时没有溢出菜单。
 - 登记的顶栏动作：允许常驻（`pinnable`）的按 `order` 取前两个放在顶栏，其余与不允许常驻的收进溢出菜单，排在内置项之后、“原始视图”之前；`when` 为假的不显示；角标写在名字后。点了发出它的 action。目标是面板的顶栏动作在面板实现之前构造注册表即失败。
 - 送到视图之外：给了 `headTargets` 时三列分别送进 `start`、`title`、`end`，内容顶上不画顶栏；`title` 在宿主的按钮里，只放图标与文字，会话列表锚在 `anchor` 上，按下由宿主经 `sessionsOpen` 转来。`headTargets` 来了又走时顶栏不重建，开着的会话列表与菜单不丢。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
@@ -346,14 +346,14 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 提示卡：`availability` 为 `profile-unavailable` 时，上一条的横幅画成一张提示卡：图标（`icon`，没给时是提示图标）、标题（`title`，没给时只有说明）、说明（`message`）与恢复动作，第一个动作是主按钮。卡用浮层的表面与阴影，占原来那行横幅的位置（停靠区之下、输入框之上），不叠在消息上，消息区随之变矮，贴底滚动不受影响。别的状态（`archived`、`load-error`，以及 `ready` 时不拦发送的模型能力提示）保留一行：图标、说明与动作。
 - 输入框的占位文字按顺序取第一个：`availability` 不是 `ready` 且有说明时写原因（有 `title` 写 `title`，否则写 `message`）；`composer.resume` 为真时写中断后回车继续（同时有留着的条目时写两者合起来的那句）；空闲且有留着的条目时写继续排队的话；运行中按能怎样发送写；其余是普通的占位。
 - 待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息。
-- 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。（planned）`ctx.interaction.placement` 为 `dock` 时阻塞的事项也进停靠区、没有同步向导：答完一个时焦点在停靠区里的，放到停靠区的容器上，都答完回输入框，换了会话不算答完；“本会话都批准”或“一直批准”一并提交同一会话里同一记住范围的其余审批（向导里是顺带选上，停靠区一次一个，所以由视图补）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
+- 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。`ctx.interaction.placement` 为 `dock` 时阻塞的事项也进停靠区、没有同步向导：答完一个时焦点在停靠区里的，放到停靠区的容器上，都答完回输入框，换了会话不算答完；“本会话都批准”或“一直批准”一并提交同一会话里同一记住范围的其余审批（向导里是顺带选上，停靠区一次一个，所以由视图补）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
 - `user` 消息带 `author` 时，头像与名称用它，不用“用户”角色。harness 适配器的选项 `authorOf(by)` 由宿主给，把路径事件上的 `by` 换成 `author`；不给时都是用户。
-- （planned）harness 适配器标出计数消息：`countedSeq(消息 id)` 对由不带工具调用的 `assistant` 事件合成的消息给事件的 seq，其余（模型失败时的半截文字、停止时补的空回复、正在生成的、带工具调用的）为 null；之后被标成停止的那条仍算。选项 `pinned()` 为真时，压缩失败出固定会话的说法（见“用法档”），在合成那一刻读。
+- harness 适配器标出计数消息：`countedSeq(消息 id)` 对由不带工具调用的 `assistant` 事件合成的消息给事件的 seq，其余（模型失败时的半截文字、停止时补的空回复、正在生成的、带工具调用的）为 null；之后被标成停止的那条仍算。选项 `pinned()` 为真时，压缩失败出固定会话的说法（见“用法档”），在合成那一刻读；宿主要在应用路径之前给出。
 - harness 适配器的乐观消息按受理它的 `commandId` 确认（`input`、`steer` 事件带 `commandId`），不按到达的先后：留着的话先跑时，先到的是旧话。排队消息从快照与缓冲区事件读，每条带发出者、状态与原因（[`harness/runtime.md`](../harness/runtime.md) 输出 103）。宿主合并留着的话发出的那一条，乐观显示在消息流末尾；`user` 消息可带 `ahead?: number`，由适配器按“这条消息受理时放行出来、还没被取走的条数”现算，取走一条少一条，视图写“前面还有 N 条”；乐观消息在实时事件与按路径重建时都按 `commandId` 清掉。合并的那一条结果未知时，“重新发送”沿用原来的 `commandId` 与参数（含 `replaces`）；空着按继续发出的合并被明确拒绝时，不把合并的文字放回输入框，只说明原因。路径上宿主发出的 `input`、`steer` 同样经 `authorOf(by)` 换成 `author`（宿主取 `source.label`）。
 
 ### 用法档
 
-（planned）宿主用同一个视图组件画两种对话；差别只在 `ctx` 的取值，按会话给：同一个视图里从普通会话切到 bot 的主对话，档位跟着变（消息视图就是这样用，[`agent/conversation.md`](../agent/conversation.md) 输出 53）。`ctx.interaction` 的 `placement`（缺省 `wizard`）与 `canCreate`（缺省 true）不给时就是会话档。
+宿主用同一个视图组件画两种对话；差别只在 `ctx` 的取值，按会话给：同一个视图里从普通会话切到 bot 的主对话，档位跟着变（消息视图就是这样用，[`agent/conversation.md`](../agent/conversation.md) 输出 53）。`ctx.interaction` 的 `placement`（缺省 `wizard`）与 `canCreate`（缺省 true）不给时就是会话档。
 
 | 项 | 会话档（通用的对话视图） | bot 档（bot 的主对话，[`bots/view.md`](../bots/view.md)） |
 |---|---|---|
@@ -363,8 +363,8 @@ Markdown 扩展在本规范中只预留，不要求实现。
 | 改写历史 | 宿主按 `interaction.canMutateHistory` 给 | `canMutateHistory`、`canOpenTree` 为假：编辑、重试、从此处分支、分支树都不显示 |
 | 命令 | 宿主做了的都列 | `interaction.commands` 只有 `compact`、`plan`、`mode` |
 | 发送 | 运行中回车是补充说明、Ctrl/⌘+回车排队 | 同左；宿主照 [`agent/conversation.md`](../agent/conversation.md) 的固定会话处理（带 `settlePending`） |
-| 分隔线（planned） | 不给 `dividers`：没有按天与未读的线 | 两种都画（[`agent/conversation.md`](../agent/conversation.md) 输出 55） |
-| 文案（planned） | 压缩失败写“……或者开一个新会话” | 宿主给 harness 适配器 `pinned`：写“……可以换一个压缩模型再试”，系统条目与运行出错两处都是 |
+| 分隔线 | 不给 `dividers`：没有按天与未读的线 | 两种都画（[`agent/conversation.md`](../agent/conversation.md) 输出 55） |
+| 文案 | 压缩失败写“……或者开一个新会话” | 宿主给 harness 适配器 `pinned`：写“……可以换一个压缩模型再试” |
 
 Lab 两档各一个场景（`AgentConversationView` 的 `bot` 场景是 bot 档）。
 
@@ -529,10 +529,10 @@ type AgentSessionListItem = {
 38. Given 排队区有两条留着、一条就绪的条目（留着的原因不同），When 显示，Then 头行写“已暂停 2 条”与第一条的原因加“等”，留着的两行不受 3 条限制；点头行的“继续”与空着回车都发出 `run.continue`，写了字回车发出 `composer.submit`；`availability` 不是 `ready` 时“继续”不可用；中断与留着同时成立时占位文字是合起来的那句；390 宽的英文场景里原因先截断、“继续”完整。
 39. Given 运行中、`interaction.stopClearing` 为 `{count: 3}`，When 用 Tab 到下拉箭头、回车、选“停止并清空排队（3 条）”，Then 发出 `composer.stop {clearQueue: true}`、焦点回到编辑器；点停止按钮本身发出不带 `clearQueue` 的 `composer.stop`；停止进行中箭头 `aria-disabled`；输入框里有字时箭头与停止按钮一起不出现。
 40. （已删除）提醒在排队区与消息流里的样子由宿主用已有的字段写好（`author`、`editable: false`、`held`，系统消息 `source: "reminder"`），视图没有为它新增的行为，见 [`agent/conversation.md`](../agent/conversation.md) 输出 51。
-41. （planned）Given `ctx.interaction.placement` 为 `dock`、一个阻塞的提问，When 显示，Then 提问在停靠区、没有同步向导、输入框可见可用；不给时提问由向导替换输入框。Given 停靠区里同一会话的两个 `write` 审批、一个 `shell` 审批与一个后代会话的 `write` 审批，When 第一个选“本会话都批准”，Then 发出两条 `input.submit`：第一个与另一个同会话的 `write`。Given 焦点在停靠区里、答完的事项被宿主去掉，Then 焦点到停靠区里的下一个，都答完回到输入框。
-42. （planned）Given `session.avatar`，When 显示顶栏，Then 中列是头像图片、没有 Profile 图标；不给时照旧是图标。
-43. （planned）Given `dividers.day` 为真、三轮分别在前天 23:50（跨到昨天 00:10 才结束）、昨天、今天，When 以分轮视图显示，Then 三轮之前依次是两天前的月日、“昨天”、“今天”，跨零点的那一轮只在轮前有一条；第一条消息没有时间的轮按下一条有时间的算；消息时间晚于 `now` 写“今天”；`unreadFrom` 指向第三轮里的回复时，第三轮之前是“今天”再“以下是新消息”；指向不在已加载消息里的 id 时没有未读线；原始视图两种都没有。Given 不给 `dividers`，Then 渲染与改动前相同。
-44. （planned）Given harness 适配器的 `pinned()` 为真，When 一次压缩失败（系统条目）与一次因压缩失败结束的运行（运行出错），Then 两处都是固定会话的说法；为假或不给时是“……或者开一个新会话”。`countedSeq` 对最终回复给 seq，对带工具调用的、半截文字、补的空回复给 null。
+41. Given `ctx.interaction.placement` 为 `dock`、一个阻塞的提问，When 显示，Then 提问在停靠区、没有同步向导、输入框可见可用；不给时提问由向导替换输入框。Given 停靠区里同一会话的两个 `write` 审批、一个 `shell` 审批与一个后代会话的 `write` 审批，When 第一个选“本会话都批准”，Then 发出两条 `input.submit`：第一个与另一个同会话的 `write`。Given 焦点在停靠区里、答完的事项被宿主去掉，Then 焦点放到停靠区的容器上，都答完回到输入框。
+42. Given `session.avatar`，When 显示顶栏，Then 中列是头像图片、没有 Profile 图标；不给时照旧是图标。
+43. Given `dividers.day` 为真、三轮分别在前天 23:50（跨到昨天 00:10 才结束）、昨天、今天，When 以分轮视图显示，Then 三轮之前依次是两天前的月日、“昨天”、“今天”，跨零点的那一轮只在轮前有一条；第一条消息没有时间的轮按下一条有时间的算；消息时间晚于 `now` 写“今天”；`unreadFrom` 指向第三轮里的回复时，第三轮之前是“今天”再“以下是新消息”；指向不在已加载消息里的 id 时没有未读线；原始视图两种都没有。Given 不给 `dividers`，Then 渲染与改动前相同。
+44. Given harness 适配器的 `pinned()` 为真，When 一次只压缩的运行失败（系统条目），Then 是固定会话的说法；为假或不给时是“……或者开一个新会话”。`countedSeq` 对最终回复给 seq，对带工具调用的、半截文字、补的空回复给 null。
 
 Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 35 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。第 18 条没有单独的自动检查：颜色都取 nb-ui 的文字与背景 token，对比度由 token 保证。
 
@@ -546,10 +546,11 @@ Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb
   - 核心与渲染层的导入边界：核心不引 Vue，两层都不引宿主源码（`boundary.test.ts`）。
   - 转录器按内核事件还原消息，不丢锚点与路径，分支与回退目标据此选取（`kernel-transcript.test.ts`、`harness.contract.test.ts`）。
   - 翻译端口换了不重新挂载就跟着变，两套目录的键与占位符一致（`text.dom.test.ts`、`locales.test.ts`）。
+  - 两种用法档只差 ctx 的取值，不给新字段时渲染与改动前相同；轮与轮之间的线只看消息与 `ctx.dividers`，`now` 每秒变不重算出不同的线；适配器标出的计数消息与 bots 的未读同一口径（`stream-dividers.test.ts`、`kernel-transcript.test.ts`、`AgentConversationView.dom.test.ts`）。
 
 ## 证据
 
-- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。t36 的对话面板改版（顶栏三列、返回、送到面板头的标题区、去掉横线与顶端渐隐、第一屏与 `composer.fill`、状态栏没选会话时、模型不可用的提示卡与占位）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9，依 t29 决定 5 到 11）。；状态栏的可选项、窄时收起与右键菜单依据 [w00032 t37 计划](../../../.agents/works/w00032-agent-integration/tasks/t37-status-line-customization/plan.md)，开发者 2026-11-17 确认（t37 决定 1–3）；“状态栏”的分边、窄时规则与去掉模式标记依据 [w00032 t38](../../../.agents/works/w00032-agent-integration/tasks/t38-status-line-sorting/README.md) 决定 1、3，开发者 2026-11-18 确认；缓冲区条目的就绪与留着、放行、继续与停止的两个选项（本 Task 加的条目）依据 [提案：输入缓冲区](../../proposals/agent-input-buffer-states.md)（2026-11-18 接受）与 [w00043 t14](../../../.agents/works/w00043-neurobot/tasks/t14-input-buffer-states/README.md)，逐句核对后晋升（[核对处理](../../../.agents/works/w00043-neurobot/tasks/t14-input-buffer-states/evidences/promotion-check-disposition.md)）。
-- 实现入口：[`packages/nb-agent-ui/src/index.ts`](../../../packages/nb-agent-ui/src/index.ts)、[`vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts)、[`kernel-transcript.ts`](../../../packages/nb-agent-ui/src/kernel-transcript.ts)、宿主接线 [`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)；顶栏三列与送到面板头：[`AgentConversationHead.vue`](../../../packages/nb-agent-ui/src/vue/head/AgentConversationHead.vue)；第一屏：[`AgentWelcome.vue`](../../../packages/nb-agent-ui/src/vue/stream/AgentWelcome.vue)；提示卡：[`AgentNoticeCard.vue`](../../../packages/nb-agent-ui/src/vue/composer/AgentNoticeCard.vue)；`composer.fill`：[`composer-actions.ts`](../../../packages/nb-agent-ui/src/composer-actions.ts)
+- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。t36 的对话面板改版（顶栏三列、返回、送到面板头的标题区、去掉横线与顶端渐隐、第一屏与 `composer.fill`、状态栏没选会话时、模型不可用的提示卡与占位）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9，依 t29 决定 5 到 11）。；状态栏的可选项、窄时收起与右键菜单依据 [w00032 t37 计划](../../../.agents/works/w00032-agent-integration/tasks/t37-status-line-customization/plan.md)，开发者 2026-11-17 确认（t37 决定 1–3）；“状态栏”的分边、窄时规则与去掉模式标记依据 [w00032 t38](../../../.agents/works/w00032-agent-integration/tasks/t38-status-line-sorting/README.md) 决定 1、3，开发者 2026-11-18 确认；缓冲区条目的就绪与留着、放行、继续与停止的两个选项（本 Task 加的条目）依据 [提案：输入缓冲区](../../proposals/agent-input-buffer-states.md)（2026-11-18 接受）与 [w00043 t14](../../../.agents/works/w00043-neurobot/tasks/t14-input-buffer-states/README.md)，逐句核对后晋升（[核对处理](../../../.agents/works/w00043-neurobot/tasks/t14-input-buffer-states/evidences/promotion-check-disposition.md)）。用法档、停靠档、头像、`closable`、轮与轮之间的线与固定会话的说法：[w00043 t15](../../../.agents/works/w00043-neurobot/tasks/t15-messages-view/README.md) 的决定 3–9。
+- 实现入口：[`packages/nb-agent-ui/src/index.ts`](../../../packages/nb-agent-ui/src/index.ts)、[`vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts)、[`kernel-transcript.ts`](../../../packages/nb-agent-ui/src/kernel-transcript.ts)、宿主接线 [`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)；顶栏三列与送到面板头：[`AgentConversationHead.vue`](../../../packages/nb-agent-ui/src/vue/head/AgentConversationHead.vue)；第一屏：[`AgentWelcome.vue`](../../../packages/nb-agent-ui/src/vue/stream/AgentWelcome.vue)；提示卡：[`AgentNoticeCard.vue`](../../../packages/nb-agent-ui/src/vue/composer/AgentNoticeCard.vue)；`composer.fill`：[`composer-actions.ts`](../../../packages/nb-agent-ui/src/composer-actions.ts)；轮与轮之间的线：[`stream-dividers.ts`](../../../packages/nb-agent-ui/src/stream-dividers.ts)、[`AgentStreamDivider.vue`](../../../packages/nb-agent-ui/src/vue/stream/AgentStreamDivider.vue)
 - 合同测试：[`packages/nb-agent-ui`](../../../packages/nb-agent-ui/src) 的单元与挂载测试（`bun run test`）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)；e2e：[`lab-agent-ui.e2e.ts`](../../../packages/neuro-book/e2e/lab-agent-ui.e2e.ts)、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)、[`lab-scenes.e2e.ts`](../../../packages/neuro-book/e2e/lab-scenes.e2e.ts)；顶栏、第一屏、占位与状态栏（没选会话）：[`AgentConversationView.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/AgentConversationView.dom.test.ts)、[`AgentConversationComposer.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.dom.test.ts)、[`AgentStatusBar.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/composer/AgentStatusBar.dom.test.ts)、[`status-line.test.ts`](../../../packages/nb-agent-ui/src/status-line.test.ts)、[`composer-actions.test.ts`](../../../packages/nb-agent-ui/src/composer-actions.test.ts)；Lab 场景：顶栏、第一屏、提示卡各自单独摆，视图里的 `no-session`、`welcome-*`、`child-session`、`model-notice-*`；状态栏的分边与窄时：[`status-line.test.ts`](../../../packages/nb-agent-ui/src/status-line.test.ts)（`collapsedItems`、`side`）、`AgentStatusBar.dom.test.ts`（挂着时换边、先右后左、提醒不收）、`lab-agent-ui.e2e.ts`“状态栏的可选项”；排队区、继续与停止的第二个选项：[`kernel-transcript.test.ts`](../../../packages/nb-agent-ui/src/kernel-transcript.test.ts)、[`AgentQueuedMessages.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.dom.test.ts)、[`AgentConversationComposer.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.dom.test.ts)，`lab-agent-ui.e2e.ts`（验收 38、39）
 - Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）
