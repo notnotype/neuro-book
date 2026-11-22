@@ -77,8 +77,8 @@ describe("数据模块", () => {
         await waitUntil("第一份快照", () => store.snapshot.value !== null);
         expect(store.available.value).toBe(true);
 
-        ok(await other.addProvider({source: {kind: "custom", name: "本地", baseUrl: BASE, api: "openai-completions"}}));
-        await waitUntil("另一个窗口加的服务商出现", () => store.snapshot.value?.providers.some((provider) => provider.id === "custom") === true);
+        ok(await other.addProvider({template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        await waitUntil("另一个窗口加的服务商出现", () => store.snapshot.value?.providers.some((provider) => provider.id === "provider") === true);
 
         const failed = await store.call("updateProvider", {id: "missing", patch: {name: "x"}});
         expect(failed).toMatchObject({ok: false, failure: {code: "unknown-provider"}});
@@ -87,62 +87,68 @@ describe("数据模块", () => {
     test("检测：进行中是 running，完成后记下结果与时间；失败带类别与原文；检测全部按模型记；中止时回到原样", async () => {
         const {store} = await setup();
         await store.start();
-        ok(await store.call("addProvider", {source: {kind: "custom", name: "本地", baseUrl: BASE, api: "openai-completions"}}));
-        ok(await store.call("updateProvider", {id: "custom", patch: {auth: "none"}}));
-        ok(await store.call("setModels", {provider: "custom", remove: [], add: [{id: "good", enabled: true, contextWindow: 8000}, {id: "broken", enabled: true, contextWindow: 8000}, {id: "hang", enabled: false, contextWindow: 8000}]}));
-        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers.find((provider) => provider.id === "custom")?.models.length === 3);
+        ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
+        ok(await store.call("setModels", {provider: "provider", remove: [], add: [{id: "good", enabled: true, contextWindow: 8000}, {id: "broken", enabled: true, contextWindow: 8000}, {id: "hang", enabled: false, contextWindow: 8000}]}));
+        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers.find((provider) => provider.id === "provider")?.modelCount === 3);
 
-        const running = store.check("custom", "good");
-        expect(store.checks.get(checkKey("custom", "good"))).toEqual({status: "running"});
+        const running = store.check("provider", "good");
+        expect(store.checks.get(checkKey("provider", "good"))).toEqual({status: "running"});
         await running;
-        expect(store.checks.get(checkKey("custom", "good"))).toEqual({status: "done", at: 1_000, result: {ok: true}});
+        expect(store.checks.get(checkKey("provider", "good"))).toEqual({status: "done", at: 1_000, result: {ok: true}});
 
-        await store.check("custom", "broken");
-        const broken = store.checks.get(checkKey("custom", "broken"));
+        await store.check("provider", "broken");
+        const broken = store.checks.get(checkKey("provider", "broken"));
         expect(broken).toMatchObject({status: "done", result: {ok: false, kind: "provider"}});
 
-        await store.checkAll("custom");
-        expect(store.checks.get(checkKey("custom", "good"))).toMatchObject({status: "done", result: {ok: true}});
+        await store.checkAll("provider");
+        expect(store.checks.get(checkKey("provider", "good"))).toMatchObject({status: "done", result: {ok: true}});
         // 停用的模型不在“检测全部”里。
-        expect(store.checks.has(checkKey("custom", "hang"))).toBe(false);
+        expect(store.checks.has(checkKey("provider", "hang"))).toBe(false);
 
-        ok(await store.call("upsertModel", {provider: "custom", model: {id: "hang", enabled: true, contextWindow: 8000}}));
-        await waitUntil("hang 启用", () => store.snapshot.value?.providers[0]?.models.find((item) => item.id === "hang")?.enabled === true);
-        const hang = store.check("custom", "hang");
-        await waitUntil("检测开始", () => store.checks.get(checkKey("custom", "hang"))?.status === "running");
-        store.cancel("custom", "hang");
+        ok(await store.call("upsertModel", {provider: "provider", model: {id: "hang", enabled: true, contextWindow: 8000}}));
+        await waitUntil("hang 启用", async () => {
+            await store.loadRows("provider");
+            return store.rowsOf("provider").rows.find((item) => item.id === "hang")?.enabled === true;
+        });
+        const hang = store.check("provider", "hang");
+        await waitUntil("检测开始", () => store.checks.get(checkKey("provider", "hang"))?.status === "running");
+        store.cancel("provider", "hang");
         await hang;
-        expect(store.checks.has(checkKey("custom", "hang"))).toBe(false);
+        expect(store.checks.has(checkKey("provider", "hang"))).toBe(false);
     });
 
     test("单独检测与检测全部同时进行：检测全部不重标正在单独检测的模型，两边各自结算，不会留下永远转圈的；检测全部进行中取消，各自回到开始之前", async () => {
         const {store} = await setup();
         await store.start();
-        ok(await store.call("addProvider", {source: {kind: "custom", name: "本地", baseUrl: BASE, api: "openai-completions"}}));
-        ok(await store.call("updateProvider", {id: "custom", patch: {auth: "none"}}));
-        ok(await store.call("setModels", {provider: "custom", remove: [], add: [{id: "good", enabled: true, contextWindow: 8000}, {id: "slow", enabled: true, contextWindow: 8000}]}));
-        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.models.length === 2);
+        ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
+        ok(await store.call("setModels", {provider: "provider", remove: [], add: [{id: "good", enabled: true, contextWindow: 8000}, {id: "slow", enabled: true, contextWindow: 8000}]}));
+        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 2);
 
-        const single = store.check("custom", "slow");
+        const single = store.check("provider", "slow");
         await waitUntil("单独检测的请求到了端点", () => slowWaiting.length === 1);
-        const everything = store.checkAll("custom");
+        const everything = store.checkAll("provider");
         // 检测全部在服务端也检 slow：两路请求都到了再一起放行。
         await waitUntil("检测全部的请求也到了端点", () => slowWaiting.length === 2);
         releaseSlow();
         await Promise.all([everything, single]);
-        expect(store.checks.get(checkKey("custom", "good"))).toMatchObject({status: "done", result: {ok: true}});
-        expect(store.checks.get(checkKey("custom", "slow"))).toMatchObject({status: "done", result: {ok: true}});
+        expect(store.checks.get(checkKey("provider", "good"))).toMatchObject({status: "done", result: {ok: true}});
+        expect(store.checks.get(checkKey("provider", "slow"))).toMatchObject({status: "done", result: {ok: true}});
 
         // 检测全部进行中取消：两个都回到开始之前（上一次的结果）。
-        ok(await store.call("setModels", {provider: "custom", remove: ["slow"], add: [{id: "hang", enabled: true, contextWindow: 8000}]}));
-        await waitUntil("hang 在快照里", () => store.snapshot.value?.providers[0]?.models.some((item) => item.id === "hang") === true);
-        const before = JSON.stringify(store.checks.get(checkKey("custom", "good")));
-        const all = store.checkAll("custom");
-        await waitUntil("检测全部开始", () => store.checks.get(checkKey("custom", "hang"))?.status === "running");
-        store.cancel("custom");
+        ok(await store.call("setModels", {provider: "provider", remove: ["slow"], add: [{id: "hang", enabled: true, contextWindow: 8000}]}));
+        await waitUntil("hang 在列表里", async () => {
+            await store.loadRows("provider");
+            return store.rowsOf("provider").rows.some((item) => item.id === "hang");
+        });
+        const before = JSON.stringify(store.checks.get(checkKey("provider", "good")));
+        const all = store.checkAll("provider");
+        await waitUntil("检测全部开始", () => store.checks.get(checkKey("provider", "hang"))?.status === "running");
+        store.cancel("provider");
         await all;
-        expect(JSON.stringify(store.checks.get(checkKey("custom", "good")))).toBe(before);
-        expect(store.checks.has(checkKey("custom", "hang"))).toBe(false);
+        expect(JSON.stringify(store.checks.get(checkKey("provider", "good")))).toBe(before);
+        expect(store.checks.has(checkKey("provider", "hang"))).toBe(false);
     });
 
     test("没检成（服务商不在了）记在服务商上、不算模型的检测失败；服务商删掉后它的检测结果清掉；释放后不再可用", async () => {
@@ -152,15 +158,15 @@ describe("数据模块", () => {
         expect(store.checks.has(checkKey("missing", "m"))).toBe(false);
         expect(store.checkErrors.get("missing")).toMatchObject({code: "unknown-provider"});
 
-        ok(await store.call("addProvider", {source: {kind: "custom", name: "本地", baseUrl: BASE, api: "openai-completions"}}));
-        ok(await store.call("updateProvider", {id: "custom", patch: {auth: "none"}}));
-        ok(await store.call("upsertModel", {provider: "custom", model: {id: "good", enabled: true, contextWindow: 8000}}));
-        await waitUntil("模型在快照里", () => store.snapshot.value?.providers[0]?.models.length === 1);
-        await store.check("custom", "good");
-        expect(store.checks.has(checkKey("custom", "good"))).toBe(true);
-        ok(await store.call("removeProvider", {id: "custom"}));
+        ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
+        ok(await store.call("upsertModel", {provider: "provider", model: {id: "good", enabled: true, contextWindow: 8000}}));
+        await waitUntil("模型在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 1);
+        await store.check("provider", "good");
+        expect(store.checks.has(checkKey("provider", "good"))).toBe(true);
+        ok(await store.call("removeProvider", {id: "provider"}));
         await waitUntil("服务商从快照里消失", () => store.snapshot.value?.providers.length === 0);
-        expect(store.checks.has(checkKey("custom", "good"))).toBe(false);
+        expect(store.checks.has(checkKey("provider", "good"))).toBe(false);
 
         store.dispose();
         expect(store.available.value).toBe(false);
@@ -171,7 +177,7 @@ describe("数据模块", () => {
         await store.start();
         await waitUntil("第一份快照", () => store.snapshot.value !== null);
         store.dispose();
-        ok(await other.addProvider({source: {kind: "custom", name: "晚到", baseUrl: BASE, api: "openai-completions"}}));
+        ok(await other.addProvider({template: "blank-openai", name: "晚到", baseUrl: BASE, api: "openai-completions"}));
         // 另开一个数据模块确认写入已经广播出去，再看释放的那个没有收到。
         const witness = createModelsStore(other);
         stores.push(witness);

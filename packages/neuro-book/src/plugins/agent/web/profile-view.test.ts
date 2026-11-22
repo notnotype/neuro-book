@@ -2,7 +2,7 @@
 
 import {describe, expect, test} from "bun:test";
 
-import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
@@ -13,6 +13,7 @@ import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf, withApprovalChoice, withModelChoice} from "./profile-edits";
 import {profileViews} from "./profile-view";
+import type {ProfileModels} from "./profile-view";
 
 const engine = createHostTextEngine({locale: "zh-CN", strict: true});
 engine.register("nbook.agent", {"zh-CN": zhCN, "en-US": enUS}, "zh-CN");
@@ -20,21 +21,36 @@ engine.register("nbook.models", modelsCatalogs.catalogs, modelsCatalogs.source);
 const text = engine.port;
 
 const entry = (over: Partial<ProfileEntry> = {}): ProfileEntry => ({key: "x", name: "X", description: "", source: "nbook.agent", status: "ok", tools: {required: [], optional: []}, ...over});
-const model = (id: string, over: Record<string, unknown> = {}) => ({id, name: id.toUpperCase(), group: "g", enabled: true, contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", ...over});
-const snapshot = (over: {roles?: unknown[]; models?: unknown[]; key?: unknown} = {}): ModelsSnapshot => ({
-    providers: [{id: "p", kind: "catalog", name: "P", baseUrl: null, catalogBaseUrl: null, key: over.key ?? {kind: "stored"}, models: over.models ?? [model("a")]}],
-    roles: over.roles ?? [{id: "main", axis: "gradient", builtin: false, name: "主力", description: "", model: "p/a", status: "ok"}],
-} as unknown as ModelsSnapshot);
-const view = (input: {entry?: ProfileEntry; setting?: object; snapshot?: ModelsSnapshot | null; failed?: boolean; catalog?: readonly ToolCatalogEntry[]; binding?: ToolBinding}) => profileViews({
-    profiles: [input.entry ?? entry()],
-    catalog: input.catalog ?? [],
-    bindings: input.binding === undefined ? {} : {x: input.binding},
-    settings: input.setting === undefined ? {} : {x: input.setting},
-    snapshot: input.snapshot === undefined ? snapshot() : input.snapshot,
-    modelsFailed: input.failed ?? false,
-    pluginName: (plugin) => `插件 ${plugin}`,
-    text,
-})[0]!;
+const model = (id: string, over: Record<string, unknown> = {}) => ({id, name: id.toUpperCase(), group: "g", enabled: true, contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", origin: "source", overridden: [], ...over});
+/** 每份快照配套的选用数据：快照本身不带模型行，行与按引用取到的结果另给。 */
+const SELECTION = new WeakMap<object, ProfileModels>();
+const snapshot = (over: {roles?: unknown[]; models?: unknown[]; key?: unknown} = {}): ModelsSnapshot => {
+    const key = over.key ?? {kind: "stored"};
+    const models = (over.models ?? [model("a")]) as Array<ReturnType<typeof model>>;
+    const shot = {
+        providers: [{id: "p", template: "deepseek", region: null, name: "P", icon: null, baseUrl: null, templateBaseUrl: null, api: null, templateApi: null, key, modelCount: models.length, enabledCount: models.length, excludedCount: 0, modelsRevision: "r", followSource: true, source: {kind: "packaged"}}],
+        roles: over.roles ?? [{id: "main", axis: "gradient", builtin: false, name: "主力", description: "", model: "p/a", status: "ok"}],
+    } as unknown as ModelsSnapshot;
+    const ready = (key as {kind: string}).kind !== "none";
+    const rows = models.map((item) => ({...item, provider: "p", usable: item.enabled && item.status === "ok" && ready}));
+    SELECTION.set(shot, {rows: rows.filter((row) => row.usable) as unknown as ProfileModels["rows"], lookup: new Map(rows.map((row) => [`p/${row.id}`, row as unknown as ModelRow]))});
+    return shot;
+};
+const selectionOf = (shot: ModelsSnapshot | null): ProfileModels => (shot === null ? {rows: [], lookup: new Map()} : SELECTION.get(shot) ?? {rows: [], lookup: new Map()});
+const view = (input: {entry?: ProfileEntry; setting?: object; snapshot?: ModelsSnapshot | null; failed?: boolean; catalog?: readonly ToolCatalogEntry[]; binding?: ToolBinding}) => {
+    const shot = input.snapshot === undefined ? snapshot() : input.snapshot;
+    return profileViews({
+        profiles: [input.entry ?? entry()],
+        catalog: input.catalog ?? [],
+        bindings: input.binding === undefined ? {} : {x: input.binding},
+        settings: input.setting === undefined ? {} : {x: input.setting},
+        snapshot: shot,
+        models: selectionOf(shot),
+        modelsFailed: input.failed ?? false,
+        pluginName: (plugin) => `插件 ${plugin}`,
+        text,
+    })[0]!;
+};
 
 describe("模型一行的取值与写回", () => {
     test("读：文件里两个都有时按 model", () => {
@@ -256,6 +272,7 @@ describe("可派的子代理一节", () => {
         bindings: {},
         settings: over.setting === undefined ? {} : {main: over.setting},
         snapshot: snapshot(),
+        models: {rows: [], lookup: new Map()},
         modelsFailed: false,
         pluginName: (plugin) => `插件 ${plugin}`,
         text,
@@ -289,6 +306,7 @@ describe("Skill 一节（skills.md 的白名单）", () => {
         bindings: {},
         settings: input.setting === undefined ? {} : {x: input.setting},
         snapshot: snapshot(),
+        models: {rows: [], lookup: new Map()},
         modelsFailed: false,
         pluginName: (plugin) => plugin,
         text,

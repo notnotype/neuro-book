@@ -20,7 +20,9 @@ import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
 import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference, splitReference} from "nbook/plugins/models/shared/contracts";
-import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot, SnapshotProvider} from "nbook/plugins/models/shared/contracts";
+import {createSelectionData} from "nbook/plugins/models/shared/selection";
+import type {SelectionRemote, SelectionRow} from "nbook/plugins/models/shared/selection";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
@@ -137,26 +139,35 @@ const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])},
 const DRAFTS_RECORD = defineRecord({key: "agent.drafts", scope: "user", locality: "local", version: 1, keyed: true, schema: DraftsSchema});
 const recentRecord = (project: boolean) => defineRecord({key: "agent.recent-session", scope: project ? "project" : "user", locality: "local", version: 1, keyed: true, schema: RecentSchema});
 
-/** 服务商图标的引用：只放键，图标表在渲染时由图标解析端口取（表晚到时首字母换成图标）。 */
-const providerIconRef = (id: string, name: string): ComposerIcon => ({kind: "key", set: "provider", key: id, fallback: name});
+/**
+ * 服务商图标的引用：用户选的内置图标与模板的图标只放键，图标表在渲染时由图标解析端口取（表晚到时首字母换成图标）；上传的是
+ * 状态根里的文件，按读取路由的地址；选了首字母或没有图标可用时画首字母块。同模板的两个实例各用自己的图标。
+ */
+function providerIconRef(provider: Pick<SnapshotProvider, "template" | "name" | "icon">): ComposerIcon {
+    const icon = provider.icon;
+    if (icon === null) return {kind: "key", set: "provider", key: provider.template, fallback: provider.name};
+    if (icon.kind === "builtin") return {kind: "key", set: "provider", key: icon.key, fallback: provider.name};
+    if (icon.kind === "file") return {kind: "url", src: `/api/${MODELS_PLUGIN}/icons/${icon.name}`, fallback: provider.name};
+    return {kind: "initial", text: Array.from(provider.name.trim())[0]?.toUpperCase() ?? "?"};
+}
+const MODELS_PLUGIN = "nbook.models";
 
 function modelGroups(snapshot: ModelsSnapshot): ComposerGroupView[] {
-    return snapshot.providers.filter(hasCredentials).map((provider) => ({id: provider.id, name: provider.name, icon: providerIconRef(provider.id, provider.name)}));
+    return snapshot.providers.filter(hasCredentials).map((provider) => ({id: provider.id, name: provider.name, icon: providerIconRef(provider)}));
 }
 
-function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
-    return snapshot.providers.filter(hasCredentials).flatMap((provider) => provider.models
-        .filter((model) => model.enabled && model.status === "ok")
-        .map((model) => ({
-            key: `${provider.id}/${model.id}`,
-            label: model.name,
-            supportsImages: model.vision,
-            group: provider.name,
-            groupId: provider.id,
-            contextWindow: model.contextWindow,
-            reasoning: model.reasoning,
-            price: model.price === null ? null : {input: model.price[0], output: model.price[1]},
-        })));
+function modelOptions(snapshot: ModelsSnapshot, rows: readonly SelectionRow[]): ComposerModelView[] {
+    const names = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
+    return rows.map((row) => ({
+        key: `${row.provider}/${row.id}`,
+        label: row.name,
+        supportsImages: row.vision,
+        group: names.get(row.provider) ?? row.provider,
+        groupId: row.provider,
+        contextWindow: row.contextWindow,
+        reasoning: row.reasoning,
+        price: row.price === null ? null : {input: row.price[0], output: row.price[1]},
+    }));
 }
 
 /** 附件地址换成读取路由。不是附件的（别的方案）不显示。 */
@@ -170,21 +181,20 @@ function roleNameOf(role: ModelsSnapshot["roles"][number]): RoleOption["name"] {
     return key === null ? (role.name === "" ? role.id : role.name) : modelsText(key);
 }
 
-function roleOptions(snapshot: ModelsSnapshot): RoleOption[] {
-    const labels = new Map<string, string>(snapshot.providers.flatMap((provider) => provider.models.map((model) => [`${provider.id}/${model.id}`, model.name] as const)));
-    const providers = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
+function roleOptions(snapshot: ModelsSnapshot, lookup: ReadonlyMap<string, {readonly name: string} | null>): RoleOption[] {
+    const providers = new Map(snapshot.providers.map((provider) => [provider.id, provider] as const));
     return snapshot.roles.map((role) => {
         const bound = role.model === null ? null : splitReference(role.model);
-        const providerName = bound === null ? undefined : providers.get(bound.provider);
+        const provider = bound === null ? undefined : providers.get(bound.provider);
         return {
             key: roleReference(role.id),
             id: role.id,
             name: roleNameOf(role),
             axis: role.axis,
-            modelLabel: role.model === null ? null : labels.get(role.model) ?? role.model,
+            modelLabel: role.model === null ? null : lookup.get(role.model)?.name ?? role.model,
             status: role.status,
             icon: {kind: "class", name: roleIconClass(role.id, role.icon)},
-            ...(bound === null || providerName === undefined ? {} : {modelIcon: providerIconRef(bound.provider, providerName)}),
+            ...(provider === undefined ? {} : {modelIcon: providerIconRef(provider)}),
             effort: role.effort,
         };
     });
@@ -297,13 +307,32 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (!result.ok) report("open-settings-failed", `opening the model providers failed: ${result.code}`);
                 });
             };
+            /** 选用数据（只要有凭据的服务商里可用的模型）：选择器与标签用；Profile 页另取按引用的行。 */
+            const selection = shallowRef<ReturnType<typeof createSelectionData> | null>(null);
+            /** Profile 设置页读的两份：能选的模型、按引用取到的行（角色绑着的与各 Profile 指名的）。 */
+            const profileRows = shallowRef<readonly SelectionRow[]>([]);
+            const profileLookup = shallowRef<ReadonlyMap<string, ModelRow | null>>(new Map());
+            let roleReferences: readonly string[] = [];
+            let pageReferences: readonly string[] = [];
+            const wantReferences = (): void => selection.value?.want([...roleReferences, ...pageReferences]);
+            /** 选用数据换了（行读完、引用取到）：重算角色的模型名与模型列表。角色先于模型换：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。 */
+            const rebuild = (): void => {
+                const snapshot = modelsSnapshot.value;
+                const data = selection.value;
+                if (snapshot === null || data === null) return;
+                profileRows.value = data.rows.value;
+                profileLookup.value = data.lookup.value;
+                roles.value = roleOptions(snapshot, data.lookup.value);
+                if (data.ready.value) models.value = modelOptions(snapshot, data.rows.value);
+            };
             const takeModels = (snapshot: ModelsSnapshot): void => {
-                // 先换角色：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。
-                roles.value = roleOptions(snapshot);
-                groups.value = modelGroups(snapshot);
-                models.value = modelOptions(snapshot);
                 modelsSnapshot.value = snapshot;
+                groups.value = modelGroups(snapshot);
                 modelsFailed.value = false;
+                roleReferences = snapshot.roles.flatMap((role) => (role.model === null ? [] : [role.model]));
+                wantReferences();
+                selection.value?.attach(snapshot);
+                rebuild();
             };
             let modelsStarted = false;
             /** 第一次有对话位置或打开 Profile 页时才取：两个都没打开的窗口不多发请求。 */
@@ -312,6 +341,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                 modelsStarted = true;
                 void (async () => {
                     const modelsRemote = context.remote.use(modelsSettingsContract);
+                    const data = createSelectionData({remote: modelsRemote as unknown as SelectionRemote, ref: (initial) => shallowRef(initial), usable: true, onFailure: (code) => report("models-failed", code)});
+                    data.subscribe(rebuild);
+                    selection.value = data;
+                    context.signal.addEventListener("abort", () => data.dispose(), {once: true});
                     const subscription = await modelsRemote.events.changed.subscribe({}, takeModels);
                     if (!subscription.ok) {
                         // 模型服务不在是正常情况（下拉隐藏），别的失败下一个对话位置再试。
@@ -942,7 +975,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                             }
                             return new Map(listed.value.plugins.flatMap((plugin) => (plugin.displayName === undefined ? [] : [[plugin.id, plugin.displayName] as const])));
                         },
-                        models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels},
+                        models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels, rows: profileRows, lookup: profileLookup, want: (references) => {
+                            pageReferences = references;
+                            wantReferences();
+                        }},
                         writers: profileWriters,
                         text,
                         openAddress,

@@ -9,10 +9,12 @@
 import {computed, reactive, shallowRef, toRaw} from "vue";
 import type {Ref} from "vue";
 
-import type {CheckResult, ModelsSnapshot} from "@notnotype/nb-models/contract";
+import type {CheckResult, ModelRow, ModelsSnapshot} from "@notnotype/nb-models/contract";
 import type {RemoteClient, RemoteResultFor, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
 import type {modelsSettingsContract} from "../shared/contracts";
+import {createSelectionData} from "../shared/selection";
+import type {SelectionData, SelectionRemote} from "../shared/selection";
 
 type Contract = typeof modelsSettingsContract;
 export type ModelsRemote = RemoteClient<Contract>;
@@ -31,6 +33,17 @@ export type CheckState =
     | {readonly status: "running"}
     | {readonly status: "done"; readonly result: CheckResult; readonly at: number};
 
+/** 一家模型行的读取状态（`providerModels` 按页读完，带首页的版本）。 */
+export interface ProviderRows {
+    readonly rows: readonly ModelRow[];
+    /** 读到这些行时快照里这家的版本；比当前版本旧时调用方会再读。 */
+    readonly revision: string | null;
+    readonly loading: boolean;
+    readonly failure: ModelsFailure | null;
+}
+
+export type RowScope = "listed" | "available";
+
 export interface ModelsStore {
     /** 服务端的快照；第一次取到之前为 null。交出的是普通对象（不是只读代理），可以直接放进远程调用的载荷。 */
     readonly snapshot: Readonly<Ref<ModelsSnapshot | null>>;
@@ -42,6 +55,15 @@ export interface ModelsStore {
      * 按服务商记的“没检成”：远程调用本身失败（服务停了、服务商不在了、结果未知），不是模型的检测失败。这家下一次检测开始时清掉。
      */
     readonly checkErrors: ReadonlyMap<string, ModelsFailure>;
+    /**
+     * 选用数据：全部启用的模型（角色页的绑定下拉）与按引用取到的行（角色页的名字与档位）。服务商的行数多，不随快照整份带；
+     * 设置页的服务商详情、管理模型与全部模型按家经 `loadRows` 读。
+     */
+    readonly selection: SelectionData;
+    /** 一家的模型行；第一次显示前、读失败时为空，`loading` 与 `failure` 说明原因。 */
+    rowsOf(provider: string, scope?: RowScope): ProviderRows;
+    /** 读这家的行（版本没变且已读过时不重读）；组件在看到 `modelsRevision` 变了时调用。 */
+    loadRows(provider: string, scope?: RowScope): Promise<void>;
     /** 订阅快照；重复调用不重复订阅。 */
     start(): Promise<void>;
     call<Name extends keyof Methods>(name: Name, input: Parameters<ModelsRemote[Name]>[0], options?: {readonly signal?: AbortSignal}): Promise<ModelsResult<ResultValue<Name>>>;
@@ -61,6 +83,12 @@ export const checkKey = (provider: string, model: string): string => `${provider
 export function createModelsStore(remote: ModelsRemote, now: () => number = Date.now): ModelsStore {
     const snapshot = shallowRef<ModelsSnapshot | null>(null);
     const available = shallowRef(true);
+    const rowCache = reactive(new Map<string, {revision: string | null; rows: readonly ModelRow[]; loading: boolean; failure: ModelsFailure | null}>());
+    const selection = createSelectionData({
+        remote: remote as unknown as SelectionRemote,
+        ref: (initial) => shallowRef(initial),
+        usable: false,
+    });
     const checks = reactive(new Map<string, CheckState>());
     const checkErrors = reactive(new Map<string, ModelsFailure>());
     /** 进行中的检测：单独检测按 `<服务商>/<模型>`，“检测全部”按服务商 id。 */
@@ -72,18 +100,74 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
     /** 换上新快照，清掉已经不在的服务商与模型的检测结果（同 id 重新加回来时不带出旧结果）。 */
     const apply = (next: ModelsSnapshot): void => {
         snapshot.value = next;
-        const present = new Set(next.providers.flatMap((provider) => provider.models.map((model) => checkKey(provider.id, model.id))));
+        selection.attach(next);
+        const providers = new Set(next.providers.map((provider) => provider.id));
+        // 服务商不在了：它的检测结果与已读的行一起清掉。模型层面的清理在行重读之后（`loadRows`）。
         for (const key of [...checks.keys()]) {
-            if (present.has(key)) continue;
+            if (providers.has(key.slice(0, key.indexOf("/")))) continue;
             controllers.get(key)?.abort();
             checks.delete(key);
         }
-        for (const provider of [...checkErrors.keys()]) if (!next.providers.some((item) => item.id === provider)) checkErrors.delete(provider);
+        for (const provider of [...checkErrors.keys()]) if (!providers.has(provider)) checkErrors.delete(provider);
+        for (const key of [...rowCache.keys()]) if (!providers.has(key.slice(0, key.indexOf("\n")))) rowCache.delete(key);
     };
 
     const refresh = async (): Promise<void> => {
         const result = await remote.snapshot({});
         if (result.ok && !disposed) apply(result.value);
+    };
+
+    const rowKey = (provider: string, scope: RowScope): string => `${provider}\n${scope}`;
+    const NO_ROWS: ProviderRows = {rows: [], revision: null, loading: false, failure: null};
+    const rowsOf = (provider: string, scope: RowScope = "listed"): ProviderRows => rowCache.get(rowKey(provider, scope)) ?? NO_ROWS;
+    /** 同一家同一范围同时只有一个读在跑；读的过程中版本又变了，读完后再来一轮。 */
+    const loading = new Map<string, Promise<void>>();
+    const loadRows = (provider: string, scope: RowScope = "listed"): Promise<void> => {
+        const key = rowKey(provider, scope);
+        const running = loading.get(key);
+        if (running !== undefined) return running;
+        const run = (async (): Promise<void> => {
+            for (let round = 0; round < 3 && !disposed; round += 1) {
+                const target = snapshot.value?.providers.find((item) => item.id === provider);
+                if (target === undefined) return;
+                const known = rowCache.get(key);
+                if (known?.revision === target.modelsRevision && known.failure === null) return;
+                rowCache.set(key, {revision: known?.revision ?? null, rows: known?.rows ?? [], loading: true, failure: null});
+                const collected: ModelRow[] = [];
+                let pinned: string | undefined;
+                let failure: ModelsFailure | null = null;
+                for (let offset: number | null = 0; offset !== null && !disposed;) {
+                    const page: ModelsResult<{rows: ModelRow[]; revision: string; nextOffset: number | null; total: number}> = await call("providerModels", {provider, scope, offset, limit: 200, ...(pinned === undefined ? {} : {revision: pinned})});
+                    if (!page.ok) {
+                        failure = page.failure;
+                        break;
+                    }
+                    pinned = page.value.revision;
+                    collected.push(...page.value.rows);
+                    offset = page.value.nextOffset;
+                }
+                // 读的过程中这家换代了：整家重读（最多三轮）。
+                if (failure?.code === "revision-changed") continue;
+                if (failure !== null) {
+                    rowCache.set(key, {revision: known?.revision ?? null, rows: known?.rows ?? [], loading: false, failure});
+                    return;
+                }
+                rowCache.set(key, {revision: target.modelsRevision, rows: collected, loading: false, failure: null});
+                if (scope === "listed") {
+                    const present = new Set(collected.map((row) => checkKey(provider, row.id)));
+                    for (const checkedKey of [...checks.keys()]) {
+                        if (!checkedKey.startsWith(`${provider}/`) || present.has(checkedKey)) continue;
+                        controllers.get(checkedKey)?.abort();
+                        checks.delete(checkedKey);
+                    }
+                }
+                if (snapshot.value?.providers.find((item) => item.id === provider)?.modelsRevision === target.modelsRevision) return;
+            }
+        })().finally(() => {
+            loading.delete(key);
+        });
+        loading.set(key, run);
+        return run;
     };
 
     const start = (): Promise<void> => {
@@ -167,7 +251,8 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
 
     const checkAll = async (provider: string): Promise<void> => {
         if (controllers.has(provider)) return;
-        const keys = (snapshot.value?.providers.find((item) => item.id === provider)?.models ?? [])
+        await loadRows(provider);
+        const keys = rowsOf(provider).rows
             .filter((item) => item.enabled)
             .map((item) => checkKey(provider, item.id))
             .filter((key) => checks.get(key)?.status !== "running");
@@ -200,6 +285,9 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         // 用 computed 交出原对象：`readonly()` 是深只读代理，放进载荷后 structuredClone 不了（Lab 的替身、进程内的传输）。
         snapshot: computed(() => snapshot.value),
         available: computed(() => available.value),
+        selection,
+        rowsOf,
+        loadRows,
         checks,
         checkErrors,
         start,
@@ -209,6 +297,7 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         cancel,
         dispose: () => {
             disposed = true;
+            selection.dispose();
             available.value = false;
             for (const controller of controllers.values()) controller.abort();
             subscription?.release();

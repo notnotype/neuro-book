@@ -3,12 +3,13 @@
  * 改动写回用户层，写失败交给窗口通知。做法同 `permission-page.ts`。
  */
 
-import {computed, defineComponent, h, onBeforeUnmount, onMounted, shallowRef} from "vue";
+import {computed, defineComponent, h, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
 import type {Component, PropType, ShallowRef} from "vue";
 
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
-import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
+import type {SelectionRow} from "nbook/plugins/models/shared/selection";
 import {builtinPluginNameRef} from "nbook/plugins/plugins/shared/contracts";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";
@@ -73,6 +74,11 @@ export interface ProfilePageDeps {
     readonly models: {
         readonly snapshot: Readonly<ShallowRef<ModelsSnapshot | null>>;
         readonly failed: Readonly<ShallowRef<boolean>>;
+        /** 能选的模型与按引用取到的行（`nbook.models/shared` 的选用数据）。 */
+        readonly rows: Readonly<ShallowRef<readonly SelectionRow[]>>;
+        readonly lookup: Readonly<ShallowRef<ReadonlyMap<string, ModelRow | null>>>;
+        /** 登记页面要取的引用（角色绑定的、各 Profile 指名的）。 */
+        want(references: readonly string[]): void;
         ensure(): void;
     };
     readonly writers: ProfileWriters;
@@ -155,12 +161,20 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 const builtin = builtinPluginNameRef(plugin);
                 return builtin === null ? plugin : deps.text.t(builtin);
             };
+            // 页面要显示名字的模型：角色绑着的，加上各 Profile 设置里指名的。
+            watch([() => deps.models.snapshot.value, () => settingEdits.value()], () => {
+                const references = new Set<string>();
+                for (const role of deps.models.snapshot.value?.roles ?? []) if (role.model !== null) references.add(role.model);
+                for (const setting of Object.values(settingEdits.value())) if (setting.model !== undefined) references.add(setting.model);
+                deps.models.want([...references]);
+            }, {immediate: true});
             const views = computed(() => profileViews({
                 profiles: entries.value,
                 catalog: catalog.value,
                 bindings: bindingEdits.value(),
                 settings: settingEdits.value(),
                 snapshot: deps.models.snapshot.value,
+                models: {rows: deps.models.rows.value, lookup: deps.models.lookup.value},
                 modelsFailed: deps.models.failed.value,
                 pluginName,
                 text: deps.text,
