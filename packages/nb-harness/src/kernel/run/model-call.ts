@@ -78,7 +78,7 @@ export const isResponse = (value: unknown): value is ModelResponse => {
 /** 非对话的请求（以及一层调两次 `next` 时前一次）的结算：对话请求的回复由运行循环写成 `assistant`。 */
 function settlement(request: number, purpose: RequestPurpose, response: ModelResponse, retry?: {attempt: number; max: number; delayMs: number}): EventDraft {
     if (response.stopReason === "error" || response.stopReason === "aborted") return ctrl("modelFailed", {request, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage, ...(retry === undefined ? {} : {retry})});
-    return ctrl("modelEnded", {request, purpose, stopReason: response.stopReason, usage: response.usage, model: response.model});
+    return ctrl("modelEnded", {request, purpose, stopReason: response.stopReason, usage: response.usage, model: response.model, ...(response.origin === undefined ? {} : {origin: response.origin})});
 }
 
 /** 说明里的轮（docs/specs/harness/runtime.md 输出 89）：序号是当前路径上结束了的轮数加一。 */

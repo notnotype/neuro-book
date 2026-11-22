@@ -39,7 +39,7 @@ async function realModels() {
     root = await createTestTmpRoot("neuro-book-plot-llm", "llm");
     world = await modelsWorld(join(root, "world"), {env: {PLOT_LLM_KEY: KEY!}});
     const client = await world.window("w");
-    const added = await client.addProvider({source: {kind: "custom", name: "实验", baseUrl: BASE!, api: "openai-completions"}});
+    const added = await client.addProvider({template: "blank-openai", name: "实验", baseUrl: BASE!, api: "openai-completions"});
     if (!added.ok) throw new Error(JSON.stringify(added));
     const provider = added.value.id;
     expect((await client.setKey({provider, value: "env:PLOT_LLM_KEY"})).ok).toBe(true);

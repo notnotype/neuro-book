@@ -22,7 +22,7 @@ import type {ProviderConfig, RolesConfig} from "../config/shapes";
 import type {ModelsSettingsContract} from "../contract/settings-spec";
 import {startFakeOpenAiEndpoint} from "../testing/fake-endpoint";
 import type {FakeOpenAiEndpoint} from "../testing/fake-endpoint";
-import {memoryModelsConfig} from "../testing/memory-store";
+import {memoryIconStore, memoryModelsConfig} from "../testing/memory-store";
 import type {MemoryModelsConfig} from "../testing/memory-store";
 import {createModelsCore} from "./core";
 import type {ModelsCore} from "./core";
@@ -55,14 +55,14 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-const custom = (id: string, patch: Partial<ProviderConfig> = {}): ProviderConfig => ({id, kind: "custom", name: id, baseUrl: endpoint.baseUrl, api: "openai-completions", auth: "default", models: [{id: "qwen3:8b", enabled: true, contextWindow: 32_000}], ...patch});
+const custom = (id: string, patch: Partial<ProviderConfig> = {}): ProviderConfig => ({id, uid: `uid-${id}`, template: "blank-openai", name: id, baseUrl: endpoint.baseUrl, api: "openai-completions", auth: "default", followSource: false, excluded: [], models: [{id: "qwen3:8b", enabled: true, contextWindow: 32_000, origin: "manual"}], ...patch});
 const bound = (bindings: Readonly<Record<string, string>>): RolesConfig => ({items: DEFAULT_ROLES.items.map((role) => ({...role, model: bindings[role.id] ?? null}))});
 
 async function start(config: ModelsConfigStore, env: Readonly<Record<string, string>> = {}) {
     sequence += 1;
     const credentials = await openCredentials(join(tmp, `credentials-${String(sequence)}.db`));
     const records: string[] = [];
-    const core = createModelsCore({config, credentials, env, record: (_level, event) => void records.push(event)});
+    const core = createModelsCore({config, credentials, env, secret: "nb-models-test-secret", icons: memoryIconStore(), record: (_level, event) => void records.push(event)});
     opened.push({core, credentials});
     const remote = core.remote(CONSUMER);
     /** 像远程层那样给方法一个调用上下文。 */
@@ -229,8 +229,10 @@ describe("模型端口按选择顺序解析（输出 8）", () => {
         expect(snapshot.roles.find((item) => item.id === "main")).toMatchObject({effort: "low", icon: "bolt"});
         expect(snapshot.roles.find((item) => item.id === "fast")).toMatchObject({effort: null, icon: null});
         // 自定义模型声明了会推理：档位按 OMP 对这个 id 与协议的判断（Qwen 系可以关）；没声明的不推理。
-        expect(snapshot.providers[0]!.models[0]!.thinking).toMatchObject({kind: "levels", off: "disable"});
-        expect(snapshot.providers[0]!.models[1]!.thinking).toEqual({kind: "none"});
+        const page = await call("providerModels", {provider: "one", offset: 0, limit: 10});
+        if (!page.ok) throw new Error("providerModels failed");
+        expect(page.value.rows.find((row) => row.id === "qwen3:8b")!.thinking).toMatchObject({kind: "levels", off: "disable"});
+        expect(page.value.rows.find((row) => row.id === "plain")!.thinking).toEqual({kind: "none"});
     });
 
     it("不合法的档与图标键被拒收", async () => {

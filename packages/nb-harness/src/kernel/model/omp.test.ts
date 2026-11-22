@@ -3,9 +3,13 @@
  * 这里的密钥都是假的，只发往本机端点。
  */
 
+import {rm} from "node:fs/promises";
+
 import {afterAll, describe, expect, test} from "bun:test";
 import {defineModel} from "@notnotype/nb-harness";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ModelDelta, ModelRequest, ToolDeclaration} from "../api/index.js";
+import {createTestSession} from "../testing/test-session.js";
 import {lacksWebp, ompCall, ompModelInfo} from "./omp.js";
 import {REDACTED_KEY} from "./redact.js";
 
@@ -287,5 +291,123 @@ describe("OMP 适配器", () => {
         const response = await call(request({messages: [{role: "user", content: [{kind: "thinking", text: "想", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
         expect(response.error).toMatchObject({kind: "local", code: "unsupported-content"});
         expect(requestCount).toBe(0);
+    });
+});
+
+describe("签发身份与回放（models.md 输出 22）", () => {
+    const identity = {deployment: "dep-1", credential: "cred-1", legacyProvider: "inst"};
+    const identified = ompCall({model: resolved.model, apiKey: resolved.apiKey, priceKnown: false, name: "inst/m", identity});
+    const thinking = {kind: "thinking" as const, text: "先想想", signature: "SIG", provider: {thinkingSignature: "reasoning_content"}, origin: {kind: "fixed" as const, by: "kernel" as const}};
+    const origin = (patch: Record<string, string | undefined> = {}) => ({provider: "local-test", api: "openai-completions", model: "m", deployment: "dep-1", credential: "cred-1", ...patch}) as NonNullable<ModelRequest["messages"][number]["origin"]>;
+    /** 带一条历史回复再请求一次，交回发给服务商的那条 assistant 消息。 */
+    async function replayed(message: {model?: string; origin?: ReturnType<typeof origin>}): Promise<string> {
+        replies = [{text: "好"}];
+        await identified(request({messages: [
+            {role: "user", content: [text("你好")]},
+            {role: "assistant", content: [thinking, text("答")], ...message},
+            {role: "user", content: [text("再来")]},
+        ]}), new AbortController().signal, () => undefined);
+        return JSON.stringify((bodies.at(-1)!.messages as {role: string}[]).find((item) => item.role === "assistant"));
+    }
+    const RESTORED = '"reasoning_content":"先想想"';
+
+    test("回复带 origin（OMP 身份、协议、部署、凭据）：整组相同才把思考原样送回，任何一项不同都退成文字", async () => {
+        expect(await replayed({model: "inst/m", origin: origin()})).toContain(RESTORED);
+        expect(await replayed({model: "inst/m", origin: origin({deployment: "dep-2"})})).not.toContain(RESTORED);
+        expect(await replayed({model: "inst/m", origin: origin({credential: "cred-2"})})).not.toContain(RESTORED);
+        expect(await replayed({model: "inst/m", origin: origin({provider: "other"})})).not.toContain(RESTORED);
+        expect(await replayed({model: "inst/m", origin: origin({api: "openai-responses"})})).not.toContain(RESTORED);
+    });
+
+    test("旧日志没有 origin：按实例 id 判断（model 的第一段等于现在的实例 id 才送回）", async () => {
+        expect(await replayed({model: "inst/m"})).toContain(RESTORED);
+        expect(await replayed({model: "other/m"})).not.toContain(RESTORED);
+        // 没有 model 的历史回复（Profile 里静态写的）照旧当作本模型的。
+        expect(await replayed({})).toContain(RESTORED);
+    });
+
+    test("回复写下签发身份：origin 带 OMP 身份、协议、实际作答的模型、部署与凭据；model 用实例 id 作公开服务商", async () => {
+        replies = [{text: "好"}];
+        const response = await identified(request(), new AbortController().signal, () => undefined);
+        expect(response).toMatchObject({model: "inst/m", origin: {provider: "local-test", api: "openai-completions", model: "m", deployment: "dep-1", credential: "cred-1"}});
+        expect(ompModelInfo(resolved.model, "inst/m").id).toBe("inst/m");
+        // 没给身份的目标不写 origin。
+        replies = [{text: "好"}];
+        expect("origin" in (await call(request(), new AbortController().signal, () => undefined))).toBe(false);
+    });
+});
+
+describe("签发身份经会话日志往返（models.md 输出 22）", () => {
+    /**
+     * 真实的会话日志（JSONL）与真实适配器：第一轮的回复带着思考与 origin 写进日志，关掉会话再打开，下一轮送回的历史从日志投影
+     * 出来。部署身份在重开前后不变时思考原样送回；换了（同名删了重建、同址换凭据）就不送回、退成文字。
+     */
+    /** 同一实例、同一地址的另一个模型：重开后换它答，签名不能跟过去。 */
+    const other = defineModel({provider: "local-test", api: "openai-completions", baseUrl: `http://127.0.0.1:${server.port}/v1`, id: "m2", apiKeyEnv: "NB_KERNEL_ADAPTER_TEST_KEY", contextWindow: 32_000, maxTokens: 4_000});
+    async function secondTurnAfterReopen(before: {deployment: string; credential: string}, after: {deployment: string; credential: string}, switchModel = false): Promise<string> {
+        const root = await createTestTmpRoot("nb-harness", "omp-origin-reopen");
+        try {
+            let identity = {...before, legacyProvider: "inst"};
+            let current = resolved;
+            const models = {resolve: () => ({ok: true as const, info: ompModelInfo(current.model, `inst/${current.model.id}`),
+                call: (...args: Parameters<ReturnType<typeof ompCall>>) => ompCall({model: current.model, apiKey: current.apiKey, priceKnown: false, name: `inst/${current.model.id}`, identity})(...args)})};
+            await using session = await createTestSession({store: {root}, models});
+            replies = [{reasoning: "先想想", text: "答"}];
+            await session.say("你好");
+            await session.reopen();
+            identity = {...after, legacyProvider: "inst"};
+            if (switchModel) current = other;
+            replies = [{text: "好"}];
+            const sentBefore = bodies.length;
+            await session.say("再来");
+            expect(bodies.length).toBe(sentBefore + 1);
+            return JSON.stringify(bodies.at(-1)!.messages.find((item) => item.role === "assistant"));
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    }
+
+    test("重开后部署、凭据与作答的模型都没变：思考原样送回；换了部署、凭据或模型：不送回", async () => {
+        const same = {deployment: "dep-1", credential: "cred-1"};
+        expect(await secondTurnAfterReopen(same, same)).toContain('"reasoning_content":"先想想"');
+        // 不送回签名时 OMP 把思考退成文字，不再是 reasoning_content。
+        expect(await secondTurnAfterReopen(same, {deployment: "dep-2", credential: "cred-1"})).not.toContain("reasoning_content");
+        expect(await secondTurnAfterReopen(same, {deployment: "dep-1", credential: "cred-2"})).not.toContain("reasoning_content");
+        // 同一实例换了一个模型答：部署与凭据都相同，签名仍不送回。
+        expect(await secondTurnAfterReopen(same, same, true)).not.toContain("reasoning_content");
+    });
+});
+
+describe("发送前核对地址（guard）与免认证（keyless）", () => {
+    const seenUrls: string[] = [];
+    const wire = Bun.serve({port: 0, hostname: "127.0.0.1", async fetch(incoming) {
+        seenUrls.push(new URL(incoming.url).pathname);
+        const url = new URL(incoming.url);
+        if (url.pathname.startsWith("/moved/")) return new Response("", {status: 302, headers: {location: `/v1/chat/completions`}});
+        await incoming.text();
+        const chunk = (body: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...body})}\n\n`;
+        return new Response(chunk({choices: [{index: 0, delta: {role: "assistant", content: "好"}, finish_reason: null}]}) + chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]}) + "data: [DONE]\n\n", {headers: {"content-type": "text/event-stream"}});
+    }});
+    afterAll(() => wire.stop(true));
+    const model = defineModel({provider: "local-test", api: "openai-completions", baseUrl: `http://127.0.0.1:${wire.port}/v1`, id: "m", apiKeyEnv: "NB_KERNEL_ADAPTER_TEST_KEY", contextWindow: 32_000, maxTokens: 4_000}).model;
+    const send = (target: Partial<Parameters<typeof ompCall>[0]>, patch: Parameters<typeof request>[0] = {}) => ompCall({model, apiKey: resolved.apiKey, priceKnown: false, transport: {maxHttpAttempts: 1}, ...target})(request(patch), new AbortController().signal, () => undefined);
+
+    test("guard 不放行：一个请求都不发，按 local 类别、guard 给的码交回，盖过适配器自己的通用错误", async () => {
+        seenUrls.length = 0;
+        const response = await send({guard: (url) => ({code: "endpoint-mismatch", message: `no ${url.pathname}`})});
+        expect(response.stopReason).toBe("error");
+        expect(response.error).toMatchObject({kind: "local", code: "endpoint-mismatch", message: "no /v1/chat/completions"});
+        expect(seenUrls).toEqual([]);
+        seenUrls.length = 0;
+        expect((await send({guard: () => null})).stopReason).toBe("stop");
+        expect(seenUrls).toEqual(["/v1/chat/completions"]);
+    });
+
+    test("重定向不跟随：服务商回 3xx 报错，第二个地址没有收到请求", async () => {
+        seenUrls.length = 0;
+        const moved = defineModel({provider: "local-test", api: "openai-completions", baseUrl: `http://127.0.0.1:${wire.port}/moved`, id: "m", apiKeyEnv: "NB_KERNEL_ADAPTER_TEST_KEY", contextWindow: 32_000, maxTokens: 4_000}).model;
+        const response = await ompCall({model: moved, apiKey: resolved.apiKey, priceKnown: false, transport: {maxHttpAttempts: 1}})(request(), new AbortController().signal, () => undefined);
+        expect(response.stopReason).toBe("error");
+        expect(seenUrls).toEqual(["/moved/chat/completions"]);
     });
 });

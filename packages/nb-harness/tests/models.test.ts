@@ -8,7 +8,7 @@ import {mkdir, readdir, readFile, stat, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ModelRequest, ModelWireAttempt} from "@notnotype/nb-harness/kernel";
-import {buildResolution, discoverModels, hasCredential, openCredentials, type ProviderTarget} from "@notnotype/nb-harness/models";
+import {buildResolution, chatModels, discoverModels, hasCredential, listCatalog, openCredentials, templateRoutes, unsendableReason, wireApiOf, wireGuard, type ProviderTarget} from "@notnotype/nb-harness/models";
 
 let root = "";
 const seen: {path: string; headers: Headers}[] = [];
@@ -39,7 +39,7 @@ afterAll(async () => {
 });
 
 const request: ModelRequest = {purpose: "turn", model: "x", params: {maxTokens: 16}, headers: {}, system: [], messages: [{role: "user", content: [{kind: "text", text: "你好", origin: {kind: "fixed", by: "kernel"}}]}], tools: []};
-const custom = (patch: Partial<ProviderTarget> = {}): ProviderTarget => ({id: "local", kind: "custom", baseUrl: BASE, api: "openai-completions", auth: "default", ...patch});
+const custom = (patch: Partial<ProviderTarget> = {}): ProviderTarget => ({id: "local", template: null, follows: false, baseUrl: BASE, api: "openai-completions", auth: "default", ...patch});
 const KEY = "sk-local-not-a-real-key-0001";
 
 async function send(provider: ProviderTarget, stored: string | null, env: Record<string, string> = {}, modelPatch: object = {}) {
@@ -138,12 +138,12 @@ describe("按配置建出解析结果", () => {
     test("自定义模型缺上下文窗口、目录里没有的模型或服务商：unknown-model", () => {
         const access = {stored: () => KEY, env: {}};
         expect(buildResolution(custom(), {id: "m"}, access)).toEqual({ok: false, code: "unknown-model"});
-        expect(buildResolution({id: "deepseek", kind: "catalog", auth: "default"}, {id: "no-such-model"}, access)).toEqual({ok: false, code: "unknown-model"});
-        expect(buildResolution({id: "no-such-provider", kind: "catalog", auth: "default"}, {id: "m"}, access)).toEqual({ok: false, code: "unknown-model"});
+        expect(buildResolution({id: "deepseek", template: "deepseek", follows: true, auth: "default"}, {id: "no-such-model"}, access)).toEqual({ok: false, code: "unknown-model"});
+        expect(buildResolution({id: "no-such-provider", template: "no-such-provider", follows: true, auth: "default"}, {id: "m"}, access)).toEqual({ok: false, code: "unknown-model"});
     });
 
     test("目录服务商：能力与单价按目录，地址可以覆盖（走中转站）；用户给的单价与压缩触发点叠加上去", async () => {
-        const catalog: ProviderTarget = {id: "deepseek", kind: "catalog", auth: "default", baseUrl: BASE};
+        const catalog: ProviderTarget = {id: "deepseek", template: "deepseek", follows: false, auth: "default", baseUrl: BASE};
         const built = buildResolution(catalog, {id: "deepseek-flash", compactAt: 50_000}, {stored: () => KEY, env: {}});
         if (!built.ok) throw new Error(built.code);
         expect(built.resolution.info).toMatchObject({id: "deepseek/deepseek-flash", compactAt: 50_000});
@@ -216,5 +216,170 @@ describe("线上事实交给观察者（models.md 输出 20）", () => {
         const built = buildResolution(custom({baseUrl: `http://127.0.0.1:${wire.port}/v1`}), {id: "qwen3:8b", contextWindow: 32_000}, {stored: () => KEY, env: {}});
         if (!built.ok) throw new Error(built.code);
         expect((await built.resolution.call(request, new AbortController().signal, () => undefined)).stopReason).toBe("stop");
+    });
+});
+
+describe("模板的实例：身份、地址与发送前核对（models.md 输出 21）", () => {
+    /** 跟随模板、只把地址指到本机端点（地区那样的“模板自己定的地址”）：发给 OMP 的身份是模板的 OMP id，专用处理照走。 */
+    const follows = (patch: Partial<ProviderTarget> = {}): ProviderTarget => ({id: "moon", template: "moonshot", follows: true, auth: "default", baseUrl: BASE, ...patch});
+    const model = chatModels("moonshot")[0]!.id;
+
+    function resolved(provider: ProviderTarget, hooks: Parameters<typeof buildResolution>[3] = {}) {
+        const built = buildResolution(provider, {id: model}, {stored: () => KEY, env: {}}, {transport: () => ({maxHttpAttempts: 1}), ...hooks});
+        if (!built.ok) throw new Error(built.code);
+        return built;
+    }
+    const sendOnce = async (built: ReturnType<typeof resolved>) => {
+        seen.length = 0;
+        return {response: await built.resolution.call(request, new AbortController().signal, () => undefined), paths: seen.map((item) => item.path)};
+    };
+
+    test("跟随模板时用模板的 OMP 身份与目录行；改了协议或地址的实例用中性身份、仍借目录里的能力字段；公开引用总是实例 id 加模型", () => {
+        const following = resolved(follows());
+        expect(following.model.provider).toBe("moonshot");
+        expect(following.resolution.info.id).toBe(`moon/${model}`);
+        const overridden = resolved(follows({follows: false, baseUrl: "https://gw.example.com/v1"}), {publicName: "gateway"});
+        expect(overridden.model.provider).toBe("generic-endpoint");
+        expect(overridden.resolution.info).toMatchObject({id: `gateway/${model}`, contextWindow: following.resolution.info.contextWindow});
+        expect(overridden.baseUrl).toBe("https://gw.example.com/v1");
+    });
+
+    test("环境变量改写地址（连主机不变只改路径的也一样）：发出前被拦下，两个端点实收均为零，报 endpoint-mismatch", async () => {
+        const built = resolved(follows());
+        const original = process.env.MOONSHOT_BASE_URL;
+        try {
+            for (const rewritten of [`${BASE}/other`, `http://localhost:${server.port}/v1`]) {
+                process.env.MOONSHOT_BASE_URL = rewritten;
+                const {response, paths} = await sendOnce(built);
+                expect(response.error).toMatchObject({kind: "local", code: "endpoint-mismatch"});
+                expect(paths).toEqual([]);
+            }
+            delete process.env.MOONSHOT_BASE_URL;
+            expect((await sendOnce(built)).paths).toEqual(["/v1/chat/completions"]);
+        } finally {
+            if (original === undefined) delete process.env.MOONSHOT_BASE_URL;
+            else process.env.MOONSHOT_BASE_URL = original;
+        }
+    });
+
+    test("解析之后实例被改了（stillCurrent 为假）：旧解析不再发请求", async () => {
+        let current = true;
+        const built = resolved(follows(), {stillCurrent: () => current});
+        expect((await sendOnce(built)).paths).toEqual(["/v1/chat/completions"]);
+        current = false;
+        const stale = await sendOnce(built);
+        expect(stale.response.error).toMatchObject({kind: "local", code: "endpoint-mismatch"});
+        expect(stale.paths).toEqual([]);
+    });
+
+    test("免认证：请求里不带哨兵值的认证头；身份函数拿到有效协议、地址与密钥，签发身份写进回复的 origin", async () => {
+        let effective: {api: string; baseUrl: string; key: string | null} | null = null;
+        const built = resolved(follows({auth: "none"}), {identityOf: (value) => {
+            effective = value;
+            return {deployment: "d-1", legacyProvider: "moon"};
+        }});
+        seen.length = 0;
+        const response = await built.resolution.call(request, new AbortController().signal, () => undefined);
+        expect(seen[0]!.headers.get("authorization")).toBeNull();
+        expect(effective).toMatchObject({api: "openai-completions", baseUrl: BASE});
+        expect(response.origin).toMatchObject({provider: "moonshot", api: "openai-completions", deployment: "d-1"});
+    });
+
+    test("地址与协议按目录行：混合协议的模板各模型用各自的路由，换协议要有该协议的路由；OpenRouter 的复合协议换成显式的 Responses；没有这家或没有这个模型：unknown-model", () => {
+        const zen = chatModels("opencode-zen");
+        const byWire = (wire: string) => zen.find((item) => item.wire === wire)!;
+        for (const wire of ["openai-completions", "anthropic-messages", "google-generative-ai", "openai-responses"] as const) {
+            const built = buildResolution({id: "zen", template: "opencode-zen", follows: true, auth: "default"}, {id: byWire(wire).id}, {stored: () => KEY, env: {}});
+            if (!built.ok) throw new Error(`${wire}: ${built.code}`);
+            expect(built.api).toBe(wire);
+            expect(built.baseUrl).toBe(byWire(wire).baseUrl);
+        }
+        const router = chatModels("openrouter")[0]!;
+        const open = buildResolution({id: "or", template: "openrouter", follows: true, auth: "default"}, {id: router.id}, {stored: () => KEY, env: {}});
+        if (!open.ok) throw new Error(open.code);
+        expect(open.api).toBe("openai-responses");
+        expect(open.model.api).toBe("openai-responses");
+        expect(templateRoutes("opencode-zen").length).toBe(4);
+        expect(buildResolution({id: "x", template: "moonshot", follows: false, api: "anthropic-messages", auth: "default"}, {id: model}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
+        expect(buildResolution({id: "x", template: "moonshot", follows: true, auth: "default"}, {id: "no-such"}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
+    });
+
+    test("直连：进程环境设了 HTTP_PROXY 时模型请求照样直达端点，代理一次也没收到", async () => {
+        let proxied = 0;
+        const proxy = Bun.serve({port: 0, hostname: "127.0.0.1", fetch() {
+            proxied += 1;
+            return new Response("proxy", {status: 502});
+        }});
+        const names = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"] as const;
+        const saved = new Map(names.map((name) => [name, process.env[name]] as const));
+        try {
+            for (const name of names.slice(0, 4)) process.env[name] = `http://127.0.0.1:${String(proxy.port)}`;
+            // 空串而不是删掉：没设时运行时对回环地址可能自己就不走代理，测不出直连有没有生效。
+            process.env.NO_PROXY = process.env.no_proxy = "";
+            const {response, paths} = await sendOnce(resolved(follows()));
+            expect(response.stopReason).toBe("stop");
+            expect(paths).toEqual(["/v1/chat/completions"]);
+            expect(proxied).toBe(0);
+        } finally {
+            for (const [name, value] of saved) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+            await proxy.stop(true);
+        }
+    });
+
+    test("免认证只剥占位值：用户自己配的认证头（含同样的字符）照发", async () => {
+        const built = resolved(follows({auth: "none", headers: {authorization: "Bearer team-N/A-token"}}));
+        seen.length = 0;
+        await built.resolution.call(request, new AbortController().signal, () => undefined);
+        expect(seen[0]!.headers.get("authorization")).toBe("Bearer team-N/A-token");
+    });
+
+    test("OpenRouter 的复合协议按进程环境定：PI_OPENROUTER_RESPONSES 为 0 时是 Chat Completions，否则 Responses", () => {
+        const saved = process.env.PI_OPENROUTER_RESPONSES;
+        try {
+            process.env.PI_OPENROUTER_RESPONSES = "0";
+            expect(wireApiOf("openrouter")).toBe("openai-completions");
+            delete process.env.PI_OPENROUTER_RESPONSES;
+            expect(wireApiOf("openrouter")).toBe("openai-responses");
+        } finally {
+            if (saved === undefined) delete process.env.PI_OPENROUTER_RESPONSES;
+            else process.env.PI_OPENROUTER_RESPONSES = saved;
+        }
+    });
+
+    test("不能当对话模型发的目录行：图片生成等不进清单，解析得 transport-unsupported 并写明原因；不走 HTTP 的传输同样", () => {
+        const image = listCatalog().find((item) => item.id === "google")!.models.find((row) => !row.chat)!;
+        expect(chatModels("google").some((row) => row.id === image.id)).toBe(false);
+        expect(unsendableReason("google", image.id)).toBe("not-chat");
+        const google = {id: "g", template: "google", follows: true, auth: "default" as const};
+        expect(buildResolution(google, {id: image.id}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "transport-unsupported", reason: "not-chat"});
+        const bedrock = listCatalog().find((item) => item.id === "amazon-bedrock")!.models[0]!;
+        expect(buildResolution({id: "b", template: "amazon-bedrock", follows: false, api: "openai-completions", baseUrl: BASE, auth: "default"}, {id: bedrock.id}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "transport-unsupported", reason: "transport"});
+    });
+
+    test("手加的模型不借目录行（目录后来有了同 id 的也一样），窗口要自己给；没覆盖协议时用模板的缺省协议", () => {
+        const plain = follows({follows: false, defaultApi: "openai-completions"});
+        expect(buildResolution(plain, {id: model, manual: true}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
+        const manual = buildResolution(plain, {id: model, manual: true, contextWindow: 4096}, {stored: () => KEY, env: {}});
+        if (!manual.ok) throw new Error(manual.code);
+        expect(manual.resolution.info.contextWindow).toBe(4096);
+        expect(manual.model.provider).toBe("generic-endpoint");
+        const custom = buildResolution({id: "moon", template: "moonshot", follows: false, defaultApi: "openai-completions", baseUrl: BASE, auth: "default"}, {id: "my-local", manual: true, contextWindow: 8192}, {stored: () => KEY, env: {}});
+        if (!custom.ok) throw new Error(custom.code);
+        expect(custom.api).toBe("openai-completions");
+    });
+
+    test("wireGuard：各协议只放行自己会请求的完整地址（路径、查询、主机与端口都核对）", () => {
+        const guard = (api: Parameters<typeof wireGuard>[0], base: string) => wireGuard(api, base);
+        const allow = (check: ReturnType<typeof wireGuard>, url: string) => check(new URL(url)) === null;
+        const completions = guard("openai-completions", "https://api.example.com/v1/");
+        expect([allow(completions, "https://api.example.com/v1/chat/completions"), allow(completions, "https://api.example.com/other/v1/chat/completions"), allow(completions, "https://api.example.com/v1/chat/completions?x=1"), allow(completions, "http://api.example.com/v1/chat/completions"), allow(completions, "https://api.example.com:8443/v1/chat/completions"), allow(completions, "https://user:pw@api.example.com/v1/chat/completions"), allow(completions, "https://api.example.com/v1/responses")]).toEqual([true, false, false, false, false, false, false]);
+        const anthropic = guard("anthropic-messages", "https://api.anthropic.com");
+        expect([allow(anthropic, "https://api.anthropic.com/v1/messages"), allow(anthropic, "https://api.anthropic.com/v1/messages?beta=true"), allow(anthropic, "https://api.anthropic.com/v1/messages?foo=1"), allow(anthropic, "https://api.anthropic.com/v1/complete")]).toEqual([true, true, false, false]);
+        const gemini = guard("google-generative-ai", "https://generativelanguage.googleapis.com/v1beta");
+        expect([allow(gemini, "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent?alt=sse"), allow(gemini, "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"), allow(gemini, "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent?key=SECRET"), allow(gemini, "https://generativelanguage.googleapis.com/v1/models/gemini-x:streamGenerateContent")]).toEqual([true, true, false, false]);
+        expect(allow(guard("openai-responses", "https://x.example.com/api/v1"), "https://x.example.com/api/v1/responses")).toBe(true);
     });
 });

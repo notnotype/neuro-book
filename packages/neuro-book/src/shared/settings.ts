@@ -397,7 +397,11 @@ export type SettingSource = "default" | SettingLayer;
 
 /** 一层里这个键的情况；`value` 缺省表示这层没有这个键。 */
 export type LayerInspection<T> =
-    | {readonly status: "ok"; readonly value?: DeepReadonly<T>}
+    /**
+     * `problem`：这一层文件里写了这个键、但它没通过校验（不合 schema 或本层不允许），所以没有 `value`；文件原文还在。整份写回这个键
+     * 会把用户还能修的原文盖掉，写入方应先让用户去修。
+     */
+    | {readonly status: "ok"; readonly value?: DeepReadonly<T>; readonly problem?: "invalid-value" | "layer-not-allowed"}
     /** 文件当前无效；`value` 来自上一份有效内容。 */
     | {readonly status: "invalid"; readonly detail: string; readonly value?: DeepReadonly<T>}
     | {readonly status: "unavailable"}

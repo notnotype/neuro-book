@@ -402,7 +402,9 @@ export type ComposerModeView = {
 export type ComposerIcon =
     | {kind: "key"; set: "provider" | "role"; key: string; /** 解析不出时画它的首字母。 */ fallback?: string}
     | {kind: "initial"; text: string}
-    | {kind: "class"; name: string};
+    | {kind: "class"; name: string}
+    /** 宿主给的图片地址（用户上传的服务商图标）：多色图，原样显示，不经解析端口；`fallback` 是图片出不来时的首字母。 */
+    | {kind: "url"; src: string; fallback?: string};
 
 /** 模型库里的一组（服务商）。模型行只带 `groupId`，组的名字与图标在这里写一次。 */
 export type ComposerGroupView = {id: string; name: string; icon?: ComposerIcon};

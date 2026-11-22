@@ -14,6 +14,7 @@ import type {CoreSettings, ModelQuery, ModelRequest} from "@notnotype/nb-harness
 
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 
+import type {ModelRow} from "./shared/contracts";
 import {modelsWorld} from "./testing/world";
 import type {ModelsWorld} from "./testing/world";
 
@@ -72,24 +73,39 @@ const ok = <T>(result: {ok: boolean; value?: T; code?: string}): T => {
     return result.value as T;
 };
 
-/** 加一个指向本机端点的自定义服务商，带一个完整的模型。 */
+type Client = Awaited<ReturnType<ModelsWorld["window"]>>;
+
+/** 读一家的全部模型行（`providerModels` 按页读完）。 */
+async function rowsOf(client: Client, provider: string, scope: "listed" | "available" = "listed") {
+    const rows = [];
+    let revision: string | undefined;
+    for (let offset: number | null = 0; offset !== null;) {
+        const page: {revision: string; nextOffset: number | null; rows: ModelRow[]} = ok(await client.providerModels({provider, scope, offset, limit: 200, ...(revision === undefined ? {} : {revision})}));
+        revision = page.revision;
+        rows.push(...page.rows);
+        offset = page.nextOffset;
+    }
+    return rows;
+}
+
+/** 加一个指向本机端点的空白模板服务商，带一个完整的模型。 */
 async function addLocal(client: Awaited<ReturnType<ModelsWorld["window"]>>, name = "本地端点"): Promise<string> {
-    const {id} = ok(await client.addProvider({source: {kind: "custom", name, baseUrl: BASE, api: "openai-completions"}}));
+    const {id} = ok(await client.addProvider({template: "blank-openai", name, baseUrl: BASE, api: "openai-completions"}));
     ok(await client.upsertModel({provider: id, model: {id: "qwen3:8b", enabled: true, contextWindow: 32_000}}));
     return id;
 }
 
 describe("压缩的触发点（输出 17）", () => {
     /** 一个窗口 20 万的模型，绑在 main 上，交回端口与客户端。 */
-    async function bound(compaction: Record<string, unknown> = {}): Promise<{w: ModelsWorld; client: Awaited<ReturnType<ModelsWorld["window"]>>; trigger: () => number | undefined}> {
+    async function bound(compaction: Record<string, unknown> = {}): Promise<{w: ModelsWorld; client: Awaited<ReturnType<ModelsWorld["window"]>>; id: string; trigger: () => number | undefined}> {
         const w = await world();
         const client = await w.window("w");
-        const {id} = ok(await client.addProvider({source: {kind: "custom", name: "本地端点", baseUrl: BASE, api: "openai-completions"}}));
+        const {id} = ok(await client.addProvider({template: "blank-openai", name: "本地端点", baseUrl: BASE, api: "openai-completions"}));
         ok(await client.upsertModel({provider: id, model: {id: "big", enabled: true, contextWindow: 200_000, ...compaction}}));
         ok(await client.setRole({id: "main", model: `${id}/big`}));
         ok(await client.setKey({provider: id, value: KEY}));
         const port = w.service.port();
-        return {w, client, trigger: () => {
+        return {w, client, id, trigger: () => {
             const resolution = port.resolve(query());
             if (!resolution.ok) throw new Error(resolution.code);
             return resolution.info.compactAt;
@@ -101,7 +117,7 @@ describe("压缩的触发点（输出 17）", () => {
         expect(plain.trigger()).toBeUndefined();
         const percent = await bound({compaction: {mode: "percent", value: 50}});
         expect(percent.trigger()).toBe(100_000);
-        expect(percent.w.service.snapshot().providers[0]!.models[0]!.compaction).toEqual({mode: "percent", value: 50});
+        expect((await rowsOf(percent.client, percent.id))[0]!.compaction).toEqual({mode: "percent", value: 50});
         const reserve = await bound({compaction: {mode: "reserve", value: 100_000}});
         expect(reserve.trigger()).toBe(83_616);
     });
@@ -109,9 +125,9 @@ describe("压缩的触发点（输出 17）", () => {
     test("旧配置的 compactAt 读作固定的触发点，快照给新形状；再保存时换成新的", async () => {
         const old = await bound({compactAt: 40_000});
         expect(old.trigger()).toBe(40_000);
-        const snapshotModel = old.w.service.snapshot().providers[0]!.models[0]!;
+        const snapshotModel = (await rowsOf(old.client, old.id))[0]!;
         expect(snapshotModel.compaction).toEqual({mode: "tokens", value: 40_000});
-        ok(await old.client.upsertModel({provider: "custom", model: {id: "big", enabled: true, contextWindow: 200_000, compaction: snapshotModel.compaction!}}));
+        ok(await old.client.upsertModel({provider: old.id, model: {id: "big", enabled: true, contextWindow: 200_000, compaction: snapshotModel.compaction!}}));
         const file = JSON.parse(readFileSync(old.w.settings.userFile, "utf8")) as {"nbook.models/providers": Array<{models: Array<Record<string, unknown>>}>};
         expect(file["nbook.models/providers"][0]!.models[0]).not.toHaveProperty("compactAt");
         expect(old.trigger()).toBe(40_000);
@@ -151,7 +167,7 @@ describe("解析（输出 8）", () => {
         expect(port.resolve(query())).toEqual({ok: false, code: "role-unbound", role: "main"});
 
         const id = await addLocal(client);
-        expect(id).toBe("custom");
+        expect(id).toBe("provider");
         ok(await client.setRole({id: "main", model: `${id}/qwen3:8b`}));
         expect(port.resolve(query())).toEqual({ok: false, code: "no-credentials", role: "main", provider: id});
 
@@ -203,16 +219,18 @@ describe("解析（输出 8）", () => {
 });
 
 describe("配置的校验与写入（输出 5、6）", () => {
-    test("自定义服务商的 id 由名字生成并去重；自定义模型启用时缺上下文窗口得 model-incomplete；删模型、删服务商时绑着的角色解除绑定", async () => {
+    test("服务商的 id 由名字生成并去重；手加的模型启用时缺上下文窗口得 model-incomplete；删模型、删服务商时绑着的角色解除绑定", async () => {
         const w = await world();
         const client = await w.window("w");
-        expect(ok(await client.addProvider({source: {kind: "custom", name: "Relay One", baseUrl: BASE, api: "openai-completions"}}))).toEqual({id: "relay-one"});
-        expect(ok(await client.addProvider({source: {kind: "custom", name: "Relay One", baseUrl: BASE, api: "openai-completions"}}))).toEqual({id: "relay-one-2"});
-        expect(ok(await client.addProvider({source: {kind: "custom", name: "火山方舟", baseUrl: BASE, api: "openai-completions"}}))).toEqual({id: "custom"});
-        expect(ok(await client.addProvider({source: {kind: "custom", name: "deepseek", baseUrl: BASE, api: "openai-completions"}}))).toEqual({id: "deepseek-2"});
+        const blank = (name: string) => ({template: "blank-openai", name, baseUrl: BASE, api: "openai-completions"}) as const;
+        expect(ok(await client.addProvider(blank("Relay One")))).toEqual({id: "relay-one"});
+        expect(ok(await client.addProvider(blank("Relay One")))).toEqual({id: "relay-one-2"});
+        expect(w.service.snapshot().providers.map((provider) => provider.name)).toEqual(["Relay One", "Relay One 2"]);
+        expect(ok(await client.addProvider(blank("火山方舟")))).toEqual({id: "provider"});
+        expect(ok(await client.addProvider(blank("deepseek")))).toEqual({id: "deepseek"});
         expect(await client.upsertModel({provider: "relay-one", model: {id: "m", enabled: true}})).toMatchObject({ok: false, code: "model-incomplete"});
         ok(await client.upsertModel({provider: "relay-one", model: {id: "m", enabled: false}}));
-        expect(w.service.snapshot().providers.find((provider) => provider.id === "relay-one")!.models[0]).toMatchObject({id: "m", status: "incomplete", enabled: false});
+        expect((await rowsOf(client, "relay-one"))[0]).toMatchObject({id: "m", status: "incomplete", enabled: false, origin: "manual"});
 
         ok(await client.upsertModel({provider: "relay-one", model: {id: "m", enabled: true, contextWindow: 4096}}));
         ok(await client.setRole({id: "main", model: "relay-one/m"}));
@@ -225,29 +243,28 @@ describe("配置的校验与写入（输出 5、6）", () => {
         expect(await client.removeRole({id: "main"})).toMatchObject({ok: false, code: "builtin-role"});
     });
 
-    test("目录模型只存用户改过的：与目录相同的名字、推出来的系列、能力与单价、空的请求头都不写进设置；快照照样合出目录的值", async () => {
+    test("来源模型只存用户改过的：与目录相同的名字、推出来的系列、能力与单价、空的请求头都不写进设置；改过的字段行上标出，行照样合出目录的值", async () => {
         const w = await world();
         const client = await w.window("w");
-        ok(await client.addProvider({source: {kind: "catalog", id: "deepseek"}}));
-        const fromCatalog = w.service.snapshot().providers.find((provider) => provider.id === "deepseek");
-        expect(fromCatalog).toBeDefined();
-        const catalogModels = ok(await client.catalogModels({provider: "deepseek"})) as Array<{id: string; name: string; contextWindow: number | null}>;
-        const target = catalogModels.find((model) => model.id === "deepseek-flash")!;
-        ok(await client.upsertModel({provider: "deepseek", model: {id: target.id, enabled: true, name: target.name, group: "deepseek", contextWindow: 1, vision: true, price: [9, 9, 9, 9], headers: {}}}));
-        const stored = () => (JSON.parse(readFileSync(w.settings.userFile, "utf8")) as {"nbook.models/providers": Array<{id: string; models: unknown[]}>})["nbook.models/providers"].find((provider) => provider.id === "deepseek")!.models;
-        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true}]);
-        expect(w.service.snapshot().providers.find((provider) => provider.id === "deepseek")!.models[0]).toMatchObject({id: "deepseek-flash", name: target.name, contextWindow: target.contextWindow});
+        const {id} = ok(await client.addProvider({template: "deepseek"}));
+        const row = (await rowsOf(client, id)).find((item) => item.id === "deepseek-flash")!;
+        ok(await client.upsertModel({provider: id, model: {id: row.id, enabled: true, name: row.name, group: "deepseek", contextWindow: row.contextWindow!, vision: row.vision, price: row.price!, headers: {}}}));
+        const stored = () => (JSON.parse(readFileSync(w.settings.userFile, "utf8")) as {"nbook.models/providers": Array<{id: string; models: unknown[]}>})["nbook.models/providers"].find((provider) => provider.id === id)!.models;
+        // 与来源值相同的字段一个都不存；开着自动加入时只含启用的来源条目没有信息量，也不存。
+        expect(stored()).toEqual([]);
+        expect(await rowsOf(client, id)).toContainEqual(expect.objectContaining({id: "deepseek-flash", name: row.name, contextWindow: row.contextWindow, overridden: []}));
 
-        ok(await client.upsertModel({provider: "deepseek", model: {id: "deepseek-flash", enabled: true, name: "快", group: "常用", compaction: {mode: "tokens", value: 50_000}, headers: {"X-Team": "writing"}}}));
-        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true, name: "快", group: "常用", compaction: {mode: "tokens", value: 50_000}, headers: {"X-Team": "writing"}}]);
+        ok(await client.upsertModel({provider: id, model: {id: "deepseek-flash", enabled: true, name: "快", group: "常用", compaction: {mode: "tokens", value: 50_000}, headers: {"X-Team": "writing"}}}));
+        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true, origin: "source", name: "快", group: "常用", compaction: {mode: "tokens", value: 50_000}, headers: {"X-Team": "writing"}}]);
+        expect((await rowsOf(client, id)).find((item) => item.id === "deepseek-flash")).toMatchObject({name: "快", overridden: ["name"]});
     });
 
     test("两个窗口同时改不同的服务商，两处都在；设置文件被别处改过时重读后再合并，别处的内容不丢", async () => {
         const w = await world();
         const a = await w.window("a");
         const b = await w.window("b");
-        const first = ok(await a.addProvider({source: {kind: "custom", name: "one", baseUrl: BASE, api: "openai-completions"}})).id;
-        const second = ok(await a.addProvider({source: {kind: "custom", name: "two", baseUrl: BASE, api: "openai-completions"}})).id;
+        const first = ok(await a.addProvider({template: "blank-openai", name: "one", baseUrl: BASE, api: "openai-completions"})).id;
+        const second = ok(await a.addProvider({template: "blank-openai", name: "two", baseUrl: BASE, api: "openai-completions"})).id;
         await Promise.all([a.updateProvider({id: first, patch: {name: "第一家"}}), b.updateProvider({id: second, patch: {name: "第二家"}})]);
         expect(w.service.snapshot().providers.map((provider) => provider.name)).toEqual(["第一家", "第二家"]);
 
@@ -264,6 +281,48 @@ describe("配置的校验与写入（输出 5、6）", () => {
         });
         expect(await writing).toEqual({ok: true, value: null});
         expect(w.service.snapshot().providers.map((provider) => provider.name)).toEqual(["第一家（改）", "第二家", "外面加的"]);
+    });
+});
+
+describe("v1 设置文件与图标路由（输入与前置条件、输出 21）", () => {
+    test("真实设置文件里 v1 形状的服务商被设置的形状校验接受、按旧语义读；第一次写入整份换成 v2；没碰的目录服务商也一起换，旧运行时忽略的字段丢弃", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        const file = JSON.parse(await readFile(w.settings.userFile, "utf8").catch(() => "{}")) as Record<string, unknown>;
+        file["nbook.models/providers"] = [
+            {id: "deepseek", kind: "catalog", name: "DeepSeek", auth: "default", models: [{id: "deepseek-flash", enabled: true, contextWindow: 7, vision: true}]},
+            {id: "local", kind: "custom", name: "本机", baseUrl: BASE, api: "openai-completions", auth: "none", models: [{id: "m", enabled: true, contextWindow: 32_000}]},
+        ];
+        await writeFile(w.settings.userFile, JSON.stringify(file));
+        await waitUntil("服务端读到 v1 的两家", () => {
+            w.settings.clock.advance(RELOAD_DELAY_MS);
+            return w.service.snapshot().providers.length === 2;
+        });
+        expect(w.service.snapshot().providers.map((provider) => [provider.id, provider.template, provider.followSource, provider.modelCount])).toEqual([["deepseek", "deepseek", false, 1], ["local", "blank-openai", false, 1]]);
+        ok(await client.setRole({id: "main", model: "local/m"}));
+        expect(w.service.port().resolve(query()).ok).toBe(true);
+        ok(await client.updateProvider({id: "local", patch: {name: "本机模型"}}));
+        const written = (JSON.parse(readFileSync(w.settings.userFile, "utf8")) as {"nbook.models/providers": Array<Record<string, unknown>>})["nbook.models/providers"];
+        expect(written.map((provider) => provider.uid)).toEqual(["legacy:deepseek", "legacy:local"]);
+        expect(written.every((provider) => !("kind" in provider))).toBe(true);
+        expect(written[0]!.models).toEqual([{id: "deepseek-flash", enabled: true, origin: "source"}]);
+    });
+
+    test("设置文件里服务商这一项不合形状（设置层拒收、原文还在）：添加服务商被拒，不把它当成空表整份盖掉", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        ok(await client.addProvider({template: "deepseek"}));
+        const file = JSON.parse(await readFile(w.settings.userFile, "utf8")) as Record<string, unknown>;
+        const broken = [{id: "Not A Valid Id!", name: "手改坏的"}];
+        file["nbook.models/providers"] = broken;
+        await writeFile(w.settings.userFile, JSON.stringify(file));
+        await waitUntil("服务端读到被拒收的值", () => {
+            w.settings.clock.advance(RELOAD_DELAY_MS);
+            return w.service.snapshot().providers.length === 0;
+        });
+        const result = await client.addProvider({template: "moonshot"});
+        expect(result).toMatchObject({ok: false, code: "settings-unavailable"});
+        expect((JSON.parse(readFileSync(w.settings.userFile, "utf8")) as Record<string, unknown>)["nbook.models/providers"]).toEqual(broken);
     });
 });
 
@@ -305,10 +364,12 @@ describe("检测与发现（输出 11、12）", () => {
         expect(JSON.stringify(failed)).not.toContain(KEY);
         expect(ok(await client.checkAll({provider: id}))).toEqual([{model: "qwen3:8b", result: {ok: true}}]);
         expect(ok(await client.discover({provider: id})).map((model) => model.id).sort()).toEqual(["gemma3:12b", "qwen3:8b"]);
-        ok(await client.addProvider({source: {kind: "catalog", id: "deepseek"}}));
-        expect(await client.discover({provider: "deepseek"})).toMatchObject({ok: false, code: "not-supported"});
-        expect(ok(await client.catalogModels({provider: "deepseek"})).length).toBeGreaterThan(0);
-        expect(ok(await client.catalogProviders({})).find((provider) => provider.id === "deepseek")).toMatchObject({added: true});
+        // 没有密钥的目录模板实例不出站；非 OpenAI 兼容协议的不支持拉取。
+        const {id: deepseek} = ok(await client.addProvider({template: "deepseek"}));
+        expect(await client.discover({provider: deepseek})).toMatchObject({ok: false, code: "no-credentials"});
+        const {id: gemini} = ok(await client.addProvider({template: "blank-gemini", name: "Gem", baseUrl: BASE}));
+        expect(await client.discover({provider: gemini})).toMatchObject({ok: false, code: "not-supported"});
+        expect(ok(await client.templates({})).find((template) => template.id === "deepseek")).toMatchObject({addable: true});
     });
 });
 
@@ -338,11 +399,11 @@ describe("目录漂移（输出 9）", () => {
     test("设置里的目录模型不在目录里了：快照标 missing、绑着它的角色 unknown-model、写一条诊断", async () => {
         const w = await world();
         const client = await w.window("w");
-        ok(await client.addProvider({source: {kind: "catalog", id: "deepseek"}}));
-        ok(await client.upsertModel({provider: "deepseek", model: {id: "deepseek-retired", enabled: true}}));
-        ok(await client.setRole({id: "main", model: "deepseek/deepseek-retired"}));
+        const {id} = ok(await client.addProvider({template: "deepseek"}));
+        ok(await client.upsertModel({provider: id, model: {id: "deepseek-retired", enabled: true, origin: "source", contextWindow: 8_000}}));
+        ok(await client.setRole({id: "main", model: `${id}/deepseek-retired`}));
         const snapshot = w.service.snapshot();
-        expect(snapshot.providers[0]!.models[0]).toMatchObject({id: "deepseek-retired", status: "missing"});
+        expect((await rowsOf(client, id)).find((row) => row.id === "deepseek-retired")).toMatchObject({status: "missing", origin: "source"});
         expect(snapshot.roles.find((role) => role.id === "main")!.status).toBe("unknown-model");
         expect(w.service.port().resolve(query())).toEqual({ok: false, code: "unknown-model", role: "main"});
         expect(w.settings.diagnostics("hub").query({}).records.some((record) => record.event === "models.catalog.missing")).toBe(true);

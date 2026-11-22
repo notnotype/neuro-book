@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {CompactionSetting, ModelConfig} from "@notnotype/nb-models/config";
-import type {SnapshotModel} from "@notnotype/nb-models/contract";
+import type {ModelRow} from "@notnotype/nb-models/contract";
 import {Collapsible, Dialog, Input, NumberInput, Select, Switch} from "@notnotype/nb-ui/components";
 import {computed, reactive, ref, watch} from "vue";
 
@@ -13,9 +13,8 @@ import HeadersEditor from "./HeadersEditor.vue";
  */
 const props = withDefaults(defineProps<{
     open: boolean;
-    providerKind: "catalog" | "custom";
     /** 编辑的模型；null 是手动添加。 */
-    model: SnapshotModel | null;
+    model: ModelRow | null;
     /** 这家已有的模型 id，手动添加时查重。 */
     takenIds?: readonly string[];
     /** 保存进行中（父组件在写）。 */
@@ -31,10 +30,38 @@ const emit = defineEmits<{
 }>();
 
 const text = useModelsText();
-const fromCatalog = computed(() => props.providerKind === "catalog");
 const adding = computed(() => props.model === null);
-
+type Overridable = ModelRow["overridden"][number];
 const blank = (value: number | null | undefined): string => (value === null || value === undefined ? "" : String(value));
+/**
+ * 来源值在表单里的写法。“恢复来源值”就是把它填回表单：服务端存条目时去掉与来源值相同的字段，保存之后这个覆盖就没了，
+ * 来源值以后随目录更新。
+ */
+const sourceForm = computed(() => {
+    const source = props.model?.source ?? null;
+    if (source === null || props.model === null) return null;
+    return {
+        name: source.name === props.model.id ? "" : source.name,
+        contextWindow: blank(source.contextWindow),
+        maxOutput: blank(source.maxOutput),
+        vision: source.vision,
+        reasoning: source.reasoning,
+        price: source.price === null ? ["", "", "", ""] : source.price.map(String),
+    };
+});
+/** 这个字段改过（行的 `overridden`），而且表单里现在还不是来源值；来源没给窗口时不能恢复成“不明”。 */
+function canRestore(field: Overridable): boolean {
+    const source = sourceForm.value;
+    if (source === null || !(props.model?.overridden ?? []).includes(field)) return false;
+    if (field === "contextWindow" && source.contextWindow === "") return false;
+    return JSON.stringify(form[field]) !== JSON.stringify(source[field]);
+}
+function restore(field: Overridable): void {
+    const source = sourceForm.value;
+    if (source === null) return;
+    if (field === "price") form.price = [...source.price];
+    else Object.assign(form, {[field]: source[field]});
+}
 const form = reactive({id: "", name: "", group: "", contextWindow: "", maxOutput: "", vision: false, reasoning: false, compactMode: "follow" as "follow" | CompactionSetting["mode"], compactValue: "", price: ["", "", "", ""] as string[]});
 const headers = ref<Record<string, string>>({});
 /** 请求头里有没填完的行：保存要拦住，不悄悄丢掉它们。 */
@@ -77,12 +104,11 @@ const problems = computed(() => {
         if (form.id.trim() === "") found.id = text("edit.required");
         else if (props.takenIds.includes(form.id.trim())) found.id = text("edit.idTaken");
     }
-    if (!fromCatalog.value) {
-        if (form.contextWindow.trim() === "") found.contextWindow = text("edit.required");
-        else if (!positive(form.contextWindow)) found.contextWindow = text("edit.positive");
-        if (form.maxOutput.trim() !== "" && !positive(form.maxOutput)) found.maxOutput = text("edit.positive");
-        if (form.price.some((value) => value.trim() !== "" && !PRICE.test(value.trim()))) found.price = text("edit.nonNegative");
-    }
+    // 窗口不明（目录没给、也没填）时必填。
+    if (form.contextWindow.trim() === "") found.contextWindow = text("edit.required");
+    else if (!positive(form.contextWindow)) found.contextWindow = text("edit.positive");
+    if (form.maxOutput.trim() !== "" && !positive(form.maxOutput)) found.maxOutput = text("edit.positive");
+    if (form.price.some((value) => value.trim() !== "" && !PRICE.test(value.trim()))) found.price = text("edit.nonNegative");
     // 预留量的基数可以留空（按窗口）；百分比与固定值要填，百分比不超过 100。
     const value = form.compactValue.trim();
     if (form.compactMode === "percent" && (!positive(value) || Number(value) > 100)) found.compactValue = text("edit.percent");
@@ -108,19 +134,16 @@ function save(): void {
         ...optional("compaction", form.compactMode === "follow" ? undefined : {mode: form.compactMode, ...(form.compactValue.trim() === "" ? {} : {value: Number(form.compactValue)})} as CompactionSetting),
         ...optional("headers", Object.keys(headers.value).length === 0 ? undefined : headers.value),
     };
-    if (fromCatalog.value) {
-        emit("save", base);
-        return;
-    }
     const prices = form.price.map((value) => value.trim());
     emit("save", {
         ...base,
+        // 来源模型的字段照表单交出：服务端存条目时去掉与来源值相同的，只留用户改过的。
         contextWindow: Number(form.contextWindow),
-        ...optional("maxOutput", form.maxOutput.trim() === "" ? undefined : Number(form.maxOutput)),
+        ...(form.maxOutput.trim() === "" ? {} : {maxOutput: Number(form.maxOutput)}),
         vision: form.vision,
         reasoning: form.reasoning,
         // 推理档对话框里不编辑，原样带回（整条替换写入，漏了就丢了）。
-        ...optional("efforts", props.model === null || props.model.efforts.length === 0 ? undefined : [...props.model.efforts]),
+        ...optional("efforts", props.model === null || props.model.efforts.length === 0 || props.model.origin === "source" ? undefined : [...props.model.efforts]),
         // 全部留空是“未知”；填了一部分时没填的按 0。
         price: prices.every((value) => value === "") ? null : prices.map((value) => (value === "" ? 0 : Number(value))) as [number, number, number, number],
     });
@@ -156,7 +179,7 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
                         <small v-if="shown('id')" class="model-edit__problem">{{ shown("id") }}</small>
                     </label>
                     <label class="model-edit__field">
-                        <span>{{ text("edit.name") }}</span>
+                        <span>{{ text("edit.name") }}<button v-if="canRestore('name')" type="button" class="model-edit__restore" data-restore="name" @click.prevent="restore('name')">{{ text("models.restoreSource") }}</button></span>
                         <Input v-model="form.name" size="sm" :placeholder="text('edit.namePlaceholder')" data-field="name" />
                     </label>
                     <label class="model-edit__field">
@@ -167,29 +190,28 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
             </section>
             <section class="model-edit__section">
                 <h4>{{ text("edit.capabilities") }}</h4>
-                <p v-if="fromCatalog" class="model-edit__hint">{{ text("edit.catalogFixed") }}</p>
                 <div class="model-edit__grid">
                     <label class="model-edit__field">
-                        <span>{{ text("edit.contextWindow") }}</span>
-                        <NumberInput v-model="form.contextWindow" :readonly="fromCatalog" :placeholder="fromCatalog ? '' : text('edit.required')" :invalid="shown('contextWindow') !== undefined" data-field="contextWindow" />
+                        <span>{{ text("edit.contextWindow") }}<button v-if="canRestore('contextWindow')" type="button" class="model-edit__restore" data-restore="contextWindow" @click.prevent="restore('contextWindow')">{{ text("models.restoreSource") }}</button></span>
+                        <NumberInput v-model="form.contextWindow" :placeholder="text('edit.required')" :invalid="shown('contextWindow') !== undefined" data-field="contextWindow" />
                         <small v-if="shown('contextWindow')" class="model-edit__problem">{{ shown("contextWindow") }}</small>
                     </label>
                     <label class="model-edit__field">
-                        <span>{{ text("edit.maxOutput") }}</span>
-                        <NumberInput v-model="form.maxOutput" :readonly="fromCatalog" :invalid="shown('maxOutput') !== undefined" data-field="maxOutput" />
+                        <span>{{ text("edit.maxOutput") }}<button v-if="canRestore('maxOutput')" type="button" class="model-edit__restore" data-restore="maxOutput" @click.prevent="restore('maxOutput')">{{ text("models.restoreSource") }}</button></span>
+                        <NumberInput v-model="form.maxOutput" :invalid="shown('maxOutput') !== undefined" data-field="maxOutput" />
                         <small v-if="shown('maxOutput')" class="model-edit__problem">{{ shown("maxOutput") }}</small>
                     </label>
-                    <div class="model-edit__switch"><Switch v-model="form.vision" size="sm" :readonly="fromCatalog" :aria-label="text('caps.vision')" /><span>{{ text("caps.vision") }}</span></div>
-                    <div class="model-edit__switch"><Switch v-model="form.reasoning" size="sm" :readonly="fromCatalog" :aria-label="text('caps.reasoning')" /><span>{{ text("caps.reasoning") }}</span></div>
+                    <div class="model-edit__switch"><Switch v-model="form.vision" size="sm" :aria-label="text('caps.vision')" /><span>{{ text("caps.vision") }}</span><button v-if="canRestore('vision')" type="button" class="model-edit__restore" data-restore="vision" @click.prevent="restore('vision')">{{ text("models.restoreSource") }}</button></div>
+                    <div class="model-edit__switch"><Switch v-model="form.reasoning" size="sm" :aria-label="text('caps.reasoning')" /><span>{{ text("caps.reasoning") }}</span><button v-if="canRestore('reasoning')" type="button" class="model-edit__restore" data-restore="reasoning" @click.prevent="restore('reasoning')">{{ text("models.restoreSource") }}</button></div>
                 </div>
             </section>
             <section class="model-edit__section">
                 <h4>{{ text("edit.price") }}</h4>
-                <p class="model-edit__hint">{{ fromCatalog ? text("edit.catalogFixed") : text("edit.priceHint") }}</p>
+                <p class="model-edit__hint">{{ text("edit.priceHint") }}<button v-if="canRestore('price')" type="button" class="model-edit__restore" data-restore="price" @click.prevent="restore('price')">{{ text("models.restoreSource") }}</button></p>
                 <div class="model-edit__grid model-edit__grid--four">
                     <label v-for="(label, index) in PRICE_LABELS" :key="label" class="model-edit__field">
                         <span>{{ text(label) }}</span>
-                        <NumberInput v-model="form.price[index]" :readonly="fromCatalog" :invalid="shown('price') !== undefined" />
+                        <NumberInput v-model="form.price[index]" :invalid="shown('price') !== undefined" />
                     </label>
                 </div>
                 <small v-if="shown('price')" class="model-edit__problem">{{ shown("price") }}</small>
@@ -223,6 +245,16 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
 </template>
 
 <style scoped>
+.model-edit__restore {
+    margin-left: var(--space-3);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+
 .model-edit {
     display: flex;
     flex-direction: column;

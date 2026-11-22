@@ -54,16 +54,27 @@ watch(() => props.open, (open) => {
     added.value = new Set(props.current);
 }, {immediate: true});
 
-const groups = computed(() => {
+/** 一次最多画这么多行（几百个模型的服务商不能整份渲染）：多出来的写“还有 N 条，缩小搜索词”。 */
+const LIMIT = 200;
+const shown = computed(() => {
     const needle = query.value.trim().toLowerCase();
     const byGroup = new Map<string, ModelCandidate[]>();
+    let budget = LIMIT;
+    let skipped = 0;
     for (const item of props.candidates ?? []) {
         if (needle !== "" && !item.name.toLowerCase().includes(needle) && !item.id.toLowerCase().includes(needle)) continue;
+        if (budget <= 0) {
+            skipped += 1;
+            continue;
+        }
+        budget -= 1;
         const group = seriesOf(item.id);
         byGroup.set(group, [...(byGroup.get(group) ?? []), item]);
     }
-    return [...byGroup].map(([group, items]) => ({group, items}));
+    return {groups: [...byGroup].map(([group, items]) => ({group, items})), hidden: skipped};
 });
+const groups = computed(() => shown.value.groups);
+const hidden = computed(() => shown.value.hidden);
 
 const list = ref<HTMLElement | null>(null);
 
@@ -147,6 +158,7 @@ function done(): void {
                     </ul>
                 </section>
             </div>
+            <p v-if="hidden > 0" class="manage-models__muted" data-manage-more>{{ text("models.more", {count: hidden}) }}</p>
         </div>
     </Dialog>
 </template>

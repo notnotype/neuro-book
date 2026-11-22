@@ -20,8 +20,8 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference, splitReference} from "nbook/plugins/models/shared/contracts";
-import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
+import {createSelectionData, modelsSettingsContract, PROVIDERS_SECTION} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot, SelectionRemote, SelectionRow} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
@@ -40,7 +40,6 @@ import {defineRecord} from "nbook/shared/storage";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {providerIcon} from "nbook/ui/provider-icons";
-import {roleIconClass} from "nbook/ui/role-icons";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import {Type} from "typebox";
@@ -76,6 +75,7 @@ import {profilesUsingSticker} from "./sticker-usage";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {gatedProvider} from "./owner-providers";
 import {createSessionHost} from "./session-host";
+import {modelGroups, modelOptions, roleOptions} from "./model-options";
 import type {RoleOption, SessionHost, SessionHostDeps, SessionOwners, UploadedAttachment} from "./session-host";
 import {createRecentSessions, createSessionList} from "./session-list";
 import {createRunResults, createSeenErrors} from "./subagents-panel";
@@ -138,57 +138,10 @@ const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])},
 const DRAFTS_RECORD = defineRecord({key: "agent.drafts", scope: "user", locality: "local", version: 1, keyed: true, schema: DraftsSchema});
 const recentRecord = (project: boolean) => defineRecord({key: "agent.recent-session", scope: project ? "project" : "user", locality: "local", version: 1, keyed: true, schema: RecentSchema});
 
-/** 服务商图标的引用：只放键，图标表在渲染时由图标解析端口取（表晚到时首字母换成图标）。 */
-const providerIconRef = (id: string, name: string): ComposerIcon => ({kind: "key", set: "provider", key: id, fallback: name});
-
-function modelGroups(snapshot: ModelsSnapshot): ComposerGroupView[] {
-    return snapshot.providers.filter(hasCredentials).map((provider) => ({id: provider.id, name: provider.name, icon: providerIconRef(provider.id, provider.name)}));
-}
-
-function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
-    return snapshot.providers.filter(hasCredentials).flatMap((provider) => provider.models
-        .filter((model) => model.enabled && model.status === "ok")
-        .map((model) => ({
-            key: `${provider.id}/${model.id}`,
-            label: model.name,
-            supportsImages: model.vision,
-            group: provider.name,
-            groupId: provider.id,
-            contextWindow: model.contextWindow,
-            reasoning: model.reasoning,
-            price: model.price === null ? null : {input: model.price[0], output: model.price[1]},
-        })));
-}
-
 /** 附件地址换成读取路由。不是附件的（别的方案）不显示。 */
 function attachmentUrl(locator: string): string | null {
     const match = /^sessions:\/\/([^/]+)\/home\/attachments\/([^/]+)$/u.exec(locator);
     return match === null ? null : `/api/${descriptor.id}/sessions/${encodeURIComponent(match[1]!)}/attachments/${encodeURIComponent(match[2]!)}`;
-}
-
-function roleNameOf(role: ModelsSnapshot["roles"][number]): RoleOption["name"] {
-    const key = builtinRoleNameKey(role);
-    return key === null ? (role.name === "" ? role.id : role.name) : modelsText(key);
-}
-
-function roleOptions(snapshot: ModelsSnapshot): RoleOption[] {
-    const labels = new Map<string, string>(snapshot.providers.flatMap((provider) => provider.models.map((model) => [`${provider.id}/${model.id}`, model.name] as const)));
-    const providers = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
-    return snapshot.roles.map((role) => {
-        const bound = role.model === null ? null : splitReference(role.model);
-        const providerName = bound === null ? undefined : providers.get(bound.provider);
-        return {
-            key: roleReference(role.id),
-            id: role.id,
-            name: roleNameOf(role),
-            axis: role.axis,
-            modelLabel: role.model === null ? null : labels.get(role.model) ?? role.model,
-            status: role.status,
-            icon: {kind: "class", name: roleIconClass(role.id, role.icon)},
-            ...(bound === null || providerName === undefined ? {} : {modelIcon: providerIconRef(bound.provider, providerName)}),
-            effort: role.effort,
-        };
-    });
 }
 
 /** 这个文件也由不带 DOM 类型的 tsc 检查，所以按需要的那几个取。 */
@@ -309,13 +262,40 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (!result.ok) report("open-settings-failed", `opening the model providers failed: ${result.code}`);
                 });
             };
+            /** 选用数据（只要有凭据的服务商里可用的模型）：选择器与标签用；Profile 页另取按引用的行。 */
+            const selection = shallowRef<ReturnType<typeof createSelectionData> | null>(null);
+            /** Profile 设置页读的两份：能选的模型、按引用取到的行（角色绑着的与各 Profile 指名的）。 */
+            const profileRows = shallowRef<readonly SelectionRow[]>([]);
+            const profileLookup = shallowRef<ReadonlyMap<string, ModelRow | null>>(new Map());
+            let roleReferences: readonly string[] = [];
+            let pageReferences: readonly string[] = [];
+            const wantReferences = (): void => selection.value?.want([...roleReferences, ...pageReferences]);
+            /**
+             * 选用数据换了（行读完、引用取到）或来了新快照：重算角色的模型名与模型列表。角色先于模型换：宿主看着 `models` 重读会话的模型，
+             * 这时角色应当已经是新的。`models` 只在它的两样输入（快照、行）真的换了时才重算：宿主每见一次新值就重取一次会话快照。
+             */
+            let modelsBuiltFrom: {readonly snapshot: ModelsSnapshot; readonly rows: readonly SelectionRow[]} | null = null;
+            const rebuild = (options: {readonly models: boolean} = {models: true}): void => {
+                const snapshot = modelsSnapshot.value;
+                const data = selection.value;
+                if (snapshot === null || data === null) return;
+                profileRows.value = data.rows.value;
+                profileLookup.value = data.lookup.value;
+                roles.value = roleOptions(snapshot, data.lookup.value);
+                if (!options.models || !data.ready.value) return;
+                if (modelsBuiltFrom?.snapshot === snapshot && modelsBuiltFrom.rows === data.rows.value) return;
+                modelsBuiltFrom = {snapshot, rows: data.rows.value};
+                models.value = modelOptions(snapshot, data.rows.value);
+            };
             const takeModels = (snapshot: ModelsSnapshot): void => {
-                // 先换角色：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。
-                roles.value = roleOptions(snapshot);
-                groups.value = modelGroups(snapshot);
-                models.value = modelOptions(snapshot);
                 modelsSnapshot.value = snapshot;
+                groups.value = modelGroups(snapshot);
                 modelsFailed.value = false;
+                roleReferences = snapshot.roles.flatMap((role) => (role.model === null ? [] : [role.model]));
+                wantReferences();
+                // 要重读行时先不重算模型列表：等行到齐的那次通知一起算，不交出新快照配旧行的中间状态。
+                const rereads = selection.value?.attach(snapshot) ?? false;
+                rebuild({models: !rereads});
             };
             let modelsStarted = false;
             /** 第一次有对话位置或打开 Profile 页时才取：两个都没打开的窗口不多发请求。 */
@@ -324,12 +304,19 @@ export const agentBrowserPlugin: PluginDefinition = {
                 modelsStarted = true;
                 void (async () => {
                     const modelsRemote = context.remote.use(modelsSettingsContract);
+                    const data = createSelectionData({remote: modelsRemote as unknown as SelectionRemote, ref: (initial) => shallowRef(initial), usable: true, onFailure: (code) => report("models-failed", code)});
+                    data.subscribe(() => rebuild());
+                    selection.value = data;
+                    context.signal.addEventListener("abort", () => data.dispose(), {once: true});
                     const subscription = await modelsRemote.events.changed.subscribe({}, takeModels);
                     if (!subscription.ok) {
                         // 模型服务不在是正常情况（下拉隐藏），别的失败下一个对话位置再试。
                         report("models-failed", subscription.code);
                         modelsFailed.value = true;
                         modelsStarted = false;
+                        // 下一个对话位置会再建一份：这一份放掉。
+                        data.dispose();
+                        selection.value = null;
                         return;
                     }
                     context.signal.addEventListener("abort", () => subscription.value.release(), {once: true});
@@ -957,7 +944,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                             }
                             return new Map(listed.value.plugins.flatMap((plugin) => (plugin.displayName === undefined ? [] : [[plugin.id, plugin.displayName] as const])));
                         },
-                        models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels},
+                        models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels, rows: profileRows, lookup: profileLookup, want: (references) => {
+                            pageReferences = references;
+                            wantReferences();
+                        }},
                         writers: profileWriters,
                         text,
                         openAddress,

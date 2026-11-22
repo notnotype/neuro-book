@@ -1,11 +1,13 @@
 /**
  * 模型服务的设置页（docs/specs/models/settings-pages.md 的“验收与 Smoke”）：生产构建的服务端、真实浏览器、本机的 OpenAI 兼容
- * 假端点。验收 1 走完一家自定义服务商的一生；验收 2 两个窗口同开；验收 3 窄窗口、本作品标签与写失败。
+ * 假端点。验收 1 走完一家空白模板服务商的一生；验收 2 两个窗口同开；验收 3 窄窗口、本作品标签与写失败；验收 4 模板服务商的
+ * 多份、改名、复制、图标与模型清单。
  */
 
 import {randomUUID} from "node:crypto";
 import {chmod, mkdir, rm, writeFile} from "node:fs/promises";
 import {createServer} from "node:http";
+import {deflateSync} from "node:zlib";
 import type {AddressInfo} from "node:net";
 import {join} from "node:path";
 
@@ -91,7 +93,7 @@ const detail = (page: Page) => page.locator("[data-provider-detail]");
 async function addCustom(page: Page, name: string): Promise<void> {
     await page.locator("[data-provider-add]:visible").first().click();
     const add = page.locator("[data-add-provider-dialog]");
-    await add.locator("[data-add-provider='custom']").click();
+    await add.locator("[data-add-provider='blank-openai']").click();
     // 进到表单焦点就在名称框里，回车提交。
     await expect(add.locator("input[data-field='name'], [data-field='name'] input").first()).toBeFocused();
     await page.keyboard.type(name);
@@ -107,12 +109,12 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     await expect(page.getByText("还没有服务商")).toBeVisible();
     await page.locator("[data-provider-add]:visible").click();
     const add = page.locator("[data-add-provider-dialog]");
-    await add.locator("[data-add-provider='custom']").click();
+    await add.locator("[data-add-provider='blank-openai']").click();
     await add.locator("[data-field='name'] input, input[data-field='name']").first().fill("本地端点");
     await add.locator("[data-field='baseUrl'] input, input[data-field='baseUrl']").first().fill(base);
     await add.getByRole("button", {name: "添加"}).click();
     await expect(add).toHaveCount(0);
-    await expect(page.locator(".providers-page__heading")).toHaveText("本地端点");
+    await expect(page.locator("[data-provider-name]")).toHaveText("本地端点");
 
     // 密钥：env: 引用的变量不在启动环境里时标出；原文写进凭据库，框里清空，出现“清除”。
     const key = detail(page).locator("[data-key-input]");
@@ -174,8 +176,8 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     await expect(model(page, "story-model-a").getByRole("switch")).toHaveAttribute("aria-checked", "true");
 
     // 删除服务商（条目上悬停出的删除图标）：确认框写明受影响的角色；删除后焦点到“添加服务商”，主力变成未绑定。
-    await page.locator("[data-provider-rail-item='custom']").hover();
-    await page.locator("[data-provider-remove='custom']").click();
+    await page.locator("[data-provider-rail-item='provider']").hover();
+    await page.locator("[data-provider-remove='provider']").click();
     const alert = page.getByRole("alertdialog");
     await expect(alert).toContainText("主力");
     await alert.getByRole("button", {name: "删除"}).click();
@@ -192,22 +194,22 @@ test("验收 2：两个窗口同开“服务商与模型”，一处添加、改
         await openProviders(b);
         await a.locator("[data-provider-add]").first().click();
         const add = a.locator("[data-add-provider-dialog]");
-        await add.locator("[data-add-provider='custom']").click();
+        await add.locator("[data-add-provider='blank-openai']").click();
         await add.locator("input[data-field='name'], [data-field='name'] input").first().fill("同步测试");
         await add.locator("input[data-field='baseUrl'], [data-field='baseUrl'] input").first().fill(base);
         await add.getByRole("button", {name: "添加"}).click();
-        await expect(b.locator("[data-provider-rail-item='custom']")).toBeVisible();
+        await expect(b.locator("[data-provider-rail-item='provider']")).toBeVisible();
 
         const url = a.locator("[data-url-input]");
         await url.fill("http://127.0.0.1:1/v1");
         await url.press("Enter");
-        await b.locator("[data-provider-rail-item='custom']").click();
+        await b.locator("[data-provider-rail-item='provider']").click();
         await expect(b.locator("[data-url-input]")).toHaveValue("http://127.0.0.1:1/v1");
 
-        await a.locator("[data-provider-rail-item='custom']").hover();
-        await a.locator("[data-provider-remove='custom']").click();
+        await a.locator("[data-provider-rail-item='provider']").hover();
+        await a.locator("[data-provider-remove='provider']").click();
         await a.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-        await expect(b.locator("[data-provider-rail-item='custom']")).toHaveCount(0);
+        await expect(b.locator("[data-provider-rail-item='provider']")).toHaveCount(0);
     } finally {
         await a.close();
         await b.close();
@@ -219,7 +221,7 @@ test("验收 3：窄窗口里服务商列表收成下拉；页面里的写不进
     await openProviders(page);
     await page.locator("[data-provider-add]").first().click();
     const add = page.locator("[data-add-provider-dialog]");
-    await add.locator("[data-add-provider='custom']").click();
+    await add.locator("[data-add-provider='blank-openai']").click();
     await add.locator("input[data-field='name'], [data-field='name'] input").first().fill("窄窗口");
     await add.locator("input[data-field='baseUrl'], [data-field='baseUrl'] input").first().fill(base);
     await add.getByRole("button", {name: "添加"}).click();
@@ -261,25 +263,130 @@ test("删除的三条路与焦点：取消后回到那家的条目；Delete 键�
     await addCustom(page, "丙");
     const item = (id: string) => page.locator(`[data-provider-rail-item='${id}']`);
     // 条目的名称只有服务商名，行尾一格的原因是描述。
-    await expect(item("custom-2")).toHaveAccessibleName("乙");
-    await expect(item("custom-2")).toHaveAccessibleDescription(/./u);
-    await item("custom-2").click();
+    await expect(item("provider-2")).toHaveAccessibleName("乙");
+    await expect(item("provider-2")).toHaveAccessibleDescription(/./u);
+    await item("provider-2").click();
 
-    await item("custom-2").hover();
-    await page.locator("[data-provider-remove='custom-2']").click();
+    await item("provider-2").hover();
+    await page.locator("[data-provider-remove='provider-2']").click();
     await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
-    await expect(item("custom-2")).toBeFocused();
+    await expect(item("provider-2")).toBeFocused();
 
-    await item("custom-2").press("Delete");
+    await item("provider-2").press("Delete");
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-    await expect(item("custom-3")).toBeFocused();
-    await expect(item("custom-3")).toHaveAttribute("aria-current", "page");
-    await expect(item("custom-2")).toHaveCount(0);
+    await expect(item("provider-3")).toBeFocused();
+    await expect(item("provider-3")).toHaveAttribute("aria-current", "page");
+    await expect(item("provider-2")).toHaveCount(0);
 
-    await item("custom").click({button: "right"});
+    await item("provider").click({button: "right"});
     await page.getByRole("menuitem", {name: "删除服务商…"}).click();
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-    await expect(item("custom")).toHaveCount(0);
-    await expect(item("custom-3")).toHaveAttribute("aria-current", "page");
-    await expect(item("custom-3")).toBeFocused();
+    await expect(item("provider")).toHaveCount(0);
+    await expect(item("provider-3")).toHaveAttribute("aria-current", "page");
+    await expect(item("provider-3")).toBeFocused();
+});
+
+/** 一张纯色的真 PNG（边长 300，大于上传前缩图的 128），用来走一遍浏览器里真实的解码、缩图与服务端校验。 */
+function solidPng(side: number): Buffer {
+    const crcTable = Array.from({length: 256}, (_, n) => {
+        let c = n;
+        for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        return c >>> 0;
+    });
+    const crc = (bytes: Buffer): number => {
+        let c = 0xffffffff;
+        for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff]! ^ (c >>> 8);
+        return (c ^ 0xffffffff) >>> 0;
+    };
+    const chunk = (type: string, data: Buffer): Buffer => {
+        const head = Buffer.alloc(4);
+        head.writeUInt32BE(data.length);
+        const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+        const tail = Buffer.alloc(4);
+        tail.writeUInt32BE(crc(body));
+        return Buffer.concat([head, body, tail]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(side, 0);
+    ihdr.writeUInt32BE(side, 4);
+    ihdr.set([8, 2, 0, 0, 0], 8);
+    const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(side * 3, 0x3a)]);
+    const raw = Buffer.concat(Array.from({length: side}, () => row));
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+test("验收 4：同一模板添加两份、改名、复制一份、上传图标；模型区搜索与系列收起；移出一个来源模型再从管理模型加回来；390 宽没有横向溢出", async ({page}) => {
+    await openProviders(page);
+    const rail = (id: string) => page.locator(`[data-provider-rail-item="${id}"]`);
+    const addTemplate = async (template: string): Promise<void> => {
+        await page.locator("[data-provider-add]:visible").first().click();
+        const add = page.locator("[data-add-provider-dialog]");
+        await add.locator(`[data-add-provider="${template}"]`).click();
+        await expect(add).toHaveCount(0);
+    };
+    // 同一模板两份：名称自动加“ 2”，添加后焦点在密钥框。
+    await addTemplate("deepseek");
+    await expect(page.locator("[data-key-input] input, input[data-key-input]").first()).toBeFocused();
+    await addTemplate("deepseek");
+    await expect(rail("deepseek")).toBeVisible();
+    await expect(rail("deepseek-2")).toContainText("DeepSeek 2");
+
+    // 改名：点铅笔、回车提交；左栏跟着变。
+    await page.locator("[data-provider-rename]").click();
+    const nameInput = page.locator("[data-provider-name-input] input, input[data-provider-name-input]").first();
+    await nameInput.fill("备用 DeepSeek");
+    await nameInput.press("Enter");
+    await expect(page.locator("[data-provider-name]")).toHaveText("备用 DeepSeek");
+    await expect(rail("deepseek-2")).toContainText("备用 DeepSeek");
+
+    // 复制一份：选中副本，焦点到名称。
+    await page.locator("[data-provider-duplicate]").click();
+    await expect(page.locator("[data-provider-rail-item]:not([data-provider-rail-item='all'])")).toHaveCount(3);
+    await expect(page.locator("[data-provider-name]")).toBeFocused();
+
+    // 上传图标：浏览器里缩图、服务端校验后存成文件，标题区与左栏换成读取路由的图。
+    await page.locator("[data-provider-icon-button]").click();
+    const panel = page.locator("[data-provider-icon-panel]");
+    await panel.getByRole("radio", {name: "上传"}).click();
+    await panel.locator("[data-icon-file]").setInputFiles({name: "logo.png", mimeType: "image/png", buffer: solidPng(300)});
+    const headerImage = page.locator("[data-provider-icon-button] img");
+    await expect(headerImage).toHaveAttribute("src", /\/api\/nbook\.models\/icons\/[a-f0-9]{64}\.png$/u);
+    const iconUrl = new URL((await headerImage.getAttribute("src"))!, server.url).href;
+    const served = await page.request.get(iconUrl);
+    expect(served.status()).toBe(200);
+    expect(served.headers()["content-type"]).toContain("image/png");
+    expect(served.headers()["x-content-type-options"]).toBe("nosniff");
+
+    // 第一份：移出一个来源模型，它不在模型区了；在管理模型里加回来。
+    await rail("deepseek").click();
+    const rows = detail(page).locator("[data-model-row]");
+    await expect(rows.first()).toBeVisible();
+    const before = await rows.count();
+    const victim = (await rows.first().getAttribute("data-model-row"))!;
+    await detail(page).locator("[data-models-manage]").click();
+    const manage = page.locator("[data-manage-models-dialog]");
+    await manage.locator(`[data-manage-item="${victim}"] [data-manage-toggle]`).click();
+    await manage.getByRole("button", {name: "完成"}).click();
+    await expect(manage).toHaveCount(0);
+    await expect(model(page, victim)).toHaveCount(0);
+    await expect(rows).toHaveCount(before - 1);
+    await detail(page).locator("[data-models-manage]").click();
+    await manage.locator(`[data-manage-item="${victim}"] [data-manage-toggle]`).click();
+    await manage.getByRole("button", {name: "完成"}).click();
+    await expect(model(page, victim)).toBeVisible();
+
+    // 几百个模型的模板：系列默认收起、不渲染行；搜索展开命中的组。
+    await addTemplate("openrouter");
+    const series = detail(page).locator(".provider-detail__series");
+    await expect(series.first()).toBeVisible();
+    await expect(detail(page).locator("[data-model-row]")).toHaveCount(0);
+    await detail(page).locator("[data-models-search] input, input[data-models-search]").first().fill("claude");
+    await expect(detail(page).locator("[data-model-row]").first()).toBeVisible();
+    for (const id of await detail(page).locator("[data-model-row]").evaluateAll((items) => items.map((item) => item.getAttribute("data-model-row") ?? ""))) expect(id.toLowerCase()).toContain("claude");
+
+    // 390 宽：页面与详情都没有横向溢出。
+    await page.setViewportSize({width: 390, height: 800});
+    await expect(page.locator(".providers-page__picker")).toBeVisible();
+    const overflow = await page.evaluate(() => [document.documentElement, document.querySelector("[data-models-providers-page]")].map((element) => (element === null ? -1 : element.scrollWidth - element.clientWidth)));
+    expect(overflow).toEqual([0, 0]);
 });

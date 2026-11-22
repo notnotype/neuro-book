@@ -45,8 +45,9 @@ const TOOLS: readonly ToolCatalogEntry[] = [
     {id: "nbook.agent.edit-replace", description: "换", providerName: "edit", effect: "write", plugin: "nbook.agent"},
     {id: "plot.search", description: "查\n第二行", providerName: "plot_search", effect: "read", plugin: "nbook.plot"},
 ];
+const ROW_A = {id: "a", name: "模型 A", group: "g", enabled: true, origin: "source", contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], thinking: {kind: "none"}, compaction: null, price: null, headers: {}, status: "ok", usable: true, overridden: [], source: null};
 const SNAPSHOT = {
-    providers: [{id: "p", kind: "catalog", name: "P", baseUrl: null, catalogBaseUrl: null, key: {kind: "stored"}, models: [{id: "a", name: "模型 A", group: "g", enabled: true, contextWindow: 100_000, maxOutput: null, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok"}]}],
+    providers: [{id: "p", template: "deepseek", region: null, name: "P", icon: null, baseUrl: null, templateBaseUrl: null, api: null, templateApi: null, key: {kind: "stored"}, followSource: true, source: {kind: "packaged"}, modelCount: 1, enabledCount: 1, excludedCount: 0, modelsRevision: "r"}],
     roles: [{id: "main", axis: "gradient", builtin: false, name: "主力", description: "", model: "p/a", status: "ok"}],
 } as unknown as ModelsSnapshot;
 
@@ -111,7 +112,7 @@ function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonl
         settings,
         remote: remote.remote,
         pluginNames: async () => new Map(),
-        models: {snapshot: shallowRef(options.snapshot === undefined ? SNAPSHOT : options.snapshot), failed: shallowRef(false), ensure: () => undefined},
+        models: {snapshot: shallowRef(options.snapshot === undefined ? SNAPSHOT : options.snapshot), failed: shallowRef(false), ensure: () => undefined, rows: shallowRef([{...ROW_A, provider: "p"}] as never), lookup: shallowRef(new Map([["p/a", ROW_A]]) as never), want: () => undefined},
         writers: createProfileWriters(settings),
         text: text.port,
         openAddress: options.openAddress ?? (() => undefined),

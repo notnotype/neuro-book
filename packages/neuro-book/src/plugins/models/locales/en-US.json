@@ -51,7 +51,7 @@
     },
     "empty": {
         "title": "No providers yet",
-        "description": "Add a provider and its key so the writing assistant can call models. Local Ollama and LM Studio are in the catalog too; for a relay, choose “Custom OpenAI-compatible provider”."
+        "description": "Add a provider and its key so the writing assistant can call models. For a relay or a local Ollama, LM Studio or vLLM, choose “OpenAI compatible” under Custom."
     },
     "remove": {
         "button": "Delete provider",
@@ -79,8 +79,8 @@
         "url": {
             "label": "Base URL",
             "hint": "Requests go to {{url}}",
-            "restore": "Restore catalog URL",
-            "overridden": "Changed to another URL; the catalog URL is {{url}}. Model capabilities and prices still follow the catalog.",
+            "restore": "Restore the template address",
+            "overridden": "Changed to another address; the template address is {{url}}. Model capabilities and prices still come from the template catalog.",
             "invalid": "The URL must start with http:// or https://"
         },
         "api": {
@@ -98,6 +98,13 @@
         "headers": {
             "label": "Headers",
             "hint": "Sent with every request; a model can add or override headers of the same name in its edit dialog"
+        },
+        "protocol": {
+            "note": "After you change the API format or the address, requests are sent with the generic protocol, without this provider's special handling.",
+            "changed": "Changed; the template uses {{value}}"
+        },
+        "region": {
+            "label": "Region"
         }
     },
     "headers": {
@@ -129,13 +136,27 @@
         "incomplete": "No context window",
         "incompleteTip": "Fill in the context window to enable it",
         "missing": "No longer in the catalog",
+        "unsupported": "Not usable as a chat model",
         "priceUnknown": "Price unknown",
         "free": "Free",
         "price": "${{input}} / ${{output}}",
         "confirmDisable": "After disabling, these roles cannot use it: {{roles}}.",
         "confirmDisableAction": "Disable",
         "cancel": "Cancel",
-        "enabled": "{{count}} enabled"
+        "enabled": "{{count}} enabled",
+        "follow": {
+            "label": "Add new models from the provider automatically",
+            "hint": "Models newly added to the bundled catalog show up in the list on their own; turn this off to keep the list as it is."
+        },
+        "search": "Search model name or id",
+        "more": "{{count}} more; narrow the search",
+        "noMatch": "No matching models",
+        "loading": "Loading models",
+        "loadFailed": "Could not load the models: {{reason}}",
+        "retry": "Retry",
+        "edited": "Edited",
+        "manual": "Added manually",
+        "restoreSource": "Restore the source value"
     },
     "check": {
         "ok": "Check passed",
@@ -225,25 +246,55 @@
     "add": {
         "title": "Add provider",
         "search": "Search providers",
-        "catalog": "OMP catalog",
         "added": "Added",
         "keyless": "No key needed",
-        "login": "Requires login; not supported yet",
-        "unsupported": "Not supported",
-        "other": "Other",
-        "custom": "Custom OpenAI-compatible provider",
-        "customHint": "Relays, Volcano Ark, a local vLLM and so on: fill in the URL and API format",
         "customName": "Name",
-        "customUrl": "Base URL",
+        "customUrl": "Endpoint URL",
         "create": "Add",
         "back": "Back",
-        "noMatch": "No matching providers"
+        "noMatch": "No matching providers",
+        "group": {
+            "international": "International",
+            "china": "China",
+            "gateway": "Gateways and aggregators",
+            "other": "Other",
+            "custom": "Custom"
+        },
+        "models": "{{count}} models",
+        "another": "Add another",
+        "reason": {
+            "login": "Needs sign-in",
+            "transport": "Not supported yet",
+            "unsupportedAuth": "Not supported yet",
+            "needsAddress": "Needs your own address; use a custom provider"
+        },
+        "blank": {
+            "openai": {
+                "name": "OpenAI compatible",
+                "hint": "Relays, local vLLM or Ollama and the like; enter the address"
+            },
+            "anthropic": {
+                "name": "Anthropic compatible",
+                "hint": "Relays that speak the Anthropic format; enter the address"
+            },
+            "gemini": {
+                "name": "Gemini compatible",
+                "hint": "Relays that speak the Gemini format; enter the address"
+            }
+        },
+        "region": {
+            "label": "Region",
+            "global": "International",
+            "cn": "Mainland China"
+        },
+        "loading": "Loading"
     },
     "all": {
         "empty": "No enabled models",
         "provider": "Provider",
         "model": "Model",
-        "capabilities": "Capabilities"
+        "capabilities": "Capabilities",
+        "collapsed": "{{count}} models"
     },
     "roles": {
         "intro": "When a conversation has no model selected and the Profile names none, “Main” is used. A role without a model makes features using it report an error pointing here; no other model is used instead.",
@@ -342,7 +393,7 @@
         "settings-unavailable": "The settings file has errors or cannot be written; fix it first",
         "credentials-unavailable": "Could not read or write the credential store",
         "partially-applied": "Only half of it was applied; the actual state is shown",
-        "model-incomplete": "A custom model needs a context window before it can be enabled",
+        "model-incomplete": "The model needs a context window before it can be enabled",
         "unknown-provider": "This provider no longer exists",
         "unknown-model": "This model no longer exists",
         "unknown-role": "This role no longer exists",
@@ -355,6 +406,35 @@
         "unavailable": "The model service is not running",
         "unknown-outcome": "It may not have been saved; the settings are authoritative",
         "timeout": "Timed out",
+        "revision-changed": "The model list kept changing; try again shortly",
         "other": "Failed ({{code}})"
+    },
+    "header": {
+        "rename": "Rename",
+        "nameLabel": "Provider name",
+        "nameTaken": "A provider with this name already exists",
+        "duplicate": "Duplicate",
+        "duplicateTip": "Copy the settings and model overrides, including the key",
+        "keyNotCopied": "Duplicated as \"{{name}}\", but the key was not copied; enter it again.",
+        "icon": {
+            "button": "Change icon: {{name}}",
+            "title": "Provider icon",
+            "tabBuiltin": "Built-in",
+            "tabUpload": "Upload",
+            "tabInitial": "Initial",
+            "search": "Search icons",
+            "none": "No matching icons",
+            "chooseFile": "Choose an image",
+            "uploadHint": "PNG, JPEG or WebP; it is scaled to 128 px. SVG is not accepted",
+            "restore": "Restore the template icon",
+            "uploading": "Uploading",
+            "errors": {
+                "notImage": "This is not an image",
+                "readFailed": "The image could not be read",
+                "svg": "SVG is not accepted; use a bitmap",
+                "tooLarge": "Still too large after scaling",
+                "rejected": "The server rejected this image: {{detail}}"
+            }
+        }
     }
 }

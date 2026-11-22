@@ -3,7 +3,7 @@
  * “这个模型能不能用”与“哪些角色用着它”。两边用同一份，删服务商的确认与解析得到的结论一致。
  */
 
-import type {ModelConfig, ProviderConfig, RoleConfig} from "./shapes";
+import type {ModelConfig, RoleConfig} from "./shapes";
 
 /** `<服务商>/<模型>`：按第一个 `/` 切，模型 id 自己可以带 `/`（OpenRouter）。 */
 export function splitReference(reference: string): {readonly provider: string; readonly model: string} | null {
@@ -25,12 +25,12 @@ export function roleOfReference(reference: string): string | null {
 export const referenceOf = (provider: string, model: string): string => `${provider}/${model}`;
 
 /**
- * 自定义服务商的 id：由名字转成 `[a-z0-9._-]`，转不出东西（例如全是中文）时用 `custom`；与 `taken`（已添加的与目录里的）
- * 冲突时加 `-2`、`-3`（同旧应用）。
+ * 服务商的 id：由名字转成 `[a-z0-9._-]`，转不出东西（例如全是中文）时用 `provider`；与 `taken`（已添加的）冲突时加 `-2`、`-3`
+ * （同旧应用）。
  */
 export function providerIdFor(name: string, taken: ReadonlySet<string>): string {
     const slug = name.trim().toLowerCase().replace(/[^a-z0-9._-]+/gu, "-").replace(/^[^a-z0-9]+|-+$/gu, "");
-    const base = slug === "" ? "custom" : slug;
+    const base = slug === "" ? "provider" : slug;
     if (!taken.has(base)) return base;
     for (let suffix = 2; ; suffix += 1) {
         const candidate = `${base}-${String(suffix)}`;
@@ -38,9 +38,12 @@ export function providerIdFor(name: string, taken: ReadonlySet<string>): string 
     }
 }
 
-/** 自定义模型启用时缺上下文窗口（压缩要用）：不能启用、不能用。 */
-export function missingContextWindow(provider: Pick<ProviderConfig, "kind">, model: Pick<ModelConfig, "contextWindow">): boolean {
-    return provider.kind === "custom" && model.contextWindow === undefined;
+/**
+ * 启用时上下文窗口不明（压缩要用）：不能启用、不能用。`sourceWindow` 是模板目录给这个模型的窗口（没有目录行或目录没给为 null）；
+ * 手加的模型没有来源值，只看自己填的。
+ */
+export function missingContextWindow(model: Pick<ModelConfig, "contextWindow">, sourceWindow: number | null): boolean {
+    return model.contextWindow === undefined && sourceWindow === null;
 }
 
 /** 绑着这个服务商（给了模型时只看这个模型）的角色。 */

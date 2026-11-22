@@ -22,7 +22,7 @@ const server = Bun.serve({port: 0, hostname: "127.0.0.1", async fetch(request) {
     await request.text();
     return cases[current]!();
 }});
-const built = buildResolution({id: "local-test", kind: "custom", api: "openai-completions", baseUrl: `http://127.0.0.1:${server.port}/v1`, auth: "none"}, {id: "m", contextWindow: 1000}, {stored: () => null, env: {}}, () => ({maxHttpAttempts: 1}));
+const built = buildResolution({id: "local-test", template: null, follows: false, api: "openai-completions", baseUrl: `http://127.0.0.1:${server.port}/v1`, auth: "none"}, {id: "m", contextWindow: 1000}, {stored: () => null, env: {}}, {transport: () => ({maxHttpAttempts: 1})});
 if (!built.ok) throw new Error(built.code);
 for (const name of Object.keys(cases)) {
     current = name;

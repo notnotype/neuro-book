@@ -8,7 +8,7 @@ import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {DEFAULT_ROLES} from "../config/shapes";
-import type {ProviderConfig, RolesConfig} from "../config/shapes";
+import type {StoredProvider, RolesConfig} from "../config/shapes";
 import type {ConfigKey, ModelsConfigStore} from "../core/store";
 
 export interface ModelsConfigFixture {
@@ -28,9 +28,9 @@ export interface ModelsConfigFixture {
 
 export type LayerState = "unavailable" | "invalid";
 
-const provider = (id: string, name = id): ProviderConfig => ({id, kind: "custom", name, baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", auth: "default", models: []});
+const provider = (id: string, name = id): StoredProvider => ({id, kind: "custom", name, baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", auth: "default", models: []});
 /** 同一个服务商，对象的键按相反的顺序写。 */
-const reordered = (value: ProviderConfig): ProviderConfig => Object.fromEntries(Object.entries(value).reverse()) as ProviderConfig;
+const reordered = (value: StoredProvider): StoredProvider => Object.fromEntries(Object.entries(value).reverse()) as StoredProvider;
 const boundRoles = (model: string): RolesConfig => ({items: DEFAULT_ROLES.items.map((role) => (role.id === "main" ? {...role, model} : role))});
 
 /**

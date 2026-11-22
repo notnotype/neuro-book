@@ -338,7 +338,7 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
     }
 
     async function bindModels(models: RemoteUse<typeof modelsSettingsContract>, base: string) {
-        const added = await models.at("server").addProvider({source: {kind: "custom", name: "假端点", baseUrl: base, api: "openai-completions"}});
+        const added = await models.at("server").addProvider({template: "blank-openai", name: "假端点", baseUrl: base, api: "openai-completions"});
         if (!added.ok) throw new Error(JSON.stringify(added));
         const provider = added.value.id;
         expect((await models.at("server").setKey({provider, value: "sk-plot-test-not-real-0001"})).ok).toBe(true);

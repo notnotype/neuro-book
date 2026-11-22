@@ -11,7 +11,8 @@
 
 import {streamSimple, type AssistantMessage, type Context, type Message as OmpMessage, type SimpleStreamOptions, type ImageContent, type TextContent, type ThinkingContent, type Tool, type ToolCall as OmpToolCall, type ToolChoice} from "@oh-my-pi/pi-ai";
 import {clampThinkingLevelForModel, getSupportedEfforts, type Effort, type Model} from "@oh-my-pi/pi-catalog";
-import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelCallMeta, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
+import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
+import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelCallMeta, type ModelDelta, type ModelInfo, type ModelOrigin, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
 import {extractProviderRetryHint} from "@oh-my-pi/pi-ai/utils/retry-after";
 import {classifyProviderError} from "./classify.js";
 import {reasoningOf} from "./reasoning.js";
@@ -23,6 +24,25 @@ import {notify, observedFetch} from "./wire.js";
 export interface OmpTarget {
     /** OMP 的模型对象（宿主用 `resolveModel`、`defineModel` 或自己的解析得到）。 */
     readonly model: Model;
+    /**
+     * 对外的引用 `<实例 id>/<模型 id>`：回复的 `model` 用它的第一段做公开服务商。`Model.provider` 是发给 OMP 的身份（模板的 OMP id
+     * 或中性身份），同模板的两个实例相同，所以不能拿它当公开引用。不给时用 `<Model.provider>/<Model.id>`。
+     */
+    readonly name?: string;
+    /** 签发身份（见 `OmpIdentity`）；不给的目标不写 `origin`，历史回复按 `Model.provider` 判断。 */
+    readonly identity?: OmpIdentity;
+    /**
+     * 发出前核对每个请求的完整地址，返回失败说明就不发；`ompCall` 把失败按 `local` 类别、该码交回，优先于适配器自己报的通用错误
+     * （适配器见到 `fetch` 抛错只会报“请求失败”）。
+     */
+    readonly guard?: (url: URL) => OmpFetchFailure | null;
+    /** 不要认证的目标：发出前剥掉值是占位哨兵的认证头（`Authorization`、`x-api-key`、`x-goog-api-key`），不把它当密钥送出去。 */
+    readonly keyless?: boolean;
+    /**
+     * 直连：每个请求都按次关掉代理（Bun 的 `proxy: false`，盖过 `HTTP_PROXY`、`HTTPS_PROXY` 与 OMP 按服务商配的代理）。不给时照
+     * 运行时的缺省（读环境变量）。
+     */
+    readonly direct?: boolean;
     /**
      * 取密钥，每次请求取一次（凭据库是异步的，OAuth 令牌以后要刷新）；取不到时抛错或 reject，适配器在发请求前以 `auth`、
      * 码 `missing-key` 失败。只用宿主指定的来源。
@@ -40,6 +60,26 @@ export interface OmpTarget {
     /** 错误文字里 OMP 写的请求全文路径（docs/specs/harness/models.md 输出 19）。抛错的原因追加到错误文字末尾。内核不碰文件系统，由宿主删。 */
     readonly onRequestDump?: (path: string) => Promise<void>;
 }
+
+/** `OmpTarget.guard` 的失败说明；`code` 是机读的码，`message` 是遮盖不到凭据的英文开发者文字。 */
+export interface OmpFetchFailure {
+    readonly code: string;
+    readonly message: string;
+}
+
+/**
+ * 一个部署的签发身份：`deployment` 区分实例与它当时的地址、协议；`credential` 只有签名绑定凭据的协议才给；`legacyProvider` 是
+ * 没有 `origin` 的旧日志里 `model` 的第一段应有的值（旧运行时用实例 id 当 `Model.provider`）。
+ */
+export interface OmpIdentity {
+    readonly deployment: string;
+    readonly credential?: string;
+    readonly legacyProvider: string;
+}
+
+/** 认证头：免认证时它们的值是哨兵，不能真的发出去。 */
+const AUTH_HEADERS = ["authorization", "x-api-key", "x-goog-api-key"] as const;
+const isSentinel = (value: string | null): boolean => value === NO_AUTH_SENTINEL || value === `Bearer ${NO_AUTH_SENTINEL}`;
 
 /** 请求的传输（docs/specs/harness/models.md 输出 18）。超时的 0 表示不计时。 */
 export interface OmpTransport {
@@ -67,9 +107,9 @@ function firstEventWatch(parent: AbortSignal, timeoutMs: number | undefined): {r
 /** 请求头的值至少这么长才进遮盖：短值（`writing` 这类标记）不像凭据，遮了反而把错误正文里的普通词换掉。 */
 const SECRET_HEADER_MIN = 8;
 
-export function ompModelInfo(model: Model): ModelInfo {
+export function ompModelInfo(model: Model, name?: string): ModelInfo {
     return {
-        id: `${model.provider}/${model.id}`,
+        id: name ?? `${model.provider}/${model.id}`,
         contextWindow: model.contextWindow ?? 0,
         ...(model.maxTokens ? {maxOutput: model.maxTokens} : {}),
         capabilities: {vision: model.input.includes("image"), thinking: model.reasoning},
@@ -182,21 +222,38 @@ function mergeAdjacentUsers(messages: OmpMessage[]): OmpMessage[] {
     return merged;
 }
 
-function toContext(request: ModelRequest, model: Model, now: number): Context {
+/**
+ * 这条历史回复的思考签名与服务商元数据能不能原样送回：有 `origin` 时整组（OMP 身份、协议、作答的模型、部署、凭据）相同才行；旧日志
+ * 没有 `origin`，按旧运行时的规则，`model` 的第一段是同一个实例 id（模型 id 照历史交给 OMP，由它按模型再判一次）。目标没有
+ * `identity` 时（直接用 OMP 模型的宿主）退回 `Model.provider`。
+ */
+function restorable(message: Message, model: Model, identity: OmpIdentity | undefined): boolean {
+    const origin = message.origin;
+    if (origin !== undefined) {
+        if (origin.provider !== model.provider || origin.api !== model.api || origin.model !== model.id) return false;
+        return identity === undefined || (origin.deployment === identity.deployment && (origin.credential ?? null) === (identity.credential ?? null));
+    }
+    if (message.model === undefined) return true;
+    return message.model.split("/")[0] === (identity?.legacyProvider ?? model.provider);
+}
+
+function toContext(request: ModelRequest, model: Model, now: number, identity?: OmpIdentity): Context {
     const names = new Map(request.tools.map((tool) => [tool.id, providerToolName(tool)] as const));
     const toolOfCall = new Map<string, string>();
     const messages: OmpMessage[] = request.messages.map((message: Message): OmpMessage => {
         if (message.role === "user") return {role: "user", content: textAndImages(message.content, model.input.includes("image")), timestamp: now};
         if (message.role === "assistant") {
             for (const call of message.toolCalls ?? []) toolOfCall.set(call.id, call.tool);
-            const [provider, ...rest] = (message.model ?? `${model.provider}/${model.id}`).split("/");
+            const same = restorable(message, model, identity);
+            const [first, ...rest] = (message.model ?? `${model.provider}/${model.id}`).split("/");
             return {
                 role: "assistant",
                 content: assistantContent(message.content, message.toolCalls ?? [], names),
-                // 同一个服务商时沿用当前的 api：OMP 按服务商与 api 是否相同决定思考签名要不要原样送回。
-                api: provider === model.provider ? model.api : "unknown",
-                provider: provider ?? model.provider,
-                model: rest.join("/"),
+                // 能还原时沿用当前的身份与 api：OMP 按服务商与 api 是否相同决定思考签名要不要原样送回；不能还原时 api 写 unknown。
+                api: same ? model.api : "unknown",
+                provider: same ? model.provider : message.origin?.provider ?? first ?? model.provider,
+                // 有 `origin` 且整组相同时就是这个模型；旧日志只核对了实例，交出历史里真正作答的模型 id，让 OMP 换了模型时不送签名。
+                model: same && message.origin !== undefined ? model.id : message.origin?.model ?? (rest.length > 0 ? rest.join("/") : model.id),
                 usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
                 stopReason: (message.toolCalls?.length ?? 0) > 0 ? "toolUse" : "stop",
                 timestamp: now,
@@ -245,7 +302,8 @@ function fromOmpContent(message: AssistantMessage, toolIds: ReadonlyMap<string, 
 
 /** 模型端口的 `call`：一次逻辑请求。失败不抛错，以 `stopReason: "error"`（或 `aborted`）的回复交回。 */
 export function ompCall(target: OmpTarget): (request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta) => Promise<ModelResponse> {
-    const modelName = `${target.model.provider}/${target.model.id}`;
+    const modelName = target.name ?? `${target.model.provider}/${target.model.id}`;
+    const publicProvider = modelName.split("/")[0] ?? target.model.provider;
     return async (request, signal, onDeltaToHost, meta) => {
         const observer = meta?.observe;
         let contentSeen = false;
@@ -288,14 +346,34 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         let context: Context;
         try {
             const vision = target.model.input.includes("image");
-            context = toContext(vision && lacksWebp(target.model) ? await withoutWebp(request) : request, target.model, Date.now());
+            context = toContext(vision && lacksWebp(target.model) ? await withoutWebp(request) : request, target.model, Date.now(), target.identity);
         } catch (error) {
             if (error instanceof UnsupportedContent) return failed("local", error.message, {code: "unsupported-content"});
             throw error;
         }
         const toolIds = new Map(request.tools.map((tool) => [providerToolName(tool), tool.id] as const));
         let requests = 0;
-        const observed = observedFetch(fetch, observer, secrets);
+        /** 发出前的核对失败（地址不符）：适配器只会把它报成通用的“请求失败”，在这里记下，之后优先交出。 */
+        const wire: {blocked: OmpFetchFailure | null} = {blocked: null};
+        /** 拦下之后整次调用就此结束：有的协议（Anthropic）会对抛错的请求按退避重试十来次，本地拦下的没有重试的意义。 */
+        const stopOnBlock = new AbortController();
+        const guarded = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+            const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            const problem = target.guard?.(new URL(href)) ?? null;
+            if (problem !== null) {
+                wire.blocked ??= problem;
+                stopOnBlock.abort();
+                throw new Error(problem.message);
+            }
+            const headers = new Headers(input instanceof Request ? input.headers : undefined);
+            if (init?.headers !== undefined) new Headers(init.headers).forEach((value, name) => headers.set(name, value));
+            // 只剥适配器垫的占位值本身（或 `Bearer <占位>`）：用户自己配的同名头哪怕含有同样的字符也照发。
+            if (target.keyless === true) for (const name of AUTH_HEADERS) if (isSentinel(headers.get(name))) headers.delete(name);
+            // 重定向交给调用方改地址，不替它跟随：跟随会把密钥带到没核对过的地址（docs/specs/harness/models.md）。
+            // `proxy: false` 是 Bun 的按次直连（1.4.3 起），类型声明里没有 `false` 这一项。
+            return fetch(input, {...init, headers, redirect: "error", ...(target.direct === true ? {proxy: false as unknown as string} : {})});
+        }) as typeof fetch;
+        const observed = observedFetch(guarded, observer, secrets);
         const counted = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
             requests += 1;
             return observed(input, init);
@@ -314,7 +392,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         const firstEvent = firstEventWatch(signal, transport?.firstEventTimeoutMs);
         const options: SimpleStreamOptions = {
             apiKey,
-            signal: firstEvent.signal,
+            signal: AbortSignal.any([firstEvent.signal, stopOnBlock.signal]),
             fetch: counted,
             onSseEvent: (event) => watch.observe(event),
             ...(observer?.payload === undefined ? {} : {onPayload: (payload: unknown) => {
@@ -360,10 +438,12 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             // 建流时抛错或流 reject：没有结构化的错误信息，归为 provider（中止归 aborted），不按文字猜。
             firstEvent.seen();
             if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...EMPTY_USAGE, complete: false}, model: modelName};
+            if (wire.blocked !== null) return failed("local", wire.blocked.message, {code: wire.blocked.code});
             if (firstEvent.expired()) return firstEventFailed();
             return failed("provider", await providerText(error instanceof Error ? error.message : String(error)), {usage: {...EMPTY_USAGE, complete: false}});
         }
         firstEvent.seen();
+        if (wire.blocked !== null && !signal.aborted) return failed("local", wire.blocked.message, {code: wire.blocked.code});
         if (firstEvent.expired() && !signal.aborted) return firstEventFailed();
         const usage: Usage = {
             input: message.usage.input,
@@ -375,8 +455,16 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             complete: requests <= 1 && message.stopReason !== "aborted" && !signal.aborted,
         };
         const {content, toolCalls} = fromOmpContent(message, toolIds);
-        const answeredBy = message.provider && message.model ? `${message.provider}/${message.model}` : modelName;
-        const base = {content, toolCalls, usage, model: answeredBy, ...(message.responseId === undefined ? {} : {responseId: message.responseId})};
+        const answeredBy = message.model ? `${publicProvider}/${message.model}` : modelName;
+        const identity = target.identity;
+        const origin: ModelOrigin | undefined = identity === undefined ? undefined : {
+            provider: message.provider || target.model.provider,
+            api: message.api || target.model.api,
+            model: message.model || target.model.id,
+            deployment: identity.deployment,
+            ...(identity.credential === undefined ? {} : {credential: identity.credential}),
+        };
+        const base = {content, toolCalls, usage, model: answeredBy, ...(origin === undefined ? {} : {origin}), ...(message.responseId === undefined ? {} : {responseId: message.responseId})};
         switch (message.stopReason) {
             case "error": {
                 const {kind, status, retryable, code} = classifyProviderError(message);

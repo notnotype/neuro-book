@@ -4,7 +4,7 @@
 
 export {runModelsConfigStoreContract} from "./store-contract";
 export type {LayerState, ModelsConfigFixture} from "./store-contract";
-export {memoryModelsConfig} from "./memory-store";
+export {memoryIconStore, memoryModelsConfig} from "./memory-store";
 export type {MemoryModelsConfig, MemoryModelsConfigOptions} from "./memory-store";
 export {startFakeOpenAiEndpoint} from "./fake-endpoint";
 export type {FakeOpenAiEndpoint} from "./fake-endpoint";

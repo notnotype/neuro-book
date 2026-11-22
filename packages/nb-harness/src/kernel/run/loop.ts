@@ -384,6 +384,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 stopReason: response.stopReason,
                 usage: response.usage,
                 model: response.model,
+                ...(response.origin === undefined ? {} : {origin: response.origin}),
                 ...(computed.request.effort === undefined ? {} : {effort: computed.request.effort}),
                 ...(response.responseId === undefined ? {} : {responseId: response.responseId}),
             } as unknown as JsonValue}]);

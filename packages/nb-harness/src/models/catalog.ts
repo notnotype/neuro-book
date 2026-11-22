@@ -44,10 +44,35 @@ export const THINKING_EFFORTS: readonly ThinkingEffort[] = ["minimal", "low", "m
  */
 export type ProviderAccess = "keyless" | "login" | "key" | "unsupported";
 
+/**
+ * 能当对话模型用的线协议（模型清单只收这些，embedding、图片、语音、检索等不进）。OMP 给 OpenRouter 的复合协议 `openrouter` 在
+ * 这里换成它实际走的显式协议：服务端进程的环境变量 `PI_OPENROUTER_RESPONSES` 为 `0` 时是 Chat Completions，否则是 Responses
+ * （与 pi-ai 自己的判断相同，升级前设了这个变量的用户照旧）。物化之后模型带的是显式协议，请求时不再随环境变量变。
+ */
+export type WireApi = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+
+export function wireApiOf(api: string): WireApi | null {
+    switch (api) {
+        case "openai-completions":
+        case "openai-responses":
+        case "anthropic-messages":
+        case "google-generative-ai":
+            return api;
+        case "openrouter":
+            return process.env.PI_OPENROUTER_RESPONSES === "0" ? "openai-completions" : "openai-responses";
+        default:
+            return null;
+    }
+}
+
 export interface CatalogModel {
     readonly id: string;
     readonly name: string;
     readonly api: string;
+    /** 对话用的显式协议；不是对话模型（embedding、图片等）或走 `fetch` 之外的传输时为 null。 */
+    readonly wire: WireApi | null;
+    /** 对话类模型（不是图片生成、裁判等独立的模型）。 */
+    readonly chat: boolean;
     /** 目录给的接口地址。 */
     readonly baseUrl: string;
     readonly contextWindow: number | null;
@@ -116,6 +141,9 @@ export function catalogModel(model: Model): CatalogModel {
         id: model.id,
         name: model.name,
         api: model.api,
+        wire: wireApiOf(model.api),
+        // 同一个 HTTP 协议也用来跑图片生成、裁判这类独立的模型：只有对话类的才进模型清单（`kind` 缺省是对话）。
+        chat: (model.kind ?? "chat") === "chat",
         baseUrl: model.baseUrl,
         contextWindow: positiveOrNull(model.contextWindow),
         maxTokens: positiveOrNull(model.maxTokens),
@@ -238,4 +266,35 @@ export async function discoverModels(options: DiscoverModelsOptions): Promise<Di
     if (status === 404) return {state: "not_supported", status};
     if (status === 401 || status === 403) return {state: "auth", status};
     return {state: "failed", status, message: status >= 200 && status < 300 ? "回应不是模型列表" : `服务回了 ${status}`};
+}
+
+/** 这家服务商打包目录里的对话模型（对话类、走 `fetch` 的显式协议）。 */
+export function chatModels(provider: string): readonly CatalogModel[] {
+    return listCatalog().find((item) => item.id === provider)?.models.filter((model) => model.wire !== null && model.chat) ?? [];
+}
+
+/**
+ * 打包目录里有、但不能当对话模型发的行为什么不行：不是对话类（图片生成、裁判……），或传输不走 HTTP 请求（Bedrock、Cursor、Codex）。
+ * 目录里没有这一行，或它能发，为 null。
+ */
+export function unsendableReason(provider: string, id: string): "not-chat" | "transport" | null {
+    const row = listCatalog().find((item) => item.id === provider)?.models.find((model) => model.id === id);
+    if (row === undefined) return null;
+    if (!row.chat) return "not-chat";
+    return row.wire === null ? "transport" : null;
+}
+
+/**
+ * 这家服务商各协议的对话地址：同一协议下取多数模型用的那个（混合协议的服务商，如 OpenCode Zen，各协议的地址不同）。地址里带
+ * 占位（`{region}`、`<account>`）的不给，要用户自己填。
+ */
+export function templateRoutes(provider: string): ReadonlyArray<{readonly api: WireApi; readonly baseUrl: string}> {
+    const counts = new Map<WireApi, Map<string, number>>();
+    for (const model of chatModels(provider)) {
+        if (model.wire === null || /[{}<>]/u.test(model.baseUrl) || model.baseUrl === "") continue;
+        const urls = counts.get(model.wire) ?? new Map<string, number>();
+        urls.set(model.baseUrl, (urls.get(model.baseUrl) ?? 0) + 1);
+        counts.set(model.wire, urls);
+    }
+    return [...counts].map(([api, urls]) => ({api, baseUrl: [...urls].sort((a, b) => b[1] - a[1])[0]![0]}));
 }

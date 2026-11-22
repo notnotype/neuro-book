@@ -4,7 +4,7 @@
 
 # ManageModelsDialog
 
-“管理模型”对话框（[`models/settings-pages.md`](../../../../../../../docs/specs/models/settings-pages.md) 输出 10），参照 Cherry Studio 的“管理”。目录服务商列 OMP 目录里这家的模型，自定义服务商列拉取 `/models` 的结果（可“重新拉取”）；按系列分组，可搜索名称与 id。每行右边“+”加入、“−”移出，改动留在对话框里，“完成”时把加入的候选与移出的 id 一次经 `done` 交出，没有改动时直接关掉。缺字段的候选标“要补字段”（加入后停用，在编辑对话框里补）。移出被角色用着的模型时行下先确认，列出会变成未绑定的角色。读候选失败时原位写原因（没有密钥、不支持、鉴权失败、连不上）。
+“管理模型”对话框（[`models/settings-pages.md`](../../../../../../../docs/specs/models/settings-pages.md) 输出 10），参照 Cherry Studio 的“管理”。模板服务商列打包目录里这家的全部对话模型（在列表里的，与不在的：移出过的、关着自动加入时没加过的），空白模板的服务商列拉取 `/models` 的结果（可“重新拉取”）；按系列分组，可搜索名称与 id，一次至多画 200 行，多出的写“还有 N 条，缩小搜索词”（`data-manage-more`）。每行右边“+”加入、“−”移出，改动留在对话框里，“完成”时把加入的候选与移出的 id 一次经 `done` 交出，没有改动时直接关掉。缺字段的候选标“要补字段”（加入后停用，在编辑对话框里补）。移出被角色用着的模型时行下先确认，列出会变成未绑定的角色。读候选失败时原位写原因（没有密钥、不支持、鉴权失败、连不上）。
 
 ## 数据
 
@@ -13,7 +13,7 @@ interface ModelCandidate {id: string; name: string; vision: boolean; reasoning: 
 defineProps<{
     open: boolean;                                         // 受控；每次打开从 current 重来
     providerName: string;
-    discoverable?: boolean;                                // 有“重新拉取”，缺省 false
+    discoverable?: boolean;                                // 有“重新拉取”（空白模板的服务商），缺省 false
     candidates: readonly ModelCandidate[] | null;          // null 是还在读
     current: readonly string[];                            // 列表里已有的 id
     roleUsage?: ReadonlyMap<string, readonly string[]>;    // 缺省空

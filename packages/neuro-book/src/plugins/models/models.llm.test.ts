@@ -37,7 +37,8 @@ describe.skipIf(config === null)("模型服务接真实模型", () => {
         // 密钥只进场地的启动环境，不写进设置与凭据库。
         world = await modelsWorld(join(root, "world"), {env: {[config!.apiKeyEnv]: config!.apiKey}});
         const client = await world.window("w");
-        ok(await client.addProvider({source: {kind: "catalog", id: provider}}));
+        // 名称用模板 id：实例 id 由名称生成，与配置里的引用 `<服务商>/<模型>` 对得上。
+        ok(await client.addProvider({template: provider, name: provider}));
         if (config!.baseUrl !== null) ok(await client.updateProvider({id: provider, patch: {baseUrl: config!.baseUrl}}));
         expect(ok(await client.setKey({provider, value: `env:${config!.apiKeyEnv}`}))).toEqual({kind: "env", name: config!.apiKeyEnv, found: true});
         ok(await client.upsertModel({provider, model: {id: model, enabled: true}}));

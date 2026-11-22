@@ -3,8 +3,8 @@
  * 东西，能在 Lab 里直接摆。文字在这里按界面语言翻好。
  */
 
-import {builtinRoleNameKey, hasCredentials, modelsText, roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
-import type {ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "nbook/plugins/models/shared/contracts";
+import {builtinRoleNameKey, modelsText, roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot, SelectionRow, SnapshotRole} from "nbook/plugins/models/shared/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ProfileEntry, ProfileProblem, ToolCatalogEntry} from "../shared/contracts";
@@ -138,8 +138,6 @@ export interface ProfileView {
     readonly stickers: ProfileToolsField | null;
 }
 
-const usable = (provider: SnapshotProvider, model: SnapshotModel): boolean => hasCredentials(provider) && model.enabled && model.status === "ok";
-
 /** 缺口的一句话；没有缺口时空串。设置页与对话的输入框上方共用。 */
 export function modelNeedsText(needs: ProfileEntry["modelNeeds"], model: ModelCapabilities, text: TextResolver): string {
     const line = (gap: ModelNeedGap): string => (gap.kind === "context" ? text.t(agentText("profiles.needs.context", {need: gap.need, have: gap.have})) : text.t(agentText(`profiles.needs.${gap.kind}`)));
@@ -152,15 +150,13 @@ function roleName(role: SnapshotRole, text: TextResolver): string {
     return role.name === "" ? role.id : role.name;
 }
 
-function findModel(snapshot: ModelsSnapshot, reference: string): {readonly provider: SnapshotProvider; readonly model: SnapshotModel} | null {
-    for (const provider of snapshot.providers) {
-        const model = provider.models.find((candidate) => `${provider.id}/${candidate.id}` === reference);
-        if (model !== undefined) return {provider, model};
-    }
-    return null;
+/** 选用数据：能选的模型（有凭据、启用、可用）与按引用取到的行（含用不了的，没有这个模型时为 null）。 */
+export interface ProfileModels {
+    readonly rows: readonly SelectionRow[];
+    readonly lookup: ReadonlyMap<string, ModelRow | null>;
 }
 
-function modelField(entry: ProfileEntry, setting: ProfileSetting | undefined, snapshot: ModelsSnapshot | null, modelsFailed: boolean, text: TextResolver): ProfileModelField {
+function modelField(entry: ProfileEntry, setting: ProfileSetting | undefined, snapshot: ModelsSnapshot | null, selection: ProfileModels, modelsFailed: boolean, text: TextResolver): ProfileModelField {
     const value = modelChoiceOf(setting);
     const follow: ProfileOption = {value: FOLLOW_MODEL, label: text.t(agentText("profiles.model.follow"))};
     if (snapshot === null) {
@@ -175,30 +171,32 @@ function modelField(entry: ProfileEntry, setting: ProfileSetting | undefined, sn
     }
     const followRole = snapshot.roles.find((role) => role.id === (entry.role ?? DEFAULT_ROLE));
     const followName = followRole === undefined ? (entry.role ?? DEFAULT_ROLE) : roleName(followRole, text);
-    const modelName = (reference: string | null): string | undefined => (reference === null ? undefined : findModel(snapshot, reference)?.model.name ?? reference);
+    /** 按引用取到的行；`undefined` 是还在取（这时不报“模型不在了”，免得一闪而过的误报），null 是确认没有。 */
+    const findModel = (reference: string): ModelRow | null | undefined => selection.lookup.get(reference);
+    const providerName = new Map(snapshot.providers.map((provider) => [provider.id, provider.name] as const));
+    const modelName = (reference: string | null): string | undefined => (reference === null ? undefined : findModel(reference)?.name ?? reference);
     const roles = snapshot.roles.map((role): ProfileOption => ({
         value: roleReference(role.id),
         label: roleName(role, text),
         description: modelName(role.model) ?? text.t(agentText("profiles.model.unbound")),
         iconClass: "i-lucide-layers",
     }));
-    const models = snapshot.providers.flatMap((provider) => provider.models
-        .filter((model) => usable(provider, model))
-        .map((model): ProfileOption => ({value: `${provider.id}/${model.id}`, label: model.name, description: provider.name})));
+    const models = selection.rows.map((row): ProfileOption => ({value: `${row.provider}/${row.id}`, label: row.name, description: providerName.get(row.provider) ?? row.provider}));
     const options: ProfileOption[] = [{...follow, ...(followRole === undefined ? {} : {description: followName})}, ...roles, ...models];
 
     // 解析顺序同服务端（agent.ts 的 `profileDefaults`）：模型，否则设置的角色、声明的角色。用不了的只说用不了，不说缺什么。
     const problem = ((): string | null => {
-        const gaps = (found: {readonly model: SnapshotModel} | null): string | null => (found === null ? null : modelNeedsText(entry.modelNeeds, found.model, text) || null);
+        const gaps = (found: ModelRow | null | undefined): string | null => (found === null || found === undefined ? null : modelNeedsText(entry.modelNeeds, found, text) || null);
         const direct = setting?.model;
         if (direct !== undefined) {
-            const found = findModel(snapshot, direct);
-            return found !== null && usable(found.provider, found.model) ? gaps(found) : text.t(agentText("profiles.model.modelGone"));
+            const found = findModel(direct);
+            if (found === undefined) return null;
+            return found !== null && found.usable ? gaps(found) : text.t(agentText("profiles.model.modelGone"));
         }
         const id = setting?.role ?? entry.role ?? DEFAULT_ROLE;
         const role = snapshot.roles.find((candidate) => candidate.id === id);
         if (role === undefined) return text.t(agentText("profiles.model.roleGone"));
-        if (role.status === "ok") return gaps(role.model === null ? null : findModel(snapshot, role.model));
+        if (role.status === "ok") return gaps(role.model === null ? null : findModel(role.model));
         return text.t(agentText(role.status === "unbound" ? "profiles.model.roleUnbound" : "profiles.model.roleBroken", {role: roleName(role, text)}));
     })();
     // 绑着的现在选不到时补一个停用的项：下拉里还看得到绑的是谁，同模型角色页。
@@ -522,6 +520,8 @@ export interface ProfileViewsInput {
     readonly settings: Readonly<Record<string, ProfileSetting>>;
     /** 还没取到或模型服务不在时为 null。 */
     readonly snapshot: ModelsSnapshot | null;
+    /** 选用数据（见 `ProfileModels`）。 */
+    readonly models: ProfileModels;
     readonly modelsFailed: boolean;
     /** 别的插件的显示名。 */
     readonly pluginName: (plugin: string) => string;
@@ -557,7 +557,7 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             hidden: entry.hidden === true,
             user,
             notice: entry.problem === undefined ? null : problemNotice(entry, entry.problem, text),
-            model: modelField(entry, setting, input.snapshot, input.modelsFailed, text),
+            model: modelField(entry, setting, input.snapshot, input.models, input.modelsFailed, text),
             approval: entry.hidden === true ? null : approvalField(setting, text),
             tools: toolsField(entry, input),
             agents: agentsField(entry, input),

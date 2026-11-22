@@ -27,4 +27,4 @@ export type ProductStage = "canary" | "preview" | "stable";
 export const PRODUCT_STAGE: ProductStage = "canary";
 
 /** 支持的 Bun 版本范围，与包 `package.json` 的 `engines.bun` 相同。`npm` 与 `bun add` 都不拦低版本，`nbook` 入口自己核对。 */
-export const BUN_ENGINE = ">=1.3.14";
+export const BUN_ENGINE = ">=1.4.4";

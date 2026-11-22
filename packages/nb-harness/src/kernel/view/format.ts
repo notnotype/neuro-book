@@ -137,11 +137,11 @@ export function createFormat(sources: RenderSources, override: RenderTable = {})
             const content: RequestBlock[] = overridden !== undefined
                 ? [block(overridden, origin)]
                 : reply.data.content.map((item) => ({...item, origin}) as RequestBlock);
-            return {role: "assistant", content, ...(reply.data.toolCalls.length === 0 ? {} : {toolCalls: reply.data.toolCalls}), model: reply.data.model};
+            return {role: "assistant", content, ...(reply.data.toolCalls.length === 0 ? {} : {toolCalls: reply.data.toolCalls}), model: reply.data.model, ...(reply.data.origin === undefined ? {} : {origin: reply.data.origin})};
         },
         assistantText(reply: ReplyEvent): Message | null {
             const text = textOf(reply);
-            return text === null || text === "" ? null : {role: "assistant", content: [block(text, originOf(reply))], model: reply.data.model};
+            return text === null || text === "" ? null : {role: "assistant", content: [block(text, originOf(reply))], model: reply.data.model, ...(reply.data.origin === undefined ? {} : {origin: reply.data.origin})};
         },
         tool(result: ToolResultEvent): Message {
             const origin = originOf(result);

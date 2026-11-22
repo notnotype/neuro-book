@@ -50,7 +50,7 @@
     },
     "empty": {
         "title": "还没有服务商",
-        "description": "添加一家服务商并填上密钥，写作助手才能调用模型。本机的 Ollama、LM Studio 也在目录里；中转站选“自定义 OpenAI 兼容服务商”。"
+        "description": "添加一家服务商并填上密钥，写作助手才能调用模型。中转站与本机的 Ollama、LM Studio、vLLM 选“自定义”里的“OpenAI 兼容”。"
     },
     "remove": {
         "button": "删除服务商",
@@ -77,8 +77,8 @@
         "url": {
             "label": "接口地址",
             "hint": "请求发到 {{url}}",
-            "restore": "恢复目录地址",
-            "overridden": "已改成别的地址；目录地址是 {{url}}。模型的能力与单价仍按目录。",
+            "restore": "恢复模板地址",
+            "overridden": "已改成别的地址；模板的地址是 {{url}}。模型的能力与单价仍按模板的目录。",
             "invalid": "地址要以 http:// 或 https:// 开头"
         },
         "api": {
@@ -96,6 +96,13 @@
         "headers": {
             "label": "请求头",
             "hint": "每个请求都带上；模型可以在编辑对话框里另加或覆盖同名的"
+        },
+        "protocol": {
+            "note": "改了接口格式或地址以后，请求按通用协议发送，不再带这家服务商的专用处理。",
+            "changed": "已改，模板是 {{value}}"
+        },
+        "region": {
+            "label": "地区"
         }
     },
     "headers": {
@@ -127,13 +134,27 @@
         "incomplete": "缺上下文窗口",
         "incompleteTip": "要补上下文窗口才能启用",
         "missing": "目录里没有了",
+        "unsupported": "不能当对话模型用",
         "priceUnknown": "单价未知",
         "free": "免费",
         "price": "${{input}} / ${{output}}",
         "confirmDisable": "停用后这些角色用不了它：{{roles}}。",
         "confirmDisableAction": "停用",
         "cancel": "取消",
-        "enabled": "{{count}} 个启用"
+        "enabled": "{{count}} 个启用",
+        "follow": {
+            "label": "服务商新出的模型自动加入",
+            "hint": "打包目录里新增的模型自动出现在列表里；关掉后列表保持现在这样。"
+        },
+        "search": "搜索模型名或 id",
+        "more": "还有 {{count}} 条，缩小搜索词",
+        "noMatch": "没有匹配的模型",
+        "loading": "读取模型中",
+        "loadFailed": "读取模型失败：{{reason}}",
+        "retry": "重试",
+        "edited": "已改",
+        "manual": "手动添加",
+        "restoreSource": "恢复来源值"
     },
     "check": {
         "ok": "检测通过",
@@ -223,25 +244,55 @@
     "add": {
         "title": "添加服务商",
         "search": "搜索服务商",
-        "catalog": "OMP 目录",
         "added": "已添加",
         "keyless": "不要密钥",
-        "login": "要登录，第一版不支持",
-        "unsupported": "不支持",
-        "other": "其它",
-        "custom": "自定义 OpenAI 兼容服务商",
-        "customHint": "中转站、火山方舟、本机的 vLLM 等，填地址与接口格式",
         "customName": "名称",
         "customUrl": "接口地址",
         "create": "添加",
         "back": "返回",
-        "noMatch": "没有匹配的服务商"
+        "noMatch": "没有匹配的服务商",
+        "group": {
+            "international": "国际",
+            "china": "国内",
+            "gateway": "聚合与网关",
+            "other": "其他",
+            "custom": "自定义"
+        },
+        "models": "{{count}} 个模型",
+        "another": "再添加一份",
+        "reason": {
+            "login": "要登录",
+            "transport": "暂不支持",
+            "unsupportedAuth": "暂不支持",
+            "needsAddress": "要自己填地址，请用自定义"
+        },
+        "blank": {
+            "openai": {
+                "name": "OpenAI 兼容",
+                "hint": "中转站、本机的 vLLM 与 Ollama 等，填地址"
+            },
+            "anthropic": {
+                "name": "Anthropic 兼容",
+                "hint": "Anthropic 格式的中转站，填地址"
+            },
+            "gemini": {
+                "name": "Gemini 兼容",
+                "hint": "Gemini 格式的中转站，填地址"
+            }
+        },
+        "region": {
+            "label": "地区",
+            "global": "国际",
+            "cn": "中国大陆"
+        },
+        "loading": "读取中"
     },
     "all": {
         "empty": "没有启用的模型",
         "provider": "服务商",
         "model": "模型",
-        "capabilities": "能力"
+        "capabilities": "能力",
+        "collapsed": "{{count}} 个模型"
     },
     "roles": {
         "intro": "对话里没选模型、Profile 也没指定时用“主力”。角色没绑模型时，用到它的功能会报错并指向这一页，不会换用别的模型。",
@@ -340,7 +391,7 @@
         "settings-unavailable": "设置文件有错或写不进去，先修好设置文件",
         "credentials-unavailable": "凭据库读写失败",
         "partially-applied": "只完成了一半，已按实际状态显示",
-        "model-incomplete": "自定义模型启用前要填上下文窗口",
+        "model-incomplete": "模型启用前要填上下文窗口",
         "unknown-provider": "这家服务商已经不在了",
         "unknown-model": "这个模型已经不在了",
         "unknown-role": "这个角色已经不在了",
@@ -353,6 +404,35 @@
         "unavailable": "模型服务没有运行",
         "unknown-outcome": "可能没有保存，以设置为准",
         "timeout": "超时了",
+        "revision-changed": "模型列表一直在变，稍后再试",
         "other": "失败了（{{code}}）"
+    },
+    "header": {
+        "rename": "改名",
+        "nameLabel": "服务商名称",
+        "nameTaken": "已有同名服务商",
+        "duplicate": "复制一份",
+        "duplicateTip": "复制配置与模型设置；密钥一并复制",
+        "keyNotCopied": "已复制为“{{name}}”，但密钥没有复制成功，请重新填写。",
+        "icon": {
+            "button": "更换图标：{{name}}",
+            "title": "服务商图标",
+            "tabBuiltin": "内置",
+            "tabUpload": "上传",
+            "tabInitial": "首字母",
+            "search": "搜索图标",
+            "none": "没有匹配的图标",
+            "chooseFile": "选择图片",
+            "uploadHint": "PNG、JPEG、WebP 都行，会缩成 128 像素；不收 SVG",
+            "restore": "恢复模板的图标",
+            "uploading": "上传中",
+            "errors": {
+                "notImage": "这不是图片",
+                "readFailed": "读取图片失败",
+                "svg": "不收 SVG，请换成位图",
+                "tooLarge": "缩小后仍然太大",
+                "rejected": "服务端没有接受这张图：{{detail}}"
+            }
+        }
     }
 }

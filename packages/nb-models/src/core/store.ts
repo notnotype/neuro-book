@@ -4,7 +4,7 @@
  */
 
 import type {CompactionSetting} from "../config/compaction";
-import type {ProviderConfig, RolesConfig} from "../config/shapes";
+import type {RolesConfig, StoredProvider} from "../config/shapes";
 
 /**
  * 一次写入的结果。`conflict`：可写那一层的当前值不是 `expect` 给的（可以带说明）；`invalid-value`：值不符合形状；其余失败带
@@ -36,7 +36,8 @@ export interface ConfigSlot<T> {
 export type ConfigKey = "providers" | "roles" | "compaction";
 
 export interface ModelsConfigStore {
-    readonly providers: ConfigSlot<ProviderConfig[]>;
+    /** 设置里存着的值：新旧两种形状都可能出现，读的人先归一（`normalizeProviders`）。 */
+    readonly providers: ConfigSlot<StoredProvider[]>;
     readonly roles: ConfigSlot<RolesConfig>;
     /** 全局的压缩触发点；服务不写它。 */
     compaction(): CompactionSetting;

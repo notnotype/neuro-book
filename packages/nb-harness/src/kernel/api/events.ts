@@ -4,7 +4,7 @@
  */
 
 import type {Actor, Issuer, JsonValue, Scope, UserInput} from "./basics.js";
-import type {ContentBlock, ModelErrorKind, RequestPurpose, StopReason, Usage} from "./model.js";
+import type {ContentBlock, ModelErrorKind, ModelOrigin, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {ToolCall, ToolImage, ToolStatus} from "./tool.js";
 
 // ====================================================================
@@ -171,6 +171,7 @@ export interface KernelEvents {
         stopReason: Exclude<StopReason, "error" | "aborted">;
         usage: Usage;
         model: string;
+        origin?: ModelOrigin;
         effort?: string;
         responseId?: string;
     }>;
@@ -197,7 +198,7 @@ export interface KernelEvents {
         modifiedBy: readonly {extension: string; fields: readonly string[]}[];
     }>;
     /** 非对话的请求（审批、压缩、后台）成功时写；对话请求的成功就是 `assistant`。 */
-    modelEnded: K<"path", "ctrl", {request: number; purpose: Exclude<RequestPurpose, "turn">; stopReason: StopReason; usage: Usage; model: string}>;
+    modelEnded: K<"path", "ctrl", {request: number; purpose: Exclude<RequestPurpose, "turn">; stopReason: StopReason; usage: Usage; model: string; origin?: ModelOrigin}>;
     /** `aborted`：用户中止；`interrupted`：进程中断后恢复时写。 */
     modelFailed: K<"path", "ctrl", {
         request: number;
