@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t43-models-ux
-status: planned
-updated: 2026-11-21
+status: active
+updated: 2026-11-22
 ---
 
 # 服务商、模型角色与模型选择器的体验改进
@@ -114,6 +114,20 @@ updated: 2026-11-21
 
 段 A（推理档与选择器）：2026-11-20 合入 master（提交 84b810ad1）。实现审查后端 omp 8 条、前端 Sonnet 15 条，全部核实并处理（[处理](evidences/impl-review-a-disposition.md)，报告 [后端](evidences/impl-review-a-backend-omp.txt)、[前端](evidences/impl-review-a-frontend-sonnet.txt)）；四个包类型检查、`test:affected --since master`、e2e（models、agent-conversation、lab-agent-ui 共 79 条）通过，`lab-scenes` 的 ThemeEditor 404 是分支起点上就有的失败。Spec 与 ADR 0057 同日提交。证据：[`evidences/a1-reasoning.txt`](evidences/a1-reasoning.txt)。
 
+段 B1（模板与身份）：2026-11-22 合入 master（合并提交 63516eb7e）。合入前的验证：五个包的类型检查、`test:affected --since master`、e2e（models、settings、agent-conversation、agent-request-trace、lab-agent-ui、lab-scenes 共 102 条，100 通过）；没过的两条是分支起点与 master 上就有的失败（`lab-agent-ui:572` 模型选择器的窄面板用例、`lab-scenes` 的 ThemeEditor 404），不算本段。Spec（`models/service.md` 输出 19 至 24、`models/settings-pages.md` 输出 19 与验收 4、`harness/models.md` 输出 21、22、`ui/agent-conversation-view.md`）与 [ADR 0058](../../../../../docs/adr/0058-models-wire-identity-full-url-and-uid.md) 同日提交。开工核对记在 [`evidences/b1-probes.txt`](evidences/b1-probes.txt)。实现审查后端 omp 22 条（重要 16）、前端 Sonnet 20 条（重要 8），逐条核实：后端改 19 条、接受取舍 1 条（每页重算成员）、不改 1 条（`checkAll` 留到 B2）、已修 1 条；前端改 18 条、部分 1 条（插件层的计数用例）、接受取舍 1 条（Profile 页选项不封顶），见[处理](evidences/impl-review-b1-disposition.md)。另补了计划要求、开工时漏掉的两条验收测试（经真实会话日志关闭重开的回放；删建与换密钥后的签发身份）与 e2e 验收 4（同模板两份、改名、复制、上传真实图片、搜索、移出与加回、390 宽）。与计划不同的地方：
+- 中性身份叫 `generic-endpoint`（计划写的 `nbook-compatible` 被 nb-harness 的应用中立检查拒绝）；发送前核对与身份的取舍另写 [ADR 0058](../../../../../docs/adr/0058-models-wire-identity-full-url-and-uid.md)（部分取代 0057 决策 4）。
+- `nbook.network` 插件壳没在 B1 建，挪到 B2（B1 没有要它的设置项与调用方）。
+- 模型区的系列在模型不多于 30 个时默认展开（计划写默认收起；几个模型也要点开才看得到，e2e 与日常用都别扭），多于 30 个照计划收起、收起的不渲染。
+- “管理模型”不单列“已移出”一组：移出的与没加过的都列为不在列表里、可以加回来（快照与行里没有区分两者的字段）。
+- 帧字节核对按服务商设置项整份 `JSON.stringify` 的 UTF-8 字节，不是整个设置文件。
+- 模型区头的次要操作没有收进“更多”：390 宽下按钮换行、没有横向溢出（e2e 验收 4 断言）。
+- 新组件只有英文的 Lab 场景，没有 390 宽的：组件内部溢出 Lab 量不到，改由 e2e 验收 4 在真实页面上断言 390 宽没有横向溢出。
+- 段 C 之前模型请求一律直连（按次 `proxy: false`），设了环境代理的用户照决定 29 走直连。
+
 ## 下一步
 
-段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10；截图已拍，在 Task 的 `shots/`）。然后实施 B1（分支 `feat/w00032-t43-b1`），实现审查后合入；再 B2，再段 C。
+段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10；截图已拍，在 Task 的 `shots/`）。
+
+段 B2（模型来源：在线列表、缓存、在线目录、自动更新、协议检测、来源状态界面，`nbook.network` 插件壳）：开工前对照 B1 的实际形状微调计划的 B2 节（决定 26），新分支实施；B2 换成逐个 `check` 时一并删掉 `checkAll`（B1 后端审查第 20 条）。然后段 C。
+
+待查：`lab-agent-ui:572`（模型选择器窄面板与英文）在 B1 起点上就失败，段 A 合入时是通过的，原因没查。
