@@ -1,0 +1,81 @@
+# w00026 t46 实现审查（提交 6170f83ad）
+
+我跑了 nb-layout 的 `bun run typecheck`，通过。`exports.test.ts`、`readme.test.ts`、`boundary.test.ts` 共 11 条也通过。沙箱不让跑 Vitest，所以 dom 测试的判断来自读代码。没有阻断或重要级问题，下面 6 条都是建议级。
+
+### 1. 两处注释指向不存在的 `locales.test.ts`
+- **严重程度**：建议
+- **类别**：文档与实现不符
+- **位置**：`packages/nb-layout/src/locales/index.ts:5`；`packages/nb-layout/src/vue/layout-text.ts:3-4`
+- **现象**：`index.ts` 写“由同目录的 `locales.test.ts` 核对”，`layout-text.ts` 写“由 `../locales/locales.test.ts` 核对”。`src/locales/` 下只有 `en-US.ts`、`index.ts`、`zh-CN.ts`，核对实际在 `src/vue/text.dom.test.ts`。
+- **为什么是问题**：计划第 1 稿把测试放在 `src/locales/locales.test.ts`，实现时挪到了 Vue 层，注释没跟着改。下一个改目录的人按注释找不到测试，可能以为没人核对。
+- **如何核实**：`ls packages/nb-layout/src/locales` 只有三个文件。`rg "locales\.test" packages/nb-layout` 命中这两处注释。
+- **建议改法**：两处都改成 `../vue/text.dom.test.ts`。
+
+### 2. 缺键回源语言这一支没有用例，Spec 却把它写成合同
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`packages/nb-layout/src/vue/text.ts:54`；`docs/specs/ui/nested-grid.md` 输出 143；README“文字”一节
+- **现象**：`lookup(own, key) ?? lookup(SOURCE, key) ?? key` 的后两级没有任何用例走到，因为两份目录都全。“每个键都翻得出”用例的判据是 `not.toBe(key)`，zh-CN 缺键时回落成英文，这条仍然通过，只有键集合相等那条会红。
+- **为什么是问题**：输出 143 写了“这种语言里缺的键取源语言”，这句没有测试。按句子核断言的晋升核对会判它无证据。
+- **如何核实**：从 `zh-CN.ts` 删一个键再跑 `text.dom.test.ts`。只有键集合用例红，回退没有用例红。
+- **建议改法**：二选一。
+  - **补用例**：抽一个不导出的 `translateFrom(catalogs, own, source)` 放在同目录的内部文件，`layoutCatalogTranslate` 传 `NB_LAYOUT_CATALOGS`。用例传残缺目录，断言缺键回源语言、源语言也缺时回键名。不想抽函数就用 `vi.mock("../locales")` 换成残缺目录。
+  - **删这一支**：键集合测试已经保证目录全，这一支是防不会发生的事。那就把 Spec 与 README 里那句删掉，代码只留 `?? key`。
+
+### 3. 不认识的语言静默落到英文，没有任何诊断
+- **严重程度**：建议
+- **类别**：失败路径
+- **位置**：`packages/nb-layout/src/vue/text.ts:52-53`；`text.dom.test.ts:393-397`
+- **现象**：`layoutCatalogTranslate("zh")`、`"zh-cn"`、`navigator.language` 这类 JS 调用，或用 `as` 绕过类型的调用，不报错也不警告，直接返回英文。测试把“`fr-FR`、`constructor` 按源语言”固定成了合同。
+- **为什么是问题**：这个任务要防的就是“中文界面静默变成英文”，这里给 JS 调用方留了同一条静默路径。作者为它多写了 `hasOwn` 守卫和一条用例，却没给任何信号。
+- **如何核实**：`layoutCatalogTranslate("zh" as never)("splitter.collapsed")` 返回 `"Collapsed"`。
+- **建议改法**：二选一。
+  - **抛错**：传入目录外的语言时抛 `RangeError`。调用发生在应用根上，启动期就能看到。
+  - **去掉守卫**：保持静默的话，就删掉 `hasOwn` 守卫和对应用例。类型已经限制了参数，原型名字这一条是给不会发生的输入加的机制。
+
+### 4. 两条源码守卫测试只测写法；nb-story 的 e2e 新断言重复
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`packages/dev-panel/tests/web-text.test.ts:13-14`；`packages/nb-story/src/web/main.test.ts:13-14`；`packages/nb-story/e2e/viewer.e2e.ts:685`
+- **现象**：两个测试读 `main.ts` 源码，要求同一行含 `createApp(App).provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("zh-CN"))`，并数 `createApp(` 恰好一次。
+- **为什么是问题**：
+  - **误报方向**：`.provide(...)` 换行、先 `const app = createApp(App)` 再 provide、换组件名，行为没变测试却红。
+  - **漏报方向**：注释说“`createApp` 只在 `main.ts`”，测试只数了 `main.ts` 一个文件。别处新开的根（`createApp`、`createSSRApp`、`render(h(...))`）它看不到，这句话没被验证。
+  - **重复断言**：nb-story 的 `frame.e2e.ts:41` 已经按“调整 nav 与 main 的宽度”取分隔线，`frame.e2e.ts:95` 断言了 `aria-valuetext` “已收起”。去掉注入这些用例本来就红，`viewer.e2e.ts:685` 新加的一行是重复。
+  - **防线单薄**：开发者面板没有 e2e，这条守卫是它唯一的防线，写法该更稳。
+- **如何核实**：`rg "调整 nav 与 main" packages/nb-story/e2e` 在 `frame.e2e.ts` 命中两处，在 `viewer.e2e.ts` 命中一处。dev-panel 下没有 e2e 目录。
+- **建议改法**：
+  - **抽出注入**：把注入抽成 `src/web/layout-text.ts` 的 `installLayoutText(app)`，`main.ts` 调它。
+  - **测行为**：测试里用真实的 `createApp({render: () => null})` 调它，再用 `app.runWithContext(() => inject(LAYOUT_TEXT_KEY))` 取出函数，断言 `("splitter.collapsed")` 是“已收起”。这里不引 `.vue`，Bun 能跑。
+  - **删重复**：`viewer.e2e.ts:685` 那一行可以删。
+
+### 5. `host-text.ts` 的头注释方向反了
+- **严重程度**：建议
+- **类别**：文档与实现不符
+- **位置**：`packages/neuro-book/src/web/host/host-text.ts:3-4`
+- **现象**：注释写“两样必须一起提供，否则 nb-layout 的组件在英文窗口里仍显示中文”。
+- **为什么是问题**：改动后没有注入时 nb-layout 是英文，漏提供时出错的是中文窗口，英文窗口反而碰巧对。这个提交改了缺省，却没改说明它的注释。这里是应用提供文字的唯一入口，读的人会得出相反的结论。
+- **如何核实**：读这段头注释，对照 `layout-text.ts` 的缺省。
+- **建议改法**：改成“否则 nb-layout 的组件不跟窗口语言，一直是英文”。
+
+### 6. `text.dom.test.ts` 的措辞比它做的多
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`packages/nb-layout/src/vue/text.dom.test.ts:1-8, 315, 351`
+- **现象**：注释和用例标题写“叶子恰好是组件用的键”，实际比较的是 `LayoutTextKey` 联合类型。联合里多一个没人用的键，测试照样通过。文件名带 `.dom`，但它不挂组件也不用 DOM。
+- **关于放在 Vue 层、由 Vitest 跑**：这个理由成立。键的类型在 `src/vue/text.ts`，`boundary.test.ts` 不许核心导入 Vue 层。`tsconfig.vue.json` 的 `types: []` 又让 `bun:test` 过不了类型检查。
+- **关于 `satisfies Record<LayoutTextKey, true>`**：它确实双向穷尽，缺键与多键都是编译错误。`tsconfig.vue.json` 包含 `src/vue/**/*.ts`，测试文件在检查范围内，`bun run typecheck` 通过。
+- **建议改法**：标题与注释把“组件用的键”改成“`LayoutTextKey` 里的键”，不用改文件名。
+
+## 未发现问题的方面
+
+- **`layoutCatalogTranslate` 与改前缺省翻译**：除语言外行为一致。缺键返回键名，缺参数保留占位，参数单遍代入。函数式替换不会让 `$&` 或 `{{x}}` 被二次展开。新增的 `Object.hasOwn` 只影响原型上的名字。
+- **初始化顺序**：`layout-text.ts` 在模块顶层调用 `layoutCatalogTranslate`，`text.ts` 与 `locales` 之间没有环。
+- **公开面**：`./text` 新增的两个名字各占一行。`exports.test.ts` 与 `readme.test.ts` 的约束都满足，README 新段落没有 Spec 编号。
+- **应用宿主引擎**：登记改成 `NB_LAYOUT_SOURCE_LOCALE` 后，回退链从 `[当前, zh-CN, en-US]` 变成 `[当前, en-US]`。`HOST_LOCALES` 只有 zh-CN 与 en-US，中英文窗口的结果不变。`scripts/ci/message-catalogs.ts` 只查 JSON，不涉及。
+- **依赖缺省中文的测试**：在 nb-layout、nb-workbench-layout、neuro-book 的单测与 e2e 里搜了“调整 … 的宽/高度”“已收起”“拖到这里”“已拿起”等。命中的 e2e 都在宿主窗口里跑，由宿主提供中文。单测已改成英文或显式注入。
+- **其它挂载根**：全仓 `createApp(` 只有 nb-story 与开发者面板各一处（已注入），以及应用的 `mount.ts`、`boot.ts`（经 `host-text.ts`，已注入）。
+- **`Object.hasOwn` 的 ES2022 要求**：包内已有 `.at()`，同一档，不是新增约束。
+
+阻断 0，重要 0，建议 6。
+有效发现：1、2、3、4、5、6

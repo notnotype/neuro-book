@@ -1,0 +1,122 @@
+# t44 实现审查（提交 6c97c957b）
+
+这是只读审查。我没跑 e2e 和开发服务，写“推断”的几处都是读代码得出的，没在浏览器里复现。
+
+diff.patch 里 docs、计划、t45、t46 的部分，是在把 master 上更新的文档往回改，说明 diff 基线取错了，不属于这次提交。我只审了 `packages/nb-story` 下的四个文件：`BookFrame.vue`、`book-grid.ts`、`book-grid.test.ts`、`frame.e2e.ts`。
+
+### 1. 过渡用例只抽查“正在过渡”的帧，抓不到“内容先没了”的那一帧
+- 严重程度：重要
+- 类别：测试（判据没被真正测到）
+- 位置：`packages/nb-story/e2e/frame.e2e.ts:834-863`
+- 现象：逐帧记录的 `moving`，取自 `[data-testid=book-frame] [data-moving]` 是否存在。断言是 `moving.every(frame => frame.card)`，只有已经带 `data-moving` 的帧参与判断。
+- 为什么是问题：
+  - 计划第 2 点要防的是“关上那一帧画错内容或闪一下”。
+  - 若某一帧里 `book.drawer` 已空，而 `outgoingLeaves` 还没含 drawer，这一帧没有 `data-moving`，会被 `filter` 掉，用例照过。过渡被 `stop()` 提前收掉时也一样。
+  - “去掉 outgoingLeaves 分支”的变异能红，是因为后面的过渡帧也缺内容。早一帧丢内容的退化，它抓不到。
+  - “过渡中又打开”“过渡中换另一张卡”“减少动效”三种情形都没有用例。
+- 如何核实：把 `paneDrawer` 改成“先返回 null，一帧后 `outgoingLeaves` 分支才生效”的假实现，用例应当变红，我推断它仍会过。
+- 建议改法：
+  - 每帧同时记抽屉叶宽度，改断言为“凡抽屉叶宽度大于 0 的帧，人物卡都在”。
+  - 加一条：过渡进行到一半（宽度 50 到 350 之间）点顶栏开关再打开，卡片仍是同一个 DOM 节点，也不重新请求 `entity.card`。
+  - 加一条：`emulateMedia({reducedMotion: "reduce"})` 下关抽屉，不出现“宽度已 0 而内容还在”的帧。
+
+### 2. “没打开过内容”用例依赖前面用例留在服务端的阅读状态
+- 严重程度：建议
+- 类别：测试（隐含共享状态）
+- 位置：`frame.e2e.ts:823-832`，对照 `host/book.ts:199`
+- 现象：
+  - 用例打开 `/book/fox/roster?at=38.57`，地址没写 entity。`openBookSession` 里是 `entity = query.entity ?? savedView.entity`，没写的部分用服务端存下的阅读状态补。
+  - 四条宽屏用例共用一个书库（`beforeAll` 起一次服务），前三条都开着 `entity=e1-1`，都会把 entity 写进服务端。
+- 为什么是问题：
+  - 它能过，取决于上一条（按钮用例）结束时抽屉是收起的，并且那次保存（1 秒定时器，或页面隐藏时的 keepalive）已经送到。
+  - 换顺序、只跑第 1 条加这一条（例如 `-g "拖抽屉|还没打开过"`）、`--last-failed`、`--repeat-each`，都会读到 `entity=e1-1`，抽屉是开着的，`aria-disabled` 断言失败。
+  - 这是推断，我没跑。
+- 如何核实：`bunx playwright test -c e2e/playwright.config.ts e2e/frame.e2e.ts -g "拖抽屉|还没打开过"`，预期第二条红。
+- 建议改法：这条用例自己起新书库，或开头用 `context.request.post(".../api/rpc/reading.set")` 把 view 的 entity 置空再打开。
+
+### 3. 只在抽屉参与时写偏好、`reconcile()`、`onIssues` 三处都没有用例
+- 严重程度：建议
+- 类别：测试
+- 位置：`BookFrame.vue:114-137`；`frame.e2e.ts` 全文
+- 现象：
+  - 有意的差别 2（拖导航线不写抽屉宽度偏好）没有用例。我读了 `sash-drag.ts:364-375`：`active` 只含与分隔线直接相邻的两块，被挤的邻居在 `compensated`，所以实现是对的，只是没有回归。
+  - `reconcile()` 在已知触发路径（没开过内容时拖开抽屉、平板档拖导航）上都被 `sashDisabled` 挡住了。注释写“兜住其余映射不回去的情形”，却没说出一个具体情形。
+  - 计划第 2 稿列了“删掉 `reconcile()`”这一项变异，作者做的五处变异里没有它，也没有对应用例。
+  - `onIssues` 的 `console.warn` 没有用例。
+- 为什么是问题：删掉 `onApplied` 末尾的 `reconcile()`，全部测试照过，说明它没被测到，也没有已知输入能让它改动网格。
+- 如何核实：删掉 `reconcile()` 后跑 `frame.e2e.ts`，预期全绿。
+- 建议改法：
+  1. 加一条便宜的用例：视口 1100，偏好抽屉宽 460，拖导航线从 188 到 300（主区碰到 360 下限，抽屉被挤到约 438），断言偏好仍是 460。改前会写 438，这条同时钉住有意的差别 2。
+  2. `reconcile()` 要么给一个能触发它的真实输入并测，要么删掉只留 watch。没有已知触发路径的兜底，按“窄场景选简单改法”不值得留。要留，就把 `BookFrame.vue:109-112` 的注释改成写出具体情形。
+
+### 4. 宽屏窄档位上抽屉偏好较宽时，`over-constrained` 诊断会被 `console.warn` 打出来
+- 严重程度：建议
+- 类别：行为差别（推断，未复现）
+- 位置：`BookFrame.vue:118-120`；`book-grid.ts` 的 `minimumSize` 配置；`useGridLayout.ts:98`
+- 现象：
+  - 宽屏下界是 1100，三栏最小需要 导航 188 + 主区 360 + 抽屉 + 两条线 2。抽屉偏好大于 550 时（偏好范围到 640），窗口在 1100 到“偏好 + 550”之间会出 `over-constrained`（主区低于 360）。
+  - 窗口横跨 1100 的那一刻，宿主 `setCollapsed` 先用旧的容器尺寸发布一次，也可能短暂超约束（抽屉 640 时 188 + 640 + 360 + 2 = 1190，大于 1099）。
+  - `onIssues` 把每个新增诊断打到控制台。
+- 为什么是问题：
+  - 改前 `Splitter` 静默压缩，同样的用户状态没有任何可见变化；现在多出一条 `书页三栏的布局诊断`。
+  - 计划要求接 `onIssues` 是对的，这不是吞错。但对宿主合法状态也报 warn，以后真有的接入错误会淹没在里面。
+- 如何核实：`localStorage["nbstory:drawer-width"]="640"`，视口 1100×800，打开 `/book/fox/roster?at=38.57&entity=e1-1`，收集 console。
+- 建议改法：先量一次。若成立，对 `over-constrained` 降级（`console.debug`）或不报；在 Task README 的接入记录里写“库在宿主合法的窄屏状态下也出诊断”，作为后续任务的输入。
+
+### 5. 拖宽后用按钮收起再展开会回到多宽，没有用例；“从 0 拖开”的断言也松
+- 严重程度：建议
+- 类别：测试
+- 位置：`frame.e2e.ts:765-784、811-821`
+- 现象：
+  - 用例 1 重新拖开后只断言 `reopened >= 280` 且等于偏好。
+  - 用例 3 只在默认的 400 上按顶栏开关收起再展开。没有“先拖到 460、按开关收起、再展开，应回到 460”的用例。
+- 为什么是问题：
+  - 改前一个 `drawerWidth` ref 同时管偏好、`defaultSizePx` 与 `restoreSize`。现在是三份：网格里的意图、偏好、建树时取的 `restoreSize`（400）。
+  - 我读 `grid.ts:493-499` 推断，保留像素的叶记的是 `node.size`，所以现在能回到 460。但这是库的内部规则，没有用例钉住，库改了规则会无声退回 400。
+- 如何核实：写用例，拖到 460，`toggle-drawer` 点两次，断言抽屉叶宽 460。
+- 建议改法：加这条；用例 1 末尾把 `reopened` 收紧到拖动终点附近（`dx=-420` 时约 420，±8）。
+
+### 6. e2e 用 `nth()` 选分隔线，依赖 DOM 顺序与页面里没有别的 separator
+- 严重程度：建议
+- 类别：测试（选择器脆弱）
+- 位置：`frame.e2e.ts:742-744`
+- 现象：`[role='separator'][aria-valuenow]` 在整个 `book-frame` 下取第 0 或第 1 个，主区页面内容也在 `book-frame` 里。
+- 为什么是问题：主区或抽屉将来加一个带 `role=separator` 与 `aria-valuenow` 的控件，`nth(1)` 就会指到别的线，用例失败或空过。t45 要在右侧再放一条分隔线，正好会撞上。
+- 建议改法：按 `aria-label`（库里的 `splitter.resizeWidth`，带 before/after 名字）或限定 `.nb-grid-sash` 再取。
+
+### 7. 代码质量小项
+- 严重程度：建议
+- 位置与现象：
+  - `BookFrame.vue:118`：手写 `readonly (GridIssue<string> | GridFailure)[]`，而 `@notnotype/nb-layout/vue` 已导出 `GridHostIssue`，直接用，还能少两个类型导入。
+  - `BookFrame.vue:119`：`console.warn("消息", code, issue)` 的参数顺序，与同文件 183 行、`book.ts:322` 的 `console.warn({error}, "…")` 不一致。
+  - `BookFrame.vue:138-139`：两个 watch 与 `reconcile()` 做同一件事，`watch([navIsCollapsed, drawerIsCollapsed], reconcile)` 一行即可，少一份“期望值到网格”的映射。
+  - `host.setCollapsed` 的返回值全部丢弃，id 写错或 `not-ready` 会无声无息。现在 id 是同文件字面量，风险低；至少让 `reconcile` 在 `ok:false` 时 warn 一次。
+  - `BookFrame.vue:128` 的注释写“平板档……这里再判一次档位”：`sashDisabled` 已挡住，这是双重防御，注释只写了做什么，没写为什么需要第二道。
+  - `DRAWER_MIN_WIDTH`（`book-grid.ts:13`）与 `host/prefs.ts:37` 的 280、640 是两份常量。`host/` 不该导入 `shell/`，反过来由 `book-grid.ts` 从 `host/prefs` 取范围更合适。
+  - `BookFrame.vue:76` 用 `window.innerWidth` 当初值，隐含“外壳铺满窗口”。现在 BookShell 确实铺满，没问题；若以后外壳外加边栏，首帧会按错档位建网格再播一次收起。注释里写明这个前提即可。
+
+### 未发现问题的方面
+- 重点 1，收起状态两个来源的顺序：
+  - `closeDrawer`、`reopenDrawer` 都是同步写 `book.drawer`。`onApplied` 先映射再 `reconcile()`，读的是同一个计算属性，顺序上没有分歧。
+  - `book.drawer` 变空只有 `closeDrawer` 一条路径（`book.ts` 里别处没有置空；换页、阅读位置变化都不动抽屉）。
+  - 换书时 BookFrame 带 `:key`，重新建网格。
+  - 手机档卸载网格后，宿主的 `setCollapsed` 照常改网格；回宽屏重新量到尺寸后，第一次发布不过渡。
+  - 宽窄跨档时进行中的手势：版本递增使 NestedGrid 取消手势，不会落错账。
+- 重点 2，`paneDrawer` 的时机：
+  - `NestedGrid.vue:408` 的布局 watcher 是默认的 pre 刷新，先于该组件渲染，也排在 BookFrame 的 pre watcher 之后。所以关上那一次渲染里 `shrinking` 已含 drawer。
+  - `paneDrawer` 经 expose 的 `outgoingLeaves` 追踪，没有读到旧值的窗口。
+  - 过渡中重新打开或换卡：`book.drawer` 优先，读到新内容，`DrawerCard` 的 key 不变，不重建。
+  - 减少动效时 `update()` 走 `stop()`，没有“内容还在而宽度已 0”的帧。
+- 重点 3，`LAYOUT_MOTION` 的三个使用方：
+  - `DrawerCard`（`settled` 只管长列表晚渲染）、`StoryNetwork`、`StoryLine`（`resizePending` 在 `moving` 变假时补换一次尺寸）都只看真假，不看来源。
+  - 手机档 `gridRef` 为 null，恒为假，与改前“非宽屏不起过渡”一致。
+  - 网格卸载时若 `moving` 为真，`gridRef` 置空让读数回到假，不会卡在真。
+  - 唯一差别：窗口横跨档线的头一两帧 `moving` 可能为真（旧的容器尺寸先发布一次，下次测量到尺寸变了就 `stop()`）。消费者只是把换尺寸延后几帧再补，没有副作用。
+- 重点 4：作者列的五处变异对应的用例我都读过，判据与计划一致；上面第 1、3 条是它们没覆盖到的部分。
+- 对照 Splitter：宽度、阈值、最小最大、280 毫秒、偏好键、读屏取值的变化都与计划的“有意的差别”一致。`sashSize` 函数形式对第 1 条线返回 0，平板主区 = 900 − 44 − 1，与用例一致。nb-story 里已没有 `Splitter`、`panel-drawer`、`data-panel-id` 的引用。
+- 常见返工项：没有跨包深导入、静默 `catch`、放宽断言或跳过测试；删掉的 `motionTimer`、`closingDrawer` 等与计划一致；没有顺手改无关注释。
+
+阻断 0，重要 1（第 1 条），建议 6（第 2、3、4、5、6、7 条）。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7
+
+（草稿已写入 `.local/agent/works/w00026-layout-package/tasks/t44-story-nested-grid/reports/impl-review/report-draft.txt`。草稿的“未发现”部分里提到过一个 `bumpRevision`，库里没有这个名字，实际是版本号递增，以本回复为准。）
