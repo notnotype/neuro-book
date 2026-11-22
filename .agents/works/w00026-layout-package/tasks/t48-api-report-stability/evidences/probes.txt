@@ -23,3 +23,12 @@
   - Vue 自带与透传的属性也在 `$props` 里（`key`、`ref`、`class`、`style`、`onVnode*`，`Splitter` 不关透传所以有 207 个，含全部 HTML 属性），报告只能列组件自己声明的；
   - 引用产物里别的块的类型写成 `import("<绝对路径>/shared-XmI1bLya")…`，要按入口名改写，否则报告随路径与块名变。
 - 结论：报告由类型检查器读产物声明生成可行，组件的公开面（props、事件、插槽）也能进报告；过滤与改写的规则在计划里定。api-extractor 没有实测（同一份声明里组件只有 `typeof __VLS_export$N`，它要靠同样的展开才看得到 props）。
+
+## 4. vue-component-meta（第 1 轮设计审查第 10 条要求评估；3.3.14，与仓库的 vue-tsc 3.3.x 同一族；装在本地 .local 的 t48 proto/vcm，不进仓库依赖）
+
+读源码 `.vue`，经 nb-layout 的 `tsconfig.vue.json`（`createChecker(..., {forceUseTs: true, noDeclarations: false})`）：
+- NestedGrid：自己的 props 17 个（带缺省值，例如 `disabled?: boolean = false`），事件 7 个（与回调属性 `onGestureCommit` 分开），插槽 7 个带类型（`leaf: { node: GridLeaf<unknown> }`），expose 7 个（`settleMotion`、`placeLifted`、`placeFloat`、`outgoingLeaves`、`shapedLeaves`、`swappingLeaves`、`moving`）。类型里是真名（`GridNode<unknown>`、`GridLayoutResult`），没有压缩名与 `$N`。
+- Splitter：`& HTMLAttributes` 透传的属性也算成自己的（190 个）；按属性的声明文件分得开：声明在 nb-layout 的 5 个，`@vue/runtime-dom` 的 185 个。插槽只列出 `default`，`panel-${string}` 这种模板字面量的插槽名没有。
+- DropIndicatorLabel：插槽 `icon: {}`（不再是 `typeof __VLS_1`）。
+- 7 个组件共 118 毫秒。
+- 结论：组件的报告用它比自写类型检查器展开省事、信息更全（缺省值、expose、事件与回调分开）；缺口是模板字面量的插槽名（Splitter 的 `panel-*`），要从组件的 `defineSlots` 类型单独读或在报告里写明。非组件的名字照第 1 轮审查第 1 条，用 `ts.createPrinter` 打印产物声明节点。

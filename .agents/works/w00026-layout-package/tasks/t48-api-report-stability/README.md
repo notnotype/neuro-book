@@ -35,4 +35,4 @@ updated: 2026-11-22
 
 ## 下一步
 
-第 2 稿之前先补两个探针：`vue-component-meta` 能不能出组件的 props、事件、插槽、expose（含 `panel-${string}` 插槽与 `HTMLAttributes` 透传）；把标注写进声明之后产物与 tarball 是否仍逐字节稳定。然后按上面十条写第 2 稿 → 第 2 轮设计审查。
+[计划](plan.md)第 2 稿已写（补了 vue-component-meta 的探针，[证据](evidences/probes.txt)第 4 节）→ 第 2 轮设计审查（Sonnet）→ 处理 → 开 worktree 实施。
