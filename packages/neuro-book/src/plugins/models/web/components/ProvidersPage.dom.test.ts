@@ -47,12 +47,13 @@ const type = async (input: HTMLInputElement, value: string): Promise<void> => {
 const selected = (): string | null => document.querySelector("[data-provider-detail]")?.getAttribute("data-provider-detail") ?? null;
 
 describe("添加：按模板", () => {
-    it("点一个普通模板：加上并选中，名称与图标跟模板；再添加同一个模板得到另一份（名称加 2）", async () => {
+    it("点一个普通模板：加上并选中，焦点到密钥框，名称与图标跟模板；再添加同一个模板得到另一份（名称加 2）", async () => {
         const {store} = await render();
         query<HTMLButtonElement>("[data-provider-add]").click();
         await waitUntil("添加窗口有模板", () => document.querySelector("[data-add-provider='zai']") !== null, {timeoutMs: 10_000});
         query<HTMLButtonElement>("[data-add-provider='zai']").click();
         await waitUntil("选中新服务商", () => selected() === "z.ai", {timeoutMs: 10_000});
+        await waitUntil("焦点在密钥框", () => document.activeElement?.closest("[data-key-input]") != null, {timeoutMs: 10_000});
         expect(store.snapshot.value?.providers.find((provider) => provider.id === "z.ai")).toMatchObject({template: "zai", name: "Z.AI", icon: null});
         expect(query("[data-provider-name]").textContent).toBe("Z.AI");
         expect(document.querySelector("[data-add-provider-dialog]")).toBeNull();

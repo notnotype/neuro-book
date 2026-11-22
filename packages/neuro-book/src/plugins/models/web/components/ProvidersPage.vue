@@ -202,6 +202,14 @@ async function addProvider(input: AddInput): Promise<void> {
     }
     adding.value = false;
     selected.value = result.value.id;
+    // 新服务商要密钥时焦点直接到密钥框（下一步就是填它）；不要认证的没有密钥框，焦点留给对话框还回的位置。
+    await nextTick();
+    focusKeyInput();
+}
+/** 详情里的 API 密钥框：nb-ui 的 `Input` 把钩子放在外层，取里面的 `input`。 */
+function focusKeyInput(): void {
+    const key = page.value?.querySelector<HTMLElement>("[data-key-input]");
+    (key instanceof HTMLInputElement ? key : key?.querySelector<HTMLElement>("input") ?? key)?.focus();
 }
 
 // ---- 编辑与手动添加 ----
@@ -359,8 +367,7 @@ watch([() => props.focus, snapshot], async ([focus, current]) => {
     if (!current.providers.some((provider) => provider.id === target)) return;
     selected.value = target;
     await nextTick();
-    const key = page.value?.querySelector<HTMLElement>("[data-key-input]");
-    (key instanceof HTMLInputElement ? key : key?.querySelector<HTMLElement>("input") ?? key)?.focus();
+    focusKeyInput();
 }, {immediate: true});
 
 /**
