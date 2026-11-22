@@ -15,7 +15,7 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿，等设计审查与 API 形状审查（Claude Sonnet 各一）。
+2026-11-22：[计划](plan.md)第 2 稿：第 1 轮设计审查（重要 8、建议 6，[证据](evidences/design-review.txt)）与 API 形状审查（重要 8、建议 5，[证据](evidences/api-review.txt)）之后收回到开发者定的范围（展平与拆分的老问题改成已知限制），等第 2 轮审查。
 
 ## 下一步
 
