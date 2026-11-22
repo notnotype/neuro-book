@@ -184,8 +184,11 @@ test.describe("宽屏 1440", () => {
         await drag(page, mainSash(page), -60);
         await expect.poll(async () => near(await widths(page), {main: 389, drawer: 430, drawer2: 430})).toBe(true);
         expect(Math.abs(Number(await pref(page)) - 430)).toBeLessThanOrEqual(1);
+        // 再把中间那条线拖偏：两张不一样宽，下面点一下时若重新按偏好均分，看得出来。
+        await drag(page, innerSash(page), 40);
+        await expect.poll(async () => near(await widths(page), {main: 389, drawer: 470, drawer2: 390})).toBe(true);
         const dragged = await widths(page);
-        // 点一下左边那张（成为最近的）：张数没变，宽度不弹回偏好。
+        // 点一下左边那张（成为最近的）：张数没变，总宽与两张的分法都不弹回。
         await card(page, 0).getByTestId("card-name").click();
         await expect(card(page, 0)).toHaveAttribute("aria-current", "true");
         expect(await widths(page)).toEqual(dragged);
