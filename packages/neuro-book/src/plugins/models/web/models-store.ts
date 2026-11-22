@@ -28,10 +28,25 @@ export interface ModelsFailure {
 
 export type ModelsResult<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly failure: ModelsFailure};
 
-/** 一个模型的检测状态；键是 `<服务商>/<模型>`。 */
+/**
+ * 一个模型的检测状态；键是 `<服务商>/<模型>`。`unknown` 是发出后被取消、没等到结果的：服务商可能已经收到了请求（与从没发过的区分开，
+ * 那些保持原样）。
+ */
 export type CheckState =
     | {readonly status: "running"}
-    | {readonly status: "done"; readonly result: CheckResult; readonly at: number};
+    | {readonly status: "done"; readonly result: CheckResult; readonly at: number}
+    | {readonly status: "unknown"; readonly at: number};
+
+/** “检测全部”的进度：`done` 是已结算的个数（通过、失败、没检成都算），`total` 是确认要检测的个数。 */
+export interface CheckRun {
+    readonly done: number;
+    readonly total: number;
+}
+
+/** “检测全部”同时在检测的个数：请求在客户端逐个发（服务端没有批量检测），取消只停领新项。 */
+export const CHECK_CONCURRENCY = 4;
+/** “检测全部”超过这么多个模型时先确认（每个都是一次真实调用）。 */
+export const CHECK_CONFIRM_ABOVE = 20;
 
 /** 一家模型行的读取状态（`providerModels` 按页读完，带首页的版本）。 */
 export interface ProviderRows {
@@ -69,6 +84,8 @@ export interface ModelsStore {
      * 按服务商记的“没检成”：远程调用本身失败（服务停了、服务商不在了、结果未知），不是模型的检测失败。这家下一次检测开始时清掉。
      */
     readonly checkErrors: ReadonlyMap<string, ModelsFailure>;
+    /** 进行中的“检测全部”，按服务商；结束（含取消）后去掉。 */
+    readonly checkRuns: ReadonlyMap<string, CheckRun>;
     /**
      * 选用数据：全部启用的模型（角色页的绑定下拉）与按引用取到的行（角色页的名字与档位）。服务商的行数多，不随快照整份带；
      * 设置页的服务商详情、管理模型与全部模型按家经 `loadRows` 读。
@@ -87,9 +104,17 @@ export interface ModelsStore {
     call<Name extends keyof Methods>(name: Name, input: Parameters<ModelsRemote[Name]>[0], options?: {readonly signal?: AbortSignal}): Promise<ModelsResult<ResultValue<Name>>>;
     /** 检测一个模型；它正在检测（单独的或“检测全部”里的）时不重复发。 */
     check(provider: string, model: string): Promise<void>;
-    /** 检测这家启用的模型；这家已有“检测全部”在跑时不重复发，正在单独检测的模型不重复检测。 */
-    checkAll(provider: string): Promise<void>;
-    /** 取消这家进行中的检测（给了模型只取消它的单独检测），检测状态回到开始之前。中止句柄在数据模块里，换页面回来照样能取消。 */
+    /** “检测全部”会检测的模型：这家启用的模型（先读全这家的行）。界面拿它确认个数，再原样交给 `checkAll`。 */
+    checkTargets(provider: string): Promise<readonly string[]>;
+    /**
+     * 逐个检测 `models`（确认过的那份，不在这里重算），同时至多 `CHECK_CONCURRENCY` 个，只把在检测的标成 `running`。这家已有
+     * “检测全部”在跑时不重复发，正在单独检测的模型跳过。
+     */
+    checkAll(provider: string, models: readonly string[]): Promise<void>;
+    /**
+     * 取消这家进行中的检测（给了模型只取消它的单独检测）：已发出的标 `unknown`，还没领到的保持原样、不再发。中止句柄在数据模块里，
+     * 换页面回来照样能取消。
+     */
     cancel(provider: string, model?: string): void;
     dispose(): void;
 }
@@ -114,6 +139,7 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
     }) as unknown as StoreSelection;
     const checks = reactive(new Map<string, CheckState>());
     const checkErrors = reactive(new Map<string, ModelsFailure>());
+    const checkRuns = reactive(new Map<string, CheckRun>());
     /** 进行中的检测：单独检测按 `<服务商>/<模型>`，“检测全部”按服务商 id。 */
     const controllers = new Map<string, AbortController>();
     let started: Promise<void> | null = null;
@@ -131,6 +157,7 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
             controllers.get(key)?.abort();
             checks.delete(key);
         }
+        for (const [key, controller] of [...controllers]) if (!key.includes("/") && !providers.has(key)) controller.abort();
         for (const provider of [...checkErrors.keys()]) if (!providers.has(provider)) checkErrors.delete(provider);
         for (const key of [...rowCache.keys()]) if (!providers.has(key.slice(0, key.indexOf("\n")))) rowCache.delete(key);
     };
@@ -267,18 +294,13 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         };
     };
 
-    const check = async (provider: string, model: string): Promise<void> => {
+    /** 发一个检测并结算它：中止的标 `unknown`；远程调用本身失败（没检成）回到原样，原因按服务商记。 */
+    const runCheck = async (provider: string, model: string, signal: AbortSignal): Promise<void> => {
         const key = checkKey(provider, model);
-        if (checks.get(key)?.status === "running") return;
-        checkErrors.delete(provider);
         const settle = begin([key]);
-        const controller = new AbortController();
-        controllers.set(key, controller);
-        const result = await call("check", {provider, model}, {signal: controller.signal});
-        if (controllers.get(key) === controller) controllers.delete(key);
-        if (controller.signal.aborted) return settle(key, undefined);
+        const result = await call("check", {provider, model}, {signal});
+        if (signal.aborted) return settle(key, {status: "unknown", at: now()});
         if (!result.ok) {
-            // 没检成（不是模型的检测失败）：回到原样，原因按服务商记。
             settle(key, undefined);
             checkErrors.set(provider, result.failure);
             return;
@@ -286,28 +308,47 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         settle(key, {status: "done", at: now(), result: result.value});
     };
 
-    const checkAll = async (provider: string): Promise<void> => {
-        if (controllers.has(provider)) return;
-        await loadRows(provider);
-        const keys = rowsOf(provider).rows
-            .filter((item) => item.enabled)
-            .map((item) => checkKey(provider, item.id))
-            .filter((key) => checks.get(key)?.status !== "running");
-        if (keys.length === 0) return;
+    const check = async (provider: string, model: string): Promise<void> => {
+        const key = checkKey(provider, model);
+        if (checks.get(key)?.status === "running") return;
         checkErrors.delete(provider);
-        const settle = begin(keys);
+        const controller = new AbortController();
+        controllers.set(key, controller);
+        await runCheck(provider, model, controller.signal);
+        if (controllers.get(key) === controller) controllers.delete(key);
+    };
+
+    const checkTargets = async (provider: string): Promise<readonly string[]> => {
+        await loadRows(provider);
+        return rowsOf(provider).rows.filter((item) => item.enabled).map((item) => item.id);
+    };
+
+    const checkAll = async (provider: string, models: readonly string[]): Promise<void> => {
+        if (controllers.has(provider) || models.length === 0) return;
+        checkErrors.delete(provider);
         const controller = new AbortController();
         controllers.set(provider, controller);
-        const result = await call("checkAll", {provider}, {signal: controller.signal});
-        if (controllers.get(provider) === controller) controllers.delete(provider);
-        if (!controller.signal.aborted && result.ok) {
-            const at = now();
-            for (const {model, result: outcome} of result.value) settle(checkKey(provider, model), {status: "done", at, result: outcome});
-        } else if (!controller.signal.aborted && !result.ok) {
-            checkErrors.set(provider, result.failure);
+        const pending = [...models];
+        checkRuns.set(provider, {done: 0, total: pending.length});
+        const tick = (): void => {
+            const run = checkRuns.get(provider);
+            if (run !== undefined && controllers.get(provider) === controller) checkRuns.set(provider, {...run, done: run.done + 1});
+        };
+        const worker = async (): Promise<void> => {
+            for (let model = pending.shift(); model !== undefined && !controller.signal.aborted; model = pending.shift()) {
+                // 跳过的也算进进度：正在单独检测的（它自己会结算）；名单是开始时定的，领到时读到的行里它已被停用或移出的（检测要
+                // 几十秒，期间可能改过）不再发。还没读过行时照名单发。
+                const rows = rowsOf(provider);
+                const wanted = rows.revision === null || rows.rows.some((item) => item.id === model && item.enabled);
+                if (wanted && checks.get(checkKey(provider, model))?.status !== "running") await runCheck(provider, model, controller.signal);
+                tick();
+            }
+        };
+        await Promise.all(Array.from({length: Math.min(CHECK_CONCURRENCY, pending.length)}, worker));
+        if (controllers.get(provider) === controller) {
+            controllers.delete(provider);
+            checkRuns.delete(provider);
         }
-        // 中止、失败，或服务端没检的（这期间被停用了）：回到原样。
-        for (const key of keys) settle(key, undefined);
     };
 
     const cancel = (provider: string, model?: string): void => {
@@ -329,9 +370,11 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         loadRows,
         checks,
         checkErrors,
+        checkRuns,
         start,
         call,
         check,
+        checkTargets,
         checkAll,
         cancel,
         dispose: () => {

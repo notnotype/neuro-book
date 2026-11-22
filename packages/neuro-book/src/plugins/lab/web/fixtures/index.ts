@@ -76,6 +76,7 @@ import type ModelEditDialog from "nbook/plugins/models/web/components/ModelEditD
 import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
 import type ProviderHeader from "nbook/plugins/models/web/components/ProviderHeader.vue";
+import type ApiDetectResults from "nbook/plugins/models/web/components/ApiDetectResults.vue";
 import type ProviderIcon from "nbook/plugins/models/web/components/ProviderIcon.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
@@ -162,7 +163,7 @@ import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./ag
 import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {withWebText} from "./web-tools-scene/web-text";
-import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES, SOURCE_AT} from "./models-scene/sample";
+import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_DETECTION, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES, SOURCE_AT} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
@@ -1647,6 +1648,7 @@ function shelfFixtures(): LabFixture[] {
                 {id: "enabled", label: "启用、带角色小标、检测通过", input: {props: {model: SAMPLE_ROWS.deepseek![0]!, roles: ["快速", "压缩"], check: {status: "done", at: 0, result: {ok: true}}}}},
                 {id: "failed", label: "检测失败（点开看原因）", input: {props: {model: SAMPLE_ROWS.anthropic![0]!, check: {status: "done", at: 0, result: {ok: false, kind: "auth", code: "401", raw: "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}"}}}}},
                 {id: "running", label: "检测中", input: {props: {model: SAMPLE_ROWS.volcengine![0]!, check: {status: "running"}}}},
+                {id: "unknown", label: "结果未知（检测被取消，请求可能已经发出）", input: {props: {model: SAMPLE_ROWS.volcengine![0]!, check: {status: "unknown", at: 0}}}},
                 {id: "incomplete", label: "缺上下文窗口（开关停用）", input: {props: {model: SAMPLE_ROWS.volcengine![2]!}}},
                 {id: "edited", label: "来源模型改过字段（标“已改”）", input: {props: {model: SAMPLE_ROWS.deepseek![1]!}}},
                 {id: "missing", label: "目录里没有了", input: {props: {model: SAMPLE_ROWS.anthropic![1]!}}},
@@ -1702,8 +1704,26 @@ function shelfFixtures(): LabFixture[] {
                 {id: "source-failed", label: "拉取失败，沿用上一次的列表", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, source: {state: "ok", refreshing: false, checkedAt: SOURCE_AT, error: {reason: "auth", message: "401"}}}, rows: SAMPLE_ROWS.deepseek!}}},
                 {id: "source-changed", label: "改过地址或凭据：要重新拉取", input: {props: {provider: {...SAMPLE_PROVIDERS[1]!, source: {state: "changed", refreshing: false, checkedAt: null, error: null}}, rows: SAMPLE_ROWS.anthropic!}}},
                 {id: "source-failed-english", label: "拉取失败，英文界面", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, source: {state: "ok", refreshing: false, checkedAt: SOURCE_AT, error: {reason: "bad-response", message: "503"}}}, rows: SAMPLE_ROWS.deepseek!}}},
+                {id: "detect-done", label: "检测协议的结果在接口格式下面", input: {props: {provider: {...SAMPLE_PROVIDERS[2]!, connection: "c1"}, rows: SAMPLE_ROWS.volcengine!, detect: {status: "done", detection: SAMPLE_DETECTION}}}},
+                {id: "detect-done-english", label: "检测协议的结果，英文界面", input: {props: {provider: {...SAMPLE_PROVIDERS[2]!, connection: "c1"}, rows: SAMPLE_ROWS.volcengine!, detect: {status: "done", detection: SAMPLE_DETECTION}}}},
+                {id: "detect-running", label: "检测进行中（按钮换成“取消协议检测”）", input: {props: {provider: SAMPLE_PROVIDERS[2]!, rows: SAMPLE_ROWS.volcengine!, detect: {status: "running"}}}},
+                {id: "check-run", label: "检测全部进行中：已检 N / 共 M", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: SAMPLE_ROWS.deepseek!, checkRun: {done: 3, total: 24}}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage", "reload-rows", "refresh-source"], class: "w-full"})),
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage", "reload-rows", "refresh-source", "detect", "cancel-detect", "adopt"], class: "w-full"})),
+        }),
+        defineLabFixture<typeof ApiDetectResults>({
+            component: "ApiDetectResults",
+            scenes: [
+                {id: "done", label: "四行结果：当前的标“正在用”，通过的“用这个”，失败的可复制原文", input: {props: {state: {status: "done", detection: SAMPLE_DETECTION}, connection: "c1"}}},
+                {id: "adopted", label: "改用 Responses 之后：结果仍有效，“正在用”跟着换", input: {props: {state: {status: "done", detection: SAMPLE_DETECTION}, connection: "c-responses"}}},
+                {id: "stale", label: "配置已改：整块置灰、请重新检测", input: {props: {state: {status: "done", detection: SAMPLE_DETECTION}, connection: "changed"}}},
+                {id: "mixed", label: "混合协议的模板跟随中：哪一行都不是“正在用”，结果仍有效", input: {props: {state: {status: "done", detection: {...SAMPLE_DETECTION, connection: "c-follow"}}, connection: "c-follow"}}},
+                {id: "running", label: "检测进行中", input: {props: {state: {status: "running"}, connection: "c1"}}},
+                {id: "no-model", label: "没有能用来检测的模型：填一个模型 id", input: {props: {state: {status: "failed", code: "no-model", reason: "没有能用来检测的模型"}, connection: "c1"}}},
+                {id: "failed", label: "没检成（原因红字）", input: {props: {state: {status: "failed", code: "unknown-provider", reason: "这家服务商已经不在了"}, connection: "c1"}}},
+                {id: "done-english", label: "英文界面", input: {props: {state: {status: "done", detection: SAMPLE_DETECTION}, connection: "c1"}}},
+            ],
+            load: async () => withModelsText(createSubjectFixture<typeof ApiDetectResults>((await import("nbook/plugins/models/web/components/ApiDetectResults.vue")).default, {events: ["adopt", "detect"], class: "w-full max-w-[560px]"})),
         }),
         defineLabFixture<typeof AllModelsView>({
             component: "AllModelsView",

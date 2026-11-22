@@ -8,7 +8,7 @@ import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 
 import {ModelConfigSchema, RoleEffort} from "../config/shapes";
-import {Api, Auth, CheckResultSchema, Headers, KeyStatusSchema, ModelRowSchema, ModelsSnapshotSchema, Nullable, TemplateSchema} from "./shapes";
+import {Api, ApiDetectionSchema, Auth, CheckResultSchema, Headers, KeyStatusSchema, ModelRowSchema, ModelsSnapshotSchema, Nullable, TemplateSchema} from "./shapes";
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
 const SettingsDetail = Type.Object({code: Type.String(), detail: Type.String()}, {additionalProperties: false});
@@ -137,15 +137,35 @@ const methods = {
      * `write`：链路断在返回之前时，调用方按快照核对受理没有，不当成没执行。
      */
     refreshSource: {input: ProviderInput, output: None, effect: "write", errors: {"unknown-provider": Detail, "no-credentials": Detail, "settings-unavailable": SettingsDetail}},
+    /** 检测一个模型（输出 11）。“检测全部”由调用方逐个调它、自己限并发。 */
     check: {input: Type.Object({provider: Type.String(), model: Type.String()}, {additionalProperties: false}), output: CheckResultSchema, effect: "read", errors: {"unknown-provider": Detail, "unknown-model": Detail}},
-    checkAll: {input: ProviderInput, output: Type.Array(Type.Object({model: Type.String(), result: CheckResultSchema}, {additionalProperties: false})), effect: "read", errors: {"unknown-provider": Detail}},
+    /**
+     * 协议检测（输出 26）：四种协议各发一次。`model` 不给时用第一个启用的、再用来源里第一个对话模型，都没有为 `no-model`；要密钥却
+     * 没有为 `no-credentials`。不写入。
+     */
+    detectApi: {
+        input: Type.Object({provider: Type.String(), model: Type.Optional(Type.String({minLength: 1, maxLength: 256}))}, {additionalProperties: false}),
+        output: ApiDetectionSchema,
+        effect: "read",
+        errors: {"unknown-provider": Detail, "no-credentials": Detail, "no-model": Detail},
+    },
+    /**
+     * 采用检测出的协议：`connection` 是那一行带回的（改用它之后的连接版本）。现在的配置改用 `api` 后算出来的不等于它（地址、凭据此后
+     * 变过）为 `connection-changed`，不写：写进去的总是检测试过的那份。
+     */
+    adoptApi: {
+        input: Type.Object({provider: Type.String(), api: Api, connection: Type.String()}, {additionalProperties: false}),
+        output: None,
+        effect: "write",
+        errors: {...providerWriteErrors, "connection-changed": Detail},
+    },
 } as const;
 
 /** 订阅先推一次当前快照，之后快照每变一次推一次。 */
 const events = {changed: {filter: Type.Object({}, {additionalProperties: false}), payload: ModelsSnapshotSchema}} as const;
 
 /** 设置页用的远程合同的定义，缺 id。 */
-export const modelsSettingsSpec = {version: 4, provider: "server", callers: ["browser"], methods, events} as const;
+export const modelsSettingsSpec = {version: 5, provider: "server", callers: ["browser"], methods, events} as const;
 
 /** 应用以 `modelsSettingsSpec` 定义出的合同的类型；服务核心的远程实现按它写。 */
 export type ModelsSettingsContract = RemoteContract<typeof methods, typeof events, typeof modelsSettingsSpec.provider>;

@@ -18,12 +18,16 @@ export function redactText(text: string, keys: Iterable<string>): string {
 export const PROVIDER_TEXT_LIMIT = 8 * 1024;
 
 /**
- * 服务商的原文（错误正文、检测结果）交出适配器之前：遮盖密钥、去掉控制字符（换行与制表符留下）、遮掉网址里的用户信息与
- * 查询串（有的服务把带令牌的地址原样回显），最后截到 `PROVIDER_TEXT_LIMIT`、在末尾写明截过（这是开发者文字，用英文，ADR 0034）。
+ * 服务商的原文（错误正文、检测结果）交出适配器之前：去掉控制字符（换行与制表符留下）、遮盖密钥（原样的与 JSON 转义过的：
+ * 错误正文常是把收到的请求头写进 JSON 字符串）、遮掉网址里的用户信息与查询串（有的服务把带令牌的地址原样回显），最后截到
+ * `PROVIDER_TEXT_LIMIT`、在末尾写明截过（这是开发者文字，用英文，ADR 0034）。控制字符先去：夹在密钥中间的会让遮盖认不出它。
  */
 export function sanitizeProviderText(text: string, secrets: Iterable<string>): string {
-    const cleaned = redactText(text, secrets)
-        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, "")
+    const keys = [...secrets].flatMap((secret) => {
+        const escaped = JSON.stringify(secret).slice(1, -1);
+        return escaped === secret ? [secret] : [secret, escaped];
+    });
+    const cleaned = redactText(text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, ""), keys)
         .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, `$1${REDACTED_KEY}@`)
         .replace(/(\bhttps?:\/\/[^\s?#]+)\?[^\s#]*/giu, `$1?${REDACTED_KEY}`);
     if (cleaned.length <= PROVIDER_TEXT_LIMIT) return cleaned;

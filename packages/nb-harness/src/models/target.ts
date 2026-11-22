@@ -92,6 +92,8 @@ export interface ResolveHooks {
     readonly stillCurrent?: () => boolean;
     /** 公开引用的实例名；不给用 `ProviderTarget.id`。 */
     readonly publicName?: string;
+    /** 最内层的发送（`OmpTarget.send`）；只有协议检测给。 */
+    readonly send?: typeof fetch;
 }
 
 export interface BuiltModel {
@@ -155,6 +157,7 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
                     direct: true,
                     onRequestDump: discardRequestDump,
                     ...(hooks.transport === undefined ? {} : {transport: hooks.transport()}),
+                    ...(hooks.send === undefined ? {} : {send: hooks.send}),
                     apiKey: () => {
                         if (missing.length > 0 || key === null) throw new Error(`no credential for provider ${provider.id}${missing.length > 0 ? ` (environment variable ${missing.join(", ")} is not set)` : ""}`);
                         return key;

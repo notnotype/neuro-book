@@ -10,6 +10,7 @@ import {generatedRows, SAMPLE_PROVIDERS, SAMPLE_ROWS} from "nbook/plugins/lab/we
 
 import {MODELS_TEXT_NAMESPACE} from "../../shared/text";
 import {modelsCatalogs} from "../text";
+import {checkKey} from "../models-store";
 import AllModelsView from "./AllModelsView.vue";
 
 const global = {provide: provideText(testTextPort("zh-CN", {[MODELS_TEXT_NAMESPACE]: modelsCatalogs}))};
@@ -40,6 +41,18 @@ async function search(value: string): Promise<void> {
 }
 
 describe("全部模型", () => {
+    it("检测结果三种：通过、失败、结果未知（检测被取消，请求可能已经发出）各有自己的图标与读屏名称", async () => {
+        const [flash, pro] = SAMPLE_ROWS.deepseek!;
+        render({providers: [small], rows: {deepseek: SAMPLE_ROWS.deepseek}, checks: new Map([
+            [checkKey("deepseek", flash!.id), {status: "done", at: 0, result: {ok: true}}],
+            [checkKey("deepseek", pro!.id), {status: "unknown", at: 0}],
+        ])});
+        await open("deepseek");
+        const label = (id: string): string | null => document.querySelector(`[data-all-models-row="deepseek/${id}"] :is(.all-models__ok, .all-models__failed, .all-models__unknown)`)?.getAttribute("aria-label") ?? null;
+        expect(label(flash!.id)).toBe("检测通过");
+        expect(label(pro!.id)).toBe("结果未知：检测被取消，请求可能已经发出");
+    });
+
     it("不搜索时每节各自至多 200 行：展开几百个的一家不挤掉别家；搜索时一共至多 200 行", async () => {
         render({rows: {big: generatedRows(600), deepseek: SAMPLE_ROWS.deepseek}});
         await open("big");
