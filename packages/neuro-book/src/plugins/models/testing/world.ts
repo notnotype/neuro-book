@@ -4,6 +4,9 @@
  * 只由测试使用。
  */
 
+import {mkdir, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
@@ -30,8 +33,17 @@ export interface ModelsWorld {
     close(): Promise<void>;
 }
 
-export async function modelsWorld(root: string, options: {readonly env?: Readonly<Record<string, string>>} = {}): Promise<ModelsWorld> {
+/**
+ * `autoUpdate`：模型列表与在线目录的自动更新（`catalogAutoUpdate`），缺省关：开着时启动会去取真实的在线目录，添加、设密钥后会去拉
+ * 列表。场地在启动前把它写进用户设置文件（文件已有时不动：同一个根可以重启）。
+ */
+export async function modelsWorld(root: string, options: {readonly env?: Readonly<Record<string, string>>; readonly autoUpdate?: boolean} = {}): Promise<ModelsWorld> {
     const env = Object.freeze({...options.env});
+    await mkdir(join(root, "state"), {recursive: true});
+    // 已有设置文件（同一个根重启）时不动它。
+    await writeFile(join(root, "state", "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": options.autoUpdate ?? false}), {flag: "wx"}).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    });
     let service: ModelsService | null = null;
     const probe: PluginDefinition = {id: "test.models-probe", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: modelsKey}], activate: (context) => {
         service = context.services.require(modelsKey);

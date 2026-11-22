@@ -27,6 +27,8 @@ import {SOURCE_STALE_MS} from "./sources";
 type Methods = ModelsSettingsContract["methods"];
 const CONSUMER: ConsumerIdentity = {instanceId: "browser-1", location: "browser", client: null, plugin: "acme.settings", entry: "browser", generation: null, via: null};
 const HOUR = 60 * 60 * 1000;
+const noCatalog = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: () => new Response("no catalog here", {status: 404})});
+const NO_CATALOG = `http://127.0.0.1:${String(noCatalog.port)}/models.json.zstd`;
 
 let tmp = "";
 let sequence = 0;
@@ -39,6 +41,7 @@ afterEach(async () => {
     for (const step of cleanup.splice(0).reverse()) await step();
 });
 afterAll(async () => {
+    noCatalog.stop(true);
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
@@ -61,14 +64,15 @@ interface Clock {
 
 async function start(options: {config?: MemoryModelsConfig; sources?: ReturnType<typeof memorySourceStore>; clock?: Clock; catalogUrl?: string; started?: boolean; credentials?: CredentialStore} = {}) {
     sequence += 1;
-    const config = options.config ?? memoryModelsConfig({});
+    // 自动更新缺省开着（添加、设密钥之后才会跟着拉）；在线目录缺省指向一个总回 404 的本机端点，不出本机。
+    const config = options.config ?? memoryModelsConfig({autoUpdate: true});
     const credentials = options.credentials ?? (await openCredentials(join(tmp, `credentials-${String(sequence)}.db`)));
     const sources = options.sources ?? memorySourceStore();
     const clock = options.clock ?? {now: 1_800_000_000_000};
     const events: string[] = [];
     const core: ModelsCore = createModelsCore({
         config, credentials, env: {}, secret: "sources-test-secret", icons: memoryIconStore(), sources, now: () => clock.now,
-        ...(options.catalogUrl === undefined ? {} : {catalogUrl: options.catalogUrl}),
+        catalogUrl: options.catalogUrl ?? NO_CATALOG,
         record: (_level, event) => void events.push(event),
     });
     let closed = false;
@@ -224,7 +228,7 @@ describe("目录模板的列表", () => {
 describe("来源缓存", () => {
     it("重启后读缓存、不出站；缓存文件不合格时不用并写诊断；删服务商回收它的文件，同名重建不继承", async () => {
         const local = endpoint(models({id: "house-chat", context_length: 32_000}));
-        const config = memoryModelsConfig({});
+        const config = memoryModelsConfig({autoUpdate: true});
         const sources = memorySourceStore();
         const credentials = await openCredentials(join(tmp, "credentials-restart.db"));
         cleanup.push(() => credentials.close());
@@ -255,7 +259,7 @@ describe("来源缓存", () => {
     });
 
     it("设置读不到时不回收孤立文件（分不清是删了还是暂时读不到）；读得到时回收", async () => {
-        const config = memoryModelsConfig({});
+        const config = memoryModelsConfig({autoUpdate: true});
         const sources = memorySourceStore();
         sources.files.set("orphan-uid", {version: 1});
         config.setLayer("invalid");
@@ -283,7 +287,7 @@ describe("来源缓存", () => {
 describe("自动更新与停止", () => {
     async function seeded(ageMs: number, autoUpdate: boolean) {
         const local = endpoint(models({id: "house-chat", context_length: 32_000}));
-        const config = memoryModelsConfig({});
+        const config = memoryModelsConfig({autoUpdate: true});
         const sources = memorySourceStore();
         const credentials = await openCredentials(join(tmp, `credentials-auto-${String((sequence += 1))}.db`));
         cleanup.push(() => credentials.close());

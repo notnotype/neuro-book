@@ -37,6 +37,7 @@ import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {canonCatalogs} from "nbook/plugins/canon/web/text";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
+import {networkCatalogs} from "nbook/plugins/network/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {canonBrowserPlugin} from "nbook/plugins/canon/web/plugin";
 import {plotBrowserPlugin} from "nbook/plugins/plot/web/plugin";
@@ -121,6 +122,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.image-viewer": imageViewerCatalogs,
     "nbook.markdown": markdownCatalogs,
     "nbook.models": modelsCatalogs,
+    "nbook.network": networkCatalogs,
     "nbook.web-tools": webCatalogs,
     "nbook.tasks": tasksCatalogs,
     "nbook.plugins": pluginsCatalogs,

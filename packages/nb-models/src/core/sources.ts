@@ -98,7 +98,10 @@ export interface SourcesDeps {
     readonly catalogUrl?: string;
 }
 
-/** `user`：用户点了重新拉取，任何时候都受理。`implicit`：添加服务商、设密钥之后跟着拉，只在 `start()` 之后。 */
+/**
+ * `user`：用户点了重新拉取，任何时候都受理。`implicit`：添加服务商、设密钥之后跟着拉与后台的过期检查，只在 `start()` 之后、自动更新
+ * 开着时（关掉自动更新就只在用户点重新拉取时出站）。
+ */
 export type RefreshCause = "user" | "implicit";
 
 export interface Sources {
@@ -206,7 +209,7 @@ export function createSources(deps: SourcesDeps): Sources {
     };
 
     const refresh = (provider: ProviderConfig, cause: RefreshCause): "accepted" | "no-credentials" => {
-        if (closed || (cause === "implicit" && !started)) return "accepted";
+        if (closed || (cause === "implicit" && (!started || !deps.autoUpdate()))) return "accepted";
         const deployment = deps.deploymentOf(provider);
         if (deployment === null || deployment.request === null) return "no-credentials";
         const entry = entryOf(provider.uid);

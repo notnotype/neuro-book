@@ -16,6 +16,10 @@
             "title": "Stream idle timeout (seconds)",
             "description": "Treats a reply as stuck when nothing new arrives for this long; 0 means no timeout"
         },
+        "catalogAutoUpdate": {
+            "title": "Update model lists automatically",
+            "description": "Once a day, fetches each provider's model list and OMP's online model catalog (catalog.stencil.so) in the background; also fetches right after you add a provider or set its key; when off, lists are fetched only when you choose Refresh"
+        },
         "compaction": {
             "title": "Auto-compaction trigger",
             "description": "Compact automatically when the context reaches this size: keep a reserve, a percent of the window, or a fixed token count. Each model can override it."

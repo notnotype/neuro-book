@@ -1,6 +1,6 @@
 /**
  * `nbook.models` 的服务端入口（docs/specs/models/service.md“状态与转换”）：打开凭据库并读完一次，再用设置服务的适配建
- * nb-models 的核心、交出 `modelsKey` 与远程合同；停止时等已接纳的写入走完、关凭据库。
+ * nb-models 的核心、读完来源缓存（`core.start()`），交出 `modelsKey` 与远程合同；停止时先停来源、等已接纳的写入走完、关凭据库。
  */
 
 import {join} from "node:path";
@@ -22,6 +22,7 @@ import {modelsKey, modelsSettingsContract} from "../shared/contracts";
 import {createIconRoutes, fileIconStore} from "./icons";
 import {loadInstallSecret} from "./secret";
 import {settingsModelsConfig} from "./settings-store";
+import {fileSourceStore} from "./source-store";
 
 export const modelsBackendPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -40,9 +41,11 @@ export const modelsBackendPlugin: PluginDefinition = {
             const agentRoot = join(context.services.require(stateRootKey).path, "agent");
             const credentials = await openCredentials(join(agentRoot, "credentials.db"));
             context.scope.register({kind: "credential-store", label: `${descriptor.id} credentials`, value: credentials, release: (value) => value.close()});
-            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), record});
-            // 后登记的先释放：核心先停（等写入走完），凭据库后关。
+            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env: context.services.require(startupEnvKey).env, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), sources: fileSourceStore(context.services.require(stateRootKey).path), record});
+            // 后登记的先释放：核心先停（取消在途的列表请求、等写入走完），凭据库后关。
             context.scope.register({kind: "models-core", label: `${descriptor.id} core`, value: core, release: (value) => value.close()});
+            // 读完来源缓存与在线目录再交出服务：会话一开始解析的引用就能看到列表里的模型。后台拉取不等。
+            await core.start();
             return {
                 services: [provideService(modelsKey, core.service)],
                 remote: [provideRemote(modelsSettingsContract, (consumer) => core.remote(consumer))],

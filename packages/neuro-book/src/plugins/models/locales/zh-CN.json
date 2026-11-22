@@ -16,6 +16,10 @@
             "title": "流中途的时限（秒）",
             "description": "回复到一半，这么久没有新内容就算卡死；0 表示不设"
         },
+        "catalogAutoUpdate": {
+            "title": "自动更新模型列表",
+            "description": "每天在后台向各服务商取一次模型列表，并取一次 OMP 的在线模型目录（catalog.stencil.so）；添加服务商、设好密钥后也会马上取一次；关掉后只在点“重新拉取”时取"
+        },
         "compaction": {
             "title": "自动压缩的触发点",
             "description": "上下文用到这个量就自动压缩。可以留预留量、按窗口的百分比，或者写固定的 token 数；每个模型也可以单独设置。"
