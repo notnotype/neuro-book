@@ -1,4 +1,6 @@
-# t45 计划：nb-story 并排看卡片（第 4 稿）
+# t45 计划：nb-story 并排看卡片（第 5 稿）
+
+第 5 稿在 nb-layout 补了公开面之后重写（开发者 2026-11-22 选“先补 nb-layout 再做”）：t51 的分隔线显示名、t52 的 `setSize` 与“增删不压固定栏”、t53 的内容项 `leave: "retain"`。用上 t53 之后，宿主自己管“正在关的内容”的一整套（`closing` 列表、按 `moving` 清理）去掉；网格仍按状态重建，理由见“布局”。第 5 稿重新开一轮审查。
 
 第 2 稿按第 1 轮设计审查（Claude Sonnet，重要 9、建议 5，[证据](evidences/design-review.txt)）与结构探针（[证据](evidences/structure-probe.txt)）改；第 3 稿按第 2 轮（重要 7、建议 8，[证据](evidences/design-review-2.txt)）改；第 4 稿按第 3 轮（重要 2、建议 7，[证据](evidences/design-review-3.txt)）改，没有再审（三轮是上限）。差别见末尾“修订记录”。
 
@@ -7,7 +9,7 @@
 - **为什么做**：开发者 2026-11-22 选“加并排看卡片”，评审板第 1 轮四题按推荐定稿（决定见 [Task README](README.md)）。这也是 nb-story 校验 nb-layout 拖动公开面的一步（ADR 0054 第 8 条）：拖动会话、落点反馈、内容层在叶之间移动、叶的增减。
 - **前提**：t44 已把三栏换成 `NestedGrid` 加 `useGridHost`（`shell/book-grid.ts`、`BookFrame.vue`），分栏有 `e2e/frame.e2e.ts`（8 条）。
 - **依据**：[`story/viewer`](../../../../../docs/specs/story/viewer.md) 输出 1、4（地址优先）、20、32、33、“状态与转换”、“边界与兼容”；nb-layout 的 [`NestedGrid`](../../../../../packages/nb-layout/src/vue/NestedGrid.md)（内容层、过渡、`moving`）、[拖动会话](../../../../../packages/nb-layout/src/vue/drag-session.md)、[`DropFeedbackOverlay`](../../../../../packages/nb-layout/src/vue/DropFeedbackOverlay.md)；[`ui/layout-drag`](../../../../../docs/specs/ui/layout-drag.md) 输出 7（结构变了整场取消）。
-- **工作方式**：autonomous-delivery；worktree `.worktree/w00026-t45-side-by-side`（分支 `w00026/t45-side-by-side`）。只改 `packages/nb-story/`；nb-layout 公开面不动，缺口记进接入记录。
+- **工作方式**：autonomous-delivery；worktree `.worktree/w00026-t45-side-by-side`（分支 `w00026/t45-side-by-side`）。只改 `packages/nb-story/`，用 nb-layout 已有的入口；还缺的（运行时改收起策略，t51 API 审查第 1 条）记进接入记录。
 
 ## 技术选型
 
@@ -54,11 +56,12 @@
 ### 布局：`book-grid.ts` 与重建
 
 - **网格由状态算出来**（第 2 轮第 2、14 条）：`createBookGrid({cards, navWidth, navCollapsed, cardWidth, compact})`。`cards` 取“宽屏且 `open` ? `items.length` : 0”：0 时是三叶、`drawer` 收起（同 t44）；1 时三叶；2 时四叶 `nav | main | drawer | drawer2`。只有 `cards` 与档位变了才建一个新 `Grid` 交给 `useGridHost`：`watch([cards, tier], rebuild)` 配 `shallowRef`，不用 `computed`（它会把导航收起、偏好、容器宽都跟踪成依赖，拖窗口边缘也重建，第 3 轮第 1 条）；同 id 的叶不重建，换矩形有过渡，`drawer2` 从 0 长出、关掉时缩回去。导航收起这类不改结构的变化仍走 `host.setCollapsed`（同 t44）。
-  - 理由：探针表明宿主没有干净的入口把保留像素的节点加宽（`resizeBranches` 要求分支内守恒，`resize` 与 `addLeaf` 会改兄弟的意图），也不能改收起策略（两张时要去掉 `drawer` 的），`Grid.setCollapsed` 注释认可“宿主改了自己的记录、重新建树”。重建会取消进行中的手势（版本递增），重建只发生在点击、档位变化与落账之后，不在拖动中。
+  - 理由：两张时要去掉 `drawer` 的收起策略，收起策略只能在建树时给，nb-layout 还没有运行时的入口（t51 API 审查第 1 条）。t52 之后 `setSize` 能设保留像素的宽度、`addLeaf` 与 `removeLeaf` 不再压固定栏，原地增删本来可行，卡在这一条上。`Grid.setCollapsed` 注释认可“宿主改了自己的记录、重新建树”。重建会取消进行中的手势（版本递增），重建只发生在点击、档位变化与落账之后，不在拖动中。
   - 不走“详情做成分支、按需增删叶”：`removeLeaf` 把只剩一个孩子的分支展平（结构探针）。
 - **意图从哪来**（第 2 轮第 8 条、第 3 轮第 4 条）：都从偏好与 ref 读，重建不依赖旧网格。卡片宽度取 `readDrawerWidth()`（两张都取它，所以重建后等宽）；导航收起取 `navCollapsed` 与档位两个 ref；导航宽度写进偏好（`prefs.ts` 加 `nav-width`，范围 150 到 300，落账时导航那条线参与才写），平板往返不丢拖过的宽度。
 - **门槛**（第 2 轮第 5 条、第 3 轮第 1 条）：网格放得下两张的条件按最小宽度判：`导航 + 360 + 2 × 280 + 3 ≤ 容器宽`（导航取当前宽度：展开的偏好或收起的 44），`BookFrame` 用它已有的宽度 ref（ResizeObserver 量的，不用 `host.extent`：建树时它还是 null）算出写进会话的 `besideRoom`，只是一个布尔门。够时两张仍按偏好建，放不下偏好时由网格按最小值压缩（1280 宽、偏好 400 时导航约 178、主区 360、两张约 369，`over-constrained` 照 t44 不打），不另算收紧的宽度；真放不下才退化（会话一节）。之后窗口变窄，网格照样压缩，不自动收掉一张（已知限制，`ui/nested-grid` 的已知限制第三条：压缩时落账会把意图写成压缩值）。
-- 叶仍按位置叫 `drawer`、`drawer2`：读屏名称（“调整 drawer 与 drawer2 的宽度”）与 t44 的 e2e 选择器不变。
+- 叶仍按位置叫 `drawer`、`drawer2`（偏好与 e2e 认的身份）。读屏名称用 `NestedGrid` 的 `paneLabel`（t51，`ui/nested-grid` 输出 152）：导航、正文、详情；两张时左边的详情、右边的详情（待确认）。t44 `frame.e2e.ts` 按“调整 nav 与 main 的宽度”取分隔线的辅助函数跟着改成“调整 导航 与 正文 的宽度”这一类。
+- `book-grid.ts` 交叉轴的 `maximumSize` 改成 `Number.POSITIVE_INFINITY`：写 0 时 `layout()` 报出的高是 0（画面按父分支的盒子画，看不出来，t52 查出），nb-layout README 的“约定”已写明。
 - **线的语义**（第 2 轮第 1、2 条）：
   - `main` 与 `drawer` 之间：一张时同 t44（拖动改宽度、写偏好，拖到 0 收起整块）。两张时只有 `drawer` 跟着变（求解器由近到远，`drawer` 到 280 才推 `drawer2`），松手后不拉齐，两张可以不一样宽，到下次重建（张数、档位变了）回到等宽；落账时这条线参与（`active` 含 `main`）才写偏好，写的是 `drawer` 的目标宽度。两张时 `drawer` 没有收起策略，这条线拖不出收起。
   - `drawer` 与 `drawer2` 之间：只分配两张的宽度，不收起、不写偏好，两张都没有收起策略。
@@ -70,9 +73,15 @@
 ### 详情画进内容层：`BookFrame.vue`
 
 - `drawer`、`drawer2` 两栏不在 `leaf` 插槽里画详情，改走内容层：`contents` 为每张详情一项 `{key: "detail-<key>", leaf: 左 "drawer"、右 "drawer2", insetTop: 0, active: true}`，`content` 插槽按 key 画。对调就是两项换 `leaf`，关掉左边那张时右边那项换到 `drawer`：都是内容在叶之间移动，不重建（`ui/nested-grid` 输出 82、92）。
-- **正在关的内容**（第 1 轮第 1 条、第 2 轮第 3、4 条）：不读 `outgoingLeaves` 决定去留（它只保证在插槽里读到这一轮的）。宿主维护 `closing` 列表：关右边那张、整块收起时把被关的项（`key`、内容、原来的叶）放进去，继续留在 `contents` 里。清理：写入状态之后再调 `nextTick`（写入之前调的话回调排在刷新之前，读到的是过渡还没开始的 `moving`，第 3 轮第 5 条），等它（网格在同一轮刷新里已判过要不要过渡），那时 `gridRef.moving` 为假就清（手势落账、减少动态效果、矩形没动都不开过渡），为真就等它变假再清。`closing` 里的 key 与 `items` 里的相撞（展开、过渡中又打开）时以 `items` 为准，从 `closing` 摘掉。关左边那张时被关的那项不进 `closing`、立即消失：右边那张换到 `drawer` 叶，矩形不变，露出的是左边那块，不需要滑动（对调过之后叠放顺序会反过来，被关的会盖住留下的）。t44 的 `paneDrawer` 换成这一套。
-- **关掉一张之后焦点**（第 3 轮第 8 条）：接 `NestedGrid` 的 `content-parked`，被停放的项里有焦点时把焦点交给剩下那张的外壳，没有剩下的交给主区。
-- **标记**（审查第 2 条）：每张详情的外壳（`content` 插槽最外层）带 `data-testid="drawer"`、`data-closing`（在 `closing` 里时）与 `data-detail-index`（0 或 1）；叶槽里不再画 `aside`。t44 `frame.e2e.ts` 里按 `[data-leaf='drawer'] [data-testid='card-name']` 取卡片的那条改成按外壳取；两张开着时用例按 `data-detail-index` 选。`qa.e2e.ts`、`revisions.e2e.ts`、`viewer.e2e.ts` 里的 `getByTestId("drawer")` 与 `data-closing` 都是一张卡的场景，列进切片 1 的回归。
+- **关掉的内容**：每张详情的内容项标 `leave: "retain"`（t53，`ui/nested-grid` 输出 155、156），宿主关掉时直接从 `contents` 去掉，库决定留不留：
+  - 关右边那张：重建成三叶，`drawer2` 离开，内容停在关之前的样子跟着它缩回去，过渡结束才卸载；
+  - 整块收起（顶栏开关、一张时拖到 0）：`drawer` 降到零，内容留到过渡结束（两张时 `drawer2` 同时离开，同上）；
+  - 关左边那张：右边那项换到 `drawer` 叶，左边那项的叶不动，库当即卸载它，同第 4 稿“立即消失”的规则（对调过之后被关的会盖住留下的，所以不滑）；
+  - 过渡中又打开同一张（展开、又点同一个名字）：内容项回到 `contents`，库沿用同一个元素。
+  - 宿主不再维护 `closing` 列表与按 `moving` 的清理；t44 的 `paneDrawer`（读 `outgoingLeaves` 加 `lastDrawer`）删掉，`lastDrawer` 本来就删了（会话一节）。
+  - 合同的限制（t53）：冻住的只是插槽调用。详情的外壳经属性拿到它那一项（`content` 插槽里按 key 取出、交给 `DetailShell` 的属性），外壳与卡片里不在交给子组件的插槽里按 key 查会话的 `details`；卡片组件按 `entity` 读的书库数据关掉时不删，不受影响。删 `details` 与改 `contents`、重建网格在同一次刷新里（都是同步段里的写入与 `computed`）。
+- **关掉一张之后焦点**（第 3 轮第 8 条）：接 `NestedGrid` 的 `content-parked`，被停放的项里有焦点时把焦点交给剩下那张的外壳，没有剩下的交给主区。不按事件里的 key 去查 `details`：关掉的那张已经不在（t53 输出 155），按此刻的 `details` 选去处。
+- **标记**（审查第 2 条）：每张详情的外壳（`content` 插槽最外层）带 `data-testid="drawer"` 与 `data-detail-index`（0 或 1）；叶槽里不再画 `aside`。“正在关”不再由宿主写 `data-closing`（插槽冻住之后宿主改不了它），改由网格的内容外层带 `data-content-leaving`：`qa.e2e.ts:189` 的 `[data-testid='drawer']:not([data-closing])` 改成排除 `[data-content-leaving]` 里的外壳。t44 `frame.e2e.ts` 里按 `[data-leaf='drawer'] [data-testid='card-name']` 取卡片的那条改成按外壳取；两张开着时用例按 `data-detail-index` 选。`qa.e2e.ts`、`revisions.e2e.ts`、`viewer.e2e.ts` 里的 `getByTestId("drawer")` 都是一张卡的场景，列进切片 1 的回归。
 - 只在宽屏画两栏；平板与手机的浮层只画 `drawer`（最近点过的那张）。
 - `onIssues` 照 t44 不打 `over-constrained`。
 
@@ -109,7 +118,7 @@
   7. 平板宽度只显示最近点过的那张，回到宽屏两张回来；平板里 Ctrl 点等于普通打开；
   8. 1280 宽：Ctrl 点照样并排，两张各不小于 280、主区 360（网格压缩）；放不下的宽度（把导航拖到 300、窗口 1150 造）不并排并提示；
   9. 地址带 `entity2`、`tab2`，刷新后仍并排；对调之后地址跟着对调。
-- 变异检查：`openBeside` 改成普通打开、`closing` 不保留、`closing` 永不清、`nextTick` 挪到写入之前、展开时不摘 `closing` 里同 key 的项、`structure` 不传、写地址的 watch 不盯 `details`、写偏好不分线、外壳不提供会话代理、宽度门槛不判，各有用例变红。
+- 变异检查：`openBeside` 改成普通打开、详情内容项不标 `leave: "retain"`（关右边那张时内容当即消失）、`structure` 不传、写地址的 watch 不盯 `details`、写偏好不分线、外壳不提供会话代理、宽度门槛不判，各有用例变红。
 
 ## Spec 与文档改动
 
@@ -120,12 +129,12 @@
   - 69 地址与回到上次：`entity2`、`tab2`；整组规则；左原文右人物卡时只记人物卡；相同的去重。
 - 输出 1：“抽屉里每种内容右上角都有关闭按钮”改成“每张详情右上角”；输出 4 加“人物卡的四个地址参数按组取”；输出 20 补一句 Ctrl 点名字见输出 67。
 - “边界与兼容”的地址形状加 `entity2`、`tab2`。
-- 待确认清单：窗口窄时交给网格压缩、真放不下才退化并提示；记着两张时只能用顶栏开关展开；导航宽度写进偏好；窄档 Ctrl 点退化、菜单项隐藏、关闭是整块收起；两张时拖不出收起、中间那条线只分配；两张时主区线只改左边那张、松手不拉齐；“与另一张对调”菜单项；原文、段落、节点头部加标题；最近那张头部的强调线；地址参数按组取（页签不再从存下的补）。
+- 待确认清单：分隔线的读屏名称（导航、正文、详情，两张时左边的详情、右边的详情）；两张时 `drawer` 没有收起策略、主区那条线拖不出收起（第 4 稿已是这样；另一种是“两张时拖到 0 收起左边那张”，要 nb-layout 先有运行时改收起策略的入口）；窗口窄时交给网格压缩、真放不下才退化并提示；记着两张时只能用顶栏开关展开；导航宽度写进偏好；窄档 Ctrl 点退化、菜单项隐藏、关闭是整块收起；两张时拖不出收起、中间那条线只分配；两张时主区线只改左边那张、松手不拉齐；“与另一张对调”菜单项；原文、段落、节点头部加标题；最近那张头部的强调线；地址参数按组取（页签不再从存下的补）。
 
 ## 切片
 
-1. `details.ts` 与单测；会话改走它（`drawer` 计算值、外壳的会话代理、写地址的 watch、`lastDrawer` 删掉），这时还只开一张；标记改到详情外壳，`frame.e2e.ts`、`qa.e2e.ts`、`revisions.e2e.ts`、`viewer.e2e.ts` 的选择器跟着改。验证：nb-story `bun test`、`typecheck`、`build:web`，四个 e2e 文件全过。
-2. 重建网格与四栏、内容层与 `closing`、`openBeside` 与 Ctrl 点、共用右键菜单、宽度门槛、窄档；`frame.e2e.ts` 1、2、3、5、6、7、8、9。
+1. `details.ts` 与单测；会话改走它（`drawer` 计算值、外壳的会话代理、写地址的 watch、`lastDrawer` 删掉），这时还只开一张；这一张从 `leaf` 插槽搬进内容层（`leave: "retain"`，`paneDrawer` 跟着删，关上时的过渡由库留住）；标记改到详情外壳，`frame.e2e.ts`、`qa.e2e.ts`、`revisions.e2e.ts`、`viewer.e2e.ts` 的选择器跟着改。验证：nb-story `bun test`、`typecheck`、`build:web`，四个 e2e 文件全过。
+2. 重建网格与四栏、内容层（`leave: "retain"`）、分隔线的显示名、`openBeside` 与 Ctrl 点、共用右键菜单、宽度门槛、窄档；`frame.e2e.ts` 1、2、3、5、6、7、8、9。
 3. 拖动换边与“与另一张对调”、三种详情的头部标题；`frame.e2e.ts` 4；变异检查。
 4. 收口：Spec 去掉 planned、Task README、接入记录、待确认清单；实现审查（Claude Sonnet，不阻塞）。
 
@@ -148,7 +157,7 @@
 - 不做：三张以上；拖名字进抽屉（决定 2 没选）；键盘拖动换边；实时让位（等 t49）；出处的右键菜单；并排时两张的高亮（读 `drawer` 的页面只高亮最近点过的那张，记为已知限制）。
 - 风险：
   - 重建网格时 `useGridHost` 换实例：进行中的手势被取消（版本递增），`frame.e2e.ts` 的过渡用例与“关掉左边那张”兜住过渡与内容寿命。
-  - `closing` 的清理时机靠 `moving` 由真变假；重建与关闭在同一个同步段里时 `moving` 要等网格发布新布局后才变真，清理的 watch 要按“曾经为真、现在为假”判，减少动态效果时走 `nextTick`。
+  - 关掉的内容靠 t53 的规则留住：只在叶这一轮缩回去时留。重建与关闭在同一个同步段里写，网格同一次刷新里判；`frame.e2e.ts` 5 的“关右边那张过渡中内容还在、过渡结束才没”兜住。
   - 读 `drawer` 的页面行为在一张卡时与现在相同，由切片 1 的四个 e2e 文件兜。
 
 ## 修订记录
@@ -194,3 +203,8 @@
   - 第 7 条：“关掉左边那张位置宽度不变”只在等宽时成立，e2e 写明前提，Spec 不写“宽度不变”。
   - 第 8 条：接 `content-parked`，焦点交给剩下那张。
   - 第 9 条：上游缺口（设置保留像素叶的意图、收起策略只能建树时给、内容项的离开状态、一对卡一起动）写进接入记录。
+- 第 5 稿（nb-layout 补了公开面之后重写，新一轮审查）：
+  - 关掉的内容改用 t53 的 `leave: "retain"`：去掉 `closing` 列表、`nextTick` 与按 `moving` 的清理、`data-closing`，以及它们的四条变异；关左边那张“立即消失”由库的“叶不动、内容被换掉当即卸载”给出。
+  - 网格仍按状态重建：卡在运行时改不了收起策略（t52 已补 `setSize` 与“增删不压固定栏”）。
+  - 分隔线读屏名称用 `paneLabel`（t51）；`book-grid.ts` 交叉轴 `maximumSize` 改成 `Infinity`（t52）。
+  - `content-parked` 的处理不按 key 查 `details`。
