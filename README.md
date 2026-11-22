@@ -158,7 +158,7 @@ AI 能写好一段文字，但写不好一部长篇：设定靠对话记忆，�
 
 NeuroBook 是采用 [GNU Affero General Public License v3.0（仅此版本）](LICENSE) 的自由开源软件，SPDX 标识为 `AGPL-3.0-only`。该许可证允许使用、研究、修改、分发和商业使用；分发修改版或通过网络向用户提供修改版服务时，需要依照 AGPLv3 提供对应源代码。
 
-标志、字标与看板娘等品牌图片随仓库按同一许可提供（[来源](docs/images/readme/README.md)）。用户使用 NeuroBook 创作、编辑或发表的原创作品不会仅因使用本软件而自动适用 AGPL。仓库中另有许可证声明的独立第三方组件继续适用各自的许可证。Copyright © 2026 notnotype。
+标志、字标与看板娘等品牌图片随仓库按同一许可提供（[来源](docs/images/readme/README.md)）。用户使用 NeuroBook 创作、编辑或发表的原创作品不会仅因使用本软件而自动适用 AGPL。仓库中另有许可证声明的独立第三方组件继续适用各自的许可证。布局库 `packages/nb-layout`（`@notnotype/nb-layout`）例外，采用 [MIT](packages/nb-layout/LICENSE)（[ADR 0054](docs/adr/0054-nb-layout-general-library.md)）。Copyright © 2026 notnotype。
 
 ## Star History
 

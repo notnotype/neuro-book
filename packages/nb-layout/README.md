@@ -17,8 +17,14 @@ import {NB_LAYOUT_CATALOGS} from "@notnotype/nb-layout/locales";        // 自�
 npm install @notnotype/nb-layout   # 或 bun add、pnpm add
 ```
 
-- 对等依赖：`vue` 3.5 以上，`typescript` 5.4 以上。
-- 包以源码发布（`exports` 指向 `.ts` 与 `.vue`），要用能编译 TypeScript 与单文件组件的构建工具（例如 Vite 加 `@vitejs/plugin-vue`）。
+- 对等依赖：`vue` 3.5 以上。
+- 包是编译好的 ES 模块与类型声明。组件的样式单独一份，在入口文件里导入一次，不导入时组件没有样式：
+
+  ```ts
+  import "@notnotype/nb-layout/style.css";
+  ```
+
+- 承诺的宿主是 Vue 3 加 Vite；别的打包器没有实测。
 
 ## 起步
 
@@ -214,3 +220,7 @@ createApp(App).provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("zh-CN"));
 ```
 
 它固定这一种语言、不跟着宿主换；传自带目录里没有的语言（例如 `"zh"`）会抛 `RangeError`。目录不处理复数，`{{size}} pixels` 在 1 时读成“1 pixels”。
+
+## 许可证
+
+MIT，见包里的 `LICENSE`。它所在的仓库其余部分是 AGPL-3.0-only，只有这个包例外。

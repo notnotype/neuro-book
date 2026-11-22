@@ -43,10 +43,18 @@ export async function noticeOf(directory: string): Promise<Notice> {
     return {name: manifest.name, version: manifest.version, license: license || "见下文", texts};
 }
 
-/** 一组包目录的许可，按目录排序；工作区自己的包（`@notnotype/*`，与发布包同一许可）不列。 */
+/**
+ * 不用列的包：工作区自己的、与发布包同一许可（AGPL-3.0-only）的包。自己的包换了许可的（nb-layout 是 MIT，ADR 0054 第 5 条）
+ * 照列；别人家的包不论什么许可都列，哪怕也是 AGPL：声明要随包走的是它们的版权。
+ */
+export function sameLicenseAsRelease(name: string, license: string | undefined): boolean {
+    return name.startsWith("@notnotype/") && license === "AGPL-3.0-only";
+}
+
+/** 一组包目录的许可，按目录排序；与发布包同一许可的自家包不列（`sameLicenseAsRelease`）。 */
 export async function packageNotices(directories: Iterable<string>): Promise<Notice[]> {
     const notices = await Promise.all([...directories].sort().map(noticeOf));
-    return notices.filter((notice) => !notice.name.startsWith("@notnotype/"));
+    return notices.filter((notice) => !sameLicenseAsRelease(notice.name, notice.license));
 }
 
 interface ViteLicense {
@@ -60,7 +68,7 @@ interface ViteLicense {
 export async function viteLicenseNotices(licenseFile: string, nodeModules: string): Promise<Notice[]> {
     if (!existsSync(licenseFile)) throw new Error(`${licenseFile} 不存在：要用 vite build 构建（build.license）`);
     const entries = JSON.parse(await readFile(licenseFile, "utf8")) as ViteLicense[];
-    return Promise.all(entries.filter((entry) => !entry.name.startsWith("@notnotype/")).map(async (entry): Promise<Notice> => {
+    return Promise.all(entries.filter((entry) => !sameLicenseAsRelease(entry.name, entry.identifier)).map(async (entry): Promise<Notice> => {
         if (!entry.identifier && !entry.text) throw new Error(`${entry.name}@${entry.version} 没有写许可`);
         const directory = join(nodeModules, entry.name);
         const notices = existsSync(directory) ? (await readdir(directory)).filter((name) => NOTICE_FILE.test(name)).sort() : [];

@@ -16,6 +16,12 @@
 - nb-ui 不依赖本包，也不重导出本包。
 - 入口导出的组件是受管组件，同名 `.md` 必有（`docs:check`）；内部组件写模块头注释。入口加了或删了组件，插件 SDK 的组件清单要跟着改，做法同 nb-ui（[`packages/nb-ui/AGENTS.md`](../nb-ui/AGENTS.md)）。
 
+## 许可与发布
+
+- 本包是 MIT（ADR 0054 第 5 条），仓库其余是 AGPL-3.0-only。MIT 的包不从 AGPL 的代码搬内容：要从 AGPL 的包（nb-ui 等）复制进来的，逐文件复核来历（同一作者写的也写明），复核记在 Task 里。反方向（AGPL 的代码用本包）不受限。
+- 发到 npm 的是编译产物：`bun run build:package`（`scripts/pack.ts`）写 `dist/package/`，构建完自查导出名、纯 TS 入口不拉进 Vue、随包文件与 JS 和 CSS 里没有 Spec 编号；`--web` 另写 `dist/web-build/` 给 nb-story 的网页构建读。仓库里的使用方（新应用、工作台、Lab、开发者面板）照旧走源码。改入口、加依赖、加样式文件之后跑一次。
+- 首发开关是 `package.json` 的 `private`：还在时发布冒烟只验、不发；删它是开发者的发布决定（发布手册的“新包首发”）。
+
 ## 谁还用这里的 Splitter
 
 nb-story 与开发者面板的分栏也用这里的 Splitter（w00026 t14 从 nb-ui 冻结的那一份迁来，那一份已删）。它们没有拖分隔线的 e2e：改 Splitter 的外观、手势或事件载荷时，在 nb-story 里走一遍拖、收起与重开、键盘（t14 的探针做法见它的 `evidences/probe.txt`）。
@@ -25,6 +31,7 @@ nb-story 与开发者面板的分栏也用这里的 Splitter（w00026 t14 从 nb
 ```text
 bun run typecheck   # 核心 tsc，Vue 层 vue-tsc
 bun run test        # 核心 bun test，Vue 层 Vitest（*.dom.test.ts，happy-dom）
+bun run build:package   # 编译产物与自查（约 5 秒）
 ```
 
 真实浏览器里的指针、布局与可访问名称在应用 Component Lab 的场景与它的 Playwright 用例里。
