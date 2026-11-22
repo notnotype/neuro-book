@@ -336,8 +336,11 @@ export function createModelsStore(remote: ModelsRemote, now: () => number = Date
         };
         const worker = async (): Promise<void> => {
             for (let model = pending.shift(); model !== undefined && !controller.signal.aborted; model = pending.shift()) {
-                // 正在单独检测的跳过（它自己会结算），也算进进度。
-                if (checks.get(checkKey(provider, model))?.status !== "running") await runCheck(provider, model, controller.signal);
+                // 跳过的也算进进度：正在单独检测的（它自己会结算）；名单是开始时定的，领到时读到的行里它已被停用或移出的（检测要
+                // 几十秒，期间可能改过）不再发。还没读过行时照名单发。
+                const rows = rowsOf(provider);
+                const wanted = rows.revision === null || rows.rows.some((item) => item.id === model && item.enabled);
+                if (wanted && checks.get(checkKey(provider, model))?.status !== "running") await runCheck(provider, model, controller.signal);
                 tick();
             }
         };

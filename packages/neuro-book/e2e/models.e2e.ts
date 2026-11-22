@@ -234,6 +234,8 @@ test("验收 5：检测协议（没有可用的模型时填一个、每种协议
     await modelInput.press("Enter");
     const rows = detail(page).locator("[data-api-detect-row]");
     await expect(rows).toHaveCount(4);
+    // 输入框随块换掉，焦点交给“检测协议”按钮（检测中是同一个按钮）。
+    await expect(detail(page).locator("[data-api-detect-start], [data-api-detect-cancel]")).toBeFocused();
     await expect(detail(page).locator("[data-api-detect-row='openai-completions'] [data-api-detect-using]")).toBeVisible();
     await expect(detail(page).locator("[data-api-detect-row='openai-completions']")).toHaveAttribute("data-ok", "");
     for (const api of ["openai-responses", "anthropic-messages", "google-generative-ai"]) await expect(detail(page).locator(`[data-api-detect-row='${api}']`)).toContainText("HTTP 404");
@@ -254,7 +256,7 @@ test("验收 5：检测协议（没有可用的模型时填一个、每种协议
         const checkAll = detail(page).locator("[data-models-check-all]");
         await checkAll.click();
         const alert = page.getByRole("alertdialog");
-        await expect(alert).toContainText("检测 24 个模型？");
+        await expect(alert).toContainText("检测中转站的 24 个模型？");
         await alert.getByRole("button", {name: "取消"}).click();
         await expect(alert).toHaveCount(0);
         await expect(checkAll).toBeFocused();

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {ApiCheck, ApiDetection} from "@notnotype/nb-models/contract";
-import {Button, IconButton, Input, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, ref, useId, watch} from "vue";
+import {Button, CopyButton, Input} from "@notnotype/nb-ui/components";
+import {computed, ref, useId} from "vue";
 
 import {useModelsText} from "../text";
 
@@ -14,6 +14,9 @@ export type ApiDetectState =
     | {readonly status: "running"}
     | {readonly status: "done"; readonly detection: ApiDetection}
     | {readonly status: "failed"; readonly code: string; readonly reason: string};
+
+// 两个根：常驻的播报区与结果块；attrs 落在结果块上。
+defineOptions({inheritAttrs: false});
 
 const props = withDefaults(defineProps<{
     state: ApiDetectState;
@@ -39,9 +42,23 @@ const NAMES: Record<ApiCheck["api"], string> = {
 const KNOWN_CODES = new Set(["http", "network", "timeout", "no-content", "endpoint-mismatch", "missing-key", "unknown-model", "transport-unsupported", "no-address", "cancelled"]);
 
 const detection = computed(() => (props.state.status === "done" ? props.state.detection : null));
-/** 现在的配置是哪一行试过的：快照的连接版本等于那一行改用之后的。都不等时结果已过期。 */
+/** 现在的配置是哪一行试过的：快照的连接版本等于那一行改用之后的。 */
 const currentApi = computed(() => detection.value?.results.find((row) => row.connection === props.connection)?.api ?? null);
-const stale = computed(() => detection.value !== null && currentApi.value === null);
+/**
+ * 结果已过期：快照的连接版本既不是检测时的、也不是哪一行改用之后的。只看行不够：混合协议的模板跟随时每个模型各用各的协议，
+ * 哪一行都不是现在的配置，结果仍然有效。
+ */
+const stale = computed(() => detection.value !== null && detection.value.connection !== props.connection && currentApi.value === null);
+/**
+ * 读屏播报：播报区常驻（随内容一起插入的区域常常不播），状态变了换一句。失败的原因块自己是 `role="alert"`，这里不重复。
+ */
+const announcement = computed(() => {
+    const state = props.state;
+    if (state.status === "running") return text("connection.detect.running");
+    if (state.status === "failed") return state.code === "no-model" ? text("connection.detect.needModel") : "";
+    if (state.status !== "done") return "";
+    return stale.value ? text("connection.detect.stale") : text("connection.detect.done", {count: String(state.detection.results.filter((row) => row.ok).length)});
+});
 
 function outcomeText(row: ApiCheck): string {
     if (row.ok) return text("connection.detect.ms", {ms: String(row.ms ?? 0)});
@@ -56,21 +73,6 @@ function lineOf(row: ApiCheck): string {
     return message === "" ? where : `${where} · ${message}`;
 }
 
-// ---- 复制原文 ----
-const copied = ref<string | null>(null);
-watch(() => props.state, () => {
-    copied.value = null;
-});
-async function copy(row: ApiCheck): Promise<void> {
-    try {
-        await navigator.clipboard.writeText(row.message);
-        copied.value = row.api;
-    } catch (error) {
-        // 浏览器不给写剪贴板（没有焦点、权限被拒）：按钮不变成“已复制”，原文仍在悬停提示与淡色一行里，可以手动选中复制。
-        console.warn("copying the provider response failed", error);
-    }
-}
-
 // ---- 没有模型时填一个 ----
 const modelDraft = ref("");
 function detectWith(): void {
@@ -80,8 +82,9 @@ function detectWith(): void {
 </script>
 
 <template>
-    <div v-if="state.status !== 'idle'" class="api-detect" data-api-detect>
-        <p v-if="state.status === 'running'" class="api-detect__note" aria-live="polite" data-api-detect-running>{{ text("connection.detect.running") }}</p>
+    <p class="sr-only" role="status" aria-atomic="true" data-api-detect-announce>{{ announcement }}</p>
+    <div v-if="state.status !== 'idle'" v-bind="$attrs" class="api-detect" data-api-detect>
+        <p v-if="state.status === 'running'" class="api-detect__note" data-api-detect-running>{{ text("connection.detect.running") }}</p>
         <template v-else-if="state.status === 'failed' && state.code === 'no-model'">
             <p class="api-detect__note">{{ text("connection.detect.needModel") }}</p>
             <div class="api-detect__model">
@@ -91,14 +94,14 @@ function detectWith(): void {
         </template>
         <p v-else-if="state.status === 'failed'" class="api-detect__note api-detect__note--error" role="alert" data-api-detect-failed>{{ state.reason }}</p>
         <template v-else-if="detection !== null">
-            <p class="api-detect__note" :class="{'api-detect__note--stale': stale}" aria-live="polite" :data-api-detect-stale="stale ? '' : undefined">
+            <p class="api-detect__note" :class="{'api-detect__note--stale': stale}" :data-api-detect-stale="stale ? '' : undefined">
                 {{ stale ? text("connection.detect.stale") : text("connection.detect.model", {model: detection.model}) }}
             </p>
             <ul class="api-detect__rows" :class="{'api-detect__rows--stale': stale}" :aria-label="text('connection.detect.title')">
                 <li v-for="row in detection.results" :key="row.api" class="api-detect__row" :data-api-detect-row="row.api" :data-ok="row.ok ? '' : undefined">
                     <span :class="row.ok ? 'i-lucide-circle-check api-detect__icon--ok' : 'i-lucide-circle-x api-detect__icon--bad'" class="api-detect__icon" role="img" :aria-label="row.ok ? text('check.ok') : text('check.failed')" />
                     <span class="api-detect__name">{{ NAMES[row.api] }}</span>
-                    <span class="api-detect__outcome" :class="{'api-detect__outcome--bad': !row.ok}">{{ outcomeText(row) }}</span>
+                    <span class="api-detect__outcome" :class="{'api-detect__outcome--bad': !row.ok}" data-api-detect-outcome>{{ outcomeText(row) }}</span>
                     <span class="api-detect__action">
                         <span v-if="row.api === currentApi" class="api-detect__using" data-api-detect-using>{{ text("connection.detect.using") }}</span>
                         <button
@@ -110,9 +113,7 @@ function detectWith(): void {
                             data-api-detect-adopt
                             @click="emit('adopt', row.api, row.connection)"
                         >{{ text("connection.detect.adopt") }}</button>
-                        <Tooltip v-else-if="row.message !== ''" :text="copied === row.api ? text('connection.detect.copied') : text('connection.detect.copy')">
-                            <IconButton size="xs" :icon-class="copied === row.api ? 'i-lucide-check' : 'i-lucide-copy'" :aria-label="copied === row.api ? text('connection.detect.copied') : text('connection.detect.copyLabel', {name: NAMES[row.api]})" data-api-detect-copy @click="copy(row)" />
-                        </Tooltip>
+                        <CopyButton v-else-if="row.message !== ''" :text="row.message" icon-only :label="text('connection.detect.copyLabel', {name: NAMES[row.api]})" data-api-detect-copy />
                     </span>
                     <span class="api-detect__line" :title="row.message === '' ? undefined : row.message">{{ lineOf(row) }}</span>
                 </li>
@@ -196,13 +197,13 @@ function detectWith(): void {
     white-space: nowrap;
 }
 
+/* 失败原因是这一行最要读到的：换行，不截断（英文与窄容器下放不下一行）。 */
 .api-detect__outcome {
     grid-area: outcome;
-    overflow: hidden;
+    min-width: 0;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .api-detect__action {

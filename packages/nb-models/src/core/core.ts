@@ -41,13 +41,18 @@ const WRITE_ATTEMPTS = 3;
  * 写入的快照早就到了）就到点照样重试。
  */
 const CATCH_UP_MS = 1_000;
-/** 检测：最大输出、超时与批量并发（输出 11）。 */
+/** 检测：最大输出与超时（输出 11）。 */
 const CHECK_MAX_OUTPUT = 32;
 const CHECK_TIMEOUT_MS = 30_000;
 /** 协议检测的整次时限：四种协议并行，各自恰好一次请求（输出 26）。 */
 const DETECT_TIMEOUT_MS = 15_000;
 /** 协议检测的四行，按这个顺序。 */
 const API_ORDER: readonly WireApi[] = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
+/** 检测结果里写的地址：去掉用户信息、查询串与片段（里面可能是令牌）；请求本身照用完整的。 */
+function shownAddress(address: string): string {
+    const url = new URL(address);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+}
 
 /** 上传图标的文件存放（应用给：状态根下的目录）；名字是内容的 SHA-256 加 `.png`。 */
 export interface IconStore {
@@ -707,22 +712,24 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      */
     const connectionOf = (provider: ProviderConfig): string => {
         const auth = requestAuth(targetOf(provider), null, access);
-        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers)])).digest("hex").slice(0, 32);
+        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers), [...auth.missing].sort()])).digest("hex").slice(0, 32);
     };
     /**
      * 改用 `api` 之后的实例：选回模板的协议即恢复跟随；地址没覆盖时跟着模板给这种协议的路由走，模板没有这种协议的路由时钉在现在的
      * 地址上（检测试的就是这个地址）。检测与采纳都用它，所以采纳写进去的正是检测试过的那份。
+     * 混合协议的模板（OpenCode Zen 这类，路由不止一种协议）不恢复跟随：没有覆盖时每个模型按目录各用各的协议，试的与写进去的就不是
+     * 选的这种了。
      */
     const withApi = (provider: ProviderConfig, api: WireApi): ProviderConfig => {
         const next: ProviderConfig = {...provider, api};
-        if (!isBlankTemplate(provider.template) && api === defaultApi(provider.template)) delete (next as {api?: WireApi}).api;
+        if (!isBlankTemplate(provider.template) && api === defaultApi(provider.template) && templateRoutes(provider.template).length <= 1) delete (next as {api?: WireApi}).api;
         const address = effectiveBaseUrl(provider);
         if (effectiveBaseUrl(next) === null && address !== null) next.baseUrl = address;
         return next;
     };
-    /** 有能发出去的凭据：要密钥的有密钥，请求头引用的环境变量都有值。 */
-    const credentialReady = (provider: ProviderConfig): boolean => {
-        const auth = requestAuth(targetOf(provider), null, access);
+    /** 有能发出去的凭据：要密钥的有密钥，请求头（服务商级与 `model` 的合好之后，与发请求时同一份）引用的环境变量都有值。 */
+    const credentialReady = (provider: ProviderConfig, model: ModelTarget | null): boolean => {
+        const auth = requestAuth(targetOf(provider), model, access);
         return auth.missing.length === 0 && (provider.auth === "none" || auth.key !== null);
     };
     const probe: ModelRequest = {purpose: "background", model: "", params: {}, headers: {}, system: [], messages: [{role: "user", content: [{kind: "text", text: "ping", origin: {kind: "fixed", by: "kernel"}}]}], tools: []};
@@ -1045,21 +1052,22 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             detectApi: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                if (!credentialReady(provider)) return ctx.fail("no-credentials", {detail: "no credential for this provider"});
                 const sources = sourcesFor(provider);
                 const model = input.model
                     ?? listedMembers(provider, sources).filter(enabledOf).sort(byMember)[0]?.id
                     ?? [...sources.models.values()].find((item) => item.kind === "chat")?.id;
-                if (model === undefined) return ctx.fail("no-model", {detail: "no model to check with; give a model id"});
-                const member = findMember(provider, sources, model);
+                const member = model === undefined ? undefined : findMember(provider, sources, model);
+                const target = model === undefined ? null : modelTargetOf(model, member?.entry, member?.source);
+                if (!credentialReady(provider, target)) return ctx.fail("no-credentials", {detail: "no credential for this provider"});
+                if (model === undefined || target === null) return ctx.fail("no-model", {detail: "no model to check with; give a model id"});
                 const connection = connectionOf(provider);
                 const results = await Promise.all(API_ORDER.map(async (api): Promise<ApiCheck> => {
                     const candidate = withApi(provider, api);
                     const baseUrl = effectiveBaseUrl(candidate);
                     const after = connectionOf(candidate);
                     if (baseUrl === null) return {api, baseUrl: "", connection: after, url: null, ok: false, status: null, ms: null, code: "no-address", message: ""};
-                    const outcome = await probeProtocol(targetOf(candidate), modelTargetOf(model, member?.entry, member?.source), access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS});
-                    return {api, baseUrl, connection: after, ...outcome, ms: outcome.ms === null ? null : Math.round(outcome.ms)};
+                    const outcome = await probeProtocol(targetOf(candidate), target, access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS});
+                    return {api, baseUrl: shownAddress(baseUrl), connection: after, ...outcome, ms: outcome.ms === null ? null : Math.round(outcome.ms)};
                 }));
                 return ctx.ok({model, connection, results});
             },

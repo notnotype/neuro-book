@@ -2,7 +2,7 @@
 import type {ModelRow as ModelRowData, SnapshotProvider, Template} from "@notnotype/nb-models/contract";
 import {Button, Collapsible, InfoTip, Input, Select, Switch} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {computed, ref, useId, watch} from "vue";
+import {computed, nextTick, ref, useId, watch} from "vue";
 
 import {fullTime} from "nbook/shared/short-time";
 
@@ -212,6 +212,12 @@ function startDetect(): void {
     }
     emit("detect");
 }
+/** 在结果块里填了模型 id 再检测：输入框随块换掉，焦点交给“检测协议”（这时是“取消协议检测”）。 */
+async function detectWith(model: string): Promise<void> {
+    emit("detect", model);
+    await nextTick();
+    document.getElementById(`${id}-detect`)?.focus();
+}
 
 const authOptions = computed(() => [
     {value: "default", label: text("connection.auth.default")},
@@ -257,6 +263,12 @@ const isOpen = (group: string): boolean => chosen.value.get(group) ?? props.rows
 function fold(group: string): void {
     chosen.value = new Map([...chosen.value, [group, !isOpen(group)]]);
 }
+/** 检测全部的播报：只在开始与结束时各一句（进度每检完一个就变，放进播报区会一直插播）。 */
+const checkAnnouncement = ref("");
+watch(() => props.checkRun?.total ?? null, (total, before) => {
+    if (total !== null && before === null) checkAnnouncement.value = text("models.checkStarted", {total: String(total)});
+    else if (total === null && before !== null) checkAnnouncement.value = text("models.checkFinished");
+});
 const checking = computed(() => props.checkRun !== null || props.rows.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
 </script>
 
@@ -316,13 +328,24 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
                     <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.api.label") }}</span></div>
                     <div class="provider-detail__inline">
                         <Select class="provider-detail__grow" :model-value="provider.api ?? 'openai-completions'" :options="API_OPTIONS" size="sm" :disabled="disabled" :aria-label="text('connection.api.label')" data-api-select @update:model-value="changeApi" />
-                        <!-- 检测进行中换成“取消检测”（不停用，焦点留在按钮上）；没有可用的密钥时停用，原因写成看得见的字。 -->
-                        <Button v-if="detecting" size="sm" variant="secondary" icon-class="i-lucide-square" data-api-detect-cancel @click="emit('cancel-detect')">{{ text("connection.detect.cancel") }}</Button>
-                        <Button v-else size="sm" variant="secondary" icon-class="i-lucide-radar" :disabled="disabled || !keyReady" data-api-detect-start @click="startDetect">{{ text("connection.detect.button") }}</Button>
+                        <!--
+                            检测进行中换成“取消协议检测”：同一个按钮只换文字与动作（换成另一个元素焦点会掉），不停用。没有可用的密钥时停用，
+                            原因写成看得见的字。
+                        -->
+                        <Button
+                            :id="`${id}-detect`"
+                            size="sm"
+                            variant="secondary"
+                            :icon-class="detecting ? 'i-lucide-square' : 'i-lucide-radar'"
+                            :disabled="!detecting && (disabled || !keyReady)"
+                            :data-api-detect-cancel="detecting ? '' : undefined"
+                            :data-api-detect-start="detecting ? undefined : ''"
+                            @click="detecting ? emit('cancel-detect') : startDetect()"
+                        >{{ detecting ? text("connection.detect.cancel") : text("connection.detect.button") }}</Button>
                     </div>
                     <p v-if="!keyReady && !detecting" class="provider-detail__hint" data-api-detect-needs-key>{{ text("connection.detect.needsKey") }}</p>
                     <p v-if="apiChanged" class="provider-detail__hint" data-api-note>{{ text("connection.protocol.changed", {value: provider.templateApi ?? ""}) }} {{ text("connection.protocol.note") }}</p>
-                    <ApiDetectResults :state="detect" :connection="provider.connection" :disabled="disabled" @adopt="(api, connection) => emit('adopt', api, connection)" @detect="(model) => emit('detect', model)" />
+                    <ApiDetectResults :state="detect" :connection="provider.connection" :disabled="disabled" @adopt="(api, connection) => emit('adopt', api, connection)" @detect="detectWith" />
                 </div>
                 <Collapsible>
                     <template #trigger>
@@ -352,7 +375,8 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
                 <span class="provider-detail__spacer" />
                 <Button size="sm" variant="ghost" icon-class="i-lucide-list-checks" :disabled="disabled" data-models-manage @click="emit('manage')">{{ text("models.manage") }}</Button>
                 <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" data-models-add @click="emit('add-model')">{{ text("models.add") }}</Button>
-                <span v-if="checkRun !== null" class="provider-detail__muted" aria-live="polite" data-models-check-progress>{{ text("models.checkProgress", {done: String(checkRun.done), total: String(checkRun.total)}) }}</span>
+                <span class="sr-only" role="status" data-models-check-announce>{{ checkAnnouncement }}</span>
+                <span v-if="checkRun !== null" class="provider-detail__muted" data-models-check-progress>{{ text("models.checkProgress", {done: String(checkRun.done), total: String(checkRun.total)}) }}</span>
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>

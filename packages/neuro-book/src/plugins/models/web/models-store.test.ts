@@ -142,6 +142,28 @@ describe("数据模块", () => {
         expect(store.checkRuns.has("provider")).toBe(false);
     });
 
+    test("检测全部进行中停用了还没领到的模型：读到的行里它已停用，就不再发，也算进进度", async () => {
+        const {store} = await setup();
+        await store.start();
+        ok(await store.call("addProvider", {template: "blank-openai", name: "本地", baseUrl: BASE, api: "openai-completions"}));
+        ok(await store.call("updateProvider", {id: "provider", patch: {auth: "none"}}));
+        const ids = ["slow-1", "slow-2", "slow-3", "slow-4", "slow-5", "slow-6"];
+        ok(await store.call("setModels", {provider: "provider", remove: [], add: ids.map((id) => ({id, enabled: true, contextWindow: 8000}))}));
+        await waitUntil("模型都在快照里", () => store.snapshot.value?.providers[0]?.modelCount === 6);
+        const all = store.checkAll("provider", await store.checkTargets("provider"));
+        await waitUntil("四路请求到了端点", () => slowWaiting.length === 4);
+        ok(await store.call("upsertModel", {provider: "provider", model: {id: "slow-6", enabled: false, contextWindow: 8000}}));
+        await waitUntil("快照换了版本", () => store.snapshot.value?.providers[0]?.enabledCount === 5);
+        await store.loadRows("provider");
+        releaseSlow();
+        await waitUntil("剩下的一个发出", () => slowWaiting.length === 1);
+        releaseSlow();
+        await all;
+        expect(store.checks.has(checkKey("provider", "slow-6"))).toBe(false);
+        expect(ids.slice(0, 5).map((id) => store.checks.get(checkKey("provider", id))?.status)).toEqual(ids.slice(0, 5).map(() => "done"));
+        expect(store.checkRuns.has("provider")).toBe(false);
+    });
+
     test("检测全部进行中取消：已发出的标 unknown，没领到的保持原样、不再发；单独检测取消也标 unknown", async () => {
         const {store} = await setup();
         await store.start();

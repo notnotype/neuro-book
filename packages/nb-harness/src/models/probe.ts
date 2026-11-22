@@ -5,10 +5,12 @@
  * - **恰好一次 HTTP**：OMP 的几种协议在内层自己重发（`b1-probes.txt`：500 时 Responses 实收 6 次、Anthropic 11 次，
  *   `maxHttpAttempts` 挡不住），所以经 `ResolveHooks.send` 接管最内层的发送：第一次照发，第二次不发、整次就此结束。
  * - **首个生成证据**：适配器交出第一段非空的文字、思考或工具参数增量才算；握手、角色帧、`created`/`start` 事件、空候选不交增量，
- *   不算。证据一到就中止（取消读取、中止 fetch），不等模型说完。正常收尾却没交增量的（不流式的网关）以“结束原因是停止或截断、
- *   且报了输出 token”为证据。
- * - **证据之前的错误优先**：非 2xx 的回应读正文（有上限）当原文，立即结束，不让适配器重发；2xx 的正文另分一路留个开头，
- *   流里报错又被适配器重发时用它当原文。
+ *   不算。证据一到就中止（取消读取、中止 fetch），不等模型说完。正常收尾、报了输出 token 却没交增量的（思考全在不外露的推理里）
+ *   以“结束原因是停止或截断、且输出 token 大于 0”为证据：为此关掉适配器的空回复重发（`acceptEmptyResponse`，经一个空的
+ *   `transport` 打开）。不流式、整段回 JSON 的网关对话也用不了，判失败。
+ * - **证据之前的错误优先**：非 2xx 的回应读正文（有上限）当原文，立即结束；不把它交给适配器（交了它会把请求全文写进日志目录，
+ *   而中止后的调用不经删除那一步）。2xx 的正文在交给适配器的那一路上顺手留下开头（只有一个读者：分两路时一路不读、另一路的
+ *   取消要等它，流里报错会被拖到时限），流里报错又被适配器重发时用它当原文。
  */
 
 import {sanitizeProviderText, type ModelRequest} from "../kernel/index.js";
@@ -39,7 +41,7 @@ export interface ProbeOptions {
     readonly now?: () => number;
 }
 
-/** 检测请求的最大输出：证据一到就中止，上限只在不流式的网关上起作用；推理模型要留出能报出输出的余地。 */
+/** 检测请求的最大输出：证据一到就中止，上限只在不交增量的回应上起作用；推理模型要留出能报出输出的余地。 */
 const PROBE_MAX_OUTPUT = 64;
 /** 物化不出来只因为没有上下文窗口时（用户填的、目录里没有的 id）补的窗口：检测不发它，只是让模型对象建得出来。 */
 const PROBE_WINDOW = 8192;
@@ -48,14 +50,32 @@ const BODY_LIMIT = 8 * 1024;
 
 const request: ModelRequest = {purpose: "background", model: "", params: {maxTokens: PROBE_MAX_OUTPUT}, headers: {}, system: [], messages: [{role: "user", content: [{kind: "text", text: "ping", origin: {kind: "fixed", by: "kernel"}}]}], tools: []};
 
+/**
+ * 留下的开头解成文字。截在上限处时，末尾若是某个密钥的前半段就一并去掉：遮盖只认完整的密钥，截断处的半个会原样留下。
+ */
+function headText(chunks: readonly Uint8Array[], secrets: readonly string[]): string {
+    const bytes = Buffer.concat(chunks);
+    let text = new TextDecoder().decode(bytes.subarray(0, BODY_LIMIT));
+    if (bytes.byteLength <= BODY_LIMIT) return text;
+    for (const secret of secrets) {
+        for (let length = Math.min(secret.length - 1, text.length); length > 0; length -= 1) {
+            if (text.endsWith(secret.slice(0, length))) {
+                text = text.slice(0, -length);
+                break;
+            }
+        }
+    }
+    return text;
+}
+
 /** 读正文的开头至多 `BODY_LIMIT` 字节，然后取消。 */
-async function readHead(body: ReadableStream<Uint8Array> | null): Promise<string> {
-    if (body === null) return "";
-    const reader = body.getReader();
+async function readHead(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array[]> {
     const chunks: Uint8Array[] = [];
+    if (body === null) return chunks;
+    const reader = body.getReader();
     let size = 0;
     try {
-        while (size < BODY_LIMIT) {
+        while (size <= BODY_LIMIT) {
             const {done, value} = await reader.read();
             if (done) break;
             chunks.push(value);
@@ -66,8 +86,35 @@ async function readHead(body: ReadableStream<Uint8Array> | null): Promise<string
     } finally {
         void reader.cancel().catch(() => undefined);
     }
-    return new TextDecoder().decode(Buffer.concat(chunks).subarray(0, BODY_LIMIT));
+    return chunks;
 }
+
+/** 把正文原样交给适配器，经过时留下开头（多读一字节，好知道截没截）；适配器取消时取消源头。 */
+function recording(body: ReadableStream<Uint8Array>, chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+    const reader = body.getReader();
+    let size = 0;
+    return new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            const {done, value} = await reader.read();
+            if (done) {
+                controller.close();
+                return;
+            }
+            if (size <= BODY_LIMIT) {
+                chunks.push(value);
+                size += value.byteLength;
+            }
+            controller.enqueue(value);
+        },
+        cancel: (reason) => reader.cancel(reason),
+    });
+}
+
+/**
+ * 结果已定、不让适配器再往下走时 `send` 抛的错：用中止错误，文字里不带状态码（Gemini 的 SDK 从抛错的文字里认状态码，认出 400
+ * 就把请求全文写进日志目录）。
+ */
+const stopped = (): DOMException => new DOMException("protocol check stopped after its one request", "AbortError");
 
 /** 对 `provider` 的有效地址用它的协议（`provider.api` 或模型的目录协议）试一次。不抛错。 */
 export async function probeProtocol(provider: ProviderTarget, model: ModelTarget, access: KeyAccess, options: ProbeOptions): Promise<ProbeOutcome> {
@@ -76,7 +123,7 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
     const stop = new AbortController();
     const timeout = AbortSignal.timeout(options.timeoutMs);
     const signal = AbortSignal.any([options.signal, timeout, stop.signal]);
-    const secrets = (() => {
+    const secrets = ((): string[] => {
         const {key, headers} = requestAuth(provider, model, access);
         // 短值（`writing` 这类标记）不像凭据，与适配器同一个门槛（`omp.ts` 的 `SECRET_HEADER_MIN`）。
         return [...(key === null ? [] : [key]), ...Object.values(headers).filter((value) => value.length >= 8)];
@@ -89,8 +136,8 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
     let status: number | null = null;
     /** 证据或证据之前的错误；先到的定结果。放在对象里：它在回调里赋值，局部变量会被类型收窄成一直是 null。 */
     const outcome: {settled: {ok: true; ms: number} | {ok: false; code: string; message: string; ms: number | null} | null} = {settled: null};
-    /** 2xx 正文的开头（流里报错、适配器要重发时当原文）。 */
-    let head: Promise<string> = Promise.resolve("");
+    /** 2xx 正文经过时留下的开头（流里报错、适配器要重发时当原文）。 */
+    const head: Uint8Array[] = [];
     const settle = (value: NonNullable<typeof outcome.settled>): void => {
         outcome.settled ??= value;
         stop.abort();
@@ -99,11 +146,9 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
     const send = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         sent += 1;
         if (sent > 1) {
-            // 适配器要重发：第一次的回应里没有生成内容。不发第二次；先中止（第一次的正文若还开着，读开头的那一路随之结束）再取原文。
-            const ms = now() - startedAt;
-            stop.abort();
-            settle({ok: false, code: "no-content", message: sanitize(await head), ms});
-            throw new Error("protocol check sends one request only");
+            // 适配器要重发：第一次的回应里没有生成内容（或已经定了结果、适配器还在按抛错退避重试）。不发第二次。
+            settle({ok: false, code: "no-content", message: sanitize(headText(head, secrets)), ms: now() - startedAt});
+            throw stopped();
         }
         const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         const parsed = new URL(href);
@@ -119,18 +164,17 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
         }
         status = response.status;
         if (!response.ok) {
-            const text = await readHead(response.body);
+            const text = headText(await readHead(response.body), secrets);
             settle({ok: false, code: "http", message: sanitize(text), ms: now() - startedAt});
-            return new Response(text, {status: response.status, statusText: response.statusText, headers: response.headers});
+            throw stopped();
         }
         if (response.body === null) return response;
-        const [mine, theirs] = response.body.tee();
-        head = readHead(mine);
-        return new Response(theirs, {status: response.status, statusText: response.statusText, headers: response.headers});
+        return new Response(recording(response.body, head), {status: response.status, statusText: response.statusText, headers: response.headers});
     }) as typeof fetch;
 
-    let built = buildResolution(provider, model, access, {send});
-    if (!built.ok && built.code === "unknown-model" && model.contextWindow === undefined) built = buildResolution(provider, {...model, contextWindow: PROBE_WINDOW}, access, {send});
+    const hooks = {send, transport: () => ({})};
+    let built = buildResolution(provider, model, access, hooks);
+    if (!built.ok && built.code === "unknown-model" && model.contextWindow === undefined) built = buildResolution(provider, {...model, contextWindow: PROBE_WINDOW}, access, hooks);
     if (!built.ok) return local(built.code);
 
     const response = await built.resolution.call({...request, model: built.resolution.info.id}, signal, (delta) => {
@@ -143,8 +187,8 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
     if (timeout.aborted) return {...base, ok: false, ms: sent === 0 ? null : now() - startedAt, code: "timeout", message: ""};
     const ms = sent === 0 ? null : now() - startedAt;
     if (response.stopReason === "error") return {...base, ok: false, ms, code: response.error?.code ?? response.error?.kind ?? "provider", message: response.error?.message ?? ""};
-    // 不流式的网关：没交增量，但正常收尾并报了输出。
+    // 没交增量，但正常收尾并报了输出（思考不外露）。
     if ((response.stopReason === "stop" || response.stopReason === "length" || response.stopReason === "tool") && response.usage.output > 0) return {...base, ok: true, ms, code: null, message: ""};
     stop.abort();
-    return {...base, ok: false, ms, code: "no-content", message: sanitize(await head)};
+    return {...base, ok: false, ms, code: "no-content", message: sanitize(headText(head, secrets))};
 }

@@ -8,7 +8,7 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
-import {CHECK_CONFIRM_ABOVE, detailText} from "../models-store";
+import {CHECK_CONCURRENCY, CHECK_CONFIRM_ABOVE, detailText} from "../models-store";
 import type {ModelsFailure, ModelsRemote, ModelsStore} from "../models-store";
 import {failureReason, roleName, useModelsText} from "../text";
 import AddProviderDialog from "./AddProviderDialog.vue";
@@ -156,24 +156,28 @@ async function refreshSource(provider: SnapshotProvider): Promise<void> {
     sourceErrors.value = next;
 }
 
-async function setKey(provider: SnapshotProvider, value: string): Promise<void> {
-    const result = await props.store.call("setKey", {provider: provider.id, value});
-    // `partially-applied` 也走通知：快照随后给出实际的密钥状态（service.md 输出 13）。
-    if (!result.ok) report(text("subject.key", {provider: provider.name}), result.failure);
-}
-
-async function clearKey(provider: SnapshotProvider): Promise<void> {
-    const result = await props.store.call("clearKey", {provider: provider.id});
-    if (!result.ok) report(text("subject.key", {provider: provider.name}), result.failure);
-}
-
-/** 还没回来的连接写入（改地址、协议、认证）：协议检测要等它们写完，只测已保存的配置。 */
+/**
+ * 还没回来的连接写入（地址、协议、认证、密钥）：协议检测要等它们写完，只测已保存的配置。鼠标从密钥框直接点“检测协议”时，失焦交出的
+ * 密钥与检测几乎同时发出，服务端的检测不排在写队列里，不等就会读到旧密钥。
+ */
 const pendingWrites = new Set<Promise<unknown>>();
 function tracked<T>(work: Promise<T>): Promise<T> {
     pendingWrites.add(work);
     void work.finally(() => pendingWrites.delete(work));
     return work;
 }
+
+async function setKey(provider: SnapshotProvider, value: string): Promise<void> {
+    const result = await tracked(props.store.call("setKey", {provider: provider.id, value}));
+    // `partially-applied` 也走通知：快照随后给出实际的密钥状态（service.md 输出 13）。
+    if (!result.ok) report(text("subject.key", {provider: provider.name}), result.failure);
+}
+
+async function clearKey(provider: SnapshotProvider): Promise<void> {
+    const result = await tracked(props.store.call("clearKey", {provider: provider.id}));
+    if (!result.ok) report(text("subject.key", {provider: provider.name}), result.failure);
+}
+
 async function updateProvider(provider: SnapshotProvider, patch: ProviderPatch): Promise<void> {
     const result = await tracked(props.store.call("updateProvider", {id: provider.id, patch}));
     if (!result.ok) report(subjectOf(provider), result.failure);
@@ -213,7 +217,7 @@ onBeforeUnmount(stopDetect);
 
 // ---- 检测全部 ----
 /** 超过 `CHECK_CONFIRM_ABOVE` 个先确认：个数与“会产生真实调用”。确认的是这一份名单，检测的也是它。 */
-const checkConfirm = ref<{provider: string; models: readonly string[]} | null>(null);
+const checkConfirm = ref<{provider: string; name: string; models: readonly string[]} | null>(null);
 const checkConfirmOpen = ref(false);
 async function checkAll(provider: SnapshotProvider): Promise<void> {
     const models = await props.store.checkTargets(provider.id);
@@ -221,7 +225,7 @@ async function checkAll(provider: SnapshotProvider): Promise<void> {
         void props.store.checkAll(provider.id, models);
         return;
     }
-    checkConfirm.value = {provider: provider.id, models};
+    checkConfirm.value = {provider: provider.id, name: provider.name, models};
     checkConfirmOpen.value = true;
 }
 function confirmCheckAll(): void {
@@ -602,8 +606,8 @@ function focusVisible(selectors: readonly string[]): void {
         <AlertDialog
             v-if="checkConfirm !== null"
             v-model:open="checkConfirmOpen"
-            :title="text('models.confirmCheckAll.title', {count: String(checkConfirm.models.length)})"
-            :description="text('models.confirmCheckAll.description')"
+            :title="text('models.confirmCheckAll.title', {count: String(checkConfirm.models.length), provider: checkConfirm.name})"
+            :description="text('models.confirmCheckAll.description', {concurrency: String(CHECK_CONCURRENCY)})"
             :confirm-label="text('models.confirmCheckAll.action')"
             tone="neutral"
             data-check-all-confirm

@@ -110,35 +110,34 @@
         },
         "detect": {
             "button": "检测协议",
-            "cancel": "取消检测",
+            "cancel": "取消协议检测",
             "needsKey": "先填密钥才能检测",
             "title": "协议检测结果",
             "running": "正在试四种协议，每种发一次请求…",
             "model": "用模型 {{model}} 试的，每种协议发了一次请求。",
             "using": "正在用",
             "adopt": "用这个",
-            "adoptLabel": "改用 {{name}}",
-            "copy": "复制服务商原文",
+            "adoptLabel": "用这个：{{name}}",
             "copyLabel": "复制 {{name}} 的服务商原文",
             "ms": "{{ms}} ms",
             "stale": "配置已改，请重新检测",
+            "done": "检测完成：{{count}} 种协议能用",
             "needModel": "这家还没有能用来检测的模型：填一个模型 id 再检测。",
             "modelLabel": "模型 id",
             "run": "检测",
             "codes": {
                 "http": "HTTP {{status}}",
-                "network": "连不上",
+                "network": "无法连接",
                 "timeout": "超时",
                 "no-content": "没有生成内容",
                 "endpoint-mismatch": "地址与这种协议的路径对不上",
                 "missing-key": "没有密钥",
-                "unknown-model": "建不出这个模型",
+                "unknown-model": "无法按这个模型 id 构造请求",
                 "transport-unsupported": "不支持这种协议",
                 "no-address": "模板没有这种协议的地址",
                 "cancelled": "已取消",
                 "other": "失败（{{code}}）"
-            },
-            "copied": "已复制"
+            }
         }
     },
     "headers": {
@@ -213,9 +212,11 @@
         "manual": "手动添加",
         "restoreSource": "恢复来源值",
         "checkProgress": "已检 {{done}} / 共 {{total}}",
+        "checkStarted": "正在检测 {{total}} 个模型",
+        "checkFinished": "检测全部已结束",
         "confirmCheckAll": {
-            "title": "检测 {{count}} 个模型？",
-            "description": "每个模型向服务商发一次真实请求，会按服务商的价格计费。同时检测 4 个，可以随时取消。",
+            "title": "检测{{provider}}的 {{count}} 个模型？",
+            "description": "每个模型向服务商发一次真实请求，会按服务商的价格计费。同时检测 {{concurrency}} 个，可以随时取消。",
             "action": "检测"
         }
     },

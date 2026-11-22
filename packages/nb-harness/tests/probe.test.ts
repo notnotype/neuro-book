@@ -8,7 +8,7 @@ import {probeProtocol, type ProviderTarget, type WireApi} from "@notnotype/nb-ha
 
 const KEY = "sk-probe-SECRET-0123456789";
 
-type Mode = "ok" | "status-500" | "status-400-echo" | "stream-error" | "evidence-then-hang" | "handshake-then-hang";
+type Mode = "ok" | "status-500" | "status-400-echo" | "status-400-boundary" | "stream-error" | "stream-error-then-hang" | "usage-only" | "evidence-then-hang" | "handshake-then-hang";
 let mode: Mode = "ok";
 const seen: {path: string; query: string; closed: Promise<void>}[] = [];
 /** 端点收到下一个请求时 resolve。 */
@@ -29,8 +29,8 @@ const sse = (frames: readonly string[], hang: boolean, onClose: () => void): Res
 const data = (value: object): string => `data: ${JSON.stringify(value)}\n\n`;
 const event = (name: string, value: object): string => `event: ${name}\ndata: ${JSON.stringify(value)}\n\n`;
 
-/** 每种协议的帧：握手（不算证据）、一段文字（证据）、收尾。 */
-function frames(api: WireApi): {handshake: string[]; text: string[]; end: string[]; error: string[]} {
+/** 每种协议的帧：握手（不算证据）、一段文字（证据）、收尾，以及不交文字、只报了输出 token 的收尾（思考不外露）。 */
+function frames(api: WireApi): {handshake: string[]; text: string[]; end: string[]; error: string[]; usageOnly: string[]} {
     switch (api) {
         case "openai-completions": {
             const chunk = (body: object) => data({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...body});
@@ -39,6 +39,7 @@ function frames(api: WireApi): {handshake: string[]; text: string[]; end: string
                 text: [chunk({choices: [{index: 0, delta: {content: "好"}, finish_reason: null}]})],
                 end: [chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]}), chunk({choices: [], usage: {prompt_tokens: 3, completion_tokens: 1, total_tokens: 4}}), "data: [DONE]\n\n"],
                 error: [data({error: {message: "upstream overloaded", type: "server_error"}})],
+                usageOnly: [chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]}), chunk({choices: [], usage: {prompt_tokens: 3, completion_tokens: 1, total_tokens: 4}}), "data: [DONE]\n\n"],
             };
         }
         case "openai-responses": {
@@ -55,6 +56,7 @@ function frames(api: WireApi): {handshake: string[]; text: string[]; end: string
                     event("response.completed", {type: "response.completed", sequence_number: 6, response: {...response, status: "completed", output: [{id: "msg", type: "message", status: "completed", role: "assistant", content: [{type: "output_text", text: "好", annotations: []}]}], usage: {input_tokens: 3, output_tokens: 1, total_tokens: 4}}}),
                 ],
                 error: [event("error", {type: "error", sequence_number: 2, code: "server_error", message: "upstream overloaded"})],
+                usageOnly: [event("response.completed", {type: "response.completed", sequence_number: 2, response: {...response, status: "completed", usage: {input_tokens: 3, output_tokens: 1, total_tokens: 4}}})],
             };
         }
         case "anthropic-messages":
@@ -63,6 +65,7 @@ function frames(api: WireApi): {handshake: string[]; text: string[]; end: string
                 text: [event("content_block_start", {type: "content_block_start", index: 0, content_block: {type: "text", text: ""}}), event("content_block_delta", {type: "content_block_delta", index: 0, delta: {type: "text_delta", text: "好"}})],
                 end: [event("content_block_stop", {type: "content_block_stop", index: 0}), event("message_delta", {type: "message_delta", delta: {stop_reason: "end_turn"}, usage: {output_tokens: 1}}), event("message_stop", {type: "message_stop"})],
                 error: [event("error", {type: "error", error: {type: "overloaded_error", message: "upstream overloaded"}})],
+                usageOnly: [event("message_delta", {type: "message_delta", delta: {stop_reason: "end_turn"}, usage: {output_tokens: 1}}), event("message_stop", {type: "message_stop"})],
             };
         case "google-generative-ai":
             return {
@@ -70,6 +73,7 @@ function frames(api: WireApi): {handshake: string[]; text: string[]; end: string
                 text: [data({candidates: [{content: {parts: [{text: "好"}], role: "model"}, index: 0}]})],
                 end: [data({candidates: [{content: {parts: [{text: ""}], role: "model"}, finishReason: "STOP", index: 0}], usageMetadata: {promptTokenCount: 3, candidatesTokenCount: 1, totalTokenCount: 4}})],
                 error: [data({error: {code: 503, message: "upstream overloaded", status: "UNAVAILABLE"}})],
+                usageOnly: [data({candidates: [{content: {parts: [{text: ""}], role: "model"}, finishReason: "STOP", index: 0}], usageMetadata: {promptTokenCount: 3, candidatesTokenCount: 1, totalTokenCount: 4}})],
             };
     }
 }
@@ -91,9 +95,17 @@ const server = Bun.serve({
             case "status-500":
                 return Response.json({error: {message: "internal error"}}, {status: 500});
             case "status-400-echo":
-                return Response.json({error: {message: `bad key ${KEY} for max_tokens`}}, {status: 400});
+                // 一处原样、一处中间夹着控制字符（去掉控制字符之后才是完整的密钥）。
+                return new Response(`${JSON.stringify({error: {message: `bad key ${KEY} for max_tokens`}})}\ngot ${KEY.slice(0, 8)}\u0000${KEY.slice(8)}`, {status: 400});
+            case "status-400-boundary":
+                // 密钥跨在原文上限上：截下来的是它的前半段。
+                return new Response(`${"A".repeat(8 * 1024 - 8)}${KEY} more`, {status: 400});
             case "stream-error":
                 return sse([...parts.handshake, ...parts.error], false, close);
+            case "stream-error-then-hang":
+                return sse([...parts.handshake, ...parts.error], true, close);
+            case "usage-only":
+                return sse([...parts.handshake, ...parts.usageOnly], false, close);
             case "evidence-then-hang":
                 return sse([...parts.handshake, ...parts.text], true, close);
             case "handshake-then-hang":
@@ -147,6 +159,23 @@ describe("协议检测：每种协议恰好一次 HTTP", () => {
         expect(outcome).toMatchObject({ok: false, status: 400, code: "http"});
         expect(outcome.message).toContain("max_tokens");
         expect(outcome.message).not.toContain(KEY);
+        expect(outcome.message).toContain("got [REDACTED]");
+    });
+
+    test("密钥跨在原文上限上：截下来的半个也不留", async () => {
+        mode = "status-400-boundary";
+        const outcome = await probe("openai-completions");
+        expect(outcome).toMatchObject({ok: false, status: 400, code: "http"});
+        expect(outcome.message).toMatch(/^A+$/u);
+    });
+
+    test.each(APIS)("%s：流里报错之后连接挂着，也按报错结束，不等到时限", async (api) => {
+        mode = "stream-error-then-hang";
+        const outcome = await probe(api, {timeoutMs: 10_000});
+        expect(outcome).toMatchObject({ok: false, status: 200});
+        expect(outcome.code).not.toBe("timeout");
+        expect(outcome.message).toContain("upstream overloaded");
+        expect(seen).toHaveLength(1);
     });
 });
 
@@ -156,6 +185,13 @@ describe("首个生成证据", () => {
         const outcome = await probe(api, {timeoutMs: 10_000});
         expect(outcome).toMatchObject({ok: true, status: 200});
         await seen[0]!.closed;
+        expect(seen).toHaveLength(1);
+    });
+
+    test.each(APIS)("%s：没交文字、正常收尾且报了输出 token（思考不外露）判通过，不让适配器按空回复重发", async (api) => {
+        mode = "usage-only";
+        const outcome = await probe(api);
+        expect(outcome).toMatchObject({ok: true, status: 200, code: null});
         expect(seen).toHaveLength(1);
     });
 
