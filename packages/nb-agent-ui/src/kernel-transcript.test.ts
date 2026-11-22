@@ -626,6 +626,15 @@ describe("计数消息（agent/conversation.md 输出 55）与固定会话的说
         expect(countedIn(await rebuilt(session.raw))).toEqual(expected);
     });
 
+    test("正在生成的那条（增量画出来的）不算", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyFrame({type: "status", status: {state: "running", runId: "r", turnId: "t", phase: "streaming", request: 1}, afterSeq: 1});
+        transcript.applyFrame({type: "delta", request: 1, purpose: "turn", n: 1, part: "text", text: "写到一半"});
+        const [live] = transcript.messages();
+        expect(live).toMatchObject({kind: "assistant", status: "streaming"});
+        expect(transcript.countedSeq(live!.id)).toBeNull();
+    });
+
     test("停止时补的空回复不算；被标成停止的最终回复仍算；重建路径时清掉旧的", () => {
         const transcript = createKernelTranscript();
         transcript.applyPath([

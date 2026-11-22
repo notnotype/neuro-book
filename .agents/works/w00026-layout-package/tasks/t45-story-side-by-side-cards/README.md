@@ -33,4 +33,4 @@ updated: 2026-11-22
 
 ## 下一步
 
-t44（三栏改用 NestedGrid）合入后，写 [`story/viewer`](../../../../../docs/specs/story/viewer.md) 的新条目（planned）与计划，交设计审查后实施。
+[计划](plan.md)第 1 稿，等设计审查（Claude Sonnet）；Spec 条目随计划定稿后写（planned）。

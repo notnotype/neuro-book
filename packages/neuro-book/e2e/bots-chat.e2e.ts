@@ -124,7 +124,7 @@ test("验收 2：她等你批准时切到别的会话，状态栏活动条目点
     await expect(chat(page).getByText("好了。")).toBeVisible();
 });
 
-test("验收 2：窗口没有焦点时到的回复记为未读：头像列与 bot 标签写计数，状态栏写新消息；窗口拿回焦点后清零", async ({page}) => {
+test("验收 3：窗口没有焦点时到的回复记为未读：头像列写计数，状态栏写新消息；窗口拿回焦点后两处都清零", async ({page}) => {
     await openBot(page);
     await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
     // 窗口失焦：视图仍可见，但不算看到（bots/view.md 输出 4）。
@@ -136,6 +136,8 @@ test("验收 2：窗口没有焦点时到的回复记为未读：头像列与 bo
     await expect(page.locator("[data-workbench-item='nbook.agent.activity']")).toContainText("1 条新消息");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
+    // 没有可写的时这一条不画：按“含新消息的条目”数，不按条目在不在。
+    await expect(page.locator("[data-workbench-item='nbook.agent.activity']", {hasText: "新消息"})).toHaveCount(0);
 });
 
 /** 未读线后面紧跟的那一轮的文字：线画在含第一条未读回复的那一轮之前（agent/conversation.md 输出 55）。 */

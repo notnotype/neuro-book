@@ -499,4 +499,90 @@ describe("bot 视图的数据（bots/view.md 输出 1、4，失败与恢复）",
         await waitUntil("计数清零", () => store.items.value[0]?.unread === 0);
         stop();
     });
+
+    /** 包一层客户端：`list` 与订阅可以各失败一次，记下交“看到”的次数。 */
+    function wrapped(client: BotsClient, fail: {list?: boolean; subscribe?: boolean}) {
+        const calls = {markSeen: 0, list: 0, subscribe: 0};
+        const botsChanged = new Proxy(client.events.botsChanged, {get(target, key, receiver) {
+            if (key !== "subscribe") return Reflect.get(target, key, receiver);
+            return (...args: Parameters<typeof target.subscribe>) => {
+                calls.subscribe += 1;
+                if (fail.subscribe === true) {
+                    fail.subscribe = false;
+                    return Promise.resolve({ok: false, code: "disconnected"});
+                }
+                return target.subscribe(...args);
+            };
+        }});
+        const events = new Proxy(client.events, {get: (target, key, receiver) => (key === "botsChanged" ? botsChanged : Reflect.get(target, key, receiver))});
+        const proxied = new Proxy(client, {get(target, key, receiver) {
+            if (key === "events") return events;
+            if (key === "list") {
+                return async (input: Record<string, never>) => {
+                    calls.list += 1;
+                    if (fail.list === true) {
+                        fail.list = false;
+                        return {ok: false, code: "storage-failed"};
+                    }
+                    return target.list(input);
+                };
+            }
+            if (key === "markSeen") {
+                return async (input: {botId: string; through: number}) => {
+                    calls.markSeen += 1;
+                    return target.markSeen(input);
+                };
+            }
+            return Reflect.get(target, key, receiver);
+        }}) as BotsClient;
+        return {client: proxied, calls};
+    }
+
+    test("输出 1：list 失败是 failed 加码，重试只重读、不重新订阅；订阅失败也是 failed，重试重新订阅", async () => {
+        const path = fresh();
+        await twoUnread(path);
+        const world = await open(path);
+        const listing = wrapped(world.client, {list: true});
+        const first = storeOf(listing.client);
+        await waitUntil("读失败", () => first.store.listState.value.kind === "failed");
+        expect(first.store.listState.value).toEqual({kind: "failed", code: "storage-failed"});
+        first.store.reload();
+        await waitUntil("读到", () => first.store.listState.value.kind === "ready");
+        expect(listing.calls).toMatchObject({subscribe: 1, list: 2});
+        first.stop();
+
+        const subscribing = wrapped(world.client, {subscribe: true});
+        const second = storeOf(subscribing.client);
+        await waitUntil("订阅失败", () => second.store.listState.value.kind === "failed");
+        expect(second.store.listState.value).toEqual({kind: "failed", code: "disconnected"});
+        expect(subscribing.calls.list).toBe(0);
+        second.store.reload();
+        await waitUntil("读到", () => second.store.items.value[0]?.unread === 2);
+        expect(subscribing.calls).toMatchObject({subscribe: 2, list: 1});
+        second.stop();
+    });
+
+    test("输出 4：没有未读、或报的位置不超过已存的“看到”时不交；入口停止后不再跟着 botsChanged 更新", async () => {
+        const path = fresh();
+        const latest = await twoUnread(path);
+        const world = await open(path);
+        const counting = wrapped(world.client, {});
+        const {store, stop} = storeOf(counting.client);
+        await waitUntil("数完", () => store.items.value[0]?.unread === 2);
+        store.markSeen("lyra", latest);
+        await waitUntil("计数清零", () => store.items.value[0]?.unread === 0);
+        expect(counting.calls.markSeen).toBe(1);
+        store.markSeen("lyra", latest);
+        store.markSeen("lyra", latest - 1);
+        expect(counting.calls.markSeen).toBe(1);
+
+        stop();
+        const main = world.w.service.session("bot-lyra");
+        endpoint.script("三");
+        const sent = await main.send({commandId: crypto.randomUUID(), input: {text: "还在吗"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await main.waitRun(sent.value.runId);
+        await waitUntil("服务端记了未读", async () => ok(await world.client.list({}))[0]?.unread === 1);
+        expect(store.items.value[0]?.unread).toBe(0);
+    });
 });
