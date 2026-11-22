@@ -1,5 +1,5 @@
 /**
- * 服务商是模板的实例（docs/specs/models/service.md 输出 1、5、9、12）：模板表、添加与复制、v1 设置的读法、自动加入与冻结、
+ * 服务商是模板的实例（docs/specs/models/service.md 输出 19 至 24 与“输入与前置条件”）：模板表、添加与复制、v1 设置的读法、自动加入与冻结、
  * 模型行的分页读、图标。用内存配置存储、真实的凭据库文件与 OMP 的打包目录；远程方法直接调核心交出的实现。
  */
 
@@ -83,7 +83,7 @@ const added = async (call: Awaited<ReturnType<typeof start>>["call"], input: Sta
     return result.value.id;
 };
 
-describe("模板表（输出 1）", () => {
+describe("模板表（输出 19）", () => {
     it("目录里的服务商与三个空白模板：能添加的带路由与模型数，登录类、地址带占位的、非 HTTP 传输的写明原因；地区只给登记过的", () => {
         const templates = new Map(listTemplates().map((template) => [template.id, template]));
         expect(templates.get("openrouter")).toMatchObject({addable: true, reason: null, group: "gateway", logo: "openrouter", routes: [{api: "openai-responses", baseUrl: "https://openrouter.ai/api/v1"}]});
@@ -101,7 +101,7 @@ describe("模板表（输出 1）", () => {
     });
 });
 
-describe("按模板添加与复制（输出 5）", () => {
+describe("按模板添加与复制（输出 5、19、20）", () => {
     it("目录模板：添加即带全部对话模型，设置里一条模型条目都不存；同一个模板可以添加多份，名称与 id 都不重复，uid 各不相同", async () => {
         const {call, store, allRows} = await start();
         const first = await added(call, {template: "moonshot"});
@@ -165,7 +165,7 @@ describe("按模板添加与复制（输出 5）", () => {
     });
 });
 
-describe("v1 设置的读法（输出 2、3）", () => {
+describe("v1 设置的读法（输入与前置条件）", () => {
     const legacyCatalog = {id: "deepseek", kind: "catalog", name: "DeepSeek", auth: "default", models: [{id: "deepseek-flash", enabled: true, contextWindow: 5, vision: true}, {id: "deepseek-pro", enabled: false}]} as StoredProvider;
     const legacyCustom = {id: "local", kind: "custom", name: "本机", baseUrl: "http://127.0.0.1:9/v1", api: "anthropic-messages", auth: "bearer", models: [{id: "m", enabled: true, contextWindow: 8_000}]} as StoredProvider;
 
@@ -206,7 +206,7 @@ describe("v1 设置的读法（输出 2、3）", () => {
     });
 });
 
-describe("自动加入、冻结与移出（输出 5、9）", () => {
+describe("自动加入、冻结与移出（输出 15、22）", () => {
     it("关掉自动加入：给此刻的每个来源成员补一条冻结条目；再打开：只删仍是纯冻结的，用户改过的去掉冻结标记保留", async () => {
         const {call, store, allRows} = await start();
         const id = await added(call, {template: "deepseek"});
@@ -259,7 +259,7 @@ describe("自动加入、冻结与移出（输出 5、9）", () => {
     });
 });
 
-describe("模型行的分页读（输出 10、12）", () => {
+describe("模型行的分页读（输出 23）", () => {
     it("一家几百个模型：按页读完、顺序稳定、每个 id 只出现一次；后续页带首页的 revision，期间这家变了得 revision-changed", async () => {
         const {call} = await start();
         const id = await added(call, {template: "openrouter"});
@@ -302,7 +302,7 @@ describe("模型行的分页读（输出 10、12）", () => {
     });
 });
 
-describe("图标（输出 12）", () => {
+describe("图标（输出 21）", () => {
     it("上传：存成按内容命名的文件、设置里存引用；换一张删旧文件；恢复模板的图标后文件被收走；内置与首字母只改设置", async () => {
         const store = memoryModelsConfig({});
         const {call, icons} = await start(store);
@@ -349,7 +349,7 @@ describe("图标（输出 12）", () => {
     });
 });
 
-describe("身份（输出 8）", () => {
+describe("身份（输出 24）", () => {
     it("同一个模板的两个实例各有自己的公开引用：解析出的模型 id 带实例 id", async () => {
         const store = memoryModelsConfig({});
         const {core, call, allRows} = await start(store);

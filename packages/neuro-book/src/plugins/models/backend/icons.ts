@@ -1,5 +1,5 @@
 /**
- * 服务商图标的文件存放与读取路由（docs/specs/models/service.md 输出 12）：上传的图标存在状态根的 `agent/provider-icons/`，文件名是
+ * 服务商图标的文件存放与读取路由（docs/specs/models/service.md 输出 21）：上传的图标存在状态根的 `agent/provider-icons/`，文件名是
  * 内容的 SHA-256 加 `.png`，设置里只存名字。写入先落同目录的暂存文件再原子改名；读取经 `GET /api/nbook.models/icons/<name>`，
  * 逐段 `lstat`、不跟链接，响应头与跨站规则同 bots 的头像路由。
  */

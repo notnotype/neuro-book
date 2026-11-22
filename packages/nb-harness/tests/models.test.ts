@@ -219,7 +219,7 @@ describe("线上事实交给观察者（models.md 输出 20）", () => {
     });
 });
 
-describe("模板的实例：身份、地址与发送前核对（models.md 输出 19）", () => {
+describe("模板的实例：身份、地址与发送前核对（models.md 输出 21）", () => {
     /** 跟随模板、只把地址指到本机端点（地区那样的“模板自己定的地址”）：发给 OMP 的身份是模板的 OMP id，专用处理照走。 */
     const follows = (patch: Partial<ProviderTarget> = {}): ProviderTarget => ({id: "moon", template: "moonshot", follows: true, auth: "default", baseUrl: BASE, ...patch});
     const model = chatModels("moonshot")[0]!.id;

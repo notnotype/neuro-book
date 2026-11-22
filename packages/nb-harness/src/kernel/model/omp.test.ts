@@ -294,7 +294,7 @@ describe("OMP 适配器", () => {
     });
 });
 
-describe("签发身份与回放（models.md 输出 19 之后的 origin）", () => {
+describe("签发身份与回放（models.md 输出 22）", () => {
     const identity = {deployment: "dep-1", credential: "cred-1", legacyProvider: "inst"};
     const identified = ompCall({model: resolved.model, apiKey: resolved.apiKey, priceKnown: false, name: "inst/m", identity});
     const thinking = {kind: "thinking" as const, text: "先想想", signature: "SIG", provider: {thinkingSignature: "reasoning_content"}, origin: {kind: "fixed" as const, by: "kernel" as const}};

@@ -1,5 +1,5 @@
 /**
- * 上传图标的校验（docs/specs/models/service.md 输出 12 的 `setIcon`）：客户端缩好的 PNG，服务端按 PNG 头解析、不信魔数。
+ * 上传图标的校验（docs/specs/models/service.md 输出 21）：客户端缩好的 PNG，服务端按 PNG 头解析、不信魔数。
  * 纯函数；确认“能显示”（解码一次）由调用方用运行时的图像解码做，这里只管形状。
  */
 
