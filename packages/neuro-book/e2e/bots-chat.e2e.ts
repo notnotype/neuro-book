@@ -144,7 +144,11 @@ const afterUnreadLine = (scope: ReturnType<Page["locator"]>) => scope.locator("[
 test("验收 2：未读线只标打开时就未读的回复：失焦时到的这次不画，切走再回来画在那一轮前、第一轮前有“今天”；拿回焦点后角标清零线还在，看着时到的不多画", async ({page}) => {
     await openBot(page);
     await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
-    await expect(chat(page).locator("[data-day-divider]").first()).toHaveAttribute("aria-label", "今天");
+    // 看着时说的一句：之后单独跑这一条时会话里也有消息。
+    await script("在的。");
+    await send(page, "你好");
+    await expect(chat(page).getByText("在的。")).toBeVisible();
+    await expect(chat(page).locator("[data-day-divider]").first()).toHaveText("今天");
     await expect(chat(page).locator("[data-unread-divider]")).toHaveCount(0);
 
     await page.evaluate(() => window.dispatchEvent(new Event("blur")));
@@ -164,7 +168,7 @@ test("验收 2：未读线只标打开时就未读的回复：失焦时到的这
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await contact(page).click();
     await expect(chat(page).getByText("你先忙，回来再看。")).toBeVisible();
-    await expect(chat(page).locator("[data-unread-divider]")).toHaveAttribute("aria-label", "以下是新消息");
+    await expect(chat(page).locator("[data-unread-divider]")).toHaveText("以下是新消息");
     expect(await afterUnreadLine(chat(page))).toContain("你先忙，回来再看。");
     await expect(contact(page)).toHaveAttribute("aria-label", "星璃");
     await expect(chat(page).locator("[data-unread-divider]")).toHaveCount(1);
