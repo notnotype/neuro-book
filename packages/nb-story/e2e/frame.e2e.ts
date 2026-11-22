@@ -2,14 +2,14 @@
  * 书页外壳的三栏（docs/specs/story/viewer.md 输出 1、32 与“边界与兼容”的偏好）：拖分隔线、键盘、按钮收起与展开、平板档、
  * 过渡中的内容与图。生产构建的网页，真实的 `nbstory serve`，100 章样例书，本机 Chrome，1440×900。
  *
- * 三栏是 nb-layout 的网格：一栏是一片叶（`data-leaf` 是 `nav`、`main`、`drawer`），分隔线是带 `aria-valuenow` 的
- * `role="separator"`，导航那条在左、抽屉那条在右。偏好存在浏览器本地（`nbstory:drawer-width`、`nbstory:nav-collapsed`），
- * 每条用例一个新的浏览器配置。
+ * 三栏是 nb-layout 的网格：一栏是一片叶（`data-leaf` 是 `nav`、`main`、`drawer`），分隔线按读屏名称取（名称里是相邻两栏的
+ * id）。偏好存在浏览器本地（`nbstory:drawer-width`、`nbstory:nav-collapsed`），每条用例一个新的浏览器配置；阅读状态存在服务端、
+ * 几条用例共用一个书库，所以要“从没打开过”的用例另导入一本书。
  */
 
 import {expect, test, type Locator, type Page} from "@playwright/test";
 
-import {login, makeLibrary, startServe, type StoryServer} from "./fixtures";
+import {login, makeLibrary, runCli, startServe, type StoryServer} from "./fixtures";
 
 let server: StoryServer;
 let cleanup: () => Promise<void>;
@@ -38,7 +38,7 @@ function pane(page: Page, id: "nav" | "main" | "drawer"): Locator {
     return page.locator(`[data-testid='book-frame'] [data-leaf='${id}']`);
 }
 function sash(page: Page, which: "nav" | "drawer"): Locator {
-    return page.locator("[data-testid='book-frame'] [role='separator'][aria-valuenow]").nth(which === "nav" ? 0 : 1);
+    return page.getByRole("separator", {name: which === "nav" ? "调整 nav 与 main 的宽度" : "调整 main 与 drawer 的宽度"});
 }
 async function width(locator: Locator): Promise<number> {
     return Math.round((await locator.boundingBox())?.width ?? 0);
@@ -77,7 +77,7 @@ test.describe("宽屏", () => {
         await drag(page, sash(page, "drawer"), -420);
         await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
         const reopened = await width(pane(page, "drawer"));
-        expect(reopened).toBeGreaterThanOrEqual(280);
+        expect(Math.abs(reopened - 420)).toBeLessThanOrEqual(8);
         expect(await pref(page, "drawer-width")).toBe(String(reopened));
     });
 
@@ -106,20 +106,24 @@ test.describe("宽屏", () => {
         await expect.poll(() => width(pane(page, "drawer"))).toBe(0);
     });
 
-    test("按钮（输出 1）：顶栏开关与卡片的关闭按钮收起抽屉，顶栏开关再打开", async ({page}) => {
+    test("按钮（输出 1）：顶栏开关与卡片的关闭按钮收起抽屉，顶栏开关再打开、回到收起之前拖出来的宽度", async ({page}) => {
         await open(page, "/book/fox/roster?at=38.57&entity=e1-1");
         await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
+        await drag(page, sash(page, "drawer"), -60);
+        await expect.poll(() => width(pane(page, "drawer"))).toBe(460);
         await page.getByTestId("toggle-drawer").click();
         await expect.poll(() => width(pane(page, "drawer"))).toBe(0);
         await page.getByTestId("toggle-drawer").click();
         await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
-        await expect.poll(() => width(pane(page, "drawer"))).toBe(400);
+        await expect.poll(() => width(pane(page, "drawer"))).toBe(460);
         await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
         await expect.poll(() => width(pane(page, "drawer"))).toBe(0);
     });
 
     test("还没打开过任何内容时抽屉的分隔线停用（与顶栏开关一致），打开过之后可以拖", async ({page}) => {
-        await open(page, "/book/fox/roster?at=38.57");
+        // 另导入一本从没打开过的书：服务端没有它的阅读状态，不会带出上一条用例开着的人物卡。
+        expect((await runCli(["import", `${server.library}/../sample.json`, "--title", "没打开过", "--id", "fresh", "--library", server.library])).code).toBe(0);
+        await open(page, "/book/fresh/roster?at=38.57");
         await expect(page.getByTestId("page-roster")).toBeVisible();
         await expect(sash(page, "drawer")).toHaveAttribute("aria-disabled", "true");
         await expect(sash(page, "drawer")).toHaveAttribute("tabindex", "-1");
@@ -129,21 +133,22 @@ test.describe("宽屏", () => {
         await expect(sash(page, "drawer")).not.toHaveAttribute("aria-disabled", "true");
     });
 
-    test("过渡（输出 1）：关上的那几帧抽屉里仍是刚关掉的内容；过渡中图的画布不换尺寸，结束后铺满", async ({page}) => {
+    test("过渡（输出 1）：抽屉那一栏还看得见的每一帧里都是刚关掉的内容；过渡中图的画布不换尺寸，结束后铺满", async ({page}) => {
         await open(page, "/book/fox/relations?at=38&entity=e1-1");
         await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
         const canvas = page.getByTestId("relation-graph").locator("canvas").first();
         await expect(canvas).toBeVisible();
         const before = await width(canvas);
-        // 逐帧记：网格有没有在过渡、抽屉那一栏里还有没有人物卡、画布多宽。
+        // 逐帧记：网格有没有在过渡、抽屉那一栏多宽、里面还有没有人物卡、画布多宽。
         await page.evaluate(() => {
-            const frames: Array<{moving: boolean; card: boolean; canvas: number}> = [];
+            const frames: Array<{moving: boolean; drawer: number; card: boolean; canvas: number}> = [];
             (window as unknown as {__frames: typeof frames}).__frames = frames;
             const start = performance.now();
             const step = () => {
                 const graphCanvas = document.querySelector<HTMLCanvasElement>("[data-testid='relation-graph'] canvas");
                 frames.push({
                     moving: document.querySelector("[data-testid='book-frame'] [data-moving]") !== null,
+                    drawer: Math.round(document.querySelector("[data-leaf='drawer']")?.getBoundingClientRect().width ?? 0),
                     card: document.querySelector("[data-leaf='drawer'] [data-testid='card-name']") !== null,
                     canvas: Math.round(graphCanvas?.getBoundingClientRect().width ?? 0),
                 });
@@ -153,11 +158,47 @@ test.describe("宽屏", () => {
         });
         await page.getByTestId("toggle-drawer").click();
         await expect.poll(() => width(canvas)).toBeGreaterThan(before + 300);
-        const frames = await page.evaluate(() => (window as unknown as {__frames: Array<{moving: boolean; card: boolean; canvas: number}>}).__frames);
+        const frames = await page.evaluate(() => (window as unknown as {__frames: Array<{moving: boolean; drawer: number; card: boolean; canvas: number}>}).__frames);
+        // 不只看带 data-moving 的帧：关上那一刻过渡还没挂上的一帧若已经空了，也要抓到。
+        const shown = frames.filter((frame) => frame.drawer > 0);
+        expect(shown.length).toBeGreaterThan(3);
+        expect(shown.every((frame) => frame.card)).toBe(true);
         const moving = frames.filter((frame) => frame.moving);
         expect(moving.length).toBeGreaterThan(3);
-        expect(moving.every((frame) => frame.card)).toBe(true);
         expect(moving.every((frame) => frame.canvas === before)).toBe(true);
+    });
+
+    test("过渡中又打开（输出 1）：关到一半点开关，抽屉回到原宽，人物卡还是原来那一个、不重建", async ({page}) => {
+        await open(page, "/book/fox/roster?at=38.57&entity=e1-1");
+        await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
+        const card = await page.getByTestId("entity-card").elementHandle();
+        await page.getByTestId("toggle-drawer").click();
+        await page.waitForFunction(() => {
+            const drawer = document.querySelector("[data-leaf='drawer']")?.getBoundingClientRect().width ?? 0;
+            return drawer > 50 && drawer < 350;
+        }, undefined, {polling: "raf"});
+        await page.getByTestId("toggle-drawer").click();
+        await expect.poll(() => width(pane(page, "drawer"))).toBe(400);
+        expect(await card!.evaluate((element) => element.isConnected)).toBe(true);
+        await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
+    });
+
+    test.describe("窗口刚够宽屏", () => {
+        test.use({viewport: {width: 1100, height: 800}});
+
+        test("拖导航线把抽屉挤窄时不改抽屉宽度的偏好（只记抽屉自己参与的拖动）", async ({page}) => {
+            await page.addInitScript(() => {
+                if (localStorage.getItem("nbstory:drawer-width") === null) localStorage.setItem("nbstory:drawer-width", "460");
+            });
+            await open(page, "/book/fox/roster?at=38.57&entity=e1-1");
+            await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
+            await expect.poll(() => width(pane(page, "drawer"))).toBe(460);
+            await drag(page, sash(page, "nav"), 112);
+            await expect.poll(() => width(pane(page, "nav"))).toBeGreaterThan(188);
+            const squeezed = await width(pane(page, "drawer"));
+            expect(squeezed).toBeLessThan(460);
+            expect(await pref(page, "drawer-width")).toBe("460");
+        });
     });
 });
 

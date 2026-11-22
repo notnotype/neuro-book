@@ -8,10 +8,10 @@
 import {createGrid} from "@notnotype/nb-layout";
 import type {Grid} from "@notnotype/nb-layout";
 
+import {DRAWER_WIDTH_RANGE} from "../host/prefs";
+
 export type BookPane = "nav" | "main" | "drawer";
 
-/** 抽屉宽度的下限：拖动与偏好都不低于它（偏好低于它不写，见 `BookFrame` 的落账）。 */
-export const DRAWER_MIN_WIDTH = 280;
 /** 导航展开的缺省宽度与收起后的图标条宽度。 */
 export const NAV_WIDTH = 188;
 export const NAV_COLLAPSED_WIDTH = 44;
@@ -55,8 +55,8 @@ export function createBookGrid(input: BookGridInput): Grid<BookPane> {
                 ref: "drawer",
                 size: {width: input.drawerWidth, height: 0},
                 sizing: "fixed",
-                minimumSize: {width: DRAWER_MIN_WIDTH, height: 0},
-                maximumSize: {width: 640, height: 0},
+                minimumSize: {width: DRAWER_WIDTH_RANGE.min, height: 0},
+                maximumSize: {width: DRAWER_WIDTH_RANGE.max, height: 0},
                 collapse: {collapsed: input.drawerCollapsed, collapsedSize: 0, restoreSize: input.drawerWidth, collapseThreshold: 80, expandThreshold: 40},
             },
         ],

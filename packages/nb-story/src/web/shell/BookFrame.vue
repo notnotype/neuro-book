@@ -4,8 +4,9 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import type {GridGestureCommit, GridIssue, GridFailure} from "@notnotype/nb-layout";
+import type {GridGestureCommit} from "@notnotype/nb-layout";
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
+import type {GridHostIssue} from "@notnotype/nb-layout/vue";
 import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
@@ -14,12 +15,12 @@ import {useRouter} from "vue-router";
 import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
 import {ingestBadge} from "../host/ingest";
 import {StoryCallError, useStoryClient} from "../host/client";
-import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed} from "../host/prefs";
+import {DRAWER_WIDTH_RANGE, readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed} from "../host/prefs";
 import {LAYOUT_MOTION} from "../host/motion";
 import ReadingControl from "../parts/ReadingControl.vue";
 import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
-import {createBookGrid, DRAWER_MIN_WIDTH} from "./book-grid";
+import {createBookGrid} from "./book-grid";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
 import DrawerParagraph from "./DrawerParagraph.vue";
@@ -72,7 +73,8 @@ const PAGES: Record<Page, ReturnType<typeof defineAsyncComponent>> = {
 };
 
 const root = ref<HTMLElement | null>(null);
-// 初值取窗口宽度：外壳铺满窗口，第一次量到之前按它定档，在平板宽度打开时不先按宽屏建网格、再播一次收起。
+// 初值取窗口宽度：外壳铺满窗口（`BookShell` 里没有别的栏），第一次量到之前按它定档，在平板宽度打开时不先按宽屏建网格、再播
+// 一次收起。外壳旁边哪天多了别的栏，这个初值就不准了，要改成先量一次再建网格。
 const width = ref(window.innerWidth);
 const tier = computed<"wide" | "tablet" | "phone">(() => (width.value < 720 ? "phone" : width.value < 1100 ? "tablet" : "wide"));
 watch(tier, value => {
@@ -107,36 +109,34 @@ const navIsCollapsed = computed(() => tier.value === "tablet" || navCollapsed.va
 const drawerIsCollapsed = computed(() => overlayDrawer.value || book.drawer.value === null);
 
 // ---- 三栏（输出 1、32）：nb-layout 的网格，收起状态以上面两个期望值为准 ----
-// 网格自己也会改收起状态（拖过阈值、分隔线上按 Enter）：落账后先把变化映射回宿主（导航偏好、抽屉开关），再对账一次，
-// 让网格回到期望值。已知会对不上的两种由停用分隔线挡住（没打开过内容时拖开抽屉：`reopenDrawer` 什么也不做；平板档拖开
-// 导航：导航固定是图标条，见 `sashDisabled`），对账兜住其余映射不回去的情形，不让网格与宿主各说各的。
+// 期望值变了推给网格；网格自己改收起（拖过阈值、分隔线上按 Enter）时，落账后把变化映射回宿主（导航偏好、抽屉开关），期望值
+// 随之变成网格的样子。映射不回去的两种由停用分隔线挡住（`sashDisabled`）：没打开过内容时拖开抽屉（`reopenDrawer` 什么也不
+// 做）、平板档拖开导航（导航固定是图标条）。
 const grid = createBookGrid({drawerWidth: readDrawerWidth(), navCollapsed: navIsCollapsed.value, drawerCollapsed: drawerIsCollapsed.value, compact: () => overlayDrawer.value});
-const host = useGridHost({
-    grid,
-    contextKey: "book-frame",
-    onApplied,
-    onIssues: (issues: readonly (GridIssue<string> | GridFailure)[]) => {
-        for (const issue of issues) console.warn("书页三栏的布局诊断", issue.code, issue);
-    },
-});
-function reconcile(): void {
-    host.setCollapsed("nav", navIsCollapsed.value);
-    host.setCollapsed("drawer", drawerIsCollapsed.value);
-}
+const host = useGridHost({grid, contextKey: "book-frame", onApplied, onIssues});
 function onApplied(commit: GridGestureCommit): void {
     for (const change of commit.changes) {
-        // 平板档导航强制收成图标条，那条线停用，不会从这里改到偏好；这里再判一次档位，偏好只记宽屏的选择。
-        if (change.collapsed.nav !== undefined && tier.value === "wide") setNavCollapsed(change.collapsed.nav);
+        if (change.collapsed.nav !== undefined) setNavCollapsed(change.collapsed.nav);
         if (change.collapsed.drawer === true) book.closeDrawer();
         if (change.collapsed.drawer === false) book.reopenDrawer();
-        // 只在抽屉参与了这次拖动时记它的宽度：拖导航线时抽屉可能被挤窄，那不是用户选的宽度。收到 0 的不记。
+        // 只在抽屉参与了这次拖动时记它的宽度：拖导航线时抽屉可能被挤窄（在 `compensated` 里），那不是用户选的宽度。收到 0 的不记。
         const drawerTarget = change.target.drawer;
-        if (change.active.includes("drawer") && drawerTarget !== undefined && drawerTarget >= DRAWER_MIN_WIDTH) writeDrawerWidth(drawerTarget);
+        if (change.active.includes("drawer") && drawerTarget !== undefined && drawerTarget >= DRAWER_WIDTH_RANGE.min) writeDrawerWidth(drawerTarget);
     }
-    reconcile();
 }
-watch(navIsCollapsed, collapsed => host.setCollapsed("nav", collapsed));
-watch(drawerIsCollapsed, collapsed => host.setCollapsed("drawer", collapsed));
+watch([navIsCollapsed, drawerIsCollapsed], ([nav, drawer]) => {
+    for (const [id, collapsed] of [["nav", nav], ["drawer", drawer]] as const) {
+        const result = host.setCollapsed(id, collapsed);
+        if (!result.ok) console.warn({result}, `书页三栏收起或展开 ${id} 没成`);
+    }
+});
+/**
+ * 布局诊断只发新出现的。宽屏的下界 1100 放不下“导航 + 主区最小 360 + 较宽的抽屉偏好”时会有 `over-constrained`，网格按比例压缩，
+ * 这是这个外壳的正常状态（换成网格之前的分栏也是静默压缩），不打；其余的照打，别让接线错误没人看见。
+ */
+function onIssues(issues: readonly GridHostIssue[]): void {
+    for (const issue of issues) if (issue.code !== "over-constrained") console.warn({issue}, "书页三栏的布局诊断");
+}
 // 平板档主区与抽屉之间那条线宽 0（`createBookGrid` 的 `compact`）：档位变了让网格按新的线宽重算。
 watch(overlayDrawer, () => host.invalidate());
 

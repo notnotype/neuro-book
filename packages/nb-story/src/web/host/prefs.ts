@@ -30,9 +30,12 @@ export function writeNavCollapsed(value: boolean): void {
     write("nav-collapsed", String(value));
 }
 
+/** 抽屉宽度的范围：拖动守着它（三栏网格的最小与最大宽度），读偏好时超出范围的值不认。 */
+export const DRAWER_WIDTH_RANGE = {min: 280, max: 640} as const;
+
 export function readDrawerWidth(): number {
     const value = Number(read("drawer-width"));
-    return Number.isFinite(value) && value >= 280 && value <= 640 ? value : 400;
+    return Number.isFinite(value) && value >= DRAWER_WIDTH_RANGE.min && value <= DRAWER_WIDTH_RANGE.max ? value : 400;
 }
 
 export function writeDrawerWidth(value: number): void {
