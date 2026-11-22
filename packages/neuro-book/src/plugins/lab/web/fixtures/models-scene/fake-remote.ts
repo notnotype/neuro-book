@@ -1,13 +1,14 @@
 /**
- * 模型服务两页在 Lab 里用的远程合同替身（合同版本 3）：服务商与模型行在内存里，写方法照服务端的语义改它们并推 `changed`
+ * 模型服务两页在 Lab 里用的远程合同替身（合同版本 5）：服务商与模型行在内存里，写方法照服务端的语义改它们并推 `changed`
  * （docs/specs/models/service.md 输出 12 到 15 里页面看得到的部分）。每个返回值与事件都过一遍 JSON 编解码，像真实链路那样不带
  * 共享引用与函数。只服务 Lab 场景，不进测试：页面与服务端的真实来回由 `e2e/models.e2e.ts` 验。
- * 检测与拉取不发请求，给固定的结果；`failWrites` 打开时所有写方法以 `settings-unavailable` 失败（看窗口通知）。
+ * 检测、协议检测与拉取不发请求，给固定的结果（协议检测：两种 OpenAI 通过，Anthropic 404，Gemini 400）；连接版本由地址、协议与密钥
+ * 状态拼出（真实服务是 HMAC，这里只要“配置变了就变”）；`failWrites` 打开时所有写方法以 `settings-unavailable` 失败（看窗口通知）。
  */
 
 import {providerIdFor, referenceOf} from "@notnotype/nb-models/config";
 import type {ModelConfig} from "@notnotype/nb-models/config";
-import type {CheckResult, KeyStatus, ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
+import type {ApiCheck, CheckResult, KeyStatus, ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 import type {RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
 import type {ModelsRemote} from "nbook/plugins/models/web/models-store";
@@ -36,8 +37,9 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
     let failing = false;
     const listeners = new Set<(snapshot: ModelsSnapshot) => void>();
 
+    const connectionOf = (meta: Pick<SnapshotProvider, "baseUrl" | "templateBaseUrl" | "api" | "key">, api = meta.api): string => `${api ?? ""}@${meta.baseUrl ?? meta.templateBaseUrl ?? ""}#${meta.key.kind}`;
     const snapshotOf = (): ModelsSnapshot => ({
-        providers: [...providers.values()].map((state) => ({...state.meta, modelCount: state.listed.length, enabledCount: state.listed.filter((row) => row.enabled).length, excludedCount: state.available.length, modelsRevision: `r${String(state.version)}`})),
+        providers: [...providers.values()].map((state) => ({...state.meta, modelCount: state.listed.length, enabledCount: state.listed.filter((row) => row.enabled).length, excludedCount: state.available.length, modelsRevision: `r${String(state.version)}`, connection: connectionOf(state.meta)})),
         roles,
     });
     const publish = (): void => {
@@ -99,7 +101,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
                 meta: {
                     id, template, region: region ?? null, name: display, icon: null, baseUrl: baseUrl ?? (blank ? null : `https://api.${id}.example`), templateBaseUrl: blank ? null : `https://api.${id}.example`,
                     api: api ?? "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, key: {kind: "none"}, followSource: true, source: SOURCE_CATALOG,
-                    modelCount: 0, enabledCount: 0, excludedCount: 0, modelsRevision: "r1",
+                    modelCount: 0, enabledCount: 0, excludedCount: 0, modelsRevision: "r1", connection: "",
                 },
                 listed: rows,
                 available: [],
@@ -237,7 +239,30 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             return ok(null);
         },
         check: async ({provider, model}) => ok(checkResult(provider, model)),
-        checkAll: async ({provider}) => ok(providers.get(provider)?.listed.filter((model) => model.enabled).map((model) => ({model: model.id, result: checkResult(provider, model.id)})) ?? []),
+        detectApi: async ({provider, model}) => {
+            const state = providers.get(provider);
+            if (state === undefined) return unknown(provider);
+            const key = state.meta.key;
+            if (key.kind === "none" || (key.kind === "env" && !key.found)) return {ok: false as const, code: "no-credentials" as const, detail: {detail: "no credential for this provider"}};
+            const used = model ?? state.listed.find((row) => row.enabled)?.id;
+            if (used === undefined) return {ok: false as const, code: "no-model" as const, detail: {detail: "no model to check with; give a model id"}};
+            const base = (state.meta.baseUrl ?? state.meta.templateBaseUrl ?? "https://relay.example/v1").replace(/\/$/u, "");
+            const row = (api: ApiCheck["api"], path: string, patch: Partial<ApiCheck>): ApiCheck => ({api, baseUrl: base, connection: connectionOf(state.meta, api), url: `${base}${path}`, ok: true, status: 200, ms: 312, code: null, message: "", ...patch});
+            return ok({model: used, connection: connectionOf(state.meta), results: [
+                row("openai-completions", "/chat/completions", {ms: 312}),
+                row("openai-responses", "/responses", {ms: 418}),
+                row("anthropic-messages", "/messages", {ok: false, status: 404, ms: 96, code: "http", message: `{"error":{"message":"Not Found: ${new URL(base).pathname}/messages"}}`}),
+                row("google-generative-ai", `/models/${used}:streamGenerateContent`, {ok: false, status: 400, ms: 120, code: "http", message: `{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}`}),
+            ]});
+        },
+        adoptApi: async ({provider, api, connection}) => {
+            const state = providers.get(provider);
+            if (state === undefined) return unknown(provider);
+            if (connectionOf(state.meta, api) !== connection) return {ok: false as const, code: "connection-changed" as const, detail: {detail: "the provider changed after the check"}};
+            return change(provider, (target) => {
+                target.meta = {...target.meta, api};
+            });
+        },
         events: {changed: {subscribe: async (_filter, listener) => {
             if (options.unavailable === true) return unavailable;
             listeners.add(listener);

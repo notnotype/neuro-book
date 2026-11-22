@@ -11,7 +11,7 @@
 import {createHash, createHmac, randomBytes} from "node:crypto";
 
 import type {ModelPort, ModelQuery, ModelRequest, ModelResolution} from "@notnotype/nb-harness/kernel/contracts";
-import {buildResolution, envRefName, envValue, listingFlavor, listingHeaders, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
+import {buildResolution, envRefName, envValue, listingFlavor, listingHeaders, probeProtocol, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
 import type {CredentialStore, KeyAccess, ModelTarget, ProviderTarget, StartupEnv, WireApi} from "@notnotype/nb-harness/models";
 import {eventSource} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation, RemoteOutcome} from "@notnotype/nb-runtime/remote";
@@ -24,7 +24,7 @@ import {BLANK_API, BUILTIN_ROLES, DEFAULT_ROLES, isBlankTemplate, MODEL_ROLE_IDS
 import type {BlankTemplate, ModelConfig, ProviderConfig, ProviderIcon, RoleConfig, RolesConfig, StoredProvider} from "../config/shapes";
 import type {ModelsService, ProfileModelDefaults} from "../contract/service";
 import type {ModelsSettingsContract} from "../contract/settings-spec";
-import type {CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, Template} from "../contract/shapes";
+import type {ApiCheck, CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, Template} from "../contract/shapes";
 import {chooseModel} from "./choice";
 import {checkPng, ICON_NAME} from "./icons";
 import {availableMembers, enabledOf, findMember, listedMembers, windowOf} from "./members";
@@ -44,7 +44,10 @@ const CATCH_UP_MS = 1_000;
 /** 检测：最大输出、超时与批量并发（输出 11）。 */
 const CHECK_MAX_OUTPUT = 32;
 const CHECK_TIMEOUT_MS = 30_000;
-const CHECK_CONCURRENCY = 4;
+/** 协议检测的整次时限：四种协议并行，各自恰好一次请求（输出 26）。 */
+const DETECT_TIMEOUT_MS = 15_000;
+/** 协议检测的四行，按这个顺序。 */
+const API_ORDER: readonly WireApi[] = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
 
 /** 上传图标的文件存放（应用给：状态根下的目录）；名字是内容的 SHA-256 加 `.png`。 */
 export interface IconStore {
@@ -474,6 +477,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 enabledCount: members.filter(enabledOf).length,
                 excludedCount: provider.excluded.length,
                 modelsRevision: revisionOf(provider, key),
+                connection: connectionOf(provider),
             };
         });
         // 目录漂移（输出 9）：设置里引用的来源模型不在目录里了，每个只诊断一次。
@@ -697,6 +701,30 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     };
 
     // ---- 检测 ----
+    /**
+     * 连接的版本（快照的 `connection`，输出 26）：协议检测的结果只对这一份连接配置成立。与 `stillCurrentFor` 同一组输入（不分模型），
+     * 认证输入经服务端密钥 HMAC，浏览器拿到的值推不出密钥。
+     */
+    const connectionOf = (provider: ProviderConfig): string => {
+        const auth = requestAuth(targetOf(provider), null, access);
+        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers)])).digest("hex").slice(0, 32);
+    };
+    /**
+     * 改用 `api` 之后的实例：选回模板的协议即恢复跟随；地址没覆盖时跟着模板给这种协议的路由走，模板没有这种协议的路由时钉在现在的
+     * 地址上（检测试的就是这个地址）。检测与采纳都用它，所以采纳写进去的正是检测试过的那份。
+     */
+    const withApi = (provider: ProviderConfig, api: WireApi): ProviderConfig => {
+        const next: ProviderConfig = {...provider, api};
+        if (!isBlankTemplate(provider.template) && api === defaultApi(provider.template)) delete (next as {api?: WireApi}).api;
+        const address = effectiveBaseUrl(provider);
+        if (effectiveBaseUrl(next) === null && address !== null) next.baseUrl = address;
+        return next;
+    };
+    /** 有能发出去的凭据：要密钥的有密钥，请求头引用的环境变量都有值。 */
+    const credentialReady = (provider: ProviderConfig): boolean => {
+        const auth = requestAuth(targetOf(provider), null, access);
+        return auth.missing.length === 0 && (provider.auth === "none" || auth.key !== null);
+    };
     const probe: ModelRequest = {purpose: "background", model: "", params: {}, headers: {}, system: [], messages: [{role: "user", content: [{kind: "text", text: "ping", origin: {kind: "fixed", by: "kernel"}}]}], tools: []};
     async function check(provider: ProviderConfig, row: MemberRow, signal: AbortSignal): Promise<CheckResult> {
         if (statusOf(row) === "incomplete") return {ok: false, kind: "local", code: "model-incomplete", raw: ""};
@@ -1014,19 +1042,37 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (row === undefined) return ctx.fail("unknown-model", {detail: `no model ${input.model}`});
                 return ctx.ok(await check(provider, row, ctx.signal));
             },
-            checkAll: async (input, ctx) => {
+            detectApi: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                const members = listedMembers(provider, sourcesFor(provider)).filter(enabledOf).sort(byMember);
-                const pending = [...members];
-                const results: {model: string; result: CheckResult}[] = [];
-                const worker = async (): Promise<void> => {
-                    for (let next = pending.shift(); next !== undefined; next = pending.shift()) results.push({model: next.id, result: await check(provider, next, ctx.signal)});
-                };
-                await Promise.all(Array.from({length: Math.min(CHECK_CONCURRENCY, pending.length)}, worker));
-                const order = members.map((row) => row.id);
-                return ctx.ok(results.sort((a, b) => order.indexOf(a.model) - order.indexOf(b.model)));
+                if (!credentialReady(provider)) return ctx.fail("no-credentials", {detail: "no credential for this provider"});
+                const sources = sourcesFor(provider);
+                const model = input.model
+                    ?? listedMembers(provider, sources).filter(enabledOf).sort(byMember)[0]?.id
+                    ?? [...sources.models.values()].find((item) => item.kind === "chat")?.id;
+                if (model === undefined) return ctx.fail("no-model", {detail: "no model to check with; give a model id"});
+                const member = findMember(provider, sources, model);
+                const connection = connectionOf(provider);
+                const results = await Promise.all(API_ORDER.map(async (api): Promise<ApiCheck> => {
+                    const candidate = withApi(provider, api);
+                    const baseUrl = effectiveBaseUrl(candidate);
+                    const after = connectionOf(candidate);
+                    if (baseUrl === null) return {api, baseUrl: "", connection: after, url: null, ok: false, status: null, ms: null, code: "no-address", message: ""};
+                    const outcome = await probeProtocol(targetOf(candidate), modelTargetOf(model, member?.entry, member?.source), access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS});
+                    return {api, baseUrl, connection: after, ...outcome, ms: outcome.ms === null ? null : Math.round(outcome.ms)};
+                }));
+                return ctx.ok({model, connection, results});
             },
+            adoptApi: (input, ctx) => queue(async () => {
+                // 在写队列里、对着这次从设置层读到的值核对（设置冲突重读时再核对一次）：改用之后的配置必须正是检测试过的那份。
+                const step = await withProvider<null>(input.provider, (provider) => {
+                    const next = withApi(provider, input.api);
+                    if (connectionOf(next) !== input.connection) return failure("connection-changed", "the provider's address or credential changed after the check; check again");
+                    if (effectiveApi(next) === null || effectiveBaseUrl(next) === null) return failure("invalid-value", "this protocol has no address; give an address");
+                    return {ok: true, value: {provider: next, result: null}};
+                });
+                return step.ok ? ctx.ok(null) : relay(step);
+            }),
         },
         events: {changed},
     });

@@ -109,6 +109,38 @@
         },
         "region": {
             "label": "Region"
+        },
+        "detect": {
+            "button": "Detect protocol",
+            "cancel": "Cancel detection",
+            "needsKey": "Enter an API key to detect",
+            "title": "Protocol detection results",
+            "running": "Trying four protocols, one request each…",
+            "model": "Tried with model {{model}}, one request per protocol.",
+            "using": "In use",
+            "adopt": "Use this",
+            "adoptLabel": "Switch to {{name}}",
+            "copy": "Copy provider response",
+            "copyLabel": "Copy the provider response for {{name}}",
+            "ms": "{{ms}} ms",
+            "stale": "The settings changed. Detect again.",
+            "needModel": "This provider has no model to detect with. Enter a model ID and detect again.",
+            "modelLabel": "Model ID",
+            "run": "Detect",
+            "codes": {
+                "http": "HTTP {{status}}",
+                "network": "Can't connect",
+                "timeout": "Timed out",
+                "no-content": "No generated content",
+                "endpoint-mismatch": "Address doesn't match this protocol's path",
+                "missing-key": "No API key",
+                "unknown-model": "Can't build this model",
+                "transport-unsupported": "Protocol not supported",
+                "no-address": "The template has no address for this protocol",
+                "cancelled": "Cancelled",
+                "other": "Failed ({{code}})"
+            },
+            "copied": "Copied"
         }
     },
     "headers": {
@@ -181,7 +213,13 @@
         "retry": "Retry",
         "edited": "Edited",
         "manual": "Added manually",
-        "restoreSource": "Restore the source value"
+        "restoreSource": "Restore the source value",
+        "checkProgress": "Checked {{done}} of {{total}}",
+        "confirmCheckAll": {
+            "title": "Check {{count}} models?",
+            "description": "Each model sends one real request to the provider and is billed at the provider's price. Four run at a time, and you can cancel at any time.",
+            "action": "Check"
+        }
     },
     "check": {
         "ok": "Check passed",
@@ -202,7 +240,8 @@
         },
         "notRun": "Could not check: {{reason}}",
         "cancel": "Cancel checking {{name}}",
-        "okAt": "Check passed · {{time}}"
+        "okAt": "Check passed · {{time}}",
+        "unknown": "Result unknown: the check was cancelled and the request may have been sent"
     },
     "caps": {
         "vision": "Vision",
@@ -429,7 +468,9 @@
         "unknown-outcome": "It may not have been saved; the settings are authoritative",
         "timeout": "Timed out",
         "revision-changed": "The model list kept changing; try again shortly",
-        "other": "Failed ({{code}})"
+        "other": "Failed ({{code}})",
+        "no-model": "No model to detect with",
+        "connection-changed": "The address or API key changed after detection. Detect again."
     },
     "header": {
         "rename": "Rename",

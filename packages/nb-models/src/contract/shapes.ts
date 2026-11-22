@@ -124,6 +124,11 @@ export const SnapshotProviderSchema = Type.Object({
     /** 被移出的来源模型数。 */
     excludedCount: Type.Integer(),
     modelsRevision: Type.String(),
+    /**
+     * 连接的版本：实例、有效协议与地址、认证方式与认证输入（密钥、请求头）变了就变。协议检测的结果带检测时的值，界面拿它判断结果
+     * 是否还对得上现在的配置，`adoptApi` 拿它核对（输出 26）。不可逆推出密钥（服务端密钥的 HMAC）。
+     */
+    connection: Type.String(),
 }, {additionalProperties: false});
 
 /** 角色的有效性，与解析的结论一致（输出 8）。 */
@@ -179,3 +184,28 @@ export const CheckResultSchema = Type.Union([
     Type.Object({ok: Type.Literal(false), kind: Type.String(), code: Nullable(Type.String()), raw: Type.String()}, {additionalProperties: false}),
 ]);
 export type CheckResult = Static<typeof CheckResultSchema>;
+
+/**
+ * 一种协议的检测结果（输出 26）：`baseUrl` 是这种协议会用的地址，`url` 是实际请求的地址（只到路径）；`status`、`ms`、`url` 在请求
+ * 没发出时为 null；`code` 是失败的码，`message` 是遮盖、截断过的服务商原文或英文说明，通过时为 null 与空串。`connection` 是改用这种
+ * 协议之后的连接版本：采纳时原样交回，快照的 `connection` 等于它时说明现在用的就是这一行试过的配置。
+ */
+export const ApiCheckSchema = Type.Object({
+    api: Api,
+    baseUrl: Type.String(),
+    connection: Type.String(),
+    url: Nullable(Type.String()),
+    ok: Type.Boolean(),
+    status: Nullable(Type.Integer()),
+    ms: Nullable(Type.Number()),
+    code: Nullable(Type.String()),
+    message: Type.String(),
+}, {additionalProperties: false});
+export type ApiCheck = Static<typeof ApiCheckSchema>;
+
+/**
+ * 一次协议检测：用的模型、检测时的连接版本（`SnapshotProvider.connection`）与四种协议各一行（OpenAI Chat Completions、OpenAI
+ * Responses、Anthropic、Google Gemini）。快照的 `connection` 既不等于检测时的、也不等于哪一行的，结果就不再对得上现在的配置。
+ */
+export const ApiDetectionSchema = Type.Object({model: Type.String(), connection: Type.String(), results: Type.Array(ApiCheckSchema)}, {additionalProperties: false});
+export type ApiDetection = Static<typeof ApiDetectionSchema>;

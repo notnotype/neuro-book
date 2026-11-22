@@ -1,9 +1,24 @@
 /** 模型服务夹具的示例数据：快照的服务商与角色、模型行、模板表、拉取结果。数字是示意，不是目录的真实值。 */
 
-import type {ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole, Template} from "@notnotype/nb-models/contract";
+import type {ApiDetection, ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole, Template} from "@notnotype/nb-models/contract";
 
 /** 场景里“列表更新于”的固定时刻（2026-11-22 09:30 UTC），截图不随运行时间变。 */
 export const SOURCE_AT = Date.UTC(2026, 10, 22, 9, 30);
+
+/**
+ * 一次协议检测（中转站：两种 OpenAI 通过，Anthropic 404，Gemini 400）。连接版本：检测时是 `c1`（即 Chat Completions 那一行），
+ * 改用 Responses 之后是 `c-responses`。
+ */
+export const SAMPLE_DETECTION: ApiDetection = {
+    model: "doubao-seed-1-6",
+    connection: "c1",
+    results: [
+        {api: "openai-completions", baseUrl: "https://relay.example/v1", connection: "c1", url: "https://relay.example/v1/chat/completions", ok: true, status: 200, ms: 312, code: null, message: ""},
+        {api: "openai-responses", baseUrl: "https://relay.example/v1", connection: "c-responses", url: "https://relay.example/v1/responses", ok: true, status: 200, ms: 418, code: null, message: ""},
+        {api: "anthropic-messages", baseUrl: "https://relay.example/v1", connection: "c-anthropic", url: "https://relay.example/v1/messages", ok: false, status: 404, ms: 96, code: "http", message: "{\"error\":{\"message\":\"Not Found: /v1/messages\",\"type\":\"invalid_request_error\"}}"},
+        {api: "google-generative-ai", baseUrl: "https://relay.example/v1", connection: "c-gemini", url: "https://relay.example/v1/models/doubao-seed-1-6:streamGenerateContent", ok: false, status: 400, ms: 120, code: "http", message: "{\"error\":{\"code\":400,\"message\":\"API key not valid. Please pass a valid API key.\",\"status\":\"INVALID_ARGUMENT\"}}"},
+    ],
+};
 
 /** 还没有服务商列表、用内置目录的来源状态。 */
 export const SOURCE_CATALOG: SnapshotProvider["source"] = {state: "none", refreshing: false, checkedAt: null, error: null};
@@ -17,7 +32,7 @@ export const sampleRow = (id: string, patch: Partial<ModelRow> = {}): ModelRow =
 
 const provider = (patch: Partial<SnapshotProvider> & Pick<SnapshotProvider, "id" | "template" | "name" | "key">, rows: readonly ModelRow[]): SnapshotProvider => ({
     region: null, icon: null, baseUrl: null, templateBaseUrl: null, api: "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, followSource: true, source: SOURCE_CATALOG,
-    modelCount: rows.length, enabledCount: rows.filter((row) => row.enabled).length, excludedCount: 0, modelsRevision: "r1", ...patch,
+    modelCount: rows.length, enabledCount: rows.filter((row) => row.enabled).length, excludedCount: 0, modelsRevision: "r1", connection: "c1", ...patch,
 });
 
 /** 各家的模型行（`providerModels` 的 `listed`）。 */

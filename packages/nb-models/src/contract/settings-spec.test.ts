@@ -29,9 +29,9 @@ describe("设置页的远程合同", () => {
         const changedPayload: Equals<Static<ModelsSettingsContract["events"]["changed"]["payload"]>, ModelsSnapshot> = true;
         expect([sameContract, snapshotOutput, setRoleInput, setKeyErrors, changedPayload]).toEqual([true, true, true, true, true]);
 
-        expect(contract).toMatchObject({id: "acme.models/settings", version: 4, provider: "server", callers: ["browser"]});
+        expect(contract).toMatchObject({id: "acme.models/settings", version: 5, provider: "server", callers: ["browser"]});
         expect(Object.keys(contract.methods).sort()).toEqual([
-            "addProvider", "addRole", "check", "checkAll", "clearKey", "duplicateProvider", "enabledModels", "modelsByReference", "providerModels",
+            "addProvider", "addRole", "adoptApi", "check", "clearKey", "detectApi", "duplicateProvider", "enabledModels", "modelsByReference", "providerModels",
             "refreshSource", "removeModel", "removeProvider", "removeRole", "setIcon", "setKey", "setModels", "setRole", "snapshot", "templates", "updateProvider", "updateRole", "upsertModel",
         ]);
     });

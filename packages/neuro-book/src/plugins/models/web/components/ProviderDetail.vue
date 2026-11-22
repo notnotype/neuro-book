@@ -6,9 +6,11 @@ import {computed, ref, useId, watch} from "vue";
 
 import {fullTime} from "nbook/shared/short-time";
 
-import type {CheckState} from "../models-store";
+import type {CheckRun, CheckState} from "../models-store";
 import {checkKey} from "../models-store";
 import {useModelsText} from "../text";
+import ApiDetectResults from "./ApiDetectResults.vue";
+import type {ApiDetectState} from "./ApiDetectResults.vue";
 import HeadersEditor from "./HeadersEditor.vue";
 import ModelRow from "./ModelRow.vue";
 
@@ -37,7 +39,11 @@ const props = withDefaults(defineProps<{
     checkError?: string;
     /** “重新拉取”没被受理的原因（没有可用的密钥、设置读不到），写在来源一行下面；没有为空。 */
     sourceError?: string;
-}>(), {rows: () => [], rowsLoading: false, rowsFailure: "", template: null, checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: "", sourceError: ""});
+    /** 这家的协议检测（页面持有，换服务商时回到 `idle`）。 */
+    detect?: ApiDetectState;
+    /** 进行中的“检测全部”的进度；没有为 null。 */
+    checkRun?: CheckRun | null;
+}>(), {rows: () => [], rowsLoading: false, rowsFailure: "", template: null, checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: "", sourceError: "", detect: () => ({status: "idle"}), checkRun: null});
 
 const emit = defineEmits<{
     (e: "set-key", value: string): void;
@@ -54,6 +60,11 @@ const emit = defineEmits<{
     (e: "reload-rows"): void;
     /** 重新拉取这家的模型列表（结果经快照的 `source` 回来）。 */
     (e: "refresh-source"): void;
+    /** 检测协议：地址框的草稿先交出去（发了 `update`），页面等写完再检测；`model` 是没有可用模型时用户填的。 */
+    (e: "detect", model?: string): void;
+    (e: "cancel-detect"): void;
+    /** 改用检测通过的一种协议，带那一行的连接版本。 */
+    (e: "adopt", api: NonNullable<ProviderPatch["api"]>, connection: string): void;
 }>();
 
 const text = useModelsText();
@@ -190,6 +201,18 @@ function changeApi(value: string): void {
     // 非空白模板改回模板的协议就清掉覆盖，回到“跟随模板”。
     emit("update", {api: !blank.value && api === props.provider.templateApi ? null : api});
 }
+// ---- 协议检测 ----
+const detecting = computed(() => props.detect.status === "running");
+/** 只测已保存的配置：地址框里没交出去的草稿先交（页面等它写完）；草稿不合格时不检测，焦点回到地址框。 */
+function startDetect(): void {
+    commitUrl();
+    if (urlProblem.value !== "") {
+        document.getElementById(`${id}-url`)?.focus();
+        return;
+    }
+    emit("detect");
+}
+
 const authOptions = computed(() => [
     {value: "default", label: text("connection.auth.default")},
     {value: "bearer", label: text("connection.auth.bearer")},
@@ -234,7 +257,7 @@ const isOpen = (group: string): boolean => chosen.value.get(group) ?? props.rows
 function fold(group: string): void {
     chosen.value = new Map([...chosen.value, [group, !isOpen(group)]]);
 }
-const checking = computed(() => props.rows.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
+const checking = computed(() => props.checkRun !== null || props.rows.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
 </script>
 
 <template>
@@ -291,8 +314,15 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
                 </div>
                 <div class="provider-detail__field">
                     <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.api.label") }}</span></div>
-                    <Select :model-value="provider.api ?? 'openai-completions'" :options="API_OPTIONS" size="sm" :disabled="disabled" :aria-label="text('connection.api.label')" data-api-select @update:model-value="changeApi" />
+                    <div class="provider-detail__inline">
+                        <Select class="provider-detail__grow" :model-value="provider.api ?? 'openai-completions'" :options="API_OPTIONS" size="sm" :disabled="disabled" :aria-label="text('connection.api.label')" data-api-select @update:model-value="changeApi" />
+                        <!-- 检测进行中换成“取消检测”（不停用，焦点留在按钮上）；没有可用的密钥时停用，原因写成看得见的字。 -->
+                        <Button v-if="detecting" size="sm" variant="secondary" icon-class="i-lucide-square" data-api-detect-cancel @click="emit('cancel-detect')">{{ text("connection.detect.cancel") }}</Button>
+                        <Button v-else size="sm" variant="secondary" icon-class="i-lucide-radar" :disabled="disabled || !keyReady" data-api-detect-start @click="startDetect">{{ text("connection.detect.button") }}</Button>
+                    </div>
+                    <p v-if="!keyReady && !detecting" class="provider-detail__hint" data-api-detect-needs-key>{{ text("connection.detect.needsKey") }}</p>
                     <p v-if="apiChanged" class="provider-detail__hint" data-api-note>{{ text("connection.protocol.changed", {value: provider.templateApi ?? ""}) }} {{ text("connection.protocol.note") }}</p>
+                    <ApiDetectResults :state="detect" :connection="provider.connection" :disabled="disabled" @adopt="(api, connection) => emit('adopt', api, connection)" @detect="(model) => emit('detect', model)" />
                 </div>
                 <Collapsible>
                     <template #trigger>
@@ -322,6 +352,7 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
                 <span class="provider-detail__spacer" />
                 <Button size="sm" variant="ghost" icon-class="i-lucide-list-checks" :disabled="disabled" data-models-manage @click="emit('manage')">{{ text("models.manage") }}</Button>
                 <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" data-models-add @click="emit('add-model')">{{ text("models.add") }}</Button>
+                <span v-if="checkRun !== null" class="provider-detail__muted" aria-live="polite" data-models-check-progress>{{ text("models.checkProgress", {done: String(checkRun.done), total: String(checkRun.total)}) }}</span>
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>
@@ -482,6 +513,17 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
 
 .provider-detail__link--danger {
     color: var(--status-danger);
+}
+
+.provider-detail__inline {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.provider-detail__grow {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .provider-detail__hint {
