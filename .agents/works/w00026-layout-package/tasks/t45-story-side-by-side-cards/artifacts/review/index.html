@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：nb-story 并排看卡片</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：nb-story 并排看卡片</h1>
+
+<section>
+  <h2>现状与参照</h2>
+  <div class="cands">
+    <div class="cand">
+      <h3>现在：右侧详情一次一张卡</h3>
+      <img src="r1/roster-card.webp" alt="nb-story 人物页，右侧详情开着苏天晴的人物卡">
+    </div>
+    <div class="cand">
+      <table>
+        <thead><tr><th>参照</th><th>做法</th></tr></thead>
+        <tbody>
+          <tr><td>VS Code</td><td>Ctrl（Mac 上 ⌘）点文件或右键“在侧边打开”，开在旁边的编组；之后普通打开进最近用过的编组；拖标签到另一组的半边</td></tr>
+          <tr><td>本应用工作台</td><td>拖标签时被拖的缩成卡片跟着指针，要放的地方盖一层落点指示，松手才换</td></tr>
+          <tr><td>nb-story 现在</td><td>名字是按钮，单击开卡；关系图上右键有“某某的人物卡”；没有拖动</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="drawer-width" data-nbdev-type="single" data-nbdev-recommend="double">
+  <h2>并排时右侧详情多宽？</h2>
+  <p class="rec"><strong>推荐 A 两张各保持原宽：各占一半时每张只剩约 200 像素，内容挤成窄条，对照不了。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="double" data-nbdev-label="A 两张各保持原宽">
+      <h3>A 两张各保持原宽</h3>
+      <img src="r1/draft-double.webp" alt="右侧详情加宽到两张卡，各约 400 像素，正文缩到约 450 像素">
+      <p>1440 宽的窗口里正文从 850 缩到 450；关掉一张回到原宽。</p>
+    </div>
+    <div class="cand" data-nbdev-option="split" data-nbdev-label="B 宽度不变、各占一半">
+      <h3>B 宽度不变、各占一半</h3>
+      <img src="r1/draft-split.webp" alt="右侧详情宽度不变，两张卡各约 200 像素">
+      <p>正文不动；每张卡约 200 像素。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="open-second" data-nbdev-type="multi" data-nbdev-recommend="modifier,menu">
+  <h2>第二张卡从哪里打开？</h2>
+  <p class="rec"><strong>推荐 A 加 B：和 VS Code 的“在侧边打开”一样，键盘与右键都能到；拖名字可以以后加。</strong></p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="modifier" data-nbdev-label="A Ctrl 或 ⌘ 点名字">
+      <h3>A Ctrl 或 ⌘ 点名字</h3>
+      <p>开在另一半；已经并排时换掉另一半那张。</p>
+    </div>
+    <div class="cand" data-nbdev-option="menu" data-nbdev-label="B 右键“在旁边打开”">
+      <h3>B 右键“在旁边打开”</h3>
+      <p>名字与关系图的点上右键，菜单里多一项。名字现在没有右键菜单，要新加。</p>
+    </div>
+    <div class="cand" data-nbdev-option="drag-name" data-nbdev-label="C 把名字拖到左半或右半">
+      <h3>C 把名字拖到左半或右半</h3>
+      <p>拖起正文里的名字或人物页的卡，放到右侧详情的哪一半就开在哪一半。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="click-target" data-nbdev-type="single" data-nbdev-recommend="last">
+  <h2>两张都开着时，普通点名字换哪一张？</h2>
+  <p class="rec"><strong>推荐 A 最近点过的那一张：卡片里的名字换它自己那张，像在那一半里往下翻；和 VS Code 的“活动编组”一样。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="last" data-nbdev-label="A 最近点过的那一张">
+      <h3>A 最近点过的那一张</h3>
+      <p>点过、滚过或在里面点过名字的那张算“最近”。正文里点名字换它。</p>
+    </div>
+    <div class="cand" data-nbdev-option="left" data-nbdev-label="B 总换左边那张">
+      <h3>B 总换左边那张</h3>
+      <p>右边当作对照固定住，只有 Ctrl 点或右键才换右边。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="drag-look" data-nbdev-type="confirm" data-nbdev-label="拖卡片换边时这样提示">
+  <h2>拖卡片换边时这样提示，可以吗？</h2>
+  <p class="rec"><strong>推荐同意：和工作台拖标签的“落点指示”一个样子，按住卡片头拖，松手两张对调。</strong></p>
+  <img src="r1/draft-drag.webp" alt="拖苏天晴的卡片头，名字跟着指针，左半边盖一层蓝色落点">
+</section>
+
+<section>
+  <h2>直接做，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>怎么做</th></tr></thead>
+    <tbody>
+      <tr><td>张数</td><td>最多两张</td></tr>
+      <tr><td>拖卡片头</td><td>放到另一半两张对调；放回自己那一半不动；Esc 取消</td></tr>
+      <tr><td>两张中间</td><td>有分隔条，可以拖动调两张的宽度</td></tr>
+      <tr><td>关掉一张</td><td>剩下那张占满右侧详情，宽度回到一张卡的宽度</td></tr>
+      <tr><td>窄窗口</td><td>详情浮起与手机时不并排，只显示最近点过的那一张；放宽后两张回来</td></tr>
+      <tr><td>放什么</td><td>人物卡、原文、段落、图节点四种详情都能放进任一半</td></tr>
+      <tr><td>地址栏</td><td>记两张，刷新与复制链接照旧</td></tr>
+      <tr><td>拖动手感</td><td>先做落点指示；实时让位等手感编排进 nb-layout（t49）之后再接，那时 nb-story 是第二个宿主</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>右侧详情可以再开一张卡并排对照，卡片能拖到左右两半（2026-11-22）</li>
+    <li>三栏改用 nb-layout 的 NestedGrid，外观不变（t44）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

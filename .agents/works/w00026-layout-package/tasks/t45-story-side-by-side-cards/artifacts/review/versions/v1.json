@@ -1,0 +1,114 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t45-story-side-by-side-cards",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：nb-story 并排看卡片",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "b1a22047bfca4eb17ec91b983f31eb908b795e1b5ee9c8994811edeb6e8154d8",
+    "files": [
+        "index.html",
+        "r1/draft-double.webp",
+        "r1/draft-drag.webp",
+        "r1/draft-split.webp",
+        "r1/roster-card.webp"
+    ],
+    "questions": [
+        {
+            "id": "drawer-width",
+            "type": "single",
+            "label": "并排时右侧详情多宽？",
+            "options": [
+                {
+                    "value": "double",
+                    "label": "A 两张各保持原宽"
+                },
+                {
+                    "value": "split",
+                    "label": "B 宽度不变、各占一半"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "double"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "open-second",
+            "type": "multi",
+            "label": "第二张卡从哪里打开？",
+            "options": [
+                {
+                    "value": "modifier",
+                    "label": "A Ctrl 或 ⌘ 点名字"
+                },
+                {
+                    "value": "menu",
+                    "label": "B 右键“在旁边打开”"
+                },
+                {
+                    "value": "drag-name",
+                    "label": "C 把名字拖到左半或右半"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "modifier",
+                "menu"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "click-target",
+            "type": "single",
+            "label": "两张都开着时，普通点名字换哪一张？",
+            "options": [
+                {
+                    "value": "last",
+                    "label": "A 最近点过的那一张"
+                },
+                {
+                    "value": "left",
+                    "label": "B 总换左边那张"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "last"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "drag-look",
+            "type": "confirm",
+            "label": "拖卡片换边时这样提示",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-22T08:54:43.805Z"
+}
