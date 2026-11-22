@@ -7,23 +7,23 @@ import {useModelsText} from "../text";
 import CapabilityIcons from "./CapabilityIcons.vue";
 
 /**
- * “管理模型”对话框（docs/specs/models/settings-pages.md 输出 10）：目录服务商列目录里这家的模型，自定义服务商列 `/models` 拉取的
- * 结果（可“重新拉取”）。每行“加入列表”或“从列表移出”，改动留在对话框里，“完成”时一次交出。移出被角色用着的模型先在行内确认。
+ * “管理模型”对话框（docs/specs/models/settings-pages.md 输出 10）：列这家来源里的全部模型（服务商的列表，没有列表时是内置目录），
+ * 类型不明的单独一组放在最后。每行“加入列表”或“从列表移出”，改动留在对话框里，“完成”时一次交出。移出被角色用着的模型先在行内确认。
  */
 export interface ModelCandidate {
     readonly id: string;
     readonly name: string;
     readonly vision: boolean;
     readonly reasoning: boolean;
-    /** 加入后要补字段（自定义服务商拉取的结果不报上下文窗口时）。 */
+    /** 加入后要补字段（来源没给上下文窗口时）。 */
     readonly incomplete: boolean;
+    /** 服务商没说明是不是对话模型、目录里也没有（单独一组，确认是再加）。 */
+    readonly unknown: boolean;
 }
 
 const props = withDefaults(defineProps<{
     open: boolean;
     providerName: string;
-    /** 自定义服务商才有“重新拉取”。 */
-    discoverable?: boolean;
     /** 候选；null 是还在读。 */
     candidates: readonly ModelCandidate[] | null;
     /** 列表里已有的模型 id。 */
@@ -33,11 +33,10 @@ const props = withDefaults(defineProps<{
     /** 读候选或写入失败的原因。 */
     error?: string;
     busy?: boolean;
-}>(), {discoverable: false, roleUsage: () => new Map(), error: "", busy: false});
+}>(), {roleUsage: () => new Map(), error: "", busy: false});
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
-    (e: "refetch"): void;
     /** 与打开时相比加入的候选与移出的 id；都没有时直接关掉，不发。 */
     (e: "done", change: {add: ModelCandidate[]; remove: string[]}): void;
 }>();
@@ -54,11 +53,14 @@ watch(() => props.open, (open) => {
     added.value = new Set(props.current);
 }, {immediate: true});
 
+/** 类型不明那一组的键：系列名来自模型 id，不会以 NUL 开头，不会撞。 */
+const UNKNOWN_KEY = "\u0000unknown";
 /** 一次最多画这么多行（几百个模型的服务商不能整份渲染）：多出来的写“还有 N 条，缩小搜索词”。 */
 const LIMIT = 200;
 const shown = computed(() => {
     const needle = query.value.trim().toLowerCase();
     const byGroup = new Map<string, ModelCandidate[]>();
+    const unknown: ModelCandidate[] = [];
     let budget = LIMIT;
     let skipped = 0;
     for (const item of props.candidates ?? []) {
@@ -68,10 +70,16 @@ const shown = computed(() => {
             continue;
         }
         budget -= 1;
+        if (item.unknown) {
+            unknown.push(item);
+            continue;
+        }
         const group = seriesOf(item.id);
         byGroup.set(group, [...(byGroup.get(group) ?? []), item]);
     }
-    return {groups: [...byGroup].map(([group, items]) => ({group, items})), hidden: skipped};
+    const groups = [...byGroup].map(([group, items]) => ({key: group, title: group, hint: "", items}));
+    if (unknown.length > 0) groups.push({key: UNKNOWN_KEY, title: text("manage.unknown"), hint: text("manage.unknownHint"), items: unknown});
+    return {groups, hidden: skipped};
 });
 const groups = computed(() => shown.value.groups);
 const hidden = computed(() => shown.value.hidden);
@@ -124,15 +132,15 @@ function done(): void {
         <div class="manage-models">
             <div class="manage-models__bar">
                 <Input v-model="query" size="sm" icon-class="i-lucide-search" :placeholder="text('manage.search')" :aria-label="text('manage.search')" />
-                <Button v-if="discoverable" size="sm" variant="secondary" icon-class="i-lucide-refresh-cw" :disabled="busy || candidates === null && error === ''" data-manage-refetch @click="emit('refetch')">{{ text("manage.refetch") }}</Button>
             </div>
             <p v-if="candidates === null && error !== ''" class="manage-models__error" role="alert" data-manage-error>{{ error }}</p>
             <p v-else-if="candidates === null" class="manage-models__muted">{{ text("manage.loading") }}</p>
             <p v-else-if="candidates.length === 0" class="manage-models__muted">{{ text("manage.empty") }}</p>
             <p v-else-if="groups.length === 0" class="manage-models__muted">{{ text("manage.noMatch") }}</p>
             <div v-else ref="list" class="manage-models__list">
-                <section v-for="group in groups" :key="group.group" class="manage-models__group">
-                    <h4 class="manage-models__group-title">{{ group.group }}<span>{{ group.items.length }}</span></h4>
+                <section v-for="group in groups" :key="group.key" class="manage-models__group" :data-manage-group="group.key === UNKNOWN_KEY ? 'unknown' : undefined">
+                    <h4 class="manage-models__group-title">{{ group.title }}<span>{{ group.items.length }}</span></h4>
+                    <p v-if="group.hint !== ''" class="manage-models__muted">{{ group.hint }}</p>
                     <ul>
                         <li v-for="item in group.items" :key="item.id" class="manage-models__item" :data-manage-item="item.id">
                             <div class="manage-models__row">

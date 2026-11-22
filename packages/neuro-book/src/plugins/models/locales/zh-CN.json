@@ -137,7 +137,7 @@
         "editTip": "编辑模型",
         "incomplete": "缺上下文窗口",
         "incompleteTip": "要补上下文窗口才能启用",
-        "missing": "目录里没有了",
+        "missing": "服务商已不再提供",
         "unsupported": "不能当对话模型用",
         "priceUnknown": "单价未知",
         "free": "免费",
@@ -148,7 +148,28 @@
         "enabled": "{{count}} 个启用",
         "follow": {
             "label": "服务商新出的模型自动加入",
-            "hint": "打包目录里新增的模型自动出现在列表里；关掉后列表保持现在这样。"
+            "hint": "服务商的列表（没有列表时是内置目录）里新出的模型自动出现在列表里；关掉后列表保持现在这样。"
+        },
+        "source": {
+            "refresh": "重新拉取",
+            "refreshing": "正在拉取服务商的模型列表",
+            "ok": "服务商的模型列表，更新于 {{time}}",
+            "failed": "拉取失败：{{reason}}",
+            "failedKept": "拉取失败：{{reason}}；沿用 {{time}} 的列表",
+            "changed": "地址、协议或凭据改过，重新拉取后更新",
+            "catalog": "用内置的模型目录，还没有拉到服务商的列表",
+            "none": "还没有拉到服务商的模型列表",
+            "needsKey": "先填密钥才能拉取",
+            "reasons": {
+                "auth": "密钥被拒绝",
+                "not-found": "这家服务商没有模型列表接口",
+                "unreachable": "连不上服务商",
+                "bad-response": "服务商回的不是完整的模型列表",
+                "cancelled": "已取消",
+                "timeout": "超时",
+                "no-credentials": "没有可用的密钥",
+                "storage": "列表存不下来"
+            }
         },
         "search": "搜索模型名或 id",
         "more": "还有 {{count}} 条，缩小搜索词",
@@ -233,7 +254,6 @@
     "manage": {
         "title": "管理模型：{{name}}",
         "search": "搜索模型名或 id",
-        "refetch": "重新拉取",
         "add": "加入 {{name}}",
         "remove": "移出 {{name}}",
         "addTip": "加入列表",
@@ -243,7 +263,9 @@
         "empty": "没有可加入的模型",
         "noMatch": "没有匹配的模型",
         "done": "完成",
-        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。"
+        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。",
+        "unknown": "类型不明",
+        "unknownHint": "服务商没说明这些是不是对话模型，确认是再加入。"
     },
     "add": {
         "title": "添加服务商",

@@ -162,7 +162,7 @@ import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./ag
 import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {withWebText} from "./web-tools-scene/web-text";
-import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES} from "./models-scene/sample";
+import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES, SOURCE_AT} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
@@ -1697,8 +1697,13 @@ function shelfFixtures(): LabFixture[] {
                 {id: "loading", label: "模型行读取中", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: [], rowsLoading: true}}},
                 {id: "rows-failed", label: "读取模型失败（可重试）", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: [], rowsFailure: "服务没有回应"}}},
                 {id: "english", label: "英文界面", input: {props: {provider: SAMPLE_PROVIDERS[2]!, rows: SAMPLE_ROWS.volcengine!}}},
+                {id: "source-ok", label: "服务商的列表：更新于某时、可重新拉取", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, source: {state: "ok", refreshing: false, checkedAt: SOURCE_AT, error: null}}, rows: SAMPLE_ROWS.deepseek!}}},
+                {id: "source-refreshing", label: "正在拉取（按钮停用）", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, source: {state: "ok", refreshing: true, checkedAt: SOURCE_AT, error: null}}, rows: SAMPLE_ROWS.deepseek!}}},
+                {id: "source-failed", label: "拉取失败，沿用上一次的列表", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, source: {state: "ok", refreshing: false, checkedAt: SOURCE_AT, error: {reason: "auth", message: "401"}}}, rows: SAMPLE_ROWS.deepseek!}}},
+                {id: "source-changed", label: "改过地址或凭据：要重新拉取", input: {props: {provider: {...SAMPLE_PROVIDERS[1]!, source: {state: "changed", refreshing: false, checkedAt: null, error: null}}, rows: SAMPLE_ROWS.anthropic!}}},
+                {id: "source-failed-english", label: "拉取失败，英文界面", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, source: {state: "ok", refreshing: false, checkedAt: SOURCE_AT, error: {reason: "bad-response", message: "503"}}}, rows: SAMPLE_ROWS.deepseek!}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage", "reload-rows"], class: "w-full"})),
+            load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage", "reload-rows", "refresh-source"], class: "w-full"})),
         }),
         defineLabFixture<typeof AllModelsView>({
             component: "AllModelsView",
@@ -1720,11 +1725,12 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof ManageModelsDialog>({
             component: "ManageModelsDialog",
             scenes: [
-                {id: "discovered", label: "拉取的结果：已加入、要补字段", input: {model: {open: true}, props: {providerName: "火山方舟", discoverable: true, candidates: SAMPLE_CANDIDATES, current: ["doubao-seed-2-0-pro"]}}},
-                {id: "loading", label: "还在拉取", input: {model: {open: true}, props: {providerName: "火山方舟", discoverable: true, candidates: null, current: []}}},
-                {id: "failed", label: "拉取失败", input: {model: {open: true}, props: {providerName: "火山方舟", discoverable: true, candidates: null, current: [], error: "鉴权失败：核对密钥"}}},
+                {id: "discovered", label: "服务商的列表：已加入、要补字段、类型不明一组", input: {model: {open: true}, props: {providerName: "火山方舟", candidates: SAMPLE_CANDIDATES, current: ["doubao-seed-2-0-pro"]}}},
+                {id: "loading", label: "还在读", input: {model: {open: true}, props: {providerName: "火山方舟", candidates: null, current: []}}},
+                {id: "failed", label: "读取失败", input: {model: {open: true}, props: {providerName: "火山方舟", candidates: null, current: [], error: "读取模型失败：服务没有回应"}}},
+                {id: "english", label: "英文界面", input: {model: {open: true}, props: {providerName: "Volcengine", candidates: SAMPLE_CANDIDATES, current: ["doubao-seed-2-0-pro"]}}},
             ],
-            load: async () => withModelsText(createSubjectFixture<typeof ManageModelsDialog>((await import("nbook/plugins/models/web/components/ManageModelsDialog.vue")).default, {events: ["update:open", "refetch", "done"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
+            load: async () => withModelsText(createSubjectFixture<typeof ManageModelsDialog>((await import("nbook/plugins/models/web/components/ManageModelsDialog.vue")).default, {events: ["update:open", "done"], writeBack: {"update:open": {layer: "model", key: "open"}}})),
         }),
         defineLabFixture<typeof ModelEditDialog>({
             component: "ModelEditDialog",

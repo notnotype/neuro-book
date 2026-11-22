@@ -47,10 +47,29 @@ const emit = defineEmits<{
     (e: "add-model"): void;
     (e: "manage"): void;
     (e: "reload-rows"): void;
+    /** 重新拉取这家的模型列表（结果经快照的 `source` 回来）。 */
+    (e: "refresh-source"): void;
 }>();
 
 const text = useModelsText();
 const id = useId();
+
+// ---- 模型列表的来源（service.md“模型来源”）----
+const source = computed(() => props.provider.source);
+const keyReady = computed(() => props.provider.key.kind === "stored" || props.provider.key.kind === "keyless" || (props.provider.key.kind === "env" && props.provider.key.found));
+const timeOf = (at: number): string => new Date(at).toLocaleString();
+/** 来源一行：在拉取、失败（有旧列表时写沿用哪次的）、改过要重拉、正常、还没有。 */
+const sourceLine = computed((): {text: string; error: boolean} => {
+    const state = source.value;
+    if (state.refreshing) return {text: text("models.source.refreshing"), error: false};
+    if (state.error !== null) {
+        const reason = text(`models.source.reasons.${state.error.reason}`);
+        return {text: state.checkedAt === null ? text("models.source.failed", {reason}) : text("models.source.failedKept", {reason, time: timeOf(state.checkedAt)}), error: true};
+    }
+    if (state.state === "changed") return {text: text("models.source.changed"), error: false};
+    if (state.state === "ok" && state.checkedAt !== null) return {text: text("models.source.ok", {time: timeOf(state.checkedAt)}), error: false};
+    return {text: blank.value ? text("models.source.none") : text("models.source.catalog"), error: false};
+});
 
 // ---- 密钥 ----
 /** `env:` 引用不是密钥，照原样显示；存在库里的密钥不回到浏览器，框里是空的。 */
@@ -299,7 +318,19 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>
-            <label v-if="!blank" class="provider-detail__follow">
+            <div class="provider-detail__source" data-source-status>
+                <p class="provider-detail__hint" :class="{'provider-detail__hint--error': sourceLine.error}" aria-live="polite">{{ sourceLine.text }}</p>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    icon-class="i-lucide-refresh-cw"
+                    :disabled="disabled || source.refreshing || !keyReady"
+                    :title="keyReady ? undefined : text('models.source.needsKey')"
+                    data-source-refresh
+                    @click="emit('refresh-source')"
+                >{{ text("models.source.refresh") }}</Button>
+            </div>
+            <label class="provider-detail__follow">
                 <Switch :model-value="provider.followSource" size="sm" :disabled="disabled" :aria-label="text('models.follow.label')" data-follow-source @update:model-value="(value: boolean) => emit('update', {followSource: value})" />
                 <span>{{ text("models.follow.label") }}<InfoTip :text="text('models.follow.hint')" /></span>
             </label>
@@ -374,6 +405,14 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
 
 .provider-detail__title--actions > :deep(button) {
     flex-shrink: 0;
+}
+
+.provider-detail__source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin: 0 0 var(--space-2);
 }
 
 .provider-detail__follow {

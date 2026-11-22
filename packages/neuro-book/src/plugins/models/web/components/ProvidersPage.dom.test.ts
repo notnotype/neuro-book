@@ -155,3 +155,41 @@ describe("几百个模型", () => {
         wrapper.unmount();
     });
 });
+
+describe("模型来源（service.md“模型来源”）", () => {
+    it("重新拉取：按钮先停用、写正在拉取，列表到了写更新时间；管理模型里类型不明的单独一组，加入没有窗口的先停用", async () => {
+        const {store} = await render();
+        query<HTMLElement>("[data-provider-rail-item='volcengine']").click();
+        await waitUntil("选中火山方舟", () => selected() === "volcengine", {timeoutMs: 10_000});
+        expect(query("[data-source-status]").textContent).toContain("还没有拉到服务商的模型列表");
+        // 空白模板也有“自动加入”开关。
+        expect(document.querySelector("[data-follow-source]")).not.toBeNull();
+        query<HTMLButtonElement>("[data-source-refresh]").click();
+        // 假远端受理时同步标上在拉取，下一轮事件循环才交回列表：等到这一轮的渲染就看得到中间状态。
+        await flushPromises();
+        expect(query("[data-source-status]").textContent).toContain("正在拉取");
+        expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(true);
+        await waitUntil("列表到了", () => query("[data-source-status]").textContent?.includes("更新于") === true, {timeoutMs: 10_000});
+        expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(false);
+
+        query<HTMLButtonElement>("[data-models-manage]").click();
+        await waitUntil("管理模型列出候选", () => document.querySelector("[data-manage-item='house-router']") !== null, {timeoutMs: 10_000});
+        const unknown = query("[data-manage-group='unknown']");
+        expect(unknown.textContent).toContain("类型不明");
+        expect(unknown.querySelector("[data-manage-item='house-router']")).not.toBeNull();
+        expect(unknown.querySelector("[data-manage-item='doubao-seed-2-0-mini']")).toBeNull();
+        query<HTMLButtonElement>("[data-manage-item='house-router'] [data-manage-toggle]").click();
+        await flushPromises();
+        [...document.querySelectorAll<HTMLButtonElement>("[data-manage-models-dialog] button")].find((button) => button.textContent?.trim() === "完成")!.click();
+        await waitUntil("加入了", () => store.rowsOf("volcengine").rows.some((row) => row.id === "house-router"), {timeoutMs: 10_000});
+        expect(store.rowsOf("volcengine").rows.find((row) => row.id === "house-router")?.enabled).toBe(false);
+    });
+
+    it("没有密钥时“重新拉取”停用", async () => {
+        await render();
+        query<HTMLElement>("[data-provider-rail-item='openai']").click();
+        await waitUntil("选中 OpenAI", () => selected() === "openai", {timeoutMs: 10_000});
+        expect(query<HTMLButtonElement>("[data-source-refresh]").disabled).toBe(true);
+        expect(query("[data-source-status]").textContent).toContain("用内置的模型目录");
+    });
+});

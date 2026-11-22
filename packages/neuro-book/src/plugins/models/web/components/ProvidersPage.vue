@@ -142,6 +142,12 @@ function report(subject: string, failure: ModelsFailure): void {
 }
 const subjectOf = (provider: SnapshotProvider): string => text("subject.provider", {name: provider.name});
 
+/** 重新拉取列表：受理即回，结果经快照的 `source` 显示在模型区；没受理（没有密钥、服务商没了）走通知。 */
+async function refreshSource(provider: SnapshotProvider): Promise<void> {
+    const result = await props.store.call("refreshSource", {provider: provider.id});
+    if (!result.ok) report(subjectOf(provider), result.failure);
+}
+
 async function setKey(provider: SnapshotProvider, value: string): Promise<void> {
     const result = await props.store.call("setKey", {provider: provider.id, value});
     // `partially-applied` 也走通知：快照随后给出实际的密钥状态（service.md 输出 13）。
@@ -262,34 +268,21 @@ async function saveModel(model: ModelConfig): Promise<void> {
 // ---- 管理模型 ----
 const managing = ref(false);
 const candidates = ref<readonly ModelCandidate[] | null>(null);
-const discovered = new Map<string, {readonly contextWindow: number | null; readonly maxOutput: number | null}>();
 const manageError = ref("");
 const manageBusy = ref(false);
 let manageToken = 0;
 
+/** 候选是这家来源里的全部模型：在列表里的，加上可加的（移出过的、没加过的、类型不明的）。 */
 async function loadCandidates(provider: SnapshotProvider): Promise<void> {
     const token = (manageToken += 1);
     candidates.value = null;
     manageError.value = "";
-    if (provider.templateBaseUrl !== null) {
-        // 有目录的模板：候选是目录里的全部（在列表里的，加上已移出、没加过的）。
-        await Promise.all([props.store.loadRows(provider.id, "listed"), props.store.loadRows(provider.id, "available")]);
-        // 对话框关了或又发起了一次：迟到的结果丢掉（输出 10）。
-        if (token !== manageToken || !managing.value) return;
-        const failure = props.store.rowsOf(provider.id, "listed").failure ?? props.store.rowsOf(provider.id, "available").failure;
-        if (failure !== null) manageError.value = failureReason(text, failure);
-        else candidates.value = [...props.store.rowsOf(provider.id, "listed").rows, ...props.store.rowsOf(provider.id, "available").rows].map((model) => ({id: model.id, name: model.name, vision: model.vision, reasoning: model.reasoning, incomplete: model.status === "incomplete"}));
-        return;
-    }
-    const result = await props.store.call("discover", {provider: provider.id});
+    await Promise.all([props.store.loadRows(provider.id, "listed"), props.store.loadRows(provider.id, "available")]);
+    // 对话框关了或又发起了一次：迟到的结果丢掉（输出 10）。
     if (token !== manageToken || !managing.value) return;
-    if (!result.ok) {
-        manageError.value = failureReason(text, result.failure);
-        return;
-    }
-    discovered.clear();
-    for (const model of result.value) discovered.set(model.id, {contextWindow: model.suggested?.contextWindow ?? null, maxOutput: model.suggested?.maxOutput ?? null});
-    candidates.value = result.value.map((model) => ({id: model.id, name: model.name, vision: model.suggested?.vision ?? false, reasoning: model.suggested?.reasoning ?? false, incomplete: (model.suggested?.contextWindow ?? null) === null}));
+    const failure = props.store.rowsOf(provider.id, "listed").failure ?? props.store.rowsOf(provider.id, "available").failure;
+    if (failure !== null) manageError.value = failureReason(text, failure);
+    else candidates.value = [...props.store.rowsOf(provider.id, "listed").rows, ...props.store.rowsOf(provider.id, "available").rows].map((model) => ({id: model.id, name: model.name, vision: model.vision, reasoning: model.reasoning, incomplete: model.status === "incomplete", unknown: model.kind === "unknown"}));
 }
 
 /** 打开“管理模型”时这家列表里的模型：“完成”只提交相对它的改动，打开期间别处加的模型不会被当成“要移出”。 */
@@ -310,20 +303,8 @@ watch(current, (provider, previous) => {
 });
 
 async function applyManage(provider: SnapshotProvider, change: {add: ModelCandidate[]; remove: string[]}): Promise<void> {
-    const add: ModelConfig[] = change.add.map((item) => {
-        if (provider.templateBaseUrl !== null) return {id: item.id, enabled: true};
-        const suggested = discovered.get(item.id);
-        return {
-            id: item.id,
-            // 缺上下文窗口的加入后停用，补上字段才能启用（输出 7）。
-            enabled: !item.incomplete,
-            ...(item.name === item.id ? {} : {name: item.name}),
-            ...(suggested?.contextWindow === null || suggested === undefined ? {} : {contextWindow: suggested.contextWindow}),
-            ...(suggested?.maxOutput === null || suggested === undefined ? {} : {maxOutput: suggested.maxOutput}),
-            vision: item.vision,
-            reasoning: item.reasoning,
-        };
-    });
+    // 都是来源里的模型：设置里只记“在列表里、启用与否”，能力字段跟着来源走。缺上下文窗口的加入后停用，补上字段才能启用（输出 7）。
+    const add: ModelConfig[] = change.add.map((item) => ({id: item.id, enabled: !item.incomplete}));
     manageBusy.value = true;
     const result = await props.store.call("setModels", {provider: provider.id, add, remove: change.remove});
     manageBusy.value = false;
@@ -508,6 +489,7 @@ function focusVisible(selectors: readonly string[]): void {
                         @edit-model="(id) => openEdit(current!.id, id)"
                         @add-model="openEdit(current!.id, null)"
                         @manage="openManage(current!)"
+                        @refresh-source="refreshSource(current!)"
                     />
                 </template>
                 <template v-else>
@@ -531,13 +513,11 @@ function focusVisible(selectors: readonly string[]): void {
             v-if="current !== null"
             v-model:open="managing"
             :provider-name="current.name"
-            :discoverable="current.templateBaseUrl === null"
             :candidates="candidates"
             :current="manageOpenedWith"
             :role-usage="roleUsage(current)"
             :error="manageError"
             :busy="manageBusy"
-            @refetch="loadCandidates(current!)"
             @done="(change) => applyManage(current!, change)"
         />
         <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-label="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />

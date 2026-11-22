@@ -21,7 +21,8 @@
 - 模型行经数据模块的选用数据读（`loadRows`、`rowsOf`）：选中一家时读它的行，这家的 `modelsRevision` 变了才重读。
 - “添加服务商”打开 [`AddProviderDialog`](AddProviderDialog.md)，先读模板表（`templates`）；添加成功后关掉对话框、新服务商成为当前项，要密钥的焦点放在密钥框上，失败的原因留在对话框里。
 - 标题区：换图标（`setIcon`，失败原因回到图标面板）、改名（`updateProvider` 的 `name`，重名由标题区先挡）、复制一份（`duplicateProvider`：成功后选中副本、焦点到名称；`partially-applied` 时同样选中副本，并经窗口通知说密钥没复制成功）。
-- 模型的齿轮与“手动添加”打开 [`ModelEditDialog`](ModelEditDialog.md)，保存成功才关；“管理模型”打开 [`ManageModelsDialog`](ManageModelsDialog.md)：模板服务商读这家在列表里与不在列表里的行（`providerModels` 的 `listed` 与 `available`），空白模板的服务商拉取 `/models`，对话框关掉或重新拉取后迟到的结果丢掉；“完成”一次写加入与移出（`setModels`），缺上下文窗口的加入后停用。
+- 模型的齿轮与“手动添加”打开 [`ModelEditDialog`](ModelEditDialog.md)，保存成功才关；“管理模型”打开 [`ManageModelsDialog`](ManageModelsDialog.md)：读这家在列表里与不在列表里的行（`providerModels` 的 `listed` 与 `available`，空白模板也一样），对话框关掉或再打开后迟到的结果丢掉；“完成”一次写加入与移出（`setModels`），缺上下文窗口的加入后停用。
+- 模型区的“重新拉取”调 `refreshSource`：受理即回，拉取的进度与结果随快照的 `source` 写在模型区；没受理（没有可用的密钥、服务商不在了）经窗口通知。
 - 检测与“检测全部”进行中可取消（详情头取消这家全部，转圈取消一个）；中止句柄与结果都在数据模块里，离开页面不取消，回来还能取消、结果还在。没检成（服务停了、服务商不在了）的原因写在模型列表头上。
 - “删除”先确认（写明去掉几个模型、密钥一起删、哪些角色会变成未绑定）。删的是当前选中的那家时，删除后选中并聚焦下一家，没有时上一家，都没有时“添加服务商”（窄布局里落到顶上的下拉或“添加”）；删的是别的一家时选中不变，焦点回到当前项。取消或删除失败时焦点回到那家的条目（窄布局里是下拉旁的删除按钮）。都等确认框真正关掉、这家从快照里消失之后再移焦点。确认框按打开时取定的那家挂载，不跟着当前项：删掉之后当前项变了，跟着当前项会让确认框在关掉之前就被卸掉。
 - 写失败：经 `reportWriteFailure(没保存的那一项, {reason, uncertain})` 交给窗口通知，`unknown-outcome` 时 `uncertain` 为真；控件随后跟着快照回到实际值。

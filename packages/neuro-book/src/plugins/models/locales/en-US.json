@@ -139,7 +139,7 @@
         "editTip": "Edit model",
         "incomplete": "No context window",
         "incompleteTip": "Fill in the context window to enable it",
-        "missing": "No longer in the catalog",
+        "missing": "No longer offered by the provider",
         "unsupported": "Not usable as a chat model",
         "priceUnknown": "Price unknown",
         "free": "Free",
@@ -150,7 +150,28 @@
         "enabled": "{{count}} enabled",
         "follow": {
             "label": "Add new models from the provider automatically",
-            "hint": "Models newly added to the bundled catalog show up in the list on their own; turn this off to keep the list as it is."
+            "hint": "Models newly added to the provider's list (or the built-in catalog when there is no list) show up on their own; turn this off to keep the list as it is."
+        },
+        "source": {
+            "refresh": "Refresh",
+            "refreshing": "Fetching the provider's model list",
+            "ok": "Provider's model list, updated {{time}}",
+            "failed": "Fetch failed: {{reason}}",
+            "failedKept": "Fetch failed: {{reason}}; using the list from {{time}}",
+            "changed": "The address, protocol or credentials changed; refresh to update",
+            "catalog": "Using the built-in model catalog; no list from the provider yet",
+            "none": "No model list from the provider yet",
+            "needsKey": "Enter a key before refreshing",
+            "reasons": {
+                "auth": "the key was rejected",
+                "not-found": "this provider has no model list endpoint",
+                "unreachable": "could not reach the provider",
+                "bad-response": "the provider did not return a complete model list",
+                "cancelled": "cancelled",
+                "timeout": "timed out",
+                "no-credentials": "no usable key",
+                "storage": "the list could not be saved"
+            }
         },
         "search": "Search model name or id",
         "more": "{{count}} more; narrow the search",
@@ -235,7 +256,6 @@
     "manage": {
         "title": "Manage models: {{name}}",
         "search": "Search by name or id",
-        "refetch": "Fetch again",
         "add": "Add {{name}}",
         "remove": "Remove {{name}}",
         "addTip": "Add to the list",
@@ -245,7 +265,9 @@
         "empty": "No models to add",
         "noMatch": "No matching models",
         "done": "Done",
-        "confirmRemove": "After removing, these roles become unbound: {{roles}}."
+        "confirmRemove": "After removing, these roles become unbound: {{roles}}.",
+        "unknown": "Unknown type",
+        "unknownHint": "The provider does not say whether these are chat models; add them only if they are."
     },
     "add": {
         "title": "Add provider",
