@@ -9,8 +9,8 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
-import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
+import type {GridContentPlacement, GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import {planSwap, swapTouchesBand} from "../grid-swap";
 import type {GridSwap, GridSwapBand} from "../grid-swap";
 import type {GridExtent, GridIssue} from "../grid-types";
@@ -71,6 +71,8 @@ export interface GridMotionMove {
     readonly shrinking: ReadonlySet<string>;
     /** 此刻为零的叶（节点 id）：上一轮在缩的叶仍在这里面的接着缩。 */
     readonly zero: ReadonlySet<string>;
+    /** 宿主去掉、留到过渡结束的内容项（`leavingContents`），含上一轮留下、叶仍在缩回去的。 */
+    readonly leavingContents: ReadonlyArray<GridContentPlacement>;
     /** 这一轮开始的交换（`planSwap`）：带上的几组。没有时进行中的交换照旧。 */
     readonly swap?: GridSwapBand;
     /** 给了交换但没用上的原因（这一轮照常过渡）。 */
@@ -85,7 +87,8 @@ export interface GridMotionMove {
 /** 在过渡里留着的离开的项：缩回去的叶（`leavingPlacements`），交换里滑出去的叶与分隔线（`planSwap`）。 */
 export type GridLeavingItem = GridPlacementItem<unknown>;
 
-const withoutLeaving = (list: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyArray<GridLayerItem<unknown>> => list.filter((item) => item.kind === "content" || item.leaving !== true);
+/** 留着缩回去的叶、宿主已去掉而留着的内容项都不算布局的一部分（见 `decideMotion`）。 */
+const withoutLeaving = (list: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyArray<GridLayerItem<unknown>> => list.filter((item) => item.leaving !== true);
 
 /** 根尺寸是子项加出来的（621.9999999999999 与 622），差一点舍入不算容器变了：算成变了，程序调整的过渡会直接跳到终点。 */
 const EXTENT_TOLERANCE_PX = 0.5;
@@ -122,6 +125,14 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     // 上一轮还在缩回去的叶（`input.items` 里带 `leaving` 的）：这一轮又有别的变化时接着留着缩完，不然它缩到一半就没了。回到树里的、这一轮重新判成离开的不算。
     const present = new Set([...frame.items, ...leaving].map((item) => item.key));
     const still = input.items.filter((item): item is GridLeavingItem => item.kind !== "content" && item.leaving === true && !present.has(item.key));
+    const shrinking = shrinkingLeaves(frame.items, frame.previous);
+    const zero = zeroLeaves(frame.items);
+    const leafIds = (list: ReadonlyArray<GridLeavingItem>): string[] => list.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []));
+    // 留着的内容项跟着它的叶：叶这一轮新判成缩回去的，新去掉的内容项留下；上一轮留下的，叶还在缩回去（接着留的离开的叶、仍为零的叶）就接着留，宿主又加回来的不算。
+    const fresh = leavingContents(frame.items, frame.previous, new Set([...leafIds(leaving), ...shrinking]), frame.holding === true);
+    const carriedOutgoing = new Set([...leafIds([...still, ...leaving]), ...zero]);
+    const freshKeys = new Set(fresh.map((item) => item.key));
+    const stillContents = input.items.filter((item): item is GridContentPlacement => item.kind === "content" && item.leaving === true && !present.has(item.key) && !freshKeys.has(item.key) && carriedOutgoing.has(item.leaf));
     const move: GridMotionMove = {
         kind: "move",
         entering: new Map([...entering, ...kept]),
@@ -130,8 +141,9 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         leaving: [...still, ...leaving],
         keptSize: new Set(kept.keys()),
         rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
-        shrinking: shrinkingLeaves(frame.items, frame.previous),
-        zero: zeroLeaves(frame.items),
+        shrinking,
+        zero,
+        leavingContents: frame.holding === true ? [] : [...stillContents, ...fresh],
     };
     if (input.swap == null || frame.holding === true) return move;
     // 同时只有一条带：别处的另一次交换先把进行中的送到终点，这一轮当作静止时开始（docs/specs/ui/nested-grid.md 输出 73）。
@@ -151,6 +163,8 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         keptSize: without(move.keptSize),
         rightAnchored: without(move.rightAnchored),
         leaving: [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key)), ...plan.leaving],
+        // 交换里滑出去的叶不留内容：带只认这一帧在的项，留着的内容不会跟着滑、跟着裁（输出 155）。
+        leavingContents: move.leavingContents.filter((item) => !banded.has(`leaf:${item.leaf}`)),
         swap: plan.band,
         ...(settle ? {settleFirst: true as const} : {}),
     };
@@ -181,6 +195,8 @@ export function useGridMotion(options: {
     const shrinking = shallowRef<ReadonlySet<string>>(new Set());
     /** 进行中的交换（docs/specs/ui/nested-grid.md 输出 70 到 73）：带上的几组；过渡结束（`stop`）就清掉。 */
     const band = shallowRef<GridSwapBand | null>(null);
+    /** 宿主去掉、留到过渡结束的内容项（输出 155）；过渡结束（`stop`）就摘掉，内容这时才卸载。 */
+    const leavingContentItems = shallowRef<ReadonlyArray<GridContentPlacement>>([]);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
     /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
@@ -216,6 +232,7 @@ export function useGridMotion(options: {
         held.value = new Set();
         shrinking.value = new Set();
         band.value = null;
+        leavingContentItems.value = [];
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
@@ -236,6 +253,7 @@ export function useGridMotion(options: {
         flying.value = new Set([...(flying.value), ...move.flying]);
         // `move.leaving` 里有上一轮还没缩完的（`decideMotion` 接着留）；不在里面的是又回到了树里。
         leaving.value = move.leaving;
+        leavingContentItems.value = move.leavingContents;
         if (move.swap !== undefined) band.value = move.swap;
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
         const entering = move.entering;
@@ -331,6 +349,7 @@ export function useGridMotion(options: {
         held,
         shrinking,
         band,
+        leavingContents: leavingContentItems,
         update,
         land,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */

@@ -26,9 +26,9 @@ export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement |
             const stops: GridFocusStop[] = [];
             for (const item of layers.value) {
                 if (item.kind === "content") {
-                    // 活动的内容和它的叶是一站。不活动的停放着，不进来；找不到叶的也是。
+                    // 活动的内容和它的叶是一站。不活动的停放着，不进来；找不到叶的、宿主已去掉而留着的（输出 155）也是。
                     const stop = stops.at(-1);
-                    const element = item.active && item.rect !== null ? elementOf(item.key) : null;
+                    const element = item.active && item.rect !== null && item.leaving !== true ? elementOf(item.key) : null;
                     if (element !== null && stop !== undefined && stop.leaf) stops[stops.length - 1] = {...stop, elements: [...stop.elements, element]};
                     continue;
                 }

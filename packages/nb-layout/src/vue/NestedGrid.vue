@@ -17,6 +17,7 @@ import {settleFloatMoves} from "../grid-motion";
 import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
+import {FrozenSlot} from "./frozen-slot";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {useLayoutText} from "./layout-text";
 import {gridRectStyle, leafShapeClip, liftedRectStyle, useContentLayer} from "./useContentLayer";
@@ -271,6 +272,7 @@ let liftedRect: GridRect = {x: 0, y: 0, width: 0, height: 0};
 
 const contentLayer = useContentLayer({
     contents: () => props.contents,
+    leaving: () => motion.leavingContents.value,
     items: () => placement.value?.items ?? [],
     dpr,
     parkedLeaves: parked,
@@ -707,7 +709,7 @@ defineExpose({
                 :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...swapClipStyle(item, growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
-                    <slot name="leaf" :node="item.node"></slot>
+                    <FrozenSlot :frozen="leavingLeaves.has(item.node.id)"><slot name="leaf" :node="item.node"></slot></FrozenSlot>
                 </div>
             </div>
             <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashLookOf(item).kind" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
@@ -723,6 +725,7 @@ defineExpose({
                 :data-float="floatAt.has(item.leaf) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.leaf)"
                 :data-leaving="leavingLeaves.has(item.leaf) ? '' : undefined"
+                :data-content-leaving="item.leaving ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
                 :data-by-leaf="contentLayer.byLeafRect(item) ? '' : undefined"
                 :data-swap="swapSideOf(item)"
@@ -731,7 +734,7 @@ defineExpose({
             >
                 <slot v-if="contentLayer.isLifted(item)" name="lifted-head" :content-key="item.contentKey"></slot>
                 <div class="nb-grid-content__body" :style="contentLayer.bodyStyle(item)">
-                    <slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot>
+                    <FrozenSlot :frozen="item.leaving === true"><slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot></FrozenSlot>
                 </div>
             </div>
         </template>

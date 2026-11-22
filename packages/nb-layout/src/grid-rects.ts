@@ -82,6 +82,11 @@ export interface GridContentInput {
     readonly insetTop: number;
     /** 不活动的（切走的标签）停放，不卸载。 */
     readonly active: boolean;
+    /**
+     * 宿主把它从 `contents` 去掉时怎样（docs/specs/ui/nested-grid.md 输出 155）：缺省 `"unmount"`，当即卸载；`"retain"`，它的叶这一轮在过渡里缩回去
+     * （离开的叶留着缩回、或降到零）时，库用它最后一次的渲染留到过渡结束，宿主不用自己留数据。
+     */
+    readonly leave?: "unmount" | "retain";
 }
 
 /**
@@ -110,6 +115,10 @@ export interface GridContentPlacement {
     readonly rect: GridRect | null;
     /** 所属的叶的矩形（含面板头），找不到叶时为 null。过渡中叶从零长出来、缩到零时内容按它摆（见 `NestedGrid` 的内容层）。 */
     readonly leafRect: GridRect | null;
+    /** 宿主给了 `leave: "retain"`。 */
+    readonly retain?: true;
+    /** 宿主已经去掉、库留到过渡结束的内容项（输出 155）：不在宿主的 `contents` 里，插槽停在最后一次渲染。 */
+    readonly leaving?: true;
 }
 
 /** 渲染层的一项：叶、分隔线或内容。 */
@@ -194,6 +203,7 @@ export function placeContents<R>(items: ReadonlyArray<GridPlacementItem<R>>, con
             leaf: content.leaf,
             insetTop: inset,
             active: content.active,
+            ...(content.leave === "retain" ? {retain: true as const} : {}),
             rect: leaf === undefined ? null : {x: leaf.x, y: leaf.y + Math.min(inset, leaf.height), width: leaf.width, height: Math.max(0, leaf.height - inset)},
             leafRect: leaf ?? null,
         };

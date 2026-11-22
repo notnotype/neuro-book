@@ -36,6 +36,11 @@ const hasSize = (rect: GridRect): boolean => rect.width > 0 && rect.height > 0;
 
 export function useContentLayer(options: {
     readonly contents: () => ReadonlyArray<GridContentInput>;
+    /**
+     * 宿主已经去掉、留到过渡结束的内容项（`useGridMotion` 的 `leavingContents`，输出 155）。并进内容层，停放、`memory`、`content-parked` 都经这一处；
+     * 宿主又给了同一个 key 的，以宿主的为准。
+     */
+    readonly leaving: () => ReadonlyArray<GridContentPlacement>;
     readonly items: () => ReadonlyArray<GridPlacementItem<unknown>>;
     readonly dpr: Readonly<Ref<number>>;
     readonly parkedLeaves: Readonly<Ref<ReadonlySet<string>>>;
@@ -69,7 +74,16 @@ export function useContentLayer(options: {
     /** 拿起的内容项此刻的矩形（相对网格根）。跟手，每帧变：是普通值，不进响应式。 */
     readonly liftedRect: () => GridRect;
 }) {
-    const placements = computed(() => placeContents(options.items(), options.contents(), options.dpr.value));
+    const placements = computed(() => {
+        const items = options.items();
+        const live = placeContents(items, options.contents(), options.dpr.value);
+        const leaving = options.leaving();
+        if (leaving.length === 0) return live;
+        const present = new Set(live.map((item) => item.key));
+        const kept = leaving.filter((item) => !present.has(item.key)).map((item) => ({key: item.contentKey, leaf: item.leaf, insetTop: item.insetTop, active: item.active}));
+        // 矩形按这一帧的叶重算：离开的叶是它缩到的终点，降到零的叶是零。
+        return [...live, ...placeContents(items, kept, options.dpr.value).map((item) => ({...item, retain: true as const, leaving: true as const}))];
+    });
     /** 最后的矩形与非零尺寸：停放时保持，重新有尺寸时不用重排；叶暂时找不到时外层也留在原处。 */
     const memory = new Map<string, {rect: GridRect; size: GridExtent}>();
     const zero = shallowRef<ReadonlySet<string>>(new Set());
