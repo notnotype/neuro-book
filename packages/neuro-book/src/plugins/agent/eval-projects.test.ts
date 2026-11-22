@@ -109,7 +109,8 @@ test("输出 11、12：项目换了目录之后再打开会话，留着的内核
                 projects = p;
             }),
         ],
-        capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env: {}})}],
+        // 模型服务不取在线目录：测试不出本机。
+        capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env: {NBOOK_MODELS_CATALOG_URL: ""}})}],
         prepare: async ({stateRoot}) => {
             await mkdir(stateRoot, {recursive: true});
             await writeFile(join(stateRoot, "settings.json"), JSON.stringify({...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[PROFILE]: {approvalMode: "yolo"}}}));

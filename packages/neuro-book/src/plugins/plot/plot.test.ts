@@ -272,6 +272,8 @@ function fakeEndpoint(answerOf: (user: string, tools: readonly {function: {name:
         hostname: "127.0.0.1",
         idleTimeout: 0,
         async fetch(request) {
+            // 模型服务设了密钥后会拉一次模型列表：同真实服务一样列出，不算检查的请求。
+            if (request.method === "GET" && new URL(request.url).pathname.endsWith("/models")) return Response.json({object: "list", data: [{id: "m", object: "model"}]});
             if (gate !== null) requests.push({user: "（卡住）", model: "", toolChoice: null});
             if (gate !== null) await gate;
             const body = await request.json() as {model: string; messages: {role: string; content: string | {text: string}[]}[]; tools?: {function: {name: string}}[]; tool_choice?: unknown};
@@ -318,7 +320,8 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
         }})]};
         const h = await projectHarness(tmp, {
             plugins: [...serverPlugins(), definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", modelsDescriptor, modelsBackendPlugin), plotServerPlugin],
-            capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => Object.freeze({env: {}})}],
+            // 模型服务不取在线目录：测试不出本机。
+            capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => Object.freeze({env: {NBOOK_MODELS_CATALOG_URL: ""}})}],
             prepare: async (paths) => {
                 const dir = join(paths.project.path, "manuscripts.binder");
                 await mkdir(dir, {recursive: true});

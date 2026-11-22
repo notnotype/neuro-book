@@ -15,8 +15,8 @@ import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 
 import {modelsSettings} from "../shared/settings";
 
-const {providers, roles, compaction, streamFirstEventTimeoutSeconds, streamIdleTimeoutSeconds} = modelsSettings.settings;
-const KEYS: ReadonlyArray<readonly [string, ConfigKey]> = [[providers.key, "providers"], [roles.key, "roles"], [compaction.key, "compaction"]];
+const {providers, roles, compaction, catalogAutoUpdate, streamFirstEventTimeoutSeconds, streamIdleTimeoutSeconds} = modelsSettings.settings;
+const KEYS: ReadonlyArray<readonly [string, ConfigKey]> = [[providers.key, "providers"], [roles.key, "roles"], [compaction.key, "compaction"], [catalogAutoUpdate.key, "autoUpdate"]];
 
 /**
  * 设置服务交出的值深冻结（`DeepReadonly`），存储接口按可变类型交出：核心改之前先拷贝（接口注释写明值可能是冻结的），
@@ -40,6 +40,7 @@ export function settingsModelsConfig(settings: SettingsService): ModelsConfigSto
         providers: slot(settings, providers as SettingDefinition<StoredProvider[]>),
         roles: slot(settings, roles as SettingDefinition<RolesConfig>),
         compaction: () => settings.get(compaction),
+        autoUpdate: () => settings.get(catalogAutoUpdate),
         stream: () => ({firstEventTimeoutSeconds: settings.get(streamFirstEventTimeoutSeconds), idleTimeoutSeconds: settings.get(streamIdleTimeoutSeconds)}),
         onChange: (listener) => settings.onDidChange((keys) => {
             const changed = new Set(KEYS.filter(([key]) => keys.has(key)).map(([, name]) => name));

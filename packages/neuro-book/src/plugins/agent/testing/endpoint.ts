@@ -63,6 +63,8 @@ export function fakeEndpoint(): FakeEndpoint {
         port: 0,
         hostname: "127.0.0.1",
         async fetch(request) {
+            // 模型列表（模型服务的“重新拉取”、自动更新）：同真实的 OpenAI 兼容服务一样列出模型，不算一次对话请求。
+            if (request.method === "GET" && new URL(request.url).pathname.endsWith("/models")) return Response.json({object: "list", data: [{id: "m", object: "model"}]});
             const body = await request.json() as {tool_choice?: unknown; max_completion_tokens?: number; max_tokens?: number; reasoning_effort?: string; model: string; tools?: {function: {name: string; description?: string}}[]; messages?: {role: string; content?: unknown}[]};
             const messages = body.messages ?? [];
             requests.push({

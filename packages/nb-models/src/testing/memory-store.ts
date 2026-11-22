@@ -14,6 +14,7 @@ import type {CompactionSetting} from "../config/compaction";
 import {DEFAULT_ROLES, ProvidersSchema, RolesSchema} from "../config/shapes";
 import type {RolesConfig, StoredProvider} from "../config/shapes";
 import type {IconStore} from "../core/core";
+import type {SourceStore} from "../core/sources";
 import type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotLayer, SlotWriteResult} from "../core/store";
 
 type SlotKey = "providers" | "roles";
@@ -29,6 +30,7 @@ export interface MemoryModelsConfig extends ModelsConfigStore {
     setLayer(state: "ok" | "unavailable" | "invalid"): void;
     setCompaction(value: CompactionSetting): void;
     setStream(value: Stream): void;
+    setAutoUpdate(value: boolean): void;
 }
 
 export interface MemoryModelsConfigOptions {
@@ -36,6 +38,8 @@ export interface MemoryModelsConfigOptions {
     readonly roles?: RolesConfig;
     readonly compaction?: CompactionSetting;
     readonly stream?: Stream;
+    /** 缺省关：测试不想要的后台拉取不发生。 */
+    readonly autoUpdate?: boolean;
 }
 
 /** 键按码元顺序排列的 JSON 文本：比较 `expect` 时对象的键序不算。 */
@@ -69,6 +73,7 @@ export function memoryModelsConfig(options: MemoryModelsConfigOptions = {}): Mem
     let state: "ok" | "unavailable" | "invalid" = "ok";
     let compaction = frozen(options.compaction ?? DEFAULT_COMPACTION);
     let stream = frozen(options.stream ?? {firstEventTimeoutSeconds: 300, idleTimeoutSeconds: 300});
+    let autoUpdate = options.autoUpdate ?? false;
     const listeners = new Set<(changed: ReadonlySet<ConfigKey>) => void>();
     const defaults = {providers: frozen<StoredProvider[]>([]), roles: frozen(DEFAULT_ROLES)};
     const schemas = {providers: ProvidersSchema, roles: RolesSchema};
@@ -115,6 +120,7 @@ export function memoryModelsConfig(options: MemoryModelsConfigOptions = {}): Mem
         roles: slot<RolesConfig>("roles"),
         compaction: () => compaction,
         stream: () => stream,
+        autoUpdate: () => autoUpdate,
         onChange: (listener) => {
             listeners.add(listener);
             return () => void listeners.delete(listener);
@@ -134,6 +140,11 @@ export function memoryModelsConfig(options: MemoryModelsConfigOptions = {}): Mem
         setStream: (value) => {
             stream = frozen(value);
         },
+        setAutoUpdate: (value) => {
+            const changed = value !== autoUpdate;
+            autoUpdate = value;
+            if (changed) notify(new Set(["autoUpdate"]));
+        },
     };
 }
 
@@ -146,4 +157,30 @@ export function memoryIconStore(): IconStore & {readonly files: ReadonlyMap<stri
         remove: async (name) => void files.delete(name),
         list: async () => [...files.keys()],
     };
+}
+
+/**
+ * 内存里的来源文件存放（`SourceStore`），给服务核心的测试：读写都做深拷贝（同写盘再读回），`files` 可以直接改来模拟坏文件。
+ * `failWrites` 为真时写入抛错。应用的文件实现另由 `runSourceStoreContract` 对同一合同核对。
+ */
+export function memorySourceStore(): SourceStore & {readonly files: Map<string, unknown>; catalog: unknown; failWrites: boolean} {
+    const files = new Map<string, unknown>();
+    const store = {
+        files,
+        catalog: null as unknown,
+        failWrites: false,
+        read: async (uid: string) => (files.has(uid) ? structuredClone(files.get(uid)) : null),
+        write: async (uid: string, value: unknown) => {
+            if (store.failWrites) throw new Error("the disk is full");
+            files.set(uid, structuredClone(value));
+        },
+        remove: async (uid: string) => void files.delete(uid),
+        list: async () => [...files.keys()],
+        readCatalog: async () => structuredClone(store.catalog),
+        writeCatalog: async (value: unknown) => {
+            if (store.failWrites) throw new Error("the disk is full");
+            store.catalog = structuredClone(value);
+        },
+    };
+    return store;
 }

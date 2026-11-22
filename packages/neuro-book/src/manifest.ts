@@ -14,6 +14,7 @@ import {descriptor as desktop} from "./plugins/desktop/plugin";
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
 import {descriptor as editor} from "./plugins/editor/plugin";
 import {descriptor as explorer} from "./plugins/explorer/plugin";
+import {descriptor as network} from "./plugins/network/plugin";
 import {descriptor as files} from "./plugins/files/plugin";
 import {descriptor as htmlPreview} from "./plugins/html-preview/plugin";
 import {descriptor as http} from "./plugins/http/plugin";
@@ -39,7 +40,7 @@ import {descriptor as workbench} from "./plugins/workbench/plugin";
  */
 export type {PluginDescriptor};
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, models, tasks, agent, stickers, bots, web, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview, canon, plot, themeStudy, desktop];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, network, models, tasks, agent, stickers, bots, web, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview, canon, plot, themeStudy, desktop];
 
 export {definitionAt, pluginsAt, thirdPartyDefinition, thirdPartyDefinitionAt} from "./plugin-platform/shared/definitions";
 export type {EntryLoader} from "./plugin-platform/shared/definitions";

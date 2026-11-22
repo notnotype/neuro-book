@@ -1,0 +1,10 @@
+{
+    "settingsSections": {
+        "nbook": {
+            "network": {
+                "title": "网络",
+                "description": "NeuroBook 自己发起的联网请求"
+            }
+        }
+    }
+}

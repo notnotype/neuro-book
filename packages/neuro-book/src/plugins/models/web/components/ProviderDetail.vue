@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type {ModelRow as ModelRowData, SnapshotProvider, Template} from "@notnotype/nb-models/contract";
 import {Button, Collapsible, InfoTip, Input, Select, Switch} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, ref, useId, watch} from "vue";
+
+import {fullTime} from "nbook/shared/short-time";
 
 import type {CheckState} from "../models-store";
 import {checkKey} from "../models-store";
@@ -32,7 +35,9 @@ const props = withDefaults(defineProps<{
     resetToken?: number;
     /** 这家最近一次“没检成”的原因（服务停了、服务商不在了），写在模型列表头上；没有为空。 */
     checkError?: string;
-}>(), {rows: () => [], rowsLoading: false, rowsFailure: "", template: null, checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: ""});
+    /** “重新拉取”没被受理的原因（没有可用的密钥、设置读不到），写在来源一行下面；没有为空。 */
+    sourceError?: string;
+}>(), {rows: () => [], rowsLoading: false, rowsFailure: "", template: null, checks: () => new Map(), roleUsage: () => new Map(), disabled: false, resetToken: 0, checkError: "", sourceError: ""});
 
 const emit = defineEmits<{
     (e: "set-key", value: string): void;
@@ -47,10 +52,31 @@ const emit = defineEmits<{
     (e: "add-model"): void;
     (e: "manage"): void;
     (e: "reload-rows"): void;
+    /** 重新拉取这家的模型列表（结果经快照的 `source` 回来）。 */
+    (e: "refresh-source"): void;
 }>();
 
 const text = useModelsText();
 const id = useId();
+
+// ---- 模型列表的来源（service.md“模型来源”）----
+const source = computed(() => props.provider.source);
+const keyReady = computed(() => props.provider.key.kind === "stored" || props.provider.key.kind === "keyless" || (props.provider.key.kind === "env" && props.provider.key.found));
+const port = useText();
+/** 时间按界面语言写（不跟浏览器的语言）。 */
+const timeOf = (at: number): string => fullTime(at, port.locale.value);
+/** 来源一行：在拉取、失败（有旧列表时写沿用哪次的）、改过要重拉、正常、还没有。 */
+const sourceLine = computed((): {text: string; error: boolean} => {
+    const state = source.value;
+    if (state.refreshing) return {text: text("models.source.refreshing"), error: false};
+    if (state.error !== null) {
+        const reason = text(`models.source.reasons.${state.error.reason}`);
+        return {text: state.checkedAt === null ? text("models.source.failed", {reason}) : text("models.source.failedKept", {reason, time: timeOf(state.checkedAt)}), error: true};
+    }
+    if (state.state === "changed") return {text: text("models.source.changed"), error: false};
+    if (state.state === "ok" && state.checkedAt !== null) return {text: text("models.source.ok", {time: timeOf(state.checkedAt)}), error: false};
+    return {text: blank.value ? text("models.source.none") : text("models.source.catalog"), error: false};
+});
 
 // ---- 密钥 ----
 /** `env:` 引用不是密钥，照原样显示；存在库里的密钥不回到浏览器，框里是空的。 */
@@ -299,7 +325,21 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
                 <Button v-if="checking" size="sm" variant="ghost" icon-class="i-lucide-square" data-models-cancel @click="emit('cancel-checks')">{{ text("models.cancelChecks") }}</Button>
                 <Button v-else size="sm" variant="ghost" icon-class="i-lucide-activity" :disabled="disabled || enabledCount === 0" data-models-check-all @click="emit('check-all')">{{ text("models.checkAll") }}</Button>
             </div>
-            <label v-if="!blank" class="provider-detail__follow">
+            <div class="provider-detail__source" data-source-status>
+                <p class="provider-detail__hint" :class="{'provider-detail__hint--error': sourceLine.error}" aria-live="polite">{{ sourceLine.text }}</p>
+                <!-- 拉取进行中不停用：再点会与在途的那次合并，停用会让焦点掉到页面上。没有可用的密钥时停用，原因写成看得见的字。 -->
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    icon-class="i-lucide-refresh-cw"
+                    :disabled="disabled || !keyReady"
+                    data-source-refresh
+                    @click="emit('refresh-source')"
+                >{{ text("models.source.refresh") }}</Button>
+                <span v-if="!keyReady" class="provider-detail__hint" data-source-needs-key>{{ text("models.source.needsKey") }}</span>
+            </div>
+            <p v-if="sourceError !== ''" class="provider-detail__hint provider-detail__hint--error" role="alert" data-source-error>{{ sourceError }}</p>
+            <label class="provider-detail__follow">
                 <Switch :model-value="provider.followSource" size="sm" :disabled="disabled" :aria-label="text('models.follow.label')" data-follow-source @update:model-value="(value: boolean) => emit('update', {followSource: value})" />
                 <span>{{ text("models.follow.label") }}<InfoTip :text="text('models.follow.hint')" /></span>
             </label>
@@ -374,6 +414,14 @@ const checking = computed(() => props.rows.some((model) => props.checks.get(chec
 
 .provider-detail__title--actions > :deep(button) {
     flex-shrink: 0;
+}
+
+.provider-detail__source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin: 0 0 var(--space-2);
 }
 
 .provider-detail__follow {

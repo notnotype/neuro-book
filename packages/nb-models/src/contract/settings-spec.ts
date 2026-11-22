@@ -8,7 +8,7 @@ import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 
 import {ModelConfigSchema, RoleEffort} from "../config/shapes";
-import {Api, Auth, CheckResultSchema, DiscoveredSchema, Headers, KeyStatusSchema, ModelRowSchema, ModelsSnapshotSchema, Nullable, TemplateSchema} from "./shapes";
+import {Api, Auth, CheckResultSchema, Headers, KeyStatusSchema, ModelRowSchema, ModelsSnapshotSchema, Nullable, TemplateSchema} from "./shapes";
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
 const SettingsDetail = Type.Object({code: Type.String(), detail: Type.String()}, {additionalProperties: false});
@@ -80,7 +80,10 @@ const methods = {
         effect: "write",
         errors: {...providerWriteErrors, "icon-rejected": Type.Object({reason: Type.String(), detail: Type.String()}, {additionalProperties: false})},
     },
-    /** 一家的模型行，按稳定顺序（系列、名称、id）分页。`scope`：`listed` 是在列表里的，`available` 是模板目录里有、没在列表里的（已移出或没加过）。 */
+    /**
+     * 一家的模型行，按稳定顺序（系列、名称、id）分页。`scope`：`listed` 是在列表里的，`available` 是来源里有、没在列表里的（已移出、
+     * 没加过，或类型不明、不自动加入的）。
+     */
     providerModels: {
         input: Type.Object({provider: Type.String(), scope: Type.Optional(Type.Union([Type.Literal("listed"), Type.Literal("available")])), ...PageInput}, {additionalProperties: false}),
         output: Type.Object({rows: Type.Array(ModelRowSchema), ...PageOutput}, {additionalProperties: false}),
@@ -128,12 +131,12 @@ const methods = {
         effect: "write",
         errors: {...providerWriteErrors, "credentials-unavailable": Detail, "partially-applied": Type.Object({key: KeyStatusSchema, detail: Type.String()}, {additionalProperties: false})},
     },
-    discover: {
-        input: ProviderInput,
-        output: Type.Array(DiscoveredSchema),
-        effect: "read",
-        errors: {"unknown-provider": Detail, "no-credentials": Detail, "not-supported": Detail, "auth": Detail, "unreachable": Detail, "failed": Detail},
-    },
+    /**
+     * 重新拉取这家的模型列表：受理即交回，结果经 `changed` 的快照交（`source.refreshing` 先为真，完成后 `state`、`error` 更新）。
+     * 同一部署与凭据的在途拉取合并；没有可用凭据为 `no-credentials`；设置读不到时不出站，为 `settings-unavailable`。会写缓存，所以是
+     * `write`：链路断在返回之前时，调用方按快照核对受理没有，不当成没执行。
+     */
+    refreshSource: {input: ProviderInput, output: None, effect: "write", errors: {"unknown-provider": Detail, "no-credentials": Detail, "settings-unavailable": SettingsDetail}},
     check: {input: Type.Object({provider: Type.String(), model: Type.String()}, {additionalProperties: false}), output: CheckResultSchema, effect: "read", errors: {"unknown-provider": Detail, "unknown-model": Detail}},
     checkAll: {input: ProviderInput, output: Type.Array(Type.Object({model: Type.String(), result: CheckResultSchema}, {additionalProperties: false})), effect: "read", errors: {"unknown-provider": Detail}},
 } as const;
@@ -142,7 +145,7 @@ const methods = {
 const events = {changed: {filter: Type.Object({}, {additionalProperties: false}), payload: ModelsSnapshotSchema}} as const;
 
 /** 设置页用的远程合同的定义，缺 id。 */
-export const modelsSettingsSpec = {version: 3, provider: "server", callers: ["browser"], methods, events} as const;
+export const modelsSettingsSpec = {version: 4, provider: "server", callers: ["browser"], methods, events} as const;
 
 /** 应用以 `modelsSettingsSpec` 定义出的合同的类型；服务核心的远程实现按它写。 */
 export type ModelsSettingsContract = RemoteContract<typeof methods, typeof events, typeof modelsSettingsSpec.provider>;

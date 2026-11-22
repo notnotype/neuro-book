@@ -351,8 +351,8 @@ describe("密钥（输出 1、2、12、13）", () => {
     });
 });
 
-describe("检测与发现（输出 11、12）", () => {
-    test("检测通过或给出失败的类别与遮盖过的原文；拉取 /models 的结果带着；目录服务商与非 OpenAI 兼容的不支持拉取", async () => {
+describe("检测（输出 11、12）", () => {
+    test("检测通过或给出失败的类别与遮盖过的原文；检测全部带着结果", async () => {
         const w = await world();
         const client = await w.window("w");
         const id = await addLocal(client);
@@ -363,13 +363,58 @@ describe("检测与发现（输出 11、12）", () => {
         expect(failed).toMatchObject({ok: false, kind: "auth"});
         expect(JSON.stringify(failed)).not.toContain(KEY);
         expect(ok(await client.checkAll({provider: id}))).toEqual([{model: "qwen3:8b", result: {ok: true}}]);
-        expect(ok(await client.discover({provider: id})).map((model) => model.id).sort()).toEqual(["gemma3:12b", "qwen3:8b"]);
-        // 没有密钥的目录模板实例不出站；非 OpenAI 兼容协议的不支持拉取。
-        const {id: deepseek} = ok(await client.addProvider({template: "deepseek"}));
-        expect(await client.discover({provider: deepseek})).toMatchObject({ok: false, code: "no-credentials"});
-        const {id: gemini} = ok(await client.addProvider({template: "blank-gemini", name: "Gem", baseUrl: BASE}));
-        expect(await client.discover({provider: gemini})).toMatchObject({ok: false, code: "not-supported"});
         expect(ok(await client.templates({})).find((template) => template.id === "deepseek")).toMatchObject({addable: true});
+    });
+});
+
+describe("模型来源", () => {
+    test("自动更新开着（真实设置）：设好密钥就去拉列表；关着时设密钥不出站", async () => {
+        const on = await modelsWorld(join(root, "sources-auto-on"), {autoUpdate: true});
+        worlds.push(on);
+        const client = await on.window("w");
+        const id = await addLocal(client);
+        seen.length = 0;
+        ok(await client.setKey({provider: id, value: KEY}));
+        await waitUntil("the list arrives", () => on.service.snapshot().providers.find((item) => item.id === id)?.source.state === "ok" || undefined);
+        expect(seen.filter((item) => item.path === "/v1/models")).toHaveLength(1);
+
+        const off = await world();
+        const quiet = await off.window("w");
+        const other = await addLocal(quiet);
+        seen.length = 0;
+        ok(await quiet.setKey({provider: other, value: KEY}));
+        // 排一个走同一个端点、看得见的动作（检测），等它完成后再看有没有列表请求。
+        expect(ok(await quiet.check({provider: other, model: "qwen3:8b"}))).toEqual({ok: true});
+        expect(seen.map((item) => item.path)).toEqual(["/v1/chat/completions"]);
+    });
+
+    test("重新拉取读服务商的列表，结果经快照交回；列表存在状态根，重启后不出站也在；没有密钥时不出站", async () => {
+        const dir = join(root, "sources-restart");
+        const first = await modelsWorld(dir);
+        worlds.push(first);
+        const client = await first.window("w");
+        const id = await addLocal(client);
+        expect(await client.refreshSource({provider: id})).toMatchObject({ok: false, code: "no-credentials"});
+        ok(await client.setKey({provider: id, value: KEY}));
+        seen.length = 0;
+        expect(ok(await client.refreshSource({provider: id}))).toBeNull();
+        await waitUntil("the list arrives", () => {
+            const source = first.service.snapshot().providers.find((item) => item.id === id)?.source;
+            return source?.state === "ok" && !source.refreshing ? source : undefined;
+        });
+        expect(seen).toEqual([{path: "/v1/models", authorization: `Bearer ${KEY}`}]);
+        // 手加的 qwen3:8b 仍是手加的；列表里多出的 gemma3:12b 类型不明、没有窗口：列出、待补字段。
+        const rows = await rowsOf(client, id);
+        expect(rows.map((row) => [row.id, row.origin, row.status]).sort()).toEqual([["gemma3:12b", "source", "incomplete"], ["qwen3:8b", "manual", "ok"]]);
+        await first.close();
+        worlds.splice(worlds.indexOf(first), 1);
+
+        seen.length = 0;
+        const second = await modelsWorld(dir);
+        worlds.push(second);
+        const again = await second.window("w");
+        expect((await rowsOf(again, id)).map((row) => row.id).sort()).toEqual(["gemma3:12b", "qwen3:8b"]);
+        expect(seen).toEqual([]);
     });
 });
 

@@ -2,15 +2,21 @@
 
 import type {ModelRow, ModelsSnapshot, SnapshotProvider, SnapshotRole, Template} from "@notnotype/nb-models/contract";
 
+/** 场景里“列表更新于”的固定时刻（2026-11-22 09:30 UTC），截图不随运行时间变。 */
+export const SOURCE_AT = Date.UTC(2026, 10, 22, 9, 30);
+
+/** 还没有服务商列表、用内置目录的来源状态。 */
+export const SOURCE_CATALOG: SnapshotProvider["source"] = {state: "none", refreshing: false, checkedAt: null, error: null};
+
 /** 没单独给 `thinking` 时按 `reasoning` 与 `efforts` 推：没档位的是“会推理但不能调档”，有档位的可调、能真关。 */
 export const sampleRow = (id: string, patch: Partial<ModelRow> = {}): ModelRow => {
-    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, origin: "source" as const, contextWindow: 128_000 as number | null, maxOutput: 8_192 as number | null, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, usable: true, overridden: [] as ModelRow["overridden"], source: null as ModelRow["source"], ...patch};
+    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, origin: "source" as const, kind: "chat" as ModelRow["kind"], contextWindow: 128_000 as number | null, maxOutput: 8_192 as number | null, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, usable: true, overridden: [] as ModelRow["overridden"], source: null as ModelRow["source"], ...patch};
     const thinking: ModelRow["thinking"] = patch.thinking ?? (!model.reasoning ? {kind: "none"} : model.efforts.length === 0 ? {kind: "fixed"} : {kind: "levels", levels: model.efforts, off: "disable", unset: null, verified: true});
     return {...model, thinking};
 };
 
 const provider = (patch: Partial<SnapshotProvider> & Pick<SnapshotProvider, "id" | "template" | "name" | "key">, rows: readonly ModelRow[]): SnapshotProvider => ({
-    region: null, icon: null, baseUrl: null, templateBaseUrl: null, api: "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, followSource: true, source: {kind: "packaged"},
+    region: null, icon: null, baseUrl: null, templateBaseUrl: null, api: "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, followSource: true, source: SOURCE_CATALOG,
     modelCount: rows.length, enabledCount: rows.filter((row) => row.enabled).length, excludedCount: 0, modelsRevision: "r1", ...patch,
 });
 
@@ -87,8 +93,9 @@ export const SAMPLE_TEMPLATES: Template[] = [
 ];
 
 export const SAMPLE_CANDIDATES = [
-    {id: "doubao-seed-2-0-pro", name: "Doubao Seed 2.0 Pro", vision: true, reasoning: true, incomplete: false},
-    {id: "doubao-seed-2-0-lite", name: "Doubao Seed 2.0 Lite", vision: false, reasoning: false, incomplete: false},
-    {id: "doubao-seed-2-0-mini", name: "Doubao Seed 2.0 Mini", vision: false, reasoning: true, incomplete: false},
-    {id: "doubao-embedding", name: "doubao-embedding", vision: false, reasoning: false, incomplete: true},
+    {id: "doubao-seed-2-0-pro", name: "Doubao Seed 2.0 Pro", vision: true, reasoning: true, incomplete: false, unknown: false},
+    {id: "doubao-seed-2-0-lite", name: "Doubao Seed 2.0 Lite", vision: false, reasoning: false, incomplete: false, unknown: false},
+    {id: "doubao-seed-2-0-mini", name: "Doubao Seed 2.0 Mini", vision: false, reasoning: true, incomplete: false, unknown: false},
+    {id: "doubao-embedding", name: "doubao-embedding", vision: false, reasoning: false, incomplete: true, unknown: true},
+    {id: "house-router", name: "house-router", vision: false, reasoning: false, incomplete: true, unknown: true},
 ];

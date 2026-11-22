@@ -10,6 +10,7 @@ import {getEnvApiKey} from "@oh-my-pi/pi-ai";
 import {
     clampThinkingLevelForModel,
     fetchOpenAICompatibleModels,
+    getBundledModel,
     getBundledModelReferenceIndex,
     getBundledModels,
     getBundledProviders,
@@ -20,6 +21,8 @@ import {
 } from "@oh-my-pi/pi-catalog";
 import {authPolicyFor} from "@oh-my-pi/pi-catalog/compat/auth";
 import {providerEntry} from "@oh-my-pi/pi-catalog/compat/providers";
+
+import type {OnlineCatalog} from "./online-catalog.js";
 
 
 export interface ModelPrice {
@@ -131,12 +134,13 @@ export function listCatalog(): readonly CatalogProvider[] {
         name: authPolicyFor(id)?.name ?? id,
         access: providerAccess(id),
         keyEnvs: providerKeyEnvs(id),
-        models: (getBundledModels(id as BundledProvider) as Model[]).map(catalogModel),
+        models: (getBundledModels(id as BundledProvider) as Model[]).map((model) => catalogModel(model)),
     }));
     return catalog;
 }
 
-export function catalogModel(model: Model): CatalogModel {
+/** `priced`：在线目录的行按原文判断价目是否存在（在而全为 0 是免费）；不给时按打包目录的规则（全为 0 当未知）。 */
+export function catalogModel(model: Model, priced?: boolean): CatalogModel {
     return {
         id: model.id,
         name: model.name,
@@ -150,7 +154,7 @@ export function catalogModel(model: Model): CatalogModel {
         reasoning: model.reasoning,
         efforts: supportedEfforts(model),
         images: model.input.includes("image"),
-        price: catalogPrice(model),
+        price: priced === undefined ? catalogPrice(model) : priced ? {input: model.cost.input, output: model.cost.output, cacheRead: model.cost.cacheRead, cacheWrite: model.cost.cacheWrite, currency: "USD"} : null,
     };
 }
 
@@ -197,6 +201,9 @@ function positiveOrNull(value: number | null | undefined): number | null {
     return typeof value === "number" && value > 0 ? value : null;
 }
 
+/**
+ * 给 nb-story 的问答服务用的一次性发现（读 OpenAI 兼容服务的 `/models`）；模型服务的列表走 `listing.ts`。
+ */
 /** 读 OpenAI 兼容服务的 `/models` 得到的一个模型；`suggested` 是按模型名在目录里找到的参照，只是建议。 */
 export interface DiscoveredModel {
     readonly id: string;
@@ -297,4 +304,59 @@ export function templateRoutes(provider: string): ReadonlyArray<{readonly api: W
         counts.set(model.wire, urls);
     }
     return [...counts].map(([api, urls]) => ({api, baseUrl: [...urls].sort((a, b) => b[1] - a[1])[0]![0]}));
+}
+
+/** 目录里的一行：OMP 的模型对象、给界面的只读视图与价目是否已知。 */
+export interface CatalogRow {
+    readonly model: Model;
+    readonly info: CatalogModel;
+    readonly priceKnown: boolean;
+}
+
+/**
+ * 模型元数据的视图：打包目录为底，在线目录只补打包里没有的模型（同 id 的用打包的：打包时做过修正）。按（OMP 服务商，模型 id）查。
+ * 一个视图是不可变的；在线目录换了，调用方换一个新的视图。
+ */
+export interface CatalogView {
+    /** 这家的对话模型（对话类、走 `fetch` 的显式协议），打包的在前。 */
+    chatModels(provider: string): readonly CatalogModel[];
+    /** 任何种类的一行；没有为 undefined。 */
+    find(provider: string, id: string): CatalogRow | undefined;
+    /** 有这一行但不能当对话模型发时说为什么（同 `unsendableReason`）。 */
+    unsendable(provider: string, id: string): "not-chat" | "transport" | null;
+}
+
+export function createCatalogView(online?: OnlineCatalog): CatalogView {
+    const extra = new Map<string, Map<string, CatalogRow>>();
+    for (const [provider, rows] of online?.providers ?? []) {
+        const bundled = new Set(listCatalog().find((item) => item.id === provider)?.models.map((model) => model.id) ?? []);
+        const map = new Map<string, CatalogRow>();
+        for (const row of rows) if (!bundled.has(row.model.id) && !map.has(row.model.id)) map.set(row.model.id, {model: row.model, info: catalogModel(row.model, row.priced), priceKnown: row.priced});
+        if (map.size > 0) extra.set(provider, map);
+    }
+    const chat = new Map<string, readonly CatalogModel[]>();
+    const find = (provider: string, id: string): CatalogRow | undefined => {
+        const added = extra.get(provider)?.get(id);
+        if (added !== undefined) return added;
+        if (!(getBundledProviders() as readonly string[]).includes(provider)) return undefined;
+        const model = getBundledModel(provider as BundledProvider, id) as Model | undefined;
+        return model === undefined ? undefined : {model, info: catalogModel(model), priceKnown: catalogPrice(model) !== null};
+    };
+    return {
+        chatModels: (provider) => {
+            let found = chat.get(provider);
+            if (found === undefined) {
+                found = [...chatModels(provider), ...[...(extra.get(provider)?.values() ?? [])].map((row) => row.info).filter((model) => model.wire !== null && model.chat)];
+                chat.set(provider, found);
+            }
+            return found;
+        },
+        find,
+        unsendable: (provider, id) => {
+            const row = find(provider, id);
+            if (row === undefined) return null;
+            if (!row.info.chat) return "not-chat";
+            return row.info.wire === null ? "transport" : null;
+        },
+    };
 }

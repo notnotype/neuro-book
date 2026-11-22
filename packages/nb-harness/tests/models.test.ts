@@ -8,7 +8,7 @@ import {mkdir, readdir, readFile, stat, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ModelRequest, ModelWireAttempt} from "@notnotype/nb-harness/kernel";
-import {buildResolution, chatModels, discoverModels, hasCredential, listCatalog, openCredentials, templateRoutes, unsendableReason, wireApiOf, wireGuard, type ProviderTarget} from "@notnotype/nb-harness/models";
+import {buildResolution, chatModels, createCatalogView, hasCredential, listCatalog, openCredentials, parseOnlineCatalog, templateRoutes, unsendableReason, wireApiOf, wireGuard, type ProviderTarget} from "@notnotype/nb-harness/models";
 
 let root = "";
 const seen: {path: string; headers: Headers}[] = [];
@@ -100,6 +100,24 @@ describe("凭据库", () => {
 });
 
 describe("按配置建出解析结果", () => {
+    test("在线目录里新出的模型经 `row` 交进来：用它的窗口与价目、按模板的身份发；不给 `row` 时打包目录里没有它", async () => {
+        const online = parseOnlineCatalog(new TextEncoder().encode(JSON.stringify({moonshotai: {models: {"kimi-brand-new": {id: "kimi-brand-new", name: "Kimi New", tool_call: true, limit: {context: 640_000, output: 32_000}, cost: {input: 0, output: 0}}}}})));
+        const row = createCatalogView(online).find("moonshot", "kimi-brand-new");
+        if (row === undefined) throw new Error("the online row was not mapped");
+        const target: ProviderTarget = {id: "kimi", template: "moonshot", follows: true, baseUrl: BASE, auth: "default"};
+        expect(buildResolution(target, {id: "kimi-brand-new"}, {stored: () => KEY, env: {}})).toEqual({ok: false, code: "unknown-model"});
+        const built = buildResolution(target, {id: "kimi-brand-new", row}, {stored: () => KEY, env: {}});
+        if (!built.ok) throw new Error(built.code);
+        expect(built.model.provider).toBe("moonshot");
+        expect(built.resolution.info.contextWindow).toBe(640_000);
+        seen.length = 0;
+        const response = await built.resolution.call(request, new AbortController().signal, () => undefined);
+        expect(response.stopReason).toBe("stop");
+        expect(seen.map((item) => item.path)).toEqual(["/v1/chat/completions"]);
+        // 原文写了价目且全为 0：免费，花费是 0 而不是未知。
+        expect(response.usage.cost).toBe(0);
+    });
+
     test("自定义服务商：密钥取凭据库；apiKeyEnv 有值时盖过它；不要认证时不带密钥；bearer 另加 Authorization", async () => {
         const stored = await send(custom(), KEY);
         expect(stored.response.stopReason).toBe("stop");
@@ -155,15 +173,6 @@ describe("按配置建出解析结果", () => {
         const unknownPrice = buildResolution(catalog, {id: "deepseek-flash", price: null}, {stored: () => KEY, env: {}});
         if (!unknownPrice.ok) throw new Error(unknownPrice.code);
         expect((await unknownPrice.resolution.call(request, new AbortController().signal, () => undefined)).usage.cost).toBeNull();
-    });
-});
-
-describe("发现", () => {
-    test("读 /models 时带上配置的请求头", async () => {
-        seen.length = 0;
-        const result = await discoverModels({api: "openai-completions", baseUrl: BASE, apiKey: KEY, headers: {"X-Team": "writing"}});
-        expect(result.state).toBe("found");
-        expect(seen[0]!.headers.get("x-team")).toBe("writing");
     });
 });
 
