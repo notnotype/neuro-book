@@ -52,7 +52,7 @@
     },
     "empty": {
         "title": "No providers yet",
-        "description": "Add a provider and its key so the writing assistant can call models. Local Ollama and LM Studio are in the catalog too; for a relay, choose “Custom OpenAI-compatible provider”."
+        "description": "Add a provider and its key so the writing assistant can call models. For a relay or a local Ollama, LM Studio or vLLM, choose “OpenAI compatible” under Custom."
     },
     "remove": {
         "button": "Delete provider",
@@ -246,21 +246,13 @@
         "empty": "No models to add",
         "noMatch": "No matching models",
         "done": "Done",
-        "confirmRemove": "After removing, these roles become unbound: {{roles}}.",
-        "removedGroup": "Removed",
-        "availableGroup": "Available to add"
+        "confirmRemove": "After removing, these roles become unbound: {{roles}}."
     },
     "add": {
         "title": "Add provider",
         "search": "Search providers",
-        "catalog": "OMP catalog",
         "added": "Added",
         "keyless": "No key needed",
-        "login": "Requires login; not supported yet",
-        "unsupported": "Not supported",
-        "other": "Other",
-        "custom": "Custom OpenAI-compatible provider",
-        "customHint": "Relays, Volcano Ark, a local vLLM and so on: fill in the URL and API format",
         "customName": "Name",
         "customUrl": "Endpoint URL",
         "create": "Add",

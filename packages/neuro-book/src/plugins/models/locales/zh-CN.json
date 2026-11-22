@@ -51,7 +51,7 @@
     },
     "empty": {
         "title": "还没有服务商",
-        "description": "添加一家服务商并填上密钥，写作助手才能调用模型。本机的 Ollama、LM Studio 也在目录里；中转站选“自定义 OpenAI 兼容服务商”。"
+        "description": "添加一家服务商并填上密钥，写作助手才能调用模型。中转站与本机的 Ollama、LM Studio、vLLM 选“自定义”里的“OpenAI 兼容”。"
     },
     "remove": {
         "button": "删除服务商",
@@ -244,21 +244,13 @@
         "empty": "没有可加入的模型",
         "noMatch": "没有匹配的模型",
         "done": "完成",
-        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。",
-        "removedGroup": "已移出",
-        "availableGroup": "可加入"
+        "confirmRemove": "移出后这些角色变成未绑定：{{roles}}。"
     },
     "add": {
         "title": "添加服务商",
         "search": "搜索服务商",
-        "catalog": "OMP 目录",
         "added": "已添加",
         "keyless": "不要密钥",
-        "login": "要登录，第一版不支持",
-        "unsupported": "不支持",
-        "other": "其它",
-        "custom": "自定义 OpenAI 兼容服务商",
-        "customHint": "中转站、火山方舟、本机的 vLLM 等，填地址与接口格式",
         "customName": "名称",
         "customUrl": "接口地址",
         "create": "添加",
