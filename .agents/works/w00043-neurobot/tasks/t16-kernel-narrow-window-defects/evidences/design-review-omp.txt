@@ -1,0 +1,193 @@
+### 1. 首批发布失败不等于会话没有发布
+
+- **严重程度**：阻断；**类别**：正确性／持久化合同。
+- **位置**：计划第 4 节、切片 3、验收映射输出 1（41、59、70 行）；`log/files.ts:82–103`、`log/jsonl-store.ts:77–84,219–225,287–293`（均在 `packages/nb-harness/src/kernel/`）。
+- **现象**：`writeAtomic(sync: true)` 先 rename，再同步目录；后一步抛错时 `session.jsonl` 已含会话头与完整首批。即使原子写返回成功，计划紧接着的 `openAppend` 仍可失败。反过来，索引写失败按现有合同只记通知，可能出现建会话成功、`header` 可读、`list` / `entry` 仍不可见。发布后被杀、索引还没写也是这个可见性组合。
+- **为什么是问题**：计划把“发布写失败”统一验收成无日志、无索引、同 id 可重建。rename 之后同 id 实际是 `session-exists`；按失败回滚或删除已发布日志又会破坏无锁 `header` 已见的事实。用一个原子文件替换也不能使两份文件同时可见。输出 5、6、12 已规定结果不确定时重开以文件为准，索引按输出 19、23 重建。
+- **如何核实**：读 `nodeFiles.writeAtomic` 的 rename 与目录同步顺序；在真实 `FilePort` 上分别于目标日志 rename 之前、真实 rename 之后、`openAppend` 与索引写入处注入一次错误，并在释放锁后用独立存储读 `header` / `entry` / `open`、重建同 id。
+- **建议改法**：写清唯一发布点是日志 rename；区别确定未发布与已发布／持久性不确定。后者不删除，不重建；重开识别完整首批。索引仍是可重建缓存，写清何时允许不可见。能在 rename 前完成的必需动作不要留到 rename 之后；验收按不同故障点分别断言。
+
+### 2. `changeProfile` 会在损坏句柄上卸载、重装扩展，首发仍可能没有成功回执
+
+- **严重程度**：阻断；**类别**：正确性／生命周期。
+- **位置**：计划第 1 节（24–29 行）；`run/commands.ts:74–90`、`session/session.ts:322–350`、`dispatch/mount.ts:49–55,60–104`、`dispatch/core.ts:311–323`；runtime 输出 38。
+- **现象**：`changeProfile` 的 `profileChanged` 和 `commandAccepted` 可先落盘，旧扩展监听该事件产出的批再失败。照计划，`written` 仍卸掉旧扩展、重建宿主资源并清只读，`after` 仍挂新扩展。新 `mount` 一旦失败，现有代码会尝试写 `extensionFailed`，已损坏的 `core.write` 立即抛 `LogBrokenError`；`after` 不在 `accept` 的捕获内，调用直接拒绝，同键重发却直接报成功。即使 `mount` 不抛，它的外部事实也被 `core.broken` 丢弃，仍会执行计时器或订阅等外部副作用。
+- **为什么是问题**：三条已定决定只要求提交的应答结算按日志回报；公共路径无条件跑两个钩子，既不保证回执，又扩大了损坏会话的外部副作用。`written` 实际同时承载提交后必须完成的唤醒和需要健康会话的装配，不是同一种责任。
+- **如何核实**：读 `changeProfile` 两个钩子与 `Mounts.mountAll` 的失败记录；用真实会话、旧扩展的 `on.profileChanged` 产出事件并只让该批写失败，给新 Profile 一个会失败的 `mount`，记录挂载和返回；同键重发作对照。
+- **建议改法**：显式分离“受理已提交必须完成”（同步事项唤醒）与“仅当反应成功且句柄健康才做”（卸载重装、`defer`、`launch`）；明确非应答命令在这个窗口的回执合同。至少加一条 `changeProfile` 回归，不用普通 `deny` 覆盖它。
+
+### 3. 第一次 append 之前抛错不一定进 `abandon`，同 id 会一直 busy
+
+- **严重程度**：阻断；**类别**：不变量／资源释放。
+- **位置**：计划第 4 节（43–44 行）；`packages/nb-harness/src/kernel/session/session.ts:123–173,526–559`；session 输出 11、12。
+- **现象**：`store.create()` 交出持锁句柄后，`createSession` 在 `try` 外调用 `buildApi`，后者同步调用宿主 `env.resources(context())`。该函数一旦抛错，`abandon` 根本没执行，第一批也没有机会写。这个锁泄漏在基线上就有；按计划延迟发布后，表现变成 `header` 看不到会话、同进程乃至另一个进程重建 id 却一直得到 `session-busy`，直到原进程退出。
+- **为什么是问题**：计划把未发布时的失败写成“关掉句柄即可重建”，但实际建会话调用方拿不到净化后的句柄，也没有机会关它。只给 `JsonlHandle.close` 加空文件分支修不掉这一条。
+- **如何核实**：沿 `createSession → buildApi → internalsFor → env.resources` 对照 `try` 位置；用真实 JSONL、正常 Profile，宿主 `resources` 第一次抛错、第二次正常，在同进程重建同 id，独立存储检查持锁结果。断言能重建而不是只断言第一次抛错。
+- **建议改法**：从取到存储句柄的那一行起就置于失败收口的作用域内，包括 `SessionCore`、宿主资源、API 构建；开放失败时即使没有 `Internals` 或打开的追加文件也必须释放锁。打开会话取锁后的解析／归约也有同类 `try` 外边界，复用同一条资源归属规则。
+
+### 4. 只在事项报告和两处收口判 `core.broken`，仍会被 `abort` 和阶段帧盖掉
+
+- **严重程度**：重要；**类别**：不变量／状态合同。
+- **位置**：计划第 2 节及验收（33、67–68 行）；`run/control.ts:65–76,126–129,157–162,245–264`、`run/commands.ts:356–372`、`run/loop.ts:251–279`、`session/session.ts:356–367`。
+- **现象**：`onBroken` 推 `broken` 并中止信号，但不会马上清 `#active`。这时新 `abort` 绕过 `accept`，还可以登记停止、推 `aborting`、交回成功而没有受理记录；活动循环还有直接推 `running` 的 `phase` 回调，例如检查信号以后在 `box.retire` 等异步释放，回来就推 `requesting`。快照只是读 `control.status`。按计划让收口不再推 `idle`，只能把被盖掉的 `aborting` 或 `running` 留成末态。
+- **为什么是问题**：损坏状态必须在同一句柄上不可逆；并且之后的新写指令应报 `log-broken`，不能只在 `accept` 里统一。会话表把 `broken` 当空闲，吃到覆盖后的状态还会撤销 30 秒空闲关闭。
+- **如何核实**：用真实模型脚本驱动会话等同步事项，订阅首个 `broken` 状态时经公开 `abort` 发一个新键（或让工具在真实的异步释放门后返回）；逐帧断言 `broken` 以后没有非损坏状态，检查该指令结果与快照。普通 `deny` 测试没有制造这次并发。
+- **建议改法**：在唯一状态发布入口封住损坏后的所有非 `broken` 帧，而不是逐处打补丁；给 `abort` 加损坏门，保留已提交键重放和先前在途停止的收口。两个收口都以 `core.broken` 禁止启动下一次，照常释放等待者和清理引用。
+
+### 5. 同一次 `waitRun` 在收口反应失败时可以交回两种结果
+
+- **严重程度**：重要；**类别**：正确性／接口合同。
+- **位置**：计划第 1、2 节与 67–68 行；`run/control.ts:65–76,188–205,232–264`、`run/results.ts:25–39`；runtime 输出 13、36、104，session“状态与转换”。
+- **现象**：`settleIn` 的 `runEnded` 已写下、`on.runEnded` 的追加批才失败时，`onBroken` 先把原来登记的 `waitRun(id)` 结算成 `log-broken`；失败后的 `waitRun(id)` 先查日志，能查到同一个 `runEnded{completed|finished}`，因此交回正常结果。同样，若公共受理路径跳过 `launch`，回退接跑用的 `runResumed` 还复用原 run id，`waitRun` 可把旧分支的 `runEnded` 当成本次刚受理的结果。
+- **为什么是问题**：改状态推送不能消除这两种结果。session 要求损坏时及时结算，runtime 则说 `waitRun` 结果同 `runResult`、收口失败也要结算。计划没有定义已提交的本次结果、仅有旧分支结果、没有本次结果三者的优先级，也没验收 `waitRun`。
+- **如何核实**：让正常运行进入真正的 `runEnded`，只拒绝这个事件引出的反应批；在故障前已登记一次 `waitRun`，故障后再查一次并对照本次日志。以回退后的 `send` 或 `rewind{resend}` 覆盖复用 id 而未启动的分支。
+- **建议改法**：明确区分这次尝试是否已有已提交的收口，确定损坏时已在等和之后才等的结果合同；不能用旧分支的结束冒充本次结果。收口路径仍需原有 `writeAndReact` 边界，不要用受理路径的新返回值允许坏句柄继续跑。
+
+### 6. 跨进程存在“没发布但 id 已占用”，`open` 和 `ensureMain` 都没有按计划处理
+
+- **严重程度**：重要；**类别**：并发／接口合同。
+- **位置**：计划第 4 节（41–45、81 行）；`log/jsonl-store.ts:202–225,240–261,329–351`；`packages/neuro-book/src/plugins/bots/backend/main.ts:83–122`，bot 主对话 Spec 输出 1、2。
+- **现象**：进程 A `create` 返回未发布句柄后仍持锁；此时 B 的 `header` / `entry` 查不到，`list` 不列；现有 `open` 却先加锁，直接得 `session-busy`，不是计划写的 `session-not-found`。B 的同 id `create` 也得 `session-busy`，不能把它当成上次已退出的半成品接着建。Bot 只在 `create` 返回 `session-exists` 时重读归属；`create` 得 busy 直接记失败，不会进入 `hold` 的 5 秒重试。成功的 `create` 分支本来就在同一次调用里写完首批、登记表项，然后直接 `hold`，并非再读头；受影响的是并发失败分支。
+- **为什么是问题**：活跃保留、已发布但被持有、未发布且已释放是三种可观察状态。只测杀进程释放锁之后重建，不能证明并发时不会错报、漏重试或绕开归属判断。
+- **如何核实**：用子进程停在持锁未发布且已写 `session.owner` 的时点；第二进程查 `header`、`entry`、`list`、`open`、同 id `create`，再分别让 A 发布和 kill -9，逐种检查重试与归属。
+- **建议改法**：明确活跃保留时 `open`、`create` 各交什么码；若 `open` 必须报 not-found，要以权威日志存在性区分，保留锁内二次检查，不能从 busy 推断已发布。给 `ensureMain` 的建会话 busy 明确定义重试策略，重试必须重新校验头，不用持有代替归属判定。
+
+### 7. 反应阶段的非 I/O 异常仍会把已认领的同步等待者丢在表外
+
+- **严重程度**：重要；**类别**：正确性／异常收口。
+- **位置**：计划第 1 节（24–28 行）；`dispatch/reactions.ts:52–66`、`session/session.ts:133–171`、`run/commands.ts:192–220`、`run/interaction.ts:51–68,99–109,217–230`。
+- **现象**：反应阶段并不只会抛 `LogBrokenError`。有监听者时，`reactTo` 在处理函数的捕获之外先取 `host.environment()`；它同步调用宿主的工具声明端口。端口抛错时，结算与 `commandAccepted` 已写下，`accept` 仍抛出，`resolve` / `send` 又都在 `await accept` 之后才 `releaseClaims`，因此 `written` 和清理都没跑。因为认领已从等待表摘掉，后续中止监听也摘不到它。
+- **为什么是问题**：日志显示已应答、重发成功，原 `ctx.ask` 却一直等待。不能把“只捕获日志错误”当成“任何异常仍保证结算”。
+- **如何核实**：真实内核和 JSONL；安装一个监听 `interactionResolved` 的扩展，等到真实 `waiting` 后才让宿主的 `tools.declarations` 抛一次。观察首次 `resolve` 拒绝而同键重发成功、日志已结算；此路径不必伪造 `core` 或扩展调用顺序。
+- **建议改法**：提交状态显式传递到认领收口，未提交或不确定走现有清理，已提交按应答叫醒；把收口放入保证执行的分支。普通宿主异常仍要按原类别报告，不伪装成 I/O 损坏。
+
+更正第 7 条：`run/tools.ts:64–71` 已接住宿主 `tools.declarations` 的同步异常，并降为诊断；“让端口抛一次”不能复现上述现象。撤销该条，不计入结论。
+
+### 8. Agent 以目录存在作为附件准入，未发布或已弃置的 id 仍能写入
+
+- **严重程度**：重要；**类别**：调用方合同／数据寿命。
+- **位置**：计划 41–44、81 行；`packages/neuro-book/src/plugins/agent/backend/{attachments.ts:78–108,plugin.ts:128–132,schemes.ts:114–131}`；`docs/specs/agent/sessions.md` 输出 18（附件）。
+- **现象**：附件路由的 `hasSession` 看 `lstat(...).isDirectory()`；`sessions://<id>` 和 `temps://<id>` 的挂载也只看目录。只要知道 id，即使首批尚未发布、或创建已失败且句柄已关闭，附件不走 404，仍可能写到会话目录的 `home/attachments`；之后同 id 重建会继承这批文件。在索引与会话头上都查不到它不代表 Agent 看不到它。
+- **为什么是问题**：新计划将原本极短的目录／日志落差扩展到整个保留期，失败后可一直存在。资源访问用目录，会话归属与查询用日志，出现两个“已存在”口径。
+- **如何核实**：保留同 id 目录与属主文件，但不要生成 `session.jsonl`；用真实附件路由和文件服务按该 id 上传，同时查看 `header`、`entry`、`list`；再同 id 重建。已发布但没索引、以及仅头存量日志也要能访问。
+- **建议改法**：会话资源公开准入沿用权威日志（或统一的已发布查询），不要用索引替代；如果创建期间宿主确实要建资源，与对外访问分开。不要删除目录或 `home` 作为修复。
+
+更正第 8 条引用：附件合同在 `docs/specs/agent/sessions.md:80`（编号为输出 15，文档里编号有重复），不是输出 18。技术结论不变。
+
+### 9. 存量仅头的 fork 先被打开后，重发可能“成功”但永远没有复制源对话
+
+- **严重程度**：重要；**类别**：兼容性／幂等。
+- **位置**：计划 45–46 行；`session/session.ts:568–587,625–647`；`run/tree.test.ts:266–290`；`harness/session.md` 输出 17、20。
+- **现象**：计划保留旧 fork 的“补写复制批”。当真实旧目标只有头，在重发前若被普通 `openSession` 打开，当前 `forkSession` 把 busy 当已完成；即使打开后关了，`openSession` 已为缺历史哈希写 `profileChanged{code-updated}`，`events.length > 0` 仍被当已复制。源命令由此记录成功，同键以后只重放此回执，不会再补对话。打开目标后非空不等于复制批已提交。
+- **为什么是问题**：首批改成原子发布只保护新目标；上述路径恰落在第三项决定明确保留的旧兼容支路。现有补写测试在打开目标前重发，两个误判都测不到。
+- **如何核实**：用当前版本让 fork 的第一次复制写失败，留下只含头的目标；通过真实内核打开并关闭目标，再以原键重发。首建、重发和打开目标分别读批与来源，断言有无源输入、设置和大块内容；再覆盖持锁的目标。
+- **建议改法**：不要用 busy 或任意事件当复制完成证明；为原子发布的新 fork 保证来源与批完整，为旧仅头目标在未能确认复制时返回可重试失败。明确已被打开并写入新内容的旧目标是否自动补、还是提示人工处理；不要覆盖已有内容，也无需批量迁移旧普通会话。
+
+### 10. 未发布句柄上的在途 append 与 close 若不互斥，旧写者可覆盖新会话
+
+- **严重程度**：阻断；**类别**：跨进程竞态／数据完整性。
+- **位置**：计划 41–45 行；`log/jsonl-store.ts:216–225,301–326,357–365`、`log/files.ts:82–99`；`harness/session.md` 输出 4、11 与“时序与寿命”。
+- **现象**（从拟议实现推断）：进程 A 持未发布句柄开始第一次 `append`，在写 blob 或写临时文件处挂起。按现有 `close` 结构改为“没有追加文件就只释放锁”，A 的 `close` 能返回。进程 B 同 id 取锁、发布完整日志并返回成功；A 恢复后用旧临时文件 rename 到同一路径，会替换 B 的日志。追加前检查 `state.closed` 一次挡不住跨 `await` 的交错。`SessionCore` 的队列只管经内核的调用，不能保护公开 `LogStore`（包含 fork、测试和其它接入者）。
+- **为什么是问题**：`close` 返回意味着另一个写者已能合法接管；路径改名不同于写已关闭的文件描述符，会动到新写者的文件。两个 concurrent first append 也不能各自选择同一个“首次写”分支。
+- **如何核实**：挂起 A 的真文件发布，调用 `close` 并让 B 同 id `create`/写入，再放行 A；验收只能有一个成功发布，后续重开读到成功写者的头和首批而非后到的改名。另测同一个句柄两次按 seq 发起 `append` 的先后。
+- **建议改法**：保证关闭与首次发布使用同一个句柄串行边界：等已开始的发布完成才放锁，或保证它在放锁前已经不可能改名。明确 `close` 如何处理在途及新到 `append`，不以进程间锁代替句柄内所有权。
+
+### 11. 只读恢复不能把恢复条件简化成“叶子上有 run”，也不能只看 `runEnded`
+
+- **严重程度**：重要；**类别**：验收缺口／恢复合同。
+- **位置**：计划第 3 节、切片 2 与验收映射（37、58、69 行）；`run/recover.ts:70–94`、`dispatch/core.ts:217–234`；runtime 输出 36、43、117，session 输出 15、27。
+- **现象**：真实崩溃留下的同步审批须一次写 `interactionResolved{interrupted}` 及对应 `toolResult{denied, interrupted-before-approval}`，同时收口、把就绪输入变成 `held`、关闭唤起门；异步提问要保留。合法回退（叶子由 `leafChanged` 定）即使看见老的 run，也不能写恢复；已持久化 `runResumed` 后、首条路径事件前崩溃则要恢复。计划验收只查两条结算、新 runId 与无 `runResumed`，不区分这三类，也没验证只读打开时的真实写失败。
+- **为什么是问题**：去掉 `leafSetBy` 判断、误结算异步事项、未更新缓冲区或门、写失败仍返回只读成功，均可通过计划所列断言。只读限制的是调用方指令，不是锁、所有者记录、尾部修复、索引或这个纯内核批；不能让 `profileChanged`（哈希不明）或扩展反应参与只读恢复。
+- **如何核实**：已有 `tests/kernel/fixtures/crash-session.ts` 的 `waiting-approval` 可以先造真实异步问答和审批；在收到 `waiting` 后再等排话回执才发进程就绪信号。父进程待 `kill -9` 退出后以缺 Profile 打开、查同 `batch.id` 的日志和快照，再次打开不重复写；拒绝恢复批的真实写入时验证 `log-broken`、放锁和下次恢复。另用公开 `rewind` 造真暂停作反例。
+- **建议改法**：只挪动恢复调用，不修改 `recoveryDrafts` 边界；上述负例写进验收。可写打开仍保持哈希比较／写 `code-updated` → 恢复 → `mount`；只读走同一个恢复生成器，不挂载。
+
+### 12. 冷打开报 `dependency-missing` 时，补依赖可能在占位 Profile 上解除只读
+
+- **严重程度**：重要；**类别**：装配／恢复时序。
+- **位置**：计划 37、58、69 行；`session/session.ts:104–116,730–742,758–805`；runtime 输出 57，extensions 输出 27。
+- **现象**：冷打开时找得到 Profile 但缺扩展，`assembleOrPlaceholder` 丢掉原定义，内核留下占位对象，快照报 `dependency-missing`。后来仅收到扩展发布，`reassembleOnce` 不重新 `profiles.resolve`，直接尝试装配那个占位对象；成功就清掉只读。此时模型请求可以开始，但原 Profile 的系统提示词、扩展和设置并未装回来。移动恢复批的调用不能修复这一点。冷打开 `unknown-profile` 与热撤回后 `dependency-missing` 的现有测试都看不见这个组合。
+- **为什么是问题**：只读恢复的状态机不只有“手工换回 Profile”一条出口；保证旧运行已按日志收口，不代表解除只读的装配正确。Spec 要求成功重新装配才解除。
+- **如何核实**：用真 JSONL 建一个含必需扩展、带独有系统提示的 Profile；新宿主识别同一个 Profile 但缺扩展，冷打开后仅发布该扩展（不附带 `profilesChanged`），观察快照与真实下一次模型请求。不要仅断言 readOnly 变 null。
+- **建议改法**：区分“拿占位归约”和“原 Profile 已装配”；补依赖后重新解析真实定义并完成装配才解除只读。若该支路不在 t16 的修改范围，保留为明确的独立限制，不把只有 `unknown-profile` 一条验收写成覆盖所有只读打开方式。
+
+### 13. 延迟序列化把会话头的所有权变化带到磁盘发布点
+
+- **严重程度**：重要；**类别**：公开接口／数据完整性。
+- **位置**：计划 41、47、49–53 行；`api/storage.ts:50–76`、`log/jsonl-store.ts:202–232,301–325`、`session/session.ts:510–526`；session 输出 25、26。
+- **现象**（从拟议实现推断）：`SessionCore.createSession` 深拷贝并冻结头，但公开 `LogStore.create(header)` 没做这一步。现在 JSONL 在 `create` 返回前已序列化头；若照计划把 `JSON.stringify` 挪到首个 `append`，句柄仍引用调用方对象。调用方在两次调用之间改 `owner.id` 就会改权威归属，改 `id` 能让文件写进旧目录却带新 id，重开校验为 `log-corrupt`。缓存也可能与日志用的不是同一份头。
+- **为什么是问题**：改变了公开端口的可观察结果；上层创建的冻结测试不会发现。`LogStore` 的注释仍承诺 `create` 创建头日志，既有测试还在未追加时读头和索引，`writeSession(..., [])` 则用于制造已发布测试会话。
+- **如何核实**：低层 `create` 后分别修改入参及嵌套归属，通过首个非空 `append` 发布后读 `header`、`entry`、`open`；内存和 JSONL 用同一组断言。并覆盖空 `append`、不发布就 `close`、旧仅头日志仍可打开。
+- **建议改法**：在保留时确定不可变头（拷贝冻结或保留权威编码），首次写入和索引均用它。更新公开端口和状态表，把首次非空批、空批与关闭未发布句柄分开；原来只需测试已发布会话的夹具显式写合法首批，旧兼容夹具直接造旧格式，不放宽原断言。
+
+### 14. 原崩溃夹具的门闩不在计划的新发布点，验收可能只杀到空目录
+
+- **严重程度**：一般；**类别**：可复现实验／验收缺口。
+- **位置**：计划 57–59、67–70、76 行；t06 `design-review-probes/kernel-crash-fixture.ts.txt:8–15`、`log/files.ts:82–103`、`log/jsonl-store.ts:309–315`。
+- **现象**：t06 的 `header` 夹具在首个 `openAppend().write` 发 `header-written`；首批改为 `writeAtomic` 后，它会在发布完成后才碰到，或者根本收不到。只在 `LogStore.create` 返回后杀，能验没有提前发布，却没经过首批的临时文件、blob、rename 任一阶段；只在执行 `writeAtomic` 之前抛错，也不能验证真实中间阶段。
+- **为什么是问题**：受测时间点变了，旧探针可能挂住或产生错误的阳性。`kill -9` 能验进程退出时锁由系统释放、文件名可见性和 JSONL 完整性，不能验断电持久性。首批带大块内容时还可能留孤 blob 和 `.tmp`；文件存在不等于会话已发布。
+- **如何核实**：为日志发布单独设标记，用真实文件先写并同步 blob 与临时文件，到临近 rename 再报；父进程读到完整就绪行后杀并等 `exited`。另在真实 rename 后、索引前设独立标记；比较权威日志／索引／同 id 重建的结果。fork 用可辨别的源输入、设置、来源与大块内容检查一次完整复制。
+- **建议改法**：用定点文件端口门闩，不用固定延时或“第 N 次写”；让夹具记录到的是预期阶段，否则用例失败。保留原 append 的部分尾修复测试；不把临时文件和孤 blob 当作发布信号，不删除锁文件或宿主文件。
+
+### 15. 损坏会话的插件撤回仍可能先放行宿主、后清理扩展
+
+- **严重程度**：重要；**类别**：收口／插件寿命。
+- **位置**：计划第 2 节（33 行）；`run/control.ts:168–179,232–242`、`session/agent-host.ts:100–107`、`session/session.ts:659–682,695–726,783–805,824–840`；extensions 输出 19，runtime 输出 57。
+- **现象**：保持 `broken` 并不会停止插件重装配。损坏且无活动运行时撤回一个已挂载扩展，进入重新装配；正常的装配哈希变化本应先写 `profileChanged` 再摘下。坏句柄拒绝写，`reassembleNow` 捕获 `LogBrokenError` 返回；完成分支仍放行所有 `settledWaiters`。所以宿主 `revoke` 可以完成，扩展的挂载信号与清理却要等会话后来关闭；有长期持有的会话甚至没有自动关闭时限。
+- **为什么是问题**：插件平台依赖 `revoke` 返回后才释放插件服务，旧的订阅或计时器可能继续调用已经撤回的服务。“损坏后不能写”与“撤回必须摘下”需要不同出口；也不能简单跳过整个 `onIdle`，否则已经排队的撤回没有完成信号。
+- **如何核实**：真实 `AgentHost`＋JSONL，挂载返回一个可观测清理；让一次普通指令的写入失败，保持坏会话打开，撤回此扩展；检查返回时清理是否完成、是否有新日志，最后显式关闭收口。
+- **建议改法**：损坏路径不再写装配事件或挂新扩展，但撤回的挂载要取消并等清理，再放行等待者；保留关闭时完整释放的边界。
+
+### 16. 重开时缺 Profile，已提交的 `resolve` 会被只读检查挡在重放之外
+
+- **严重程度**：重要；**类别**：接口合同／幂等。
+- **位置**：计划 24–29、37、67 行；`session/session.ts:286–297`、`run/commands.ts:51–65`；session 输出 17、runtime 输出 41、111。
+- **现象**：原句柄受理一条 `resolve` 后，即使后续反应写失败，日志有 `commandAccepted`。关闭后若 Profile 不再可解析（或依赖缺失），重开得只读句柄；`resolve` 在进 `accept` 前直接报 `read-only`，不查已经提交的键。带 `settlePending` 的 `send` 先经过 `accept`，同一类已提交键仍可重放。换回可用 Profile 又能重放前者。
+- **为什么是问题**：重放不写盘、不执行反应，并不违反只读；目前两个应答入口在计划明说的“重开后结果一致”上分叉。只在 Profile 一直可用时重开验收捉不到这个差异。
+- **如何核实**：真实 JSONL 上受理同步 `resolve`，只让它后的反应批失败；关闭、移除原 Profile 再开，从公开 `resolve` 重发相同参数，并用新 key 作只读负例。核对只读前后结算事件不重复。
+- **建议改法**：在新指令的判定里执行 `read-only` 校验，使已提交键（含参数不一致的冲突）先归公共重放判断；仅同键查询例外，不能让新 `resolve` 越过只读。Spec 也应明确损坏句柄仍重放已提交键，而不是“所有指令都得 log-broken”。
+
+### 17. 首批完整不等于建会话的初始化全部做完
+
+- **严重程度**：重要；**类别**：合同边界／创建时序。
+- **位置**：计划 41–45、59、70、80–81 行；`session/session.ts:534–545,578–596`、`kernel/helpers/opening.ts:14–22`、`packages/neuro-book/src/plugins/agent/backend/builtin/profiles/rules.ts:28–49`；extensions 输出 30。
+- **现象**：首批包含 `sessionCreated`、初始装配与唤起门，不包含由 `on.sessionCreated` 写下的状态。`opening()` 只在创建与压缩时加载；应用规则文件也经它加载。进程在首批发布后、`opening` 的反应批落盘前被杀，或该反应写失败时，重开不会重放创建反应；同 id 得 `session-exists`，而第一次正常请求可能没有规则开场。这早于计划明确排除的 `initial-approval-<id>`。
+- **为什么是问题**：验收若把“恰好一次初始化”当成所有初始化成功，会把已经修掉的“只有头”和未修的“首批完成、创建反应未完成”混成一条。贸然重放创建事件又会重复外部副作用，破坏 ADR 0035 的归约／反应分界。
+- **如何核实**：用真实 `on.sessionCreated` 在首批已写后阻塞，子进程报就绪再 kill -9；重开查首批完整，发第一条话检查模型请求的开场内容。另测创建反应的单批写失败。
+- **建议改法**：明确 t16 的发布承诺只到权威会话头与首批，不承诺创建反应、挂载或后续 Agent 设置原子完成；若产品要求“已发布即可按原 Profile 正常开跑”，把必需的初始化事实与可丢的反应分开设计、验收，不默认重放全部创建反应。
+
+### 18. 两条同步应答验收都不能证明坏句柄不会启动已经受理的运行
+
+- **严重程度**：建议；**类别**：验收映射。
+- **位置**：计划 28、57、67、76 行；`run/interaction.ts:177–207,210–226`、`run/commands.ts:154–186,192–218`、`run/settle.ts:145–156`。
+- **现象**：验收的同步 `resolve deny` 和带待办的 `send{settlePending}` 都依赖已有运行在等；前者不设置 `launch`、后者在等待中的正常窗口只是排输入。即使删掉“坏时跳过 `launch`”，两例仍可能全过。`ctx.ask` 的可观察返回是 `unavailable{code: "declined"}`，不是字面 `deny`；`deny` 则是 JSONL 的 `interactionResolved.decision`（审批被拒只保证不执行，不保证坏句柄还能写 `toolResult`）。
+- **为什么是问题**：计划变异检查把两个不同边界当成同一个。仅测同步唤醒，不能抓住写下 `runStarted` 后还拉起模型／工具的回归。
+- **如何核实**：另用真实异步提问让第一轮结束；空闲时回答，在 `interactionResolved` 或 `runStarted` 的反应批故障。断言回执保留已受理的 runId、日志有受理批、模型未收到该次请求，重开只按 `interrupted` 恢复一次。同步两例分别对比真实工具返回与 JSONL 判定，故障定位用事件或 cause，不靠第 N 次写；保留受理批 `sync` 失败用例作负对照。
+- **建议改法**：将“已提交即唤醒”与“坏时不 launch”各映射到能实际走通的用例；如涉及第 5 条的复用 id，再以 `rewind` 后接跑覆盖旧分支结果。
+
+## 核实记录
+
+报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00043-neurobot/tasks/t16-kernel-narrow-window-defects/reports/design-r1/report.txt`。对象：`/tmp/review-t16-design/plan.md`。在实现 worktree 的 `540377bc9e4b888a00687e52607f433f32f6822c` 运行；复核时内核、Agent、Bots 源码相对审查基线 `74cc0fa09817b7e52d5611bed51f00c902ec4a6e` 及实现 worktree 未提交差异均为空，工作区包入口也解析到实现 worktree。以下是基线证据，不是修复验收。
+
+- `packages/nb-harness`：`bun test src/kernel/run/control.test.ts src/kernel/run/interaction.test.ts src/kernel/run/tree.test.ts src/kernel/session/session.test.ts src/kernel/log/store.test.ts`：121 通过、1 失败（末批逐字节截断用例超过 5000 ms）；该用例单独以 `--timeout 30000` 运行通过，用时 2.62 秒，不能由此判定第一次超时原因。`bun run --cwd packages/nb-harness typecheck` 通过。
+- `packages/neuro-book`：`bun test src/plugins/agent/attachments.test.ts src/plugins/bots/backend/main.test.ts`：13 通过。未跑全包测试、e2e、开发服务或真实模型。
+- 外部探针都在 `lab/`，测试设置 `NBOOK_HOST_SYSTEM_TEMP_ROOT` 与 `NBOOK_AGENT_TEMP_ROOT`。`review.test.ts` 复现 #1 的 rename 后追加打开失败、#3 的早期持锁泄漏、#4 的 `broken → aborting`、#5 的早晚 `waitRun` 不同；#3 的泄漏还触发了后续用例中的文件句柄回收报错，#1 隔离执行通过。#16 单跑 `-t '已提交的 resolve 在缺 Profile'`：1 通过，坏句柄同键成功、只读重开同键 `read-only`。
+- `crash-review.test.ts` 两条初始用例通过：#6 真实持锁进程退出前不可见但 `open/create` 都 busy，退出后能重建；#11 真实审批、异步提问和入队后 kill -9，基线只读打开不恢复，换另一可用 Profile 后续跑旧 id。#17 独立追加的用例通过：真实 `opening()` 反应中 kill -9，首批完整，重开后的首请求无开场，正常建会话对照有开场。
+- `attachment-reservation.test.ts`（`--tsconfig-override tsconfig.json`）：1 通过。#8 走真实附件路由和文件服务，`header=session-not-found` 时 POST 为 200，发布前建会话失败后同 id 正常建成，GET 读回先前的附件。`temps://` 只核对挂载源码。
+- `secondary-review.test.ts`：#9 复现旧 fork 先被普通打开并写入 `profileChanged` 后，源指令成功、可重放，但目标未复制 `input`；该条的 busy 分支只核对源码。#12 复现解除只读但请求缺真实 Profile 的提示。#15 复现撤回返回而挂载清理还未执行。#18 的 `ctx.ask` 返回码见 `run/tools.ts:195–212`；开新运行的故障组合尚未跑。
+- #1 的目录同步失败、#6 的 Bots 建会话 busy 路径，以及 #2、#10、#13 对拟议实现的反例未在新实现上运行；#14 是夹具卡点核对，不是断电持久性实测。生产宿主同一状态根只允许一个服务端（`docs/specs/runtime/server-host.md:47–53`）；#6 跨进程证据属于共享 JSONL 端口，不表示能同根启动两个产品服务端。
+
+## 未发现问题的方面
+
+- 保留运行循环的 `writeAndReact` 不拆运行副作用的先后：仍能在下一次写覆盖 `stateAfter` 之前取出这一批的事件状态。受理侧的回报区分本身不要求重写运行侧。
+- 缺 Profile 本身不妨碍 `recoveryDrafts` 生成纯内核恢复事件；维持直接 `core.write`、不跑反应，也保留可装配时“比较哈希／记变更 → 恢复 → 挂载”的次序，未发现新增装配依赖。
+- 正常路径上 `createSession` 不在写首批前交回成功；同 id 拿锁后再查日志仍必要。现用不判旧的文件锁可继续保护单写者，Linux 下实测进程被杀后释放；未测 Windows 或断电。不需要为本次发布边界升级 JSONL 格式。
+
+## 对三项已确认决定的判断
+
+1. **受理已提交、反应批失败仍回执成功**：成立，按已提交决议唤醒、同键可重放，受理批同步结果不确定仍走 `aborted`；不能据此让坏句柄继续挂载、排后继运行或启动新运行。
+2. **只读打开也恢复**：成立，只读限制外部命令，不阻止内核补齐中断；不写占位 Profile 变更、不派发反应，并须保留合法暂停、异步提问和只读下的同键重放。
+3. **不迁移旧的仅会话头日志**：成立，保留旧普通会话的读取兼容即可；旧 fork 是否完成须靠复制证据，不能把 `session-busy` 或任意一条事件当成功。
+
+第 14 条原标「一般」，按「建议」计；第 17 条所引重复编号指 `harness/extensions.md:113` 的 `opening({load})`。第 7 条已撤回，不计。有效共 **17 条：阻断 4、重要 11、建议 2**。
+
+有效编号：1–6、8–18
