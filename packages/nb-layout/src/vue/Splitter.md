@@ -35,6 +35,8 @@ type SplitterPanelConfig = {
     sizing?: "fixed" | "weight";
     /** 收起策略与当前状态；省略时不可收起。 */
     collapse?: SashCollapseState;
+    /** 分隔线读屏名称里这块面板的显示名（宿主翻译好的）；省略或空串时用面板 id。 */
+    label?: string;
 };
 
 type SplitterProps = {

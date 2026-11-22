@@ -20,9 +20,9 @@ export type GridFailureParams = {
     "not-finite":
         | {field: "delta" | "ratio"; value: string}
         | {field: "size"; side: GridSizeSide; id: string}
-        | {field: "intent"; id: string};
+        | {field: "intent" | "px"; id: string};
     "invalid-argument":
-        | {field: "root" | "sizes-cover"; id: string}
+        | {field: "root" | "sizes-cover" | "fixed-cross-axis" | "px-negative"; id: string}
         | {field: "size-negative"; side: GridSizeSide; id: string}
         | {field: "orientation" | "side" | "ratio-range"; value: string};
     "limit-exceeded": {limit: "nodes" | "depth"; max: number};
@@ -31,6 +31,7 @@ export type GridFailureParams = {
     "not-conserved": {id: string; target: number; baseline: number};
     "stale-baseline": {id: string};
     "not-collapsible": {id: string; branch: string};
+    "wrong-sizing": {id: string; expected: "fixed"};
 };
 
 /** 快照恢复（Spec 失败 7）。 */

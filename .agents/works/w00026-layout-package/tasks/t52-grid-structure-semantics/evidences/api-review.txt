@@ -1,0 +1,392 @@
+我已完成审查，并把报告写进了草稿 `report-draft.txt`。草稿里有两处小改动没能写进去，Edit 被权限拒绝：一处是第 1 条里补引 `intent-writeback.ts` 文件头的话，一处是 `layout-doc.ts` 的路径。下面的最终报告已经带上这两处。
+
+# t52 计划第 1 稿 API 形状审查：nb-layout 结构操作的语义
+
+## 方法与限定
+
+- 我站在第三方 Vue 3 应用的位置，读了 README、`src/grid.md`、`src/vue/useGridHost.md`。
+- 计划之外读了：`grid.ts`、`grid-geometry.ts`、`grid-snapshot.ts`、`grid-failure.ts`、`useGridHost.ts`、`useGridLayout.ts`、`dev-checks.ts`，t51 两份审查，Spec 失败 5、6。
+- 计划里的新行为都还没实现。写“实测”的，是我在仓库外用 `bun` 跑的，脚本在 `/tmp/t52-api-probe/p1.ts`、`p2.ts`、`p3.ts`，直接 import 现有的 `grid.ts`。
+  - 一类是现有代码的行为。
+  - 另一类是按计划字面手工搭出结果树再算 `layout()`，下文写“手工搭”。
+- 写“读代码得出”的，没有跑。没有改仓库、没有跑 e2e、没有开开发服务。
+
+---
+
+## 接入草稿一：nb-story 右侧详情开第二张、关一张
+
+需求出处是 t45 README“决定”：两张卡各保持原宽，关一张回到一张卡的宽度，对调，最多两张。建模按 t51 审查后的做法，每张卡一块保留像素的叶，放在 `frame` 分支里。
+
+```ts
+// book-grid.ts：cardLeaf(key, width) = {sizing: "fixed", size: {width, height: 0}, minimumSize: {width: 280, height: 0},
+//   maximumSize: {width: 640, height: 0}, collapse: {…}}   // height: 0 是“上限 0”，nb-story 现在的 book-grid.ts 就这样写
+
+function openSecondCard(key: number): GridFailure | null {
+    const result = host.update((g) => {
+        const root = g.root();
+        const at = root?.kind === "branch" ? root.children.length : 0;
+        return g.addLeaf("frame", at, cardLeaf(key, drawerWidthPref.value)); // 兄弟不动：nav、main、第一张卡的意图都不变 [计划 一]
+    });
+    return result.ok ? null : result;
+}
+
+function closeCard(key: number, rest: readonly number[]): GridFailure | null {
+    const result = host.update((g) => {
+        const removed = g.removeLeaf(cardLeafId(key));                     // 兄弟不动，main 吸收
+        if (!removed.ok || rest.length !== 1) return removed;
+        return g.setSize(cardLeafId(rest[0]!), drawerWidthPref.value);      // “回到一张卡的宽度”：第一张被拖宽过就设回偏好 [计划 三]
+    });
+    return result.ok ? null : result;
+}
+```
+
+这一份写得通，也比 t45 第 4 稿短得多：第二张加进来时第一张不被压。
+
+仍然卡住的有两处：
+
+- 两张卡都带着收起策略，策略建叶时才能给。拖主区那条线到最左，左边那张自己收起、右边那张留着，成了 t45 决定要避免的半收起。这是 t51 API 审查第 1 条，计划推给 t45。
+- 若把右侧详情建成一个保留像素的 `drawer` 分支，里面放两张卡，宽度只设一次，就落进下面发现 1、2、3、5。
+
+---
+
+## 接入草稿二：第三方可增删的侧栏面板组
+
+建模：根分支横向 `[side（保留像素 240、竖向分支）, editor]`，侧栏里每块是按比例分的叶。
+
+```ts
+const SIDE = "side";
+const panels = shallowRef<string[]>(["p1", "p2"]);   // 宿主自己记有哪几块、第一块是谁（发现 1）
+const panelInput = (id: string): GridLeafInput<string> => ({kind: "leaf", id, ref: id, minimumSize: {width: 0, height: 80}});
+
+function addPanel(id: string): void {
+    const result = host.update((g) => {
+        const side = g.find(SIDE);
+        if (side?.kind === "branch") {                      // S2：列还是分支
+            return g.addLeaf(SIDE, side.children.length, panelInput(id));   // 省略 size：取兄弟意图的平均 [计划 一]
+        }
+        if (g.root()?.kind === "branch") {                  // S1：列只剩一块，已被展平成根下的一片叶，id 是那一块的
+            return g.splitLeaf(panels.value[0]!, {branchId: SIDE, orientation: "vertical", side: "after", ratio: 0.5, leaf: panelInput(id)});
+            // 新分支继承那一块的 fixed、size.width=240、min/max、collapse [计划 二]
+        }
+        // S0：侧栏一块都没有，根也被展平，树只剩 editor 一片叶
+        const split = g.splitLeaf("editor", {branchId: "root", orientation: "horizontal", side: "before", ratio: 0.25,
+            leaf: {...panelInput(id), sizing: "fixed", minimumSize: {width: 160, height: 80}}});
+        return split.ok ? g.setSize(id, 240) : split;       // 计划 二：新叶被改成按比例分 → wrong-sizing（发现 2）
+    });
+    if (!result.ok) report(result); else panels.value = [...panels.value, id];
+}
+
+function removePanel(id: string): void {
+    const result = host.update((g) => g.removeLeaf(id));    // S2→S1 时列被展平，SIDE 消失（发现 1）
+    if (!result.ok) report(result); else panels.value = panels.value.filter((x) => x !== id);
+}
+
+function widenSidebar(px: number): void {
+    const target = grid.value.find(SIDE) ? SIDE : panels.value[0]!;      // “侧栏”此刻是谁，要先问
+    report(host.update((g) => g.setSize(target, px)));
+}
+```
+
+能走通的部分：
+
+- S2 里加一块、删一块，侧栏宽度不变。
+- S2 到 S1 展平后，保留像素、约束、收起策略都在那一片叶上。
+- S1 里 `splitLeaf` 拆那一片叶，新分支带着保留像素回来。
+
+走不通的部分见发现 1、2、3、5、6、7。
+
+---
+
+## 发现
+
+### 1. 展平让“区域”的 id 消失、属性搬到幸存者上，库不告知发生了展平，宿主对这一块的每个调用都要先判分支还是叶
+- **严重程度**：重要
+- **类别**：接口形状、上游选择
+- **位置**：计划第 28 到 32 行；`grid.ts:176-189`（`collapse`）、`:635-660`（`removeLeaf` 只返回 `{ok: true}`）；`nb-workbench-layout/src/layout-project.ts:226-229`
+- **现象**（实测 p2 的 P4）：
+  - `[editor, side(竖向，固定 240)[p1, p2]]` 删 `p2` 后，`removeLeaf` 返回 `{"ok":true}`。
+  - 此后 `find("side")` 为 `null`，`addLeaf("side", …)` 与 `setCollapsed("side", true)` 都报 `not-found`。
+  - 计划让保留像素、约束、收起策略搬到 `p1` 上，但宿主叫 `side` 的“这一块”不见了。所以草稿二的 `addPanel` 要分 S0、S1、S2 三态写，`widenSidebar` 和将来的 `setCollapsed` 都要先问“侧栏此刻是谁”。
+- **为什么是问题**：
+  - 计划修的是“属性丢了”，没修“身份丢了”。展平前宿主用 `"side"` 调 `setSize`、`setCollapsed`、`addLeaf`，展平后同一段代码变成 `not-found`，没有诊断说是因为展平。
+  - 工作台是先例：`layout-project.ts` 自己展平，并维护 `collapsedTo`（分支 id 到幸存者 id）；`intent-writeback.ts` 用它翻译回去。该文件头注释自己写着“`rebaseIntents` 要宿主自己备齐 `collapsedTo`……漏一个不报错，只是过一会儿布局不对”。第三方没有这张表，库也不给。
+  - 根分支同理：根展平走 `grid.ts:178-181` 的 `tree = survivor`，什么都不继承。根上宿主声明的约束会丢，计划只写了“继承被展平分支在父分支里的外部属性”，没写根。
+  - 展平的来历：我只在 ADR 0044、`workbench-single-tree-layout` 提案、`workbench-view-host.md` 已知限制 13、`workbench-view-containers.md` 里找到“规范形：单子分支塌陷”，都是工作台的约束。工作台自己在 `nb-workbench-layout` 的 `layout-doc.ts`、`layout-project.ts` 做规范化。通用库的 `createGrid` 为所有宿主展平，我没搜到面向第三方的理由，看起来是工作台的约束外溢。
+- **如何核实**：`bun /tmp/t52-api-probe/p2.ts`，看 P4 三行。
+- **建议改法**（择一或并用）：
+  - `removeLeaf`、`moveLeaf` 的成功结果带上展平：`{ok: true, flattened?: {branch, into}[]}`。
+  - `createGrid` 加选项（例如 `flatten: false`），单孩子分支留着，宿主的 id 与属性都不动。这是“改上游”的候选。代价是快照里会有单孩子分支，深度多算一层。工作台继续用它自己的规范化。
+  - 最低限度：`grid.md` 与 README 写明展平会让这个 id 消失，宿主用 `find(id)?.kind` 判断，并附 S0 到 S2 的配方。
+
+### 2. 拆分把目标叶与新叶一律改成按比例分：用 `splitLeaf` 建不出保留像素的新叶，从单叶或空列建固定侧栏做不到
+- **严重程度**：重要
+- **类别**：接口形状、被破坏的既有能力
+- **位置**：计划第 31 行；`grid.ts:610-633`；`grid-types.ts:138`（`leaf: Omit<GridLeafInput<T>, "size">` 仍带 `sizing`、`minimumSize`）
+- **现象**（实测 P5，现状）：
+  - `splitLeaf("editor", {…, leaf: {id: "side", sizing: "fixed", minimumSize: {width: 160, height: 0}}})` 成功。`side` 是 `fixed`、意图 240，1000 宽呈现 side 240、editor 756。
+  - 按计划，新叶被改成按比例分，输入的 `sizing: "fixed"` 被静默覆盖，紧接着 `setSize(id, 240)` 报 `wrong-sizing`。草稿二的 S0 因此写不出来，只能重建整棵树。
+- **为什么是问题**：
+  - 输入类型还允许 `sizing`、`minimumSize`，计划没说它们被忽略，类型与行为不一致，也没有诊断。
+  - `splitLeaf` 是唯一从单叶长出分支的入口，`addLeaf` 要有现成的分支。第三方“在这块旁边放一块固定宽度的”主要靠它。
+  - 计划测试只覆盖“目标叶是保留像素”这一支，没有“新叶要保留像素”。
+- **如何核实**：`bun /tmp/t52-api-probe/p2.ts`，看 P5。
+- **建议改法**：
+  - 新叶的 `sizing` 按输入，缺省按比例分。保留像素的新叶开放像素入口，或给 `leaf.size` 一个“只对保留像素有效”的写法，并写进 Spec。
+  - 只有目标叶改成按比例分。
+  - 若坚持不支持，计划里明说，给 S0 的替代配方，并把输入类型里不被尊重的字段去掉。
+
+### 3. 拆分把收起策略从目标叶搬到新分支，宿主用目标叶 id 读收起状态、调 `setCollapsed` 会静默失效
+- **严重程度**：重要
+- **类别**：被破坏的既有约定
+- **位置**：计划第 31 行（“收起策略留在新分支上，目标叶不再带”）；`grid.ts:502-520`；README 起步第 73 到 79 行；`useGridHost.md` 收起一节
+- **现象**（读代码得出）：
+  - 现在 `splitLeaf` 用 `{...leaf}`，目标叶保留 `collapse`，README 起步里对 `files` 的读法和 `host.setCollapsed("files", …)` 在拆分后照常工作。
+  - 按计划拆分后，`find("files")?.collapse` 变成 `undefined`，`host.setCollapsed("files", true)` 变成 `not-collapsible`，参数里是新分支 id。
+- **为什么是问题**：
+  - 宿主在一次与收起无关的拆分里，被改了收起的入口。
+  - 没有诊断：README 起步写成 `void host.setCollapsed(...)`，返回值被吞。
+- **会写错的代码**：
+  ```ts
+  grid.value.splitLeaf("files", {branchId: "files-col", orientation: "vertical", side: "after", leaf: …});
+  host.invalidate();
+  const open = grid.value.find("files")?.collapse?.collapsed === false;  // undefined === false → false，按钮显示“展开”
+  host.setCollapsed("files", true);                                       // not-collapsible，没人看返回值
+  ```
+- **建议改法**：
+  - 结果里带上收起搬到了哪个 id，与发现 1 的 `flattened` 对称。
+  - 文档与 README 起步例子的读法加警告。
+  - 或保留“目标叶的收起不动”，只让它在新方向上不起作用（现状），并评估 `solveSashCollapse` 的行为。
+
+### 4. 展平与拆分的“继承 minimumSize、maximumSize”若按整体替换理解，会丢掉叶自己两个轴上的约束，还把约定里的 0 变成活的
+- **严重程度**：重要
+- **类别**：边界、既有约定
+- **位置**：计划第 30、31 行；`grid-types.ts:68-70、82-84`；nb-story `book-grid.ts:48、59`
+- **现象**：
+  - 约束是两轴的，叶的 `minimumSize`、`maximumSize` 是内容自己的需要，与它在哪个父分支里无关。
+  - 计划写“幸存者继承分支的……，它自己原来沿父轴的这些属性作废”，没说是只改新父轴上的分量，还是整体替换。
+  - 按整体替换（手工搭，P2）：
+    - 竖向 `side` 里 `p1` 要宽 ≥200，`side` 没声明约束。删 `p2` 后 `p1` 的约束成了 `{0, 0}`。
+    - 480 宽时，展平前编辑区 287、`p1` 192，诊断含 `leaf-min`（p1 要求 200）。
+    - 展平后 `p1` 179，诊断只剩 `fixed-overflow`，没有 `leaf-min`，`p1` 低于自己声明的 200 却不报。
+    - 逐轴取交集则与展平前一致。
+  - “0 约定”：README 与 nb-story 都写 `size: {width: 240, height: 0}`、`maximumSize: {width: 300, height: 0}`。`size` 交叉轴的 0 是“不关心”，`maximumSize` 的 0 却是“上限 0”（t51 API 审查第 10 条）。拆分与展平正是把交叉轴变成主轴的操作，这些 0 就此生效。实测 P1：
+    - nb-story 风格的抽屉（`maximumSize.height: 0`）现状竖向拆分后，目标叶呈现 `333x0`，新叶 `333x599`。
+    - 若新分支也继承这条 `maximumSize`（手工搭），新分支报 `conflicting-bounds`（高：min 1、max 0）。
+- **为什么是问题**：同一个宿主对象，因为一次无关的拆分或展平，约束从内容自己的变成分支的，或者交叉轴从“没写”变成“上限 0”，宿主看不到是哪一步造成的。
+- **如何核实**：`bun /tmp/t52-api-probe/p1.ts`、`p2.ts`。
+- **建议改法**：
+  - 写成逐轴规则：新父轴上取幸存者与分支声明的交集（min 取大、max 取小），另一轴保留幸存者自己的。
+  - 补上根节点的展平。
+  - `maximumSize` 的 0 要另做决定：要么在 `instantiate` 里当“不限”（改既有约定，要问开发者），要么对新主轴上 `maximum === 0` 的分量给开发检查警告。
+
+### 5. 展平与拆分在运行时造出的“分支上的策略”进不了快照，也没有 ref，存档往返后保留像素的侧栏变回按比例分
+- **严重程度**：重要
+- **类别**：接口与合同、既有约定
+- **位置**：计划第 88 行（风险只写“旧快照不受影响”）；`grid-snapshot.ts:156-159`（叶按 `resolveRef` 取策略）、`:192-209`（分支只从当前树里同 id 的分支取）；README“约定”的恢复配方（`createGrid(null, …)` 再 `restore`）
+- **现象**（实测 P7，手工搭展平或拆分后的树）：
+  - `[editor, side(竖向, fixed 240, min 160)[p1, p2]]` 运行时，1000 宽和 1400 宽时 `side` 都是 240。
+  - 按 README 配方序列化再恢复到空网格（resolver 只给叶的策略）：1000 宽 `side` 239，**1400 宽 `side` 335**，保留像素没了。`restore` 还报了 `clamped: ["p1","p2"]`。
+  - 分支没有 `ref`，resolver 够不着；`declared` 来自当前树，新建的空网格没有。
+- **为什么是问题**：
+  - 这正是本 Task 要消灭的症状（“保留像素的侧栏变成按比例分”），只是搬到了存档往返上，没有诊断。
+  - 展平继承后叶带的是分支的 `sizing`，resolver 给的是叶自己的策略，恢复后同一片叶的 `sizing` 可能不同。
+  - 计划只测了内存里的树。
+- **如何核实**：`bun /tmp/t52-api-probe/p3.ts`，看 P7 四行。
+- **建议改法**：
+  - 加“存档往返”用例，并在 Spec 写明分支级策略不进快照。
+  - 让宿主能给分支策略，例如 `restore(snapshot, resolveRef, resolveBranch?)`。快照记 `sizing` 要升版本，代价大。
+  - 或回到发现 1 的“不展平”：分支留着，宿主按分支 id 给策略。
+
+### 6. `moveLeaf` 跨分支同向移动，会带着源分支的意图单位进目标分支，计划只处理了跨方向
+- **严重程度**：重要
+- **类别**：边界
+- **位置**：计划第 25 行；`grid.ts:694-724`
+- **现象**（实测 P3，手工搭结果）：
+  - `colA` 里 `a1`、`a2` 意图各 1，`colB` 里 `b1`、`b2` 意图各 300，最小高 80，容器 600。
+  - `moveLeaf("a1", "colB", 1)` 后 `a1` 意图仍是 1，呈现高度 80（只拿到最小高度），`b1`、`b2` 各 259。三块应各得约 200。
+- **为什么是问题**：
+  - 计划自己的规则是“单位由宿主定、同一分支里一致即可”，跨分支移动正好破坏它。
+  - 两列单位不同是常见情形：宿主给了 1，另一列拖动后意图已按 `intentPerPixel`（`grid.ts:364-369`）变成别的量级。
+  - 把面板挪到另一列是侧栏组的常见操作，结果是这块被压到最小高度，没有诊断，宿主也读不到单位。
+- **如何核实**：`bun /tmp/t52-api-probe/p3.ts`，看 P3 两行。
+- **建议改法**：
+  - 跨分支移动时，把按比例分的叶按相对份额换算到目标单位，或统一走“取平均”规则。
+  - 同向和跨方向用同一条规则，不要分两种。
+
+### 7. `addLeaf` 对按比例分的新叶没有“份额”入口，宿主要读兄弟意图猜单位，README 风格的像素量级意图会得到既不是像素也不是等分的结果
+- **严重程度**：重要
+- **类别**：接口形状（与 `splitLeaf` 不一致）、概念数
+- **位置**：计划第 22 到 24 行；`grid-types.ts:131-141`；README 起步的 `editor` 意图 600
+- **现象**：
+  - 同样是“按比例分的新叶”，`splitLeaf` 用 `ratio`，`addLeaf` 用 `size`，要宿主按兄弟的单位给（计划第 24 行）。
+  - 宿主要先 `find(兄弟).size[axis]` 读单位再自己算。`find` 文档写“只读”，返回的是内部可变对象。拖动之后单位由库定，宿主预知不了。
+  - README 让第三方习惯给像素量级意图。实测 P8：`[nav 固定 188, editor 600]`，1000 宽，再加一块按比例分、给 `size.width: 400`。
+
+    | 规则 | 新叶 | 编辑区 |
+    |---|---|---|
+    | 旧规则（现状） | 536 | 268 |
+    | 新规则（兄弟不动，手工搭） | 322 | 482 |
+
+    新叶既没拿到 400，也没拿到等分，“给它大约四百像素”没有入口。
+  - 省略 `size` 取平均，计划没定义平均读哪些兄弟：收起中的、意图 0 的、已触上限的算不算；全收起时取 1 还是取它们的意图。
+- **如何核实**：`bun /tmp/t52-api-probe/p3.ts` 的 P8。
+- **建议改法**：
+  - `addLeaf` 对按比例分的新叶也收 `ratio`，与 `splitLeaf` 同义，由库换算。`size` 只留给保留像素的叶。这是 t51 API 审查第 5 条建议 1，计划没采纳也没写不采纳的理由。
+  - “平均”的候选集合写成谓词：按比例分、未收起，与 `sharesByWeight` 同判据。
+
+### 8. `host.update` 没写清返回类型、失败与没改动时的行为，多步编辑的第一步失败容易被吞
+- **严重程度**：重要
+- **类别**：接口与合同、边界
+- **位置**：计划第 43 到 47 行；`useGridHost.ts:118-125`；`useGridLayout.ts:78-99`
+- **现象**：
+  - 类型：计划写 `update(edit): R`，又说没有网格时返回 `not-ready`，应是 `R | GridFailure<"not-ready">`。`R` 是 `void` 的编辑，宿主分不出“编辑做了”和“没有网格”。
+  - 多步的第一步失败被吞：
+    ```ts
+    host.update((g) => {
+        g.addLeaf("frame", 2, cardLeaf(key, w));   // limit-exceeded 或 duplicate-id，返回值被丢
+        return g.setSize(cardLeafId(other), w);     // 只看到最后一步
+    });
+    ```
+  - 没有回滚：失败或回调抛出时树已改了一半。计划没说抛出时发不发布。只在正常返回后发布的话，抛出就留下“树变了、画面和版本没变”，正是 `invalidate()` 遗漏的老问题，这次连提示也没有。
+  - 总是递增版本：回调什么都没改也发布并递增版本，会结束进行中的手势。`setCollapsed` 是“变了才重发”（`useGridHost.md` 第 59 行），两个入口规则不同。库看不出树变没变，`Grid` 没有变更计数。
+  - 回调里再调 `host.setCollapsed`、`host.invalidate`：各发布一次，版本多次递增，与“只发布一次”矛盾，计划没有诊断。
+  - `update` 不触发 `onApplied`，要存盘（README 起步的 `save()`）只能每个调用点自己调，文档要写。
+- **如何核实**：读代码得出（`useGridLayout.ts:78-99` 无条件发布）。
+- **建议改法**：
+  - 返回类型 `R | GridFailure<"not-ready">`。回调抛出时 `finally` 里照常发布，再把异常抛出。
+  - 在 `Grid` 上加变更计数（见发现 9），计数没变就不发布、不递增版本。
+  - 开发检查里加“`update` 回调内调 `host.*`”的警告。
+  - 文档写明没有回滚，多步要逐步看返回值，并给配方。
+
+### 9. “忘了通知”的检查只在手势开始时触发，且没解决根因：`Grid` 是改了也不通知的可变对象
+- **严重程度**：建议
+- **类别**：上游选择、诊断
+- **位置**：计划第 46 行；`dev-checks.ts`；`useGridHost.ts:97-106`；`useGridLayout.ts:171`
+- **现象**：
+  - 宿主原地改了树、忘了 `invalidate()`，现象在改的那一刻（画面不变），警告却要等用户拖一次分隔条才发。一直不拖就没有提示。
+  - 判据（重算布局再比对各节点呈现尺寸）可行，但要写清比的是呈现尺寸，不是意图。
+  - `useGridLayout.ts:171` 的 `watch` 只看 grid 实例、extent、contextKey，看不到原地的树改动。
+- **为什么是问题**：计划为“忘了通知”加的是更晚的一条警告和一个 `update`，没动“Grid 改了树却谁也不知道”这个根因。
+- **建议改法**（改上游的候选）：
+  - `Grid` 加只读变更计数 `version()`，每次成功的结构操作、`setSize`、`setCollapsed`、`resizeBranches` 后递增。
+  - `update` 据此只在变了才发布（发现 8）。开发模式在 `nextTick` 比较它与最近发布时的值，改完当下就能警告。
+  - 或让 `Grid` 提供 `subscribe`，host 自动重发布，多数宿主不再需要 `invalidate()`。
+  - 代价：公开面多一个，nb-workbench-layout 的测试要核对。
+
+### 10. `setSize` 几处没写：不返回生效值、`restoreSize` 的下限、对分支是否适用、与 `resize`/`resizeBranch` 并存
+- **严重程度**：建议
+- **类别**：接口形状
+- **位置**：计划第 34 到 41 行；`grid.ts:493-500`；`grid-geometry.ts:296-311`
+- **现象**：
+  - 不夹、不返回生效值：`setSize("card", 200)` 而最小宽 280，存 200、呈现 280，返回 `{ok: true, changed: true}`，宿主看不到有效值（`resize` 返回 `applied`）。t51 API 审查第 8 条，计划没采纳也没驳。
+  - 收起中改 `restoreSize` 写“改成新值”，但 `normCollapse` 的不变量是 `restoreSize >= collapsedSize`，`collapsedRemembering` 是夹的。`setSize(id, 20)` 而 `collapsedSize` 44 时怎么办没写。
+  - 没收起的节点 `restoreSize` 不动，宿主按 README 存 `find(id).collapse` 会得到旧值，下次收起才重写。
+  - 草稿一、二的“区域”建模里保留像素的是分支。计划写“保留像素节点”，没说对分支适用，测试清单只有叶。
+  - 改保留像素节点的意图现在有三个入口：`resize`、`resizeBranch(es)`、`setSize`。`grid.md` 要写选哪个，`resize` 注释里“新消费者应优先使用 `resizeBranches`”也要改。
+- **建议改法**：
+  - 返回里带存下的 `size`。
+  - `restoreSize` 夹到 `collapsedSize` 之上，写进 Spec。
+  - 测试加分支、`px < collapsedSize`。
+  - `grid.md` 写三个入口的选择表。
+
+### 11. 保留像素新叶缺意图报 `size-missing`：`createGrid` 没有报失败的通道，`restore` 不查，“主轴为 0 当缺”与显式 0 分不开
+- **严重程度**：建议
+- **类别**：接口与合同
+- **位置**：计划第 24、38 行；`grid.ts:99-126`（`createGrid` 返回 `Grid`，`instantiate` 无失败返回）；Spec 失败 1
+- **现象**：
+  - 计划写“建树同样核对”，`createGrid` 的返回类型不是结果。要么抛出（违反失败 1“不抛出未处理异常”），要么静默，计划没写。
+  - `restore` 是第三条建树路径：快照 `size` 可以是 0，resolver 再给 `fixed`，同样得到 0 宽，计划不查。
+  - “省略或主轴为 0”都当缺，显式 0 与省略分不开。`layout-project.ts:239` 的条叶用 `[main]: thickness`，`thickness` 为 0 会落进新检查。我没核实 `barThickness` 能不能为 0。
+  - `invalid-argument` 的 `field` 联合里没有 `size-missing`，计划没写带不带 `id`（其余几项都带）。
+- **建议改法**：
+  - 失败返回只放在 `addLeaf`、`splitLeaf`，`createGrid`、`restore` 走开发模式警告。
+  - 缺的判据用 `size === undefined`，不用 0。
+  - 失败形状写成 `{field: "size-missing", id}`。
+
+### 12. `resize` 对按比例分的意图仍按像素夹，同一页文档出现两套意图单位
+- **严重程度**：建议
+- **类别**：既有约定、概念数
+- **位置**：计划第 22 行（“`resize` 的语义本 Task 不改”）；`grid.ts:162-173`、`:242-272`
+- **现象**（实测 P9）：
+  - 三块按比例分的叶，意图各 1、最小宽 80。`resize("a","width",0.5)` 返回 `applied: 79`，三块意图都变成 80。
+  - 呈现仍是等分 297，所以看不出，但之后任何 `addLeaf` 的意图都要按 80 量级给。
+- **为什么是问题**：
+  - 第三方先 `resize` 一次，再 `addLeaf` 省略 `size`，取到的“平均”是 80 量级，单位在宿主不知情时变了。
+  - 计划新规则把意图当份额，`resize` 在同一棵树上把它当像素夹，`grid.md` 得同时写两套单位。
+  - 计划“不改”只说了不扩范围，没说这两个入口的单位为什么可以不一致。
+- **建议改法**：
+  - 让 `resize` 对按比例分的节点按比例缩放、不夹像素边界（t51 API 审查第 5 条建议 2）。
+  - 至少在计划“不做与风险”列为已知问题，`grid.md` 写“`resize` 之后意图的量级会变”。
+
+### 13. 计划测试没有覆盖上面几类边界
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：计划第 49 到 60 行
+- **现象**：计划里没有这些用例：
+  - 根节点展平。
+  - 展平与拆分的逐轴约束（发现 4）。
+  - 存档往返（发现 5）。
+  - 跨分支同向移动（发现 6）。
+  - `update` 回调抛出、没改动、回调内再调 `host.*`（发现 8）。
+  - 拆分后用目标叶 id 读 `collapse`（发现 3）。
+  - 新叶是保留像素的 `splitLeaf`（发现 2）。
+  - 收起中的节点 `setSize` 小于 `collapsedSize`，以及 `setSize` 对分支。
+  - 开发检查里“没改树时不警告”的误报用例，以及 `sashSize` 函数读宿主状态（nb-story 的 `compact()`）的用例。
+- **建议改法**：
+  - 把以上加进测试清单。
+  - 计划第 56 行“现有用例里按旧语义写的数值逐处核对”，t51 设计审查第 8 条已指出现有增删用例用的都是按比例分的叶，要直说“很可能一个都不用改”。
+
+---
+
+## 对四个问题的回答
+
+- **缺什么**：
+  - 宿主得知“展平、拆分搬了哪个 id、哪条收起”的通道（发现 1、3）。
+  - 按比例分新叶的份额入口（发现 7）。
+  - 从单叶或空列建保留像素侧栏的路（发现 2）。
+  - 变更计数与多步编辑的回滚说明（发现 8、9）。
+  - 分支级策略的存档路径（发现 5）。
+  - 运行时改收起策略的入口，计划已推给 t45，草稿一照旧卡在它。
+- **好不好用**：
+  - 单步、兄弟不动的 `addLeaf`/`removeLeaf` 好用，草稿一明显更短，固定栏不再被压。
+  - 一涉及“一列几块”的区域，宿主就要自己维护“区域此刻是谁”（草稿二的三态）。
+- **概念多不多**：多，而且多是坑。
+  - 展平：id 消失、属性搬家。
+  - 拆分：收起搬家、新叶只能按比例分。
+  - 意图单位：结构操作是份额，`resize` 是像素夹取，`ratio` 只有 `splitLeaf` 有。
+  - 三种改收起：`grid`+`invalidate`、`host.setCollapsed`、`host.update`。
+  - 三种改尺寸：`resize`、`resizeBranch(es)`、`setSize`。
+  - `maximumSize` 的 0。
+- **名字与形状是否一致**：
+  - 失败码，以及 `setSize` 的 `{ok, changed, collapse?}`，与 `setCollapsed` 一致。
+  - `addLeaf` 收 `size`、`splitLeaf` 收 `ratio` 不一致（发现 7）。
+  - `host.setCollapsed` 有包装而 `host.setSize` 没有，靠 `host.update`，可接受。
+- **哪里会写错**：
+  - 展平后用旧 id（发现 1）。
+  - 拆分后用目标叶 id 读收起（发现 3）。
+  - `update` 里第一步失败被吞（发现 8）。
+  - `addLeaf` 给像素量级的按比例分意图（发现 7）。
+  - 跨列移动（发现 6）。
+  - `maximumSize: {…, height: 0}`（发现 4）。
+
+## 未发现问题的方面
+
+- “兄弟不动”这条规则本身站得住：
+  - `shiftSiblings` 是 `addLeaf`、`removeLeaf`、`moveLeaf`、`resize` 唯一改兄弟意图的地方。
+  - 拿掉前三处调用后，“收起中的兄弟被写成 0”和“按比例分的意图被夹成像素”在这三个入口上确实消失。
+  - 保留像素的兄弟不动，也符合开发者的决定。
+- 省略意图时取平均：新叶恰好得到按比例分余量的 `1/(n+1)`，推导是 `mean/(Σ+mean)`，不依赖兄弟单位。
+- 失败码的选择与既有的 `resize`、`setCollapsed`、`not-collapsible` 分工一致：
+  - `not-finite`（`field: "size"`）、`invalid-argument`（`size-negative`）、新码 `wrong-sizing`。
+  - 码集合开放（ADR 0054 第 4 条）。
+  - 失败 6 原样转交，提交类型自动带上新码。
+- `setSize` 与 `setCollapsed` 的返回形状、根节点的 `invalid-argument` 加 `field: "root"` 一致。收起中同步 `restoreSize` 的方向对（t51 设计审查第 5 条）。
+- `splitLeaf` 的“新轴意图为 0 时取 1”，新分支只有两个孩子，遗留意图不影响结果。
+- `host.update` 不另做 `host.setSize`、保留 `host.setCollapsed`，不破坏已有宿主。
+- Spec 输出编号 153 到 156 紧接现有 152，没有断号。
+
+## 数量
+
+阻断 0，重要 8，建议 5。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13

@@ -1,0 +1,58 @@
+# t51 实现审查报告（提交 4aebbc14d）
+
+### 1. 每次渲染对宿主问了多次，与 Spec 152 的“各问一次”不符
+- **严重程度**：建议
+- **位置**：`packages/nb-layout/src/vue/NestedGrid.vue` 的 `sashLookOf`（约 317 行）、`sashAriaLabel`（约 346 行）、模板第 713 行
+- **现象**：`sashLookOf` 每次调用都重新问宿主，并执行 `sashLooks.set`。模板里一条线有三处调用它：
+  - `data-sash-kind` 一处。
+  - `sashProps` 里的 `sashAriaLabel`，是新增的一处。
+  - `sashBoxStyle` 一处。
+
+  所以每条线每次渲染问 `paneLabel` 6 次（前后各 3 次）。`sashKind` 和 `sashStyle` 各 3 次，原来是 2 次。
+- **为什么是问题**：Spec 152 写的是“相邻两块各问一次”。拖动预览会逐帧重渲染，宿主的 `paneLabel` 多半是翻译函数，调用次数随线数乘 6 增长。没有测试数调用次数，所以不会红。
+- **建议改法**：每条线每次渲染只算一次。可以在渲染时按 key 缓存当次结果，也可以把 look 算进 `sashProps` 一并返回，模板另外两处从它取。至少要把 Spec 的措辞改成“每次渲染可能多次”。
+
+### 2. 文档说“缩回去的分隔线”，代码里没有这种线；交换小节的旧句子也没更新
+- **严重程度**：建议
+- **位置**：`NestedGrid.md` 第 133 行（`paneLabel` 注释）、Spec 152、README 的 Task 记录“完成”一节；`NestedGrid.md` 第 39 行、第 214 行
+- **现象**：
+  - 把分隔线标 `leaving` 的只有 `planSwap`（`grid-swap.ts:192`，带 `frozen`）。`leavingPlacements`（`grid-motion.ts:283`）只产出叶，缩回去的叶旁边的线在那一帧就不在 `items` 里。所以新文字里的“滑出去、缩回去的分隔线用离开前最后一次的名字”，“缩回去”是空的。Task 记录里“滑出去、缩回去的分隔线并进 `sashLooks`”同样不准确。
+  - `NestedGrid.md` 第 39 行仍写“滑出去的分隔线不再问宿主的 `sashKind`、`sashStyle`……沿用它离开前最后一次的结果”，没把 `paneLabel` 补进去。同一件事分两处写，读者会以为 `paneLabel` 不在其内。
+  - `paneLabel` 注释末尾的“默认不写”是照抄 `sashKind` 的。`paneLabel` 没有要写的东西，应写“缺省用节点 id”。
+  - 第 214 行讲读屏名称来自 `LAYOUT_TEXT_KEY` 注入的翻译函数，没提两侧的名字可由 `paneLabel` 给。
+- **为什么是问题**：文档承诺了不存在的行为，宿主作者会去找“缩回去时线的名字”的表现。
+- **建议改法**：三处文字去掉“缩回去”，只留“交换里滑出去的”。第 39 行补上 `paneLabel`。“默认不写”改成“缺省用节点 id”。第 214 行补一句指向 `paneLabel`。
+
+### 3. 保留离开的线的显示名，对读屏用户没有可观察效果
+- **严重程度**：建议
+- **位置**：`NestedGrid.vue:318`；新用例“滑出去的分隔线用离开前最后一次的显示名”
+- **现象**：离开的线经 `SashHandle` 渲染成 `aria-hidden="true"` 加 `inert`（`SashHandle.vue:295-296`，`detached: true`），不进 `aria-owns`，读屏读不到。保留的名字只存在于这个隐藏元素的属性里，测试断言的也只是这个属性。
+- **为什么是问题**：这不是 bug，Spec 152 要求如此，行为也正确。但它多了一个要随渲染记录、随布局变化清理的字段，换来的只是属性值与“应展示给读屏的名字”一致，收益很小。以后若有人放开 `aria-hidden`，这个保留才有意义。
+- **建议改法**：可以保留。想少一点机制，可以让离开的线直接用节点 id，并在 Spec 里写明。这需要开发者决定，建议不单为它返工。
+
+### 4. 测试漏掉的情形
+- **严重程度**：建议
+- **位置**：`NestedGrid.dom.test.ts` 新增两条、`splitter.dom.test.ts` 新增一条
+- **现象**：
+  - 没有“宿主语言切换后读屏名称跟着变”的用例。现有 NestedGrid 用例换的是函数引用（`setProps`），走的是 props 变化。真实宿主往往是稳定函数加响应式 locale，要靠渲染里的依赖跟踪，这条没覆盖。
+  - `Splitter` 只测了挂载时，没测挂载后改 `panels[i].label` 会更新，也没测垂直方向（`resizeHeight`）。
+  - 没测离开的线没有记录时回退到节点 id，也没测记录随线离开被清掉。
+  - 没有数调用次数的断言（见第 1 条）。
+- **为什么是问题**：计划强调的“配置变了跟着更新”只靠实现碰巧成立，没有用例守着。
+- **建议改法**：补一条 NestedGrid 用例（稳定函数加响应式 locale，改 locale 后断言 `aria-label`），再补一条 Splitter 用例（挂载后改 `label`）。
+
+## 未发现问题的方面
+
+- **离开的判定**：对线打 `leaving` 的只有 `planSwap`，且总与 `frozen` 同时出现。`sashLookOf` 的 `sash.leaving === true` 与 `sashProps` 的 `sash.frozen !== undefined` 覆盖同一批线。留着缩回去的叶旁边的线在那一帧就不在 `items` 里，没有漏网的线。
+- **记录的键**：键是 `sash:[子节点 id 对]`。离开的线两侧的节点已不在新布局里，不会与新布局的线撞键，也不会被新线的记录覆盖。
+- **清理时机**：`layers` 的 watcher 默认 flush 为 pre，先 `motion.update` 再清理，此时离开的线已在 `layers` 里，记录不会被误删。
+- **离开前的名字**：离开的线首次渲染前，上一次渲染已记下它的名字。同一次 flush 里既换 `paneLabel` 又换布局，记录的仍是离开前的值。测试第二次 `setProps` 里，`paneLabel` 对 a1、a2 返回 undefined，能区分“用记录”和“重新问”。
+- **Splitter**：`panelLabels` 与 `panelIds` 下标对应。手势事件用的 `sashLabel(index)` 仍是 `before~after` 的面板 id，没被显示名污染。其它文案（`ariaValueText` 等）不涉及面板名。
+- **公开面**：
+  - `NestedGrid`、`Splitter`、`SplitterPanelConfig` 都在 SDK 的 `components.ts` 重导出，CHANGELOG 的“插件 SDK”说法属实。
+  - README 新行的属性名不带反引号，`readme.test.ts` 只核对反引号里的名字，`NestedGrid`、`Splitter` 都是 `./vue` 导出。
+  - 新增的 md 文字没有 Spec 编号，也没有新链接。
+
+严重程度计数：阻断 0、重要 0、建议 4
+
+有效发现：1、2、3、4

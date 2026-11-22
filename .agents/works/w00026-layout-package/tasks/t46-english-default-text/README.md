@@ -38,6 +38,7 @@ Claude Sonnet，阻断 0、重要 0、建议 6，都成立（[证据](evidences/
 ## 验证
 
 - nb-layout `typecheck`、`test`（Bun 398 条、Vitest 270 条）；应用 `host-text`、`text-engine` 测试 37 条与 `typecheck`；nb-story `typecheck`、守卫测试、`build:web`、`viewer.e2e.ts` 的“外壳”与 `frame.e2e.ts` 8 条（并入 t44 之后）；开发者面板 `typecheck` 与 `web-text`、`web-build`、`panel-server` 三个测试文件 27 条。
+- 合入后补跑（master `36891fd68`）：nb-workbench-layout `test`（Bun 267 条、Vitest 48 条）；应用 `test:vitest` 1024 条；开发者面板 `web-build`、`web-text` 3 条；应用 e2e `lab-sortable-list`（断言“拖到这里”）与 `workbench-containers`（按读屏名称取分隔线）43 条。应用的组件与 Lab 都在注入了宿主文字的根下，缺省改英文不影响它们。
 - 未验证：应用的英文窗口（本来就注入，不受影响）。
 
 ## 下一步

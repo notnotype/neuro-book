@@ -808,6 +808,27 @@ describe("splitter 程序发布尺寸", () => {
         expect(firstSash?.getAttribute("aria-valuenow")).toBe("0");
     });
 
+    it("分隔线的显示名（nested-grid 输出 152）：面板配置的 label 代进读屏名称，没给或空串时用面板 id", async () => {
+        const wrapper = mountSplitter([
+            {id: "outline", label: "大纲", defaultSizePx: 200},
+            {id: "editor", label: "", defaultSizePx: 300},
+            {id: "inspector", defaultSizePx: 200},
+        ]);
+        await nextTick();
+        const [first, second] = sashElements(wrapper);
+        expect(first?.getAttribute("aria-label")).toBe("Resize width between 大纲 and editor");
+        expect(second?.getAttribute("aria-label")).toBe("Resize width between editor and inspector");
+    });
+
+    it("面板的 label 挂载后改了，读屏名称跟着变；竖向分栏念高度", async () => {
+        const wrapper = mountSplitter([{id: "top", label: "上", defaultSizePx: 200}, {id: "bottom", defaultSizePx: 300}], {direction: "vertical"});
+        await nextTick();
+        expect(sashElements(wrapper)[0]?.getAttribute("aria-label")).toBe("Resize height between 上 and bottom");
+        await wrapper.setProps({panels: [{id: "top", label: "顶部", defaultSizePx: 200}, {id: "bottom", label: "底部", defaultSizePx: 300}]});
+        await nextTick();
+        expect(sashElements(wrapper)[0]?.getAttribute("aria-label")).toBe("Resize height between 顶部 and 底部");
+    });
+
     it("程序发布尺寸不重挂叶内容", async () => {
         const mounts: string[] = [];
         const Leaf = defineComponent({

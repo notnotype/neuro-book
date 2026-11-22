@@ -36,7 +36,7 @@
 - 带上的项带 `data-swap`；离开的一组带 `data-leaving`、`inert`；组里的分隔线两侧尺寸冻结在离开前。
 - 布局是异步算出来的宿主，在拿到新布局、写进属性的同一个同步段里给 `swap`。
 - 裁切窗应当等于两组静止时的外观：过渡结束那一帧摘掉裁切，窗比静止时小的部分会一下子露出来。
-- 滑出去的分隔线不再问宿主的 `sashKind`、`sashStyle`（两侧已经不在宿主的布局里），沿用它离开前最后一次的结果。
+- 滑出去的分隔线不再问宿主的 `sashKind`、`sashStyle`、`paneLabel`（两侧已经不在宿主的布局里），沿用它离开前最后一次的结果。
 - 宿主按文档列的叶对不上呈现时（被收走、没呈现出来），不在呈现里的忽略。交换开始之后才挂上来的内容项按它的叶属于哪一组裁，但从终点出现（已知限制）。
 - 网格同时只有一条带：进行中的过渡全部送到终点的做法同 `settleMotion`，别处正在长出来、缩回去的也一起。
 - 交换中来了一次不带交换的布局变化，带照旧走完，裁切窗与静止的底不跟着变（已知限制）。
@@ -129,6 +129,11 @@ type NestedGridProps = {
     /** 宿主让这条分隔线此刻不能拖（指针、键盘都不行，线照画），例如一列分节全部收成标题行时；缺省都能拖。 */
     sashDisabled?: (sash: {branch: string; before: string; after: string}) => boolean;
     /**
+     * 节点的显示名（宿主翻译好的），代进分隔线的读屏名称“调整 {before} 与 {after} 的宽度”；挨着分支时问分支 id。
+     * 没给、返回 undefined 或空串时用节点 id。交换里滑出去的分隔线用离开前最后一次的名字。一次渲染里可能问几次（同 `sashKind`），要便宜、没有副作用。
+     */
+    paneLabel?: (id: string) => string | undefined;
+    /**
      * 叶在外框里画成的卡片：inset 是相对外框上右下左的内缩，radius 是左上、右上、右下、左下的圆角，都是 CSS 长度。过渡中外框露出、盖住保持尺寸的内层时按它裁；默认按外框的矩形裁。
      * 给了 fill 时形状可以伸出外框（内缩为负）：外框里的东西照旧裁在外框里，伸出去的部分画成 fill，这块外框画在别的外框下面，伸到邻居那里的部分被邻居盖住。
      */
@@ -206,7 +211,7 @@ expose 的读数：
 ## 隐藏通道理由
 
 - `state:local`：保存拖动预览、布局盒测量和手势 scope 生命周期状态，仅在本实例的交互期间存在。
-- `state:inject`：分隔线的读屏名称与取值文字经 `LAYOUT_TEXT_KEY` 注入的翻译函数取，同 [Splitter](Splitter.md) 的“文字”。另向后代的分隔线（`SashHandle`）提供共享 sash gesture scope，使整个 Grid 共用一次会话；这让交叉处的两根轴能一起预览和一次提交，避免每个分支各自提交半场手势。叶槽里再嵌一个公开 `NestedGrid` 或独立 `Splitter` 会得到自己的 scope。
+- `state:inject`：分隔线的读屏名称与取值文字经 `LAYOUT_TEXT_KEY` 注入的翻译函数取，同 [Splitter](Splitter.md) 的“文字”；名称里两侧的名字由 `paneLabel` 给，没给时是节点 id。另向后代的分隔线（`SashHandle`）提供共享 sash gesture scope，使整个 Grid 共用一次会话；这让交叉处的两根轴能一起预览和一次提交，避免每个分支各自提交半场手势。叶槽里再嵌一个公开 `NestedGrid` 或独立 `Splitter` 会得到自己的 scope。
 - `env:global`：`useSashGesture` 在手势根、`window` 和 `document` 上监听指针捕获/释放、窗口失焦与 Escape，并按 viewport pointer 坐标命中分隔线；组件卸载或会话结束时移除监听。该通道为手势生命周期服务，不是常驻快捷键。分隔线的设备像素对齐（`useSashSnap`）在 `window` 上常驻 `resize` 与捕获阶段 `scroll` 监听，页面上任何滚动（包括叶里编辑器的）都排一帧、读一遍所有分隔线的位置；`useDevicePixelRatio` 监听 `resize` 与 `matchMedia`。模块级的焦点注册表（`grid-focus.ts` 的两个 `WeakMap`）是同一页面上所有 grid 共享的：同一页面只能有一份 nb-layout。
 
 ## 上游边界

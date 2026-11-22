@@ -34,13 +34,14 @@ import type {
     GridResizeResult,
     GridRestoreResult,
     GridResult,
+    GridSetSizeResult,
     GridSizing,
     GridSnapshot,
     GridSplitInput,
     SashCollapseState,
 } from "./grid-types";
 import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
-import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
+import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
 import {gridFailure} from "./grid-failure";
 import {parseSnapshot, serializeTree} from "./grid-snapshot";
 
@@ -88,6 +89,11 @@ export type Grid<T> = {
      * 改的是活树：用 `useGridHost` 时经它的 `setCollapsed`，直接调的宿主之后要自己 `invalidate()`。
      */
     setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
+    /**
+     * 把一块保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`（Spec 输出 154）：夹进它自己展开时的约束，兄弟不动，不读布局。
+     * 收起中的同时改记忆的恢复尺寸，展开与 Enter 回到同一个尺寸。改的是活树，规则同 `setCollapsed`。
+     */
+    setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
     /** 当前位置下的呈现尺寸；不改变意图，可由宿主在视口变化时反复调用。 */
@@ -158,9 +164,12 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         return node.size[axis] - before;
     }
 
-    /** 同分支兄弟沿 axis 共同让出/吸收 `target`，返回实际生效的总增量（触界时小于请求值）。 */
+    /**
+     * `resize` 拖按比例分的节点时，按比例分、没收起的兄弟共同让出/吸收 `target`，返回实际生效的总增量（触界时小于请求值）。
+     * 保留像素的兄弟与收起中的兄弟不进来（Spec 输出 153）：前者的意图是像素偏好，后者的意图是展开后要回到的值。
+     */
     function shiftSiblings(parent: GridBranch<T>, sourceId: string, axis: GridAxis, target: number): number {
-        const siblings = parent.children.filter((child) => child.id !== sourceId);
+        const siblings = parent.children.filter((child) => child.id !== sourceId && child.sizing !== "fixed" && child.collapse?.collapsed !== true);
         if (siblings.length === 0 || target === 0) {
             return 0;
         }
@@ -170,6 +179,19 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             child.size[axis] = assigned[index]!;
         });
         return siblings.reduce((sum, node) => sum + node.size[axis], 0) - before;
+    }
+
+    /**
+     * 按比例分的节点进一个分支时取的份额（Spec 输出 153）：兄弟的意图不动，新来的拿“平均一份”，布局时自然按比例重分。
+     * 候选含收起中的兄弟（它的意图就是展开后的份额）；候选的意图全是 0 时取 0，和它们一起均分；没有候选才取 1。
+     */
+    function meanWeightShare(branch: GridBranch<T>, axis: GridAxis): number {
+        const candidates = branch.children.filter((child) => child.sizing !== "fixed");
+        if (candidates.length === 0) {
+            return 1;
+        }
+        const positive = candidates.map((child) => child.size[axis]).filter((value) => value > 0);
+        return positive.length === 0 ? 0 : positive.reduce((sum, value) => sum + value, 0) / positive.length;
     }
 
     /** 空分支塌陷 / 单子节点塌陷：用幸存者顶替分支自身，并继承外部分配以保持父分支总量。 */
@@ -257,11 +279,16 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         if (!Number.isFinite(delta)) {
             return gridFailure("not-finite", `The resize delta is not finite: ${String(delta)}`, {field: "delta", value: String(delta)});
         }
-        if (delta === 0) {
+        // 收起中的节点意图是展开后要回到的值，收起不写意图（Spec 输出 147）：按增量改会被收起的刚性范围夹成 `collapsedSize`。
+        if (delta === 0 || hit.node.collapse?.collapsed === true) {
             return {ok: true, applied: 0};
         }
         const before = hit.node.size[axis];
         const applied = shiftNode(hit.node, axis, delta);
+        if (hit.node.sizing === "fixed") {
+            // 保留像素的节点只改它自己（Spec 输出 153）：差额由布局里按比例分的兄弟吸收，没有就留白，同增删。
+            return {ok: true, applied};
+        }
         // 兄弟触界只能让出可用空间：把没能被吸收的部分退回主动节点，父分支总量守恒。
         const absorbed = shiftSiblings(hit.parent, id, axis, -applied);
         const residual = -applied - absorbed;
@@ -519,6 +546,42 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         return {ok: true, changed: true, collapse: {...node.collapse}};
     }
 
+    function setSize(id: string, px: number): GridSetSizeResult {
+        const hit = find(id);
+        if (!hit) {
+            return gridFailure("not-found", `Unknown node id: ${id}`, {id});
+        }
+        if (!hit.parent) {
+            return gridFailure("invalid-argument", `The root has no parent branch to size along: ${id}`, {field: "root", id});
+        }
+        const node = hit.node;
+        if (node.sizing !== "fixed") {
+            return gridFailure("wrong-sizing", `${id} is not fixed-size; its size is a share among its siblings`, {id, expected: "fixed"});
+        }
+        if (!Number.isFinite(px)) {
+            return gridFailure("not-finite", `The size is not finite: ${String(px)}`, {field: "px", id});
+        }
+        if (px < 0) {
+            return gridFailure("invalid-argument", `The size must not be negative: ${String(px)}`, {field: "px-negative", id});
+        }
+        const axis = axisOf(hit.parent.orientation);
+        // 夹进它自己的范围，同 `resize`、`resizeBranch` 写保留像素的意图，越界的值不会经收起抄进 `restoreSize`；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
+        const bounds = constraintOnAxis(node, axis, sashSize);
+        const size = clampAxis(px, bounds.low, bounds.high);
+        let changed = node.size[axis] !== size;
+        if (changed) {
+            node.size[axis] = size;
+        }
+        if (node.collapse?.collapsed === true) {
+            const restoreSize = Math.max(node.collapse.collapsedSize, size);
+            if (node.collapse.restoreSize !== restoreSize) {
+                node.collapse = {...node.collapse, restoreSize};
+                changed = true;
+            }
+        }
+        return {ok: true, changed, size, ...(node.collapse === undefined ? {} : {collapse: {...node.collapse}})};
+    }
+
     function resizeBranch(
         branchId: string,
         axis: GridAxis,
@@ -566,9 +629,12 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             const branch = parent.node;
             const main = axisOf(branch.orientation);
             const inserted = instantiate(leaf);
+            if (inserted.sizing !== "fixed" && !(inserted.size[main] > 0)) {
+                inserted.size[main] = meanWeightShare(branch, main);
+            }
             const at = Math.min(Math.max(0, index), branch.children.length);
+            // 兄弟的意图不动（Spec 输出 153）：保留像素的照旧呈现，按比例分的份额在布局时重分。
             branch.children.splice(at, 0, inserted);
-            shiftSiblings(branch, leaf.id, main, -inserted.size[main]);
             return {ok: true};
         },
 
@@ -645,16 +711,12 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 return {ok: true};
             }
             const parent = hit.parent;
-            const main = axisOf(parent.orientation);
-            const removed = hit.node.size[main];
+            // 兄弟的意图不动（Spec 输出 153）；只剩一个孩子时照旧展平（已知限制见 grid.md）。
             parent.children = parent.children.filter((child) => child.id !== id);
             if (parent.children.length === 0) {
                 collapse(parent, null);
-            } else {
-                shiftSiblings(parent, id, main, removed);
-                if (parent.children.length === 1) {
-                    collapse(parent, parent.children[0]!);
-                }
+            } else if (parent.children.length === 1) {
+                collapse(parent, parent.children[0]!);
             }
             return {ok: true};
         },
@@ -690,6 +752,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 target.node.children.splice(to, 0, hit.node);
                 return {ok: true};
             }
+            // 保留像素的意图只对父分支主轴有意义，交叉轴照约定是 0：换方向后宽度没有来处。不悄悄改成按比例分，那样来回移动回不去。
+            if (hit.node.sizing === "fixed" && hit.parent && axisOf(hit.parent.orientation) !== axisOf(target.node.orientation)) {
+                return gridFailure("invalid-argument", `A fixed-size node cannot move into a branch of the other orientation: ${id} -> ${parentId}`, {
+                    field: "fixed-cross-axis",
+                    id,
+                });
+            }
 
             const nextTree = tree ? cloneNode(tree) : null;
             const originalTree = tree;
@@ -704,9 +773,8 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             }
             const source = stagedHit.parent;
             const leaf = stagedHit.node as GridLeaf<T>;
-            const sourceMain = axisOf(source.orientation);
+            // 来源与目标的兄弟意图都不动（Spec 输出 153）。
             source.children = source.children.filter((child) => child.id !== id);
-            shiftSiblings(source, id, sourceMain, leaf.size[sourceMain]);
             if (source.children.length === 0) {
                 collapse(source, null);
             } else if (source.children.length === 1) {
@@ -717,10 +785,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 tree = originalTree;
                 return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
             }
-            const main = axisOf(destination.node.orientation);
+            if (leaf.sizing !== "fixed") {
+                // 按比例分的意图是来源分支里的相对份额，到了别的分支没有意义：按新叶重取目标分支的平均。
+                const main = axisOf(destination.node.orientation);
+                leaf.size = {...leaf.size, [main]: meanWeightShare(destination.node, main)};
+            }
             const at = Math.min(Math.max(0, index), destination.node.children.length);
             destination.node.children.splice(at, 0, leaf);
-            shiftSiblings(destination.node, leaf.id, main, -leaf.size[main]);
             return {ok: true};
         },
 
@@ -728,6 +799,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         resizeBranch,
         resizeBranches,
         setCollapsed,
+        setSize,
 
         serialize() {
             return serializeTree(tree, encodeRef);

@@ -55,6 +55,8 @@ const text = useLayoutText();
 const axis = computed<GridAxis>(() => props.direction === "horizontal" ? "width" : "height");
 const panelIds = computed(() => props.panels.map((panel, index) => panel.id ?? `panel-${index}`));
 const panelIdsKey = computed(() => panelIds.value.join("|"));
+/** 分隔线读屏名称里的显示名：面板配置的 `label`，没给或空串时用面板 id。 */
+const panelLabels = computed(() => props.panels.map((panel, index) => (panel.label === undefined || panel.label === "" ? panelIds.value[index]! : panel.label)));
 const instanceId = useId();
 const domPanelIds = computed(() => panelIds.value.map((id) => `${instanceId}-${id}`));
 
@@ -336,7 +338,7 @@ onBeforeUnmount(() => {
                     :after-px="renderedSizes[index + 1] ?? 0"
                     :disabled="props.disabled"
                     :ends="{start: null, end: null}"
-                    :ariaLabel="text(axis === 'width' ? 'splitter.resizeWidth' : 'splitter.resizeHeight', {before: panelIds[index] ?? '', after: panelIds[index + 1] ?? ''})"
+                    :ariaLabel="text(axis === 'width' ? 'splitter.resizeWidth' : 'splitter.resizeHeight', {before: panelLabels[index] ?? '', after: panelLabels[index + 1] ?? ''})"
                     :ariaControls="domPanelIds[index]"
                     :ariaMin="Math.round(panelBounds(props.panels[index]).low)"
                     :ariaMax="ariaMax(props.panels[index], availableMain)"

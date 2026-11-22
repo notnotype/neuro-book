@@ -114,6 +114,7 @@ function toggleFiles(): void {
 | 建树、拆分、关闭、移动叶 | `createGrid`，`grid.splitLeaf`、`grid.removeLeaf`、`grid.moveLeaf`、`grid.addLeaf` | 根 |
 | 把网格画出来、接手势 | `NestedGrid` 加 `useGridHost` | `./vue` |
 | 收起与展开一块面板 | `host.setCollapsed`（直接调 `grid.setCollapsed` 的，之后要调 `host.invalidate()`） | `./vue`、根 |
+| 把一块保留像素的设成已知宽度（偏好、菜单） | `grid.setSize`，之后调 `host.invalidate()` | 根 |
 | 保存与恢复 | `grid.serialize()`、`grid.restore(快照, 解析引用)` | 根 |
 | 键盘在叶之间走（F6） | `moveGridFocus`，键位由宿主登记 | `./vue` |
 | 量一个盒子的布局尺寸 | `useLayoutExtent`（[说明](src/vue/useLayoutExtent.md)） | `./vue` |
@@ -127,6 +128,7 @@ function toggleFiles(): void {
 | 浮动窗的把手 | `FloatWindowHandles` | `./vue` |
 | 换主题 | 设 `--nb-layout-*` 变量；全部名单 `NB_LAYOUT_THEME_VARS` | 根 |
 | 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；只有一种语言时用 `layoutCatalogTranslate`；目录在 `./locales` | `./text`、`./locales` |
+| 分隔线读屏时念出面板的名字，不念 id | `NestedGrid` 的 paneLabel 属性、`Splitter` 面板配置的 label | `./vue` |
 | 开发时查接线错误 | `setLayoutDevChecks(true)`，在网格挂载之前调 | 根 |
 
 ## 约定
@@ -146,6 +148,13 @@ function toggleFiles(): void {
   ```
 
   `GridRefResolution` 从根入口导出。收起状态要跨会话保存的，宿主自己另存（`setCollapsed` 的结果、`grid.find(id).collapse`），恢复时放进 `policies` 里对应的 `collapse`。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
+- **意图的单位**：节点的 `size` 是意图。保留像素（`sizing: "fixed"`）的意图是像素；按比例分的意图是同一分支里按比例分的兄弟之间的相对份额，单位由兄弟决定。增删与移动不改兄弟的意图：保留像素的栏宽度不变，按比例分的按份额重分；新加的按比例分的叶不给意图就平分一份，要等分就别给（细则见 [`grid`](src/grid.md) 的“结构操作”）。
+- **`maximumSize` 的 0 就是上限 0**，不是不限：只给主轴约束的叶，交叉轴的上限写 `Infinity`，或者整个 `maximumSize` 不写。写成 0 时 `layout()` 报出的那根轴的尺寸是 0（`NestedGrid` 按父分支的盒子画，画面上看不出来，读布局结果的代码会读到 0）：
+
+  ```ts
+  {kind: "leaf", id: "nav", ref: "nav", sizing: "fixed", size: {width: 188, height: 0},
+      minimumSize: {width: 150, height: 0}, maximumSize: {width: 300, height: Number.POSITIVE_INFINITY}}
+  ```
 - **读失败时保留原件**：`restore` 失败（版本不认识、结构坏了）时树不变；成功但 `dropped` 非空，说明有引用没解析出来。推荐的做法是两种情况都把存档原件留着，不要拿缺省布局覆盖它，等宿主修好了还能再读。
 - **层数与节点数的上限**：拆分与插入在超过 16 层或 256 个节点（`GRID_MAX_DEPTH`、`GRID_MAX_NODES`）时被拒，返回 `limit-exceeded`、树不变；建树与恢复不按它拒绝。拖标签到边缘拆分这类交互要预料到它会被拒。
 - **窗口太窄不报错**：放不下时库按约束压缩，并在 `layout().issues` 里给诊断（例如 `over-constrained`）。想知道放不放得下，读布局结果里根节点的 `constraints`（最小尺寸）。

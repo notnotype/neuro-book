@@ -72,6 +72,11 @@ const props = withDefaults(defineProps<{
      */
     sashDisabled?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => boolean) | undefined;
     /**
+     * 节点的显示名（宿主翻译好的），代进分隔线的读屏名称“调整 {before} 与 {after} 的宽度”；挨着分支时问分支 id。没给、返回 `undefined` 或空串时用节点 id。
+     * 按节点问而不是按分隔线问：同一块挨着几条线时名字一样，宿主一张表就够。
+     */
+    paneLabel?: ((id: string) => string | undefined) | undefined;
+    /**
      * 宿主在叶的外框里画成的卡片（`GridLeafShape`）。过渡中外框露出、盖住保持尺寸的内层时，外框与内容外层按它裁，露出来的一截始终是一张完整的卡片；
      * 不给时按外框的矩形裁。
      */
@@ -300,14 +305,19 @@ const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 
 /**
- * 宿主给分隔线的种类与样式（`sashKind`、`sashStyle`），按每次渲染记下：交换里滑出去的线两侧已经不在宿主的布局里，问宿主只会得到错的结果，
- * 沿用它离开前最后一次的。不在渲染层里的线的记录在布局变化时清掉（见 `layers` 的 watcher）。
+ * 宿主给分隔线的种类、样式与两侧的显示名（`sashKind`、`sashStyle`、`paneLabel`），按每次渲染记下：交换里滑出去的线两侧已经不在宿主的布局里，
+ * 问宿主只会得到错的结果，沿用它离开前最后一次的。不在渲染层里的线的记录在布局变化时清掉（见 `layers` 的 watcher）。
  */
-const sashLooks = new Map<string, {readonly kind: string | undefined; readonly style: Record<string, string> | undefined}>();
-function sashLookOf(sash: GridSashPlacement<unknown>): {readonly kind: string | undefined; readonly style: Record<string, string> | undefined} {
-    if (sash.leaving === true) return sashLooks.get(sash.key) ?? {kind: undefined, style: undefined};
+type SashLook = {readonly kind: string | undefined; readonly style: Record<string, string> | undefined; readonly before: string; readonly after: string};
+const sashLooks = new Map<string, SashLook>();
+function paneNameOf(id: string): string {
+    const label = props.paneLabel?.(id);
+    return label === undefined || label === "" ? id : label;
+}
+function sashLookOf(sash: GridSashPlacement<unknown>): SashLook {
+    if (sash.leaving === true) return sashLooks.get(sash.key) ?? {kind: undefined, style: undefined, before: sash.before, after: sash.after};
     const ref = {branch: sash.branch.id, before: sash.before, after: sash.after};
-    const look = {kind: props.sashKind?.(ref), style: props.sashStyle?.(ref)};
+    const look = {kind: props.sashKind?.(ref), style: props.sashStyle?.(ref), before: paneNameOf(sash.before), after: paneNameOf(sash.after)};
     sashLooks.set(sash.key, look);
     return look;
 }
@@ -332,6 +342,12 @@ function isZeroLength(sash: GridSashPlacement<unknown>): boolean {
     return (sash.axis === "width" ? sash.rect.height : sash.rect.width) <= 0;
 }
 
+/** 分隔线的读屏名称：两侧用显示名（`paneLabel`），离开的线用离开前最后一次的。 */
+function sashAriaLabel(sash: GridSashPlacement<unknown>): string {
+    const look = sashLookOf(sash);
+    return text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: look.before, after: look.after});
+}
+
 function sashProps(sash: GridSashPlacement<unknown>) {
     // 交换里滑出去的分隔线：两侧已经不在布局里，尺寸用冻结的，不能拖。
     if (sash.frozen !== undefined) {
@@ -345,7 +361,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
             disabled: true,
             detached: true,
             ends: sash.ends,
-            ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
+            ariaLabel: sashAriaLabel(sash),
             ariaControls: domIdOf(`leaf:${sash.controls}`),
             ariaMin: 0,
             ariaMax: Math.round(sash.branchLength),
@@ -366,7 +382,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         disabled: gesturesDisabled.value || isZeroLength(sash) || props.sashDisabled?.({branch: sash.branch.id, before: sash.before, after: sash.after}) === true,
         detached: false,
         ends: sash.ends,
-        ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
+        ariaLabel: sashAriaLabel(sash),
         ariaControls: controlledIds(sash.controls),
         ariaMin: Math.round(panelBounds(panel).low),
         ariaMax: ariaMax(panel, sash.branchLength),

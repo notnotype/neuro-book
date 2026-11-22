@@ -217,7 +217,8 @@ export type GridFailureCode =
     | "into-own-subtree"
     | "not-conserved"
     | "stale-baseline"
-    | "not-collapsible";
+    | "not-collapsible"
+    | "wrong-sizing";
 
 /** 快照恢复的失败码（Spec `ui/nested-grid` 失败 7）。 */
 export type GridRestoreFailureCode = "invalid-snapshot" | "unsupported-version" | "unresolved-root" | "duplicate-id" | "limit-exceeded";
@@ -267,6 +268,14 @@ export type GridBranchesResizeResult =
  */
 export type GridCollapseResult =
     | {readonly ok: true; readonly changed: boolean; readonly collapse: SashCollapseState}
+    | GridFailure<GridFailureCode>;
+
+/**
+ * `Grid.setSize` 的结果（Spec `ui/nested-grid` 输出 154）：`size` 是存下的意图（夹进节点自己的约束之后），宿主拿它存偏好；
+ * `changed` 是意图或记忆的恢复尺寸有没有变；节点有收起策略时另带调用之后的 `collapse`，同 `GridCollapseResult`。
+ */
+export type GridSetSizeResult =
+    | {readonly ok: true; readonly changed: boolean; readonly size: number; readonly collapse?: SashCollapseState}
     | GridFailure<GridFailureCode>;
 
 /** 快照里没解析出的一条引用；今天只有一种原因。 */

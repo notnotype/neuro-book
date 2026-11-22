@@ -1,0 +1,91 @@
+# t51 计划前的探针（2026-11-22）
+
+## 结构操作的调用方
+
+`rg "\.addLeaf\(|\.removeLeaf\(|\.splitLeaf\(|\.moveLeaf\(" packages --glob "*.ts" --glob "*.vue"`（排除 node_modules 与旧应用）只有：
+
+- packages/nb-layout/src/grid.test.ts
+- packages/nb-layout/src/vue/useGridLayout.dom.test.ts
+- packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/GridStructureScene.vue
+- packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/StarterScene.vue
+
+工作台（WorkbenchSurface.vue:123）是 computed(() => createGrid(投影))，每次从布局文档重建，不调用结构操作。
+
+## 离开的内容：缓存插槽 VNode 能不能留住组件实例（vitest + happy-dom，一次性探针，不提交）
+
+父组件为每个键记下最后一次插槽返回的 VNode；键离开后重用它（cloneVNode）。步骤：A、B 两项，点 B 让它的计数变 1；宿主删掉 B 的数据、把 B 从活的列表里拿掉、父组件把 B 标成离开中；宿主别处再渲染一次；最后父组件不再保留 B。
+
+结果：B 在离开中一直挂着、文字仍是 B:1（状态在），宿主再渲染也不卸载；不再保留时才卸载。日志 [mount A, mount B, unmount B]（A 换数据只是更新属性，不重建）。
+
+探针原文：
+
+```ts
+// 一次性探针（t51），不提交：父组件缓存某个键最后一次的插槽 VNode，数据没了之后重用它，子组件实例会不会被保留。
+import {describe, expect, it} from "vitest";
+import {mount} from "@vue/test-utils";
+import {cloneVNode, defineComponent, h, nextTick, onMounted, onUnmounted, ref, type VNode} from "vue";
+
+const log: string[] = [];
+const Child = defineComponent({
+    props: {name: {type: String, required: true}},
+    setup(props) {
+        const count = ref(0);
+        onMounted(() => log.push(`mount ${props.name}`));
+        onUnmounted(() => log.push(`unmount ${props.name}`));
+        return () => h("button", {"data-child": props.name, onClick: () => (count.value += 1)}, `${props.name}:${count.value}`);
+    },
+});
+
+/** 模拟 NestedGrid：items 是活的键，retained 是“离开中”的键；离开中的项重用缓存的 VNode。 */
+const Host = defineComponent({
+    props: {items: {type: Array as () => string[], required: true}, retained: {type: Array as () => string[], required: true}},
+    setup(props, {slots}) {
+        const cache = new Map<string, VNode[]>();
+        return () => {
+            const keys = [...props.items, ...props.retained.filter((k) => !props.items.includes(k))];
+            return h("div", keys.map((key) => {
+                let nodes: VNode[];
+                if (props.items.includes(key)) {
+                    nodes = slots.content?.({contentKey: key}) ?? [];
+                    cache.set(key, nodes);
+                } else {
+                    nodes = (cache.get(key) ?? []).map((node) => cloneVNode(node));
+                }
+                return h("div", {key, "data-content": key}, nodes);
+            }));
+        };
+    },
+});
+
+describe("探针：离开的内容重用缓存的 VNode", () => {
+    it("宿主数据没了之后，重用缓存的 VNode，子组件不卸载、状态还在；不再保留时才卸载", async () => {
+        log.length = 0;
+        const data = ref<Record<string, string>>({a: "A", b: "B"});
+        const items = ref(["a", "b"]);
+        const retained = ref<string[]>([]);
+        const Root = defineComponent({
+            setup: () => () => h(Host, {items: items.value, retained: retained.value}, {content: ({contentKey}: {contentKey: string}) => (data.value[contentKey] === undefined ? [] : [h(Child, {name: data.value[contentKey]!})])}),
+        });
+        const wrapper = mount(Root, {attachTo: document.body});
+        await wrapper.get("[data-child='B']").trigger("click");
+        expect(wrapper.get("[data-child='B']").text()).toBe("B:1");
+        // 宿主把 b 去掉、数据也删了；库把 b 标成离开中。
+        const {b: _gone, ...rest} = data.value;
+        data.value = rest;
+        items.value = ["a"];
+        retained.value = ["b"];
+        await nextTick();
+        expect(wrapper.find("[data-child='B']").exists()).toBe(true);
+        expect(wrapper.get("[data-child='B']").text()).toBe("B:1");
+        // 宿主别处又重渲染（a 的数据变了），离开中的 b 仍在。
+        data.value = {a: "A2"};
+        await nextTick();
+        expect(wrapper.get("[data-child='B']").text()).toBe("B:1");
+        retained.value = [];
+        await nextTick();
+        expect(wrapper.find("[data-child='B']").exists()).toBe(false);
+        expect(log).toEqual(["mount A", "mount B", "unmount A", "mount A2", "unmount B"]);
+        wrapper.unmount();
+    });
+});
+```
