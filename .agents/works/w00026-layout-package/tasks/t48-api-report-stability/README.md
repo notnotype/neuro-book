@@ -15,8 +15,24 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：[计划](plan.md)第 1 稿，开工前三个探针（[证据](evidences/probes.txt)）；计划审查（Claude Sonnet）在跑。现在 `ui/nested-grid`、`ui/layout-drag` 是 `planned`，按映射规则全部名字标 `@experimental`；晋升 Spec、让一部分名字成为 `@stable` 是开发者的决定，与 nb-layout 首发一起交。
+2026-11-22：[计划](plan.md)第 1 稿的设计审查（Claude Sonnet，阻断 2、重要 5、建议 3，[证据](evidences/design-review.txt)）十条都成立，计划要重写；其中一件要开发者定，**停在这里等开发者**（改推进顺序、先做 t49 也要开发者同意）。
+
+**要开发者定的**（与 nb-layout 首发、晋升 `ui/nested-grid`、`ui/layout-drag` 是同一组决定）：插件 SDK（`packages/neuro-book/src/sdk/components.ts`）转出了 nb-layout 的 7 个组件与约 16 个类型，文件头写着“这里每一项都是兼容承诺”，SDK 已经发布；ADR 0054 第 10 条说 nb-layout 只承诺标 `@stable` 的符号，而按映射规则这些名字现在会标 `@experimental`。两个承诺对不上，要选一个：
+- 推荐：SDK 转出的这些名字在 nb-layout 里标 `@stable`（以 SDK 已经许下的承诺为准；代价是这些名字在 nb-layout 的 0.x 里也不能随便改）；
+- 或者 SDK 的承诺对转出的 nb-layout 名字写例外（跟着 nb-layout 的标注走）；代价是已经用 SDK 的插件作者失去原来的承诺。
+
+**第 2 稿要改的**（审查各条的改法都采纳）：
+1. 非组件的名字不用类型检查器打印类型，改用 `ts.createPrinter` 打印声明节点本身（结构变化才看得见；打包后的声明里类型、接口、函数是真名）。
+2. 不再把 `import("…/shared-xxx").Z` 改写成名字（那是打包器的压缩名）：声明节点打印后引用就是真名，组件部分用入口文件作封闭声明打印。
+3. 组件分四段：props、事件（取自 `$emit` 的调用签名）、插槽（含 `panel-${string}` 这样的索引签名）、expose（实例上声明在包里的非 `$` 成员，例如 `NestedGrid` 的 `settleMotion`）；`typeof __VLS_N` 展开打印；透传的 `HTMLAttributes` 单独记一行；默认值看不到，写进限制。
+4. 事实改正：`SortableList` 在状态栏设置页（`StatusLinePage.vue`）有使用方；SDK 转出的是 7 个组件加类型，不只 `NestedGrid`。
+5. 标注要让 npm 上的使用方看得到：`pack.ts` 生成声明后把标注写成 JSDoc 标签（函数、类型、常量加在声明上，组件加在入口导出的那个 `declare const` 上）；入口清单仍是核对名字的依据。
+6. 映射规则写成可判的口径与“名字到 Spec”的表，“全部 `@experimental`”诚实写成“暂缓标注”。
+7. 确定性：外部类型去掉 `node_modules` 的绝对路径、排序用码元比较、Vue 版本升级导致的整体变化单独提示。
+8. 同名名字在两个入口里的标注要一致；核对去重前的全部行。
+9. `api:check` 先自己构建；工具链版本写在报告头但与正文差异分开提示。
+10. 补评估 `vue-component-meta`（Volar 一族，专出 props、events、slots、exposed）再决定自写；ADR 第 10 条另两项承诺（主题 CSS 变量、`data-*` 表）没有机检，记进 Work 后续。
 
 ## 下一步
 
-计划审查 → t47 合入之后开 worktree 实施。
+开发者定 SDK 承诺与 nb-layout 标注怎么对齐（连同首发、晋升 Spec）→ 按上面十条写第 2 稿 → 第 2 轮设计审查。
