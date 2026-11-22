@@ -26,7 +26,9 @@ updated: 2026-11-22
 
 ## 当前状态
 
-2026-11-22：**停下等开发者**。计划审查满三轮（上限），第 3 轮仍有 2 条重要问题，按 autonomous-delivery 的停止条件交开发者定是否开工。
+2026-11-22：开发者选“先补 nb-layout 再做 t45”：公开面的缺口拆到 [t51](../t51-layout-api-gaps/README.md)，t51 做完后按新入口重写本 Task 的计划（第 5 稿），再审。
+
+此前：**停下等开发者**。计划审查满三轮（上限），第 3 轮仍有 2 条重要问题，按 autonomous-delivery 的停止条件交开发者定是否开工。
 
 - [计划](plan.md)第 4 稿。三轮设计审查（Claude Sonnet）都成立：
   - 第 1 轮：重要 9、建议 5（[证据](evidences/design-review.txt)）；
