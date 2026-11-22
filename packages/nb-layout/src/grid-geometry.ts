@@ -310,8 +310,8 @@ export function normCollapse(value: SashCollapseState | undefined): SashCollapse
     };
 }
 
-/** 节点沿 `axis` 的约束求值；显式上限与后代下限冲突时保留下限并返回诊断。 */
-function constraintOnAxis<T>(
+/** 节点沿 `axis` 的约束求值，不看它自己的收起（`setSize` 按展开时的范围夹）；显式上限与后代下限冲突时保留下限并返回诊断。 */
+export function constraintOnAxis<T>(
     node: GridNode<T>,
     axis: GridAxis,
     sashSize: number | GridSashResolver,
