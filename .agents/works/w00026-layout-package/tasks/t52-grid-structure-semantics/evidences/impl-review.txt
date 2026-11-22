@@ -1,0 +1,108 @@
+## w00026 t52 实现审查报告
+
+**范围**：`1643ef672..w00026/t52-grid-structure`，提交 `6c42f6ab9` 和 `e11a74773`。
+
+**报告文件没有写成**：这次会话里 Write 工具和 Bash 的文件重定向（heredoc、`sed -i`）都没有获批。所以没有逐条追加到 `report.txt`，完整报告只在这里。实验全部用 `bun -e` 内联跑，没有落地文件。
+
+**验证状态**：
+- `bun test src/grid.test.ts` 为 111 通过，`bun test src/readme.test.ts src/exports.test.ts` 通过，`bun run typecheck` 无报错。
+- 变异检查没做，因为改源码被拦。下面标“推理”的结论都是读测试得出的，没有跑变异验证。
+- 工作树 `git status --short` 为空。
+
+### 1. `resize` 拖收起中的节点会把意图写成 `collapsedSize`，保留像素的新提前返回路径上也是
+- **严重程度**：重要；**类别**：正确性 / 不变量（这个缺陷早就存在，t52 重写这条路径时没碰它）
+- **位置**：`packages/nb-layout/src/grid.ts:160-165`（`shiftNode`）、`:285-290`（保留像素的提前返回）、`:566-567`（`setSize` 里的注释）
+- **现象**：`shiftNode` 用收起感知的 `constraintsOf` 夹值。收起中的节点范围是刚性的 `[collapsedSize, collapsedSize]`，于是 `resize` 把收起前的意图覆盖掉。实测：
+  - 导航 188 收起（`collapsedSize` 0，`restoreSize` 188），`resize("nav","width",+50)` 返回 `{ok:true, applied:-188}`。请求是 +50，得到 −188。
+  - 随后 `intent=0`，`setCollapsed("nav",false)` 展开后导航宽 0，而 `collapse.restoreSize` 仍是 188，两处不一致。
+  - 按比例分的收起节点同理：`a` 意图 600 收起，`resize("a",…,+50)` 返回 `applied:-600`，`a` 变 0，兄弟 `b` 被写成 1200。
+- **为什么是问题**：
+  - Spec 输出 153 说 `resize` 改保留像素的节点时 `applied` 是“它自己实际变的量”，夹在“它自己的约束里”。
+  - Spec 输出 147 和 `planBranchResize` 里的注释（“收起绝不能把 0 写进尺寸记录”）都认定收起不写意图。这里违反了。
+  - `setSize` 特意用 `constraintOnAxis` 避开这个坑，所以同一版本里两个改意图的入口对收起节点结果相反。
+  - `setSize` 注释写的是“同 `resize`、`resizeBranch` 写保留像素意图的做法”，对 `resize` 不成立：`resizeBranch` 对刚性（含收起）子节点保留 `child.size`，只有 `resize` 的 `shiftNode` 会写。
+- **如何核实**：`bun -e` 建 `[nav(fixed,188,collapse collapsed:true,collapsedSize:0), a(1), b(1)]`，调 `resize` 后看 `find("nav").size`。
+- **建议改法**：`resize` 开头判 `hit.node.collapse?.collapsed === true`，直接返回 `{ok:true, applied:0}`。或者保留像素的提前返回路径改用 `constraintOnAxis` 夹。并把 `setSize` 的注释改成准确的说法。再加一条“收起中的节点被 `resize` 后意图不变”的用例。
+
+### 2. `GridSetSizeResult` 没有从包根入口导出
+- **严重程度**：重要；**类别**：代码质量 / 公开面
+- **位置**：`packages/nb-layout/src/index.ts`（类型导出清单，`GridRestoreResult`、`GridResult` 与 `GridSizing` 之间）
+- **现象**：`grid-types.ts:273-279` 新增并被 `Grid.setSize` 的签名引用，但 `index.ts` 全文没有它。同类的 `GridCollapseResult`、`GridResizeResult` 都在清单里。
+- **为什么是问题**：
+  - 宿主写 `const r: GridSetSizeResult = grid.setSize(…)` 或包一层函数时无法命名这个类型，只能 `ReturnType<Grid<T>["setSize"]>`。
+  - 入口文件是“显式清单就是公开面”（`exports.test.ts` 头部注释）。`exports.test.ts` 只核对文档里教人导入的名字，不核对返回类型，所以漏导没被拦。
+  - 码类型 `GridFailureCode` 的新成员已经经 `GridCommitFailureCode` 公开，返回值类型反而漏了，不一致。
+- **如何核实**：`grep -n SetSize packages/nb-layout/src/index.ts` 无输出；`GridCollapseResult` 在第 30 行。
+- **建议改法**：在 `index.ts` 的类型清单加 `GridSetSizeResult`。
+
+### 3. 测试没钉住几条 Spec 判据
+- **严重程度**：建议；**类别**：测试（以下都是读测试推理的，没跑变异）
+- **位置**：`packages/nb-layout/src/grid.test.ts` 新增的两个 describe 与 `setSize` 用例
+- **现象**：
+  - **a. 同向跨分支的重取没测。** 按比例分的节点跨分支用例，`a` 从水平根移进竖向的 `col`，方向不同；保留像素的用例移的是 `nav`。没有“按比例分的节点移到同向分支”的用例。我手跑了：`[a 600, b 600, grp[c 300, d 100]]` 里 `moveLeaf("a","grp",0)` 得 `a=200`（平均）。但把重取改成“只在方向变了才重取”，现有测试仍会通过。Spec 输出 153 与审查重点 1 都点名“即使目标分支同向”。
+  - **b. `resize` 拖按比例分的节点、候选为空没测。** 只剩保留像素兄弟、或按比例分的兄弟全收起时，实测 `applied: 0`、意图不变，行为合理但没有用例。现有 `mixed` 用例只覆盖候选非空。
+  - **c. `setSize` 的失败先后只测了 `+Infinity` 与 `-1`。** 把 `px<0` 判在 `not-finite` 前面（`-Infinity` 就会变成 `px-negative`），测试不报。Spec 要求先 `not-finite`。
+  - **d. 结果里的 `collapse` 是副本没测。** 我手验是副本（改返回值不影响树），但没有用例。
+  - **e. `changed` 只由 `restoreSize` 变化触发的分支没测。** 例如没收起的节点意图相同、`restoreSize` 过期的情形。
+- **建议改法**：各补一条用例：
+  - a：同向 `grp`；
+  - b：只剩保留像素兄弟；
+  - c：`-Infinity`；
+  - d：改返回的 `collapse` 后 `find().collapse` 不变；
+  - e：对应 `changed` 为 `true` 的场景。
+
+### 4. `setSize` 即使没变也替换了 `node.size` 对象
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`grid.ts:571`
+- **现象**：`node.size = {...node.size, [axis]: size}` 不论 `changed` 真假都执行。实测 `const ref = g.find("nav").size; g.setSize("nav", 188)`（值没变）后，`ref === g.find("nav").size` 为 `false`。
+- **为什么是问题**：Spec 输出 154 写“都没变时树不变”。值上确实没变，序列化也一样。但 `find(id).size` 是文档教宿主读的对象，没变时引用换了，持引用的代码拿到过期对象。库里其它写意图的地方（`shiftNode`、`applyBranchResize`）都是就地改 `node.size[axis]`。
+- **建议改法**：只在 `size` 变了时才赋值，或改成就地 `node.size[axis] = size`。
+
+### 5. Spec 失败 5 码表的 `wrong-sizing` 行缩进错了
+- **严重程度**：建议；**类别**：文档
+- **位置**：主工作区 `docs/specs/ui/nested-grid.md:301`（未提交的修改，不在审查的提交范围内）
+- **现象**：这一行以 `| ` 顶格，而表格其它行是 4 个空格缩进（在第 5 条的列表项里）。渲染时它会掉出表格，变成独立段落。
+- **建议改法**：行首补 4 个空格。
+
+### 6. 测试文件里有两个同名的 `widths`，参数顺序相反
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`grid.test.ts` 新 describe 内的 `widths(grid, ids, container)` 与文件原有的 `widths(grid, extent, ids)`
+- **现象**：新 describe 内定义的 `widths` 遮蔽了外层同名函数，两个函数只有参数顺序不同。新加的 `setSize` 用例在另一个 describe 里用外层的 `(grid, ROW, ids)`，读起来很容易调错。
+- **建议改法**：新的那个改名，例如 `widthsOf`。
+
+### 7. `grid.md` 的 `splitLeaf` 示例没给出复现条件
+- **严重程度**：建议；**类别**：文档
+- **位置**：`src/grid.md` “已知限制”的“拆分保留像素的叶”
+- **现象**：写“1200 宽、188 宽的导航竖着拆，导航呈现 207×1，新叶 207×600”。呈现宽取决于兄弟 `main` 的意图，文档没写。我用 `main` 意图 800 复现得到 228.34×0.5 和 228.34×599.5，不是 207。
+- **为什么是问题**：第三方照着写不出这个数。这一节本来是让读者识别症状，数对不上就没法确认。
+- **建议改法**：写出兄弟的意图，或者改成“新分支按比例分，导航宽变成份额，高落到约 1px”这样不依赖具体数字的说法。
+
+### 8. 按比例分的 `resize` 按像素夹，意图不在像素量级时的后果比文档写的重
+- **严重程度**：建议；**类别**：文档（这个行为早就存在，文档已写入已知限制，本条只补后果）
+- **位置**：`src/grid.md` 的 `resize` 一段
+- **现象**：意图 `a=1(min 100)、b=1、c=1`，`resize("a","width",0.5)` 返回 `applied:99`，结果 `a=100、b=0、c=0`，两个兄弟的意图被写成 0。文档只说“被夹进兄弟的最小与最大”。
+- **建议改法**：补一句“兄弟的意图可能被压到 0”，或者在已知限制里说明建议用 `resizeBranches`。
+
+### 未发现问题的方面
+
+- **`meanWeightShare` 与 Spec 输出 153 的四条规则逐句一致**：
+  - 候选含收起中的兄弟，全 0 取 0，没有候选取 1，只对正意图取平均。
+  - 实测重复插入 6 次后份额稳定在 400，不会放大或塌成 0。
+  - 给负数或 `NaN` 的意图时会落到平均。
+- **`addLeaf` 的取值时机**：只在新叶按比例分、主轴意图不为正时才取。
+- **`moveLeaf`**：
+  - `fixed-cross-axis` 位置正确：在同分支重排之后、克隆之前。同分支重排方向必然相同，位置前后不可观察。
+  - 根叶没有父分支，`hit.parent &&` 的短路没有影响。
+  - 失败后 `serialize` 与原来一致。
+- **`resize` 的 `shiftSiblings`**：只给按比例分、没收起的兄弟分摊；候选为空时残差全退回，最终 `applied` 为 0（意图在范围内时）。
+- **`setSize`**：
+  - 检查先后与 Spec 一致，`changed` 判定意图和 `restoreSize`。
+  - 对保留像素的分支，`constraintOnAxis` 合并子节点约束（竖向分支里设高度、同向分支求和），符合预期。
+  - 越界夹值、小于 `collapsedSize` 时 `restoreSize` 取 `collapsedSize` 都符合 Spec。
+- **失败形状**：新增的三个 `field` 都是没用过的名字，按 `field` 判别的联合没有冲突。`GridFailureCode` 和经 `GridCommitFailureCode` 重导出的部分一致，没有别处的码表要同步。
+- **README 与 `grid.md`**：`maximumSize` 的 0 的说法与实测一致（写 0 时交叉轴 `layout()` 给 0，写 `Infinity` 时给容器高）。`readme.test.ts` 的 Spec 编号机检通过，Spec 链接写法与同文件其它处一致。
+- **调用方**：仓库里在用的只有 Lab 的 `GridStructureScene`（只用按比例分的叶）。
+
+数量：重要 2，建议 6。
+
+有效发现的编号：1、2、3、4、5、6、7、8

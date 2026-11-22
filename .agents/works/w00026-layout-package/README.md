@@ -111,6 +111,7 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 同日开发者定 t51 三样都做：原地增删不压固定栏（加设宽度入口）、离开的内容由库留住、分隔线显示名（见 t51 的“决定”）。
 同日 t51 第 1 稿两份审查之后拆成三个：[t51](tasks/t51-layout-api-gaps/README.md) 分隔线显示名、[t52](tasks/t52-grid-structure-semantics/README.md) 结构操作的语义与 `setSize`、[t53](tasks/t53-leaving-contents/README.md) 离开的内容。顺序 t51 → t52 → t53 → t45 → t47 → t48 → t49 → t50。
 2026-11-22：[t51](tasks/t51-layout-api-gaps/README.md) 分隔线显示名完成，合入 master（`4aebbc14d`）。
+2026-11-22：[t52](tasks/t52-grid-structure-semantics/README.md) 完成，合入 master（`787cf9ca6`）：结构操作与 `resize` 不改保留像素兄弟的意图，加 `grid.setSize`；计划两轮审查、实现审查 8 条处理完；跨方向移动保留像素的节点改为失败等四项记进[待确认清单](pending-confirmations.md)。下一个是 t53。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
