@@ -4,11 +4,11 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import {Splitter} from "@notnotype/nb-layout/vue";
-import type {SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+import type {GridGestureCommit, GridIssue, GridFailure} from "@notnotype/nb-layout";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, readonly, ref, watch} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 
 import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
@@ -19,6 +19,7 @@ import {LAYOUT_MOTION} from "../host/motion";
 import ReadingControl from "../parts/ReadingControl.vue";
 import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
+import {createBookGrid, DRAWER_MIN_WIDTH} from "./book-grid";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
 import DrawerParagraph from "./DrawerParagraph.vue";
@@ -71,7 +72,8 @@ const PAGES: Record<Page, ReturnType<typeof defineAsyncComponent>> = {
 };
 
 const root = ref<HTMLElement | null>(null);
-const width = ref(1440);
+// 初值取窗口宽度：外壳铺满窗口，第一次量到之前按它定档，在平板宽度打开时不先按宽屏建网格、再播一次收起。
+const width = ref(window.innerWidth);
 const tier = computed<"wide" | "tablet" | "phone">(() => (width.value < 720 ? "phone" : width.value < 1100 ? "tablet" : "wide"));
 watch(tier, value => {
     book.tier.value = value;
@@ -79,7 +81,6 @@ watch(tier, value => {
 const overlayDrawer = computed(() => tier.value !== "wide");
 const navCollapsed = ref(readNavCollapsed());
 const navSheet = ref(false);
-const drawerWidth = ref(readDrawerWidth());
 let observer: ResizeObserver | null = null;
 onMounted(() => {
     observer = new ResizeObserver(([entry]) => {
@@ -102,62 +103,63 @@ onBeforeUnmount(() => {
 });
 
 const navIsCollapsed = computed(() => tier.value === "tablet" || navCollapsed.value);
-const panels = computed<SplitterPanelConfig[]>(() => [
-    {id: "nav", defaultSizePx: 188, minSizePx: 150, maxSizePx: 300, sizing: "fixed", collapse: {collapsedSize: 44, restoreSize: 188, collapseThreshold: 60, expandThreshold: 40, collapsed: navIsCollapsed.value}},
-    {id: "main", minSizePx: 360, sizing: "weight"},
-    {id: "drawer", defaultSizePx: drawerWidth.value, minSizePx: 280, maxSizePx: 640, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: drawerWidth.value, collapseThreshold: 80, expandThreshold: 40, collapsed: book.drawer.value === null}},
-]);
+/** 抽屉那一栏该不该收起：不是宽屏（抽屉画成浮层）或没有打开的内容。 */
+const drawerIsCollapsed = computed(() => overlayDrawer.value || book.drawer.value === null);
+
+// ---- 三栏（输出 1、32）：nb-layout 的网格，收起状态以上面两个期望值为准 ----
+// 网格自己也会改收起状态（拖过阈值、分隔线上按 Enter）：落账后先把变化映射回宿主（导航偏好、抽屉开关），再对账一次，
+// 让网格回到期望值。已知会对不上的两种由停用分隔线挡住（没打开过内容时拖开抽屉：`reopenDrawer` 什么也不做；平板档拖开
+// 导航：导航固定是图标条，见 `sashDisabled`），对账兜住其余映射不回去的情形，不让网格与宿主各说各的。
+const grid = createBookGrid({drawerWidth: readDrawerWidth(), navCollapsed: navIsCollapsed.value, drawerCollapsed: drawerIsCollapsed.value, compact: () => overlayDrawer.value});
+const host = useGridHost({
+    grid,
+    contextKey: "book-frame",
+    onApplied,
+    onIssues: (issues: readonly (GridIssue<string> | GridFailure)[]) => {
+        for (const issue of issues) console.warn("书页三栏的布局诊断", issue.code, issue);
+    },
+});
+function reconcile(): void {
+    host.setCollapsed("nav", navIsCollapsed.value);
+    host.setCollapsed("drawer", drawerIsCollapsed.value);
+}
+function onApplied(commit: GridGestureCommit): void {
+    for (const change of commit.changes) {
+        // 平板档导航强制收成图标条，那条线停用，不会从这里改到偏好；这里再判一次档位，偏好只记宽屏的选择。
+        if (change.collapsed.nav !== undefined && tier.value === "wide") setNavCollapsed(change.collapsed.nav);
+        if (change.collapsed.drawer === true) book.closeDrawer();
+        if (change.collapsed.drawer === false) book.reopenDrawer();
+        // 只在抽屉参与了这次拖动时记它的宽度：拖导航线时抽屉可能被挤窄，那不是用户选的宽度。收到 0 的不记。
+        const drawerTarget = change.target.drawer;
+        if (change.active.includes("drawer") && drawerTarget !== undefined && drawerTarget >= DRAWER_MIN_WIDTH) writeDrawerWidth(drawerTarget);
+    }
+    reconcile();
+}
+watch(navIsCollapsed, collapsed => host.setCollapsed("nav", collapsed));
+watch(drawerIsCollapsed, collapsed => host.setCollapsed("drawer", collapsed));
+// 平板档主区与抽屉之间那条线宽 0（`createBookGrid` 的 `compact`）：档位变了让网格按新的线宽重算。
+watch(overlayDrawer, () => host.invalidate());
+
+/** 停用的分隔线：平板档导航那条（导航固定是图标条）；没打开过任何内容时抽屉那条（顶栏的开关这时也不可用）。 */
+function sashDisabled(sash: {before: string; after: string}): boolean {
+    if (sash.before === "nav") return tier.value !== "wide";
+    return book.drawer.value === null && book.lastDrawer.value === null;
+}
 
 // ---- 收起、展开的过渡（输出 1） ----
-// Splitter 在过渡（--nb-layout-motion-move，nb-ui 的主题把它接到 --motion-move）里逐帧改面板宽度。主区里的页面跟着逐帧重排，文字与表格的重排不贵，平滑跟随更顺眼
-// （之前把主区宽度冻住、结束时一次重排，内容会在动画末尾跳一下）；贵的是图的画布：Sigma 换尺寸要整张重画，所以
-// 过渡期间经 LAYOUT_MOTION 告诉图先不换尺寸，结束后换一次。抽屉内容固定在抽屉宽度、贴右边，看起来从右边滑进
-// 滑出，不随宽度重排；关闭时继续显示原来的内容，直到滑出去。
-const motion = ref(false);
-provide(LAYOUT_MOTION, readonly(motion));
-const closingDrawer = ref<DrawerContent | null>(null);
-/** 过渡结束后再多等一点，确保真的结束了才算。时长读令牌：改了令牌这里不用跟着改，减少动态效果时是 0。 */
-const MOTION_SLACK_MS = 60;
-function motionMs(): number {
-    const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-move"));
-    return (Number.isFinite(value) ? value : 0) + MOTION_SLACK_MS;
-}
-let motionTimer: ReturnType<typeof setTimeout> | null = null;
-function startMotion(): void {
-    if (tier.value !== "wide") return;
-    motion.value = true;
-    if (motionTimer !== null) clearTimeout(motionTimer);
-    motionTimer = setTimeout(() => {
-        motionTimer = null;
-        motion.value = false;
-        closingDrawer.value = null;
-    }, motionMs());
-}
-watch(() => book.drawer.value === null, (closed, wasClosed) => {
-    if (closed === wasClosed || overlayDrawer.value) return;
-    if (closed) closingDrawer.value = book.lastDrawer.value;
-    startMotion();
-}, {flush: "pre"});
-watch(navIsCollapsed, (collapsed, was) => {
-    if (collapsed !== was) startMotion();
-}, {flush: "pre"});
-onBeforeUnmount(() => {
-    if (motionTimer !== null) clearTimeout(motionTimer);
+// 网格在过渡（时长接到 --nb-layout-motion-move，与换成网格之前的分栏一样）里逐帧改外框。主区跟着逐帧重排，文字与表格的
+// 重排不贵；贵的是图的画布：Sigma 换尺寸要整张重画，所以过渡期间经 LAYOUT_MOTION 告诉图先不换尺寸，结束后换一次。
+// 收到 0 的抽屉，内层保持原宽、按外框裁切，跟着外框从右边滑出；关上那一刻 `book.drawer` 已经为空，过渡期间接着画刚关掉的内容。
+const gridRef = ref<{readonly moving: boolean; readonly outgoingLeaves: ReadonlySet<string>} | null>(null);
+provide(LAYOUT_MOTION, computed(() => gridRef.value?.moving ?? false));
+/**
+ * 抽屉那一栏里画的内容：正在收到 0 时是刚关掉的那个。在网格的插槽里读，读到的 `outgoingLeaves` 是这一轮的（关上的那一帧
+ * 就已含抽屉）。平板与手机不画在栏里（抽屉是浮层），模板按档位挡掉。
+ */
+const paneDrawer = computed<DrawerContent | null>(() => {
+    if (book.drawer.value !== null) return book.drawer.value;
+    return gridRef.value?.outgoingLeaves.has("drawer") === true ? book.lastDrawer.value : null;
 });
-/** 抽屉里显示的内容：关闭的过渡期间仍是刚关掉的那个。 */
-const shownDrawer = computed(() => book.drawer.value ?? closingDrawer.value);
-
-function onGestureEnd(state: {collapsed?: Readonly<Record<string, boolean>>; sizesPx?: readonly number[]}): void {
-    const collapsed = state.collapsed ?? {};
-    if (collapsed.nav !== undefined) setNavCollapsed(collapsed.nav);
-    if (collapsed.drawer === true) book.closeDrawer();
-    if (collapsed.drawer === false) book.reopenDrawer();
-    const drawerSize = state.sizesPx?.[2];
-    if (drawerSize !== undefined && drawerSize >= 280) {
-        drawerWidth.value = drawerSize;
-        writeDrawerWidth(drawerSize);
-    }
-}
 function setNavCollapsed(value: boolean): void {
     navCollapsed.value = value;
     writeNavCollapsed(value);
@@ -255,9 +257,10 @@ watch(notice, value => {
         </header>
 
         <div class="relative min-h-0 flex-1">
-            <Splitter v-if="tier !== 'phone'" class="h-full" :panels="overlayDrawer ? panels.slice(0, 2) : panels" :sash-sizes="overlayDrawer ? [1] : [1, 1]" @gesture-end="onGestureEnd">
-                <template #panel-nav>
-                    <nav class="flex h-full flex-col gap-0.5 overflow-y-auto py-2" :class="navIsCollapsed ? 'items-center px-1' : 'px-2'" aria-label="页面">
+            <!-- 过渡时长接到控件形变那一档（与换成网格之前的分栏一样）；设在网格根上，减少动态效果时照样归零（ui/nested-grid 输出 142）。 -->
+            <NestedGrid v-if="tier !== 'phone'" ref="gridRef" v-bind="host.bindings.value" :sash-disabled="sashDisabled" class="h-full" style="--nb-layout-motion-layout: var(--nb-layout-motion-move)">
+                <template #leaf="{node}">
+                    <nav v-if="node.id === 'nav'" class="flex h-full flex-col gap-0.5 overflow-y-auto py-2" :class="navIsCollapsed ? 'items-center px-1' : 'px-2'" aria-label="页面">
                         <button
                             v-for="item in nav" :key="item.id" type="button" class="nav-item relative flex items-center gap-2 rounded-[var(--radius-control)] py-1.5 text-[length:var(--text-sm)]"
                             :class="[book.page.value === item.id ? 'is-active' : '', navIsCollapsed ? 'justify-center px-1.5' : 'px-2']"
@@ -274,29 +277,27 @@ watch(notice, value => {
                             <IconButton v-if="tier === 'wide'" size="xs" :icon-class="navCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" :aria-label="navCollapsed ? '展开导航' : '收起导航'" @click="setNavCollapsed(!navCollapsed)" />
                         </div>
                     </nav>
-                </template>
-                <template #panel-main>
-                    <main class="h-full min-w-0" data-testid="main">
+                    <main v-else-if="node.id === 'main'" class="h-full min-w-0" data-testid="main">
                         <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
                         <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
                     </main>
-                </template>
-                <template v-if="!overlayDrawer" #panel-drawer>
+                    <!-- 平板档抽屉是下面的浮层，这一栏收在 0、什么也不画，换档那一刻不会出现两份抽屉。 -->
                     <aside
-                        class="flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)]" :class="motion ? 'absolute inset-y-0 right-0' : ''"
-                        :style="motion ? {width: `${drawerWidth}px`} : undefined" data-testid="drawer" :data-closing="book.drawer.value === null ? 'true' : undefined"
+                        v-else-if="node.id === 'drawer' && !overlayDrawer"
+                        class="flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)]"
+                        data-testid="drawer" :data-closing="book.drawer.value === null ? 'true' : undefined"
                     >
                         <!-- 人物卡自己带关闭按钮；其余几种内容在这里补一个（反馈：右侧栏要有关闭按钮） -->
-                        <div v-if="shownDrawer && shownDrawer.kind !== 'card'" class="flex shrink-0 justify-end px-2 pt-1"><IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" /></div>
+                        <div v-if="paneDrawer && paneDrawer.kind !== 'card'" class="flex shrink-0 justify-end px-2 pt-1"><IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" /></div>
                         <div class="min-h-0 flex-1">
-                            <DrawerCard v-if="shownDrawer?.kind === 'card'" :key="shownDrawer.entity" :entity="shownDrawer.entity" :tab="shownDrawer.tab" />
-                            <DrawerSource v-else-if="shownDrawer?.kind === 'source'" :ref-text="shownDrawer.ref" class="story-scroll-y h-full" />
-                            <DrawerParagraph v-else-if="shownDrawer?.kind === 'para'" :chapter="shownDrawer.chapter" :paragraph="shownDrawer.paragraph" class="story-scroll-y h-full" />
-                            <DrawerNode v-else-if="shownDrawer?.kind === 'node'" :id="shownDrawer.id" :label="shownDrawer.label" class="story-scroll-y h-full" />
+                            <DrawerCard v-if="paneDrawer?.kind === 'card'" :key="paneDrawer.entity" :entity="paneDrawer.entity" :tab="paneDrawer.tab" />
+                            <DrawerSource v-else-if="paneDrawer?.kind === 'source'" :ref-text="paneDrawer.ref" class="story-scroll-y h-full" />
+                            <DrawerParagraph v-else-if="paneDrawer?.kind === 'para'" :chapter="paneDrawer.chapter" :paragraph="paneDrawer.paragraph" class="story-scroll-y h-full" />
+                            <DrawerNode v-else-if="paneDrawer?.kind === 'node'" :id="paneDrawer.id" :label="paneDrawer.label" class="story-scroll-y h-full" />
                         </div>
                     </aside>
                 </template>
-            </Splitter>
+            </NestedGrid>
             <main v-else class="h-full min-w-0 pb-12" data-testid="main">
                 <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
                 <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
