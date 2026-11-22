@@ -42,6 +42,9 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 - 第三方声明：`third-party-notices.test.ts`（新）3 条；变异（改回按名字过滤）2 条失败；SDK 构建后 `THIRD-PARTY-NOTICES.md` 里有 nb-layout。
 - nb-story：`typecheck`、`bun test src` 701 条通过（含网页包新旧记录的新用例）；网页构建读产物后 `frame`、`side-by-side`、`viewer` 三个 e2e 文件 53 条通过；新旧记录里有 62 个 nb-layout 源文件、0 个产物文件；`dist/web` 的第三方声明里有 nb-layout 的 MIT。
 - 发布冒烟（本机，`prox bun run release:smoke`，不发布）：13 个包检查、打包，nb-layout 只冒烟不进清单（清单 12 个包）；nb-layout 宿主（README 起步、四个入口的类型、构建、浏览器里拖动与方向键、样式）通过；其余照旧通过。第一次跑完以 1 退出：宿主冒烟的静态服务读不在的 favicon 抛了未处理的错误，修在 `398b019c3`，重跑在 `398b019c3` 上通过、以 0 退出（负载约 2）。
+- 合入前补核（advisor 提的）：`bun install --frozen-lockfile` 通过（锁文件不用改）；两次构建各打一个 tarball，SHA-256 相同（`release-plan` 比的是整个 tarball）；应用包的 `THIRD-PARTY-NOTICES.md` 里有 nb-layout；`release-notes.ts --dry-run --previous <最近的标签>` 列出 10 个源码包、没有 nb-layout（还是 `private`）。
+- CI 的 `check` 作业对照（`--since` 分支起点）：`governance:check` 与 `docs:check` 的失败都不在 t47 改的文件上（网络插件的消息目录没登记、别处测试的固定等待、`bots/view.md` 的登记）；`test:affected --typecheck` 两处失败：`plugin-sdk/pack.test.ts` 断言 SDK 的声明里一个 `@notnotype/` 都不许出现，是 t47 有意改掉的旧规则，改成“只列 MIT 的 nb-layout”后通过（`08aff0ed0`）；`message-catalogs.test.ts` 的网络插件目录没登记，master 上同样失败。
+- 计划“验收映射”与实际覆盖的对照：`release-plan.test.ts`、`publish`、`pack-smoke` 的单测没有写。版本独立的包按历史包处理靠 `PRODUCT_PACKAGES` 的单测加 `publish.ts` 一行接线（读代码核过）；`private` 的只冒烟不进清单靠本机冒烟（清单 12 个包，没有 nb-layout）；发版准备与 Release 说明不看 `private` 的靠 `versionedPackage` 的单测加上面的演练。没有验证：`pack-smoke --from registry` 的新写法（nb-layout 首发前 registry 上没有它，这条路径要首发之后才跑得到）、流水线上的发布。
 - 插件 SDK 的声明两次构建不同（`components.d.ts` 36 行，属性先后），与 nb-layout 原来的问题同源：记进 Work 的后续，不在本 Task 改。
 
 ## 下一步
