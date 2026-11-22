@@ -26,6 +26,7 @@ nb-story 网页的“导航 | 正文 | 右侧详情”从 `Splitter` 改成 nb-l
 - 分支上：nb-story `typecheck`；`bun test` 673 条；`build:web`；`viewer.e2e.ts` 28 条加 `frame.e2e.ts` 6 条全过（负载 4 左右）。
 - 变异检查 5 处，各有用例变红；改前改后的真操作探针对照，三栏宽度、偏好、过渡逐帧一致，差别逐条解释（[证据](evidences/probe.txt)）。
 - 合并 master 只带进文档，没有重跑。
+- 合入后补跑（master `36891fd68`）：nb-story `qa.e2e.ts`、`revisions.e2e.ts`（用 `getByTestId("drawer")` 与 `data-closing`）24 条全过。
 - 未验证：触屏拖分隔线；120Hz。
 
 ## 实现审查
