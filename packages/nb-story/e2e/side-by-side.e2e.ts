@@ -198,6 +198,73 @@ test.describe("宽屏 1440", () => {
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
     });
 
+    /** 按住一张的名字那一行，拖到 `to`（视口坐标），中途停一下看反馈；`release` 为假时按 Escape 取消。 */
+    async function dragHead(page: Page, from: 0 | 1, to: {x: number; y: number}, release = true): Promise<void> {
+        const head = card(page, from).locator("[data-detail-handle]").first();
+        const box = (await head.boundingBox())!;
+        // 按在把手的空白处，不按在名字（名字不是按钮，但避开右边的按钮）。
+        await page.mouse.move(box.x + 8, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(to.x, to.y, {steps: 15});
+        if (release) await page.mouse.up();
+    }
+    const centerOf = async (locator: Locator) => {
+        const box = (await locator.boundingBox())!;
+        return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+    };
+
+    test("拖右边那张的头到左边：落点盖在左边那张上、标题小块跟手，松手对调，元素还连着，地址跟着对调", async ({page}) => {
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        const moved = await card(page, 1).elementHandle();
+        await dragHead(page, 1, await centerOf(card(page, 0)), false);
+        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
+        await expect(page.getByTestId("swap-chip")).toContainText(NAN);
+        await page.mouse.up();
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(NAN);
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(LIN);
+        expect(await moved!.evaluate((element) => element.isConnected)).toBe(true);
+        await expect(card(page, 0)).toHaveAttribute("aria-current", "true");
+        await expect(page).toHaveURL(/entity=e8-2&.*entity2=e1-1/u);
+    });
+
+    test("拖到自己那一栏、拖到主区松手都不动；Escape 取消；点头部的关闭按钮不起拖；只有一张时不起拖", async ({page}) => {
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await dragHead(page, 1, await centerOf(card(page, 1)));
+        await dragHead(page, 1, await centerOf(leaf(page, "main")));
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await dragHead(page, 1, await centerOf(card(page, 0)), false);
+        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await expect(page.getByTestId("swap-chip")).toHaveCount(0);
+
+        const close = card(page, 1).getByRole("button", {name: "关闭"});
+        const box = (await close.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x - 300, box.y + 40, {steps: 10});
+        await expect(page.getByTestId("swap-chip")).toHaveCount(0);
+        await page.mouse.up();
+
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1");
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(LIN);
+        await dragHead(page, 0, await centerOf(leaf(page, "main")), false);
+        await expect(page.getByTestId("swap-chip")).toHaveCount(0);
+        await page.mouse.up();
+    });
+
+    test("不靠拖动的对调：人物卡“⋯”菜单里的“与另一张对调”", async ({page}) => {
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await card(page, 1).getByTestId("card-revise-menu").click();
+        await page.getByRole("menuitem", {name: "与另一张对调"}).click();
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(NAN);
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(LIN);
+    });
+
     test("地址带 entity2、tab2：刷新后仍并排，两张一样", async ({page}) => {
         await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2&tab2=records");
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);

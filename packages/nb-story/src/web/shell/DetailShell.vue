@@ -7,10 +7,11 @@
  * 要的几样（这一项、左右、几张、是不是最近的）都由宿主经属性给。
  */
 import {IconButton} from "@notnotype/nb-ui/components";
-import {provide, ref} from "vue";
+import {computed, provide, ref} from "vue";
 
 import {BOOK_SESSION, type BookSession} from "../host/book";
 import type {DetailItem} from "../host/details";
+import {DETAIL_SCOPE} from "../host/detail-scope";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
 import DrawerParagraph from "./DrawerParagraph.vue";
@@ -31,6 +32,8 @@ const emit = defineEmits<{
     close: [shell: HTMLElement];
     /** 在里面按下指针、获得焦点或滚动：成为最近点过的那张。 */
     touch: [];
+    /** 与另一张对调（卡片菜单或头部的按钮）。 */
+    swap: [];
 }>();
 
 const shell = ref<HTMLElement | null>(null);
@@ -47,6 +50,8 @@ const scoped: BookSession = Object.create(props.session, {
     closeDrawer: {value: () => close()},
 });
 provide(BOOK_SESSION, scoped);
+const paired = computed(() => props.count > 1);
+provide(DETAIL_SCOPE, {paired, swap: () => emit("swap")});
 
 function close(): void {
     if (shell.value !== null) emit("close", shell.value);
@@ -55,6 +60,14 @@ function touch(): void {
     if (!props.active) emit("touch");
 }
 const label = (): string => (props.count < 2 ? "详情" : props.index === 0 ? "左边的详情" : "右边的详情");
+/** 原文、段落、节点三种的头部标题（人物卡的头部是它自己的名字那一行）：拖动换边的把手要有字。 */
+const title = computed(() => {
+    const content = props.item.content;
+    if (content.kind === "source") return `原文 ${content.ref}`;
+    if (content.kind === "para") return `第 ${String(content.chapter)} 章第 ${String(content.paragraph)} 段`;
+    if (content.kind === "node") return content.label;
+    return "";
+});
 </script>
 
 <template>
@@ -62,11 +75,15 @@ const label = (): string => (props.count < 2 ? "详情" : props.index === 0 ? "�
     <aside
         ref="shell" tabindex="-1"
         class="detail-shell flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)] outline-none"
-        data-testid="drawer" :data-detail-key="item.key" :data-detail-index="index" :aria-label="label()" :aria-current="count > 1 && active ? 'true' : undefined"
+        data-testid="drawer" :data-detail-key="item.key" :data-detail-index="index" :aria-label="label()" :aria-current="count > 1 && active ? 'true' : undefined" :data-paired="paired ? '' : undefined"
         @pointerdown.capture="touch" @focusin="touch" @wheel.passive="touch"
     >
         <!-- 人物卡自己带关闭按钮；其余几种内容在这里补一个（反馈：右侧栏要有关闭按钮） -->
-        <div v-if="item.content.kind !== 'card'" class="flex shrink-0 justify-end px-2 pt-1"><IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="close" /></div>
+        <div v-if="item.content.kind !== 'card'" class="detail-handle flex shrink-0 items-center gap-1 px-2 pt-1" data-detail-handle>
+            <span class="min-w-0 flex-1 truncate text-[length:var(--text-sm)] text-[var(--text-secondary)]" data-testid="detail-title">{{ title }}</span>
+            <IconButton v-if="paired" size="xs" icon-class="i-lucide-arrow-left-right" aria-label="与另一张对调" @click="emit('swap')" />
+            <IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="close" />
+        </div>
         <div class="min-h-0 flex-1">
             <DrawerCard v-if="item.content.kind === 'card'" :entity="item.content.entity" :tab="item.content.tab" />
             <DrawerSource v-else-if="item.content.kind === 'source'" :ref-text="item.content.ref" class="story-scroll-y h-full" />
@@ -77,6 +94,10 @@ const label = (): string => (props.count < 2 ? "详情" : props.index === 0 ? "�
 </template>
 
 <style scoped>
+/* 两张并排时头部是拖动换边的把手。 */
+.detail-shell[data-paired] :deep([data-detail-handle]) {
+    cursor: grab;
+}
 /* 两张并排时最近点过的那张：上边一条 2 像素的强调色线（读屏另有 aria-current）。 */
 .detail-shell[aria-current="true"] {
     box-shadow: inset 0 2px 0 var(--accent-main);

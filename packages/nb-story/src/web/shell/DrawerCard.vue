@@ -5,9 +5,10 @@
  */
 import {Badge, DropdownMenu, Input, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import {computed, ref, watch} from "vue";
+import {computed, inject, ref, watch} from "vue";
 
 import {useBook, type Tab} from "../host/book";
+import {DETAIL_SCOPE} from "../host/detail-scope";
 import {useLayoutMotion} from "../host/motion";
 import {usePagedQuery, useStoryQuery} from "../host/query";
 import PagedList from "../parts/PagedList.vue";
@@ -48,7 +49,10 @@ const reviseMode = ref<"link" | "kind" | "name" | null>(null);
 const reviseOpen = computed({get: () => reviseMode.value !== null, set: open => (open ? undefined : (reviseMode.value = null))});
 /** 与这个对象有关的修订条数（菜单第四项写出来；按阅读位置算）。 */
 const revisionTotal = useStoryQuery("revisions.list", () => ({entity: props.entity, limit: 1}));
+/** 两张并排时“⋯”菜单多一项“与另一张对调”（输出 68）；浮层里没有外壳，没有这一项。 */
+const scope = inject(DETAIL_SCOPE, null);
 const reviseItems = computed<DropdownMenuItemData[]>(() => [
+    ...(scope?.paired.value === true ? [{id: "swap", label: "与另一张对调", iconClass: "i-lucide-arrow-left-right"}, {id: "sep-swap", label: "", separator: true}] : []),
     {id: "link", label: "连到另一个对象……", iconClass: "i-lucide-link-2"},
     {id: "kind", label: "改对象种类……", iconClass: "i-lucide-user-round"},
     {id: "name", label: "某个称呼属于别的对象……", iconClass: "i-lucide-tag"},
@@ -56,7 +60,8 @@ const reviseItems = computed<DropdownMenuItemData[]>(() => [
     {id: "list", label: `这个对象的修订（${revisionTotal.data.value?.total ?? 0}）`, iconClass: "i-lucide-history"},
 ]);
 function onRevise(value: string): void {
-    if (value === "list") book.jump("revisions", {kind: "entity", id: props.entity});
+    if (value === "swap") scope?.swap();
+    else if (value === "list") book.jump("revisions", {kind: "entity", id: props.entity});
     else reviseMode.value = value as "link" | "kind" | "name";
 }
 /** 断开“同一身份”里的一条连接：驳回把它连进来的那条说法（输出 64）。用户自己加的连接（“你加的”）要到待确认页的已处理里撤销。 */
@@ -117,7 +122,8 @@ const FAMILY_WORD: Record<string, string> = {
         <PageState class="px-3" :loading="card.loading.value && !card.data.value" :error="card.error.value?.code === 'entity_not_found' ? '这个对象在当前阅读位置还没出现' : (card.error.value?.message ?? null)" @retry="card.reload()" />
         <template v-if="card.data.value">
             <header class="flex flex-col gap-1 border-b border-[var(--divider)] px-3 pb-2 pt-3">
-                <div class="flex items-center gap-2">
+                <!-- 名字那一行是拖动换边的把手（输出 68，两张并排时才起拖；按钮上按下不起拖）。 -->
+                <div class="detail-handle flex items-center gap-2" data-detail-handle>
                     <h2 class="text-[length:var(--text-lg)] font-[var(--weight-strong)]" data-testid="card-name">{{ card.data.value.label }}</h2>
                     <span class="ml-auto flex items-center gap-0.5">
                         <DropdownMenu :items="reviseItems" align="end" menu-class="min-w-[220px]" @select="onRevise"><IconButton size="xs" icon-class="i-lucide-ellipsis" aria-label="修改" data-testid="card-revise-menu" /></DropdownMenu>

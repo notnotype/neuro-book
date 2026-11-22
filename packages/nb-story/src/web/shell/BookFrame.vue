@@ -4,8 +4,8 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import type {GridContentInput, GridGestureCommit} from "@notnotype/nb-layout";
-import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
+import type {GridContentInput, GridDropRect, GridGestureCommit} from "@notnotype/nb-layout";
+import {DropFeedbackOverlay, NestedGrid, useDragSession, useGridHost} from "@notnotype/nb-layout/vue";
 import type {GridHostIssue} from "@notnotype/nb-layout/vue";
 import {ContextMenu, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem, DropdownMenuItemData} from "@notnotype/nb-ui/components";
@@ -205,6 +205,39 @@ function closeDetail(key: number, shell: HTMLElement): void {
     }
     book.closeDetail(key);
 }
+// ---- 拖详情换边（输出 68）：两张都在时按住头部拖，在另一张上松手对调 ----
+// 会话的根是包着网格的那一层：内容层是网格根的子元素，两张不在同一块叶里。选项只在建会话时读一次，里面读的响应式值每次调用时现读。
+const gridBox = ref<HTMLElement | null>(null);
+const shellOf = (key: number): HTMLElement | null => gridBox.value?.querySelector<HTMLElement>(`[data-detail-key="${String(key)}"]`) ?? null;
+/** 被拖的那张的标题：过门槛时从它的把手上取一次，跟手的小块写它。 */
+const dragTitle = ref("");
+const {state: swapDrag} = useDragSession(gridBox, () => ({
+    sourceAt: (target) => {
+        if (shownDetails.value.length < 2 || target.closest("button, input, a, [role='menu'], [role='menuitem'], [role='tab']") !== null) return null;
+        const shell = target.closest("[data-detail-handle]")?.closest<HTMLElement>("[data-detail-key]");
+        return shell === null || shell === undefined ? null : Number(shell.dataset.detailKey);
+    },
+    activate: (source: number) => {
+        dragTitle.value = shellOf(source)?.querySelector("[data-detail-handle]")?.textContent?.trim() ?? "";
+        return true;
+    },
+    // 拖着的时候详情变了（关掉一张、换了内容）整场取消（ui/layout-drag 输出 7）。
+    structure: () => shownDetails.value.map((item) => item.key).join(","),
+    resolve: ({source, point}) => {
+        const other = shownDetails.value.find((item) => item.key !== source);
+        const rect = other === undefined ? undefined : shellOf(other.key)?.getBoundingClientRect();
+        if (other === undefined || rect === undefined) return null;
+        const inside = point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+        return inside ? {key: other.key, rect: {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom} satisfies GridDropRect} : null;
+    },
+    actionKey: (drop) => `swap:${String(drop.key)}`,
+    commit: (_drop, source) => book.swapDetails(source),
+}));
+const swapPreview = computed(() => {
+    const drop = swapDrag.value?.drop;
+    return drop === null || drop === undefined ? null : {areaRect: drop.rect, indicator: null, orientation: "horizontal" as const};
+});
+
 // ---- 名字上的右键菜单（输出 67）：外壳里只有这一个，`NameLink` 经注入打开。窄档看不出并排，不打开，名字照常走浏览器的菜单。 ----
 const nameMenu = ref<{x: number; y: number; request: DetailRequest} | null>(null);
 provide(NAME_MENU, {
@@ -321,7 +354,7 @@ watch(notice, value => {
             <span v-if="tier === 'phone' && book.saveFailed.value" class="save-failed" role="status" data-testid="save-failed"><span class="i-lucide-triangle-alert" />阅读位置没存上</span>
         </header>
 
-        <div class="relative min-h-0 flex-1">
+        <div ref="gridBox" class="relative min-h-0 flex-1">
             <!-- 过渡时长接到控件形变那一档（与换成网格之前的分栏一样）；设在网格根上，减少动态效果时照样归零（ui/nested-grid 输出 142）。 -->
             <NestedGrid v-if="tier !== 'phone'" ref="gridRef" v-bind="host.bindings.value" :sash-disabled="sashDisabled" :pane-label="paneLabel" :contents="detailContents" class="h-full" style="--nb-layout-motion-layout: var(--nb-layout-motion-move)" @content-parked="onContentParked">
                 <template #leaf="{node}">
@@ -352,7 +385,7 @@ watch(notice, value => {
                     <template v-for="entry in [detailOf(contentKey)]" :key="contentKey">
                         <DetailShell
                             v-if="entry" :session="book" :item="entry.item" :index="entry.index" :count="shownDetails.length" :active="entry.item.key === book.details.value.active"
-                            @close="(shell) => closeDetail(entry.item.key, shell)" @touch="book.touchDetail(entry.item.key)"
+                            @close="(shell) => closeDetail(entry.item.key, shell)" @touch="book.touchDetail(entry.item.key)" @swap="book.swapDetails(entry.item.key)"
                         />
                     </template>
                 </template>
@@ -399,6 +432,14 @@ watch(notice, value => {
             </template>
         </div>
 
+        <!-- 拖动换边的反馈：另一张上盖落点，被拖的那张缩成写着标题的小块跟着指针。都带 data-drag-feedback，判定落点时跳过。 -->
+        <DropFeedbackOverlay :preview="swapPreview" label="与这一张对调" icon-class="i-lucide-arrow-left-right" data-drag-feedback />
+        <Teleport to="body">
+            <div
+                v-if="swapDrag !== null && !swapDrag.keyboard" class="swap-chip" data-drag-feedback data-testid="swap-chip"
+                :style="{left: `${swapDrag.point.x + 12}px`, top: `${swapDrag.point.y + 12}px`}"
+            >{{ dragTitle }}</div>
+        </Teleport>
         <ContextMenu :open="nameMenu !== null" :x="nameMenu?.x ?? 0" :y="nameMenu?.y ?? 0" :items="nameMenuItems" @request-close="nameMenu = null" />
         <div v-if="notice" class="absolute left-1/2 z-40 -translate-x-1/2 rounded-[var(--radius-control)] bg-[var(--status-warning-bg)] px-3 py-1.5 text-[length:var(--text-sm)]" data-testid="notice" :class="tier === 'phone' ? 'bottom-14' : 'bottom-4'">{{ notice }}</div>
     </div>
@@ -451,6 +492,20 @@ watch(notice, value => {
     gap: 4px;
     font-size: var(--text-xs);
     color: var(--status-danger);
+}
+.swap-chip {
+    position: fixed;
+    z-index: 60;
+    max-width: 240px;
+    padding: 4px 10px;
+    border-radius: var(--radius-control);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-panel);
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
 }
 .nav-item.is-active {
     color: var(--accent-text);
