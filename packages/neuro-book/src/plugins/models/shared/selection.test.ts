@@ -42,6 +42,8 @@ async function fixture(options: {usable: boolean; lazy?: boolean; hold?: (method
     worlds.push(w);
     const client = await w.window("w");
     const calls: Array<{method: string; input: unknown}> = [];
+    /** 已经交回给选用数据的按引用取（调用方拿到结果的下一个宏任务里，它对这次结果的处理已经做完）。 */
+    let answered = 0;
     const remote: SelectionRemote = {
         enabledModels: async (input) => {
             calls.push({method: "enabledModels", input});
@@ -53,7 +55,9 @@ async function fixture(options: {usable: boolean; lazy?: boolean; hold?: (method
         modelsByReference: async (input) => {
             calls.push({method: "modelsByReference", input});
             await options.hold?.("modelsByReference", input);
-            return client.modelsByReference(input) as ReturnType<SelectionRemote["modelsByReference"]>;
+            const result = await (client.modelsByReference(input) as ReturnType<SelectionRemote["modelsByReference"]>);
+            answered += 1;
+            return result;
         },
     };
     const writes: Record<string, number> = {};
@@ -68,7 +72,7 @@ async function fixture(options: {usable: boolean; lazy?: boolean; hold?: (method
     selection.subscribe(() => {
         notified += 1;
     });
-    return {w, client, calls, selection, writes: () => Object.values(writes), notified: () => notified};
+    return {w, client, calls, selection, writes: () => Object.values(writes), notified: () => notified, answered: () => answered};
 }
 
 describe("选用数据", () => {
@@ -165,8 +169,10 @@ describe("选用数据", () => {
         f.selection.want([x!, y!]);
         await waitUntil("第二次登记在取", () => gates.length === 2);
         gates[0]!();
-        await waitUntil("第一次取完", () => f.calls.filter((call) => call.method === "modelsByReference").length === 2);
-        expect(f.selection.lookup.value.get(y!)).not.toBeNull();
+        await waitUntil("第一次的结果交回了", () => f.answered() === 1);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        // 第一次取完时 y 还没取到：它不在 lookup 里（还在取），不是 null（没有这个模型）。
+        expect(f.selection.lookup.value.has(y!)).toBe(false);
         gates[1]!();
         await waitUntil("两个都取到", () => f.selection.lookup.value.size === 2);
         expect(f.selection.lookup.value.get(y!)).toMatchObject({id: y!.slice(a.length + 1)});
