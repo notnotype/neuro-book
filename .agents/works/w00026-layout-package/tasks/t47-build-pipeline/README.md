@@ -41,7 +41,7 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 - 发布脚本：`vitest run scripts/release` 116 条通过（`packages.test.ts` 新增 4 条：产品包与版本手工提的目录、`private` 的看法、MIT 的生成包检查、许可写错报出）；`tsc -p scripts/tsconfig.json` 通过；`release:check` 通过。
 - 第三方声明：`third-party-notices.test.ts`（新）3 条；变异（改回按名字过滤）2 条失败；SDK 构建后 `THIRD-PARTY-NOTICES.md` 里有 nb-layout。
 - nb-story：`typecheck`、`bun test src` 701 条通过（含网页包新旧记录的新用例）；网页构建读产物后 `frame`、`side-by-side`、`viewer` 三个 e2e 文件 53 条通过；新旧记录里有 62 个 nb-layout 源文件、0 个产物文件；`dist/web` 的第三方声明里有 nb-layout 的 MIT。
-- 发布冒烟（本机，`prox bun run release:smoke`，不发布）：13 个包检查、打包，nb-layout 只冒烟不进清单（清单 12 个包）；nb-layout 宿主（README 起步、四个入口的类型、构建、浏览器里拖动与方向键、样式）通过；其余照旧通过。第一次跑完以 1 退出：宿主冒烟的静态服务读不在的 favicon 抛了未处理的错误，修在 `398b019c3`，重跑结果见下。
+- 发布冒烟（本机，`prox bun run release:smoke`，不发布）：13 个包检查、打包，nb-layout 只冒烟不进清单（清单 12 个包）；nb-layout 宿主（README 起步、四个入口的类型、构建、浏览器里拖动与方向键、样式）通过；其余照旧通过。第一次跑完以 1 退出：宿主冒烟的静态服务读不在的 favicon 抛了未处理的错误，修在 `398b019c3`，重跑在 `398b019c3` 上通过、以 0 退出（负载约 2）。
 - 插件 SDK 的声明两次构建不同（`components.d.ts` 36 行，属性先后），与 nb-layout 原来的问题同源：记进 Work 的后续，不在本 Task 改。
 
 ## 下一步
