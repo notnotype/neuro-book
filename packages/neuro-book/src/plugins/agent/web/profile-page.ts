@@ -8,8 +8,7 @@ import type {Component, PropType, ShallowRef} from "vue";
 
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
-import type {ModelRow, ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
-import type {SelectionRow} from "nbook/plugins/models/shared/selection";
+import type {ModelRow, ModelsSnapshot, SelectionRow} from "nbook/plugins/models/shared/contracts";
 import {builtinPluginNameRef} from "nbook/plugins/plugins/shared/contracts";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";

@@ -16,6 +16,9 @@ export {requestEffort} from "@notnotype/nb-harness/kernel/contracts";
 export {hasCredentials} from "@notnotype/nb-models/contract";
 export type {ModelRow, ModelsService, ModelsSnapshot, SnapshotProvider, SnapshotRole, Template} from "@notnotype/nb-models/contract";
 export {builtinRoleNameKey, modelsText} from "./text";
+/** 选用数据：选择器、角色页与 Profile 页按服务商分页读模型，浏览器入口各建一份（`selection.ts`）。 */
+export {createSelectionData} from "./selection";
+export type {Cell, SelectionData, SelectionOptions, SelectionRemote, SelectionRow} from "./selection";
 /** 两页的分区 id：对话的提示卡按它们打开设置并定位（docs/specs/agent/conversation.md 输出 42）。 */
 export {PROVIDERS_SECTION, ROLES_SECTION} from "./settings";
 

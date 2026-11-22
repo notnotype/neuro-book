@@ -190,7 +190,7 @@ const groups = computed(() => {
 });
 /** 搜索时展开命中的组并限 200 行；不搜索时系列默认收起，收起的不渲染。 */
 const shown = computed(() => {
-    if (needle.value === "") return groups.value.map((group) => ({...group, open: expanded.value.has(group.group), rows: expanded.value.has(group.group) ? group.models : []}));
+    if (needle.value === "") return groups.value.map((group) => ({...group, open: isOpen(group.group), rows: isOpen(group.group) ? group.models : []}));
     let budget = SEARCH_LIMIT;
     return groups.value.map((group) => {
         const rows = group.models.slice(0, Math.max(0, budget));
@@ -200,11 +200,14 @@ const shown = computed(() => {
 });
 const hiddenCount = computed(() => (needle.value === "" ? 0 : Math.max(0, matched.value.length - SEARCH_LIMIT)));
 const enabledCount = computed(() => props.provider.enabledCount);
-const expanded = ref(new Set<string>());
+/** 模型不多（30 个以内）时系列默认展开；更多的默认收起、收起的不渲染。用户点过的组按相反的来。 */
+const AUTO_OPEN_LIMIT = 30;
+const toggled = ref(new Set<string>());
+const isOpen = (group: string): boolean => (props.rows.length <= AUTO_OPEN_LIMIT) !== toggled.value.has(group);
 function fold(group: string): void {
-    const next = new Set(expanded.value);
+    const next = new Set(toggled.value);
     if (!next.delete(group)) next.add(group);
-    expanded.value = next;
+    toggled.value = next;
 }
 const checking = computed(() => props.rows.some((model) => props.checks.get(checkKey(props.provider.id, model.id))?.status === "running"));
 </script>

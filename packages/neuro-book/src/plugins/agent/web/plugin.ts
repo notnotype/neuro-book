@@ -19,10 +19,8 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference, splitReference} from "nbook/plugins/models/shared/contracts";
-import type {ModelRow, ModelsSnapshot, SnapshotProvider} from "nbook/plugins/models/shared/contracts";
-import {createSelectionData} from "nbook/plugins/models/shared/selection";
-import type {SelectionRemote, SelectionRow} from "nbook/plugins/models/shared/selection";
+import {builtinRoleNameKey, createSelectionData, hasCredentials, modelsSettingsContract, modelsText, PROVIDERS_SECTION, roleReference, splitReference} from "nbook/plugins/models/shared/contracts";
+import type {ModelRow, ModelsSnapshot, SelectionRemote, SelectionRow, SnapshotProvider} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";

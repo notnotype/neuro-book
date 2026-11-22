@@ -91,7 +91,7 @@ const detail = (page: Page) => page.locator("[data-provider-detail]");
 async function addCustom(page: Page, name: string): Promise<void> {
     await page.locator("[data-provider-add]:visible").first().click();
     const add = page.locator("[data-add-provider-dialog]");
-    await add.locator("[data-add-provider='custom']").click();
+    await add.locator("[data-add-provider='blank-openai']").click();
     // 进到表单焦点就在名称框里，回车提交。
     await expect(add.locator("input[data-field='name'], [data-field='name'] input").first()).toBeFocused();
     await page.keyboard.type(name);
@@ -107,12 +107,12 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     await expect(page.getByText("还没有服务商")).toBeVisible();
     await page.locator("[data-provider-add]:visible").click();
     const add = page.locator("[data-add-provider-dialog]");
-    await add.locator("[data-add-provider='custom']").click();
+    await add.locator("[data-add-provider='blank-openai']").click();
     await add.locator("[data-field='name'] input, input[data-field='name']").first().fill("本地端点");
     await add.locator("[data-field='baseUrl'] input, input[data-field='baseUrl']").first().fill(base);
     await add.getByRole("button", {name: "添加"}).click();
     await expect(add).toHaveCount(0);
-    await expect(page.locator(".providers-page__heading")).toHaveText("本地端点");
+    await expect(page.locator("[data-provider-name]")).toHaveText("本地端点");
 
     // 密钥：env: 引用的变量不在启动环境里时标出；原文写进凭据库，框里清空，出现“清除”。
     const key = detail(page).locator("[data-key-input]");
@@ -174,8 +174,8 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     await expect(model(page, "story-model-a").getByRole("switch")).toHaveAttribute("aria-checked", "true");
 
     // 删除服务商（条目上悬停出的删除图标）：确认框写明受影响的角色；删除后焦点到“添加服务商”，主力变成未绑定。
-    await page.locator("[data-provider-rail-item='custom']").hover();
-    await page.locator("[data-provider-remove='custom']").click();
+    await page.locator("[data-provider-rail-item='provider']").hover();
+    await page.locator("[data-provider-remove='provider']").click();
     const alert = page.getByRole("alertdialog");
     await expect(alert).toContainText("主力");
     await alert.getByRole("button", {name: "删除"}).click();
@@ -192,22 +192,22 @@ test("验收 2：两个窗口同开“服务商与模型”，一处添加、改
         await openProviders(b);
         await a.locator("[data-provider-add]").first().click();
         const add = a.locator("[data-add-provider-dialog]");
-        await add.locator("[data-add-provider='custom']").click();
+        await add.locator("[data-add-provider='blank-openai']").click();
         await add.locator("input[data-field='name'], [data-field='name'] input").first().fill("同步测试");
         await add.locator("input[data-field='baseUrl'], [data-field='baseUrl'] input").first().fill(base);
         await add.getByRole("button", {name: "添加"}).click();
-        await expect(b.locator("[data-provider-rail-item='custom']")).toBeVisible();
+        await expect(b.locator("[data-provider-rail-item='provider']")).toBeVisible();
 
         const url = a.locator("[data-url-input]");
         await url.fill("http://127.0.0.1:1/v1");
         await url.press("Enter");
-        await b.locator("[data-provider-rail-item='custom']").click();
+        await b.locator("[data-provider-rail-item='provider']").click();
         await expect(b.locator("[data-url-input]")).toHaveValue("http://127.0.0.1:1/v1");
 
-        await a.locator("[data-provider-rail-item='custom']").hover();
-        await a.locator("[data-provider-remove='custom']").click();
+        await a.locator("[data-provider-rail-item='provider']").hover();
+        await a.locator("[data-provider-remove='provider']").click();
         await a.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-        await expect(b.locator("[data-provider-rail-item='custom']")).toHaveCount(0);
+        await expect(b.locator("[data-provider-rail-item='provider']")).toHaveCount(0);
     } finally {
         await a.close();
         await b.close();
@@ -219,7 +219,7 @@ test("验收 3：窄窗口里服务商列表收成下拉；页面里的写不进
     await openProviders(page);
     await page.locator("[data-provider-add]").first().click();
     const add = page.locator("[data-add-provider-dialog]");
-    await add.locator("[data-add-provider='custom']").click();
+    await add.locator("[data-add-provider='blank-openai']").click();
     await add.locator("input[data-field='name'], [data-field='name'] input").first().fill("窄窗口");
     await add.locator("input[data-field='baseUrl'], [data-field='baseUrl'] input").first().fill(base);
     await add.getByRole("button", {name: "添加"}).click();
@@ -261,25 +261,25 @@ test("删除的三条路与焦点：取消后回到那家的条目；Delete 键�
     await addCustom(page, "丙");
     const item = (id: string) => page.locator(`[data-provider-rail-item='${id}']`);
     // 条目的名称只有服务商名，行尾一格的原因是描述。
-    await expect(item("custom-2")).toHaveAccessibleName("乙");
-    await expect(item("custom-2")).toHaveAccessibleDescription(/./u);
-    await item("custom-2").click();
+    await expect(item("provider-2")).toHaveAccessibleName("乙");
+    await expect(item("provider-2")).toHaveAccessibleDescription(/./u);
+    await item("provider-2").click();
 
-    await item("custom-2").hover();
-    await page.locator("[data-provider-remove='custom-2']").click();
+    await item("provider-2").hover();
+    await page.locator("[data-provider-remove='provider-2']").click();
     await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
-    await expect(item("custom-2")).toBeFocused();
+    await expect(item("provider-2")).toBeFocused();
 
-    await item("custom-2").press("Delete");
+    await item("provider-2").press("Delete");
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-    await expect(item("custom-3")).toBeFocused();
-    await expect(item("custom-3")).toHaveAttribute("aria-current", "page");
-    await expect(item("custom-2")).toHaveCount(0);
+    await expect(item("provider-3")).toBeFocused();
+    await expect(item("provider-3")).toHaveAttribute("aria-current", "page");
+    await expect(item("provider-2")).toHaveCount(0);
 
-    await item("custom").click({button: "right"});
+    await item("provider").click({button: "right"});
     await page.getByRole("menuitem", {name: "删除服务商…"}).click();
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-    await expect(item("custom")).toHaveCount(0);
-    await expect(item("custom-3")).toHaveAttribute("aria-current", "page");
-    await expect(item("custom-3")).toBeFocused();
+    await expect(item("provider")).toHaveCount(0);
+    await expect(item("provider-3")).toHaveAttribute("aria-current", "page");
+    await expect(item("provider-3")).toBeFocused();
 });

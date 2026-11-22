@@ -4,8 +4,7 @@
  */
 
 import {builtinRoleNameKey, modelsText, roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
-import type {ModelRow, ModelsSnapshot, SnapshotRole} from "nbook/plugins/models/shared/contracts";
-import type {SelectionRow} from "nbook/plugins/models/shared/selection";
+import type {ModelRow, ModelsSnapshot, SelectionRow, SnapshotRole} from "nbook/plugins/models/shared/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ProfileEntry, ProfileProblem, ToolCatalogEntry} from "../shared/contracts";
