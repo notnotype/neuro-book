@@ -8,7 +8,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {CoreSettings, ModelQuery} from "@notnotype/nb-harness/kernel/contracts";
-import {openCredentials} from "@notnotype/nb-harness/models";
+import {chatModels, listCatalog, openCredentials} from "@notnotype/nb-harness/models";
 import type {CredentialStore} from "@notnotype/nb-harness/models";
 import {fail, ok} from "@notnotype/nb-runtime/remote";
 import type {RemoteMethodContext, RemoteOutcome} from "@notnotype/nb-runtime/remote";
@@ -403,6 +403,17 @@ describe("身份（输出 24）", () => {
             expect(rekeyed.deployment).toBe(first.deployment);
             expect(rekeyed.credential).not.toBe(first.credential);
 
+            // 自定义的认证头能盖过密钥：换了它也是换了账号。之前解析的结果不能再带旧头发出，新的凭据身份也不同。
+            const before = core.service.port().resolve(query({settings: {...CORE, model: `${id}/m`}}));
+            if (!before.ok) throw new Error(before.code);
+            expect(await call("updateProvider", {id, patch: {headers: {authorization: "Bearer team-token-0003"}}})).toEqual({ok: true, value: null});
+            const text = {kind: "text" as const, text: "你好", origin: {kind: "fixed" as const, by: "kernel" as const}};
+            const stale = await before.call({purpose: "turn", model: `${id}/m`, params: {}, headers: {}, system: [], messages: [{role: "user", content: [text]}], tools: []}, new AbortController().signal, () => undefined);
+            expect(stale.error).toMatchObject({code: "endpoint-mismatch"});
+            const reheadered = await origin(id);
+            expect(reheadered.credential).not.toBe(rekeyed.credential);
+            expect(await call("updateProvider", {id, patch: {headers: {}}})).toEqual({ok: true, value: null});
+
             expect((await call("removeProvider", {id})).ok).toBe(true);
             const again = await create();
             expect(again).toBe(id);
@@ -413,5 +424,87 @@ describe("身份（输出 24）", () => {
         } finally {
             await server.stop(true);
         }
+    });
+});
+
+describe("新建、来历与传输（后端审查的修正）", () => {
+    it("添加时选的协议在模板里没有地址又没给地址：invalid-value，设置没变", async () => {
+        const store = memoryModelsConfig({});
+        const {call} = await start(store);
+        expect(await call("addProvider", {template: "openai", name: "坏组合", api: "anthropic-messages"})).toMatchObject({ok: false, code: "invalid-value"});
+        expect(store.providers.read()).toEqual([]);
+    });
+
+    it("复制到的 id 在凭据库里有遗留密钥：先清掉，副本只带源的有效凭据（源没有就没有）", async () => {
+        const {call, credentials} = await start();
+        const id = await added(call, {template: "deepseek"});
+        await credentials.set(`${id}-copy`, "sk-leftover-0001");
+        const copy = await call("duplicateProvider", {id});
+        if (!copy.ok) throw new Error(copy.code);
+        expect(credentials.get(copy.value.id)).toBeNull();
+    });
+
+    it("写设置时这个 id 刚被别处占了：换下一个 id，清的是最后真正用的那个 id 的遗留密钥", async () => {
+        const store = memoryModelsConfig({});
+        let raced = false;
+        const racing = {...store, providers: {...store.providers, write: async (next: Parameters<typeof store.providers.write>[0], expect: Parameters<typeof store.providers.write>[1]) => {
+            if (!raced) {
+                raced = true;
+                store.writeExternally("providers", [{id: "raced", uid: "uid-raced", template: "blank-openai", name: "别处加的", baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", auth: "default", followSource: false, excluded: [], models: []}]);
+                store.catchUp();
+            }
+            return store.providers.write(next, expect);
+        }}} as unknown as MemoryModelsConfig;
+        const {call, credentials} = await start(racing);
+        await credentials.set("raced-2", "sk-leftover-0002");
+        const result = await call("addProvider", {template: "blank-openai", name: "raced", baseUrl: "http://127.0.0.1:9/v1"});
+        expect(result).toEqual({ok: true, value: {id: "raced-2"}});
+        expect(credentials.get("raced-2")).toBeNull();
+    });
+
+    it("v1 留下的不经 HTTP 请求的模型（Bedrock）与不是对话类的目录行：行标 unsupported，解析为 unknown-model", async () => {
+        const bedrock = listCatalog().find((item) => item.id === "amazon-bedrock")!.models[0]!.id;
+        const store = memoryModelsConfig({providers: [{id: "amazon-bedrock", kind: "catalog", name: "Bedrock", auth: "default", models: [{id: bedrock, enabled: true}]} as StoredProvider]});
+        const {core, allRows} = await start(store);
+        expect((await allRows("amazon-bedrock")).find((row) => row.id === bedrock)).toMatchObject({status: "unsupported", usable: false});
+        expect(core.service.port().resolve(query({settings: {...CORE, model: `amazon-bedrock/${bedrock}`}}))).toMatchObject({ok: false, code: "unknown-model"});
+        const image = listCatalog().find((item) => item.id === "openai")!.models.find((row) => !row.chat)!.id;
+        const {call: call2, allRows: rows2} = await start();
+        const id = await added(call2, {template: "openai"});
+        expect((await rows2(id)).some((row) => row.id === image)).toBe(false);
+    });
+
+    it("模板服务商里手加的模型：用模板的缺省协议，读行说能用的就真能解析", async () => {
+        const {core, call, allRows} = await start();
+        const id = await added(call, {template: "deepseek"});
+        await call("setKey", {provider: id, value: "sk-manual-0001"});
+        expect(await call("upsertModel", {provider: id, model: {id: "my-own-model", enabled: true, contextWindow: 4096, origin: "manual"}})).toEqual({ok: true, value: null});
+        expect((await allRows(id)).find((row) => row.id === "my-own-model")).toMatchObject({origin: "manual", usable: true});
+        expect(core.service.port().resolve(query({settings: {...CORE, model: `${id}/my-own-model`}}))).toMatchObject({ok: true, info: {id: `${id}/my-own-model`, contextWindow: 4096}});
+    });
+
+    it("手加的条目与目录里的同 id 撞上：仍是手加的（不借目录的窗口与能力），移出时删掉而不是进 excluded", async () => {
+        const source = chatModels("deepseek")[0]!;
+        const store = memoryModelsConfig({providers: [{id: "ds", uid: "uid-ds", template: "deepseek", name: "DeepSeek", auth: "default", followSource: false, excluded: [], models: [{id: source.id, enabled: false, origin: "manual"}]}]});
+        const {core, call, allRows} = await start(store);
+        await call("setKey", {provider: "ds", value: "sk-manual-0002"});
+        expect((await allRows("ds")).find((row) => row.id === source.id)).toMatchObject({origin: "manual", contextWindow: null, status: "incomplete"});
+        expect(await call("upsertModel", {provider: "ds", model: {id: source.id, enabled: true, contextWindow: 2048, origin: "manual"}})).toEqual({ok: true, value: null});
+        expect(core.service.port().resolve(query({settings: {...CORE, model: `ds/${source.id}`}}))).toMatchObject({ok: true, info: {contextWindow: 2048}});
+        expect(await call("setModels", {provider: "ds", add: [], remove: [source.id]})).toEqual({ok: true, value: null});
+        expect(stored(store)[0]).toMatchObject({excluded: [], models: []});
+    });
+
+    it("一页按字节截：几行很大的手加模型不会让一页超过上限，接着读能读完", async () => {
+        const {call, allRows} = await start();
+        const id = await added(call, {template: "blank-openai", name: "大行", baseUrl: "http://127.0.0.1:9/v1"});
+        const models = Array.from({length: 12}, (_, index) => ({id: `m-${String(index)}-${"x".repeat(60_000)}`, enabled: true, contextWindow: 4096, origin: "manual" as const}));
+        expect(await call("setModels", {provider: id, add: models, remove: []})).toEqual({ok: true, value: null});
+        const first = await call("providerModels", {provider: id, offset: 0, limit: 200});
+        if (!first.ok) throw new Error(first.code);
+        expect(first.value.rows.length).toBeLessThan(12);
+        expect(first.value.nextOffset).toBe(first.value.rows.length);
+        expect(Buffer.byteLength(JSON.stringify(first.value))).toBeLessThan(1024 * 1024);
+        expect((await allRows(id)).length).toBe(12);
     });
 });

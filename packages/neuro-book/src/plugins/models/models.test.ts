@@ -307,6 +307,23 @@ describe("v1 设置文件与图标路由（输入与前置条件、输出 21）"
         expect(written.every((provider) => !("kind" in provider))).toBe(true);
         expect(written[0]!.models).toEqual([{id: "deepseek-flash", enabled: true, origin: "source"}]);
     });
+
+    test("设置文件里服务商这一项不合形状（设置层拒收、原文还在）：添加服务商被拒，不把它当成空表整份盖掉", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        ok(await client.addProvider({template: "deepseek"}));
+        const file = JSON.parse(await readFile(w.settings.userFile, "utf8")) as Record<string, unknown>;
+        const broken = [{id: "Not A Valid Id!", name: "手改坏的"}];
+        file["nbook.models/providers"] = broken;
+        await writeFile(w.settings.userFile, JSON.stringify(file));
+        await waitUntil("服务端读到被拒收的值", () => {
+            w.settings.clock.advance(RELOAD_DELAY_MS);
+            return w.service.snapshot().providers.length === 0;
+        });
+        const result = await client.addProvider({template: "moonshot"});
+        expect(result).toMatchObject({ok: false, code: "settings-unavailable"});
+        expect((JSON.parse(readFileSync(w.settings.userFile, "utf8")) as Record<string, unknown>)["nbook.models/providers"]).toEqual(broken);
+    });
 });
 
 describe("密钥（输出 1、2、12、13）", () => {

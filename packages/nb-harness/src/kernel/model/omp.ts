@@ -355,11 +355,14 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         let requests = 0;
         /** 发出前的核对失败（地址不符）：适配器只会把它报成通用的“请求失败”，在这里记下，之后优先交出。 */
         const wire: {blocked: OmpFetchFailure | null} = {blocked: null};
+        /** 拦下之后整次调用就此结束：有的协议（Anthropic）会对抛错的请求按退避重试十来次，本地拦下的没有重试的意义。 */
+        const stopOnBlock = new AbortController();
         const guarded = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
             const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
             const problem = target.guard?.(new URL(href)) ?? null;
             if (problem !== null) {
                 wire.blocked ??= problem;
+                stopOnBlock.abort();
                 throw new Error(problem.message);
             }
             const headers = new Headers(input instanceof Request ? input.headers : undefined);
@@ -389,7 +392,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         const firstEvent = firstEventWatch(signal, transport?.firstEventTimeoutMs);
         const options: SimpleStreamOptions = {
             apiKey,
-            signal: firstEvent.signal,
+            signal: AbortSignal.any([firstEvent.signal, stopOnBlock.signal]),
             fetch: counted,
             onSseEvent: (event) => watch.observe(event),
             ...(observer?.payload === undefined ? {} : {onPayload: (payload: unknown) => {
