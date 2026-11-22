@@ -108,6 +108,7 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 2026-11-22：t44、t46 的实现审查处理完（`3ecc4f4f8`、`ec63bbaf8`）。[t45](tasks/t45-story-side-by-side-cards/README.md) 计划审查满三轮（第 3 轮仍有 2 条重要问题，已改进第 4 稿），按停止条件停下等开发者定是否开工；三轮的问题多来自 nb-layout 公开面的缺口，记在 t45 README。
 
 2026-11-22 开发者看完汇报：待确认项“没问题”（今天新增的 8 条记为追认）；t45 选“先补 nb-layout 再做”。新建 [t51](tasks/t51-layout-api-gaps/README.md) 补公开面。第二档顺序改为：t51 → t45（重写计划）→ t47 → t48 → t49 → t50。
+同日开发者定 t51 三样都做：原地增删不压固定栏（加设宽度入口）、离开的内容由库留住、分隔线显示名（见 t51 的“决定”）。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
