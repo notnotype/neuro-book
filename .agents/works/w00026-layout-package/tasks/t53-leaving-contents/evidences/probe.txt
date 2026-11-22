@@ -1,0 +1,49 @@
+t53 探针（2026-11-22）：真实 NestedGrid、SFC 编译的插槽（v-if、v-for、Transition、子组件），vitest 4.1.10 + happy-dom，Vue 3.5.39。
+原型在分支 w00026/t53-leaving-contents 的提交“t53 原型（探针用）”；探针文件放在 packages/nb-layout/src/vue/__probe__/（没有提交）：
+LeavingHost.vue（三叶横排 x、y、z，每叶一个内容项，面板头读 heads[id]，内容读 store[key]）、ProbeCard.vue（收 card 属性，里面有 Transition）、
+SlotTaker.vue（只有一个默认插槽）、t53.dom.test.ts。布局盒按仓库做法桩 clientWidth/clientHeight，过渡时长 --nb-layout-motion-layout: 60ms。
+宿主的“关一张卡片”在同一个同步段里：cards 去掉这一项（叶与内容项同时没了），delete store[id]，delete heads[id]。
+日志 log 记每次插槽调用（head:<叶>、slot:<内容>、card:<内容>）。
+
+一、Vue 的机制（读 @vue/runtime-core 3.5.39 源码）
+
+- 组件渲染函数再次返回已挂载的 VNode：normalizeVNode → cloneIfMounted，已挂载（el 非空）的先克隆再往下修补；
+  只有带 memo 的原样返回（`child.el === null && child.patchFlag !== -1 || child.memo ? child : cloneVNode(child)`），
+  patch 开头 `if (n1 === n2) return` 才整棵跳过。v-memo 的运行时 withMemo 就是给结果打 memo。所以冻结用 withMemo。
+- EffectScope.pause() 存在（3.5），但组件的 scope 是独立的（`new EffectScope(true)`），暂停一个不会带上子组件；
+  ReactiveEffect.pause() 只在触发那一刻起作用（trigger 里 `flags & 64` 才进 pausedQueueEffects）。宿主删数据与去掉内容在同一个同步段里时，
+  子组件的渲染任务在删数据那一刻已经排进队列（scheduler → queueJob(runIfDirty)），事后暂停拦不住。所以“连子组件一起冻住”做不干净，不做。
+
+二、各条路径（原型上的结果，逐条 JSON 原样）
+
+P1 留住（leave: "retain"）：叶与内容同一轮被删
+  {"during":{"frame":{"leaving":true,"inert":true,"head":"hy"},"content":{"leaving":true,"inert":true,"visibility":"","body":"Ymanyy1y2Yt"}},
+   "logDuring":["head:x","slot:x","slot:z","head:z"],"after":{"frame":null,"content":null},"warnings":[],"errors":[]}
+  离开的叶留着缩回（data-leaving、inert），面板头仍是 "hy"（heads.y 已删）；内容项留着（data-content-leaving、inert、看得见），
+  内容仍是删之前的样子；这一轮没有 head:y、slot:y、card:y，宿主的插槽没再被调；过渡结束后叶与内容都没了。没有警告。
+P2 缺省（不给 leave）：当即卸载，离开的叶也不留（下面没有挂着的内容，同现在）
+  {"during":{"frame":null,"content":null},"log":["head:x","slot:x","slot:z","head:z"],"warnings":[],"errors":[]}
+P3 过渡中同 key 回来（同一位置）：沿用同一个元素，回到照常渲染（又调了 head:y、slot:y、card:y），没有重复 key
+  {"sameElement":true,"count":1,"now":{"frame":{"leaving":false,"inert":false,"head":"hy"},"content":{"leaving":false,"inert":false,...}},...,"warnings":[],"errors":[]}
+P4 叶不动、内容被换掉（y 的内容 y → w），同一轮别处关了 x（网格在过渡）：旧内容当即卸载
+  {"old":null,"w":true,"oldStillThere":false,"warnings":[],"errors":[]}
+P5 过渡中又来一次变化（先关 y，下一轮关 x）：y 接着留，x 也留
+  {"y":{"frame":{"leaving":true,...},"content":{"leaving":true,...}},"x":{"frame":{"leaving":true,...},"content":{"leaving":true,...}},"warnings":[],"errors":[]}
+P6 焦点在留着的内容里：发 content-parked，key 是宿主刚去掉的那个
+  {"focusedBefore":"y","parked":[["y"]],"warnings":[],"errors":[]}
+P7 反例：内容里有个收插槽的子组件，插槽里按 key 查已删的数据（<SlotTaker>{{ store[contentKey]!.title }}</SlotTaker>）
+  {"thrown":"TypeError: Cannot read properties of undefined (reading 'title')", ...,
+   "warnings":["[Vue warn]: Unhandled error during execution of render function","[Vue warn]: Unhandled error during execution of component update"]}
+  子组件的插槽在它自己的渲染里调，依赖记在它身上；删数据触发它自己重渲染，冻结管不到。写成合同的限制：
+  交给子组件的插槽里不按 key 查宿主会删的数据，先取出这一项、经属性传下去（ProbeCard 的写法，P1 里它里面的 Transition 没出问题）。
+  nb-story 的抽屉内容是 <DrawerCard :entity :tab />，只收属性，属于前一种。
+
+第一版夹具的两次失败都是夹具自己的错，不是产品问题：面板头和内容共用 store，换内容时删掉的正好是叶 y 的面板头数据；
+过渡时长写在了根元素的后代上（querySelector 不匹配自身），没有过渡。
+
+三、还没探的路径（写进计划，由正式用例覆盖）
+
+- 叶降到零（还在树里，例如收起）且内容同一轮被去掉：按原型，叶在 shrinking 里，内容留到过渡结束。
+- 交换里滑出去的叶：带只认这一帧在的项，留着的内容不跟着滑、跟着裁，原型里不留。
+- 拖动中（holding）：不留，同 leavingPlacements。
+- 减少动态效果（过渡时长 0）：decideMotion 判 move 后 update 直接 stop，留着的当即摘掉。
