@@ -26,7 +26,20 @@
 - 外框只有右边在动时，外框与内容外层带 `data-anchor-right`，过渡结束就摘掉。纵向不贴：贴下边要让面板头那一条里也画内容，那一条现在被裁掉。
 - 这些叶的内容外层在过渡中按叶的矩形摆、带 `data-by-leaf`：内容体往下挪一个面板头，面板头那一条用 `clip-path` 裁掉（不挡面板头的指针），外层的上边就是外框的上边；过渡结束换回内容自己的矩形，位置相同、不跳。宿主在过渡中量内容外层，量到的是叶的矩形，要量内容的位置量内容体。
 - 不给 `leafShape` 时，这些叶按外框的矩形裁，卡片在不动的那边被直着切掉；给了形状时，外框与内容外层都按它裁，露出来的一截始终是一张完整的卡片，卡片的投影到结束才出现，浮动窗不按形状裁。形状可以伸出外框时，`fill` 画伸出去的部分。
-- 离开的叶留着缩回去（一整棵子树离开；前后的兄弟这一帧相接，或它在分支一头而挨着的兄弟伸到了它原来的那一头；下面还有挂着的内容；又不在拖动中）时带 `data-leaving`、`inert`、不接指针；宿主用 `dragging` 属性告诉网格拖动在进行（不论内容拿没拿起），这时离开的叶不留着。还在树里、这一轮降到零的叶不带 `data-leaving`。
+- 离开的叶留着缩回去（一整棵子树离开；前后的兄弟这一帧相接，或它在分支一头而挨着的兄弟伸到了它原来的那一头；下面还有挂着的内容，或有这一轮被去掉、标了留住的活动内容项；又不在拖动中）时带 `data-leaving`、`inert`、不接指针；宿主用 `dragging` 属性告诉网格拖动在进行（不论内容拿没拿起），这时离开的叶不留着。还在树里、这一轮降到零的叶不带 `data-leaving`。只用 `leaf` 插槽、没有内容层的宿主删叶时，叶一帧消失；要删一块并让它缩回去，把内容放进内容层、标 `leave: "retain"`（见下一条）。
+- **关掉的内容留到过渡结束**：内容项标了 `leave: "retain"`、宿主把它从 `contents` 去掉，而它的叶这一轮在缩回去（离开的叶留着缩回，或降到零）时，库用它最后一次的渲染留到过渡结束，宿主不用自己留一份数据。缺省（`"unmount"`）当即卸载：内容里有保存、释放、还焦点这类卸载逻辑的（编辑器、终端）就别开。
+  - 留着的内容项带 `data-content-leaving`、`inert`、看得见，跟着叶缩回去，不进 F6 与 Tab 的站点；只留活动的，叶不动、只是内容被换掉或去掉的当即卸载；拖动中、交换里滑出去的叶、减少动态效果时不留。过渡中宿主又给了同一个 key，沿用同一个元素回到照常渲染。
+  - 焦点在里面时照样发 `content-parked`，key 是宿主刚去掉的那个：处理函数别按 key 查自己的数据（查不到），直接选焦点的去处。
+  - 这块叶的面板头（`leaf` 插槽）也停在最后一次渲染。别的离开的叶（区域隐藏、交换里滑出去）照常渲染，插槽读得到这一轮的 `moving`、`swappingLeaves`。
+  - 冻住的只是这一项的插槽调用。里面的组件照常按自己的响应式依赖更新：交给子组件的插槽在子组件的渲染里调，那里面按 key 查宿主已删的数据会抛错（库补一条 `[nb-layout/NestedGrid] … is kept until the transition ends` 的报错，原错误照常交给应用的错误处理）。把这一项交给一个组件、经属性传进去，组件里再用壳组件与插槽：
+
+    ```vue
+    <template #content="{contentKey}">
+        <!-- 不这样写：<Panel>{{ cards[contentKey].title }}</Panel>，Panel 的插槽在宿主删掉 cards[contentKey] 之后还会再调 -->
+        <CardBody :card="cards[contentKey]" />
+    </template>
+    ```
+  - 删数据与改 `contents`、改树要在同一次刷新里（同一个同步段）：数据先删、`contents` 晚一拍才变时，那一拍里宿主的插槽还会被调。
 
 ## 交换
 
@@ -88,6 +101,7 @@
 | `data-by-leaf` | 内容外层 | 过渡中按叶的矩形摆（含面板头那一条，裁掉）；有它时外层的矩形不是内容的位置 |
 | `data-swap` | 外框、内容外层与分隔线 | 交换进行中，值是 `in`（换上来的）或 `out`（离开的）；带它时 `clip-path` 是裁切窗，不是 `leafShape` |
 | `data-leaving` | 外框、内容外层与分隔线 | 离开了、在过渡里留着（缩回去，或交换里滑出去），不接指针；降到零但还在树里的叶不带它 |
+| `data-content-leaving` | 内容外层 | 宿主已经去掉、库留到过渡结束的内容项（`leave: "retain"`）；插槽停在最后一次渲染 |
 | `data-swap-backdrop` | 静止的底（`swap-backdrop` 插槽的外层） | 交换进行中、宿主给了这个插槽时才有 |
 | `data-sash` | 分隔线 | 值是 `分支 id:序号`；`data-sash-hover`、`-active`、`-revealed`、`-cross` 是它的状态 |
 | `--nb-layout-motion-layout`、`--nb-layout-ease-layout` | 继承来的 CSS 变量 | 过渡的时长与曲线：装了 nb-ui 时经它的桥接取主题的 `--motion-layout`、`--ease-layout`；减少动态效果时为 0；宿主没给时按缺省（470ms） |
@@ -145,8 +159,11 @@ type NestedGridProps = {
     swap?: {token: number; leaving: ReadonlyArray<string>; entering: ReadonlyArray<string>; axis: "width" | "height"; direction: 1 | -1; gap: number; window?: {inset: [number, number, number, number]; radius?: [string, string, string, string]}} | null;
 };
 
-/** 内容层的一项：key 是身份（不变就不重建、不换父元素），换 leaf 是在叶之间移动；insetTop 是叶顶部留给面板头的高度；不 active 的停放、不卸载。 */
-type GridContentInput = {key: string; leaf: string; insetTop: number; active: boolean};
+/**
+ * 内容层的一项：key 是身份（不变就不重建、不换父元素），换 leaf 是在叶之间移动；insetTop 是叶顶部留给面板头的高度；不 active 的停放、不卸载。
+ * leave 是宿主把它从 contents 去掉时怎样：缺省 "unmount" 当即卸载，"retain" 在它的叶缩回去时留到过渡结束（见“过渡”）。
+ */
+type GridContentInput = {key: string; leaf: string; insetTop: number; active: boolean; leave?: "unmount" | "retain"};
 /** 浮动窗：rect 相对网格根；gesture 是手势进行中（跟手、不过渡；move 还不接指针，判定才看得到底下）。 */
 type GridFloatInput = {id: string; rect: GridRect; gesture?: "move" | "resize"};
 /** 叶画成的卡片：inset 上右下左的内缩、radius 四个角（CSS 长度）；fill 是形状伸出外框（内缩为负）时伸出去那部分的颜色。 */
