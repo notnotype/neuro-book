@@ -9,8 +9,8 @@ import {zstdCompressSync} from "node:zlib";
 import {createCatalogView, fetchOnlineCatalog, ONLINE_CATALOG_LIMITS, OnlineCatalogError, parseOnlineCatalog, wireApiOf} from "@notnotype/nb-harness/models";
 import {getBundledModels} from "@oh-my-pi/pi-catalog";
 
-/** 打包目录里 Anthropic 的第一个对话模型：在线目录给它一个不同的窗口，看视图用的是哪个。 */
-const bundledAnthropic = (getBundledModels("anthropic") as Array<{id: string; contextWindow: number}>)[0]!;
+/** 打包目录里 Anthropic 的第一个对话模型：在线目录给它另一个名字，看视图用的是哪个（窗口会被 `buildModel` 按已知型号修正，分不出来）。 */
+const bundledAnthropic = (getBundledModels("anthropic") as Array<{id: string; name: string}>)[0]!;
 
 const payload = {
     anthropic: {
@@ -18,7 +18,7 @@ const payload = {
             "claude-brand-new": {id: "claude-brand-new", name: "Claude Brand New", tool_call: true, reasoning: true, limit: {context: 500_000, output: 64_000}, cost: {input: 3, output: 15}, modalities: {input: ["text", "image"], output: ["text"]}},
             "claude-free-new": {id: "claude-free-new", name: "Claude Free", tool_call: true, limit: {context: 100_000, output: 8000}, cost: {input: 0, output: 0}},
             "claude-unpriced-new": {id: "claude-unpriced-new", name: "Claude Unpriced", tool_call: true, limit: {context: 100_000, output: 8000}},
-            [bundledAnthropic.id]: {id: bundledAnthropic.id, name: "Changed", tool_call: true, limit: {context: 1234, output: 10}, cost: {input: 1, output: 1}},
+            [bundledAnthropic.id]: {id: bundledAnthropic.id, name: "Changed In Online Catalog", tool_call: true, limit: {context: 1234, output: 10}, cost: {input: 1, output: 1}},
         },
     },
 };
@@ -31,7 +31,7 @@ describe("解析与目录视图", () => {
         expect(fresh?.info).toMatchObject({id: "claude-brand-new", name: "Claude Brand New", contextWindow: 500_000, maxTokens: 64_000, images: true, chat: true});
         expect(wireApiOf(fresh!.model.api)).toBe("anthropic-messages");
         expect(view.chatModels("anthropic").map((model) => model.id)).toContain("claude-brand-new");
-        expect(view.find("anthropic", bundledAnthropic.id)?.info.contextWindow).toBe(bundledAnthropic.contextWindow);
+        expect(view.find("anthropic", bundledAnthropic.id)?.info.name).toBe(bundledAnthropic.name);
         // 没有在线目录的视图就是打包目录。
         expect(createCatalogView().find("anthropic", "claude-brand-new")).toBeUndefined();
     });
