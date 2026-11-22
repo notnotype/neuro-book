@@ -1,7 +1,7 @@
 /**
  * nb-layout 的文字（docs/specs/ui/i18n.md 输出 8，docs/specs/ui/nested-grid.md 输出 143）：自带的两份目录与按目录翻译的
  * `layoutCatalogTranslate`。仓库的目录检查（`scripts/ci/message-catalogs.ts`）只查 JSON 目录，这两份 `.ts` 目录在这里核对：
- * 键与组件用的 `LayoutTextKey` 双向一一对应，两种语言的键与占位符相同，占位符只用 `{{名字}}`（翻译只认这一种）。
+ * 键与 `LayoutTextKey` 里的键双向一一对应，两种语言的键与占位符相同，占位符只用 `{{名字}}`（翻译只认这一种）。
  * 放在 Vue 层（键的类型在 `text.ts`，核心不依赖 Vue 层），所以由 Vitest 跑；它不挂组件、不用 DOM。
  */
 
@@ -11,7 +11,7 @@ import {NB_LAYOUT_CATALOGS, NB_LAYOUT_SOURCE_LOCALE} from "../locales";
 import {layoutCatalogTranslate} from "./text";
 import type {LayoutCatalogLocale, LayoutTextKey} from "./text";
 
-/** 组件用到的全部键：`satisfies` 让漏写或多写一个键都编译不过。 */
+/** `LayoutTextKey` 里的全部键：`satisfies` 让漏写或多写一个键都编译不过。 */
 const KEYS = {
     "splitter.resizeWidth": true,
     "splitter.resizeHeight": true,
@@ -47,7 +47,7 @@ describe("nb-layout 的目录", () => {
     });
 
     for (const [locale, catalog] of Object.entries(NB_LAYOUT_CATALOGS)) {
-        it(`${locale}：叶子恰好是组件用的键，都是非空字符串，占位符只用 {{名字}}`, () => {
+        it(`${locale}：叶子恰好是 LayoutTextKey 里的键，都是非空字符串，占位符只用 {{名字}}`, () => {
             const flat = flatten(catalog);
             expect(Object.keys(flat).sort()).toEqual(Object.keys(KEYS).sort());
             for (const [key, text] of Object.entries(flat)) {
@@ -89,9 +89,8 @@ describe("layoutCatalogTranslate", () => {
         expect(layoutCatalogTranslate("en-US")("splitter.pixels")).toBe("{{size}} pixels");
     });
 
-    it("目录里没有的语言（JS 调用方绕过类型）按源语言，原型上的名字也一样", () => {
-        const english = layoutCatalogTranslate("en-US")("splitter.collapsed");
-        expect(layoutCatalogTranslate("fr-FR" as LayoutCatalogLocale)("splitter.collapsed")).toBe(english);
-        expect(layoutCatalogTranslate("constructor" as LayoutCatalogLocale)("splitter.collapsed")).toBe(english);
+    it("目录里没有的语言（JS 调用方绕过类型）在提供文字时就抛 RangeError，原型上的名字也一样", () => {
+        expect(() => layoutCatalogTranslate("zh" as LayoutCatalogLocale)).toThrow(RangeError);
+        expect(() => layoutCatalogTranslate("constructor" as LayoutCatalogLocale)).toThrow(RangeError);
     });
 });

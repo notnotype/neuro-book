@@ -1,6 +1,6 @@
 /**
  * 给 Vue 根或子树提供宿主的文字（docs/specs/ui/i18n.md 输出 8）。nb-ui 与依赖它的共享包读 `TEXT_PORT_KEY`；nb-layout 不依赖
- * nb-ui，读自己的 `LAYOUT_TEXT_KEY`（一个翻译函数）。两样必须一起提供，否则 nb-layout 的组件在英文窗口里仍显示中文，所以
+ * nb-ui，读自己的 `LAYOUT_TEXT_KEY`（一个翻译函数）。两样必须一起提供，否则 nb-layout 的组件不跟窗口的语言、一直是英文（它没有注入时的缺省），所以
  * 应用里提供端口的地方都经这里，不直接 `provide(TEXT_PORT_KEY, …)`（`host-text.test.ts` 扫源码守着）。
  *
  * 交给 nb-layout 的函数把键转给同一个端口、命名空间 `nb-layout`：端口要登记了 nb-layout 的目录，`createHostTextEngine` 建的

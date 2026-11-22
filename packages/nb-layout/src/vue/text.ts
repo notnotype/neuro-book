@@ -10,7 +10,7 @@
 
 import type {InjectionKey} from "vue";
 
-import {NB_LAYOUT_CATALOGS, NB_LAYOUT_SOURCE_LOCALE} from "../locales";
+import {NB_LAYOUT_CATALOGS} from "../locales";
 
 export type LayoutTextKey = "splitter.resizeWidth" | "splitter.resizeHeight" | "splitter.collapsed" | "splitter.pixels" | "floatWindow.resize" | "floatWindow.move"
     | "sortable.handle" | "sortable.hint" | "sortable.placeholder" | "sortable.picked" | "sortable.moved" | "sortable.dropped" | "sortable.cancelled" | "sortable.unchanged";
@@ -46,12 +46,15 @@ function lookup(locale: LayoutCatalogLocale, key: LayoutTextKey): string | undef
  * 按自带目录里的一种语言翻译：给只有一种语言、没有翻译引擎的宿主，`app.provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("zh-CN"))`。
  * 返回的函数固定这一种语言，不跟着宿主换语言；要跟着换的宿主把 `LAYOUT_TEXT_KEY` 接到自己的端口。
  *
- * 这种语言里缺的键取源语言，再缺就是键名；参数代入 `{{名字}}`，缺的参数保留占位，看得出少传了什么。目录不用复数与数字格式。
+ * 两份目录的键相同（`text.dom.test.ts` 核对），所以只在这一种语言里取，取不到就是键名；参数代入 `{{名字}}`，缺的参数保留占位，
+ * 看得出少传了什么。目录不用复数与数字格式。
+ *
+ * @throws RangeError `locale` 不是自带目录里的语言（类型已经挡住；JS 调用方传 `"zh"`、`navigator.language` 这类值时），在宿主
+ * 提供文字的那一刻报出来，不悄悄换成英文。
  */
 export function layoutCatalogTranslate(locale: LayoutCatalogLocale): LayoutTranslate {
-    // 参数类型只收目录里的语言；JS 调用方传了别的（含 `constructor` 这类原型上的名字）时按源语言。
-    const own: LayoutCatalogLocale = Object.hasOwn(NB_LAYOUT_CATALOGS, locale) ? locale : NB_LAYOUT_SOURCE_LOCALE;
-    return (key, params) => (lookup(own, key) ?? lookup(NB_LAYOUT_SOURCE_LOCALE, key) ?? key).replace(PLACEHOLDER, (placeholder, name: string) => {
+    if (!Object.hasOwn(NB_LAYOUT_CATALOGS, locale)) throw new RangeError(`nb-layout has no built-in catalog for locale "${String(locale)}"; use one of ${Object.keys(NB_LAYOUT_CATALOGS).join(", ")}`);
+    return (key, params) => (lookup(locale, key) ?? key).replace(PLACEHOLDER, (placeholder, name: string) => {
         const value = params?.[name];
         return value === undefined ? placeholder : String(value);
     });

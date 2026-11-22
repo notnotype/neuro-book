@@ -203,4 +203,4 @@ import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "@notnotype/nb-layout/text
 createApp(App).provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("zh-CN"));
 ```
 
-它固定这一种语言、不跟着宿主换；这种语言里缺的键取 `en-US`。目录不处理复数，`{{size}} pixels` 在 1 时读成“1 pixels”。
+它固定这一种语言、不跟着宿主换；传自带目录里没有的语言（例如 `"zh"`）会抛 `RangeError`。目录不处理复数，`{{size}} pixels` 在 1 时读成“1 pixels”。
