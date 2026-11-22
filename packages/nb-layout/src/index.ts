@@ -52,6 +52,7 @@ export type {
     GridResizeResult,
     GridRestoreFailureCode,
     GridRestoreResult,
+    GridSetSizeResult,
     GridResult,
     GridSizing,
     GridSnapshot,

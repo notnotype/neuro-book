@@ -279,7 +279,8 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         if (!Number.isFinite(delta)) {
             return gridFailure("not-finite", `The resize delta is not finite: ${String(delta)}`, {field: "delta", value: String(delta)});
         }
-        if (delta === 0) {
+        // 收起中的节点意图是展开后要回到的值，收起不写意图（Spec 输出 147）：按增量改会被收起的刚性范围夹成 `collapsedSize`。
+        if (delta === 0 || hit.node.collapse?.collapsed === true) {
             return {ok: true, applied: 0};
         }
         const before = hit.node.size[axis];
@@ -564,11 +565,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             return gridFailure("invalid-argument", `The size must not be negative: ${String(px)}`, {field: "px-negative", id});
         }
         const axis = axisOf(hit.parent.orientation);
-        // 按展开时的范围夹，同 `resize`、`resizeBranch` 写保留像素意图的做法：越界的值不会经收起抄进 `restoreSize`。
+        // 夹进它自己的范围，同 `resize`、`resizeBranch` 写保留像素的意图，越界的值不会经收起抄进 `restoreSize`；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
         const bounds = constraintOnAxis(node, axis, sashSize);
         const size = clampAxis(px, bounds.low, bounds.high);
         let changed = node.size[axis] !== size;
-        node.size = {...node.size, [axis]: size};
+        if (changed) {
+            node.size[axis] = size;
+        }
         if (node.collapse?.collapsed === true) {
             const restoreSize = Math.max(node.collapse.collapsedSize, size);
             if (node.collapse.restoreSize !== restoreSize) {
