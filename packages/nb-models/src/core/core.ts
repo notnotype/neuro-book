@@ -11,7 +11,7 @@
 import {createHash, createHmac, randomBytes} from "node:crypto";
 
 import type {ModelPort, ModelQuery, ModelRequest, ModelResolution} from "@notnotype/nb-harness/kernel/contracts";
-import {buildResolution, discoverModels, envRefName, envValue, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
+import {buildResolution, envRefName, envValue, listingFlavor, listingHeaders, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
 import type {CredentialStore, KeyAccess, ModelTarget, ProviderTarget, StartupEnv, WireApi} from "@notnotype/nb-harness/models";
 import {eventSource} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation, RemoteOutcome} from "@notnotype/nb-runtime/remote";
@@ -27,8 +27,10 @@ import type {ModelsSettingsContract} from "../contract/settings-spec";
 import type {CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, Template} from "../contract/shapes";
 import {chooseModel} from "./choice";
 import {checkPng, ICON_NAME} from "./icons";
-import {availableMembers, findMember, listedMembers, sourceModels, windowOf} from "./members";
-import type {MemberRow} from "./members";
+import {availableMembers, findMember, listedMembers, windowOf} from "./members";
+import type {MemberRow, MemberSources, SourceModel} from "./members";
+import {createSources} from "./sources";
+import type {SourceStore} from "./sources";
 import type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotWriteResult} from "./store";
 import {defaultApi, listTemplates, templateOf} from "./templates";
 
@@ -59,12 +61,23 @@ export interface ModelsCoreDeps {
     /** 状态根里的随机密钥：会话日志里的凭据身份用它做 HMAC，不落原文。 */
     readonly secret: Uint8Array | string;
     readonly icons: IconStore;
-    /** 诊断；事件名是 `models.catalog.missing` 与 `models.credentials.failed`。 */
+    /** 模型列表与在线目录的本地文件；不给时只在内存里（重启后重新拉）。 */
+    readonly sources?: SourceStore;
+    /** 时钟（毫秒）；缺省 `Date.now`。来源的“超过一天”按它算。 */
+    readonly now?: () => number;
+    /** 在线目录的地址；缺省用 stencil 的（测试给本机端点）。 */
+    readonly catalogUrl?: string;
+    /** 诊断；事件名见各处 `record` 的调用（`models.catalog.*`、`models.sources.*`、`models.credentials.failed` 等）。 */
     readonly record: (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface ModelsCore {
     readonly service: ModelsService;
+    /**
+     * 读来源缓存与在线目录、回收孤立文件，自动更新开着时在后台拉过期的（docs/specs/models/service.md“模型来源”）。应用在交出服务之前
+     * 等它；不调用时成员只来自打包目录，也不会自己出站（手动的重新拉取照常受理）。
+     */
+    start(): Promise<void>;
     remote(consumer: ConsumerIdentity): RemoteImplementation<ModelsSettingsContract>;
     /** 等队列里已接纳的写入走完，摘掉订阅；凭据库由入口关。 */
     close(): Promise<void>;
@@ -110,8 +123,8 @@ const validAddress = (value: string): boolean => {
     }
 };
 
-/** 一个服务商的版本号：配置或密钥状态变了就变，调用方据此判断自己读到的行是否还新。 */
-const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key])).toString(36);
+/** 类型不明的模型里，id 带这些词的不自动启用（向量、重排、语音、审核这类模型常混在 `/models` 里）。 */
+const NON_CHAT_ID = /embed|rerank|whisper|tts|moderation/iu;
 
 /** 写入设置的整份服务商值的帧字节上限（RPC 单帧 1 MiB，留余量）：按 JSON 转义后的字节算。 */
 const SETTINGS_FRAME_LIMIT = 768 * 1024;
@@ -146,11 +159,15 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         normalizedCache = null;
         resolutions.clear();
         rowCache.clear();
+        sourcesCache.clear();
         const next = snapshot();
         for (const listener of [...listeners]) listener();
         changed.emit(next);
     };
-    const offConfig = config.onChange(invalidate);
+    const offConfig = config.onChange((keys) => {
+        invalidate();
+        if (keys.has("autoUpdate")) sources.autoUpdateChanged();
+    });
     const offCredentials = credentials.onChange(invalidate);
     const current = (): readonly ProviderConfig[] => (normalizedCache ??= providers());
 
@@ -183,19 +200,31 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             ...(provider.headers === undefined ? {} : {headers: provider.headers}),
         };
     };
-    const modelTargetOf = (id: string, entry: ModelConfig | undefined): ModelTarget => ({
+    /**
+     * 解析用的模型配置：用户的覆盖在上；来源有目录行时交给 nb-harness 物化，只来自列表的模型（目录里没有）把列表给的窗口、上限与看图
+     * 当作没覆盖时的值。
+     */
+    const modelTargetOf = (id: string, entry: ModelConfig | undefined, source: SourceModel | undefined): ModelTarget => {
+        const listed = source !== undefined && source.row === undefined ? source : undefined;
+        const contextWindow = entry?.contextWindow ?? listed?.contextWindow ?? undefined;
+        const maxOutput = entry?.maxOutput ?? listed?.maxTokens ?? undefined;
+        const vision = entry?.vision ?? (listed === undefined ? undefined : listed.images);
+        const name = entry?.name ?? (listed === undefined || listed.name === id ? undefined : listed.name);
+        return {
         id,
         ...(entry?.origin === "manual" ? {manual: true} : {}),
-        ...(entry?.name === undefined ? {} : {name: entry.name}),
-        ...(entry?.contextWindow === undefined ? {} : {contextWindow: entry.contextWindow}),
-        ...(entry?.maxOutput === undefined ? {} : {maxOutput: entry.maxOutput}),
-        ...(entry?.vision === undefined ? {} : {vision: entry.vision}),
+        ...(source?.row === undefined || entry?.origin === "manual" ? {} : {row: source.row}),
+        ...(name === undefined ? {} : {name}),
+        ...(contextWindow === undefined ? {} : {contextWindow}),
+        ...(maxOutput === undefined ? {} : {maxOutput}),
+        ...(vision === undefined ? {} : {vision}),
         ...(entry?.reasoning === undefined ? {} : {reasoning: entry.reasoning}),
         // 触发点要等窗口知道了才算得出；全局设置每次现读，设置改了从下一次解析起生效。
         compactAtFor: (contextWindow) => compactionTrigger(effectiveCompaction(entry ?? {}, config.compaction()), contextWindow),
         ...(entry?.price === undefined ? {} : {price: entry.price}),
         ...(entry?.headers === undefined ? {} : {headers: entry.headers}),
-    });
+        };
+    };
     const secret = typeof deps.secret === "string" ? deps.secret : Buffer.from(deps.secret);
     /** 签名绑定凭据的协议另带凭据身份；OpenAI 兼容的对话没有签名。 */
     const signsWithCredential = (api: WireApi): boolean => api !== "openai-completions";
@@ -216,7 +245,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      */
     const stillCurrentFor = (provider: ProviderConfig, modelId: string) => {
         const fingerprint = (item: ProviderConfig): string => {
-            const auth = requestAuth(targetOf(item), {headers: findMember(item, modelId)?.entry?.headers ?? {}}, access);
+            const auth = requestAuth(targetOf(item), {headers: findMember(item, sourcesFor(item), modelId)?.entry?.headers ?? {}}, access);
             return JSON.stringify([item.uid, effectiveApi(item), effectiveBaseUrl(item), item.auth, item.apiKeyEnv ?? null, follows(item), authInput(auth.key, auth.headers)]);
         };
         const resolvedWith = fingerprint(provider);
@@ -225,7 +254,85 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             return now !== undefined && fingerprint(now) === resolvedWith;
         };
     };
-    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id)});
+    // ---- 模型来源 ----
+    /**
+     * 列表请求的部署与凭据身份（`sources.ts` 的两层有效性）：部署是 `uid`、列表变体、有效协议与地址的哈希；凭据是认证输入的 HMAC，
+     * 与会话日志的凭据身份同一种算法。没有可用的凭据（要密钥却没有、请求头引用的变量没有值）时不发请求。
+     */
+    const deploymentOf = (provider: ProviderConfig) => {
+        const api = effectiveApi(provider);
+        const baseUrl = effectiveBaseUrl(provider);
+        if (api === null || baseUrl === null) return null;
+        const blank = isBlankTemplate(provider.template);
+        const flavor = listingFlavor(api, blank ? null : provider.template);
+        const auth = requestAuth(targetOf(provider), null, access);
+        const key = provider.auth === "none" ? null : auth.key;
+        const ready = auth.missing.length === 0 && (key !== null || provider.auth === "none");
+        return {
+            deployment: createHash("sha256").update(`${provider.uid}\n${flavor}\n${api}\n${baseUrl}`).digest("hex").slice(0, 32),
+            credential: createHmac("sha256", secret).update(authInput(key, auth.headers)).digest("hex").slice(0, 32),
+            request: ready ? {flavor, baseUrl, headers: listingHeaders(flavor, key, auth.headers, follows(provider))} : null,
+        };
+    };
+    const sources = createSources({
+        ...(deps.sources === undefined ? {} : {store: deps.sources}),
+        ...(deps.catalogUrl === undefined ? {} : {catalogUrl: deps.catalogUrl}),
+        now: deps.now ?? Date.now,
+        record: deps.record,
+        autoUpdate: () => config.autoUpdate(),
+        providers: current,
+        confirmed: () => config.providers.editable().status === "ok",
+        deploymentOf,
+        changed: () => invalidate(),
+    });
+    /**
+     * 一家此刻的来源模型（成员规则见 `members.ts`）。有这个部署的列表时按列表：列表自己说了类型的照它；没说的、模板不是空白的，查目录里
+     * 同 id 的行（不是对话模型的丢掉）；仍不明的是 `unknown`，只有空白模板里 id 不像向量或语音模型的才自动加入（决定 27；没有窗口的
+     * 照样列出，状态为待补字段）。
+     * 没有列表时用目录里模板的对话模型（空白模板没有）。按部署与来源版本缓存，快照作废时清空。
+     */
+    const sourcesCache = new Map<string, MemberSources>();
+    const sourcesFor = (provider: ProviderConfig): MemberSources => {
+        const api = effectiveApi(provider);
+        const baseUrl = effectiveBaseUrl(provider);
+        const cacheKey = `${provider.uid}\n${provider.template}\n${api ?? ""}\n${baseUrl ?? ""}\n${sources.rowsVersion(provider)}`;
+        const cached = sourcesCache.get(cacheKey);
+        if (cached !== undefined) return cached;
+        const view = sources.view();
+        const blank = isBlankTemplate(provider.template);
+        const models = new Map<string, SourceModel>();
+        const listing = sources.listing(provider);
+        if (listing === null) {
+            if (!blank) for (const model of view.chatModels(provider.template)) models.set(model.id, {...model, kind: "chat", auto: true, ...catalogRowOf(view.find(provider.template, model.id))});
+        } else {
+            for (const listed of listing) {
+                const found = blank ? undefined : view.find(provider.template, listed.id);
+                const catalogChat = found === undefined ? null : found.info.chat && found.info.wire !== null;
+                const kind = listed.kind !== "unknown" ? listed.kind : catalogChat === null ? "unknown" : catalogChat ? "chat" : "other";
+                if (kind === "other") continue;
+                if (found !== undefined && catalogChat === true) {
+                    models.set(listed.id, {...found.info, kind, auto: true, row: {model: found.model, priceKnown: found.priceKnown}});
+                    continue;
+                }
+                const contextWindow = listed.contextWindow ?? null;
+                // 空白模板里类型不明的：像向量、语音模型的不自动加入；其余加入，没有窗口的状态是 incomplete（待补字段，不能用）。
+                const auto = kind === "chat" || (blank && !NON_CHAT_ID.test(listed.id));
+                models.set(listed.id, {
+                    id: listed.id, name: listed.name ?? listed.id, api: api ?? "openai-completions", wire: api, chat: true, baseUrl: baseUrl ?? "",
+                    contextWindow, maxTokens: listed.maxOutput ?? null, reasoning: false, efforts: [], images: listed.vision ?? false, price: null,
+                    kind, auto,
+                });
+            }
+        }
+        const value: MemberSources = {models, unsendable: (id) => (blank ? null : view.unsendable(provider.template, id))};
+        sourcesCache.set(cacheKey, value);
+        return value;
+    };
+    const catalogRowOf = (found: ReturnType<ReturnType<typeof sources.view>["find"]>): {row?: SourceModel["row"]} => (found === undefined ? {} : {row: {model: found.model, priceKnown: found.priceKnown}});
+    /** 一个服务商的版本号：配置、密钥状态或来源变了就变，调用方据此判断自己读到的行是否还新。 */
+    const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key, sources.rowsVersion(provider)])).toString(36);
+
+    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry, row.source), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id)});
 
     const keyStatusOf = (provider: ProviderConfig): KeyStatus => {
         if (provider.auth === "none") return {kind: "keyless"};
@@ -241,7 +348,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const result = ((): ModelResolution => {
             const target = splitReference(reference);
             const provider = target === null ? undefined : current().find((item) => item.id === target.provider);
-            const row = target === null || provider === undefined ? undefined : findMember(provider, target.model);
+            const row = target === null || provider === undefined ? undefined : findMember(provider, sourcesFor(provider), target.model);
             if (provider === undefined || row === undefined || row.entry?.enabled === false) return {ok: false, code: "unknown-model"};
             // 目录漂移（输出 9）与上下文窗口不明：先于凭据判断，界面才能指出是模型的问题。
             if (statusOf(row) !== "ok") return {ok: false, code: "unknown-model"};
@@ -316,6 +423,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             group: entry?.group ?? seriesOf(row.id),
             enabled,
             origin: row.origin,
+            kind: row.source?.kind ?? "chat",
             contextWindow: windowOf(row),
             maxOutput: entry?.maxOutput ?? source?.maxTokens ?? null,
             vision: entry?.vision ?? source?.images ?? false,
@@ -339,7 +447,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     function snapshot(): ModelsSnapshot {
         if (snapshotCache !== null) return snapshotCache;
         const list: SnapshotProvider[] = current().map((provider) => {
-            const members = listedMembers(provider);
+            const members = listedMembers(provider, sourcesFor(provider));
             const key = keyStatusOf(provider);
             const template = templateOf(provider.template);
             return {
@@ -356,7 +464,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 headers: {...provider.headers},
                 key,
                 followSource: provider.followSource,
-                source: {kind: "packaged"},
+                source: sources.state(provider),
                 modelCount: members.length,
                 enabledCount: members.filter((row) => row.entry?.enabled !== false).length,
                 excludedCount: provider.excluded.length,
@@ -364,7 +472,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             };
         });
         // 目录漂移（输出 9）：设置里引用的来源模型不在目录里了，每个只诊断一次。
-        const missing = new Set(current().flatMap((provider) => listedMembers(provider).filter((row) => statusOf(row) === "missing").map((row) => referenceOf(provider.id, row.id))));
+        const missing = new Set(current().flatMap((provider) => listedMembers(provider, sourcesFor(provider)).filter((row) => statusOf(row) === "missing").map((row) => referenceOf(provider.id, row.id))));
         for (const reference of missing) if (!missingReported.has(reference)) deps.record("warn", "models.catalog.missing", "A configured catalog model is no longer in the catalog", {model: reference});
         missingReported = missing;
         snapshotCache = {
@@ -456,7 +564,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const storedEntry = (provider: ProviderConfig, model: ModelConfig): ModelConfig => {
         const previous = provider.models.find((item) => item.id === model.id);
         const manual = (model.origin ?? previous?.origin) === "manual";
-        const source = manual ? undefined : sourceModels(provider.template).get(model.id);
+        const source = manual ? undefined : sourcesFor(provider).models.get(model.id);
         if (source === undefined) {
             const {frozen: _frozen, ...rest} = model;
             return {...rest, origin: model.origin ?? previous?.origin ?? "manual"};
@@ -481,7 +589,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const redundant = (provider: ProviderConfig, entry: ModelConfig): boolean => provider.followSource && entry.origin === "source" && entry.enabled && Object.keys(entry).length === 3;
 
     const incomplete = (provider: ProviderConfig, models: readonly ModelConfig[]): Failure | null => {
-        const sources = sourceModels(provider.template);
+        const sources = sourcesFor(provider).models;
         // 手加的模型不借目录的窗口（目录里恰好有同 id 的也一样）。
         const bad = models.find((model) => model.enabled && missingContextWindow(model, model.origin === "manual" ? null : sources.get(model.id)?.contextWindow ?? null));
         return bad === undefined ? null : failure("model-incomplete", `model ${bad.id} needs a context window before it can be enabled`);
@@ -496,7 +604,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     };
     /** 移出：来源模型进 `excluded`（覆盖不保留），手加的删除。 */
     const withRemoved = (provider: ProviderConfig, ids: readonly string[]): ProviderConfig => {
-        const sources = sourceModels(provider.template);
+        const sources = sourcesFor(provider).models;
         const gone = new Set(ids);
         const manual = new Set(provider.models.filter((entry) => entry.origin === "manual").map((entry) => entry.id));
         return {...provider, excluded: [...new Set([...provider.excluded, ...ids.filter((id) => sources.has(id) && !manual.has(id))])], models: provider.models.filter((entry) => !gone.has(entry.id))};
@@ -506,7 +614,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         if (provider.followSource === follow) return provider;
         if (!follow) {
             const entries = new Set(provider.models.map((entry) => entry.id));
-            const frozen: ModelConfig[] = listedMembers(provider).filter((row) => row.source !== undefined && !entries.has(row.id)).map((row) => ({id: row.id, origin: "source", enabled: true, frozen: true}));
+            const frozen: ModelConfig[] = listedMembers(provider, sourcesFor(provider)).filter((row) => row.source !== undefined && !entries.has(row.id)).map((row) => ({id: row.id, origin: "source", enabled: true, frozen: true}));
             return {...provider, followSource: false, models: [...provider.models, ...frozen]};
         }
         const models = provider.models.flatMap((entry): ModelConfig[] => {
@@ -648,13 +756,16 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                     ...(api === undefined ? {} : {api}),
                     ...(input.baseUrl === undefined ? {} : {baseUrl: input.baseUrl}),
                     auth: template.access === "keyless" ? "none" : "default",
-                    followSource: !template.blank, excluded: [], models: [],
+                    followSource: true, excluded: [], models: [],
                 });
                 // 与改协议同一条：选的协议在模板里没有地址、又没给地址的，建出来也发不了。
                 const probe = draft("probe", current());
                 if (effectiveApi(probe) === null || effectiveBaseUrl(probe) === null) return ctx.fail("invalid-value", {detail: "this protocol has no address in the template; give an address"});
                 const step = await createProvider(input.name ?? template.name, draft);
-                return step.ok ? ctx.ok({id: step.value}) : relay(step);
+                if (!step.ok) return relay(step);
+                const created = current().find((item) => item.id === step.value);
+                if (created !== undefined) sources.refresh(created, "implicit");
+                return ctx.ok({id: step.value});
             }),
             duplicateProvider: (input, ctx) => queue(async () => {
                 const source = current().find((item) => item.id === input.id);
@@ -710,6 +821,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (!step.ok) return relay(step);
                 const cleared = await credentialStep(() => credentials.clear(input.id));
                 await collectIcons();
+                await sources.collect();
                 return cleared.ok ? ctx.ok(null) : relay(cleared);
             }),
             setIcon: (input, ctx) => queue(async () => {
@@ -749,7 +861,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
                 const revision = revisionOf(provider, keyStatusOf(provider));
                 if (input.revision !== undefined && input.revision !== revision) return ctx.fail("revision-changed", {detail: `${provider.id} changed while its models were being read`});
-                const members = (input.scope === "available" ? availableMembers(provider) : listedMembers(provider)).sort(byMember);
+                const members = (input.scope === "available" ? availableMembers(provider, sourcesFor(provider)) : listedMembers(provider, sourcesFor(provider))).sort(byMember);
                 const ready = keyReady(keyStatusOf(provider));
                 const {page, nextOffset} = pageOf(members, input.offset, input.limit, (row) => rowOf(provider, row, ready));
                 return ctx.ok({rows: page, revision, total: members.length, nextOffset});
@@ -760,7 +872,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (input.revision !== undefined && input.revision !== revision) return ctx.fail("revision-changed", {detail: "the model list changed while it was being read"});
                 const items = scope.flatMap((provider) => {
                     const ready = keyReady(keyStatusOf(provider));
-                    return listedMembers(provider)
+                    return listedMembers(provider, sourcesFor(provider))
                         .filter((row) => (input.usable === true ? usableMember(provider, row, ready) : row.entry?.enabled !== false))
                         .sort(byMember)
                         .map((row) => ({provider, row, ready}));
@@ -771,7 +883,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             modelsByReference: (input, ctx) => ctx.ok(input.references.map((reference) => {
                 const target = splitReference(reference);
                 const provider = target === null ? undefined : current().find((item) => item.id === target.provider);
-                const row = target === null || provider === undefined ? undefined : findMember(provider, target.model);
+                const row = target === null || provider === undefined ? undefined : findMember(provider, sourcesFor(provider), target.model);
                 return {reference, provider: provider?.id ?? null, row: provider === undefined || row === undefined ? null : rowOf(provider, row, keyReady(keyStatusOf(provider)))};
             })),
             upsertModel: (input, ctx) => queue(async () => {
@@ -842,21 +954,27 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
             setKey: (input, ctx) => queue(async () => {
-                if (!providers().some((item) => item.id === input.provider)) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                if (input.value.startsWith("env:")) {
-                    const name = envRefName(input.value);
-                    if (name === null) return ctx.fail("invalid-value", {detail: "env: must be followed by an environment variable name"});
-                    // apiKeyEnv 盖过库里的密钥：先写它，第二步失败时生效的已经是新的那个（输出 13）。
-                    const first = await setApiKeyEnv(input.provider, name);
+                const outcome = await (async () => {
+                    if (!providers().some((item) => item.id === input.provider)) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
+                    if (input.value.startsWith("env:")) {
+                        const name = envRefName(input.value);
+                        if (name === null) return ctx.fail("invalid-value", {detail: "env: must be followed by an environment variable name"});
+                        // apiKeyEnv 盖过库里的密钥：先写它，第二步失败时生效的已经是新的那个（输出 13）。
+                        const first = await setApiKeyEnv(input.provider, name);
+                        if (!first.ok) return relay(first);
+                        const second = await credentialStep(() => credentials.clear(input.provider));
+                        return second.ok ? ctx.ok(statusNow(input.provider)) : relay(partial(input.provider, second));
+                    }
+                    const first = await credentialStep(() => credentials.set(input.provider, input.value));
                     if (!first.ok) return relay(first);
-                    const second = await credentialStep(() => credentials.clear(input.provider));
-                    return second.ok ? ctx.ok(statusNow(input.provider)) : relay(partial(input.provider, second));
-                }
-                const first = await credentialStep(() => credentials.set(input.provider, input.value));
-                if (!first.ok) return relay(first);
-                if (providers().find((item) => item.id === input.provider)?.apiKeyEnv === undefined) return ctx.ok(statusNow(input.provider));
-                const second = await setApiKeyEnv(input.provider, undefined);
-                return second.ok ? ctx.ok(statusNow(input.provider)) : relay(partial(input.provider, second as Failure));
+                    if (providers().find((item) => item.id === input.provider)?.apiKeyEnv === undefined) return ctx.ok(statusNow(input.provider));
+                    const second = await setApiKeyEnv(input.provider, undefined);
+                    return second.ok ? ctx.ok(statusNow(input.provider)) : relay(partial(input.provider, second as Failure));
+                })();
+                // 用户给了新凭据：跟着拉一次列表（凭据变了的旧列表不会自己更新）。
+                const provider = outcome.ok ? current().find((item) => item.id === input.provider) : undefined;
+                if (provider !== undefined) sources.refresh(provider, "implicit");
+                return outcome;
             }),
             clearKey: (input, ctx) => queue(async () => {
                 if (!providers().some((item) => item.id === input.provider)) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
@@ -866,41 +984,22 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 const second = await setApiKeyEnv(input.provider, undefined);
                 return second.ok ? ctx.ok(statusNow(input.provider)) : relay(partial(input.provider, second as Failure));
             }),
-            discover: async (input, ctx) => {
+            refreshSource: (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                const api = effectiveApi(provider);
-                const baseUrl = effectiveBaseUrl(provider);
-                if (baseUrl === null || (api !== "openai-completions" && api !== "openai-responses")) return ctx.fail("not-supported", {detail: "only OpenAI compatible endpoints list their models"});
-                const auth = requestAuth(targetOf(provider), null, access);
-                if (auth.missing.length > 0 || (auth.key === null && provider.auth !== "none")) return ctx.fail("no-credentials", {detail: "no credential for this provider"});
-                const result = await discoverModels({api, baseUrl, ...(provider.auth === "none" || auth.key === null ? {} : {apiKey: auth.key}), headers: auth.headers, signal: ctx.signal});
-                switch (result.state) {
-                    case "found":
-                        return ctx.ok(result.models.map((model) => ({id: model.id, name: model.name, suggested: model.suggested === null ? null : {contextWindow: model.suggested.contextWindow, maxOutput: model.suggested.maxTokens, vision: model.suggested.images, reasoning: model.suggested.reasoning}})));
-                    case "empty":
-                        return ctx.ok([]);
-                    case "not_supported":
-                        return ctx.fail("not-supported", {detail: `the endpoint answered ${String(result.status)}`});
-                    case "auth":
-                        return ctx.fail("auth", {detail: `the endpoint answered ${String(result.status)}`});
-                    case "unreachable":
-                        return ctx.fail("unreachable", {detail: result.message});
-                    case "failed":
-                        return ctx.fail("failed", {detail: result.message});
-                }
+                return sources.refresh(provider, "user") === "accepted" ? ctx.ok(null) : ctx.fail("no-credentials", {detail: "no credential for this provider"});
             },
             check: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                const row = findMember(provider, input.model);
+                const row = findMember(provider, sourcesFor(provider), input.model);
                 if (row === undefined) return ctx.fail("unknown-model", {detail: `no model ${input.model}`});
                 return ctx.ok(await check(provider, row, ctx.signal));
             },
             checkAll: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
-                const members = listedMembers(provider).filter((row) => row.entry?.enabled !== false).sort(byMember);
+                const members = listedMembers(provider, sourcesFor(provider)).filter((row) => row.entry?.enabled !== false).sort(byMember);
                 const pending = [...members];
                 const results: {model: string; result: CheckResult}[] = [];
                 const worker = async (): Promise<void> => {
@@ -917,7 +1016,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     return {
         service,
         remote,
+        start: () => sources.start(),
         close: async () => {
+            await sources.close();
             offConfig();
             offCredentials();
             listeners.clear();
