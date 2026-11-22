@@ -1,0 +1,86 @@
+t45 第 5 稿设计审查第 3 条的探针（2026-11-22）：两张卡做成常驻的嵌套分支，张数变化走 setCollapsed 加 setSize，不重建网格。
+master（t52、t53 已合入）的 nb-layout 源码，bun 直接跑；拖动用 createGridGestureSession 加 resizeBranches，同宿主的手势落账。
+树：frame 横排 [nav 保留像素 188（150 到 300，收起到 44）, main 按比例 600（最小 360）, details 分支保留像素 400、整块收起到 0（阈值 80）[drawer 按比例 1（280 到 640）, drawer2 按比例 1（280 到 640），一张卡时收起到 0、收起阈值 100000（拖不到）、toggleable false]]；
+分隔线 1 像素，details 里那条一张卡时 0 像素。容器 1440×800（Q3 是 1280）。
+
+脚本：
+// t45 第 5 稿审查第 3 条的探针：两张卡做成常驻的嵌套分支，张数变化走 setCollapsed 加 setSize，不重建网格。
+import {createGrid} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/grid";
+import {createGridGestureSession} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/grid-gesture";
+
+let cards = 1;
+const POLICY = (collapsed: boolean, restore: number, threshold: number) => ({collapsed, collapsedSize: 0, restoreSize: restore, collapseThreshold: threshold, expandThreshold: 40});
+const grid = createGrid<string>({kind: "branch", id: "frame", orientation: "horizontal", children: [
+    {kind: "leaf", id: "nav", ref: "nav", size: {width: 188, height: 0}, sizing: "fixed", minimumSize: {width: 150, height: 0}, maximumSize: {width: 300, height: Infinity},
+        collapse: {collapsed: false, collapsedSize: 44, restoreSize: 188, collapseThreshold: 60, expandThreshold: 40}},
+    {kind: "leaf", id: "main", ref: "main", size: {width: 600, height: 0}, minimumSize: {width: 360, height: 0}},
+    {kind: "branch", id: "details", orientation: "horizontal", size: {width: 400, height: 0}, sizing: "fixed", collapse: POLICY(false, 400, 80), children: [
+        {kind: "leaf", id: "drawer", ref: "drawer", size: {width: 1, height: 0}, minimumSize: {width: 280, height: 0}, maximumSize: {width: 640, height: Infinity}},
+        // 第二张：一张卡时收起到 0；拖里面那条线不让它收起（阈值够不着），Enter 也不翻它。
+        {kind: "leaf", id: "drawer2", ref: "drawer2", size: {width: 1, height: 0}, minimumSize: {width: 280, height: 0}, maximumSize: {width: 640, height: Infinity}, collapse: {...POLICY(true, 400, 100000), toggleable: false}},
+    ]},
+]}, {sashSize: (branch) => (branch === "details" && cards < 2 ? 0 : 1)});
+
+const W = (width: number) => ({width, height: 800});
+const show = (label: string, width = 1440) => {
+    const l = grid.layout(W(width));
+    const w = (id: string) => Math.round(l.sizes[id]!.width * 10) / 10;
+    console.log(label.padEnd(34), `nav ${w("nav")} main ${w("main")} details ${w("details")} drawer ${w("drawer")} drawer2 ${w("drawer2")}`, l.issues.map((i) => i.code).join(",") || "-", "intent details", grid.find("details")!.size.width);
+};
+show("Q1 一张");
+cards = 2;
+console.log("Q2 setCollapsed", grid.setCollapsed("drawer2", false).ok, "setSize", JSON.stringify(grid.setSize("details", 801)));
+show("Q2 两张 1440");
+show("Q3 两张 1280", 1280);
+
+// Q4 两张时拖主区那条线（frame 的第 1 条）往左 100：两张怎么变；落账后
+function drag(branchId: string, index: number, dx: number, width = 1440, source: "pointer" | "keyboard" = "pointer") {
+    const ext = W(width);
+    const session = createGridGestureSession<string>({contextKey: "p", revision: 1, root: grid.root(), extent: ext, layout: grid.layout(ext), sashSize: (b: string) => (b === "details" && cards < 2 ? 0 : 1), sessionId: "s", source, sashes: [{branchId, index, axis: "width"}]});
+    session.update({x: dx, y: 0});
+    const done = session.finish();
+    if (done === null) return console.log("  无提交");
+    const r = grid.resizeBranches(done.changes);
+    console.log("  落账", r.ok ? JSON.stringify(r.collapsed) : r.code);
+}
+drag("frame", 1, -100);
+show("Q4 拖主区线 -100 之后");
+drag("frame", 1, 100);
+show("Q4b 拖回 +100");
+// Q7 里面那条线拖到底：第二张不该收起
+drag("details", 0, 300);
+show("Q7 里面那条线 +300");
+drag("details", 0, -150);
+show("Q7b 拖回 -150");
+// Q5 主区线拖到底：整块收起
+drag("frame", 1, 900);
+show("Q5 主区线 +900（整块收起？）");
+console.log("  details collapsed", grid.find("details")!.collapse?.collapsed, "restore", grid.find("details")!.collapse?.restoreSize);
+grid.setCollapsed("details", false);
+show("Q6 展开");
+// Q8 关右边那张
+cards = 1;
+console.log("Q8 setCollapsed", grid.setCollapsed("drawer2", true).ok, "setSize", JSON.stringify(grid.setSize("details", 400)));
+show("Q8 关右边之后");
+
+输出：
+Q1 一张                              nav 188 main 850 details 400 drawer 400 drawer2 0 - intent details 400
+Q2 setCollapsed true setSize {"ok":true,"changed":true,"size":801,"collapse":{"collapsedSize":0,"restoreSize":400,"collapseThreshold":80,"expandThreshold":40,"collapsed":false}}
+Q2 两张 1440                         nav 188 main 449 details 801 drawer 400 drawer2 400 - intent details 801
+Q3 两张 1280                         nav 178.3 main 360 details 739.7 drawer 369.4 drawer2 369.4 over-constrained intent details 801
+  落账 {}
+Q4 拖主区线 -100 之后                    nav 177 main 360 details 901 drawer 450 drawer2 450 - intent details 901
+  落账 {}
+Q4b 拖回 +100                        nav 177 main 460 details 801 drawer 400 drawer2 400 - intent details 801
+  落账 {}
+Q7 里面那条线 +300                      nav 177 main 460 details 801 drawer 520 drawer2 280 - intent details 801
+  落账 {}
+Q7b 拖回 -150                        nav 177 main 460 details 801 drawer 370 drawer2 430 - intent details 801
+  落账 {"details":true}
+Q5 主区线 +900（整块收起？）                 nav 177 main 1261 details 0 drawer 0 drawer2 0 - intent details 801
+  details collapsed true restore 801
+Q6 展开                              nav 177 main 460 details 801 drawer 370 drawer2 430 - intent details 801
+Q8 setCollapsed true setSize {"ok":true,"changed":true,"size":400,"collapse":{"collapsedSize":0,"restoreSize":801,"collapseThreshold":80,"expandThreshold":40,"collapsed":false}}
+Q8 关右边之后                           nav 177 main 861 details 400 drawer 400 drawer2 0 - intent details 400
+
+读法：Q4 主区拖到最小 360 后由近到远推到导航（188 变 177），是现有拖动规则，与 t44 相同。
