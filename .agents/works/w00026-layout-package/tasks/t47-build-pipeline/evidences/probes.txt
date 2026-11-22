@@ -36,3 +36,12 @@
 结果：
   - bun run build:web 通过；dist/web/build-stamp.json 里记了 6 个产物文件（nb-layout/dist/probe/…），0 个 nb-layout 源文件：网页包比源码旧的提示（story/cli-skill 输出 19）在改读产物之后看不到 nb-layout 源码的改动，计划要补。
   - e2e：frame、side-by-side、viewer 三个文件 53 条全部通过（2.9 分钟，负载约 4）。
+
+## 3. 实施时：插件 SDK 的声明（切片 1 顺带量）
+
+t47 分支（切片 1 之后，4c3dc1634），packages/neuro-book 连跑两次 bun run build:sdk：153 个文件里只有 components.d.ts 不同，36 行差别，都是组件属性在类型字面量里的先后（例如 readonly、size: DialogSize 的位置）。
+与 nb-layout 原来的问题同源（rolldown-plugin-dts 的 vue: true）。SDK 是产品包，整轮重跑时发布计划会因此报“前一轮发出的不是这一批”。不在 t47 改，记进 Work 的后续；改法同 nb-layout：先 vue-tsc 出声明再打包。
+
+## 4. 实施时：nb-layout 产物两次构建
+
+切片 1 的 build:package 连跑两次：dist/package 逐文件相同（diff -r 无输出）。四个入口的声明导出数与源码入口相同（122、33、6、3）。完整构建约 5 秒。

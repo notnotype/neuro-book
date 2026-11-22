@@ -171,3 +171,10 @@ type BuiltPackage = {
 9. 同第 8 条（续跑时重写了一遍）。
 
 审查者对待确认项的判断与第 2 稿的改法一致（`private` 要连发版准备、Release 说明一起跳过；网页构建用单独的目录；nb-story 的包要带声明）。第 2 稿照审查的改法改，不再开第 2 轮；实现审查仍交 omp。
+
+## 实施中改的（2026-11-22）
+
+- **声明里的 Spec 编号**：完整构建的自查数到约 20 处 JSDoc 引了 Spec 条目编号（公开类型的注释，仓库的注释规则要求链接 Spec）。改成只在 JS 与 CSS 上禁编号（压缩已去注释），声明的 JSDoc 原样留着：它是维护者写的说明，引的 Spec 在公开仓库里查得到；逐处改写会让维护者丢掉精确的条目链接。记进待确认清单。
+- **第三方声明的来源**：核 SDK 构建时发现 Vite 的 `build.license` 只收 `node_modules` 里的包，工作区的包经链接解析到 `packages/<目录>`，不在它的清单里（Bun 的 metafile 同理）；所以计划写的“只改过滤条件”不够，应用包与 SDK 的声明里本来就没有 nb-layout，nb-story 开 `build.license` 也不会自动列它。改成按声明的依赖补：`third-party-notices.ts` 加 `workspaceNotices`（`@notnotype/*` 依赖里许可不是 AGPL-3.0-only 的列出；私有、没写许可的工具包跳过），应用包与 SDK 各加一节；nb-story 的 `vite.config.ts` 同样的规则写在 `writeBundle` 里追加到 `dist/web/THIRD-PARTY-NOTICES.md`（nb-story 不能导入新应用的脚本）。
+- **根 README 的包表**：那张表列的是已经发到 npm 的包，nb-layout 首发前不加；首发步骤写进发布手册。根 README 的许可证一节先写上 nb-layout 是 MIT 的例外。
+- **插件 SDK 的声明同样不可复现**（[证据](evidences/probes.txt) 第 3 节）：记进 Work 的后续，不在本 Task 改。
