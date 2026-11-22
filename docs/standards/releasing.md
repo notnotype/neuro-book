@@ -9,6 +9,7 @@
 - 阶段：canary（早期验证版：功能能用，未必经过完整的人工验收）→ preview（预览版，也叫测试版：新功能的预览）→ stable（稳定版）。写在 `packages/neuro-book/src/shared/product.ts` 的 `PRODUCT_STAGE`，随提版一起改。现在是 canary。
 - 版本号是纯数字的三段，不带阶段。产品版本（应用、桌面版与插件 SDK 共用）写在两处：`packages/neuro-book/package.json` 与 `PRODUCT_VERSION`（`product.test` 核对两处一致）。
 - 十个源码包（nb-story 与它依赖的包、nb-flock）各有自己的版本，手工提：改它的 `package.json` 并提交；提了版本号就是“这个包这次发”。依赖它、又要用到新接口的包一起提；内部依赖写 `workspace:^`，发布时改写成 `^<版本>`。
+- 版本独立的生成包，现在只有 nb-layout（[ADR 0054](../adr/0054-nb-layout-general-library.md)）：发编译产物（`bun run build:package` 生成 `packages/nb-layout/dist/package/`），许可证 MIT；版本像源码包一样写在它的 `package.json`、手工提，提了就是这次发。它的源码包还带 `private` 时，冒烟照样生成、检查、装进空项目验，但不进发布清单、不发，发版准备与 Release 说明也不看它；删 `private` 就是首发的决定（见“一次性准备”的新包首发）。nb-story 的网页读它的产物：nb-layout 改了，nb-story 的网页包字节也跟着变，发布计划会提示 nb-story“字节不同”，要不要同批提 nb-story 的版本由开发者定。
 - 第一个稳定版之前只有一条线：每次发布都设为 GitHub 的最新，已装的桌面版跟着自动更新；npm 只发 `latest`（比当前 `latest` 低的补发版本发到 `history`）。门禁拒绝 `stable`；第一个稳定版要先按 ADR 0053 决定 6 实现支线。
 
 ## 写变更记录
@@ -52,7 +53,7 @@
 
 ## 一次性准备
 
-- **新包首发**：npm 要包已经存在才能配置信任。从没发过的包先用下文“本机发布”首发（`nb-flock` 0.1.0 就是这样发的），之后再配信任、经流水线发。
+- **新包首发**：npm 要包已经存在才能配置信任。从没发过的包先用下文“本机发布”首发（`nb-flock` 0.1.0 就是这样发的），之后再配信任、经流水线发。nb-layout 首发：删掉 `packages/nb-layout/package.json` 的 `private`，补好它 `CHANGELOG.md` 的 `[Unreleased]`，把它加进根 README 两份的包表，合入 master，再按“本机发布”发、配信任。MIT 对发出去的版本不可逆。
 - **标签规则集**：`v*` 标签只允许开发者创建，禁止改指与删除。没有它，有仓库写权限的人推一个 `v*` 标签就能发布。
 - **Environment `release`**：部署只允许 `v*` 标签，可选加人工批准。npm 的信任绑定这个 Environment。
 - **npm 信任**：每个要经流水线发布的包配置 trusted publishing：仓库、工作流 `release.yml`、Environment `release`，允许的动作勾上直接发布 `npm publish`（2026-09-03 之后新建的配置缺省只允许 `npm stage publish`）。新建的信任配置要在 2 天内有一次成功发布，否则过期、要删了重建：只在这个包有版本要发的那次发布前 2 天内配置。
@@ -73,11 +74,11 @@
 
 ## 本机发布
 
-以源码发布的 10 个工作区包（nb-story 与它依赖的 9 个，[ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)、[ADR 0052](../adr/0052-non-stale-file-lock-package.md)）与先生成再发布的两个包（应用 `@notnotype/neuro-book` 与插件 SDK `@notnotype/nb-plugin-sdk`，[ADR 0033](../adr/0033-app-delivered-as-built-npm-package.md)）在本机也能发，用于首发还没有信任配置的包与流水线不可用时。改版本与发布都要开发者授权，`release:publish` 由开发者执行：
+以源码发布的 10 个工作区包（nb-story 与它依赖的 9 个，[ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)、[ADR 0052](../adr/0052-non-stale-file-lock-package.md)）与先生成再发布的包（应用 `@notnotype/neuro-book` 与插件 SDK `@notnotype/nb-plugin-sdk`，[ADR 0033](../adr/0033-app-delivered-as-built-npm-package.md)；nb-layout 首发之后也在其中）在本机也能发，用于首发还没有信任配置的包与流水线不可用时。改版本与发布都要开发者授权，`release:publish` 由开发者执行：
 
 1. 改版本，合入 master（同上文“发版”的第 1、2 步）。
 2. 推 master：README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到；发布门禁会查。
 3. `bun run release:check`：源码包的发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
-4. `bun run release:smoke`：生成应用包与 SDK 包，12 个包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。冒烟之后不要 amend、变基或改写已冒烟的提交：`release-manifest.json` 记的是那一刻的提交，改写后它要么不在 `origin/master` 上，要么与要发布的目录对不上，只能重跑冒烟。
+4. `bun run release:smoke`：生成应用包、SDK 包与 nb-layout 的产物（nb-layout 连生成两次、字节要相同），要发的包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。冒烟之后不要 amend、变基或改写已冒烟的提交：`release-manifest.json` 记的是那一刻的提交，改写后它要么不在 `origin/master` 上，要么与要发布的目录对不上，只能重跑冒烟。
 5. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、冒烟用的提交已在 origin/master、冒烟以来会发布的目录没改过、tarball 没被改过、源码包的发布清单、要发的包的 typecheck），列出要发的包；确认后带 `--yes` 重跑，发的就是第 4 步验过的 tarball（Bun 发 tarball 时按当前目录找 bin，会打印 `warn: bin … does not exist`，无害：bin 在 tarball 里，冒烟已经跑过）。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 12 个包）；在非交互的终端里 npm 拿不到认证链接，要在真正的终端里运行。中途失败就停，重跑会跳过已发布的版本。
 6. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry --wait 30`（先等这些版本在 registry 上取得到，再按当前 checkout 的版本号装，装到的版本对不上就失败），结果记进对应 Task 的证据。

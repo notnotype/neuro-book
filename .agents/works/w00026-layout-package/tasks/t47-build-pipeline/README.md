@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t47-build-pipeline
-status: active
+status: done
 updated: 2026-11-22
 ---
 
@@ -20,7 +20,7 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 
 ## 当前状态
 
-2026-11-22：六个切片都实施完，在分支 `w00026/t47-build-pipeline`（worktree `.worktree/w00026-t47-build-pipeline`），实现审查待处理（omp `--model @review`）。[计划](plan.md)第 2 稿，末尾“实施中改的”记了与计划不同的三处。
+2026-11-22 完成，合入 master（`72cf32844`）。worktree 与分支已删。nb-layout 仍是 `private`：首发、晋升 `ui/nested-grid` 与 `ui/layout-drag`、插件 SDK 的承诺怎么对齐（t48）是开发者的一组决定。[计划](plan.md)第 2 稿，末尾“实施中改的”记了与计划不同的三处。
 
 此前：计划第 1 稿开工前跑了两个探针（[证据](evidences/probes.txt)）；第 1 轮设计审查（omp `--model @review`，阻断 2、重要 3、建议 4，[证据](evidences/design-review.txt)）除第 1 条都成立，改到第 2 稿，不再开第 2 轮。
 
@@ -34,6 +34,15 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 | `cadc9892f` | 切片 3：生成包分产品版本与版本独立两种；`private` 的只冒烟不进清单，发版准备与 Release 说明不看它，上一个标签下 `private` 的按新包；nb-story 对 nb-layout 写 `workspace:^` |
 | `ccce9912c` | 切片 5：nb-story 的网页构建读 `dist/web-build/`；网页包新旧记录换成产物的源文件；`dist/web/THIRD-PARTY-NOTICES.md` |
 | `8dfbeca44`、`398b019c3` | 切片 4：发布冒烟加 nb-layout 的宿主、版本独立的生成包连生成两次比字节、nb-story 的声明里有 nb-layout；CI 的 `app-package` 加完整构建；冒烟里静态服务对不在的文件回 404 |
+
+### 实现审查
+
+omp `--model @review`，90 分钟截停后用原会话续跑补完汇总；有效 4 条（阻断 1、重要 2、建议 1），另 2 条审查者自己撤回（[证据](evidences/impl-review.txt)）。修正在 `cbdcc1c65`：
+
+1. nb-story 的网页包新旧记录（`build-stamp.json`）带构建时间、随 `dist/web` 进 npm 包，同一份源码两次打包字节不同（阻断）：成立，`files` 排除它（npm 装的包不做新旧检查，用不到它）；改后两次打包 SHA-256 相同。是 t47 之前就有的，t47 的字节稳定目标下一起修。
+4. `packageDirectories` 只认 `/` 分隔的路径，Windows 上应用与 SDK 的服务端声明会漏（重要）：不改。t47 之前就有；打应用包与 SDK 的地方是 CI 的 ubuntu 与开发者的 Linux 机器，Windows 只用打好的 tarball 组装载荷，不重新生成声明。
+5. 新旧记录按整份产物展开，nb-story 用不到的 nb-layout 源文件改了也提示旧（建议）：接受取舍（多提示一次重打无害，要精确得让产物记每个输出块的源文件），注释照实写，记进待确认清单。
+6. 工作区声明在 `writeBundle` 里追加、与 `vite:license` 写同一个文件（重要）：成立一半。时序本身由 Rollup 保证（`vite:license` 在 `generateBundle` 里发出这份文件，全部产物写完才调 `writeBundle`，比在 `generateBundle` 里按插件先后改它更可靠），注释写明；真正的风险是 `appendFile` 在文件不在时会新建一份只有工作区包的声明，改成先读再写，读不到就失败。
 
 ### 验证
 
@@ -49,4 +58,4 @@ nb-layout 出编译产物（ESM、类型声明、style.css）、发布脚本加�
 
 ## 下一步
 
-实现审查（omp `--model @review`）→ 处理 → 合入。首发 nb-layout 是开发者的决定（发布手册“一次性准备”的新包首发）。
+无。首发 nb-layout 是开发者的决定（发布手册“一次性准备”的新包首发）。

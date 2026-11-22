@@ -1,0 +1,40 @@
+### 1. nb-story 的构建记录把当前时间打进发布 tarball
+- 严重程度：阻断；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/packages/nb-story/src/server/web-stamp.ts:61`、`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/packages/nb-story/package.json:28-30,71-79`。
+- 现象：`writeWebStamp` 每次写 `builtAt: new Date().toISOString()`；`build:web` 是 `prepack`，且 `files` 把整个 `dist/web`（包括 `build-stamp.json`）放进 nb-story tarball。相同源码再次打包时该文件至少有 `builtAt` 字节差异。
+- 为什么是问题：发布脚本只对版本独立的生成包 `nb-layout` 调用 `sameBytesTwice`（`scripts/release/pack-smoke.ts:590`），没有拦住 nb-story。首轮发布后重跑 `release:smoke` 会重新生成 nb-story tarball；`release-plan` 将同版本且标签后发布的版本认定为本轮，但 `integrity` 不同，按 `release-plan.ts:73-77` 失败。也就是说一次构建/冒烟重跑不能保持发布凭据的字节稳定，已发一半时无法按设计安全续跑。
+- 如何核实：不运行构建；沿调用链核对 `package.json` 的 `prepack` 与 `files`，并对照 `web-stamp.ts` 的时间写入和 `release-plan.ts:69-77` 的 integrity 比较即可复现该字节差异。
+- 建议改法：不要把每次构建变化的时间戳放进 npm 发布的 `dist/web`，例如将构建时间移到不随包发布的本地元数据，或在 `files` 中排除 `dist/web/build-stamp.json`；若必须随包提供它，改用可由固定提交/输入推导的稳定值，并保留运行时旧包检查所需的源摘要。
+### 2. private 的 nb-layout 仍被纳入 prepare 的脏目录门禁，首发开关无法只影响发布记录（撤回）
+- 严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/scripts/release/packages.ts:84-85`、`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/scripts/release/prepare.ts:152,159-165`。
+- 现象：`versionedPackage` 在 `private` 时返回 `null`，所以 `prepare`/Release 说明会跳过 nb-layout；但 `releaseDirectories()` 无条件把 `BUILT_PACKAGES.map(entry => entry.source)` 加入目录，且 `collectState` 的 `dirty` 用它检查。当前 nb-layout 仍是 `private`，因此 `packages/nb-layout` 的任意工作区改动仍会阻止 `release:prepare`，即使该包按设计“首发前只冒烟、不参与本轮发版”。
+- 为什么是问题：文档明确首发开关只应使它不定稿、不列说明、不进发布清单；把同一目录保留在全局发布脏检查会让不发布的包继续成为所有产品发版的前置条件，首发开关不具备其声明的隔离语义。尤其当前源码包本来要求为构建/nb-story 联动持续修改，产品发布会被这些未发布包的工作区改动挡住。
+- 如何核实：静态追 `prepare.collectState` 的 `dirty` 参数到 `releaseDirectories()`，并在一个仅修改 `packages/nb-layout` 的工作树上运行 `release:prepare` 的只读门禁即可观察它报“会发布的目录……有没提交的改动”（未运行，避免触发发版流程）。
+- 建议改法：让 `releaseDirectories` 接受按当前清单过滤的 `ReleasePackage`/`held` 集合，或在 `prepare` 收集状态时只把 `versionedPackage` 非空且实际要发的目录加入；生成包构建所需的源码目录仍由 `release:smoke` 单独检查，不能把 held 包继续当成产品发版的发布目录。
+### 3. private 的 nb-layout 会被 release:publish 的源码脏检查挡住（撤回）
+- 严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/scripts/release/packages.ts:83-85`、`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/scripts/release/publish.ts:113-116`。
+- 现象：`release:publish` 的 `gates()` 无条件用 `releaseDirectories()` 检查目录；该函数无条件追加所有 `BUILT_PACKAGES` 的源码目录，所以当前仍为 `private` 的 nb-layout 改动会使本应发布的源码包、应用或 SDK 的本机发布在真正查询/发布前失败。
+- 为什么是问题：`held` 只在 `loadBuiltPackages` 和 `release:smoke` 的 tarball/清单处理中生效；本机发布没有读取 held 状态来过滤 `releaseDirectories`。因此首发前的“不发布但可冒烟”包仍被当作发布输入的干净性前置条件，行为与 `held` 的合同不一致，并且无法按文档完成其它包的本机首发。
+- 如何核实：静态追 `publishLocal` → `gates` → `releaseDirectories`；在仅修改 `packages/nb-layout` 的工作树上运行 `bun run release:publish` 会在 `gates` 的 `git status` 处拒绝（本次未运行受限命令）。
+- 建议改法：发布门禁按本轮实际会发布的 `ReleaseManifest.packages` 映射到源码目录后再检查；若仍需保护生成包输入，单独检查未 held 的 built source，不能把 private built source 作为所有发布的共同目录。
+### 4. Windows 上应用与 SDK 的服务端第三方声明会漏掉 Bun/rolldown 依赖
+- 严重程度：重要；类别：跨平台正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/packages/neuro-book/scripts/third-party-notices.ts:27-33`，调用点为 `packages/neuro-book/scripts/pack-app.ts:133-136` 与 `packages/neuro-book/plugin-sdk/pack.ts:430-437`。
+- 现象：`packageDirectories` 只识别包含 `/node_modules/` 和 `/` 结尾的路径；应用把 Bun metafile 的 input keys、SDK 把 rolldown 的 `moduleIds` 直接传入。Windows 路径如 `C:\repo\node_modules\pkg\index.js` 不匹配，两个调用都得到空目录集合。
+- 为什么是问题：Windows 构建出的应用和 SDK 仍把第三方代码打进 bundle，但对应的 `THIRD-PARTY-NOTICES.md` 不会读取这些包的 `package.json`、LICENSE 或 NOTICE，发布包缺少构建产物的许可文本。Bun 的 Windows bundler 已有路径分隔符相关问题记录（oven-sh/bun issue 13063）；这里没有在入口处把路径规范化，也没有测试反斜杠输入。
+- 如何核实：静态将上述 Windows 路径代入该正则即可得到空匹配；在 Windows 构建后读取生成的通知文件可确认依赖段为空，无需运行发布命令。
+- 建议改法：在 `packageDirectories` 内统一将 `\\` 替换成 `/` 后再提取包目录；增加驱动器路径、普通包和 scoped 包的输入测试，并让应用/SDK 的声明测试都经过该共用函数。
+### 5. nb-story 的 `withPrebuiltSources` 会把整个预构建包的输入集合纳入旧包判断
+- 严重程度：建议；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/packages/nb-story/src/server/web-stamp.ts:70-84`、`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/packages/nb-story/vite.config.ts:39-42`。
+- 现象：只要 `ids` 命中 `dist/web-build` 的一个模块，函数就把 `inputs.json` 的全部源文件加入网页戳；`nb-layout/scripts/pack.ts:55-63` 的 `inputs` 是整个编译构建处理过的源码集合，不是命中某个输出模块的映射。
+- 为什么是问题：网页包新旧检查会把未被网页实际引用、但被 nb-layout 其它入口或共享编译过程处理的源码变化也报告为 stale，导致源码工作区运行 `nbstory serve` 无谓告警。现有测试只放一个源文件，不能暴露这个误报；如果这是有意的“整个预构建包失效”策略，当前注释却声称只记录实际进包的源码，合同不一致。
+- 如何核实：在测试夹具的 `inputs.json` 加入第二个源文件但不让对应产物模块出现在 `ids`，再修改该第二个源文件；`withPrebuiltSources` 仍返回它，`checkWebFreshness` 返回 `stale`。
+- 建议改法：构建产物记录输出模块到实际源依赖的映射，网页 stamp 只展开命中的输出；或明确改写合同与提示，接受整个预构建包的过度失效。
+### 6. `nb-story` 的工作区声明插件与 Vite license 插件竞争同一个输出文件
+- 严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t47-review/packages/nb-story/vite.config.ts:51-67,78-81`。
+- 现象：Vite 的 `build.license.fileName` 设置为 `THIRD-PARTY-NOTICES.md`，内置 `vite:license` 插件在 `generateBundle` emit 该 Markdown；`workspaceNotices` 却在 `writeBundle` 直接向同名磁盘文件 `appendFile`。它没有从 Rollup bundle 资源读取并合并，也没有断言目标文件已经生成。
+- 为什么是问题：最终文件依赖构建工具当前的钩子顺序与落盘时机，而不是由本实现保证。Vite/rolldown 升级或插件执行时序变化时，`appendFile` 可能在 license 文件写出前失败，也可能先追加后被内置插件覆盖，导致 nb-layout 的 MIT 声明缺失或整个构建失败。此次改动的发布合同要求该声明随 `nb-story` 网页产物分发，不能把它交给未声明的插件顺序。
+- 如何核实：静态检查当前 Vite 8 的 `vite:license.generateBundle` 与项目 `writeBundle` 的两个写入点即可确认共享文件名和没有资源合并；再在插件顺序改变的最小 Vite 配置中可复现覆盖/缺文件路径。
+- 建议改法：由单一插件在 `generateBundle` 读取/生成完整清单并一次 `emitFile`，把 workspace notice 作为同一资源追加；或让工作区声明输出独立文件，再由唯一的打包阶段合并，避免两个插件直接写同一路径。
+没有未写入的发现
+未发现问题的方面：`nb-layout` 的分离产物目录、固定声明生成与产物自查；`nb-story` 的 compiled-layout alias、构建顺序与 `inputs.json` 来源展开（除第 5 条过度失效）；`sameBytesTwice`、tarball 文件入口检查、smoke 中浏览器/服务资源的 `finally` 收口；release registry 的 `held`、`productPackages`、独立版本与首发分类；app、SDK 与 `nb-story` 的 AGPL/MIT 过滤规则本身；新增测试覆盖的已核查行为路径未发现另一个可独立确认的回归。
+严重程度计数：阻断 1；重要 3；建议 1。
+有效发现编号：1、4、5、6。
