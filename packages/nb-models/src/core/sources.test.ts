@@ -467,8 +467,9 @@ describe("审查补的边界", () => {
         await call("setKey", {provider: id, value: "sk-relay-0001"});
         while (local.seen.length < 1) await Bun.sleep(5);
         await call("clearKey", {provider: id});
-        release();
+        // 第一页一直不回：只有在配置变了时立刻停掉在途的请求，这里才等得到收尾。
         await settled(id);
+        release();
         expect(local.seen).toHaveLength(1);
         expect(provider(id).source.state).toBe("none");
     });
