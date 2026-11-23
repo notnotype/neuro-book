@@ -2,7 +2,7 @@
  * 诊断的构造（库内用，不从入口导出）。一张“码 → `params` 形状”的映射，构造时按映射检查：拼错字段名、漏字段、
  * 给了没有 `params` 的码传参，都在编译期报错。导出的类型只有通用的 `GridIssue`（Spec `ui/nested-grid` 输出 139）。
  *
- * 一个码有几种形状的写成按 `cause` 判别的联合。度量参数取两位小数（同 `grid-geometry` 的 `round`），
+ * 一个码有几种形状的写成按 `cause` 判别的联合。度量参数取两位小数（`round`），
  * 和 `message` 里的数一致，交给宿主的翻译端口时不带浮点尾巴。
  */
 import type {GridAxis, GridHostIssueCode, GridIssue, GridIssueCode, GridParamValue} from "./grid-types";
@@ -28,8 +28,13 @@ export type GridIssueParams = {
 
 type IssueCode = GridIssueCode | GridHostIssueCode;
 
+/** 诊断文案与 `params` 里的数字都取两位小数：不暴露浮点尾巴，两处的数一致。 */
+export function round(value: number): number {
+    return Math.round(value * 100) / 100;
+}
+
 function metric(value: GridParamValue): GridParamValue {
-    return typeof value === "number" ? Math.round(value * 100) / 100 : value;
+    return typeof value === "number" ? round(value) : value;
 }
 
 export function gridIssue<C extends IssueCode>(code: C, message: string, ...params: GridIssueParams[C] extends undefined ? [] : [GridIssueParams[C]]): GridIssue<C> {

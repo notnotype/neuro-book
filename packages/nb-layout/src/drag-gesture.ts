@@ -6,7 +6,7 @@
  * 列表在滚动事件之后才补上新进视口的行，当帧判定会落在空白上。这一帧里浏览器已经释放了捕获，所以失去捕获不算取消。
  */
 
-import type {GridDropPoint} from "./grid-drop";
+import type {GridDropPoint, GridDropRect} from "./grid-drop";
 
 /** @experimental */
 export interface DragGestureConfig {
@@ -84,15 +84,8 @@ export interface DragGestureKeyboard<S, R> {
     start(source: S, regions: ReadonlyArray<R>): {readonly region: number; readonly at: number | GridDropPoint};
 }
 
-export interface DragEdgeRect {
-    readonly left: number;
-    readonly right: number;
-    readonly top: number;
-    readonly bottom: number;
-}
-
 export interface DragGestureAutoScroll {
-    rect(): DragEdgeRect;
+    rect(): GridDropRect;
     /** 滚一步；返回是否真的滚动了（到头为 false）。 */
     scrollBy(step: number): boolean;
     readonly edgePx?: number | undefined;
@@ -184,7 +177,7 @@ function stepOf(key: string, axis: DragStops["axis"]): number {
  * 这一刻边缘滚动该滚多快（负数向上）：指针在横向范围内、离上下边缘不到 `edgePx` 或已越过边缘时滚，越靠边越快；元素矮到
  * 上下两条边缘带相接时不滚，否则指针在哪都在滚。
  */
-export function edgeScrollStep(rect: DragEdgeRect, point: GridDropPoint, edgePx = EDGE_PX_DEFAULT, maxStepPx = EDGE_MAX_STEP_PX_DEFAULT): number {
+export function edgeScrollStep(rect: GridDropRect, point: GridDropPoint, edgePx = EDGE_PX_DEFAULT, maxStepPx = EDGE_MAX_STEP_PX_DEFAULT): number {
     if (point.x < rect.left || point.x > rect.right || rect.bottom - rect.top <= edgePx * 2) return 0;
     const fromTop = point.y - rect.top;
     const fromBottom = rect.bottom - point.y;

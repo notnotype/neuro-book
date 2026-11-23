@@ -44,6 +44,7 @@ import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
 import {gridFailure} from "./grid-failure";
 import {parseSnapshot, serializeTree} from "./grid-snapshot";
+import {cloneNode, findInTree, type GridHit} from "./grid-tree";
 
 export * from "./grid-types";
 /** 分支主轴与交叉轴的取轴规则只此一处；宿主按父分支方向取轴时用它，别自己写 if。 */
@@ -134,30 +135,9 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         };
     }
 
-    function cloneNode(node: GridNode<T>): GridNode<T> {
-        return node.kind === "leaf"
-            ? {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}}
-            : {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}, children: node.children.map(cloneNode)};
+    function find(id: string, node: GridNode<T> | null = tree, parent: GridBranch<T> | null = null): GridHit<T> | null {
+        return node ? findInTree(id, node, parent) : null;
     }
-
-    function find(id: string, node: GridNode<T> | null = tree, parent: GridBranch<T> | null = null): {node: GridNode<T>; parent: GridBranch<T> | null} | null {
-        if (!node) {
-            return null;
-        }
-        if (node.id === id) {
-            return {node, parent};
-        }
-        if (node.kind === "branch") {
-            for (const child of node.children) {
-                const hit = find(id, child, node);
-                if (hit) {
-                    return hit;
-                }
-            }
-        }
-        return null;
-    }
-
 
     /** 直接改变主动节点沿 axis 的意图，返回实际生效的增量（自身触界时小于请求值）。 */
     function shiftNode(node: GridNode<T>, axis: GridAxis, delta: number): number {
@@ -305,7 +285,9 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
      * 单个分支的原子调整计划：先核对基线与目标，再把目标反解成新的尺寸意图。
      *
      * `fixed` 子节点直接以目标 px 为新意图；`weight` 子节点沿用免费水位反解（自由节点定标，
-     * 触界节点保留仍与目标兼容的旧权重）。计划不修改任何节点，调用方在全部通过后才落账。
+     * 触界节点保留仍与目标兼容的旧权重）。尺寸意图只出现在返回值里，由调用方在全部通过后落账；
+     * 唯一的例外是 `change.collapsed` 的收起状态，直接写在 `branch` 的孩子上（后面的反解要看到收起之后的范围），
+     * 所以 `resizeBranches` 传的是候选树里的副本；`resizeBranch` 不带收起变化，不会写。
      */
     function planBranchResize(
         branch: GridBranch<T>,
@@ -447,28 +429,11 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             return {ok: true, intents: {}, collapsed: {}};
         }
         const candidate = tree ? cloneNode(tree) : null;
-        const candidateFind = (id: string, node: GridNode<T> | null = candidate, parent: GridBranch<T> | null = null): {node: GridNode<T>; parent: GridBranch<T> | null} | null => {
-            if (!node) {
-                return null;
-            }
-            if (node.id === id) {
-                return {node, parent};
-            }
-            if (node.kind === "branch") {
-                for (const child of node.children) {
-                    const hit = candidateFind(id, child, node);
-                    if (hit) {
-                        return hit;
-                    }
-                }
-            }
-            return null;
-        };
         const plans: {branchId: string; axis: GridAxis; sizes: Record<string, number>}[] = [];
         /** `presented` 是这次变化的基线：收起时按比例分的面板记它（输出 148）。 */
         const collapseChanges: {branchId: string; axis: GridAxis; id: string; value: boolean; presented: number | undefined}[] = [];
         for (const change of changes) {
-            const hit = candidateFind(change.branchId);
+            const hit = find(change.branchId, candidate);
             if (!hit) {
                 return gridFailure("not-found", `Unknown branch id: ${change.branchId}`, {id: change.branchId});
             }
@@ -494,7 +459,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         const intents: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
         for (const plan of plans) {
             for (const [id, value] of Object.entries(plan.sizes)) {
-                const base = intents[id] ?? candidateFind(id)?.node.size ?? ZERO_EXTENT;
+                const base = intents[id] ?? find(id, candidate)?.node.size ?? ZERO_EXTENT;
                 intents[id] = {...base, [plan.axis]: value};
             }
         }
@@ -763,19 +728,19 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 });
             }
 
-            const nextTree = tree ? cloneNode(tree) : null;
-            const originalTree = tree;
-            tree = nextTree;
-            const stagedHit = find(id);
-            const stagedTarget = find(parentId);
-            // 防御分支，按今天的结构不可达：上面已经在原树里找到了来源与目标分支，克隆树里它们都在；
-            // 同一分支内的移动走了上面那条路。下面那一处同理：塌陷的只有来源，目标分支不会因此消失。
-            if (!stagedHit?.parent || !stagedTarget || stagedTarget.node.kind !== "branch") {
-                tree = originalTree;
-                return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
+            // 节点数不变，深度按移进目标之后的叶算，公式同 addLeaf；按移动前的树判，来源塌陷后其实变浅的移动也会被拒（已知的保守，见 grid.md）。
+            const scale = treeScale(tree);
+            const guard = scaleIssue(scale.nodes, Math.max(scale.depth, (depthOf(parentId) ?? 1) + 1));
+            if (guard) {
+                return guard;
             }
-            const source = stagedHit.parent;
-            const leaf = stagedHit.node as GridLeaf<T>;
+
+            // 到这里已经没有失败路径，直接在活树上改，不需要回滚。
+            // 塌陷的只有来源分支，目标分支不会因此消失，被提上去的兄弟也还是原对象，所以 `target.node` 在塌陷之后仍有效。
+            // 来源是叶且目标是另一个分支，所以来源一定有父分支：只有一片根叶的树里没有分支，前面已经按 not-found 返回。
+            const source = hit.parent!;
+            const leaf = hit.node as GridLeaf<T>;
+            const destination = target.node;
             // 来源与目标的兄弟意图都不动（Spec 输出 153）。
             source.children = source.children.filter((child) => child.id !== id);
             if (source.children.length === 0) {
@@ -783,18 +748,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             } else if (source.children.length === 1) {
                 collapse(source, source.children[0]!);
             }
-            const destination = find(parentId);
-            if (!destination || destination.node.kind !== "branch") {
-                tree = originalTree;
-                return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
-            }
             if (leaf.sizing !== "fixed") {
                 // 按比例分的意图是来源分支里的相对份额，到了别的分支没有意义：按新叶重取目标分支的平均。
-                const main = axisOf(destination.node.orientation);
-                leaf.size = {...leaf.size, [main]: meanWeightShare(destination.node, main)};
+                const main = axisOf(destination.orientation);
+                leaf.size = {...leaf.size, [main]: meanWeightShare(destination, main)};
             }
-            const at = Math.min(Math.max(0, index), destination.node.children.length);
-            destination.node.children.splice(at, 0, leaf);
+            const at = Math.min(Math.max(0, index), destination.children.length);
+            destination.children.splice(at, 0, leaf);
             return {ok: true};
         },
 

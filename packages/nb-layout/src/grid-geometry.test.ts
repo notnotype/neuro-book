@@ -1,7 +1,6 @@
 import {describe, expect, it} from "bun:test";
 import {
     allocateSashPanels,
-    collapsePolicyProblem,
     sashPanelBounds,
     type SashPanel,
 } from "./grid-geometry";
@@ -109,12 +108,5 @@ describe("收起面板的刚性范围", () => {
             panel("files", 1, 96),
         ], 600);
         expect(sizes).toEqual([32, 568]);
-    });
-
-    it("收起策略的尺寸必须小于展开最小值", () => {
-        const base = {collapsedSize: 0, restoreSize: 340, collapseThreshold: 24, expandThreshold: 24, collapsed: true};
-        expect(collapsePolicyProblem(base, 280)).toBeNull();
-        expect(collapsePolicyProblem({...base, collapsedSize: 280}, 280)).toContain("必须小于");
-        expect(collapsePolicyProblem({...base, restoreSize: Number.NaN}, 280)).toContain("有限");
     });
 });

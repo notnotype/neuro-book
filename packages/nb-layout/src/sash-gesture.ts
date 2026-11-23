@@ -29,9 +29,9 @@ export type GridSashRef = {
     readonly axis: GridAxis;
 };
 
-/** 分离线会话的稳定键（高亮 / 拖动集合 / 测试都用它）。 */
-export function sashKey(sash: GridSashRef): string {
-    return `${sash.branchId}:${sash.index}`;
+/** 分隔线的稳定键 `<分支 id>:<序号>`：高亮、拖动集合、命中登记与矩形摆放里的 `sashKey` 都只经它写，格式不另抄。 */
+export function sashKey(branchId: string, index: number): string {
+    return `${branchId}:${index}`;
 }
 
 /**

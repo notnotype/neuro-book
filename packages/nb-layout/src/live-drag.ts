@@ -355,8 +355,9 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
         const settling = updateCard(current, current.geometry, now, elapsed);
         // 先交出状态（宿主在这里写响应式，排上渲染），再排“渲染之后放跟手的”：反过来时这一帧若只有卡片拿起或收回，渲染还没排上，宿主等到的是渲染之前。
         publish();
-        if (changed || lifted !== (current.lifted !== null)) host.follow?.afterRender(followAt(current));
-        return moved || changed || settling || !settled(current) || followAt(current) !== null;
+        const follow = followAt(current);
+        if (changed || lifted !== (current.lifted !== null)) host.follow?.afterRender(follow);
+        return moved || changed || settling || !settled(current) || follow !== null;
     }
 
     return {

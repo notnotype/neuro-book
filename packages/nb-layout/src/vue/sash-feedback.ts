@@ -8,6 +8,7 @@
  * 只在根上有属性时生效；释放只拿掉属性，样式留着。不每次拿掉：插入或移除一张样式表会让整页重算样式，
  * 指针每划过一条分隔线就是两次。
  */
+import {sashKey} from "../sash-gesture";
 import type {SashHitTarget, SashPoint, SashPointerKind} from "../sash-hit-area";
 
 /** 悬停停留多久后才显示分隔线（毫秒）；拖拽与键盘不受它限制。 */
@@ -84,7 +85,7 @@ function ensureStyle(doc: Document): HTMLStyleElement {
 
 /** 命中事实 → 稳定键（`branchId:index`）；scope 的 hovered/active/revealed 共用它。 */
 export function sashHitKey(hit: {branchId: string; sashIndex: number}): string {
-    return `${hit.branchId}:${hit.sashIndex}`;
+    return sashKey(hit.branchId, hit.sashIndex);
 }
 
 /** 装饰带的目标厚度（CSS px）。比 1px 逻辑接缝厚一档，但不跟着接缝尺寸一起变粗。 */
