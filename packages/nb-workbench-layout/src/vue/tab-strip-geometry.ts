@@ -91,18 +91,30 @@ function wrappedLines(frames: ReadonlyArray<Member>): ReadonlyArray<ReadonlyArra
     return [...byTop].sort(([a], [b]) => a - b).map(([, line]) => line);
 }
 
-/** 每一行的标签，来源的空位已补上（来源本身还在，调用方按需摘掉）。 */
-function rowsOf(strip: Element, exclude: string | null): ReadonlyArray<{readonly row: HTMLElement; readonly lines: ReadonlyArray<ReadonlyArray<Member>>}> {
-    return [...strip.querySelectorAll<HTMLElement>("[data-tab-row]")].map((row) => ({
-        row,
-        lines: wrappedLines([...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf)).map((line) => closeGap(line, exclude)),
-    }));
+interface Row {
+    readonly row: HTMLElement;
+    /** 这一个 `data-tab-row` 里按折行分好、来源的空位已补上的标签（来源本身还在，调用方按需摘掉）。 */
+    readonly lines: ReadonlyArray<ReadonlyArray<Member>>;
 }
 
-function linesOf(strip: Element, exclude: string | null): Line[] {
+/**
+ * 整条标签条只读一遍 DOM：每个标签的矩形量一次，`all` 是它们按 DOM 顺序的原始成员（含不在任何 `data-tab-row` 下的），每行再从同一批成员里分组、补位。
+ * 不能从补位后的 `rows` 拼回 `all`：补位改了矩形，折行分组还改了顺序（标签高矮不一时同一行里 `top` 各不相同）。
+ */
+function measureRows(strip: Element, exclude: string | null): {readonly all: ReadonlyArray<Member>; readonly rows: ReadonlyArray<Row>} {
+    const tabs = [...strip.querySelectorAll<HTMLElement>("[data-panel-tab]")];
+    const all = tabs.map(memberOf);
+    const memberAt = new Map(tabs.map((tab, at) => [tab, all[at] as Member] as const));
+    const rows = [...strip.querySelectorAll<HTMLElement>("[data-tab-row]")].map((row) => ({
+        row,
+        lines: wrappedLines([...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map((tab) => memberAt.get(tab) as Member)).map((line) => closeGap(line, exclude)),
+    }));
+    return {all, rows};
+}
+
+function linesOf(stripRect: GridDropRect, rows: ReadonlyArray<Row>, exclude: string | null): Line[] {
     const lines: Line[] = [];
-    const stripRect = rectOf(strip);
-    for (const {row, lines: wrapped} of rowsOf(strip, exclude)) {
+    for (const {row, lines: wrapped} of rows) {
         const frames = wrapped.flat();
         const rowPartition = row.dataset.tabRowPartition ?? null;
         const rowRect = rectOf(row);
@@ -134,11 +146,12 @@ export interface TabStripInsertion {
  * 和预览里来源收起、邻居合拢的样子一致，在条里跟手排序时（`held`）原位也落在原处。
  */
 export function measureTabStrip(strip: Element, exclude: string | null = null): TabStripSnapshot {
-    const all = [...strip.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
+    const {all, rows} = measureRows(strip, exclude);
     const excluded = all.find((member) => member.id === exclude);
-    const closed = new Map(rowsOf(strip, exclude).flatMap(({lines}) => lines.flat()).map((member) => [member.id, member.rect] as const));
+    const closed = new Map(rows.flatMap(({lines}) => lines.flat()).map((member) => [member.id, member.rect] as const));
     const members = all.filter((member) => member.id !== exclude).map((member) => ({...member, rect: closed.get(member.id) ?? member.rect}));
-    return {view: rectOf(strip), lines: linesOf(strip, exclude), members, excludedPartition: excluded?.partition, excludedRect: excluded?.rect};
+    const view = rectOf(strip);
+    return {view, lines: linesOf(view, rows, exclude), members, excludedPartition: excluded?.partition, excludedRect: excluded?.rect};
 }
 
 /** 跟手的标签此刻的前缘：抓住的点在指针下，夹在这一行的两端之间；坏数字退回指针。 */
@@ -190,14 +203,11 @@ export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropP
     return {before: successor.id, after: last?.id ?? null, partition, indicator: seen ? {left: successor.rect.left - 1, right: successor.rect.left + 1, top: successor.rect.top, bottom: successor.rect.bottom} : insertion.indicator};
 }
 
-/**
- * 键盘能停的位置：每个标签的左缘，和每行最后一个的右缘。放回 `resolveTabStripInsertion` 就是对应的插入位。只留落在标签条看得见的范围里的点（横向滚走的、纵向收起来的行都不算）：
- * 指针也到不了那里，停靠点落在标签条外面就看不见了。比行还宽的标签只看它的边，不会让一整行都没有位置。
- */
-export function tabStripStops(strip: Element): ReadonlyArray<GridDropPoint> {
+/** 停靠点：每一行每个标签的左缘，和每行最后一个的右缘；只留落在标签条看得见的范围里的。 */
+function stopsIn(snapshot: TabStripSnapshot, strip: Element): ReadonlyArray<GridDropPoint> {
     const view = rectOf(strip.querySelector("[role='tablist']") ?? strip);
     const stops: GridDropPoint[] = [];
-    for (const line of linesOf(strip, null)) {
+    for (const line of snapshot.lines) {
         const y = (line.rect.top + line.rect.bottom) / 2;
         if (y < view.top || y > view.bottom) continue;
         const seen = (x: number): boolean => x >= line.rect.left && x <= line.rect.right;
@@ -207,4 +217,24 @@ export function tabStripStops(strip: Element): ReadonlyArray<GridDropPoint> {
         if (line.members.length === 0) stops.push({x: line.rect.left + 1, y});
     }
     return stops;
+}
+
+/**
+ * 键盘能停的位置：每个标签的左缘，和每行最后一个的右缘。放回 `resolveTabStripInsertion` 就是对应的插入位（要插入位用 `tabStripStopInsertions`，只量一次）。只留落在标签条看得见的范围里的点（横向滚走的、纵向收起来的行都不算）：
+ * 指针也到不了那里，停靠点落在标签条外面就看不见了。比行还宽的标签只看它的边，不会让一整行都没有位置。
+ */
+export function tabStripStops(strip: Element): ReadonlyArray<GridDropPoint> {
+    return stopsIn(measureTabStrip(strip), strip);
+}
+
+/**
+ * 全部停靠点和各自的插入位：只量一份快照，每个点在这份上判定，结果与对每个点调 `resolveTabStripInsertion`（它每次重量）相同。
+ * 判不出插入位的点（`tabStripInsertionIn` 给 null）不收，键盘用不上。
+ */
+export function tabStripStopInsertions(strip: Element): ReadonlyArray<{readonly point: GridDropPoint; readonly insertion: TabStripInsertion}> {
+    const snapshot = measureTabStrip(strip);
+    return stopsIn(snapshot, strip).flatMap((point) => {
+        const insertion = tabStripInsertionIn(snapshot, point);
+        return insertion === null ? [] : [{point, insertion}];
+    });
 }

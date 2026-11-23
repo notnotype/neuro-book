@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {measureTabStrip, tabStripInsertionIn} from "./tab-strip-geometry";
+import {measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStopInsertions, tabStripStops} from "./tab-strip-geometry";
 
 /**
  * 标签条的插入判定（docs/specs/ui/workbench-layout.md 输出 25）。happy-dom 没有布局，矩形由夹具写在元素上；结构与 `TabStrip` 写的属性一致。真实标签条在 e2e/editor-area.e2e.ts。
@@ -164,6 +164,38 @@ describe("标签高矮不一的多行条", () => {
         expect(snapshot.members.map((member) => member.rect.left)).toEqual([0, 100, 0, 100]);
         expect(snapshot.excludedRect).toEqual({left: 200, top: 5, right: 300, bottom: 25});
         expect(snapshot.lines.map((line) => line.endedWithExcluded)).toEqual([false, true, false]);
+    });
+});
+
+describe("键盘的停靠点", () => {
+    it("`tabStripStopInsertions` 和对每个停靠点单独 `resolveTabStripInsertion` 的结果一样（多行、分区、折行高矮不一）", () => {
+        const strips = [
+            stripOf([{partition: "pinned", tabs: [pinned("p1"), pinned("p2")]}, {partition: "normal", tabs: [normal("a"), normal("b"), normal("c")]}]),
+            stripOf([{tabs: [pinned("p"), normal("a"), normal("b")]}]),
+            stripOfBoxes(
+                [[0, 0, 1000, 30], [0, 40, 1000, 30]],
+                [
+                    {id: "a", row: 0, box: [0, 5, 100, 20]},
+                    {id: "b", row: 0, box: [100, 0, 100, 30]},
+                    {id: "c", row: 0, box: [200, 5, 100, 20]},
+                    {id: "d", row: 1, box: [0, 40, 100, 30]},
+                ],
+            ),
+        ];
+        for (const strip of strips) {
+            const stops = tabStripStops(strip);
+            expect(stops.length).toBeGreaterThan(0);
+            const expected = stops.flatMap((point) => {
+                const insertion = resolveTabStripInsertion(strip, point);
+                return insertion === null ? [] : [{point, insertion}];
+            });
+            expect(tabStripStopInsertions(strip)).toEqual(expected);
+        }
+    });
+
+    it("没有行的条没有停靠点；有一个空行时整行是一个", () => {
+        expect(tabStripStopInsertions(stripOf([]))).toEqual([]);
+        expect(tabStripStopInsertions(stripOf([{tabs: []}]))).toMatchObject([{point: {x: 1}, insertion: {before: null, after: null}}]);
     });
 });
 
