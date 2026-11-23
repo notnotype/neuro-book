@@ -70,7 +70,7 @@ const settled = async (page: Page, id: string): Promise<Box> => {
     return leaf(page, id);
 };
 
-test("拖到别的卡片外缘：停稳后来源收起、长出新块（空位），松手写进树；内容是同一个实例", async ({page}) => {
+test("拖到别的卡片外缘：停稳后来源收起、长出新块（空位），松手写进树；中途预览成来源收起（内容不在内容层里）时实例也不卸载", async ({page}) => {
     await open(page);
     await page.locator("[data-live-input='a']").fill("留着的字");
     const c = await leaf(page, "c");
@@ -84,6 +84,12 @@ test("拖到别的卡片外缘：停稳后来源收起、长出新块（空位�
     const slot = (await page.locator("[data-live-slot]").boundingBox())!;
     expect(slot.x).toBeGreaterThan(c.x + c.width / 3);
     expect(Math.abs(slot.x + slot.width - (c.x + c.width))).toBeLessThanOrEqual(2);
+    // 停到 d 的中央（不是落点）：预览换成来源收起，a 不在内容层的 contents 里，由网格留住；再回到 c 的右缘。
+    const d = await leaf(page, "d");
+    await page.mouse.move(d.x + d.width / 2, d.y + d.height / 2, {steps: 6});
+    await expect(scene(page)).toHaveAttribute("data-live-preview", "source-removed");
+    await page.mouse.move(c.x + c.width - 10, c.y + c.height / 2, {steps: 6});
+    await expect(scene(page)).toHaveAttribute("data-live-preview", "c:right");
     await page.mouse.up();
     await expect(scene(page)).toHaveAttribute("data-live-active", "false");
     const a = await settled(page, "a");

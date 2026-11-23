@@ -668,8 +668,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     }
 
     function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): Judgement {
-        // 来源收起、展开那一刻屏幕上的判定，指针没动之前一直是它（被拒绝、编辑器的拒绝跟着留下）。
-        if (region === null && live.unmoved(point)) return run.judged;
         const doc = options.doc();
         if (region?.id === FLOAT_REGION) return judgementOf(canFloat(doc, source) ? floatDrop(doc, options.floatMinimum(source), null) : null);
         // 实时布局拿起后、引擎量到之前：这一次现量一份，判定完丢掉（`resolveDrop`）。
@@ -815,6 +813,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const {windowDrag} = run;
             return windowDrag === null || covered ? NOT_JUDGED : judgementOf(windowDrop(windowDrag, source, point));
         }
+        // 来源收起、展开那一刻屏幕上的判定，指针没动之前一直是它（被拒绝、编辑器的拒绝跟着留下）。排在遮挡之前：预览重排可能让按钮区滑到静止的指针下，那一次判定不能把它盖掉。
+        if (region === null && live.unmoved(point)) return run.judged;
         const onButtons = region === null && top?.closest("[data-no-drag]") != null;
         try {
             return covered || onButtons ? NOT_JUDGED : dropAt(source, point, region);

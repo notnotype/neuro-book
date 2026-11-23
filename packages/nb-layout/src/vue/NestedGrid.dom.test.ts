@@ -1630,6 +1630,10 @@ describe("NestedGrid 内容层", () => {
         expect(wrapper.get("[data-content='x']").attributes("data-lifted")).toBeDefined();
         await wrapper.setProps({revision: 2});
         expect(wrapper.get("[data-inside='x']").element).toBe(inside);
+        // 预览先把它摆到 b、再摘掉：留住的是拿起那一刻的那一项（叶 a），不是中途摆到的 b。
+        await wrapper.setProps({contents: [{key: "x", leaf: "b", insetTop: 32, active: true}, both[1]!]});
+        await wrapper.setProps({contents: [both[1]!]});
+        expect(wrapper.get("[data-content='x']").attributes("data-content-leaf")).toBe("a");
         // 放下：x 进了 b。
         await wrapper.setProps({lifted: null, contents: [{key: "x", leaf: "b", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: false}]});
         expect(wrapper.get("[data-inside='x']").element).toBe(inside);

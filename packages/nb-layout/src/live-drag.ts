@@ -307,7 +307,7 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
             current.card = null;
             return false;
         }
-        current.homeRect ??= host.card.rect(current.source, null, geometry);
+        if (current.homeRect === undefined) current.homeRect = host.card.rect(current.source, null, geometry);
         const home = current.homeRect;
         const limit = host.card.compact ?? CARD_COMPACT;
         const compact = {
