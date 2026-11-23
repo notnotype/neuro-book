@@ -285,7 +285,9 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
      * 单个分支的原子调整计划：先核对基线与目标，再把目标反解成新的尺寸意图。
      *
      * `fixed` 子节点直接以目标 px 为新意图；`weight` 子节点沿用免费水位反解（自由节点定标，
-     * 触界节点保留仍与目标兼容的旧权重）。计划不修改任何节点，调用方在全部通过后才落账。
+     * 触界节点保留仍与目标兼容的旧权重）。尺寸意图只出现在返回值里，由调用方在全部通过后落账；
+     * 唯一的例外是 `change.collapsed` 的收起状态，直接写在 `branch` 的孩子上（后面的反解要看到收起之后的范围），
+     * 所以 `resizeBranches` 传的是候选树里的副本；`resizeBranch` 不带收起变化，不会写。
      */
     function planBranchResize(
         branch: GridBranch<T>,
