@@ -199,6 +199,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - 纯文档修改检查链接、结构与语义，不运行产品测试、typecheck、构建或浏览器；治理脚本变化仅运行直接相关脚本测试与类型检查。
 - 实现变化运行受影响既有测试；类型表面改变才运行对应 typecheck。工具只支持全应用检查时运行一次，区分本次诊断与已有基线，不借失败扩大修复范围。CSS 生成物按包合同构建。
 - 受影响的测试用 `bun run test:affected` 选出并运行，选择方式见[测试分类与运行](#测试分类与运行)；不默认跑全量。它缺省只看还没提交的改动：在分支上收口、合入前验证时改动都已提交，不加 `--since master` 就一条也选不到（w00026 t25）。
+- 改了 `packages/nb-layout/src` 就在 nb-layout 下跑 `bun run api:check`：它先构建，再与入库的 `api/*.api.txt` 比，公开面变了照提示用 `api:report` 更新、与改动同一个提交（包的 `AGENTS.md` 的“稳定性标注与 API 报告”）。插件 SDK 转出的 nb-layout 名字变了，应用的 `src/sdk/sdk.test.ts` 会失败，照提示判断要不要提兼容起点（w00026 t48）。
 - 浏览器 e2e 由 `test:affected` 选不到文件（`--tier e2e` 是整包），靠人挑：改了什么就跑覆盖它的文件。合入前的清单只跑一次，之后只重跑覆盖改动的文件和失败项；开第二轮大范围前先说清哪条证据失效了，说不出就不跑。已知会因别的 Work 失败的文件不跑了再读结果。大范围 e2e 跑着的时候不改清单里的测试文件、不重新构建：一个 worker 时测试文件是跑到它才加载的，构建产物也是边跑边读，中途改了，后面跑的已经不是开始时那份代码（w00025 t04）。
 - `packages/neuro-book` 的 Playwright 配置替这条把关：一次选中超过 8 个文件时拒绝运行（`e2e/wide-run-guard.ts`，整包也算；`--last-failed`、`--list`、`-g` 放行），确实要大范围跑时命令前加 `NB_E2E_WIDE="这轮要消除什么不确定性"`，理由打印在日志里。写理由时写具体的不确定性，“最后验证”不算。
 - Playwright 的输出目录（失败用例的 trace 与错误现场、`--last-failed` 读的 `.last-run.json`）按检出分开，在 `<系统Temp>/neuro-book/playwright/<套件>/<检出名>/` 下，检出名是检出目录名（截到 24 个字符）加整条路径的哈希前 8 位（`@notnotype/neuro-book-test-support/paths` 的 `resolveAgentPlaywrightRoot`，`neuro-book` 与 `nb-story` 两份配置都用它）。几个 worktree 同时跑 e2e 不会互相清掉失败现场，`--last-failed` 只读本检出上一次的失败。同一个检出里每次开跑仍会清空自己的目录：要留的失败现场先拷走，或先看完再开跑（w00025 t24；此前各检出共用 `playwright/neuro-book`，t17 收口时失败现场被别的会话清掉）。
