@@ -132,6 +132,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 - 已知问题（2026-11-19，t40 设计审查发现，分支之前就有）：nb-layout 的 `resizeBranches` 落账时，把被压缩、这次没动的保留像素节点的意图写成压缩值，窄窗口里经分隔条 Enter 收起一块面板，放宽后旁边那块永久少一截。工作台不受影响（回写经 L2 的 `frozen`）。修法要改 Enter 的语义，交开发者定（[待确认清单](pending-confirmations.md)），没有排 Task。
 - 已知问题（2026-11-18，t30 实现审查第 10 条，分支之前就有）：nb-layout 的结构操作与快照恢复对 16 层深度的计法差一层：结构操作把根算第 1 层，恢复从 0 数起，17 层的快照能恢复、恢复后连拆分都被拒，18 层才被恢复拒绝。改恢复的阈值前要先定已能读到的 17 层快照怎么办。没有排 Task。
 
+2026-11-23：开发者定 nb-layout 可以首发、`ui/nested-grid` 与 `ui/layout-drag` 可以晋升；t48 的两件按推荐定（0.x 期间全部 `@experimental`，`@stable` 由 nb-layout 自己定）。两份 Spec 先逐句核对再晋升；t48 写第 3 稿，实施完再按发布手册首发 nb-layout。
+
 ## 后续
 
 - 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
