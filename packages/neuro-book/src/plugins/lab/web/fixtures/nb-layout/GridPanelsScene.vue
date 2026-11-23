@@ -28,9 +28,10 @@ import {
 } from "@notnotype/nb-workbench-layout";
 import type {Grid, GridFloatInput, GridRect} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutProjectionOptions, LayoutResult, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
-import {moveGridFocus, NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
+import {createInstanceCounter, moveFocusOnF6} from "./scene-support";
 
 const HEAD = 32;
 const BARS = ["activitybar", "statusbar"];
@@ -181,16 +182,8 @@ const contents = computed(() => [
 ]);
 
 const labelOf = (key: string): string => key.slice(key.indexOf(":") + 1);
-let created = 0;
-const createInstance = (): number => {
-    created += 1;
-    return created;
-};
-
-/** 产品里是工作台的两条命令；这里不接命令系统，直接调。 */
-function onKeydown(event: KeyboardEvent): void {
-    if (event.key === "F6" && moveGridFocus(containerEl.value, event.shiftKey ? "previous" : "next")) event.preventDefault();
-}
+const createInstance = createInstanceCounter();
+const onKeydown = (event: KeyboardEvent): void => moveFocusOnF6(event, containerEl.value);
 </script>
 
 <template>
