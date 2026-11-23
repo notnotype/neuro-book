@@ -17,7 +17,7 @@ import {Value} from "typebox/value";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {BackgroundTasks, OwnPayload, OwnTaskOwner, RowsPayload, TaskDetail, TaskFailure, TaskHandle, TaskInput, TaskItem, TaskState} from "../shared/contracts";
-import {TaskOwnerSchema} from "../shared/contracts";
+import {OwnTaskOwnerSchema} from "../shared/contracts";
 import {backgroundSummary, buildRows} from "./groups";
 import type {RowsFilter} from "./groups";
 import {ProviderRegistry} from "./providers";
@@ -95,7 +95,7 @@ function normalizeDetail(value: string | undefined): TaskDetail | null {
 /** `start` 的归属：不给是应用；按行的同样规则校验，不能带 `open`（输出 18、26）。 */
 function normalizeOwner(value: unknown): OwnTaskOwner {
     if (value === undefined) return {kind: "app"};
-    if (!Value.Check(TaskOwnerSchema, value) || (value as {open?: unknown}).open !== undefined) throw new TypeError("invalid task owner");
+    if (!Value.Check(OwnTaskOwnerSchema, value)) throw new TypeError("invalid task owner");
     const owner = value as OwnTaskOwner;
     if (owner.kind === "app") return {kind: "app"};
     const title = normalizeText(owner.title, TITLE_MAX);
@@ -268,11 +268,12 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
         list: () => [...running.values(), ...finished].map(itemOf),
         own() {
             const tasks = [...running.values(), ...finished].map(itemOf);
-            return {tasks, background: backgroundSummary(tasks, providers.snapshot().rows)};
+            const snapshot = providers.snapshot();
+            return {tasks, background: backgroundSummary(tasks, snapshot.rows, snapshot.overflow)};
         },
         rows(filter) {
             const snapshot = providers.snapshot();
-            return buildRows([...running.values(), ...finished].map(itemOf), snapshot.rows, filter, snapshot.version + revision, (session) => {
+            return buildRows([...running.values(), ...finished].map(itemOf), snapshot, filter, revision, (session) => {
                 if (headConflicts.has(session)) return;
                 headConflicts.add(session);
                 report("provider-head-conflict", `more than one provider gives a head row for session ${session}; the earliest registered one is used`, {session});

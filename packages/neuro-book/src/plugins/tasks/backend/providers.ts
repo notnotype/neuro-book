@@ -15,8 +15,9 @@ import type {Text} from "@notnotype/nb-ui/text";
 import {Value} from "typebox/value";
 
 import type {ProvidedRow, RowOpen, RowOwner, RowState, StopOutcome, TaskProvider} from "../shared/contracts";
-import {RowOpenSchema, TaskOwnerSchema} from "../shared/contracts";
+import {RowOpenSchema, RowOwnerSchema} from "../shared/contracts";
 import type {Outcome, TasksDiagnostic} from "./core";
+import {listedRowOf} from "./groups";
 import {normalizeProgress, normalizeText, MESSAGE_MAX, TITLE_MAX} from "./text";
 
 /** 一家至多交几行；一行编码后至多几个字节（输入与前置条件）。 */
@@ -27,6 +28,9 @@ export const STOP_WAIT_MS = 10_000;
 const ROW_ID_MAX = 200;
 const KIND_PATTERN = /^[a-z][a-z0-9-]{0,39}$/u;
 const STATES: ReadonlySet<RowState> = new Set(["running", "waiting", "succeeded", "failed", "cancelled", "interrupted"]);
+/** `Date` 能表示的毫秒时刻：更大的有限数换成 ISO 字符串时抛 `RangeError`，会让整份推送失败。 */
+const MAX_TIME = 8.64e15;
+const isTime = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= MAX_TIME;
 
 /** 校验过的一行：文字已归一，`kind` 已盖章，带它在远程里的键。 */
 export interface AcceptedRow {
@@ -67,6 +71,10 @@ interface Entry {
     failed: boolean;
     sealed: boolean;
     rows: readonly AcceptedRow[];
+    /** 超过一家上限没列出的行：只计数（`more`、`background`），不进分组。 */
+    overflow: readonly AcceptedRow[];
+    /** 上一次读到的不合格行（行 id 加原因）：同一行同一原因只记一次诊断。 */
+    invalid: ReadonlySet<string>;
     readonly inflight: Set<InFlight>;
 }
 
@@ -92,7 +100,7 @@ export class ProviderRegistry {
         if (typeof provider !== "object" || provider === null || typeof provider.rows !== "function" || typeof provider.subscribe !== "function" || typeof provider.stop !== "function") throw new TypeError("invalid task provider");
         if (this.#entries.has(consumer)) throw new TypeError(`${plugin} already provides task rows`);
         this.#generation += 1;
-        const entry: Entry = {consumer, plugin, generation: this.#generation, provider, unsubscribe: null, dirty: true, failed: false, sealed: false, rows: [], inflight: new Set()};
+        const entry: Entry = {consumer, plugin, generation: this.#generation, provider, unsubscribe: null, dirty: true, failed: false, sealed: false, rows: [], overflow: [], invalid: new Set(), inflight: new Set()};
         this.#entries.set(consumer, entry);
         try {
             entry.unsubscribe = provider.subscribe(() => {
@@ -105,10 +113,7 @@ export class ProviderRegistry {
             throw new TypeError(`subscribing to the task provider of ${plugin} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
         this.options.changed();
-        let revoked = false;
         return () => {
-            if (revoked) return;
-            revoked = true;
             if (!entry.sealed) this.#revoke(entry);
         };
     }
@@ -119,8 +124,8 @@ export class ProviderRegistry {
         if (entry !== undefined) this.#revoke(entry);
     }
 
-    /** 当前的行：有脏的家先读（读前清标记），任何一家读过就换一个版本号。 */
-    snapshot(): {readonly version: number; readonly rows: readonly AcceptedRow[]} {
+    /** 当前的行：有脏的家先读（读前清标记），任何一家读过就换一个版本号。`overflow` 是超过一家上限没列出的。 */
+    snapshot(): {readonly version: number; readonly rows: readonly AcceptedRow[]; readonly overflow: readonly AcceptedRow[]} {
         let read = false;
         for (const entry of this.#entries.values()) {
             if (!entry.dirty) continue;
@@ -129,7 +134,8 @@ export class ProviderRegistry {
             this.#read(entry);
         }
         if (read) this.#version += 1;
-        return {version: this.#version, rows: [...this.#entries.values()].flatMap((entry) => entry.rows)};
+        const entries = [...this.#entries.values()];
+        return {version: this.#version, rows: entries.flatMap((entry) => entry.rows), overflow: entries.flatMap((entry) => entry.overflow)};
     }
 
     /** 停一行（输出 24）：按最新读到的行查键，转给提供方；提供方 10 秒内没有结果时交回“未知”。 */
@@ -189,43 +195,56 @@ export class ProviderRegistry {
         }
         entry.unsubscribe = null;
         entry.rows = [];
+        entry.overflow = [];
         if (push) {
             this.#version += 1;
             this.options.changed();
         }
     }
 
-    /** 读一家的行：逐行校验，一家超过上限时先留在跑与等用户的，结束的按结束时刻新到旧补满（输出 19、20）。 */
+    /**
+     * 读一家的行：逐行校验，一家超过上限时先留在跑与等用户的，结束的按结束时刻新到旧补满，其余只计数（输出 19、20）。读行与校验
+     * 在同一个 try 里：取某一行的字段时抛错，同样当作这一家出错。
+     */
     #read(entry: Entry): void {
-        let raw: readonly ProvidedRow[];
         try {
-            raw = entry.provider.rows();
+            const raw = entry.provider.rows();
             if (!Array.isArray(raw)) throw new TypeError("rows() did not return an array");
-        } catch (error) {
-            entry.rows = [];
-            if (!entry.failed) this.options.report("provider-failed", `reading the task rows of ${entry.plugin} threw: ${error instanceof Error ? error.message : String(error)}`, {plugin: entry.plugin});
-            entry.failed = true;
-            return;
-        }
-        entry.failed = false;
-        const seen = new Set<string>();
-        const accepted: AcceptedRow[] = [];
-        for (const row of raw) {
-            const checked = this.#accept(entry, row);
-            if (typeof checked === "string") {
-                const id = typeof (row as {id?: unknown} | null)?.id === "string" ? (row as {id: string}).id : null;
-                this.options.report("provider-row-invalid", `a task row of ${entry.plugin} was dropped: ${checked}`, {plugin: entry.plugin, row: id, reason: checked});
-                continue;
+            const seen = new Set<string>();
+            const accepted: AcceptedRow[] = [];
+            const invalid = new Set<string>();
+            for (const row of raw) {
+                const checked = this.#accept(entry, row);
+                if (typeof checked === "string") {
+                    const id = typeof (row as {id?: unknown} | null)?.id === "string" ? (row as {id: string}).id : null;
+                    const mark = `${String(id)}\u0000${checked}`;
+                    invalid.add(mark);
+                    if (!entry.invalid.has(mark)) this.options.report("provider-row-invalid", `a task row of ${entry.plugin} was dropped: ${checked}`, {plugin: entry.plugin, row: id, reason: checked});
+                    continue;
+                }
+                if (seen.has(checked.id)) continue;
+                seen.add(checked.id);
+                accepted.push(checked);
             }
-            if (seen.has(checked.id)) continue;
-            seen.add(checked.id);
-            accepted.push(checked);
-        }
-        if (accepted.length > PROVIDER_ROW_LIMIT) {
+            entry.invalid = invalid;
+            entry.failed = false;
+            if (accepted.length <= PROVIDER_ROW_LIMIT) {
+                entry.rows = accepted;
+                entry.overflow = [];
+                return;
+            }
             const live = accepted.filter((row) => isLive(row.state));
             const ended = accepted.filter((row) => !isLive(row.state)).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
-            entry.rows = [...live, ...ended].slice(0, PROVIDER_ROW_LIMIT);
-        } else entry.rows = accepted;
+            const ordered = [...live, ...ended];
+            if (entry.overflow.length === 0) this.options.report("provider-rows-capped", `${entry.plugin} gave ${String(accepted.length)} task rows, over ${String(PROVIDER_ROW_LIMIT)}; the rest are only counted`, {plugin: entry.plugin, rows: accepted.length});
+            entry.rows = ordered.slice(0, PROVIDER_ROW_LIMIT);
+            entry.overflow = ordered.slice(PROVIDER_ROW_LIMIT);
+        } catch (error) {
+            entry.rows = [];
+            entry.overflow = [];
+            if (!entry.failed) this.options.report("provider-failed", `reading the task rows of ${entry.plugin} threw: ${error instanceof Error ? error.message : String(error)}`, {plugin: entry.plugin});
+            entry.failed = true;
+        }
     }
 
     /** 校验并归一一行；不合格时交回原因（不含正文）。 */
@@ -235,15 +254,15 @@ export class ProviderRegistry {
         if (typeof row.kind !== "string" || !KIND_PATTERN.test(row.kind)) return "bad kind";
         if (row.form !== "once") return "bad form";
         if (!STATES.has(row.state)) return "bad state";
-        if (typeof row.startedAt !== "number" || !Number.isFinite(row.startedAt)) return "bad startedAt";
-        if (row.endedAt !== undefined && row.endedAt !== null && (typeof row.endedAt !== "number" || !Number.isFinite(row.endedAt))) return "bad endedAt";
+        if (!isTime(row.startedAt)) return "bad startedAt";
+        if (row.endedAt !== undefined && row.endedAt !== null && !isTime(row.endedAt)) return "bad endedAt";
         const title = normalizeText(row.title, TITLE_MAX);
         if (!title.ok) return `bad title: ${title.reason}`;
         const message = row.message === undefined || row.message === null ? null : normalizeText(row.message, MESSAGE_MAX);
         if (message !== null && !message.ok) return `bad message: ${message.reason}`;
         const kindLabel = normalizeText(row.kindLabel, TITLE_MAX);
         if (!kindLabel.ok) return `bad kindLabel: ${kindLabel.reason}`;
-        if (!Value.Check(TaskOwnerSchema, row.owner)) return "bad owner";
+        if (!Value.Check(RowOwnerSchema, row.owner)) return "bad owner";
         const ownerTitle = row.owner.kind === "app" ? null : normalizeText(row.owner.title, TITLE_MAX);
         if (ownerTitle !== null && !ownerTitle.ok) return `bad owner title: ${ownerTitle.reason}`;
         const ownerOpen = row.owner.kind === "session" ? (row.owner as {open?: RowOpen}).open : undefined;
@@ -270,7 +289,8 @@ export class ProviderRegistry {
             stoppable: row.stoppable === true && isLive(row.state),
             open: row.open === undefined ? null : JSON.parse(JSON.stringify(row.open)) as RowOpen,
         };
-        if (Buffer.byteLength(JSON.stringify(accepted), "utf8") > ROW_MAX_BYTES) return `over ${String(ROW_MAX_BYTES)} bytes`;
+        // 按发给窗口的那一行量（输出 19 的 2 KiB 指的是它）。
+        if (Buffer.byteLength(JSON.stringify(listedRowOf(accepted)), "utf8") > ROW_MAX_BYTES) return `over ${String(ROW_MAX_BYTES)} bytes`;
         return accepted;
     }
 

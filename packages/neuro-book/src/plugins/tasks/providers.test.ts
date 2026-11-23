@@ -10,6 +10,7 @@ import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createTasksCore} from "./backend/core";
 import {PROVIDER_ROW_LIMIT, STOP_WAIT_MS} from "./backend/providers";
 import {PUSH_INTERVAL_MS} from "./backend/remote";
 import type {OwnPayload, ProvidedRow, RowGroup, RowsPayload, StopOutcome, TaskProvider} from "./shared/contracts";
@@ -79,8 +80,6 @@ function provider(initial: readonly ProvidedRow[] = []) {
             rows = next;
             notify?.();
         },
-        /** 撤回之后仍留着的 `notify`：调用它不应起作用。 */
-        staleNotify: () => notify?.(),
     };
 }
 
@@ -147,6 +146,48 @@ describe("提供方登记（输出 18、19）", () => {
         expect(diagnostics(w, "tasks.provider-row-invalid")).toHaveLength(4);
     });
 
+    test("时刻超出 Date 能表示的范围、按发出去的样子超过 2 KiB 的行丢掉；同一行同一原因只记一次诊断", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const p = provider([row("ok"), row("far", {startedAt: 1e16}), row("big", {message: "长".repeat(500), kindLabel: "种".repeat(200)})]);
+        (await w.owner("a")).tasks.provide(p.value);
+        expect(titles(await rows(client))).toEqual(["行 ok"]);
+        for (let round = 0; round < 3; round += 1) {
+            p.set([row("ok", {message: `第 ${String(round)} 次`}), row("far", {startedAt: 1e16}), row("big", {message: "长".repeat(500), kindLabel: "种".repeat(200)})]);
+            await rows(client);
+        }
+        expect(diagnostics(w, "tasks.provider-row-invalid").map((record) => (record as {data: {row: string}}).data.row).sort()).toEqual(["big", "far"]);
+    });
+
+    test("取某一行的字段时抛错：当作这一家出错，行清空、记一次诊断，别家照常", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const bad = provider([row("b1")]);
+        (await w.owner("bad")).tasks.provide(bad.value);
+        (await w.owner("good")).tasks.provide(provider([row("g1")]).value);
+        expect(keys(await rows(client))).toHaveLength(2);
+        bad.set([Object.defineProperty({...row("b2")}, "title", {get: () => {
+            throw new Error("getter broke");
+        }}) as ProvidedRow]);
+        expect(titles(await rows(client))).toEqual(["行 g1"]);
+        expect(diagnostics(w, "tasks.provider-failed")).toHaveLength(1);
+    });
+
+    test("一家超过 100 行的只计数：列出 100 行，其余计进 more 与后台工作的件数，诊断记一次", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const many = (round: number) => Array.from({length: 150}, (_, index) => row(`r${String(index)}`, {message: `第 ${String(round)} 轮`}));
+        const p = provider(many(0));
+        (await w.owner("a")).tasks.provide(p.value);
+        const payload = await rows(client);
+        expect(keys(payload)).toHaveLength(PROVIDER_ROW_LIMIT);
+        expect(payload.more).toBe(50);
+        expect(value(await client.own({})).background.count).toBe(150);
+        p.set(many(1));
+        await rows(client);
+        expect(diagnostics(w, "tasks.provider-rows-capped")).toHaveLength(1);
+    });
+
     test("start 的归属：不给是应用，不合格或带 open 同步抛 TypeError", async () => {
         const w = await world();
         expect(w.tasks.start({title: "应用的"}).id).toBeString();
@@ -201,7 +242,6 @@ describe("隔离与撤回（输出 20、21，验收 7、8）", () => {
         const [oldKey] = keys(await rows(client));
         await owner.stop();
         expect(old.state.unsubscribed).toBe(1);
-        old.staleNotify();
         expect(keys(await rows(client))).toEqual([]);
         const again = await w.owner("a2");
         const fresh = provider([row("1")]);
@@ -211,7 +251,37 @@ describe("隔离与撤回（输出 20、21，验收 7、8）", () => {
     });
 });
 
+describe("撤回推一次（输出 21）", () => {
+    test("撤回之后没有别的变化，订阅也收到去掉这一家的那一份", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const seen: RowsPayload[] = [];
+        expect((await client.events.rowsChanged.subscribe(ALL, (payload) => void seen.push(payload))).ok).toBe(true);
+        const revoke = (await w.owner("a")).tasks.provide(provider([row("1")]).value);
+        await waitUntil("推到这一行", () => {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            return seen.at(-1) !== undefined && keys(seen.at(-1)!).length === 1;
+        });
+        revoke();
+        await waitUntil("推到去掉之后的那一份", () => {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            return keys(seen.at(-1)!).length === 0;
+        });
+    });
+});
+
 describe("停止（输出 24，验收 9）", () => {
+    test("按最新读到的行查键：提供方刚去掉的行，窗口手里的旧键得 row-gone，不转给提供方", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const p = provider([row("1")]);
+        (await w.owner("a")).tasks.provide(p.value);
+        const [key] = keys(await rows(client));
+        p.set([]);
+        expect(await client.stop({key: key!})).toMatchObject({ok: false, code: "row-gone"});
+        expect(p.state.stops).toEqual([]);
+    });
+
     test("交回提供方的结果：已受理、被拒带原因；不可停的得 not-stoppable，没有的行得 row-gone", async () => {
         const w = await world();
         const client = await w.window("a");
@@ -380,6 +450,28 @@ describe("ownChanged 与后台工作（输出 23、27）", () => {
             w.settings.clock.advance(PUSH_INTERVAL_MS);
             return seen.at(-1)?.elsewhere === 1;
         });
+    });
+});
+
+describe("清单关闭时提供方还登记着（输出 21）", () => {
+    // 真实装配里登记方依赖 `tasksKey`，门面总是先于清单释放；这里直接用核心，覆盖可选依赖时清单先停的那一路。
+    test("close：每家退订，在途的停止交回未知并 abort 信号；之后的撤回函数是空操作", async () => {
+        const consumer = {instanceId: "i-1", location: "server", client: null, plugin: "test.closing", entry: "server", generation: 1, via: null} as const;
+        const reports: string[] = [];
+        const core = createTasksCore({clock: {now: () => 0, schedule: () => () => undefined}, newId: () => "1", report: (event) => void reports.push(event)});
+        const p = provider([row("hang")]);
+        p.state.answer = () => new Promise(() => {});
+        const revoke = core.facade(consumer).provide(p.value);
+        const [key] = keys(core.rows(ALL));
+        const pending = core.stop(key!);
+        await waitUntil("提供方收到停止", () => p.state.stops.length === 1);
+        core.close();
+        expect(await pending).toEqual({ok: true, value: {outcome: "unknown"}});
+        expect(p.state.stops[0]!.signal.aborted).toBe(true);
+        expect(p.state.unsubscribed).toBe(1);
+        revoke();
+        expect(p.state.unsubscribed).toBe(1);
+        expect(reports).toEqual([]);
     });
 });
 

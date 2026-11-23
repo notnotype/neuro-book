@@ -382,18 +382,18 @@ describe("关闭服务前报出（输出 17）", () => {
 });
 
 describe("清单太大（失败与恢复）", () => {
-    test("整份清单超过 512 KiB：list 得 too-large、推送跳过，都记诊断", async () => {
+    test("整份清单超过 512 KiB：list 得 too-large、推送跳过；诊断在进入超限时记一次，超限期间不重复记", async () => {
         const w = await world();
         const client = await w.window("a");
         // 每件的进展 500 个汉字（1500 字节），400 件约 600 KiB。
         for (let index = 0; index < 400; index += 1) w.tasks.start({title: `t${String(index)}`, message: "长".repeat(500)});
         expect(await client.own({})).toMatchObject({ok: false, code: "too-large"});
         const seen = await pushes(client);
-        await waitUntil("推送跳过的诊断", () => {
-            w.settings.clock.advance(PUSH_INTERVAL_MS);
-            return diagnostics(w, "tasks.list-too-large").length >= 2;
-        });
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        w.tasks.start({title: "又一件"});
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
         await client.own({});
         expect(seen).toEqual([]);
+        expect(diagnostics(w, "tasks.list-too-large")).toHaveLength(1);
     });
 });

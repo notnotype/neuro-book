@@ -129,9 +129,20 @@ export const RowOpenSchema = Type.Object({
     args: Type.Optional(Type.Record(Type.String(), Type.String({maxLength: 200}), {maxProperties: 4})),
 }, {additionalProperties: false});
 
-export const TaskOwnerSchema = Type.Union([
-    Type.Object({kind: Type.Literal("app")}, {additionalProperties: false}),
-    Type.Object({kind: Type.Literal("project"), project: Type.String({minLength: 1, maxLength: 200}), title: TextSchema}, {additionalProperties: false}),
+const AppOwnerSchema = Type.Object({kind: Type.Literal("app")}, {additionalProperties: false});
+const ProjectOwnerSchema = Type.Object({kind: Type.Literal("project"), project: Type.String({minLength: 1, maxLength: 200}), title: TextSchema}, {additionalProperties: false});
+
+/** 自己的任务的归属（`start` 的 `owner`）：不能带 `open`。 */
+export const OwnTaskOwnerSchema = Type.Union([
+    AppOwnerSchema,
+    ProjectOwnerSchema,
+    Type.Object({kind: Type.Literal("session"), session: Type.String({minLength: 1, maxLength: 200}), title: TextSchema}, {additionalProperties: false}),
+]);
+
+/** 提供方的行的归属：会话的可以带会话块组头的“打开”。 */
+export const RowOwnerSchema = Type.Union([
+    AppOwnerSchema,
+    ProjectOwnerSchema,
     Type.Object({kind: Type.Literal("session"), session: Type.String({minLength: 1, maxLength: 200}), title: TextSchema, open: Type.Optional(RowOpenSchema)}, {additionalProperties: false}),
 ]);
 
@@ -149,7 +160,7 @@ export const TaskItemSchema = Type.Object({
     /** ISO 8601。 */
     startedAt: Type.String(),
     endedAt: Nullable(Type.String()),
-    owner: TaskOwnerSchema,
+    owner: OwnTaskOwnerSchema,
 }, {additionalProperties: false});
 export type TaskItem = Static<typeof TaskItemSchema>;
 
