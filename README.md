@@ -98,7 +98,7 @@ AI 能写好一段文字，但写不好一部长篇：设定靠对话记忆，�
 
 ## npm 包
 
-都发布在 npm 的 `@notnotype` 下，只用 Bun 运行，许可证 AGPL-3.0-only。应用与 SDK 发构建产物（[ADR 0033](docs/adr/0033-app-delivered-as-built-npm-package.md)），其余以源码发布（[ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
+都发布在 npm 的 `@notnotype` 下，许可证 AGPL-3.0-only，nb-layout 例外（MIT）。应用与 SDK 发构建产物（[ADR 0033](docs/adr/0033-app-delivered-as-built-npm-package.md)），nb-layout 发编译产物、宿主是 Vue 3 加 Vite，不限 Bun；其余以源码发布、只用 Bun 运行（[ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
 
 | 包 | 内容 |
 |---|---|
@@ -114,6 +114,7 @@ AI 能写好一段文字，但写不好一部长篇：设定靠对话记忆，�
 | [`@notnotype/nb-agent-ui`](packages/nb-agent-ui/README.md) | Agent 对话视图 |
 | [`@notnotype/nb-form`](packages/nb-form/README.md) | 按数据 schema 画表单 |
 | [`@notnotype/nb-markdown`](packages/nb-markdown/README.md) | Markdown 的语言、编解码器与组件 |
+| [`@notnotype/nb-layout`](packages/nb-layout/README.md) | 布局：嵌套网格、尺寸求解、拖放落点与 Vue 组件（MIT，发编译产物，见 [ADR 0054](docs/adr/0054-nb-layout-general-library.md)） |
 
 ## 参与开发
 

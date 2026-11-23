@@ -98,7 +98,7 @@ Every design has a source — proven software engineering practice on one side, 
 
 ## npm packages
 
-All published under `@notnotype` on npm, Bun only, licensed AGPL-3.0-only. The app and the SDK ship build output ([ADR 0033](docs/adr/0033-app-delivered-as-built-npm-package.md)); the rest ship source ([ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)).
+All published under `@notnotype` on npm, licensed AGPL-3.0-only except nb-layout (MIT). The app and the SDK ship build output ([ADR 0033](docs/adr/0033-app-delivered-as-built-npm-package.md)); nb-layout ships compiled output for any Vue 3 and Vite host, not only Bun; the rest ship source and run on Bun only ([ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)).
 
 | Package | Contents |
 |---|---|
@@ -114,6 +114,7 @@ All published under `@notnotype` on npm, Bun only, licensed AGPL-3.0-only. The a
 | [`@notnotype/nb-agent-ui`](packages/nb-agent-ui/README.md) | Agent conversation view |
 | [`@notnotype/nb-form`](packages/nb-form/README.md) | Forms drawn from a data schema |
 | [`@notnotype/nb-markdown`](packages/nb-markdown/README.md) | Markdown language, codecs and components |
+| [`@notnotype/nb-layout`](packages/nb-layout/README.md) | Layout: nested grid, size solver, drop targets and Vue components (MIT, published as compiled output, see [ADR 0054](docs/adr/0054-nb-layout-general-library.md)) |
 
 ## Contributing to NeuroBook
 
