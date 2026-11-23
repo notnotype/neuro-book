@@ -87,6 +87,86 @@ describe("摘掉来源之后的插入位", () => {
     });
 });
 
+/** 一个标签的外框：`row` 是它在第几个 `data-tab-row`，`box` 是外框矩形（左、上、宽、高），DOM 顺序就是数组顺序。 */
+interface BoxSpec {
+    readonly id: string;
+    readonly row: number;
+    readonly box: readonly [left: number, top: number, width: number, height: number];
+}
+
+/** 按每个标签自己的外框摆：标签高矮不一时同一视觉行里 `top` 各不相同，DOM 顺序也就不是按 `top` 排的顺序。 */
+function stripOfBoxes(rowBoxes: ReadonlyArray<readonly [left: number, top: number, width: number, height: number]>, tabs: ReadonlyArray<BoxSpec>): HTMLElement {
+    const strip = document.createElement("div");
+    place(strip, 0, 0, 1000, 100);
+    const rows = rowBoxes.map(([left, top, width, height], at) => {
+        const row = document.createElement("div");
+        row.dataset.tabRow = String(at);
+        place(row, left, top, width, height);
+        strip.append(row);
+        return row;
+    });
+    for (const {id, row, box} of tabs) {
+        const frame = document.createElement("div");
+        place(frame, ...box);
+        const button = document.createElement("button");
+        button.dataset.panelTab = id;
+        button.dataset.tabPartition = "normal";
+        frame.append(button);
+        (rows[row] as HTMLElement).append(frame);
+    }
+    return strip;
+}
+
+describe("标签高矮不一的多行条", () => {
+    // 第 0 个 `data-tab-row` 里 a、c 的 top 是 5、b 的 top 是 0（高度不同，居中对齐），按 top 分成两条折行 [b] 与 [a, c]；第 1 个 `data-tab-row` 是 d、e。
+    const tabs: ReadonlyArray<BoxSpec> = [
+        {id: "a", row: 0, box: [0, 5, 100, 20]},
+        {id: "b", row: 0, box: [100, 0, 100, 30]},
+        {id: "c", row: 0, box: [200, 5, 100, 20]},
+        {id: "d", row: 1, box: [0, 40, 100, 30]},
+        {id: "e", row: 1, box: [100, 40, 100, 30]},
+    ];
+    const rowBoxes = [[0, 0, 1000, 30], [0, 40, 1000, 30]] as const;
+
+    it("`members` 按 DOM 顺序（不是按折行的顺序），摘掉的来源只在 `excludedRect` 里，后面的补上它的空位", () => {
+        const snapshot = measureTabStrip(stripOfBoxes(rowBoxes, tabs), "a");
+        expect(snapshot.members.map((member) => member.id)).toEqual(["b", "c", "d", "e"]);
+        // c 与 a 同一条折行：补上 a 的空位（一格 200）；b 在另一条折行，不动。
+        expect(snapshot.members.map((member) => member.rect)).toEqual([
+            {left: 100, top: 0, right: 200, bottom: 30},
+            {left: 0, top: 5, right: 100, bottom: 25},
+            {left: 0, top: 40, right: 100, bottom: 70},
+            {left: 100, top: 40, right: 200, bottom: 70},
+        ]);
+        expect(snapshot.excludedRect).toEqual({left: 0, top: 5, right: 100, bottom: 25});
+        expect(snapshot.excludedPartition).toBe("normal");
+        // 行：先按 `data-tab-row`，行内按 top 从上到下。
+        expect(snapshot.lines.map((line) => line.members.map((member) => member.id))).toEqual([["b"], ["c"], ["d", "e"]]);
+        expect(snapshot.lines.map((line) => line.rect)).toEqual([
+            {left: 0, top: 0, right: 1000, bottom: 30},
+            {left: 0, top: 5, right: 1000, bottom: 25},
+            {left: 0, top: 40, right: 1000, bottom: 70},
+        ]);
+        expect(snapshot.lines.map((line) => line.endedWithExcluded)).toEqual([false, false, false]);
+    });
+
+    it("不摘来源：`members` 仍按 DOM 顺序，原始矩形一个不动，行按 top 排", () => {
+        const snapshot = measureTabStrip(stripOfBoxes(rowBoxes, tabs));
+        expect(snapshot.members.map((member) => member.id)).toEqual(["a", "b", "c", "d", "e"]);
+        expect(snapshot.members.map((member) => member.rect)).toEqual(tabs.map(({box: [left, top, width, height]}) => ({left, top, right: left + width, bottom: top + height})));
+        expect(snapshot.excludedRect).toBeUndefined();
+        expect(snapshot.lines.map((line) => line.members.map((member) => member.id))).toEqual([["b"], ["a", "c"], ["d", "e"]]);
+    });
+
+    it("来源是折行里排在后面的：它前面的不动，行尾的空白是它的位置", () => {
+        const snapshot = measureTabStrip(stripOfBoxes(rowBoxes, tabs), "c");
+        expect(snapshot.members.map((member) => member.id)).toEqual(["a", "b", "d", "e"]);
+        expect(snapshot.members.map((member) => member.rect.left)).toEqual([0, 100, 0, 100]);
+        expect(snapshot.excludedRect).toEqual({left: 200, top: 5, right: 300, bottom: 25});
+        expect(snapshot.lines.map((line) => line.endedWithExcluded)).toEqual([false, true, false]);
+    });
+});
+
 describe("在条里跟手排序（held）：按被拖的标签的位置判，不按指针", () => {
     /** 抓住的点在指针下、夹在行里时，标签前缘的位置换算成指针：`left + grab * width`。 */
     const pointerFor = (left: number, held: {readonly width: number; readonly grab: number}) => ({x: left + held.grab * held.width, y: 10});
