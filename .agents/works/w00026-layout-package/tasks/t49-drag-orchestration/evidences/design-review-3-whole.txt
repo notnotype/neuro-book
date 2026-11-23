@@ -1,0 +1,109 @@
+我把第 3 稿和现有代码对照完了：第 2 轮的 8 条都解决了。但第 3 稿把会话和引擎合成一个对象，由此带出 4 条重要问题，都会让切片 2、3 返工或让工作台行为出错，另有 1 条建议，没有阻断。
+
+## 第 2 轮各条的核对
+
+- **已解决，不再提**：整体第 1 至 8 条。
+  - 第 1 条：接线进了 `createLiveDragSession`。
+  - 第 2 条：`unmoved` 进了引擎。
+  - 第 3 条：`NestedGrid` 自己留住拿起的内容项。
+  - 第 4 条：`grid` 提供 `origin`、`place`、`settleMotion`、减少动效的判断。
+  - 第 5、6 条：`container` 改可选；状态改用 `LivePreview`。
+  - 第 7 条：Spec 补了“`structure` 与 `resolve` 读已提交的状态”。
+  - 第 8 条：写明 t55 合入之前不发 0.2.0。
+- 我还核对了两处等价，旧行为不变：
+  - `home` 用 `homeStripOf`、`container` 用 `dropStripOf`。`container` 不为 null 时两者得到同一条标签条，所以“立即换”与今天 `live-drag.ts:134` 的判断一样。
+  - 工作台的内容层含文档里所有面板的标签（`layout-present.ts:26-33`），拿起时一定有“上一次的放置”可以沿用。
+
+## 1. 重要：改写后的 Spec 禁止“改宿主状态”，计划要求的 `unmoved` 用法和工作台的 `resolve` 都违反它
+
+- **位置**：计划“`drag-session.ts`：`sampled`”一节第 2 条；分工表“宿主”一行；`layout-drag.ts:843-857`。
+- **现象**：
+  - 第 3 稿把 Spec 输入一节的 `resolve` 改成“不改布局、不改宿主状态；可以读宿主维护的状态”。
+  - 同一份计划又要求宿主 `unmoved(point)` 为真时“返回自己最近一次的判定”。这份判定只能在 `resolve` 里记下，也就是改宿主状态。
+  - 工作台的 `resolve` 还写了这几处：`run.judged`、`stableDrop` 的 `run.shown`、`setRejected`（根元素上的标记）、`moveGhost`、`placeFloat`。
+- **为什么是问题**：
+  - 唯一的参照宿主和计划自己教的写法，都会被新 Spec 判为违规。
+  - 切片 6 晋升时，逐句核对要么拒收，要么逼着把工作台的 `resolve` 拆开重写。
+  - 第 2 轮给的措辞是“不改布局，可以记下最近的落点”。第 3 稿把它收得更紧了，方向反了。
+- **改法**：
+  - Spec 那一句改成：不改布局与已提交的状态；可以记下这场拖动的判定（`unmoved` 依赖它）、保持落点对象的身份；可以写跟手的反馈（光标标记、拖影），但要写在读 DOM 之后。
+  - `drag-session.ts:51` 的注释照这句同步。
+
+## 2. 重要：会话与引擎共用一个 `S`，第 1 轮指出的来源类型对不上又回来了
+
+- **位置**：`LiveDragSessionOptions<S, D, R, G>` 的 `host: LiveDragHost<S, D, G>`；`entry-drop.ts:32`；第 1 轮整体第 1 条的“`S` 也对不上”。
+- **现象**：
+  - 工作台会话的 `S` 是 `WorkbenchDragSource`，包括标签、整窗、文件、容器几种。
+  - 实时布局只走标签（`LayoutTabSource`，`layout-drag.ts:40`）。今天的 `LiveDragHost` 也只认标签。
+  - 合成以后，`facts`、`show`、`measure`、`collapsed`、`card.key`、`card.rect`、`follow` 这 7 个回调收到的都是 `WorkbenchDragSource`。
+- **为什么是问题**：
+  - 工作台要在每个回调里收窄类型。要么写 7 处运行时判断加占位返回值，要么用 `as`，后者正是 Core Rules 禁止的绕过类型系统。
+  - 第三方只要有“一部分来源走实时布局”的情况（例如整窗、外部文件），都会遇到同样的事。
+- **改法**：
+  - 让 `live` 返回实时布局的来源：`live(source: S, keyboard: boolean): L | null`，或写成类型谓词 `source is L`。
+  - `host` 改按 `LiveDragHost<L, D, G>` 定类型，`L` 缺省为 `S`。nb-story 和 Lab 只要原样返回来源，不必另写类型。
+  - 切片 2 的 dom 测试加一例：`live` 返回 null 的来源照常走落点指示，引擎的回调一个都不调。
+
+## 3. 重要：包装 `activate`、`onActiveChange` 时库与宿主谁先谁后没写，有两种写法会让工作台出错
+
+- **位置**：计划“`createLiveDragSession`”一节的“包住 `activate`……库在前后加接线”；`drag-gesture.ts:371-394`；`layout-drag.ts:813-840`、`:842`、`:869-877`。
+- **现象**：
+  - **`begin` 必须在包住的 `activate` 里**：手势在 `activate` 返回之后马上取结构键（`drag-gesture.ts:382`），然后才调 `activeChanged(true)`、同步发布第一次判定（`:394`）。工作台的结构键里有 `live.active ? extentKey : null`（`:842`）。如果实现者把 `begin` 放进 `onActiveChange(true)`，拿起时取的结构键与下一次判定时的不同，一拿起整场就以“结构变了”取消。
+  - **`begin` 之前还有两步**：
+    - 宿主的 `activate` 要先跑：工作台在里面新建 `run`，`begin` 要调的 `origin()` 也要在它之后。
+    - `settleMotion` 要在 `begin` 之前、也在同步的第一次判定之前跑完。
+  - **收场时 `end` 必须先于宿主的 `onActiveChange(false)`**：`end` 先调 `follow.read(null)()`。工作台放回正在排序的标签要读 `run.sort`，而 `run` 在宿主的 `onActiveChange(false)` 里换成空闲的一份（`:874-877`，注释写明“要在换掉 `run` 之前”）。顺序反了，标签条里那个标签的 `translate` 不会被清掉，松手后标签停在错的位置。
+- **为什么是问题**：两种错法类型检查都能过。第二种只在标签条里排序后松手时出现。
+- **改法**：
+  - 在计划、`live-drag-session.md` 和 Spec 的“合成的接线”里把顺序写死：
+    - 拿起：宿主的 `activate` 返回真 → 判减少动效（或问 `live`）→ `settleMotion` → `begin`，全在包住的 `activate` 里。
+    - 收场：`end` → 宿主的 `onActiveChange(false)`。
+  - 切片 2 补两条 dom 测试：
+    - 宿主的结构键读引擎的 `active` 时，拿起不会取消；
+    - 宿主的 `onActiveChange(false)` 里读得到 `end` 之前的宿主状态。
+
+## 4. 重要：`grid` 可选，但不给网格的宿主没有地方 `settleMotion`；工作台走哪条路也没写
+
+- **位置**：`LiveDragSessionOptions.grid?` 与 `host` 里的 `Partial<Pick<…, "origin" | "place">>`；计划“工作台改用引擎”一节；`WorkbenchSurface.vue:533-542`；`layout-drag.ts:314-317`、`:830-831`。
+- **现象**：
+  - 类型上留了一条不给网格的路：宿主自己给 `origin`、`place`。
+  - 但拿起前的 `settleMotion` 和减少动效的判断只能从 `grid` 来。走这条路的宿主只能在 `live()` 这个判断函数里顺手做副作用，或者在 `activate` 里把“走不走实时”再判一遍。
+  - 计划没说工作台给不给 `grid`：
+    - 给的话，`WorkbenchSurface` 只代理了 `settleMotion`、`placeLifted`，要补 `origin()`、`motionMs()`，可计划里它的改动只有“删掉补回拿起项那一段”；
+    - 不给的话，就落进上面那条缺口。
+- **为什么是问题**：
+  - 切片 3 一定会碰到这个问题，到时候是现补接口还是另写一份，都会返工。
+  - 第三方照类型走“不给网格”那条路，会复现第 2 轮第 4 条说的测量抖动：第一帧量到过渡中间的矩形。
+- **改法**：
+  - `grid` 改成必填：`() => LiveGrid | null`。`LiveGrid` 定成结构化接口 `{origin, placeLifted, settleMotion, motionMs}`，`NestedGrid` 的实例和包着它的组件都能满足。
+  - 拿起时 `grid()` 为 null 就不走实时布局。
+  - 删掉 `Partial<Pick<…, "origin" | "place">>`。
+  - 工作台写 `grid: () => surface.value`，`WorkbenchSurface` 补代理 `origin`、`motionMs`。`layoutMotionMs(root)` 改由网格判：工作台的网格根没有覆盖 `--nb-layout-motion-layout`（只有 nb-story 在网格上覆盖了），取值不变。
+  - 把 `WorkbenchSurface` 的这两项代理写进切片 3。
+
+## 5. 建议：`createLiveDrag` 与完整的 `LiveDragHost` 不必公开
+
+- **位置**：计划 `live-drag.ts` 一节（“公开名字从 `./vue` 导出”“直接用 `createLiveDrag` 的宿主自己给”）。
+- **现象**：
+  - 三个宿主（工作台、nb-story、Lab）都走合成。
+  - 直接用 `createLiveDrag` 的宿主要自己接 `judge`、`pointer`、`origin`、`place`、`changed`、`requestFrame`、`cancelFrame` 这 7 项，还要自己接 `sampled → wake`。这正是提案要求“不靠调用顺序碰巧成立”想去掉的那条路。
+  - 这条路也是 `Omit<…7 项> & Partial<Pick<…>>` 这种类型的来源。
+- **为什么是问题**：没有任何使用方，却进 API 报告与 0.2.0。将来要收回就是破坏性改动；不收回，就留着一条接线漏了也不报错的入口。
+- **改法**：
+  - `./vue` 只导出 `createLiveDragSession`、`useLiveDragSession`，加宿主要实现的那份接口（去掉合成接好的 7 项，名字可以叫 `LiveDragHost`）、`LiveDragState`、`LiveDropFacts`、`LiveShowTarget`。
+  - 引擎留在 `src/live-drag.ts`，单元测试用相对路径导入。
+  - 计划的备选里加一句：将来出现不用 Vue 会话的宿主时再公开引擎。
+
+## 未发现问题的方面
+
+- 问题的框法：时机、几何换法、卡片、一帧的先后归库；落点、预览文档、几何本身归宿主。标签条排序只留 `follow` 钩子，并追加决策记录。
+- `unmoved` 进引擎后，`collapsed` 只算几何；返回 null 时不开始 `unmoved`，覆盖了 nb-story“来源不收起”的情况。
+- `NestedGrid` 自己留住拿起项，与它已有的“`lifted` 变成 null 时飞回它的叶”是同一个生命周期，没有和 `useDragSession`、`placeLifted`、`live-drop` 重复或冲突。
+- `dispose` 经手势的 `finish` 走到 `onActiveChange(false)`（`drag-gesture.ts:269`、`:546-548`），合成在卸载时不另调 `end` 是对的。拿起时取不到捕获，也会经 `cancel` 走到 `end`，`begin` 和 `end` 能配对。
+- `sampled` 在会话自己的 `pointermove` 开头调。激活那一下 `begin` 里的 `loop.start` 排的帧仍早于手势发布的帧，帧里先读后写的顺序成立。
+- 发布顺序：0.1.0 还没发时先停下问开发者，并写明 t55 合入之前不发 0.2.0，首发不会带上这个引擎。
+- nb-story 的预览只换 `detailContents` 的叶，结构键读 `shownDetails`。落点指示与实时让位两种做法对自己那一半的处理不同，计划都写到了。
+
+## 各级数量
+
+阻断 0、重要 4（第 1 至 4 条）、建议 1（第 5 条）。

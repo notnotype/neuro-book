@@ -1,0 +1,87 @@
+**结论：阻断 0、重要 4、建议 3。** 我没改任何文件，也没跑测试或服务，下面都是读代码核对的结果。
+
+**第 2 轮问题的处理情况：** 解决了的不再列。已解决的有 `measure` 由引擎在第一帧开头调、`show` 的返回值与先后、`home` 覆盖 `join-container`、`facts` 一次一算、预览缓存按身份作废、卡片缩放参数改名、nb-story 的原位落点与键盘。`collapsed` 返回 null 把失败与不改几何混在一起，这一点计划已明说接受，我不再提。
+
+## 重要
+
+**1. 合成的前后顺序没写死，两处写反会出错**
+- 位置：计划“`createLiveDragSession`”一节“包住 `activate`、`onActiveChange`……库在前后加接线”。
+- 现象：这句没说哪个在前、哪个在后。
+- 为什么是问题：
+  - 收场。`onActiveChange(false)` 里引擎 `end` 必须先于宿主自己的回调。今天 `layout-drag.ts:874-877` 的顺序是 `live.end()`，再 `run = idleRun(...)`，注释说“要在换掉 `run` 之前”。`end` 经 `follow.read(null)()` 即 `measureSorted`，释放的是旧 `run.sort.element` 上的 `translate`、`visibility`、`z-index`。宿主先换了 `run`，就释放不到，排序中的标签会留着这三个样式。
+  - 拿起。宿主的 `activate` 必须先于 `begin`：先 `freshRun`、`windowDrag`，且宿主返回 false 时不能 `begin`。`drag-gesture.ts:371-374` 在 `activate` 返回 false 时只调 `disarmed`，不调 `activeChanged(false)`。已 `begin` 的引擎没人收场，帧循环会一直空转。
+  - 还有 `commitsUnderPointer`：今天是 `!keyboard && (live.active || windowDrag)`，合成里要写明是与宿主的结果取“或”。
+- 建议改法：在合成一节写明四条，并各补一条 dom 测试。
+  - `activate`：宿主先、为真才 `settleMotion` 与 `begin`。
+  - `onActiveChange(false)`：`end` 先、宿主后。
+  - `resolve`：宿主返回后再 `offer`。
+  - `commitsUnderPointer`：取“或”。
+
+**2. 接口类型照字面写不出工作台，宿主又要读尚未返回的 `live`**
+- 位置：计划“`LiveDragHost<S, D, G>`”“`createLiveDragSession<S, D, R, G>`”；`layout-drag.ts:40`、`:310`、`:810`。
+- 现象与原因：
+  - 会话的 `S` 是 `WorkbenchDragSource`（tab、container、panel 三种），引擎各回调（`facts`、`measure`、`collapsed`、`staysWithoutSource`、`card.key`、`card.rect`、`show` 的 `context.source`）要的是 `LayoutTabSource`。同一个 `S` 下，每个回调都得 `if (source.kind !== "tab") throw` 或 `as`，与“不用 hack 绕类型”冲突。
+  - `card.rect(source, container)` 没有拿到几何 `G`。今天的 `panelRect` 读的是 `run.frozen`，计划删掉 `frozen` 后只能读 `live.geometry()`。而 `live` 正是同一次 `createLiveDragSession` 调用的返回值。nb-story 用 `useLiveDragSession(root, gridRef, () => options)`，类型参数靠推断，`const handle = use...(… () => handle.live …)` 会撞 TS 的“自己初始化器里引用自己”的隐式 any（TS7022）。
+- 建议改法：
+  - 拆出引擎的来源类型 `L extends S`，把 `live` 写成类型谓词 `live(source: S, keyboard): source is L`，`host` 里全用 `L`。
+  - `card.rect`、`staysWithoutSource`、`facts` 等需要几何的回调直接收 `geometry: G`。
+  - 选项工厂收 `live` 作参数（`(live) => options`），不让宿主闭包去读还没返回的变量。
+
+**3. “收起那一刻留下的判定”从快照换成“最近一次判定”，清除规则没写**
+- 位置：计划“引擎的规则”缺这一条；“`dropAt` 开头 `if (live.unmoved(point)) return run.judged`”。对照 `layout-drag.ts:639-644`、`:789-792`。
+- 现象与原因：
+  - 今天的 `held` 在第一次点不相等时就 `run.held = null`，之后同一像素也不再命中。计划的引擎规则里没有“不等即清除”。
+  - 若引擎只拿记下的点比较，指针离开 P 点再回到完全相同的像素，`unmoved` 还为真，宿主返回的是离开期间最新的 `run.judged`，不是收起那一刻的判定。
+  - 另一处：`covered` 或 `onButtons` 时 `resolveDrop` 返回 `NOT_JUDGED` 并写进 `run.judged`。今天 `held` 仍留着，计划改用 `run.judged` 后这一刻被覆盖。这种情形罕见，可以记成已知限制，不必加机制。
+  - `collapsed` 返回 null 时，展开那一步该不该改几何身份、该不该开始 `unmoved`，计划也只写了收起一半。
+- 建议改法：
+  - 引擎规则补一条：`unmoved` 每次收起或展开（且几何换了）后只在“记下的点”上有效，第一次不等就清除，之后不再为真。
+  - 把“展开且没有可恢复的几何”也写成不开始 `unmoved`。
+  - 单元测试里列“离开再回到同一像素”。
+
+**4. nb-story 一节有三处会让行为出错或没定**
+- 位置：计划“nb-story”一节；`BookFrame.vue:436-441`；`NestedGrid.vue:744-746`；`DetailShell.vue:60-70`。
+- 现象与原因：
+  - **重复的头。** 拿起的卡片是 `lifted-head` 插槽加内容体（`NestedGrid.vue:744-746`）。nb-story 的内容 `DetailShell` 自带头（原文、段落、节点是 `data-detail-handle` 那一条，人物卡是 `DrawerCard` 自己的头）。计划写“`lifted-head` 插槽写标题”，卡片上会出现两个头。`lifted-head` 是可选插槽，不给它即可。
+  - **旧反馈没处理。** `DropFeedbackOverlay`（`swapPreview`）和 `swap-chip`（`BookFrame.vue:436-441`）在 `swapDrag` 非空时一律画。实时布局下 `resolve` 对另一张返回落点，“与这一张对调”的盖层和小块会叠在拿起的卡片上。计划只写了减少动效时“指示不画在来源上”，没写实时布局时这两样关掉。
+  - **卡片尺寸没定。** 计划没给 nb-story 的 `compact`、`keepSizeInsideHome`、`refreshMs`，缺省就是一拿起缩到 380×260、每帧写尺寸。详情卡是整栏高、宽 280 到 640，里面是人物卡、原文、节点图，每帧重排的代价没人评估。
+- 建议改法：
+  - 计划写明“nb-story 不给 `lifted-head`”。
+  - 写明实时布局时 `swapPreview` 与 `swap-chip` 为空，各补一条 e2e。
+  - 给 nb-story 的卡片三项各定一个值（至少 `refreshMs`）。
+
+## 建议
+
+**5. 引擎规则与接线里还有几处没写，照字面实现会丢**
+- 位置：`live-drag.ts:122`、`:227`、`:282`；`WorkbenchSurface.vue:533-542`；`WorkbenchShell.vue:792-809`、`:866-875`、`:896-898`、`:920`。
+- 丢的行为：
+  - `homeStays` 一场只问一次（`stays ??=`）。计划的“撕下”规则没写缓存，`staysWithoutSource` 会在要卡片且没收起的每一帧调 `removeTab`。
+  - 网格原点拿起时读一次（`:41` 注释“容器变了整场取消”）。计划的 `origin()` 没写读几次，每帧读会在写之后强制一次布局。
+  - 工作台要自己组出 `grid`（`origin`、`placeLifted`、`settleMotion`、`motionMs`）。`WorkbenchSurface` 的 `defineExpose` 现在没有 `origin`、`motionMs`，计划只提了 NestedGrid 的 expose。
+  - `LiveDrag.state()` 是普通函数。工作台外壳的 `dragView`、`liftedCard`、`slotStyle` 是 computed，要靠宿主自己把 `changed` 接成 `shallowRef` 才有响应性，计划没写（工作台用的是 `createLiveDragSession`，没有组合式那一版）。
+  - `follow.afterRender` 的宿主实现要在 `nextTick` 里再判引擎还活着（`layout-drag.ts:322-326`）。
+- 建议改法：把这五条补进引擎规则与“工作台改用引擎”一节。
+
+**6. Spec 的新措辞与工作台自己的 `resolve` 矛盾**
+- 位置：计划“Spec 与文档改动”里的“不改布局、不改宿主状态”；`layout-drag.ts:843-857`。
+- 现象：工作台的 `resolve` 会写 `run.judged`、`run.shown`（`stableDrop`）、`setRejected`（根元素上的标记）、`moveGhost` 和 `placeFloat`。计划写“宿主的 `resolve` 回到无副作用”，其实它今天就有这些写入，只是少了 `offer`。
+- 为什么是问题：新措辞会被第一个宿主自己违反。
+- 建议改法：写成“不改布局，不提交；宿主可以写自己的判定缓存与反馈”，保留“可以读宿主维护的状态”。
+
+**7. 验收映射里没有一条会因“量几何的时机又退回渲染之前”而失败**
+- 位置：计划“验收映射”与切片 4。
+- 现象与原因：今天靠 `nextTick` 保证拿起后渲染做完再量，计划改成第一帧开头量。Lab 场景的 `measure` 用 `placeGrid` 纯计算，不读 DOM；引擎单元测试用注入的帧，也不涉及渲染。三份工作台 e2e 只能算碰巧覆盖，计划没点名哪条会失败。
+- 建议改法：加一条真实运行时的用例。在布局过渡进行中拿起，断言 `measure` 量到的矩形等于过渡终点的矩形。
+
+## 未发现问题的方面
+
+- **帧内先后：** 先 `follow.read`，再 `judge`，再写，再取指针、换预览、写卡片，最后 `afterRender`。续帧五个条件与 `tick` 的返回式（`live-drag.ts:270`）逐项相符。
+- **`sampled` 与 wake：** 在 `onPointerMove` 开头同步调，早于 `gesture.move`、也早于排发布的帧，顺序与今天的窗口捕获监听相同。`begin` 在 `activate` 里已经排好第一帧。
+- **`stableDrop`：** 留在宿主，`run.judged` 里的是未稳定化的落点，经 `stableDrop` 后与今天一致。
+- **`sticky`：** 返回的是切换那一刻的落点，与 `shown` 一致，只要不把它和 `previewedDrop()` 混用。
+- **`home` 与 `container`：** `join-container` 时 `container` 为 null、`home` 可能为真，三处用法（立即换、收起、要卡片）逐项对过，结果与今天相同。`dropStripOf` 与 `homeStripOf` 只在入口并入上不同。
+- **卡片：** 来源那块矩形第一次要卡片时在换预览之后量；吸收过的面板在重新拿起时问；量不到时的 `compact` 夹取、`keepSizeInsideHome` 的缺省，都能表达今天 `updateCard` 的分支。
+- **nb-story 的预览表达：** 换 `detailContents` 的叶是可行的，换叶本来就是内容层支持的操作。拿起项一直在 `contents` 里，所以 `NestedGrid` 的“留住”只工作台用得到。`leave: "retain"` 与 `dragging` 没有交互：预览期间没有叶离开，`holding` 本来就让离开的叶立即消失。
+- **文件与行号：** `live-drag.ts` 319 行、Spec 行号、`layout-drag.ts` 的 `unmoved` 与 `held` 对应关系，都与代码相符。
+
+阻断 0、重要 4、建议 3。

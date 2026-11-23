@@ -1,4 +1,6 @@
-# t49 手感编排进库：计划第 3 稿
+# t49 手感编排进库：计划第 4 稿
+
+第 3 轮（细节：重要 4、建议 3，[证据](evidences/design-review-3-detail.txt)；整体：重要 4、建议 1，[证据](evidences/design-review-3-whole.txt)，都没有阻断）都成立，本稿按它们改（见文末“相对第 3 稿”）。同一对象已审满三轮，按停止条件交开发者定是否开工。
 
 第 1 轮两份设计审查（细节 Claude Sonnet、从整体看 Claude Opus）改成第 2 稿；第 2 轮（细节：重要 5、建议 6，[证据](evidences/design-review-2-detail.txt)；整体：重要 4、建议 4，[证据](evidences/design-review-2-whole.txt)，都没有阻断）都成立，本稿按它们改，改了什么见文末“相对第 2 稿”。第 1 轮证据：[细节](evidences/design-review-1-detail.txt)、[整体](evidences/design-review-1-whole.txt)。
 
@@ -18,13 +20,13 @@
 | 谁 | 做什么 |
 |---|---|
 | 引擎（`createLiveDrag`） | 换不换预览、换成哪个；收起与展开来源；判定的几何；收起、展开那一刻起指针没动（`unmoved`）；卡片拿起、收回与矩形；帧循环与一帧的先后 |
-| 合成（`createLiveDragSession`，`useLiveDragSession` 是它的组件版） | 一次建好会话与引擎：`sampled` 接 `wake`；宿主的 `live(source, keyboard)` 为真才 `begin`；包住宿主的 `resolve`，把结果交给 `offer`（宿主的 `resolve` 不产生副作用）；`onActiveChange(false)` 里 `end`（唯一的结束）；实时布局的这一场 `commitsUnderPointer` 为真；`judge`、`pointer` 由会话给；给了网格时 `origin`、`card.place`、拿起前 `settleMotion`、减少动效的判断都从网格取 |
+| 合成（`createLiveDragSession`，`useLiveDragSession` 是它的组件版） | 一次建好会话与引擎：`sampled` 接 `wake`；宿主的 `live(source, keyboard)` 给出实时布局的来源才 `begin`；包住宿主的 `resolve`，把结果交给 `offer`；`onActiveChange(false)` 里 `end`（唯一的结束）；实时布局的这一场 `commitsUnderPointer` 为真；`judge`、`pointer` 由会话给；`origin`、`card.place`、拿起前 `settleMotion`、减少动效的判断都从网格（必填的 `grid`）取。先后见下面“合成的先后” |
 | 宿主 | 落点与判定（`resolve`）；判定里先判自己更优先的落点，再问 `sticky`；`unmoved(point)` 为真时返回自己最近一次的判定（被拒绝之类跟着留下）；`facts`、`show`、`measure`、`collapsed`、`card.key`、`card.rect` |
 | `NestedGrid` | 拿起的内容项（`lifted.key`）这一轮不在 `contents` 里时自己留住它（沿用内容层上一次的放置），实例不卸载；放下后照常回到叶上或停放 |
 
 ### `packages/nb-layout/src/live-drag.ts`（新）
 
-纯 TS，不依赖 Vue 与 DOM（`boundary.test.ts` 守着），单元测试直接测它；公开名字从 `./vue` 导出。复用 `live-drop.ts`、`drag-card.ts`、`frame-loop.ts`。
+纯 TS，不依赖 Vue 与 DOM（`boundary.test.ts` 守着），单元测试直接测它；引擎本身不公开，类型（宿主接口、状态、`LiveDropFacts`、`LiveShowTarget`）从 `./vue` 导出。复用 `live-drop.ts`、`drag-card.ts`、`frame-loop.ts`。
 
 ```ts
 export interface LiveDropFacts {
@@ -114,7 +116,8 @@ export interface LiveDrag<S, D, G> {
 
 引擎的规则（写进 `live-drag.ts` 头注释与 Spec，单元测试按条列）：
 
-- `facts` 在 `offer` 时算一次，存在这一场里，一帧里各处读这一份。
+- `facts` 在 `offer` 时算一次，存在这一场里，一帧里各处读这一份；`staysWithoutSource` 一场只问一次；`origin` 拿起时读一次（容器变了整场取消）。
+- `unmoved`：来源收起或展开、并且几何换了（`collapsed` 返回非 null；展开时有收起前的那份可换回）时记下此刻的指针；之后第一次判定的指针与它不等就清掉，此后同一像素也不再为真。几何没换（`collapsed` 返回 null，或展开时没有可换回的）不开始。
 - 稳定计时从第一帧起算（第一帧才 `initialLiveDrop(now)`），不从 `begin`。
 - 立即换：`container !== null && (home || container === absorbedIn)`；否则等 `stepLiveDrop` 的稳定。
 - 收起：预览换成来源收起，或换成 `!inPlace && !home` 的候选，且此刻没收起；展开：只在预览换了的那一帧、换成 `inPlace` 的候选且此刻收起着。
@@ -124,31 +127,47 @@ export interface LiveDrag<S, D, G> {
 - 撕下：这一帧预览没换、没收起、要卡片、`staysWithoutSource` 为真时收起来源，预览换成来源收起、空位清掉。
 - 卡片：来源那块的矩形第一次要卡片时问一次并记住（同一帧里在换预览之后）；离开容器重新拿起时问吸收过它的那块，量不到就是缩好的大小，不回退到来源那块；缩小的目标按 `compact` 夹到不大于来源那块。
 - 一帧：`follow.read` → `judge`（若在里面结束，这一帧到此为止）→ 写 `follow` → 取指针 → 换预览 → 写卡片；预览或卡片变了再 `follow.afterRender`。第一帧开头先 `measure`。续帧：指针动了、预览换了、卡片还没到、候选还没等够稳定、在容器里跟手，任一成立。
-- `end`：先放回跟手的（`follow.read(null)()`）再 `show(null)`，状态换成空闲的一份；`begin` 之前、`end` 之后的 `offer`、`wake` 什么都不做。
+- `end`：先放回跟手的（`follow.read(null)()`）再 `show(null)`，状态换成空闲的一份；`begin` 之前、`end` 之后的 `offer`、`wake` 什么都不做。宿主的 `follow.afterRender` 在渲染后执行时先看引擎还在不在这一场（今天 `layout-drag.ts` 的 `nextTick` 里那一句）。
 
 ### `packages/nb-layout/src/vue/live-drag-session.ts`（新）：`createLiveDragSession`
 
 ```ts
-export interface LiveDragSessionOptions<S, D, R, G> extends DragSessionOptions<S, D, R> {
-    /** 这一场走不走实时布局（键盘、减少动效、宿主自己的条件）；拿起时问一次。给了 `grid` 时减少动效由库先判，那时不问。 */
-    live(source: S, keyboard: boolean): boolean;
-    host: Omit<LiveDragHost<S, D, G>, "judge" | "pointer" | "origin" | "place" | "changed" | "requestFrame" | "cancelFrame"> & Partial<Pick<LiveDragHost<S, D, G>, "origin" | "place">>;
-    /** 网格实例：给了就从它取 `origin`、`place`（`placeLifted`）、拿起前 `settleMotion`、减少动效（`motionMs() === 0` 时不走实时布局）。 */
-    grid?: () => LiveGrid | null;
+/** 网格这一侧要的四样：`NestedGrid` 的实例满足，包着它的组件代理这四样也满足。 */
+export interface LiveGrid {
+    origin(): GridDropPoint;
+    placeLifted(rect: GridRect): void;
+    settleMotion(): void;
+    motionMs(): number;
+}
+
+export interface LiveDragSessionOptions<S, D, R, L, G> extends DragSessionOptions<S, D, R> {
+    /** 这一场的来源走不走实时布局：返回实时布局的来源（可以收窄，例如工作台只有标签走），null 是照常落点指示。拿起时问一次；减少动效（`motionMs() === 0`）与 `grid()` 为 null 时库先判为不走，不问。 */
+    live(source: S, keyboard: boolean): L | null;
+    /** 宿主要写的那份：领域判断，按 `L` 定类型。 */
+    host: LiveDragHost<L, D, G>;
+    grid: () => LiveGrid | null;
     changed?(state: LiveDragState): void;
 }
-export function createLiveDragSession<S, D, R, G>(options: LiveDragSessionOptions<S, D, R, G>): {session: DragSession<S, D>; live: LiveDrag<S, D, G>; dispose(): void};
+/** 选项用工厂给：工厂收到引擎，宿主的回调里读 `live.geometry()` 不必引用还没返回的变量。 */
+export function createLiveDragSession<S, D, R, L, G>(root: HTMLElement, options: (live: LiveDrag<L, D, G>) => LiveDragSessionOptions<S, D, R, L, G>): {session: DragSession<S, D>; live: LiveDrag<L, D, G>; dispose(): void};
 ```
 
-- 包住 `activate`、`resolve`、`onActiveChange`、`commitsUnderPointer`：宿主给的照常调，库在前后加接线。会话的 `sampled` 由它接，不暴露给宿主二次设置。
+- 合成的先后（写进 `live-drag-session.md` 与 Spec，各一条 dom 测试）：
+  - 拿起，全在包住的 `activate` 里：宿主的 `activate` 先；返回真才判 `grid()` 与减少动效、问 `live`；给出来源才 `settleMotion`、`begin`。手势在 `activate` 返回后取结构键，宿主的结构键读引擎的 `active` 时两次取到的一样，拿起不会被当成结构变了。
+  - 判定：宿主的 `resolve` 返回后 `offer`。
+  - 收场：`end` 先于宿主的 `onActiveChange(false)`：`end` 里放回跟手的要读宿主这一场的状态，宿主在自己的回调里才换成空闲的一份。
+  - `commitsUnderPointer`：宿主的结果或实时布局这一场。
+  - 会话的 `sampled` 由它接，不暴露给宿主二次设置。
+- 宿主接口里由合成接好的几项（`judge`、`pointer`、`origin`、`place`、`changed`、帧调度）不在宿主要写的 `LiveDragHost` 里；引擎内部另有完整的那份。
 - `useLiveDragSession(root, gridRef, () => options)`：组件版，状态成只读 `shallowRef`，根换掉重建（同 `useDragSession`），卸载时 `dispose`（不另调 `end`：`dispose` 经会话收场到 `onActiveChange(false)`）。
-- 工作台在 `onMounted` 里建，用 `createLiveDragSession`；nb-story 与 Lab 在 setup 里用 `useLiveDragSession`。
+- 工作台在 `onMounted` 里建，用 `createLiveDragSession`，`grid: () => surface.value`（`WorkbenchSurface` 补代理 `origin`、`motionMs`）；它的外壳把 `changed` 接到自己的 `shallowRef`。nb-story 与 Lab 在 setup 里用 `useLiveDragSession`。
+- 公开的只有 `createLiveDragSession`、`useLiveDragSession` 与宿主要写的接口、状态与几个类型；`createLiveDrag` 不公开（单元测试相对路径导入），出现不用 Vue 会话的宿主时再定。
 - 备选里不做的：并进 `createDragSession`（会话多一个类型参数 `G`、不走实时布局的宿主也背着它；1.0 前有第二个第三方宿主时再定）；只给组件版（工作台在 `onMounted` 里建，用不上）。
 
 ### `packages/nb-layout/src/vue/drag-session.ts`：`sampled`
 
 - `DragSessionOptions` 加 `sampled?(): void`：会话自己的 `pointermove` 处理一开头同步调，早于排发布的帧。只用 `createFrameLoop` 的宿主同样靠它排在发布前面。
-- 收场顺序不动。Spec 输入那一节 `resolve` 的“不产生副作用”改成“不改布局、不改宿主状态；可以读宿主维护的状态”（合成负责 `offer`，宿主的 `resolve` 回到无副作用）。
+- 收场顺序不动。Spec 输入那一节 `resolve` 的“不产生副作用”改成：不改布局与已提交的状态、不提交；可以记下这一场的判定（`unmoved` 依赖它）、保持落点对象的身份、在读完 DOM 之后写跟手的反馈（光标标记、拖影）；可以读宿主维护的状态。`drag-session.ts` 的注释照此同步。
 
 ### `packages/nb-layout/src/vue/NestedGrid.vue`
 
@@ -179,8 +198,10 @@ export function createLiveDragSession<S, D, R, G>(options: LiveDragSessionOption
 
 ### `packages/nb-story/src/web/shell/BookFrame.vue`：拖详情换边改成实时布局
 
-- 用 `useLiveDragSession(gridBox, gridRef, …)`，`gridRef` 的类型改成 `NestedGrid` 的实例（`settleMotion`、`placeLifted`、`origin`、`motionMs`、`moving`）。
-- 拖一张的头：卡片拿起跟手（`lifted` 与 `lifted-head` 插槽写标题），在另一张上停稳 150ms 后预览是对调后的样子，松手 `swapDetails`；实时布局时回到自己那一半是原位（`resolve` 返回 `inPlace` 的落点，`actionKey` 为 null），别处没有落点；Escape 取消。落点指示时（减少动效）自己那一半照旧是 null，指示不画在来源上。
+- 用 `useLiveDragSession(gridBox, () => gridRef.value, …)`，`gridRef` 的类型改成 `NestedGrid` 的实例。
+- 卡片：不给 `lifted-head`（`DetailShell` 自带头，给了就是两个头）；`compact` 取 320×240、`keepSizeInsideHome` 假、`refreshMs` 1000/30（详情里有人物卡、原文与节点图，按卡片大小重排不便宜）。
+- 实时布局时旧的落点反馈 `swapPreview`、跟手的标题小块 `swap-chip` 都为空，只在落点指示时画。
+- 拖一张的头：卡片拿起跟手，在另一张上停稳 150ms 后预览是对调后的样子，松手 `swapDetails`；实时布局时回到自己那一半是原位（`resolve` 返回 `inPlace` 的落点，`actionKey` 为 null），别处没有落点；Escape 取消。落点指示时（减少动效）自己那一半照旧是 null，指示不画在来源上。
 - 判定几何冻结：`measure` 记两张的矩形，`resolve` 读它。
 - 预览只换 `detailContents` 的叶（会话的 `details` 不动），`structure` 与 `resolve` 读已提交的 `shownDetails`，预览不改结构键。
 - 来源不收起、不撕下：`collapsed` 返回 null；`show({kind: "source-removed"})` 摆原样、返回假。
@@ -197,11 +218,11 @@ export function createLiveDragSession<S, D, R, G>(options: LiveDragSessionOption
 
 ## 切片
 
-1. 引擎与单元测试：迁 24 例，按上面的规则逐条补（含 `judge` 里结束、`join-container` 的 `home`、`collapsed` 返回 null 时不开始 `unmoved`、几何身份、`show` 的调用先后与返回假、`wantsCard`、续帧、`begin` 前与 `end` 后无效）。注入的帧调度推进，不碰 DOM。
-2. 会话的 `sampled`、`createLiveDragSession` 与 `useLiveDragSession`、`NestedGrid` 留住拿起项与两个 expose，dom 测试（`sampled` 先于发布的帧；合成的 `offer`、`end`、`commitsUnderPointer`、减少动效不走实时；留住与放下后的去处）。
-3. 工作台改用：diff 以删为主；基线三份 e2e 对照；补预览缓存作废的宿主测试。
-4. Lab 场景 `live-panels` 与 `lab-live-panels.e2e.ts`。
-5. nb-story 换边：`side-by-side.e2e.ts` 改与补（含停稳前甩过去松手也对调、减少动效时指示不画在来源上）。
+1. 引擎与单元测试：迁 24 例，按上面的规则逐条补（含 `judge` 里结束、`join-container` 的 `home`、`collapsed` 返回 null 时不开始 `unmoved`、指针离开再回到同一像素 `unmoved` 为假、几何身份、`show` 的调用先后与返回假、`wantsCard`、续帧、`staysWithoutSource` 一场一问、`begin` 前与 `end` 后无效）。注入的帧调度推进，不碰 DOM。
+2. 会话的 `sampled`、`createLiveDragSession` 与 `useLiveDragSession`、`NestedGrid` 留住拿起项与两个 expose，dom 测试（`sampled` 先于发布的帧；合成的四条先后各一例；`live` 返回 null 的来源照常落点指示、引擎回调一个都不调；减少动效与 `grid()` 为 null 不走实时；留住与放下后的去处）。这一片落地就派一次后台实现审查（Claude Sonnet），不等收口。
+3. 工作台改用：diff 以删为主；基线三份 e2e 对照；补预览缓存作废的宿主测试；`WorkbenchSurface` 补代理 `origin`、`motionMs`。这一片落地也派一次后台实现审查。
+4. Lab 场景 `live-panels` 与 `lab-live-panels.e2e.ts`（含布局过渡进行中拿起，`measure` 量到的是过渡终点的矩形）。
+5. nb-story 换边：`side-by-side.e2e.ts` 改与补（含停稳前甩过去松手也对调、减少动效时指示不画在来源上、实时布局时没有旧的落点反馈与标题小块、卡片只有一个头）。
 6. Spec、文档、CHANGELOG、API 报告、提案的决策记录。
 
 每片自跑：`packages/nb-layout` 的 `bun run typecheck`、`bun run test`、`bun run api:check`；动到应用的片加 `packages/neuro-book` 的 `bun run typecheck`；动到 nb-story 的片加它的 typecheck。
@@ -233,3 +254,15 @@ export function createLiveDragSession<S, D, R, G>(options: LiveDragSessionOption
 - 预览缓存按身份作废含 null 到首份，一次判定只量一次，补宿主测试（细节第 7 条）。
 - Lab 场景写明用哪些公开函数（细节第 10 条）；文档清单补 `drag-card.md`、`drag-session.md`，Spec 行号改对（细节第 11 条）。
 - nb-story 的预览不改结构键（整体第 7 条）；发布顺序加“t55 合入之前不发 0.2.0”（整体第 8 条）。
+
+## 相对第 3 稿
+
+- 合成的四条先后写死并各配 dom 测试（两份都提）。
+- 来源类型分开：`live` 返回实时布局的来源 `L`，宿主接口按 `L` 定类型；选项用工厂给，工厂收到引擎（两份都提）。
+- `grid` 必填、定成结构化的 `LiveGrid`，工作台给 `WorkbenchSurface` 并补两项代理（整体第 4 条）。
+- `unmoved` 的清除规则与“几何没换不开始”（细节第 3 条）。
+- Spec 里 `resolve` 的措辞改成允许记判定与写跟手的反馈（两份都提）。
+- nb-story：不给 `lifted-head`、实时布局时关掉旧反馈、卡片参数定值（细节第 4 条）。
+- 一场一问 `staysWithoutSource`、`origin` 读一次、工作台的响应性经 `changed`、`afterRender` 先看还在不在（细节第 5 条）；过渡中拿起量终点的真实运行时用例（细节第 7 条）。
+- `createLiveDrag` 不公开（整体第 5 条）。
+- 切片 2、3 落地各派一次后台实现审查。
