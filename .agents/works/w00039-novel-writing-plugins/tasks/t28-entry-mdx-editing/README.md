@@ -52,7 +52,9 @@ updated: 2026-11-23
 - 作者与 AI 写的写法不变（`{panel.魔力}`、`<Ref id="…" />`、`<Image … />`）；变的是不再用 MDX 的解析器，缩进代码块、原样 HTML 这些边角按章节编辑器的规则读。这改了 [ADR 0038](../../../../../docs/adr/0038-world-engine-entry-text-is-whitelisted-mdx.md) 决策 1 的一部分，要另写一份 ADR 部分取代它；
 - 探针留下两处：单独成块的 `<Image />` 被读成 HTML 块，要加块级的认法；有一个叶子没在原文里定位上，原因待查。
 
+开发者 2026-11-23：“同意”内核改用编辑器的解析器（连同另写 ADR 部分取代 0038 决策 1），也同意主会话对保存的理解：点“提交”才发布成一条修订；编辑中的内容自动暂存，刷新、关窗口都不丢，暂存不进改动记录、Agent 读不到；有没提交的内容时页面上有“提交”“放弃”、标签上有圆点；Ctrl+S 等于提交；暂存期间条目被别处改了，提交时告诉作者，由作者决定是否以自己的为准。
+
 ## 下一步
 
-1. 开发者定“内核改用编辑器的解析器”（连同改 ADR 0038 的那一句）。
-2. 写实施计划（[implementation-planning](../../../../skills/implementation-planning/SKILL.md)）；开发者确认后在 worktree 里实现。
+1. 写实施计划（[implementation-planning](../../../../skills/implementation-planning/SKILL.md)）给开发者确认，再交设计审查。
+2. 在 worktree 里实现。
