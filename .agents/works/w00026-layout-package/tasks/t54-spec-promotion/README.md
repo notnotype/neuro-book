@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t54-spec-promotion
-status: active
+status: done
 updated: 2026-11-23
 ---
 
@@ -48,6 +48,32 @@ dom 测试（vitest）核对时没获准运行，相关判定是读断言得出�
 - c 第 22 条（wake 的监听先于会话挂上）：是给宿主的用法说明，由 `workbench-drag-cost.e2e.ts` 的每帧样式重算上限间接守着，不做“挂反了”的对照实验。
 - a 输出 77 的夹具两组外接矩形一样大：区分得不强，但断言是对的，不改。
 
+### 补测与晋升（2026-11-23）
+
+三组由编码子代理（Claude Opus）在各自的 worktree 里写，每条用例都把被守的那行产品代码改坏跑过一次；主会话审 diff、合进 `w00026/t54` 后自己跑验证。
+
+- A（nb-layout，nested-grid）：报告里分到的条目全部补上。补测时发现输出 16 没做到：悬停未满 250ms 时切走窗口，页面级光标留着、计时到点照样显现；拖动中失焦取消后又按最后坐标把光标拿回来。已修（`useSashGesture` 失焦时复位悬停）。
+- B（nb-layout，layout-drag）：全部补上，产品代码没改。第二次按下的实际语义（键盘拖动中按在来源上：先按 `pressed-elsewhere` 取消，同一次按下照常进入待起拖）与 Spec 改过的那句一致。键盘拖动里 `commit` 抛出时不还焦点，写进 Spec“失败与恢复”，不改实现（[待确认清单](../../pending-confirmations.md)）。
+- C（e2e）：全部补上。补测时发现祖先带缩放时分隔线位移没换算（`scale(0.5)` 下拖 60px 只提交 60），已修（按下时冻结根的缩放比）。已知盲区：恢复的 watch 里同步抛出的异常被 Vue 接住、只打 `console.error`，验收 5 的“没有 `pageerror`”看不到它（从代码推断）。
+
+合入 master：`520ef8b47`（审查修正 `4c21407a5`）。两处修复在 nb-layout 0.1.0 发出之前，随 0.1.0 一起发，不另记变更记录。
+
+验证（`w00026/t54`）：nb-layout `typecheck`、`test`（bun 472、vitest 342）、`api:check` 通过；应用 `typecheck` 通过；8 个受影响的 e2e 文件 212 条，211 过，失败的 `files-explorer.e2e.ts:629`（右键菜单项被盖住）是 master 上就有的。
+
+实现审查（Claude Sonnet，只读，[报告](evidences/impl-review.txt)）：阻断 0、重要 0、建议 7。
+
+| 条 | 处理 |
+|---|---|
+| 1 Tab 全亮在减少动效下区分不出“立即” | 改：用例切到不减少动效，断言第一次读就是 1、没有在走的过渡 |
+| 2 祖先缩放只测了横向、整数比例、无抓取偏移 | 改：`scale(0.75)`，横向偏离中心 1px 按下，补纵向线；把纵向比例改成 1 的变异下用例失败 |
+| 3 `offsetWidth` 取整误差与旋转 | 改：差不到 1px 按没缩放算，注释写明不支持旋转与斜切 |
+| 4 `NestedGrid.dom.test.ts` 夹具重复约 80 行 | 不改：只是测试里的重复，抽公共函数要动 600 行新用例，收益小 |
+| 5 两处假计时器没有 allow 注释 | 改 |
+| 6 源码扫描漏了几个网络与存储的名字 | 改：补 `XMLHttpRequest`、`WebSocket`、`EventSource`、`sendBeacon`、`cookie`、`caches`；字符串里的 `/*` 被当注释起点的漏报不改，包里没有这种写法 |
+| 7 写死坐标与负载下可能偶发 | 不改：这轮负载 3 到 5 下整份跑过；真出现偶发时按已知偶发处理 |
+
+Spec：`ui/nested-grid` 去掉补测覆盖的“（planned）”与开头“晋升之前要补的”清单，证据补 `splitter.dom.test.ts`、`FloatWindowHandles.dom.test.ts` 与 `workbench-float.e2e.ts`；`ui/layout-drag` 补“实现合同”，证据补 `boundary.test.ts`。两份 `status: implemented`，注册表移到“已实现规范”。宿主一侧没做的仍标“（planned）”：设备像素比变化取消手势、失败 2 与 3 的宿主半句、验收 3、5 的宿主半句、6。
+
 ## 下一步
 
-开三个 worktree 派 A、B、C；它们跑的同时改 Spec 的措辞。三组合入后跑受影响的测试与 e2e，再晋升；实现审查（Claude Sonnet，不阻塞）。
+无。t54 完成。

@@ -136,6 +136,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-23：t48 合入（`89c08b916`）：公开名字全部 `@experimental`，API 报告与 `api:check` 进 CI，SDK 转出名有签名快照；实现审查在跑。
 
+2026-11-23：[t54](tasks/t54-spec-promotion/README.md) 完成，合入 master（`520ef8b47`）：`ui/nested-grid`、`ui/layout-drag` 晋升 `implemented`；补测时修了两处（失焦清分隔线悬停、祖先缩放下的位移换算），都在 nb-layout 首发之前。首发前要在主工作区重跑 `release:smoke`。下一个是 t49。
+
 ## 后续
 
 - 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。

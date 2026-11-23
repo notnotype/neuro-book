@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.nested-grid
 owners:
   - ui
@@ -14,13 +14,6 @@ owners:
 主工作台和插件能复用与领域无关的 grid，构造左右分栏中嵌套上下分栏的布局，独立调整、恢复和保存自己的尺寸。
 本能力补齐最小嵌套样例暴露的尺寸与恢复边界，不提前重构 World Engine 页面。
 任意跨窗口移动、多编辑组的产品能力（组会话与布局存储）、第三方插件运行时及任意结构编辑不在本期范围。
-
-晋升为 `implemented` 之前要补的（代码已经这样做、还没有能区分的断言守着，或宿主一侧还没有）：
-
-- 宿主一侧的持久化：Storage 宿主、同一插件有多个 grid 时的恢复地址隔离、同项目双标签订阅（验收 3、6）。未知引用过滤后的合成保存由宿主做，目前没有宿主。原语只交出快照与诊断，这几项没有宿主层的测试。
-- 从 grid 外面按 Tab 进来、点击不可聚焦处之后按 Tab 的落点（输出 125 到 127）：代码里有，没有测试。
-- 卡片形状与它的读数（输出 51 到 56）、浮动窗回到树里时投影与圆角淡去（输出 110）：代码里有，没有直接测试。
-- 下面这些输出按句子找不到能区分成立与否的断言：输出 11 到 16、19、24、25、28、30、36、58、112。
 
 已知限制：
 
@@ -198,7 +191,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 136. **分支的收起：长度为零的分隔线**：收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进指针命中、不能拖，展开后恢复。
 137. **分支的收起：最小尺寸**：收起为零的节点（叶或分支）在两根轴上的最小尺寸都按零算，窗口放不下时不把它和它里面的叶算作要收走的。
 138. **分支的收起：阈值与恢复**：收起的阈值、从零拉回、Enter 与显式恢复同叶（输出 18、20）。
-139. **诊断：形状与码**：诊断是 `{code, message, params?}`，和失败 5 同形少一个 `ok`：`code` 给程序分支，`message` 是英文、只给日志看，`params` 的值只有字符串与数字（planned）。`params` 里 `cause`（为什么）、`axis`、`id`（诊断所在的分支、叶或面板）三个名字在所有诊断里意思相同，其余是度量（取两位小数）。码集合开放，`cause` 是码之下的细分，宿主不认识的 `cause` 按码处理。诊断码与失败 5 到 7 的码不相交。
+139. **诊断：形状与码**：诊断是 `{code, message, params?}`，和失败 5 同形少一个 `ok`：`code` 给程序分支，`message` 是英文、只给日志看，`params` 的值只有字符串与数字。`params` 里 `cause`（为什么）、`axis`、`id`（诊断所在的分支、叶或面板）三个名字在所有诊断里意思相同，其余是度量（取两位小数）。码集合开放，`cause` 是码之下的细分，宿主不认识的 `cause` 按码处理。诊断码与失败 5 到 7 的码不相交。
 
     | 码 | `cause` | 什么时候 | 度量 |
     |---|---|---|---|
@@ -212,17 +205,17 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     | `conflicting-bounds` | | 节点的下限高于上限，以下限优先 | `min`、`max` |
     | `no-room-to-collapse` | | 拖到阈值以下但收起后没有边界吸收这块空间，保持展开 | |
     | `no-room-to-restore` | | 恢复空间不够，保持收起 | `available`、`required` |
-    | `no-collapse-policy`（planned） | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里，手势不会发 | |
-    | `swap-skipped` | `no-leaving`、`no-entering`（planned）、`busy` | 交换不成立（输出 68） | |
+    | `no-collapse-policy` | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里，手势不会发 | |
+    | `swap-skipped` | `no-leaving`、`no-entering`、`busy` | 交换不成立（输出 68） | |
     | `not-published` | | 宿主接纳了提交但没有发布匹配的布局 | |
     | `notify-failed` | | 已经落账，通知宿主时它抛出 | |
 
     诊断从两条路来：`NestedGrid` 的 `issues` 事件（手势的诊断、被拒的提交、`not-published`、`swap-skipped`）与布局重算（布局重算的诊断、`notify-failed`）。用 `useGridHost` 的宿主从它的 `onIssues` 一个出口收两条路（输出 145）。事件里带 `ok` 的元素（`"ok" in issue`）是被拒的提交，就是失败 6 的那个失败，已经回滚；它的码可能是宿主自己的。
 140. **诊断：结果是快照，通知只发新出现的**：
-    - 求解与预览的结果（`layout().issues`；`gesture-update` 载荷的 `issues` 与 `layout.issues`，planned）是这一次求解的全部诊断，逐条、参数完整。要知道现在有哪些问题、数是多少，读它们；通知不说诊断什么时候消失。
-    - 两条路都只发新出现的：键是码、`cause`、`axis`、`id`，同一次求解里同一个键最多一条。布局重算这一路，这次有、上一次重算没有的才发，消失再出现会再发；`contextKey` 变了算重新开始；发布空布局（承载盒隐藏、没有网格）不算消失，再显示时持续的诊断不重发；`grid` 换实例不算重新开始。手势这一路，一场手势里同一个键只发一次，下一场重新算；键盘每按一次键是一场手势，按住不放算一场（planned）。预览布局自己的诊断不经通知，松手落账后的布局重算照常发（planned）。
+    - 求解与预览的结果（`layout().issues`；`gesture-update` 载荷的 `issues` 与 `layout.issues`）是这一次求解的全部诊断，逐条、参数完整。要知道现在有哪些问题、数是多少，读它们；通知不说诊断什么时候消失。
+    - 两条路都只发新出现的：键是码、`cause`、`axis`、`id`，同一次求解里同一个键最多一条。布局重算这一路，这次有、上一次重算没有的才发，消失再出现会再发；`contextKey` 变了算重新开始；发布空布局（承载盒隐藏、没有网格）不算消失，再显示时持续的诊断不重发；`grid` 换实例不算重新开始。手势这一路，一场手势里同一个键只发一次，下一场重新算；键盘每按一次键是一场手势，按住不放算一场。预览布局自己的诊断不经通知，松手落账后的布局重算照常发。
     - 被拒的提交、`not-published`、`swap-skipped`、`notify-failed` 每发生一次发一条。一个失败只发一条。
-    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行（planned）。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
+    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行。只有落账之后的通知抛出时库接住它（交 `reportError`，没有时 `console.error`），提交照样算落账。
 
 141. **主题变量**：Vue 层读的 CSS 变量都是 `--nb-layout-*`；除组件自己写在行内的几何外，每处 `var()` 都带清单（`NB_LAYOUT_THEME_VARS`）里的回退；装了 nb-ui 的宿主经它的桥接取主题的值（[`theme/system`](../theme/system.md) 的“变量体系”）；不装时用回退。输出 35、112 与组件文档里写的 `--motion-layout`、`--layout-card-*` 这类名字是主题写的旧名，库读的是对应的 `--nb-layout-*`。宿主旋钮（`--nb-layout-splitter-seam` 这类主题不写的）由宿主直接设新名，不经桥接。
 142. **过渡：缺省时长**：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走：CSS 的回退与库里等过渡收尾时读到的缺省取清单里的同一个值。时长要写成 `ms` 或 `s` 的字面值；写成别的（`none`、`calc()`）时库的计时当 0。系统减少动态效果时 nb-layout 读的时长在根上全部归零，宿主在根上设的时长也压不过（输出 59）；设在子树元素上的时长不在这个保证之内。
@@ -317,7 +310,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     | `stale-revision` | 提交带来的版本与宿主此刻的不同 | `expected`、`actual` |
     | `stale-size` | 容器尺寸在手势里变了 | 无 |
     | `handler-missing` | 宿主没有接 `onGestureCommit` | 无 |
-    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字，planned） |
+    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字） |
 7. **恢复的结果**：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
 
     | 码 | 什么时候 | `params` |
@@ -377,5 +370,5 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 - 批准依据：2026-09-16 开发者同意纳入最小嵌套验证及必要原语修复；2026-09-20 开发者批准共享测量、宿主与落点几何、scope 仲裁与无重锚 pointer 路径；2026-11-10 开发者接受[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（分支的收起）；2026-11-15 开发者决定拖动中兄弟之间的分配接着上一帧（输出 21）；2026-11-16 开发者选定过渡里形状伸出外框（输出 53）与交换（输出 61 到 77）的做法；2026-11-17 开发者定静止的底（输出 77）与分隔线的宿主样式（输出 78）。[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - 实现入口：[`nb-layout/src/grid.ts`](../../../packages/nb-layout/src/grid.ts)、[`nb-layout/src/grid-rects.ts`](../../../packages/nb-layout/src/grid-rects.ts)、[`nb-layout/src/grid-motion.ts`](../../../packages/nb-layout/src/grid-motion.ts)、[`nb-layout/src/grid-swap.ts`](../../../packages/nb-layout/src/grid-swap.ts)、[`nb-layout/src/vue/NestedGrid.vue`](../../../packages/nb-layout/src/vue/NestedGrid.vue)、[`nb-layout/src/vue/useGridHost.ts`](../../../packages/nb-layout/src/vue/useGridHost.ts)
-- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)（失败 5、7 与码的写法逐码，诊断的码与参数、会话的诊断，输出 20 的没人能吸收、147、148、153、154）、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts) 与 [`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)（输出 45 的改写、155 的留与摘）、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts) 的“离开的内容”（输出 155、156）、[`issue-gate.test.ts`](../../../packages/nb-layout/src/issue-gate.test.ts)（输出 140 的闸门）、[`vue/useGridLayout.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridLayout.dom.test.ts)（失败 6 的提交码、输出 150）、[`vue/dev-checks.dom.test.ts`](../../../packages/nb-layout/src/vue/dev-checks.dom.test.ts)（输出 151）、[`vue/useGridHost.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridHost.dom.test.ts)（输出 144 到 146 的宿主一侧：尺寸、整包绑定、诊断一个出口、选项收 getter；输出 149）、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)（输出 144 的同步发与两轴不变不发）、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)、[`theme-vars.test.ts`](../../../packages/nb-layout/src/theme-vars.test.ts)（输出 141 的变量名与回退）、[`vue/layout-vars.dom.test.ts`](../../../packages/nb-layout/src/vue/layout-vars.dom.test.ts)（输出 142 的 JS 计时）、[`vue/SortableList.dom.test.ts`](../../../packages/nb-layout/src/vue/SortableList.dom.test.ts)（输出 143 的注入）、应用的 [`web/theme-bridge.test.ts`](../../../packages/neuro-book/src/web/theme-bridge.test.ts) 与 [`web/host/host-text.test.ts`](../../../packages/neuro-book/src/web/host/host-text.test.ts)（输出 141、143 的宿主一侧）
-- Smoke：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/lab-nested-grid.e2e.ts)、[`e2e/lab-layout-theme-bridge.e2e.ts`](../../../packages/neuro-book/e2e/lab-layout-theme-bridge.e2e.ts)（输出 141、142：桥接在真实浏览器里的层叠与减少动效）、[`e2e/lab-grid-structure.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts)、[`e2e/lab-grid-panels.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-panels.e2e.ts)、[`e2e/lab-grid-swap.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-swap.e2e.ts)
+- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)（失败 5、7 与码的写法逐码，诊断的码与参数、会话的诊断，输出 20 的没人能吸收、147、148、153、154）、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts) 与 [`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)（输出 45 的改写、155 的留与摘）、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts) 的“离开的内容”（输出 155、156）、[`issue-gate.test.ts`](../../../packages/nb-layout/src/issue-gate.test.ts)（输出 140 的闸门）、[`vue/useGridLayout.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridLayout.dom.test.ts)（失败 6 的提交码、输出 150）、[`vue/dev-checks.dom.test.ts`](../../../packages/nb-layout/src/vue/dev-checks.dom.test.ts)（输出 151）、[`vue/useGridHost.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridHost.dom.test.ts)（输出 144 到 146 的宿主一侧：尺寸、整包绑定、诊断一个出口、选项收 getter；输出 149）、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)（输出 144 的同步发与两轴不变不发）、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/splitter.dom.test.ts`](../../../packages/nb-layout/src/vue/splitter.dom.test.ts)（分隔线的悬停、停留计时、失焦与禁用的清理、抓取偏移）、[`vue/FloatWindowHandles.dom.test.ts`](../../../packages/nb-layout/src/vue/FloatWindowHandles.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)、[`theme-vars.test.ts`](../../../packages/nb-layout/src/theme-vars.test.ts)（输出 141 的变量名与回退）、[`vue/layout-vars.dom.test.ts`](../../../packages/nb-layout/src/vue/layout-vars.dom.test.ts)（输出 142 的 JS 计时）、[`vue/SortableList.dom.test.ts`](../../../packages/nb-layout/src/vue/SortableList.dom.test.ts)（输出 143 的注入）、应用的 [`web/theme-bridge.test.ts`](../../../packages/neuro-book/src/web/theme-bridge.test.ts) 与 [`web/host/host-text.test.ts`](../../../packages/neuro-book/src/web/host/host-text.test.ts)（输出 141、143 的宿主一侧）
+- Smoke：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/lab-nested-grid.e2e.ts)、[`e2e/lab-layout-theme-bridge.e2e.ts`](../../../packages/neuro-book/e2e/lab-layout-theme-bridge.e2e.ts)（输出 141、142：桥接在真实浏览器里的层叠与减少动效）、[`e2e/lab-grid-structure.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts)、[`e2e/lab-grid-panels.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-panels.e2e.ts)、[`e2e/lab-grid-swap.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-swap.e2e.ts)、[`e2e/workbench-float.e2e.ts`](../../../packages/neuro-book/e2e/workbench-float.e2e.ts)（浮动窗的投影、圆角与手柄）

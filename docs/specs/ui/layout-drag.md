@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.layout-drag
 owners:
   - nb-layout
@@ -219,7 +219,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 
 ## 失败与恢复
 
-无失败码。宿主回调抛出的异常不被会话吞掉；`commit` 抛出时一场已经收场，不留监听。
+无失败码。宿主回调抛出的异常不被会话吞掉；`commit` 抛出时一场已经收场，不留监听；键盘拖动这时不还焦点（收场顺序里还焦点排在 `commit` 之后）。
 
 ## 边界与兼容
 
@@ -240,9 +240,19 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 
 Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`workbench-dnd.e2e.ts`、`editor-area.e2e.ts`、`files-explorer.e2e.ts`；拖动卡片与帧循环（输出 20、21）是 `workbench-live-drag.e2e.ts`、`workbench-drag-cost.e2e.ts`。
 
+## 实现合同
+
+- 公开入口：核心入口 `@notnotype/nb-layout` 的 `DRAG_GESTURE_DEFAULTS`、`defineDropKind` 与类型 `DragCancelReason`、`DragEnd`、`DragGestureConfig`、`DropKind`，跟手的零件 `createDragCard`、`createFrameLoop`（输出 20、21）；`./vue` 的 `createDragSession`、`useDragSession`、`registerDropTarget`、`useDropTarget`、`dropTargetAt` 与类型 `DragSession`、`DragSessionOptions`、`DragSessionHandle`、`DragQuery`、`DragKeyboardOptions`、`DragState`。签名与用法见 [drag-session](../../../packages/nb-layout/src/vue/drag-session.md) 与 [drag-card](../../../packages/nb-layout/src/drag-card.md)。
+- owner 与依赖方向：owner 是 `ui`；手势状态机在核心入口，不依赖 Vue 与 DOM；DOM 适配与落点登记在 `./vue`。工作台、编辑器标签与资源树只经这两个入口用它，库不引用它们（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
+- 不变量：
+  - 状态机只收事件、出状态与收场，不碰 DOM；核心源码不引用全局 `window`、`document`，整个会话不写持久化、不发网络请求（[`boundary.test.ts`](../../../packages/nb-layout/src/boundary.test.ts) 扫源码守着）。
+  - 指针监听与捕获挂在根上，拿起后来源被移除，这一场照常跟手与放下（输出 3）。
+  - 收场先拆监听、释放捕获、`state` 置空，再调 `onEnd` 与 `commit`：`commit` 抛出时不留监听，下一场照常开始（“状态与转换”的收场顺序）。
+  - 登记表是模块级的一张表，登记与注销不改落点元素（输出 16）。
+
 ## 证据
 
 - 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md) 第 3、10 节（开发者 2026-11-05 接受）；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)；输出 20、21 依据[通用布局库提案](../../proposals/nb-layout-general-library.md)的“手感引擎分两步”（开发者 2026-11-18 接受）。
 - 实现入口：[`nb-layout/src/drag-gesture.ts`](../../../packages/nb-layout/src/drag-gesture.ts)、[`nb-layout/src/vue/drag-session.ts`](../../../packages/nb-layout/src/vue/drag-session.ts)、[`nb-layout/src/vue/useDragSession.ts`](../../../packages/nb-layout/src/vue/useDragSession.ts)、[`nb-layout/src/vue/drop-targets.ts`](../../../packages/nb-layout/src/vue/drop-targets.ts)、[`nb-layout/src/drag-card.ts`](../../../packages/nb-layout/src/drag-card.ts)、[`nb-layout/src/frame-loop.ts`](../../../packages/nb-layout/src/frame-loop.ts)（输出 20、21）
-- 合同测试：[`nb-layout/src/drag-gesture.test.ts`](../../../packages/nb-layout/src/drag-gesture.test.ts)、[`nb-layout/src/vue/drag-session.dom.test.ts`](../../../packages/nb-layout/src/vue/drag-session.dom.test.ts)、[`nb-layout/src/vue/useDragSession.dom.test.ts`](../../../packages/nb-layout/src/vue/useDragSession.dom.test.ts)（输出 18、19）、[`nb-layout/src/vue/drop-targets.dom.test.ts`](../../../packages/nb-layout/src/vue/drop-targets.dom.test.ts)、[`nb-layout/src/drag-card.test.ts`](../../../packages/nb-layout/src/drag-card.test.ts)（输出 20）、[`nb-layout/src/frame-loop.test.ts`](../../../packages/nb-layout/src/frame-loop.test.ts)（输出 21；“和会话一起用”的监听次序没有单元测试，由 `workbench-drag-cost.e2e.ts` 的每帧至多一次样式重算间接守着）
+- 合同测试：[`nb-layout/src/drag-gesture.test.ts`](../../../packages/nb-layout/src/drag-gesture.test.ts)、[`nb-layout/src/vue/drag-session.dom.test.ts`](../../../packages/nb-layout/src/vue/drag-session.dom.test.ts)、[`nb-layout/src/vue/useDragSession.dom.test.ts`](../../../packages/nb-layout/src/vue/useDragSession.dom.test.ts)（输出 18、19）、[`nb-layout/src/vue/drop-targets.dom.test.ts`](../../../packages/nb-layout/src/vue/drop-targets.dom.test.ts)、[`nb-layout/src/boundary.test.ts`](../../../packages/nb-layout/src/boundary.test.ts)（只在内存里、核心不引用全局 `window` 与 `document`）、[`nb-layout/src/drag-card.test.ts`](../../../packages/nb-layout/src/drag-card.test.ts)（输出 20）、[`nb-layout/src/frame-loop.test.ts`](../../../packages/nb-layout/src/frame-loop.test.ts)（输出 21；“和会话一起用”的监听次序没有单元测试，由 `workbench-drag-cost.e2e.ts` 的每帧至多一次样式重算间接守着）
 - Smoke：[`e2e/lab-drag-session.e2e.ts`](../../../packages/neuro-book/e2e/lab-drag-session.e2e.ts)、[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)、[`e2e/files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)、[`e2e/workbench-live-drag.e2e.ts`](../../../packages/neuro-book/e2e/workbench-live-drag.e2e.ts)、[`e2e/workbench-drag-cost.e2e.ts`](../../../packages/neuro-book/e2e/workbench-drag-cost.e2e.ts)

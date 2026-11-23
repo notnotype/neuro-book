@@ -1,0 +1,113 @@
+# 审查报告：w00026 t54（`master..HEAD`）
+
+本次只读审查，没有运行测试、e2e 和开发服务。下面所有“能过”“会失败”的判断都从代码推断，没有实测。
+
+两处产品修复我认为是对的，没有发现阻断和重要问题。以下 7 条都是建议，按影响排序。
+
+## 建议
+
+### 1. Tab 全亮的 e2e 在减少动效下读 opacity，区分不出“立即”和“渐显”
+- 严重程度：建议
+- 类别：测试能否区分
+- 位置：`packages/neuro-book/e2e/lab-nested-grid.e2e.ts` 新增的“Tab 走到分隔线：线立即全亮（输出 14）”
+- 现象：用例没有切换动效偏好。同文件上一条用例断言配置默认 `prefers-reduced-motion: reduce`，所以 `.sash-line` 的 `transition-duration` 是 `0s`。用例按 Tab 进来后立刻读 `opacity === "1"`。
+- 为什么是问题：Spec 输出 14 的要点是“立即”。如果有人让 `:focus-visible` 的线也走渐显，在减少动效下 opacity 仍立刻是 1，用例照样通过。`not.toHaveAttribute("data-sash-revealed")` 只排除了“靠停留计时显现”这一条路。
+- 如何核实：在 `SashHandle.vue:473` 附近给 focus-visible 的线加 `transition: opacity 400ms`，在默认配置下跑这条用例。预期它仍然通过。
+- 建议改法：用例开头 `page.emulateMedia({reducedMotion: "no-preference"})`，再断言 focus-visible 状态下 `.sash-line` 的 `transition-duration` 为 `0s`，或者 opacity 第一次读就是 1。
+
+### 2. 祖先缩放只有一条 e2e，只覆盖横向、整数比例，也没验证抓取偏移
+- 严重程度：建议
+- 类别：测试覆盖
+- 位置：`e2e/lab-nested-grid.e2e.ts` 的“祖先缩放”；实现在 `useSashGesture.ts:100-104`、`:382`、`:404`
+- 现象：
+  - 用例只做 `scale(0.5)`、`transformOrigin: 0 0`，拖水平分隔线，从线中心按下。
+  - 纵向线（`y` 轴比例）和大于 1 的缩放都没测。
+  - 按在线中心，抓取偏移为 0，所以 Spec 输出 19“减去按下时抓取的偏移”在缩放下是否成立没被检查。
+  - 断言容差是 ≤2px，Spec 写的是 1 CSS px。
+- 为什么是问题：x、y 两轴各算各的比例。如果 y 那一行写错，现有用例仍会通过。dom 测试里 happy-dom 的 `offsetWidth` 为 0，`scaleOf` 恒为 1，也盖不到。
+- 如何核实：把 `pointerScale.y` 临时改成 1，现有 e2e 照样通过。
+- 建议改法：同一用例追加一次纵向线的拖动，比例用 `scale(1.5)` 或 `0.75`。按下点偏离线中心 2px，断言“提交位移 = 屏幕位移 / 比例”。
+
+### 3. `scaleOf` 的边界：取整误差与旋转，注释和 Spec 都没写
+- 严重程度：建议（按“窄场景选简单改法”，写成已知限制即可，不用加机制）
+- 类别：正确性边界
+- 位置：`useSashGesture.ts:100-104`
+- 取整误差：`offsetWidth` 取整，`rect.width` 不取整。根宽 640.4px 且没有缩放时，比例是 1.000625，拖 200px 会少算约 0.12px。最坏相对误差是 `0.5/W`，W=200 时 0.25%，拖 150px 差 0.37px。Spec 输出 19 的 1px 预算内够用，但无缩放的普通页面也会走这条换算。
+- 旋转：根或祖先带 `rotate` 时，`rect` 是外接框，比例失真。90° 时 x 和 y 的比例互换，位移方向也没换算。
+- 已核对不成问题的情形：
+  - 根带 border 时，`rect` 与 `offsetWidth` 都是 border-box，比例对。
+  - 根自己带 `transform` 时，比例包含它，线也在它里面，正确。
+  - 不可布局的根（`display: contents`、`display: none`），`laid > 0` 的保护让比例回到 1。
+- 建议改法：在 `scaleOf` 的注释里写明只支持缩放、不支持旋转和斜切，`offsetWidth` 取整误差在 `0.5/W` 以内。如果想让无缩放页面逐像素一致，可以在 `|ratio-1| < 0.5/laid` 时取 1。
+
+### 4. `NestedGrid.dom.test.ts` 新增用例重复夹具
+- 严重程度：建议
+- 类别：代码质量
+- 位置：`NestedGrid.dom.test.ts`
+  - 新增用例里 `clientWidth`/`clientHeight` 的 spy 加 `onTestFinished` 恢复，每处约 9 行，新增了 5 处：约 462、1624、1735、1796（`collapseWithShape` 内）、1952，加上原有的约 4 处，同一块逐字重复。
+  - 内容 `side(collapsed)` 的 `createGrid` 在 1698（原有）、1742、1803 各一份。
+- 问题：每个新用例都要再抄一遍，改容器尺寸约定时要改十几处。
+- 建议改法：提一个 `stubContainerBox(box = CONTAINER)`，内部登记 `onTestFinished`；再提一个 `sideGrid(collapsed)`。预计能少约 80 行，`test-lint-allow spy` 的注释也只写一份。
+
+### 5. `splitter.dom.test.ts:1297` 的 `vi.useFakeTimers()` 没有 `test-lint-allow`
+- 严重程度：建议
+- 类别：测试规范
+- 位置：`splitter.dom.test.ts:1297`（`it.each` 里新增的用例）
+- 现象：`try/finally` 里恢复真计时器，这点没问题，但没有 `test-lint-allow fake-timer: <理由>`。
+- 影响：nb-layout 不在 `STRICT_TEST_ROOTS`，所以只是警告，不会让 `governance:check` 失败。同文件 1225 行和 `NestedGrid.dom.test.ts` 的 `stubGlobal`（我对比了 master，1225 行和 `stubGlobal` 都是原有的）也没有 allow，是老账。
+- 建议改法：给 1297 加上和 `NestedGrid.dom.test.ts:388` 同样的理由，顺手给 1225 补一份。
+- 其余新增的 `useFakeTimers`、`stubGlobal`、`spyOn`、`window.requestAnimationFrame` 包装，都有 allow 或在 `onTestFinished`/`afterEach` 里恢复。
+
+### 6. `boundary.test.ts` 源码扫描有漏报面
+- 严重程度：建议
+- 类别：扫描覆盖
+- 位置：`boundary.test.ts` 的 `PERSISTENCE` 与 `stripComments`
+- 漏报：
+  - `PERSISTENCE` 只认 `fetch(`、`localStorage`、`sessionStorage`、`indexedDB`。`XMLHttpRequest`、`WebSocket`、`EventSource`、`navigator.sendBeacon`、`document.cookie`、`caches` 都扫不到，而 Spec 写的是“无网络、文件”。
+  - `stripComments` 里 `/\/\*[\s\S]*?\*\//` 会把字符串里的 `/*`（例如 `"**/*.ts"`）当成注释起点，吞到下一个 `*/`，把中间的代码一起抹掉。函数注释说“宁可误报”，这条是漏报。
+- 影响：目前 nb-layout 里没有这种写法，也没有字符串里带 `/*` 的代码，所以不会误判；扫描耗时没问题。
+- 误报：`domGlobalUses` 里 `var` 声明在内层块、却在外层引用的同名 `window` 会被判成全局。这在 nb-layout 里基本碰不到。
+- 数字：核心里文字出现 `window`/`document` 的只有 `grid-swap.ts` 和 `locales/en-US.ts`，只解析这 2 个文件，开销可忽略。
+- 建议改法：给 `PERSISTENCE` 补上面几个名字；如果要保留“宁可误报”的说法，换成逐字符的扫描器，或者只剥离整行以 `//`、`*` 开头的注释。
+
+### 7. 夹具和用例对 Lab 画布尺寸有隐含依赖，且有两处在负载下可能偶发
+- 严重程度：建议
+- 类别：偶发风险
+- 位置：`GridPanelsScene.vue` 与 `lab-grid-panels.e2e.ts`、`workbench-float.e2e.ts`
+- 画布依赖：
+  - 夹具的浮动窗、盖层、拿起内容矩形写死 `x: 200~620`（`FLOAT_RECT`、`LIFTED_RECT`），测试里的 `inGrid(page, 320, 170)`、`inGrid(page, 580, 330)` 也写死。注释写“画布缺省约 640 宽”。Lab 缺省画布变窄后，这些坐标会越界，失败信息只会是 `layerAt` 返回别的值。
+  - 默认状态下的改动只有两处：多了 8 个按钮（排在 `ACTIONS` 前面，让 `maximize-b` 仍是 grid 前最后一个控件），以及 grid 后面多了一个 `<input data-panels-after>`。网格高度由 `min-height: 560px` 保证，所以对原有场景的影响很小。
+- 负载偶发：
+  - `workbench-float.e2e.ts` 里“停靠时圆角按加速曲线淡去”，用 `performance.now()` 取时间中点，再挑最近的一行，断言 `middle.radius > first.radius * 0.6`。主线程卡顿、采样稀疏时，最近的那一行可能离中点很远，圆角已经掉到阈值以下。注意同类 e2e 在 CSS 过渡里遇到忙线程会直接跳到终点。
+  - `lab-grid-structure.e2e.ts` 的忙等用例每帧 40ms，循环上限 120 帧，约 5 秒。如果过渡时长超过这个值，循环会提前结束，之后 `settled` 再等一轮，不会错，但“量到半路”的断言只靠中间那几帧。
+- 如何核实：负载 10 以上单独重跑这两条各 10 次，对照 master 的同类用例。
+- 建议改法：中点那条把阈值放宽，或者改成“相邻帧圆角单调不增，且至少有两帧落在 `0.2`~`0.9` 的比例区间”。`FLOAT_RECT` 一类写成相对 grid 宽度的比例。
+
+## 未发现问题的方面
+
+- **失焦清悬停**
+  - `onWindowBlur` 的 `else if (binding === null) resetHover()` 只在没有进行中的手势时清悬停，不影响正在拖动的那场。
+  - 我没找到 `binding !== null` 而 `session.reason !== null` 的状态。`finish`、`cancel` 都是 `session.finish/cancel` 之后同步 `settle` 把 `binding` 置空。
+  - `cancel("blur")` 对指针会话改成 `reset`，不再按最后坐标把页面级光标重新拿回来，和 Spec 输出 16 一致。键盘会话本来就走 `reset`。
+- **键盘焦点显示**：`:focus-visible` 全亮是 `SashHandle.vue:473` 的 CSS，`resetHover` 只清 `hovered`、`revealed`、光标与计时，两者没有冲突。窗口失焦后分隔线仍有 DOM 焦点，高亮保持。
+- **祖先缩放的主体改动**
+  - 按下时冻结比例（对应 Spec“冻结的根 rect”），移动时除以比例。
+  - 命中用 client rect，与指针坐标同一坐标系。
+  - 键盘位移本来就是布局 px，没用到 `pointerScale`。
+  - 预览的设备像素吸附在 `SashHandle.vue:202-216` 自带 `box / sashPx` 的比例，和这次改动互不影响。
+  - 抓取偏移在布局 px 里计算，换算后一致。
+- **测试规范与变异**：新增的 `it.each` 悬停用例（窗口失焦、禁用）能区分旧实现。旧代码下，再次悬停时 `hoverTimer !== 0` 直接返回，旧计时到点后会提前显现，用例会失败。`NestedGrid.dom.test.ts` 里新增的计时器、`requestAnimationFrame` 包装、`ResizeObserver` 替身都在 `onTestFinished` 里恢复。
+- **新开关默认关**：`floatOn`、`overlayOn`、`lifted` 默认都是关，`view:c3` 的 `leave: "retain"` 只对不在默认文档里的 `c3` 生效。
+- **用例断言质量**：新增 e2e 的“拖到别处、不接指针、不弹回”类断言都带着“先造出不同点”的步骤（先让窗口压住、先让内容变矮再量），不是只靠自动等待。`drag-session` 与 `drag-gesture` 新增的单元用例断言的是结束原因与回调顺序，不是内部调用。
+- **跨包导入**：没有发现深导入、静默 `catch`、按文案分支、改动范围外的代码。
+
+## 数量
+
+阻断 0，重要 0，建议 7。
+
+## 请主 Agent 跑的实验
+
+1. 第 1 条：给 focus-visible 的线加 400ms 过渡，在默认配置下跑那条 e2e，确认它仍通过；改完后再确认它会失败。
+2. 第 2 条：把 `pointerScale.y` 临时改成 1，现有 e2e 应当全绿，补纵向用例后应当变红。
+3. 第 3 条：在 e2e 里把根宽设成 333.5px，不缩放，拖 200px，读提交位移，看和 200 差多少。
+4. 第 7 条：负载 10 以上，对停靠圆角那条与忙等那条各单独重跑 10 次，对照 master。
