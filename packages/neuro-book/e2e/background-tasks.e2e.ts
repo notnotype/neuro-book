@@ -1,6 +1,7 @@
 /**
- * 后台任务与通知中心的 Smoke（docs/specs/workbench/background-tasks.md 验收 1、2、4 与输出 15；workbench/notifications.md
- * 验收 8 与输出 17）：真实浏览器的两个标签页、宿主测试入口的服务端，任务由测试插件 `test.tasks-probe` 经控制路由登记与推进。
+ * 后台任务与通知中心的 Smoke（docs/specs/workbench/background-tasks.md 验收 1、2、4、输出 15 与输出 24–26；workbench/notifications.md
+ * 验收 8 与输出 17）：真实浏览器的两个标签页、宿主测试入口的服务端，任务由测试插件 `test.tasks-probe` 经控制路由登记与推进，它也作
+ * 提供方交出行。
  */
 
 import {rm} from "node:fs/promises";
@@ -56,7 +57,7 @@ async function hidePanel(page: Page): Promise<void> {
 
 const statusItem = (page: Page) => page.locator('[data-workbench-item="nbook.tasks.status"]');
 const statusIcon = (page: Page) => statusItem(page).locator("[data-workbench-item-icon]");
-const row = (page: Page, id: string) => page.locator(`[data-task="${id}"]`);
+const row = (page: Page, id: string) => page.locator(`[data-row="own:${id}"]`);
 const toasts = (page: Page) => page.locator("[data-notification-stack] [role='status']");
 
 test("两个标签页看到同一件任务；在一处取消，两处都显示“正在取消”，发起方结束后显示已取消、不弹通知（验收 1）", async ({browser}) => {
@@ -177,4 +178,29 @@ test("书架页没有状态栏与面板，任务结束时照样弹通知（输�
     await expect(toasts(page).filter({hasText: "安装插件 nb-story"})).toContainText("下载失败");
     await expect(statusItem(page)).toHaveCount(0);
     await context.close();
+});
+
+test("提供方的行：会话块等你处理时有徽标；停止被拒弹原因；打开别人的命令提示无法打开（输出 24–26）", async ({browser}) => {
+    const [page] = await twoTabs(browser);
+    const owner = {kind: "session", session: "root-e2e", title: "第十二章修订"};
+    await probe("/provide", {rows: [
+        {id: "head", title: "第十二章修订", message: "等你批准", state: "waiting", kind: "session", kindLabel: "会话", form: "once", owner, head: true, foreground: true, startedAt: Date.now(), stoppable: true},
+        {id: "job", title: "bun run build", message: "[3/5] 打包章节", state: "running", kind: "shell", kindLabel: "命令", form: "once", owner, startedAt: Date.now(), stoppable: true, open: {command: "test.tasks-probe.missing"}},
+    ]});
+    await probe("/stop-answer", {kind: "rejected", reason: "已经结束"});
+    await statusItem(page).click();
+    const block = page.locator('[data-group="session:root-e2e"]');
+    await expect(block).toBeVisible();
+    await expect(block).toHaveAttribute("data-waiting", "true");
+    await expect(block.locator(".tasks-group__head")).toContainText("等你处理");
+    const job = page.locator('[data-row="p:test.tasks-probe:1:job"]');
+    await expect(job).toContainText("命令");
+    await expect(job.locator("[data-task-remove]")).toHaveCount(0);
+    await job.locator("[data-row-stop]").click();
+    await expect(toasts(page).filter({hasText: "已经结束"})).toBeVisible();
+    expect(((await probe("/stops")) as {stops: string[]}).stops).toEqual(["job"]);
+    await job.locator("[data-row-open]").click();
+    await expect(toasts(page).filter({hasText: "无法打开"})).toBeVisible();
+    await probe("/rows", {rows: []});
+    await expect(block).toHaveCount(0);
 });
