@@ -3,7 +3,7 @@
  * 要不要动、新出现的项从哪里开始。纯函数，不碰 DOM。消费者是 `useRenderOrder`、`useGridMotion`。
  */
 
-import type {GridContentPlacement, GridLayerItem, GridLeafPlacement, GridPathStep, GridPlacementItem, GridRect} from "./grid-rects";
+import {hasSize, rectsIntersect, unionRects, type GridContentPlacement, type GridLayerItem, type GridLeafPlacement, type GridPathStep, type GridPlacementItem, type GridRect} from "./grid-rects";
 import type {GridAxis} from "./grid-types";
 
 /** 新叶第一帧的矩形：主轴宽度为 0，贴在不动的那条边上；内容已经是最终尺寸，外框长出来时露出它。 */
@@ -11,12 +11,6 @@ export function grownRect(rect: GridRect, grow: GridLeafPlacement<unknown>["grow
     if (grow === null) return rect;
     if (grow.axis === "width") return {...rect, x: grow.edge === "start" ? rect.x : rect.x + rect.width, width: 0};
     return {...rect, y: grow.edge === "start" ? rect.y : rect.y + rect.height, height: 0};
-}
-
-function unionRect(left: GridRect, right: GridRect): GridRect {
-    const x = Math.min(left.x, right.x);
-    const y = Math.min(left.y, right.y);
-    return {x, y, width: Math.max(left.x + left.width, right.x + right.width) - x, height: Math.max(left.y + left.height, right.y + right.height) - y};
 }
 
 /** 差不到这么多算没动：外壳落账后还有第二次发布，矩形可能差一两个取整。 */
@@ -70,8 +64,6 @@ export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, prev
     });
 }
 
-const hasSize = (rect: GridRect | null | undefined): boolean => rect != null && rect.width > 0 && rect.height > 0;
-
 /**
  * 这次过渡里内容跟着外框逐帧变化的项（`key`）：前后都有尺寸的叶与活动的内容项。新叶与从零出来的叶内容已经是最终尺寸，外框长出来时露出它，第一次摆放不用在零宽里排版；
  * 降到零的叶内容停放（`shrinkingLeaves`：过渡结束前还画着）。
@@ -110,7 +102,6 @@ export function zeroLeaves(items: ReadonlyArray<GridLayerItem<unknown>>): Readon
  */
 export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
     const before = new Map(previous.map((item) => [item.key, item]));
-    const overlaps = (left: GridRect, right: GridRect): boolean => left.x < right.x + right.width && right.x < left.x + left.width && left.y < right.y + right.height && right.y < left.y + left.height;
     const floatsOf = (list: ReadonlyArray<GridLayerItem<unknown>>): Set<string> => new Set(list.flatMap((item) => (item.kind === "leaf" && item.float === true ? [item.node.id] : [])));
     const wasFloat = floatsOf(previous);
     const isFloat = floatsOf(items);
@@ -123,7 +114,7 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
         const rect = rectOf(item);
         if (old === undefined || oldRect == null || rect === null || oldRect.width <= 0 || oldRect.height <= 0 || rect.width <= 0 || rect.height <= 0) continue;
         const leaf = item.kind === "leaf" ? item.node.id : item.leaf;
-        if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !overlaps(oldRect, rect) || docked(leaf)) flying.add(item.key);
+        if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !rectsIntersect(oldRect, rect) || docked(leaf)) flying.add(item.key);
     }
     return flying;
 }
@@ -147,7 +138,7 @@ function nodeRectsOf(items: ReadonlyArray<GridLayerItem<unknown>>): Map<string, 
         if (item.kind !== "leaf") continue;
         for (const id of [item.node.id, ...item.path.map((step) => step.id)]) {
             const rect = rects.get(id);
-            rects.set(id, rect === undefined ? item.rect : unionRect(rect, item.rect));
+            rects.set(id, rect === undefined ? item.rect : unionRects([rect, item.rect]));
         }
     }
     return rects;
@@ -260,7 +251,6 @@ export function floatLiftStarts(items: ReadonlyArray<GridLayerItem<unknown>>, pr
     const known = new Set(previous.map((item) => item.key));
     const floats = new Set(items.flatMap((item) => (item.kind === "leaf" && item.float === true && !known.has(item.key) ? [item.node.id] : [])));
     const before = new Map(previous.flatMap((item) => (item.kind === "content" ? [[item.key, item] as const] : [])));
-    const hasSize = (rect: GridRect | null): rect is GridRect => rect !== null && rect.width > 0 && rect.height > 0;
     const starts = new Map<string, GridRect>();
     for (const item of items) {
         if (item.kind !== "content" || !item.active || !floats.has(item.leaf)) continue;
@@ -323,7 +313,8 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
         if (seam !== undefined) {
             at = step.axis === "width" ? seam.rect.x + seam.size : seam.rect.y + seam.size;
         } else {
-            const rect = leaves.map((leaf) => leaf.rect).reduce(unionRect);
+            // 组里至少有一片叶（上面按叶建的组）。
+            const rect = unionRects(leaves.map((leaf) => leaf.rect))!;
             const edge = grownRect(rect, {axis: step.axis, edge: step.before === null ? "start" : "end"});
             at = step.axis === "width" ? edge.x : edge.y;
         }

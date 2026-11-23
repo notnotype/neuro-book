@@ -17,6 +17,34 @@ export interface GridRect {
     readonly height: number;
 }
 
+/** 外接矩形；没有矩形时是 null。包内共用（最大化、交换、过渡各自要算一组矩形的外框），不从入口导出。 */
+export function unionRects(rects: readonly [GridRect, ...GridRect[]]): GridRect;
+export function unionRects(rects: ReadonlyArray<GridRect>): GridRect | null;
+export function unionRects(rects: ReadonlyArray<GridRect>): GridRect | null {
+    if (rects.length === 0) return null;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const rect of rects) {
+        left = Math.min(left, rect.x);
+        top = Math.min(top, rect.y);
+        right = Math.max(right, rect.x + rect.width);
+        bottom = Math.max(bottom, rect.y + rect.height);
+    }
+    return {x: left, y: top, width: right - left, height: bottom - top};
+}
+
+/** 两个矩形的内部是否相交；只挨着边不算。 */
+export function rectsIntersect(a: GridRect, b: GridRect): boolean {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/** 矩形有没有面积；没有矩形（null、undefined）也算没有。 */
+export function hasSize(rect: GridRect | null | undefined): rect is GridRect {
+    return rect != null && rect.width > 0 && rect.height > 0;
+}
+
 /** 叶在树里的一层：这一层的节点（叶自己或它的一个祖先）、它所在分支的主轴、它前后的兄弟。 */
 export interface GridPathStep {
     readonly id: string;
@@ -233,12 +261,9 @@ export function placeContents<R>(items: ReadonlyArray<GridPlacementItem<R>>, con
  */
 export function maximizePlacement<R>(items: ReadonlyArray<GridPlacementItem<R>>, leaf: string, exclude: ReadonlyArray<string>): GridPlacementItem<R>[] {
     const rects = items.flatMap((item) => (item.kind === "leaf" && !exclude.includes(item.node.id) ? [item.rect] : []));
-    if (rects.length === 0) return [...items];
-    const left = Math.min(...rects.map((rect) => rect.x));
-    const top = Math.min(...rects.map((rect) => rect.y));
-    const right = Math.max(...rects.map((rect) => rect.x + rect.width));
-    const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
-    return items.map((item) => (item.kind === "leaf" && item.node.id === leaf ? {...item, rect: {x: left, y: top, width: right - left, height: bottom - top}} : item));
+    const box = unionRects(rects);
+    if (box === null) return [...items];
+    return items.map((item) => (item.kind === "leaf" && item.node.id === leaf ? {...item, rect: box} : item));
 }
 
 /** 树序：每块叶后面紧跟属于它的内容项；找不到叶的排在最后。 */

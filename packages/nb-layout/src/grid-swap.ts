@@ -6,7 +6,7 @@
  * 此刻的偏移由调用方从 DOM 读好传进来（`useGridMotion`），一律写成起点重新开始过渡：不靠浏览器对改了终点的过渡怎样接着走（反向时它按已走的比例缩短时长）。
  */
 
-import type {GridLayerItem, GridPlacementItem, GridRect} from "./grid-rects";
+import {rectsIntersect, unionRects, type GridLayerItem, type GridPlacementItem, type GridRect} from "./grid-rects";
 import {gridIssue} from "./grid-issue";
 import type {GridAxis, GridIssue} from "./grid-types";
 
@@ -76,17 +76,6 @@ export type GridSwapPlan =
 const along = (axis: GridAxis, rect: GridRect): number => (axis === "width" ? rect.width : rect.height);
 const shifted = (rect: GridRect, axis: GridAxis, offset: number): GridRect => (axis === "width" ? {...rect, x: rect.x + offset} : {...rect, y: rect.y + offset});
 
-function union(rects: ReadonlyArray<GridRect>): GridRect | null {
-    if (rects.length === 0) return null;
-    const x = Math.min(...rects.map((rect) => rect.x));
-    const y = Math.min(...rects.map((rect) => rect.y));
-    const right = Math.max(...rects.map((rect) => rect.x + rect.width));
-    const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
-    return {x, y, width: right - x, height: bottom - y};
-}
-
-const intersects = (a: GridRect, b: GridRect): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
 const leafIdOf = (item: GridLayerItem<unknown>): string | null => (item.kind === "leaf" ? item.node.id : null);
 
 /** 节点（叶或分支）下面的叶：叶自己，或路径经过它的叶。 */
@@ -148,7 +137,7 @@ export function planSwap(input: {
     const leavingHome = groupItems(previous, leaving);
     const enteringHome = groupItems(items, entering);
     const rectsOf = (list: ReadonlyArray<GridLayerItem<unknown>>): GridRect[] => list.flatMap((item) => (item.kind === "leaf" ? [item.rect] : []));
-    const outer = band?.outer ?? (union([...rectsOf(leavingHome), ...rectsOf(enteringHome)]) as GridRect);
+    const outer = band?.outer ?? (unionRects([...rectsOf(leavingHome), ...rectsOf(enteringHome)]) as GridRect);
     let window = band?.window;
     if (window === undefined) {
         const [top, right, bottom, left] = swap.window?.inset ?? [0, 0, 0, 0];
@@ -173,8 +162,8 @@ export function planSwap(input: {
     }
     const delta = -target.now;
     const outside = (group: Live, offset: number): boolean => {
-        const rect = union(rectsOf(group.home));
-        return rect === null || !intersects(shifted(rect, axis, offset), window as GridRect);
+        const rect = unionRects(rectsOf(group.home));
+        return rect === null || !rectsIntersect(shifted(rect, axis, offset), window as GridRect);
     };
     // 此刻与终点都在窗外的组摘掉；此刻看得见、终点在窗外的留着滑出去，过渡结束才摘。
     const kept = live.filter((group) => group === target || !(outside(group, group.now) && outside(group, group.now + delta)));
@@ -192,7 +181,7 @@ export function planSwap(input: {
                 continue;
             }
             const sideLength = (id: string): number => {
-                const rect = union(leavesUnder(group.home, id).map((leaf) => leaf.rect));
+                const rect = unionRects(leavesUnder(group.home, id).map((leaf) => leaf.rect));
                 return rect === null ? 0 : along(item.axis, rect);
             };
             leavingItems.push({...item, rect: shifted(item.rect, axis, end), leaving: true, frozen: {beforePx: sideLength(item.before), afterPx: sideLength(item.after)}});
