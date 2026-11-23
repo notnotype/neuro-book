@@ -178,8 +178,8 @@ omp 另两条：
 
 ## 当前状态
 
-2026-11-23：决定 1–7 已定，计划第 2 稿经开发者确认；第 1 片做完并处理了 Opus 与 omp 的实现审查；第 2 片（窗口）做完并处理了 Sonnet 的前端审查；第 3 片（Agent 作提供方）做完并处理了快速审查（Opus、omp）；第 4 片（会话索引带回复首句）做完，快速审查在跑。
+2026-11-23 完成：四片与各轮审查的修正合入 master（e34368c5c）。收口验证：typecheck；`agent` 与 `tasks` 687 条、nb-harness 1085 条；e2e `background-tasks` 5 条、`agent-conversation` 25 条、`agent-subagents` 5 条（验收 2 的原有偶发见“待查”）。Spec 由 Opus 逐句核对（[`evidences/promotion-check.txt`](evidences/promotion-check.txt)），补了 6 处断言后去掉有断言守着的 planned 标记；其余保留，交 [t44](../t44-task-list-followups/README.md)。
 
 ## 下一步
 
-处理第 4 片的快速审查；之后收口：并入 master、收口验证、Spec 晋升核对、合入、t42 标完成。
+无（余项在 t44）。待确认清单里 t42 的三条取舍等开发者追认。

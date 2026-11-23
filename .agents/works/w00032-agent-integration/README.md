@@ -85,6 +85,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-19 | t40：eval 不做内存转储（开发者定）；会话关闭不再结束内核，再打开、叶子与 Profile 没变时接着用，内核照样按空闲与上限回收、服务端停止时结束；重置提示的原因写准（关闭期间的空闲与回收、换了 Profile、两次调用之间被外部结束）；实现审查（omp）4 条重要都改了：换走又换回 Profile、空闲期先退出、项目换目录（新原因“工作目录变了”）、起内核期间被登记表丢掉；t40 完成（[t40](tasks/t40-eval-kernel-survives-session-close/README.md)） |
 | 2026-11-19 | t22 重开（开发者：也为 t24 做准备），6 条按推荐：后台任务结束时把结果送回启动它的会话（在跑时作插话，空闲时以宿主身份开运行；上一次是用户停的不唤起）；`shell` 前台过 60 秒自动转后台；不做 Monitor 与 stdin；Agent 的后台任务与后台会话进工作台的“后台任务”清单；任务中心对别的服务端插件开放登记；任务表照旧不存盘（[t22](tasks/t22-background-work/README.md)） |
 | 2026-11-19 | t22 方向调整后写提案[统一后台任务](../../../docs/proposals/unified-background-tasks.md)，两轮 omp 设计审查（28、30 条，方向未被质疑、问题在实现细节）后收到方向与规则这一层、开发者接受，写 [ADR 0056](../../../docs/adr/0056-background-work-providers-and-session-notices.md)：`nbook.tasks` 只汇总、状态归提供方；缓冲区收提示（与插话同处取、排在前面）；唤起的门挂在会话上。拆成 [t41](tasks/t41-session-notices-and-wake/README.md)（内核）、[t42](tasks/t42-task-list-providers/README.md)（清单提供方）与 t22（Agent 的送达、自动转后台、eval 提示、工具登记任务）（[t22](tasks/t22-background-work/README.md)） |
+| 2026-11-23 | t42 合入：`nbook.tasks` 收别的插件交出的行（提供方合同、远程 v2、按归属分组的视图），Agent 交出后台任务与会话的行，会话索引带回复首句、子代理卡片按它写完成；四片各经实现审查（Opus、omp、Sonnet），三条产品取舍记进待确认清单；修掉会话树读索引的缓存竞态。Spec 逐句核对后晋升有断言的部分，余项与内核停止的收口、验收 2 的原有偶发交 [t44](tasks/t44-task-list-followups/README.md)（[t42](tasks/t42-task-list-providers/README.md)） |
 
 ## 待确认
 
@@ -132,7 +133,8 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），完成：`eval.md` 已晋升 | t04、t12 |
 | [t22](tasks/t22-background-work/README.md) | Agent 的结果送达、`shell` 自动转后台、eval 的提示、工具登记任务（统一后台任务提案的第三块），完成：合入 master，Spec 按逐句核对晋升 | t41 |
 | [t41](tasks/t41-session-notices-and-wake/README.md) | 内核缓冲区的提示与会话级唤起门，完成：合入 master，Spec 按逐句核对晋升 | — |
-| [t42](tasks/t42-task-list-providers/README.md) | 后台任务清单的提供方与分组视图 | — |
+| [t42](tasks/t42-task-list-providers/README.md) | 后台任务清单的提供方与分组视图，完成：合入 master，Spec 按逐句核对晋升了有断言的部分，其余交 t44 | t22 |
+| [t44](tasks/t44-task-list-followups/README.md) | 后台任务清单的余项：补断言晋升、内核停止的收口、验收 2 的偶发 | t42 |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |
 | [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知（优先级不高，排到末尾） | t08、t12 |
