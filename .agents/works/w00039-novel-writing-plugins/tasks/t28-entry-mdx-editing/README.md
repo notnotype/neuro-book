@@ -81,8 +81,12 @@ updated: 2026-11-23
 - 草稿文件没有提交，放在 Work 的 worktree（当前是 spike 分支）里：`plugins/drafts/web/components/entry-text-edit/`、Lab 的 `fixtures/drafts/EntryTextEditDraftFixture.vue` 与 `fixtures/index.ts` 的登记。没有照 design-review 另开草稿 worktree：当时本机负载约 30、可用内存 2.5 GB，再装一份依赖、再起一个开发服务太重，而这个 worktree 此刻没有在写正式代码；开始实现前把草稿挪走或丢掉。
 - 稿里与正式做法不同的：数据是组件里现造的；暂存在浏览器本地；阅读视图的渲染与“写错了”的检查是稿里的简化版；没有标签上的圆点（Lab 里没有编辑区的标签条）。
 
+2026-11-23 开发者试过交互稿：纯文本的编辑可以；代码编辑器指的是 Monaco（仓库里没有封装好的 CodeMirror）；界面先不打磨，先保证功能与 UX。主会话写了计划第 2 稿（“整篇提交、内核把没动过的块认回原编号、冲突按段判”，[`plan.md`](plan.md) 与 [`evidences/design-review-resolution.txt`](evidences/design-review-resolution.txt)，写好时还没提交）。
+
+开发者随后提出：底层别当成一篇纯文本，直接按 `Text[]` 存，系统不负责自动分块，分块交给作者和 Agent。主会话核对：内核存的本来就是带编号的块的数组（`BlockSchema`），而且产品代码里现在没有任何地方调用 `splitBlocks`（只有定义与导出），自动分块是第 2 稿的整篇编辑才要加进来的。所以这个提议等于“不加整篇对回各块那一套，编辑也按块来”。主会话认为更好，已向开发者说明取舍（块的大小由人定以后，剧情替换、简报的保密关卡、冲突与修订的大小都按块算）并等确认；确认后第 2 稿的 3.1 作废，改出第 3 稿。
+
 ## 下一步
 
-1. 开发者试交互稿，按意见改。
+1. 开发者确认“编辑按块、不自动分块”，改出计划第 3 稿。
 2. 按决定改出计划第 2 稿，写 `evidences/design-review-resolution.txt` 逐条归类；后端核心规则变了，第 2 稿的后端部分再交 omp 审一轮。
 3. 写 ADR 与 Spec 草稿，实现。
