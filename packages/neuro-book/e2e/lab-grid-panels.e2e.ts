@@ -69,6 +69,38 @@ const focusedPlace = (page: Page) => page.evaluate(() => {
     const active = document.activeElement as HTMLElement | null;
     return active?.closest<HTMLElement>("[data-panel-tab]")?.dataset.panelTab ?? active?.closest<HTMLElement>("[data-sash]")?.dataset.sash ?? active?.closest<HTMLElement>("[data-content]")?.dataset.content ?? null;
 });
+/** 这个点上最上面的是什么：分隔线、内容项、外框（各取最近的那一层），都不是时为 null。 */
+const layerAt = (page: Page, point: {x: number; y: number}) => page.evaluate(({x, y}) => {
+    const hit = document.elementFromPoint(x, y);
+    const sash = hit?.closest<HTMLElement>("[data-sash]")?.dataset.sash;
+    if (sash !== undefined) return `sash ${sash}`;
+    const key = hit?.closest<HTMLElement>("[data-content]")?.dataset.content;
+    if (key !== undefined) return `content ${key}`;
+    const leaf = hit?.closest<HTMLElement>("[data-leaf]")?.dataset.leaf;
+    return leaf === undefined ? null : `frame ${leaf}`;
+}, point);
+const twoFrames = (page: Page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+const inside = (point: {x: number; y: number}, rect: Box): boolean => point.x > rect.x && point.x < rect.x + rect.width && point.y > rect.y && point.y < rect.y + rect.height;
+
+/** 截一张图，读几个点的颜色（在页面里解码，不加依赖；同 lab-grid-swap.e2e.ts）。 */
+async function colorsAt(page: Page, points: ReadonlyArray<{x: number; y: number}>): Promise<number[][]> {
+    const png = await page.screenshot();
+    return page.evaluate(async ({data, points}) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return points.map(({x, y}) => [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data].slice(0, 3));
+    }, {data: png.toString("base64"), points});
+}
+const near = (color: number[] | undefined, expected: readonly number[]): boolean => color !== undefined && color.every((value, index) => Math.abs(value - (expected[index] ?? 0)) <= 6);
+/** 夹具里盖层的洋红与拿起的头的绿（GridPanelsScene.vue）。 */
+const MAGENTA = [255, 0, 255] as const;
+const GREEN = [0, 200, 0] as const;
 
 test.describe("意图回写（docs/specs/ui/workbench-layout.md 输出 8、49）", () => {
     /** 用键盘调 Lab 盒子的宽：方向键每按一次 10 像素，不受盒子的缩放倍率影响。盒子的宽就是组件量到的宽，和浏览器视口无关。 */
@@ -142,6 +174,14 @@ test.describe("跨面板的位移", () => {
             if (right - left < 4) return "还没重叠";
             return document.elementFromPoint((left + right) / 2, (flying.top + flying.bottom) / 2)?.closest<HTMLElement>("[data-content]")?.dataset.content;
         }), {intervals: [16]}).toBe("view:a");
+        // 飞到 eb 与右栏之间的分隔线上：分隔线压在飞的内容上面（输出 88：飞的抬到分隔线之下、别的内容之上）。
+        await expect.poll(() => page.evaluate(() => {
+            const flying = document.querySelector("[data-content='view:a']")!.getBoundingClientRect();
+            const sash = document.querySelector("[data-sash='body:3']")!.getBoundingClientRect();
+            const x = sash.left + sash.width / 2;
+            if (x < flying.left + 1 || x > flying.right - 1) return "还没压到线上";
+            return document.elementFromPoint(x, (flying.top + flying.bottom) / 2)?.closest<HTMLElement>("[data-sash]")?.dataset.sash ?? "不是分隔线";
+        }), {intervals: [16]}).toBe("body:3");
         await settled(page);
         const after = await contentBox(page, "view:a");
 
@@ -161,12 +201,22 @@ test.describe("跨面板的位移", () => {
         expect(b.y).toBe(await frameBox(page, "c").then((c) => c.y));
     });
 
-    test("标签并入已有面板：两块面板都不动，内容仍从旧面板滑到新面板", async ({page}) => {
+    test("标签并入已有面板：两块面板都不动，内容仍从旧面板滑到新面板，实例、输入与滚动都在（验收 10）", async ({page}) => {
         await open(page, true);
         const fromFrame = await frameBox(page, "b");
         const toFrame = await frameBox(page, "d");
         const parkedAt = await contentBox(page, "view:b2");
         const instance = await instanceOf(page, "view:b2");
+        // b2 这时是 b 里不活动的标签，停放着（inert）：输入与滚动直接写，不经焦点。
+        const input = leafOf(page, "view:b2").locator("[data-structure-input]");
+        const scroller = leafOf(page, "view:b2").locator("[data-structure-scroll]");
+        await input.evaluate((element: HTMLInputElement) => {
+            element.value = "还在";
+        });
+        await scroller.evaluate((element) => {
+            element.scrollTop = 300;
+        });
+        expect(await scroller.evaluate((element) => element.scrollTop)).toBe(300);
         await act(page, "b2-into-d-strip");
         await expect(content(page, "view:b2")).toHaveAttribute("data-flying", "");
         await expect.poll(async () => (await contentBox(page, "view:b2")).x).toBeGreaterThan(parkedAt.x + 1);
@@ -179,6 +229,8 @@ test.describe("跨面板的位移", () => {
         expect(after.x).toBe(toFrame.x);
         await expect(content(page, "view:b2")).not.toHaveAttribute("data-flying", "");
         expect(await instanceOf(page, "view:b2")).toBe(instance);
+        await expect(input).toHaveValue("还在");
+        expect(await scroller.evaluate((element) => element.scrollTop)).toBe(300);
         await expect(page.locator("[data-panel-tab='view:b2']")).toHaveAttribute("aria-pressed", "true");
         // 原来活动的 D 停放，B 留下的活动标签还是 B。
         await expect(content(page, "view:d")).toHaveCSS("visibility", "hidden");
@@ -227,6 +279,48 @@ test.describe("过渡里的内容尺寸（nested-grid 验收 10）", () => {
         expect(Math.abs(final - during.newInner)).toBeLessThan(0.5);
         await expect(leafOf(page, "tab:e3")).toHaveAttribute("data-structure-resizes", "1");
     });
+
+    test("竖着从零长出来、留着缩回去的叶：每一帧内容的上边都是外框的上边加面板头（输出 86）", async ({page}) => {
+        await open(page, true);
+        // 不用 4 秒：逐帧量到过渡结束。
+        await page.addStyleTag({content: ":root { --motion-layout: 600ms !important; }"});
+        /** 点一下按钮，逐帧量 c3 的外框与内容体，直到网格的过渡结束；点在页面里，第一帧就开始量。 */
+        const film = (action: string) => page.evaluate(async (name) => {
+            const rows: Array<{frameTop: number; frameHeight: number; bodyTop: number}> = [];
+            document.querySelector<HTMLElement>(`[data-panels-action="${name}"]`)!.click();
+            for (let index = 0; index < 200; index += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const frameEl = document.querySelector("[data-leaf='c3']");
+                const bodyEl = document.querySelector("[data-content='view:c3'] > .nb-grid-content__body");
+                if (frameEl !== null && bodyEl !== null) {
+                    const frameRect = frameEl.getBoundingClientRect();
+                    rows.push({frameTop: frameRect.top, frameHeight: frameRect.height, bodyTop: bodyEl.getBoundingClientRect().top});
+                }
+                if (index > 2 && document.querySelector("[data-grid-scope] [data-moving]") === null) break;
+            }
+            return rows;
+        }, action);
+        const expectHugsHead = (rows: Awaited<ReturnType<typeof film>>, growing: boolean): void => {
+            const heights = rows.map((row) => row.frameHeight);
+            const tallest = Math.max(...heights);
+            // 确实量到了半路：有一帧在零与终点之间，且朝着该走的方向。
+            expect(rows.some((row) => row.frameHeight > 1 && row.frameHeight < tallest - 1)).toBe(true);
+            expect(growing ? heights.at(-1) : heights[0]).toBeCloseTo(tallest, 0);
+            for (const row of rows) expect(Math.abs(row.bodyTop - row.frameTop - 32)).toBeLessThanOrEqual(1);
+        };
+
+        const opening = await film("open-c3-below-c");
+        await settled(page);
+        expect((await frameBox(page, "c3")).height).toBeGreaterThan(100);
+        expectHugsHead(opening, true);
+
+        // 关掉：内容项标了留住（`leave: "retain"`），叶在过渡里缩回那道缝，过渡结束才摘掉。
+        const closing = await film("close-c3");
+        await settled(page);
+        await expect(frame(page, "c3")).toHaveCount(0);
+        expect(closing.length).toBeGreaterThan(2);
+        expectHugsHead(closing, false);
+    });
 });
 
 test.describe("停放", () => {
@@ -242,10 +336,14 @@ test.describe("停放", () => {
         expect(await instanceOf(page, "view:b")).toBe(instance);
     });
 
-    test("收成标题行：高度等于面板头，内容停放不重建、内层保持最后的尺寸；展开回来", async ({page}) => {
+    test("收成标题行：高度等于面板头，内容停放不重建、内层保持最后的尺寸；展开回来不重新排版（输出 117）", async ({page}) => {
         await open(page);
         const instance = await instanceOf(page, "view:d");
         const open0 = await frameBox(page, "d");
+        // 挂上时的第一次回调到了再记基数。
+        await expect(leafOf(page, "view:d")).not.toHaveAttribute("data-structure-resizes", "0");
+        await twoFrames(page);
+        const resizes = await leafOf(page, "view:d").getAttribute("data-structure-resizes");
         await act(page, "collapse-d");
         await expect.poll(async () => (await frameBox(page, "d")).height).toBe(32);
         await expect(content(page, "view:d")).toHaveCSS("visibility", "hidden");
@@ -254,6 +352,10 @@ test.describe("停放", () => {
         await expect.poll(async () => (await frameBox(page, "d")).height).toBeGreaterThan(100);
         expect(Math.abs((await frameBox(page, "d")).height - open0.height)).toBeLessThan(2);
         expect(await instanceOf(page, "view:d")).toBe(instance);
+        // 内容的 ResizeObserver 在停放与解除停放时都没有回调：等两帧，晚到的回调也看得见。
+        await expect(content(page, "view:d")).toHaveCSS("visibility", "visible");
+        await twoFrames(page);
+        expect(await leafOf(page, "view:d").getAttribute("data-structure-resizes")).toBe(resizes);
     });
 
     test("手势预览不把内容停放：往零拖时等落账；松手才停放", async ({page}) => {
@@ -355,6 +457,17 @@ test.describe("命中与焦点", () => {
         expect(await focusedPlace(page)).toBe("view:d");
     });
 
+    test("从 grid 后面按 Shift+Tab 进来：落在树序最后一站的最后一个控件，不按 DOM 序（输出 125）", async ({page}) => {
+        await open(page);
+        await act(page, "a-between-c-d");
+        await settled(page);
+        // 树序里右栏是 c、a、d，d 是最后一站；DOM 里 a 的内容还排在最前面。
+        await page.locator("[data-panels-after]").focus();
+        await page.keyboard.press("Shift+Tab");
+        expect(await focusedPlace(page)).toBe("view:d");
+        expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-structure-last"))).toBe(true);
+    });
+
     test("按下 Tab 不松开（收不到 keyup）之后点 grid 里的控件：不改落点", async ({page}) => {
         await open(page);
         await act(page, "a-between-c-d");
@@ -424,5 +537,113 @@ test.describe("命中与焦点", () => {
         await scroller.click();
         await page.keyboard.press("PageDown");
         await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    });
+});
+
+/**
+ * 叠放与拿起的内容：夹具的浮动窗 fw 压在 ea 与 eb 之间的分隔线上，盖层的洋红带压着窗的一截，拿起的 A 的绿头压着两者（矩形见 GridPanelsScene.vue）。
+ * 盖层与拿起的内容不接指针，谁在上面按截图里的像素认；接不接指针按命中认。
+ */
+test.describe("叠放（输出 87、88、90、104）", () => {
+    /** 相对网格根的点换成视口坐标。 */
+    const inGrid = async (page: Page, x: number, y: number): Promise<{x: number; y: number}> => {
+        const root = await box(page, "[data-grid-scope]");
+        return {x: root.x + x, y: root.y + y};
+    };
+
+    test("浮动窗在分隔线之上，盖层在窗之上、不接指针，拿起的内容在最上、不接指针；拿起的内容体占满头下面并跟着重排，不停放", async ({page}) => {
+        await open(page);
+        await act(page, "float-fw");
+        await expect(frame(page, "fw")).toBeVisible();
+        const fw = await frameBox(page, "fw");
+        const sash = await box(page, "[data-sash='body:2']");
+        const onSash = {x: sash.x + sash.width / 2, y: (await inGrid(page, 0, 250)).y};
+        expect(inside(onSash, fw), JSON.stringify({onSash, fw, sash, root: await box(page, "[data-grid-scope]")})).toBe(true);
+        expect(await layerAt(page, onSash)).toBe("content view:fw");
+
+        await act(page, "overlay");
+        await expect(page.locator("[data-panels-overlay]")).toBeVisible();
+        const overlayOnly = await inGrid(page, 320, 170);
+        expect(inside(overlayOnly, fw)).toBe(true);
+        // 命中穿过盖层，落在底下的窗里。
+        expect(await layerAt(page, overlayOnly)).toBe("content view:fw");
+
+        await act(page, "lift-a");
+        await expect(content(page, "view:a")).toHaveAttribute("data-lifted", "");
+        const card = await contentBox(page, "view:a");
+        const head = await box(page, "[data-panels-lifted-head]");
+        const body = await box(page, "[data-content='view:a'] > .nb-grid-content__body");
+        expect(card.height).toBeCloseTo(200, 0);
+        expect(Math.abs(body.height - (card.height - head.height))).toBeLessThanOrEqual(1);
+        expect(Math.abs(body.y - (head.y + head.height))).toBeLessThanOrEqual(1);
+        // 拿起的不算停放：看得见、没有 inert。
+        await expect(content(page, "view:a")).toHaveCSS("visibility", "visible");
+        await expect(content(page, "view:a")).not.toHaveAttribute("inert", "");
+        // 拿起的卡片不接指针：卡片正文下面命中的是底下的面板，不是 A。
+        const underCard = await inGrid(page, 580, 330);
+        expect(inside(underCard, card)).toBe(true);
+        expect(inside(underCard, fw)).toBe(false);
+        expect(await layerAt(page, underCard)).not.toBeNull();
+        expect(await layerAt(page, underCard)).not.toBe("content view:a");
+
+        // 像素：盖层压着窗（洋红），拿起的头压着盖层与窗（绿）。
+        const headOverOverlay = await inGrid(page, 450, 195);
+        const headOverFloat = await inGrid(page, 450, 216);
+        expect(inside(headOverFloat, fw)).toBe(true);
+        const [overlayColor, headOnOverlay, headOnFloat] = await colorsAt(page, [overlayOnly, headOverOverlay, headOverFloat]);
+        expect(near(overlayColor, MAGENTA), `盖层压在窗上：${JSON.stringify(overlayColor)}`).toBe(true);
+        expect(near(headOnOverlay, GREEN), `拿起的头压在盖层上：${JSON.stringify(headOnOverlay)}`).toBe(true);
+        expect(near(headOnFloat, GREEN), `拿起的头压在窗上：${JSON.stringify(headOnFloat)}`).toBe(true);
+
+        // 宿主改了卡片的尺寸：内容体跟着重排，还是占满头下面。
+        await act(page, "lift-a-taller");
+        await expect.poll(async () => (await contentBox(page, "view:a")).height).toBeCloseTo(260, 0);
+        const tallerBody = await box(page, "[data-content='view:a'] > .nb-grid-content__body");
+        expect(Math.abs(tallerBody.height - (260 - head.height))).toBeLessThanOrEqual(1);
+    });
+
+    test("飞行的内容在浮动窗下面（输出 104）", async ({page}) => {
+        await open(page, true);
+        await act(page, "float-fw");
+        await expect(frame(page, "fw")).toBeVisible();
+        await act(page, "a-between-c-d");
+        await expect(content(page, "view:a")).toHaveAttribute("data-flying", "");
+        // 飞的 A 从左栏去右栏，经过窗：重叠处命中的是窗的内容。
+        await expect.poll(() => page.evaluate(() => {
+            const flying = document.querySelector("[data-content='view:a']")!.getBoundingClientRect();
+            const window = document.querySelector("[data-content='view:fw']")!.getBoundingClientRect();
+            const [left, right] = [Math.max(flying.left, window.left), Math.min(flying.right, window.right)];
+            const [top, bottom] = [Math.max(flying.top, window.top), Math.min(flying.bottom, window.bottom)];
+            if (right - left < 4 || bottom - top < 4) return "还没重叠";
+            return document.elementFromPoint((left + right) / 2, (top + bottom) / 2)?.closest<HTMLElement>("[data-content]")?.dataset.content ?? null;
+        }), {intervals: [16]}).toBe("view:fw");
+    });
+
+    test("外框、内容与浮动窗手柄是里面 fixed 元素的包含块，里面的 z-index 出不来（输出 28）", async ({page}) => {
+        await open(page);
+        /** 放一个 `position: fixed; inset: 0`、层级很高、接指针的元素，返回它的矩形。 */
+        const fixedIn = (selector: string) => page.locator(selector).evaluate((host) => {
+            const element = document.createElement("div");
+            element.dataset.testFixed = "";
+            element.style.cssText = "position: fixed; inset: 0; z-index: 99999; pointer-events: auto;";
+            host.append(element);
+            const {x, y, width, height} = element.getBoundingClientRect();
+            return {x, y, width, height};
+        });
+        const expectSameBox = (actual: Box, expected: Box): void => {
+            for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(actual[key] - expected[key])).toBeLessThan(0.5);
+        };
+
+        // 外框：放在 eb 的面板头里。矩形是外框；它的层级出不了外框，eb 的内容（内容层）照样盖在它上面。
+        expectSameBox(await fixedIn("[data-panel-head='eb']"), await frameBox(page, "eb"));
+        const ebBody = await contentBox(page, "tab:eb");
+        expect(await layerAt(page, {x: ebBody.x + ebBody.width / 2, y: ebBody.y + ebBody.height / 2})).toBe("content tab:eb");
+        // 内容：矩形是内容项的外层。
+        expectSameBox(await fixedIn("[data-content='view:a'] [data-structure-leaf]"), await contentBox(page, "view:a"));
+        // 手柄：矩形同窗。浮动窗最后才开，免得它盖住上面量的 eb。
+        await act(page, "float-fw");
+        await expect(frame(page, "fw")).toBeVisible();
+        expectSameBox(await fixedIn("[data-float-chrome='fw']"), await box(page, "[data-float-chrome='fw']"));
+        expectSameBox(await box(page, "[data-float-chrome='fw']"), await frameBox(page, "fw"));
     });
 });

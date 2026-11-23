@@ -22,10 +22,11 @@ import {
     barRef,
     projectLayoutDoc,
     rebaseForOperation,
+    removeTab,
     setPanelCollapsed,
     tabKey,
 } from "@notnotype/nb-workbench-layout";
-import type {Grid} from "@notnotype/nb-layout";
+import type {Grid, GridFloatInput, GridRect} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutProjectionOptions, LayoutResult, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 import {moveGridFocus, NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
@@ -123,16 +124,59 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     },
 };
 
-function run(name: string): void {
-    ACTIONS[name]?.();
+/**
+ * 叠放的几层（nested-grid 输出 87、90、104）：一个浮动窗压在 ea 与 eb 之间的分隔线上，宿主的盖层画一条洋红的带，拿起的 A 带一条绿色的头。
+ * 三者的矩形相对网格根、彼此部分重叠，e2e 按重叠处的像素与命中断言谁在上面。默认都关着，不影响别的用例。
+ * Lab 的画布缺省约 640 宽，分隔线 ea|eb 在根的 x≈340 处：三层都摆在 200 到 620 之间。
+ */
+const FLOAT_ID = "fw";
+const FLOAT_RECT: GridRect = {x: 200, y: 120, width: 320, height: 240};
+const LIFTED_RECT: GridRect = {x: 400, y: 180, width: 220, height: 200};
+const LIFTED_TALLER: GridRect = {...LIFTED_RECT, height: 260};
+const floatOn = shallowRef(false);
+const overlayOn = shallowRef(false);
+const lifted = shallowRef<{readonly key: string} | null>(null);
+const gridEl = useTemplateRef<{placeLifted(rect: GridRect): void}>("gridEl");
+const floats = computed<ReadonlyArray<GridFloatInput>>(() => (floatOn.value ? [{id: FLOAT_ID, rect: FLOAT_RECT}] : []));
+
+/** 拿起：先写矩形再给 `lifted`，刚拿起这次渲染从写下的矩形取（`placeLifted` 的约定）。 */
+function lift(rect: GridRect): void {
+    gridEl.value?.placeLifted(rect);
+    lifted.value = {key: "view:a"};
 }
 
-const contents = computed(() => Object.entries(doc.value.panels).flatMap(([id, panel]) => panel.tabs.map((tab) => ({
-    key: tabKey(tab),
-    leaf: id,
-    insetTop: HEAD,
-    active: panel.active === tabKey(tab),
-}))));
+/** 这几个按钮排在 `ACTIONS` 前面：e2e 从 `maximize-b` 按 Tab 进 grid，它要是 grid 前面最后一个控件。 */
+const LAYER_ACTIONS: Readonly<Record<string, () => void>> = {
+    // 右栏里竖着长出一块新面板、再关掉：它的内容标了留住，关掉时叶留着缩回去（nested-grid 输出 86、155）。
+    "open-c3-below-c": () => commit((current) => openPanelAtEdge(current, {id: "c3", panel: tool("c3"), target: target(current, "c", "bottom")}, POLICY)),
+    "close-c3": () => commit((current) => removeTab(current, "view:c3")),
+    "float-fw": () => {
+        floatOn.value = !floatOn.value;
+    },
+    "overlay": () => {
+        overlayOn.value = !overlayOn.value;
+    },
+    "lift-a": () => lift(LIFTED_RECT),
+    "lift-a-taller": () => lift(LIFTED_TALLER),
+    "drop-lifted": () => {
+        lifted.value = null;
+    },
+};
+
+function run(name: string): void {
+    (ACTIONS[name] ?? LAYER_ACTIONS[name])?.();
+}
+
+const contents = computed(() => [
+    ...Object.entries(doc.value.panels).flatMap(([id, panel]) => panel.tabs.map((tab) => ({
+        key: tabKey(tab),
+        leaf: id,
+        insetTop: HEAD,
+        active: panel.active === tabKey(tab),
+        ...(tabKey(tab) === "view:c3" ? {leave: "retain" as const} : {}),
+    }))),
+    ...(floatOn.value ? [{key: `view:${FLOAT_ID}`, leaf: FLOAT_ID, insetTop: HEAD, active: true}] : []),
+]);
 
 const labelOf = (key: string): string => key.slice(key.indexOf(":") + 1);
 let created = 0;
@@ -150,12 +194,22 @@ function onKeydown(event: KeyboardEvent): void {
 <template>
     <div class="grid-panels-scene" @keydown="onKeydown">
         <div class="grid-panels-scene__actions">
+            <button v-for="(_, name) in LAYER_ACTIONS" :key="name" type="button" :data-panels-action="name" @click="run(name)">{{ name }}</button>
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-panels-action="name" @click="run(name)">{{ name }}</button>
         </div>
         <div ref="containerEl" class="grid-panels-scene__grid" data-panels-host>
-            <NestedGrid data-lab-subject v-bind="host.bindings.value" :contents="contents" :maximized="maximized === null ? null : {leaf: maximized, exclude: BARS}">
+            <NestedGrid
+                ref="gridEl"
+                data-lab-subject
+                v-bind="host.bindings.value"
+                :contents="contents"
+                :floats="floats"
+                :lifted="lifted"
+                :maximized="maximized === null ? null : {leaf: maximized, exclude: BARS}"
+            >
                 <template #leaf="{node}">
-                    <div v-if="doc.panels[node.id] !== undefined" class="grid-panels-scene__head" :data-panel-head="node.id">
+                    <div v-if="node.id === FLOAT_ID" class="grid-panels-scene__head" :data-panel-head="node.id">{{ node.id }}</div>
+                    <div v-else-if="doc.panels[node.id] !== undefined" class="grid-panels-scene__head" :data-panel-head="node.id">
                         <button
                             v-for="tab in doc.panels[node.id]?.tabs"
                             :key="tabKey(tab)"
@@ -170,8 +224,19 @@ function onKeydown(event: KeyboardEvent): void {
                 <template #content="{contentKey}">
                     <GridStructureLeaf :id="labelOf(contentKey)" :create-instance="createInstance" />
                 </template>
+                <template #lifted-head>
+                    <div class="grid-panels-scene__lifted-head" data-panels-lifted-head>拿起</div>
+                </template>
+                <template v-if="floatOn" #float-chrome>
+                    <div class="grid-panels-scene__float-handle" data-panels-float-handle></div>
+                </template>
+                <template v-if="overlayOn" #overlay>
+                    <div class="grid-panels-scene__overlay" data-panels-overlay></div>
+                </template>
             </NestedGrid>
         </div>
+        <!-- grid 后面的控件：从这里按 Shift+Tab 进 grid（nested-grid 输出 125）。 -->
+        <input class="grid-panels-scene__after" data-panels-after aria-label="grid 后面的输入框" />
     </div>
 </template>
 
@@ -216,5 +281,37 @@ function onKeydown(event: KeyboardEvent): void {
     height: 100%;
     background: var(--panel-surface);
     font-size: var(--text-xs);
+}
+
+/* 叠放用例按像素认这几层：颜色要和主题里的任何底色都分得开。 */
+.grid-panels-scene__lifted-head {
+    height: 40px;
+    flex: none;
+    background: rgb(0 200 0);
+}
+
+.grid-panels-scene__overlay {
+    position: absolute;
+    left: 300px;
+    top: 150px;
+    width: 200px;
+    height: 60px;
+    background: rgb(255 0 255);
+}
+
+/* 手柄只在右下角开一小块接指针，其余是空白（nested-grid 输出 113）。 */
+.grid-panels-scene__float-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 12px;
+    height: 12px;
+    pointer-events: auto;
+}
+
+.grid-panels-scene__after {
+    align-self: flex-start;
+    min-width: 0;
+    max-width: 100%;
 }
 </style>
