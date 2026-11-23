@@ -10,7 +10,7 @@ import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from
 import {readDeclaration, readTool} from "./read.js";
 import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search.js";
 import {shellDeclaration, shellTool} from "./shell.js";
-import type {ShellBackground} from "./shell.js";
+import type {ShellAutoBackground, ShellBackground} from "./shell.js";
 import type {SessionEditStores} from "./snapshot.js";
 import type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
 import {writeDeclaration, writeTool} from "./write.js";
@@ -26,7 +26,8 @@ export {runGlob, runGrep} from "./search.js";
 export {SessionEditStores} from "./snapshot.js";
 export type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
 export type {AskAnswer, AskQuestion} from "./ask.js";
-export type {PreparedCommand, ShellBackground} from "./shell.js";
+export type {BackgroundTarget, PreparedCommand, ShellAutoBackground, ShellBackground, ShellHandover, ShellOutcome} from "./shell.js";
+export type {SpoolHandover} from "./output-capture.js";
 export {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, PART_LINES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
 export {OutputCapture, saveFullOutput} from "./output-capture.js";
 
@@ -51,8 +52,8 @@ export function builtinDeclarations(texts: BuiltinToolTexts, options: {readonly 
  * 实现：每次激活一套，行锚快照跟着这一代；审批预览与压缩后的放回要读同一份快照，由宿主建好 `stores` 传进来。`dialects` 给 `shell` 求等级；
  * `shellBackground` 是 `shell` 转后台的实现，不给时 `async` 不生效。
  */
-export function builtinTools(options: {readonly stores: SessionEditStores; readonly dialects: Dialects; readonly shellBackground?: ShellBackground}): Readonly<Record<BuiltinToolName, KitToolImplementation>> {
-    const {stores, dialects, shellBackground} = options;
+export function builtinTools(options: {readonly stores: SessionEditStores; readonly dialects: Dialects; readonly shellBackground?: ShellBackground; readonly shellAutoBackground?: ShellAutoBackground}): Readonly<Record<BuiltinToolName, KitToolImplementation>> {
+    const {stores, dialects, shellBackground, shellAutoBackground} = options;
     return {
         read: readTool(stores),
         write: writeTool(stores),
@@ -60,7 +61,7 @@ export function builtinTools(options: {readonly stores: SessionEditStores; reado
         editReplace: replaceTool(stores),
         grep: grepTool,
         glob: globTool,
-        shell: shellTool(dialects, shellBackground),
+        shell: shellTool(dialects, shellBackground, shellAutoBackground),
         // 两条贡献给模型的名字相同、实现相同，只有声明不同（有没有 form）。
         ask: askTool,
         askForm: askTool,

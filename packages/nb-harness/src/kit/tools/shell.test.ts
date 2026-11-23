@@ -5,6 +5,7 @@
  */
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
+import {renameSync, writeSync} from "node:fs";
 import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -205,4 +206,83 @@ describe("shell", () => {
         expect(cancelled).toMatchObject({status: "error", code: "cancelled"});
         expect(await readFile(savedPath(cancelled.details!.artifact!), "utf8")).toContain("20000");
     }, 30_000);
+});
+
+describe("自动转后台（host-kit.md 的自动转后台）", () => {
+    /** 宿主一侧照接口实现：门槛由测试放行；接手时把暂存改名成任务的输出文件，之后的输出追加到同一个描述符。 */
+    function host(options: {readonly prepare?: "null" | "throw"} = {}) {
+        let reach!: () => void;
+        const reached = new Promise<void>((resolve) => {
+            reach = resolve;
+        });
+        const spoolDir = join(root, "spool");
+        const output = join(root, "job-output.log");
+        const calls = {prepared: 0, discarded: 0};
+        let handover: import("./shell.js").ShellHandover | null = null;
+        const auto: import("./shell.js").ShellAutoBackground = {
+            threshold: () => ({reached, spoolDir}),
+            prepare: async () => {
+                calls.prepared += 1;
+                if (options.prepare === "null") return null;
+                return {
+                    take: (given) => {
+                        if (options.prepare === "throw") throw new Error("接不了");
+                        handover = given;
+                        renameSync(given.spool.path, output);
+                        return {sink: (_error, chunk) => void writeSync(given.spool.fd, chunk), result: {text: "已转到后台"}};
+                    },
+                    discard: () => void (calls.discarded += 1),
+                };
+            },
+        };
+        return {auto, reach, output, calls, handover: () => handover};
+    }
+
+    async function run(args: Readonly<Record<string, unknown>>, auto: import("./shell.js").ShellAutoBackground): Promise<Result> {
+        const tool = shellTool(createDialects(() => []), undefined, auto).create(context, {files, artifacts});
+        const result = await tool.execute(args, {callId: "c-1", signal: new AbortController().signal} as unknown as ToolContext);
+        return (typeof result === "string" ? {text: result} : result) as Result;
+    }
+
+    const gated = () => {
+        const go = join(root, "go");
+        return {command: `echo 一; while [ ! -f ${go} ]; do sleep 0.05; done; echo 二`, release: () => writeFile(go, "")};
+    };
+
+    test("跑过门槛：移交给宿主，交回宿主的结果；命令接着跑、照原时限，输出一行不丢地进了改名后的文件", async () => {
+        const h = host();
+        const cmd = gated();
+        const running = run({command: cmd.command}, h.auto);
+        h.reach();
+        expect(await running).toEqual({text: "已转到后台"});
+        const given = h.handover()!;
+        await cmd.release();
+        expect(await given.done).toMatchObject({exitCode: 0, timedOut: false, cancelled: false});
+        expect(await readFile(h.output, "utf8")).toBe("一\n二\n");
+        expect(h.calls).toEqual({prepared: 1, discarded: 0});
+    });
+
+    test("门槛之前就结束：照前台交回，不移交；暂存文件删掉", async () => {
+        const h = host();
+        const ran = await run({command: "echo 很快"}, h.auto);
+        expect(ran.text).toContain("很快");
+        expect(ran.text).toContain("[退出码 0]");
+        expect(h.calls.prepared).toBe(0);
+        expect(await Bun.file(h.output).exists()).toBe(false);
+    });
+
+    test("宿主接不了（prepare 交回 null、take 抛错）：命令留在前台，跑完照前台交回", async () => {
+        for (const mode of ["null", "throw"] as const) {
+            const h = host({prepare: mode});
+            const cmd = gated();
+            const running = run({command: cmd.command}, h.auto);
+            h.reach();
+            await waitUntil("宿主看过了", () => h.calls.prepared === 1);
+            await cmd.release();
+            const ran = await running;
+            expect(ran.text).toContain("一\n二");
+            expect(h.calls.discarded).toBe(mode === "throw" ? 1 : 0);
+            await rm(join(root, "go"), {force: true});
+        }
+    });
 });

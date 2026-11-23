@@ -3,16 +3,33 @@
  *
  * `push` 只做同步的事（输出回调不等异步，同 omp 的 `OutputSink`）：内存里留开头与结尾，放不下之后同步追加到一个本地临时文件；
  * 结束后再由 `saveFullOutput` 拷进 `artifacts/`。这样暂存目录不可用不影响执行，也不会因为保存失败让命令跑第二遍。
+ *
+ * 给了 `spoolDir`（`shell` 可能自动转后台时）：从第一块起就同步写进这个目录里的暂存文件，转后台时 `handover` 把文件与它的统计整个交出去，
+ * 接手的一方在同一个文件系统上改名、接着往同一个描述符追加，不拷贝（host-kit.md 的自动转后台）。
  */
 
-import {closeSync, mkdtempSync, openSync, rmSync, writeSync} from "node:fs";
+import {randomUUID} from "node:crypto";
+import {closeSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 
 import type {KitServices} from "../files/index.js";
 import {capLines, headAndTail, lineCount, LINE_BYTES, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
 
+/** 交出去的暂存：描述符与路径归接手的一方，之后 `dispose` 不再关它、删它。 */
+export interface SpoolHandover {
+    readonly fd: number;
+    readonly path: string;
+    readonly bytes: number;
+    readonly lines: number;
+    /** 内存里留着的结尾（够截出最后一行）。 */
+    readonly tail: string;
+    readonly full: boolean;
+}
+
 export class OutputCapture {
+    readonly #spoolDir: string | null;
+    #lines = 0;
     /** 没超限时是全部输出；超限后是结尾（留到一个结尾窗口的两倍再修剪，免得每块都修）。 */
     #memory = "";
     #memoryBytes = 0;
@@ -27,12 +44,19 @@ export class OutputCapture {
     spoolProblem: string | null = null;
     chunkProblem: string | null = null;
 
+    constructor(options: {readonly spoolDir?: string} = {}) {
+        this.#spoolDir = options.spoolDir ?? null;
+    }
+
     push(chunk: string): void {
         this.totalBytes += Buffer.byteLength(chunk, "utf8");
         this.#memory += chunk;
         this.#memoryBytes += Buffer.byteLength(chunk, "utf8");
+        for (let index = chunk.indexOf("\n"); index !== -1; index = chunk.indexOf("\n", index + 1)) this.#lines += 1;
+        // 从一开始就写暂存：超出窗口时不用再把内存里的补写一遍。
+        if (this.#spoolDir !== null) this.#spoolWrite(chunk);
         if (this.overflowed) {
-            this.#spoolWrite(chunk);
+            if (this.#spoolDir === null) this.#spoolWrite(chunk);
             if (this.#memoryBytes > PART_BYTES * 2) {
                 this.#memory = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8");
                 this.#memoryBytes = Buffer.byteLength(this.#memory, "utf8");
@@ -49,22 +73,18 @@ export class OutputCapture {
         if (this.#memoryBytes > WINDOW_BYTES || lineCount(this.#memory) > WINDOW_LINES || longest > LINE_BYTES) {
             this.overflowed = true;
             this.#head = Buffer.from(this.#memory, "utf8").subarray(0, PART_BYTES).toString("utf8");
-            this.#spoolWrite(this.#memory);
+            if (this.#spoolDir === null) this.#spoolWrite(this.#memory);
         }
     }
 
     #spoolWrite(text: string): void {
         if (this.spoolProblem !== null || this.full) return;
         try {
-            if (this.#spool === null) {
-                const directory = mkdtempSync(join(tmpdir(), "harness-output-"));
-                const path = join(directory, "output.log");
-                this.#spool = {fd: openSync(path, "wx", 0o600), path};
-            }
+            this.#openSpool();
             const bytes = Buffer.from(text, "utf8");
             const room = OUTPUT_LIMIT - this.#spoolBytes;
             const taken = bytes.length > room ? bytes.subarray(0, room) : bytes;
-            writeSync(this.#spool.fd, taken);
+            writeSync(this.#spool!.fd, taken);
             this.#spoolBytes += taken.length;
             if (taken.length < bytes.length) this.full = true;
         } catch (error) {
@@ -80,6 +100,37 @@ export class OutputCapture {
         return {text: headAndTail(this.#head, Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8"), this.totalBytes), clipped: true};
     }
 
+    #openSpool(): void {
+        if (this.#spool !== null) return;
+        if (this.#spoolDir !== null) {
+            mkdirSync(this.#spoolDir, {recursive: true});
+            const path = join(this.#spoolDir, `${randomUUID()}.log`);
+            this.#spool = {fd: openSync(path, "wx", 0o600), path};
+            return;
+        }
+        const directory = mkdtempSync(join(tmpdir(), "harness-output-"));
+        const path = join(directory, "output.log");
+        this.#spool = {fd: openSync(path, "wx", 0o600), path};
+    }
+
+    /**
+     * 交出暂存（只在给了 `spoolDir` 时可交）：一个同步步骤，之后这里不再写它、不再删它。还没有输出时先建一个空文件。暂存出过错时交不出，
+     * 命令留在前台。
+     */
+    handover(): SpoolHandover | null {
+        if (this.#spoolDir === null || this.spoolProblem !== null) return null;
+        try {
+            this.#openSpool();
+        } catch (error) {
+            this.spoolProblem = error instanceof Error ? error.message : String(error);
+            return null;
+        }
+        const spool = this.#spool!;
+        this.#spool = null;
+        const tail = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8");
+        return {fd: spool.fd, path: spool.path, bytes: this.#spoolBytes, lines: this.#lines, tail, full: this.full};
+    }
+
     get spoolPath(): string | null {
         return this.spoolProblem === null ? (this.#spool?.path ?? null) : null;
     }
@@ -87,7 +138,9 @@ export class OutputCapture {
     dispose(): void {
         if (this.#spool === null) return;
         closeSync(this.#spool.fd);
-        rmSync(dirname(this.#spool.path), {recursive: true, force: true});
+        // 给了暂存目录时只删自己的文件（目录与别的调用共用）；临时目录整个删。
+        if (this.#spoolDir !== null) rmSync(this.#spool.path, {force: true});
+        else rmSync(dirname(this.#spool.path), {recursive: true, force: true});
         this.#spool = null;
     }
 }

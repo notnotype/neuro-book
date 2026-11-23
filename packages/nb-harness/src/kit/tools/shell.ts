@@ -16,7 +16,7 @@ import type {Dialects} from "../commands/index.js";
 import {failure} from "../files/index.js";
 import type {KitServices, SessionFiles} from "../files/index.js";
 import {findAddresses, substitute} from "./shell-address.js";
-import {OutputCapture, saveFullOutput} from "./output-capture.js";
+import {OutputCapture, saveFullOutput, type SpoolHandover} from "./output-capture.js";
 import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
@@ -115,7 +115,36 @@ export interface PreparedCommand {
  */
 export type ShellBackground = (prepared: PreparedCommand, request: {readonly args: Readonly<Record<string, unknown>>; readonly call: ToolContext; readonly context: ToolSessionContext; readonly files: SessionFiles}) => ToolResult | Promise<ToolResult>;
 
-async function run(context: ToolSessionContext, {files, artifacts}: KitServices, args: Readonly<Record<string, unknown>>, call: ToolContext, background: ShellBackground | undefined): Promise<ToolResult> {
+/** 前台的命令跑过门槛就转后台（host-kit.md 的自动转后台）：宿主给门槛与暂存的位置，接手时登记任务。 */
+export interface ShellAutoBackground {
+    /**
+     * 这次调用要不要自动转：交回门槛（到点完成的 Promise，用宿主的时钟计；`signal` 中止时它不再完成）与暂存目录（与任务的输出目录在同一个
+     * 文件系统上，接手时改名）；null 表示不转（设置为 0、子会话）。代码里调的套件先排除。
+     */
+    threshold(request: {readonly call: ToolContext; readonly context: ToolSessionContext}, signal: AbortSignal): {readonly reached: Promise<void>; readonly spoolDir: string} | null;
+    /** 接手的第一步（异步）：占任务 id 与名额、建好输出目录。交回 null 表示接不了，命令留在前台。 */
+    prepare(request: {readonly prepared: PreparedCommand; readonly args: Readonly<Record<string, unknown>>; readonly call: ToolContext; readonly context: ToolSessionContext; readonly files: SessionFiles}): Promise<BackgroundTarget | null>;
+}
+
+export interface BackgroundTarget {
+    /** 同步：把暂存接成任务的输出记录、交回从此接收输出的出口与给模型的结果。抛错时命令留在前台。 */
+    take(handover: ShellHandover): {readonly sink: (error: Error | null, chunk: string) => void; readonly result: ToolResult};
+    /** 没用上（命令已结束、调用已中止、`take` 失败）：退回名额、删掉建好的目录。 */
+    discard(): void;
+}
+
+/** 移交给后台的一条命令：暂存的输出、命令结束的 Promise（时限照旧）、停它的办法。 */
+export interface ShellHandover {
+    readonly prepared: PreparedCommand;
+    readonly spool: SpoolHandover;
+    readonly done: Promise<ShellOutcome>;
+    abort(): void;
+}
+
+/** 命令结束时的样子（退出码、超时、被取消），同 `executeShell` 交回的。 */
+export type ShellOutcome = Awaited<ReturnType<typeof executeShell>>;
+
+async function run(context: ToolSessionContext, {files, artifacts}: KitServices, args: Readonly<Record<string, unknown>>, call: ToolContext, background: ShellBackground | undefined, auto: ShellAutoBackground | undefined): Promise<ToolResult> {
     const signal = call.signal;
     const cwd = await files.readPath(files.layout.working, {signal});
     if (!cwd.ok) return failure(cwd);
@@ -132,18 +161,55 @@ async function run(context: ToolSessionContext, {files, artifacts}: KitServices,
     if (args.async === true && call.within !== undefined) return {text: "代码里调的 shell 不能转后台（async）：去掉 async 在前台跑，或者直接调 shell。", status: "error", code: "async-in-code"};
     if (args.async === true && background !== undefined) return background({command: replaced.command, cwd: cwd.value.path, env}, {args, call, context, files});
 
-    const capture = new OutputCapture();
+    // 自动转后台只对模型直接调的（代码里调的寿命跟着那段代码）。门槛的等待在命令结束时取消。
+    const thresholdStop = new AbortController();
+    const plan = call.within === undefined ? auto?.threshold({call, context}, thresholdStop.signal) ?? null : null;
+    const capture = new OutputCapture(plan === null ? {} : {spoolDir: plan.spoolDir});
+    // 命令用自己的信号跑，接手之前跟着这次调用的；接手时断开，父会话的运行被中止不再影响它。
+    const command = new AbortController();
+    const follow = () => command.abort();
+    signal.addEventListener("abort", follow, {once: true});
+    if (signal.aborted) command.abort();
+    let sink = (error: Error | null, chunk: string) => {
+        if (error !== null) capture.chunkProblem = error.message;
+        else capture.push(chunk);
+    };
+    const prepared: PreparedCommand = {command: replaced.command, cwd: cwd.value.path, env};
+    let handedOver = false;
     try {
-        const result = await executeShell({
+        let finished = false;
+        const done = executeShell({
             command: replaced.command,
             cwd: cwd.value.path,
             env,
             timeoutMs: ((args.timeout as number | undefined) ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
-            signal,
-        }, (error, chunk) => {
-            if (error !== null) capture.chunkProblem = error.message;
-            else capture.push(chunk);
+            signal: command.signal,
+        }, (error, chunk) => sink(error, chunk)).finally(() => {
+            finished = true;
         });
+        if (plan !== null && auto !== undefined) {
+            const first = await Promise.race([done.then(() => "done" as const, () => "done" as const), plan.reached.then(() => "threshold" as const)]);
+            if (first === "threshold") {
+                const target = await auto.prepare({prepared, args, call, context, files}).catch(() => null);
+                // 一个同步步骤：命令这期间结束了、调用中止了，就照前台交回；否则移交，此后的输出进后台的记录。
+                if (target !== null) {
+                    const spool = finished || signal.aborted ? null : capture.handover();
+                    if (spool === null) target.discard();
+                    else {
+                        try {
+                            const taken = target.take({prepared, spool, done, abort: () => command.abort()});
+                            sink = taken.sink;
+                            signal.removeEventListener("abort", follow);
+                            handedOver = true;
+                            return taken.result;
+                        } catch {
+                            target.discard();
+                        }
+                    }
+                }
+            }
+        }
+        const result = await done;
         const {text, clipped} = capture.window();
         const full = capture.overflowed ? await saveFullOutput(artifacts, capture, "shell") : {};
         const code = result.timedOut ? "timeout" : result.cancelled ? "cancelled" : result.exitCode !== 0 ? "exit-nonzero" : undefined;
@@ -158,13 +224,17 @@ async function run(context: ToolSessionContext, {files, artifacts}: KitServices,
         const details = {exitCode: result.exitCode ?? null, timedOut: result.timedOut, cancelled: result.cancelled, bytes: capture.totalBytes, ...(full.address === undefined ? {} : {artifact: full.address}), ...(code === undefined ? {} : {code})};
         return {text: [...(text === "" ? [] : [text.endsWith("\n") ? text.slice(0, -1) : text]), ...notes].join("\n"), ...(code === undefined ? {} : {status: "error" as const, code}), details};
     } finally {
-        capture.dispose();
+        thresholdStop.abort();
+        if (!handedOver) {
+            signal.removeEventListener("abort", follow);
+            capture.dispose();
+        }
     }
 }
 
 /** 判定对象是命令；只读清单在方言里，全部只读才算读（docs/specs/agent/permissions.md 输出 17）。 */
-export const shellTool = (dialects: Dialects, background?: ShellBackground): KitToolImplementation => ({
-    create: (context, services) => ({execute: (args, call) => run(context, services, args, call, background)}),
+export const shellTool = (dialects: Dialects, background?: ShellBackground, auto?: ShellAutoBackground): KitToolImplementation => ({
+    create: (context, services) => ({execute: (args, call) => run(context, services, args, call, background, auto)}),
     effect: (args) => commandEffect(dialects("bash"), args.command as string),
     subjects: (args) => [{kind: "command", dialect: "bash", text: args.command as string}],
 });
