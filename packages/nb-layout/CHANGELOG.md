@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+<!-- t55（简化整理）合入之前不发 0.2.0：它可能给下面这批新名字改名。 -->
+
+### 新增
+
+- 实时布局的拖动会话 `createLiveDragSession` 与组件版 `useLiveDragSession`（`./vue`）：候选稳定才换预览、来源收起与展开、判定几何的冻结与换算、收起那一刻指针不动不重判、空位粘住、拿起的内容做成卡片跟手、一帧里先读后写，宿主只写落点与预览（类型 `LiveDragHost`、`LiveDragState`、`LiveDropFacts`、`LiveShowTarget`、`LiveGrid` 等）。`@experimental`，1.0 之前签名会变。
+- 拖动会话的选项 `sampled`：会话的 `pointermove` 处理一开头调，按需排帧的循环在这里叫醒，不用另挂一个要抢在会话前面的监听。
+- `NestedGrid`：拿起的内容项不在 `contents` 里时网格自己留住它（实例不卸载）；expose 加 `origin()`、`motionMs()`。
+
 ## [0.1.0] - 2026-11-23
 
 ### 不兼容的改动

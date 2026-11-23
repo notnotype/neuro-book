@@ -47,7 +47,10 @@ export interface LiveDropFacts {
  */
 export type LiveShowTarget<D> = {readonly kind: "drop"; readonly drop: D} | {readonly kind: "source-removed"} | null;
 
-/** 容器里跟手的位置：指针与吸收它的容器。 */
+/**
+ * 容器里跟手的位置：指针与吸收它的容器。
+ * @experimental 1.0 之前签名会变。
+ */
 export interface LiveFollowAt {
     readonly point: GridDropPoint;
     readonly container: string;

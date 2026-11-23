@@ -61,6 +61,7 @@ interface DragSessionOptions<S, D, R> {
     commit(drop: D, source: S, keyboard: boolean): void;
     onEnd?(end: DragEnd, last: DragState<S, D>): void;
     onActiveChange?(active: boolean): void;
+    sampled?(): void;
     readonly scroll?: "reevaluate" | "withdraw";
     readonly autoScroll?: {
         readonly element: HTMLElement;
@@ -180,6 +181,121 @@ type GridLayoutCommitResult = {
     readonly ok: true;
 } | GridFailure<GridCommitFailureCode>;
 
+### experimental interface LiveDrag
+引用：GridDropPoint, LiveDragState
+interface LiveDrag<S, D, G> {
+    state(): LiveDragState;
+    begin(source: S, point: GridDropPoint | null): void;
+    offer(drop: D | null): void;
+    wake(): void;
+    geometry(): G | null;
+    unmoved(point: GridDropPoint): boolean;
+    sticky(point: GridDropPoint): D | null;
+    previewedDrop(): D | null;
+    end(): void;
+}
+
+### experimental interface LiveDragHost
+引用：DragCardSize, GridDropRect, LiveDropFacts, LiveFollowAt, LiveShowTarget
+interface LiveDragHost<S, D, G> {
+    facts(source: S, drop: D): LiveDropFacts;
+    show(target: LiveShowTarget<D>, context: {
+        readonly source: S;
+        readonly collapsed: boolean;
+    }): boolean;
+    measure(source: S): G;
+    collapsed(source: S, before: G): G | null;
+    staysWithoutSource?(source: S): boolean;
+    card: {
+        readonly key: (source: S) => string;
+        readonly rect: (source: S, container: string | null, geometry: G) => GridDropRect | null;
+        readonly compact?: DragCardSize;
+        readonly keepSizeInsideHome?: () => boolean;
+        readonly refreshMs?: () => number;
+    };
+    follow?: {
+        readonly read: (at: LiveFollowAt | null) => () => void;
+        readonly afterRender: (at: LiveFollowAt | null) => void;
+    };
+}
+
+### experimental interface LiveDragSessionHandle
+引用：DragSession, LiveDrag
+interface LiveDragSessionHandle<S, D, L, G> {
+    readonly session: DragSession<S, D>;
+    readonly live: LiveDrag<L, D, G>;
+    dispose(): void;
+}
+
+### experimental interface LiveDragSessionOptions
+引用：DragSessionOptions, LiveDragHost, LiveDragState, LiveGrid
+interface LiveDragSessionOptions<S, D, R, L, G> extends Omit<DragSessionOptions<S, D, R>, "root" | "sampled"> {
+    live(source: S, keyboard: boolean): L | null;
+    readonly host: LiveDragHost<L, D, G>;
+    grid(): LiveGrid | null;
+    changed?(state: LiveDragState): void;
+}
+
+### experimental interface LiveDragSessionRefs
+引用：DragSession, DragState, LiveDrag, LiveDragState
+interface LiveDragSessionRefs<S, D, L, G> {
+    readonly session: Readonly<ShallowRef<DragSession<S, D> | null>>;
+    readonly live: Readonly<ShallowRef<LiveDrag<L, D, G> | null>>;
+    readonly state: ComputedRef<DragState<S, D> | null>;
+    readonly liveState: Readonly<ShallowRef<LiveDragState>>;
+    readonly lifted: ComputedRef<{
+        readonly key: string;
+    } | null>;
+    readonly dragging: ComputedRef<boolean>;
+}
+
+### experimental interface LiveDragState
+引用：GridRect, LivePreview
+interface LiveDragState {
+    readonly active: boolean;
+    readonly preview: LivePreview;
+    readonly previewed: boolean;
+    readonly collapsed: boolean;
+    readonly lifted: {
+        readonly key: string;
+    } | null;
+    readonly slotInGrid: GridRect | null;
+}
+
+### experimental interface LiveDropFacts
+引用：GridDropRect
+interface LiveDropFacts {
+    readonly key: string;
+    readonly inPlace: boolean;
+    readonly home: boolean;
+    readonly slotOnScreen: GridDropRect | null;
+    readonly container?: string | null;
+}
+
+### experimental interface LiveFollowAt
+引用：GridDropPoint
+interface LiveFollowAt {
+    readonly point: GridDropPoint;
+    readonly container: string;
+}
+
+### experimental interface LiveGrid
+引用：GridDropPoint, GridRect
+interface LiveGrid {
+    origin(): GridDropPoint;
+    placeLifted(rect: GridRect): void;
+    settleMotion(): void;
+    motionMs(): number;
+}
+
+### experimental type LiveShowTarget
+type LiveShowTarget<D> = {
+    readonly kind: "drop";
+    readonly drop: D;
+} | {
+    readonly kind: "source-removed";
+} | null;
+
 ### experimental component NestedGrid
 引用：GridContentInput, GridExtent, GridFailure, GridFloatInput, GridGestureCancellation, GridGestureCommit, GridGesturePreview, GridGestureStart, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridLeafShape, GridNode, GridRect, GridSwap
 props:
@@ -219,7 +335,9 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  motionMs: () => number
   moving: boolean
+  origin: () => { x: number; y: number; }
   outgoingLeaves: ReadonlySet<string>
   placeFloat: (id: string, offset: { readonly x: number; readonly y: number; } | null) => void
   placeLifted: (rect: GridRect) => void
@@ -304,6 +422,10 @@ interface UseSortableOptions {
 引用：DragSession, DragSessionOptions
 declare function createDragSession<S, D, R = never>(options: DragSessionOptions<S, D, R>): DragSession<S, D>;
 
+### experimental function createLiveDragSession
+引用：LiveDrag, LiveDragSessionHandle, LiveDragSessionOptions
+declare function createLiveDragSession<S, D, R = never, L = S, G = unknown>(root: HTMLElement, createOptions: (live: LiveDrag<L, D, G>) => LiveDragSessionOptions<S, D, R, L, G>): LiveDragSessionHandle<S, D, L, G>;
+
 ### experimental function dropTargetAt
 引用：DropKind
 declare function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {
@@ -336,6 +458,10 @@ declare function useGridHost<T>(options: GridHostOptions<T>): GridHost<T>;
 ### experimental function useLayoutExtent
 引用：GridExtent
 declare function useLayoutExtent(element: Readonly<Ref<HTMLElement | null>>): Readonly<Ref<GridExtent | null>>;
+
+### experimental function useLiveDragSession
+引用：LiveDrag, LiveDragSessionOptions, LiveDragSessionRefs
+declare function useLiveDragSession<S, D, R = never, L = S, G = unknown>(root: Readonly<Ref<HTMLElement | null>>, createOptions: (live: LiveDrag<L, D, G>, root: HTMLElement) => LiveDragSessionOptions<S, D, R, L, G>): LiveDragSessionRefs<S, D, L, G>;
 
 ### experimental function useSortable
 引用：SortableHandle, UseSortableOptions

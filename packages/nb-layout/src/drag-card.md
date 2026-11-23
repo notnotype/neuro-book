@@ -20,11 +20,11 @@ const loop = createFrameLoop({
         return settling;
     },
 });
-// 建拖动会话之前挂（见下文“和拖动会话一起用”）。
-window.addEventListener("pointermove", (event) => {
-    pointer = {x: event.clientX, y: event.clientY};
-    loop.wake();
-}, {capture: true, passive: true});
+// 会话的 `sampled` 里叫醒它（见下文“和拖动会话一起用”）；指针取会话此刻的 `state.point`。
+const session = createDragSession({
+    // …
+    sampled: () => loop.wake(),
+});
 
 // 拿起时：pointer = 按下的点; card = null; loop.start();
 // 放下或取消时：loop.stop(); card = null;
@@ -49,6 +49,6 @@ window.addEventListener("pointermove", (event) => {
 
 ## 和拖动会话一起用
 
-一帧里先读、后写，样式只重算一次：判定（[拖动会话](vue/drag-session.md)的 `resolve`，读 DOM）在前，写卡片在后。要做到这一点，帧循环的帧要排在会话发布的帧前面，所以叫醒它的 `pointermove` 监听要先于会话在按下时挂的监听挂上，例如建会话时就挂，并且在你的 `frame` 里先调 `session.flush()` 让会话做完这一帧的判定，再写卡片。挂反了不报错，只是每帧多一次强制的样式重算。
+一帧里先读、后写，样式只重算一次：判定（[拖动会话](vue/drag-session.md)的 `resolve`，读 DOM）在前，写卡片在后。要做到这一点，帧循环的帧要排在会话发布的帧前面：在会话的 `sampled` 里调 `wake`（会话自己的 `pointermove` 处理一开头同步调它），并且在你的 `frame` 里先调 `session.flush()` 让会话做完这一帧的判定，再写卡片。顺序反了不报错，只是每帧多一次强制的样式重算。
 
-候选稳定才换预览、指针在已显示的空位里候选不变，用 `stepLiveDrop` 与 `insideShownSlot`。它们的空位是视口坐标，画在网格根里时自己减去网格根的左上角。
+要的是整套实时布局（候选稳定才换预览、来源收起与展开、空位粘住、卡片拿起与收回），用[实时布局的拖动会话](vue/live-drag-session.md)，这些都接好了；`stepLiveDrop`、`insideShownSlot` 与这两样零件留作底层，自己编排时用。

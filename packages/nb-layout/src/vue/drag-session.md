@@ -17,11 +17,12 @@ const {state} = useDragSession(rootEl, (root) => ({
 |---|---|
 | `sourceAt(target)` | 按下处的来源。要自己排除可交互的元素（按钮、输入框），不然点按钮也会起拖 |
 | `activate?(source, keyboard, at)` | 过了门槛时调：宿主冻结它要的东西；返回 `false` 不起拖 |
-| `resolve(query)` | 同步判定这一刻的落点。放下时、自动滚动时也会调，不能假定一次移动只调一次 |
+| `resolve(query)` | 同步判定这一刻的落点。放下时、自动滚动时也会调，不能假定一次移动只调一次。不改布局、不提交；可以记下这一场的判定、在读完 DOM 之后写跟手的反馈 |
 | `actionKey(drop)` | 落点动作的比较键；放下时与最后显示过的相同才提交（`commitsUnderPointer` 为真时例外） |
 | `commit(drop, source, keyboard)` | 提交 |
 | `commitsUnderPointer?(keyboard)` | 为真时放下提交此刻判定的落点，不要求与最后显示过的相同。别的东西跟着指针即时让位（实时布局、`useSortable`）时用：显示的总比指针慢一拍。缺省假 |
 | `onActiveChange?(active)` | 一场开始与结束：宿主在这里写光标、禁选这类标记 |
+| `sampled?()` | 有新的指针样本：会话自己的 `pointermove` 处理一开头同步调，早于它排发布的帧。按需排帧的循环（`createFrameLoop`）在这里叫醒，帧就排在发布的前面 |
 | `onEnd?(end, last)` | 一场结束时调：`committed`（提交了）、`no-action`（放下了但没有要做的动作）、`cancelled`（带原因：Escape、失焦、根没了等） |
 | `structure?()` | 此刻的结构键；一场里它变了整场取消 |
 | `scroll?` | `"reevaluate"`（缺省）滚动时重新判定；`"withdraw"` 滚动时撤下落点，直到指针再动 |
