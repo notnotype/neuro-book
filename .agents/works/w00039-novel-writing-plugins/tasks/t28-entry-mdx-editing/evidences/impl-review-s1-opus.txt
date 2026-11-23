@@ -1,0 +1,111 @@
+# w00039 t28 S1 实现审查（Claude Opus，提交范围 5f6ea1f94..44f8760cc）
+
+### 1. “不写 after”与“写 after 最后一块 / 写 null”在两种意图下排出相反的顺序
+- **严重程度**：重要
+- **类别**：正确性
+- **位置**：packages/nb-canon/src/world/entry-edits.ts:146-166（addBlock 分支的 `placed`）
+- **现象**：剧情变化里“不写 after”先换成 `lastBlock` 再按它算 `slot`，所以和写明 `after: <最后一块>`（主文字为空时和 `after: null`）落在同一个键上、按写的先后接上；改设定里“不写”直接 `push` 到末尾，既不读也不写 `placed`，于是后面写明“最后一块”或 `null` 的项按自己的锚点插，排到前一项前面（或最前）。实测（真实 WorldService，同一批两项）：
+  - 初值 A、B，`[{addBlock 甲}, {addBlock 乙, after: "b2"}]`：creative 得 `A B 乙 甲`，story 得 `A B 甲 乙`。
+  - 初值为空，`[{addBlock 甲}, {addBlock 乙, after: null}]`：creative 得 `乙 甲`，story 得 `甲 乙`。
+- **为什么是问题**：Spec（revisions.md 输出 25“主文字的块”）与计划 3.1 第 1 条说“同一批里落在同一处的几项按写的先后排”，并且两种意图是同一套规则；现在同一份操作换个意图就排出相反的结果。S3 的稿 `compile` 若给末尾追加的块不写 `after`、给插在最后一块后面的块写 `anchor`（textBlocks 给最后一块的 anchor 就是它自己），两类混在一批里时改设定会颠倒顺序。用例只测了“同类锚点重复出现”，没测“不写”和“写明同一处”混排。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e1-order.ts（`cd packages/nb-canon && bun <脚本>`）。
+- **建议改法**：改设定的“不写”也换成具体锚点再进 `placed`：`const anchor = op.after === undefined ? (entry.init.text.at(-1)?.id ?? null) : op.after`，但要在本批放进初值之前取“原初值的最后一块”（或干脆让 `slot` 用“末尾”这个独立键、并让写明最后一块的项也认这个键）。两种意图都改成同一个“规范化锚点”函数，补一条“不写 + 写明最后一块 / null”混排的用例，两种意图各跑一遍。
+
+### 2. 块原文的校验细项序号没覆盖 `create` 的主文字；Agent 工具的回话也没用上这个序号
+- **严重程度**：建议
+- **类别**：正确性 / 不变量
+- **位置**：packages/nb-canon/src/world/entry-edits.ts:488-501（`create` 分支不登记 `targets`）、114-118（`locate` 只登记 set/replace）；packages/neuro-book/src/plugins/canon/backend/agent-text.ts:148-151、162-165
+- **现象**：实测一批里 `create` 一个条目、`text: ["ok", "没闭合的 {表达式"]`，拒收的细项是 `{code: "cross-block", ref: {kind: "entry", id: "e2"}, path: "init.text[b2]"}`，没有 `op`。Agent 工具把 `validation-failed` 的细项交给 `problemAt(problem.path)`，只认 `ops[N]` 形状的路径，于是 `init.text[b3]`、`patches[0]` 这类细项（本次补了 `op` 的恰恰是它们）在 Agent 的回话里仍然不写“第几项”。
+- **为什么是问题**：Spec（revisions.md 输出 25）写的是“块的原文没过校验时，那条校验细项另带 `op`”，没把 `create` 排除；Agent 最常见的出错正是新建条目时写坏 MDX。计划 3.1 第 4 条的目的是“对回是第几项”，Agent 这条主要的写入方拿不到。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e2-misc.ts 的“create 坏块”一行。
+- **建议改法**：`create` 分支对新条目的每一块登记 `{op: index, ref: {kind: "entry", id: <tmp id>}, path: "init.text[<块>]"}`；注意发布后 ref 里是落地后的 id，与 `isNewChange` 同理需要一个“新条目”的认法（候选里刚发的、原世界没有的条目 id），或把 Target 的 ref 换成 tmp id、由 `checkPlan` 经 `result` 里的 id 对照不到时按新条目认。`problemAt` 在有 `op` 时优先写“第 op+1 项”。如果有意不覆盖 `create`，Spec 那句写明只限加块、改块与剧情变化。
+
+### 3. 就地改与它的预览的失败里多出了 `op: 0`，与 `single()` 的约定不符
+- **严重程度**：建议
+- **类别**：不变量
+- **位置**：packages/nb-canon/src/world/entry-edits.ts:236-246（`checkPlan` 补 `op`）；packages/nb-canon/src/world/edits.ts:89-95（`single`）
+- **现象**：`editInPlace` / `previewEdit` 把一块改成坏 MDX，失败是 `{code: "validation-failed", problems: [{path: "init.text[b1]", code: "cross-block", ref: {...}, message: ..., op: 0}]}`。改之前没有 `op`。`single()` 的注释写“去掉项的序号（只有一项）”，它去掉了失败级的 `op` 与 `ops[0]` 的路径，却不知道细项上新出现的 `op`。
+- **为什么是问题**：单项入口（就地改、记一笔，及远程合同里对应的方法）的失败形状悄悄多了一个对它没有意义的字段，和 `single` 声明的约定相反；以后谁按“有 op 就是批量”判断会误判。影响小，但这是本次改动带来的形状变化。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e2-misc.ts 的前两行输出。
+- **建议改法**：`single()` 的 `validation-failed` 分支里一并去掉细项的 `op`（`({path, op: _op, ...rest})`）。
+
+### 4. 删初值的块只看“这条线上”的变更：别的线上的剧情挂在它后面或改过它时照样删掉，那条线的整条变更静默套不上
+- **严重程度**：重要（地址相同的那一半 base 上就有；“被当作锚点”这一半是本次要修的同一个缺口，跨线仍在）
+- **类别**：正确性 / 不变量
+- **位置**：packages/nb-canon/src/world/text-blocks.ts:313-337（`textTouches` 只扫 `world.lineAt(position).records.changes`）；entry-edits.ts:681-685
+- **现象**：初值 A、B、C；建子线 l1；在 l1 的第 2 章记一条剧情变化 c3：`addBlock X after b1` + 把 b2 整块换成 B′。此时子线 ch3 读到 `A X B′ C`。在**主线**上改设定删 b1：预览与写入都成功（主线的 `textBlocks` 也给 b1 `fixed: []`）。之后子线 ch3 读到 `B C`：X 与 B′ 都没了（c3 整条套不上），主线的待处理里什么也没有。反过来子线上删初值块、主线的变更挂在它后面同理（子线视图只含切口前的父线变更）。
+- **为什么是问题**：初值是所有线共用的，删初值的块影响每一条线；拒收条件只看读取位置那条线，正是计划 3.1 第 2 条描述的那种“变更套不上、连带的块跟着消失”，只是换到了另一条线上。用户在主线上按块编辑时，界面（照 `fixed`）会放出这个删除按钮。Spec 的措辞“这条线上没撤销的变更”把这个缺口写进了合同；旧的 `touchedBy`（列表元素、别名）口径相同，同样有这个问题（不在本次范围，一并指出）。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e3-lines.ts（`cd packages/nb-canon && bun <脚本>`）。
+- **建议改法**：改设定删初值的块（以及 `textBlocks.fixed`）按**所有线**上没撤销的变更判：扫 `world.data.changes`（与 `usedBlockIds` 一样），不经线视图；`reason` 里列出的变更已带 id，界面能写是哪条线哪一章。列表元素与别名的 `touchedBy` 同样改成扫全世界，或者在 Spec 里明确写出“删初值项会让别的线的变更套不上”是接受的限制。这一条需要开发者或主会话定口径（它改 Spec 的措辞）。
+
+### 5. `textBlocks` 在子线上对每一块都取一次来历，代价随块数平方增长（1000 块约 0.8 秒、同步）
+- **严重程度**：建议
+- **类别**：安全与性能
+- **位置**：packages/nb-canon/src/world/text-blocks.ts:137（捷径条件 `line.synthetic.size === 0`）
+- **现象**：子线的 `synthetic` 至少含它自己的分叉 id，永远非空，所以子线上每一块都走 `writeBack` → `engine.origins`，而每次取来历要把这个条目的状态重放一遍（主文字越长越慢）。实测（真实 WorldService，单个条目，主线三章共 150 条整块替换，子线切口在第 1 章开头）：300 块时子线一次 84 ms、主线 184 ms；1000 块时子线一次 777 ms、主线 220 ms；同一位置的 `entry` 读取 0.3–0.6 ms。读取在服务里同步执行，期间写队列与别的读取都等着。主线上被碰过的块也各取一次来历，被碰过的块多时同样线性叠加。
+- **为什么是问题**：计划说“只在进入编辑、重读时调用”，但长篇设定条目（几百块）在子线上进入编辑就要卡半秒以上，且 S3 的 rebase 每次提交被拒都会重读。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e4-perf.ts `<块数>`（`cd packages/nb-canon && bun <脚本> 1000`）。
+- **建议改法**：捷径按“这一块有没有被带过来”判断，而不是“这条线有没有任何带过来的值”：从 `line.synthetic` 的合成变更（`line.engine.inputs.world.changes.get(id).patches`）收集 `text[...]` 地址，块不在其中、在初值里、`fixed` 为空时直接是 `init`。被碰过的块可以一次取整条主文字的来历后按块分（若引擎有按条目给来历的入口），或至少只对 `fixed` 里最后一条变更所在的那几块取来历。
+
+### 6. 已删除的条目：只补了加块、删块两处，`aliases`、`listAdd` 仍得到 `result-mismatch` 或一串无关的校验细项；Agent 的提示也说错原因
+- **严重程度**：建议
+- **类别**：不变量 / 代码质量
+- **位置**：packages/nb-canon/src/world/entry-edits.ts:551-580（listAdd）、604-624（aliases）、628、667（本次补的两处）；packages/neuro-book/src/plugins/canon/backend/agent-text.ts:142-143
+- **现象**：同一个已删除的条目上（实测）：`set` 块与 `set entry.name` 经 `current()` 得 `field-unavailable`（op 0）；本次的 `addBlock`、`removeBlock` 也是 `field-unavailable`；但改设定的 `aliases` 得 `result-mismatch`，剧情变化的 `aliases` 得三条校验细项（`entry-missing` ×2、`ref-invalid/entry-deleted`），都不带 `op`。`listAdd` 没有已删除的判断（从代码推断与 aliases 同类）。同一批里“先 delete/restore 再加块”和“先加块再 delete”被 `duplicate-address`（`$` 与 `text[+i]` 重叠）拦下，所以本次两处的判断只在“条目在读取前就已删除”时起作用，这部分是合理的。
+- **为什么是问题**：同一个原因（条目已删除）按操作种类给出三种不同的失败，调用方（S3 的稿、Agent）要分别认；本次按操作逐个打补丁，下一个新操作还会漏。Agent 收到 `field-unavailable` 时的提示是“设定组没启用、去掉了、只读或类型不在。先 addComponent，或换个位置”，对已删除的条目是误导。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e2-misc.ts 后半的输出。
+- **建议改法**：在循环开头统一判断：目标条目（`at.entry` 或 `entry`）在草稿里已删除、而操作不是 `restore`、`delete`、`place` 时，回 `field-unavailable` 带 `op`；去掉 addBlock、removeBlock 里各自的判断。Agent 的 `field-unavailable` 提示加一句“或条目已删除（先 restore）”。若只想补主文字，至少在 Spec 里写明 aliases 与 listAdd 的现状。
+
+### 7. 还原修订能绕过“删初值的块”的拒收：还原加了某块的那次改设定，挂在它后面的剧情块静默消失（base 上就有，非本次回归）
+- **严重程度**：重要（base 上就有；与本次第 2 处修的是同一种后果）
+- **类别**：正确性
+- **位置**：packages/nb-canon/src/world/world.ts:394-417（`dependents`）、883-939（`addedElements`、`dependsOn`）
+- **现象**：初值 A；改设定加一块 B（b2，修订 R1）；第 2 章剧情变化 `addBlock X after b2`。读到 `A B X`。`revert(R1, withDependents=false)` 成功，之后读到 `A`：X 所在的变更整条套不上。`dependsOn` 只把“前一次修订在剧情变更里 listAdd 的元素”算作后者可能依赖的东西；改设定加进初值的块（条目对象的 modify）与后面剧情变更里以它为地址或锚点的补丁不算依赖，所以不报 `has-dependents`。同理（从代码推断）：还原加了初值列表元素的修订，后面剧情改过该元素的变更也会套不上。
+- **为什么是问题**：计划 3.1 第 2 条修的是“删初值的块使挂在它后面的变更套不上”，改设定的 `removeBlock` 现在拦住了，但作者在修订列表里“还原”同样把这块从初值里拿掉，而且不报依赖、不进待处理。
+- **其余路径（核对结论）**：`set` 整个 `text` 不存在（`text` 根只接受 `text[块]` 的地址，补丁执行也只认单块），不构成绕过；直接 `publish` 条目对象能去掉锚点块（实测 `publish` 后读到 `B`，X 消失），这是不做语义检查的底层写入口，按现状算有意放行；`delete` 条目不动初值，`restore` 后块都在。别名的旧口径有同类缺口：改设定 `aliases remove` 被拒，但改设定 `set entry.aliases = []`（经 `writeInit` 整个替换）在同一处成功，剧情里的 `aliasRemove` 随即套不上；整表 `set` 列表字段（从代码推断）同样绕过 `elementTouchedBy`。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e5-bypass.ts（`cd packages/nb-canon && bun <脚本>`）。
+- **建议改法**：`dependsOn` 的“前者加出来的东西”加上改设定加进初值的块与列表元素（从 modify 的 `init.text`、`init.data.*` 前后对比得出），后者的剧情补丁以它为地址或 `addBlock.after` 时算依赖；`set entry.aliases` 与整表 `set` 在改设定下按逐项的 touched 判断（或拒收、要求用 aliases / listRemove）。这几处不在 S1 的范围，可以记进 followups。
+
+### 8. 计划第 6 节“子线”一格没有用例；`write: "none"` 与子线上的捷径条件没有任何用例覆盖
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：packages/nb-canon/tests/text-blocks.test.ts:243-269（`TOUCHES` 五种情形都在主线）、210-221（`write` 用例只在主线两个位置）
+- **现象**：计划验收映射写“`fixed` 非空当且仅当改设定的删块被拒收（后面的章改过、待定的、计划的、前史的、**子线**、被当作锚点）”，`TOUCHES` 里没有子线一项；`write` 的三个取值里 `none`（从别的线带过来）没有一条断言；`text-blocks.ts:137` 的 `line.synthetic.size === 0` 去掉以后（子线上没带过值的初值块也走捷径）没有用例会失败，`writeBack` 的 `carried` 分支也只靠 base 上 `routeSet` 的旧用例兜着。
+- **为什么是问题**：子线是 `textTouches` 与 `writeBack` 差异最大的地方（视图里含切口前的父线变更、有合成事件），恰恰没测；第 4、5 条的问题也都出在子线或跨线上。
+- **如何核实**：读用例；建议主会话做变异：(a) 把 text-blocks.ts:137 的 `&& line.synthetic.size === 0` 删掉；(b) 把 `writeBack` 里 `if (view.synthetic.has(last.change)) return {kind: "carried"}` 删掉，看 text-blocks.test.ts 是否仍全过（预计 (a) 全过）。
+- **建议改法**：`TOUCHES` 加一项“子线上的变更换过它 / 挂在它后面”（在子线位置读 `textBlocks` 并预览删块）；加一条带过去的值的用例：父线在切口后改了 b1、分叉 `carry` 含 `text[b1]`，子线读到 `write: "none"`，子线上改设定 `set` 这一块得 `carried-value`。scratch/e3-lines.ts 的建线写法可以照搬。
+
+### 9. 主文字的块不可能“从别的线带过来”：`write: "none"`、`anchor` 缺省与捷径里的 `synthetic` 条件对主文字都是不可达的；据此修正第 5、8 条的改法
+- **严重程度**：建议
+- **类别**：代码质量 / 文档
+- **位置**：packages/nb-canon/src/world/text-blocks.ts:137、344-358（`write` 的 `none`、`anchor` 的“追不到”）；packages/nb-canon/src/world/forks.ts:128-131；docs/specs/canon/project.md 方法表 `textBlocks`
+- **现象**：分叉的 `carry` 只接受设定组里的字段或列表（forks.ts:129 `parsed.root !== "namespace"` 即拒，实测 `carry: [text[b1]]` 得 `invalid-fork`“carry names a field or a list, not an element or its sub-field”），所以线层的合成事件里永远没有 `text[...]` 的补丁，`writeBack` 对块地址不会返回 `carried`，`write: "none"` 出不来；子线视图的记录含切口前的父线变更，剧情加出来的块沿 `after` 总能追到初值或最前，`anchor` 也不会缺。`line.synthetic.size === 0` 这一条件对块没有区分作用，只是让子线上所有块都去取来历（第 5 条的性能问题全部来自它）。
+- **为什么是问题**：Spec 与类型给调用方（S3 的稿与按钮）描述了一个不会出现的状态与理由（“从别的线带过来的块不能改”，author-ui 输出 39 也照写了），界面要为它写分支、文案和测试；捷径的注释“这条线上没有带过来的值”给出的理由与真实约束（块不能被带）不符。
+- **如何核实**：/tmp/claude-review-w00039-t28-s1/scratch/e7-carry.ts 的第一行输出；读 forks.ts:121-139。
+- **建议改法**：第 5 条的改法简化为：捷径去掉 `line.synthetic.size === 0`，注释改写成“块不会被分叉带过去（forks.ts 的 carry 只收设定组字段），初值里没被碰过的块来历只有初值一步”；`write` 是否保留 `none` 由主会话定：若保留作防御，注释写明当前不可达；否则从类型、Spec 与 author-ui 输出 39 一并去掉。第 8 条里“加一条带过去的值的用例”作废（造不出来），子线一格仍应补。
+
+### 10. 第 1 条收窄为“建议”（收窄，见第 1 条）
+- **严重程度**：建议
+- **类别**：正确性
+- **位置**：同第 1 条
+- **现象**：计划 3.3 的 `compile` 给每个新块都写 `after`（取前面最近旧块的 `anchor`，前面没有旧块写 `null`），从不“不写”，所以 S3 的稿不会碰到第 1 条的混排。会碰到的是 Agent 工具（说明里“不写放在最后”与“after 块 id”并列）和以后直接调 `editEntries` 的调用方：Agent 在一批里写“addBlock 不写 after”再写“addBlock after <最后一块>”，改设定与剧情变化排出相反的顺序。
+- **为什么是问题**：仍与 Spec“两种意图都是、同一处按写的先后”不符，但影响面从“作者的稿”缩到 Agent 与外部调用方。
+- **如何核实**：同第 1 条。
+- **建议改法**：同第 1 条；成本小，建议仍在 S1 里改掉并补用例。
+
+## 未发现问题的方面
+- `writeBack` 抽出后 `routeSet` 的行为：逐分支对照 5f6ea1f94，带过去的值（先于累出来的判断）、累出来的值（reduce、anchor 档核对点、add/note 补丁）、初值、给出值的变更四路结果相同，`accumulated-value` 带的 `origins` 是同一份数组；线不存在在 `planEntries` 开头就返回 `line-not-found`，`routeSet` 里那一支不可达（base 上是 `!` 断言）。
+- 同一处几项的先后（除第 1 条的混排）：交叉锚点（甲挂 b1、乙挂 b2、丙挂 b1）两种意图都得 `A 甲 丙 B 乙`；同一批对不同条目加块，`placed` 的键带条目 id，不串；同一批先加后删锚点、先删后加锚点分别得到合理结果或 `element-missing`。剧情变化里后一项锚到前一项的新块，都在同一条变更里，补丁执行是整条套或整条不套，就地改只改 `source` 不动 `after`；`apply.ts` 没动，旧日志重放不受影响。
+- 已删除条目上的同批组合：`delete`/`restore` 的地址是 `$`，与同批的加块、删块按 `duplicate-address` 拒收，所以“先 restore 再加块”“先加块再 delete”都进不到新加的判断。
+- 校验细项的序号：一批只合成一条新变更、新建条目不登记 target，`isNewChange` 不会把别的变更的问题认成某一项；剧情加块锚点不存在时 `element-missing` 细项也正确带上了 `op`（scratch/e6-story-after.ts）。
+- `textBlocks` 的远程方法不收视图令牌：远程合同的输入 schema 由 `defineRemoteService` 补成 `additionalProperties: false`，带 `view` 的调用直接被拒，不会静默按无视图读；不带视图本来就能读 `entry`，没有新的绕过。
+- `fixed` 与主线上改设定删块的拒收是同一个函数、同一条线，TOUCHES 各情形（后面的章、待定、计划、前史、撤销）结果一致；`anchor` 沿链追到初值、追到已被剧情删掉的初值块时，照它写 `addBlock` 读回的位置正确（按补丁执行顺序推演）。
+- `bun test tests/text-blocks.test.ts` 17 过、`entry-edits-service.test.ts` 过、`bun run typecheck` 通过（实现 worktree 的 nb-canon）。
+
+## 各级数量
+- 阻断：0
+- 重要：2（第 4、7 条；第 7 条 base 上就有，第 4 条一半 base 上就有）
+- 建议：7（第 1（已收窄）、2、3、5、6、8、9 条）
+- 第 10 条是对第 1 条的收窄说明，不单独计数。
+
+有效发现：1、2、3、4、5、6、7、8、9
