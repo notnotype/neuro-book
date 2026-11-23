@@ -661,7 +661,7 @@ test("只有一个标签的组拖到紧贴它的那条边：放下去还是现�
     await closeAll(page);
 });
 
-test("拖动标签时按键归拖动；失去捕获、焦点移到工作台外都取消且不写，松手不选中标签（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
+test("拖动标签时按键归拖动；失去捕获、窗口失焦、焦点移到工作台外都取消且不写，松手不选中标签（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
@@ -701,6 +701,13 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到工作台外�
     await page.locator(".workbench-shell-host").evaluate((host) => host.releasePointerCapture(1));
     await page.mouse.move(from.x + 12, from.y);
     await releaseOnSource(active);
+
+    // 窗口失焦：无头 Chrome 没有真实的窗口失焦，派发窗口自己的 blur。
+    await tabs(page).filter({hasText: "c.md"}).click();
+    await grab();
+    const blurred = await selected();
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
+    await releaseOnSource(blurred);
 
     await tabs(page).filter({hasText: "b.md"}).click();
     await grab();

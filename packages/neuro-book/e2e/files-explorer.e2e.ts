@@ -955,7 +955,7 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
-test("拖动中按键归拖动；失去捕获、焦点移到树外都取消且不写，松手不算点击（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
+test("拖动中按键归拖动；失去捕获、窗口失焦、焦点移到树外都取消且不写，松手不算点击（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
     await open(page);
     await item(page, "project://plain").click();
     await expect(item(page, "project://plain/a.md")).toBeVisible();
@@ -982,6 +982,15 @@ test("拖动中按键归拖动；失去捕获、焦点移到树外都取消且�
     await page.mouse.move(from.x, from.y + 9);
     await tree(page).evaluate((element) => element.releasePointerCapture(1));
     await page.mouse.move(from.x, from.y + 10);
+    await expect(ghost).toHaveCount(0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.up();
+    await settled();
+    await expect(row).not.toHaveAttribute("aria-selected", "true");
+
+    // 窗口失焦：无头 Chrome 没有真实的窗口失焦，派发窗口自己的 blur。
+    await grab();
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
     await expect(ghost).toHaveCount(0);
     await page.mouse.move(from.x, from.y);
     await page.mouse.up();

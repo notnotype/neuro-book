@@ -28,6 +28,11 @@ useDropTarget(firstEl, [SCENE_TARGET], () => ({name: "first"}));
 useDropTarget(secondEl, [SCENE_TARGET], () => ({name: "second"}));
 
 const log = ref<string[]>([]);
+/**
+ * 最近一次判定收到的 `top` 是不是 null（输出 5：坐标在视口外时为 null）。指针下是 html、body 时判定同样没有落点，只看“没有落点”分不出这两种。
+ * 只在变了时写：判定每帧都调。
+ */
+const topSeen = ref<"null" | "element" | "none">("none");
 const note = (line: string): void => {
     log.value = [...log.value, line];
 };
@@ -50,6 +55,8 @@ const {state} = useDragSession<string, Drop, HTMLElement>(rootEl, () => {
         autoScroll: {element: scroller},
         sourceAt: (target) => target.closest<HTMLElement>("[data-source]")?.dataset.source ?? target.closest<HTMLElement>("[data-row]")?.dataset.row ?? null,
         resolve: ({top}) => {
+            const seen = top === null ? "null" : "element";
+            if (topSeen.value !== seen) topSeen.value = seen;
             if (top === null) return null;
             const row = top.closest<HTMLElement>("[data-row]");
             if (row !== null) return {kind: "row", id: row.dataset.row as string, rect: rectOf(row)};
@@ -94,7 +101,7 @@ const ghostStyle = computed(() => {
 
 <template>
     <div class="drag-session-scene" data-lab-subject>
-        <div ref="rootEl" class="drag-session-scene__root" data-session-root :data-session-state="state === null ? 'idle' : state.keyboard ? 'keyboard' : 'pointer'" :data-session-over="over">
+        <div ref="rootEl" class="drag-session-scene__root" data-session-root :data-session-state="state === null ? 'idle' : state.keyboard ? 'keyboard' : 'pointer'" :data-session-over="over" :data-session-top="topSeen">
             <div class="drag-session-scene__sources">
                 <button type="button" data-source="a" @click="note('click:a')" @keydown="note(`key:${$event.key}`)">来源 A</button>
                 <button type="button" data-source="b" @click="note('click:b')">来源 B</button>
