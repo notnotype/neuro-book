@@ -10,6 +10,7 @@
  */
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
+import {cloneNode, findInTree} from "./grid-tree";
 import {issueKey} from "./issue-gate";
 import type {GridSashRef, SashGestureCancelReason, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
 import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridIssueCode, GridLayoutResult, GridNode} from "./grid-types";
@@ -131,38 +132,8 @@ type Owner = {
 };
 
 function findBranch<T>(node: GridNode<T> | null, id: string): GridBranch<T> | null {
-    if (!node) {
-        return null;
-    }
-    if (node.kind === "branch") {
-        if (node.id === id) {
-            return node;
-        }
-        for (const child of node.children) {
-            const hit = findBranch(child, id);
-            if (hit !== null) {
-                return hit;
-            }
-        }
-    }
-    return null;
-}
-
-/** 建一棵可写的预览树：结构冻结，意图与收起状态按本帧解出来的目标改写。 */
-function cloneTree<T>(node: GridNode<T> | null): GridNode<T> | null {
-    if (!node) {
-        return null;
-    }
-    if (node.kind === "leaf") {
-        return {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}};
-    }
-    return {
-        ...node,
-        size: {...node.size},
-        minimumSize: {...node.minimumSize},
-        maximumSize: {...node.maximumSize},
-        children: node.children.map((child) => cloneTree(child)!),
-    };
+    const hit = node ? findInTree(id, node) : null;
+    return hit?.node.kind === "branch" ? hit.node : null;
 }
 
 /**
@@ -176,7 +147,8 @@ function projectGridGesture<T>(
     baseline: GridGestureBaseline<T>,
     solves: readonly {branchId: string; axis: GridAxis; sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>}[],
 ): {tree: GridNode<T> | null; layout: GridLayoutResult} {
-    const tree = cloneTree(baseline.root);
+    // 预览树结构冻结，意图与收起状态按本帧解出来的目标改写。
+    const tree = baseline.root ? cloneNode(baseline.root) : null;
     for (const solve of solves) {
         const branch = findBranch(tree, solve.branchId);
         if (branch === null || branch.children.length !== solve.sizesPx.length) {

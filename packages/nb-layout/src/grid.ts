@@ -44,6 +44,7 @@ import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
 import {gridFailure} from "./grid-failure";
 import {parseSnapshot, serializeTree} from "./grid-snapshot";
+import {cloneNode, findInTree, type GridHit} from "./grid-tree";
 
 export * from "./grid-types";
 /** 分支主轴与交叉轴的取轴规则只此一处；宿主按父分支方向取轴时用它，别自己写 if。 */
@@ -134,30 +135,9 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         };
     }
 
-    function cloneNode(node: GridNode<T>): GridNode<T> {
-        return node.kind === "leaf"
-            ? {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}}
-            : {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}, children: node.children.map(cloneNode)};
+    function find(id: string, node: GridNode<T> | null = tree, parent: GridBranch<T> | null = null): GridHit<T> | null {
+        return node ? findInTree(id, node, parent) : null;
     }
-
-    function find(id: string, node: GridNode<T> | null = tree, parent: GridBranch<T> | null = null): {node: GridNode<T>; parent: GridBranch<T> | null} | null {
-        if (!node) {
-            return null;
-        }
-        if (node.id === id) {
-            return {node, parent};
-        }
-        if (node.kind === "branch") {
-            for (const child of node.children) {
-                const hit = find(id, child, node);
-                if (hit) {
-                    return hit;
-                }
-            }
-        }
-        return null;
-    }
-
 
     /** 直接改变主动节点沿 axis 的意图，返回实际生效的增量（自身触界时小于请求值）。 */
     function shiftNode(node: GridNode<T>, axis: GridAxis, delta: number): number {
@@ -447,28 +427,11 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             return {ok: true, intents: {}, collapsed: {}};
         }
         const candidate = tree ? cloneNode(tree) : null;
-        const candidateFind = (id: string, node: GridNode<T> | null = candidate, parent: GridBranch<T> | null = null): {node: GridNode<T>; parent: GridBranch<T> | null} | null => {
-            if (!node) {
-                return null;
-            }
-            if (node.id === id) {
-                return {node, parent};
-            }
-            if (node.kind === "branch") {
-                for (const child of node.children) {
-                    const hit = candidateFind(id, child, node);
-                    if (hit) {
-                        return hit;
-                    }
-                }
-            }
-            return null;
-        };
         const plans: {branchId: string; axis: GridAxis; sizes: Record<string, number>}[] = [];
         /** `presented` 是这次变化的基线：收起时按比例分的面板记它（输出 148）。 */
         const collapseChanges: {branchId: string; axis: GridAxis; id: string; value: boolean; presented: number | undefined}[] = [];
         for (const change of changes) {
-            const hit = candidateFind(change.branchId);
+            const hit = find(change.branchId, candidate);
             if (!hit) {
                 return gridFailure("not-found", `Unknown branch id: ${change.branchId}`, {id: change.branchId});
             }
@@ -494,7 +457,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         const intents: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
         for (const plan of plans) {
             for (const [id, value] of Object.entries(plan.sizes)) {
-                const base = intents[id] ?? candidateFind(id)?.node.size ?? ZERO_EXTENT;
+                const base = intents[id] ?? find(id, candidate)?.node.size ?? ZERO_EXTENT;
                 intents[id] = {...base, [plan.axis]: value};
             }
         }
