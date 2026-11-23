@@ -173,7 +173,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | 网络出口与代理 | [`network/egress.md`](network/egress.md) | `nbook.network` 与 nb-host 的网络出口：跟随系统、自定义、直连的选路，环境变量与各平台系统代理的读法，选不出路的失败，服务商自己的代理，“网络”页（测试代理、模型目录的现在更新） |
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
-| Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
+| Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口；交给后台任务清单的会话行（输出 30）标 `(planned)` |
 | Agent 的运行保护 | [`agent/run-guards.md`](agent/run-guards.md) | `nbook.agent` 默认装上的扩展：费用告警与上限、重复工具调用的提醒与停止；重发次数与卡死超时的设置、设置分区 |
 | Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`、`ask`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文、审批预览 |
 | Agent 的对话界面 | [`agent/conversation.md`](agent/conversation.md) | 对话视图接新内核：工作台位置、会话面板、发送与运行控制、审批与提问向导、状态栏 |
@@ -188,13 +188,13 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
 | 表情包 | [`agent/stickers.md`](agent/stickers.md) | 表情包与清单、来源与目录、`:包/名字:` 写法（nb-markdown 内置方言，经宿主端口查表情）、`stickers://`、取图路由、Profile 白名单与提示词槽、设置里的表情包一节、设置里的表情包页（新建、编辑、导入导出） |
 | 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
-| 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
+| 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程；交给后台任务清单的行（输出 20）与停不下来的 `stop-failed` 标 `(planned)` |
 | 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换；`#N`、按角色筛选、逐行差异等几项 planned |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
 | 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作、通知中心与铃铛 |
-| 后台任务 | [`workbench/background-tasks.md`](workbench/background-tasks.md) | 插件服务端登记的长任务：句柄、取消与重试、发起方停止时中断、内存里的清单与上限、远程与推送，底部面板的“后台任务”视图、状态栏条目与结束时的通知 |
+| 后台任务 | [`workbench/background-tasks.md`](workbench/background-tasks.md) | 插件服务端登记的长任务：句柄、取消与重试、发起方停止时中断、内存里的清单与上限、远程与推送，底部面板的“后台任务”视图、状态栏条目与结束时的通知；别的插件作提供方交出的行与按归属分组的视图，输出 18–21、23、24、26–28 与验收 8 标 `(planned)`，补齐断言后去掉 |
 | 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
 | 主题皮肤 | [`theme/skins.md`](theme/skins.md) | 插件提供的整套外观：配色、字体、活动栏与场景图在各位置的裁切，主题列表与退回 |
