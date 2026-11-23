@@ -125,6 +125,7 @@ export function jobTools(center: JobCenter, table: SessionTable, clock: Clock, r
             const id = typeof args.job === "string" ? args.job : "";
             const killed = await center.kill(context.sessionId, id);
             if (killed === "job-unknown") return failed("job-unknown", `没有 ${id} 这个任务：不是你启动的、不存在，或结果已经取过。`);
+            if (typeof killed === "object") return failed("stop-failed", `没能停下 ${id}（${killed.code}），它可能还在跑：用 jobs 看它的状态，必要时再停。`);
             return {text: killed === "killed" ? `已停止 ${id}。` : `${id} 已经结束了。`, details: {jobId: id, outcome: killed}};
         }})},
         [JOBS_TOOL]: {create: () => ({execute: async (_args, context) => {

@@ -42,7 +42,7 @@ function value<T>(result: {readonly ok: true; readonly value: T} | {readonly ok:
 }
 
 async function list(client: TasksClient): Promise<TaskItem[]> {
-    return value(await client.list({}));
+    return value(await client.own({})).tasks;
 }
 
 function item(items: readonly TaskItem[], id: string): TaskItem | undefined {
@@ -52,7 +52,7 @@ function item(items: readonly TaskItem[], id: string): TaskItem | undefined {
 /** 订阅推送；交回收到的每一份清单。 */
 async function pushes(client: TasksClient): Promise<TaskItem[][]> {
     const seen: TaskItem[][] = [];
-    const subscribed = await client.events.changed.subscribe({}, (items) => void seen.push(items));
+    const subscribed = await client.events.ownChanged.subscribe({}, (payload) => void seen.push(payload.tasks));
     expect(subscribed.ok).toBe(true);
     return seen;
 }
@@ -108,11 +108,11 @@ describe("登记、进展与推送（输出 1、2、9）", () => {
         for (let progress = 10; progress <= 90; progress += 10) handle.report({progress});
         w.settings.clock.advance(PUSH_INTERVAL_MS - 1);
         // 一次往返：在它之前推出的事件都已到达。
-        await client.list({});
+        await client.own({});
         expect(seen).toHaveLength(1);
         w.settings.clock.advance(1);
         await waitUntil("合并后的那一次推送", () => seen.length > 1);
-        await client.list({});
+        await client.own({});
         expect(seen).toHaveLength(2);
         expect(item(seen[1] ?? [], handle.id)?.progress).toBe(90);
     });
@@ -353,7 +353,7 @@ describe("整体关停（时序与寿命）", () => {
         const handle = w.tasks.start({title: "跑着的"});
         const seen: TaskItem[][] = [];
         const ended: string[] = [];
-        expect(await client.events.changed.subscribe({}, (items) => void seen.push(items), {onEnd: (reason) => void ended.push(reason)})).toMatchObject({ok: true});
+        expect(await client.events.ownChanged.subscribe({}, (payload) => void seen.push(payload.tasks), {onEnd: (reason) => void ended.push(reason)})).toMatchObject({ok: true});
         await pushed(w, seen, "第一份清单", (latest) => item(latest, handle.id) !== undefined);
         expect(await w.settings.hub.stop()).toMatchObject({status: "closed"});
         await waitUntil("订阅结束", () => ended.length > 0);
@@ -382,18 +382,18 @@ describe("关闭服务前报出（输出 17）", () => {
 });
 
 describe("清单太大（失败与恢复）", () => {
-    test("整份清单超过 512 KiB：list 得 too-large、推送跳过，都记诊断", async () => {
+    test("整份清单超过 512 KiB：list 得 too-large、推送跳过；诊断在进入超限时记一次，超限期间不重复记", async () => {
         const w = await world();
         const client = await w.window("a");
         // 每件的进展 500 个汉字（1500 字节），400 件约 600 KiB。
         for (let index = 0; index < 400; index += 1) w.tasks.start({title: `t${String(index)}`, message: "长".repeat(500)});
-        expect(await client.list({})).toMatchObject({ok: false, code: "too-large"});
+        expect(await client.own({})).toMatchObject({ok: false, code: "too-large"});
         const seen = await pushes(client);
-        await waitUntil("推送跳过的诊断", () => {
-            w.settings.clock.advance(PUSH_INTERVAL_MS);
-            return diagnostics(w, "tasks.list-too-large").length >= 2;
-        });
-        await client.list({});
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        w.tasks.start({title: "又一件"});
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        await client.own({});
         expect(seen).toEqual([]);
+        expect(diagnostics(w, "tasks.list-too-large")).toHaveLength(1);
     });
 });

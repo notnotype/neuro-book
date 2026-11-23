@@ -4,7 +4,7 @@
 
 # TasksHover
 
-状态栏“后台任务”条目的悬停内容（[`workbench/background-tasks.md`](../../../../../../../docs/specs/workbench/background-tasks.md) 输出 12）：列出在跑的任务，每件两行，标题与进度条一行、进展一行。外壳在条目上方的提示框里显示它（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 43）。
+状态栏“后台任务”条目的悬停内容（[`workbench/background-tasks.md`](../../../../../../../docs/specs/workbench/background-tasks.md) 输出 12、27）：列出在跑的后台一次性工作（自己的任务与提供方不是前台的行，服务端给前 20 件），每件两行，标题与进度条一行、进展一行；超过 20 件时末尾写“还有 N 件”。外壳在条目上方的提示框里显示它（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 43）。
 
 ## 布局
 
@@ -14,7 +14,7 @@
 
 ```ts
 type Props = {
-    /** 本窗口的任务仓库，只读在跑的那几件。必填。 */
+    /** 本窗口的任务仓库，只读它的 `background`。必填。 */
     store: TasksStore;
 };
 ```

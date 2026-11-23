@@ -53,9 +53,11 @@ export class ChildRuns {
             kill: async (_reason, byUser) => {
                 const stopper = byUser === true ? this.options.table.view(child) : view;
                 const aborted = await stopper.abort({commandId: crypto.randomUUID(), keepQueue: true, runId});
-                if (!aborted.ok) this.options.report("subagent-kill-failed", `could not abort the run of sub-agent session ${child}: ${aborted.code}`, {session: child, code: aborted.code});
-                else if (!aborted.value.aborted) return "already-ended";
-                return undefined;
+                if (!aborted.ok) {
+                    this.options.report("subagent-kill-failed", `could not abort the run of sub-agent session ${child}: ${aborted.code}`, {session: child, code: aborted.code});
+                    return {kind: "stop-failed", code: aborted.code};
+                }
+                return aborted.value.aborted ? undefined : "already-ended";
             },
             result: async () => (await report()).text,
             saveFull: save,

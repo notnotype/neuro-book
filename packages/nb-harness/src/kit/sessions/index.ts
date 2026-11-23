@@ -4,6 +4,6 @@
  */
 
 export {HISTORY_COMMANDS, IDLE_CLOSE_MS, SessionTable, SessionTableStopping, SessionUnavailable} from "./table.js";
-export type {HistoryCommand, SessionHold, SessionTableClock, SessionTableOptions} from "./table.js";
+export type {HistoryCommand, SessionActivity, SessionHold, SessionTableClock, SessionTableOptions} from "./table.js";
 export {isTitleSessionId, SessionMeta, sessionMetaExtension, titleSessionId} from "./meta.js";
 export type {MetaTrigger, SessionMetaOptions} from "./meta.js";

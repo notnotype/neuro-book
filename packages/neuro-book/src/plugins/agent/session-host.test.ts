@@ -2592,7 +2592,7 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         const plainId = (await started(w)).host.sessionId.value!;
         const elsewhere: string[] = [];
         const owners = await ownersFor(w);
-        const h = await harness(w, {owners: {...owners, elsewhere: (id) => void elsewhere.push(id)}});
+        const h = await harness(w, {owners: {...owners, elsewhere: async (id) => void elsewhere.push(id)}});
         await h.host.open(ownedId);
         expect(elsewhere).toEqual([ownedId]);
         expect(h.host.sessionId.value).toBeNull();
@@ -2613,7 +2613,7 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         const h = await harness(w, {owners: {...owners, ownerOf: async (id) => {
             if (id === ownedId) await gate;
             return owners.ownerOf(id);
-        }, elsewhere: (id) => void elsewhere.push(id)}});
+        }, elsewhere: async (id) => void elsewhere.push(id)}});
         const late = h.host.open(ownedId);
         await h.host.open(plainId);
         release();

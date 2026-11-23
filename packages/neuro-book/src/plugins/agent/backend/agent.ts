@@ -24,6 +24,7 @@ import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
+import type {TaskProvider} from "nbook/plugins/tasks/shared/contracts";
 import type {RunningWorkItem} from "nbook/shared/host";
 import type {SettingsService} from "nbook/shared/settings";
 
@@ -35,6 +36,7 @@ import {agentSettings} from "../shared/settings";
 import {BUILTIN_TOOL_IDS} from "./builtin/ids";
 import {JobCenter} from "./jobs/center";
 import {agentRunningWork, SessionTitles} from "./running-work";
+import {agentTaskRows} from "./task-rows";
 import {RequestOwners} from "./requests";
 import {ChildRuns} from "./subagents/children";
 import {JobDelivery} from "./jobs/delivery";
@@ -94,6 +96,8 @@ export interface AgentRuntime {
     readonly evalNotices: EvalNotices;
     /** 此刻在跑、停止服务端会中断的会话与任务（sessions.md 输出 20），给宿主的 `runningWorkKey` 登记用；同步。 */
     runningWork(): ReadonlyArray<RunningWorkItem>;
+    /** 交给后台任务清单的提供方（jobs.md 输出 20、sessions.md 输出 30）；每次调用新建一个，登记一次用一个。 */
+    taskRows(): TaskProvider;
     /** 会话树的累计花费：费用守卫按树比（run-guards.md 输出 13）。 */
     readonly treeSpend: TreeSpend;
     /** 子代理运行与任务中心之间的跟踪（subagents.md 输出 6、7）。 */
@@ -210,11 +214,18 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const relations = new SessionRelations();
     const treeSpend = new TreeSpend(relations);
     const titles = new SessionTitles();
+    /** 有归属的根会话（sessions.md 输出 23、25）：后台任务清单不给它们的树出会话的行（jobs.md 输出 20），`rows()` 同步要用，记在内存里。 */
+    const owned = new Set<string>();
+    // 根按会话关系表的认法：调用方不是会话的就是根（例如 Workflow 起的会话）。
+    const noteOwned = (entry: Pick<SessionIndexEntry, "id" | "owner" | "caller">): void => {
+        if (entry.owner !== undefined && entry.caller?.kind !== "session") owned.add(entry.id);
+    };
     const scanned = await store.list();
     if (scanned.ok) {
         relations.load(scanned.value);
         treeSpend.load(scanned.value);
         titles.load(scanned.value);
+        for (const entry of scanned.value) noteOwned(entry);
     }
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
@@ -292,6 +303,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         if (entry.ok) {
             relations.register(entry.value);
             titles.set(entry.value.id, entry.value.title);
+            noteOwned(entry.value);
         }
         else options.report("relations-fork-failed", `could not read the index of forked session ${id}: ${entry.code}`, {session: id, code: entry.code});
     };
@@ -309,6 +321,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         const created = await table.create(createOptions);
         if (!created.ok) return created;
         if (createOptions.caller !== undefined) relations.register({id: created.value.id, caller: createOptions.caller});
+        // 建好就记，在第一次运行之前：清单不会先给它出一行会话行。
+        noteOwned({id: created.value.id, owner: createOptions.owner, caller: createOptions.caller});
         const view = table.view(created.value.id);
         // Profile 设置里的审批模式是新会话的初值（contributions.md 输出 13）。
         const approvalMode = profileSettings()[createOptions.profile]?.approvalMode;
@@ -381,12 +395,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: async (metaOptions) => {
-        // 建成了才是程序自己的会话；id 被普通会话占着（session-exists）时不记，那是用户的会话，照常报。
-        const created = await createSession(metaOptions);
-        if (created.ok) internal.add(metaOptions.id);
-        return created;
-    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
+    // 程序自己的会话由标题生成器认定（新建的，或核对过、复用的）；id 被普通会话占着的不认，那是用户的会话，照常报。
+    const meta = new SessionMeta({table, create: (metaOptions) => createSession(metaOptions), adopted: (id) => internal.add(id), models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
     const children = new ChildRuns({table, jobs, report: options.report});
     // 根会话：会话头没有调用方（读索引，不看会话关系表：启动时关系表可能还没载全）。
     const isRoot = async (id: string) => {
@@ -458,6 +468,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         jobs,
         evalNotices: kernelNotices,
         runningWork: () => agentRunningWork({table, relations, titles, jobs, internal}),
+        taskRows: () => agentTaskRows({table, jobs, relations, titles, internal, owned, report: options.report}),
         children,
         tree,
         sessionEntry: (id) => store.entry(id),

@@ -4,6 +4,7 @@
  * 结果是数据、不是用户的指令，所以第一行总是来源标记；`details` 给界面与测试按 `runId`、`jobId` 认卡片，不进请求。
  */
 
+import {runLine} from "@notnotype/nb-harness/kernel/contracts";
 import type {JsonValue, LogEvent, RunResult, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import {MODE_SWITCH_KIND} from "../../shared/permissions";
@@ -65,16 +66,6 @@ export function questionText(request: JsonValue, options: {readonly first?: bool
     return options.first === true ? text.split("\n")[0]! : text;
 }
 
-const SENTENCE_LIMIT = 120;
-
-/** 结果的第一句：卡片收口后的一行与 `details.line`。 */
-export function firstSentence(text: string): string {
-    const trimmed = text.trim();
-    const end = trimmed.search(/[。！？!?\n]|\.(\s|$)/u);
-    const sentence = end === -1 ? trimmed : trimmed.slice(0, end + 1).trim();
-    return sentence.length > SENTENCE_LIMIT ? `${sentence.slice(0, SENTENCE_LIMIT)}…` : sentence;
-}
-
 /** 一次运行的收口原因归到任务状态：以收尾工具结束的 `finished` 也是完成。 */
 export const STATUS_OF_REASON: Readonly<Record<RunResult["reason"], "completed" | "failed" | "aborted" | "interrupted">> = {
     finished: "completed",
@@ -110,10 +101,9 @@ export interface ResultParts {
     readonly note?: string;
 }
 
-/** 运行结果的第一句：自由结果取回复文字，没有文字的结构化结果取它的 JSON。 */
+/** 运行结果的第一句：与会话索引 `runs[].line` 同一种取法（内核的 `runLine`），卡片在调用自己的结果与索引之间看到的是同一句。 */
 export function lineOf(run: RunResult): string | undefined {
-    if (run.text !== "") return firstSentence(run.text);
-    return run.result === null ? undefined : firstSentence(JSON.stringify(run.result.value));
+    return runLine(run.text, run.result);
 }
 
 function runBody(run: RunResult): {readonly text: string; readonly line?: string; readonly value?: JsonValue} {

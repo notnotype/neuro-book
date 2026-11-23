@@ -1,5 +1,6 @@
 /**
- * 后台任务的清单与规则（docs/specs/workbench/background-tasks.md）：纯逻辑，时钟、id 与诊断由入口注入。
+ * 后台任务的清单与规则（docs/specs/workbench/background-tasks.md）：纯逻辑，时钟、id 与诊断由入口注入。自己的任务记在这里；
+ * 提供方的行由 `providers.ts` 的登记表持有，视图要的分组由 `groups.ts` 算。
  *
  * 归属：每件任务记下登记它的调用方身份。按调用方门面的工厂与释放回调收到的是同一个冻结的 `ConsumerIdentity` 对象，所以
  * 按引用比就能找到发起方名下的任务。发起方释放后它的 `retry` 属于已停止的那一代，调用必然失败，所以连同已结束的记录一起去掉
@@ -15,16 +16,16 @@ import {Value} from "typebox/value";
 
 import type {Text} from "@notnotype/nb-ui/text";
 
-import {TextSchema} from "nbook/shared/text";
-
-import type {BackgroundTasks, TaskDetail, TaskFailure, TaskHandle, TaskInput, TaskItem, TaskState} from "../shared/contracts";
+import type {BackgroundTasks, OwnPayload, OwnTaskOwner, RowsPayload, TaskDetail, TaskFailure, TaskHandle, TaskInput, TaskItem, TaskState} from "../shared/contracts";
+import {OwnTaskOwnerSchema} from "../shared/contracts";
+import {backgroundSummary, buildRows} from "./groups";
+import type {RowsFilter} from "./groups";
+import {ProviderRegistry} from "./providers";
+import type {StopResult} from "./providers";
+import {MESSAGE_MAX, normalizeProgress, normalizeText, TITLE_MAX, truncate} from "./text";
 
 /** 结束的任务至多留几件（输出 8）。 */
 export const MAX_FINISHED = 50;
-const TITLE_MAX = 200;
-const MESSAGE_MAX = 500;
-/** 文字引用与语言映射序列化后的上限（UTF-8 字节）。 */
-const STRUCTURED_TEXT_MAX_BYTES = 1024;
 /** 同通知的详情（docs/specs/workbench/notifications.md 输入）。 */
 const DETAIL_MAX = 8000;
 /** 整份清单序列化后的上限：远程单条消息 1 MiB，留出信封与别的推送的余量（同 Agent 的 `treeChanged`）。 */
@@ -43,23 +44,35 @@ export type Outcome<T, Code extends string> = {readonly ok: true; readonly value
 
 export interface TasksCore {
     facade(consumer: ConsumerIdentity): BackgroundTasks;
-    /** 发起方入口停止：它名下在跑的转为已中断，全部记录不再能重试（输出 5）。 */
+    /** 发起方入口停止：它名下在跑的转为已中断，全部记录不再能重试（输出 5）；它的提供方撤回（输出 18）。 */
     release(consumer: ConsumerIdentity): void;
+    /** 自己的全部任务。 */
     list(): TaskItem[];
+    /** `ownChanged` 的载荷：自己的任务与不分范围的后台工作（输出 23、27）。 */
+    own(): OwnPayload;
+    /** `rowsChanged` 的载荷：按范围分好组、按上限修剪过（输出 23、26）。 */
+    rows(filter: RowsFilter): RowsPayload;
+    /** 停提供方的一行（输出 24）。 */
+    stop(key: string): Promise<StopResult>;
+    /** 提供方撤回过几次：推送前比对，算好之后又有撤回的那一份不发（输出 21）。 */
+    revocations(): number;
     detail(id: string): Outcome<TaskDetail | null, "unknown-task">;
     cancel(id: string): Outcome<null, "unknown-task" | "not-cancellable" | "not-running">;
     retry(id: string): Outcome<null, "unknown-task" | "not-retryable">;
     remove(id: string): Outcome<null, "unknown-task" | "running">;
     clearFinished(): number;
-    /** 清单有任何变化时调用；返回的函数退订。 */
+    /** 自己的任务或提供方的行有任何变化时调用；返回的函数退订。推送按内容去重，不随没变的那一份重推。 */
     onChanged(listener: () => void): () => void;
-    /** 入口停止：abort 在跑任务的 `signal` 再清空，不推送（整体关停时订阅已先结束，Spec“时序与寿命”）。 */
+    /** 入口停止：提供方都撤回；abort 在跑任务的 `signal` 再清空，不推送（整体关停时订阅已先结束，Spec“时序与寿命”）。 */
     close(): void;
 }
 
 interface TaskRecord {
     readonly id: string;
-    readonly owner: ConsumerIdentity;
+    /** 登记它的调用方（门面的身份）。 */
+    readonly consumer: ConsumerIdentity;
+    /** 它属于谁（输出 22）。 */
+    readonly owner: OwnTaskOwner;
     readonly controller: AbortController;
     readonly cancellable: boolean;
     /** 发起方释放时清掉：之后不能重试，也不再留着已停止那一代的闭包。 */
@@ -74,37 +87,22 @@ interface TaskRecord {
     endedAt: number | null;
 }
 
-/** 截到 `max` 个码元，不切开代理对。 */
-function truncate(text: string, max: number): {readonly text: string; readonly truncated: boolean} {
-    if (text.length <= max) return {text, truncated: false};
-    let end = max;
-    const last = text.charCodeAt(end - 1);
-    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
-    return {text: text.slice(0, end), truncated: true};
-}
-
-/** 校验并归一一个文字值；不合格时交回原因。文字引用与语言映射存一份副本：发起方之后改它手里的对象，不能绕过这里的校验。 */
-function normalizeText(value: unknown, max: number): {readonly ok: true; readonly text: Text} | {readonly ok: false; readonly reason: string} {
-    if (!Value.Check(TextSchema, value)) return {ok: false, reason: "not a text value"};
-    if (typeof value === "string") return {ok: true, text: truncate(value, max).text};
-    // 语言映射的键是语言标签，不会是 `kind`（四个字母的主标签不合法），所以有 `kind: "text"` 的就是文字引用。
-    const reference = value as {readonly kind?: unknown; readonly ns?: unknown};
-    if (reference.kind === "text" && reference.ns === undefined) return {ok: false, reason: "a text reference must carry its namespace"};
-    const json = JSON.stringify(value);
-    if (Buffer.byteLength(json, "utf8") > STRUCTURED_TEXT_MAX_BYTES) return {ok: false, reason: `a structured text value is over ${STRUCTURED_TEXT_MAX_BYTES} bytes`};
-    return {ok: true, text: JSON.parse(json) as Text};
-}
-
-function normalizeProgress(value: number | null | undefined): number | null {
-    if (value === null || value === undefined || !Number.isFinite(value)) return null;
-    return Math.min(100, Math.max(0, value));
-}
-
 function normalizeDetail(value: string | undefined): TaskDetail | null {
     if (value === undefined) return null;
     const trimmed = value.trim();
     if (trimmed === "") return null;
     return truncate(trimmed, DETAIL_MAX);
+}
+
+/** `start` 的归属：不给是应用；按行的同样规则校验，不能带 `open`（输出 18、26）。 */
+function normalizeOwner(value: unknown): OwnTaskOwner {
+    if (value === undefined) return {kind: "app"};
+    if (!Value.Check(OwnTaskOwnerSchema, value)) throw new TypeError("invalid task owner");
+    const owner = value as OwnTaskOwner;
+    if (owner.kind === "app") return {kind: "app"};
+    const title = normalizeText(owner.title, TITLE_MAX);
+    if (!title.ok) throw new TypeError(`invalid task owner title: ${title.reason}`);
+    return owner.kind === "project" ? {kind: "project", project: owner.project, title: title.text} : {kind: "session", session: owner.session, title: title.text};
 }
 
 export function createTasksCore(options: TasksCoreOptions): TasksCore {
@@ -115,9 +113,18 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
     const listeners = new Set<() => void>();
     let closed = false;
 
-    const changed = (): void => {
+    /** 自己的任务每变一次加一：与提供方快照的版本号合成 `rows` 的版本号。 */
+    let revision = 0;
+    const notify = (): void => {
         for (const listener of [...listeners]) listener();
     };
+    const changed = (): void => {
+        revision += 1;
+        notify();
+    };
+    const providers = new ProviderRegistry({clock, report, changed: notify});
+    /** 已经记过“组头冲突”诊断的会话：每个会话只记一次。 */
+    const headConflicts = new Set<string>();
 
     const find = (id: string): TaskRecord | undefined => running.get(id) ?? finished.find((record) => record.id === id);
 
@@ -133,6 +140,7 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
         hasDetail: record.detail !== null,
         startedAt: new Date(record.startedAt).toISOString(),
         endedAt: record.endedAt === null ? null : new Date(record.endedAt).toISOString(),
+        owner: record.owner,
     });
 
     /** 转为结束：移进结束的列表，超过上限时丢最早结束的（输出 8）。 */
@@ -212,7 +220,7 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
         },
     });
 
-    const startFor = (owner: ConsumerIdentity, input: TaskInput): TaskHandle => {
+    const startFor = (consumer: ConsumerIdentity, input: TaskInput): TaskHandle => {
         if (closed) throw new TypeError("background tasks are closed");
         const title = normalizeText(input.title, TITLE_MAX);
         if (!title.ok) throw new TypeError(`invalid task title: ${title.reason}`);
@@ -221,7 +229,8 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
         if (input.retry !== undefined && typeof input.retry !== "function") throw new TypeError("invalid task retry: not a function");
         const record: TaskRecord = {
             id: `task-${options.newId()}`,
-            owner,
+            consumer,
+            owner: normalizeOwner(input.owner),
             controller: new AbortController(),
             cancellable: input.cancellable === true,
             retry: input.retry,
@@ -240,12 +249,12 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
     };
 
     return {
-        facade: (consumer) => ({start: (input) => startFor(consumer, input)}),
+        facade: (consumer) => ({start: (input) => startFor(consumer, input), provide: (provider) => providers.provide(consumer, provider)}),
         release(consumer) {
             let touched = false;
             const interrupted: TaskRecord[] = [];
             for (const record of [...running.values(), ...finished]) {
-                if (record.owner !== consumer) continue;
+                if (record.consumer !== consumer) continue;
                 if (record.retry !== undefined) {
                     record.retry = undefined;
                     touched = true;
@@ -253,11 +262,28 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
                 if (record.state === "running") interrupted.push(record);
             }
             for (const record of interrupted) finish(record, "interrupted", record.message);
+            // 自己的任务先落定（清掉重试、在跑的转为已中断），再撤回提供方：撤回会调提供方的退订，那里面再调这家的任务句柄也只是不起作用。
+            providers.release(consumer);
             if (touched || interrupted.length > 0) changed();
             // 状态先落定、推送先排上，再 abort：发起方的 abort 监听里再调句柄也只会得到“不起作用”。
             for (const record of interrupted) record.controller.abort("interrupted");
         },
         list: () => [...running.values(), ...finished].map(itemOf),
+        own() {
+            const tasks = [...running.values(), ...finished].map(itemOf);
+            const snapshot = providers.snapshot();
+            return {tasks, background: backgroundSummary(tasks, snapshot.rows, snapshot.overflow)};
+        },
+        rows(filter) {
+            const snapshot = providers.snapshot();
+            return buildRows([...running.values(), ...finished].map(itemOf), snapshot, filter, revision, (session) => {
+                if (headConflicts.has(session)) return;
+                headConflicts.add(session);
+                report("provider-head-conflict", `more than one provider gives a head row for session ${session}; the earliest registered one is used`, {session});
+            });
+        },
+        stop: (key) => providers.stop(key),
+        revocations: () => providers.revocations,
         detail(id) {
             const record = find(id);
             if (record === undefined) return {ok: false, code: "unknown-task", detail: `no task ${id}`};
@@ -312,6 +338,7 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
         },
         close() {
             closed = true;
+            providers.close();
             listeners.clear();
             const records = [...running.values()];
             running.clear();

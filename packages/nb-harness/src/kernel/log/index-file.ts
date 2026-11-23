@@ -1,9 +1,24 @@
 /** 会话列表用的索引 `index.json`：由事件算出，只是缓存；与日志对不上时按日志重建（session.md 输出 19）。 */
 
-import type {IndexedRun, LogEvent, SessionHeader, SessionIndexEntry, Usage} from "../api/index.js";
+import {replyText, runLine, type ContentBlock, type EventData, type IndexedRun, type KernelEvents, type LogEvent, type SessionHeader, type SessionIndexEntry, type Usage} from "../api/index.js";
 
 /** 索引留几次运行的收口：子代理卡片按 `runId` 找终态用，不必保留全部。 */
 const INDEXED_RUNS = 20;
+
+/**
+ * 折叠索引的状态：索引本身，加上跨批次带着、不写进 `index.json` 的“这次运行到目前为止最后一条回复的文字”，收口时按 `runLine`
+ * 算成 `runs[].line`（与子代理工具结果的取法相同）。回复与收口常在不同的批里写下，所以要带着；打开会话时从全部事件重折
+ * （`jsonl-store.ts`），重启之后照样对得上。
+ *
+ * 折叠按写下的先后，不按路径：回退到运行中途接着跑（`runResumed`）时清空，接着跑的回复从头记；接着跑之前就收口的，
+ * 首句可能缺，不会取到被丢下的那条分支上的。
+ */
+export interface IndexFold {
+    readonly index: SessionIndexEntry;
+    readonly reply: string | null;
+}
+
+export const startFold = (header: SessionHeader): IndexFold => ({index: emptyIndex(header), reply: null});
 
 export function emptyIndex(header: SessionHeader): SessionIndexEntry {
     return {
@@ -31,14 +46,17 @@ const QUIET: ReadonlySet<string> = new Set(["noticeQueued", "noticeRemoved", "no
 const QUIET_COMMANDS: ReadonlySet<string> = new Set(["notice", "removeNotice"]);
 const quiet = (event: LogEvent): boolean => QUIET.has(event.type) || (event.type === "commandAccepted" && QUIET_COMMANDS.has((event.data as {name?: string}).name ?? ""));
 
-export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent[]): SessionIndexEntry {
-    let next = index;
+export function advanceIndex(fold: IndexFold, events: readonly LogEvent[]): IndexFold {
+    let next = fold.index;
+    let reply = fold.reply;
     for (const event of events) {
         const data = event.data as Record<string, unknown>;
+        if (event.type === "runStarted" || event.type === "runResumed") reply = null;
+        else if (event.type === "assistant") reply = replyText(data.content as readonly ContentBlock[]);
         next = {
             ...next,
             ...spendAfter(next, event),
-            ...runsAfter(next, event),
+            ...runsAfter(next, event, reply),
             title: event.type === "titleChanged" ? (data.title as string) : next.title,
             description: event.type === "descriptionChanged" ? (data.description as string) : next.description,
             archived: event.type === "archived" ? (data.archived as boolean) : next.archived,
@@ -47,7 +65,7 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
             throughSeq: event.seq,
         };
     }
-    return next;
+    return {index: next, reply};
 }
 
 /** 花费与快照的 `ctx.spend` 同一口径：这三种事件的 `usage`，单价未知的计数（runtime.md 输出 70）。 */
@@ -59,10 +77,11 @@ function spendAfter(index: SessionIndexEntry, event: LogEvent): Pick<SessionInde
     return {spend: {cost: spend.cost + (usage.cost ?? 0), unpriced: spend.unpriced + (usage.cost === null ? 1 : 0)}};
 }
 
-function runsAfter(index: SessionIndexEntry, event: LogEvent): Pick<SessionIndexEntry, "runs"> | null {
+function runsAfter(index: SessionIndexEntry, event: LogEvent, reply: string | null): Pick<SessionIndexEntry, "runs"> | null {
     if (event.type !== "runEnded") return null;
-    const data = event.data as {runId: string; reason: string};
-    const run: IndexedRun = {runId: data.runId, reason: data.reason, endedAt: event.at};
+    const data = event.data as EventData<KernelEvents["runEnded"]>;
+    const line = runLine(reply ?? "", data.result);
+    const run: IndexedRun = {runId: data.runId, reason: data.reason, endedAt: event.at, ...(line === undefined ? {} : {line})};
     return {runs: [...(index.runs ?? []), run].slice(-INDEXED_RUNS)};
 }
 

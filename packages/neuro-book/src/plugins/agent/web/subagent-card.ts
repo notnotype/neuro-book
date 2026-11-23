@@ -133,7 +133,11 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
         const later = laterTerminal(messages, runId, call.id);
         if (later !== null) return {...base, state: later.state, line: later.line ?? "", background, ...(later.result === undefined ? {} : {result: later.result})};
         const run = item?.runs.find((entry) => entry.runId === runId);
-        if (run !== undefined) return {...base, state: RUN_REASON[run.reason] ?? "done", line: "", background};
+        // 索引记着那次运行交给调用方的一行：只有完成写它（conversation.md 输出 33），出错、停止照旧只写状态；没有的写“已完成”。
+        if (run !== undefined) {
+            const state = RUN_REASON[run.reason] ?? "done";
+            return {...base, state, line: state === "done" ? (run.line ?? "") : "", background};
+        }
         if (item !== undefined && item.runId === runId && item.state !== "idle") {
             const step = item.step === undefined ? undefined : {tool: displayToolName(item.step.tool), ...(item.step.target === undefined ? {} : {target: shortTarget(item.step.target)})};
             return {

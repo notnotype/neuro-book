@@ -14,7 +14,7 @@ import type {ContributionReceiver, PluginDefinition} from "@notnotype/nb-runtime
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {stickerPickerKey, stickersCatalogContract} from "nbook/plugins/stickers/shared/contracts";
 import type {StickerPicker} from "nbook/plugins/stickers/shared/contracts";
-import type {CommandImplementation, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
@@ -376,6 +376,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
             };
             const providerOf = (plugin: string): SessionOwnerProvider | null => providers.value.find((entry) => entry.plugin === plugin)?.provider ?? null;
+            /** 会话头读不到、打开前就能确定打不开的码：`focus-session` 交回失败（conversation.md 输出 53）。 */
+            const UNOPENABLE: ReadonlySet<string> = new Set(["session-not-found", "log-corrupt", "needs-migration"]);
             /** 会话的归属表：插件级一份，几个宿主与 `focus-session` 共用。会话头里的归属建会话时定下、不会变，读到就记住。 */
             const ownerTable = new Map<string, SessionOwner | null>();
             const sessionOwners: SessionOwners = {
@@ -511,7 +513,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                 let host = hosts.get(position);
                 if (host !== undefined) return host;
                 // 编辑区页面不开有归属的会话：交给消息视图（页面没有联系人列表，也不记“看到”）。
-                const owners: SessionOwners = position === "page" ? {...sessionOwners, elsewhere: (id) => void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id})} : sessionOwners;
+                // 编辑区页面把有归属的会话转给消息视图，等它的结果：打不开时写一条提示，不当作已经打开（conversation.md 输出 53）。
+                const owners: SessionOwners = position === "page" ? {...sessionOwners, elsewhere: async (id) => {
+                    const focused = await commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id});
+                    if (!focused.ok) void notifications.notify({tone: "warning", message: focused.reason});
+                }} : sessionOwners;
                 // 书房的面板只开点看板娘打开的那个主对话：不恢复、不记最近的会话。
                 const deps = position === "desk" ? {...hostDeps(position), recent: {read: async () => null, write: () => undefined}} : hostDeps(position);
                 host = createSessionHost({...deps, owners});
@@ -858,17 +864,17 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
             };
             /** 把活的对话位置带到前面：优先最近用过的，其次打开默认右栏。 */
-            const reveal = async (): Promise<SessionHost> => {
+            /** 揭示上次用的位置；视图或页面揭示不了时交回那次命令的失败（conversation.md 输出 53）。 */
+            const reveal = async (): Promise<CommandResult<SessionHost>> => {
                 ensureStarted();
-                if (lastPosition === "page") await commands.execute(OPEN_PAGE_COMMAND, {id: CONVERSATION_PAGE});
-                else await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
-                return hostAt(lastPosition === "page" ? "page" : "view");
+                const shown = lastPosition === "page" ? await commands.execute(OPEN_PAGE_COMMAND, {id: CONVERSATION_PAGE}) : await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
+                return shown.ok ? {ok: true, value: hostAt(lastPosition === "page" ? "page" : "view")} : shown;
             };
             const done = {ok: true, value: null} as const;
             const commandImplementations: Record<string, CommandImplementation> = {
                 [OPEN_COMMAND]: {run: async () => {
-                    await reveal();
-                    return done;
+                    const revealed = await reveal();
+                    return revealed.ok ? done : revealed;
                 }},
                 [OPEN_IN_EDITOR_COMMAND]: {run: async () => {
                     ensureStarted();
@@ -877,9 +883,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                     return done;
                 }},
                 [NEW_SESSION_COMMAND]: {run: async () => {
-                    const host = await reveal();
+                    const revealed = await reveal();
+                    if (!revealed.ok) return revealed;
                     const profile = await pickProfile();
-                    if (profile !== null) await host.create(profile ?? MAIN_PROFILE);
+                    if (profile !== null) await revealed.value.create(profile ?? MAIN_PROFILE);
                     return done;
                 }},
                 [OPEN_REQUESTS_COMMAND]: {run: async (args) => {
@@ -889,15 +896,25 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }},
                 [FOCUS_SESSION_COMMAND]: {run: async (args) => {
                     const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value ?? unreadSession();
+                    // 打开之前就能确定打不开的，交回失败（后台任务清单的“打开”据此提示）。每次都读：归属记过了不等于会话头此刻还读得出来。
+                    // 读到的会话头顺手记进归属表，下面判归属不再读一次；别的读失败（例如暂时打不开）照常去打开，读快照的失败画在视图里
+                    // （conversation.md 输出 53）。
+                    if (sessionId !== null) {
+                        const header = await remote.header({sessionId});
+                        if (!header.ok && UNOPENABLE.has(header.code)) return {ok: false, code: "execution-error", reason: agentText("conversation.openFailed", {code: header.code})};
+                        if (header.ok) ownerTable.set(sessionId, header.value.owner ?? null);
+                    }
                     // 会话树的根有归属（bot 的主对话本身或它的子会话）：打开到消息视图，不去编辑区页面（conversation.md 输出 53）。
                     if (sessionId !== null && await ownedTree(sessionId)) {
                         ensureStarted();
-                        await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
+                        const shown = await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
+                        if (!shown.ok) return shown;
                         await hostAt("view").open(sessionId);
                         return done;
                     }
-                    const host = await reveal();
-                    if (sessionId !== null) await host.open(sessionId);
+                    const revealed = await reveal();
+                    if (!revealed.ok) return revealed;
+                    if (sessionId !== null) await revealed.value.open(sessionId);
                     return done;
                 }},
             };

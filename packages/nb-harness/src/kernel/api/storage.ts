@@ -14,6 +14,8 @@ export interface IndexedRun {
     readonly runId: string;
     readonly reason: string;
     readonly endedAt: number;
+    /** 那次运行交给调用方的一行（`runLine`：最后一条回复的首句，没有文字时取结构化结果），至多 120 个字符；都没有的没有它（session.md 输出 22）。 */
+    readonly line?: string;
 }
 
 /** 会话列表用的小索引；`list` 只读它，崩溃后到下次打开之前可能略旧。 */

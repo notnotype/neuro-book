@@ -31,7 +31,7 @@ import type {SkillCatalog} from "./skills/catalog";
 import type {OpenFolderResult} from "./skills/folder";
 import type {SkillInstaller} from "./skills/install";
 import type {SessionRelations} from "./subagents/relations";
-import {TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
+import {fitTree, TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
 
 type Contract = typeof agentSessionsContract;
 type Methods = RemoteImplementation<Contract>["methods"];
@@ -183,7 +183,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         list: async (filter, context) => {
             const listed = await service.list(filter);
             return listed.ok
-                ? context.ok(listed.value.map((session) => (session.caller?.kind === "session" ? {...session, parent: session.caller.id} : session)))
+                // 运行的收口（各带回复首句）只给子代理的树用，会话列表用不到，不随列表发。
+                ? context.ok(listed.value.map(({runs: _runs, ...session}) => (session.caller?.kind === "session" ? {...session, parent: session.caller.id} : session)))
                 : context.fail(listed.code, listed.detail as undefined);
         },
         ancestors: async ({sessionId}, context) => {
@@ -199,7 +200,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         },
         tree: async ({sessionId}, context) => {
             const items = await tree.tree(sessionId);
-            return byteLength(items) <= PAGE_BYTES ? context.ok(items) : context.fail("result-too-large");
+            const fitted = fitTree(items, PAGE_BYTES);
+            return fitted !== null ? context.ok(fitted) : context.fail("result-too-large");
         },
         jobs: ({sessionId}, context) => context.ok(jobsOf(sessionId)),
         jobTail: async ({sessionId, jobId, lines = TAIL_LINES}, context) => {
@@ -219,7 +221,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             // 用户停这个会话启动的任何任务（前台、后台），别的会话的不认。
             if (jobs.get(jobId)?.owner !== sessionId) return context.fail("job-unknown");
             const outcome = await jobs.kill(null, jobId);
-            return outcome === "job-unknown" ? context.fail("job-unknown") : context.ok({outcome});
+            if (outcome === "job-unknown") return context.fail("job-unknown");
+            return typeof outcome === "object" ? context.fail("stop-failed", {code: outcome.code}) : context.ok({outcome});
         },
         create: async ({profile, initial, project}, context) => {
             const created = await service.create({profile, ...(initial === undefined ? {} : {initial: initial as never}), ...(project === undefined ? {} : {project})});
@@ -373,8 +376,16 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             activityChanged: {
                 subscribe(_filter, sink, context) {
                     if (context.signal.aborted) return;
-                    // 关系变了根也可能变（新派的子会话一开始跑就进活动）：活动推送本身就带着最新的根。
-                    const stop = options.sessions.onActivityChanged(() => sink.next(activity()));
+                    // 关系变了根也可能变（新派的子会话一开始跑就进活动）：活动推送本身就带着最新的根。会话表在这份活动之外的变化
+                    // （换运行、等的事项种类、压缩、后台会话）也发，内容没变就不推。
+                    let pushed = "";
+                    const stop = options.sessions.onActivityChanged(() => {
+                        const items = activity();
+                        const text = JSON.stringify(items);
+                        if (text === pushed) return;
+                        pushed = text;
+                        sink.next(items);
+                    });
                     context.signal.addEventListener("abort", stop, {once: true});
                 },
             },
@@ -383,7 +394,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                     if (context.signal.aborted) return;
                     // 与查询 `tree` 同一个上限：放不进一条消息时不推（写诊断），宿主照旧显示上一份；请求里的长文字已在算的时候截短。
                     const stop = tree.watch(sessionId, (items) => {
-                        if (byteLength(items) <= PAGE_BYTES) sink.next(items);
+                        const fitted = fitTree(items, PAGE_BYTES);
+                        if (fitted !== null) sink.next(fitted);
                         else report("tree-too-large", `the sub-agent tree of session ${sessionId} does not fit in one message; the push was skipped`, {session: sessionId});
                     }, pushFailed("treeChanged"));
                     context.signal.addEventListener("abort", stop, {once: true});

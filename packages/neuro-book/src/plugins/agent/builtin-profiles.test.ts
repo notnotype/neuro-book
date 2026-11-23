@@ -551,8 +551,13 @@ describe("标题和说明", () => {
 
         const again = await world({settings: withTiny(), at: join(w.stateRoot, "..")});
         const reopened = again.service.session(session.id);
+        const second = tiny.hold();
         tiny.script(generated("雨夜", "说明"));
         await turn(reopened, "第二轮");
+        await second.arrived;
+        // 接着用的标题会话照样是程序自己的会话：在跑时不算用户在跑的工作（sessions.md 输出 20、30）。
+        expect(again.work.collect()).toEqual({items: [], failed: []});
+        second.release();
         await waitUntil("重启后生成", async () => (await metaOf(reopened))[1] !== null);
         expect(await metaOf(reopened)).toEqual(["雨夜", "说明"]);
     });

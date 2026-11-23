@@ -222,7 +222,8 @@
             "inputRejected": "消息被规则拦截。",
             "readOnly": "当前会话为只读。",
             "other": "发送失败（{{code}}）。",
-            "ruleNotSaved": "已批准，但规则没有存下，下次还会问（{{code}}）。"
+            "ruleNotSaved": "已批准，但规则没有存下，下次还会问（{{code}}）。",
+            "stopFailed": "没能停下，它可能还在跑（{{code}}）。"
         },
         "model": {
             "none": "暂无可用模型。",
@@ -878,6 +879,25 @@
             "shell": "后台命令「{{command}}」正在运行",
             "plugin": "{{label}}「{{name}}」正在运行",
             "agent": "子代理「{{name}}」正在运行"
+        }
+    },
+    "tasks": {
+        "untitled": "未命名的会话",
+        "kind": {
+            "shell": "命令",
+            "agent": "子代理",
+            "session": "会话",
+            "subsession": "子会话"
+        },
+        "replying": "正在回复",
+        "compacting": "正在压缩",
+        "approval": "等你批准",
+        "question": "等你回答",
+        "held": "有留着的话等你放行",
+        "asking": "在问：{{question}}",
+        "stop": {
+            "ended": "已经结束",
+            "gone": "已经不在"
         }
     }
 }

@@ -363,6 +363,52 @@ describe("停止与提前交回", () => {
 });
 
 describe("kill 与寿命", () => {
+    test("输出 4：驱动停不下来时交回 stop-failed 带码，不说已停止；它之后因为别的原因收口时不算用户停的", async () => {
+        const {jobs} = center();
+        const reserved = jobs.reserve("p", "agent", "inv-stuck", "停不下的");
+        if (!reserved.ok) throw new Error(reserved.code);
+        const job = reserved.job;
+        jobs.start(job, {kill: async () => ({kind: "stop-failed", code: "log-broken"}), result: async () => "结果"});
+        expect(await jobs.kill(null, job.id)).toEqual({kind: "stop-failed", code: "log-broken"});
+        expect(job.state).toBe("running");
+        jobs.end(job, "aborted", {reason: "aborted"});
+        expect(job.outcome?.byUser).toBeUndefined();
+    });
+
+    test("输出 4：驱动停的时候抛错同样是没停下，之后它因为别的原因收口时不算用户停的", async () => {
+        const {jobs} = center();
+        const reserved = jobs.reserve("p", "agent", "inv-throws", "停时抛错的");
+        if (!reserved.ok) throw new Error(reserved.code);
+        const job = reserved.job;
+        jobs.start(job, {kill: async () => {
+            throw new Error("会话表正在停止");
+        }, result: async () => "结果"});
+        await expect(jobs.kill(null, job.id)).rejects.toThrow("会话表正在停止");
+        jobs.end(job, "aborted", {reason: "aborted"});
+        expect(job.outcome?.byUser).toBeUndefined();
+    });
+
+    test("输出 20：清单的变化信号在领取、退回、只送了短回执、前台开始时也发；这几处不发 onChanged（送达订着它，发了会绕过退避重送）", () => {
+        const {jobs, run} = center();
+        const ended = run("p");
+        jobs.end(ended, "completed", {reason: "completed"});
+        const live = run("p");
+        let lists = 0;
+        const owners: string[] = [];
+        jobs.onListChanged(() => void (lists += 1));
+        jobs.onChanged((owner) => void owners.push(owner));
+        const [claimed] = jobs.claim("p").results;
+        expect(lists).toBe(1);
+        jobs.unclaim(claimed!, claimed!.exit as NoticeExit);
+        expect(lists).toBe(2);
+        const [again] = jobs.claim("p").results;
+        jobs.announce(again!, again!.exit as NoticeExit);
+        expect(lists).toBe(4);
+        jobs.attach(live);
+        expect(lists).toBe(5);
+        expect(owners).toEqual([]);
+    });
+
     test("输出 4、11：只停自己的；已结束的说已经结束；用户经远程能停这个会话的任何任务", async () => {
         const {jobs, run} = center();
         const job = run("p");

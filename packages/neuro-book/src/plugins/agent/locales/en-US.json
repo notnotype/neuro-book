@@ -222,7 +222,8 @@
             "inputRejected": "A rule stopped this message.",
             "readOnly": "This session is read-only right now.",
             "other": "Not sent ({{code}}).",
-            "ruleNotSaved": "Approved, but the rule was not saved, so you will be asked again ({{code}})."
+            "ruleNotSaved": "Approved, but the rule was not saved, so you will be asked again ({{code}}).",
+            "stopFailed": "Could not stop it; it may still be running ({{code}})."
         },
         "model": {
             "none": "No model is available yet.",
@@ -878,6 +879,25 @@
             "shell": "Background command \"{{command}}\" is running",
             "plugin": "{{label}} \"{{name}}\" is running",
             "agent": "Sub-agent \"{{name}}\" is running"
+        }
+    },
+    "tasks": {
+        "untitled": "Untitled session",
+        "kind": {
+            "shell": "Command",
+            "agent": "Sub-agent",
+            "session": "Session",
+            "subsession": "Sub-session"
+        },
+        "replying": "Replying",
+        "compacting": "Compacting",
+        "approval": "Waiting for your approval",
+        "question": "Waiting for your answer",
+        "held": "Held messages waiting for you to release",
+        "asking": "Asking: {{question}}",
+        "stop": {
+            "ended": "Already ended",
+            "gone": "No longer exists"
         }
     }
 }

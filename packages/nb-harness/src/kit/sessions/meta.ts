@@ -74,6 +74,11 @@ export interface SessionMetaOptions {
         compaction(title: string | null, summary: string): string;
     };
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /**
+     * 认定了标题会话、往里发话之前调：新建的，或核对过 Profile 与后台标记、复用的（重启或空闲关闭之后）。宿主据此把它当程序自己的会话，
+     * 不当成用户的工作列出。被普通会话占着 id 的不调。
+     */
+    readonly adopted?: (id: string) => void;
 }
 
 const textOf = (event: LogEvent): string => {
@@ -161,6 +166,7 @@ export class SessionMeta {
                 return null;
             }
         }
+        this.options.adopted?.(id);
         // 标题会话有运行在跑时这次不发：发进去的话会被那次运行取走，结果没人等（agent/builtin-profiles.md 输出 9）。
         const {status} = await this.#step(() => titleSession.snapshot());
         if (status.state !== "idle") {

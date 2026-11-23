@@ -18,7 +18,9 @@
  * - `test.tasks-probe`：后台任务的发起方（docs/specs/workbench/background-tasks.md 的 e2e）。依赖 `nbook.tasks/tasks`，挂控制路由：
  *   `POST /start`（正文 `{title, message?, progress?, cancellable?, retry?}`，交回 `{id}`；`retry: true` 时重试另开一件同名任务）、
  *   `POST /<id>/report|succeed|fail|cancelled`（正文分别是句柄方法的参数）、`GET /<id>/signal`（`{aborted, reason}`）、
- *   `GET /last`（最近一次登记的任务 id，含重试登记的）。
+ *   `GET /last`（最近一次登记的任务 id，含重试登记的）。也作提供方（输出 18–26）：`POST /provide`（正文 `{rows}`，登记成提供方并交出这些行）、
+ *   `POST /rows`（正文 `{rows}`，换掉交出的行并通知）、`POST /stop-answer`（正文是之后 `stop` 交回的结果）、`GET /stops`（收到过的
+ *   `stop` 的行 id）。
  */
 
 import {Hono} from "hono";
@@ -35,7 +37,7 @@ import {PROBE_RECORD_NAMES, probeStorage} from "nbook/shared/testing/probe-stora
 import type {ProbeRecordName} from "nbook/shared/testing/probe-storage";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {tasksKey} from "nbook/plugins/tasks/shared/contracts";
-import type {TaskHandle} from "nbook/plugins/tasks/shared/contracts";
+import type {ProvidedRow, StopOutcome, TaskHandle} from "nbook/plugins/tasks/shared/contracts";
 
 export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later", "test.remote-probe", "test.tasks-probe"] as const;
 export type TestPluginId = typeof TEST_PLUGIN_IDS[number];
@@ -228,6 +230,10 @@ function createTasksProbePlugin(): PluginDefinition {
                 const tasks = context.services.require(tasksKey);
                 const handles = new Map<string, TaskHandle>();
                 let last: string | null = null;
+                let provided: readonly ProvidedRow[] = [];
+                let notify: (() => void) | null = null;
+                let answer: StopOutcome = {kind: "accepted"};
+                const stops: string[] = [];
                 const start = (body: StartBody): TaskHandle => {
                     const handle = tasks.start({
                         title: body.title,
@@ -243,6 +249,33 @@ function createTasksProbePlugin(): PluginDefinition {
                 const routes = new Hono<{Bindings: HttpRouteEnv}>()
                     .post("/start", async (c) => c.json({id: start(await c.req.json<StartBody>()).id}))
                     .get("/last", (c) => c.json({id: last}))
+                    .post("/provide", async (c) => {
+                        provided = (await c.req.json<{rows: ProvidedRow[]}>()).rows;
+                        tasks.provide({
+                            rows: () => provided,
+                            subscribe: (listener) => {
+                                notify = listener;
+                                return () => {
+                                    notify = null;
+                                };
+                            },
+                            stop: async (row) => {
+                                stops.push(row);
+                                return answer;
+                            },
+                        });
+                        return c.json({ok: true});
+                    })
+                    .post("/rows", async (c) => {
+                        provided = (await c.req.json<{rows: ProvidedRow[]}>()).rows;
+                        notify?.();
+                        return c.json({ok: true});
+                    })
+                    .post("/stop-answer", async (c) => {
+                        answer = await c.req.json<StopOutcome>();
+                        return c.json({ok: true});
+                    })
+                    .get("/stops", (c) => c.json({stops}))
                     .get("/:task/signal", (c) => {
                         const handle = handles.get(c.req.param("task"));
                         return handle === undefined ? c.json({error: "unknown task"}, 404) : c.json({aborted: handle.signal.aborted, reason: handle.signal.aborted ? String(handle.signal.reason) : null});

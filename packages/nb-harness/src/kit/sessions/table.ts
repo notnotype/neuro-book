@@ -69,6 +69,14 @@ interface Entry {
     waiting: boolean;
     /** 空闲、缓冲区里有只有用户能放行的留着的话（用户停止留下的，或用户自己的话留着）：活动里算作等用户（agent/sessions.md 输出 15）。 */
     held: boolean;
+    /** 看到留着的话的时刻（打开时就有的，取打开的时刻）。 */
+    heldAt: number | null;
+    /** 此刻这次运行：状态帧里的 `runId`，开始时刻取第一次看到它的时刻（句柄打开时已在跑的，就是打开的时刻）。空闲时为 null。 */
+    run: {readonly id: string; readonly startedAt: number} | null;
+    /** 在等用户时等的是什么：有审批就是审批，否则是提问。 */
+    pending: "approval" | "question" | null;
+    /** 运行正在压缩上下文。 */
+    compacting: boolean;
     questions: "caller" | "user";
     /** `userOnly` 认出的提问的 id。 */
     userOnly: Set<string>;
@@ -90,6 +98,19 @@ const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNo
 const BUFFER_EVENTS = new Set(["inputQueued", "inputHeld", "inputReleased", "inputRemoved", "inputConsumed", "inputEdited"]);
 /** 有没有只有用户能放行的留着的话：用户停止留下的，或用户自己的话留着（sessions.md 输出 15）。 */
 const heldForUser = (buffer: SessionSnapshot["buffer"]): boolean => buffer.some((item) => item.state === "held" && (item.heldBy?.kind === "user" || item.by === undefined));
+
+/**
+ * 一个会话此刻的活动（`activityWithBackground`）。`held`：空闲、有只有用户能放行的留着的话，`startedAt` 是看到它的时刻；其余两种的
+ * `runId`、`startedAt` 是这次运行与它开始的时刻，`pending` 只在等用户时有。
+ */
+export interface SessionActivity {
+    readonly id: string;
+    readonly state: "running" | "waiting" | "held";
+    readonly runId?: string;
+    readonly startedAt?: number;
+    readonly pending?: "approval" | "question";
+    readonly compacting?: true;
+}
 
 export interface SessionTableOptions {
     readonly host: AgentHost;
@@ -147,7 +168,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, held: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, held: false, heldAt: null, run: null, pending: null, compacting: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -186,11 +207,25 @@ export class SessionTable {
     }
 
     /**
-     * 运行中与等用户的会话，后台会话（`background: true`）也算：宿主问“停止服务会中断什么”时用（sessions.md 输出 20）。
-     * `activity()` 只给前台的活动指示用，不含后台会话，两者不要合并。
+     * 运行中、等用户与有留着的话的会话，后台会话（`background: true`）也算：宿主问“停止服务会中断什么”（sessions.md 输出 20，只认
+     * `running`、`waiting`）与后台任务清单的会话行（sessions.md 输出 30）用。`activity()` 只给前台的活动指示用，不含后台会话，两者不要
+     * 合并。只看打开着的表项，同 `activity()`。
      */
-    activityWithBackground(): {id: string; state: "running" | "waiting"}[] {
-        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle).map((entry) => ({id: entry.id, state: entry.waiting ? "waiting" : "running"}));
+    activityWithBackground(): SessionActivity[] {
+        const items: SessionActivity[] = [];
+        for (const entry of this.#entries.values()) {
+            if (entry.state !== "open") continue;
+            if (!entry.idle) {
+                items.push({
+                    id: entry.id,
+                    state: entry.waiting ? "waiting" : "running",
+                    ...(entry.run === null ? {} : {runId: entry.run.id, startedAt: entry.run.startedAt}),
+                    ...(entry.pending === null ? {} : {pending: entry.pending}),
+                    ...(entry.compacting ? {compacting: true} : {}),
+                });
+            } else if (entry.held) items.push({id: entry.id, state: "held", ...(entry.heldAt === null ? {} : {startedAt: entry.heldAt})});
+        }
+        return items;
     }
 
     onActivityChanged(listener: () => void): () => void {
@@ -336,7 +371,7 @@ export class SessionTable {
             }
             const opening = entry === undefined;
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, background: false, waiting: false, held: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, waiting: false, held: false, heldAt: null, run: null, pending: null, compacting: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -384,8 +419,9 @@ export class SessionTable {
             entry.state = "open";
             // 空闲关闭或服务端重启之前留下的话：打开时就算，不等下一条缓冲区事件（sessions.md 输出 15）。
             entry.held = heldForUser(buffer);
+            entry.heldAt = entry.held ? this.options.clock.now() : null;
             this.#watch(entry, opened.value);
-            if (entry.held && !entry.background) this.#activityChanged();
+            if (entry.held) this.#activityChanged();
             return {ok: true, openMs: this.options.clock.now() - started};
         } catch (error) {
             this.#forget(entry);
@@ -408,12 +444,17 @@ export class SessionTable {
                 return;
             }
             if (frame.type !== "status") return;
-            const wasWaiting = entry.waiting;
-            const wasIdle = entry.idle;
+            const before = {idle: entry.idle, waiting: entry.waiting, run: entry.run, pending: entry.pending, compacting: entry.compacting};
             const {status} = frame;
             entry.idle = status.state === "idle" || status.state === "broken";
             entry.waiting = status.state === "waiting" && status.pending.some((item) => item.kind === "approval" || entry.questions === "user" || entry.userOnly.has(item.id));
-            if (entry.idle !== wasIdle || entry.waiting !== wasWaiting) this.#activityChanged();
+            const runId = status.state === "running" || status.state === "waiting" || status.state === "aborting" ? status.runId : null;
+            // 换一次运行之前总有一帧空闲（t42 的探针），这里仍按 id 比，不靠这个先后。
+            if (entry.idle || runId === null) entry.run = null;
+            else if (entry.run?.id !== runId) entry.run = {id: runId, startedAt: this.options.clock.now()};
+            entry.pending = !entry.waiting || status.state !== "waiting" ? null : status.pending.some((item) => item.kind === "approval") ? "approval" : "question";
+            entry.compacting = status.state === "running" && status.phase === "compacting";
+            if (entry.idle !== before.idle || entry.waiting !== before.waiting || entry.run !== before.run || entry.pending !== before.pending || entry.compacting !== before.compacting) this.#activityChanged();
             if (entry.idle) this.#maybeIdle(entry);
             else {
                 entry.cancelIdle?.();
@@ -432,6 +473,7 @@ export class SessionTable {
         const held = heldForUser(snapshot.buffer);
         if (held === entry.held) return;
         entry.held = held;
+        entry.heldAt = held ? this.options.clock.now() : null;
         this.#activityChanged();
     }
 

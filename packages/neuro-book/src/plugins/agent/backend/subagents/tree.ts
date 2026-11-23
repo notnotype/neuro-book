@@ -21,6 +21,29 @@ import {forUser, isModeSwitch, pendingOf, questionText, type PendingItem} from "
 
 /** 给动态字段（`step`、`tools`）的在跑后代至多几个（按开始时间取最近的）。 */
 export const DETAILED_LIMIT = 16;
+
+const encodedBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), "utf8");
+
+/**
+ * 树放进一条消息（subagents.md 输出 21）：超过 `limit` 字节时先去掉历史运行的首句、每项只留最近一次运行的，再不够去掉全部首句；
+ * 仍放不下交回 null。首句只是卡片“完成”那一行的文字，去掉了卡片写“已完成”；后代、状态与等你的事项不丢。
+ */
+export function fitTree(items: readonly TreeItem[], limit: number): readonly TreeItem[] | null {
+    if (encodedBytes(items) <= limit) return items;
+    const withoutLines = (keepLast: boolean): TreeItem[] => items.map((item) => ({
+        ...item,
+        runs: item.runs.map((run, index) => {
+            if (run.line === undefined || (keepLast && index === item.runs.length - 1)) return run;
+            const {line: _line, ...rest} = run;
+            return rest;
+        }),
+    }));
+    for (const keepLast of [true, false]) {
+        const trimmed = withoutLines(keepLast);
+        if (encodedBytes(trimmed) <= limit) return trimmed;
+    }
+    return null;
+}
 const TARGET_CHARS = 120;
 const QUESTION_CHARS = 200;
 /** 推送至多每秒 4 次。 */
@@ -91,10 +114,13 @@ type DynamicCache = {readonly key: string; readonly item: TreeItem};
 export class SubagentTree {
     readonly #indexed = new Map<string, IndexCache>();
     readonly #dynamic = new Map<string, DynamicCache>();
+    /** 正在读索引的会话：读的途中写了日志，读到的是写之前的，标成过时、不放进缓存。只在读的期间有项。 */
+    readonly #reading = new Map<string, Set<{stale: boolean}>>();
 
     constructor(private readonly options: SubagentTreeOptions) {
         options.table.onLog((id) => {
             this.#indexed.delete(id);
+            for (const read of this.#reading.get(id) ?? []) read.stale = true;
         });
     }
 
@@ -102,10 +128,20 @@ export class SubagentTree {
         const open = this.options.table.isOpen(id);
         const cached = this.#indexed.get(id);
         if (cached !== undefined && !(cached.whileOpen && !open)) return cached.entry;
-        const read = await this.options.entry(id);
-        const entry = read.ok ? read.value : null;
-        this.#indexed.set(id, {entry, whileOpen: open});
-        return entry;
+        const token = {stale: false};
+        const reads = this.#reading.get(id) ?? new Set();
+        reads.add(token);
+        this.#reading.set(id, reads);
+        try {
+            const read = await this.options.entry(id);
+            const entry = read.ok ? read.value : null;
+            // 读的途中写了日志（例如子会话刚收口）：这一份照样交回，但不缓存，否则失效已经过去，旧的收口会一直留到句柄关闭。
+            if (!token.stale) this.#indexed.set(id, {entry, whileOpen: open});
+            return entry;
+        } finally {
+            reads.delete(token);
+            if (reads.size === 0 && this.#reading.get(id) === reads) this.#reading.delete(id);
+        }
     }
 
     async tree(sessionId: string): Promise<TreeItem[]> {
