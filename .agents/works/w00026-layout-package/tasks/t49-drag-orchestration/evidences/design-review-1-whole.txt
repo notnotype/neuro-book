@@ -1,0 +1,124 @@
+## t49 计划第 1 稿：整体设计审查
+
+计划的分工方向是对的：引擎管“什么时候”，宿主管“是什么”。但按现在的写法有一处实现不出来；另有几处没有达到提案第二步自己提的要求。
+
+### 1. 阻断：会话的 `D` 和引擎的 `D` 不是同一个类型，按计划写的组合编译不过
+
+- **位置**：计划“会话接上引擎”一节的 `live?: LiveDrag<S, D, unknown>` 和“`resolve` 的结果由会话交给 `offer`”；“工作台改用引擎”一节的“`D` 用工作台的 `Judgement`”。代码见 `layout-drag.ts:810`、`layout-drag.ts:843-857`。
+- **现象**：
+  - 工作台会话的 `D` 是 `LayoutDragDrop`：`resolve` 返回 `stableDrop(judged.drop)`。
+  - 计划要引擎的 `D` 是 `Judgement`（落点加 `rejected`、`refusal`），这样 `held` 才能把被拒绝一起留下。
+  - 会话只能把自己的 `D` 交给 `offer`，所以这两个要求互相冲突。
+  - `S` 也对不上：会话的 `S` 是 `WorkbenchDragSource`（标签、容器、整窗三种），引擎的回调只认标签。容器和整窗的 `resolve` 结果也会被会话 `offer` 进去。
+- **为什么是问题**：切片 2、3 要么改掉工作台 `DragState.drop` 的类型（所有读反馈的地方都要跟着改），要么放弃“收起那一刻留下被拒绝”。后一种正是计划“风险”一条点名最容易丢的那一步。
+- **改法（二选一，推荐 a）**：
+  - a. `offer` 留在宿主，照今天在 `resolveDrop` 里调。会话只负责 `wake` 和收场的顺序。这样两个 `D` 互不相干。
+  - b. `held` 交给会话来做：引擎通知“几何换了”时，会话记下此刻的指针和最后一次 `resolve` 的结果；指针没动之前不调宿主的 `resolve`，直接用这次结果。宿主那份 `run.judged` 因此停在收起那一刻，`refusal` 自然保住，引擎也不需要 `Judgement`。
+
+### 2. 重要：第二个宿主只验证了“功能能关掉”，引擎约一半的编排还是只有工作台一个宿主
+
+- **位置**：计划“拖详情换边改成实时布局”一节的最后一条（“这本身是对……的检验”）；提案“手感引擎分两步”第二步。
+- **现象**：
+  - 提案要第二个宿主验证的是 `stepPreview`、撕下、收起展开后重判、指针不动不重判、空位粘住。
+  - nb-story 只有两张卡：`collapsed` 返回 null，`staysWithoutSource` 恒假，没有标签条，对调也没有空位。
+  - 所以撕下、几何换算、`held`、`sticky`、`sort` 这五样在 nb-story 上全部走不到。真正被两个宿主都用到的只有：候选稳定、拿起时的几何、卡片、帧顺序、唤醒。
+- **为什么是问题**：发布出去的 `collapsed`、`staysWithoutSource`、`held`、`sticky`、`sort` 的形状，只有工作台这一个例子，正是提案当初要避免的“没有第二个形状校验就承诺”。
+- **改法（二选一）**：
+  - a. 收窄首批进库的范围：只公开两个宿主都验证过的那部分。收起、撕下、`held`、`sticky`、`sort` 做成可选的分组（例如 `collapse?: {...}`、`absorb?: {...}`），单独写明“只有一个宿主验证过”；或者先留在工作台适配层里。
+  - b. 范围不变，加一个 Lab 场景宿主：三块以上的卡片面板，拖到边上长出新块，来源收起，这正是提案点名的“不是标签页的宿主”。用它覆盖这五样，作为验收的一部分。
+
+### 3. 重要：`connect` 握手、谁开始谁结束都分散在几处，跨包的时序合同从“挂监听的先后”换成了“握手和调用的先后”
+
+- **位置**：计划 `LiveDrag.connect`、“会话接上引擎”一节、`useLiveDrag` 一节的“卸载时 `end`”。
+- **现象**：
+  - `begin` 由宿主在 `activate` 里调，`end` 由会话在收场时调，`useLiveDrag` 卸载时也调 `end`。
+  - `connect` 没有对应的断开。`useDragSession` 在根换掉时会重建会话（`useDragSession.ts:33-41`），这时会再 `connect` 一次，旧会话交出的 `judge`、`pointer` 还留在引擎里，计划没写怎么处理。
+  - `connect` 返回的 `offer`、`wake` 本该只给会话用，却是公开签名的一部分。
+- **为什么是问题**：提案要求“引擎与会话同属一个对象，或由会话主动调 `wake`”。现在两样都只做了一半，第三方要读懂三方之间的握手才写得对。
+- **改法（推荐 a，c 作为 1.0 前的方向）**：
+  - a. 会话只加一个通用选项 `sampled?(): void`：在会话自己的 `pointermove` 处理函数开头同步调用。宿主写 `sampled: () => live.wake()`。引擎照今天那样通过宿主的 `judge`、`pointer` 回调拿数据，不需要 `connect`。这个选项对不用引擎、只用 `createFrameLoop` 的宿主同样能解决挂监听先后的问题。
+  - b. 结束只留一个主人：要么全由宿主在 `onActiveChange(false)` 里做（今天的做法，写进 Spec），要么让 `activate` 返回 `"live"`，由会话负责开始和结束。不要宿主开始、会话结束、组合函数再结束一次。
+  - c. 长期可以把引擎并进 `createDragSession`：加选项 `live?: LiveDragHost`，会话暴露 `session.live`。代价是会话再加一个类型参数（`G`，可以缺省为 `never`），文件变大。
+
+### 4. 重要：引擎放进根入口，但唯一能驱动它的会话在 `./vue`，根入口多出一批只有 Vue 用得上的名字
+
+- **位置**：计划“`live-drag.ts`（新，核心入口）”一节；`drag-session.ts:8`（会话依赖 `shallowRef`）；CHANGELOG 0.1.0 已写明“宿主是 Vue 3 加 Vite”。
+- **现象**：`createLiveDrag`、`LiveDrag`（含 `connect`、`subscribe`）进了 `.` 入口，可是没有不依赖 Vue 的会话能接上它。“纯 TS”在这里换来的只是好写单元测试，并没有让别的框架能用。
+- **改法**：
+  - 文件留在 `src/`，保持纯 TS，`boundary.test.ts` 继续守着，单元测试照写；公开名字只从 `./vue` 导出，或者只通过 `useLiveDrag` 和会话选项暴露。
+  - 去掉 `subscribe`：宿主接口里加一个 `changed?(state)` 回调，由 `useLiveDrag` 接到 `shallowRef`。多个监听者的订阅要另外承诺监听顺序、通知过程中能否再订阅等语义，现在没有使用方需要。
+
+### 5. 重要：判定里的几步还是靠宿主按顺序调用，`measure` 什么时候调接口里没有
+
+- **位置**：计划“`live-drag.ts`”一节的“由宿主触发 `measure`（见下一节的时机）”（下一节里其实没写时机）；`LiveDrag.geometry/held/sticky`；代码 `layout-drag.ts:638-658`、`layout-drag.ts:835-837`。
+- **现象**：
+  - 宿主的 `resolve` 要按这个顺序调：`held` 判断三种返回值 → 没量过就自己现量 → `geometry()` → 先判入口条 → `sticky` → 现判。
+  - `LiveDrag` 上没有“触发 measure”的方法，所以宿主照旧得在 `nextTick` 里自己量、自己存。这和“几何的换法归引擎”的说法矛盾。
+- **改法**：
+  - 引擎在 `begin` 之后的第一帧开头、`judge` 之前调 `host.measure`。浏览器的帧回调晚于 Vue 的渲染刷新，量到的就是渲染后的矩形。同一个同步段里第一次判定时 `geometry()` 为 null，宿主现量，计划已经这样写了。
+  - `held` 按第 1 条的 b 交给会话，或者至少把三种返回值合成一个“这次要不要直接用留下的落点”。
+  - `sticky` 留给宿主调用，并写明它可以排在宿主自己的高优先级落点之后。工作台的入口条就排在它前面：贴着树边长出新块时，空位外扩的 8px 会伸进活动栏。
+
+### 6. 重要：给第三方的“拿起的内容不能卸载”这条合同没写，nb-story 也碰不到
+
+- **位置**：`WorkbenchSurface.vue:186-191`；提案的要求“谁驱动 NestedGrid 的 `lifted`、`dragging`、`contents`、`placeLifted`”；计划 `useLiveDrag` 一节只写了 `lifted` 和 `placeLifted`。
+- **现象**：
+  - 预览把来源那块叶拿掉时，工作台自己往 `contents` 里补上拿起的那一项，否则卡片里的组件实例会被卸载。
+  - `dragging` 由谁驱动，计划也没写。
+  - nb-story 对调时两张叶都在，测不到这一点。第三方照公开接口写，就会在撕下或收起来源时丢掉内容的状态。
+- **改法**：把这条合同放进库里：
+  - `NestedGrid` 在 `lifted.key` 不在 `contents` 里时，自己留住这一项（它已经有 `liftedRect`）；或者 `useLiveDrag` 提供 `withLifted(contents)`。
+  - `useLiveDrag` 一并返回 `dragging`。
+  - 计划里补一张表：`lifted`、`dragging`、`contents`、`placeLifted` 各由谁驱动，满足提案的要求。
+
+### 7. 重要：提案要求“标签条排序与标签条几何一起设计”，计划没有回应
+
+- **位置**：计划 `LiveDragHost.sort`；提案“手感引擎分两步”的“进库时的写法”第 3 条。
+- **现象**：
+  - `sort.read/afterRender` 原样照搬今天的 `placeSorted`。
+  - 判定用的被拖标签的矩形（`heldTab`）藏在宿主的 `measure` 返回的 `G` 里。
+  - L1 已有 `sortable` 和 `SortableList`，计划没说它们和“落进排序容器后跟手”是什么关系。
+- **为什么是问题**：提案的要求被悄悄放掉了。“吸收进容器、卡片收回、在条里跟手”是引擎的核心状态，第三方的容器到底要实现什么，接口上看不出来。
+- **改法**：
+  - 计划里明写：`TabStrip` 已搬进不发布的 L2，所以排序只做宿主钩子，以此替代提案的那条要求，并在提案的决策记录里追加一条。
+  - 把 `strip` 改成不带工作台词汇的名字（例如 `absorbs` 或 `container`），并说明 `SortableList` 能不能当这种容器。不能的话就写成已知限制。
+
+### 8. 建议：接口可以更小，去掉 `P`，回调从约 17 个减到约 13 个
+
+- **位置**：计划 `LiveDragHost<S, D, P, G>`。
+- **现象**：
+  - 现在宿主要写 17 个回调（`requestFrame`、`cancelFrame`、`facts`、`preview`、`sourceRemoved`、`show`、`measure`、`collapsed`、`staysWithoutSource`、卡片 5 个、`origin`、排序 2 个），会话交出 2 个，`LiveDrag` 上有 9 个成员。
+  - 引擎从不读 `P` 的内容，只看它是不是 null。
+- **改法**：
+  - `preview`、`sourceRemoved`、`show` 合成一个 `show(target: {kind: "candidate"; drop: D} | {kind: "source-removed"} | null): boolean`，返回假就是摆不出来，引擎改显示来源收起的样子。预览缓存本来就在宿主。
+  - `requestFrame`、`cancelFrame` 在 `useLiveDrag` 里默认用窗口的帧调度。
+  - 卡片的 `shrinkInsideHome`、`refreshMs` 改成带缺省值的可选项。
+  - 结果：3 个类型参数，约 13 个回调；加上第 3 条的 a，`connect`、`offer`、`wake`、`subscribe` 也从公开面上消失。
+
+### 9. 重要：发布顺序有风险，首发可能带上一个没验证完的引擎
+
+- **位置**：计划“不做与风险”一节的“发布顺序”；`packages/nb-layout/CHANGELOG.md` 已有 `[0.1.0] - 2026-11-23`，Work 记录写的是“t48 实施完再按发布手册首发”。
+- **现象**：计划写“t49 合入在发布之前时，变更记录并进 0.1.0”。那样首发版就会带上：Spec 里还标着“（planned）”的引擎、第 2 条说的只有一个宿主验证的那一半，以及紧接着的 t55 简化可能马上改名的接口。
+- **改法**：
+  - 定死顺序：0.1.0 在 t49 合入之前、从当前 master 发出（或者给发布的提交打标签，从标签发）。
+  - t49 一律写进 `[Unreleased]`，进 0.2.0。删掉“并进 0.1.0”这条分支。
+  - 如果首发要等 t49，就先问开发者。
+
+### 10. 建议：和已有公开面重复，Spec 里有句子会变成过时的指引
+
+- **位置**：`src/frame-loop.ts:4-5` 的头注释；`ui/layout-drag` 第 19 行（非目标）和第 192 行（输出 21，“宿主先挂 wake 监听”）；README 第 131 行（教人直接用 `stepLiveDrop`、`insideShownSlot`）；`live-drop.ts` 的 `LiveDropCandidate` 和新的 `LiveDropFacts` 是同一个概念的两层。
+- **改法**：
+  - 计划的“Spec 与文档改动”补上三处：非目标第 19 行改成链接新的输出；输出 21 和 `frame-loop.ts` 的注释改成“用会话的 `sampled`（或引擎）”；README 那一行改为指向引擎。
+  - `live-drop` 那几个名字继续公开，作为底层零件，并写明一般宿主用引擎就够了，不必在 0.x 里删掉。
+
+### 未发现问题的方面
+
+- 分工原则（引擎管“什么时候”、宿主管“是什么”）和“一帧的顺序写死在引擎里”。
+- 不新增组件；不进插件 SDK；不动落点指示那一路和整窗拖动。
+- 每场状态放在一个闭包里、结束时换成空闲的一份。
+- 工作台的切片先跑基线对照再删旧代码。
+- 减少动效和键盘拖动照旧用落点指示。
+
+### 各级数量
+
+阻断 1 条（第 1 条），重要 7 条（第 2、3、4、5、6、7、9 条），建议 2 条（第 8、10 条）。

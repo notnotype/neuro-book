@@ -1,0 +1,137 @@
+# w00026 t49 计划第 1 稿：细节与事实核对
+
+结论：发现 12 条。阻断 1、重要 7、建议 4。我没跑任何测试或服务，也没改文件，下面都是读代码核对的结果。
+
+## 阻断
+
+**1. 引擎的 `D` 是什么，计划里写了两个互相矛盾的答案**（“会话接上引擎”一节的 `live?: LiveDrag<S, D, unknown>`，对比“工作台改用引擎”一节的“`D` 用工作台的 `Judgement`”）
+- 现象：
+  - 会话的 `D` 是 `resolve` 返回的落点，也就是 `LayoutDragDrop`。发布的 `state`、`actionKey`、`commit` 全按它写，`layout-drag.ts:843-860`。
+  - `live` 与会话共用同一个 `D`，所以引擎的 `D` 也是落点。
+  - 计划又要引擎替宿主留着“收起那一刻的整份判定”，所以 `D` 得是 `Judgement`（落点加 `rejected`、`refusal`）。
+- 为什么是问题：
+  - 两者不能同时成立。`D` 取 `Judgement` 时，会话的 `commit`、`actionKey`、`WorkbenchShell` 读的 `session.state.drop` 全要改形状。
+  - 被拒绝时今天 `judged.drop` 是 `null`（`layout-drag.ts:663`），`offer(null)` 走“没有候选”那条路。改成交 `Judgement` 就是非空的，`stepLiveDrop` 会按候选处理。
+- 今天 `held` 的 `drop` 恒等于 `offered`：收起时传的要么是 `offered`，要么是 `preview.kind==="candidate"` 之外的 `null`，而后者只在 `offered===null` 时出现。所以引擎不必替宿主留判定。
+- 建议：
+  - 保持 `D` 是落点，`held` 留在宿主。`collapsed` 与 `expanded` 回调本来就是宿主记 `{...run.judged, point}` 的时机，今天的 `collapseSource`、`expandSource` 就是这样做的。
+  - 引擎只需要让回调告诉宿主“这一刻换了几何”。
+  - 若坚持搬进引擎，就要把 `rejected` 做成独立泛型 `H` 并改会话的签名。
+
+## 重要
+
+**2. 判定几何什么时候量，计划没写，引用的小节也不存在**（“编排的分工”一节“见下一节的时机”，下一节没有）
+- 今天的做法（`layout-drag.ts:830-838`、`:647`）：
+  - `activate` 里 `settleMotion`、`live.begin`，再 `nextTick(freeze)`。
+  - 手势紧接着同步做的第一次判定，因为 `frozen===null`，会先 `freeze` 一次，量到的是过渡中间的矩形。渲染做完后 `nextTick` 又量一次覆盖它。
+- 计划的缺口：
+  - 引擎是纯 TS，没有 `nextTick`，`LiveDragHost` 里也没有“等渲染后再回调”的钩子。`sort.afterRender` 只管排序，nb-story 没有 `sort`。
+  - “`begin` 之后第一次 `geometry()` 前由宿主触发 `measure`”：`measure` 是引擎调的宿主回调，“宿主触发”不通。
+  - `freeze` 还有副作用：写 `run.sort.grab`、算 `heldTab`、需要 `pressedAt`。
+- 建议：
+  - 在 `LiveDragHost` 加 `afterRender(run: () => void)`，或写明由宿主在 `activate` 里 `nextTick` 后调 `live.measured(g)`。
+  - 写明 `geometry()===null` 期间的第一次判定现量、不存。
+  - 写明预览缓存在 null 变非 null 时作废。今天这一步漏了，`freeze` 里没有 `previews.clear()`，所以改成“按几何身份作废”是顺带修了一个旧缺口，别当成“行为不变”写进验收。
+
+**3. `LiveDragState.lifted: boolean` 接不上 `NestedGrid`**（`useLiveDrag` 一节）
+- 现象：
+  - `NestedGrid` 的 `lifted` 是 `{key: string} | null`，`key` 是内容项键（`NestedGrid.vue:58`、`:435`）。
+  - 今天 `card` 是 `{key: source.tab}`，`WorkbenchShell.vue:896-898` 还用 `card.key` 反查 `home`。
+  - 计划的 `state` 只有布尔，`card` 接口里也没有取键的回调。
+  - 计划说“`lifted` 直接是 `NestedGrid` 的 `lifted` 属性要的形状”，与它自己的类型不符。
+- nb-story 的内容键是 `detail-${key}`，来源是 `number`，更要由宿主给键。
+- 建议：`card` 加 `key(source): string`，`state.lifted` 改成 `{key: string} | null`。
+
+**4. `shown` 与 `shownAction` 被合成一个字段**（`LiveDragState.shown`）
+- 今天（`live-drag.ts:201-206`）有两个量：
+  - `shown = offered`：候选换预览时无条件记下，给 `stickyDrop` 用。
+  - `shownAction = doc === null ? null : offered.action`：预览摆不出来（原位、`applyLayoutDrop` 失败）时为 `null`。
+- `WorkbenchShell.vue:873` 经 `presentDrag` 读 `shownAction` 画 `slotPanel`、`mergeTarget`、`mergeEntry`。`doc===null` 时它也非空的话，会在没有预览的落点上画并入盖层或空位。
+- `absorbedIn` 同样依赖 `doc !== null`（`:206`）。
+- 建议：`state` 同时给 `shown`（粘住用）和“预览是否摆出来了”，或者 `shownPreviewed: D | null`。
+
+**5. 宿主读不到“来源此刻是否收起”**（`LiveDragHost.preview` 与 `layout-drag.ts:267`）
+- `candidateDoc` 里 `run.beforeCollapse === null && soleRegionContainer(...)` 要判断来源收起过没有。注释写得很清楚：判定入口已上移，已提交文档会把来源入口画回来，高亮的入口就不在指针下了。
+- 计划把 `beforeCollapse` 搬进引擎，`preview(source, drop)` 没有 `collapsed` 参数，`state` 里也没有。
+- 建议：`preview(source, drop, ctx: {collapsed: boolean})`，或 `state.collapsed`。
+
+**6. `facts.home` 一个布尔盖不住今天的两处用法，缺省说明还会改行为**（`LiveDropFacts`）
+- 今天：
+  - `immediate = dropStripOf(action) !== null && (isHomeStrip(strip) || strip === absorbedIn)`，条件里 `strip` 取的是 `dropStripOf`（`live-drag.ts:133-134`）。
+  - `elsewhere` 里的 `isHome` 取的是 `homeStripOf(action)`（`:190`）。它多包含“入口上的并入”，对来源是区域里唯一容器视图的情形，`join-container` 算自己的条。
+- 后果：这时 `home` 对 `join-container` 为真，但 `strip` 为 `null`。引擎若按字面“`home` 就立即换”，会让路过活动栏的并入立即弹出预览，也就是 `live-drag.ts:132` 注释要防的那件事。
+- 另外，`home` 在接口里是必填，注释却说“缺省按 `strip` 是不是来源自己的”。按 `strip` 缺省会让 `join-container` 的 `home` 为假，于是收起来源。
+- 建议：
+  - 在计划里写死 `immediate = strip !== null && (home || strip === absorbedIn)` 与 `collapse = !inPlace && !home`。
+  - `home` 对 `join-container` 的取值要写进单元测试。
+  - 删掉“缺省”，让它必填。
+
+**7. 卡片接口表达不全今天的 `updateCard`**（`LiveDragHost.card`）
+- 今天用了两个不同的面板矩形：
+  - `homeRect`：第一次要卡片时量一次并缓存，用来夹紧凑尺寸（`min(380×260, home)`）和判指针在不在来源面板里。
+  - `showing = absorbedIn ?? homePanel`：每次重新拿起卡片时现读，被吸收的条是入口条 id 时 `panelRect` 为 `null`，卡片按缩好的大小出现，不回退到 home（`live-drag.ts:157-167`）。
+- 计划只有 `from(source, strip)` 和 `size(source)`：
+  - 没写 `homeRect` 是哪次 `from` 的结果、什么时候量。
+  - `size` 的紧凑值依赖 home 矩形，宿主算会读到收起后的几何；引擎算就需要 home 矩形。
+  - 没写 `strip` 非空而 `from` 返回 `null` 时不回退。
+- `homeRect` 的量取时机有隐含依赖：`tick` 里 `stepPreview` 在 `updateCard` 前，`tearOff`、收起会先换几何，单个标签的面板收起后 `panelRect(home)` 为 `null`。放在 `begin` 时量会改变这个边角。
+- 建议：
+  - 写明 `from(source, null)` 取 home 并由引擎缓存一次，`from(source, strip)` 每次拿起现读，`null` 就是 `null`。
+  - `size` 改成由引擎按 home 矩形夹。
+  - 写明首次量的时机仍在同一帧 `stepPreview` 之后。
+
+**8. nb-story 一节有四处与代码或今天的行为不符，照字面写会出错**（`BookFrame.vue:210-237`）
+- 判定几何要冻结：
+  - 现在 `resolve` 现量 `shellOf(other.key).getBoundingClientRect()`。预览把另一张换到来源的位置后，指针下已不是它，候选变空，150ms 后预览退回，另一张滑回，如此循环抖动。
+  - 计划只在接口里有 `measure`，nb-story 一节没写要接。
+- 有落点才有“原位”：
+  - 今天回到自己那一半是 `null`。
+  - 计划要“回到自己那一半是原位，预览回原样”，`facts.inPlace` 需要有落点承载，所以 `resolve` 要在自己那一半返回 `{inPlace: true}`。
+  - 它的 `actionKey` 要是 `null`，否则松手会提交一次空对调。
+- 键盘拖动：
+  - 计划写“键盘拖动照旧是落点指示（同工作台的规则，Spec 写明）”。
+  - nb-story 的会话没有 `keyboard` 选项，没有键盘拖动，换边靠“与另一张对调”的按钮。
+  - 这句 Spec 要删或改成“没有键盘拖动”。
+- 减少动效的探测：
+  - 工作台在宿主根上 `layoutMotionMs(root)`。
+  - nb-story 的 `--nb-layout-motion-layout` 写在 `NestedGrid` 元素上（`BookFrame.vue:359`），会话根是外面的 `gridBox`。读 `gridBox` 读不到，只会拿到回退值，减少动效时探不到，验收“减少动效下是落点指示”会过不了。
+  - 要在 `NestedGrid` 的根上读。
+- 还有这些点没写：
+  - `NestedGrid` 的 `dragging` 要接 `state.active`。
+  - `lifted` 的键是 `detail-${key}`。
+  - `sourceRemoved` 返回“原样”，不是摘掉来源。
+- 内容换叶这件事本身可行：
+  - `detailContents` 里每项的 `leaf` 是 `DETAIL_LEAVES[index]`，换顺序就是换叶。内容项键稳定，网格对内容换叶不重建。
+  - `book.swapDetails` 是同步改 `details`，撤预览与提交在同一个同步段，不会闪。
+  - `leave: "retain"` 只在内容被去掉时生效，预览不去掉内容，两者不冲突。
+
+## 建议
+
+**9. 帧内收场与重入没写**（“编排的分工”一节“一帧的顺序写死在引擎里”）
+- `judge` 即 `flush`，可能因结构变了取消整场（`drag-gesture.ts:293-294`），触发 `finish → onActiveChange(false) → end`，在帧里把 `source` 置空。
+- 今天 `tick` 在 `settleDrop()` 后判 `source === null` 再返回（`live-drag.ts:261`），并且 `end` 要在 `loop.stop()` 后不再排帧。
+- 计划“`tick` 照搬”可以，但要在引擎单元测试里列“`judge` 里 `end`”这一例。注释里的“排序读 → judge → 排序写”顺序还要保留 `sort.read(null)()` 在 `show(null)` 之前（`live-drag.ts:315-316`）。
+
+**10. 收场顺序的 Spec 与会话的拆装**（“会话接上引擎”一节）
+- `live.end()` 排在 `onActiveChange(false)` 之前，是对 `ui/layout-drag` 第 211 行已发布顺序的改动（拆监听、释放捕获、`state` 置空、`onActiveChange(false)`、`onEnd`、`commit`）。计划说要写进 Spec，但没说为什么要提前。
+- 我没看出提前能带来的好处：`end` 在 `onActiveChange(false)` 里或之前，对 `run` 的读写都一样，都在同一个同步段。
+- 建议：保持 `end` 在 `onActiveChange(false)` 里由会话在宿主回调**之后**调，不改 Spec 顺序。要提前就写清楚理由。
+
+**11. `useLiveDrag` 的建在哪里没有说清**（“`useLiveDrag.ts`（新）”一节）
+- `WorkbenchShell.vue:790-823` 的 `createLayoutDrag` 在 `onMounted` 里建，宿主回调要读 `createLayoutDrag` 内的 `run`、`options` 和 `session`。
+- 引擎要先于会话建，而 `useLiveDrag(host)` 是 setup 期的 composable，`host` 要在 `createLayoutDrag` 里才有。
+- 建议：写明 `createLiveDrag` 仍在 `createLayoutDrag` 里建，`useLiveDrag` 只给 nb-story 这类 setup 期使用，工作台直接用核心的 `createLiveDrag` 加订阅。
+
+**12. 验收映射漏了计划自己点名的风险**（“验收映射”与“不做与风险”）
+- 计划的风险写“收起那一刻留下的落点要带被拒绝”，验收映射没有对应的用例。
+- 没有映射的行为还有：预览缓存作废、`stableDrop`（会话每帧发布，外壳靠对象身份判断要不要重画，计划没提它落在哪，仍在宿主 `resolve` 里）、`held` 的“指针一动作废”、键盘拿起时 `live` 不 `begin`。
+- `workbench/web/live-drag.test.ts` 现有约 450 行、几十个例子，直接测今天的 `createLiveDrag`。计划没说它迁到引擎单元测试，还是留在宿主；“条数与通过的一样”只对 e2e 说了。
+- 建议：在切片 1 写明这些例子逐条迁到引擎测试，并补 `held` 带 `rejected` 与 `refusal` 的一例。
+
+## 未发现问题的方面
+- `wake` 先于会话发布：会话在自己的 `onPointerMove` 里先 `wake` 再调 `gesture.move`，顺序成立。按下前 `wake` 是空操作，行为与今天一致。
+- 计划里提到的文件、函数与行数（`live-drag.ts` 319 行等）都与代码相符。
+- `offer` 由会话交：`resolve` 在 `flush`、放下和滚动重判时都会被调，今天宿主也是每次都 `offer`，换成会话不改变次数。
+- 引擎纯 TS 的边界：`boundary.test.ts` 的扫描规则允许核心只导入本包文件，计划不违反。
+
+阻断 1、重要 7、建议 4，共 12 条。

@@ -17,6 +17,8 @@ updated: 2026-11-23
 
 2026-11-23：[计划第 1 稿](plan.md)：引擎放 nb-layout 核心入口（纯 TS），会话接上它并负责唤醒，`useLiveDrag` 给 Vue 宿主；工作台改用它，nb-story 的拖详情换边作第二个宿主。worktree `.worktree/w00026-t49`（分支 `w00026/t49-drag-orchestration`），改前的基线在跑。
 
+2026-11-23：第 1 稿两份设计审查（细节 Sonnet 阻断 1、重要 7、建议 4；整体 Opus 阻断 1、重要 7、建议 2，证据在 `evidences/`）都成立，改成[第 2 稿](plan.md)：落点只是落点、`offer` 与被拒绝留在宿主；会话只加通用的 `sampled`；公开名字只从 `./vue` 出；加 Lab 场景 `live-panels` 作收起与粘住的第二个形状；进 `[Unreleased]`，0.1.0 没发时合入前停下问。改前基线：三份工作台拖动 e2e 68 条全过。
+
 ## 下一步
 
-计划审查（细节 Claude Sonnet，从整体看 Claude Opus，阻塞），处理完按切片实施。
+第 2 稿交第 2 轮设计审查（同两位），处理完按切片实施。
