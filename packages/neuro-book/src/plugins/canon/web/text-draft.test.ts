@@ -329,6 +329,20 @@ describe("author-ui 输出 44：拆与并在冲突里连同另一半一起撤", 
         const kept = resolve(rebased.draft, now, rebased.conflicts[0]!, "keep");
         expect([kept.order.map((key) => textOf(kept, now, key)), compile(kept, now, "e1").ops]).toEqual([["甲", "乙", "丙"], [{op: "addBlock", entry: "e1", source: "乙", after: "b1"}]]);
     });
+
+    it("并的两块中间多了块、上一块又被别处改了字，作者对上一块选“我的”：并撤掉以后上一块是作者并之前的样子，没改过就是别处改的字", () => {
+        const now = read([free("b1", "别处改甲", 0), free("b4", "丁", 1), free("b2", "乙", 2), free("b3", "丙", 3)], 2);
+        const settle = (draft: TextDraft): TextDraft => {
+            const rebased = rebase(draft, now);
+            expect(rebased.conflicts.map((conflict) => [conflict.kind, conflict.key])).toEqual([["changed", "b1"], ["locked", "b2"]]);
+            return resolve(resolve(rebased.draft, now, rebased.conflicts[0]!, "mine"), now, rebased.conflicts[1]!, "theirs");
+        };
+        // 作者并之前没动过上一块：作者在这一块上没有别的改动，别处改的字留着。
+        expect(compile(settle(merged()), now, "e1").ops).toEqual([]);
+        // 作者并之前改过上一块：“我的”是作者改的那一版。
+        const edited = mergeUp(setText(emptyDraft(PLAIN), PLAIN, "b1", "甲（作者改）"), PLAIN, "b2")!.draft;
+        expect(compile(settle(edited), now, "e1").ops).toEqual([{op: "set", at: {entry: "e1", path: "text[b1]"}, value: "甲（作者改）", read: "别处改甲"}]);
+    });
 });
 
 describe("author-ui 输出 44：编成一批操作", () => {

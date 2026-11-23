@@ -50,7 +50,7 @@ const DraftSchema = Type.Object({
     removed: Type.Array(Type.String()),
     routes: Type.Optional(Texts),
     moved: Type.Optional(Type.Array(Type.String())),
-    merged: Type.Optional(Type.Record(Type.String(), Type.Object({into: Type.String(), head: Type.String(), joined: Type.String()}))),
+    merged: Type.Optional(Type.Record(Type.String(), Type.Object({into: Type.String(), head: Type.String(), joined: Type.String(), unedited: Type.Optional(Type.Literal(true))}))),
     split: Type.Optional(Type.Record(Type.String(), Type.Object({from: Type.String(), text: Type.String()}))),
     pending: Type.Optional(Type.Object({
         requestId: Type.String(),
