@@ -134,7 +134,11 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-23：开发者定 nb-layout 可以首发、`ui/nested-grid` 与 `ui/layout-drag` 可以晋升；t48 的两件按推荐定（0.x 期间全部 `@experimental`，`@stable` 由 nb-layout 自己定）。两份 Spec 先逐句核对再晋升（[t54](tasks/t54-spec-promotion/README.md)，与 t48 并行）；t48 写第 3 稿，实施完再按发布手册首发 nb-layout。
 
+2026-11-23：t48 合入（`89c08b916`）：公开名字全部 `@experimental`，API 报告与 `api:check` 进 CI，SDK 转出名有签名快照；实现审查在跑。
+
 ## 后续
 
 - 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
 - 插件 SDK 只导出 `NestedGrid` 组件，不导出 `createGrid` 与宿主工具，插件建不出网格（t39 设计审查第 9 条）。要不要给插件开放网格宿主（`createGrid`、`useGridHost` 一起，放哪个子路径、兼容承诺多大）另行决定。
+- ADR 0054 第 10 条的另两项（主题级 CSS 变量、README 的 `data-*` 表）没有机检（t48 只做了 `@stable` 符号那一项）。
+- API 报告列出 9 个类型与 1 个值“由公开名字引到、没有导出”（`GridPlacement` 一族、`GridRestoreReport`、`DragStops`、`DragActivation`、`dropKindData`）：要不要导出，等有使用方时再定。
