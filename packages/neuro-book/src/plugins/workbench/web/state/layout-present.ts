@@ -242,6 +242,9 @@ export function canResetView(doc: LayoutDoc, catalog: ViewCatalog, viewId: strin
     return found !== null && home !== null && viewSection(doc, viewId)?.container !== home.container;
 }
 
+/** 这块面板已经是独占一个浮动窗的（只有一个标签）：它的标签再浮出来还是原样。`home` 是标签所在的面板，没找到标签时是 null 或 undefined。 */
+export const isSoleWindow = (doc: LayoutDoc, home: string | null | undefined): boolean => home != null && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1;
+
 /** 视图的标签键。 */
 export const viewKey = (viewId: string): string => tabKey({kind: "view", viewId});
 

@@ -31,7 +31,7 @@ import {EDITOR_TAB_TYPE, editorTabIdOf} from "../shared/editor-panels";
 import {CUSTOM_CONTAINER_PREFIX} from "../shared/views";
 import type {EditorTabDrag} from "./contracts";
 import {defaultFloatRect, EDITOR_GROUP_MINIMUM, floatRectAt} from "./state/layout-constraints";
-import {layoutStructureKey, viewIdOf, viewKey} from "./state/layout-present";
+import {isSoleWindow, layoutStructureKey, viewIdOf, viewKey} from "./state/layout-present";
 import type {ViewCatalog} from "./views/registry";
 
 /** 卡片的尺寸多久写一次：跟随屏幕每帧写，或每秒至多 60、30 次（设置 `nbook.workbench/dragCardRefresh`）。 */
@@ -933,8 +933,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 // 工具视图的第一站是入口条，活动栏在前（输出 31）；最大化时它们不接收（`barAccepts`）。
                 const bar = barAccepts(source) ? bars : [];
                 // 无落点没有指针可以指，排在最后明确选。已经独占一个窗的标签浮出来还是原样，不列。
-                const alone = home !== undefined && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1;
-                const float = canFloat(doc, source) && !alone ? [FLOAT_REGION] : [];
+                const float = canFloat(doc, source) && !isSoleWindow(doc, home) ? [FLOAT_REGION] : [];
                 const regions = [...bar, ...panels, ...float].map((id) => ({id, candidates: byRegion.get(id) ?? []}));
                 // 手势跳不过没有位置的区域，Tab 会卡在那里：来源隐藏着（从活动栏拿起）时它的面板量不出来，不列。
                 return regions.filter((region) => stopsOf(region).points.length > 0);

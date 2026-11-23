@@ -31,7 +31,7 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {focusLandings, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import {focusLandings, isSoleWindow, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -478,8 +478,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const [into, fresh, reset] = [itemsOf("container"), itemsOf("new-container"), itemsOf("reset")];
     // 已经独占一个窗的再浮动没有意义。
     const home = panelOfView(opened.viewId);
-    const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
-    const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || alone ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
+    const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || isSoleWindow(doc.value, home) ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
     // 入口代表的容器只有这一节（并成一行，输出 47）：它的“重置”就是视图的“重置位置”，只接“移到”。
     const {container: owner} = opened;
     const container = owner === null ? [] : containerMoveItemsOf(owner).map((item): ContextMenuItem => ({
