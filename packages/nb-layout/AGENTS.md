@@ -22,6 +22,13 @@
 - 发到 npm 的是编译产物：`bun run build:package`（`scripts/pack.ts`）写 `dist/package/`，构建完自查导出名、纯 TS 入口不拉进 Vue、随包文件与 JS 和 CSS 里没有 Spec 编号；`--web` 另写 `dist/web-build/` 给 nb-story 的网页构建读。仓库里的使用方（新应用、工作台、Lab、开发者面板）照旧走源码。改入口、加依赖、加样式文件之后跑一次。
 - 首发开关是 `package.json` 的 `private`：还在时发布冒烟只验、不发；删它是开发者的发布决定（发布手册的“新包首发”）。
 
+## 稳定性标注与 API 报告
+
+- 每个公开名字带恰好一个 `@experimental` 或 `@stable`（0.x 期间全部 `@experimental`，开发者 2026-11-23 定），写在这个声明自己的 JSDoc 里：紧贴声明、中间没有空行的那一块（文件头注释不算）；函数的每个重载签名都标，实现签名与类型成员不标；不在一个语句里声明几个公开名字。组件写在 `src/vue/index.ts` 那一行的行尾（`// @experimental`），打包时插进声明（`scripts/component-tags.ts`；插件 SDK 的打包读同一行）。
+- `@stable` 由本包定，条件写在 README 的“版本承诺”；插件 SDK 转出一个名字不改变它在这里的标注。
+- 改了 `src` 之后跑 `bun run api:check`：先构建，再与入库的 `api/*.api.txt` 比；公开面变了确认后 `bun run api:report` 更新报告，与改动同一个提交。`@stable` 名字（新旧任一侧）变了，`CHANGELOG.md` 的 `[Unreleased]` 要有一条写出这个名字。报告的读法见 `scripts/api-report.ts` 的模块头。
+- 插件 SDK 转出的名字（及它们引到的名字）变了，应用的 `src/sdk/sdk.test.ts` 的快照会失败：判断是不是不兼容，不兼容就提 `PLUGIN_API_SINCE`，再照提示重写快照。
+
 ## 谁还用这里的 Splitter
 
 nb-story 与开发者面板的分栏也用这里的 Splitter（w00026 t14 从 nb-ui 冻结的那一份迁来，那一份已删）。它们没有拖分隔线的 e2e：改 Splitter 的外观、手势或事件载荷时，在 nb-story 里走一遍拖、收起与重开、键盘（t14 的探针做法见它的 `evidences/probe.txt`）。
@@ -32,6 +39,7 @@ nb-story 与开发者面板的分栏也用这里的 Splitter（w00026 t14 从 nb
 bun run typecheck   # 核心 tsc，Vue 层 vue-tsc
 bun run test        # 核心 bun test，Vue 层 Vitest（*.dom.test.ts，happy-dom）
 bun run build:package   # 编译产物与自查（约 5 秒）
+bun run api:check       # 先构建，再与 api/*.api.txt 比
 ```
 
 真实浏览器里的指针、布局与可访问名称在应用 Component Lab 的场景与它的 Playwright 用例里。
