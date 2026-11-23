@@ -13,11 +13,15 @@ owners:
 
 插件的服务端入口把一件要跑一阵的事（安装 Skill 的依赖这类）登记成后台任务。任务跑在服务端，发起它的对话框关掉不影响它；每个窗口都在底部面板的“后台任务”视图里看到同一份清单，看得到进度与结果，能取消、重试、移除；状态栏右侧有一个条目；任务结束时窗口弹一条通知，弹出的通知进通知中心（[`workbench/notifications`](notifications.md) 输出 13 起）。
 
+（planned）清单也汇总别的插件交出的行（[提案“统一后台任务”](../../proposals/unified-background-tasks.md)、[ADR 0056](../../adr/0056-background-work-providers-and-session-notices.md)）：拥有状态的服务端插件把自己登记成提供方，交出“现在有哪些行”，用户对行的停止转回给它；状态、寿命与操作的执行都留在提供方那里，清单只汇总显示、分组与转发。第一个提供方是 Agent（[`agent/jobs.md`](../agent/jobs.md) 输出 20、[`agent/sessions.md`](../agent/sessions.md) 输出 30）。视图按归属分组。
+
 不承诺：
 
 - 持久化：清单只在服务进程的内存里，服务重启后为空。应用整体关停时窗口看不到“已中断”：窗口的订阅先于清单结束，窗口最后看到的仍是“在跑”；“已中断”只在发起方入口单独停止、`nbook.tasks` 仍在时看得到（已知限制）。
 - 浏览器入口登记任务；插件 SDK 给第三方插件的登记接口。
-- Agent 自己的后台工作（后台命令、子代理运行），它们由 [`agent/jobs`](../agent/jobs.md) 管，不进这份清单。
+- （planned 改写）提供方的行的状态与寿命：清单不存、不改，行何时出现、何时离开由提供方定；Agent 的任务中心、`jobId` 与它的远程合同照旧（[`agent/jobs`](../agent/jobs.md)）。
+- （planned）按形态（一次性、服务、定时）与种类筛选：行带这两个字段、种类在行上显示，筛选等第一个服务或定时的提供方出现时再加。
+- （planned）项目子进程里发起的工作：第一批只收服务端插件登记的，`project` 只是归属。
 - 暂停、排队、依赖与优先级；进度的历史。
 - 书架页（`/`）没有状态栏与底部面板：在那里只有结束时的通知（输出 15）。
 
@@ -27,6 +31,8 @@ owners:
 - **在跑**、**结束**：状态 `running` 是在跑；`succeeded`（成功）、`failed`（失败）、`cancelled`（已取消）、`interrupted`（已中断）是结束。
 - **发起方**：调用 `start` 的那个插件入口（按调用方门面识别，[`runtime/services`](../runtime/services.md) 输出 12）。
 - **看过**：按窗口记，见输出 13。
+- （planned）**提供方**：经 `provide` 登记、交出行的服务端插件；**行**：提供方交出的一项；**代次**：每次登记的编号，提供方停用又登记就换一代。
+- （planned）**归属**：一行属于应用、某个项目或某个根会话；**前台的行**：对话里正在进行的工作（会话的运行），状态栏不数。
 - 参与者：发起方；`nbook.tasks`（服务端的清单、服务与远程，浏览器端的视图、状态栏条目与结束通知）；窗口；用户。
 
 ## 输入与前置条件
@@ -59,6 +65,58 @@ interface TaskHandle {
 - `progress` 不是有限数时当作 `null`，超出 0 到 100 的夹到范围内。
 - 标题、进展与失败原因要过远程合同的文字值校验，文字引用必须带命名空间。字面字符串的标题至多 200、进展与失败原因至多 500 个 UTF-16 码元，超出的截掉；文字引用序列化后至多 1 KiB，超出算不合格。长的原文放进 `detail`。
 - 输入不合格时：`start` 同步抛 `TypeError`，不登记；句柄的方法这一次调用不起作用，记诊断（`nbook.tasks`）。
+
+（planned）提供方与归属（同一个服务）：
+
+```ts
+interface BackgroundTasks {
+    start(input: TaskInput): TaskHandle;
+    provide(provider: TaskProvider): () => void;   // 每个调用方同一时刻一个，已有在用的再调用同步抛 TypeError；交回撤回函数
+}
+interface TaskInput { /* 上面的字段 */ owner?: TaskOwner }   // 缺省应用
+type TaskOwner =
+    | {kind: "app"}
+    | {kind: "project"; project: string; title: Text}
+    | {kind: "session"; session: string; title: Text; open?: RowOpen};   // session 是根会话
+interface TaskProvider {
+    rows(): readonly ProvidedRow[];                                       // 同步、不做 I/O
+    subscribe(notify: () => void): () => void;                           // 行有变化时调 notify；交回退订
+    stop(rowId: string, signal: AbortSignal): Promise<StopOutcome>;      // 撤回或服务停止时 signal abort
+}
+type StopOutcome = {kind: "accepted"} | {kind: "rejected"; reason: Text} | {kind: "unknown"};
+interface ProvidedRow {
+    id: string;                          // 这家里唯一，至多 200 个字符
+    title: Text;
+    message?: Text | null;
+    progress?: number | null;
+    state: "running" | "waiting" | "succeeded" | "failed" | "cancelled" | "interrupted";
+    kind: string;                        // 小写字母开头，只含小写字母、数字与 -，至多 40 个字符
+    kindLabel: Text;                     // 行上显示的种类名
+    form: "once";
+    owner: TaskOwner;
+    head?: boolean;                      // 会话自己的运行，画成会话组的组头
+    foreground?: boolean;                // 前台的行
+    startedAt: number;                   // 毫秒时刻
+    endedAt?: number | null;
+    stoppable?: boolean;
+    open?: RowOpen;
+}
+type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 命令 id 以提供方插件 id 加 "." 开头；至多 4 个参数，值至多 200 个字符
+```
+
+- 行的文字值、进度与时刻的规则同 `TaskInput`；一行编码后至多 4 KiB；一家至多 200 行。
+- `waiting` 是等用户处理（例如等批准），算在跑。
+
+（planned）远程服务 `nbook.tasks/tasks` 版本 2 取代下面的版本 1：
+
+| 名字 | 种类 | 输入 | 结果 |
+|---|---|---|---|
+| `own` | 读 | 无 | 自己的全部任务（形状同版本 1 的清单，每项加 `owner`） |
+| `own` | 事件 | 无过滤 | 同上 |
+| `rows` | 读 | `{scope: {project} \| "all"}` | `{groups, more, background}`，见输出 23 |
+| `rows` | 事件 | 同上 | 同上 |
+| `detail`、`cancel`、`retry`、`remove`、`clearFinished` | | 同版本 1 | 只对自己的任务 |
+| `stop` | 写 | `{key}` | `{outcome: "accepted" \| "rejected" \| "unknown", reason?}` |
 
 远程服务 `nbook.tasks/tasks`（版本 1，服务端提供，浏览器调用）：
 
@@ -113,6 +171,23 @@ interface TaskHandle {
 15. **书架页。** 没有状态栏与底部面板的页面上，输出 14 的通知照发，没有视图与条目。
 16. **文字跟随界面语言。** 视图、条目、提示与通知里的任务标题与进展按窗口当前语言翻；切换语言后原地换文字，任务不变。
 17. （planned）**关闭服务前报出。** `nbook.tasks` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），每件在跑的任务报一项，写它的标题。
+18. （planned）**提供方登记。** 服务端插件经 `provide` 把自己登记成提供方，每次登记是新的一代。交回的撤回函数只第一次调用起作用；登记方的入口停止（门面释放）时自动撤回。一个调用方同一时刻只能有一个，再调用同步抛 `TypeError`；撤回之后可以再登记。
+19. （planned）**行。** 清单读提供方的 `rows()` 时逐行校验：不合格的行（字段、上限、`kind` 的写法、`open` 的命令不是它自己的）丢掉，记诊断 `provider-row-invalid`（行 id 与原因，不含正文）；同 id 的留第一个；一家超过 200 行的不列。`kind` 盖成 `<提供方插件>.<kind>`。提供方的行没有“移除”“重试”“详情”，输出 7 的移除、清除已结束与输出 8 的上限都不管它们。
+20. （planned）**隔离。** 一家的 `rows()` 抛错时，这一家的行清空、记诊断 `provider-failed`（连续失败只记一次），别家照常；它下一次 `notify` 时再读。`notify` 只标记有变化，行在推送合并时读（同输出 9 的节奏）。
+21. （planned）**撤回与代次。** 撤回时先封住这一家的操作（之后的 `stop` 得 `target-gone`），再退订，丢掉它的行与回调，推送一次。窗口拿到的每行有一个带代次的键：提供方停用又登记之后，对旧一代的行的操作得 `target-gone`，不落到新一代的同名行上。
+22. （planned）**归属与范围。** 每行属于应用、某个项目或某个根会话；`start` 不给 `owner` 的属于应用。窗口按范围取行：“当前项目”取应用、这个项目与全部会话的行，“全部项目”取全部。
+23. （planned）**远程合同版本 2。** 事件 `own` 推自己的全部任务，规则同输出 9。事件 `rows` 按订阅时的范围推 `{groups, more, background}`：`groups` 按输出 26 的顺序分好组，每行带键、来源（自己或哪家提供方）、种类与可做的操作；`more` 是因上限没列出的件数；`background` 是不分范围的在跑后台一次性工作（自己在跑的任务，加提供方不是前台的在跑行）的件数与前 20 件的标题、进展与进度。整份编码后超过 512 KiB 时从结束得最早的行起不列、计进 `more`。版本 1 的窗口连上得 `version-changed`。
+24. （planned）**停止。** 窗口对 `stoppable` 的提供方的行执行 `stop`：清单转给提供方，交回它给的结果，已受理、被拒（带原因）或未知；未知的不自动重试。行的状态只随提供方之后交出的行变。窗口里结果回来之前这一行的“停止”变成不可用的“正在停止”；被拒时弹一条提示写原因，未知时提示“不知道停没停下，看一下它的状态”。
+25. （planned）**打开。** 行或会话组头的 `open` 由窗口经命令服务执行；命令交回失败时弹一条提示写原因，不以命令发出当作打开成功。
+26. （planned）**分组视图。** 输出 10 的视图改成按归属分组：
+    - 范围：面板头里一个开关“显示全部项目”，按下是全部项目、松开是当前项目；按窗口记，缺省当前项目。
+    - 分组依次是会话、项目、应用。会话组：每个根会话一块浅底的圆角块，等你处理的那块是浅警示色底；块里第一行是组头，写会话标题（加粗）、等你处理时的“等你处理”徽标、它此刻在做什么、开始时刻，带“打开”“停止”；组头取自这个会话自己的行（`head`），没有这一行时（根会话已空闲、只剩后台任务在跑）只写标题、带“打开”。它的其余行缩进在组头下面。项目组写“项目「名字」”加件数，当前项目在前、其余按名字；应用组写“应用”加件数。
+    - 会话组的顺序：等你处理的在前，其余按组里最近的开始时刻新的在前。组内在跑与等你处理的在上、结束的在下，各按新到旧。
+    - 组头都有收起箭头，缺省展开；收起与展开按窗口记住。
+    - 行的列同输出 10，标题前多一个淡色的种类名。提供方的行：可停的有“停止”，有 `open` 的有“打开”，没有移除。
+    - 有没列出的行时，列表末尾写“另有 N 件没列出”。
+27. （planned）**状态栏数后台的一次性工作。** 输出 12 的条目改数 `background`：自己在跑的任务加提供方不是前台的在跑行；悬停列出前 20 件，更多时末尾写“还有 N 件”。会话的运行（前台的行）不数；视图的范围不影响它。
+28. （planned）**看过与通知只对自己的任务。** 输出 13、14 只看 `own`：提供方的行不发结束通知、不算“没看过的失败”。视图可见时只把当前范围里显示着的、自己的已结束任务算看过；切换范围不撤回通知、不算任务离开清单。
 
 ## 状态与转换
 
@@ -150,6 +225,9 @@ interface TaskHandle {
 | `not-retryable` | 不是失败，或发起方没给 `retry`，或发起方的入口已停止 | 不显示“重试” |
 | `running` | 对在跑的任务 `remove` | 先取消或等它结束 |
 | `too-large` | `list` 时整份清单超过 512 KiB | 照旧显示上一份 |
+| `target-gone` | （planned）`stop` 的行已不在，或提供方已撤回、已换代 | 重取行 |
+| `not-stoppable` | （planned）这一行没有声明可停 | 不显示“停止” |
+| `version-changed` | （planned）窗口的远程合同是版本 1 | 刷新窗口 |
 
 - 发起方的 `retry` 抛错或失败：记诊断（`nbook.tasks`），旧行已移出，用户可以从发起方的界面再来一次。
 - 整份清单序列化后超过 512 KiB：跳过这次推送、`list` 得 `too-large`，都记诊断；窗口照旧显示上一份。按输入的长度上限，结束的 50 件到不了这个大小，只有在跑的件数极多时才会发生。
@@ -158,7 +236,8 @@ interface TaskHandle {
 
 ## 边界与兼容
 
-- 公开接口：服务键 `tasksKey` 与类型 `BackgroundTasks`、`TaskInput`、`TaskHandle`（`nbook/plugins/tasks/shared/contracts`）；远程服务 `nbook.tasks/tasks` 版本 1；命令 `nbook.tasks.show`、`nbook.tasks.clear-finished`。
+- 公开接口：服务键 `tasksKey` 与类型 `BackgroundTasks`、`TaskInput`、`TaskHandle`（`nbook/plugins/tasks/shared/contracts`）；（planned）类型 `TaskProvider`、`ProvidedRow`、`TaskOwner`；远程服务 `nbook.tasks/tasks` 版本 1（planned：版本 2，输出 23）；命令 `nbook.tasks.show`、`nbook.tasks.clear-finished`。
+- （planned）提供方：种类按登记方盖章，`open` 只收登记方自己的命令；一家的行不合格或出错只影响它自己（输出 19、20）。
 - 信任边界：标题、进展与详情按纯文本渲染，不解释 HTML；详情原文不经脱敏，由发起方保证已脱敏。只有发起方自己的句柄能改它的任务；窗口只能取消、重试、移除。
 - 依赖：视图与状态栏条目经 [`workbench/views`](views.md) 与 [`ui/workbench-shell`](../ui/workbench-shell.md) 的贡献点；结束通知经 [`workbench/notifications`](notifications.md) 的通知服务。
 
@@ -185,7 +264,7 @@ Smoke：`packages/neuro-book/e2e/background-tasks.e2e.ts`（真实浏览器的�
 
 ## 证据
 
-- 批准依据：开发者 2026-11-11 的决定（[w00032 t34 记录](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/README.md)第 1–15 条，界面经两轮评审定稿，[评审板](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/artifacts/review/index.html)）；2026-11-12 同意晋升为 `implemented`。
+- 批准依据：开发者 2026-11-11 的决定（[w00032 t34 记录](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/README.md)第 1–15 条，界面经两轮评审定稿，[评审板](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/artifacts/review/index.html)）；2026-11-12 同意晋升为 `implemented`。；（planned 的提供方、分组与 Agent 的行）开发者 2026-11-23 的决定（[w00032 t42 记录](../../../.agents/works/w00032-agent-integration/tasks/t42-task-list-providers/README.md)决定 1–6，[评审板](../../../.agents/works/w00032-agent-integration/tasks/t42-task-list-providers/artifacts/review/index.html)）
 - 实现入口：[`backend/core.ts`](../../../packages/neuro-book/src/plugins/tasks/backend/core.ts)（清单、句柄与发起方停止）、[`backend/remote.ts`](../../../packages/neuro-book/src/plugins/tasks/backend/remote.ts)（远程服务与推送）、[`web/store.ts`](../../../packages/neuro-book/src/plugins/tasks/web/store.ts)（看过与结束通知）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/tasks/web/plugin.ts)（视图、状态栏条目与命令）。
 - 合同测试：[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/tasks/tasks.test.ts)（输出 1 到 9、输入校验，验收 3、5）、[`store.test.ts`](../../../packages/neuro-book/src/plugins/tasks/store.test.ts)（输出 6、12 到 14）、[`TasksView.dom.test.ts`](../../../packages/neuro-book/src/plugins/tasks/web/components/TasksView.dom.test.ts)（输出 10、11，验收 6）。
 - Smoke：[`background-tasks.e2e.ts`](../../../packages/neuro-book/e2e/background-tasks.e2e.ts)（验收 1、2、4，输出 15）。

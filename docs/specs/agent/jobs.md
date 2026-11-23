@@ -63,6 +63,7 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 17. **账本。** 还没交出回执的后台任务记在 `<状态根>/agent/jobs/ledger.json`（身份、状态、结果地址，不存结果的正文；正在送出或送出时写入结果未知的那条回执另记它的指令 id 与原样的参数）：任务开始时加，回执有了出口时去掉，只送了短回执的留着。插件停止、服务重启之后再起时，每项给它的启动方补发一条不带唤起的回执（“服务停止前已……，回执没来得及送出”；（planned）进程没走停止就退出的写“服务重启时中断，没跑完”，带结果地址），记着在途那条的按原样重发，发完去掉，暂时送不了的留到下次；（planned）会话已不在的去掉。补发失败的除会话已不在外都留着，日志读不懂这类永久的失败每次启动都会再试一次（已知限制）。
 18. `kill` 与远程 `killJob` 停子代理任务时点名它跟着的那次运行（[`harness/runtime.md`](../harness/runtime.md) 输出 120）；（planned）那次已经收口、用户又开了下一轮时交回“已经结束”，不停下一轮。
 19. **工具里登记的任务。** 插件贡献的工具在一次调用的 `execute` 里经 `AgentToolServices.jobs.begin(call, {kind, label, summary, stop})` 把自己的长任务登记成后台任务：只认这一代工具实现里正在执行的调用，`execute` 结算之后或插件已停止时得 `unavailable`；`kind`（小写字母开头，只含小写字母、数字与 `-`，至多 40 个字符）盖成 `<贡献工具的插件>.<kind>`，`label` 不能是空白、至多 20 个字符、`summary` 至多 200 个字符，不合格得 `invalid`、不占名额；名额满得 `concurrency-limit`。`wait`、`kill`、`jobs`、回执与远程照常；`kill` 调插件的 `stop`。插件给的结果文字按 UTF-8 至多 12 KiB。`kill` 之后插件没有调 `end` 的，按 `aborted` 收口。贡献工具的插件停止时先封住登记，再对它在跑的任务调 `stop`（抛错只记诊断 `tool-job-stop-failed`）、按 `interrupted` 收口；`nbook.agent` 停止时它们与后台命令一起按 `interrupted` 停下。任何插件贡献的工具都能登记，名额与后台命令、子代理共用。
+20. （planned）**清单的行。** 有 `tasksKey` 时 `nbook.agent` 登记成后台任务清单的提供方（[`workbench/background-tasks.md`](../workbench/background-tasks.md) 输出 18），会话的行见 [`sessions.md`](sessions.md) 输出 30。后台任务每件一行：在跑的，以及结束了、回执还没进会话的（出口还不是已受理或已取走的提醒，输出 13）；回执进了会话就不再列。种类是“命令”“子代理”或插件登记时给的标签；归属是启动它的会话的根会话；写摘要、最后一行或进度与开始时刻。都可停：同远程 `killJob`，按用户停（输出 11），已经结束交回“被拒：已经结束”，抛错交回“未知”。子代理的行可打开它的子会话（`nbook.agent.focus-session`）。没有 `tasksKey` 时不登记，别的照常。
 
 ## 状态与转换
 

@@ -91,6 +91,8 @@ owners:
 27. **发话一并结算。** 远程与 `agentKey` 视图的 `send` 收 `settlePending: "deny"`，照内核原样（[`harness/runtime.md`](../harness/runtime.md) 输出 111）。
 28. **读会话头。** `agentKey` 的 `header(sessionId)` 只读会话头、不打开会话（[`harness/session.md`](../harness/session.md) 输出 26）：会话不在得 `session-not-found`，读不懂得 `log-corrupt` 或 `needs-migration`。远程合同同样有只读方法 `header({sessionId})`，码相同（浏览器打开会话之前据此看归属，[`conversation.md`](conversation.md) 输出 53）。
 29. **提醒与门。** 远程合同 `nbook.agent/sessions` 升到版本 2（旧版本的窗口连上得 `version-changed`）：快照带待发提醒的摘要 `notices: [{id, by, key?, wake, senderOnly?, queuedAt, summary, bytes}]`（`summary` 是正文的开头、至多 200 个字符，`bytes` 是正文的 UTF-8 字节数；全文在取走之后经日志读；只有发送方能撤回的带 `senderOnly: true`，[`harness/runtime.md`](../harness/runtime.md) 输出 112）与门 `wakeGate`；写方法 `removeNotice({sessionId, noticeId})` 以用户的身份取消一条；发提醒的 `notice` 不在远程合同里。插件经 `agentKey` 拿到的会话视图有 `notice` 与 `removeNotice`，发出者照输出 21 按调用方盖章（行为见 [`harness/runtime.md`](../harness/runtime.md) 输出 112–118）。
+30. （planned）**会话的行。** `nbook.agent` 作为后台任务清单的提供方（[`jobs.md`](jobs.md) 输出 20）也交出会话的行，都是前台的行（[`workbench/background-tasks.md`](../workbench/background-tasks.md) 输出 27 不数）：在跑或等你处理的根会话一行，画成它那一组的组头，进展写它此刻在做什么（等你批准时写是哪个工具，否则“正在回复”）；没有在跑的子代理任务覆盖、却在跑或等你处理的子会话一行（种类“子会话”，归属它的根会话）；程序自己开的会话（起标题与说明）不出行。停一行：以用户身份 `abort({keepQueue: true, runId})`，`runId` 是出这一行时那次运行的，缓冲区里排着的话照留（[`harness/runtime.md`](../harness/runtime.md) 输出 120）；那次运行已经收口时交回“被拒：已经结束”，不停下一次运行。打开走 `nbook.agent.focus-session`。
+31. （planned）**一次运行的终态。** 远程读 `runOutcome({sessionId, runId})` 交回那次运行的收口方式与最后一条回复的首句（至多 1 KiB）；会话或运行不在得 `run-not-found`。同一次运行回退后接着跑的，读到最近一次收口（已知限制）。
 
 ## 状态与转换
 
