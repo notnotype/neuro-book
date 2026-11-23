@@ -149,6 +149,17 @@ describe("行的大小（background-tasks.md 输出 19）", () => {
         expect(ok(await tasks.own({})).background.count).toBe(1);
         expect(ok(await tasks.stop({key: row.key}))).toEqual({outcome: "accepted"});
     });
+
+    test("命令本身很长（400 个汉字，没有控制字符）：标题按编码后的大小裁短、末尾加省略号，这一行照样列出", async () => {
+        const {parent, tasks} = await open({"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}});
+        await turn(parent, "跑", [{tool: "shell", args: {command: `sleep 30 # ${"长".repeat(400)}`, async: true}}, "好"]);
+        const group = await waitGroup(tasks, parent.id, "命令那一行", (next) => next.rows.length === 1);
+        const title = group.rows[0]!.title as string;
+        expect(title.startsWith("sleep 30 # 长")).toBe(true);
+        expect(title.endsWith("…")).toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(title), "utf8")).toBeLessThanOrEqual(600);
+        expect(ok(await tasks.stop({key: group.rows[0]!.key}))).toEqual({outcome: "accepted"});
+    });
 });
 
 describe("会话的行（sessions.md 输出 30）", () => {

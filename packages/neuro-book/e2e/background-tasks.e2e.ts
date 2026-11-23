@@ -188,6 +188,8 @@ test("提供方的行：会话块等你处理时有徽标；停止被拒弹原�
         {id: "job", title: "bun run build", message: "[3/5] 打包章节", state: "running", kind: "shell", kindLabel: "命令", form: "once", owner, startedAt: Date.now(), stoppable: true, open: {command: "test.tasks-probe.missing"}},
     ]});
     await probe("/stop-answer", {kind: "rejected", reason: "已经结束"});
+    // 状态栏只数后台的一次性工作（输出 27）：组头是前台的，命令那一行不是，条目写它的标题。
+    await expect(statusItem(page)).toContainText("bun run build");
     await statusItem(page).click();
     const block = page.locator('[data-group="session:root-e2e"]');
     await expect(block).toBeVisible();

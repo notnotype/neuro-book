@@ -58,9 +58,12 @@ function provider(initial: readonly ProvidedRow[] = []) {
         unsubscribed: 0,
         answer: (_row: string, _signal: AbortSignal): Promise<StopOutcome> => Promise.resolve({kind: "accepted"}),
         throwOnRows: false,
+        /** `rows()` 被调了几次。 */
+        reads: 0,
     };
     const value: TaskProvider = {
         rows: () => {
+            state.reads += 1;
             if (state.throwOnRows) throw new Error("rows broke");
             return rows;
         },
@@ -78,6 +81,10 @@ function provider(initial: readonly ProvidedRow[] = []) {
     return {
         value,
         state,
+        /** 清单交给它的 `notify`（撤回之后仍留着，用来看旧的还起不起作用）。 */
+        get notify() {
+            return notify;
+        },
         set(next: readonly ProvidedRow[]) {
             rows = next;
             notify?.();
@@ -250,6 +257,59 @@ describe("隔离与撤回（输出 20、21，验收 7、8）", () => {
         again.tasks.provide(fresh.value);
         expect(await client.stop({key: oldKey!})).toMatchObject({ok: false, code: "row-gone"});
         expect(fresh.state.stops).toEqual([]);
+    });
+});
+
+describe("撤回与读行的次数（输出 18、20、21）", () => {
+    test("撤回函数只第一次起作用：重新登记之后再调旧的，新一代不受影响；撤回之后旧的 notify 不再让清单读它的行", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const owner = await w.owner("a");
+        const first = provider([row("1")]);
+        const revoke = owner.tasks.provide(first.value);
+        expect(titles(await rows(client))).toEqual(["行 1"]);
+        const oldNotify = first.notify!;
+        revoke();
+        const second = provider([row("2")]);
+        owner.tasks.provide(second.value);
+        revoke();
+        expect(titles(await rows(client))).toEqual(["行 2"]);
+        const readsBefore = first.state.reads;
+        oldNotify();
+        expect(titles(await rows(client))).toEqual(["行 2"]);
+        expect(first.state.reads).toBe(readsBefore);
+    });
+
+    test("两个窗口都订阅着，提供方变一次，清单只读一次它的行", async () => {
+        const w = await world();
+        const a = await w.window("a");
+        const b = await w.window("b");
+        const p = provider([row("1")]);
+        (await w.owner("a")).tasks.provide(p.value);
+        const seen: {a: RowsPayload[]; b: RowsPayload[]} = {a: [], b: []};
+        expect((await a.events.rowsChanged.subscribe(ALL, (payload) => void seen.a.push(payload))).ok).toBe(true);
+        expect((await b.events.rowsChanged.subscribe(ALL, (payload) => void seen.b.push(payload))).ok).toBe(true);
+        await rows(a);
+        await rows(b);
+        const before = p.state.reads;
+        p.set([row("1"), row("2")]);
+        await waitUntil("两个窗口都收到两行", () => {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            return [seen.a, seen.b].every((list) => list.some((payload) => keys(payload).length === 2));
+        });
+        expect(p.state.reads - before).toBe(1);
+    });
+
+    test("输出 26：组里在跑与等你处理的在上、结束的在下，各按新到旧（不按开始时刻混排）", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        (await w.owner("a")).tasks.provide(provider([
+            row("ended-late", {state: "succeeded", startedAt: 8_000, endedAt: 9_000}),
+            row("running-old", {startedAt: 1_000}),
+            row("ended-early", {state: "failed", startedAt: 6_000, endedAt: 7_000}),
+            row("waiting-new", {state: "waiting", startedAt: 5_000}),
+        ]).value);
+        expect(titles(await rows(client))).toEqual(["行 waiting-new", "行 running-old", "行 ended-late", "行 ended-early"]);
     });
 });
 
