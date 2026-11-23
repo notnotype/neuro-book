@@ -41,6 +41,7 @@ owners:
 | `nbook.agent/subagentDepth` | 3 | 整数 1–5 | 子代理最深几层（[`subagents.md`](subagents.md)） |
 | `nbook.agent/subagentsPerSession` | 8 | 整数 1–16 | 一个会话同时在跑的子代理（同上） |
 | `nbook.agent/backgroundJobs` | 16 | 整数 1–32 | 任务中心同时在跑的任务（[`jobs.md`](jobs.md)） |
+| `nbook.agent/shellAutoBackground` | 60 | 整数 0–3600 | 前台的 `shell` 跑过这么多秒就转后台，0 为不转（planned，[`builtin-tools.md`](builtin-tools.md) 输出 31） |
 
 ## 输出与可观察行为
 
