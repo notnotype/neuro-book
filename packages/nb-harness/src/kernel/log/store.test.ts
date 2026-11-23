@@ -167,27 +167,38 @@ describe.each(stores)("%s 存储", (_name, makeStore) => {
         expect(entry?.spend?.cost).toBeCloseTo(0.03);
     });
 
-    test("session.md 输出 22：运行的收口带那次运行最后一条有文字的回复的首句，回复与收口不在一批也算；只有工具调用的回复不换掉它；没有回复的不带；重开会话之后照样算", async () => {
+    test("session.md 输出 22：运行的收口带交给调用方的一行（最后一条回复的首句，没有文字时取结构化结果），回复与收口不在一批也算；重开会话之后照样算", async () => {
         const store = makeStore();
         const id = nextId();
         const created = await store.create(header(id));
         if (!created.ok) throw new Error(created.code);
         const usage = {input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0};
         const reply = (text: string) => ({type: "assistant", kind: "conv" as const, data: {request: 1, content: text === "" ? [] : [{kind: "text", text}], toolCalls: [], stopReason: "stop", usage}});
+        const started = (runId: string) => ({type: "runStarted", data: {runId, kind: "chat"}});
+        const ended = (runId: string, extra: Record<string, unknown> = {}) => ({type: "runEnded", data: {runId, reason: "completed", ...extra}});
         const parent = {last: null as string | null};
         const append = async (handle: typeof created.value, batch: LogEvent[]) => expect(await store.append(handle, batch)).toEqual({ok: true, value: undefined});
-        await append(created.value, eventsFrom(1, [{type: "runStarted", data: {runId: "r1", kind: "chat"}}, reply("\n找到 4 处称谓前后不一致。细节如下")], parent));
-        await append(created.value, eventsFrom(3, [reply(""), {type: "runEnded", data: {runId: "r1", reason: "completed"}}], parent));
-        await append(created.value, eventsFrom(5, [{type: "runStarted", data: {runId: "r2", kind: "chat"}}, {type: "runEnded", data: {runId: "r2", reason: "aborted"}}], parent));
-        await append(created.value, eventsFrom(7, [{type: "runStarted", data: {runId: "r3", kind: "chat"}}, reply("长".repeat(300))], parent));
+        // r1：回复与收口在两批里。
+        await append(created.value, eventsFrom(1, [started("r1"), reply("\n找到 4 处称谓前后不一致。细节如下")], parent));
+        await append(created.value, eventsFrom(3, [ended("r1")], parent));
+        // r2：没有回复。
+        await append(created.value, eventsFrom(4, [started("r2"), {type: "runEnded", data: {runId: "r2", reason: "aborted"}}], parent));
+        // r3：以收尾工具结束，最后一条回复没有文字：取结构化结果，不取中途那句旁白。
+        await append(created.value, eventsFrom(6, [started("r3"), reply("我先看看第二章。"), reply(""), ended("r3", {reason: "finished", result: {via: "tool", tool: "yield", value: {title: "雨夜"}, valid: true}})], parent));
+        // r4：最后一条回复没有文字、也没有结果：不带。
+        await append(created.value, eventsFrom(10, [started("r4"), reply("先读一下。"), reply(""), ended("r4")], parent));
+        // r5：回退到运行中途接着跑（runResumed）之前的回复不算。
+        await append(created.value, eventsFrom(14, [started("r5"), reply("旧回复。"), {type: "runResumed", scope: "session", data: {runId: "r5"}}, ended("r5", {reason: "error"})], parent));
+        // r6：回复写下之后关掉、重开，收口在重开之后；超长的按码点截短，不切开表情。
+        await append(created.value, eventsFrom(18, [started("r6"), reply(`${"长".repeat(119)}😀${"长".repeat(100)}`)], parent));
         await store.close(created.value);
         const reopened = await store.open(id);
         if (!reopened.ok) throw new Error(reopened.code);
-        await append(reopened.value, eventsFrom(9, [{type: "runEnded", data: {runId: "r3", reason: "completed"}}], parent));
+        await append(reopened.value, eventsFrom(20, [ended("r6")], parent));
         await store.close(reopened.value);
         const entry = await store.entry(id);
         if (!entry.ok) throw new Error(entry.code);
-        expect(entry.value.runs!.map((run) => run.line)).toEqual(["找到 4 处称谓前后不一致。", undefined, `${"长".repeat(199)}…`]);
+        expect(entry.value.runs!.map((run) => run.line)).toEqual(["找到 4 处称谓前后不一致。", undefined, '{"title":"雨夜"}', undefined, undefined, `${"长".repeat(119)}😀…`]);
     });
 
     test("session.md 输出 23：entry 只读一个会话的索引，与 list 的条目相同；没有的得 session-not-found", async () => {
@@ -537,6 +548,21 @@ describe("JSONL 存储的文件", () => {
         if (!opened.ok) throw new Error(opened.code);
         expect(opened.value.notices.map((notice) => notice.code)).toEqual(["index-rebuilt"]);
         expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({spend: {cost: 0, unpriced: 0}, runs: [{runId: "r1", reason: "completed"}]});
+        await store().close(opened.value);
+    });
+
+    test("session.md 输出 22：加回复首句之前写下的索引，运行的收口没有 line；打开时按日志补上", async () => {
+        const id = nextId();
+        const parent = {last: null as string | null};
+        const usage = {input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0};
+        await writeSession(store(), id, [eventsFrom(1, [{type: "runStarted", data: {runId: "r1", kind: "chat"}}, {type: "assistant", kind: "conv", data: {request: 1, content: [{kind: "text", text: "改好了。"}], toolCalls: [], stopReason: "stop", usage}}, {type: "runEnded", data: {runId: "r1", reason: "completed"}}], parent)]);
+        const path = join(root, id, "index.json");
+        const stored = JSON.parse(await readFile(path, "utf8")) as {runs: {line?: string}[]};
+        await writeFile(path, JSON.stringify({...stored, runs: stored.runs.map(({line: _line, ...run}) => run)}));
+        const opened = await store().open(id);
+        if (!opened.ok) throw new Error(opened.code);
+        expect(opened.value.notices.map((notice) => notice.code)).toEqual(["index-rebuilt"]);
+        expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({runs: [{runId: "r1", line: "改好了。"}]});
         await store().close(opened.value);
     });
 

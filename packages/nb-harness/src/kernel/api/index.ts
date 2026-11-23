@@ -35,6 +35,6 @@ export type {Slice, SliceFactory, SliceValue, StateDecl, StateValues} from "./st
 export type {IndexedRun, LogHandle, LogStore, SessionIndexEntry, StorageNotice, StorageResult} from "./storage.js";
 export {kernelEventSpecs} from "./kernel-events.js";
 export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolImage, ToolInfo, ToolResult, ToolStatus, InvokeOptions, NestedOutcome} from "./tool.js";
-export {replyText} from "./reply.js";
+export {firstSentence, replyText, runLine, SENTENCE_MAX} from "./reply.js";
 export {BLOB_KEY, jsonProblem} from "./json-value.js";
 export {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "./tool-name.js";

@@ -62,16 +62,20 @@ describe("会话树（subagents.md 输出 21）", () => {
             catalog: () => [],
             clock: {now: () => 0, schedule: () => () => undefined} as unknown as RuntimeClock,
         });
-        const reading = tree.tree("p");
-        await readStarted;
-        model.script("好了。");
-        const sent = await table.view("c").send({commandId: "c-1", input: {text: "做"}});
-        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
-        await table.view("c").waitRun(sent.value.runId);
-        release();
-        await reading;
-        const [item] = await tree.tree("p");
-        expect(item!.runs).toContainEqual(expect.objectContaining({runId: sent.value.runId, reason: "completed"}));
-        await table.stop();
+        try {
+            const reading = tree.tree("p");
+            await readStarted;
+            model.script("好了。");
+            const sent = await table.view("c").send({commandId: "c-1", input: {text: "做"}});
+            if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+            await table.view("c").waitRun(sent.value.runId);
+            release();
+            await reading;
+            const [item] = await tree.tree("p");
+            expect(item!.runs).toContainEqual(expect.objectContaining({runId: sent.value.runId, reason: "completed"}));
+        } finally {
+            release();
+            await table.stop();
+        }
     });
 });

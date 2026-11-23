@@ -80,6 +80,8 @@ describe("子代理卡片", () => {
         const background = spawn({status: "success", result: {text: "还在跑", truncated: false, details: {sessionId: "child", runId: "r1", status: "running"}}});
         expect(cardModel(background, tree(child({runs: [{runId: "r1", reason: "completed", endedAt: 5, line: "找到 4 处称谓前后不一致。"}]})), [reply(background)], true)).toMatchObject({state: "done", line: "找到 4 处称谓前后不一致。"});
         expect(cardModel(background, tree(child({runs: [{runId: "r1", reason: "completed", endedAt: 5}]})), [reply(background)], true)).toMatchObject({state: "done", line: ""});
+        // 只有完成写首句：出错的照旧只写“出错”（索引里那句可能是中途的旁白）。
+        expect(cardModel(background, tree(child({runs: [{runId: "r1", reason: "error", endedAt: 5, line: "我先看看第二章。"}]})), [reply(background)], true)).toMatchObject({state: "failed", line: ""});
     });
 
     test("同一批里先收口的子代理：调用还没有结果，按子会话的第一次运行画出终态", () => {

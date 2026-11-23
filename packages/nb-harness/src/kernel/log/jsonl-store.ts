@@ -288,8 +288,9 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 handle.notices.push(...notices);
                 const stored = parseIndex(await files.read(join(directory, INDEX)));
                 handle.fold = advanceIndex(startFold(parsed.header), events);
-                // 会话头里的后台标记与索引不符、或索引早于花费与运行的记录（旧版本写的索引没有这些字段）也重建。
-                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.fold.index.background || predatesRunIndex(stored)) {
+                // 会话头里的后台标记与索引不符、或索引早于花费与运行的记录（旧版本写的索引没有这些字段），或运行的收口与按日志算的
+                // 不同（加 `line` 之前写的索引）也重建。
+                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.fold.index.background || predatesRunIndex(stored) || JSON.stringify(stored.runs) !== JSON.stringify(handle.fold.index.runs)) {
                     await writeIndex(handle);
                     handle.notices.push({code: "index-rebuilt", detail: {from: stored?.throughSeq ?? -1, to: lastSeq}});
                 }

@@ -183,7 +183,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         list: async (filter, context) => {
             const listed = await service.list(filter);
             return listed.ok
-                ? context.ok(listed.value.map((session) => (session.caller?.kind === "session" ? {...session, parent: session.caller.id} : session)))
+                // 运行的收口（各带回复首句）只给子代理的树用，会话列表用不到，不随列表发。
+                ? context.ok(listed.value.map(({runs: _runs, ...session}) => (session.caller?.kind === "session" ? {...session, parent: session.caller.id} : session)))
                 : context.fail(listed.code, listed.detail as undefined);
         },
         ancestors: async ({sessionId}, context) => {
