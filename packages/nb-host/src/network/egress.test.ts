@@ -345,7 +345,7 @@ describe("经真实的本机代理发请求", () => {
         let total = 0;
         for (let read = 0; ; read += 1) {
             // 前几十次读慢一点：代理那头的写端会写满、只收下一部分。
-            if (read < 40) await Bun.sleep(5);
+            if (read < 40) await Bun.sleep(5); // test-lint-allow fixed-wait: 读得慢是被测条件（让代理那头的写端写满），不是在等某个状态
             const {done, value} = await reader.read();
             if (done) break;
             chunks.push(value);

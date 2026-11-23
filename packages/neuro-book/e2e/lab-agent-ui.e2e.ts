@@ -601,6 +601,7 @@ test.describe("输入框", () => {
         const radios = page.locator("[data-model-picker-thinking] button[role='radio']");
         await radios.nth(1).click();
         await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+        // test-lint-allow fixed-wait: 断言“选了不会自己弹回”：控件的放手计时器是 1.5 秒（THINKING_RELEASE_MS），只有等过它才看得出弹没弹回
         await page.waitForTimeout(1_800);
         await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
         await page.locator("[data-model-picker-reset]").click();
