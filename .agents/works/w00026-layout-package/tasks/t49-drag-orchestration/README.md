@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t49-drag-orchestration
-status: active
+status: done
 updated: 2026-11-23
 ---
 
@@ -37,8 +37,8 @@ updated: 2026-11-23
 
 收口验证（分支 `4b99db032`）：nb-layout `typecheck`、`test`（bun 505、vitest 全过）、`api:check`；应用 `typecheck`、工作台与 SDK 的单元测试 566 例；nb-story `typecheck`；e2e 五份（三份工作台、`editor-area`、`files-explorer`）146 条 145 过，失败的 `files-explorer.e2e.ts:629` 是 master 上就有的；`lab-live-panels.e2e.ts` 5 例、nb-story `side-by-side.e2e.ts` 19 例在最后一次改代码之后跑过、全过。
 
-合入前查过 npm：`@notnotype/nb-layout` 还没发（404）。按计划停下问开发者合入与 0.1.0 的先后。
+合入前查过 npm：`@notnotype/nb-layout` 还没发（404）。开发者 2026-11-23 定：直接合入，0.1.0 连这批一起发；变更记录里这批并进 0.1.0（`fd0f9bfe9`）。合入 master：`6bb4c87c8`。Spec 同时提交。
 
 ## 下一步
 
-等开发者定合入与 nb-layout 0.1.0 发布的先后；定了之后合入、提交 Spec、晋升记录、t49 完成，接着 t55。
+无。t49 完成，下一个是 t55。发布 0.1.0 之前照交接步骤在主工作区重跑 `release:smoke`；t55 改名的若在 0.1.0 发出之后，要写进变更记录的“不兼容的改动”。
