@@ -39,6 +39,8 @@ interface Options {
     readonly pointer?: () => GridDropPoint | null;
     readonly judge?: () => void;
     readonly follow?: boolean;
+    /** 网格根的左上角；可以在拿起之后改，看引擎是不是只在拿起时读一次。 */
+    readonly origin?: () => GridDropPoint;
 }
 
 function setup(options: Options = {}) {
@@ -77,6 +79,7 @@ function setup(options: Options = {}) {
             return record(target, context.collapsed);
         },
         measure: () => {
+            calls.push("measure");
             measures += 1;
             return {name: "lifted"};
         },
@@ -103,17 +106,35 @@ function setup(options: Options = {}) {
             ? {}
             : {
                 follow: {
-                    read: (at) => () => followed.push(at === null ? null : at.container),
-                    afterRender: () => undefined,
+                    read: (at) => {
+                        calls.push("follow.read");
+                        return () => {
+                            calls.push("follow.write");
+                            followed.push(at === null ? null : at.container);
+                        };
+                    },
+                    afterRender: () => calls.push("follow.afterRender"),
                 },
             }),
     };
     const wiring: LiveDragWiring = {
-        judge: () => options.judge?.(),
-        pointer: options.pointer ?? (() => null),
-        origin: () => ({x: 0, y: 0}),
-        place: (rect) => placed.push(rect),
-        changed: (state) => states.push(state),
+        judge: () => {
+            calls.push("judge");
+            options.judge?.();
+        },
+        pointer: () => {
+            calls.push("pointer");
+            return options.pointer?.() ?? null;
+        },
+        origin: options.origin ?? (() => ({x: 0, y: 0})),
+        place: (rect) => {
+            calls.push("place");
+            placed.push(rect);
+        },
+        changed: (state) => {
+            calls.push("changed");
+            states.push(state);
+        },
         requestFrame: (run) => {
             scheduled = run;
             return 1;
@@ -551,7 +572,7 @@ describe("createLiveDrag", () => {
         t.live.offer(CENTER);
         t.frame();
         t.frame(200);
-        expect(t.calls).toEqual(["collapsed", "show"]);
+        expect(t.calls.filter((call) => call === "collapsed" || call === "show")).toEqual(["collapsed", "show"]);
     });
 
     it("收起、展开那一刻起指针没动 unmoved 为真；第一次不等就清掉，回到同一像素也不再为真", () => {
@@ -641,5 +662,37 @@ describe("createLiveDrag", () => {
         t.frame(200);
         expect(t.live.state().lifted).toEqual({key: SOURCE});
         expect(t.followed).toEqual([]);
+    });
+
+    it("一帧的先后：第一帧开头量几何，跟手先读，再判定、写跟手、取指针、摆预览、写卡片，交出状态之后才排渲染之后的那一步", () => {
+        const pointer = {x: 300, y: 400};
+        const t = setup({pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        t.live.offer(strip("other"));
+        t.calls.length = 0;
+        t.frame();
+        expect(t.calls).toEqual(["measure", "follow.read", "judge", "follow.write", "pointer", "place", "changed", "follow.afterRender"]);
+        // 吸收之后卡片收回：这一帧只有卡片变了也排渲染之后的那一步，在交出状态之后。
+        t.calls.length = 0;
+        t.frame(200);
+        const changed = t.calls.indexOf("changed");
+        expect(changed).toBeGreaterThan(t.calls.indexOf("show"));
+        expect(t.calls.indexOf("follow.afterRender")).toBeGreaterThan(changed);
+        expect(t.calls).not.toContain("measure");
+    });
+
+    it("网格根的位置拿起时读一次：之后改了，空位与卡片仍按拿起时的那份算", () => {
+        let origin = {x: 100, y: 50};
+        const pointer = {x: 700, y: 400};
+        const t = setup({origin: () => origin, pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        origin = {x: 0, y: 0};
+        const grow: Drop = {key: "edge:other:right", slot: {left: 1000, top: 0, right: 1400, bottom: 800}};
+        t.live.offer(grow);
+        t.frame();
+        t.frame(200);
+        expect(t.live.state().slotInGrid).toEqual({x: 900, y: -50, width: 400, height: 800});
+        // 卡片从来源那块（视口 0..600）开始：相对网格根就是左移 100、上移 50。
+        expect(t.placed[0]).toMatchObject({x: -100, y: -50});
     });
 });

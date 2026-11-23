@@ -73,8 +73,8 @@ export interface LiveDragHost<S, D, G> {
     card: {
         /** 卡片里放哪个内容项（`NestedGrid` 的 `lifted.key`）。 */
         readonly key: (source: S) => string;
-        /** 某块的矩形（视口坐标）：`container` 为 null 是来源那块，否则是吸收过它的那块；量不到为 null。读判定的几何，不读 DOM。 */
-        readonly rect: (source: S, container: string | null, geometry: G | null) => GridDropRect | null;
+        /** 某块的矩形（视口坐标）：`container` 为 null 是来源那块，否则是吸收过它的那块；量不到为 null。读传进来的这一刻判定的几何（收起后就是收起后的那份），不读 DOM。 */
+        readonly rect: (source: S, container: string | null, geometry: G) => GridDropRect | null;
         /** 缩到多大（再不大于来源那块），缺省 380×260。 */
         readonly compact?: DragCardSize;
         /** 指针还在来源那块里时保持来源那块的大小、离开才缩，缺省假（一拿起就缩）；来源那块量不到时一律缩。 */
@@ -300,14 +300,14 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
     }
 
     /** 写这一帧的卡片；返回卡片的尺寸或追赶还没到终点（还要下一帧）。 */
-    function updateCard(current: LiveRun<S, D, G>, now: number, elapsed: number): boolean {
+    function updateCard(current: LiveRun<S, D, G>, geometry: G, now: number, elapsed: number): boolean {
         const {pointer} = current;
         if (pointer === null || !wantsCard(current)) {
             current.lifted = null;
             current.card = null;
             return false;
         }
-        current.homeRect ??= host.card.rect(current.source, null, current.geometry);
+        current.homeRect ??= host.card.rect(current.source, null, geometry);
         const home = current.homeRect;
         const limit = host.card.compact ?? CARD_COMPACT;
         const compact = {
@@ -316,7 +316,7 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
         };
         // 撕下来：从此刻显示着它的那块开始缩；量不到就是缩好的大小。
         if (current.card === null) {
-            const from = current.absorbedIn === null ? home : host.card.rect(current.source, current.absorbedIn, current.geometry);
+            const from = current.absorbedIn === null ? home : host.card.rect(current.source, current.absorbedIn, geometry);
             current.card = createDragCard(from, pointer, compact);
         }
         const keepSize = host.card.keepSizeInsideHome?.() === true && home !== null && inside(home, pointer);
@@ -338,7 +338,7 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
     function tick(now: number, elapsed: number): boolean {
         const current = run;
         if (current === null) return false;
-        if (current.geometry === null) current.geometry = host.measure(current.source);
+        current.geometry ??= host.measure(current.source);
         const placeFollow = host.follow?.read(followAt(current));
         wiring.judge();
         // 判定时结构变了会结束这一场。
@@ -349,9 +349,10 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
         current.pointer = sample ?? current.pointer;
         const lifted = current.lifted !== null;
         const changed = stepPreview(current, now);
-        const settling = updateCard(current, now, elapsed);
-        if (changed || lifted !== (current.lifted !== null)) host.follow?.afterRender(followAt(current));
+        const settling = updateCard(current, current.geometry, now, elapsed);
+        // 先交出状态（宿主在这里写响应式，排上渲染），再排“渲染之后放跟手的”：反过来时这一帧若只有卡片拿起或收回，渲染还没排上，宿主等到的是渲染之前。
         publish();
+        if (changed || lifted !== (current.lifted !== null)) host.follow?.afterRender(followAt(current));
         return moved || changed || settling || !settled(current) || followAt(current) !== null;
     }
 

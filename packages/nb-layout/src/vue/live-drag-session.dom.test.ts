@@ -1,10 +1,13 @@
+import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {defineComponent, h, nextTick, ref} from "vue";
 
 import type {GridRect} from "../grid-rects";
 import type {LiveDragHost} from "../live-drag";
 import {createDragSession} from "./drag-session";
 import {createLiveDragSession} from "./live-drag-session";
 import type {LiveDragSessionHandle, LiveDragSessionOptions, LiveGrid} from "./live-drag-session";
+import {useLiveDragSession} from "./useLiveDragSession";
 
 /**
  * 实时布局的拖动会话（Spec `ui/layout-drag` 的“实时布局的编排”）：会话、引擎与网格之间接线的先后。帧用 happy-dom 真实的 `requestAnimationFrame`。
@@ -28,7 +31,10 @@ function pointer(type: string, init: PointerEventInit = {}): PointerEvent {
 
 function grid(motionMs = 400): LiveGrid {
     return {
-        origin: () => ({x: 0, y: 0}),
+        origin: () => {
+            log.push("origin");
+            return {x: 0, y: 0};
+        },
         placeLifted: (rect) => placed.push(rect),
         settleMotion: () => log.push("settleMotion"),
         motionMs: () => motionMs,
@@ -52,10 +58,10 @@ function host(over: Partial<LiveDragHost<"tab", Drop, string>> = {}): LiveDragHo
     };
 }
 
-type Options = LiveDragSessionOptions<Source, Drop, never, "tab", string>;
+type Options = LiveDragSessionOptions<Source, Drop, string, "tab", string>;
 
 function start(over: (live: LiveDragSessionHandle<Source, Drop, "tab", string>["live"]) => Partial<Options> = () => ({})): LiveDragSessionHandle<Source, Drop, "tab", string> {
-    handle = createLiveDragSession<Source, Drop, never, "tab", string>(root, (live) => ({
+    handle = createLiveDragSession<Source, Drop, string, "tab", string>(root, (live) => ({
         sourceAt: (target) => (target.closest("[data-source]") === null ? null : "tab"),
         resolve: () => ({key: "a"}),
         actionKey: (drop) => drop.key,
@@ -137,7 +143,8 @@ describe("合成的先后", () => {
             structure: () => String(engine.state().active),
         }));
         grab();
-        expect(log.slice(0, 2)).toEqual(["activate:false", "settleMotion"]);
+        // 拿起时读一次网格根的位置就是 `begin`：在 settleMotion 之后。
+        expect(log.slice(0, 3)).toEqual(["activate:false", "settleMotion", "origin"]);
         expect(live.live.state().active).toBe(true);
         await nextFrame();
         await nextFrame();
@@ -201,5 +208,75 @@ describe("合成的先后", () => {
         grab();
         source.dispatchEvent(pointer("pointerup", {clientX: 10, clientY: 0, buttons: 0}));
         expect(log).toContain("commit:a");
+    });
+
+    it("会话的 sampled 由合成接到引擎：停着的帧循环在指针一动时排帧", async () => {
+        start();
+        grab();
+        await nextFrame();
+        await nextFrame();
+        await nextFrame();
+        const measured = log.filter((entry) => entry === "facts").length;
+        source.dispatchEvent(pointer("pointermove", {clientX: 40, clientY: 0}));
+        await nextFrame();
+        expect(log.filter((entry) => entry === "facts").length).toBeGreaterThan(measured);
+    });
+
+    it("键盘拖动不走实时布局：不问 live，放下也不按指针下提交", async () => {
+        let asked = 0;
+        start(() => ({live: () => (asked += 1, "tab"), keyboard: {sourceAt: () => "tab", regions: () => [], stops: () => ({axis: "horizontal", points: []}), start: () => ({region: 0, at: 0}), refocus: () => null}}));
+        source.focus();
+        source.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true}));
+        await nextFrame();
+        expect(asked).toBe(0);
+        expect(handle!.live.state().active).toBe(false);
+    });
+
+    it("拖动中 dispose：经会话收场结束引擎，状态回到空闲", async () => {
+        const states: boolean[] = [];
+        start(() => ({changed: (state) => states.push(state.active)}));
+        grab();
+        await nextFrame();
+        expect(handle!.live.state().active).toBe(true);
+        handle!.dispose();
+        expect(handle!.live.state().active).toBe(false);
+        expect(states.at(-1)).toBe(false);
+    });
+});
+
+describe("useLiveDragSession", () => {
+    it("根出现后建会话；lifted、dragging 跟着这一场；卸载后会话、引擎为 null，状态回到空闲", async () => {
+        document.body.innerHTML = `<div id="host"></div>`;
+        const refs: Array<ReturnType<typeof useLiveDragSession<Source, Drop, never, "tab", string>>> = [];
+        const Probe = defineComponent({
+            setup() {
+                const box = ref<HTMLElement | null>(null);
+                refs.push(useLiveDragSession<Source, Drop, never, "tab", string>(box, () => ({
+                    sourceAt: (target) => (target.closest("[data-source]") === null ? null : "tab"),
+                    resolve: () => ({key: "a"}),
+                    actionKey: (drop) => drop.key,
+                    commit: () => undefined,
+                    live: () => "tab",
+                    host: host(),
+                    grid: () => grid(),
+                })));
+                return () => h("div", {ref: box}, [h("button", {"data-source": ""}, "标签")]);
+            },
+        });
+        const wrapper = mount(Probe, {attachTo: document.querySelector("#host") as HTMLElement});
+        const refsOf = refs[0]!;
+        // 模板 ref 的根在挂载后的那次刷新里才交给侦听。
+        await nextTick();
+        expect(refsOf.session.value).not.toBeNull();
+        const button = wrapper.get("[data-source]").element;
+        Object.assign(document, {elementsFromPoint: () => [button]});
+        button.dispatchEvent(pointer("pointerdown", {clientX: 0, clientY: 0}));
+        button.dispatchEvent(pointer("pointermove", {clientX: 10, clientY: 0}));
+        await nextFrame();
+        expect(refsOf.dragging.value).toBe(true);
+        expect(refsOf.liveState.value.active).toBe(true);
+        expect(refsOf.lifted.value).toEqual({key: "card"});
+        wrapper.unmount();
+        expect([refsOf.session.value, refsOf.live.value, refsOf.liveState.value.active]).toEqual([null, null, false]);
     });
 });

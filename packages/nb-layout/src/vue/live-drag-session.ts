@@ -3,7 +3,7 @@
  * 宿主只写领域判断（`LiveDragHost`）。
  *
  * 接线的先后是合同，写反了类型检查照样过：
- * - 拿起全在包住的 `activate` 里：宿主的 `activate` 先；返回真才看网格与减少动效、问 `live`；给出来源才 `settleMotion`、`begin`。
+ * - 拿起全在包住的 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动，才看网格与减少动效、问 `live`；给出来源才 `settleMotion`、`begin`。
  *   手势在 `activate` 返回后取结构键，宿主的结构键读引擎的 `active` 时，两次取到的一样，拿起不会被当成结构变了。
  * - 判定：宿主的 `resolve` 返回之后交给引擎（`offer`）。
  * - 收场：引擎的 `end` 先于宿主的 `onActiveChange(false)`：`end` 里放回跟手的要读宿主这一场的状态，宿主在自己的回调里才换成空闲的一份。
@@ -99,6 +99,8 @@ export function createLiveDragSession<S, D, R = never, L = S, G = unknown>(
         sampled: () => started.wake(),
         activate: (source, keyboard, at) => {
             if (options.activate !== undefined && !options.activate(source, keyboard, at)) return false;
+            // 键盘拖动不走实时布局：没有指针可跟；键盘拿起后可能因为没有区域而不起拖，那时不收场，引擎就没人结束。
+            if (keyboard) return true;
             const box = options.grid();
             if (box === null || box.motionMs() <= 0) return true;
             const from = options.live(source, keyboard);
@@ -113,7 +115,7 @@ export function createLiveDragSession<S, D, R = never, L = S, G = unknown>(
             started.offer(drop);
             return drop;
         },
-        commitsUnderPointer: (keyboard) => (options.commitsUnderPointer?.(keyboard) ?? false) || started.state().active,
+        commitsUnderPointer: (keyboard) => (options.commitsUnderPointer?.(keyboard) ?? false) || (!keyboard && started.state().active),
         onActiveChange: (active) => {
             if (!active) {
                 started.end();
