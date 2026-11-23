@@ -27,4 +27,4 @@ t49 做完后，用 /simplify 把 w00026 期间 nb-layout、nb-workbench-layout 
 
 ## 下一步
 
-计划审查（Claude Sonnet）回来后处理；在 master 上跑 e2e 基线；S1、S4、S6 并行开工。
+计划审查一轮（Claude Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)）：阻断 0、重要 6、建议 9，全部成立，计划已改（见 plan 的“计划审查”）。在 master 上跑 e2e 基线；S1、S4、S6 并行开工。

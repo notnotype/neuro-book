@@ -149,3 +149,5 @@
 | 2026-11-23 | t54 | 产品取舍 | `ui/layout-drag` 写明：键盘拖动里宿主的 `commit` 抛出时不还焦点（收场顺序里还焦点排在 `commit` 之后），实现不改 | 宿主的提交抛错本身是宿主的缺陷，异常照常冒出去；为它在 `finally` 里还焦点要改收场顺序 | 低：还焦点挪进 `finally` | [t54](tasks/t54-spec-promotion/README.md) |
 | 2026-11-23 | t49 | 产品取舍 | SDK 转出的 `NestedGrid` 只多了 `origin()`、`motionMs()` 两个 expose，判为兼容，不提 `PLUGIN_API_SINCE`，快照重写 | 只是新增，插件照旧能用；按 t48 定的“提起点、测试提醒”由实施者判断 | 低：提一次版本号 | [t49](tasks/t49-drag-orchestration/README.md) |
 | 2026-11-23 | t49 | 审查意见接受取舍 | 切片 4 到 6（Lab 场景、nb-story 换边、文档）没另派实现审查，并进 t55 的深度理顺与审查 | 切片 1 到 3（引擎、合成、工作台）各派过一次；后三片是宿主与文档，t55 本来就要通读这块代码 | 低：t55 里专门看这三片 | [t55](tasks/t55-code-simplify/README.md) |
+| 2026-11-23 | t55 | 产品取舍 | nb-workbench-layout 的入口从 `export *` 改成显式清单，外部没人用的名字不导出 | 私有包，不在冻结面内；`entry.test.ts` 已专门拦过两个误导出的名字，说明 `export *` 踩过 | 低：要用时加回导出 | [t55 计划](tasks/t55-code-simplify/plan.md) |
+| 2026-11-23 | t55 | 审查意见接受取舍 | t49 切片 4 到 6 的实现审查由 t55 宿主调研代做：没有会改变行为的缺陷，`activate` 先于 `settleMotion` 补进文档 | 调研逐项对过 `live-drag-session.md` 与 `LiveDragHost`、头注释的先后与代码 | 低 | [调研](tasks/t55-code-simplify/evidences/survey-hosts.txt) |
