@@ -1,0 +1,89 @@
+w00039 t28 实现审查第二轮（后端与稿逻辑，Opus），对象 82b254a12..18f59f666，审查 worktree 固定在 18f59f666。
+每条核实后追加；实验在 /tmp/claude-review-w00039-t28-impl-r2/scratch/。
+
+### 1. 冻结没有落盘也会被当成“结局不明”，之后 confirm 不先落盘就把请求发出去：回执再丢一次就发布两次
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-drafts.ts:249-254（persist 的 settleStorage 为 unknown 时不写就返回 unknown-outcome）、:414-421（freeze 只看 `uncertain !== null` 就返回 "unknown"）、:482-506（confirm 直接 write，不先确认冻结已经落盘）
+- **现象**：`uncertain` 可能来自更早的一次写（例如自动暂存的回执丢了）。提交时 freeze 调 persist，persist 先 settleStorage 读回核对；这次读又失败时 persist 返回 `unknown-outcome`，根本没有尝试写这份冻结，但 `uncertain` 仍非空（是旧那次的），freeze 于是返回 "unknown"，内存里留着 pending、phase 变 confirming。存储里没有这份冻结（只有旧的暂存，没有 pending）。连上以后 confirm 问结局（没发布）→ 原样“重发”——实际是第一次发出——中间没有任何一步把冻结写进存储。此时这次发布的回执再丢、窗口关掉，同一浏览器配置重开读到的是不带 pending 的旧暂存，作者再提交，新块被加第二遍。注释 :410-412 的前提“回执丢了时那条记录里可能已经有这份冻结”只在丢的是这一次冻结的写时成立。
+  同一缺口的另一面：冻结的写本身结局不明但实际没写进去（请求帧在服务端处理前断开）时，confirm 同样不先核对就发出，也违反“发出之前冻结并等存储确认”（author-ui 输出 46）。
+- **如何核实**：真实场地复现（textScene，世界、日志、Storage SQLite 与链路都真实，只丢回复帧）：/tmp/claude-review-w00039-t28-impl-r2/scratch/freeze-unknown.test.ts。步骤：begin、加新块“只该有一份”；丢 storage save 的回执并 flush（uncertain）；重连；丢 storage read 的回执并 submit → `{"status":"unknown"}`、phase confirming；重连后读记录：`ok`、`pending: null`；丢 editEntries 回执并 confirm → 世界已是 `["A","只该有一份"]`；另开同 profile 的窗口 load：稿没有 pending、`texts: {"new:1":"只该有一份"}`、phase idle；再 submit → published；最终世界 `["A","只该有一份","只该有一份"]`，修订标题 `["建条目","改主文字","改主文字"]`。命令：在 packages/neuro-book 下 `bun test /tmp/claude-review-w00039-t28-impl-r2/scratch/freeze-unknown.test.ts`。
+- **建议改法**：区分“这份冻结的写结局不明”与“没写成”。freeze 里只有 persist 真的发出了这份冻结的写、且回执丢了（写路径 :271 设的 uncertain.attempted 就是带这个 pending 的值）才返回 "unknown"；settleStorage 读不回来（没发写）时返回失败码、解冻（请求从没发出过，必然没发布）。另外 confirm 在发出之前先确认冻结已落盘：会话里记一个“冻结已确认落盘”的标记（persist 成功写下带这个 pending 的值、或 settleStorage 读回结构相等时置真），为假时先 persist；persist 不成功就停在 confirming、不发。这样 freeze 回执丢了且实际没写进去的情形也被覆盖：读回发现 revision 没动 → 重写冻结 → 成功后才发。
+
+### 2. 读进来的稿在确认时被确定拒收：稿解冻了，但没有读块，编辑不生效、也没有原因
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-drafts.ts:529-535（resume 对带 pending 的稿只调 confirm）、:386-406（settle 在确定拒收、不是 again 时只解冻与写 problems，不 align）、:600-602（edit 要求 `state.read !== null`）
+- **现象**：load、adopt、begin 读到带 pending 的稿时走 resume → confirm，整个过程不读块（有意为之，见第 18 条的处理）。确认的原样重发若得到确定的拒收（`write-failed` 不带 after、`validation-failed`、`field-unavailable` 等，不含会走 again 的三种），settle 把 pending 去掉、phase 回到 idle，但 `state.read` 仍是 null、`state.blocker` 也是 null。结果：edit 直接 return（:602），界面是 `frozen`（text-tab.ts:244 `state.draft !== null && state.read === null`）；begin 因为 `state.draft !== null` 直接返回 null，不再读；连上以后的 watch 只在 `blocker === "unavailable"` 时 reload。而且 resume 丢掉了 confirm 的返回值，作者也看不到“上一次没发布”或失败原因。只有作者按“提交”（attempt 先 align）或“放弃”才能出来。
+- **如何核实**：真实场地：/tmp/claude-review-w00039-t28-impl-r2/scratch/resume-reject-read-null.test.ts。窗口 1 提交时停在日志追加前、设 failAppend、断线（first = unknown）、放行（日志写失败，没发布）；同 profile 窗口 2 再设 failAppend 后 load。输出：`after load idle pending false read null blocker null`、`edit took effect? false`、`begin -> null read null`。
+- **建议改法**：resume 里 confirm 返回后，稿还在、没有 pending、`state.read === null` 时 align 一次（或在 settle 的解冻分支里，`state.read === null` 就 align）；resume 把 confirm 的结果交给调用方（例如存进 state 的一条“上一次提交的结局”），让界面能写明没发布与原因。
+
+### 3. begin 把 `loaded` 置真却不设 `loading`：之后页面再挂上时 load 会再读一次存储，把内存里的稿（含提交在途时）换掉
+
+- **严重程度**：建议（从代码推断，未在真实运行时复现）；**类别**：正确性 / 并发
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-drafts.ts:537-549（load 只看 `loading`，不看 `state.loaded`）、:583-584（begin 自己 pull 成功后只置 `state.loaded = true`）、EntryPageHost.vue:602（每次挂上都 `void props.draft.load()`）
+- **现象**：接口注释（:114）说“读成功以后重复调用不再读”。第一次 load 失败会把 `loading` 清成 null；之后 begin 自己 pull 成功、开始编辑，`loading` 仍是 null。页面组件卸载再挂上（会话不随组件卸载）时 load 再跑一遍 pull：不论当时在不在编辑，都用存储里的记录替换 `state.draft`、`generation += 1`、清掉 conflicts 与 problems，然后 resume。几种后果：
+  - 状态是 `diverged` 时 persist 不写（:233），pull 读到的是另一个窗口的稿，本窗口没存下去的编辑被无声换掉；
+  - 提交在途（phase submitting）时 load 不受 busy 门禁，resume 见到存储里的 pending 会把 phase 改成 confirming 并调 confirm：guarded 只拦 submitting，于是同一请求被并发再发一次（内核按请求 id 去重，不会发布两次，但两个延续都会 finish、persist，状态由后到的那个决定）。
+  触发要求第一次读暂存失败而世界的连接没有掉线又恢复（否则 text-tab 的 watch 会走 reload→load 把 `loading` 设上），窄。
+- **如何核实**：读代码：load 的 `loading ??=` 与 begin 的 :583-584；`session.load()` 在 begin 之后、`loading === null` 时会再次 `pull()`。
+- **建议改法**：load 开头 `if (state.loaded) return Promise.resolve()`（或 begin 成功 pull 后把 `loading` 设成已完成的 Promise）；resume 也只在 phase 为 idle 时动 phase。
+
+### 4. 暂存写失败以后没有任何时机再写：失焦、转入后台、卸载时的 flush 都不重试（base 上就有，不算这次的回归）
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-drafts.ts:609-612（flush 只在有排着的保存或 `saved === "unsaved"` 时写）、:230-232（persist 一开始就把 cancelSave 清掉）、:272（失败记成 failed）；text-tab.ts:228-237（连上以后的 watch 不管暂存）
+- **现象**：一次自动暂存失败（链路断、存储忙）后 `saved` 是 `failed`、`cancelSave` 是 null。之后链路恢复，作者不再打字而是切走标签、最小化或关窗：flush 直接 return，内存里的稿一直没写下去，关窗即丢。Spec 输出 45 的“编辑自动暂存，防止数据丢失”在这条路径上不成立。82b254a12 的 flush 是同一个判断。
+- **如何核实**：读代码；可在 link 场地复现：编辑、断线、flush（failed）、重连、再 flush，存储里仍没有这份稿。
+- **建议改法**：flush 的判断改成“有要存的内容且最后一次没存成”（`saved` 为 `unsaved` 或 `failed`）；text-tab 连上以后的 watch 里，在编辑且 `saved === "failed"` 时 flush 一次。
+- 第 4 条补充核实：/tmp/claude-review-w00039-t28-impl-r2/scratch/flush-after-fail.test.ts（真实场地）：编辑后断线 flush → `failed`；重连再 flush → 仍 `failed`，另一个窗口读记录 `missing`。
+
+### 5. REJECTED 是手抄的白名单，漏了几种内核判过请求 id 之后才给的拒收：原样重发碰到它们会永远停在“正在确认”
+
+- **严重程度**：建议；**类别**：正确性 / 代码质量
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-drafts.ts:63、:384-389
+- **现象**：对照 nb-canon `service.ts` 的 `#write`（:1275-1320）与 `entry-edits.ts` 的 `editEntries`（:883-898）、`world.ts` 的 `WriteFailure`（:116-125）：请求 id 在 compute 的第一步判（:885-889），之后能给出的失败除了表里的，还有 `not-deletable`、`source-not-writable`、`author-source-invalid`、`author-source-required`（World.publish），以及日志追加的 `too-large`（单行超过 `LINE_LIMIT` 4 MiB，node/log.ts:160）。它们都说明“这个请求 id 当时没发布过、这一次也没发布”，但不在 REJECTED 里，重发（`resend` 为真）时落进 `lost || (resend && !rejected)` → confirming。每次“再试”都得到同样的确定拒收，稿只能放弃。反方向核对：表里的 11 个码确实都只在判过请求 id 之后给出（`#write` 在判 id 之前只给 stopping、world-read-only、write-unknown、busy、exclusive-lost；remote.ts 的 withWorld 给宿主未就绪的码；RPC 层给 unknown-outcome、unavailable、invalid-input 等），这一面没有发现误判。`write-failed` 不带 after 只来自 appendRevision 的写前失败，算确定没写进去也成立。
+  目前文字稿的操作（set、addBlock、removeBlock，creative）实际能撞上的大概只有 `too-large`（主文字很大、修订行连前后值超过 4 MiB），所以定为建议；但白名单随内核新增失败码会继续漏。
+- **如何核实**：`grep -n "ok: false, failure" packages/nb-canon/src/world/entry-edits.ts packages/nb-canon/src/world/world.ts` 与 `node/log.ts:156-190` 对照 :63 的表。
+- **建议改法**：不要在浏览器端维护“判过 id 之后”的码表。由内核在回复里标明（例如 editEntries 的失败带 `checked: true`，或把判 id 之前的拦截统一成一个可识别的类别），浏览器只认这个标记；做不到时至少把上面几个码补进表，并在 service.ts 的 `#write` 注释里写明这张表依赖“判 id 之前只有这几种失败”。
+- 第 5 条更正一处措辞：`write-failed`（不带 after）来自 appendRevision 写失败后已把文件截回原长度（log.ts:174-182，截不回时给 write-unknown），不是“写前失败”；算“确定没写进去”的结论不变。
+
+### 6. textBlocks 的锚点改成按来历追以后，剧情块一块接一块挂时开销是平方次的来历重放：200 块一次读取 18.8 秒
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：packages/nb-canon/src/world/text-blocks.ts:124-143（addedAfter 每步调一次 `line.engine.origins`，anchorOf 每块从头追、不记忆）、:144-148（同一块的 writeBack 又调一次 origins）
+- **现象**：剧情变更给条目加块时挂在上一块后面（剧情里陆续补段落、加在末尾，内核缺省就是放在最后一块之后）会形成锚点链：第 i 块要追 i 步才到初值的块，每一步一次 `origins` 重放。一次 textBlocks 的 origins 次数约 N(N+1)/2 + N，旧实现（anchors 表）只有 writeBack 那 N 次。textBlocks 在世界服务里同步执行，会挡住同一进程里的写队列与别的读；而按块编辑的 begin、每次 align、每轮提交都读一次。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r2/scratch/textblocks-cost.test.ts（真实 WorldService、openTestService；条目初值 2 块，N 条剧情变更依次在上一块后面 addBlock，读第 3 章末）。实测：N=50 → textBlocks 163.3 ms（同位置 entry() 1.4 ms）；N=200 → 18767.0 ms（entry() 0.5 ms）。按 N=200 时约 20300 次 origins 摊算每次约 0.9 ms，旧实现约 200 次、估计 0.2 秒左右（估算，没有在 base 上实测）。在 packages/nb-canon 下 `NS=50,200 bun test /tmp/claude-review-w00039-t28-impl-r2/scratch/textblocks-cost.test.ts`。
+- **建议改法**：anchorOf 记忆化（块 → 锚点，链上每块只算一次），把 origins 次数降到 N；再把 writeBack 与 addedAfter 共用同一次 origins（writeBack 接受预先算好的 origins）。更彻底的是在线上按条目重放一次事件，顺手记下每块是哪条 addBlock 补丁加的，不按块逐个重放。补一条 N 在几百块时的耗时用例或基准（至少断言 origins 次数线性）。
+- 第 6 条补充：锚点链在正常路径上就会形成。entry-edits.ts:637-653：剧情意图的 addBlock 不写 `after` 时挂在“此刻的最后一块”后面，同一批里后一项挂在上一项后面；text-tab.ts 的剧情加块对话框正是不带 `after`（EntryPageHost.vue 的注释“放在这个位置上最后一块之后”）。所以剧情里逐章往末尾补段落，每块的锚点都是上一块剧情块。
+
+### 7. “并到上一块”再“恢复”不是逆操作：首尾空白被 mergeUp 修剪过，restoreBlock 按修剪后的文字找回，留下多余的改动或两块同字
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-draft.ts:202-213（mergeUp：head 去尾空白、tail 去首空白；head 为空时 joined 是未修剪的 tail）、:167-179（restoreBlock 只按 `\n\n${tail去首空白}` 或全等去掉）
+- **现象**：两种情形，都用纯函数实测：
+  - 上一块原文带尾部换行（`b1 = "甲\n"`、`b2 = "乙"`）：mergeUp(b2) 后 restoreBlock(b2)，稿变成 `base: {b1: "甲\n"}, texts: {b1: "甲"}, moved: ["b1"]`，hasChanges 为真，compile 出 `set text[b1] "甲\n" → "甲"`——作者什么也没改，却多出一次改字，而且 b1 带着 moved（结构性）标记，之后重读碰到改道就成了只能手工整理的冲突。
+  - 旧块并进前面的空新块且原文有前导空白（`b2 = "  乙"`）：mergeUp 时 joined 取未修剪的 tail，restoreBlock 拿修剪后的比，对不上，不拿回；恢复后 new:1 仍是 `"  乙"`、b2 也在，compile 出 `addBlock "  乙"`，同一段字出现两遍。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r2/scratch/merge-restore.test.ts、merge-restore2.test.ts（packages/neuro-book 下 `bun test <文件>`）。前者输出 `after restore {"texts":{"new:1":"  乙"},"removed":[]} compile [{"op":"addBlock",...,"source":"  乙"...}]`；后者输出 `ops [{"op":"set","at":{"entry":"e","path":"text[b1]"},"value":"甲","read":"甲\n"}]`。
+- **建议改法**：merged 里记下并之前上一块的文字（`head`）与并之后的文字（`joined`）；恢复时上一块现在的文字仍等于 `joined` 就把它设回 `head`（setText 会在等于 base 时自动 untouch，moved 也随 tidy 去掉），不等就不动。不再靠字符串后缀推断。text-draft.test.ts 补一条带首尾空白的“并了再恢复，稿回到没改动”。
+
+### 8. 测试：link 第一条要测的“问到没发布再原样重发”靠文件追加比进程内 RPC 慢才走到；第 1 条的路径没有用例
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/src/plugins/canon/text-drafts-link.test.ts:101-104
+- **现象**：`session.submit("另一个标题")` 之后同步 `gate.release()`。confirm 先发 outcome 查询，原请求此时已被放行、正在做真实的文件追加；问到的是“没发布”还是“已发布”取决于 outcome 帧与追加谁先完成。实测 5 次都是 `outcome:{"published":false} | editEntries:ok`（期望的路径），但这只是因为文件 I/O 比进程内链路慢；若追加先完成，confirm 走“问到已发布就收场”，用例照样通过，标题所说的那条路径就没测到。第二条用例用 `holdReply(outcome)` 扣住回复再放行，是确定的做法。另外第 1 条（`uncertain` 来自更早的写、读回核对失败时冻结并没落盘）与第 2 条（重发得到确定拒收以后稿没有读取）都没有用例覆盖。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r2/scratch/first-test-path.test.ts 包一层 call 记录方法与结果，重复 5 次，输出见上。
+- **建议改法**：第一条照第二条的写法，先 `holdReply((ask) => ask.method === "outcome")`，等 `held` 后再 `gate.release()`、再放行 outcome 回复，并断言这一次 confirm 发出了 editEntries（例如在 world 上断言修订只有一条且 outcome 问到过 false）。给第 1、2 条各补一条 link 用例（第 1 条的复现脚本可直接改成用例）。
+
+---
+未发现问题的方面（仔细检查后没有发现）：
+- REJECTED 表里的 11 个码都只在内核判过请求 id 之后给出；`request-id-reused` 当成已发布成立（它只在日志里已有这个请求 id、请求摘要不同时给出，请求 id 是本窗口生成的随机值）；回执丢失在 RPC 层统一成 `unknown-outcome`（nb-runtime protocol.ts failureFor），世界客户端合成的 `write-failed` 带 after，按不明处理正确。
+- 原样重发的请求与冻结时逐字段一致（`request(draft, pending)` 只取 pending 与 `draft.at`，pending 期间 edit、choose 都被拦），请求摘要不会变。
+- 队列：enqueue 里的任务没有再等 enqueue（persist、drop、takeOver 的任务体里只调 open、settleStorage、record 方法；pull、adopt 在队列外 enqueue 一次读），没有自己等自己。
+- 提交在途时的门禁：begin、discard、takeOver、adopt、reload、submit、confirm 都看 busy 或经 guarded；edit 与 choose 要求 phase 为 idle。例外只有第 3 条的 load。
+- 稿模型的 rebase、resolve、compile：rerouted、locked、gone、changed 各分支选完以后再 rebase 不再出现同一条；compile 的 keys 与 ops 按 sets、adds、removes 同序拼接，一一对位；同一处别人加的剧情块，新块排在其后；块 id 用 own 取，原型名不受影响。除第 7 条外没有发现不自洽。
+- 内核锚点改法本身的正确性：被整块替换过（最后一个 addBlock 步仍是加它的那条）、删掉再加（取最后一次 addBlock）、从别的线带过来（合成变更不在 data.changes，锚点缺省、写回为 none）都按设计处理；删块拒收仍按全部世界线。问题只在开销（第 6 条）。
+- 测试里没有 mock、spy、假计时器；等待用 until（轮询可观察状态）与回复帧、日志追加的闸门。
+
+各级数量：阻断 0，重要 3（1、2、6），建议 5（3、4、5、7、8；其中 4 是 base 上就有的问题）。
+有效发现：1、2、3、4、5、6、7、8

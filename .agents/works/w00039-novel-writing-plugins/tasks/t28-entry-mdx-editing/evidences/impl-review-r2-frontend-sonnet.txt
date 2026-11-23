@@ -1,0 +1,106 @@
+w00039 t28 前端实现审查（第二轮）：82b254a12..18f59f666 的前端部分
+审查者：Sonnet（只读）；worktree 固定在 18f59f666；没有真实浏览器，标“从代码推断”的都没在浏览器里看过。
+
+### 1. 离开的块用 position:absolute 脱离文档流，但列表容器是 flex，离开的块会先跳到列表最上面再淡出
+- **严重程度**：建议；**类别**：界面
+- **位置**：`EntryTextEditor.vue` 模板 `<TransitionGroup ... tag="ol" class="relative flex flex-col">`，样式 `.text-editor-item-leave-active { position: absolute; right: 0; left: 0 }`
+- **现象**（从代码推断）：新块被删（`removeBlock` 对新键直接从 `order` 拿掉）、新块并进上一块（`mergeUp`）时，那一项的 `li` 离开。离开样式只给了 `left/right`，没有 `top`。绝对定位的子元素放在 flex 容器里时，静态位置按“它是这个 flex 容器里唯一的项”算（CSS Flexbox 规范“绝对定位的子项”一节），列的方向、`justify-content` 默认，所以落在 `ol` 内容区的最上边，不在它原来的位置。结果是这一块在 `--motion-fast`（120ms）里一边淡出一边盖在第一块上面，下面的块同时按 move 过渡上滑。
+- **为什么是问题**：Vue 文档里“离开项脱离文档流”的写法，前提是容器是普通块；这里的 `ol` 用了 flex 却没有 `gap`，`flex flex-col` 没有任何作用，只带来这个副作用。拆开、并块、删新块是这个视图最常用的几个操作，每次都闪一下。
+- **如何核实**：浏览器里在有 3 块以上时删掉最后一块新加的块，逐帧看；或在 DevTools 里给 `.text-editor-item-leave-active` 加慢 `transition-duration`。
+- **建议改法**：去掉 `ol` 上的 `flex flex-col`（`li` 本来就是块级、`li` 自己是 `flex flex-col`），离开项的静态位置就留在原处；或者用 `@before-leave="(el) => (el.style.top = `${el.offsetTop}px`)"` 钉住位置。
+
+### 2. Monaco 加载失败后，退回的文本框拿不到焦点：加一块、拆开、并块、点原文都落空
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`CodeInput.vue:69-81`（`activate` 的 catch 分支）、`:130-141`（`focus`）、`:195-206`（`<pre @focus="focus">`）
+- **现象**：`activate()` 失败时只置 `failure` 与 `stage = "failed"` 然后 return，`focusWhenReady` 没有处理。而所有“要焦点”的入口都是在 plain 阶段调用 `focus()`：作者点（或 Tab 到）原文 `pre` -> `focus()` 置 `focusWhenReady` 并 `activate()` -> 加载失败 -> `pre` 被 `v-if` 拆掉，换上的 `Textarea` 没有焦点，焦点掉到 body。宿主的 `add/split/merge` 之后 `focusBlock(新块)` 同理：每个新块都从 plain 起步，所以退路里这几个操作永远不会把焦点放进新块。新加的 `if (stage === "failed") fallback.focus()` 只在“已经是 failed 之后再次调用”时才会走到。
+- **为什么是问题**：计划与 Spec（editor.md 输出 69）把退路定为“照样能改”；e2e 用 `fallback.fill()` 通过，`fill` 自己带聚焦，掩盖了这一点。键盘用户在退路里 Tab 到原文就会丢焦点。
+- **如何核实**：读代码即可；或在 e2e 的“编辑器加载不了时”里，不用 `fill`，改成点开始写后检查 `document.activeElement`、再用键盘输入。
+- **建议改法**：failed 分支里 `if (focusWhenReady) { await nextTick(); fallback.value?.$el.focus(); }`（`Textarea` 此时刚被渲染，要等一帧）；并补一条断言“加一块以后焦点在新块的文本框里”。
+
+### 3. 用保存命令提交被“现在写不了”拦下时，同一句原因写两遍，并且写进整批的说明以后不随原因消失而收起
+- **严重程度**：建议；**类别**：界面 / 正确性
+- **位置**：`text-tab.ts` `submit`（新加的 `if (options.blocked() !== "") { message.value = options.blocked(); return; }`）与 `editor` 计算里的 `submitBlocked: options.blocked()`；`EntryTextEditor.vue` 状态行的 `[data-text-submit-blocked]` 与 `[data-text-message]`
+- **现象**：写不了（只读、别人独占、断开、条目已删除）且有改动时，状态行里已经写着 `submitBlocked`（输出 46 要求的“原因写在那一行”）。用 Ctrl+S 提交时又把同一句 `blocked()` 的结果写进 `message`，于是一屏里同一句话出现两次，一次在状态行、一次在危险色的 `role="alert"` 说明行里；读屏也会读两遍。dom 用例（“别的调用方独占写入时”“条目在别处被删掉”）两处都断言了，但没人断言它们不重复。
+- **更实质的一点**：`message` 只在作者再改动、再提交、再试、放弃或重新开始时清掉。这条“原因”是随世界状态变的活状态：独占释放、重新连上以后，状态行里的 `submitBlocked` 立刻消失、“提交”可点了，而危险色的那一句还停在页上，直到作者动一下。用例里释放独占以后到再按保存之前正好有这段空档，没人看。
+- **为什么是问题**：Spec 输出 46 只要求“用 Ctrl+S 提交时也写”——目的是让键盘提交的人看得到原因；状态行已经写了就不用再写；要写就该让它跟着原因走。
+- **如何核实**：dom：在“别的调用方独占写入时”里，`lease.release()` 之后、再次 `commit` 之前读 `[data-text-message]`，仍在；`wrapper.findAll("[data-text-submit-blocked],[data-text-message]")` 两个同文。
+- **建议改法**：二选一。(a) 不写 `message`，只确保 `submitBlocked` 那一行在视野里（对它做 `scrollIntoView`）；(b) 把“写不了”的说明做成计算：`message` 为空时才显示，且 `message` 的这一种不存成状态，而是从 `options.blocked()` 实时算，状态行里就不再另写。
+
+### 4. 有稿时“按计划不作数”漏了一处：数据分页“记一笔”仍读标签状态里的 `state.planned`
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`EntryPageHost.vue:294`（`record`：`if (state.planned) return {ok: false, reason: canonText("blocked.planned")}`）；对照本轮改过的 `:127`（`mode`）、`:245`（`editBlocked`）、`:831`（`:planned`）
+- **现象**：本轮把有稿时的“按计划”统一成 `mode.value === "planned"`（稿在，永远是实际模式），但 `record` 还读标签状态的 `state.planned`。标签状态里 `planned` 为真而稿在时（同一个条目在另一个编辑组里开了第二页，那一页自己的 `planned` 是开着的，而稿是共享的、会锁住它；或恢复出来的状态与稿不一致，就是 dom 用例“有稿时这一页停在稿开始的位置”里手动造的那种状态），数据分页里“改”“加”的按钮是可用的（`editBlocked` 已改），页头的开关也显示为关，点“记一笔”保存却被拒，原因写“按计划时不能写”，与页面上看到的相反。
+- **为什么是问题**：恰是重点里问的“有稿时位置与‘按计划’不作数的几处有没有漏的”。同一份判断分在两处算，这次只改了一处。该用例断言了 `[data-edit='panel.存款']` 可用，却没有真的去记一笔，所以没发现。
+- **如何核实**：在该用例里 `state.planned = true` 之后，点 `[data-edit='panel.存款']`、填值、保存：从代码推断会得到“按计划”的拒绝；或直接读 `:294`。
+- **建议改法**：`record` 里改成 `if (mode.value === "planned")`（或直接 `editBlocked.value !== null` 先判），并在该用例里补一次“记一笔”。
+
+### 5. 刷新或重开带稿的条目时，稿所在的章或线已经没了：条目读取失败，页面整页是“读取失败”，编辑视图不渲染，稿拿不到、放不掉
+- **严重程度**：重要；**类别**：正确性（从代码推断，没有在浏览器或 dom 里复现整条刷新路径；base 上就有，但 Spec 输出 46 与本轮的 `deleted` 插槽正是在补这一类，这一种仍没补到）
+- **位置**：`EntryPageHost.vue:125-132`（`position = lockedAt ?? ownPosition`，`entryRead` 按它读）、`:138-144`（`status`）；`EntryPage.vue` 的 `failed` 分支只写 `world.failed`；`entry-page.dom.test.ts` 用例“有稿时这一页停在稿开始的位置……稿开始的那一章没了”
+- **现象**：`entry` 读取在位置指向不在章序里的章时返回 `chapter-not-found`（我在 dom 的场地里直接调 `canon.call("entry", {position: 第 1 章末尾})`，删掉第 1 章以后得到 `{"code":"chapter-not-found"}`；线不在同理 `line-not-found`）。条目页把读取位置钉在稿开始的位置，所以稿所在的章没了以后，这一页的 `entryRead` 没有数据、有错误，`status` 是 `"failed"`。`EntryPage` 的 `failed` 分支不渲染默认插槽，也没有 `deleted` 插槽那样的出口：编辑视图（`frozen` 的“只列动过的文字、只能放弃”）根本挂不出来。
+- **为什么没被用例发现**：用例是在页面开着的时候删章。读取句柄已经有数据，“读到过以后的失败留着旧内容”，`status` 一直是 `normal`，编辑视图还在，于是显示的是 frozen 视图。真正的路径（刷新、关掉标签再开、第二个窗口，没有旧数据）是：第一次读就在失败的位置，`entry.value` 一直为 `undefined`。我另写了一条同窗口里卸载再重挂的探针，页面也照常显示，原因同上（登记里的稿与 `read` 还在内存里，读取句柄有缓存），说明 dom 里这条用例没法代表重开。
+- **为什么是问题**：Spec 输出 46 明确要这种稿“只列出动过的文字（能复制）、只能放弃”。这里是作者最需要复制文字的时刻（比如删了章以后第二天打开），结果整页读取失败，标签上的未保存圆点永远消不掉。
+- **如何核实**：e2e：编辑主文字、等“已暂存”，在作品里把那一章删掉，刷新；期望看到 frozen 的编辑视图，从代码推断会看到“读取失败”。
+- **建议改法**：二选一。(a) 稿的位置读不出来（`entryRead` 失败且 `textTab.editing`）时，条目读取退回缺省位置，这样 `status` 照常、frozen 的编辑视图照常出来；(b) 把 `deleted` 插槽泛化成“页面主体之外的稿出口”，`failed`、`missing` 状态下只要有稿也渲染它。(a) 更小。无论选哪个，e2e 里补一条刷新以后的用例。
+
+### 6. 拆开以后焦点进新块，但光标落在新块的末尾，不在拆开的地方；“焦点进新块 / 进第一块 / 并块后进上一块”没有任何用例断言
+- **严重程度**：建议；**类别**：界面 / 测试（光标落点从代码推断）
+- **位置**：`EntryTextEditor.vue` `split`、`focusAfter`、`focusBlock`；`CodeInput.vue:123-127`（`focusWhenReady` 时 `setPosition` 到末行末尾）；`e2e/canon-write.e2e.ts:172-174` 的注释“后半成新的一块，焦点跟过去”
+- **现象**：新块刚挂上时 Monaco 还没建（按需建，进入视野的观察器是异步的），所以 `focusAfter` 里的 `focus()` 走 `focusWhenReady = true; activate()`，建好以后把光标放在文末。拆开的新块文字是后半段，光标就落在后半段末尾，作者在拆开处接着写或回车的预期落空：要先 Ctrl+Home。编辑器已经建好的块（例如并进上一块以后回到上一块）则保持原光标，两条路径的行为不一致。
+- **测试**：整个范围没有一条断言焦点：dom 用例里输入框是普通文本框，没有 `activeElement` 检查；e2e 的 `focusBlock` 帮手每次自己 `click()` 一下 Monaco，掩盖了“进来时焦点在第一块里”（Spec 输出 39）；拆开的那条 e2e 只在注释里写“焦点跟过去”，没有 `toBeFocused`。`pendingFocus`（输入框未就绪时记下要聚焦的块）也同样没有任何用例。
+- **如何核实**：e2e 在拆开以后立刻 `page.keyboard.type("X")`，看 X 出现在哪一块的哪个位置；断言开始写之后不点击就能输入。
+- **建议改法**：`CodeInput.focus` 增加可选参数 `{caret: "start" | "end"}`（默认保持文末），拆开的新块与新加的块传 `start`；补上述断言。
+
+### 7. 禁用按钮上的原因文字有几条什么也没说
+- **严重程度**：建议；**类别**：界面
+- **位置**：`zh-CN.json`/`en-US.json` 的 `textEdit.blockedNotAdjacent`（“这两块不能并”）、`problemSlot`（“这一块不能放在这里”）、`conflictLockedEdit`（“这一块现在不能这样改”），以及 `blockedCarried`（“这一块不能在这里改”，base 就有）
+- **现象**：上一轮第 12 条的改法是“解释内部处理的几句改成只说结果”，这几条改过头：删掉了原因，剩下的只是把按钮的状态复述一遍。Spec 输出 39 要求“不能做的按钮不可用并写原因”，并举的例子是“这里紧挨着剧情加出来的块”。“这两块不能并”悬停出来的是把“并到上一块”按钮禁用这件事再说一遍；`problemSlot` 挂在一个新块下面，作者既不知道为什么也不知道怎么办；`conflictLockedEdit` 是冲突对话框里“照现在的”唯一选项的说明，看不出现在是什么、改动去哪了。
+- **建议改法**：保留原因里作者能改变的那部分，砍掉内部术语：`blockedNotAdjacent` 写“这两块中间还隔着别的块”；`problemSlot` 写“这一块后面是剧情加出来的块，放不进来”；`conflictLockedEdit` 写“现在只能改这一块的字，拆开与并的结果不能提交”之类。en-US 同步。
+- **另**：`textEdit.resultReview`（“有几块照现在的恢复了，看过再提交”）用 `role="alert"` 的危险色整批说明写一条提示性的话，且“照现在的恢复了”没说是哪几块；`discardDescription`“暂存的内容会一起删掉”在 `saved === "diverged"` 时不成立（那一份是另一个窗口的，`drop` 不会删）。
+
+### 8. 用保存命令提交，除了“页面没挂上”，其余没发出去的结局都当成功
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`entry-page.ts` `commit`（`await commit()`）；`text-tab.ts` `submit`（所有结局都 resolve 为 void）；`editor/web/area.ts:1127-1136`（`save` 把 resolve 当 `{ok: true}`）
+- **现象**：上一轮第 1 条的道理是“没挂上不当成提交过了，让保存报没保存成功”。同样的道理没用在别的没发出去的结局上：写不了（本轮新写 `message` 后直接 return）、暂存写不进去、要在冲突对话框里选、校验没过、别处一直在改，`commit()` 都 resolve，`nbook.editor.save` 返回 `{ok: true}`。对人没影响（页面上有说明），对经命令调用的一方（`agent: "confirm"` 的保存命令、命令面板的结果、将来的“保存并关闭”）是误报成功。dom 用例“别的调用方独占写入时”里 `await page.commit!(id)` 通过，并且之后断言稿还在，等于把这个行为固定下来了。
+- **建议改法**：`TextTab.submit` 返回结局（已发布 / 已无改动 / 没发出去），`commit` 在“没发出去”时 reject 或让 `commit` 返回 `{ok:false, reason}`（需要给 `EditorPageImplementation.commit` 一个可选的失败原因）；或者在 `commands.ts` 的描述里写明“页面提交被拦下时不算失败，原因写在页面上”。选后者要承认保存命令的结果只代表“发出了提交请求”。
+
+### 9. 有稿时标签的面包屑不再更新
+- **严重程度**：建议；**类别**：正确性（从代码推断）
+- **位置**：`EntryPageHost.vue:145-152`（`headSource`：`lockedAt.value === null && state.position === null && !state.planned ? entry.value : undefined`）
+- **现象**：有稿时 `headSource` 为 `undefined`，`onHead` 不再报。上一轮第 14 条要的是“标签标题读缺省位置那份、不读稿的位置”，这条改法对；但没有给“有稿”配上另读一份缺省位置的 `headRead`（窗口选了线时有）。结果：刷新后带稿的条目页，`lockedAt` 在条目读取到达之前就已经非空（暂存只读一次，条目读取要先等章表），`heads` 里一直没有这个条目；`breadcrumbs` 返回 `null`，标签条的面包屑缺一截；条目被改名也不再跟（标签标题有编辑器记着的旧标题兜底，所以只剩面包屑与改名这两处）。
+- **建议改法**：`headRead` 的条件改成 `(windowLine !== "" || lockedAt !== null || state.position !== null || state.planned) && chaptersKnown`，`headSource` 相应改成“要读第二份的时候取它”。
+
+### 10. 测试：本轮新写的宿主逻辑与组件行为有几块没有任何用例，个别用例绕过了用户路径
+- **严重程度**：建议；**类别**：测试
+- **位置**：`entry-page.dom.test.ts`（“写入”一组）、`e2e/canon-write.e2e.ts`、没有 `EntryTextEditor`、`TextConflictDialog`、`CodeInput` 的同名 dom 测试
+- **没有被测到的**（在 `entry-page.dom.test.ts`、`e2e/*.e2e.ts` 里 grep `resultReview|resultDiscardFailed|conflictNeedsBack|data-text-take-over|data-text-adopt|isComposing|Escape|data-conflict-kind|rerouted` 都没有命中）：
+  1. `confirmConflicts` 里“有结构变化或现在做不了的就不接着提交、写一句让作者看过”（`resultReview`）；冲突对话框的 `rerouted`、`manual` 两种条目，以及 `manual` 时点“提交”写“有要回去整理的块”；关掉再开，选到一半的选择还在（上一轮第 9 条的改法）。只有 `text-draft.test.ts` 在模型层测了 `rerouted` 的产生，界面这一层是 Lab 截图看的。
+  2. 放弃删不掉暂存时不离开并写明（`resultDiscardFailed`）。
+  3. `EntryTextEditor` 的 `leavingAsks` 在 frozen、等结局（confirming）、无改动三种状态下是“放弃”还是“取消”，以及 Esc 只在无改动时取消、输入法组字时不取消：只有两处“无改动时的取消”与“有改动时的放弃”被点到。
+  4. 另一个窗口也在改时的“用这里的”“换成那边的”两个按钮、再试按钮的显示与去向（这一块的后端模型有用例，页面接线没有）。
+  5. 焦点（见第 6 条）。
+- **用户路径被绕开的**：“点‘编辑’时读不出块”用例用 `wrapper.findComponent(EntryText).vm.$emit("edit")` 直接发组件的事件，来模拟“断开以后点下去的那一刻”。它测到了 `startEditing` 的失败分支，但依赖 `EntryText` 内部事件名；同一场景可以换成：先让世界断开、保持按钮的 `disabled` 去掉前的那一瞬间并不存在，所以更直接的做法是让 `textBlocks` 在 `startEditing` 过程中失败（例如开始编辑前把活页夹弄坏，或让读取返回 `too-large`），再点真的按钮。
+- **主题跟随用例**：`theme-follow.dom.test.ts` 用一个只有 `defineTheme/setTheme` 的手写假 `MonacoApi` 数 `defineTheme` 被调用几次，测的是“实现调用了几次”而不是“主题是否对”；注释里已说明颜色要在浏览器里验（`e2e/editor-code-menu.e2e.ts`）。可以接受，但要意识到它不是对 Spec 输出 65 的断言，改了观察器的写法（合并更新、延迟一帧）会让它红而行为不变。
+- **建议**：补 1、2、3 三组，用已有的 `setup()` 与 `startEditing`；其余在 e2e 里各补一句断言。
+
+### 附：base 上就有、这轮没引入的两处（只记录）
+- `TextConflictDialog.vue` 的 `sides()` 按 UTF-16 码元比较前后相同的部分，遇到增补平面的字（emoji、𠮷 这类生僻汉字）可能把一个代理对切成两半，高亮的 `<mark>` 与两边的“相同”部分各带一个半字符，显示成 �。本轮让 `rerouted` 也走这个函数，使用面变大了。改法：按 `Array.from` 的码点比较，或比较到代理对边界时回退一位。
+- `CodeInput` 的 Monaco 一旦加载失败（`started = true`）这个实例不再重试；网络抖动一次，这一页所有块都留在退路里，直到刷新。上一轮第 6 条记作“没改”，理由对，只是提醒退路没有“重试”。
+
+（第 10 条更正两处：一、第 3 项里 frozen 状态下的“放弃”被“稿开始的那一章没了”的用例点到了，没点到的是 confirming（等结局）与 Esc；二、“用户路径被绕开”一项的建议改法改为：让点“编辑”那一刻的 `textBlocks` 真的失败（例如把读取注入成返回 `too-large` 的场地），再点真的“编辑”按钮，不用 `vm.$emit`。）
+
+## 未发现问题的方面
+- `entry-page.ts` 的提交入口登记：挂上、卸载、两页同条目时先挂的卸载、后挂的卸载，各先后下都只撤自己的，`commits.get(id).at(-1)` 取最后挂的；`register` 在宿主 `onCommitReady(null)` 与页面外壳的 `onBeforeUnmount` 里重复撤，幂等。仔细检查后没有发现漏撤、错撤。“没页面挂着时 reject”对保存命令的直接影响只是 `pageCommitFailed`，符合上一轮第 1 条的处理（但见第 8 条：其它没发出去的结局没同样处理）。
+- `EntryPageHost.vue` 的两处编辑视图：“已删除”分支与默认插槽在 `EntryPage` 里是 `v-else-if` / `v-else`，不会同时渲染；`editorRef` 只挂在默认插槽那一份，`focusEditor` 用 `?.` 且标志在没进去时不置位，没有残留；从已删除恢复后编辑视图重新挂在默认插槽，只是 Monaco 要重建、焦点丢掉（可接受）。
+- `CodeInput` 的 `tabFocusMode`：Monaco 0.55.1 里它按编辑器实例生效（选项与全局 `TabFocus` 取或），不影响源码编辑器；Esc 是否被 Monaco 消费靠 `defaultPrevented` 判，思路对。`cursorOffset`、只读、受控回写在退路里的路径（`selectionStart`、`readonly`、`update:modelValue`）对得上；退路里的焦点问题见第 2 条。原文阶段的行高算法与 Monaco 的 `EditorOptions.lineHeight` 规则一致（0 为按字号自动，小于 8 当倍数）。
+- 动效的令牌：块的进出、状态行各项、说明行高度、冲突页脚都取 `--motion-fast/--motion-move/--ease-layout/--ease-dialog-leave`，没有写死的毫秒数与曲线；`nb-ui-switch` 的位移在减少动效下由基座去掉。离开项的定位问题见第 1 条。
+- 文案的双语一致：两份 locales 的 `textEdit`、`block` 段键相同，占位符一致；没有发现按错误文案做程序分支（`failureText`、`blockerText` 都按码）。
+- 本轮新增的 `catch`：`CodeInput.activate` 的 catch 把原因放进 `failure` 并显示，不是静默吞掉。
+- 类型检查（`vue-tsc -p tsconfig.web.json`）退出码 0；`entry-page.dom.test.ts` 与 `theme-follow.dom.test.ts` 共 37 条通过（在审查 worktree 里跑）。
+
+## 数量
+- 有效发现 10 条：重要 1（第 5 条）、建议 9（第 1、2、3、4、6、7、8、9、10 条）、阻断 0。
+- 另记 base 上就有的 2 处。
+- 没有撤回或收窄的条目。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10
