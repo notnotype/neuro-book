@@ -1,9 +1,9 @@
 import {describe, expect, it} from "bun:test";
-import {GRID_DROP_INDICATOR_PX, resolveGridEdgeDrop, resolveGridInsertion, resolveListInsertion, type GridDropMember, type GridDropRect, type GridInsertion, type GridListInsertion} from "./grid-drop";
+import {GRID_DROP_INDICATOR_PX, resolveGridEdgeDrop, resolveListInsertion, type GridDropMember, type GridDropRect, type GridListInsertion} from "./grid-drop";
 
 /**
- * 落点几何合同：边缘 20% 返回插入位与插入线，中央 60% 返回整叶保持布局结果。
- * 空容器、间隙、裁剪与非法几何仍沿用原有保守规则。
+ * 落点几何合同：列表插入位（一个插入位一条线）与叶的四边落点。
+ * 空容器、间隙、裁剪与非法几何沿用保守规则。
  */
 
 const CONTAINER: GridDropRect = {left: 0, top: 0, right: 200, bottom: 100};
@@ -18,147 +18,7 @@ function row(id: string, top: number, bottom: number, left = 0, right = 200): Gr
 }
 
 const TWO_COLUMNS: readonly GridDropMember[] = [column("a", 0, 100), column("b", 100, 200)];
-const TWO_ROWS: readonly GridDropMember[] = [row("top", 0, 50), row("bottom", 50, 100)];
-const GAPPED: readonly GridDropMember[] = [column("a", 0, 60), column("b", 140, 200)];
 const INSET_ROWS: readonly GridDropMember[] = [row("top", 0, 50, 50, 150), row("bottom", 50, 100, 50, 150)];
-
-function insertionAt(input: Parameters<typeof resolveGridInsertion>[0]): Exclude<GridInsertion, {kind: "keep"}> {
-    const insertion = resolveGridInsertion(input);
-    if (insertion === null || insertion.kind !== "insert") throw new Error("期望插入落点");
-    const shapes = insertion.halfRect === null
-        ? [insertion.areaRect, insertion.indicator]
-        : [insertion.areaRect, insertion.indicator, insertion.halfRect];
-    for (const rect of shapes) {
-        expect(rect.right - rect.left).toBeGreaterThan(0);
-        expect(rect.bottom - rect.top).toBeGreaterThan(0);
-        expect(rect.left).toBeGreaterThanOrEqual(input.containerRect.left);
-        expect(rect.top).toBeGreaterThanOrEqual(input.containerRect.top);
-        expect(rect.right).toBeLessThanOrEqual(input.containerRect.right);
-        expect(rect.bottom).toBeLessThanOrEqual(input.containerRect.bottom);
-    }
-    return insertion;
-}
-
-describe("resolveGridInsertion", () => {
-    it("水平首叶前 20% 插入，中央 60% 保持布局，末叶后 20% 追加", () => {
-        const leading = insertionAt({orientation: "horizontal", point: {x: 10, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS});
-        expect(leading).toMatchObject({kind: "insert", beforeId: "a", areaRect: {left: 0, right: 20}, indicator: {left: 0, right: GRID_DROP_INDICATOR_PX}});
-        // 半区与命中带是两件事：带是 20% 的命中范围，半区是承诺并入的那一半（前缘带取命中叶的前半）。
-        expect(leading.targetId).toBe("a");
-        expect(leading.halfRect).toEqual({left: 0, top: 0, right: 50, bottom: 100});
-
-        const keep = resolveGridInsertion({orientation: "horizontal", point: {x: 50, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS});
-        expect(keep).toEqual({kind: "keep", areaRect: {left: 0, top: 0, right: 100, bottom: 100}});
-
-        const trailing = insertionAt({orientation: "horizontal", point: {x: 190, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS});
-        expect(trailing).toMatchObject({kind: "insert", beforeId: null, areaRect: {left: 180, right: 200}, indicator: {left: 198, right: 200}});
-        // 越过末叶是追加：命中叶仍是末叶，半区是它的后半。
-        expect(trailing.targetId).toBe("b");
-        expect(trailing.halfRect).toEqual({left: 150, top: 0, right: 200, bottom: 100});
-    });
-
-    it("20% 边界属于插入带，中央端点仍保持布局", () => {
-        const leadingEdge = insertionAt({orientation: "horizontal", point: {x: 20, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS});
-        expect(leadingEdge).toMatchObject({beforeId: "a", areaRect: {left: 0, right: 20}, indicator: {left: 0, right: GRID_DROP_INDICATOR_PX}});
-        expect(leadingEdge.halfRect).toEqual({left: 0, top: 0, right: 50, bottom: 100});
-        // 后缘带属于它自己那一叶：反馈带与半区都是 a 的，锚点才是下一叶 b。
-        const trailingEdge = insertionAt({orientation: "horizontal", point: {x: 80, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS});
-        expect(trailingEdge).toMatchObject({beforeId: "b", areaRect: {left: 80, right: 100}, indicator: {left: 100, right: 102}});
-        expect(trailingEdge.targetId).toBe("a");
-        expect(trailingEdge.halfRect).toEqual({left: 50, top: 0, right: 100, bottom: 100});
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: 21, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS})).toEqual({kind: "keep", areaRect: {left: 0, top: 0, right: 100, bottom: 100}});
-    });
-
-    it("候选叶按真实末端查找：中间叶的后缘带归它自己，中央两半都保持布局", () => {
-        const box: GridDropRect = {left: 0, top: 0, right: 300, bottom: 100};
-        const tall: GridDropRect = {left: 0, top: 0, right: 300, bottom: 300};
-        const columns: readonly GridDropMember[] = [column("a", 0, 100), column("b", 100, 200), column("c", 200, 300)];
-        const rows: readonly GridDropMember[] = [row("a", 0, 100), row("b", 100, 200), row("c", 200, 300)];
-        const middle = {left: 100, top: 0, right: 200, bottom: 100};
-
-        // 前缘带锚到自己，后缘带锚到下一叶——两者都贴中间叶自己的边缘；中点命中会把 x=190 算成 c 的前缘带。
-        expect(insertionAt({orientation: "horizontal", point: {x: 110, y: 50}, containerRect: box, members: columns}))
-            .toMatchObject({beforeId: "b", targetId: "b", areaRect: {left: 100, right: 120}, halfRect: {left: 100, right: 150}, indicator: {left: 100, right: 102}});
-        expect(insertionAt({orientation: "horizontal", point: {x: 190, y: 50}, containerRect: box, members: columns}))
-            .toMatchObject({beforeId: "c", targetId: "b", areaRect: {left: 180, right: 200}, halfRect: {left: 150, right: 200}, indicator: {left: 200, right: 202}});
-        expect(insertionAt({orientation: "vertical", point: {x: 150, y: 190}, containerRect: tall, members: rows}))
-            .toMatchObject({beforeId: "c", targetId: "b", areaRect: {top: 180, bottom: 200}, halfRect: {top: 150, bottom: 200}, indicator: {top: 200, bottom: 202}});
-
-        // 中央 60% 的前后两半是同一个 keep：整片中间叶，没有锚点也没有插入线。
-        for (const x of [130, 150, 170]) {
-            expect(resolveGridInsertion({orientation: "horizontal", point: {x, y: 50}, containerRect: box, members: columns}))
-                .toEqual({kind: "keep", areaRect: middle});
-        }
-        for (const y of [130, 150, 170]) {
-            expect(resolveGridInsertion({orientation: "vertical", point: {x: 150, y}, containerRect: tall, members: rows}))
-                .toEqual({kind: "keep", areaRect: {left: 0, top: 100, right: 200, bottom: 200}});
-        }
-    });
-
-    it("成员间隙仍锚定下一叶前缘，且中央只沿目标轴判定", () => {
-        const gap = insertionAt({orientation: "horizontal", point: {x: 100, y: 50}, containerRect: CONTAINER, members: GAPPED});
-        expect(gap).toMatchObject({beforeId: "b", areaRect: {left: 140, right: 152}, indicator: {left: 140, right: 142}});
-
-        const left = resolveGridInsertion({orientation: "vertical", point: {x: 5, y: 25}, containerRect: CONTAINER, members: INSET_ROWS});
-        const right = resolveGridInsertion({orientation: "vertical", point: {x: 195, y: 25}, containerRect: CONTAINER, members: INSET_ROWS});
-        expect(left).toEqual(right);
-        expect(left).toEqual({kind: "keep", areaRect: {left: 50, top: 0, right: 150, bottom: 50}});
-    });
-
-    it("垂直行前后边缘使用 20% 带和可见跨度", () => {
-        const leading = insertionAt({orientation: "vertical", point: {x: 5, y: 5}, containerRect: CONTAINER, members: TWO_ROWS});
-        expect(leading).toMatchObject({beforeId: "top", areaRect: {top: 0, bottom: 10}, indicator: {top: 0, bottom: GRID_DROP_INDICATOR_PX}});
-        expect(leading.halfRect).toEqual({left: 0, top: 0, right: 200, bottom: 25});
-        const trailing = insertionAt({orientation: "vertical", point: {x: 5, y: 95}, containerRect: CONTAINER, members: TWO_ROWS});
-        expect(trailing).toMatchObject({beforeId: null, areaRect: {top: 90, bottom: 100}, indicator: {top: 98, bottom: 100}});
-        // 命中叶是末行（不是越界的那片空白），半区是它的后半。
-        expect(trailing.targetId).toBe("bottom");
-        expect(trailing.halfRect).toEqual({left: 0, top: 75, right: 200, bottom: 100});
-    });
-
-    it("空容器整盒接收，薄盒的插入线退化为盒子", () => {
-        const empty = insertionAt({orientation: "horizontal", point: {x: 20, y: 50}, containerRect: CONTAINER, members: []});
-        // 没有候选叶可命中：整盒接收，命中叶与半区都不存在（调用方据此不承诺任何半区并入）。
-        expect(empty).toEqual({
-            kind: "insert",
-            beforeId: null,
-            areaRect: CONTAINER,
-            indicator: {left: 0, top: 0, right: GRID_DROP_INDICATOR_PX, bottom: 100},
-            targetId: null,
-            halfRect: null,
-        });
-        const thin = insertionAt({orientation: "horizontal", point: {x: 0.1, y: 50}, containerRect: THIN_CONTAINER, members: [column("slim", 0, 1)]});
-        expect(thin.areaRect).toEqual({left: 0, top: 0, right: 0.2, bottom: 100});
-        expect(thin.indicator).toEqual(THIN_CONTAINER);
-    });
-
-    it("源叶仍参与几何，零尺寸与越界成员跳过", () => {
-        const source = insertionAt({orientation: "horizontal", point: {x: 10, y: 50}, containerRect: CONTAINER, members: [column("empty", 50, 50), ...TWO_COLUMNS]});
-        expect(source.beforeId).toBe("a");
-        expect(source.areaRect).toEqual({left: 0, top: 0, right: 20, bottom: 100});
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: 50, y: 50}, containerRect: CONTAINER, members: [column("outside", 300, 400)]})).toBeNull();
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: 50, y: 50}, containerRect: CONTAINER, members: [column("zero", 50, 50)]})).toBeNull();
-    });
-
-    it("成员越界先裁剪，容器外或非法坐标不产生落点", () => {
-        const clipped = insertionAt({orientation: "horizontal", point: {x: 10, y: 50}, containerRect: CONTAINER, members: [column("bleed", -50, 100)]});
-        expect(clipped.areaRect).toEqual({left: 0, top: 0, right: 20, bottom: 100});
-        // 半区同样只看**可见**几何：越界的那一半不参与，前一半从内容盒起点量起。
-        expect(clipped.targetId).toBe("bleed");
-        expect(clipped.halfRect).toEqual({left: 0, top: 0, right: 50, bottom: 100});
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: 400, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS})).toBeNull();
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: Number.NaN, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS})).toBeNull();
-    });
-
-    it("调用方可扩大边缘命中带，非法比例拒绝且默认 20% 不变", () => {
-        const wider = insertionAt({orientation: "horizontal", point: {x: 25, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS, edgeRatio: 0.3});
-        expect(wider).toMatchObject({beforeId: "a", areaRect: {left: 0, right: 30}});
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: 25, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS})).toEqual({kind: "keep", areaRect: {left: 0, top: 0, right: 100, bottom: 100}});
-        expect(resolveGridInsertion({orientation: "horizontal", point: {x: 25, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS, edgeRatio: 0.51})).toBeNull();
-        const halves = insertionAt({orientation: "horizontal", point: {x: 50, y: 50}, containerRect: CONTAINER, members: TWO_COLUMNS, edgeRatio: 0.5});
-        expect(halves).toMatchObject({beforeId: "b", targetId: "a", halfRect: {left: 50, right: 100}});
-    });
-});
 
 describe("resolveListInsertion", () => {
     /**
