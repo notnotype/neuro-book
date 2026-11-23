@@ -7,8 +7,8 @@ import {isPanelShown, regionNodeOf, setPanelCollapsed, setPanelHidden} from "@no
 import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../shared/views";
-import {applyEntryDrop, barSpotAt, barStopsOf, entryDropAt} from "./entry-drop";
-import type {BarEntryRect, EntryDropAction, WorkbenchDragSource} from "./entry-drop";
+import {applyEntryDrop, barSpotAt, barStopsOf, dropKeyOf, entryDropAt} from "./entry-drop";
+import type {BarEntryRect, EntryDropAction, WorkbenchDragSource, WorkbenchDropAction} from "./entry-drop";
 import {regionContainers, viewSection} from "./state/containers";
 import type {ContainerCatalog} from "./state/containers";
 import {defaultLayoutDoc} from "./state/default-tree";
@@ -101,6 +101,16 @@ describe("落点是什么（输出 45、46）", () => {
         expect(entryDropAt(doc(), source, {kind: "gap", before: null}, NEW, "sidebar")).toEqual({kind: "move-entry", region: "sidebar", container: PROJECT, before: null});
         expect(entryDropAt(doc(), source, {kind: "entry", container: SEARCH}, NEW, "sidebar")).toBeNull();
         expect(entryDropAt(doc(), {kind: "panel", panel: "x"}, {kind: "gap", before: null}, NEW, "sidebar")).toBeNull();
+    });
+});
+
+describe("落点的键", () => {
+    it("画出来一样的落点同一个键：浮动只看种类，不看矩形；编辑组的分区不同、入口条上的位置不同都是不同的键", () => {
+        const float = (x: number): WorkbenchDropAction => ({kind: "float", rect: {x, y: 0, width: 300, height: 200}});
+        expect(dropKeyOf(float(0), undefined)).toBe(dropKeyOf(float(80), undefined));
+        expect(dropKeyOf({kind: "strip", panel: "g0", index: 1}, "left")).not.toBe(dropKeyOf({kind: "strip", panel: "g0", index: 1}, "right"));
+        expect(dropKeyOf({kind: "strip", panel: "g0", index: 1}, undefined)).toBe(dropKeyOf({kind: "strip", panel: "g0", index: 1}, undefined));
+        expect(dropKeyOf({kind: "new-container", region: "sidebar", container: NEW, before: SEARCH}, undefined)).not.toBe(dropKeyOf({kind: "new-container", region: "sidebar", container: NEW, before: null}, undefined));
     });
 });
 

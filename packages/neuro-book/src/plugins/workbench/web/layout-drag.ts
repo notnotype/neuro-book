@@ -24,7 +24,7 @@ import type {Ref} from "vue";
 import {centerOf, collapsedGeometry, contains, heldTabIn, offset, sortedOffset, stripIndex, wholeInTree, windowRect} from "./drag-geometry";
 import type {DragGeometry, EntryBand, FrozenGeometry, WindowDrag} from "./drag-geometry";
 import {barStops, pointOfCandidate} from "./drag-keyboard";
-import {applyEntryDrop, barSpotAt, dropStripOf, entryDropAt, entryStripOf, homeStripOf, isEntryAction, regionOfEntryStrip, soleRegionContainer, workbenchDropKey} from "./entry-drop";
+import {applyEntryDrop, barSpotAt, dropKeyOf, dropStripOf, entryDropAt, entryStripOf, homeStripOf, isEntryAction, regionOfEntryStrip, soleRegionContainer} from "./entry-drop";
 import type {BarEntryRect, ContainerSource, EntryDropAction, WorkbenchDragSource, WorkbenchDropAction} from "./entry-drop";
 
 import {EDITOR_TAB_TYPE, editorTabIdOf} from "../shared/editor-panels";
@@ -317,7 +317,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const container = dropStripOf(drop.action);
             return {
                 // 原位的落点结果都一样，键也一样；只有标签条里的原位分开：来源收起之后它是排序（已提交的样子），别的原位是来源收起的样子。
-                key: drop.inPlace ? (container === null ? "in-place" : "in-place-strip") : JSON.stringify([workbenchDropKey(drop.action), drop.part ?? null]),
+                key: drop.inPlace ? (container === null ? "in-place" : "in-place-strip") : dropKeyOf(drop.action, drop.part),
                 inPlace: drop.inPlace,
                 // 落到别处才收起来源：自己的标签条里换序、放回原处都还没离开（活动栏是自己的入口条时，停在别的入口上也是，`homeStripOf`）。
                 home: isHomeStrip(source, homeStripOf(drop.action)),
@@ -878,7 +878,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
         // 实时布局这一场由会话另外取“或”。
         commitsUnderPointer: (keyboard) => !keyboard && run.windowDrag !== null,
-        actionKey: (drop) => (drop.inPlace ? null : JSON.stringify([workbenchDropKey(drop.action), drop.part ?? null])),
+        actionKey: (drop) => (drop.inPlace ? null : dropKeyOf(drop.action, drop.part)),
         commit: (drop, source, keyboard) => options.commit(source, drop.action, drop.part, keyboard),
         // 编辑器不让放的落点上松手：拖动中只读、不结算，为什么不让要松手才说。照常交给编辑器，它在同一处拒绝（与 `dropOutcome` 同一判据）并在组顶部写提示（docs/specs/workbench/editor.md 输出 55）。
         // 这时 `run` 已经是收场换上的空闲那份，带着最后一次判定。

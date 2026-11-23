@@ -5,7 +5,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridSwap} from "@notnotype/nb-layout";
 import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
@@ -39,6 +39,7 @@ import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop, LiveCardRefresh} from "../layout-drag";
+import {dropKeyOf} from "../entry-drop";
 import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
@@ -832,7 +833,7 @@ const fileDropHost: WorkbenchFileDropHost = {
     resolve: (point, top) => {
         const drop = drag.value?.fileDrop(point, top instanceof Element ? top : null) ?? null;
         if (drop === null) return null;
-        const file: WorkbenchFileDrop = {action: drop.action, ...(drop.part === undefined ? {} : {part: drop.part}), key: JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]), label: dropLabel(drop)};
+        const file: WorkbenchFileDrop = {action: drop.action, ...(drop.part === undefined ? {} : {part: drop.part}), key: dropKeyOf(drop.action, drop.part), label: dropLabel(drop)};
         fileDrops.set(file, drop);
         return file;
     },
