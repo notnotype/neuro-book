@@ -1,0 +1,261 @@
+w00039 t28 独立设计（Claude Sonnet 子代理，2026-11-23）：只拿到目标与开发者已定的约束，没有读主会话的计划。下面是它的最终报告原文。
+它的实验脚本在本机的 /tmp 下，没有入库；数字来自它自己的随机生成器。
+
+# 条目主文字的富文本编辑：独立设计
+
+我没有读 `t28-entry-mdx-editing/` 目录下的任何文件。仓库没有改动，实验脚本在 `/tmp/claude-review-w00039-t28-design/independent/`：`proto.ts` 是解析器原型，`fuzz3.ts` 是对照旧解析器的随机测试，`matrix.ts` 是读法差异表，`blocks.ts` 是块对齐原型，`cjk.ts` 是中文强调对照。
+
+标注“未验证”的是只从代码推断、没跑过的。
+
+## 一、结论先行
+
+1. **解析器放进 nb-markdown 的一个纯 TS 子路径**，建议叫 `@notnotype/nb-markdown/entry-text`。内容是扩展 marked 的分词扩展（表达式、`<Ref>`、`<Image>`）、白名单检查、位置还原和切块。nb-canon 与编辑器的条目语法都引它，只依赖 `marked`、`marked-cjk-friendly`、`acorn`。nb-canon 因此去掉 micromark 那一串依赖（10 个包），浏览器端也不再被“MDX 解析链加载不了”拦住。
+2. **编辑器直接复用章节的 `MarkdownControl`**，经 `nbook.markdown` 服务拿到，再给一个合成的 `TextEditorBinding`（正文是“各块用空行连起来的整篇”）。控件需要加一个“换语言”的口子，语言用“核心语法 + 条目语法”，不带批注、注音等项目方言。
+3. **整篇到块的映射放在插件里做**，不改控件：对 提交文字 和 存着的块 做“精确相等的最长公共子序列（LCS）+ 缺口内按相似度配对”，生成 `set`、`addBlock`、`removeBlock`。没动过的块逐字节相等，所以 id 与字节都不变。
+4. **暂存用一条按条目寻址的项目级本机记录**，存草稿文字和起点快照（版本、位置、各块）。提交走一次 `editEntries`（意图“改设定”）。冲突在提交前后都用起点快照比对，只套用“我的改动”，不用整篇覆盖。
+5. **页面标签的未提交圆点与 Ctrl+S 要改编辑器插件的页面合同**。`editor.md` 输出 33 现在写明页面“不算 dirty”，这一条要改，给 `editor.pages` 的实现加 `uncommitted(arg)` 与 `commit(arg)` 两个可选项。
+6. **先做的一步**：做解析器的差分验证（旧 micromark 当参照，随机加真实语料，逐个比表达式位置、拒收码、纯文字、带值写法）。这是最大的、也最容易悄悄出错的风险，应该最先消掉。
+
+## 二、分视角的质疑
+
+### 1. 反对与精简
+
+- **不做工具栏、表达式补全、块拖动、跨窗口草稿同步、三方合并界面。** 控件在没有注入 `editorMenusKey` 时本来就不画工具栏（`MarkdownControl.vue` 的 `menus` 取 null）。
+- **不新建包，也不写自己的表达式解析器。** 白名单只有 7 种节点，似乎可以手写递归下降来去掉 acorn。但中文标识符（`panel.魔力`）、数字与字符串转义、注释、自动分号的边角行为要重做一遍，而 acorn 只增约 35 KB gzip（实测 acorn 压缩后 117 KB，gzip 35 KB；marked 已在 nb-markdown 里），不值得。
+- **不保留 `EntryText.vue` 的“改这一段”按钮。** 它留作只读渲染，用于按计划模式、不可写、回执等场合。
+- **“暂存要不要自己做”是个值得问的上游问题。** 把条目文字当成一份虚拟文档，交给 `nbook.editor` 的文档层（dirty 圆点、Ctrl+S、基线冲突、刷新后保留，`editor.md` 第 21 行）全部免费得到。我否决它，理由有三：
+  - 文档层目前按 `project://`、`user://` 文件地址建（`documents/store.ts`），要推广到非文件资源，改动面大。
+  - 条目页有位置选择、分页、“按计划”，不是一个纯文本标签。
+  - 开发者已定条目页是页面标签。
+  
+  折中是只借它的概念：给页面合同补 dirty 与保存（第六节问题 6）。
+- **ADR 0038 的第 1 条要改。** 它写“不复用项目的 Markdown 方言”，约束 2 实际推翻了它。后果一节“条目与章节写法不一致”也随之不成立，需要新 ADR 或修订。`rendering.md` 的“不承诺：复用项目的 Markdown 方言”也要改。
+
+### 2. 成本
+
+- **开发。**
+  - `entry-text` 子路径约 400 行加测试。
+  - 条目语法的编辑器节点与编解码约 400 行。
+  - nb-canon 的适配层约 150 行（含把 marked 词法单元转成 mdast 形状的小转换器，约 120 行，保住 `AuthorBlock.tree` 的线上形状，`EntryText.vue` 不用改）。
+  - 插件侧（草稿存储、合成绑定、块对齐、提交、冲突）约 800 行。
+  - 编辑器插件页面合同的小改动。
+- **运行时。**
+  - 提交走的块对齐是 O(块数²)（缺口内相似度配对更小），可以忽略。
+  - 编辑时每次文档变化后防抖 300 ms 发一次“表达式求值”读请求，按（版本、位置、模式、源文）缓存。
+  - nb-canon 已有按源文缓存解析结果（`syntax.ts:78`），保留。
+- **以后改动。** 白名单或标签的增减只改共用的一处。代价是 marked 的扩展机制有几个坑（见风险 1）：同一个分词位置被内置规则抢先，块级扩展返回的类型名与内置撞名会触发 marked 自己的合并逻辑。
+
+### 3. 使用者体验
+
+- **作者。**
+  - 条目页的文字分页就是编辑器：打字即改设定，没有对话框。`{` 打完 `}` 且合法时变成值小块。
+  - 直接打字的 `{`（没成表达式）按字面写，写回时转义为 `\{`，并在编辑器里给字面花括号淡的下划线提示。
+  - “这段在剧情里变了”收进块菜单与提交按钮的下拉里，沿用现有对话框。
+- **插件作者与 Agent。** 写法不变。额外得到的是：
+  - 浏览器和后端同一份校验，可以在 `canon_write` 前预检。
+  - `splitEntryBlocks`、`checkEntryBlock` 作为公开函数。
+  - `AuthorBlock.tree` 形状不变。
+  - 带值写法的文法不变。
+- **变化最大的一点**是 Agent 的读法与以前不完全相同（见问题 2 的清单），Agent 的写法与带值写法不变。
+
+### 4. 迁移与兼容
+
+- **已存数据。** 块的源文是纯字符串，存储格式不变，所以只有“读法”会变（见问题 2）。
+- **已发布的包。** nb-markdown 目前是 0.3.0，且已发布。新增是加法，在 `./entry-text` 与 `./entry-language` 两个新子路径，不污染 nb-story 用的默认语言。nb-canon 是 `private`，其公开导出 `parseBlock`、`ParsedBlock`、`ExpressionSite` 在仓库内只有 nb-canon 自己和一个旧包脚本用（grep 结果），保持类型形状即可。
+- **别的插件。**
+  - plot 的简报用 `renderPlain` 的 `reads`、`mentions`、`problems` 三样，由差分测试保。
+  - `agent-tools.ts` 用块 id 做 set/removeBlock，不受影响。
+- **nb-canon 的 AGENTS 与 `monorepo-boundaries.md` 第 26 行** 里“浏览器只引 `./schema`”可以放宽，需同步改。
+
+### 5. 可观测与排障
+
+- **作者看到。**
+  - 按块的语法问题，带行、列。
+  - 暂存状态（已暂存 时间 / 暂存失败）。
+  - 提交失败时对应的块高亮加原因。
+  - 冲突时列出被别处改过的块。
+- **开发者看到。** 经现有诊断出口记：
+  - `canon.text.draft.write-failed`、
+  - `canon.text.locate-failed`（位置还原对不上）、
+  - `canon.text.parser-divergence`（浏览器预检说合格而内核拒收，按源文哈希记）、
+  - 每次提交的 op 种类计数与 requestId。
+- **启动时的一致性自检。** nb-markdown 里加测试，断言编辑器语言的词法器与 `entry-text` 的词法器在语料上词法单元逐个相同。
+
+### 6. 长期维护与技术债
+
+- `writeback.ts` 的 `scanAnnotations`（约第 53 行）有一份手写的“跳过围栏、行内代码、转义”的扫描，是第二份解析。它扫的是带值写法（含 `=`、`->`，不是合法 JS），无法复用分词扩展。保留，但加属性测试：随机块上 `scanAnnotations(renderForAgent(块))` 的项数等于源文表达式数（用我的生成器，几乎零成本）。
+- `escape.ts:283` 的 `:` 规则硬编码了表情写法，不看语言，条目语言里也会跑。需要把转义规则按语言配置，`{` 规则同理。
+- micromark 链留作测试用的 devDependency 当参照，直到差分测试稳定一个发布周期后删掉，别长期留着两份。
+
+## 三、八个问题的方案
+
+### 问题 1：内核与编辑器怎样共用一个解析器
+
+**推荐。**
+
+- **放在哪。** `packages/nb-markdown/src/entry-text/`，导出为 `./entry-text`。`boundary.test.ts` 规定纯 TS 入口不引 Tiptap，这个子路径只引 `marked`、`marked-cjk-friendly`、`acorn`、`entities`，沿用 `./prompt-text` 的先例（后端用）。nb-markdown 的 package.json 增加 `acorn` 依赖。
+- **内容。**
+  - 分词扩展：行内 `canonExpr`（`{...}`）、行内 `canonTag`（`<Ref …/>`、`<Image …/>`，含属性表达式）、块级 `canonFlowTag`（独占一行的标签）。
+  - 表达式用 acorn 的 `parseExpressionAt` 从 `{` 后解析，再跳过空白和注释，要求下一个字符是 `}`；只含注释的 `{/* */}` 单独处理。
+  - 白名单 `check`、`memberReference`、`RESERVED_ROOTS` 搬过来，行为不变（现在在 `syntax.ts:166-296`）。
+  - `createEntryMarked()`、`lexEntryBlock(source)`（给 nb-canon）、`splitEntryBlocks(source)`。
+- **编辑器引用。** `entrySyntax`（Tiptap 节点、`marked: [...共用的扩展]`、读写函数）放在 `src/language/syntax/entry/`，经新子路径 `./entry-language` 导出 `entryLanguage()`，里面是 `createMarkdownLanguage([entrySyntax, coreSyntax])`。章节用的默认语言不变。
+- **内核引用。** `nb-canon/src/render/syntax.ts` 变成薄层：`parseBlock` 调 `lexEntryBlock`，再把 marked 词法单元转成 mdast 形状（作者渲染的 `tree` 用）；`ExpressionSite`、`ParsedBlock` 等类型不变。
+- **怎样保证两边读出来的一样。** 三层：
+  - **同一份扩展对象。** 基础配置（CJK 友好、`~~` 才是删除线、关掉裸网址、关掉引用定义）抽成纯文件，核心语法和 `entry-text` 都从那里取。
+  - **一致性测试。** 同一份语料经 `entryLanguage().lexer()` 与 `createEntryMarked()` 词法后，JSON 逐字相同；`codec.read(source)` 读出的各块原文（`SourceUnit.raw`）等于 `splitEntryBlocks(source)`。
+  - **提交时再核对。** 编辑器交出的文字在浏览器里用 `lexEntryBlock` 预检，内核拒收但浏览器没拒收时记 `parser-divergence`。
+- **位置问题的办法。** marked 词法单元带 `raw`，顶层单元的 `raw` 连起来等于源文（注意 `lex` 会把 CRLF 换成 LF，所以位置要在换行规范化后再映射回原文），这解决了块边界和顶层段落。容器里（列表项、引用）子单元的 `raw` 是去掉前缀后的文字，不是原文子串，表格单元格没有 `raw`。办法：
+  - 对列表项、引用做“逐行后缀对齐”，因为去掉前缀的行总是原文那一行的后缀，可以算出偏移映射。
+  - 表格单元格在表格 `raw` 里顺序查找。
+  - **每个站点都校验 `source.slice(start,end) === token.raw`**，包括标签属性里的表达式；对不上就报 `locate-failed`，按语法错误处理，不悄悄错位。
+  - 简单规则（窄场景选简单改法）：容器里（列表、引用、表格）的表达式必须单行，多行的报错并提示“写成一行”。顶层段落里允许多行。
+- **实验证据。** 原型 `proto.ts` 对照旧解析器：30000 个随机块（由 33 种片段随机拼成，包装成段落、引用、列表、有序列表、表格、标题、嵌套）：
+  - 约 93.8% 的块，旧解析器通过且位置与新原型逐个相同；
+  - 约 3.4% 旧解析器拒收、新原型接受（都是旧的 MDX 会拒的写法，见问题 2），属“变松”；
+  - 约 0.3% 不一致或报 `locate-mismatch`，原因全在容器里的多行表达式、`<Image>` 属性表达式与 marked 合并相邻段落（原型的缺陷，我只修了其中一部分）。
+  
+  这只是原型水平，不是产品水平，正式实现要把这条线推到零（或列入明确的“失败即拒”清单）。
+- **否决的备选。** 把共用代码放进 nb-canon、让 nb-markdown 反过来依赖它。方向反了：nb-canon 主入口带解析链、浏览器只能引 `./schema`（`nb-canon/AGENTS.md`，`monorepo-boundaries.md:26`），UI 包依赖内核不对。另一个被否决的备选是新建独立包 `nb-entry-text`：约束 2 要求扩展章节解析器，基础配置在 nb-markdown 里，拆出去反而要两边引同一份配置。
+
+### 问题 2：换解析器时怎样保证已有行为不变；哪些读法会变
+
+**保证办法：差分验证。** 保留 micromark 当测试里的参照，语料取三处：nb-canon 测试里的块、星瑕样本、我的随机生成器。比较：
+
+- 接受或拒收，及拒收码；
+- 表达式、`<Ref>`、`<Image>` 的 `start`、`end`、`source`；
+- `renderBlockPlain` 的文字与 `reads`、`mentions`、`problems`；
+- `renderBlockForAgent` 的文字；
+- `splitBlocks` 的切法。
+
+凡不一致，要么修，要么进“读法变化清单”并逐条有测试。拒收码里 `cross-block` 现在靠错误文案的正则判（`syntax.ts:105`），新实现改成分词器直接标“没闭合”，不再按文案分支。
+
+**会变的读法**（`matrix.ts` 和对照实验验证过）：
+
+| 写法 | 旧（micromark MDX） | 新 |
+|---|---|---|
+| `a < b`、`1<2` | 拒收（mdx-invalid/cross-block） | 接受为文字（变松） |
+| `<https://…>` 自动链接 | 拒收 | 接受 |
+| 行首缩进 4 格 | 段落 | 代码块（marked 的缩进代码） |
+| 单个 `~删~` | 删除线（micromark 默认 `singleTilde`） | 文字（对齐章节方言“只认 `~~`”） |
+| `- [ ] 待办` | 文字 `[ ]` | 任务项 |
+| 引用定义 `[x]: url` | 定义节点（隐形） | 关掉后是普通文字（避免编辑器整篇读把定义漏到别的块） |
+| 裸网址紧跟 `{expr}` | 表达式照常 | **要显式让 `{` 终止裸网址，或关掉裸网址**；marked 的 `url` 会把 `www.x.com{a.b}` 整个吞成链接（实验里出现过） |
+| 表格比表头多出的单元格 | 保留 | 丢弃（GFM 规定） |
+| 中文强调边角（如 `**` 紧挨标点） | micromark-cjk-friendly | marked-cjk-friendly；对照 20000 条随机“中文标点加标记符”，去掉首空格差异后约 19% 不同，主要在 `_`、单 `~` 与标点夹着的 `**`。`**“走吧。”**然后` 这类正常行文两边一致，边角差异按“变松或不同”入清单，不可能影响表达式位置。 |
+| `<Ref id="e1"></Ref>` | 接受 | 必须显式支持，原型漏了 |
+
+不变的：花括号表达式的白名单规则、`no-field-expression`、`\{` 转义、`<Ref>`、`<Image>` 的属性限制、纯文字渲染与带值写法的拼接方式（按偏移拼接，不动）。
+
+**否决的备选。** 为了“逐字不变”而在分词扩展里去模仿 micromark 的每个边角。差异大多在“旧的会拒、新的接受”一侧，对存下来的数据无害；模仿的成本高、收益小。
+
+### 问题 3：整篇文字落成块的增删改
+
+**推荐。**
+
+- 打开时把块用 `\n\n` 连成整篇 `J0`，交给控件。控件“不编辑不改字节”（方言 Spec 输出 1），所以没动就交回 `J0`，提交时相等直接判无改动，不产生任何 op。
+- 提交时 `J1` 用 `splitEntryBlocks` 切成 `S1`，对 存着的块 `B` 和 `S1` 做：精确相等的 LCS 找锚点（没动过的块 id 和字节都保留）；锚点之间的缺口里，旧块与新文本按相似度配对（DP，保持顺序不交叉，阈值约 0.3），配上的发 `set`（保留 id），多出的新文本发 `addBlock`，多出的旧块发 `removeBlock`。
+- 原型 `blocks.ts` 的结果：改一段 → 一个 `set`；回车拆段 → `set` + `addBlock`；合并两段 → `set` + `removeBlock`；开头插入 → 一个 `addBlock after:null`；删中间并改末尾 → `removeBlock` + `set`；整篇粘贴 → `removeBlock` + 一次 `addBlock`。
+- **内核要配合的两处。**
+  - `editEntries` 一次最多 50 项（`schema.ts:415`）；逐块 `addBlock` 的话大段粘贴会超限。我建议给 `addBlock` 加 `sources: string[]`（同一锚点后连续加几块），不放宽 50。它还解决了一个次序坑：同一个锚点后连发两个 `addBlock` 会反序，因为新块 id 是内核分配的，后一项没法引用前一项（`entry-edits.ts:601-624`）。
+  - `addBlock` 的 `after` 在“改设定”下必须是初值里的块（`entry-edits.ts:612`），在剧情变更里新增的块上锚定会得到 `element-missing`；`removeBlock` 对由剧情变更改出来的块拒收（`element-from-change`，`entry-edits.ts:625-636`）。提交前用 `previewEntries` 预检，把失败转成按块的提示（“这一块是第 N 章的剧情变化写进来的，要删请用‘这段在剧情里变了’”）。
+- **没有 `moveBlock`**：交换顺序会变成“新增 + 删除”，原块 id 丢失，别的条目里写的 `{ref("e2").text[b1]}` 会读不到。v1 的处理：检测到纯换序时给提示，不静默换 id；以后需要再加 `moveBlock`。
+- **退化情形。** 两个相邻同类列表块 `- a` 与 `- b` 连起来会被读成一个块（`blocks.ts` 实测），此时 `S1` 与 `B` 不能一一对应，只会让附近多发几个 `set`/`remove`，不会丢数据。加载时核对 `split(J0)` 与 `B` 是否一致，不一致记一条诊断。
+- **否决的备选。** 把块 id 写进文字里（如 `<!-- b3 -->`）让编辑器带着 id 走：会污染 Agent 读到的文字，也违背“写法不变”。
+- **整篇写入的块间距。** 间隔（额外空行、编辑器里的空段落）不存，提交时丢弃。
+
+### 问题 4：章节的编辑器控件怎样用到条目页里
+
+**推荐。**
+
+- canon 的 web 入口 `requires` `nbook.markdown`，经服务 `markdownKey.components.MarkdownControl` 取控件（`plugins/markdown/web/plugin.ts:145-148`）。插件之间不直接 import，这是现成的途径；外层包装已经提供方言目录。
+- **合成绑定。** 实现 `TextEditorBinding`（`editor/shared/contracts.ts:363`）：`text`、`revision`、`commit`、`attach`、`unresolved`、`block`、`blocked`、`cursor`、`remember`、`language`、`slot`。其中：
+  - `address` 给 `canon://entry/<id>`；
+  - `slot` 放在插件级草稿存储里，跨页面标签切换保留撤销历史；
+  - `commit(baseRevision, text)` 更新草稿正文并加 `revision`；
+  - 世界变了而没有未提交内容时，把 `text` 换成新的整篇，控件按“正文被别处改了”的既有路径只换不同的一段。
+- **控件要改的两处。**
+  - `MarkdownControl.vue:659` 的 `languageFor(catalog)` 前加一个注入键 `markdownLanguageKey`，有就用它（条目页提供 `entryLanguage()`），没有照旧。同步改 `MarkdownControl.md`。
+  - 条目页不注入 `editorMenusKey`，所以没有工具栏与菜单；斜杠菜单、块手柄、批注层是否带出项目方言的项，未验证，需要核对 `createMarkdownEditorExtensions` 里按语言过滤的情况。
+- **转义规则。** `escape.ts` 加 `{` 在条目语言下必转义的规则；已有的“写出再读回比对”的降级阶梯是安全网，但没有这条规则时 `{` 会触发降级到“全转义”，写出一堆 `\`，所以要显式加。
+- **否决的备选。** 另写一个轻量的条目编辑器：要重做粗斜体、列表、表格、撤销、中文输入法组字处理，重复造轮子，而开发者已定同一个编辑器。
+
+### 问题 5：暂存存在哪、什么形状、什么时候写与删；版本不一致；位置与暂存的关系
+
+**推荐。**
+
+- **存储。** 一条按条目寻址的项目级本机记录：`defineRecord({key: "canon.entry-draft", scope: "project", locality: "local", keyed: true, maxBytes: 1 MiB})`（`shared/storage.ts` 的 `keyed` 与 `MAX_RECORD_MAX_BYTES`）。资源 id 用条目 id（形状要核对 `RESOURCE_PATTERN`，未验证条目 id 的大小写是否合规）。
+- **形状。**
+  ```
+  { entry, text: "<整篇>", base: { version, position(含线), blocks: [{id, source}] }, updatedAt }
+  ```
+  存 `base.blocks` 是必须的：世界前进后只有它能判断“别处改了哪几块”。体积约两倍正文，在 1 MiB 内；超限时状态栏红字提示“暂存失败：条目太大”，草稿仍在内存。
+- **什么时候写。** 编辑后防抖 800 ms、失焦、`visibilitychange` 变隐藏、卸载前（尽力）。**什么时候删。** 提交成功；作者点“放弃”；打开时草稿文字等于起点整篇（视为没有草稿）。
+- **与世界版本不一致。**
+  - 打开时读条目文字，对比 `base.blocks` 与当前块（按 id 比源文）。完全相同则静默把 `base.version` 更到最新。
+  - 不同：保留草稿，页头出一条横幅“条目文字在你暂存期间被改过（第 2、5 块）”，操作：“仍提交我的改动”“放弃我的改动，载入最新”“先看看”。
+  - 提交前再比一次，同样的横幅/确认。
+- **“以我的为准”的语义，要特别小心。** 用整篇草稿对着最新块做差，会把别人（Agent）改过但我没碰的块悄悄改回起点的样子。所以“以我的为准”必须是：只套用“起点 → 草稿”这份差（按起点块 id 发 `set`/`addBlock`/`removeBlock`），别人只改了我没碰的块则原样保留。我碰的块别人也改了或删了：`set` 会失败，列出这些块让作者选。提交时对每个 `set` 带 `read: 起点源文`，让内核再原子地核一遍（`value-conflict`）；作者确认覆盖时改带当前源文。
+- **与位置选择的关系。** 草稿绑定它开始时的位置（含线）。有草稿时位置选择器与“按计划”禁用并写“有未提交的修改，先提交或放弃”（简单、响亮）。重新打开页面时 `state.position` 用草稿里的位置初始化，页头标一句“草稿基于第 N 章末尾”。位置所在章已被删除：草稿保留，只能放弃，或“按最新一章末尾重新比对”（按块 id 对齐，对不上的块列出）。初值位置：意图只有“改设定”。按计划模式：编辑区只读并写原因（沿用现有 `blocked.planned`）。
+- **窄场景的取舍。** 同一浏览器两个窗口同时改同一条目的草稿：后写的覆盖先写的，提交时仍有起点比对兜底，作为已知限制，不加机制。
+- **否决的备选。** 用 `shared` 记录（所有客户端共用一份草稿）：两个窗口会互相覆盖，而且 Agent 与别的窗口看不到“谁在改”的语义，反而更乱。
+
+### 问题 6：页面标签的未提交圆点与 Ctrl+S 怎么接
+
+**现状。** `editor.md` 输出 33 写明页面标签“没有文档：不读磁盘、不算 dirty”。标签条的圆点来自 `EditorTabBar.vue` 的 `tab.dirty`（第 123、137 行），Ctrl+S 走命令 `nbook.editor.save`，`when: dirty`（`commands.ts:94`），`area.save()`（`area.ts:1113`）只认活动文档，公开状态 `dirty` 只看 `activeDocument`（`state.ts:89`）。
+
+**推荐：改页面合同，不绕开。**
+
+- `EditorPageImplementation`（`pages.ts:67`）加两个可选项：`uncommitted?(arg): boolean`（响应式读，和 `title(arg)` 一样在计算里调）与 `commit?(arg): Promise<{ok: true} | {ok: false, reason}>`。
+- 标签条的 `tab.dirty` 对页面标签取 `uncommitted(arg)`；公开状态 `dirty` 在活动标签是页面时取它；`area.save()` 活动是页面且有 `commit` 时调用它。这样 Ctrl+S、命令面板、圆点、状态栏“有未保存”都自然接上。
+- 草稿存储在插件级（不随组件卸载），所以非活动标签也能显示圆点。草稿已持久化，关页签不再询问；窗口关闭不拦（不放进 `needsSettle`），避免与“自动暂存”的承诺冲突。
+- 页内的提交条显示“N 处改动 · 提交 · 放弃 ▾”，▾ 里是“按剧情变化提交…”。
+- 修改要写进 `editor.md` 输出 33 与 `EditorTabBar.md`。
+- **否决的备选。** 让 canon 自己注册一条 `Mod+S` 的命令、`when` 为“当前是条目页且有草稿”：与 `nbook.editor.save` 抢键位，圆点仍接不上。
+
+### 问题 7：表达式的值、条目引用、图片在编辑器里怎么显示
+
+**推荐。** 三种行内原子节点，原文放在 `raw` 属性里，读写都是原样字节，仿 `sticker` 语法（`syntax/sticker/index.ts`：Tiptap `Node`、marked 扩展、`readInline`、`writeInline`、输入规则）。
+
+- **值小块 `canonExpr`。** 显示求值后的文字（千位分隔，未知写“未知”，警告色），悬停是字段显示名与表达式原文；点击打开小弹层改源文（单行输入，实时校验、实时预览）。打完 `}` 时输入规则把合法表达式变成小块（退格还原成文字）。
+- **条目引用 `canonRef`。** 显示该位置上的条目名，已删除的显示“已删除的条目”；点击打开那个条目页；插入用 `@` 触发，复用 `EntryPicker`。
+- **图片 `canonImage`。** 显示缩略图（`src` 是作品内路径，经 `markdownAssetsKey` 取地址），找不到时显示说明文字占位。
+- **取值方式。** 新增一个读方法（纯读，不写）`evaluate`：输入（条目、位置、模式、一组源文），返回每个的显示结果（值/算出来/占位/引用名/图片/出错）。页面把文档里所有原子的 `raw` 收集起来，防抖 300 ms 发一次，结果按（版本、位置、模式、源文）缓存后经宿主端口交给节点视图。服务端用的就是 `authorNode`、`evaluate`，保证和渲染结果逐字相同。
+- **作者正在改、与世界不同时。**
+  - 新写或改过的原子（`raw` 不在起点里）加一道“未提交”的强调边（和圆点同一个视觉语言）。
+  - 求值失败（未启用、未出场、不存在）显示带原因的占位，如“面板第 3 章起生效”。
+  - 不合法（白名单不过）的不会变成原子，仍是文字，同时按块列出问题。
+  - 有改动的块在左边距加变更条，状态栏写“改了 2 块、加了 1 块、删了 1 块”。
+- **否决的备选。** 把表达式原样显示成代码样式文字，不求值：作者看不到数，等于没有“所见即所得”的价值，也和现有 `EntryText` 的体验倒退。
+
+### 问题 8：分几步做、每一步怎么验证
+
+| 步骤 | 内容 | 验证 |
+|---|---|---|
+| 0（先做） | 差分验证：`entry-text` 原型加 micromark 参照，语料用 nb-canon 测试块、星瑕样本、随机生成器 | 位置、拒收码、纯文字、带值写法都零静默差异；差异清单逐条有测试；`locate-failed` 全覆盖 |
+| 1 | 内核换解析器：删 micromark 依赖，加 mdast 形状转换器 | nb-canon `bun test`（尤其 `rendering.test.ts`、`edits.test.ts`、`differential.test.ts`）、架构测试、`typecheck` |
+| 2 | 条目语言：节点、输入规则、转义、`entryLanguage()` | 语料往返：不编辑不改字节；编辑后写出再读回相同；一致性测试（编辑器切块等于 `splitEntryBlocks`）；nb-markdown 的 `bun test` 与 vitest |
+| 3 | 块对齐纯函数加内核 `addBlock.sources` | 对真实 `World`：造块、改、拆、合、新增、删除，断言 id 与字节保留、一次修订、`previewEntries` 与发布一致 |
+| 4 | 草稿存储、合成绑定、条目页挂控件（先在开关后面） | dom 测试：暂存写入与删除、重开恢复、世界变动时的横幅 |
+| 5 | 提交、冲突、预检失败的按块提示 | 组件测试用真实世界服务造冲突；`version-conflict`、`value-conflict`、`element-from-change`、`validation-failed` 各一条 |
+| 6 | 页面合同：圆点、Ctrl+S | `EditorTabBar` dom 测试、命令的 `when` 测试、`editor.md` 更新 |
+| 7 | 值/引用/图片显示与 `evaluate` | dom 测试加 e2e（`1440` 视口，等原子渲染后再断言，否定断言先变异） |
+| 8 | 收尾：Spec（`rendering.md`、`author-ui.md` 输出 39、`editor.md`）、ADR 0038、移除旧对话框的编辑路径 | `governance:check`、受影响文件的 e2e |
+
+## 四、最大的三个风险与对策
+
+1. **解析器统一悄悄出错。**
+   - 症状：marked 的扩展机制有坑（内置规则抢先；块级扩展用了 `paragraph` 这类内置名会触发 marked 合并相邻段落，我的原型踩过，改成独有的类型名才对；裸网址吞掉 `{…}`；容器里偏移要靠逐行对齐）。位置错了会让带值写法和纯文字拼接把字删错或错位，Agent 读到的是错的。
+   - 对策：步骤 0 的差分验证与随机测试；位置全量校验（包括属性表达式）；多行表达式限定在顶层；`parser-divergence` 诊断；`scanAnnotations` 的属性测试。
+2. **整篇到块的映射、内核的限制。**
+   - 症状：相邻同类列表合并、换序丢 id（别处的 `text[b1]` 引用失效）、剧情变更写入的块不能删/不能做锚点、一次最多 50 项、“以我的为准”写成整篇覆盖会改回 Agent 的改动。
+   - 对策：精确 LCS 保没动的块；`addBlock.sources`；提交前 `previewEntries` 把失败转成按块提示；v1 换序提示而不静默换 id；冲突只套用“起点 → 草稿”的差；真实 `World` 的集成测试。
+3. **复用章节控件的适配与数据安全。**
+   - 症状：控件假设文件文档与项目方言、转义规则硬编码（`escape.ts` 的表情冒号规则），条目语言下写回可能产生多余转义或读回对不上；页面合同要改编辑器插件（已有 `restore` 的“planned”状态，未验证它是否已落地）；草稿丢失或错位会让作者白写。
+   - 对策：条目语言只含核心语法与条目语法（不带批注、注音等）；往返语料测试；写出读回比对（已有）；草稿先落存储再谈提交，提交失败不清草稿；页面合同的改动做成可选项，不影响现有页面；最后保留“用源码编辑器打开”作逃生口（走现有的“用其它编辑器重新打开”思路，未验证对页面标签是否适用）。
+
+## 五、没覆盖或未验证的地方
+
+- 在 `packages/nb-markdown`、`packages/neuro-book/src/plugins/{markdown,editor,canon}`、`packages/nb-canon/src` 和 `docs/specs/{canon,workbench,workspace}`、`docs/adr` 范围内读过；`docs/specs/canon/model.md`、`worldlines.md`、`components.md` 没细读。
+- 未验证：Tiptap 节点视图与输入规则在条目语言里的实际行为；斜杠菜单/块手柄在无项目方言语言下是否正常；记录 `keyed` 的资源 id 对条目 id 的限制；`editor.pages` 的 `restore` 是否已实现；acorn 对所有白名单写法（中文标识符、负数、转义字符串）的解析边角。这些需要在步骤 0 到 2 里补测。
+- 原型的数字（93.8%、3.4%、0.3%）来自我的随机生成器，不代表真实数据的分布；真实语料上的比例要在步骤 0 里重测。
