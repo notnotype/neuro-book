@@ -92,9 +92,10 @@ owners:
 28. **读会话头。** `agentKey` 的 `header(sessionId)` 只读会话头、不打开会话（[`harness/session.md`](../harness/session.md) 输出 26）：会话不在得 `session-not-found`，读不懂得 `log-corrupt` 或 `needs-migration`。远程合同同样有只读方法 `header({sessionId})`，码相同（浏览器打开会话之前据此看归属，[`conversation.md`](conversation.md) 输出 53）。
 29. **提醒与门。** 远程合同 `nbook.agent/sessions` 升到版本 2（旧版本的窗口连上得 `version-changed`）：快照带待发提醒的摘要 `notices: [{id, by, key?, wake, senderOnly?, queuedAt, summary, bytes}]`（`summary` 是正文的开头、至多 200 个字符，`bytes` 是正文的 UTF-8 字节数；全文在取走之后经日志读；只有发送方能撤回的带 `senderOnly: true`，[`harness/runtime.md`](../harness/runtime.md) 输出 112）与门 `wakeGate`；写方法 `removeNotice({sessionId, noticeId})` 以用户的身份取消一条；发提醒的 `notice` 不在远程合同里。插件经 `agentKey` 拿到的会话视图有 `notice` 与 `removeNotice`，发出者照输出 21 按调用方盖章（行为见 [`harness/runtime.md`](../harness/runtime.md) 输出 112–118）。
 30. （planned）**会话的行。** `nbook.agent` 作为后台任务清单的提供方（[`jobs.md`](jobs.md) 输出 20）也交出会话的行，都是前台的行（[`workbench/background-tasks.md`](../workbench/background-tasks.md) 输出 27 不数），行按会话与运行定址，换了一次运行就是另一行：
-    - 在跑、等你处理或有留着的话的根会话一行，画成它那一块的组头，开始时刻是这次运行开始的时刻（句柄打开时已在跑的，取打开的时刻）；进展写此刻在做什么：等审批写“等你批准”，等提问写“等你回答”，有留着的话写“有留着的话等你放行”，其余写“正在回复”。
-    - 在跑或等你处理、却没有一个在跑的子代理任务跟着它此刻这次运行（任务的子会话与运行都相同）的子会话一行，种类“子会话”，归属它的根会话。
-    - 有归属的会话树（根带 `owner`：bot 的主对话与它派的子会话，输出 23、25）与程序自己开的会话（起标题与说明）不出这两种行；它们起的后台任务照常出行。
+    - 在跑、等你处理或有留着的话的根会话一行，画成它那一块的组头，开始时刻是这次运行开始的时刻（句柄打开时已在跑的，取打开的时刻）；有留着的话的那一行没有在跑的运行，开始时刻取看到留着的话的时刻（同样，打开时就有的取打开的时刻）；进展写此刻在做什么：等审批写“等你批准”，等提问写“等你回答”，有留着的话写“有留着的话等你放行”，其余写“正在回复”。
+    - 在跑或等你处理、却没有一个在跑的子代理任务跟着它此刻这次运行（任务的子会话与运行都相同）的子会话一行，种类“子会话”，归属它的根会话；子会话有留着的话时同样一行（例如从清单停了它之后）。
+    - 有留着的话的行每进入一次这个状态是新的一行（同一次登记里不复用消失过的行，[`workbench/background-tasks.md`](../workbench/background-tasks.md) 输出 19）。只列句柄打开着的会话：留着话的会话空闲关闭（30 秒）之后这一行不再列，下次打开时再出现、开始时刻取那时（已知限制，同输出 15）。
+    - 有归属的会话树（根带 `owner`，调用方不是会话的也算根：bot 的主对话与它派的子会话、Workflow 起的会话，输出 23、25）与程序自己开的会话（起标题与说明，含重启或空闲关闭后接着用的那个）不出这两种行；它们起的后台任务照常出行。
     - 停一行：以用户身份 `abort({keepQueue: true, runId})`，`runId` 是这一行的运行；缓冲区里排着的话改为你留着的话，要你在对话里放行（[`harness/runtime.md`](../harness/runtime.md) 输出 30、120），这一行随之变成“有留着的话等你放行”，不可停。那次运行已经收口时交回被拒（“已经结束”），不停下一次运行。回退到运行中途、同一次运行接着跑时，旧行的停止停的是接着跑的那次（已知限制）。
     - 打开走 `nbook.agent.focus-session`。
 

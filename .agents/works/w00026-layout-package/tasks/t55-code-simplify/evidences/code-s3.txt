@@ -1,0 +1,55 @@
+# w00026 t55 S3 报告（nb-layout Vue 层）
+
+## 计划做的项（按提交顺序）
+1. vue 1：删多余卸载收尾（Splitter onBeforeUnmount、NestedGrid scope.dispose、SashGestureScope.dispose 类型）
+2. vue 2：DropFeedbackOverlay 删 announcedText
+3. vue 3：删 useSashScope 等死代码与未用导入、去多余 export、试开 noUnusedLocals
+4. vue 4：useGridMotion 三段重复提函数
+5. vue 5、6：hasSize 用 S1 那份、手写分隔条键改 sashKey
+6. vue 7：useSashGesture 小重复、settle 三元具名函数
+7. vue 14 / 9 / 10：NestedGrid 四段拆分（useHeldLifted、useSashPresentation、dev-checks、useGridSwap），每段一提交
+8. hosts 6：useLiveDragSession 的 IDLE 改用 IDLE_STATE
+9. hosts 顺便发现 1：live-drag-session 头注释与 .md 补句
+
+## 进度
+- vue 1：提交 501db52da。删 Splitter 的 onBeforeUnmount 与 NestedGrid 的 scope.dispose()，SashGestureScope 去 dispose，useSashGesture.dom.test 的 dispose 改用卸载，useSashGesture 的注册处补顺序注释。已读 Vue 源码：卸载时 invokeArrayFns(bum) 按注册顺序调用，useSashGesture 在 setup 里先调用，所以先于组件自己的钩子。净 -7 行。测试 NestedGrid/splitter/useSashGesture dom 169 通过。
+- vue 2：提交 dff4fa12a。DropFeedbackOverlay 删 announcedText 与它的 watch，模板用 labelText。净 -10 行。DropFeedbackOverlay.dom 16 通过。
+- vue 3：提交 dff4fa12a。删 useSashScope、sash-feedback 的三个类型转出、useGridLayout 的 GridLayoutCommitResult 转出（测试改从 ../grid-types 取）、NestedGrid/Splitter 未用导入（GridSashRef、sashPanelBounds、SashCollapseState）、useGridLayout.dom.test 的未用局部 revisionBefore；SASH_BAND_MAX_PX、SashBandInput、SashCursor、SashRegistration、SashGestureOptions、SashSnapMeasure 去 export。tsconfig.vue.json 开 noUnusedLocals：报错 4 处都在本目录且已直接删，开着。vue-tsc、全包 test（vitest 354）、api:check 通过。
+- vue 3：提交 3a4088ad1。删 useSashScope、sash-feedback 的三个类型转出、useGridLayout 的 GridLayoutCommitResult 转出（测试改从 ../grid-types 取）、NestedGrid/Splitter 未用导入（GridSashRef、sashPanelBounds、SashCollapseState）、useGridLayout.dom.test 的未用局部 revisionBefore；SASH_BAND_MAX_PX、SashBandInput、SashCursor、SashRegistration、SashGestureOptions、SashSnapMeasure 去 export。tsconfig.vue.json 开 noUnusedLocals：报错 4 处都在本目录且已直接删，开着。vue-tsc、全包 test（vitest 354）、api:check 通过。
+- vue 4：提交 31d78c12f。useGridMotion 提 disarmTimer/armTimer/flushGrowingStart/motionDuration（disarmTimer 也给 stop 与卸载用）；重复段消掉，但新增函数带注释，文件净 +10 行（-22/+32），重复写法由 3 份降为 1 份。useGridMotion、NestedGrid dom 135 通过，vue-tsc 通过。
+- vue 5、6：vue 5 提交 9a8f2ab01：useContentLayer 删本地 hasSize，useLeafParking 两处内联改调 hasSize，净 -2 行。vue 6：S1 已把 useSashGesture、SashHandle、sash-feedback 的分隔条键全改成 sashKey，本片复核没有手写的键了，无改动（没有提交）。vue 全部 dom 354 通过，vue-tsc 通过。
+- vue 7：提交 a6e59d07e。setHovered/setRevealed 合成 setKeys（保留两个一行包装），pointerdown 的 hits.map 算一次，keyboardStep 算一次，cancel 里五个条件的三元改写成 hoverAfterCancel（逻辑逐条等价，原注释并进它的说明）。净 +6 行（注释多了），可读性为主。useSashGesture/splitter/NestedGrid dom 169 通过，vue-tsc 通过。
+- vue 14 段 1（useHeldLifted）：提交 9135233cb。新文件 useHeldLifted.ts（computed 仍独立，文件头写明读取时更新、只能一个读者、不并进 placements），NestedGrid.vue 脚本 -22 行，NestedGrid.md 加出处。NestedGrid dom 102 通过。
+- vue 14/9/10 段 2（useSashPresentation）：提交 547379b0f。新文件 useSashPresentation.ts：一个 computed 出整张分隔线呈现表（kind/style/两侧名字），离开的线沿用上一张表的值（读写只在这个 computed 里，重算幂等），渲染函数里不再写表，layers watcher 里的清表循环删掉；sashProps 只为 sash.branch.children[index] 一项建面板配置；paneLabel 单独换时表跟着重算（computed 读 props）。NestedGrid.vue 脚本 -70 行，NestedGrid.md 加一条。NestedGrid dom 与 grid-splitter dom 106 通过，断言未改。
+- vue 14 段 3（dev-checks）：见下一条提交。warnDev 改成 dev-checks.ts 的 gridDevWarner(contextKey)（owner 在里面建），isCommitResult、describe（改名 describeValue）一并搬入。
+- vue 14 段 3：提交 abb25462b。dev-checks.ts 新增 gridDevWarner(contextKey)、isCommitResult、describeValue；NestedGrid.vue 删本地 warnDev/devOwner/isCommitResult/describe。NestedGrid、dev-checks、useGridHost dom 128 通过，tsc、vue-tsc、api:check 通过。
+- vue 14 段 4：提交 ac4b9c6f8。新文件 useGridSwap.ts（swapSide、swapSideOf、swapBackdrop、swappingLeaves、swapClipStyle、offerSwap、takeSwap）；监听 props.swap?.token 的 watcher（flush sync）仍在 NestedGrid.vue 原位置，调 offerSwap。vue 全部 dom 354 通过。NestedGrid.vue 脚本+模板 1004 -> 850 行。
+- hosts 6：提交 b42539c43。live-drag.ts 导出 IDLE_STATE（vue/index.ts 是具名转出，api:check 未变），useLiveDragSession 改用。
+- hosts 顺便发现 1：提交 80340c710。live-drag-session.ts 头注释与 .md 各补一句 activate 先于 settleMotion、那时量到的矩形可能是过渡中间的；同一提交里把 useSashGesture 卸载顺序注释改准（调用方要在自己的 onBeforeUnmount 之前调用 useSashGesture，原写法“放在最前面”说过头）。
+
+## 跳过或停下的项
+- 没有停下或回退的项；NestedGrid 四段都没有放宽断言。
+- vue 6：S1 已做完，本片无改动。
+- 计划已删的两项（DragQuery.top 改 getter、Splitter 警告改开发开关）没做。
+
+## 与计划写法的差别（请主会话留意）
+- vue 4：armTimer 之外多提了 disarmTimer（stop、卸载共用），文件净 +10 行，不是省行。
+- vue 7：行数没省（净 +6，注释变多），只是去重与可读性。
+- 段 2：useSashPresentation 的“上一张表”靠闭包变量在 computed 里读写；因为重算幂等（离开的线总取上一张表里同一个值）所以不像拿起项那样怕多读，但仍是 computed 里写闭包变量，审查时请看这一点。回调里读的响应式状态也由这个 computed 追踪（原先由渲染 effect 追踪）；宿主回调若读非响应式状态且只靠别的原因重渲染，现在不会再被重问一次。
+- noUnusedLocals 开着：报了 4 处（GridSashRef、sashPanelBounds、SashCollapseState、useGridLayout.dom.test 的 revisionBefore），都在本目录，已直接删。
+- 卸载顺序已核对：Vue runtime-core unmountComponent 里 invokeArrayFns(bum) 按注册顺序；useSashGesture 在 NestedGrid、Splitter 的 setup 里先于组件自己的 onBeforeUnmount 注册。NestedGrid.dom 的“卸载时 gesture-cancel 的监听抛出”用例过。
+- 测试文件改动仅两处：useSashGesture.dom.test（scope().dispose() 改成卸载宿主组件）、useGridLayout.dom.test（GridLayoutCommitResult 改从 ../grid-types 导入、删一个没读的局部变量）。splitter.dom.test.ts 未动。
+
+## 自查（禁止清单）
+- 无按错误文案分支、无静默 catch、无新增测试专用分支；无放宽断言或跳过测试；
+- 搬走的代码原注释都跟着走；删的注释只有被删代码自己的；
+- useSashGesture 的 teardown 的 try/finally 保留；没有跨包深导入；没有 rm -rf；
+- 不改 Spec、.agents、api 报告（api:check 过）。没动 grid-gesture.ts、splitter-session.ts、grid.ts。
+
+## 最终验证（命令自己的退出码，worktree 里）
+- bun run --cwd packages/nb-layout test：0（bun test 504 pass、vitest 21 文件 354 通过）；注：开工前在主工作区测的基线是 505，差 1 来自本分支起点与主工作区不同，我没有删任何用例（git diff 里测试文件只有上面两处小改）。
+- bun run --cwd packages/nb-layout typecheck：0（含 noUnusedLocals 的 vue-tsc）
+- bun run --cwd packages/nb-layout api:check：0（api reports are up to date）
+- bun run --cwd packages/nb-workbench-layout test：0（bun 265 pass，vitest 53 通过）
+- bun run --cwd packages/neuro-book typecheck：0
+- 未跑 e2e（按说明留给主会话）。

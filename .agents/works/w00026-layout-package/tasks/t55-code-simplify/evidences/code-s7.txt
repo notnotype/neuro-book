@@ -1,0 +1,61 @@
+S7 计划做哪些项（一项一个提交）：
+1 删 Grid.resize / resizeBranch 及连带
+2 删 GridGestureSession.setCollapsed
+3 live(source) 去 keyboard
+4 useLiveDragSession 不再返回 session、live
+5 根入口不再导出包内低层积木
+6 api:report 与 README、docs、CHANGELOG
+7 SDK 快照检查
+
+[1] 899b4ceb4 删 Grid.resize/resizeBranch、shiftNode、shiftSiblings、grid-geometry.shareAxis、applyBranchResize、GridResizeResult、GridBranchResizeResult（含 index.ts 导出）。净 -220 行（79+/299-，含测试与 md）。
+  grid.test.ts：删 9 条只测 resize 的用例（调整外层 sash、调整内层 sash、主动节点触界、内层叶触界、单节点 resize 的兄弟补偿、未知节点根节点轴不符非有限增量、resize 拖保留像素的节点、resize 收起中的节点不改任何意图、单节点调整的失败码）；
+  改：所有 resizeBranch 用例（下限触界、原子手势拒绝、触界兄弟、no-op、viewport 缩放后三兄弟、原子分支调整拒绝、拆分后快照往返、按分支调整失败码、全零权重）经本地辅助 resizeOne（resizeBranches 单项，返回该轴意图，形状同原 resizeBranch，断言不改）；快照往返与两个 Grid 互不影响两条改用 resizeBranches。
+  useGridHost.dom.test.ts：诊断一个出口那条把 resize 改成 resizeBranches，并加了 ok 断言。
+  layout-project.test.ts：四处 resizeBranch -> resizeBranches。
+  GridStructureScene.vue：widen/narrow 经新的 widenBy（找父分支、基线取当前呈现、兄弟平分差额、resizeBranches）；与旧 resize 的差别：旧的是意图增量按权重分给兄弟并夹约束，新的是 px 增量兄弟均分、越界则失败（e2e 里 a 宽 400+ px，不触界）；已用脚本在 1400 宽下验证 widen/narrow 都成功。e2e 由主会话跑。
+  grid.md 同步（resizeBranches 段、改意图入口、已知限制里 resize 条）；注释里的 resize/resizeBranch 提及改为 resizeBranches。
+  测试：nb-layout bun test 496 pass + vitest 356 pass，typecheck 过；nb-workbench-layout typecheck、test 53 pass。api 报告留到第 6 项重新生成。
+
+[2] 删 GridGestureSession.setCollapsed（接口与实现，约 -18 行）。grid.test.ts 两处：
+  "折叠没有变化、拖动求解又报了同一条"：改 toggleCollapsed（会话里 a 仍收起，toggle 即展开，行为同 setCollapsed(false)），断言不变。
+  "先拖再折叠没有变化：前面的位移照常提交"：原来用 setCollapsed(false) 对展开中的 a 做无变化折叠，toggle 表达不了（会真收起）。改造成同一不变量的另一种“折叠不成立”：b 加上限 230，拖 -30 后 b 已到上限，toggleCollapsed 吸收不了 a 让出的空间（给 no-room-to-collapse，返回非 null 预览但无变化），finish 仍提交 a170/b230。新加一条断言确认诊断出现，原 finish 断言不变。
+  测试：nb-layout bun test、vitest 全过，typecheck 过。neuro-book typecheck（第 1 项后）退出码 0。
+
+[3] live(source, keyboard) -> live(source)：live-drag-session.ts（类型、调用、docstring 补“键盘拖动库先判为不走”）、live-drag-session.md 示例、workbench/layout-drag.ts（去 `!keyboard &&` 与注释对应更新）。nb-story detail-swap-drag.ts、Lab LivePanelsScene.vue、live-drag-session.dom.test.ts 本来就只收 source，不用改。
+  测试：nb-layout typecheck 过；live-drag-session dom 11 pass；neuro-book `bun test src/plugins/workbench` 555 pass。neuro-book typecheck 在最后统一跑。
+
+[4] useLiveDragSession 不再返回 session、live：LiveDragSessionRefs 去掉这两个字段，类型参数 <S,D,L,G> 收成 <S,D>（L、G 只服务 live 字段）；内部仍留 session 这个 shallowRef（state 靠它算），卸载时只剩 session 与 liveState 的置空。
+  live-drag-session.dom.test.ts：删 "expect(refs.session).not.toBeNull()"（后面 dragging 为 true 已证明会话建好）；卸载后的断言由 [session, live, liveState.active] 改为 [state, dragging, liveState.active] 全为 null/false/false。
+  测试：nb-layout typecheck 过，live-drag-session dom 11 pass。
+
+[5] 082825a90 根入口不再导出：solveSashCollapse、resolveGridInsertion、initialLiveDrop、stepLiveDrop、insideShownSlot、createDragCard、createFrameLoop，以及只为它们存在的类型 GridInsertion、LiveDropCandidate、LiveDropState、DragCard、DragCardFrame、DragCardOptions、FrameLoop、FrameLoopOptions。包内测试本来就从源文件导入（tsc 无改动即过）。
+  按 rg -w 全 packages（含 .vue、e2e、src/sdk，排除 node_modules、legacy、dist）核对：
+  - createGridGestureSession 保留：packages/nb-workbench-layout 的 intent-writeback.test.ts、layout-project.test.ts 从 "@notnotype/nb-layout" 用它。
+  - 其余 7 个函数包外只有 README 表格里的名字，没有使用；SDK（src/sdk）未转出。
+  - 类型：LivePreview、DragCardSize 仍被 vue 入口公开签名引到，api:report 一开始多出这两条“引到没导出”警告，所以重新从根入口导出（单列一段“公开签名里出现的类型”）。其余类型删后没有新警告。
+  - api:report 的警告与改前（做完 1 到 4 时）逐条一致：GridPlacement、GridPlacementItem、GridSashPlacement、GridSashEnds、GridLeafPlacement、GridPathStep、GridRestoreReport、dropKindData（index），DragActivation、DragStops（vue）；没有新增。
+  文档：README 表格两处（落点几何去 resolveGridInsertion；“自己编排时的零件”整行删）；grid.md 去掉“按索引直接调用 solveSashCollapse”那半句；DropFeedbackOverlay.md 删 resolveGridInsertion 的整条说明与另一处互指；vue/drag-session.md 的 sampled 说明不再写 createFrameLoop；drag-card.md 改成包内零件说明，示例改相对导入（exports.test、readme.test 原本拦下这几处）。
+  提示：resolveGridInsertion 现在除测试外没有调用方（包内产品代码也不用），函数本身保留未删（任务只要求不导出）；是否删函数留给后续。
+
+[6] 0151ffa42 重新生成 api/index.api.txt、api/vue.api.txt（-145/+5 行）；api:check 退出码 0。CHANGELOG.md 的 [0.1.0] 条目里没有提到被删的任何名字（只提 createLiveDragSession、useLiveDragSession，仍在），所以没改。README/docs 其余提到的 setCollapsed 都是 Grid.setCollapsed 或 host.setCollapsed，保留。
+
+[7] 插件 SDK：`bun test src/sdk` 13 pass，src/sdk/nb-layout-surface.txt 没变（SDK 不转出任何被删的名字，也不转出 live、LiveDragSessionRefs、GridResizeResult 等）；不需要提 PLUGIN_API_SINCE，没动快照。
+
+未解决 / 需要主会话处理（不属本片范围，我没改）：
+ - Spec docs/specs/ui/nested-grid.md 输出 153（第 235、238 行）仍写 `resize` 的行为与返回的 `applied`；Grid.resize 已删，这两处要主会话改（或标明已退役）。我删掉的 resize 用例原本就是它们的证据，晋升核对时注意。
+ - Spec docs/specs/ui/layout-drag.md：第 119 到 148 行的代码块、182、187 行输出 20、21、第 260 行“公开入口”仍把 createDragCard、createFrameLoop 当核心入口的公开名字；第 205 行写着 `live(source, keyboard)`。都要改。drag-card.md 在 Spec 第 260 行被链接，文件还在。
+ - docs/proposals（workbench-view-host.md 的 `resize(id, delta)`、`resizeBranch` 一句，workbench-shell-abstractions.md 的 resolveGridInsertion）是提案稿，我没碰。
+ - GridStructureScene 的 widen/narrow 行为与旧 resize 略有差别（见 [1]），请 lab-grid-structure e2e 重点看“程序调整尺寸过渡”“连续两次变化”“主线程繁忙”三条。
+ - grid.test.ts 里 `viewport 缩放后三兄弟手势` 与 `原子分支调整拒绝…` 两条 it 位于 describe 之外（原文件就如此，我没挪）。
+
+自查（禁止清单）：无按文案分支、无静默 catch（改动文件里没有新增 catch）；没跳过测试、没放宽断言（删的是只测被删 API 的用例；改写的用例断言原样保留，只有 1 条为表达同一不变量改了场景，见 [2]）；产品代码没加测试分支；没动任务外的代码行与注释（只改了提到被删名字的注释）；没留第二条路径；没跨包深导入；没用 rm -rf。没 push、stash、切分支、rebase。
+
+最终验证（均为命令自己的退出码，HEAD=0151ffa42）：
+ bun run --cwd packages/nb-layout test 0（bun 496 pass，vitest 356 pass）
+ bun run --cwd packages/nb-layout typecheck 0
+ bun run --cwd packages/nb-layout api:check 0
+ bun run --cwd packages/nb-workbench-layout test 0（53 pass）
+ bun run --cwd packages/neuro-book typecheck 0
+ packages/neuro-book: bun test src/plugins/workbench src/sdk 0（568 pass）
+ bun run --cwd packages/nb-story typecheck 0
+ git diff --shortstat e63dde257 HEAD：21 files, +110 / -527。

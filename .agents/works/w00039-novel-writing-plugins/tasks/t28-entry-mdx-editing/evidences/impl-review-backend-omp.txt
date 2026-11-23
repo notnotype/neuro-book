@@ -1,0 +1,224 @@
+### 1. 正文只改读取摘要，待确认便误判未发布，同一个块发布两次
+
+- **严重程度**：阻断；**类别**：不变量、断线恢复。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:381–420`；`packages/nb-canon/src/service/service.ts:1171–1175,1287–1301,1349–1357`；`packages/nb-canon/src/service/reads.ts:324–338`。
+- **现象**：版本 2 的增块请求通过队列里的读取戳检查，停在真实日志追加前；断开真实 RPC，提交返回 `unknown`。同一窗口重连；宿主更改一章正文，版本仍为 2，`inputDigest` 已变。此时 `outcome` 为 `published:false`，`confirm()` 返回 `not-published` 并擦掉 `pending`。放行追加，原请求发布 `r3`。作者再提交，另一个 id 发布 `r4`，读回两个相同的新块（`b3`、`b2`）。无需另一世界实例、版本回退或伪造业务回复。
+- **为什么是问题**：摘要变化只保证**尚未检查**的旧请求会被拒。`textChanged()` 不经过写队列，可发生在旧请求通过检查之后、追加完成之前。`outcome` 也不等写队列。第 4 稿及设计处理第 8 条明确要求这种阴性不能解冻，更不能批准新 id。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/protocol.ts digest`。真实 `WorldService`、文件锁、分段日志、Storage SQLite 与 RPC 断开/重连；只在 `nodeFiles.append` 前设栅栏，并按宿主入口通知正文变化。base 的摘要和 `outcome` 本来如此；将阴性解释成可提交是 S3 新增。
+- **建议改法**：冻结完整请求，恢复时原样重发同 id，或用服务端同时排进同一写队列、吸收日志并给出确定结局的接口。不能用一次读取戳比较加队列外的阴性查查询代替写栅栏。
+
+### 2. 等待确认时再调用 `submit()`，不用任何失败判据就换 id 发布第二次
+
+- **严重程度**：阻断；**类别**：不变量、公开接口。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:326–355,369–378,482–483`。
+- **现象**：增块请求已进真实写队列，断开 RPC 后 `submit()` 返回 `unknown`、`phase` 为 `confirming`。重连并等原请求发布 `r3`，再调 `submit()`（不是 `confirm()`）；发出新 id 并发布 `r4`，世界读到两份同文新块。这一例没有改变摘要、没有查 `outcome`，只是从同一个会话的公开提交入口再提交。
+- **为什么是问题**：`guarded` 只拦 `submitting`；`submit` 在 `confirming` 也进 `attempt`，用最新戳编译、替换冻结的 id。输出 46 要求有确定结局前不发别的请求，Ctrl+S 和页面按钮不应各自承担这条不可绕过的后端不变量。base 没有登记或这个入口。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/protocol.ts submit-pending`；真实 RPC、日志、存储。两次追加的请求 id 为 `A-2`、`A-3`。
+- **建议改法**：在会话里只留一个受保护的提交入口；有 `pending` 一律转入确认或返回待确认。不能只看可被其它动作重置的 `phase`。
+
+### 3. 同字同编号的尾块被重建后，重读会静默把旧稿写到新块
+
+- **严重程度**：阻断；**类别**：正确性、块身份。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:226–243,330–353`；`packages/neuro-book/src/plugins/canon/web/text-draft.ts:255–286`；`packages/nb-canon/src/world/entry-edits.ts:329–351,627–635`。
+- **现象**：作者在 v2 改尾块 `b2=B`。另一窗口先删尾块（v3），再加同文块（v4）；新块仍叫 `b2`，`textBlocks.blocks` 与 v2 完全一样。提交不问、于 `r5` 把新块改成“针对原来的 B 的修改”。旧稿想删 `b2` 时同样没有实例可区分。
+- **为什么是问题**：设计处理第 3 条以“带读取戳，旧稿不可能写到复用的 id 上”为由不改发号。但 `attempt` 先重读，再用**最新**戳冻结；戳只保护重读以后那次请求，而不证明重读前后 `b2` 还是同一实例。旧发号在 base 已有，S3 新增了会静默迁移旧稿的重读路径。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/model.ts identity`。真实 RPC 和内核，断言两次 `blocks` 相等、发布且新块被覆盖。
+- **建议改法**：使块标识跨删加不复用，或给读取/稿加入可校对的实例标识。最小保守方案是对不能证明身份的变更保留草稿并交作者选；不要把 `read` 源文或最新戳当身份。
+
+### 4. 选“现在的”只撤掉拆并一端，合并会无声删掉原块
+
+- **严重程度**：阻断；**类别**：正确性、数据保留。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-draft.ts:63–68,135–148,273–285,307–325`；`packages/neuro-book/src/plugins/canon/web/text-draft.test.ts:162–170`。
+- **现象**：初值 `[A,B,C]`，作者把 B 并到 A，另一处在第 2 章以同文替换 A。提交报 A 已锁；选“现在的”只撤销 A 的 `set`，下一次编译还只有 `removeBlock b2`，发布 `r4` 后初值和第 3 章都是 `[A,C]`，B 的字无处保留。反向，先拆“前半\n\n后半”，别处剧情换掉该块，选“现在的”后仍发布“后半”新块；初值变成原整块再跟一份“后半”。
+- **为什么是问题**：`moved` 只记一个旧 id，不记另一端是谁，`resolve` 无法以一次结构操作为单位撤销。设计处理第 9 条要求拆并不跨来源；一端被拒时无声执行另一端同时破坏不丢字、不多字。现有“拆过、并过”用例只发起拆，解决后只查旧块原文与冲突数，不查遗留新块，更没走合并。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/model.ts merge-moved` 与 `… model.ts split-moved`。经会话、RPC、真实内核发布并在初值和章末读回；base 无此结构编辑模型。
+- **建议改法**：在稿里保存拆并两端的关联，重读检查两端，按组冲突；取消该组必须同时处理新增、删除、改字三类结果，不能仅清一个 `moved` id。保留未受影响的手改文字，无法拆分时要求作者明确解决。
+
+### 5. 整条目超过读取预算就进不了编辑，即使只改一个小块
+
+- **严重程度**：重要；**类别**：合同、大小边界。
+- **位置**：`packages/neuro-book/src/plugins/canon/backend/remote.ts` 的 `textBlocks` 路由；`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:215–219,453–457`；`docs/specs/canon/author-ui.md:214`。
+- **现象**：真实服务写下 3 个块，源文合计 985002 字节（500000、485000、2 个字符的小块；小块内容为 6 字节 UTF-8）。`textBlocks` 返回 `too-large`，`begin()` 返回 `unavailable`。同一个 RPC 连接，沿已有单块写入方式给小块发一个 `set`，正常发布 `r3`。
+- **为什么是问题**：输出 47 明说能不能编辑与**整条目**大小无关；限制的是暂存和这次提交。`within` 限的是一次响应，做成全量且只能一次取回的合同才让三者混在一起。base 没有该读取入口，也没有这一新的编辑前置条件。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/model.ts too-large-read`；断言全量读被拒，已有小块写入通过。
+- **建议改法**：把整批块的目录与源文分开读，或提供同一读取戳下的游标分页并能分段取单个超长块；不要抬高 RPC 上限来掩盖无界响应，也不要把明确的容量失败改码成断线。
+
+### 6. 冻结回执丢失，返回“未提交”且作者放弃以后，重开却发布了这份稿
+
+- **严重程度**：阻断；**类别**：不变量、持久化与断线恢复。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:193–206,246–256,314–323,423–444`；`docs/specs/storage/persistence.md:134`。
+- **现象**：首次暂存正好是提交时的冻结写。SQLite 已写好 `pending=A-2`，断线丢掉这条保存回执。`submit()` 返回 `not-saved/unknown-outcome`；此时世界仍只有 A，内存 `pending` 已清。重连后放弃，状态为 `draft:null/saved:none`，但 SQLite 原样留着 `pending`。新开窗口只调 `load()`，没按提交，便发布了 `r3`，读到作者已放弃的新块。
+- **为什么是问题**：冻结失败不等于存储没写。未知结局未重读，客户端还用 `revision=null`，故 `clear` 甚至跳过条件删除。`load` 又把落下的冻结记录当作可自动发布的请求。输出 45 要求放弃后不复活，输出 46 的自动确认针对以前已发出的提交。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/storage.ts freeze-lost`。故障只拦真实 Storage `save` 成功响应及关闭链路；从另一窗口读 SQLite 确认原记录，最后从真实日志确认 `A-2`。
+- **建议改法**：把更新稿、冻结、放弃的写结局分别管起来；`unknown-outcome` 时不解冻，先重读核对值与 revision。能确认放弃已提交至存储才报告完成；重开不得发布一份已经确认放弃的冻结记录。
+
+### 7. 上一份稿的提交能发布、删除下一份从未提交的稿
+
+- **严重程度**：阻断；**类别**：不变量、会话竞态。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:226–243,246–256,276–281,329–355,478–482`。
+- **现象**：① 提交初值稿时暂扣 `textBlocks` 回复。期间放弃、在第 3 章重新开稿并输入新字。放行回包以后，旧 `submit()` 用初值的读源编译新稿，未经再次提交就发布新字，随后退出编辑。② 暂扣旧稿的日志追加；旧请求已在途，放弃、重新编辑并将新稿存到 SQLite。放行以后旧请求成功，旧 `clear()` 把刚暂存的新稿也删掉，世界只有旧稿的结果。
+- **为什么是问题**：`discard` 未守 `submitting`；`clear` 同步解开 `phase`，两条路径都用当前会话的可变 `draft`/`revision`，没有绑定开始时的稿代次。计划要求清理只能清 `pending` 那版；新字未显式提交不得发布。只靠页面按钮不可点不能保护会话入口，且后端尚未向 S4 表明这是调用约束。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/storage.ts discard-submit-read` 与 `… storage.ts discard-submit-write`。前者扣真实 RPC 响应，后者扣真实日志追加；检查世界与 SQLite 的最终状态。
+- **建议改法**：进行中的提交要么拒绝会改变稿代次的动作，要么将读取、冻结、发送、条件删除绑定固定代次和冻结的 revision；过期延续不能操作新稿。对 `choose`、`takeOver`、`adopt` 同样从这一个边界收口。
+
+### 8. 普通稿断线时“放弃”报完成，重开却恢复旧内容
+
+- **严重程度**：重要；**类别**：正确性、失败恢复。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:197–206,246–256,478–481`；`docs/specs/canon/author-ui.md:212–213`。
+- **现象**：把一份没有 `pending` 的普通稿确实写进 SQLite，断开窗口，再放弃。会话返回阅读状态（`draft:null/saved:none`），但另一窗口照常读到旧 revision `1`，重开编辑恢复本来要放弃的文字。无需冻结、丢回执或两个窗口同时写。
+- **为什么是问题**：`persist()` 发现远端删除失败，但 `clear()` 忽略返回值，还把失败改成 `none`。位置已失效或断线时“只能放弃”的流程也没有错误或重连补删入口。放弃没有完成，不应报告已完成。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/storage.ts discard-offline`。两个窗口同一个客户端分区，真实 RPC 断开、SQLite 无删标记。
+- **建议改法**：条件删除成功或确认别处已删除后再退出；失败时保留稿并提供重试，或者把“已本地放弃、还待删除”单独呈现、重连后以原 revision 收口，不能无声清状态。
+
+### 9. 已知分歧后放弃并重新编辑，下一份稿仍从过期 revision 起步
+
+- **严重程度**：重要；**类别**：正确性、暂存生命周期。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:246–256,423–444,450–463`；`docs/specs/storage/persistence.md:108–109`。
+- **现象**：同一浏览器配置的 A、B 都编辑。B 先暂存，A 得到 `diverged`。B 发布并删掉暂存，真实库为 `missing/revision:3`。A 放弃后重新进入编辑，只有自己在编辑；新稿自动暂存重新进入 `diverged`，提交返回 `not-saved/conflict`。关掉窗口重开则能从当前删标记起步。
+- **为什么是问题**：清掉稿只清显示状态；`loading` 与 `revision` 仍属于放弃前那个写入轮次。新的 `begin` 跳过实际 Storage 读取，连“没有任何窗口的稿”也会说成“另一个窗口也在改”。SQLite 保留删标记拒绝旧写是合同，不是应绕开的行为。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/storage.ts clear-diverged`；核对删标记与新稿的条件写失败。
+- **建议改法**：放弃后下次开启编辑建立新的快照基线；有别处的稿时仍必须显式选择，只有确认为当前删标记时才以它作为新稿的起点。
+
+### 10. 前一次保存的回执将仍未保存的新输入标成“已暂存”
+
+- **严重程度**：重要；**类别**：正确性、持久化状态。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:176–212`。
+- **现象**：派发一次普通暂存，SQLite 已存“已传的文字”、回执还在途；在此时输入“尚未传的文字”。开始时标 `unsaved`，放行旧回执变为 `saved`，另一窗口读盘仍只拿到旧字。该状态直到下一次写回复前都在；如果新写失败，这段时间的提示更不是落盘依据。
+- **为什么是问题**：`revision` 与这份暂存快照确实相符，`saved` 却告知整个当前稿已经落盘。输出 45 允许不足一秒来不及存，不允许把未存的文字说成已存。队列只保证顺序，不能代替快照检查。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/storage.ts inflight-edit`，扣真实 `save` 回执，核对第一窗口状态与第二窗口读取的值。下一次写仍有 1 个待调度项。
+- **建议改法**：写前捕获稿代次及内容版本；回复先更新已确认 revision，只有当前稿仍是该快照才标 `saved`，有较新编辑时保留 `unsaved` 和排定的写入。
+
+### 11. 普通改字遇到同文剧情替换，旧稿被无声写进另一条记录
+
+- **严重程度**：重要；**类别**：正确性、写回来源。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-draft.ts:30–46,94–100,265–285`；`packages/nb-canon/src/world/entry-edits.ts:797–819`。
+- **现象**：第 3 章末尾打开稿时 `b1.source='初始 A', write='init'`，作者输入“我的改法”。别处在第 2 章发布 `replaceBlock`，新源文也恰为“初始 A”；重读变成 `write='change', change='c1', fixed=['c1']`。没有冲突，`r4` 将第 2 章的剧情替换改成“我的改法”，初值仍是“初始 A”。
+- **为什么是问题**：设计处理第 3 条要求来源变了也算冲突。稿的基线只记源文，`rebase` 只对拆并和删除检查 `fixed`，普通改字没有比较 `write/change`。这是原块未失踪却写到不同记录，和第 3 条的块 id 复用是两条独立路径。第 4 稿正文只列了源文比较；需要对齐与设计处理失配的两份合同。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/model.ts route`，真实 RPC 前后读取 `write/change/fixed`，发布后读初值与章末。
+- **建议改法**：有改动的旧块随源文保存写回目标；重读发现目标变了先请作者确认，不把最近一次的路由自动当作始稿的目标。
+
+### 12. 同槽另一处先加了剧情块，稿变成不可提交，合同要求接在剧情块后
+
+- **严重程度**：重要；**类别**：正确性、锚点重读。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-draft.ts:188–197,287–300,355–361`；设计处理第 1 条。
+- **现象**：对 `[A,B]` 在 A 后加本机新块，当时 `allowed` 放行。别处先在 A 后加剧情块 X，提交把稿排成 `[A,本机新块,X,B]`，`compile` 回 `problems/before-story`，世界只有 `[A,X,B]`。设计处理明确要求这种同槽竞态排成 `[A,X,本机新块,B]`，不算冲突。
+- **为什么是问题**：`rebase` 只跟旧前驱 A，没有识别新出现的是同槽而非作者故意插在剧情块前。`compile` 禁止在剧情块前的判断本身正确；它并未实现重读时自动排到同一槽后面。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/follow.ts same-slot-story`，真实世界和 RPC；先验证原槽合法、随后只有新块被拒。
+- **建议改法**：重读时以原合法槽为身份，把本地块接到现在占用该槽的剧情增块链之后；只对已知同槽如此，无法定位的才按 `before-story` 保留稿并解释。
+
+### 13. 稿模型允许把新块并入已被剧情碰过的块，提交时却只能丢掉新字
+
+- **严重程度**：重要；**类别**：合同、可用动作与数据保留。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-draft.ts:143–148,223–231,282–285,322–324`；`packages/neuro-book/src/plugins/canon/web/text-draft.test.ts:58–65`。
+- **现象**：第 2 章早已换过 A，作者在第 3 章的 A 后新写一块。`allowed` 对新块的 `mergeUp` 返回 `null`。选合并，模型把新块删了、把新字写进 A 的 `texts` 并标 `moved`；世界没有并发变化，提交仍产生 `locked`。唯一选择“现在的”撤掉 A 的改字，也抹掉原本可发布的新块；再提交返回 `nothing`。
+- **为什么是问题**：输出 39 对剧情碰过的块说“不能并”。第 4 稿若真要允许“新块随便并”，也要实现能提交的等效改字而不是必败动作；测试却只把允许写死。这里无需第 4 条的并发，是界面还没接就发生的规则不一致。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/follow.ts merge-new`。用真实剧情记录、真实发布入口，断言从允许到锁定到 `nothing`。
+- **建议改法**：按输出 39 在 `allowed` 和合并动作的边界一并禁止，并把测试改为断言拒绝后新块仍在；若开发者选择允许作为普通改字，先定义它对新字出现场合的影响，再让三处判断一致。
+
+更正（第 5 条，计量口径）：`985002` 是脚本报出的 UTF-16 码元数；三块原文实际为 985006 字节 UTF-8，响应预算为 983040 字节。不改变复现结论。路由在 `backend/remote.ts:110`，预算常量在 `shared/contracts.ts:37`。
+
+### 14. 同 id 重发被租约拦下，不代表原请求没发布；会话仍解冻并重复增块
+
+- **严重程度**：阻断；**类别**：不变量、确认时序。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:289–311,389–401`；`packages/nb-canon/src/service/service.ts:1275–1293,1450–1458`；`packages/nb-canon/src/world/entry-edits.ts:883–893`。
+- **现象**：原请求 A-2 进追加、断线；B 获得独占。重连时 `confirm` 的读取戳仍为 v2，走同 id 重发；放行原追加，原请求发布 r3。在原请求之后执行的重发先撞租约，返回 `busy`，没走请求 id 查询。会话清 `pending`。B 释放独占后再次提交，r4 重复加出同样的块。
+- **为什么是问题**：判定“重发没执行”不是判定“原请求没执行”。base 的 `#write` 先判只读、租约，再进入 `editEntries` 的幂等检查；这次新增的 `settle` 把同一执行分支用在初发和重发，在 `busy` 时丢了仍需确认的请求。这一例没有摘要变化，不走第 1 条的 `outcome` 阴性分支。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/follow.ts busy-after-replay`。真实租约、RPC、日志；只扣已到的 v2 读取回执和原追加来固定先后。
+- **建议改法**：独立处理重发与初发结果；路由/租约只证明某一次尝试没有开始，不能清 `pending`。查询可验证的已发布结果，或让服务端在写队列里先判原请求，再按租约对新写做门禁。
+
+### 15. 合并后用公开“恢复块”撤掉删除，文字同时留在原块和并入的块里
+
+- **严重程度**：重要；**类别**：正确性、结构编辑。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-draft.ts:118–124,142–148`；`docs/specs/canon/author-ui.md:203`。
+- **现象**：初值 `[A,B,C]`，对 B 调 `mergeUp`，再对 B 调 `restoreBlock`（稿把并掉的旧块也放在 `removed`）。真实发布读回 `[A\n\nB,B,C]`。没有别处写入，`rebase` 也没提示。这不是第 4 条的冲突解决，是同一份稿上直接恢复一次删除。
+- **为什么是问题**：模型没有区分普通删除与合并的源端。恢复动作只撤原块删除，不撤目标块追加的内容，破坏保留原文字一次的语义。若 UI 想禁止恢复合并源端，后端还没有提供区分两个场景的状态。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/follow.ts restore-merge`。只调用公开稿模型接口，发布后读回三块。
+- **建议改法**：沿第 4 条保存成组关系，使恢复合并能还原两端；或明确区分“并入上块”和普通删除，让调用方只提供适用的恢复动作。
+
+### 16. 有效块 id 与对象原型名称重合，正常改字误报冲突且不能暂存
+
+- **严重程度**：重要；**类别**：正确性、有效输入边界。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-draft.ts:71–73,89–100,201–235`；`packages/nb-canon/src/core/address.ts:20–26`、`core/identifiers.ts:7,22–24`。
+- **现象**：经 `WorldService.publish` 导入并读回合法 id 为 `constructor`、`__proto__`、`toString` 的三块。没有并发，改 `constructor` 的 A 为“ A 改”仍报 `changed`；普通 `texts`/`base` 读取到了继承属性而不是块的基线。在允许动作的结果里 `__proto__` 不是自有项；该字典的写入改变了字典原型，不是在登记一个块。自动发号给 `bN` 不代表旧数据和底层 `publish` 只能产出 `bN`。
+- **为什么是问题**：模型把任意合法 id 当作 `{}` 的无条件键，首次读和按键赋值都假设没有继承属性。`constructor` 用例中提交重读清了稿里这一项、只剩内存冲突保存的文字，世界未动；不修改内核数据就能触发。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/kernel.ts legacy-keys`，经公开 `publish`、响应式会话、RPC 与 SQLite。观察世界三块仍在，保存不成功及无并发的冲突。
+- **建议改法**：稿内用无继承键的字典或 Map；若序列化仍为普通 JSON 对象，每次以自有属性判断，写入用不会触发 setter 的构造方式。别事后拒绝内核已接受的 id。
+
+### 17. `textBlocks` 把主线同号块的锚点交给支线，合法提交却排错位置
+
+- **严重程度**：重要；**类别**：正确性、跨线隔离。
+- **位置**：`packages/nb-canon/src/world/text-blocks.ts:58–78,121–146`；`packages/neuro-book/src/plugins/canon/web/text-draft.ts:188–197,355–361`。
+- **现象**：从 `[A,B,C]` 分支后，分别用公开 `publish` 在支线的 A 后、主线的 B 后加 `b9`，两次均合法、分别可读。支线 `textBlocks` 正确给出 `source='支线 X', change='c3'`，却给 `anchor='b2'`（主线 `c4` 的槽）。作者在支线 X 后加块，界面判据放行，发布 `r7` 读回 `[A,支线 X,B,新块,C]`，而不是 `[A,支线 X,新块,B,C]`。
+- **为什么是问题**：全线并集适用于“初值删掉会破坏哪些变更”，不适用于求正在显示的块从哪条变更加出来；`anchors` 按块 id 后写覆盖前写。块 id 在两条不相交的线可经底层正常存入，不能把上层 `editEntries` 的全世界自动发号当作历史日志不变量。base 没有这个误导调用方的 `anchor` 读取。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/kernel.ts cross-line-anchor`。两条线上的真实变更、RPC 读、稿会话提交和两线读回。
+- **建议改法**：保留全世界的 `fixed` 扫描；锚链沿该线、该读取位置实际套用并产生本块的补丁追溯，包括替换／移除再添加后实际有效的来源。若选择把编号唯一性定成新不变量，先定义重放已有日志的处理，单改发号不够。
+
+### 18. 已发布的大条目在丢回执后卡在确认，用请求 id 能查到也不查
+
+- **严重程度**：重要；**类别**：正确性、确认恢复。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:215–219,389–405`；`packages/neuro-book/src/plugins/canon/backend/remote.ts:110,146–149`。
+- **现象**：从 500000 字节的条目开始编辑，加 490000 字节的新块，暂存、请求本身均可发送。写入途中断线，世界实际发布 `r3`；重连后按原 id 的 `outcome` 明确返回已发布。此时整条目 990000 字节，`textBlocks` 返回 `too-large`；`confirm()` 返回 `unknown` 并一直保留 `confirming`，因为它在查结局前把读失败都当成断线。
+- **为什么是问题**：知道修订是否已发布不必先把所有文字读回来。第 5 条是编辑入口拿不到整篇；这里编辑与写入均已成功，恢复入口在请求有确定结局时仍冻结，并且再次刷新不能改善。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/follow.ts published-too-large`，用真实日志写入与 RPC 断开验证。
+- **建议改法**：确认不依赖 `textBlocks`；先用可验证的阳性结局，重发用冻结的原请求。阴性仍须过写队列或同一请求的确定结局，不能倒回第 1 条的竞态。
+
+### 19. 一个改字操作改到同一变更的两条补丁时，只有第一条校验细项带 `op`
+
+- **严重程度**：建议；**类别**：校验合同、历史数据边界。
+- **位置**：`packages/nb-canon/src/world/entry-edits.ts:453–458,805–819,823–833`；`docs/specs/canon/revisions.md:140`。
+- **现象**：一条底层 `publish` 正常收下的变更先后对 `b2` 做两次 `replaceBlock`。批里的第 2 项把该块改成未闭合的 MDX 表达式；`validation-failed` 的 `patches[0]` 带 `op:1`，`patches[1]` 不带 `op`。世界未变，作者稿仍能收到第一条块级原因；按细项标出写入项的合同只覆盖了一半。
+- **为什么是问题**：回写会更新每个匹配的补丁，但候选对象的错误定位只记第一条。回写多个补丁是 base 行为；本轮新加的 `op` 映射没有覆盖它。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/kernel.ts duplicate-mdx-locators`。
+- **建议改法**：把一次操作实际写到的所有候选补丁路径交给 `checkPlan`；公开 `route.patch` 可继续用首条，不从消息文本推断。
+
+### 20. 首次读取暂存时断线，重连也不恢复已有稿，直到主动制造分歧
+
+- **严重程度**：重要；**类别**：恢复、初始化。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:423–456,524–527,541–548`；`docs/specs/canon/author-ui.md:212–213`。
+- **现象**：窗口 A 已暂存旧稿，窗口 B 断线时第一次 `load()`。重连后，B 再调 `load()` 仍得到 `draft:null`，`uncommitted()` 为 `false`。`begin()` 建了份空稿；新打几个字并暂存才得到 `diverged`，随后手动 `adopt()` 能读回旧稿，证实它从未丢失。
+- **为什么是问题**：第一次查询失败被永久缓存成 `loading` 已完成、`loaded=true`，把“还不知道有没有稿”当作“没有稿”。`reload()` 在 `draft===null` 时直接返回，不能恢复这条路径。B 也不会自动确认已经冻结的旧稿。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/storage.ts load-offline`，通过真实 Storage RPC 与两窗口共用的 SQLite 记录核对。
+- **建议改法**：明确区分“未读/暂时读失败”和“已读且缺失”；失败时保留可重试状态，重连或再次进入编辑前完成读取，再决定恢复、确认或新建。
+
+### 21. 日志明确回复“没有落盘”，稿会话仍按结局不明处理，打开稿就重试发布
+
+- **严重程度**：重要；**类别**：失败语义、发布恢复。
+- **位置**：`packages/neuro-book/src/plugins/canon/web/text-drafts.ts:289–296,438–442`；`packages/neuro-book/src/plugins/canon/web/world.ts:485–493`；`packages/nb-canon/src/node/log.ts:171–182`；`docs/specs/canon/project.md:107`。
+- **现象**：日志文件端口在写前抛出 `ENOSPC`（一次），真实世界服务经 RPC 回复 `write-failed`、带写盘说明，日志确定没有这次修订。`submit()` 却回 `unknown` 并保留冻结。“重开”只调登记的 `load()`，未按重试就发布原请求 `r3`。客户端收到的没有 `after:'unknown-outcome'`。
+- **为什么是问题**：`settle` 为兼容旧 `CanonWorld.write` 的一次阴性查询，把带 `after:'unknown-outcome'` 的合成失败和内核在日志没有落盘时直接返回的确定失败混成一个状态。确定失败应保留可编辑的稿并显示写盘失败，不应把再次发布留给打开页面的动作。第 4 稿把两种 `write-failed` 写成一种，需要与项目 Spec 输出 7 对齐。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun --tsconfig-override tsconfig.json /tmp/claude-review-w00039-t28-impl/scratch/follow.ts disk-write-failed`。只在文件 I/O 边界注入一次错误，分类、RPC、存储、重新打开和最终发布均经产品实现。
+- **建议改法**：在合同上区分确定的日志失败与丢回执；直接失败返回原因并解冻对应稿，`unknown-outcome` 或真实写盘结局不明才留冻结。不要依赖错误消息文本。
+
+## 验收缺口与证据边界
+
+- **结局协议**：计划第 6 节要求真实 RPC 链路在追加前、后断开。`canon/text-drafts.test.ts:82–92,312–378` 的世界和 SQLite 是真的，但“丢回复”在 `CanonWorld.write` 外模拟：要么根本不发，要么写完才换返回值。两种都不能覆盖“请求已过戳检查，仍在途，读先回来”（第 1、14 条），也不覆盖暂存已落盘但回执丢失（第 6 条）。补一条在真实 RPC 链路断开、用文件写入栅栏控制顺序的场景；核对请求 id、日志行数、另一个窗口读到的稿及正文，不只核对返回状态。它不要求启动开发服务。
+- **稿的代次**：普通两窗条件保存、显式接管和换稿已有真实存储覆盖（`:386–421`）；原“放弃后迟到的保存”只在放弃后再触发保存入口（`:206–239`），不扣住已在途的回执。分别补在途读/写跨稿代次、失败删除、新输入版本与保存回执错位、首次读暂存断线重连。第 7–10、20 条给了端到端判据。
+- **拆并、锚链与身份**：现有登记用例读回跨章的拆块，未验真实发布的合并，也未验选“现在的”或恢复后两端均撤销（`web/text-draft.test.ts:162–172` 检查了拆分旧块和冲突，未断言留下的新块）。`text-blocks.test.ts:262–327` 的锚点和写回序列都用单线；全线删除判据的独立测试没有验证跨线同号的锚点来源。补第 3、4、11–13、15–17 条的反例，断言各位置上的最终块 id、次序与原文。旧式同锚点补丁的重放没有单独登记用例；本轮用实际分段日志重开验证了这一形状。
+- **大小、错误与状态门禁**：登记用例覆盖存不下、请求超过预算、51 项、常见 MDX 校验和章失效，不覆盖仅整个读取过大、发布过大条目后丢回复、一个写入操作产生多条补丁错误与直接写盘失败。旧戳场景已断言正好 3 次自动提交尝试且稿仍在；不把这当作实际 `version-conflict`、`value-conflict`、断线或只读的替代证据。S4/S5 的禁用 UI、位置/模式锁、Ctrl+S、非活动标签圆点、剧情对话框与浏览器验收不在被审提交内，未运行。
+
+## base 上已有或未计入的现象
+
+- 同一批剧情先删尾块再省略 `after` 增块会拒收；反序能发布。`kernel.ts remove-tail` 在审查版本复现，`base-removal.ts` 在 `git archive 5f6ea1f94` 的内核副本上复现。两个版本都还会选批前的尾锚。第 3 条只计新稿机制静默跟到复用 id，不把编号复用本身计成回归。
+- S1 处理记录已登记的 `create` 主文字失败细项无 `op`、别名／列表的删改与还原依赖、已删除条目上的错误口径，不重复计入。第 19 条是写回已有文字块的另一条路径。
+- 将 `requestId` 注入为已被无关请求占用的值，会被会话认成已发布并清稿。默认路径发 `text-${crypto.randomUUID()}`；没有观察到正常发号冲突，不计为独立发现。不同标题或升级后重编可能改变摘要；不是让“同 id／不同摘要”代替核对原请求的依据。
+
+## 未发现问题的方面
+
+- 定向用例与探针通过：两种意图的显式 `null`、连续同槽插入、混用默认末尾、两条目多槽互不干扰；旧式同槽补丁落盘再开，后写的仍贴在原锚点之后，未改变重放规则。
+- 定向用例通过：全线初值删块限制，包含未来、前史、待定、计划、撤销与子线；加块修订被锚点引用时不能单独还原，单独还原一次改字仍保留后来挂在该块后的剧情块。单线典型锚链及 `write` 路由、缺失与墓碑条目的读取、墓碑条目的增删拒收通过。
+- 定向用例通过：无关块自动合进、普通同块冲突重复出现、恢复已删块后的槽位与清空普通块、三个大小边界的各自结果、常见块级校验拒收、正常两窗口条件写与显式换稿。首次发写入被独占拒且回执明确时能解冻；同一份稿一轮提交在途时第二次 `submit()` 返回 `busy`，只有一次发布（与第 2、14 条的待确认阶段不同）。
+
+## 实际验证
+
+- `packages/nb-canon`：`bun test tests/text-blocks.test.ts`，20 通过；`bun run --cwd packages/nb-canon typecheck`，通过。
+- `packages/neuro-book`：`bun test src/plugins/canon/web/text-draft.test.ts src/plugins/canon/text-drafts.test.ts`，24 通过；`bun test src/plugins/canon/canon.test.ts src/plugins/canon/agent-tools.test.ts`，25 通过。合计 69 条，0 失败。
+- `bun run --cwd packages/neuro-book typecheck` 在 180 秒超时，无类型诊断；未验证全应用类型。随后用 scratch 的现有后端、浏览器配置的定向派生配置分别运行 `node node_modules/typescript/bin/tsc --noEmit -p "$r/focused-tsconfig.json"`（23.59 秒）及 `node ../../node_modules/vue-tsc/bin/vue-tsc.js --noEmit -p "$r/focused-browser-tsconfig.json"`（5.40 秒），分别覆盖登记、Canon RPC、Agent 用例的导入链和纯稿模型，均退出 0。初次 scratch 配置缺少项目的 Vue 声明或未解析 `vite/client` 属于配置问题，不列为实现发现。
+- 所有反例只写在 scratch；没有变异或修改被审代码，没有运行 e2e、浏览器、开发服务或全量测试。最终 `git status --porcelain=v1 --branch` 只显示 `## HEAD (no branch)`，HEAD 为 `38a471597`。
+
+## 数量（按影响）
+
+- **阻断 7**：1、2、3、4、6、7、14。
+- **重要 13**：5、8、9、10、11、12、13、15、16、17、18、20、21。
+- **建议 1**：19。
+
+有效编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18、19、20、21。

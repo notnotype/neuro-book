@@ -97,8 +97,50 @@ updated: 2026-11-23
 
 第二轮设计审查（omp `@review`，审在 `d9514f8c3`，只审第 3 稿的后端部分）已在后台启动，报告在本机 `reports/design-review-backend-omp-r2.txt`。
 
+2026-11-23 第二轮设计审查回来（omp `@review`，[报告](evidences/design-review-backend-omp-r2.txt)）：14 条，阻断 5、重要 8、建议 1。主会话在真实内核上复跑了审查者的探针，第 1、2、9、10 条的反例逐条复现：新块按“前一个初值块”挂上去会排到剧情加出来的块后面；删掉被当作锚点的初值块，剧情加出来的块跟着消失；拆与并会把文字从一条记录搬到另一条记录，别的章读到的变了；剧情的对话框只带版本，盖掉了别处刚换的字。逐条处理见 [`evidences/design-review-resolution-r2.txt`](evidences/design-review-resolution-r2.txt)。
+
+[计划第 4 稿](plan.md)（2026-11-23，主会话按审查改，交互与开发者已定的九条不变）。核心改法两处：
+
+- **提交带内核现有的读取戳**（主会话另写探针核实：别处任何一次写入都会拦下带旧戳的请求，只带版本的拦不住）。被拦下后界面重读、把改动对到新读的块上（纯函数 `rebase`），没有冲突自动再发，有冲突才问。第 3 稿的“给删块加读到的原文、块上的冲突带两边”撤掉。
+- **内核加一个读取 `textBlocks`**：逐块给出改字会写到哪、碰过它的变更、加块该写的锚点、在初值里的位置，与写入的拒收同一份判断；界面按它决定按钮能不能用。第 3 稿加在通用条目读取上的 `inInit`、`touchedBy` 撤掉。
+
+内核的写入另补四处：`addBlock` 的 `after: null` 与同一处几项的先后；删初值的块时被当作锚点也拒收；已删除的条目上加块、删块拒收；块的原文没过校验时细项带序号。稿只存动过的块，暂存按 revision 条件写；提交的结局不明时留着待确认、只原样重发。
+
+相对第 3 稿改了的六处产品行为写在计划第 1 节，记进了[待确认清单](../../pending-confirmations.md)：被剧情碰过的块只能改字（原来写的是还能拆）；新块不能插在剧情加出来的块前面；提交带读取戳并自动重读再发；不再按条目大小限制能不能编辑；两个窗口同时改同一个条目时后写的被告知、不覆盖；提交结果不明时保持“正在确认”。
+
+S0 的 Spec 草稿已按第 4 稿改（`canon/revisions.md` 输出 25、`canon/project.md` 的 `textBlocks`、`canon/author-ui.md` 输出 39 与 44 到 47、验收 16、`canon/agent-tools.md`）；`docs:check` 通过。设计不再开第三轮审查；S1（内核）与 S3（稿与暂存）做完各交一次实现审查。审查 worktree 已删。
+
+2026-11-23 实现（Work 的 worktree，分支 `feat/w00039-t28-entry-text`，从 master `e3129eede` 开；交互稿的草稿文件挪到了本机 `drafts-backup/`，spike 分支留着没删）：
+
+- **S2 编辑区**（提交 `5f6ea1f94`）：页面的实现可以给 `uncommitted(arg)`、`commit(arg)`，标签条的圆点与公开状态 `dirty` 取前者，“保存”调用后者并等它；经服务 `nbook.editor/components` 交出 `CodeInput`（Monaco，高度随内容，进入视野或拿到焦点才建）；Monaco 主题的跟随抽成各实例共用一个观察器。验证：editor 插件 `bun test` 256 条、组件测试 39 条、类型检查、`governance:check` 都过；页面那三条行为各做了变异检查（都被拦住）；`CodeInput` 在真实浏览器的 Lab 场景里用脚本走过（打字后高度跟着变、长行折行不溢出、只读、二十个里只建了看得见的 9 个、键盘聚焦后光标在文末，没有报错）。与计划不同的两处：`CodeInput` 不发“请求保存”事件（Ctrl+S 照常交给保存命令，免得一次按键提交两次），Spec 输出 69 已同改；它没有 dom 测试（happy-dom 里起不了 Monaco），靠 Lab 场景的脚本与之后的 e2e。
+- **S1 内核**（提交 `44f8760cc`）：`addBlock` 的 `after: null` 与同一处几项的先后；删初值的块时被当作锚点也拒收；已删除的条目上加块、删块拒收；校验细项带 `op`；读取 `textBlocks`（内核、世界服务、远程合同）；Agent 工具传 `after: null`、说明里写什么时候另起一块。新用例 `nb-canon/tests/text-blocks.test.ts` 17 条（审查复现过的几种情形都在里面）、应用里链路与 Agent 工具各一条。验证：nb-canon 全量 673 条、类型检查；应用里 canon、plot、sdk 的 `bun test` 416 条；八处变异检查都被拦住。实现审查：Opus 在审（后台），omp 等 S3 做完与它合成一个范围交一次。
+
+2026-11-23 S1 的实现审查（Opus，[报告](evidences/impl-review-s1-opus.txt)、[处理](evidences/impl-review-s1-resolution.txt)）：阻断 0、重要 2、建议 7，修正在提交 `eb5b9deb7`。改了的：删初值的块与 `fixed` 按**所有世界线**上的变更判（初值是各条线共用的）；还原一次加了初值块的修订时，后面挂在它后面的剧情块算依赖，不再连带消失（原来就有的漏洞，这一轮的界面走得到）；不写 `after` 与写了的混在一批里两种意图顺序一致；就地改的失败细项不带多出来的 `op`；Agent 的回话用上序号；`textBlocks` 不再为子线逐块取来历。三处修正各做了变异检查。Spec 的 planned 条目同改。
+
+遗留（审查指出、不在本 Task 范围）：别名与列表元素的“被碰过”只看读取位置那条线，整表赋值能绕过逐项的拒收；初值列表元素的还原依赖；已删除的条目上 `aliases`、`listAdd` 的结果不一致，Agent 对 `field-unavailable` 的提示对已删除的条目是误导；`create` 的主文字没过校验时细项不带 `op`。
+
+2026-11-23 **S3 稿与暂存**（提交 `38a471597`）：稿模型 `canon/web/text-draft.ts`（纯函数：`allowed`、`rebase`、`resolve`、`compile` 与块的操作；另记“拆过并过的块”`moved`，这样的块后来被剧情碰了也列成冲突）与登记 `canon/web/text-drafts.ts`（`createTextDrafts`：每个条目一份会话，`begin`、`edit`、`flush`、`discard`、`submit`、`confirm`、`choose`、`takeOver`、`adopt`、`reload`；状态 `draft`、`read`、`blocker`、`saved`、`phase`、`conflicts`、`problems`）。测试：模型 15 条表格测试；登记 9 条，经真实的项目子进程、世界服务与 Storage（`canon/text-drafts.test.ts`）。六处变异检查都被拦住。与计划不同的：结局不明时不存整份请求，世界没变就原样重建重发、世界变了才问结局（论证写在 `confirm` 的注释里）；没发出去的失败（`unavailable` 这些）当确定的失败。
+
+实现审查：S1 加 S3 已交 omp（后台，审查 worktree `.worktree/review-w00039-t28-impl` 固定在 `38a471597`、装了依赖；报告在本机 `reports/impl-review-backend-omp.txt`）。
+
+S4 的做法（文字分页，实现中）：
+- 写入都留在宿主层：新的组合式函数 `canon/web/text-tab.ts` 给 `EntryPageHost.vue` 用（拿这个条目的会话、算编辑视图的各块、把按钮接到稿模型、提交与提示、连上以后再确认、剧情对话框带读取戳）。
+- 受控组件：`EntryTextEditor.vue`（编辑视图，一块一个 `CodeInput`，照交互稿的版式）、`TextConflictDialog.vue`（逐条选）；`EntryText.vue` 的“改这一段”“删掉这一段”“加一段”换成每块的剧情菜单与文末“在剧情里加一块”，右上“编辑”或“开始写”。
+- `EntryPage.vue` 加“位置锁住”的属性；`canon/web/plugin.ts` 建 `createTextDrafts`（依赖 Storage 与编辑器的组件服务），条目页的实现给 `uncommitted`、`commit`。
+- 文案进 `canon/locales`；Lab 场景；`entry-page.dom.test.ts` 与组件的 dom 测试；之后 S5 的 e2e。
+
+2026-11-23 **S4 文字分页**（提交 `b0ac6fae6`）与 **S5 的 e2e**（提交 `82b254a12`）：`EntryText` 换成“编辑”加每块的剧情菜单；新组件 `EntryTextEditor`、`TextConflictDialog`、`PlainSourceInput`（没有编辑器插件时的退路）；宿主逻辑 `canon/web/text-tab.ts`；条目页的位置在有稿时锁住；条目页的实现给 `uncommitted`、`commit`。验证：canon 的组件测试 160 条（`entry-page.dom.test.ts` 里“写入”一组新写五条）、plot、lab、editor 的组件测试 88 条、四个插件与 sdk 的 `bun test` 748 条、类型检查、`governance:check`；e2e `canon-write` 4 条（开始写并 Ctrl+S 提交、拆块后刷新仍在并提交撤销、另一份浏览器配置的窗口改同一块时逐条选），相邻的 `canon-author`、`plot-author`、`editor-code-settings`、`editor-autosave` 23 条。开发服务上用脚本走过一遍星瑕样本（进编辑、打字、暂存、圆点、拆块、刷新、Ctrl+S、撤销），没有报错。e2e 暴露并修了一处：冲突里都选“现在的”以后页面停在编辑视图。
+
+审查进行中：前端（Sonnet，`e3129eede..b0ac6fae6` 的前端部分，审查 worktree `.worktree/review-w00039-t28-front`）在后台；后端 omp 的实现审查已回来（[报告](evidences/impl-review-backend-omp.txt)，针对 `38a471597`）：21 条，阻断 7（1、2、3、4、6、7、14）、重要 13、建议 1。主会话定的改法（正在做）：
+
+- 结局不明（第 1、2、14、18、21 条）：`pending` 里存整份冻结的请求（操作也存），之后只原样重发同一个请求；有 `pending` 时 `submit` 一律转确认；重发时只有内核在判过请求 id 之后给的拒收才算“确定没发布”，租约、只读、连不上这些不解冻；先问一次结局，问到已发布就收场、不依赖读块；日志明确说没写进去的当确定的失败。
+- 会话的并发（第 7 条）：提交在途时拒绝放弃、开始、编辑、选冲突、接管、换稿；提交的延续按代次核对。
+- 暂存（第 6、8、9、10、20 条）：存储结局不明时重读核对；放弃要确认记录真的删了才算完成，删不掉就留在编辑并写明；每次开始编辑先重读记录，有稿就用它；“已暂存”只在存下去的就是当前内容时显示；第一次读失败以后可以重试。
+- 稿模型（第 4、11、12、13、15、16、17 条）：动过的块记下当时写回哪里，重读发现换了地方列成冲突；涉及拆并的冲突选完不自动提交、回到编辑；新块并进旧块不算拆并；恢复并掉的块时把并过去的文字拿回来；别处在同一处加了剧情块时我的新块排到它后面；块 id 与对象原型的名字重合时不出错；锚点只沿读取位置那条线追。
+- 不改的：第 3 条（尾块被删后同字重建、编号复用：两边看到的完全一样，改了也是同一处同一段字；块的实例标识要改日志里的对象形状）、第 19 条（一项操作改到同一条变更的两个补丁时只有第一条细项带序号，要底层直接发布的变更才造得出来）。第 5 条（整条目超过一次读取的上限时进不了编辑）记为已知限制：写明原因，不做分页读取。
+
 ## 下一步
 
-1. 等第二轮审查的结论，处理后按切片实现（S1 内核、S2 编辑区、S3 暂存、S4 文字分页、S5 e2e 与收口）。
-2. 按决定改出计划第 2 稿，写 `evidences/design-review-resolution.txt` 逐条归类；后端核心规则变了，第 2 稿的后端部分再交 omp 审一轮。
-3. 写 ADR 与 Spec 草稿，实现。
+1. S4 文字分页（见上），S5 e2e 与收口。
+2. 处理 omp 的后台审查；S2、S3、S4 的前端交 Sonnet 审一次。
+3. 做完给开发者用，再定“单独编辑一个块”这类交互调整。

@@ -1,0 +1,56 @@
+# t55 S2 报告（nb-layout 两个手势会话与 resizeBranches）
+
+## 计划做哪些项
+1. 行为表（下面）。
+2. 补用例并先提交：Splitter 会话的折叠被拒 issues、先拖再折叠无变化时提交保留位移；`resizeBranches` 同一次提交里收起保留像素的面板并拖另一个。
+3. 抽 `branch-gesture.ts`（只抽逐字相同的部分；净省不到 50 行整段回退）。
+4. `resizeBranches` 改 `tree = candidate`（core 11）。
+
+## 行为表（Grid 会话 grid-gesture.ts / Splitter 会话 splitter-session.ts）
+| 项 | Grid 会话 | Splitter 会话 |
+|---|---|---|
+| 折叠没有真实变化（求解返回 collapsed 为空，带诊断） | `applyCollapse` 返回 applied:false；诊断先进本帧 issues，然后**回退再跑一次拖动求解**（位移用 `deltaOverride ?? delta`），owner.issues = 折叠诊断 + 去掉同键后的拖动诊断；若拖动求解也无结果则 owner.issues 不变 | `collapseOn` 把 `issues = result.issues`（覆盖）后直接返回 null，**不再跑拖动求解**，状态、预览、尺寸不动 |
+| 折叠求解返回 null（索引越界、基线非法） | 同上：issues 不动，也回退跑拖动求解 | 返回 null，issues 不动 |
+| 折叠成功 | owner.issues = result.issues；snapState 累积收起覆盖；sizes/collapsed(合并)/active=收起的 id/compensated=[] | 同左（逐行相同） |
+| 拖动成功后的 issues | 折叠诊断在前、拖动诊断去重（按 `issueKey`，同键只留折叠那条）；跨支 `session.issues` 是各支 flatMap | 直接 `issues = result.issues`，不去重，不保留之前折叠的诊断 |
+| 拖动结果为 null（非法输入） | 该支 `continue`，该支状态保持上一帧 | `applySolve(null)` 返回 null，状态保持 |
+| collapsed 的存储 | `{...result.collapsed}` 拷贝 | `collapsed = result.collapsed` 共用引用（只读用，无可观察差别） |
+| cancel 后的尺寸 | sizes 置 null，读取处按 `sizes ?? baseline`，效果是基线 | sizes = baselinePx；效果相同。其余重置相同（collapsed、active、compensated、snapState）；两边都不清 issues；Grid 另清 `pending`、`changed`；Splitter 另清 `state` |
+| `jump` 的位移覆盖 | 写在 owner.deltaOverride，持续到**下一次 `update`** 才清；中间任何一次求解（包括折叠无变化后的回退拖动求解）都用它；`jump` 对每个 owner 各自求解一遍整帧 | 一次性：算出绝对位移直接 `drag(target)`，之后没有记忆 |
+| `update` | 先清全部 deltaOverride，再整帧求解（所有轴一起投影） | 直接按主轴取位移求解 |
+| `changed` | 每次整帧求解重算：任一支 active/compensated/collapsed 非空即 true；cancel 置 false | `state !== null`；拖动无变化时 state 置 null；折叠无变化不动 state |
+| 预览产物 | `{layout, tree, changes, issues}`：对克隆树写预览意图再整体布局；`issues` 是本帧快照 | 只给 `SplitterGestureState`（含 `sash` id、sizesPx 等），几何由组件持有 |
+| 提交 changes 形状 | 含 `extent`、`active`、`compensated`、`collapsed`；baseline/target 缺值回退 `owner.baseline[index]` | 只含 `branchId/axis/baseline/target/collapsed`；缺值回退 `baselinePx[index] ?? 0` |
+| 多轴 | 同一棵树最多两根轴（交叉处）；`pending` 折叠只作用于发起轴 | 单轴 |
+| 显式 API | `update/jump/setCollapsed/toggleCollapsed/finish/cancel` | `update/jump/toggleCollapsed/finish/cancel`（无 `setCollapsed`） |
+| 相同的部分 | `collapsibleIndex`（前侧优先、`toggleable:false` 跳过）、折叠当前状态判定（`collapsed[id] ?? panel.collapse.collapsed`）、折叠成功后的状态写入（sizes/collapsed 合并/active/compensated/snapState 累积）、`jump` 的绝对位移 `sashLineOffset + sashEdgeDelta`、`withCollapseOverrides(panels, snapState?.collapsed)` 传给 `solveSashCollapse`、baseline/target 记录循环（回退值不同，见上）、cancel 里的重置 | 同左 |
+
+读出来的其它差别：Grid 的 `applyOn` 在没有预览时把 `pending` 清掉再返回 null；Grid 会话的 `sizes: null` 与 Splitter 的 `sizes = baselinePx` 在所有读取处等价，可统一而不改行为。
+
+## 进度
+- [项2] 92684b002：补 Splitter 会话用例 2 条（恢复空间不够的 issues 与状态、先拖再折叠无变化时位移与诊断）、resizeBranches 收起 fixed 面板并拖另一个的对照 1 条。Splitter 的 gesture-update/gesture-end 载荷现有 dom 用例已用 toEqual 逐字段断言（指针、键盘、收起、Home/End），未重复补。改前在现有实现上通过（nb-layout 全部测试通过）。
+- [项3] 回退：试做 branch-gesture.ts（BranchGesture 状态、dragBranchGesture、jumpDelta、collapsibleIndex、isCollapsedNow、collapseBranchGesture、branchRecords、resetBranchGesture），两个会话改用它后 typecheck 与 nb-layout 全部测试通过，但 git diff --stat：grid-gesture 与 splitter-session 共删 196 行、新文件加 121 行加两个会话新增 65 行，净省 10 行，不到 50。整段回退，没有留半成品（新文件已删、两个会话文件还原）。原因：逐字相同的部分只有各十来行的小函数，抽出来要补类型、参数与注释，与它省下的行数相抵。
+- [项4] 7e0eb9ad9：resizeBranches 规划通过后 `tree = candidate`；删掉 plans 里的 branchId、collapseChanges 里的 branchId，删掉“逐项写回活树”和按 holder 重找孩子的两段，收起时只对候选树上 value 为 true 的项补记恢复尺寸（规划时候选分支已写好 collapsed）。applyBranchResize 保留给 resizeBranch，注释改成只提单分支。grid.ts 净省 3 行（计划估约 25 行，因为 applyBranchResize 不删；这一项没有 50 行门槛）。
+
+前提核对（grep，写进报告）：
+- `root()` 的使用方：useGridLayout.ts:74 在 computed 内、读 `revision.value` 后才取，每次发布递增 revision 会重取；NestedGridAcceptanceFixture.vue:359 在函数内即取即用；LivePanelsScene.vue:81、173 在函数与 computed 内即取即用；layout-drop.ts:438 用的是临时新建的 grid。useGridHost.ts 只透传 layoutHost.node（computed），不持有节点。
+- 节点查找：grid.find 的使用方（nb-story book-grid.ts:117、Lab StarterScene.vue:46、LivePanelsScene.vue:178）只读 `.collapse?.collapsed` 或判空，不跨调用持有。
+- 引用相等：NestedGrid.vue:634 的 watch 把 `props.node` 与 `props.revision` 放在同一个监听源数组里，提交后 revision 本来就变，invalidate 只触发一次，多一个 node 变化不增加触发；开发检查（NestedGrid.vue:655）每次 node 变只多跑一次、且只报一次。结论：前提成立，没有发现跨调用持有节点引用或靠引用相等判断变化的地方。
+- 收起恢复尺寸的读值顺序：原实现“先把全部尺寸写回活树、再写收起”，新实现“尺寸在循环里写进候选、收起在循环之后补记”，`collapsedRemembering` 读到的 `node.size[axis]` 都是写完之后的值；新增对照用例（收起 fixed 面板 a 并拖 b、c）断言 restoreSize 为意图 300 而不是原 restoreSize 100。
+
+## 跳过或停下的项
+- 项3（branch-gesture.ts 抽取）：净省 10 行（< 50），整段回退，见上。
+- Splitter 的 `gesture-update`、`gesture-end` 载荷现有 dom 用例已逐字段断言，没有重复补；`issues` 只经会话对象可见（Splitter.vue 不对外发 issues），所以新增用例直接用 `createSplitterSession`。
+- 试做时发现的一处细微行为差：抽取后 Splitter 的提交里 baseline 缺值回退会从 `?? 0` 变成 `owner.baseline[index]!`（只在 ids 比 baselinePx 长时可见，Splitter.vue 已校验等长）。因为整段回退，没有实际影响。
+
+## 自查（禁止清单）
+- 不按错误文案分支：未涉及。无静默 catch：未新增 catch。
+- 没有跳过、放宽断言；新增用例都在改动前的实现上先通过再提交；产品代码没有测试专用分支。
+- 没有删除任务外的代码行、配置与注释；resizeBranches 的 docstring 改写限于它自己，接口类型上的 docstring（“通过后一次写回”）未改动（仍然成立，只是实现不再逐项写回）。
+- 清理与收口：失败路径仍在换树之前返回，活树不变；没有留下第二条路径。
+- 未跨包深导入。未用 rm -rf（只删了自己新建的 branch-gesture.ts）。
+- 未改 Spec、.agents 下文件与公开面；api:check 照过（输出里的 “reachable from a public signature” 警告是原有的，api 报告与 SDK 快照未动）。
+
+## 最终验证（命令自己的退出码）
+见下一行。
+- bun run --cwd packages/nb-layout test 退出码 0（bun test 505 项加 vitest 356 项）；typecheck 0；api:check 0（api reports are up to date）；bun run --cwd packages/nb-workbench-layout test 0（53 项）。

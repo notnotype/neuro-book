@@ -1,0 +1,73 @@
+# t55 S5 报告（工作台的布局与拖动）
+
+## 计划做哪些项（提交顺序）
+1. app 1：一次判定量一次几何（stripDrop、previewOf、floatDrop、dropFor、answeredByEditor 收调用方的 DragGeometry）
+2. app 6：键盘 stripStopsOf 改用 tabStripStopInsertions
+3. app 2：isSoleWindow(doc, home) 收 alone 一句（只收这一句）
+4. app 3：soleContainerOf 加 export，emptyRegionContainer 改调
+5. app 4：Shell 的 entryOf
+6. app 5：dropKeyOf 放进 entry-drop.ts
+7. app 7：renderedFloats、BAR_STRIP export、_tabs 参数、#lifted-head 解构与 Surface 透传
+8. app 8：keepVisible、wholeInTree 挪到 state/layout-constraints.ts
+9. app 9：viewKey/viewIdOf；drag-geometry 的 contains 改 rectContains
+10. app 10、11 零碎
+11. app 顺便发现 2：四处错位注释
+
+## 逐项记录
+
+[1] app 1 提交 5fa65a246（layout-drag.ts，净 -5 行）
+  改了什么：previewOf、stripDrop、floatDrop、dropFor、answeredByEditor 多收一个调用方已量到的 DragGeometry（seen），不再各自 geometry(doc)；调用点 windowDrop、dropAt、fileDrop 把自己已有的 seen 传下去；dropAt 里键盘“浮动”区域那一支在调 floatDrop 前现取一次 geometry(doc)（原来 floatDrop 里取，条件 canFloat 同）。
+  改前改后同输入同结果的逐点说明：
+   - 判定是同步段，段内没有 DOM 写（resolveLayoutDrop、applyLayoutDrop、answeredByEditor 的 dropOutcome、live.sticky/unmoved 均只读），所以同一段里 geometry(doc) 重量与复用调用方那份得到同一份矩形；实时布局里 geometry(doc) 本来就是 frozen()（引擎量到的或 run.transient）即同一个对象。
+   - stripDrop 原先在 applyLayoutDrop 之后量，现用调用方在更早量的；两者之间没有写。stripDrop 内的 `[...seen.panels, ...seen.floats]` 仍是未按键盘区域过滤的整份，与原来一致（没有改用 dropAt 里过滤过 floats 的 panels 参数）。
+   - previewOf 只用 origin，原来 geometry(doc).origin，现 seen.origin；缓存 run.previews 里存的矩形计算方式不变。
+   - floatDrop 的 canFloat 为假时原来不量，现在也不量（量的位置挪到 canFloat 为真的分支里）。
+  自测：typecheck exit 0（与第 2 项合并跑）；单元与 dom 见最后。
+[2] app 6 提交 165880b10（layout-drag.ts，净 -3 行）
+  改了什么：stripStopsOf 改 tabStripStopInsertions(strip).map(({point, insertion}) => ({point, index: stripIndex(doc, panel, insertion)}))，删导入 resolveTabStripInsertion、tabStripStops。
+  同输入同结果：库里 tabStripStopInsertions 的文档就是“量一份快照，每点在这份上判定，与对每点调 resolveTabStripInsertion（无 held）相同、判不出的不收”；原代码正是 tabStripStops 再逐点 resolveTabStripInsertion、null 丢掉，held 缺省 null。两者之间没有写，顺序一致。
+
+[3] app 2 提交 37aae65e9（净 +8 行含一条新用例，生产代码 -1）
+  改了什么：state/layout-present.ts 新增 isSoleWindow(doc, home)（home != null && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1）；layout-drag.ts 的键盘区域 alone、Shell 的 moveMenuItems alone、panel-commands 的 FLOAT_COMMAND alone 三处改调它。layout-present.test.ts 补一条用例（浮动单标签为真；停靠的、多标签的、home 为 null/undefined 为假）。
+  只收这一句，canFloat、frameActionsOf 的 floatable/movable、窗数上限、编辑器标签入口都没动。计划写“四处”，实际只找到三处 alone（layout-drag、Shell moveMenuItems、panel-commands）；Shell frameActionsOf 没有 alone 判断，只有 floatable/movable，按计划审查第 1 条留在原处。
+  同输入同结果：三处原式都是 `home 非空 && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1`，只有 null 与 undefined 的区别（layout-drag 的 home 是 undefined，其余是 null），谓词用 != null 一并收。panel-commands 里原来先算 alone 再判 `key===null||home===null||alone||…`，现在短路里调用，谓词无副作用，结果相同。
+[4] app 4 提交 8a1e122da（WorkbenchShell.vue，净 -1 行）
+  改了什么：新增 entryOf(entry, pressed, countOf)；toolEntries 与 stripEntries 的逐项映射都改调它。按下态由调用方传 `entry.current && 区域可见`（保留原来的短路，不让 toolEntries 在没有当前容器时多读 sidebarShowing 依赖）；角标 countOf(viewId) 各区域自己给。
+  同输入同结果：label、views、tooltip、viewId、current、字段顺序都是原来两份逐字相同的部分；pressed 与 count 的求值式与原来一致。
+[5] app 5 提交 d739746d7（净 +1，含一条新用例）
+  改了什么：entry-drop.ts 新增 dropKeyOf(action, part) = JSON.stringify([workbenchDropKey(action), part ?? null])；layout-drag 的 facts.key 与 actionKey、Shell 文件拖动的 key 三处改调；Shell 不再导入 layoutDropKey。entry-drop.test.ts 补一条键用例。
+  同输入同结果：前两处原来就是同一个式子；Shell 原来用 layoutDropKey(drop.action)，该 action 类型是 LayoutDropAction，而 workbenchDropKey 对非入口动作就是 layoutDropKey（入口动作的四种 kind 与库的动作不相交），所以相同。
+[6] app 7 提交 5cf96dc78（净 -3）
+  改了什么：state 的 renderedFloats 字段删（computed 本身还给 actions.floats 用，没有读者的只是 state 上的出口，全仓只有 store 自己出现）；BAR_STRIP 去掉 export（只在 entry-drop.ts 内用）；layoutEdgeTarget、layoutSeamAccepts 去掉 _tabs 参数，createLayoutPolicy 里用两个小箭头函数把库回调的 tabs 参数接住并丢掉（库的回调签名不变；seamAccepts 因第二参数类型不同不能直接赋函数引用），layout-constraints.test.ts 里调用同步去掉 `[]`；WorkbenchSurface 的 lifted-head 槽去掉 contentKey 属性与透传，WorkbenchShell 去掉解构，WorkbenchSurface.md 同步（Lab 夹具 LivePanelsScene/GridPanelsScene 是直接用 NestedGrid 的库插槽，不经 Surface，没动）。
+[7] app 8 提交 c8d5102ac（净 -2）
+  改了什么：keepVisible、wholeInTree 搬到 state/layout-constraints.ts（它已有 FLOAT_KEEP_WIDTH、PANEL_HEAD_HEIGHT）；store 的 renderedFloats 改调 keepVisible（原式 `extent === null ? wanted : clampFloatRect(wanted, extent, {FLOAT_KEEP_WIDTH, PANEL_HEAD_HEIGHT})` 正是 keepVisible 的定义）；drag-geometry.ts、layout-drag.ts、drag-geometry.test.ts 改从那里导入；store 与 drag-geometry 不再导入 clampFloatRect。
+[8] app 9 提交 ec7cd6b6e（净 -1）
+  改了什么：panelTitle 改用 viewIdOf（`active === null ? null : viewIdOf(active)`，原式就是 viewIdOf 的展开）；layout-present 的 canResetView、store 两处 revealView/moveView、default-tree 两处（retireReplacedViews 与 reconcileViews 里的 `view:${id}`）、view-commands 的 isPlaced 改调 viewKey；drag-geometry 的 contains 删，heldTabIn 与 layout-drag 的 bandAt 改用库导出的 rectContains（两者都是 x>=left && x<right && y>=top && y<bottom，逐字相同）。default-tree 新增对 layout-present 的导入，layout-present 不导入 default-tree，没有环；bun 测试照过。
+[9] app 顺便发现 2 提交 d886bfc79：四处错位注释，措辞不改——
+  store：“视图按此刻的声明该回哪……”挪到 homeOf；Surface：“卡片跟着拖动中的预览走……”挪到 cards；layout-drag：“标签条里排序……”挪到 measureSorted（与它原有的一句合进同一个 JSDoc，原句不变，中间空一行；sortTargetOf 另给一句新的单行说明，因为它原来的注释搬走了）；entriesIn 里“实时布局用拿起时量的那份（frozen）：预览里入口在滑。”挪到 geometry（frozen 是它读的），为让“那份”有所指，前面加了一句“这一次判定的几何。”。
+[10] app 10、11 提交 849a27597（净 +3 行，layout-drag 与 Shell）
+  改了什么：
+   - tabHeadOf(panel, editor)：sortTargetOf 与 geometryOf 里两处同形的 `editor ? [data-panel-strip=…] : [data-panel-head=…]` 查询；
+   - sortAtOf(at)：follow.read 与 afterRender 里两处 `at === null ? null : {point, panel: container}`；
+   - panelsOf(seen)：stripDrop 与 stopsOf 里 `[...seen.panels, ...seen.floats]`；dropAt 里 `[...panels, ...floats]` 的两次展开改成一个局部 reachable（原来第二次只在 drop !== null 时展开，现在提前展开一次，值相同、无副作用）；
+   - frameIn：改成 panels 里 find，找不到再在 floats 里 find，不再每帧拼数组；两个列表里同 id 时仍是 panels 优先，与原来先后相同，`.frame` 的 undefined 也同样落到 `?? null`；
+   - Shell：dragGhost 改成 `wantsGhost ? cardTitle : null`（两个 computed 原来各调一次 ghostOf(dragSource)，条件为真时值相同，现在共用同一个对象）。
+  没做：`drag?.live.active.value === true` 收成 computed——试过，模板里的 v-if 靠这个表达式收窄 drag 非空（vue-tsc 报 'drag' possibly null），不能用，只剩 2 处不值得，已回退。
+
+## 跳过或停下的项
+- app 3（soleContainerOf 加 export、emptyRegionContainer 改调它）：没做。原因：两者统计口径不同，不是同输入同结果。emptyRegionContainer 数的是 doc.panels 里 container 相同的面板个数，对 container 没有限制；soleContainerOf 只在“来源所在面板是某个带容器锚的区域的分节”时才有结果（regionSections 要求 isContainerAnchor）。nb-workbench-layout 的 layout-doc.ts 注释明写“有 container 却不在带容器的区域里……归属不起作用，照常显示”，validateLayoutDoc 不拒绝这种记录，settleContainers 也不修它。对这种文档（来源是个 container 在区域之外、且全文档唯一的面板），旧版返回它的容器 id、新版返回这一场的新容器 id，是可观察差别。对满足“凡有 container 的面板都是带容器锚区域的分节”的文档两者一致（浮动窗不允许带 container，validate 拒绝）。按任务说明“说不清的不做”，没改。若开发者认可“区域外带 container 的记录不是合法状态”，改法是：soleContainerOf 加 export，emptyRegionContainer 写成 `soleContainerOf(doc, source)?.container ?? run.newContainer`，补一条同值对照用例。
+- `drag?.live.active.value === true` 收成 computed（app 10 的一小条）：回退，见 [10]。
+- `idleRun(judged)` 按计划不动；`actions.presentation()`、`issues` 事件按计划不动。
+
+## 自查（禁止清单）
+- 没有按错误文案分支；没有新增 catch；没有跳过或放宽断言，没有产品代码里的测试专用分支；新增的三条用例（isSoleWindow、dropKeyOf）只加不改既有断言，layout-constraints.test.ts 只把调用去掉多余的 `[]` 参数。
+- 没有删改范围外代码、配置与注释；注释只做了计划列的四处挪位（措辞不改），以及与 `_tabs` 对应的一句新注释（createLayoutPolicy 里说明库回调参数为何丢掉）、sortTargetOf 的一句新的单行说明、geometry 前缀一句；
+- 没有跨包深导入（只用 nb-workbench-layout 根入口的 rectContains、tabStripStopInsertions 来自 nb-workbench-layout/vue）；没有 rm -rf；没动 nb-layout、nb-workbench-layout、Lab 夹具、Spec、.agents；api 报告与 SDK 快照没动。
+- 并列同名 .md：WorkbenchSurface.md 已同步 lifted-head 槽；其余组件（WorkbenchShell）的 .md 没有写到被改的内部函数。
+
+## 最终验证（命令自己的退出码）
+- 基线（起点 c29ba4902，改动前）：`bun test src/plugins/workbench` 553 pass、0 fail，exit 0；`npx vitest run src/plugins/workbench` 15 文件 96 pass，exit 0。
+- 最终：`bun run typecheck`（packages/neuro-book，tsc + 两个 vue-tsc）exit 0；`bun test src/plugins/workbench` 555 pass（比基线多的 2 条是新增的 isSoleWindow、dropKeyOf 用例）、0 fail，exit 0；`npx vitest run src/plugins/workbench` 15 文件 96 pass，exit 0。
+- `bun run governance:check` 在工作树根 exit 1，失败项全在本片之外（nb-host、nb-models 的固定等待、network 插件的 locales 没登记、lab-agent-ui.e2e），我改的文件没有新增项；起点就有，没处理。
+- 没跑 e2e。主会话建议跑：workbench-{dnd,float,live-drag,drag-cost,containers,views}、editor-area、lab-{tab-strip,workbench-surface,drop-sectors}。特别是 app 1（判定几何复用）靠 e2e 守：workbench-dnd、workbench-float、workbench-live-drag、workbench-drag-cost，以及 indicator 模式与文件拖动各一次。
+- 提交（自旧到新）：5fa65a246 app1、165880b10 app6、37aae65e9 app2、8a1e122da app4、d739746d7 app5、5cf96dc78 app7、c8d5102ac app8、ec7cd6b6e app9、d886bfc79 注释挪位、849a27597 app10/11。分支 w00026/t55-s5，工作树干净。

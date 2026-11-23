@@ -1,0 +1,113 @@
+t42 第 3 片开工前的探针（plan.md 3.5 的“探针先行”）。2026-11-23，Work 分支 feat/w00032-agent-integration（8b6175edf），真实内核与会话表、本机假端点，探针文件不提交。
+
+结论（按它核对 sessions.md 输出 30、jobs.md 输出 20 的 planned 句子，没有不符的）：
+
+1. 收口时排着的话（followup）：运行中排进去的话被同一次运行接着消费（inputConsumed 带同一个 runId），不另开运行；会话行的 runId 不变。
+2. 新的一次运行之前总有一帧 idle 状态：按状态帧记 runId 时，换运行一定经过空闲，开始时刻在第一次看到新 runId 时取。
+3. 用户停止并保留排队（abort keepQueue）：runEnded reason=aborted、inputHeld heldBy=user；之后 activityWithBackground() 为空、activity() 给 held。放行后开新运行（新 runId），held 消失。所以“有留着的话等你放行”的行要会话表另交 held，它没有在跑的运行。
+4. 前台子代理（同步派发）等你批准：父会话 status=running（表里算在跑，不算等你）；子会话 status=waiting、pending=[approval]、questions=caller，表里算等你（activity 里 waiting）；任务 state=running、foreground=true，target 的 runId 与子会话此刻的运行相同。子会话不是后台会话。
+5. 后台子代理等你批准：父会话已空闲；子会话 waiting（approval）；任务 running、foreground=false。根会话空闲时没有组头行，块里只有任务行。
+6. 后台子代理向父 Agent 提问：父会话这时可能还在跑、也可能已空闲（两次运行各见一种，看提问与父会话收口谁先）；任务 state=question；子会话 status=waiting、pending=[question]，但 questions=caller，表里算在跑（activity 里 running）。
+7. 只送了短回执（预算满）与永久送不到：从代码核对（delivery.ts #send）：两条路都先 jobs.announce 再 jobs.receiptSettled，后者发 onChanged；出口变成 announced，任务留在表里只等 wait。清单按出口不列它，变化有通知。
+8. 合并提醒被 wait 撤回一件时（delivery.ts #returnOthers），其余几件的出口经 unclaim 从“提醒已受理”退回“还没领”，unclaim 不发变化；它们重送遇到暂时失败时再 unclaim，也不发。清单要另有一个变化信号覆盖 claim、unclaim、announce、attach：不能让它们发 onChanged，送达订着 onChanged、每次都重排一轮，暂时失败时会绕过退避连续重送。
+
+=== 探针 A：会话表（kit/sessions/table.ts）的活动与状态帧 ===
+bun test v1.4.4 (38afee6c8)
+
+src/kit/sessions/probe-t42.test.ts:
+--- 探针 2：用户停止并保留排队
+log runStarted {"runId":"8abd8a741347","kind":"chat"}
+log inputConsumed {"id":"5b5b153dc01e","runId":"8abd8a741347"}
+send1 {"ok":true,"value":{"inputId":"5b5b153dc01e","runId":"8abd8a741347","placement":"taken"},"seq":9,"replayed":false}
+activityChanged withBackground=[{"id":"s-1","state":"running"}] activity=[{"id":"s-1","state":"running"}]
+status {"state":"running","runId":"8abd8a741347","turnId":"72c8f27d9d86","phase":"requesting","request":null}
+enqueue2 {"ok":true,"value":{"inputId":"71245893f622","position":0,"placement":"taken","currentRunId":"8abd8a741347"},"seq":12,"replayed":false}
+status {"state":"aborting","runId":"8abd8a741347"}
+status {"state":"running","runId":"8abd8a741347","turnId":"72c8f27d9d86","phase":"streaming","request":1}
+log runEnded {"runId":"8abd8a741347","reason":"aborted","stoppedBy":{"kind":"user"}}
+log inputHeld {"ids":["71245893f622"],"cause":{"end":"aborted"},"heldBy":{"kind":"user"}}
+activityChanged withBackground=[{"id":"s-1","state":"running"}] activity=[{"id":"s-1","state":"running"}]
+activityChanged withBackground=[] activity=[{"id":"s-1","state":"held"}]
+status {"state":"idle"}
+abort {"ok":true,"value":{"aborted":true},"seq":18,"replayed":false}
+after abort withBackground=[] activity=[{"id":"s-1","state":"held"}]
+--- 放行之后
+log runStarted {"runId":"59a96706cbb8","kind":"chat"}
+log inputConsumed {"id":"71245893f622","runId":"59a96706cbb8"}
+activityChanged withBackground=[] activity=[]
+activityChanged withBackground=[{"id":"s-1","state":"running"}] activity=[{"id":"s-1","state":"running"}]
+status {"state":"running","runId":"59a96706cbb8","turnId":"4b37e633cf0e","phase":"requesting","request":null}
+resume {"ok":true,"value":{"runId":"59a96706cbb8","released":["71245893f622"]},"seq":26,"replayed":false}
+status {"state":"running","runId":"59a96706cbb8","turnId":"4b37e633cf0e","phase":"streaming","request":2}
+（没等到收口）
+--- 探针 1b
+log runStarted {"runId":"87768b1bda42","kind":"chat"}
+log inputConsumed {"id":"bd50ac88c20c","runId":"87768b1bda42"}
+activityChanged withBackground=[{"id":"s-1","state":"running"}] activity=[{"id":"s-1","state":"running"}]
+status {"state":"running","runId":"87768b1bda42","turnId":"eaea51e1e9e3","phase":"requesting","request":null}
+send1 {"ok":true,"value":{"inputId":"bd50ac88c20c","runId":"87768b1bda42","placement":"taken"},"seq":9,"replayed":false} enqueue2 {"ok":true,"value":{"inputId":"d8c196c0b0fe","position":0,"placement":"taken","currentRunId":"87768b1bda42"},"seq":12,"replayed":false}
+status {"state":"running","runId":"87768b1bda42","turnId":"eaea51e1e9e3","phase":"streaming","request":1}
+log inputConsumed {"id":"d8c196c0b0fe","runId":"87768b1bda42"}
+status {"state":"running","runId":"87768b1bda42","turnId":"fde288804e8b","phase":"requesting","request":null}
+status {"state":"running","runId":"87768b1bda42","turnId":"fde288804e8b","phase":"streaming","request":2}
+log runEnded {"runId":"87768b1bda42","reason":"completed"}
+activityChanged withBackground=[] activity=[]
+status {"state":"idle"}
+--- 再发一句并排一句
+log runStarted {"runId":"bcfd3623b261","kind":"chat"}
+log inputConsumed {"id":"ade89003590e","runId":"bcfd3623b261"}
+activityChanged withBackground=[{"id":"s-1","state":"running"}] activity=[{"id":"s-1","state":"running"}]
+status {"state":"running","runId":"bcfd3623b261","turnId":"69796fb73658","phase":"requesting","request":null}
+status {"state":"running","runId":"bcfd3623b261","turnId":"69796fb73658","phase":"streaming","request":3}
+log runEnded {"runId":"bcfd3623b261","reason":"completed"}
+activityChanged withBackground=[] activity=[]
+status {"state":"idle"}
+log runStarted {"runId":"0742e9248f27","kind":"chat"}
+log inputConsumed {"id":"39f8e24a94cb","runId":"0742e9248f27"}
+activityChanged withBackground=[{"id":"s-1","state":"running"}] activity=[{"id":"s-1","state":"running"}]
+status {"state":"running","runId":"0742e9248f27","turnId":"4b68a74da886","phase":"requesting","request":null}
+enqueue4 {"ok":true,"value":{"inputId":"39f8e24a94cb","position":0,"placement":"taken","runId":"0742e9248f27"},"seq":38,"replayed":false}
+status {"state":"running","runId":"0742e9248f27","turnId":"4b68a74da886","phase":"streaming","request":4}
+log runEnded {"runId":"0742e9248f27","reason":"completed"}
+activityChanged withBackground=[] activity=[]
+status {"state":"idle"}
+
+ 2 pass
+ 0 fail
+Ran 2 tests across 1 file. [3.38s]
+
+=== 探针 B：子代理等你批准与向父 Agent 提问（agentWorld，真实服务） ===
+
+probe-t42/subagent-states.test.ts:
+--- 前台：子会话等审批
+parent status={"state":"running","runId":"ad28319f3400"} background=false
+child  status={"state":"waiting","runId":"6bff8f53ce61","pending":["approval"]} background=false questions=caller
+activity=[{"id":"0-707f6b11b5","state":"running","root":"0-707f6b11b5"},{"id":"0-bbbda79926","state":"waiting","root":"0-707f6b11b5"}]
+work={"items":[{"plugin":"nbook.agent","text":{"kind":"text","key":"work.session.untitledRunning","ns":"nbook.agent"}}],"failed":[]}
+jobs=[{"kind":"agent","state":"running","foreground":true,"sessionId":"child","runId":"6bff8f53ce61"}]
+tree=[{"state":"waiting","pending":["approval"],"runId":"6bff8f53ce61"}]
+--- 前台：批了、父会话收口
+parent status={"state":"idle"} background=false
+child  status={"state":"idle"} background=false questions=caller
+activity=[]
+work={"items":[],"failed":[]}
+jobs=[]
+tree=[{"state":"idle"}]
+--- 后台：子会话等审批、父会话空闲
+parent status={"state":"idle"} background=false
+child  status={"state":"waiting","runId":"7cc4e7c0f7cb","pending":["approval"]} background=false questions=caller
+activity=[{"id":"0-92ccb39470","state":"waiting","root":"0-3e6494156e"}]
+work={"items":[{"plugin":"nbook.agent","text":{"kind":"text","key":"work.session.untitledWaiting","ns":"nbook.agent"}}],"failed":[]}
+jobs=[{"kind":"agent","state":"running","foreground":false,"sessionId":"child","runId":"7cc4e7c0f7cb"}]
+tree=[{"state":"waiting","pending":["approval"],"runId":"7cc4e7c0f7cb"}]
+--- 后台：子代理向父 Agent 提问
+parent status={"state":"idle"} background=false
+child  status={"state":"waiting","runId":"fdf3e9c99602","pending":["question"]} background=false questions=caller
+activity=[{"id":"0-1a602353fb","state":"running","root":"0-00ac2a7a12"}]
+work={"items":[{"plugin":"nbook.agent","text":{"kind":"text","key":"work.session.running","ns":"nbook.agent","params":{"title":"派"}}}],"failed":[]}
+jobs=[{"kind":"agent","state":"question","foreground":false,"sessionId":"child","runId":"fdf3e9c99602"}]
+tree=[{"state":"question","runId":"fdf3e9c99602"}]
+
+ 3 pass
+ 0 fail
+Ran 3 tests across 1 file. [1335.00ms]

@@ -1,0 +1,93 @@
+# w00032/t42 第 3 片实现审查：Agent 提供后台任务清单
+
+审查范围：`a12ae1598..b31dc82ef`。下文的源码行号取自 `b31dc82ef`，合同取自主工作区的 Task 计划和 Spec。
+
+## 本片发现
+
+### 1. 有归属的 Workflow 根会话仍出现在清单中，并且能停
+
+- **严重度：重要；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/agent.ts:219–220, 324`；`packages/neuro-book/src/plugins/agent/backend/subagents/relations.ts:5, 63–65, 108–110`；`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:122–126`。
+- **现象：** 用公开 `agentKey.create` 同时传 `owner` 和 `caller: {kind: "workflow", …}`，会话列表不列它，后台任务清单却显示可停的根会话组头。通过 `nbook.tasks.stop` 点该行确实收口为 `aborted`。Task 决定 7 明确排除这类组头，以免清单把归属方的排队输入留给用户放行；这不是仅漏一个徽标。
+- **原因：** 关系表只认 `caller.kind === "session"` 为父会话；`noteOwned` 却把有任何 `caller` 的会话都当成非根。扫描和创建共用这一条件；既有 `list` 使用 `ownedTrees`，不把 Workflow 调用方当父会话。
+- **核实与改法：** `bun run /tmp/t42-s3-review/tasks-probes.ts owned`：真实插件门面、内核及任务远程合同返回 `header.owner`、`listed: false`、`head.stoppable: true`、`stop: accepted`、`reason: aborted`。用关系表一致的根判据（无会话类型的 `caller`），补一条公开门面创建 Workflow 有归属根会话的组合测试，断言无会话行但其后台任务仍可列。
+
+### 2. 合法的任务进展能撑爆 2 KiB，让运行中任务、停止按钮与状态栏计数一起消失
+
+- **严重度：重要；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/task-rows.ts:25, 61–85`；`packages/neuro-book/src/plugins/tasks/backend/text.ts:25–34`；`packages/neuro-book/src/plugins/tasks/backend/providers.ts:292–326`。
+- **现象：** 后台命令输出一行 423 UTF-8 字节（420 个 `U+0001` 加 ` OK`）并继续运行；远程 `jobs` 仍有它，清单没有它，`own.background.count` 为 0。从清单无法停止，只能到原会话停。违反 `jobs.md` 输出 20 的逐件出行和决定 3 的计数口径；超过的是提供方编码预算，不是允许不列出的件数上限。
+- **原因：** 清单按 JSON 编码后的整行校验，进展按字面字符串长度截，未限制 JSON 转义后的字节数。该例仅 `JSON.stringify(lastLine)` 已有 2525 字节；标题、根标题、两个导航目标也共享整行预算。`QUESTION_MAX` 同样只限码元，不保证结构化文字的 1024 字节上限。
+- **核实与改法：** `bun run /tmp/t42-s3-review/tasks-probes.ts bytes`：用真实 `shell {async:true}` 和远程 `jobs`、`rows`、`own` 核对，最后用 `killJob` 收口。保留清单的通用大小防线；Agent 端按发出的 JSON 字节预算裁剪展示文字，优先让长进展回落到短文案，不丢身份、状态、归属及操作；预算须覆盖组合字段。测试断言超长转义输出与标题下同一个键仍在、可停且计数为 1。
+
+### 3. 重启或空闲关闭后复用的标题会话被当成用户会话列出
+
+- **严重度：重要；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/agent.ts:309–316, 397–402`；`packages/nb-harness/src/kit/sessions/meta.ts:148–170`；`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:114–126`。
+- **现象：** 首次标题生成不出会话行；第一次生成失败、服务正常重启后，用户再发一轮触发重试，清单多出一个独立且可停的“未命名”组头，打开目标是内部标题会话。在任务清单停止它会中断生成，而不是中止用户对话。`sessions.md` 输出 30 明确不列程序自己的会话。
+- **原因：** `internal` 只在 `create` 成功后添加、句柄关闭时删除；标题会话复用时走 `session-exists`，核对当前 Profile 和 `background` 后直接发送，不恢复标记。该缺口在 base 已影响“在跑的工作”筛选；清单露出内部会话是本片新影响。
+- **核实与改法：** `bun run /tmp/t42-s3-review/tasks-probes.ts internal`：真实标题生成器先得本机 400，再用相同状态根启动，第二次请求在停驻期间读到 `head.stoppable: true`。让标题生成器在成功创建或确认复用的是实际标题会话后、发话之前登记身份；不要只按 id 前缀排除，也不要把被普通会话占用的 id 标成内部。补关句柄和重启后的复用断言。
+
+### 4. 两次独立的“有留着的话”复用已消失的行键
+
+- **严重度：建议；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/task-rows.ts:89–104`；`packages/nb-harness/src/kit/sessions/table.ts:470–475`。
+- **现象：** 停第一轮得到一条 `held` 行，删除缓冲输入使行消失，再停第二轮得到新一条 `held`；两条开始时刻不同，键相同。对第一条的旧键在空档得到 `row-gone`，第二条出现后变成 `not-stoppable`。目前两条都不可停，“打开”也都是同一会话，不会误停；但不满足 `background-tasks.md` 输出 19 的同代不复用规则。
+- **原因：** Task 计划 7b 固定后缀为 `held`，与通用 Spec 冲突；编码也没有带留话这一次的身份。
+- **核实与改法：** `bun run /tmp/t42-s3-review/tasks-probes.ts held`，实测同键、时间从 `00:00:00.000Z` 到 `00:00:05.000Z`。给每次进入清单的留话阶段一个不复用的身份，或把不可停且导航目标不变的留话行明确写成输出 19 的例外；不用毫秒时间充当唯一值。
+
+## 基线已有根因：本片新接入的停止合同仍受影响
+
+### 5. 停止收口批写不下时，任务清单仍报告“已受理”
+
+- **严重度：重要；类别：失败语义。**
+- **位置：** `packages/nb-harness/src/kernel/run/control.ts:68–81, 239–240`；`packages/nb-harness/src/kernel/run/commands.ts:385–395`；`packages/neuro-book/src/plugins/agent/backend/subagents/children.ts:53–60`；`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:149–164`。
+- **现象：** 子代理在跑时停止，收口批日志写入失败。运行因 `log-broken` 结束，日志没有这次 `abort` 的受理记录，`nbook.tasks.stop` 却回 `{outcome: "accepted"}`。jobs.md 输出 4、11、20 要把写日志失败交回 `stop-failed`（`kill`、`killJob`）或“未知”（任务清单），而不是报停成功。
+- **原因及基线：** `onBroken` 唤醒停在 `recordStop` 的请求；找不到已写的命令记录时用旧 `core.head` 补 seq，`abortCommand` 无条件返回 `{aborted: true}`。这条内核路径在 `a12ae1598` 已存在；第 3 片新增的驱动失败分支只识别内核返回的 `!ok`，清单新增的成功映射把错误确认继续传到界面。
+- **核实与改法：** `bun run /tmp/t42-s3-review/tasks-probes.ts write-failure`：真实插件、远程命令和文件日志，子代理等本机模型响应时把测试进程文件大小上限设为当时的会话日志长度；停止回 `accepted`，快照为 `broken/log-broken`，`waitRun` 为 `error/log-broken`，`abortPersisted: false`。让内核停止等待者按这次命令实际提交的记录结算；若收口批没写下就回 `log-broken`，若已提交、只在后续反应批失败，仍保留已提交结果。用真实写入失败覆盖该分界；现有驱动替身测试只证明已经拿到 `stop-failed` 后的映射。
+
+## 本片新增问题（续）
+
+### 6. 已缓存归属的会话头损坏后，“打开”仍回复成功
+
+- **严重度：重要；类别：合同违例。**
+- **位置：** `packages/neuro-book/src/plugins/agent/web/plugin.ts:379–394, 897–916`；`packages/neuro-book/src/plugins/tasks/web/rows.ts:166–175`。
+- **现象：** 同一窗口成功定位会话后，切去另一个会话，前者的空闲句柄关闭。其日志第一行已损坏时，远程 `header`、重新打开的 `snapshot` 都回 `log-corrupt`；新窗口的 `focus-session` 如实失败，原窗口的 `focus-session` 却回 `{ok: true, value: null}`。任务清单不提示失败；打开前就能发现的会话头错误被拖到了聊天区。违反 conversation.md 输出 53 与 background-tasks.md 输出 25，不是计划允许的“会话头读得到、打开后才发现快照错”。
+- **原因：** 用 `sessionOwners.known(id)` 的归属缓存决定要不要预读会话头。`owner` 创建后不变，不等于磁盘上的头仍存在、可读或格式受支持；缓存也没有会话关闭时的失效通知。
+- **核实与改法：** `bun run /tmp/t42-s3-review/focus-probe.ts`：真实 Agent 浏览器入口、命令表、工作台布局、远程和文件存储；只用无 DOM 的渲染宿主初始化布局，不验证组件外观。在隔离目录破坏会话头，得到 `header: log-corrupt, snapshot: log-corrupt, cached.ok: true, fresh.ok: false`。命令每次揭示前单独检查会话头，把成功结果复用于归属判定，不让归属缓存短路失败检查。契约用例至少覆盖冷缓存、热缓存、揭示被拒及只有日志正文坏了的边界。
+
+### 7. 计划要求的真实 `focus-session` 失败合同未进入自动化测试
+
+- **严重度：建议；类别：验收缺口。**
+- **位置：** `packages/neuro-book/src/plugins/agent/web/plugin.ts:513–520, 897–916`；`packages/neuro-book/src/plugins/agent/session-host.test.ts:2589–2623`；`packages/neuro-book/e2e/agent-subagents.e2e.ts:115–133`；`packages/neuro-book/src/plugins/tasks/store.test.ts:314–342`。
+- **缺口：** Task 计划“验收映射”要求由 Agent 浏览器入口覆盖 `focus-session` 的失败。会话宿主测试的 `elsewhere` 只记录 id，不走真实命令和通知；任务窗口测试给命令表登记测试实现；本片新增 e2e 只点击成功打开的子代理行。现有这些测试没有一个能在真实 `focus-session` 吞掉失败时失败。
+- **核实与改法：** 对照提交中全部测试变化，并搜索相邻 Agent、任务窗口和工作台测试；实际失败链只在本次 `focus-probe.ts` 覆盖。把冷/热缓存的会话头失败、视图和页面命令的拒绝、编辑区转交后按返回原因提示写进真实插件装配的合同用例。用受控的晚到结果验证转交确实被等待；不要只断言命令名或把测试命令直接写成失败。
+
+## 本次验证
+
+合同测试用 Bun `1.4.4 (38afee6c8)`，共 **267 通过、0 失败**。运行目录及命令如下：
+
+| 目录 | 命令 | 结果 |
+|---|---|---|
+| `packages/nb-harness` | `bun test src/kit/sessions` | 18 通过 |
+| `packages/nb-harness` | `bun test src/kernel/log/store.test.ts` | 37 通过 |
+| `packages/neuro-book` | `bun test src/plugins/agent/task-rows.test.ts src/plugins/agent/jobs.test.ts` | 40 通过 |
+| `packages/neuro-book` | `bun test src/plugins/agent/session-host.test.ts` | 104 通过 |
+| `packages/neuro-book` | `bun test src/plugins/tasks/tasks.test.ts src/plugins/tasks/providers.test.ts` | 53 通过 |
+| `packages/neuro-book` | `bun test src/plugins/tasks/store.test.ts` | 15 通过 |
+| `packages/neuro-book` | `bunx --no-install tsc --noEmit` | 退出 0，无输出 |
+
+只读对照 `a12ae1598` 的停止收口、会话表打开、标题会话复用、任务中心与定位命令。未跑 e2e、未启动开发服务、未调用真实模型；命令探针不作为浏览器渲染证据。不将 `lastPosition` 跨 `await` 重新读取列为已证实问题：没有用真实页面挂卸复现错位。
+
+## 核对后未发现问题的方面
+
+- **已验证：** 普通根会话换运行后键随 `runId` 变；止住当前运行后用户的排队输入保留，旧运行键得 `row-gone`。前台子代理等审批时以任务行代表相同会话与运行，不重复出子会话行、不算后台件数；向父 Agent 提问仍算在跑。后台根的手动压缩实测返回 `tasks.compacting`，不进远程前台活动或后台件数，“在跑的工作”只报一项（`tasks-probes.ts compact`）。
+- **已验证：** `claim`、`unclaim`、`announce` 与 `attach` 的清单信号不唤醒送达监听。真实预算满走短回执后任务仍可由 `jobs` 查，但任务块已不列；活任务在改标题前后的键不变、组标题跟随（`tasks-probes.ts short-receipt`）。
+- **已验证：** 提供方登记代次隔离、撤回时在途停止立即得“未知”、超时结算后丢弃迟到结果，由真实任务服务合同测试覆盖。**源码核对：** Agent 先撤回清单再关会话；未装清单不登记，清单单独重启不补登记，符合已知限制。
+- **已验证：** 冷缓存下三种会话头失败码能回到调用者；视图尚未就绪的拒绝不会被 `focus-session` 吞掉。**源码核对：** 有归属的树优先走消息视图；编辑区转交调用等待命令、失败时交给通知服务；会话头可读但揭示后正文或快照读失败，仍由会话宿主显示。
+
+## 优先级与计数
+
+- **阻断：0。**
+- **重要：5。** 本片 4 条（1、2、3、6），基线根因 1 条（5，本片接入后影响新停止合同）。优先修正有归属组头能被停、真实写失败报成功，其次修运行行丢失、内部会话泄漏、热缓存定位报成功。
+- **建议：2。** 留话行键与通用规则冲突（4）；真实浏览器入口的失败合同缺测试（7）。

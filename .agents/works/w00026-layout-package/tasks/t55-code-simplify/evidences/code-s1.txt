@@ -1,0 +1,37 @@
+# S1 报告（w00026 t55 nb-layout 非 Vue 简化）
+
+计划做的项（按顺序，一项一提交）：
+1. moveLeaf 规模守卫（单独提交，含 grid.md 已知保守说明）
+2. moveLeaf 直接在活树上改（core 3，含 grid.md 改文）
+3. core 1：删 normConstraint、branchSashSizes、collapsePolicyProblem；sashCollapsePolicy 挪测试；收窄 5 个导出
+4. core 2：candidateFind -> find；cloneNode/cloneTree 合一；findBranch 复用
+5. core 6：wantsCollapse/wantsExpand + 诊断构造函数；round 变量改名；
+6. core 7：矩形 unionRects/rectsIntersect/hasSize
+7. core 8：containsPoint(margin) 共用；类型别名
+8. core 9 + vue 6(部分)：sashKey(branchId, index)
+9. core 12：scripts byCodeUnit、entries.ts
+10. core 13：零碎
+11. planBranchResize 注释
+
+进度（逐项追加）：
+1. [3530b6d37] moveLeaf 规模守卫：公式同 addLeaf；grid.test.ts 补 17 层用例（变异检查：去掉守卫则失败）；grid.md 写保守说明。+18 行。bun test grid.test.ts 通过，typecheck 通过。
+2. [a88838acb] moveLeaf 直接在活树上改：删 nextTree/originalTree、两处不可达回滚、stagedHit/stagedTarget/destination 重查；grid.md 两处改文。grid.ts -12 行净。grid.test.ts 116 通过、nb-layout bun test 505 通过、typecheck 通过。
+3. [f0a169824] core 1：删 normConstraint、branchSashSizes、collapsePolicyProblem（连 1 条测试）；sashCollapsePolicy 与 SASH_COLLAPSE_THRESHOLD 挪成 sash-drag.test.ts 本地辅助；projectGridGesture、sashDistance、LIVE_SETTLE_MS、LIVE_STICKY_PX、GRID_EDGE_RATIO_DEFAULT 去 export（rg -w 确认包外无引用）。37 增 83 删。bun test 504、vitest 354、typecheck、api:check 通过。
+4. [0619ea878] core 2：新增包内 grid-tree.ts（findInTree、cloneNode）；grid.ts 的 cloneNode/find 递归与 candidateFind、grid-gesture.ts 的 cloneTree/findBranch 递归改用它，findBranch 保留只认分支的判断。depthOf 未动（计划未列）。typecheck、bun test 504、vitest 354、api:check 通过。
+5. [2fa865fe0] core 6：wantsCollapse/wantsExpand 供两遍判定与诊断共用；noRoomToCollapse、noRoomToRestore 构造函数（放在 sash-drag.ts 内而非 grid-issue.ts：round 现在在 grid-geometry，放 grid-issue 会成环；round 移位见零碎项）供拖动与 solveSashCollapse 共用；循环变量 round 改 attempt。38 增 47 删。typecheck、bun test 504 通过。
+6. [507fb70ba] core 7：grid-rects.ts 新增包内 unionRects（含非空元组重载）、rectsIntersect、带类型谓词的 hasSize；替换 maximizePlacement 内联、grid-swap 的 union/intersects、grid-motion 的 unionRect/overlaps/两处 hasSize。41 增 36 删（含新函数与文档）。typecheck、bun test 504、api:check 通过。
+7. [49e857feb] core 8：grid-drop.ts 导出包内 containsPoint(rect, point, margin = 0)（不夹边距）；insideShownSlot 与 hitTestSashBand（调用前 Math.max(0, margin)）共用；live-drag.ts 的 inside 半开区间保留。SashPoint、SashRect 改为 GridDropPoint、GridDropRect 的别名（名字保留，vue 层在用）；DragEdgeRect 不在 api 报告也无其它引用，直接换成 GridDropRect 并删除该接口。typecheck、bun test 504、vitest 354、api:check 通过（DragActivation 等两条 warning 为原有）。
+8. [1d1cbe933] core 9 + vue 6：sashKey 改收 (branchId, index)；grid-rects.ts 两处、useSashGesture.ts 三处、SashHandle.vue、sash-feedback.ts 的 sashHitKey 同提交改调它（Vue 文件只改这一处）。typecheck(含 vue-tsc)、bun test 504、vitest 354、api:check 通过。
+9. [6755d9eb4] core 12：scripts/entries.ts（字段 subpath、name、source、vue）由 pack.ts 与 api-report.ts 共用，删 api-report 运行期的入口对账；api-components.ts 导入 api-surface 的 byCodeUnit。typecheck、bun test 504、api:check（含构建）通过。
+10. [7d42425b4] core 13：grid-geometry 加 collapsedSizeOf，sashPanelBounds 改调 collapsedRigid；grid-gesture.ts 重复 filter 算一次；splitter-session.ts 的 delta 去掉（update 里直接用 next）；round 与 metric 合一，round 放 grid-issue.ts（grid-geometry、sash-drag 改从那里导入）；dev-checks.ts 调 axisOf；live-drag.ts tick 里 followAt 的两次合成一次（afterRender 只是 nextTick 里读，不会同步改状态，核对过 layout-drag.ts）。未做（计划没列）：allocateSashPanels 合并（计划已删）、wantsCard 缓存、core 14 快照 v1 分支。typecheck、bun test 504、vitest 354、api:check 通过。
+11. [fe2f167b3] planBranchResize 注释：原写“计划不修改任何节点”，实际会把 change.collapsed 写到传入分支的孩子上；改成说明例外与调用方传候选树副本。只改注释。
+
+跳过或停下的项：无停下的项。计划没列因此没做：depthOf 并入同一遍历（调研建议，计划只写 candidateFind、cloneNode/cloneTree、findBranch）；allocateSashPanels 合并（计划已删）；wantsCard 缓存；core 4、5、14、15。
+自查：无按错误文案分支；无新增 catch；无跳过或放宽的测试（只删了随 collapsePolicyProblem 的那条用例，计划写明）；没改范围外文件（Vue 层只动 sashKey 的 3 个文件）；没删任务之外的注释（grid-issue.ts 头注释里“同 grid-geometry 的 round”因 round 搬家而改字；moveLeaf 里“按今天的结构不可达”的防御分支注释随分支删除；cloneTree 的注释“建一棵可写的预览树”搬到调用处）；没有跨包导入；没有 rm。
+最终验证（各命令自己的退出码）：
+- bun run --cwd packages/nb-layout test（bun test 504 + vitest 354）0
+- bun run --cwd packages/nb-layout typecheck 0
+- bun run --cwd packages/nb-layout api:check 0（含构建；DragActivation、DragStops 两条 warning 为原有）
+- bun run --cwd packages/nb-workbench-layout test 0（48 通过）
+- bun run --cwd packages/neuro-book typecheck 0
+总计（相对分支起点 79c113935）：11 个提交，28 个文件，252 增 323 删（含新增 grid-tree.ts、entries.ts 与测试），全在 packages/nb-layout 内。

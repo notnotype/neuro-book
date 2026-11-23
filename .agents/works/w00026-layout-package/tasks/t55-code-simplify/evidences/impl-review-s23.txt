@@ -1,0 +1,34 @@
+# t55 S2、S3 实现审查报告（只读）
+
+## 发现
+
+### 1. 建议｜文档｜packages/nb-layout/src/vue/NestedGrid.md（“滑出去的分隔线不再问宿主”下新增的一条）
+- 现象：新增句写“回调里读的响应式状态变了、或属性里的回调换了，这张表才重算”。实际上 `useSashPresentation` 的 `looks` computed 还读 `options.layers()`，布局变化、过渡每次改 `layers` 也会重算（重问一遍宿主回调）。
+- 为什么是问题：句子读起来像“其它情况都不重问”，会让宿主作者误以为布局动画期间回调不会被再问；实际与 base 一样，每次 `layers` 变（过渡中逐帧）都问。base 是每次渲染问，现在是每次 `layers` 或回调依赖变问；两者在 NestedGrid 的真实渲染触发里几乎重合，差别只在“与表无关的渲染原因”（例如 `moving`、`growing` 变化）不再重问。
+- 核实：读 useSashPresentation.ts 的 `looks`（第 62 行起）与 NestedGrid.vue 传入的 `layers: () => layers.value`。
+- 建议：把句子改成“`layers` 变化、回调里读的响应式状态变化、属性里的回调换了，这张表才重算；与这些无关的渲染不再重问”。
+
+### 2. 建议｜说明与实际不符（非回归）｜packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/LivePanelsScene.vue:174
+- 现象：S2 报告写“LivePanelsScene.vue:81、173 在函数与 computed 内即取即用”。第 174 行是 `const node = computed(() => shown.value.root())`，不读 `revision`，会缓存。S2 之后 `resizeBranches` 换树，这个 computed 在提交后仍返回旧树；base 里同一对象被原地改，所以“碰巧”是新的。
+- 影响：这个 Lab 场景用 `useGridHost` 的 `host.bindings`（带 `onGestureCommit`），所以拖分隔线会走 `resizeBranches`。但同一文件的 `layout` computed（175 行）在 extent 不变时也不重算，所以 base 里拖完分隔线后布局本来就没更新，第二次拖在 base 里同样因基线与树不一致被 `stale-baseline` 拒绝。结论：不是新增的可观察回归，只是 S2 报告的核对结论说小了。
+- 核实：读 LivePanelsScene.vue 36、37、174、175、206 行；`NestedGrid.vue` 的 `renderTree = preview?.tree ?? props.node`。未跑 Lab（不跑 e2e）。
+- 建议：不改也行；要改就让 `node` 读一下 `host.revision.value`，与 `useGridLayout.node` 同样的写法。
+
+### 3. 建议｜一致性（可不改）｜packages/nb-layout/src/grid.ts:468-476
+- 现象：新的收起收尾用 `find(entry.id, candidate)`（整棵树按 id 找）。base 是 `find(entry.branchId)` 再在该分支的孩子里按 id 找。我删掉了 `branchId` 字段，所以不能再分支内查。
+- 为什么：id 在树里唯一时两者等价；`addLeaf`、`splitLeaf` 会拒重复 id，`createGrid` 初始树不校验重复。有重复 id 的初始树里，新写法可能把 `restoreSize` 写到另一个同 id 节点。同一函数上面 `intents` 一段本来就用整树 `find(id, candidate)`，所以这是与现有写法一致，不是新引入的假设。
+- 建议：不改（窄场景、已有同样假设）。
+
+## 未发现问题的方面（逐项对照 base，读代码加跑测试）
+- 重点 1 useSashPresentation：渲染里的 `sashLooks` 与新 `looks` computed 在离开的线上等价（上一张表只在这个 computed 里读写；非离开→离开→仍离开的重算值恒等；线不在 `layers` 里时新表自然不含它，等于 base 的 layers watcher 清除）。模板渲染的 sash 项全部来自 `order.items`（同一份 `layers.value` 的 key 重排），表里一定有键，`!` 不会取到 undefined。真实宿主：WorkbenchSurface 的 `sashKind` 只读 props（projection、doc、slotPanel）；`sashStyleOf` 另读 `capLeaves`、`cardOf` 等 computed，以及非响应式的 `lastPresented.cards` 与 `separatedBarRight`。逐条看后没有可达的旧结果场景：`lastPresented.cards` 只在 `presented` 里有尺寸的叶上被同步 watcher 改写，而缩回去的叶（`drawnAsBefore` 为真）此时尺寸为零被跳过；`separatedBarRight` 与读 `cards.value` 的同一依赖一起变，同步 watcher 先于惰性重算。唯一理论边缘是 post watcher 删记录，但那时叶与它的线已不在 layers（从代码推断，没有可达场景）。BookFrame 的 `paneLabel` 读 `book.details.value.items.length` 与 `tier`，都是 ref。`sashDisabled` 仍在渲染里问，没改。
+- 重点 1 的 `buildGridBranchPanels([child], …)[0]` 与 base 的整支再取 `[index]`：函数是逐孩子 map、孩子之间互不读，等价；`index` 越界时两边都得 undefined。
+- 重点 2 useHeldLifted：与 base 的 `layerContents` 逐字等价（previousContents、heldLifted 两个闭包变量与全部分支一致）；`NestedGrid.vue` 里 `layerContents` 只有 `useContentLayer` 的 `contents: () => layerContents.value` 一处读，`useContentLayer` 内部 `options.contents()` 只在 `placements` computed 里调一次。读者仍只有一个。
+- 重点 3：NestedGrid 里创建顺序没变——`useGridMotion`（162）→ `useGridSwap`（168）及其后原位的 `watch(props.swap?.token, …, {flush: "sync"})` → … → `useSashGesture`（484）→ 开发检查 watcher（`gridDevWarner` 在 510，`{immediate: true}` 的 watcher 在后）→ 组件自己的 `onBeforeUnmount`（516）。`useSashGesture` 内部的 `onBeforeUnmount(teardown)` 先于 516 注册，卸载时先收尾手势再发 `extent: null`。`useSashPresentation`、`useHeldLifted`、`useGridSwap` 不注册任何 watcher 或钩子。`warnDev` 在 `host` 里的闭包使用晚于 setup，没有 TDZ。每实例的 `owner` 仍在 setup 里建，“每种只报一次”的范围不变。
+- 重点 4：Splitter 的 `onBeforeUnmount(scope.invalidate)` 本来就在 `useSashGesture` 的 teardown 之后（Splitter.vue 164 行先调用），teardown 的 `cancel` 在 `settle` 里先清 `binding`，随后 invalidate 的 `binding !== null` 分支不进、`resetHover` 已被 teardown 做过。`SashGestureScope.dispose` 只有 NestedGrid 卸载钩子与一条测试用；`teardown` 幂等，没有别的路径靠它（`disabled` 切换走 `scope.invalidate()`，根元素换掉走 `useSashGesture` 内部对 `root` 的 watch，两处都没改）。
+- 重点 5 S2：候选树上规划时已写好尺寸与 `collapsed`；收尾只补 `restoreSize`（`collapsedRemembering` 读的 `node.size[axis]` 在全部尺寸写完之后读，与 base 读活树等价）；展开的 `{...collapse, collapsed: false}` 规划时已写。`collapse` 对象被 `cloneNode` 共用，但仓库里所有写收起状态的地方（grid.ts 354、472、510、543，grid-gesture.ts 161）都是整个替换、没有就地改字段，所以旧树、手势会话、`layout()` 都没有被候选污染；`layout()` 没有按树缓存。`root()` 的使用方：`useGridLayout.node` 读 `revision` 后重取，其余即取即用（LivePanelsScene 174 见发现 2）。NestedGrid 对 `props.node` 的监听与 `revision` 同源，失败路径仍在换树前返回，活树不变。
+- 重点 6：4 处 `noUnusedLocals` 删除（GridSashRef、sashPanelBounds、SashCollapseState、`revisionBefore`）与去 export 的符号，全仓库 grep 无其它使用方；`GridLayoutCommitResult` 的公开出口在 `vue/index.ts` 里本来就从 `../grid-types` 转出，`useGridLayout.ts` 里删的是多余的第二条路径；api:check 未变。
+- 其它：`DropFeedbackOverlay` 的 `announcedText` 与 `labelText` 同样是 `props.label.trim()`、同样只在内容变时更新；`useGridMotion` 的 `armTimer`/`disarmTimer`/`flushGrowingStart`/`motionDuration` 与三处原写法逐行一致（`start` 里提前清计时器挪到 `armTimer`，中间没有可能触发计时器的异步点）；`useSashGesture` 的 `hoverAfterCancel` 与原五条件三元逐项等价，`axisStep` 只在非跳转键时求值一次；`hasSize` 对非空矩形与原内联判断相同；`IDLE_STATE` 共用后，换根的清理在已是空闲时不再多触发一次 shallowRef（`lifted` 值不变，无可观察差别）。
+- 验证（我自己跑）：S3 `bunx vitest run` 21 文件 354 通过；S2 `bun test src/grid.test.ts` 117 通过、`splitter.dom.test.ts` 67 通过。没跑 typecheck、e2e。
+
+## 数量
+阻断 0；重要 0；建议 3（发现 1、2、3，均不要求改）。

@@ -1,0 +1,113 @@
+# t42 第 2 片（窗口）实现审查（Sonnet）
+
+## 发现
+
+### 1. 当前项目没有行、但其他项目有在跑的时，“其他项目还有 N 件在运行”被空状态盖掉
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/tasks/web/components/TasksView.vue:113`（`empty` 的判定）与 `:147-148`（`v-if="empty"` 与 `v-else` 把两句末尾说明放在 else 里）
+- 现象：`empty = payload !== null && groups.length === 0 && more === 0`，不看 `elsewhere`。窗口开着项目 A、A 与应用、会话都没有行，项目 B 有 3 件在跑时，服务端交 `{groups: [], more: 0, elsewhere: 3}`，视图只画“没有后台任务。安装 Skill 这类要跑一阵的事会列在这里。”，`[data-rows-elsewhere]` 所在的 `v-else` 分支不渲染。
+- 为什么是问题：Spec 输出 26“列表末尾：……当前项目范围下其他项目有在跑的时写‘其他项目还有 N 件在运行’”，计划 3.6 写这句是为了让用户知道范围外还有东西在跑（审查 F25）；恰恰“当前项目什么都没有”时最需要它，反而被“没有后台任务”这句和事实相反的话盖住。dom 测试“列表末尾……”的用例带着一个 app 组，所以没覆盖到这条路径。
+- 如何核实：读代码即可确认；在 `TasksView.dom.test.ts` 用 `fakeRows([], {elsewhere: 3})` 挂载，`[data-rows-elsewhere]` 不存在、`.tasks-view__empty` 存在。
+- 建议改法：把 `empty` 改成 `groups.length === 0 && more === 0 && elsewhere === 0`；或让两条末尾说明不依赖 `v-else`，空状态下说明照写。补一条空组加 elsewhere 的 dom 用例。
+
+### 2. 会话块没有组头时，“打开”可能交给不是它贡献者的插件，被拒或点了没反应
+- 严重程度：重要；类别：正确性
+- 位置：`TasksView.vue:98-99`（`openSource` 取 `[head, ...rows]` 里第一行提供方的行）对照 `backend/groups.ts:171-177`（服务端 `open` 取最早登记的那家 `fromProvider` 的归属 `open`）；`TasksView.vue:139-141`、`:171`
+- 现象：组头为 null、块里有两家以上提供方的行时，服务端的 `group.open` 来自“generation 最小的非自己的行”那家（最早登记），窗口却把 `openSource` 记成 `rows` 排序（`byState`：在跑与等你处理在前、新到旧）后的第一行提供方的行的 plugin。两家不是同一家时 `RowsStore.open` 的 `commands.get(command).value.source !== plugin` 为真：弹“无法打开：打开方式不可用”，而这条命令明明是提供方自己的。更糟的另一个分支：`openSource === null` 而 `group.open !== null` 时按钮照画，`openGroup` 直接 return，点了没有任何反应也没有提示（目前服务端合同下不可达，但是一道静默的空操作）。
+- 为什么是问题：组头“打开”的归属信息服务端有、`RowGroup` 的 schema 没带，窗口按行序猜，两端对“哪一家”的定义不同（登记先后 vs 行的排序），只在有两家提供方、块里没有组头时才暴露，所以 dom 测试（一家提供方）与 e2e 都碰不到。
+- 如何核实：构造 `buildRows` 的输入：同一个会话 s1，家 A（先登记）交一行 owner 带 `open: {command: "a.open"}` 的非组头行，家 B（后登记）交一行更新、在跑的行；`group.open` 是 A 的命令，窗口 `openSource` 是 B。
+- 建议改法：最少改动是让 `RowGroup` 的 session 变体的 `open` 带上归属插件（例如 `openPlugin: string | null`，或把 `open` 改成 `{command, args, plugin}`），窗口直接用，删掉 `openSource` 的推断；`openGroup` 里 `openSource === null` 的分支随之消失。
+
+### 3. 分组行订阅没有处理 `onEnd`，首次订阅失败与重连后重建失败都没有重试，视图停在旧内容或空白
+- 严重程度：建议（base 的 `TasksStore.start` 同样有这个形状，但窗口的仓库是新写的，视图是它的唯一消费者）；类别：不变量
+- 位置：`web/rows.ts:86-98`
+- 现象：(a) 首次 `subscribe` 返回 `!ok`（例如窗口刚好离线、`nbook.tasks` 服务端入口还没起）只 `report` 一条就 return，`release` 为 null，`payload` 保持 null，视图什么也不画；之后没有任何东西再触发订阅，直到用户切换范围或视图隐藏再显示。(b) `RemoteSubscribeOptions.onEnd`（“订阅因提供方停止、连接结束等原因结束”，nb-runtime `contract.ts:299`；`node.ts:1120-1135` 重连后重建失败时调 `onEnd`）没传：服务端 `nbook.tasks` 重启或重建订阅失败后，仓库仍留着旧 `payload`，行上的“停止”“打开”照样能点（点了得 `row-gone`）。
+- 为什么是问题：计划 3.6 与第 3 点“远程断线重连、插件停用时订阅与在途请求怎样收口”：窗口一直开着的“后台任务”视图在服务端换一次插件后静默过期，没有诊断以外的任何痕迹。
+- 如何核实：读 `rows.ts:86-98` 与 `node.ts:1120-1135`；用测试场地让 `nbook.tasks` 的远程服务在订阅建好之后停掉并重连，观察 `payload` 是否更新。
+- 建议改法：给 `subscribe` 传 `onEnd`，里面把 `release` 置空并（带退避或在下一次可见时）重新 `resubscribe`；首次订阅失败同样排一次重试。若认为窗口都会被重建（`server-restarted` 终态由应用丢弃窗口），在注释里写明理由，并保留诊断。
+
+### 4. 行与组的出现、消失，换范围整份换内容、“停止”变“正在停止”等状态变化没有过渡
+- 严重程度：重要；类别：界面（UI 专属检查第 6 条，记忆里开发者 11-23 点名“反复犯”）
+- 位置：`TasksView.vue:148-212`（`v-for` 的组与行没有 `TransitionGroup`）、`:90-111`（范围换代时 `payload` 整份替换）、`:172`、`:202`（按钮文字与 disabled 直接换）、`:330-336`（图标与状态色没有 transition）；`web/rows.ts:72-99`（换代不清 `payload`）
+- 现象：逐个状态判断：
+  - 组展开与收起：有（`Collapsible` 的高度与透明度、箭头旋转用 `--motion-move`）。
+  - 等你处理的底色出现与消失：有（`.tasks-group[data-kind="session"]` 的 `background-color` 用 `--motion-base`）。但组头的图标（转圈换成警示图标）、“等你处理”徽标出现、状态图标颜色（失败红、中断黄）都是瞬间换。
+  - 行被提供方清掉、新行出现、会话结束整块消失、项目组随最后一件任务离开而消失：无。`<li v-for>` 与 `<section v-for>` 直接增删，下面的内容瞬间上跳或下推。
+  - 换范围（命令 `nbook.tasks.toggle-all-projects`）：`resubscribe` 不清 `payload`，旧范围的内容留着，新载荷到了整份瞬间替换，没有任何过渡；视图隐藏再显示时同理（先画旧内容再跳成新的）。
+  - “停止”变“正在停止”：只有 `disabled` 样式，没有文字或宽度过渡（按钮宽度随文字变，actions 列右对齐，左边的“打开”会被挤动）。
+  - token 都在：`nb-ui/src/tokens.css` 有 `--motion-fast`（120ms）、`--motion-base`（180ms）、`--motion-move`（280ms）、`--ease-layout`，并且 `prefers-reduced-motion` 时统一归零，所以不必再写 `TasksView.vue:348-357` 里对 `.tasks-group[data-kind="session"]` 与箭头的 `transition: none`（重复）。
+- 为什么是问题：同一应用里同类的列表都做了：`NotificationStack`、`ExplorerTree`、`WorkbenchToolStrip`、`EditorGroupHead` 都用 `TransitionGroup`。这个视图的行会被后台推送随时增删，没有过渡时用户看不出“是哪一行没了”。
+- 如何核实：读代码；在 Lab 的 `TasksFixture` 里让 `rows` 去掉一行，肉眼看是否瞬跳（没有 e2e 能测，需要人看）。
+- 建议改法：（1）行与组用一个 `TransitionGroup`（`tag` 与现有的 `ul`、`section` 容器一致），enter 与 leave 只写 `opacity` 加 `--motion-base`、`--ease-layout`；离开的行用 `@before-leave` 固定高度再收到 0，抄 `ExplorerTree.vue:620-648` 与 `:807-816` 的写法，只在 `data-motion` 期间打开，避免首次载入时整份行都做入场；（2）换范围时给 `.tasks-view__groups` 一个按范围换代的 `key` 加 opacity 淡入，或载荷到之前保持旧内容但降低透明度；（3）图标与状态色加 `transition: color var(--motion-fast) var(--ease-layout)`；（4）按钮文字变化不另做，给 `.tasks-view__actions` 一个 `min-width` 让宽度稳定即可。
+
+### 5. 分组行仓库最关键的几条路径没有测试：迟到的结果被丢、隐藏再显示、入口停止、范围切换与“看过”（验收 10）
+- 严重程度：重要；类别：测试
+- 位置：`store.test.ts:227-323`（分组行仓库三个用例）、`TasksView.dom.test.ts`；对照 Spec 验收 10、输出 28、`rows.ts:72-99`、`:158-165`
+- 现象：
+  - 仓库头注释把“范围换代丢掉迟到的结果、订阅建好时已换代的立即放掉”当作核心设计，三个用例里没有任何一条造出“旧一代的读比新一代晚到”或“订阅建好前已换代”的时序，只测了最终内容；去掉 `mine === generation` 的判断，这三条仍然全过。
+  - 没有用例覆盖：视图隐藏后订阅被放掉、再显示重订；`start(signal)` 的 abort 之后不再订阅、也不再采用迟到结果；`onResync` 重取；`stopping` 在请求失败（非 `row-gone` 的码）时的清除。
+  - Spec 验收 10（切到“全部项目”再切回：切到之前状态栏仍是失败图标，切到之后才算看过；来回切换不撤回通知）没有任何层级的测试，没有测范围切换对 `setShown` 与 `unseenFailure` 的影响，也没有测命令 `nbook.tasks.toggle-all-projects` 与 `allProjects`、`hasProject` 公开状态。
+  - 视图的 dom 测试把两个仓库都换成了替身，`stop`、`open` 的结果（被拒、未知、已不在）只在 `store.test.ts` 的真仓库里测，视图到仓库的接线只测了“点了发出 `stop <key>`”。
+- 为什么是问题：Spec 与计划把这些写成这一片的承诺（计划 3.6），而且依赖“真实运行时的时序”，最容易回归。
+- 如何核实：`rows.ts` 里把 `if (mine === generation)` 去掉再跑 `bun test src/plugins/tasks`，预期仍全过（我没有改仓库文件，这是读代码的推断，变异请主 Agent 做）。
+- 建议改法：（1）在 `store.test.ts` 用 `w.window("a")` 加一层把 `rows` 调用延迟的包装，造出旧代的读晚到，断言 `payload` 仍是新范围的；（2）补隐藏再显示、abort 后不再订阅的用例；（3）验收 10 用真的 `createTasksStore` 与 `createRowsStore` 各一份加 `setShown` 联动，写进 `store.test.ts`（它已有两个仓库的场地）；（4）命令与公开状态用 `plugin.ts` 的激活测一遍或在 e2e 里点视图头的开关。
+
+### 6. “视图可见时才订阅”用例里的否定断言会空过
+- 严重程度：建议；类别：测试
+- 位置：`store.test.ts:277-282`
+- 现象：`rows.start` 之后推进四个 `PUSH_INTERVAL_MS`（同步），紧接着 `expect(rows.payload.value).toBeNull()`。订阅与读都要 await 远程调用，这一段同步代码里本来就一次 await 也没有。把仓库改成 `start` 时就订阅，`payload` 在这个时刻同样是 null，断言照过（从代码推断，没有做变异）。
+- 如何核实：同上做变异；对照同文件另一个用例的写法（“同一条链路上的消息按序到达：这次调用的回应到了，之前排上的推送也都送到了”）。
+- 建议改法：断言前先 `await` 一次别的远程调用（例如 `await (await w.window("a")).own({})`），确保如果订阅过的话推送已经送到，再断言 null；再用一次 `setVisible(true)` 之后 `payload` 变非空作为正对照（已有）。
+
+### 7. e2e 的“打开别人的命令”其实测的是“没登记的命令”，真正的“贡献方不是它”只在假命令服务里测过
+- 严重程度：建议；类别：测试
+- 位置：`e2e/background-tasks.e2e.ts:203-205`（`open: {command: "test.tasks-probe.missing"}`、用例名“打开别人的命令提示无法打开”）、`store.test.ts:307-318`
+- 现象：e2e 里行的 `open.command` 以提供方自己的前缀开头（服务端校验要求），命令表里没有它，走的是 `commands.get` 的 `!meta.ok` 分支；用例名说的“别人的命令”（`source` 不是该提供方）走 `meta.value.source !== plugin` 的分支，只在 `store.test.ts` 里用手写的 `commands.get` 替身（`as never`）测过，没有用真的 `CommandService` 的元数据。`source` 缺失或命令被撤回后的行为同样没测。
+- 为什么是问题：用例名与实际断言不符，读的人会以为身份校验在真实命令表上验过；替身的形状（`{id, source}`）与真实 `CommandMetadata` 没有对过契约。
+- 建议改法：e2e 用例名改成“没登记的命令”；“贡献方不是它”这条在服务端校验之后 e2e 构造不出来（行上的命令必须带提供方自己的前缀），所以改在仓库测试里用真的命令服务（登记一条 `source` 是别的插件的命令），再让 `RowsStore.open` 以该命令 id 与自己的 plugin 调用；`commands.get` 的手写替身删掉。
+
+### 8. `rows.start` 没有处理“入口已经停止”的情形，`plugin.ts` 里两次 `start` 之间还隔着一个 await
+- 严重程度：建议；类别：不变量
+- 位置：`web/rows.ts:158-165`、`web/plugin.ts:111-115`；对照 `web/store.ts:170-175`
+- 现象：`TasksStore.start` 有“订阅建好前入口已停止，abort 已派发，之后挂的监听不会触发”的专门处理；`RowsStore.start` 直接 `addEventListener("abort")`。`plugin.ts` 里 `void store.start(signal)` 之后先 `await context.services.resolve(windowProjectKey)` 才 `rows.start(signal)`，这一段里入口若被停止，`stopped` 永远为假；之后视图（比如已经挂着的）报可见时 `rows.setVisible(true)` 会建一个没人会释放的订阅。
+- 如何核实：读代码；构造“resolve 期间 abort”的时序。
+- 建议改法：`start` 里先 `if (signal.aborted) {stopped = true; return;}`；或让 `createRowsStore` 在构造时接 `signal`，把 `stopped` 的判断收到一处。
+
+### 9. 行与组头标题的 id 含有空格等字符，`aria-describedby` 会指错
+- 严重程度：建议；类别：界面（可访问性）
+- 位置：`TasksView.vue:41-43`（`titleId(key)` = `<useId>-<key>`）、`:162`、`:185`、`:171-172`、`:196-206`；`TasksView.dom.test.ts:182`
+- 现象：id 属性值里有空格时，`aria-describedby` 把它当成多个 id 引用，读屏读不到标题。行的键是 `p:<插件>:<代次>:<提供方的行 id>`，行 id 只限“至多 200 个字符”，没有字符集限制；dom 测试里自己就用了 `providerRow("bun run build")`，键里有空格；项目与会话组的键 `project:<id>`、`session:<id>` 取决于它们 id 的字符集。
+- 如何核实：`document.getElementById` 在 dom 测试里取 `aria-describedby` 值对应的元素：会得到 null（空格被当分隔）。
+- 建议改法：`titleId` 用行在列表里的序号加组序号，或把键做一次 `encodeURIComponent` 再替换 `%` 为 `_`；两者都不改变其余结构。
+
+### 10. 停止结果的映射与按钮状态：`not-stoppable` 与传输失败都写成“无法确认是否已停止”，已受理后按钮立刻弹回“停止”
+- 严重程度：建议；类别：正确性
+- 位置：`web/rows.ts:127-146`
+- 现象：（1）Spec 失败码表 `not-stoppable`：调用方“不显示‘停止’”，实现落到 `else` 分支，记诊断并弹“无法确认是否已停止，请查看它的状态”，对一个根本没声明可停的行这句话是错的；它只在窗口与服务端对 `stoppable` 的看法不一致的竞态时出现，所以影响小。（2）`accepted` 不弹提示，`finally` 立刻把按钮从“正在停止”放回“停止”，而行的状态要等提供方下一次交出行才变，中间这一小段用户看到的是“按钮没反应”，也能再点一次再发一个 `stop`（对会话会再 abort 一次）。按 Spec 输出 24“结果回来之前这一行的‘停止’变成不可用的‘正在停止’”，这是照字面做的；但“已受理”之后到行变化之前也在停止中，这一段留给开发者决定要不要把按钮保持不可用到行变化或下一次推送（用 `payload.version` 变化清 `stopping`）。（3）代码质量：`notifyStop`（`rows.ts:101-103`）只是把 `tone` 换成参数的 `notifications.notify` 包装，且 `open` 里直接调 `notifications.notify`，两处写法不一致；`TasksView.vue:140` 的 `group.title as Text` 是把已翻译的字符串当 `Text` 传，类型转换没有必要（字符串本来就是合法的 `Text`），去掉即可。
+- 建议改法：`not-stoppable` 单独一个分支，记诊断后不弹；`notifyStop` 内联；（2）作为开放问题记在 Task 记录里。
+
+### 11. 新文案的几处
+- 严重程度：建议；类别：界面
+- 位置：`locales/zh-CN.json` 与 `en-US.json` 新键
+- 现象：逐句过一遍：
+  - `open.unavailable`：“无法打开：打开方式不可用”。这一句解释的是内部判断（命令表里没有这条命令、或它不是提供方贡献的），用户读不出能做什么。建议改成“无法打开这一项”（en：“Cannot open this item”）；原因已在诊断里记。
+  - `list.waiting` 与 `groups.waiting` 同一句“等你处理”两个键，视图里行的屏读标签用前者、徽标用后者；合成一个键。
+  - `stop.rejected`（“未能停止”）只在提供方没给原因时出现，这个兜底没有问题；`stop.unknown`、`stop.gone`、`list.more`、`list.elsewhere` 都是 Spec 逐字规定的，不动。
+  - `list.empty`“安装 Skill 这类要跑一阵的事会列在这里”是 Spec 输出 10 逐字规定的，且是 base 就有，不算这次的。
+  - 其余新增（`groups.*`、`state.*.reason`、命令标题）都是名字或状态，没有解释内部处理的话。
+- 建议改法：见各条。
+
+## 未发现问题的方面
+- 类型检查：`vue-tsc --noEmit -p tsconfig.web.json` 通过；`bun test src/plugins/tasks` 64 条全过；`bunx vitest run src/plugins/tasks` 10 条全过（只跑了 tasks 的）。没有跑后端 `tsc`、浏览器测试的类型配置与 e2e。
+- `rows.ts` 的世代逻辑：每次 `resubscribe` 先加世代再放旧订阅；订阅建好时世代已变的立即放掉；`take` 只采用当前世代的结果；`start` 的 abort 把世代加一并放掉订阅。竞态本身我没有找到漏洞（第 3、5、8 条是处理失败与测试覆盖的问题）。`stopping` 只在 `finally` 里清除，请求不 settle 才会残留，远程层对断线会交失败，没有发现残留路径。
+- `open` 的身份判断：命令未登记（`!meta.ok`）、贡献方不符都拒绝并弹提示；`source` 缺失时 `undefined !== plugin` 同样拒绝，方向是安全的。
+- “看过”：`TasksStore.setShown` 只把画成终态的自己的任务记为看过，且只在视图可见、页面前台时；收起的组里的终态任务不在 `shown` 里，与 Spec 输出 28“所在组展开”一致；状态栏的 `nonEmpty` 判定与 Spec 输出 27（自己的任务为空且 `background.count` 为 0）一致。我也想过“视图隐藏时 `payload` 是旧的、再显示时会不会把没看过的失败误记为看过”，推演下来不会（旧载荷里在跑的任务不算终态，终态的已经看过或在收起的组里）。
+- 网格：各组的网格列模板相同，固定宽的列相同、`fr` 列在同宽容器里分配一致，组与组之间对齐（截图 `TasksView__mixed-tall__1100x520__light.png` 里时间、进度条、按钮列都对齐）。600px 以下的两行排法：`@container (max-width: 600px)` 看的是视图自己的内容宽度，按 14px 估算一行排法的最小宽度约 580px，不会在 600 附近溢出；390 宽英文的截图（`mixed-phone-tall-english`）里组头标题被徽标与按钮挤到只剩两三个字，但没有溢出或按钮被挤出。**未能核实**：最拥挤的行（自己失败的带“重试”“详情”和移除，英文）在 390 宽的截图里没有拍到（`phone-tall` 的 520 高度只到会话块与第一个项目组）；建议补一张滚到应用组的图。
+- 按钮：行内按钮都有 `aria-describedby`（指向标题，id 问题见第 9 条）；收起箭头有 `aria-expanded` 与随状态变的可访问名称，dom 测试覆盖。
+- Spec 输出 26 的组头来源、顺序、件数与徽标：视图只消费服务端排好的 `groups`，只自己排项目组的非当前项目（按翻译后的名字），与 Spec“当前项目在前、其余按名字”一致。
+- e2e 的 `row()` 换成 `[data-row="own:…"]` 与分组视图的 DOM 一致。
+
+## 数量
+- 阻断：0
+- 重要：4（第 1、2、4、5 条）
+- 建议：7（第 3、6、7、8、9、10、11 条）

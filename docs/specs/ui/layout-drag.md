@@ -114,7 +114,7 @@ export interface DragKeyboardOptions<S, R> {
     refocus(source: S): HTMLElement | null;
 }
 
-// 跟手的零件（@notnotype/nb-layout：纯 TS，时钟与排帧由调用方给）
+// 跟手的零件（nb-layout 包内的纯 TS，不从入口导出：实时布局的编排用它们，时钟与排帧由编排给）
 export interface DragCardSize { readonly width: number; readonly height: number }
 export interface DragCardOptions {
     readonly tauMs?: number;          // 缺省 90
@@ -202,7 +202,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
     - **一帧的顺序**：跟手先读 → 判定 → 跟手写 → 取指针 → 摆预览 → 写卡片 → 交出状态 → 渲染之后的跟手。判定里这一场结束时，这一帧到此为止。指针动了、预览换了、卡片还没到、候选还没等够稳定、在容器里跟手，任一成立就排下一帧，否则停。
     - **预览只给渲染**：结构键与判定读已提交的状态，预览不改结构键。
 23. **实时布局的会话**：`createLiveDragSession(root, (live) => options)`（组件里用 `useLiveDragSession`）一次建好会话与编排，宿主只写落点与领域判断。接线的先后：
-    - 拿起全在 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动、网格在、网格的过渡时长不为 0（减少动效时是 0）时才问 `live(source, keyboard)`；它给出实时布局的来源，才把网格的过渡送到终点、开始。别的照常是落点指示。
+    - 拿起全在 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动、网格在、网格的过渡时长不为 0（减少动效时是 0）时才问 `live(source)`；它给出实时布局的来源，才把网格的过渡送到终点、开始。别的照常是落点指示。
     - 宿主的 `resolve` 返回之后，结果交给编排；收场时编排先结束（撤预览、放回跟手的），再调宿主的 `onActiveChange(false)`，都在提交之前，同一个同步段里不闪。
     - 实时布局的这一场放下时提交指针下的候选（与宿主自己的 `commitsUnderPointer` 取“或”）。会话的 `sampled` 接到编排。网格的位置拿起时读一次。
 
@@ -257,7 +257,7 @@ Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`workbench-dnd.e2e.t
 
 ## 实现合同
 
-- 公开入口：核心入口 `@notnotype/nb-layout` 的 `DRAG_GESTURE_DEFAULTS`、`defineDropKind` 与类型 `DragCancelReason`、`DragEnd`、`DragGestureConfig`、`DropKind`，跟手的零件 `createDragCard`、`createFrameLoop`（输出 20、21）；`./vue` 的 `createLiveDragSession`、`useLiveDragSession` 与类型 `LiveDragHost`、`LiveDragState`、`LiveDropFacts`、`LiveShowTarget`、`LiveGrid`（输出 22、23），`createDragSession`、`useDragSession`、`registerDropTarget`、`useDropTarget`、`dropTargetAt` 与类型 `DragSession`、`DragSessionOptions`、`DragSessionHandle`、`DragQuery`、`DragKeyboardOptions`、`DragState`。签名与用法见 [drag-session](../../../packages/nb-layout/src/vue/drag-session.md) 与 [drag-card](../../../packages/nb-layout/src/drag-card.md)。
+- 公开入口：核心入口 `@notnotype/nb-layout` 的 `DRAG_GESTURE_DEFAULTS`、`defineDropKind` 与类型 `DragCancelReason`、`DragEnd`、`DragGestureConfig`、`DropKind`；跟手的卡片与帧循环（输出 20、21）是包内零件，经实时布局的编排使用，不从入口导出；`./vue` 的 `createLiveDragSession`、`useLiveDragSession` 与类型 `LiveDragHost`、`LiveDragState`、`LiveDropFacts`、`LiveShowTarget`、`LiveGrid`（输出 22、23），`createDragSession`、`useDragSession`、`registerDropTarget`、`useDropTarget`、`dropTargetAt` 与类型 `DragSession`、`DragSessionOptions`、`DragSessionHandle`、`DragQuery`、`DragKeyboardOptions`、`DragState`。签名与用法见 [drag-session](../../../packages/nb-layout/src/vue/drag-session.md) 与 [drag-card](../../../packages/nb-layout/src/drag-card.md)。
 - owner 与依赖方向：owner 是 `ui`；手势状态机在核心入口，不依赖 Vue 与 DOM；DOM 适配与落点登记在 `./vue`。工作台、编辑器标签与资源树只经这两个入口用它，库不引用它们（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
 - 不变量：
   - 状态机只收事件、出状态与收场，不碰 DOM；核心源码不引用全局 `window`、`document`，整个会话不写持久化、不发网络请求（[`boundary.test.ts`](../../../packages/nb-layout/src/boundary.test.ts) 扫源码守着）。

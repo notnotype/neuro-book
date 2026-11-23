@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t55-code-simplify
-status: active
+status: done
 updated: 2026-11-23
 ---
 
@@ -25,6 +25,23 @@ t49 做完后，用 /simplify 把 w00026 期间 nb-layout、nb-workbench-layout 
 
 开发者 2026-11-23 定（plan 的“公开面与待定”）：nb-layout 那几个没有使用方的公开名字在发布前删掉（切片 S7），0.1.0 等 t55 合入后再发；nb-workbench-layout 的 `showPanelAndInsert`、`splitIntoSections` 删掉；工作台接网格诊断另开 Task。
 
-## 下一步
+## 结果
 
-计划审查一轮（Claude Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)）：阻断 0、重要 6、建议 9，全部成立，计划已改（见 plan 的“计划审查”）。在 master 上跑 e2e 基线；S1、S4、S6 并行开工。
+2026-11-23 完成，合入 master（`a11a86cf0`）。七片都由 Claude Sonnet 在各自的 worktree 里改（报告 [`evidences/code-s1.txt`](evidences/code-s1.txt) 到 `code-s7.txt`），主会话审 diff、跑验证；生产代码加测试合计约 100 个文件，净删约 250 行。
+
+- S1 nb-layout 核心：删无调用方的函数与导出，树查找与克隆、矩形工具、分隔条键各只留一份，`moveLeaf` 补规模守卫（Spec 失败 5）并直接在活树上改。
+- S2 两个手势会话：试抽公共核心只净省 10 行，按止损整段回退；`resizeBranches` 改成规划通过后整棵换候选树。
+- S3 Vue 层：`NestedGrid.vue` 拆出 `useHeldLifted`、`useSashPresentation`、`useGridSwap` 与开发检查（1004 行到 850 行），分隔线的宿主回调每次重算只问一次；删多余的卸载收尾与未用导出，开了 `noUnusedLocals`。
+- S4 nb-workbench-layout：标签条整条只读一遍 DOM、键盘停靠点一次快照；删 `showPanelAndInsert`、`splitIntoSections`；入口改显式清单。
+- S5 工作台：一次判定只量一次几何；落点键、“已独占一个窗”、视图标签键各一处出处。“区域空了时用哪个容器”改调 `soleContainerOf` 没做：两者对“区域外带容器的记录”结果不同。
+- S6 宿主：Lab 验收场景的记录收成对象，nb-story 换边拖动搬成 `detail-swap-drag.ts`。
+- S7 公开面（开发者定）：删 `Grid.resize`、`resizeBranch`、`GridGestureSession.setCollapsed`，`live(source)` 去掉恒假的 `keyboard`，`useLiveDragSession` 不再返回 `session`、`live`，根入口不再导出低层积木；`resolveGridInsertion` 随之没有调用方，一并删除。SDK 快照不变。
+- 实现审查（S2、S3，Claude Sonnet，[`evidences/impl-review-s23.txt`](evidences/impl-review-s23.txt)）：阻断 0、重要 0、建议 3。改了 `NestedGrid.md` 的措辞；修了 Lab 卡片互拖场景拖完分隔线不重读树（改前就有，补 e2e，变异后失败）；重复 id 那条不改（初始树有重复 id 才出现）。
+- Spec：`ui/nested-grid` 输出 153 去掉 `resize`；`ui/layout-drag` 的跟手卡片与帧循环写成包内零件，`live(source)`。
+
+验证：
+- 改前基线（master）：应用 20 个 e2e 文件 385 条，加 nb-story 换边 19 条，全过（`lab-tab-strip:41` 单独重跑过）。
+- 改后两轮集成 e2e 与 S7 的 6 个文件（95 条）都对照基线：没过的都单独重跑通过；只有 `workbench-float:316` 在 master 上 `--repeat-each=8` 也失败 1 次，算原有偶发。
+- 各包单元与 dom 测试、类型检查、`api:check` 在合入后的 master 上重跑通过。
+
+发布：0.1.0 在 t55 合入之前已从 `85e34f4f5` 发出（带 `resize`、`resizeBranch`、`live(source, keyboard)` 等），所以 S7 的删除对已发版本是不兼容的改动，提成 0.2.0（`9df83e25a`，变更记录定稿）。开发者推 master、在 npm 网页认证后本机发布 `@notnotype/nb-layout@0.2.0`；应用与 SDK 的 0.16.0 由 v0.16.0 的标签流水线发，本机发布等它发完才跑，只发了 nb-layout。registry 冒烟通过（[`evidences/registry-smoke-0.2.0.txt`](evidences/registry-smoke-0.2.0.txt)）。nb-story 的网页包随 nb-layout 变了字节，没提版本，留到它下次发布。

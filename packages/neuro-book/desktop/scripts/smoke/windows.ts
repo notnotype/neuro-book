@@ -172,9 +172,13 @@ export function waitFor<T>(label: string, probe: () => T | Promise<T>, timeoutMs
 export async function skipFirstRun(page: Page, log: (line: string) => void): Promise<void> {
     const wizard = page.locator("[data-first-run-wizard]");
     await wizard.waitFor({timeout: 60_000});
-    await page.locator("[data-first-run-secondary]").click();
+    const skip = page.locator("[data-first-run-secondary]");
+    // 更新提示与向导同时在时，提示（在页面根里、层级高于对话框）可能盖在“跳过”上：点击被它截住，30 秒也点不下去
+    // （v0.16.0 的上一版升级就这样失败）。盖住时直接在按钮上派发点击，走的是同一个处理函数。
+    const covered = await skip.click({timeout: 5_000}).then(() => false, () => true);
+    if (covered) await skip.dispatchEvent("click");
     await wizard.waitFor({state: "detached", timeout: 30_000});
-    log("✓ 首次启动向导：出现了，按“跳过”关掉");
+    log(`✓ 首次启动向导：出现了，按“跳过”关掉${covered ? "（按钮被别的元素盖住，直接派发了点击）" : ""}`);
 }
 
 export async function connectPage(port: number, webViewData: string, timeoutMs = 120_000): Promise<{browser: Browser; page: Page}> {

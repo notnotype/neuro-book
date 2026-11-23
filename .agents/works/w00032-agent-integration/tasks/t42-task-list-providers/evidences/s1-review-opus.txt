@@ -1,0 +1,121 @@
+# w00032 t42 第 1 片实现审查（Opus）
+
+审查对象：`bf4abac78^..d592d0d52`，worktree `.worktree/review-t42-s1`。实验文件只放在 `/tmp/t42-review/`（仓库外）；变异检查改过的文件都已用 `git checkout --` 恢复，见各条。
+
+## 1. 重要：一家提供方的 `startedAt`/`endedAt` 取超大有限数，所有窗口的 `rows` 与 `rowsChanged` 一起坏掉
+
+- 类别：正确性、隔离（输出 19、20 与“边界与兼容”的“一家的行不合格或出错只影响它自己”）
+- 位置：`backend/providers.ts:238-239`（只查 `Number.isFinite`）；`backend/groups.ts:40`、`groups.ts:72`（`new Date(x).toISOString()`）
+- 现象：`#accept` 只要求时刻是有限数。`|x| > 8.64e15` 的有限数（例如 `1e16`，或提供方误把微秒、纳秒当毫秒）通过校验进了快照，`buildRows` 里 `toISOString()` 抛 `RangeError`。`core.rows()` 整个抛出：远程读 `rows` 得 `provider-error`，每个 `rowsChanged` 订阅的合并器每次都记 `push-failed`、不推。只要这一行还在，任何一家的变化都推不出去；`provider-row-invalid` 不记，看不出是哪一家。`own` 不受影响（`backgroundSummary` 不转 ISO）。
+- 如何核实：`/tmp/t42-review/probe.test.ts` 用例 A：两家提供方，`good` 交正常行，`bad` 交 `startedAt: 1e16`。结果 `rows` 得 `{"ok":false,"code":"provider-error"}`，订阅后推进 4 个间隔收到 0 次推送、`tasks.push-failed` 1 条、`tasks.provider-row-invalid` 0 条。
+- 建议改法：`#accept` 里时刻按 `Date` 的可表示范围校验（例如 `Number.isFinite(x) && Math.abs(x) <= 8.64e15`，或直接 `!Number.isNaN(new Date(x).getTime())`），不合格记 `provider-row-invalid`（“bad startedAt”）。`endedAt` 同理。可以顺手把 ISO 转换挪进 `#accept`，`AcceptedRow` 直接存 ISO 字符串，`groups.ts` 不再有会抛的转换（行一次读多处用，也省掉每个订阅每次的重复转换）。
+
+## 2. 重要：行的校验与归一不在 `rows()` 的 try 里：交出的行在取字段时抛错，这一轮所有窗口都失败、这家的旧行留着、没有诊断
+
+- 类别：正确性、隔离（输出 20：“一家的 `rows()` 抛错时，这一家的行清空、记诊断 `provider-failed`，别家照常”）
+- 位置：`backend/providers.ts:199-229`（try 只包 `entry.provider.rows()` 与 `Array.isArray`）；`providers.ts:123-133`（`snapshot` 先清脏标记再读，抛错时版本不加）
+- 现象：`rows()` 交回的数组里有一行取字段会抛（getter、Proxy，或数组自定义了迭代器），异常从 `#accept` 穿出 `#read`、`snapshot()`：
+  - 这一轮 `core.rows()`、`core.own()`、`core.stop()` 都抛：远程 `rows` 得 `provider-error`，所有订阅这一轮都推不出去；在途的 `stop` 的远程调用也失败（不是 `row-gone` 也不是 `unknown`）。
+  - 这一家的脏标记已清、`entry.rows` 没被重写：下一轮它不再被读，**旧一份的行留在清单里**（没有清空），直到它下一次 `notify`；排在它后面、同样脏的别家这一轮没读到。
+  - 不记 `provider-failed`，诊断里看不出是哪一家。
+- 如何核实：`/tmp/t42-review/probe.test.ts` 用例 B：`bad` 交 `[{get id() { throw … }}]`。第一次 `rows` 得 `provider-error`，`tasks.provider-failed` 0 条；第二次 `rows` 才成功（`bad` 已不脏，按旧行算）。
+- 建议改法：把“读一家”整个包进一次 try（`rows()`、迭代、逐行 `#accept`、上限取舍），抛错时照 `rows()` 抛错处理（行清空、记 `provider-failed`）。`snapshot()` 里一家出错不影响后面几家继续读。
+
+## 3. 重要：一家超过 100 行时丢掉的行不计进 `more`、不进 `background` 的件数、也不记诊断
+
+- 类别：正确性（输出 23 的 `more`“范围内因上限没列出的件数”、输出 26“另有 N 件没列出”、输出 27 的件数）、可诊断性
+- 位置：`backend/providers.ts:224-228`；`backend/groups.ts:141`（`more = scoped.length - items.length` 只数整份修剪）；`groups.ts:165-170`
+- 现象：在 `#read` 里一家超过 100 行就直接截掉，截掉的行从此在清单里不存在：
+  - `more` 只数 `trim` 去掉的，截掉的不算，视图不会写“另有 N 件没列出”；
+  - 截掉的在跑行（一家在跑的就超过 100 件时，`[...live, ...ended].slice(0, 100)` 按提供方给的顺序截掉在跑的）不进 `background.count`，状态栏件数少报；
+  - 不记任何诊断：计划 3.1 写的是“超出的行丢掉、记诊断 `provider-row-invalid`”，现在提供方越界完全无声。
+- 如何核实：`/tmp/t42-review/probe.test.ts` 用例 D：一家交 150 行在跑的。`rows` 列 100 行、`more: 0`，诊断里没有任何 `tasks.*` 记录，`own` 的 `background.count` 是 100。
+- 建议改法：截掉时记一次诊断（这一家、交了几行、截掉几行；连续超限只记一次，同 `provider-failed`）。`AcceptedRow` 之外给这一家记一个“截掉的件数”（按归属分开，或至少整数）让 `buildRows` 在范围内的加进 `more`；`background` 的件数用截前的在跑非前台件数。若决定不计，就在 Spec 输出 19/23 写明“一家超限截掉的不计进 `more`”，避免视图的“另有 N 件”与实际不符。
+
+## 4. 重要：`providers.test.ts` 有几条判据没有真被测到（变异检查 6 处，4 处删掉实现照样全过）
+
+- 类别：测试
+- 位置：`src/plugins/tasks/providers.test.ts`；对应实现 `backend/providers.ts`、`backend/core.ts`
+- 现象与核实（每次只改一处，跑 `bun test src/plugins/tasks` 共 45 条，跑完 `git checkout -- src/plugins/tasks` 恢复，`git status` 干净）：
+  1. **2 KiB 上限没测到**：把 `providers.ts:273` 的大小检查换成空语句，45 条全过。用例“不合格的行逐行丢掉”里的 `huge` 行，标题是 `{"zh-CN": "长"×400, "en-US": "x"×400}`，序列化约 1.6 KiB，先在 `normalizeText` 因“结构化文字超过 1 KiB”被丢（`bad title`），到不了 2 KiB 的检查。诊断条数 4 照样对得上。
+  2. **撤回后“推送一次”没测到**：把 `providers.ts:192` 的 `if (push)` 改成 `if (false)`，45 条全过。所有撤回用例都用 `rows` 读来断言，没有一条看撤回之后订阅收到了推送（输出 21“再退订，丢掉它的行与回调，推送一次”）。
+  3. **“按最新读到的行查键”没测到**：删掉 `providers.ts:139` `stop` 里的 `this.snapshot()`，45 条全过。用例每次都先 `rows` 读一遍再停，快照总是新的；没有“提供方 `notify` 去掉这一行之后、下一次推送之前点停止，得 `row-gone`、提供方没收到 `stop`”这条。
+  4. **“撤回之后旧 `notify` 不起作用”是空测**：删掉 `providers.ts:99` 的 `if (entry.sealed) return;`，45 条全过。撤回后表项已移出 `#entries`，旧 `notify` 只会多触发一次重算，断言 `rows` 为空本来就成立。（这一条可观察的差别本来就小，见第 8 条；但用例名声称测了它。）
+  5. **“清单关闭”用例没走 `close()`**：删掉 `core.ts:336` 的 `providers.close()`，45 条全过。`hub.stop()` 时依赖方（测试插件）先停、门面先释放，走的是 `release` 那条路；`core.close()` 里的撤回从没被执行。用例也没断言在途的 `stop` 交回了“未知”（`void client.stop(...)`），只看了信号与退订。
+  6. 对照：去掉 `ownChanged` 去重、去掉撤回时结算在途、去掉 `core.release` 里的撤回，各有用例失败，这三条是测到的。
+- 为什么是问题：计划第 6 节把输出 18–24 与验收 7–9 映射到这份文件；上面 1–3 是 Spec 明写的行为，删掉实现不失败，回归时不会被发现。
+- 建议改法：1 用字面字符串凑满（例如 `message: "长"×500`、`kindLabel: "长"×200`、`title: "长"×200`，加 `owner` 的会话标题与 `open` 参数，确认单独都合格、合起来超 2 KiB）；2 订阅 `rowsChanged`，撤回后推进一个间隔，断言收到没有这家行的一份；3 提供方 `set([])` 后不读 `rows`、直接 `stop` 旧键，断言 `row-gone` 与 `stops` 为空；5 要么承认 `close()` 里的撤回是兜底、用例改名不声称测它，要么用核心直接构造一个门面未释放就 `close()` 的场景（真实运行时下不会发生的话，前者更诚实）。
+
+## 5. 重要：两类诊断随提供方的 `notify` 反复记：坏行每读一次记一次；自己的任务超限时每次提供方变化每个窗口记一次
+
+- 类别：正确性（验收 8“诊断各记一条”）、性能与可诊断性
+- 位置：`backend/providers.ts:213-218`（`provider-row-invalid` 每次 `#read` 对每个坏行都记）；`backend/remote.ts:27-33`（`list-too-large` 在 `bounded` 里记，`ownChanged` 的每个订阅每次重算都调）
+- 现象：
+  - 一家持续交着一行不合格的行，它每 `notify` 一次（Agent 的后台命令每出一行就 `notify`，计划 3.2）就再记一条 `provider-row-invalid`。`provider-failed` 做了“连续失败只记一次”，这一类没做。
+  - v1 时 `list-too-large` 只在自己的任务变化时重算才记；现在 `ownChanged` 也听提供方的变化（为了 `background`），自己的任务超过 512 KiB 时，任何一家提供方的每次变化都让每个窗口的订阅各记一条（每个订阅每秒至多 4 条）。
+  - 诊断表通常有界（按条数或时长滚动），持续的刷写会把别的有用记录挤掉。
+- 如何核实：`/tmp/t42-review/probe.test.ts` 用例 C：一家交 `kind: "BAD"` 的一行，`notify` 并读 5 次，`tasks.provider-row-invalid` 记了 5 条。`list-too-large` 一条从代码推断：`bounded` 每次被 `follow` 的 `compute` 调用都走 `report`，现有用例“清单太大”只断言了 `>= 2`。
+- 建议改法：`provider-row-invalid` 按（这一家、行 id、原因）去重，行变合格或消失后再清掉，或者照 `provider-failed` 做“这一家这一代上次已经报过同样的坏行就不再记”；`list-too-large` 只在超限状态从无到有时记一次（`bounded` 外面记一个“上次是否超限”），恢复后清掉。
+
+## 6. 建议：热路径上每个订阅每次重算都整份序列化两遍；计划 3.2 的“两个变化信号”没有做，也没在计划或注释里写明放弃
+
+- 类别：性能、与计划不一致
+- 位置：`backend/core.ts:116-123`（只有一个 `notify`，提供方与自己的任务共用）；`backend/remote.ts:27-30`、`remote.ts:79`（`ownChanged`：`bounded` 先 `JSON.stringify` 量大小，`same` 再 `JSON.stringify` 一遍作指纹）；`remote.ts:86` 与 `groups.ts:59`、`groups.ts:72-79`（`rowsChanged`：每行 `JSON.stringify` 量字节、`toISOString`，再整份 `JSON.stringify` 作指纹）
+- 现象：计划 3.2 写“核心拆两个变化信号……Agent 的后台命令每出一行都会 `notify`，不让所有窗口的 `own` 跟着重推”。实现只有一个信号，靠内容去重挡住重推，但每次提供方变化，每个窗口的 `ownChanged` 都要重建整份自己的任务（至多 50 件结束的加全部在跑的）并序列化两遍；`rowsChanged` 每个订阅都对共享快照里的每一行重新转 ISO、重新量字节，再整份序列化一遍。N 个窗口、每秒 4 次，代价随 N 与行数线性涨。计划 3.3 后面又写了 `ownChanged` 也听提供方，两节之间本身有矛盾，代码选了 3.3 但没回写 3.2。
+- 为什么是问题：输出 20 的“一次变化只读一次”只保证了 `rows()` 只调一次，序列化的开销没有共享；这正是 Agent 后台命令高频输出时的路径。
+- 如何核实：读代码；`remote.ts:29` 与 `remote.ts:79` 对同一个 `payload` 各序列化一次。
+- 建议改法：`bounded` 交回 `{payload, json}`，指纹直接用量大小时那份字符串；`AcceptedRow` 在 `#accept` 里一次算好 ISO 时刻与 `ListedRow` 的字节数（快照共享，读一次、用到下次读），`buildRows` 只做过滤、修剪与分组；`ownChanged` 的指纹可以拆成“自己的任务的修订号 + `background` 的序列化”，自己的任务没变时不重建 `tasks`。计划 3.2 那句按实际改掉。
+
+## 7. 建议：2 KiB 量的是内部的 `AcceptedRow`，不是发出去的 `ListedRow`：会话块的归属算进了行的大小，两者口径差可到 1.3 KiB
+
+- 类别：正确性（输入与前置条件“一行编码后至多 2 KiB”的口径）
+- 位置：`backend/providers.ts:273`
+- 现象：`AcceptedRow` 带 `owner`（会话 id、标题、组头的 `open`）、`id`、`plugin`、`generation`、`head`，这些都不在 `ListedRow` 里；`ListedRow` 反过来多 `source`、ISO 时刻与 `own: null`。实测（`/tmp/t42-review/size2.ts`）：
+  - 归属是应用、id 很短时，`AcceptedRow` 332 字节、`ListedRow` 338 字节：发出去的比量的多 6 字节，量出 2045 字节的行发出去约 2051，略超 2 KiB；
+  - 会话 id 200 字符、标题 200 个汉字、`open` 两个 200 字符参数时，`AcceptedRow` 1628 字节、`ListedRow` 只有 338：同一家同一个会话的每一行都重复背着这 1.3 KiB 的归属，留给标题与进展的只剩约 400 字节，Agent 的会话行标题稍长就会被当“over 2048 bytes”丢掉。
+- 为什么是问题：Spec 没说“一行”指哪个形状；按现在的量法，提供方没法从 Spec 推出自己的行会不会被丢，而且被丢的原因（归属太大）与诊断写的不符。整份修剪的估算本来就另给每组 2 KiB（组外壳实测 1348 字节），归属不必再算进每一行。
+- 建议改法：量“这一行发出去的 `ListedRow` + 归属单独量”：行按 `ListedRow` 量 2 KiB，归属（`owner` 序列化后）另设上限（例如 1.5 KiB，与 `GROUP_OVERHEAD_BYTES` 的估算对上）；或在 Spec 写明“行与它的归属合起来编码后至多 2 KiB”。配合第 6 条，在 `#accept` 里就构造 `ListedRow` 并量它。
+
+## 8. 建议：撤回路径上有多余的状态与不可达分支
+
+- 类别：代码质量
+- 位置：`backend/providers.ts:108-113`（`revoked` 标志）、`providers.ts:99`（`notify` 里的 `sealed` 检查）；`backend/groups.ts:124`（标题的三元回退 `: session`）
+- 现象：
+  - 撤回函数的 `revoked` 与 `entry.sealed` 重复：`#revoke` 第一步就置 `sealed`，之后 `if (!entry.sealed)` 已挡住第二次；同一个调用方重新登记得到的是新的表项，旧撤回函数闭包里的还是旧表项（已 `sealed`）。变异：删掉 `if (revoked) return;`，45 条全过。
+  - `notify` 闭包里的 `sealed` 检查：撤回后表项已移出 `#entries`，`dirty = true` 落在没人读的对象上，唯一的效果是挡住一次多余的 `changed()`（随后被内容去重吞掉）。保留可以，但注释“撤回之后调用不起作用”靠的其实是“移出表”，不是这一行；第 4 条第 4 项的用例因此是空测。
+  - `sessionGroup` 只对 `owner.kind === "session"` 的行调用，标题三元的 `: session` 分支不可达，读的人会以为有一种“会话块却没有会话归属”的情形。
+- 建议改法：删掉 `revoked`；`notify` 的 `sealed` 检查留着但注释写明它只省一次重算；`sessionGroup` 的参数直接收已经收窄成会话归属的 `Item`（或取标题时断言），去掉回退分支。
+
+## 9. 建议：整份修剪的估算不计行之间的逗号与信封，极端情形下超过 512 KiB；`remote.ts` 的注释写“不会超”
+
+- 类别：正确性（输出 23 的 512 KiB）、注释
+- 位置：`backend/groups.ts:94-96`；`backend/remote.ts:6`
+- 现象：`trim` 的总量是各行字节之和加每组 2 KiB，数组里行与行之间的逗号（每行 1 字节）与 `{version, groups, more, elsewhere}` 的外壳不算。只有一组时余量约 2 KiB，行数一多逗号就吃掉余量。实测（`/tmp/t42-review/size.ts`，直接调 `buildRows`）：2500 行最小的提供方行（单字母插件、空标题，每行约 260 字节）都在应用组里，修剪后留 1980 行、整份 524293 字节，超出 524288 字节 5 字节。要凑出这个需要 20 家各交满 100 行的极小行，实际几乎不会发生；离远程的 1 MiB 也还很远。
+- 为什么是问题：数字小，但注释与 Spec 写的是硬上限，估算却不是上界；以后有人调小 `GROUP_OVERHEAD_BYTES` 或行变小时会悄悄越界。
+- 建议改法：每行字节数加 1（逗号），总量另加一个固定的外壳余量（例如 128 字节）；或修剪后整份量一次，超了再按同样的先后多删一批（只在超限时才多一次序列化）。注释改成“估算按上界算”。
+
+## 10. 建议：类型名与 Spec 对不上；自己的任务的 `owner` schema 允许 `open`
+
+- 类别：兼容、合同一致性
+- 位置：`shared/contracts.ts:16-29`、`contracts.ts:132-136`、`contracts.ts:152`；主工作区 Spec `docs/specs/workbench/background-tasks.md` 的“边界与兼容”第一条
+- 现象：
+  - Spec“边界与兼容”把公开类型写成 `TaskProvider`、`ProvidedRow`、`TaskOwner`；代码导出的是 `OwnTaskOwner`、`RowOwner`，没有 `TaskOwner`（Spec 的“输入与前置条件”与计划用的也是 `OwnTaskOwner`/`RowOwner`，Spec 内部自相矛盾）。
+  - `TaskOwnerSchema` 实际是“行的归属”（会话那一支带 `open?`），却同时用作 `TaskItemSchema.owner`：远程合同允许自己的任务带 `open`，与输出 26“只有提供方的行能带 open”不符。现在靠 `normalizeOwner` 挡住，合同本身不表达这条规则；第 2 片窗口按 schema 推类型时，`TaskItem.owner` 会是带 `open?` 的联合。
+- 建议改法：schema 拆成 `OwnTaskOwnerSchema`（无 `open`）与 `RowOwnerSchema`，`TaskItemSchema.owner` 用前者，`normalizeOwner` 直接 `Value.Check(OwnTaskOwnerSchema)`、去掉手写的 `open !== undefined` 判断；Spec“边界与兼容”的类型名改成与代码一致。
+
+## 未发现问题的方面
+
+- **在途 `stop` 只结算一次**：撤回、10 秒到点、提供方晚到的结果三条路都经 `flight.settle` 的 `settled` 标志，计时器在结算时取消；撤回与 `close()` 都先 abort 再结算。变异：去掉撤回时的结算，“撤回时在途的立即交回未知”用例失败。
+- **代次与键**：插件 id 段是 `^[a-z][a-z0-9-]*$`（`nb-runtime/src/plugin-manifest/schema.ts:18`），不含冒号，`^p:([^:]+):(\d+):(.+)$` 能正确拆出含冒号的行 id；代次全局递增，同一个调用方重新登记得新代次，旧键 `row-gone`（d592d0d52 的用例覆盖）。
+- **门面释放后的再登记**：`nb-runtime` 的按调用方门面释放后即作废（`services/per-consumer.ts` 的 `revocableFacade`），释放后的 `provide` 抛 `ServiceRevokedError`，不会留下没人撤回的表项。
+- **`rows()` 里同步调撤回函数或 `notify`**：撤回从 `#entries` 删表项、`Map` 迭代中删除是安全的；随后 `#read` 写回的行落在已移出的表项上，不进快照。`notify` 留到下一轮（先清脏再读）。
+- **`subscribe` 抛错、退订抛错**：前者删表项并同步抛 `TypeError`；后者记 `provider-unsubscribe-failed` 后继续丢行、推送。
+- **`rowsChanged` 去掉版本号的去重、`own` 超限跳过**：按内容去重成立（变异：去掉去重，两条用例失败）；`own` 超限时照 v1 跳过推送（已知限制 omp 13）。
+- **一次变化只读一次**：`snapshot()` 只读脏的家，第二个订阅拿到同一份快照。
+- **修剪顺序**与 Spec 输出 23 一致；自己失败的任务不进删除序列。组外壳实测 1348 字节（会话 id 200 字符、标题 200 个汉字、`open` 两个 200 字符参数），在每组 2 KiB 的估算内（溢出只在第 9 条的极端情形）。
+- **兼容**：v1 的 `list`、`changed` 已删、版本升到 2；`tasks.test.ts`、`store.test.ts` 的改动只是换方法名与取 `.tasks`；`bunx tsc --noEmit` 通过，`bun test src/plugins/tasks` 45 条全过。
+- **`start()` 的 `owner`**：不合格与带 `open` 都同步抛 `TypeError`，且在登记前（`normalizeOwner` 在建记录时调用，抛错时什么都没登记）。
+
+## 各级数量
+
+阻断 0；重要 5（第 1–5 条）；建议 5（第 6–10 条）。
