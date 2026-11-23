@@ -942,7 +942,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                                 report("plugin-names-failed", listed.code);
                                 return new Map();
                             }
-                            return new Map(listed.value.plugins.flatMap((plugin) => (plugin.displayName === undefined ? [] : [[plugin.id, plugin.displayName] as const])));
+                            // 内置插件与没写显示名的第三方插件是 null（不是 undefined）：不进表，按内置名或 id 显示（`profile-page.ts` 的 `pluginName`）。
+                            return new Map(listed.value.plugins.flatMap((plugin) => (plugin.displayName === null ? [] : [[plugin.id, plugin.displayName] as const])));
                         },
                         models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels, rows: profileRows, lookup: profileLookup, want: (references) => {
                             pageReferences = references;
