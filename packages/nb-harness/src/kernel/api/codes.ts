@@ -31,8 +31,10 @@ export const commandErrors = {
     setGeneratedMeta: ["empty-meta", "command-id-conflict", "session-closed", "log-broken"],
 } as const;
 
-/** 只给宿主的指令（docs/specs/harness/runtime.md 输出 72）：把 `SessionApi` 逐个方法暴露成远程服务的层要排除它们。 */
-/** `notice`：用户的话本来就是新话，提醒只给会话与宿主（runtime.md 输出 112）。 */
+/**
+ * 只给宿主的指令（docs/specs/harness/runtime.md 输出 72）：把 `SessionApi` 逐个方法暴露成远程服务的层要排除它们。`setGeneratedMeta`
+ * 是自动生成的标题与说明，只由宿主写；`notice` 只给会话与宿主，用户的话本来就是新话（输出 112）。
+ */
 export const hostOnlyCommands = ["setGeneratedMeta", "notice"] as const;
 export type HostOnlyCommand = (typeof hostOnlyCommands)[number];
 

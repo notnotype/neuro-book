@@ -19,6 +19,7 @@ import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
+import {gateDraft} from "../run/wake.js";
 import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, noticeCommand, wakeIfDue, releaseCommand, removeCommand, removeNoticeCommand, resumeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
@@ -371,7 +372,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 })(),
                 buffer: [...kernel.buffer],
                 notices: [...kernel.notices],
-                wakeGate: kernel.wakeGate === null ? {open: false, cause: null} : {...kernel.wakeGate},
+                wakeGate: {...kernel.wakeGate},
                 settings: kernel.core,
                 extensionSettings: kernel.settings,
                 title: kernel.title,
@@ -531,7 +532,7 @@ export async function createSession(env: SessionEnv, given: CreateSessionOptions
             {type: "sessionCreated", kind: "ctrl", scope: "path", data: {initial}},
             {type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: assembly.hash, from: null, reason: "created", manifest: assembly.manifest as unknown as JsonValue}},
             // 新会话的门是开的；没有门事件的旧日志按关着算（runtime.md 输出 117）。
-            {type: "wakeGate", kind: "ctrl", scope: "session", data: {open: true, cause: "created"}},
+            gateDraft(true, "created"),
         ], state.react));
         await state.mounts.mountAll(state.environment);
         await core.queue.drain();
@@ -636,7 +637,7 @@ async function forkSession(env: SessionEnv, core: SessionCore, leaf: string | nu
     const lastProfile = [...core.events].reverse().find((event) => event.type === "profileChanged");
     const carried = [...(lastProfile === undefined ? [] : [lastProfile]), ...core.events.filter((event) => event.type === "settingsChanged")];
     // fork 出来的是新会话：门是开的，不带来源会话的门与待发提醒（runtime.md 输出 117）。
-    const gate: LogEvent = {id: core.newId(), seq: 0, at: now, parent: null, scope: "session", kind: "ctrl", type: "wakeGate", version: 1, source: "kernel", data: {open: true, cause: "created"}};
+    const gate: LogEvent = {...gateDraft(true, "created"), id: core.newId(), seq: 0, at: now, parent: null, version: 1, source: "kernel"};
     let seq = 0;
     const events = [...core.pathTo(leaf), ...carried, gate].map((event): LogEvent => ({...event, seq: (seq += 1)}));
     const appended = await env.store.append(handle, events);

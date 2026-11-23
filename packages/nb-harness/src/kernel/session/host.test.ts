@@ -7,11 +7,12 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
-import type {AnyProfile, CompactionMethodImpl, LogEvent, SessionEnv} from "../api/index.js";
+import type {AnyProfile, LogEvent, SessionEnv} from "../api/index.js";
 import {defineExtension, ext} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {createTestClock} from "../testing/clock.js";
 import {createTestModel} from "../testing/model.js";
+import {heldCompaction} from "../testing/compaction.js";
 import {createTestSession, type TestSession} from "../testing/test-session.js";
 import {ABORT_GRACE_MS} from "../run/tools.js";
 import {createMemoryStore} from "../log/memory-store.js";
@@ -654,13 +655,7 @@ describe("插件宿主", () => {
 
     test("runtime 输出 116：收口时有待做的重新装配不唤起；装好之后再判一次，开唤起的运行", async () => {
         const model = createTestModel();
-        const entered = gate();
-        const hold = gate();
-        const slow: CompactionMethodImpl = async (job) => {
-            entered.open();
-            await hold.promise;
-            return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
-        };
+        const {method: slow, entered, release} = heldCompaction();
         const compacting = defineProfile({id: "test.host-compact", version: "1", name: "c", description: "c", system: "系统", compaction: {onThreshold: ["slow"]}}) as AnyProfile;
         const host = createAgentHost({...hostEnv(model), profiles: {resolve: (key) => (key === compacting.id ? compacting : undefined)}, compaction: {order: {onThreshold: ["slow"], onOverflow: ["slow"]}, methods: {slow}}});
         const created = await host.create({profile: compacting.id});
@@ -678,10 +673,10 @@ describe("插件宿主", () => {
         // 只压缩的运行不取提醒、不改门；它进行中撤回扩展，收口时有待做的重新装配。
         const compacted = await session.compact({commandId: "c1"});
         if (!compacted.ok || compacted.value.runId === undefined) throw new Error("compact did not start");
-        await entered.promise;
+        await entered;
         host.extensions.revoke(handle, "deactivated");
         expect((await session.as({kind: "host", source: {plugin: "lab.jobs", label: "后台任务"}}).notice({commandId: "n1", text: "压缩期间结束的", wake: true})).ok).toBe(true);
-        hold.open();
+        release();
         await session.waitRun(compacted.value.runId);
         const runIdOf = (event: LogEvent) => (event.data as {runId: string}).runId;
         const woken = await waitUntil("唤起的运行", async () => (await session.log({afterSeq: 0})).events.find((event) => event.type === "runStarted" && (event.data as {wake?: true}).wake === true));

@@ -16,7 +16,7 @@ export function sameIssuer(a: Issuer, b: Issuer): boolean {
 }
 
 /** 条目的发出者：没有 `by` 的是用户。 */
-export const ownerOf = (item: BufferedInput): Issuer => item.by ?? USER;
+export const ownerOf = (item: {readonly by?: Issuer}): Issuer => item.by ?? USER;
 
 const heldByUser = (item: BufferedInput): boolean => item.heldBy?.kind === "user";
 
@@ -34,8 +34,8 @@ export function blockedByUser(buffer: readonly BufferedInput[], issuer: Issuer):
 /** 能不能改这条：只能改自己排的（用户也只能改用户排的）（输出 29、108）。 */
 export const canEdit = (item: BufferedInput, issuer: Issuer): boolean => sameIssuer(ownerOf(item), issuer);
 
-/** 能不能取消或替换这条：用户能取消任何一条，会话、宿主只能取消自己排的。 */
-export const canRemove = (item: BufferedInput, issuer: Issuer): boolean => issuer.kind === "user" || sameIssuer(ownerOf(item), issuer);
+/** 能不能取消或替换这条话或提醒：用户能取消任何一条，会话、宿主只能取消（撤回）自己排的。 */
+export const canRemove = (item: {readonly by?: Issuer}, issuer: Issuer): boolean => issuer.kind === "user" || sameIssuer(ownerOf(item), issuer);
 
 /** 能不能停这次运行：用户能；会话只能停会话头 `caller` 是它的会话；宿主只能停自己开的运行（输出 108）。 */
 export function canAbort(header: SessionHeader, runBy: Issuer, issuer: Issuer): boolean {

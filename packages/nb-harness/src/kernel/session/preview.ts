@@ -15,7 +15,7 @@ import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {chainLayers, runChain, type ChainFailure} from "../run/chain.js";
 import {takeBoundaryDrafts} from "../run/loop.js";
-import {ctrl} from "../run/writes.js";
+import {emptyTurnDraft, opensEmptyTurn} from "../run/wake.js";
 import {readyEntries, takeInputDrafts} from "../run/settle.js";
 import {freezeRequest, isResponse} from "../run/model-call.js";
 import {toolInfo, type ToolBox} from "../run/tools.js";
@@ -117,12 +117,10 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
     if (leaf === core.leaf) {
         const next = readyEntries(core.session.kernel.buffer)[0];
         const runId = core.leafState.kernel.run?.runId ?? "preview";
-        // 两轮之间没有就绪的话、只有待发的提醒时，投影成一轮没有输入的（runtime.md 输出 114、118）。
+        // 两轮之间按用户继续时的规则开一轮：有就绪的话取第一条，否则有待发的提醒时开一轮没有输入的（runtime.md 输出 114、118）。
         const between = core.leafState.kernel.history.current === null;
-        const noInput = between && next === undefined && core.session.kernel.notices.length > 0;
-        const opening = !between ? [] : next !== undefined ? takeInputDrafts(next, core.newId(), runId) : noInput ? [ctrl("turnStarted", {turnId: core.newId(), inputId: null})] : [];
-        const inTurn = !between || opening.length > 0;
-        projected = inTurn ? [...opening, ...takeBoundaryDrafts(core, runId, new Set(opening.length > 0 && next !== undefined ? [next.id] : []))] : [];
+        const opening = !between ? [] : next !== undefined ? takeInputDrafts(next, core.newId(), runId) : opensEmptyTurn(core.session.kernel.notices, {kind: "user"}) ? [emptyTurnDraft(core)] : [];
+        if (!between || opening.length > 0) projected = [...opening, ...takeBoundaryDrafts(core, runId, new Set(between && next !== undefined ? [next.id] : []))];
     }
     const state = projected.length > 0 ? core.project(projected) : core.stateAt(leaf);
     const computed = computeRequest({assembly: core.assembly, state, environment, purpose: "turn", model: resolution.info.id, ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}), tools, cache: core.view, checks: false, inactive: (id) => core.revoked.has(id)});

@@ -13,7 +13,8 @@ import {writeAndReact} from "../dispatch/reactions.js";
 import {Interactions} from "./interaction.js";
 import {runLoop, type ActiveRun, type RunHost} from "./loop.js";
 import {runResultOf} from "./results.js";
-import {settleBatch, type Deferred, type SettleInput, type StopRecord} from "./settle.js";
+import {settleBatch, type Deferred, type SettleRequest, type StopRecord} from "./settle.js";
+import {hasWake} from "./wake.js";
 
 /** 会话交给运行控制的部分；阶段、等待、事项与收口由控制自己补上。 */
 type AttachedHost = Omit<RunHost, "phase" | "retrying" | "interactions" | "takeCompactRequests" | "settle">;
@@ -185,7 +186,7 @@ export class RunControl {
      * 收口那一项（输出 104）：只在单写者队列的一项里调用。组批、写下，然后在同一项里把会话翻成空闲（或换成收口批开的下一次运行）、
      * 推状态帧、结算 `waitRun`。写批或反应失败时照样翻转（句柄损坏时状态保持 `broken`），错误再交给调用方。
      */
-    async settleIn(runId: string, input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode" | "kind" | "closing" | "wakeBlocked">): Promise<void> {
+    async settleIn(runId: string, input: SettleRequest): Promise<void> {
         const host = this.#host;
         if (host === null) throw new Error("run control is not attached");
         this.#settling = runId;
@@ -193,11 +194,10 @@ export class RunControl {
         const deferred = this.#deferred;
         let next: string | null = null;
         try {
-            const skip = deferred.length === 0 ? null : this.#deferredSkip(host);
-            // 唤起不论有没有推迟的指令都要查开不开得起（runtime.md 输出 116）；没有带唤起的待发提醒时不必查。
-            const wakeBlocked = this.#core.session.kernel.notices.some((notice) => notice.wake) ? (skip ?? this.#deferredSkip(host)) : "no-wake";
+            // 推迟的指令与唤起（runtime.md 输出 104、116）都要先查开不开得起；两样都没有时不必查。
+            const skip = deferred.length > 0 || hasWake(this.#core.session.kernel.notices) ? this.#deferredSkip(host) : null;
             const kind = this.#active?.runId === runId && this.#active.compact !== undefined ? "compact" : "chat";
-            const batch = settleBatch(this.#core, {...input, runId, stop, deferred, skip, closingCode: input.reason === "aborted" ? this.#closingCode : null, kind, closing: host.checks.closed(), wakeBlocked});
+            const batch = settleBatch(this.#core, {...input, runId, stop, deferred, skip, closingCode: input.reason === "aborted" ? this.#closingCode : null, kind, closing: host.checks.closed()});
             await writeAndReact(this.#core, batch.drafts, host.react);
             next = batch.next;
         } finally {
