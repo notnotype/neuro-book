@@ -1,0 +1,116 @@
+# w00032 t22 第 3–5 片实现审查（Sonnet）
+
+范围说明：给定提交范围 `8b76204e2..47bcb0e35` 只含第 4、5 片（`8e7ed7547`、`d7279b6cb`、`2780ecc7f`、`47bcb0e35`）；第 3 片（eval 提醒）在 `0a8c9c95d`，早于范围起点，下面 eval 的条目按 `0a8c9c95d`（及其后 `47bcb0e35` 里 eval 文件未再改动）审。
+
+## F1 [重要] 所有权 / 资源释放：`take` 抛错（跨文件系统改名失败）时，移交出去的暂存描述符与临时目录泄漏，且之后前台的全文落盘取到的是残缺文件
+- 位置：`packages/nb-harness/src/kit/tools/shell.ts:197-208`（`capture.handover()` 后 `take` 抛错走 `target.discard()`），`output-capture.ts:113-125`（`handover` 把 `#spool` 置 null）、`output-capture.ts:56,79-84,102-107`（`push`/`#spoolWrite`/`#openSpool`），`output-capture.ts:131-136`（`dispose` 只处理 `#spool !== null`），`shell-background.ts:210-213`（改名在 `take` 里，第一步就可能 EXDEV）。
+- 现象：`handover()` 在同一步里把 `#spool` 置 null，描述符、路径、临时目录从此“归接手的一方”。`take` 里 `renameSync(spool.path → 任务目录)` 失败（计划与注释都写了“跨文件系统时抛错、命令留在前台”，是预期会发生的路径，不是理论边角：系统临时目录与会话目录在不同挂载上就是它）。此时 `shell.ts` 的 catch 只调 `target.discard()`（`jobs.release` + `rmSync(任务目录)`），没人关那个 fd、没人删 `harness-output-XXXX/` 目录。随后：
+  1. fd 与临时目录泄漏（每次这样的自动转后台失败泄漏一个 fd 加一个含最多 64 MiB 的目录，直到进程退出/系统清临时目录）；`capture.dispose()` 看到 `#spool === null` 直接返回。
+  2. 命令仍在前台跑、仍用原来的 `sink`（capture.push）。`#fromStart` 为真，`push` 里的 `#spoolWrite` 发现 `#spool === null` 会 `#openSpool()` 新建第二个 spool，但 `#spoolBytes` 不归零，新文件只含移交之后的输出。命令结束后若 `capture.overflowed`，`saveFullOutput` 读的是这个新文件：存进 `artifacts/` 的“全文”缺了前面的全部内容，却没有任何提示（`spoolProblem` 为 null）。窗口文本（内存里的头尾）仍是对的，所以只有点开全文才发现。
+- 为什么是问题：`handover` 的注释声称“之后这里不再写它、不再删它”，但没有定义“接手方没接成”时谁收尾；`discard` 只退名额删任务目录，对不上已交出去的 fd 与源目录。测试“宿主接不了（take 抛错）”里 `take` 在 `handover` 之后立刻抛，恰好是这条泄漏路径，但断言只看前台文本，没看泄漏与全文。
+- 如何核实：读代码即可确认（`handover()` 之后 `#spool === null`；`dispose` 的早退；`push` 的 fromStart 分支重开 spool）。可复现：在 `shell.test.ts` 的 `take` 抛错用例里加一个大输出（超过 `WINDOW_BYTES`），断言 `details.artifact` 的内容含第一行，并在命令前后对 `os.tmpdir()` 里的 `harness-output-*` 计数、对 `/proc/self/fd` 计数，应该各多出一份。
+- 建议改法：让移交成为“两段式”：`handover()` 只交出描述（路径、fd、统计）而不放弃所有权，接手成功后调 `capture.release()`/`handover.commit()` 才置 null；失败时 `capture` 照旧持有，可以继续写同一个描述符、`dispose` 照关照删。这样 `discard` 也不用知道暂存的存在。若不愿改接口，至少在 catch 分支里由 shell.ts 关 fd、删目录，并禁止 fromStart 的 capture 在 handover 之后重开 spool。
+
+## F2 [重要] 不变量 / 资源释放：会话的工具包装被 `dispose` 之后，它登记的任务不再随插件停止被停下、收口
+- 位置：`packages/neuro-book/src/plugins/agent/backend/tools.ts:283-289`（`dispose`）、`:273-281`（`revoke`）、`:296-307`（`retired` 挂在 `Built` 上）；`jobs/tool-jobs.ts:53-58`（撤回监听）。
+- 现象：登记的撤回监听（`scope.onRevoke`）存在“这一会话、这一代”的 `Built.retired` 里，而 `Built` 由会话的 `ToolWrapper` 持有。`ToolWrapper.dispose()`（会话关闭——内核在 `run/tools.ts:dispose` 里调；或工具离开工具集时在运行边界 `retire` 里调）先 `registry.forget(this.id, this)` 把自己从撤回广播名单里去掉，再把 `#built = null`，且不调 `retired` 监听、不置 `built.revoked`。之后插件停止时 `AgentTools.receiver.revoke` 只遍历 `#wrappers`，这个包装已不在里面，`toolJobs` 的撤回监听永远不会触发。
+- 为什么是问题：jobs.md 输出 6 写明“会话闲置、句柄关闭不影响任务”，后台任务的存在理由就是活过会话打开着的时段；而输出 19 要求“贡献工具的插件停止时……对它在跑的任务调 `stop`、按 `interrupted` 收口”。会话空闲关闭后再停插件（插件重装、禁用、应用关闭时先停它），这件任务既不被 `stop`、也不按中断收口，一直停在 `running`：占一个全局名额（`backgroundJobs` 默认 16），“在跑的工作”里一直报它（宿主会拿它拦停止服务的确认），插件的真实工作却已经被插件自己停掉或孤立。`built.revoked` 也一直是 false，所以已销毁包装上还在执行的调用仍可 `begin` 出新任务。
+- 如何核实：读代码即可确认（见上）。可复现：在 `jobs.test.ts` “工具里登记任务”里，登记第二件之后先让会话关闭（`table` 空闲回收或 `session.close()`），再 `registration.stop()`，断言 `handles.stopped` 仍为空、任务仍 running。现有用例只覆盖会话打开着的情形。
+- 建议改法：任务的撤回登记不要挂在会话级的 `Built` 上：登记到按“工具 id + 提供方句柄”的全局表（`AgentTools` 里，`receiver.revoke` 时遍历），或 `ToolWrapper.dispose` 里把 `retired` 监听挪到 `AgentTools` 持有的表里、并保留到任务结束。同时 `dispose` 也要置 `built.revoked`（会话已关闭，这一代不该再登记）。
+
+## F3 [重要] 并发 / 错误处理：撤回路径上 `kill` 抛错或挂住时，rejection 没人接、任务不收口；插件在 `stop` 里调的 `end` 被封掉
+- 位置：`jobs/tool-jobs.ts:53-58`（`void Promise.resolve(job.driver?.kill("interrupted")).finally(() => center.end(...))`）、`:69-71`（`kill` 里 `await input.stop(...)`）、`:74-81`（`sealed()`）。
+- 现象：
+  1. `stop` 同步抛错或返回 rejected Promise 时，`kill`（async 函数）rejection；`.finally(f)` 返回的新 Promise 仍然 rejected，外面只有 `void`，没有 `.catch`：unhandled rejection，没有诊断。`finally` 回调虽然仍会跑，`center.end(..., "interrupted")` 照样收口，所以任务本身还是结束了，问题在于未处理的拒绝（Bun 默认对未处理拒绝报错，从代码推断可能带崩进程）与无诊断。
+  2. `stop` 永不结算时，`finally` 永远不跑，任务永远停在 `running`；`revoke()` 的 5 秒宽限（`#retire`）只等进行中的调用，不管这个。
+  3. 撤回已把 `scope.revoked()` 置真之后才调 `stop`，而类型注释（`tool-jobs.ts:28`）写“插件停下工作后再 `end`”：插件在 `stop` 里或之后调 `end("aborted", 部分结果)` 会被 `sealed()` 静默丢弃，收口的结果文字永远是空串、状态是 `interrupted`。与注释和 Spec 的“`stop` 之后 `end`”不一致（Spec 输出 19 只说先封住“登记”，没说封住已有句柄）。
+- 如何核实：读代码；把测试里的 `stop` 改成 `() => { throw new Error("x") }` 再停插件即可看到未处理拒绝（预期，未实际运行）。
+- 建议改法：`Promise.resolve().then(() => job.driver?.kill("interrupted")).catch((error) => report(...)).finally(() => center.end(...))`（要有 `report` 才能写诊断，`toolJobs` 现在没有）；对 `stop` 加个上限（与 `REVOKE_GRACE_MS` 同量级）后强制 `center.end`；`sealed()` 只封 `begin` 与撤回之后新登记的任务，已有句柄在 `stop` 期间仍可 `end` 一次，或改注释说明撤回时结果文字被丢弃。
+
+## F4 [建议] 合同：`kill` 对工具登记的任务只调 `stop` 就交回“已停止”，插件不调 `end` 任务就一直 running
+- 位置：`jobs/tool-jobs.ts:68-71`；`jobs/center.ts:345-354`（`JobCenter.kill`）。
+- 现象：`JobCenter.kill` 在 `driver.kill` 返回后一律说 `killed`，不看任务状态；shell 与子代理的 driver 在 `kill` 里等到命令/运行真的收口（`await done`），工具登记任务的 driver 只 `await input.stop()`，之后要靠插件自己再调 `end`。插件的 `stop` 只是发取消信号就返回（很常见）时，`kill` 工具回答“已停止 job-x”，而 `jobs`/`wait` 里它还在 `running`，模型会据此以为停了、又不见回执。用户经远程 `killJob` 同样。
+- 为什么是问题：Spec 输出 4 “在跑的停掉，交回已停止”；`jobs.md` 状态表 `kill` → `aborted`。插件忘了 `end` 就违反了这一点，且没有兜底（对比撤回路径有 `center.end(interrupted)` 兜底，用户 kill 没有）。
+- 建议改法：`kill` 里 `await input.stop(...)` 之后若 `isLive(job.state)`，由 `center.end(job, "aborted", {reason: "aborted"})` 兜底；或 `kill` 等到任务结束（有上限）再返回。
+
+## F5 [重要] 常见返工项 / 机检：`shared/resources.ts` 引用 `backend/`，`src/architecture.test.ts` 的“共用代码引用了一侧的实现”规则不放过类型导入
+- 位置：`packages/neuro-book/src/plugins/agent/shared/resources.ts:7`（`import type {ToolJobs} from "../backend/jobs/tool-jobs"`）。
+- 现象：`architecture.test.ts:121`：`neutral`（路径含 `shared`）且 `isBackend(target)`（目标路径含 `backend` 段）就记违规，这条规则没有 `typeOnly` 豁免（豁免只出现在跨插件规则与 nb-canon 规则上）。`packages/neuro-book/AGENTS.md` 也写“`web/` 不引用 `backend/`，反之亦然，只经 `shared/` 交换类型与 schema”，`shared/` 之前没有一个文件引用 backend（`git grep "\.\./backend" 47bcb0e35 -- packages/neuro-book/src/plugins/agent/shared` 只命中这一行）。Task 记录第 5 片的验证写“Agent 插件 591 条全过，typecheck 过”，没有提 `bun test src/architecture.test.ts`；AGENTS.md 第 43 行要求改了导入就跑它。
+- 为什么是问题：从代码推断这条测试会失败（未实际运行）；即使不是，也把后端内部的类型（`center.ts` 的 `Job`、`ToolContext`）带进了两端共用的合同文件。
+- 建议改法：把 `ToolJob`、`ToolJobs`（不含 `ToolJobScope`）挪到 `shared/`（例如 `shared/tool-jobs.ts`，只依赖 `@notnotype/nb-harness/kernel/contracts` 的 `ToolContext` 类型），`backend/jobs/tool-jobs.ts` 从那里引；合入前跑一遍 `bun test src/architecture.test.ts`。
+
+## F6 [重要] 常见返工项：自动转后台的失败全部静默吞掉，跨文件系统时这个功能会无声地永久失效
+- 位置：`packages/nb-harness/src/kit/tools/shell.ts:194`（`auto.prepare(...).catch(() => null)`）、`:206-208`（`catch { target.discard(); }`）；`shell-background.ts:195-208`（`prepare` 里 `files.readPath` 失败、`jobs.reserve` 失败、`mkdirSync` 失败都只返回 null）；`shell-background.ts:212`（`renameSync` 抛 EXDEV）。
+- 现象：`prepare` 抛错、`take` 抛错（改名失败）、`prepare` 返回 null（名额满、建不了目录）三种情形都只是“留在前台”，没有诊断、没有给模型的一句话、没有 `details` 标记。AGENTS 的禁止清单明写“不用静默的 `catch` 吞掉错误，至少写一条诊断”。更关键的是 `harness-output-*` 暂存放在 `os.tmpdir()`，任务目录在会话工作区（状态根）下：系统临时目录是 tmpfs（多数 Linux 发行版默认）或另一个盘符（Windows 的 `%TEMP%` 与项目所在盘）时，`renameSync` 必然 EXDEV，于是每一条超过 60 秒的命令都“转后台失败、留前台”，用户把设置调成 60 却从不生效，也没有任何地方能看出为什么。（Windows 上对已打开描述符的文件改名是否可行，未验证。）
+- 为什么是问题：失败路径本该是例外，现在在常见的部署上是常态；而且没有任何可观察信号，F1 的泄漏也因此无人发现。Task 记录 d7279b6cb 的理由是“套件的边界检查不许工具往根里写”，但这条边界只挡了“工具把暂存写进根里”，没有考虑暂存与任务目录是否同一文件系统；原来的方案（8e7ed7547，宿主给暂存目录）反而保证同盘。
+- 如何核实：读代码；在 tmpfs 的 `/tmp` 下跑自动转后台用例即可复现（`TMPDIR` 指向另一文件系统）。
+- 建议改法：这是上游选择的问题，交开发者决定而不是在补丁里选：（a）暂存目录由宿主经 `ShellAutoBackground` 给（回到 8e7ed7547 的做法，放在会话工作区 `home/jobs/.staging/` 之类、同盘），套件边界检查对“宿主给的目录”放行；或（b）见下条 F7，让暂存只在移交时才创建，移交时由接手方在任务目录里直接创建文件、把内存里的内容写进去，完全不需要改名。无论哪种，失败时至少给 `ToolResult` 的 `details` 或文本末尾加一句“（想转后台没成功：原因）”，并在宿主一侧 `report` 一条诊断。
+
+## F7 [建议] 代码质量 / 性能：`spoolFromStart` 让每条前台 shell 都建临时目录、同步写盘，而移交时才建暂存就够了
+- 位置：`output-capture.ts:56-58,75`（三处 `#fromStart` 分支）、`:113-125`（`handover`）、`shell.ts:168`（`spoolFromStart: plan !== null`）。
+- 现象：根会话里模型直接调的每条 `shell`（超时大于门槛，缺省 300 秒大于 60 秒，几乎所有）从第一块输出起就 `mkdtempSync` + `openSync` + 每块 `writeSync`，命令结束时 `closeSync` + `rmSync`。一条 `ls` 也多出 mkdtemp、open、write、close、rm 五次同步系统调用与一个临时目录的创建/删除，全部在事件循环线程上；暂存出错（磁盘满、tmp 不可写）还会 `spoolProblem`，让之后本该转后台的命令因 `handover()` 返回 null 而转不了。
+- 为什么是问题：不需要。`OutputCapture` 本来就保证“没超限时内存里是全部输出；一超限就把内存整个写进暂存并继续追加”（`push` 里超限分支，原来的 `#spoolWrite(this.#memory)`）。所以移交时：已超限就把现有暂存交出去；没超限就此刻 `#openSpool()` 并一次写入 `#memory`。输出行数 `#lines` 也只需在移交时数一次 `#memory`（超限后的行数才需要累加，现在的实现对每块都数换行也是多余的热路径开销）。这样 `fromStart` 选项、三处分支、`#lines` 的逐块累加都可以去掉，并且热路径与原来完全一样。
+- 如何核实：读 `push` 的原有结构（`git show 47bcb0e35~4:...output-capture.ts` 对比）；无需运行。
+- 建议改法：删掉 `spoolFromStart`，`handover()` 里“若 `#spool === null` 先建并写 `#memory`”，`lines` 在这时数。
+
+## F8 [建议] eval 提醒（`0a8c9c95d`，不在给定范围内）：调用尾部内核退出会漏发；空闲定时器里的“意外退出”分支成了死代码；`settled` 无人用
+- 位置：`backend/eval/tool.ts:253-255`（`exited.then` 里 `!this.#busy`）、`:208-216`（`execute` 的 `finally` 只在 `holding` 时排空闲）、`:389-392`；`backend/eval/notices.ts:20,47-49`。
+- 现象：
+  1. 内核在“单元已交回结果、`execute` 还没跑到 `finally`”这段时间里退出（`#result` 里的 `await saveFullOutput(...)` 写大输出到 `artifacts/` 要几百毫秒到几秒，这是最长的一段）：`exited.then` 回调看到 `#busy === true` 就什么都不做；`finally` 里 `holding` 为 false，也不排空闲定时器、也不重置。结果是 `#kernel` 指着一个已死的内核，没有提醒、没有定时器，要等下一次调用才在结果第一行说“内核已重置（意外退出）”。Spec 输出 20 的“两次调用之间内核进程意外退出”在这一小段里漏发。
+  2. 因此 `#scheduleIdle` 里 `this.#kernel?.alive === false ? "意外退出" : "空闲"` 的前一支基本不会再走到（现在内核一死 `exited` 回调就先重置了，除非上面的漏发情形，那时又没有定时器），注释“到点时内核已经自己没了”已经过时。
+  3. `evalNotices` 返回类型多带的 `settled()` 在整个仓库里无人调用（`AgentRuntime.evalNotices` 的类型还把它藏掉了）。停止服务时排着的发送/撤回既没人等、也不在 `table.stop()` 之前收口，关门之后才执行的步骤会走 `report("eval-notice-failed", ...)` 写诊断噪声（从代码推断，未实测）。
+- 如何核实：1 读代码；复现需要让内核在 `saveFullOutput` 期间被杀（测试里可对 `artifacts.save` 注入一个等待）。
+- 建议改法：`finally` 里：`if (this.holding) this.#scheduleIdle(); else if (this.#kernel !== null) void this.#reset("意外退出", true);`，并删掉定时器里的三元；`settled` 要么在 `stop` 里等、要么删掉。
+
+## F9 [建议] 测试：eval 的“新内核起来撤回提醒”用 `toEqual([])` 紧跟一次 `one()` 断言，没有等待
+- 位置：`packages/neuro-book/src/plugins/agent/eval.test.ts:416`（`expect((await session.snapshot()).notices).toEqual([])`）。
+- 现象：撤回在 `ready()` 里入串行队列、异步 `removeNotice`，与 `one()` 交回结果并无先后保证；现在碰巧每次起内核后还要跑单元（进程往返），撤回先完成。负载高时（仓库里已有好几条“怕负载”的已知偶发）可能变成偶发失败；反方向——撤回实现坏了——则只靠这一行把关，没有变异覆盖“会话关着时照发”“`notice-taken` 时不重复撤回”。
+- 建议改法：改成 `await waitUntil("提醒被撤回", async () => (await session.snapshot()).notices.length === 0)`；补一条会话已关闭（`session.close()`）时空闲回收仍把提醒写进日志的用例（Spec 输出 20 的“会话关着也发”现在没有用例）。
+
+## F10 [重要] 测试：“调用结算之后登记不了”的断言空过，删掉实现里的 `finally` 它也过
+- 位置：`packages/neuro-book/src/plugins/agent/jobs.test.ts` 新增用例“工具里登记任务”里 `const late = handles.services!.jobs.begin({invocation: "not-running", sessionId: session.id} as never, ...)`；实现在 `backend/tools.ts:264-269`。
+- 现象：`late` 用的是随手写的 `"not-running"`，不是刚结算那次调用真实的 `invocation`，所以即使把 `finally { built.live.delete(context.invocation) }` 整个删掉（调用结算后仍留在 `live` 里），这条断言也照样通过。Task 记录说“变异 3 处各有用例失败”，具体哪三处没写，不应包含这一条。同一用例里还有：没有断言 `call.sessionId` 不符得 `unavailable`、`kind/label/summary` 不合格得 `invalid` 且不占名额、名额满得 `concurrency-limit`、结果超过 12 KiB 被截、`kill`/远程 `killJob` 调到插件的 `stop(byUser)`、会话关闭后再停插件（见 F2）。
+- 为什么是问题：输出 19 的编号验收里这几条都写了，只有“撤回时 stop + 中断收口”真正被测到。
+- 建议改法：让插件工具把真实的 `call` 存下来（`handles.call = call`），在 `execute` 结算后用它 `begin`，断言 `unavailable`；补上列出的几条；变异：删掉 `finally` 的 delete、删掉 `scope.revoked()` 判断，各应有用例失败。
+
+## F11 [建议] 测试：自动转后台的两个核心合同没有用例——“调用信号断开”与“时限照旧”
+- 位置：`packages/nb-harness/src/kit/tools/shell.test.ts` “自动转后台”三条；`jobs.test.ts` 新增的两条。
+- 现象：
+  1. 三条套件用例里调用的 `signal` 都是从不中止的 `new AbortController().signal`，没有一条测“移交之后中止这次调用，命令不被杀”（这是 `follow` 监听摘掉的唯一理由），也没有“准备期间调用被中止、照前台交回 cancelled”。把 `signal.removeEventListener("abort", follow)` 删掉，现有用例都过。
+  2. “时限照旧”在 Agent 用例里只断言结果文字里写着“时限照旧（300 秒）”，没有一条真的让时限在移交之后到点（用 `timeout: 70`、门槛 60、再 `advance`，应得 `failed` 且 `timedOut: true`）。
+  3. 没有“门槛之前 `timeout` 不长于门槛则不转”“子会话不转”（`isChild`）两条；没有转后台后 `kill`、插件停止（`interrupted`）的用例，而这两个出口走的是移交后的 `abort: () => command.abort()` 与 `finish`。
+  4. 没有任何用例检查 `os.tmpdir()` 里的 `harness-output-*` 在移交成功、移交失败、命令先结束这三种情形之后是否还在（F1 的泄漏因此没被发现）。
+  5. `shell.test.ts` 的 `host()` 替身在 `take` 里 `rmSync(dirname(spool.path))` 并往同一个描述符写，测不到真实接手方的 `commandOutput` 对 `initial`（`bytes`、`lines`、`tail`、`truncated`）的接续是否正确；`jobs.test.ts` 里的输出只有两行，没有超过 64 MiB 截断、没有无换行的长尾（`partial` 从 `tail` 复原）。
+- 建议改法：补 1–4；5 至少加一条输出超过窗口（>`WINDOW_BYTES`）后转后台、比较 `status.json` 的 `lines`、`bytes` 与文件实际内容。
+
+## F12 [重要] 合同：“只给内置插件，不进插件 SDK”没有落实，所有插件的工具都拿到 `services.jobs`，SDK 导出的类型也带上了它
+- 位置：`backend/agent.ts:187`（`services: (context, toolId, scope) => ({..., jobs: toolJobs(jobs, scope)})` 对每个工具无条件给）；`shared/points.ts:130-131`（`AgentToolImplementation.create(context, services: AgentToolServices)`）；`shared/resources.ts:59-60`；`src/sdk/agent.ts:15`（SDK 导出 `AgentToolImplementation`）。
+- 现象：Spec 输出 19 与 `tool-jobs.ts` 文件头都写“只给内置插件，不进插件 SDK”。实际上：（1）运行时，`AgentTools` 对任何插件贡献的 `agent.tools` 实现都调同一个 `services`，第三方插件的工具（`@notnotype/nb-plugin-sdk/agent` 的 `agentTool` 与 `AgentToolImplementation` 都对外导出）同样拿到可用的 `services.jobs.begin`；（2）类型上，`AgentToolImplementation.create` 的第二个参数就是 `AgentToolServices`，现在它多了 `jobs: ToolJobs`，SDK 的类型面随之带出 `ToolJobs`（又经 F5 的导入拖进 backend 的类型）。`src/sdk/surface.test.ts` / `sdk.test.ts` 只比名字清单，查不出这种带入。
+- 为什么是问题：第三方插件可以占全局名额（`backgroundJobs` 缺省 16，满了所有 Agent 的后台命令与子代理都得 `concurrency-limit`），且这是对外承诺之外的公开接口，之后想收回就是破坏性变更。
+- 如何核实：读代码；在测试里用一个非内置插件 id 注册工具，`handles.services.jobs` 在现有用例里就是可用的（用例用的插件 id 是 `test.jobsrc`，不是内置的）。
+- 建议改法：`services` 工厂按 `scope.plugin` 判断，只对内置插件（`nbook.*`）给 `jobs`，其余给一个始终得 `unavailable` 的桩；类型上把 `jobs` 从 `AgentToolServices` 拆出，单独的 `BuiltinToolServices extends AgentToolServices`，内置插件的 `create` 才用它；SDK 的 `AgentToolImplementation` 保持原样。
+
+## F13 [建议] 工具登记的任务在 `nbook.agent` 停止时既不被停下也不收口
+- 位置：`backend/agent.ts:488`（`jobs.live().filter((job) => job.kind === "shell")`）。
+- 现象：停止的第三步只对 `kind === "shell"` 的任务调 `kill("interrupted")`，子代理由会话关闭收口；`<插件>.<kind>` 的任务两边都不管，随后 `jobs.clear()` 丢表。插件那一头的工作还在跑、没人调它的 `stop`，回执也不会因这次停止而产生（账本里它留着，重启后补发“服务重启时中断”，从代码推断，未核对 `JobLedger` 对非 shell 任务的处理）。
+- 为什么是问题：Spec 输出 8 写的是这三类，没提第四类，但输出 19“`wait`、`kill`、`jobs`、回执与远程照常”预期它与别的任务一样被收口；现在只在“贡献工具的插件”停止时才收口（见 F2，且有缺口）。
+- 建议改法：停止第三步改为对所有 `kind !== "agent"` 的任务调 `driver.kill("interrupted")`（工具登记任务的 `kill` 会调 `stop`，再由调用方收口），并补用例。
+
+## F14 [建议] 代码质量：自动转后台的接手与 `async` 的启动重复了一段驱动接线；结果文字重读设置
+- 位置：`shell-background.ts:158-178`（`startBackgroundCommand` 里 `done`/`jobs.start`）与 `:210-232`（`take` 里同样的 `handover.done.then(endOf).then(finish)` 加 `jobs.start(job, {kill, result, address})`）；`:226`（`options.seconds()` 重读）。
+- 现象：两处只在 `done` 与 `abort` 的来源上不同，其余（`interrupted` 标志、失败收口、`kill` 里 `abort` 加 `await done`、`result` 读法）逐行重复，以后改一处容易漏另一处；文字里的秒数在 60 秒之后重新读设置，期间用户改了设置就写出与实际门槛不符的数字（应用 `threshold()` 当时读到的值）。另外 `running-work` 里 `work.job.plugin`（插件登记的任务一项）没有任何用例。
+- 建议改法：抽 `driveCommand(jobs, job, output, done, abort, directory, address)` 供两处用；门槛的秒数在 `threshold()` 返回时随 Promise 带出（例如返回 `{wait, seconds}`）或在 `prepare` 之前缓存。
+
+## 未发现问题的方面
+- 自动转后台“一个同步步骤里判已结束或已中止再移交”：`finished || signal.aborted` 与 `handover()`、`take()` 之间没有 `await`，同步性成立；`finished` 由 `done.finally` 置位，进程已退出而 `finally` 回调尚未跑的极窄情形只会多移交一次“刚好结束”的命令（任务马上以结果收口，不丢数据）。
+- 调用信号的断开：移交成功才 `removeEventListener("abort", follow)`，失败/未移交路径在 `finally` 里摘；`command` 控制器始终存在，父调用中止在移交前能停命令、移交后不影响，实现与 Spec 一致（只是缺用例，见 F11）。
+- 时限照旧：`timeoutMs` 一直交给同一个 `executeShell`，移交不重启计时。
+- `async` 旧路径重构：`commandOutput` 的 `initial` 缺省值与原来的初值一致，`endOf`、`finish` 与原来 `.then` 链的语义逐行对得上；没有发现行为变化。
+- 在跑的工作（`running-work.ts`）：子代理不另报之后，子会话在表里打开且不空闲时归到根那一项（`activityWithBackground`），子代理停在提问上时子会话不空闲、也算在里面；只剩“任务已 `reserve`、子会话还没开始运行”的毫秒级空档漏报，可以接受。
+- eval 提醒的串行队列：发送与撤回在同一会话队列里按序；`#reset` 先置空 `#kernel` 再杀，`exited` 回调靠 `this.#kernel === current` 过滤，空闲定时器、回收、两次调用之间的外部终止三种路径互不重复发送（上面 F8 的窄窗口除外）。
+- `subagents.test.ts` 去掉的 `runStarted` 序列断言：Task 记录写明是负载下失败的竞态（提醒可能随正在跑的这一轮进请求）；剩下的 `hostNotice` 等待在父会话空闲时仍隐含“提醒带唤起”，所以覆盖降低有限（用例标题仍写“提醒唤起空闲的父会话”，建议另在回执待发时直接断言 `notices[0].wake === true`）。
+
+## 各级数量
+- 阻断：0
+- 重要：7（F1、F2、F3、F5、F6、F10、F12）
+- 建议：7（F4、F7、F8、F9、F11、F13、F14）

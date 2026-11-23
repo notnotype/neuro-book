@@ -26,6 +26,7 @@ updated: 2026-11-19
 
 - [第一轮](../t22-background-work/evidences/proposal-review-r1.txt)：5、7、8、11、12、16、17、18、19、21、24、27、28（多数已在第 2、3 稿处理，作背景）。
 - [第二轮](../t22-background-work/evidences/proposal-review-r2.txt)：11（注册代次）、12（大小与分页）、13（提供方隔离与撤回）、14（按归属的导航）、15（停止的结果）、17（没有任务覆盖的子会话）。
+- t22 第 6 片推迟过来的：子代理卡片在任务移出之后，经远程新方法 `runOutcome({sessionId, runId})` 读有界的终态，不读整份 `runResult`（[t22 计划](../t22-background-work/plan.md)“前端”一节，设计审查第 15 条）；和清单里子代理行的终态一起做、一起在 e2e 里看。
 
 ## 当前状态
 
