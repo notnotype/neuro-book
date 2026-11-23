@@ -21,6 +21,7 @@ import {FrozenSlot} from "./frozen-slot";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {useLayoutText} from "./layout-text";
 import {gridRectStyle, leafShapeClip, liftedRectStyle, useContentLayer} from "./useContentLayer";
+import {useHeldLifted} from "./useHeldLifted";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";
 import {useLeafParking} from "./useLeafParking";
@@ -271,31 +272,7 @@ const raisedLeaf = shallowRef<string | null>(null);
 /** 拿起的内容项此刻的矩形。跟手的东西不走渲染：每帧走属性的话，这个组件和每块叶的插槽都要重跑。 */
 let liftedRect: GridRect = {x: 0, y: 0, width: 0, height: 0};
 
-/**
- * 拿起的内容项（`lifted`）不能卸载：宿主的预览常把它从 `contents` 里摘掉（来源收起），这时沿用拿起那一刻的那一项（叶是来源原来的叶、不活动；
- * 之后的预览把它摆到别的叶上也不改记下的这一项：那块叶可能已经不在了），
- * 实例留着，矩形照旧由 `placeLifted` 写；`lifted` 变回 null 之后按新的 `contents` 处理（Spec `ui/nested-grid` 的 `lifted`）。
- * 要记上一轮的 `contents`：拿起和摘掉常在同一个同步段里，第一次读到 `lifted` 时这一轮已经没有它了。
- */
-let previousContents: ReadonlyArray<GridContentInput> = [];
-let heldLifted: GridContentInput | null = null;
-const layerContents = computed<ReadonlyArray<GridContentInput>>(() => {
-    const items = props.contents;
-    const {lifted} = props;
-    const before = previousContents;
-    previousContents = items;
-    if (lifted == null) {
-        heldLifted = null;
-        return items;
-    }
-    const present = items.find((item) => item.key === lifted.key);
-    if (present !== undefined) {
-        if (heldLifted?.key !== lifted.key) heldLifted = present;
-        return items;
-    }
-    if (heldLifted?.key !== lifted.key) heldLifted = before.find((item) => item.key === lifted.key) ?? null;
-    return heldLifted === null ? items : [...items, {...heldLifted, insetTop: 0, active: false}];
-});
+const layerContents = useHeldLifted({contents: () => props.contents, lifted: () => props.lifted});
 
 const contentLayer = useContentLayer({
     contents: () => layerContents.value,
