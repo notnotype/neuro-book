@@ -396,6 +396,28 @@ describe("canon.project 的 textBlocks：主文字的块能怎么改", () => {
         }
     });
 
+    test("两条线上各有一块同号的块、挂在不同的地方：读哪条线，锚点就沿那条线上加它的变更追；照着它加的块落在那条线的那一块后面", async () => {
+        const scene = await open("anchor-lines", ["A", "B", "C"]);
+        try {
+            // 第 1 章定一个分叉点，第 2 章从它分出一条支线。之后两条线各经底层发布加一块 b9：支线挂在 A 后面，主线挂在 B 后面。
+            const cut = await scene.change({kind: "chapter", chapter: "ch1", key: 0}, []);
+            await scene.change({kind: "chapter", chapter: "ch2", key: 0}, [], {nature: "fork", fork: {line: "tmp:line", name: "支线", parent: "main", cut, type: "branch"}});
+            const line = scene.world.lines().lines.find((item) => item.id !== "main")!.id;
+            const onBranch = await scene.change({kind: "chapter", chapter: "ch2", key: 5, line}, [{op: "addBlock", at: scene.at("b9"), value: {after: "b1", source: "支线 X"}}]);
+            const onMain = await scene.change({kind: "chapter", chapter: "ch2", key: 5}, [{op: "addBlock", at: scene.at("b9"), value: {after: "b2", source: "主线 X"}}]);
+            const branchEnd: ReadPosition = {...end("ch3"), line};
+            const b9 = (position: ReadPosition) => scene.blocks(position).find((block) => block.id === "b9");
+            expect(b9(branchEnd)).toMatchObject({source: "支线 X", write: "change", change: onBranch, anchor: "b1"});
+            expect(b9(end("ch3"))).toMatchObject({source: "主线 X", write: "change", change: onMain, anchor: "b2"});
+
+            // 作者在支线上把一块新的设定放在“支线 X”后面：照读到的锚点写，支线上它紧跟在支线 X 的那一处，不跑到 B 后面去。
+            ok(await scene.edit("creative", branchEnd, [{op: "addBlock", entry: scene.entry, source: "跟在 X 后面", after: b9(branchEnd)!.anchor!}]));
+            expect(scene.text(branchEnd).map(([, source]) => source)).toEqual(["A", "支线 X", "跟在 X 后面", "B", "C"]);
+        } finally {
+            await scene.world.stop();
+        }
+    });
+
     test("条目不存在或已删除为 null；位置的章不在是 chapter-not-found", async () => {
         const scene = await open("missing", ["A"]);
         try {

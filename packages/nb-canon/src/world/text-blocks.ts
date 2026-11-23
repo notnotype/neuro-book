@@ -43,21 +43,13 @@ export function writeBack(world: World, position: ReadPosition, at: Address): Wr
     return {kind: "accumulated", origins};
 }
 
-/** 一条变更的补丁碰到的主文字的块。 */
-interface TextTouches {
-    /** 块 id 到碰过它的变更 id：补丁的地址是它，或增块的补丁以它为锚点。 */
-    readonly touched: ReadonlyMap<string, readonly string[]>;
-    /** 变更加出来的块 id 到它的锚点（`null` 是放在最前）。 */
-    readonly anchors: ReadonlyMap<string, string | null>;
-}
-
 /**
- * 没撤销的变更碰过这个条目的哪些块。按全部变更算：不看先后，不看实际还是计划、生效还是待定，也不看在哪条线上——初值是各条线
- * 共用的，别的线上的变更改过一块、或把新块挂在它后面，从初值里去掉它，那条变更同样套不上（连带同一条变更里别的补丁）。
+ * 没撤销的变更碰过这个条目的哪些块：块 id 到碰过它的变更 id（补丁的地址是它，或增块的补丁以它为锚点）。按全部变更算：不看
+ * 先后，不看实际还是计划、生效还是待定，也不看在哪条线上——初值是各条线共用的，别的线上的变更改过一块、或把新块挂在它后面，
+ * 从初值里去掉它，那条变更同样套不上（连带同一条变更里别的补丁）。
  */
-export function textTouches(world: World, entry: string): TextTouches {
+export function textTouches(world: World, entry: string): ReadonlyMap<string, readonly string[]> {
     const touched = new Map<string, string[]>();
-    const anchors = new Map<string, string | null>();
     const touch = (block: string, change: string): void => {
         const list = touched.get(block);
         if (list === undefined) touched.set(block, [change]);
@@ -70,13 +62,17 @@ export function textTouches(world: World, entry: string): TextTouches {
             const block = blockOf(patch);
             if (block === null) continue;
             touch(block, change.id);
-            if (patch.op !== "addBlock") continue;
-            const after = (patch.value as {after?: unknown} | null)?.after;
-            anchors.set(block, typeof after === "string" ? after : null);
-            if (typeof after === "string") touch(after, change.id);
+            const after = patch.op === "addBlock" ? afterOf(patch) : null;
+            if (after !== null) touch(after, change.id);
         }
     }
-    return {touched, anchors};
+    return touched;
+}
+
+/** 增块的补丁把块放在哪一块后面；`null` 是最前（补丁里不写 `after` 也是最前）。 */
+function afterOf(patch: Patch): string | null {
+    const after = (patch.value as {after?: unknown} | null)?.after;
+    return typeof after === "string" ? after : null;
 }
 
 function blockOf(patch: Patch): string | null {
@@ -119,15 +115,29 @@ export function textBlocks(world: World, entry: string, position: ReadPosition):
     if (view === "chapter-not-found") return view;
     if (view === null || view.deleted) return null;
     const initIndex = new Map((world.data.entries.get(entry)?.init.text ?? []).map((block, index) => [block.id, index] as const));
-    const {touched, anchors} = textTouches(world, entry);
-    /** 沿锚点追到初值里的块；中途断了（找不到加那一块的补丁）为 undefined。 */
+    const touched = textTouches(world, entry);
+    /**
+     * 一块在这条线、这个位置上是哪条补丁加出来的，取那条补丁的锚点；找不到（从别的线带过来的、来历里没有增块的一步）为
+     * undefined。按这条线的来历找，不按全部变更找：两条不相交的线上可以各有一块同号的块，挂在不同的地方。
+     */
+    const addedAfter = (block: string): string | null | undefined => {
+        const origins = line.engine.origins({entry, path: `text[${block}]`}, at, "actual");
+        if (origins === "chapter-not-found") return undefined;
+        const step = [...origins].reverse().find((item) => item.kind === "patch" && item.op === "addBlock");
+        if (step === undefined || step.kind !== "patch") return undefined;
+        const patch = world.data.changes.get(step.change)?.patches.find((item) => item.op === "addBlock" && item.at.entry === entry && blockOf(item) === block);
+        return patch === undefined ? undefined : afterOf(patch);
+    };
+    /** 沿锚点追到初值里的块；中途断了为 undefined。 */
     const anchorOf = (block: string): string | null | undefined => {
         const seen = new Set<string>();
         let current: string | null = block;
         while (current !== null && !initIndex.has(current)) {
-            if (seen.has(current) || !anchors.has(current)) return undefined;
+            if (seen.has(current)) return undefined;
             seen.add(current);
-            current = anchors.get(current)!;
+            const next = addedAfter(current);
+            if (next === undefined) return undefined;
+            current = next;
         }
         return current;
     };

@@ -681,7 +681,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                     routes.push({kind: "change", at: storyPlacement(world, storyAt!)});
                 } else {
                     // 被碰过也包括被当作锚点：有变更把新块挂在它后面时删它，那条变更就套不上（`textTouches`）。
-                    const touched = textTouches(world, op.at.entry).touched.get(block) ?? [];
+                    const touched = textTouches(world, op.at.entry).get(block) ?? [];
                     if (touched.length > 0 || !entry.init.text.some((candidate) => candidate.id === block)) return problem(index, "element-from-change", "this block was added or changed by a story change, or a story change adds a block after it; remove it as a story change instead", {reason: touched.join(",")});
                     entry.init.text = entry.init.text.filter((candidate) => candidate.id !== block);
                     routes.push({kind: "init"});
