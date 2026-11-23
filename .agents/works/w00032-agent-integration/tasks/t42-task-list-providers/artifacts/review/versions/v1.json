@@ -1,0 +1,76 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t42-task-list-providers",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t42 后台任务按归属分组：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "07f347a1e7561d5a443de7f232aca74a4e7aa39ab222af816b09cb778a41800e",
+    "files": [
+        "index.html",
+        "r1/blocks-narrow.webp",
+        "r1/blocks-short.webp",
+        "r1/blocks.webp",
+        "r1/rows-all.webp",
+        "r1/rows-collapsed.webp",
+        "r1/rows-narrow.webp",
+        "r1/rows-short.webp",
+        "r1/rows.webp"
+    ],
+    "questions": [
+        {
+            "id": "group-head-r1",
+            "type": "single",
+            "label": "会话组怎么画",
+            "options": [
+                {
+                    "value": "rows",
+                    "label": "组头是一行"
+                },
+                {
+                    "value": "blocks",
+                    "label": "每个会话一块"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "rows"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "session-collapse-r1",
+            "type": "single",
+            "label": "会话组默认展开还是收起",
+            "options": [
+                {
+                    "value": "expanded",
+                    "label": "默认展开"
+                },
+                {
+                    "value": "collapsed",
+                    "label": "会话组默认收起"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "expanded"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-23T08:42:09.561Z"
+}

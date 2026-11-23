@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00032 t42 后台任务按归属分组：评审板</title>
+<style>
+body { max-width: 1120px; margin: 24px auto; padding: 0 16px; font: 15px/1.7 system-ui, sans-serif; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.row > div { flex: 1 1 320px; min-width: 0; }
+figure { margin: 0 0 12px; }
+figcaption { margin-bottom: 6px; font-weight: 600; }
+img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px; }
+.badge { padding: 1px 6px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
+.note { color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>t42 后台任务：按归属分组</h1>
+<p>第 1 轮，两道题。范围与注意力排序在会话里已经定了（页底）。图里的数据是写死的样例；“会话”组里的行在实现时由 Agent 交出。</p>
+
+<section data-nbdev-question="group-head-r1" data-nbdev-type="single" data-nbdev-recommend="rows">
+  <h2><span class="badge" data-nbdev-skip>待定</span>会话组怎么画</h2>
+  <p>两种画法里，会话的组头都是这个会话自己：标题、“等你处理”的徽标、它此刻在做什么（“等你批准：……”“正在回复”）、开始时刻，以及“打开”“停止”（停它当前的运行、保留排队的话）。它的后台任务缩进在下面，每行前面一个淡色的种类（命令、子代理、Workflow、子会话）。项目与应用的组头只是一个小标题加件数。</p>
+  <div class="row">
+    <div data-nbdev-option="rows" data-nbdev-label="组头是一行">
+      <figure><figcaption>A：组头是一行（推荐）</figcaption><img src="r1/rows.webp" alt="会话组头是加粗的一行，等你处理的那组左边一条警示色竖线；子行用一条细竖线连着"></figure>
+      <figure><figcaption>A：默认布局的宽度</figcaption><img src="r1/rows-narrow.webp" alt="648 宽时标题与进展截断"></figure>
+      <figure><figcaption>A：默认的面板高度（196px）</figcaption><img src="r1/rows-short.webp" alt="196 高时放得下两个会话与它们的任务"></figure>
+    </div>
+    <div data-nbdev-option="blocks" data-nbdev-label="每个会话一块">
+      <figure><figcaption>B：每个会话一块</figcaption><img src="r1/blocks.webp" alt="每个会话一块浅底的圆角块，等你处理的那块是浅警示色底"></figure>
+      <figure><figcaption>B：默认布局的宽度</figcaption><img src="r1/blocks-narrow.webp" alt="648 宽时的块"></figure>
+      <figure><figcaption>B：默认的面板高度（196px）</figcaption><img src="r1/blocks-short.webp" alt="196 高时第二个会话的第二个任务被截在底边"></figure>
+    </div>
+  </div>
+  <p><b>推荐 A</b>：底部面板在默认布局里只有约 196px 高，B 每块上下多出的留白让一屏少放约一行；A 靠加粗的组头、细竖线和等你处理的竖线已经分得清组。想要更醒目的分组就选 B。</p>
+</section>
+
+<section data-nbdev-question="session-collapse-r1" data-nbdev-type="single" data-nbdev-recommend="expanded">
+  <h2><span class="badge" data-nbdev-skip>待定</span>会话组默认展开还是收起</h2>
+  <p>会话排在最前，默认高度的面板里，几个会话展开之后，项目与应用的任务（例如 Skill 安装）要往下滚才看得到。每个组头都有收起箭头，问的是开始时的样子。</p>
+  <div class="row">
+    <div data-nbdev-option="expanded" data-nbdev-label="默认展开">
+      <figure><figcaption>默认展开（推荐）：默认高度下看得到前两个会话与它们的任务</figcaption><img src="r1/rows-short.webp" alt="196 高的面板里两个会话展开，项目与应用在下面"></figure>
+    </div>
+    <div data-nbdev-option="collapsed" data-nbdev-label="会话组默认收起">
+      <figure><figcaption>会话组默认收起：组头后面写件数，项目的任务进到第一屏</figcaption><img src="r1/rows-collapsed.webp" alt="三个会话各一行，标题后面写件数，下面是项目组"></figure>
+    </div>
+  </div>
+  <p><b>推荐默认展开</b>，收起与展开按窗口记住：会话下面的就是这个会话的后台任务，收起之后要多点一下才看得到，分组也就失去了意义；嫌挤可以拉高面板或收起某一组。</p>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>会话里定的（t42 决定 1–4）</h2>
+  <ul>
+    <li><b>收哪些行</b>：插件的任务；Agent 的后台任务每件一行（命令、后台子代理、插件工具登记的任务）；在跑或等你处理的根会话每个一行；没有任务覆盖、却在跑的子会话一行。</li>
+    <li><b>分组</b>：按归属分组，会话在前，然后是项目与应用；顶上一个范围开关，当前项目或全部项目；组内在跑的在上、结束的在下。</li>
+    <li><b>状态栏与通知</b>：状态栏只数在跑的插件任务与 Agent 后台任务，不数会话的运行；结束通知只给插件的任务。</li>
+    <li><b>形态与种类</b>：行上显示种类；形态与种类的筛选等第一个服务或定时的提供方出现时再加。</li>
+  </ul>
+  <figure><figcaption>范围切到“全部项目”：每个项目一组</figcaption><img src="r1/rows-all.webp" alt="项目「雾港」与项目「长夜」各一组"></figure>
+</section>
+</body>
+</html>
