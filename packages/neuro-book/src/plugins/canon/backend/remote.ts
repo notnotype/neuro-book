@@ -107,6 +107,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 if (input.view !== undefined) return read(service.viewed(own(input.view)).entry(input.id, input.position, input.mode));
                 return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true, input.withChangedAt === true));
             }),
+            textBlocks: (input) => withWorld((service) => read(service.textBlocks(input.id, position(service, input.position)))),
             tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => (input.position === undefined ? service.tree(input.parent, input.cursor, limit) : service.tree(input.parent, input.cursor, limit, {position: input.position, mode: input.mode ?? "actual"})))),
             origins: (input) => withWorld((service) => denied(service, input.view, "origins") ?? paged(input.limit, (limit) => service.origins(input.at, position(service, input.position), input.mode, input.cursor, limit), 20)),
             findEntries: (input) => withWorld((service) => denied(service, input.view, "findEntries") ?? paged(input.limit, (limit) => service.findEntries({query: input.query, ...(input.kinds === undefined ? {} : {kinds: input.kinds}), ...(input.types === undefined ? {} : {types: input.types}), position: position(service, input.position)}, input.cursor, limit))),

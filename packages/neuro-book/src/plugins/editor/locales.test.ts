@@ -383,6 +383,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "refusal.pageEditor": {"zh-CN": "页面不是文件，不能换编辑器", "en-US": "A page is not a file, so its editor cannot be changed"},
     "refusal.noActiveFileTab": {"zh-CN": "没有活动的文件标签", "en-US": "There is no active file tab"},
     "refusal.noActiveDocument": {"zh-CN": "没有活动文档", "en-US": "There is no active document"},
+    "refusal.pageCommitFailed": {"zh-CN": "这个页面没有保存成功", "en-US": "This page could not be saved"},
     "refusal.saveUnrepresentable": {"zh-CN": "有视图写不回 Markdown，没有保存：先在组顶部定位并修改，或采用当前正文", "en-US": "A view cannot be written back as Markdown, so nothing was saved: first use Show Block at the top of the group and change it, or choose Use Current Text"},
     "refusal.noEditor": {"zh-CN": "没有编辑器 {editor}", "en-US": "There is no editor {editor}"},
     "refusal.editorCannotOpen": {"zh-CN": "编辑器 {editor} 不能打开 {name}", "en-US": "Editor {editor} cannot open {name}"},

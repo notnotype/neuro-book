@@ -89,9 +89,10 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "set（entry、field、value）；replace（entry、field、find、with，把恰好出现一次的 find 换成 with）；",
         "add（entry、field、delta，只在 story）；note（entry、field、text，语义档记一句，只在 story）；",
         "listAdd（entry、field 列表、value 元素 {子字段: 值}，以条目为键的列表另写 target 条目）；listRemove（entry、field 写到元素）；",
-        "aliases（entry、add、remove）；addBlock（entry、text、after 块 id）；removeBlock（entry、block）；",
+        "aliases（entry、add、remove）；addBlock（entry、text、after 块 id：放在它后面，null 放在最前，不写放在最后）；removeBlock（entry、block）；",
         "addComponent、removeComponent（entry、component 设定组）；move（entry、parent 上级或 null、after 兄弟或 null、folder、kind）；delete、restore（entry）。",
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
+        "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
     ].join("\n"),
     parameters: {
@@ -401,7 +402,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             return {op: {op: "aliases", entry: id, ...(Array.isArray(edit.add) ? {add: edit.add as string[]} : {}), ...(Array.isArray(edit.remove) ? {remove: edit.remove as string[]} : {})}};
         case "addBlock":
             if (typeof edit.text !== "string") return at("addBlock 要写 text。");
-            return {op: {op: "addBlock", entry: id, source: edit.text, ...(typeof edit.after === "string" ? {after: edit.after} : {})}};
+            return {op: {op: "addBlock", entry: id, source: edit.text, ...(typeof edit.after === "string" || edit.after === null ? {after: edit.after} : {})}};
         case "removeBlock":
             if (typeof edit.block !== "string") return at("removeBlock 要写 block（块 id，canon_read 的 show: [\"text\"] 里方括号中的）。");
             return {op: {op: "removeBlock", at: {entry: id, path: `text[${edit.block}]`}}};

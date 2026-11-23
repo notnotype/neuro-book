@@ -12,7 +12,8 @@ import {loadMonaco, modelUri} from "../code/load-monaco";
 import {codeEditorOptionsKey, DEFAULT_CODE_EDITOR_OPTIONS} from "../code/options";
 import type {CodeEditorOptions} from "../code/options";
 import type {MonacoApi} from "../code/load-monaco";
-import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
+import {MONACO_THEME} from "../code/monaco-theme";
+import {followMonacoTheme} from "../code/theme-follow";
 import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../code/source-merge";
 import CodeContextMenu from "./CodeContextMenu.vue";
@@ -79,7 +80,7 @@ let detach: (() => void) | null = null;
 /** 程序改模型（换成文档的正文）时不当成用户输入交出去。 */
 let applying = false;
 let unmounted = false;
-let themeObserver: MutationObserver | null = null;
+let unfollowTheme: (() => void) | null = null;
 let cursorTimer: ReturnType<typeof setTimeout> | null = null;
 /** 输入法正在组字：Monaco 把候选前的拼音直接写进模型并交出，“停手后”的自动保存据此顺延（输出 63）。 */
 let composing = false;
@@ -228,12 +229,6 @@ watch(() => props.visible, (visible) => {
     if (visible) editor?.layout();
 });
 
-const applyTheme = (): void => {
-    if (monaco === null) return;
-    monaco.editor.defineTheme(MONACO_THEME, buildMonacoTheme(document.documentElement));
-    monaco.editor.setTheme(MONACO_THEME);
-};
-
 /** 选区活动端的位置（输出 28）：换文档、卸载时为 null。 */
 const position = shallowRef<{readonly line: number; readonly column: number} | null>(null);
 const readPosition = (): void => {
@@ -282,7 +277,7 @@ onMounted(async () => {
         return;
     }
     if (unmounted || root.value === null) return;
-    applyTheme();
+    unfollowTheme = followMonacoTheme(monaco);
     languages?.install(monaco);
     editor = monaco.editor.create(root.value, {
         model: null,
@@ -320,9 +315,6 @@ onMounted(async () => {
     });
     // 部件一级的失焦：焦点进查找框时文字区失焦、部件没有，不算离开视图。
     editor.onDidBlurEditorWidget(() => emit("leave"));
-    // 主题或明暗变了（文档根上的 token 换了）：重新生成 Monaco 的主题。
-    themeObserver = new MutationObserver(applyTheme);
-    themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-appearance", "data-nb-theme"]});
     if (props.binding !== null) enter(props.binding);
     emit("ready", handle);
 });
@@ -332,7 +324,7 @@ watch(() => props.label, (label) => editor?.updateOptions({ariaLabel: label}));
 onBeforeUnmount(() => {
     unmounted = true;
     if (props.binding !== null) leave(props.binding);
-    themeObserver?.disconnect();
+    unfollowTheme?.();
     // 模型归视图状态槽，由编辑器区在标签关闭或淘汰时释放；这里只释放编辑器实例。
     instance.value = null;
     editor?.dispose();

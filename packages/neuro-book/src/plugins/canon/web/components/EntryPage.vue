@@ -52,7 +52,9 @@ const props = withDefaults(defineProps<{
     removableGroup?: string;
     /** 页头写入失败的原因，写在页头下面。默认空。 */
     actionError?: string;
-}>(), {deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: "", actionError: ""});
+    /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：这三个控件不可用、悬停提示是它。默认空（能换）。 */
+    positionLocked?: string;
+}>(), {positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: "", actionError: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -81,6 +83,8 @@ defineSlots<{
     default?(): unknown;
     /** 页头之下、分页内容之上：确认条（各分页共用这一处）。 */
     bar?(): unknown;
+    /** 条目已删除时，“已删除”与恢复按钮下面：这个条目还留着的没提交的主文字。 */
+    deleted?(): unknown;
 }>();
 
 const blockedReason = computed(() => (props.editReason === "" ? undefined : props.editReason));
@@ -134,6 +138,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
             <p class="mt-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleted") }}</p>
             <Button v-if="props.editable" class="mt-3" size="sm" :disabled="blockedReason !== undefined" :title="blockedReason" data-entry-restore @click="emit('restore')">{{ text("entry.restore") }}</Button>
             <p v-if="props.actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ props.actionError }}</p>
+            <slot name="deleted" />
         </div>
         <template v-else>
             <!-- 窄屏上页头换成几行，吸顶会占掉大半个视口，只在宽屏吸顶。 -->
@@ -163,11 +168,13 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         </ul>
                     </div>
                     <div class="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                        <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" @update:line="(value: string) => emit('update:line', value)" />
-                        <Select class="w-52 max-w-full" size="sm" :aria-label="text('entry.position')" :options="[...props.positions]" :model-value="props.position" @update:model-value="(value: string) => emit('update:position', value)" />
-                        <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
-                            <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}
-                        </label>
+                        <div class="contents" :title="props.positionLocked !== '' ? props.positionLocked : undefined" :data-position-locked="props.positionLocked !== '' ? '' : undefined">
+                            <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" :disabled="props.positionLocked !== ''" @update:line="(value: string) => emit('update:line', value)" />
+                            <Select class="w-52 max-w-full" size="sm" :aria-label="text('entry.position')" :options="[...props.positions]" :model-value="props.position" :disabled="props.positionLocked !== ''" @update:model-value="(value: string) => emit('update:position', value)" />
+                            <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
+                                <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" :disabled="props.positionLocked !== ''" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}
+                            </label>
+                        </div>
                         <DropdownMenu align="end" :items="menuItems" @select="onMenu">
                             <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('entry.more')" :title="text('entry.more')" />
                         </DropdownMenu>

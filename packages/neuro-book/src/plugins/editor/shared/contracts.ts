@@ -68,6 +68,21 @@ export interface DocumentCoordinator {
 
 export const documentCoordinatorKey: ServiceKey<DocumentCoordinator> = defineServiceKey<DocumentCoordinator>("nbook.editor/documents");
 
+/** 编辑器插件交给别的插件用的组件（docs/specs/workbench/editor.md 输出 69）。 */
+export interface EditorComponents {
+    /**
+     * 可嵌入的代码输入框（`web/components/CodeInput.md`）：属性 `modelValue`、`label`、`language`、`readonly`，事件
+     * `update:modelValue`、`focus`、`blur`，外露 `focus()` 与 `cursorOffset()`。按需加载：第一次渲染时才取组件与 Monaco。
+     */
+    readonly CodeInput: Component;
+}
+
+export interface EditorComponentsService {
+    readonly components: EditorComponents;
+}
+
+export const editorComponentsKey: ServiceKey<EditorComponentsService> = defineServiceKey<EditorComponentsService>("nbook.editor/components");
+
 export const EDITOR_PAGES_POINT = "editor.pages";
 
 /**

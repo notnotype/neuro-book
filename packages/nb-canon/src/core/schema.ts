@@ -393,7 +393,8 @@ export const EntryOpSchema = Type.Union([
     Type.Object({op: Type.Literal("listAdd"), at: AddressSchema, element: Type.Record(Type.String(), Type.Unknown())}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("listRemove"), at: AddressSchema}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("aliases"), entry: Id, add: Type.Optional(Type.Array(Text)), remove: Type.Optional(Type.Array(Text))}, {additionalProperties: false}),
-    Type.Object({op: Type.Literal("addBlock"), entry: Id, source: Text, after: Type.Optional(Id)}, {additionalProperties: false}),
+    // `after`：块 id 是放在它后面，`null` 是放在最前，不写是放在最后（revisions.md 输出 25）。
+    Type.Object({op: Type.Literal("addBlock"), entry: Id, source: Text, after: Type.Optional(Type.Union([Id, Type.Null()]))}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("removeBlock"), at: AddressSchema}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("component"), entry: Id, type: Id, action: Type.Union([Type.Literal("add"), Type.Literal("remove")]), fields: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("place"), entry: Id, parent: Type.Optional(Type.Union([Id, Type.Null()])), folder: Type.Optional(Text), kind: Type.Optional(Text), after: Type.Optional(Type.Union([Id, Type.Null()])), appears: Type.Optional(Type.Union([PlacementSchema, Type.Null()])), sameAs: Type.Optional(Type.Union([Id, Type.Null()]))}, {additionalProperties: false}),

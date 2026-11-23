@@ -4,7 +4,7 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
@@ -27,6 +27,8 @@ import {chapterLine, changedMark, defaultPosition, placementLabel, positionExist
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
+import type {TextDraftSession} from "../text-drafts";
+import {useTextTab} from "../text-tab";
 import {useWorldList, useWorldRead} from "../use-reads";
 import type {RevertRequests} from "../revert";
 import {readOnlyBanner, writeBlocked} from "../writable";
@@ -36,6 +38,8 @@ import ConfirmBar from "./ConfirmBar.vue";
 import EntryPage from "./EntryPage.vue";
 import type {EntryPageStatus} from "./EntryPage.vue";
 import EntryText from "./EntryText.vue";
+import EntryTextEditor from "./EntryTextEditor.vue";
+import TextConflictDialog from "./TextConflictDialog.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
 import {addressKey} from "./entry-text";
 import FieldsDataView from "./FieldsDataView.vue";
@@ -76,6 +80,12 @@ const props = defineProps<{
     receipt: (revision: string) => void;
     /** 读到页头时报给宿主：标签标题与面包屑用它。 */
     onHead: (head: EntryHead) => void;
+    /** 这个条目的主文字稿（输出 44 到 46）；会话在窗口的登记里，不随这一页卸载。 */
+    draft: TextDraftSession;
+    /** 源文字的输入框（编辑器插件的代码输入框）；窗口里没有时为 null，编辑视图用普通文本框。 */
+    sourceInput: Component | null;
+    /** 这一页挂着的时候把“提交主文字”交给宿主（标签的保存命令调它，输出 46）；卸载时交 null。 */
+    onCommitReady: (commit: (() => Promise<void>) | null) => void;
 }>();
 
 const text = useCanonText();
@@ -107,11 +117,18 @@ watch(() => state.position, (now) => {
 
 const windowLine = computed(() => props.windowLine.line.value);
 // 窗口选了线时读取位置都带上它（输出 34）；换线不改这一页自己的位置。
-const position = computed<ReadPosition>(() => {
+const ownPosition = computed<ReadPosition>(() => {
     const base = (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value);
     return windowLine.value === "" ? base : {...base, line: windowLine.value};
 });
-const mode = computed(() => (state.planned ? "planned" as const : "actual" as const));
+// 有主文字的稿时这一页停在稿开始的位置（内核解析后的、写明线的），按实际读（输出 46）；稿没了回到自己的位置。稿开始的那一章、
+// 那条线已经不在了的时候也回到自己的位置：否则这一页的读取都落在读不出来的位置上，刷新以后整页是“读取失败”，稿列不出来。
+const lockedAt = computed(() => {
+    const draft = props.draft.state;
+    return draft.draft === null || draft.blocker === "chapter-not-found" || draft.blocker === "line-not-found" ? null : draft.draft.at;
+});
+const position = computed<ReadPosition>(() => lockedAt.value ?? ownPosition.value);
+const mode = computed(() => (lockedAt.value === null && state.planned ? "planned" as const : "actual" as const));
 const place = (at: Placement): string => placementLabel(at, chapters.value, text);
 
 /* ---------- 条目 ---------- */
@@ -129,9 +146,10 @@ const status = computed<EntryPageStatus>(() => {
 
 // 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
 // 正是那里时才报；窗口选了线时另读一份缺省位置的。
-const headRead = useWorldRead(world, "entry", () => (windowLine.value !== "" && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
+const headElsewhere = computed(() => windowLine.value !== "" || lockedAt.value !== null);
+const headRead = useWorldRead(world, "entry", () => (headElsewhere.value && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
 const headSource = computed(() => {
-    if (windowLine.value !== "") return headRead.value?.data;
+    if (headElsewhere.value) return headRead.value?.data;
     return state.position === null && !state.planned ? entry.value : undefined;
 });
 watch(headSource, (read) => {
@@ -227,7 +245,8 @@ const toggleValue = (address: TextAddress): void => {
 // 写不了的原因（输出 27、28）；就地改另外只在实际模式下可用（输出 16）。
 const blocked = computed(() => writeBlocked(world));
 const readOnly = computed(() => readOnlyBanner(world));
-const editBlocked = computed(() => (state.planned ? canonText("blocked.planned") : blocked.value));
+// 有稿时这一页按实际读（见 `mode`），“按计划”的开关不作数。
+const editBlocked = computed(() => (mode.value === "planned" ? canonText("blocked.planned") : blocked.value));
 /** 条目自己的名字与简介当作两个文字字段，确认条照字段的写法改它们（输出 16、页头的改名）。 */
 const HEAD_FIELDS: Readonly<Record<string, {readonly key: "name" | "summary"; readonly label: string}>> = {"entry.name": {key: "name", label: "entry.nameLabel"}, "entry.summary": {key: "summary", label: "entry.summaryLabel"}};
 const fieldAt = (path: string) => {
@@ -276,7 +295,7 @@ const edit = useInPlaceEdit({
  * 读到的值随请求带上，服务据此判断这个值是不是刚被别处改过（`value-conflict`）。
  */
 const record = async (path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}> => {
-    if (state.planned) return {ok: false, reason: canonText("blocked.planned")};
+    if (mode.value === "planned") return {ok: false, reason: canonText("blocked.planned")};
     if (position.value.kind === "initial") return {ok: false, reason: canonText("blocked.initial")};
     if (blocked.value !== null) return {ok: false, reason: blocked.value};
     const field = fieldAt(path);
@@ -568,17 +587,94 @@ const confirmRemoveElement = async (): Promise<void> => {
     if (await runEntries([{op: "listRemove", at: {entry: props.id, path: `${draft.namespace}.${draft.field}[${draft.element}]`}}], title, draft.intent)) removeElementDraft.value = null;
 };
 
-/* ---------- 主文字的块（canon.revisions 输出 25 的 addBlock、removeBlock 与 text[块] 的 set） ---------- */
+/* ---------- 主文字（输出 39、44 到 46）：按块编辑在 `text-tab.ts`，这里是剧情的三个对话框 ---------- */
 
-// 改一段与加一段共用一个对话框；源文字取条目读取里所选位置上的那一块（不是渲染出来的文字）。不带 `after`：改设定时加在初值末尾，
-// 剧情里变了时加在这个位置上最后一块之后（内核的缺省）。
-const blockDraft = shallowRef<{readonly block: string | null; readonly source: string; readonly original: string; readonly intent: EditIntent} | null>(null);
+const textTab = useTextTab({
+    entry: props.id,
+    session: props.draft,
+    world,
+    call: props.client.call,
+    name: () => view.value?.name ?? "",
+    position: () => position.value,
+    // 条目已删除时稿还在（能看、能放弃），提交不可用：恢复以后才能发。
+    blocked: () => (view.value?.deleted === true ? text("textEdit.blockedDeleted") : editBlocked.value === null ? "" : port.t(editBlocked.value)),
+    notices: props.notices,
+    text,
+    translate: (value) => port.t(value),
+});
+// 稿在别处的标签里就有了（刷新以后）：这一页挂上时去读。
+void props.draft.load();
+const editorRef = shallowRef<{focusBlock(key: string): void} | null>(null);
+/** 点“编辑”进去以后焦点进第一块：阅读视图先退场、编辑视图才挂上，等进场结束再给。只管这一次点击：没进去就不留着。 */
+let focusFirst = false;
+const startEditing = async (): Promise<void> => {
+    actionError.value = "";
+    const failed = await textTab.start();
+    focusFirst = failed === "";
+    // 没进去（读不出块）：人还在阅读视图，原因写在那里。
+    actionError.value = failed;
+};
+/** 编辑视图的事件：文字分页里与“已删除”下面是同一个编辑视图，接法只写一处。 */
+const editorOn = {
+    update: textTab.update,
+    add: textTab.add,
+    split: textTab.split,
+    merge: textTab.merge,
+    remove: textTab.remove,
+    restore: textTab.restore,
+    blur: () => textTab.flush(),
+    submit: () => void textTab.submit(),
+    discard: () => void textTab.leave(),
+    cancel: () => void textTab.leave(),
+    takeOver: () => void textTab.takeOver(),
+    adopt: () => void textTab.adopt(),
+    retry: () => void textTab.retry(),
+};
+const focusEditor = (): void => {
+    const first = textTab.editor.value.blocks.find((block) => block.state !== "removed");
+    if (focusFirst && first !== undefined) editorRef.value?.focusBlock(first.key);
+    focusFirst = false;
+};
+// 页面转入后台（切标签、最小化、关窗之前）：把还没写下去的稿写进暂存。
+const onHidden = (): void => {
+    if (document.visibilityState === "hidden") textTab.flush();
+};
+onMounted(() => {
+    document.addEventListener("visibilitychange", onHidden);
+    props.onCommitReady(() => textTab.submit());
+});
+onBeforeUnmount(() => {
+    document.removeEventListener("visibilitychange", onHidden);
+    textTab.flush();
+    props.onCommitReady(null);
+});
+// 这一块在剧情里变了与在剧情里加一块共用一个对话框；源文字取条目读取里所选位置上的那一块（不是渲染出来的文字）。加的块不带
+// `after`：放在这个位置上最后一块之后（内核的缺省）。
+const blockDraft = shallowRef<{readonly block: string | null; readonly source: string; readonly original: string} | null>(null);
 const blockOpen = shallowRef(false);
+/** 保存时发现这一块被别处改了：对话框里另列出现在的原文。 */
+const blockNow = shallowRef<string | null>(null);
 const openBlock = (block: string | null): void => {
     const source = block === null ? "" : view.value?.text.find((candidate) => candidate.id === block)?.source ?? "";
     openDialog();
-    blockDraft.value = {block, source, original: source, intent: intentsHere()[0]!};
+    blockNow.value = null;
+    blockDraft.value = {block, source, original: source};
     blockOpen.value = true;
+};
+/** 剧情对话框的一次写入；被别处改了时把对照的原文换成现在的（返回 null 表示这一块已经不在了）。 */
+const storyWrite = async (title: string, ops: EntryOp[], block: {readonly id: string; readonly source: string} | undefined): Promise<{readonly done: boolean; readonly now?: string | null}> => {
+    if (acting.value) return {done: false};
+    acting.value = true;
+    dialogError.value = "";
+    const result = await textTab.storyWrite({title, ops, ...(block === undefined ? {} : {block})});
+    acting.value = false;
+    if (result.ok) return {done: true};
+    if ("changed" in result) {
+        dialogError.value = port.t(text(result.changed === null ? "block.goneElsewhere" : "block.changedElsewhere"));
+        return {done: false, now: result.changed};
+    }
+    dialogError.value = result.failure;
+    return {done: false};
 };
 const confirmBlock = async (): Promise<void> => {
     const draft = blockDraft.value;
@@ -592,14 +688,30 @@ const confirmBlock = async (): Promise<void> => {
         return;
     }
     const name = view.value?.name ?? "";
-    const op: EntryOp = draft.block === null ? {op: "addBlock", entry: props.id, source: draft.source} : {op: "set", at: {entry: props.id, path: `text[${draft.block}]`}, value: draft.source};
-    if (await runEntries([op], port.t(text(draft.block === null ? "block.added" : "block.edited", {name})), draft.intent)) blockOpen.value = false;
+    const op: EntryOp = draft.block === null ? {op: "addBlock", entry: props.id, source: draft.source} : {op: "set", at: {entry: props.id, path: `text[${draft.block}]`}, value: draft.source, read: draft.original};
+    const result = await storyWrite(port.t(text(draft.block === null ? "block.added" : "block.edited", {name})), [op], draft.block === null ? undefined : {id: draft.block, source: draft.original});
+    if (result.done) blockOpen.value = false;
+    else if (typeof result.now === "string") {
+        // 作者的输入不动；之后保存比的是现在的原文。
+        blockNow.value = result.now;
+        blockDraft.value = {...draft, original: result.now};
+    }
 };
-const removeBlockDraft = shallowRef<{readonly block: string; readonly intent: EditIntent} | null>(null);
+const removeBlockDraft = shallowRef<{readonly block: string; readonly original: string} | null>(null);
+const openRemoveBlock = (block: string): void => {
+    openDialog();
+    blockNow.value = null;
+    removeBlockDraft.value = {block, original: view.value?.text.find((candidate) => candidate.id === block)?.source ?? ""};
+};
 const confirmRemoveBlock = async (): Promise<void> => {
     const draft = removeBlockDraft.value;
     if (draft === null) return;
-    if (await runEntries([{op: "removeBlock", at: {entry: props.id, path: `text[${draft.block}]`}}], port.t(text("block.removed", {name: view.value?.name ?? ""})), draft.intent)) removeBlockDraft.value = null;
+    const result = await storyWrite(port.t(text("block.removed", {name: view.value?.name ?? ""})), [{op: "removeBlock", at: {entry: props.id, path: `text[${draft.block}]`}}], {id: draft.block, source: draft.original});
+    if (result.done || result.now === null) removeBlockDraft.value = result.done ? null : draft;
+    if (typeof result.now === "string") {
+        blockNow.value = result.now;
+        removeBlockDraft.value = {...draft, original: result.now};
+    }
 };
 
 // 去掉当前数据分页这组设定：先确认，数据留着。
@@ -720,7 +832,7 @@ const setPosition = (value: string): void => {
             :same-as="entry?.sameAs ?? null"
             :positions="options"
             :position="positionValue(position)"
-            :planned="state.planned"
+            :planned="mode === 'planned'"
             :not-appeared="notAppeared"
             :position-gone="state.positionGone"
             :disconnected="world.connection.value === 'ended'"
@@ -736,6 +848,7 @@ const setPosition = (value: string): void => {
             :aliases="view?.aliases ?? []"
             :removable-group="removableGroup"
             :action-error="actionError"
+            :position-locked="textTab.editing.value ? text('textEdit.locked') : ''"
             @edit-name="edit.open('entry.name')"
             @edit-summary="edit.open('entry.summary')"
             @aliases="changeAliases"
@@ -765,19 +878,29 @@ const setPosition = (value: string): void => {
                     @cancel="edit.cancel()"
                 />
             </template>
+            <!-- 条目已删除、稿还在：页头换成“已删除”，稿列在它下面，能看、能放弃。 -->
+            <template #deleted>
+                <EntryTextEditor v-if="textTab.editing.value" class="mt-6" v-bind="textTab.editor.value" :input="props.sourceInput ?? undefined" v-on="editorOn" />
+            </template>
+            <Transition v-if="tab === 'text'" name="nb-ui-switch" mode="out-in" @after-enter="focusEditor">
+                <EntryTextEditor v-if="textTab.editing.value" ref="editorRef" key="edit" v-bind="textTab.editor.value" :input="props.sourceInput ?? undefined" v-on="editorOn" />
             <EntryText
-                v-if="tab === 'text'"
+                v-else
+                key="read"
                 :blocks="blocks"
                 :self="props.id"
                 :marks="marks"
                 :open="state.origin ?? undefined"
                 :editable="view !== null && !view.deleted"
                 :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
+                :story="view !== null && !view.deleted && position.kind === 'chapter'"
+                :story-reason="editBlocked === null ? '' : port.t(editBlocked)"
                 @value="toggleValue"
                 @entry="(id: string) => props.open({kind: 'entry', id})"
-                @edit-block="(id: string) => openBlock(id)"
-                @remove-block="(id: string) => { openDialog(); removeBlockDraft = {block: id, intent: intentsHere()[0]!}; }"
-                @add-block="openBlock(null)"
+                @edit="startEditing()"
+                @story-edit="(id: string) => openBlock(id)"
+                @story-remove="openRemoveBlock"
+                @story-add="openBlock(null)"
             >
                 <template #origin="{address}">
                     <OriginList
@@ -794,6 +917,7 @@ const setPosition = (value: string): void => {
                     />
                 </template>
             </EntryText>
+            </Transition>
             <PlotList
                 v-else-if="tab === 'plot'"
                 :rows="plotRows(plotState?.items ?? [], props.id, labelOfPath, place, text)"
@@ -887,11 +1011,8 @@ const setPosition = (value: string): void => {
         >
             <div class="flex flex-col gap-3" data-block-dialog>
                 <Textarea :rows="8" :aria-label="text('block.source')" :model-value="blockDraft.source" @update:model-value="(value: string) => (blockDraft = {...blockDraft!, source: value})" />
-                <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
-                    <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
-                    <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="blockDraft.intent" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (blockDraft = {...blockDraft!, intent: value as EditIntent})" />
-                </div>
                 <p v-if="dialogError !== ''" role="alert" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+                <p v-if="blockNow !== null" class="whitespace-pre-wrap rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]" data-block-now>{{ blockNow }}</p>
             </div>
         </Dialog>
         <Dialog
@@ -905,12 +1026,17 @@ const setPosition = (value: string): void => {
             @update:open="(value: boolean) => { if (!value) removeBlockDraft = null; }"
             @confirm="confirmRemoveBlock()"
         >
-            <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
-                <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
-                <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeBlockDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeBlockDraft = removeBlockDraft === null ? null : {...removeBlockDraft, intent: value as EditIntent})" />
-            </div>
-            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+            <p v-if="dialogError !== ''" role="alert" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
+            <p v-if="blockNow !== null" class="mt-2 whitespace-pre-wrap rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]" data-block-now>{{ blockNow }}</p>
         </Dialog>
+        <TextConflictDialog
+            :open="textTab.asking.value"
+            :items="textTab.conflicts.value"
+            :busy="props.draft.state.phase === 'submitting'"
+            @choose="textTab.choose"
+            @confirm="textTab.confirmConflicts()"
+            @update:open="(value: boolean) => (textTab.asking.value = value)"
+        />
         <MoveDialog
             v-if="moveDraft !== null"
             :open="moveOpen"

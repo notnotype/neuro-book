@@ -93,7 +93,8 @@ const tabs = computed((): TabItem[] => {
         label,
         title: page === null ? tab.address : label,
         preview: tab.preview,
-        dirty: props.area.documents.get(tab.address)?.dirty.value === true,
+        // 页面标签没有文档，圆点取页面自己报告的未提交内容（输出 68）。
+        dirty: tab.kind === "page" ? props.pages?.uncommitted(tab) === true : props.area.documents.get(tab.address)?.dirty.value === true,
         active: tab.id === group.value?.active,
         pinned: tab.kind === "file" && tab.pinned === true,
         icon: page === null ? fileIconForName(nameOf(tab.address)) : null,

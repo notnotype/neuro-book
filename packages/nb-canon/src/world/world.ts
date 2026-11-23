@@ -103,6 +103,8 @@ export interface Problem {
     readonly message: string;
     /** 有细分原因的码带它（`ref-invalid` 的 `entry-missing`、`ref-type-mismatch`……，components.md 输出 18）。 */
     readonly reason?: string;
+    /** 一次改几处里，这条问题出在第几项写下的东西上（从 0 起，revisions.md 输出 25）；对不上哪一项时没有。 */
+    readonly op?: number;
 }
 
 export interface ConflictDetail {
@@ -890,6 +892,15 @@ function addedElements(op: Exclude<Op, {kind: "chapters"}>): string[] {
     return elementsOf(field.after).filter((element) => !before.has(element));
 }
 
+/** 一次操作加进条目初值的主文字块，写成“条目、text[块 id]”（修订里是没有改前值的 `init.text[块 id]`）。 */
+function addedInitBlocks(op: Exclude<Op, {kind: "chapters"}>): string[] {
+    if (op.ref.kind !== "entry" || op.kind !== "modify") return [];
+    return op.fields.flatMap((field) => {
+        const block = field.before === undefined ? /^init\.(text\[.+\])$/u.exec(field.path)?.[1] : undefined;
+        return block === undefined ? [] : [`${op.ref.id}\u0000${block}`];
+    });
+}
+
 function dependsOn(later: Revision, earlier: Revision, groups: ReadonlyMap<string, string>): boolean {
     const created = new Set<string>();
     const elements: string[] = [];
@@ -901,7 +912,7 @@ function dependsOn(later: Revision, earlier: Revision, groups: ReadonlyMap<strin
         if (op.kind === "chapters") continue;
         if (op.kind === "create") created.add(refKey(op.ref));
         if (op.kind === "modify") paths.set(refKey(op.ref), [...op.fields]);
-        elements.push(...addedElements(op));
+        elements.push(...addedElements(op), ...addedInitBlocks(op));
         if (op.ref.kind === "change") {
             earlierChanges.add(op.ref.id);
             const group = groups.get(op.ref.id);
@@ -932,6 +943,9 @@ function dependsOn(later: Revision, earlier: Revision, groups: ReadonlyMap<strin
             // 去元素的补丁地址是整个列表，元素 id 在 `value` 里：换成元素的地址再比（“改过它新建的列表元素”含去掉它）。
             const address = patch.op === "listRemove" ? `${patch.at.entry}\u0000${patch.at.path}[${String(patch.value)}]` : `${patch.at.entry}\u0000${patch.at.path}`;
             if (elements.some((element) => address === element || address.startsWith(`${element}.`))) return true;
+            // 剧情加出来的块挂在它加进初值的块后面：还原以后那条变更套不上。
+            const after = patch.op === "addBlock" ? (patch.value as {after?: unknown} | null)?.after : undefined;
+            if (typeof after === "string" && elements.includes(`${patch.at.entry}\u0000text[${after}]`)) return true;
         }
     }
     return false;

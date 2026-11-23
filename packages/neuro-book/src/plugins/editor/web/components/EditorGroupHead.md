@@ -14,7 +14,7 @@
 type Props = {
     area: EditorArea;
     groupId: string;
-    /** 页面标签的标题：页面此刻给的、标签上记着的、声明的，依次取（输出 33）；缺省 null。 */
+    /** 页面标签的标题：页面此刻给的、标签上记着的、声明的，依次取（输出 33）；页面标签的未保存圆点也问它（输出 68），文件标签的圆点取文档的 dirty。缺省 null。 */
     pages?: EditorPageSource | null;
     /** 标签条右侧的标题动作（输出 34）：只有活动组拿到（`group` 是这一组），别的组为 null；缺省 null。 */
     titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;

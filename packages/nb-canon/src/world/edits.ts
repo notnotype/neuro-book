@@ -86,10 +86,10 @@ function repeated(world: World, input: Pick<InPlaceEdit, "requestId" | "position
     return {ok: true, world, revision: published, ids: published.idMap ?? {}, repeated: true, laterRecords: laterRecords(world, onLine(world, input.position), input.at)};
 }
 
-/** 批量编辑的失败交回单项入口的形状：去掉项的序号（只有一项），校验问题里的 `ops[0]` 也去掉。 */
+/** 批量编辑的失败交回单项入口的形状：去掉项的序号（只有一项），校验问题里的 `ops[0]` 与细项上的 `op` 也去掉。 */
 function single(failure: EntryEditFailure): EditFailure {
     if (failure.code === "stale-read") throw new Error("single-entry edits do not carry a read stamp");
-    if (failure.code === "validation-failed") return {code: "validation-failed", problems: failure.problems.map(({path, ...rest}): Problem => (path === "ops[0]" ? rest : {path, ...rest}) as Problem)};
+    if (failure.code === "validation-failed") return {code: "validation-failed", problems: failure.problems.map(({path, op: _op, ...rest}): Problem => (path === "ops[0]" ? rest : {path, ...rest}) as Problem)};
     if ("op" in failure) {
         const {op: _op, ...rest} = failure;
         return rest as EditFailure;

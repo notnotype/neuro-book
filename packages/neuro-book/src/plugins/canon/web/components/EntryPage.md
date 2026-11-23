@@ -37,6 +37,8 @@ type EntryPageProps = {
     /** 在所选位置上还没出场时，所选位置的文字；默认空（已出场）。 */
     notAppeared?: string;
     positionGone?: boolean;
+    /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字）；非空时这三个控件不可用、悬停写原因。默认空。 */
+    positionLocked?: string;
     disconnected?: boolean;
     /** 世界只读的原因；默认空（可以写）。 */
     readOnly?: string;
@@ -81,7 +83,7 @@ type EntryPageEmits = {
 };
 ```
 
-默认插槽是当前分页的内容，放在 `role="tabpanel"` 里；`bar` 插槽在页头之下、分页内容之上，放确认条。
+默认插槽是当前分页的内容，放在 `role="tabpanel"` 里；`bar` 插槽在页头之下、分页内容之上，放确认条；`deleted` 插槽只在条目已删除时渲染，在“已删除”与恢复按钮下面，放这个条目还留着的没提交的主文字。
 
 ## 状态
 

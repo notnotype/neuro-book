@@ -146,8 +146,8 @@ export function failureText(failure: {readonly code: string} & Record<string, un
         case "result-mismatch":
             return `${at}result-mismatch：写进去以后读到的不是你要的值（读到 ${valueText(failure.got)}）。看一下这个字段的来历再改。`;
         case "validation-failed": {
-            const problems = ((failure.problems as Array<{code: string; path?: string; message: string; reason?: string}> | undefined) ?? []).slice(0, 5);
-            return `validation-failed：${problems.map((problem) => `${problemAt(problem.path)}${problem.code}（${PROBLEM_HINTS[problem.code] ?? problem.message}）`).join("；")}`;
+            const problems = ((failure.problems as Array<{code: string; path?: string; op?: number; message: string; reason?: string}> | undefined) ?? []).slice(0, 5);
+            return `validation-failed：${problems.map((problem) => `${problemAt(problem.path, problem.op)}${problem.code}（${PROBLEM_HINTS[problem.code] ?? problem.message}）`).join("；")}`;
         }
         case "busy":
             return "busy：有人正在独占写入。稍后再试，不要重复发。";
@@ -159,9 +159,10 @@ export function failureText(failure: {readonly code: string} & Record<string, un
     }
 }
 
-function problemAt(path: string | undefined): string {
-    const match = path === undefined ? null : /^ops\[(\d+)\]$/u.exec(path);
-    return match === null ? "" : `第 ${String(Number(match[1]) + 1)} 项 `;
+/** 问题出在第几项：定方案时的问题路径就是 `ops[N]`，发布前校验的问题对得上哪一项时带 `op`。 */
+function problemAt(path: string | undefined, op?: number): string {
+    const index = op ?? (path === undefined ? undefined : /^ops\[(\d+)\]$/u.exec(path)?.[1]);
+    return index === undefined ? "" : `第 ${String(Number(index) + 1)} 项 `;
 }
 
 const PROBLEM_HINTS: Readonly<Record<string, string>> = {

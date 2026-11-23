@@ -597,6 +597,7 @@
         "pageEditor": "A page is not a file, so its editor cannot be changed",
         "noActiveFileTab": "There is no active file tab",
         "noActiveDocument": "There is no active document",
+        "pageCommitFailed": "This page could not be saved",
         "saveUnrepresentable": "A view cannot be written back as Markdown, so nothing was saved: first use Show Block at the top of the group and change it, or choose Use Current Text",
         "noEditor": "There is no editor {{editor}}",
         "editorCannotOpen": "Editor {{editor}} cannot open {{name}}",

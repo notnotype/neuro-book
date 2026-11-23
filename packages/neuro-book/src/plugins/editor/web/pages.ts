@@ -73,6 +73,16 @@ export interface EditorPageImplementation<State extends object = Record<string, 
     initialState?(arg: string | undefined): State;
     /** 这个标签的面包屑；同样在计算里调用。返回 null 或空时这个标签没有面包屑。 */
     breadcrumbs?(arg: string | undefined): ReadonlyArray<EditorPageCrumb> | null;
+    /**
+     * 这个标签有没有还没提交的内容（输出 68）；在标签条与公开状态的计算里调用，不在前台的标签也会问，所以它读的状态不能放在
+     * 页面组件里（组件只在标签活动时存在）。
+     */
+    uncommitted?(arg: string | undefined): boolean;
+    /**
+     * 提交这个标签的内容（输出 68）：活动标签是它时由“保存”命令调用并等待。失败由页面自己显示；reject 时保存命令报告失败。
+     * 同一个标签的两次调用可能重叠（连按两次 Ctrl+S），由页面自己合并。
+     */
+    commit?(arg: string | undefined): Promise<void>;
 }
 
 /** 页面标签上与页面有关的那几项（`groups.ts` 的 `PageTab`）。 */
@@ -108,6 +118,10 @@ export interface EditorPageSource {
     /** 这个标签的 `context`：同一个标签每次拿到同一个对象。 */
     context(tab: PageTabRef): EditorPageContext;
     crumbs(tab: PageTabRef, text: TextResolver): ReadonlyArray<PageCrumbItem>;
+    /** 页面说这个标签有没提交的内容（输出 68）；页面没给、或贡献已撤回时为假。响应式。 */
+    uncommitted(tab: PageTabRef): boolean;
+    /** 提交这个标签的内容；页面没给 `commit`、或贡献已撤回时为 null。 */
+    commit(tab: PageTabRef): (() => Promise<void>) | null;
     /** 标签关掉了：丢掉它的 `state`。 */
     release(tabId: string): void;
 }
@@ -198,6 +212,11 @@ export class EditorPageRegistry {
                 const command = crumb.command;
                 return {label: text.t(crumb.label), ...(command === undefined ? {} : {run: () => execute(command.id, command.args)})};
             }),
+            uncommitted: (tab) => implementationOf(tab.address)?.uncommitted?.(pageArgOf(tab.address)) === true,
+            commit: (tab) => {
+                const implementation = implementationOf(tab.address);
+                return implementation?.commit === undefined ? null : () => implementation.commit!(pageArgOf(tab.address));
+            },
             release: (tabId) => void contexts.delete(tabId),
             scene: (id) => this.declaration(id)?.scene === true,
             pending: (id) => !this.#published.value.has(id) && !this.#revoked.value.has(id) && this.declaration(id) !== null,
