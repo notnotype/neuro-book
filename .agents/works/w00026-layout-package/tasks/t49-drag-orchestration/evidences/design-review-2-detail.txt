@@ -1,0 +1,129 @@
+# t49 计划第 2 稿：细节与事实核对
+
+结论：阻断 0、重要 5、建议 6。我没改任何文件，也没跑测试或服务，下面都是读代码核对的结果。
+
+## 上一轮问题的处理情况
+
+第 1 轮的 12 条里，这 9 条第 2 稿真正解决了：
+
+- 阻断 1：`D` 现在只是落点，`held` 留在宿主。
+- 重要 2：`measure` 由引擎在第一帧开头调，同步段内的第一次判定现量不存。
+- 重要 4：状态分成 `shown` 与 `previewed`。
+- 重要 5：`show` 带 `collapsed` 参数。
+- 重要 6：`home` 必填，并写死两条规则。我核对过，`join-container` 的 `container` 为 null 而 `home` 可能为真，这一例成立（`entry-drop.ts:59-69`）。
+- 建议 9：`judge` 里结束这一例列进了单元测试。
+- 建议 10：收场顺序不动。
+- 建议 11：工作台用 `createLiveDrag`，`useLiveDrag` 只给 setup 期的宿主。
+- 重要 8：nb-story 的冻结几何、原位落点、`NestedGrid` 根上读 `layoutMotionMs`、删键盘，这四点补上了。
+
+下面的问题里，第 1、3 条是第 1 轮重要 3、7 没解干净，第 2、4 条是新出的。
+
+## 重要
+
+**1. `withLifted` 拿不到“拿起时所在的叶”，接口没给来源**
+- 位置：计划“`useLiveDrag.ts`”一节；`WorkbenchShell.vue:896-898`；`WorkbenchSurface.vue:182-192`。
+- 现象：
+  - 今天这个叶来自宿主：`liftedCard` 用已提交的文档查 `findTab(doc.value, card.key)?.panel`，经 `lifted.home` 传给 Surface 去补内容项。
+  - 计划里引擎的 `lifted` 只有 `{key}`，库里的 `withLifted(contents)` 只看得到 `contents` 数组。
+  - 撕下那一帧，引擎在同一个同步段里先 `show(source-removed)` 再置 lifted（`live-drag.ts:225-239`）。Vue 第一次读到 lifted 时，`contents` 里已经没有这一项，库没有机会“记住”它的叶。
+- 为什么是问题：补回项的叶是空的，或要靠一个跨渲染的缓存猜。e2e 撕下（`:390`）与飞回（`:528`）会挂在“内容是同一个节点”上。
+- 建议改法：二选一写进接口。`card` 加 `leaf?(source): string | null`，进 `state.lifted`；或 `useLiveDrag` 取一个 `leafOf(key)` 参数。
+
+**2. `show` 的返回值、兜底与调用先后没写**
+- 位置：计划 `LiveDragHost.show`；`live-drag.ts:203-208`。
+- 现象：今天“摆出来了”取的是 `candidateDoc` 是否非 null（`:205`、`:206`），之后才 `show(doc ?? (collapsed ? sourceRemovedDoc : null))`。计划把这三步合成一个回调，只写了“返回假是摆不出来”。没写的有三点：
+  - 走了 sourceRemoved 兜底也必须返回假。
+  - 返回假且未收起时，宿主要把预览复位成已提交的样子（`showPreview(null)`）。
+  - 引擎先调 `collapsed`、`expanded`，再调 `show`。`layout-drag.ts:267` 的 join-container 判断读的 `beforeCollapse`，今天就依赖这个先后。
+- 失败场景：来源已收起、候选是 center 或 float 这类算不出文档的落点，宿主按字面返回真。`previewed` 非空，外壳在没有预览的落点上画并入盖层或空位，`absorbedIn` 也被置成那条标签条。
+- 建议改法：在 `show` 的注释里写这三条，并在引擎单元测试里用假宿主断言调用先后。
+
+**3. 引擎的规则只写了三条，卡片、吸收、续帧的规则没写**
+- 位置：计划“引擎的规则写死”一段；`live-drag.ts:144-148`、`:206`、`:213`、`:242-246`、`:270`、`:181-184`、`:196`。
+- 现象：今天还有这些规则，计划没有一句：
+  - `wantsCard`：`offered` 为 null 要卡片；落在容器里且（`inPlace` 或 `container === absorbedIn`）才不要。
+  - `absorbedIn` 的更新：`inPlace || 摆出来了` 才取 `container`，source-removed 与撕下时置 null。
+  - `sortingAt` 就是“不要卡片且 `container` 非空”，它决定 `follow.read` 与 `afterRender` 的 `at`。
+  - 续帧条件：`moved || changed || settling || !settled() || sortingAt() !== null`。
+  - 撕下的前提：这一帧预览没换、`!collapsed && wantsCard()`；撕下后把 state 改成 source-removed 且 slot 为 null。
+  - 首帧才 `initialLiveDrop(now)`，稳定计时从第一帧起算，不是从 `begin`。
+  - 展开只在预览换了的那一帧判。
+- 失败场景：nb-story 的 `container` 恒为 null，靠“卡片一直要”才成立，没人写下来就没人守。单元测试补充项（`judge` 里结束、`join-container`、`collapsed` 返回 null 等）不含 `wantsCard` 与续帧。
+- 建议改法：把这些写进 `live-drag.ts` 头注释与 Spec 输出，切片 1 的测试按条列。
+
+**4. nb-story 一节没接 `settleMotion`、`placeLifted`、`origin`**
+- 位置：计划 nb-story 一节；`BookFrame.vue:182`、`:222`；`layout-drag.ts:831`、`:314-317`。
+- 现象：
+  - 工作台在 `begin` 前先 `settleMotion()`。nb-story 刚开详情或换页时网格在过渡，第一帧 `measure` 量到的是中间矩形。`gridRef` 的类型只有 `{readonly moving: boolean}`，没暴露 `settleMotion`。
+  - `card.place` 要接 `gridRef.placeLifted`，同一个 ref 类型也要改。
+  - `origin()` 取哪个元素没写：工作台取 `[data-grid-scope]`，nb-story 的 `gridBox` 比网格根多出东西。
+  - `card.rect(source, null)` 取来源那张的矩形，是 `measure` 冻结的那份还是现读 DOM 没写。现读的话，拿起之后它已经是卡片的矩形。
+- 失败场景：刚打开详情就拖，冻结的矩形错位，`resolve` 命中偏移，预览换走后候选来回抖。这正是第 1 轮 nb-story 那条要防的抖动，e2e 在没有过渡时过，真机才出。
+- 建议改法：nb-story 一节列出这四处接线，并写明 `activate` 里 `settleMotion` 在 `begin` 前。
+
+**5. nb-story 的 `resolve` 在原位返回落点，会在减少动效路径上把指示画到来源自己身上；也没提 `commitsUnderPointer`**
+- 位置：`BookFrame.vue:228-241`；`layout-drag.ts:858`。
+- 现象：
+  - 计划要 `resolve` 在回到自己那一半时返回 `inPlace` 的落点。`swapPreview` 直接拿 `drop.rect` 画“与这一张对调”。减少动效时走落点指示，`swapPreview` 就会盖在来源自己身上。
+  - 工作台的实时布局设了 `commitsUnderPointer`，保证“移动与松手在同一个任务里到”仍提交指针下的候选（e2e `:277`、`:288`）。nb-story 不设，则停稳前甩过去就松手不会对调，与输出 68“在那上面松手两张对调”不一致。
+- 建议改法：写明 `resolve` 在 `live.active` 为假时仍返回 null；`commitsUnderPointer: () => 实时布局进行中`；各补一条 e2e。
+
+## 建议
+
+**6. `collapsed` 返回 null 把“失败”和“不改几何”混成一种**
+- 位置：`layout-drag.ts:284`、`:294`。
+- 现象：今天 `removeTab` 失败或 `frozen === null` 时 `collapseSource` 直接 return，不设 `beforeCollapse`，也不记 `held`；`expandSource` 在 `beforeCollapse === null` 时同样 return。计划删掉 `beforeCollapse`，引擎只要自己的 `collapsed` 为真就无条件调 `expanded`，宿主在 `expanded` 里没法知道上一次收起成不成功。
+- 失败场景：来源在拖动中被命令关掉、下一次判定才取消整场的那一帧，宿主仍记 `held`，指针不动时松手返回原位落点，不重判。概率低，但不是“同今天”。
+- 建议改法：`collapsed` 返回能区分失败的类型，或明写宿主自留一个“收起成功”的字段。
+
+**7. 预览缓存作废的“身份”没定义，null 到首帧几何这一步没写**
+- 位置：`layout-drag.ts:647`、`:527`、`:434`。
+- 现象：
+  - 激活时的同步判定量到过渡中间的矩形，预览缓存按它算。首帧 `measure` 之后 `geometry()` 才从 null 变成 G。作废必须把 null 到 G 也算一次换身份。
+  - 同一次判定里 `dropAt`、`stripDrop`、`floatDrop`、`sortTargetOf` 各调 `geometry(doc)`，null 期间每次全量重量。计划应说“一次判定量一次，传下去”。
+  - `heldTab` 与 `strips` 今天读 `run.frozen`，要改成读本地那份，否则首次判定标签条里按指针而不是按标签位置判。
+  - “顺带修旧缺口”没有对应用例：e2e `:302` 在旧缺口下同样会过。
+- 建议改法：写进计划，并补一条宿主层的单元或 dom 测试。
+
+**8. `facts` 每帧被引擎多处调用**
+- 位置：`live-drag.ts:133`、`:103`。
+- 现象：今天每帧只在 `candidateOf` 里算一次 `keyOf`（含 `JSON.stringify`）与 `isHomeStrip`，其余几处只做 `stripOf`。计划里候选、收起、`wantsCard`、`sortingAt`、卡片都经 `facts`，至少 4 次。`workbench-drag-cost` 量的是样式重算，不会失败，但每帧白做 JSON 与文档查找。
+- 建议改法：在 `offer` 时算一次，缓存到这个落点对象上。`home` 依赖的已提交文档一场里不变，结构变了整场取消。
+
+**9. `shrinkOutsideHome` 名字与注释相反，缺省值也有问题**
+- 位置：计划 `card.shrinkOutsideHome`；`live-drag.ts:169`。
+- 现象：注释是“指针还在来源那块里时不缩，缺省假”。今天 `inHome = cardShrink()==="panel" && home!==null && 指针在 home 内`，在里面时目标是 home 尺寸（不缩）。名字读成“离开才缩”，缺省假会让所有宿主一拿起就缩到 380×260，包括指针还在来源上时，而工作台默认设置是在来源面板里不缩。`strip` / `panel` 到布尔的映射、home 为 null 时的取值也没写。
+- 建议改法：改成 `keepSizeInsideHome`，缺省值与 null 取值写进注释。
+
+**10. Lab 场景要写的几何与落点，计划没量**
+- 位置：计划“第二个形状”一节；`drag-geometry.ts:77`（`collapsedGeometry` 约 90 行，依赖工作台自己的投影）。
+- 现象：Lab 宿主要自己实现 `collapsed`（摘掉来源后重算每块矩形）、`resolve`（边缘落点与空位）、`show`（预览树）。计划没写用 nb-layout 的哪些公开函数（`layoutOf`、`resolveGridEdgeDrop`、`createGrid` 的移除与插入），“收起那一刻指针没动松手”测的是 Lab 宿主自己写的 `held`，不是引擎。引擎在这件事里唯一的贡献是 `judge` 先于 `collapsed` 的调用次序，这一条没进引擎单元测试清单。
+- 建议改法：先查 nb-layout 有没有现成的“摘一叶并重算矩形”，写进计划；把调用次序补进切片 1 的测试。
+
+**11. 要同步改的文档漏了两处，Spec 行号也有误**
+- 位置：`src/drag-card.md:26`、`:52`；`vue/drag-session.md`；`docs/specs/ui/layout-drag.md:192`。
+- 现象：
+  - `drag-card.md` 第 52 行仍教“叫醒它的 `pointermove` 监听要先于会话挂的监听挂上”，与新的 `sampled` 矛盾。
+  - `vue/drag-session.md` 的选项表要加 `sampled`。
+  - 计划写“输出 21”，实际讲帧循环与会话一起用的是 Spec 第 192 行那条。
+- 建议改法：补进切片 6 的清单，行号核对一遍。
+
+## 未发现问题的方面
+
+- **`wake` 先于会话发布：** `sampled` 在 `onPointerMove` 一开头调，与今天 `wakeLive`（构造时挂在窗口捕获阶段）的先后一致。会话的 `pointermove` 监听只在按下后挂（`attachPointer`），所以不比今天多唤醒。`createFrameLoop` 的用户只有工作台（我 grep 了全部包），没有别的宿主依赖这个监听次序。
+- **收场里撤预览先于提交：** 计划把 `end` 留在 `onActiveChange(false)`，Spec 第 211 行的顺序不动；`onEnd` 读 `run.judged` 的办法不变。
+- **同步段内的第一次判定：** 我对照 `drag-gesture.ts:394` 确认，激活时只有一次同步 `resolve`，随后到首帧之间指针移动只排发布、不再判定，所以“现量不存”只发生一次，不会多次全量重量。放下时的 `drop()` 也能用现量兜住。
+- **一帧里的先后：**
+  - `follow.read` → `judge` → 写 `follow` → 取指针 → 换预览 → 写卡片，与 `tick`（`live-drag.ts:255-271`）一致。
+  - `judge` 里结束后不再调写那一步，也与今天一致。
+  - 首帧的 `measure` 在 Vue 微任务刷新之后，不比今天的 `nextTick` 晚过别的写。
+  - 所以 `workbench-drag-cost` 的样式重算数不会多（首帧一次强制重算，对应今天 `nextTick` 里那一次）。
+- **`stableDrop` 与 `stickyDrop`：** 前者留在宿主 `resolve`，后者对应 `sticky(point)`，`dropAt` 里先 `held`、后 `sticky`，顺序不变。
+- **nb-story 内容换叶：**
+  - 换叶这件事可行：Spec 输出 92 写明换叶从旧矩形滑到新矩形，内容不重建。
+  - `leave: "retain"` 只在内容被摘掉时生效。
+  - 预览不去掉内容时，`withLifted` 对 nb-story 是空操作，也不与 `dragging` 冲突。
+  - `swapDetails` 与撤预览在同一个同步段里，提交后顺序与预览一致，不闪。
+- **计划引用的事实核对：** `live-drag.ts` 319 行、`live-drag.test.ts` 24 例、e2e `:324` 那条确实断言了“收起之后被拒绝仍在”（`data-drop-rejected`、卡片提示），行号与内容都对。
+
+阻断 0、重要 5（第 1 到 5 条）、建议 6（第 6 到 11 条）。

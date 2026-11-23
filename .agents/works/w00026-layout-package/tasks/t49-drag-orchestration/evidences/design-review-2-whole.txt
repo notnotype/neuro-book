@@ -1,0 +1,149 @@
+上一轮 20 条的核对结果在前；新问题共 8 条（重要 4、建议 4），按影响排序；没有阻断。
+
+## 上一轮各条的核对
+
+- **已解决、不再提**：
+  - 整体审查第 1、3、4、7、9、10 条。
+  - 细节核对第 1 至 11 条。
+  - 细节第 12 条：收起那一刻被拒绝要留住，已映射到 `workbench-live-drag.e2e.ts:324`；24 例逐条迁移也已写明。
+- **没解决**：整体第 5 条里的 `held`。第 2 稿把它整个留在宿主，提案却把“指针不动不重判”列为要进库的编排。见下面第 2 条。
+- **改出新问题**：
+  - 整体第 6 条的 `withLifted`：工作台用不上。见第 3 条。
+  - 整体第 3 条的“结束只有一个主人”：`useLiveDrag` 卸载时又调一次 `end`。见第 1 条。
+  - 整体第 8 条把接口缩小了，但宿主与会话、宿主与网格之间要手写的接线没有算进去。见第 1、4 条。
+
+## 1. 重要：第三方宿主要手写 8 处会话接线，没有类型约束；`offer` 放在 `resolve` 里，与已晋升的 Spec 冲突
+
+- **位置**：计划“编排的分工”表的“宿主”“会话”两行；“nb-story”一节；Spec `ui/layout-drag` 第 57 行。
+- **现象**：照第 2 稿，一个实时布局宿主要自己接这 8 处：
+  - 会话选项 `sampled: () => live.wake()`；
+  - 在 `activate` 里判断这一场走不走实时布局，再 `begin`；
+  - `resolve` 里在自己的高优先级落点之后问 `sticky`；
+  - 每次 `resolve` 都 `offer`，包括 null；
+  - 在 `onActiveChange(false)` 里 `end`，而不是 `onEnd`；
+  - `commitsUnderPointer` 为真；
+  - 引擎回调 `judge: () => session.flush()`；
+  - 引擎回调 `pointer: () => session.state.value?.point`。
+
+  `useLiveDrag` 要会话，`useDragSession` 的选项又要 `live`，两边在 setup 里互相引用。计划的 nb-story 一节一处都没写，说明计划本身也没把这份接线写全。
+- **为什么是问题**：
+  - 漏掉任何一处都不报错：
+    - 漏 `sampled`：Spec 第 192 行写明“挂反了不报错”；
+    - 漏 `offer`：预览不动；
+    - `end` 放错地方：预览停在屏幕上。
+  - 提案要求“引擎与会话同属一个对象，或由会话主动调 wake”。第 2 稿只做到了 `wake` 这一处。
+  - Spec 第 57 行写“同步判定这一刻的落点，不产生副作用”，而计划教第三方在 `resolve` 里 `offer`，这就是副作用。计划的 Spec 改动没列这一行。`drag-session.ts:51` 的注释已经和 Spec 不一致。
+  - `useLiveDrag` 卸载时 `end`，会话 `dispose` 时又经 `onActiveChange(false)` 再 `end` 一次。`end` 幂等所以不出错，但卸载时谁先跑取决于两个组合函数的调用先后，正是上一轮要去掉的第三个主人。
+- **改法**：
+  - 在 `./vue` 加一个合成的组合函数，例如 `useLiveDragSession(root, grid, {session, live})`，一次建好会话和引擎，接线都在库里：
+    - `sampled → wake`；
+    - 宿主给 `live?(source, keyboard): boolean`，为真才 `begin`；
+    - 包一层 `resolve`，把宿主的返回值交给 `offer`，宿主的 `resolve` 回到没有副作用；
+    - `onActiveChange(false)` 时 `end`，卸载不再另调；
+    - 实时布局的这一场里 `commitsUnderPointer` 为真；
+    - `judge`、`pointer` 由会话提供。
+  - `sticky` 是只读的，留给宿主按自己的优先级调。工作台的入口条要排在它前面。
+  - 工作台在 `onMounted` 里建，照计划用 `createLiveDrag` 加 `sampled` 手接。
+  - Spec 第 57 行改成代码注释的说法：不改布局，可以记下最近的落点。
+  - 计划补一节“备选”：
+    - 记下“并进 `createDragSession`”（上一轮整体第 3 条的 c）为什么不做、1.0 前什么时候再定；
+    - 记下“只给组合函数”为什么不行：工作台在 `onMounted` 里建。
+
+## 2. 重要：“指针不动不重判”留在宿主，两个宿主各写一份
+
+- **位置**：计划“编排的分工”表“宿主”一行（工作台的 `held`）；“工作台改用引擎”第 2 条；切片 4 的“收起那一刻指针没动松手放到屏幕上那个”；提案“手感引擎分两步”第 190 行。
+- **现象**：
+  - 提案第二步要进库的编排明列了“指针不动不重判”。计划自己的分工原则也是“什么时候归引擎”。
+  - 第 2 稿让宿主在 `collapsed`、`expanded` 回调里记 `{...judged, point}`，再在 `resolve` 开头比对指针，和今天 `layout-drag.ts:639-644` 一样。
+  - 切片 4 的 Lab 场景要验收这条，所以 Lab 宿主也得照抄一份。
+  - `collapsed` 回调因此既要返回新几何，又要宿主顺手记下判定：一个回调做两件事。
+- **为什么是问题**：
+  - 第三方写会收起来源的宿主，都要重写这段时序：什么时候开始留、指针一动就作废、键盘拖动不留。
+  - 漏了不报错，只在“收起那一刻松手”这一种情况下放错位置。
+- **改法**：
+  - 引擎在收起、展开时记下指针，暴露 `unmoved(point): boolean`。
+  - 宿主只留自己最近一次的判定：`if (live.unmoved(point)) return run.judged`。被拒绝和编辑器的拒绝照样跟着留下，`D` 仍只是落点，不碰上一轮的阻断。
+  - `collapsed` 变成只算几何的回调，`expanded` 只报时机。
+  - 单元测试列这几种：指针没动的重判、指针一动就作废、滚动引起的重判。
+
+## 3. 重要：`withLifted` 只从 `useLiveDrag` 返回，工作台拿不到；它要的“拿起时的叶”也没有可靠的来源
+
+- **位置**：计划 `useLiveDrag` 一节（“工作台今天 `WorkbenchSurface.vue` 里补的那一段移进库”），与下一条“工作台的引擎在 `createLayoutDrag` 里建，用 `createLiveDrag`”；`WorkbenchSurface.vue:182-191`。
+- **现象**：
+  - 工作台的引擎在 `WorkbenchShell` 的 `createLayoutDrag` 里用 `createLiveDrag` 建，内容层在另一个组件 `WorkbenchSurface` 里。照计划它用不到 `useLiveDrag` 返回的 `withLifted`，两句计划互相矛盾。
+  - 撕下来源的那一帧里，`tearOff` 换预览、`updateCard` 拿起卡片在同一个同步段（`live-drag.ts:180-239`），渲染时 `contents` 里已经没有那一项。
+  - 引擎的 `lifted` 只有 `{key}`，所以 `withLifted` 要知道“拿起时它所在的叶”，只能在 `begin` 时或每次调用时偷偷缓存。在 `computed` 里调用的函数藏着状态，很脆。
+- **为什么是问题**：
+  - 第三方忘了调它，就会复现“内容实例被卸载”。这正是上一轮要放进库的那条合同。
+  - 修法要求调用方为组件写补丁，信号是上游少了这一步。
+- **改法**：
+  - 让 `NestedGrid` 自己留住拿起的那一项：`lifted.key` 不在 `contents` 里时，沿用内容层上一次的放置。它的文档本来就写着 `lifted` “变成 null 时飞回它的叶”，拿起的生命周期已经归它管。
+  - 删掉 `withLifted` 这个公开名字、`WorkbenchSurface` 的这一段，以及 `lifted.home`。
+  - dom 测试放在 `NestedGrid` 上：`lifted` 期间这一项被去掉，实例不卸载，放下后回到叶上。
+
+## 4. 重要：引擎与 `NestedGrid` 之间有 4 处接线由宿主手接，计划自己已经踩到其中 2 处
+
+- **位置**：`LiveDragHost.origin`、`card.place`；计划“nb-story”一节；工作台 `layout-drag.ts:314-317`、`:831`；t45 的接入记录第 104 行。
+- **现象**：
+  - `origin()` 要的是网格根的左上角，不是会话根。nb-story 的会话根是外面的 `gridBox`，t45 已记下“文档里看不出来”。计划的 nb-story 一节没写 `origin`。
+  - `card.place` 只是转给 `placeLifted`。
+  - 拿起前要先 `settleMotion`，否则第一帧量到的是过渡中间的矩形。工作台在 `activate` 里调，nb-story 一节没写。
+  - 减少动效要在网格元素上读 `layoutMotionMs`。上一轮细节第 8 条就是 nb-story 读错了地方。
+- **为什么是问题**：这 4 处每个宿主写法都一样，写错也不报错：卡片偏一个网格根的偏移、测量抖动、减少动效探测不到。
+- **改法**：
+  - 第 1 条的组合函数（或 `useLiveDrag`）接收 `grid: Ref<NestedGrid 实例 | null>`，缺省提供 `origin`、`card.place`，并在 `begin` 时 `settleMotion`。
+  - `NestedGrid` 的 `defineExpose` 补 `origin()` 与 `motionMs()`。
+  - 宿主必须写的回调因此从 11 个降到 7 个，剩下的都是领域判断：`facts`、`show`、`measure`、`collapsed`、`expanded`、`card.key`、`card.rect`。
+
+## 5. 建议：“吸收进容器”只有工作台用，却是 `LiveDropFacts` 的必填字段
+
+- **位置**：`LiveDropFacts.container`、`card.rect(source, container)`、`follow`。
+- **现象**：
+  - `container` 决定三件事：立即换、卡片收回、`absorbedIn`。
+  - Lab 场景与 nb-story 恒为 null，只有工作台用。
+  - 计划把 `follow` 与 `staysWithoutSource` 写成可选，`container` 却必填。
+- **改法**：
+  - 把“吸收”做成一个可选的分组：`container?` 加 `follow?`，`card.rect` 的第二个参数只在有吸收时出现。
+  - 在接口上写明“只有一个宿主验证过”。
+  - 另外两个宿主就不必理解这个概念。
+
+## 6. 建议：状态的形状可以更小，命名和 `live-drop` 撞在一起
+
+- **位置**：`LiveDragState`、`LivePreviewTarget`；根入口已有的 `LivePreview`、`LiveDropState`。
+- **现象**：
+  - `previewKey: string` 用 `"none"`、`"source-removed"` 当哨兵值，和宿主自己的 `facts.key` 共用一个字符串空间。宿主的键恰好叫 `none` 时，外壳和 e2e 就分不清。
+  - `shown` 只给 `sticky` 用，而 `sticky` 是引擎自己的方法，没有外部读者。
+  - `LivePreview`（根入口）和 `LivePreviewTarget`（`./vue`）名字几乎一样，含义不同。
+  - `LiveDropFacts.slot` 是视口坐标，`LiveDragState.slot` 是相对网格根的坐标，同名不同坐标系。
+- **改法**：
+  - 状态里换成 `preview: LivePreview`，复用已有类型；e2e 标记由宿主从它派生。
+  - 去掉 `shown`。
+  - `LivePreviewTarget` 改个不像的名字，例如 `LiveShowTarget`。
+  - 两个 `slot` 之一改名，或在名字里写明坐标系。
+
+## 7. 建议：通用 Spec 没写“结构键不能读预览”
+
+- **位置**：Spec `ui/layout-drag` 计划新增的“实时布局的编排”几条；`BookFrame.vue:227`。
+- **现象**：
+  - nb-story 的 `structure()` 读 `shownDetails` 的顺序。如果预览用改 `shownDetails` 的方式摆，结构键一变，整场取消。
+  - 工作台的 Spec 输出 32 写了“只比已提交的文档”，通用 Spec 里没有。
+- **改法**：新增的编排条目里写一句“预览只给渲染用，`structure` 与 `resolve` 读已提交的状态”。nb-story 一节写明预览只换 `detailContents` 的叶。
+
+## 8. 建议：发布顺序还差一句“t55 前不发 0.2.0”
+
+- **位置**：计划“不做与风险”一节的“发布顺序”。
+- **现象**：0.1.0 那一端已经定死。但 t55 紧接着做，可能给引擎改名；如果 0.1.0 之后在 t55 合入之前发 0.2.0，0.3.0 就要再改一次名。
+- **改法**：`[Unreleased]` 的引擎条目旁加一句“t55 合入之前不发 0.2.0”，或写进 Work 记录的发布前检查。
+
+## 未发现问题的方面
+
+- 引擎只管时机、宿主管领域判断的分工；落点 `D` 只是落点，`offer` 不再把宿主的结论带进引擎。
+- 公开名字只从 `./vue` 出，核心文件保持纯 TS、由 `boundary.test.ts` 守着；`createLiveDrag` 和 `useLiveDrag` 成对，与 `createDragSession`、`useDragSession` 的模式一致。
+- `sampled` 作为通用的会话选项成立，只用帧循环的宿主同样受益；收场顺序不改。
+- Lab 场景 `live-panels` 作为收起、几何换算、空位粘住的第二个形状，符合提案点名的“不是标签页的宿主”。
+- 标签条排序只留宿主钩子、写成已知限制并追加决策记录，回应了提案的要求。
+- nb-story 的依赖是 devDependency，查看器打包了 nb-layout 的产物，t49 不制造 nb-story 与 nb-layout 之间的发布先后问题。
+
+## 各级数量
+
+阻断 0、重要 4（第 1 至 4 条）、建议 4（第 5 至 8 条）。
