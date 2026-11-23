@@ -167,6 +167,29 @@ describe.each(stores)("%s 存储", (_name, makeStore) => {
         expect(entry?.spend?.cost).toBeCloseTo(0.03);
     });
 
+    test("session.md 输出 22：运行的收口带那次运行最后一条有文字的回复的首句，回复与收口不在一批也算；只有工具调用的回复不换掉它；没有回复的不带；重开会话之后照样算", async () => {
+        const store = makeStore();
+        const id = nextId();
+        const created = await store.create(header(id));
+        if (!created.ok) throw new Error(created.code);
+        const usage = {input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0};
+        const reply = (text: string) => ({type: "assistant", kind: "conv" as const, data: {request: 1, content: text === "" ? [] : [{kind: "text", text}], toolCalls: [], stopReason: "stop", usage}});
+        const parent = {last: null as string | null};
+        const append = async (handle: typeof created.value, batch: LogEvent[]) => expect(await store.append(handle, batch)).toEqual({ok: true, value: undefined});
+        await append(created.value, eventsFrom(1, [{type: "runStarted", data: {runId: "r1", kind: "chat"}}, reply("\n找到 4 处称谓前后不一致。细节如下")], parent));
+        await append(created.value, eventsFrom(3, [reply(""), {type: "runEnded", data: {runId: "r1", reason: "completed"}}], parent));
+        await append(created.value, eventsFrom(5, [{type: "runStarted", data: {runId: "r2", kind: "chat"}}, {type: "runEnded", data: {runId: "r2", reason: "aborted"}}], parent));
+        await append(created.value, eventsFrom(7, [{type: "runStarted", data: {runId: "r3", kind: "chat"}}, reply("长".repeat(300))], parent));
+        await store.close(created.value);
+        const reopened = await store.open(id);
+        if (!reopened.ok) throw new Error(reopened.code);
+        await append(reopened.value, eventsFrom(9, [{type: "runEnded", data: {runId: "r3", reason: "completed"}}], parent));
+        await store.close(reopened.value);
+        const entry = await store.entry(id);
+        if (!entry.ok) throw new Error(entry.code);
+        expect(entry.value.runs!.map((run) => run.line)).toEqual(["找到 4 处称谓前后不一致。", undefined, `${"长".repeat(199)}…`]);
+    });
+
     test("session.md 输出 23：entry 只读一个会话的索引，与 list 的条目相同；没有的得 session-not-found", async () => {
         const store = makeStore();
         const id = nextId();

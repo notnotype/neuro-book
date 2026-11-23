@@ -448,7 +448,7 @@ function ok<T>(result: {readonly ok: boolean; readonly value?: T; readonly code?
 }
 
 describe("远程", () => {
-    test("输出 21、22、25，sessions.md 输出 18、19：tree 的项与推送、ancestors、list 带父会话、activity 带根", async () => {
+    test("输出 21、22、25，sessions.md 输出 18、19：tree 的项与推送（收口带回复首句）、ancestors、list 带父会话、activity 带根", async () => {
         const {w, parent} = await open();
         const {client} = await w.window("tree");
         const pushes: (readonly TreeItem[])[] = [];
@@ -475,7 +475,8 @@ describe("远程", () => {
             w.settings.clock.advance(250);
             return settled()?.state === "idle";
         });
-        expect(settled()!.runs).toContainEqual(expect.objectContaining({runId: spawned!.details!.runId, reason: "completed"}));
+        // 收口带着那次运行最后一条回复的首句（session.md 输出 22），卡片据此写“完成”的那一行。
+        expect(settled()!.runs).toContainEqual(expect.objectContaining({runId: spawned!.details!.runId, reason: "completed", line: "做完了。"}));
     });
 
     test("输出 21：后代等审批时 tree 带 pending，状态是 waiting；在父会话的窗口里批了子会话接着跑", async () => {

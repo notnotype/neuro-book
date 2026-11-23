@@ -14,6 +14,8 @@ export interface IndexedRun {
     readonly runId: string;
     readonly reason: string;
     readonly endedAt: number;
+    /** 那次运行最后一条有文字的回复的首句，至多 200 个字符；没有回复的没有它，加它之前写的索引也没有（session.md 输出 22）。 */
+    readonly line?: string;
 }
 
 /** 会话列表用的小索引；`list` 只读它，崩溃后到下次打开之前可能略旧。 */

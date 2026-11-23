@@ -112,26 +112,6 @@ test("验收 1：同一条回复派两个，并发跑；一个完成一个出错
     await expect(page.locator("[data-subagent-card]")).toHaveCount(2);
 });
 
-test("后台任务视图（jobs.md 输出 20）：后台子代理等你批准时，会话块浅警示、任务那一行写“等你批准”；点它的“打开”到子会话", async ({page}) => {
-    await openConversation(page);
-    await scriptFor("核对年表", {tool: "write", args: {path: "user://年表.md", content: "第一年。"}}, "核对完了。");
-    await script(adhoc("核对年表", {name: "年表", async: true}), "派出去了");
-    // 父会话这句不能含“核对年表”：假端点按第一条用户消息认请求，含了就把子代理的回复交给父会话。
-    await send(page, "派个子代理去查日期");
-    await expect(page.locator("[data-agent-dock]")).toContainText("子代理「年表」");
-    // 后台子代理算后台工作：状态栏出现“后台任务”条目，点开视图。
-    await page.locator('[data-workbench-item="nbook.tasks.status"]').click();
-    const block = page.locator('[data-group^="session:"]');
-    await expect(block).toHaveAttribute("data-waiting", "true");
-    const job = block.locator('[data-state="waiting"]').filter({hasText: "年表"});
-    await expect(job).toContainText("子代理");
-    await expect(job).toContainText("等你批准");
-    await job.locator("[data-row-open]").click();
-    // 子会话打开在对话里：头上是子代理的名字，左边是返回。
-    await expect(page.getByRole("heading", {name: "年表"})).toBeVisible();
-    await expect(page.locator("[data-header-back]")).toBeVisible();
-});
-
 test("验收 2：子会话要审批，停在父会话输入框上方、标来源，输入框照常可用；在父会话批了子会话接着跑", async ({page}) => {
     await openConversation(page);
     await scriptFor("改人物卡", {tool: "write", args: {path: "user://人物卡.md", content: "苏晴：二十岁。"}}, "改好了。");
@@ -149,13 +129,17 @@ test("验收 2：子会话要审批，停在父会话输入框上方、标来源
     // 一层（没有逗号分隔的第二层）、0 1px 2px；颜色是 `--shadow-color` 混出来的，写法随浏览器。
     expect(face.shadow).not.toContain("),");
     expect(face.shadow).toMatch(/ 0px 1px 2px 0px$/u);
+    // 后台派出的子代理完成前这一轮不收起。先等父会话这一轮收口再批：批得比它早，子代理的回执会被同一次运行接着读进来，
+    // 整轮随之收起，这句就看不到了（负载高时会撞上）。
+    await expect(page.getByText("派出去了")).toBeVisible();
     await dock.locator("[data-approval-decision='allow']").click();
     await expect(dock).toHaveCount(0);
-    // 后台派出的子代理完成前这一轮不收起；完成后收起，展开看卡片。
-    await expect(page.getByText("派出去了")).toBeVisible();
+    // 完成后收起，展开看卡片。
     await expect.poll(async () => (await page.locator("[data-subagent-card]").count()) === 0 || (await card(page, "人物卡").getAttribute("data-state")) === "done").toBe(true);
     if (await page.locator("[data-subagent-card]").count() === 0) await page.locator("[data-turn-summary]").last().click();
     await expect(card(page, "人物卡")).toHaveAttribute("data-state", "done");
+    // 后台派出的没有调用自己的终态：那一行取会话索引里那次运行的回复首句（conversation.md 输出 33）。
+    await expect(card(page, "人物卡").locator("[data-subagent-line]")).toContainText("改好了。");
 });
 
 test("子代理管理（conversation.md 输出 43）：入口写个数、出错亮红点，打开浮层看过就不亮；停掉在跑的那个只停这次运行；点一行进子会话", async ({page}) => {
@@ -208,4 +192,28 @@ test("验收 4：等子代理时用户插话，等待以 running 返回、插话
     await expect(page.getByText("收到结果了")).toBeVisible();
     await page.locator("[data-turn-summary]").last().click();
     await expect(card(page, "慢查")).toHaveAttribute("data-state", "done");
+});
+
+test("后台任务视图（jobs.md 输出 20）：后台子代理等你批准时，会话块浅警示、任务那一行写“等你批准”；点它的“打开”到子会话", async ({page}) => {
+    await openConversation(page);
+    await scriptFor("核对年表", {tool: "write", args: {path: "user://年表.md", content: "第一年。"}}, "核对完了。");
+    await script(adhoc("核对年表", {name: "年表", async: true}), "派出去了");
+    // 父会话这句不能含“核对年表”：假端点按第一条用户消息认请求，含了就把子代理的回复交给父会话。
+    await send(page, "派个子代理去查日期");
+    await expect(page.locator("[data-agent-dock]")).toContainText("子代理「年表」");
+    // 后台子代理算后台工作：状态栏出现“后台任务”条目，点开视图。
+    await page.locator('[data-workbench-item="nbook.tasks.status"]').click();
+    const block = page.locator('[data-group^="session:"]');
+    await expect(block).toHaveAttribute("data-waiting", "true");
+    const job = block.locator('[data-state="waiting"]').filter({hasText: "年表"});
+    await expect(job).toContainText("子代理");
+    await expect(job).toContainText("等你批准");
+    await job.locator("[data-row-open]").click();
+    // 子会话打开在对话里：头上是子代理的名字，左边是返回。
+    await expect(page.getByRole("heading", {name: "年表"})).toBeVisible();
+    await expect(page.locator("[data-header-back]")).toBeVisible();
+    // 收拾干净：在子会话里批了它，让它跑完、回执唤起的那次运行也收口。留着一个等批准的子代理和没用完的回复，会打乱别的用例的时序。
+    await script("收到");
+    await page.getByRole("button", {name: "批准", exact: true}).click();
+    await expect(block).toHaveCount(0);
 });

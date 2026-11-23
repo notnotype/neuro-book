@@ -133,7 +133,8 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
         const later = laterTerminal(messages, runId, call.id);
         if (later !== null) return {...base, state: later.state, line: later.line ?? "", background, ...(later.result === undefined ? {} : {result: later.result})};
         const run = item?.runs.find((entry) => entry.runId === runId);
-        if (run !== undefined) return {...base, state: RUN_REASON[run.reason] ?? "done", line: "", background};
+        // 索引记着那次运行最后一条回复的首句（加它之前写的索引没有，照旧写“已完成”）。
+        if (run !== undefined) return {...base, state: RUN_REASON[run.reason] ?? "done", line: run.line ?? "", background};
         if (item !== undefined && item.runId === runId && item.state !== "idle") {
             const step = item.step === undefined ? undefined : {tool: displayToolName(item.step.tool), ...(item.step.target === undefined ? {} : {target: shortTarget(item.step.target)})};
             return {

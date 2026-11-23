@@ -13,7 +13,8 @@ import type {FileLock} from "@notnotype/nb-flock";
 import type {LogEvent, LogHandle, LogStore, SessionHeader, SessionIndexEntry, StorageError, StorageNotice, StorageResult} from "../api/index.js";
 import {blobRefsOf, encodeBatch, toEventInPlace} from "./codec.js";
 import {nodeFiles, type AppendFile, type FilePort} from "./files.js";
-import {advanceIndex, emptyIndex, parseIndex, predatesRunIndex} from "./index-file.js";
+import {advanceIndex, parseIndex, predatesRunIndex, startFold} from "./index-file.js";
+import type {IndexFold} from "./index-file.js";
 import {sha256, utf8} from "./json.js";
 import {isSessionId, LogReader, NEWLINE, parseHeaderLine, type ParsedLog} from "./validate.js";
 
@@ -59,7 +60,8 @@ class JsonlHandle implements LogHandle {
         readonly lock: FileLock,
         public size: number,
         public lastSeq: number,
-        public index: SessionIndexEntry,
+        /** 索引与折叠它时跨批次带着的状态；写盘只写 `fold.index`。 */
+        public fold: IndexFold,
         readonly blobs: Set<string>,
     ) {}
 }
@@ -77,7 +79,7 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
     /** 索引是缓存：写失败只留通知，不影响日志。 */
     async function writeIndex(handle: JsonlHandle): Promise<void> {
         try {
-            await files.writeAtomic(join(handle.directory, INDEX), utf8(JSON.stringify(handle.index)), {sync: false});
+            await files.writeAtomic(join(handle.directory, INDEX), utf8(JSON.stringify(handle.fold.index)), {sync: false});
         } catch (error) {
             handle.notices.push({code: "index-write-failed", detail: {message: message(error)}});
         }
@@ -228,7 +230,7 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 const headerBytes = utf8(`${JSON.stringify(header)}\n`);
                 await files.writeAtomic(join(directory, LOG), headerBytes, {sync: true});
                 const file = await files.openAppend(join(directory, LOG));
-                const handle = new JsonlHandle(header, [], directory, file, lock, headerBytes.length, 0, emptyIndex(header), new Set());
+                const handle = new JsonlHandle(header, [], directory, file, lock, headerBytes.length, 0, startFold(header), new Set());
                 await writeIndex(handle);
                 return {ok: true, value: handle};
             } catch (error) {
@@ -282,12 +284,12 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 }
                 const events = parsed.records.map((record) => toEventInPlace(record, blobs.contents));
                 const lastSeq = events.at(-1)?.seq ?? 0;
-                const handle = new JsonlHandle(parsed.header, events, directory, file, lock, parsed.keepBytes, lastSeq, emptyIndex(parsed.header), new Set(blobs.contents.keys()));
+                const handle = new JsonlHandle(parsed.header, events, directory, file, lock, parsed.keepBytes, lastSeq, startFold(parsed.header), new Set(blobs.contents.keys()));
                 handle.notices.push(...notices);
                 const stored = parseIndex(await files.read(join(directory, INDEX)));
-                handle.index = advanceIndex(emptyIndex(parsed.header), events);
+                handle.fold = advanceIndex(startFold(parsed.header), events);
                 // 会话头里的后台标记与索引不符、或索引早于花费与运行的记录（旧版本写的索引没有这些字段）也重建。
-                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.index.background || predatesRunIndex(stored)) {
+                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.fold.index.background || predatesRunIndex(stored)) {
                     await writeIndex(handle);
                     handle.notices.push({code: "index-rebuilt", detail: {from: stored?.throughSeq ?? -1, to: lastSeq}});
                 }
@@ -321,7 +323,7 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
             }
             state.size += encoded.bytes.length;
             state.lastSeq = batch.at(-1)!.seq;
-            state.index = advanceIndex(state.index, batch);
+            state.fold = advanceIndex(state.fold, batch);
             await writeIndex(state);
             return {ok: true, value: undefined};
         },
