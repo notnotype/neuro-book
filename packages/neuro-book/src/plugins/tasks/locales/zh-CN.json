@@ -7,6 +7,9 @@
                     "tasks": {
                         "clear-finished": {
                             "title": "清除已结束"
+                        },
+                        "toggle-all-projects": {
+                            "title": "显示全部项目"
                         }
                     }
                 }
@@ -24,6 +27,9 @@
         },
         "clear-finished": {
             "title": "清除已结束的后台任务"
+        },
+        "toggle-all-projects": {
+            "title": "切换后台任务的范围：当前项目或全部项目"
         }
     },
     "state": {
@@ -32,12 +38,19 @@
         },
         "hasFinished": {
             "reason": "没有已结束的后台任务"
+        },
+        "allProjects": {
+            "reason": "只显示当前项目"
+        },
+        "hasProject": {
+            "reason": "这个窗口没有打开项目"
         }
     },
     "status": {
         "count": "{{count}} 个任务",
         "failed": "后台任务：有没看过的失败",
-        "idle": "后台任务：都结束了"
+        "idle": "后台任务：都结束了",
+        "more": "还有 {{count}} 件"
     },
     "list": {
         "empty": "没有后台任务。安装 Skill 这类要跑一阵的事会列在这里。",
@@ -49,7 +62,13 @@
         "remove": "移除",
         "detailTitle": "{{title}}：详情",
         "startedAt": "开始于 {{time}}",
-        "endedAt": "结束于 {{time}}"
+        "endedAt": "结束于 {{time}}",
+        "waiting": "等你处理",
+        "open": "打开",
+        "stop": "停止",
+        "stopping": "正在停止",
+        "more": "另有 {{count}} 件没有列出",
+        "elsewhere": "其他项目还有 {{count}} 件在运行"
     },
     "outcome": {
         "succeeded": "完成",
@@ -58,5 +77,20 @@
     },
     "time": {
         "yesterday": "昨天"
+    },
+    "groups": {
+        "project": "项目「{{title}}」",
+        "app": "应用",
+        "waiting": "等你处理",
+        "collapse": "收起 {{title}}",
+        "expand": "展开 {{title}}"
+    },
+    "stop": {
+        "rejected": "未能停止",
+        "unknown": "无法确认是否已停止，请查看它的状态",
+        "gone": "这一项已不在清单中"
+    },
+    "open": {
+        "unavailable": "无法打开：打开方式不可用"
     }
 }

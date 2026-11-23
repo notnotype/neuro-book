@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 状态栏条目的悬停内容（同名 .md）：在跑的任务，每件两行；没有在跑的时是条目的一句说明。 */
+/** 状态栏条目的悬停内容（同名 .md）：在跑的后台工作，每件两行，至多 20 件；没有在跑的时是条目的一句说明。 */
 import {Progress} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -17,9 +17,9 @@ const port = useText();
 </script>
 
 <template>
-    <span v-if="store.running.value.length === 0" data-tasks-hover>{{ port.t(statusSummary(store)) }}</span>
+    <span v-if="store.background.value.count === 0" data-tasks-hover>{{ port.t(statusSummary(store)) }}</span>
     <span v-else class="tasks-hover" data-tasks-hover>
-        <span v-for="item in store.running.value" :key="item.id" class="tasks-hover__row">
+        <span v-for="(item, index) in store.background.value.items" :key="index" class="tasks-hover__row">
             <span class="tasks-hover__title">{{ port.t(item.title) }}</span>
             <span class="tasks-hover__progress">
                 <Progress v-if="item.progress !== null" :model-value="item.progress" size="sm" />
@@ -27,6 +27,7 @@ const port = useText();
             </span>
             <span v-if="item.message !== null" class="tasks-hover__message">{{ port.t(item.message) }}</span>
         </span>
+        <span v-if="store.background.value.count > store.background.value.items.length" class="tasks-hover__more" data-tasks-hover-more>{{ port.t(tasksText("status.more", {count: store.background.value.count - store.background.value.items.length})) }}</span>
     </span>
 </template>
 
@@ -80,5 +81,9 @@ const port = useText();
     height: 100%;
     border-radius: 999px;
     background: var(--accent-main);
+}
+.tasks-hover__more {
+    grid-column: 1 / -1;
+    color: var(--text-muted);
 }
 </style>

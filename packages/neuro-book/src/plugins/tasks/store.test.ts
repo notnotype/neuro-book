@@ -17,6 +17,9 @@ import {PUSH_INTERVAL_MS} from "./backend/remote";
 import {tasksText} from "./shared/text";
 import {tasksWorld} from "./testing/world";
 import type {TasksWorld} from "./testing/world";
+import type {ProvidedRow, RowsPayload, StopOutcome, TaskProvider} from "./shared/contracts";
+import {createRowsStore} from "./web/rows";
+import type {RowsStore} from "./web/rows";
 import {createTasksStore} from "./web/store";
 import type {TasksStore} from "./web/store";
 
@@ -106,6 +109,8 @@ describe("任务仓库", () => {
         expect(sent.action?.label).toEqual(tasksText("list.retry"));
         expect(store.unseenFailure.value).toBe(true);
         store.setViewVisible(true);
+        expect(store.unseenFailure.value).toBe(true);
+        store.setShown(new Set([handle.id]));
         expect(store.unseenFailure.value).toBe(false);
     });
 
@@ -149,7 +154,7 @@ describe("任务仓库", () => {
         expect(notifications.sent[0]!.input).toMatchObject({tone: "error", title: "初始化 Skill docx", message: "registry 拒绝连接"});
     });
 
-    test("视图可见时结束的任务立即算看过（输出 13）", async () => {
+    test("视图可见时，视图画成终态的那几件才算看过；页面不在前台时不算（输出 13、28）", async () => {
         const w = await world();
         const {store} = await windowStore(w, "a");
         store.setViewVisible(true);
@@ -157,6 +162,12 @@ describe("任务仓库", () => {
         await settled(w, "看到在跑", () => store.running.value.length === 1);
         handle.fail({message: "超时"});
         await settled(w, "看到失败", () => store.finished.value.length === 1);
+        // 分组行还画着它在跑：不算看过。
+        expect(store.unseenFailure.value).toBe(true);
+        store.setViewVisible(false);
+        store.setShown(new Set([handle.id]));
+        expect(store.unseenFailure.value).toBe(true);
+        store.setViewVisible(true);
         expect(store.unseenFailure.value).toBe(false);
     });
 
@@ -210,5 +221,103 @@ describe("任务仓库", () => {
         await settled(w, "移除推到窗口", () => !store.items.value.some((item) => item.id === ended.id));
         await store.clearFinished();
         await settled(w, "清除推到窗口", () => store.finished.value.length === 0);
+    });
+});
+
+describe("分组行的仓库（输出 22–26）", () => {
+    const row = (id: string, over: Partial<ProvidedRow> = {}): ProvidedRow => ({id, title: `行 ${id}`, state: "running", kind: "work", kindLabel: "工作", form: "once", owner: {kind: "app"}, startedAt: 1_000, stoppable: true, ...over});
+
+    /** 一家测试提供方：`answer` 定停止的结果。 */
+    function provider(rows: readonly ProvidedRow[], answer: (id: string) => Promise<StopOutcome>): TaskProvider {
+        return {rows: () => rows, subscribe: () => () => undefined, stop: (id) => answer(id)};
+    }
+
+    async function rowsStore(w: TasksWorld, project: string | null, commands: {source: (id: string) => string | null; failing?: string} = {source: () => null}) {
+        const notifications = recorder();
+        const reports: string[] = [];
+        const executed: string[] = [];
+        const rows = createRowsStore({
+            remote: await w.window("a"),
+            project,
+            commands: {
+                get: (id) => {
+                    const source = commands.source(id);
+                    return source === null ? {ok: false, code: "unknown-command", reason: "没有这条命令"} : {ok: true, value: {id, source} as never};
+                },
+                execute: async (id) => {
+                    executed.push(id);
+                    return id === commands.failing ? {ok: false, code: "execution-error", reason: "会话打不开"} : {ok: true, value: null};
+                },
+            },
+            notifications,
+            report: (message) => void reports.push(message),
+        });
+        const stop = new AbortController();
+        stops.push(stop);
+        rows.start(stop.signal);
+        return {rows, notifications, reports, executed};
+    }
+
+    const keys = (payload: RowsPayload | null): string[] => (payload?.groups ?? []).flatMap((group) => [...(group.kind === "session" && group.head !== null ? [group.head.key] : []), ...group.rows.map((item) => item.key)]);
+
+    async function payloadWhere(w: TasksWorld, rows: RowsStore, description: string, check: (payload: RowsPayload) => boolean): Promise<RowsPayload> {
+        await settled(w, description, () => rows.payload.value !== null && check(rows.payload.value));
+        return rows.payload.value!;
+    }
+
+    test("视图可见时才订阅；范围换成全部项目时换一代订阅，别的项目的行出现、elsewhere 归零", async () => {
+        const w = await world();
+        w.tasks.start({title: "雾港的", owner: {kind: "project", project: "p-fog", title: "雾港"}});
+        w.tasks.start({title: "长夜的", owner: {kind: "project", project: "p-night", title: "长夜"}});
+        const {rows} = await rowsStore(w, "p-fog");
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        expect(rows.payload.value).toBeNull();
+        rows.setVisible(true);
+        const current = await payloadWhere(w, rows, "当前项目的行", (payload) => payload.groups.length === 1);
+        expect(current).toMatchObject({elsewhere: 1, groups: [{kind: "project", project: "p-fog"}]});
+        rows.setAll(true);
+        const all = await payloadWhere(w, rows, "全部项目的行", (payload) => payload.groups.length === 2);
+        expect(all.elsewhere).toBe(0);
+        expect(all.groups.map((group) => (group as {project: string}).project)).toEqual(["p-fog", "p-night"]);
+        rows.setAll(false);
+        await payloadWhere(w, rows, "回到当前项目", (payload) => payload.groups.length === 1);
+    });
+
+    test("停止：被拒写提供方给的原因，结果未知与已不在各写一句；结果回来之前记在 stopping 里", async () => {
+        const w = await world();
+        let release: ((value: StopOutcome) => void) | null = null;
+        (await w.owner("a")).tasks.provide(provider([row("no"), row("slow"), row("gone")], (id) => (id === "no" ? Promise.resolve({kind: "rejected", reason: "已经结束"}) : id === "slow" ? new Promise((resolve) => {
+            release = resolve;
+        }) : Promise.resolve({kind: "accepted"}))));
+        const {rows, notifications} = await rowsStore(w, null);
+        rows.setVisible(true);
+        const payload = await payloadWhere(w, rows, "三行", (next) => keys(next).length === 3);
+        const key = (id: string) => keys(payload).find((item) => item.endsWith(`:${id}`))!;
+        await rows.stop(key("no"), "行 no");
+        expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "warning", title: "行 no", message: "已经结束"});
+        // 提供方迟迟不给结果的那 10 秒由 providers.test.ts 测（这里推时钟会让测试场地的链路心跳到期）；这里让它自己交回未知。
+        const slow = rows.stop(key("slow"), "行 slow");
+        expect(rows.stopping.value.has(key("slow"))).toBe(true);
+        await waitUntil("提供方收到停止", () => release !== null);
+        release!({kind: "unknown"});
+        await slow;
+        expect(rows.stopping.value.has(key("slow"))).toBe(false);
+        expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "warning", message: tasksText("stop.unknown")});
+        await rows.stop(key("gone").replace(/:gone$/u, ":missing"), "没有的行");
+        expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "info", message: tasksText("stop.gone")});
+    });
+
+    test("打开：只执行提供方自己贡献的命令；命令失败写它给的原因", async () => {
+        const w = await world();
+        const {rows, notifications, executed} = await rowsStore(w, null, {source: (id) => (id.startsWith("nbook.agent.") ? "nbook.agent" : id.startsWith("test.") ? "test.other" : null), failing: "nbook.agent.broken"});
+        await rows.open({command: "nbook.agent.spoofed"}, "test.tasks-owner-a", "冒名的");
+        expect(executed).toEqual([]);
+        expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "warning", title: "冒名的", message: tasksText("open.unavailable")});
+        await rows.open({command: "nbook.agent.focus-session", args: {sessionId: "s1"}}, "nbook.agent", "第十二章修订");
+        expect(executed).toEqual(["nbook.agent.focus-session"]);
+        const before = notifications.sent.length;
+        await rows.open({command: "nbook.agent.broken"}, "nbook.agent", "坏的");
+        expect(notifications.sent.length).toBe(before + 1);
+        expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "warning", title: "坏的", message: "会话打不开"});
     });
 });

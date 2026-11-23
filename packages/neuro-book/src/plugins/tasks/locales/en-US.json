@@ -7,6 +7,9 @@
                     "tasks": {
                         "clear-finished": {
                             "title": "Clear Finished"
+                        },
+                        "toggle-all-projects": {
+                            "title": "Show All Projects"
                         }
                     }
                 }
@@ -24,6 +27,9 @@
         },
         "clear-finished": {
             "title": "Clear Finished Background Tasks"
+        },
+        "toggle-all-projects": {
+            "title": "Switch Background Tasks Between This Project and All Projects"
         }
     },
     "state": {
@@ -32,12 +38,19 @@
         },
         "hasFinished": {
             "reason": "No background task has finished"
+        },
+        "allProjects": {
+            "reason": "Showing this project only"
+        },
+        "hasProject": {
+            "reason": "This window has no project open"
         }
     },
     "status": {
         "count": "{{count}} tasks",
         "failed": "Background tasks: an unseen failure",
-        "idle": "Background tasks: all finished"
+        "idle": "Background tasks: all finished",
+        "more": "{{count}} more"
     },
     "list": {
         "empty": "No background tasks. Long-running work such as installing a skill shows up here.",
@@ -49,7 +62,13 @@
         "remove": "Remove",
         "detailTitle": "{{title}}: Details",
         "startedAt": "Started {{time}}",
-        "endedAt": "Ended {{time}}"
+        "endedAt": "Ended {{time}}",
+        "waiting": "Needs you",
+        "open": "Open",
+        "stop": "Stop",
+        "stopping": "Stopping",
+        "more": "{{count}} more not listed",
+        "elsewhere": "{{count}} more running in other projects"
     },
     "outcome": {
         "succeeded": "Done",
@@ -58,5 +77,20 @@
     },
     "time": {
         "yesterday": "Yesterday"
+    },
+    "groups": {
+        "project": "Project “{{title}}”",
+        "app": "App",
+        "waiting": "Needs you",
+        "collapse": "Collapse {{title}}",
+        "expand": "Expand {{title}}"
+    },
+    "stop": {
+        "rejected": "Could not stop",
+        "unknown": "Could not confirm whether it stopped; check its status",
+        "gone": "This item is no longer in the list"
+    },
+    "open": {
+        "unavailable": "Cannot open: the open action is unavailable"
     }
 }

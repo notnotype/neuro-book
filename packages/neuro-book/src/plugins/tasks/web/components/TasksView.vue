@@ -1,15 +1,18 @@
 <script setup lang="ts">
-/** “后台任务”视图（同名 .md）：所有窗口同一份清单；“看过”按窗口记，由这里在可见时上报给仓库。 */
-import {Button, DetailDialog, IconButton, Progress} from "@notnotype/nb-ui/components";
+/** “后台任务”视图（同名 .md）：按归属分组；分组行来自 `RowsStore`，自己的任务的通知与“看过”来自 `TasksStore`。 */
+import {Badge, Button, Collapsible, DetailDialog, IconButton, Progress} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {computed, ref, useId} from "vue";
+import type {Text} from "@notnotype/nb-ui/text";
+import {computed, ref, useId, watch} from "vue";
 
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {fullTime, shortTime} from "nbook/shared/short-time";
 import {useForegroundVisibility} from "nbook/ui/foreground-visibility";
 
-import type {TaskItem, TaskState} from "../../shared/contracts";
+import type {ListedRow, RowGroup, RowOpen, RowState, TaskItem} from "../../shared/contracts";
 import {tasksText} from "../../shared/text";
+import {groupKey} from "../rows";
+import type {RowsStore} from "../rows";
 import type {TasksStore} from "../store";
 
 defineOptions({name: "TasksView"});
@@ -17,50 +20,106 @@ defineOptions({name: "TasksView"});
 const props = defineProps<{
     context: ViewContext;
     store: TasksStore;
+    rows: RowsStore;
 }>();
 
 const port = useText();
 
-const STATE_ICON: Readonly<Record<Exclude<TaskState, "running">, string>> = {
+const STATE_ICON: Readonly<Record<Exclude<RowState, "running" | "waiting">, string>> = {
     succeeded: "i-lucide-circle-check",
     failed: "i-lucide-circle-x",
     cancelled: "i-lucide-circle-slash",
     interrupted: "i-lucide-circle-pause",
 };
 
-// 输出 13：视图有效可见、并且页面在前台才算看过；卸载时报不可见。
-useForegroundVisibility(props.context.visible, (visible) => props.store.setViewVisible(visible));
+// 输出 13、28：视图有效可见、并且页面在前台才算看得见；不可见时也不订阅分组行。
+useForegroundVisibility(props.context.visible, (visible) => {
+    props.store.setViewVisible(visible);
+    props.rows.setVisible(visible);
+});
 
-/** 每行标题的 id 前缀：行里的按钮用 `aria-describedby` 指向标题，同名的“重试”“移除”读屏分得出是哪一件。 */
+/** 每行标题的 id 前缀：行里的按钮用 `aria-describedby` 指向标题，同名的“停止”“移除”读屏分得出是哪一件。 */
 const idPrefix = useId();
-const titleId = (item: TaskItem): string => `${idPrefix}-${item.id}`;
+const titleId = (key: string): string => `${idPrefix}-${key}`;
 
-/** 输出 10 的进展一列。 */
-function statusOf(item: TaskItem): string {
-    switch (item.state) {
-        case "running":
-        case "failed":
-            return item.message === null ? "" : port.t(item.message);
-        case "succeeded":
-            return port.t(item.message ?? tasksText("outcome.succeeded"));
-        case "cancelled":
-            return port.t(item.message ?? tasksText("outcome.cancelled"));
-        case "interrupted":
-            return port.t(tasksText("outcome.interrupted"));
-    }
+const isLive = (state: RowState): boolean => state === "running" || state === "waiting";
+
+/** 进展一列（输出 10、26）：在跑的写进展；结束的写原因或结果。 */
+function statusOf(row: ListedRow): string {
+    if (row.state === "running" || row.state === "waiting" || row.state === "failed") return row.message === null ? "" : port.t(row.message);
+    if (row.state === "succeeded") return port.t(row.message ?? tasksText("outcome.succeeded"));
+    if (row.state === "cancelled") return port.t(row.message ?? tasksText("outcome.cancelled"));
+    // 自己的任务中断时一律写“已中断”（输出 10：最后的进展是中断之前的，不是结果）；提供方的行按它给的写。
+    return port.t(row.own === null ? (row.message ?? tasksText("outcome.interrupted")) : tasksText("outcome.interrupted"));
 }
 
-function timeOf(item: TaskItem): {readonly short: string; readonly full: string} {
-    const at = Date.parse(item.endedAt ?? item.startedAt);
+function timeOf(row: ListedRow): {readonly short: string; readonly full: string} {
+    const at = Date.parse(row.endedAt ?? row.startedAt);
     const full = fullTime(at, port.locale.value);
     return {
         short: shortTime(at, Date.now(), port.locale.value, port.t(tasksText("time.yesterday"))),
-        full: port.t(tasksText(item.endedAt === null ? "list.startedAt" : "list.endedAt", {time: full})),
+        full: port.t(tasksText(row.endedAt === null ? "list.startedAt" : "list.endedAt", {time: full})),
     };
 }
 
-/** 每行要显示的东西一次算好，清单变了才重算；时间按重算那一刻写，清单不变时不更新（不另开计时器）。 */
-const rows = computed(() => [...props.store.running.value, ...props.store.finished.value].map((item) => ({item, status: statusOf(item), time: timeOf(item)})));
+interface DisplayRow {
+    readonly row: ListedRow;
+    readonly title: string;
+    readonly kind: string | null;
+    readonly status: string;
+    readonly time: {readonly short: string; readonly full: string};
+}
+
+interface DisplayGroup {
+    readonly key: string;
+    readonly kind: RowGroup["kind"];
+    readonly title: string;
+    readonly count: number;
+    readonly waiting: boolean;
+    readonly head: DisplayRow | null;
+    readonly open: RowOpen | null;
+    /** `open` 归哪家提供方：组头的行或块里第一行提供方的行。 */
+    readonly openSource: string | null;
+    readonly rows: readonly DisplayRow[];
+    readonly collapsed: boolean;
+}
+
+const display = (row: ListedRow): DisplayRow => ({row, title: port.t(row.title), kind: row.kindLabel === null ? null : port.t(row.kindLabel), status: statusOf(row), time: timeOf(row)});
+
+/** 分好的组，各行要显示的东西一次算好；时间按重算那一刻写，行不变时不更新（不另开计时器）。 */
+const groups = computed<readonly DisplayGroup[]>(() => {
+    const payload = props.rows.payload.value;
+    if (payload === null) return [];
+    const collapsed = props.rows.collapsed.value;
+    const built = payload.groups.map((group): DisplayGroup => {
+        const key = groupKey(group);
+        const rows = group.rows.map(display);
+        if (group.kind === "session") {
+            const provider = [group.head, ...group.rows].find((row) => row?.source.kind === "provider") ?? null;
+            return {key, kind: "session", title: port.t(group.title), count: group.rows.length, waiting: group.waiting, head: group.head === null ? null : display(group.head), open: group.open, openSource: provider?.source.kind === "provider" ? provider.source.plugin : null, rows, collapsed: collapsed.has(key)};
+        }
+        const title = group.kind === "project" ? port.t(tasksText("groups.project", {title: port.t(group.title)})) : port.t(tasksText("groups.app"));
+        return {key, kind: group.kind, title, count: group.rows.length, waiting: false, head: null, open: null, openSource: null, rows, collapsed: collapsed.has(key)};
+    });
+    // 项目组：当前项目在前（服务端已排），其余按翻译后的名字排（输出 26）。
+    const current = payload.groups.filter((group) => group.kind === "project" && group.current).length;
+    const firstProject = built.findIndex((group) => group.kind === "project");
+    if (firstProject === -1) return built;
+    const projects = built.filter((group) => group.kind === "project");
+    const others = projects.slice(current).sort((a, b) => a.title.localeCompare(b.title, port.locale.value));
+    return [...built.slice(0, firstProject), ...projects.slice(0, current), ...others, ...built.filter((group) => group.kind === "app")];
+});
+
+const empty = computed(() => props.rows.payload.value !== null && groups.value.length === 0 && props.rows.payload.value.more === 0);
+const more = computed(() => props.rows.payload.value?.more ?? 0);
+const elsewhere = computed(() => (props.rows.all.value ? 0 : (props.rows.payload.value?.elsewhere ?? 0)));
+
+// 输出 28：此刻画成终态、所在组展开的自己的任务，交给 `TasksStore` 记看过。
+const shown = computed(() => groups.value.filter((group) => !group.collapsed).flatMap((group) => group.rows).filter(({row}) => row.own !== null && !isLive(row.state)).map(({row}) => row.own!.id));
+watch(() => shown.value.join("\u0000"), () => props.store.setShown(new Set(shown.value)), {immediate: true});
+
+const stateLabel = (row: ListedRow): string => port.t(tasksText(row.state === "waiting" ? "list.waiting" : "list.running"));
+const stopping = (row: ListedRow): boolean => props.rows.stopping.value.has(row.key);
 
 const detail = ref<{readonly title: string; readonly text: string; readonly truncated: boolean} | null>(null);
 const detailOpen = ref(false);
@@ -71,36 +130,87 @@ async function openDetail(item: TaskItem): Promise<void> {
     detail.value = {title: port.t(tasksText("list.detailTitle", {title: port.t(item.title)})), text: found.text, truncated: found.truncated};
     detailOpen.value = true;
 }
+
+const stopRow = (row: ListedRow): void => void props.rows.stop(row.key, row.title);
+function openRow(row: ListedRow): void {
+    if (row.open !== null && row.source.kind === "provider") void props.rows.open(row.open, row.source.plugin, row.title);
+}
+function openGroup(group: DisplayGroup): void {
+    if (group.open !== null && group.openSource !== null) void props.rows.open(group.open, group.openSource, group.title as Text);
+}
+const toggleLabel = (group: DisplayGroup): string => port.t(tasksText(group.collapsed ? "groups.expand" : "groups.collapse", {title: group.title}));
 </script>
 
 <template>
     <div class="tasks-view" data-tasks-view>
-        <p v-if="rows.length === 0" class="tasks-view__empty">{{ port.t(tasksText("list.empty")) }}</p>
-        <ul v-else class="tasks-view__list" :aria-label="port.t(tasksText('views.list.title'))">
-            <li v-for="{item, status, time} in rows" :key="item.id" class="tasks-view__row" :data-state="item.state" :data-task="item.id">
-                <span class="tasks-view__icon">
-                    <span v-if="item.state === 'running'" class="i-lucide-loader-circle tasks-view__spin" role="img" :aria-label="port.t(tasksText('list.running'))"></span>
-                    <span v-else :class="STATE_ICON[item.state]" aria-hidden="true"></span>
-                </span>
-                <span :id="titleId(item)" class="tasks-view__title" :title="port.t(item.title)">{{ port.t(item.title) }}</span>
-                <span class="tasks-view__status" :title="status" data-task-status>{{ status }}</span>
-                <span class="tasks-view__progress">
-                    <template v-if="item.state === 'running'">
-                        <Progress v-if="item.progress !== null" :model-value="item.progress" size="sm" />
-                        <span v-else class="tasks-view__indeterminate" role="progressbar" :aria-valuetext="port.t(tasksText('list.running'))"><span class="nb-ui-indeterminate-runner"></span></span>
-                    </template>
-                </span>
-                <span class="tasks-view__time" :title="time.full">{{ time.short }}</span>
-                <span class="tasks-view__actions">
-                    <Button v-if="item.state === 'running' && item.cancellable" size="sm" variant="ghost" focus-ring="inset" :disabled="item.cancelRequested" :aria-describedby="titleId(item)" data-task-cancel @click="store.cancel(item.id)">{{ port.t(tasksText(item.cancelRequested ? "list.cancelling" : "list.cancel")) }}</Button>
-                    <Button v-if="item.retryable" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(item)" data-task-retry @click="store.retry(item.id)">{{ port.t(tasksText("list.retry")) }}</Button>
-                    <Button v-if="item.hasDetail" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(item)" data-task-detail @click="openDetail(item)">{{ port.t(tasksText("list.detail")) }}</Button>
-                </span>
-                <span class="tasks-view__remove">
-                    <IconButton v-if="item.state !== 'running'" size="xs" focus-ring="inset" icon-class="i-lucide-x" :aria-label="port.t(tasksText('list.remove'))" :title="port.t(tasksText('list.remove'))" :aria-describedby="titleId(item)" data-task-remove @click="store.remove(item.id)" />
-                </span>
-            </li>
-        </ul>
+        <p v-if="empty" class="tasks-view__empty">{{ port.t(tasksText("list.empty")) }}</p>
+        <div v-else class="tasks-view__groups" :aria-label="port.t(tasksText('views.list.title'))" role="list">
+            <section v-for="group in groups" :key="group.key" class="tasks-group" :data-kind="group.kind" :data-waiting="group.waiting || undefined" :data-group="group.key" role="listitem">
+                <div class="tasks-view__grid tasks-group__head" :data-head-kind="group.kind === 'session' ? 'session' : 'caption'">
+                    <span class="tasks-view__lead">
+                        <IconButton size="xs" focus-ring="inset" :icon-class="'i-lucide-chevron-down tasks-group__chevron'" :data-collapsed="group.collapsed || undefined" :aria-expanded="!group.collapsed" :aria-label="toggleLabel(group)" :title="toggleLabel(group)" data-group-toggle @click="rows.toggleGroup(group.key)" />
+                    </span>
+                    <span class="tasks-view__icon">
+                        <template v-if="group.kind === 'session'">
+                            <span v-if="group.waiting" class="i-lucide-message-circle-warning tasks-group__waiting-icon" role="img" :aria-label="port.t(tasksText('list.waiting'))"></span>
+                            <span v-else-if="group.head !== null" class="i-lucide-loader-circle tasks-view__spin" role="img" :aria-label="port.t(tasksText('list.running'))"></span>
+                            <span v-else class="i-lucide-messages-square" aria-hidden="true"></span>
+                        </template>
+                        <span v-else :class="group.kind === 'project' ? 'i-lucide-book-open' : 'i-lucide-app-window'" aria-hidden="true"></span>
+                    </span>
+                    <span :id="titleId(group.key)" class="tasks-group__title" :title="group.title">
+                        <span class="tasks-group__name">{{ group.title }}</span>
+                        <Badge v-if="group.waiting" size="sm" variant="soft" tone="warning">{{ port.t(tasksText("groups.waiting")) }}</Badge>
+                        <span v-if="group.kind !== 'session' || group.collapsed" class="tasks-group__count">{{ group.count }}</span>
+                    </span>
+                    <span class="tasks-view__status" :title="group.head?.status" data-group-status>{{ group.head?.status }}</span>
+                    <span class="tasks-view__progress"></span>
+                    <span class="tasks-view__time" :title="group.head?.time.full">{{ group.head?.time.short }}</span>
+                    <span class="tasks-view__actions">
+                        <Button v-if="group.open !== null" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(group.key)" data-group-open @click="openGroup(group)">{{ port.t(tasksText("list.open")) }}</Button>
+                        <Button v-if="group.head?.row.stoppable" size="sm" variant="ghost" focus-ring="inset" :disabled="stopping(group.head.row)" :aria-describedby="titleId(group.key)" data-group-stop @click="stopRow(group.head.row)">{{ port.t(tasksText(stopping(group.head.row) ? "list.stopping" : "list.stop")) }}</Button>
+                    </span>
+                    <span class="tasks-view__remove"></span>
+                </div>
+                <Collapsible :open="!group.collapsed">
+                    <ul class="tasks-group__rows" role="list">
+                        <li v-for="{row, title, kind, status, time} in group.rows" :key="row.key" class="tasks-view__grid tasks-view__row" :data-state="row.state" :data-row="row.key">
+                            <span class="tasks-view__lead"><span class="tasks-view__guide" aria-hidden="true"></span></span>
+                            <span class="tasks-view__icon">
+                                <span v-if="row.state === 'running'" class="i-lucide-loader-circle tasks-view__spin" role="img" :aria-label="stateLabel(row)"></span>
+                                <span v-else-if="row.state === 'waiting'" class="i-lucide-message-circle-warning tasks-group__waiting-icon" role="img" :aria-label="stateLabel(row)"></span>
+                                <span v-else :class="STATE_ICON[row.state]" aria-hidden="true"></span>
+                            </span>
+                            <span :id="titleId(row.key)" class="tasks-view__title" :title="kind === null ? title : `${kind} ${title}`"><span v-if="kind !== null" class="tasks-view__kind">{{ kind }}</span>{{ title }}</span>
+                            <span class="tasks-view__status" :title="status" data-task-status>{{ status }}</span>
+                            <span class="tasks-view__progress">
+                                <template v-if="isLive(row.state)">
+                                    <Progress v-if="row.progress !== null" :model-value="row.progress" size="sm" />
+                                    <span v-else class="tasks-view__indeterminate" role="progressbar" :aria-valuetext="stateLabel(row)"><span class="nb-ui-indeterminate-runner"></span></span>
+                                </template>
+                            </span>
+                            <span class="tasks-view__time" :title="time.full">{{ time.short }}</span>
+                            <span class="tasks-view__actions">
+                                <template v-if="row.own !== null">
+                                    <Button v-if="row.state === 'running' && row.own.cancellable" size="sm" variant="ghost" focus-ring="inset" :disabled="row.own.cancelRequested" :aria-describedby="titleId(row.key)" data-task-cancel @click="store.cancel(row.own.id)">{{ port.t(tasksText(row.own.cancelRequested ? "list.cancelling" : "list.cancel")) }}</Button>
+                                    <Button v-if="row.own.retryable" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-task-retry @click="store.retry(row.own.id)">{{ port.t(tasksText("list.retry")) }}</Button>
+                                    <Button v-if="row.own.hasDetail" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-task-detail @click="openDetail(row.own)">{{ port.t(tasksText("list.detail")) }}</Button>
+                                </template>
+                                <template v-else>
+                                    <Button v-if="row.open !== null" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-row-open @click="openRow(row)">{{ port.t(tasksText("list.open")) }}</Button>
+                                    <Button v-if="row.stoppable" size="sm" variant="ghost" focus-ring="inset" :disabled="stopping(row)" :aria-describedby="titleId(row.key)" data-row-stop @click="stopRow(row)">{{ port.t(tasksText(stopping(row) ? "list.stopping" : "list.stop")) }}</Button>
+                                </template>
+                            </span>
+                            <span class="tasks-view__remove">
+                                <IconButton v-if="row.own !== null && row.state !== 'running'" size="xs" focus-ring="inset" icon-class="i-lucide-x" :aria-label="port.t(tasksText('list.remove'))" :title="port.t(tasksText('list.remove'))" :aria-describedby="titleId(row.key)" data-task-remove @click="store.remove(row.own.id)" />
+                            </span>
+                        </li>
+                    </ul>
+                </Collapsible>
+            </section>
+            <p v-if="more > 0" class="tasks-view__note" data-rows-more>{{ port.t(tasksText("list.more", {count: more})) }}</p>
+            <p v-if="elsewhere > 0" class="tasks-view__note" data-rows-elsewhere>{{ port.t(tasksText("list.elsewhere", {count: elsewhere})) }}</p>
+        </div>
         <DetailDialog v-if="detail !== null" v-model:open="detailOpen" :title="detail.title" :detail="detail.text" :truncated="detail.truncated" @closed="detail = null" />
     </div>
 </template>
@@ -130,20 +240,17 @@ async function openDetail(item: TaskItem): Promise<void> {
     text-align: center;
 }
 
-/* 整个列表共用几列；标题与进展按 2 比 3 分剩下的宽度，标题至少 8 个字宽，窄时两列都截断。不到 600px 宽的排法在文件末尾。 */
-.tasks-view__list {
-    display: grid;
-    grid-template-columns: 16px minmax(8em, 2fr) minmax(0, 3fr) 96px minmax(3.5em, max-content) max-content 24px;
-    column-gap: var(--space-3);
-    margin: 0;
-    padding: 0;
-    list-style: none;
+.tasks-view__groups {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
-.tasks-view__row {
+/* 每组一个网格，各组同一套列（时间与按钮定宽），所以组与组之间各列对齐；标题与进展按 2 比 3 分剩下的宽度，标题至少 8 个字宽。不到 600px 宽的排法在文件末尾。 */
+.tasks-view__grid {
     display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: subgrid;
+    grid-template-columns: 20px 16px minmax(8em, 2fr) minmax(0, 3fr) 96px 4.5em 10.5em 24px;
+    column-gap: var(--space-3);
     align-items: center;
     min-height: 28px;
     padding-inline: var(--space-2);
@@ -152,8 +259,57 @@ async function openDetail(item: TaskItem): Promise<void> {
     line-height: var(--leading-ui);
 }
 
-.tasks-view__row:hover {
+.tasks-view__row:hover,
+.tasks-group[data-kind="session"] > .tasks-group__head:hover {
     background: color-mix(in srgb, var(--text-main) 5%, transparent);
+}
+
+/* 会话块：一块浅底的圆角块；块里有等你处理的行时是浅警示色底（决定 5）。 */
+.tasks-group[data-kind="session"] {
+    padding-block: 2px;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--text-main) 4%, transparent);
+    transition: background-color var(--motion-base) var(--ease-layout);
+}
+
+.tasks-group[data-kind="session"][data-waiting] {
+    background: color-mix(in srgb, var(--status-warning) 9%, transparent);
+}
+
+.tasks-group[data-kind="project"],
+.tasks-group[data-kind="app"] {
+    margin-top: var(--space-1);
+}
+
+.tasks-group__rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tasks-view__lead {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+}
+
+.tasks-view__guide {
+    width: 1px;
+    height: 100%;
+    background: color-mix(in srgb, var(--text-main) 14%, transparent);
+}
+
+.tasks-group[data-kind="session"] .tasks-view__guide {
+    background: transparent;
+}
+
+:deep(.tasks-group__chevron) {
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+
+[data-collapsed] :deep(.tasks-group__chevron) {
+    transform: rotate(-90deg);
 }
 
 .tasks-view__icon {
@@ -174,6 +330,10 @@ async function openDetail(item: TaskItem): Promise<void> {
 [data-state="failed"] .tasks-view__icon { color: var(--status-danger); }
 [data-state="interrupted"] .tasks-view__icon { color: var(--status-warning); }
 
+.tasks-group__waiting-icon {
+    color: var(--status-warning);
+}
+
 .tasks-view__spin {
     animation: tasks-view-spin 1s linear infinite;
 }
@@ -188,6 +348,44 @@ async function openDetail(item: TaskItem): Promise<void> {
     .tasks-view__spin {
         animation: none;
     }
+
+    :deep(.tasks-group__chevron),
+    .tasks-group[data-kind="session"] {
+        transition: none;
+    }
+}
+
+.tasks-group__title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.tasks-group__name {
+    overflow: hidden;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+[data-head-kind="session"] .tasks-group__name {
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+[data-head-kind="caption"] .tasks-group__name {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 600;
+}
+
+.tasks-group__count {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
 }
 
 .tasks-view__title,
@@ -200,6 +398,12 @@ async function openDetail(item: TaskItem): Promise<void> {
 
 .tasks-view__title {
     color: var(--text-main);
+}
+
+.tasks-view__kind {
+    margin-inline-end: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
 }
 
 .tasks-view__status {
@@ -241,6 +445,7 @@ async function openDetail(item: TaskItem): Promise<void> {
 
 .tasks-view__actions {
     display: flex;
+    justify-content: flex-end;
     gap: var(--space-1);
 }
 
@@ -249,26 +454,39 @@ async function openDetail(item: TaskItem): Promise<void> {
     justify-content: center;
 }
 
+.tasks-view__note {
+    margin: var(--space-2) 0 0;
+    padding-inline: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
 /*
- * 视图不到 600px 宽（例如 390 宽的窗口）：一行放不下七列，进展会被挤成零宽、按钮伸出视图。每件改排两行：第一行图标、标题、
- * 时间、按钮、移除，第二行在标题下面放进展，进度条在它右边。
+ * 视图不到 600px 宽（例如 390 宽的窗口）：一行放不下，每件改排两行：第一行缩进、图标、标题、时间、按钮、移除，第二行在标题下面放进展，
+ * 进度条在它右边。
  */
 @container (max-width: 600px) {
-    .tasks-view__list {
-        grid-template-columns: 16px minmax(0, 1fr) minmax(3.5em, max-content) max-content 24px;
+    .tasks-view__grid {
+        grid-template-columns: 20px 16px minmax(0, 1fr) minmax(3.5em, max-content) max-content 24px;
         column-gap: var(--space-2);
-    }
-
-    .tasks-view__row {
         padding-block: 2px;
     }
 
-    .tasks-view__icon { grid-area: 1 / 1; }
-    .tasks-view__title { grid-area: 1 / 2; }
-    .tasks-view__time { grid-area: 1 / 3; }
-    .tasks-view__actions { grid-area: 1 / 4; }
-    .tasks-view__remove { grid-area: 1 / 5; }
-    .tasks-view__status { grid-area: 2 / 2 / 3 / 4; }
-    .tasks-view__progress { grid-area: 2 / 4 / 3 / 6; }
+    .tasks-view__lead { grid-area: 1 / 1 / 3 / 2; }
+    /* 组头的收起箭头对着第一行（标题那一行），不在两行中间。 */
+    .tasks-group__head .tasks-view__lead { grid-area: 1 / 1; }
+    .tasks-view__icon { grid-area: 1 / 2; }
+    .tasks-view__title,
+    .tasks-group__title { grid-area: 1 / 3; }
+    .tasks-view__time { grid-area: 1 / 4; }
+    .tasks-view__actions { grid-area: 1 / 5; }
+    .tasks-view__remove { grid-area: 1 / 6; }
+    .tasks-view__status { grid-area: 2 / 3 / 3 / 5; }
+    .tasks-view__progress { grid-area: 2 / 5 / 3 / 7; }
+
+    .tasks-view__status:empty,
+    .tasks-view__progress:empty {
+        display: none;
+    }
 }
 </style>

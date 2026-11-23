@@ -1,6 +1,10 @@
 /**
- * 一个窗口里的后台任务清单（docs/specs/workbench/background-tasks.md 输出 9 到 14）：订阅推送、按窗口记“看过”，任务结束时
- * 经通知服务发一条通知，任务离开清单时撤回它。不碰 DOM：视图组件上报自己可见与否。
+ * 一个窗口里自己的任务（docs/specs/workbench/background-tasks.md 输出 9 到 14、27、28）：订阅 `ownChanged`、按窗口记“看过”，
+ * 任务结束时经通知服务发一条通知，任务离开清单时撤回它；顺带持有状态栏要的后台工作计数。分好组的行在 rows.ts。不碰 DOM：视图
+ * 组件上报自己可见与否、此刻画着哪些自己的已结束任务。
+ *
+ * 看过（输出 28）：存在性、通知与基线只由这一份 `own` 定；平时只把视图此刻画成终态的那几件算看过（视图经 `setShown` 交来），
+ * `rows` 晚到、组收起或没列出的不算。
  *
  * 比较的基线：结束通知只由“窗口连着时看到的变化”触发（输出 14）。基线为空时收到的第一份清单（推送或 `list` 谁先到都算）
  * 只建立基线、把里面结束的记为看过；重连（`onResync`）先清空基线，重取到的清单同样只建基线。之后每份清单与上一份比：
@@ -15,19 +19,23 @@ import type {Text} from "@notnotype/nb-ui/text";
 
 import type {NotificationHandle, Notifications} from "nbook/plugins/workbench/shared/contracts";
 
-import type {TaskDetail, TaskItem, tasksContract, TaskState} from "../shared/contracts";
+import type {BackgroundSummary, OwnPayload, TaskDetail, TaskItem, tasksContract, TaskState} from "../shared/contracts";
 import {tasksText} from "../shared/text";
 
 export interface TasksStore {
     readonly items: ShallowRef<readonly TaskItem[]>;
+    /** 不分范围的在跑后台一次性工作（自己的与提供方的）：状态栏用（输出 27）。 */
+    readonly background: ShallowRef<BackgroundSummary>;
     /** 在跑的，开始得晚的在前。 */
     readonly running: ComputedRef<readonly TaskItem[]>;
     /** 结束的，结束得晚的在前。 */
     readonly finished: ComputedRef<readonly TaskItem[]>;
     /** 本窗口有没看过的失败（输出 12、13）。 */
     readonly unseenFailure: ComputedRef<boolean>;
-    /** 视图上报：“后台任务”视图有效可见、页面在前台时为真；为真时此刻结束的都算看过（输出 13）。 */
+    /** 视图上报：“后台任务”视图有效可见、页面在前台时为真；为真时 `setShown` 交来的那几件算看过（输出 13、28）。 */
     setViewVisible(visible: boolean): void;
+    /** 视图上报：此刻画成终态的自己的任务 id（当前范围、所在组展开、没被修剪）。 */
+    setShown(ids: ReadonlySet<string>): void;
     cancel(id: string): Promise<void>;
     retry(id: string): Promise<void>;
     remove(id: string): Promise<void>;
@@ -44,21 +52,24 @@ const later = (time: string | null): number => (time === null ? 0 : Date.parse(t
  * 状态栏条目的一句说明：条目的 `tooltip()`（悬停内容加载失败时的退回、读屏的描述）与没有在跑的任务时的悬停内容都用它。
  * 有在跑的写件数，都结束了写有没有没看过的失败（输出 12）。
  */
-export function statusSummary(store: Pick<TasksStore, "running" | "unseenFailure">): Text {
-    const count = store.running.value.length;
+export function statusSummary(store: Pick<TasksStore, "background" | "unseenFailure">): Text {
+    const count = store.background.value.count;
     if (count > 0) return tasksText("status.count", {count});
     return tasksText(store.unseenFailure.value ? "status.failed" : "status.idle");
 }
 
 export function createTasksStore(remote: RemoteClient<typeof tasksContract>, notifications: Notifications, report: (message: string) => void): TasksStore {
     const items = shallowRef<readonly TaskItem[]>([]);
+    const background = shallowRef<BackgroundSummary>({count: 0, items: []});
     const seen = shallowRef<ReadonlySet<string>>(new Set());
+    let shown: ReadonlySet<string> = new Set();
     const announced = new Map<string, NotificationHandle>();
     let baseline: ReadonlyMap<string, TaskState> | null = null;
     let viewVisible = false;
 
-    const markSeen = (next: readonly TaskItem[]): void => {
-        const finished = next.filter((item) => item.state !== "running" && !seen.value.has(item.id));
+    /** 把 `next` 里结束的记为看过；给了 `only` 时只记其中的。 */
+    const markSeen = (next: readonly TaskItem[], only?: ReadonlySet<string>): void => {
+        const finished = next.filter((item) => item.state !== "running" && !seen.value.has(item.id) && (only === undefined || only.has(item.id)));
         if (finished.length > 0) seen.value = new Set([...seen.value, ...finished.map((item) => item.id)]);
     };
 
@@ -109,23 +120,33 @@ export function createTasksStore(remote: RemoteClient<typeof tasksContract>, not
         if ([...seen.value].some((id) => !present.has(id))) seen.value = new Set([...seen.value].filter((id) => present.has(id)));
         baseline = new Map(next.map((item) => [item.id, item.state]));
         items.value = next;
-        if (viewVisible) markSeen(next);
+        if (viewVisible) markSeen(next, shown);
+    };
+
+    const acceptPayload = (payload: OwnPayload): void => {
+        background.value = payload.background;
+        accept(payload.tasks);
     };
 
     const refresh = async (): Promise<void> => {
         const result = await remote.own({});
-        if (result.ok) accept(result.value.tasks);
+        if (result.ok) acceptPayload(result.value);
         else report(`tasks: list failed: ${result.code}`);
     };
 
     const store: TasksStore = {
         items,
+        background,
         running: computed(() => items.value.filter((item) => item.state === "running").sort((a, b) => later(b.startedAt) - later(a.startedAt))),
         finished: computed(() => items.value.filter((item) => item.state !== "running").sort((a, b) => later(b.endedAt) - later(a.endedAt))),
         unseenFailure: computed(() => items.value.some((item) => item.state === "failed" && !seen.value.has(item.id))),
         setViewVisible(visible) {
             viewVisible = visible;
-            if (visible) markSeen(items.value);
+            if (visible) markSeen(items.value, shown);
+        },
+        setShown(ids) {
+            shown = ids;
+            if (viewVisible) markSeen(items.value, shown);
         },
         cancel: async (id) => failed(`cancel ${id}`)(await remote.cancel({id})),
         retry,
@@ -138,7 +159,7 @@ export function createTasksStore(remote: RemoteClient<typeof tasksContract>, not
             return null;
         },
         async start(signal) {
-            const subscription = await remote.events.ownChanged.subscribe({}, (payload) => accept(payload.tasks), {onResync: () => {
+            const subscription = await remote.events.ownChanged.subscribe({}, acceptPayload, {onResync: () => {
                 baseline = null;
                 void refresh();
             }});
