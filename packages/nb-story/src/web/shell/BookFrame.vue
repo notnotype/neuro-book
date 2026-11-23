@@ -210,7 +210,7 @@ function closeDetail(key: number, shell: HTMLElement): void {
 /** 焦点交给还看得见的那张（除了 `except`），没有就交给主区。 */
 function focusRemaining(except?: number): void {
     const rest = shownDetails.value.find((item) => item.key !== except);
-    const target = rest === undefined ? root.value?.querySelector<HTMLElement>("[data-testid='main']") : root.value?.querySelector<HTMLElement>(`[data-detail-key="${rest.key}"]`);
+    const target = rest === undefined ? root.value?.querySelector<HTMLElement>("[data-testid='main']") : shellOf(rest.key);
     target?.focus();
 }
 // ---- 拖详情换边（输出 68）：判定与会话在 `detail-swap-drag.ts`，这里只接线 ----

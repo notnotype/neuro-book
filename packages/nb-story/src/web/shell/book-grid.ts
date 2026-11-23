@@ -16,8 +16,8 @@ import {DRAWER_WIDTH_RANGE} from "../host/prefs";
 export type BookPane = "nav" | "main" | "details" | "drawer" | "drawer2";
 
 /** 导航展开的缺省宽度与收起后的图标条宽度。 */
-export const NAV_WIDTH = 188;
-export const NAV_COLLAPSED_WIDTH = 44;
+const NAV_WIDTH = 188;
+const NAV_COLLAPSED_WIDTH = 44;
 /** 两张卡中间那条线的宽度。 */
 const DETAILS_SASH = 1;
 /** 只给主轴约束的叶，交叉轴不限（上限写 0 是“上限 0”，`layout()` 报出的高会是 0）。 */

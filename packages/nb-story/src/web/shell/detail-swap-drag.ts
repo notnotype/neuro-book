@@ -35,10 +35,8 @@ export interface DetailSwapDragOptions {
 }
 
 export function useDetailSwapDrag({gridBox, grid, shownDetails, swapPreviewed, shellOf, swap}: DetailSwapDragOptions) {
-    function shellRect(key: number): GridDropRect | null {
-        const rect = shellOf(key)?.getBoundingClientRect();
-        return rect === undefined ? null : {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
-    }
+    // DOMRect 本身就有 left、top、right、bottom，不必抄成新对象；引擎与落点盖层只按字段读它。
+    const shellRect = (key: number): GridDropRect | null => shellOf(key)?.getBoundingClientRect() ?? null;
     function measureShells(): SwapRects {
         return new Map(shownDetails.value.flatMap((item) => {
             const rect = shellRect(item.key);
