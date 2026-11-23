@@ -894,7 +894,7 @@ const liftedCard = computed(() => drag.value?.live.card.value ?? null);
 const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dragSource.value)));
 const wantsGhost = computed(() => dragView.value.ghost);
 /** 拖影的身份；位置经 `moveGhost` 写。 */
-const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
+const dragGhost = computed(() => (wantsGhost.value ? cardTitle.value : null));
 /** 正被拖着、入口条上留着位置的入口：只含被拖视图的那个容器的。 */
 function entryPlaceholderIn(entries: ReadonlyArray<{readonly id: string; readonly viewId: string | null}>): string | null {
     const viewId = dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value);

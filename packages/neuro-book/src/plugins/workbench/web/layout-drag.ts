@@ -309,7 +309,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     }
     /** 这块面板在判定几何里的外框（视口坐标）。 */
     const frameIn = (seen: FrozenGeometry | null, panel: string | null | undefined): GridDropRect | null =>
-        (seen === null || panel == null ? undefined : [...seen.geometry.panels, ...seen.geometry.floats].find((item) => item.id === panel)?.frame) ?? null;
+        (seen === null || panel == null ? undefined : (seen.geometry.panels.find((item) => item.id === panel) ?? seen.geometry.floats.find((item) => item.id === panel))?.frame) ?? null;
+
+    const sortAtOf = (at: {readonly point: GridDropPoint; readonly container: string} | null): {readonly point: GridDropPoint; readonly panel: string} | null => (at === null ? null : {point: at.point, panel: at.container});
 
     /** 实时布局的领域判断（nb-layout 的 `LiveDragHost`）：落点长什么样、预览摆什么、几何怎么量。什么时候做由引擎定。 */
     const liveHost = (engine: LiveDrag<LayoutTabSource, LayoutDragDrop, FrozenGeometry>): LiveDragHost<LayoutTabSource, LayoutDragDrop, FrozenGeometry> => ({
@@ -354,10 +356,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             refreshMs: () => CARD_REFRESH_MS[options.cardRefresh()],
         },
         follow: {
-            read: (at) => measureSorted(at === null ? null : {point: at.point, panel: at.container}),
+            read: (at) => measureSorted(sortAtOf(at)),
             afterRender: (at) => {
                 void nextTick(() => {
-                    if (engine.state().active) measureSorted(at === null ? null : {point: at.point, panel: at.container})();
+                    if (engine.state().active) measureSorted(sortAtOf(at))();
                 });
             },
         },
@@ -373,8 +375,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             return frame === null ? null : {frame, bounds: band.rect, vertical: band.axis === "y"};
         }
         if (options.titleOnly(at.panel)) return null;
-        const editor = options.doc().panels[at.panel]?.role === "editor";
-        const container = root.querySelector(editor ? `[data-panel-strip="${escape(at.panel)}"]` : `[data-panel-head="${escape(at.panel)}"]`);
+        const container = tabHeadOf(at.panel, options.doc().panels[at.panel]?.role === "editor");
         const element = container?.querySelector<HTMLElement>(`[data-panel-tab="${escape(tab)}"]`) ?? null;
         const frame = element?.parentElement ?? null;
         const bounds = rectOf(element?.closest("[data-tab-row]"));
@@ -418,6 +419,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             sort.element = frame;
         };
     }
+    /** 面板里画标签的那一块：编辑组是标签条那一行（头里还有提示条），工具面板是整个头。 */
+    const tabHeadOf = (panel: string, editor: boolean): Element | null => root.querySelector(editor ? `[data-panel-strip="${escape(panel)}"]` : `[data-panel-head="${escape(panel)}"]`);
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
     function geometryOf(doc: LayoutDoc, id: string): LayoutDropPanelGeometry | null {
@@ -429,7 +432,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (card === null) return null;
         // 工具面板整个头都算标签条（动作区经 `data-no-drag` 不接收）；编辑组的头里还有提示条，只有标签条那一行算，头以下是正文。
         const editor = doc.panels[id]?.role === "editor";
-        const head = root.querySelector(editor ? `[data-panel-strip="${escape(id)}"]` : `[data-panel-head="${escape(id)}"]`);
+        const head = tabHeadOf(id, editor);
         const strip = rectOf(head);
         // 头并在入口条里的那一节（输出 47）：外框是入口条那一行与它自己的叶的并集，头是入口之后那一段，正文是它整张卡片。
         const row = rectOf(head?.closest("[data-region-strip]"));
@@ -456,10 +459,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return {x: box?.left ?? 0, y: box?.top ?? 0};
     }
 
+    /** 这一次判定的几何。实时布局用拿起时量的那份（`frozen`）：预览里入口在滑。 */
     const geometry = (doc: LayoutDoc): DragGeometry => frozen()?.geometry ?? measureGeometry(doc);
 
     /** 标签条的量取：实时布局用拿起时量的那份（摘掉了来源：预览里来源已经挪了，标签也在滑）。 */
-    /** 这一次判定的几何。实时布局用拿起时量的那份（`frozen`）：预览里入口在滑。 */
     function stripSnapshot(panel: string): TabStripSnapshot | null {
         const kept = frozen()?.strips.get(panel);
         if (kept !== undefined) return kept;
@@ -574,7 +577,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (!result.ok) return null;
         // 工具面板放回原处：预览画来源自己所在的位置（输出 28）。带标签条的工具面板只剩浮动窗（输出 25 第 0 行），量的块要含窗，不然原位没有可画的矩形。
         const inPlace = result.doc === doc;
-        return {action, inPlace, preview: inPlace ? previewOf(doc, source, {kind: "center", panel}, true, [...seen.panels, ...seen.floats], seen) : preview};
+        return {action, inPlace, preview: inPlace ? previewOf(doc, source, {kind: "center", panel}, true, panelsOf(seen), seen) : preview};
     }
 
     /** 键盘在这块标签条上能停的位置：看得见的标签之间。 */
@@ -612,6 +615,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return viewId === null || options.catalog().get(viewId)?.floatable !== false;
     }
 
+    /** 面板与浮动窗的判定几何，面板在前。 */
+    const panelsOf = (seen: DragGeometry): ReadonlyArray<LayoutDropPanelGeometry> => [...seen.panels, ...seen.floats];
     const toGrid = (point: GridDropPoint, {origin}: DragGeometry): GridDropPoint => ({x: point.x - origin.x, y: point.y - origin.y});
     /**
      * 明确的无落点：标签在松手处浮动打开（输出 39），反馈画这个矩形。不进预览缓存，矩形每帧变。键盘没有指针，矩形按树区域居中。
@@ -689,9 +694,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             return judgementOf(canFloat(doc, source) ? floatDrop(doc, options.floatMinimum(source), point, seen) : null);
         }
         // 中央与原位的预览画在落点那块的正文上：落点可能是浮动窗。
-        const drop = dropFor(doc, source, resolved, point, [...panels, ...floats], seen);
+        const reachable = [...panels, ...floats];
+        const drop = dropFor(doc, source, resolved, point, reachable, seen);
         if (drop === null) return NOT_JUDGED;
-        const answered = answeredByEditor(doc, source, drop, point, [...panels, ...floats], seen);
+        const answered = answeredByEditor(doc, source, drop, point, reachable, seen);
         if (answered === "refuse") {
             const tab = editorTabIdOf(source.tab);
             return {drop: null, rejected: true, refusal: tab === null ? null : {tab, drop}};
@@ -767,7 +773,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         }
         const doc = options.doc();
         const seen = geometry(doc);
-        const panels = [...seen.panels, ...seen.floats];
+        const panels = panelsOf(seen);
         const points = region.candidates.flatMap((candidate) => pointOfCandidate(candidate, doc, panels, (panel) => stripStopsOf(doc, panel)) ?? []);
         if (points.length > 0 || region.candidates.length > 0) return {axis: "both", points};
         const body = panels.find((geometry) => geometry.id === region.id)?.body;
