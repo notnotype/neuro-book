@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
+### 不兼容的改动
+
+- 删掉 `Grid.resize`、`Grid.resizeBranch` 与它们的结果类型 `GridResizeResult`、`GridBranchResizeResult`：改用 `resizeBranches`（单个分支就传一项）。
+- 删掉 `GridGestureSession.setCollapsed`：键盘收起与展开用 `toggleCollapsed`。
+- `createLiveDragSession`、`useLiveDragSession` 的 `live` 回调只收 `source`：键盘拖动本来就不问它，以前的第二个参数总是 `false`。
+- `useLiveDragSession` 不再返回 `session`、`live`，`LiveDragSessionRefs` 只剩两个类型参数；要状态读 `state`、`liveState`。
+- 根入口不再导出实时布局的内部零件：`createDragCard`、`createFrameLoop`、`initialLiveDrop`、`stepLiveDrop`、`insideShownSlot`、`solveSashCollapse` 与类型 `DragCard`、`DragCardFrame`、`DragCardOptions`、`FrameLoop`、`FrameLoopOptions`、`LiveDropCandidate`、`LiveDropState`。拖动里的实时布局用 `createLiveDragSession`。
+- 删掉 `resolveGridInsertion` 与类型 `GridInsertion`：列表的插入位用 `resolveListInsertion`。
+
+### 改动
+
+- `NestedGrid` 的 `sashKind`、`sashStyle`、`paneLabel` 每次重算每条线只问一次（布局、回调读的响应式状态或回调本身变了才重算），不再每次渲染都问。
+
+### 修复
+
+- `moveLeaf` 与 `addLeaf`、`splitLeaf` 一样查规模上限：会超过 256 个节点或 16 层时返回 `limit-exceeded`，树不变。
+
 ## [0.1.0] - 2026-11-23
 
 ### 不兼容的改动
