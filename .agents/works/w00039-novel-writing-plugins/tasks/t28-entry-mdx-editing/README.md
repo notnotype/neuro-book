@@ -93,8 +93,12 @@ updated: 2026-11-23
 
 开发者 2026-11-23 确认第 3 稿与交互稿（“可以，没问题……先用这个吧”），并说 UX 交互以后还要调，例如单独编辑一个块；记为做完以后的调整项，这一轮照交互稿做。
 
+2026-11-23 S0：Spec 草稿已写在主工作区（都标 planned）：`canon/revisions.md` 输出 25 的“主文字的块”、`canon/rendering.md` 输出 3（块由写入方给出）、`canon/project.md` 条目读取的 `inInit` 与 `touchedBy`、`canon/author-ui.md` 输出 39 改写与新的 44 到 47、验收 16、`canon/agent-tools.md` 的“块”、`workbench/editor.md` 输出 68（页面的未提交内容）与 69（可嵌入的代码输入框）。`docs:check` 通过。内核那几条等第二轮审查回来再按意见改。
+
+第二轮设计审查（omp `@review`，审在 `d9514f8c3`，只审第 3 稿的后端部分）已在后台启动，报告在本机 `reports/design-review-backend-omp-r2.txt`。
+
 ## 下一步
 
-1. 第 3 稿的后端部分（3.1、3.3 与 3.4 的提交）交 omp 审一轮，同时写 Spec 草稿（S0）。
+1. 等第二轮审查的结论，处理后按切片实现（S1 内核、S2 编辑区、S3 暂存、S4 文字分页、S5 e2e 与收口）。
 2. 按决定改出计划第 2 稿，写 `evidences/design-review-resolution.txt` 逐条归类；后端核心规则变了，第 2 稿的后端部分再交 omp 审一轮。
 3. 写 ADR 与 Spec 草稿，实现。
