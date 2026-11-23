@@ -1,6 +1,6 @@
 # 实时布局的拖动会话
 
-`createLiveDragSession` 与组件版 `useLiveDragSession`：拖动中布局真的变，反馈就是布局本身，拿起的内容做成卡片跟着指针。它在[拖动会话](drag-session.md)上接好编排：什么时候换预览、收起与展开来源、判定用哪份几何、什么时候拿起与收回卡片、一帧里各步的先后。宿主只写领域判断：落点、预览摆成什么、几何怎么量。行为合同见 Spec `ui/layout-drag` 输出 22、23。0.x 期间都是 `@experimental`，1.0 之前签名会变。
+`createLiveDragSession` 与组件版 `useLiveDragSession`：拖动中布局真的变，反馈就是布局本身，拿起的内容做成卡片跟着指针。它在[拖动会话](drag-session.md)上接好编排：什么时候换预览、收起与展开来源、判定用哪份几何、什么时候拿起与收回卡片、一帧里各步的先后。宿主只写领域判断：落点、预览摆成什么、几何怎么量。各条规则写在下面“宿主要写的”与“约定”里。0.x 期间都是 `@experimental`，1.0 之前签名会变。
 
 ```ts
 const box = ref<HTMLElement | null>(null);              // 包住网格的那一层：会话的根
