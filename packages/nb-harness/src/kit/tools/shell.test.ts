@@ -5,9 +5,9 @@
  */
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {renameSync, writeSync} from "node:fs";
+import {renameSync, rmSync, writeSync} from "node:fs";
 import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {dirname, join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -215,12 +215,11 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         const reached = new Promise<void>((resolve) => {
             reach = resolve;
         });
-        const spoolDir = join(root, "spool");
         const output = join(root, "job-output.log");
         const calls = {prepared: 0, discarded: 0};
         let handover: import("./shell.js").ShellHandover | null = null;
         const auto: import("./shell.js").ShellAutoBackground = {
-            threshold: () => ({reached, spoolDir}),
+            threshold: () => reached,
             prepare: async () => {
                 calls.prepared += 1;
                 if (options.prepare === "null") return null;
@@ -229,6 +228,7 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
                         if (options.prepare === "throw") throw new Error("接不了");
                         handover = given;
                         renameSync(given.spool.path, output);
+                        rmSync(dirname(given.spool.path), {recursive: true, force: true});
                         return {sink: (_error, chunk) => void writeSync(given.spool.fd, chunk), result: {text: "已转到后台"}};
                     },
                     discard: () => void (calls.discarded += 1),
