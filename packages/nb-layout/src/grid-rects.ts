@@ -7,6 +7,7 @@
  * 前提是 grid 根的左上角在设备像素格上：外壳的根是窗口原点，内层 grid 的外框已经取过整。
  */
 
+import {sashKey} from "./sash-gesture";
 import type {GridAxis, GridBranch, GridExtent, GridLayoutResult, GridLeaf, GridNode} from "./grid-types";
 
 /** @experimental */
@@ -345,7 +346,7 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
         // 0px 的边界没有线、也不会亮：它和它那一侧的兄弟都是 0 时，子节点这条边其实就是分支的边，沿用外层的；那一侧的兄弟有
         // 尺寸时，挨着的是兄弟的内容，这一端是自由端。
         const edgeOf = (sash: number, siblings: ReadonlyArray<GridNode<R>>, outer: string | null): string | null => {
-            if (sashSize(sash) > 0) return `${branch.id}:${sash}`;
+            if (sashSize(sash) > 0) return sashKey(branch.id, sash);
             return siblings.every((sibling) => mainOf(sibling) <= 0) ? outer : null;
         };
         const outerBefore = horizontal ? edges.left : edges.top;
@@ -383,7 +384,7 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
             items.push({
                 kind: "sash",
                 key: `sash:${JSON.stringify([child.id, next.id])}`,
-                sashKey: `${branch.id}:${index}`,
+                sashKey: sashKey(branch.id, index),
                 branch,
                 index,
                 axis,

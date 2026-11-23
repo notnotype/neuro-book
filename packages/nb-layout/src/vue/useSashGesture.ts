@@ -278,7 +278,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         binding = started;
         // 在开始成功之后换：键盘会话进行中按下指针被拒时，不清掉进行中那场已经发过的键。
         gate = createIssueGate();
-        active.value = new Set(started.session.sashes.map((sash) => sashKey(sash)));
+        active.value = new Set(started.session.sashes.map((sash) => sashKey(sash.branchId, sash.index)));
         dragging.value = true;
         return true;
     }
@@ -655,10 +655,10 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
 
     return {
         registerSash(target) {
-            registrations.set(`${target.branchId}:${target.sashIndex}`, target);
+            registrations.set(sashKey(target.branchId, target.sashIndex), target);
         },
         unregisterSash(branchId, sashIndex, element) {
-            const key = `${branchId}:${sashIndex}`;
+            const key = sashKey(branchId, sashIndex);
             const current = registrations.get(key);
             // 重挂期间旧元素先卸载：只有它仍是当前登记项时才删除，避免删掉新宿主的目标。
             if (current !== undefined && (element === undefined || current.element === element)) {

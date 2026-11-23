@@ -7,6 +7,7 @@
  * 属性、并向它登记元素。几何对齐经 `useSashSnap` 的宿主合并到父组件的一帧里。
  */
 import {computed, inject, onBeforeUnmount, watch} from "vue";
+import {sashKey} from "../sash-gesture";
 import {readLayoutVar} from "./layout-vars";
 import {sashBandBox, type SashBandBox} from "./sash-feedback";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -64,7 +65,7 @@ function resolveScope(): SashGestureScope {
  * 分界线的命中事实由 scope 统一判定（与光标、拖动同源）；这里只把结果映射成属性，
  * 渲染层不自己算几何。
  */
-const key = computed(() => `${props.branchId}:${props.index}`);
+const key = computed(() => sashKey(props.branchId, props.index));
 const seamOnly = computed(() => props.size === 0);
 const inert = computed(() => props.disabled || seamOnly.value);
 /** 一侧收到了零（拖到零、隐藏的区域按拖到零画）：那一侧没有东西，静止接缝只会贴在窗口边或条上，不画；命中、悬停线与拖动照旧。 */
