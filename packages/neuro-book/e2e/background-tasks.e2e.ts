@@ -180,7 +180,7 @@ test("书架页没有状态栏与面板，任务结束时照样弹通知（输�
     await context.close();
 });
 
-test("提供方的行：会话块等你处理时有徽标；停止被拒弹原因；打开别人的命令提示无法打开（输出 24–26）", async ({browser}) => {
+test("提供方的行：会话块等你处理时有徽标；停止被拒弹原因；打开没登记的命令提示无法打开（输出 24–26）", async ({browser}) => {
     const [page] = await twoTabs(browser);
     const owner = {kind: "session", session: "root-e2e", title: "第十二章修订"};
     await probe("/provide", {rows: [

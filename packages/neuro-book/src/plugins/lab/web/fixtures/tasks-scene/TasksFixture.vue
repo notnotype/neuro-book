@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
  * “后台任务”视图与状态栏悬停内容的 Lab 场景。视图读两份仓库（自己的任务、分组行），悬停内容读自己的任务的 `background`：这里在内存
- * 里各建一份同接口的仓库（数据固定；取消、重试、移除、停止、打开只把调用记进事件 tab，收起箭头真的切换），翻译端口另建、登记
+ * 里各建一份同接口的仓库（数据固定；取消、重试、移除、打开只把调用记进事件 tab；收起箭头真的切换；“停止”记下调用并拿掉那一行，
+ * 组空了整组拿掉，用来看行与组离开的动效），翻译端口另建、登记
  * `nbook.tasks` 的目录（Lab 窗口的端口没有它）。
- * 场景 id 以 `hover` 开头的画悬停内容；带 `empty` 的清单为空；带 `narrow` 的按默认布局的宽度摆、带 `phone` 的按 390 宽摆；带 `tall`
- * 的面板拉高看全；带 `all` 的是全部项目；以 `english` 结尾的用英文界面。
+ * 场景 id 以 `hover` 开头的画悬停内容；带 `empty` 的清单为空、带 `elsewhere` 的只有别的项目在跑；带 `narrow` 的按默认布局的宽度摆、带 `phone` 的按 390 宽摆；带 `tall`
+ * 的面板拉高看全、带 `long` 的再拉长到能看到末尾的应用组；带 `all` 的是全部项目；以 `english` 结尾的用英文界面。
  */
 import {computed, ref, shallowRef} from "vue";
 
@@ -48,23 +49,25 @@ const ownRow = (task: TaskItem): ListedRow => ({key: `own:${task.id}`, source: {
 const agentRow = (id: string, over: Omit<Partial<ListedRow>, "source" | "own">): ListedRow => ({key: `p:nbook.agent:1:${id}`, source: {kind: "provider", plugin: "nbook.agent"}, kind: "nbook.agent.shell", kindLabel: "命令", title: id, message: null, state: "running", progress: null, startedAt: at(0, 10, 40), endedAt: null, foreground: false, stoppable: true, open: null, own: null, ...over});
 const open = (session: string) => ({command: "nbook.agent.focus-session", args: {sessionId: session}});
 const own = (id: string): ListedRow => ownRow(OWN.find((task) => task.id === id)!);
+const groupOpen = (session: string) => ({plugin: "nbook.agent", target: open(session)});
 
 const SESSIONS: RowGroup[] = [
-    {kind: "session", session: "s1", title: "第十二章修订", open: open("s1"), waiting: true, head: agentRow("head-s1", {kind: "nbook.agent.session", kindLabel: "会话", title: "第十二章修订", message: "等你批准", state: "waiting", startedAt: at(0, 10, 44), foreground: true, open: open("s1")}), rows: [
+    {kind: "session", session: "s1", title: "第十二章修订", open: groupOpen("s1"), waiting: true, head: agentRow("head-s1", {kind: "nbook.agent.session", kindLabel: "会话", title: "第十二章修订", message: "等你批准", state: "waiting", startedAt: at(0, 10, 44), foreground: true, open: open("s1")}), rows: [
         agentRow("bun run build:epub", {message: "[3/5] 打包章节", startedAt: at(0, 10, 41)}),
         agentRow("校对第十二章", {kind: "nbook.agent.agent", kindLabel: "子代理", message: "读到第 4 节", startedAt: at(0, 10, 39), open: open("child-1")}),
     ]},
-    {kind: "session", session: "s2", title: "整理人物表", open: open("s2"), waiting: false, head: agentRow("head-s2", {kind: "nbook.agent.session", kindLabel: "会话", title: "整理人物表", message: "正在回复", startedAt: at(0, 10, 30), foreground: true, open: open("s2")}), rows: [
+    {kind: "session", session: "s2", title: "整理人物表", open: groupOpen("s2"), waiting: false, head: agentRow("head-s2", {kind: "nbook.agent.session", kindLabel: "会话", title: "整理人物表", message: "正在回复", startedAt: at(0, 10, 30), foreground: true, open: open("s2")}), rows: [
         agentRow("整理大纲", {kind: "nbook.agent.plugin", kindLabel: "Workflow", message: "第 3 步，共 7 步", progress: 43, startedAt: at(0, 10, 31)}),
         agentRow("查资料：清末邮政", {kind: "nbook.agent.subsession", kindLabel: "子会话", message: "正在回复", startedAt: at(0, 10, 36), foreground: true, open: open("child-2")}),
     ]},
-    {kind: "session", session: "s3", title: "检查伏笔", open: open("s3"), waiting: false, head: null, rows: [
+    {kind: "session", session: "s3", title: "检查伏笔", open: groupOpen("s3"), waiting: false, head: null, rows: [
         agentRow("bun test", {message: "已运行 214 条", startedAt: at(0, 10, 45)}),
     ]},
 ];
 
 const payload = computed<RowsPayload>(() => {
     if (has("empty")) return {version: 1, groups: [], more: 0, elsewhere: 0};
+    if (has("elsewhere")) return {version: 1, groups: [], more: 0, elsewhere: 3};
     const projects: RowGroup[] = [{kind: "project", project: "p-fog", title: "雾港", current: true, rows: [own("t2"), own("t5")]}];
     if (has("all")) projects.push({kind: "project", project: "p-night", title: "长夜", current: false, rows: [own("t7")]});
     const app: RowGroup = {kind: "app", rows: [own("t1"), own("t3"), own("t4"), own("t6")]};
@@ -107,7 +110,18 @@ const rows: RowsStore = {
         else next.add(key);
         collapsed.value = next;
     },
-    stop: async (key) => record("stop", {key}),
+    stop: async (key) => {
+        record("stop", {key});
+        const current = rows.payload.value;
+        if (current === null) return;
+        const groups = current.groups.flatMap((group): RowGroup[] => {
+            if (group.kind !== "session") return [{...group, rows: group.rows.filter((row) => row.key !== key)}].filter((next) => next.rows.length > 0);
+            const head = group.head?.key === key ? null : group.head;
+            const rest = group.rows.filter((row) => row.key !== key);
+            return head === null && rest.length === 0 ? [] : [{...group, head, rows: rest}];
+        });
+        rows.payload.value = {...current, version: current.version + 1, groups};
+    },
     open: async (target) => record("open", {command: target.command}),
     start: () => undefined,
 };
@@ -119,7 +133,7 @@ const width = has("phone") ? "min(390px, 100%)" : has("narrow") ? "min(648px, 10
     <div v-if="has('hover')" class="tasks-fixture__hover nb-ui-tooltip-surface">
         <TasksHover :store="store" data-lab-subject />
     </div>
-    <div v-else class="tasks-fixture__panel" :data-tall="has('tall') || undefined" :style="{width}">
+    <div v-else class="tasks-fixture__panel" :data-tall="has('tall') || undefined" :data-long="has('long') || undefined" :style="{width}">
         <TasksView :context="context" :store="store" :rows="rows" data-lab-subject />
     </div>
 </template>
@@ -134,6 +148,10 @@ const width = has("phone") ? "min(390px, 100%)" : has("narrow") ? "min(648px, 10
 
 .tasks-fixture__panel[data-tall] {
     height: 460px;
+}
+
+.tasks-fixture__panel[data-long] {
+    height: 1000px;
 }
 
 /* 同 nb-ui 提示框的面，只为在 Lab 里看清悬停内容。 */

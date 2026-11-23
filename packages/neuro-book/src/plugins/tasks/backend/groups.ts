@@ -174,7 +174,9 @@ function sessionGroup(session: string, items: Item[]): {readonly group: RowGroup
     // 会话块里的行按归属的会话分来，归属一定是会话。
     const source = head ?? fromProvider ?? items[0]!;
     const owner = source.owner as Extract<RowOwner, {kind: "session"}> & {readonly open?: RowOpen};
-    const open = head !== null ? (head.row.open ?? owner.open ?? null) : fromProvider === null ? null : (owner.open ?? null);
+    const target = head !== null ? (head.row.open ?? owner.open ?? null) : fromProvider === null ? null : (owner.open ?? null);
+    // 组头与 `fromProvider` 都是提供方的行；只剩自己的任务时上面已是 null。
+    const open = target === null || source.row.source.kind !== "provider" ? null : {plugin: source.row.source.plugin, target};
     const waiting = items.some((item) => item.row.state === "waiting");
     return {
         group: {kind: "session", session, title: owner.title, open, head: head?.row ?? null, waiting, rows: rest.map((item) => item.row)},

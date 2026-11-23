@@ -81,7 +81,6 @@
     "groups": {
         "project": "Project “{{title}}”",
         "app": "App",
-        "waiting": "Needs you",
         "collapse": "Collapse {{title}}",
         "expand": "Expand {{title}}"
     },
@@ -91,6 +90,6 @@
         "gone": "This item is no longer in the list"
     },
     "open": {
-        "unavailable": "Cannot open: the open action is unavailable"
+        "unavailable": "Cannot open this item"
     }
 }

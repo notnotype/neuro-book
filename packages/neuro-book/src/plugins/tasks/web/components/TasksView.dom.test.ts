@@ -178,7 +178,7 @@ describe("TasksView", () => {
     it("会话块：组头是会话自己，等你处理时有徽标；提供方的行写种类、可停可打开、没有移除；正在停止的不可用（输出 24–26）", async () => {
         const open = {command: "nbook.agent.focus-session", args: {sessionId: "s1"}};
         const head = providerRow("head", {kind: "nbook.agent.session", kindLabel: "会话", title: "第十二章修订", message: "等你批准", state: "waiting", foreground: true, open});
-        const group: RowGroup = {kind: "session", session: "s1", title: "第十二章修订", open, waiting: true, head, rows: [providerRow("bun run build"), providerRow("校对", {kind: "nbook.agent.agent", kindLabel: "子代理", open: {command: "nbook.agent.focus-session", args: {sessionId: "c1"}}})]};
+        const group: RowGroup = {kind: "session", session: "s1", title: "第十二章修订", open: {plugin: "nbook.agent", target: open}, waiting: true, head, rows: [providerRow("bun run build"), providerRow("校对", {kind: "nbook.agent.agent", kindLabel: "子代理", open: {command: "nbook.agent.focus-session", args: {sessionId: "c1"}}})]};
         const fake = fakeRows([group], {stopping: ["p:nbook.agent:1:bun run build"]});
         const {wrapper} = mountView(fakeStore([]).store, fake.rows);
         const block = wrapper.get('[data-group="session:s1"]');
@@ -191,10 +191,21 @@ describe("TasksView", () => {
         const stopping = wrapper.get('[data-row="p:nbook.agent:1:bun run build"] [data-row-stop]');
         expect(stopping.text()).toBe("正在停止");
         expect(stopping.attributes("disabled")).toBeDefined();
+        // 行键里有空格：读屏照样从“停止”找到这一行的标题。
+        expect(document.getElementById(stopping.attributes("aria-describedby")!)?.textContent).toContain("bun run build");
         await block.get("[data-group-stop]").trigger("click");
         await block.get("[data-group-open]").trigger("click");
         await wrapper.get('[data-row="p:nbook.agent:1:校对"] [data-row-open]').trigger("click");
         expect(fake.calls).toEqual(["stop p:nbook.agent:1:head", "open nbook.agent.focus-session nbook.agent", "open nbook.agent.focus-session nbook.agent"]);
+    });
+
+    it("没有组头的会话块：“打开”交给分组里写明的那家，不看块里排在前面的是谁的行（输出 25、26）", async () => {
+        const target = {command: "test.early.open", args: {session: "s1"}};
+        const group: RowGroup = {kind: "session", session: "s1", title: "检查伏笔", open: {plugin: "test.early", target}, waiting: false, head: null, rows: [providerRow("bun test")]};
+        const fake = fakeRows([group]);
+        const {wrapper} = mountView(fakeStore([]).store, fake.rows);
+        await wrapper.get('[data-group="session:s1"] [data-group-open]').trigger("click");
+        expect(fake.calls).toEqual(["open test.early.open test.early"]);
     });
 
     it("收起箭头切换这一组、可访问名称与展开状态跟着；收起的组里自己的已结束任务不算看过（输出 26、28）", async () => {
@@ -219,6 +230,10 @@ describe("TasksView", () => {
         expect(narrow.wrapper.get("[data-rows-elsewhere]").text()).toBe("其他项目还有 3 件在运行");
         const all = mountView(fakeStore(items).store, fakeRows([app(items)], {elsewhere: 3, all: true}).rows);
         expect(all.wrapper.find("[data-rows-elsewhere]").exists()).toBe(false);
+        // 当前项目什么都没有、其他项目在跑：不写“没有后台任务”，空状态的位置只写那一句。
+        const elsewhere = mountView(fakeStore([]).store, fakeRows([], {elsewhere: 3}).rows);
+        expect(elsewhere.wrapper.get(".tasks-view__empty").text()).toBe("其他项目还有 3 件在运行");
+        expect(elsewhere.wrapper.findAll("[data-rows-elsewhere]")).toHaveLength(1);
     });
 
     it("项目组：当前项目在前，其余按翻译后的名字排（输出 26）", () => {

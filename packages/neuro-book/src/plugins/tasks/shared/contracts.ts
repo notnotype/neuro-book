@@ -199,8 +199,12 @@ export const ListedRowSchema = Type.Object({
 }, {additionalProperties: false});
 export type ListedRow = Static<typeof ListedRowSchema>;
 
+/** 会话块组头的“打开”：带上它是哪家提供方的，窗口按这家核对命令的贡献方（输出 25），不必从块里的行去猜。 */
+export const GroupOpenSchema = Type.Object({plugin: Type.String(), target: RowOpenSchema}, {additionalProperties: false});
+export type GroupOpen = Static<typeof GroupOpenSchema>;
+
 export const RowGroupSchema = Type.Union([
-    Type.Object({kind: Type.Literal("session"), session: Type.String(), title: TextSchema, open: Nullable(RowOpenSchema), head: Nullable(ListedRowSchema), waiting: Type.Boolean(), rows: Type.Array(ListedRowSchema)}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("session"), session: Type.String(), title: TextSchema, open: Nullable(GroupOpenSchema), head: Nullable(ListedRowSchema), waiting: Type.Boolean(), rows: Type.Array(ListedRowSchema)}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("project"), project: Type.String(), title: TextSchema, current: Type.Boolean(), rows: Type.Array(ListedRowSchema)}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("app"), rows: Type.Array(ListedRowSchema)}, {additionalProperties: false}),
 ]);

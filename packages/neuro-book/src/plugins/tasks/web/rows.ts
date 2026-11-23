@@ -4,6 +4,9 @@
  *
  * 世代：范围变了、视图隐藏又显示，都换一代订阅；旧一代迟到的读与推送不再采用（订阅建好时已换代的立即放掉），免得旧范围的行盖住
  * 新范围的。同一代里推送与读的先后由远程链路保证（先订阅再读，读到的不会比推送旧）。
+ *
+ * 订阅结束（服务端入口停了、重连后重建失败）或第一次就没订上时，旧行上的停止与打开都已作废：清掉不画，视图下一次显示时重新订阅
+ * （同 `models-store.ts`）。
  */
 
 import {computed, shallowRef} from "@vue/reactivity";
@@ -47,6 +50,13 @@ export function groupKey(group: RowGroup): string {
     return group.kind === "project" ? `project:${group.project}` : "app";
 }
 
+/** 此刻画成终态、所在组展开的自己的任务（输出 28）：视图把它交给 `TasksStore.setShown`，只有这些算看过。会话块的组头不是自己的任务。 */
+export function shownOwnTasks(payload: RowsPayload | null, collapsed: ReadonlySet<string>): ReadonlySet<string> {
+    if (payload === null) return new Set();
+    const rows = payload.groups.filter((group) => !collapsed.has(groupKey(group))).flatMap((group) => group.rows);
+    return new Set(rows.flatMap((row) => (row.own !== null && row.state !== "running" && row.state !== "waiting" ? [row.own.id] : [])));
+}
+
 export interface RowsStoreOptions {
     readonly remote: RemoteClient<typeof tasksContract>;
     /** 窗口绑定的项目 id；书架页之类没有项目的窗口为 null。 */
@@ -84,22 +94,29 @@ export function createRowsStore(options: RowsStoreOptions): RowsStore {
             else report(`tasks: rows failed: ${result.code}`);
         };
         void (async () => {
-            const subscription = await remote.events.rowsChanged.subscribe(filter(), take, {onResync: () => void read()});
+            let ended = false;
+            const subscription = await remote.events.rowsChanged.subscribe(filter(), take, {
+                onResync: () => void read(),
+                onEnd: (reason) => {
+                    ended = true;
+                    if (mine !== generation) return;
+                    report(`tasks: rows subscription ended: ${reason}`);
+                    release = null;
+                    payload.value = null;
+                },
+            });
             if (!subscription.ok) {
                 report(`tasks: rows subscribe failed: ${subscription.code}`);
+                if (mine === generation) payload.value = null;
                 return;
             }
-            if (mine !== generation) {
+            if (mine !== generation || ended) {
                 subscription.value.release();
                 return;
             }
             release = () => subscription.value.release();
             await read();
         })();
-    };
-
-    const notifyStop = (title: Text, message: Text, tone: "warning" | "info"): void => {
-        notifications.notify({tone, title, message});
     };
 
     return {
@@ -131,12 +148,14 @@ export function createRowsStore(options: RowsStoreOptions): RowsStore {
                 const result = await remote.stop({key});
                 if (result.ok) {
                     // 被拒的原因是提供方给的文字值，原样当提示的正文（它可能是别的插件目录里的文字引用）。
-                    if (result.value.outcome === "rejected") notifyStop(title, result.value.reason ?? tasksText("stop.rejected"), "warning");
-                    else if (result.value.outcome === "unknown") notifyStop(title, tasksText("stop.unknown"), "warning");
-                } else if (result.code === "row-gone") notifyStop(title, tasksText("stop.gone"), "info");
+                    if (result.value.outcome === "rejected") notifications.notify({tone: "warning", title, message: result.value.reason ?? tasksText("stop.rejected")});
+                    else if (result.value.outcome === "unknown") notifications.notify({tone: "warning", title, message: tasksText("stop.unknown")});
+                } else if (result.code === "row-gone") notifications.notify({tone: "info", title, message: tasksText("stop.gone")});
+                // 窗口与服务端对能不能停看法不一（行刚变）：这一行本就不该有“停止”，不弹提示，下一份行到了按钮就没了。
+                else if (result.code === "not-stoppable") report(`tasks: stop ${key} refused: not stoppable`);
                 else {
                     report(`tasks: stop ${key} failed: ${result.code}`);
-                    notifyStop(title, tasksText("stop.unknown"), "warning");
+                    notifications.notify({tone: "warning", title, message: tasksText("stop.unknown")});
                 }
             } finally {
                 const next = new Set(stopping.value);
@@ -156,12 +175,15 @@ export function createRowsStore(options: RowsStoreOptions): RowsStore {
             if (!result.ok) notifications.notify({tone: "warning", title, message: result.reason});
         },
         start(signal) {
-            signal.addEventListener("abort", () => {
+            const stop = (): void => {
                 stopped = true;
                 generation += 1;
                 release?.();
                 release = null;
-            }, {once: true});
+            };
+            // 入口在 `start` 之前就停了（插件入口在两次 `start` 之间还要等一次服务解析）：abort 已经派发过，监听不会再触发。
+            if (signal.aborted) stop();
+            else signal.addEventListener("abort", stop, {once: true});
         },
     };
 }

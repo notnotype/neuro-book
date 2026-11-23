@@ -365,7 +365,7 @@ describe("归属、范围与分组（输出 22、23、26 的服务端部分）",
         expect(groups.map((group) => group.session)).toEqual(["asks", "new", "idle", "old"]);
         expect(groups[0]).toMatchObject({waiting: true, head: null});
         expect(groups.find((group) => group.session === "old")).toMatchObject({head: {title: "行 head-old"}, rows: [{title: "行 job-new"}]});
-        expect(groups.find((group) => group.session === "idle")).toMatchObject({head: null, title: "空闲的", open});
+        expect(groups.find((group) => group.session === "idle")).toMatchObject({head: null, title: "空闲的", open: {plugin: "test.tasks-owner-a", target: open}});
     });
 
     test("几家交了同一个根会话的组头：认最早登记的那家，别家的当普通行，记诊断一次", async () => {
@@ -557,7 +557,17 @@ describe("实现审查补的边界（第 1 片 omp）", () => {
         (await w.owner("late")).tasks.provide(provider([row("head", {head: true, owner: {kind: "session", session: "r", title: "根", open: {command: "test.tasks-owner-late.open", args: {session: "r"}}}})]).value);
         const [group] = (await rows(client)).groups as Extract<RowGroup, {kind: "session"}>[];
         expect(group!.head!.source).toEqual({kind: "provider", plugin: "test.tasks-owner-late"});
-        expect(group!.open).toEqual({command: "test.tasks-owner-late.open", args: {session: "r"}});
+        expect(group!.open).toEqual({plugin: "test.tasks-owner-late", target: {command: "test.tasks-owner-late.open", args: {session: "r"}}});
+    });
+
+    test("会话块没有组头时，打开取最早登记的那家，并写明是哪家：块里排在前面的是别家的行也一样", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        (await w.owner("early")).tasks.provide(provider([row("ended", {state: "succeeded", endedAt: 2_000, owner: {kind: "session", session: "r", title: "根", open: {command: "test.tasks-owner-early.open", args: {session: "r"}}}})]).value);
+        (await w.owner("late")).tasks.provide(provider([row("live", {startedAt: 9_000, owner: {kind: "session", session: "r", title: "根", open: {command: "test.tasks-owner-late.open", args: {session: "r"}}}})]).value);
+        const [group] = (await rows(client)).groups as Extract<RowGroup, {kind: "session"}>[];
+        expect(group!.rows[0]!.source).toEqual({kind: "provider", plugin: "test.tasks-owner-late"});
+        expect(group!.open).toEqual({plugin: "test.tasks-owner-early", target: {command: "test.tasks-owner-early.open", args: {session: "r"}}});
     });
 
     test("门面释放：自己的任务先落定为中断，退订回调里再调句柄不起作用", async () => {

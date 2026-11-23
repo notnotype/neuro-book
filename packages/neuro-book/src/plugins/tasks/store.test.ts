@@ -10,15 +10,19 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {Type} from "typebox";
 
+import {contextTable} from "nbook/plugins/commands/shared/context-keys";
+import type {CommandResult, CommandService} from "nbook/plugins/commands/shared/contracts";
+import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import type {NotificationInput, Notifications} from "nbook/plugins/workbench/shared/contracts";
 
 import {PUSH_INTERVAL_MS} from "./backend/remote";
 import {tasksText} from "./shared/text";
 import {tasksWorld} from "./testing/world";
-import type {TasksWorld} from "./testing/world";
+import type {TasksClient, TasksWorld} from "./testing/world";
 import type {ProvidedRow, RowsPayload, StopOutcome, TaskProvider} from "./shared/contracts";
-import {createRowsStore} from "./web/rows";
+import {createRowsStore, shownOwnTasks} from "./web/rows";
 import type {RowsStore} from "./web/rows";
 import {createTasksStore} from "./web/store";
 import type {TasksStore} from "./web/store";
@@ -64,11 +68,11 @@ async function world(): Promise<TasksWorld> {
     return created;
 }
 
-/** 一个窗口的仓库，已经订阅并取到第一份清单。 */
-async function windowStore(w: TasksWorld, id: string): Promise<{store: TasksStore; notifications: ReturnType<typeof recorder>; reports: string[]}> {
+/** 一个窗口的仓库，已经订阅并取到第一份清单。`client` 给了就用这个窗口（同一个窗口里另建分组行的仓库时）。 */
+async function windowStore(w: TasksWorld, id: string, client?: TasksClient): Promise<{store: TasksStore; notifications: ReturnType<typeof recorder>; reports: string[]}> {
     const notifications = recorder();
     const reports: string[] = [];
-    const store = createTasksStore(await w.window(id), notifications, (message) => reports.push(message));
+    const store = createTasksStore(client ?? await w.window(id), notifications, (message) => reports.push(message));
     const stop = new AbortController();
     stops.push(stop);
     await store.start(stop.signal);
@@ -232,30 +236,29 @@ describe("分组行的仓库（输出 22–26）", () => {
         return {rows: () => rows, subscribe: () => () => undefined, stop: (id) => answer(id)};
     }
 
-    async function rowsStore(w: TasksWorld, project: string | null, commands: {source: (id: string) => string | null; failing?: string} = {source: () => null}) {
+    /** 一个窗口的分组行仓库。命令表缺省是空的真命令表；`remote` 给了就用它（同一条链路上做往返，或包一层改时序）。 */
+    async function rowsStore(w: TasksWorld, project: string | null, options: {readonly remote?: TasksClient; readonly commands?: Pick<CommandService, "get" | "execute">; readonly signal?: AbortSignal} = {}) {
         const notifications = recorder();
         const reports: string[] = [];
-        const executed: string[] = [];
         const rows = createRowsStore({
-            remote: await w.window("a"),
+            remote: options.remote ?? await w.window("a"),
             project,
-            commands: {
-                get: (id) => {
-                    const source = commands.source(id);
-                    return source === null ? {ok: false, code: "unknown-command", reason: "没有这条命令"} : {ok: true, value: {id, source} as never};
-                },
-                execute: async (id) => {
-                    executed.push(id);
-                    return id === commands.failing ? {ok: false, code: "execution-error", reason: "会话打不开"} : {ok: true, value: null};
-                },
-            },
+            commands: options.commands ?? createCommandRegistry({contextKeys: contextTable({}), report: () => undefined}),
             notifications,
             report: (message) => void reports.push(message),
         });
         const stop = new AbortController();
         stops.push(stop);
-        rows.start(stop.signal);
-        return {rows, notifications, reports, executed};
+        rows.start(options.signal ?? stop.signal);
+        return {rows, notifications, reports};
+    }
+
+    /** 推着时钟在同一条链路上往返几次：仓库要是订阅过、读过，结果这时都已送到（同一条链路上的消息按序到达）。 */
+    async function drain(w: TasksWorld, client: TasksClient): Promise<void> {
+        for (let step = 0; step < 3; step += 1) {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            expect((await client.own({})).ok).toBe(true);
+        }
     }
 
     const keys = (payload: RowsPayload | null): string[] => (payload?.groups ?? []).flatMap((group) => [...(group.kind === "session" && group.head !== null ? [group.head.key] : []), ...group.rows.map((item) => item.key)]);
@@ -269,8 +272,9 @@ describe("分组行的仓库（输出 22–26）", () => {
         const w = await world();
         w.tasks.start({title: "雾港的", owner: {kind: "project", project: "p-fog", title: "雾港"}});
         w.tasks.start({title: "长夜的", owner: {kind: "project", project: "p-night", title: "长夜"}});
-        const {rows} = await rowsStore(w, "p-fog");
-        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        const client = await w.window("a");
+        const {rows} = await rowsStore(w, "p-fog", {remote: client});
+        await drain(w, client);
         expect(rows.payload.value).toBeNull();
         rows.setVisible(true);
         const current = await payloadWhere(w, rows, "当前项目的行", (payload) => payload.groups.length === 1);
@@ -307,17 +311,112 @@ describe("分组行的仓库（输出 22–26）", () => {
         expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "info", message: tasksText("stop.gone")});
     });
 
-    test("打开：只执行提供方自己贡献的命令；命令失败写它给的原因", async () => {
+    test("打开：只执行命令表里由这家提供方贡献的命令，没登记的、别家贡献的都不执行；命令失败写它给的原因", async () => {
         const w = await world();
-        const {rows, notifications, executed} = await rowsStore(w, null, {source: (id) => (id.startsWith("nbook.agent.") ? "nbook.agent" : id.startsWith("test.") ? "test.other" : null), failing: "nbook.agent.broken"});
-        await rows.open({command: "nbook.agent.spoofed"}, "test.tasks-owner-a", "冒名的");
+        const executed: string[] = [];
+        const commands = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const define = (id: string, source: string, result: CommandResult<unknown> = {ok: true, value: null}) => {
+            const registered = commands.register({id, source, declaration: {title: {"zh-CN": "测试", "en-US": "Test"}, description: "test command", args: Type.Object({sessionId: Type.Optional(Type.String())}, {additionalProperties: false}), effect: "read"}, run: () => {
+                executed.push(id);
+                return result;
+            }});
+            expect(registered).toMatchObject({ok: true});
+        };
+        define("nbook.agent.focus-session", "nbook.agent");
+        define("nbook.agent.broken", "nbook.agent", {ok: false, code: "execution-error", reason: "会话打不开"});
+        // 内置插件的命令 id 只要求 `nbook.<域>.<动作>`：别的内置插件能登记一条 `nbook.agent.` 开头的命令，前缀不证明归属。
+        define("nbook.agent.spoofed", "nbook.editor");
+        const {rows, notifications} = await rowsStore(w, null, {commands});
+        await rows.open({command: "nbook.agent.spoofed"}, "nbook.agent", "冒名的");
+        await rows.open({command: "nbook.agent.missing"}, "nbook.agent", "没登记的");
         expect(executed).toEqual([]);
-        expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "warning", title: "冒名的", message: tasksText("open.unavailable")});
+        expect(notifications.sent.map((entry) => entry.input)).toEqual([
+            {tone: "warning", title: "冒名的", message: tasksText("open.unavailable")},
+            {tone: "warning", title: "没登记的", message: tasksText("open.unavailable")},
+        ]);
         await rows.open({command: "nbook.agent.focus-session", args: {sessionId: "s1"}}, "nbook.agent", "第十二章修订");
         expect(executed).toEqual(["nbook.agent.focus-session"]);
         const before = notifications.sent.length;
         await rows.open({command: "nbook.agent.broken"}, "nbook.agent", "坏的");
         expect(notifications.sent.length).toBe(before + 1);
         expect(notifications.sent.at(-1)!.input).toMatchObject({tone: "warning", title: "坏的", message: "会话打不开"});
+    });
+
+    test("换范围之后，旧范围迟到的读不盖住新范围的行", async () => {
+        const w = await world();
+        w.tasks.start({title: "雾港的", owner: {kind: "project", project: "p-fog", title: "雾港"}});
+        w.tasks.start({title: "长夜的", owner: {kind: "project", project: "p-night", title: "长夜"}});
+        const client = await w.window("a");
+        // 只把当前项目范围的读挂住：它在换成全部项目之后才回来。
+        let hold: (() => void) | null = null;
+        let lateDone = false;
+        const slow = new Proxy(client, {get: (target, key, receiver) => (key === "rows" ? async (input: Parameters<TasksClient["rows"]>[0]) => {
+            if (input.all) return target.rows(input);
+            await new Promise<void>((resolve) => {
+                hold = resolve;
+            });
+            const result = await target.rows(input);
+            lateDone = true;
+            return result;
+        } : Reflect.get(target, key, receiver))});
+        const {rows} = await rowsStore(w, "p-fog", {remote: slow});
+        rows.setVisible(true);
+        await waitUntil("当前项目的读挂住", () => hold !== null);
+        rows.setAll(true);
+        await payloadWhere(w, rows, "全部项目的行", (payload) => payload.groups.length === 2);
+        hold!();
+        await waitUntil("旧范围的读回来", () => lateDone);
+        await drain(w, client);
+        expect(rows.payload.value!.groups.map((group) => (group as {project: string}).project)).toEqual(["p-fog", "p-night"]);
+    });
+
+    test("视图隐藏时放掉订阅、不再更新，再显示时重新订阅并取到最新的；入口在 start 之前就停了的不订阅", async () => {
+        const w = await world();
+        w.tasks.start({title: "第一件"});
+        const client = await w.window("a");
+        const {rows} = await rowsStore(w, null, {remote: client});
+        rows.setVisible(true);
+        await payloadWhere(w, rows, "第一件", (payload) => keys(payload).length === 1);
+        rows.setVisible(false);
+        w.tasks.start({title: "第二件"});
+        await drain(w, client);
+        expect(keys(rows.payload.value)).toHaveLength(1);
+        rows.setVisible(true);
+        await payloadWhere(w, rows, "再显示时取到两件", (payload) => keys(payload).length === 2);
+
+        const stopped = new AbortController();
+        stopped.abort();
+        const other = await w.window("b");
+        const late = await rowsStore(w, null, {remote: other, signal: stopped.signal});
+        late.rows.setVisible(true);
+        await drain(w, other);
+        expect(late.rows.payload.value).toBeNull();
+    });
+
+    test("验收 10：别的项目的失败在当前项目范围里画不出来，不算看过；切到全部项目画出来才算；来回切换不撤回它的失败通知", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const own = await windowStore(w, "a", client);
+        const {rows} = await rowsStore(w, "p-a", {remote: client});
+        // 视图做的事：可见时把画成终态的自己的任务交给任务仓库（TasksView 的 `shown`）。
+        const show = () => own.store.setShown(shownOwnTasks(rows.payload.value, rows.collapsed.value));
+        own.store.setViewVisible(true);
+        rows.setVisible(true);
+        const handle = w.tasks.start({title: "导出《长夜》", owner: {kind: "project", project: "p-b", title: "长夜"}});
+        await settled(w, "看到在跑", () => own.store.running.value.length === 1);
+        handle.fail({message: "超时"});
+        await settled(w, "发出失败通知", () => own.notifications.sent.length === 1);
+        await payloadWhere(w, rows, "当前项目范围里什么都没有", (payload) => payload.groups.length === 0 && payload.elsewhere === 0);
+        show();
+        expect(own.store.unseenFailure.value).toBe(true);
+        rows.setAll(true);
+        await payloadWhere(w, rows, "全部项目里有长夜", (payload) => payload.groups.some((group) => group.kind === "project" && group.project === "p-b"));
+        show();
+        expect(own.store.unseenFailure.value).toBe(false);
+        rows.setAll(false);
+        await payloadWhere(w, rows, "回到当前项目", (payload) => payload.groups.length === 0);
+        show();
+        expect(own.store.unseenFailure.value).toBe(false);
+        expect(own.notifications.sent[0]!.dismissed).toBe(false);
     });
 });

@@ -593,6 +593,8 @@ export const labFixtures: LabFixture[] = [
                 {id: "empty", label: "没有任务", input: placeholder},
                 {id: "mixed-tall-english", label: "英文界面", input: placeholder},
                 {id: "mixed-phone-tall-english", label: "英文界面，390 宽", input: placeholder},
+                {id: "mixed-phone-long-english", label: "英文界面，390 宽，拉长到应用组", input: placeholder},
+                {id: "elsewhere", label: "当前项目没有、其他项目还有 3 件在运行", input: placeholder},
             ];
         })(),
         load: async () => (await import("./tasks-scene/TasksFixture.vue")).default,

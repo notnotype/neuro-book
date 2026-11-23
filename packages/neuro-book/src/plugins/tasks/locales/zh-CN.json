@@ -81,7 +81,6 @@
     "groups": {
         "project": "项目「{{title}}」",
         "app": "应用",
-        "waiting": "等你处理",
         "collapse": "收起 {{title}}",
         "expand": "展开 {{title}}"
     },
@@ -91,6 +90,6 @@
         "gone": "这一项已不在清单中"
     },
     "open": {
-        "unavailable": "无法打开：打开方式不可用"
+        "unavailable": "无法打开这一项"
     }
 }
