@@ -4,8 +4,8 @@
  * `push` 只做同步的事（输出回调不等异步，同 omp 的 `OutputSink`）：内存里留开头与结尾，放不下之后同步追加到一个本地临时文件；
  * 结束后再由 `saveFullOutput` 拷进 `artifacts/`。这样暂存目录不可用不影响执行，也不会因为保存失败让命令跑第二遍。
  *
- * `spoolFromStart`（`shell` 可能自动转后台时）：从第一块起就同步写暂存，转后台时 `handover` 把文件与它的统计整个交出去，接手的一方改名、
- * 接着往同一个描述符追加，不拷贝（host-kit.md 的自动转后台）。暂存仍在系统临时目录里：工具不往任何根里写。
+ * 转后台（host-kit.md 的自动转后台）：`soFar` 交出到此刻的输出——还没超出窗口时是内存里的全部文字（小，接手的一方写进自己的文件），
+ * 超出之后是暂存文件（大，接手的一方改名接过、接着往同一个描述符追加，不拷贝）。接手成功后才 `release`，失败时暂存仍归这里，前台照常。
  */
 
 import {closeSync, mkdtempSync, openSync, rmSync, writeSync} from "node:fs";
@@ -15,10 +15,12 @@ import {dirname, join} from "node:path";
 import type {KitServices} from "../files/index.js";
 import {capLines, headAndTail, lineCount, LINE_BYTES, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
 
-/** 交出去的暂存：描述符与路径归接手的一方，之后 `dispose` 不再关它、删它。 */
-export interface SpoolHandover {
-    readonly fd: number;
-    readonly path: string;
+/** 到此刻的输出（转后台时交给接手的一方）。 */
+export interface OutputSoFar {
+    /** 还没超出窗口：内存里的全部文字；超出之后为 null，看 `spool`。 */
+    readonly text: string | null;
+    /** 超出窗口之后的暂存文件（在系统临时目录里）；`release` 之后描述符与文件归接手的一方。 */
+    readonly spool: {readonly fd: number; readonly path: string} | null;
     readonly bytes: number;
     readonly lines: number;
     /** 内存里留着的结尾（够截出最后一行）。 */
@@ -27,7 +29,7 @@ export interface SpoolHandover {
 }
 
 export class OutputCapture {
-    readonly #fromStart: boolean;
+    /** 超出窗口之后才逐块累加的换行数。 */
     #lines = 0;
     /** 没超限时是全部输出；超限后是结尾（留到一个结尾窗口的两倍再修剪，免得每块都修）。 */
     #memory = "";
@@ -43,19 +45,14 @@ export class OutputCapture {
     spoolProblem: string | null = null;
     chunkProblem: string | null = null;
 
-    constructor(options: {readonly spoolFromStart?: boolean} = {}) {
-        this.#fromStart = options.spoolFromStart === true;
-    }
-
     push(chunk: string): void {
         this.totalBytes += Buffer.byteLength(chunk, "utf8");
         this.#memory += chunk;
         this.#memoryBytes += Buffer.byteLength(chunk, "utf8");
-        for (let index = chunk.indexOf("\n"); index !== -1; index = chunk.indexOf("\n", index + 1)) this.#lines += 1;
-        // 从一开始就写暂存：超出窗口时不用再把内存里的补写一遍。
-        if (this.#fromStart) this.#spoolWrite(chunk);
         if (this.overflowed) {
-            if (!this.#fromStart) this.#spoolWrite(chunk);
+            // 换行只在超出之后逐块数：之前内存里是全部输出，要用时（`soFar`）再数。
+            this.#lines += newlines(chunk);
+            this.#spoolWrite(chunk);
             if (this.#memoryBytes > PART_BYTES * 2) {
                 this.#memory = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8");
                 this.#memoryBytes = Buffer.byteLength(this.#memory, "utf8");
@@ -72,7 +69,8 @@ export class OutputCapture {
         if (this.#memoryBytes > WINDOW_BYTES || lineCount(this.#memory) > WINDOW_LINES || longest > LINE_BYTES) {
             this.overflowed = true;
             this.#head = Buffer.from(this.#memory, "utf8").subarray(0, PART_BYTES).toString("utf8");
-            if (!this.#fromStart) this.#spoolWrite(this.#memory);
+            this.#lines = newlines(this.#memory);
+            this.#spoolWrite(this.#memory);
         }
     }
 
@@ -106,22 +104,18 @@ export class OutputCapture {
         this.#spool = {fd: openSync(path, "wx", 0o600), path};
     }
 
-    /**
-     * 交出暂存（只在 `spoolFromStart` 时可交）：一个同步步骤，之后这里不再写它、不再删它（连同它所在的临时目录，归接手的一方）。还没有
-     * 输出时先建一个空文件。暂存出过错时交不出，命令留在前台。
-     */
-    handover(): SpoolHandover | null {
-        if (!this.#fromStart || this.spoolProblem !== null) return null;
-        try {
-            this.#openSpool();
-        } catch (error) {
-            this.spoolProblem = error instanceof Error ? error.message : String(error);
-            return null;
-        }
-        const spool = this.#spool!;
-        this.#spool = null;
+    /** 到此刻的输出；暂存出过错时交不出（null），命令留在前台。 */
+    soFar(): OutputSoFar | null {
+        if (this.spoolProblem !== null) return null;
         const tail = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8");
-        return {fd: spool.fd, path: spool.path, bytes: this.#spoolBytes, lines: this.#lines, tail, full: this.full};
+        if (!this.overflowed) return {text: this.#memory, spool: null, bytes: this.totalBytes, lines: newlines(this.#memory), tail, full: false};
+        if (this.#spool === null) return null;
+        return {text: null, spool: {fd: this.#spool.fd, path: this.#spool.path}, bytes: this.#spoolBytes, lines: this.#lines, tail, full: this.full};
+    }
+
+    /** 接手成功之后：暂存的描述符与文件（连同它所在的临时目录）归接手的一方，这里不再写、不再关、不再删。 */
+    release(): void {
+        this.#spool = null;
     }
 
     get spoolPath(): string | null {
@@ -137,6 +131,12 @@ export class OutputCapture {
 }
 
 const encoder = new TextEncoder();
+
+const newlines = (text: string): number => {
+    let count = 0;
+    for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) count += 1;
+    return count;
+};
 
 /** 超出窗口的全文存进 `artifacts/`；`label` 是存放时的名字（`shell`、`eval`）。 */
 export async function saveFullOutput(artifacts: KitServices["artifacts"], capture: OutputCapture, label: string): Promise<{readonly address?: string; readonly problem?: string}> {

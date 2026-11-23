@@ -57,6 +57,7 @@ import {objectDoc, validEvalObjects, type EvalObject} from "./eval/objects";
 import {EVAL_TOOL, evalDeclarationFor, KERNEL_NAMES, type CodeTool} from "./eval/tool";
 import {AgentTools} from "./tools";
 
+
 export interface AgentRuntimeOptions {
     readonly stateRoot: string;
     readonly settings: SettingsService;
@@ -184,7 +185,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     let hostRef: AgentHost | null = null;
     // 全局对象（contributions.md 输出 25）：声明在进程生命期内不变，挑一次。
     const evalObjects = validEvalObjects(options.declarations, KERNEL_NAMES, options.report);
-    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId, scope) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context), jobs: toolJobs(jobs, scope)})});
+    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId, scope) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context), jobs: toolJobs(jobs, scope, {report: options.report})})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
@@ -484,9 +485,11 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             // （否则它在 `jobs.clear()` 之后没人收口）。
             delivery?.close();
             jobs.close();
-            // 后台命令按 interrupted 收口、写完 `status.json`；子代理运行不在这里停，由下面关会话收口。
-            await Promise.allSettled(jobs.live().filter((job) => job.kind === "shell").map((job) => job.driver?.kill("interrupted")));
+            // 后台命令与插件登记的任务在这里按中断停下（后台命令写完 `status.json`）；子代理的运行由下面关会话收口。
+            await Promise.allSettled(jobs.live().filter((job) => job.kind !== "agent").map((job) => job.driver?.kill("interrupted")));
             await userProfiles.stop();
+            // 排着的 eval 提醒在会话关闭之前发完或撤完：之后才执行就只剩会话已关的诊断。
+            await kernelNotices.settled();
             await table.stop();
             await meta.settled();
             // 会话都关了，不会再有模型请求：等记录写完。

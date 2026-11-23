@@ -18,11 +18,13 @@ import {defineProfile} from "@notnotype/nb-harness/kernel";
 
 import {JobCenter, KEPT_PER_OWNER, type Job, type NoticeExit} from "./backend/jobs/center";
 import {JobLedger} from "./backend/jobs/ledger";
+import {toolJobs} from "./backend/jobs/tool-jobs";
+import {shellAutoBackground} from "./backend/builtin/shell-background";
 import {watchSteer} from "./backend/jobs/steer";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolServices} from "./shared/resources";
-import type {ToolJob} from "./backend/jobs/tool-jobs";
+import type {ToolJob} from "./shared/resources";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, Scripted} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
@@ -63,6 +65,94 @@ describe("上限", () => {
         const {jobs} = center();
         jobs.reserve("p", "agent", "i", "还在检查");
         expect(jobs.list("p")).toEqual([]);
+    });
+});
+
+describe("自动转后台的门槛（builtin-tools.md 的自动转后台）", () => {
+    test("设置为 0、子会话、时限不长于门槛的不转；其余到设置的秒数放行", async () => {
+        const {clock, jobs} = center();
+        let seconds = 60;
+        const auto = shellAutoBackground(jobs, clock, {seconds: () => seconds, isChild: (id) => id === "child", report: () => undefined});
+        const ask = (sessionId: string, args: Readonly<Record<string, unknown>> = {}) => auto.threshold({args, call: {} as never, context: {sessionId} as never}, never);
+        expect(ask("child")).toBeNull();
+        expect(ask("root", {timeout: 60})).toBeNull();
+        let reached = false;
+        void ask("root", {timeout: 61})!.then(() => {
+            reached = true;
+        });
+        await clock.advance(59_999);
+        expect(reached).toBe(false);
+        await clock.advance(1);
+        await waitUntil("到门槛", () => reached);
+        // 不写时限按缺省的 300 秒，长于门槛。
+        expect(ask("root")).not.toBeNull();
+        seconds = 0;
+        expect(ask("root")).toBeNull();
+    });
+});
+
+describe("工具登记的任务（jobs.md 输出 19）", () => {
+    function scoped(limits = {perSession: 8, global: 16}) {
+        const {jobs} = center(limits);
+        const listeners: (() => void)[] = [];
+        let revoked = false;
+        const reports: string[] = [];
+        const tool = toolJobs(jobs, {plugin: "test.p", sessionId: "s", live: new Set(["inv-1"]), revoked: () => revoked, onRevoke: (listener) => void listeners.push(listener)}, {report: (code) => void reports.push(code)});
+        const revoke = () => {
+            revoked = true;
+            for (const listener of listeners) listener();
+        };
+        return {jobs, tool, reports, revoke};
+    }
+    const call = (invocation = "inv-1", sessionId = "s") => ({invocation, sessionId}) as never;
+    const input = (over: Partial<Parameters<ReturnType<typeof toolJobs>["begin"]>[1]> = {}) => ({kind: "work", label: "长任务", summary: "整理大纲", stop: () => undefined, ...over});
+    const begun = (result: ReturnType<ReturnType<typeof toolJobs>["begin"]>): ToolJob => {
+        if (!result.ok) throw new Error(result.code);
+        return result.job;
+    };
+
+    test("只认这一代正在执行的调用与它的会话；种类、标签、摘要不合格得 invalid、不占名额；种类盖上插件；名额满得 concurrency-limit", () => {
+        const {jobs, tool} = scoped({perSession: 8, global: 2});
+        expect(tool.begin(call("inv-2"), input())).toEqual({ok: false, code: "unavailable"});
+        expect(tool.begin(call("inv-1", "别的会话"), input())).toEqual({ok: false, code: "unavailable"});
+        for (const bad of [{kind: "Work"}, {label: " "}, {label: "长".repeat(21)}, {summary: "长".repeat(201)}]) expect(tool.begin(call(), input(bad))).toEqual({ok: false, code: "invalid"});
+        const first = begun(tool.begin(call(), input()));
+        begun(tool.begin(call(), input()));
+        expect(tool.begin(call(), input())).toEqual({ok: false, code: "concurrency-limit"});
+        expect(jobs.list("s").find((job) => job.id === first.id)?.kind).toBe("test.p.work");
+    });
+
+    test("停它：插件的 stop 收到是不是用户停的；插件没调 end 就按已停止收口；结果超过 12 KiB 截掉", async () => {
+        const {jobs, tool} = scoped();
+        const stopped: boolean[] = [];
+        const byAgent = begun(tool.begin(call(), input({stop: (byUser) => void stopped.push(byUser)})));
+        expect(await jobs.kill("s", byAgent.id)).toBe("killed");
+        const byUser = begun(tool.begin(call(), input({stop: (byUser) => void stopped.push(byUser)})));
+        expect(await jobs.kill(null, byUser.id)).toBe("killed");
+        expect(stopped).toEqual([false, true]);
+        const listed = new Map(jobs.list("s").map((job) => [job.id, job]));
+        expect(listed.get(byAgent.id)).toMatchObject({state: "aborted"});
+        expect(listed.get(byUser.id)).toMatchObject({state: "aborted", outcome: {byUser: true}});
+
+        const long = begun(tool.begin(call(), input()));
+        long.end("completed", "字".repeat(5000));
+        const job = jobs.list("s").find((item) => item.id === long.id)!;
+        const result = await job.driver!.result();
+        expect(Buffer.byteLength(result)).toBeLessThan(12 * 1024 + 100);
+        expect(result).toContain("结果超过 12 KiB");
+    });
+
+    test("撤回：先封住登记与句柄，再停在跑的、按中断收口；插件的 stop 抛错只记诊断，照样收口", async () => {
+        const {jobs, tool, reports, revoke} = scoped();
+        const handle = begun(tool.begin(call(), input({stop: () => {
+            throw new Error("停不下");
+        }})));
+        revoke();
+        expect(tool.begin(call(), input())).toEqual({ok: false, code: "unavailable"});
+        handle.end("completed", "撤回之后才报的结果");
+        const job = jobs.list("s").find((item) => item.id === handle.id)!;
+        await waitUntil("按中断收口", () => job.state === "interrupted");
+        expect(reports).toEqual(["tool-job-stop-failed"]);
     });
 });
 
@@ -549,10 +639,36 @@ describe("后台命令", () => {
         expect(ran!.text).toContain("前台做完");
     });
 
+    test("自动转后台：移交前的大段输出全部接过；时限照旧，到点按超时收口", async () => {
+        counter += 1;
+        const w = await agentWorld(join(root, `w${String(counter)}`), {userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}, "nbook.agent/shellAutoBackground": 1}});
+        worlds.push(w);
+        const created = await w.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const home = join(w.stateRoot, "agent", "sessions", session.id, "home");
+        const started = join(w.stateRoot, `started-${String((counter += 1))}`);
+        endpoint.script({tool: "shell", args: {command: `seq 1 20000; touch ${started}; sleep 30`, timeout: 2}}, "好");
+        const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "跑"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await waitUntil("命令开始了", () => Bun.file(started).exists());
+        await w.settings.clock.advance(1000);
+        await session.waitRun(sent.value.runId);
+        const [moved] = await results(session, "nbook.agent.shell");
+        expect(moved!.details).toMatchObject({autoBackground: true});
+        const jobId = moved!.details!.jobId!;
+        const status = join(home, "jobs", jobId, "status.json");
+        await waitUntil("到时限收口", () => Bun.file(status).exists(), {timeoutMs: 15_000});
+        const output = await readFile(join(home, "jobs", jobId, "output.log"), "utf8");
+        // 超时停下时 shell 自己还会写一行，接在全部的 seq 输出之后。
+        expect(output.startsWith(`${Array.from({length: 20000}, (_, index) => String(index + 1)).join("\n")}\n`)).toBe(true);
+        expect(JSON.parse(await readFile(status, "utf8"))).toMatchObject({state: "failed", timedOut: true, lines: output.split("\n").length - 1, bytes: Buffer.byteLength(output)});
+    }, 20_000);
+
     test("工具里登记任务：插件的工具在调用里登记一种任务，结束时回执送回；调用结算之后登记不了；插件停止时它的任务被停下、按中断收口", async () => {
         const TOOL = "test.jobsrc.longrun";
         const PROFILE = "test.jobsrc.writer";
-        const handles: {services?: AgentToolServices; job?: ToolJob; stopped: boolean[]} = {stopped: []};
+        const handles: {services?: AgentToolServices; call?: import("@notnotype/nb-harness/kernel/contracts").ToolContext; job?: ToolJob; stopped: boolean[]} = {stopped: []};
         const declared = agentTool(TOOL, {description: "起一件长任务", parameters: {type: "object"}, version: "1", effect: "read"});
         const profile = agentProfile(PROFILE, {name: "登记", description: "测试用", tools: {required: [TOOL], optional: []}});
         const plugin: PluginDefinition = {id: "test.jobsrc", entries: [defineEntry({id: "server", location: "server", activationEvents: [declared.activationEvent, profile.activationEvent], contributions: [declared.contribution, profile.contribution], activate: () => ({contributions: {
@@ -560,6 +676,7 @@ describe("后台命令", () => {
             "agent.tools": {[TOOL]: {create: (_context: unknown, services: AgentToolServices) => {
                 handles.services = services;
                 return {execute: async (_args: unknown, call: import("@notnotype/nb-harness/kernel/contracts").ToolContext) => {
+                    handles.call = call;
                     const begun = services.jobs.begin(call, {kind: "work", label: "长任务", summary: "整理大纲", stop: (byUser) => void handles.stopped.push(byUser)});
                     if (!begun.ok) return `登记不了：${begun.code}`;
                     handles.job = begun.job;
@@ -578,8 +695,8 @@ describe("后台命令", () => {
         await turn(session, [{tool: "test__jobsrc__longrun"}, "好"]);
         const job = handles.job!;
         expect((await session.path()).some((event) => event.type === "toolResult" && (event.data as {text: string}).text === `已登记 ${job.id}`)).toBe(true);
-        // 调用结算之后：同一个服务登记不了。
-        const late = handles.services!.jobs.begin({invocation: "not-running", sessionId: session.id} as never, {kind: "work", label: "长任务", summary: "晚了", stop: () => undefined});
+        // 调用结算之后：拿着那次调用本身也登记不了。
+        const late = handles.services!.jobs.begin(handles.call!, {kind: "work", label: "长任务", summary: "晚了", stop: () => undefined});
         expect(late).toEqual({ok: false, code: "unavailable"});
         job.progress("整理到第三章");
         job.end("completed", "大纲整理完了");

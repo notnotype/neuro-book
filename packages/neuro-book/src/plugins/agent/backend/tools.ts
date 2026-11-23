@@ -54,6 +54,10 @@ export class AgentTools {
     readonly #published = new Map<string, Handle>();
     /** 工具 id → 用着它的包装（撤回时逐个作废）。 */
     readonly #wrappers = new Map<string, Set<ToolWrapper>>();
+    /**
+     * 会话关了、工具实现已释放，但这一代登记的任务还在跑：它们的撤回监听留在这里，这一代撤回时照样调（工具登记任务，jobs.md 输出 19）。
+     */
+    readonly #orphans = new Map<Handle, Set<() => void>>();
     /** 报过 `eval-object-missing` 的工具：每次取工具集都会重算，同一个只报一次。 */
     readonly #missing = new Set<string>();
 
@@ -68,6 +72,9 @@ export class AgentTools {
             if (this.#published.get(handle.id) !== handle) return;
             this.#published.delete(handle.id);
             this.options.catalogChanged();
+            const orphans = this.#orphans.get(handle);
+            this.#orphans.delete(handle);
+            for (const listener of orphans ?? []) listener();
             await Promise.all([...(this.#wrappers.get(handle.id) ?? [])].map((wrapper) => wrapper.revoke(handle)));
         },
     };
@@ -164,6 +171,14 @@ export class AgentTools {
 
     forget(id: string, wrapper: ToolWrapper): void {
         this.#wrappers.get(id)?.delete(wrapper);
+    }
+
+    /** 释放了的工具实现留下的撤回监听：这一代撤回时调。 */
+    adopt(handle: Handle, listeners: ReadonlySet<() => void>): void {
+        if (listeners.size === 0) return;
+        let set = this.#orphans.get(handle);
+        if (set === undefined) this.#orphans.set(handle, (set = new Set()));
+        for (const listener of listeners) set.add(listener);
     }
 
     #declaration(id: string, plugin: string, declaration: AgentToolDeclaration): ToolDeclaration {
@@ -285,6 +300,8 @@ class ToolWrapper implements ToolImplementation {
         this.registry.forget(this.id, this);
         const built = this.#built;
         this.#built = null;
+        // 会话关了不停插件登记的任务：撤回监听交给登记表，插件这一代撤回时照样停下它们。
+        if (built !== null && !built.revoked) this.registry.adopt(built.handle, built.retired);
         if (built !== null) await this.#retire(built);
     }
 

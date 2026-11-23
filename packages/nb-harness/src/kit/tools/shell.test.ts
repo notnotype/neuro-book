@@ -5,8 +5,8 @@
  */
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {renameSync, rmSync, writeSync} from "node:fs";
-import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
+import {openSync, renameSync, rmSync, writeSync} from "node:fs";
+import {mkdir, readdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -209,8 +209,11 @@ describe("shell", () => {
 });
 
 describe("自动转后台（host-kit.md 的自动转后台）", () => {
-    /** 宿主一侧照接口实现：门槛由测试放行；接手时把暂存改名成任务的输出文件，之后的输出追加到同一个描述符。 */
-    function host(options: {readonly prepare?: "null" | "throw"} = {}) {
+    /**
+     * 宿主一侧照接口实现：门槛由测试放行；接手时把到此刻的输出接成任务的输出文件（内存里的文字写进新文件，暂存改名接过），之后的输出
+     * 追加到同一个文件。暂存所在的系统临时目录在测试里指到 `spools`，用来看移交前后暂存有没有留下。
+     */
+    function host(options: {readonly prepare?: "null" | "reject" | "throw"} = {}) {
         let reach!: () => void;
         const reached = new Promise<void>((resolve) => {
             reach = resolve;
@@ -223,13 +226,21 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
             prepare: async () => {
                 calls.prepared += 1;
                 if (options.prepare === "null") return null;
+                if (options.prepare === "reject") throw new Error("名额坏了");
                 return {
                     take: (given) => {
                         if (options.prepare === "throw") throw new Error("接不了");
                         handover = given;
-                        renameSync(given.spool.path, output);
-                        rmSync(dirname(given.spool.path), {recursive: true, force: true});
-                        return {sink: (_error, chunk) => void writeSync(given.spool.fd, chunk), result: {text: "已转到后台"}};
+                        let fd: number;
+                        if (given.output.spool === null) {
+                            fd = openSync(output, "wx");
+                            writeSync(fd, given.output.text ?? "");
+                        } else {
+                            renameSync(given.output.spool.path, output);
+                            rmSync(dirname(given.output.spool.path), {recursive: true, force: true});
+                            fd = given.output.spool.fd;
+                        }
+                        return {sink: (_error, chunk) => void writeSync(fd, chunk), result: {text: "已转到后台"}};
                     },
                     discard: () => void (calls.discarded += 1),
                 };
@@ -238,31 +249,68 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         return {auto, reach, output, calls, handover: () => handover};
     }
 
+    let spools = "";
+    let savedTmp: string | undefined;
+    beforeEach(async () => {
+        spools = join(root, "spools");
+        await mkdir(spools);
+        savedTmp = process.env.TMPDIR;
+        process.env.TMPDIR = spools;
+    });
+    afterEach(() => {
+        if (savedTmp === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = savedTmp;
+    });
+
     async function run(args: Readonly<Record<string, unknown>>, auto: import("./shell.js").ShellAutoBackground): Promise<Result> {
         const tool = shellTool(createDialects(() => []), undefined, auto).create(context, {files, artifacts});
         const result = await tool.execute(args, {callId: "c-1", signal: new AbortController().signal} as unknown as ToolContext);
         return (typeof result === "string" ? {text: result} : result) as Result;
     }
 
-    const gated = () => {
+    /** 先输出 `before`，等测试放行再输出“二”。 */
+    const gated = (before = "echo 一") => {
         const go = join(root, "go");
-        return {command: `echo 一; while [ ! -f ${go} ]; do sleep 0.05; done; echo 二`, release: () => writeFile(go, "")};
+        return {command: `${before}; while [ ! -f ${go} ]; do sleep 0.05; done; echo 二`, release: () => writeFile(go, "")};
     };
 
-    test("跑过门槛：移交给宿主，交回宿主的结果；命令接着跑、照原时限，输出一行不丢地进了改名后的文件", async () => {
+    test("跑过门槛：移交给宿主，交回宿主的结果；命令接着跑、照原时限，输出一行不丢地进了宿主的文件", async () => {
         const h = host();
         const cmd = gated();
         const running = run({command: cmd.command}, h.auto);
         h.reach();
         expect(await running).toEqual({text: "已转到后台"});
         const given = h.handover()!;
+        // 门槛先于第一块输出还是后于它不确定：两种情形下内存里的与之后追加的合起来都是全部输出。
+        expect(given.output.spool).toBeNull();
         await cmd.release();
         expect(await given.done).toMatchObject({exitCode: 0, timedOut: false, cancelled: false});
         expect(await readFile(h.output, "utf8")).toBe("一\n二\n");
         expect(h.calls).toEqual({prepared: 1, discarded: 0});
+        expect(await readdir(spools)).toEqual([]);
     });
 
-    test("门槛之前就结束：照前台交回，不移交；暂存文件删掉", async () => {
+    test("移交前已超出窗口：交出暂存与它的统计，接过之后全文完整", async () => {
+        const h = host();
+        const cmd = gated("seq 1 20000; echo 一");
+        const running = run({command: cmd.command}, h.auto);
+        await waitUntil("已超出窗口", async () => (await readdir(spools)).length === 1);
+        h.reach();
+        expect(await running).toEqual({text: "已转到后台"});
+        const given = h.handover()!;
+        expect(given.output.text).toBeNull();
+        expect(given.output.lines).toBe(20001);
+        expect(given.output.tail.endsWith("20000\n一\n")).toBe(true);
+        await cmd.release();
+        await given.done;
+        const lines = (await readFile(h.output, "utf8")).split("\n");
+        expect(lines.length).toBe(20003);
+        expect(lines.slice(0, 2)).toEqual(["1", "2"]);
+        expect(lines.slice(-3)).toEqual(["一", "二", ""]);
+        expect(await readdir(spools)).toEqual([]);
+    });
+
+    test("门槛之前就结束：照前台交回，不移交", async () => {
         const h = host();
         const ran = await run({command: "echo 很快"}, h.auto);
         expect(ran.text).toContain("很快");
@@ -271,17 +319,25 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         expect(await Bun.file(h.output).exists()).toBe(false);
     });
 
-    test("宿主接不了（prepare 交回 null、take 抛错）：命令留在前台，跑完照前台交回", async () => {
-        for (const mode of ["null", "throw"] as const) {
+    test("宿主接不了（prepare 交回 null、失败，take 抛错）：命令留在前台跑完；失败的原因写进结果，暂存不留下、全文照常保存", async () => {
+        for (const mode of ["null", "reject", "throw"] as const) {
             const h = host({prepare: mode});
-            const cmd = gated();
+            const cmd = gated("seq 1 20000; echo 一");
             const running = run({command: cmd.command}, h.auto);
+            await waitUntil("已超出窗口", async () => (await readdir(spools)).length === 1);
             h.reach();
             await waitUntil("宿主看过了", () => h.calls.prepared === 1);
             await cmd.release();
             const ran = await running;
             expect(ran.text).toContain("一\n二");
+            expect(ran.text.includes("没转成")).toBe(mode !== "null");
+            if (mode === "reject") expect(ran.text).toContain("名额坏了");
+            if (mode === "throw") expect(ran.text).toContain("接不了");
+            const saved = await readFile(savedPath((ran.details as {artifact: string}).artifact), "utf8");
+            expect(saved.startsWith("1\n2\n")).toBe(true);
+            expect(saved.endsWith("20000\n一\n二\n")).toBe(true);
             expect(h.calls.discarded).toBe(mode === "throw" ? 1 : 0);
+            expect(await readdir(spools)).toEqual([]);
             await rm(join(root, "go"), {force: true});
         }
     });

@@ -211,8 +211,10 @@ class SessionKernel implements KernelHolder {
             return await this.#execute(args, ctx, context, services);
         } finally {
             this.#busy = false;
-            // 每个出口都重新计空闲，语法错误这类提前交回的也算：内核不随会话关闭结束，漏排一次就只剩总数上限能回收它。
+            // 每个出口都重新计空闲，语法错误这类提前交回的也算：内核不随会话关闭结束，漏排一次就只剩总数上限能回收它。内核在这次调用
+            // 的结尾（单元已交回、结果还在整理）退出时，`exited` 因为还忙没有重置：这里补上，提醒照发（eval.md 输出 20）。
             if (this.holding) this.#scheduleIdle();
+            else if (this.#kernel !== null) void this.#reset("意外退出", true);
         }
     }
 
@@ -388,8 +390,7 @@ class SessionKernel implements KernelHolder {
 
     #scheduleIdle(): void {
         this.#clearIdle();
-        // 到点时内核已经自己没了（两次调用之间被外部结束），原因是意外退出，不是空闲。
-        this.#idle = this.deps.clock.schedule(() => void this.#reset(this.#kernel?.alive === false ? "意外退出" : "空闲", true), this.deps.idleMs ?? EVAL_IDLE_MS);
+        this.#idle = this.deps.clock.schedule(() => void this.#reset("空闲", true), this.deps.idleMs ?? EVAL_IDLE_MS);
     }
 
     #clearIdle(): void {

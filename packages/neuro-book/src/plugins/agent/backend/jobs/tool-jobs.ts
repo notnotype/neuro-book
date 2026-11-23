@@ -3,11 +3,10 @@
  * `wait`、`kill`、`jobs`、回执与远程都照常（为 t24 的 Workflow）。
  *
  * 登记权绑定真实调用：`begin` 只认这一代工具实现里正在执行的调用（`call.invocation`），种类盖成 `<贡献工具的插件>.<名字>`。这一代撤回（插件
- * 停止、贡献撤回）时先封住登记，再对它登记的在跑任务调 `stop`、按 `interrupted` 收口。不进插件 SDK：现在只给内置插件。
+ * 停止、贡献撤回）时先封住登记，再对它登记的在跑任务调 `stop`、按 `interrupted` 收口。任何插件的工具都能登记，名额与后台命令、子代理共用。
  */
 
-import type {ToolContext} from "@notnotype/nb-harness/kernel/contracts";
-
+import type {ToolJob, ToolJobs} from "../../shared/resources";
 import {isLive, type Job, type JobCenter} from "./center";
 
 /** 结果文字的上限：回执每段也是这么长（receipt.ts）。 */
@@ -16,18 +15,7 @@ const LABEL_MAX_CHARS = 20;
 const SUMMARY_MAX_CHARS = 200;
 const KIND_PATTERN = /^[a-z][a-z0-9-]{0,39}$/u;
 
-export interface ToolJob {
-    readonly id: string;
-    /** 进展的最后一行。 */
-    progress(line: string): void;
-    /** 结束时给出回执的结果文字（按 UTF-8 至多 12 KiB，超出截断并注明），之后不再向插件取任何东西。 */
-    end(state: "completed" | "failed" | "aborted", text: string): void;
-}
-
-export interface ToolJobs {
-    /** 只能在这次调用的 `execute` 结算之前调。`stop` 必给：用户、Agent 停它，或插件撤回时调用；插件停下工作后再 `end`。 */
-    begin(call: ToolContext, input: {readonly kind: string; readonly label: string; readonly summary: string; stop(byUser: boolean): void | Promise<void>}): {readonly ok: true; readonly job: ToolJob} | {readonly ok: false; readonly code: "concurrency-limit" | "unavailable" | "invalid"};
-}
+export type {ToolJob, ToolJobs};
 
 /** 一代工具实现的登记范围：贡献它的插件、正在执行的调用、撤回。 */
 export interface ToolJobScope {
@@ -47,13 +35,17 @@ function clipText(text: string): string {
     return `${buffer.subarray(0, end).toString("utf8")}\n（结果超过 12 KiB，后面的截掉了）`;
 }
 
-export function toolJobs(center: JobCenter, scope: ToolJobScope): ToolJobs {
+export function toolJobs(center: JobCenter, scope: ToolJobScope, options: {readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void}): ToolJobs {
     const mine = new Set<Job>();
-    // 撤回：先封住（之后 `begin` 得 unavailable、句柄不起作用），再停掉在跑的、按 interrupted 收口。
+    // 撤回：先封住（之后 `begin` 得 unavailable、句柄不起作用；插件在 `stop` 里调的 `end` 也不再算），再停掉在跑的、按 interrupted 收口。
+    // 插件的 `stop` 抛错只记诊断，照样收口。
     scope.onRevoke(() => {
         for (const job of [...mine]) {
             if (!isLive(job.state)) continue;
-            void Promise.resolve(job.driver?.kill("interrupted")).finally(() => center.end(job, "interrupted", {reason: "interrupted"}));
+            void Promise.resolve()
+                .then(() => job.driver?.kill("interrupted"))
+                .catch((error: unknown) => options.report("tool-job-stop-failed", `stopping ${job.id} of ${scope.plugin} threw`, {job: job.id, message: error instanceof Error ? error.message : String(error)}))
+                .finally(() => center.end(job, "interrupted", {reason: "interrupted"}));
         }
     });
     return {
@@ -66,8 +58,13 @@ export function toolJobs(center: JobCenter, scope: ToolJobScope): ToolJobs {
             let text = "";
             mine.add(job);
             center.start(job, {
-                kill: async (_reason, byUser) => {
+                // 用户或 Agent 停它：插件停下工作时调 `end`；它没调就按已停止收口，任务不会一直算在跑。
+                kill: async (reason, byUser) => {
                     await input.stop(byUser === true);
+                    if (reason === undefined && isLive(job.state)) {
+                        mine.delete(job);
+                        center.end(job, "aborted", {reason: "aborted"});
+                    }
                 },
                 result: async () => text,
             });

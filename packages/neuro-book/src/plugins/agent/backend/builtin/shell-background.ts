@@ -6,7 +6,7 @@
  * 输出回调不等异步（同前台的 `shell`）：文件用同步写。
  */
 
-import {closeSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync, writeSync} from "node:fs";
+import {closeSync, copyFileSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync, writeSync} from "node:fs";
 import {dirname, join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
@@ -14,7 +14,7 @@ import {executeShell} from "@oh-my-pi/pi-natives";
 import type {Clock, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
 import {failed} from "@notnotype/nb-harness/kit/files";
 import {capLine, capLines, DEFAULT_TIMEOUT_SECONDS, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "@notnotype/nb-harness/kit/tools";
-import type {ShellAutoBackground, ShellBackground} from "@notnotype/nb-harness/kit/tools";
+import type {OutputSoFar, ShellAutoBackground, ShellBackground} from "@notnotype/nb-harness/kit/tools";
 
 import type {CommandStatus} from "../../shared/subagents";
 import type {Job, JobCenter} from "../jobs/center";
@@ -178,11 +178,53 @@ export function startBackgroundCommand(jobs: JobCenter, job: Job, directory: str
     });
 }
 
+type Report = (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+
+/**
+ * 把套件交出的到此刻的输出接成任务的输出文件 `target`，交回往后追加用的描述符与接过之后的收尾。还没超出窗口的是内存里的文字，写进新文件；
+ * 超出之后是系统临时目录里的暂存：改名接过（同一文件系统上不拷贝），改名不成就拷贝一份再接着写新文件。收尾（关掉
+ * 套件的描述符、删暂存目录）放到接手的最后一步：之前抛错时暂存仍归套件，由它关、由它删。
+ */
+function adoptOutput(output: OutputSoFar, target: string): {readonly fd: number; readonly settle: () => void} {
+    if (output.spool === null) {
+        const fd = openSync(target, "wx", 0o600);
+        try {
+            if (output.text !== null && output.text !== "") writeSync(fd, output.text);
+        } catch (error) {
+            closeSync(fd);
+            throw error;
+        }
+        return {fd, settle: () => {}};
+    }
+    const spool = output.spool;
+    const directory = dirname(spool.path);
+    try {
+        renameSync(spool.path, target);
+        return {fd: spool.fd, settle: () => rmSync(directory, {recursive: true, force: true})};
+    } catch {
+        // 跨文件系统（`EXDEV`）或平台不许给打开着的文件改名：拷贝；拷贝也不成就抛出那个错。
+    }
+    copyFileSync(spool.path, target);
+    const fd = openSync(target, "a");
+    return {
+        fd,
+        settle: () => {
+            closeSync(spool.fd);
+            rmSync(directory, {recursive: true, force: true});
+        },
+    };
+}
+
 /**
  * 前台的 `shell` 跑过门槛自动转后台（builtin-tools.md 的自动转后台）：门槛是设置 `shellAutoBackground` 的秒数，0 为不转；子会话里不转；
- * 命令的时限不长于门槛的不转（跑不到门槛就结束了）。接手时登记任务、把暂存改名成任务的输出文件、接着往同一个描述符追加，时限照旧。
+ * 命令的时限不长于门槛的不转（跑不到门槛就结束了）。接手时登记任务、接过到此刻的输出（`adoptOutput`），此后的输出接着追加，时限照旧。
+ * 名额满时照常留在前台；其它接不了的原因记诊断、抛给套件写进前台的结果。
  */
-export function shellAutoBackground(jobs: JobCenter, clock: Clock & {now(): number}, options: {readonly seconds: () => number; readonly isChild: (sessionId: string) => boolean}): ShellAutoBackground {
+export function shellAutoBackground(jobs: JobCenter, clock: Clock & {now(): number}, options: {readonly seconds: () => number; readonly isChild: (sessionId: string) => boolean; readonly report: Report}): ShellAutoBackground {
+    const failure = (code: string, message: string, data: Readonly<Record<string, unknown>>): Error => {
+        options.report(code, message, data);
+        return new Error(message);
+    };
     return {
         threshold: ({args, context}, signal) => {
             const seconds = options.seconds();
@@ -193,25 +235,30 @@ export function shellAutoBackground(jobs: JobCenter, clock: Clock & {now(): numb
         },
         prepare: async ({args, call, context, files}) => {
             const home = await files.readPath("session://", {signal: call.signal});
-            if (!home.ok) return null;
+            if (!home.ok) throw failure("shell-auto-background-failed", `the session home is unavailable: ${home.code}`, {session: context.sessionId, code: home.code});
             const command = args.command as string;
             const reserved = jobs.reserve(context.sessionId, "shell", call.invocation, command.length <= 80 ? command : `${command.slice(0, 80)}…`);
+            // 名额满、插件正在停止：不是故障，照常留在前台。
             if (!reserved.ok) return null;
             const job = reserved.job;
             const directory = jobDirectory(home.value.path, job.id);
             const address = jobOutputAddress(context.sessionId, job.id);
             try {
                 mkdirSync(directory, {recursive: true});
-            } catch {
+            } catch (error) {
                 jobs.release(job);
-                return null;
+                throw failure("shell-auto-background-failed", `the job directory could not be created: ${error instanceof Error ? error.message : String(error)}`, {session: context.sessionId, job: job.id});
             }
             return {
                 take: (handover) => {
-                    // 同一个文件系统上改名：不拷贝。改名失败（跨文件系统）就抛出，命令留在前台。
-                    renameSync(handover.spool.path, join(directory, OUTPUT_FILE));
-                    rmSync(dirname(handover.spool.path), {recursive: true, force: true});
-                    const output = commandOutput(jobs, job, handover.spool.fd, directory, clock, {bytes: handover.spool.bytes, lines: handover.spool.lines, tail: handover.spool.tail, truncated: handover.spool.full});
+                    let adopted: ReturnType<typeof adoptOutput>;
+                    try {
+                        adopted = adoptOutput(handover.output, join(directory, OUTPUT_FILE));
+                    } catch (error) {
+                        throw failure("shell-auto-background-failed", `the output so far could not be taken over: ${error instanceof Error ? error.message : String(error)}`, {session: context.sessionId, job: job.id});
+                    }
+                    const so = handover.output;
+                    const output = commandOutput(jobs, job, adopted.fd, directory, clock, {bytes: so.bytes, lines: so.lines, tail: so.tail, truncated: so.full});
                     let interrupted = false;
                     const done = handover.done.then((result) => endOf(result, interrupted), (error: unknown) => {
                         output.fail(error instanceof Error ? error.message : String(error));
@@ -226,7 +273,8 @@ export function shellAutoBackground(jobs: JobCenter, clock: Clock & {now(): numb
                         result: () => commandResult(job.id, directory, address, output.problem()),
                         address,
                     });
-                    const lines = handover.spool.tail.split("\n").filter((line) => line.trim() !== "").slice(-5).join("\n");
+                    adopted.settle();
+                    const lines = so.tail.split("\n").filter((line) => line.trim() !== "").slice(-5).join("\n");
                     const timeout = typeof args.timeout === "number" ? args.timeout : DEFAULT_TIMEOUT_SECONDS;
                     return {
                         sink: (error, chunk) => (error !== null ? output.fail(error.message) : output.take(chunk)),
