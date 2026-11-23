@@ -64,6 +64,18 @@ Claude Sonnet（[证据](evidences/impl-review.txt)），重要 2、建议 8，�
 
 完成，已合入。
 
+## nb-layout 首发
+
+开发者 2026-11-23 批准首发。准备已合入 master（`56b9d275d`）：去掉 `private`，变更记录定稿为 `[0.1.0] - 2026-11-23`，根 README 两份的包表加上 nb-layout、说明它是 MIT、发编译产物。
+
+- `bun run release:check` 通过（源码包的发布清单）。
+- `prox bun run release:smoke` 在主工作区通过：13 个包的发布清单、打包与入口检查，nb-layout 宿主（README 起步例子、四个入口的类型检查、Vite 构建、浏览器里拖动与方向键）等全部通过。
+
 ## 下一步
 
-nb-layout 首发（发布手册“新包首发”，要开发者在本机登录 npm）。
+剩下的都是远端写入，由开发者执行（发布手册“本机发布”第 2、5、6 步与“新包首发”）：
+1. 推 master。
+2. 发布前在主工作区重跑 `prox bun run release:smoke`：冒烟只认那一刻的提交，之后 t54 合入会改到 nb-layout 的目录。
+3. `npm login`，`bun run release:publish` 看清要发的包（应只有 `@notnotype/nb-layout@0.1.0` 是新版本），确认后加 `--yes` 重跑；开了两步验证加 `--auth-type web`，要在真正的终端里跑。
+4. `bun run release:smoke --from registry --wait 30`，结果记进本 Task 的证据。
+5. 在 npm 上给 `@notnotype/nb-layout` 配 trusted publishing（仓库、`release.yml`、Environment `release`，勾上直接发布）：下一次要经流水线发 nb-layout 的版本之前 2 天内配。
