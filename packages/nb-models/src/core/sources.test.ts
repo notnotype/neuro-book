@@ -198,7 +198,8 @@ describe("目录模板的列表", () => {
         const local = endpoint(models({id: known!.id}, {id: third!.id}));
         const {id, call, rows, settled, provider} = await deepseek(local);
         const bindAndDrop = async () => {
-            expect(await call("setRole", {id: "fast", model: `${id}/${third!.id}`})).toMatchObject({ok: true});
+            // 绑“主力”：第一次绑“快速”时压缩角色会跟着绑（输出 14），解绑快速以后它仍被压缩绑着，测不出条目的作用。
+            expect(await call("setRole", {id: "main", model: `${id}/${third!.id}`})).toMatchObject({ok: true});
             local.set(models({id: known!.id}));
             await call("refreshSource", {provider: id});
             await settled(id);
@@ -218,7 +219,7 @@ describe("目录模板的列表", () => {
         expect(await call("setModels", {provider: id, add: [{id: third!.id, enabled: true}], remove: []})).toMatchObject({ok: true});
         await bindAndDrop();
         expect(await call("setModels", {provider: id, add: [{id: third!.id, enabled: true}], remove: []})).toMatchObject({ok: true});
-        expect(await call("setRole", {id: "fast", model: null})).toMatchObject({ok: true});
+        expect(await call("setRole", {id: "main", model: null})).toMatchObject({ok: true});
         expect((await rows(id)).find((row) => row.id === third!.id)).toMatchObject({unlisted: true, status: "ok"});
     });
 

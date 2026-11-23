@@ -335,7 +335,9 @@ describe("服务商的代理（高级）", () => {
         await waitUntil("写进自定义", () => proxyOf(store)?.mode === "custom");
         expect(proxyOf(store)).toEqual({mode: "custom", url: "http://127.0.0.1:7890"});
 
-        // 清空已保存的地址再失焦：框里换回实际的地址，生效的不变。
+        // 清空已保存的地址再失焦：框里换回实际的地址，生效的不变。先离开再回来，免得走的是“编辑时别处改了”的那条路。
+        input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
         await type(input, "");
         input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
@@ -363,6 +365,22 @@ describe("服务商的代理（高级）", () => {
         input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
         await waitUntil("代理地址框收起", () => document.querySelector("[data-proxy-input]") === null);
         expect(proxyOf(store)).toBeNull();
+
+        // 已保存了自定义地址，再改一个新的写失败：框里退回已保存的地址。
+        fake.failWrites(false);
+        select.vm.$emit("update:modelValue", "custom");
+        await waitUntil("地址框出现", () => document.querySelector("[data-proxy-input]") !== null);
+        const saved = query<HTMLInputElement>("[data-proxy-input] input, input[data-proxy-input]");
+        await type(saved, "http://127.0.0.1:7890");
+        saved.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("写进自定义", () => proxyOf(store)?.mode === "custom");
+        saved.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        fake.failWrites(true);
+        saved.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        await type(saved, "http://10.0.0.1:3128");
+        saved.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("退回已保存的地址", () => saved.value === "http://127.0.0.1:7890");
+        expect(proxyOf(store)).toEqual({mode: "custom", url: "http://127.0.0.1:7890"});
     });
 });
 
