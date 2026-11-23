@@ -96,6 +96,13 @@ function winningScope(event: PointerEvent, kind: SashPointerKind): {entry: SashS
     return null;
 }
 
+/** 根在屏幕上的盒比布局盒，每轴一个；量不到（没有布局、尺寸为零）时按 1。 */
+function scaleOf(root: HTMLElement): {x: number; y: number} {
+    const rect = root.getBoundingClientRect();
+    const ratio = (shown: number, laid: number): number => (Number.isFinite(shown) && shown > 0 && laid > 0 ? shown / laid : 1);
+    return {x: ratio(rect.width, root.offsetWidth), y: ratio(rect.height, root.offsetHeight)};
+}
+
 /** 集合比较：两个 key 集合内容相同即视为没变，避免下游重复重建。 */
 function sameKeys(left: ReadonlySet<string>, right: readonly string[]): boolean {
     return left.size === right.length && right.every((key) => left.has(key));
@@ -113,6 +120,11 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
     let binding: SashGestureBinding<S, C> | null = null;
     let pointerId: number | null = null;
     let startPoint = {x: 0, y: 0};
+    /**
+     * 按下时冻结的根的缩放比：屏幕上的盒（client rect）比布局盒。祖先带 `transform: scale()` 时指针位移是屏幕 px，按它换回布局 px
+     * （docs/specs/ui/nested-grid.md“副作用与数据”）；不乘设备像素比，client 坐标本来就是 CSS px。
+     */
+    let pointerScale = {x: 1, y: 1};
     let frame = 0;
     let pendingDelta = {x: 0, y: 0};
     /** 键盘会话模式：Enter 与方向键互不混用（见 `keyboardSession`）。 */
@@ -366,6 +378,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         pointerId = event.pointerId;
         startPoint = {x: event.clientX, y: event.clientY};
+        pointerScale = scaleOf(root);
         pendingDelta = {x: 0, y: 0};
         /**
          * 拖动期间自己持有全亮与光标：不等停留计时，也不因指针离开线盒而消失。
@@ -387,7 +400,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         lastPoint = {x: event.clientX, y: event.clientY};
         lastKind = pointerKindOf(event);
         if (binding !== null && pointerId === event.pointerId) {
-            pendingDelta = {x: event.clientX - startPoint.x, y: event.clientY - startPoint.y};
+            pendingDelta = {x: (event.clientX - startPoint.x) / pointerScale.x, y: (event.clientY - startPoint.y) / pointerScale.y};
             if (frame === 0) {
                 frame = view().requestAnimationFrame(flush);
             }
