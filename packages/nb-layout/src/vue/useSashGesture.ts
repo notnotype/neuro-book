@@ -658,8 +658,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }
 
-    // 先收尾手势再让组件的其余卸载逻辑通知宿主：Vue 按注册顺序调用 beforeUnmount，所以这条必须在 setup 里先于组件自己的
-    // `onBeforeUnmount`（NestedGrid 的 `extent: null`）注册，调用方要把 `useSashGesture` 放在组件里最前面。这样宿主的监听在通知里抛出时，手势也已经结束。
+    // 先收尾手势再让组件通知宿主：Vue 按注册顺序调用 beforeUnmount，所以调用方要在自己的 `onBeforeUnmount`（例如 NestedGrid 发 `extent: null` 的那条）之前调用
+    // `useSashGesture`。这样宿主的监听在通知里抛出时，手势也已经结束、窗口上的监听已经摘掉。
     onBeforeUnmount(teardown);
 
     return {

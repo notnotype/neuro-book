@@ -5,6 +5,7 @@
  * 接线的先后是合同，写反了类型检查照样过：
  * - 拿起全在包住的 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动，才看网格与减少动效、问 `live`；给出来源才 `settleMotion`、`begin`。
  *   手势在 `activate` 返回后取结构键，宿主的结构键读引擎的 `active` 时，两次取到的一样，拿起不会被当成结构变了。
+ *   宿主的 `activate` 先于 `settleMotion`：它在 `activate` 里量到的矩形可能是过渡中间的。
  * - 判定：宿主的 `resolve` 返回之后交给引擎（`offer`）。
  * - 收场：引擎的 `end` 先于宿主的 `onActiveChange(false)`：`end` 里放回跟手的要读宿主这一场的状态，宿主在自己的回调里才换成空闲的一份。
  * - 放下：实时布局的这一场提交指针下的候选（`commitsUnderPointer`），与宿主自己的结果取“或”。
