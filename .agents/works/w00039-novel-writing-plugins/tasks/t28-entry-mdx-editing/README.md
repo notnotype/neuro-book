@@ -159,7 +159,9 @@ S4 的做法（文字分页，实现中）：
 
 Spec 晋升这一轮不做：t37 的记录写的是“晋升等开发者看过底座再定”，t28 确认交互稿时开发者也说交互还要调。t28 的条目与 t37 留下的几条都保持 planned，等开发者试用后一起核对、晋升。
 
+2026-11-23 **合入 master**（合并提交 `74c298ecb`）。合入前几分钟 master 上并进了 w00032（Agent 与后台任务，动了同一份 Lab 场景清单，自动合并没有冲突），所以在合并后的代码上又验了一遍（分支快进到合并提交，在 worktree 里跑）：类型检查，`bun test`（canon、editor、lab、architecture）406 条，vitest（canon、lab、editor）250 条，重新构建以后 e2e `canon-write` 6 条与 `canon-author` 7 条，都通过。
+
 ## 下一步
 
-1. 合入 master；omp 第二轮审查的报告回来以后处理。
+1. omp 第二轮审查的报告回来以后处理，修正单独提交、再合入。
 2. 开发者试用按块编辑，定“单独编辑一个块”这类交互调整；之后做 Spec 晋升核对（t28 的条目，以及 t37 留下的 `canon/agent-tools.md`、`revisions.md` 输出 25、`author-ui.md` 输出 37 到 43）。
