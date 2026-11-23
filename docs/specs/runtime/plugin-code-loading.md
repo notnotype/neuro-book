@@ -84,7 +84,7 @@ owners:
 ## 边界与兼容
 
 - **owner**：runtime（加载器）。视图宿主与错误边界的呈现归 workbench；宿主模块表的建立时机归 [`runtime.browser-host`](browser-host.md)。
-- **共享入口即兼容承诺。** 模块表共享哪些 nb-ui 入口，就对插件作者承诺哪些 API 保持兼容。第一版共享组件，经 SDK 的 `@notnotype/nb-plugin-sdk/components` 给出：nb-ui 是不发布的私有包，作者装不到它，组件的构建期实现与类型都随 SDK 包分发。文字的纯数据层与翻译端口（nb-ui 的 `./text`、`./text-port`）随后经 SDK 的 `/text`、`/text/browser` 共享（[`ui/i18n`](../ui/i18n.md)）。其余入口按需增加，每次增加都是 `engines.neurobook` 兼容范围的变化。
+- **共享入口即兼容承诺。** 模块表共享哪些 nb-ui 入口，就对插件作者承诺哪些 API 保持兼容。第一版共享组件，经 SDK 的 `@notnotype/nb-plugin-sdk/components` 给出：nb-ui 是不发布的私有包，作者装不到它，组件的构建期实现与类型都随 SDK 包分发。文字的纯数据层与翻译端口（nb-ui 的 `./text`、`./text-port`）随后经 SDK 的 `/text`、`/text/browser` 共享（[`ui/i18n`](../ui/i18n.md)）。其余入口按需增加，每次增加都是 `engines.neurobook` 兼容范围的变化。`/components` 里的布局组件与类型来自 nb-layout，在 nb-layout 里标 `@experimental`：它们在 nb-layout 1.0 之前会变，变了照样受兼容起点保护，签名发生不兼容改动时提兼容起点并在变更记录的“不兼容的改动”里写（开发者 2026-11-23 定）。
 - **安全**：插件代码与已安装插件列表不对未登录用户公开；插件代码同源加载，请求自带登录 Cookie。第一版完全信任，不隔离插件代码。
 - **运行时依赖**：服务端的“新代次新实例”与回收依赖删除 `require.cache` 里的条目后重新装载 ESM 能得到新实例、旧实例无人引用后可回收（Bun 1.4.2 实测，未文档化；加查询串也能得到新实例，但旧实例永不回收，不用）；宿主模块经 Bun 的运行期插件登记。升级 Bun 时要回归验证场景 4 至 7。
 - **体积**：共享使宿主对 Vue 与 nb-ui 失去 tree-shaking，体积影响须在阶段 3 测量并记录。
