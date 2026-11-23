@@ -227,4 +227,32 @@ describe("发出之前", () => {
         expect(outcome).toMatchObject({ok: false, status: null, code: "missing-key"});
         expect(seen).toHaveLength(0);
     });
+
+    test.each(APIS)("%s：网络出口选不出路，交回出口的码，请求不发", async (api) => {
+        const outcome = await probeProtocol(target(api), {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 2000, route: async () => ({ok: false, code: "proxy-unsupported", message: "the system proxy uses an automatic configuration script"})});
+        expect(outcome).toMatchObject({ok: false, status: null, url: null, code: "proxy-unsupported"});
+        expect(seen).toHaveLength(0);
+    });
+
+    test("经带凭据的代理、代理在 407 正文里回显认证头：检测的原文里没有凭据", async () => {
+        const proxy = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: (incoming) => new Response(`echo ${incoming.headers.get("proxy-authorization") ?? ""}`, {status: 407})});
+        try {
+            const outcome = await probeProtocol({...target("openai-completions"), baseUrl: "http://models.test/v1"}, {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 5000, route: async () => ({ok: true, proxy: `http://ann:hunter22secret@127.0.0.1:${String(proxy.port)}`})});
+            expect(outcome).toMatchObject({ok: false, status: 407});
+            expect(outcome.message).toContain("echo");
+            for (const leaked of ["hunter22secret", Buffer.from("ann:hunter22secret").toString("base64")]) expect(outcome.message).not.toContain(leaked);
+        } finally {
+            await proxy.stop(true);
+        }
+    });
+
+    test("网络出口给直连时照常检测，出口问的是完整的请求地址", async () => {
+        const asked: string[] = [];
+        const outcome = await probeProtocol(target("openai-completions"), {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 5000, route: async (url) => {
+            asked.push(url.href);
+            return {ok: true, proxy: false};
+        }});
+        expect(outcome).toMatchObject({ok: true, status: 200});
+        expect(asked).toEqual([`${BASE}/chat/completions`]);
+    });
 });

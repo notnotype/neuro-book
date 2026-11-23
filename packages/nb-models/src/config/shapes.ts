@@ -61,8 +61,18 @@ export const ProviderIconSchema = Type.Union([
 export type ProviderIcon = Static<typeof ProviderIconSchema>;
 
 /**
- * 服务商（模板的一个实例）。`template` 建后不变：模板只决定初始值和去哪查模型元数据；协议、地址、图标都能改。
- * 不含 `proxy`：代理在段 C 加。
+ * 服务商自己的代理，盖过应用级的（docs/specs/network/egress.md）：跟随系统、自定义地址（http 或 https，不带用户名密码）、直连。
+ * 不写是跟随应用。
+ */
+export const ProviderProxySchema = Type.Union([
+    Type.Object({mode: Type.Literal("system")}, {additionalProperties: false}),
+    Type.Object({mode: Type.Literal("direct")}, {additionalProperties: false}),
+    Type.Object({mode: Type.Literal("custom"), url: Type.String({minLength: 1, maxLength: 2048})}, {additionalProperties: false}),
+]);
+export type ProviderProxy = Static<typeof ProviderProxySchema>;
+
+/**
+ * 服务商（模板的一个实例）。`template` 建后不变：模板只决定初始值和去哪查模型元数据；协议、地址、图标、代理都能改。
  */
 export const ProviderConfigSchema = Type.Object({
     id: Type.String({pattern: PROVIDER_ID}),
@@ -78,6 +88,7 @@ export const ProviderConfigSchema = Type.Object({
     apiKeyEnv: Type.Optional(Type.String({pattern: ENV_NAME})),
     auth: Type.Union([Type.Literal("default"), Type.Literal("bearer"), Type.Literal("none")]),
     headers: Type.Optional(Headers),
+    proxy: Type.Optional(ProviderProxySchema),
     /** 服务商新出的模型自动加入（B1：打包目录里新增的）。 */
     followSource: Type.Boolean(),
     /** 用户移出的来源模型 id。 */

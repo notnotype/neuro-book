@@ -37,6 +37,7 @@ import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {canonCatalogs} from "nbook/plugins/canon/web/text";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
+import {networkBrowserPlugin} from "nbook/plugins/network/web/plugin";
 import {networkCatalogs} from "nbook/plugins/network/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {canonBrowserPlugin} from "nbook/plugins/canon/web/plugin";
@@ -87,6 +88,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.canon": canonBrowserPlugin,
     "nbook.plot": plotBrowserPlugin,
     "nbook.models": modelsBrowserPlugin,
+    "nbook.network": networkBrowserPlugin,
     "nbook.web-tools": webBrowserPlugin,
     "nbook.tasks": tasksBrowserPlugin,
     "nbook.agent": agentBrowserPlugin,

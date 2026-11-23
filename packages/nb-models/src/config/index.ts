@@ -16,11 +16,12 @@ export {
     ProviderApiSchema,
     ProviderConfigSchema,
     ProviderIconSchema,
+    ProviderProxySchema,
     ProvidersSchema,
     RoleConfigSchema,
     RolesSchema,
 } from "./shapes";
-export type {BlankTemplate, LegacyProviderConfig, ModelConfig, ProviderApi, ProviderConfig, ProviderIcon, RoleConfig, RolesConfig, StoredProvider} from "./shapes";
+export type {BlankTemplate, LegacyProviderConfig, ModelConfig, ProviderApi, ProviderConfig, ProviderIcon, ProviderProxy, RoleConfig, RolesConfig, StoredProvider} from "./shapes";
 export {legacyUid, normalizeProvider, normalizeProviders} from "./normalize";
 export {missingContextWindow, providerIdFor, referenceOf, roleOfReference, roleReference, rolesUsing, seriesOf, splitReference} from "./rules";
 export {compactionTrigger, CompactionSettingSchema, DEFAULT_COMPACTION, effectiveCompaction} from "./compaction";

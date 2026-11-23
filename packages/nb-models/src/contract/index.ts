@@ -8,6 +8,7 @@ export {
     ApiDetectionSchema,
     CheckResultSchema,
     KeyStatusSchema,
+    CatalogStateSchema,
     ListingStateSchema,
     ModelRowSchema,
     ModelsSnapshotSchema,
@@ -16,7 +17,7 @@ export {
     SnapshotRoleSchema,
     TemplateSchema,
 } from "./shapes";
-export type {ApiCheck, ApiDetection, CheckResult, KeyStatus, ListingState, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, SnapshotRole, Template} from "./shapes";
+export type {ApiCheck, ApiDetection, CatalogState, CheckResult, KeyStatus, ListingState, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, SnapshotRole, Template} from "./shapes";
 export {MODEL_PAGE_SIZE, MODEL_REFERENCES_MAX, modelsSettingsSpec} from "./settings-spec";
 export type {ModelsSettingsContract} from "./settings-spec";
 export {hasCredentials} from "./service";

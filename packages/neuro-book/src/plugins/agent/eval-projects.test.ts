@@ -22,6 +22,8 @@ import {definitionAt} from "nbook/manifest";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import {descriptor as filesDescriptor} from "nbook/plugins/files/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {networkBackendPlugin} from "nbook/plugins/network/backend/plugin";
+import {descriptor as networkDescriptor} from "nbook/plugins/network/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {descriptor as settingsDescriptor} from "nbook/plugins/settings/plugin";
@@ -102,6 +104,7 @@ test("输出 11、12：项目换了目录之后再打开会话，留着的内核
             createDiagnosticsPlugin({location: "server", store: diagnostics, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}),
             definitionAt("server", settingsDescriptor, settingsBackendPlugin),
             definitionAt("server", filesDescriptor, filesBackendPlugin),
+            definitionAt("server", networkDescriptor, networkBackendPlugin),
             definitionAt("server", modelsDescriptor, modelsBackendPlugin),
             definitionAt("server", agentDescriptor, agentBackendPlugin),
             testPlugin(closed, (a, p) => {

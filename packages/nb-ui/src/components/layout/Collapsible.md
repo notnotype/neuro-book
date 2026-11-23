@@ -10,6 +10,8 @@
 
 根容器占满父级宽度。`trigger` 插槽作为 Reka Collapsible 的触发器，默认插槽作为内容；内容使用高度与透明度过渡（时长取 `--motion-move`，缓动取 `--ease-layout`），只在动画进行中裁切（内容元素在动画开始时打 `data-animating`、结束或取消时去掉）；展开完成后不裁切，内部控件的焦点光环有完整的空间，根容器也不越出父级。窄屏保持同一上下结构，具体宽度和触发器排版由插槽内容决定。
 
+不给 `trigger` 时只按受控的 `open` 开合：用来做一块随状态出现与消失的内容（例如某个选项选中时才有的一行），同一套高度与透明度过渡，不另写动画。
+
 激活 trigger 会打开或关闭内容并发出 `update:open`。为了让上游把触发语义与键盘操作关联到实际元素，`trigger` 应提供单个可交互元素（通常为带可访问名称的 button）。`disabled` 禁止切换；焦点与键盘细节由 Reka UI 管理。
 
 ## 数据
@@ -30,8 +32,8 @@ type CollapsibleEmits = {
 };
 
 type CollapsibleSlots = {
-    /** 必需的交互触发器；以 as-child 方式承载单个元素 */
-    trigger(): unknown;
+    /** 交互触发器；以 as-child 方式承载单个元素。不给时没有触发器，只按受控的 `open` 开合 */
+    trigger?(): unknown;
     /** 折叠后显示的内容 */
     default(): unknown;
 };

@@ -8,6 +8,8 @@ import {readFileSync} from "node:fs";
 import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {startHttpProxy} from "@notnotype/nb-host/testing";
+import type {HttpProxy} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {CoreSettings, ModelQuery, ModelRequest} from "@notnotype/nb-harness/kernel/contracts";
@@ -522,6 +524,83 @@ describe("模型来源", () => {
         worlds.push(second);
         const again = await second.window("w");
         expect((await rowsOf(again, id)).map((row) => row.id).sort()).toEqual(["gemma3:12b", "qwen3:8b"]);
+        expect(seen).toEqual([]);
+    });
+});
+
+describe("网络出口（docs/specs/network/egress.md）", () => {
+    let proxy: HttpProxy | null = null;
+    afterEach(() => {
+        proxy?.stop();
+        proxy = null;
+    });
+    /** 本机代理把 `models.test` 接到本机端点：目标不是本机地址，出口才会让它走代理（本机与私网总是直连）。 */
+    const startProxy = (): HttpProxy => {
+        proxy = startHttpProxy({resolve: (host, port) => (host === "models.test" ? {host: "127.0.0.1", port: endpoint.port ?? 0} : {host, port})});
+        return proxy;
+    };
+    const through = (target: HttpProxy): string[] => target.requests.map((item) => `${item.method} ${item.target}`);
+    async function remoteProvider(client: Client): Promise<string> {
+        const {id} = ok(await client.addProvider({template: "blank-openai", name: "远端", baseUrl: "http://models.test/v1", api: "openai-completions"}));
+        ok(await client.upsertModel({provider: id, model: {id: "qwen3:8b", enabled: true, contextWindow: 32_000}}));
+        ok(await client.setKey({provider: id, value: KEY}));
+        return id;
+    }
+
+    test("应用级的自定义代理：一轮对话、检测与重新拉取都经代理到达端点；服务商改成直连后不再经代理", async () => {
+        const local = startProxy();
+        counter += 1;
+        const w = await modelsWorld(join(root, `world-${String(counter)}`), {userSettings: {"nbook.network/proxyMode": "custom", "nbook.network/proxyUrl": local.url}});
+        worlds.push(w);
+        const client = await w.window("w");
+        const id = await remoteProvider(client);
+        const resolution = w.service.port().resolve(query({settings: {...CORE, model: `${id}/qwen3:8b`}}));
+        if (!resolution.ok) throw new Error(resolution.code);
+        seen.length = 0;
+        expect((await resolution.call(request, new AbortController().signal, () => undefined)).stopReason).toBe("stop");
+        expect(ok(await client.check({provider: id, model: "qwen3:8b"}))).toEqual({ok: true});
+        expect(ok(await client.refreshSource({provider: id}))).toBeNull();
+        await waitUntil("the list arrives", () => (w.service.snapshot().providers.find((item) => item.id === id)?.source.state === "ok" ? true : undefined));
+        expect(through(local)).toEqual(["POST http://models.test/v1/chat/completions", "POST http://models.test/v1/chat/completions", "GET http://models.test/v1/models"]);
+        expect(seen.map((item) => item.path)).toEqual(["/v1/chat/completions", "/v1/chat/completions", "/v1/models"]);
+
+        // 服务商自己设成直连：盖过应用级的，已经拿到的解析结果也从下一个请求起改走直连（`models.test` 直连解析不到，连不上）。
+        const before = w.service.snapshot().providers.find((item) => item.id === id)!.connection;
+        ok(await client.updateProvider({id, patch: {proxy: {mode: "direct"}}}));
+        const after = w.service.snapshot().providers.find((item) => item.id === id)!;
+        expect(after.proxy).toEqual({mode: "direct"});
+        expect(after.connection).not.toBe(before);
+        const response = await resolution.call(request, new AbortController().signal, () => undefined);
+        expect(response.stopReason).toBe("error");
+        expect(ok(await client.check({provider: id, model: "qwen3:8b"}))).toMatchObject({ok: false});
+        expect(local.requests).toHaveLength(3);
+
+        // 清除是跟随应用：又经代理。
+        ok(await client.updateProvider({id, patch: {proxy: null}}));
+        expect(w.service.snapshot().providers.find((item) => item.id === id)!.proxy).toBeNull();
+        expect(ok(await client.check({provider: id, model: "qwen3:8b"}))).toEqual({ok: true});
+        expect(local.requests).toHaveLength(4);
+    }, 20_000);
+
+    test("服务商的自定义代理地址：带用户名密码或不是 http、https 的拒收；SOCKS 来自环境时检测、协议检测与重新拉取都报代理的原因，请求没发", async () => {
+        const w = await world({HTTP_PROXY: "socks5://127.0.0.1:1080"});
+        const client = await w.window("w");
+        const id = await remoteProvider(client);
+        for (const url of ["http://user:secret@proxy.example:3128", "socks5://127.0.0.1:1080", "not a url"]) {
+            expect(await client.updateProvider({id, patch: {proxy: {mode: "custom", url}}})).toMatchObject({ok: false, code: "invalid-value"});
+        }
+        expect(w.service.snapshot().providers.find((item) => item.id === id)!.proxy).toBeNull();
+        ok(await client.updateProvider({id, patch: {proxy: {mode: "system"}}}));
+        seen.length = 0;
+        expect(ok(await client.check({provider: id, model: "qwen3:8b"}))).toMatchObject({ok: false, kind: "local", code: "proxy-unsupported"});
+        const detection = ok(await client.detectApi({provider: id}));
+        expect(detection.results.map((row) => row.code)).toEqual(detection.results.map(() => "proxy-unsupported"));
+        expect(ok(await client.refreshSource({provider: id}))).toBeNull();
+        const source = await waitUntil("the refresh fails", () => {
+            const state = w.service.snapshot().providers.find((item) => item.id === id)?.source;
+            return state !== undefined && !state.refreshing && state.error !== null ? state : undefined;
+        });
+        expect(source.error?.reason).toBe("proxy");
         expect(seen).toEqual([]);
     });
 });

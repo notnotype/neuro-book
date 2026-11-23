@@ -13,6 +13,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {TOOLS_POINT} from "nbook/plugins/agent/shared/contracts";
+import {networkKey} from "nbook/plugins/network/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {clockKey, stateRootKey} from "nbook/shared/host";
 
@@ -38,7 +39,7 @@ export function createWebBackendPlugin(keyStore: KeyStoreFactory): PluginDefinit
         entries: [defineEntry({
             id: "server",
             location: "server",
-            dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}],
+            dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: networkKey}],
             activationEvents: [searchTool.activationEvent, fetchTool.activationEvent],
             contributions: [searchTool.contribution, fetchTool.contribution],
             remoteProvides: [webSettingsContract],
@@ -50,6 +51,8 @@ export function createWebBackendPlugin(keyStore: KeyStoreFactory): PluginDefinit
                     diagnostics.record({level, event, message, data, source: {plugin: descriptor.id}});
                 };
                 const keys = keyStore(join(context.services.require(stateRootKey).path, "web", "keys.json"), record);
+                // 经网络出口发（应用级的代理设置，docs/specs/network/egress.md）；重定向照旧不跟随（`postJson` 的 `manual`）。
+                const fetch = context.services.require(networkKey).fetchFor();
                 const provider = createDeepSeekProvider(() => settings.get(webSettings.settings.deepseekBaseUrl), {fetch, now: () => clock.now(), sleep: sleepOn(clock)});
                 const deps = () => ({keys, provider, clock, record: (event: string, message: string, data: Readonly<Record<string, unknown>>) => record("warn", event, message, data)});
                 return {

@@ -12,8 +12,10 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {openCredentials} from "@notnotype/nb-harness/models";
+import type {ProviderProxy} from "@notnotype/nb-models/config";
 import {createModelsCore} from "@notnotype/nb-models/core";
 
+import {networkKey} from "nbook/plugins/network/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {startupEnvKey, stateRootKey} from "nbook/shared/host";
 
@@ -29,7 +31,7 @@ export const modelsBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: startupEnvKey}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: startupEnvKey}, {key: networkKey}],
         provides: [modelsKey],
         remoteProvides: [modelsSettingsContract],
         contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
@@ -44,7 +46,10 @@ export const modelsBackendPlugin: PluginDefinition = {
             const env = context.services.require(startupEnvKey).env;
             // 在线目录的地址可由启动环境改（镜像）；设成空串不取在线目录（离线环境；e2e 也这样，免得用例出本机）。
             const catalogUrl = env.NBOOK_MODELS_CATALOG_URL === undefined ? {} : {catalogUrl: env.NBOOK_MODELS_CATALOG_URL.trim() === "" ? null : env.NBOOK_MODELS_CATALOG_URL.trim()};
-            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env, ...catalogUrl, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), sources: fileSourceStore(context.services.require(stateRootKey).path), record});
+            const network = context.services.require(networkKey);
+            // 服务商自己的代理（null 是跟随应用）经网络出口选路：模型请求、列表、检测、探测与在线目录都走它（docs/specs/network/egress.md）。
+            const routeFor = (proxy: ProviderProxy | null) => network.routeFor(proxy ?? undefined);
+            const core = createModelsCore({config: settingsModelsConfig(context.services.require(settingsKey)), credentials, env, ...catalogUrl, routeFor, secret: await loadInstallSecret(join(agentRoot, "identity.key")), icons: fileIconStore(context.services.require(stateRootKey).path), sources: fileSourceStore(context.services.require(stateRootKey).path), record});
             // 后登记的先释放：核心先停（取消在途的列表请求、等写入走完），凭据库后关。
             context.scope.register({kind: "models-core", label: `${descriptor.id} core`, value: core, release: (value) => value.close()});
             // 读完来源缓存与在线目录再交出服务：会话一开始解析的引用就能看到列表里的模型。后台拉取不等。

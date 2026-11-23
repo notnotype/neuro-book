@@ -48,6 +48,11 @@ defineSlots<{
      * id，都没有时为 undefined。
      */
     default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;
+    /**
+     * 行下的信息（例如“现在用的代理”）：整行下面另起一行，排在本作品覆盖的提示之后。内容与色调由调用方画；不给时没有这一行。
+     * `value` 同默认插槽。
+     */
+    below?(props: {value: unknown}): unknown;
 }>();
 
 /** 状态原因的图标，画法同 nb-form 的字段外壳（`FieldShell`）：出错、警告、其余。类名写成字面量，图标才会被生成。 */
@@ -196,6 +201,7 @@ async function run(action: RowAction): Promise<void> {
             <span class="i-lucide-info settings-row__override-icon" aria-hidden="true"></span>
             <span>{{ text(projectTitle === null ? 'row.overriddenUntitled' : 'row.overridden', {value: valueText(override.value), title: projectTitle ?? ""}) }}</span>
         </p>
+        <div v-if="$slots.below !== undefined" class="settings-row__below" data-settings-row-below><slot name="below" :value="shown" /></div>
     </div>
 </template>
 
@@ -432,6 +438,15 @@ async function run(action: RowAction): Promise<void> {
     font-size: var(--text-xs);
     line-height: var(--settings-line-ui);
     color: var(--status-info);
+    overflow-wrap: anywhere;
+}
+
+.settings-row__below {
+    /* 抵掉行的 gap：行下信息自己留上边距，它收起（高度为 0）时整行不多出一截空。 */
+    margin-top: calc(-1 * var(--space-3));
+    min-width: 0;
+    font-size: var(--text-xs);
+    line-height: var(--settings-line-ui);
     overflow-wrap: anywhere;
 }
 

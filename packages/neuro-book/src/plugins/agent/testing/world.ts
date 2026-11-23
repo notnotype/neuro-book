@@ -15,6 +15,8 @@ import {definitionAt} from "nbook/manifest";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import {descriptor as filesDescriptor} from "nbook/plugins/files/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {networkBackendPlugin} from "nbook/plugins/network/backend/plugin";
+import {descriptor as networkDescriptor} from "nbook/plugins/network/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {HostCapability, SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
@@ -57,7 +59,7 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
     const stateRoot = join(root, "state");
     await mkdir(stateRoot, {recursive: true});
     // 模型列表的自动更新缺省关（用例没写这一项时）：开着时模型服务启动就会去拉本机端点的 `/models`，改变服务商的模型清单。
-    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": false, ...options.userSettings}));
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.network/catalogAutoUpdate": false, ...options.userSettings}));
     let service: AgentService | null = null;
     const probe: PluginDefinition = {id: "test.agent-probe", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
         // 测试世界代替用户操作会话（sessions.md 输出 21 的 asUser）：现有用例按用户的身份写。按插件身份的另有用例。
@@ -73,6 +75,8 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
     const work = createRunningWork((record) => settings.diagnostics("hub").record(record));
     const settings = await settingsWorld(root, [
         definitionAt("server", filesDescriptor, filesBackendPlugin),
+        // 网络出口：模型服务与网页工具都经它发请求。
+        definitionAt("server", networkDescriptor, networkBackendPlugin),
         ...(options.withoutModels === true ? [] : [definitionAt("server", modelsDescriptor, modelsBackendPlugin)]),
         definitionAt("server", descriptor, agentBackendPlugin),
         ...(options.plugins ?? []),

@@ -11,8 +11,8 @@
 import {createHash, createHmac, randomBytes} from "node:crypto";
 
 import type {ModelPort, ModelQuery, ModelRequest, ModelResolution} from "@notnotype/nb-harness/kernel/contracts";
-import {buildResolution, envRefName, envValue, listingFlavor, listingHeaders, probeProtocol, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
-import type {CredentialStore, KeyAccess, ModelTarget, ProviderTarget, StartupEnv, WireApi} from "@notnotype/nb-harness/models";
+import {buildResolution, DIRECT_ROUTE, envRefName, envValue, listingFlavor, listingHeaders, probeProtocol, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
+import type {CredentialStore, KeyAccess, ModelTarget, NetworkRoute, ProviderTarget, StartupEnv, WireApi} from "@notnotype/nb-harness/models";
 import {eventSource} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation, RemoteOutcome} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
@@ -21,7 +21,7 @@ import {compactionTrigger, effectiveCompaction} from "../config/compaction";
 import {normalizeProviders} from "../config/normalize";
 import {missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "../config/rules";
 import {BLANK_API, BUILTIN_ROLES, DEFAULT_ROLES, isBlankTemplate, MODEL_ROLE_IDS} from "../config/shapes";
-import type {BlankTemplate, ModelConfig, ProviderConfig, ProviderIcon, RoleConfig, RolesConfig, StoredProvider} from "../config/shapes";
+import type {BlankTemplate, ModelConfig, ProviderConfig, ProviderIcon, ProviderProxy, RoleConfig, RolesConfig, StoredProvider} from "../config/shapes";
 import type {ModelsService, ProfileModelDefaults} from "../contract/service";
 import type {ModelsSettingsContract} from "../contract/settings-spec";
 import type {ApiCheck, CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, Template} from "../contract/shapes";
@@ -75,6 +75,11 @@ export interface ModelsCoreDeps {
     readonly now?: () => number;
     /** 在线目录的地址；缺省用 stencil 的；null 是不取在线目录（离线环境、e2e）。 */
     readonly catalogUrl?: string | null;
+    /**
+     * 网络出口：按服务商自己的代理设置（null 是跟随应用）给一份选路函数，模型请求、列表、检测与探测都经它；在线目录用
+     * `routeFor(null)`。不给时一律直连（docs/specs/network/egress.md）。
+     */
+    readonly routeFor?: (proxy: ProviderProxy | null) => NetworkRoute;
     /** 诊断；事件名见各处 `record` 的调用（`models.catalog.*`、`models.sources.*`、`models.credentials.failed` 等）。 */
     readonly record: (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
@@ -126,6 +131,26 @@ const validAddress = (value: string): boolean => {
     try {
         const url = new URL(value);
         return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * 快照里的代理：自定义地址去掉用户名密码。界面写入时就拒收带凭据的（`validProxyAddress`），手改设置文件写进去的不交给浏览器；
+ * 这样的地址选路时报 `proxy-invalid`，请求不发。
+ */
+const shownProxy = (proxy: ProviderProxy | undefined): ProviderProxy | null => {
+    if (proxy === undefined) return null;
+    if (proxy.mode !== "custom") return proxy;
+    return {mode: "custom", url: proxy.url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^/@]*@/iu, "$1")};
+};
+
+/** 自定义代理的地址：http 或 https，不带用户名密码（密码会进设置文件，决定 20）。 */
+const validProxyAddress = (value: string): boolean => {
+    try {
+        const url = new URL(value);
+        return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "" && url.username === "" && url.password === "";
     } catch {
         return false;
     }
@@ -244,6 +269,14 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      * 部署身份：实例的 `uid` 加有效地址与协议；同名重建（新 `uid`）、换地址与协议后都不同，旧日志的签名不再还原。凭据身份是认证输入
      * （密钥与请求头）的 HMAC：换了其中任何一样，旧签名也不再还原。
      */
+    /**
+     * 这家的网络出口：自己的代理设置盖过应用级的。每个请求现读这家此刻的设置：会话拿着的解析结果在改代理之后仍会用到（代理不进
+     * `stillCurrentFor` 的核对，改代理不该让在用的模型失效），从下一个请求起走新的路。
+     */
+    const routeOf = (provider: ProviderConfig): NetworkRoute => async (url) => {
+        const now = current().find((item) => item.uid === provider.uid) ?? provider;
+        return (deps.routeFor?.(now.proxy ?? null) ?? DIRECT_ROUTE)(url);
+    };
     const identityOf = (provider: ProviderConfig) => (effective: {readonly api: WireApi; readonly baseUrl: string; readonly key: string | null; readonly headers: Readonly<Record<string, string>>}) => ({
         deployment: createHash("sha256").update(`${provider.uid}\n${effective.api}\n${effective.baseUrl}`).digest("hex").slice(0, 32),
         ...(signsWithCredential(effective.api) && (effective.key !== null || Object.keys(effective.headers).length > 0) ? {credential: createHmac("sha256", secret).update(authInput(effective.key, effective.headers)).digest("hex").slice(0, 32)} : {}),
@@ -283,12 +316,13 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         return {
             deployment: createHash("sha256").update(`${provider.uid}\n${flavor}\n${api}\n${baseUrl}`).digest("hex").slice(0, 32),
             credential: createHmac("sha256", secret).update(authInput(key, headers)).digest("hex").slice(0, 32),
-            request: ready ? {flavor, baseUrl, headers} : null,
+            request: ready ? {flavor, baseUrl, headers, route: routeOf(provider)} : null,
         };
     };
     const sources = createSources({
         ...(deps.sources === undefined ? {} : {store: deps.sources}),
         ...(deps.catalogUrl === undefined ? {} : {catalogUrl: deps.catalogUrl}),
+        catalogRoute: () => deps.routeFor?.(null) ?? DIRECT_ROUTE,
         now: deps.now ?? Date.now,
         record: deps.record,
         autoUpdate: () => config.autoUpdate(),
@@ -337,15 +371,30 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 });
             }
         }
+        if (listing !== null && !blank) {
+            // 列表里没有、用户配置过（有条目或被角色绑着）且目录里有的：照用，标 `unlisted`（`members.ts` 的 `SourceModel.unlisted`）。
+            const bound = roles().flatMap((role) => {
+                const split = role.model === null ? null : splitReference(role.model);
+                return split !== null && split.provider === provider.id ? [split.model] : [];
+            });
+            const kept = [...provider.models.filter((entry) => entry.origin !== "manual").map((entry) => entry.id), ...bound];
+            for (const id of kept) {
+                if (models.has(id)) continue;
+                const found = view.find(provider.template, id);
+                if (found === undefined || !found.info.chat || found.info.wire === null) continue;
+                models.set(id, {...found.info, kind: "chat", auto: true, unlisted: true, row: {model: found.model, priceKnown: found.priceKnown}});
+            }
+        }
         const value: MemberSources = {models, unsendable: (id) => (blank ? null : view.unsendable(provider.template, id))};
         sourcesCache.set(cacheKey, value);
         return value;
     };
     const catalogRowOf = (found: ReturnType<ReturnType<typeof sources.view>["find"]>): {row?: SourceModel["row"]} => (found === undefined ? {} : {row: {model: found.model, priceKnown: found.priceKnown}});
     /** 一个服务商的版本号：配置、密钥状态或来源变了就变，调用方据此判断自己读到的行是否还新。 */
-    const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key, sources.rowsVersion(provider)])).toString(36);
+    // 带上列表外、靠配置保留的模型：它们随角色绑定进出，角色变了这家的行也变（输出 7、23）。
+    const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key, sources.rowsVersion(provider), [...sourcesFor(provider).models.values()].filter((model) => model.unlisted === true).map((model) => model.id)])).toString(36);
 
-    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry, row.source), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id)});
+    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry, row.source), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id), route: routeOf(provider)});
 
     const keyStatusOf = (provider: ProviderConfig): KeyStatus => {
         if (provider.auth === "none") return {kind: "keyless"};
@@ -447,6 +496,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             price: entry?.price !== undefined ? entry.price : sourcePriceOf(source),
             headers: {...entry?.headers},
             status,
+            unlisted: row.source?.unlisted === true,
             usable: usableMember(provider, row, ready),
             overridden,
             source: overridden.length === 0 || source === undefined ? null : {name: source.name, contextWindow: source.contextWindow, maxOutput: source.maxTokens, vision: source.images, reasoning: source.reasoning, price: sourcePriceOf(source)},
@@ -475,6 +525,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 templateApi: isBlankTemplate(provider.template) ? BLANK_API[provider.template as BlankTemplate] : defaultApi(provider.template),
                 auth: provider.auth,
                 headers: {...provider.headers},
+                proxy: shownProxy(provider.proxy),
                 key,
                 followSource: provider.followSource,
                 source: sources.state(provider),
@@ -492,6 +543,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         snapshotCache = {
             providers: list,
             roles: roles().map((role) => ({id: role.id, axis: role.axis, builtin: BUILTIN.has(role.id), name: role.name, description: role.description, model: role.model, effort: role.effort ?? null, icon: role.icon ?? null, status: roleStatus(role)})),
+            catalog: sources.catalogState(),
         };
         return snapshotCache;
     }
@@ -607,7 +659,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const redundant = (provider: ProviderConfig, entry: ModelConfig): boolean => {
         if (!provider.followSource || entry.origin !== "source" || Object.keys(entry).length !== 3) return false;
         const source = sourcesFor(provider).models.get(entry.id);
-        return source !== undefined && source.auto && entry.enabled === enabledOf({source, entry: undefined});
+        // 列表外、靠配置保留的（`unlisted`）：条目就是保留它的依据，去掉就只剩角色绑定（或什么都不剩），不算冗余。
+        return source !== undefined && source.auto && source.unlisted !== true && entry.enabled === enabledOf({source, entry: undefined});
     };
 
     const incomplete = (provider: ProviderConfig, models: readonly ModelConfig[]): Failure | null => {
@@ -624,9 +677,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const kept = provider.models.filter((entry) => !replaced.has(entry.id));
         return {...provider, excluded: provider.excluded.filter((id) => !replaced.has(id)), models: [...kept, ...entries.filter((entry) => !redundant(provider, entry))]};
     };
-    /** 移出：来源模型进 `excluded`（覆盖不保留），手加的删除。 */
-    const withRemoved = (provider: ProviderConfig, ids: readonly string[]): ProviderConfig => {
-        const sources = sourcesFor(provider).models;
+    /**
+     * 移出：来源模型进 `excluded`（覆盖不保留），手加的删除。`known` 是解绑之前的来源 id：只靠角色绑着才留下的列表外模型，解绑以后
+     * 就不在来源里了，按解绑后的来源判断会漏记移出，下一次列表又有它时它就自己回来。
+     */
+    const withRemoved = (provider: ProviderConfig, ids: readonly string[], known?: ReadonlySet<string>): ProviderConfig => {
+        const sources = known ?? new Set(sourcesFor(provider).models.keys());
         const gone = new Set(ids);
         const manual = new Set(provider.models.filter((entry) => entry.origin === "manual").map((entry) => entry.id));
         return {...provider, excluded: [...new Set([...provider.excluded, ...ids.filter((id) => sources.has(id) && !manual.has(id))])], models: provider.models.filter((entry) => !gone.has(entry.id))};
@@ -712,7 +768,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      */
     const connectionOf = (provider: ProviderConfig): string => {
         const auth = requestAuth(targetOf(provider), null, access);
-        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers), [...auth.missing].sort()])).digest("hex").slice(0, 32);
+        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers), [...auth.missing].sort(), provider.proxy ?? null])).digest("hex").slice(0, 32);
     };
     /**
      * 改用 `api` 之后的实例：选回模板的协议即恢复跟随；地址没覆盖时跟着模板给这种协议的路由走，模板没有这种协议的路由时钉在现在的
@@ -833,7 +889,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             }),
             updateProvider: (input, ctx) => queue(async () => {
                 const step = await withProvider<null>(input.id, (provider, list) => {
-                    const {name, region, baseUrl, api, followSource, ...simple} = input.patch;
+                    const {name, region, baseUrl, api, followSource, proxy, ...simple} = input.patch;
                     const template = templateOf(provider.template);
                     let next: ProviderConfig = {...provider, ...simple};
                     if (name !== undefined) {
@@ -857,6 +913,11 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                         else delete (next as {api?: ProviderConfig["api"]}).api;
                     } else if (api !== undefined) next.api = api;
                     if (followSource !== undefined) next = withFollow(next, followSource);
+                    if (proxy === null) delete (next as {proxy?: ProviderProxy}).proxy;
+                    else if (proxy !== undefined) {
+                        if (proxy.mode === "custom" && !validProxyAddress(proxy.url.trim())) return failure("invalid-value", "the proxy address must be an http or https URL without a user name or password");
+                        next.proxy = proxy.mode === "custom" ? {mode: "custom", url: proxy.url.trim()} : proxy;
+                    }
                     if (effectiveApi(next) === null || effectiveBaseUrl(next) === null) return failure("invalid-value", "this protocol has no address in the template; give an address");
                     return {ok: true, value: {provider: next, result: null}};
                 });
@@ -945,10 +1006,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
             removeModel: (input, ctx) => queue(async () => {
-                if (!current().some((provider) => provider.id === input.provider)) return relay(unknownProvider(input.provider));
+                const existing = current().find((provider) => provider.id === input.provider);
+                if (existing === undefined) return relay(unknownProvider(input.provider));
+                const known = new Set(sourcesFor(existing).models.keys());
                 const unbound = await unbind(input.provider, [input.id]);
                 if (!unbound.ok) return relay(unbound);
-                const step = await withProvider<null>(input.provider, (provider) => ({ok: true, value: {provider: withRemoved(provider, [input.id]), result: null}}));
+                const step = await withProvider<null>(input.provider, (provider) => ({ok: true, value: {provider: withRemoved(provider, [input.id], known), result: null}}));
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
             setModels: (input, ctx) => queue(async () => {
@@ -958,10 +1021,11 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 const rejected = incomplete(existing, input.add);
                 if (rejected !== null) return relay(rejected);
                 const gone = input.remove.filter((id) => !input.add.some((added) => added.id === id));
+                const known = new Set(sourcesFor(existing).models.keys());
                 const unbound = gone.length === 0 ? {ok: true as const, value: null} : await unbind(input.provider, gone);
                 if (!unbound.ok) return relay(unbound);
                 const step = await withProvider<null>(input.provider, (provider) => {
-                    const next = withAdded(withRemoved(provider, gone), input.add);
+                    const next = withAdded(withRemoved(provider, gone, known), input.add);
                     return incomplete(provider, input.add) ?? {ok: true, value: {provider: next, result: null}};
                 });
                 return step.ok ? ctx.ok(null) : relay(step);
@@ -1042,6 +1106,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (accepted === "settings-unavailable") return ctx.fail("settings-unavailable", {code: "layer-invalid", detail: "the providers setting is not readable; fix the settings file first"});
                 return accepted === "accepted" ? ctx.ok(null) : ctx.fail("no-credentials", {detail: "no credential for this provider"});
             },
+            refreshCatalog: (_input, ctx) => (sources.refreshCatalog() === "accepted" ? ctx.ok(null) : ctx.fail("catalog-disabled", {detail: "the online model catalog is turned off for this installation"})),
             check: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});
@@ -1066,7 +1131,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                     const baseUrl = effectiveBaseUrl(candidate);
                     const after = connectionOf(candidate);
                     if (baseUrl === null) return {api, baseUrl: "", connection: after, url: null, ok: false, status: null, ms: null, code: "no-address", message: ""};
-                    const outcome = await probeProtocol(targetOf(candidate), target, access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS});
+                    const outcome = await probeProtocol(targetOf(candidate), target, access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS, route: routeOf(candidate)});
                     return {api, baseUrl: shownAddress(baseUrl), connection: after, ...outcome, ms: outcome.ms === null ? null : Math.round(outcome.ms)};
                 }));
                 return ctx.ok({model, connection, results});

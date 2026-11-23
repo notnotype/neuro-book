@@ -35,7 +35,8 @@ function onContentAnimation(event: AnimationEvent): void {
         class="w-full"
         @update:open="(val) => emit('update:open', val)"
     >
-        <CollapsibleTrigger as-child>
+        <!-- 没给触发器时只用受控的 `open`：做一块随状态出现与消失的内容（同一套高度与透明度过渡）。 -->
+        <CollapsibleTrigger v-if="$slots.trigger" as-child>
             <slot name="trigger" />
         </CollapsibleTrigger>
 

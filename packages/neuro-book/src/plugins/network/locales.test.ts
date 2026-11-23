@@ -21,7 +21,7 @@ describe("nbook.network 的目录", () => {
     });
 
     it("取文字函数的命名空间是插件 id，目录以中文为源语言", () => {
-        expect(networkText("settingsSections.nbook.network.title").ns).toBe(descriptor.id);
+        expect(networkText("settingsPages.nbook.network.title").ns).toBe(descriptor.id);
         expect(networkCatalogs.source).toBe("zh-CN");
     });
 });

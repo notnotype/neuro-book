@@ -52,6 +52,9 @@ const failed = computed(() => (props.check?.status === "done" && !props.check.re
 const failedReason = computed(() => {
     if (failed.value === null) return "";
     const kind = failed.value.kind;
+    // 网络出口选不出路：比“本机这边的问题”具体，告诉用户去改代理（docs/specs/network/egress.md）。
+    const code = failed.value.code;
+    if (kind === "local" && (code === "proxy-unsupported" || code === "proxy-invalid" || code === "proxy-unreadable")) return text(`check.proxy.${code}`);
     return ["network", "rate_limit", "auth", "quota", "context_overflow", "provider", "local"].includes(kind) ? text(`check.kinds.${kind}` as "check.kinds.other") : text("check.kinds.other");
 });
 const checkedAt = computed(() => (props.check?.status === "done" ? new Date(props.check.at).toLocaleTimeString() : ""));
@@ -78,6 +81,10 @@ async function retry(): Promise<void> {
             <span v-for="role in roles" :key="role" class="model-row__role">{{ role }}</span>
             <span v-if="model.overridden.length > 0" class="model-row__role" data-model-edited>{{ text("models.edited") }}</span>
             <span v-else-if="model.origin === 'manual'" class="model-row__role" data-model-manual>{{ text("models.manual") }}</span>
+            <!-- 服务商的列表里没有、用户配置过的：照用，只标出来（docs/specs/models/service.md 输出 9）。 -->
+            <Transition name="model-row-fade">
+                <span v-if="model.unlisted" class="model-row__role" data-model-unlisted>{{ text("models.unlisted") }}</span>
+            </Transition>
             <CapabilityIcons :vision="model.vision" :reasoning="model.reasoning" :efforts="model.efforts" />
             <span v-if="missing" class="model-row__warn">{{ text("models.missing") }}</span>
             <span v-else-if="unsupported" class="model-row__warn" data-model-unsupported>{{ text("models.unsupported") }}</span>
@@ -184,6 +191,18 @@ async function retry(): Promise<void> {
 
 .model-row__fact--price {
     width: 84px;
+}
+
+.model-row-fade-enter-active,
+.model-row-fade-leave-active {
+    transition-property: opacity;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-layout);
+}
+
+.model-row-fade-enter-from,
+.model-row-fade-leave-to {
+    opacity: 0;
 }
 
 .model-row__warn {
