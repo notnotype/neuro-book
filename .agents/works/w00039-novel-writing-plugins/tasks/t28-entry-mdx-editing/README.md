@@ -119,8 +119,18 @@ S0 的 Spec 草稿已按第 4 稿改（`canon/revisions.md` 输出 25、`canon/p
 
 遗留（审查指出、不在本 Task 范围）：别名与列表元素的“被碰过”只看读取位置那条线，整表赋值能绕过逐项的拒收；初值列表元素的还原依赖；已删除的条目上 `aliases`、`listAdd` 的结果不一致，Agent 对 `field-unavailable` 的提示对已删除的条目是误导；`create` 的主文字没过校验时细项不带 `op`。
 
+2026-11-23 **S3 稿与暂存**（提交 `38a471597`）：稿模型 `canon/web/text-draft.ts`（纯函数：`allowed`、`rebase`、`resolve`、`compile` 与块的操作；另记“拆过并过的块”`moved`，这样的块后来被剧情碰了也列成冲突）与登记 `canon/web/text-drafts.ts`（`createTextDrafts`：每个条目一份会话，`begin`、`edit`、`flush`、`discard`、`submit`、`confirm`、`choose`、`takeOver`、`adopt`、`reload`；状态 `draft`、`read`、`blocker`、`saved`、`phase`、`conflicts`、`problems`）。测试：模型 15 条表格测试；登记 9 条，经真实的项目子进程、世界服务与 Storage（`canon/text-drafts.test.ts`）。六处变异检查都被拦住。与计划不同的：结局不明时不存整份请求，世界没变就原样重建重发、世界变了才问结局（论证写在 `confirm` 的注释里）；没发出去的失败（`unavailable` 这些）当确定的失败。
+
+实现审查：S1 加 S3 已交 omp（后台，审查 worktree `.worktree/review-w00039-t28-impl` 固定在 `38a471597`、装了依赖；报告在本机 `reports/impl-review-backend-omp.txt`）。
+
+S4 的做法（文字分页，实现中）：
+- 写入都留在宿主层：新的组合式函数 `canon/web/text-tab.ts` 给 `EntryPageHost.vue` 用（拿这个条目的会话、算编辑视图的各块、把按钮接到稿模型、提交与提示、连上以后再确认、剧情对话框带读取戳）。
+- 受控组件：`EntryTextEditor.vue`（编辑视图，一块一个 `CodeInput`，照交互稿的版式）、`TextConflictDialog.vue`（逐条选）；`EntryText.vue` 的“改这一段”“删掉这一段”“加一段”换成每块的剧情菜单与文末“在剧情里加一块”，右上“编辑”或“开始写”。
+- `EntryPage.vue` 加“位置锁住”的属性；`canon/web/plugin.ts` 建 `createTextDrafts`（依赖 Storage 与编辑器的组件服务），条目页的实现给 `uncommitted`、`commit`。
+- 文案进 `canon/locales`；Lab 场景；`entry-page.dom.test.ts` 与组件的 dom 测试；之后 S5 的 e2e。
+
 ## 下一步
 
-1. S3 稿模型与暂存登记（`canon/web/text-draft.ts`、`text-drafts.ts`），S4 文字分页，S5 e2e 与收口。
-2. 处理 S1 的 Opus 审查；S1 加 S3 交一次 omp（后台）；S2、S3、S4 的前端交 Sonnet。
+1. S4 文字分页（见上），S5 e2e 与收口。
+2. 处理 omp 的后台审查；S2、S3、S4 的前端交 Sonnet 审一次。
 3. 做完给开发者用，再定“单独编辑一个块”这类交互调整。
