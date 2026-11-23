@@ -88,6 +88,7 @@ owners:
 
 18. `eval` 的审批见 [`permissions.md`](permissions.md) 输出 25：执行档，询问不能记。代码里调的工具照 [`permissions.md`](permissions.md) 输出 24 逐个判定。
 19. 代码里不能调：收尾工具、`eval` 自己、派子代理与给子代理发话和答话、切换模式（得 `invoke-not-allowed`）；`shell` 的 `async` 见 [`builtin-tools.md`](builtin-tools.md) 输出 29。
+20. （planned）**重置的提醒。** 空闲回收、被登记表回收、两次调用之间内核进程意外退出，这三种重置是当场知道的：以宿主身份 `{plugin: "nbook.agent", label: "eval"}` 给会话发一条不带唤起的提醒“eval 的内核已重置（原因），之前的变量没了”（`key: "eval-kernel"`，[`harness/runtime.md`](../harness/runtime.md) 输出 112），会话关着也发；下一次 eval 结果的第一行照旧写（输出 12）。新一代内核起来、能用之后，还没取走的那条撤回，发送与撤回在同一条串行队列里，旧一代的提醒不会晚于新内核受理。执行中的崩溃、回退、换 Profile、换目录、主动重置只写在结果里。
 
 ## 状态与转换
 
