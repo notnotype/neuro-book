@@ -108,6 +108,7 @@ import type ProfileToolsSection from "nbook/plugins/agent/web/components/Profile
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
 import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
 import type ApiKeyField from "nbook/plugins/web-tools/web/components/ApiKeyField.vue";
+import type NetworkPage from "nbook/plugins/network/web/components/NetworkPage.vue";
 import type SearchSettingsPage from "nbook/plugins/web-tools/web/components/SearchSettingsPage.vue";
 import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
@@ -122,6 +123,7 @@ import type SettingsNotice from "nbook/ui/settings/SettingsNotice.vue";
 import type SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 import type SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
+import type SettingsActionRow from "nbook/ui/settings/SettingsActionRow.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
@@ -163,7 +165,7 @@ import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./ag
 import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {withWebText} from "./web-tools-scene/web-text";
-import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_DETECTION, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES, SOURCE_AT} from "./models-scene/sample";
+import {generatedRows, SAMPLE_CANDIDATES, SAMPLE_DETECTION, SAMPLE_PROVIDERS, SAMPLE_ROWS, SAMPLE_TEMPLATES, sampleRow, SOURCE_AT} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
@@ -1612,6 +1614,33 @@ function shelfFixtures(): LabFixture[] {
             ],
             load: async () => withWebText((await import("./SearchSettingsPageFixture.vue")).default),
         }),
+        defineLabFixture<typeof NetworkPage>({
+            component: "NetworkPage",
+            scenes: [
+                {id: "system", label: "跟随系统：写出环境变量里的代理与来源", input: {props: {writable: true}}},
+                {id: "system-none", label: "跟随系统：系统没有设代理", input: {props: {writable: true}}},
+                {id: "system-unsupported", label: "跟随系统：自动配置脚本，不支持", input: {props: {writable: true}}},
+                {id: "system-unreadable", label: "跟随系统：读不到系统设置", input: {props: {writable: true}}},
+                {id: "loading", label: "正在读取现在用的代理", input: {props: {writable: true}}},
+                {id: "custom-tested", label: "自定义并测过：通了，出口 IP 与耗时", input: {props: {writable: true}}},
+                {id: "custom-empty", label: "自定义还没填地址", input: {props: {writable: true}}},
+                {id: "testing", label: "测试进行中（按钮换成“取消测试”）", input: {props: {writable: true}}},
+                {id: "test-failed", label: "测试失败：连不上", input: {props: {writable: true}}},
+                {id: "test-bypassed", label: "测试目标在旁路清单里：不说“通了”", input: {props: {writable: true}}},
+                {id: "direct", label: "直连：没有测试一行", input: {props: {writable: true}}},
+                {id: "catalog-never", label: "还没有取过在线目录", input: {props: {writable: true}}},
+                {id: "catalog-failed", label: "上次更新失败（代理设置有问题）", input: {props: {writable: true}}},
+                {id: "catalog-disabled", label: "这台机器关掉了在线目录", input: {props: {writable: true}}},
+                {id: "catalog-unavailable", label: "模型服务没有运行：读不到目录状态", input: {props: {writable: true}}},
+                {id: "readonly", label: "用户层不能写（控件停用）", input: {props: {writable: true}}},
+                {id: "write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
+                {id: "custom-tested-english", label: "英文界面：自定义并测过", input: {props: {writable: true}}},
+                {id: "system-unsupported-english", label: "英文界面：不支持的系统代理", input: {props: {writable: true}}},
+                {id: "test-failed-narrow", label: "390px 宽：测试失败", input: {props: {writable: true}}},
+                {id: "system-english-narrow", label: "390px 宽、英文：跟随系统", input: {props: {writable: true}}},
+            ],
+            load: async () => (await import("./NetworkPageFixture.vue")).default,
+        }),
         defineLabFixture<typeof ApiKeyField>({
             component: "ApiKeyField",
             scenes: [
@@ -1653,6 +1682,7 @@ function shelfFixtures(): LabFixture[] {
                 {id: "edited", label: "来源模型改过字段（标“已改”）", input: {props: {model: SAMPLE_ROWS.deepseek![1]!}}},
                 {id: "missing", label: "目录里没有了", input: {props: {model: SAMPLE_ROWS.anthropic![1]!}}},
                 {id: "free", label: "免费的本机模型", input: {props: {model: SAMPLE_ROWS.ollama![0]!}}},
+                {id: "unlisted", label: "服务商列表里没有、配置过：照用、标“列表里没有”", input: {props: {model: sampleRow("deepseek-v4-flash", {name: "DeepSeek V4 Flash", unlisted: true}), roles: ["快速"]}}},
             ],
             load: async () => withModelsText(createSubjectFixture<typeof ModelRow>((await import("nbook/plugins/models/web/components/ModelRow.vue")).default, {events: ["toggle", "check", "edit"], class: "w-full list-none"})),
         }),
@@ -1689,7 +1719,7 @@ function shelfFixtures(): LabFixture[] {
             component: "ProviderDetail",
             scenes: [
                 {id: "catalog", label: "模板服务商，密钥已设置，系列默认收起", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: SAMPLE_ROWS.deepseek!}}},
-                {id: "overridden", label: "改过地址与协议（旁边写“按通用协议发送”），环境变量没有值", input: {props: {provider: SAMPLE_PROVIDERS[1]!, rows: SAMPLE_ROWS.anthropic!}}},
+                {id: "overridden", label: "改过地址与协议（有“恢复模板地址”），环境变量没有值", input: {props: {provider: SAMPLE_PROVIDERS[1]!, rows: SAMPLE_ROWS.anthropic!}}},
                 {id: "custom", label: "空白模板：接口格式、请求头、缺字段的模型", input: {props: {provider: SAMPLE_PROVIDERS[2]!, rows: SAMPLE_ROWS.volcengine!}}},
                 {id: "keyless", label: "不要认证的本机端点（没有密钥框）", input: {props: {provider: SAMPLE_PROVIDERS[5]!, rows: SAMPLE_ROWS.ollama!}}},
                 {id: "no-key", label: "还没有密钥（“未设置”）", input: {props: {provider: SAMPLE_PROVIDERS[3]!, rows: SAMPLE_ROWS.openai!}}},
@@ -1708,6 +1738,8 @@ function shelfFixtures(): LabFixture[] {
                 {id: "detect-done-english", label: "检测协议的结果，英文界面", input: {props: {provider: {...SAMPLE_PROVIDERS[2]!, connection: "c1"}, rows: SAMPLE_ROWS.volcengine!, detect: {status: "done", detection: SAMPLE_DETECTION}}}},
                 {id: "detect-running", label: "检测进行中（按钮换成“取消协议检测”）", input: {props: {provider: SAMPLE_PROVIDERS[2]!, rows: SAMPLE_ROWS.volcengine!, detect: {status: "running"}}}},
                 {id: "check-run", label: "检测全部进行中：已检 N / 共 M", input: {props: {provider: SAMPLE_PROVIDERS[0]!, rows: SAMPLE_ROWS.deepseek!, checkRun: {done: 3, total: 24}}}},
+                {id: "proxy-custom", label: "高级里的代理：自定义地址（展开“高级”看）", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, proxy: {mode: "custom", url: "http://127.0.0.1:7890"}}, rows: SAMPLE_ROWS.deepseek!}}},
+                {id: "proxy-direct-english", label: "高级里的代理：直连，英文界面", input: {props: {provider: {...SAMPLE_PROVIDERS[0]!, proxy: {mode: "direct"}}, rows: SAMPLE_ROWS.deepseek!}}},
             ],
             load: async () => withModelsText(createSubjectFixture<typeof ProviderDetail>((await import("nbook/plugins/models/web/components/ProviderDetail.vue")).default, {events: ["set-key", "clear-key", "update", "toggle-model", "check", "check-all", "cancel-checks", "edit-model", "add-model", "manage", "reload-rows", "refresh-source", "detect", "cancel-detect", "adopt"], class: "w-full"})),
         }),
@@ -1823,6 +1855,17 @@ function settingsFixtures(): LabFixture[] {
                 {id: "narrow", label: "560px 宽：控件换到标题下面", input: {props: row(rowDemoSettings.mode, "user")}},
             ],
             load: async () => (await import("./SettingsRowFixture.vue")).default,
+        }),
+        defineLabFixture<typeof SettingsActionRow>({
+            component: "SettingsActionRow",
+            slots: ["default"],
+            scenes: [
+                {id: "idle", label: "空闲：没有状态", input: {props: {title: "测试代理", description: "经现在的设置请求一次 Cloudflare，看出口 IP 与耗时"}, slots: {default: true}}},
+                {id: "success", label: "成功", input: {props: {title: "测试代理", description: "经现在的设置请求一次 Cloudflare，看出口 IP 与耗时", status: "通了：出口 IP 203.0.113.7，286 ms", tone: "success"}, slots: {default: true}}},
+                {id: "danger", label: "失败（长文字折行）", input: {props: {title: "现在更新", description: "2026/11/20 09:30 更新过，共 1,104 个模型", status: "上次更新失败：代理设置有问题，请求没有发出（the system proxy uses an automatic configuration script, which is not supported）", tone: "danger"}, slots: {default: true}}},
+                {id: "muted", label: "淡色状态", input: {props: {title: "测试代理", status: "正在测试…", tone: "muted"}, slots: {default: true}}},
+            ],
+            load: async () => withSettingsText(createSubjectFixture<typeof SettingsActionRow>((await import("nbook/ui/settings/SettingsActionRow.vue")).default, {class: "w-full"})),
         }),
         defineLabFixture<typeof SettingsNotice>({
             component: "SettingsNotice",

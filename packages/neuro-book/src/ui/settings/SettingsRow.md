@@ -18,7 +18,7 @@
 
 标题后面依次是：已修改的小圆点（强调色，悬停提示“已修改”）、状态原因的图标、沿用标签“来自用户设置”（描边不填色）、`applies` 标注（填色的小标签）。两枚标签同字号、同外高，靠描边与填色分开。圆点与图标各占 14px 见方、在标题行里居中，出现与消失不改变行高。整数行高：标题 20px、说明 18px、两者间距 2px，文字块是 40px 的偶数高，34px 高的控件在它旁边居中时不落在半像素上；改这几个数时保持文字块是偶数高。
 
-本作品覆盖的提示在整行下面另起一行，信息色、带图标。整行不设 `overflow`，控件的焦点环不被裁。排在行里的 CSS 变量 `--settings-row-slot`、`--settings-row-text-min`、`--settings-row-gap-x`、`--settings-row-cell-gap` 由行定义，放在行里的控件可以继承它们（`SettingsListSection` 用它们算单行输入的宽度）。
+本作品覆盖的提示在整行下面另起一行，信息色、带图标。调用方的 `below` 插槽（行下信息，例如网络页“现在用的代理”）再往下另起一行，小字号、任意处折行，色调与图标由调用方画；不给时没有这一行。整行不设 `overflow`，控件的焦点环不被裁。排在行里的 CSS 变量 `--settings-row-slot`、`--settings-row-text-min`、`--settings-row-gap-x`、`--settings-row-cell-gap` 由行定义，放在行里的控件可以继承它们（`SettingsListSection` 用它们算单行输入的宽度）。
 
 ## 交互
 
@@ -72,10 +72,12 @@ type Slots = {
      * 不允许这一层与只读时不渲染；沿用时照常渲染，`value` 是沿用的值，`disabled` 只看层能不能写。
      */
     default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;
+    /** 行下信息，排在本作品覆盖的提示之后；`value` 同默认插槽。不给时不画这一行。 */
+    below?(props: {value: unknown}): unknown;
 };
 ```
 
-没有 expose；attrs 落在根上。根带 `data-settings-row`（键）、`data-settings-row-state`（`edit`、`inherit` 或 `not-allowed`），已修改时带 `data-settings-row-modified`，停用时带 `data-settings-row-blocked`；宽排法里控件那一行带 `data-settings-row-wide`、标题行右端的一块带 `data-settings-row-head`。内部标记：已修改圆点 `data-settings-row-dot`，沿用标签 `data-settings-row-inherited`，最右一格 `data-settings-row-cell`，只读的值与锁 `data-settings-row-value`、`data-settings-row-lock`，状态图标 `data-settings-row-reason`（`data-tone` 是色调），提示里的一行 `data-settings-row-reason-line`。
+没有 expose；attrs 落在根上。根带 `data-settings-row`（键）、`data-settings-row-state`（`edit`、`inherit` 或 `not-allowed`），已修改时带 `data-settings-row-modified`，停用时带 `data-settings-row-blocked`；宽排法里控件那一行带 `data-settings-row-wide`、行下信息带 `data-settings-row-below`、标题行右端的一块带 `data-settings-row-head`。内部标记：已修改圆点 `data-settings-row-dot`，沿用标签 `data-settings-row-inherited`，最右一格 `data-settings-row-cell`，只读的值与锁 `data-settings-row-value`、`data-settings-row-lock`，状态图标 `data-settings-row-reason`（`data-tone` 是色调），提示里的一行 `data-settings-row-reason-line`。
 
 ## 状态
 

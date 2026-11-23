@@ -1,24 +1,7 @@
 {
-    "settingsSections": {
-        "nbook": {
-            "network": {
-                "title": "网络",
-                "description": "NeuroBook 自己发起的联网请求",
-                "groups": {
-                    "proxy": {
-                        "title": "代理"
-                    },
-                    "catalog": {
-                        "title": "模型目录"
-                    }
-                }
-            }
-        }
-    },
     "settings": {
         "proxyMode": {
             "title": "代理方式",
-            "description": "模型服务、模型列表与网页工具的请求怎么出去；服务商可以在自己的“高级”里另设",
             "choices": {
                 "system": {
                     "title": "跟随系统"
@@ -32,8 +15,98 @@
             }
         },
         "proxyUrl": {
-            "title": "代理地址",
-            "description": "代理方式为自定义时用：http 或 https 代理，例如 http://127.0.0.1:7890；不支持 SOCKS"
+            "title": "代理地址"
+        },
+        "catalogAutoUpdate": {
+            "title": "自动更新模型列表"
         }
+    },
+    "settingsPages": {
+        "nbook": {
+            "network": {
+                "title": "网络",
+                "description": "代理与模型目录"
+            }
+        }
+    },
+    "keywords": {
+        "proxy": "代理",
+        "vpn": "VPN",
+        "catalog": "模型目录"
+    },
+    "page": {
+        "proxy": {
+            "title": "代理"
+        },
+        "catalog": {
+            "title": "模型目录"
+        },
+        "summary": {
+            "loading": "正在读取现在用的代理…",
+            "failed": "读不到现在用的代理",
+            "proxy": "现在用的是 {{origin}}（{{source}}）",
+            "proxyCredentials": "现在用的是 {{origin}}，带用户名与密码（{{source}}）",
+            "none": "系统没有设代理，请求直连",
+            "bypassed": "测试目标在旁路清单里，不走代理（{{source}}）",
+            "sources": {
+                "env": "来自环境变量 {{name}}",
+                "system": "来自系统设置（{{name}}）",
+                "setting": "来自自定义地址"
+            },
+            "systems": {
+                "gnome": "GNOME",
+                "kde": "KDE",
+                "macos": "macOS",
+                "windows": "Windows"
+            }
+        },
+        "errors": {
+            "proxy-unsupported": "代理是 SOCKS 或自动配置脚本，不支持；改用代理软件的 HTTP 端口，或在这里填自定义地址",
+            "proxy-invalid": "代理地址不对：要是 http 或 https 地址，不带用户名密码",
+            "proxy-unreadable": "读不到系统的代理设置，请求不会发出；可以改用自定义或直连"
+        },
+        "url": {
+            "invalid": "要是 http 或 https 地址，例如 http://127.0.0.1:7890；不带用户名与密码",
+            "placeholder": "http://127.0.0.1:7890"
+        },
+        "test": {
+            "title": "测试代理",
+            "action": "测试",
+            "cancel": "取消测试",
+            "running": "正在测试…",
+            "ok": "通了：出口 IP {{ip}}，{{ms}} ms",
+            "okNoIp": "通了，{{ms}} ms",
+            "bypassed": "测试目标没有走代理（直连）：出口 IP {{ip}}，{{ms}} ms",
+            "direct": "直连：出口 IP {{ip}}，{{ms}} ms",
+            "failures": {
+                "unreachable": "连不上：{{message}}",
+                "timeout": "10 秒内没有回应",
+                "cancelled": "已取消",
+                "bad-response": "测试目标回了 HTTP {{status}}"
+            },
+            "notRun": "没测成（{{code}}）"
+        },
+        "update": {
+            "title": "现在更新",
+            "action": "更新",
+            "running": "更新中",
+            "checked": "{{time}} 更新过，共 {{count}} 个模型",
+            "never": "还没有取过在线目录",
+            "disabled": "这台机器关掉了在线目录",
+            "unavailable": "读不到模型目录的状态",
+            "failed": "上次更新失败：{{reason}}",
+            "notRun": "没更新成（{{code}}）",
+            "reasons": {
+                "unreachable": "连不上目录服务",
+                "bad-response": "目录服务回的不是完整的目录",
+                "too-large": "目录太大",
+                "cancelled": "已取消",
+                "timeout": "超时",
+                "proxy": "代理设置有问题，请求没有发出",
+                "rejected": "目录的内容不合格",
+                "storage": "目录存不下来"
+            }
+        },
+        "writeFailed": "没有保存：{{reason}}"
     }
 }

@@ -5,7 +5,7 @@
 
 import {describe, expect, test} from "bun:test";
 
-import {SAMPLE_PROVIDERS, SAMPLE_ROWS} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {SAMPLE_CATALOG, SAMPLE_PROVIDERS, SAMPLE_ROWS} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
 import type {ModelsSnapshot, SelectionRow} from "nbook/plugins/models/shared/contracts";
 
 import {modelGroups, modelOptions, providerIconRef, roleOptions} from "./model-options";
@@ -20,6 +20,7 @@ const snapshot: ModelsSnapshot = {
         {...base, id: "ds-4", name: "首字母", icon: {kind: "initial"}},
     ],
     roles: [{id: "main", axis: "gradient", builtin: true, name: "", description: "", model: "ds-2/deepseek-flash", effort: null, icon: null, status: "ok"}],
+    catalog: SAMPLE_CATALOG,
 };
 
 describe("模型选择器的选项", () => {

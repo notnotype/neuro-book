@@ -361,6 +361,20 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 });
             }
         }
+        if (listing !== null && !blank) {
+            // 列表里没有、用户配置过（有条目或被角色绑着）且目录里有的：照用，标 `unlisted`（`members.ts` 的 `SourceModel.unlisted`）。
+            const bound = roles().flatMap((role) => {
+                const split = role.model === null ? null : splitReference(role.model);
+                return split !== null && split.provider === provider.id ? [split.model] : [];
+            });
+            const kept = [...provider.models.filter((entry) => entry.origin !== "manual").map((entry) => entry.id), ...bound];
+            for (const id of kept) {
+                if (models.has(id)) continue;
+                const found = view.find(provider.template, id);
+                if (found === undefined || !found.info.chat || found.info.wire === null) continue;
+                models.set(id, {...found.info, kind: "chat", auto: true, unlisted: true, row: {model: found.model, priceKnown: found.priceKnown}});
+            }
+        }
         const value: MemberSources = {models, unsendable: (id) => (blank ? null : view.unsendable(provider.template, id))};
         sourcesCache.set(cacheKey, value);
         return value;
@@ -471,6 +485,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             price: entry?.price !== undefined ? entry.price : sourcePriceOf(source),
             headers: {...entry?.headers},
             status,
+            unlisted: row.source?.unlisted === true,
             usable: usableMember(provider, row, ready),
             overridden,
             source: overridden.length === 0 || source === undefined ? null : {name: source.name, contextWindow: source.contextWindow, maxOutput: source.maxTokens, vision: source.images, reasoning: source.reasoning, price: sourcePriceOf(source)},
@@ -517,6 +532,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         snapshotCache = {
             providers: list,
             roles: roles().map((role) => ({id: role.id, axis: role.axis, builtin: BUILTIN.has(role.id), name: role.name, description: role.description, model: role.model, effort: role.effort ?? null, icon: role.icon ?? null, status: roleStatus(role)})),
+            catalog: sources.catalogState(),
         };
         return snapshotCache;
     }
@@ -1072,6 +1088,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (accepted === "settings-unavailable") return ctx.fail("settings-unavailable", {code: "layer-invalid", detail: "the providers setting is not readable; fix the settings file first"});
                 return accepted === "accepted" ? ctx.ok(null) : ctx.fail("no-credentials", {detail: "no credential for this provider"});
             },
+            refreshCatalog: (_input, ctx) => (sources.refreshCatalog() === "accepted" ? ctx.ok(null) : ctx.fail("catalog-disabled", {detail: "the online model catalog is turned off for this installation"})),
             check: async (input, ctx) => {
                 const provider = current().find((item) => item.id === input.provider);
                 if (provider === undefined) return ctx.fail("unknown-provider", {detail: `no provider ${input.provider}`});

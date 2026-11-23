@@ -67,7 +67,7 @@ describe("角色的思考档", () => {
 
     it("改绑到没有这一档的模型后：下拉里补一个停用的项，说明实际用哪一档", async () => {
         const roles = SAMPLE_SNAPSHOT.roles.map((role) => (role.id === "main" ? {...role, effort: "xhigh" as const} : role));
-        await render({providers: SAMPLE_SNAPSHOT.providers, roles}, {...SAMPLE_ROWS, anthropic: [sampleRow("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"]})]});
+        await render({...SAMPLE_SNAPSHOT, roles}, {...SAMPLE_ROWS, anthropic: [sampleRow("claude-sonnet-4-5", {name: "Claude Sonnet 4.5", reasoning: true, efforts: ["low", "medium"]})]});
         // 控件显示已存的档位；展开下拉，停用的项写“实际用”。
         triggerOf("main").dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
         await flushPromises();

@@ -25,7 +25,7 @@ export const SOURCE_CATALOG: SnapshotProvider["source"] = {state: "none", refres
 
 /** 没单独给 `thinking` 时按 `reasoning` 与 `efforts` 推：没档位的是“会推理但不能调档”，有档位的可调、能真关。 */
 export const sampleRow = (id: string, patch: Partial<ModelRow> = {}): ModelRow => {
-    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, origin: "source" as const, kind: "chat" as ModelRow["kind"], contextWindow: 128_000 as number | null, maxOutput: 8_192 as number | null, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, usable: true, overridden: [] as ModelRow["overridden"], source: null as ModelRow["source"], ...patch};
+    const model = {id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, origin: "source" as const, kind: "chat" as ModelRow["kind"], contextWindow: 128_000 as number | null, maxOutput: 8_192 as number | null, vision: false, reasoning: false, efforts: [] as string[], compaction: null, price: null, headers: {}, status: "ok" as const, usable: true, unlisted: false, overridden: [] as ModelRow["overridden"], source: null as ModelRow["source"], ...patch};
     const thinking: ModelRow["thinking"] = patch.thinking ?? (!model.reasoning ? {kind: "none"} : model.efforts.length === 0 ? {kind: "fixed"} : {kind: "levels", levels: model.efforts, off: "disable", unset: null, verified: true});
     return {...model, thinking};
 };
@@ -85,7 +85,10 @@ export const SAMPLE_ROLES: SnapshotRole[] = [
     role("polish", "specialist", null, "unbound", {builtin: false, name: "润色", description: "改写段落的措辞"}),
 ];
 
-export const SAMPLE_SNAPSHOT: ModelsSnapshot = {providers: SAMPLE_PROVIDERS, roles: SAMPLE_ROLES};
+/** 在线目录：三小时前取过一份。 */
+export const SAMPLE_CATALOG: ModelsSnapshot["catalog"] = {enabled: true, refreshing: false, checkedAt: Date.UTC(2026, 10, 20, 9, 30), modelCount: 1104, error: null};
+
+export const SAMPLE_SNAPSHOT: ModelsSnapshot = {providers: SAMPLE_PROVIDERS, roles: SAMPLE_ROLES, catalog: SAMPLE_CATALOG};
 
 const template = (id: string, name: string, group: Template["group"], patch: Partial<Template> = {}): Template => ({id, name, group, logo: id, blank: false, addable: true, reason: null, modelCount: 12, regions: [], routes: [], access: "key", ...patch});
 

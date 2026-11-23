@@ -18,7 +18,8 @@ import ModelRow from "./ModelRow.vue";
  * 一家服务商的详情（docs/specs/models/settings-pages.md 输出 4 到 8）：上面是连接（密钥、地址、接口格式、默认收起的高级），下面是按
  * 系列分组的模型列表。受控：改了什么就发对应的事件，写入由页面做；输入框在失焦或回车时才发（改了就写，没有保存按钮）。
  */
-type ProviderPatch = {name?: string; region?: string | null; baseUrl?: string | null; api?: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai" | null; auth?: "default" | "bearer" | "none"; headers?: Record<string, string>; followSource?: boolean};
+type ProviderProxy = {mode: "system"} | {mode: "direct"} | {mode: "custom"; url: string};
+type ProviderPatch = {name?: string; region?: string | null; baseUrl?: string | null; api?: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai" | null; auth?: "default" | "bearer" | "none"; headers?: Record<string, string>; followSource?: boolean; proxy?: ProviderProxy | null};
 
 const props = withDefaults(defineProps<{
     provider: SnapshotProvider;
@@ -168,6 +169,11 @@ const validUrl = (value: string): boolean => {
         return false;
     }
 };
+/**
+ * 改过模板的地址：只给“恢复模板地址”，界面上不解释后果（设计语言“界面不靠说明文字解释自己”）。后果写在这里给维护者：改了地址或
+ * 接口格式以后，请求按通用协议发送（中性身份 `nbook-compatible`，不再带这家服务商的专用处理），模型的能力与单价仍按模板的目录
+ * （docs/specs/models/service.md 输出 21）。
+ */
 const overridden = computed(() => !blank.value && props.provider.baseUrl !== null && props.provider.baseUrl !== props.provider.templateBaseUrl && props.provider.region === null);
 const requestUrl = computed(() => `${effectiveUrl.value.replace(/\/$/u, "")}${ENDPOINT[props.provider.api ?? ""] ?? ""}`);
 
@@ -193,14 +199,59 @@ const API_OPTIONS = [
     {value: "anthropic-messages", label: "Anthropic Messages"},
     {value: "google-generative-ai", label: "Google Gemini"},
 ];
-/** 协议与模板的不同：改了就按通用协议发送（写在旁边的说明里）。 */
-const apiChanged = computed(() => !blank.value && props.provider.api !== props.provider.templateApi);
 const regionOptions = computed(() => (props.template?.regions ?? []).map((region) => ({value: region.id, label: region.id === "global" || region.id === "cn" ? text(`add.region.${region.id}`) : region.id})));
 function changeApi(value: string): void {
     const api = value as NonNullable<ProviderPatch["api"]>;
     // 非空白模板改回模板的协议就清掉覆盖，回到“跟随模板”。
     emit("update", {api: !blank.value && api === props.provider.templateApi ? null : api});
 }
+// ---- 代理（docs/specs/network/egress.md）：跟随应用（不写）、跟随系统、自定义、直连 ----
+const proxyOptions = computed(() => (["app", "system", "custom", "direct"] as const).map((value) => ({value, label: text(`connection.proxy.modes.${value}`)})));
+/** 选了自定义、地址还没填：先停在“自定义”等地址，不写（写一个空地址的自定义没有意义，服务端也拒收）。 */
+const choosingCustom = ref(false);
+const proxyMode = computed(() => (choosingCustom.value ? "custom" : props.provider.proxy?.mode ?? "app"));
+const proxyCurrent = computed(() => (props.provider.proxy?.mode === "custom" ? props.provider.proxy.url : ""));
+const proxyDraft = ref(proxyCurrent.value);
+const proxyField = draftField(() => proxyCurrent.value, proxyDraft);
+const proxyProblem = ref("");
+watch(() => props.provider.proxy, () => {
+    choosingCustom.value = false;
+});
+/** 自定义代理的地址：http 或 https，不带用户名密码（服务端同一条规则）。 */
+const validProxy = (value: string): boolean => {
+    try {
+        const parsed = new URL(value);
+        return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname !== "" && parsed.username === "" && parsed.password === "";
+    } catch {
+        return false;
+    }
+};
+function changeProxyMode(value: string): void {
+    proxyProblem.value = "";
+    if (value === "custom") {
+        if (props.provider.proxy?.mode === "custom") return;
+        choosingCustom.value = true;
+        void nextTick(() => document.getElementById(`${id}-proxy`)?.focus());
+        return;
+    }
+    choosingCustom.value = false;
+    emit("update", {proxy: value === "app" ? null : {mode: value as "system" | "direct"}});
+}
+function commitProxy(): void {
+    const value = proxyDraft.value.trim();
+    if (value === "") {
+        proxyProblem.value = "";
+        return;
+    }
+    if (!validProxy(value)) {
+        proxyProblem.value = text("connection.proxy.invalid");
+        return;
+    }
+    proxyProblem.value = "";
+    if (!proxyField.claim(value)) return;
+    emit("update", {proxy: {mode: "custom", url: value}});
+}
+
 // ---- 协议检测 ----
 const detecting = computed(() => props.detect.status === "running");
 /** 只测已保存的配置：地址框里没交出去的草稿先交（页面等它写完）；草稿不合格时不检测，焦点回到地址框。 */
@@ -318,7 +369,6 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
                         @keydown.enter="commitUrl"
                     />
                     <p v-if="urlProblem !== ''" :id="`${id}-url-problem`" class="provider-detail__hint provider-detail__hint--error" role="alert" data-url-problem>{{ urlProblem }}</p>
-                    <p v-if="overridden" class="provider-detail__hint">{{ text("connection.url.overridden", {url: provider.templateBaseUrl ?? ""}) }} {{ text("connection.protocol.note") }}</p>
                 </div>
                 <div v-if="regionOptions.length > 0" class="provider-detail__field">
                     <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.region.label") }}</span></div>
@@ -344,7 +394,6 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
                         >{{ detecting ? text("connection.detect.cancel") : text("connection.detect.button") }}</Button>
                     </div>
                     <p v-if="!keyReady && !detecting" class="provider-detail__hint" data-api-detect-needs-key>{{ text("connection.detect.needsKey") }}</p>
-                    <p v-if="apiChanged" class="provider-detail__hint" data-api-note>{{ text("connection.protocol.changed", {value: provider.templateApi ?? ""}) }} {{ text("connection.protocol.note") }}</p>
                     <ApiDetectResults :state="detect" :connection="provider.connection" :disabled="disabled" @adopt="(api, connection) => emit('adopt', api, connection)" @detect="detectWith" />
                 </div>
                 <Collapsible>
@@ -358,6 +407,26 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
                         <div class="provider-detail__field">
                             <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.auth.label") }}<InfoTip :text="text('connection.auth.hint')" /></span></div>
                             <Select :model-value="provider.auth" :options="authOptions" size="sm" :disabled="disabled" :aria-label="text('connection.auth.label')" @update:model-value="(value: string) => emit('update', {auth: value as ProviderPatch['auth']})" />
+                        </div>
+                        <div class="provider-detail__field">
+                            <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.proxy.label") }}</span></div>
+                            <Select :model-value="proxyMode" :options="proxyOptions" size="sm" :disabled="disabled" :aria-label="text('connection.proxy.label')" data-proxy-select @update:model-value="changeProxyMode" />
+                            <Input
+                                v-if="proxyMode === 'custom'"
+                                :id="`${id}-proxy`"
+                                v-model="proxyDraft"
+                                size="sm"
+                                :placeholder="text('connection.proxy.placeholder')"
+                                :disabled="disabled"
+                                :invalid="proxyProblem !== ''"
+                                :aria-label="text('connection.proxy.url')"
+                                :aria-describedby="proxyProblem !== '' ? `${id}-proxy-problem` : undefined"
+                                data-proxy-input
+                                @focusin="proxyField.focus"
+                                @focusout="commitProxy(); proxyField.blur()"
+                                @keydown.enter="commitProxy"
+                            />
+                            <p v-if="proxyProblem !== ''" :id="`${id}-proxy-problem`" class="provider-detail__hint provider-detail__hint--error" role="alert" data-proxy-problem>{{ proxyProblem }}</p>
                         </div>
                         <div class="provider-detail__field">
                             <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.headers.label") }}<InfoTip :text="text('connection.headers.hint')" /></span></div>

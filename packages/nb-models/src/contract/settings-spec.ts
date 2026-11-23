@@ -141,6 +141,11 @@ const methods = {
      * `write`：链路断在返回之前时，调用方按快照核对受理没有，不当成没执行。
      */
     refreshSource: {input: ProviderInput, output: None, effect: "write", errors: {"unknown-provider": Detail, "no-credentials": Detail, "settings-unavailable": SettingsDetail}},
+    /**
+     * 现在取一次在线目录（网络页的“现在更新”）：受理后立即返回，结果经快照的 `catalog` 交回；已在取时不另发。启动环境关掉了在线目录时
+     * 为 `catalog-disabled`。
+     */
+    refreshCatalog: {input: Type.Object({}, {additionalProperties: false}), output: None, effect: "write", errors: {"catalog-disabled": Detail}},
     /** 检测一个模型（输出 11）。“检测全部”由调用方逐个调它、自己限并发。 */
     check: {input: Type.Object({provider: Type.String(), model: Type.String()}, {additionalProperties: false}), output: CheckResultSchema, effect: "read", errors: {"unknown-provider": Detail, "unknown-model": Detail}},
     /**

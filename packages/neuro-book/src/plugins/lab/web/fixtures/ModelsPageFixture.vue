@@ -23,7 +23,7 @@ const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();
 
 const empty = props.scene.includes("empty");
-const fake = createFakeModelsRemote(empty ? {providers: [], roles: SAMPLE_SNAPSHOT.roles.map((role) => ({...role, model: null, status: "unbound"}))} : SAMPLE_SNAPSHOT, {unavailable: props.scene.endsWith("-readonly")});
+const fake = createFakeModelsRemote(empty ? {providers: [], roles: SAMPLE_SNAPSHOT.roles.map((role) => ({...role, model: null, status: "unbound"})), catalog: SAMPLE_SNAPSHOT.catalog} : SAMPLE_SNAPSHOT, {unavailable: props.scene.endsWith("-readonly")});
 const failing = ref(props.scene.endsWith("-write-failed"));
 fake.failWrites(failing.value);
 const store = createModelsStore(fake.remote);

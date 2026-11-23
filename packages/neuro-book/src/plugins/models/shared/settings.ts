@@ -17,8 +17,6 @@ export const ROLES_SECTION = "nbook.models.roles";
 
 /** `nbook.agent` 的分区（docs/specs/agent/run-guards.md）。Agent 依赖模型服务，反过来引用会成环，所以按 id 写。 */
 const RUN_GUARDS_SECTION = "nbook.agent.reliability";
-/** `nbook.network` 的“网络”分区：自动更新是联网的事，显示在那里；读它的是模型服务，所以设置项归这里。 */
-const NETWORK_SECTION = "nbook.network";
 
 export const modelsSettings = defineSettings("nbook.models", {
     compaction: {
@@ -56,16 +54,6 @@ export const modelsSettings = defineSettings("nbook.models", {
         section: RUN_GUARDS_SECTION,
         group: "requests",
         order: 20,
-    },
-    catalogAutoUpdate: {
-        schema: Type.Boolean(),
-        default: true,
-        title: modelsText("settings.catalogAutoUpdate.title"),
-        description: modelsText("settings.catalogAutoUpdate.description"),
-        layers: ["user"],
-        section: NETWORK_SECTION,
-        group: "catalog",
-        order: 10,
     },
     streamIdleTimeoutSeconds: {
         schema: Type.Integer({minimum: 0, maximum: 3600}),

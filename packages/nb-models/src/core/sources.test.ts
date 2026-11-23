@@ -62,7 +62,7 @@ interface Clock {
     now: number;
 }
 
-async function start(options: {config?: MemoryModelsConfig; sources?: ReturnType<typeof memorySourceStore>; clock?: Clock; catalogUrl?: string; started?: boolean; credentials?: CredentialStore} = {}) {
+async function start(options: {config?: MemoryModelsConfig; sources?: ReturnType<typeof memorySourceStore>; clock?: Clock; catalogUrl?: string | null; started?: boolean; credentials?: CredentialStore} = {}) {
     sequence += 1;
     // 自动更新缺省开着（添加、设密钥之后才会跟着拉）；在线目录缺省指向一个总回 404 的本机端点，不出本机。
     const config = options.config ?? memoryModelsConfig({autoUpdate: true});
@@ -72,7 +72,7 @@ async function start(options: {config?: MemoryModelsConfig; sources?: ReturnType
     const events: string[] = [];
     const core: ModelsCore = createModelsCore({
         config, credentials, env: {}, secret: "sources-test-secret", icons: memoryIconStore(), sources, now: () => clock.now,
-        catalogUrl: options.catalogUrl ?? NO_CATALOG,
+        catalogUrl: options.catalogUrl === undefined ? NO_CATALOG : options.catalogUrl,
         record: (_level, event) => void events.push(event),
     });
     let closed = false;
@@ -171,6 +171,26 @@ describe("目录模板的列表", () => {
         const {id, rows} = await deepseek(local);
         expect((await rows(id)).map((row) => [row.id, row.kind, row.contextWindow])).toEqual([[known!.id, "chat", known!.contextWindow]]);
         expect((await rows(id, "available")).map((row) => [row.id, row.kind])).toEqual([["deepseek-account-only", "unknown"]]);
+    });
+
+    it("列表里没有、但配置过（有条目或被角色绑着）且目录里有的模型照用、标 unlisted；没配置过的照旧不在（开发者 2026-11-23）", async () => {
+        const [, second, third] = chatModels("deepseek");
+        const local = endpoint(models({id: known!.id}, {id: second!.id}, {id: third!.id}));
+        const {id, call, rows, core, settled} = await deepseek(local);
+        // 用户改过 second（设置里有条目；只启用不改的来源模型不写条目）、把角色绑到 third（没有条目），之后服务商的列表里只剩 known。
+        expect(await call("upsertModel", {provider: id, model: {id: second!.id, enabled: true, name: "我的 Flash"}})).toMatchObject({ok: true});
+        expect(await call("setRole", {id: "fast", model: `${id}/${third!.id}`})).toMatchObject({ok: true});
+        local.set(models({id: known!.id}));
+        expect(await call("refreshSource", {provider: id})).toMatchObject({ok: true});
+        await settled(id);
+        const listed = await rows(id);
+        expect(listed.map((row) => [row.id, row.status, row.unlisted]).sort()).toEqual([[known!.id, "ok", false], [second!.id, "ok", true], [third!.id, "ok", true]].sort());
+        // 角色照样解析得出来，不是 unknown-model。
+        const resolution = core.service.port().resolve({settings: {model: null, effort: null, approvalMode: "ask", readOnly: false}, purpose: "approval", profile: "p"});
+        expect(resolution.ok).toBe(true);
+        // 没配置过的目录模型（第四个）不进列表。
+        const fourth = chatModels("deepseek")[3];
+        if (fourth !== undefined) expect(listed.some((row) => row.id === fourth.id)).toBe(false);
     });
 
     it("拉取失败沿用上一次的列表并写明原因；改了地址退回目录、不自动去新地址拉；改了认证头照用旧列表、标 changed，重新拉取后恢复", async () => {
@@ -371,6 +391,26 @@ describe("在线目录", () => {
         await third.close();
         expect(seen).toEqual([null, '"v1"']);
         expect(sources.catalog).toMatchObject({etag: '"v1"'});
+    });
+
+    it("现在更新（refreshCatalog）：自动更新关着也受理，快照的 catalog 写出在取、确认时间与模型数；失败写原因，成功后清掉；关掉在线目录时 catalog-disabled", async () => {
+        let fail = true;
+        const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: () => (fail ? new Response("down", {status: 503}) : new Response(JSON.stringify(payload), {headers: {etag: '"v2"'}}))});
+        cleanup.push(() => server.stop(true));
+        const first = await start({config: memoryModelsConfig({autoUpdate: false}), catalogUrl: `http://127.0.0.1:${String(server.port)}/models.json.zstd`});
+        expect(first.core.service.snapshot().catalog).toEqual({enabled: true, refreshing: false, checkedAt: null, modelCount: null, error: null});
+        expect(await first.call("refreshCatalog", {})).toEqual({ok: true, value: null});
+        await first.until((snapshot) => !snapshot.catalog.refreshing && snapshot.catalog.error !== null);
+        expect(first.core.service.snapshot().catalog.error).toMatchObject({reason: "bad-response"});
+        fail = false;
+        expect(await first.call("refreshCatalog", {})).toEqual({ok: true, value: null});
+        expect(first.core.service.snapshot().catalog.refreshing).toBe(true);
+        await first.until((snapshot) => !snapshot.catalog.refreshing && snapshot.catalog.checkedAt !== null);
+        expect(first.core.service.snapshot().catalog).toEqual({enabled: true, refreshing: false, checkedAt: 1_800_000_000_000, modelCount: 1, error: null});
+
+        const off = await start({config: memoryModelsConfig({autoUpdate: true}), catalogUrl: null});
+        expect(off.core.service.snapshot().catalog).toMatchObject({enabled: false, refreshing: false});
+        expect(await off.call("refreshCatalog", {})).toMatchObject({ok: false, code: "catalog-disabled"});
     });
 
     it("坏的在线目录被拒收：写诊断，成员不变，本地那份不被覆盖", async () => {

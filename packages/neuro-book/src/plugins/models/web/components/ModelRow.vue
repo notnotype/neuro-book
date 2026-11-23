@@ -81,6 +81,8 @@ async function retry(): Promise<void> {
             <span v-for="role in roles" :key="role" class="model-row__role">{{ role }}</span>
             <span v-if="model.overridden.length > 0" class="model-row__role" data-model-edited>{{ text("models.edited") }}</span>
             <span v-else-if="model.origin === 'manual'" class="model-row__role" data-model-manual>{{ text("models.manual") }}</span>
+            <!-- 服务商的列表里没有、用户配置过的：照用，只标出来（docs/specs/models/service.md 输出 9）。 -->
+            <span v-if="model.unlisted" class="model-row__role" data-model-unlisted>{{ text("models.unlisted") }}</span>
             <CapabilityIcons :vision="model.vision" :reasoning="model.reasoning" :efforts="model.efforts" />
             <span v-if="missing" class="model-row__warn">{{ text("models.missing") }}</span>
             <span v-else-if="unsupported" class="model-row__warn" data-model-unsupported>{{ text("models.unsupported") }}</span>

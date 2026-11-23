@@ -20,7 +20,7 @@ import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
 import type {ProviderConfig} from "../config/shapes";
-import type {ListingState} from "../contract/shapes";
+import type {CatalogState, ListingState} from "../contract/shapes";
 
 /** 一次列表请求的截止（从受理起算，覆盖连接、读体与解析）。 */
 const LISTING_TIMEOUT_MS = 30_000;
@@ -121,6 +121,10 @@ export interface Sources {
     /** 这家此刻可用的列表（同一部署的缓存）；没有时为 null，成员退回目录。 */
     listing(provider: ProviderConfig): readonly ListedModel[] | null;
     state(provider: ProviderConfig): ListingState;
+    /** 在线目录此刻的状态（快照的 `catalog`）。 */
+    catalogState(): CatalogState;
+    /** 用户点了“现在更新”：任何时候都受理（已在取时不另发）；启动环境关掉了在线目录时为 `disabled`。 */
+    refreshCatalog(): "accepted" | "disabled";
     /** 这家的列表或目录视图换过就变：模型行的版本号带上它。 */
     rowsVersion(provider: ProviderConfig): string;
     /** `settings-unavailable`：设置此刻读不到（只对 `user` 交回），不出站。 */
@@ -168,6 +172,7 @@ export function createSources(deps: SourcesDeps): Sources {
     let catalogVersion = 0;
     let catalogAttemptedAt: number | null = null;
     let catalogInflight: {controller: AbortController; done: Promise<void>} | null = null;
+    let catalogError: CatalogState["error"] = null;
     let catalogWrites: Promise<void> = Promise.resolve();
 
     const entryOf = (uid: string): Entry => {
@@ -265,23 +270,27 @@ export function createSources(deps: SourcesDeps): Sources {
     };
 
     // ---- 在线目录 ----
+    /** 取一次在线目录；状态（在取、结果、失败的原因）经 `deps.changed()` 进快照，开始与结束各报一次。 */
     function refreshCatalog(): void {
         if (closed || catalogInflight !== null) return;
         const controller = new AbortController();
+        const deadline = AbortSignal.timeout(CATALOG_TIMEOUT_MS);
         catalogAttemptedAt = deps.now();
-        const done = (async () => {
-            const fetched = await fetchOnlineCatalog({etag: catalog?.cache.etag ?? null, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(CATALOG_TIMEOUT_MS)]), ...(deps.catalogUrl === undefined || deps.catalogUrl === null ? {} : {url: deps.catalogUrl}), ...(deps.catalogRoute === undefined ? {} : {route: deps.catalogRoute()})});
-            if (closed) return;
+        const done = (async (): Promise<CatalogState["error"]> => {
+            const fetched = await fetchOnlineCatalog({etag: catalog?.cache.etag ?? null, signal: AbortSignal.any([controller.signal, deadline]), ...(deps.catalogUrl === undefined || deps.catalogUrl === null ? {} : {url: deps.catalogUrl}), ...(deps.catalogRoute === undefined ? {} : {route: deps.catalogRoute()})});
+            if (closed) return null;
             if (fetched.status === "failed") {
                 deps.record("warn", "models.catalog.fetch-failed", "Fetching the online model catalog failed", {reason: fetched.reason, error: fetched.message});
-                return;
+                const timedOut = fetched.reason === "cancelled" && deadline.aborted && !controller.signal.aborted;
+                return timedOut ? {reason: "timeout", message: "the catalog did not arrive in time"} : {reason: fetched.reason, message: fetched.message};
             }
             if (fetched.status === 304) {
                 // 没变：只有本地那份可读时才算“刚确认过”。
-                if (catalog === null) return;
+                if (catalog === null) return {reason: "bad-response", message: "the catalog server answered 304 but there is no saved copy"};
                 const cache = {...catalog.cache, fetchedAt: deps.now()};
-                if (await writeCatalog(cache)) catalog = {cache, parsed: catalog.parsed};
-                return;
+                if (!(await writeCatalog(cache))) return {reason: "storage", message: "the catalog could not be saved"};
+                catalog = {cache, parsed: catalog.parsed};
+                return null;
             }
             let parsed: OnlineCatalog;
             try {
@@ -289,21 +298,35 @@ export function createSources(deps: SourcesDeps): Sources {
             } catch (error) {
                 if (!(error instanceof OnlineCatalogError)) throw error;
                 deps.record("warn", "models.catalog.rejected", "The online model catalog was rejected", {reason: error.reason, error: error.message});
-                return;
+                return {reason: "rejected", message: error.message};
             }
             const cache: CatalogCache = {version: 1, etag: fetched.etag, fetchedAt: deps.now(), bytes: Buffer.from(fetched.bytes).toString("base64")};
-            if (!(await writeCatalog(cache)) || closed) return;
+            if (!(await writeCatalog(cache))) return {reason: "storage", message: "the catalog could not be saved"};
+            if (closed) return null;
             catalog = {cache, parsed};
             view = createCatalogView(parsed);
             catalogVersion += 1;
-            deps.changed();
+            return null;
         })()
-            .catch((error: unknown) => deps.record("warn", "models.catalog.fetch-failed", "Fetching the online model catalog failed", {error: message(error)}))
-            .finally(() => {
+            .catch((error: unknown): CatalogState["error"] => {
+                deps.record("warn", "models.catalog.fetch-failed", "Fetching the online model catalog failed", {error: message(error)});
+                return {reason: "unreachable", message: message(error)};
+            })
+            .then((error) => {
                 catalogInflight = null;
+                if (closed) return;
+                catalogError = error;
+                deps.changed();
             });
         catalogInflight = {controller, done};
+        deps.changed();
     }
+    const catalogModels = (): number | null => {
+        if (catalog === null) return null;
+        let count = 0;
+        for (const rows of catalog.parsed.providers.values()) count += rows.length;
+        return count;
+    };
     const writeCatalog = (cache: CatalogCache): Promise<boolean> => {
         const done = catalogWrites.then(async () => {
             try {
@@ -412,6 +435,12 @@ export function createSources(deps: SourcesDeps): Sources {
             const state = cache === null ? "none" : deployment !== null && cache.deployment === deployment.deployment && cache.credential === deployment.credential ? "ok" : "changed";
             const usable = cache !== null && deployment !== null && cache.deployment === deployment.deployment;
             return {state, refreshing: entry?.inflight != null, checkedAt: usable ? cache.checkedAt : null, error: entry?.error ?? null};
+        },
+        catalogState: () => ({enabled: deps.catalogUrl !== null, refreshing: catalogInflight !== null, checkedAt: catalog?.cache.fetchedAt ?? null, modelCount: catalogModels(), error: catalogError}),
+        refreshCatalog: () => {
+            if (deps.catalogUrl === null) return "disabled";
+            refreshCatalog();
+            return "accepted";
         },
         rowsVersion: (provider) => `${String(catalogVersion)}.${String(entries.get(provider.uid)?.rows ?? 0)}`,
         refresh,

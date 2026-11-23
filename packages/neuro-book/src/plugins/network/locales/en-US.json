@@ -1,24 +1,7 @@
 {
-    "settingsSections": {
-        "nbook": {
-            "network": {
-                "title": "Network",
-                "description": "Network requests NeuroBook makes on its own",
-                "groups": {
-                    "proxy": {
-                        "title": "Proxy"
-                    },
-                    "catalog": {
-                        "title": "Model catalog"
-                    }
-                }
-            }
-        }
-    },
     "settings": {
         "proxyMode": {
             "title": "Proxy mode",
-            "description": "How requests from the model service, model lists and web tools go out; a provider can set its own under Advanced",
             "choices": {
                 "system": {
                     "title": "Follow system"
@@ -32,8 +15,98 @@
             }
         },
         "proxyUrl": {
-            "title": "Proxy address",
-            "description": "Used when the proxy mode is Custom: an http or https proxy, for example http://127.0.0.1:7890; SOCKS is not supported"
+            "title": "Proxy address"
+        },
+        "catalogAutoUpdate": {
+            "title": "Update model lists automatically"
         }
+    },
+    "settingsPages": {
+        "nbook": {
+            "network": {
+                "title": "Network",
+                "description": "Proxy and model catalog"
+            }
+        }
+    },
+    "keywords": {
+        "proxy": "proxy",
+        "vpn": "VPN",
+        "catalog": "model catalog"
+    },
+    "page": {
+        "proxy": {
+            "title": "Proxy"
+        },
+        "catalog": {
+            "title": "Model catalog"
+        },
+        "summary": {
+            "loading": "Reading the proxy in use…",
+            "failed": "Couldn't read the proxy in use",
+            "proxy": "Using {{origin}} ({{source}})",
+            "proxyCredentials": "Using {{origin}} with a user name and password ({{source}})",
+            "none": "No system proxy is set; requests go direct",
+            "bypassed": "The test target is on the bypass list and doesn't use the proxy ({{source}})",
+            "sources": {
+                "env": "from the {{name}} environment variable",
+                "system": "from the system settings ({{name}})",
+                "setting": "from the custom address"
+            },
+            "systems": {
+                "gnome": "GNOME",
+                "kde": "KDE",
+                "macos": "macOS",
+                "windows": "Windows"
+            }
+        },
+        "errors": {
+            "proxy-unsupported": "The proxy is SOCKS or an automatic configuration script, which isn't supported. Use the HTTP port of the proxy software, or enter a custom address here",
+            "proxy-invalid": "The proxy address isn't valid: it must be an http or https address without a user name or password",
+            "proxy-unreadable": "Couldn't read the system proxy settings, so requests won't be sent. Use Custom or Direct instead"
+        },
+        "url": {
+            "invalid": "Use an http or https address, for example http://127.0.0.1:7890, without a user name or password",
+            "placeholder": "http://127.0.0.1:7890"
+        },
+        "test": {
+            "title": "Test proxy",
+            "action": "Test",
+            "cancel": "Cancel test",
+            "running": "Testing…",
+            "ok": "Works: exit IP {{ip}}, {{ms}} ms",
+            "okNoIp": "Works, {{ms}} ms",
+            "bypassed": "The test target didn't use the proxy (direct): exit IP {{ip}}, {{ms}} ms",
+            "direct": "Direct: exit IP {{ip}}, {{ms}} ms",
+            "failures": {
+                "unreachable": "Couldn't connect: {{message}}",
+                "timeout": "No answer within 10 seconds",
+                "cancelled": "Cancelled",
+                "bad-response": "The test target answered HTTP {{status}}"
+            },
+            "notRun": "The test didn't run ({{code}})"
+        },
+        "update": {
+            "title": "Update now",
+            "action": "Update",
+            "running": "Updating",
+            "checked": "Updated {{time}}, {{count}} models",
+            "never": "The online catalog hasn't been fetched yet",
+            "disabled": "The online catalog is turned off on this machine",
+            "unavailable": "Couldn't read the model catalog status",
+            "failed": "The last update failed: {{reason}}",
+            "notRun": "The update didn't start ({{code}})",
+            "reasons": {
+                "unreachable": "couldn't reach the catalog service",
+                "bad-response": "the catalog service didn't return a complete catalog",
+                "too-large": "the catalog is too large",
+                "cancelled": "cancelled",
+                "timeout": "timed out",
+                "proxy": "the proxy setting isn't usable, so nothing was sent",
+                "rejected": "the catalog content was rejected",
+                "storage": "the catalog couldn't be saved"
+            }
+        },
+        "writeFailed": "Not saved: {{reason}}"
     }
 }

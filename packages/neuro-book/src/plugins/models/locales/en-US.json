@@ -16,10 +16,6 @@
             "title": "Stream idle timeout (seconds)",
             "description": "Treats a reply as stuck when nothing new arrives for this long; 0 means no timeout"
         },
-        "catalogAutoUpdate": {
-            "title": "Update model lists automatically",
-            "description": "Once a day, fetches each provider's model list and OMP's online model catalog (catalog.stencil.so) in the background; also fetches right after you add a provider or set its key; when off, lists are fetched only when you choose Refresh"
-        },
         "compaction": {
             "title": "Auto-compaction trigger",
             "description": "Compact automatically when the context reaches this size: keep a reserve, a percent of the window, or a fixed token count. Each model can override it."
@@ -84,14 +80,13 @@
             "label": "Base URL",
             "hint": "Requests go to {{url}}",
             "restore": "Restore the template address",
-            "overridden": "Changed to another address; the template address is {{url}}. Model capabilities and prices still come from the template catalog.",
             "invalid": "The URL must start with http:// or https://"
         },
         "api": {
             "label": "API format"
         },
         "advanced": "Advanced",
-        "advancedHint": "Authentication, headers",
+        "advancedHint": "Authentication, headers, proxy",
         "auth": {
             "label": "Authentication",
             "hint": "Which header carries the key. By default it follows the API format: Authorization: Bearer for OpenAI-style APIs, x-api-key for Anthropic",
@@ -99,13 +94,21 @@
             "bearer": "Authorization: Bearer",
             "none": "No authentication"
         },
+        "proxy": {
+            "label": "Proxy",
+            "modes": {
+                "app": "Follow app",
+                "system": "Follow system",
+                "custom": "Custom",
+                "direct": "Direct"
+            },
+            "url": "Proxy address",
+            "placeholder": "http://127.0.0.1:7890",
+            "invalid": "Use an http or https address without a user name or password; SOCKS isn't supported"
+        },
         "headers": {
             "label": "Headers",
             "hint": "Sent with every request; a model can add or override headers of the same name in its edit dialog"
-        },
-        "protocol": {
-            "note": "After you change the API format or the address, requests are sent with the generic protocol, without this provider's special handling.",
-            "changed": "Changed; the template uses {{value}}"
         },
         "region": {
             "label": "Region"
@@ -174,6 +177,7 @@
         "incomplete": "No context window",
         "incompleteTip": "Fill in the context window to enable it",
         "missing": "No longer offered by the provider",
+        "unlisted": "Not in provider list",
         "unsupported": "Not usable as a chat model",
         "priceUnknown": "Price unknown",
         "free": "Free",

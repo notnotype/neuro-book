@@ -11,11 +11,14 @@
 import type {RolesConfig, StoredProvider} from "@notnotype/nb-models/config";
 import type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotLayer} from "@notnotype/nb-models/core";
 
+import {networkSettings} from "nbook/plugins/network/shared/contracts";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 
 import {modelsSettings} from "../shared/settings";
 
-const {providers, roles, compaction, catalogAutoUpdate, streamFirstEventTimeoutSeconds, streamIdleTimeoutSeconds} = modelsSettings.settings;
+const {providers, roles, compaction, streamFirstEventTimeoutSeconds, streamIdleTimeoutSeconds} = modelsSettings.settings;
+/** 自动更新显示在网络页、由它写，所以声明在 `nbook.network`；模型服务只读。 */
+const {catalogAutoUpdate} = networkSettings.settings;
 const KEYS: ReadonlyArray<readonly [string, ConfigKey]> = [[providers.key, "providers"], [roles.key, "roles"], [compaction.key, "compaction"], [catalogAutoUpdate.key, "autoUpdate"]];
 
 /**

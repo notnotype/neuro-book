@@ -44,7 +44,7 @@ export async function modelsWorld(root: string, options: {readonly env?: Readonl
     const env = Object.freeze({NBOOK_MODELS_CATALOG_URL: "", ...options.env});
     await mkdir(join(root, "state"), {recursive: true});
     // 已有设置文件（同一个根重启）时不动它。
-    await writeFile(join(root, "state", "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": options.autoUpdate ?? false, ...options.userSettings}), {flag: "wx"}).catch((error: unknown) => {
+    await writeFile(join(root, "state", "settings.json"), JSON.stringify({"nbook.network/catalogAutoUpdate": options.autoUpdate ?? false, ...options.userSettings}), {flag: "wx"}).catch((error: unknown) => {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     });
     let service: ModelsService | null = null;

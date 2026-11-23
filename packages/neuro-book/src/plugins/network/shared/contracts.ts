@@ -9,6 +9,9 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
+/** 别的插件读本插件的设置项（`nbook.models` 读“自动更新模型列表”）经这里：跨插件只导入对方的合同模块。 */
+export {networkSettings} from "./settings";
+
 /** 一份代理设置（应用级的，或某家服务商自己的）；`url` 只在 `custom` 时用。形状同 nb-host 的 `ProxySetting`。 */
 export interface ProxyOverride {
     readonly mode: "system" | "custom" | "direct";

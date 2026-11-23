@@ -32,7 +32,7 @@ describe("设置页的远程合同", () => {
         expect(contract).toMatchObject({id: "acme.models/settings", version: 6, provider: "server", callers: ["browser"]});
         expect(Object.keys(contract.methods).sort()).toEqual([
             "addProvider", "addRole", "adoptApi", "check", "clearKey", "detectApi", "duplicateProvider", "enabledModels", "modelsByReference", "providerModels",
-            "refreshSource", "removeModel", "removeProvider", "removeRole", "setIcon", "setKey", "setModels", "setRole", "snapshot", "templates", "updateProvider", "updateRole", "upsertModel",
+            "refreshCatalog", "refreshSource", "removeModel", "removeProvider", "removeRole", "setIcon", "setKey", "setModels", "setRole", "snapshot", "templates", "updateProvider", "updateRole", "upsertModel",
         ]);
     });
 });

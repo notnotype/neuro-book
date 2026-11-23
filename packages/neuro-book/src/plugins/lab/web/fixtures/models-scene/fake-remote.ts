@@ -43,6 +43,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         if (options.slowWrites === true) await new Promise((resolve) => setTimeout(resolve, 20));
     };
     let roles: SnapshotRole[] = json(initial.roles);
+    let catalog: ModelsSnapshot["catalog"] = json(initial.catalog);
     let failing = false;
     const listeners = new Set<(snapshot: ModelsSnapshot) => void>();
 
@@ -50,6 +51,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
     const snapshotOf = (): ModelsSnapshot => ({
         providers: [...providers.values()].map((state) => ({...state.meta, modelCount: state.listed.length, enabledCount: state.listed.filter((row) => row.enabled).length, excludedCount: state.available.length, modelsRevision: `r${String(state.version)}`, connection: connectionOf(state)})),
         roles,
+        catalog,
     });
     const publish = (): void => {
         const next = snapshotOf();
@@ -237,6 +239,17 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         },
         setKey: async ({provider, value}) => setKey(provider, value.startsWith("env:") ? {kind: "env", name: value.slice(4), found: false} : {kind: "stored"}, value),
         clearKey: async ({provider}) => setKey(provider, {kind: "none"}, ""),
+        // 现在更新在线目录：先标在取，下一轮事件循环交回新的时间（模型数不变）。
+        refreshCatalog: async () => {
+            if (!catalog.enabled) return {ok: false as const, code: "catalog-disabled" as const, detail: {detail: "Lab 场景：关掉了在线目录"}};
+            catalog = {...catalog, refreshing: true};
+            publish();
+            setTimeout(() => {
+                catalog = {...catalog, refreshing: false, checkedAt: Date.now(), modelCount: catalog.modelCount ?? 1104, error: null};
+                publish();
+            }, 0);
+            return ok(null);
+        },
         // 重新拉取：先标在拉取，下一轮事件循环交回列表（空白模板把示例候选里还不在列表的放进可加的，目录模板的行不变）。
         refreshSource: async ({provider}) => {
             const state = providers.get(provider);

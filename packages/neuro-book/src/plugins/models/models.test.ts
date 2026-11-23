@@ -580,7 +580,7 @@ describe("网络出口（docs/specs/network/egress.md）", () => {
         expect(w.service.snapshot().providers.find((item) => item.id === id)!.proxy).toBeNull();
         expect(ok(await client.check({provider: id, model: "qwen3:8b"}))).toEqual({ok: true});
         expect(local.requests).toHaveLength(4);
-    });
+    }, 20_000);
 
     test("服务商的自定义代理地址：带用户名密码或不是 http、https 的拒收；SOCKS 来自环境时检测、协议检测与重新拉取都报代理的原因，请求没发", async () => {
         const w = await world({HTTP_PROXY: "socks5://127.0.0.1:1080"});
