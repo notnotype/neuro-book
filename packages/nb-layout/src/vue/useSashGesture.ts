@@ -96,10 +96,15 @@ function winningScope(event: PointerEvent, kind: SashPointerKind): {entry: SashS
     return null;
 }
 
-/** 根在屏幕上的盒比布局盒，每轴一个；量不到（没有布局、尺寸为零）时按 1。 */
+/**
+ * 根在屏幕上的盒比布局盒，每轴一个；量不到（没有布局、尺寸为零）时按 1。
+ *
+ * 只换算缩放：祖先带旋转或斜切时 client rect 是外接框，比例与方向都不对，这种宿主不支持。`offsetWidth` 取整到整数 px，
+ * 没缩放的根也会量出约 `0.5 / 宽` 的偏差，所以两者差不到 1px 时按没缩放算，普通页面的位移逐像素不变。
+ */
 function scaleOf(root: HTMLElement): {x: number; y: number} {
     const rect = root.getBoundingClientRect();
-    const ratio = (shown: number, laid: number): number => (Number.isFinite(shown) && shown > 0 && laid > 0 ? shown / laid : 1);
+    const ratio = (shown: number, laid: number): number => (Number.isFinite(shown) && shown > 0 && laid > 0 && Math.abs(shown - laid) >= 1 ? shown / laid : 1);
     return {x: ratio(rect.width, root.offsetWidth), y: ratio(rect.height, root.offsetHeight)};
 }
 

@@ -354,37 +354,57 @@ test("减少动态效果：悬停照旧要停满时长才显现，线不渐显�
 });
 
 test("Tab 走到分隔线：线立即全亮（输出 14）", async ({page}) => {
+    // 不减少动效：悬停的线要渐显，“立即”才区分得出来（配置缺省是减少动效，那时所有过渡都是 0）。
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await gotoNestedGrid(page);
     const {outerSash} = nestedGridLocators(page);
+    const line = outerSash.locator(".sash-line");
+    expect(await line.evaluate((element) => getComputedStyle(element).transitionDuration)).not.toBe("0s");
     // 从网格前面的按钮按 Tab 进来：键盘聚焦，`:focus-visible` 成立；指针不在线上。
     await page.locator("[data-lab-action=reset]").focus();
     await page.keyboard.press("Tab");
     await expect(outerSash).toBeFocused();
     await expect(outerSash).not.toHaveAttribute("data-sash-revealed", "true");
-    expect(await outerSash.locator(".sash-line").evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+    // 聚焦后第一次读就是 1，也没有在走的过渡。
+    expect(await line.evaluate((element) => ({opacity: getComputedStyle(element).opacity, running: element.getAnimations().length})))
+        .toEqual({opacity: "1", running: 0});
 });
 
 test("祖先缩放：命中按屏幕上的位置，指针位移按根的缩放比换成布局 px（副作用与数据）", async ({page}) => {
     await gotoNestedGrid(page);
-    const {outerSash, gesture} = nestedGridLocators(page);
+    const {outerSash, innerSash, gesture} = nestedGridLocators(page);
     await page.locator("#nb-lab-target").evaluate((element: HTMLElement) => {
         element.style.transformOrigin = "0 0";
-        element.style.transform = "scale(0.5)";
+        element.style.transform = "scale(0.75)";
     });
-    // 分隔线 7px 宽，屏幕上是一半。
-    await expect.poll(async () => (await outerSash.boundingBox())!.width).toBeCloseTo(3.5, 1);
-    const box = (await outerSash.boundingBox())!;
-    const startX = box.x + box.width / 2;
-    const startY = box.y + box.height / 2;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    await page.mouse.move(startX + 60, startY, {steps: 6});
-    await page.mouse.up();
+    // 分隔线 7px 宽，屏幕上是四分之三。
+    await expect.poll(async () => (await outerSash.boundingBox())!.width).toBeCloseTo(5.25, 1);
+    const payload = async (): Promise<{target: Record<string, number>; baseline: Record<string, number>}> =>
+        JSON.parse((await gesture.getAttribute("data-lab-gesture-payload"))!).changes[0];
 
+    // 横向的线：偏离线中心 1px 按下（抓取偏移不为 0），屏幕上拖 60px 是布局里的 80px。
+    const outer = (await outerSash.boundingBox())!;
+    const ox = outer.x + outer.width / 2 + 1;
+    const oy = outer.y + outer.height / 2;
+    await page.mouse.move(ox, oy);
+    await page.mouse.down();
+    await page.mouse.move(ox + 60, oy, {steps: 6});
+    await page.mouse.up();
     await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
-    const change = JSON.parse((await gesture.getAttribute("data-lab-gesture-payload"))!).changes[0];
-    // 屏幕上 60px 是布局里的 120px。
-    expect(Math.abs(change.target.left - change.baseline.left - 120)).toBeLessThanOrEqual(2);
+    const across = await payload();
+    expect(Math.abs(across.target.left - across.baseline.left - 80)).toBeLessThanOrEqual(1);
+
+    // 纵向的线各算各的比例：屏幕上往下拖 30px 是布局里的 40px。
+    const inner = (await innerSash.boundingBox())!;
+    const ix = inner.x + inner.width / 2;
+    const iy = inner.y + inner.height / 2 - 1;
+    await page.mouse.move(ix, iy);
+    await page.mouse.down();
+    await page.mouse.move(ix, iy + 30, {steps: 6});
+    await page.mouse.up();
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "2");
+    const down = await payload();
+    expect(Math.abs(down.target.top - down.baseline.top - 40)).toBeLessThanOrEqual(1);
 });
 
 test("分隔线的对齐只跟挪得动它的滚动：叶里的滚动不排帧、不写分隔线；重新对齐时位置没变也不写", async ({page}) => {

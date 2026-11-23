@@ -33,7 +33,7 @@ function stripComments(text: string): string {
 }
 
 /** 持久化与网络入口：docs/specs/ui/layout-drag.md、ui/nested-grid.md 的“副作用与数据”说状态只在内存里。 */
-const PERSISTENCE = /\bfetch\s*\(|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b/gu;
+const PERSISTENCE = /\bfetch\s*\(|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bsendBeacon\b|\.cookie\b|\bcaches\b/gu;
 
 function persistenceUses(files: ReadonlyArray<string>): string[] {
     return files.flatMap((file) => [...stripComments(readFileSync(file, "utf8")).matchAll(PERSISTENCE)].map((match) => `${relative(SOURCE_ROOT, file)}: ${match[0]}`));
@@ -107,7 +107,7 @@ function domGlobalUses(files: ReadonlyArray<string>): string[] {
 }
 
 describe("副作用与环境", () => {
-    it("核心与 Vue 层不调 fetch，不碰 localStorage、sessionStorage、indexedDB（副作用与数据：只在内存里）", () => {
+    it("核心与 Vue 层不发网络请求（fetch、XMLHttpRequest、WebSocket、EventSource、sendBeacon），不碰 localStorage、sessionStorage、indexedDB、cookie、caches（副作用与数据：只在内存里）", () => {
         expect(persistenceUses(sourceFiles(SOURCE_ROOT))).toEqual([]);
     });
 

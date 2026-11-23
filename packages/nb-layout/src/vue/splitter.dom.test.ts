@@ -1222,6 +1222,7 @@ describe("静止接缝（常驻的 1px 分界线）", () => {
 
 describe("悬停显现与光标所有权", () => {
     it("命中先给光标，停留满 250ms 才显示线，离开即淡出并放开光标", async () => {
+        // test-lint-allow fake-timer: 停留计时用窗口的 setTimeout，没有注入时钟的入口；finally 里换回真计时器
         vi.useFakeTimers();
         try {
             const wrapper = mountSplitter(FREE_PANELS);
@@ -1294,6 +1295,7 @@ describe("悬停显现与光标所有权", () => {
         ["窗口失焦", async (): Promise<void> => void window.dispatchEvent(new Event("blur")), async (): Promise<void> => undefined],
         ["禁用", async (wrapper: VueWrapper): Promise<void> => void await wrapper.setProps({disabled: true}), async (wrapper: VueWrapper): Promise<void> => void await wrapper.setProps({disabled: false})],
     ] as const)("悬停未满停留时长就%s（Spec ui/nested-grid 输出 16）：页面级光标当即拿掉，停留计时也清掉：再悬停要从头停满，旧计时到点不显现", async (_label, interrupt, resume) => {
+        // test-lint-allow fake-timer: 停留计时用窗口的 setTimeout，没有注入时钟的入口；finally 里换回真计时器
         vi.useFakeTimers();
         try {
             const wrapper = mountSplitter(FREE_PANELS);
