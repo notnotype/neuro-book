@@ -115,7 +115,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - 缺省按改动：改动所在的包，加上直接或间接依赖它的包；根 `scripts/` 或根 `package.json` 有改动时加上根脚本测试（`.github/` 的 Issue 表单与标签由 `governance:check` 检查）；`bun.lock`、`bunfig.toml` 或 `patches/` 有改动时选中全部。`--since <rev>` 再算上与 `<rev>` 分叉以来的提交，`--all` 选中全部。
 - `--package <名>`（可重复）：不看改动，只测指定的包，`scripts` 指根脚本测试；加 `--with-consumers` 连同依赖它的包。新增 workspace 包会改 `bun.lock`，缺省方式因此选中全部；这时改用 `--package <新包> --with-consumers`，每个包各写一次 `--package`（不收逗号分隔）。
 - `--tier fast|e2e|llm`：运行哪一类，缺省 `fast`。
-- `--files`：改动所在的包只跑受影响的测试文件（测试脚本是单条 `bun test` 时追加 Bun 的 `--changed`；写成 `bun run a && bun run b` 时逐步运行，其中单条 `bun test` 或 `vitest run` 的一步各自追加 `--changed`）。Bun 按导入关系选文件，不跨包追踪，依赖方的包仍整包运行；只经路径启动的文件（例如子进程入口）改了也选不到，提交前去掉 `--files` 再跑一次。
+- `--files`：改动所在的包只跑受影响的测试文件（测试脚本是单条 `bun test` 时追加 Bun 的 `--changed`；写成 `bun run a && bun run b` 时逐步运行，其中单条 `bun test` 或 `vitest run` 的一步各自追加 `--changed`）。Bun 按导入关系选文件，不跨包追踪，依赖方的包仍整包运行；只经路径启动的文件（例如子进程入口）改了也选不到，扫描源码而不导入它的检查（例如 `packages/neuro-book/src/architecture.test.ts` 的依赖方向）也选不到，提交前去掉 `--files` 再跑一次（w00032 t22：类型从 `backend` 挪进 `shared` 时手挑测试文件，漏了这条检查）。
 - `--typecheck` 同时跑类型检查，`--dry-run` 只列出选中项和原因。
 - 旧应用不参加；准备退役的 `llmlint` 选中了也不跑，在跳过里写明理由。
 
