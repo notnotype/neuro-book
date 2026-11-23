@@ -139,8 +139,19 @@ S4 的做法（文字分页，实现中）：
 - 稿模型（第 4、11、12、13、15、16、17 条）：动过的块记下当时写回哪里，重读发现换了地方列成冲突；涉及拆并的冲突选完不自动提交、回到编辑；新块并进旧块不算拆并；恢复并掉的块时把并过去的文字拿回来；别处在同一处加了剧情块时我的新块排到它后面；块 id 与对象原型的名字重合时不出错；锚点只沿读取位置那条线追。
 - 不改的：第 3 条（尾块被删后同字重建、编号复用：两边看到的完全一样，改了也是同一处同一段字；块的实例标识要改日志里的对象形状）、第 19 条（一项操作改到同一条变更的两个补丁时只有第一条细项带序号，要底层直接发布的变更才造得出来）。第 5 条（整条目超过一次读取的上限时进不了编辑）记为已知限制：写明原因，不做分页读取。
 
+2026-11-23 **两份实现审查处理完**（提交 `d89e49b8a`、`11a16103e`、`98a39cf10`、`18f59f666`）：
+
+- 后端（omp，21 条）：改 18 条，不改 2 条（第 3、19 条），已知限制 1 条（第 5 条）。稿模型 `text-draft.ts` 与登记 `text-drafts.ts` 重写；内核 `textBlocks` 的锚点改成沿读取位置那条线追。逐条见[处理记录](evidences/impl-review-backend-omp-resolution.txt)。
+- 前端（Sonnet，17 条，[报告](evidences/impl-review-frontend-sonnet.txt)）：改 13 条，部分改 3 条，接受取舍 1 条；第 11 条里“未保存文档的断言会空过”经变异检查不成立。逐条见[处理记录](evidences/impl-review-frontend-sonnet-resolution.txt)。
+- 审查指出“丢回复只在客户端外面包一层，造不出请求在途”：新写测试场地 `canon/testing/text-scene.ts`（世界服务在本进程，Storage 的 SQLite 与链路是真的，能停住日志追加、扣住或丢掉回复帧、断开重连）与 `canon/text-drafts-link.test.ts` 的 10 条在途场景。
+- 验证：nb-canon 677 条、应用的 `bun test`（canon、plot、editor、lab、sdk、architecture）764 条、vitest（canon、plot、lab、editor）254 条、两处类型检查、`governance:check`；e2e `canon-write` 5 条（新增 Tab 离开输入框、编辑器加载不了时退回普通文本框照样能提交）、`canon-author` 与 `plot-author` 13 条。变异检查 18 处（协议与暂存 11、内核 1、页面 6）全部有用例变红。Lab 截图看过改动的场景，英文窄屏的状态行折行有问题、已改。
+- Spec（planned）同改：`canon/author-ui.md` 输出 39、44 到 47（换了去处的冲突、放弃删不掉、已删除的条目、什么算确定的结果、主文字太大时进不了编辑），`canon/project.md` 的 `textBlocks`（锚点沿读取线、`too-large`），`workbench/editor.md` 输出 68、69（`commit` reject、Tab、加载不了时的退路）。
+- 待确认清单加了 4 行（换了去处的冲突与涉及拆并时不接着提交；放弃删不掉与已删除条目的稿；状态行不吸顶与 Tab 不缩进；不改的几条审查意见），主文字大小那一行补了读取上限。
+
+稿的协议与暂存是整段重写的，第一轮审查看的是旧代码：对 `82b254a12..18f59f666` 再审一轮（后端 Opus 先审、omp `@review` 后台，前端 Sonnet）。
+
 ## 下一步
 
-1. S4 文字分页（见上），S5 e2e 与收口。
-2. 处理 omp 的后台审查；S2、S3、S4 的前端交 Sonnet 审一次。
+1. 第二轮实现审查的处理。
+2. Spec 晋升核对（t28 的条目，以及 t37 留下的 `canon/agent-tools.md`、`revisions.md` 输出 25、`author-ui.md` 输出 37 到 43），合入 master。
 3. 做完给开发者用，再定“单独编辑一个块”这类交互调整。

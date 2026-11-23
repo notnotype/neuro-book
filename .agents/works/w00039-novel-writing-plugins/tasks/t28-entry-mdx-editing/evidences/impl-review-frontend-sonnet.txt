@@ -1,0 +1,198 @@
+前端实现审查（Sonnet）：w00039 t28，提交范围 e3129eede..b0ac6fae6 的前端部分
+审查对象固定在 b0ac6fae6（detached worktree）。以下按发现顺序追加；末尾给按严重程度排序的有效发现清单。
+没有真实浏览器的判断一律标“从代码推断”。
+
+### 1. 提交入口按条目 id 记一份：两个编辑组里各开一页时，后卸载的那页把另一页的入口删掉，Ctrl+S 静默什么也不做还回报成功
+**严重程度**：重要　**类别**：正确性
+**位置**：canon/web/entry-page.ts:131-133（`onCommitReady` 写 `commits`）、:143-145（`commit`）；canon/web/components/EntryPageHost.vue:617-624（onMounted 交入口、onBeforeUnmount 交 null）
+**现象**：`commits` 是 `Map<条目 id, 提交函数>`。同一个条目在两个编辑组各开一页（右侧拆分、`split-right` 命令都会这样）时，两个 Host 先后挂上，后挂的 `set` 覆盖前一个；其中任何一页卸载（切标签、关页）都执行 `commits.delete(id)`，把还挂着的那一页的入口一起删掉。之后活动标签是那个还挂着的页面：`commit` 是 `async (arg) => { if (arg !== undefined) await commits.get(arg)?.(); }`，取不到就什么也不做，`area.save()` 随后返回 `{ok: true}`。标签上的圆点还亮着、稿还在，Ctrl+S 却无声无息。
+同一个出口还有一条：活动标签刚切过来、`defineAsyncComponent` 的页面还没 `onMounted`（Host 的入口在 onMounted 里才交）时按 Ctrl+S，同样“成功”而没有提交。
+**为什么是问题**：输出 68 的合同是“保存调用它的 commit 并等它完成；失败由页面自己显示”。这里既没提交、也没有任何显示，还让“保存”命令报成功，作者以为已经提交。entry-page.ts 注释里“活动的页面一定挂着”这个前提在上面两条路径上不成立。
+**如何核实**：代码推断即可成立。可写一个 dom 测试：同一条目挂两个 Host（两份 `page.load()` 的组件），卸载先挂的那个，再调 `page.commit!(id)`，断言稿被提交（现在不会）。
+**建议改法**：入口按“页面实例”记（`Map<实例, fn>` 或每次挂上返回一个只删自己的注销函数），`commit` 取最近挂上的；一个都没有时不要假装成功：直接对会话提交（提交本来只依赖 `session`、`world` 与标题，`textTab.submit` 可以挪到不依赖界面的层里，页面没挂也能提交），或者 reject 让保存命令报 `pageCommitFailed`。
+
+### 2. 编辑视图的状态行吸顶在 top:0，与条目页自己的页头吸顶位置重合：滚动时盖住页头
+**严重程度**：重要　**类别**：界面（从代码推断，未在真实浏览器里看）
+**位置**：canon/web/components/EntryTextEditor.vue:187-198（`.text-editor__bar { position: sticky; top: 0; z-index: 1 }`）；对照 canon/web/components/EntryPage.vue:142（页头 `z-[1] … min-[481px]:sticky min-[481px]:top-0`）
+**现象**：宽度 ≥481px 时条目页页头在编辑组的滚动区里吸顶在 0（里面是名字、位置、线、按计划、分页标签），同一个滚动区里编辑视图的状态行也吸在 0，z-index 同为 1，状态行在 DOM 里靠后所以画在上面。往下滚到状态行的自然位置到顶，它不会停在页头下面，而是压在页头最上面那 2.25rem 上，遮住名字与控件；加上整批说明（`basis-full` 另起一行，高度再加一行）遮得更多。Lab 夹具里没有页头，所以场景里看不出来。
+**为什么是问题**：状态行里是“提交”“放弃”和暂存状态，本意是随时点得到；现在它与页头互相抢位置，页头的位置选择、分页标签在编辑中滚动后一部分被盖住。条目页的 `.md`/Spec 没写两个吸顶元素的叠放。
+**如何核实**：在 e2e 环境或开发服务里打开一个有 10 块以上文字的条目（宽 1280），点“编辑”，滚动到中段，截图看页头；或用 Playwright 量 `[data-text-editor] > div` 与 `header` 的 `getBoundingClientRect().top` 是否都是 0（我没有跑）。
+**建议改法**：让状态行的 `top` 等于页头高度，而不是 0。页头高度会随换行变，办法之一是让条目页把页头高度写成 CSS 变量（例如 `--entry-head-height`，用 ResizeObserver 或让页头与状态行同在一个吸顶容器里）；或者把状态行放进 `EntryPage` 的 `#bar` 插槽同一个吸顶页头里。窄屏（≤480）页头不吸顶，那时 `top: 0` 是对的，变量要有回落值。
+
+### 3. 新写的过渡都没有缓动令牌；阅读与编辑视图的切换在 scoped CSS 里复制了一份“内容换页”配方，而且配错了
+**严重程度**：建议　**类别**：界面
+**位置**：canon/web/components/EntryPageHost.vue:1082-1099（`.canon-text-swap-*`）、:861（`<Transition mode="out-in">`）；canon/web/components/EntryTextEditor.vue:215、255、271-288；canon/web/components/TextConflictDialog.vue:130；canon/web/components/EntryText.vue 的 `transition-opacity duration-[var(--motion-fast)]`
+**现象**：
+- `canon-text-swap` 是 `out-in` 换页，却两段都取 `--motion-base`（design-language.md“内容切换走 `--motion-base`”一节的表：`out-in` 入场与退场都取 `--motion-fast`，两段相加要短于 `--motion-move`）；位移是 `translateY(4px)`（该节写的是短横向位移约 6px，不用 scale）；没有缓动。基座里已经有这条配方：`packages/nb-ui/src/styles.css:858-878` 的 `.nb-ui-switch-*`（`<Transition name="nb-ui-switch" mode="out-in">`），该节写明“不要各自在 scoped 里复制一份同配方”。（该节还写“新应用还没有用到这个类名”，已过时：FirstRunWizard.vue 在用。）
+- 所有新写的带位移或淡入淡出的过渡（`text-editor-item-*`、`text-editor-dot-*`、`canon-text-swap-*`）都只写了时长，没写缓动，浏览器回落到默认的 `ease`。design-language.md“缓动”一节与 ui-development-spec.md 第 3 节第 86 行都写“组件不得写死时长或缓动、曲线来自令牌”，有位移的要取 `--motion-move` 配 `--ease-layout`，退场（列表项离开）按该节“退场不用它”配 `--ease-dialog-leave`。`text-editor-item` 用 `--motion-base` 搭位移，按该节“沿用 180ms 的 `--motion-base`，45ms 就走了八成，看着是跳过去的”也偏短。
+- 为 `prefers-reduced-motion` 又写了一遍 `@media`（EntryTextEditor.vue:289-298、EntryPageHost.vue:1093-1098、TextConflictDialog.vue:157-161）：tokens.css:333-340 已经把全部时长令牌在该偏好下置 0，这几段是多余的（无害）。
+**为什么是问题**：开发者 2026-11-23 点名“状态变化要有过渡、时长与缓动取令牌”是反复犯的；同一动作（内容换页）在多处时长不同正是该节要避免的事。
+**如何核实**：读上面几处 CSS；`rg "nb-ui-switch" packages` 看现有消费者；用 Lab 的 EntryTextEditor 场景切换看手感（我没有看真实浏览器）。
+**建议改法**：Host 的换页直接用 `name="nb-ui-switch"` 并删掉 scoped 里的那份；列表项进出与圆点按 design-language 的缓动一节补 `var(--ease-layout)`（进场）与 `var(--ease-dialog-leave)`（退场），位移档用 `--motion-move`；删掉三处多余的 reduced-motion 媒体查询。
+
+### 4. 新组件里大量出现与消失、换内容的地方是一帧换掉，没有过渡（ui-development-spec.md 第 8 节“状态变化有动效”）
+**严重程度**：建议　**类别**：界面（从代码推断，逐处读模板得出）
+**位置与现象**（都没有 `<Transition>`、也没有 CSS 过渡）：
+- EntryTextEditor.vue:110 “未提交 N 块”（`v-if="dirty"`）、:111 “正在确认上一次提交”、:114-117 “用这里的/换成那边的”两个按钮、:118 “再试”、:119-120 “放弃”与“取消”两个按钮互换（`v-if/v-else`，作者敲下第一个字符时整个按钮换成另一个）、:130 整批说明 `<p v-if="message">`（`basis-full` 另起一行，吸顶状态行的高度随之跳一行）、:161 每块下面的原因 `<p v-if="block.problem">`（块的高度跳）、:138-142 删除态与普通态在同一个 `li` 里 `v-if/v-else` 互换（框一帧变虚线行；恢复时输入框重新创建）、:133 最前面的加块按钮 `v-if="!props.frozen"`。
+- EntryTextEditor.vue:111-112：`phase === 'confirming'` 的 `<span v-if>` 接 `<Transition v-else>`，一旦进入 confirming，整个 Transition 被 `v-if` 链换掉，“已暂存”标签没有离场。
+- EntryTextEditor.vue 的 `TransitionGroup`：没有 `-move` 类，离场的 `li` 仍在文档流里直到过渡结束，别的块要等它结束才上移；并且被删的新块在 `onBeforeUnmount` 里立刻 `editor.dispose()`（CodeInput.vue:152-160），框还在淡出而里面的文字已经没了（Vue 先卸载组件、再等 leave 完成才摘元素，从代码推断）。
+- CodeInput.vue:174-183 等宽原文与 Monaco 互换（`stage` 切换）一帧完成，且两边行高不同（`.code-input__plain { line-height: 1.5 }` 对 Monaco 的 `options.lineHeight`），进入视野的块一个个“跳高”；:184 失败说明 `<p v-if>`。
+- TextConflictDialog.vue:96 “每一块都选了才能提交”（`v-if="tried && !complete"`）。
+- EntryText.vue 的“编辑”入口行（`v-else-if="props.editable"`）与空态按钮、每块的剧情菜单行（`v-if="props.story"`，换位置到某一章就整行出现）。
+**为什么是问题**：同第 3 条；并且状态行、块高度的跳动是在用户打字的位置附近发生的，比普通的换页更扎眼。
+**如何核实**：在 Lab 里把 EntryTextEditor 的 `clean`→`dirty`→`message` 场景逐个切换看；静态截图看不出。
+**建议改法**：整批说明、块的原因、冲突页脚的提示用同一个“高度 0 到自然高度 + 淡入”的小过渡（或让这些行预留高度，换状态不改尺寸，这也是第 8 节“换状态不变尺寸”那条）；“放弃/取消”改成同一个按钮只换标签与确认流程，或两个按钮包进同一个 `Transition`；写不加动效的理由时挑高频更新的（输入框内容不加）。
+
+### 5. 提交被拦（只读、独占、断开、位置在按计划）时，Ctrl+S 与“保存”命令没有任何反馈；禁用的“提交”的原因只在 `title` 里
+**严重程度**：重要　**类别**：正确性 / 界面
+**位置**：canon/web/text-tab.ts:203-208（`submit` 开头 `if (state.draft === null || state.phase !== "idle" || options.blocked() !== "" || !dirty.value) return;`）；canon/web/components/EntryTextEditor.vue:121-129
+**现象**：`dirty` 公开状态只看稿有没有未提交内容，不看世界能不能写。世界变成只读、被别的调用方独占、连接断开、或作者把位置开关切到“按计划”（这些都在 `blocked()` 里）以后，稿仍是脏的，Ctrl+S 照样走到 `commit` → `textTab.submit()`，第一行就静默返回，`message` 不设、没有弹提示；`area.save()` 返回 `{ok: true}`。作者按了 Ctrl+S，什么也没发生，界面上没有一个字解释。点按钮那条路径看得到“提交”变灰，但原因只写在 `title`（悬停才有；键盘用户永远拿不到，禁用的按钮也不可聚焦，读屏读不到）。
+同样的静默还有 `!dirty`（没有改动）与 `phase !== "idle"`（正在提交或等结局）：这两种静默可以接受，但被拦的原因（需要作者去处理的）不行。
+**为什么是问题**：开发者 2026-11-23 的决定里“Ctrl+S 等于提交”，作者的预期是提交成功或看到原因。输出 68 写“失败由页面自己显示”，这里被拦属于失败的一种，却没有显示。
+**如何核实**：代码推断；也可补一个 dom 测试：把世界置为独占（canon 的 dom 测试已有“别的调用方独占写入”的做法，entry-page.dom.test.ts:945）、编辑一块、调用 `page.commit!(id)`，看 `[data-text-message]` 是否出现。
+**建议改法**：`submit` 在 `blocked() !== ""` 时把原因写进 `message`（就是 `submitBlocked` 的那句），按钮路径与 Ctrl+S 路径一样可见；提交按钮的禁用原因同时作为一行可读的状态行文字（或 `aria-describedby`）而不只放 `title`。
+
+### 6. 代码输入框是异步组件：`ref` 要等它加载完才有，焦点交接有三处依赖“这时已经有了”；加载失败时输入框消失且没有退路
+**严重程度**：建议　**类别**：正确性 / 健壮性
+**位置**：editor/web/plugin.ts:433-434（`defineAsyncComponent(() => import("./components/CodeInput.vue"))`，没有 errorComponent 与 onError）；canon/web/components/EntryTextEditor.vue:63-77、151-153；canon/web/components/EntryPageHost.vue:599-611（`focusFirst`）
+**现象**：
+- Vue 3.5.39 对异步包装组件的函数 ref 只在内层组件解析之后才转发（runtime-core.cjs.js:1754-1759）。所以窗口里第一次出现 CodeInput 时，`setInput(key, instance)` 要等 chunk 到了才调。`startEditing` 的 `focusFirst` 在 Transition 的 `after-enter`（`--motion-base` 180ms 以后）一次性消费：chunk 还没到（开发服务第一次转译、慢盘）时 `focusBlock` 落空，`focusFirst` 已被置回 false，没有重试——点“编辑”后焦点不进第一块。从代码推断，生产环境多半赶得上，开发服务与冷启动不一定。
+- `focusAfter` 同理：用 `nextTick` 以后按“新的块序”找键，宿主是同步给块的（`session.edit` 同步改 `state.draft`）所以现在可行；但 EntryTextEditor 的 `.md` 把它写成受控组件的合同（“宿主给出新块以后焦点进新块”），宿主晚一拍（例如先等存储）给块时落空。更稳的是组件自己 `watch` 块序出现目标键后再 `focusBlock`。
+- 异步组件加载失败（chunk 404、版本换了）：没有 `errorComponent`，渲染 null，每个块只有框头与按钮、没有输入框，作者没法编辑，也没有错误提示。`loadMonaco` 失败时 CodeInput 自己写原因，但同样“不能编辑”（CodeInput.md 把这写成已知状态）。EntryTextEditor 有现成的 `PlainSourceInput`，却只在“窗口里没有编辑器插件”时才用，加载失败时不回落。
+- `activate()` 里 `monaco.editor.create(...)` 抛错（worker 建不起来等）没有 catch：`started` 已为真、`stage` 停在 plain，之后聚焦也不会重试，只有一条未处理的拒绝。
+**为什么是问题**：输入框是这个功能的核心，失败时作者看到的是空框；焦点落空是“点了编辑却不能直接打字”的小回退，但每次冷启动都可能遇到。
+**如何核实**：代码推断；失败路径可在 Lab 里把 CodeInput 的 import 改成 reject（我没有做）。
+**建议改法**：`defineAsyncComponent` 给 `onError`/`errorComponent`，EntryTextEditor 在输入框不可用时用 `PlainSourceInput` 回落；CodeInput 的 `failed` 阶段也可以直接渲染一个只含原文的 `<textarea>` 并继续交回改动，而不是只读 `pre`；焦点交接改成“目标键的输入框就绪后再给”（`setInput` 记下待聚焦的键，登记时检查）。
+
+### 7. 内嵌的 Monaco 默认吞 Tab：键盘用户进了一块就出不来，只能靠不可见的 Ctrl+M；输入框回落到普通文本框时行为又不同
+**严重程度**：重要　**类别**：界面（可访问性，从代码推断）
+**位置**：editor/web/components/CodeInput.vue:72-95（`monaco.editor.create` 的选项里没有 `tabFocusMode`，也没有别的离开输入框的办法）；canon/web/components/EntryTextEditor.vue:97-100
+**现象**：Monaco 默认 Tab 在文字区里插入制表符，焦点不离开（`IEditorOptions.tabFocusMode` 默认 false；离开要按 Ctrl+M 切“Tab 移动焦点”，界面上没有任何提示，仓库里也没有处理，grep `tabFocusMode|toggleTabFocusMode` 在 packages/neuro-book/src 无命中）。编辑视图一页里是“框头三个按钮 → 输入框 → 在这里加一块”重复排下去，键盘用户 Tab 进第一个输入框（`pre` 聚焦即建 Monaco 并把焦点交进去）以后，再按 Tab 只会往主文字里插制表符，到不了这一块的“在这里加一块”，也到不了下一块与顶上的“提交”。Esc 在“有改动”时又不接（EntryTextEditor.vue:99），所以没有任何键能离开。对写小说的主文字，Tab 插入的缩进放在段首还会让 Markdown 把这一块变成代码块。回落到 `PlainSourceInput`（普通 `<textarea>`）时 Tab 正常移焦点，两条路径的键盘行为不一致。
+**为什么是问题**：开发者要求“先保证功能与 UX”，输出 69 要求代码输入框能嵌进别的插件的页面；嵌进有大量按钮的页面时，焦点陷阱（WCAG 2.1.2）是这个组件的责任。仓库里已有类似问题的做法：SettingsFileView.md 第 24 行（`Tab` 插入空格，第一次 `Esc` 先“放开 Tab”，再按一次才交给窗口）。
+**如何核实**：Lab 里 CodeInput 的 `stack` 场景，点进第一个框按 Tab，看焦点是否去了第二个框（我没有跑）；或 `getContextKeyValue`/截图看不到，需要真实浏览器。
+**建议改法**：CodeInput 默认把 `tabFocusMode: true`（嵌入的输入框里 Tab 是导航，缩进用空格键或 `Ctrl+]` 这类 Monaco 命令），并在 CodeInput.md 里写清；或照 SettingsFileView 的做法加“Esc 放开 Tab”。同时 EntryTextEditor 的 Esc 取消要避开“正在组字”（`event.isComposing`，中文输入法按 Esc 取消候选时不要把整个编辑取消），目前只判了 `defaultPrevented`。
+
+### 8. “有没提交的主文字时剧情入口不可用”那条分支在组件树里到不了，对应的用例不会失败
+**严重程度**：建议　**类别**：测试 / 代码质量
+**位置**：canon/web/components/EntryPageHost.vue:626-629（`storyReason` 的第一行 `if (textTab.dirty.value) return port.t(text("block.storyPending"))`）、:861-896（阅读视图 `EntryText` 在 `v-else`）；canon/web/entry-page.dom.test.ts 新增用例“剧情的入口只在选了某一章时出现…”的最后两行；locales 的 `block.storyPending`
+**现象**：`textTab.dirty` 为真必然 `state.draft !== null`，也就是 `textTab.editing` 为真，这时模板渲染的是 `EntryTextEditor`，`EntryText`（以及它的剧情菜单）根本不在页上（只在 `out-in` 离场的那 180ms 里还在）。所以 `storyReason` 的这一行与 `block.storyPending` 文案实际用不上。用例最后一段 `await startEditing(wrapper); expect(wrapper.find("[data-block-actions]").exists()).toBe(false);` 也只是在验证“编辑视图里没有阅读视图”，用例的注释自己写了这点（“这里看的是编辑期间它不在页上”）；删掉 `storyReason` 的这一行它照样过。
+**为什么是问题**：Spec 的“有没提交的主文字时入口不可用”靠“不显示”满足，代码却又留了一套禁用分支与文案，读的人会以为两个视图可以同时出现；用例声称覆盖了、实际没有。
+**如何核实**：把 `storyReason` 的第一行删掉跑 entry-page.dom.test.ts（变异检查由主会话做），预期仍全过。
+**建议改法**：删掉这一行与 `block.storyPending`（zh-CN、en-US 与 EntryText.md/EntryPageHost.md 里的相应句子），文档里写“编辑期间阅读视图不显示，所以没有剧情入口”；用例改成断言编辑视图在时 `[data-text-edit]`、`[data-block-actions]` 都不存在，且放弃后它们回来。
+
+### 9. 冲突对话框“回去再改，选过的不丢”与实现不符；关掉以后要重新提交才能再看到它，选择已被清掉
+**严重程度**：建议　**类别**：文档 / 正确性
+**位置**：canon/web/components/TextConflictDialog.md“布局与交互”最后一段；canon/web/text-tab.ts:164-167（`report` 的 `conflicts` 分支 `for (const key of Object.keys(choices)) delete choices[key]; asking.value = true;`）、:261-263、:264-268
+**现象**：`.md` 写“‘回去再改’关掉对话框、选过的不丢”。对话框只有两条路打开：提交 → `report("conflicts")`，而这一步先清空 `choices` 再 `asking = true`。所以“回去再改”之后再点“提交”重开，选过的已经没了（会话里的 `state.conflicts` 还在，界面上没有任何入口或标记提示还有没定的冲突）。另外页面卸载再挂上时 `choices`、`asking` 都是页面内的（`useTextTab` 每次挂上新建），冲突列表在会话里，作者切走再回来也看不到对话框，只能再点“提交”，同样清选择。
+**为什么是问题**：文档与行为不一致；多块冲突时选了几条再“回去改”的作者要重选。
+**如何核实**：读 `report`；或在 entry-page.dom.test.ts 的冲突用例里选一条、点“回去再改”、再点“提交”，看 `aria-pressed`（我没有跑）。
+**建议改法**：二选一：把选择存进会话（或至少在 `report("conflicts")` 里只清掉已经不在 `state.conflicts` 里的键），让文档为真；或改文档，去掉“选过的不丢”。
+
+### 10. 条目被删除后稿还在、标签有圆点、Ctrl+S 照发，但编辑视图已经被页头的“已删除”整块替掉，失败也看不到；计划第 6 节写的“条目已删除时提交不可用”没有实现
+**严重程度**：重要　**类别**：正确性（内核对已删条目上 `set` 的回应未验证）
+**位置**：canon/web/components/EntryPageHost.vue:243（`editBlocked = state.planned ? … : blocked.value`，`blocked` 是 `writeBlocked(world)`，只看世界）、:589-598（`useTextTab({blocked: …})`）；canon/web/components/EntryPage.vue:131-139（`status === 'deleted'` 时不渲染默认插槽）；canon/web/text-tab.ts:203-208
+**现象**：别处（或别的窗口）删了这个条目：`view.deleted` 为真，`status = "deleted"`，EntryPage 只画“这个条目已删除”与“恢复”，插槽（编辑视图）不渲染。但稿在会话里没动，`uncommitted` 仍真（标签圆点还在），`dirty` 公开状态仍真，Ctrl+S → `commit` → `submit()`：`blocked()` 只检查世界只读、独占、断开和“按计划”，不检查条目已删除，请求照发。失败的原因写进 `message`，而 `message` 在已经不渲染的编辑视图里。作者按 Ctrl+S 看不到任何结果。
+计划第 6 节“只读、独占、断开、条目已删除时提交不可用、暂存留着”这一行里，“条目已删除”这一项在前端没有对应的判断（只读、独占、断开是 `writeBlocked` 带来的）。
+**为什么是问题**：同第 5 条的“静默”；并且这是稿最该保住的场景之一（作者写了很多字，条目被别处删了），应该是“提交不可用、稿留着、能复制”，而不是请求发出去再看内核怎么说。
+**如何核实**：读代码即可确认前端没有判断。要看后果：用 entry-page.dom.test.ts 里“删除条目”那条的做法删掉条目，再 `page.commit!(id)`，看请求是否发出（我没有跑）。
+**建议改法**：`blocked`（或 `submit`）加上 `view.deleted`，并且删除态下编辑视图仍然渲染（至少能复制稿的文字、能放弃），例如 EntryPage 的 deleted 分支下仍给一个插槽，或者 Host 在 deleted 且有稿时把编辑视图放进已删除提示下面。补用例（见第 11 条）。
+
+### 11. 计划第 6 节里前端的几行没有被断言到，另有几条断言会空过
+**严重程度**：重要　**类别**：测试
+**位置**：editor/web/pages.dom.test.ts（新增“输出 68”一组）；canon/web/entry-page.dom.test.ts（“写入”一组新写的五条）
+**现象**（逐行对第 6 节）：
+- “只读、独占、断开、条目已删除时提交不可用、暂存留着 | canon 的 vitest”：新增的五条里没有任何一条。只读、独占的用例（entry-page.dom.test.ts:945、:993）测的是就地改，不是按块编辑；`submitBlocked`、“编辑”按钮的 `editReason` 都没有断言；条目已删除见第 10 条。
+- “有稿时位置与‘按计划’锁住；稿的位置读不出来时只能复制与放弃”：第一条用例只断言 `[data-position-locked]` 存在、放弃后消失。没有断言“锁住”的实际含义：换 `state.position`/开 `state.planned`/换窗口线以后这一页仍读稿开始的位置（`lockedAt`）；稿的位置读不出来（章被删，`frozen`）时界面只列文字、`readonly`、只有“放弃”：只有 Lab 场景（EntryTextEditorFixture 的 `frozen`），没有行为用例。会话层 text-drafts.test.ts:459 测了 blocker，没有到界面。
+- “Ctrl+S 提交且只提交一次”：editor 的用例 `committed` 数组断言了一次调用；canon 用例 `await page.commit!(id)` 之后没有数修订条数；“连按两次”（重叠调用）没有用例，pages.ts 把重叠交给页面自己合并，实现里靠 `phase !== "idle"` 早退，没人测。
+- “非活动的页面标签也有圆点”覆盖了；但“贡献撤回、页面还没交付实现时圆点与 `commit`”没有用例；“同一个条目两个编辑组各开一页”（第 1 条）没有用例。
+- 会空过的断言：pages.dom.test.ts“页面没有文档：不进‘未保存的文档’”一段 `expect(scene.state.hasUnsavedDocuments.value).toBe(false)`：这个场景里没有打开任何文件文档，`hasUnsavedDocuments` 本来就是 false，实现把页面算进去也过（`needsSaving` 只看 documents）。要测这条就先打开一个脏的文件文档，断言“未保存”计数是 1 而不是 2。entry-page.dom.test.ts 最后一条的 `[data-block-actions]` 不存在断言空过，见第 8 条。
+- CodeInput 的“回声”（受控文字回写不重设、换文字保光标）、IntersectionObserver 与聚焦两条建编辑器的路径、`theme-follow` 的计数，没有任何自动化覆盖：happy-dom 里没有 Monaco，entry-page 的用例都走 `PlainSourceInput` 回落，Lab 只有静态场景。至少 `theme-follow.ts` 是纯函数式的，可以直接写 dom 测试（计数：两个使用方、重复释放、全部释放后再来一个）。
+**为什么是问题**：计划写的验收行是这次功能的合同；没有断言的行等于没有验收。
+**如何核实**：对照 plan.md 第 6 节与上面的测试名；`rg "只读|独占|frozen|已删除" src/plugins/canon/web/entry-page.dom.test.ts` 看不到按块编辑的命中。
+**建议改法**：补 4 条 dom 用例（世界只读/独占时提交被拦并写原因；条目已删除；稿锁位置读取；重叠 Ctrl+S）+ theme-follow 的计数用例；把“hasUnsavedDocuments”那条改成会失败的。变异检查请主会话做：删掉 `lockedAt`、`blocked()` 判断、`pageCommit` 分支各看一次哪些用例变红。
+
+### 12. 新写的界面文字里有几句是在解释系统内部怎么处理，不是状态或错误（开发者 2026-11-23 点名的“界面不写说明”）
+**严重程度**：建议　**类别**：界面
+**位置**：canon/locales/zh-CN.json（en-US.json 对应）的 `textEdit`、`block` 两段，逐句过的结果：
+- 该改（在讲规则、内部模型或处理方式）：
+  - `textEdit.locked`“有没提交的主文字，位置先停在开始编辑的地方”——解释位置锁的机制，是三个禁用控件的悬停文字。改成状态一句即可，如“有没提交的主文字，不能换位置”，机制进 EntryPageHost.vue 的注释与 Spec 输出 46。
+  - `textEdit.blockedBeforeStory`“这里后面紧挨着剧情加出来的块，放不了新块”、`blockedNotAdjacent`“这两块之间还有这个位置上看不到的块，不能并”、`problemSlot`“这一块放不进这里：后面紧挨着剧情加出来的块”、`conflictLockedEdit`“这一块现在只能改字，拆与并的结果发不出去”：把内核“初值与剧情变更”的内部模型原样搬到作者眼前，作者读不出下一步该做什么。保留结果即可：“这里放不了新块”“这两块不能并”“这一块放不进这里”“这一块现在只能改字”，来由进 `text-draft.ts` 头注释（已经有）与 author-ui.md。
+  - `block.changedElsewhere`“这一块刚被别处改了，下面对照的原文换成了现在的”：描述对话框自己的行为；状态是“这一块刚被别处改了”，下面列出现在的原文本身就说明了对照。
+- 可以留（状态、错误、后果、操作）：`diverged`、`confirming`、`notSaved`、`tooLargeToSave`、`resultTooMany/TooLarge/NotSaved/Contended/NotPublished`、`blockerChapter/Line/Entry`（带下一步）、`problemRejected`、`conflict*` 的各选项名、`discardDescription`“暂存的内容会一起删掉。”（后果）、`blockedStory`“剧情改过这一块，只能改字”、`blockedCarried`。editor 新加的一句 `refusal.pageCommitFailed` 是错误，可留。
+- 同类：`textEdit.saved`“已暂存”在每次暂存成功以后一直显示（EntryTextEditor.vue:56-61、112），常态占着状态行；`unsaved` 才是值得读的变化，可以只在 failed/too-large/diverged 时显示，已暂存用圆点的状态表达。
+**为什么是问题**：规则同第 12 条标题；英文串逐字对应，改的时候两个目录与 Lab 夹具里手写的同句（lab/web/fixtures/index.ts 的 EntryTextEditor 场景里复制了 `blocked` 文案）要一起改。
+**如何核实**：读两份 locales 的 `textEdit`、`block`。
+**建议改法**：如上；Lab 夹具里的文案改成取 canon 的 catalog，免得和 locales 漂移。
+
+### 13. 提交按钮的悬停写死 `'Ctrl+S'`；“保存”命令的描述没有写它现在也能提交页面
+**严重程度**：建议　**类别**：代码质量 / 文档
+**位置**：canon/web/components/EntryTextEditor.vue:126（`:title="props.submitBlocked !== '' ? props.submitBlocked : 'Ctrl+S'"`）；editor/web/commands.ts:94（`SAVE_COMMAND` 的 description）
+**现象**：
+- macOS 上快捷键是 ⌘S，commands/shared/keybinding.ts 有 `formatKeybinding(binding, platform)` 与 `currentKeyPlatform()` 专门按平台写给人看（命令面板、菜单共用，Spec“快捷键的显示”）。这里是不经翻译、不经平台判断的英文字面量；Ctrl+S 也不是命令的声明键位而是 `useEditorGroupRoot` 里写死的（useEditorGroupRoot.ts:13-16），文字与实际可以漂移。
+- `nbook.editor.save` 的 description 仍写“Save the active document against its disk baseline; a changed disk is reported as a conflict, never overwritten.”，它现在对活动的页面标签是“提交页面的未提交内容”（条目页：发布一条修订）。这个命令 `expose.agent: "confirm"`，代理按描述决定要不要调用，描述不全等于让代理不知道自己会发布一条世界修订。
+**如何核实**：读两处。
+**建议改法**：按钮提示用 `formatKeybinding("Mod+S", currentKeyPlatform())`（组件保持受控的话，由宿主算好以 prop 传下去，或干脆不写这句提示：它是一个快捷键提示，不是状态）；命令描述补一句“when the active tab is a page that reports uncommitted content, commits it instead”。
+
+### 14. 稿锁住位置以后，页内还有三处仍按 `state.planned`/`state.position` 判断；`TextTab.lockedAt` 是没人用的重复实现
+**严重程度**：建议　**类别**：正确性 / 代码质量
+**位置**：canon/web/components/EntryPageHost.vue:125-127（`lockedAt`、`position`、`mode`）、:148（`headSource`）、:243（`editBlocked`）、:589-598；canon/web/text-tab.ts:51、224（`lockedAt`）
+**现象**：
+- `mode` 在有稿时强制 `actual`，但 `editBlocked` 仍是 `state.planned ? blocked.planned : blocked.value`，并且“按计划”开关被 `positionLocked` 锁成禁用。同一个条目在另一个编辑组里还有一页、那页的 `state.planned` 是 true 时（会话共用，那页也会切到编辑视图），这一页的“提交”因 `submitBlocked = "先关掉按计划"` 不可用，而能关掉它的开关被锁着：只剩“放弃”。跨窗口同理（稿存在本机记录里，别的窗口的标签页状态可以是按计划）。
+- `headSource`：`state.position === null && !state.planned ? entry.value : undefined` 假定 `entry.value` 是缺省位置的读取，有稿时它是稿开始位置的读取，标签标题与面包屑里的名字会变成那个位置上的名字（改过名字的条目），提交或放弃后又变回来。
+- `TextTab.lockedAt` 导出了但没有任何使用方，Host 自己又写了一份 `props.draft.state.draft?.at ?? null`（因为 `useTextTab` 要 `position()` 参数，在 `position` 计算之后才建）。两处会漂移。
+**为什么是问题**：锁住位置的意图是“有稿时读取与写入都在稿的位置、实际模式”，应当是一处判断。
+**如何核实**：读代码。第一条可以用 entry-page.dom.test.ts 的 `open()` 开两个同条目的页（`state.planned = true` 的那一页）验证（我没有跑）。
+**建议改法**：Host 把 `lockedAt` 交给 `useTextTab` 用（或 `useTextTab` 导出的那份在 Host 里被消费，`position` 用 `textTab.lockedAt`，建立顺序用 `computed` 里延迟读解决）；`editBlocked` 与 `headSource` 在 `lockedAt !== null` 时不读 `state.planned`/`state.position`。
+
+### 15. `uncommitted(entry)` 在标签条的计算里发起存储读取、读块、乃至重发上一次提交；会话登记只增不减
+**严重程度**：建议　**类别**：代码质量 / 不变量
+**位置**：canon/web/text-drafts.ts:540-548（`uncommitted`：`if (!current.state.loaded) void current.load();`）、:422-447（`load` 在有 `pending` 时 `await confirm()`）、:531-538（`sessions` Map）；调用方：editor/web/components/EditorGroupHead.vue:96-97（`tabs` computed）、editor/web/state.ts:90（`dirty` computed）
+**现象**：
+- 计算（computed）里的读取带副作用：第一次读某个条目就开存储记录、读稿、读 `textBlocks` 并 `rebase`，稿带 `pending` 时还会走 `confirm()`——对世界发一次 `editEntries` 重发或 `outcome` 查询。这些发生在“标签条渲染”这个与页面是否打开无关的时机（刷新后每个条目页标签都会触发），而且发布成功时 `settle` → `clear()` 没有给作者任何提示（`report()` 里的提示只在页面挂着时才有）。幂等（`loading ??=` 只跑一次）所以不会循环，但 pages.ts 的约定只说“它读的状态不能放在页面组件里”，没有说读它可以发请求。
+- “第一次问时为假，读到之前为假”：刷新后有稿的标签，圆点与 `dirty` 在存储读完之前是灭的；活动标签恰是这个条目页时，这段时间里“保存”命令不可用。窗口很短，但这是“读取返回值依赖谁先问”的写法。
+- `sessions` 条目页标签关了也不删（稿放弃、提交都不删会话），一个窗口里开过多少条目就留多少份响应式状态。量小，但没有上限。
+**为什么是问题**：副作用放在响应式读里，换一种渲染时机（例如标签条虚拟化、懒渲染）行为就变；读者看 `EditorGroupHead` 不会想到它会触发一次重发。
+**如何核实**：读代码；写一个测试：存储里放一份带 `pending` 的稿，只挂 `EditorGroupHead`（不挂页面），看 `editEntries` 是否被调用（预期被调用）。
+**建议改法**：让“恢复有稿的条目页标签”显式做一次预载（页面实现的 `initialState`/插件激活时对 `restore` 的标签调 `drafts.session(id).load()`），`uncommitted` 只读状态；或者保留现在的写法但在 `text-drafts.ts` 注释里写明“读它会发起存储读取，有 pending 时会确认”，并让会话在稿清掉且没有页面挂着时从 `sessions` 里删。
+
+### 16. 组件文档与 Lab 场景的几处缺口，以及输入框一些小问题
+**严重程度**：建议　**类别**：文档 / 界面
+**位置与现象**：
+- editor/web/components/CodeInput.vue:174-182：等宽原文的 `<pre>` 有 `tabindex="0"` 与 `aria-label` 却没有角色。`pre` 是通用元素，读屏会忽略 `aria-label`，进了这个停靠点只读到文字本身，不知道是“可编辑的输入框”。加 `role="textbox" aria-multiline="true"`（失败态去掉 tabindex 时同时去掉 role）。`CodeInput.md` 说它“能用 Tab 聚焦”，没有说读屏怎么报。
+- CodeInput.vue:123-134 用 `model.setValue` 换内容：撤销历史清空（`.md`“不支持”里写了）。但按块编辑里“从光标处拆开”“并到上一块”恰好都是宿主改某块的文字，所以拆开、并块以后 Ctrl+Z 在那个块里无效。如果要保留历史，用 `model.pushEditOperations` 做一次全文替换。这是已知取舍，列出来给主会话定要不要接受。
+- CodeInput.vue:174-177：原文阶段只设了 `fontSize`，行高写死 `1.5`；Monaco 阶段用 `options.lineHeight`；PlainSourceInput 是 `1.7`。三个行高不一致，进入视野一块块建 Monaco 时每块高度会变（见第 4 条）。
+- Lab：CodeInput 没有“Monaco 加载失败”场景（`.md` 的“状态”列了 plain、ready、failed、只读，Lab 里只有后两者之一的静态外观）；EntryTextEditor 没有 `saved: "too-large"`、`unsaved`（正在打字）、`state: "gone"` 的块；“另一个窗口也在改”那一场景在 390 宽下状态行会折成三行以上（状态文字一句加四个按钮），没有 390 宽的场景可量，吸顶以后它占掉多少视口（第 2 条）没人看；英文场景的 `blocked` 文案是手写进夹具的，不是取自英文 catalog，实际的英文长句（如 `blockedNotAdjacent` 一句 17 个词）在框头按钮行里会不会截断没有被检查（框头按钮是 `Button size="sm"` 不换行的话，“Split at cursor / Merge into previous / Delete”三个英文按钮加来历一句在 390 宽要折到第二行，`.md` 写了折行，夹具没有场景证明）。
+- PlainSourceInput 的 `max-rows="40"` 之后文本框自己出纵向滚动条，而 CodeInput 没有自己的滚动条（滚轮交给页面）；退路与正路在长块上的滚动行为不同，`PlainSourceInput.md` 写“合同相同”，没写这点。
+**为什么是问题**：components.md 要求 `.md` 与 Lab 覆盖文档列出的状态；这些缺口都是“只在真实浏览器里才看得出”的那类。
+**如何核实**：对照 `CodeInput.md`“状态”一节与 `lab/web/fixtures/index.ts` 的 `CodeInput`、`EntryTextEditor` 场景表（我没有开浏览器）。
+**建议改法**：补 CodeInput 的 `failed` 场景（夹具里让 `loadMonaco` reject）、EntryTextEditor 的 `too-large`、`unsaved`、`gone` 与一个英文的 `diverged`；`pre` 加角色；行高三处取同一来源（`options.lineHeight`）。
+
+### 17. 点“编辑”但读不出块时，原因写进了只有编辑视图才显示的 `message`：阅读视图上什么也没有；`focusFirst` 的一次性旗标会在之后无关的时机偷焦点
+**严重程度**：建议　**类别**：正确性
+**位置**：canon/web/text-tab.ts:238-244（`start` 失败时 `message.value = blockerText(failed)`）、:233（`editor.message`）；canon/web/components/EntryPageHost.vue:601-611、:861-896
+**现象**：
+- `start()` 调 `session.begin(position)`，读块失败（`chapter-not-found`、`line-not-found`、`entry-missing`、`unavailable`）时 `begin` 返回原因、不建稿，`start` 把原因写进 `message`。`message` 只经 `textTab.editor.value.message` 传给 `EntryTextEditor`；失败时 `textTab.editing` 为假，页面仍是阅读视图（`EntryText`），它没有任何地方显示整批的说明。作者点“编辑”，没有任何变化，也没有错误。
+- `startEditing` 先把 `focusFirst = true` 再 `await textTab.start()`。`focusFirst` 只在 `focusEditor`（编辑视图的 `after-enter`）里清掉。读块失败、或读块期间作者切到了“情节”分页，旗标一直留着，等以后任何一次编辑视图进场（比如从别的窗口 `adopt` 来一份稿、刷新后恢复稿、几分钟后回到文字分页）才把焦点抢到第一块。
+**为什么是问题**：主入口的失败没有反馈；旗标的作用域是“这一次点击”，却存成了页面级变量。
+**如何核实**：代码推断即可。复现：把世界客户端的 `textBlocks` 换成返回 `unavailable`（entry-page.dom.test.ts 的 `countedClient` 一类的包装），点“编辑”，看 `[data-text-message]`（不存在）。
+**建议改法**：`start` 失败时把原因放进阅读视图能显示的地方（例如页头下面的一行 `role="alert"`，同 `actionError` 的写法），或直接用 `actionError`；`focusFirst` 在 `start()` 返回（成功或失败）后与 `focusEditor` 一并清掉，或改成 `start()` 返回成功时才置位。
+
+## 更正（追加）
+- 第 12 条“规则同第 12 条标题”应读作“规则同本条标题”；其中 `textEdit.saved`“已暂存”常驻状态行一项是取舍，不算违规，可以不改。
+- 第 13 条建议用 `formatKeybinding`：它在 commands/shared/keybinding.ts 而不是 shared/contracts.ts，canon 引它前要先看“插件之间只引对方的 shared/contracts.ts”的规则是否放行；放不行就由宿主给文字或去掉这句提示。
+- 第 16 条里“英文 `Button size=sm` 在 390 宽是否折行”是我的推测，没有量过，只作为“Lab 没有场景能证明”的例子。
+
+## 未发现问题的方面（仔细检查后）
+- Ctrl+S 与浏览器保存：`useEditorGroupRoot.ts:13-27` 对 Ctrl+S 一律 `preventDefault` 后交给“保存”命令，Monaco 自己不绑 Ctrl+S，不会既弹浏览器保存又触发命令。
+- `theme-follow.ts` 的计数：组件加载失败（没走到 `followMonacoTheme`）、卸载发生在加载途中（`unmounted` 判断在它之前）、重复释放（`released` 标志）三种情形计数都对；MonacoControl 与 CodeInput 共用一个观察器，最后一个释放后断开。
+- CodeInput 的回声：与模型相同的值不重设（`model.getValue() === text`），换文字时保留光标；组件在加载 Monaco 途中卸载时 `editor`/`model` 不泄漏（`activate` 在每个 await 之后都判 `unmounted`）；`IntersectionObserver` 在 `activate` 与卸载时都断开，一页二十个也没有遗留监听。
+- `setInput` 函数 ref：Vue 3.5.39 对函数 ref 每次更新用当前实例调用、卸载时置 null，函数身份每次不同不会丢实例（只有异步包装组件在解析前拿不到，见第 6 条）；TransitionGroup 离场的 `li` 里组件已先卸载，`inputs` 已清。
+- 页面合同：`uncommitted` 读的是会话里的响应式状态，在标签条与公开状态的计算里调用不会循环；贡献撤回后 `implementationOf` 返回 null，圆点灭、`commit` 为 null，保存回到 `noActiveDocument`；`hasUnsavedDocuments`、全部保存与关窗结算仍只看文件文档（输出 68），`dirty` 公开状态只让“保存”命令可用；`commit` 重叠由页面的 `phase !== "idle"` 早退合并。
+- 命令与状态之外的既有行为：别的页面标签（没给 `uncommitted`/`commit`）圆点与保存可用性不变；文件标签的 `dirty` 圆点路径没改。
+- 组件文档与实现：EntryTextEditor、CodeInput、TextConflictDialog、PlainSourceInput、EntryText、LineSelect、EntryPage、EntryPageHost 的 props、emits、expose 与隐藏通道标签与实现一致（除第 9 条那一句）；zh-CN 与 en-US 的键对齐（locales.test 通过）。
+- 跨插件引用：canon 只引 `editor/shared/contracts` 与既有的 `editor/web/pages`，editor 没有反向引 canon。
+- 验证（只读，我跑的）：`bun run typecheck`（tsc、vue-tsc web、vue-tsc browser-test）退出码 0；`vitest run` 的 pages.dom.test.ts 与 entry-page.dom.test.ts 共 41 条全过；`bun test` 的 text-draft.test.ts、text-drafts.test.ts、两份 locales.test.ts 共 30 条全过。没有跑 e2e、没有开浏览器，凡标“从代码推断”的都没有真实运行证据。
+
+## 数量
+阻断 0；重要 6（第 1、2、5、7、10、11 条）；建议 11（第 3、4、6、8、9、12、13、14、15、16、17 条）；共 17 条。无撤回。
+按影响排序的有效发现：1、10、5、7、2、11、6、17、14、8、9、3、4、12、15、16、13
