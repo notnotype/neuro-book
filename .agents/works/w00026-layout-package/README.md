@@ -142,6 +142,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-23：[t49](tasks/t49-drag-orchestration/README.md) 完成，合入 master（`6bb4c87c8`）：实时布局的编排进 nb-layout（`createLiveDragSession`、`useLiveDragSession`，引擎不公开），工作台改用，nb-story 的拖详情换边改成实时让位，Lab 加卡片互拖场景作第二个形状；计划审满三轮后开发者定按第 4 稿开工。开发者定 0.1.0 连这批一起发。下一个是 t55。
 
+2026-11-23：[t55](tasks/t55-code-simplify/README.md) 完成，合入 master（`a11a86cf0`）：七片简化净删约 250 行，nb-layout 发布前删了没有使用方的公开名字；0.1.0 现在可以发。下一个是 t50。
+
 ## 后续
 
 - 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。

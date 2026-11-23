@@ -1,0 +1,25 @@
+# S6 报告
+
+计划做哪些项：
+1. NestedGridAcceptanceFixture：copySizes、手势记录与恢复记录进 shallowRef、structuredClone、GRID_SNAPSHOT_VERSION（hosts 2）
+2. GridStructureScene、GridPanelsScene：F6 处理与实例计数器各提一份小函数（hosts 8 脚本部分）
+3. LivePanelsScene：删 extentNow、data-live-body；widen/reset 合成 setColumns（hosts 7）
+4. nb-story：换边拖动搬进 detail-swap-drag.ts（hosts 3）
+5. nb-story 零碎：focusRemaining 调 shellOf、DOMRect 直接当 GridDropRect、NAV_* 去 export（hosts 9）
+
+进度：
+- hosts 2：35f93037a。NestedGridAcceptanceFixture：手势记录（含 count）与恢复记录各成一个 shallowRef 对象（NO_GESTURE、RESTORE_OK 重置），syncRawRecordIntent 收成 copySizes（去掉 any，加 RawNode 类型），三处 JSON.parse(JSON.stringify) 换 structuredClone，两处字面量版本 2 换 GRID_SNAPSHOT_VERSION。模板的 data-lab-* 名字与取值不变。净行数 +13（113 增 100 删）：新增两个类型与两个常量占了行，原来的 11 个 ref 与逐字段重置没了；收益在可读性与重置只剩一句，不在行数。neuro-book typecheck 退出码 0。
+- hosts 3：9eb16b2ac。BookFrame 换边拖动搬进 detail-swap-drag.ts（useDetailSwapDrag），BookFrame 少 72 行多 11 行，新文件 101 行（含选项接口与头注释）。只搬不改：swapHost、sourceAt、activate、resolve、commit 与 swapPreview 原文搬；`swapPreviewed` 仍由 BookFrame 建（detailContents 在会话建好之前就要读它），作为选项传入、会话写它，所以与计划里“由它返回”不同，换来调用位置与 watcher 注册顺序都不变；`gridBox`、`shellOf` 留在 BookFrame（focusRemaining 也要）。DetailShell 的 @swap 按钮只 emit，BookFrame 里直调 book.swapDetails，与拖动会话无关。nb-story typecheck 退出码 0。
+- hosts 8：8887519b8。新增 fixtures/nb-layout/scene-support.ts（createInstanceCounter 工厂、moveFocusOnF6），GridStructureScene、GridPanelsScene 改调；计数器仍在各场景的 setup 里建，重新挂载从 1 数（data-structure-instance 依赖）。两个场景合计 -7 行 -21 行，加新文件 22 行，净约 0。样式未合并。
+- hosts 7：6e995fb30。LivePanelsScene 删 extentNow（layout 直接读 host.extent.value）、删 data-live-body（git grep 全仓：e2e、测试、文档均无引用，只有调研与计划文档提到）、widen 与 reset 合成 setColumns(left, right)（按钮 data-live-action 取值不变）。-4 行。只用公开入口，没引 nb-workbench-layout；DOMRect 那条计划没列在 LivePanelsScene 下，没动。
+- hosts 9：4f82a38ad。focusRemaining 改调 shellOf（原选择器与 shellOf 同串；外层 root 与 gridBox 里取到同一元素）、shellRect 直接返回 DOMRect（核对：nb-layout/src 里没有对 GridDropRect 做对象展开或逐键拷贝，引擎的 card.rect、geometry 与 DropFeedbackOverlay 的 isGridDropRect、areaBox 都只按字段读；DOMRect 的字段是原型 getter，展开会丢，所以核对过）、NAV_WIDTH 与 NAV_COLLAPSED_WIDTH 去掉 export（git grep 无外部引用）。两个 watcher 不合并（计划已写不动）。
+
+跳过或停下的项：无。偏离计划的一处：swapPreviewed 由宿主建、传给会话（见 hosts 3）。
+
+自查（禁止清单）：无按文案分支、无新增 catch、无跳过或放宽的测试、没有删改任务外的代码与注释（BookFrame 里搬走的是换边段，原注释随代码搬进 detail-swap-drag.ts；NestedGridAcceptanceFixture 里重写的是被收成对象的那几段，其余注释未动）、无跨包深导入（detail-swap-drag.ts 只经 @notnotype/nb-layout 与 nb-layout/vue）、没有用 rm -rf。新增的注释只有 scene-support.ts 的头注释与两处函数注释、detail-swap-drag.ts 的头注释（搬自 BookFrame 的段首注释）与 shellRect 上一句说明。公开面、api 报告、Spec、.agents 均未碰。
+
+最终验证（命令自己的退出码，提交后的状态）：
+- bun run --cwd packages/neuro-book typecheck：0
+- bun run --cwd packages/nb-story typecheck：0
+- bun test（packages/nb-story 全量，负载 40 以上）：689 通过、16 失败，16 个全是 5000ms 超时（cli/ask、cli/cli、cli/config、cli/revisions、core/spoiler、server/qa 六个文件，与本片改动无关）；这六个文件加 src/web/shell 用 --timeout 60000 单独重跑：135 通过、0 失败。
+- 没跑 e2e（主会话跑 lab-nested-grid、lab-grid-structure、lab-grid-panels、lab-live-panels 与 side-by-side）。

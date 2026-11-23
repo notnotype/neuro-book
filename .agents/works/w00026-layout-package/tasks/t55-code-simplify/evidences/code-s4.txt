@@ -1,0 +1,33 @@
+# S4 报告（nb-workbench-layout 简化）
+
+计划做哪些项（按顺序）：
+1. measureTabStrip 补用例（改前提交）
+2. measureTabStrip 只量一次 + tabStripStopInsertions（wbl 5、1）
+3. previewEdgeDrop 后半段改调 previewPanelRects（wbl 4）
+4. edgeTargetsOf（wbl 6）
+5. 小重复（wbl 8）+ rectContains
+6. presentationCollapse 带投影；layoutDropPanelAt 惰性 sourceTabs、findTab for-in（wbl 9、10）
+7. 删 showPanelAndInsert、rebaseOriginal、splitIntoSections 与测试
+8. index.ts 显式清单、entry.test.ts、sdk.test.ts、layout-doc-validate.ts 拆分（wbl 12）
+
+进度（逐项追加）：
+1. [86b1f58e1] 改前补用例：tab-strip-geometry.dom.test.ts 加 3 条（高矮不一多行：members DOM 顺序、excludedRect、各行、endedWithExcluded）；旧代码上先过。vitest 该文件 47 过、typecheck 过。
+2. [fe96360f4] measureTabStrip 只读一遍（measureRows 先量全部标签再按行分组补位，all 取原始 DOM 顺序）；tabStripStops 改用同一份快照；新增 tabStripStopInsertions（判不出插入位的点不收）并从 vue/index.ts 导出，加 2 条用例（与逐点 resolveTabStripInsertion 相同；空行）。vitest src/vue 53 过、typecheck 过。每条标签条 DOM 读 3N 降为 N，tabStripStopInsertions 把键盘列落点 1+S 次整条重量降为 1 次。行数 +46/-16（净增，因新增入口）。
+3. [7490d6be4] previewEdgeDrop 后半段改调 previewPanelRects（-8 行）；layout-drop.test 65 过、typecheck 过。
+4. [8e3d50d0a] edgeTargetsOf（layoutDropSectors 与 enumerateDropCandidates 共用；nearestEdge 未动，保持按需求值）；layout-drop.test 65 过、vue 53 过、typecheck 过。两条合计 layout-drop.ts +16/-19。
+5. [518324fe6] wbl 8：axisOf 只留 layout-doc.ts 导出的一份；intent-writeback 改调 holdsEditor（假设树叶 id 与 ref 的面板 id 一致，该处读的是文档树，测试全过）；isBarInput 并进导出的 isBarLeaf（参数放宽为 LayoutTreeNode）；normalizeDoc；去重键改 layoutDropKey（enumerate 不产生 float 动作，键与原 JSON.stringify 对非 float 相同）；夹具 sizeOf 改 findTreeNode；layout-drop 的 contains 换成导出的 rectContains。test 267 过、vitest 53 过、typecheck 过。5 文件 +26/-36。
+6. wbl 8 补 rectContains 半开区间用例（layout-drop.test 66 过）。wbl 9 [见 git log] presentationCollapse 用 overflow 变量带上一轮结果（等价，投影次数少 k+1 次，layout-project 测试覆盖收走与放回）；wbl 10 layoutDropPanelAt 惰性 sourceTabs、findTab 改 for…in。提交号：479ed3a9c d8a945fe1 。test 268 过、vitest 53 过、typecheck 过。
+7. [d8c39b32b] 删 showPanelAndInsert、rebaseOriginal、splitIntoSections 及测试（layout-doc.ts -44、layout-doc.test.ts -80+4）。unique 断言处理：“平分原份额”补到 movePanelToEdge 的“多标签浮动窗停靠进区域”用例（f 与 n1 高度相等且>0）；“新 id 撞已有面板整个拒绝”随函数删；其余随函数删时额外删掉两处单行：区域与容器里 stale 用例中“拆开时残留的归属清掉”2 行（及注释半句）、“点名容器却不在带容器区域”用例里 splitIntoSections 1 行（同用例其余 movePanelToEdge 断言覆盖同一规则）。“分节与锚不收第二个标签”用例里 showPanelAndInsert 的几行拒绝断言一并删（用例改名去掉“显示并接收”）。layout-doc.test 142 过、typecheck 过。LayoutSource 类型留在 layout-doc.ts（layout-drop.ts 引用，应用也用）。
+8. [c76d96153] wbl 12 index.ts 改显式清单（一行一个名字）；外部为零的 29 个名字不再导出：layout-doc 21 个（PanelRole、LayoutFloat、LayoutFailureCode、LayoutDropRegion、panelOfRef、axisOf、TreeHit、regionHasSections、isNodeShown、SectionCollapseBlock、sectionRegionOf、countsInShare、LayoutTreeNode、isBarLeaf、holdsEditor、isFixedChild、normalizeTree、movePanelToStrip、firstPanelIn、edgeTargetTouches、LayoutDocValidation）、layout-project 4 个类型（PanelConstraints、LayoutRegionStrip、LayoutStripPlacement、PresentationCollapse）、layout-drop 4 个（LAYOUT_EDGE_RATIO、LAYOUT_SEAM_HIT_PX、sourceTabs、LayoutSeam）；新增导出 rectContains；IntentWritebackRejection 原本就显式导出，保留。外部用到的名字用 TS 解析全仓（packages、scripts、e2e，含 .vue 的 script 块）逐个核对，一个没去。entry.test.ts 改成对清单断言（值与类型名与清单一一对上、无 export *、无默认导出、运行时键相同）。AGENTS.md 加一条。neuro-book/src/sdk/sdk.test.ts 不用改：它用的 moduleExports 只认文件里写出的导出，改显式清单后 layout 集合只是多了名字，6 条全过。
+9. [34068a7de] layout-doc.ts 校验段拆成 layout-doc-validate.ts（layout-doc.ts 1314→1195 行，新文件 126 行）；validateLayoutDoc 经 index 从新文件导出；layout-doc.test.ts 的 validateLayoutDoc 导入改指新文件（校验的用例穿插在 layout-doc.test.ts 的多个用例里作后置检查，没拆测试文件）。包 test 265 过、vitest 53 过、typecheck 过。
+
+跳过或停下的项：无（计划列的项全部完成）。按计划没做的：previewEdgeDrop“收已算好的结果文档”那半、wbl 7、wbl 11、nearestEdge 的需求求值。neuro-book/src/sdk/sdk.test.ts 没改（不用改）。应用的 layout-drag.ts 等调用处未动，留给 S5。
+
+自查（禁止清单）：无按错误文案分支；无新增 catch；没放宽或跳过任何断言（删的断言只随被删函数走，已在第 7 项逐条列出，“平分份额”补进 movePanelToEdge 用例）；产品代码无测试专用分支；无范围外文件改动（14 个文件全在 packages/nb-workbench-layout/ 内）；未跨包深导入；无 rm -rf；未改 Spec、.agents/、nb-layout 公开面与 api 报告（api:check 未跑，nb-layout 没动）。
+
+最终验证（均为命令自己的退出码）：
+- bun run --cwd packages/nb-workbench-layout test：exit 0（bun 265 过 0 失败；vitest 53 过）
+- bun run --cwd packages/nb-workbench-layout typecheck：exit 0
+- packages/neuro-book 里 bun run typecheck：exit 0（含 e2e、Lab、browser-test 配置）
+- packages/neuro-book 里 bun test src/plugins/workbench/web src/plugins/workbench/shared src/sdk/sdk.test.ts：exit 0（363 过 0 失败）
+未跑：e2e、governance:check、应用的 vitest dom 测试（说明未要求）。
