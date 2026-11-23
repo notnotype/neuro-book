@@ -147,3 +147,5 @@
 | 2026-11-23 | t48 | 审查意见接受取舍 | 计划第 4 稿不再交第 4 轮设计审查：第 3 轮的八条都按建议改了，第 4 条交开发者定了；余下的由实现审查兜住 | 同一对象最多审三轮（reviewing）；第 3 轮没有阻断，八条都是取法与机制写得不全 | 低：实现审查发现设计层面的问题时改计划再实施 | [计划](tasks/t48-api-report-stability/plan.md) |
 | 2026-11-23 | t54 | 推进顺序之内的调整 | 新建 t54 做 `ui/nested-grid`、`ui/layout-drag` 的晋升（开发者批准晋升），与 t48 并行：t54 只加测试、改 Spec，t48 改公开声明的注释与脚本，文件基本不重叠 | 逐句核对（Claude Opus 三段）报出约 120 句没守住，量大到要单独的 Task；两件互不依赖（0.x 全部 `@experimental`，`@stable` 不再等晋升） | 低：只是排序 | [t54](tasks/t54-spec-promotion/README.md) |
 | 2026-11-23 | t54 | 产品取舍 | `ui/layout-drag` 写明：键盘拖动里宿主的 `commit` 抛出时不还焦点（收场顺序里还焦点排在 `commit` 之后），实现不改 | 宿主的提交抛错本身是宿主的缺陷，异常照常冒出去；为它在 `finally` 里还焦点要改收场顺序 | 低：还焦点挪进 `finally` | [t54](tasks/t54-spec-promotion/README.md) |
+| 2026-11-23 | t49 | 产品取舍 | SDK 转出的 `NestedGrid` 只多了 `origin()`、`motionMs()` 两个 expose，判为兼容，不提 `PLUGIN_API_SINCE`，快照重写 | 只是新增，插件照旧能用；按 t48 定的“提起点、测试提醒”由实施者判断 | 低：提一次版本号 | [t49](tasks/t49-drag-orchestration/README.md) |
+| 2026-11-23 | t49 | 审查意见接受取舍 | 切片 4 到 6（Lab 场景、nb-story 换边、文档）没另派实现审查，并进 t55 的深度理顺与审查 | 切片 1 到 3（引擎、合成、工作台）各派过一次；后三片是宿主与文档，t55 本来就要通读这块代码 | 低：t55 里专门看这三片 | [t55](tasks/t55-code-simplify/README.md) |
