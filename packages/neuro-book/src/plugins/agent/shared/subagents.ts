@@ -56,7 +56,8 @@ export interface AncestorItem {
 /** `jobs` 的一项（jobs.md 输出 9）。 */
 export interface JobItem {
     readonly id: string;
-    readonly kind: "agent" | "shell";
+    /** `agent`、`shell`，或插件在工具里登记的 `<插件 id>.<名字>`（jobs.md）。 */
+    readonly kind: string;
     readonly state: "running" | "question" | "completed" | "failed" | "aborted" | "interrupted";
     readonly summary: string;
     /** 启动它的那次工具调用。 */

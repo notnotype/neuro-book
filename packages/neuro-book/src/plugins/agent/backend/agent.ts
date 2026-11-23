@@ -37,6 +37,8 @@ import {JobCenter} from "./jobs/center";
 import {agentRunningWork, SessionTitles} from "./running-work";
 import {RequestOwners} from "./requests";
 import {ChildRuns} from "./subagents/children";
+import {JobDelivery} from "./jobs/delivery";
+import {JobLedger} from "./jobs/ledger";
 import {SessionRelations} from "./subagents/relations";
 import {isModeSwitch, type PendingItem} from "./subagents/result";
 import {SubagentTree} from "./subagents/tree";
@@ -212,10 +214,16 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
     const clock = kernelClock(options.clock);
+    // 送达在会话表建好之后才有；任务中心在那之前建，经这个引用接上（`wait` 接过回执、开始前移出已被取走的）。
+    let delivery: JobDelivery | null = null;
     const jobs = new JobCenter({
         clock,
         newId: () => crypto.randomUUID().replaceAll("-", ""),
         limits: () => ({perSession: options.settings.get(agentSettings.settings.subagentsPerSession), global: options.settings.get(agentSettings.settings.backgroundJobs)}),
+        takeover: (job, exit) => delivery?.takeover(job, exit) ?? Promise.resolve("maybe"),
+        prune: async (owner) => {
+            await delivery?.prune(owner);
+        },
     });
     let stopping = false;
     const models = traceModelPort(options.models === null ? NO_MODELS : options.models.port((profile) => {
@@ -287,6 +295,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => {
         restore.forget(id);
         internal.delete(id);
+        delivery?.sessionClosed(id);
     }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), refuse: (header) => (header.owner === undefined ? null : "owned-session"), report: options.report});
     const table = sessions;
     titles.follow(table);
@@ -374,6 +383,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         return created;
     }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
     const children = new ChildRuns({table, jobs, report: options.report});
+    delivery = new JobDelivery({jobs, table, isRoot: (id) => relations.parentOf(id) === null, newId: () => crypto.randomUUID(), report: options.report});
+    delivery.start();
+    // 账本：先补发上次留下的回执，再跟着任务中心写（jobs.md 的回执约定）。补发要开会话，不挡住启动。
+    const ledger = new JobLedger({file: join(options.stateRoot, "agent", "jobs", "ledger.json"), jobs, report: options.report});
+    const replayed = ledger.replay(table, () => crypto.randomUUID()).catch((error: unknown) => options.report("job-ledger-replay-failed", "replaying the job ledger threw", {message: error instanceof Error ? error.message : String(error)}));
+    void replayed.then(() => ledger.follow());
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
     const profileAdmin: ProfileAdmin = {
@@ -454,7 +469,9 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             sweepTimer?.();
             sweepTimer = null;
             table.closeGate();
-            // 先关任务中心的门：之后已打开会话里的工具起不了新的后台命令（否则它在 `jobs.clear()` 之后没人收口）。
+            // 先停送达（之后不再发回执，没送出的留在账本里、下次启动补发），再关任务中心的门：之后已打开会话里的工具起不了新的后台命令
+            // （否则它在 `jobs.clear()` 之后没人收口）。
+            delivery?.close();
             jobs.close();
             // 后台命令按 interrupted 收口、写完 `status.json`；子代理运行不在这里停，由下面关会话收口。
             await Promise.allSettled(jobs.live().filter((job) => job.kind === "shell").map((job) => job.driver?.kill("interrupted")));
@@ -463,6 +480,9 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             await meta.settled();
             // 会话都关了，不会再有模型请求：等记录写完。
             await requests.close();
+            // 账本记下收口了、回执还没有出口的任务，再丢任务表（丢的时候账本已不再跟）。
+            await replayed;
+            await ledger.stop();
             jobs.clear();
         },
     };

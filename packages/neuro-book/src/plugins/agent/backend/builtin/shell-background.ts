@@ -152,6 +152,7 @@ export function startBackgroundCommand(jobs: JobCenter, job: Job, directory: str
             await done;
         },
         result: () => commandResult(job.id, directory, address, problem),
+        address,
     });
 }
 

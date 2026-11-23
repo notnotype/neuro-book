@@ -49,12 +49,16 @@ export class ChildRuns {
         const report = () => this.#result(job, view, runId, save);
         this.#reports.set(job, report);
         this.options.jobs.start(job, {
+            // 只停这个任务跟着的那次运行：用户在子会话里刚开的下一轮不受影响（runtime.md 输出 120）。
             kill: async (_reason, byUser) => {
                 const stopper = byUser === true ? this.options.table.view(child) : view;
-                const aborted = await stopper.abort({commandId: crypto.randomUUID(), keepQueue: true});
+                const aborted = await stopper.abort({commandId: crypto.randomUUID(), keepQueue: true, runId});
                 if (!aborted.ok) this.options.report("subagent-kill-failed", `could not abort the run of sub-agent session ${child}: ${aborted.code}`, {session: child, code: aborted.code});
+                else if (!aborted.value.aborted) return "already-ended";
+                return undefined;
             },
             result: async () => (await report()).text,
+            saveFull: save,
         }, {sessionId: child, runId});
         void this.#follow(job, child, issuer, view, runId);
     }

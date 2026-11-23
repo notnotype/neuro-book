@@ -3,7 +3,7 @@
  * 不认识子会话与进程，驱动只是“怎样停、交回什么文字”的回调；子代理与后台命令的驱动在各自的测试里经真实运行时测。
  */
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {readFile, rm} from "node:fs/promises";
+import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
@@ -113,6 +113,25 @@ describe("wait", () => {
         stop.abort();
         expect(await aborted).toMatchObject({kind: "aborted"});
         expect(job.state).toBe("running");
+    });
+});
+
+describe("回执只交一次（jobs.md 的回执）", () => {
+    test("两个并发的 wait 不交回同一件：一个拿到，另一个照常等到超时", async () => {
+        const {clock, jobs, run} = center();
+        const job = run("p");
+        const both = Promise.all([jobs.wait("p", {timeoutMs: 1_000, signal: never}), jobs.wait("p", {timeoutMs: 1_000, signal: never})]);
+        jobs.end(job, "completed", {reason: "completed"});
+        await clock.advance(1_000);
+        const kinds = (await both).map((outcome) => outcome.kind).sort();
+        expect(kinds).toEqual(["ready", "timeout"]);
+    });
+
+    test("被用户停的任务收口时记成用户停的", async () => {
+        const {jobs, run} = center();
+        const job = run("p");
+        expect(await jobs.kill(null, job.id)).toBe("killed");
+        expect(job.outcome).toMatchObject({reason: "aborted", byUser: true});
     });
 });
 
@@ -281,15 +300,18 @@ describe("后台命令", () => {
         const jobId = started!.details!.jobId!;
         expect(started!.details!.output).toBe(`sessions://${session.id}/home/jobs/${jobId}/output.log`);
         expect(started!.text).toContain(jobId);
+        // 回执恰好到一次（jobs.md 的回执）：命令在 `wait` 那次请求之前跑完时作为提醒送来，否则由 `wait` 交回。
         const [waited] = await results(session, "nbook.agent.wait");
-        expect(waited!.text).toContain("退出码 0");
-        expect(waited!.text).toContain("第一行\n完成");
+        const notices = (await session.path()).filter((event) => event.type === "hostNotice").map((event) => (event.data as {text: string}).text);
+        const receipts = [waited!.text, ...notices].filter((text) => text.includes("退出码 0"));
+        expect(receipts).toHaveLength(1);
+        expect(receipts[0]).toContain("第一行\n完成");
         expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "completed", exitCode: 0, lines: 2, truncated: false});
         expect(await readFile(join(home, "jobs", jobId, "output.log"), "utf8")).toBe("第一行\n完成\n");
         expect((await results(session, "nbook.agent.write"))[0]).toMatchObject({status: "error", code: "permission-denied"});
     });
 
-    test("输出 4、7：父会话的运行被中止不影响后台命令；kill 停掉它，wait 交回已停止", async () => {
+    test("输出 4、7：父会话的运行被中止不影响后台命令；kill 停掉它，回执随下一次请求送来，之后 wait 没有可等的", async () => {
         const {session, home} = await open();
         endpoint.script({tool: "shell", args: {command: "sleep 30", async: true}});
         // 第一个请求交回 `shell` 调用，挂住的是工具结算之后的第二个：这时命令已经转到后台，再中止父会话的运行。
@@ -308,8 +330,91 @@ describe("后台命令", () => {
         await turn(session, [{tool: "jobs"}, {tool: "kill", args: {job: jobId}}, {tool: "wait"}, "好"]);
         expect((await results(session, "nbook.agent.jobs"))[0]!.text).toContain(`${jobId}（命令：sleep 30）运行中`);
         expect((await results(session, "nbook.agent.kill"))[0]!.text).toBe(`已停止 ${jobId}。`);
-        expect((await results(session, "nbook.agent.wait"))[0]!.text).toContain("已停止");
+        // 停掉之后回执作为提醒进了 `kill` 之后的那次请求（jobs.md 的回执），`wait` 不再交回一次。
+        const receipt = (await session.path()).find((event) => event.type === "hostNotice");
+        expect((receipt?.data as {text?: string} | undefined)?.text).toContain(`命令 ${jobId}：sleep 30｜已停止`);
+        expect((await results(session, "nbook.agent.wait"))[0]!.text).toContain("没有可等的任务");
         expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "aborted"});
+    });
+
+    /** 一条等测试放行的命令：测试建出 `go` 文件它才结束，不靠固定时长。 */
+    const gated = (w: AgentWorld, text: string) => {
+        const go = join(w.stateRoot, `go-${String((counter += 1))}`);
+        return {command: `while [ ! -f ${go} ]; do sleep 0.05; done; echo ${text}`, release: () => writeFile(go, "")};
+    };
+    const notices = async (session: SessionApi) => (await session.path()).filter((event) => event.type === "hostNotice").map((event) => (event.data as {text: string}).text);
+
+    test("回执：后台命令在父会话空闲时结束，唤起它，回执恰好进一次请求；账本随之清空", async () => {
+        const {w, session} = await open();
+        const cmd = gated(w, "做完了");
+        await turn(session, [{tool: "shell", args: {command: cmd.command, async: true}}, "好"]);
+        const before = endpoint.requests.length;
+        await cmd.release();
+        await waitUntil("回执送到", async () => (await notices(session)).length === 1);
+        await waitUntil("唤起的运行跑完", async () => (await session.snapshot()).status.state === "idle");
+        const runs = (await session.log({afterSeq: 0})).events.filter((event) => event.type === "runStarted").map((event) => event.data as {wake?: true; by?: {kind: string}});
+        expect(runs.at(-1)).toMatchObject({wake: true, by: {kind: "host"}});
+        const asked = endpoint.requests.slice(before).map((request) => JSON.stringify(request.messages));
+        expect(asked.filter((text) => text.includes("做完了"))).toHaveLength(1);
+        expect((await notices(session))[0]).toContain("退出码 0");
+        await waitUntil("账本清空", async () => !(await Bun.file(join(w.stateRoot, "agent", "jobs", "ledger.json")).exists()));
+    });
+
+    test("回执：用户停掉的任务照送、不唤起；只有发送方能撤回，用户删不掉；下一句话把它带进请求", async () => {
+        const {w, session} = await open();
+        await turn(session, [{tool: "shell", args: {command: "sleep 30", async: true}}, "好"]);
+        const jobId = (await results(session, "nbook.agent.shell"))[0]!.details!.jobId!;
+        const {client} = await w.window("u");
+        expect(await client.killJob({sessionId: session.id, jobId})).toMatchObject({ok: true});
+        await waitUntil("回执待发", async () => (await session.snapshot()).notices.length === 1);
+        const snapshot = await session.snapshot();
+        expect(snapshot.notices[0]).toMatchObject({senderOnly: true, wake: false});
+        expect(snapshot.notices[0]!.text).toContain("被用户停止");
+        expect(snapshot.status.state).toBe("idle");
+        expect((await session.log({afterSeq: 0})).events.filter((event) => event.type === "runStarted")).toHaveLength(1);
+        expect(await client.removeNotice({sessionId: session.id, commandId: crypto.randomUUID(), noticeId: snapshot.notices[0]!.id})).toMatchObject({ok: false, code: "not-allowed"});
+        await turn(session, ["收到"]);
+        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("被用户停止");
+    });
+
+    test("回执：模型在生成要调 wait 的那条回复时任务结束，wait 撤回待发的回执自己交回（审查第 1 条）", async () => {
+        const {w, session} = await open();
+        const cmd = gated(w, "好了");
+        endpoint.script({tool: "shell", args: {command: cmd.command, async: true}}, {tool: "wait"}, "收到");
+        const first = endpoint.hold();
+        const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "跑"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await first.arrived;
+        const generating = endpoint.hold();
+        first.release();
+        await generating.arrived;
+        await cmd.release();
+        await waitUntil("回执待发", async () => (await session.snapshot()).notices.length === 1);
+        generating.release();
+        await session.waitRun(sent.value.runId);
+        expect((await results(session, "nbook.agent.wait"))[0]!.text).toContain("好了");
+        expect(await notices(session)).toEqual([]);
+        const removed = (await session.log({afterSeq: 0})).events.filter((event) => event.type === "noticeRemoved").map((event) => event.data);
+        expect(removed).toEqual([expect.objectContaining({reason: "withdrawn"})]);
+    });
+
+    test("回执：插件停止时在跑的后台命令记进账本，同一个状态根再起时补发“回执没来得及送出”，不唤起，账本清空", async () => {
+        counter += 1;
+        const dir = join(root, `ledger-${String(counter)}`);
+        const settings = {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}};
+        const first = await agentWorld(dir, {userSettings: settings});
+        const created = await first.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        await turn(created.value, [{tool: "shell", args: {command: "sleep 30", async: true}}, "好"]);
+        await first.close();
+        const ledger = join(first.stateRoot, "agent", "jobs", "ledger.json");
+        expect(JSON.parse(await readFile(ledger, "utf8"))).toEqual([expect.objectContaining({owner: created.value.id, state: "interrupted"})]);
+        const second = await agentWorld(dir, {userSettings: settings});
+        worlds.push(second);
+        const session = second.service.session(created.value.id);
+        await waitUntil("补发的回执", async () => (await session.snapshot()).notices.some((item) => item.text.includes("回执没来得及送出")));
+        expect((await session.snapshot()).status.state).toBe("idle");
+        await waitUntil("账本清空", async () => !(await Bun.file(ledger).exists()));
     });
 
     test("输出 8：插件停止时在跑的后台命令按 interrupted 收口，status.json 照写", async () => {
