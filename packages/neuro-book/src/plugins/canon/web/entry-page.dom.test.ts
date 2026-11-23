@@ -12,7 +12,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {reactive} from "vue";
 import type {Component} from "vue";
 
-import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
+import type {Entry, ReadPosition, StoryChangeDraft} from "@notnotype/nb-canon";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -36,6 +36,7 @@ import {createEntryPage, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
 import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";
+import {createTextDrafts} from "./text-drafts";
 import type {EntryPageState} from "./entry-page";
 import {canonCatalogs} from "./text";
 import {createCanonWorld} from "./world";
@@ -357,7 +358,7 @@ describe("读取次数", () => {
         const counted = countedClient(mine.canon);
         const world = createCanonWorld(counted.client);
         cleanups.push(() => world.dispose());
-        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), call: counted.client.call, views: new ComponentViewRegistry(), notices: createNotices(), revert: createRevertRequests(), execute: () => undefined, entriesView: "nbook.canon.entries"});
+        const page = createEntryPage({drafts: createTextDrafts({storage: null, world: () => world, call: counted.client.call}), world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), call: counted.client.call, views: new ComponentViewRegistry(), notices: createNotices(), revert: createRevertRequests(), execute: () => undefined, entriesView: "nbook.canon.entries"});
         const component = await page.load();
         const state = entriesViewState();
         state.expanded.value = ["folder:人物", id];
@@ -384,7 +385,7 @@ describe("读取次数", () => {
         const counted = countedClient(mine.canon);
         const world = createCanonWorld(counted.client);
         cleanups.push(() => world.dispose());
-        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), call: counted.client.call, views: new ComponentViewRegistry(), notices: createNotices(), revert: createRevertRequests(), execute: () => undefined, entriesView: "nbook.canon.entries"});
+        const page = createEntryPage({drafts: createTextDrafts({storage: null, world: () => world, call: counted.client.call}), world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), call: counted.client.call, views: new ComponentViewRegistry(), notices: createNotices(), revert: createRevertRequests(), execute: () => undefined, entriesView: "nbook.canon.entries"});
         const component = await page.load();
         const state = reactive(page.initialState!(id));
         const entry = mount(component, {props: {context: {recent: [], arg: id, state}}, global: {provide: provideText(port)}, attachTo: document.body});
@@ -635,85 +636,238 @@ describe("写入", () => {
         await waitUntil("关系加上了", async () => (await stored()).关系!.some((item) => item.id === ids[enemy.id]));
     });
 
-    it("主文字：没有时文字分页写“还没有主文字”（缺省先看设定）；加一段、改这一段（源文字预填）、删掉这一段", async () => {
-        const {other, open} = await setup();
+    /** 条目存下来的初值主文字，各块的原文。 */
+    const initText = async (canon: CanonNodeWindow["canon"], id: string): Promise<string[]> => {
+        const read = await canon.call("object", {ref: {kind: "entry", id}});
+        if (!read.ok) throw new Error(JSON.stringify(read.failure));
+        return (read.value.object as Entry).init.text.map((block) => block.source);
+    };
+    /** 这个位置上读到的各块原文。 */
+    const textAt = async (canon: CanonNodeWindow["canon"], id: string, position: ReadPosition): Promise<string[]> => {
+        const read = await canon.call("textBlocks", {id, position});
+        if (!read.ok || read.value === null) throw new Error("读不到块");
+        return read.value.blocks.map((block) => block.source);
+    };
+    /** 编辑视图里各块的输入框（没有编辑器插件的窗口里是普通文本框）。 */
+    const areas = (wrapper: ReturnType<typeof mount>): HTMLTextAreaElement[] => wrapper.findAll("[data-text-block] textarea").map((area) => area.element as HTMLTextAreaElement);
+    const typeInto = (area: HTMLTextAreaElement, value: string): void => {
+        area.value = value;
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+    };
+    const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button, [role='alertdialog'] button")].find((button) => button.textContent?.trim() === label)!;
+    const startEditing = async (wrapper: ReturnType<typeof mount>): Promise<void> => {
+        await waitUntil("“编辑”或“开始写”", () => wrapper.find("[data-text-edit]").exists());
+        await wrapper.get("[data-text-edit]").trigger("click");
+        await waitUntil("编辑视图", () => wrapper.find("[data-text-editor]").exists() && areas(wrapper).length > 0);
+    };
+
+    it("主文字按块编辑（验收 16）：没有时“开始写”，写两段、从光标处拆开、提交成一条修订；编辑期间位置锁住、标签报告有未提交的内容", async () => {
+        const {other, open, page} = await setup();
         const star = person("星瑕");
         star.init.text = [];
         const id = (await publish(other.canon, [star]))[star.id]!;
-        const storedText = async () => {
-            const read = await other.canon.call("object", {ref: {kind: "entry", id}});
-            if (!read.ok) throw new Error(JSON.stringify(read.failure));
-            return (read.value.object as Entry).init.text;
-        };
-        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
-        const typeSource = (value: string) => {
-            const area = document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!;
-            area.value = value;
-            area.dispatchEvent(new Event("input", {bubbles: true}));
-        };
         const {wrapper, state} = await open(id);
         await waitUntil("文字分页也在", () => wrapper.findAll("[role='tab']").some((tab) => tab.text() === "文字"));
         // 没有主文字时缺省先看第一组设定。
         await waitUntil("缺省是一组设定", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() !== "文字");
-        expect(wrapper.find("[data-text-empty]").exists()).toBe(false);
         state.tab = "text";
         await waitUntil("还没有主文字", () => wrapper.find("[data-text-empty]").exists());
+        expect(wrapper.get("[data-text-edit]").text()).toBe("开始写");
 
-        await wrapper.get("[data-add-block]").trigger("click");
-        await waitUntil("对话框", () => document.body.querySelector("[data-block-dialog] textarea") !== null);
-        typeSource("星瑕是第三魔法学院的学生。");
-        dialogButton("保存").click();
-        await waitUntil("加上了", async () => (await storedText()).some((block) => block.source === "星瑕是第三魔法学院的学生。"));
-        await waitUntil("页上有这一段", () => wrapper.find("[data-entry-text]").text().includes("第三魔法学院的学生"));
-        await waitUntil("提示", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("给星瑕加一段主文字"));
+        await startEditing(wrapper);
+        // 进来是一个空的块，还不算有改动：右边是“取消”，标签没有未提交的内容。
+        expect([areas(wrapper).length, wrapper.find("[data-text-cancel]").exists(), wrapper.find("[data-text-count]").exists(), page.uncommitted!(id)]).toEqual([1, true, false, false]);
+        expect(wrapper.find("[data-position-locked]").exists()).toBe(true);
 
-        await wrapper.get("[aria-label='改第 1 段']").trigger("click");
-        await waitUntil("源文字预填", () => document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")?.value === "星瑕是第三魔法学院的学生。");
-        typeSource("星瑕是第三魔法学院的一年级学生。");
-        dialogButton("保存").click();
-        await waitUntil("改了", async () => (await storedText()).map((block) => block.source).join("|") === "星瑕是第三魔法学院的一年级学生。");
+        typeInto(areas(wrapper)[0]!, "星瑕是第三魔法学院的学生。\n\n她有 {panel.存款} 元。");
+        await waitUntil("未提交 1 块", () => wrapper.find("[data-text-count]").exists() && wrapper.get("[data-text-count]").text() === "未提交 1 块");
+        expect(page.uncommitted!(id)).toBe(true);
+        // 暂存不是修订：世界里还没有。
+        expect(await initText(other.canon, id)).toEqual([]);
 
-        await wrapper.get("[aria-label='删掉第 1 段']").trigger("click");
-        await waitUntil("删掉的确认", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("删掉这一段主文字？") === true);
-        dialogButton("删掉").click();
-        await waitUntil("删掉了", async () => (await storedText()).length === 0);
-        await waitUntil("又是空的", () => wrapper.find("[data-text-empty]").exists());
+        // 光标放在两段之间，拆开：前半留在原块，后半成新的一块。
+        const first = areas(wrapper)[0]!;
+        first.setSelectionRange("星瑕是第三魔法学院的学生。".length, "星瑕是第三魔法学院的学生。".length);
+        await wrapper.get("[data-text-split]").trigger("click");
+        await waitUntil("两块", () => areas(wrapper).length === 2);
+        expect(areas(wrapper).map((area) => area.value)).toEqual(["星瑕是第三魔法学院的学生。", "她有 {panel.存款} 元。"]);
+
+        await wrapper.get("[data-text-submit]").trigger("click");
+        await waitUntil("发布了", async () => (await initText(other.canon, id)).length === 2);
+        expect(await initText(other.canon, id)).toEqual(["星瑕是第三魔法学院的学生。", "她有 {panel.存款} 元。"]);
+        await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists() && wrapper.get("[data-entry-text]").text().includes("第三魔法学院的学生"));
+        await waitUntil("提示", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("改星瑕的主文字"));
+        expect([page.uncommitted!(id), wrapper.find("[data-position-locked]").exists(), wrapper.get("[data-text-edit]").text()]).toEqual([false, false, "编辑"]);
+        const revisions = await other.canon.call("revisions", {filter: {entry: id}});
+        expect(revisions.ok && revisions.value.items.map((item) => item.title)).toEqual(["改星瑕的主文字", "写入"]);
+
+        // 标签的保存命令（Ctrl+S）调页面的 commit：同样提交。
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[1]!, "她有 {panel.存款} 元，都存在学院的柜子里。");
+        await waitUntil("有改动", () => page.uncommitted!(id));
+        await page.commit!(id);
+        expect(await initText(other.canon, id)).toEqual(["星瑕是第三魔法学院的学生。", "她有 {panel.存款} 元，都存在学院的柜子里。"]);
     });
 
-    it("对话框开着时别处改了这个条目：保存不盖掉别人的改动，原因写在对话框里、页头没有；再保存一次以对话框里填的为准", async () => {
-        const {other, open} = await setup();
+    it("并到上一块、删掉与恢复、放弃：放弃先问一句，确认以后回到阅读视图、世界不变", async () => {
+        const {other, open, page} = await setup();
         const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}, {id: "b2", source: "第二块。"}, {id: "b3", source: "第三块。"}];
         const id = (await publish(other.canon, [star]))[star.id]!;
-        const storedText = async () => {
-            const read = await other.canon.call("object", {ref: {kind: "entry", id}});
-            if (!read.ok) throw new Error(JSON.stringify(read.failure));
-            return (read.value.object as Entry).init.text.map((block) => block.source).join("|");
-        };
-        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
         const {wrapper, state} = await open(id);
         state.tab = "text";
-        await waitUntil("有一段", () => wrapper.find("[aria-label='改第 1 段']").exists());
-        await wrapper.get("[aria-label='改第 1 段']").trigger("click");
+        await startEditing(wrapper);
+        const block = (key: string) => wrapper.get(`[data-text-block="${key}"]`);
+        // 第一块前面没有块：并不了。
+        expect(block("b1").get("[data-text-merge]").attributes("disabled")).toBeDefined();
+
+        await block("b2").get("[data-text-merge]").trigger("click");
+        await waitUntil("并进去了", () => areas(wrapper)[0]?.value === "第一块。\n\n第二块。");
+        expect(block("b2").attributes("data-text-block-state")).toBe("removed");
+        await block("b3").get("[data-text-remove]").trigger("click");
+        await waitUntil("删掉了", () => block("b3").attributes("data-text-block-state") === "removed");
+        expect(wrapper.get("[data-text-count]").text()).toBe("未提交 3 块");
+        await block("b3").get("[data-text-restore]").trigger("click");
+        await waitUntil("恢复了", () => block("b3").attributes("data-text-block-state") === "same");
+
+        await wrapper.get("[data-text-submit]").trigger("click");
+        await waitUntil("发布了", async () => (await initText(other.canon, id)).length === 2);
+        expect(await initText(other.canon, id)).toEqual(["第一块。\n\n第二块。", "第三块。"]);
+
+        // 再改一处、放弃：先问，确认以后世界不变、没有未提交的内容。
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[1]!, "不要了的改动");
+        await waitUntil("有改动", () => wrapper.find("[data-text-discard]").exists());
+        await wrapper.get("[data-text-discard]").trigger("click");
+        await waitUntil("确认放弃", () => document.body.textContent?.includes("放弃没提交的修改？") === true);
+        expect(wrapper.find("[data-text-editor]").exists()).toBe(true);
+        dialogButton("放弃").click();
+        await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists());
+        expect([page.uncommitted!(id), await initText(other.canon, id)]).toEqual([false, ["第一块。\n\n第二块。", "第三块。"]]);
+    });
+
+    it("同一块两边都改了：提交时出对照，选“我的”以后以我的为准；别处改的是没碰的块不问，两处都在（验收 16）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}, {id: "b2", source: "第二块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const elsewhere = async (block: string, value: string) => {
+            const status = await other.canon.call("status", {});
+            if (!status.ok) throw new Error("读不到");
+            const result = await other.canon.call("editEntries", {input: {requestId: `elsewhere-${nextId()}`, by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "别处改", ops: [{op: "set", at: {entry: id, path: `text[${block}]`}, value}]}});
+            expect(result.ok).toBe(true);
+        };
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[0]!, "第一块（我的）。");
+        await waitUntil("有改动", () => wrapper.find("[data-text-count]").exists());
+        // 别处改了我没碰的第二块：不问，提交以后两处都在。
+        await elsewhere("b2", "第二块（别处）。");
+        await wrapper.get("[data-text-submit]").trigger("click");
+        await waitUntil("发布了", async () => (await initText(other.canon, id))[0] === "第一块（我的）。");
+        expect(await initText(other.canon, id)).toEqual(["第一块（我的）。", "第二块（别处）。"]);
+        expect(document.body.querySelector("[data-text-conflicts]")).toBeNull();
+
+        // 这回别处改的是我也改了的那一块。
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[0]!, "第一块（我的第二版）。");
+        await waitUntil("有改动", () => wrapper.find("[data-text-count]").exists());
+        await elsewhere("b1", "第一块（别处的第二版）。");
+        await wrapper.get("[data-text-submit]").trigger("click");
+        await waitUntil("对照", () => document.body.querySelector("[data-text-conflicts]") !== null);
+        const picks = (name: string) => document.body.querySelector<HTMLButtonElement>(`[data-conflict="b1"] [data-pick="${name}"]`)!;
+        expect([picks("theirs").textContent, picks("mine").textContent]).toEqual(["现在的第一块（别处的第二版）。", "我的第一块（我的第二版）。"]);
+        expect(await initText(other.canon, id)).toEqual(["第一块（别处的第二版）。", "第二块（别处）。"]);
+        // 没选就点提交：不发，页脚写一句。
+        dialogButton("提交").click();
+        await waitUntil("还有没选的", () => document.body.textContent?.includes("每一块都选了才能提交") === true);
+        picks("mine").click();
+        await waitUntil("选上了", () => picks("mine").getAttribute("aria-pressed") === "true");
+        dialogButton("提交").click();
+        await waitUntil("以我的为准", async () => (await initText(other.canon, id))[0] === "第一块（我的第二版）。");
+        await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists());
+    });
+
+    it("被剧情改过的块只能改字：删、拆、并不可用并写原因，改的字写进那条剧情变更；新块不能插在剧情加出来的块前面", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}, {id: "b2", source: "第二块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const status = await other.canon.call("status", {});
+        if (!status.ok) throw new Error("读不到");
+        // 第 1 章：把第二块整块换掉，在第一块后面加一块。
+        const story = await other.canon.call("editEntries", {input: {requestId: `story-${nextId()}`, by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "第 1 章的剧情", intent: "story", position: {kind: "chapter", chapter: "1", edge: "end"}, ops: [{op: "set", at: {entry: id, path: "text[b2]"}, value: "第二块（剧情里变了）。"}, {op: "addBlock", entry: id, source: "剧情加的一块。", after: "b1"}]}});
+        expect(story.ok).toBe(true);
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await startEditing(wrapper);
+        expect(areas(wrapper).map((area) => area.value)).toEqual(["第一块。", "剧情加的一块。", "第二块（剧情里变了）。"]);
+        const block = (key: string) => wrapper.get(`[data-text-block="${key}"]`);
+        const reason = "剧情改过这一块，只能改字";
+        for (const key of ["b1", "b3", "b2"]) {
+            expect({key, note: block(key).get("[data-text-note]").text(), remove: block(key).get("[data-text-remove]").attributes("title"), split: block(key).get("[data-text-split]").attributes("title")}).toEqual({key, note: "剧情改过", remove: reason, split: reason});
+            expect(block(key).get("[data-text-remove]").attributes("disabled")).toBeDefined();
+        }
+        // 第一块后面紧挨着剧情加出来的块：放不了新块；剧情加的那一块后面可以。
+        expect([block("b1").get("[data-text-add]").attributes("disabled") !== undefined, block("b3").get("[data-text-add]").attributes("disabled") !== undefined]).toEqual([true, false]);
+
+        typeInto(areas(wrapper)[2]!, "第二块（作者把剧情里的这一版改了）。");
+        await block("b3").get("[data-text-add]").trigger("click");
+        await waitUntil("多了一块", () => areas(wrapper).length === 4);
+        typeInto(areas(wrapper)[2]!, "紧跟在剧情加的那一块后面。");
+        await wrapper.get("[data-text-submit]").trigger("click");
+        await waitUntil("发布了", async () => (await textAt(other.canon, id, {kind: "chapter", chapter: "2", edge: "end"})).length === 4);
+        expect(await textAt(other.canon, id, {kind: "chapter", chapter: "2", edge: "end"})).toEqual(["第一块。", "剧情加的一块。", "紧跟在剧情加的那一块后面。", "第二块（作者把剧情里的这一版改了）。"]);
+        // 初值里：第二块没动（改的是剧情变更里的那一版），多了新加的设定块。
+        expect(await initText(other.canon, id)).toEqual(["第一块。", "紧跟在剧情加的那一块后面。", "第二块。"]);
+    });
+
+    it("剧情的入口只在选了某一章时出现；“这一块在剧情里变了”保存时别处刚改过这一块：写明并列出现在的原文、不盖掉，再保存才记下；有没提交的主文字时入口不可用", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        state.position = "initial";
+        await waitUntil("阅读视图", () => wrapper.find("[data-entry-text] [data-block]").exists());
+        expect([wrapper.find("[data-block-actions]").exists(), wrapper.find("[data-story-add]").exists()]).toEqual([false, false]);
+        state.position = "2:end";
+        await waitUntil("剧情的入口", () => wrapper.find("[data-block-actions]").exists() && wrapper.find("[data-story-add]").exists());
+
+        // 用键盘打开这一块的菜单，选“这一块在剧情里变了……”。
+        const trigger = wrapper.get("[data-block-actions] button");
+        expect(trigger.attributes("aria-label")).toBe("第 1 块在剧情里的变化");
+        (trigger.element as HTMLElement).focus();
+        await trigger.trigger("keydown", {key: "ArrowDown"});
+        await waitUntil("菜单", () => document.body.querySelectorAll("[role='menuitem']").length === 2);
+        const items = [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")];
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["这一块在剧情里变了……", "在剧情里删掉这一块……"]);
+        items[0]!.click();
         await waitUntil("对话框", () => document.body.querySelector("[data-block-dialog] textarea") !== null);
         const area = document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!;
-        area.value = "作者的改法";
-        area.dispatchEvent(new Event("input", {bubbles: true}));
+        expect(area.value).toBe("第一块。");
+        typeInto(area, "第一块（第 2 章以后）。");
 
-        const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
+        // 对话框开着时别处把这一块的设定改了。
         const status = await other.canon.call("status", {});
-        if (!stored.ok || !status.ok) throw new Error("读不到");
-        const block = (stored.value.object as Entry).init.text[0]!.id;
-        const elsewhere = await other.canon.call("editEntries", {input: {requestId: "elsewhere", by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "别处改", ops: [{op: "set", at: {entry: id, path: `text[${block}]`}, value: "别处改过的内容"}]}});
-        expect(elsewhere.ok).toBe(true);
-        await waitUntil("页上读到别处的改动", () => wrapper.find("[data-entry-text]").text().includes("别处改过的内容"));
+        if (!status.ok) throw new Error("读不到");
+        expect((await other.canon.call("editEntries", {input: {requestId: `elsewhere-${nextId()}`, by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "别处改", ops: [{op: "set", at: {entry: id, path: "text[b1]"}, value: "第一块（别处改了设定）。"}]}})).ok).toBe(true);
+        dialogButton("保存").click();
+        await waitUntil("写明被别处改了", () => document.body.querySelector("[role='dialog'] [role='alert']")?.textContent?.includes("刚被别处改了") === true);
+        expect(document.body.querySelector("[data-block-now]")?.textContent).toBe("第一块（别处改了设定）。");
+        expect(await textAt(other.canon, id, {kind: "chapter", chapter: "2", edge: "end"})).toEqual(["第一块（别处改了设定）。"]);
+        expect(document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!.value).toBe("第一块（第 2 章以后）。");
 
         dialogButton("保存").click();
-        await waitUntil("对话框里写明", () => document.body.querySelector("[role='dialog'] [role='alert']")?.textContent?.includes("被别处改过") === true);
-        expect(await storedText()).toBe("别处改过的内容");
-        expect(wrapper.find("[data-entry-action-error]").exists()).toBe(false);
+        await waitUntil("记下了", async () => (await textAt(other.canon, id, {kind: "chapter", chapter: "2", edge: "end"}))[0] === "第一块（第 2 章以后）。");
+        // 是第 2 章的剧情变化：第 1 章末尾读到的还是设定。
+        expect(await textAt(other.canon, id, {kind: "chapter", chapter: "1", edge: "end"})).toEqual(["第一块（别处改了设定）。"]);
 
-        dialogButton("保存").click();
-        await waitUntil("以对话框里的为准", async () => (await storedText()) === "作者的改法");
+        // 有没提交的主文字时剧情的入口不可用（回到阅读视图要先提交或放弃，这里看的是编辑期间它不在页上，以及入口的原因）。
+        await startEditing(wrapper);
+        expect(wrapper.find("[data-block-actions]").exists()).toBe(false);
     });
 
     it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {

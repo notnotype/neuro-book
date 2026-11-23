@@ -17,10 +17,11 @@ import type {PropType} from "vue";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
-import {EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
+import {editorComponentsKey, EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {notificationsKey, quickPickKey, WORKBENCH_OVERLAYS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration, OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
@@ -46,6 +47,7 @@ import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
+import {createTextDrafts} from "./text-drafts";
 import {createNotices} from "./notices";
 import {createPendingCount} from "./pending-count";
 import {createPendingView, pendingViewState, pickFirstPending} from "./pending-view";
@@ -139,7 +141,8 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 通知可选：没有工作台的窗口里保存后的提示只留在页面顶上那一份。
         // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
         // 选线可选：没有工作台的窗口里没有快速选择，选线命令得到 `unavailable`。
-        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}],
+        // Storage 可选：没有时主文字的稿只在内存里（author-ui.md 输出 45）。编辑器的组件可选：没有时按块编辑用普通文本框。
+        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}, {key: storageKey, required: false}, {key: editorComponentsKey, required: false}],
         provides: [canonClientKey, canonReadsKey],
         receives: [CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT],
         remoteDelegates: [canonWorldContract],
@@ -221,7 +224,12 @@ export const canonBrowserPlugin: PluginDefinition = {
             context.signal.addEventListener("abort", () => stopAgentNotices?.(), {once: true});
             const revert = createRevertRequests();
             const state = entriesViewState();
+            const storage = await context.services.resolve(storageKey);
+            const editorComponents = await context.services.resolve(editorComponentsKey);
+            const drafts = createTextDrafts({storage: storage.status === "resolved" ? storage.instance : null, world: worldOf, call});
             const page = createEntryPage({
+                drafts,
+                sourceInput: editorComponents.status === "resolved" ? editorComponents.instance.components.CodeInput : null,
                 world: worldOf,
                 fetchOrigins: originsFetcher((input) => clientOf().call("origins", input)),
                 call,

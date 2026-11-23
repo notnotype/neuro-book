@@ -8,7 +8,7 @@
  */
 
 import {defineComponent, h, onMounted, reactive, ref} from "vue";
-import type {PropType, Ref} from "vue";
+import type {Component, PropType, Ref} from "vue";
 
 import type {ReadPosition} from "@notnotype/nb-canon";
 
@@ -28,6 +28,7 @@ import type {CanonNotices} from "./notices";
 import type {OriginsPage} from "./origin-pages";
 import type {RevertRequests} from "./revert";
 import {useCanonText} from "./text";
+import type {TextDrafts} from "./text-drafts";
 import type {CanonWorld} from "./world";
 
 /** 条目页标签的状态（输出 7）。 */
@@ -98,10 +99,16 @@ export interface EntryPageOptions {
      * 公开状态只给文件标签的地址、没有活动页面，按挂上判断不用改编辑器。
      */
     readonly shown?: (entry: string) => void;
+    /** 本窗口的主文字稿（输出 44 到 46）：标签的未保存圆点问它，条目页的编辑视图用它的会话。 */
+    readonly drafts: TextDrafts;
+    /** 源文字的输入框（编辑器插件的代码输入框）；窗口里没有编辑器插件时为 null。 */
+    readonly sourceInput?: Component | null;
 }
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
     const heads = reactive(new Map<string, EntryHead>());
+    /** 挂着的条目页交来的“提交主文字”：保存命令只对活动标签调用，活动的页面一定挂着。 */
+    const commits = new Map<string, () => Promise<void>>();
     const open = (ref: {readonly kind: "entry" | "change"; readonly id: string}): void => {
         options.execute(ref.kind === "entry" ? OPEN_ENTRY_COMMAND : OPEN_CHANGE_COMMAND, {id: ref.id});
     };
@@ -121,13 +128,21 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => {
+                            if (commit === null) commits.delete(id);
+                            else commits.set(id, commit);
+                        }});
                     };
                 },
             });
         },
         title: (arg) => (arg === undefined ? null : heads.get(arg)?.name ?? null),
         initialState: () => entryPageState(),
+        // 有没提交的主文字时标签带未保存的圆点，Ctrl+S 提交它（workbench/editor.md 输出 68）。
+        uncommitted: (arg) => arg !== undefined && options.drafts.uncommitted(arg),
+        commit: async (arg) => {
+            if (arg !== undefined) await commits.get(arg)?.();
+        },
         breadcrumbs: (arg) => {
             const head = arg === undefined ? undefined : heads.get(arg);
             if (head === undefined) return null;

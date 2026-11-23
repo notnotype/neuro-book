@@ -96,7 +96,6 @@ async function desk(h: ProjectHarness, windowId: string, client = "profile-1"): 
         storage: storage!,
         world: () => world,
         call: window.canon.call,
-        title: () => "改主文字",
         schedule: (run) => {
             scheduled.push(run);
             return () => void scheduled.splice(scheduled.indexOf(run), 1);
@@ -184,18 +183,22 @@ describe("author-ui 输出 44、45：暂存与提交", () => {
         // 暂存不是修订：世界里还是原样。
         expect(await sources(first.canon, entry)).toEqual(["A", "B", "C"]);
 
-        const result = await session.submit();
+        const result = await session.submit("改主文字");
         expect(result.status).toBe("published");
         expect(await sources(first.canon, entry)).toEqual(["A 改", "B", "新的一块", "C"]);
         expect(await revisionTitles(first.canon, entry)).toEqual(["建条目", "改主文字"]);
         expect([session.state.draft, first.drafts.uncommitted(entry), (await stored(first.storage, entry)).status]).toEqual([null, false, "missing"]);
 
-        // 只加了一个空的新块：没有净变化，不发请求、不多出修订，稿清掉。
+        // 清空一个新块以后再写回去：没有净变化（空的新块不算改动、不进暂存），不发请求、不多出修订，稿清掉。
         await session.begin(end("3"));
-        session.edit((draft) => addAfter(draft, "b1").draft);
+        const blank = addAfter(session.state.draft!, "b1", "先写了几个字");
+        session.edit(() => blank.draft);
         await session.flush();
         expect((await stored(first.storage, entry)).status).toBe("ok");
-        expect((await session.submit()).status).toBe("nothing");
+        session.edit((draft, read) => setText(draft, read, blank.key, "  "));
+        await session.flush();
+        expect([first.drafts.uncommitted(entry), (await stored(first.storage, entry)).status]).toEqual([false, "missing"]);
+        expect((await session.submit("改主文字")).status).toBe("nothing");
         expect([await revisionTitles(first.canon, entry), (await stored(first.storage, entry)).status, session.state.draft]).toEqual([["建条目", "改主文字"], "missing", null]);
 
         await second.close();
@@ -226,7 +229,7 @@ describe("author-ui 输出 44、45：暂存与提交", () => {
         session.edit((draft, read) => setText(draft, read, "b2", "B″"));
         session.edit((draft, read) => splitAt(draft, read, "b3", "前半。".length).draft);
         session.edit((draft) => addAfter(draft, "b4", "跟在 X 后面").draft);
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
         // 第 3 章末尾：B″ 改进了第 2 章那条变更；拆出来的后半与新块在初值里。
         expect(await sources(author.canon, entry)).toEqual(["A", "X", "跟在 X 后面", "B″", "前半。", "后半。"]);
         // 第 1 章末尾（那条剧情之前）：B 还是初值，没有 X；多出来的只有新加的设定块，拆开的两半合起来还是原文。
@@ -253,7 +256,7 @@ describe("author-ui 输出 44：世界在这期间变了", () => {
         author.faults.beforeWrite = async () => {
             if (interleaved++ === 0) await write(author.canon, "creative", end("3"), [{op: "set", at: {entry: other, path: "text[b1]"}, value: "别的条目（改）"}]);
         };
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
         expect(interleaved).toBe(2);
         expect(await sources(author.canon, entry)).toEqual(["A 改", "B", "别处加的", "C（别处改了）"]);
         expect(await revisionTitles(author.canon, entry)).toEqual(["建条目", "别处的改动", "改主文字"]);
@@ -263,11 +266,11 @@ describe("author-ui 输出 44：世界在这期间变了", () => {
         session.edit((draft, read) => setText(draft, read, "b2", "B 改"));
         let noise = 0;
         author.faults.beforeWrite = () => write(author.canon, "creative", end("3"), [{op: "set", at: {entry: other, path: "text[b1]"}, value: `噪声 ${String(++noise)}`}]);
-        expect((await session.submit()).status).toBe("contended");
+        expect((await session.submit("改主文字")).status).toBe("contended");
         expect([noise, session.state.phase, session.state.draft?.pending, textOf(session.state.draft!, session.state.read!, "b2")]).toEqual([3, "idle", undefined, "B 改"]);
         expect(await sources(author.canon, entry)).toEqual(["A 改", "B", "别处加的", "C（别处改了）"]);
         author.faults.beforeWrite = null;
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
 
         await author.close();
         release();
@@ -284,7 +287,7 @@ describe("author-ui 输出 44：世界在这期间变了", () => {
         session.edit((draft, read) => removeBlock(draft, read, "b3"));
         await write(author.canon, "creative", end("3"), [{op: "set", at: {entry, path: "text[b1]"}, value: "A（别处）"}, {op: "set", at: {entry, path: "text[b3]"}, value: "C（别处）"}]);
 
-        expect((await session.submit()).status).toBe("conflicts");
+        expect((await session.submit("改主文字")).status).toBe("conflicts");
         expect(session.state.conflicts).toEqual([
             {kind: "changed", key: "b1", mine: "A（我的）", theirs: "A（别处）"},
             {kind: "changed", key: "b3", mine: null, theirs: "C（别处）"},
@@ -297,10 +300,10 @@ describe("author-ui 输出 44：世界在这期间变了", () => {
 
         // 选完、再提交之前别处又改了同一块：再问一次。
         await write(author.canon, "creative", end("3"), [{op: "set", at: {entry, path: "text[b1]"}, value: "A（别处第二次）"}]);
-        expect((await session.submit()).status).toBe("conflicts");
+        expect((await session.submit("改主文字")).status).toBe("conflicts");
         expect(session.state.conflicts).toEqual([{kind: "changed", key: "b1", mine: "A（我的）", theirs: "A（别处第二次）"}]);
         session.choose(session.state.conflicts[0]!, "mine");
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
         expect(await sources(author.canon, entry)).toEqual(["A（我的）", "B", "C（别处）"]);
 
         await author.close();
@@ -319,7 +322,7 @@ describe("author-ui 输出 46：提交的结局不明", () => {
         session.edit((draft, read) => setText(draft, read, "b1", "A 改"));
         session.edit((draft) => addAfter(draft, "b2", "新块").draft);
         author.faults.lose = "after";
-        expect((await session.submit()).status).toBe("unknown");
+        expect((await session.submit("改主文字")).status).toBe("unknown");
         expect([session.state.phase, session.state.draft?.pending !== undefined]).toEqual(["confirming", true]);
         const kept = await stored(author.storage, entry);
         expect(kept.status === "ok" && kept.value.pending !== undefined).toBe(true);
@@ -350,7 +353,7 @@ describe("author-ui 输出 46：提交的结局不明", () => {
         await session.begin(end("3"));
         session.edit((draft) => addAfter(draft, "b2", "新块").draft);
         author.faults.lose = "before";
-        expect((await session.submit()).status).toBe("unknown");
+        expect((await session.submit("改主文字")).status).toBe("unknown");
         expect(await sources(author.canon, entry)).toEqual(["A", "B"]);
         expect((await session.confirm()).status).toBe("published");
         expect(await sources(author.canon, entry)).toEqual(["A", "B", "新块"]);
@@ -360,18 +363,18 @@ describe("author-ui 输出 46：提交的结局不明", () => {
         await session.begin(end("3"));
         session.edit((draft) => addAfter(draft, "b1", "又一块").draft);
         author.faults.lose = "before";
-        expect((await session.submit()).status).toBe("unknown");
+        expect((await session.submit("改主文字")).status).toBe("unknown");
         await write(author.canon, "creative", end("3"), [{op: "set", at: {entry: other, path: "text[b1]"}, value: "别的条目（改）"}]);
         expect((await session.confirm()).status).toBe("not-published");
         expect([session.state.phase, session.state.draft?.pending]).toEqual(["idle", undefined]);
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
         expect(await sources(author.canon, entry)).toEqual(["A", "又一块", "B", "新块"]);
 
         // 第三轮：请求到了、回复丢了，之后世界又变了：查到已经发布，收场，不再发。
         await session.begin(end("3"));
         session.edit((draft) => addAfter(draft, null, "开头").draft);
         author.faults.lose = "after";
-        expect((await session.submit()).status).toBe("unknown");
+        expect((await session.submit("改主文字")).status).toBe("unknown");
         await write(author.canon, "creative", end("3"), [{op: "set", at: {entry: other, path: "text[b1]"}, value: "别的条目（再改）"}]);
         expect((await session.confirm()).status).toBe("published");
         expect(await sources(author.canon, entry)).toEqual(["开头", "A", "又一块", "B", "新块"]);
@@ -402,7 +405,7 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
         // 被告知以后接着打字也不写；提交不可用（暂存写不进去就不发）。
         one.edit((draft, read) => setText(draft, read, "b1", "窗口一（接着改）"));
         await one.flush();
-        expect((await one.submit()).status).toBe("not-saved");
+        expect((await one.submit("改主文字")).status).toBe("not-saved");
         expect(((await stored(first.storage, entry)) as {value: {texts: unknown}}).value.texts).toEqual({b2: "窗口二"});
 
         await one.takeOver();
@@ -431,7 +434,7 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
         session.edit((draft, read) => setText(draft, read, "b1", huge));
         await session.flush();
         expect([session.state.saved, (await stored(author.storage, entry)).status]).toEqual(["too-large", "missing"]);
-        expect((await session.submit()).status).toBe("too-large");
+        expect((await session.submit("改主文字")).status).toBe("too-large");
         expect(textOf(session.state.draft!, session.state.read!, "b1")).toBe(huge);
 
         // 存得下、发不出：稿在记录的上限之内，请求比消息的上限大。
@@ -439,14 +442,14 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
         session.edit((draft, read) => setText(draft, read, "b1", large));
         await session.flush();
         expect(session.state.saved).toBe("saved");
-        expect((await session.submit()).status).toBe("too-large");
+        expect((await session.submit("改主文字")).status).toBe("too-large");
         expect(session.state.draft?.pending).toBeUndefined();
 
         session.edit((draft, read) => setText(draft, read, "b1", "A"));
         for (let index = 0; index <= SUBMIT_OPS_MAX; index += 1) session.edit((draft) => addAfter(draft, "b2", `第 ${String(index + 1)} 块`).draft);
-        expect(await session.submit()).toEqual({status: "too-many", count: SUBMIT_OPS_MAX + 1});
+        expect(await session.submit("改主文字")).toEqual({status: "too-many", count: SUBMIT_OPS_MAX + 1});
         session.edit((draft) => ({...draft, order: draft.order.filter((key) => key !== draft.order[2]), texts: Object.fromEntries(Object.entries(draft.texts).filter(([key]) => key !== draft.order[2]))}));
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
         expect((await sources(author.canon, entry)).length).toBe(2 + SUBMIT_OPS_MAX);
 
         await author.close();
@@ -463,7 +466,7 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
         session.edit((draft, read) => setText(draft, read, "b1", "A 改"));
         const added = addAfter(session.state.draft!, "b2", "没闭合的 {表达式");
         session.edit(() => added.draft);
-        expect((await session.submit()).status).toBe("problems");
+        expect((await session.submit("改主文字")).status).toBe("problems");
         expect(Object.keys(session.state.problems)).toEqual([added.key]);
         expect(session.state.problems[added.key]).toMatchObject({kind: "rejected", code: "cross-block"});
         const kept = await stored(author.storage, entry);
@@ -471,7 +474,7 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
         expect(await sources(author.canon, entry)).toEqual(["A", "B"]);
         session.edit((draft, read) => setText(draft, read, added.key, "改好了的一块"));
         expect(session.state.problems).toEqual({});
-        expect((await session.submit()).status).toBe("published");
+        expect((await session.submit("改主文字")).status).toBe("published");
 
         // 稿开在第 3 章末尾；活页夹里去掉第 3 章以后，稿对不上世界了。
         await session.begin(end("3"));
@@ -483,7 +486,7 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
             const read = await author.canon.call("chapters", {});
             return read.ok && read.value.items.length === 2;
         });
-        expect(await session.submit()).toEqual({status: "blocked", reason: "chapter-not-found"});
+        expect(await session.submit("改主文字")).toEqual({status: "blocked", reason: "chapter-not-found"});
         expect([session.state.blocker, session.state.read, session.state.draft?.texts]).toEqual(["chapter-not-found", null, {b2: "B 改"}]);
         await session.discard();
         expect([session.state.draft, (await stored(author.storage, entry)).status]).toEqual([null, "missing"]);

@@ -7,7 +7,7 @@
 import {computed, defineComponent, h} from "vue";
 import type {PropType, VNodeChild} from "vue";
 
-import {Button} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 
 import type {EntryTextBlock, EntryTextNode, TextAddress} from "./entry-text";
 import {addressKey} from "./entry-text";
@@ -21,21 +21,27 @@ const props = withDefaults(defineProps<{
     marks?: Readonly<Record<string, string>>;
     /** 展开着来历的值（`addressKey`）；没有时不写。 */
     open?: string;
-    /** 每一块旁边出“改这一段”“删掉这一段”，文末出“加一段”（输出 9、10）。 */
+    /** 右上出“编辑”（没有主文字时是“开始写”）：进按块编辑（输出 39）。 */
     editable?: boolean;
-    /** 不能写的原因：非空时这几个按钮不可用，悬停写原因。 */
+    /** 不能进编辑的原因：非空时那个按钮不可用，悬停写原因。 */
     editReason?: string;
-}>(), {marks: () => ({}), open: undefined, editable: false, editReason: ""});
+    /** 每一块出剧情的菜单、文末出“在剧情里加一块”（所选位置是某一章时，输出 39）。 */
+    story?: boolean;
+    /** 剧情的入口不能用的原因：非空时它们不可用，悬停写原因。 */
+    storyReason?: string;
+}>(), {marks: () => ({}), open: undefined, editable: false, editReason: "", story: false, storyReason: ""});
 
 const emit = defineEmits<{
     /** 点了一个值：展开或收起它的来历。 */
     (event: "value", address: TextAddress): void;
     /** 点了一个条目引用。 */
     (event: "entry", id: string): void;
-    /** 一块的“改这一段”“删掉这一段”，文末的“加一段”。 */
-    (event: "edit-block", id: string): void;
-    (event: "remove-block", id: string): void;
-    (event: "add-block"): void;
+    /** 点了“编辑”或“开始写”。 */
+    (event: "edit"): void;
+    /** 一块的剧情菜单里的两项，与文末的“在剧情里加一块”。 */
+    (event: "story-edit", id: string): void;
+    (event: "story-remove", id: string): void;
+    (event: "story-add"): void;
 }>();
 
 defineSlots<{
@@ -44,6 +50,11 @@ defineSlots<{
 }>();
 
 const text = useCanonText();
+
+const storyItems = computed(() => [
+    {id: "edit", label: text("block.storyEdit"), iconClass: "i-lucide-pencil-line"},
+    {id: "remove", label: text("block.storyRemove"), iconClass: "i-lucide-trash-2"},
+]);
 
 function children(node: EntryTextNode): VNodeChild[] {
     return (node.children ?? []).map(renderNode);
@@ -140,18 +151,27 @@ const openAddress = (): TextAddress | null => {
 
 <template>
     <div class="min-w-0 text-[length:var(--text-md)] leading-8 text-[var(--text-main)]" data-entry-text>
-        <p v-if="props.blocks.length === 0" class="my-2 text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
+        <div v-if="props.blocks.length === 0" class="my-2 flex flex-col items-start gap-3">
+            <p class="text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
+            <Button v-if="props.editable" variant="primary" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-text-edit @click="emit('edit')">{{ text("textEdit.start") }}</Button>
+        </div>
+        <div v-else-if="props.editable" class="flex justify-end">
+            <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-text-edit @click="emit('edit')">
+                <span class="i-lucide-pencil-line mr-1 size-3.5" aria-hidden="true" />{{ text("textEdit.edit") }}
+            </Button>
+        </div>
         <section v-for="(block, index) in props.blocks" :key="block.id" class="group/block relative">
-            <div v-if="props.editable" class="flex justify-end gap-1 opacity-60 group-hover/block:opacity-100 group-focus-within/block:opacity-100" :data-block-actions="block.id">
-                <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('block.editLabel', {index: index + 1})" @click="emit('edit-block', block.id)">{{ text("block.edit") }}</Button>
-                <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('block.removeLabel', {index: index + 1})" @click="emit('remove-block', block.id)">{{ text("block.remove") }}</Button>
+            <div v-if="props.story" class="flex justify-end opacity-60 transition-opacity duration-[var(--motion-fast)] group-hover/block:opacity-100 group-focus-within/block:opacity-100 motion-reduce:transition-none" :data-block-actions="block.id">
+                <DropdownMenu align="end" :items="storyItems" :disabled="props.storyReason !== ''" @select="(id: string) => (id === 'edit' ? emit('story-edit', block.id) : emit('story-remove', block.id))">
+                    <IconButton size="sm" icon-class="i-lucide-ellipsis" :disabled="props.storyReason !== ''" :aria-label="text('block.menuLabel', {index: index + 1})" :title="props.storyReason !== '' ? props.storyReason : text('block.menuLabel', {index: index + 1})" />
+                </DropdownMenu>
             </div>
             <Block :block="block" />
             <div v-if="block.id === originBlock" class="my-2 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 leading-6">
                 <slot name="origin" :address="openAddress()!" />
             </div>
         </section>
-        <Button v-if="props.editable" class="mt-2" size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-add-block @click="emit('add-block')">{{ text("block.add") }}</Button>
+        <Button v-if="props.story" class="mt-2" size="sm" variant="ghost" :disabled="props.storyReason !== ''" :title="props.storyReason !== '' ? props.storyReason : undefined" data-story-add @click="emit('story-add')">{{ text("block.storyAdd") }}</Button>
     </div>
 </template>
 

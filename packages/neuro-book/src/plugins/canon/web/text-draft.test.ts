@@ -208,7 +208,9 @@ describe("author-ui 输出 44：编成一批操作", () => {
 
     it("净变化是零时没有操作；超过一次能发的项数时标出来，操作照样编全", () => {
         expect(compile(emptyDraft(PLAIN), PLAIN, "e1").ops).toEqual([]);
-        expect(compile(addAfter(emptyDraft(PLAIN), "b1").draft, PLAIN, "e1").ops).toEqual([]);
+        const blankBlock = addAfter(emptyDraft(PLAIN), "b1").draft;
+        // 空的新块不发出去，也不算有未提交的内容。
+        expect([compile(blankBlock, PLAIN, "e1").ops, hasChanges(blankBlock), changedCount(blankBlock)]).toEqual([[], false, 0]);
         const many = read(Array.from({length: SUBMIT_OPS_MAX}, (_, index) => free(`b${String(index + 1)}`, `第 ${String(index + 1)} 块`, index)));
         let draft = emptyDraft(many);
         for (const block of many.blocks) draft = setText(draft, many, block.id, `${block.source}（改）`);

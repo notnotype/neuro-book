@@ -23,6 +23,8 @@ type LineSelectProps = {
     line: string;
     /** 这一页按自己的位置实际读的线。 */
     resolved: string;
+    /** 现在不能换线；默认 false。 */
+    disabled?: boolean;
 };
 ```
 

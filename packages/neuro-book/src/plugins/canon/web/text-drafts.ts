@@ -33,7 +33,7 @@ const DraftSchema = Type.Object({
     texts: Type.Record(Type.String(), Type.String()),
     removed: Type.Array(Type.String()),
     moved: Type.Optional(Type.Array(Type.String())),
-    pending: Type.Optional(Type.Object({requestId: Type.String(), stamp: Type.Object({version: Type.Integer(), input: Type.String()})})),
+    pending: Type.Optional(Type.Object({requestId: Type.String(), title: Type.String(), stamp: Type.Object({version: Type.Integer(), input: Type.String()})})),
 });
 
 /** 一个条目一条，键是条目 id；只在这台机器的这份浏览器配置里（`local`）。 */
@@ -103,7 +103,8 @@ export interface TextDraftSession {
     flush(): Promise<void>;
     /** 离开编辑：稿与暂存都丢掉（有改动时调用方先问过作者）。等结局期间同样可以放弃，只丢本机的稿。 */
     discard(): Promise<void>;
-    submit(): Promise<SubmitResult>;
+    /** `title` 是这次修订的标题。 */
+    submit(title: string): Promise<SubmitResult>;
     /** 上一次提交结局不明时再确认一次（连上以后、作者点“再试”）。 */
     confirm(): Promise<SubmitResult>;
     /** 作者选完了一条冲突。 */
@@ -128,8 +129,6 @@ export interface TextDraftsOptions {
     /** 窗口没有绑定项目时为 null。 */
     readonly world: () => CanonWorld | null;
     readonly call: CanonClient["call"];
-    /** 修订的标题（界面语言的“改主文字”）。 */
-    readonly title: () => string;
     readonly requestId?: () => string;
     /** 推迟执行，返回取消；测试给自己的（不按时长等，直接调 `flush`）。 */
     readonly schedule?: (run: () => void, ms: number) => () => void;
@@ -265,7 +264,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             requestId: draft.pending!.requestId,
             by: {kind: "author" as const},
             what: "edit" as const,
-            title: options.title(),
+            title: draft.pending!.title,
             baseVersion: draft.pending!.stamp.version,
             readStamp: draft.pending!.stamp,
             intent: "creative" as const,
@@ -323,7 +322,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             return frozen.code;
         };
 
-        const attempt = async (): Promise<SubmitResult> => {
+        const attempt = async (title: string): Promise<SubmitResult> => {
             const world = options.world();
             if (world === null) return {status: "blocked", reason: "unavailable"};
             for (let round = 0; round < SUBMIT_ATTEMPTS; round += 1) {
@@ -346,7 +345,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                     return {status: "nothing"};
                 }
                 if (compiled.tooMany) return {status: "too-many", count: compiled.ops.length};
-                const pending: PendingSubmit = {requestId: newRequestId(), stamp: {version: read.version, input: read.inputDigest}};
+                const pending: PendingSubmit = {requestId: newRequestId(), title, stamp: {version: read.version, input: read.inputDigest}};
                 const request = input({...draft, pending}, compiled.ops);
                 if (encodedBytes({input: request}) > CANON_BUDGET_BYTES) return {status: "too-large"};
                 const failed = await freeze(pending);
@@ -388,7 +387,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
          */
         const confirm = (): Promise<SubmitResult> => guarded(async () => {
             const pending = state.draft?.pending;
-            if (pending === undefined) return attempt();
+            if (pending === undefined) return {status: "not-published"};
             const world = options.world();
             if (world === null) return {status: "unknown"};
             const read = await readBlocks(state.draft!.at);
@@ -398,7 +397,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 state.blocker = null;
                 const compiled = compile(withoutPending(state.draft!), read, entry);
                 const settled = await settle(await write(world, input(state.draft!, compiled.ops)), compiled.keys);
-                return settled === "again" ? attempt() : settled;
+                return settled === "again" ? attempt(pending.title) : settled;
             }
             let found: CanonOutputs["outcome"];
             try {
@@ -479,7 +478,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 // 放弃时别的窗口的稿不动；这个窗口自己存下的那一份删掉。
                 await clear();
             },
-            submit: () => guarded(attempt),
+            submit: (title) => guarded(() => attempt(title)),
             confirm,
             choose: (conflict, choice) => {
                 const [draft, read] = [state.draft, state.read];

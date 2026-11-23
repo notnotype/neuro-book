@@ -24,6 +24,8 @@ export interface TextRead {
 /** 提交发出以后、结果回来之前记下的那次请求：靠它在断线、刷新以后原样重发，不换请求再发（author-ui 输出 46）。 */
 export interface PendingSubmit {
     readonly requestId: string;
+    /** 修订的标题：重发时要与第一次逐字相同，所以记下来，不随界面语言再取一次。 */
+    readonly title: string;
     readonly stamp: {readonly version: number; readonly input: string};
 }
 
@@ -72,14 +74,19 @@ export function emptyDraft(read: TextRead): TextDraft {
     return {at: read.at, order: read.blocks.map((block) => block.id), base: {}, texts: {}, removed: []};
 }
 
-/** 有没有未提交的内容：有旧块动过，或有新块。改回原样的块不算（`setText` 会把它从 `base` 里拿掉）。 */
+const blank = (text: string): boolean => text.trim() === "";
+
+/** 写了字的新块（空的新块不会发出去，也不算改动：没有主文字的条目进编辑时就先放着一个）。 */
+const written = (draft: TextDraft): string[] => draft.order.filter((key) => isNewKey(key) && !blank(draft.texts[key] ?? ""));
+
+/** 有没有未提交的内容：有旧块动过，或有写了字的新块。改回原样的块不算（`setText` 会把它从 `base` 里拿掉）。 */
 export function hasChanges(draft: TextDraft): boolean {
-    return Object.keys(draft.base).length > 0 || draft.order.some(isNewKey);
+    return Object.keys(draft.base).length > 0 || written(draft).length > 0;
 }
 
-/** 动过的块数（那一行的“未提交几块”）：改了字的、删掉的、新加的各算一块。 */
+/** 动过的块数（那一行的“未提交几块”）：改了字的、删掉的、新加而写了字的各算一块。 */
 export function changedCount(draft: TextDraft): number {
-    return Object.keys(draft.base).length + draft.order.filter(isNewKey).length;
+    return Object.keys(draft.base).length + written(draft).length;
 }
 
 export function isRemoved(draft: TextDraft, key: string): boolean {
@@ -333,8 +340,6 @@ export interface Compiled {
     readonly problems: Readonly<Record<string, Blocked>>;
     readonly tooMany: boolean;
 }
-
-const blank = (text: string): boolean => text.trim() === "";
 
 /**
  * 把稿编成一批写入操作（author-ui 输出 44）。稿要先 `rebase` 到这次读取上、冲突都选过。顺序是改字、加块、删块：加块要用的

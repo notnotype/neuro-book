@@ -37,6 +37,8 @@ type EntryPageProps = {
     /** 在所选位置上还没出场时，所选位置的文字；默认空（已出场）。 */
     notAppeared?: string;
     positionGone?: boolean;
+    /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字）；非空时这三个控件不可用、悬停写原因。默认空。 */
+    positionLocked?: string;
     disconnected?: boolean;
     /** 世界只读的原因；默认空（可以写）。 */
     readOnly?: string;

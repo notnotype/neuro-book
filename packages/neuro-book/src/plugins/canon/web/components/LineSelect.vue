@@ -17,6 +17,8 @@ const props = defineProps<{
     line: string;
     /** 这一页按自己的位置实际读的线。 */
     resolved: string;
+    /** 现在不能换线（条目页有没提交的主文字时）。 */
+    disabled?: boolean;
 }>();
 
 const emit = defineEmits<{(event: "update:line", value: string): void}>();
@@ -32,5 +34,5 @@ const items = computed<SelectOption[]>(() => [
 </script>
 
 <template>
-    <Select v-if="props.options.length > 1" class="w-48 max-w-full" size="sm" :aria-label="text('line.label')" :options="items" :model-value="props.line === '' ? FOLLOW : `line:${props.line}`" @update:model-value="(value: string) => emit('update:line', value === FOLLOW ? '' : value.slice('line:'.length))" />
+    <Select v-if="props.options.length > 1" class="w-48 max-w-full" size="sm" :aria-label="text('line.label')" :options="items" :model-value="props.line === '' ? FOLLOW : `line:${props.line}`" :disabled="props.disabled === true" @update:model-value="(value: string) => emit('update:line', value === FOLLOW ? '' : value.slice('line:'.length))" />
 </template>
