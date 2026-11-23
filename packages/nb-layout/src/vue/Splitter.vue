@@ -6,8 +6,8 @@ import type {HTMLAttributes} from "vue";
  *
  * 几何一律 CSS px：`sizesPx` 与 `panels` 同序，合计等于面板空间（不含 sash 占用）。没有百分比往返。
  */
-import {computed, onBeforeUnmount, provide, ref, useId, watch} from "vue";
-import {allocateSashPanels, sashPanelBounds, type SashPanel} from "../grid-geometry";
+import {computed, provide, ref, useId, watch} from "vue";
+import {allocateSashPanels, type SashPanel} from "../grid-geometry";
 import {DEFAULT_SASH_SIZE} from "../grid-rects";
 import {ariaMax, panelBounds, sashPanelsOfConfig} from "./grid-splitter";
 import type {SplitterPanelConfig} from "./grid-splitter";
@@ -20,7 +20,7 @@ import {useSashSnap} from "./useSashSnap";
 import {useSashGesture} from "./useSashGesture";
 import type {SashGestureBinding, SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancellation, SplitterGestureState} from "../splitter-gesture";
-import type {GridAxis, GridExtent, SashCollapseState} from "../grid-types";
+import type {GridAxis, GridExtent} from "../grid-types";
 
 const props = withDefaults(defineProps<{
     direction?: "horizontal" | "vertical";
@@ -300,10 +300,6 @@ watch(() => props.disabled, (disabled) => {
     if (disabled) {
         scope.invalidate();
     }
-});
-
-onBeforeUnmount(() => {
-    scope.invalidate();
 });
 </script>
 

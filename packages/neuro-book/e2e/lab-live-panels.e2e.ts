@@ -175,3 +175,19 @@ test("布局过渡进行中拿起：判定的几何量的是过渡终点，按�
     await expect(scene(page)).toHaveAttribute("data-live-preview", "c:left");
     await page.mouse.up();
 });
+
+test("拖两次列之间的分隔线：每次松手都写进树，第二次从第一次的结果接着拖（没有预览时场景跟着宿主的 revision 重读树）", async ({page}) => {
+    await open(page);
+    const start = await leaf(page, "a");
+    async function dragSash(by: number): Promise<void> {
+        const sash = (await page.locator("[data-lab-subject] [data-sash='root:0']").boundingBox())!;
+        await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(sash.x + sash.width / 2 + by, sash.y + sash.height / 2, {steps: 6});
+        await page.mouse.up();
+    }
+    await dragSash(80);
+    await expect.poll(async () => Math.round((await leaf(page, "a")).width - start.width)).toBe(80);
+    await dragSash(60);
+    await expect.poll(async () => Math.round((await leaf(page, "a")).width - start.width)).toBe(140);
+});

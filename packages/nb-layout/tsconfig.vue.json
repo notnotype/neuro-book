@@ -6,6 +6,7 @@
         "lib": ["ESNext", "DOM", "DOM.Iterable"],
         "types": [],
         "strict": true,
+        "noUnusedLocals": true,
         "noEmit": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true

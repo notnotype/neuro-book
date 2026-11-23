@@ -177,7 +177,6 @@ const labelRef = ref<HTMLElement | null>(null);
 let measured: {element: HTMLElement; signature: string; size: {width: number; height: number}} | null = null;
 const labelSize = ref<{width: number; height: number} | null>(null);
 const viewport = ref({width: 0, height: 0});
-const announcedText = ref("");
 
 /**
  * 补一次真实测量：viewport 每次都同步（纯读 window，不触发布局），
@@ -293,14 +292,6 @@ const labelStyle = computed<LabelStyle>(() => {
         ? {left: "auto", top: "auto", visibility: "hidden"}
         : {left: layout.left, top: layout.top, visibility: "visible"};
 });
-
-watch(
-    () => props.label,
-    (next) => {
-        announcedText.value = next.trim();
-    },
-    {immediate: true},
-);
 </script>
 
 <template>
@@ -363,7 +354,7 @@ watch(
                 aria-live="polite"
                 aria-atomic="true"
             >
-                {{ announcedText }}
+                {{ labelText }}
             </div>
         </div>
     </Teleport>

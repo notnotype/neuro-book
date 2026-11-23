@@ -25,7 +25,7 @@ export interface SashSnapHost {
 }
 
 /** 量一条分隔线：只读，交回这一帧量完之后要做的写入。 */
-export type SashSnapMeasure = (dpr: number) => (() => void) | null;
+type SashSnapMeasure = (dpr: number) => (() => void) | null;
 
 const SASH_SNAP_KEY: InjectionKey<SashSnapHost> = Symbol("nb-layout.sash-snap");
 

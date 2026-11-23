@@ -150,7 +150,8 @@ export interface LiveDrag<S, D, G> {
     end(): void;
 }
 
-const IDLE_STATE: LiveDragState = {active: false, preview: {kind: "none"}, previewed: false, collapsed: false, lifted: null, slotInGrid: null};
+/** 没在拖时的状态；`useLiveDragSession` 的 `liveState` 也用这一份。不从入口导出。 */
+export const IDLE_STATE: LiveDragState = {active: false, preview: {kind: "none"}, previewed: false, collapsed: false, lifted: null, slotInGrid: null};
 
 const samePoint = (a: GridDropPoint, b: GridDropPoint): boolean => a.x === b.x && a.y === b.y;
 const sameRect = (a: GridRect | null, b: GridRect | null): boolean => a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height);

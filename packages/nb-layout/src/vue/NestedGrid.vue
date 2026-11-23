@@ -12,30 +12,32 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
-import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
-import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
-import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
+import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {useLayoutText} from "./layout-text";
 import {gridRectStyle, leafShapeClip, liftedRectStyle, useContentLayer} from "./useContentLayer";
+import {useHeldLifted} from "./useHeldLifted";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";
+import {useGridSwap} from "./useGridSwap";
 import {useLeafParking} from "./useLeafParking";
 import {useGridFocus} from "./useGridFocus";
 import {useLayoutExtent} from "./useLayoutExtent";
 import {useRenderOrder} from "./useRenderOrder";
+import {useSashPresentation} from "./useSashPresentation";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
 import {layoutMotionMs} from "./layout-motion";
 import {commitFailure} from "../grid-failure";
-import {layoutDevChecksEnabled, layoutDevWarning, onlyZeroWidthBoundaries} from "../dev-checks";
+import {describeValue, gridDevWarner, isCommitResult, layoutDevChecksEnabled, onlyZeroWidthBoundaries} from "../dev-checks";
 import {usableExtent} from "../grid-geometry";
 import {gridIssue} from "../grid-issue";
 import type {GridExtent, GridFailure, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
-import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
+import type {SashGestureBinding, SashGestureHost} from "../sash-gesture";
 
 defineOptions({name: "NestedGrid"});
 
@@ -163,57 +165,8 @@ const {moving, growing, following, flying, keptSize, anchoredRight, held} = moti
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
-/**
- * 交换进行中每一项在带上是换上来的还是离开的（`data-swap`）。叶与内容项按它们的叶属于哪一组认，所以交换开始之后才挂上来的内容项也裁在窗里；
- * 分隔线按组里记下的键认。
- */
-const swapSide = computed(() => {
-    const band = motion.band.value;
-    const leaves = new Map<string, "in" | "out">();
-    band?.groups.forEach((group, index) => {
-        for (const leaf of group.leaves) leaves.set(leaf, index === band.target ? "in" : "out");
-    });
-    return {leaves, keys: swapSides(band)};
-});
-function swapSideOf(item: GridLayerItem<unknown>): "in" | "out" | undefined {
-    if (item.kind === "leaf") return swapSide.value.leaves.get(item.node.id);
-    if (item.kind === "content") return swapSide.value.leaves.get(item.leaf);
-    return swapSide.value.keys.get(item.key);
-}
-/** 静止的底（`swap-backdrop`）：交换进行中才有。 */
-const swapBackdrop = computed(() => {
-    const band = motion.band.value;
-    if (band === null) return null;
-    const {outer, window} = band;
-    const inset = [window.y - outer.y, outer.x + outer.width - (window.x + window.width), outer.y + outer.height - (window.y + window.height), window.x - outer.x] as const;
-    return {style: gridRectStyle(outer), inset, radius: band.radius};
-});
-/** 这一刻在交换里的叶（节点 id，含离开的）：过渡结束就空了。 */
-const swappingLeaves = computed<ReadonlySet<string>>(() => new Set(swapSide.value.leaves.keys()));
-/** 带上的项按裁切窗裁：窗在网格里不动，每一帧的裁切跟着元素此刻的矩形，和 `left`/`top` 同一段过渡。 */
-function swapClipStyle(item: GridLayerItem<unknown>, rect: GridRect): Record<string, string> {
-    const band = motion.band.value;
-    return band === null || swapSideOf(item) === undefined ? {} : {clipPath: swapWindowClip(band, rect)};
-}
-
-/**
- * 宿主给的交换只在 `token` 变了的那一轮刷新里有效：在属性写进来的那一刻（同步）记下，布局变化的 watcher 用掉它；这一轮没有布局变化
- * （点了没有改变布局、提交被拒）时 `nextTick` 作废，不留给后面不相干的布局变化。宿主在同一个同步段里给交换、提交布局，两者在同一轮刷新里到。
- */
-let freshSwap: GridSwap | null = null;
-watch(() => props.swap?.token, () => {
-    const swap = props.swap;
-    freshSwap = swap;
-    if (swap === null) return;
-    void nextTick(() => {
-        if (freshSwap === swap) freshSwap = null;
-    });
-}, {flush: "sync"});
-function takeSwap(): GridSwap | null {
-    const swap = freshSwap;
-    freshSwap = null;
-    return swap;
-}
+const {swapSide, swapSideOf, swapBackdrop, swappingLeaves, swapClipStyle, offerSwap, takeSwap} = useGridSwap(motion.band);
+watch(() => props.swap?.token, () => offerSwap(props.swap), {flush: "sync"});
 
 /** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
 const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
@@ -271,31 +224,7 @@ const raisedLeaf = shallowRef<string | null>(null);
 /** 拿起的内容项此刻的矩形。跟手的东西不走渲染：每帧走属性的话，这个组件和每块叶的插槽都要重跑。 */
 let liftedRect: GridRect = {x: 0, y: 0, width: 0, height: 0};
 
-/**
- * 拿起的内容项（`lifted`）不能卸载：宿主的预览常把它从 `contents` 里摘掉（来源收起），这时沿用拿起那一刻的那一项（叶是来源原来的叶、不活动；
- * 之后的预览把它摆到别的叶上也不改记下的这一项：那块叶可能已经不在了），
- * 实例留着，矩形照旧由 `placeLifted` 写；`lifted` 变回 null 之后按新的 `contents` 处理（Spec `ui/nested-grid` 的 `lifted`）。
- * 要记上一轮的 `contents`：拿起和摘掉常在同一个同步段里，第一次读到 `lifted` 时这一轮已经没有它了。
- */
-let previousContents: ReadonlyArray<GridContentInput> = [];
-let heldLifted: GridContentInput | null = null;
-const layerContents = computed<ReadonlyArray<GridContentInput>>(() => {
-    const items = props.contents;
-    const {lifted} = props;
-    const before = previousContents;
-    previousContents = items;
-    if (lifted == null) {
-        heldLifted = null;
-        return items;
-    }
-    const present = items.find((item) => item.key === lifted.key);
-    if (present !== undefined) {
-        if (heldLifted?.key !== lifted.key) heldLifted = present;
-        return items;
-    }
-    if (heldLifted?.key !== lifted.key) heldLifted = before.find((item) => item.key === lifted.key) ?? null;
-    return heldLifted === null ? items : [...items, {...heldLifted, insetTop: 0, active: false}];
-});
+const layerContents = useHeldLifted({contents: () => props.contents, lifted: () => props.lifted});
 
 const contentLayer = useContentLayer({
     contents: () => layerContents.value,
@@ -342,29 +271,6 @@ const order = useRenderOrder(layers, instanceId, (item) => (item.kind === "conte
 const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 
-/**
- * 宿主给分隔线的种类、样式与两侧的显示名（`sashKind`、`sashStyle`、`paneLabel`），按每次渲染记下：交换里滑出去的线两侧已经不在宿主的布局里，
- * 问宿主只会得到错的结果，沿用它离开前最后一次的。不在渲染层里的线的记录在布局变化时清掉（见 `layers` 的 watcher）。
- */
-type SashLook = {readonly kind: string | undefined; readonly style: Record<string, string> | undefined; readonly before: string; readonly after: string};
-const sashLooks = new Map<string, SashLook>();
-function paneNameOf(id: string): string {
-    const label = props.paneLabel?.(id);
-    return label === undefined || label === "" ? id : label;
-}
-function sashLookOf(sash: GridSashPlacement<unknown>): SashLook {
-    if (sash.leaving === true) return sashLooks.get(sash.key) ?? {kind: undefined, style: undefined, before: sash.before, after: sash.after};
-    const ref = {branch: sash.branch.id, before: sash.before, after: sash.after};
-    const look = {kind: props.sashKind?.(ref), style: props.sashStyle?.(ref), before: paneNameOf(sash.before), after: paneNameOf(sash.after)};
-    sashLooks.set(sash.key, look);
-    return look;
-}
-
-function sashBoxStyle(sash: GridSashPlacement<unknown> & {readonly kind: "sash"}): Record<string, string> {
-    const rect = growing.value.get(sash.key) ?? sash.rect;
-    return {...sashLookOf(sash).style, position: "absolute", ...gridRectStyle(rect), ...swapClipStyle(sash, rect)};
-}
-
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
 function controlledIds(leaf: string): string {
     const frame = domIdOf(`leaf:${leaf}`);
@@ -372,62 +278,17 @@ function controlledIds(leaf: string): string {
     return content === undefined ? frame : `${frame} ${domIdOf(content.key)}`;
 }
 
-/**
- * 这条线沿自己的长度方向为零：它在一个收起为零的分支里（docs/specs/ui/nested-grid.md 输出 136），两边的叶都看不见。
- * 粗细还在，所以 `SashHandle` 按粗细判的“接缝”认不出它；按不可交互交给它，就不可聚焦、不进指针命中，展开后矩形有了长度自己恢复。
- */
-function isZeroLength(sash: GridSashPlacement<unknown>): boolean {
-    return (sash.axis === "width" ? sash.rect.height : sash.rect.width) <= 0;
-}
-
-/** 分隔线的读屏名称：两侧用显示名（`paneLabel`），离开的线用离开前最后一次的。 */
-function sashAriaLabel(sash: GridSashPlacement<unknown>): string {
-    const look = sashLookOf(sash);
-    return text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: look.before, after: look.after});
-}
-
-function sashProps(sash: GridSashPlacement<unknown>) {
-    // 交换里滑出去的分隔线：两侧已经不在布局里，尺寸用冻结的，不能拖。
-    if (sash.frozen !== undefined) {
-        return {
-            branchId: sash.branch.id,
-            index: sash.index,
-            axis: sash.axis,
-            size: sash.size,
-            beforePx: sash.frozen.beforePx,
-            afterPx: sash.frozen.afterPx,
-            disabled: true,
-            detached: true,
-            ends: sash.ends,
-            ariaLabel: sashAriaLabel(sash),
-            ariaControls: domIdOf(`leaf:${sash.controls}`),
-            ariaMin: 0,
-            ariaMax: Math.round(sash.branchLength),
-            ariaNow: Math.round(sash.frozen.beforePx),
-            ariaValueText: text("splitter.pixels", {size: Math.round(sash.frozen.beforePx)}),
-        };
-    }
-    const sizes = renderLayout.value.sizes;
-    const nowPx = Math.max(0, sizes[sash.before]?.[sash.axis] ?? 0);
-    const panel = buildGridBranchPanels(sash.branch.children, renderLayout.value, sash.axis)[sash.index];
-    return {
-        branchId: sash.branch.id,
-        index: sash.index,
-        axis: sash.axis,
-        size: sash.size,
-        beforePx: nowPx,
-        afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
-        disabled: gesturesDisabled.value || isZeroLength(sash) || props.sashDisabled?.({branch: sash.branch.id, before: sash.before, after: sash.after}) === true,
-        detached: false,
-        ends: sash.ends,
-        ariaLabel: sashAriaLabel(sash),
-        ariaControls: controlledIds(sash.controls),
-        ariaMin: Math.round(panelBounds(panel).low),
-        ariaMax: ariaMax(panel, sash.branchLength),
-        ariaNow: Math.round(nowPx),
-        ariaValueText: panel?.collapse?.collapsed === true ? text("splitter.collapsed") : text("splitter.pixels", {size: Math.round(nowPx)}),
-    };
-}
+const {sashKindOf, sashBoxStyle, sashProps} = useSashPresentation({
+    host: props,
+    layers: () => layers.value,
+    layout: () => renderLayout.value,
+    gesturesDisabled: () => gesturesDisabled.value,
+    growing: () => growing.value,
+    swapClip: swapClipStyle,
+    domIdOf,
+    controlledIds,
+    text,
+});
 
 /**
  * 内容项带不带过渡标记。用着起点矩形（`growing`，键见 `startKey`：停放过的内容随新叶长出来、换成按叶的矩形摆的那一帧、落地的卡片）的那一次渲染不带：
@@ -481,8 +342,6 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
-    const rendered = new Set(layers.value.map((item) => item.key));
-    for (const key of sashLooks.keys()) if (!rendered.has(key)) sashLooks.delete(key);
     if (props.maximized != null) raisedLeaf.value = props.maximized.leaf;
     const before = old?.[1] ?? null;
     if (liftedKey !== null || before === null) return;
@@ -586,10 +445,10 @@ const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
                 emit("gesture-end", commit);
                 // 开发模式给接线的人的警告（输出 151）；失败本身照旧经 `useSashGesture` 的拒绝分支发。
                 if (props.onGestureCommit === undefined) warnDev("commit-handler-missing", `has no onGestureCommit, so drags are rolled back. Pass onGestureCommit as a prop (useGridHost's bindings carry it).`);
-                else if (typeof props.onGestureCommit !== "function") warnDev("commit-handler-not-function", `has an onGestureCommit that is not a function (${describe(props.onGestureCommit)}), so drags are rolled back. Writing @gesture-commit next to v-bind="host.bindings.value" merges the two into an array; drop the @gesture-commit.`);
+                else if (typeof props.onGestureCommit !== "function") warnDev("commit-handler-not-function", `has an onGestureCommit that is not a function (${describeValue(props.onGestureCommit)}), so drags are rolled back. Writing @gesture-commit next to v-bind="host.bindings.value" merges the two into an array; drop the @gesture-commit.`);
                 const outcome = props.onGestureCommit?.(commit);
                 if (props.onGestureCommit !== undefined && !isCommitResult(outcome)) {
-                    warnDev("commit-handler-bad-return", `got ${describe(outcome)} from onGestureCommit, so the drag was rolled back. It must return {ok: true} or a failure; a handler written as an event (@gesture-commit) that returns nothing causes this.`);
+                    warnDev("commit-handler-bad-return", `got ${describeValue(outcome)} from onGestureCommit, so the drag was rolled back. It must return {ok: true} or a failure; a handler written as an event (@gesture-commit) that returns nothing causes this.`);
                 }
                 if (outcome === undefined) {
                     // 失败经 `useSashGesture` 的拒绝分支发一条（一个失败一条），这里不另发。
@@ -647,28 +506,15 @@ watch(() => scope.active.size > 0, (active) => {
     if (active) motion.stop();
 });
 
-/**
- * 开发模式的配置检查（Spec 输出 151），`devOwner` 让“每种只报一次”按这个组件实例记。只读的网格（不接提交处理或停用）
- * `sashSize` 为 0 合法，不报。
- */
-const devOwner = {};
+/** 开发模式的配置检查（Spec 输出 151）：“每种只报一次”按这个组件实例记。只读的网格（不接提交处理或停用）`sashSize` 为 0 合法，不报。 */
+const warnDev = gridDevWarner(() => props.contextKey);
 watch(() => [props.node, props.layout, props.disabled, props.onGestureCommit] as const, ([node, layout, disabled, onCommit]) => {
     if (!layoutDevChecksEnabled() || disabled || onCommit === undefined) return;
     if (onlyZeroWidthBoundaries(node, layout)) warnDev("sash-size-zero", `has 0px sashes on every boundary that could be dragged, so nothing can be dragged. createGrid's sashSize defaults to 0; pass a positive sashSize.`);
 }, {immediate: true});
 
-/** 警告带上是哪个网格：没给 `contextKey` 的宿主也认得出（Spec 输出 151）。 */
-function warnDev(kind: string, problem: string): void {
-    const grid = props.contextKey === "" ? "A NestedGrid without a contextKey" : `NestedGrid "${props.contextKey}"`;
-    layoutDevWarning(devOwner, kind, `[nb-layout/NestedGrid] ${grid} ${problem}`);
-}
-
-const isCommitResult = (value: unknown): boolean => typeof value === "object" && value !== null && typeof (value as {ok?: unknown}).ok === "boolean";
-const describe = (value: unknown): string => (value === null ? "null" : Array.isArray(value) ? "an array" : value instanceof Promise ? "a Promise" : typeof value);
-
 onBeforeUnmount(() => {
-    // 先收尾手势再通知：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
-    scope.dispose();
+    // 手势在 `useSashGesture` 自己的卸载钩子里先收尾（它在这条之前注册）：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
     // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
     emit("extent", null);
 });
@@ -755,7 +601,7 @@ defineExpose({
                     <FrozenSlot :frozen="frozenLeaves.has(item.node.id)" :name="`leaf ${item.node.id}`"><slot name="leaf" :node="item.node"></slot></FrozenSlot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashLookOf(item).kind" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKindOf(item)" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"

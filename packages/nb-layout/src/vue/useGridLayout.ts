@@ -23,9 +23,6 @@ import type {GridBranchesResizeResult, GridExtent, GridIssue, GridIssueCode, Gri
 /** 没有可发布几何（未挂载 / 无尺寸 / 无网格）时的空布局。 */
 export const EMPTY_GRID_LAYOUT: GridLayoutResult = {sizes: {}, constraints: {}, sashSizes: {}, issues: []};
 
-/** 提交的结果（Spec `ui/nested-grid` 失败 6）；类型在根入口定义，`SashGestureBinding.onCommit` 也用它。 */
-export type {GridLayoutCommitResult};
-
 export type GridLayoutHost<T> = {
     /** 当前树；结构变更后调用 `invalidate()` 重新读取。 */
     node: ComputedRef<GridNode<T> | null>;

@@ -7,7 +7,7 @@
 import {computed, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {placeContents} from "../grid-rects";
+import {hasSize, placeContents} from "../grid-rects";
 import type {GridContentInput, GridContentPlacement, GridLeafShape, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 
@@ -31,8 +31,6 @@ export function liftedRectStyle(rect: GridRect): Record<string, string> {
 export function leafShapeClip(shape: GridLeafShape): string {
     return `inset(${shape.inset.join(" ")} round ${shape.radius.join(" ")})`;
 }
-
-const hasSize = (rect: GridRect): boolean => rect.width > 0 && rect.height > 0;
 
 export function useContentLayer(options: {
     readonly contents: () => ReadonlyArray<GridContentInput>;

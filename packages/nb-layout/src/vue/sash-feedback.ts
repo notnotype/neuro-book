@@ -9,12 +9,12 @@
  * 指针每划过一条分隔线就是两次。
  */
 import {sashKey} from "../sash-gesture";
-import type {SashHitTarget, SashPoint, SashPointerKind} from "../sash-hit-area";
+import type {SashHitTarget} from "../sash-hit-area";
 
 /** 悬停停留多久后才显示分隔线（毫秒）；拖拽与键盘不受它限制。 */
 export const SASH_HOVER_DELAY_MS = 250;
 
-export type SashCursor = "ew-resize" | "ns-resize" | "move";
+type SashCursor = "ew-resize" | "ns-resize" | "move";
 
 /** 命中集合 → 光标：单轴给对应方向的双向箭头，同 scope 两轴同时命中给移动光标。 */
 export function sashCursorFor(hits: readonly SashHitTarget[]): SashCursor | null {
@@ -89,12 +89,12 @@ export function sashHitKey(hit: {branchId: string; sashIndex: number}): string {
 }
 
 /** 装饰带的目标厚度（CSS px）。比 1px 逻辑接缝厚一档，但不跟着接缝尺寸一起变粗。 */
-export const SASH_BAND_MAX_PX = 3;
+const SASH_BAND_MAX_PX = 3;
 
 /** 装饰带在主轴上的落位：`startPx` 相对分隔元素自身起点（负值表示伸进前一个面板），`thicknessPx` 是呈现厚度。 */
 export type SashBandBox = {startPx: number; thicknessPx: number};
 
-export type SashBandInput = {
+type SashBandInput = {
     /** 逻辑接缝的主轴尺寸（分隔元素的流内尺寸，CSS px）。 */
     sashPx: number;
     /** 前一个相邻面板的当前呈现主轴尺寸；0 表示它已收起或贴边。 */
@@ -131,5 +131,3 @@ export function sashBandBox(input: SashBandInput): SashBandBox | null {
     const startPx = Math.min(Math.max(centered, -beforePx), sashPx + afterPx - thicknessPx) + 0;
     return {startPx, thicknessPx};
 }
-
-export type {SashHitTarget, SashPoint, SashPointerKind};

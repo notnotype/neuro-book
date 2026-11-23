@@ -170,8 +170,9 @@ const {liveState, lifted: liftedItem, dragging} = useLiveDragSession<string, Liv
 }));
 
 const shown = computed(() => preview.value ?? grid.value);
-const node = computed(() => shown.value.root());
-const layout = computed(() => (host.extent.value === null ? host.layout.value : shown.value.layout(host.extent.value)));
+// 没有预览时用宿主的 `node`、`layout`：它们按 `revision` 重读，拖完分隔线（提交换了树）才跟得上；预览树每次都是新的 `Grid`，直接读。
+const node = computed(() => (preview.value === null ? host.node.value : preview.value.root()));
+const layout = computed(() => (preview.value === null || host.extent.value === null ? host.layout.value : preview.value.layout(host.extent.value)));
 const contents = computed<GridContentInput[]>(() => {
     // 预览摘掉了来源时它的内容项不在这里：网格自己留住拿起的那一项（`lifted`）。
     const tree = shown.value;
