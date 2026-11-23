@@ -35,6 +35,13 @@ describe("AgentQueuedMessages", () => {
         expect(view.emitted("remove")).toEqual([["a"], ["b"]]);
     });
 
+    it("removable 为 false 的行（只有发送方能撤回的回执）没有取消，也没有编辑", () => {
+        const {view} = mountQueued({queued: [{id: "r", text: "后台任务的回执", delivery: "steer", author: {label: "提醒 · 后台任务", icon: "i-lucide-bell"}, editable: false, removable: false}, ready("a")]});
+        const rows = view.findAll("li[data-queued]");
+        expect([rows[0]!.find("[data-queued-remove]").exists(), rows[0]!.find("[data-queued-edit]").exists()]).toEqual([false, false]);
+        expect(rows[1]!.find("[data-queued-remove]").exists()).toBe(true);
+    });
+
     it("标签：自己的插话写“补充说明”、排队写“排队”，别人排的写它的名字与图标", () => {
         const {view} = mountQueued({queued: [{id: "s", text: "插的", delivery: "steer"}, ready("f"), {id: "o", text: "别人排的", delivery: "followup", author: {label: "日程", icon: "i-lucide-clock"}, editable: false}]});
         const rows = view.findAll("li[data-queued]");

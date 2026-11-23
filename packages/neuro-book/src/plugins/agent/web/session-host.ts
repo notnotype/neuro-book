@@ -1326,6 +1326,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             delivery: "steer" as const,
             author: {label: deps.text.t(agentText("conversation.author.notice", {name: authorOf(target, notice.by).label})), icon: "i-lucide-bell"},
             editable: false,
+            ...(notice.senderOnly ? {removable: false} : {}),
             ...held,
         }));
     }

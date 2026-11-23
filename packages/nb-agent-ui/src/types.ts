@@ -504,7 +504,7 @@ export type ComposerView = {
      * 排队的话（ui/agent-conversation-view.md 的排队区）。没有 `author` 的是用户自己的；`editable` 缺省为真；`held` 表示留着，
      * 原因文案由宿主写好。
      */
-    queued: Array<{id: string; text: string; delivery: "steer" | "followup"; author?: {label: Text; icon: string}; editable?: boolean; held?: {reason: Text}}>;
+    queued: Array<{id: string; text: string; delivery: "steer" | "followup"; author?: {label: Text; icon: string}; editable?: boolean; removable?: boolean; held?: {reason: Text}}>;
     attachments: ComposerAttachmentView[];
     /** 已发送的内容，最新的在前，供输入历史使用。 */
     recall: string[];

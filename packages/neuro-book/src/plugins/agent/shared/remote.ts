@@ -126,6 +126,8 @@ export interface RemoteNotice {
     readonly by: PendingNotice["by"];
     readonly key?: string;
     readonly wake: boolean;
+    /** 只有发送方能撤回（后台任务的回执）。 */
+    readonly senderOnly?: true;
     readonly queuedAt: number;
     readonly summary: string;
     /** 正文的 UTF-8 字节数。 */
@@ -149,7 +151,7 @@ export function noticeSummary(text: string): string {
 }
 
 export function remoteNotice(notice: PendingNotice): RemoteNotice {
-    return {id: notice.id, by: notice.by, ...(notice.key === undefined ? {} : {key: notice.key}), wake: notice.wake, queuedAt: notice.queuedAt, summary: noticeSummary(notice.text), bytes: new TextEncoder().encode(notice.text).length};
+    return {id: notice.id, by: notice.by, ...(notice.key === undefined ? {} : {key: notice.key}), wake: notice.wake, ...(notice.senderOnly === true ? {senderOnly: true as const} : {}), queuedAt: notice.queuedAt, summary: noticeSummary(notice.text), bytes: new TextEncoder().encode(notice.text).length};
 }
 
 /** 暴露给远程的指令：只给宿主的不进合同（harness/runtime.md 输出 72）。 */

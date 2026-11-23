@@ -388,6 +388,7 @@
             "showResult": "Show full result",
             "hideResult": "Hide result",
             "command": "Background command",
+            "autoBackground": "moved to the background",
             "commandJob": "Job {{id}}",
             "stop": "Stop",
             "lastLine": "Last line: {{line}}",

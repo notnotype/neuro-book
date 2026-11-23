@@ -388,6 +388,7 @@
             "showResult": "看结果全文",
             "hideResult": "收起结果",
             "command": "后台命令",
+            "autoBackground": "自动转到后台",
             "commandJob": "任务 {{id}}",
             "stop": "停止",
             "lastLine": "最后一行：{{line}}",
