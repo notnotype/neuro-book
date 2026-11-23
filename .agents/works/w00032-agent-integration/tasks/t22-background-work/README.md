@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t22-background-work
-status: active
-updated: 2026-11-19
+status: done
+updated: 2026-11-23
 ---
 
 # 后台任务与协作：shell 后台、Agent 后台调用、Monitor、活动面板
@@ -206,8 +206,8 @@ Opus 子代理逐句核对 t22 写进 Spec 的 planned 条目（22 节：可晋�
 
 ## 当前状态
 
-[计划第 4 稿](plan.md)的 6 片都已提交，第 1、2 片的快速审查与第 3–5 片的 Sonnet 审查都已处理（分支到 071be4a6b）。
+完成（2026-11-23）：合入 master（79c52bf6c）。合入前在分支上并了 master、跑过收口验证：nb-harness 1080 条、Agent 插件与架构检查 605 条、nb-agent-ui 526 条（bun 301、dom 225）、三个包 typecheck 全过，e2e `agent-subagents.e2e.ts` 4 条全过；合入后的 master 在 `packages/` 下与验证过的分支一致。Spec 按逐句核对晋升，没有断言的句子留 planned（见上一节）。
 
 ## 下一步
 
-本 Task 的 planned 条目做晋升核对（Opus），通过后合入 master、标完成；子代理卡片读有界的终态并进 t42。
+子代理卡片读有界终态并进 [t42](../t42-task-list-providers/README.md)。留 planned 的句子随以后碰到这块的 Task 补用例再晋升。
