@@ -372,7 +372,14 @@ export class JobCenter {
         if (!isLive(job.state)) return "already-ended";
         // 先记下再停：驱动的中止可能在交回之前就让任务收口，收口时要认得出是用户停的。
         if (owner === null) job.stopByUser = true;
-        const stopped = await job.driver?.kill(undefined, owner === null);
+        let stopped: Awaited<ReturnType<JobDriver["kill"]>>;
+        try {
+            stopped = await job.driver?.kill(undefined, owner === null);
+        } catch (error) {
+            // 驱动抛错同样是没停下：之后别的原因收口时不算用户停的。
+            if (owner === null && isLive(job.state)) delete job.stopByUser;
+            throw error;
+        }
         // 驱动说停的那次已经不在跑（子代理的运行刚收口，runtime.md 输出 120）：不说“已停止”。
         if (stopped === "already-ended") return "already-ended";
         if (typeof stopped === "object") {

@@ -136,7 +136,32 @@ describe("后台任务的行（jobs.md 输出 20）", () => {
     });
 });
 
+describe("行的大小（background-tasks.md 输出 19）", () => {
+    test("命令的最后一行很长、满是控制字符：这一行照样列出、可停、算进后台件数，进展去掉控制字符", async () => {
+        const {parent, tasks} = await open({"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}});
+        // 420 个 U+0001 再接“ OK”，一次写出（进展按时间节流，分两次写只报得到第一块）：编码成 JSON 一个控制字符占 6 字节，不裁的话
+        // 整行超过 2 KiB 被清单丢掉。
+        await turn(parent, "跑", [{tool: "shell", args: {command: "printf '%s OK\\n' \"$(head -c 420 /dev/zero | tr '\\0' '\\1')\"; sleep 30", async: true}}, "好"]);
+        const group = await waitGroup(tasks, parent.id, "带着最后一行", (next) => next.rows.some((row) => typeof row.message === "string" && row.message.includes("OK")));
+        const row = group.rows[0]!;
+        expect(row.message).toBe(" OK");
+        expect(row.stoppable).toBe(true);
+        expect(ok(await tasks.own({})).background.count).toBe(1);
+        expect(ok(await tasks.stop({key: row.key}))).toEqual({outcome: "accepted"});
+    });
+});
+
 describe("会话的行（sessions.md 输出 30）", () => {
+    test("根会话自己等你回答：组头是等你处理，进展写“等你回答”", async () => {
+        const {parent, tasks} = await open();
+        endpoint.script({tool: "ask", args: {questions: [{question: "要几章？", options: [{label: "三章"}, {label: "五章"}]}]}});
+        const sent = await parent.send({commandId: cid(), input: {text: "写大纲"}});
+        if (!sent.ok) throw new Error(JSON.stringify(sent));
+        const group = await waitGroup(tasks, parent.id, "组头等你回答", (next) => next.head?.state === "waiting");
+        expect(group.head).toMatchObject({message: agentText("tasks.question"), stoppable: true});
+        expect(group.waiting).toBe(true);
+    });
+
     test("根会话在跑时一行组头，按运行定址；从清单停下后变成“有留着的话等你放行”、不可停，旧行的键得 row-gone；在跑的工作不报留着的话", async () => {
         const {w, parent, tasks} = await open();
         const request = endpoint.hold();
@@ -152,15 +177,26 @@ describe("会话的行（sessions.md 输出 30）", () => {
         request.release();
         const held = await waitGroup(tasks, parent.id, "留着的话", (next) => next.head?.message !== undefined && JSON.stringify(next.head.message) === JSON.stringify(agentText("tasks.held")));
         expect(held.head).toMatchObject({state: "waiting", stoppable: false});
-        expect(held.head!.key).toContain(`session:${parent.id}:held`);
+        expect(held.head!.key).toContain(`session:${parent.id}:held-`);
         expect(held.waiting).toBe(true);
         expect(await tasks.stop({key: keyOf(running.head)})).toMatchObject({ok: false, code: "row-gone"});
         expect(w.work.collect().items).toEqual([]);
+
+        // 放行、再停一次：又是留着的话，但是另一行（输出 19：同一代里不复用已经消失的行 id）。
+        const again = endpoint.hold();
+        expect((await parent.resume({commandId: cid()})).ok).toBe(true);
+        await again.arrived;
+        expect((await parent.enqueue({commandId: cid(), input: {text: "第三段"}, mode: "followup"})).ok).toBe(true);
+        const second = await waitGroup(tasks, parent.id, "第二次运行的组头", (next) => next.head?.state === "running");
+        expect(ok(await tasks.stop({key: keyOf(second.head)}))).toEqual({outcome: "accepted"});
+        again.release();
+        const heldAgain = await waitGroup(tasks, parent.id, "又留着话", (next) => next.head !== null && next.head.key.includes(":held-"));
+        expect(heldAgain.head!.key).not.toBe(held.head!.key);
     });
 
-    test("有归属的会话不出会话的行；它起的后台任务照常出行，块没有组头、标题与打开取它的根", async () => {
+    test("有归属的会话（调用方是 Workflow 的也算根）不出会话的行；它起的后台命令照常出行、可停，子代理任务出行但不可停；块没有组头、标题与打开取它的根", async () => {
         const {w, tasks} = await open({"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}});
-        const created = await w.service.create({profile: MAIN_PROFILE, owner: {id: "bot-1"}});
+        const created = await w.service.create({profile: MAIN_PROFILE, owner: {id: "bot-1"}, caller: {kind: "workflow", id: "wf-1", callId: "step-1"}});
         if (!created.ok) throw new Error(created.code);
         const bot = created.value;
         const request = endpoint.hold();
@@ -174,8 +210,17 @@ describe("会话的行（sessions.md 输出 30）", () => {
         await bot.waitRun(sent.value.runId);
         await turn(bot, "跑", [{tool: "shell", args: {command: "sleep 30", async: true}}, "好"]);
         const group = await waitGroup(tasks, bot.id, "命令那一行", (next) => next.rows.length === 1);
-        expect(group).toMatchObject({head: null, title: (await bot.snapshot()).title, open: {plugin: "nbook.agent", target: {command: FOCUS, args: {sessionId: bot.id}}}});
+        // 有调用方的会话不生成标题（builtin-profiles.md）：块的标题是“未命名”。
+        expect(group).toMatchObject({head: null, title: agentText("tasks.untitled"), open: {plugin: "nbook.agent", target: {command: FOCUS, args: {sessionId: bot.id}}}});
         expect(ok(await tasks.stop({key: keyOf(group.rows[0]!)}))).toEqual({outcome: "accepted"});
+
+        // 它派的子代理：以用户身份停会把子会话排着的话变成用户留着的，而这棵树不出会话行，所以不可停（同决定 7）。
+        const child = endpoint.holdFor("翻查人物卡");
+        await turn(bot, "派", [adhoc("翻查人物卡", {async: true}), "好"]);
+        await child.arrived;
+        const withAgent = await waitGroup(tasks, bot.id, "子代理那一行", (next) => next.rows.some((row) => row.kind === "nbook.agent.agent"));
+        expect(withAgent.rows.find((row) => row.kind === "nbook.agent.agent")).toMatchObject({state: "running", stoppable: false});
+        child.release();
     });
 
     test("子会话在跑、没有子代理任务跟着它这次运行时出一行“子会话”，归属根会话（有任务跟着时不另出，见前台子代理等你批准那条）", async () => {
@@ -194,7 +239,11 @@ describe("会话的行（sessions.md 输出 30）", () => {
         expect(group.head).toBeNull();
         expect(group.rows[0]).toMatchObject({kind: "nbook.agent.subsession", kindLabel: agentText("tasks.kind.subsession"), state: "running", foreground: true, stoppable: true, open: {command: FOCUS, args: {sessionId: child}}});
         expect(group.rows[0]!.key).toContain(`session:${child}:${sent.value.runId}`);
+        // 停下之前排一句：停下后它成了留着的话，子会话这一行随之变成“有留着的话等你放行”、不可停。
+        expect((await w.service.session(child).enqueue({commandId: cid(), input: {text: "顺便查邮戳"}, mode: "followup"})).ok).toBe(true);
         expect(ok(await tasks.stop({key: keyOf(group.rows[0]!)}))).toEqual({outcome: "accepted"});
         request.release();
+        const held = await waitGroup(tasks, parent.id, "子会话留着话", (next) => next.rows.some((row) => row.key.includes(`session:${child}:held-`)));
+        expect(held.rows[0]).toMatchObject({kind: "nbook.agent.subsession", state: "waiting", message: agentText("tasks.held"), stoppable: false});
     });
 });

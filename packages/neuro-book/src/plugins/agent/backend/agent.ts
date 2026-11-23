@@ -216,8 +216,9 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const titles = new SessionTitles();
     /** 有归属的根会话（sessions.md 输出 23、25）：后台任务清单不给它们的树出会话的行（jobs.md 输出 20），`rows()` 同步要用，记在内存里。 */
     const owned = new Set<string>();
+    // 根按会话关系表的认法：调用方不是会话的就是根（例如 Workflow 起的会话）。
     const noteOwned = (entry: Pick<SessionIndexEntry, "id" | "owner" | "caller">): void => {
-        if (entry.owner !== undefined && entry.caller === undefined) owned.add(entry.id);
+        if (entry.owner !== undefined && entry.caller?.kind !== "session") owned.add(entry.id);
     };
     const scanned = await store.list();
     if (scanned.ok) {
@@ -394,12 +395,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: async (metaOptions) => {
-        // 建成了才是程序自己的会话；id 被普通会话占着（session-exists）时不记，那是用户的会话，照常报。
-        const created = await createSession(metaOptions);
-        if (created.ok) internal.add(metaOptions.id);
-        return created;
-    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
+    // 程序自己的会话由标题生成器认定（新建的，或核对过、复用的）；id 被普通会话占着的不认，那是用户的会话，照常报。
+    const meta = new SessionMeta({table, create: (metaOptions) => createSession(metaOptions), adopted: (id) => internal.add(id), models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
     const children = new ChildRuns({table, jobs, report: options.report});
     // 根会话：会话头没有调用方（读索引，不看会话关系表：启动时关系表可能还没载全）。
     const isRoot = async (id: string) => {

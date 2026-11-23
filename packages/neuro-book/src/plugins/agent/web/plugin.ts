@@ -896,9 +896,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }},
                 [FOCUS_SESSION_COMMAND]: {run: async (args) => {
                     const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value ?? unreadSession();
-                    // 打开之前就能确定打不开的，交回失败（后台任务清单的“打开”据此提示）；读到的会话头顺手记进归属表，下面不再读一次。
-                    // 别的读失败（例如暂时打不开）照常去打开，读快照的失败画在视图里（conversation.md 输出 53）。
-                    if (sessionId !== null && sessionOwners.known(sessionId) === undefined) {
+                    // 打开之前就能确定打不开的，交回失败（后台任务清单的“打开”据此提示）。每次都读：归属记过了不等于会话头此刻还读得出来。
+                    // 读到的会话头顺手记进归属表，下面判归属不再读一次；别的读失败（例如暂时打不开）照常去打开，读快照的失败画在视图里
+                    // （conversation.md 输出 53）。
+                    if (sessionId !== null) {
                         const header = await remote.header({sessionId});
                         if (!header.ok && UNOPENABLE.has(header.code)) return {ok: false, code: "execution-error", reason: agentText("conversation.openFailed", {code: header.code})};
                         if (header.ok) ownerTable.set(sessionId, header.value.owner ?? null);

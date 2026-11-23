@@ -374,8 +374,16 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             activityChanged: {
                 subscribe(_filter, sink, context) {
                     if (context.signal.aborted) return;
-                    // 关系变了根也可能变（新派的子会话一开始跑就进活动）：活动推送本身就带着最新的根。
-                    const stop = options.sessions.onActivityChanged(() => sink.next(activity()));
+                    // 关系变了根也可能变（新派的子会话一开始跑就进活动）：活动推送本身就带着最新的根。会话表在这份活动之外的变化
+                    // （换运行、等的事项种类、压缩、后台会话）也发，内容没变就不推。
+                    let pushed = "";
+                    const stop = options.sessions.onActivityChanged(() => {
+                        const items = activity();
+                        const text = JSON.stringify(items);
+                        if (text === pushed) return;
+                        pushed = text;
+                        sink.next(items);
+                    });
                     context.signal.addEventListener("abort", stop, {once: true});
                 },
             },

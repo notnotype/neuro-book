@@ -484,7 +484,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             if (session === null) return;
             const killed = await remote.killJob({sessionId: session, jobId});
             if (!killed.ok && killed.code !== "job-unknown") {
-                notice = agentText("conversation.reject.other", {code: killed.code});
+                // 停不下来（jobs.md 输出 4）：它可能还在跑，原因里的码是会话给的。
+                const stuck = killed.code === "stop-failed" ? (killed.detail as {code?: unknown} | undefined)?.code : undefined;
+                notice = killed.code === "stop-failed" ? agentText("conversation.reject.stopFailed", {code: typeof stuck === "string" ? stuck : killed.code}) : agentText("conversation.reject.other", {code: killed.code});
                 bump();
             }
         },

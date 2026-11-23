@@ -222,7 +222,8 @@
             "inputRejected": "A rule stopped this message.",
             "readOnly": "This session is read-only right now.",
             "other": "Not sent ({{code}}).",
-            "ruleNotSaved": "Approved, but the rule was not saved, so you will be asked again ({{code}})."
+            "ruleNotSaved": "Approved, but the rule was not saved, so you will be asked again ({{code}}).",
+            "stopFailed": "Could not stop it; it may still be running ({{code}})."
         },
         "model": {
             "none": "No model is available yet.",
@@ -896,8 +897,7 @@
         "asking": "Asking: {{question}}",
         "stop": {
             "ended": "Already ended",
-            "gone": "No longer exists",
-            "refused": "Could not stop ({{code}})"
+            "gone": "No longer exists"
         }
     }
 }

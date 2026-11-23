@@ -375,6 +375,19 @@ describe("kill 与寿命", () => {
         expect(job.outcome?.byUser).toBeUndefined();
     });
 
+    test("输出 4：驱动停的时候抛错同样是没停下，之后它因为别的原因收口时不算用户停的", async () => {
+        const {jobs} = center();
+        const reserved = jobs.reserve("p", "agent", "inv-throws", "停时抛错的");
+        if (!reserved.ok) throw new Error(reserved.code);
+        const job = reserved.job;
+        jobs.start(job, {kill: async () => {
+            throw new Error("会话表正在停止");
+        }, result: async () => "结果"});
+        await expect(jobs.kill(null, job.id)).rejects.toThrow("会话表正在停止");
+        jobs.end(job, "aborted", {reason: "aborted"});
+        expect(job.outcome?.byUser).toBeUndefined();
+    });
+
     test("输出 20：清单的变化信号在领取、退回、只送了短回执、前台开始时也发；这几处不发 onChanged（送达订着它，发了会绕过退避重送）", () => {
         const {jobs, run} = center();
         const ended = run("p");

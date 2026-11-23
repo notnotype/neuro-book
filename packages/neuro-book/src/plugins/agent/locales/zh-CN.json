@@ -222,7 +222,8 @@
             "inputRejected": "消息被规则拦截。",
             "readOnly": "当前会话为只读。",
             "other": "发送失败（{{code}}）。",
-            "ruleNotSaved": "已批准，但规则没有存下，下次还会问（{{code}}）。"
+            "ruleNotSaved": "已批准，但规则没有存下，下次还会问（{{code}}）。",
+            "stopFailed": "没能停下，它可能还在跑（{{code}}）。"
         },
         "model": {
             "none": "暂无可用模型。",
@@ -896,8 +897,7 @@
         "asking": "在问：{{question}}",
         "stop": {
             "ended": "已经结束",
-            "gone": "已经不在",
-            "refused": "停不下来（{{code}}）"
+            "gone": "已经不在"
         }
     }
 }
