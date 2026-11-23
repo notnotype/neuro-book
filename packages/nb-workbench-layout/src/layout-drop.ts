@@ -417,14 +417,7 @@ export function previewEdgeDrop(doc: LayoutDoc, source: LayoutDropSource, action
     const key = source.kind === "panel" ? null : (source.kind === "new" ? tabKey(source.tab) : source.tab);
     const placed = source.kind === "panel" ? source.panel : (findTab(result.doc, key as string)?.panel ?? null);
     if (placed === null) return null;
-    const {input, sashSize} = projectLayoutDoc(result.doc, projection);
-    const grid = createGrid<string>(input, {sashSize});
-    const root = grid.root();
-    if (root === null) return null;
-    const placement = placeGrid(root, grid.layout(extent), extent, dpr);
-    const item = placement.items.find((candidate) => candidate.kind === "leaf" && candidate.node.id === placed);
-    if (item === undefined) return null;
-    return {left: item.rect.x, top: item.rect.y, right: item.rect.x + item.rect.width, bottom: item.rect.y + item.rect.height};
+    return previewPanelRects(result.doc, [placed], projection, extent, dpr)[placed] ?? null;
 }
 
 /**
