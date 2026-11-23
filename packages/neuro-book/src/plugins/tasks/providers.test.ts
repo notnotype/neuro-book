@@ -502,17 +502,27 @@ describe("实现审查补的边界（第 1 片 omp）", () => {
         const client = await w.window("a");
         const order: string[] = [];
         let revoke: () => void = () => undefined;
+        let revokeOnRead = false;
+        let notify: () => void = () => undefined;
         const value: TaskProvider = {
-            rows: () => [row("1")],
-            subscribe: () => () => void order.push("unsubscribe"),
+            // 读行时排一次撤回（微任务）：停止在查键时读行，撤回只能落在调过 stop 之后。
+            rows: () => {
+                if (revokeOnRead) queueMicrotask(revoke);
+                return [row("1")];
+            },
+            subscribe: (listener) => {
+                notify = listener;
+                return () => void order.push("unsubscribe");
+            },
             stop: () => {
                 order.push("stop");
-                queueMicrotask(revoke);
                 return new Promise(() => {});
             },
         };
         revoke = (await w.owner("a")).tasks.provide(value);
         const [key] = keys(await rows(client));
+        revokeOnRead = true;
+        notify();
         expect(value_(await client.stop({key: key!}))).toEqual({outcome: "unknown"});
         expect(order).toEqual(["stop", "unsubscribe"]);
         expect(await client.stop({key: key!})).toMatchObject({ok: false, code: "row-gone"});
@@ -623,13 +633,21 @@ describe("实现审查补的边界（第 1 片 omp）", () => {
         expect(payload.more).toBe(0);
     });
 
-    test("几百个小组不会被每组的余量裁空", async () => {
+    test("几百个小组不会被每组的余量裁空；删空一组时退回它的外壳，不多裁", async () => {
         const w = await world();
         const client = await w.window("a");
         for (let index = 0; index < 260; index += 1) w.tasks.start({title: `t${String(index)}`, owner: {kind: "project", project: `p${String(index)}`, title: `项目 ${String(index)}`}});
-        const payload = await rows(client);
-        expect(payload.groups).toHaveLength(260);
-        expect(payload.more).toBe(0);
+        const small = await rows(client);
+        expect(small.groups).toHaveLength(260);
+        expect(small.more).toBe(0);
+        // 再加 400 个组，各一件进展写满的在跑任务（结束的至多留 50 件，不够超出），整份超出上限：修剪删掉在跑的行，删空的组退回外壳，
+        // 留下的仍贴近上限。
+        for (let index = 0; index < 400; index += 1) w.tasks.start({title: `e${String(index)}`, message: "长".repeat(500), owner: {kind: "project", project: `q${String(index)}`, title: `项目 q${String(index)}`}});
+        const trimmed = await rows(client);
+        expect(trimmed.more).toBeGreaterThan(0);
+        const bytes = Buffer.byteLength(JSON.stringify(trimmed), "utf8");
+        expect(bytes).toBeLessThanOrEqual(512 * 1024);
+        expect(bytes).toBeGreaterThan(400 * 1024);
     });
 
     test("只有在跑的行也超出上限时：先不列不是组头的在跑行（最早开始的先），组头留着", async () => {
