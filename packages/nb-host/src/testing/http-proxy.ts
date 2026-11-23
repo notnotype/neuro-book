@@ -1,0 +1,165 @@
+/**
+ * 测试用的 HTTP 代理：真的转发。收到绝对地址形式的请求（`GET http://host/path`）时改写成路径形式发给上游，收到 `CONNECT` 时
+ * 建隧道；每个请求的方法、目标与请求头记下来，测试据此断言“走了代理”“带了 Proxy-Authorization”。转发时把 `Connection`
+ * 改成 `close`，一个连接只转一个请求，记录与连接一一对应。只由测试引用。
+ *
+ * `resolve` 把请求里的主机换成实际连的地址：测试的目标用 `models.test` 这种不是本机的名字（本机地址出口总是直连），代理再把它
+ * 接到本机的假端点上。
+ */
+
+import type {Socket} from "bun";
+
+export interface ProxiedRequest {
+    readonly method: string;
+    /** 请求行里的目标：绝对地址，或 `CONNECT` 的 `host:port`。 */
+    readonly target: string;
+    /** 请求头，名字小写。 */
+    readonly headers: Readonly<Record<string, string>>;
+}
+
+export interface HttpProxy {
+    readonly port: number;
+    /** `http://127.0.0.1:<port>`。 */
+    readonly url: string;
+    /** 收到的请求，按到达顺序。 */
+    readonly requests: readonly ProxiedRequest[];
+    /** 建立过的客户端连接数（没发完请求头就断的也算）。 */
+    connections(): number;
+    stop(): void;
+}
+
+export interface HttpProxyOptions {
+    readonly resolve?: (host: string, port: number) => {readonly host: string; readonly port: number};
+}
+
+interface Link {
+    head: Uint8Array;
+    upstream: Socket<undefined> | null;
+    readonly pending: Uint8Array[];
+    forwarding: boolean;
+    closed: boolean;
+}
+
+const HEAD_END = new TextEncoder().encode("\r\n\r\n");
+
+function indexOfHeadEnd(bytes: Uint8Array): number {
+    outer: for (let index = 0; index + HEAD_END.length <= bytes.length; index += 1) {
+        for (let offset = 0; offset < HEAD_END.length; offset += 1) if (bytes[index + offset] !== HEAD_END[offset]) continue outer;
+        return index;
+    }
+    return -1;
+}
+
+export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
+    const requests: ProxiedRequest[] = [];
+    const clients = new Set<Socket<Link>>();
+    let connections = 0;
+    const resolve = options.resolve ?? ((host: string, port: number) => ({host, port}));
+
+    const connect = (client: Socket<Link>, host: string, port: number, first: Uint8Array | null, established: string | null): void => {
+        const link = client.data;
+        const target = resolve(host, port);
+        void Bun.connect({
+            hostname: target.host,
+            port: target.port,
+            socket: {
+                open(upstream) {
+                    if (link.closed) {
+                        upstream.terminate();
+                        return;
+                    }
+                    link.upstream = upstream;
+                    if (established !== null) client.write(established);
+                    if (first !== null) upstream.write(first);
+                    for (const chunk of link.pending.splice(0)) upstream.write(chunk);
+                },
+                data(_upstream, chunk) {
+                    client.write(chunk);
+                },
+                close() {
+                    client.end();
+                },
+            },
+        }).catch(() => {
+            client.write("HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+            client.end();
+        });
+    };
+
+    const listener = Bun.listen<Link>({
+        hostname: "127.0.0.1",
+        port: 0,
+        socket: {
+            open(client) {
+                connections += 1;
+                client.data = {head: new Uint8Array(0), upstream: null, pending: [], forwarding: false, closed: false};
+                clients.add(client);
+            },
+            data(client, chunk) {
+                const link = client.data;
+                if (link.forwarding) {
+                    if (link.upstream === null) link.pending.push(new Uint8Array(chunk));
+                    else link.upstream.write(chunk);
+                    return;
+                }
+                const joined = new Uint8Array(link.head.length + chunk.length);
+                joined.set(link.head);
+                joined.set(chunk, link.head.length);
+                const end = indexOfHeadEnd(joined);
+                if (end < 0) {
+                    link.head = joined;
+                    return;
+                }
+                link.forwarding = true;
+                const lines = new TextDecoder().decode(joined.slice(0, end)).split("\r\n");
+                const [method = "", target = "", version = "HTTP/1.1"] = (lines[0] ?? "").split(" ");
+                const headers: Record<string, string> = {};
+                for (const line of lines.slice(1)) {
+                    const colon = line.indexOf(":");
+                    if (colon > 0) headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+                }
+                requests.push({method, target, headers});
+                const rest = joined.slice(end + HEAD_END.length);
+                if (method === "CONNECT") {
+                    const colon = target.lastIndexOf(":");
+                    connect(client, target.slice(0, colon), Number(target.slice(colon + 1)), rest.length > 0 ? rest : null, "HTTP/1.1 200 Connection Established\r\n\r\n");
+                    return;
+                }
+                let url: URL;
+                try {
+                    url = new URL(target);
+                } catch {
+                    client.write("HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+                    client.end();
+                    return;
+                }
+                const forwarded = lines.slice(1).filter((line) => !/^(proxy-[a-z-]+|connection|keep-alive)\s*:/iu.test(line));
+                const head = [`${method} ${url.pathname}${url.search} ${version}`, ...forwarded, "connection: close", "", ""].join("\r\n");
+                const encoded = new TextEncoder().encode(head);
+                const first = new Uint8Array(encoded.length + rest.length);
+                first.set(encoded);
+                first.set(rest, encoded.length);
+                connect(client, url.hostname, Number(url.port === "" ? 80 : url.port), first, null);
+            },
+            close(client) {
+                client.data.closed = true;
+                clients.delete(client);
+                client.data.upstream?.end();
+            },
+        },
+    });
+    return {
+        port: listener.port,
+        url: `http://127.0.0.1:${String(listener.port)}`,
+        requests,
+        connections: () => connections,
+        stop() {
+            for (const client of [...clients]) {
+                client.data.closed = true;
+                client.data.upstream?.terminate();
+                client.terminate();
+            }
+            listener.stop(true);
+        },
+    };
+}

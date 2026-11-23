@@ -4,7 +4,7 @@
  * - 浏览器会加载 `web/` 与 `shared/`：它们导入的包只许 nb-runtime 的子路径与 TypeBox；新加第三方依赖要同时加进应用
  *   `vite.config.ts` 的 `optimizeDeps.include`，否则开发模式的页面会在运行中重新预构建、整页重载。
  * - `shared/http-contracts.ts` 是路由合同，没有任何运行时导入。
- * - 服务端（`server/`、`http/`）与浏览器（`web/`）互不引用；`shared/` 不引用任何一侧。
+ * - 服务端（`server/`、`http/`、`network/`）与浏览器（`web/`）互不引用；`shared/` 不引用任何一侧。
  * - 内核的 `createApplication` 只由两个宿主适配器导入（`web/browser-host.ts`、`server/host.ts`）：它们负责把平台档案放进清单。
  * - 非测试源码不引用 `testing/`（`testing/` 自己除外）：测试支持用 Node 与 Bun 的 API，也不该进产品。
  * - 不直接导入 `proper-lockfile`：锁与它的过期参数只经 `@notnotype/nb-file-lock` 取，共用一把锁的进程参数才一致。
@@ -77,6 +77,8 @@ function importsOf(absolute: string): ImportUse[] {
 /** 相对导入在 src 内的目标（相对 src）；包名为 null。 */
 const targetOf = (use: ImportUse): string | null => (use.specifier.startsWith(".") ? relative(SRC, resolve(SRC, dirname(use.file), use.specifier)) : null);
 const top = (path: string): string => path.split("/")[0] ?? "";
+/** 只在 Bun 进程里跑的目录。 */
+const SERVER_SIDE = new Set(["server", "http", "network"]);
 
 function violationsOf(uses: readonly ImportUse[]): string[] {
     const found: string[] = [];
@@ -91,8 +93,8 @@ function violationsOf(uses: readonly ImportUse[]): string[] {
         }
         if (use.file === "shared/http-contracts.ts" && !use.typeOnly) found.push(`路由合同不许有运行时导入：${where}`);
         if (target !== null && !isTest(use.file)) {
-            if ((from === "server" || from === "http") && top(target) === "web") found.push(`服务端引用了浏览器侧：${where}`);
-            if (browser && (top(target) === "server" || top(target) === "http")) found.push(`浏览器侧或共用代码引用了服务端：${where}`);
+            if (SERVER_SIDE.has(from) && top(target) === "web") found.push(`服务端引用了浏览器侧：${where}`);
+            if (browser && SERVER_SIDE.has(top(target))) found.push(`浏览器侧或共用代码引用了服务端：${where}`);
             if (from === "shared" && top(target) === "web") found.push(`共用代码引用了浏览器侧：${where}`);
         }
         if (target !== null && !isTest(use.file) && from !== "testing" && top(target) === "testing") found.push(`产品代码引用了测试支持：${where}`);
@@ -138,6 +140,8 @@ describe("nb-host 的边界", () => {
             use("shared/http-contracts.ts", "@notnotype/nb-runtime/plugins"),
             use("server/start.ts", "../web/browser-host"),
             use("http/plugin.ts", "../web/remote-session"),
+            use("network/egress.ts", "../web/remote-session"),
+            use("web/remote-session.ts", "../network/egress"),
             use("web/remote-session.ts", "../server/host"),
             use("shared/socket.ts", "../http/dispatch"),
             use("shared/socket.ts", "../web/rpc-socket"),
