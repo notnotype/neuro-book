@@ -879,5 +879,25 @@
             "plugin": "{{label}}「{{name}}」正在运行",
             "agent": "子代理「{{name}}」正在运行"
         }
+    },
+    "tasks": {
+        "untitled": "未命名的会话",
+        "kind": {
+            "shell": "命令",
+            "agent": "子代理",
+            "session": "会话",
+            "subsession": "子会话"
+        },
+        "replying": "正在回复",
+        "compacting": "正在压缩",
+        "approval": "等你批准",
+        "question": "等你回答",
+        "held": "有留着的话等你放行",
+        "asking": "在问：{{question}}",
+        "stop": {
+            "ended": "已经结束",
+            "gone": "已经不在",
+            "refused": "停不下来（{{code}}）"
+        }
     }
 }

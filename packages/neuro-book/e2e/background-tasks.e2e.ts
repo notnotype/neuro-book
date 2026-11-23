@@ -193,7 +193,8 @@ test("提供方的行：会话块等你处理时有徽标；停止被拒弹原�
     await expect(block).toBeVisible();
     await expect(block).toHaveAttribute("data-waiting", "true");
     await expect(block.locator(".tasks-group__head")).toContainText("等你处理");
-    const job = page.locator('[data-row="p:test.tasks-probe:1:job"]');
+    // 键里的代次按登记先后发（`nbook.agent` 也是提供方，常在测试插件之前登记），只认来源与行 id。
+    const job = page.locator('[data-row^="p:test.tasks-probe:"][data-row$=":job"]');
     await expect(job).toContainText("命令");
     await expect(job.locator("[data-task-remove]")).toHaveCount(0);
     await job.locator("[data-row-stop]").click();

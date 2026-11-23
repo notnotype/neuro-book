@@ -112,6 +112,26 @@ test("验收 1：同一条回复派两个，并发跑；一个完成一个出错
     await expect(page.locator("[data-subagent-card]")).toHaveCount(2);
 });
 
+test("后台任务视图（jobs.md 输出 20）：后台子代理等你批准时，会话块浅警示、任务那一行写“等你批准”；点它的“打开”到子会话", async ({page}) => {
+    await openConversation(page);
+    await scriptFor("核对年表", {tool: "write", args: {path: "user://年表.md", content: "第一年。"}}, "核对完了。");
+    await script(adhoc("核对年表", {name: "年表", async: true}), "派出去了");
+    // 父会话这句不能含“核对年表”：假端点按第一条用户消息认请求，含了就把子代理的回复交给父会话。
+    await send(page, "派个子代理去查日期");
+    await expect(page.locator("[data-agent-dock]")).toContainText("子代理「年表」");
+    // 后台子代理算后台工作：状态栏出现“后台任务”条目，点开视图。
+    await page.locator('[data-workbench-item="nbook.tasks.status"]').click();
+    const block = page.locator('[data-group^="session:"]');
+    await expect(block).toHaveAttribute("data-waiting", "true");
+    const job = block.locator('[data-state="waiting"]').filter({hasText: "年表"});
+    await expect(job).toContainText("子代理");
+    await expect(job).toContainText("等你批准");
+    await job.locator("[data-row-open]").click();
+    // 子会话打开在对话里：头上是子代理的名字，左边是返回。
+    await expect(page.getByRole("heading", {name: "年表"})).toBeVisible();
+    await expect(page.locator("[data-header-back]")).toBeVisible();
+});
+
 test("验收 2：子会话要审批，停在父会话输入框上方、标来源，输入框照常可用；在父会话批了子会话接着跑", async ({page}) => {
     await openConversation(page);
     await scriptFor("改人物卡", {tool: "write", args: {path: "user://人物卡.md", content: "苏晴：二十岁。"}}, "改好了。");

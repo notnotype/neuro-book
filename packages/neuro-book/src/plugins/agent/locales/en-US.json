@@ -879,5 +879,25 @@
             "plugin": "{{label}} \"{{name}}\" is running",
             "agent": "Sub-agent \"{{name}}\" is running"
         }
+    },
+    "tasks": {
+        "untitled": "Untitled session",
+        "kind": {
+            "shell": "Command",
+            "agent": "Sub-agent",
+            "session": "Session",
+            "subsession": "Sub-session"
+        },
+        "replying": "Replying",
+        "compacting": "Compacting",
+        "approval": "Waiting for your approval",
+        "question": "Waiting for your answer",
+        "held": "Held messages waiting for you to release",
+        "asking": "Asking: {{question}}",
+        "stop": {
+            "ended": "Already ended",
+            "gone": "No longer exists",
+            "refused": "Could not stop ({{code}})"
+        }
     }
 }

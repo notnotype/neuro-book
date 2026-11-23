@@ -194,8 +194,14 @@ export const agentBackendPlugin: PluginDefinition = {
                 report,
                 clock: runtime.kernelClock,
             });
+            // 后台任务清单的提供方（jobs.md 输出 20）：停止的第一步撤回，之后清单不再读行、不再转来停止；入口停止时门面释放也会撤回。
+            // 没装 `nbook.tasks` 时不登记，别的照常。
+            const revokeRows = tasks.status === "resolved" ? tasks.instance.provide(runtime.taskRows()) : () => undefined;
             let stopped: Promise<void> | null = null;
-            const stop = () => (stopped ??= Promise.all([runtime.stop().finally(() => evalTools.stop()), installer.stop().then(() => skillCatalog.close())]).then(() => undefined).finally(() => previews.clear()));
+            const stop = () => {
+                revokeRows();
+                return (stopped ??= Promise.all([runtime.stop().finally(() => evalTools.stop()), installer.stop().then(() => skillCatalog.close())]).then(() => undefined).finally(() => previews.clear()));
+            };
             context.signal.addEventListener("abort", () => void stop(), {once: true});
             context.onStop(stop);
             // 入口停止时宿主随门面撤下这条登记，不必自己 release。没有这个能力的宿主照常运行，只是不报。

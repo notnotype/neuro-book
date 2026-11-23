@@ -55,12 +55,18 @@ export type JobExit = {readonly kind: "taken"} | {readonly kind: "announced"} | 
 
 const TAKEN: JobExit = {kind: "taken"};
 
+/** 停不下来（jobs.md 输出 4）：中止被拒或写日志失败，`code` 是会话给的码。 */
+export interface StopFailed {
+    readonly kind: "stop-failed";
+    readonly code: string;
+}
+
 export interface JobDriver {
     /**
      * 停掉它；状态由驱动之后照实报回：缺省 `aborted`，插件停止时传 `interrupted`（jobs.md 输出 8）。`byUser`：用户经远程停的
-     * （子代理的运行按用户停的记，jobs.md 输出 11），否则是启动它的会话停的。
+     * （子代理的运行按用户停的记，jobs.md 输出 11），否则是启动它的会话停的。停不下来时交回 `StopFailed`。
      */
-    kill(reason?: "interrupted", byUser?: boolean): Promise<void | "already-ended">;
+    kill(reason?: "interrupted", byUser?: boolean): Promise<void | "already-ended" | StopFailed>;
     /** 结束后交给模型的结果文字（子代理从日志读、后台命令从文件读）；收口时读一次，存进 `final`。 */
     result(): Promise<string>;
     /** 回执放不下全文时指向全文的地址（后台命令的输出文件）。 */
@@ -145,6 +151,8 @@ export class JobCenter {
     readonly #delivered = new Map<string, Job>();
     /** 远程的 `jobsChanged` 与子代理进度：哪个会话的任务变了。 */
     readonly #owners = new Set<(owner: string) => void>();
+    /** 后台任务清单（jobs.md 输出 20）：表里任何一件的可见状态或回执出口变了。 */
+    readonly #lists = new Set<() => void>();
     #closed = false;
 
     /**
@@ -162,6 +170,16 @@ export class JobCenter {
     onChanged(listener: (owner: string) => void): () => void {
         this.#owners.add(listener);
         return () => this.#owners.delete(listener);
+    }
+
+    /**
+     * 清单用的变化信号：`onChanged` 发的时候都发，另外领取与退回回执（`claim`、`unclaim`）、只送了短回执（`announce`）、前台开始与
+     * 提前交回（`attach`、`settleEarly`）也发。这几处不发 `onChanged`：送达订着它，每发一次就重排一轮，暂时送不了时 `unclaim` 再发会
+     * 绕过退避连续重送。
+     */
+    onListChanged(listener: () => void): () => void {
+        this.#lists.add(listener);
+        return () => this.#lists.delete(listener);
     }
 
     /** 占名额并登记一个 `starting` 的任务（jobs.md 输出 2）；在工具的同步段里调用，几次并发的启动不会一起越过上限。 */
@@ -242,6 +260,7 @@ export class JobCenter {
     settleEarly(job: Job): void {
         job.exit = TAKEN;
         if (!isLive(job.state) && job.waiters === 0) this.#jobs.delete(job.id);
+        this.#listChanged();
     }
 
     /** 停止的第一步：之后 `reserve` 一律得 `unavailable`；在跑的照常由调用方停掉（jobs.md 输出 8）。 */
@@ -252,6 +271,7 @@ export class JobCenter {
     /** 前台调用开始、结束等它。以终态交回的视同取过，移出。 */
     attach(job: Job): void {
         job.waiters += 1;
+        this.#listChanged();
     }
 
     detach(job: Job, delivered: boolean): void {
@@ -281,6 +301,7 @@ export class JobCenter {
                 questions.push(job);
             }
         }
+        if (results.length > 0 || questions.length > 0) this.#listChanged();
         return {results, questions};
     }
 
@@ -288,6 +309,7 @@ export class JobCenter {
     unclaim(job: Job, exit: NoticeExit): void {
         if (job.exit === exit) delete job.exit;
         if (job.questionExit?.exit === exit) delete job.questionExit;
+        this.#listChanged();
     }
 
     /** 把被 `wait` 接走、写入结果却未知的回执出口放回表里。 */
@@ -303,6 +325,7 @@ export class JobCenter {
     announce(job: Job, exit: NoticeExit): void {
         if (job.exit === exit) job.exit = {kind: "announced"};
         if (job.questionExit?.exit === exit) job.questionExit = {id: job.questionExit.id, exit: {kind: "announced"}};
+        this.#listChanged();
     }
 
     /** 回执提醒已被取走（进了请求）：结果的出口定了，任务移出；提问的记成交过。 */
@@ -342,15 +365,22 @@ export class JobCenter {
         return [...this.#jobs.values()].filter((job) => job.owner === owner && job.state !== "starting");
     }
 
-    async kill(owner: string | null, id: string): Promise<"killed" | "already-ended" | "job-unknown"> {
+    async kill(owner: string | null, id: string): Promise<"killed" | "already-ended" | "job-unknown" | StopFailed> {
         const job = this.#jobs.get(id);
         // `owner` 为 null 是用户经远程停（jobs.md 输出 11）：不受“只管自己启动的”限制，仍只认这个会话的任务由调用方查。
         if (job === undefined || job.state === "starting" || (owner !== null && job.owner !== owner)) return "job-unknown";
         if (!isLive(job.state)) return "already-ended";
+        // 先记下再停：驱动的中止可能在交回之前就让任务收口，收口时要认得出是用户停的。
         if (owner === null) job.stopByUser = true;
-        // 驱动说停的那次已经不在跑（子代理的运行刚收口，runtime.md 输出 120）：不说“已停止”。
         const stopped = await job.driver?.kill(undefined, owner === null);
-        return stopped === "already-ended" ? "already-ended" : "killed";
+        // 驱动说停的那次已经不在跑（子代理的运行刚收口，runtime.md 输出 120）：不说“已停止”。
+        if (stopped === "already-ended") return "already-ended";
+        if (typeof stopped === "object") {
+            // 没停下：之后别的原因收口时不算用户停的。
+            if (owner === null && isLive(job.state)) delete job.stopByUser;
+            return stopped;
+        }
+        return "killed";
     }
 
     async wait(owner: string, options: WaitOptions): Promise<WaitOutcome> {
@@ -490,6 +520,11 @@ export class JobCenter {
 
     #ownerChanged(owner: string): void {
         for (const listener of [...this.#owners]) listener(owner);
+        this.#listChanged();
+    }
+
+    #listChanged(): void {
+        for (const listener of [...this.#lists]) listener();
     }
 
     #notify(): void {

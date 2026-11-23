@@ -116,14 +116,14 @@ describe("会话的句柄表", () => {
     });
 
     test("输出 20：后台会话在跑时只进含后台的活动查询，前台活动不含它", async () => {
-        const {table, model} = await setup();
+        const {table, model, clock} = await setup();
         const created = await table.create({profile: defaultTestProfile.id, id: "s-bg", background: true});
         if (!created.ok) throw new Error(created.code);
         model.script({text: "半句话", hold: true});
         const sent = await table.view("s-bg").send({commandId: "c-1", input: {text: "你好"}});
-        expect(sent.ok).toBe(true);
+        if (!sent.ok) throw new Error(sent.code);
         await waitUntil("后台会话开始运行", () => table.activityWithBackground().length === 1);
-        expect(table.activityWithBackground()).toEqual([{id: "s-bg", state: "running"}]);
+        expect(table.activityWithBackground()).toEqual([{id: "s-bg", state: "running", runId: sent.value.runId!, startedAt: clock.now()}]);
         expect(table.activity()).toEqual([]);
         await table.stop();
     });
@@ -145,6 +145,31 @@ describe("会话的句柄表", () => {
         if (!subscribed.ok) throw new Error(subscribed.code);
         expect(table.activity()).toEqual([{id: "s-1", state: "held"}]);
         subscribed.release();
+        await table.stop();
+    });
+
+    test("输出 30：活动带这次运行与它开始的时刻（第一次看到时取表的时钟），换一次运行就换；留着的话带看到它的时刻", async () => {
+        const {table, model, clock} = await setup();
+        const view = table.view("s-1");
+        model.script({text: "一", hold: true}, {text: "二", hold: true});
+        const first = await view.send({commandId: "c-1", input: {text: "第一句"}});
+        if (!first.ok) throw new Error(first.code);
+        await waitUntil("第一次运行", () => table.activityWithBackground().length === 1);
+        const startedFirst = clock.now();
+        expect(table.activityWithBackground()).toEqual([{id: "s-1", state: "running", runId: first.value.runId!, startedAt: startedFirst}]);
+        clock.advance(1_000);
+        expect((await view.abort({commandId: "c-2"})).ok).toBe(true);
+        await waitUntil("回到空闲", () => table.activityWithBackground().length === 0);
+        const second = await view.send({commandId: "c-3", input: {text: "第二句"}});
+        if (!second.ok) throw new Error(second.code);
+        await waitUntil("第二次运行", () => table.activityWithBackground()[0]?.runId === second.value.runId);
+        expect(second.value.runId).not.toBe(first.value.runId);
+        expect(table.activityWithBackground()[0]!.startedAt).toBe(startedFirst + 1_000);
+        expect((await view.enqueue({commandId: "c-4", input: {text: "排着的"}, mode: "followup"})).ok).toBe(true);
+        clock.advance(500);
+        expect((await view.abort({commandId: "c-5", keepQueue: true})).ok).toBe(true);
+        await waitUntil("停下后留着", () => table.activityWithBackground()[0]?.state === "held");
+        expect(table.activityWithBackground()).toEqual([{id: "s-1", state: "held", startedAt: startedFirst + 1_500}]);
         await table.stop();
     });
 

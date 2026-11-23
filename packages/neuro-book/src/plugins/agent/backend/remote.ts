@@ -219,7 +219,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             // 用户停这个会话启动的任何任务（前台、后台），别的会话的不认。
             if (jobs.get(jobId)?.owner !== sessionId) return context.fail("job-unknown");
             const outcome = await jobs.kill(null, jobId);
-            return outcome === "job-unknown" ? context.fail("job-unknown") : context.ok({outcome});
+            if (outcome === "job-unknown") return context.fail("job-unknown");
+            return typeof outcome === "object" ? context.fail("stop-failed", {code: outcome.code}) : context.ok({outcome});
         },
         create: async ({profile, initial, project}, context) => {
             const created = await service.create({profile, ...(initial === undefined ? {} : {initial: initial as never}), ...(project === undefined ? {} : {project})});

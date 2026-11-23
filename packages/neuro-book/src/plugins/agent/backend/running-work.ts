@@ -61,7 +61,8 @@ export interface AgentRunningWorkSources {
 export function agentRunningWork(sources: AgentRunningWorkSources): ReadonlyArray<RunningWorkItem> {
     const roots = new Map<string, "running" | "waiting">();
     for (const {id, state} of sources.table.activityWithBackground()) {
-        if (sources.internal.has(id)) continue;
+        // 留着的话不是在跑的工作：停止服务不会中断它。
+        if (state === "held" || sources.internal.has(id)) continue;
         const root = sources.relations.rootOf(id);
         if (roots.get(root) !== "running") roots.set(root, state);
     }

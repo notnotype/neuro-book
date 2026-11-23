@@ -261,9 +261,9 @@ export interface SessionOwners {
     /** 这个联系人“看到”的位置；归属插件不在、没有这个联系人、未读还没数完时为 null。读的是响应式数据。 */
     seenOf(owner: SessionOwner): number | null;
     /**
-     * 只有编辑区页面的宿主给：有归属的会话不在这里开，交给它（打开到消息视图）。页面没有联系人列表，也不记“看到”。
+     * 只有编辑区页面的宿主给：有归属的会话不在这里开，交给它（打开到消息视图），等它打开完或失败。页面没有联系人列表，也不记“看到”。
      */
-    elsewhere?(id: string): void;
+    elsewhere?(id: string): Promise<void>;
 }
 
 export interface UploadedAttachment {
@@ -1096,7 +1096,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const owner = known !== undefined ? known : await owners.ownerOf(id);
         if (asked !== routing || disposed) return;
         if (owner !== null && owner !== "unreadable" && owner !== "missing") {
-            owners.elsewhere(id);
+            await owners.elsewhere(id);
             return;
         }
         await openHere(id, options);

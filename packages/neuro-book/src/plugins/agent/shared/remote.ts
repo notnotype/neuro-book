@@ -242,7 +242,7 @@ const methods = {
         input: Type.Object({...BySession, jobId: JobId}, {additionalProperties: false}),
         output: Type.Object({outcome: Type.Union([Type.Literal("killed"), Type.Literal("already-ended")])}, {additionalProperties: false}),
         effect: "write",
-        errors: errorsOf(["job-unknown"] as const),
+        errors: errorsOf(["job-unknown", "stop-failed"] as const),
     },
     create: {
         input: Type.Object({profile: Type.String({minLength: 1}), initial: Type.Optional(Type.Unknown()), project: Type.Optional(Type.String())}, {additionalProperties: false}),
