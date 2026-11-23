@@ -119,10 +119,14 @@ describe("提供方登记（输出 18、19）", () => {
         revoke();
         revoke();
         expect(keys(await rows(client))).toEqual([]);
-        a.tasks.provide(provider([row("1")]).value);
+        const second = provider([row("1")]);
+        a.tasks.provide(second.value);
         const after = await rows(client);
         expect(keys(after)).toHaveLength(1);
         expect(keys(after)[0]).not.toBe(keys(before)[0]);
+        // 同一个调用方、同 id 的行：旧一代的键停不到新一代（验收 7）。
+        expect(await client.stop({key: keys(before)[0]!})).toMatchObject({ok: false, code: "row-gone"});
+        expect(second.state.stops).toEqual([]);
     });
 
     test("不合格的行逐行丢掉、记诊断；同 id 留第一个；打开别人的命令不收", async () => {
