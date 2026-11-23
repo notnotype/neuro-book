@@ -879,6 +879,17 @@ describe("拆分树原语：拆分叶", () => {
         }
         const nested = createGrid(deep).splitLeaf("deep-end", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
         expect(nested).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
+
+        // 移动同样受深度限制：把叶移进第 16 层的空分支会得到 17 层，树不变。
+        let chain: GridNodeInput<string> = branch(`c${GRID_MAX_DEPTH}`, "width", "horizontal", 0, []);
+        for (let index = GRID_MAX_DEPTH - 1; index >= 1; index -= 1) {
+            chain = branch(`c${index}`, "width", "horizontal", 0, index === 1 ? [leaf("mover", "width", 1), chain] : [chain]);
+        }
+        const moving = createGrid(chain);
+        const before = moving.serialize();
+        expect(codeOf(moving.moveLeaf("mover", `c${GRID_MAX_DEPTH}`, 0))).toEqual({code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
+        expect(moving.serialize()).toEqual(before);
+        expect(moving.moveLeaf("mover", `c${GRID_MAX_DEPTH - 1}`, 0).ok).toBe(true);
     });
 });
 

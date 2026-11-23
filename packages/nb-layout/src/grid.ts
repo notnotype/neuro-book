@@ -763,6 +763,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 });
             }
 
+            // 节点数不变，深度按移进目标之后的叶算，公式同 addLeaf；按移动前的树判，来源塌陷后其实变浅的移动也会被拒（已知的保守，见 grid.md）。
+            const scale = treeScale(tree);
+            const guard = scaleIssue(scale.nodes, Math.max(scale.depth, (depthOf(parentId) ?? 1) + 1));
+            if (guard) {
+                return guard;
+            }
+
             const nextTree = tree ? cloneNode(tree) : null;
             const originalTree = tree;
             tree = nextTree;
