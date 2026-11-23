@@ -15,7 +15,6 @@
  */
 
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
-import {collidesWithPresentedIds} from "./presented-ids";
 import type {GridExtent, GridFailure, GridOrientation, GridRect, GridSnapshot, GridSnapshotBranch, GridSnapshotLeaf, GridSnapshotNode} from "@notnotype/nb-layout";
 
 export const LAYOUT_DOC_VERSION = 1;
@@ -149,7 +148,7 @@ function freshId(next: MutableDoc, policy: LayoutPolicy, kind: "panel" | "branch
     return idTaken(next, id) ? null : id;
 }
 
-const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
+export const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
 const crossOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "height" : "width");
 const orientationOfEdge = (edge: LayoutEdge): GridOrientation => (edge === "left" || edge === "right" ? "horizontal" : "vertical");
 const isBeforeEdge = (edge: LayoutEdge): boolean => edge === "left" || edge === "top";
@@ -342,10 +341,10 @@ export function countsInShare(doc: LayoutDoc, node: GridSnapshotNode): boolean {
     return isNodeShown(doc, node) && !isSectionCollapsed(doc, node.id);
 }
 
-const isBarLeaf = (node: GridSnapshotNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
-
 /** 文档树和呈现树都能问：只看结构与 `ref`。 */
 export type LayoutTreeNode = {readonly kind: "leaf"; readonly ref: string} | {readonly kind: "branch"; readonly children: ReadonlyArray<LayoutTreeNode>};
+
+export const isBarLeaf = (node: LayoutTreeNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
 
 /** 这个节点含编辑组吗。 */
 export function holdsEditor(doc: LayoutDoc, node: LayoutTreeNode): boolean {
@@ -476,9 +475,14 @@ function hideEmptiedRegions(original: LayoutDoc, next: MutableDoc): void {
     }
 }
 
+/** 改到一半的文档过规范形：占不占份额按这份文档当前的显隐与收起判。 */
+const normalizeDoc = (next: MutableDoc): void => {
+    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+};
+
 /** 出口：过规范形、查规模；结果和现状一样时返回原对象。 */
 function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
-    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+    normalizeDoc(next);
     hideEmptiedRegions(original, next);
     expandWhereAxisChanged(original, next);
     const scale = countScale(next.tree.root);
@@ -516,7 +520,9 @@ export function setSiblingShares(doc: LayoutDoc, shares: ReadonlyArray<{readonly
 // ── 标签 ──
 
 export function findTab(doc: LayoutDoc, key: string): {readonly panel: string; readonly index: number; readonly tab: TabRef} | null {
-    for (const [panel, record] of Object.entries(doc.panels)) {
+    // `for…in` 不为整张面板表分配 `Object.entries` 的数组：这里在每次指针移动的判定里调。`doc.panels` 是 `copyJson` 出来的普通对象，没有继承来的可枚举键。
+    for (const panel in doc.panels) {
+        const record = doc.panels[panel] as PanelRecord;
         const index = record.tabs.findIndex((tab) => tabKey(tab) === key);
         if (index !== -1) return {panel, index, tab: record.tabs[index] as TabRef};
     }
@@ -697,24 +703,6 @@ export function setContainerEntries(doc: LayoutDoc, anchor: string, entries: Rea
     if (active !== null && !entries.includes(active)) return failure("rejected", `The active container ${active} is not in the new entry order`);
     const next = editable(doc);
     next.panels[anchor] = {...panel, entries: [...entries], activeContainer: active};
-    return finish(doc, next);
-}
-
-/**
- * 树里一块多标签的工具面板拆成一个标签一块（多标签的浮动窗停靠进区域之后，输出 39、40）：按原顺序，都写同一个归属。归属是 `container`，没给就沿用这块面板的，
- * 再没有就是区域的当前容器；不在带容器的区域里时不写归属，只拆，这时点名 `container` 会被拒绝。第一块沿用原来的 id，其余的 id 用 `policy.newId`。只有一个标签时只定归属。
- * `container` 不要求已经在入口顺序里：入口顺序由调用方在同一次提交里补。
- */
-export function splitIntoSections(doc: LayoutDoc, input: {readonly panel: string; readonly container?: string}, policy: LayoutPolicy): LayoutResult {
-    const panel = doc.panels[input.panel];
-    if (panel === undefined) return failure("not-found", `Panel ${input.panel}`);
-    if (panel.role !== "tool" || panel.name !== undefined) return failure("rejected", "Only unnamed tool panels can be split");
-    if (findTreeNode(doc.tree.root, input.panel) === null) return failure("rejected", "Dock the floating window before splitting it");
-    const next = editable(doc);
-    // 面板自己带着的归属只在带容器的区域里才算“沿用”：在别处它是要清掉的残留，不能当成调用方点名的容器交给 `settleLanding`。
-    const kept = containerAnchorOf(doc, input.panel) === null ? undefined : panel.container;
-    const problem = settleLanding(next, input.panel, input.container ?? kept, policy) ?? splitPanelInPlace(next, input.panel, () => policy.newId("panel"));
-    if (problem !== null) return failure("rejected", problem);
     return finish(doc, next);
 }
 
@@ -1161,32 +1149,6 @@ export function setBarHidden(doc: LayoutDoc, bar: LayoutBar, hidden: boolean): L
     return finish(doc, next);
 }
 
-/**
- * 放进隐藏的面板：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（面板拖到零时把它的标签放回去）。
- *
- * 只给不用容器的面板用，工作台不用它。带容器的区域里显隐记在锚上，分节不接收标签：目标是锚或分节时拒绝，不留“成功了但区域还隐藏着”的结果。
- * 带容器的区域用 `setPanelHidden(锚, false)` 加 `openPanelAtEdge`。
- */
-export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource; readonly index?: number}, policy: LayoutPolicy): LayoutResult {
-    const record = doc.panels[input.panel];
-    if (record !== undefined && (isContainerAnchor(record) || containerAnchorOf(doc, input.panel) !== null)) return failure("rejected", "Regions with containers are not shown and received through here");
-    const shown = setPanelHidden(doc, input.panel, false);
-    if (!shown.ok) return shown;
-    const expanded = setPanelCollapsed(shown.doc, input.panel, false);
-    if (!expanded.ok) return expanded;
-    const target = expanded.doc.panels[input.panel] as PanelRecord;
-    if (input.source.kind === "tab") {
-        if (findTab(expanded.doc, input.source.tab)?.panel === input.panel) return rebaseOriginal(doc, activateTab(expanded.doc, input.source.tab));
-        return rebaseOriginal(doc, moveTabToStrip(expanded.doc, {tab: input.source.tab, panel: input.panel, index: input.index ?? target.tabs.length}, policy));
-    }
-    return rebaseOriginal(doc, movePanelToStrip(expanded.doc, {panel: input.source.panel, target: input.panel}, policy));
-}
-
-/** 组合操作的结果和最开始一样时，返回最开始的对象。 */
-function rebaseOriginal(original: LayoutDoc, result: LayoutResult): LayoutResult {
-    return result.ok && sameLayoutShape(original, result.doc) ? {ok: true, doc: original} : result;
-}
-
 /** 存盘前去掉动态标签（未绑定项目的窗口与新项目的模板）：只留工具面板与一个空编辑组。 */
 export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
     const next = editable(doc);
@@ -1197,7 +1159,7 @@ export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
         next.panels[id] = {...panel, tabs, active};
         settleEmptyPanel(next, id);
     }
-    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+    normalizeDoc(next);
     return next as unknown as LayoutDoc;
 }
 
@@ -1230,122 +1192,4 @@ export function carryDynamicTabs(target: LayoutDoc, from: LayoutDoc): LayoutDoc 
 function editorTabInPanel(doc: LayoutDoc, panel: string, key: string): boolean {
     const record = doc.panels[panel];
     return record?.role === "editor" && record.tabs.some((tab) => tabKey(tab) === key);
-}
-
-// ── 校验 ──
-
-export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc} | GridFailure<"unsupported-version" | "invalid">;
-
-const FORBIDDEN_IDS = new Set(["__proto__", "constructor", "prototype"]);
-const BAR_NAMES: ReadonlySet<string> = new Set<LayoutBar>(["activitybar", "statusbar"]);
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const isFiniteSize = (value: unknown): boolean => isObject(value) && typeof value.width === "number" && Number.isFinite(value.width) && value.width >= 0 && typeof value.height === "number" && Number.isFinite(value.height) && value.height >= 0;
-
-function validateNode(value: unknown, seen: Set<string>, depth: number): string | null {
-    if (!isObject(value)) return "The node is not an object";
-    if (typeof value.id !== "string" || value.id === "" || FORBIDDEN_IDS.has(value.id)) return `Invalid id: ${String(value.id)}`;
-    // 宿主按叶 id 认条（画活动栏、状态栏），条的叶 id 就是条名，别的节点不能叫这个名字；呈现里生成的 id 也不能撞。
-    const bar = value.kind === "leaf" && typeof value.ref === "string" ? barOfRef(value.ref) : null;
-    if (bar !== null ? value.id !== bar : BAR_NAMES.has(value.id)) return `Node ${value.id} does not match the bar name`;
-    if (collidesWithPresentedIds(value.id)) return `Node ${value.id} collides with an id generated by the presentation`;
-    if (seen.has(value.id)) return `Duplicate id: ${value.id}`;
-    seen.add(value.id);
-    if (seen.size > GRID_MAX_NODES) return "Too many nodes";
-    if (depth > GRID_MAX_DEPTH) return "Nested too deep";
-    if (!isFiniteSize(value.size)) return `The size of node ${value.id} is invalid`;
-    if (value.kind === "leaf") return typeof value.ref === "string" ? null : `Leaf ${value.id} has no ref`;
-    if (value.kind !== "branch" || (value.orientation !== "horizontal" && value.orientation !== "vertical") || !Array.isArray(value.children)) return `Node ${value.id} is invalid`;
-    for (const child of value.children) {
-        const problem = validateNode(child, seen, depth + 1);
-        if (problem !== null) return problem;
-    }
-    return null;
-}
-
-const isFloatRect = (value: unknown): boolean => isObject(value) && typeof value.x === "number" && Number.isFinite(value.x) && typeof value.y === "number" && Number.isFinite(value.y)
-    && typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0 && typeof value.height === "number" && Number.isFinite(value.height) && value.height > 0;
-
-const isTabRef = (value: unknown): value is TabRef => isObject(value)
-    && ((value.kind === "view" && typeof value.viewId === "string") || (value.kind === "tab" && typeof value.type === "string" && typeof value.tabId === "string"));
-
-const isEntryList = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry !== "") && new Set(value).size === value.length;
-
-/** 形状的唯一权威（读记录时调）。工作台的 TypeBox 只管外层版本与字节。 */
-export function validateLayoutDoc(value: unknown): LayoutDocValidation {
-    const invalid = (message: string): LayoutDocValidation => ({ok: false, code: "invalid", message});
-    if (!isObject(value)) return invalid("The document is not an object");
-    if (value.version !== LAYOUT_DOC_VERSION) return {ok: false, code: "unsupported-version", message: `Version ${String(value.version)}`};
-    if (!isObject(value.tree) || value.tree.version !== GRID_SNAPSHOT_VERSION) return invalid("The tree version is wrong");
-    const seen = new Set<string>();
-    const nodeProblem = validateNode(value.tree.root, seen, 1);
-    if (nodeProblem !== null) return invalid(nodeProblem);
-    if (!isObject(value.panels) || !Array.isArray(value.floats) || !Array.isArray(value.hiddenBars)) return invalid("Missing fields");
-    if (!value.hiddenBars.every((bar) => BAR_NAMES.has(bar as string))) return invalid("hiddenBars is invalid");
-    if (value.currentEditor !== null) {
-        const current = typeof value.currentEditor === "string" ? value.panels[value.currentEditor] : undefined;
-        if (!isObject(current) || current.role !== "editor") return invalid("currentEditor is not an editor group");
-    }
-
-    const leaves = treeLeaves(value.tree.root as GridSnapshotNode);
-    const refs = leaves.map((leaf) => leaf.ref);
-    if (refs.filter((ref) => ref === barRef("activitybar")).length !== 1 || refs.filter((ref) => ref === barRef("statusbar")).length !== 1) return invalid("There must be exactly one of each bar");
-    const inTree = new Set<string>();
-    for (const leaf of leaves) {
-        const bar = barOfRef(leaf.ref);
-        if (bar !== null) {
-            if (!BAR_NAMES.has(bar)) return invalid(`Unknown bar: ${bar}`);
-            continue;
-        }
-        const panelId = panelOfRef(leaf.ref);
-        if (panelId === null || panelId !== leaf.id) return invalid(`The ref of leaf ${leaf.id} is wrong`);
-        if (inTree.has(panelId)) return invalid(`Panel ${panelId} is referenced twice`);
-        inTree.add(panelId);
-    }
-
-    const floating = new Set<string>();
-    if (value.floats.length > LAYOUT_MAX_FLOATS) return invalid("Too many floating windows");
-    for (const float of value.floats) {
-        if (!isObject(float) || typeof float.panel !== "string" || !isFloatRect(float.rect)) return invalid("Invalid floating window");
-        // `seen` 是树里全部节点（含分支）：分支 id 撞上浮动窗时，按 id 摘节点会摘错。
-        if (seen.has(float.panel) || floating.has(float.panel)) return invalid(`Panel ${float.panel} is both in the tree and floating, or floats twice`);
-        floating.add(float.panel);
-    }
-
-    const panelIds = Object.keys(value.panels);
-    const tabKeys = new Set<string>();
-    const names = new Set<string>();
-    let editors = 0;
-    for (const float of floating) if (!panelIds.includes(float)) return invalid(`Floating window ${float} has no panel record`);
-    for (const id of panelIds) {
-        if (FORBIDDEN_IDS.has(id) || BAR_NAMES.has(id) || collidesWithPresentedIds(id)) return invalid(`Invalid panel id: ${id}`);
-        const panel = value.panels[id];
-        if (!isObject(panel) || (panel.role !== "tool" && panel.role !== "editor") || !Array.isArray(panel.tabs) || !panel.tabs.every(isTabRef)) return invalid(`Panel ${id} is invalid`);
-        if (floating.has(id) && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`Floating window ${id} cannot be named, hidden or collapsed`);
-        if (floating.has(id) && panel.container !== undefined) return invalid(`Floating window ${id} belongs to no container`);
-        if (panel.role === "editor" && inTree.has(id)) editors += 1;
-        if (panel.role === "editor" && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`Editor group ${id} cannot be named, hidden or collapsed`);
-        if (panel.hidden !== undefined && (panel.hidden !== true || panel.name === undefined)) return invalid(`Panel ${id} has an invalid hidden flag: only named panels hide`);
-        if (panel.collapsed !== undefined && typeof panel.collapsed !== "boolean") return invalid(`Panel ${id} has an invalid collapsed flag`);
-        if (panel.active !== null && typeof panel.active !== "string") return invalid(`Panel ${id} has an invalid active tab`);
-        if (panel.container !== undefined && (panel.role !== "tool" || typeof panel.container !== "string" || panel.container === "")) return invalid(`Panel ${id} has an invalid container: only tool panels have one, and it is not empty`);
-        if (panel.entries !== undefined && (panel.name === undefined || panel.tabs.length > 0 || !isEntryList(panel.entries))) return invalid(`Panel ${id} has an invalid entry order: only named panels without tabs have one, non-empty and without repeats`);
-        if (panel.activeContainer !== undefined) {
-            if (panel.name === undefined) return invalid(`Panel ${id} has an invalid active container: only named panels have one`);
-            if (panel.activeContainer !== null && !(isEntryList(panel.entries) && panel.entries.includes(panel.activeContainer as string))) return invalid(`The active container of panel ${id} is not in its entry order`);
-        }
-        if (panel.name !== undefined) {
-            if ((panel.name !== "sidebar" && panel.name !== "auxiliarybar" && panel.name !== "panel") || names.has(panel.name)) return invalid(`Invalid panel name: ${String(panel.name)}`);
-            names.add(panel.name);
-        }
-        const keys = (panel.tabs as TabRef[]).map(tabKey);
-        for (const key of keys) {
-            if (tabKeys.has(key)) return invalid(`Duplicate tab: ${key}`);
-            tabKeys.add(key);
-        }
-        if (panel.active !== null && !keys.includes(panel.active as string)) return invalid(`The active tab of panel ${id} is not among its tabs`);
-    }
-    if (panelIds.some((id) => !inTree.has(id) && !floating.has(id))) return invalid("A panel is neither in the tree nor floating");
-    if ([...inTree].some((id) => (value.panels as Record<string, unknown>)[id] === undefined)) return invalid("The tree has an unregistered panel");
-    if (editors === 0) return invalid("The tree needs at least one editor group");
-    return {ok: true, doc: value as unknown as LayoutDoc};
 }

@@ -63,9 +63,10 @@ export interface LayoutDropInput {
     readonly newContainer?: string;
 }
 
-const contains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
+/** 点在矩形里：半开区间，左、上边算在里面，右、下边不算。 */
+export const rectContains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
 
-const inGeometry = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => contains(geometry.body, point) || (geometry.strip !== null && contains(geometry.strip, point));
+const inGeometry = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => rectContains(geometry.body, point) || (geometry.strip !== null && rectContains(geometry.strip, point));
 
 /** 落点的比较键：会话判断“和上次显示的是不是同一个”、实时布局判断候选稳定不稳定都用它。`float` 的矩形每帧变，只看种类。 */
 export const layoutDropKey = (action: LayoutDropAction): string => (action.kind === "float" ? "float" : JSON.stringify(action));
@@ -87,7 +88,7 @@ export function sourceTabs(doc: LayoutDoc, source: LayoutDropSource): ReadonlyAr
 /** 交界那一行算正文：标签条要真的在里面，或者指针在缝上且离标签条更近。 */
 const onStrip = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => {
     const strip = geometry.strip;
-    return strip !== null && (contains(strip, point) || (!contains(geometry.body, point) && distanceTo(strip, point) < distanceTo(geometry.body, point)));
+    return strip !== null && (rectContains(strip, point) || (!rectContains(geometry.body, point) && distanceTo(strip, point) < distanceTo(geometry.body, point)));
 };
 
 /**
@@ -151,6 +152,19 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
 
 const edgeTargetFor = (policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null => (policy.edgeTarget === undefined ? edgeTargetOf(doc, panel, edge) : policy.edgeTarget(doc, tabs, panel, edge));
 
+/**
+ * 这块面板四个方向上能分出去的边，按左、右、上、下的顺序。只给要整张用到的两处（分区、键盘候选）：`nearestEdge` 只对指针所在窄带里的边按需求值，指针在中央时一次都不问策略，不走这里。
+ * 调用方先判策略接不接受 `edge`。
+ */
+function edgeTargetsOf(policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string): ReadonlyMap<LayoutEdge, LayoutEdgeTarget> {
+    const targets = new Map<LayoutEdge, LayoutEdgeTarget>();
+    for (const edge of ["left", "right", "top", "bottom"] as const) {
+        const target = edgeTargetFor(policy, doc, tabs, panel, edge);
+        if (target !== null) targets.set(edge, target);
+    }
+    return targets;
+}
+
 const hasArea = (rect: GridDropRect): boolean => rect.right > rect.left && rect.bottom > rect.top;
 
 /**
@@ -179,15 +193,16 @@ function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
 export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeometry | null {
     const floated = input.floats?.find((geometry) => inGeometry(geometry, input.point));
     if (floated !== undefined) return floated;
-    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return null;
+    const inside = input.panels.find((geometry) => inGeometry(geometry, input.point));
+    if (inside !== undefined) return inside;
+    // 缝不是落点：归最近的能接收的那块，按它继续判。不看接收的话，两块之间的缝有一半是死区。被拖的标签只在这里要用，指针在面板里时不算。
     const tabs = sourceTabs(input.doc, input.source);
     const accepted = (geometry: LayoutDropPanelGeometry): boolean => {
         const panel = input.doc.panels[geometry.id];
         return panel !== undefined && (["strip", "center", "edge"] as const).some((region) => input.policy.accepts(tabs, panel, region));
     };
-    const inside = input.panels.find((geometry) => inGeometry(geometry, input.point));
-    // 缝不是落点：归最近的能接收的那块，按它继续判。不看接收的话，两块之间的缝有一半是死区。
-    return inside ?? [...input.panels]
+    return [...input.panels]
         .filter(accepted)
         .map((geometry) => ({geometry, distance: Math.min(distanceTo(geometry.body, input.point), geometry.strip === null ? Number.POSITIVE_INFINITY : distanceTo(geometry.strip, input.point))}))
         .filter(({distance}) => distance <= SEAM_PX)
@@ -276,7 +291,7 @@ const seamTarget = (seam: LayoutSeam): LayoutEdgeTarget => ({kind: "between", br
  */
 export function layoutDropOverPanel(input: LayoutDropInput): boolean {
     if (input.floats?.some((geometry) => inGeometry(geometry, input.point)) === true) return true;
-    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return false;
+    if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return false;
     return input.panels.some((geometry) => distanceTo(frameOf(geometry), input.point) <= SEAM_PX);
 }
 
@@ -290,7 +305,7 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
         const panel = input.doc.panels[floated.id];
         return panel === undefined ? null : resolveInPanel(input, floated, panel, tabs);
     }
-    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return null;
     const seam = seamAt(input, tabs);
     if (seam !== null) return {kind: "edge", target: seamTarget(seam)};
     const hit = layoutDropPanelAt(input) ?? undefined;
@@ -325,13 +340,7 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     const centerAction: LayoutDropAction = {kind: "center", panel: geometry.id};
     const takesCenter = input.noCenter !== true && input.policy.accepts(tabs, panel, "center");
     if (panel.tabs.length === 0 && takesCenter) return [{id: "center", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: centerAction}];
-    const targets = new Map<LayoutEdge, LayoutEdgeTarget>();
-    if (input.policy.accepts(tabs, panel, "edge")) {
-        for (const edge of ["left", "right", "top", "bottom"] as const) {
-            const target = edgeTargetFor(input.policy, input.doc, tabs, geometry.id, edge);
-            if (target !== null) targets.set(edge, target);
-        }
-    }
+    const targets = input.policy.accepts(tabs, panel, "edge") ? edgeTargetsOf(input.policy, input.doc, tabs, geometry.id) : new Map<LayoutEdge, LayoutEdgeTarget>();
     const near = input.edgeRatio ?? LAYOUT_EDGE_RATIO;
     const far = 1 - near;
     const [left, right, top, bottom] = [targets.has("left"), targets.has("right"), targets.has("top"), targets.has("bottom")];
@@ -417,14 +426,7 @@ export function previewEdgeDrop(doc: LayoutDoc, source: LayoutDropSource, action
     const key = source.kind === "panel" ? null : (source.kind === "new" ? tabKey(source.tab) : source.tab);
     const placed = source.kind === "panel" ? source.panel : (findTab(result.doc, key as string)?.panel ?? null);
     if (placed === null) return null;
-    const {input, sashSize} = projectLayoutDoc(result.doc, projection);
-    const grid = createGrid<string>(input, {sashSize});
-    const root = grid.root();
-    if (root === null) return null;
-    const placement = placeGrid(root, grid.layout(extent), extent, dpr);
-    const item = placement.items.find((candidate) => candidate.kind === "leaf" && candidate.node.id === placed);
-    if (item === undefined) return null;
-    return {left: item.rect.x, top: item.rect.y, right: item.rect.x + item.rect.width, bottom: item.rect.y + item.rect.height};
+    return previewPanelRects(result.doc, [placed], projection, extent, dpr)[placed] ?? null;
 }
 
 /**
@@ -483,7 +485,7 @@ export function enumerateDropCandidates(input: {
     const candidates: LayoutDropCandidate[] = [];
     const seen = new Set<string>();
     const add = (region: string, action: LayoutDropAction): void => {
-        const key = JSON.stringify(action);
+        const key = layoutDropKey(action);
         if (seen.has(key) || isInPlace(doc, source, action)) return;
         seen.add(key);
         candidates.push({region, action});
@@ -511,10 +513,7 @@ export function enumerateDropCandidates(input: {
         if (policy.accepts(tabs, panel, "center")) add(leaf.id, {kind: "center", panel: leaf.id});
         // 接受中央的空面板整块都是中央（`resolveInPanel`）：边上没有另外的落点。
         if (policy.accepts(tabs, panel, "edge") && !(panel.tabs.length === 0 && policy.accepts(tabs, panel, "center"))) {
-            for (const edge of ["left", "right", "top", "bottom"] as const) {
-                const target = edgeTargetFor(policy, doc, tabs, leaf.id, edge);
-                if (target !== null) add(leaf.id, {kind: "edge", target});
-            }
+            for (const target of edgeTargetsOf(policy, doc, tabs, leaf.id).values()) add(leaf.id, {kind: "edge", target});
         }
     }
     // 缝归树序靠前的那块：键盘在区域之间循环，缝不单独成一个区域。

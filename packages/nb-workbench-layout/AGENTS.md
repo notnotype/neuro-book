@@ -11,6 +11,7 @@
 - **核心**（`.` 入口，`src/` 下除 `vue/` 以外的文件）只导入 nb-layout 的核心入口，不依赖 Vue 与 DOM：服务端经应用的 `workbench/shared/` 也导入它。
 - **Vue 层**（`./vue` 入口，`src/vue/`）再加 `vue`、nb-ui（含子路径）与 nb-layout 的 `/vue`。样式写在组件的 scoped CSS 里、用 nb-ui 的 token，不用原子类：宿主的 Tailwind 不扫描本包。
 - 规则由 `src/boundary.test.ts` 读源码核对，新增文件同样受约束。
+- **核心入口是显式清单**（`src/index.ts`，一行一个名字，不用 `export *`）：只列包外用到的名字，包内文件之间的零件不导出；宿主新用到一个名字时在清单里加一行，同时改 `src/entry.test.ts` 里的清单。
 - 入口导出的组件是受管组件，同名 `.md` 必有（`docs:check`）。
 
 ## 验证

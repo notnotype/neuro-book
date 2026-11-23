@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, resolveLayoutDrop} from "./layout-drop";
+import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, rectContains, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropAction, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
 import {edgeTargetOf, isPanelShown, regionOf, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutSource} from "./layout-doc";
@@ -628,5 +628,16 @@ describe("空区域的落点（ADR 0050）", () => {
         expect(resolveLayoutDrop(input({source: {kind: "tab", tab: "tab:ea"}, policy: byRole}))).toBeNull();
         expect(resolveLayoutDrop(input({noCenter: true}))).toBeNull();
         expect(layoutDropOverPanel(input())).toBe(true);
+    });
+});
+
+describe("点在矩形里（rectContains）", () => {
+    it("半开区间：左、上边算在里面，右、下边不算", () => {
+        const box = rect(10, 20, 30, 40);
+        expect(rectContains(box, {x: 10, y: 20})).toBe(true);
+        expect(rectContains(box, {x: 29, y: 39})).toBe(true);
+        expect(rectContains(box, {x: 30, y: 30})).toBe(false);
+        expect(rectContains(box, {x: 20, y: 40})).toBe(false);
+        expect(rectContains(box, {x: 9, y: 30})).toBe(false);
     });
 });
