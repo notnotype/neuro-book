@@ -103,8 +103,6 @@ export interface GridGestureSession<T = unknown> extends SashGestureSessionCore<
     update(delta: {x: number; y: number}): GridGesturePreview<T> | null;
     /** 键盘 Home / End：把分隔条移到可行两端。 */
     jump(edge: "start" | "end"): GridGesturePreview<T> | null;
-    /** 显式折叠/恢复：与拖动共用同一收起策略与容量判定。 */
-    setCollapsed(collapsed: boolean): GridGesturePreview<T> | null;
     /** 当前收起则展开、展开则收起（Enter 与区段按钮用）。 */
     toggleCollapsed(): GridGesturePreview<T> | null;
     /** 正常结束：无真实变化返回 null。 */
@@ -375,23 +373,6 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
                 preview = solve().preview ?? preview;
             }
             return preview;
-        },
-
-        setCollapsed(collapsed) {
-            if (reason !== null) {
-                return null;
-            }
-            for (const owner of owners) {
-                const index = collapsibleIndex(owner);
-                if (index === null) {
-                    continue;
-                }
-                const preview = applyOn(owner, {index, collapsed});
-                if (preview !== null) {
-                    return preview;
-                }
-            }
-            return null;
         },
 
         toggleCollapsed() {

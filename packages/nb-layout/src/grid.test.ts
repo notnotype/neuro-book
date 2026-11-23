@@ -349,11 +349,13 @@ describe("拆分树原语：手势会话的诊断（Spec 输出 139、140）", (
     it("先拖再折叠没有变化：前面的位移照常提交", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
             {...leaf("a", "width", 200, 50), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}},
-            leaf("b", "width", 200, 100),
+            leaf("b", "width", 200, 100, 230),
         ]), {sashSize: SASH});
         const pointer = session(grid, {width: 401, height: 100}, "pointer", [{branchId: "root", index: 0, axis: "width"}]);
         expect(pointer.update({x: -30, y: 0})).not.toBeNull();
-        pointer.setCollapsed(false);
+        // b 已到上限 230，吸收不了 a 收起让出的空间：这次折叠不成立，只留一条诊断。
+        pointer.toggleCollapsed();
+        expect(facts(pointer.issues).map((issue) => issue.code)).toContain("no-room-to-collapse");
         expect(pointer.finish()?.changes[0]?.target).toMatchObject({a: 170, b: 230});
     });
 
@@ -377,7 +379,7 @@ describe("拆分树原语：手势会话的诊断（Spec 输出 139、140）", (
         // 拖过展开阈值（下限 200），能给的只有 150：拖动求解报 no-room-to-restore；折叠也报同一条。
         pointer.update({x: 250, y: 0});
         expect(facts(pointer.issues).filter((issue) => issue.code === "no-room-to-restore")).toHaveLength(1);
-        pointer.setCollapsed(false);
+        pointer.toggleCollapsed();
         expect(facts(pointer.issues).filter((issue) => issue.code === "no-room-to-restore")).toHaveLength(1);
     });
 
