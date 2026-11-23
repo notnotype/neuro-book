@@ -186,7 +186,7 @@ describe("任务仓库", () => {
         w.tasks.start({title: "导出"});
         for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
         // 同一条链路上的消息按序到达：这次调用的回应到了，之前排上的推送也都送到了。
-        expect((await client.list({})).ok).toBe(true);
+        expect((await client.own({})).ok).toBe(true);
         expect(store.items.value).toEqual([]);
     });
 

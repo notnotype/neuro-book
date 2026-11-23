@@ -113,8 +113,8 @@ export function createTasksStore(remote: RemoteClient<typeof tasksContract>, not
     };
 
     const refresh = async (): Promise<void> => {
-        const result = await remote.list({});
-        if (result.ok) accept(result.value);
+        const result = await remote.own({});
+        if (result.ok) accept(result.value.tasks);
         else report(`tasks: list failed: ${result.code}`);
     };
 
@@ -138,7 +138,7 @@ export function createTasksStore(remote: RemoteClient<typeof tasksContract>, not
             return null;
         },
         async start(signal) {
-            const subscription = await remote.events.changed.subscribe({}, accept, {onResync: () => {
+            const subscription = await remote.events.ownChanged.subscribe({}, (payload) => accept(payload.tasks), {onResync: () => {
                 baseline = null;
                 void refresh();
             }});
