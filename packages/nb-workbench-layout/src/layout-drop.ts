@@ -194,14 +194,15 @@ export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeomet
     const floated = input.floats?.find((geometry) => inGeometry(geometry, input.point));
     if (floated !== undefined) return floated;
     if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return null;
+    const inside = input.panels.find((geometry) => inGeometry(geometry, input.point));
+    if (inside !== undefined) return inside;
+    // 缝不是落点：归最近的能接收的那块，按它继续判。不看接收的话，两块之间的缝有一半是死区。被拖的标签只在这里要用，指针在面板里时不算。
     const tabs = sourceTabs(input.doc, input.source);
     const accepted = (geometry: LayoutDropPanelGeometry): boolean => {
         const panel = input.doc.panels[geometry.id];
         return panel !== undefined && (["strip", "center", "edge"] as const).some((region) => input.policy.accepts(tabs, panel, region));
     };
-    const inside = input.panels.find((geometry) => inGeometry(geometry, input.point));
-    // 缝不是落点：归最近的能接收的那块，按它继续判。不看接收的话，两块之间的缝有一半是死区。
-    return inside ?? [...input.panels]
+    return [...input.panels]
         .filter(accepted)
         .map((geometry) => ({geometry, distance: Math.min(distanceTo(geometry.body, input.point), geometry.strip === null ? Number.POSITIVE_INFINITY : distanceTo(geometry.strip, input.point))}))
         .filter(({distance}) => distance <= SEAM_PX)

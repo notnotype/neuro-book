@@ -521,7 +521,9 @@ export function setSiblingShares(doc: LayoutDoc, shares: ReadonlyArray<{readonly
 // ── 标签 ──
 
 export function findTab(doc: LayoutDoc, key: string): {readonly panel: string; readonly index: number; readonly tab: TabRef} | null {
-    for (const [panel, record] of Object.entries(doc.panels)) {
+    // `for…in` 不为整张面板表分配 `Object.entries` 的数组：这里在每次指针移动的判定里调。`doc.panels` 是 `copyJson` 出来的普通对象，没有继承来的可枚举键。
+    for (const panel in doc.panels) {
+        const record = doc.panels[panel] as PanelRecord;
         const index = record.tabs.findIndex((tab) => tabKey(tab) === key);
         if (index !== -1) return {panel, index, tab: record.tabs[index] as TabRef};
     }
