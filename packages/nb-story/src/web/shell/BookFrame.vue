@@ -5,8 +5,8 @@
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
 import type {GridContentInput, GridDropRect, GridGestureCommit} from "@notnotype/nb-layout";
-import {DropFeedbackOverlay, NestedGrid, useDragSession, useGridHost} from "@notnotype/nb-layout/vue";
-import type {GridHostIssue} from "@notnotype/nb-layout/vue";
+import {DropFeedbackOverlay, NestedGrid, useGridHost, useLiveDragSession} from "@notnotype/nb-layout/vue";
+import type {GridHostIssue, LiveDragHost} from "@notnotype/nb-layout/vue";
 import {ContextMenu, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem, DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
@@ -179,7 +179,7 @@ function sashDisabled(sash: {before: string; after: string}): boolean {
 // 网格在过渡（时长接到 --nb-layout-motion-move，与换成网格之前的分栏一样）里逐帧改外框。主区跟着逐帧重排，文字与表格的
 // 重排不贵；贵的是图的画布：Sigma 换尺寸要整张重画，所以过渡期间经 LAYOUT_MOTION 告诉图先不换尺寸，结束后换一次。
 // 收到 0 的抽屉，内层保持原宽、按外框裁切，跟着外框从右边滑出。
-const gridRef = ref<{readonly moving: boolean} | null>(null);
+const gridRef = ref<InstanceType<typeof NestedGrid> | null>(null);
 provide(LAYOUT_MOTION, computed(() => gridRef.value?.moving ?? false));
 
 // ---- 详情画进网格的内容层（输出 66） ----
@@ -187,7 +187,12 @@ provide(LAYOUT_MOTION, computed(() => gridRef.value?.moving ?? false));
 // （整块收起时抽屉降到零）时网格用它最后一次的渲染留到过渡结束（ui/nested-grid 输出 155）。平板与手机的抽屉是浮层，不进网格。
 const DETAIL_LEAVES = ["drawer", "drawer2"] as const;
 const shownDetails = computed(() => (overlayDrawer.value ? [] : visibleDetails(book.details.value)));
-const detailContents = computed<GridContentInput[]>(() => shownDetails.value.map((item, index) => ({key: `detail-${item.key}`, leaf: DETAIL_LEAVES[index]!, insetTop: 0, active: true, leave: "retain"})));
+/** 拖动换边的实时布局里预览的是对调之后的样子：两张换叶，会话的 `details` 不动（结构键读它，预览不改结构键）。 */
+const swapPreviewed = ref(false);
+const detailContents = computed<GridContentInput[]>(() => {
+    const swapped = swapPreviewed.value && shownDetails.value.length === 2;
+    return shownDetails.value.map((item, index) => ({key: `detail-${item.key}`, leaf: DETAIL_LEAVES[swapped ? 1 - index : index]!, insetTop: 0, active: true, leave: "retain"}));
+});
 /** 内容层的一项对应哪一张；插槽里按它取出来、作为属性交给外壳（外壳不读会话的 `details`）。 */
 function detailOf(contentKey: string): {item: DetailItem; index: number} | null {
     const index = shownDetails.value.findIndex((item) => `detail-${item.key}` === contentKey);
@@ -209,11 +214,45 @@ function focusRemaining(except?: number): void {
 }
 // ---- 拖详情换边（输出 68）：两张都在时按住头部拖，在另一张上松手对调 ----
 // 会话的根是包着网格的那一层：内容层是网格根的子元素，两张不在同一块叶里。选项只在建会话时读一次，里面读的响应式值每次调用时现读。
+// 有动效时是实时布局（nb-layout 的 `useLiveDragSession`）：被拖的那张拿起跟手，在另一张上停稳后预览就是对调后的样子，回到自己那一半是原位；
+// 减少动效时会话照常是落点指示：另一张上盖一层“与这一张对调”，标题小块跟手。
 const gridBox = ref<HTMLElement | null>(null);
 const shellOf = (key: number): HTMLElement | null => gridBox.value?.querySelector<HTMLElement>(`[data-detail-key="${String(key)}"]`) ?? null;
-/** 被拖的那张的标题：过门槛时从它的把手上取一次，跟手的小块写它。 */
+function shellRect(key: number): GridDropRect | null {
+    const rect = shellOf(key)?.getBoundingClientRect();
+    return rect === undefined ? null : {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
+}
+const inside = (rect: GridDropRect, point: {readonly x: number; readonly y: number}): boolean => point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+/** 落点：另一张（松手对调）；实时布局里回到自己那一半是原位（不提交）。 */
+type SwapDrop = {readonly key: number; readonly rect: GridDropRect; readonly inPlace?: true};
+/** 实时布局判定的几何：两张拿起时的矩形（视口坐标）。预览把另一张换到这边以后现量的话，指针下就不是它了，候选会来回换。 */
+type SwapRects = ReadonlyMap<number, GridDropRect>;
+function measureShells(): SwapRects {
+    return new Map(shownDetails.value.flatMap((item) => {
+        const rect = shellRect(item.key);
+        return rect === null ? [] : [[item.key, rect] as const];
+    }));
+}
+/** 被拖的那张的标题：过门槛时从它的把手上取一次，落点指示时跟手的小块写它。 */
 const dragTitle = ref("");
-const {state: swapDrag} = useDragSession(gridBox, () => ({
+const swapHost: LiveDragHost<number, SwapDrop, SwapRects> = {
+    facts: (_source, drop) => ({key: drop.inPlace === true ? "in-place" : `swap:${String(drop.key)}`, inPlace: drop.inPlace === true, home: false, slotOnScreen: null}),
+    show: (target) => {
+        swapPreviewed.value = target?.kind === "drop" && target.drop.inPlace !== true;
+        return swapPreviewed.value;
+    },
+    measure: () => measureShells(),
+    // 对调不摘掉来源：收起来源不改判定的几何。
+    collapsed: () => null,
+    card: {
+        key: (source) => `detail-${String(source)}`,
+        rect: (source, _container, geometry) => geometry.get(source) ?? null,
+        // 卡片里是人物卡、原文与节点图，按卡片的大小重排不便宜：缩小一点，尺寸每秒至多写 30 次。
+        compact: {width: 320, height: 240},
+        refreshMs: () => 1000 / 30,
+    },
+};
+const {state: swapDrag, liveState: swapLive, lifted: liftedDetail, dragging} = useLiveDragSession<number, SwapDrop, never, number, SwapRects>(gridBox, (live) => ({
     sourceAt: (target) => {
         if (shownDetails.value.length < 2 || target.closest("button, input, a, [role='menu'], [role='menuitem'], [role='tab']") !== null) return null;
         const shell = target.closest("[data-detail-handle]")?.closest<HTMLElement>("[data-detail-key]");
@@ -223,21 +262,28 @@ const {state: swapDrag} = useDragSession(gridBox, () => ({
         dragTitle.value = shellOf(source)?.querySelector("[data-detail-handle]")?.textContent?.trim() ?? "";
         return true;
     },
+    live: (source) => source,
+    host: swapHost,
+    grid: () => gridRef.value,
     // 拖着的时候详情变了（关掉一张、换了内容）整场取消（ui/layout-drag 输出 7）。
     structure: () => shownDetails.value.map((item) => item.key).join(","),
     resolve: ({source, point}) => {
         const other = shownDetails.value.find((item) => item.key !== source);
-        const rect = other === undefined ? undefined : shellOf(other.key)?.getBoundingClientRect();
-        if (other === undefined || rect === undefined) return null;
-        const inside = point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
-        return inside ? {key: other.key, rect: {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom} satisfies GridDropRect} : null;
+        if (other === undefined) return null;
+        // 实时布局用拿起时的几何（引擎量到之前这一次现量）；落点指示每次现量。
+        const rects = live.state().active ? (live.geometry() ?? measureShells()) : null;
+        const own = rects?.get(source);
+        if (own !== undefined && inside(own, point)) return {key: source, rect: own, inPlace: true};
+        const rect = rects === null ? shellRect(other.key) : (rects.get(other.key) ?? null);
+        return rect !== null && inside(rect, point) ? {key: other.key, rect} : null;
     },
-    actionKey: (drop) => `swap:${String(drop.key)}`,
+    actionKey: (drop) => (drop.inPlace === true ? null : `swap:${String(drop.key)}`),
     commit: (_drop, source) => book.swapDetails(source),
 }));
+/** 落点指示的盖层：只在不是实时布局时画（实时布局里反馈就是布局本身）。 */
 const swapPreview = computed(() => {
     const drop = swapDrag.value?.drop;
-    return drop === null || drop === undefined ? null : {areaRect: drop.rect, indicator: null, orientation: "horizontal" as const};
+    return swapLive.value.active || drop === null || drop === undefined ? null : {areaRect: drop.rect, indicator: null, orientation: "horizontal" as const};
 });
 
 // ---- 名字上的右键菜单（输出 67）：外壳里只有这一个，`NameLink` 经注入打开。窄档看不出并排，不打开，名字照常走浏览器的菜单。 ----
@@ -356,7 +402,7 @@ watch(notice, value => {
 
         <div ref="gridBox" class="relative min-h-0 flex-1">
             <!-- 过渡时长接到控件形变那一档（与换成网格之前的分栏一样）；设在网格根上，减少动态效果时照样归零（ui/nested-grid 输出 142）。 -->
-            <NestedGrid v-if="tier !== 'phone'" ref="gridRef" v-bind="host.bindings.value" :sash-disabled="sashDisabled" :pane-label="paneLabel" :contents="detailContents" class="h-full" style="--nb-layout-motion-layout: var(--nb-layout-motion-move)" @content-parked="onContentParked">
+            <NestedGrid v-if="tier !== 'phone'" ref="gridRef" v-bind="host.bindings.value" :sash-disabled="sashDisabled" :pane-label="paneLabel" :contents="detailContents" :lifted="liftedDetail" :dragging="dragging" class="h-full" style="--nb-layout-motion-layout: var(--nb-layout-motion-move)" @content-parked="onContentParked">
                 <template #leaf="{node}">
                     <nav v-if="node.id === 'nav'" class="flex h-full flex-col gap-0.5 overflow-y-auto py-2" :class="navIsCollapsed ? 'items-center px-1' : 'px-2'" aria-label="页面">
                         <button
@@ -432,11 +478,11 @@ watch(notice, value => {
             </template>
         </div>
 
-        <!-- 拖动换边的反馈：另一张上盖落点，被拖的那张缩成写着标题的小块跟着指针。都带 data-drag-feedback，判定落点时跳过。 -->
+        <!-- 拖动换边的落点指示（减少动效时）：另一张上盖落点，被拖的那张缩成写着标题的小块跟着指针。都带 data-drag-feedback，判定落点时跳过。实时布局时不画。 -->
         <DropFeedbackOverlay :preview="swapPreview" label="与这一张对调" icon-class="i-lucide-arrow-left-right" data-drag-feedback />
         <Teleport to="body">
             <div
-                v-if="swapDrag !== null && !swapDrag.keyboard" class="swap-chip" data-drag-feedback data-testid="swap-chip"
+                v-if="swapDrag !== null && !swapDrag.keyboard && !swapLive.active" class="swap-chip" data-drag-feedback data-testid="swap-chip"
                 :style="{left: `${swapDrag.point.x + 12}px`, top: `${swapDrag.point.y + 12}px`}"
             >{{ dragTitle }}</div>
         </Teleport>
