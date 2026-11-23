@@ -1,0 +1,198 @@
+## 结论
+
+核了 97 句：守住 73 句，部分守住 15 句，没守住 9 句。没守住的 9 句里，实现了没测试 8 句，没实现 0 句，Spec 与实现不符 1 句。
+
+照现在这样晋升不行。有 24 句的保证比测试守住的多，主要是悬停一组、卡片形状一组，以及 NestedGrid 自己的上下文失效取消。
+
+另外要知道三件事：
+
+- **测试只跑了一半。** `bun test` 跑了 6 个核心文件（grid、sash-drag、grid-rects、grid-motion、grid-swap、sash-hit-area），243 个用例全过。dom 测试是 vitest 写的，`npx vitest` 和 `bunx vitest` 两次都卡在权限审批上，没跑成。下面引用的 dom 用例只读了断言，没有运行确认。
+- **Spec 第 21 到 23 行的缺口清单过时了。** 输出 58 现在已有 e2e 守着，输出 15 由 splitter 测试守着，都可以从清单删掉。输出 51、53、54 在工作台 e2e 里有间接的像素与命中断言。其余几条仍缺，见下面各段。
+- **判“守住”时用了两条依据。** Splitter 测试算到 NestedGrid 头上，是因为两者共用 `useSashGesture` 和 SashHandle。工作台 e2e（editor-area、workbench-containers、workbench-shell）也算进去了，因为它们在真实浏览器里测 NestedGrid，测试名直接引用本 Spec 的编号。
+
+## 不是“守住”的句子
+
+**输出 9 第 1 句** `nested-grid.md:70`：“失焦、Escape、pointercancel、卸载和上下文失效取消”
+- 判定：部分守住。
+- 依据：
+  - 失焦、pointercancel、卸载、Escape 在共用的 `useSashGesture` 里，`splitter.dom.test.ts:318/269/348/456` 断言了 reason 和“没有 gesture-end”。e2e `lab-nested-grid.e2e.ts:242` 测了 NestedGrid 的 Escape。
+  - 上下文失效走的是 NestedGrid 自己的入口：`NestedGrid.vue:607` 在 contextKey、revision、disabled、node 变化时调 `invalidate`，`useSashGesture.ts:662` 再 `cancel("context-changed")`。NestedGrid 和 useGridHost 的测试里 grep `context-changed` 零命中。
+  - `splitter.dom.test.ts:582` 测的是 Splitter 自己的 direction 与 panels 变化，触发条件不同。
+- 建议：在 `NestedGrid.dom.test.ts` 加一例：方向键按下不松，改 `contextKey`（再测一次改 `revision`），断言发出 `gesture-cancel {reason:"context-changed"}`，并且没有 `gesture-end`。
+
+**输出 10** `:71`：“测量、挂载、视口变化、快照恢复与临时显隐不被报告为用户提交”
+- 判定：部分守住。
+- 依据：
+  - 挂载与程序发布有断言：`splitter.dom.test.ts:185/751`（四种手势事件都是 undefined），`lab-nested-grid.e2e.ts:269`（commit-count 0）。
+  - 视口变化与临时显隐没有任何“提交数为 0”的断言。
+  - 快照恢复只有间接证据：`lab-nested-grid.e2e.ts:367` 在恢复后按一次键，提交数是 1。
+- 建议：`lab-nested-grid.e2e.ts` 加一例：改视口尺寸、隐藏再显示承载盒、做一次快照恢复，各自之后断言 `data-lab-commit-count` 仍为 0，事件日志里没有 `gesture-end`。
+
+**输出 11 第 1 句** `:72`：“逻辑 sash 保持 1 CSS px”
+- 判定：Spec 与实现不符。
+- 依据：
+  - sash 的占用可以配置：`createGrid` 的 `sashSize` 缺省是 0（输出 151 自己也这么写），Splitter 缺省 1px，Lab 夹具是 7px（`lab-nested-grid.e2e.ts:99` 断言 `width 7px`）。
+  - 固定 1 CSS px 的是静止接缝（Splitter.md 第 11 行“静止可见接缝为 1 CSS px”），`splitter.dom.test.ts:1148`“7px 接缝里接缝居中且仍是 1px”守着。
+- 建议：改成“静止接缝保持 1 CSS px，与 sash 的占用无关”。这句后面的“可见线为居中覆盖层、不挤压内容、命中带外扩”是守住的，见简表。
+
+**输出 12** `:73`：光标 `ew-resize`、`ns-resize`、`move`
+- 判定：部分守住。
+- 依据：只有 `splitter.dom.test.ts:1214` 断言了 `ew-resize`。`ns-resize` 与同 scope 双轴的 `move` 写在 `sash-feedback.ts:16-27`，没有断言。
+- 建议：在 `NestedGrid.dom.test.ts:290` 那个用例里，指针分别移到横线和交点时，断言 `document.documentElement` 的 `data-nb-sash-cursor` 依次是 `ns-resize` 和 `move`。
+
+**输出 13 第 2、3 句** `:74`：“交汇处增减命中不重置计时、不闪烁”“系统减少动态效果时不渐显，停留时长照旧”
+- 判定：实现了没测试。第 1 句（停留 250ms 后才显现）由 `splitter.dom.test.ts:1199` 守着。
+- 依据：交汇处的计时在 `useSashGesture.ts:211-220`，减少动效是 `SashHandle.vue:487` 的媒体查询，都没有断言。
+- 建议：
+  - dom 测试用假计时器：先在竖线上停 150ms，再移到交点停 100ms，断言已有 `data-sash-revealed`。
+  - e2e：在 `reducedMotion: "reduce"` 下悬停，250ms 前没有 revealed、之后有，并读 `.sash-line` 的 `transition-duration` 为 0。
+
+**输出 14** `:75`：“pointerdown 成功和键盘 focus-visible 立即全亮；active 离开线盒仍保持”
+- 判定：部分守住。第 1 句只守住了 pointerdown 一半（`splitter.dom.test.ts:1238`），focus-visible 全亮只在 CSS（`SashHandle.vue:473`）。第 2 句实现了没测试：`splitter.dom.test.ts:1230` 是在线盒上松手，没测按住时离开线盒。
+- 建议：
+  - e2e 用 Tab 走到分隔线，断言 `.sash-line` 的 opacity 为 1。
+  - dom 测试按下后把指针移出命中带，断言 `data-sash-active`、`data-sash-revealed` 仍在。
+
+**输出 16** `:77`：“退出、失焦、禁用、卸载时清掉临时页面级光标与停留计时”
+- 判定：部分守住。
+- 依据：退出有断言（`splitter.dom.test.ts:1222-1224`），卸载有断言（`NestedGrid.dom.test.ts:829-831`）。失焦、禁用没有断言，停留计时被清掉也没有断言。
+- 建议：
+  - 悬停未满 250ms 时派 `window` blur、或者设 `disabled`，断言光标属性被删。
+  - 再推进 300ms，断言没有出现 `data-sash-revealed`。
+
+**输出 19** `:80`：展开后线与指针（减去抓取偏移）误差不超过 1 CSS px
+- 判定：部分守住。
+- 依据：纯函数“按理想边界展开”是精确断言（`sash-drag.test.ts:139`），`splitter.dom.test.ts:505` 在线中心按下。离开中心按下（有抓取偏移）的情形没有测：`splitter.dom.test.ts:255` 在离中心 4px 处按下，只断言了手势开始。
+- 建议：`splitter.dom.test.ts` 加一例：离中心 3px 按下，拖过收起阈值再拖回展开区，断言 `sizesPx` 等于“基线加累计位移”，偏差不超过 1。
+
+**输出 24** `:85`：“每个公共 NestedGrid 独占一个 scope；不跨独立 scope 拼事务”
+- 判定：部分守住。
+- 依据：`splitter.dom.test.ts:723` 只测了嵌套 Splitter 的键盘手势互不串。没有嵌套 NestedGrid 的用例，也没有指针跨 scope 的用例。
+- 建议：`NestedGrid.dom.test.ts` 用叶插槽里再挂一个 NestedGrid，在内层分隔线上按下并拖动，断言内层发 `gesture-end`、外层一个手势事件也没有。
+
+**输出 25** `:86`：hover 与 capture 按 `composedPath` 由内向外共用赢家；最内无命中或禁用才让外层
+- 判定：部分守住。
+- 依据：只有纯函数 `sash-hit-area.test.ts:65`（重合时内层优先）。`composedPath` 的嵌套仲裁，以及“内层禁用才让外层”，没有 dom 断言。
+- 建议：和输出 24 用同一个嵌套夹具：内外分隔线重合时，内层亮、外层不亮；内层设 `disabled` 后外层亮。
+
+**输出 28** `:89`：外框、内容与手柄是里面 fixed 元素的包含块，各成层叠上下文
+- 判定：实现了没测试（`NestedGrid.vue:775-848` 的 `contain: layout`）。
+- 建议：e2e 在叶里放一个 `position: fixed; inset: 0` 的元素，断言它的 boundingBox 等于外框；再在里面设一个大 `z-index`，断言它压不过下一块叶。
+
+**输出 30** `:91`：分支交叉轴上限取子节点里最大的
+- 判定：实现了没测试（`grid-geometry.ts:344`）。
+- 建议：`grid.test.ts` 建一行：一列三节全部收成 32px 标题行，旁边一块普通叶。断言这一列的 `constraints.maximumSize` 在交叉轴上等于最大子节点的上限，那块兄弟叶仍拿到满高。
+
+**输出 36** `:97`：“每一帧四条边一起到位，不动的那条边一帧也不挪（主线程繁忙、掉帧时也一样）”
+- 判定：部分守住。
+- 依据：`workbench-containers.e2e.ts:615` 逐帧断言 `frameLeft` 不变，`:1348` 逐帧断言 `frameBottom` 不变。但没有模拟主线程繁忙或掉帧。
+- 建议：在 `lab-grid-structure.e2e.ts` 的过渡用例里，每个 rAF 里忙等 40ms，再断言不动的那条边逐帧不变。
+
+**输出 40** `:101`：嵌套的 grid 跟着外层逐帧变化，不另外过渡，进行中的手势取消
+- 判定：部分守住。
+- 依据：
+  - “容器尺寸变化不过渡”在单个网格上有断言（`useGridMotion.dom.test.ts:112`）。
+  - 手势取消的实现路径是 `useGridLayout.ts:80-91`：extent 变了就重算并递增 revision，再经 `NestedGrid.vue:607` 的 watch 取消。NestedGrid 本身不看 extent，裸用 NestedGrid、不递增 revision 的宿主只会在提交时被 `stale-size` 拒绝（`useGridLayout.dom.test.ts:260`）。
+  - 嵌套场景没有任何测试。
+- 建议：
+  - Spec 改成“经 `useGridHost` 接线时，容器尺寸变化取消进行中的手势”。
+  - 在 `useGridHost.dom.test.ts` 加一例：拖动中改尺寸，断言 `gesture-cancel {reason:"context-changed"}`。
+
+**输出 51** `:112`：卡片形状裁切
+- 判定：部分守住。
+- 依据：工作台的真实浏览器测试用命中区分了“按形状裁”和“按直角裁”：`workbench-containers.e2e.ts:704` 的 `rightCornerHit` 为 false（右上角是圆的），`:1415` 的 `bottomGapHit` 为 false（不动的那边留着缝）。“内容外层另外裁掉面板头那一条、只圆下面两个角”没有能单独区分的断言。nb-layout 自己没有测试，`leafShapeClip`（`useContentLayer.ts:31`）也没有单测。
+- 建议：
+  - `NestedGrid.dom.test.ts` 给 `leafShape`、触发程序收起，断言过渡中外框与内容外层的 `clip-path` 字符串；内容外层的上边要多出面板头的高度，圆角只有下面两个。
+  - Spec 证据补上 workbench-containers 这两处。
+
+**输出 52** `:113`：投影过渡中不画、结束才出现
+- 判定：实现了没测试。
+- 建议：在上一条的 dom 用例里断言过渡中外框没有卡片投影的类或样式，过渡结束后才有。
+
+**输出 53、54** `:114`、`:115`：伸出外框画 `fill`；伸出部分压在邻居下面
+- 判定：部分守住。
+- 依据：实现在 `NestedGrid.vue:252-260`（用 `boxShadow` 画 `fill`、`zIndex: -1`）。只有应用的 `workbench-containers.e2e.ts:712`（ui/workbench-layout 输出 19）用像素间接测了“两张卡片画成一张、不露缝”。nb-layout 没有测试。
+- 建议：`NestedGrid.dom.test.ts` 给负内缩加 `fill`，断言外框的 `box-shadow` 含这个颜色、`z-index` 低于邻居。
+
+**输出 55** `:116`：浮动窗不按卡片形状裁
+- 判定：实现了没测试（`NestedGrid.vue:248` 的 `floatAt` 排除）。
+- 建议：浮动窗一组的 dom 用例里给 `leafShape`，在窗出现的过渡中断言窗的外框没有 `clip-path`。
+
+**输出 56** `:117`：宿主可以读 `shapedLeaves`，读到的是这一轮的
+- 判定：实现了没测试（`NestedGrid.vue:263/687`）。
+- 建议：仿照 `NestedGrid.dom.test.ts:1515` 的 `moving` 用例：程序收起一块叶，过渡中 `shapedLeaves` 含它，结束为空；减少动效时一直为空。
+
+**输出 67** `:128`：离开的叶只认上一帧呈现着、有尺寸、这一帧不在的；换上来的只认这一帧在、上一帧不在的
+- 判定：部分守住。
+- 依据：`grid-swap.test.ts:101`（不在呈现里的忽略）和 `:109`（上一帧就在的不算换上来）守着一部分。“上一帧尺寸为 0 的不认作离开”“这一帧还在的不认作离开”两项没有断言。
+- 建议：`grid-swap.test.ts` 加两例：离开列表里放上一帧宽高为 0 的叶，或者这一帧仍在的叶，断言 `band.groups` 里没有它。
+
+**输出 75** `:136`：外框、内容与分隔线带 `data-swap`
+- 判定：部分守住。
+- 依据：`NestedGrid.dom.test.ts:1478/1483-1485` 断言了外框 out/in、内容 in、分隔线 out。内容的 `out` 没有断言。
+- 建议：在 `:1480` 后加 `expect(content.getAttribute("data-swap")).toBe("out")`。
+
+## 守住的句子与测试（供抽查）
+
+| 输出 | 测试 |
+|---|---|
+| 1 | grid.test.ts:63 |
+| 2（吸收、守恒含分隔条） | grid.test.ts:89、:82；lab-nested-grid.e2e.ts:93 |
+| 3 | grid.test.ts:103；lab-nested-grid.e2e.ts:161 |
+| 4 | grid.test.ts:140；NestedGrid.dom.test.ts:549 |
+| 5（只吸收可用；有限、非负、不溢出） | grid.test.ts:115、:127、:205、:234 |
+| 6 | grid.test.ts:205、:287、:303 |
+| 7（三段边界；提交带 active） | NestedGrid.dom.test.ts:242-256、:842-851；splitter.dom.test.ts:201 |
+| 8 | splitter.dom.test.ts:385；lab-nested-grid.e2e.ts:213 |
+| 9 第 2 句（取消不提交） | splitter.dom.test.ts:283、:469；lab-nested-grid.e2e.ts:242 |
+| 11 第 2、3 句 | splitter.dom.test.ts:876、:913、:1031；sash-hit-area.test.ts:19、:24；splitter.dom.test.ts:255 |
+| 13 第 1 句 | splitter.dom.test.ts:1199 |
+| 15 两句 | splitter.dom.test.ts:1248 |
+| 17 三句 | sash-drag.test.ts:139、:148、:154；splitter.dom.test.ts:505、:546 |
+| 18 | sash-drag.test.ts:112、:132、:166、:178 |
+| 20 三句 | sash-drag.test.ts:421、:435；grid.test.ts:1340、:1359、:1555 |
+| 21 | sash-drag.test.ts:64；grid.test.ts:1306 |
+| 22 | sash-drag.test.ts:260 |
+| 23 两句 | grid.test.ts:1137、:1254-1259 |
+| 26 | sash-hit-area.test.ts:32；NestedGrid.dom.test.ts:500 |
+| 27 两句 | NestedGrid.dom.test.ts:157、:167、:1215-1221；grid-rects.test.ts:36 |
+| 29 | grid-rects.test.ts:74、:80 |
+| 31 | lab-grid-structure.e2e.ts:61；NestedGrid.dom.test.ts:1179 |
+| 32 | grid-motion.test.ts:323、:327、:335；lab-grid-structure.e2e.ts:81 |
+| 33、34 | grid-rects.test.ts:129；NestedGrid.dom.test.ts:176-178 |
+| 35 两句 | useGridMotion.dom.test.ts:77、:112、:135；lab-grid-structure.e2e.ts:198；workbench-shell.e2e.ts:551 |
+| 37 | lab-grid-structure.e2e.ts:142；editor-area.e2e.ts:765 |
+| 38 两句 | lab-grid-structure.e2e.ts:155、:184；useGridMotion.dom.test.ts:382 |
+| 39 | grid-motion.test.ts:255、:262、:269；workbench-containers.e2e.ts:686-689、:700-703 |
+| 41 | grid-motion.test.ts:29；lab-grid-structure.e2e.ts:162-176 |
+| 42 | grid-motion.test.ts:88、:110、:119、:129；workbench-containers.e2e.ts:615 |
+| 43 | grid-motion.test.ts:53、:61 |
+| 44 | grid-motion.test.ts:191、:196；NestedGrid.dom.test.ts:1674 |
+| 45 | grid-motion.test.ts:153、:166、:173、:191、:196、:203、:220 |
+| 46 | grid-motion.test.ts:153、:166；useGridMotion.dom.test.ts:47 |
+| 47 | useGridMotion.dom.test.ts:57；workbench-containers.e2e.ts:1440-1471 |
+| 48 | workbench-containers.e2e.ts:1430-1435、:680-689；grid-motion.test.ts:187 |
+| 49 | NestedGrid.dom.test.ts:1252；workbench-containers.e2e.ts:1348 |
+| 50 | useGridMotion.dom.test.ts:410 |
+| 57 | lab-grid-structure.e2e.ts:217-223；useGridMotion.dom.test.ts:112 |
+| 58 | lab-grid-structure.e2e.ts:226（`ended - second > 500` 能区分从哪次起计时） |
+| 59 | lab-grid-structure.e2e.ts:239；useGridMotion.dom.test.ts:473；workbench-containers.e2e.ts:1478 |
+| 60 两句 | NestedGrid.dom.test.ts:1515 |
+| 61、62 | grid-swap.test.ts:53、:63、:74、:83、:89；lab-grid-swap.e2e.ts:110 |
+| 63 | grid-swap.test.ts:74、:89；lab-grid-swap.e2e.ts:129（第 0 帧起列外没有像素） |
+| 64 | grid-swap.test.ts:53、:63；lab-grid-swap.e2e.ts:127 |
+| 65、66 | NestedGrid.dom.test.ts:1472 |
+| 68 | grid-swap.test.ts:106；NestedGrid.dom.test.ts:1541；useGridMotion.dom.test.ts:248 |
+| 69 | NestedGrid.dom.test.ts:1569；lab-grid-swap.e2e.ts:235；useGridMotion.dom.test.ts:248 |
+| 70、71 | grid-swap.test.ts:120、:133；lab-grid-swap.e2e.ts:149、:175 |
+| 72 | grid-swap.test.ts:141 |
+| 73 | useGridMotion.dom.test.ts:264；lab-grid-swap.e2e.ts:199；workbench-containers.e2e.ts:1254 |
+| 74 | useGridMotion.dom.test.ts:331 |
+| 76 | NestedGrid.dom.test.ts:1490-1494 |
+| 77 | NestedGrid.dom.test.ts:1497 |
+| 78 | NestedGrid.dom.test.ts:390 |
+
+抽查时有两处要留意：
+
+- 输出 77 的夹具里两组的外接矩形一样大（都是 300×600），所以“外接两组”这一点区分得不强。
+- 输出 78 后半句“两侧节点是分支时，宿主取它沿长轴两端的叶”，实现是把分支 id 交给宿主（`NestedGrid.dom.test.ts:398` 的 `after === "right"`）。这句读起来像库的行为，建议改成“两侧节点是分支时，宿主拿到的是分支 id，由宿主取它沿长轴两端的叶”。

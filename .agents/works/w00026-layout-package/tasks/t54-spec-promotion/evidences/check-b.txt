@@ -1,0 +1,526 @@
+# 只读核对 w00026：ui/nested-grid 输出 79 到 156、状态与转换、副作用与数据、失败 1 到 7、验收 1 到 11
+
+## 汇总
+
+核了 249 句，守住 195 句，部分守住 28 句，没守住 26 句：
+
+- 实现了没测试：21 句
+- 没实现：4 句，都在宿主一侧
+- Spec 与实现不符：1 句
+
+| 节 | 句数 | 守住 | 部分 | 实现了没测试 | 没实现 | 不符 |
+|---|---|---|---|---|---|---|
+| 输出 79 到 156 | 172 | 135 | 19 | 18 | 0 | 0 |
+| 状态与转换（含时序与寿命） | 18 | 12 | 5 | 0 | 0 | 1 |
+| 副作用与数据 | 6 | 3 | 1 | 2 | 0 | 0 |
+| 失败 1 到 7（含码表） | 42 | 38 | 1 | 1 | 2 | 0 |
+| 验收 1 到 11 | 11 | 7 | 2 | 0 | 2 | 0 |
+
+**测试跑了哪些：**
+- `bun test`：跑了 grid、grid-motion、grid-swap、grid-rects、issue-gate 五个文件，211 个用例全部通过。
+- vitest 的 dom 测试：`bunx vitest run …` 要审批，被拦下，按规则没有重试。这部分只读了源码、确认用例存在，**没有执行**。
+- e2e：按要求没跑。
+
+**拆句口径：**
+- 码表每行算一句：输出 139 的诊断表 15 行，失败 5、6、7 的表分别 12、6、5 行。
+- 下面四处我判断为写法说明或不可判定的措辞，没有计入，放在报告末尾：
+  - 给调用方的说明：输出 139 “宿主不认识的 `cause` 按码处理”、失败 5 的 “`message` 是英文，宿主不按它分支”。
+  - 宿主旋钮那一句（输出 141）。
+  - 输出 152 “一次渲染里可能问几次”。
+  - 两处措辞：输出 141 “外观与过渡同今天”，以及“副作用与数据”第 4 行。
+
+**Spec 自列的“晋升前要补”清单（第 18 到 23 行），在我范围里的现状：**
+- 第 21 行说输出 125 到 127“没有测试”，已经过时：
+  - `lab-grid-panels.e2e.ts` 的 341、358、372、398 已经测了这几条。
+  - 只剩 125 的“尾”（从 grid 外面按 Shift+Tab 进来）没有测。
+- 仍未关闭：
+  - 输出 110、112；
+  - 验收 3、6；
+  - 失败 2、3 里宿主那半句。
+  - Lab 场景“保留原件”是场景自己的代码，不是产品宿主，第 20 行写的“目前没有宿主”依然成立。
+
+---
+
+## 不是“守住”的句子
+
+### 输出
+
+**`docs/specs/ui/nested-grid.md:147` 输出 86 “每一帧内容的上边都是外框的上边加面板头”**
+- 判定：部分守住。
+- 依据：
+  - `e2e/workbench-containers.e2e.ts:1348` 逐帧量了 `bodyTop - frameTop == inset`，但这一节的面板头在入口条里，`inset` 断言为 0（同文件约 1393 行）。
+  - `e2e/workbench-float.e2e.ts:417` 的 `expectHeadKept` 量了非零面板头，但那是浮动与停靠的飞行，不是长出来或缩到零。
+  - 所以“面板头不为零的叶从零长出来、缩回去”这一组合没有测到。
+- 建议：在 `e2e/lab-grid-panels.e2e.ts` 加一个用例，场景里面板头约 32px 的叶竖向长出来、缩回去，逐帧断言 `|content.top − frame.top − 32| ≤ 1`。
+
+**`:148` 输出 87 叠放：外框、内容、分隔线；盖层在分隔线之上且不接指针；拿起的内容在最上**（三句）
+- 判定：实现了没测试（3 句）。
+- 依据：
+  - 实现都在 CSS：`nb-layout/src/vue/NestedGrid.vue:796`（内容层级 1）、`:865`（分隔线 4）、`:832`（盖层 900，pointer-events 为 none）、`:820`（拿起的内容 1000）。
+  - happy-dom 算不了层叠。e2e 里只有浮动窗的层级断言（`NestedGrid.dom.test.ts:1375`，看的是行内 zIndex），不覆盖这三句。
+- 建议：在 `e2e/lab-grid-panels.e2e.ts` 用 `elementFromPoint` 分别断言：
+  - 分隔线所在的点命中分隔线，不命中内容；
+  - 盖层下面的点命中盖层下面的元素；
+  - 拿起的卡片下面的点命中卡片。
+
+**`:149` 输出 88 前半 “飞过别的面板的外框与内容抬到分隔线之下、别的内容之上”**
+- 判定：部分守住。
+- 依据：
+  - “别的内容之上”有 `e2e/lab-grid-panels.e2e.ts:137` 守着：重叠处用 `elementFromPoint` 命中 `view:a`。
+  - “分隔线之下”没有断言。实现是飞的外框层级 2、飞的内容层级 3，都低于分隔线的 4（`NestedGrid.vue:805`、`:809`、`:865`）。
+- 建议：在同一用例里补一步，内容飞过分隔线时 `elementFromPoint` 命中的是分隔线。
+
+**`:150` 输出 89 后半 “直接写元素，不走属性，不引起这个组件重渲染”**
+- 判定：部分守住。
+- 依据：`NestedGrid.dom.test.ts:1208` 断言了 transform 写在元素上，`setProps({revision})` 之后也不跳回；但没有断言 `placeLifted` 不引起重渲染。
+- 建议：在该用例里用 `onUpdated` 计数或包一层插槽计数，断言 `placeLifted` 前后渲染次数不变。
+
+**`:151` 输出 90 “不带过渡；内层占满 `lifted-head` 下面并跟着重排；不算停放；不接指针”**（四句）
+- 判定：
+  - 内层：部分守住。
+  - 其余三句：实现了没测试。
+- 依据：
+  - `NestedGrid.dom.test.ts:1226` 只断言了内层没有写行内尺寸。占满和重排靠 `NestedGrid.vue:817` 的 flex 与 `:859`，没有断言。
+  - 没有断言拿起时不带 `data-moving`、没有 `inert`；pointer-events 为 none 只在 CSS（`:825`）。
+- 建议：
+  - 在 dom 1208 补两条断言：拿起时没有 `data-moving`、没有 `inert`。
+  - 在 e2e 量卡片与内容体，断言内容体高等于卡片高减去 `lifted-head` 高；用 `elementFromPoint` 断言卡片下面命中底下的面板。
+
+**`:156` 输出 95 “分隔线的 `aria-controls` 列外框与活动内容”**
+- 判定：部分守住。
+- 依据：`NestedGrid.dom.test.ts:1293` 的场景只有一个活动内容项，断言是 `toContain`，测不出“不活动的被排除”。
+- 建议：加一个不活动的内容项，断言它的 id 不在 `aria-controls` 里。
+
+**`:160` 输出 99 第三句 “分隔线不画也不能拖”**
+- 判定：部分守住。
+- 依据：
+  - “不画”有 `e2e/lab-grid-panels.e2e.ts:289` 守着（visibility 为 hidden）。
+  - “不能拖”没有断言。实现靠 `NestedGrid.vue:265` 的 `gesturesDisabled`。命中判定是按几何算的，不靠 DOM 命中，visibility 为 hidden 拦不住。
+- 建议：在 `NestedGrid.dom.test.ts` 加用例：`maximized` 设好之后在分隔线上按下并移动，断言没有 `gesture-start`，按方向键也没有提交。
+
+**`:162` 输出 101 后半 “排在树的后面（Tab 与读屏也是）”**
+- 判定：部分守住。
+- 依据：
+  - DOM 序由 `NestedGrid.vue:230` 拼在树的后面。
+  - 没有用例断言 Tab 序或 `aria-owns` 里浮动窗排在最后。
+- 建议：在 `useRenderOrder.dom.test.ts` 或 `NestedGrid.dom.test.ts` 加用例：有浮动窗且 DOM 序与树序不一致时，`aria-owns` 的末尾是窗的外框与内容。
+
+**`:165` 输出 104 “浮动窗都在分隔线、飞行内容之上，在盖层与拿起的内容之下”**
+- 判定：实现了没测试。
+- 依据：
+  - 实现是 `NestedGrid.vue:239` 从 10 起算的层级，与分隔线 4、飞行内容 3、盖层 900、拿起的内容 1000 比较。
+  - 只有 CSS，没有断言。
+- 建议：在 e2e 用 `elementFromPoint` 断言窗盖在分隔线上，并断言拿起的卡片盖在窗上。
+
+**`:168` 输出 107 后半 “投影与圆角第一帧就有”**
+- 判定：部分守住。
+- 依据：
+  - `e2e/workbench-float.e2e.ts:417` 记录了第一帧外框带 `data-float`。
+  - 投影与圆角来自 CSS（`NestedGrid.vue:837`），没有读 computed style。
+- 建议：在同一用例的第一帧补一条断言：`getComputedStyle(frame).boxShadow` 不为 `none`，并且 `borderRadius` 大于 0。
+
+**`:171` 输出 110 “窗的投影、底色与圆角随过渡淡去，用加速的曲线”**
+- 判定：实现了没测试（Spec 第 22 行已自列）。
+- 建议：在 `workbench-float.e2e.ts` 停靠那一段逐帧读 boxShadow 或不透明度，断言单调减小、末帧为无。
+
+**`:173` 输出 112 “投影与圆角在外框自身（`--layout-card-*`）”**
+- 判定：实现了没测试（Spec 第 23 行已自列）。
+- 依据：只有 CSS，在 `NestedGrid.vue:837`。
+- 建议：同上，断言 computed style 在 `[data-leaf]` 上，不在内容元素上。
+
+**`:174` 输出 113 “手柄：网格根的直接子元素，矩形同窗，叠在内容上面，外层不接指针”**（两句）
+- 判定：
+  - 前句：部分守住。
+  - “外层不接指针”：实现了没测试。
+- 依据：
+  - `NestedGrid.dom.test.ts:1363` 断言了父元素与层级，没断言手柄的 left、top、width、height 等于窗。
+  - pointer-events 为 none 只在 CSS（`:847`）。
+- 建议：
+  - 在 1363 补断言：手柄的四个矩形值等于 `FLOAT.rect`。
+  - 在 e2e 断言手柄空白处命中下面的内容。
+
+**`:175` 输出 114 “`gesture` 为 `move` 时外框与内容不接指针”**
+- 判定：部分守住。
+- 依据：`NestedGrid.dom.test.ts:1410` 只断言了 `data-float-gesture="move"` 这个标记，不接指针靠 CSS（`:933`）。
+- 建议：在 e2e 里挪窗时，用 `elementFromPoint` 断言窗的位置命中的是窗下面的叶。
+
+**`:178` 输出 117 “重新有尺寸时不重新排版”**
+- 判定：部分守住。
+- 依据：
+  - `e2e/lab-grid-panels.e2e.ts:245` 与 `lab-grid-structure.e2e.ts:248` 断言了实例、滚动不变，内层保持原尺寸。
+  - 没有在解除停放时断言 ResizeObserver 没有回调。夹具里有 `data-structure-resizes` 这个计数，可以直接用。
+- 建议：在 `lab-grid-panels.e2e.ts:245` 展开回来之后断言 `data-structure-resizes` 没有增加。
+
+**`:186` 输出 125 “从 grid 外面按 Tab 进来落在树序的首或尾”**
+- 判定：部分守住。
+- 依据：`e2e/lab-grid-panels.e2e.ts:341` 只测了往前按 Tab 落到首块，没有从 grid 后面按 Shift+Tab 进来落到尾块的用例。
+- 建议：在 341 之后补一段：聚焦 grid 后面的控件，按 Shift+Tab，断言落在树序最后一站。同时把 Spec 第 21 行改掉。
+
+**`:190` 输出 129 “回到这块上次的焦点，没有就是第一个可聚焦的元素”**
+- 判定：部分守住。
+- 依据：
+  - `e2e/lab-grid-structure.e2e.ts:370` 的 `focusedIn` 只返回叶 id，测不出落在第一个可聚焦元素上。
+  - “回到上次焦点”有 379 行守着。
+- 建议：在 370 第一次按 F6 之后断言 `button(page, "c", "first")` 拿到了焦点。
+
+**`:192` 输出 131 “嵌套时内层先走，走到头交给外层，最外层绕回”**
+- 判定：部分守住。
+- 依据：
+  - `nb-layout/src/vue/grid-focus.dom.test.ts:66` 与 `:71` 只测了单层 `nextFocusStop` 的绕回与不绕回。
+  - `lab-grid-structure.e2e.ts:370` 也是单层。
+  - 在 workbench 的 e2e（`workbench-shell.e2e.ts:582`）里没搜到嵌套 grid 的 F6 用例。
+- 建议：在 `NestedGrid.dom.test.ts` 加用例：叶里再嵌一个 NestedGrid，从内层最后一块 `moveGridFocus(..., "next")` 落到外层的下一块，从外层最后一块绕回第一块。
+
+**`:200` 输出 139 “`params` 的值只有字符串与数字（planned）”**
+- 判定：实现了没测试。
+- 依据：
+  - `nb-layout/src/grid-issue.ts` 的码到参数映射在类型上只有字符串与数字。
+  - 没有运行时断言。
+- 建议：在 `grid.test.ts:1661` 那组里，遍历现有用例产出的所有诊断，断言 `params` 的每个值都是字符串或有限数，然后去掉“（planned）”。
+
+**`:214` 输出 139 表 `no-collapse-policy`（planned）**
+- 判定：实现了没测试。
+- 依据：
+  - `nb-layout/src/sash-drag.ts:182` 会发这条诊断。
+  - `grid.test.ts:379` 只断言了交叉轴上“不发”，没有正向用例。
+- 建议：在 `sash-drag.test.ts` 加用例：直接求解一块没有收起策略的面板收起，断言结果里有 `{code: "no-collapse-policy", id}`。
+
+**`:215` 输出 139 表 `swap-skipped` 的 `no-entering`（planned）**
+- 判定：实现了没测试。
+- 依据：
+  - `nb-layout/src/grid-swap.ts:137` 已实现。
+  - `grid-swap.test.ts:109` 只断言了 `kind: "skip"`。
+- 建议：在 109 行改成断言 `issue.params` 等于 `{cause: "no-entering"}`。
+
+**`:221` 输出 140 “`gesture-update` 载荷的 `issues` 与 `layout.issues`（planned）”**
+- 判定：实现了没测试。
+- 依据：
+  - 字段在 `nb-layout/src/grid-gesture.ts:75`。
+  - `NestedGrid.dom.test.ts:836` 读了载荷，但没断言 `issues`。
+- 建议：在 `NestedGrid.dom.test.ts:625` 的降级场景里，断言最后一次 `gesture-update` 的 `issues` 里有 range-overflow，并且 `layout.issues` 是预览布局自己的那份。
+
+**`:222` 输出 140 “按住不放算一场（planned）”**
+- 判定：实现了没测试。
+- 依据：
+  - `nb-layout/src/vue/useSashGesture.ts:532` 在 keyup 之前复用同一场会话，`:263` 只在 `begin` 成功后换闸门。
+  - `NestedGrid.dom.test.ts:723` 每次都发了 keyup。
+- 建议：在同一用例里补一段：连发两次 keydown 再发一次 keyup，断言 range-overflow 只发一次。
+
+**`:222` 输出 140 “预览布局自己的诊断不经通知，松手落账后的布局重算照常发（planned）”**
+- 判定：实现了没测试。
+- 依据：
+  - `useSashGesture.ts:494`、`:512`、`:522` 只交 `session.issues`，不交 `preview.layout.issues`。
+  - 没有用例。
+- 建议：在 `useGridHost.dom.test.ts` 加用例：预览里出现 `leaf-min`，拖动中 `onIssues` 收不到它，松手落账后收到。
+
+**`:223` 输出 140 “被拒的提交、`not-published`、`swap-skipped`、`notify-failed` 每发生一次发一条”**
+- 判定：部分守住。
+- 依据：
+  - 被拒的提交连发两次有断言（`NestedGrid.dom.test.ts:698`）。
+  - 其余三个码都只触发了一次：614、1541，以及 `useGridHost.dom.test.ts:231`。
+- 建议：每个各触发两次，断言条数等于 2。
+
+**`:224` 输出 140 “拖动途中某一帧里抛出，手势照常进行（planned）”**
+- 判定：实现了没测试。
+- 依据：
+  - `useSashGesture.ts:328` 的 `flush` 先把 `frame` 清零再回调，`binding` 不动。照代码看，下一次 pointermove 会照常排帧。
+  - 没有用例。
+- 建议：在 `NestedGrid.dom.test.ts:758` 那组加用例：`onGestureUpdate` 第一次抛出，之后继续移动并松手，断言有一次提交。
+
+**`:224` 输出 140 “交 `reportError`（planned），没有时 `console.error`”**
+- 判定：实现了没测试。
+- 依据：
+  - `nb-layout/src/vue/useGridLayout.ts:119` 已实现。
+  - `useGridLayout.dom.test.ts:321`、`:341` 只断言提交照样落账，没有断言 `reportError` 或 `console.error` 被调。
+- 建议：用 `vi.stubGlobal("reportError", spy)` 断言收到原错误；再删掉 `reportError`，断言 `console.error` 被调。
+
+**`:227` 输出 142 “CSS 的回退与库里等过渡收尾时读到的缺省取清单里的同一个值”**
+- 判定：部分守住。
+- 依据：`nb-layout/src/vue/layout-vars.dom.test.ts:26` 断言的是字面量 470，没有拿它和 `NB_LAYOUT_THEME_VARS` 里的回退比。清单改值时两边可能各自对上字面量。
+- 建议：改成断言 `layoutMotionMs(node)` 等于把清单里 `--nb-layout-motion-layout` 的回退解析成毫秒后的值。
+
+**`:228` 输出 143 “组件的读屏名称与提示（分隔条、可排序列表、浮动窗把手）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取”**
+- 判定：部分守住。
+- 依据：
+  - 注入后用宿主文字，只有 `SortableList.dom.test.ts:54` 测了。
+  - 分隔条在 `NestedGrid.dom.test.ts:185` 与 `splitter.dom.test.ts:807` 只测了没注入时的 en-US。
+  - `FloatWindowHandles.dom.test.ts` 里没搜到注入的用例。
+- 建议：给 NestedGrid 与 FloatWindowHandles 各加一个用例：注入 `layoutCatalogTranslate("zh-CN")`，断言 aria-label 是中文。
+
+**`:246` 输出 155 “不进 F6 与 Tab 的站点、不进 `aria-owns`”**
+- 判定：部分守住。
+- 依据：
+  - F6 有 `NestedGrid.dom.test.ts:1759` 守着。
+  - Tab 靠 `inert`（1666 断言了 `inert`），算分层守住。
+  - `aria-owns` 没有断言。
+- 建议：在 1759 的场景里让 DOM 序与树序不一致，断言 `aria-owns` 不含留着的内容的 id。
+
+**`:251` 输出 156 “交换里滑出去的叶……照常渲染，插槽读到的仍是这一轮的”**
+- 判定：部分守住。
+- 依据：
+  - “没有留着的内容时的离开的叶”有 `NestedGrid.dom.test.ts:1769` 守着。
+  - 交换里滑出去的叶，面板头照常渲染没有断言。1462 只测了分隔线的显示名。
+- 建议：在 `NestedGrid.dom.test.ts:1472` 的交换里加一个带计数的 `leaf` 插槽，断言滑出去的叶在交换中插槽仍被调。
+
+### 状态与转换
+
+**`:261` 状态表 “调整中 | 取消、节点撤销或上下文失效 | 停止手势；已产生的提交由原宿主收口，不改写新实例”**
+- 判定：部分守住。
+- 依据：
+  - Escape、失焦、卸载的取消有用例：`e2e/lab-nested-grid.e2e.ts:242`、`splitter.dom.test.ts:326`、`NestedGrid.dom.test.ts:820`。
+  - 旧上下文的提交被拒有 `useGridLayout.dom.test.ts:239` 守着。
+  - NestedGrid 在 `contextKey`、`revision`、`node` 变化时经 `invalidate` 取消（`NestedGrid.vue:607`、`useSashGesture.ts:661`）。这一路在 NestedGrid 层没有用例，`splitter.dom.test.ts:593` 只测了 Splitter。
+- 建议：在 `NestedGrid.dom.test.ts` 加用例：拖到一半时 `setProps({contextKey})`，再拖到一半时 `setProps({node})`，断言 `gesture-cancel` 的 reason 是 `context-changed`，并且没有提交。
+
+**`:265` 状态表 “键盘方向/Home/End | …… | Escape 回滚，下一场从发布几何开始”**
+- 判定：部分守住。
+- 依据：
+  - 冻结基线、不混 Enter 有 `NestedGrid.dom.test.ts:1131` 守着。
+  - Escape 不提交有 e2e 242 守着。
+  - “下一场从发布几何开始”没有断言。
+- 建议：在 `NestedGrid.dom.test.ts` 用键盘按右两次再按 Escape，再开一场按右一次，断言提交的 `target − baseline` 是一步，并且 baseline 等于发布的几何。
+
+**`:270` 时序 “手势中途 scale、容器尺寸、结构、context 变化取消手势”**
+- 判定：Spec 与实现不符。
+- 依据：
+  - 在网格路径里没搜到 scale 变化取消手势：
+    - `nb-layout/src` 的非测试源码里，scale 只出现在几何与取整里。
+    - `sash-gesture.ts:14` 的取消原因没有对应项。
+    - `NestedGrid.vue:607` 的 watch 也不看 dpr。
+  - 容器尺寸、结构、context 已实现：`useGridLayout.ts:91` 每次发布都递增 revision，触发 `NestedGrid.vue:607` 的 watch，报 `context-changed`。但这一路没有 NestedGrid 层的用例，同上一条。
+- 建议：
+  - 要么把 Spec 改成“容器尺寸、结构、context 变化取消手势（报 `context-changed`）”，scale 那半句标“（planned）”或删掉；
+  - 要么先补 scale 的实现。
+  - 两种做法都要补上一条说的 NestedGrid 用例。
+
+**`:272` 时序 swap “`token` 变了才算一次新的交换”**
+- 判定：部分守住。
+- 依据：没有反例用例，即同一个 token 再给一次、配一次布局变化，应该不滑。
+- 建议：在 `NestedGrid.dom.test.ts:1421` 那组加这个反例。
+
+**`:272` 时序 swap “被这之后的第一次布局变化用掉……（拖动中、手势预览中、减少动态效果、矩形没变时静默放弃）；这一轮刷新里没有布局变化就作废”**
+- 判定：部分守住。
+- 依据：
+  - 作废、拖动中、减少动态效果有守着：`NestedGrid.dom.test.ts:1530`、`vue/useGridMotion.dom.test.ts:248`、`NestedGrid.dom.test.ts:1569`。
+  - “手势预览中”“矩形没变时”这两种放弃没有用例。
+- 建议：在 `useGridMotion.dom.test.ts` 的 `decideMotion` 那组补两条：预览中带 swap、矩形不变带 swap，都断言不交换也不报 `swap-skipped`。
+
+**`:273` 时序 “`moving`、`shapedLeaves`、`swappingLeaves`：在插槽渲染时读到的都是这一轮的”**
+- 判定：部分守住。
+- 依据：
+  - `NestedGrid.dom.test.ts:1515`、`:1490` 是 `setProps` 之后读 `vm`，不是在插槽渲染里读。
+  - `shapedLeaves` 没有任何用例（Spec 第 22 行已自列输出 56）。
+- 建议：用一个在 `leaf` 插槽里读 `moving` 与 `swappingLeaves` 并写进 DOM 的夹具，断言交换提交那一次渲染里已经是新值。
+
+### 副作用与数据
+
+**`:277` “原语只改变所属实例的内存状态……无网络、文件或跨实例副作用”**
+- 判定：部分守住。
+- 依据：
+  - `nb-layout/src/boundary.test.ts` 保证核心不导入任何包、Vue 层只导入 `vue` 与 `tabbable`，所以 fs 一类进不来。
+  - 但 `fetch`、`localStorage` 这类全局量不在扫描范围内。
+  - “跨实例”没有用例：两个 Grid 实例互不影响。
+- 建议：在 `boundary.test.ts` 加一条源码扫描，禁止 `fetch(`、`localStorage`、`sessionStorage`、`indexedDB`；在 `grid.test.ts` 加两个实例，改一个、断言另一个的 `serialize()` 不变。
+
+**`:281` “Grid 承载盒无 padding 与 border”**
+- 判定：实现了没测试。
+- 依据：这是承载盒的前置约束，`NestedGrid.vue:763` 没有 padding。没有用例，宿主加了 padding 时会怎样也没定。
+- 建议：要么把它挪到“输入与前置条件”，作为宿主的约束；要么用 dev-checks 在宿主加了 padding 时警告，并补测试。
+
+**`:281` “命中用 client rect，指针位移按冻结的根 rect 与 layout 的比例转换成 CSS 布局 px，不乘设备像素比”**
+- 判定：实现了没测试。
+- 依据：dom 测试的桩里 rect 等于布局盒，比例是 1（`NestedGrid.dom.test.ts:81`），区分不了。在网格路径里没搜到带祖先缩放的 e2e。
+- 建议：在 `e2e/lab-nested-grid.e2e.ts` 给舞台加 `transform: scale(0.5)`，拖 60px，断言提交的 `target − baseline` 约为 120。
+
+### 失败与恢复
+
+**`:289` 失败 2 后半 “宿主禁止普通保存覆盖原件”**
+- 判定：没实现（宿主一侧）。
+- 依据：`e2e/lab-nested-grid.e2e.ts:389` 的 `data-lab-raw-record` 是 Lab 场景自己保留的，没有发生过保存。Spec 第 20 行已写“目前没有宿主”。
+- 建议：标“（planned）”，或者改成“原语拒绝并交出 `unsupported-version`，原件由宿主保留”，宿主那半句移到宿主的 Spec。
+
+**`:290` 失败 3 后半 “宿主保留原始记录，后续调整已知节点不能抹掉未知部分”**
+- 判定：没实现（宿主一侧）。
+- 依据：`lab-nested-grid.e2e.ts:345` 调整之后原件还含 `ghost-plugin`，但 Lab 从来不写回原件，这条断言区分不了“合成保存保住了未知部分”和“根本没保存”。
+- 建议：同上，标“（planned）”，或者收窄到原语一侧：过滤、交出 `dropped`。
+
+**`:310` 失败 6 表 `handler-threw` “`message` 带异常的文字（planned）”**
+- 判定：实现了没测试。
+- 依据：
+  - `useSashGesture.ts:308` 的 message 里写了 `String(error)`。
+  - `NestedGrid.dom.test.ts:603` 的 `emittedIssues` 只比了 code。
+- 建议：在 603 断言 message 含 `"boom"`，然后去掉“（planned）”。
+
+**`:320` 失败 7 “或失败 5 的形状加 `dropped`、`clamped`”**
+- 判定：部分守住。
+- 依据：
+  - 只有 `unresolved-root` 断言了 `dropped`（`grid.test.ts:1775`）。
+  - `invalid-snapshot`、`unsupported-version` 等失败都没断言结果里带 `dropped` 与 `clamped` 两个数组。
+- 建议：在 `grid.test.ts:1764` 里，对每种恢复失败都断言 `Array.isArray(result.dropped) && Array.isArray(result.clamped)`。
+
+### 验收
+
+**`:350` 验收 3 “同名叶分别位于主 grid 与插件 grid……两份记录和恢复尺寸互不影响”**
+- 判定：没实现（宿主一侧，Spec 第 20 行已自列）。
+- 建议：标“（planned）”。
+
+**`:352` 验收 5 “无未捕获异常……原件与未涉及未知部分保留”**
+- 判定：部分守住。
+- 依据：
+  - 原语一侧有 `grid.test.ts` 的 885、900、942、982 守着：返回对象不抛异常、不留半棵树。
+  - e2e 的 376、389 没有监听 `pageerror`，fixtures 里也没有，所以“无未捕获异常”在浏览器层没有断言。
+  - “再保存合法修改”之后保留未知部分，没有宿主，同失败 3。
+- 建议：在 `lab-nested-grid.e2e.ts` 的恢复场景里加 `page.on("pageerror")`，并断言错误数为 0；宿主那半句标“（planned）”。
+
+**`:353` 验收 6 “同项目双标签订阅……”**
+- 判定：没实现（宿主一侧，Spec 第 20 行已自列）。
+- 建议：标“（planned）”。
+
+**`:357` 验收 10 “两块叶都不动……实例不变，输入与滚动保留”**
+- 判定：部分守住。
+- 依据：
+  - `e2e/lab-grid-panels.e2e.ts:164` 只断言了实例不变，没有断言输入与滚动。
+  - 输入与滚动在 116 有断言，但那个用例里叶在移动，不是这条的前提。
+  - 设备像素比那一组只在纯函数层（`grid-rects.test.ts:221`）测过，按分层可以接受。
+- 建议：在 164 先填输入、设好滚动，结束后断言都在。
+
+### 措辞问题（未计入句数）
+
+- `:226` 输出 141 “外观与过渡同今天”：写不成测试，建议删掉。
+- `:280` “两轴格式的版本与兼容迁移在对应原语实现切片中固定”：这是实施过程的说法，按 README 的两条判据不属于 Spec。建议改成：“快照格式版本 2；版本 1 与不认识的版本拒绝，不改写原件（失败 2）”，后半句“主侧栏的简单尺寸记录不直接依赖整棵树序列化格式”移到工作台布局的 Spec。
+
+---
+
+## 守住的句子 → 测试（供抽查）
+
+下面 `L/` 指 `packages/nb-layout/src/`，`E/` 指 `packages/neuro-book/e2e/`。一个编号拆成几句时用 a、b、c 标。
+
+| 句子 | 测试 |
+|---|---|
+| 输出 79 | L/vue/NestedGrid.dom.test.ts:369；键盘靠同一个 aria-disabled：L/vue/useSashGesture.ts:476 与 NestedGrid.dom:469 |
+| 80a 同一父元素 | NestedGrid.dom:1182 |
+| 80b 叶减面板头、取整 | L/grid-rects.test.ts:221 |
+| 81 | L/grid-motion.test.ts:357、grid-rects:221 |
+| 82 | NestedGrid.dom:1179 |
+| 83a 外层裁切与过渡 | E/workbench-containers.e2e.ts:615（用命中判定裁切） |
+| 83b 飞过时不被裁 | E/lab-grid-panels.e2e.ts:137 |
+| 84 | lab-grid-panels:210、L/vue/useGridMotion.dom.test.ts:372 |
+| 85 | grid-motion:384、:395、workbench-containers:615 的 expectInside |
+| 88b | E/workbench-float.e2e.ts:417 的 contentOnTop |
+| 89a | NestedGrid.dom:1216 |
+| 91 | NestedGrid.dom:1230、useGridMotion.dom:437 |
+| 92 | grid-motion:348、lab-grid-panels:164 |
+| 93 | NestedGrid.dom:1191、lab-grid-panels:245 |
+| 94 | lab-grid-panels:388、:398、:326 |
+| 96 | NestedGrid.dom:1332 |
+| 97 | grid-rects:262、lab-grid-panels:271 |
+| 98 | grid-rects:266、lab-grid-panels:285、:307 |
+| 99a 马上不可交互 | lab-grid-panels:287 |
+| 99b 过渡后隐藏 | lab-grid-panels:301 |
+| 100 | lab-grid-panels:306、:310 |
+| 101a | NestedGrid.dom:1363 |
+| 102 | NestedGrid.dom:1363、:1179 |
+| 103 | NestedGrid.dom:1392 |
+| 105 | NestedGrid.dom:1410、grid-motion:447 |
+| 106 | grid-motion:454 |
+| 107a | grid-motion:474、workbench-float:417 |
+| 108 | useGridMotion.dom:92 |
+| 109 | grid-motion:487、workbench-float:417 的停靠 |
+| 111 | NestedGrid.dom:1403 |
+| 115 | NestedGrid.dom:1379 |
+| 116 | L/vue/useLeafParking.dom.test.ts:31、E/lab-grid-structure.e2e.ts:248 |
+| 118 | useLeafParking.dom:47、lab-grid-panels:259 |
+| 119 | useLeafParking.dom:56、lab-grid-structure:284 |
+| 120 | useLeafParking.dom:41 |
+| 121 | lab-grid-structure:327、L/vue/grid-focus.dom.test.ts:61 |
+| 122 | grid-focus.dom:26、:37、lab-grid-structure:357 |
+| 123 | lab-grid-structure:352 |
+| 124 | lab-grid-structure:317 |
+| 126 | lab-grid-panels:398 |
+| 127 | lab-grid-panels:341、:358、:372 |
+| 128 | NestedGrid.dom:1300、lab-grid-panels:421 |
+| 130 | grid-focus.dom:61 |
+| 132 | L/vue/useRenderOrder.dom.test.ts:11、lab-grid-structure:327 |
+| 133、134 | L/grid.test.ts:1185、:1202 |
+| 135 | grid.test:1245 |
+| 136 | NestedGrid.dom:408 |
+| 137 | grid.test:1212、:1231 |
+| 138 | grid.test:1263 |
+| 139 形状 | NestedGrid.dom:590 |
+| 139 名字与两位小数 | grid.test:225 |
+| 139 码不相交 | grid.test:1671 |
+| 139 两条路与一个出口 | L/vue/useGridHost.dom.test.ts:182 |
+| 139 带 ok 的是被拒提交 | NestedGrid.dom:594 |
+| 139 min-total、fixed-overflow、leaf-min | grid.test:212、:341、:283 |
+| 139 sash-overflow、cross-min | grid.test:241、:310 |
+| 139 range-overflow | L/sash-drag.test.ts:212、NestedGrid.dom:662 |
+| 139 unabsorbed-space | grid.test:323、:327 |
+| 139 conflicting-bounds | grid.test:295 |
+| 139 no-room-to-collapse | grid.test:1555 |
+| 139 no-room-to-restore | grid.test:365、NestedGrid.dom:754 |
+| 139 no-leaving、busy | NestedGrid.dom:1545、L/grid-swap.test.ts:111 |
+| 139 not-published、notify-failed | NestedGrid.dom:614、useGridHost.dom:231 |
+| 140 快照 | grid.test:358 到 :415 |
+| 140 键 | L/issue-gate.test.ts:10、:27、grid.test:390 |
+| 140 布局重算一路 | L/vue/useGridLayout.dom.test.ts:277 |
+| 140 一场一次 | NestedGrid.dom:625 |
+| 140 每键一场 | NestedGrid.dom:667 |
+| 140 一个失败一条 | NestedGrid.dom:590 |
+| 140 回调抛出的收尾 | NestedGrid.dom:770 到 :832 |
+| 140 落账后接住 | useGridLayout.dom:321、useGridHost.dom:231 |
+| 141a、141c | L/theme-vars.test.ts:65、L/vue/layout-vars.dom.test.ts:26 |
+| 141b | E/lab-layout-theme-bridge.e2e.ts:54 |
+| 142b | layout-vars.dom:33 |
+| 142c | lab-layout-theme-bridge:64、:72 |
+| 143b | NestedGrid.dom:185 |
+| 143c | L/vue/text.dom.test.ts:71、:92 |
+| 144a、144b | NestedGrid.dom:1592 |
+| 144c、144d | useGridHost.dom:141 |
+| 145a | useGridHost.dom:127 |
+| 145b | useGridHost.dom:141、:165 |
+| 145c | useGridHost.dom:182 |
+| 146 | useGridHost.dom:165 |
+| 147a 到 147g | grid.test:1509、:1383、:1509、:1509、:1426、:1402 与 :1494、:1548 |
+| 148a 到 148d | grid.test:1454、:1454、:1340、:1488 与 :1526 |
+| 149 | useGridHost.dom:243、:268 |
+| 150 | useGridLayout.dom:226 |
+| 151 各句 | L/vue/dev-checks.dom.test.ts:117、:127、:175、:185、:216、:227、:246、:267、:307 |
+| 152 | NestedGrid.dom:188、:1462、L/vue/splitter.dom.test.ts:811 |
+| 153 | grid.test:632、:650、:684、:693、:724、:736、:764 |
+| 154 | grid.test:1567、:1587、:1624、:1747 |
+| 155 除不进站点外的 8 句 | NestedGrid.dom:1662、:1674、:1681、:1688、:1701、:1710、:1731、:1749、:1777、grid-motion:226、useGridMotion.dom:194、:205、:289、E/lab-grid-leaving.e2e.ts:99 |
+| 156a、156b | NestedGrid.dom:1662、:1739 |
+| 状态 1 | useGridHost.dom:127、E/lab-nested-grid.e2e.ts:269 |
+| 状态 2、3 | NestedGrid.dom:222、:516、lab-nested-grid:213 |
+| 状态 4 | lab-nested-grid:93 |
+| 状态 6 | grid.test:140、useGridHost.dom:141、lab-grid-panels:81 |
+| 状态 7 | grid.test:982 |
+| 状态 8 | NestedGrid.dom:1095 |
+| 时序：手势 | NestedGrid.dom:290、useGridLayout.dom:201、grid.test:1116 |
+| 时序：通知异常 | useGridLayout.dom:321 |
+| 时序：自身提交 | NestedGrid.dom:257 |
+| 时序：缺网格或尺寸 | useGridLayout.dom:350 |
+| 时序：content-parked | NestedGrid.dom:1201、:1472 |
+| 副作用：快照内容 | grid.test:1033 |
+| 副作用：约束 | grid.test:967、:964 |
+| 副作用：null 与 0 | useGridHost.dom:141、:165 |
+| 失败 1 | grid.test:885、:900、:877、:982 |
+| 失败 2a | grid.test:869、:877 |
+| 失败 3a | grid.test:942 |
+| 失败 4 | grid.test:942 与 :900、:885 |
+| 失败 5 形状、树不变、12 个码、基线优先、非法值成字符串 | grid.test:1680 到 :1762、:850 到 :862 |
+| 失败 6 正文三句 | NestedGrid.dom:594、useGridLayout.dom:260 |
+| 失败 6 not-ready | useGridLayout.dom:350、useGridHost.dom:268 |
+| 失败 6 stale-context | useGridLayout.dom:239 |
+| 失败 6 stale-revision、stale-size | useGridLayout.dom:260 |
+| 失败 6 handler-missing、handler-threw 的码 | NestedGrid.dom:587、:603 |
+| 失败 7 成功形状 | grid.test:942、:967 |
+| 失败 7 dropped 项 | grid.test:958 |
+| 失败 7 五个码 | grid.test:905、:873、:1774、:897、:921 |
+| 验收 1 | grid.test:89、:103、lab-nested-grid:93、:161 |
+| 验收 2 | grid.test:115 到 :140、:205、:472、:502、lab-grid-panels:81、lab-nested-grid:417 |
+| 验收 4 | lab-nested-grid:213、:242、:269、splitter.dom:326（同一个 useSashGesture） |
+| 验收 7 | grid.test:778 到 :862 |
+| 验收 8 | lab-grid-structure:61、:327、lab-grid-panels:326 |
+| 验收 9 | grid-rects:126、lab-grid-structure:392、:142、:155、:198 |
+| 验收 11 | E/lab-grid-swap.e2e.ts:110、:149、:175、:199、:235、NestedGrid.dom:1497、:1530 |

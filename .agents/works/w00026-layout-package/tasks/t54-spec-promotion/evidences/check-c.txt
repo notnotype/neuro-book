@@ -1,0 +1,192 @@
+我核了 123 句：守住 97 句，部分守住 15 句，没守住 11 句。没守住的 11 句里，实现了没测试 6 句，没实现 0 句，Spec 与实现不符 5 句。这份 Spec 里没有“（planned）”标记。按 README 的判据，不能整份直接晋升：要么先补下面的用例，要么把对应句子改窄或标“（planned）”。
+
+关于执行：bun 的 4 个文件（drag-gesture、drag-card、frame-loop、boundary）我跑了，97 个用例全部通过。vitest 的 3 个 dom 测试文件（drag-session、useDragSession、drop-targets）这次没有获准运行。凡是靠这 3 个文件判“守住”的句子，都是读断言判定的，没有执行过。e2e 按规则没跑。
+
+按节分的计数：
+
+| 节 | 守住 | 部分守住 | 实现了没测试 | Spec 与实现不符 |
+|---|---|---|---|---|
+| 输入与前置条件（写成规则的 18 句） | 12 | 2 | 1 | 3 |
+| 输出 1–21（86 句） | 73 | 9 | 3 | 1 |
+| 状态与转换（11 句） | 8 | 2 | 0 | 1 |
+| 失败与恢复（2 句） | 0 | 0 | 2 | 0 |
+| 验收 1–6 | 4 | 2 | 0 | 0 |
+
+---
+
+## 不是“守住”的句子
+
+### Spec 与实现不符（5 句）
+
+**1. `docs/specs/ui/layout-drag.md:66` 输入，`scroll` 的注释：“滚动与窗口尺寸变化时：重新判定（缺省），或撤下落点直到指针再动。”**
+- 判定：Spec 与实现不符（Spec 自己前后矛盾）。
+- 依据：输出 12（`:172`）写的是“窗口尺寸变化一律重新判定”。实现里 `resized` 直接排一次判定，不看 `scroll`（`nb-layout/src/drag-gesture.ts:482`）。测试 `drag-gesture.test.ts:543` 断言 `withdraw` 下改窗口尺寸照样重新判定。实现的注释写的是“滚动时……”（`vue/drag-session.ts:58`）。
+- 建议：把这条注释改成“滚动时：重新判定（缺省），或撤下落点直到指针再动；窗口尺寸变化一律重新判定（输出 12）”。
+
+**2. `layout-drag.md:109` 输入，`stops` 的返回类型：`axis: "horizontal" | "vertical" | null`。**
+- 判定：Spec 与实现不符，多出来的那个值也没有测试。
+- 依据：实现的 `DragStops.axis` 还有 `"both"`：右、下往后，左、上往前（`drag-gesture.ts:70`，步进逻辑在 `:170`）。工作台在用这个值（`neuro-book/src/plugins/workbench/web/layout-drag.ts:734-749`）。单元测试的 STOPS 只有 horizontal 和 vertical 两种（`drag-gesture.test.ts:700-703`），`"both"` 分支没有断言。
+- 建议：Spec 的类型补上 `"both"`，输出 15 加一句它的语义。`drag-gesture.test.ts` 的“输出 15”里加一例：`axis: "both"` 时 ArrowDown 和 ArrowRight 都前进一格，ArrowUp 和 ArrowLeft 都后退一格。
+
+**3. `layout-drag.md:178` 输出 18 用到的 `useDragSession(root, createOptions)`，输入节的接口块里没有它。**
+- 判定：Spec 与实现不符（公开接口没写全）。
+- 依据：它是 `@notnotype/nb-layout/vue` 的公开符号，实现在 `vue/useDragSession.ts:26`，返回 `{session, state}`。输入块（`:42-152`）里没有它的签名。
+- 建议：在 `// @notnotype/nb-layout/vue` 下补签名：`useDragSession<S, D, R>(root: Readonly<Ref<HTMLElement | null>>, createOptions: (root: HTMLElement) => Omit<DragSessionOptions<S, D, R>, "root">): {session; state}`。
+
+**4. `layout-drag.md:174` 输出 14：“指针在元素的横向范围内、离上下边缘不到 `edgePx`……时逐帧滚动”。**
+- 判定：Spec 与实现不符（实现多一条例外）。
+- 依据：元素高度不超过 `2 × edgePx` 时，上下两条边缘带相接，实现一律不滚（`drag-gesture.ts:181`）。测试 `drag-gesture.test.ts:577` 断言了这个例外。照 Spec 的字面，这种情况也该滚。
+- 建议：输出 14 加一句：“元素矮到上下两条边缘带相接（高度不超过 `2 × edgePx`）时不滚。”
+
+**5. `layout-drag.md:211` 状态与转换：“一个会话同一时间只有一场；一场进行中的第二次按下被忽略。”**
+- 判定：Spec 与实现不符。
+- 依据：键盘拖动中有指针按下时，实现并不忽略这次按下。窗口捕获阶段的监听先按 `pressed-elsewhere` 取消这一场（`vue/drag-session.ts:149-150, 176`）。之后同一个 `pointerdown` 冒泡到根时会话已经空闲，按在来源上就进入待起拖，可能起一场新的指针拖动（`:277-281`）。这一点是读代码推出来的，没有实际执行。这句话本身也和输出 7 的“键盘拖动中有指针按下”取消相矛盾。指针拖动中的第二次按下确实被忽略（`:278` 的 `gesture.idle` 检查），但 DOM 层没有测试守着。`drag-gesture.test.ts:820` 只在状态机层验了“键盘拖动中 `press` 被忽略”，真实 DOM 里走不到那个时序。
+- 建议：改成“指针拖动进行中的第二次按下被忽略；键盘拖动中的指针按下按输出 7 取消，按在来源上时照常进入待起拖”。如果不希望进入待起拖，那是实现缺陷，需要你来定。`drag-session.dom.test.ts` 补两例：一是指针拖动中派发 `pointerId: 2` 的 `pointerdown` 加 `pointermove`，断言 `state.value.source` 不变、`ends` 为空；二是键盘拖动中在来源上按下再移过门槛，断言按定下的语义结束。
+
+### 实现了没测试（6 句）
+
+**6. `layout-drag.md:159` 输出 3：“否则清掉已选中的文字”。**
+- 依据：实现在 `vue/drag-session.ts:252`（`getSelection()?.removeAllRanges()`）。nb-layout 的测试和 Lab 的 e2e 里都没有和选区有关的断言。
+- 建议：`drag-session.dom.test.ts` 的“输出 2、3”里，先在 `#inner` 上建一段选区，`grab()` 之后断言 `document.getSelection()?.rangeCount === 0`。
+
+**7. `layout-drag.md:159` 输出 3：“来源元素在拖动中被卸载不算取消”。**
+- 依据：实现没有任何挂在来源元素上的监听，捕获由根持有（`vue/drag-session.ts:173-198`），所以卸载来源不影响这一场。测试里没有这个场景。`editor-area.e2e.ts:571` 用 Ctrl+W 关掉标签，那一场走的是结构键取消，不是这条。
+- 建议：`drag-session.dom.test.ts` 里 `grab()` 之后执行 `source.remove()`，再在 `root` 上派发 `pointermove` 和 `pointerup`。断言移动后 `state.value` 不为 null、`ends` 为空，松手后提交一次。
+
+**8. `layout-drag.md:162` 输出 6：“落点撤下期间（输出 12）仍不提交”，指 `commitsUnderPointer` 为真的情形。**
+- 依据：`drag-gesture.test.ts:513` 测的撤下期间放下，用的是缺省的 `commitsUnderPointer`。那时最后显示过的落点本来就是 null，碰不到 `drag-gesture.ts:329` 的 `!current.withdrawn` 条件。去掉这个条件，现有测试照样全过。
+- 建议：`drag-gesture.test.ts` 的“输出 6”加一例：`setup({scroll: "withdraw", commitsUnderPointer: () => true})`，`grab` 后调 `scrolled()`，再原地 `release`，断言 `commits` 为空、结束为 `no-action`。同一处再加一例 `commitsUnderPointer` 为真、松手在 x=250（只显示的落点）的情形，断言不提交。这一例补的是下面第 13 条。
+
+**9. `layout-drag.md:219` 失败与恢复：“宿主回调抛出的异常不被会话吞掉”。**
+- 依据：实现里没有 try/catch，回调的异常会直接抛出。但没有任何测试让回调抛错。
+- 建议：和第 10 条合在同一个用例里。
+
+**10. `layout-drag.md:219` 失败与恢复：“`commit` 抛出时一场已经收场，不留监听”。**
+- 依据：实现先收场，最后才调 `commit`（`drag-gesture.ts:256-264`）。没有测试让 `commit` 抛错。另外，键盘拖动时 `commit` 一抛错，排下一帧还焦点那一步就走不到了（`:265-271`）。Spec 输出 15 没有提这种情况。
+- 建议：`drag-gesture.test.ts` 加一例：`commit` 抛错时 `release` 把异常抛出来，之后 `gesture.idle` 为 true，`log` 里已经有 `released` 和 `publish-null`。`drag-session.dom.test.ts` 再加一例：抛错后 `root.hasPointerCapture(1)` 为 false，新的 `grab()` 能正常开始一场。
+
+**11. `layout-drag.md:82` 输入，`DragQuery.region`：“指针拖动为 `null`”。**
+- 依据：实现在 `drag-gesture.ts:291`。键盘测试只记录非 null 的 region（`drag-gesture.test.ts:710`）。指针拖动下 region 是不是 null，没有断言。
+- 建议：`drag-session.dom.test.ts:67` 的断言后面加 `expect(queries.at(-1)?.region).toBeNull()`。
+
+### 部分守住（15 句）
+
+**12. `layout-drag.md:36` 输入：“纯 TS，不依赖 Vue 与全局 window、document”。**
+- 依据：`boundary.test.ts:18` 扫导入，能守住“不依赖 Vue”。它查不出对全局 window 或 document 的引用。bun 测试环境里没有 DOM，只间接守住了被调用到的那些路径。
+- 建议：在 `boundary.test.ts` 里给核心文件加一条源码扫描，禁止 `window`、`document` 这类全局标识符；或者把这句话改窄成“不导入 Vue；时钟与事件由调用方注入”。
+
+**13. `layout-drag.md:51` 输入，`activate` 的参数：“`keyboard`……`at`……键盘拖动是 `null`”。**
+- 依据：指针拖动的参数守住了（`drag-gesture.test.ts:212`）。键盘拖动时调用的是 `activate(source, true, null)`（`drag-gesture.ts:495`），但 `:816` 只测了它返回 false 的情形，没有断言收到的参数。
+- 建议：`drag-gesture.test.ts` 的输出 15 加一例：记录 `activate` 收到的参数，`startKeyboard` 之后断言它等于 `[{keyboard: true, at: null}]`。
+
+**14. `layout-drag.md:161` 输出 5：“坐标在视口外时为 `null`”。**
+- 依据：`drag-session.dom.test.ts:107` 是把 `elementsFromPoint` 替换成返回空数组再测的，靠的是自造的输入。`lab-drag-session.e2e.ts:122` 只断言了“没有落点”。夹具的 `resolve` 在 top 为 html 或 body 时同样返回 null，所以这条 e2e 分不出 top 是不是 null。
+- 建议：Lab 夹具（`DragSessionScene.vue`）在 top 为 null 时多写一个标记，比如 `data-session-top="null"`，`lab-drag-session.e2e.ts:122` 再断言这个标记。
+
+**15. `layout-drag.md:162` 输出 6：“`commitsUnderPointer` 为真时只要 `actionKey` 不为 `null` 就提交”。**
+- 依据：正向情形守住了（`drag-gesture.test.ts:283`；产品页在 `workbench-live-drag.e2e.ts:277, 288`）。“`actionKey` 为 null 时不提交”这一半没有用例。
+- 建议：见第 8 条的第二个用例。
+
+**16. `layout-drag.md:166` 输出 7 的子条：“捕获取不到（调用抛错，或调用后 `hasPointerCapture` 为假）按失去捕获算”。**
+- 依据：状态机层守住了（`drag-gesture.test.ts:229`，`grabbed` 返回 false）。DOM 适配层的两条路径都没有测试：一是 `setPointerCapture` 抛错，二是调用后 `hasPointerCapture` 为假（`vue/drag-session.ts:204-212`）。另外，实现只把 `NotFoundError` 和 `InvalidStateError` 当作“取不到”，其它错误照常抛出（`:208`），比 Spec 说的“调用抛错”窄。
+- 建议：Spec 改成“`setPointerCapture` 报指针不存在或根不在文档里（`NotFoundError`、`InvalidStateError`），或调用后 `hasPointerCapture` 为假”。`drag-session.dom.test.ts` 加两例：分别把 `root.setPointerCapture` 换成抛 `NotFoundError`、把 `hasPointerCapture` 换成恒为 false，断言 `ends` 为 `[{kind: "cancelled", reason: "capture-lost"}]`、`state.value` 为 null。
+
+**17. `layout-drag.md:170` 输出 10：“空格、Enter、Escape、Tab、方向键、Home、End 在窗口捕获阶段拦下”。**
+- 依据：`drag-gesture.test.ts:485` 逐个测了 ArrowLeft、ArrowDown、Tab、Enter、空格、Home、End 和 Escape。`drag-session.dom.test.ts:183` 测了 ArrowRight。ArrowUp 在哪里都没有被测到。
+- 建议：在 `drag-gesture.test.ts:485` 的键列表里加上 `"ArrowUp"` 和 `"ArrowRight"`。
+
+**18. `layout-drag.md:172` 输出 12：“只算根里面的滚动（含后代）”。**
+- 依据：“含后代”守住了（`drag-session.dom.test.ts:204`，后代元素滚动会重新判定）。“根外面的滚动不算”没有反例测试。
+- 建议：同一个 describe 里在根外面的元素上派发 `scroll`，等一帧后断言 `queries.length` 不变。
+
+**19. `layout-drag.md:172` 输出 12：“窗口尺寸变化一律重新判定”。**
+- 依据：状态机层守住了（`drag-gesture.test.ts:543`）。适配层监听 `resize` 的那一处（`vue/drag-session.ts:179`）没有 DOM 测试。e2e `workbench-live-drag.e2e.ts:903` 走的是结构键取消，不是这条。
+- 建议：`drag-session.dom.test.ts` 里 `grab()` 之后派发 `window.dispatchEvent(new Event("resize"))`，再用 `vi.waitFor` 等到 `queries.length` 加 1。
+
+**20. `layout-drag.md:175` 输出 15：“放下（不论有没有提交）在下一帧还”焦点。**
+- 依据：有提交的情形守住了（`drag-gesture.test.ts:766`）。没提交的情形，`:758` 只断言了不提交，没有断言还焦点的时机。Lab 里拖动全程焦点都留在来源上（`lab-drag-session.e2e.ts:272, 282`），`toBeFocused` 分不出是“还了”还是“本来就在”。
+- 建议：在 `drag-gesture.test.ts:758` 那一例里补：先清空 log，按 Enter 后断言 log 里还没有 `focus`，跑一帧之后 `log.at(-1)` 是 `focus`。
+
+**21. `layout-drag.md:176` 输出 16：“登记……也不写 DOM 标记”。**
+- 依据：实现只往模块里的 WeakMap 写（`vue/drop-targets.ts:17-27`），但测试没有断言 DOM 不变。
+- 建议：`drop-targets.dom.test.ts` 加一例：记下 `outer.outerHTML`，`registerDropTarget` 之后再比，断言相等。
+
+**22. `layout-drag.md:191` 输出 21 的“和会话一起用”：wake 的监听先于会话的 `pointermove` 挂上；挂反了每帧多一次强制的样式重算。**
+- 依据：这一点 Spec 的证据一节已经自己说了，只有间接证据：`workbench-drag-cost.e2e.ts` 的上限是每帧 1.3 次样式重算（`:21`, `:147`），能说明产品当前的挂法是对的。“挂反了会多一次”没有对照实验。
+- 建议：可以保持现状，把它当使用说明。要守住的话，在 `workbench-drag-cost.e2e.ts` 里故意反过来挂一次，断言每帧接近 2 次。
+
+**23. `layout-drag.md:198` 状态表：“焦点在来源上按空格 → 拖动中（键盘），区域列表取一次”；输入 `:107` 也写了“拿起时取一次的落点区域，整场不变”。**
+- 依据：“为空不拿起”守住了（`drag-gesture.test.ts:815`）。“只取一次”没有统计 `regions` 的调用次数。实现只调一次（`drag-gesture.ts:496`）。
+- 建议：`keyboardSetup` 里给 `regions` 计数，按几次 Tab 和方向键、再按 Enter 之后，断言调用次数是 1。
+
+**24. `layout-drag.md:200` 状态表：“待起拖 | 松手、`pointercancel`、触摸先动了、`activate` 拒绝 → 空闲，没有 `onEnd`”。**
+- 依据：松手、触摸先动、activate 拒绝三种都守住了（`drag-gesture.test.ts:148, 168, 222`）。待起拖时收到 `pointercancel` 没有用例，`:367` 只测了拖动中的情形。实现在 `drag-gesture.ts:473`。
+- 建议：加一例：`press` 之后调 `pointerCancel(1)`，断言 `idle` 为 true、`ends` 为空、`log` 等于 `["armed", "disarmed"]`。顺带一提，表里少了两种转换：待起拖时收到没有按键的移动（输出 1）、待起拖时会话销毁（`:403` 已经有测试）。建议补进状态表。
+
+**25. `layout-drag.md:229` 验收 1：三种来源 × 四种取消，三处都不写、反馈撤下、松手时的 click 不选中标签也不打开文件。**
+- 依据：
+  - 编辑器标签：Escape（`editor-area.e2e.ts:561`）、失去捕获、焦点移到根之外（`:664`）都有；窗口失焦没有。
+  - 资源树文件：Escape（`files-explorer.e2e.ts:914`, `:1060`）、失去捕获、焦点移出（`:958`）都有；窗口失焦没有。
+  - 工作台视图：产品页上只有 Escape（`workbench-live-drag.e2e.ts:372`、`workbench-dnd.e2e.ts:1240`）。`workbench-dnd.e2e.ts:11` 写明其它取消路径都交给 Lab；视图来源的失去捕获、窗口失焦、焦点移出，以及“click 不选中”都没有断言。
+  - Lab（`lab-drag-session.e2e.ts:146-182`）在会话层面把 5 种取消、不写和吞 click 都测了，但它不是这条验收说的三种产品来源。
+- 建议：`editor-area.e2e.ts:664` 和 `files-explorer.e2e.ts:958` 各加一段 `window.dispatchEvent(new FocusEvent("blur"))`，再回到来源上松手，断言不写、不选中。`workbench-dnd.e2e.ts` 加一条视图来源的用例，覆盖四种取消，并断言写入数不变、拖影不在、回到来源松手不切换活动标签。或者把验收 1 改成“Lab 场景覆盖四种取消；三种产品来源各至少覆盖 Escape”，后一种是 Spec 让步。
+
+**26. `layout-drag.md:232` 验收 4：工作台视图拖动中按方向键，标签带不切换；编辑器标签和资源树同样不响应这些键。**
+- 依据：编辑器（`editor-area.e2e.ts:694-697`，ArrowRight 和 End 之后选中的标签不变）和资源树（`files-explorer.e2e.ts:976-979`，`aria-activedescendant` 不变）都守住了。工作台视图在产品页上没有“指针拖动中按方向键”的用例，只有 Lab 夹具验过（`lab-drag-session.e2e.ts:184`）。
+- 建议：`workbench-dnd.e2e.ts` 里用 `floatOfTwo` 建一个浮动窗，指针拖起它的一个标签，按 ArrowRight，断言 `aria-selected` 不变，最后按 Escape。
+
+---
+
+## 守住的句子 → 测试（抽查用）
+
+**输入**
+- `DRAG_GESTURE_DEFAULTS` 的三个值 → `drag-gesture.test.ts:130, 158, 168`
+- `sourceAt` 返回 null 不起拖 → `drag-session.dom.test.ts:89`
+- `commitsUnderPointer` 缺省为假 → `drag-gesture.test.ts:300`
+- `structure` 缺省不比较 → `drag-gesture.test.ts:290`（setup 里没有 structure）
+- `actionKey` 为 null 是只显示不提交 → `drag-gesture.test.ts:309`
+- `onEnd` 的 `last` → `drag-gesture.test.ts:345`
+- `onActiveChange` 开始与结束 → `drag-gesture.test.ts:337`（false）；`editor-area.e2e.ts:215`、`workbench-drag-cost.e2e.ts:300`（产品标记的写上与撤下）
+- `keyboard` 缺省只有指针 → `drag-gesture.test.ts:817`、`drag-session.dom.test.ts:248`
+- `flush` → `drag-gesture.test.ts:262, 273`
+- `abort` 不调 `onEnd` → `drag-gesture.test.ts:394`
+- `start` 可以停在来源自己的坐标，直接 Enter 不移动 → `drag-gesture.test.ts:758`
+- DragCard 的缺省值（90、0.1、2、`refreshMs` 0）→ `drag-card.test.ts:35, 51, 65`
+
+**输出**
+- 1 主指针主键 → `drag-session.dom.test.ts:81`；6 px → `drag-gesture.test.ts:130`；笔 → `:139`；触摸按住 → `:158`；先动了放弃 → `:168`；没过门槛照常是点击 → `lab-drag-session.e2e.ts:73`、`drag-gesture.test.ts:471`；buttons 为 0 → `drag-gesture.test.ts:177`、`lab-drag-session.e2e.ts:132`
+- 2 冒泡阶段，停止传播的按下不起拖 → `drag-session.dom.test.ts:74`、`workbench-dnd.e2e.ts:1216`
+- 3 activate 拒绝 → `drag-gesture.test.ts:222`；onActiveChange(true) → `editor-area.e2e.ts:215`；根取得捕获 → `drag-session.dom.test.ts:71`；立即发布 → `drag-gesture.test.ts:206`
+- 4 每帧最多一次 → `drag-gesture.test.ts:239, 247`；state 是唯一输出 → `drag-session.dom.test.ts:279`
+- 5 跳过反馈元素 → `drag-session.dom.test.ts:95`、`lab-drag-session.e2e.ts:95`；菜单挡着 → `lab-drag-session.e2e.ts:105`
+- 6 用松手坐标再判、不发布 → `drag-gesture.test.ts:300, 319`；相同才提交、最多一次、否则 no-action → `:290, 309, 327`、`workbench-dnd.e2e.ts:876`
+- 7 各种取消 → `drag-gesture.test.ts:354-365`、`drag-session.dom.test.ts:115-158, 186, 270`、`lab-drag-session.e2e.ts:146-182`；7.1 → `drag-session.dom.test.ts:116`、`lab-drag-session.e2e.ts:220`；7.2 → `drag-session.dom.test.ts:125`；7.4 → `drag-gesture.test.ts:655`、`lab-drag-session.e2e.ts:236`
+- 8 结构键 → `drag-gesture.test.ts:418, 428`、`editor-area.e2e.ts:571`
+- 9 吞 click → `drag-gesture.test.ts:447`、`drag-session.dom.test.ts:162`；清除 → `drag-gesture.test.ts:447, 463`；键盘触发的不吞 → `:455`、`drag-session.dom.test.ts:170`
+- 10 指针拖动里只有 Escape 有动作 → `drag-gesture.test.ts:481`；空格的 keyup → `drag-session.dom.test.ts:237`、`lab-drag-session.e2e.ts:272`
+- 11 触摸 → `drag-session.dom.test.ts:192`、`lab-drag-session.e2e.ts:226`
+- 12 reevaluate → `drag-gesture.test.ts:503`、`drag-session.dom.test.ts:204`；withdraw → `drag-gesture.test.ts:513, 523, 534`、`lab-drag-session.e2e.ts:252`；自己滚出来的不撤下 → `drag-gesture.test.ts:622`
+- 13 invalidate → `drag-gesture.test.ts:554`
+- 14 步进 → `drag-gesture.test.ts:568`；先判定再滚 → `:597`；滚到头停 → `:597`；滚动中松手 → `:642, 673, 684, 692`、`lab-drag-session.e2e.ts:236`
+- 15 空格拿起 → `drag-session.dom.test.ts:231`；Tab 循环 → `drag-gesture.test.ts:731`；方向键沿轴 → `:745`；Enter 提交 → `:766`；Escape 立即还焦点 → `:779`、`drag-session.dom.test.ts:254`；焦点移出与销毁不还 → `drag-gesture.test.ts:787, 797`、`lab-drag-session.e2e.ts:299`；refocus → `drag-session.dom.test.ts:254`；提交后的重渲染先于还焦点 → `workbench-dnd.e2e.ts:410`
+- 16 最近的元素和查询时的 data → `drop-targets.dom.test.ts:23, 32`；没有或 null → `:42`；按 id 比较 → `:50`；不依赖会话 → 整个文件都没建会话；注销后不命中 → `:56, 67`
+- 17 → `drag-session.dom.test.ts:279`
+- 18 → `useDragSession.dom.test.ts:68, 110`
+- 19 → `useDragSession.dom.test.ts:110, 137, 154`
+- 20 拿起 → `drag-card.test.ts:30, 93`；fallback → `:108, 124`；逼近 → `:35, 115, 129`；stillPx → `:51`；第一帧不逼近 → `:30`；elapsed 非法 → `:137`；相对 origin、取整、抓点在指针下 → `:35, 93`；写的频率 → `:56, 65, 83`；返回 null → `:35, 137`；settling → `:76`
+- 21 → `frame-loop.test.ts:30, 51, 78, 90, 108, 120, 134, 151`
+
+**状态与转换**
+- 空闲 → 待起拖 → 拖动中 → `drag-gesture.test.ts:130`
+- 放下 → `drag-gesture.test.ts:290, 300`
+- 输出 7 的情况 → cancelled → `drag-gesture.test.ts:354`
+- abort → `drag-gesture.test.ts:394`
+- 返回后立即生效；dispose 后不响应 → `drag-session.dom.test.ts:150`
+- 收场顺序 → `drag-gesture.test.ts:337, 766, 779`
+- 同步写入，发布与放下在同一个调用栈 → `drag-session.dom.test.ts:67`、`drag-gesture.test.ts:642`
+
+**验收**
+- 2 → `files-explorer.e2e.ts:838`
+- 3 → `workbench-dnd.e2e.ts:1216`
+- 5 → `lab-drag-session.e2e.ts:220, 226`、`editor-area.e2e.ts:831`、`files-explorer.e2e.ts:1032`
+- 6 → `files-explorer.e2e.ts:1002`、`lab-drag-session.e2e.ts:236`

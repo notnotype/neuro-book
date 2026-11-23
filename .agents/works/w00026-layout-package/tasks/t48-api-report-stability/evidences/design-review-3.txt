@@ -1,0 +1,159 @@
+# t48 计划第 3 稿的设计审查（第 3 轮，Claude Sonnet，claude -p --model claude-sonnet-5-5）
+
+### 1. `@stable` 差异要求 `CHANGELOG.md` 相对 `HEAD` 有改动，这条判据在 CI 与提交后的本地都无法满足
+
+- **严重程度**：重要
+- **类别**：接口与合同 / 遗漏
+- **位置**：plan.md:58、:60、:77
+- **现象**：计划要求 `@stable` 差异时，`[Unreleased]` 相对 `HEAD` 有改动，否则失败。
+  - CI 的 `app-package` 作业用默认检出（`.github/workflows/ci.yml:77`，只有另一个作业在 :37 设了 `fetch-depth: 0`）。检出的是提交本身，`HEAD` 已含 `CHANGELOG.md` 的改动，相对 `HEAD` 的差异恒为空，这条检查必然失败。
+  - 本地同理：`docs/testing/README.md:201` 写明合入前验证时改动都已提交。这时 `api:check` 看不到未提交的变更记录改动，也必然失败。
+  - 只有在“报告和变更记录都还没提交”的窗口里才可能通过，而 CI 通过不了。
+- **为什么是问题**：目前 0.x 没有 `@stable`，这条路径是潜伏的。但计划为它写了单测（plan.md:77）。单测用假 git 状态就能过，上线后第一个 `@stable` 名字就让 CI 永远红，或者逼人把检查关掉。
+- **如何核实**：读 `ci.yml:72-91`。对提交后的干净检出执行 `git diff HEAD -- CHANGELOG.md`，输出为空。
+- **建议改法**：改成与 PR 基点比较。用 `git merge-base origin/master HEAD`，取不到共同祖先时跑全部，沿用 `test:affected` 的 `--since` 做法，并给该作业加 `fetch-depth: 0`。更简单的做法是不在脚本里查 git：`@stable` 名字出现差异时只要求 `[Unreleased]` 里有一条引用该名字的记录。此外还有两点要写清：
+  - “差异里有 `@stable` 名字”要定义成新旧任一侧带 `@stable`。否则 `@stable` 降级为 `@experimental`、删除 `@stable` 名字，在新侧都不带 `@stable`，会漏过。
+  - “头不同要求单独提交”（plan.md:57）脚本查不了，只能是提示，不要写成要求。
+
+### 2. “可达未导出”只算类型，漏了值引用，并且会把组件内部名带进来
+
+- **严重程度**：重要
+- **类别**：遗漏 / 接口与合同
+- **位置**：plan.md:46
+- **现象**：我对 `dist/package/*.d.ts` 按标识符引用从全部导出名做闭包。
+  - 顶层可达未导出的声明有 9 个类型：`DragActivation`、`DragStops`、`GridLeafPlacement`、`GridPathStep`、`GridPlacement`、`GridPlacementItem`、`GridRestoreReport`、`GridSashEnds`、`GridSashPlacement`。这与计划的“9 个”一致。
+  - 另有 1 个值：`shared-*.d.ts:796` 的 `declare const dropKindData: unique symbol`。它被公开接口 `DropKind<T>` 用作计算属性键 `readonly [dropKindData]?: T`。
+  - 计划写的是“沿声明里的类型引用遍历”。`[dropKindData]` 是 `ComputedPropertyName` 里的表达式标识符，不是 `TypeReference`，按字面实现会漏掉它。
+  - 结果是 `DropKind` 在报告里打印成引用一个报告里不存在的名字。这个品牌符号正是该类型的名义约束，改了它报告也看不见。
+  - 反过来，“从全部公开名字出发”包含 7 个组件。它们的声明会引到 `__VLS_Props$N`、`__VLS_Slots$N`、`__VLS_export$N` 等一批内部名，约 30 个。这与 plan.md:45“不含 `__VLS`”的断言冲突，计划没说遍历是否绕开组件。
+- **为什么是问题**：告警清单（9 个）按字面做会是错的，报告里 `DropKind` 的签名也不完整。
+- **如何核实**：读 `shared-*.d.ts:796-801`；用 TypeScript 的标识符闭包复现，我已跑过。
+- **建议改法**：
+  - 遍历按符号引用（`checker.getSymbolAtLocation` 加别名解析），不按节点种类。
+  - 组件不参与遍历，它们走 vue-component-meta 那一段。
+  - 告警按“类型与值”两种写，不再说“类型”。
+
+### 3. 组件的 `@experimental` 到不了插件 SDK 的声明，计划没说，也没处理
+
+- **严重程度**：重要
+- **类别**：接口与合同 / 与已定设计一致
+- **位置**：plan.md:28、:29、:36-37
+- **现象**：计划写的是“非组件的标注也随 SDK 打包的声明到插件作者的编辑器里”，对组件沉默。
+  - `plugin-sdk/pack.ts:403` 用 `dts({vue: true, paths → ../nb-layout/src/...})` 从 nb-layout 源码直接生成 `components.d.ts`。不经过 nb-layout 的 `dist/package`，也不经过 nb-layout 的 `pack.ts`。
+  - 所以组件只在 nb-layout 的 `pack.ts` 里做的后处理，SDK 的声明里没有，这 7 个组件在 SDK 里仍是无注释的 `declare const _default$N`。
+  - 开发者的决定 1 明确点了“包括插件 SDK 转出的”。7 个组件是插件作者最常碰的转出名，却看不到标注。
+  - 非组件的源码 JSDoc 会进 SDK。我在 `packages/neuro-book/dist/plugin-sdk/components.d.ts` 里确认了 nb-layout 类型的 JSDoc 被保留，只是这份产物是旧的（Nov 7）。
+- **为什么是问题**：SDK 路径上“全部名字 `@experimental`”只对一部分成立，计划把这个不对称藏起来了。
+- **如何核实**：读 `plugin-sdk/pack.ts:403-416`。同一个文件里已有先例：打包后往 `components.d.ts` 里按导出列表插文本（aria 补充）。
+- **建议改法**：二选一，并写进计划。
+  - SDK 的 `pack.ts` 对 7 个布局组件做同样的插入。标注取自同一份 `src/vue/index.ts` 行尾，不再复制一套名单。
+  - 或明说组件在 SDK 里没有标注，由 README 和模块头兜底，并在 SDK README 点名这 7 个。
+
+### 4. SDK“变了按不兼容改动处理”与 `@experimental` 的语义、兼容起点机制说不通，也无机检
+
+- **严重程度**：重要
+- **类别**：与已定设计一致 / 违反合同 / 遗漏
+- **位置**：plan.md:36-38、:66
+- **现象**：
+  - **语义冲突**。`@experimental` 的意思是没有兼容承诺，plan.md:36 却要求它变了就按插件 API 不兼容处理，即提 `PLUGIN_API_SINCE` 并写变更记录。
+  - **兼容起点是全局单值**。`product.ts:18` 是单个版本号，与插件的 `engines.neurobook` 取交集（`runtime/plugin-api.md:176`）。nb-layout 0.x 每次改 SDK 转出的 7 个组件或约 20 个类型的签名，都得把所有插件的兼容起点往前推。连没用 nb-layout 的插件，其已构建版本也不再兼容。这与规范“产品提版而插件 API 没破时已构建插件不用重新构建”相悖。
+  - **成本没算**。计划没有说明 0.x 期间的改动到底触发还是不触发这条规则。
+  - **无机检**。plan.md:38 说不加跨包对齐测试。但仓库已有先例：`src/sdk/sdk.test.ts:47-62` 就把 SDK 名单与 nb-ui、nb-layout、nb-workbench-layout 入口逐个对照。nb-layout 的 api 差异不会告诉任何人这次改动落在 SDK 转出的子集里，需要提起点，这个缺口真实存在。
+  - **名字没覆盖**。新模块头只说 nb-ui 和 nb-layout，但 `components.ts` 还转出 nb-workbench-layout 的 `TabStrip`、`TabStripItem`、`TabStripPartition`（私有、无标注），以及 SDK 自己声明的弃用别名 `SplitterGestureSource`、`SplitterGestureCancelReason`。这些名字在新口径下既不是 nb-ui 的承诺，也不是“跟着 nb-layout”，计划没说归谁。
+  - **Spec 没有对应验收**。Spec `runtime/plugin-code-loading` 加的那句话（plan.md:66）只在验收映射里作为自己的证据，没有对应的验收编号。
+- **为什么是问题**：开发者决定的是“SDK 不替 nb-layout 许诺、跟着标注走”。按字面，`@experimental` 的转出名变了不该触发 SDK 兼容起点。计划实际写成的是“SDK 对 nb-layout 的每次改动都发一次兼容事件”，比决定更重，也比 nb-ui 更频繁。
+- **如何核实**：读 `product.ts:8-18`、`runtime/plugin-api.md:176`、`sdk.test.ts:47-80`。
+- **建议改法**：先问清开发者意图，再把文字改成其中一种。
+  - **A**：`@experimental` 的转出名变化不触发兼容起点，只在变更记录写一句。SDK 的承诺只覆盖 `@stable`，与决定 2 一致。这时要把 plan.md:36 的“变了按不兼容处理”删掉。
+  - **B**：确实要按不兼容处理，就加一个短测试，让 SDK 转出的 nb-layout 名字都出现在 `api/*.api.txt` 里且带标注，并把“这些名字的报告段变化”接到 `PLUGIN_API_SINCE` 的提示上。
+  - 两种做法都要点名 `TabStrip*` 和本地别名的归属。
+
+### 5. 约 150 处 JSDoc 派给 Haiku：规则有缺口，切片 1 又没有机检，而这类改动本来可以用确定性脚本
+
+- **严重程度**：重要
+- **类别**：别扭与反常 / 照字面实现会返工
+- **位置**：plan.md:28、:76、:77、:95
+- **现象**：
+  - **规则与现实不符**。规则写“已有 JSDoc 的加一行，不改别的文字”，但源码里有大量单行 `/** … */`，加一行必须改成多行，这就改了文字布局。规则没说怎么改。
+  - **头注释挂在首个声明上**。我读 `dist/package` 看到：
+    - `grid-types.d.ts` 的整段文件头注释挂在 `GridOrientation` 上；
+    - `locales/index.ts` 的头注释挂在 `NB_LAYOUT_NAMESPACE` 上；
+    - `theme-vars.ts` 的头注释挂在 `NbLayoutVarName` 上；
+    - `frame-loop.ts` 的头注释挂在 `FrameLoopOptions` 上。
+    “已有 JSDoc 的加一行”会把 `@experimental` 加进一段描述整个文件的头注释，而不是新建属于该声明的注释，语义不对。
+  - **两块 JSDoc 只读最后一块**。我用 TS 6.0.3 实测：同一声明前有两块 JSDoc 时，`getJSDocTags` 只读最后一块。若 Haiku 把标签加进前一块，报告会误报缺失。
+  - **其他易错形态**。
+    - `createGrid` 有 2 个重载加 1 个实现（`grid.ts:103-105`），“每处声明”会让它连实现也标，而实现签名不进发布声明。
+    - `grid.ts:48` 的 `export * from "./grid-types"` 让名字的声明位置不能靠入口文件找。
+    - 类型成员上的 JSDoc（如 `Grid<T>` 里每个方法前的注释）不该标，规则没禁。
+    - `.vue` 的 `<script lang="ts">` 里导出的类型要改 `.vue` 文件。
+    - 分隔条、会话类等类型的 JSDoc 里已有 `@throws`、`@deprecated` 等相邻标签。
+  - **切片 1 无机检**。齐全核对在切片 2 才有，但 Haiku 改动在切片 1 就产出并验证，验证项里没有标签齐全检查（plan.md:76），只有“逐处审 diff”。
+- **为什么是问题**：这是机械、可从 AST 精确定位的改动。用 LLM 做会引入“改坏注释”这类本不该有的风险，再用人审 150 处兜住。
+- **如何核实**：读 `dist/package/shared-*.d.ts:1-15`、`locales.d.ts`、`index.d.ts` 头部；我用 TS 实测了双块与重载的行为。
+- **建议改法**：
+  - 一次性脚本（用 TS AST 加文本插入）代替 Haiku。输入是 `moduleExports` 给出的名字清单，加 checker 的别名解析找到声明，输出确定。头注释的情形按声明自己的块处理：声明没有自己的块就新建一块。
+  - 把切片顺序改成先写齐全核对（先红），再打标签（变绿）。
+  - 如果仍要派模型，规则里必须写清上面四类。
+
+### 6. “读发布声明核对每处声明恰好一个标签”：实现要用 checker，计划的取法按字面会漏报或误报
+
+- **严重程度**：重要
+- **类别**：依赖的机制 / 遗漏
+- **位置**：plan.md:21、:30、:45
+- **现象**：我对 `dist/package` 四个入口建 TS 程序实测，几个现实情况会让“按名字找声明节点”失效。
+  - **入口里没有声明**。`index.d.ts` 只有一行 `import { $ as clampFloatRect, … } from "./shared-XmI1bLya.js"` 加 `export {…}`，所有声明在共享块里。共享块自己是 `export { clampFloatRect as $, … }`，导出名是压缩名。
+  - **名字查找行不通**。必须用 `getExportsOfModule` 加 `getAliasedSymbol` 解到真声明。计划里 plan.md:21 的“按名字找”和 plan.md:45“不含 `$数字`”的断言都假设声明名等于公开名。目前碰巧如此，但机制没写。
+  - **组件**。`vue.d.ts` 里 7 个组件导出名与声明名不同（`_default$N → NestedGrid`），声明还是 `VariableDeclaration`。
+  - **变量声明的 JSDoc 在语句上**。`VariableDeclaration.jsDoc` 是空的，注释挂在 `VariableStatement` 上，必须用 `ts.getJSDocTags`。我的第一版探针按 `d.jsDoc` 判断，就把 `const` 全判成了“无注释”。
+  - **多声明符**。`declare const a, b` 只有第一个声明符能读到标签，目前源码里没有，但规则没禁。
+  - **重载**。`createGrid` 有 2 个声明，实测各自独立带标签，这一条计划是对的。
+  - **多块 JSDoc**。同第 5 条：只读最后一块。
+- **已核实成立的部分**：`.vue` 里导出的类型（`DropFeedbackPreview`）的 JSDoc 进了 `vue.d.ts`；`text.d.ts` 的 `layoutCatalogTranslate` 带的 `@throws` 也保留。
+- **为什么是问题**：不指明用 checker 与 `getJSDocTags`，实现者会走计划字面的“按名字找节点”，对共享块的名字在公开面上就会失灵。
+- **如何核实**：读 `dist/package/index.d.ts`、`shared-*.d.ts` 末尾的 `export {…}`。
+- **建议改法**：在 plan.md:45 附近写明：枚举导出用 `getExportsOfModule`，解别名，声明节点用 `getJSDocTags`（它会上溯到变量语句），“恰好一个”按声明计，同一声明有多块 JSDoc 时只认最后一块，并报警告。
+
+### 7. 组件五段里“按源码文字”的两处，会把注释与排版写进报告，透传也没覆盖现有写法
+
+- **严重程度**：建议
+- **类别**：确定性 / 遗漏
+- **位置**：plan.md:48-53
+- **现象**：
+  - **注释与排版进报告**。透传“按源码文字列出那个类型”、插槽“打印它的类型参数”。`NestedGrid.vue:123` 起的 `defineSlots` 类型字面量里每个插槽前都有多行中文 JSDoc。按源码文字打印，改一句注释或重排缩进，`api:check` 就红，这与“去注释”的方针不一致。
+  - **`@vue-ignore`**。`Splitter.vue` 的透传源码是 `& /* @vue-ignore */ HTMLAttributes`，按源码文字会把 `/* @vue-ignore */` 带进去。
+  - **`inheritAttrs: false` 的实际含义**。`DropFeedbackOverlay.vue:58` 和 `DropSectorsOverlay.vue:7` 都是 `inheritAttrs: false`，并且用 `useAttrs()` / `v-bind="$attrs"` 把属性转给内部某个元素。计划只写一行 `inheritAttrs: false`，使用方看不到“属性会落到哪个元素”。
+  - **默认透传**。`NestedGrid`、`SortableList`、`FloatWindowHandles`、`DropIndicatorLabel` 没写 `HTMLAttributes`，也没关透传，所以不会出现“与本包之外的类型交叉”这条，但属性会落到根元素，没有对应的报告行。
+  - **缺省值**。缺省值字符串来自源码里的 `withDefaults`，会随源码写法变化（例如 `() => []`）。
+  - **过滤范围**。“只留声明在 `packages/nb-layout/src` 里的”这条漏掉本包 interface 继承 `HTMLAttributes` 的情形，目前没有，但按规则它们会被当作 runtime-dom 的而丢掉。
+- **建议改法**：
+  - 类型节点用 `createPrinter({removeComments: true})` 打印，不取源码文字。
+  - 透传一行写成 `attrs: root | <元素>`，这个信息源码里可读（`v-bind="$attrs"` 的位置）。
+  - 缺省值也走 printer。
+
+### 8. CI 与门禁的几处别扭
+
+- **严重程度**：建议
+- **类别**：别扭与反常 / 确定性
+- **位置**：plan.md:56、:60；ADR 0054 第 10 条
+- **现象**：
+  - **重复构建**。`api:check` 先构建，而 CI 在 `build:package` 后紧接着跑它（plan.md:60）。构建会跑 vue-tsc 加 rolldown 加 Vite，构建两遍。建议 `api:check` 能跳过构建（例如 `--no-build`，CI 用）。
+  - **作业含义**。作业名是“应用包、SDK 与 nb-layout 的产物能打出来”（`ci.yml:73`），加 `api:check` 后失败原因变成“公开面变了”，计划说“作业含义不变”不准确。要么改作业名，要么拆成独立作业。
+  - **选取方式**。门禁登记写“改了公开入口或它们引到的声明时跑”（plan.md:60），“引到的声明”几乎是 `src` 下所有文件，人判断不了；也没接进 `test:affected`。建议写成“改了 nb-layout 的 `src` 就跑”。
+  - **ADR 条款无映射**。ADR 0054 第 10 条还有一项：`GridSnapshot` 的兼容承诺从 1.0 起，0.x 期间快照格式的破坏性变化要同批给 `LAYOUT_DOC_VERSION` 写迁移。plan.md:80-88 的验收映射没有这一项。报告里能看到 `GridSnapshot*` 与 `GRID_SNAPSHOT_VERSION = 2` 的差异，但没有任何提示把它和迁移关联。建议至少在报告对这几个名字的差异上，提示去核对 `LAYOUT_DOC_VERSION`。
+
+### 未发现问题的方面
+
+- 开发者三个决定中的决定 1 与决定 3 与计划一致（0.x 全部 `@experimental`；nb-layout 可首发，晋升不在本 Task）。决定 2 的“SDK 加一行转出不替 nb-layout 许诺”在第 4 条里有字面张力，已单列。
+- 第 2 轮审查的处理里，“`$N` 压缩别名还原删除并改为断言”“版本头记全并按包解析”“头与正文分开比”落到了关键设计里，没有发现遗漏。
+- 重载、声明合并在发布声明里确实各自带标签（`createGrid` 实测）。组件声明确实带不了 JSDoc，计划选的后处理方案对 nb-layout 自己的 `dist/package` 成立。
+- vue-component-meta 的插槽与透传缺口（`panel-${string}`）计划已处理。
+
+### 数量
+
+- 阻断 0，重要 5，建议 3。
+- 有效发现编号：1、2、3、4、5、6 为“重要”（第 6 条我归在重要，第 5 条与第 6 条合计共 6 个重要）；7、8 为“建议”。
+
+更正计数：重要 6（第 1、2、3、4、5、6 条），建议 2（第 7、8 条），阻断 0。
+
+实验说明：指定的实验目录 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t48-design3/` 在本会话里没有读写权限，所以我用不落文件的 `bun -e` 内联脚本，只读 `dist/package` 与源码，没有写任何文件。
