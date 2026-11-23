@@ -11,11 +11,11 @@ import {previewPanelRects, removeTab, treeLeaves} from "@notnotype/nb-workbench-
 import type {GridDropRect, GridExtent} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutDropPanelGeometry, LayoutResult} from "@notnotype/nb-workbench-layout";
 
-import {collapsedGeometry, heldTabIn, keepVisible, sortedOffset, stripIndex, wholeInTree, windowRect} from "./drag-geometry";
+import {collapsedGeometry, heldTabIn, sortedOffset, stripIndex, windowRect} from "./drag-geometry";
 import type {EntryBand, FrozenGeometry} from "./drag-geometry";
 import type {ContainerCatalog} from "./state/containers";
 import {defaultLayoutDoc} from "./state/default-tree";
-import {FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT} from "./state/layout-constraints";
+import {FLOAT_KEEP_WIDTH, keepVisible, layoutProjectionOptions, PANEL_HEAD_HEIGHT, wholeInTree} from "./state/layout-constraints";
 import type {ViewCatalog} from "./views/registry";
 
 const VIEW = (location: "sidebar" | "auxiliarybar" | "panel", over: {readonly container?: string; readonly order?: number} = {}) => ({title: {"zh-CN": location, "en-US": location}, icon: "i", location, layout: "scroll" as const, ...over});

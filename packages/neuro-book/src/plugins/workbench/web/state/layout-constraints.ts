@@ -2,7 +2,7 @@
  * 面板的约束（docs/specs/ui/workbench-layout.md 输出 5、6）：工作台给 nb-layout 的策略。库不知道角色与名字的含义。
  */
 
-import {GRID_UNBOUNDED} from "@notnotype/nb-layout";
+import {clampFloatRect, GRID_UNBOUNDED} from "@notnotype/nb-layout";
 import {findTreeNode, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridOrientation} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
@@ -52,6 +52,12 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
     const offset = FLOAT_CASCADE * (existing % 8);
     return {x: Math.max(0, ((extent?.width ?? size.width) - size.width) / 2) + offset, y: Math.max(0, ((extent?.height ?? size.height) - size.height) / 2) + offset, ...size};
 }
+
+/** 拖窗时夹回树区域：至少留一段头在里面，抓得到。容器还没量到时不夹。 */
+export const keepVisible = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}));
+
+/** 新开的窗整个夹回树区域：在状态栏上松手时，只留头在里面就等于开到了屏幕外。拖窗不一样，用户自己摆的，`keepVisible` 只保证抓得到。 */
+export const wholeInTree = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: rect.width, height: rect.height}));
 
 /** 放不下时先收哪个区域（输出 10）。 */
 const COLLAPSE_REGIONS: ReadonlyArray<PanelName> = ["auxiliarybar", "panel", "sidebar"];

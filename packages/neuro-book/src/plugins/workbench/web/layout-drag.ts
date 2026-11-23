@@ -21,7 +21,7 @@ import type {TabStripHeld, TabStripSnapshot} from "@notnotype/nb-workbench-layou
 import {nextTick, readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {centerOf, collapsedGeometry, contains, heldTabIn, offset, sortedOffset, stripIndex, wholeInTree, windowRect} from "./drag-geometry";
+import {centerOf, collapsedGeometry, contains, heldTabIn, offset, sortedOffset, stripIndex, windowRect} from "./drag-geometry";
 import type {DragGeometry, EntryBand, FrozenGeometry, WindowDrag} from "./drag-geometry";
 import {barStops, pointOfCandidate} from "./drag-keyboard";
 import {applyEntryDrop, barSpotAt, dropKeyOf, dropStripOf, entryDropAt, entryStripOf, homeStripOf, isEntryAction, regionOfEntryStrip, soleRegionContainer} from "./entry-drop";
@@ -30,7 +30,7 @@ import type {BarEntryRect, ContainerSource, EntryDropAction, WorkbenchDragSource
 import {EDITOR_TAB_TYPE, editorTabIdOf} from "../shared/editor-panels";
 import {CUSTOM_CONTAINER_PREFIX} from "../shared/views";
 import type {EditorTabDrag} from "./contracts";
-import {defaultFloatRect, EDITOR_GROUP_MINIMUM, floatRectAt} from "./state/layout-constraints";
+import {defaultFloatRect, EDITOR_GROUP_MINIMUM, floatRectAt, wholeInTree} from "./state/layout-constraints";
 import {isSoleWindow, layoutStructureKey, viewIdOf, viewKey} from "./state/layout-present";
 import type {ViewCatalog} from "./views/registry";
 

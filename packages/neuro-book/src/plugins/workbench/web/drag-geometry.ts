@@ -3,7 +3,6 @@
  * 量 DOM 的在 `layout-drag`：它把量到的矩形交给这里，这里按文档与投影换算。坐标都是视口坐标，除了浮动窗的矩形（相对树区域）。
  */
 
-import {clampFloatRect} from "@notnotype/nb-layout";
 import {previewPanelRects, projectLayoutDoc, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridDropPoint, GridDropRect, GridExtent} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutDropPanelGeometry, LayoutFloatRect, LayoutProjectionOptions, PanelName} from "@notnotype/nb-workbench-layout";
@@ -13,7 +12,7 @@ import type {TabStripHeld, TabStripSnapshot} from "@notnotype/nb-workbench-layou
 import {entryStripOf} from "./entry-drop";
 import type {BarEntryRect} from "./entry-drop";
 import {regionContainers} from "./state/containers";
-import {FLOAT_KEEP_WIDTH, PANEL_HEAD_HEIGHT} from "./state/layout-constraints";
+import {keepVisible} from "./state/layout-constraints";
 
 /** 一次判定要的矩形。 */
 export interface DragGeometry {
@@ -168,12 +167,6 @@ export function stripIndex(doc: LayoutDoc, panel: string, measured: {readonly be
     if (measured.before !== null) return tabs.indexOf(measured.before);
     return measured.after !== null ? tabs.indexOf(measured.after) + 1 : tabs.length;
 }
-
-/** 拖窗时夹回树区域：至少留一段头在里面，抓得到。容器还没量到时不夹。 */
-export const keepVisible = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}));
-
-/** 新开的窗整个夹回树区域：在状态栏上松手时，只留头在里面就等于开到了屏幕外。拖窗不一样，用户自己摆的，`keepVisible` 只保证抓得到。 */
-export const wholeInTree = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: rect.width, height: rect.height}));
 
 /** 整窗此刻的矩形（相对树区域）：抓住的点在指针下，位置按呈现的大小夹，大小还是记录里的。 */
 export function windowRect(drag: WindowDrag, point: GridDropPoint, extent: GridExtent | null): LayoutFloatRect {

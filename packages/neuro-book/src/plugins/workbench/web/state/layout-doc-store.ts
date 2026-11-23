@@ -7,7 +7,6 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {clampFloatRect} from "@notnotype/nb-layout";
 import {activateTab, applyGestureCommit, applyLayoutDrop, carryDynamicTabs, findTab, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseForOperation, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridFloatInput} from "@notnotype/nb-layout";
 import type {LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
@@ -24,7 +23,7 @@ import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX} from "../../shared/v
 import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
-import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
+import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints} from "./layout-constraints";
 import {effectiveVisibleTabs, mergedSections, regionOccupied} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
@@ -167,7 +166,7 @@ function defineLayoutDocStore(bound: boolean) {
         const renderedFloats = computed<ReadonlyArray<GridFloatInput>>(() => renderedDoc.value.floats.map(({panel, rect}) => {
             const preview = floatPreview.value?.panel === panel ? floatPreview.value : null;
             const wanted = preview?.rect ?? rect;
-            return {id: panel, rect: extent.value === null ? wanted : clampFloatRect(wanted, extent.value, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}), ...(preview === null ? {} : {gesture: preview.gesture})};
+            return {id: panel, rect: keepVisible(wanted, extent.value), ...(preview === null ? {} : {gesture: preview.gesture})};
         }));
         /** 编辑器标签的拖动（区级组件交出来）：动它们要走编辑器区，先结算输入、合并同一文件。 */
         const editorDrag = shallowRef<EditorTabDrag | null>(null);
