@@ -181,19 +181,16 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         return event.pointerType === "touch" ? "coarse" : "fine";
     }
 
-    function setHovered(keys: readonly string[]): void {
-        if (sameKeys(hovered.value, keys)) {
+    /** 集合没变就不写：悬停每次移动都会重算一遍，写同样的内容也会让读它的组件重渲染。 */
+    function setKeys(target: Ref<ReadonlySet<string>>, keys: readonly string[]): void {
+        if (sameKeys(target.value, keys)) {
             return;
         }
-        hovered.value = new Set(keys);
+        target.value = new Set(keys);
     }
 
-    function setRevealed(keys: readonly string[]): void {
-        if (sameKeys(revealed.value, keys)) {
-            return;
-        }
-        revealed.value = new Set(keys);
-    }
+    const setHovered = (keys: readonly string[]): void => setKeys(hovered, keys);
+    const setRevealed = (keys: readonly string[]): void => setKeys(revealed, keys);
 
     /** 命中即给光标；光标不等待显现计时。 */
     function updateCursor(hits: readonly SashHitTarget[]): void {
@@ -329,6 +326,15 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }
 
+    /**
+     * 取消后悬停怎么收：只有指针手势因为指针自己的事（Esc、系统取消、没有变化）取消时，指针还在原处，按最后坐标重新悬停；
+     * 其余都清空。失焦不按最后坐标重新悬停：那会把刚放掉的页面级光标又拿回来（Spec `ui/nested-grid` 输出 16）；卸载与上下文变化后坐标已不可信。
+     */
+    function hoverAfterCancel(source: "pointer" | "keyboard", reason: SashGestureCancelReason): "refresh" | "reset" {
+        if (source !== "pointer" || disposed) return "reset";
+        return reason === "unmount" || reason === "context-changed" || reason === "blur" ? "reset" : "refresh";
+    }
+
     function cancel(reason: SashGestureCancelReason): void {
         const current = binding;
         if (current === null) {
@@ -336,8 +342,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         const source = current.session.source;
         current.session.cancel(reason);
-        // 失焦不按最后坐标重新悬停：那会把刚放掉的页面级光标又拿回来（Spec `ui/nested-grid` 输出 16）。
-        settle(source, source !== "pointer" || reason === "unmount" || reason === "context-changed" || reason === "blur" || disposed ? "reset" : "refresh");
+        settle(source, hoverAfterCancel(source, reason));
         current.onPreview(null);
         current.onCancel?.({reason, sashes: current.session.sashes});
     }
@@ -393,8 +398,9 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             view().clearTimeout(hoverTimer);
             hoverTimer = 0;
         }
-        setHovered(winner.hits.map(sashHitKey));
-        setRevealed(winner.hits.map(sashHitKey));
+        const keys = winner.hits.map(sashHitKey);
+        setHovered(keys);
+        setRevealed(keys);
         updateCursor(winner.hits);
     }
 
@@ -520,7 +526,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         // Home / End 与方向键一样属于调整键：都进入（或复用）同一场**方向**会话。
         const isJump = event.key === "Home" || event.key === "End";
-        if (!isJump && keyboardStep(event, registration.axis) === null) {
+        const axisStep = isJump ? null : keyboardStep(event, registration.axis);
+        if (!isJump && axisStep === null) {
             return;
         }
         event.preventDefault();
@@ -536,10 +543,11 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             notifyGesture(current.session.issues);
             return;
         }
-        const axisStep = keyboardStep(event, registration.axis)!;
+        // 不是跳转键时，上面已经排除了 `axisStep === null`。
+        const step = axisStep!;
         keyboardDelta = {
-            x: registration.axis === "width" ? keyboardDelta.x + axisStep : keyboardDelta.x,
-            y: registration.axis === "height" ? keyboardDelta.y + axisStep : keyboardDelta.y,
+            x: registration.axis === "width" ? keyboardDelta.x + step : keyboardDelta.x,
+            y: registration.axis === "height" ? keyboardDelta.y + step : keyboardDelta.y,
         };
         const preview = current.session.update(keyboardDelta);
         current.onPreview(preview);
