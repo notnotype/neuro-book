@@ -10,12 +10,11 @@ import {computed, shallowRef, watch} from "vue";
 import type {ComputedRef, Ref, ShallowRef} from "vue";
 
 import type {DragState} from "../drag-gesture";
+import {IDLE_STATE} from "../live-drag";
 import type {LiveDrag, LiveDragState} from "../live-drag";
 import type {DragSession} from "./drag-session";
 import {createLiveDragSession} from "./live-drag-session";
 import type {LiveDragSessionOptions} from "./live-drag-session";
-
-const IDLE: LiveDragState = {active: false, preview: {kind: "none"}, previewed: false, collapsed: false, lifted: null, slotInGrid: null};
 
 /** @experimental 1.0 之前签名会变。 */
 export interface LiveDragSessionRefs<S, D, L, G> {
@@ -38,7 +37,7 @@ export function useLiveDragSession<S, D, R = never, L = S, G = unknown>(
 ): LiveDragSessionRefs<S, D, L, G> {
     const session = shallowRef<DragSession<S, D> | null>(null);
     const live = shallowRef<LiveDrag<L, D, G> | null>(null);
-    const liveState = shallowRef<LiveDragState>(IDLE);
+    const liveState = shallowRef<LiveDragState>(IDLE_STATE);
     watch(root, (element, _previous, onCleanup) => {
         if (element === null) return;
         const created = createLiveDragSession<S, D, R, L, G>(element, (engine) => {
@@ -58,7 +57,7 @@ export function useLiveDragSession<S, D, R = never, L = S, G = unknown>(
             if (session.value === created.session) {
                 session.value = null;
                 live.value = null;
-                liveState.value = IDLE;
+                liveState.value = IDLE_STATE;
             }
         });
     }, {immediate: true});
