@@ -13,7 +13,8 @@ import {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {JobCenter, KEPT_PER_OWNER, type Job} from "./backend/jobs/center";
+import {JobCenter, KEPT_PER_OWNER, type Job, type NoticeExit} from "./backend/jobs/center";
+import {JobLedger} from "./backend/jobs/ledger";
 import {watchSteer} from "./backend/jobs/steer";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
@@ -135,6 +136,29 @@ describe("回执只交一次（jobs.md 的回执）", () => {
     });
 });
 
+describe("账本（jobs.md 输出 17）", () => {
+    test("补发时暂时送不了的留在账本里；补发期间新起的任务照样记下", async () => {
+        const dir = await createTestTmpRoot("neuro-book-agent", "ledger");
+        try {
+            const file = join(dir, "ledger.json");
+            await writeFile(file, JSON.stringify([{id: "job-old", owner: "s1", kind: "shell", label: "命令", summary: "sleep", startedAt: 0, state: "running"}]));
+            const {jobs, run} = center();
+            const ledger = new JobLedger({file, jobs, report: () => undefined});
+            ledger.follow();
+            // 会话这会儿打不开：补发得到暂时的失败码。
+            const busy = {view: () => ({notice: async () => ({ok: false, code: "session-busy"})})} as unknown as SessionTable;
+            const replaying = ledger.replay(busy);
+            const fresh = run("s2", "shell", "echo");
+            await replaying;
+            await ledger.stop();
+            const saved = JSON.parse(await readFile(file, "utf8")) as {id: string}[];
+            expect(saved.map((entry) => entry.id).sort()).toEqual(["job-old", fresh.id].sort());
+        } finally {
+            await rm(dir, {recursive: true, force: true});
+        }
+    });
+});
+
 describe("插话的到达（输出 3）", () => {
     test("只认就绪的插话：留着的不算；放行出来、仍是插话的算到达", async () => {
         const model = createTestModel();
@@ -226,21 +250,55 @@ describe("kill 与寿命", () => {
         expect(await jobs.kill(null, another.id)).toBe("killed");
     });
 
-    test("输出 6：前台以终态交回就移出；没取过的后台任务每个会话至多留 32 个，先丢最早结束的", async () => {
+    test("输出 6：前台以终态交回就移出；回执已进会话的后台任务每个会话至多留 32 个，先丢最早结束的；还没送出的不丢", async () => {
         const {jobs, run} = center({perSession: 100, global: 100});
         const foreground = run("p");
         jobs.attach(foreground);
         jobs.end(foreground, "completed", {reason: "completed"});
         jobs.detach(foreground, true);
         expect(jobs.get(foreground.id)).toBeUndefined();
-        const ended: Job[] = [];
+        // 还没送出回执的不丢：丢了回执就没了。
+        const pending: Job[] = [];
         for (let index = 0; index < KEPT_PER_OWNER + 1; index += 1) {
             const job = run("p");
             jobs.end(job, "completed", {reason: "completed"});
-            ended.push(job);
+            pending.push(job);
         }
-        expect(jobs.get(ended[0]!.id)).toBeUndefined();
-        expect(jobs.list("p")).toHaveLength(KEPT_PER_OWNER);
+        expect(jobs.list("p")).toHaveLength(KEPT_PER_OWNER + 1);
+        // 照送达的做法领取、记成提醒已受理：之后再有一件收口时按上限丢最早的。
+        for (const job of jobs.claim("p").results) (job.exit as NoticeExit).state = "pending";
+        const last = run("p");
+        jobs.end(last, "completed", {reason: "completed"});
+        expect(jobs.get(pending[0]!.id)).toBeUndefined();
+        expect(jobs.list("p")).toHaveLength(KEPT_PER_OWNER + 1);
+    });
+
+    test("jobs.md 输出 15：回执已被取走的，点名 wait 交回“已在对话里”；结果未知的，不点名的 wait 不等它", async () => {
+        const {jobs, run} = center();
+        const taken = run("p");
+        jobs.end(taken, "completed", {reason: "completed"});
+        const [claimed] = jobs.claim("p").results;
+        const exit = claimed!.exit as NoticeExit;
+        exit.state = "pending";
+        jobs.receiptTaken(claimed!, exit);
+        expect(await jobs.wait("p", {ids: [taken.id], timeoutMs: 1_000, signal: never})).toMatchObject({kind: "ready", inContext: "yes"});
+
+        const unknown = run("p");
+        jobs.end(unknown, "completed", {reason: "completed"});
+        (jobs.claim("p").results[0]!.exit as NoticeExit).state = "unconfirmed";
+        expect(await jobs.wait("p", {timeoutMs: 1_000, signal: never})).toEqual({kind: "failed", code: "no-jobs"});
+    });
+
+    test("subagents.md 输出 26：已经作为提醒送出的提问，前台跟随不再交一次", async () => {
+        const {clock, jobs, run} = center();
+        const job = run("p");
+        jobs.question(job, {id: "q1", text: "要几章？"});
+        expect(jobs.claim("p").questions).toEqual([job]);
+        jobs.attach(job);
+        const following = jobs.follow(job, {timeoutMs: 1_000, signal: never});
+        await clock.advance(1_000);
+        expect(await following).toBe("timeout");
+        jobs.detach(job, false);
     });
 });
 
@@ -330,10 +388,10 @@ describe("后台命令", () => {
         await turn(session, [{tool: "jobs"}, {tool: "kill", args: {job: jobId}}, {tool: "wait"}, "好"]);
         expect((await results(session, "nbook.agent.jobs"))[0]!.text).toContain(`${jobId}（命令：sleep 30）运行中`);
         expect((await results(session, "nbook.agent.kill"))[0]!.text).toBe(`已停止 ${jobId}。`);
-        // 停掉之后回执作为提醒进了 `kill` 之后的那次请求（jobs.md 的回执），`wait` 不再交回一次。
-        const receipt = (await session.path()).find((event) => event.type === "hostNotice");
-        expect((receipt?.data as {text?: string} | undefined)?.text).toContain(`命令 ${jobId}：sleep 30｜已停止`);
-        expect((await results(session, "nbook.agent.wait"))[0]!.text).toContain("没有可等的任务");
+        // 回执恰好到一次（jobs.md 输出 13）：送达先于下一次请求时作为提醒送来、`wait` 没有可等的；否则由 `wait` 交回。
+        const waited = (await results(session, "nbook.agent.wait"))[0]!.text;
+        const receipts = [waited, ...(await session.path()).filter((event) => event.type === "hostNotice").map((event) => (event.data as {text: string}).text)].filter((text) => text.includes("已停止"));
+        expect(receipts).toHaveLength(1);
         expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "aborted"});
     });
 
@@ -354,8 +412,10 @@ describe("后台命令", () => {
         await waitUntil("唤起的运行跑完", async () => (await session.snapshot()).status.state === "idle");
         const runs = (await session.log({afterSeq: 0})).events.filter((event) => event.type === "runStarted").map((event) => event.data as {wake?: true; by?: {kind: string}});
         expect(runs.at(-1)).toMatchObject({wake: true, by: {kind: "host"}});
+        // 恰好一次：唤起之后只有一次请求，回执在里面只出现一遍。
         const asked = endpoint.requests.slice(before).map((request) => JSON.stringify(request.messages));
-        expect(asked.filter((text) => text.includes("做完了"))).toHaveLength(1);
+        expect(asked).toHaveLength(1);
+        expect(asked[0]!.split("退出码 0").length - 1).toBe(1);
         expect((await notices(session))[0]).toContain("退出码 0");
         await waitUntil("账本清空", async () => !(await Bun.file(join(w.stateRoot, "agent", "jobs", "ledger.json")).exists()));
     });

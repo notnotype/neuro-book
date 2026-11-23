@@ -247,6 +247,22 @@ describe("派发与结果", () => {
 });
 
 describe("提问与插话", () => {
+    test("jobs.md 输出 14：用户在子会话里直接停掉后台子代理，回执照送、写“被用户停止”、不唤起父会话", async () => {
+        const {w, parent} = await open();
+        const held = endpoint.holdFor("慢慢做");
+        await turn(parent, "派", [adhoc("慢慢做", {async: true}), "好"]);
+        await held.arrived;
+        const child = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!.sessionId!;
+        const stopping = w.service.session(child, {asUser: true}).abort({commandId: cid(), keepQueue: true});
+        held.release();
+        expect((await stopping).ok).toBe(true);
+        await waitUntil("回执待发", async () => (await parent.snapshot()).notices.length === 1);
+        const snapshot = await parent.snapshot();
+        expect(snapshot.notices[0]).toMatchObject({wake: false, senderOnly: true});
+        expect(snapshot.notices[0]!.text).toContain("被用户停止");
+        expect((await parent.log({afterSeq: 0})).events.filter((event) => event.type === "runStarted")).toHaveLength(1);
+    });
+
     test("jobs.md 的回执：后台子代理向父 Agent 提问，提醒唤起空闲的父会话、请求里有题干；前台回答时结果由这次调用交回，不另送回执", async () => {
         const {w, parent} = await open({"nbook.agent/profileSettings": {[MAIN_PROFILE]: {agents: {added: [MAIN_PROFILE], removed: []}}}});
         endpoint.scriptFor("按大纲起草", {tool: "ask", args: {questions: [{question: "要几章？", options: [{label: "三章"}, {label: "五章"}]}]}}, "按三章写完了。");

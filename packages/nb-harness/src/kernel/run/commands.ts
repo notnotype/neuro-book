@@ -383,9 +383,9 @@ export function abortCommand(host: CommandHost, issuer: Issuer, args: CommandMap
     if (running !== undefined) return running.then((result) => (result.ok ? {...result, replayed: true} : result));
     // 句柄坏了：新的停止写不下受理记录，不登记、不中止（损坏时运行已经停了）。已提交的键在上面按记录重放。
     if (core.broken) return Promise.resolve({ok: false, code: "log-broken"} as CommandResult<"abort">);
-    // 点名的那次运行已经不在跑（收口了，或已是下一次）：什么都不动（runtime.md 输出 120）。
-    if (args.runId !== undefined && control.active?.runId !== args.runId) return Promise.resolve({ok: true, value: {aborted: false}, seq: core.head, replayed: false});
     if (control.active !== null && !canAbort(core.header, core.leafState.kernel.runBy ?? USER, issuer)) return Promise.resolve({ok: false, code: "not-allowed"} as CommandResult<"abort">);
+    // 点名的那次运行已经不在跑（收口了，或已是下一次）：什么都不动（runtime.md 输出 120）。权限照在跑的那次判。
+    if (args.runId !== undefined && control.active?.runId !== args.runId) return Promise.resolve({ok: true, value: {aborted: false}, seq: core.head, replayed: false});
     const settled = control.recordStop({by: issuer, keep: args.keepQueue === true, scope: core.session.kernel.buffer.map((item) => item.id)}, {commandId: args.commandId, argsHash});
     if (settled === null) return Promise.resolve({ok: true, value: {aborted: false}, seq: core.head, replayed: false});
     const first = (async (): Promise<CommandResult<"abort">> => {

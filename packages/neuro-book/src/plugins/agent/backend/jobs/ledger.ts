@@ -2,8 +2,9 @@
  * 后台任务的账本（docs/specs/agent/jobs.md 的回执约定）：任务表只在内存里，服务端停止或重启时还没交出回执的任务会丢掉回执。账本记下这些
  * 任务，下次启动时给它们的启动方补发一条“服务重启时中断”（或“停止前已结束、回执没来得及送出”）的回执，不唤起。
  *
- * 账本跟着任务中心的变化整份重写（临时文件改名，同一时刻只有本进程写）：一项在任务开始时出现，回执有了出口（前台或 `wait` 交回、提醒已
- * 受理、只送了短回执）时去掉。只记身份、状态与结果地址，不存结果的正文：全文在后台命令的输出文件或子会话的日志里。
+ * 账本跟着任务中心的变化整份重写（临时文件改名，同一时刻只有本进程写）：一项在任务开始时出现，回执进了会话（前台或 `wait` 交回、提醒已
+ * 受理）时去掉；只送了“用 wait 取”的短回执的留着，重启之后任务表空了，`wait` 再也取不到它们。只记身份、状态与结果地址，不存结果的正文：
+ * 全文在后台命令的输出文件或子会话的日志里。上次留下、这次还没补发出去的项（`#carried`）也写进每一次重写，不被盖掉。
  */
 
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
@@ -26,8 +27,8 @@ export interface LedgerEntry {
     readonly address?: string;
 }
 
-/** 这件任务的回执还没有着落：在跑，或结束了还没有出口、出口是还在送出或结果未知的提醒。 */
-const unsettled = (job: Job): boolean => job.state !== "starting" && (isLive(job.state) || job.exit === undefined || (job.exit.kind === "notice" && job.exit.state !== "pending"));
+/** 这件任务的回执还没进会话：在跑，或结束了还没有出口、只送了短回执、出口是还在送出或结果未知的提醒。 */
+const unsettled = (job: Job): boolean => job.state !== "starting" && (isLive(job.state) || job.exit === undefined || job.exit.kind === "announced" || (job.exit.kind === "notice" && job.exit.state !== "pending"));
 
 const entryOf = (job: Job): LedgerEntry => {
     const address = job.driver?.address ?? (job.target === undefined ? undefined : `子会话 ${job.target.sessionId}`);
@@ -38,6 +39,8 @@ export class JobLedger {
     #chain: Promise<void> = Promise.resolve();
     #last = "";
     #stop: (() => void) | null = null;
+    /** 上次留下、还没补发出去的项。 */
+    readonly #carried = new Map<string, LedgerEntry>();
 
     constructor(private readonly options: {readonly file: string; readonly jobs: JobCenter; readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void}) {}
 
@@ -65,23 +68,32 @@ export class JobLedger {
     }
 
     /**
-     * 启动时补发：每项给它的启动方发一条不带唤起的回执。发完（或会话已不在）就从账本去掉；暂时送不了的留到下次启动。
+     * 启动时补发：每项给它的启动方发一条不带唤起的回执。发完（或会话已不在）就从账本去掉；暂时送不了的留到下次启动。先 `follow` 再补发：
+     * 补发期间新起的任务照样进账本（审查第 1 条）。
      */
-    async replay(table: SessionTable, newId: () => string): Promise<void> {
-        const left: LedgerEntry[] = [];
-        for (const entry of await this.read()) {
+    async replay(table: SessionTable): Promise<void> {
+        const entries = await this.read();
+        for (const entry of entries) this.#carried.set(entry.id, entry);
+        this.#write();
+        for (const entry of entries) {
             const how = isLive(entry.state as Job["state"]) || entry.state === "starting" ? "服务重启时中断，没跑完" : `服务停止前已${STATE_TEXT[entry.state] ?? entry.state}，回执没来得及送出`;
             const text = `以下是你启动的后台任务的回执，不是用户说的话。\n\n【${entry.label} ${entry.id}：${entry.summary}｜${how}】${entry.address === undefined ? "" : `\n结果在：${entry.address}`}`;
-            const sent = await table.view(entry.owner, RECEIPT_ISSUER).notice({commandId: `ledger-${entry.id}`, text, wake: false, senderOnly: true}).catch((error: unknown) => ({ok: false as const, code: error instanceof Error ? error.message : String(error)}));
-            if (sent.ok || sent.code === "session-not-found") continue;
-            this.options.report("job-ledger-replay-failed", `the restart receipt for ${entry.id} could not be sent: ${sent.code}`, {session: entry.owner, job: entry.id, code: sent.code});
-            left.push(entry);
+            let code: string | null;
+            try {
+                const sent = await table.view(entry.owner, RECEIPT_ISSUER).notice({commandId: `ledger-${entry.id}`, text, wake: false, senderOnly: true});
+                code = sent.ok ? null : sent.code;
+            } catch (error) {
+                code = "threw";
+                this.options.report("job-ledger-replay-failed", `sending the restart receipt for ${entry.id} threw`, {session: entry.owner, job: entry.id, message: error instanceof Error ? error.message : String(error)});
+            }
+            if (code === null || code === "session-not-found") this.#carried.delete(entry.id);
+            else if (code !== "threw") this.options.report("job-ledger-replay-failed", `the restart receipt for ${entry.id} could not be sent: ${code}`, {session: entry.owner, job: entry.id, code});
         }
-        await this.#save(JSON.stringify(left));
+        this.#write();
     }
 
     #write(): void {
-        const entries = this.options.jobs.all().filter(unsettled).map(entryOf);
+        const entries = [...this.#carried.values(), ...this.options.jobs.all().filter(unsettled).map(entryOf)];
         const text = JSON.stringify(entries);
         if (text === this.#last) return;
         this.#last = text;

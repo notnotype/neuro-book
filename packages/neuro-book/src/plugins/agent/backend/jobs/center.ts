@@ -141,6 +141,8 @@ export class JobCenter {
     readonly #jobs = new Map<string, Job>();
     /** 等待者（`wait`、`follow`）：任一任务变了就复查。 */
     readonly #listeners = new Set<() => void>();
+    /** 回执经提醒已被取走、移出表的任务：点名 `wait` 它们时交回“已在对话里”，不报 `job-unknown`（jobs.md 输出 15）。有上限。 */
+    readonly #delivered = new Map<string, Job>();
     /** 远程的 `jobsChanged` 与子代理进度：哪个会话的任务变了。 */
     readonly #owners = new Set<(owner: string) => void>();
     #closed = false;
@@ -258,7 +260,7 @@ export class JobCenter {
             job.exit = TAKEN;
             this.#jobs.delete(job.id);
         } else if (job.exit?.kind === "taken" && !isLive(job.state) && job.waiters === 0) this.#jobs.delete(job.id);
-        if (delivered && job.question !== undefined) job.questionExit = {id: job.question.id, exit: TAKEN};
+        if (delivered && job.question !== undefined && job.questionExit?.id !== job.question.id) job.questionExit = {id: job.question.id, exit: TAKEN};
         this.#changed(job);
     }
 
@@ -288,6 +290,15 @@ export class JobCenter {
         if (job.questionExit?.exit === exit) delete job.questionExit;
     }
 
+    /** 把被 `wait` 接走、写入结果却未知的回执出口放回表里。 */
+    #restore(job: Job, exit: NoticeExit): void {
+        if (!isLive(job.state)) {
+            job.exit = exit;
+            this.#jobs.set(job.id, job);
+        } else if (job.question !== undefined) job.questionExit = {id: job.question.id, exit};
+        this.#ownerChanged(job.owner);
+    }
+
     /** 只送了“用 wait 取”的短回执：之后只由 `wait` 交回。 */
     announce(job: Job, exit: NoticeExit): void {
         if (job.exit === exit) job.exit = {kind: "announced"};
@@ -298,7 +309,11 @@ export class JobCenter {
     receiptTaken(job: Job, exit: NoticeExit): void {
         if (job.exit === exit) {
             job.exit = TAKEN;
-            if (job.waiters === 0) this.#jobs.delete(job.id);
+            if (job.waiters === 0) {
+                this.#jobs.delete(job.id);
+                this.#delivered.set(job.id, job);
+                for (const old of [...this.#delivered.keys()].slice(0, Math.max(0, this.#delivered.size - KEPT_TOTAL))) this.#delivered.delete(old);
+            }
         }
         if (job.questionExit?.exit === exit) job.questionExit = {id: job.questionExit.id, exit: TAKEN};
         this.#ownerChanged(job.owner);
@@ -307,6 +322,8 @@ export class JobCenter {
     /** 送达结算了一条回执（受理、未确认、退回）：账本与远程跟着更新。 */
     receiptSettled(owner: string): void {
         this.#ownerChanged(owner);
+        // 等着的 `wait` 也要复查：未确认的回执重发成了，它就不再悬着（审查第 8 条）。
+        this.#notify();
     }
 
     /** 这个会话里出口是一条还在待发（或未确认）的提醒的任务。 */
@@ -343,13 +360,16 @@ export class JobCenter {
             candidates = [];
             for (const id of options.ids) {
                 const job = this.#jobs.get(id);
+                const delivered = this.#delivered.get(id);
+                if (job === undefined && delivered?.owner === owner) return {kind: "ready", job: delivered, others: [], inContext: "yes"};
                 if (job === undefined || job.owner !== owner || job.state === "starting") return {kind: "failed", code: "job-unknown", job: id};
                 if (job.waiters > 0) return {kind: "failed", code: "job-foreground", job: id};
                 candidates.push(job);
             }
         } else {
             // 取过的（含前台已经以中止交回、还在收口的）不再等。
-            candidates = this.list(owner).filter((job) => job.waiters === 0 && job.exit?.kind !== "taken");
+            // 送出时结果未知的回执悬着、等核对：不点名的 `wait` 不等它（jobs.md 输出 15）。
+            candidates = this.list(owner).filter((job) => job.waiters === 0 && job.exit?.kind !== "taken" && !(job.exit?.kind === "notice" && job.exit.state === "unconfirmed"));
         }
         if (candidates.length === 0) return {kind: "failed", code: "no-jobs"};
         const named = options.ids !== undefined;
@@ -376,6 +396,8 @@ export class JobCenter {
         // 这件回执之前经提醒送出过：撤回那条提醒、问清它在不在对话里。
         const deliver = async ({job, prior}: {readonly job: Job; readonly prior: JobExit | undefined}): Promise<WaitOutcome> => {
             const inContext: InContext = prior?.kind === "notice" && this.options.takeover !== undefined ? await this.options.takeover(job, prior) : "no";
+            // 接过时那条回执的写入结果未知：出口放回去，等句柄关闭后按原样重发核对；否则它就再没人重发（审查第 2 条）。
+            if (inContext === "maybe" && prior?.kind === "notice" && prior.state === "unconfirmed") this.#restore(job, prior);
             return {kind: "ready", job, others: candidates.filter((other) => other !== job), inContext};
         };
         const now = take();
@@ -418,7 +440,8 @@ export class JobCenter {
     async follow(job: Job, options: {readonly timeoutMs: number; readonly signal: AbortSignal; readonly interrupted?: Promise<void>; readonly answered?: string}): Promise<FollowOutcome> {
         const ready = (): FollowOutcome | undefined => {
             if (!isLive(job.state)) return "ended";
-            return job.state === "question" && job.question !== undefined && job.question.id !== options.answered ? "question" : undefined;
+            // 已经作为提醒送出的提问不再由前台交一次（审查第 7 条）：模型从提醒里看到它。
+            return job.state === "question" && job.question !== undefined && job.question.id !== options.answered && job.questionExit?.id !== job.question.id ? "question" : undefined;
         };
         const now = ready();
         if (now !== undefined) return now;
@@ -475,7 +498,8 @@ export class JobCenter {
 
     /** 结束了、没取过的后台任务按会话与全部各留上限个，先丢最早结束的（jobs.md 输出 6）。 */
     #trim(owner: string): void {
-        const kept = (filter: (job: Job) => boolean) => [...this.#jobs.values()].filter((job) => !isLive(job.state) && job.exit?.kind !== "taken" && job.waiters === 0 && filter(job)).sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0));
+        // 只丢回执已经进了会话缓冲区的（提醒已受理）：还没送出、只送了短回执的留着，丢了回执就没了（审查第 3 条）。
+        const kept = (filter: (job: Job) => boolean) => [...this.#jobs.values()].filter((job) => !isLive(job.state) && job.exit?.kind === "notice" && job.exit.state === "pending" && job.waiters === 0 && filter(job)).sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0));
         const own = kept((job) => job.owner === owner);
         for (const job of own.slice(0, Math.max(0, own.length - KEPT_PER_OWNER))) this.#jobs.delete(job.id);
         const all = kept(() => true);

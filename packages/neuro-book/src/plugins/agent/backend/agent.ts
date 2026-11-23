@@ -383,12 +383,17 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         return created;
     }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
     const children = new ChildRuns({table, jobs, report: options.report});
-    delivery = new JobDelivery({jobs, table, isRoot: (id) => relations.parentOf(id) === null, newId: () => crypto.randomUUID(), report: options.report});
+    // 根会话：会话头没有调用方（读索引，不看会话关系表：启动时关系表可能还没载全）。
+    const isRoot = async (id: string) => {
+        const entry = await store.entry(id);
+        return !entry.ok || entry.value.caller === undefined;
+    };
+    delivery = new JobDelivery({jobs, table, clock, isRoot, newId: () => crypto.randomUUID(), report: options.report});
     delivery.start();
-    // 账本：先补发上次留下的回执，再跟着任务中心写（jobs.md 的回执约定）。补发要开会话，不挡住启动。
+    // 账本：先跟着任务中心写，再补发上次留下的回执（jobs.md 输出 17）。补发要开会话，不挡住启动。
     const ledger = new JobLedger({file: join(options.stateRoot, "agent", "jobs", "ledger.json"), jobs, report: options.report});
-    const replayed = ledger.replay(table, () => crypto.randomUUID()).catch((error: unknown) => options.report("job-ledger-replay-failed", "replaying the job ledger threw", {message: error instanceof Error ? error.message : String(error)}));
-    void replayed.then(() => ledger.follow());
+    ledger.follow();
+    const replayed = ledger.replay(table).catch((error: unknown) => options.report("job-ledger-replay-failed", "replaying the job ledger threw", {message: error instanceof Error ? error.message : String(error)}));
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
     const profileAdmin: ProfileAdmin = {

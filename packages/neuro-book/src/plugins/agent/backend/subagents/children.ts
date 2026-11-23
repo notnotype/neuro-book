@@ -100,7 +100,10 @@ export class ChildRuns {
             update();
             const run = await view.waitRun(runId);
             const line = lineOf(run);
-            jobs.end(job, STATUS_OF_REASON[run.reason], {reason: run.reason, ...(line === undefined ? {} : {line})});
+            // 用户在子会话里直接停的（不经 `killJob`）也算用户停的：回执不唤起父会话（审查第 6 条）。`RunResult` 不带停的人，从收口事件读。
+            const ended = run.reason === "aborted" ? (await view.path()).find((event) => event.type === "runEnded" && (event.data as {runId?: string}).runId === runId) : undefined;
+            const byUser = (ended?.data as {stoppedBy?: Issuer} | undefined)?.stoppedBy?.kind === "user";
+            jobs.end(job, STATUS_OF_REASON[run.reason], {reason: run.reason, ...(line === undefined ? {} : {line}), ...(byUser ? {byUser: true as const} : {})});
         } catch (error) {
             // 子会话打不开，或插件正在停止：照实记成中断，等它的调用与 `wait` 都能收口。
             this.options.report("subagent-follow-failed", `could not follow the run ${runId} of sub-agent session ${child}`, {session: child, message: error instanceof Error ? error.message : String(error)});
