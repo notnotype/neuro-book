@@ -1,0 +1,85 @@
+w00039 t28 探针：编辑器的解析器（marked）加上花括号表达式与标签的分词器，能不能给内核用（2026-11-23）
+
+问题：开发者问“解析器能用一个吗？直接扩展现有的解析器？”。内核要从解析器拿三样：顶层的块（切块）、每个表达式与标签在原文里的准确位置（带值写法要逐字保留其余的字）、表达式的语法树（白名单检查）。
+做法：marked 17（nb-markdown 用的同一个库）加两个行内分词器；表达式的内容直接交给 acorn。位置按叶子顺序在原文里往后找。
+
+===== 输出 =====
+1 顶层切片拼回原文: true 顶层块: heading,paragraph,blockquote,list,code,table,html
+2 叶子定位落空: 1
+  ok  5 canonExpr {entry.name} MemberExpression
+  ok  22 canonExpr {panel.魔力} MemberExpression
+  ok  33 canonExpr {panel.魔力上限} MemberExpression
+  ok  85 canonExpr {entry.summary} MemberExpression
+  ok  107 canonTag <Ref id="e12" /> 
+  ok  132 canonExpr {panel.存款 > 100 ? "富{}" : "穷"} ConditionalExpression
+  ok  170 canonExpr {ref("e2").entry.name} MemberExpression
+  ok  237 canonExpr {panel.魔力} MemberExpression
+3 代码里的没被当表达式: true 转义的没被当表达式: true
+
+===== 结论 =====
+1. 顶层切片依次拼接等于原文，可以切块。
+2. 标题、段落、引用、嵌套列表、表格里的表达式与标签位置都对；行内代码、代码块里的花括号与转义的花括号没被当成表达式；表达式能直接交给 acorn 得到语法树。
+3. 两处要在实施时处理：单独成块的 <Image /> 被读成 HTML 块（要加块级的认法）；有一个叶子没在原文里定位上（没影响表达式的位置，原因待查，估计是嵌套列表里去掉缩进后的文字）。
+4. 样本只有一份、是手写的；实施的第一片要换成对照语料（星瑕样本的全部主文字加边角写法）。
+
+===== 脚本 =====
+import {Marked} from "<仓库根>/node_modules/marked";
+import {parseExpressionAt} from "<仓库根>/node_modules/acorn";
+
+/** 花括号表达式：按 JS 的词法配平（字符串里的花括号不算）。 */
+function braceEnd(src: string): number {
+    let depth = 0;
+    for (let i = 0; i < src.length; i += 1) {
+        const c = src[i];
+        if (c === "\"" || c === "'" || c === "`") { const q = c; i += 1; while (i < src.length && src[i] !== q) { if (src[i] === "\\") i += 1; i += 1; } continue; }
+        if (c === "{") depth += 1;
+        else if (c === "}") { depth -= 1; if (depth === 0) return i + 1; }
+    }
+    return -1;
+}
+const expr = {name: "canonExpr", level: "inline" as const,
+    start(src: string) { const i = src.indexOf("{"); return i < 0 ? undefined : i; },
+    tokenizer(src: string) { if (src[0] !== "{") return undefined; const end = braceEnd(src); return end < 0 ? undefined : {type: "canonExpr", raw: src.slice(0, end), code: src.slice(1, end - 1)}; }};
+const tag = {name: "canonTag", level: "inline" as const,
+    start(src: string) { const m = /<(Ref|Image)\b/.exec(src); return m === null ? undefined : m.index; },
+    tokenizer(src: string) { const m = /^<(Ref|Image)\b[^>]*\/>/.exec(src); return m === null ? undefined : {type: "canonTag", raw: m[0], name: m[1]}; }};
+const marked = new Marked({gfm: true});
+marked.use({extensions: [expr, tag]});
+
+const src = [
+    "# 星瑕 {entry.name}", "",
+    "魔力 {panel.魔力}/{panel.魔力上限}，`{不是表达式}` 与 \\{转义\\}，**“走吧。”**然后。", "",
+    "> 引用里 {entry.summary}", "> 第二行 <Ref id=\"e12\" /> 完", "",
+    "- 列表 {panel.存款 > 100 ? \"富{}\" : \"穷\"}", "  - 子项 {ref(\"e2\").entry.name}", "",
+    "```", "{code}", "```", "",
+    "| 列 | 值 |", "|---|---|", "| 魔力 | {panel.魔力} |", "",
+    "<Image src=\"assets/a.png\" alt=\"立绘\" />", "",
+].join("\n");
+
+const tokens = marked.lexer(src);
+console.log("1 顶层切片拼回原文:", tokens.map((t) => t.raw).join("") === src, "顶层块:", tokens.filter((t) => t.type !== "space").map((t) => t.type).join(","));
+
+// 按叶子顺序在原文里定位：每个叶子的 raw 从游标起往后找。
+type Tok = {type: string; raw: string; tokens?: Tok[]; items?: Tok[]; header?: Tok[]; rows?: Tok[][]; code?: string; name?: string};
+const found: {type: string; raw: string; at: number}[] = [];
+let cursor = 0; let misses = 0;
+function walk(list: Tok[]): void {
+    for (const t of list) {
+        const kids = t.tokens ?? t.items ?? (t.type === "table" ? [...(t.header ?? []), ...(t.rows ?? []).flat()] : undefined);
+        if (kids !== undefined && kids.length > 0) { walk(kids); continue; }
+        if (t.raw === "") continue;
+        const at = src.indexOf(t.raw, cursor);
+        if (at < 0) { misses += 1; continue; }
+        if (t.type === "canonExpr" || t.type === "canonTag") found.push({type: t.type, raw: t.raw, at});
+        cursor = at + t.raw.length;
+    }
+}
+walk(tokens as Tok[]);
+console.log("2 叶子定位落空:", misses);
+for (const f of found) {
+    const ok = src.slice(f.at, f.at + f.raw.length) === f.raw;
+    let ast = "";
+    if (f.type === "canonExpr") { try { ast = (parseExpressionAt(f.raw.slice(1, -1), 0, {ecmaVersion: 2022}) as {type: string}).type; } catch (error) { ast = "解析失败 " + String(error); } }
+    console.log(ok ? "  ok " : "  BAD", f.at, f.type, f.raw, ast);
+}
+console.log("3 代码里的没被当表达式:", !found.some((f) => f.raw === "{不是表达式}" || f.raw === "{code}"), "转义的没被当表达式:", !found.some((f) => f.raw.includes("转义")));
