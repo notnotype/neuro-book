@@ -14,7 +14,7 @@ import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, wa
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
-import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
+import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -23,6 +23,7 @@ import {gridRectStyle, leafShapeClip, liftedRectStyle, useContentLayer} from "./
 import {useHeldLifted} from "./useHeldLifted";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";
+import {useGridSwap} from "./useGridSwap";
 import {useLeafParking} from "./useLeafParking";
 import {useGridFocus} from "./useGridFocus";
 import {useLayoutExtent} from "./useLayoutExtent";
@@ -164,57 +165,8 @@ const {moving, growing, following, flying, keptSize, anchoredRight, held} = moti
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
-/**
- * 交换进行中每一项在带上是换上来的还是离开的（`data-swap`）。叶与内容项按它们的叶属于哪一组认，所以交换开始之后才挂上来的内容项也裁在窗里；
- * 分隔线按组里记下的键认。
- */
-const swapSide = computed(() => {
-    const band = motion.band.value;
-    const leaves = new Map<string, "in" | "out">();
-    band?.groups.forEach((group, index) => {
-        for (const leaf of group.leaves) leaves.set(leaf, index === band.target ? "in" : "out");
-    });
-    return {leaves, keys: swapSides(band)};
-});
-function swapSideOf(item: GridLayerItem<unknown>): "in" | "out" | undefined {
-    if (item.kind === "leaf") return swapSide.value.leaves.get(item.node.id);
-    if (item.kind === "content") return swapSide.value.leaves.get(item.leaf);
-    return swapSide.value.keys.get(item.key);
-}
-/** 静止的底（`swap-backdrop`）：交换进行中才有。 */
-const swapBackdrop = computed(() => {
-    const band = motion.band.value;
-    if (band === null) return null;
-    const {outer, window} = band;
-    const inset = [window.y - outer.y, outer.x + outer.width - (window.x + window.width), outer.y + outer.height - (window.y + window.height), window.x - outer.x] as const;
-    return {style: gridRectStyle(outer), inset, radius: band.radius};
-});
-/** 这一刻在交换里的叶（节点 id，含离开的）：过渡结束就空了。 */
-const swappingLeaves = computed<ReadonlySet<string>>(() => new Set(swapSide.value.leaves.keys()));
-/** 带上的项按裁切窗裁：窗在网格里不动，每一帧的裁切跟着元素此刻的矩形，和 `left`/`top` 同一段过渡。 */
-function swapClipStyle(item: GridLayerItem<unknown>, rect: GridRect): Record<string, string> {
-    const band = motion.band.value;
-    return band === null || swapSideOf(item) === undefined ? {} : {clipPath: swapWindowClip(band, rect)};
-}
-
-/**
- * 宿主给的交换只在 `token` 变了的那一轮刷新里有效：在属性写进来的那一刻（同步）记下，布局变化的 watcher 用掉它；这一轮没有布局变化
- * （点了没有改变布局、提交被拒）时 `nextTick` 作废，不留给后面不相干的布局变化。宿主在同一个同步段里给交换、提交布局，两者在同一轮刷新里到。
- */
-let freshSwap: GridSwap | null = null;
-watch(() => props.swap?.token, () => {
-    const swap = props.swap;
-    freshSwap = swap;
-    if (swap === null) return;
-    void nextTick(() => {
-        if (freshSwap === swap) freshSwap = null;
-    });
-}, {flush: "sync"});
-function takeSwap(): GridSwap | null {
-    const swap = freshSwap;
-    freshSwap = null;
-    return swap;
-}
+const {swapSide, swapSideOf, swapBackdrop, swappingLeaves, swapClipStyle, offerSwap, takeSwap} = useGridSwap(motion.band);
+watch(() => props.swap?.token, () => offerSwap(props.swap), {flush: "sync"});
 
 /** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
 const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
