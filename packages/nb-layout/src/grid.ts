@@ -406,7 +406,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         return {ok: true, sizes, collapsed};
     }
 
-    /** 把一批计划写回活树（只在全部计划通过后调用）。 */
+    /** 把单个分支的计划写回活树（`resizeBranch` 用，规划通过后才调用）。 */
     function applyBranchResize(branchId: string, axis: GridAxis, sizes: Record<string, number>): void {
         const hit = find(branchId);
         if (!hit || hit.node.kind !== "branch") {
@@ -421,17 +421,18 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
     }
 
     /**
-     * 一次手势的批量原子入口：在同一棵候选树上按加入顺序逐项规划，全部通过后一次写回。
+     * 一次手势的批量原子入口：在同一棵候选树上按加入顺序逐项规划，全部通过后候选树整棵换成活树。
      * 任一分支的收起状态在本场改变时，先应用到候选分支再规划（收起改变几何，也改变可分配范围）。
+     * 换树之后旧的节点引用失效（`moveLeaf` 同样换树）；宿主靠 `revision` 重读 `root()`，不跨提交持有节点。
      */
     function resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult {
         if (changes.length === 0) {
             return {ok: true, intents: {}, collapsed: {}};
         }
         const candidate = tree ? cloneNode(tree) : null;
-        const plans: {branchId: string; axis: GridAxis; sizes: Record<string, number>}[] = [];
+        const plans: {axis: GridAxis; sizes: Record<string, number>}[] = [];
         /** `presented` 是这次变化的基线：收起时按比例分的面板记它（输出 148）。 */
-        const collapseChanges: {branchId: string; axis: GridAxis; id: string; value: boolean; presented: number | undefined}[] = [];
+        const collapseChanges: {axis: GridAxis; id: string; value: boolean; presented: number | undefined}[] = [];
         for (const change of changes) {
             const hit = find(change.branchId, candidate);
             if (!hit) {
@@ -452,9 +453,9 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 }
             });
             for (const [id, value] of Object.entries(planned.collapsed)) {
-                collapseChanges.push({branchId: branch.id, axis: change.axis, id, value, presented: change.baseline[id]});
+                collapseChanges.push({axis: change.axis, id, value, presented: change.baseline[id]});
             }
-            plans.push({branchId: branch.id, axis: change.axis, sizes: planned.sizes});
+            plans.push({axis: change.axis, sizes: planned.sizes});
         }
         const intents: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
         for (const plan of plans) {
@@ -463,21 +464,17 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 intents[id] = {...base, [plan.axis]: value};
             }
         }
-        // 全部计划先在候选树上通过，然后一次写回活树（失败路径不会留下半批修改）。
-        for (const plan of plans) {
-            applyBranchResize(plan.branchId, plan.axis, plan.sizes);
-        }
         const collapsed: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
         for (const entry of collapseChanges) {
-            const holder = find(entry.branchId);
-            if (holder?.node.kind === "branch") {
-                const target = holder.node.children.find((item) => item.id === entry.id);
-                if (target?.collapse) {
-                    target.collapse = entry.value ? collapsedRemembering(target, entry.axis, entry.presented) : {...target.collapse, collapsed: false};
-                }
+            // 规划时候选分支已写上 `collapsed`；收起时再补记恢复尺寸，它读的意图要等全部尺寸写完（见 `collapsedRemembering`）。
+            const target = find(entry.id, candidate)?.node;
+            if (entry.value && target?.collapse) {
+                target.collapse = collapsedRemembering(target, entry.axis, entry.presented);
             }
             collapsed[entry.id] = entry.value;
         }
+        // 全部计划都在候选树上通过之后才换树（失败路径不会留下半批修改）。
+        tree = candidate;
         return {ok: true, intents, collapsed};
     }
 
