@@ -667,8 +667,7 @@ const isCommitResult = (value: unknown): boolean => typeof value === "object" &&
 const describe = (value: unknown): string => (value === null ? "null" : Array.isArray(value) ? "an array" : value instanceof Promise ? "a Promise" : typeof value);
 
 onBeforeUnmount(() => {
-    // 先收尾手势再通知：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
-    scope.dispose();
+    // 手势在 `useSashGesture` 自己的卸载钩子里先收尾（它在这条之前注册）：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
     // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
     emit("extent", null);
 });

@@ -9,7 +9,6 @@ import {defineComponent, h, nextTick, shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
 import {useSashGesture} from "./useSashGesture";
-import type {SashGestureScope} from "./useSashGesture";
 
 /** 目标上此刻挂着的监听（类型加是否捕获）。 */
 function tracked(element: EventTarget): Set<string> {
@@ -28,23 +27,22 @@ function tracked(element: EventTarget): Set<string> {
     return live;
 }
 
-function host(root: ShallowRef<HTMLElement | null>): {scope: () => SashGestureScope} {
-    let scope: SashGestureScope | null = null;
-    mount(defineComponent({
+function host(root: ShallowRef<HTMLElement | null>): {unmount: () => void} {
+    const wrapper = mount(defineComponent({
         setup() {
-            scope = useSashGesture({host: () => null, root});
+            useSashGesture({host: () => null, root});
             return () => h("div");
         },
     }));
-    return {scope: () => scope!};
+    return {unmount: () => wrapper.unmount()};
 }
 
 describe("useSashGesture 的根元素", () => {
-    it("根从 A 换成 B：A 上的监听全部摘掉，B 上挂好；根置空之后 dispose，B 上也不留", async () => {
+    it("根从 A 换成 B：A 上的监听全部摘掉，B 上挂好；根置空之后卸载，B 上也不留", async () => {
         const [a, b] = [document.createElement("div"), document.createElement("div")];
         const [onA, onB] = [tracked(a), tracked(b)];
         const root = shallowRef<HTMLElement | null>(a);
-        const {scope} = host(root);
+        const {unmount} = host(root);
         expect(onA.size).toBeGreaterThan(0);
         root.value = b;
         await nextTick();
@@ -52,7 +50,7 @@ describe("useSashGesture 的根元素", () => {
         expect(onB.size).toBeGreaterThan(0);
         root.value = null;
         await nextTick();
-        scope().dispose();
+        unmount();
         expect([...onB]).toEqual([]);
     });
 

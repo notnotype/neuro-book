@@ -45,7 +45,6 @@ export type SashGestureScope = {
     blur(): void;
     /** 外部事实（树 / 约束 / 容器 / 上下文）变化：进行中的手势不结算。 */
     invalidate(): void;
-    dispose(): void;
 };
 
 export type SashGestureOptions<S, C> = {
@@ -651,6 +650,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }
 
+    // 先收尾手势再让组件的其余卸载逻辑通知宿主：Vue 按注册顺序调用 beforeUnmount，所以这条必须在 setup 里先于组件自己的
+    // `onBeforeUnmount`（NestedGrid 的 `extent: null`）注册，调用方要把 `useSashGesture` 放在组件里最前面。这样宿主的监听在通知里抛出时，手势也已经结束。
     onBeforeUnmount(teardown);
 
     return {
@@ -690,7 +691,6 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             }
             resetHover();
         },
-        dispose: teardown,
     };
 }
 

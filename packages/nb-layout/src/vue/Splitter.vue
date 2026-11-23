@@ -6,7 +6,7 @@ import type {HTMLAttributes} from "vue";
  *
  * 几何一律 CSS px：`sizesPx` 与 `panels` 同序，合计等于面板空间（不含 sash 占用）。没有百分比往返。
  */
-import {computed, onBeforeUnmount, provide, ref, useId, watch} from "vue";
+import {computed, provide, ref, useId, watch} from "vue";
 import {allocateSashPanels, sashPanelBounds, type SashPanel} from "../grid-geometry";
 import {DEFAULT_SASH_SIZE} from "../grid-rects";
 import {ariaMax, panelBounds, sashPanelsOfConfig} from "./grid-splitter";
@@ -300,10 +300,6 @@ watch(() => props.disabled, (disabled) => {
     if (disabled) {
         scope.invalidate();
     }
-});
-
-onBeforeUnmount(() => {
-    scope.invalidate();
 });
 </script>
 
