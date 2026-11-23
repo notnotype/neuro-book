@@ -48,6 +48,7 @@ owners:
 - 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-layout](../ui/workbench-layout.md) 的“边界与兼容”）。
 - 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: string, reveal?: "end", group?: string}`；`editor` 是编辑器 id，缺省按输出 37 的顺序选；`reveal: "end"` 打开后把光标放到末尾（输出 29）；`group` 见输出 35。
 - 页面贡献点 `editor.pages`（输出 33，只接受浏览器入口）：声明 `{title, icon, openOnFirstVisit?}`，实现 `{load(): Promise<Component>}`，组件收到 `{context: {recent}}`（`recent` 是输出 31 的最近打开）。页面 id 的规则与视图相同。声明另可写 `instances?: true`、`restore?: true`；实现另可给 `title(arg)`、`initialState(arg)`、`breadcrumbs(arg)`；组件收到的 `context` 每个标签一份，另带 `arg` 与 `state`（planned，见输出 33 的“带参数与可恢复的页面”）。
+- 页面的实现另可给 `uncommitted(arg): boolean` 与 `commit(arg): Promise<void>`（planned，输出 68）。
 - 编辑器贡献点 `editor.editors`（输出 36–41，只接受浏览器入口）：
   - 声明 `{title, selector?: {extensions?: string[], filenames?: string[]}, priority: "default" | "option", input: "text" | "bytes", role?: "preview", cursor?: "offset" | "line"}`。`extensions` 写不带点的小写后缀，可以多段（`d.ts`）；`filenames` 写完整文件名。`cursor` 是这种编辑器记光标的写法（输出 30），没有就不记。
   - 实现 `{load(): Promise<Component>}`；组件按下面的控件合同接收绑定。
@@ -217,7 +218,7 @@ owners:
 
 **页面**
 
-33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。没有声明 `restore` 的页面标签刷新后不恢复（输出 5；`restore` 见本条末尾 planned 的一段）：活动的是这样的页面时，恢复后活动的是它的相邻标签。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（`editor.tabs` 读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。页面组件加载期间，内容区是一句给读屏的“正在加载页面”（`role="status"`，这个容器带 `aria-busy="true"`）；加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`。 **带参数与可恢复的页面**：
+33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty（页面自己报告未提交内容的见输出 68，planned）、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。没有声明 `restore` 的页面标签刷新后不恢复（输出 5；`restore` 见本条末尾 planned 的一段）：活动的是这样的页面时，恢复后活动的是它的相邻标签。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（`editor.tabs` 读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。页面组件加载期间，内容区是一句给读屏的“正在加载页面”（`role="status"`，这个容器带 `aria-busy="true"`）；加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`。 **带参数与可恢复的页面**：
     - **参数**：声明 `instances: true` 的页面按参数开多个。`open-page {id, arg}` 的 `arg` 是 1 到 200 个字符的字符串，这种页面必须带，别的页面带了为 `invalid-args`（planned）。标签的身份是页面 id 加 `arg`（地址 `page://<id>?<编码后的 arg>`，`arg` 里可以有任何字符）：同一个 `arg` 已经开着就切过去，不同的 `arg` 各开一个。`instances` 与 `openOnFirstVisit` 不能同写（自动打开不带参数），同写时声明被拒。
     - **每个标签一份 `context`**：`recent`、这个标签的 `arg`（不带参数的页面没有）与 `state`。`state` 是编辑器给这个标签的一个响应式对象，实现给了 `initialState(arg)` 时用它的返回值作初值，否则是空对象；页面把要跨“切走再回来”保留的界面状态放在里面（页面标签只在活动时渲染，切走时组件卸载，组件里的状态不保留）。`state` 随标签：标签移到别的组时还在，标签关闭时丢弃，不存盘，刷新后恢复的标签拿到初值（planned）。
     - **标题**：实现可以给 `title(arg)`，返回文字值或 null。编辑器在标签条里响应式地读它，返回值变了标题跟着变（planned）。编辑器给声明了 `restore` 的标签记着最近一次得到的非空标题；`title(arg)` 为 null、没给或贡献方已经停止时显示记着的那个，再没有就显示声明的标题。
@@ -319,6 +320,9 @@ owners:
 ### 约定键
 
 页面与编辑器声明里的 `title` 是界面文字值（[`ui.i18n`](../ui/i18n.md)），不写时登记时补成贡献方插件目录里的键：页面（`editor.pages`）取 `editorPages.<本地 id>.title`，编辑器（`editor.editors`）取 `editors.<本地 id>.title`（规则见 [`ui.i18n`](../ui/i18n.md) 的“约定键”）。本地 id 是贡献 id 去掉开头的 `<插件 id>.`。编辑区标题与编辑器标签右键两处菜单位置没有约定键，只按 [`workbench.menus`](menus.md) 输出 9 补命名空间。
+
+68. **页面的未提交内容**（planned）：页面的实现给了 `uncommitted(arg)` 时，编辑区响应式地读它：为真时这个页面标签显示未保存的圆点（输出 53），不在前台的标签同样显示；活动标签是这样的页面时公开状态 `dirty` 为真。实现给了 `commit(arg)` 时，活动标签是这个页面，`nbook.editor.save`（Ctrl+S、命令面板）调用它并等它完成；没给的页面 `nbook.editor.save` 照旧不可用。页面仍然没有文档：不进未保存的计数（`nbook.editor.unsaved`）与全部保存，不自动保存，关闭标签、离开页面与桌面窗口关闭时都不询问（输出 4、66）；没提交的内容关掉以后还在不在，由页面自己负责。
+69. **可嵌入的代码输入框**（planned）：编辑器插件经服务另交一个组件，给别的插件在自己的页面里放一个源码输入框：属性是文字、语言、只读与可读名，事件是文字变了、请求保存（焦点在它里面时按 Ctrl+S）与光标的位置；高度随内容。外观、语法配色与字号同源码编辑器（输出 65）。它不对应文件：没有文档、标签、未保存状态与文件菜单；文字由使用方给，使用方换了文字时它换内容、光标尽量留在原处，自己输入引起的回声不重设。还没进入视野、也没拿到焦点时可以先只画等宽的原文。
 
 ## 状态与转换
 
