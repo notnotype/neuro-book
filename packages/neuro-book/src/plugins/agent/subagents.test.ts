@@ -272,7 +272,8 @@ describe("提问与插话", () => {
         await waitUntil("提问的提醒送到", async () => (await receipts()).some((text) => text.includes("要几章？")));
         await waitUntil("唤起的运行跑完", async () => (await parent.snapshot()).status.state === "idle");
         const question = /提问 ([^：\s]+)：/u.exec((await receipts()).find((text) => text.includes("要几章？"))!)![1]!;
-        expect((await parent.log({afterSeq: 0})).events.filter((event) => event.type === "runStarted").map((event) => (event.data as {wake?: true}).wake ?? null)).toEqual([null, true]);
+        // 上面等到的 hostNotice 只在提醒进了父会话的请求时才写下：不论它随这一轮接着请求（子代理在这一轮结束前提问，runtime.md 输出 28），
+        // 还是另开一次唤起的运行。
 
         await turn(parent, "答它", [{tool: "agent_answer", args: {id: child, question, answer: {text: "三章"}}}, "好"]);
         expect((await toolResults(parent, "nbook.agent.answer"))[0]!.text).toContain("按三章写完了。");

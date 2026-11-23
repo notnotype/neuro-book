@@ -12,11 +12,17 @@ import {createTestClock, createTestModel, defaultTestProfile} from "@notnotype/n
 import {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineProfile} from "@notnotype/nb-harness/kernel";
 
 import {JobCenter, KEPT_PER_OWNER, type Job, type NoticeExit} from "./backend/jobs/center";
 import {JobLedger} from "./backend/jobs/ledger";
 import {watchSteer} from "./backend/jobs/steer";
 import {MAIN_PROFILE} from "./shared/contracts";
+import {agentProfile, agentTool} from "./shared/points";
+import type {AgentToolServices} from "./shared/resources";
+import type {ToolJob} from "./backend/jobs/tool-jobs";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, Scripted} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
@@ -541,6 +547,55 @@ describe("后台命令", () => {
         const [ran] = await results(session, "nbook.agent.shell");
         expect(ran!.details?.jobId).toBeUndefined();
         expect(ran!.text).toContain("前台做完");
+    });
+
+    test("工具里登记任务：插件的工具在调用里登记一种任务，结束时回执送回；调用结算之后登记不了；插件停止时它的任务被停下、按中断收口", async () => {
+        const TOOL = "test.jobsrc.longrun";
+        const PROFILE = "test.jobsrc.writer";
+        const handles: {services?: AgentToolServices; job?: ToolJob; stopped: boolean[]} = {stopped: []};
+        const declared = agentTool(TOOL, {description: "起一件长任务", parameters: {type: "object"}, version: "1", effect: "read"});
+        const profile = agentProfile(PROFILE, {name: "登记", description: "测试用", tools: {required: [TOOL], optional: []}});
+        const plugin: PluginDefinition = {id: "test.jobsrc", entries: [defineEntry({id: "server", location: "server", activationEvents: [declared.activationEvent, profile.activationEvent], contributions: [declared.contribution, profile.contribution], activate: () => ({contributions: {
+            "agent.profiles": {[PROFILE]: defineProfile({id: PROFILE, version: "1", name: "登记", description: "测试用", system: "你登记任务。", tools: {required: [TOOL]}})},
+            "agent.tools": {[TOOL]: {create: (_context: unknown, services: AgentToolServices) => {
+                handles.services = services;
+                return {execute: async (_args: unknown, call: import("@notnotype/nb-harness/kernel/contracts").ToolContext) => {
+                    const begun = services.jobs.begin(call, {kind: "work", label: "长任务", summary: "整理大纲", stop: (byUser) => void handles.stopped.push(byUser)});
+                    if (!begun.ok) return `登记不了：${begun.code}`;
+                    handles.job = begun.job;
+                    return `已登记 ${begun.job.id}`;
+                }};
+            }}},
+        }})})]};
+        counter += 1;
+        const w = await agentWorld(join(root, `w${String(counter)}`), {userSettings: localModelSettings(endpoint.baseUrl)});
+        worlds.push(w);
+        const registration = await w.register(plugin);
+        expect(registration.result).toMatchObject({status: "accepted"});
+        const created = await w.service.create({profile: PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        await turn(session, [{tool: "test__jobsrc__longrun"}, "好"]);
+        const job = handles.job!;
+        expect((await session.path()).some((event) => event.type === "toolResult" && (event.data as {text: string}).text === `已登记 ${job.id}`)).toBe(true);
+        // 调用结算之后：同一个服务登记不了。
+        const late = handles.services!.jobs.begin({invocation: "not-running", sessionId: session.id} as never, {kind: "work", label: "长任务", summary: "晚了", stop: () => undefined});
+        expect(late).toEqual({ok: false, code: "unavailable"});
+        job.progress("整理到第三章");
+        job.end("completed", "大纲整理完了");
+        await waitUntil("回执送到", async () => (await notices(session)).some((text) => text.includes("大纲整理完了")));
+        expect((await notices(session)).find((text) => text.includes("大纲整理完了"))).toContain(`长任务 ${job.id}：整理大纲`);
+
+        // 再登记一件，插件停止：它被停下、按中断收口，之后句柄不起作用。
+        await waitUntil("父会话空闲", async () => (await session.snapshot()).status.state === "idle");
+        await turn(session, [{tool: "test__jobsrc__longrun"}, "好"]);
+        const second = handles.job!;
+        expect(second.id).not.toBe(job.id);
+        await registration.stop();
+        await waitUntil("插件的停止被调到", () => handles.stopped.length === 1);
+        expect(handles.stopped).toEqual([false]);
+        // 插件连同它的 Profile 一起停了，会话只读、开不起运行：回执留在待发里，内容写明按中断收口。
+        await waitUntil("第二件按中断收口", async () => (await session.snapshot()).notices.some((item) => item.text.includes(second.id) && item.text.includes("已中断")));
     });
 
     test("输出 8：插件停止时在跑的后台命令按 interrupted 收口，status.json 照写", async () => {

@@ -875,6 +875,7 @@
         },
         "job": {
             "shell": "Background command \"{{command}}\" is running",
+            "plugin": "{{label}} \"{{name}}\" is running",
             "agent": "Sub-agent \"{{name}}\" is running"
         }
     }

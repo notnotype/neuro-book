@@ -39,6 +39,7 @@ import {RequestOwners} from "./requests";
 import {ChildRuns} from "./subagents/children";
 import {JobDelivery} from "./jobs/delivery";
 import {JobLedger} from "./jobs/ledger";
+import {toolJobs} from "./jobs/tool-jobs";
 import {evalNotices, type EvalNotices} from "./eval/notices";
 import {SessionRelations} from "./subagents/relations";
 import {isModeSwitch, type PendingItem} from "./subagents/result";
@@ -183,7 +184,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     let hostRef: AgentHost | null = null;
     // 全局对象（contributions.md 输出 25）：声明在进程生命期内不变，挑一次。
     const evalObjects = validEvalObjects(options.declarations, KERNEL_NAMES, options.report);
-    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
+    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId, scope) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context), jobs: toolJobs(jobs, scope)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,

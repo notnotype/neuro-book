@@ -875,6 +875,7 @@
         },
         "job": {
             "shell": "后台命令「{{command}}」正在运行",
+            "plugin": "{{label}}「{{name}}」正在运行",
             "agent": "子代理「{{name}}」正在运行"
         }
     }

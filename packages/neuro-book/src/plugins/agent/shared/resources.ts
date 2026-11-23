@@ -4,6 +4,7 @@
  */
 
 import type {ServerFilesResult, StagedSink, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
+import type {ToolJobs} from "../backend/jobs/tool-jobs";
 
 /** 地址的分类（输出 2）：算不算作品内容；Agent 写它是放行、要询问还是拒绝。审批按它判断。 */
 export interface ResourceClass {
@@ -55,4 +56,6 @@ export interface SessionArtifacts {
 export interface AgentToolServices {
     readonly resources: SessionResources;
     readonly artifacts: SessionArtifacts;
+    /** 在调用里把长任务登记成 Agent 的后台任务（jobs.md 的工具登记任务）；只给内置插件用，不进插件 SDK。 */
+    readonly jobs: ToolJobs;
 }

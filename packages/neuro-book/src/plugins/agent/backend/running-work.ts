@@ -55,7 +55,8 @@ export interface AgentRunningWorkSources {
 
 /**
  * 报告方：在跑或在等用户的会话（含后台会话）按根归并，每个根一项，同根里有在跑的就算在跑；根自己已空闲或已关闭、只有后代
- * 在跑时照样报这个根。任务中心里在跑的任务每件另报一项，与会话项可以同时出现。
+ * 在跑时照样报这个根。任务中心里在跑的后台命令与插件登记的任务每件另报一项；子代理的任务不另报：它的子会话在跑，已经归到根会话
+ * 那一项里（sessions.md 输出 20），另报就成了同一件事报两次。
  */
 export function agentRunningWork(sources: AgentRunningWorkSources): ReadonlyArray<RunningWorkItem> {
     const roots = new Map<string, "running" | "waiting">();
@@ -71,7 +72,8 @@ export function agentRunningWork(sources: AgentRunningWorkSources): ReadonlyArra
         else items.push({text: agentText(state === "running" ? "work.session.running" : "work.session.waiting", {title})});
     }
     for (const job of sources.jobs.live()) {
-        items.push({text: job.kind === "shell" ? agentText("work.job.shell", {command: job.summary}) : agentText("work.job.agent", {name: job.summary})});
+        if (job.kind === "agent") continue;
+        items.push({text: job.kind === "shell" ? agentText("work.job.shell", {command: job.summary}) : agentText("work.job.plugin", {label: job.label, name: job.summary})});
     }
     return items;
 }

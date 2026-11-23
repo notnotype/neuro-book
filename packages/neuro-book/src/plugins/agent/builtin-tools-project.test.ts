@@ -80,7 +80,8 @@ async function scene(): Promise<{readonly files: WorkspaceFiles; readonly book: 
         run: async (tool, args) => {
             let implementation = built.get(tool);
             if (implementation === undefined) {
-                const services = {resources: sessionResources(files, context, tool), artifacts: sessionArtifacts(files, context)};
+                // 内置工具不登记任务：给一个总是交回 unavailable 的。
+                const services = {resources: sessionResources(files, context, tool), artifacts: sessionArtifacts(files, context), jobs: {begin: () => ({ok: false as const, code: "unavailable" as const})}};
                 implementation = await tools[tool]!.create(context, services);
                 built.set(tool, implementation);
             }
