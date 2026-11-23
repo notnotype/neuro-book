@@ -5,7 +5,7 @@
 import {computed, shallowRef, watch} from "vue";
 
 import TextConflictDialog from "nbook/plugins/canon/web/components/TextConflictDialog.vue";
-import type {ConflictChoice, ConflictItem} from "nbook/plugins/canon/web/components/TextConflictDialog.vue";
+import type {ConflictChoice, ConflictItem} from "nbook/plugins/canon/web/components/text-conflict-dialog";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";

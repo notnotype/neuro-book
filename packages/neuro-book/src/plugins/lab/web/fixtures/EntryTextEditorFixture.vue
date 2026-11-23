@@ -6,7 +6,7 @@
 import {computed, shallowRef, watch} from "vue";
 
 import EntryTextEditor from "nbook/plugins/canon/web/components/EntryTextEditor.vue";
-import type {EditorBlock} from "nbook/plugins/canon/web/components/EntryTextEditor.vue";
+import type {EditorBlock} from "nbook/plugins/canon/web/components/entry-text-editor";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";

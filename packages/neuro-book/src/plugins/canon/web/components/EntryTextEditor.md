@@ -32,6 +32,8 @@
 
 ## 数据
 
+类型 `EditorBlock` 在 `entry-text-editor.ts`（宿主逻辑也用它）。
+
 ```ts
 interface EditorBlock {
     key: string;

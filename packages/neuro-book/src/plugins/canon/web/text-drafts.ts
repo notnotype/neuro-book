@@ -14,22 +14,34 @@
  */
 
 import {Type} from "typebox";
+import type {Static} from "typebox";
 import {Value} from "typebox/value";
 import {reactive} from "vue";
 
-import {EntryEditsSchema, ReadPositionSchema} from "@notnotype/nb-canon/schema";
-import type {ReadPosition} from "@notnotype/nb-canon/schema";
+import {ReadPositionSchema} from "@notnotype/nb-canon/schema";
+import type {EntryOp, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import type {RecordHandle, Revision, StorageFailure, StorageService} from "nbook/shared/storage";
 
 import {CANON_BUDGET_BYTES, encodedBytes} from "../shared/contracts";
 import type {CanonClient, CanonFailure, CanonOutputs} from "../shared/contracts";
-import {compile, emptyDraft, hasChanges, rebase, resolve} from "./text-draft";
+import {compile, emptyDraft, hasChanges, own, rebase, resolve} from "./text-draft";
 import type {Blocked, Choice, Conflict, PendingSubmit, TextDraft, TextRead} from "./text-draft";
 import type {CanonWorld} from "./world";
 
 const Texts = Type.Record(Type.String(), Type.String());
+const BlockAt = Type.Object({entry: Type.String(), path: Type.String()});
+/**
+ * 存下来的冻结请求里的一项操作。块的文字不再存一遍：改字的 `value` 与 `read`、加块的 `source` 与稿里那一块的文字相同时省掉
+ * （几乎总是相同），读回来照稿补上。不省的话，一块几百 KB 的修改，稿存得下、请求发得出，冻结却存不下（同一段字在记录里有
+ * 两三份）。冻结期间稿不变，补回来的与冻结时逐字相同。
+ */
+const StoredOpSchema = Type.Union([
+    Type.Object({op: Type.Literal("set"), at: BlockAt, value: Type.Optional(Type.String()), read: Type.Optional(Type.String())}),
+    Type.Object({op: Type.Literal("addBlock"), entry: Type.String(), source: Type.Optional(Type.String()), after: Type.Optional(Type.Union([Type.String(), Type.Null()]))}),
+    Type.Object({op: Type.Literal("removeBlock"), at: BlockAt}),
+]);
 const DraftSchema = Type.Object({
     at: ReadPositionSchema,
     order: Type.Array(Type.String()),
@@ -39,14 +51,17 @@ const DraftSchema = Type.Object({
     routes: Type.Optional(Texts),
     moved: Type.Optional(Type.Array(Type.String())),
     merged: Type.Optional(Type.Record(Type.String(), Type.Object({into: Type.String(), head: Type.String(), joined: Type.String()}))),
+    split: Type.Optional(Type.Record(Type.String(), Type.Object({from: Type.String(), text: Type.String()}))),
     pending: Type.Optional(Type.Object({
         requestId: Type.String(),
         title: Type.String(),
         stamp: Type.Object({version: Type.Integer(), input: Type.String()}),
-        ops: EntryEditsSchema.properties.ops,
+        ops: Type.Array(StoredOpSchema),
         keys: Type.Array(Type.String()),
     })),
 });
+type StoredDraft = Static<typeof DraftSchema>;
+type StoredOp = Static<typeof StoredOpSchema>;
 
 /** 一个条目一条，键是条目 id；只在这台机器的这份浏览器配置里（`local`）。 */
 export const TEXT_DRAFTS_RECORD = defineRecord({key: "canon.text-drafts", scope: "project", locality: "local", version: 1, keyed: true, maxBytes: MAX_RECORD_MAX_BYTES, schema: DraftSchema});
@@ -186,13 +201,13 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
 
     const create = (entry: string): TextDraftSession => {
         const state: TextDraftState = reactive({loaded: false, draft: null, read: null, blocker: null, saved: "none", phase: "idle", conflicts: [], problems: {}, resumed: null});
-        let handle: RecordHandle<TextDraft> | null = null;
+        let handle: RecordHandle<StoredDraft> | null = null;
         /** 这个窗口上一次读到或写下的 revision：条件写带它。 */
         let revision: Revision | null = null;
         /** 记录是坏的或别的版本写下的：下一次写用 `reset`。 */
         let reset = false;
         /** 上一次写存储的结局不明（回执丢了）：`attempted` 是那一次要写的值（删除为 null）。下一次动存储之前先读回来核对。 */
-        let uncertain: {readonly attempted: TextDraft | null} | null = null;
+        let uncertain: {readonly attempted: StoredDraft | null} | null = null;
         /**
          * 存储里确认存着的那份稿带的冻结请求的 id（那份稿没有冻结、或还不知道存的是什么时为 null）。冻结的请求发出之前它得是
          * 这个请求（Spec 输出 46）：否则回执再丢一次、窗口关掉，重开读到的是没有冻结的旧稿，会把同样的新块再加一遍。
@@ -213,7 +228,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             return next;
         };
 
-        const open = async (): Promise<RecordHandle<TextDraft> | StorageFailure | null> => {
+        const open = async (): Promise<RecordHandle<StoredDraft> | StorageFailure | null> => {
             if (options.storage === null) return null;
             if (handle !== null) return handle;
             const opened = await options.storage.open(TEXT_DRAFTS_RECORD, entry);
@@ -226,7 +241,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
          * 上一次写的结局不明：把记录读回来。存下的就是那一次要写的，或 revision 没动（那一次没写进去），都能接着用；别的情形是
          * 别的窗口写过。读不出来时仍不明。只在队列里调用。
          */
-        const settleStorage = async (record: RecordHandle<TextDraft>): Promise<"settled" | "diverged" | "unknown"> => {
+        const settleStorage = async (record: RecordHandle<StoredDraft>): Promise<"settled" | "diverged" | "unknown"> => {
             if (uncertain === null) return "settled";
             const snapshot = await record.read();
             if (snapshot.status === "error") return "unknown";
@@ -275,7 +290,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 state.saved = "none";
                 return {ok: true as const};
             }
-            const [seq, value] = [edits, draft === null ? null : plain(draft)];
+            const [seq, value] = [edits, draft === null ? null : toStored(draft)];
             const written = value === null ? await record.remove({expect: revision}) : await (reset ? record.reset(value, {expect: revision}) : record.save(value, {expect: revision}));
             if (written.ok) {
                 revision = written.revision;
@@ -482,7 +497,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
         };
 
         const guarded = async (run: () => Promise<SubmitResult>): Promise<SubmitResult> => {
-            if (state.phase === "submitting" || state.draft === null) return {status: "busy"};
+            if (busy() || state.draft === null) return {status: "busy"};
             const from = state.phase;
             state.phase = "submitting";
             state.resumed = null;
@@ -537,13 +552,16 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             if (typeof record === "string") return false;
             const snapshot = await enqueue(() => record.read());
             if (snapshot.status === "error") return false;
+            // 读的途中稿已经有了（同一个会话的另一处先开始了编辑、作者已经在打字）：不拿读到的记录盖掉它，条件写的基线也不动。
+            // 那条记录是别的窗口的稿的话，下一次暂存照常得到“另一个窗口也在改”，由作者选。
+            if (state.draft !== null) return true;
             uncertain = null;
             revision = snapshot.revision;
             reset = snapshot.status === "corrupt" || snapshot.status === "unsupported-version";
             durable = snapshot.status === "ok" ? snapshot.value.pending?.requestId ?? null : null;
             if (snapshot.status === "ok") {
                 generation += 1;
-                state.draft = snapshot.value;
+                state.draft = fromStored(snapshot.value);
                 state.saved = "saved";
                 state.conflicts = [];
                 state.problems = {};
@@ -604,12 +622,16 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             return false;
         });
 
-        const busy = (): boolean => state.phase === "submitting";
+        /** 放弃在途（等存储把记录删掉）。这期间不发请求、不接别的动作：否则记录已经删了、请求才第一次发出去。 */
+        let leaving = false;
+        const busy = (): boolean => state.phase === "submitting" || leaving;
+        /** 在途的那一次开始编辑：同一个会话被两个页面同时点“编辑”时共用它，不各读各的。 */
+        let beginning: Promise<Blocker | null> | null = null;
 
         return {
             state,
             load,
-            begin: async (position) => {
+            begin: (position) => (beginning ??= (async (): Promise<Blocker | null> => {
                 if (busy()) return "unavailable";
                 if (state.draft !== null) return state.blocker;
                 // 每次开始编辑都重读存储：别的窗口这期间留下了稿、或上一次没删掉的稿，要接着用，不另开一份把它盖掉。
@@ -629,7 +651,9 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 state.draft = emptyDraft(read);
                 state.saved = "none";
                 return null;
-            },
+            })().finally(() => {
+                beginning = null;
+            })),
             edit: (change) => {
                 const [draft, read] = [state.draft, state.read];
                 if (draft === null || read === null || state.phase !== "idle" || draft.pending !== undefined) return;
@@ -647,13 +671,18 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             },
             discard: async () => {
                 if (busy()) return false;
-                if (!(await drop())) {
-                    state.saved = "failed";
-                    return false;
+                leaving = true;
+                try {
+                    if (!(await drop())) {
+                        state.saved = "failed";
+                        return false;
+                    }
+                    leave();
+                    state.saved = "none";
+                    return true;
+                } finally {
+                    leaving = false;
                 }
-                leave();
-                state.saved = "none";
-                return true;
             },
             // 有冻结着的请求时不另发一次：先把它的结局弄清楚。
             submit: (title) => (state.draft?.pending !== undefined ? confirm() : guarded(() => attempt(title))),
@@ -698,7 +727,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                     return;
                 }
                 generation += 1;
-                state.draft = snapshot.value;
+                state.draft = fromStored(snapshot.value);
                 state.saved = "saved";
                 state.conflicts = [];
                 state.problems = {};
@@ -736,7 +765,34 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
     };
 }
 
-/** 稿的一份普通对象副本（存储的调用要结构化复制，响应式代理过不去）。 */
-function plain(draft: TextDraft): TextDraft {
-    return JSON.parse(JSON.stringify(draft)) as TextDraft;
+/** 稿存下去的样子：一份普通对象副本（存储的调用要结构化复制，响应式代理过不去），冻结的请求里省掉与稿重复的文字。 */
+function toStored(draft: TextDraft): StoredDraft {
+    const {pending, ...rest} = JSON.parse(JSON.stringify(draft)) as TextDraft;
+    if (pending === undefined) return rest as StoredDraft;
+    const ops = pending.ops.map((op, index): StoredOp => {
+        const key = pending.keys[index] ?? "";
+        if (op.op === "set") {
+            const {value, read, ...kept} = op;
+            return {...kept, ...(value === own(rest.texts, key) ? {} : {value}), ...(read === undefined || read === own(rest.base, key) ? {} : {read})} as StoredOp;
+        }
+        if (op.op === "addBlock") {
+            const {source, ...kept} = op;
+            return {...kept, ...(source === own(rest.texts, key) ? {} : {source})};
+        }
+        return op as StoredOp;
+    });
+    return {...rest, pending: {...pending, ops}} as StoredDraft;
+}
+
+/** 读回来的记录还原成稿：冻结的请求里省掉的文字照稿补上。 */
+function fromStored(stored: StoredDraft): TextDraft {
+    const {pending, ...rest} = stored;
+    if (pending === undefined) return rest;
+    const ops = pending.ops.map((op, index): EntryOp => {
+        const key = pending.keys[index] ?? "";
+        if (op.op === "set") return {...op, value: op.value ?? own(rest.texts, key) ?? "", read: op.read ?? own(rest.base, key) ?? ""};
+        if (op.op === "addBlock") return {...op, source: op.source ?? own(rest.texts, key) ?? ""};
+        return op;
+    });
+    return {...rest, pending: {...pending, ops}};
 }

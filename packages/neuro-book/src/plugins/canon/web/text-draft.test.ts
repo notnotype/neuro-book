@@ -252,6 +252,43 @@ describe("author-ui 输出 44：世界变了以后把稿对到新读的块上", 
         expect(rebase(merged, changed).conflicts).toEqual([{kind: "changed", key: "b2", mine: null, theirs: "乙（别处改了）", structural: true}]);
     });
 
+    it("拆过的块别处也改了、选“现在的”：拆出去没再改过的那一半一起撤掉，不留下两份；拆出去以后又改过的那一半留着", () => {
+        const source = read([free("b1", "甲\n\n乙", 0)]);
+        const split = splitAt(emptyDraft(source), source, "b1", 1);
+        const changed = read([free("b1", "别处改甲\n\n乙", 0)], 2);
+        const rebased = rebase(split.draft, changed);
+        expect(rebased.conflicts).toEqual([{kind: "changed", key: "b1", mine: "甲", theirs: "别处改甲\n\n乙", structural: true}]);
+        const settled = resolve(rebased.draft, changed, rebased.conflicts[0]!, "theirs");
+        expect([settled.order, hasChanges(settled), compile(settled, changed, "e1").ops]).toEqual([["b1"], false, []]);
+
+        const edited = rebase(setText(split.draft, source, split.key, "乙（拆出来以后又改了）"), changed);
+        const kept = resolve(edited.draft, changed, edited.conflicts[0]!, "theirs");
+        expect(kept.order.map((key) => textOf(kept, changed, key))).toEqual(["别处改甲\n\n乙", "乙（拆出来以后又改了）"]);
+    });
+
+    it("并过的旧块后来被剧情碰了（原文与写回的地方都没变）：列成冲突，照现在的来就把整项并撤掉，两块都回到没动过", () => {
+        const merged = mergeUp(emptyDraft(PLAIN), PLAIN, "b2")!.draft;
+        // 后面的章里有一条剧情变更换掉了 b1：在这个位置上它的原文与写回的地方都没变，但已经只能改字了。
+        const touched = read([{...free("b1", "甲", 0), fixed: ["c9"]}, free("b2", "乙", 1), free("b3", "丙", 2)], 2);
+        const rebased = rebase(merged, touched);
+        expect(rebased.conflicts).toMatchObject([{kind: "locked", key: "b1", remove: false, structural: true}]);
+        expect(resolve(rebased.draft, touched, rebased.conflicts[0]!, "theirs")).toEqual(emptyDraft(touched));
+    });
+
+    it("新块后面紧挨着的剧情块挂在别处（中间的初值块被剧情删了）：不越过它，那一块写明放不进去", () => {
+        const a: TextBlockInfo = {id: "b1", source: "A", write: "init", fixed: ["c2"], anchor: "b1", init: 0};
+        const x: TextBlockInfo = {id: "b4", source: "X", write: "change", change: "c2", fixed: ["c2"], anchor: "b1"};
+        const b: TextBlockInfo = {id: "b2", source: "B", write: "init", fixed: ["c3"], anchor: "b2", init: 1};
+        const y: TextBlockInfo = {id: "b5", source: "Y", write: "change", change: "c3", fixed: ["c3"], anchor: "b2"};
+        const before = read([a, x, b, y, free("b3", "C", 2)]);
+        const added = addAfter(emptyDraft(before), "b4", "跟在 X 后面");
+        // 别处在剧情里删掉了 B：X 与 Y 挨在一起了，Y 仍挂在 B 那一处。
+        const after = read([a, x, y, free("b3", "C", 2)], 2);
+        const rebased = rebase(added.draft, after);
+        expect([rebased.conflicts, rebased.draft.order]).toEqual([[], ["b1", "b4", added.key, "b5", "b3"]]);
+        expect([...compile(rebased.draft, after, "e1").problems]).toEqual([[added.key, {kind: "before-story"}]]);
+    });
+
     it("新块并进被剧情换过的块只是给它加字：不算换过文字，照常提交", () => {
         const added = addAfter(emptyDraft(LAYERED), "b2", "新写的一段。");
         const merged = mergeUp(added.draft, LAYERED, added.key)!;

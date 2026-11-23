@@ -11,7 +11,7 @@ import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {canonCatalogs} from "../text";
 import EntryTextEditor from "./EntryTextEditor.vue";
-import type {EditorBlock} from "./EntryTextEditor.vue";
+import type {EditorBlock} from "./entry-text-editor";
 
 const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
 const free = {edit: "", remove: "", split: "", merge: "", add: ""};
