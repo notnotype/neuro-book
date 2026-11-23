@@ -33,11 +33,16 @@ export function writeBack(world: World, position: ReadPosition, at: Address): Wr
     if (view === undefined) return {kind: "line-not-found"};
     const origins = view.engine.origins(at, position, "actual");
     if (origins === "chapter-not-found") return {kind: "chapter-not-found"};
+    return routeFrom(view.synthetic, origins);
+}
+
+/** 按一个地址的来历判断写回哪里；`synthetic` 是这条线上从别的线带过来的那些合成变更。 */
+function routeFrom(synthetic: ReadonlySet<string>, origins: readonly OriginStep[]): WriteBack {
     // 精确档的核对点不改值，只有把值定下来的那种（anchor）算一步。
     const last = origins.filter((step) => step.kind !== "check" || step.result === "anchor").at(-1)!;
     if (last.kind === "init") return {kind: "init"};
     if (last.kind === "patch") {
-        if (view.synthetic.has(last.change)) return {kind: "carried"};
+        if (synthetic.has(last.change)) return {kind: "carried"};
         if (last.op !== "add" && last.op !== "note") return {kind: "change", change: last.change, origins};
     }
     return {kind: "accumulated", origins};
@@ -117,35 +122,60 @@ export function textBlocks(world: World, entry: string, position: ReadPosition):
     const initIndex = new Map((world.data.entries.get(entry)?.init.text ?? []).map((block, index) => [block.id, index] as const));
     const touched = textTouches(world, entry);
     /**
+     * 一块在这个位置上的来历，每块只读一次：写回哪里与锚点都从它算。读一次来历要重放一遍这个条目的事件；剧情里一块接一块
+     * 往后补的段落，每块的锚点是上一块，逐块、逐步各读一次就是块数的平方次（200 块要十几秒，这期间挡着写队列）。
+     */
+    const originsMemo = new Map<string, readonly OriginStep[] | null>();
+    const originsOf = (block: string): readonly OriginStep[] | null => {
+        let found = originsMemo.get(block);
+        if (found === undefined) {
+            const read = line.engine.origins({entry, path: `text[${block}]`}, at, "actual");
+            found = read === "chapter-not-found" ? null : read;
+            originsMemo.set(block, found);
+        }
+        return found;
+    };
+    /**
      * 一块在这条线、这个位置上是哪条补丁加出来的，取那条补丁的锚点；找不到（从别的线带过来的、来历里没有增块的一步）为
      * undefined。按这条线的来历找，不按全部变更找：两条不相交的线上可以各有一块同号的块，挂在不同的地方。
      */
     const addedAfter = (block: string): string | null | undefined => {
-        const origins = line.engine.origins({entry, path: `text[${block}]`}, at, "actual");
-        if (origins === "chapter-not-found") return undefined;
-        const step = [...origins].reverse().find((item) => item.kind === "patch" && item.op === "addBlock");
+        const step = [...(originsOf(block) ?? [])].reverse().find((item) => item.kind === "patch" && item.op === "addBlock");
         if (step === undefined || step.kind !== "patch") return undefined;
         const patch = world.data.changes.get(step.change)?.patches.find((item) => item.op === "addBlock" && item.at.entry === entry && blockOf(item) === block);
         return patch === undefined ? undefined : afterOf(patch);
     };
-    /** 沿锚点追到初值里的块；中途断了为 undefined。 */
+    /** 沿锚点追到初值里的块；中途断了为 undefined。路上经过的块结果相同，一并记下：一条锚点链上每块只追一次。 */
+    const anchorMemo = new Map<string, string | null | undefined>();
     const anchorOf = (block: string): string | null | undefined => {
-        const seen = new Set<string>();
+        const path: string[] = [];
         let current: string | null = block;
-        while (current !== null && !initIndex.has(current)) {
-            if (seen.has(current)) return undefined;
-            seen.add(current);
+        let result: string | null | undefined;
+        for (;;) {
+            if (current === null || initIndex.has(current)) {
+                result = current;
+                break;
+            }
+            if (anchorMemo.has(current)) {
+                result = anchorMemo.get(current);
+                break;
+            }
+            // 转回了这一趟走过的块（坏数据里锚点成环）：追不到。
+            if (path.includes(current)) break;
+            path.push(current);
             const next = addedAfter(current);
-            if (next === undefined) return undefined;
+            if (next === undefined) break;
             current = next;
         }
-        return current;
+        for (const id of path) anchorMemo.set(id, result);
+        return result;
     };
     const blocks = view.text.map((block): TextBlockInfo => {
         const init = initIndex.get(block.id);
         const fixed = touched.get(block.id) ?? [];
         // 初值里的块没被任何变更碰过：它的来历只有初值一步，不必为每一块重放一遍条目的事件（块也不能从别的线带过来）。
-        const back: WriteBack = init !== undefined && fixed.length === 0 ? {kind: "init"} : writeBack(world, at, {entry, path: `text[${block.id}]`});
+        const origins = init !== undefined && fixed.length === 0 ? undefined : originsOf(block.id);
+        const back: WriteBack = origins === undefined ? {kind: "init"} : origins === null ? {kind: "chapter-not-found"} : routeFrom(line.synthetic, origins);
         const anchor = anchorOf(block.id);
         return {
             id: block.id,

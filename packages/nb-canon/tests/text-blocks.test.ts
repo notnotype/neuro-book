@@ -418,6 +418,24 @@ describe("canon.project 的 textBlocks：主文字的块能怎么改", () => {
         }
     });
 
+    test("剧情里一块接一块往后补了 150 块：每块的锚点都追到初值的那一块，一次读取不随块数平方变慢", async () => {
+        const scene = await open("anchor-chain", ["A", "B"]);
+        try {
+            const count = 150;
+            // 第 2 章的一条变更：x0 挂在 B 后面，x1 挂在 x0 后面……每块的锚点是上一块，链长 150。
+            await scene.change({kind: "chapter", chapter: "ch2", key: 5}, Array.from({length: count}, (_, index): Patch => ({op: "addBlock", at: scene.at(`x${String(index)}`), value: {after: index === 0 ? "b2" : `x${String(index - 1)}`, source: `第 ${String(index + 1)} 段`}})));
+            const started = performance.now();
+            const blocks = scene.blocks(end("ch3"));
+            const elapsed = performance.now() - started;
+            expect(blocks.map((block) => block.id)).toEqual(["b1", "b2", ...Array.from({length: count}, (_, index) => `x${String(index)}`)]);
+            expect(blocks.slice(2).filter((block) => block.anchor !== "b2" || block.write !== "change")).toEqual([]);
+            // 每块读一次来历时是零点几秒；逐块沿链重读（平方次）在这个规模上要十秒上下。界线放在两者之间，留足余量。
+            expect(elapsed).toBeLessThan(3000);
+        } finally {
+            await scene.world.stop();
+        }
+    }, 30_000);
+
     test("条目不存在或已删除为 null；位置的章不在是 chapter-not-found", async () => {
         const scene = await open("missing", ["A"]);
         try {
