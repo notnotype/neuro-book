@@ -106,7 +106,7 @@ interface ProvidedRow {
 type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 命令 id 以提供方插件 id 加 "." 开头；至多 4 个参数，值至多 200 个字符
 ```
 
-- 行的文字值、进度与时刻的规则同 `TaskInput`；一行编码后至多 2 KiB；一家至多 100 行。`owner` 的标题规则同任务标题。
+- 行的文字值与进度的规则同 `TaskInput`；时刻是 `Date` 能表示的毫秒数；一行按发给窗口的样子编码后至多 2 KiB；一家至多 100 行。`owner` 的标题规则同任务标题。
 - `waiting` 是等用户处理（例如等批准），算在跑。
 
 （planned）远程服务 `nbook.tasks/tasks` 版本 2 取代下面的版本 1：
@@ -174,11 +174,11 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 16. **文字跟随界面语言。** 视图、条目、提示与通知里的任务标题与进展按窗口当前语言翻；切换语言后原地换文字，任务不变。
 17. （planned）**关闭服务前报出。** `nbook.tasks` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），每件在跑的任务报一项，写它的标题。
 18. （planned）**提供方登记。** 服务端插件经 `provide` 把自己登记成提供方，每次登记是新的一代。交回的撤回函数只第一次调用起作用，清单关闭之后调用是空操作；登记方的入口停止（门面释放）时自动撤回。一个调用方同一时刻只能有一个，再调用同步抛 `TypeError`；撤回之后可以再登记。`start` 的 `owner` 按行的同样规则校验，不合格同步抛 `TypeError`。
-19. （planned）**行。** 清单读提供方的 `rows()` 时逐行校验：不合格的行（字段、上限、`kind` 的写法、`open` 的命令不是它自己的）丢掉，记诊断 `provider-row-invalid`（行 id 与原因，不含正文）；同 id 的留第一个。提供方在同一代里不复用已经消失的行 id：键只带代次与行 id，复用会让旧窗口迟到的操作落到新的那一行上。一家超过 100 行时先留全部在跑与 `waiting` 的（含组头），结束的按结束时刻新到旧补满。`kind` 盖成 `<提供方插件>.<kind>`。提供方的行没有“移除”“重试”“详情”，输出 7 的移除、清除已结束与输出 8 的上限都不管它们：它们何时离开清单由提供方定。
+19. （planned）**行。** 清单读提供方的 `rows()` 时逐行校验：不合格的行（字段、上限、`kind` 的写法、`open` 的命令不是它自己的）丢掉，记诊断 `provider-row-invalid`（行 id 与原因，不含正文；同一行同一原因只记一次）；同 id 的留第一个；取某一行的字段时抛错，按输出 20 当作这一家出错。提供方在同一代里不复用已经消失的行 id：键只带代次与行 id，复用会让旧窗口迟到的操作落到新的那一行上。一家超过 100 行时先留全部在跑与 `waiting` 的（含组头），结束的按结束时刻新到旧补满，其余不列、只计数（进 `more` 与后台工作的件数），记诊断 `provider-rows-capped`（一直超出时只记一次）。`kind` 盖成 `<提供方插件>.<kind>`。提供方的行没有“移除”“重试”“详情”，输出 7 的移除、清除已结束与输出 8 的上限都不管它们：它们何时离开清单由提供方定。
 20. （planned）**隔离。** 提供方的 `notify` 只标记有变化；行在推送合并时读，所有订阅共用一份已读的快照，一次变化只读一次。一家的 `rows()` 抛错时，这一家的行清空、记诊断 `provider-failed`（连续失败只记一次），别家照常；它下一次 `notify` 时再读。
 21. （planned）**撤回、关闭与代次。** 撤回时先封住这一家的操作（之后的 `stop` 得 `row-gone`），它在途的 `stop` 立即以“未知”交回窗口并 abort 它们的 `signal`，提供方之后的结果丢弃；再退订，丢掉它的行与回调，推送一次。`nbook.tasks` 停止时对每家照做。撤回之后旧一代的 `notify` 不起作用。窗口拿到的每行有一个带代次的键：提供方停用又登记之后，对旧一代的行的操作得 `row-gone`，不落到新一代的同名行上。
 22. （planned）**归属与范围。** 每行属于应用、某个项目或某个根会话；`start` 不给 `owner` 的属于应用。窗口按范围取行：“当前项目”取应用、这个项目与全部会话的行，“全部项目”取全部。
-23. （planned）**远程合同版本 2。** 事件 `ownChanged` 推 `{tasks, background}`：`tasks` 是自己的全部任务，规则同输出 9（整份超过 512 KiB 时跳过推送、`own` 得 `too-large`）；`background` 是不分范围的在跑后台一次性工作（自己在跑的任务，加提供方不是前台的在跑行）的件数与前 20 件的标题、进展与进度，它变了也推。事件 `rowsChanged` 按订阅时的范围推 `{version, groups, more, elsewhere}`：`groups` 按输出 26 分好组，每行带键、来源（自己或哪家提供方）、种类与可做的操作；`more` 是范围内因上限没列出的件数；`elsewhere` 是范围外在跑的件数；内容没变不重推。整份编码后超过 512 KiB 时依次不列：提供方结束的行（最早结束的先）、自己结束但不是失败的任务（最早结束的先）、不是组头的在跑行（最早开始的先）、组头；自己失败的任务一直列。版本 1 的窗口连上得 `version-changed`。
+23. （planned）**远程合同版本 2。** 事件 `ownChanged` 推 `{tasks, background}`：`tasks` 是自己的全部任务，规则同输出 9（整份超过 512 KiB 时跳过推送、`own` 得 `too-large`）；`background` 是不分范围的在跑后台一次性工作（自己在跑的任务，加提供方不是前台的在跑行）的件数与前 20 件的标题、进展与进度，它变了也推。事件 `rowsChanged` 按订阅时的范围推 `{version, groups, more, elsewhere}`：`groups` 按输出 26 分好组，每行带键、来源（自己或哪家提供方）、种类与可做的操作；`more` 是范围内因上限（一家 100 行与整份 512 KiB）没列出的件数；`elsewhere` 是范围外在跑的件数；内容没变不重推。整份编码后超过 512 KiB 时依次不列：提供方结束的行（最早结束的先）、自己结束但不是失败的任务（最早结束的先）、不是组头的在跑行（最早开始的先）、组头；自己失败的任务一直列。版本 1 的窗口连上得 `version-changed`。
 24. （planned）**停止。** 窗口对 `stoppable` 的提供方的行执行 `stop`：清单按最新读到的行查键，转给提供方，交回它给的结果，已受理、被拒（带原因）或未知；提供方 10 秒内没有结果时交回未知并 abort `signal`；未知的不自动重试。行的状态只随提供方之后交出的行变。窗口里结果回来之前这一行的“停止”变成不可用的“正在停止”；被拒时弹一条提示写原因，未知时提示“不知道停没停下，看一下它的状态”，`row-gone` 时提示“它已经不在了”。
 25. （planned）**打开。** 行或会话块组头的 `open` 由窗口经命令服务执行；命令交回失败时弹一条提示写原因，不以命令发出当作打开成功。
 26. （planned）**分组视图。** 输出 10 的视图改成按归属分组：
@@ -232,13 +232,13 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 | `version-changed` | （planned）窗口的远程合同是版本 1 | 刷新窗口 |
 
 - 发起方的 `retry` 抛错或失败：记诊断（`nbook.tasks`），旧行已移出，用户可以从发起方的界面再来一次。
-- 整份清单序列化后超过 512 KiB：跳过这次推送、`list` 得 `too-large`，都记诊断；窗口照旧显示上一份。按输入的长度上限，结束的 50 件到不了这个大小，只有在跑的件数极多时才会发生。
+- 整份清单序列化后超过 512 KiB：跳过这次推送、`list` 得 `too-large`，都记诊断（（planned）版本 2 里在进入超限时记一次，超限期间各窗口、各次推送不再重复记）；窗口照旧显示上一份。按输入的长度上限，结束的 50 件到不了这个大小，只有在跑的件数极多时才会发生。
 - 发起方给的文字不合格：见“输入与前置条件”。
 - `detail` 取不到（任务已移出）：“详情”对话框不打开，通知里的“详情”按发出时已取到的原文显示。
 
 ## 边界与兼容
 
-- 公开接口：服务键 `tasksKey` 与类型 `BackgroundTasks`、`TaskInput`、`TaskHandle`（`nbook/plugins/tasks/shared/contracts`）；（planned）类型 `TaskProvider`、`ProvidedRow`、`TaskOwner`；远程服务 `nbook.tasks/tasks` 版本 1（planned：版本 2，输出 23）；命令 `nbook.tasks.show`、`nbook.tasks.clear-finished`。
+- 公开接口：服务键 `tasksKey` 与类型 `BackgroundTasks`、`TaskInput`、`TaskHandle`（`nbook/plugins/tasks/shared/contracts`）；（planned）类型 `TaskProvider`、`ProvidedRow`、`OwnTaskOwner`、`RowOwner`、`RowOpen`、`StopOutcome`；远程服务 `nbook.tasks/tasks` 版本 1（planned：版本 2，输出 23）；命令 `nbook.tasks.show`、`nbook.tasks.clear-finished`。
 - （planned）提供方：种类按登记方盖章，`open` 只收登记方自己的命令；一家的行不合格或出错只影响它自己（输出 19、20）。
 - 信任边界：标题、进展与详情按纯文本渲染，不解释 HTML；详情原文不经脱敏，由发起方保证已脱敏。只有发起方自己的句柄能改它的任务；窗口只能取消、重试、移除。
 - 依赖：视图与状态栏条目经 [`workbench/views`](views.md) 与 [`ui/workbench-shell`](../ui/workbench-shell.md) 的贡献点；结束通知经 [`workbench/notifications`](notifications.md) 的通知服务。

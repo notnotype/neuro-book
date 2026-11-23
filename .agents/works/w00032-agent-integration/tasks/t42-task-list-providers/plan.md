@@ -73,7 +73,7 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 
 - `providers.ts`：登记表维护一份全局的已读快照与版本号（审查 F16）。`notify` 只标脏并触发 `rows` 一类的变化；任一 `rows` 订阅的合并器要数据时调 `registry.snapshot()`：有脏的家先清标记再读（读期间来的 `notify` 留到下一轮），版本加一；没有脏的直接交回快照。所以 N 个窗口一次变化只读一次。
 - `rows()` 抛错：这一家行清空、记诊断 `provider-failed`（连续失败只记一次），下次 `notify` 再读。
-- 核心拆两个变化信号：自己的任务变了（`own` 一类订阅听）、提供方的行变了（只有 `rows` 一类听）。Agent 的后台命令每出一行都会 `notify`，不让所有窗口的 `own` 跟着重推。
+- 变化信号只有一个（`background` 随提供方的行变，`own` 一类订阅也要听提供方）；不重推靠每个订阅按内容的指纹去重，编码只做一次。Agent 的后台命令每出一行都会 `notify`，`own` 只在自己的任务或 `background` 变了时才推。（第 1 片实现审查 Opus 6：原写的“拆两个信号”与 3.3 矛盾，按这里实现。）
 
 ### 3.3 远程合同 v2：`shared/contracts.ts`、`backend/remote.ts`
 
