@@ -201,7 +201,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作台布局 | [`ui/workbench-layout.md`](ui/workbench-layout.md) | 一棵树：骨架、面板与条、规范形、尺寸与放不下、内容层上的位移、落点规则与接受矩阵、活动栏、布局记录 |
 | 可拖动排序的分组列表 | [`ui/sortable-list.md`](ui/sortable-list.md) | `nb-layout` 的 `useSortable` 与 `SortableList`：实时布局的拖动排序、跨组、空组落点、键盘与读屏、放下后等宿主写完 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随、按矩形摆放与 Tab 顺序 |
-| 布局拖动 | [`ui/layout-drag.md`](ui/layout-drag.md) | `nb-layout` 的手势会话：起拖门槛、指针与键盘、取消、放下规则、边缘滚动，以及跨插件的落点登记 |
+| 布局拖动 | [`ui/layout-drag.md`](ui/layout-drag.md) | `nb-layout` 的手势会话：起拖门槛、指针与键盘、取消、放下规则、边缘滚动、跨插件的落点登记，以及实时布局的编排与会话 |
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 标题栏、状态栏与条目贡献点；无项目首页、卡片还是平铺、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
