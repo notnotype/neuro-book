@@ -4,9 +4,9 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import type {GridContentInput, GridDropRect, GridGestureCommit} from "@notnotype/nb-layout";
-import {DropFeedbackOverlay, NestedGrid, useGridHost, useLiveDragSession} from "@notnotype/nb-layout/vue";
-import type {GridHostIssue, LiveDragHost} from "@notnotype/nb-layout/vue";
+import type {GridContentInput, GridGestureCommit} from "@notnotype/nb-layout";
+import {DropFeedbackOverlay, NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
+import type {GridHostIssue} from "@notnotype/nb-layout/vue";
 import {ContextMenu, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem, DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
@@ -23,6 +23,7 @@ import ReadingControl from "../parts/ReadingControl.vue";
 import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
 import {cardWidthOf, createBookGrid, setCardCount, type BookPane} from "./book-grid";
+import {useDetailSwapDrag} from "./detail-swap-drag";
 import DetailShell from "./DetailShell.vue";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
@@ -212,78 +213,16 @@ function focusRemaining(except?: number): void {
     const target = rest === undefined ? root.value?.querySelector<HTMLElement>("[data-testid='main']") : root.value?.querySelector<HTMLElement>(`[data-detail-key="${rest.key}"]`);
     target?.focus();
 }
-// ---- 拖详情换边（输出 68）：两张都在时按住头部拖，在另一张上松手对调 ----
-// 会话的根是包着网格的那一层：内容层是网格根的子元素，两张不在同一块叶里。选项只在建会话时读一次，里面读的响应式值每次调用时现读。
-// 有动效时是实时布局（nb-layout 的 `useLiveDragSession`）：被拖的那张拿起跟手，在另一张上停稳后预览就是对调后的样子，回到自己那一半是原位；
-// 减少动效时会话照常是落点指示：另一张上盖一层“与这一张对调”，标题小块跟手。
+// ---- 拖详情换边（输出 68）：判定与会话在 `detail-swap-drag.ts`，这里只接线 ----
 const gridBox = ref<HTMLElement | null>(null);
 const shellOf = (key: number): HTMLElement | null => gridBox.value?.querySelector<HTMLElement>(`[data-detail-key="${String(key)}"]`) ?? null;
-function shellRect(key: number): GridDropRect | null {
-    const rect = shellOf(key)?.getBoundingClientRect();
-    return rect === undefined ? null : {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
-}
-const inside = (rect: GridDropRect, point: {readonly x: number; readonly y: number}): boolean => point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
-/** 落点：另一张（松手对调）；实时布局里回到自己那一半是原位（不提交）。 */
-type SwapDrop = {readonly key: number; readonly rect: GridDropRect; readonly inPlace?: true};
-/** 实时布局判定的几何：两张拿起时的矩形（视口坐标）。预览把另一张换到这边以后现量的话，指针下就不是它了，候选会来回换。 */
-type SwapRects = ReadonlyMap<number, GridDropRect>;
-function measureShells(): SwapRects {
-    return new Map(shownDetails.value.flatMap((item) => {
-        const rect = shellRect(item.key);
-        return rect === null ? [] : [[item.key, rect] as const];
-    }));
-}
-/** 被拖的那张的标题：过门槛时从它的把手上取一次，落点指示时跟手的小块写它。 */
-const dragTitle = ref("");
-const swapHost: LiveDragHost<number, SwapDrop, SwapRects> = {
-    facts: (_source, drop) => ({key: drop.inPlace === true ? "in-place" : `swap:${String(drop.key)}`, inPlace: drop.inPlace === true, home: false, slotOnScreen: null}),
-    show: (target) => {
-        swapPreviewed.value = target?.kind === "drop" && target.drop.inPlace !== true;
-        return swapPreviewed.value;
-    },
-    measure: () => measureShells(),
-    // 对调不摘掉来源：收起来源不改判定的几何。
-    collapsed: () => null,
-    card: {
-        key: (source) => `detail-${String(source)}`,
-        rect: (source, _container, geometry) => geometry.get(source) ?? null,
-        // 卡片里是人物卡、原文与节点图，按卡片的大小重排不便宜：缩小一点，尺寸每秒至多写 30 次。
-        compact: {width: 320, height: 240},
-        refreshMs: () => 1000 / 30,
-    },
-};
-const {state: swapDrag, liveState: swapLive, lifted: liftedDetail, dragging} = useLiveDragSession<number, SwapDrop, never, number, SwapRects>(gridBox, (live) => ({
-    sourceAt: (target) => {
-        if (shownDetails.value.length < 2 || target.closest("button, input, a, [role='menu'], [role='menuitem'], [role='tab']") !== null) return null;
-        const shell = target.closest("[data-detail-handle]")?.closest<HTMLElement>("[data-detail-key]");
-        return shell === null || shell === undefined ? null : Number(shell.dataset.detailKey);
-    },
-    activate: (source: number) => {
-        dragTitle.value = shellOf(source)?.querySelector("[data-detail-handle]")?.textContent?.trim() ?? "";
-        return true;
-    },
-    live: (source) => source,
-    host: swapHost,
+const {swapDrag, swapLive, liftedDetail, dragging, swapPreview, dragTitle} = useDetailSwapDrag({
+    gridBox,
     grid: () => gridRef.value,
-    // 拖着的时候详情变了（关掉一张、换了内容）整场取消（ui/layout-drag 输出 7）。
-    structure: () => shownDetails.value.map((item) => item.key).join(","),
-    resolve: ({source, point}) => {
-        const other = shownDetails.value.find((item) => item.key !== source);
-        if (other === undefined) return null;
-        // 实时布局用拿起时的几何（引擎量到之前这一次现量）；落点指示每次现量。
-        const rects = live.state().active ? (live.geometry() ?? measureShells()) : null;
-        const own = rects?.get(source);
-        if (own !== undefined && inside(own, point)) return {key: source, rect: own, inPlace: true};
-        const rect = rects === null ? shellRect(other.key) : (rects.get(other.key) ?? null);
-        return rect !== null && inside(rect, point) ? {key: other.key, rect} : null;
-    },
-    actionKey: (drop) => (drop.inPlace === true ? null : `swap:${String(drop.key)}`),
-    commit: (_drop, source) => book.swapDetails(source),
-}));
-/** 落点指示的盖层：只在不是实时布局时画（实时布局里反馈就是布局本身）。 */
-const swapPreview = computed(() => {
-    const drop = swapDrag.value?.drop;
-    return swapLive.value.active || drop === null || drop === undefined ? null : {areaRect: drop.rect, indicator: null, orientation: "horizontal" as const};
+    shownDetails,
+    swapPreviewed,
+    shellOf,
+    swap: (key) => book.swapDetails(key),
 });
 
 // ---- 名字上的右键菜单（输出 67）：外壳里只有这一个，`NameLink` 经注入打开。窄档看不出并排，不打开，名字照常走浏览器的菜单。 ----
