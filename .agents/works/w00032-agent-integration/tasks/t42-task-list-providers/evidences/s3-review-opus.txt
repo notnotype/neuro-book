@@ -1,0 +1,115 @@
+# t42 第 3 片实现审查（Opus，提交范围 a12ae1598..b31dc82ef）
+
+## F1 留着的话的行在会话空闲关闭（30 秒）后消失，再次打开时开始时刻跳成打开的时刻
+
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：`packages/nb-harness/src/kit/sessions/table.ts:214-229`（`activityWithBackground` 只看 `state === "open"` 的表项）、`table.ts:483-491`（`#maybeIdle` 不看 `held`）；`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:115`
+- **现象**：从清单停一个根会话（`abort({keepQueue: true})`）后，它变成“有留着的话等你放行”的组头；但会话此时空闲、没有引用（清单本身不打开会话，用户多半没在对话里开着它），`IDLE_CLOSE_MS = 30_000` 后句柄表关掉它，`activityWithBackground()` 不再列它，这一行与块的“等你处理”一起消失。之后任何读这个会话的调用把它重新打开，行又出现，`startedAt` 变成重新打开的时刻。
+- **为什么是问题**：sessions.md 输出 30 写“这一行随之变成‘有留着的话等你放行’”，没有“30 秒后消失”的例外；从清单停下恰恰是最常见的“会话没开在对话里”的场景，用户回到清单时提示已经没了，留着的话只能靠自己记得。`activity()` 的文档注释里有“空闲关闭之后不再列出，已知限制”，但那是前台活动条目的旧限制，新的清单行继承了它而 Spec 30 与计划 8 的已知限制都没写。
+- **如何核实**：真实会话表加手动时钟（`/tmp/t42-s3-review/probe/held-idle.test.ts`，在 `packages/nb-harness` 下 `bun test` 它）：停下后 `[{"id":"s-1","state":"held","startedAt":0}]`；`clock.advance(IDLE_CLOSE_MS)` 后 `[]`，日志里那条仍是 `held`；再 `snapshot()` 一次又成 `[{"id":"s-1","state":"held","startedAt":30000}]`。`task-rows.test.ts` 的“根会话在跑时一行组头……”用的是手动时钟、不推进，测不到。
+- **建议改法**：二选一交开发者：（a）句柄表在 `held` 时不起空闲计时（`#maybeIdle` 加 `!entry.held`，`#refreshHeld` 变成不 held 时再 `#maybeIdle`）——部件不变、行为与 Spec 一致，代价是留着话的会话一直开着，数量受用户操作约束；（b）写进 sessions.md 输出 30 与计划 8 的已知限制。倾向（a）。
+
+## F2 计划验收映射里的几项没有测到：focus-session 交回失败、停止结果的映射、插件登记的行、短回执后不列、等你回答、压缩
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/agent/task-rows.test.ts`（全文 7 条）、`jobs.test.ts:366-377`、`packages/nb-harness/src/kit/sessions/table.test.ts:151-174`；计划“6. 验收映射”与“7a”
+- **现象**：对照计划的映射逐项找用例（`grep -rn "focus-session\|FOCUS_SESSION" src e2e` 只命中 `task-rows.test.ts` 里断言 `open` 的参数）：
+  1. conversation.md 输出 53 的失败交回（读会话头得 `session-not-found`/`log-corrupt`/`needs-migration`、视图命令失败、编辑区页面 `elsewhere` 打不开时的提示）：没有任何用例；计划写“开工时找”，提交里没有。`session-host.test.ts` 只把 `elsewhere` 改成 async 以过类型。
+  2. jobs.md 输出 20 “停止的映射含驱动拒绝”：`jobStop` 的 `stop-failed → unknown`、`not-allowed → rejected`、`already-ended`/`job-unknown → rejected` 都没有经清单测；`jobs.test.ts` 新用例直接调 `JobCenter.kill` 配一个手写的驱动（交回 `{kind: "stop-failed"}`），真实的 `ChildRuns` 驱动交回 `stop-failed` 与远程 `killJob` 交回 `stop-failed` 都没测。
+  3. “插件登记的”（`kind: "plugin"`、`kindLabel` 取登记的 `label`）与“短回执后不列”（出口 `announced`）没有用例。
+  4. 等你回答（`pending: "question"` → “等你回答”，组头与任务行两处）、组头自己等审批（根会话 `waiting`）、“正在压缩”（omp 3）、后台根会话、句柄打开时就有留着的话（`heldAt` 取打开时刻）、标题变了重推、程序自己开的会话不出行、fork 与扫描两处记 `owned`：都没有用例；计划 7a 的组合验收（装与不装 `tasksKey`、手动压缩、后台根、只剩后代）只覆盖了“只剩后代”。
+- **为什么是问题**：这些分支都写在 Spec 的 planned 句子里，晋升时要逐句对用例；现在改错 `pendingText` 的三元、删掉 `compacting` 分支、把 `listed` 的 `announced` 判反、删掉 `UNOPENABLE` 的 `return`，现有测试全过。
+- **如何核实**（变异由主 Agent 做）：
+  - `task-rows.ts:65` 把 `item.pending === "question"` 改成 `false` → 全部用例仍过；
+  - `task-rows.ts:55` 改成 `return exit === undefined || exit.kind !== "taken"`（把 `announced` 也列）→ 全部仍过；
+  - `web/plugin.ts:903` 删掉 `if (!header.ok && UNOPENABLE.has(header.code)) return …` → 无用例失败；
+  - `task-rows.ts:164` 改成全部 `unknown` → 全部仍过。
+- **建议改法**：`task-rows.test.ts` 补：插件工具登记的任务一行（种类与标签）；预算满走短回执后整块消失（现有送达测试里有造预算满的做法）；根会话等审批、子代理问用户（`ask` 走 `questions: "user"` 的子会话或根会话）各一条看进展文字；手动 `compact` 时进展“正在压缩”；子代理驱动停不下（真实 `ChildRuns`，让子会话日志坏掉得 `log-broken`）经清单得“未知”、经远程 `killJob` 得 `stop-failed`。浏览器入口补一条 `focus-session`：会话不存在时命令交回失败、编辑区页面转交失败时出提示。
+- **更正（F2 第二个变异）**：上面 `task-rows.ts:55` 的变异写得过宽（会把“提醒已受理”也列出来，第一条用例会失败）。应改为只多列短回执：`return exit === undefined || exit.kind === "announced" || (exit.kind === "notice" && exit.state !== "pending");` → 预期现有用例全过。
+
+## F3 留着的话的行 id `session:<会话>:held` 在同一代里会复用，违反 background-tasks.md 输出 19
+
+- **严重程度**：建议；**类别**：正确性（合同）
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:95`
+- **现象**：同一会话第一次停下留话得 `session:S:held`；用户放行（开新运行，行换成 `session:S:<run2>`，held 行消失），再从清单停一次又留话，又得 `session:S:held`。同一次登记里一个已经消失的行 id 再次出现。
+- **为什么是问题**：输出 19 明写“提供方在同一代里不复用已经消失的行 id：键只带代次与行 id，复用会让旧窗口迟到的操作落到新的那一行上”（计划 7a 的 omp 6）。眼下 held 行不可停、打开的是同一个会话，所以迟到操作的实际后果小；但这是合同的字面违反，以后给 held 行加操作（例如“放行”）时就会落错。
+- **如何核实**：读代码即可；行 id 只由会话 id 与常量 `held` 组成。
+- **建议改法**：把看到留着的话的时刻带进 id：`session:${id}:held-${startedAt}`（`heldAt` 在每次 false→true 时重取，天然区分两次）；`stop` 里按前缀 `held-` 判。不想改 id 就在输出 19 写明 held 行的例外与理由。
+
+## F4 后台命令最后一行含大量控制字符时整行超过 2 KiB 被清单丢掉，命令从清单与状态栏件数里消失
+
+- **严重程度**：建议；**类别**：正确性 / 安全与性能
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:72`（`job.lastLine`、`job.outcome?.line` 原样作进展）；上限在 `tasks/backend/providers.ts:326`（按 JSON 编码后的字节量）
+- **现象**：`shell-background.ts` 的 `lastLine` 只按 UTF-8 原始字节截到 768（`capLine`），清单再截到 500 个码元，但 2 KiB 量的是 JSON 编码后的字节：C0 控制字符（ESC、NUL 等）编码成 `\u001b`，一个字符 6 字节。`QUESTION_MAX` 只管了提问，命令的输出行没管。
+- **为什么是问题**：行超过 2 KiB 时清单整行丢掉、只记一次 `provider-row-invalid`，这件后台命令在清单与状态栏“后台任务”件数里都不见了，用户停不了它（模型的 `kill` 仍可以）。
+- **如何核实**：`node /tmp/t42-s3-review/size.mjs`（按 `listedRowOf` 的形状组一行、按与清单相同的两步截短）：空标题空进展的外壳 369 字节；最后一行是 400 个汉字 → 1223 字节；npm 式的 `\x1b[1G\x1b[0K⠙` 转圈 → 1622 字节；二进制样的 `\x00\x01\x02\x7f` 重复 → 2827 字节（超出，整行丢）。常见的彩色输出在线内，真正超出的是 `cat` 二进制、带大量控制序列的 TUI 输出这类。
+- **建议改法**：在 `jobRow` 里给进展去掉控制字符（`/[\u0000-\u0008\u000b-\u001f\u007f]/gu` 换空、顺手去掉 ANSI 序列），或者按编码后字节截短进展；提问那里同样处理即可去掉 `QUESTION_MAX` 只防一处的不对称。
+
+## F5 有归属的树里的子代理任务行可停，以用户身份停会把子会话排着的话变成用户留着的——正是决定 7 不给 bot 会话“停止”的理由
+
+- **严重程度**：建议（交开发者确认）；**类别**：正确性 / 文档
+- **位置**：`task-rows.ts:86`（`stoppable: live` 不看归属）、`task-rows.ts:142` → `JobCenter.kill(null, …)` → `subagents/children.ts:54-55`（`byUser` 时用 `table.view(child)` 即用户身份 `abort({keepQueue: true, runId})`）
+- **现象**：bot 的主对话派的子代理（后台或前台）在清单里照常一行、可停；停下时子会话缓冲区里排着的话（bot 经 `agent_send` 追加的）`heldBy` 变成用户（探针 A 的“用户停止并保留排队”：`inputHeld … heldBy: {kind: "user"}`），之后只有用户能在子会话里放行；而子会话属于有归属的树，它的会话行在清单里不出（`owned` 跳过），留着的话也不会以任何行出现。
+- **为什么是问题**：决定 7 写“从清单以用户身份停 bot 会话会把它排着的来信变成用户留着的话，所以不给”；同样的后果经子代理任务行照样发生，只是落在 bot 的子会话上。jobs.md 输出 20 写“都可停”，没有区分归属，Spec 与决定之间这一处没对齐。
+- **如何核实**：读代码链；要实测可在 `task-rows.test.ts` 的“有归属的会话”用例里让 bot 派一个停在审批上的子代理、`agent_send` 追加一句，再经 `tasks.stop` 停任务行，读子会话快照的 `buffer[].heldBy`。
+- **建议改法**：交开发者二选一：有归属的树里的子代理任务行 `stoppable: false`（`agentTaskRows` 已有 `owned`，按 `relations.rootOf(job.owner)` 判，一行改动），后台命令仍可停；或者保留可停、在 jobs.md 输出 20 写明这个后果。
+
+## F6 驱动的 `kill` 抛错时 `stopByUser` 不复位，只有交回 `StopFailed` 才复位
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/jobs/center.ts:374-383`
+- **现象**：新加的复位只在 `typeof stopped === "object"` 分支里；驱动 `kill` reject 时 `await` 直接抛出，`job.stopByUser = true` 留着。会 reject 的驱动是现成的：插件登记的任务 `tool-jobs.ts:63-64` 直接 `await input.stop(byUser === true)`，插件的 `stop` 抛错就 reject；子代理驱动在会话表停止中 `table.view(child).abort` 经 `#gate` 抛 `SessionTableStopping`。
+- **为什么是问题**：注释写的不变量是“没停下：之后别的原因收口时不算用户停的”。抛错同样是没停下；之后它因为模型 `kill` 或自己结束成 `aborted` 时，`end` 会盖上 `byUser: true`，回执不唤起父会话（jobs.md 输出 11 只给真正被用户停的）。清单这边由 `providers.ts` 把 reject 记成“未知”，远程 `killJob` 则把异常抛给 RPC 层。
+- **如何核实**：`jobs.test.ts` 的新用例把驱动改成 `kill: async () => { throw new Error("x"); }`、`await expect(jobs.kill(null, job.id)).rejects…`，之后 `jobs.end(job, "aborted", …)`，`job.outcome?.byUser` 为 `true`（预期 undefined）。
+- **建议改法**：`let stopped; try { stopped = await job.driver?.kill(…); } catch (error) { if (owner === null && isLive(job.state)) delete job.stopByUser; throw error; }`，或者把抛错也归成 `{kind: "stop-failed", code: "stop-threw"}` 交回（远程 `killJob` 随之得 `stop-failed` 而不是内部错误，更贴 jobs.md 输出 4）。倾向后者，部件不增加。
+
+## F7 停一行“子会话”之后留着的话不出任何行；Spec 30 的“停一行”句与“子会话”句互相矛盾
+
+- **严重程度**：建议；**类别**：文档 / 正确性
+- **位置**：`task-rows.ts:123`（`item.id !== root && item.state === "held"` 跳过）；主工作区 `docs/specs/agent/sessions.md` 输出 30 第 2、4 个小点
+- **现象**：子会话行（用户自己在子会话里发话的那次运行）可停；停下且有排着的话时子会话成 `held`，实现直接跳过，这一块里什么也不留（根会话空闲时整块消失）。Spec 30“停一行”那一点不分组头与子会话，写“这一行随之变成‘有留着的话等你放行’，不可停”；“子会话”那一点又只列“在跑或等你处理”的。
+- **为什么是问题**：实现只符合其中一句；用户从清单停了子会话之后，要放行的话在清单里没有痕迹（前台活动条目 `activity()` 里还有，所以不是完全看不到）。
+- **如何核实**：在 `task-rows.test.ts` 的“子会话在跑……”用例里停之前 `enqueue` 一句 `followup`，停后读 `groupOf(…, parent.id)`：块不见了。
+- **建议改法**：开发者定一种：子会话的 held 也出一行（种类“子会话”、“有留着的话等你放行”，删掉 `item.state === "held"` 这个条件即可）；或在 Spec 30“停一行”里限定为组头、子会话停下后不再列。
+
+## F8 `onActivityChanged` 多出的几种触发让远程 `activityChanged` 向每个窗口重推内容相同的活动
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/nb-harness/src/kit/sessions/table.ts:457`（`pending`、`compacting`、`run` 变了也发）、`table.ts:424`（后台会话打开时有留着的话也发）；订阅方 `packages/neuro-book/src/plugins/agent/backend/remote.ts:378`（`sink.next(activity())`，不去重）
+- **现象**：`activity()` 只给 `{id, state}` 且不含后台会话，上面几种变化都不改变它的结果；但远程层每次都推一份给每个连着的窗口，`web/activity.ts:41` 每次换一个新数组，依赖它的 computed 全部重算。每次压缩前后各一次、等你的事项从审批换成提问一次、每个打开时有留着的话的后台会话一次。`subagents/tree.ts:212-221` 已经按 `JSON.stringify(table.activity())` 去重，所以子代理卡片不受影响；`running-work` 不订阅。频率不高，不会出错，只是白推。
+- **如何核实**：读代码；要量可在 `sessions.test.ts` 的远程活动用例里订阅 `activityChanged`，对一个会话手动 `compact`，数推送次数（预期多 2 次内容相同的）。
+- **建议改法**：`remote.ts` 的 `activityChanged` 照 `tree.ts` 记上一次推的 JSON、相同不推（四行）；不必让会话表分出两种信号。
+
+## F9 子代理卡片停不下来时提示“发送失败（stop-failed）。”，既说错了动作也丢了原因里的码
+
+- **严重程度**：建议；**类别**：代码质量（界面文案，前端）
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:485-488`（`killJob` 失败一律 `conversation.reject.other`）；文案 `locales/zh-CN.json` 的 `conversation.reject.other` = “发送失败（{{code}}）。”
+- **现象**：这一片让远程 `killJob` 交回 `stop-failed`（带 `detail.code`），卡片的停止照旧按“发送失败”提示，码只显示 `stop-failed`，jobs.md 失败码表写的处理“看任务的状态，必要时再停”也没有出现。
+- **为什么是问题**：停止没成功是用户必须知道的（任务可能还在跑），现在的措辞像是消息没发出去。属于本片引入的新失败码第一次到达界面。
+- **如何核实**：读代码；行为上让子代理驱动交回 `stop-failed`（见 F2 第 2 项的做法）后点卡片的停止。
+- **建议改法**：`stop-failed` 单独一条文案（例如“没能停下，它可能还在跑（{{code}}）”，码取 `detail.code`）；这是前端改动，按规矩另请前端审查看措辞。
+
+## F10 可简化：`focus-session` 另写了一遍读会话头；`jobStop` 的 `not-allowed` 分支经清单到不了
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/neuro-book/src/plugins/agent/web/plugin.ts:899-905` 与 `plugin.ts:385-393`（`sessionOwners.ownerOf`）；`backend/task-rows.ts:164`
+- **现象与改法**：
+  1. `focus-session` 为拿到失败码，自己 `remote.header` 再 `ownerTable.set`，与 `ownerOf` 的读与缓存重复；读失败且码不在 `UNOPENABLE` 时，紧接着 `ownedTree` → `ownerOf` 再读一次（同一个会话两次请求）。改法：让 `ownerOf` 的失败带上码（例如 `{kind: "unreadable", code}`，`missing` 保持），`focus-session` 用 `ownedTree` 之前那一次结果判 `UNOPENABLE`，读与缓存只留一处。
+  2. 清单停任务总是 `jobs.kill(null, …)` → 驱动以用户身份停；内核 `canAbort` 对 `issuer.kind === "user"` 恒为 true（`nb-harness/src/kernel/run/permissions.ts:42`），插件任务的驱动也从不交回 `StopFailed`，所以 `outcome.code === "not-allowed"` 这一支经清单永远走不到，所有 `stop-failed` 实际都成“未知”。保留与 jobs.md 输出 20 的句子对齐没错，但注释应写明它只为合同完整、眼下到不了，免得读者以为有用例覆盖；或者把 Spec 那半句删掉、分支一并去掉。
+
+## 未发现问题的方面
+
+- **会话表的运行与开始时刻**：非空闲的四种状态（`running`、`waiting`、`aborting`）都带 `runId`，`broken` 归空闲，所以非空闲时 `run` 不会是 null，`?? "run"` 与 `stoppable` 的 `runId !== undefined` 只是兜底；`run` 只在 id 变时换对象，`aborting → running` 同一 `runId` 不换行、不多发。`pending` 只在等用户时有，审批优先，符合计划 7b。
+- **`onActivityChanged` 漏发**：运行、等你、事项种类、压缩、留着的话五样变化都发；换运行必经空闲（探针 2），按 id 比也不依赖它。多发只有 F8 的白推，`tree.ts` 自己去重，不会出错。
+- **任务中心的清单信号**：逐个核对改变 `listed()` 或行字段的写入点：`start`/`question`/`progress`/`end`/`detach`/`receiptTaken`/`#restore`/`wait` 的取走经 `#changed` 或 `#ownerChanged`（后者现在也发清单信号）；`claim`/`unclaim`/`announce`/`attach`/`settleEarly` 单发清单信号；`delivery.ts` 把 `exit.state` 改成 `pending`/`unconfirmed` 后都紧跟 `receiptSettled`。`#trim` 只删出口是“提醒已受理”的任务，它们本来就不列，不发信号没有可见影响；`reserve`/`release` 只碰 `starting`，也不列。送达只订 `onChanged`，`claim`/`unclaim` 不发它，不会绕过退避重送。
+- **同步读与重入**：清单核心的 `notify` 只标脏，读行在 `PushThrottle` 的定时回调里，不在 `claim`/`unclaim` 的同步段里读，不会读到半截状态或重入；`unclaim`/`announce` 在循环里逐件发，即使被读，中间态也都是合法的出口。
+- **标题缓存与订阅先后**：`titles.follow(table)` 在建表时先订 `onLog`，提供方后订；而且读行是异步合并的，先后本身也不影响结果。
+- **行 id 的解析**：`lastIndexOf(":")` 对会话 id 里有 `:` 的情况正确，运行 id 是 12 位十六进制、不含 `:`；行 id 远低于 200 字符。
+- **停止**：`stop` 的 `signal` 没有用上不违反输出 24——清单到点或撤回时自己以“未知”结算并丢弃之后的结果，合同没有要求提供方响应它；会话行的停止经核心先按最新快照查键，换了运行的旧键得 `row-gone`，到不了提供方，极少数竞态下到达时 `runId` 不符得 `aborted: false` → 被拒，不停下一次运行。
+- **登记与撤回的先后**：`stop` 第一步 `revokeRows()`，之后核心封住派发、在途的停止以“未知”交回、退订；`runtime.stop()` 期间会话表与任务中心的变化调到的 `notify` 已被封住，不再读行或转来停止；`nbook.tasks` 先停时 `core.close()` 撤回，Agent 的撤回函数成空操作。
+- **focus-session 的失败交回**：`reveal` 的失败一路交回到 `open`、`new-session`、`focus-session` 三个命令；编辑区页面的 `elsewhere` 改成等结果并在失败时提示，没有形成 `focus-session` 与页面宿主之间的递归（有归属时走 `hostAt("view")`，那个宿主没有 `elsewhere`）。正常路径上先读的会话头写进归属表，`ownerOf` 不再读第二次。
+- 合同测试与类型检查：`packages/neuro-book` 下 `bun test src/plugins/agent/task-rows.test.ts src/plugins/agent/jobs.test.ts` 40 过 0 失败；`packages/nb-harness` 下 `bun test src/kit/sessions` 18 过；`packages/neuro-book` 下 `bunx tsc --noEmit` 退出码 0。
+
+## 数量
+
+阻断 0；重要 2（F1、F2）；建议 8（F3–F10）。
