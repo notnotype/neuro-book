@@ -77,7 +77,7 @@ defineSlots<{
     strip?(props: {region: PanelName; merged: string | null; idPrefix: string}): unknown;
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
     /** 拿起的内容项的头。 */
-    "lifted-head"?(props: {contentKey: string}): unknown;
+    "lifted-head"?(): unknown;
     /** 盖在分隔线之上、拿起的内容之下，不接指针。 */
     overlay?(): unknown;
     /** 浮动窗的手柄。 */
@@ -618,8 +618,8 @@ defineExpose({
                     </div>
                 </div>
             </template>
-            <template #lifted-head="{contentKey}">
-                <slot name="lifted-head" :content-key="contentKey"></slot>
+            <template #lifted-head>
+                <slot name="lifted-head"></slot>
             </template>
             <template #overlay>
                 <slot name="overlay"></slot>

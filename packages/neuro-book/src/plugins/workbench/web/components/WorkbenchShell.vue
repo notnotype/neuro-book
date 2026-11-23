@@ -1068,7 +1068,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         </WorkbenchPanelHead>
                     </WorkbenchRegionStrip>
                 </template>
-                <template #lifted-head="{contentKey}">
+                <template #lifted-head>
                     <div class="workbench-shell__card-head" data-drag-card-head>
                         <template v-if="cardTitle !== null">
                             <span v-if="cardTitle.icon !== undefined" class="workbench-shell__card-icon" :class="cardTitle.icon" aria-hidden="true"></span>

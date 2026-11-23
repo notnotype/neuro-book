@@ -141,7 +141,7 @@ const onlyRole = (doc: LayoutDoc, nodeId: string, role: PanelRecord["role"]): bo
 /**
  * 这条边是不是落点、怎么分（输出 25 到 27）。工具面板只有所在方向上的两条边，别的边没有窄带，算中央。固定的面板不参与一起分，规则在 `placeLeaf`，所以编辑区分屏不分走侧栏、面板的空间。
  */
-export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, panelId: string, edge: LayoutEdge, split: DropSplit = "half"): LayoutEdgeTarget | null {
+export function layoutEdgeTarget(doc: LayoutDoc, panelId: string, edge: LayoutEdge, split: DropSplit = "half"): LayoutEdgeTarget | null {
     const panel = doc.panels[panelId];
     if (panel === undefined) return null;
     if (panel.role === "tool") {
@@ -154,7 +154,7 @@ export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, p
 /**
  * 这条缝是不是落点（输出 26）：两边同类才是。编辑组之间，或同一列、同一排的工具面板之间；所以活动栏、侧栏、编辑区、右栏之间，编辑区与面板之间都没有缝落点，骨架插不进东西。
  */
-export function layoutSeamAccepts(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, before: string, after: string): boolean {
+export function layoutSeamAccepts(doc: LayoutDoc, before: string, after: string): boolean {
     if (onlyRole(doc, before, "editor") && onlyRole(doc, after, "editor")) return true;
     if (!onlyRole(doc, before, "tool") || !onlyRole(doc, after, "tool")) return false;
     const parent = findTreeNode(doc.tree.root, before)?.parent;
@@ -166,8 +166,9 @@ export function createLayoutPolicy(overrides: {readonly canInsert?: LayoutPolicy
     const {dropSplit, ...rest} = overrides;
     return {
         accepts: layoutAccepts,
-        edgeTarget: (doc, tabs, panel, edge) => layoutEdgeTarget(doc, tabs, panel, edge, dropSplit?.() ?? "half"),
-        seamAccepts: layoutSeamAccepts,
+        // 库把被拖的标签也传给这两个回调；工作台的规则只看目标的位置，用不上。
+        edgeTarget: (doc, _tabs, panel, edge) => layoutEdgeTarget(doc, panel, edge, dropSplit?.() ?? "half"),
+        seamAccepts: (doc, _tabs, before, after) => layoutSeamAccepts(doc, before, after),
         newId: (kind) => `${kind === "panel" ? "p" : "b"}-${crypto.randomUUID()}`,
         ...rest,
     };

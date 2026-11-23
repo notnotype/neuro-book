@@ -14,7 +14,7 @@ import {VIEW_LOCATIONS} from "../shared/views";
 import {containerRegion, moveContainerTo, regionAnchor, regionContainers, regionSections, sectionLanding} from "./state/containers";
 
 /** 活动栏这条入口条的 id：键盘区域、实时布局的“吸收它的标签条”都用它。面板 id 是随机串或名字，撞不上。 */
-export const BAR_STRIP = "activitybar";
+const BAR_STRIP = "activitybar";
 
 /** 一个区域的入口条的 id：侧栏是活动栏，右栏、底部面板是它们的入口条叶（只在呈现里，不是面板，撞不上面板 id）。 */
 export const entryStripOf = (region: PanelName): string => (region === "sidebar" ? BAR_STRIP : regionStripLeafId(region));
