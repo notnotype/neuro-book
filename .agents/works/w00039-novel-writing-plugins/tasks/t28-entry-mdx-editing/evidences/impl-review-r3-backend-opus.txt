@@ -1,0 +1,74 @@
+w00039 t28 第三轮实现审查（后端与稿逻辑，Opus）
+对象：18f59f666..961c11d9b 中 text-blocks.ts、text-draft.ts、text-drafts.ts、text-tab.ts 及其测试与 testing/text-scene.ts
+审查 worktree：.worktree/review-w00039-t28-impl-r2（961c11d9b）；实验在 /tmp/claude-review-w00039-t28-impl-r3/scratch/
+
+### 1. 并过的两块之间后来被别处加了一块，重读不再核对“在初值里相邻”，提交静默把被并的字挪到那一块前面
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-draft.ts:349-352（rebase 里新加的 moved 分支只看 freeProblem）、:425-438（compile 不看相邻）；对照 allowed() 的 :296-300（开始并的时候要求 below.init === above.init + 1）
+- **现象**：条目主文字 [甲, 乙]（b1、b2）。作者把 b2 并到 b1。随后别处（另一个窗口、改设定）在 b1 后面加一块“丙”，世界变成 [甲, 丙, 乙]，丙是初值块（init 1），乙的 init 变成 2。作者提交：rebase 没有任何冲突（b1、b2 都没被剧情碰过，原文、去处都没变），compile 发 set b1 = "甲\n\n乙"、removeBlock b2，内核照收，发布 r4。世界变成 ["甲\n\n乙", "丙"]：乙那段字被挪到了丙前面，作者从没在编辑里看到过丙夹在两块中间，也没有被问。
+- **为什么是问题**：输出 39 写明“并到上一块要求两块……在初值里相邻”，allowed() 在新读的块上对这两块会给 not-adjacent；第二轮 omp 第 5 条的建议原文是“重验两端的 fixed、写回去处与初值相邻条件”，处理只补了 fixed（freeProblem）。相邻条件不重验时，并的结果跨过了别人新加的块，字序被改，任何一章读到的都是改过的顺序。被跨过的块若是这个位置看不到、别的章看得到的块（allowed 注释说的“别的章读到的文字会变”），别的章同样多字、换序。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r3/scratch/e1-merge-across.test.ts 的 E1（在 packages/neuro-book 下 bun test 该文件）。真实 WorldService、真实 SQLite Storage、真实链路。输出：world before submit ["甲","丙（别处加的）","乙"]，init 索引 [["b1",0],["b3",1],["b2",2]]；result published、conflicts []；world after ["甲\n\n乙","丙（别处加的）"]。
+- **建议改法**：rebase 对 merged 里的每一对（removed 键与 into）在新读上重验 into 与被并块的 init 仍相邻（与 allowed 用同一个判断，抽成一个函数），不相邻就列 locked（structural），“照现在的”走 revert(into)/restoreBlock 把整项并撤掉。拆开的一侧同理可以顺手核：拆出的新块的 after 仍是 from 的锚点。补一条 model 用例与一条 link 用例。
+
+### 2. “用这里的”覆盖掉别的窗口冻结着的请求，两个窗口共用一份稿时同一个新块发布两次（base 上就有，不是这一轮的回归）
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-drafts.ts:707-722（takeOver：读到记录只取 revision，不看它带不带 pending；这一轮只加了 durable = null）
+- **现象**：同一份浏览器配置的两个窗口 W1、W2。W1 开始编辑、加一块“只该有一份”并暂存；W2 点编辑，按设计从存储接过同一份稿。W1 提交：冻结写进记录、请求发布了、回执丢了，W1 停在“正在确认”。W2 改一个字，暂存得到 conflict，显示“另一个窗口也在改”；作者在 W2 点“用这里的”：takeOver 读到的是 W1 带 pending 的记录，照样整条覆盖成 W2 的稿（没有 pending、但带着同一个新块）。W2 提交：rebase 认不出那个新块已经发布过，再 addBlock 一次。世界变成 ["甲改","只该有一份","只该有一份"]，修订 ["建条目","w1 提交","w2 提交"]。W1 那边的冻结也从存储里没了，W1 关窗以后没人再去确认。
+- **为什么是问题**：输出 46 的整套冻结机制就是防“没有 pending 的那一份稿被当成没提交过、把同样的新块再加一遍”，takeOver 是绕过它的一条路：它把唯一带 pending 的持久副本换成了不带 pending、内容重叠的稿。输出 45 写“两边都不自动丢”，这里丢掉的正是那边在途的提交。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r3/scratch/e1-merge-across.test.ts 的 E2（真实场地，两个窗口同一 client，loseReply 丢 editEntries 的回执）。输出：s1 unknown/confirming；s2 diverged → takeOver → saved；s2 submit published；world after ["甲改","只该有一份","只该有一份"]。
+- **建议改法**：takeOver 读到的记录带 pending（而且不是这个窗口自己的那一个 requestId）时不覆盖：先按 adopt 的路子接过那份冻结去确认（或要求作者先“换成那边的”），确认有了结局再允许覆盖；至少把这种记录当成“那边有提交在途”，按钮不可用并写明。补一条 link 用例（就是上面的 E2）。
+
+### 3. 拆过、并过的块被别处删了，选“去掉这处改动”只撤这一块：并掉的那一块照删（字没了），拆出去的那一半作为新块发出去（删掉的字又回来）
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-draft.ts:410-415（resolve 的 gone 分支 drop/theirs 用 untouch，没走这一轮新加的 revert；keep 同样没处理 split/merged）
+- **现象**（真实场地，经 useTextTab 驱动，结果是世界里的原文）：
+  - E3a：主文字 [甲, 乙]，作者把 b2 并到 b1；别处删掉 b1，世界 ["乙"]。提交 → 冲突 gone(b1)，作者选“去掉这处改动”→ confirmConflicts 写“有几块照现在的恢复了，看过再提交”，编辑视图只剩一行 b2“删掉了这一块”；稿里 b2 仍在 removed、merged.b2 还挂着已经不在的 b1。再提交：发布 removeBlock b2，世界 []。乙的字唯一一份就是 b2，作者撤掉了并、乙却被删了。
+  - E3b：主文字 ["甲\n\n乙"]，作者从中间拆开；别处删掉 b1，世界 []。提交 → gone(b1)，选“去掉这处改动”→ 编辑视图剩新块 new:1“乙”。再提交：addBlock “乙”，世界 ["乙"]：别人删掉的字有一半被加回来了。
+- **为什么是问题**：输出 44 写明“在冲突里撤掉对一个拆过的块的改动时，从它拆出去、之后没再改过的那一块一起撤掉”，“去掉这处改动”就是撤掉对这一块的改动；这一轮第 13 条只把 changed/rerouted/locked 的“现在的”换成了 revert，gone 漏了。并的那一侧更糟：被并块的删除是并带出来的，撤掉并却留下删除，等于静默删字。整批说明“有几块照现在的恢复了”对 E3a 是反的：b2 没恢复。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r3/scratch/e3-gone-structural.test.ts（packages/neuro-book 下 bun test）。输出见上：E3a world after []，E3b world after ["乙"]，两次修订标题都是“改条目的主文字”。
+- **建议改法**：gone 的 drop/theirs 也走 revert（拆出去没再改过的新块去掉；merged 里 into 是这一块的被并块恢复——into 已经不在，restoreBlock 里 `next.order.includes(from.into)` 为假时只撤删除，正好）。keep 时 split/merged 的记录要改挂到新加的那一块上或清掉并保持结构标记。model 补 gone×拆、gone×并两条用例。
+
+（第 3 条更正：建议改法里“keep 同样没处理”收回。keep 把我的文字当新块留着，E3a 发布“甲\n\n乙”并删 b2、E3b 两半都作为新块，与“留着我的”一致；问题只在 drop/theirs。）
+
+### 4. 被并掉的那一块别处改了字，选“现在的”只恢复它、不把并进上一块的字拿回来：同一段字发布两份
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/text-draft.ts:390-400（revert 只处理“key 是拆出新块的源”“key 是被并进的 into”，不处理“key 本身是被并掉的块”）、:407-409（changed 的 theirs 走 revert）；对照 :436 locked 且 remove 时走 restoreBlock，会把 into 改回 head
+- **现象**：主文字 [甲, 乙]，作者把 b2 并到 b1（b1 = "甲\n\n乙"，b2 删除）。别处把 b2 改成“乙改”。提交 → 冲突 changed(b2, 我的=删除, 现在的=乙改)；作者选“现在的”（放弃对这一块的改动）→ 编辑视图 b1 仍是“甲\n\n乙”、b2 恢复为“乙改”，整批说明“有几块照现在的恢复了，看过再提交”。再提交：世界 ["甲\n\n乙","乙改"]，乙的旧字留在甲里、新字又在 b2，一段话出现两次。
+- **为什么是问题**：这一轮第 13 条的意图（Spec 输出 44“拆与并连同另一半一起撤掉”）是撤掉一端时另一端一起撤；同一种“并掉的块不能照发”在 locked(remove) 时走 restoreBlock 会把 b1 改回“甲”，在 changed 时却只 untouch(b2)，两条路结果不一致。作者在对话框里看到的是“我的：删掉这一块 / 现在的：乙改”，看不出选“现在的”会让 b1 里还留着旧的乙。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r3/scratch/e4-merged-changed.test.ts（真实场地，经 useTextTab）。输出：E4 world after ["甲\n\n乙","乙改"]。
+- **建议改法**：revert(key) 开头加一步：key 在 merged 里（它是被并掉的块）时先 restoreBlock(next, read, key)（对方还是 joined 就改回 head），再 untouch。或者 changed 冲突在 key 被 removed 时走 restoreBlock 再 untouch。model 补一条“并掉的块别处改了、选现在的”。
+
+### 5. link“冻结的稿读回来与冻结时逐字相同”测不到它标题里的性质：读回来的请求与冻结时不同，用例照样全过
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/src/plugins/canon/text-drafts-link.test.ts:532-560
+- **现象**：用例里原请求停在落盘前、随后被放行，所以原请求本身发布了；另一个窗口读回冻结的稿以后，要么问结局得到“已发布”直接收场（不重发），要么重发时内核按请求 id 给 request-id-reused，settle 也当成“已发布”收场。两条路都不看读回来的请求长什么样。实验在读回之前把存储里的记录改成“补回来的 set.value 与冻结时不同”（texts.b1 改掉，冻结的 set 省了 value），原用例的三条断言（outcome published、sources ["A 改","新的一块"]、titles 一条）仍全过。
+- **为什么是问题**：这一轮第 6 条（省掉重复文字）的正确性前提就是“读回来与冻结时逐字相同”，这条用例是它唯一的证据，现在它分不出 fromStored 补得对不对（比如把 `op.value ?? own(...)` 写成 `?? ""`）。真出错时的后果是：原请求没到内核、重开以后按读回来的请求第一次发布，发布的不是作者冻结时的内容。
+- **如何核实**：/tmp/claude-review-w00039-t28-impl-r3/scratch/e5-readback-vacuous.test.ts，tamper=false 与 tamper=true 两条都 pass。
+- **建议改法**：让原请求根本不到内核（loseRequest(writing)，或 failAppend 让它确定失败后再放行），关窗、另一个窗口读回去确认，这时重发是第一次发布；断言世界里 b1 的原文、新块、b2 被删，并直接比较 reopened 会话还原出的 pending.ops 与冻结时的 sent.ops（toEqual）。
+
+## 归属与去重说明（对第 1 到 5 条）
+
+- 第 1、3、4 条在 base（18f59f666）上同样存在：base 的 rebase 不核相邻（not-adjacent 只在 allowed 里，:295），base 的 resolve 对 gone/changed/locked 一律 untouch（:382-386）。所以它们不是这一轮的回归，而是这一轮第二轮处理里 omp 第 5 条（重验结构前提）、第 13 条（撤一端连另一端一起撤）的修法没覆盖到的分支。第 2 条也在 base 上（takeOver 只多了 durable = null）。
+- 与已接受的取舍不重复：待确认清单第 129 行接受的是“两个窗口各改各的、由作者选用哪边”，没有写到“覆盖掉那边在途的冻结请求、导致同一块发两次”（第 2 条）；第 135 行（omp 第二轮第 7 条）接受的是“并了以后又拆过、并过或改过，再恢复”这种连串结构动作，第 4 条是单次并加一条 changed 冲突、对话框里选“现在的”，不是连串动作，且 locked(remove) 同一情形已经能正确撤回。第 3 条的 gone 分支在两轮处理记录里都没有出现。
+- 第 3 条的定级：E3a 里编辑视图对 b2 显示“删掉了这一块：乙”，删除是看得见的，作者有机会恢复，所以维持“重要”、不升阻断；但整批说明“有几块照现在的恢复了”对这一行是反的，容易让作者以为已经恢复好了直接提交。
+
+## 未发现问题的方面
+
+- 重点 1（text-drafts.ts 新状态的配合）：仔细检查后没有发现问题。freeze 只在“结局不明的正是这一次冻结的写”（uncertain.attempted 的 requestId 等于这一次）时返回 unknown，更早一次写读不回来时照没冻结处理、不发；confirm 在 durable 不是这个请求时先 persist（settleStorage 读回核对，landed 时 durable 取那次写的 id，解冻写落下时为 null，再写一遍冻结后才等于这个 id），补不上返回 unknown、不发；settle 解冻没存下去时恢复同一个 pending、durable = null，之后无论解冻那次写落没落下，confirm 都先把冻结补存再重发同一个请求 id，不会换 id、也不会永远发不出去（存储好了就能走通；存储一直坏时 discard 也删不掉，这是已接受的“删不掉不离开”）。drop 删成功才把 durable 置空、pull/adopt 从读到的记录取、takeOver 置空后由紧接的 persist 重设，各自一致。
+- 重点 2（toStored/fromStored）：仔细检查后没有发现数据问题。compile 出的 set 总带 value 与 read、addBlock 总带 source，toStored 只在与稿里那一块逐字相等时省略，冻结期间 edit/choose 都被 pending 或 phase 拦住，读回来补出的与冻结时相同；`?? ""` 只在记录坏了（keys 与 ops 对不上、键不在稿里）时触发。settleStorage 的 Value.Equal 比较的两边都是 JSON 往返过的纯对象，存储读出也是 JSON.parse，`__proto__` 键作为自有属性保留。唯一的缺口是测试（第 5 条）。
+- 重点 3（门禁）：仔细检查后没有发现会卡死的路径。leaving 与 beginning 都在 finally 里复位，guarded 在 finally 里把 submitting 收回；begin/discard/takeOver/adopt/reload/confirm/submit 都看 busy，edit/choose 看 phase 与 pending；pull 在稿已存在时不动 uncertain、revision、durable。看到但不报的两处：adopt 的 busy 检查在 await open/read 之前（中间若有一次 confirm 开始，adopt 仍会换稿并把 phase 设成 idle），在途那次 confirm 回来时 generation 已变、直接返回 busy 不收场，不造成发布两次，且 base 上就有，窄竞态；flush 不看门禁，但提交途中它写的就是冻结的那份稿，结果相同。
+- 重点 4（稿模型）：除第 1、3、4 条外仔细检查后没有发现问题。split 只在旧块真的变了时记录；revert 先撤拆出去没改过的新块、再恢复并进来的块、最后 untouch；rebase 新加的 locked 分支排在去处检查之后、原文检查之前，新块只越过同一锚点的剧情块；tidy 对 split（新块还在且源块还动着）、merged（还在 removed）、moved（源块还动着）的清理与这些路径一致。
+- 重点 5（text-tab.ts）：仔细检查后没有发现问题。signature 按 kind、key、mine、theirs 记，放弃、重新开始、换成那边的都清；confirmConflicts 在 structural 或 locked 时不接着提交；对话框要每一条都有选择才能确认（manual 的 choice 恒为 null，确认不了，只能回去整理）；blockedAsked 随 blocked 变空收起；resumed 的说明排在页内说明与 blockedAsked 之后。
+- 重点 6（内核 textBlocks）：仔细检查后没有发现问题。originsMemo 每块只读一次来历；anchorMemo 把整条路径记成同一个结果，成环时整条记为 undefined；同一条变更里重加取最后一条 addBlock。看到但不报的一处：同一条变更里“先加在 b1 后、删掉、再加在 b2 后”时，textTouches 仍把 b1 记成被碰过（只能改字），只是过严，不会让数据出错，且 base 上就有。
+- 重点 7（测试）：除第 5 条外仔细检查后没有发现空过的断言。link 的“放弃在途时不能确认”“两处同时开始”用 holdReply 扣住真实回复帧定先后，不靠偶然；内核的 150 块耗时用例界线 1.5 秒对实测 75 毫秒余量够。本机在审查 worktree 跑 link、tab、model 三个文件 49 条通过，nb-canon text-blocks 23 条通过。
+
+## 各级数量
+
+阻断 0；重要 4（第 1、2、3、4 条，均为 base 上就有、这一轮修法没覆盖到的分支，不是回归）；建议 1（第 5 条）。
+
+有效发现：1、2、3、4、5

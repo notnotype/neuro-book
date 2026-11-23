@@ -173,9 +173,17 @@ Spec 晋升这一轮不做：t37 的记录写的是“晋升等开发者看过�
 
 稿的协议与模型审了两轮，第二轮后端的两位审查者仍各找出阻断与重要的问题、已改完。第二轮之后的两批修正（`18f59f666..961c11d9b` 的后端部分）再派 Opus 审第三轮（按规则是最后一轮），在后台跑、不挡合入；报告回来另行处理。
 
-这一批修正已合入 master（合并提交 `155afb4dc`；合入时 master 上没有别的包改动）。第三轮审查（Opus，审查 worktree `.worktree/review-w00039-t28-impl-r2` 固定在 `961c11d9b`）在后台跑，报告写到本机 `reports/impl-review-r3-backend-opus.txt`。
+这一批修正已合入 master（合并提交 `155afb4dc`；合入时 master 上没有别的包改动）。
+
+第三轮（最后一轮）审查：Opus，有效 5 条（重要 4、建议 1），4 条重要都在 base 上就有，是第二轮按分支逐条修时漏掉的几格（拆与并的两端在冲突里要一起撤；并的两块中间被别处加了块；“用这里的”盖掉别的窗口冻结着的提交）。报告与处理：[`evidences/impl-review-r3-backend-opus.txt`](evidences/impl-review-r3-backend-opus.txt)、[`evidences/impl-review-r3-resolution.txt`](evidences/impl-review-r3-resolution.txt)。
+
+- 处理：第 1、3、4 条按一张表改（拆、并 × 哪一端 × 别处改了、删了、剧情碰了、中间加了块），另补了审查没列的一格（并掉的块被别处删了，原来不问、别处删掉的字会跟着上一块发回去）；第 5 条的用例改成请求没到世界就断、断言读回的请求逐字相同。第 2 条部分改：别的窗口的提交还在等结果时“用这里的”不覆盖那份冻结、写明先换成那边的，覆盖以后重读块；“一边发布了、另一边再用这里的提交”仍会把那边发布的新块再加一次，记为已知限制（编辑里看得到两块）。
+- 提交：`286bc65a9`、`cb0a8ef6f`，合入 master `c919aac9e`（合入时 master 上只有文档提交）。
+- 验证：应用 `bun test`（canon、lab）178 条、vitest（canon、lab）219 条、类型检查；重新构建以后 e2e `canon-write` 6 条。变异 10 处全部有用例变红。
+- Spec（planned）同改：`canon/author-ui.md` 输出 44、45。待确认清单加 2 行。
+
+三轮审查到此为止，不再开第四轮。
 
 ## 下一步
 
-1. 第三轮审查的报告回来以后处理，修正单独提交、再合入；处理完删掉审查 worktree。
-2. 开发者试用按块编辑，定“单独编辑一个块”这类交互调整；之后做 Spec 晋升核对（t28 的条目，以及 t37 留下的 `canon/agent-tools.md`、`revisions.md` 输出 25、`author-ui.md` 输出 37 到 43）。
+1. 开发者试用按块编辑，定“单独编辑一个块”这类交互调整；之后做 Spec 晋升核对（t28 的条目，以及 t37 留下的 `canon/agent-tools.md`、`revisions.md` 输出 25、`author-ui.md` 输出 37 到 43）。
