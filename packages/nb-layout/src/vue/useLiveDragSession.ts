@@ -17,9 +17,7 @@ import {createLiveDragSession} from "./live-drag-session";
 import type {LiveDragSessionOptions} from "./live-drag-session";
 
 /** @experimental 1.0 之前签名会变。 */
-export interface LiveDragSessionRefs<S, D, L, G> {
-    readonly session: Readonly<ShallowRef<DragSession<S, D> | null>>;
-    readonly live: Readonly<ShallowRef<LiveDrag<L, D, G> | null>>;
+export interface LiveDragSessionRefs<S, D> {
     /** 会话的状态（拿起、悬停的落点）；没在拖时是 null。 */
     readonly state: ComputedRef<DragState<S, D> | null>;
     /** 引擎的可见状态；没在实时布局时是空闲的那份。 */
@@ -34,9 +32,8 @@ export interface LiveDragSessionRefs<S, D, L, G> {
 export function useLiveDragSession<S, D, R = never, L = S, G = unknown>(
     root: Readonly<Ref<HTMLElement | null>>,
     createOptions: (live: LiveDrag<L, D, G>, root: HTMLElement) => LiveDragSessionOptions<S, D, R, L, G>,
-): LiveDragSessionRefs<S, D, L, G> {
+): LiveDragSessionRefs<S, D> {
     const session = shallowRef<DragSession<S, D> | null>(null);
-    const live = shallowRef<LiveDrag<L, D, G> | null>(null);
     const liveState = shallowRef<LiveDragState>(IDLE_STATE);
     watch(root, (element, _previous, onCleanup) => {
         if (element === null) return;
@@ -51,20 +48,16 @@ export function useLiveDragSession<S, D, R = never, L = S, G = unknown>(
             };
         });
         session.value = created.session;
-        live.value = created.live;
         onCleanup(() => {
             created.dispose();
             if (session.value === created.session) {
                 session.value = null;
-                live.value = null;
                 liveState.value = IDLE_STATE;
             }
         });
     }, {immediate: true});
     const state = computed(() => session.value?.state.value ?? null);
     return {
-        session,
-        live,
         state,
         liveState,
         lifted: computed(() => liveState.value.lifted),
