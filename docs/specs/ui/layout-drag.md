@@ -41,6 +41,7 @@ export function defineDropKind<T>(id: string): DropKind<T>;
 
 // @notnotype/nb-layout/vue
 export function createDragSession<S, D, R = never>(options: DragSessionOptions<S, D, R>): DragSession<S, D>;
+export function useDragSession<S, D, R = never>(root: Readonly<Ref<HTMLElement | null>>, createOptions: (root: HTMLElement) => Omit<DragSessionOptions<S, D, R>, "root">): DragSessionHandle<S, D>; // {session, state}，见输出 18
 
 export interface DragSessionOptions<S, D, R> {
     /** 手势的范围：来源只认这里面的，指针捕获由它持有。 */
@@ -63,7 +64,7 @@ export interface DragSessionOptions<S, D, R> {
     onEnd?(end: DragEnd, last: DragState<S, D>): void;
     /** 一场开始与结束（宿主写光标与禁选的标记）。 */
     onActiveChange?(active: boolean): void;
-    /** 滚动与窗口尺寸变化时：重新判定（缺省），或撤下落点直到指针再动。 */
+    /** 滚动时：重新判定（缺省），或撤下落点直到指针再动；窗口尺寸变化一律重新判定（输出 12）。 */
     readonly scroll?: "reevaluate" | "withdraw";
     /** 边缘滚动的元素；缺省不滚。 */
     readonly autoScroll?: {readonly element: HTMLElement; readonly edgePx?: number; readonly maxStepPx?: number};
@@ -106,7 +107,7 @@ export interface DragKeyboardOptions<S, R> {
     /** 拿起时取一次的落点区域，整场不变；为空不拿起。 */
     regions(source: S): ReadonlyArray<R>;
     /** 区域里能停的位置与方向键的轴。 */
-    stops(region: R): {readonly axis: "horizontal" | "vertical" | null; readonly points: ReadonlyArray<GridDropPoint>};
+    stops(region: R): {readonly axis: "horizontal" | "vertical" | "both" | null; readonly points: ReadonlyArray<GridDropPoint>};
     /** 起点：第几个区域的第几个位置，或来源自己的坐标（直接 Enter 不移动）。 */
     start(source: S, regions: ReadonlyArray<R>, origin: HTMLElement): {readonly region: number; readonly at: number | GridDropPoint};
     /** 拿起时的元素已被换掉时，同一个来源此刻的元素。 */
@@ -163,7 +164,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 7. **取消**：下列情况都结束一场、不提交、撤下反馈：Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、焦点移到根之外、键盘拖动中有指针按下、结构键变化、会话销毁。其中：
    - 失去捕获只认根自己。触摸按下时浏览器把指针隐式捕获给被按的元素，捕获换到根时，旧元素上的 `lostpointercapture` 会冒泡到根，这一次不算。
    - 窗口失焦只认窗口自己，页面里的元素失焦不算。
-   - 捕获取不到（调用抛错，或调用后 `hasPointerCapture` 为假）按失去捕获算。
+   - 捕获取不到（`setPointerCapture` 报指针不存在或根不在文档里，即 `NotFoundError`、`InvalidStateError`；或调用后 `hasPointerCapture` 为假）按失去捕获算，别的异常照常抛出。
    - 松手之后浏览器紧接着释放捕获，这一次不算（输出 14 的等待里一场还没结束）。
 8. **结构键**：拿起时记下，每次判定与放下前比较，变了按 `structure-changed` 取消。
 9. **吞掉 click**：指针拖动结束后吞掉同一手势末尾的那次指针 click（`detail` 不为 0），吞过或下一次按下时清除。键盘触发的 click 不吞。
@@ -171,8 +172,8 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 11. **触摸**：一场进行中，根上的 `touchmove` 阻止默认动作，页面不滚动。
 12. **滚动与窗口尺寸**：只算根里面的滚动（含后代）。`scroll` 为 `reevaluate` 时按当前坐标重新判定并发布；为 `withdraw` 时撤下落点（发布 `drop: null`，最后显示过的动作清空），直到指针再动，这期间放下不提交。边缘滚动自己滚出来的滚动不撤下。窗口尺寸变化一律重新判定。
 13. **撤下**：`invalidate()` 与 `withdraw` 的撤下相同。
-14. **边缘滚动**：指针在元素的横向范围内、离上下边缘不到 `edgePx`（缺省 24）或已越过边缘时逐帧滚动，越靠边越快，每帧最多 `maxStepPx`（缺省 16）。每一帧先按上一帧滚动后的内容判定并发布，再滚这一帧。滚到头就停，等指针再动。滚动中松手：先停滚，等下一帧，判定并发布一次，按这一次的落点放下。
-15. **键盘拖动**：配了 `keyboard` 时，焦点在来源或它的把手上按空格拿起；Tab 与 Shift+Tab 在区域间循环并停在区域的第一个位置，方向键沿区域的轴逐个位置移动，Enter 放下，Escape 取消。判定与放下规则同指针。结束后的焦点：放下（不论有没有提交）在下一帧还，提交引起的重渲染在那之前完成；其余取消立即还；焦点移到根之外造成的取消和会话销毁不还。还到拿起时的元素，它已被换掉时用 `refocus` 找。
+14. **边缘滚动**：指针在元素的横向范围内、离上下边缘不到 `edgePx`（缺省 24）或已越过边缘时逐帧滚动，越靠边越快，每帧最多 `maxStepPx`（缺省 16）。元素矮到上下两条边缘带相接（高度不超过 `2 × edgePx`）时不滚。每一帧先按上一帧滚动后的内容判定并发布，再滚这一帧。滚到头就停，等指针再动。滚动中松手：先停滚，等下一帧，判定并发布一次，按这一次的落点放下。
+15. **键盘拖动**：配了 `keyboard` 时，焦点在来源或它的把手上按空格拿起；Tab 与 Shift+Tab 在区域间循环并停在区域的第一个位置，方向键沿区域的轴逐个位置移动（轴为 `both` 时右、下往后，左、上往前），Enter 放下，Escape 取消。判定与放下规则同指针。结束后的焦点：放下（不论有没有提交）在下一帧还，提交引起的重渲染在那之前完成；其余取消立即还；焦点移到根之外造成的取消和会话销毁不还。还到拿起时的元素，它已被换掉时用 `refocus` 找。
 16. **落点登记**：`dropTargetAt(top, kind)` 从 `top` 往上找最近的、登记了这个种类的元素，返回元素与查询这一刻的 `data()`；没有或 `top` 为 `null` 时为 `null`。种类按 `id` 比较，同一个 `id` 定义两次是同一个种类。登记不依赖会话，也不写 DOM 标记。注销（`useDropTarget` 随组件卸载）之后不再命中。
 17. **不画东西**：会话不创建元素，除了只读 `data-drag-feedback`，也不读写 DOM 标记。拖影、插入线、高亮都由宿主按 `state` 与 `onEnd` 画，所以换一种反馈不用改会话。
 18. **组件里的会话**：`useDragSession(root, createOptions)` 在有根时建会话：调用时根已有值就立即建，模板 ref 的根在组件挂载后的那次刷新里建（挂载回调里还是 null）。根换了先销毁旧的再建新的，根没了或所在的作用域结束时销毁；换根与销毁时进行中的拖动按销毁收尾。返回会话与它的 `state`，没有根时两者都是 null。
@@ -198,6 +199,8 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 | 空闲 | 焦点在来源上按空格 | 拖动中（键盘），区域列表取一次 |
 | 待起拖 | 过门槛且 `activate` 接受 | 拖动中（指针） |
 | 待起拖 | 松手、`pointercancel`、触摸先动了、`activate` 拒绝 | 空闲，没有 `onEnd` |
+| 待起拖 | 收到没有按键的移动（输出 1） | 空闲，没有 `onEnd` |
+| 待起拖 | `dispose()` | 空闲，没有 `onEnd` |
 | 拖动中 | 放下 | 空闲，`committed` 或 `no-action` |
 | 拖动中 | 输出 7 的情况 | 空闲，`cancelled` |
 | 拖动中 | `abort()` | 空闲，没有 `onEnd` |
@@ -208,7 +211,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 - 收场顺序固定：拆监听、释放捕获、`state` 置空、`onActiveChange(false)`、`onEnd`、`commit`、键盘拖动还焦点（输出 15）。最后的状态由 `onEnd` 的 `last` 给；`commit` 时反馈已经撤下，里面可以同步改布局。
 - `state` 在判定之后同步写入。宿主的副作用要严格先于 `commit` 时用 `flush: "sync"` 的 `watch`：默认的 `watch` 在微任务里跑，输出 14 的“发布加放下”在同一个调用栈里，它会晚于 `commit`。
 - `resolve` 同步，不能等异步结果；异步校验归宿主在 `commit` 里做。
-- 一个会话同一时间只有一场；一场进行中的第二次按下被忽略。
+- 一个会话同一时间只有一场：指针拖动中的第二次按下被忽略；键盘拖动中的指针按下按输出 7 取消这一场，按在来源上时照常进入待起拖。
 
 ## 副作用与数据
 
