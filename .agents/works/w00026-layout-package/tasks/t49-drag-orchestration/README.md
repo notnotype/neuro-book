@@ -25,6 +25,12 @@ updated: 2026-11-23
 
 2026-11-23：开发者选 A：按第 4 稿开工，不审第 4 轮；切片 2、3 落地各派一次后台实现审查（Claude Sonnet）。
 
+2026-11-23：切片 1 到 3 提交在 `w00026/t49-drag-orchestration`：
+- 切片 1（`fed1207e0`）：引擎 `nb-layout/src/live-drag.ts`（不从入口导出），工作台 `live-drag.test.ts` 的 24 例迁来并按规则补到 33 例；五个变异都被抓住。
+- 切片 2（`fa694ead7`）：会话加 `sampled`；`createLiveDragSession`、`useLiveDragSession`；`NestedGrid` 留住不在 `contents` 里的拿起项、expose `origin`、`motionMs`。四个变异都被抓住。
+- 切片 1、2 的后台实现审查（Claude Sonnet，[报告](evidences/impl-review-s12.txt)）：重要 1、建议 8。成立的修在 `aac7b7e67`：先交出状态再排渲染之后的跟手（只有卡片拿起收回的那一帧原来会错一帧）、合成对键盘拖动不走实时布局、`card.rect` 收这一刻的几何、补整帧先后与非零原点等用例。合成接 `sampled` 的先后在 happy-dom 里分不出（它把帧回调里新排的帧放进同一批跑），那例删掉，由 `workbench-drag-cost.e2e.ts` 的每帧上限守着（`7a8dc0049`）。`lifted` 要和摘掉它的 `contents` 同一次渲染里变（审查第 7 条），写进 Spec；API 报告在切片 6 重生成。
+- 切片 3（`e5874e4f3`）：工作台改用 `createLiveDragSession`，删掉 `live-drag.ts`；三份工作台 e2e 68 条全过，和改前的基线一样。后台实现审查在跑。
+
 ## 下一步
 
-按第 4 稿的切片实施，从切片 1（引擎与单元测试）开始。
+切片 4（Lab 场景 `live-panels` 与 `lab-live-panels.e2e.ts`）在验证；之后切片 5（nb-story 换边）、切片 6（Spec 与文档）。
