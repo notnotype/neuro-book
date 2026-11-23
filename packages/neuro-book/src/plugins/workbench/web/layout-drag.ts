@@ -363,11 +363,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
     });
 
-    /**
-     * 标签条里排序（输出 38“标签条上”）：被拖的那个标签就是它留着的位置，邻居按预览滑开；它自己显示出来，沿条跟着指针，夹在条的两端之间，不另画拖影。
-     * 位置直接写元素的 `translate`（跟手的东西不走渲染）；标签条的换位过渡用 `transform`，两者不打架，占位的那个标签不参与换位过渡（样式里压掉）。
-     * 正在跟手的元素与抓点在这一场的 `run.sort` 里。
-     */
+    /** 指针此刻所在的标签条（或入口条）里被拖标签的外框、条的范围与方向；指针不在能排序的条上是 null。 */
     function sortTargetOf(at: {readonly point: GridDropPoint; readonly panel: string}, tab: string): {readonly frame: HTMLElement; readonly bounds: GridDropRect; readonly vertical: boolean} | null {
         const band = bandAt(geometry(options.doc()).bands, at.point);
         const viewId = viewIdOf(tab);
@@ -389,7 +385,13 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         frame.style.removeProperty("visibility");
         frame.style.removeProperty("z-index");
     }
-    /** 读这一次要写什么，返回写的那一步：调用方把写放在这一帧别的读（判定）之后。 */
+    /**
+     * 标签条里排序（输出 38“标签条上”）：被拖的那个标签就是它留着的位置，邻居按预览滑开；它自己显示出来，沿条跟着指针，夹在条的两端之间，不另画拖影。
+     * 位置直接写元素的 `translate`（跟手的东西不走渲染）；标签条的换位过渡用 `transform`，两者不打架，占位的那个标签不参与换位过渡（样式里压掉）。
+     * 正在跟手的元素与抓点在这一场的 `run.sort` 里。
+     *
+     * 读这一次要写什么，返回写的那一步：调用方把写放在这一帧别的读（判定）之后。
+     */
     function measureSorted(at: {readonly point: GridDropPoint; readonly panel: string} | null): () => void {
         // 写的那一步写进量的时候那一场：放回原位（引擎的 `end`）在收场换掉 `run` 之前调。
         const {sort} = run;
@@ -457,6 +459,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const geometry = (doc: LayoutDoc): DragGeometry => frozen()?.geometry ?? measureGeometry(doc);
 
     /** 标签条的量取：实时布局用拿起时量的那份（摘掉了来源：预览里来源已经挪了，标签也在滑）。 */
+    /** 这一次判定的几何。实时布局用拿起时量的那份（`frozen`）：预览里入口在滑。 */
     function stripSnapshot(panel: string): TabStripSnapshot | null {
         const kept = frozen()?.strips.get(panel);
         if (kept !== undefined) return kept;
@@ -467,7 +470,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 一个区域的入口条元素：侧栏是活动栏上段，右栏、底部面板是卡片顶上那一行。 */
     const bandElement = (region: PanelName): Element | null => root.querySelector(region === "sidebar" ? "[data-tool-band]" : `[data-region-strip="${region}"]`);
 
-    /** 看得见的入口，沿入口条的方向：收进“更多”的不在 DOM 里。实时布局用拿起时量的那份（`frozen`）：预览里入口在滑。 */
+    /** 看得见的入口，沿入口条的方向：收进“更多”的不在 DOM 里。 */
     function entriesIn(band: Element, axis: "x" | "y"): ReadonlyArray<BarEntryRect> {
         return [...band.querySelectorAll<HTMLElement>("[data-tool-entry]")].map((entry) => {
             const {top, bottom, left, right} = entry.getBoundingClientRect();

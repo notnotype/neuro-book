@@ -262,9 +262,6 @@ function defineLayoutDocStore(bound: boolean) {
             }, {rebase: false});
         }
 
-        /**
-         * 视图按此刻的声明该回哪（“重置位置”、浮动窗回到停靠）：它的容器此刻在哪个区域就去哪，容器没有成员时去声明的区域。声明不在的视图回侧栏，进自己的隐式容器。
-         */
         /** 没有成员的容器按声明该在哪个区域（`moveView`）：隐式容器 `view:<视图>` 只在那个视图没写别的容器时才有声明（输出 41）。 */
         function declaredRegion(container: string): PanelName | null {
             const owner = container.startsWith(IMPLICIT_CONTAINER_PREFIX) ? container.slice(IMPLICIT_CONTAINER_PREFIX.length) : null;
@@ -272,6 +269,9 @@ function defineLayoutDocStore(bound: boolean) {
             return containerHomeRegion(container, catalog.value, containers.value);
         }
 
+        /**
+         * 视图按此刻的声明该回哪（“重置位置”、浮动窗回到停靠）：它的容器此刻在哪个区域就去哪，容器没有成员时去声明的区域。声明不在的视图回侧栏，进自己的隐式容器。
+         */
         function homeOf(current: LayoutDoc, viewId: string): {readonly region: PanelName; readonly container: string} {
             const home = viewHome(viewId, catalog.value, containers.value) ?? {container: implicitContainerOf(viewId), location: "sidebar" as const};
             return {region: containerRegion(current, home.container) ?? home.location, container: home.container};

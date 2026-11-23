@@ -259,7 +259,6 @@ const sceneCorners = computed<ReadonlyMap<string, PanelName>>(() => new Map((["s
     return last === undefined ? [] : [[last, region] as const];
 })));
 
-/** 卡片跟着拖动中的预览走：相连与否按拖动中的几何算（输出 19）。 */
 /**
  * 交换的这一列的卡片的四边：换上来的那几块在新布局里的边（离开的那几块已经不在新布局里）。上下取最外面那块的（组里相邻的边是相连的），左右同一列都一样。
  */
@@ -280,6 +279,7 @@ function swapBackdropStyle(inset: readonly number[]): Record<string, string> {
 }
 const swapScene = computed(() => (props.swap?.entering ?? []).map((id) => sceneCorners.value.get(id)).find((scene) => scene !== undefined));
 
+/** 卡片跟着拖动中的预览走：相连与否按拖动中的几何算（输出 19）。 */
 const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
     const computedCards = layoutCardEdges({
         root: props.projection.input,
