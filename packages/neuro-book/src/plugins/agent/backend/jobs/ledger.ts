@@ -25,6 +25,11 @@ export interface LedgerEntry {
     readonly state: string;
     /** 结果在哪：后台命令的输出文件，子代理的子会话。 */
     readonly address?: string;
+    /**
+     * 正在送出、或写入结果未知的那条回执提醒的指令 id 与原样的参数：补发时按原样重发，内核对已经受理的只交回原结果、不再写，
+     * 不会因为换了指令 id 交两次（审查 omp 第 5 条）。
+     */
+    readonly notice?: {readonly commandId: string; readonly text: string; readonly key?: string; readonly wake: boolean};
 }
 
 /** 这件任务的回执还没进会话：在跑，或结束了还没有出口、只送了短回执、出口是还在送出或结果未知的提醒。 */
@@ -32,7 +37,12 @@ const unsettled = (job: Job): boolean => job.state !== "starting" && (isLive(job
 
 const entryOf = (job: Job): LedgerEntry => {
     const address = job.driver?.address ?? (job.target === undefined ? undefined : `子会话 ${job.target.sessionId}`);
-    return {id: job.id, owner: job.owner, kind: job.kind, label: job.label, summary: job.summary, startedAt: job.startedAt, state: job.state, ...(address === undefined ? {} : {address})};
+    const exit = job.exit?.kind === "notice" && job.exit.commandId !== null && job.exit.args !== null ? job.exit : null;
+    return {
+        id: job.id, owner: job.owner, kind: job.kind, label: job.label, summary: job.summary, startedAt: job.startedAt, state: job.state,
+        ...(address === undefined ? {} : {address}),
+        ...(exit === null ? {} : {notice: {commandId: exit.commandId!, ...exit.args!}}),
+    };
 };
 
 export class JobLedger {
@@ -47,6 +57,12 @@ export class JobLedger {
     /** 跟着任务中心写账本。 */
     follow(): void {
         this.#stop = this.options.jobs.onChanged(() => this.#write());
+    }
+
+    /** 按任务中心此刻的样子写一次并等它落盘：送达在发出一条回执之前调，账本里先有了这次的指令 id。 */
+    async flush(): Promise<void> {
+        this.#write();
+        await this.#chain;
     }
 
     /** 停止时：不再跟（停止过程中任务按中断收口，账本里留着它们，下次启动补发）；等在途的写完。 */
@@ -80,7 +96,9 @@ export class JobLedger {
             const text = `以下是你启动的后台任务的回执，不是用户说的话。\n\n【${entry.label} ${entry.id}：${entry.summary}｜${how}】${entry.address === undefined ? "" : `\n结果在：${entry.address}`}`;
             let code: string | null;
             try {
-                const sent = await table.view(entry.owner, RECEIPT_ISSUER).notice({commandId: `ledger-${entry.id}`, text, wake: false, senderOnly: true});
+                // 记着在途的那条：按原样重发（已受理的只交回原结果）；否则发一条重启的回执。
+                const args = entry.notice ?? {commandId: `ledger-${entry.id}`, text, wake: false};
+                const sent = await table.view(entry.owner, RECEIPT_ISSUER).notice({...args, senderOnly: true});
                 code = sent.ok ? null : sent.code;
             } catch (error) {
                 code = "threw";

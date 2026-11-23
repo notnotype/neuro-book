@@ -137,6 +137,29 @@ describe("回执只交一次（jobs.md 的回执）", () => {
 });
 
 describe("账本（jobs.md 输出 17）", () => {
+    test("记着在途回执的项按原样重发（同一个指令 id 与参数），不另写一条重启的回执", async () => {
+        const dir = await createTestTmpRoot("neuro-book-agent", "ledger");
+        try {
+            const file = join(dir, "ledger.json");
+            const notice = {commandId: "c-inflight", text: "原来那条回执", wake: true};
+            await writeFile(file, JSON.stringify([{id: "job-sent", owner: "s1", kind: "shell", label: "命令", summary: "echo", startedAt: 0, state: "completed", notice}]));
+            const {jobs} = center();
+            const ledger = new JobLedger({file, jobs, report: () => undefined});
+            ledger.follow();
+            const sent: unknown[] = [];
+            const table = {view: () => ({notice: async (args: unknown) => {
+                sent.push(args);
+                return {ok: true, value: {noticeId: "n1"}};
+            }})} as unknown as SessionTable;
+            await ledger.replay(table);
+            await ledger.stop();
+            expect(sent).toEqual([{...notice, senderOnly: true}]);
+            expect(await Bun.file(file).exists()).toBe(false);
+        } finally {
+            await rm(dir, {recursive: true, force: true});
+        }
+    });
+
     test("补发时暂时送不了的留在账本里；补发期间新起的任务照样记下", async () => {
         const dir = await createTestTmpRoot("neuro-book-agent", "ledger");
         try {

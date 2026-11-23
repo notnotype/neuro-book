@@ -37,6 +37,8 @@ export interface JobDeliveryOptions {
     readonly isRoot: (sessionId: string) => Promise<boolean>;
     readonly newId: () => string;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /** 发出一条回执之前把它的指令 id 与参数落盘（账本）：进程在受理之后、记账之前退出时，补发能按原样重发。 */
+    readonly persist?: () => Promise<void>;
 }
 
 /** 送出去、还在待发的提问提醒：按提醒 id 记，答了、停了就撤回。 */
@@ -221,6 +223,7 @@ export class JobDelivery {
             const exit: NoticeExit = {kind: "notice", commandId: this.options.newId(), args: {text, wake}, state: "sending"};
             for (const {job} of live) job.exit = exit;
             this.#members.set(exit, live.map((item) => item.job));
+            await this.options.persist?.();
             await this.#send(owner, exit);
         }
     }
@@ -242,6 +245,8 @@ export class JobDelivery {
     async #send(owner: string, exit: NoticeExit): Promise<void> {
         const args = exit.args!;
         const members = this.#members.get(exit) ?? [];
+        // 重发一条写入结果未知的：没能确认就保持未确认（等下一次关闭），不退回重领，否则换了指令 id 可能交两次（审查 omp 第 1 条）。
+        const resending = exit.state === "unconfirmed";
         let outcome: {ok: true; noticeId: string} | {ok: false; code: string};
         try {
             const sent = await this.#view(owner).notice({commandId: exit.commandId!, text: args.text, ...(args.key === undefined ? {} : {key: args.key}), wake: args.wake, senderOnly: true});
@@ -262,7 +267,7 @@ export class JobDelivery {
             this.options.jobs.receiptSettled(owner);
             return;
         }
-        if (UNKNOWN.has(outcome.code)) {
+        if (UNKNOWN.has(outcome.code) || resending) {
             exit.state = "unconfirmed";
             this.options.jobs.receiptSettled(owner);
             return;

@@ -391,11 +391,11 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         const entry = await store.entry(id);
         return !entry.ok || entry.value.caller === undefined;
     };
-    delivery = new JobDelivery({jobs, table, clock, isRoot, newId: () => crypto.randomUUID(), report: options.report});
-    const kernelNotices = evalNotices(table, () => crypto.randomUUID(), options.report);
-    delivery.start();
     // 账本：先跟着任务中心写，再补发上次留下的回执（jobs.md 输出 17）。补发要开会话，不挡住启动。
     const ledger = new JobLedger({file: join(options.stateRoot, "agent", "jobs", "ledger.json"), jobs, report: options.report});
+    delivery = new JobDelivery({jobs, table, clock, isRoot, newId: () => crypto.randomUUID(), report: options.report, persist: () => ledger.flush()});
+    const kernelNotices = evalNotices(table, () => crypto.randomUUID(), options.report);
+    delivery.start();
     ledger.follow();
     const replayed = ledger.replay(table).catch((error: unknown) => options.report("job-ledger-replay-failed", "replaying the job ledger threw", {message: error instanceof Error ? error.message : String(error)}));
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
