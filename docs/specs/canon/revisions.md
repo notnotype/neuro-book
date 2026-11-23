@@ -137,7 +137,7 @@ owners:
     - 剧情变化：这一批对已有数据的补丁按操作的顺序合成落点上的一条新剧情变更（`involves` 是涉及的条目），落点与排序键同输出 8；结构的操作（新建、设定组、移动、删除与恢复）不分意图。
     - 同一批里两项改同一处，或一个地址在另一个下面（字段与它的元素、元素与它的子字段；删除与恢复是整个条目），拒收（`duplicate-address`）；同一个列表加几项、同一段主文字加几块不算同一处。新建条目时同一个设定组类型列两次同样拒收（`duplicate-address`）；两项新建用同一个临时 id 拒收（`id-taken`），不让后一项盖掉前一项。
     - 这一批新建的条目、新加的设定组、新加的元素，初值只能在建它的那一项里给，后面的项不能再改它（`created-in-batch`）；值里可以写 `{ref: "tmp:…"}` 引用新建的条目，上级也可以写它的临时 id，发布时按 `idMap` 换掉（输出 16）。
-    - 主文字的块（planned）：系统不替写入方切块，`create` 的主文字、`addBlock` 与对块的 `set` 给的原文各是一块，里面可以有几段。`addBlock` 的 `after` 写 `null` 是放在最前；同一批里写同一个 `after` 的几项按写的先后排。`removeBlock` 可以带读到的原文 `read`，与 `set` 的 `read` 一样在读取位置上比：不同、或这一块已经不在，整批拒收（`value-conflict`）。块上的 `value-conflict` 详情逐项给出序号 `op`、块的地址、读到的原文与现在的原文（不在了为 null）。
+    - 主文字的块（planned）：系统不替写入方切块，`create` 的主文字、`addBlock` 与对块的 `set` 给的原文各是一块，里面可以有几段。`addBlock` 的 `after` 写 `null` 是放在最前（两种意图都是），不写是放在最后；同一批里落在同一处的几项按写的先后排。改设定时删初值的块，这条线上没撤销的变更碰过它就拒收（`element-from-change`，`reason` 列出变更）：补丁的地址是它，或增块的补丁以它为锚点。已删除的条目上加块、删块拒收（`field-unavailable`，带 `op`）。块的原文没过校验（[`canon.rendering`](rendering.md) 输出 1）时，那条校验细项另带 `op`（第几项）。
     - 读回核对：每项改了值的都在候选世界上读回（剧情变化在新变更之后的那一点，创作修改在读取位置），对不上整批拒收（`result-mismatch`，带序号 `op`）；核对与校验都通过的候选才追加进日志，拒收时日志、版本、请求 id 与事件都不动。
     - 读取戳 `{version, input}`：给了就要求世界版本没变、读取输入的摘要（[`canon.model`](model.md) 输出 36）以 `input` 开头；不满足时整批拒收（`stale-read`），详情列出之间的修订（id、标题、写入者），版本没变而输入变了时写明。在写队列里、判过请求 id 之后比；正文的摘要不比。
     - 失败带序号：项级的失败（`value-conflict`、`accumulated-value`、`incomplete-field`、`field-unavailable`、`result-mismatch`）带 `op`，校验细项的 `path` 写 `ops[2]` 这样的序号。
