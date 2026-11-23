@@ -79,6 +79,25 @@ describe("拆分树原语：两轴几何", () => {
         expect(result.issues).toEqual([]);
     });
 
+    it("分支在交叉轴上的上限取子节点里最大的（Spec 输出 30）：一列全收成 32px 标题行时它放不满、下面留空，同一行的兄弟叶照样拿到这一行的满高", () => {
+        const heading = (id: string): GridLeafInput<string> => ({...leaf(id, "height", 200), collapse: {collapsed: true, collapsedSize: 32, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}});
+        // 外面再套一层竖排：这一行在高度上的上限要是取了最小的子节点，外层只肯给它三个标题行高。
+        const grid = createGrid(branch("outer", "width", "vertical", 0, [
+            branch("row", "height", "horizontal", 400, [
+                branch("column", "width", "vertical", 300, [heading("s1"), heading("s2"), heading("s3")]),
+                {...leaf("editor", "width", 699), maximumSize: {width: UNBOUNDED, height: 300}},
+            ]),
+            leaf("panel", "height", 199),
+        ]), {sashSize: SASH});
+        const result = grid.layout(CONTAINER);
+
+        expect(result.constraints.column!.maximumSize.height).toBe(3 * 32 + 2 * SASH);
+        expect(result.constraints.row!.maximumSize.height).toBe(300);
+        expect(extent(result.sizes, "row").height).toBe(300);
+        expect(extent(result.sizes, "editor").height).toBe(300);
+        expect(extent(result.sizes, "column").height).toBe(3 * 32 + 2 * SASH);
+    });
+
     it("两轴都计入 sash，容器总量守恒", () => {
         const sizes = createGrid(fixture(), {sashSize: SASH}).layout(CONTAINER).sizes;
 
@@ -1672,6 +1691,54 @@ describe("失败码与诊断码的写法（Spec ui/nested-grid 边界与兼容�
         expect(codesDisjoint).toBe(true);
         expect(FAILURE_CODES.filter((code) => (ISSUE_CODES as readonly string[]).includes(code))).toEqual([]);
     });
+
+    it("诊断的 params 的值只有字符串与有限数（输出 139）：布局重算与手势会话产出的每一条", () => {
+        const fixedLeaf = (id: string, size: number): GridLeafInput<string> => ({...leaf(id, "width", size), sizing: "fixed"});
+        const collapsible = {collapseThreshold: 24, expandThreshold: 24};
+        const layouts = [
+            // min-total
+            createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 300, 300), leaf("b", "width", 300, 300)]), {sashSize: SASH}).layout({width: 500.3333, height: 600}),
+            // sash-overflow
+            createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 100, 50), leaf("b", "width", 100, 50)]), {sashSize: SASH}).layout({width: 0.5, height: 10}),
+            // leaf-min
+            createGrid({...leaf("only", "width", 200, 200, 300), maximumSize: {width: 300, height: 100}}).layout({width: 50, height: 100}),
+            // conflicting-bounds
+            createGrid({...branch("root", "width", "horizontal", 0, [leaf("a", "width", 100, 100), leaf("b", "width", 100, 100)]), maximumSize: {width: 150, height: UNBOUNDED}}, {sashSize: SASH}).layout({width: 500, height: 100}),
+            // cross-min
+            createGrid(branch("root", "width", "horizontal", 0, [{...leaf("a", "width", 100), minimumSize: {width: 0, height: 700}}, leaf("b", "width", 100)]), {sashSize: SASH}).layout({width: 201, height: 600}),
+            // unabsorbed-space：capped 与 no-weight
+            createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 300, 0, 300), leaf("b", "width", 300, 0, 300)]), {sashSize: SASH}).layout({width: 1000, height: 600}),
+            createGrid(branch("root", "width", "horizontal", 0, [fixedLeaf("a", 100), fixedLeaf("b", 100)]), {sashSize: SASH}).layout({width: 600, height: 100}),
+            // fixed-overflow
+            createGrid(branch("root", "width", "horizontal", 0, [{...leaf("a", "width", 200, 100, 400), sizing: "fixed"}, leaf("b", "width", 100, 150), {...leaf("c", "width", 200, 100, 400), sizing: "fixed"}]), {sashSize: 0}).layout({width: 500, height: 100}),
+        ];
+        const gesture = (root: GridBranchInput<string>, extentOf: GridExtent, sashes: {branchId: string; index: number; axis: GridAxis}[]) => {
+            const grid = createGrid(root, {sashSize: SASH});
+            return createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: extentOf, layout: grid.layout(extentOf), sashSize: SASH, sessionId: "params", source: "pointer", sashes});
+        };
+        // range-overflow：两根轴都装不下，一根有上限、一根没有（`max` 只在都有上限时给）。
+        const wide = (id: string, axis: GridAxis, max = UNBOUNDED): GridLeafInput<string> => ({...leaf(id, axis, 300, 0, max), minimumSize: {width: 500, height: 300}});
+        const ranges = gesture(branch("root", "width", "horizontal", 0, [wide("left", "width", 600), branch("right", "width", "vertical", 500, [wide("top", "height"), wide("bottom", "height")])]), {width: 900, height: 500}, [{branchId: "root", index: 0, axis: "width"}, {branchId: "right", index: 0, axis: "height"}]);
+        ranges.update({x: 10, y: 10});
+        // no-room-to-restore
+        const restore = gesture(branch("root", "width", "horizontal", 0, [{...leaf("a", "width", 250, 200), collapse: {collapsed: true, collapsedSize: 0, restoreSize: 250, ...collapsible}}, leaf("b", "width", 300, 150)]), {width: 301, height: 100}, [{branchId: "root", index: 0, axis: "width"}]);
+        restore.toggleCollapsed();
+        // no-room-to-collapse
+        const collapse = gesture(branch("root", "width", "horizontal", 0, [{...leaf("a", "width", 300, 100, 300), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, ...collapsible}}, {...leaf("b", "width", 200, 100, 200), sizing: "fixed"}]), {width: 501, height: 400}, [{branchId: "root", index: 0, axis: "width"}]);
+        collapse.toggleCollapsed();
+
+        const issues = [...layouts.flatMap((result) => result.issues), ...ranges.issues, ...restore.issues, ...collapse.issues];
+        const causes = new Set(issues.map((issue) => `${issue.code}/${String(issue.params?.cause ?? "")}`));
+        expect([...causes].sort()).toEqual([
+            "conflicting-bounds/", "no-room-to-collapse/", "no-room-to-restore/",
+            "over-constrained/cross-min", "over-constrained/fixed-overflow", "over-constrained/leaf-min", "over-constrained/min-total", "over-constrained/range-overflow", "over-constrained/sash-overflow",
+            "unabsorbed-space/capped", "unabsorbed-space/no-weight",
+        ]);
+        const offending = issues.flatMap((issue) => Object.entries(issue.params ?? {})
+            .filter(([, value]) => !(typeof value === "string" || (typeof value === "number" && Number.isFinite(value))))
+            .map(([key, value]) => `${issue.code}.${key}=${String(value)}`));
+        expect(offending).toEqual([]);
+    });
 });
 
 describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）", () => {
@@ -1773,5 +1840,40 @@ describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）",
         const unresolved = restore({kind: "leaf", id: "a", ref: "ghost", size: {width: 1, height: 1}}, () => null);
         expect(codeOf(unresolved)).toEqual({code: "unresolved-root", params: undefined});
         expect(unresolved.dropped).toEqual([{ref: "ghost", code: "unknown-ref"}]);
+    });
+
+    it("每种恢复失败都带 dropped 与 clamped 两个数组（失败 7）", () => {
+        const grid = createGrid<string>(null);
+        const pair = (second: GridNodeInput<string>) => ({version: GRID_SNAPSHOT_VERSION, root: branch("root", "width", "horizontal", 0, [leaf("same", "width", 50, 10, 100), second])});
+        const failures = {
+            "invalid-snapshot": grid.restore(null, (ref) => ({ref})),
+            "unsupported-version": grid.restore({version: 99, root: {}}, (ref) => ({ref})),
+            "unresolved-root": grid.restore({version: GRID_SNAPSHOT_VERSION, root: {kind: "leaf", id: "a", ref: "ghost", size: {width: 1, height: 1}}}, () => null),
+            "duplicate-id": grid.restore(pair({...leaf("same", "width", 50, 10, 100), ref: "other"}), (ref) => ({ref})),
+        };
+        for (const [code, result] of Object.entries(failures)) {
+            expect(result.ok ? null : result.code, code).toBe(code);
+            expect([Array.isArray(result.dropped), Array.isArray(result.clamped)], code).toEqual([true, true]);
+        }
+    });
+});
+
+describe("拆分树原语：实例之间（Spec ui/nested-grid 副作用与数据）", () => {
+    it("两个 Grid 互不影响：同一份输入建两个实例，改一个，另一个的快照与布局都不变，输入也不被改", () => {
+        const input = fixture();
+        const inputBefore = JSON.stringify(input);
+        const changed = createGrid(input, {sashSize: SASH});
+        const untouched = createGrid(input, {sashSize: SASH});
+        const snapshot = untouched.serialize();
+        const layout = untouched.layout(CONTAINER);
+
+        expect(changed.resize("left", "width", -100).ok).toBe(true);
+        expect(changed.addLeaf("right", 0, leaf("added", "height", 50)).ok).toBe(true);
+        expect(changed.removeLeaf("bottom").ok).toBe(true);
+
+        expect(changed.serialize()).not.toEqual(snapshot);
+        expect(untouched.serialize()).toEqual(snapshot);
+        expect(untouched.layout(CONTAINER)).toEqual(layout);
+        expect(JSON.stringify(input)).toBe(inputBefore);
     });
 });
