@@ -57,9 +57,11 @@ export interface TextDraft {
     readonly moved?: readonly string[];
     /**
      * 并掉的旧块并进了谁，对方并之前（`head`）与并之后（`joined`）的文字：恢复它的时候，对方还是并完的样子就改回并之前的。
-     * 记整段文字、不靠“以并过去的那一段结尾”去猜：并的时候两边的空白修剪过，猜不回来。
+     * 记整段文字、不靠“以并过去的那一段结尾”去猜：并的时候两边的空白修剪过，猜不回来。`unedited` 是对方并之前没改过（`head`
+     * 就是当时读到的原文）：这时改回的是它现在读到的原文，作者在冲突里认下了别处的改动（选“我的”换了读到的原文）以后，不拿
+     * 并之前的旧字把别处的改动盖掉。
      */
-    readonly merged?: Readonly<Record<string, {readonly into: string; readonly head: string; readonly joined: string}>>;
+    readonly merged?: Readonly<Record<string, {readonly into: string; readonly head: string; readonly joined: string; readonly unedited?: true}>>;
     /** 从旧块拆出来的新块是从谁拆的、拆出来时的文字：作者在冲突里撤掉对那个旧块的改动时，没再改过的这一半一起撤掉。 */
     readonly split?: Readonly<Record<string, {readonly from: string; readonly text: string}>>;
     readonly pending?: PendingSubmit;
@@ -175,7 +177,7 @@ export function restoreBlock(draft: TextDraft, read: TextRead, key: string): Tex
     if (!isRemoved(draft, key)) return draft;
     let next: TextDraft = {...draft, removed: draft.removed.filter((item) => item !== key)};
     const from = own(draft.merged, key);
-    if (from !== undefined && next.order.includes(from.into) && textOf(next, read, from.into) === from.joined) next = setText(next, read, from.into, from.head);
+    if (from !== undefined && next.order.includes(from.into) && textOf(next, read, from.into) === from.joined) next = setText(next, read, from.into, from.unedited === true ? own(next.base, from.into) ?? from.head : from.head);
     const text = own(next.texts, key);
     return text !== undefined && text !== own(next.base, key) ? tidy(next) : untouch(next, key);
 }
@@ -208,12 +210,13 @@ export function mergeUp(draft: TextDraft, read: TextRead, key: string): {readonl
     const into = previousKey(draft, key);
     if (into === null) return null;
     const [head, tail] = [textOf(draft, read, into), textOf(draft, read, key)];
+    const unedited = !isNewKey(into) && own(draft.base, into) === undefined;
     const joined = blank(head) ? tail : blank(tail) ? head : `${head.replace(/\s+$/u, "")}\n\n${tail.replace(/^\s+/u, "")}`;
     let next = setText(draft, read, into, joined);
     // 新块并进旧块只是给旧块加字（新块还没有发布过，谈不上换地方）；两块都是旧块才算换过文字。
     if (!isNewKey(key) && !isNewKey(into)) next = markMoved(next, into);
     next = removeBlock(next, read, key);
-    if (!isNewKey(key) && isRemoved(next, key)) next = {...next, merged: {...next.merged, [key]: {into, head, joined}}};
+    if (!isNewKey(key) && isRemoved(next, key)) next = {...next, merged: {...next.merged, [key]: {into, head, joined, ...(unedited ? {unedited: true as const} : {})}}};
     return {draft: next, into};
 }
 

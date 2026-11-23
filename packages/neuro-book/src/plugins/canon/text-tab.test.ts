@@ -137,6 +137,27 @@ describe("author-ui 输出 39、44：拆与并遇上别处加的块", () => {
         dispose();
     }), 60_000);
 
+    it("并掉的块被别处删了：要问；去掉我的改动是把并撤掉，当作新加的一块留着是把它的字放回成单独的一块，都不留两份", async () => {
+        const cases: Array<["drop" | "keep", string[], number]> = [["drop", ["甲"], 0], ["keep", ["甲", "乙"], 1]];
+        for (const [choice, after, count] of cases) {
+            await inScene(async (scene) => {
+                const entry = await scene.seed(["甲", "乙"]);
+                const {tab, dispose} = tabOf(await scene.window("browser-1"), entry);
+                await tab.start();
+                tab.merge("b2");
+                await scene.edit([{op: "removeBlock", at: {entry, path: "text[b2]"}}], "creative", at);
+                await tab.submit();
+                expect(tab.conflicts.value).toMatchObject([{id: "b2", kind: "gone", mine: "乙"}]);
+                tab.choose("b2", choice);
+                await tab.confirmConflicts();
+                expect([tab.editor.value.message, tab.editor.value.count, tab.editor.value.blocks.map((block) => block.text)]).toEqual(["有几块照现在的恢复了，看过再提交", count, after]);
+                await tab.submit();
+                expect(scene.sources(entry, at)).toEqual(after);
+                dispose();
+            });
+        }
+    }, 120_000);
+
     it("拆开以后别处在同一块后面加了一块：不问，提交以后拆出去的那一半仍紧跟着前半，别处加的排在它后面", () => inScene(async (scene) => {
         const entry = await scene.seed(["甲\n\n乙"]);
         const {tab, dispose} = tabOf(await scene.window("browser-1"), entry);
