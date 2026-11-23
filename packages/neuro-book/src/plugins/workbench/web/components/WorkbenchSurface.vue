@@ -33,8 +33,8 @@ const props = withDefaults(defineProps<{
     titleOnlyPanels?: ReadonlySet<string>;
     /** 实时布局预览里的空位：这块什么都不画，露出窗体底（输出 38）。 */
     slotPanel?: string | null;
-    /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。矩形由 `placeLifted` 写。 */
-    lifted?: {readonly key: string; readonly home: string | null} | null;
+    /** 拿起的内容项（实时布局）：预览把来源摘掉时网格自己留住它（`NestedGrid` 的 `lifted`）。矩形由 `placeLifted` 写。 */
+    lifted?: {readonly key: string} | null;
     /** 拖动进行中：网格不留着离开的叶缩回去（`NestedGrid` 的 `dragging`）。 */
     dragging?: boolean;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
@@ -184,11 +184,7 @@ const contents = computed(() => {
     // 只给垫底的：别的收起的分节外框只有标题行高，被拉开时内容在拖动中就出现（输出 12）。
     const fillers = props.projection.fillers;
     const laid = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW, headless.value);
-    const items = fillers.size === 0 ? laid : laid.map((item) => (fillers.has(item.leaf) ? {...item, active: false} : item));
-    const {lifted} = props;
-    if (lifted === null || items.some((item) => item.key === lifted.key)) return items;
-    // 预览把来源摘掉了：内容项还得在，不然实例就卸了。它的叶可能也不在了，矩形由 `placeLifted` 给。
-    return [...items, {key: lifted.key, leaf: lifted.home ?? "", insetTop: 0, active: false}];
+    return fillers.size === 0 ? laid : laid.map((item) => (fillers.has(item.leaf) ? {...item, active: false} : item));
 });
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
@@ -535,6 +531,10 @@ defineExpose({
     settleMotion: (): void => gridEl.value?.settleMotion(),
     /** 写拿起的内容项的矩形：跟手，不走渲染。 */
     placeLifted: (rect: GridRect): void => gridEl.value?.placeLifted(rect),
+    /** 网格根的左上角（视口坐标）：实时布局的卡片与空位相对它。 */
+    origin: (): {x: number; y: number} => gridEl.value?.origin() ?? {x: 0, y: 0},
+    /** 网格上的布局过渡时长；减少动效时是 0，实时布局不走。 */
+    motionMs: (): number => gridEl.value?.motionMs() ?? 0,
     /** 拖动中挪窗：跟手，不走渲染。`null` 回到原处。 */
     placeFloat: (panel: string, offset: {readonly x: number; readonly y: number} | null): void => gridEl.value?.placeFloat(panel, offset),
     /** F6、Shift+F6（输出 18）：命令由宿主绑。 */
