@@ -122,6 +122,33 @@ describe("author-ui 输出 44：冲突里的选择", () => {
     }), 60_000);
 });
 
+describe("author-ui 输出 39、44：拆与并遇上别处加的块", () => {
+    it("并过的两块中间别处加了一块：列成冲突，照现在的把并撤掉、不接着提交；两块都回到没动过", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const {tab, dispose} = tabOf(await scene.window("browser-1"), entry);
+        await tab.start();
+        tab.merge("b2");
+        await scene.edit([{op: "addBlock", entry, source: "丙", after: "b1"}], "creative", at);
+        await tab.submit();
+        expect(tab.conflicts.value).toMatchObject([{id: "b2", kind: "locked", reason: "这一块与上一块中间多了别的块，不能并了"}]);
+        await tab.confirmConflicts();
+        expect([tab.editing.value, tab.editor.value.message, tab.editor.value.count, tab.editor.value.blocks.map((block) => block.text)]).toEqual([true, "有几块照现在的恢复了，看过再提交", 0, ["甲", "丙", "乙"]]);
+        expect([scene.sources(entry, at), scene.titles(entry)]).toEqual([["甲", "丙", "乙"], ["建条目", "别处的改动"]]);
+        dispose();
+    }), 60_000);
+
+    it("拆开以后别处在同一块后面加了一块：不问，提交以后拆出去的那一半仍紧跟着前半，别处加的排在它后面", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲\n\n乙"]);
+        const {tab, dispose} = tabOf(await scene.window("browser-1"), entry);
+        await tab.start();
+        tab.split("b1", "甲".length);
+        await scene.edit([{op: "addBlock", entry, source: "丙", after: "b1"}], "creative", at);
+        await tab.submit();
+        expect([tab.editing.value, tab.conflicts.value, scene.sources(entry, at)]).toEqual([false, [], ["甲", "乙", "丙"]]);
+        dispose();
+    }), 60_000);
+});
+
 describe("author-ui 输出 45：放弃", () => {
     it("链路断着时放弃：留在编辑，写明暂存没有删掉；连上以后再放弃才离开", () => inScene(async (scene) => {
         const entry = await scene.seed(["A"]);

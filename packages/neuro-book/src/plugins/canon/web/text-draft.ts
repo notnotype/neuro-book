@@ -249,6 +249,20 @@ function freeProblem(info: TextBlockInfo): Blocked | null {
     return {kind: "story", changes: info.fixed.length > 0 ? info.fixed : info.change === undefined ? [] : [info.change]};
 }
 
+/** 两块在初值里紧挨着（`below` 就在 `above` 后面）：并到上一块要它，否则别的章读到的文字会变、字也会越过中间那一块。 */
+const adjacent = (above: TextBlockInfo | undefined, below: TextBlockInfo | undefined): boolean => above?.init !== undefined && below?.init === above.init + 1;
+
+/**
+ * 并掉的旧块与它并进的旧块在新读里不再相邻（别处在两块中间加了块）：并的结果发不出去。并进的是新块（只是给新块加字）、或
+ * 并进的块已经不在（由那一块自己的冲突管）时不算。
+ */
+function mergeProblem(draft: TextDraft, read: TextRead, id: string): Blocked | null {
+    const into = own(draft.merged, id)?.into;
+    if (into === undefined || isNewKey(into)) return null;
+    const above = blockOf(read, into);
+    return above === undefined || adjacent(above, blockOf(read, id)) ? null : {kind: "not-adjacent"};
+}
+
 /**
  * 一个新块放在 `key` 后面（null 是最前）时 `addBlock` 该写的 `after`，或放不了的原因。改设定的块只能挂在初值的块后面，剧情加出
  * 来的块总紧跟自己的锚点：所以一处能放，当且仅当它后面紧挨着的旧块在初值里（或后面没有旧块了）；`after` 是它前面最近的旧块
@@ -295,9 +309,8 @@ export function allowed(draft: TextDraft, read: TextRead): {readonly first: Bloc
             if (into === null) merge = {kind: "first"};
             else if (isNewKey(key) || isNewKey(into)) merge = edit(into);
             else {
-                // 两块都是旧块：上一块也要能从初值的角度随便改，并且两块在初值里挨着，否则别的章读到的文字会变。
-                const [above, below] = [blockOf(read, into), blockOf(read, key)];
-                merge = free(into) ?? (above?.init !== undefined && below?.init === above.init + 1 ? null : {kind: "not-adjacent"});
+                // 两块都是旧块：上一块也要能从初值的角度随便改，并且两块在初值里挨着。
+                merge = free(into) ?? (adjacent(blockOf(read, into), blockOf(read, key)) ? null : {kind: "not-adjacent"});
             }
         }
         blocks.set(key, {edit: edit(key), remove: free(key), split: free(key) ?? slot(key), mergeUp: merge, addAfter: slot(key)});
@@ -309,9 +322,12 @@ export function allowed(draft: TextDraft, read: TextRead): {readonly first: Bloc
 export type Conflict =
     /** 作者动过的块别处也改了。`mine` 为 null 是作者要删它。 */
     | {readonly kind: "changed"; readonly key: string; readonly mine: string | null; readonly theirs: string; readonly structural?: true}
-    /** 作者改过的块被别处删了。 */
+    /** 作者改过的块被别处删了；或作者并掉的块被别处删了（它的字还在上一块里，不问的话别处删掉的字会跟着上一块发回来）。 */
     | {readonly kind: "gone"; readonly key: string; readonly mine: string; readonly structural?: true}
-    /** 作者要删的块现在删不了了（别处的剧情碰了它），或改的字现在发不了了（`remove` 为假）。只能照现在的来。 */
+    /**
+     * 作者要删的块现在删不了了（别处的剧情碰了它；并掉的块与上一块中间多了块），或改的字现在发不了了（`remove` 为假）。只能
+     * 照现在的来。
+     */
     | {readonly kind: "locked"; readonly key: string; readonly remove: boolean; readonly reason: Blocked; readonly structural?: true}
     /**
      * 作者改了字的块，改字写回的地方换了（原来写进初值，现在这个位置上的值是一条剧情变更给的，或反过来）。`manual` 为真是这一块
@@ -336,10 +352,11 @@ export function rebase(draft: TextDraft, read: TextRead): {readonly draft: TextD
         const structural = draft.moved?.includes(id) === true || own(draft.merged, id) !== undefined ? {structural: true as const} : {};
         const recorded = own(draft.routes, id);
         if (info === undefined) {
-            if (removing || !edited) next = untouch(next, id);
-            else conflicts.push({kind: "gone", key: id, mine, ...structural});
+            // 两边都删了不问；并掉的块不算“我删了”：它的字还在上一块里。
+            if (own(draft.merged, id) !== undefined || (!removing && edited)) conflicts.push({kind: "gone", key: id, mine, ...structural});
+            else next = untouch(next, id);
         } else if (removing) {
-            const reason = freeProblem(info);
+            const reason = freeProblem(info) ?? mergeProblem(draft, read, id);
             if (info.source !== base) conflicts.push({kind: "changed", key: id, mine: null, theirs: info.source, ...structural});
             else if (reason !== null) conflicts.push({kind: "locked", key: id, remove: true, reason, ...structural});
         } else if (recorded !== undefined && recorded !== routeOf(info)) {
@@ -384,11 +401,12 @@ export function rebase(draft: TextDraft, read: TextRead): {readonly draft: TextD
 export type Choice = "mine" | "theirs" | "keep" | "drop";
 
 /**
- * 撤掉对一个旧块的改动，连同与它有关的拆与并：从它拆出去、之后没再改过的新块去掉，并进它的旧块恢复。只撤一端的话另一半照发，
- * 同一段字会多出一份或少掉一份。拆出去以后作者又改过的新块留着（已经是作者写的另一块了），由作者自己看。
+ * 撤掉对一个旧块的改动，连同与它有关的拆与并：它自己是并掉的块时先恢复它（并进上一块的那段字拿回来），从它拆出去、之后没再
+ * 改过的新块去掉，并进它的旧块恢复。只撤一端的话另一半照发，同一段字会多出一份或少掉一份。拆出去以后作者又改过的新块留着
+ * （已经是作者写的另一块了），由作者自己看。
  */
 function revert(draft: TextDraft, read: TextRead, key: string): TextDraft {
-    let next = draft;
+    let next = own(draft.merged, key) === undefined ? draft : restoreBlock(draft, read, key);
     for (const [added, from] of Object.entries(draft.split ?? {})) {
         if (from.from === key && own(next.texts, added) === from.text) next = removeBlock(next, read, added);
     }
@@ -408,10 +426,12 @@ export function resolve(draft: TextDraft, read: TextRead, conflict: Conflict, ch
         return choice === "theirs" ? revert(draft, read, key) : draft;
     }
     if (conflict.kind === "gone") {
-        if (choice === "drop" || choice === "theirs") return {...untouch(draft, key), order: draft.order.filter((item) => item !== key)};
+        const gone = (next: TextDraft): TextDraft => ({...next, order: next.order.filter((item) => item !== key)});
+        if (choice === "drop" || choice === "theirs") return gone(revert(draft, read, key));
         if (choice !== "keep") return draft;
-        const placed = addAfter(draft, key, conflict.mine);
-        return {...untouch(placed.draft, key), order: placed.draft.order.filter((item) => item !== key)};
+        // 当作新加的一块留着。并掉的块留着就不再是并：上一块里并过去的那段拿回来，不留两份。
+        const placed = addAfter(draft, key, conflict.mine).draft;
+        return gone(own(draft.merged, key) === undefined ? untouch(placed, key) : revert(placed, read, key));
     }
     if (conflict.kind === "rerouted") {
         if (conflict.manual || info === undefined) return draft;

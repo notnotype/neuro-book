@@ -9,7 +9,7 @@ import {describe, expect, it} from "bun:test";
 import type {TextBlockInfo} from "@notnotype/nb-canon/schema";
 
 import {addAfter, allowed, changedCount, compile, emptyDraft, hasChanges, isNewKey, mergeUp, rebase, removeBlock, resolve, restoreBlock, setText, splitAt, SUBMIT_OPS_MAX, textOf} from "./text-draft";
-import type {BlockAllowed, TextDraft, TextRead} from "./text-draft";
+import type {BlockAllowed, Conflict, TextDraft, TextRead} from "./text-draft";
 
 const AT = {kind: "chapter", chapter: "ch3", edge: "end", line: "main"} as const;
 const read = (blocks: readonly TextBlockInfo[], version = 1): TextRead => ({version, inputDigest: `d${String(version)}`, at: AT, blocks});
@@ -294,6 +294,40 @@ describe("author-ui 输出 44：世界变了以后把稿对到新读的块上", 
         const merged = mergeUp(added.draft, LAYERED, added.key)!;
         expect([merged.into, merged.draft.moved, rebase(merged.draft, LAYERED).conflicts]).toEqual(["b2", undefined, []]);
         expect(compile(merged.draft, LAYERED, "e1").ops).toEqual([{op: "set", at: {entry: "e1", path: "text[b2]"}, value: "B′\n\n新写的一段。", read: "B′"}]);
+    });
+});
+
+describe("author-ui 输出 44：拆与并在冲突里连同另一半一起撤", () => {
+    const SOURCE = read([free("b1", "甲\n\n乙", 0), free("b2", "丙", 1)]);
+    const split = (): TextDraft => splitAt(emptyDraft(SOURCE), SOURCE, "b1", 1).draft;
+    const merged = (): TextDraft => mergeUp(emptyDraft(PLAIN), PLAIN, "b2")!.draft;
+    const story = (block: TextBlockInfo): TextBlockInfo => ({...block, fixed: ["c9"]});
+
+    // 稿里只拆过或并过一次，别处动了其中一端。每条冲突都照现在的来（被删了的选“去掉我的改动”）以后，稿回到没动过：不会只发出
+    // 一半，同一段字不多一份、也不少一份。
+    it.each<[string, () => TextDraft, TextRead, Array<Conflict["kind"]>]>([
+        ["拆过的块别处改了", split, read([free("b1", "别处改的", 0), free("b2", "丙", 1)], 2), ["changed"]],
+        ["拆过的块别处删了", split, read([free("b2", "丙", 0)], 2), ["gone"]],
+        ["拆过的块被剧情碰了", split, read([story(free("b1", "甲\n\n乙", 0)), free("b2", "丙", 1)], 2), ["locked"]],
+        ["并进的块别处改了", merged, read([free("b1", "别处改甲", 0), free("b2", "乙", 1), free("b3", "丙", 2)], 2), ["changed"]],
+        ["并进的块别处删了", merged, read([free("b2", "乙", 0), free("b3", "丙", 1)], 2), ["gone"]],
+        ["并进的块被剧情碰了", merged, read([story(free("b1", "甲", 0)), free("b2", "乙", 1), free("b3", "丙", 2)], 2), ["locked"]],
+        ["并掉的块别处改了", merged, read([free("b1", "甲", 0), free("b2", "乙改", 1), free("b3", "丙", 2)], 2), ["changed"]],
+        ["并掉的块别处删了", merged, read([free("b1", "甲", 0), free("b3", "丙", 1)], 2), ["gone"]],
+        ["并掉的块被剧情碰了", merged, read([free("b1", "甲", 0), story(free("b2", "乙", 1)), free("b3", "丙", 2)], 2), ["locked"]],
+        ["并的两块中间别处加了一块", merged, read([free("b1", "甲", 0), free("b4", "丁", 1), free("b2", "乙", 2), free("b3", "丙", 3)], 2), ["locked"]],
+    ])("%s：要问，照现在的来以后稿回到没动过", (_name, draft, now, kinds) => {
+        const rebased = rebase(draft(), now);
+        expect(rebased.conflicts.map((conflict) => [conflict.kind, conflict.structural])).toEqual(kinds.map((kind) => [kind, true]));
+        const settled = rebased.conflicts.reduce((next, conflict) => resolve(next, now, conflict, conflict.kind === "gone" ? "drop" : "theirs"), rebased.draft);
+        expect([rebase(settled, now).conflicts, hasChanges(settled), compile(settled, now, "e1").ops]).toEqual([[], false, []]);
+    });
+
+    it("并掉的块被别处删了、选当作新加的一块留着：它的字放回成单独的一块，上一块里并过去的那段拿回来", () => {
+        const now = read([free("b1", "甲", 0), free("b3", "丙", 1)], 2);
+        const rebased = rebase(merged(), now);
+        const kept = resolve(rebased.draft, now, rebased.conflicts[0]!, "keep");
+        expect([kept.order.map((key) => textOf(kept, now, key)), compile(kept, now, "e1").ops]).toEqual([["甲", "乙", "丙"], [{op: "addBlock", entry: "e1", source: "乙", after: "b1"}]]);
     });
 });
 
