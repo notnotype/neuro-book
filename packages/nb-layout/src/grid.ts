@@ -770,19 +770,12 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 return guard;
             }
 
-            const nextTree = tree ? cloneNode(tree) : null;
-            const originalTree = tree;
-            tree = nextTree;
-            const stagedHit = find(id);
-            const stagedTarget = find(parentId);
-            // 防御分支，按今天的结构不可达：上面已经在原树里找到了来源与目标分支，克隆树里它们都在；
-            // 同一分支内的移动走了上面那条路。下面那一处同理：塌陷的只有来源，目标分支不会因此消失。
-            if (!stagedHit?.parent || !stagedTarget || stagedTarget.node.kind !== "branch") {
-                tree = originalTree;
-                return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
-            }
-            const source = stagedHit.parent;
-            const leaf = stagedHit.node as GridLeaf<T>;
+            // 到这里已经没有失败路径，直接在活树上改，不需要回滚。
+            // 塌陷的只有来源分支，目标分支不会因此消失，被提上去的兄弟也还是原对象，所以 `target.node` 在塌陷之后仍有效。
+            // 来源是叶且目标是另一个分支，所以来源一定有父分支：只有一片根叶的树里没有分支，前面已经按 not-found 返回。
+            const source = hit.parent!;
+            const leaf = hit.node as GridLeaf<T>;
+            const destination = target.node;
             // 来源与目标的兄弟意图都不动（Spec 输出 153）。
             source.children = source.children.filter((child) => child.id !== id);
             if (source.children.length === 0) {
@@ -790,18 +783,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             } else if (source.children.length === 1) {
                 collapse(source, source.children[0]!);
             }
-            const destination = find(parentId);
-            if (!destination || destination.node.kind !== "branch") {
-                tree = originalTree;
-                return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
-            }
             if (leaf.sizing !== "fixed") {
                 // 按比例分的意图是来源分支里的相对份额，到了别的分支没有意义：按新叶重取目标分支的平均。
-                const main = axisOf(destination.node.orientation);
-                leaf.size = {...leaf.size, [main]: meanWeightShare(destination.node, main)};
+                const main = axisOf(destination.orientation);
+                leaf.size = {...leaf.size, [main]: meanWeightShare(destination, main)};
             }
-            const at = Math.min(Math.max(0, index), destination.node.children.length);
-            destination.node.children.splice(at, 0, leaf);
+            const at = Math.min(Math.max(0, index), destination.children.length);
+            destination.children.splice(at, 0, leaf);
             return {ok: true};
         },
 

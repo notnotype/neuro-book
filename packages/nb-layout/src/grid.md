@@ -54,7 +54,7 @@ v1 无法可靠推导两轴意图，明确拒绝；未知高版本、重复 id�
 
 ## 结构操作
 
-`addLeaf` / `removeLeaf` / `moveLeaf` / `splitLeaf`；同分支重排不触发塌陷，跨分支操作先在候选树中完成再发布。失败不留下被移除的半棵树，也不改快照。
+`addLeaf` / `removeLeaf` / `moveLeaf` / `splitLeaf`；同分支重排不触发塌陷；跨分支的 `moveLeaf` 先做完全部检查（含规模守卫），再直接在树上改，失败的移动不动树。失败不留下被移除的半棵树，也不改快照。
 
 增删与移动不改兄弟的意图（见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“结构操作与 resize 不改兄弟的意图”一条）：保留像素的兄弟宽度不变，按比例分的兄弟按份额重分，空出或多出的空间由按比例分且没收起的兄弟吸收，没有就留白（诊断 `unabsorbed-space`）。
 
