@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00039-novel-writing-plugins
 issueId: null
 status: active
-updated: 2026-11-19
+updated: 2026-11-23
 ---
 
 # 小说创作插件
@@ -69,6 +69,8 @@ updated: 2026-11-19
 | 2026-11-10 | 开发者在 t16 评审板第 10 版（答复 `20261110T120941062Z-164102cd`）：**批准第一批的 Spec**（`b1-spec-approve`）；**面包屑第一批就做**（`r6-breadcrumb`，没按推荐的“和剧情侧一起做”）；时间线按格子做（`r5-timeline`）；工作单中间一步“细纲”按图（`r6-outline-step`）；“再查一项”按图（`r6-checks`）；前情缺省“前面几章的摘要加上一章结尾原文”，要可配置、用多级摘要（`r6-recap`）。另写了文风的三个部分、分级摘要（章的 L 摘要三级、范围的 S 摘要）与写手上下文的排法，要主会话给 S 摘要的方案；原话在 [t16](tasks/t16-plot-workbench-ui/README.md)。`r6-style`、`r6-ripple`、`r5-line-scope` 没答 |
 | 2026-11-10 | 开发者在 t16 评审板第 11 版（答复 `20261110T130040745Z-de441fef`）：“看哪条线”整个窗口一个（`r5-line-scope`）；写了很多章以后改设定按图处理、逐章重查（`r6-ripple`）；S 摘要按“两两合并”（`s-scheme`），**摘要专注情节、不注重设定**，提示词以后在实际体验里调；滚动摘要每章滚、每 10 章重对（`s-rolling`）；稳定的设定先用作品里的文件（`s-stable`），但要另行设计“不改 Profile 也能控制写手上下文”的办法（例：写战斗场景时注入某个写作提示词）。据此新建 [t36](tasks/t36-writer-context-summaries/README.md) |
 | 2026-11-19 | 开发者看过 t31 第二批第一期以后：设定视图很简陋，一个设定都没有时是白板，只能右键新建；UI 与 UX 的打磨排到最后，先看功能与基本 UX；**最重要的是作者和 Agent 都能改数据**（当时的现状：canon 与剧情插件没有给 Agent 贡献任何工具，Agent 读写不了设定；作者在条目页只能就地改数、文字、选项、是否四种字段，另能记一笔、还原）；别的功能太简陋，看不出来、不好审。方向：“先把底座做好，然后再考虑做通一个闭环（候选的闭环就是人物 Component 设定）”。t31 第二批后面三期（B2-2 到 B2-4）暂停，排在底座与闭环之后 |
+| 2026-11-23 | 开发者看过写入底座（t37）：“整个界面都是属于一种不可用的状态，就是用户不知道怎么用”；又问给 Agent 的工具做了哪些、整个 Work 要做哪些工具有没有规划好（只做了四个，清单只在两份提案里各有一段，t20 没讨论过）。主会话起草[工具地图](tasks/t20-agent-tools/tool-map.md)，开发者确认，六条都按推荐：写手、检查、记账是程序跑的后台任务，不带工具；剧情侧的读取由剧情插件自己出三个工具，不并进 `canon_read`（改了剧情侧提案第 14 小节的“先并进 `read` 的地址”）；检索第一版做专用工具、在内存里按关键词找，**不做只读文件视图，11-02 留下的检索实验不做**；写世界在 `ask` 模式每次问、`auto` 模式直接放行；写手第一版只做按细纲写；先后按五档 |
+| 2026-11-23 | 开发者：写手任务、记账管线先不考虑，“现在最首要的就是世界引擎负责管理和记录这两件事”（例：让助手列出所有条目；开书，确定历法，初始化设定条目；建立人物的外貌、关系等；记账）。接下来按这个路径走，**Agent 可以暂且不推**：第一步，最基础的条目，做主文字（MDX）的编辑器，“目标就是：世界引擎能像文件系统一样记录东西了”（[t28](tasks/t28-entry-mdx-editing/README.md)）；第二步，第一个设定组——人物，能放图片，并且提供一份生动的表单给作者填数据。11-19 说的“人物 Component 闭环”就是这第二步，排在编辑器之后 |
 
 ## 调研
 
@@ -93,12 +95,12 @@ updated: 2026-11-19
 | 3 | [t30](tasks/t30-nb-canon-cleanup/README.md) | nb-canon 整理：t29 可维护性审查里不改行为的几项，差分测试兜底（11-04 新建） | t29 |
 | 3 | [t10](tasks/t10-setting-schema/README.md) | 内置 Component 的字段清单与设定表单（字段声明写法已并入 t27） | t27、t30 |
 | 3 | [t14](tasks/t14-plugin-split/README.md) | nb-memory 检索的复用、查看器进工作台（包切分已并入 t27） | t27 |
-| 4 | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t27、t19 |
-| 1 | [t37](tasks/t37-write-foundation/README.md) | 写入底座：作者与 Agent 都能改设定（Agent 工具、各种字段与 Component 的改法、空状态）；做完再定人物 Component 的闭环（11-19 新建，排在 t31 后三期之前；11-19 合入 master，实现审查处理完，Spec 待晋升，等开发者审查后定闭环） | t31 第一期 |
+| — | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文（11-23：[工具地图](tasks/t20-agent-tools/tool-map.md)已定，15 个工具做了 4 个；Agent 这条线暂且不推，搁着） | t27、t19 |
+| — | [t37](tasks/t37-write-foundation/README.md) | 写入底座：作者与 Agent 都能改设定（Agent 工具、各种字段与 Component 的改法、空状态）；做完再定人物 Component 的闭环（11-19 新建，排在 t31 后三期之前；11-19 合入 master，实现审查处理完，Spec 待晋升；11-23 开发者审查：界面不知道怎么用，接下来先做 t28） | t31 第一期 |
 | 1 | [t31](tasks/t31-author-ui-v1/README.md) | 作者界面第一版（11-10 恢复）：第一批设定侧（11-18 完成：合入 master，`canon/author-ui.md` 晋升 `implemented`），第二批剧情侧（11-19 起自主推进，分四期；第一期 B2-1 读的几张表与人物页 11-19 合入 master，`plot/author-ui.md` 待晋升；后三期 11-19 起暂停，排在 t37 之后） | t29、t34、t35 |
 | 2 | [t36](tasks/t36-writer-context-summaries/README.md) | 写手上下文：文风、三级 L 摘要、两两合并的 S 摘要、滚动摘要与五块排法（11-10 新建，等“不改 Profile 也能控制写手上下文”的方案） | t35 |
 | 1 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面的设计（设定侧的静态稿与原型已到第 3 轮；11-10 起补剧情侧的静态稿） | t27、t29 |
-| 5 | [t28](tasks/t28-entry-mdx-editing/README.md) | 作者编辑条目的主 MDX | t16 |
+| 1 | [t28](tasks/t28-entry-mdx-editing/README.md) | 最基础的条目与主文字（MDX）的编辑器：世界引擎能像文件系统一样记录东西（11-23 开发者定为下一步；之后是人物设定组，到时建 Task） | t37 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |
 
