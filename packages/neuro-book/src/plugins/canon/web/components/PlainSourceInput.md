@@ -25,7 +25,8 @@ type Emits = {
 };
 
 type Exposed = {
-    focus(): void;
+    /** 把焦点放进输入框；`caret` 把光标放到文首或文末，不给时不动光标。 */
+    focus(caret?: "start" | "end"): void;
     /** 光标在文字里的偏移。 */
     cursorOffset(): number | null;
 };

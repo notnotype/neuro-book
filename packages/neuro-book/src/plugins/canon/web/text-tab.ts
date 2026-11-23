@@ -92,6 +92,14 @@ export function useTextTab(options: TextTabOptions): TextTab {
     /** 整批的说明：最近一次提交没发出去的原因、开始编辑时读不出块的原因。作者再动一下就收起。 */
     const message = shallowRef("");
     const asking = shallowRef(false);
+    /**
+     * 作者在现在写不了的时候按了提交（多半是用键盘）：把原因照整批的说明显示。不存成 `message`：原因是随世界变的（独占放开、
+     * 重新连上），它没了这句也跟着收起。
+     */
+    const blockedAsked = shallowRef(false);
+    watch(() => options.blocked(), (now) => {
+        if (now === "") blockedAsked.value = false;
+    });
     /** 作者在对话框里选到一半的选择，按冲突的键（块 id 可以是任何字符串，不用普通对象当字典）。 */
     const choices = reactive(new Map<string, ConflictChoice>());
     const blockerText = (blocker: Blocker): string => text(blocker === "chapter-not-found" ? "textEdit.blockerChapter" : blocker === "line-not-found" ? "textEdit.blockerLine" : blocker === "entry-missing" ? "textEdit.blockerEntry" : blocker === "too-large" ? "textEdit.blockerTooLarge" : "textEdit.blockerUnavailable");
@@ -160,46 +168,29 @@ export function useTextTab(options: TextTabOptions): TextTab {
         return {id: conflict.key, kind: "locked", mine: null, theirs: state.read?.blocks.find((block) => block.id === conflict.key)?.source ?? null, reason: text(conflict.remove ? "textEdit.conflictLockedRemove" : "textEdit.conflictLockedEdit"), choice: "theirs"};
     };
 
+    /** 一次提交没发出去、要整批写明的原因；别的结局是空串。 */
+    const resultMessage = (result: SubmitResult): string => {
+        switch (result.status) {
+            case "too-many": return text("textEdit.resultTooMany", {count: result.count, max: SUBMIT_OPS_MAX});
+            case "too-large": return text("textEdit.resultTooLarge");
+            case "not-saved": return text("textEdit.resultNotSaved");
+            case "contended": return text("textEdit.resultContended");
+            case "not-published": return text("textEdit.resultNotPublished");
+            case "blocked": return blockerText(result.reason);
+            case "failed": return options.translate(failureText(result.failure).text);
+            // 发布了、要作者选、没有净变化、原因落在块上、结局不明（那一行另有“正在确认”）、重复点击：没有整批的说明。
+            default: return "";
+        }
+    };
     /** 提交（或再确认）的结局换成界面上的东西。 */
     const report = (result: SubmitResult, title: string): void => {
-        switch (result.status) {
-            case "published":
-                if (result.revision !== undefined) options.notices.show({revision: result.revision, title});
-                break;
-            case "conflicts": {
-                // 上一轮选过、这一轮还在的冲突留着选择；不在了的丢掉。
-                const still = new Set(state.conflicts.map((conflict) => conflict.key));
-                for (const key of [...choices.keys()]) if (!still.has(key)) choices.delete(key);
-                asking.value = true;
-                break;
-            }
-            case "too-many":
-                message.value = text("textEdit.resultTooMany", {count: result.count, max: SUBMIT_OPS_MAX});
-                break;
-            case "too-large":
-                message.value = text("textEdit.resultTooLarge");
-                break;
-            case "not-saved":
-                message.value = text("textEdit.resultNotSaved");
-                break;
-            case "contended":
-                message.value = text("textEdit.resultContended");
-                break;
-            case "not-published":
-                message.value = text("textEdit.resultNotPublished");
-                break;
-            case "blocked":
-                message.value = blockerText(result.reason);
-                break;
-            case "failed":
-                message.value = options.translate(failureText(result.failure).text);
-                break;
-            // 没有净变化、原因落在块上、结局不明（那一行另有“正在确认”）、重复点击：没有整批的说明。
-            case "nothing":
-            case "problems":
-            case "unknown":
-            case "busy":
-                break;
+        message.value = resultMessage(result);
+        if (result.status === "published" && result.revision !== undefined) options.notices.show({revision: result.revision, title});
+        if (result.status === "conflicts") {
+            // 上一轮选过、这一轮还在的冲突留着选择；不在了的丢掉。
+            const still = new Set(state.conflicts.map((conflict) => conflict.key));
+            for (const key of [...choices.keys()]) if (!still.has(key)) choices.delete(key);
+            asking.value = true;
         }
     };
 
@@ -211,9 +202,10 @@ export function useTextTab(options: TextTabOptions): TextTab {
     /** 发一次提交。`settled` 是作者刚在冲突里选完：这时即使已经没有改动也要走一遍，让会话收场、回到阅读视图。 */
     const submit = async (settled = false): Promise<void> => {
         if (state.draft === null || state.phase === "submitting") return;
-        // 现在写不了（只读、别人独占、断开、条目已删除）：用键盘提交的人看不到按钮上的原因，写在那一行。
+        // 现在写不了（只读、别人独占、断开、条目已删除）：不发，原因照整批的说明显示。
         if (options.blocked() !== "") {
-            message.value = options.blocked();
+            message.value = "";
+            blockedAsked.value = true;
             return;
         }
         if (!settled && !dirty.value) return;
@@ -227,12 +219,16 @@ export function useTextTab(options: TextTabOptions): TextTab {
         report(await session.confirm(), sent);
     };
 
-    // 连上以后：断着的时候没读到暂存的现在读，等着结局的再确认一次，读不出块的再读一次。
+    // 连上以后：断着的时候没读到暂存的现在读，没存上的稿补存，等着结局的再确认一次，读不出块的再读一次。
     watch(() => options.world.connection.value, (now) => {
         if (now !== "online") return;
-        if (!state.loaded) void session.reload();
-        else if (state.draft === null) return;
-        else if (state.phase === "confirming") void retry();
+        if (!state.loaded) {
+            void session.reload();
+            return;
+        }
+        if (state.draft === null) return;
+        if (state.saved === "failed") void session.flush();
+        if (state.phase === "confirming") void retry();
         else if (state.blocker === "unavailable") void session.reload();
     });
 
@@ -246,7 +242,9 @@ export function useTextTab(options: TextTabOptions): TextTab {
             saved: state.saved,
             phase: state.phase,
             submitBlocked: options.blocked(),
-            message: message.value !== "" ? message.value : state.blocker === null ? "" : blockerText(state.blocker),
+            // 这一页自己发的提交的原因在先；其次是按了提交而现在写不了的原因；再是会话在没有页面时确认出来的结局（读进来就在等
+            // 结局的稿）；最后是读不出块的原因。
+            message: message.value !== "" ? message.value : blockedAsked.value && options.blocked() !== "" ? options.blocked() : state.resumed !== null && resultMessage(state.resumed) !== "" ? resultMessage(state.resumed) : state.blocker === null ? "" : blockerText(state.blocker),
             frozen: state.draft !== null && state.read === null,
         })),
         conflicts: computed(() => state.conflicts.map(conflictItem)),
@@ -268,6 +266,7 @@ export function useTextTab(options: TextTabOptions): TextTab {
         flush: () => void session.flush(),
         leave: async () => {
             message.value = "";
+            blockedAsked.value = false;
             asking.value = false;
             // 存下来的稿删不掉时不离开（否则重开以后它又回来了）：留在编辑并写明。
             if (!(await session.discard())) message.value = text("textEdit.resultDiscardFailed");

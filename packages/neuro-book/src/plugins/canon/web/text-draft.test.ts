@@ -115,10 +115,21 @@ describe("author-ui 输出 39、45：块的操作与“有没有未提交的内�
         const joined = mergeUp(emptyDraft(PLAIN), PLAIN, "b2")!;
         expect([textOf(joined.draft, PLAIN, "b1"), joined.draft.removed]).toEqual(["甲\n\n乙", ["b2"]]);
         expect(restoreBlock(joined.draft, PLAIN, "b2")).toEqual(emptyDraft(PLAIN));
-        // 并了以后上一块又改过、已经不是以那段字结尾了：恢复只撤掉删除，上一块不动。
+        // 并了以后上一块又改过、已经不是并完的样子了：恢复只撤掉删除，上一块不动。
         const reworked = setText(joined.draft, PLAIN, "b1", "甲与乙揉在一起改过的一段。");
         const restored = restoreBlock(reworked, PLAIN, "b2");
         expect([restored.removed, textOf(restored, PLAIN, "b1"), textOf(restored, PLAIN, "b2")]).toEqual([[], "甲与乙揉在一起改过的一段。", "乙"]);
+    });
+
+    it("原文首尾带空白的块并了再恢复，稿回到没动过：不多出一处改字，同一段字也不留在两块里", () => {
+        // 上一块的原文以换行结尾：并的时候修剪过，恢复要回到原文，不是修剪后的样子。
+        const trailing = read([free("b1", "甲\n", 0), free("b2", "乙", 1)]);
+        expect(restoreBlock(mergeUp(emptyDraft(trailing), trailing, "b2")!.draft, trailing, "b2")).toEqual(emptyDraft(trailing));
+        // 旧块并进它前面一个空的新块、原文有前导空白：恢复以后新块回到空的，不带着那段字。
+        const leading = read([free("b1", "甲", 0), free("b2", "  乙", 1)]);
+        const added = addAfter(emptyDraft(leading), "b1");
+        const restored = restoreBlock(mergeUp(added.draft, leading, "b2")!.draft, leading, "b2");
+        expect([restored.texts, restored.removed, compile(restored, leading, "e1").ops]).toEqual([{[added.key]: ""}, [], []]);
     });
 
     it("空的新块不算有未提交的内容；写了字才算", () => {

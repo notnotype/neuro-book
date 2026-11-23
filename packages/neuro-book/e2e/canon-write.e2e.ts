@@ -175,6 +175,12 @@ test("主文字的稿（验收 16）：从光标处拆成两块，刷新以后�
     await expect(textBlocks(page)).toHaveCount(2);
     await expect(blockText(page, 0)).toHaveText("星瑕是第三魔法学院的一年级学生。");
     await expect(blockText(page, 1)).toHaveText("她住在旧城区。");
+    // 不用再点：焦点已经在新块里，光标在它的开头（拆开的地方），接着打的字落在那里。
+    await page.keyboard.type("后来");
+    await expect(blockText(page, 1)).toHaveText("后来她住在旧城区。");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await expect(blockText(page, 1)).toHaveText("她住在旧城区。");
     await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
     await expect(entryPage(page).locator("[data-text-saved=\"saved\"]")).toBeVisible();
 
@@ -248,8 +254,9 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     const fallback = textBlocks(page).nth(0).locator("[data-code-input-fallback]");
     await expect(fallback).toBeVisible();
     await expect(textBlocks(page).nth(0).locator("[data-code-input-failure]")).toBeVisible();
-    const before = await fallback.inputValue();
-    await fallback.fill(`${before}（文本框里改的）`);
+    // 进编辑时焦点要进第一块：编辑器没建成，焦点落在退回的文本框里、光标在文末，直接打字。
+    await expect(fallback).toBeFocused();
+    await page.keyboard.type("（文本框里改的）");
     await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
@@ -314,4 +321,39 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await expect(undo).toHaveText("已撤销");
     await expect(undo).toHaveAttribute("aria-disabled", "true");
     await expect(undo).toBeFocused();
+});
+
+test("稿开始的那一章被删以后刷新（输出 46）：页面照常读得出来，编辑里只列动过的文字、不能改，只能放弃", async ({page}) => {
+    // 给作品加一章：条目页缺省读这一章末尾，稿就开在这里。
+    const binder = join(tmp, "Book", "manuscripts.binder");
+    await mkdir(binder, {recursive: true});
+    await writeFile(join(binder, "binder.xml"), '<binder nextId="2"><chapter id="1" title="入学"/></binder>');
+    await open(page);
+    await openEntry(page, "人物", "星瑕");
+    const position = entryPage(page).locator('[aria-label="位置"]');
+    await expect(position).toContainText("第 1 章末尾");
+    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    await focusBlock(page, 0);
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("（第 1 章里改的）");
+    await expect(entryPage(page).locator('[data-text-saved="saved"]')).toBeVisible();
+
+    // 活页夹里拿掉这一章；等世界看到（位置的选项里没有它了）再刷新。
+    await writeFile(join(binder, "binder.xml"), '<binder nextId="2"></binder>');
+    await expect(position).not.toContainText("第 1 章");
+    await open(page);
+    await expect(tabDot(page)).toHaveCount(1);
+    await expect(entryPage(page).locator("h1")).toHaveText("星瑕");
+    await expect(entryPage(page).locator("[data-text-message]")).toContainText("开始编辑时的那一章已经不在了");
+    await expect(textBlocks(page)).toHaveCount(1);
+    await expect(textBlocks(page).nth(0)).toContainText("（第 1 章里改的）");
+    await expect(entryPage(page).locator("[data-text-add]")).toHaveCount(0);
+    await expect(entryPage(page).getByRole("button", {name: "提交", exact: true})).toBeDisabled();
+
+    await entryPage(page).locator("[data-text-discard]").click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "放弃", exact: true}).click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
+    await expect(entryPage(page).locator("[data-entry-text]")).not.toContainText("（第 1 章里改的）");
+    await expect(tabDot(page)).toHaveCount(0);
 });

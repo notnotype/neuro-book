@@ -38,7 +38,7 @@ const DraftSchema = Type.Object({
     removed: Type.Array(Type.String()),
     routes: Type.Optional(Texts),
     moved: Type.Optional(Type.Array(Type.String())),
-    merged: Type.Optional(Type.Record(Type.String(), Type.Object({into: Type.String(), text: Type.String()}))),
+    merged: Type.Optional(Type.Record(Type.String(), Type.Object({into: Type.String(), head: Type.String(), joined: Type.String()}))),
     pending: Type.Optional(Type.Object({
         requestId: Type.String(),
         title: Type.String(),
@@ -58,9 +58,14 @@ const SAVE_DELAY_MS = 300;
 
 /**
  * 内核在判过请求 id 之后才会给的拒收：收到它说明这个请求 id 当时没有发布过，而且这一次也没有发布。别的失败（别人独占、世界
- * 只读、连不上）发生在判请求 id 之前，证明不了原来那一次有没有发布。
+ * 只读、连不上）发生在判请求 id 之前，证明不了原来那一次有没有发布。这张表照内核写入的公共路径列（`WorldService` 的 `#write`：
+ * 判请求 id 之前只有停止、只读、独占那几种）；内核添了新的拒收而这里没跟上时，重发碰到它会停在“正在确认”，只能放弃，不会
+ * 发布两次。`too-large` 是日志一行超过上限：请求在调用方一侧超过预算时根本发不出去，冻结的请求既然发出过，重发时不会是那一种。
  */
-const REJECTED: ReadonlySet<string> = new Set(["stale-read", "version-conflict", "value-conflict", "validation-failed", "result-mismatch", "field-unavailable", "incomplete-field", "accumulated-value", "chapter-not-found", "line-not-found", "intent-not-allowed"]);
+const REJECTED: ReadonlySet<string> = new Set([
+    "stale-read", "version-conflict", "value-conflict", "validation-failed", "result-mismatch", "field-unavailable", "incomplete-field", "accumulated-value",
+    "chapter-not-found", "line-not-found", "intent-not-allowed", "not-deletable", "source-not-writable", "author-source-invalid", "author-source-required", "too-large",
+]);
 
 /** 暂存的状态：`none` 没有要存的；`diverged` 是别的窗口写过这条记录。 */
 export type SavedState = "none" | "saved" | "unsaved" | "failed" | "too-large" | "diverged";
@@ -107,6 +112,11 @@ export interface TextDraftState {
     phase: "idle" | "submitting" | "confirming";
     conflicts: readonly Conflict[];
     problems: Readonly<Record<string, BlockProblem>>;
+    /**
+     * 读进来就在等结局的稿，会话自己去确认（没有页面在场时也会）得到的“没发布”一类的结局：界面据此写明上一次提交怎么了。
+     * 作者再动一下（编辑、提交、放弃）就清掉。
+     */
+    resumed: SubmitResult | null;
 }
 
 export interface TextDraftSession {
@@ -175,7 +185,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
     const newRequestId = options.requestId ?? (() => `text-${crypto.randomUUID()}`);
 
     const create = (entry: string): TextDraftSession => {
-        const state: TextDraftState = reactive({loaded: false, draft: null, read: null, blocker: null, saved: "none", phase: "idle", conflicts: [], problems: {}});
+        const state: TextDraftState = reactive({loaded: false, draft: null, read: null, blocker: null, saved: "none", phase: "idle", conflicts: [], problems: {}, resumed: null});
         let handle: RecordHandle<TextDraft> | null = null;
         /** 这个窗口上一次读到或写下的 revision：条件写带它。 */
         let revision: Revision | null = null;
@@ -183,6 +193,11 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
         let reset = false;
         /** 上一次写存储的结局不明（回执丢了）：`attempted` 是那一次要写的值（删除为 null）。下一次动存储之前先读回来核对。 */
         let uncertain: {readonly attempted: TextDraft | null} | null = null;
+        /**
+         * 存储里确认存着的那份稿带的冻结请求的 id（那份稿没有冻结、或还不知道存的是什么时为 null）。冻结的请求发出之前它得是
+         * 这个请求（Spec 输出 46）：否则回执再丢一次、窗口关掉，重开读到的是没有冻结的旧稿，会把同样的新块再加一遍。
+         */
+        let durable: string | null = null;
         let cancelSave: (() => void) | null = null;
         /** 每次编辑加一：一次保存回来时还等于它开始时的数，才说明存下去的就是现在的内容。 */
         let edits = 0;
@@ -217,6 +232,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             if (snapshot.status === "error") return "unknown";
             const landed = uncertain.attempted === null ? snapshot.status === "missing" : snapshot.status === "ok" && Value.Equal(snapshot.value, uncertain.attempted);
             const untouched = snapshot.revision === revision;
+            if (landed) durable = uncertain.attempted?.pending?.requestId ?? null;
             uncertain = null;
             if (landed || untouched) {
                 revision = snapshot.revision;
@@ -264,6 +280,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             if (written.ok) {
                 revision = written.revision;
                 reset = false;
+                durable = value?.pending?.requestId ?? null;
                 // 保存期间作者又打了字：存下去的不是现在的内容，那一次编辑排的保存还在后面。
                 state.saved = !keep ? "none" : seq === edits ? "saved" : "unsaved";
                 return {ok: true as const};
@@ -321,6 +338,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             state.blocker = null;
             state.conflicts = [];
             state.problems = {};
+            state.resumed = null;
             state.phase = "idle";
         };
 
@@ -415,7 +433,8 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             state.draft = {...state.draft!, pending};
             const frozen = await persist();
             if (frozen.ok) return "frozen";
-            if (uncertain !== null) return "unknown";
+            // 结局不明的得是这一次冻结的写。更早一次写的结局还读不回来时，这一次根本没写：请求没发出过，照没冻结上处理。
+            if (uncertain !== null && uncertain.attempted?.pending?.requestId === pending.requestId) return "unknown";
             state.draft = withoutPending(state.draft);
             return frozen.code;
         };
@@ -466,6 +485,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             if (state.phase === "submitting" || state.draft === null) return {status: "busy"};
             const from = state.phase;
             state.phase = "submitting";
+            state.resumed = null;
             try {
                 return await run();
             } finally {
@@ -485,6 +505,12 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             if (pending === undefined) return {status: "not-published"};
             const world = options.world();
             if (world === null) return {status: "unknown"};
+            // 冻结的写结局不明、其实没写进去的：先补上（读回来核对，没有就再写），补不上就不发。
+            if (options.storage !== null && durable !== pending.requestId) {
+                const saved = await persist();
+                if (generation !== mine) return {status: "busy"};
+                if (!saved.ok || durable !== pending.requestId) return {status: "unknown"};
+            }
             try {
                 const outcome = await options.call("outcome", {requestId: pending.requestId});
                 if (generation !== mine) return {status: "busy"};
@@ -498,11 +524,10 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             const reply = await write(world, request(draft, pending));
             if (generation !== mine) return {status: "busy"};
             const settled = await settle(reply, pending.keys, true);
-            if (settled !== "again") return settled;
-            // 确定没有发布、世界也变了：回到一份普通的稿，重新对一遍，由作者再提交。
-            state.phase = "idle";
-            await align();
-            return {status: "not-published"};
+            if (settled === "again") state.phase = "idle";
+            // 确定没有发布：回到一份普通的稿。世界变了的重新对一遍；读进来就在等结局的稿还没读过块，读一次，作者才能接着改。
+            if (state.draft !== null && state.draft.pending === undefined && (settled === "again" || state.read === null)) await align();
+            return settled === "again" ? {status: "not-published"} : settled;
         });
 
         /** 把存储里的记录读进来。读不出来返回假（不知道有没有稿）。 */
@@ -515,12 +540,14 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             uncertain = null;
             revision = snapshot.revision;
             reset = snapshot.status === "corrupt" || snapshot.status === "unsupported-version";
+            durable = snapshot.status === "ok" ? snapshot.value.pending?.requestId ?? null : null;
             if (snapshot.status === "ok") {
                 generation += 1;
                 state.draft = snapshot.value;
                 state.saved = "saved";
                 state.conflicts = [];
                 state.problems = {};
+                state.resumed = null;
             }
             return true;
         };
@@ -528,13 +555,18 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
         /** 读进来的稿接着走：等结局的去确认，别的读块对上去。 */
         const resume = async (): Promise<void> => {
             if (state.draft === null) return;
-            if (state.draft.pending !== undefined) {
-                state.phase = "confirming";
-                await confirm();
-            } else await align();
+            if (state.draft.pending === undefined) {
+                await align();
+                return;
+            }
+            if (state.phase === "idle") state.phase = "confirming";
+            const result = await confirm();
+            // 这一次确认没有页面在等结果：没发布一类的结局记下来，界面挂上时写明。
+            if (state.draft !== null && result.status !== "published" && result.status !== "unknown" && result.status !== "busy") state.resumed = result;
         };
 
-        const load = (): Promise<void> => (loading ??= (async () => {
+        // 读过了就不再读：之后稿在内存里，再读一次会拿存储里的记录盖掉它。
+        const load = (): Promise<void> => (state.loaded ? Promise.resolve() : loading ??= (async () => {
             if (!(await pull())) {
                 // 读失败不记成“读过了、没有稿”：下一次再读。
                 loading = null;
@@ -564,6 +596,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             if (removed.ok) {
                 revision = removed.revision;
                 reset = false;
+                durable = null;
                 return true;
             }
             if (removed.code === "conflict") return true;
@@ -604,10 +637,12 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 if (next === draft) return;
                 state.draft = next;
                 if (Object.keys(state.problems).length > 0) state.problems = {};
+                state.resumed = null;
                 touch();
             },
             flush: async () => {
-                if (cancelSave === null && state.saved !== "unsaved") return;
+                // 上一次没存成（链路断着）的也算：之后作者不再打字、直接切走或关窗时，靠这一次补存。
+                if (cancelSave === null && state.saved !== "unsaved" && state.saved !== "failed") return;
                 await persist();
             },
             discard: async () => {
@@ -640,6 +675,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                     uncertain = null;
                     revision = snapshot.revision;
                     reset = snapshot.status === "corrupt" || snapshot.status === "unsupported-version";
+                    durable = null;
                     state.saved = "unsaved";
                     return true;
                 });
@@ -654,6 +690,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 uncertain = null;
                 revision = snapshot.revision;
                 reset = snapshot.status === "corrupt" || snapshot.status === "unsupported-version";
+                durable = snapshot.status === "ok" ? snapshot.value.pending?.requestId ?? null : null;
                 // 那边已经没有稿了（发布了、放弃了）：这里也回到阅读。
                 if (snapshot.status !== "ok") {
                     leave();

@@ -905,11 +905,14 @@ describe("写入", () => {
         expect(wrapper.get("[data-text-submit-blocked]").text()).toContain("第 3 章记账");
         await page.commit!(id);
         await waitUntil("写明原因", () => wrapper.find("[data-text-message]").exists());
-        expect(wrapper.get("[data-text-message]").text()).toContain("第 3 章记账");
+        // 原因照整批的说明显示，状态行里不再写一遍。
+        expect([wrapper.get("[data-text-message]").text().includes("第 3 章记账"), wrapper.find("[data-text-submit-blocked]").exists()]).toEqual([true, false]);
         expect([await initText(other.canon, id), page.uncommitted!(id)]).toEqual([["第一块。"], true]);
 
+        // 独占放开：原因没了，那句说明跟着收起。
         await lease.value.release();
         await waitUntil("能提交了", () => wrapper.get("[data-text-submit]").attributes("disabled") === undefined);
+        await waitUntil("说明收起", () => !wrapper.find("[data-text-message]").exists());
         await Promise.all([page.commit!(id), page.commit!(id)]);
         expect(await initText(other.canon, id)).toEqual(["第一块（改）。"]);
         const revisions = await other.canon.call("revisions", {filter: {entry: id}});

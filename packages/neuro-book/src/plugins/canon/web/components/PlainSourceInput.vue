@@ -10,7 +10,14 @@ const emit = defineEmits<{"update:modelValue": [text: string]; "focus": []; "blu
 const area = ref<{readonly $el: HTMLTextAreaElement} | null>(null);
 
 defineExpose({
-    focus: (): void => area.value?.$el.focus(),
+    focus: (caret?: "start" | "end"): void => {
+        const element = area.value?.$el;
+        if (element === undefined) return;
+        element.focus();
+        if (caret === undefined) return;
+        const at = caret === "start" ? 0 : element.value.length;
+        element.setSelectionRange(at, at);
+    },
     cursorOffset: (): number | null => area.value?.$el.selectionStart ?? null,
 });
 </script>

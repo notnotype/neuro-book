@@ -54,8 +54,8 @@ let started = false;
 let unmounted = false;
 /** 程序换文字（使用方给了新的 `modelValue`）时不当成用户输入交出去。 */
 let applying = false;
-/** 建好以后要不要把焦点放进去：因为聚焦才建的、或建的途中调用了 `focus()`。 */
-let focusWhenReady = false;
+/** 建好以后把焦点放进去、光标放在文首还是文末：因为聚焦才建的、或建的途中调用了 `focus()`。null 是不给焦点。 */
+let focusWhenReady: "start" | "end" | null = null;
 
 const languageId = (): string => (languages?.has(props.language) === true || props.language === "json" ? props.language : "plaintext");
 
@@ -76,6 +76,11 @@ const activate = async (): Promise<void> => {
     } catch (error) {
         failure.value = error instanceof Error ? error.message : String(error);
         stage.value = "failed";
+        // 是因为要焦点才建的：退回的文本框这时才挂上，等它挂好把焦点给它。
+        if (focusWhenReady !== null) {
+            await nextTick();
+            if (!unmounted) focusFallback(focusWhenReady);
+        }
         return;
     }
     if (unmounted || host.value === null) return;
@@ -120,23 +125,38 @@ const activate = async (): Promise<void> => {
     await nextTick();
     if (unmounted || editor === null) return;
     fitHeight();
-    if (focusWhenReady) {
-        const line = model.getLineCount();
-        editor.setPosition({lineNumber: line, column: model.getLineMaxColumn(line)});
+    if (focusWhenReady !== null) {
+        placeCaret(focusWhenReady);
         editor.focus();
     }
 };
 
-const focus = (): void => {
+const placeCaret = (caret: "start" | "end"): void => {
+    if (editor === null || model === null) return;
+    const line = caret === "start" ? 1 : model.getLineCount();
+    editor.setPosition({lineNumber: line, column: caret === "start" ? 1 : model.getLineMaxColumn(line)});
+};
+const focusFallback = (caret: "start" | "end" | undefined): void => {
+    const area = fallback.value?.$el;
+    if (area === undefined) return;
+    area.focus();
+    if (caret === undefined) return;
+    const at = caret === "start" ? 0 : area.value.length;
+    area.setSelectionRange(at, at);
+};
+
+/** `caret` 不给时：已经建好的保持原来的光标，因为这一次聚焦才建的放在文末。 */
+const focus = (caret?: "start" | "end"): void => {
     if (editor !== null) {
+        if (caret !== undefined) placeCaret(caret);
         editor.focus();
         return;
     }
     if (stage.value === "failed") {
-        fallback.value?.$el.focus();
+        focusFallback(caret);
         return;
     }
-    focusWhenReady = true;
+    focusWhenReady = caret ?? "end";
     void activate();
 };
 
@@ -202,7 +222,7 @@ defineExpose({
             :aria-readonly="readonly"
             :aria-label="label"
             data-code-input-plain
-            @focus="focus"
+            @focus="focus()"
         >{{ modelValue }}</pre>
         <!-- Monaco 加载失败：退回普通文本框，内容照样能改、能交回去。 -->
         <Textarea

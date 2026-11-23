@@ -40,12 +40,14 @@ const confirm = (): void => {
 };
 
 /** 两段文字前后相同的部分与各自不同的那一截：只标出不一样的地方，长块里也一眼看得到改了什么。 */
-function sides(mine: string, theirs: string): {readonly head: string; readonly mine: string; readonly theirs: string; readonly tail: string} {
+function sides(mineText: string, theirsText: string): {readonly head: string; readonly mine: string; readonly theirs: string; readonly tail: string} {
+    // 按字（码点）比，不按 UTF-16 的码元：否则一个表情或生僻字会被从中间切开，两边各显示成半个。
+    const [mine, theirs] = [Array.from(mineText), Array.from(theirsText)];
     let head = 0;
     while (head < mine.length && head < theirs.length && mine[head] === theirs[head]) head += 1;
     let tail = 0;
     while (tail < mine.length - head && tail < theirs.length - head && mine[mine.length - 1 - tail] === theirs[theirs.length - 1 - tail]) tail += 1;
-    return {head: mine.slice(0, head), mine: mine.slice(head, mine.length - tail), theirs: theirs.slice(head, theirs.length - tail), tail: mine.slice(mine.length - tail)};
+    return {head: mine.slice(0, head).join(""), mine: mine.slice(head, mine.length - tail).join(""), theirs: theirs.slice(head, theirs.length - tail).join(""), tail: mine.slice(mine.length - tail).join("")};
 }
 
 const rows = computed(() => props.items.map((item) => ({item, diff: item.mine !== null && item.theirs !== null ? sides(item.mine, item.theirs) : null})));

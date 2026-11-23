@@ -121,8 +121,12 @@ const ownPosition = computed<ReadPosition>(() => {
     const base = (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value);
     return windowLine.value === "" ? base : {...base, line: windowLine.value};
 });
-// 有主文字的稿时这一页停在稿开始的位置（内核解析后的、写明线的），按实际读（输出 46）；稿没了回到自己的位置。
-const lockedAt = computed(() => props.draft.state.draft?.at ?? null);
+// 有主文字的稿时这一页停在稿开始的位置（内核解析后的、写明线的），按实际读（输出 46）；稿没了回到自己的位置。稿开始的那一章、
+// 那条线已经不在了的时候也回到自己的位置：否则这一页的读取都落在读不出来的位置上，刷新以后整页是“读取失败”，稿列不出来。
+const lockedAt = computed(() => {
+    const draft = props.draft.state;
+    return draft.draft === null || draft.blocker === "chapter-not-found" || draft.blocker === "line-not-found" ? null : draft.draft.at;
+});
 const position = computed<ReadPosition>(() => lockedAt.value ?? ownPosition.value);
 const mode = computed(() => (lockedAt.value === null && state.planned ? "planned" as const : "actual" as const));
 const place = (at: Placement): string => placementLabel(at, chapters.value, text);
@@ -142,11 +146,11 @@ const status = computed<EntryPageStatus>(() => {
 
 // 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
 // 正是那里时才报；窗口选了线时另读一份缺省位置的。
-const headRead = useWorldRead(world, "entry", () => (windowLine.value !== "" && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
+const headElsewhere = computed(() => windowLine.value !== "" || lockedAt.value !== null);
+const headRead = useWorldRead(world, "entry", () => (headElsewhere.value && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
 const headSource = computed(() => {
-    if (windowLine.value !== "") return headRead.value?.data;
-    // 有稿时这一页读的是稿开始的位置（见 `lockedAt`），不是缺省位置。
-    return lockedAt.value === null && state.position === null && !state.planned ? entry.value : undefined;
+    if (headElsewhere.value) return headRead.value?.data;
+    return state.position === null && !state.planned ? entry.value : undefined;
 });
 watch(headSource, (read) => {
     const shown = read?.view;
@@ -291,7 +295,7 @@ const edit = useInPlaceEdit({
  * 读到的值随请求带上，服务据此判断这个值是不是刚被别处改过（`value-conflict`）。
  */
 const record = async (path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}> => {
-    if (state.planned) return {ok: false, reason: canonText("blocked.planned")};
+    if (mode.value === "planned") return {ok: false, reason: canonText("blocked.planned")};
     if (position.value.kind === "initial") return {ok: false, reason: canonText("blocked.initial")};
     if (blocked.value !== null) return {ok: false, reason: blocked.value};
     const field = fieldAt(path);

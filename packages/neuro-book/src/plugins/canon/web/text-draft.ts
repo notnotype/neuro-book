@@ -55,8 +55,11 @@ export interface TextDraft {
      * 一端，另一端照发就会多字、少字。
      */
     readonly moved?: readonly string[];
-    /** 并掉的旧块并进了谁、并过去的是哪段文字：恢复它的时候把那段文字从对方拿回来。 */
-    readonly merged?: Readonly<Record<string, {readonly into: string; readonly text: string}>>;
+    /**
+     * 并掉的旧块并进了谁，对方并之前（`head`）与并之后（`joined`）的文字：恢复它的时候，对方还是并完的样子就改回并之前的。
+     * 记整段文字、不靠“以并过去的那一段结尾”去猜：并的时候两边的空白修剪过，猜不回来。
+     */
+    readonly merged?: Readonly<Record<string, {readonly into: string; readonly head: string; readonly joined: string}>>;
     readonly pending?: PendingSubmit;
 }
 
@@ -161,19 +164,14 @@ export function removeBlock(draft: TextDraft, read: TextRead, key: string): Text
 }
 
 /**
- * 恢复一个删掉的旧块：删之前改过字的话，改的字还在。它是并掉的（`mergeUp`）而对方的文字还以并过去的那一段结尾时，把那一段
- * 从对方拿回来，不让同一段字留在两块里；对方之后又改过、对不上了就不动它。
+ * 恢复一个删掉的旧块：删之前改过字的话，改的字还在。它是并掉的（`mergeUp`）而对方还是并完的样子时，把对方改回并之前的文字，
+ * 不让同一段字留在两块里（并了再恢复等于没动过）；对方之后又改过就不动它。
  */
 export function restoreBlock(draft: TextDraft, read: TextRead, key: string): TextDraft {
     if (!isRemoved(draft, key)) return draft;
     let next: TextDraft = {...draft, removed: draft.removed.filter((item) => item !== key)};
     const from = own(draft.merged, key);
-    if (from !== undefined && next.order.includes(from.into)) {
-        const joined = textOf(next, read, from.into);
-        const tail = from.text.replace(/^\s+/u, "");
-        if (joined === tail) next = setText(next, read, from.into, "");
-        else if (joined.endsWith(`\n\n${tail}`)) next = setText(next, read, from.into, joined.slice(0, -`\n\n${tail}`.length));
-    }
+    if (from !== undefined && next.order.includes(from.into) && textOf(next, read, from.into) === from.joined) next = setText(next, read, from.into, from.head);
     const text = own(next.texts, key);
     return text !== undefined && text !== own(next.base, key) ? tidy(next) : untouch(next, key);
 }
@@ -208,7 +206,7 @@ export function mergeUp(draft: TextDraft, read: TextRead, key: string): {readonl
     // 新块并进旧块只是给旧块加字（新块还没有发布过，谈不上换地方）；两块都是旧块才算换过文字。
     if (!isNewKey(key) && !isNewKey(into)) next = markMoved(next, into);
     next = removeBlock(next, read, key);
-    if (!isNewKey(key) && isRemoved(next, key)) next = {...next, merged: {...next.merged, [key]: {into, text: tail}}};
+    if (!isNewKey(key) && isRemoved(next, key)) next = {...next, merged: {...next.merged, [key]: {into, head, joined}}};
     return {draft: next, into};
 }
 

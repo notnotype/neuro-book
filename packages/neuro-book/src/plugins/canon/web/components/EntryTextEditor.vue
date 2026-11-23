@@ -73,14 +73,15 @@ const savedLabel = computed(() => {
     return props.saved === "diverged" ? text("textEdit.diverged") : "";
 });
 
+type Caret = "start" | "end";
 interface SourceInput {
-    focus(): void;
+    focus(caret?: Caret): void;
     cursorOffset(): number | null;
 }
 /** 各块的输入框实例：拆开要问光标，加块、并块以后要给焦点。 */
 const inputs = new Map<string, SourceInput>();
 /** 要给焦点、输入框却还没就绪的那一块：输入框是按需加载的组件时，块挂上了它的实例还要等一会儿才有。 */
-let pendingFocus: string | null = null;
+let pendingFocus: {readonly key: string; readonly caret: Caret | undefined} | null = null;
 const setInput = (key: string, instance: unknown): void => {
     // 按需加载的组件在加载完之前交来的不是输入框（没有 `focus`）：当作还没有。
     if (instance === null || typeof (instance as Partial<SourceInput>).focus !== "function") {
@@ -88,22 +89,23 @@ const setInput = (key: string, instance: unknown): void => {
         return;
     }
     inputs.set(key, instance as SourceInput);
-    if (pendingFocus === key) {
+    if (pendingFocus?.key === key) {
+        const caret = pendingFocus.caret;
         pendingFocus = null;
-        (instance as SourceInput).focus();
+        (instance as SourceInput).focus(caret);
     }
 };
-const focusBlock = (key: string): void => {
+const focusBlock = (key: string, caret?: Caret): void => {
     const input = inputs.get(key);
-    pendingFocus = input === undefined ? key : null;
-    input?.focus();
+    pendingFocus = input === undefined ? {key, caret} : null;
+    input?.focus(caret);
 };
 
 /** 发出动作以后等宿主把新的块给回来，再把焦点放过去：`pick` 从新的块序里挑要聚焦的键。 */
-const focusAfter = (pick: () => string | undefined): void => {
+const focusAfter = (pick: () => string | undefined, caret?: Caret): void => {
     void nextTick(() => {
         const key = pick();
-        if (key !== undefined) focusBlock(key);
+        if (key !== undefined) focusBlock(key, caret);
     });
 };
 const add = (after: string | null): void => {
@@ -112,7 +114,8 @@ const add = (after: string | null): void => {
 };
 const split = (block: EditorBlock): void => {
     emit("split", block.key, inputs.get(block.key)?.cursorOffset() ?? block.text.length);
-    focusAfter(() => props.blocks[props.blocks.findIndex((item) => item.key === block.key) + 1]?.key);
+    // 光标原来在切口上：到了新块里是它的开头，接着写的字落在拆开的地方。
+    focusAfter(() => props.blocks[props.blocks.findIndex((item) => item.key === block.key) + 1]?.key, "start");
 };
 const merge = (block: EditorBlock): void => {
     const at = props.blocks.findIndex((item) => item.key === block.key);
@@ -130,7 +133,7 @@ const onKeydown = (event: KeyboardEvent): void => {
     if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented && !leavingAsks.value && props.phase === "idle") emit("cancel");
 };
 
-defineExpose({focusBlock});
+defineExpose({focusBlock: (key: string): void => focusBlock(key)});
 </script>
 
 <template>
@@ -144,8 +147,8 @@ defineExpose({focusBlock});
                     <span v-if="props.phase === 'confirming'" key="confirming" class="text-[var(--text-muted)]" data-text-confirming>{{ text("textEdit.confirming") }}</span>
                     <span v-else-if="savedLabel !== ''" :key="props.saved" class="text-[var(--text-muted)]" :data-text-saved="props.saved">{{ savedLabel }}</span>
                 </Transition>
-                <!-- “提交”点不了的原因：按钮上的悬停文字键盘与读屏都读不到，写在这一行。 -->
-                <Transition name="text-editor-fade"><span v-if="dirty && props.submitBlocked !== ''" class="text-[var(--text-muted)]" data-text-submit-blocked>{{ props.submitBlocked }}</span></Transition>
+                <!-- “提交”点不了的原因：按钮上的悬停文字键盘与读屏都读不到，写在这一行。整批的说明里正写着同一句时不重复。 -->
+                <Transition name="text-editor-fade"><span v-if="dirty && props.submitBlocked !== '' && props.message !== props.submitBlocked" class="text-[var(--text-muted)]" data-text-submit-blocked>{{ props.submitBlocked }}</span></Transition>
             </p>
             <Transition name="text-editor-fade">
                 <span v-if="props.saved === 'diverged'" class="flex items-center gap-2">
@@ -182,7 +185,8 @@ defineExpose({focusBlock});
         <button v-if="!props.frozen" type="button" class="text-editor__add" :disabled="locked || props.addFirstBlocked !== ''" :title="props.addFirstBlocked !== '' ? props.addFirstBlocked : undefined" data-text-add="first" @click="add(null)">
             <span class="i-lucide-plus size-3.5" aria-hidden="true" />{{ text("textEdit.addFirst") }}
         </button>
-        <TransitionGroup name="text-editor-item" tag="ol" class="relative flex flex-col">
+        <!-- 列表是普通的块（不是 flex）：离开的块脱离文档流时留在原来的位置上淡出。 -->
+        <TransitionGroup name="text-editor-item" tag="ol" class="relative">
             <li v-for="(block, index) in props.blocks" :key="block.key" class="flex flex-col" :data-text-block="block.key" :data-text-block-state="block.state">
                 <Transition name="text-editor-fade" mode="out-in">
                 <div v-if="block.state === 'removed'" key="removed" class="text-editor__gone">

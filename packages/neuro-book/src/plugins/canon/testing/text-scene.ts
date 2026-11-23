@@ -4,7 +4,8 @@
  * 装 `nbook.canon` 的浏览器入口，链路能断开、重连。能扣住先后的只有两处，都在输入输出的边界上：
  *
  * - 日志追加之前（`pauseAppend`、`failAppend`）：请求已经过了请求 id 与读取戳的检查，还没落盘；
- * - 路由发回窗口的回复帧（`holdReply`、`loseReply`）：请求已经执行完，回执还没到或丢了。
+ * - 路由发回窗口的回复帧（`holdReply`、`loseReply`）：请求已经执行完，回执还没到或丢了；
+ * - 窗口发给路由的请求帧（`loseRequest`）：请求没到就断了，什么也没执行。
  *
  * 只由测试用，不含断言。
  */
@@ -54,6 +55,8 @@ export interface TextScene {
     holdReply(match: (ask: RequestFrame) => boolean): {readonly held: Promise<void>; release(): void};
     /** 丢掉下一条匹配的回复帧并断开那条链路；`lost` 在丢掉时完成。 */
     loseReply(match: (ask: RequestFrame) => boolean): {readonly lost: Promise<void>};
+    /** 丢掉下一条匹配的请求帧并断开那条链路：请求没有到达，什么也没执行；`lost` 在丢掉时完成。 */
+    loseRequest(match: (ask: RequestFrame) => boolean): {readonly lost: Promise<void>};
     /** 换一章的正文并照宿主的做法通知世界（版本不变、读取戳变）。 */
     setChapterText(chapter: string, text: string): void;
     /** 直接在世界里建一个条目，返回它的 id。 */
@@ -118,17 +121,31 @@ export async function textScene(root: string): Promise<TextScene> {
 
     const field = await storageWorld(root, []);
     const taps: Array<{match(ask: RequestFrame): boolean; act(send: () => void, close: () => void): void}> = [];
-    // 窗口的链路都从这里接进路由：发回窗口的回复帧先给 `taps` 看一眼。项目实例的链路（带 `options`）不动。
+    /** 要丢掉的请求帧。 */
+    const drops: Array<{match(ask: RequestFrame): boolean; dropped(): void}> = [];
+    // 窗口的链路都从这里接进路由：窗口发来的请求帧先给 `drops` 看，发回窗口的回复帧先给 `taps` 看。项目实例的链路（带
+    // `options`）不动。
     const accept = field.router.accept.bind(field.router);
     field.router.accept = (link, options) => {
         if (options !== undefined) return accept(link, options);
         const asks = new Map<string, RequestFrame>();
-        link.onFrame((value) => {
-            const frame = value as Frame;
-            if (frame.type === "request") asks.set(frame.id, frame);
-        });
         const tapped: RemoteLink = {
             ...link,
+            onFrame: (listener) => link.onFrame((value) => {
+                const frame = value as Frame;
+                if (frame.type === "request") {
+                    const index = drops.findIndex((drop) => drop.match(frame));
+                    if (index >= 0) {
+                        // 路由没看到这一帧：链路断开，请求没有执行。
+                        const [drop] = drops.splice(index, 1);
+                        link.close();
+                        drop!.dropped();
+                        return;
+                    }
+                    asks.set(frame.id, frame);
+                }
+                listener(value);
+            }),
             send: (frame) => {
                 if (frame.type === "result") {
                     const ask = asks.get(frame.id);
@@ -210,6 +227,11 @@ export async function textScene(root: string): Promise<TextScene> {
                 close();
                 lost.resolve();
             }});
+            return {lost: lost.promise};
+        },
+        loseRequest: (match) => {
+            const lost = Promise.withResolvers<void>();
+            drops.push({match, dropped: lost.resolve});
             return {lost: lost.promise};
         },
         setChapterText: (chapter, text) => {
