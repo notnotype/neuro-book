@@ -1,4 +1,4 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {defineComponent, effectScope, h, nextTick, ref, shallowRef, type Ref, type ShallowRef} from "vue";
 import NestedGrid from "./NestedGrid.vue";
@@ -345,6 +345,26 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         throwing = true;
         expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
         expect(harness.issues.map((issue) => issue.code)).toEqual(["notify-failed"]);
+    });
+
+    it("落账之后的通知抛出时，库接住的异常交 reportError；没有 reportError 时交 console.error（Spec 输出 140）", async () => {
+        const reported: unknown[] = [];
+        // test-lint-allow module-mock: 浏览器标准的全局错误报告入口，happy-dom 没有；只在这一条里装上看它收到什么
+        vi.stubGlobal("reportError", (error: unknown) => void reported.push(error));
+        onTestFinished(() => void vi.unstubAllGlobals());
+        let throwing = false;
+        const harness = mountHost({throwOnIssues: () => throwing, throwOnApplied: true});
+        await nextTick();
+        throwing = true;
+        expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
+        expect(reported.map((error) => String(error))).toEqual(["Error: host onIssues threw"]);
+        vi.unstubAllGlobals();
+
+        expect(typeof (globalThis as {reportError?: unknown}).reportError).not.toBe("function");
+        // test-lint-allow spy: 断言库把接住的异常交给 console.error，同时收走输出
+        const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
+        expect(logged.mock.calls.map((call) => String(call[0]))).toEqual(["Error: host onIssues threw"]);
     });
 
     it("缺网格或缺承载盒时发布空布局并拒绝提交", async () => {
