@@ -230,17 +230,15 @@ interface LiveDragSessionHandle<S, D, L, G> {
 ### experimental interface LiveDragSessionOptions
 引用：DragSessionOptions, LiveDragHost, LiveDragState, LiveGrid
 interface LiveDragSessionOptions<S, D, R, L, G> extends Omit<DragSessionOptions<S, D, R>, "root" | "sampled"> {
-    live(source: S, keyboard: boolean): L | null;
+    live(source: S): L | null;
     readonly host: LiveDragHost<L, D, G>;
     grid(): LiveGrid | null;
     changed?(state: LiveDragState): void;
 }
 
 ### experimental interface LiveDragSessionRefs
-引用：DragSession, DragState, LiveDrag, LiveDragState
-interface LiveDragSessionRefs<S, D, L, G> {
-    readonly session: Readonly<ShallowRef<DragSession<S, D> | null>>;
-    readonly live: Readonly<ShallowRef<LiveDrag<L, D, G> | null>>;
+引用：DragState, LiveDragState
+interface LiveDragSessionRefs<S, D> {
     readonly state: ComputedRef<DragState<S, D> | null>;
     readonly liveState: Readonly<ShallowRef<LiveDragState>>;
     readonly lifted: ComputedRef<{
@@ -461,7 +459,7 @@ declare function useLayoutExtent(element: Readonly<Ref<HTMLElement | null>>): Re
 
 ### experimental function useLiveDragSession
 引用：LiveDrag, LiveDragSessionOptions, LiveDragSessionRefs
-declare function useLiveDragSession<S, D, R = never, L = S, G = unknown>(root: Readonly<Ref<HTMLElement | null>>, createOptions: (live: LiveDrag<L, D, G>, root: HTMLElement) => LiveDragSessionOptions<S, D, R, L, G>): LiveDragSessionRefs<S, D, L, G>;
+declare function useLiveDragSession<S, D, R = never, L = S, G = unknown>(root: Readonly<Ref<HTMLElement | null>>, createOptions: (live: LiveDrag<L, D, G>, root: HTMLElement) => LiveDragSessionOptions<S, D, R, L, G>): LiveDragSessionRefs<S, D>;
 
 ### experimental function useSortable
 引用：SortableHandle, UseSortableOptions
