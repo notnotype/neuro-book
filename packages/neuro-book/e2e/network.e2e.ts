@@ -74,7 +74,7 @@ test("网络页：切到自定义、填代理地址写进设置；测试代理�
 
     await page.locator("[data-network-test]").click();
     const status = page.locator("[data-settings-action-row]").filter({has: page.locator("[data-network-test]")}).locator("[data-settings-action-status]");
-    await expect(status).toHaveText(/^通了：出口 IP 198\.51\.100\.7，\d+ ms$/u);
+    await expect(status).toHaveText(/^连接成功：出口 IP 198\.51\.100\.7，\d+ ms$/u);
     await expect(status).toHaveAttribute("data-tone", "success");
     expect(proxied).toEqual(["http://trace.test/cdn-cgi/trace"]);
 

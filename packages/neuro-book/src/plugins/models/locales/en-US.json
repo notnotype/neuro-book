@@ -209,7 +209,7 @@
                 "timeout": "timed out",
                 "no-credentials": "no usable key",
                 "storage": "the list could not be saved",
-                "proxy": "the proxy setting is not usable, so nothing was sent"
+                "proxy": "the proxy setting is invalid"
             }
         },
         "search": "Search model name or id",
@@ -252,9 +252,9 @@
         "okAt": "Check passed · {{time}}",
         "unknown": "Result unknown: the check was cancelled and the request may have been sent",
         "proxy": {
-            "proxy-unsupported": "The proxy is SOCKS or an automatic configuration script, which isn't supported, so nothing was sent. Use the HTTP port of the proxy software.",
-            "proxy-invalid": "The proxy address isn't valid, so nothing was sent. Fix it under Network or in this provider's Advanced settings.",
-            "proxy-unreadable": "Couldn't read the system proxy settings, so nothing was sent."
+            "proxy-unsupported": "The proxy is SOCKS or an automatic configuration script, which isn't supported. Use the HTTP port of the proxy software.",
+            "proxy-invalid": "The proxy address is invalid. Fix it under Network or in this provider's Advanced settings.",
+            "proxy-unreadable": "Couldn't read the system proxy settings."
         }
     },
     "caps": {

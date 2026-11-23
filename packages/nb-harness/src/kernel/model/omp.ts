@@ -80,6 +80,23 @@ export interface OmpFetchFailure {
 export type NetworkRoute = (url: URL) => Promise<{readonly ok: true; readonly proxy: string | false} | ({readonly ok: false} & OmpFetchFailure)>;
 
 /**
+ * 代理地址里的凭据（环境变量或系统设置给的 `http://用户:密码@主机`）：Bun 把它作 `Proxy-Authorization` 发给代理，代理在错误正文里
+ * 回显时会进模型错误、检测原文与诊断。交回要遮盖的几种写法：密码、`用户:密码`、它的 Base64（Basic 的值）。没有凭据时为空。
+ */
+export function proxySecrets(proxy: string | false): string[] {
+    if (proxy === false) return [];
+    let url: URL;
+    try {
+        url = new URL(proxy);
+    } catch {
+        return [];
+    }
+    if (url.username === "" && url.password === "") return [];
+    const pair = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+    return [pair, Buffer.from(pair).toString("base64"), ...(url.password === "" ? [] : [decodeURIComponent(url.password)])].filter((value) => value.length >= 4);
+}
+
+/**
  * 一个部署的签发身份：`deployment` 区分实例与它当时的地址、协议；`credential` 只有签名绑定凭据的协议才给；`legacyProvider` 是
  * 没有 `origin` 的旧日志里 `model` 的第一段应有的值（旧运行时用实例 id 当 `Model.provider`）。
  */
@@ -382,6 +399,12 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             if (problem !== null) block(problem);
             const route = target.route === undefined ? null : await target.route(url);
             if (route !== null && !route.ok) block({code: route.code, message: route.message});
+            // 选路是异步的：等它期间实例可能已经换了地址或认证（旧解析不能再发，docs/specs/models/service.md 输出 24），再核一次。
+            if (route !== null) {
+                const late = target.guard?.(url) ?? null;
+                if (late !== null) block(late);
+                for (const secret of proxySecrets(route.proxy)) if (!secrets.includes(secret)) secrets.push(secret);
+            }
             const headers = new Headers(input instanceof Request ? input.headers : undefined);
             if (init?.headers !== undefined) new Headers(init.headers).forEach((value, name) => headers.set(name, value));
             // 只剥适配器垫的占位值本身（或 `Bearer <占位>`）：用户自己配的同名头哪怕含有同样的字符也照发。

@@ -118,7 +118,12 @@ export async function listModels(options: ListModelsOptions): Promise<ListingRes
     for (let page = 1; ; page += 1) {
         if (page > LISTING_LIMITS.pages) return bad(null, `the list has more than ${String(LISTING_LIMITS.pages)} pages`);
         if (options.stillCurrent?.() === false) return {ok: false, reason: "cancelled", status: null, message: "the provider was changed while its models were being listed"};
-        const url = listingUrl(options.flavor, options.baseUrl, cursor);
+        let url: URL;
+        try {
+            url = listingUrl(options.flavor, options.baseUrl, cursor);
+        } catch (error) {
+            return thrown(error, options.signal);
+        }
         const route = await (options.route ?? DIRECT_ROUTE)(url);
         if (!route.ok) return {ok: false, reason: "proxy", status: null, message: route.message};
         let response: Response;

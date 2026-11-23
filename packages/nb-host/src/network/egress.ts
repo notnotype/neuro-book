@@ -9,6 +9,8 @@
  * - 不碰重定向：跟不跟随由调用方定（模型请求 `error`，列表与探测 `manual`）。
  */
 
+import {isIP} from "node:net";
+
 import {bypassMatches, isLocalHost, parseProxy, splitList} from "./rules";
 import {readSystemProxy} from "./system";
 import type {ReadText, RunCommand, SystemRead, SystemSource} from "./system";
@@ -110,7 +112,7 @@ export function createEgress(options: EgressOptions): Egress {
     const env = options.startupEnv;
     const now = options.now ?? Date.now;
     const send = options.fetch ?? fetch;
-    const run = options.run ?? runCommand;
+    const run = options.run ?? runSystemCommand;
     const readText = options.readText ?? readTextFile;
     let cached: {readonly at: number; readonly read: Promise<SystemRead>} | null = null;
     /** 系统设置读一次缓存 60 秒，同时在读的共用一次：每个模型请求都跑一次 `reg query` 太慢。 */
@@ -149,7 +151,9 @@ export function createEgress(options: EgressOptions): Egress {
         };
         if (setting.mode === "custom") {
             if (setting.url === undefined || setting.url === null || setting.url.trim() === "") return failed({kind: "setting"}, "proxy-invalid", "the custom proxy has no address");
-            if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/iu.test(setting.url.trim())) return failed({kind: "setting"}, "proxy-invalid", "the custom proxy address must not contain a user name or password");
+            // 按解析后的地址查用户名密码：`user:pass@host:port` 这种没写协议的也会被补成 http 地址带上凭据。
+            const parsed = parseProxy(setting.url);
+            if (parsed.ok && parsed.address.hasCredentials) return failed({kind: "setting"}, "proxy-invalid", "the custom proxy address must not contain a user name or password");
             // 自定义也认环境的 `NO_PROXY`：Bun 对显式的代理同样按它旁路（docs/specs/network/egress.md 的已知行为）。
             return via({kind: "setting"}, setting.url, noProxy());
         }
@@ -161,12 +165,14 @@ export function createEgress(options: EgressOptions): Egress {
         const proxy = read.proxy;
         if (proxy.kind === "none") return {proxy: false, summary: {...base, route: "direct", source}};
         if (proxy.kind === "pac") return failed(source, "proxy-unsupported", "the system proxy uses an automatic configuration script or auto-discovery, which is not supported; set a manual HTTP proxy or a custom proxy");
+        if (proxy.kind === "unsupported") return failed(source, "proxy-unsupported", `the system proxy uses ${proxy.reason}, which is not supported; set a custom proxy`);
         const address = target.protocol === "https:" ? proxy.https : proxy.http;
         if (address === undefined) {
             if (proxy.socks !== undefined) return failed(source, "proxy-unsupported", "the system proxy is SOCKS only, which is not supported; use the HTTP port of the proxy software");
             return {proxy: false, summary: {...base, route: "direct", source}};
         }
-        return via(source, address, proxy.bypass);
+        // 系统的例外之外也认启动环境的 `NO_PROXY`：Bun 对显式的代理照样按进程环境的它旁路，不合进来说明就与实际不符。
+        return via(source, address, [...proxy.bypass, ...noProxy()]);
     }
 
     const settingOf = (override: ProxySetting | undefined): ProxySetting => override ?? options.setting();
@@ -214,7 +220,9 @@ export function createEgress(options: EgressOptions): Egress {
         } catch (error) {
             return interrupted() ?? failed("unreachable", error instanceof Error ? error.message : String(error));
         }
-        const ip = /^ip=(.+)$/mu.exec(text)?.[1]?.trim() ?? null;
+        const found = /^ip=(.+)$/mu.exec(text)?.[1]?.trim() ?? "";
+        // 只把像 IP 的值当出口 IP：测试目标被换成了别的页面（登录页、拦截页）时 `ip` 为 null，不把任意文字当地址。
+        const ip = isIpLiteral(found) ? found : null;
         return {ok: true, summary, ip, elapsedMs: Math.max(0, Math.round(now() - started))};
     }
 
@@ -240,24 +248,38 @@ async function readLimited(response: Response, limit: number): Promise<string> {
     return new TextDecoder().decode(Buffer.concat(chunks)).slice(0, limit);
 }
 
-/** 缺省的命令执行：超时就杀掉并 reject。命令不存在时 Bun 抛 `ENOENT`，原样 reject。 */
-const runCommand: RunCommand = async (command, timeoutMs) => {
+/**
+ * 缺省的命令执行。到时限立即 reject，不等子进程收尾：不理会终止信号的命令、或它的子进程还拿着输出管道时，等它会拖过时限。
+ * 子进程随后用 SIGKILL 结束，退出在后台收掉。命令不存在时 Bun 抛 `ENOENT`，原样 reject。导出给测试：换掉命令名、照样起真的子进程。
+ */
+export const runSystemCommand: RunCommand = (command, timeoutMs) => {
     const child = Bun.spawn([...command], {stdout: "pipe", stderr: "ignore", stdin: "ignore"});
-    let timedOut = false;
-    const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill();
-    }, timeoutMs);
+    const finished = Promise.all([new Response(child.stdout).text(), child.exited]).then(([stdout, code]) => ({code, stdout}));
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            child.kill("SIGKILL");
+            void finished.catch(() => undefined);
+            reject(new Error(`${command[0] ?? ""} did not answer within ${String(timeoutMs)} ms`));
+        }, timeoutMs);
+        finished.then((result) => {
+            clearTimeout(timer);
+            resolve(result);
+        }, (error: unknown) => {
+            clearTimeout(timer);
+            reject(error instanceof Error ? error : new Error(String(error)));
+        });
+    });
+};
+
+/** 只有“不存在”算没有这个文件；读不了（权限）照样抛错，由调用方报“读不到”，不当成没设代理。 */
+const readTextFile: ReadText = async (path) => {
     try {
-        const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-        if (timedOut) throw new Error(`${command[0] ?? ""} did not answer within ${String(timeoutMs)} ms`);
-        return {code, stdout};
-    } finally {
-        clearTimeout(timer);
+        return await Bun.file(path).text();
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") return null;
+        throw error;
     }
 };
 
-const readTextFile: ReadText = async (path) => {
-    const file = Bun.file(path);
-    return (await file.exists()) ? file.text() : null;
-};
+/** IPv4 点分或 IPv6（`isIP` 的规则）。 */
+const isIpLiteral = (value: string): boolean => isIP(value) !== 0;

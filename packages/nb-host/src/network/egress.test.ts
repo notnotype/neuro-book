@@ -1,8 +1,12 @@
-import {afterEach, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {chmod, mkdir, rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startHttpProxy} from "../testing/http-proxy";
 import type {HttpProxy} from "../testing/http-proxy";
-import {createEgress, EgressError} from "./egress";
+import {createEgress, EgressError, runSystemCommand} from "./egress";
 import type {EgressOptions, ProxySetting} from "./egress";
 import {bypassMatches, isLocalHost, parseProxy} from "./rules";
 import {parseGsettings, parseKioslaverc, parseScutil, parseWindowsRegistry, readSystemProxy} from "./system";
@@ -77,6 +81,12 @@ describe("规则", () => {
         expect(bypassMatches(["203.*"], url("http://203.1.2.3/"))).toBe(true);
         expect(bypassMatches(["*"], url("http://anything.example/"))).toBe(true);
         expect(bypassMatches([], url("http://anything.example/"))).toBe(false);
+        // IPv6：网段、带方括号与端口、不带方括号的字面量，按规范化后的地址比。
+        expect(bypassMatches(["2001:db8:1111::/48"], url("http://[2001:db8:1111::1]/"))).toBe(true);
+        expect(bypassMatches(["2001:db8:1111::/48"], url("http://[2001:db8:2222::1]/"))).toBe(false);
+        expect(bypassMatches(["[2001:db8::1]:8080"], url("http://[2001:db8::1]:8080/"))).toBe(true);
+        expect(bypassMatches(["[2001:db8::1]:8080"], url("http://[2001:db8::1]/"))).toBe(false);
+        expect(bypassMatches(["2001:0db8:0:0::1"], url("http://[2001:db8::1]/"))).toBe(true);
     });
 
     it("代理地址：省略协议按 http 补；只收 http 与 https；带用户名密码的给人看时去掉", () => {
@@ -95,6 +105,9 @@ describe("系统设置的读法（喂各平台命令的原样输出）", () => {
         expect(parseGsettings("org.gnome.system.proxy mode 'auto'\norg.gnome.system.proxy autoconfig-url 'http://wpad/wpad.dat'\n")).toEqual({kind: "pac"});
         expect(parseGsettings("org.gnome.system.proxy mode 'none'\n")).toEqual({kind: "none"});
         expect(parseGsettings("something else\n")).toBeNull();
+        // 只设了 HTTP、开了认证：HTTPS 也用它（GNOME 自己的回退），认证写进地址。
+        const httpOnly = "org.gnome.system.proxy mode 'manual'\norg.gnome.system.proxy.http host 'proxy.example'\norg.gnome.system.proxy.http port 3128\norg.gnome.system.proxy.http use-authentication true\norg.gnome.system.proxy.http authentication-user 'ann'\norg.gnome.system.proxy.http authentication-password 'p@ss'\n";
+        expect(parseGsettings(httpOnly)).toEqual({kind: "manual", http: "http://ann:p%40ss@proxy.example:3128", https: "http://ann:p%40ss@proxy.example:3128", bypass: []});
     });
 
     it("KDE：手动的两种地址写法与例外；脚本与自动发现；用环境变量算没设", () => {
@@ -104,6 +117,7 @@ describe("系统设置的读法（喂各平台命令的原样输出）", () => {
         expect(parseKioslaverc("[Proxy Settings]\nProxyType=3\n")).toEqual({kind: "pac"});
         expect(parseKioslaverc("[Proxy Settings]\nProxyType=4\n")).toEqual({kind: "none"});
         expect(parseKioslaverc("[Proxy Settings]\nProxyType=9\n")).toBeNull();
+        expect(parseKioslaverc("[Proxy Settings]\nProxyType=1\nReversedException=true\nNoProxyFor=in-scope.example\nhttpProxy=http://proxy.example:3128\n")).toMatchObject({kind: "unsupported"});
     });
 
     it("macOS：开着的协议与例外；开了自动配置就按脚本", () => {
@@ -112,6 +126,9 @@ describe("系统设置的读法（喂各平台命令的原样输出）", () => {
         expect(parseScutil("<dictionary> {\n  HTTPEnable : 0\n}\n")).toEqual({kind: "none"});
         expect(parseScutil("<dictionary> {\n  SOCKSEnable : 1\n  SOCKSPort : 1080\n  SOCKSProxy : 127.0.0.1\n}\n")).toEqual({kind: "manual", socks: "127.0.0.1:1080", bypass: []});
         expect(parseScutil("garbage")).toBeNull();
+        // 按网卡的配置（`__SCOPED__`）不盖过全局的。
+        const scoped = "<dictionary> {\n  HTTPEnable : 1\n  HTTPPort : 3128\n  HTTPProxy : global.example\n  __SCOPED__ : <dictionary> {\n    en0 : <dictionary> {\n      HTTPEnable : 1\n      HTTPPort : 8081\n      HTTPProxy : scoped.example\n      ExceptionsList : <array> {\n        0 : only-en0.example\n      }\n    }\n  }\n}\n";
+        expect(parseScutil(scoped)).toEqual({kind: "manual", http: "global.example:3128", bypass: []});
     });
 
     it("Windows：共用一个地址、按协议分开写、自动配置脚本、关着", () => {
@@ -152,8 +169,9 @@ describe("选路", () => {
         expect(await egress({mode: "custom", url: "http://proxy.example:3128"}).describe(new URL("http://[::ffff:127.0.0.1]:9000/"))).toMatchObject({route: "bypassed", source: {kind: "local"}});
     });
 
-    it("自定义地址不合规：带用户名密码、SOCKS、空的", async () => {
+    it("自定义地址不合规：带用户名密码（写不写协议都算）、SOCKS、空的", async () => {
         expect(await egress({mode: "custom", url: "http://u:secret@proxy.example:3128"}).routeFor()(https)).toMatchObject({ok: false, code: "proxy-invalid"});
+        expect(await egress({mode: "custom", url: "u:secret@proxy.example:3128"}).routeFor()(https)).toMatchObject({ok: false, code: "proxy-invalid"});
         expect(await egress({mode: "custom", url: "socks5://127.0.0.1:1080"}).routeFor()(https)).toMatchObject({ok: false, code: "proxy-unsupported"});
         expect(await egress({mode: "custom", url: ""}).routeFor()(https)).toMatchObject({ok: false, code: "proxy-invalid"});
         expect(await egress({mode: "custom"}).routeFor()(https)).toMatchObject({ok: false, code: "proxy-invalid"});
@@ -196,6 +214,11 @@ describe("选路", () => {
         expect(await gnome(GSETTINGS_MANUAL).routeFor()(https)).toEqual({ok: true, proxy: "http://secure.example:3129/"});
         expect(await gnome(GSETTINGS_MANUAL).routeFor()(http)).toEqual({ok: true, proxy: "http://proxy.example:3128/"});
         expect(await gnome(GSETTINGS_MANUAL).describe(new URL("https://git.corp.example/"))).toMatchObject({route: "bypassed", source: {kind: "system", name: "gnome"}});
+        // 系统的代理也按启动环境的 NO_PROXY 旁路（Bun 照样按它旁路显式的代理）。
+        const withNoProxy = egress({mode: "system"}, {startupEnv: {NO_PROXY: "api.example.com"}, run: async () => ({code: 0, stdout: GSETTINGS_MANUAL})});
+        expect(await withNoProxy.routeFor()(https)).toEqual({ok: true, proxy: false});
+        expect(await withNoProxy.describe(https)).toMatchObject({route: "bypassed"});
+        expect(await egress({mode: "system"}, {run: async () => ({code: 0, stdout: "[Proxy Settings]\n"}), platform: "linux", startupEnv: {XDG_CURRENT_DESKTOP: "KDE", HOME: "/nowhere"}, readText: async () => "[Proxy Settings]\nProxyType=1\nReversedException=1\nhttpsProxy=http://k.example:1\n"}).routeFor()(https)).toMatchObject({ok: false, code: "proxy-unsupported"});
         expect(await gnome("org.gnome.system.proxy mode 'auto'\n").routeFor()(https)).toMatchObject({ok: false, code: "proxy-unsupported"});
         expect(await gnome("org.gnome.system.proxy mode 'none'\n").describe(https)).toMatchObject({route: "direct", source: {kind: "system", name: "gnome"}, error: null});
         expect(await gnome("org.gnome.system.proxy mode 'manual'\norg.gnome.system.proxy.socks host 's.example'\norg.gnome.system.proxy.socks port 1080\n").routeFor()(https)).toMatchObject({ok: false, code: "proxy-unsupported"});
@@ -220,6 +243,51 @@ describe("选路", () => {
         clock = 60_000;
         await route(https);
         expect(runs).toBe(2);
+    });
+});
+
+describe("读系统设置的真实子进程与文件", () => {
+    let tmp = "";
+    beforeAll(async () => {
+        tmp = await createTestTmpRoot("nb-host", "egress-system");
+    });
+    afterAll(async () => {
+        if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+    });
+
+    it("gsettings 不理会终止信号、一直不答：到 2 秒时限就报读不到，不等它收尾；并发的两次共用一次", async () => {
+        const bin = join(tmp, "bin");
+        await mkdir(bin, {recursive: true});
+        await writeFile(join(bin, "gsettings"), "#!/bin/sh\ntrap '' TERM\nexec sleep 6\n");
+        await chmod(join(bin, "gsettings"), 0o755);
+        // 真的起子进程（缺省的执行函数），只把命令名换成假的 gsettings：`bun test` 里改 PATH 传不到子进程。
+        let commands = 0;
+        const system = createEgress({setting: () => ({mode: "system"}), startupEnv: {}, platform: "linux", run: (command, timeoutMs) => {
+            commands += 1;
+            return runSystemCommand([join(bin, "gsettings"), ...command.slice(1)], timeoutMs);
+        }});
+        const started = performance.now();
+        const [first, second] = await Promise.all([system.describe(new URL("https://api.example.com/")), system.describe(new URL("https://api.example.com/"))]);
+        const elapsed = performance.now() - started;
+        expect(first).toMatchObject({error: {code: "proxy-unreadable"}});
+        expect(second).toMatchObject({error: {code: "proxy-unreadable"}});
+        expect(commands).toBe(1);
+        expect(elapsed).toBeLessThan(4000);
+    });
+
+    it.skipIf(process.getuid?.() === 0)("KDE 的配置读不了（权限）时报读不到，不当成没设", async () => {
+        const config = join(tmp, "kde-config");
+        await mkdir(config, {recursive: true});
+        await writeFile(join(config, "kioslaverc"), "[Proxy Settings]\nProxyType=1\nhttpsProxy=http://proxy.example:3128\n");
+        await chmod(join(config, "kioslaverc"), 0o000);
+        try {
+            const kde = createEgress({setting: () => ({mode: "system"}), startupEnv: {XDG_CURRENT_DESKTOP: "KDE", XDG_CONFIG_HOME: config}, platform: "linux"});
+            expect(await kde.describe(new URL("https://api.example.com/"))).toMatchObject({source: {kind: "system", name: "kde"}, error: {code: "proxy-unreadable"}});
+            const absent = createEgress({setting: () => ({mode: "system"}), startupEnv: {XDG_CURRENT_DESKTOP: "KDE", XDG_CONFIG_HOME: join(tmp, "no-such-dir")}, platform: "linux"});
+            expect(await absent.describe(new URL("https://api.example.com/"))).toMatchObject({route: "direct", error: null});
+        } finally {
+            await chmod(join(config, "kioslaverc"), 0o644);
+        }
     });
 });
 
@@ -248,8 +316,9 @@ describe("经真实的本机代理发请求", () => {
     const start = (): {readonly proxy: HttpProxy; readonly hits: string[]} => {
         const hits: string[] = [];
         upstream = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: (request) => {
-            hits.push(new URL(request.url).pathname);
-            return new Response("ip=203.0.113.9\nts=1\n");
+            const path = new URL(request.url).pathname;
+            hits.push(path);
+            return new Response(path === "/not-ip" ? "ip=not-an-ip\n" : "ip=203.0.113.9\nts=1\n");
         }});
         const port = upstream.port;
         proxy = startHttpProxy({resolve: (host, target) => (host === "models.test" || host === "trace.test" ? {host: "127.0.0.1", port: port ?? 0} : {host, port: target})});
@@ -262,6 +331,28 @@ describe("经真实的本机代理发请求", () => {
         expect(response.status).toBe(200);
         expect(proxy.requests.map((request) => `${request.method} ${request.target}`)).toEqual(["POST http://models.test/v1/chat/completions"]);
         expect(hits).toEqual(["/v1/chat/completions"]);
+    });
+
+    it("测试代理转发大的响应体不截断：读端先慢慢读，收到的与上游一字不差", async () => {
+        const size = 12 * 1024 * 1024;
+        const body = new Uint8Array(size).map((_, index) => index % 251);
+        upstream = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response(body)});
+        const port = upstream.port ?? 0;
+        proxy = startHttpProxy({resolve: () => ({host: "127.0.0.1", port})});
+        const response = await fetch("http://big.test/", {proxy: proxy.url});
+        const reader = response.body!.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        for (let read = 0; ; read += 1) {
+            // 前几十次读慢一点：代理那头的写端会写满、只收下一部分。
+            if (read < 40) await Bun.sleep(5);
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            total += value.byteLength;
+        }
+        expect(total).toBe(size);
+        expect(Buffer.concat(chunks).equals(Buffer.from(body))).toBe(true);
     });
 
     it("https 目标经代理建隧道（CONNECT）", async () => {
@@ -312,5 +403,7 @@ describe("经真实的本机代理发请求", () => {
         controller.abort();
         expect(await custom.test(undefined, controller.signal)).toMatchObject({ok: false, reason: "cancelled"});
         expect(await egress({mode: "custom", url: "socks5://127.0.0.1:1"}, {testUrl: "http://trace.test/"}).test()).toMatchObject({ok: false, reason: "proxy-unsupported"});
+        // 回了 200 但 `ip=` 后面不是 IP（目标被换成别的页面）：不把它当出口 IP。
+        expect(await egress({mode: "custom", url: proxy.url}, {testUrl: "http://trace.test/not-ip"}).test()).toMatchObject({ok: true, ip: null});
     });
 });

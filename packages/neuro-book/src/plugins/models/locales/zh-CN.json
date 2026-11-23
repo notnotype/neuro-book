@@ -102,7 +102,7 @@
             },
             "url": "代理地址",
             "placeholder": "http://127.0.0.1:7890",
-            "invalid": "要是 http 或 https 地址，不带用户名与密码；不支持 SOCKS"
+            "invalid": "须为 http 或 https 地址，不带用户名与密码；不支持 SOCKS"
         },
         "headers": {
             "label": "请求头",
@@ -140,8 +140,8 @@
                 "no-address": "模板没有这种协议的地址",
                 "cancelled": "已取消",
                 "proxy-unsupported": "代理不支持（SOCKS 或自动配置脚本）",
-                "proxy-invalid": "代理地址不对",
-                "proxy-unreadable": "读不到系统的代理设置",
+                "proxy-invalid": "代理地址无效",
+                "proxy-unreadable": "无法读取系统的代理设置",
                 "other": "失败（{{code}}）"
             }
         }
@@ -207,7 +207,7 @@
                 "timeout": "超时",
                 "no-credentials": "没有可用的密钥",
                 "storage": "列表存不下来",
-                "proxy": "代理设置有问题，请求没有发出"
+                "proxy": "代理设置无效"
             }
         },
         "search": "搜索模型名或 id",
@@ -250,9 +250,9 @@
         "okAt": "检测通过 · {{time}}",
         "unknown": "结果未知：检测被取消，请求可能已经发出",
         "proxy": {
-            "proxy-unsupported": "代理是 SOCKS 或自动配置脚本，不支持，请求没有发出。改用代理软件的 HTTP 端口。",
-            "proxy-invalid": "代理地址不对，请求没有发出。在“网络”或这家服务商的“高级”里改。",
-            "proxy-unreadable": "读不到系统的代理设置，请求没有发出。"
+            "proxy-unsupported": "代理是 SOCKS 或自动配置脚本，不支持。改用代理软件的 HTTP 端口。",
+            "proxy-invalid": "代理地址无效。在“网络”或这家服务商的“高级”里修改。",
+            "proxy-unreadable": "无法读取系统的代理设置。"
         }
     },
     "caps": {

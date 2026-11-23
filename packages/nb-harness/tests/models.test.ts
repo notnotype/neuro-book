@@ -379,6 +379,32 @@ describe("模板的实例：身份、地址与发送前核对（models.md 输出
         }
     });
 
+    test("代理带凭据、在 407 的正文里回显 Proxy-Authorization：错误文字里没有凭据（密码、用户:密码、Basic 值都遮掉）", async () => {
+        const proxy = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: (incoming) => Response.json({error: {message: `proxy says: ${incoming.headers.get("proxy-authorization") ?? ""}`}}, {status: 407})});
+        try {
+            const built = resolved(follows({baseUrl: "http://models.test/v1"}), {route: async () => ({ok: true, proxy: `http://ann:hunter22secret@127.0.0.1:${String(proxy.port)}`})});
+            const response = await built.resolution.call(request, new AbortController().signal, () => undefined);
+            expect(response.stopReason).toBe("error");
+            const text = JSON.stringify(response.error);
+            expect(text).toContain("proxy says");
+            for (const leaked of ["hunter22secret", "ann:hunter22secret", Buffer.from("ann:hunter22secret").toString("base64")]) expect(text).not.toContain(leaked);
+        } finally {
+            await proxy.stop(true);
+        }
+    });
+
+    test("选路是异步的：等选路期间实例被改了，选完之后核对不过，请求不发", async () => {
+        let current = true;
+        seen.length = 0;
+        const built = resolved(follows(), {stillCurrent: () => current, route: async () => {
+            current = false;
+            return {ok: true, proxy: false};
+        }});
+        const response = await built.resolution.call(request, new AbortController().signal, () => undefined);
+        expect(response.error).toMatchObject({kind: "local", code: "endpoint-mismatch"});
+        expect(seen.length).toBe(0);
+    });
+
     test("免认证只剥占位值：用户自己配的认证头（含同样的字符）照发", async () => {
         const built = resolved(follows({auth: "none", headers: {authorization: "Bearer team-N/A-token"}}));
         seen.length = 0;

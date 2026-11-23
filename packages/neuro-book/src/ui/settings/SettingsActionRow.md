@@ -11,7 +11,7 @@
 
 同 `SettingsRow` 的缺省排法：可换行的弹性布局，标题与说明在左（最小宽 200px），动作靠右；放不下时动作换到标题下面，仍靠右。动作右边留 24px 一格（`SettingsRow` 放“恢复默认”的那一格），各行右缘对齐。标题 20px、说明 18px 的整数行高同 `SettingsRow`。
 
-状态在整行下面另起一行，小字号、任意处折行；色调由 `tone` 定：`info` 信息色、`success` 成功色、`danger` 危险色、`muted` 淡色，各带一个图标（`info` 与 `muted` 是圆圈 i，`success` 是勾，`danger` 是感叹号）。没有状态时这一行不占高度。
+状态在整行下面另起一行，小字号、任意处折行；有状态时这一行按高度展开（`--motion-move`、`--ease-layout`），没有时收起，换内容时淡入淡出（`--motion-fast`）；色调由 `tone` 定：`info` 信息色、`success` 成功色、`danger` 危险色、`muted` 淡色，各带一个图标（`info` 与 `muted` 是圆圈 i，`success` 是勾，`danger` 是感叹号）。没有状态时这一行不占高度。
 
 ## 交互
 

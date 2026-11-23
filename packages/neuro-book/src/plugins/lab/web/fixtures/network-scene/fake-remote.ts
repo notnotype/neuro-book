@@ -16,6 +16,8 @@ export interface FakeNetworkOptions {
     readonly test?: "ok" | "bypassed" | "unreachable" | "hang";
     /** 说明一直不答（看“正在读取…”）。 */
     readonly describeHangs?: boolean;
+    /** 说明的远程调用失败（看“无法读取当前使用的代理”）。 */
+    readonly describeFails?: boolean;
 }
 
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
@@ -48,7 +50,7 @@ export function createFakeNetworkRemote(options: FakeNetworkOptions): NetworkRem
         return {ok: true, summary: shown, ip: "203.0.113.7", elapsedMs: 286};
     };
     const remote = {
-        describe: async () => (options.describeHangs === true ? never() : ok(summary())),
+        describe: async () => (options.describeHangs === true ? never() : options.describeFails === true ? {ok: false, code: "unavailable", detail: "Lab 场景：网络服务没有运行"} : ok(summary())),
         test: async (_input: unknown, call?: {readonly signal?: AbortSignal}) => {
             if (options.test === "hang") {
                 return new Promise((resolve) => call?.signal?.addEventListener("abort", () => resolve({ok: false, code: "cancelled", detail: "cancelled"}), {once: true}));

@@ -193,6 +193,42 @@ describe("目录模板的列表", () => {
         if (fourth !== undefined) expect(listed.some((row) => row.id === fourth.id)).toBe(false);
     });
 
+    it("只靠角色留下的列表外模型：移出记进 excluded、列表又有它时不回来；显式加入写下条目、解绑后照样在；解绑让这家的版本号变", async () => {
+        const [, , third] = chatModels("deepseek");
+        const local = endpoint(models({id: known!.id}, {id: third!.id}));
+        const {id, call, rows, settled, provider} = await deepseek(local);
+        const bindAndDrop = async () => {
+            expect(await call("setRole", {id: "fast", model: `${id}/${third!.id}`})).toMatchObject({ok: true});
+            local.set(models({id: known!.id}));
+            await call("refreshSource", {provider: id});
+            await settled(id);
+            expect((await rows(id)).find((row) => row.id === third!.id)).toMatchObject({unlisted: true});
+        };
+        await bindAndDrop();
+        const before = provider(id).modelsRevision;
+        expect(await call("removeModel", {provider: id, id: third!.id})).toMatchObject({ok: true});
+        expect(provider(id).excludedCount).toBe(1);
+        expect(provider(id).modelsRevision).not.toBe(before);
+        local.set(models({id: known!.id}, {id: third!.id}));
+        await call("refreshSource", {provider: id});
+        await settled(id);
+        expect((await rows(id)).some((row) => row.id === third!.id)).toBe(false);
+
+        // 加回来、再绑角色、列表又没了它；这回用户在管理模型里显式加入（写条目），解绑以后它照样在。
+        expect(await call("setModels", {provider: id, add: [{id: third!.id, enabled: true}], remove: []})).toMatchObject({ok: true});
+        await bindAndDrop();
+        expect(await call("setModels", {provider: id, add: [{id: third!.id, enabled: true}], remove: []})).toMatchObject({ok: true});
+        expect(await call("setRole", {id: "fast", model: null})).toMatchObject({ok: true});
+        expect((await rows(id)).find((row) => row.id === third!.id)).toMatchObject({unlisted: true, status: "ok"});
+    });
+
+    it("手改设置文件写进带用户名密码的服务商代理：快照里的地址去掉凭据", async () => {
+        const config = memoryModelsConfig({autoUpdate: false, providers: [{id: "relay", uid: "u-relay", template: "blank-openai", name: "Relay", api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", auth: "default", followSource: true, excluded: [], models: [], proxy: {mode: "custom", url: "http://ann:hunter22secret@proxy.example:3128"}}]});
+        const {provider} = await start({config});
+        expect(provider("relay").proxy).toEqual({mode: "custom", url: "http://proxy.example:3128"});
+        expect(JSON.stringify(provider("relay"))).not.toContain("hunter22secret");
+    });
+
     it("拉取失败沿用上一次的列表并写明原因；改了地址退回目录、不自动去新地址拉；改了认证头照用旧列表、标 changed，重新拉取后恢复", async () => {
         const local = endpoint(models({id: known!.id}));
         const {id, call, rows, provider, settled, config, until, clock} = await deepseek(local);

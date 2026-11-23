@@ -442,6 +442,8 @@ async function run(action: RowAction): Promise<void> {
 }
 
 .settings-row__below {
+    /* 抵掉行的 gap：行下信息自己留上边距，它收起（高度为 0）时整行不多出一截空。 */
+    margin-top: calc(-1 * var(--space-3));
     min-width: 0;
     font-size: var(--text-xs);
     line-height: var(--settings-line-ui);

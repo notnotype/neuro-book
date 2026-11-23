@@ -8,11 +8,15 @@
 
 import {splitList} from "./rules";
 
-/** 系统设置给的规则。`manual` 按协议给地址（原样，可能不带协议名）；`pac` 是自动配置脚本或自动发现，不支持（决定 21）。 */
+/**
+ * 系统设置给的规则。`manual` 按协议给地址（原样，可能不带协议名）；`pac` 是自动配置脚本或自动发现，不支持（决定 21）；`unsupported`
+ * 是读得懂、但这里不实现的别的规则（KDE 的“只有例外走代理”），同样不悄悄直连。
+ */
 export type SystemProxy =
     | {readonly kind: "none"}
     | {readonly kind: "manual"; readonly http?: string; readonly https?: string; readonly socks?: string; readonly bypass: readonly string[]}
-    | {readonly kind: "pac"};
+    | {readonly kind: "pac"}
+    | {readonly kind: "unsupported"; readonly reason: string};
 
 /** 哪一处的设置：界面写出来源。 */
 export type SystemSource = "gnome" | "kde" | "macos" | "windows";
@@ -101,9 +105,16 @@ export function parseGsettings(stdout: string): SystemProxy | null {
     if (mode === "auto") return {kind: "pac"};
     if (mode !== "manual") return null;
     const of = (kind: string): string | undefined => hostPort(text(`org.gnome.system.proxy.${kind} host`), text(`org.gnome.system.proxy.${kind} port`));
+    // HTTP 代理的认证（`use-authentication`）：写进地址交给 Bun（它变成 `Proxy-Authorization`），说明里只写“带用户名与密码”。
+    const http = of("http");
+    const user = text("org.gnome.system.proxy.http authentication-user") ?? "";
+    const authed = http !== undefined && values.get("org.gnome.system.proxy.http use-authentication") === "true" && user !== ""
+        ? `http://${encodeURIComponent(user)}:${encodeURIComponent(text("org.gnome.system.proxy.http authentication-password") ?? "")}@${http}`
+        : http;
     const ignore = values.get("org.gnome.system.proxy ignore-hosts") ?? "[]";
     const bypass = [...ignore.matchAll(/'([^']*)'/gu)].map((match) => match[1] ?? "").filter((entry) => entry !== "");
-    return manual(of("http"), of("https"), of("socks"), bypass);
+    // HTTPS 没单独设时用 HTTP 的那一个：GNOME 自己的解析（GProxyResolverGnome）就是这样回退的。
+    return manual(authed, of("https") ?? authed, of("socks"), bypass);
 }
 
 function manual(http: string | undefined, https: string | undefined, socks: string | undefined, bypass: readonly string[]): SystemProxy {
@@ -130,6 +141,9 @@ export function parseKioslaverc(text: string): SystemProxy | null {
     if (type === "0" || type === "4") return NONE;
     if (type === "2" || type === "3") return {kind: "pac"};
     if (type !== "1") return null;
+    // “只有例外里的目标走代理”（`ReversedException`）与一般的旁路清单相反，这里不实现：报不支持，不按旁路清单走反了路。
+    const reversed = (values.get("ReversedException") ?? "").toLowerCase();
+    if (reversed === "1" || reversed === "true") return {kind: "unsupported", reason: "KDE's reversed proxy exceptions (only the listed hosts use the proxy)"};
     const of = (key: string): string | undefined => {
         const value = values.get(key)?.replace(/\s+(\d+)$/u, ":$1");
         return value === undefined || value === "" ? undefined : value;
@@ -138,28 +152,35 @@ export function parseKioslaverc(text: string): SystemProxy | null {
 }
 
 /**
- * `scutil --proxy` 的输出：`<dictionary> {` 里每行 `Key : value`，`ExceptionsList : <array> {` 里每行 `N : 条目`。
+ * `scutil --proxy` 的输出：最外层 `<dictionary> {` 里每行 `Key : value`，`ExceptionsList : <array> {` 里每行 `N : 条目`。只读最外层：
+ * `__SCOPED__` 等嵌套的字典是按网卡或域名的配置，不是全局的；把它们的同名键并进来会把只给某个网卡的代理用到别处。
  * 自动配置脚本或自动发现开着时按不支持报，哪怕同时设了手动地址（系统按脚本走，我们照手动走就与系统不一致了）。
  */
 export function parseScutil(stdout: string): SystemProxy | null {
     if (!stdout.includes("<dictionary>")) return null;
     const values = new Map<string, string>();
     const exceptions: string[] = [];
+    /** 当前在第几层花括号里；最外层的字典是第 1 层。 */
+    let depth = 0;
     let inExceptions = false;
     for (const raw of stdout.split("\n")) {
         const line = raw.trim();
-        if (inExceptions) {
-            if (line === "}") inExceptions = false;
-            else {
-                const entry = /^\d+ : (.*)$/u.exec(line)?.[1];
-                if (entry !== undefined) exceptions.push(entry.trim());
-            }
+        if (line === "}") {
+            if (inExceptions && depth === 2) inExceptions = false;
+            depth -= 1;
             continue;
         }
-        if (/^ExceptionsList : <array> \{$/u.test(line)) {
-            inExceptions = true;
+        if (line.endsWith("{")) {
+            depth += 1;
+            if (depth === 2 && /^ExceptionsList : <array> \{$/u.test(line)) inExceptions = true;
             continue;
         }
+        if (inExceptions && depth === 2) {
+            const entry = /^\d+ : (.*)$/u.exec(line)?.[1];
+            if (entry !== undefined) exceptions.push(entry.trim());
+            continue;
+        }
+        if (depth !== 1) continue;
         const match = /^([A-Za-z]+) : (.*)$/u.exec(line);
         if (match !== null) values.set(match[1] ?? "", (match[2] ?? "").trim());
     }
@@ -176,7 +197,8 @@ export function parseScutil(stdout: string): SystemProxy | null {
 /**
  * `reg query "HKCU\...\Internet Settings"` 的输出：每行 `    名字    REG_类型    值`。`ProxyServer` 是 `host:port`（各协议共用）
  * 或 `http=h:p;https=h:p;socks=h:p`；`ProxyOverride` 分号分隔，`<local>` 指不带点的主机名；`AutoConfigURL` 有值是自动配置脚本。
- * 自动发现（WPAD）的开关在二进制的连接设置里，这里不读。
+ * 自动发现（WPAD，“自动检测设置”）的开关在二进制的连接设置里，这里不读：它在 Windows 上缺省开着、多数网络里找不到配置，系统自己
+ * 会退回手动设置或直连；把它当成“不支持”会让缺省设置的用户每个请求都失败（docs/specs/network/egress.md 的已知行为）。
  */
 export function parseWindowsRegistry(stdout: string): SystemProxy | null {
     const values = new Map<string, string>();

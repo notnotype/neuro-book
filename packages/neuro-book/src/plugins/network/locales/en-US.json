@@ -46,8 +46,7 @@
             "failed": "Couldn't read the proxy in use",
             "proxy": "Using {{origin}} ({{source}})",
             "proxyCredentials": "Using {{origin}} with a user name and password ({{source}})",
-            "none": "No system proxy is set; requests go direct",
-            "bypassed": "The test target is on the bypass list and doesn't use the proxy ({{source}})",
+            "none": "No system proxy is set; connecting directly",
             "sources": {
                 "env": "from the {{name}} environment variable",
                 "system": "from the system settings ({{name}})",
@@ -61,12 +60,12 @@
             }
         },
         "errors": {
-            "proxy-unsupported": "The proxy is SOCKS or an automatic configuration script, which isn't supported. Use the HTTP port of the proxy software, or enter a custom address here",
-            "proxy-invalid": "The proxy address isn't valid: it must be an http or https address without a user name or password",
-            "proxy-unreadable": "Couldn't read the system proxy settings, so requests won't be sent. Use Custom or Direct instead"
+            "proxy-unsupported": "The system proxy is SOCKS or an automatic configuration script, which isn't supported. Use the HTTP port of the proxy software, or switch to Custom",
+            "proxy-invalid": "Invalid proxy address: use an http or https address without a user name or password",
+            "proxy-unreadable": "Couldn't read the system proxy settings. Use Custom or Direct instead"
         },
         "url": {
-            "invalid": "Use an http or https address, for example http://127.0.0.1:7890, without a user name or password",
+            "invalid": "Use an http or https address without a user name or password",
             "placeholder": "http://127.0.0.1:7890"
         },
         "test": {
@@ -74,17 +73,17 @@
             "action": "Test",
             "cancel": "Cancel test",
             "running": "Testing…",
-            "ok": "Works: exit IP {{ip}}, {{ms}} ms",
-            "okNoIp": "Works, {{ms}} ms",
-            "bypassed": "The test target didn't use the proxy (direct): exit IP {{ip}}, {{ms}} ms",
+            "ok": "Connected: exit IP {{ip}}, {{ms}} ms",
+            "okNoIp": "Connected, {{ms}} ms",
+            "bypassed": "The test target didn't go through the proxy (direct): exit IP {{ip}}, {{ms}} ms",
             "direct": "Direct: exit IP {{ip}}, {{ms}} ms",
             "failures": {
                 "unreachable": "Couldn't connect: {{message}}",
-                "timeout": "No answer within 10 seconds",
+                "timeout": "No response within 10 seconds",
                 "cancelled": "Cancelled",
-                "bad-response": "The test target answered HTTP {{status}}"
+                "bad-response": "The test target returned HTTP {{status}}"
             },
-            "notRun": "The test didn't run ({{code}})"
+            "notRun": "Test not completed: {{reason}}"
         },
         "update": {
             "title": "Update now",
@@ -95,18 +94,25 @@
             "disabled": "The online catalog is turned off on this machine",
             "unavailable": "Couldn't read the model catalog status",
             "failed": "The last update failed: {{reason}}",
-            "notRun": "The update didn't start ({{code}})",
+            "notRun": "Update not completed: {{reason}}",
             "reasons": {
                 "unreachable": "couldn't reach the catalog service",
                 "bad-response": "the catalog service didn't return a complete catalog",
                 "too-large": "the catalog is too large",
                 "cancelled": "cancelled",
                 "timeout": "timed out",
-                "proxy": "the proxy setting isn't usable, so nothing was sent",
+                "proxy": "the proxy setting is invalid",
                 "rejected": "the catalog content was rejected",
                 "storage": "the catalog couldn't be saved"
             }
         },
-        "writeFailed": "Not saved: {{reason}}"
+        "writeFailed": "Not saved: {{reason}}",
+        "remote": {
+            "unavailable": "the service isn't running",
+            "timeout": "timed out",
+            "unknownOutcome": "the connection dropped and the result is unknown",
+            "cancelled": "cancelled",
+            "other": "failed ({{code}})"
+        }
     }
 }

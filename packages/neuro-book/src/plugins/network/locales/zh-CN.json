@@ -42,12 +42,11 @@
             "title": "模型目录"
         },
         "summary": {
-            "loading": "正在读取现在用的代理…",
-            "failed": "读不到现在用的代理",
-            "proxy": "现在用的是 {{origin}}（{{source}}）",
-            "proxyCredentials": "现在用的是 {{origin}}，带用户名与密码（{{source}}）",
-            "none": "系统没有设代理，请求直连",
-            "bypassed": "测试目标在旁路清单里，不走代理（{{source}}）",
+            "loading": "正在读取当前使用的代理…",
+            "failed": "无法读取当前使用的代理",
+            "proxy": "当前使用 {{origin}}（{{source}}）",
+            "proxyCredentials": "当前使用 {{origin}}，带用户名与密码（{{source}}）",
+            "none": "系统未设置代理，直接连接",
             "sources": {
                 "env": "来自环境变量 {{name}}",
                 "system": "来自系统设置（{{name}}）",
@@ -61,12 +60,12 @@
             }
         },
         "errors": {
-            "proxy-unsupported": "代理是 SOCKS 或自动配置脚本，不支持；改用代理软件的 HTTP 端口，或在这里填自定义地址",
-            "proxy-invalid": "代理地址不对：要是 http 或 https 地址，不带用户名密码",
-            "proxy-unreadable": "读不到系统的代理设置，请求不会发出；可以改用自定义或直连"
+            "proxy-unsupported": "系统的代理是 SOCKS 或自动配置脚本，不支持；改用代理软件的 HTTP 端口，或改用自定义",
+            "proxy-invalid": "代理地址无效：须为 http 或 https 地址，不带用户名与密码",
+            "proxy-unreadable": "读不到系统的代理设置；可以改用自定义或直连"
         },
         "url": {
-            "invalid": "要是 http 或 https 地址，例如 http://127.0.0.1:7890；不带用户名与密码",
+            "invalid": "须为 http 或 https 地址，不带用户名与密码",
             "placeholder": "http://127.0.0.1:7890"
         },
         "test": {
@@ -74,17 +73,17 @@
             "action": "测试",
             "cancel": "取消测试",
             "running": "正在测试…",
-            "ok": "通了：出口 IP {{ip}}，{{ms}} ms",
-            "okNoIp": "通了，{{ms}} ms",
-            "bypassed": "测试目标没有走代理（直连）：出口 IP {{ip}}，{{ms}} ms",
+            "ok": "连接成功：出口 IP {{ip}}，{{ms}} ms",
+            "okNoIp": "连接成功，{{ms}} ms",
+            "bypassed": "测试目标没有经过代理（直连）：出口 IP {{ip}}，{{ms}} ms",
             "direct": "直连：出口 IP {{ip}}，{{ms}} ms",
             "failures": {
-                "unreachable": "连不上：{{message}}",
-                "timeout": "10 秒内没有回应",
+                "unreachable": "无法连接：{{message}}",
+                "timeout": "10 秒内没有响应",
                 "cancelled": "已取消",
-                "bad-response": "测试目标回了 HTTP {{status}}"
+                "bad-response": "测试目标返回 HTTP {{status}}"
             },
-            "notRun": "没测成（{{code}}）"
+            "notRun": "测试未完成：{{reason}}"
         },
         "update": {
             "title": "现在更新",
@@ -95,18 +94,25 @@
             "disabled": "这台机器关掉了在线目录",
             "unavailable": "读不到模型目录的状态",
             "failed": "上次更新失败：{{reason}}",
-            "notRun": "没更新成（{{code}}）",
+            "notRun": "更新未完成：{{reason}}",
             "reasons": {
-                "unreachable": "连不上目录服务",
+                "unreachable": "无法连接目录服务",
                 "bad-response": "目录服务回的不是完整的目录",
                 "too-large": "目录太大",
                 "cancelled": "已取消",
                 "timeout": "超时",
-                "proxy": "代理设置有问题，请求没有发出",
+                "proxy": "代理设置无效",
                 "rejected": "目录的内容不合格",
-                "storage": "目录存不下来"
+                "storage": "目录无法保存"
             }
         },
-        "writeFailed": "没有保存：{{reason}}"
+        "writeFailed": "没有保存：{{reason}}",
+        "remote": {
+            "unavailable": "服务没有运行",
+            "timeout": "超时",
+            "unknownOutcome": "连接中断，结果未知",
+            "cancelled": "已取消",
+            "other": "失败（{{code}}）"
+        }
     }
 }

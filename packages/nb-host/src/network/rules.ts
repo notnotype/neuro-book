@@ -89,8 +89,8 @@ export function parseProxy(raw: string): ParsedProxy {
 
 /**
  * 旁路清单（`NO_PROXY`、系统设置里的例外）是否命中目标。各来源的写法合在一起认：`*` 全部；`<local>`（Windows）不带点的主机名；
- * IPv4 网段 `10.0.0.0/8` 与 macOS 的简写 `169.254/16`；带 `*` 的通配；前导 `.` 或 `*.` 只配子域名；其余配本身与子域名（curl 的写法）。
- * 写了端口的只在端口相同时命中。
+ * IPv4 网段 `10.0.0.0/8` 与 macOS 的简写 `169.254/16`、IPv6 网段 `2001:db8::/32`；IP 字面量（IPv6 可带方括号与端口）按规范化后的
+ * 地址比；带 `*` 的通配；前导 `.` 或 `*.` 只配子域名；其余配本身与子域名（curl 的写法）。写了端口的只在端口相同时命中。
  */
 export function bypassMatches(entries: readonly string[], target: URL): boolean {
     const host = target.hostname.toLowerCase().replace(/^\[|\]$/gu, "").replace(/\.$/u, "");
@@ -106,6 +106,19 @@ export function bypassMatches(entries: readonly string[], target: URL): boolean 
         const cidr = /^(\d{1,3}(?:\.\d{1,3}){0,3})\/(\d{1,2})$/u.exec(entry);
         if (cidr !== null) {
             if (inCidr(host, cidr[1] ?? "", Number(cidr[2]))) return true;
+            continue;
+        }
+        const cidr6 = /^\[?([0-9a-f:.]*:[0-9a-f:.]*)\]?\/(\d{1,3})$/u.exec(entry);
+        if (cidr6 !== null) {
+            if (inCidr6(host, cidr6[1] ?? "", Number(cidr6[2]))) return true;
+            continue;
+        }
+        // IPv6 字面量：`[::1]:8080`、`[2001:db8::1]`，或不带方括号的 `2001:db8::1`（两个以上冒号，不会是 `主机:端口`）。
+        const bracketed = /^\[([^\]]+)\](?::(\d+))?$/u.exec(entry);
+        const bare = bracketed === null && (entry.match(/:/gu)?.length ?? 0) >= 2 ? entry : null;
+        if (bracketed !== null || bare !== null) {
+            if (bracketed?.[2] !== undefined && bracketed[2] !== port) continue;
+            if (sameIpv6(host, bracketed?.[1] ?? bare ?? "")) return true;
             continue;
         }
         const withPort = /^(.*[^:\]]):(\d+)$/u.exec(entry);
@@ -137,6 +150,24 @@ function inCidr(host: string, network: string, bits: number): boolean {
     const toNumber = (value: readonly number[]): number => value.reduce((sum, part) => sum * 256 + part, 0);
     const block = 2 ** (32 - bits);
     return Math.floor(toNumber(target) / block) === Math.floor(toNumber(parts) / block);
+}
+
+function inCidr6(host: string, network: string, bits: number): boolean {
+    const target = host.includes(":") ? ipv6(host) : null;
+    const base = ipv6(network);
+    if (target === null || base === null || bits > 128) return false;
+    for (let bit = 0; bit < bits; bit += 1) {
+        const index = Math.floor(bit / 16);
+        const mask = 1 << (15 - (bit % 16));
+        if (((target[index] ?? 0) & mask) !== ((base[index] ?? 0) & mask)) return false;
+    }
+    return true;
+}
+
+function sameIpv6(host: string, literal: string): boolean {
+    const target = host.includes(":") ? ipv6(host) : null;
+    const other = ipv6(literal);
+    return target !== null && other !== null && target.every((group, index) => group === other[index]);
 }
 
 /** 逗号或空白分隔的清单（`NO_PROXY`、KDE 的 `NoProxyFor`）；Windows 的分号另拆。 */

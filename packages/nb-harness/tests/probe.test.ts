@@ -234,6 +234,18 @@ describe("发出之前", () => {
         expect(seen).toHaveLength(0);
     });
 
+    test("经带凭据的代理、代理在 407 正文里回显认证头：检测的原文里没有凭据", async () => {
+        const proxy = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: (incoming) => new Response(`echo ${incoming.headers.get("proxy-authorization") ?? ""}`, {status: 407})});
+        try {
+            const outcome = await probeProtocol({...target("openai-completions"), baseUrl: "http://models.test/v1"}, {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 5000, route: async () => ({ok: true, proxy: `http://ann:hunter22secret@127.0.0.1:${String(proxy.port)}`})});
+            expect(outcome).toMatchObject({ok: false, status: 407});
+            expect(outcome.message).toContain("echo");
+            for (const leaked of ["hunter22secret", Buffer.from("ann:hunter22secret").toString("base64")]) expect(outcome.message).not.toContain(leaked);
+        } finally {
+            await proxy.stop(true);
+        }
+    });
+
     test("网络出口给直连时照常检测，出口问的是完整的请求地址", async () => {
         const asked: string[] = [];
         const outcome = await probeProtocol(target("openai-completions"), {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 5000, route: async (url) => {

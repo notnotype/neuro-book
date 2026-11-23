@@ -32,9 +32,49 @@ export interface HttpProxyOptions {
     readonly resolve?: (host: string, port: number) => {readonly host: string; readonly port: number};
 }
 
+/**
+ * 一个方向上的写：Bun 的 `socket.write` 可能只收下一部分（交回实收的字节数），余下的排队，等 `drain` 再写；排空之前不关写端。
+ * 不排队时读端慢一点，大的响应体就被截掉。
+ */
+class Outbox {
+    private readonly queue: Uint8Array[] = [];
+    private ending = false;
+    constructor(private readonly socket: Socket<unknown>) {}
+
+    write(chunk: Uint8Array | string): void {
+        const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+        if (this.queue.length > 0) {
+            this.queue.push(bytes);
+            return;
+        }
+        const written = this.socket.write(bytes);
+        if (written < bytes.length) this.queue.push(bytes.subarray(Math.max(0, written)));
+    }
+
+    drain(): void {
+        while (this.queue.length > 0) {
+            const head = this.queue[0]!;
+            const written = this.socket.write(head);
+            if (written < head.length) {
+                this.queue[0] = head.subarray(Math.max(0, written));
+                return;
+            }
+            this.queue.shift();
+        }
+        if (this.ending) this.socket.end();
+    }
+
+    end(): void {
+        this.ending = true;
+        if (this.queue.length === 0) this.socket.end();
+    }
+}
+
 interface Link {
     head: Uint8Array;
-    upstream: Socket<undefined> | null;
+    /** 写给客户端的那一路。 */
+    out: Outbox;
+    upstream: Socket<Outbox> | null;
     readonly pending: Uint8Array[];
     forwarding: boolean;
     closed: boolean;
@@ -59,7 +99,7 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
     const connect = (client: Socket<Link>, host: string, port: number, first: Uint8Array | null, established: string | null): void => {
         const link = client.data;
         const target = resolve(host, port);
-        void Bun.connect({
+        void Bun.connect<Outbox>({
             hostname: target.host,
             port: target.port,
             socket: {
@@ -68,21 +108,25 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
                         upstream.terminate();
                         return;
                     }
+                    upstream.data = new Outbox(upstream as Socket<unknown>);
                     link.upstream = upstream;
-                    if (established !== null) client.write(established);
-                    if (first !== null) upstream.write(first);
-                    for (const chunk of link.pending.splice(0)) upstream.write(chunk);
+                    if (established !== null) link.out.write(established);
+                    if (first !== null) upstream.data.write(first);
+                    for (const chunk of link.pending.splice(0)) upstream.data.write(chunk);
                 },
                 data(_upstream, chunk) {
-                    client.write(chunk);
+                    link.out.write(new Uint8Array(chunk));
+                },
+                drain(upstream) {
+                    upstream.data.drain();
                 },
                 close() {
-                    client.end();
+                    link.out.end();
                 },
             },
         }).catch(() => {
-            client.write("HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
-            client.end();
+            link.out.write("HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+            link.out.end();
         });
     };
 
@@ -92,14 +136,14 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
         socket: {
             open(client) {
                 connections += 1;
-                client.data = {head: new Uint8Array(0), upstream: null, pending: [], forwarding: false, closed: false};
+                client.data = {head: new Uint8Array(0), out: new Outbox(client as Socket<unknown>), upstream: null, pending: [], forwarding: false, closed: false};
                 clients.add(client);
             },
             data(client, chunk) {
                 const link = client.data;
                 if (link.forwarding) {
                     if (link.upstream === null) link.pending.push(new Uint8Array(chunk));
-                    else link.upstream.write(chunk);
+                    else link.upstream.data.write(new Uint8Array(chunk));
                     return;
                 }
                 const joined = new Uint8Array(link.head.length + chunk.length);
@@ -141,10 +185,13 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
                 first.set(rest, encoded.length);
                 connect(client, url.hostname, Number(url.port === "" ? 80 : url.port), first, null);
             },
+            drain(client) {
+                client.data.out.drain();
+            },
             close(client) {
                 client.data.closed = true;
                 clients.delete(client);
-                client.data.upstream?.end();
+                client.data.upstream?.data.end();
             },
         },
     });

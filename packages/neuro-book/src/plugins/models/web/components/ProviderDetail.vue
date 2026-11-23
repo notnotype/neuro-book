@@ -4,6 +4,7 @@ import {Button, Collapsible, InfoTip, Input, Select, Switch} from "@notnotype/nb
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, ref, useId, watch} from "vue";
 
+import {isCustomProxyAddress} from "nbook/plugins/network/shared/contracts";
 import {fullTime} from "nbook/shared/short-time";
 
 import type {CheckRun, CheckState} from "../models-store";
@@ -217,33 +218,36 @@ const proxyProblem = ref("");
 watch(() => props.provider.proxy, () => {
     choosingCustom.value = false;
 });
-/** 自定义代理的地址：http 或 https，不带用户名密码（服务端同一条规则）。 */
-const validProxy = (value: string): boolean => {
-    try {
-        const parsed = new URL(value);
-        return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname !== "" && parsed.username === "" && parsed.password === "";
-    } catch {
-        return false;
-    }
-};
 function changeProxyMode(value: string): void {
     proxyProblem.value = "";
     if (value === "custom") {
         if (props.provider.proxy?.mode === "custom") return;
         choosingCustom.value = true;
-        void nextTick(() => document.getElementById(`${id}-proxy`)?.focus());
+        wantProxyFocus = true;
         return;
     }
     choosingCustom.value = false;
     emit("update", {proxy: value === "app" ? null : {mode: value as "system" | "direct"}});
 }
+/**
+ * 选了“自定义”后焦点交给地址框：等它挂上（`Collapsible` 打开后才有），再过一帧聚焦。下拉关上时会把焦点还给自己的触发器，
+ * 同一帧里聚焦会被盖掉。
+ */
+let wantProxyFocus = false;
+function proxyInputMounted(): void {
+    if (!wantProxyFocus) return;
+    wantProxyFocus = false;
+    requestAnimationFrame(() => document.getElementById(`${id}-proxy`)?.focus());
+}
 function commitProxy(): void {
     const value = proxyDraft.value.trim();
     if (value === "") {
+        // 已保存过地址的：清空不算改，框里换回实际的地址（同接口地址框）；还没填过的停在“自定义”等地址。
         proxyProblem.value = "";
+        proxyDraft.value = proxyCurrent.value;
         return;
     }
-    if (!validProxy(value)) {
+    if (!isCustomProxyAddress(value)) {
         proxyProblem.value = text("connection.proxy.invalid");
         return;
     }
@@ -281,6 +285,10 @@ watch(() => props.resetToken, () => {
     keyField.reset();
     urlField.reset();
     urlProblem.value = "";
+    // 代理也回到实际值：写失败时框里不留没保存的地址，也不停在没写进去的“自定义”。
+    proxyField.reset();
+    proxyProblem.value = "";
+    choosingCustom.value = false;
 });
 
 // ---- 模型 ----
@@ -411,21 +419,24 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
                         <div class="provider-detail__field">
                             <div class="provider-detail__field-head"><span class="provider-detail__label">{{ text("connection.proxy.label") }}</span></div>
                             <Select :model-value="proxyMode" :options="proxyOptions" size="sm" :disabled="disabled" :aria-label="text('connection.proxy.label')" data-proxy-select @update:model-value="changeProxyMode" />
-                            <Input
-                                v-if="proxyMode === 'custom'"
-                                :id="`${id}-proxy`"
-                                v-model="proxyDraft"
-                                size="sm"
-                                :placeholder="text('connection.proxy.placeholder')"
-                                :disabled="disabled"
-                                :invalid="proxyProblem !== ''"
-                                :aria-label="text('connection.proxy.url')"
-                                :aria-describedby="proxyProblem !== '' ? `${id}-proxy-problem` : undefined"
-                                data-proxy-input
-                                @focusin="proxyField.focus"
-                                @focusout="commitProxy(); proxyField.blur()"
-                                @keydown.enter="commitProxy"
-                            />
+                            <Collapsible :open="proxyMode === 'custom'" class="provider-detail__reveal">
+                                <Input
+                                    :id="`${id}-proxy`"
+                                    v-model="proxyDraft"
+                                    size="sm"
+                                    :placeholder="text('connection.proxy.placeholder')"
+                                    :disabled="disabled"
+                                    :invalid="proxyProblem !== ''"
+                                    :aria-label="text('connection.proxy.url')"
+                                    :aria-describedby="proxyProblem !== '' ? `${id}-proxy-problem` : undefined"
+                                    class="provider-detail__reveal-body"
+                                    data-proxy-input
+                                    @vue:mounted="proxyInputMounted"
+                                    @focusin="proxyField.focus"
+                                    @focusout="commitProxy(); proxyField.blur()"
+                                    @keydown.enter="commitProxy"
+                                />
+                            </Collapsible>
                             <p v-if="proxyProblem !== ''" :id="`${id}-proxy-problem`" class="provider-detail__hint provider-detail__hint--error" role="alert" data-proxy-problem>{{ proxyProblem }}</p>
                         </div>
                         <div class="provider-detail__field">
@@ -573,6 +584,15 @@ const checking = computed(() => props.checkRun !== null || props.rows.some((mode
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+}
+
+/* 随选项出现的一块（自定义代理的地址框）：抵掉字段的 gap、自己留上边距，收起时连间距一起收掉。 */
+.provider-detail__reveal {
+    margin-top: calc(-1 * var(--space-2));
+}
+
+.provider-detail__reveal-body {
+    margin-top: var(--space-2);
 }
 
 .provider-detail__field-head {

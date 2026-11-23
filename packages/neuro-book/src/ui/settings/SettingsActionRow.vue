@@ -42,21 +42,28 @@ const describedby = computed(() => [titleId, props.description === null ? null :
                 <span class="settings-action-row__cell" aria-hidden="true"></span>
             </div>
         </div>
-        <!-- 常驻的播报区：随内容插入的区域读屏常常不播。 -->
-        <p
-            :id="statusId"
-            class="settings-action-row__status"
-            :class="shown === null ? null : `settings-action-row__status--${tone}`"
-            role="status"
-            aria-live="polite"
-            :data-tone="shown === null ? undefined : tone"
-            data-settings-action-status
-        >
-            <template v-if="shown !== null">
-                <span :class="ICON[tone]" class="settings-action-row__icon" aria-hidden="true"></span>
-                <span>{{ shown }}</span>
-            </template>
-        </p>
+        <!--
+            状态行：有状态时按高度展开、没有时收起（网格行 0fr 与 1fr 之间过渡），换内容时淡入淡出。播报区常驻（随内容插入的区域读屏
+            常常不播），只是高度为 0。
+        -->
+        <div class="settings-action-row__status-wrap" :data-open="shown === null ? undefined : ''">
+            <p
+                :id="statusId"
+                class="settings-action-row__status"
+                :class="shown === null ? null : `settings-action-row__status--${tone}`"
+                role="status"
+                aria-live="polite"
+                :data-tone="shown === null ? undefined : tone"
+                data-settings-action-status
+            >
+                <Transition name="settings-action-fade" mode="out-in">
+                    <span v-if="shown !== null" :key="`${tone}:${shown}`" class="settings-action-row__line">
+                        <span :class="ICON[tone]" class="settings-action-row__icon" aria-hidden="true"></span>
+                        <span>{{ shown }}</span>
+                    </span>
+                </Transition>
+            </p>
+        </div>
     </div>
 </template>
 
@@ -117,18 +124,48 @@ const describedby = computed(() => [titleId, props.description === null ? null :
 
 .settings-action-row__status {
     user-select: text;
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-3);
     margin: 0;
     font-size: var(--text-xs);
     line-height: 18px;
     overflow-wrap: anywhere;
 }
 
-/* 播报区常驻（隐藏了读屏不播）：没有状态时高 0、不留间距，有状态时才与上面隔开。 */
-.settings-action-row__status[data-tone] {
+/* 播报区常驻（隐藏了读屏不播）：没有状态时高 0、不留间距，有状态时展开并与上面隔开。 */
+.settings-action-row__status-wrap {
+    display: grid;
+    grid-template-rows: 0fr;
+    margin-top: 0;
+    transition-property: grid-template-rows, margin-top;
+    transition-duration: var(--motion-move);
+    transition-timing-function: var(--ease-layout);
+}
+
+.settings-action-row__status-wrap[data-open] {
+    grid-template-rows: 1fr;
     margin-top: var(--space-3);
+}
+
+.settings-action-row__status-wrap > .settings-action-row__status {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.settings-action-row__line {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
+
+.settings-action-fade-enter-active,
+.settings-action-fade-leave-active {
+    transition-property: opacity;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-layout);
+}
+
+.settings-action-fade-enter-from,
+.settings-action-fade-leave-to {
+    opacity: 0;
 }
 
 .settings-action-row__status--info {

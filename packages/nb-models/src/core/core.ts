@@ -136,6 +136,16 @@ const validAddress = (value: string): boolean => {
     }
 };
 
+/**
+ * 快照里的代理：自定义地址去掉用户名密码。界面写入时就拒收带凭据的（`validProxyAddress`），手改设置文件写进去的不交给浏览器；
+ * 这样的地址选路时报 `proxy-invalid`，请求不发。
+ */
+const shownProxy = (proxy: ProviderProxy | undefined): ProviderProxy | null => {
+    if (proxy === undefined) return null;
+    if (proxy.mode !== "custom") return proxy;
+    return {mode: "custom", url: proxy.url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^/@]*@/iu, "$1")};
+};
+
 /** 自定义代理的地址：http 或 https，不带用户名密码（密码会进设置文件，决定 20）。 */
 const validProxyAddress = (value: string): boolean => {
     try {
@@ -381,7 +391,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     };
     const catalogRowOf = (found: ReturnType<ReturnType<typeof sources.view>["find"]>): {row?: SourceModel["row"]} => (found === undefined ? {} : {row: {model: found.model, priceKnown: found.priceKnown}});
     /** 一个服务商的版本号：配置、密钥状态或来源变了就变，调用方据此判断自己读到的行是否还新。 */
-    const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key, sources.rowsVersion(provider)])).toString(36);
+    // 带上列表外、靠配置保留的模型：它们随角色绑定进出，角色变了这家的行也变（输出 7、23）。
+    const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key, sources.rowsVersion(provider), [...sourcesFor(provider).models.values()].filter((model) => model.unlisted === true).map((model) => model.id)])).toString(36);
 
     const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry, row.source), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id), route: routeOf(provider)});
 
@@ -514,7 +525,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 templateApi: isBlankTemplate(provider.template) ? BLANK_API[provider.template as BlankTemplate] : defaultApi(provider.template),
                 auth: provider.auth,
                 headers: {...provider.headers},
-                proxy: provider.proxy ?? null,
+                proxy: shownProxy(provider.proxy),
                 key,
                 followSource: provider.followSource,
                 source: sources.state(provider),
@@ -648,7 +659,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const redundant = (provider: ProviderConfig, entry: ModelConfig): boolean => {
         if (!provider.followSource || entry.origin !== "source" || Object.keys(entry).length !== 3) return false;
         const source = sourcesFor(provider).models.get(entry.id);
-        return source !== undefined && source.auto && entry.enabled === enabledOf({source, entry: undefined});
+        // 列表外、靠配置保留的（`unlisted`）：条目就是保留它的依据，去掉就只剩角色绑定（或什么都不剩），不算冗余。
+        return source !== undefined && source.auto && source.unlisted !== true && entry.enabled === enabledOf({source, entry: undefined});
     };
 
     const incomplete = (provider: ProviderConfig, models: readonly ModelConfig[]): Failure | null => {
@@ -665,9 +677,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const kept = provider.models.filter((entry) => !replaced.has(entry.id));
         return {...provider, excluded: provider.excluded.filter((id) => !replaced.has(id)), models: [...kept, ...entries.filter((entry) => !redundant(provider, entry))]};
     };
-    /** 移出：来源模型进 `excluded`（覆盖不保留），手加的删除。 */
-    const withRemoved = (provider: ProviderConfig, ids: readonly string[]): ProviderConfig => {
-        const sources = sourcesFor(provider).models;
+    /**
+     * 移出：来源模型进 `excluded`（覆盖不保留），手加的删除。`known` 是解绑之前的来源 id：只靠角色绑着才留下的列表外模型，解绑以后
+     * 就不在来源里了，按解绑后的来源判断会漏记移出，下一次列表又有它时它就自己回来。
+     */
+    const withRemoved = (provider: ProviderConfig, ids: readonly string[], known?: ReadonlySet<string>): ProviderConfig => {
+        const sources = known ?? new Set(sourcesFor(provider).models.keys());
         const gone = new Set(ids);
         const manual = new Set(provider.models.filter((entry) => entry.origin === "manual").map((entry) => entry.id));
         return {...provider, excluded: [...new Set([...provider.excluded, ...ids.filter((id) => sources.has(id) && !manual.has(id))])], models: provider.models.filter((entry) => !gone.has(entry.id))};
@@ -991,10 +1006,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
             removeModel: (input, ctx) => queue(async () => {
-                if (!current().some((provider) => provider.id === input.provider)) return relay(unknownProvider(input.provider));
+                const existing = current().find((provider) => provider.id === input.provider);
+                if (existing === undefined) return relay(unknownProvider(input.provider));
+                const known = new Set(sourcesFor(existing).models.keys());
                 const unbound = await unbind(input.provider, [input.id]);
                 if (!unbound.ok) return relay(unbound);
-                const step = await withProvider<null>(input.provider, (provider) => ({ok: true, value: {provider: withRemoved(provider, [input.id]), result: null}}));
+                const step = await withProvider<null>(input.provider, (provider) => ({ok: true, value: {provider: withRemoved(provider, [input.id], known), result: null}}));
                 return step.ok ? ctx.ok(null) : relay(step);
             }),
             setModels: (input, ctx) => queue(async () => {
@@ -1004,10 +1021,11 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 const rejected = incomplete(existing, input.add);
                 if (rejected !== null) return relay(rejected);
                 const gone = input.remove.filter((id) => !input.add.some((added) => added.id === id));
+                const known = new Set(sourcesFor(existing).models.keys());
                 const unbound = gone.length === 0 ? {ok: true as const, value: null} : await unbind(input.provider, gone);
                 if (!unbound.ok) return relay(unbound);
                 const step = await withProvider<null>(input.provider, (provider) => {
-                    const next = withAdded(withRemoved(provider, gone), input.add);
+                    const next = withAdded(withRemoved(provider, gone, known), input.add);
                     return incomplete(provider, input.add) ?? {ok: true, value: {provider: next, result: null}};
                 });
                 return step.ok ? ctx.ok(null) : relay(step);

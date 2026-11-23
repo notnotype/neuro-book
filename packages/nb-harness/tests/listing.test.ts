@@ -49,6 +49,11 @@ describe("网络出口", () => {
             server.stop();
         }
     });
+
+    test("地址拼不出 URL（设置文件里手改的坏值）：以 unreachable 失败、交回原因，不抛到外面", async () => {
+        const result = await listModels({flavor: "openai", baseUrl: "not an address", headers: {}, signal: new AbortController().signal});
+        expect(result).toMatchObject({ok: false, reason: "unreachable"});
+    });
 });
 
 describe("各协议的地址、认证与分类", () => {

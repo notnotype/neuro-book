@@ -12,6 +12,19 @@ import type {Static} from "typebox";
 /** 别的插件读本插件的设置项（`nbook.models` 读“自动更新模型列表”）经这里：跨插件只导入对方的合同模块。 */
 export {networkSettings} from "./settings";
 
+/**
+ * 自定义代理的地址能不能收：http 或 https、有主机、不带用户名密码（决定 20、21）。网络页与服务商详情共用这一条；服务端写服务商配置
+ * 时按同样的规则核对（nb-models 的 `validProxyAddress`），出口选路时再核一次（nb-host 的 `parseProxy`）。
+ */
+export function isCustomProxyAddress(value: string): boolean {
+    try {
+        const parsed = new URL(value.trim());
+        return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname !== "" && parsed.username === "" && parsed.password === "";
+    } catch {
+        return false;
+    }
+}
+
 /** 一份代理设置（应用级的，或某家服务商自己的）；`url` 只在 `custom` 时用。形状同 nb-host 的 `ProxySetting`。 */
 export interface ProxyOverride {
     readonly mode: "system" | "custom" | "direct";

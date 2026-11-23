@@ -12,7 +12,7 @@ export {complete} from "./session/complete.js";
 export {estimateImageTokens, estimateTokens} from "./compaction/compact.js";
 export {createAgentHost, ExtensionRejected} from "./session/agent-host.js";
 export {PreviewUnavailable} from "./session/preview.js";
-export {ompCall, ompModelInfo, type NetworkRoute, type OmpFetchFailure, type OmpIdentity, type OmpTarget, type OmpTransport} from "./model/omp.js";
+export {ompCall, ompModelInfo, proxySecrets, type NetworkRoute, type OmpFetchFailure, type OmpIdentity, type OmpTarget, type OmpTransport} from "./model/omp.js";
 export {reasoningOf} from "./model/reasoning.js";
 export {sanitizeProviderText} from "./model/redact.js";
 export {onProcessInterrupt, onProcessTermination, type TerminationSignal} from "./model/process.js";

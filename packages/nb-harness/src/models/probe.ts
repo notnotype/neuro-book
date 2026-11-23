@@ -13,7 +13,7 @@
  *   取消要等它，流里报错会被拖到时限），流里报错又被适配器重发时用它当原文。
  */
 
-import {sanitizeProviderText, type ModelRequest, type NetworkRoute} from "../kernel/index.js";
+import {proxySecrets, sanitizeProviderText, type ModelRequest, type NetworkRoute} from "../kernel/index.js";
 import {buildResolution, requestAuth, type KeyAccess, type ModelTarget, type ProviderTarget} from "./target.js";
 
 /** 一次检测的结果。`message` 是遮盖过的服务商原文或英文开发者文字；通过时为空串。 */
@@ -175,7 +175,14 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
         return new Response(recording(response.body, head), {status: response.status, statusText: response.statusText, headers: response.headers});
     }) as typeof fetch;
 
-    const hooks = {send, transport: () => ({}), ...(options.route === undefined ? {} : {route: options.route})};
+    // 选到的代理带凭据时一并遮盖：代理在错误正文里回显 `Proxy-Authorization` 时不交出去。
+    const route = options.route;
+    const routed = route === undefined ? undefined : async (url: URL) => {
+        const decided = await route(url);
+        if (decided.ok) for (const secret of proxySecrets(decided.proxy)) if (!secrets.includes(secret)) secrets.push(secret);
+        return decided;
+    };
+    const hooks = {send, transport: () => ({}), ...(routed === undefined ? {} : {route: routed})};
     let built = buildResolution(provider, model, access, hooks);
     if (!built.ok && built.code === "unknown-model" && model.contextWindow === undefined) built = buildResolution(provider, {...model, contextWindow: PROBE_WINDOW}, access, hooks);
     if (!built.ok) return local(built.code);
