@@ -170,9 +170,8 @@ const {liveState, lifted: liftedItem, dragging} = useLiveDragSession<string, Liv
 }));
 
 const shown = computed(() => preview.value ?? grid.value);
-const extentNow = computed(() => host.extent.value);
 const node = computed(() => shown.value.root());
-const layout = computed(() => (extentNow.value === null ? host.layout.value : shown.value.layout(extentNow.value)));
+const layout = computed(() => (host.extent.value === null ? host.layout.value : shown.value.layout(host.extent.value)));
 const contents = computed<GridContentInput[]>(() => {
     // 预览摘掉了来源时它的内容项不在这里：网格自己留住拿起的那一项（`lifted`）。
     const tree = shown.value;
@@ -183,20 +182,17 @@ const slotStyle = computed(() => {
     const slot = liveState.value.slotInGrid;
     return slot === null ? {display: "none"} : {left: `${String(slot.x)}px`, top: `${String(slot.y)}px`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
 });
-/** 布局变一下（给 e2e 在过渡进行中拿起）：左右两列换成 3 比 1。 */
-function widen(): void {
-    grid.value = createGrid<string>(tree(3, 1), {sashSize: SASH});
-}
-function reset(): void {
-    grid.value = createGrid<string>(tree(1, 1), {sashSize: SASH});
+/** 两列的份额换成 left 比 right：给 e2e 在过渡进行中拿起（3 比 1），或还原（1 比 1）。 */
+function setColumns(left: number, right: number): void {
+    grid.value = createGrid<string>(tree(left, right), {sashSize: SASH});
 }
 </script>
 
 <template>
     <div class="live-panels-scene" :data-live-preview="previewKey" :data-live-collapsed="String(liveState.collapsed)" :data-live-active="String(liveState.active)" :data-live-commits="String(commits)">
         <div class="live-panels-scene__actions">
-            <button type="button" data-live-action="widen" @click="widen()">改宽左列</button>
-            <button type="button" data-live-action="reset" @click="reset()">还原</button>
+            <button type="button" data-live-action="widen" @click="setColumns(3, 1)">改宽左列</button>
+            <button type="button" data-live-action="reset" @click="setColumns(1, 1)">还原</button>
         </div>
         <div ref="box" class="live-panels-scene__grid">
             <NestedGrid
@@ -213,7 +209,7 @@ function reset(): void {
                     <div class="live-panels-scene__head" :data-live-head="leaf.id">{{ TITLES[leaf.id] }}</div>
                 </template>
                 <template #content="{contentKey}">
-                    <div class="live-panels-scene__body" :data-live-body="contentKey">
+                    <div class="live-panels-scene__body">
                         <input :data-live-input="contentKey" :aria-label="`${TITLES[contentKey]} 的输入`" />
                     </div>
                 </template>
