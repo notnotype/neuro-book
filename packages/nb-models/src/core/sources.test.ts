@@ -13,6 +13,7 @@ import {fail, ok} from "@notnotype/nb-runtime/remote";
 import type {RemoteMethodContext, RemoteOutcome} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {Static} from "typebox";
 
 import type {StoredProvider} from "../config/shapes";
@@ -96,6 +97,7 @@ async function start(options: {config?: MemoryModelsConfig; sources?: ReturnType
     /** 等快照满足条件（每次变化时看一次），最多 5 秒。 */
     const until = (predicate: (snapshot: ModelsSnapshot) => boolean): Promise<void> => new Promise((resolve, reject) => {
         if (predicate(core.service.snapshot())) return resolve();
+        // test-lint-allow fixed-wait: 5 秒是判定上限；正常时快照先满足条件，timer 被清掉
         const timer = setTimeout(() => {
             off();
             reject(new Error(`timed out; last source states: ${JSON.stringify(core.service.snapshot().providers.map((item) => item.source))}`));
@@ -270,7 +272,7 @@ describe("目录模板的列表", () => {
             release = () => resolve(Response.json({data: [{id: "late-model"}]}));
         }));
         await call("refreshSource", {provider: id});
-        while (local.seen.length < 2) await Bun.sleep(5);
+        await waitUntil("拉取请求发出了两次", () => local.seen.length >= 2);
         await call("updateProvider", {id, patch: {headers: {"X-Team": "writing"}}});
         release();
         await settled(id);
@@ -384,7 +386,7 @@ describe("自动更新与停止", () => {
             controller.enqueue(new TextEncoder().encode('{"data":['));
         }}), {headers: {"content-type": "application/json"}}));
         await call("setKey", {provider: id, value: "sk-local-0001"});
-        while (stall === null) await Bun.sleep(5);
+        await waitUntil("请求的响应流已建起来", () => stall !== null);
         const began = performance.now();
         await close();
         expect(performance.now() - began).toBeLessThan(2500);
@@ -424,7 +426,7 @@ describe("在线目录", () => {
 
         config.setAutoUpdate(true);
         const third = await start({config, sources, catalogUrl, clock: {now: 1_800_000_000_000 + SOURCE_STALE_MS + HOUR}});
-        while ((sources.catalog as {fetchedAt: number}).fetchedAt !== 1_800_000_000_000 + SOURCE_STALE_MS + HOUR) await Bun.sleep(5);
+        await waitUntil("在线目录按新时间取到", () => (sources.catalog as {fetchedAt: number}).fetchedAt === 1_800_000_000_000 + SOURCE_STALE_MS + HOUR);
         await third.close();
         expect(seen).toEqual([null, '"v1"']);
         expect(sources.catalog).toMatchObject({etag: '"v1"'});
@@ -455,7 +457,7 @@ describe("在线目录", () => {
         cleanup.push(() => server.stop(true));
         const sources = memorySourceStore();
         const {events, close} = await start({config: memoryModelsConfig({autoUpdate: true}), sources, catalogUrl: `http://127.0.0.1:${String(server.port)}/c`});
-        while (!events.includes("models.catalog.rejected")) await Bun.sleep(5);
+        await waitUntil("坏目录被拒收", () => events.includes("models.catalog.rejected"));
         await close();
         expect(sources.catalog).toBeNull();
     });
@@ -542,7 +544,7 @@ describe("审查补的边界", () => {
         if (!added.ok) throw new Error(added.code);
         const id = added.value.id;
         await call("setKey", {provider: id, value: "sk-relay-0001"});
-        while (local.seen.length < 1) await Bun.sleep(5);
+        await waitUntil("拉取请求发出了", () => local.seen.length >= 1);
         await call("clearKey", {provider: id});
         // 第一页一直不回：只有在配置变了时立刻停掉在途的请求，这里才等得到收尾。
         await settled(id);
