@@ -1,0 +1,126 @@
+# t42 第 4 片审查（Opus，提交范围 b31dc82ef..e644d4e88）
+
+## 1. 重要：要交回结果的运行（yield、outputSchema）与“最后一条回复没有文字”的运行，索引的 `line` 取的是中途的旁白，与调用自己的结果给的首句不是同一个
+
+- 类别：正确性 / 违反 Spec
+- 位置：`packages/nb-harness/src/kernel/log/index-file.ts:61-63`（`assistant` 只取“有文字”的、只有工具调用的不换掉）、`:88-91`（`runsAfter` 不看 `runEnded.data.result`）；对照 `packages/neuro-book/src/plugins/agent/backend/subagents/result.ts:114-117` 的 `lineOf`、`packages/nb-harness/src/kernel/run/results.ts:44-73`。
+- 现象：真实内核实验（`/tmp/t42-s4-review/exp.test.ts`，`createTestSession` + 内存存储，走真的运行循环与 `store.entry`）：
+  - A：`result: {mode: "optional", schema}` 的会话，回复 1 是“我先看看第二章。”+ 读工具，回复 2 只调用 `yield {title: "雨夜"}`。收口 `finished`。`lineOf(run)` 得 `{"title":"雨夜"}`；索引 `runs[0].line` 是“我先看看第二章。”。
+  - C：回复 1“我先看看第二章。”+ 工具，回复 2 文字为空（`stop`）。收口 `completed`。`lineOf` 为 undefined（卡片写“已完成”）；索引 `line` 是“我先看看第二章。”。
+- 为什么是问题：conversation.md 输出 33 写“完成写这句首句（同调用自己的结果）”，计划 3.7 写“`kernel/run/results.ts` 的取法”。results.ts 取最后一条回复（不跳过没有文字的），结构化结果另用 JSON。实现改成“最后一条有文字的回复”，所以 `agent_spawn` 带 `outputSchema`、`async: true` 的子代理完成后，卡片在父会话 `wait` 之前把一句中途的旁白写成完成的那一行（“完成：我先看看第二章。”），像是结果；父会话之后调用 `wait`，同一张卡的这一行又换成 JSON 的首句。session.md 输出 22 写的是“最后一条回复的首句”，没有“有文字”这个限定，实现与 Spec 的字面也不一致。
+- 如何核实：跑 `/tmp/t42-s4-review/exp.test.ts` 的 A、C（输出已贴在上面）。
+- 建议改法：索引的取法对齐 `lineOf`：只记“这次运行最后一条 `assistant`”的文字（为空就是没有），收口时 `runEnded.data.result` 存在而文字为空时用 `JSON.stringify(result.value)` 的首句；取首句的函数放在内核一处（`api/reply.ts` 旁边），`subagents/result.ts` 的 `firstSentence` 改用它，长度上限另议（见第 2 条）。若有意要“有文字的”，就改 Spec 22、33 的措辞，并在卡片侧对 `finished` 不用 `line`。补用例：store.test 加 `finished` 带结果与最后一条回复为空两种。
+
+## 2. 建议：首句的取法复制了一份，上限不同（索引 200、`firstSentence` 120），同一张卡前后两个来源给的那一行长度不同
+
+- 类别：代码质量 / 一致性
+- 位置：`packages/nb-harness/src/kernel/log/index-file.ts:7-8,21-28`（`REPLY_LINE_MAX = 200`，截成 199 + “…”）；`packages/neuro-book/src/plugins/agent/backend/subagents/result.ts:68-76`（`SENTENCE_LIMIT = 120`，截成 120 + “…”，共 121）。
+- 现象：正则、trim 与截断写法逐字复制，只有上限不同。后台子代理的卡片在父会话 `wait` 之前走索引（至多 200），`wait` 的结果进来后走 `details.line`（至多 121），同一次运行的那一行会变短。
+- 为什么是问题：Spec 33 写“同调用自己的结果”；两份正则以后改一份（例如把 Markdown 标题、列表符号剥掉）另一份不会跟着改。卡片那一行本来就按宽度截断，200 在卡片上没有额外用处，只多占 `tree` 的字节（见第 7 条）。
+- 如何核实：读两处代码；`subagent-card.ts:131-136` 的取值先后。
+- 建议改法：首句函数只留一份（内核导出，`subagents/result.ts` 复用），上限统一；Spec 21、22 的“至多 200 个字符”同步改成统一后的值。
+
+## 3. 建议：重试与 swipe（回退到运行中途再接着跑，`runResumed`）时，折叠带着被丢下那条分支的回复，第二个同 `runId` 的收口写上了旧分支的首句
+
+- 类别：正确性 / 分支
+- 位置：`packages/nb-harness/src/kernel/log/index-file.ts:61-63`（只在 `runStarted` 复位；`runResumed`、`leafChanged` 不复位，也不按路径算）。
+- 现象：实验 D（`/tmp/t42-s4-review/exp.test.ts`，真实运行循环）：回复 1“第一步。”+ 工具，回复 2“旧回复。”，收口 completed；回退到最后一个 `after-step`、`start` 接着跑，模型失败，收口 error。索引 `runs` = `[{r, completed, line: "旧回复。"}, {r, error, line: "旧回复。"}]`；`runResultOf` 沿路径算，`lineOf` 是“第一步。”。
+- 为什么是问题：计划 3.7 要的是 results.ts 的取法，那边写明“重试与 swipe 时……只沿它所在的路径往回算，别的分支上的回复不算进来（runtime.md 输出 36）”。线性折叠做不到这一点：error 收口带着一句在当前分支上不存在的回复。卡片 `runs.find` 取第一个同 `runId` 的项（base 就如此，状态也是旧分支的 completed），所以目前卡片上看不出来；但任务清单或别的读 `runs` 的地方按最后一项取时就会显示错的句子。
+- 如何核实：跑实验 D。
+- 建议改法：最小改法是 `runResumed` 与 `leafChanged` 时把 `replyLine` 复位为 null（旧分支的回复不再算；代价是接着跑之后若只有工具调用就没有首句，与路径算法的“第一步。”仍不同）。要与 results.ts 完全一致，需要在折叠里按 `parent` 记每个 path 节点上的“到此为止的首句”，收口时取 `runEnded.parent` 那份，内存代价是每个 path 事件一个字符串引用。另：同一 `runId` 出现两次时卡片取第一个是 base 问题，顺带改成取最后一个（`findLast`）更符合“最后写下的那个”。
+
+## 4. 建议：卡片对所有收口原因都用 `run.line`，出错的卡从“出错”变成“出错：<中途的一句旁白>”；Spec 33 只给“完成”用首句
+
+- 类别：违反 Spec / 测试缺口
+- 位置：`packages/neuro-book/src/plugins/agent/web/subagent-card.ts:135-137`；渲染在 `web/components/SubagentCard.vue:74`（`failed` 有 `text` 时写 `出错：{{line}}`）。
+- 现象：`reason: "error"` 的收口也带 `line`（例如模型请求失败前的最后一句“我先读一下第二章。”），卡片写“出错：我先读一下第二章。”。base 上这条路径写的是“出错”。
+- 为什么是问题：Spec 33 写“出错写‘出错：原因’”，新加的（planned）一句只说“完成写这句首句”。旁白不是出错原因，读起来像原因。调用自己的结果、`wait` 的结果（`lineOf` 取 `run.text`）对出错的运行也给这样的句子——那是 base 就有的同一问题，这次把它扩到索引这条路上。`subagent-card.test.ts` 新用例只测了 done，没有测出错带 `line` 时该写什么。
+- 如何核实：`cardModel(spawn(background), tree(child({runs: [{runId: "r1", reason: "error", endedAt: 5, line: "我先读一下第二章。"}]})), [reply], true)` 得 `{state: "failed", line: "我先读一下第二章。"}`（按代码读出；未单独跑）。
+- 建议改法：卡片只在 `RUN_REASON[run.reason] === "done"` 时用 `run.line`；出错原因另有来源时再加。base 上 `lineOf` 对出错运行给旁白的问题另记。补一条出错带 `line` 的卡片用例。
+
+## 5. 建议：加 `line` 之前写的索引，打开会话时不会“按日志补上”；只有之后再写一批日志才补
+
+- 类别：数据格式兼容 / 与计划不符
+- 位置：`packages/nb-harness/src/kernel/log/jsonl-store.ts:289-295`；`index-file.ts:96`（`predatesRunIndex` 只看 `spend`、`runs`）。
+- 现象：实验 `/tmp/t42-s4-review/exp2.test.ts`（JSONL 存储、真实会话）：跑一次运行，把 `index.json` 里 `runs[].line` 删掉模拟旧索引，重开再关闭，`index.json` 里仍然没有 `line`（`throughSeq` 对得上就不重写）。
+- 为什么是问题：计划 3.7 写“旧索引照读、打开时按日志补上”，session.md 输出 22 写“没有这些的旧索引……打开会话时按日志补上”。现在 `handle.fold` 在内存里已经按日志算出了 `line`，只是没写盘；升级前已收口的子会话，用户点进去看过之后卡片仍写“已完成”，要等那个子会话再写日志。影响小（计划接受“旧索引没有就写已完成”），但计划与 Spec 的这句目前不成立。
+- 如何核实：跑 exp2，输出 `after reopen+close [{"runId":…,"reason":"completed","endedAt":…}]`。
+- 建议改法：打开时把 `stored.runs` 与 `handle.fold.index.runs` 比一下（`JSON.stringify` 相等即可，至多 20 项），不同就重写并记 `index-rebuilt`；或者删掉计划与 Spec 里“打开时补上”对 `line` 的承诺。
+
+## 6. 建议：200 字的截断按 UTF-16 码元切，会把表情等补充平面字符切成半个代理项
+
+- 类别：边界 / 异常输入
+- 位置：`packages/nb-harness/src/kernel/log/index-file.ts:27`（`sentence.slice(0, REPLY_LINE_MAX - 1)`；`length` 也按码元数）。
+- 现象：实验 E：回复为 198 个 `a` 加“😀尾巴”，索引 `line` 末尾是 `a` + `\ud83d`（孤立的高代理）+ `…`，长度 200。孤立代理项能写进 `index.json`（`JSON.stringify` 转义），读回后界面显示替换字符。
+- 为什么是问题：同一个 `tree` 里别的截断（`tree.ts:40` 的 `clip`）按码点切，这里不一致；“至多 200 个字符”按码元算对中文无影响，但对表情不对。`firstSentence` 有同样的写法（base）。
+- 如何核实：跑实验 E，输出 `E len 200 "a\ud83d…"`。
+- 建议改法：与 `clip` 一样按 `[...text]` 切（或者在统一首句函数时一起改，见第 2 条）。
+
+## 7. 建议：`tree` 整份 512 KiB 的余量缩到原来的约十分之一，超出时整棵树失败、没有降级
+
+- 类别：上限 / 容量
+- 位置：`packages/neuro-book/src/plugins/agent/backend/remote.ts:200-202`（`tree` 超 `PAGE_BYTES` 得 `result-too-large`）、`:385-388`（推送超了跳过、写 `tree-too-large`）；`tree.ts:145`（每个后代带全部 `runs`）。
+- 现象（按数估算）：一项收口原来约 70 字节（`runId` 12 位、原因、时刻）；加 `line` 之后至多再加约 600 字节（200 个汉字 × 3 字节；含控制字符时 JSON 转义更多）。每个后代至多 20 项：原来约 1.4 KB，现在至多约 13.4 KB。512 KiB 只够约 39 个“跑满 20 次、每次长回复”的后代；按每个后代 3 次运行估，约 220 个（原来约 1000 个）。
+- 为什么是问题：超出时不是少给几句首句，而是整份 `tree` 查询失败、推送停在上一份，卡片、子代理浮层的状态一起不再更新。长会话里派过上百个子代理（批量核对）并非不可能。
+- 如何核实：按上面的字节数计算；或者在 `subagents.test.ts` 里造 40 个各有 20 次长回复的后代看 `tree` 的码。
+- 建议改法：`tree` 只给每个后代最近几次运行的 `line`（卡片只认自己那次运行；或只给 `runs` 的最后 N 项带 `line`），或把首句上限降到卡片能显示的长度（与第 2 条统一后的值）；超出上限时先丢 `line` 再判失败。至少在注释里写明这个预算。
+
+## 8. 建议：`#writes` 按事件计数（注释写“几批”），对表里所有写过日志的会话各留一项、从不删除
+
+- 类别：代码质量 / 资源
+- 位置：`packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts:94-101`。
+- 现象：`table.onLog` 每个事件触发一次（`nb-harness/src/kernel/dispatch/core.ts:326-329` 对批里每个事件 `#emit`），所以计数的是事件数不是批数；监听的是整张句柄表，不只这棵树的后代，`SubagentTree` 在 `backend/agent.ts:416` 每个插件实例只建一个，进程里写过日志的每个会话都在 `#writes` 里留一项直到进程退出。
+- 为什么是问题：正确性不受影响（只比较相等），但注释与行为不符；Map 随会话数单调增长（每项很小，长时间运行的服务端才明显）。竞态判断真正需要的只是“读的这段时间里有没有写”，不需要每个会话一个永久计数。
+- 如何核实：读代码。
+- 建议改法：只在读的期间登记：`#reading = new Map<string, {stale: boolean}[]>`（或每次读一个令牌对象），读之前放入、`onLog` 时把该会话在读的令牌标脏、读完移除并按 `stale` 决定是否缓存；不读时不留任何状态。注释改成“读的途中写了日志”。
+- 另记（base 已有、未在本片引入、未核实到可复现）：`whileOpen` 只覆盖“打开时缓存、之后关掉”的方向；缓存于关闭状态、随后打开会话时内核在订阅之前写下的恢复收口（崩溃后的 `interrupted`）不经 `onLog`，缓存不会作废。
+
+## 9. 建议：验收 2 的注释说“先等父会话这一轮收口再批”，代码等的是“派出去了”这句可见；后台任务视图用例同时“挪到末尾”与“收拾干净”，挪动掩盖了用例间的共享状态
+
+- 类别：测试
+- 位置：`packages/neuro-book/e2e/agent-subagents.e2e.ts:132-134`；`:197-219`。
+- 现象：
+  - “派出去了”是父会话最后一条回复的文字，流式时就可见，早于这次运行的 `runEnded`。注释描述的条件（这一轮收口）没有被等到；窗口很小（子代理要先跑完工具与一次模型请求），实际不大会撞，但注释与断言不一致，下次有人照注释推理时会错。改动本身没有掩盖产品问题：批准之后“这一轮可能已收起”在 Spec 33 里是允许的（没有进行中的卡片就收起），用例对两种先后都接受。
+  - 后台任务视图用例加了收尾（在子会话里批准、等任务块消失），又挪到文件末尾。文件里各用例共用一个服务端与假端点（`beforeAll`，`workers: 1` 按顺序跑）。收尾已经消除了遗留；再挪到末尾，以后收尾哪一步失败（例如断言在收尾之前失败）时遗留只是不再影响别的用例，于是不会被发现。
+- 为什么是问题：前一条是注释失真；后一条让“用例互相影响”只靠位置规避。
+- 如何核实：读用例；`e2e/playwright.config.ts:18` `workers: 1`。
+- 建议改法：注释改成“等父会话最后一句出现（它的收口紧跟其后）”，或真的等父会话空闲的可观察信号（发送按钮回到可发送、`data-turn-summary` 出现之类）；后台任务视图用例留在原位即可（收尾已足够），或者保留在末尾但在注释里写清只是为了收尾失败时不连累别人。
+
+## 10. 建议：测试覆盖的缺口与建议主 Agent 做的变异
+
+- 类别：测试
+- 位置：`packages/nb-harness/src/kernel/log/store.test.ts:170-191`；`packages/neuro-book/src/plugins/agent/subagent-card.test.ts:79-83`；`packages/neuro-book/src/plugins/agent/subagent-tree.test.ts`。
+- 现象：
+  - 内核用例覆盖了跨批、只有工具调用、没有回复、截断、重开（重开那段确实要求 `replyLine` 按全部事件重折）；没有覆盖：`finished`（带 `result`）、最后一条回复文字为空、回退后 `runResumed` 接着跑——正是第 1、3 条出问题的三种。
+  - 卡片用例只测了 done 带 `line` 与不带；没测 error 带 `line`（第 4 条）。
+  - `subagent-tree.test.ts` 的 `table.stop()` 在断言之后，断言失败时句柄表不停（没有 `try/finally` 或 `await using`），同一进程里后续用例可能受影响；用例本身能区分修复前后（见下面的变异 3）。
+- 建议的变异（不在仓库里做，由主 Agent 做）：
+  1. `index-file.ts:61` 删掉 `if (event.type === "runStarted") replyLine = null;` → store.test 输出 22 应失败（r2 会带上 r1 的句子）。
+  2. `index-file.ts:63` 把 `?? replyLine` 去掉 → 同一用例应失败（r1 变成 undefined）。
+  3. `tree.ts:112` 去掉 `if (… === writes)`，总是缓存 → `subagent-tree.test.ts` 应失败。
+  4. `jsonl-store.ts:290` 改成 `advanceIndex(startFold(header), [])`（重开不重折）→ store.test 输出 22 在 JSONL 与内存两种存储上都应失败（r3 的 `line` 丢失）。
+  5. `subagent-card.ts:137` 把 `run.line ?? ""` 改回 `""` → 卡片新用例与 e2e 验收 2 的 `data-subagent-line` 断言应失败。
+
+## 11. 建议：远程 `list` 原样交回全部会话的索引条目，每个会话的 `runs` 现在都带首句，会话列表用不到却要多传几倍
+
+- 类别：容量 / 职责
+- 位置：`packages/neuro-book/src/plugins/agent/backend/remote.ts:183-187`（`list` 交回 `service.list` 的整份条目，不按 `PAGE_BYTES` 检查也不分页）；`backend/agent.ts:376-385`；消费方 `web/session-list.ts:64,193` 不读 `runs`。
+- 现象：`line` 加在所有会话的索引上（不只子会话）。主对话会话常有 20 次以上运行，每次收口的首句几十到 200 个汉字：一个会话的条目从约 1.9 KB（20 × 70 B + 其它字段）涨到约 4–13 KB。按 RPC 单条消息上限 1 MiB（`nb-host/src/shared/socket.ts:16`，服务端对收到的消息设 `maxPayloadLength`；发出的大消息是否受限未核实）粗估，列表能放下的会话数从约 550 个降到约 80–250 个。会话面板每次刷新与“最近会话”都拉整份列表。
+- 为什么是问题：首句只给子代理卡片用（经 `tree`），列表与面板不需要；把它放进所有会话的列表负载里，是让列表为一个只属于 `tree` 的字段付费。base 上 `runs` 已经整份进列表，这次放大了它。
+- 如何核实：读上述代码；按字节数估算。发出超过 1 MiB 的消息时链路的实际行为未验证。
+- 建议改法：远程 `list` 交回前去掉 `runs`（或只留列表要的字段），`runs` 只经 `entry`/`tree` 给；若认为 Spec 22 要求 `list` 条目带 `runs`，那是存储层合同，远程会话列表的合同可以另定字段集。
+
+## 未发现问题的方面
+
+- 回复与收口不在同一批：`IndexFold.replyLine` 跨批带着，store.test 覆盖；重开会话从全部事件重折（`jsonl-store.ts:290`），重开后再收口仍得到正确的首句（用例 r3 覆盖）。
+- `runStarted` 复位：没有回复的运行不带 `line`，不会沿用上一次运行的句子；压缩运行（`kind: "compact"`）也以 `runStarted` 开始，不写 `assistant`，不受影响。`assistant` 事件只来自运行循环（`kernel/run/loop.ts:380`）。
+- `list` 与 `entry` 读同一个 `index.json`，内存存储与 JSONL 存储走同一份 `createJsonlStore`，行为一致。旧索引没有 `line` 时照读（字段可选，`parseIndex` 不检查它），卡片写“已完成”。
+- 会话树的读途失效：`onLog` 在 `store.append`（含 `writeIndex`）完成之后才发（`kernel/dispatch/core.ts:316-329`），所以“读到旧索引但计数没变”时，作废一定发生在缓存写入之后，不会留下旧值；`subagent-tree.test.ts` 能区分修复前后。`#dynamic` 缓存键取自较早的快照、内容取自较晚的路径，下一次键变了就重算，不会留旧值。
+- 卡片取值顺序（调用自己的结果 → 后来的 `wait` → `runs` → 现况）没有变；`IndexedRun` 的类型经 `shared/subagents.ts:31` 直接到网页端，`line` 不需要额外的线上 schema。
+- 已跑：`packages/nb-harness` 下 `bun test src/kernel/log`（39 过）、`bunx tsc --noEmit -p .`（通过）；`packages/neuro-book` 下 `subagent-tree`、`subagent-card`、`subagents` 三个测试文件（48 过）。实验文件在 `/tmp/t42-s4-review/`。
+
+## 各级数量
+
+- 阻断：0
+- 重要：1（第 1 条）
+- 建议：10（第 2–11 条）

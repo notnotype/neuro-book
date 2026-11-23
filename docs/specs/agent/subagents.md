@@ -104,7 +104,7 @@ owners:
 
 ### 进度（远程）
 
-21. `tree({sessionId})` 交回这个会话的全部后代，每项有 `{id, parent, callId, invocation, forked, profile, name, profileIcon, state, runs}`；`state` 是 `running`、`waiting`（等用户）、`question`（等父 Agent）或 `idle`；`forked` 为真的是 fork 出来的；`runs` 是最近 20 次运行的收口 `{runId, reason, endedAt}`（（planned）加 `line?`，那次运行最后一条回复的首句，至多 200 个字符，[`harness/session.md`](../harness/session.md) 输出 22）。不是 `idle` 的另有 `runId`、`runInvocation`（让这次运行登记成任务的那次工具调用的 `invocation`）、`startedAt`、`tools`（这次运行的工具调用数）与 `step`（最近一次工具调用：工具名与对象；对象依次取参数里的 `path`、`pattern`、`command`、`query`、`url` 的第一个，至多 120 字，没有时只有工具名）；`step`、`tools` 至多给 16 个后代，按开始时间取最近的。`question` 的另有 `question: {id, text}`（第一题的文字，至多 200 字）。句柄打开着的后代有等用户的事项时带 `pending`（审批、`questions: "user"` 的提问与模式切换请求，各带 `{id, kind, callId, request}`），有 `pending` 的一律给全字段。
+21. `tree({sessionId})` 交回这个会话的全部后代，每项有 `{id, parent, callId, invocation, forked, profile, name, profileIcon, state, runs}`；`state` 是 `running`、`waiting`（等用户）、`question`（等父 Agent）或 `idle`；`forked` 为真的是 fork 出来的；`runs` 是最近 20 次运行的收口 `{runId, reason, endedAt}`（（planned）加 `line?`，那次运行交给调用方的一行，至多 120 个字符，[`harness/session.md`](../harness/session.md) 输出 22）。不是 `idle` 的另有 `runId`、`runInvocation`（让这次运行登记成任务的那次工具调用的 `invocation`）、`startedAt`、`tools`（这次运行的工具调用数）与 `step`（最近一次工具调用：工具名与对象；对象依次取参数里的 `path`、`pattern`、`command`、`query`、`url` 的第一个，至多 120 字，没有时只有工具名）；`step`、`tools` 至多给 16 个后代，按开始时间取最近的。`question` 的另有 `question: {id, text}`（第一题的文字，至多 200 字）。句柄打开着的后代有等用户的事项时带 `pending`（审批、`questions: "user"` 的提问与模式切换请求，各带 `{id, kind, callId, request}`），有 `pending` 的一律给全字段。
 22. `treeChanged` 在任何一项变化时推送整份，合并后至多每秒 4 次；调用方先订阅再取，`onResync` 重取。不打开不在跑的后代会话就能交回。
 
 ### 会话关系
