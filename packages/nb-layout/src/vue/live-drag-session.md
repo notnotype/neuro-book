@@ -16,7 +16,7 @@ const {liveState, lifted, dragging} = useLiveDragSession(box, (live) => ({
     },
     actionKey: (drop) => …,
     commit: (drop, source) => …,
-    live: (source, keyboard) => source,                  // 这一场走不走实时布局；null 是落点指示
+    live: (source) => source,                           // 这一场走不走实时布局；null 是落点指示
     grid: () => gridRef.value,                          // NestedGrid 的实例（或代理 origin、placeLifted、settleMotion、motionMs 的组件）
     host: {
         facts: (source, drop) => ({key, inPlace, home: false, slotOnScreen}),

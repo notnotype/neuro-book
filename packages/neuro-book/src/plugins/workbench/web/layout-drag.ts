@@ -846,9 +846,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         host: liveHost(engine),
         grid: () => options.grid(),
         changed: (state) => showLive(state, engine),
-        // 键盘没有指针可跟；最大化时别的面板盖着，预览看不见；容器还没量到没有基准。减少动效由会话按网格先判。
+        // 最大化时别的面板盖着，预览看不见；容器还没量到没有基准。键盘（没有指针可跟）与减少动效由会话先判。
         // 拖含几个视图的入口是落点指示，不走实时布局（输出 38、46）；整窗本身就在跟手。
-        live: (source, keyboard) => (source.kind === "tab" && !keyboard && options.feel() === "live" && options.maximized() === null && options.extent() !== null ? source : null),
+        live: (source) => (source.kind === "tab" && options.feel() === "live" && options.maximized() === null && options.extent() !== null ? source : null),
         sourceAt,
         activate: (source, keyboard, at) => {
             run = freshRun(source.kind === "tab" && !keyboard ? (at?.pressed ?? null) : null, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);

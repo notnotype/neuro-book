@@ -38,8 +38,8 @@ export interface LiveGrid {
  * @experimental 1.0 之前签名会变。
  */
 export interface LiveDragSessionOptions<S, D, R, L, G> extends Omit<DragSessionOptions<S, D, R>, "root" | "sampled"> {
-    /** 这一场的来源走不走实时布局：返回实时布局的来源（可以收窄），null 是照常落点指示。拿起时问一次；减少动效与没有网格时库先判为不走，不问。 */
-    live(source: S, keyboard: boolean): L | null;
+    /** 这一场的来源走不走实时布局：返回实时布局的来源（可以收窄），null 是照常落点指示。拿起时问一次；键盘拖动、减少动效与没有网格时库先判为不走，不问。 */
+    live(source: S): L | null;
     /** 宿主要写的那份：领域判断，按 `L` 定类型。 */
     readonly host: LiveDragHost<L, D, G>;
     grid(): LiveGrid | null;
@@ -104,7 +104,7 @@ export function createLiveDragSession<S, D, R = never, L = S, G = unknown>(
             if (keyboard) return true;
             const box = options.grid();
             if (box === null || box.motionMs() <= 0) return true;
-            const from = options.live(source, keyboard);
+            const from = options.live(source);
             if (from === null) return true;
             grid = box;
             box.settleMotion();
