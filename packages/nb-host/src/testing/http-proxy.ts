@@ -96,9 +96,14 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
     let connections = 0;
     const resolve = options.resolve ?? ((host: string, port: number) => ({host, port}));
 
-    const connect = (client: Socket<Link>, host: string, port: number, first: Uint8Array | null, established: string | null): void => {
+    /**
+     * `closeAfter`：转发的是绝对地址形式的请求（一个连接只转一个）。上游的响应头里补上 `Connection: close`：否则客户端会把这条到代理的
+     * 连接留着复用，下一个请求正好撞上代理关掉它（`ECONNRESET`）。隧道（`CONNECT`）原样转发。
+     */
+    const connect = (client: Socket<Link>, host: string, port: number, first: Uint8Array | null, established: string | null, closeAfter = false): void => {
         const link = client.data;
         const target = resolve(host, port);
+        let responseHead: Uint8Array | null = closeAfter ? new Uint8Array(0) : null;
         void Bun.connect<Outbox>({
             hostname: target.host,
             port: target.port,
@@ -115,7 +120,22 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
                     for (const chunk of link.pending.splice(0)) upstream.data.write(chunk);
                 },
                 data(_upstream, chunk) {
-                    link.out.write(new Uint8Array(chunk));
+                    if (responseHead === null) {
+                        link.out.write(new Uint8Array(chunk));
+                        return;
+                    }
+                    const joined = new Uint8Array(responseHead.length + chunk.length);
+                    joined.set(responseHead);
+                    joined.set(chunk, responseHead.length);
+                    const end = indexOfHeadEnd(joined);
+                    if (end < 0) {
+                        responseHead = joined;
+                        return;
+                    }
+                    const lines = new TextDecoder().decode(joined.slice(0, end)).split("\r\n").filter((line, index) => index === 0 || !/^(connection|keep-alive)\s*:/iu.test(line));
+                    link.out.write(new TextEncoder().encode([...lines, "connection: close", "", ""].join("\r\n")));
+                    link.out.write(joined.slice(end + HEAD_END.length));
+                    responseHead = null;
                 },
                 drain(upstream) {
                     upstream.data.drain();
@@ -183,7 +203,7 @@ export function startHttpProxy(options: HttpProxyOptions = {}): HttpProxy {
                 const first = new Uint8Array(encoded.length + rest.length);
                 first.set(encoded);
                 first.set(rest, encoded.length);
-                connect(client, url.hostname, Number(url.port === "" ? 80 : url.port), first, null);
+                connect(client, url.hostname, Number(url.port === "" ? 80 : url.port), first, null, true);
             },
             drain(client) {
                 client.data.out.drain();
