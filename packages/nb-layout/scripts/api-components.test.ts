@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {afterEach, describe, expect, it} from "bun:test";
 import type {ComponentMeta} from "vue-component-meta";
 
-import {componentSurface} from "./api-components";
+import {componentSurface, componentTypeTexts} from "./api-components";
 
 /**
  * vue-component-meta 的结果用手写的数据代替：这里测的是本包对它的筛选，以及读源码宏与模板的那两段。它对真实组件的输出由
@@ -90,5 +90,29 @@ describe("组件的五段", () => {
         );
         expect(surface.events).toEqual(["change()", "gesture-start(info: Start)"]);
         expect(surface.exposed).toEqual(["at: number", "zoom: () => void"]);
+    });
+    it("`<script lang=\"ts\" setup>` 也认得；`defineProps<Props>()` 读不到透传，报错要求写在宏里", () => {
+        const reordered = componentSurface(meta({}), sfc(`<script lang="ts" setup>\nimport type {HTMLAttributes} from "vue";\ndefineProps<{a: string} & HTMLAttributes>();\n</script>\n<template><div /></template>\n`), own);
+        expect(reordered.attrs).toEqual(["& HTMLAttributes", "→ 根元素"]);
+        expect(() => componentSurface(meta({}), sfc(`<script setup lang="ts">\ntype Props = {a: string};\ndefineProps<Props>();\n</script>\n<template><div /></template>\n`), own)).toThrow("write the defineProps type inline");
+    });
+
+    it("注释或字符串里的 `inheritAttrs: false` 不算；`v-bind=\"{...$attrs}\"` 认得出落点", () => {
+        const commented = componentSurface(meta({}), sfc(`<script setup lang="ts">\n// 不写 inheritAttrs: false：要透传到根上\nconst note = "inheritAttrs: false";\n</script>\n<template><div /></template>\n`), own);
+        expect(commented.attrs).toEqual(["→ 根元素"]);
+        const spread = componentSurface(meta({}), sfc(`<script setup lang="ts">\ndefineOptions({inheritAttrs: false});\n</script>\n<template><main><p v-bind="{...$attrs, role: 'note'}" /></main></template>\n`), own);
+        expect(spread.attrs).toEqual(["→ <p>（inheritAttrs: false）"]);
+    });
+
+    it("类型文字去掉每行开头的名字：属性名、事件名、插槽名不当作引用", () => {
+        expect(componentTypeTexts({props: ["layout: GridLayoutResult", "size?: number = 0"], attrs: ["→ 根元素"], events: ["gesture-start(info: Start)"], slots: ['"float-chrome"?(props: { rect: GridRect; }): unknown', "leaf(props: { node: GridLeaf<unknown>; }): unknown"], exposed: ["moving: boolean"], propNames: []})).toEqual([
+            "GridLayoutResult",
+            "number = 0",
+            "(info: Start)",
+            "(props: { rect: GridRect; }): unknown",
+            "(props: { node: GridLeaf<unknown>; }): unknown",
+            "boolean",
+            "→ 根元素",
+        ]);
     });
 });

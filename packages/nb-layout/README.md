@@ -226,7 +226,7 @@ createApp(App).provide(LAYOUT_TEXT_KEY, layoutCatalogTranslate("zh-CN"));
 跨版本承诺不变的只有三样：主题级的一小批 CSS 变量（见“主题”）、README 里列出的 `data-*` 属性，以及标 `@stable` 的名字。`GridSnapshot` 的格式从 1.0 起才承诺兼容。
 
 - **0.x 期间所有公开名字都标 `@experimental`**：签名与行为在次版本里都可能变，变了写在变更记录的“不兼容的改动”里。
-- **标注在哪看**：编辑器里悬停（函数、类型、组件的声明上都有），或仓库里的 `api/*.api.txt`（每个入口一份 API 报告，`bun run api:report` 生成）。
+- **标注在哪看**：编辑器里悬停（函数、类型、组件的声明上都有）。GitHub 仓库的 `packages/nb-layout/api/*.api.txt` 是每个入口一份的 API 报告，列着每个名字的标注与签名；变更记录在同一目录的 `CHANGELOG.md`。这两样不随 npm 包发布。
 - **将来标 `@stable` 的条件**：名字所在的 Spec 已经实现、它签名里引到的公开名字也都是 `@stable`、并在变更记录里写明。`@stable` 承诺签名与 Spec 写的行为不做不兼容的改动：删名字、改名、新增必填参数或属性、参数类型变窄、返回类型变宽、删事件或让事件载荷变窄都算不兼容；加可选参数与属性、加事件不算。
 - **API 报告看不到的**：运行时行为与 CSS；组件属性的缺省值是求值后的字符串。Vue 或 TypeScript 升级会让报告整批变化，报告头记着生成它的工具版本。
 
