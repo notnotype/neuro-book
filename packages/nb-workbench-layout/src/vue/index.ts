@@ -3,5 +3,5 @@
  */
 export {default as TabStrip} from "./TabStrip.vue";
 export type {TabStripItem, TabStripPartition} from "./TabStrip.vue";
-export {measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops, translateTabStrip} from "./tab-strip-geometry";
+export {measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStopInsertions, tabStripStops, translateTabStrip} from "./tab-strip-geometry";
 export type {TabStripHeld, TabStripInsertion, TabStripSnapshot} from "./tab-strip-geometry";

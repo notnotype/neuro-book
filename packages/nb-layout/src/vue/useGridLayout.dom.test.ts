@@ -4,8 +4,8 @@ import {defineComponent, effectScope, h, nextTick, ref, shallowRef, type Ref, ty
 import NestedGrid from "./NestedGrid.vue";
 import {createGrid, type Grid, type GridLayoutResult} from "../grid";
 import type {GridGestureCommit} from "../grid-gesture";
-import type {GridExtent, GridIssue} from "../grid-types";
-import {EMPTY_GRID_LAYOUT, useGridLayout, type GridLayoutCommitResult, type GridLayoutHost} from "./useGridLayout";
+import type {GridExtent, GridIssue, GridLayoutCommitResult} from "../grid-types";
+import {EMPTY_GRID_LAYOUT, useGridLayout, type GridLayoutHost} from "./useGridLayout";
 
 /**
  * 宿主装配的行为用例：真手势端到端接纳一次；冻结事实（上下文 / 版本 / 容器尺寸）一旦过期整次拒绝。
@@ -240,7 +240,6 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         const harness = mountHost();
         await nextTick();
         const before = harness.host.layout.value;
-        const revisionBefore = harness.host.revision.value;
         const frozen = harness.frozen();
 
         harness.context.value = "workbench-b";

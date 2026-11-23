@@ -5,6 +5,7 @@
  * 接线的先后是合同，写反了类型检查照样过：
  * - 拿起全在包住的 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动，才看网格与减少动效、问 `live`；给出来源才 `settleMotion`、`begin`。
  *   手势在 `activate` 返回后取结构键，宿主的结构键读引擎的 `active` 时，两次取到的一样，拿起不会被当成结构变了。
+ *   宿主的 `activate` 先于 `settleMotion`：它在 `activate` 里量到的矩形可能是过渡中间的。
  * - 判定：宿主的 `resolve` 返回之后交给引擎（`offer`）。
  * - 收场：引擎的 `end` 先于宿主的 `onActiveChange(false)`：`end` 里放回跟手的要读宿主这一场的状态，宿主在自己的回调里才换成空闲的一份。
  * - 放下：实时布局的这一场提交指针下的候选（`commitsUnderPointer`），与宿主自己的结果取“或”。
@@ -37,8 +38,8 @@ export interface LiveGrid {
  * @experimental 1.0 之前签名会变。
  */
 export interface LiveDragSessionOptions<S, D, R, L, G> extends Omit<DragSessionOptions<S, D, R>, "root" | "sampled"> {
-    /** 这一场的来源走不走实时布局：返回实时布局的来源（可以收窄），null 是照常落点指示。拿起时问一次；减少动效与没有网格时库先判为不走，不问。 */
-    live(source: S, keyboard: boolean): L | null;
+    /** 这一场的来源走不走实时布局：返回实时布局的来源（可以收窄），null 是照常落点指示。拿起时问一次；键盘拖动、减少动效与没有网格时库先判为不走，不问。 */
+    live(source: S): L | null;
     /** 宿主要写的那份：领域判断，按 `L` 定类型。 */
     readonly host: LiveDragHost<L, D, G>;
     grid(): LiveGrid | null;
@@ -103,7 +104,7 @@ export function createLiveDragSession<S, D, R = never, L = S, G = unknown>(
             if (keyboard) return true;
             const box = options.grid();
             if (box === null || box.motionMs() <= 0) return true;
-            const from = options.live(source, keyboard);
+            const from = options.live(source);
             if (from === null) return true;
             grid = box;
             box.settleMotion();

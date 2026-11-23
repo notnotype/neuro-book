@@ -16,7 +16,7 @@ const {liveState, lifted, dragging} = useLiveDragSession(box, (live) => ({
     },
     actionKey: (drop) => …,
     commit: (drop, source) => …,
-    live: (source, keyboard) => source,                  // 这一场走不走实时布局；null 是落点指示
+    live: (source) => source,                           // 这一场走不走实时布局；null 是落点指示
     grid: () => gridRef.value,                          // NestedGrid 的实例（或代理 origin、placeLifted、settleMotion、motionMs 的组件）
     host: {
         facts: (source, drop) => ({key, inPlace, home: false, slotOnScreen}),
@@ -47,4 +47,4 @@ const {liveState, lifted, dragging} = useLiveDragSession(box, (live) => ({
 - 预览只给渲染：`structure` 与 `resolve` 读已提交的状态，预览改结构键会让一场一拿起就取消。
 - 预览把来源摘掉时，拿起的内容项由 `NestedGrid` 留住（见它的 `lifted`）；`lifted` 要在摘掉它的那一次渲染里给出，`useLiveDragSession` 的 `lifted` 就是这样。
 - 键盘拖动、减少动效（网格的 `motionMs()` 为 0）、`grid()` 为 null 时这一场是落点指示，`live` 不会被问。
-- 合成接线的先后（`activate`、`resolve` 之后交给编排、收场时编排先结束）写在 `live-drag-session.ts` 的头注释里，宿主不用自己排。
+- 合成接线的先后（`activate`、`resolve` 之后交给编排、收场时编排先结束）写在 `live-drag-session.ts` 的头注释里，宿主不用自己排。宿主的 `activate` 先于 `settleMotion`，它在 `activate` 里量到的矩形可能是过渡中间的。

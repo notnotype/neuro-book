@@ -3,8 +3,7 @@
  * 量 DOM 的在 `layout-drag`：它把量到的矩形交给这里，这里按文档与投影换算。坐标都是视口坐标，除了浮动窗的矩形（相对树区域）。
  */
 
-import {clampFloatRect} from "@notnotype/nb-layout";
-import {previewPanelRects, projectLayoutDoc, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {previewPanelRects, projectLayoutDoc, rectContains, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridDropPoint, GridDropRect, GridExtent} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutDropPanelGeometry, LayoutFloatRect, LayoutProjectionOptions, PanelName} from "@notnotype/nb-workbench-layout";
 import {translateTabStrip} from "@notnotype/nb-workbench-layout/vue";
@@ -13,7 +12,7 @@ import type {TabStripHeld, TabStripSnapshot} from "@notnotype/nb-workbench-layou
 import {entryStripOf} from "./entry-drop";
 import type {BarEntryRect} from "./entry-drop";
 import {regionContainers} from "./state/containers";
-import {FLOAT_KEEP_WIDTH, PANEL_HEAD_HEIGHT} from "./state/layout-constraints";
+import {keepVisible} from "./state/layout-constraints";
 
 /** 一次判定要的矩形。 */
 export interface DragGeometry {
@@ -67,7 +66,6 @@ type EdgeMoves = {readonly left: number; readonly top: number; readonly right: n
 
 export const offset = (rect: GridDropRect, by: GridDropPoint): GridDropRect => ({left: rect.left + by.x, top: rect.top + by.y, right: rect.right + by.x, bottom: rect.bottom + by.y});
 export const centerOf = (rect: GridDropRect): GridDropPoint => ({x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2});
-export const contains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
 
 /**
  * 来源收起之后判定用的几何（输出 38）：按收起后的文档算每块面板挪到哪，不读 DOM，预览怎么摆都不变，判定和预览不会互相牵着来回换。
@@ -156,7 +154,7 @@ export function bandsAfterCollapse(kept: ReadonlyArray<EntryBand>, base: LayoutD
  */
 export function heldTabIn(rect: GridDropRect | null, pressedAt: GridDropPoint): TabStripHeld | null {
     const width = rect === null ? 0 : rect.right - rect.left;
-    if (rect === null || width <= 0 || !contains(rect, pressedAt)) return null;
+    if (rect === null || width <= 0 || !rectContains(rect, pressedAt)) return null;
     return {width, grab: (pressedAt.x - rect.left) / width};
 }
 
@@ -168,12 +166,6 @@ export function stripIndex(doc: LayoutDoc, panel: string, measured: {readonly be
     if (measured.before !== null) return tabs.indexOf(measured.before);
     return measured.after !== null ? tabs.indexOf(measured.after) + 1 : tabs.length;
 }
-
-/** 拖窗时夹回树区域：至少留一段头在里面，抓得到。容器还没量到时不夹。 */
-export const keepVisible = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}));
-
-/** 新开的窗整个夹回树区域：在状态栏上松手时，只留头在里面就等于开到了屏幕外。拖窗不一样，用户自己摆的，`keepVisible` 只保证抓得到。 */
-export const wholeInTree = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: rect.width, height: rect.height}));
 
 /** 整窗此刻的矩形（相对树区域）：抓住的点在指针下，位置按呈现的大小夹，大小还是记录里的。 */
 export function windowRect(drag: WindowDrag, point: GridDropPoint, extent: GridExtent | null): LayoutFloatRect {

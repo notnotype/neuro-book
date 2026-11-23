@@ -150,7 +150,8 @@ export interface LiveDrag<S, D, G> {
     end(): void;
 }
 
-const IDLE_STATE: LiveDragState = {active: false, preview: {kind: "none"}, previewed: false, collapsed: false, lifted: null, slotInGrid: null};
+/** 没在拖时的状态；`useLiveDragSession` 的 `liveState` 也用这一份。不从入口导出。 */
+export const IDLE_STATE: LiveDragState = {active: false, preview: {kind: "none"}, previewed: false, collapsed: false, lifted: null, slotInGrid: null};
 
 const samePoint = (a: GridDropPoint, b: GridDropPoint): boolean => a.x === b.x && a.y === b.y;
 const sameRect = (a: GridRect | null, b: GridRect | null): boolean => a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height);
@@ -355,8 +356,9 @@ export function createLiveDrag<S, D, G>(host: LiveDragHost<S, D, G>, wiring: Liv
         const settling = updateCard(current, current.geometry, now, elapsed);
         // 先交出状态（宿主在这里写响应式，排上渲染），再排“渲染之后放跟手的”：反过来时这一帧若只有卡片拿起或收回，渲染还没排上，宿主等到的是渲染之前。
         publish();
-        if (changed || lifted !== (current.lifted !== null)) host.follow?.afterRender(followAt(current));
-        return moved || changed || settling || !settled(current) || followAt(current) !== null;
+        const follow = followAt(current);
+        if (changed || lifted !== (current.lifted !== null)) host.follow?.afterRender(follow);
+        return moved || changed || settling || !settled(current) || follow !== null;
     }
 
     return {

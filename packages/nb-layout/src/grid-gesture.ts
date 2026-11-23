@@ -10,6 +10,7 @@
  */
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
+import {cloneNode, findInTree} from "./grid-tree";
 import {issueKey} from "./issue-gate";
 import type {GridSashRef, SashGestureCancelReason, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
 import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridIssueCode, GridLayoutResult, GridNode} from "./grid-types";
@@ -102,8 +103,6 @@ export interface GridGestureSession<T = unknown> extends SashGestureSessionCore<
     update(delta: {x: number; y: number}): GridGesturePreview<T> | null;
     /** 键盘 Home / End：把分隔条移到可行两端。 */
     jump(edge: "start" | "end"): GridGesturePreview<T> | null;
-    /** 显式折叠/恢复：与拖动共用同一收起策略与容量判定。 */
-    setCollapsed(collapsed: boolean): GridGesturePreview<T> | null;
     /** 当前收起则展开、展开则收起（Enter 与区段按钮用）。 */
     toggleCollapsed(): GridGesturePreview<T> | null;
     /** 正常结束：无真实变化返回 null。 */
@@ -131,38 +130,8 @@ type Owner = {
 };
 
 function findBranch<T>(node: GridNode<T> | null, id: string): GridBranch<T> | null {
-    if (!node) {
-        return null;
-    }
-    if (node.kind === "branch") {
-        if (node.id === id) {
-            return node;
-        }
-        for (const child of node.children) {
-            const hit = findBranch(child, id);
-            if (hit !== null) {
-                return hit;
-            }
-        }
-    }
-    return null;
-}
-
-/** 建一棵可写的预览树：结构冻结，意图与收起状态按本帧解出来的目标改写。 */
-function cloneTree<T>(node: GridNode<T> | null): GridNode<T> | null {
-    if (!node) {
-        return null;
-    }
-    if (node.kind === "leaf") {
-        return {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}};
-    }
-    return {
-        ...node,
-        size: {...node.size},
-        minimumSize: {...node.minimumSize},
-        maximumSize: {...node.maximumSize},
-        children: node.children.map((child) => cloneTree(child)!),
-    };
+    const hit = node ? findInTree(id, node) : null;
+    return hit?.node.kind === "branch" ? hit.node : null;
 }
 
 /**
@@ -172,11 +141,12 @@ function cloneTree<T>(node: GridNode<T> | null): GridNode<T> | null {
  * 它只活在预览树里，绝不落账——宿主提交走 `resizeBranches` 的意图反解。
  * 分支副轴（例如外层横向分支里的竖直子分支）不受影响，所以同帧的多根轴不会互相污染。
  */
-export function projectGridGesture<T>(
+function projectGridGesture<T>(
     baseline: GridGestureBaseline<T>,
     solves: readonly {branchId: string; axis: GridAxis; sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>}[],
 ): {tree: GridNode<T> | null; layout: GridLayoutResult} {
-    const tree = cloneTree(baseline.root);
+    // 预览树结构冻结，意图与收起状态按本帧解出来的目标改写。
+    const tree = baseline.root ? cloneNode(baseline.root) : null;
     for (const solve of solves) {
         const branch = findBranch(tree, solve.branchId);
         if (branch === null || branch.children.length !== solve.sizesPx.length) {
@@ -266,8 +236,9 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
             owner.collapsed = {...result.collapsed};
             // 两处诊断合在一起，同键的只留折叠那一条：快照里同一个键最多一条（Spec 输出 140）。
             const collapseKeys = new Set(collapseIssues.map(issueKey));
-            owner.issues = [...collapseIssues, ...result.issues.filter((issue) => !collapseKeys.has(issueKey(issue)))];
-            issues.push(...result.issues.filter((issue) => !collapseKeys.has(issueKey(issue))));
+            const dragIssues = result.issues.filter((issue) => !collapseKeys.has(issueKey(issue)));
+            owner.issues = [...collapseIssues, ...dragIssues];
+            issues.push(...dragIssues);
         }
         for (const owner of owners) {
             const sizes = owner.sizes ?? owner.baseline;
@@ -402,23 +373,6 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
                 preview = solve().preview ?? preview;
             }
             return preview;
-        },
-
-        setCollapsed(collapsed) {
-            if (reason !== null) {
-                return null;
-            }
-            for (const owner of owners) {
-                const index = collapsibleIndex(owner);
-                if (index === null) {
-                    continue;
-                }
-                const preview = applyOn(owner, {index, collapsed});
-                if (preview !== null) {
-                    return preview;
-                }
-            }
-            return null;
         },
 
         toggleCollapsed() {

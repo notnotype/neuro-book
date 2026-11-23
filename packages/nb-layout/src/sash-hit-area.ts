@@ -9,19 +9,17 @@
  * 「命中事实」与「高亮事实」分成两份的结果：两条线段是否都在命中带内、哪一条更近、
  * 最多选一根 `width` 轴加一根 `height` 轴，这些判断只在这里做。
  */
+
+import {containsPoint, type GridDropPoint, type GridDropRect} from "./grid-drop";
+
 export const SASH_HIT_MARGIN = {fine: 5, coarse: 15} as const;
 
 /** 指针类型：粗指针（触摸）用更大的命中带。 */
 export type SashPointerKind = "fine" | "coarse";
 
-export type SashPoint = {readonly x: number; readonly y: number};
+export type SashPoint = GridDropPoint;
 
-export type SashRect = {
-    readonly left: number;
-    readonly top: number;
-    readonly right: number;
-    readonly bottom: number;
-};
+export type SashRect = GridDropRect;
 
 /** 一条可命中的分隔线：身份（分支 + 序号）、它所属主轴、当前盒与优先级。 */
 export type SashHitTarget = {
@@ -49,9 +47,7 @@ export function sashHitMargin(pointerKind: SashPointerKind): number {
  * 对齐只改变画出来的线，不改变可拖动范围。
  */
 export function hitTestSashBand(point: SashPoint, rect: SashRect, margin: number): boolean {
-    const gap = Math.max(0, margin);
-    return point.x >= rect.left - gap && point.x <= rect.right + gap
-        && point.y >= rect.top - gap && point.y <= rect.bottom + gap;
+    return containsPoint(rect, point, Math.max(0, margin));
 }
 
 /**
@@ -73,7 +69,7 @@ export function collectSashHits(
 }
 
 /** 指针到分隔线中心的距离：竖线看 x、横线看 y。 */
-export function sashDistance(point: SashPoint, target: SashHitTarget): number {
+function sashDistance(point: SashPoint, target: SashHitTarget): number {
     return target.axis === "width"
         ? Math.abs(point.x - (target.rect.left + target.rect.right) / 2)
         : Math.abs(point.y - (target.rect.top + target.rect.bottom) / 2);

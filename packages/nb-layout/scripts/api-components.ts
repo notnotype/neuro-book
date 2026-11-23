@@ -11,6 +11,8 @@ import {readFileSync} from "node:fs";
 import ts from "typescript";
 import type {ComponentMeta} from "vue-component-meta";
 
+import {byCodeUnit} from "./api-surface";
+
 /** 组件的五段，每段若干行；`propNames` 供与发布声明交叉核对。 */
 export type ComponentSurface = {
     readonly props: readonly string[];
@@ -50,11 +52,6 @@ export function componentSurface(meta: ComponentMeta, file: string, ownSource: (
 export function componentTypeTexts(component: ComponentSurface): string[] {
     const strip = (line: string) => line.replace(/^(?:"[^"]*"|[\w$-]+)\??(?::\s*|(?=\())/u, "");
     return [...component.props, ...component.events, ...component.slots, ...component.exposed].map(strip).concat(component.attrs);
-}
-
-/** 码元比较，同 `api-surface.ts`。 */
-function byCodeUnit(a: string, b: string): number {
-    return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** `<script>` 块：属性顺序任意（`<script setup lang="ts">`、`<script lang="ts" setup>`）。 */

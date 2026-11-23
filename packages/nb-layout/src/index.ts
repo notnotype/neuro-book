@@ -26,7 +26,6 @@ export type {
     GridBranchesResizeResult,
     GridBranchInput,
     GridBranchResize,
-    GridBranchResizeResult,
     GridCollapseResult,
     GridCommitFailureCode,
     GridConstraint,
@@ -49,7 +48,6 @@ export type {
     GridRefEncoder,
     GridRefResolution,
     GridRefResolver,
-    GridResizeResult,
     GridRestoreFailureCode,
     GridRestoreResult,
     GridSetSizeResult,
@@ -118,11 +116,6 @@ export type {
     GridGestureStart,
 } from "./grid-gesture";
 
-/* 收起与展开的求解 */
-export {
-    solveSashCollapse,
-} from "./sash-drag";
-
 /* 独立 `Splitter` 的事件载荷 */
 export type {
     SplitterGestureCancellation,
@@ -132,7 +125,6 @@ export type {
 /* 落点几何 */
 export {
     resolveGridEdgeDrop,
-    resolveGridInsertion,
     resolveListInsertion,
 } from "./grid-drop";
 export type {
@@ -140,7 +132,6 @@ export type {
     GridDropPoint,
     GridDropRect,
     GridEdgeDrop,
-    GridInsertion,
     GridListInsertion,
 } from "./grid-drop";
 
@@ -162,37 +153,13 @@ export type {
     DropKind,
 } from "./drag-gesture";
 
-/* 实时落点：候选稳定才换预览 */
-export {
-    initialLiveDrop,
-    insideShownSlot,
-    stepLiveDrop,
-} from "./live-drop";
+/* 公开签名里出现的类型（拖动会话的状态与宿主回调）；产生它们的低层函数不从入口导出 */
 export type {
-    LiveDropCandidate,
-    LiveDropState,
-    LivePreview,
-} from "./live-drop";
-
-/* 拖动时跟手的卡片：逐帧缩放与追赶 */
-export {
-    createDragCard,
-} from "./drag-card";
-export type {
-    DragCard,
-    DragCardFrame,
-    DragCardOptions,
     DragCardSize,
 } from "./drag-card";
-
-/* 按需排帧的帧循环 */
-export {
-    createFrameLoop,
-} from "./frame-loop";
 export type {
-    FrameLoop,
-    FrameLoopOptions,
-} from "./frame-loop";
+    LivePreview,
+} from "./live-drop";
 
 /* 可排序列表的几何 */
 export {

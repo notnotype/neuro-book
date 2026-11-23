@@ -5,6 +5,7 @@
 
 import {shallowRef} from "vue";
 
+import {hasSize} from "../grid-rects";
 import type {GridLeafPlacement, GridPlacementItem} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 
@@ -19,7 +20,7 @@ export function useLeafParking() {
         for (const item of items) {
             if (item.kind !== "leaf") continue;
             alive.add(item.node.id);
-            if (item.rect.width > 0 && item.rect.height > 0) lastSizes.set(item.node.id, {width: item.rect.width, height: item.rect.height});
+            if (hasSize(item.rect)) lastSizes.set(item.node.id, {width: item.rect.width, height: item.rect.height});
             else if (lastSizes.has(item.node.id)) zero.add(item.node.id);
         }
         for (const id of lastSizes.keys()) {
@@ -36,7 +37,7 @@ export function useLeafParking() {
 
     /** 内容容器的尺寸：外框的目标矩形；矩形是零时用最后的非零尺寸。 */
     function contentSize(item: GridLeafPlacement<unknown>): GridExtent {
-        return item.rect.width > 0 && item.rect.height > 0 ? item.rect : (lastSizes.get(item.node.id) ?? item.rect);
+        return hasSize(item.rect) ? item.rect : (lastSizes.get(item.node.id) ?? item.rect);
     }
 
     return {parked, update, contentSize};

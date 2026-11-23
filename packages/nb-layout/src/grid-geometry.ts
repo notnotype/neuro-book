@@ -20,7 +20,7 @@ import type {
     GridSizing,
     SashCollapseState,
 } from "./grid-types";
-import {gridIssue} from "./grid-issue";
+import {gridIssue, round} from "./grid-issue";
 
 export const EPSILON = 1e-6;
 
@@ -48,24 +48,11 @@ export function finite(value: number, fallback: number): number {
     return Number.isFinite(value) ? value : fallback;
 }
 
-/** 诊断文案里的数字：不暴露浮点尾巴。 */
-export function round(value: number): number {
-    return Math.round(value * 100) / 100;
-}
-
 /** 把宿主给的一对约束归一为 0 ≤ min ≤ max；缺省按 `minimumSize: 0`、`maximumSize: 不限`。 */
 export function normExtent(value: GridExtent | undefined, fallback: GridExtent): GridExtent {
     return {
         width: Math.max(0, finite(value?.width ?? fallback.width, fallback.width)),
         height: Math.max(0, finite(value?.height ?? fallback.height, fallback.height)),
-    };
-}
-
-/** 归一约束对：max 不低于 min，避免宿主给出反向区间后分配逻辑反复抖动。 */
-export function normConstraint(minimum: GridExtent, maximum: GridExtent): {minimumSize: GridExtent; maximumSize: GridExtent} {
-    return {
-        minimumSize: minimum,
-        maximumSize: {width: Math.max(minimum.width, maximum.width), height: Math.max(minimum.height, maximum.height)},
     };
 }
 
@@ -125,24 +112,12 @@ export type SashPanel = {
 
 /** 面板沿主轴的**有效**范围：收起时是刚性 collapsedSize，否则是声明的 [min, max]（max 不低于 min）。 */
 export function sashPanelBounds(panel: SashPanel): {low: number; high: number} {
-    if (panel.collapse?.collapsed === true) {
-        const size = Math.max(0, finite(panel.collapse.collapsedSize, 0));
-        return {low: size, high: size};
+    const rigid = collapsedRigid(panel.collapse);
+    if (rigid !== null) {
+        return rigid;
     }
     const low = Math.max(0, finite(panel.minimum, 0));
     return {low, high: Math.max(low, finite(panel.maximum, low))};
-}
-
-/** 收起策略是否合法：尺寸非负有限、collapsedSize 严格小于展开最小尺寸。 */
-export function collapsePolicyProblem(policy: SashCollapseState, expandedMinimum: number): string | null {
-    const values = [policy.collapsedSize, policy.restoreSize, policy.collapseThreshold, policy.expandThreshold];
-    if (values.some((value) => !Number.isFinite(value) || value < 0)) {
-        return "收起策略的尺寸与阈值必须是有限非负数";
-    }
-    if (policy.collapsedSize >= Math.max(0, finite(expandedMinimum, 0))) {
-        return `收起尺寸 ${round(policy.collapsedSize)} 必须小于展开最小尺寸 ${round(expandedMinimum)}`;
-    }
-    return null;
 }
 
 /**
@@ -230,7 +205,7 @@ function allocatePanels(panels: readonly SashPanel[], available: number, report?
 
 /**
  * 水位法：只把剩余空间按权重分给 `open` 里的节点，触界者按方向固定后继续分。
- * 与历史 `shareAxis` 逐步等价——全 weight 输入必须给出完全相同的几何。
+ * 全 weight 输入时退化为纯按权重比例分配。
  */
 function shareWeighted(
     indices: readonly number[],
@@ -288,8 +263,13 @@ function collapsedRigid(collapse: SashCollapseState | undefined): {low: number; 
     if (collapse?.collapsed !== true) {
         return null;
     }
-    const size = Math.max(0, finite(collapse.collapsedSize, 0));
+    const size = collapsedSizeOf(collapse);
     return {low: size, high: size};
+}
+
+/** 收起后占的尺寸：非有限或负值按 0。 */
+function collapsedSizeOf(collapse: SashCollapseState): number {
+    return Math.max(0, finite(collapse.collapsedSize, 0));
 }
 
 /**
@@ -297,7 +277,7 @@ function collapsedRigid(collapse: SashCollapseState | undefined): {low: number; 
  * 收成标题行的（`collapsedSize` 大于 0）还看得见，只在父分支主轴上是刚性的。
  */
 function collapsedToZero(collapse: SashCollapseState | undefined): boolean {
-    return collapse?.collapsed === true && Math.max(0, finite(collapse.collapsedSize, 0)) === 0;
+    return collapse?.collapsed === true && collapsedSizeOf(collapse) === 0;
 }
 
 /** 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。 */
@@ -425,19 +405,6 @@ function sashPanelsOf<T>(children: readonly GridNode<T>[], axis: GridAxis, sashS
 }
 
 /**
- * 有界比例分配（历史入口，兄弟补偿专用）：只在纯 `weight` 树上退化为按意向比例分余量，
- * 且**永不缩到最小尺寸之下**——装不下就停在各自的最小尺寸（布局分配走 `allocateAxis`）。
- */
-export function shareAxis<T>(children: GridNode<T>[], axis: GridAxis, available: number, sashSize: number | GridSashResolver): number[] {
-    if (children.length === 0) {
-        return [];
-    }
-    const panels = sashPanelsOf(children, axis, sashSize);
-    const lowTotal = panels.reduce((sum, panel) => sum + sashPanelBounds(panel).low, 0);
-    return allocateSashPanels(panels, Math.max(Math.max(0, finite(available, 0)), lowTotal));
-}
-
-/**
  * 布局分配：与独立 Splitter 共用同一份分配（`allocatePanels`：`fixed` 像素目标、`weight` 余量、
  * 收起刚性、最小尺寸不可满足时按比例降级），诊断带分支与轴上下文。
  */
@@ -462,11 +429,6 @@ function hasWeightedChild<T>(branch: GridBranch<T>, axis: GridAxis, sashSize: nu
 /** 分支直接子节点沿主轴的分配面板（含收起策略）：拖动会话与视图共用同一份输入。 */
 export function branchSashPanels<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): SashPanel[] {
     return sashPanelsOf(branch.children, axisOf(branch.orientation), sashSize);
-}
-
-/** 分支各条边界的配置 sash 占用（px；顺序对应相邻 children）。 */
-export function branchSashSizes<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): number[] {
-    return sashValues(branch, sashSize);
 }
 
 const NO_AXES: ReadonlySet<GridAxis> = new Set();

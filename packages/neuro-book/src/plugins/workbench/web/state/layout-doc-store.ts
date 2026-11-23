@@ -7,7 +7,6 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {clampFloatRect} from "@notnotype/nb-layout";
 import {activateTab, applyGestureCommit, applyLayoutDrop, carryDynamicTabs, findTab, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseForOperation, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridFloatInput} from "@notnotype/nb-layout";
 import type {LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
@@ -24,8 +23,8 @@ import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX} from "../../shared/v
 import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
-import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
-import {effectiveVisibleTabs, mergedSections, regionOccupied} from "./layout-present";
+import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints} from "./layout-constraints";
+import {effectiveVisibleTabs, mergedSections, regionOccupied, viewKey} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
@@ -167,7 +166,7 @@ function defineLayoutDocStore(bound: boolean) {
         const renderedFloats = computed<ReadonlyArray<GridFloatInput>>(() => renderedDoc.value.floats.map(({panel, rect}) => {
             const preview = floatPreview.value?.panel === panel ? floatPreview.value : null;
             const wanted = preview?.rect ?? rect;
-            return {id: panel, rect: extent.value === null ? wanted : clampFloatRect(wanted, extent.value, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}), ...(preview === null ? {} : {gesture: preview.gesture})};
+            return {id: panel, rect: keepVisible(wanted, extent.value), ...(preview === null ? {} : {gesture: preview.gesture})};
         }));
         /** 编辑器标签的拖动（区级组件交出来）：动它们要走编辑器区，先结算输入、合并同一文件。 */
         const editorDrag = shallowRef<EditorTabDrag | null>(null);
@@ -263,9 +262,6 @@ function defineLayoutDocStore(bound: boolean) {
             }, {rebase: false});
         }
 
-        /**
-         * 视图按此刻的声明该回哪（“重置位置”、浮动窗回到停靠）：它的容器此刻在哪个区域就去哪，容器没有成员时去声明的区域。声明不在的视图回侧栏，进自己的隐式容器。
-         */
         /** 没有成员的容器按声明该在哪个区域（`moveView`）：隐式容器 `view:<视图>` 只在那个视图没写别的容器时才有声明（输出 41）。 */
         function declaredRegion(container: string): PanelName | null {
             const owner = container.startsWith(IMPLICIT_CONTAINER_PREFIX) ? container.slice(IMPLICIT_CONTAINER_PREFIX.length) : null;
@@ -273,13 +269,16 @@ function defineLayoutDocStore(bound: boolean) {
             return containerHomeRegion(container, catalog.value, containers.value);
         }
 
+        /**
+         * 视图按此刻的声明该回哪（“重置位置”、浮动窗回到停靠）：它的容器此刻在哪个区域就去哪，容器没有成员时去声明的区域。声明不在的视图回侧栏，进自己的隐式容器。
+         */
         function homeOf(current: LayoutDoc, viewId: string): {readonly region: PanelName; readonly container: string} {
             const home = viewHome(viewId, catalog.value, containers.value) ?? {container: implicitContainerOf(viewId), location: "sidebar" as const};
             return {region: containerRegion(current, home.container) ?? home.location, container: home.container};
         }
 
         return {
-            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, renderedFloats},
+            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -464,7 +463,7 @@ function defineLayoutDocStore(bound: boolean) {
                  * 让视图看得见（输出 22、35 的 `nbook.view.open`）：所在区域显示、切到它的容器，分节展开，激活它。盖着它的最大化退出；它就在最大化的面板里时不退出。
                  */
                 revealView: (viewId: string): LayoutResult => {
-                    const key = tabKey({kind: "view", viewId});
+                    const key = viewKey(viewId);
                     const found = findTab(doc.value, key);
                     // 浮动窗在最大化的面板上面，不用退出；它可能被别的窗盖着，提到最前。
                     const floating = found !== null && isFloating(doc.value, found.panel);
@@ -500,7 +499,7 @@ function defineLayoutDocStore(bound: boolean) {
                         if (last?.viewId === viewId) return revealContainer(target.container);
                     }
                     return apply((current) => {
-                        const key = tabKey({kind: "view", viewId});
+                        const key = viewKey(viewId);
                         if (findTab(current, key) === null) return notFound(key);
                         if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
                         const {container} = target;

@@ -302,12 +302,6 @@ export type GridLayoutCommitResult = {readonly ok: true} | GridFailure<GridCommi
 export type GridResult = {ok: true} | GridFailure<GridFailureCode>;
 
 /**
- * 单节点调整的实际增量。
- * @experimental
- */
-export type GridResizeResult = {ok: true; applied: number} | GridFailure<GridFailureCode>;
-
-/**
  * 一次分支调整：同一容器内该分支全部直接子节点的完整呈现基线与目标（px，各自守恒）。
  * @experimental
  */
@@ -319,12 +313,6 @@ export type GridBranchResize = {
     /** 本场真正改变的收起状态：子节点 id → 是否收起；缺省表示没有收起变化。 */
     readonly collapsed?: Readonly<Record<string, boolean>>;
 };
-
-/**
- * 原子分支调整发布的完整意图；键为该分支的直接子节点 id。
- * @experimental
- */
-export type GridBranchResizeResult = {ok: true; sizes: Record<string, number>} | GridFailure<GridFailureCode>;
 
 /**
  * 一次手势的批量原子结果：新尺寸意图按节点 id 发布，收起变化按节点 id 发布。

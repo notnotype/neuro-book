@@ -14,33 +14,6 @@ declare const DRAG_GESTURE_DEFAULTS: DragGestureConfig;
 ### experimental type DragCancelReason
 type DragCancelReason = "escape" | "pointer-cancel" | "capture-lost" | "blur" | "hidden" | "focus-left" | "pressed-elsewhere" | "structure-changed" | "disposed";
 
-### experimental interface DragCard
-引用：DragCardFrame, GridRect
-interface DragCard {
-    step(frame: DragCardFrame): {
-        readonly rect: GridRect | null;
-        readonly settling: boolean;
-    };
-}
-
-### experimental interface DragCardFrame
-引用：DragCardSize, GridDropPoint
-interface DragCardFrame {
-    readonly now: number;
-    readonly elapsed: number;
-    readonly pointer: GridDropPoint;
-    readonly origin: GridDropPoint;
-    readonly target: DragCardSize;
-    readonly refreshMs?: number;
-}
-
-### experimental interface DragCardOptions
-interface DragCardOptions {
-    readonly tauMs?: number;
-    readonly stillPx?: number;
-    readonly refreshSlackMs?: number;
-}
-
 ### experimental interface DragCardSize
 interface DragCardSize {
     readonly width: number;
@@ -72,21 +45,6 @@ interface DropKind<T> {
     readonly [dropKindData]?: T;
 }
 
-### experimental interface FrameLoop
-interface FrameLoop {
-    start(): void;
-    wake(): void;
-    stop(): void;
-}
-
-### experimental interface FrameLoopOptions
-interface FrameLoopOptions {
-    requestFrame(run: (now: number) => void): number;
-    cancelFrame(frame: number): void;
-    frame(now: number, elapsed: number): boolean;
-    readonly nominalMs?: number;
-}
-
 ### experimental const GRID_MAX_DEPTH
 declare const GRID_MAX_DEPTH = 16;
 
@@ -100,7 +58,7 @@ declare const GRID_SNAPSHOT_VERSION = 2;
 declare const GRID_UNBOUNDED: number;
 
 ### experimental type Grid
-引用：GridAxis, GridBranchResize, GridBranchResizeResult, GridBranchesResizeResult, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridResizeResult, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
+引用：GridBranchResize, GridBranchesResizeResult, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
 type Grid<T> = {
     root(): GridNode<T> | null;
     find(id: string): GridNode<T> | null;
@@ -108,8 +66,6 @@ type Grid<T> = {
     splitLeaf(targetId: string, split: GridSplitInput<T>): GridResult;
     removeLeaf(id: string): GridResult;
     moveLeaf(id: string, parentId: string, index: number): GridResult;
-    resize(id: string, axis: GridAxis, delta: number): GridResizeResult;
-    resizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>): GridBranchResizeResult;
     resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
     setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
     setSize(id: string, px: number): GridSetSizeResult;
@@ -167,13 +123,6 @@ type GridBranchResize = {
     readonly target: Readonly<Record<string, number>>;
     readonly collapsed?: Readonly<Record<string, boolean>>;
 };
-
-### experimental type GridBranchResizeResult
-引用：GridFailure, GridFailureCode
-type GridBranchResizeResult = {
-    ok: true;
-    sizes: Record<string, number>;
-} | GridFailure<GridFailureCode>;
 
 ### experimental type GridBranchesResizeResult
 引用：GridExtent, GridFailure, GridFailureCode
@@ -312,7 +261,6 @@ interface GridGestureSession<T = unknown> extends SashGestureSessionCore<GridGes
         y: number;
     }): GridGesturePreview<T> | null;
     jump(edge: "start" | "end"): GridGesturePreview<T> | null;
-    setCollapsed(collapsed: boolean): GridGesturePreview<T> | null;
     toggleCollapsed(): GridGesturePreview<T> | null;
     finish(): GridGestureCommit | null;
 }
@@ -337,20 +285,6 @@ type GridGestureStart = {
 
 ### experimental type GridHostIssueCode
 type GridHostIssueCode = "not-published" | "notify-failed";
-
-### experimental type GridInsertion
-引用：GridDropRect
-type GridInsertion = Readonly<{
-    kind: "insert";
-    beforeId: string | null;
-    indicator: GridDropRect;
-    areaRect: GridDropRect;
-    targetId: string | null;
-    halfRect: GridDropRect | null;
-}> | Readonly<{
-    kind: "keep";
-    areaRect: GridDropRect;
-}>;
 
 ### experimental interface GridIssue
 引用：GridParamValue
@@ -474,13 +408,6 @@ type GridRefResolution<T> = {
 引用：GridRefResolution
 type GridRefResolver<T> = (ref: string) => GridRefResolution<T> | null;
 
-### experimental type GridResizeResult
-引用：GridFailure, GridFailureCode
-type GridResizeResult = {
-    ok: true;
-    applied: number;
-} | GridFailure<GridFailureCode>;
-
 ### experimental type GridRestoreFailureCode
 type GridRestoreFailureCode = "invalid-snapshot" | "unsupported-version" | "unresolved-root" | "duplicate-id" | "limit-exceeded";
 
@@ -595,23 +522,6 @@ interface GridSwapWindow {
 interface LayoutFloatResize {
     readonly width: -1 | 0 | 1;
     readonly height: -1 | 0 | 1;
-}
-
-### experimental interface LiveDropCandidate
-引用：GridDropRect
-interface LiveDropCandidate {
-    readonly key: string;
-    readonly immediate: boolean;
-    readonly slot: GridDropRect | null;
-}
-
-### experimental interface LiveDropState
-引用：GridDropRect, LivePreview
-interface LiveDropState {
-    readonly candidate: string | null;
-    readonly changedAt: number;
-    readonly preview: LivePreview;
-    readonly slot: GridDropRect | null;
 }
 
 ### experimental type LivePreview
@@ -787,14 +697,6 @@ declare function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {
     readonly height: number;
 }): GridRect;
 
-### experimental function createDragCard
-引用：DragCard, DragCardOptions, DragCardSize, GridDropPoint, GridDropRect
-declare function createDragCard(from: GridDropRect | null, pointer: GridDropPoint, fallback: DragCardSize, options?: DragCardOptions): DragCard;
-
-### experimental function createFrameLoop
-引用：FrameLoop, FrameLoopOptions
-declare function createFrameLoop(options: FrameLoopOptions): FrameLoop;
-
 ### experimental function createGrid
 引用：Grid, GridNodeInput, GridOptions, GridRefEncoder
 declare function createGrid<T extends string>(root: GridNodeInput<T> | null, options?: GridOptions<T>): Grid<T>;
@@ -809,14 +711,6 @@ declare function createGridGestureSession<T>(input: GridGestureSessionInput<T>):
 ### experimental function defineDropKind
 引用：DropKind
 declare function defineDropKind<T>(id: string): DropKind<T>;
-
-### experimental const initialLiveDrop
-引用：LiveDropState
-declare const initialLiveDrop: (now: number) => LiveDropState;
-
-### experimental function insideShownSlot
-引用：GridDropPoint, LiveDropState
-declare function insideShownSlot(state: LiveDropState, point: GridDropPoint, stickyPx?: number): boolean;
 
 ### experimental function moveInSections
 引用：SortableSection, SortableSlot
@@ -845,16 +739,6 @@ declare function resolveGridEdgeDrop(input: {
     readonly edgeRatio?: number;
 }): GridEdgeDrop | null;
 
-### experimental function resolveGridInsertion
-引用：GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOrientation
-declare function resolveGridInsertion(input: {
-    readonly orientation: GridOrientation;
-    readonly point: GridDropPoint;
-    readonly containerRect: GridDropRect;
-    readonly members: readonly GridDropMember[];
-    readonly edgeRatio?: number;
-}): GridInsertion | null;
-
 ### experimental function resolveListInsertion
 引用：GridDropMember, GridDropPoint, GridDropRect, GridListInsertion, GridOrientation
 declare function resolveListInsertion(input: {
@@ -872,20 +756,6 @@ declare function setLayoutDevChecks(enabled: boolean): void;
 引用：SortableSection, SortableSlot
 declare function slotOfKey(sections: readonly SortableSection[], key: string): SortableSlot | null;
 
-### experimental function solveSashCollapse
-引用：GridIssue, GridIssueCode, SashPanel
-declare function solveSashCollapse(input: {
-    panels: readonly SashPanel[];
-    sizesPx: readonly number[];
-    sashIndex: number;
-    index: number;
-    collapsed: boolean;
-}): {
-    sizesPx: readonly number[];
-    collapsed: Readonly<Record<string, boolean>>;
-    issues: readonly GridIssue<GridIssueCode>[];
-} | null;
-
 ### experimental function sortableSlotIn
 引用：SortableLayout, SortableSlot, SortableSpan, SortableSwitch
 declare function sortableSlotIn(layout: SortableLayout, source: string, held: SortableSpan, last?: SortableSwitch | null): SortableSlot | null;
@@ -893,14 +763,6 @@ declare function sortableSlotIn(layout: SortableLayout, source: string, held: So
 ### experimental function sortableSlots
 引用：SortableSection, SortableSlot
 declare function sortableSlots(sections: readonly SortableSection[], source: string): SortableSlot[];
-
-### experimental function stepLiveDrop
-引用：LiveDropCandidate, LiveDropState
-declare function stepLiveDrop(state: LiveDropState, input: {
-    readonly now: number;
-    readonly candidate: LiveDropCandidate | null;
-    readonly settleMs?: number;
-}): LiveDropState;
 
 ## 由公开名字引到、没有导出的声明
 

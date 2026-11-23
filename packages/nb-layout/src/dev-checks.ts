@@ -9,6 +9,7 @@
  * - 只 `console.warn`，不走 `onIssues`：这是给写宿主的人看的接线错误，不是运行时诊断；被拒的提交照旧经 `issues` 事件交出。
  */
 
+import {axisOf} from "./grid-geometry";
 import type {GridLayoutResult, GridNode} from "./grid-types";
 
 type DevCheckState = {enabled: boolean; reported: WeakMap<object, Set<string>>};
@@ -44,6 +45,25 @@ export function layoutDevWarning(owner: object, kind: string, message: string): 
     console.warn(message);
 }
 
+/**
+ * 一个网格实例的警告函数：“每种只报一次”按这个实例记（`owner` 在这里建，寿命跟着返回的函数），警告带上是哪个网格，
+ * 没给 `contextKey` 的宿主也认得出（Spec 输出 151）。`contextKey` 按调用时的值取。不从入口导出。
+ */
+export function gridDevWarner(contextKey: () => string): (kind: string, problem: string) => void {
+    const owner = {};
+    return (kind, problem) => {
+        const key = contextKey();
+        const grid = key === "" ? "A NestedGrid without a contextKey" : `NestedGrid "${key}"`;
+        layoutDevWarning(owner, kind, `[nb-layout/NestedGrid] ${grid} ${problem}`);
+    };
+}
+
+/** 宿主的提交处理返回的是不是 `{ok: true}` 或失败（带布尔的 `ok`）。不从入口导出。 */
+export const isCommitResult = (value: unknown): boolean => typeof value === "object" && value !== null && typeof (value as {ok?: unknown}).ok === "boolean";
+
+/** 警告里给写宿主的人看的“拿到了什么”。不从入口导出。 */
+export const describeValue = (value: unknown): string => (value === null ? "null" : Array.isArray(value) ? "an array" : value instanceof Promise ? "a Promise" : typeof value);
+
 /** 开关关着时不必算检查的条件。不从入口导出。 */
 export function layoutDevChecksEnabled(): boolean {
     return state().enabled;
@@ -63,7 +83,7 @@ export function onlyZeroWidthBoundaries(root: GridNode<unknown> | null, layout: 
     };
     const visit = (node: GridNode<unknown>): void => {
         if (node.kind === "leaf") return;
-        const axis = node.orientation === "horizontal" ? "width" : "height";
+        const axis = axisOf(node.orientation);
         const sashes = layout.sashSizes[node.id] ?? [];
         node.children.forEach((child, index) => {
             const next = node.children[index + 1];

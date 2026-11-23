@@ -257,7 +257,6 @@ describe("useLiveDragSession", () => {
         const refsOf = refs[0]!;
         // 模板 ref 的根在挂载后的那次刷新里才交给侦听。
         await nextTick();
-        expect(refsOf.session.value).not.toBeNull();
         const button = wrapper.get("[data-source]").element;
         Object.assign(document, {elementsFromPoint: () => [button]});
         button.dispatchEvent(pointer("pointerdown", {clientX: 0, clientY: 0}));
@@ -267,6 +266,6 @@ describe("useLiveDragSession", () => {
         expect(refsOf.liveState.value.active).toBe(true);
         expect(refsOf.lifted.value).toEqual({key: "card"});
         wrapper.unmount();
-        expect([refsOf.session.value, refsOf.live.value, refsOf.liveState.value.active]).toEqual([null, null, false]);
+        expect([refsOf.state.value, refsOf.dragging.value, refsOf.liveState.value.active]).toEqual([null, false, false]);
     });
 });

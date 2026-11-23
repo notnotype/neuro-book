@@ -12,7 +12,7 @@ import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} fr
 
 import {workbenchText} from "../../shared/text";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {viewIdOf} from "../state/layout-present";
+import {isSoleWindow, viewIdOf} from "../state/layout-present";
 import {workbenchState} from "../state/public-state";
 
 export const SET_PANEL_COLLAPSED_COMMAND = "nbook.view.set-panel-collapsed";
@@ -119,8 +119,7 @@ export function panelCommands(layout: () => LayoutDocStore | null): PanelCommand
                 const home = key === null ? null : findTab(doc, key)?.panel ?? null;
                 const viewId = viewIdOf(key ?? "");
                 const declaration = viewId === null ? undefined : store.state.catalog.get(viewId);
-                const alone = home !== null && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1;
-                if (key === null || home === null || alone || declaration?.floatable === false || declaration?.movable === false) return {ok: false, code: "unavailable", reason: TEXT.cannotFloat};
+                if (key === null || home === null || isSoleWindow(doc, home) || declaration?.floatable === false || declaration?.movable === false) return {ok: false, code: "unavailable", reason: TEXT.cannotFloat};
                 const result = await store.actions.floatTab(key);
                 if (result.ok) return DONE;
                 return {ok: false, code: "unavailable", reason: result.code === "limit-exceeded" ? TEXT.floatLimit : TEXT.cannotFloat};

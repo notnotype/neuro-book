@@ -187,7 +187,9 @@ describe("useGridHost", () => {
 
         // 组件这一路：给一个对不上呈现的交换，同时让布局变化；交换不成立只由 NestedGrid 的 `issues` 事件交出来。
         harness.swap.value = {token: 1, leaving: ["hidden"], entering: ["left"], axis: "width", direction: 1, gap: 0};
-        harness.grid.resize("left", "width", 50);
+        const presented = harness.grid.layout(box).sizes;
+        const baseline = {left: presented.left!.width, right: presented.right!.width};
+        expect(harness.grid.resizeBranches([{branchId: "root", axis: "width", baseline, target: {left: baseline.left + 50, right: baseline.right - 50}}]).ok).toBe(true);
         harness.host.invalidate();
         await nextTick();
         expect(harness.issues.map((issue) => issue.code)).toContain("swap-skipped");
