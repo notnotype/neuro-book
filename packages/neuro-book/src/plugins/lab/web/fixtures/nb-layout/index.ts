@@ -37,6 +37,8 @@ export const nbLayoutFixtures: LabFixture[] = [
                 {id: "swap", label: "交换（切换容器）", input: {props: base}},
                 // 离开的内容由库留到过渡结束（e2e/lab-grid-leaving.e2e.ts）。
                 {id: "leaving", label: "关掉的内容留到过渡结束", input: {props: base}},
+                // 实时布局的第二个形状：卡片拖到别的卡片外缘长出新块、来源收起（e2e/lab-live-panels.e2e.ts）。
+                {id: "live-panels", label: "实时布局：卡片互拖", input: {props: base}},
                 // nb-layout README 的起步例子（e2e/lab-grid-structure.e2e.ts 的“起步例子”）。
                 {id: "starter", label: "README 的起步例子", input: {props: base}},
             ];

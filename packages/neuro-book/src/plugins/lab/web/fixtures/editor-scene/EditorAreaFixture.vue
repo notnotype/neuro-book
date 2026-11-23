@@ -320,9 +320,9 @@ onMounted(() => {
         feel: () => "indicator",
         cardShrink: () => "strip",
         cardRefresh: () => "display",
-        settleMotion: () => undefined,
+        // 落点指示（`feel` 是 indicator）：不走实时布局，用不到网格。
+        grid: () => null,
         showPreview: () => undefined,
-        placeCard: () => undefined,
         moveGhost: (point) => feedback.value?.moveGhost(point),
         floats: () => floats.value,
         markFloatMove: (panel, rect) => {

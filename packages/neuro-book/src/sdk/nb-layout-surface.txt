@@ -331,7 +331,9 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  motionMs: () => number
   moving: boolean
+  origin: () => { x: number; y: number; }
   outgoingLeaves: ReadonlySet<string>
   placeFloat: (id: string, offset: { readonly x: number; readonly y: number; } | null) => void
   placeLifted: (rect: GridRect) => void

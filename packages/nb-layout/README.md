@@ -128,7 +128,8 @@ function toggleFiles(): void {
 | 一组可拖的东西（拖动会话） | `useDragSession`、`createDragSession`（[说明](src/vue/drag-session.md)） | `./vue` |
 | 拖到边缘、插到两项之间的落点几何 | `resolveGridEdgeDrop`、`resolveGridInsertion`、`resolveListInsertion` | 根 |
 | 拖动时的落点反馈 | `DropFeedbackOverlay`、`DropSectorsOverlay`、`DropIndicatorLabel` | `./vue` |
-| 拖动时跟手的卡片、按需排帧 | `createDragCard`、`createFrameLoop`（[说明](src/drag-card.md)）；候选稳定才换预览用 `stepLiveDrop`、`insideShownSlot` | 根 |
+| 实时布局：拖动中布局真的变，拿起的内容做成卡片跟手 | `useLiveDragSession`、`createLiveDragSession`（[说明](src/vue/live-drag-session.md)） | `./vue` |
+| 自己编排时的零件：跟手的卡片、按需排帧、候选稳定才换预览 | `createDragCard`、`createFrameLoop`（[说明](src/drag-card.md)）、`stepLiveDrop`、`insideShownSlot` | 根 |
 | 自己画卡片：把布局摆成每块的矩形 | `placeGrid` | 根 |
 | 只要一行或一列的分栏 | `Splitter` | `./vue` |
 | 可排序的列表 | `SortableList`、`useSortable` | `./vue` |

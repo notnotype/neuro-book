@@ -45,8 +45,8 @@ type Props = {
     maximized?: string | null;
     /** 头只写标题的面板：没有标签带，内容是以标题命名的 `region`，不是 `tabpanel`。默认空集。 */
     titleOnlyPanels?: ReadonlySet<string>;
-    /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不卸载。矩形不走属性，由 `placeLifted` 写。 */
-    lifted?: {key: string; home: string | null} | null;
+    /** 拿起的内容项（实时布局）：预览把来源摘掉时由网格留住，内容不卸载（`NestedGrid` 的 `lifted`）。矩形不走属性，由 `placeLifted` 写。 */
+    lifted?: {key: string} | null;
     /** 拖动进行中（外壳在拖动会话里）：转给 NestedGrid 的 `dragging`，离开的叶不留着缩回去。 */
     dragging?: boolean;
     /** 实时布局预览里的空位：这块什么都不画，露出窗体底。 */
@@ -104,6 +104,10 @@ type Expose = {
     settleMotion(): void;
     /** 写拿起的内容项的矩形（相对网格根）：跟手，不走渲染。 */
     placeLifted(rect: GridRect): void;
+    /** 网格根的左上角（视口坐标）：实时布局的卡片与空位相对它。 */
+    origin(): {x: number; y: number};
+    /** 网格上的布局过渡时长；减少动效时是 0，实时布局不走。 */
+    motionMs(): number;
     /** 拖动中挪窗；`null` 回到原处。跟手，不走渲染。 */
     placeFloat(panel: string, offset: {x: number; y: number} | null): void;
     /** 在面板之间移动焦点；没动时返回 false。 */

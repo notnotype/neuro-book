@@ -1619,6 +1619,32 @@ describe("NestedGrid 内容层", () => {
         expect(body?.style.width).toMatch(/^[1-9][0-9]*(\.[0-9]+)?px$/u);
     });
 
+    it("拿起的内容项这一轮不在 contents 里（宿主的预览摘掉了来源）：网格留住它，实例不卸载；放下后按新的 contents 落到新的叶，不在了就卸载", async () => {
+        const both = [{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}];
+        const wrapper = mountContents(both);
+        await wrapper.setProps({revision: 1});
+        const inside = wrapper.get("[data-inside='x']").element;
+        // 拿起与摘掉在同一次更新里：网格第一次看到 `lifted` 时这一轮已经没有 x 了。
+        await wrapper.setProps({lifted: {key: "x"}, contents: [both[1]!]});
+        expect(wrapper.get("[data-inside='x']").element).toBe(inside);
+        expect(wrapper.get("[data-content='x']").attributes("data-lifted")).toBeDefined();
+        await wrapper.setProps({revision: 2});
+        expect(wrapper.get("[data-inside='x']").element).toBe(inside);
+        // 预览先把它摆到 b、再摘掉：留住的是拿起那一刻的那一项（叶 a），不是中途摆到的 b。
+        await wrapper.setProps({contents: [{key: "x", leaf: "b", insetTop: 32, active: true}, both[1]!]});
+        await wrapper.setProps({contents: [both[1]!]});
+        expect(wrapper.get("[data-content='x']").attributes("data-content-leaf")).toBe("a");
+        // 放下：x 进了 b。
+        await wrapper.setProps({lifted: null, contents: [{key: "x", leaf: "b", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: false}]});
+        expect(wrapper.get("[data-inside='x']").element).toBe(inside);
+        expect(wrapper.get("[data-content='x']").attributes("data-content-leaf")).toBe("b");
+        // 再拿起、放下时它已经不在 contents 里：卸载。
+        await wrapper.setProps({lifted: {key: "x"}, contents: [both[1]!]});
+        expect(wrapper.get("[data-inside='x']").element).toBe(inside);
+        await wrapper.setProps({lifted: null});
+        await vi.waitFor(() => expect(wrapper.find("[data-inside='x']").exists()).toBe(false));
+    });
+
     it("拿起的内容项（输出 89、90）：placeLifted 直接写元素、不引起重渲染（插槽不重跑）；过渡在走时它也不带过渡标记，不算停放", async () => {
         // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
         const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);

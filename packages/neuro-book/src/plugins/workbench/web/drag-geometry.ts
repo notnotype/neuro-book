@@ -72,7 +72,7 @@ export const contains = (rect: GridDropRect, point: GridDropPoint): boolean => p
 /**
  * 来源收起之后判定用的几何（输出 38）：按收起后的文档算每块面板挪到哪，不读 DOM，预览怎么摆都不变，判定和预览不会互相牵着来回换。
  * 拿起时量的卡片、头、标签条和面板之间的内外边距不变，所以每块面板按它在两份文档里的矩形差平移、伸缩。收起后不在的面板（来源是它最后一个标签）不再是落点；
- * 回到原处时 `expandSource` 换回拿起时的几何。容器还没量到（`extent` 为 null）时照旧用拿起时的。
+ * 回到原处时引擎换回拿起时的几何（nb-layout 的实时布局）。容器还没量到（`extent` 为 null）时照旧用拿起时的。
  */
 export function collapsedGeometry(kept: FrozenGeometry, doc: LayoutDoc, base: LayoutDoc, layout: {readonly extent: GridExtent | null; readonly projection: LayoutProjectionOptions; readonly dpr: number}): FrozenGeometry {
     const {extent, projection, dpr} = layout;

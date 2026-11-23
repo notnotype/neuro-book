@@ -58,6 +58,11 @@ export interface DragSessionOptions<S, D, R> {
     onEnd?(end: DragEnd, last: DragState<S, D>): void;
     /** 一场开始与结束（宿主写光标与禁选的标记）。 */
     onActiveChange?(active: boolean): void;
+    /**
+     * 有新的指针样本：会话自己的 `pointermove` 处理一开头同步调，早于它排发布的帧。宿主按需排帧的循环（`createFrameLoop`）在这里叫醒，
+     * 帧就排在发布的帧前面，帧里先判定（读）再写；不用另挂一个要抢在会话前面的监听。
+     */
+    sampled?(): void;
     /** 滚动时重新判定（缺省），或撤下落点直到指针再动。 */
     readonly scroll?: "reevaluate" | "withdraw";
     /** 边缘滚动的元素；缺省不滚。 */
@@ -106,6 +111,7 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
     const onBlur = cancelBy("blur");
 
     function onPointerMove(event: PointerEvent): void {
+        options.sampled?.();
         gesture.move(event.pointerId, {x: event.clientX, y: event.clientY}, event.buttons);
     }
 

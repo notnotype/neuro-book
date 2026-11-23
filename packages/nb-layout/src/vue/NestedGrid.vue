@@ -29,6 +29,7 @@ import {useLayoutExtent} from "./useLayoutExtent";
 import {useRenderOrder} from "./useRenderOrder";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
+import {layoutMotionMs} from "./layout-motion";
 import {commitFailure} from "../grid-failure";
 import {layoutDevChecksEnabled, layoutDevWarning, onlyZeroWidthBoundaries} from "../dev-checks";
 import {usableExtent} from "../grid-geometry";
@@ -270,8 +271,34 @@ const raisedLeaf = shallowRef<string | null>(null);
 /** 拿起的内容项此刻的矩形。跟手的东西不走渲染：每帧走属性的话，这个组件和每块叶的插槽都要重跑。 */
 let liftedRect: GridRect = {x: 0, y: 0, width: 0, height: 0};
 
+/**
+ * 拿起的内容项（`lifted`）不能卸载：宿主的预览常把它从 `contents` 里摘掉（来源收起），这时沿用拿起那一刻的那一项（叶是来源原来的叶、不活动；
+ * 之后的预览把它摆到别的叶上也不改记下的这一项：那块叶可能已经不在了），
+ * 实例留着，矩形照旧由 `placeLifted` 写；`lifted` 变回 null 之后按新的 `contents` 处理（Spec `ui/nested-grid` 的 `lifted`）。
+ * 要记上一轮的 `contents`：拿起和摘掉常在同一个同步段里，第一次读到 `lifted` 时这一轮已经没有它了。
+ */
+let previousContents: ReadonlyArray<GridContentInput> = [];
+let heldLifted: GridContentInput | null = null;
+const layerContents = computed<ReadonlyArray<GridContentInput>>(() => {
+    const items = props.contents;
+    const {lifted} = props;
+    const before = previousContents;
+    previousContents = items;
+    if (lifted == null) {
+        heldLifted = null;
+        return items;
+    }
+    const present = items.find((item) => item.key === lifted.key);
+    if (present !== undefined) {
+        if (heldLifted?.key !== lifted.key) heldLifted = present;
+        return items;
+    }
+    if (heldLifted?.key !== lifted.key) heldLifted = before.find((item) => item.key === lifted.key) ?? null;
+    return heldLifted === null ? items : [...items, {...heldLifted, insetTop: 0, active: false}];
+});
+
 const contentLayer = useContentLayer({
-    contents: () => props.contents,
+    contents: () => layerContents.value,
     leaving: () => motion.leavingContents.value,
     items: () => placement.value?.items ?? [],
     dpr,
@@ -673,6 +700,13 @@ function placeFloat(id: string, offset: {readonly x: number; readonly y: number}
 defineExpose({
     /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
     settleMotion: (): void => motion.stop(),
+    /** 网格根的左上角（视口坐标）：拿起的内容与盖层相对它。没挂上时是原点。 */
+    origin: (): {x: number; y: number} => {
+        const box = rootEl.value?.getBoundingClientRect();
+        return {x: box?.left ?? 0, y: box?.top ?? 0};
+    },
+    /** 网格元素上的布局过渡时长（`--nb-layout-motion-layout`）；减少动效时是 0。宿主在网格上覆盖这个变量时，会话的根读不到，所以从网格读。 */
+    motionMs: (): number => (rootEl.value === null ? 0 : layoutMotionMs(rootEl.value)),
     placeLifted,
     placeFloat,
     /**
