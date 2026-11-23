@@ -32,9 +32,16 @@ updated: 2026-11-23
 
 2026-11-02 按已接受的内核提案重切 w00039 时新建（Work README 决定表同日）。尚未开工。
 
-2026-11-23 开发者定为下一步，范围改成上面的样子。主会话先查编辑器的做法（主文字的格式与白名单、仓库里现有的编辑器、往返），给开发者一个能不能做与怎么做的结论。
+2026-11-23 开发者定为下一步，范围改成上面的样子。主会话查了编辑器的做法（一个 Explore 子代理盘点 nb-markdown 与章节编辑器，主会话读 ADR 0038、`canon/rendering.md` 与相关代码），结论是能做：
+
+- **现成的**：章节的富文本编辑器是 nb-markdown 的 Tiptap 扩展组（`createMarkdownEditorExtensions`）加一套编解码器（`src/language/codec/`）。编解码器按块写回：没编辑的块写原文字节，编辑过的块重新写出并读回校验，有 20 来份语料的往返测试。语言是拼出来的（`createMarkdownLanguage([...语法])`），一种行内原子语法（表情，`syntax/sticker/index.ts`）约 120 行：一个 Tiptap 节点、一个分词器、读与写各一个函数。核心语法已有 CommonMark、GFM 的表格与删除线、中文标点旁的强调。
+- **要新做的**：一份“条目主文字”的语言，等于核心语法加三种新语法（花括号表达式、`<Ref />`、`<Image />`，都读成原子节点、原文记在节点上原样写回），不带章节方言的批注、提示块、注音那些；内核加一个“整篇主文字换成这样”的写法，由内核切块、与原来的块对比、合成增删改（`splitBlocks` 只从 nb-canon 的根入口导出，浏览器只能用 `./schema`，对比放在内核里）；条目页的文字分页换成编辑器；条目树的就地新建、改名、移动、删除（资源管理器的行内改名与拖动在它自己的插件里，`explorer/web/components/ExplorerRow.vue`、`tree-drag.ts`，不是共享组件）。
+- **最大的风险**：同一段文字有两个解析器在读。编辑器用 marked，内核用 micromark 加 mdxjs。MDX 不认缩进代码块、原样 HTML 与尖括号自动链接，文字里的 `{`、`<` 要转义，这几处两边可能读得不一样。兜底有三层：对照语料（编辑器读入再写出逐字节相同，写出的内核必须收）；内核每次保存照 `canon/rendering.md` 输出 1 检查并指出块、行、列；认不出的语法由 nb-markdown 的“原样”语法整段保留。计划的第一片先做对照语料这个探针，过不了就退到“在块里就地改源文字”。
+- 章节编辑器的控件 `MarkdownControl.vue`（855 行）绑的是文件文档（`TextEditorBinding`），带工具栏、批注栏与 frontmatter 面板，经 `markdownKey` 交给别的插件；条目用它还是另做一个瘦的控件，写计划时定。
+
+待开发者定（2026-11-23 已在会话里提出）：编辑器的形态（与章节同一个富文本编辑器）、什么时候保存（每次保存是一条修订）、分组要不要变成真的文件夹。
 
 ## 下一步
 
-1. 编辑器的做法给开发者定。
-2. 写实施计划（[implementation-planning](../../../../skills/implementation-planning/SKILL.md)），开发者确认后在 worktree 里实现。
+1. 开发者定上面三条。
+2. 写实施计划（[implementation-planning](../../../../skills/implementation-planning/SKILL.md)），第一片是两个解析器的对照探针；开发者确认后在 worktree 里实现。
