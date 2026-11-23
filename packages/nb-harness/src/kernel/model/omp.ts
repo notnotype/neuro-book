@@ -39,10 +39,11 @@ export interface OmpTarget {
     /** 不要认证的目标：发出前剥掉值是占位哨兵的认证头（`Authorization`、`x-api-key`、`x-goog-api-key`），不把它当密钥送出去。 */
     readonly keyless?: boolean;
     /**
-     * 直连：每个请求都按次关掉代理（Bun 的 `proxy: false`，盖过 `HTTP_PROXY`、`HTTPS_PROXY` 与 OMP 按服务商配的代理）。不给时照
-     * 运行时的缺省（读环境变量）。
+     * 网络出口：每个请求发出前按完整地址问一次走哪条路，交回的 `proxy` 原样写进 Bun 的按次 `proxy`（`false` 是直连，盖过
+     * `HTTP_PROXY`、`HTTPS_PROXY` 与 pi-ai 的 `PI_PROXY`）。选不出路时不发，`ompCall` 把它的码按 `local` 类别交回，与 `guard`
+     * 一样优先于适配器的通用错误。不给时照运行时的缺省（读环境变量）。
      */
-    readonly direct?: boolean;
+    readonly route?: NetworkRoute;
     /**
      * 取密钥，每次请求取一次（凭据库是异步的，OAuth 令牌以后要刷新）；取不到时抛错或 reject，适配器在发请求前以 `auth`、
      * 码 `missing-key` 失败。只用宿主指定的来源。
@@ -58,7 +59,7 @@ export interface OmpTarget {
     /** 宿主接管重发时给：不给时超时与服务商层的重试都按 OMP 的缺省。 */
     readonly transport?: OmpTransport;
     /**
-     * 最内层的发送，在地址核对、剥占位认证头之后，替代全局 `fetch`（收到的参数与全局 `fetch` 的相同，已带上重定向与直连的选项）。
+     * 最内层的发送，在地址核对、选路、剥占位认证头之后，替代全局 `fetch`（收到的参数与全局 `fetch` 的相同，已带上重定向与 `proxy`）。
      * 协议检测用它只放行一次请求、读到首个生成证据就停（`models/probe.ts`）；不给用全局 `fetch`。
      */
     readonly send?: typeof fetch;
@@ -71,6 +72,12 @@ export interface OmpFetchFailure {
     readonly code: string;
     readonly message: string;
 }
+
+/**
+ * 网络出口给一次请求的路（宿主的实现，例如 nb-host 的 `routeFor`）。`proxy` 交给 Bun 的按次 `proxy`；失败的 `code` 是出口的码
+ * （`proxy-unsupported` 等），请求不发。模型请求、列表、在线目录与协议检测共用这个形状。
+ */
+export type NetworkRoute = (url: URL) => Promise<{readonly ok: true; readonly proxy: string | false} | ({readonly ok: false} & OmpFetchFailure)>;
 
 /**
  * 一个部署的签发身份：`deployment` 区分实例与它当时的地址、协议；`credential` 只有签名绑定凭据的协议才给；`legacyProvider` 是
@@ -362,21 +369,26 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         const wire: {blocked: OmpFetchFailure | null} = {blocked: null};
         /** 拦下之后整次调用就此结束：有的协议（Anthropic）会对抛错的请求按退避重试十来次，本地拦下的没有重试的意义。 */
         const stopOnBlock = new AbortController();
+        // 写明函数类型：TS 只对带类型注解的 `never` 函数在调用之后收窄。
+        const block: (problem: OmpFetchFailure) => never = (problem) => {
+            wire.blocked ??= problem;
+            stopOnBlock.abort();
+            throw new Error(problem.message);
+        };
         const guarded = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
             const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-            const problem = target.guard?.(new URL(href)) ?? null;
-            if (problem !== null) {
-                wire.blocked ??= problem;
-                stopOnBlock.abort();
-                throw new Error(problem.message);
-            }
+            const url = new URL(href);
+            const problem = target.guard?.(url) ?? null;
+            if (problem !== null) block(problem);
+            const route = target.route === undefined ? null : await target.route(url);
+            if (route !== null && !route.ok) block({code: route.code, message: route.message});
             const headers = new Headers(input instanceof Request ? input.headers : undefined);
             if (init?.headers !== undefined) new Headers(init.headers).forEach((value, name) => headers.set(name, value));
             // 只剥适配器垫的占位值本身（或 `Bearer <占位>`）：用户自己配的同名头哪怕含有同样的字符也照发。
             if (target.keyless === true) for (const name of AUTH_HEADERS) if (isSentinel(headers.get(name))) headers.delete(name);
             // 重定向交给调用方改地址，不替它跟随：跟随会把密钥带到没核对过的地址（docs/specs/harness/models.md）。
             // `proxy: false` 是 Bun 的按次直连（1.4.3 起），类型声明里没有 `false` 这一项。
-            return (target.send ?? fetch)(input, {...init, headers, redirect: "error", ...(target.direct === true ? {proxy: false as unknown as string} : {})});
+            return (target.send ?? fetch)(input, {...init, headers, redirect: "error", ...(route === null ? {} : {proxy: route.proxy as string})});
         }) as typeof fetch;
         const observed = observedFetch(guarded, observer, secrets);
         const counted = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

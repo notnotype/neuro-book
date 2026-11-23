@@ -227,4 +227,20 @@ describe("发出之前", () => {
         expect(outcome).toMatchObject({ok: false, status: null, code: "missing-key"});
         expect(seen).toHaveLength(0);
     });
+
+    test.each(APIS)("%s：网络出口选不出路，交回出口的码，请求不发", async (api) => {
+        const outcome = await probeProtocol(target(api), {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 2000, route: async () => ({ok: false, code: "proxy-unsupported", message: "the system proxy uses an automatic configuration script"})});
+        expect(outcome).toMatchObject({ok: false, status: null, url: null, code: "proxy-unsupported"});
+        expect(seen).toHaveLength(0);
+    });
+
+    test("网络出口给直连时照常检测，出口问的是完整的请求地址", async () => {
+        const asked: string[] = [];
+        const outcome = await probeProtocol(target("openai-completions"), {id: "m"}, access, {signal: new AbortController().signal, timeoutMs: 5000, route: async (url) => {
+            asked.push(url.href);
+            return {ok: true, proxy: false};
+        }});
+        expect(outcome).toMatchObject({ok: true, status: 200});
+        expect(asked).toEqual([`${BASE}/chat/completions`]);
+    });
 });

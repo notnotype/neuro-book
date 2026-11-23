@@ -3,8 +3,37 @@
         "nbook": {
             "network": {
                 "title": "Network",
-                "description": "Network requests NeuroBook makes on its own"
+                "description": "Network requests NeuroBook makes on its own",
+                "groups": {
+                    "proxy": {
+                        "title": "Proxy"
+                    },
+                    "catalog": {
+                        "title": "Model catalog"
+                    }
+                }
             }
+        }
+    },
+    "settings": {
+        "proxyMode": {
+            "title": "Proxy mode",
+            "description": "How requests from the model service, model lists and web tools go out; a provider can set its own under Advanced",
+            "choices": {
+                "system": {
+                    "title": "Follow system"
+                },
+                "custom": {
+                    "title": "Custom"
+                },
+                "direct": {
+                    "title": "Direct"
+                }
+            }
+        },
+        "proxyUrl": {
+            "title": "Proxy address",
+            "description": "Used when the proxy mode is Custom: an http or https proxy, for example http://127.0.0.1:7890; SOCKS is not supported"
         }
     }
 }

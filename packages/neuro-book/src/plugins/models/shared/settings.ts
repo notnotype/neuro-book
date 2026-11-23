@@ -64,6 +64,7 @@ export const modelsSettings = defineSettings("nbook.models", {
         description: modelsText("settings.catalogAutoUpdate.description"),
         layers: ["user"],
         section: NETWORK_SECTION,
+        group: "catalog",
         order: 10,
     },
     streamIdleTimeoutSeconds: {

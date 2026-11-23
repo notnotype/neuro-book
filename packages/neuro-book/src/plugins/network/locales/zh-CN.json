@@ -3,8 +3,37 @@
         "nbook": {
             "network": {
                 "title": "网络",
-                "description": "NeuroBook 自己发起的联网请求"
+                "description": "NeuroBook 自己发起的联网请求",
+                "groups": {
+                    "proxy": {
+                        "title": "代理"
+                    },
+                    "catalog": {
+                        "title": "模型目录"
+                    }
+                }
             }
+        }
+    },
+    "settings": {
+        "proxyMode": {
+            "title": "代理方式",
+            "description": "模型服务、模型列表与网页工具的请求怎么出去；服务商可以在自己的“高级”里另设",
+            "choices": {
+                "system": {
+                    "title": "跟随系统"
+                },
+                "custom": {
+                    "title": "自定义"
+                },
+                "direct": {
+                    "title": "直连"
+                }
+            }
+        },
+        "proxyUrl": {
+            "title": "代理地址",
+            "description": "代理方式为自定义时用：http 或 https 代理，例如 http://127.0.0.1:7890；不支持 SOCKS"
         }
     }
 }

@@ -19,6 +19,8 @@ import {GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked} from "n
 
 import {definitionAt} from "nbook/manifest";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {networkBackendPlugin} from "nbook/plugins/network/backend/plugin";
+import {descriptor as networkDescriptor} from "nbook/plugins/network/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {modelsSettingsContract} from "nbook/plugins/models/shared/contracts";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
@@ -319,7 +321,7 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
             return {};
         }})]};
         const h = await projectHarness(tmp, {
-            plugins: [...serverPlugins(), definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", modelsDescriptor, modelsBackendPlugin), plotServerPlugin],
+            plugins: [...serverPlugins(), definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", networkDescriptor, networkBackendPlugin), definitionAt("server", modelsDescriptor, modelsBackendPlugin), plotServerPlugin],
             // 模型服务不取在线目录：测试不出本机。
             capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => Object.freeze({env: {NBOOK_MODELS_CATALOG_URL: ""}})}],
             prepare: async (paths) => {

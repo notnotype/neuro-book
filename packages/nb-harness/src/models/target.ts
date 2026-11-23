@@ -18,7 +18,7 @@ import {buildModel} from "@oh-my-pi/pi-catalog/build";
 import {getLogsDir} from "@oh-my-pi/pi-utils";
 
 import {ompCall, ompModelInfo} from "../kernel/index.js";
-import type {ModelInfo, ModelResolution, OmpFetchFailure, OmpIdentity, OmpTransport} from "../kernel/index.js";
+import type {ModelInfo, ModelResolution, NetworkRoute, OmpFetchFailure, OmpIdentity, OmpTransport} from "../kernel/index.js";
 import {catalogPrice, templateRoutes, unsendableReason, wireApiOf} from "./catalog.js";
 import type {WireApi} from "./catalog.js";
 import {envRefName, envValue, type StartupEnv} from "./env.js";
@@ -94,7 +94,12 @@ export interface ResolveHooks {
     readonly publicName?: string;
     /** 最内层的发送（`OmpTarget.send`）；只有协议检测给。 */
     readonly send?: typeof fetch;
+    /** 网络出口（`OmpTarget.route`），宿主按这家服务商的代理设置给；不给时直连（`DIRECT_ROUTE`），不吃进程环境里的代理变量。 */
+    readonly route?: NetworkRoute;
 }
+
+/** 直连：模型、列表与目录请求在宿主没给出口时都用它，不让进程环境的 `HTTP_PROXY`、`PI_PROXY` 决定请求去哪。 */
+export const DIRECT_ROUTE: NetworkRoute = async () => ({ok: true, proxy: false});
 
 export interface BuiltModel {
     readonly ok: true;
@@ -153,8 +158,7 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
                     ...(identity === undefined ? {} : {identity}),
                     guard: (url) => (hooks.stillCurrent?.() === false ? {code: "endpoint-mismatch", message: "the provider was changed after this model was resolved; resolve it again"} : wire(url)),
                     ...(provider.auth === "none" ? {keyless: true} : {}),
-                    // 代理设置要到网络出口（w00032 t43 段 C）才有：在那之前模型请求一律直连，不吃进程环境里的代理变量。
-                    direct: true,
+                    route: hooks.route ?? DIRECT_ROUTE,
                     onRequestDump: discardRequestDump,
                     ...(hooks.transport === undefined ? {} : {transport: hooks.transport()}),
                     ...(hooks.send === undefined ? {} : {send: hooks.send}),

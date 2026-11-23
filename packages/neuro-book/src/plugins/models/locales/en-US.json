@@ -138,6 +138,9 @@
                 "transport-unsupported": "Protocol not supported",
                 "no-address": "The template has no address for this protocol",
                 "cancelled": "Cancelled",
+                "proxy-unsupported": "Proxy not supported (SOCKS or an automatic configuration script)",
+                "proxy-invalid": "Invalid proxy address",
+                "proxy-unreadable": "Couldn't read the system proxy settings",
                 "other": "Failed ({{code}})"
             }
         }
@@ -201,7 +204,8 @@
                 "cancelled": "cancelled",
                 "timeout": "timed out",
                 "no-credentials": "no usable key",
-                "storage": "the list could not be saved"
+                "storage": "the list could not be saved",
+                "proxy": "the proxy setting is not usable, so nothing was sent"
             }
         },
         "search": "Search model name or id",
@@ -242,7 +246,12 @@
         "notRun": "Could not check: {{reason}}",
         "cancel": "Cancel checking {{name}}",
         "okAt": "Check passed · {{time}}",
-        "unknown": "Result unknown: the check was cancelled and the request may have been sent"
+        "unknown": "Result unknown: the check was cancelled and the request may have been sent",
+        "proxy": {
+            "proxy-unsupported": "The proxy is SOCKS or an automatic configuration script, which isn't supported, so nothing was sent. Use the HTTP port of the proxy software.",
+            "proxy-invalid": "The proxy address isn't valid, so nothing was sent. Fix it under Network or in this provider's Advanced settings.",
+            "proxy-unreadable": "Couldn't read the system proxy settings, so nothing was sent."
+        }
     },
     "caps": {
         "vision": "Vision",

@@ -7,7 +7,7 @@
 import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 
-import {ModelConfigSchema, RoleEffort} from "../config/shapes";
+import {ModelConfigSchema, ProviderProxySchema, RoleEffort} from "../config/shapes";
 import {Api, ApiDetectionSchema, Auth, CheckResultSchema, Headers, KeyStatusSchema, ModelRowSchema, ModelsSnapshotSchema, Nullable, TemplateSchema} from "./shapes";
 
 const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false});
@@ -51,7 +51,10 @@ const methods = {
         effect: "write",
         errors: {...providerWriteErrors, "credentials-unavailable": Detail, "partially-applied": Type.Object({id: Type.String(), key: KeyStatusSchema, detail: Type.String()}, {additionalProperties: false})},
     },
-    /** 省略的不改，`null` 清除（`region`、`api`、`baseUrl`）；改名重名返回 `invalid-value`。 */
+    /**
+     * 省略的不改，`null` 清除（`region`、`api`、`baseUrl`；`proxy` 清除即跟随应用）；改名重名、自定义代理的地址不是 http 或 https
+     * 或带了用户名密码，返回 `invalid-value`。
+     */
     updateProvider: {
         input: Type.Object({id: Type.String(), patch: Type.Object({
             name: Type.Optional(Type.String({minLength: 1})),
@@ -61,6 +64,7 @@ const methods = {
             auth: Type.Optional(Auth),
             headers: Type.Optional(Headers),
             followSource: Type.Optional(Type.Boolean()),
+            proxy: Type.Optional(Nullable(ProviderProxySchema)),
         }, {additionalProperties: false})}, {additionalProperties: false}),
         output: None,
         effect: "write",
@@ -165,7 +169,7 @@ const methods = {
 const events = {changed: {filter: Type.Object({}, {additionalProperties: false}), payload: ModelsSnapshotSchema}} as const;
 
 /** 设置页用的远程合同的定义，缺 id。 */
-export const modelsSettingsSpec = {version: 5, provider: "server", callers: ["browser"], methods, events} as const;
+export const modelsSettingsSpec = {version: 6, provider: "server", callers: ["browser"], methods, events} as const;
 
 /** 应用以 `modelsSettingsSpec` 定义出的合同的类型；服务核心的远程实现按它写。 */
 export type ModelsSettingsContract = RemoteContract<typeof methods, typeof events, typeof modelsSettingsSpec.provider>;

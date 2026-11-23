@@ -31,6 +31,26 @@ function serve(respond: (count: number, url: URL) => Response | Promise<Response
 const json = (body: unknown, status = 200) => Response.json(body, {status});
 const list = (flavor: ListingFlavor, baseUrl: string, headers: Record<string, string> = {}, signal = new AbortController().signal) => listModels({flavor, baseUrl, headers, signal});
 
+describe("网络出口", () => {
+    test("每页发出前按完整地址选路；选不出路时以 proxy 失败，请求不发", async () => {
+        const server = serve(() => json({object: "list", data: [{id: "house-chat"}]}));
+        try {
+            const asked: string[] = [];
+            const ok = await listModels({flavor: "openai", baseUrl: `${server.base}/v1`, headers: {}, signal: new AbortController().signal, route: async (url) => {
+                asked.push(url.href);
+                return {ok: true, proxy: false};
+            }});
+            expect(ok.ok).toBe(true);
+            expect(asked).toEqual([`${server.base}/v1/models`]);
+            const refused = await listModels({flavor: "openai", baseUrl: `${server.base}/v1`, headers: {}, signal: new AbortController().signal, route: async () => ({ok: false, code: "proxy-invalid", message: "the custom proxy has no address"})});
+            expect(refused).toEqual({ok: false, reason: "proxy", status: null, message: "the custom proxy has no address"});
+            expect(server.seen).toHaveLength(1);
+        } finally {
+            server.stop();
+        }
+    });
+});
+
 describe("各协议的地址、认证与分类", () => {
     test("OpenAI 兼容：`/models`、Bearer 与配置的请求头；只有 id 的行是类型不明，带窗口的照收", async () => {
         const server = serve(() => json({object: "list", data: [{id: "house-chat", context_length: 32_768}, {id: "text-embedding-x"}]}));

@@ -39,7 +39,7 @@ const NAMES: Record<ApiCheck["api"], string> = {
     "anthropic-messages": "Anthropic Messages",
     "google-generative-ai": "Google Gemini",
 };
-const KNOWN_CODES = new Set(["http", "network", "timeout", "no-content", "endpoint-mismatch", "missing-key", "unknown-model", "transport-unsupported", "no-address", "cancelled"]);
+const KNOWN_CODES = new Set(["http", "network", "timeout", "no-content", "endpoint-mismatch", "missing-key", "unknown-model", "transport-unsupported", "no-address", "cancelled", "proxy-unsupported", "proxy-invalid", "proxy-unreadable"]);
 
 const detection = computed(() => (props.state.status === "done" ? props.state.detection : null));
 /** 现在的配置是哪一行试过的：快照的连接版本等于那一行改用之后的。 */

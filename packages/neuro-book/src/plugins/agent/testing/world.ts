@@ -15,6 +15,8 @@ import {definitionAt} from "nbook/manifest";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import {descriptor as filesDescriptor} from "nbook/plugins/files/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {networkBackendPlugin} from "nbook/plugins/network/backend/plugin";
+import {descriptor as networkDescriptor} from "nbook/plugins/network/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {HostCapability, SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
@@ -73,6 +75,8 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
     const work = createRunningWork((record) => settings.diagnostics("hub").record(record));
     const settings = await settingsWorld(root, [
         definitionAt("server", filesDescriptor, filesBackendPlugin),
+        // 网络出口：模型服务与网页工具都经它发请求。
+        definitionAt("server", networkDescriptor, networkBackendPlugin),
         ...(options.withoutModels === true ? [] : [definitionAt("server", modelsDescriptor, modelsBackendPlugin)]),
         definitionAt("server", descriptor, agentBackendPlugin),
         ...(options.plugins ?? []),

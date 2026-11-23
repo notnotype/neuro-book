@@ -11,8 +11,8 @@
 import {createHash, createHmac, randomBytes} from "node:crypto";
 
 import type {ModelPort, ModelQuery, ModelRequest, ModelResolution} from "@notnotype/nb-harness/kernel/contracts";
-import {buildResolution, envRefName, envValue, listingFlavor, listingHeaders, probeProtocol, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
-import type {CredentialStore, KeyAccess, ModelTarget, ProviderTarget, StartupEnv, WireApi} from "@notnotype/nb-harness/models";
+import {buildResolution, DIRECT_ROUTE, envRefName, envValue, listingFlavor, listingHeaders, probeProtocol, requestAuth, templateRoutes} from "@notnotype/nb-harness/models";
+import type {CredentialStore, KeyAccess, ModelTarget, NetworkRoute, ProviderTarget, StartupEnv, WireApi} from "@notnotype/nb-harness/models";
 import {eventSource} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation, RemoteOutcome} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
@@ -21,7 +21,7 @@ import {compactionTrigger, effectiveCompaction} from "../config/compaction";
 import {normalizeProviders} from "../config/normalize";
 import {missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "../config/rules";
 import {BLANK_API, BUILTIN_ROLES, DEFAULT_ROLES, isBlankTemplate, MODEL_ROLE_IDS} from "../config/shapes";
-import type {BlankTemplate, ModelConfig, ProviderConfig, ProviderIcon, RoleConfig, RolesConfig, StoredProvider} from "../config/shapes";
+import type {BlankTemplate, ModelConfig, ProviderConfig, ProviderIcon, ProviderProxy, RoleConfig, RolesConfig, StoredProvider} from "../config/shapes";
 import type {ModelsService, ProfileModelDefaults} from "../contract/service";
 import type {ModelsSettingsContract} from "../contract/settings-spec";
 import type {ApiCheck, CheckResult, KeyStatus, ModelRow, ModelsSnapshot, RoleStatus, SnapshotProvider, Template} from "../contract/shapes";
@@ -75,6 +75,11 @@ export interface ModelsCoreDeps {
     readonly now?: () => number;
     /** 在线目录的地址；缺省用 stencil 的；null 是不取在线目录（离线环境、e2e）。 */
     readonly catalogUrl?: string | null;
+    /**
+     * 网络出口：按服务商自己的代理设置（null 是跟随应用）给一份选路函数，模型请求、列表、检测与探测都经它；在线目录用
+     * `routeFor(null)`。不给时一律直连（docs/specs/network/egress.md）。
+     */
+    readonly routeFor?: (proxy: ProviderProxy | null) => NetworkRoute;
     /** 诊断；事件名见各处 `record` 的调用（`models.catalog.*`、`models.sources.*`、`models.credentials.failed` 等）。 */
     readonly record: (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
@@ -126,6 +131,16 @@ const validAddress = (value: string): boolean => {
     try {
         const url = new URL(value);
         return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
+/** 自定义代理的地址：http 或 https，不带用户名密码（密码会进设置文件，决定 20）。 */
+const validProxyAddress = (value: string): boolean => {
+    try {
+        const url = new URL(value);
+        return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "" && url.username === "" && url.password === "";
     } catch {
         return false;
     }
@@ -244,6 +259,14 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      * 部署身份：实例的 `uid` 加有效地址与协议；同名重建（新 `uid`）、换地址与协议后都不同，旧日志的签名不再还原。凭据身份是认证输入
      * （密钥与请求头）的 HMAC：换了其中任何一样，旧签名也不再还原。
      */
+    /**
+     * 这家的网络出口：自己的代理设置盖过应用级的。每个请求现读这家此刻的设置：会话拿着的解析结果在改代理之后仍会用到（代理不进
+     * `stillCurrentFor` 的核对，改代理不该让在用的模型失效），从下一个请求起走新的路。
+     */
+    const routeOf = (provider: ProviderConfig): NetworkRoute => async (url) => {
+        const now = current().find((item) => item.uid === provider.uid) ?? provider;
+        return (deps.routeFor?.(now.proxy ?? null) ?? DIRECT_ROUTE)(url);
+    };
     const identityOf = (provider: ProviderConfig) => (effective: {readonly api: WireApi; readonly baseUrl: string; readonly key: string | null; readonly headers: Readonly<Record<string, string>>}) => ({
         deployment: createHash("sha256").update(`${provider.uid}\n${effective.api}\n${effective.baseUrl}`).digest("hex").slice(0, 32),
         ...(signsWithCredential(effective.api) && (effective.key !== null || Object.keys(effective.headers).length > 0) ? {credential: createHmac("sha256", secret).update(authInput(effective.key, effective.headers)).digest("hex").slice(0, 32)} : {}),
@@ -283,12 +306,13 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         return {
             deployment: createHash("sha256").update(`${provider.uid}\n${flavor}\n${api}\n${baseUrl}`).digest("hex").slice(0, 32),
             credential: createHmac("sha256", secret).update(authInput(key, headers)).digest("hex").slice(0, 32),
-            request: ready ? {flavor, baseUrl, headers} : null,
+            request: ready ? {flavor, baseUrl, headers, route: routeOf(provider)} : null,
         };
     };
     const sources = createSources({
         ...(deps.sources === undefined ? {} : {store: deps.sources}),
         ...(deps.catalogUrl === undefined ? {} : {catalogUrl: deps.catalogUrl}),
+        catalogRoute: () => deps.routeFor?.(null) ?? DIRECT_ROUTE,
         now: deps.now ?? Date.now,
         record: deps.record,
         autoUpdate: () => config.autoUpdate(),
@@ -345,7 +369,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     /** 一个服务商的版本号：配置、密钥状态或来源变了就变，调用方据此判断自己读到的行是否还新。 */
     const revisionOf = (provider: ProviderConfig, key: KeyStatus): string => Bun.hash(JSON.stringify([provider, key, sources.rowsVersion(provider)])).toString(36);
 
-    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry, row.source), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id)});
+    const build = (provider: ProviderConfig, row: MemberRow) => buildResolution(targetOf(provider), modelTargetOf(row.id, row.entry, row.source), access, {transport, identityOf: identityOf(provider), stillCurrent: stillCurrentFor(provider, row.id), route: routeOf(provider)});
 
     const keyStatusOf = (provider: ProviderConfig): KeyStatus => {
         if (provider.auth === "none") return {kind: "keyless"};
@@ -475,6 +499,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 templateApi: isBlankTemplate(provider.template) ? BLANK_API[provider.template as BlankTemplate] : defaultApi(provider.template),
                 auth: provider.auth,
                 headers: {...provider.headers},
+                proxy: provider.proxy ?? null,
                 key,
                 followSource: provider.followSource,
                 source: sources.state(provider),
@@ -712,7 +737,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      */
     const connectionOf = (provider: ProviderConfig): string => {
         const auth = requestAuth(targetOf(provider), null, access);
-        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers), [...auth.missing].sort()])).digest("hex").slice(0, 32);
+        return createHmac("sha256", secret).update(JSON.stringify([provider.uid, provider.template, provider.region ?? null, effectiveApi(provider), effectiveBaseUrl(provider), provider.auth, provider.apiKeyEnv ?? null, follows(provider), authInput(auth.key, auth.headers), [...auth.missing].sort(), provider.proxy ?? null])).digest("hex").slice(0, 32);
     };
     /**
      * 改用 `api` 之后的实例：选回模板的协议即恢复跟随；地址没覆盖时跟着模板给这种协议的路由走，模板没有这种协议的路由时钉在现在的
@@ -833,7 +858,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             }),
             updateProvider: (input, ctx) => queue(async () => {
                 const step = await withProvider<null>(input.id, (provider, list) => {
-                    const {name, region, baseUrl, api, followSource, ...simple} = input.patch;
+                    const {name, region, baseUrl, api, followSource, proxy, ...simple} = input.patch;
                     const template = templateOf(provider.template);
                     let next: ProviderConfig = {...provider, ...simple};
                     if (name !== undefined) {
@@ -857,6 +882,11 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                         else delete (next as {api?: ProviderConfig["api"]}).api;
                     } else if (api !== undefined) next.api = api;
                     if (followSource !== undefined) next = withFollow(next, followSource);
+                    if (proxy === null) delete (next as {proxy?: ProviderProxy}).proxy;
+                    else if (proxy !== undefined) {
+                        if (proxy.mode === "custom" && !validProxyAddress(proxy.url.trim())) return failure("invalid-value", "the proxy address must be an http or https URL without a user name or password");
+                        next.proxy = proxy.mode === "custom" ? {mode: "custom", url: proxy.url.trim()} : proxy;
+                    }
                     if (effectiveApi(next) === null || effectiveBaseUrl(next) === null) return failure("invalid-value", "this protocol has no address in the template; give an address");
                     return {ok: true, value: {provider: next, result: null}};
                 });
@@ -1066,7 +1096,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                     const baseUrl = effectiveBaseUrl(candidate);
                     const after = connectionOf(candidate);
                     if (baseUrl === null) return {api, baseUrl: "", connection: after, url: null, ok: false, status: null, ms: null, code: "no-address", message: ""};
-                    const outcome = await probeProtocol(targetOf(candidate), target, access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS});
+                    const outcome = await probeProtocol(targetOf(candidate), target, access, {signal: ctx.signal, timeoutMs: DETECT_TIMEOUT_MS, route: routeOf(candidate)});
                     return {api, baseUrl: shownAddress(baseUrl), connection: after, ...outcome, ms: outcome.ms === null ? null : Math.round(outcome.ms)};
                 }));
                 return ctx.ok({model, connection, results});

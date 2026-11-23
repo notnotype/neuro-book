@@ -21,6 +21,7 @@ import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {networkBackendPlugin} from "nbook/plugins/network/backend/plugin";
 import {tasksBackendPlugin} from "nbook/plugins/tasks/backend/plugin";
 import {canonServerPlugin} from "nbook/plugins/canon/backend/agent-tools";
 import {plotServerPlugin} from "nbook/plugins/plot/backend/server";
@@ -63,6 +64,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.settings": settingsBackendPlugin,
     "nbook.plugins": pluginsBackendPlugin,
     "nbook.storage": storageBackendPlugin,
+    "nbook.network": networkBackendPlugin,
     "nbook.models": modelsBackendPlugin,
     "nbook.tasks": tasksBackendPlugin,
     "nbook.canon": canonServerPlugin,

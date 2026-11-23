@@ -52,6 +52,9 @@ const failed = computed(() => (props.check?.status === "done" && !props.check.re
 const failedReason = computed(() => {
     if (failed.value === null) return "";
     const kind = failed.value.kind;
+    // 网络出口选不出路：比“本机这边的问题”具体，告诉用户去改代理（docs/specs/network/egress.md）。
+    const code = failed.value.code;
+    if (kind === "local" && (code === "proxy-unsupported" || code === "proxy-invalid" || code === "proxy-unreadable")) return text(`check.proxy.${code}`);
     return ["network", "rate_limit", "auth", "quota", "context_overflow", "provider", "local"].includes(kind) ? text(`check.kinds.${kind}` as "check.kinds.other") : text("check.kinds.other");
 });
 const checkedAt = computed(() => (props.check?.status === "done" ? new Date(props.check.at).toLocaleTimeString() : ""));

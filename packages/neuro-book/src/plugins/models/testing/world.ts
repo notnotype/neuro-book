@@ -16,6 +16,8 @@ import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 import {startupEnvKey} from "nbook/shared/host";
 
 import {modelsBackendPlugin} from "../backend/plugin";
+import {networkBackendPlugin} from "nbook/plugins/network/backend/plugin";
+import {descriptor as networkDescriptor} from "nbook/plugins/network/plugin";
 import {descriptor} from "../plugin";
 import {modelsKey, modelsSettingsContract} from "../shared/contracts";
 import type {ModelsService} from "../shared/contracts";
@@ -34,14 +36,15 @@ export interface ModelsWorld {
 }
 
 /**
- * `autoUpdate`：模型列表与在线目录的自动更新（`catalogAutoUpdate`），缺省关：开着时添加、设密钥后会去拉列表。场地在启动前把它写进用户设置文件（文件已有时不动：同一个根可以重启）。
+ * `autoUpdate`：模型列表与在线目录的自动更新（`catalogAutoUpdate`），缺省关：开着时添加、设密钥后会去拉列表。场地在启动前把它与
+ * `userSettings`（例如网络出口的代理设置）写进用户设置文件（文件已有时不动：同一个根可以重启）。
  */
-export async function modelsWorld(root: string, options: {readonly env?: Readonly<Record<string, string>>; readonly autoUpdate?: boolean} = {}): Promise<ModelsWorld> {
+export async function modelsWorld(root: string, options: {readonly env?: Readonly<Record<string, string>>; readonly autoUpdate?: boolean; readonly userSettings?: Readonly<Record<string, unknown>>} = {}): Promise<ModelsWorld> {
     // 开着自动更新也不取真实的在线目录：测试不出本机（要测在线目录时传本机端点的 `NBOOK_MODELS_CATALOG_URL`）。
     const env = Object.freeze({NBOOK_MODELS_CATALOG_URL: "", ...options.env});
     await mkdir(join(root, "state"), {recursive: true});
     // 已有设置文件（同一个根重启）时不动它。
-    await writeFile(join(root, "state", "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": options.autoUpdate ?? false}), {flag: "wx"}).catch((error: unknown) => {
+    await writeFile(join(root, "state", "settings.json"), JSON.stringify({"nbook.models/catalogAutoUpdate": options.autoUpdate ?? false, ...options.userSettings}), {flag: "wx"}).catch((error: unknown) => {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     });
     let service: ModelsService | null = null;
@@ -49,7 +52,7 @@ export async function modelsWorld(root: string, options: {readonly env?: Readonl
         service = context.services.require(modelsKey);
         return {};
     }})]};
-    const settings = await settingsWorld(root, [definitionAt("server", descriptor, modelsBackendPlugin), probe], {hubCapabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env})}]});
+    const settings = await settingsWorld(root, [definitionAt("server", networkDescriptor, networkBackendPlugin), definitionAt("server", descriptor, modelsBackendPlugin), probe], {hubCapabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env})}]});
     if (service === null) throw new Error("nbook.models did not activate");
     return {
         settings,

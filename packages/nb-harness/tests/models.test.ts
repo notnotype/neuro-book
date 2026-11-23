@@ -338,6 +338,47 @@ describe("模板的实例：身份、地址与发送前核对（models.md 输出
         }
     });
 
+    test("网络出口：给代理时请求经代理到达端点（代理收到绝对地址），出口按完整地址选路", async () => {
+        const proxied: string[] = [];
+        // 转发型代理：收到绝对地址形式的请求，把 `models.test` 接到本机端点（直连，免得又绕回自己）。目标不用回环地址：Bun 对回环
+        // 目标不走代理。
+        const proxy = Bun.serve({port: 0, hostname: "127.0.0.1", async fetch(incoming) {
+            proxied.push(incoming.url);
+            const target = incoming.url.replace("http://models.test", `http://127.0.0.1:${String(server.port)}`);
+            const forwarded = await fetch(target, {method: incoming.method, headers: incoming.headers, body: await incoming.arrayBuffer(), proxy: false as unknown as string});
+            return new Response(forwarded.body, {status: forwarded.status, headers: forwarded.headers});
+        }});
+        try {
+            const asked: string[] = [];
+            const built = resolved(follows({baseUrl: "http://models.test/v1"}), {route: async (url) => {
+                asked.push(url.href);
+                return {ok: true, proxy: `http://127.0.0.1:${String(proxy.port)}`};
+            }});
+            const {response, paths} = await sendOnce(built);
+            expect(response.stopReason).toBe("stop");
+            expect(asked).toEqual(["http://models.test/v1/chat/completions"]);
+            expect(proxied).toEqual(["http://models.test/v1/chat/completions"]);
+            expect(paths).toEqual(["/v1/chat/completions"]);
+        } finally {
+            await proxy.stop(true);
+        }
+    });
+
+    test("网络出口选不出路：请求不发，交回出口的码（local）；Anthropic 的适配器也不按退避重试", async () => {
+        const refuse = async () => ({ok: false as const, code: "proxy-unsupported", message: "the system proxy is SOCKS only"});
+        for (const [provider, id] of [[follows(), model], [custom({api: "anthropic-messages"}), "qwen3:8b"]] as const) {
+            const built = buildResolution(provider, {id, contextWindow: 32_000}, {stored: () => KEY, env: {}}, {route: refuse});
+            if (!built.ok) throw new Error(built.code);
+            seen.length = 0;
+            const started = performance.now();
+            const response = await built.resolution.call(request, new AbortController().signal, () => undefined);
+            expect(response.stopReason).toBe("error");
+            expect(response.error).toMatchObject({kind: "local", code: "proxy-unsupported"});
+            expect(seen.length).toBe(0);
+            expect(performance.now() - started).toBeLessThan(2000);
+        }
+    });
+
     test("免认证只剥占位值：用户自己配的认证头（含同样的字符）照发", async () => {
         const built = resolved(follows({auth: "none", headers: {authorization: "Bearer team-N/A-token"}}));
         seen.length = 0;

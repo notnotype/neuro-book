@@ -3,11 +3,13 @@
  * 分类证据，不查目录、不补值（那是调用方按部署现算的）。
  *
  * - 不跟随重定向（`redirect: "manual"`，3xx 算 `bad-response`）：密钥只发往配置的地址。
- * - 段 C 之前直连（`proxy: false`），同模型请求。
+ * - 每页发出前经网络出口选路（`route`，同模型请求）；不给时直连。选不出路时整次以 `proxy` 结束，请求不发。
  * - **只有读完整才算成功**：分页的协议读到末页；重复游标、页数或行数超限、单页超字节都算失败，不截断成一份“看起来成功”的短表。
  */
 
+import type {NetworkRoute} from "../kernel/index.js";
 import type {WireApi} from "./catalog.js";
+import {DIRECT_ROUTE} from "./target.js";
 
 /** 列表的变体：OpenAI 兼容的 `/models`、OpenRouter 的（带模态与窗口）、Anthropic 的 `/v1/models`、Gemini 的 `/models`。 */
 export type ListingFlavor = "openai" | "openrouter" | "anthropic" | "gemini";
@@ -25,8 +27,11 @@ export interface ListedModel {
     readonly vision?: boolean;
 }
 
-/** `auth` 401、403；`not-found` 404、405（服务商没有列表接口）；`unreachable` 连不上；`bad-response` 其余；`cancelled` 被调用方取消。 */
-export type ListingFailure = "auth" | "not-found" | "unreachable" | "bad-response" | "cancelled";
+/**
+ * `auth` 401、403；`not-found` 404、405（服务商没有列表接口）；`unreachable` 连不上；`bad-response` 其余；`cancelled` 被调用方取消；
+ * `proxy` 网络出口选不出路（代理是 SOCKS 或自动配置脚本、地址不对、系统设置读不到），请求没有发出。
+ */
+export type ListingFailure = "auth" | "not-found" | "unreachable" | "bad-response" | "cancelled" | "proxy";
 
 export type ListingResult =
     | {readonly ok: true; readonly rows: readonly ListedModel[]}
@@ -47,6 +52,8 @@ export interface ListModelsOptions {
      * 以 `cancelled` 结束。不给时不问。
      */
     readonly stillCurrent?: () => boolean;
+    /** 网络出口；不给时直连。 */
+    readonly route?: NetworkRoute;
 }
 
 /** 按协议与模板定变体：OpenRouter 的模板用它自己的列表形状，其余按协议。 */
@@ -111,9 +118,13 @@ export async function listModels(options: ListModelsOptions): Promise<ListingRes
     for (let page = 1; ; page += 1) {
         if (page > LISTING_LIMITS.pages) return bad(null, `the list has more than ${String(LISTING_LIMITS.pages)} pages`);
         if (options.stillCurrent?.() === false) return {ok: false, reason: "cancelled", status: null, message: "the provider was changed while its models were being listed"};
+        const url = listingUrl(options.flavor, options.baseUrl, cursor);
+        const route = await (options.route ?? DIRECT_ROUTE)(url);
+        if (!route.ok) return {ok: false, reason: "proxy", status: null, message: route.message};
         let response: Response;
         try {
-            response = await fetch(listingUrl(options.flavor, options.baseUrl, cursor), {method: "GET", headers: {...options.headers}, redirect: "manual", signal: options.signal, proxy: false} as RequestInit);
+            // `proxy` 的类型声明里没有 `false`（Bun 1.4.3 起的按次直连）。
+            response = await fetch(url, {method: "GET", headers: {...options.headers}, redirect: "manual", signal: options.signal, proxy: route.proxy as string});
         } catch (error) {
             return thrown(error, options.signal);
         }

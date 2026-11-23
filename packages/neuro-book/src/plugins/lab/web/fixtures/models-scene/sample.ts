@@ -31,7 +31,7 @@ export const sampleRow = (id: string, patch: Partial<ModelRow> = {}): ModelRow =
 };
 
 const provider = (patch: Partial<SnapshotProvider> & Pick<SnapshotProvider, "id" | "template" | "name" | "key">, rows: readonly ModelRow[]): SnapshotProvider => ({
-    region: null, icon: null, baseUrl: null, templateBaseUrl: null, api: "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, followSource: true, source: SOURCE_CATALOG,
+    region: null, icon: null, baseUrl: null, templateBaseUrl: null, api: "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, proxy: null, followSource: true, source: SOURCE_CATALOG,
     modelCount: rows.length, enabledCount: rows.filter((row) => row.enabled).length, excludedCount: 0, modelsRevision: "r1", connection: "c1", ...patch,
 });
 

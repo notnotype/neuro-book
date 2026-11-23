@@ -12,7 +12,7 @@
 
 import {createHash} from "node:crypto";
 
-import type {CatalogView, ListedModel, ListingFlavor} from "@notnotype/nb-harness/models";
+import type {CatalogView, ListedModel, ListingFlavor, NetworkRoute} from "@notnotype/nb-harness/models";
 import {createCatalogView, fetchOnlineCatalog, listModels, OnlineCatalogError, parseOnlineCatalog} from "@notnotype/nb-harness/models";
 import type {OnlineCatalog} from "@notnotype/nb-harness/models";
 import {Type} from "typebox";
@@ -83,7 +83,8 @@ export const sourceKeyOf = (uid: string): string => createHash("sha256").update(
 export interface SourceDeployment {
     readonly deployment: string;
     readonly credential: string;
-    readonly request: {readonly flavor: ListingFlavor; readonly baseUrl: string; readonly headers: Readonly<Record<string, string>>} | null;
+    /** `route` 是这家的网络出口（按它的代理设置）。 */
+    readonly request: {readonly flavor: ListingFlavor; readonly baseUrl: string; readonly headers: Readonly<Record<string, string>>; readonly route: NetworkRoute} | null;
 }
 
 export interface SourcesDeps {
@@ -102,6 +103,8 @@ export interface SourcesDeps {
     readonly changed: () => void;
     /** 在线目录的地址；缺省用 stencil 的；null 是不取在线目录（只用打包目录与已存的副本）。 */
     readonly catalogUrl?: string | null;
+    /** 在线目录请求的网络出口（应用级的代理设置），每次现取；不给时直连。 */
+    readonly catalogRoute?: () => NetworkRoute;
 }
 
 /**
@@ -267,7 +270,7 @@ export function createSources(deps: SourcesDeps): Sources {
         const controller = new AbortController();
         catalogAttemptedAt = deps.now();
         const done = (async () => {
-            const fetched = await fetchOnlineCatalog({etag: catalog?.cache.etag ?? null, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(CATALOG_TIMEOUT_MS)]), ...(deps.catalogUrl === undefined || deps.catalogUrl === null ? {} : {url: deps.catalogUrl})});
+            const fetched = await fetchOnlineCatalog({etag: catalog?.cache.etag ?? null, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(CATALOG_TIMEOUT_MS)]), ...(deps.catalogUrl === undefined || deps.catalogUrl === null ? {} : {url: deps.catalogUrl}), ...(deps.catalogRoute === undefined ? {} : {route: deps.catalogRoute()})});
             if (closed) return;
             if (fetched.status === "failed") {
                 deps.record("warn", "models.catalog.fetch-failed", "Fetching the online model catalog failed", {reason: fetched.reason, error: fetched.message});

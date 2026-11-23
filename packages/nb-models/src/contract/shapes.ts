@@ -7,7 +7,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 import {CompactionSettingSchema} from "../config/compaction";
-import {ProviderApiSchema, ProviderIconSchema, RoleEffort} from "../config/shapes";
+import {ProviderApiSchema, ProviderIconSchema, ProviderProxySchema, RoleEffort} from "../config/shapes";
 
 /** 包内几个形状共用的小块；不从入口导出。 */
 export const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);
@@ -77,9 +77,9 @@ export const ModelRowSchema = Type.Object({
 }, {additionalProperties: false});
 export type ModelRow = Static<typeof ModelRowSchema>;
 
-/** 列表请求失败的原因：nb-harness 的五类，加上超时、没有凭据、存不下。 */
+/** 列表请求失败的原因：nb-harness 的六类（`proxy` 是网络出口选不出路、请求没发），加上超时、没有凭据、存不下。 */
 export const ListingErrorReasonSchema = Type.Union([
-    Type.Literal("auth"), Type.Literal("not-found"), Type.Literal("unreachable"), Type.Literal("bad-response"), Type.Literal("cancelled"),
+    Type.Literal("auth"), Type.Literal("not-found"), Type.Literal("unreachable"), Type.Literal("bad-response"), Type.Literal("cancelled"), Type.Literal("proxy"),
     Type.Literal("timeout"), Type.Literal("no-credentials"), Type.Literal("storage"),
 ]);
 
@@ -116,6 +116,8 @@ export const SnapshotProviderSchema = Type.Object({
     templateApi: Nullable(Type.String()),
     auth: Auth,
     headers: Headers,
+    /** 这家自己的代理；null 是跟随应用的设置。 */
+    proxy: Nullable(ProviderProxySchema),
     key: KeyStatusSchema,
     followSource: Type.Boolean(),
     source: ListingStateSchema,
