@@ -1,0 +1,73 @@
+# w00032/t42 第 4 片实现审查：会话索引首句、会话树缓存与子代理卡片
+
+## 重要｜数据正确性｜回退重试能把另一次运行的回复写进这次的索引
+
+- 位置：`packages/nb-harness/src/kernel/log/index-file.ts:53-73,87-92`；应对照 `packages/nb-harness/src/kernel/run/results.ts:21-39`、`docs/specs/harness/runtime.md:99` 与计划 3.7。
+- 现象：`replyLine` 跟着日志的写入顺序走，只在 `runStarted` 清空。回退后续跑写 `runResumed`，同一个 `runId` 的新收口可以挂在旧节点下；新路径在收口前没有带文字的回复时，索引会借用已经离开路径、甚至属于另一 `runId` 的文字。
+- 影响：`entry`、`list` 和 `tree.runs` 对同一次收口报告别的运行的正文，重开也不会纠正。基线不会写出错误首句，因为那时没有 `line`。
+- 核实：`bun /tmp/t42-s4-review/index-probe.ts` 使用真实内核与 JSONL。运行 A 的前言为「共同前言。」、结果为「第一条分支。」；运行 B 回「另一次运行。」；回退到 A 的末次请求前并让重试失败。`waitRun(A)` 取到 `reason: "error"`、`text: "共同前言。"`，第三条索引收口却是 `runId: A, reason: "error", line: "另一次运行。"`。`list` 和 `entry` 一致，关闭重开后仍是相同数据。
+- 改法：由 `runEnded.parent` 沿路径回溯至对应 `runStarted`，选最近有文字的 `assistant`；或按路径节点继承最近回复，不用全日志共享的槽。回归用真实 `rewind → start → waitRun → entry`，明确断言重试收口不会借用旁支或后续运行。建议变异：把回复来源换回日志中最近一条 `assistant`，该用例应失败。
+
+## 重要｜兼容性｜打开旧会话不补写回复首句
+
+- 位置：`packages/nb-harness/src/kernel/log/jsonl-store.ts:286-295`、`packages/nb-harness/src/kernel/log/index-file.ts:95-96`；计划 3.7、`docs/specs/harness/session.md:148` 要求旧索引能读，打开时按日志补齐。
+- 现象：打开时虽重折了日志，写盘条件仍只检查 `throughSeq`、`background`、`spend`、`runs`。上一版留下的索引满足所有条件；带首句的内存折叠结果没有写入 `index.json`。
+- 影响：已有会话只是打开查看、没有写新日志时，`entry`、`list` 和用它们的会话树依然读不到首句，旧卡片仍显示「已完成」。这不是可选字段的兼容回退，而是缺了合同指定的补写动作。
+- 核实：真实 JSONL 中完成回复「早期回复。细节」，只去掉旧格式没有的 `runs[].line`（保留 `spend`、`runs`，`throughSeq` 为 14），关闭重开。`runResult` 可读出全文，但重开前后 `entry` 和 `list` 都仍缺 `line`，`throughSeq` 同为 14。
+- 改法：给磁盘索引一个格式代次，或比较磁盘与重折后的 `runs`；只在确实过时的时候写，不把合法的无首句当过时索引。回归以 `throughSeq` 与日志一致的上一版索引作输入，真实打开后只读 `entry` / `list`，断言补到「早期回复。」；不靠再执行一条指令触发写盘。
+
+## 重要｜接口容量｜历史首句使整棵子代理树提前失效
+
+- 位置：`packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts:145` 附近把 `index.runs` 全量带入；`backend/remote.ts:200-203,382-389` 对查询和推送沿用 512 KiB 上限。`docs/specs/agent/subagents.md:107-108` 要求交回全部后代及其状态。
+- 现象：每个后代至多 20 条首句，200 个普通汉字的一条就新增 610 字节（含 JSON 字段），每个后代增加 12,200 字节。达到老的字节上限时，查询丢掉整棵树，推送保留上一份；没有只减掉可选首句的路径。
+- 影响：已有规模原本能用的会话树，现在可能导致新开父会话时拿不到卡片的后代状态与待办事项；已打开的窗口拿不到此后的更新。上限处理原来就存在，容量收缩是本片回归。
+- 核实：产品夹具 `agentWorld` 经真实 `tree` RPC 和 `treeChanged`。派一个子代理、在同一子会话真实跑满 20 次，每次回复 200 个不同汉字，然后用产品 `fork` 增加兄弟后代。审查提交 38 个后代时为 516,037 字节、推送 38 项；到 39 个后代查询得 `result-too-large`，记录 `agent.tree-too-large`，最后一份推送仍是 38 项。基线同样场景 42 个后代仍可查询和推送，查询体 57,957 字节。
+- 改法：先保住树的结构、终态与等待事项；编码超过预算时给查询和推送用同一投影，优先删掉历史运行的可选 `line`，不因首句把全树丢掉。若要完整保留所有历史首句，另定分段读取与推送合同。回归使用多字节内容，断言加首句后跨上限时仍能得到后代和事项。
+
+## 建议｜文本正确性｜200 字截断可能把一个 emoji 砍成半个
+
+- 位置：`packages/nb-harness/src/kernel/log/index-file.ts:22-27`。
+- 现象与影响：`slice(0, 199)` 数的是 UTF-16 码元；第 199 码元若是高代理项，索引留半个字符，卡片可能显示替换字符。旧版会话索引没有这段文字；这次新增的索引路径会写出不完整的字符串。
+- 核实：`index-probe.ts` 让真实内核收口一条 `"a".repeat(198) + "🙂补充"` 的回复。`runResult` 的原文完整，`entry` 的首句长 200 个码元，省略号前是孤立的 `0xd83d`，`isWellFormed()` 为 `false`。
+- 改法：按码点找 200 字截断边界（省略号占一字），不用复制整段字符数组；若定稿明确按码元计数，也至少不把代理对拆开。边界测试用一个跨过截断位置的非 BMP 字符。
+
+## 建议｜界面文案｜从索引取到的旧进度被当作错误原因
+
+- 位置：`packages/neuro-book/src/plugins/agent/web/subagent-card.ts:135-137`、`packages/neuro-book/src/plugins/agent/web/components/SubagentCard.vue:73-75`。`docs/specs/agent/conversation.md:101` 只要求完成时用 `runs[].line`，失败时这一位置表示原因。
+- 现象与影响：`tree` 的失败收口也把 `run.line` 当作 `failed` 的说明，界面用「出错：{{line}}」渲染。最后一条回复可以是此前的正常进度，并不是随后失败的原因。「出错：找到 4 处矛盾。」会把正常结论说成错误原因。
+- 核实：真实后台子代理先回「找到 4 处矛盾。」，有一条就绪插话继续同一运行，下一次模型请求返回 `500 Service overloaded`。审查提交的 `cardModel` 用真实 RPC 树得 `state: "failed", line: "找到 4 处矛盾。"`；基线同一路径 `line: ""`，显示「出错」。用真实 `wait` 的工具结果时两个版本都给旧进度，那条路径是既有问题，不计入本片回归。未运行浏览器；文字由组件和 `zh-CN.json:376-377` 推得。
+- 改法：树的首句只给成功状态用。没有错误原因时保留普通「出错」；需要三条路径都显示原因时，另以可区分的字段携带原因，不把进度塞进原因。回归用一个实际失败、但此前有正常回复的运行。
+
+## 建议｜验收可靠性｜看到「派出去了」不等于父运行已收口
+
+- 位置：`packages/neuro-book/e2e/agent-subagents.e2e.ts:132-142`、`:215-218`；`packages/nb-agent-ui/src/kernel-transcript.ts:864-874`、`packages/nb-agent-ui/src/conversation-turns.ts:311-324,375-385`；`packages/neuro-book/src/plugins/agent/backend/task-rows.ts:50-56`。
+- 现象：验收 2 以 `getByText("派出去了").toBeVisible()` 作为批准前的收口屏障；流式、已提交但还没收口的回复都能满足。最后一条清理也只等任务组消失；回执被受理后任务行就可消失，不等回执唤起的运行结束。
+- 影响：测试没有隔离它声称避免的时序；如果批准后回执赶在父运行收口之前入队，原回复可以成为中间过程并收起。最后一例的断言也不能区分回执唤起并成功结束与页面切掉、回执尚未跑完。当前改动没有放宽最终首句断言，但这两个等待不能作为其注释所称的收口证据。
+- 核实（静态，未跑 e2e）：流式消息含 `text` 并走和最终文本相同的显示路径；内核在写出 `assistant` 之后才在收口队列段判断是否已有唤起提醒（`packages/nb-harness/src/kernel/run/loop.ts:380-390,419-434`）。任务出口进 `pending` 时调用 `receiptSettled`（`packages/neuro-book/src/plugins/agent/backend/jobs/delivery.ts:250-268`），此时仍可有模型请求在跑。
+- 改法：验收 2 等可观察的父会话空闲（例如确认父回复已显示后，空输入的主操作从「停止」回到「发送」），不要把文字出现作为边界。末例可回到父会话，等看到这次脚本化的回执回复「收到」并等父会话空闲，或通过测试夹具等到对应的 `runEnded`。不靠调整用例顺序隔离脚本。
+
+## 建议｜缓存生命周期｜会话从未被读索引，也会永久占一个失效计数槽
+
+- 位置：`packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts:94-112`、`packages/nb-harness/src/kit/sessions/table.ts:439-444,494-511`。
+- 现象与影响：`#writes` 为会话表的每条日志帧做一次读改写，所有写过日志的 id 都留一项，包括从不在子树里读取索引的根会话和内部会话。关闭会话不会回收；每 1,000 个这样的不同 id 是额外的 1,000 项。注释说按批，实际监听按事件。本条是从调用链确认的资源生命周期问题，未测常驻内存大小。
+- 核实：`onLog` 在会话表对所有已打开会话的每帧调用；`#writes.set` 在监听器无条件执行，只有 `#index` 读它，没有删除路径。
+- 改法：只记录在途索引读的代次，写日志时让对应读失效，最后一个读结束清理。保留已有测试对读中写入的回归，补两个重叠索引读时较早结果不能覆盖较新的场景；不用把 Map 大小锁成测试合同。
+
+## 基线也存在的行为，不计入本片数量
+
+- `packages/neuro-book/src/plugins/agent/web/subagent-card.ts:135` 和 `packages/nb-harness/src/kernel/log/index-file.ts:92`：同一 `runId` 的 2 次收口按写入先后保存，卡片的 `.find()` 取最早一条。用真实子代理回退并重试到 `error`，两个版本的卡片仍是 `done`；本片还多显示了旧分支的 200 字回复。修正本片首句的路径归属时，建议同时核对卡片是否应取最后一次收口，以及正在续跑时旧终态是否应让给现况。
+- `packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts:104-112`、`packages/nb-harness/src/kit/sessions/table.ts:241-248,404-424`：在句柄关闭时读到缓存，打开时只重建磁盘索引而不发日志帧，不会触发失效。真实日志配一份收口前的旧索引模拟重启：两个版本都是树先读 0 条、打开后磁盘补到 2 条、再次查树仍是 0 条。改旧索引补写时要同时考虑已缓存的索引，不能仅以落盘为验收终点。
+- `packages/neuro-book/src/plugins/agent/backend/subagents/result.ts:113-116`：只有 `yield`、没有文字的结构化结果，两个版本的真实前台调用卡片都显示 `{"count":3}`，后台仅从树取结果时都回退到「已完成」。本片合同只增加回复文字，未把结构化值当正文，不计回归。
+
+## 未发现问题的方面
+
+- 索引在一次普通运行中跨写入批保留首句，没有回复的普通收口不带 `line`；同 `throughSeq` 的 `list` 和 `entry` 在探针中一致。旧格式索引仍可读，缺失的是打开时补写。
+- 读索引途中实际写入日志、下一次读拿到收口：新竞态用例在审查提交通过；只把同一个测试文件复制进 `/tmp` 的基线快照后，原实现返回 `runs: []`，测试按预期失败。
+- 调用自己的终态和父会话后续工具结果仍优先于会话树；依旧没有为卡片新增远程 `runOutcome`。差异未发现新增静默吞错、放宽最终行为断言、跨包深导入或不相关的产品源码改动。
+
+## 验证与数量
+
+- `packages/nb-harness`：`bun test src/kernel/log`，39 过、0 失败；`bunx tsc --noEmit -p .`，退出 0。
+- `packages/neuro-book`：`bun test src/plugins/agent/subagent-tree.test.ts src/plugins/agent/subagent-card.test.ts src/plugins/agent/subagents.test.ts`，48 过、0 失败。基线快照的 `bun test src/plugins/agent/subagent-tree.test.ts` 按预期 0 过、1 失败。
+- `bun /tmp/t42-s4-review/index-probe.ts` 与 `bun /tmp/t42-s4-review/product-probe.ts`：真实内核、JSONL 和插件 RPC；产品脚本以 `PROBE_REV=head|base` 对照，在 `PROBE_PART=budget`、`PROBE_PART=display` 分别核实容量和失败显示取值。未运行浏览器、e2e、开发服务或真实模型；e2e 条目为静态审查。
+- 本片：阻断 **0**、重要 **3**、建议 **4**。基线既有问题另列，不计入。
