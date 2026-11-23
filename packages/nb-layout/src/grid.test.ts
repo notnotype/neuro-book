@@ -1852,7 +1852,7 @@ describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）",
             "duplicate-id": grid.restore(pair({...leaf("same", "width", 50, 10, 100), ref: "other"}), (ref) => ({ref})),
         };
         for (const [code, result] of Object.entries(failures)) {
-            expect(result.ok ? null : result.code, code).toBe(code);
+            expect(result.ok ? null : (result.code as string), code).toBe(code);
             expect([Array.isArray(result.dropped), Array.isArray(result.clamped)], code).toEqual([true, true]);
         }
     });

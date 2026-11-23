@@ -7,6 +7,7 @@ import {moveGridFocus} from "./grid-focus";
 import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "./text";
 import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
+import type {GridLeafShape} from "../grid-rects";
 
 /**
  * 递归渲染层的行为用例：树 → 面板 px + 叶插槽 + 一次会话的指针/键盘提交。
@@ -663,7 +664,7 @@ describe("嵌套的 NestedGrid（输出 24、25、131）", () => {
                     node: inner.root(),
                     layout: inner.layout({width: 699, height: 300}),
                     disabled: disabled.value,
-                    onGestureCommit: () => ({ok: true}),
+                    onGestureCommit: () => ({ok: true} as const),
                     onGestureStart: () => void innerEvents.push("gesture-start"),
                     onGestureEnd: () => void innerEvents.push("gesture-end"),
                     onGestureCancel: () => void innerEvents.push("gesture-cancel"),
@@ -1729,7 +1730,7 @@ describe("NestedGrid 内容层", () => {
         type Exposed = {shapedLeaves: ReadonlySet<string>; moving: boolean};
 
         /** 同“降到零”那条：宿主把 a 收起为零，a 的内容不跟外框；`motion` 是过渡时长。 */
-        async function collapseWithShape(shape: (leaf: string) => unknown, motion = "30ms") {
+        async function collapseWithShape(shape: (leaf: string) => GridLeafShape | undefined, motion = "30ms") {
             // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
             const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
             // test-lint-allow spy: 同上，桩布局盒的高

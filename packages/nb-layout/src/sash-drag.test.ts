@@ -278,7 +278,7 @@ describe("拖动求解：收起与恢复", () => {
 
         expect(result?.sizesPx).toEqual([200, 400]);
         expect(result?.collapsed).toEqual({});
-        expect(result?.issues.map((issue) => ({code: issue.code, ...issue.params}))).toEqual([{code: "no-collapse-policy", id: "plain"}]);
+        expect(result?.issues.map((issue): Record<string, unknown> => ({code: issue.code, ...issue.params}))).toEqual([{code: "no-collapse-policy", id: "plain"}]);
     });
 });
 
