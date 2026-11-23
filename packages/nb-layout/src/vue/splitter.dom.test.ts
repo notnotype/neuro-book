@@ -1441,6 +1441,57 @@ describe("Splitter 会话的显式折叠与提交", () => {
         expect(session.state).toBeNull();
     });
 
+    /** 两栏：a 带收起策略，b 的上限给定，决定 a 收起时另一侧吸收得了多少。 */
+    function pairSession(a: SplitterPanelConfig, b: SplitterPanelConfig, baseline: readonly number[]): SplitterGestureSession {
+        const panels = sashPanelsOfConfig([a, b], baseline);
+        return createSplitterSession({
+            sessionId: "session-pair",
+            contextKey: "pair",
+            source: "keyboard",
+            revision: 1,
+            branchId: "pair",
+            axis: "width",
+            ids: panels.map((panel) => panel.id),
+            panels,
+            baselinePx: baseline,
+            sashIndex: 0,
+            extent: {width: baseline.reduce((sum, size) => sum + size, 0), height: 0},
+        });
+    }
+    const POLICY = {collapsedSize: 0, restoreSize: 250, collapseThreshold: 24, expandThreshold: 24};
+    const issueFacts = (session: SplitterGestureSession): {code: string; id: unknown}[] =>
+        session.issues.map((issue) => ({code: issue.code, id: (issue.params as {id?: unknown}).id}));
+
+    it("Enter 恢复空间不够：不改状态、不发布预览，会话诊断里有 no-room-to-restore", () => {
+        // a 收起中，恢复最少要 200，b 最多只能让出 150
+        const session = pairSession(
+            {id: "a", defaultSizePx: 250, minSizePx: 200, collapse: {...POLICY, collapsed: true}},
+            {id: "b", defaultSizePx: 300, minSizePx: 150},
+            [0, 300],
+        );
+        expect(session.toggleCollapsed()).toBeNull();
+        expect(issueFacts(session)).toEqual([{code: "no-room-to-restore", id: "a"}]);
+        expect(session.state).toBeNull();
+        expect(session.changed).toBe(false);
+        expect(session.finish()).toBeNull();
+    });
+
+    it("先拖再折叠没有变化：前面的位移与已发布的预览照常保留，诊断记下折叠被拒", () => {
+        // b 最多 250：a 收起要把 200 全部让给它，装不下
+        const session = pairSession(
+            {id: "a", defaultSizePx: 200, minSizePx: 50, collapse: {...POLICY, restoreSize: 200, collapsed: false}},
+            {id: "b", defaultSizePx: 200, maxSizePx: 250},
+            [200, 200],
+        );
+        const dragged = session.update({x: -30, y: 0});
+        expect(dragged).toMatchObject({sizesPx: [170, 230], active: ["a", "b"]});
+        expect(session.toggleCollapsed()).toBeNull();
+        expect(issueFacts(session)).toEqual([{code: "no-room-to-collapse", id: "a"}]);
+        expect(session.state).toBe(dragged);
+        expect(session.changed).toBe(true);
+        expect(session.finish()?.changes[0]).toMatchObject({target: {a: 170, b: 230}, collapsed: {}});
+    });
+
     it("取消之后会话不再接受输入，也不提交", () => {
         const session = collapsibleSession();
         session.update({x: -150, y: 0});

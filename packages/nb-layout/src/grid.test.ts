@@ -1186,6 +1186,34 @@ describe("拆分树原语：批量原子调整与收起", () => {
         expect(extent(sizes, "editor").width).toBe(1479);
     });
 
+    it("同一次提交里收起保留像素的面板并拖另一个：收起记意图、被拖的两块按目标呈现、意图守恒", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), sizing: "fixed", collapse: {collapsed: false, collapsedSize: 0, restoreSize: 100, collapseThreshold: 24, expandThreshold: 24}},
+            leaf("b", "width", 400, 100),
+            leaf("c", "width", 300, 100),
+        ]), {sashSize: SASH});
+        const wide: GridExtent = {width: 1000, height: 400};
+        const before = grid.layout(wide).sizes;
+        const baseline = {a: extent(before, "a").width, b: extent(before, "b").width, c: extent(before, "c").width};
+        expect(baseline.a).toBe(300);
+
+        // a 让出 300：b 多得 250、c 多得 50，目标合计与基线相同。
+        const target = {a: 0, b: baseline.b + 250, c: baseline.c + 50};
+        const result = grid.resizeBranches([{branchId: "root", axis: "width", baseline, target, collapsed: {a: true}}]);
+
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error(result.message);
+        expect(result.collapsed).toEqual({a: true});
+        // 保留像素的面板：意图仍是 300，也是记下的恢复尺寸，不被 0 或旧的 restoreSize 100 覆盖。
+        expect(extent(result.intents, "a").width).toBe(300);
+        expect(grid.find("a")?.collapse).toMatchObject({collapsed: true, restoreSize: 300});
+        const after = grid.layout(wide);
+        expect(after.issues).toEqual([]);
+        expect(extent(after.sizes, "a").width).toBe(0);
+        expect(extent(after.sizes, "b").width).toBeCloseTo(target.b, 4);
+        expect(extent(after.sizes, "c").width).toBeCloseTo(target.c, 4);
+    });
+
     it("收起清掉后收起节点的最小尺寸不再撑开分配", () => {
         const grid = createGrid(shellRow(), {sashSize: SASH});
         const baseline = grid.layout({width: 1480, height: 600}).sizes;
