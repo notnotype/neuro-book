@@ -15,6 +15,7 @@ import {EDITOR_PAGES_POINT, validateEditorPageContribution} from "../shared/cont
 import {editorText} from "../shared/text";
 import {createEditorArea} from "./area";
 import EditorGroup from "./components/EditorGroup.vue";
+import EditorGroupHead from "./components/EditorGroupHead.vue";
 import {EditorPageRegistry, pageAddress} from "./pages";
 import {editorStateValues} from "./state";
 import type {EditorPageImplementation} from "./pages";
@@ -322,6 +323,99 @@ describe("Spec workbench.editor 输出 33、场景 44：编辑组里两个同种
             area.dispose();
             memory.dispose();
             document.body.innerHTML = "";
+        }
+    });
+});
+
+describe("Spec workbench.editor 输出 68：页面的未提交内容", () => {
+    const Plain = defineComponent({name: "TestPlainPage", props: {context: {type: Object, required: true}}, setup: () => () => h("div", {"data-test-page": ""})});
+
+    /** 两个同种页面的标签（a、b），页面按参数报告未提交、接提交；`pending` 是页面自己在组件之外持有的状态。 */
+    async function twoTabs(implementation: Partial<EditorPageImplementation>) {
+        const registry = await start(() => Promise.resolve(Plain), {declaration: {instances: true}, implementation});
+        const memory = createMemoryFiles({project: ["notes/a.md"], user: []});
+        const source = registry.source({recent: []});
+        const reported: unknown[] = [];
+        const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, pageUncommitted: (tab) => source.uncommitted(tab), pageCommit: (tab) => source.commit(tab), report: (error) => {
+            reported.push(error);
+        }});
+        const a = area.openPage(PAGE_ID, {arg: "a"});
+        const b = area.openPage(PAGE_ID, {arg: "b"});
+        if (!a.ok || !b.ok) throw new Error("打不开页面");
+        const head = mount(EditorGroupHead, {props: {area, groupId: area.groups.activeGroup.value, pages: source}, attachTo: document.body, global: {provide: provideText(port)}});
+        const dirtyTabs = () => head.findAll("[data-editor-tab-dirty]").map((tab) => tab.attributes("data-editor-tab"));
+        const dispose = () => {
+            head.unmount();
+            area.dispose();
+            memory.dispose();
+            document.body.innerHTML = "";
+        };
+        return {area, a: a.tabId, b: b.tabId, dirtyTabs, reported, state: editorStateValues(shallowRef(area)), dispose};
+    }
+
+    it("页面说有未提交内容的标签带圆点，不在前台的也带；活动的是它时 dirty 为真，保存调用它的 commit 并等它完成", async () => {
+        const pending = ref(new Set<string>(["a"]));
+        const committed: string[] = [];
+        const gate: {release: () => void} = {release: () => undefined};
+        const scene = await twoTabs({
+            uncommitted: (arg) => arg !== undefined && pending.value.has(arg),
+            commit: async (arg) => {
+                await new Promise<void>((resolve) => {
+                    gate.release = resolve;
+                });
+                committed.push(arg ?? "");
+                pending.value = new Set([...pending.value].filter((item) => item !== arg));
+            },
+        });
+        try {
+            await flushPromises();
+            // b 是活动的，a 在后台：圆点在 a 上，公开状态看的是活动标签。
+            expect(scene.dirtyTabs()).toEqual([scene.a]);
+            expect(scene.state.dirty.value).toBe(false);
+
+            scene.area.activate(scene.a);
+            await flushPromises();
+            expect(scene.state.dirty.value).toBe(true);
+            let settled = false;
+            const saving = scene.area.save().then((result) => {
+                settled = true;
+                return result;
+            });
+            await flushPromises();
+            // commit 还没完成：保存在等它。
+            expect([settled, committed]).toEqual([false, []]);
+            gate.release();
+            expect(await saving).toEqual({ok: true});
+            expect(committed).toEqual(["a"]);
+            await flushPromises();
+            expect([scene.dirtyTabs(), scene.state.dirty.value]).toEqual([[], false]);
+
+            // 页面没有文档：不进“未保存的文档”。
+            pending.value = new Set(["a", "b"]);
+            await flushPromises();
+            expect(scene.dirtyTabs().sort()).toEqual([scene.a, scene.b].sort());
+            expect(scene.state.hasUnsavedDocuments.value).toBe(false);
+        } finally {
+            scene.dispose();
+        }
+    });
+
+    it("commit 失败（reject）时保存报告失败并把错误交给诊断；没给 commit 的页面保存照旧不可用、没有圆点", async () => {
+        const failing = await twoTabs({uncommitted: () => true, commit: () => Promise.reject(new Error("boom"))});
+        try {
+            const result = await failing.area.save();
+            expect(result).toEqual({ok: false, reason: editorText("refusal.pageCommitFailed")});
+            expect(failing.reported.map((error) => (error as Error).message)).toEqual(["boom"]);
+        } finally {
+            failing.dispose();
+        }
+        const plain = await twoTabs({});
+        try {
+            await flushPromises();
+            expect([plain.dirtyTabs(), plain.state.dirty.value]).toEqual([[], false]);
+            expect(await plain.area.save()).toEqual({ok: false, reason: editorText("refusal.noActiveDocument")});
+        } finally {
+            plain.dispose();
         }
     });
 });

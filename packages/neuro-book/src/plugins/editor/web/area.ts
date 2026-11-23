@@ -92,6 +92,10 @@ export interface EditorAreaOptions {
     readonly mountedControlsPerEditor?: number;
     /** 这个页面标签此刻有没有面包屑（输出 33）：有才能用命令聚焦它。编辑区不认识页面的实现，由页面的注册表回答；不给就是没有。 */
     readonly pageHasBreadcrumbs?: (tab: PageTab) => boolean;
+    /** 这个页面标签有没有没提交的内容（输出 68）；同样由页面的注册表回答，不给就是没有。响应式。 */
+    readonly pageUncommitted?: (tab: PageTab) => boolean;
+    /** 提交这个页面标签的内容（输出 68）；页面不接保存时为 null。 */
+    readonly pageCommit?: (tab: PageTab) => (() => Promise<void>) | null;
 }
 
 /**
@@ -183,6 +187,8 @@ export interface EditorArea {
     rememberPageTitle(tabId: string, title: string): void;
     /** 活动标签是有面包屑的页面标签（输出 33）：命令 `focus-breadcrumbs` 对它可用。响应式。 */
     activePageHasBreadcrumbs(): boolean;
+    /** 活动标签是有没提交内容的页面标签（输出 68）：公开状态 `dirty` 把它算上，“保存”因此可用。响应式。 */
+    activePageUncommitted(): boolean;
     activate(tabId: string, options?: {readonly focusView?: boolean}): ActionResult;
     /** preview 转为 permanent（双击标签）。 */
     keep(tabId: string): void;
@@ -999,6 +1005,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const tab = groups.activeTab();
             return tab !== null && tab.kind === "page" && options.pageHasBreadcrumbs?.(tab) === true;
         },
+        activePageUncommitted: () => {
+            const tab = groups.activeTab();
+            return tab !== null && tab.kind === "page" && options.pageUncommitted?.(tab) === true;
+        },
         openPage: (id, pageOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
             const address = pageAddress(id, pageOptions.arg);
@@ -1111,6 +1121,19 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return changeEditor(tab, editor);
         },
         save: async () => {
+            const tab = groups.activeTab();
+            if (tab !== null && tab.kind === "page") {
+                // 页面没有文档（输出 68）：保存交给页面自己的提交；它不接保存时与“没有可保存的文档”同样处理。
+                const commit = options.pageCommit?.(tab) ?? null;
+                if (commit === null) return {ok: false, reason: editorText("refusal.noActiveDocument")};
+                try {
+                    await commit();
+                    return {ok: true};
+                } catch (error) {
+                    options.report(error);
+                    return {ok: false, reason: editorText("refusal.pageCommitFailed")};
+                }
+            }
             const document = activeDocument.value;
             if (document === null) return {ok: false, reason: editorText("refusal.noActiveDocument")};
             const result = await documents.save(document);

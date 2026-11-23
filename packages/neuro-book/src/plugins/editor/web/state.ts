@@ -86,7 +86,8 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>,
         // 视图能不能输入：预览视图与只读文档都不行（输出 48），撤销、重做随之不可用。
         writable: computed(() => handle.value !== null && area.value?.viewWritable(area.value.groups.activeGroup.value) === true),
         lineNavigation: computed(() => handle.value?.navigation !== undefined),
-        dirty: computed(() => document.value?.dirty.value === true),
+        // 活动标签是页面时取页面自己报告的未提交内容（输出 68）：“保存”的可用条件就是它。
+        dirty: computed(() => document.value?.dirty.value === true || area.value?.activePageUncommitted() === true),
         hasUnsavedDocuments: computed(() => area.value?.openDocuments.value.some(needsSaving) === true),
         hasCursorPosition: computed(() => handle.value?.position?.value != null),
         ready: computed(() => area.value !== null),

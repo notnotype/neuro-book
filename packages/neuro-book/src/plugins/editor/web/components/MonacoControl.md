@@ -42,4 +42,4 @@ type Emits = {
 - 右键菜单（输出 64）：自带的关掉（`contextmenu: false`），换成 [`CodeContextMenu`](CodeContextMenu.md)。
 - 句柄：聚焦、撤销、重做、行号导航（`revealLineInCenter` 并把光标放到行首）、光标位置与语言。
 
-`state:local`：编辑器实例与当前绑定。`env:global`：观察文档根的属性（主题与明暗换了重新生成 Monaco 的主题），卸载时断开。
+`state:local`：编辑器实例与当前绑定。`env:global`：观察文档根的属性（主题与明暗换了重新生成 Monaco 的主题）；观察器与 `CodeInput` 共用一个（`code/theme-follow.ts`），最后一个实例卸载时断开。

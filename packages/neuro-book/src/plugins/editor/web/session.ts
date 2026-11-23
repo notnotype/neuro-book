@@ -41,6 +41,9 @@ export interface EditorSessionOptions {
     readonly autoSave?: () => AutoSaveSettings;
     /** 页面标签此刻有没有面包屑（见 `EditorAreaOptions.pageHasBreadcrumbs`）。 */
     readonly pageHasBreadcrumbs?: (tab: PageTab) => boolean;
+    /** 页面标签的未提交内容与提交（见 `EditorAreaOptions.pageUncommitted`、`pageCommit`）。 */
+    readonly pageUncommitted?: (tab: PageTab) => boolean;
+    readonly pageCommit?: (tab: PageTab) => (() => Promise<void>) | null;
 }
 
 export interface EditorSession {
@@ -85,6 +88,8 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             ...(options.enablePreview === undefined ? {} : {enablePreview: options.enablePreview}),
             ...(options.autoSave === undefined ? {} : {autoSave: options.autoSave}),
             ...(options.pageHasBreadcrumbs === undefined ? {} : {pageHasBreadcrumbs: options.pageHasBreadcrumbs}),
+            ...(options.pageUncommitted === undefined ? {} : {pageUncommitted: options.pageUncommitted}),
+            ...(options.pageCommit === undefined ? {} : {pageCommit: options.pageCommit}),
         });
     };
 

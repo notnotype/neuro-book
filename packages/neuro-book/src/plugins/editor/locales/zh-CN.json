@@ -594,6 +594,7 @@
         "pageEditor": "页面不是文件，不能换编辑器",
         "noActiveFileTab": "没有活动的文件标签",
         "noActiveDocument": "没有活动文档",
+        "pageCommitFailed": "这个页面没有保存成功",
         "saveUnrepresentable": "有视图写不回 Markdown，没有保存：先在组顶部定位并修改，或采用当前正文",
         "noEditor": "没有编辑器 {{editor}}",
         "editorCannotOpen": "编辑器 {{editor}} 不能打开 {{name}}",

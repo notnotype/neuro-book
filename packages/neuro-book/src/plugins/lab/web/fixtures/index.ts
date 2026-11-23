@@ -5,6 +5,7 @@ import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGrou
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
+import type CodeInput from "nbook/plugins/editor/web/components/CodeInput.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
 import type ChangePage from "nbook/plugins/canon/web/components/ChangePage.vue";
 import type BreakExclusiveDialog from "nbook/plugins/canon/web/components/BreakExclusiveDialog.vue";
@@ -1015,6 +1016,19 @@ export const labFixtures: LabFixture[] = [
         // 目录下拉的列表：场景里的假数据，点哪个目录都列出同样几项。
         runtimeProps: async () => ({list: async (address: string) => ({ok: true as const, entries: [{name: "卷二", address: `${address}/卷二`, kind: "directory" as const}, {name: "第一章 雨夜.md", address: `${address}/第一章 雨夜.md`, kind: "file" as const}, {name: "第二章 旧城.md", address: `${address}/第二章 旧城.md`, kind: "file" as const}]})}),
         subject: () => import("nbook/plugins/editor/web/components/EditorBreadcrumbs.vue"),
+    }),
+    defineLabFixture<typeof CodeInput>({
+        component: "CodeInput",
+        scenes: [
+            {id: "text", label: "两段文字", input: {props: {label: "主文字"}, model: {modelValue: "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的，{entry.外貌.发色} 这样的表达式写在花括号里。"}}},
+            {id: "empty", label: "空的", input: {props: {label: "主文字"}, model: {modelValue: ""}}},
+            {id: "readonly", label: "只读", input: {props: {label: "主文字", readonly: true}, model: {modelValue: "提交期间不能输入，能选能复制。"}}},
+            {id: "json", label: "JSON", input: {props: {label: "设置", language: "json"}, model: {modelValue: "{\n    \"name\": \"星瑕\",\n    \"age\": 22\n}"}}},
+            {id: "long-line", label: "很长的一行：折行，不出横向滚动", input: {props: {label: "主文字"}, model: {modelValue: "一行很长很长的文字".repeat(40)}}},
+            {id: "stack", label: "二十个排在一起：进入视野才建编辑器", input: {props: {label: "第 1 块"}, model: {modelValue: "第 1 块\n\n往下滚，下面的块才建编辑器。"}}},
+            {id: "english", label: "英文", input: {props: {label: "Text"}, model: {modelValue: "Xingxia rarely leaves her flat; she lives on contract work for small studios.\n\nHer silver hair is natural."}}},
+        ],
+        load: async () => (await import("./CodeInputFixture.vue")).default,
     }),
     defineLabFixture<typeof EditorPageBreadcrumbs>({
         component: "EditorPageBreadcrumbs",
