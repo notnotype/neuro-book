@@ -543,6 +543,31 @@ describe("splitter 键盘手势与可访问性", () => {
         expect(panelSizes(wrapper)).toEqual([155, 343, 200]);
     });
 
+    it("离线中心 3px 按下，拖过收起阈值再拖回展开区（Spec ui/nested-grid 输出 19）：线与指针减去抓取偏移的误差不超过 1px", async () => {
+        const wrapper = mountSplitter(COLLAPSIBLE_PANELS);
+        await nextTick();
+        stubSashRects(wrapper);
+        const grab = 3;
+        const down = SASH_CENTER(0) + grab;
+        const at = async (x: number): Promise<void> => {
+            rootElement(wrapper).dispatchEvent(pointer("pointermove", x, 150));
+            await nextFrame();
+        };
+
+        press(wrapper, 0, down);
+        await at(down - 150);
+        expect(panelSizes(wrapper)).toEqual([0, 498, 200]);
+        // 回到展开区：累计位移 −40，线该在按下基线 200 往左 40 处。
+        await at(down - 40);
+        const sizes = wrapper.emitted("gesture-update")?.at(-1)?.[0] as {sizesPx: number[]; collapsed: Record<string, boolean>};
+        expect(sizes.collapsed).toEqual({});
+        expect(Math.abs(sizes.sizesPx[0]! - (200 - 40))).toBeLessThanOrEqual(1);
+        // 线中心（面板终点加半条线）对指针减去抓取偏移。
+        expect(Math.abs(panelSizes(wrapper)[0]! + 0.5 - (down - 40 - grab))).toBeLessThanOrEqual(1);
+        release(wrapper, 0, down - 40 - SASH_CENTER(0));
+        await nextTick();
+    });
+
     it("收起后过冲再回到同一指针位置：DOM 与提交都不留永久偏移", async () => {
         const wrapper = mountSplitter(COLLAPSIBLE_PANELS);
         await nextTick();
@@ -1243,6 +1268,80 @@ describe("悬停显现与光标所有权", () => {
         expect(sash.getAttribute("data-sash-active")).toBeNull();
         // 松手时指针仍在线盒上：不重新等待停留时长
         expect(sash.getAttribute("data-sash-revealed")).toBe("true");
+    });
+
+    it("按住拖出线盒（Spec ui/nested-grid 输出 14）：active 与全亮都保持，不跟着悬停淡出", async () => {
+        const wrapper = mountSplitter(FREE_PANELS);
+        await nextTick();
+        stubSashRects(wrapper);
+        const sash = sashElements(wrapper)[0]!;
+
+        press(wrapper, 0);
+        await nextTick();
+        // 离命中带 100px：没按着时这一下就淡出、放开光标。
+        move(wrapper, 0, 100);
+        await nextFrame();
+        expect(sash.getAttribute("data-sash-active")).toBe("true");
+        expect(sash.getAttribute("data-sash-revealed")).toBe("true");
+        expect(document.documentElement.getAttribute("data-nb-sash-cursor")).toBe("ew-resize");
+        release(wrapper, 0, 100);
+        await nextTick();
+        expect(sash.getAttribute("data-sash-active")).toBeNull();
+        expect(sash.getAttribute("data-sash-revealed")).toBeNull();
+    });
+
+    it.each([
+        ["窗口失焦", async (): Promise<void> => void window.dispatchEvent(new Event("blur")), async (): Promise<void> => undefined],
+        ["禁用", async (wrapper: VueWrapper): Promise<void> => void await wrapper.setProps({disabled: true}), async (wrapper: VueWrapper): Promise<void> => void await wrapper.setProps({disabled: false})],
+    ] as const)("悬停未满停留时长就%s（Spec ui/nested-grid 输出 16）：页面级光标当即拿掉，停留计时也清掉：再悬停要从头停满，旧计时到点不显现", async (_label, interrupt, resume) => {
+        vi.useFakeTimers();
+        try {
+            const wrapper = mountSplitter(FREE_PANELS);
+            await nextTick();
+            stubSashRects(wrapper);
+            const sash = sashElements(wrapper)[0]!;
+            const hover = async (): Promise<void> => {
+                rootElement(wrapper).dispatchEvent(pointer("pointermove", SASH_CENTER(0), 150));
+                await nextTick();
+            };
+            await hover();
+            expect(document.documentElement.getAttribute("data-nb-sash-cursor")).toBe("ew-resize");
+
+            // 停了 150ms（旧计时还差 100ms）时打断。
+            await vi.advanceTimersByTimeAsync(SASH_HOVER_DELAY_MS - 100);
+            await interrupt(wrapper);
+            await nextTick();
+            expect(document.documentElement.getAttribute("data-nb-sash-cursor")).toBeNull();
+            expect(sash.getAttribute("data-sash-hover")).toBeNull();
+
+            // 回来马上再悬停：过了旧计时的到点时刻还没显现，从这一次悬停起停满才显现。
+            await resume(wrapper);
+            await hover();
+            await vi.advanceTimersByTimeAsync(SASH_HOVER_DELAY_MS - 100);
+            await nextTick();
+            expect(sash.getAttribute("data-sash-revealed")).toBeNull();
+            await vi.advanceTimersByTimeAsync(100);
+            await nextTick();
+            expect(sash.getAttribute("data-sash-revealed")).toBe("true");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("拖动中窗口失焦（Spec ui/nested-grid 输出 16）：手势取消，指针还在线上也不重新占光标、不留全亮", async () => {
+        const wrapper = mountSplitter(FREE_PANELS);
+        await nextTick();
+        stubSashRects(wrapper);
+        const sash = sashElements(wrapper)[0]!;
+        press(wrapper, 0);
+        await nextTick();
+        expect(document.documentElement.getAttribute("data-nb-sash-cursor")).toBe("ew-resize");
+
+        window.dispatchEvent(new Event("blur"));
+        await nextTick();
+        expect(wrapper.emitted("gesture-cancel")?.[0]?.[0]).toMatchObject({reason: "blur"});
+        expect(document.documentElement.getAttribute("data-nb-sash-cursor")).toBeNull();
+        expect(sash.getAttribute("data-sash-revealed")).toBeNull();
     });
 
     it("别的按下手势（拖 View / 选文本）经过热区不点灯、不改光标", async () => {
