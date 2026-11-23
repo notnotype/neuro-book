@@ -4,7 +4,7 @@
  * 候选用不透明的键比较：动作的内容由宿主决定。
  */
 
-import type {GridDropPoint, GridDropRect} from "./grid-drop";
+import {containsPoint, type GridDropPoint, type GridDropRect} from "./grid-drop";
 
 /** 候选连续这么久不变才换预览（提案第 3 节）。 */
 const LIVE_SETTLE_MS = 150;
@@ -63,5 +63,5 @@ export function stepLiveDrop(state: LiveDropState, input: {readonly now: number;
  */
 export function insideShownSlot(state: LiveDropState, point: GridDropPoint, stickyPx: number = LIVE_STICKY_PX): boolean {
     const {slot} = state;
-    return slot !== null && point.x >= slot.left - stickyPx && point.x <= slot.right + stickyPx && point.y >= slot.top - stickyPx && point.y <= slot.bottom + stickyPx;
+    return slot !== null && containsPoint(slot, point, stickyPx);
 }

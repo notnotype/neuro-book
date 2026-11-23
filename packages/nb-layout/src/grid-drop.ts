@@ -71,8 +71,9 @@ export function isGridDropRect(rect: GridDropRect): boolean {
         && rect.right - rect.left > 0 && rect.bottom - rect.top > 0;
 }
 
-function containsPoint(rect: GridDropRect, point: GridDropPoint): boolean {
-    return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+/** 点在矩形里（含四条边）；`margin` 把矩形向四周撑开，不夹成非负：要夹的调用方自己夹。 */
+export function containsPoint(rect: GridDropRect, point: GridDropPoint, margin = 0): boolean {
+    return point.x >= rect.left - margin && point.x <= rect.right + margin && point.y >= rect.top - margin && point.y <= rect.bottom + margin;
 }
 
 /** 成员沿主轴的边缘带：`leading` 为真取靠近内容盒起点的一侧，否则取末端。 */
