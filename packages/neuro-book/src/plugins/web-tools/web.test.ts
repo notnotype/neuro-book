@@ -8,6 +8,7 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
 import type {LogEvent, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {startHttpProxy} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -138,6 +139,35 @@ describe("设置页的远程合同（输出 16 到 19）", () => {
         deepseek.script("/v1/tools/search", {status: 429, json: {error: {message: "slow"}}});
         expect(ok(await client.check({provider: "deepseek"}))).toMatchObject({ok: false, code: "rate-limited"});
         expect(deepseek.requests).toHaveLength(1);
+    });
+});
+
+describe("网络出口（docs/specs/network/egress.md；输出 10）", () => {
+    it("请求按应用级的代理设置出去：自定义代理时经代理到达服务；代理是 SOCKS 时不发，unreachable 的详情写出原因", async () => {
+        const target = new URL(deepseek.baseUrl);
+        // 本机地址总是直连：服务用 `search.test` 这个名字，由代理接到本机的假接口。
+        const proxy = startHttpProxy({resolve: (host, port) => (host === "search.test" ? {host: target.hostname, port: Number(target.port)} : {host, port})});
+        try {
+            const w = await open({"nbook.network/proxyMode": "custom", "nbook.network/proxyUrl": proxy.url, "nbook.web-tools/deepseekBaseUrl": "http://search.test"});
+            const client = await w.settings("w");
+            await setKey(client);
+            expect(ok(await client.check({provider: "deepseek"}))).toEqual({ok: true});
+            expect(proxy.requests.map((item) => `${item.method} ${item.target}`)).toEqual(["POST http://search.test/v1/tools/search"]);
+            expect(deepseek.requests).toHaveLength(1);
+            await w.close();
+            world = null;
+
+            const socks = await open({"nbook.network/proxyMode": "custom", "nbook.network/proxyUrl": "socks5://127.0.0.1:1080", "nbook.web-tools/deepseekBaseUrl": "http://search.test"});
+            const again = await socks.settings("w");
+            await setKey(again);
+            const failed = ok(await again.check({provider: "deepseek"}));
+            expect(failed).toMatchObject({ok: false, code: "unreachable"});
+            expect(failed.ok ? "" : failed.detail).toContain("SOCKS");
+            expect(proxy.connections()).toBe(1);
+            expect(deepseek.requests).toHaveLength(1);
+        } finally {
+            proxy.stop();
+        }
     });
 });
 

@@ -1,0 +1,162 @@
+### 1. 手改设置文件后，模型快照和事件原样交出代理密码
+- **严重程度**：阻断；**类别**：安全与性能。
+- **位置**：`packages/nb-models/src/config/shapes.ts:71`、`packages/nb-models/src/core/core.ts:517,903`。
+- **现象**：`updateProvider` 会拒绝带用户名密码的 URL，但磁盘配置只检查长度；快照将 `provider.proxy` 原样交给浏览器，`changed` 事件用同一份快照。出口即使不发送这个地址，也已经泄露。
+- **为什么是问题**：决定 20 明确代理地址不带用户名密码。禁止凭据进入响应的约束不能只在一个写入口执行；手改设置文件是支持的生效途径。`master` 没有此字段或这条输出通路。
+- **如何核实**：在应用包运行 `bun run --no-env-file --tsconfig-override=tsconfig.json /tmp/review-t43-c-impl/lab/models-boundary.ts`。脚本经真实设置文件和窗口 RPC：同一个带测试凭据的地址，`updateProvider` 回 `invalid-value`，`snapshot` 却同时含用户名和密码。未访问外网。
+- **建议改法**：磁盘设置和 RPC 写入共用语义校验；快照只投影验证过的配置，坏地址以不含地址原文的配置错误表示。补手改文件后 `snapshot`/`changed` 的回归用例。
+
+### 2. 角色解绑改变两种模型分页，却不改变 `revision`
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-models/src/core/core.ts:180-194,364-384,955-975`。
+- **现象**：仅因角色绑定而保留的 `unlisted` 行在解绑后正确消失；三个内存缓存也都清了，但 `revisionOf` 不含实际生效的这类成员。`providerModels` 和 `enabledModels` 都接受解绑前的 `revision`，继续用旧 offset 读新集合。
+- **为什么是问题**：`models/service.md` 输出 7、23 要求行变则该服务商版本变，而且续页必须返回 `revision-changed`。`master` 的行集不依赖角色，未有这条矛盾。删掉第一页前部的项后，继续读第二页会跳过一项。
+- **如何核实**：同第 1 条脚本。真实 DeepSeek 模板实例经本机端点拉列表：第一页是 `deepseek-flash` (`unlisted: true`)，total=3；经 RPC 解绑唯一角色，total=2，旧 revision `3m9r4vfl4bnay` 仍被两种分页接受。旧第二页直接返回 `deepseek-v4-flash-vision-exp`，漏掉 `deepseek-v4-flash`。
+- **建议改法**：把这家独有且确实影响模型行的角色保留成员纳入行版本（或对实际行集发布版本），不要把所有角色配置拼进所有服务商的版本。补解绑跨页用例。
+
+### 3. 系统代理来自桌面时，`NO_PROXY` 被 Bun 执行，却没进入出口说明
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/egress.ts:146-169,182-185,193-205`。
+- **现象**：没有协议对应的代理环境变量、但桌面配置有代理时，出口只用桌面的 `proxy.bypass`，不看启动环境的 `NO_PROXY`。Bun 1.4.4 会继续按进程 `NO_PROXY` 旁路显式代理，说明仍为 `proxy`。自定义模式也无法防止 Bun 按后来变化的 `NO_PROXY` 旁路：代码只能强制直连，不能强制用代理。
+- **为什么是问题**：决定 25 的处理要求不能用直连结果证明代理正常；计划还规定跟随系统认 `NO_PROXY`。现在同一次测试的说明和实际请求可互相矛盾，成功时无法证明测试经过代理。`master` 没有出口说明，模型显式直连。
+- **如何核实**：仓库根运行 `bun run --no-env-file /tmp/review-t43-c-impl/lab/egress-boundary.ts`。Bun 1.4.4、本机真实 HTTP 代理；注入 `scutil` 手动配置，环境与启动快照均有目标域名的 `NO_PROXY`。对照命中代理 1 次，此配置命中 0 次，`describe` 和 `test.summary` 都仍为 `proxy`。脚本还核对了自定义模式环境变更。
+- **建议改法**：桌面代理也合并环境旁路；明确 Bun 内建旁路是真正的最后边界，给它一致的规则或使用能显式控制旁路的传输。在证明不了走代理的情况下不要报告“代理正常”。
+
+### 4. 应用级自定义代理可用无协议地址绕过禁用凭据的校验
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/neuro-book/src/plugins/network/shared/settings.ts:34-38`、`packages/nb-host/src/network/egress.ts:137-154`、`packages/nb-host/src/network/rules.ts:75-87`、`packages/nb-models/src/core/core.ts:140-146,903-904`。
+- **现象**：出口用只匹配 `协议://` 的正则拦 `@`，随后 `parseProxy` 会补 `http://`。应用设置允许任意长度合规的字符串，`用户名:密码@主机:端口` 因此被保存并作为带凭据的代理使用；同样输入在服务商的写接口会被拒绝。
+- **为什么是问题**：违反决定 20 和计划 C.1 的“带用户名密码原位拒绝”。这是实际发出了代理认证，不只是两套校验文案不同。没有凭据的 `host:port` 是否允许也应在两处一致。`master` 没有自定义代理写入口。
+- **如何核实**：运行第 3 条同一脚本的 `custom-missing-scheme`。真实本机代理收到 1 个请求，其中 `Proxy-Authorization` 等于测试凭据的 Basic 值，结果 `ok:true`、`hasCredentials:true`。
+- **建议改法**：先按统一的语法解析和规范化，再以解析后 `username`/`password` 拒绝自定义代理；应用设置、服务商写入、磁盘读取和出站都用同一判据。系统/环境来源允许认证的规则单独保留。
+
+### 5. GNOME 仅配置 HTTP 代理时，HTTPS 请求被改成直连；HTTP 代理鉴权也被丢掉
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/system.ts:98-110`、`packages/nb-host/src/network/egress.ts:163-169`。
+- **现象**：真实 GNOME 代理解析器在 HTTPS 槽为空时复用 HTTP 槽；HTTP 槽的 `use-authentication`、用户名、密码参与选路。应用分别读取两个槽，HTTPS 槽一空就直连；HTTP 槽的凭据被忽略。
+- **为什么是问题**：这是桌面正常配置，不是坏值。只设一条有认证的 HTTP 代理即可触发两种偏离：HTTPS 的模型、目录和测试代理不经过管理员设定的代理，HTTP 代理收不到所需认证。段 C 接入前模型直接出站；接入后“跟随系统”仍未实现这一有效系统配置。
+- **如何核实**：在独立 `XDG_CONFIG_HOME`、`GSETTINGS_BACKEND=keyfile` 下用本机 `gsettings` 设 `mode=manual`、只填 HTTP 主机和端口并启用认证。运行 `lab/gnome-resolver.c`（`cc … $(pkg-config --cflags --libs gio-2.0)`，`GIO_USE_PROXY_RESOLVER=gnome`）与 `lab/gnome-egress.ts`，同一配置：真实 `GProxyResolverGnome` 为 HTTP、HTTPS 都返回带认证的 HTTP 代理；应用 HTTP 的 `hasCredentials=false`、HTTPS 的 `route=direct`。仅比较本地选路，不连接这些域名。
+- **建议改法**：从系统解析器直接取每个目标的实际规则，或按真实 GNOME 规则实现回退、正确解析 GVariant 和认证字段；避免输出 URI 中的凭据。补仅配置 HTTP、以及同时有独立 HTTPS/SOCKS 的系统样本。
+
+### 6. 旁路只认 IPv4 CIDR，公开 IPv6 例外仍被送向代理
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/rules.ts:95-125,130-139`、`packages/nb-host/src/network/system.ts:104-106`。
+- **现象**：GNOME 的 `ignore-hosts` 可写 IPv6 CIDR，但应用匹配器的 CIDR 分支只认点分数字。带端口的括号 IPv6 也到不了端口分支，非规范但等价的 IPv6 文本不做规范化。
+- **为什么是问题**：计划承诺复用系统的旁路；IPv6 字面量不像私网地址那样一律本机旁路，因为可能是全球单播地址。配置的 IPv6 网段被忽略会将该网段的请求和目标送到用户明确排除的代理。`master` 模型不走此出口。
+- **如何核实**：用第 5 条的真实 GNOME 测试档设 `ignore-hosts=['2001:db8:1111::/48']`。`GProxyResolverGnome` 对 `http://[2001:db8:1111::1]/` 返回 `direct://`，应用回 `proxy`；对 `2001:db8:2222::1` 两边都判代理。代码另可独立核对匹配器排除了 `[IPv6]:port`。
+- **建议改法**：把字面 IP 解析为规范地址并支持 IPv6 网络前缀；先解析括号与端口，再按地址匹配。为系统例外和环境例外分别留来自真实实现的输入与判据。
+
+### 7. 系统读代理的两秒超时不停止等待
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-host/src/network/egress.ts:115-121,243-255`。
+- **现象**：两秒后只发默认的 `SIGTERM`；代码继续同时等标准输出 EOF 和 `child.exited`，两者都结束才报超时。已经在等该读取的请求还共用这份未完成的 Promise。
+- **为什么是问题**：这不是计划承诺的两秒调用边界。命令没响应终止信号，或还有未退出的进程持有写端时，选路与依赖选路的请求不能按各自的取消期限收口。`master` 没有这段选路前置等待。
+- **如何核实**：`lab/fake-bin/gsettings` 在没有同步门参数时 `trap '' TERM` 后 `exec /usr/bin/sleep 4`。将该目录放入 `PATH`，Bun 实际启动子进程；运行 `lab/system-timeout.ts`。两次并发 `describe` 都等到 `4005 ms` 才回 `proxy-unreadable`。这是人为制造的无响应命令，不等于正常 GNOME 读取需要四秒。
+- **建议改法**：把调用方拿到超时和后台清理子进程分开。超时立即结束等待，取消读取，并对未退出命令强制终止与收割；有子进程保留管道写端也不阻塞出口。
+
+### 8. 模型异步选路期间换地址与密钥，仍把旧密钥发给旧地址
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-harness/src/kernel/model/omp.ts:378-391`、`packages/nb-harness/src/models/target.ts:151-161`、`packages/nb-models/src/core/core.ts:275-288`。
+- **现象**：模型通过发送前的 `stillCurrent` 校验后，要等 `route`；选路完成后不再校验配置版本。等待期间换了服务商地址或认证，先前已构造的请求照常发出。`master` 的最后一次校验与调用 `fetch` 之间没有异步等待。
+- **为什么是问题**：违背 `models/service.md` 输出 24“旧解析不能再发”的保证。已保存的新配置不能阻止尚未出站的模型请求向撤下的地址发送旧密钥和本轮内容。
+- **如何核实**：`lab/send-boundary.ts` 通过产品模型与网络插件、真实设置文件和窗口 RPC 发起空白 OpenAI 模型请求。用 `PATH` 中的受控 `gsettings` 子进程停在系统读取，等 `updateProvider` 和 `setKey` 都返回成功才放行。真实本机代理转发 1 次，旧端点收到 `/v1/chat/completions` 与旧密钥，新密钥未发；结果是端点的 401，不是本地 `endpoint-mismatch`。
+- **建议改法**：异步选路结束后、最终 `send` 前，重新核对部署和认证身份及取消状态。不要只移迟检查：请求地址的核对仍必须先于可能出站的上游动作。
+
+### 9. 只靠角色保留的列表外来源模型，显式加入或移出都没有被记住
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-models/src/core/core.ts:364-376,648-673,993-1012`。
+- **现象**：只有角色绑定、没有设置条目的 `unlisted` 行，用 `removeModel` 或 `setModels.remove` 移出时先解绑。计算 `excluded` 时这行已从来源消失，于是没写移出记录。反过来，用 `setModels.add` 显式留住这行时，因当刻还有角色绑定、行带 `auto:true`，纯启用条目被视为冗余而丢弃，后来解绑又丢行。
+- **为什么是问题**：移出的模型在下一次服务商列出它时自行回来；显式加入不产生决定 30 所要求的独立保留依据。违反 `models/service.md` 输出 22：加入和移出是对成员的写入，不取决于角色是不是恰好仍引用该行。`master` 的来源不依赖角色，因而没有此循环依赖。
+- **如何核实**：在 `packages/neuro-book` 运行 `bun run --no-env-file --tsconfig-override=tsconfig.json /tmp/review-t43-c-impl/lab/members-rpc-boundary.ts`。真实角色、模型与列表 RPC：两个移出入口都回成功、`excludedCount:0`、下一次 `/v1/models` 列出后又出现；`setModels.add` 回成功，解除角色绑定后行消失。
+- **建议改法**：从解绑前的同一份模型成员视图确定移出的来源 id；判断条目是否冗余要以不含该条目与角色保留条件时仍会自动加入为准，不能直接用临时补出的 `SourceModel.auto`。
+
+### 10. 手改服务商地址为无效值后，刷新列表返回受理但不再交失败状态
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-harness/src/models/listing.ts:119-129`、`packages/nb-models/src/core/sources.ts:200-205,261-266`、`packages/nb-models/src/config/shapes.ts:87`。
+- **现象**：磁盘设置只验 `baseUrl` 非空，手改为非 URL 字符串可被读入。段 C 把 `listingUrl()` 从 `try` 移到外面，`new URL` 抛错只在外层记诊断，列表 `error` 仍为空。`master` 在同一个 `try` 内构造 URL，交回结构化的 `unreachable`。
+- **为什么是问题**：真实窗口 RPC 只能看到刷新已受理、短暂进入刷新又结束，没有失败原因；已有缓存时可能继续看到上一次状态。正常的 `updateProvider` 拒绝此输入，影响限于例如手改的设置文件。
+- **如何核实**：`lab/members-rpc-boundary.ts` 的 `bad-base` 使用真实设置文件 `baseUrl:"not an address"`。`refreshSource` 返回 `ok:true`，收尾后 `refreshing:false,error:null`，本机端点无请求。对照 `git show master:packages/nb-harness/src/models/listing.ts`。
+- **建议改法**：在列表失败边界内处理 URL 构造与选路异常，交结构化原因；也可在设置的读取入口一致校验地址，不把坏值交给发送端。
+
+**第 3 条补证（真实窗口 RPC）**：`lab/network-rpc-boundary.ts` 在隔离网络命名空间给回环绑测试地址 `198.51.100.9`，同一 URL 的直达端点和代理转发端点返回不同出口 IP。启动环境和进程 `NO_PROXY` 都包含此地址，真实 `kioslaverc` 给 HTTP 代理。`describe` 和 `test.summary` 均为 `proxy`，`test.ok=true`、IP 是直达端点的 `203.0.113.23`，代理收到 0 次。清掉进程旁路作对照，才走代理并返回 `203.0.113.8`。不需要真实外网或生产凭据。
+
+### 11. Windows 的“自动检测设置”被当作没配置代理
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/system.ts:44-46,176-192`、`packages/nb-host/src/network/egress.ts:158-167`。
+- **现象**：Windows 读取只查询 `HKCU` 的 `Internet Settings` 单键，解析只看 `AutoConfigURL` 与手动代理。单独打开“自动检测设置”、不开手动代理时，即使读到了其它注册表字符串，也会判 `none`；根本没有查询该开关。手动与自动检测同时开时也不会把自动发现报成不支持。
+- **为什么是问题**：计划 C.1 把系统用的自动发现归为不支持，不能直接绕过。Windows 把 WPAD 开关 `fAutoDetect` 与 `lpszAutoConfigUrl` 分开；后者为空不代表没开自动发现。这是段 C 新加的假阴性，而不是要求实现 PAC。
+- **如何核实**：静态对照 `system.ts` 及 [微软的 Windows 代理配置结构](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/ns-winhttp-winhttp_current_user_ie_proxy_config)；Chromium `proxy_config_service_win.cc` 也分别读取两字段。当前机器未起原生 Windows，未测具体 VPN/组策略档。
+- **建议改法**：从 Windows 的当前连接有效配置读出自动发现标志（例如按 WinHTTP 的查询口径），然后复用 `kind:"pac"` 的拒绝路径。补“只开自动检测、不填 PAC URL”的 Windows 样本。
+
+### 12. KDE 配置目录无读取权限时，系统代理静默回退为直连
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/egress.ts:260-263`、`packages/nb-host/src/network/system.ts:48-57`。
+- **现象**：`readTextFile` 用 `Bun.file(path).exists()` 将不存在与不可访问合为 `false`。KDE 分支把 `null` 当作没设代理；实际读取会抛的 `EACCES` 没有机会进入 `proxy-unreadable`。
+- **为什么是问题**：该路径有已配置的代理、但当前运行身份无法读取时，下一次请求会直接出站，违反计划 C.1“读失败与没设区分”。`master` 没有 KDE 读取。
+- **如何核实**：在 `lab/` 的独立 `XDG_CONFIG_HOME` 建含手动代理的 `kioslaverc`，对配置目录临时设权限 `000`，以非 root 运行 `lab/kde-egress.ts`。Bun 1.4.4 的 `.exists()` 为 `false`、`.text()` 抛 `EACCES`；应用两次外部目标说明都为 KDE `direct`。只在实验目录改权限，没有实际外联。
+- **建议改法**：直接读取文件，只将 `ENOENT`（以及明确决定可忽略的缺失父目录）映射为没有设置，其余错误沿既有通道报 `proxy-unreadable`；避免先 `exists` 后读。
+
+### 13. KDE 的反向例外在读取时被颠倒，指定走代理的目标直连
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/system.ts:117-137`、`packages/nb-host/src/network/egress.ts:146-148,169`。
+- **现象**：`kioslaverc` 含 `ReversedException=1` 时，支持该标记的 KDE 代理解析器把 `NoProxyFor` 当成“只有这些目标走代理”。应用不读标记，一律把同一清单当成“不走代理”。
+- **为什么是问题**：不仅是显示差异：两个方向都会走错，指定必须经过代理的目标变直连，其余目标变代理。`master` 未读取 KDE 规则。
+- **如何核实**：独立 `XDG_CONFIG_HOME` 用 `kwriteconfig6` 写 `ProxyType=1`、`NoProxyFor=in-scope.example`、`ReversedException=1` 和 `httpProxy`。本机 Qt6 的 `QNetworkProxyFactory`（链接 libproxy 0.5.12，`lab/kde-resolver.cpp`）对该域返回代理、对 `out-of-scope.example` 返回直连；应用 `lab/kde-egress.ts` 是 `bypassed`、`proxy`。实测的是 `=1`；本机 libproxy 对 `=true` 的口径不同，不外推到该写法。仅比较路由，未请求这些域名。
+- **建议改法**：系统适配器表达选择性“仅匹配项用代理”的规则，避免在通用 `NO_PROXY` 匹配后误用同一分支。若改用系统解析器，保留“不支持 PAC/SOCKS 时不得静默直连”的约束。
+
+### 14. 测试代理把非 IP 的文本当成有效出口地址
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/egress.ts:207-218`、`packages/neuro-book/src/plugins/network/shared/contracts.ts:58-60,72-74`。
+- **现象**：状态是 200 就成功，正则取出 `ip=` 后面的任意文本。调用方会收到 `ok:true, ip:"not-an-ip"`，没有办法从 `ok` 判断是否真的得到计划所述的出口 IP。
+- **为什么是问题**：联网成功与得到可用的出口地址是不同的事实。响应来自入口外的地址，契约称 `ip` 是出口 IP，不应把其它文本放进这个字段。当前 schema 明确允许 `null`；正文没 `ip=` 的 200 被接受只作对照，不单列为违反合同。
+- **如何核实**：`lab/network-rpc-boundary.ts` 在本机代理后更换 trace 响应，真实窗口 RPC 对合法 IP、200 登录页、`ip=not-an-ip` 同样返回 `ok:true`，后两者分别给 `ip:null` 和 `ip:"not-an-ip"`。
+- **建议改法**：用 IPv4/IPv6 校验后才填 `ip`；明确对 200 但不像 trace 的输出是 `bad-response`，还是仅报告 HTTP 可达且 `ip:null`，不要把任意值报成 IP。
+
+### 15. 模型检测会把代理的 `Proxy-Authorization` 回显给浏览器
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-harness/src/kernel/model/omp.ts:357,383-393,487-490`、`packages/nb-harness/src/models/probe.ts:129-134,168-172`、`packages/nb-models/src/core/core.ts:784-787,1115-1119`。
+- **现象**：出口允许系统或启动环境的 HTTP 代理带凭据；Bun 生成的代理认证不在模型请求头的遮盖列表里。代理把认证头回显在错误正文时，`check.raw` 与 `detectApi.results[].message` 原样包含可直接使用的 Basic 值。
+- **为什么是问题**：启动环境的代理凭据不应随检测结果出后端。它不是第 1 条的磁盘配置绕行：合法的系统代理设置也触发。`master` 的模型与协议检测显式直连，不会发送这组代理凭据。
+- **如何核实**：`lab/proxy-auth-response.ts` 用真实模型/网络插件、窗口 RPC 和本机 HTTP 代理；代理确认收到测试用认证头后在 407 JSON 错误里回显它。`check` 及四个协议结果均检测到完整值；实收 5 次。这里只核实 HTTP 目标的代理错误，没有把 HTTPS CONNECT 错误或所有请求日志都判为泄露。
+- **建议改法**：代理认证规整为出站路径上的敏感值，不把原文放入公开的选路说明；探测、模型错误与诊断在裁剪前共用遮盖口径，包含 Bun 生成的 Basic 值。至少对可辨认的代理认证失败（407）不要转发原始正文。
+
+### 16. 测试代理不处理 TCP 短写，会静默截掉转发内容
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-host/src/testing/http-proxy.ts:65-81,99-104`。
+- **现象**：两方向都直接 `socket.write`，不看写入字节数，也没有 `drain` 回调；上游结束马上 `client.end()`。Bun 的 TCP 写入不保证接受整个缓冲区。读端暂时慢时，剩余字节被丢弃。
+- **为什么是问题**：这段不进产品，但会让走代理的列表体积、目录体积、流式响应和取消用例测到夹具的截断，而不是模型服务。段 C 新增该公共夹具。
+- **如何核实**：`lab/proxy-backpressure.ts` 与 `lab/proxy-slow-reader.py`：本机 HTTP 上游发 12,582,912 字节，小接收窗口的 TCP 客户端先停读；经测试代理只收到 3,530,688 字节，上游在读端放行前已写完，直接调用收到 12,582,912 字节。不要求每台机器截在同一字节数。
+- **建议改法**：用支持背压的双向流连接，或维护未写出的后缀并按 `drain` 发送，排空后才关写端。新增用例只断言代理转发体与上游完全相同，不依赖特定的丢字节数。
+
+**第 12 条补证（GNOME 读取口径不同，但同样会静默直连）**：在隔离的 `GSETTINGS_BACKEND=keyfile` 配置里写入有效的手动代理，再把配置文件权限暂改为 `000`；真实 `/usr/bin/gsettings get org.gnome.system.proxy mode` 返回 `'none'`、退出码 0，应用因此对外部目标报 `direct`、`error:null`。这不是 KDE 的 `.exists()` 行为；GNOME 命令把不可读折成了默认值，单纯检查退出码拿不到这个错误。另从代码确认 `system.ts:72-75` 还把所有 GNOME 非零退出当作没设，没区分 schema 缺失和其它失败。未把 keyfile 的实测外推成 dconf 后端的行为。
+
+### 17. macOS 解析器把网卡限定的代理读成全局代理
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-host/src/network/system.ts:144-173`。
+- **现象**：`parseScutil` 去掉每行缩进，在整个输出里用一个 `Map` 收 `HTTPProxy`、`HTTPEnable` 等同名键。不跟踪字典层级，`__SCOPED__` 中的值可覆盖顶层，且没有核对目标的网卡或域。`ExceptionsList` 同样会混入。
+- **为什么是问题**：第一个后果不是“暂未支持按网卡选路”，而是把只给某个网卡或域的代理用到其它目的地。Apple 的 [SystemConfiguration](https://github.com/apple-oss-distributions/configd/blob/main/SystemConfiguration.fproj/SCProxies.c) 保留嵌套的 scoped 与 supplemental 配置；[scutil](https://github.com/apple-oss-distributions/configd/blob/main/scutil.tproj/tests.c) 无接口、目标参数时显示整份字典。`master` 无此解析。
+- **如何核实**：`lab/scoped-macos-sample.ts` 给出口喂有顶层 `global.fixture.invalid:3128` 的样本，输出为该代理。追加一个 `en0` 下的 `scoped.fixture.invalid:8081` 后，对同一个目标输出改为这个网卡的代理。已核实解析后果和系统输出结构；未在原生 macOS 上运行或连接代理。
+- **建议改法**：最少按层级解析，不让嵌套项覆盖顶层；若范围只承诺手动全局规则，应对无法确定的 scoped/supplemental 选路明确报错。要跟随系统的目标级选择，应调用支持目标/接口条件的系统查询。
+
+## 审查边界与证据
+
+- 审查 `c3f3bc1d4` 的 `master..HEAD` 后端差异，以 `cd660adce` 为起始对照。结束时 `master` 已到 `141a68688`，这期间本次涉及的后端路径无代码差异。工作树无未提交改动。未跑前端、Lab、e2e 或开发服务，未请求真实 Cloudflare 或模型服务商。
+- 本机 Bun `1.4.4 (38afee6c8)`：`nb-host` 网络与架构 26 通过；`nb-harness` 的 `models`、`probe`、`listing`、`online-catalog` 84 通过；`nb-models` 83 通过；应用的 `models.test.ts`、网络插件与 `web.test.ts` 共 39 通过；另在应用包跑 `bun test --no-env-file src/plugins/models/backend/settings-store.test.ts`（6 通过）、`bun test --no-env-file src/plugins/web-tools/assembly.test.ts`（1 通过）、`src/server/server.test.ts -t '启动后 health 返回 200'`（1 通过、25 未选中），均 0 失败。四包 `tsc --noEmit -p tsconfig.json` 均无诊断。应用实验经 `bun run --no-env-file --tsconfig-override=tsconfig.json` 运行 `lab/` 中的脚本；系统进程实验以各条列出的隔离配置为准。
+- 原生系统核对限本机 Linux 的 GNOME 与 KDE/Qt6（Qt6 实测使用 libproxy）。Windows WPAD 与 macOS 字典层级分别是官方接口/源码与输出样本证据，不当作原生系统的出站验收。未用旧 Bun 或桌面发行包实际启动。
+
+## 未发现问题的方面
+
+- 真实产品清单能启动并收口，WebSocket 能调到网页工具设置。代码核对：CLI 与托管入口使用同一个 `BUN_ENGINE >=1.4.4` 门槛，桌面用随包的 `process.execPath` 启动同一 `server/main.js`。模型插件先停 core/来源，再关凭据库；本机在途目录的关闭用例约 12 ms 返回，未让新目录替换原 `checkedAt`。卡住的系统命令另见第 7 条。
+- 普通对话、模型检测、列表和网页工具实收符合常规代理路径；服务商清除覆盖后重新跟随应用，直连与自定义线路在设 `PI_PROXY` 时没有打到被覆盖的代理。类型化 SOCKS/PAC 在已测的入口不出站（出口 PAC 样本、模型 SOCKS、网页工具 SOCKS）。`lab/http-route-matrix.ts` 中四协议各经代理发一次，测试的模型、列表、在线目录和网页工具均未跟随 307。`lab/list-selection-boundary.ts` 在真实写新地址/密钥并放行系统选路后，旧列表请求没有出站；下一次手动刷新到达 `/new/models`。这条保护不适用于第 8 条模型发送。
+- `lab/catalog-rpc-boundary.ts`：旧键为真、现键为假时启动不刷新；用实际设置文件将新键从假改真会启动刷新；手动刷新可用且合并在途；有 ETag 的 304 保留行数并更新确认时间，无缓存的 304 报 `bad-response`，写盘失败报 `storage`。普通条目和角色保留的 `unlisted` 行可用；例外见第 2、9 条。
+- 常规不可达的带认证 HTTP/HTTPS 代理，测试代理、列表和在线目录的错误未包含测试用户名或密码（`lab/proxy-error-text.ts`）；不是对错误正文的承诺，第 15 条的 407 回显另算。设置文件不合规时的保留旧值或退回默认，符合设置 Spec 输出 4–7；未将该通用设置行为列为段 C 代理解析缺陷。
+
+## 不计入本段的观察
+
+- 探测 3xx：代码与本机 307 结果为 `network` 且状态为空，而不是读到 HTTP 307。`master` 已在探测的公共模型发送端强制 `redirect: "error"`；段 C 未引入该行为。没有跟随到下一地址。
+- `lab/route-rejection.ts` 中只有向公开路由注入一次意外 reject、随后给直连，部分 OMP 适配器才会重试并出站；按合同返回 `{ok:false, code:...}` 时四种探测不发。不把故障注入结果外推成产品路由可达的绕行。
+
+按影响优先阅读：1、15、8、3、11、12、13、17、5、6、4、7、2、9、10、14、16（正文编号按确认顺序保留）。
+
+严重程度：阻断 1 条，重要 13 条，建议 3 条。
+有效编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17

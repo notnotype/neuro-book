@@ -11,6 +11,9 @@ import {zstdDecompressSync} from "node:zlib";
 import {mapModelsDevToModels, MODELS_DEV_PROVIDER_DESCRIPTORS, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
 
+import type {NetworkRoute} from "../kernel/index.js";
+import {DIRECT_ROUTE} from "./target.js";
+
 export const ONLINE_CATALOG_URL = "https://catalog.stencil.so/models.json.zstd";
 
 /** 传输与解压后的上限：2026-11 时分别约 230 KB 与 3.4 MiB。 */
@@ -101,7 +104,7 @@ function rawModel(data: Record<string, unknown>, key: string, id: string): Recor
 export type OnlineCatalogFetch =
     | {readonly status: 200; readonly bytes: Uint8Array; readonly etag: string | null}
     | {readonly status: 304}
-    | {readonly status: "failed"; readonly reason: "unreachable" | "bad-response" | "too-large" | "cancelled"; readonly message: string};
+    | {readonly status: "failed"; readonly reason: "unreachable" | "bad-response" | "too-large" | "cancelled" | "proxy"; readonly message: string};
 
 export interface FetchOnlineCatalogOptions {
     /** 上一次成功时的 ETag；给了才发条件请求，`304` 才成立。 */
@@ -109,16 +112,21 @@ export interface FetchOnlineCatalogOptions {
     readonly signal: AbortSignal;
     /** 缺省是 stencil 的地址。 */
     readonly url?: string;
+    /** 网络出口；不给时直连。选不出路时以 `proxy` 失败，请求不发。 */
+    readonly route?: NetworkRoute;
 }
 
 /** 取一次：不解析、不落盘。截止由 `signal` 定（覆盖连接与读体）。 */
 export async function fetchOnlineCatalog(options: FetchOnlineCatalogOptions): Promise<OnlineCatalogFetch> {
     const headers: Record<string, string> = {accept: "application/zstd, application/json"};
     if (options.etag !== null) headers["if-none-match"] = options.etag;
+    const url = new URL(options.url ?? ONLINE_CATALOG_URL);
+    const route = await (options.route ?? DIRECT_ROUTE)(url);
+    if (!route.ok) return {status: "failed", reason: "proxy", message: route.message};
     let response: Response;
     try {
-        // `proxy: false` 是 Bun 的按次直连（1.4.3 起），类型声明里没有 `false` 这一项；段 C 换成网络出口。
-        response = await fetch(options.url ?? ONLINE_CATALOG_URL, {method: "GET", headers, redirect: "manual", signal: options.signal, proxy: false as unknown as string});
+        // `proxy: false` 是 Bun 的按次直连（1.4.3 起），类型声明里没有 `false` 这一项。
+        response = await fetch(url, {method: "GET", headers, redirect: "manual", signal: options.signal, proxy: route.proxy as string});
     } catch (error) {
         return failed(options.signal, error);
     }

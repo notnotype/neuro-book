@@ -32,6 +32,7 @@ import GridPanelsScene from "./GridPanelsScene.vue";
 import GridStructureScene from "./GridStructureScene.vue";
 import GridSwapScene from "./GridSwapScene.vue";
 import StarterScene from "./StarterScene.vue";
+import LivePanelsScene from "./LivePanelsScene.vue";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {useLabEventSink} from "../../lab-event-sink";
 import type {LabFixtureProps} from "../../lab-subject";
@@ -436,6 +437,7 @@ function formatPx(val?: number): string {
     <GridPanelsScene v-else-if="scene === 'panels'" />
     <GridSwapScene v-else-if="scene === 'swap'" />
     <GridLeavingScene v-else-if="scene === 'leaving'" />
+    <LivePanelsScene v-else-if="scene === 'live-panels'" />
     <!-- README 的起步例子原样搬来（nb-layout 的 readme.test.ts 核对两边一字不差），Lab 要的标记包在外面。 -->
     <div v-else-if="scene === 'starter'" data-lab-subject style="height: 100%; padding: 8px">
         <StarterScene />

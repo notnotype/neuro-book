@@ -7,7 +7,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 import {CompactionSettingSchema} from "../config/compaction";
-import {ProviderApiSchema, ProviderIconSchema, RoleEffort} from "../config/shapes";
+import {ProviderApiSchema, ProviderIconSchema, ProviderProxySchema, RoleEffort} from "../config/shapes";
 
 /** 包内几个形状共用的小块；不从入口导出。 */
 export const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);
@@ -65,6 +65,8 @@ export const ModelRowSchema = Type.Object({
     headers: Headers,
     status: Type.Union([Type.Literal("ok"), Type.Literal("missing"), Type.Literal("incomplete"), Type.Literal("unsupported")]),
     usable: Type.Boolean(),
+    /** 服务商的列表里没有、但用户配置过且目录里有：照用，行上标“服务商列表里没有”（docs/specs/models/service.md 输出 9）。 */
+    unlisted: Type.Boolean(),
     overridden: Type.Array(ModelOverrideField),
     source: Nullable(Type.Object({
         name: Type.String(),
@@ -77,9 +79,9 @@ export const ModelRowSchema = Type.Object({
 }, {additionalProperties: false});
 export type ModelRow = Static<typeof ModelRowSchema>;
 
-/** 列表请求失败的原因：nb-harness 的五类，加上超时、没有凭据、存不下。 */
+/** 列表请求失败的原因：nb-harness 的六类（`proxy` 是网络出口选不出路、请求没发），加上超时、没有凭据、存不下。 */
 export const ListingErrorReasonSchema = Type.Union([
-    Type.Literal("auth"), Type.Literal("not-found"), Type.Literal("unreachable"), Type.Literal("bad-response"), Type.Literal("cancelled"),
+    Type.Literal("auth"), Type.Literal("not-found"), Type.Literal("unreachable"), Type.Literal("bad-response"), Type.Literal("cancelled"), Type.Literal("proxy"),
     Type.Literal("timeout"), Type.Literal("no-credentials"), Type.Literal("storage"),
 ]);
 
@@ -116,6 +118,8 @@ export const SnapshotProviderSchema = Type.Object({
     templateApi: Nullable(Type.String()),
     auth: Auth,
     headers: Headers,
+    /** 这家自己的代理；null 是跟随应用的设置。 */
+    proxy: Nullable(ProviderProxySchema),
     key: KeyStatusSchema,
     followSource: Type.Boolean(),
     source: ListingStateSchema,
@@ -149,7 +153,24 @@ export const SnapshotRoleSchema = Type.Object({
     status: RoleStatusSchema,
 }, {additionalProperties: false});
 
-export const ModelsSnapshotSchema = Type.Object({providers: Type.Array(SnapshotProviderSchema), roles: Type.Array(SnapshotRoleSchema)}, {additionalProperties: false});
+/**
+ * OMP 的在线模型目录（docs/specs/models/service.md 输出 25）：`enabled` 为假是这台机器不取（启动环境把地址设成了空）；`checkedAt`
+ * 是可用的那份最近一次确认的时间（毫秒，取到新的或服务端答“没变”）；`modelCount` 是那份里的模型数，没有时为 null；`error` 是最近
+ * 一次取失败的原因（成功后清掉）：`proxy` 网络出口选不出路、`rejected` 内容不合格、`storage` 存不下，其余同列表。
+ */
+export const CatalogStateSchema = Type.Object({
+    enabled: Type.Boolean(),
+    refreshing: Type.Boolean(),
+    checkedAt: Nullable(Type.Integer()),
+    modelCount: Nullable(Type.Integer({minimum: 0})),
+    error: Nullable(Type.Object({
+        reason: Type.Union([Type.Literal("unreachable"), Type.Literal("bad-response"), Type.Literal("too-large"), Type.Literal("cancelled"), Type.Literal("timeout"), Type.Literal("proxy"), Type.Literal("rejected"), Type.Literal("storage")]),
+        message: Type.String(),
+    }, {additionalProperties: false})),
+}, {additionalProperties: false});
+export type CatalogState = Static<typeof CatalogStateSchema>;
+
+export const ModelsSnapshotSchema = Type.Object({providers: Type.Array(SnapshotProviderSchema), roles: Type.Array(SnapshotRoleSchema), catalog: CatalogStateSchema}, {additionalProperties: false});
 export type ModelsSnapshot = Static<typeof ModelsSnapshotSchema>;
 export type SnapshotProvider = Static<typeof SnapshotProviderSchema>;
 export type SnapshotRole = Static<typeof SnapshotRoleSchema>;

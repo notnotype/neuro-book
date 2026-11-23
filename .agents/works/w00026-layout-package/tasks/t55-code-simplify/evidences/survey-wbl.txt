@@ -1,0 +1,148 @@
+# w00026 t55：`packages/nb-workbench-layout` 只读调研报告
+
+本包约 3200 行源码，另有约 2900 行测试。**可以放心删的死代码只有两处：`showPanelAndInsert` 和 `splitIntoSections`，合计约 100 行（含测试）。其余多是重复写法、可合并的循环和包出口过宽。**
+
+有两点要先说明：
+- 没跑任何测试、基准或 e2e，所有数字都是读代码数出来的，标“估”的是推算。基准命令被沙箱拦了。
+- 外部调用方的搜索范围是 `packages/` 下除 `node_modules`、`neuro-book-legacy`、本包以外的全部 `.ts` 和 `.vue`，包括 `neuro-book/e2e`。搜索方式是逐个导出名做整词匹配。
+
+`GRID_MAX_NODES` 是 256，实际文档十几个节点。所以下面的“效率”项里，只有标签条那两条（1、5）有可观的量，其余是个位数微秒到毫秒，别为它们动结构。
+
+## 一、内部候选，按收益排序
+
+### 1. 键盘列落点时标签条被重复测量，面板级 O(N²) 次 DOM 读（效率）
+- **位置**：`src/vue/tab-strip-geometry.ts:153` 的 `resolveTabStripInsertion`、`:197` 的 `tabStripStops`；调用方在应用的 `workbench/web/layout-drag.ts:582-583`（`stripStopsOf`）。
+- **现在**：`tabStripStops(strip)` 先量一次，再对每个停靠点调用 `resolveTabStripInsertion(strip, point)`，而它每次都完整重量（`measureTabStrip`）。`enumerateDropCandidates` 对每块面板调一次 `stripIndexes`，所以每块面板每次列候选都是 1 加 S 次整条重量，S 约等于标签数 N。
+- **改成**：新增一个只量一次的入口，例如 `tabStripStopInsertions(strip)`。它内部 `const snapshot = measureTabStrip(strip)`，停靠点从 `snapshot.lines` 算，每点用 `tabStripInsertionIn(snapshot, point)`。`resolveTabStripInsertion` 仍留给 Lab 的 `TabStripFixture.vue:48`。
+- **省多少**：每次重量要读 3N 次 `getBoundingClientRect`（见第 5 条）。N=10 时从约 360 次降到 10 次，N=30 时从约 2900 次降到 30 次。改完再叠加第 5 条是 N 次。
+- **风险**：低。输出应逐点相同，因为同一份 DOM 在同一帧里量。
+- **公开面和持久化**：包是私有的，都不碰。`tabStripStops` 要改签名，或新增入口后保留旧的。
+- **守着它的测试**：`vue/tab-strip-geometry.dom.test.ts`（没覆盖 stops，要补一条“stops 与逐点 resolve 结果相同”），e2e 有 `lab-tab-strip.e2e.ts` 和 `workbench-dnd.e2e.ts` 里的键盘拖动。
+- **牵涉应用**：要在 `layout-drag.ts` 里改一处调用，那里不在本包范围。
+
+### 2. `showPanelAndInsert` 和 `rebaseOriginal` 没有调用方（简化，删代码）
+- **位置**：`src/layout-doc.ts:1164-1188`。
+- **证据**：搜 `showPanelAndInsert|rebaseOriginal` 排除 `.agents` 与归档，结果只有定义、`layout-doc.test.ts` 的 6 处和 Task 文档。`index.ts` 是 `export *`，所以它还在公开出口里。
+- **历史**：t24 的收尾审查（`impl-review-final.txt` 第 5 条）建议删除。t24 README 第 131 行当时的处理是“留着，JSDoc 写明只给不用容器的面板用”。注释里写的“工作台不用它”就是这条的结果。这是一个已有记录的决定，**请开发者重新拍板**：留着的理由是“库操作”，但它现在在带容器的区域里一律 `rejected`，只对没有锚的旧形文档成立。
+- **删掉**：函数加 `rebaseOriginal`，约 25 行；测试 `layout-doc.test.ts:615-633` 与 `:1188-1197`，约 28 行。`LayoutSource` 类型只剩 `layout-drop.ts` 在用，可挪过去。
+- **风险**：低。`setPanelHidden` 与 `setPanelCollapsed` 各有独立测试。
+- **碰没碰公开面**：只碰本包出口。
+
+### 3. `splitIntoSections` 没有调用方（简化，删代码）
+- **位置**：`src/layout-doc.ts:703-719`。
+- **证据**：整仓搜 `splitIntoSections` 只有定义和测试。应用里“多标签窗停靠进区域一节一标签”走的是 `movePanelToEdge`、`settleLanding` 再到 `splitPanelInPlace`，对应测试 `layout-doc.test.ts:1134` 已覆盖。
+- **删掉**：约 17 行函数加测试 `:1265-1289` 的 `describe("拆成分节")`，约 25 行，另有 `:914`、`:1244` 两处单行引用。`splitPanelInPlace` 和 `settleLanding` 留着。
+- **风险**：低。删前要确认两条独特断言：“平分原份额”（`:1281-1283`）、“新 id 撞已有面板整个拒绝”（`:1300`）。前者在 `movePanelToEdge` 路径上没有对应断言，要么补一条到 `:1134` 那条用例，要么随函数删。
+- **碰没碰公开面**：只碰本包出口。
+
+### 4. `previewEdgeDrop` 与 `previewPanelRects` 重复，且预览前白做一次落点结果（复用，层次）
+- **位置**：`src/layout-drop.ts:414-428` 与 `:433-442`；调用方在 `layout-drag.ts` 的 `dropFor`（约第 636 行）和 `previewOf`（约第 546 行）。
+- **现在**：两个函数都是 `projectLayoutDoc`、`createGrid`、`grid.layout`、`placeGrid`，再把 `item.rect` 转成 `GridDropRect`，转换写了两遍。另外 `dropFor` 已经 `applyLayoutDrop` 过一次，`previewOf` 进来后 `previewEdgeDrop` 又 `applyLayoutDrop` 同一个 `(doc, source, action)`。每个新候选重复一次完整的复制加规范化。
+- **改成**：
+  - `previewEdgeDrop` 的后半段直接调 `previewPanelRects(result.doc, [placed], projection, extent, dpr)[placed] ?? null`，删约 8 行。
+  - 可选：让它收已经算好的结果文档（签名从 `(doc, source, action, policy, …)` 变成 `(applied, source, …)`），由 `dropFor` 把已有的 `result.doc` 传下去，每个新候选省一次结构操作。结构操作按文件内注释的量级约 1ms（2000 标签，对 256 节点上限的实际文档远小于此）。候选有 `run.previews` 缓存，所以不是每帧。
+- **风险**：低。可选部分要改应用两处调用，并保证“放回原处返回 null”的语义不丢，现在是 `result.doc === doc` 判的。
+- **测试**：`layout-drop.test.ts`、`drag-geometry.test.ts`，`workbench-dnd.e2e.ts` 的外缘预览矩形。
+- **碰没碰公开面**：只碰本包出口。
+
+### 5. `measureTabStrip` 每个标签读 3 次矩形（效率）
+- **位置**：`src/vue/tab-strip-geometry.ts:136-142`、`:95-120`。
+- **现在**：`all` 对全部标签 `memberOf`（N 次读），`rowsOf(strip, exclude)` 又对每行查一遍标签再 `memberOf`（N 次读），`linesOf(strip, exclude)` 里再调一次 `rowsOf`（N 次读）。三遍 `querySelectorAll` 和 `getBoundingClientRect`。`freeze` 在拿起时对树里每块面板和每个浮动窗各量一次。
+- **改成**：只调一次 `rowsOf`。让它返回每行原始成员与补位后成员，`all` 由各行原始成员按 DOM 顺序拼出，`linesOf` 改成收这份结果。
+- **省多少**：每条标签条 3N 次读降到 N 次，另少 2 次 `querySelectorAll`。拿起时 `freeze` 一次性省全部标签数的 2 倍。
+- **风险**：低到中。唯一要核对的是 `all` 的顺序：现在是 `strip` 内标签的 DOM 顺序，改后是行的顺序。`TabStrip.vue` 里标签都在行内，顺序一致，但“不在 `[data-tab-row]` 下的标签”会从 `all` 里消失，合同里没有这种情况。
+- **测试**：`tab-strip-geometry.dom.test.ts`、`lab-tab-strip.e2e.ts`、`workbench-dnd.e2e.ts`（实时布局里标签条排序）。
+
+### 6. “四向边的落点”三处各写一份（层次）
+- **位置**：`src/layout-drop.ts:160-176`（`nearestEdge` 末尾“有没有任何一边可用”）、`:328-334`（`layoutDropSectors`）、`:513-518`（`enumerateDropCandidates`）。三处都是 `for edge of ["left","right","top","bottom"]` 加 `edgeTargetFor`，并各自带“接受边”的前置条件。`:152` 的 `edgeTargetFor` 已经抽了一半。
+- **改成**：抽一个 `edgeTargetsOf(input, panel, tabs, panelId): Map<LayoutEdge, LayoutEdgeTarget>`，三处消费同一份。注释里“形状画在 `layoutDropSectors` 里，两边要一起改”这种提醒也能少一条。
+- **省多少**：约 10 行，更重要的是“哪些边可用”只有一个来源。
+- **风险**：低到中。`nearestEdge` 现在只对窄带内的边懒求值，改后每次指针移动要多算最多 3 次 `edgeTargetFor`（每次一个 `findTreeNode` 加几步兄弟扫描，十几个节点量级，可忽略）。宿主的 `policy.edgeTarget` 若有副作用，行为会变，从现有注释看它是纯判定。
+- **测试**：`layout-drop.test.ts` 整份，`DropSectorsOverlay.sectors.dom.test.ts`。
+
+### 7. “这一边的相邻看得见的兄弟”扫了两遍（层次）
+- **位置**：`src/layout-doc.ts:845-858`（`edgeTargetOf`）与 `:963-974`（`edgeTargetTouches`）。
+- **现在**：两处都是沿方向 `step` 走 `parent.children`，跳过隐藏的。
+- **改成**：抽 `adjacentShownSibling(doc, parent, index, step)`，两处共用，约省 7 行。
+- **差别要先对齐**：`edgeTargetOf` 碰到条叶就 `break`（不管条隐没隐藏），`edgeTargetTouches` 碰到隐藏的条会跳过继续找。文档里条只在骨架两端，实际碰不到，但合并时要选一边并补一条用例。这算行为差异，所以风险列为中。
+- **测试**：`layout-doc.test.ts` 的外缘与“放回原处”相关用例、`layout-drop.test.ts`。
+
+### 8. 一批只差一点的重复（复用）
+- **`axisOf` 三份**：`layout-doc.ts:152`、`layout-project.ts:90`、`intent-writeback.ts:16`，应用 `shell/adjacency.ts:46` 还有第四份，nb-layout 内部 `grid-geometry.ts:40` 有第五份。本包内另两处直接从 `layout-doc` 导入即可（后两个文件本来就导入它），删 2 行，若要连 `crossOf` 也共用就放进一个小的内部文件。
+- **`holdsEditor` 本地重写**：`intent-writeback.ts:91` 的闭包与 `layout-doc.ts:351` 导出的 `holdsEditor(doc, node)` 同义（后者类型 `LayoutTreeNode` 兼容 `GridSnapshotNode`）。删 1 行，改调现成的。它还少一次 `treeLeaves` 的数组分配。
+- **`isBarInput` 与 `isBarLeaf`**：`layout-project.ts:92` 与 `layout-doc.ts:345` 同形，`isBarLeaf` 参数类型放宽到 `{kind, ref}` 即可共用。
+- **规范化那一行写了两遍**：`finish`（`layout-doc.ts:481`）和 `stripDynamicTabs`（`:1200`）都是 `normalizeTree(root, (node) => countsInShare(asDoc(next), node))`，抽 `normalizeDoc(next)`。
+- **`enumerateDropCandidates` 的去重键**：`layout-drop.ts:486` 用 `JSON.stringify(action)`，旁边就有 `layoutDropKey`，换成它。
+- **夹具里的 `sizeOf`**：`layout-doc-fixtures.ts:56-69` 自己写了一遍树内查找，改调 `findTreeNode(root, id)?.node.size`，约 8 行（测试辅助，不进产品）。
+- **点在矩形里的 `contains`**：同一个半开区间判定在 `layout-drop.ts:66`、应用 `drag-geometry.ts:70`（已导出）、Lab 的 `LivePanelsScene.vue:90`、nb-layout 内部 `live-drag.ts:160` 各一份，`nb-story` 的 `BookFrame.vue:225` 是闭区间的变种。应用和 Lab 两处可以改成从本包导入一个 `rectContains`，本包出口多一个名字（见下面公开面一节）。
+- **风险**：全部低。
+- **测试**：本包 `bun test`、`vitest`；应用受影响面跑 `drag-geometry.test.ts`、`layout-doc-store.test.ts`。
+
+### 9. `presentationCollapse` 每轮多做一次投影（效率）
+- **位置**：`src/layout-project.ts:297-301`。
+- **现在**：回放循环里每一轮先 `overflowOf(removed)` 取 `before`，删掉后再取一次。投影次数是 1 加至多 k 加 2k。
+- **改成**：把上一轮的 `after`（保留删除时）或 `before`（放回时）带到下一轮，初值取前向循环最后一次的结果，省 k 加 1 次。
+- **省多少**：k 为被收走的块数，只在放不下、窗口变窄的帧发生。估 k=10 时约 33 次降到 22 次投影；单次投影十几个节点，实测没量。窗口拖拽过程中是每帧重算，所以放进来，但优先级低。
+- **风险**：低。逻辑等价。
+- **测试**：`layout-project.test.ts` 的收走与放回用例，`layout-present.test.ts`（应用）。
+
+### 10. `layoutDropPanelAt` 总是先算 `sourceTabs`，`findTab` 每次分配整表（效率）
+- **位置**：`layout-drop.ts:183`（`const tabs = sourceTabs(...)` 在 `inside` 命中之前无条件算）；`layout-doc.ts:518` 的 `findTab` 用 `Object.entries(doc.panels)`，同文件 `anchorOf` 的注释明说过这种分配要避免。
+- **现在**：每次指针移动 `resolveLayoutDrop`、`layoutDropPanelAt`、`layoutDropSectors` 各算一次 `sourceTabs`，每次一次整表分配。
+- **改成**：`layoutDropPanelAt` 把 `tabs` 挪进“缝落点要找最近能接收的那块”的分支里再算；`findTab` 改 `for…in`。
+- **省多少**：每次指针移动省 1 次、最多 2 次整表分配。面板数十个量级，微秒级，列出来是因为它在最热的路径上。
+- **风险**：低。
+- **测试**：`layout-drop.test.ts`。
+
+### 11. `LayoutDropPanelGeometry.insertionAt` 没有生产方（简化）
+- **位置**：`layout-drop.ts:46`、`:139`。
+- **证据**：整仓搜 `insertionAt` 排除 `.agents`、归档，非测试里只有这 2 处定义和使用；应用的几何构造（`layout-drag.ts:434-438`、`drag-geometry.ts:107`）都不给它。应用对 `strip` 落点自己用 `tabStripInsertionIn` 重新算（`dropFor` 里 `resolved.kind === "strip"` 直接走 `stripDrop`），`resolveLayoutDrop` 给出的 `index` 在生产里从不被用。
+- **改成**：删字段，`strip` 动作的 `index` 恒为 `panel.tabs.length`；或者保留字段，承认它是测试专用的合同。后者违背“产品代码里不加测试专用分支”，所以倾向删。
+- **省多少**：约 3 行，但 `layout-drop.test.ts`、`DropSectorsOverlay.sectors.dom.test.ts` 里约 14 处夹具要同步改，且有几条用例断言了 `index`，要重写，所以收益小。**倾向不做**，只记一笔。
+- **风险**：低，但测试改动面大。
+
+### 12. 包入口 `export *` 暴露 122 条 export（层次）
+- **位置**：`src/index.ts:5-7`，五个文件共 122 条 export 行（含类型）。
+- **现在**：函数与常量里，外部用到的约 60 个；`isNodeShown`、`countsInShare`、`holdsEditor`、`isFixedChild`、`regionHasSections`、`normalizeTree`、`firstPanelIn`、`edgeTargetTouches`、`movePanelToStrip`、`sectionRegionOf`、`sourceTabs`、`panelOfRef`、`LAYOUT_EDGE_RATIO`、`LAYOUT_SEAM_HIT_PX` 外部为零，只在包内跨文件或只在测试里用。`entry.test.ts` 已经专门拦两个，说明这个问题踩过。
+- **改成**：和 nb-layout 的写法一致，`index.ts` 改成显式清单加一条 `exports.test` 式的测试。上面这些要么不导出，要么保留在包内的 `internal.ts` 里。`layout-doc.ts` 本身 1351 行，校验段（`:1235-1351`，约 115 行）只依赖 `treeLeaves`、`barOfRef`、`tabKey`，可以单独成文件，让拆分后每个文件的导出边界更清楚。
+- **省多少**：不删行，是把边界变成合同。
+- **风险**：低，机械。但要先得到开发者认可，因为这是包公开面（虽然是私有包）的收窄。
+- **测试**：`entry.test.ts`、`boundary.test.ts`，以及应用端全部 `import … from "@notnotype/nb-workbench-layout"` 编译（应用的类型检查）。
+
+## 二、公开面候选（单列，不和上面混）
+
+本包是 `private`，不在 nb-layout 的冻结清单里，上面第 12 条算内部决定。涉及 nb-layout 公开面的只有：
+
+1. **矩形与点的小工具**：`contains`（半开区间）有 4 份拷贝，分布在 nb-layout 内部、应用、Lab、本包。可以：
+   - 在 nb-layout 公开入口加一个 `GridDropRect` 的判点函数。这会碰冻结面和 `api/*.api.txt`，**不推荐**，三处调用方是工作台自己的。
+   - 或者让应用和 Lab 从 `nb-workbench-layout` 导入 `rectContains`（见第 8 条）。**倾向这个**。
+2. **`axisOf`**：nb-layout 内部 `grid-geometry.ts:40` 有，但没进公开入口。不建议为了它加公开名字，本包内合并即可。
+
+## 三、顺便发现的问题（与简化无关）
+
+- **相邻兄弟扫描对隐藏条不一致**：`edgeTargetOf` 在条叶上 `break`，`edgeTargetTouches` 对隐藏的条会继续往后找，见第 7 条。目前骨架保证条在两端，到不了，但两处各自说一种“相邻”。
+- **原型成员名当 id**：`validateLayoutDoc` 的 `FORBIDDEN_IDS` 只有 `__proto__`、`constructor`、`prototype`。`doc.panels[id]` 和 `sizes[node.id]` 都是普通对象查找，对不在表里的 `toString`、`valueOf` 这类名字会拿到原型上的函数，`panel.name` 恰好是函数的 `name`，`isContainerAnchor` 等判定会走错分支。只有宿主传入文档里没有的这类 id 才会触发，面板 id 目前由宿主按计数器生成，风险低，不急。
+- **TabStrip 文档与代码一致**：我核对过 `adapt` 与 `partitions` 同用时 `rows` 不过滤被收进“更多”的标签，但 `TabStrip.md` 明确写了“`adapt` 不和 `partitions` 一起用”，不算 bug。
+
+## 四、看过、没发现可简化的部分
+
+- **`layout-doc.ts` 的结构操作主体**：`finish` 出口统一过规范形、`hideEmptiedRegions`、`expandWhereAxisChanged`、`settleLanding`、`placeLeaf` 三种放置各有语义，我没找到可合并的同形分支。`moveTabToEdge`、`movePanelToEdge`、`openPanelAtEdge` 末尾的 `placeLeaf`、`settleLanding`、`finish` 三步序列相同，但中间各自的前置检查不同，抽出来省不了多少。
+- **`copyJson` 与整份复制**：2000 个标签约 1.2ms 是注释里量过的，节点上限 256，实际文档远小于此，不值得改成结构共享。
+- **`layout-project.ts`**：`assignByParent`、`withStrip`、`presentedAs` 里的特例都有注释说明来由（入口条、垫底、区域拖到零），不是补丁堆叠。`isFixedChild` 对每个子节点重算一次 `siblings.some(holdsEditor)`，理论上多算，但节点数 ≤256，不值得动。
+- **`layoutSeamsOf`**：每次指针移动一次树遍历，节点数 ≤256，不值得缓存。
+- **`TabStrip.vue`**：模板与脚本精简，`reveal` 的 `nextTick` 加 `requestAnimationFrame` 有注释说明原因。
+- **`intent-writeback.ts`、`presented-ids.ts`、`lab-sources.ts`**：除第 8 条那几行外，没有可删的内容。
+- **`validateLayoutDoc`**：约 115 行校验里，节点数与深度的计数和 `countScale`、nb-layout 的快照校验三处各自在计，但它们的触发时机不同（校验要在递归前就能因超限提前退出），不建议合并。
+
+## 五、建议的先后与验证
+
+| 做 | 条目 | 理由 |
+|---|---|---|
+| 先做 | 1、5 | 有量级差，改动局限在 `tab-strip-geometry.ts` 加 `layout-drag.ts` 一处 |
+| 开发者拍板后做 | 2、3 | 删约 100 行，其中 2 是 t24 已有“留着”的记录 |
+| 顺手做 | 4、8 | 机械、低风险 |
+| 看心情 | 6、7、9、10 | 收益小或碰行为 |
+| 倾向不做 | 11 | 测试改动面大于收益 |
+| 单独议 | 12 | 要开发者认可，包出口收窄 |
+
+验证：本包 `bun run test` 加 `bun run typecheck`，应用端跑 `bun run test:affected`。e2e 我没跑，改到 `tab-strip-geometry.ts` 或 `layout-drag.ts` 时按改动选 `lab-tab-strip.e2e.ts` 与 `workbench-dnd.e2e.ts`。

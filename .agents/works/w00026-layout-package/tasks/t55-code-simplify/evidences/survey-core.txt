@@ -1,0 +1,228 @@
+# w00026 t55 调研报告：nb-layout 核心 `.ts` 与 `scripts/`（只读）
+
+## 总览
+
+- 这个模块没有大块的无用逻辑，也没有大量没人用的分支。能删的主要是少量没有生产调用方的代码，加上几处同形重复。
+- 不动公开面和持久化时，预计能删约 200 到 230 行生产代码，约占 7900 行的 3%。做下面的 D1（合并两处手势会话）还能再少约 100 行。
+- 大头是注释、Spec 绑定的诊断分支和拖动求解，都不是无用逻辑。
+- 搜索范围：`packages`、`scripts`，排除 `node_modules`、`neuro-book-legacy`、`dist`、`*.api.txt`。`rg -w` 逐符号核对过，测试里的引用单独标出。
+- 没有跑任何脚本，也没有实测。下面的次数和行数是读代码数出来的，标了“未测量”的是估计。
+- 所有候选都不碰持久化（`GridSnapshot`、`GRID_SNAPSHOT_VERSION`、`LAYOUT_DOC_VERSION`），只有第 14 条会改一条英文日志文案。
+
+## 一、内部候选（不碰公开面），按收益排序
+
+**1. 简化：没有生产调用方的代码，删掉或挪进测试。**
+- 位置与现状：
+  - `grid-geometry.ts:64-70` 的 `normConstraint`：全仓只有定义，没有任何引用。
+  - `grid-geometry.ts:467-470` 的 `branchSashSizes`：同样没有任何引用。
+  - `grid-geometry.ts:136-146` 的 `collapsePolicyProblem`：只有 `grid-geometry.test.ts` 里 4 处引用，生产里没有调用。
+  - `sash-drag.ts:429-430` 与 `477-492` 的 `SASH_COLLAPSE_THRESHOLD` 和 `sashCollapsePolicy`：`sash-drag.test.ts` 里 12 处引用，生产里没有调用。
+- 改成：
+  - 前三项连同它们的测试用例一起删。
+  - `sashCollapsePolicy` 挪成 `sash-drag.test.ts` 里的本地辅助函数，`SASH_COLLAPSE_THRESHOLD` 随它挪走。
+  - 同时收窄只被本模块自己用的导出：`projectGridGesture`（`grid-gesture.ts:175`）、`sashDistance`（`sash-hit-area.ts:76`）、`LIVE_SETTLE_MS` 和 `LIVE_STICKY_PX`（`live-drop.ts:10-12`）、`GRID_EDGE_RATIO_DEFAULT`（`grid-drop.ts:62`）。这几个没有测试引用，去掉 `export` 即可。
+- 预计：删生产约 40 行，测试约 40 行。
+- 风险：低。没有碰公开面和持久化。
+- 守着它的测试：`grid-geometry.test.ts`、`sash-drag.test.ts`。改完跑 `bun test` 和 `tsc --noEmit`。
+
+**2. 层次与复用：树的查找和克隆写了几份。**
+- 位置与现状：
+  - 查找：`grid.ts:143` 的 `find`、`grid.ts:450-466` 的 `candidateFind`、`grid-gesture.ts:133` 的 `findBranch`、`grid.ts:244` 的 `depthOf` 是同一个递归。
+  - 克隆：`grid.ts:137` 的 `cloneNode` 与 `grid-gesture.ts:152` 的 `cloneTree` 一样。
+  - `candidateFind` 其实就是 `find(id, candidate)`，`find` 本来就带 `node` 参数。
+- 改成：
+  - 先做最小改动：`candidateFind` 换成 `find(id, candidate)`，省约 17 行。
+  - 再把 `findNode(root, id)` 和 `cloneNode` 提到一个纯函数的树工具文件，`grid.ts` 和 `grid-gesture.ts` 共用。`depthOf` 改成同一个遍历带深度。合计约 45 行。
+- 风险：低。只是搬函数，没有改语义。
+- 守着它的测试：`grid.test.ts`，以及 `grid.test.ts` 里的 gesture 部分。
+
+**3. 简化：`moveLeaf` 克隆整棵树再做回滚，回滚分支走不到。**
+- 位置：`grid.ts:766-790`。
+- 现状：`moveLeaf` 先克隆整棵树，把 `tree` 指向克隆再改，失败时换回原树。回滚的两个返回点（`!stagedHit?.parent...` 和 `!destination...`）源码注释自己写了“按今天的结构不可达”。
+  - 我核对了前置检查：来源是叶，目标是另一个分支，同分支的移动走了前面那条路，目标分支不会因来源塌陷而消失。
+  - 根叶没有父，但根叶存在时树里没有分支，前面就已经 `not-found` 了。
+  - 所以克隆没有用。
+- 改成：直接在活树上做，删掉 `nextTree`、`originalTree`、两处不可达返回，省约 14 行。
+- 收益：每次 `moveLeaf` 省一次整树克隆，最多 256 个节点。
+- 风险：低到中。
+- 守着它的测试：`grid.test.ts:559-751` 的 moveLeaf 各例。
+- 关联：见“顺便发现的问题”第 1 条，`moveLeaf` 缺规模守卫。
+
+**4. 简化：“找不到节点”的前置检查重复 9 次。**
+- 位置：`addLeaf`、`splitLeaf`、`removeLeaf`、`moveLeaf`、`resize`、`resizeBranch`、`resizeBranches`、`setCollapsed`、`setSize`。
+- 现状：每处都写一遍 `find` 加 `not-found` 加 `wrong-node-kind`，还夹着 `root` 没有父分支的检查。
+- 改成：局部辅助函数 `need(id, {kind?, parent?: true})`，返回命中结果或失败对象。`message` 的措辞保留“Unknown node id / parent id / branch id”三种，通过参数区分。
+- 预计：省约 30 行。
+- 风险：低。
+- 守着它的测试：`grid.test.ts` 里按 `codeOf` 断言码和 `params` 的那批用例，它们不看 `message`。
+
+**5. 效率：`layoutOf` 里约束递归被反复重算（未测量）。**
+- 位置：`grid-geometry.ts:475-602`、`constraintOnAxis` 和 `constraintsOf`（`:276-370`）。
+- 现状：对每个分支节点 `measure` 一次，要对它的整棵子树重新走：
+  - `boundsOf` 走两次（宽、高）。
+  - `crossBounds` 走一次。
+  - `allocateAxis` 里 `sashPanelsOf` 对每个子节点走一次。
+  - `rawBounds` 对每个子节点再走一次。
+  - 然后每个子节点自己的 `measure` 再来一遍。
+- 估算：每个节点被访问约 5×深度次。例子：40 个节点、深度 4，约 800 次访问；做了记忆，约 80 次。这是推算，没有实测。
+- 调用频率：`grid.layout()` 每次容器尺寸变化都调，拖分隔条时 `projectGridGesture`（`grid-gesture.ts:198`）每帧调一次。
+- 改成：在 `layoutOf` 闭包里建 `Map<GridNode, 两轴结果>`，把 `constraintOnAxis` 和 `constraintsOf` 现在的 5 个位置参数（`node, axis, sashSize, issues, reported`）收成一个上下文对象 `{sashSize, issues?, reported?, memo?}`。
+- 诊断顺序不变：`reportConstraintConflict` 本来按 `(id, axis)` 去重，记忆命中只是跳过本该被去重的重复上报。
+- 预计：热路径上每帧省 70% 到 90% 的约束递归；代码行数基本持平。
+- 风险：中，这是内核求解。
+- 守着它的测试：`grid-geometry.test.ts`、`grid.test.ts`（layout 和 issues 部分）、`sash-drag.test.ts`。
+
+**6. 简化：`sash-drag.ts` 里同一个判据和同一条诊断各写两遍。**
+- 位置：`sash-drag.ts:281-350`。
+- 现状：
+  - “该不该收起”（`:289` 与 `:336`）和“该不该展开”（`:310` 与 `:341`）的条件分别在 `collapsePass` 和 `expandPass` 里写一遍，诊断阶段又写一遍。
+  - `no-room-to-collapse` 的 `message` 在 `:198` 和 `:337` 各一份，`no-room-to-restore` 在 `:205` 和 `:343` 各一份。
+  - 诊断阶段的判据和 pass 里的判据一旦走样，会报出“明明没试过”的原因。
+- 改成：提出局部函数 `wantsCollapse(index)`、`wantsExpand(index)`，再提两个诊断构造函数（可放 `grid-issue.ts`）。
+- 预计：省约 15 行，主要价值是两处不会走样。
+- 风险：低。
+- 守着它的测试：`sash-drag.test.ts`。
+
+**7. 复用：矩形外接、相交、有无尺寸判断重复。**
+- 位置与现状：
+  - 外接矩形有三份：`grid-rects.ts:235-241`（`maximizePlacement` 内联）、`grid-swap.ts:79-86`（`union`）、`grid-motion.ts:16-20`（`unionRect`）。
+  - 相交有两份：`grid-swap.ts:88` 的 `intersects` 和 `grid-motion.ts:113` 的 `overlaps`。
+  - `grid-motion.ts:73` 的 `hasSize` 与 `:263` 的局部 `hasSize` 同名，后者只是多带了类型谓词。
+- 改成：`grid-rects.ts` 导出 `unionRects(rects): GridRect | null` 和 `rectsIntersect(a, b)`，三处共用；`hasSize` 改成带类型谓词的一份。
+- 预计：省约 25 行。
+- 风险：低。
+- 守着它的测试：`grid-rects.test.ts`、`grid-swap.test.ts`、`grid-motion.test.ts`。
+
+**8. 复用：点落在矩形里的判断有四份，类型别名重复。**
+- 位置与现状：
+  - 含边界的三份：`grid-drop.ts:74` 的 `containsPoint`、`live-drop.ts:64-67` 的 `insideShownSlot`（带边距）、`sash-hit-area.ts:51-55` 的 `hitTestSashBand`（带边距）。
+  - 右、下不含边界的一份：`live-drag.ts:160` 的 `inside`。
+  - 类型重复：`sash-hit-area.ts:17-24` 的 `SashPoint`、`SashRect`，`drag-gesture.ts:87-92` 的 `DragEdgeRect`，结构上等于 `GridDropPoint`、`GridDropRect`。
+- 改成：`grid-drop.ts` 导出 `containsPoint(rect, point, margin = 0)`，前三份共用；类型别名改成直接引用。`inside` 的边界语义不同（右、下不含），保留为单独的一个，或给 `containsPoint` 加一个开关参数。
+- 预计：省约 20 行。
+- 风险：低。
+- 守着它的测试：`grid-drop.test.ts`、`live-drop.test.ts`、`sash-hit-area.test.ts`。
+
+**9. 层次：分隔条键 `` `${branchId}:${index}` `` 在包内手写 6 处。**
+- 位置：`sash-gesture.ts:33-35` 已有 `sashKey()`。其余手写处：`grid-rects.ts:323` 和 `:361`、`vue/SashHandle.vue:67`、`vue/sash-feedback.ts:87`、`vue/useSashGesture.ts:658` 和 `:661`。后四处在 `src/vue/` 下，不在我的范围，但同一件事。
+- 改成：让 `sashKey` 接 `(branchId, index)`，六处全走它。字符串格式不变，所以 `data-sash` 和相关断言都不动。
+- 预计：行数持平，减少键格式漂移的风险。
+- 风险：低。
+- 守着它的测试：`grid-rects.test.ts`、`useSashGesture.dom.test.ts`。
+
+**10. 层次：`splitter-session.ts` 和 `grid-gesture.ts` 各写了一套“单分支手势”。**
+- 位置：`splitter-session.ts:46-236` 与 `grid-gesture.ts` 的 `Owner`、`applyCollapse`、`collapsibleIndex`、`collapseState`、`changeOf`、`cancel`。
+- 现状：重复的内容：
+  - 面板和基线、尺寸、收起、主动和补偿、`snapState` 这一组状态。
+  - `drag`、`jump`（`sashLineOffset` 加 `sashEdgeDelta`）和收起切换的求解流程。
+  - `finish` 里构造 baseline 与 target 记录的循环，以及 `cancel` 的重置。
+  - 两边已经走样，见“顺便发现的问题”第 4 条。
+- 改成：抽出一个“单分支手势核心”（持有 owner 状态，暴露 `drag`、`jump`、`collapseOn`、`reset`、`change`），Grid 会话持有若干个、Splitter 会话持有一个。
+- 预计：省约 100 行。
+- 风险：中。它是手势的一致性核心，要先定两边 `issues` 语义的统一口径（见第 4 条）。
+- 守着它的测试：`sash-drag.test.ts`、`grid.test.ts` 里的 gesture 部分、`useSashGesture.dom.test.ts`、`splitter.dom.test.ts`。注意没有 `splitter-session.test.ts`，Splitter 路径靠 dom 测试守着。
+
+**11. 简化：`resizeBranches` 先在候选树上规划、再回头找活树逐项写回。**
+- 位置：`grid.ts:445-517`、`applyBranchResize`（`:428`）。
+- 现状：候选树是整棵树的完整副本，规划完后又用 `plans`、`collapseChanges` 两个数组和 `find(...)` 逐项抄回活树。
+- 改成：规划通过后直接 `tree = candidate`，收起的 `restoreSize` 在候选上就地做。`moveLeaf` 本来就换过 `tree` 引用，所以“结构变化后节点引用失效”已是现有约定。
+- 预计：省约 25 行，含 `applyBranchResize`。
+- 风险：中。
+  - 要先确认宿主（`useGridHost`、`useGridLayout`）没有跨调用持有 `root()` 返回的节点引用，且不靠引用相等判断变化。
+  - `collapsedRemembering` 在候选上的读值（`node.size[axis]`）要和现在“先写尺寸、后写收起”的顺序等价。
+- 守着它的测试：`grid.test.ts` 里 resizeBranches 和收起的用例、`useGridLayout.dom.test.ts`。
+
+**12. 复用：脚本里的小重复。**
+- 位置：
+  - `scripts/api-components.ts:55-58` 重新写了一份 `byCodeUnit`，注释还写着“同 `api-surface.ts`”。`component-tags.ts` 已经从 `api-surface` 导入，没有循环依赖，直接导入即可。
+  - 发布入口清单有两份：`pack.ts:35-40` 的 `ENTRIES` 和 `api-report.ts:31-36` 的 `ENTRIES`。后者还在 `generate()`（`:162-165`）里加了一道运行期核对，专门防两份对不上。
+- 改成：`byCodeUnit` 直接导入；入口清单抽一个 `scripts/entries.ts`，两边共用，运行期核对可删。
+- 预计：省约 12 行，少一种“忘了同步”的失败。
+- 风险：低。
+- 守着它的测试：`scripts/api-components.test.ts`、`api-report.test.ts`、`pack-check.test.ts`，以及 `bun run build:package` 和 `bun run api:check`。
+
+**13. 效率与简化：小事一并处理。**
+- `grid-geometry.ts:287-293` 的 `collapsedRigid` 和 `:127-131` 的 `sashPanelBounds` 收起分支写了同一份 `{low:size, high:size}` 计算。加一个 `collapsedSizeOf(collapse)` 取一次，省约 6 行。
+- `grid-geometry.ts:155-157` 的 `allocateSashPanels` 只是 `allocatePanels` 的转发：合成一个函数，`report` 做可选参数，省 3 行。
+- `grid-gesture.ts:269-270` 把 `result.issues.filter(...)` 写了两遍，算一次省 1 行。
+- `splitter-session.ts:49` 的 `delta` 变量只在 `update` 里写入并立刻读出，改成局部变量。
+- `grid-issue.ts:32` 的 `metric` 和 `grid-geometry.ts:52` 的 `round` 同样是 `Math.round(v*100)/100`。`grid-geometry` 导入了 `grid-issue`，反过来导入会成环，所以把 `round` 放到 `grid-issue.ts`，两边共用。
+- `dev-checks.ts:66` 手写 `node.orientation === "horizontal" ? "width" : "height"`，应调 `axisOf`。
+- `live-drag.ts:345`、`:358`、`:359` 每帧调 `followAt` 三次（各分配一个对象）。`:358` 和 `:359` 读的是同一状态，可以合成一次，每帧省 1 次分配。`wantsCard` 也在一帧里被调约 6 次，可以按需缓存。
+- 以上都低风险，没有单独收益，随手做。
+
+**14. 简化：`grid-snapshot.ts` 旧版本号分支可以并入通用分支。**
+- 位置：`grid-snapshot.ts:93-99` 与 `:100-106`。
+- 现状：旧版本号 1 的分支和通用的版本不匹配分支，返回的码和 `params`（`version: "1"`）一致，只差一句更详细的英文提示（“keep the original and fall back to the default layout”）。`GRID_LEGACY_SNAPSHOT_VERSION` 只在这一处用，没有从入口导出。
+- 改成：并入通用分支，删常量，省约 8 行。
+- 注意：这会改一条英文 `message`，如果开发者想保留这个提示，就不做。恢复行为本身不变，仍拒绝 v1，持久化不动。
+- 守着它的测试：`grid.test.ts:892`，只断言码和 `params`。
+
+**15. 效率（低优先）：`grid-motion.ts` 对同一份 `previous` 反复建索引。**
+- 现状：`placementMoved`、`settleFloatMoves`、`followingLeaves`、`shrinkingLeaves`、`flyingContents`、`keptSizeStarts` 各自 `new Map(previous.map(...))`，`enteringRects` 和 `floatLiftStarts` 又各建一份 `known`；`nodeRectsOf` 在 `enteringRects` 和 `leavingPlacements` 里各调两次。每次过渡判定约 8 张 Map 加 4 次 `nodeRectsOf`。
+- 频率：只在布局变化时跑；`decideMotion` 在 `gesture` 为真时直接返回（`useGridMotion.ts:124`）。拖分隔条是否也走手势短路，我没核对，所以不是已确认的每帧热路径。
+- 改成：`decideMotion` 里建一次 `MotionIndex` 传下去，要改约 10 个导出函数的签名，涉及 `grid-motion.test.ts` 507 行。
+- 预计：每次过渡判定省约 7 张 Map 和 2 次整树汇总，行数几乎不变。
+- 风险：低到中。
+- 建议：收益小于改动面，不单独做；将来改这个文件时顺手。
+
+## 二、公开面候选（需要开发者决定，不和上面混着做）
+
+**P1. `Grid.resize`（增量）和 `Grid.resizeBranch`（单分支）。**
+- 现状：这两个方法的 docstring 已写“新消费者应优先使用 `resizeBranches`”。
+  - 生产调用方：没有。`nb-story`、`useGridLayout`、`useGridHost` 用的都是 `resizeBranches`、`setSize`、`setCollapsed`。
+  - 仅有的外部使用：
+    - Lab 的 `GridStructureScene.vue:48-49` 用了 `resize`。
+    - `nb-workbench-layout/layout-project.test.ts` 用了 `resizeBranch` 共 4 处。
+    - `grid.test.ts` 里两者共约 46 处。
+- 做法 A（删除）：
+  - 删除对象：`grid.ts` 的 `shiftNode`（`:163-168`）、`shiftSiblings`（`:174-185`）、`resize`（`:267-302`）、`resizeBranch`（`:588-607`）。
+  - 连带删：`grid-geometry.ts:427-438` 的 `shareAxis` 就没人用了；类型 `GridResizeResult`、`GridBranchResizeResult`（`grid-types.ts:304-327`）及 `api/index.api.txt` 里的条目。
+  - 预计：生产约 75 行，类型约 12 行，测试和 Lab 另算。
+- 做法 B（保留 `resizeBranch`）：改成 `resizeBranches` 的薄包装，省约 25 行，不动公开面。
+- 影响：改 `index.ts` 导出的 `Grid` 类型，要走 `api:check`，`CHANGELOG.md` 的 `[Unreleased]` 要提这两个名字（如它们是 `@stable`；现在都标着 `@experimental`，所以可以不提，但仍要重新生成 api 报告）。
+- 对 `resizeBranches` 的实现没有影响：它本来就不依赖 `resize`。
+
+**P2. `GridGestureSession.setCollapsed(collapsed)`（`grid-gesture.ts:106`、`:407-422`）。**
+- 生产里没有调用方，只有 `grid.test.ts:394` 和 `:418` 在用。`useSashGesture` 用的是 `toggleCollapsed`，而且 `setCollapsed` 不在公共合同 `SashGestureSessionCore` 里。
+- 做法：删掉，省约 16 行。`toggleCollapsed` 还要用 `applyOn`，那部分保留。
+- 影响：改 `GridGestureSession` 这个导出类型，要走 `api:check`。
+
+**P3. 入口里没有外部使用的低层导出。**
+- 在 `packages` 全仓搜到、只在 nb-layout 内部和测试里出现的：`initialLiveDrop`、`stepLiveDrop`、`insideShownSlot`、`createDragCard`、`createFrameLoop`、`solveSashCollapse`、`createGridGestureSession`、`resolveGridInsertion`，以及它们配套的 `LiveDropCandidate`、`LiveDropState`、`LivePreview`、`DragCard*`、`FrameLoop*` 等类型。
+- 现状：它们被 `createLiveDrag`（不从入口导出）和 `NestedGrid` 的手势会话间接使用，真正的公开入口是 `./vue` 的 `createLiveDragSession`、`useSashGesture`。
+- 做法：开发者判断这些是不是要作为“通用库的可组合积木”继续发布。不发的话，`index.ts` 能少约 14 个名字、约 30 行。
+- 影响：改 `index.ts` 和 `index.api.txt`；这些现在都是 `@experimental`。
+
+## 三、顺便发现的问题（不是简化候选）
+
+1. **`moveLeaf` 没有规模守卫。** `grid.ts:727` 起的移动不检查深度和节点数，`addLeaf`、`splitLeaf` 都检查。
+   - 场景：目标是一个空分支（`children: []`，`createGrid` 能建出来），而树的最大深度正好是 `GRID_MAX_DEPTH`。叶子移进去后深度变成 17，超限，且 `serialize` 之后 `restore` 会被 `limit-exceeded` 拒绝。
+   - 这是从代码推断，没复现。
+2. **`planBranchResize` 的注释和实现不符。** `grid.ts:305-309` 写“计划不修改任何节点”，但 `:372` 会改子节点的 `collapse`。`resizeBranches` 是在候选树上调的所以无害；`resizeBranch`（单分支）没有 `collapsed` 参数，走不到这一行。注释需要改，或者把这一步挪出计划函数。
+3. **`sash-drag.ts:322` 的循环变量 `round` 遮住了导入的 `round`。** 现在循环体里没用 `round()`，诊断阶段在循环之外，所以没出错；以后在循环里加诊断文案就会踩。
+4. **两个手势会话对“折叠没变化”的处理不一致（从代码推断，未验证）。**
+   - `splitter-session.ts:125` 的 `collapseOn` 在没有真实变化时仍写 `issues = result.issues`。
+   - `grid-gesture.ts:313-315` 的 `applyCollapse` 在同样情况下不碰 `owner.issues`，诊断改由 `solve()` 合并后统一写入。
+   - 所以同一个键盘折叠被拒的场景，`session.issues` 的内容可能不同。第 10 条要合并两者时，得先定口径。
+5. **`grid-gesture.ts:182-183` 里 `projectGridGesture` 在 `children.length !== sizesPx.length` 时静默 `continue`。** 这种情况理论上不该出现，出现了说明会话基线和树对不上，现在没有任何诊断。
+
+## 四、看过、没发现可简化的部分
+
+- `drag-gesture.ts`（572 行）：状态机的顺序都有对应的 Spec 条目和测试守着，没有死分支；`release` 里的 `swallowClick` 和 `finish` 里的重复设置，是为了覆盖“松手后等一帧再放下”期间被取消的情形，保留。
+- `frame-loop.ts`、`drag-card.ts`：已经很紧。`drag-card.ts` 每帧约 5 个小对象，没有值得省的地方。
+- `live-drop.ts`、`live-drag.ts` 的整体结构：除第 13 条的 `followAt` 外，没有可合并的路径；每帧的顺序（先读、判定、再写）是为了避免强制重算样式，有注释说明理由。
+- `grid-drop.ts` 的 `resolveGridInsertion` 与 `resolveListInsertion`：成员过滤循环看起来重复，但列表版故意不为落在间隙里的成员分配几何（`:285-287` 的注释）。合并会在标签条每次指针移动时多分配，不建议统一。`edgeArea` 和 `halfArea` 的重复很小，可以不动。
+- `grid-rects.ts` 的 `placeGrid`：`childEdges` 里的 `slice` 和 `[...path, step]` 每次布局有少量分配，但节点数最多 256，不构成问题。
+- `grid-swap.ts` 的 `planSwap`：逻辑复杂但每一步有注释，没有重复。
+- `sortable.ts`、`theme-vars.ts`、`sash-hit-area.ts`（类型别名以外）、`issue-gate.ts`、`grid-failure.ts`：已经很简洁，没有死导出。`issue-gate.ts` 的 `take` 和 `replace` 分别服务手势与布局重算，不能合并。
+- `scripts/api-surface.ts`、`api-report.ts`（除入口清单外）、`pack.ts`、`pack-check.ts`、`component-tags.ts`：各自职责清楚，没有多余分支；`pack.ts` 里选 `vue-tsc` 出声明而不用 `rolldown-plugin-dts` 的 `vue: true`，是有实测依据的（见文件头注释）。
+- 测试文件（`grid.test.ts` 1879 行、`drag-gesture.test.ts` 926 行等）没有逐条审，只看了和上面候选相关的引用。
+
+## 五、建议的做法
+
+- 先做 1、2、3、4、7、8、9、12、13：全是低风险，约 200 行生产代码，不碰公开面，一轮 `bun test` 加 `tsc --noEmit` 加 `bun run api:check` 就能验证。
+- 5（约束记忆）单独做一轮，改完要看 `grid-geometry.test.ts` 和 `grid.test.ts` 的 layout 部分，并建议顺手补一个节点数多、深度大的用例做对照。
+- 10、11 都是中风险，建议各自走一次“先设计、后审查”，其中 10 要先定第 4 条里的口径。
+- 6、14、15 收益小，顺手做或不做都行。
+- P1、P2、P3 先交开发者决定，再进 Task。

@@ -1,0 +1,139 @@
+# w00032 t22 第 1、2 片实现审查（Opus，d0ce2c513..f7b43a4f9）
+
+## 1. 重要（正确性，回执丢失）：账本补发期间不跟任务中心，补发留下的项随后被第一次跟写整份盖掉
+
+- 位置：`backend/agent.ts:390-391`、`backend/jobs/ledger.ts:70-89`
+- 现象：`ledger.follow()` 挂在 `replayed.then(...)` 之后。(a) 补发要逐个打开会话（每个会话激活扩展），这段时间里新起的后台任务不进账本；进程在这期间崩掉，这些任务的回执就没了。(b) `replay` 末尾 `#save(left)` 只写“暂时送不了、留到下次”的旧项；随后 `follow` 的第一次 `#write` 只按 `jobs.all()` 重算整份（`#last` 初值为空串，必写），把 `left` 全部盖掉；任务表为空时写 `[]` 直接删文件。Spec 17 的“暂时送不了的留到下次”实际上活不过下一次任何任务变化。(c) 补发还没完时插件停止：停止中被 interrupted 收口的后台命令发生在 follow 挂上之前，不进账本；`replay` 收尾再 `#save(left)`，新任务也不在里面。
+- 为什么是问题：违反“恰好一次”的约定（开发者定），而且是重启路径上唯一的保底。
+- 如何核实：读 `ledger.ts:80`（`#save(JSON.stringify(left))`）与 `:84`（`#write` 只看 `jobs.all()`）；构造：账本里放一项 owner 为 `session-busy` 的会话（另一个进程持有），启动后起一条 `shell async` 再结束，看 `ledger.json` 里那项是否还在。
+- 建议改法：启动时先 `follow()`，把读到的旧项作为账本的“遗留部分”放在 `JobLedger` 里，`#write` 写“遗留 + 当前”；补发每成功一项从遗留里去掉再写；补发的写也走 `#chain`，免得两路写互相覆盖。
+
+## 2. 重要（正确性，回执丢失）：`wait` 在发送途中接走一件，发送结果未知时它被移出表，再也不重发
+
+- 位置：`backend/jobs/center.ts:363-369`、`backend/jobs/delivery.ts:67-70`、`:132-137`
+- 现象：送达已把任务的出口写成 `{notice, state: "sending"}` 并在 `#send` 里等内核；这时 `wait` 的 `take()` 看到 prior 不是 `unconfirmed`，写 `TAKEN` 并 `#jobs.delete`。`takeover` 排在队列里等这一轮结算；`#send` 得 `log-broken`（或抛错）→ `exit.state = "unconfirmed"` → `takeover` 交回 `maybe`，`wait` 写“回执可能已经在对话里……不用再取”，不给正文。之后的重发靠 `#resendUnconfirmed` 遍历 `noticeExits(owner)`，它只遍历 `#jobs`，任务已被删；这条提醒若只装了这一件，就永远不重发。第一次写实际没落盘时，模型既没从 `wait` 拿到正文，也不会再收到提醒。提问同理：`questionOpen` 对 `unconfirmed` 的提问出口为真（`:356`），`take` 把它写成 `TAKEN`，`wait` 交回“可能已在对话里”不给题干，重发也被跳过，同步提问的子代理一直等。账本里这件也随删除消失。
+- 为什么是问题：`maybe` 的承诺是“系统会核对”，实际没有任何一方再核对。
+- 如何核实：代码路径推断；故障注入可在 `#send` 前后对会话日志注入写失败（计划验收映射里列了，Task 记录写明没做）。
+- 建议改法：prior 是 `notice` 且 `state` 为 `sending` 时，`take` 不删任务、不写 `TAKEN`，等 `takeover` 结算后再定：结算为 `unconfirmed` 就保留任务与出口（同 `take` 对 `unconfirmed` 的处理）；提问的 `unconfirmed` 出口不当作 `questionOpen`。
+
+## 3. 重要（正确性，回执丢失）：`#trim` 照样丢掉“只送了短回执”和“还没送出”的任务，账本随之删项
+
+- 位置：`backend/jobs/center.ts:477-483`（base 的寿命规则，现在与新约定冲突）、`ledger.ts:30`
+- 现象：`kept` 的条件是 `exit?.kind !== "taken"`，`announced`（短回执说“用 wait 取”）、`undefined`（暂时送不了、退回了的）、`notice` 都算，超过每会话 32 件、全部 1,024 件就按结束先后删。删掉的 `announced` 件，模型照短回执去 `wait` 得 `job-unknown`；`undefined` 的件永远不再领取；`#write` 只看 `jobs.all()`，账本跟着删项。由于没有 `noticeTaken` 订阅（见第 5 条），早已送达的 `pending` 件也占着这 32 个名额，更容易触发。另：`takeover` 撤回整条后 `#returnOthers` 对已被 trim 的成员 `unclaim` 是空操作，那件也丢。
+- 为什么是问题：约定是“不论怎样结束都恰好收到一次”；32 件的上限是 base 为“没人取的结果”定的，现在结果有了自动出口，不该再被静默丢弃。触发条件：子会话（不唤起）或开不起运行的根会话（门关着、模型解析不到），批量后台命令或预算满后改发短回执。
+- 如何核实：单元可测：同一 owner 起 33 件，让送达对每件都得 `notice-budget` 并发出短回执，再 `wait({ids: [最早那件]})`。
+- 建议改法：trim 只删出口已定且已进对话的（`TAKEN`、`pending` 已取走），或删前把被删的几件并成一条短回执送出；至少记诊断。
+
+## 4. 重要（正确性，回执丢失）：短回执（`announced`）不进账本，重启后“用 wait 取”的那几件取不到
+
+- 位置：`backend/jobs/ledger.ts:30`（`unsettled`）
+- 现象：`unsettled` 把 `announced` 当已有着落，账本删项；进程重启后任务表为空，短回执里列出的 id 在 `wait` 里得 `job-unknown`，正文（`output.log` 或子会话）的地址模型也没拿到。永久送不了时 `#send` 同样 `announce`（`delivery.ts:213`），一样不留账本。
+- 为什么是问题：Spec 17 写“回执有了出口时去掉”，但短回执只是“出口的预告”，真正的出口仍是 `wait`；重启会让约定失效。
+- 如何核实：读 `ledger.ts:30` 与 `delivery.ts:203-214`。
+- 建议改法：`announced` 也算 `unsettled`（重启补发时写“回执当时没放下，结果在：<地址>”）；或短回执里直接带每件的结果地址。
+
+## 5. 重要（偏离计划，状态滞留）：没有订阅会话日志的 `noticeTaken`，已送达的任务一直挂在任务中心，预算腾出后也不重送
+
+- 位置：`backend/jobs/delivery.ts:83-89`（`prune` 是 `receiptTaken` 唯一的调用方）；计划“送达”第 3 步
+- 现象：计划写“会话日志里出现它的 `noticeTaken` 时任务移出（订阅这个会话的日志帧）”“这个会话下一次 `noticeTaken`（预算腾出）时再领取”。实现只在 `wait` 开始前 `prune`。后果：(a) 回执已进对话的任务一直留在 `jobs` 工具与远程 `jobs` 里，模型用 `jobs` 看到一堆“已完成”的、可能再去 `wait`；(b) 占 `#trim` 的 32 个名额（第 3 条）；(c) 预算满退回的回执要等“任务再有变化或句柄关闭”才重试，`noticeTaken` 腾出预算这一时机没接上；(d) 点名 `wait` 一件已取走的，被 `prune` 删掉后得 `job-unknown`，不是 Spec 15 的“回执已经在对话里”（`takeover` 的 `yes` 分支只在 prune 与撤回之间被取走时才走到）。
+- 如何核实：`git grep noticeTaken f7b43a4f9 -- packages/neuro-book/src/plugins/agent/backend` 无结果；跑“回执：后台命令在父会话空闲时结束”那条后调 `jobs`，那件仍在。
+- 建议改法：用 `table.onLog`（`running-work.ts`、`tree.ts` 已在用）按 `noticeTaken{ids}` 找出口、调 `receiptTaken` 并 `schedule(owner)`；`prune` 随之可删。点名 `wait` 在 `prune` 删之前记下“已在对话里”的 id，交回 Spec 15 的文字。
+
+## 6. 重要（违反开发者决定）：用户在子会话里直接停掉子代理的运行，回执照样唤起父会话、写成“已停止”
+
+- 位置：`backend/subagents/children.ts:101-103`、`backend/jobs/center.ts:224`
+- 现象：`byUser` 只来自 `center.kill(null, …)` 设的 `stopByUser`（远程 `killJob`）。用户打开子会话自己按停止，`#follow` 拿到的 `run.stoppedBy` 是用户，但 `jobs.end` 不带 `byUser`；于是 `#wakes` 为真、标题写“已停止”而不是“被用户停止”。`JobOutcome.byUser` 的注释写了“或用户在子会话里停的那次运行”，代码没做到。
+- 为什么是问题：计划第 4 稿“被用户停掉的不带唤起（开发者定）”；用户在子会话里停是最常见的“用户停”。
+- 如何核实：`git grep stoppedBy f7b43a4f9 -- packages/neuro-book/src/plugins/agent/backend` 只有 `subagents/tools.ts:581` 一处（续用判断），`children.ts` 没读。用例：后台派子代理，用户身份对子会话 `abort`，看父会话 `runStarted{wake: true}` 是否出现。
+- 建议改法：`#follow` 里 `run.stoppedBy?.kind === "user"` 时给 outcome 带 `byUser: true`（`center.end` 把两处来源合成一个判断，`stopByUser` 字段可以只作为远程路径的补充，或干脆由驱动统一报）。
+- 第 6 条更正：`waitRun` 交回的 `RunResult`（`nb-harness/src/kernel/api/host.ts:261`）没有 `stoppedBy`，停的人只在路径上的 `runEnded.stoppedBy`（`events.ts:148`）。改法相应为：`#follow` 收口时从 `view.path()` 找这次 `runId` 的 `runEnded` 读 `stoppedBy`（`subagents/tools.ts:581` 已是这个读法），或给 `RunResult` 加 `stoppedBy`（内核合同变化）。结论不变。
+
+## 7. 重要（正确性，交两次）：前台重新跟上一件已经送出提问提醒的任务时，提问由前台再交一次，待发的提醒没撤回
+
+- 位置：`backend/jobs/center.ts:255-263`（`detach` 第 261 行）、`:418-422`（`follow.ready`）；`subagents/tools.ts:290-295`（`adopt`）、`:425`
+- 现象：后台子代理停在提问 q1 上，送达已把 q1 作为提醒送出（`questionExit = {id: q1, exit: notice pending}`，或已被取走）。父 Agent 这时对它 `agent_send`（插话进那次正在等提问的运行）：`adopt` 认原任务、`attach`，`follow` 的 `ready()` 不看 `questionExit`，立即以 `question` 交回 q1；`detach(delivered)` 把 `questionExit` 直接改写成 `TAKEN`，原来那条提醒对象从任务上消失，`#withdrawStaleQuestions` 再也找不到它，它在下一个边界照样进请求。结果：同一个提问交了两次（Spec subagents.md 输出 26“同一个提问只送一次”）。提醒已被取走的情况也一样会由前台再交一次。
+- 为什么是问题：违反“三个出口只经一个”。前台不看“已交过”是 base 就有的（base 的 `follow` 也不看 `questionDelivered`），但 base 没有提醒这条出口，重复的后果是新引入的。
+- 如何核实：代码路径推断。用例：后台派子代理并让它 `ask`，等父会话排队区出现提问提醒（门关着，不唤起），父会话 `agent_send` 一句话给子会话，看工具结果与下一次请求里是否都有题干。
+- 建议改法：`follow` 的 `ready()` 对 `questionExit.id === question.id` 且出口不是 null 的提问不立即返回；或 `attach` 时若提问出口是 `notice pending`，在送达队列里撤回后再让前台交回（与 `wait` 的 `takeover` 同一条路）。
+
+## 8. 重要（违反 Spec 15）：不点名的 `wait` 遇上结果未知的回执会一直等到超时（缺省 1,800 秒），而不是“不等它”
+
+- 位置：`backend/jobs/center.ts:352`、`:358`、`:394-399`
+- 现象：不点名时 `candidates` 只排除 `TAKEN`，`unconfirmed` 的件仍在候选里，所以不会得 `no-jobs`；`resultOpen` 又把它排除，`take()` 永远取不到。之后重发成功变成 `pending`，`resultOpen` 变真，但 `receiptSettled` 只发 `#ownerChanged`、不 `#notify`，等待中的 `check` 不会重跑。只剩这一件时，`wait` 停到 30 分钟超时；期间父会话的运行卡在这个工具上。
+- 为什么是问题：Spec 15“不点名的不等它”；正常工作的会话被一次写失败拖住半小时。
+- 如何核实：单元：`JobCenter` 配一个让出口停在 `unconfirmed` 的假 `takeover`，结束一件、把它的 `exit` 设为 `unconfirmed`，再 `wait("p", {timeoutMs: 1_800_000})`，看它是否立即返回。
+- 建议改法：不点名时候选直接排除 `unconfirmed`（与 `resultOpen` 用同一个谓词，删掉这个重复条件），候选为空时照常 `no-jobs`；`receiptSettled` 也 `#notify`。
+
+## 9. 重要（重试空转）：预算满且短回执也放不下时，每 30 秒“打开会话、发送失败、空闲关闭、再触发”无限循环；子代理长报告每轮多存一份全文
+
+- 位置：`backend/jobs/delivery.ts:55-57`、`:202-217`、`:141-147`；`agent.ts` 会话表 `closed` 回调
+- 现象：`notice-budget` → 短回执也得 `notice-budget`（待发已满 64 条或 128 KiB）→ `unclaim` 退回、记 `job-receipt-deferred`。送达这次 `view(owner)` 打开了会话；放掉引用 30 秒后空闲关闭 → `closed` → `sessionClosed` 见 `list(owner)` 非空就 `schedule` → 再领取、再打开会话（激活扩展）、再失败。只要用户不回来让提醒被取走，就一直转，每轮一条诊断。`#sendResults` 每轮重组正文，子代理报告超过 12 KiB 的每轮 `saveFull` 一次，`sessionArtifacts.save` 每次用新的随机文件名（`resources.ts:114`），`artifacts/` 下文件无界增长。触发条件：门关着（用户停过）或开不起运行（模型解析不到）的根会话、或不唤起的子会话，期间有多件后台任务结束。
+- 为什么是问题：Brief 问“重试会不会空转”：会；而且代价不只是 CPU，还有磁盘。
+- 如何核实：代码路径推断（`#maybeIdle` 在 `kit/sessions/table.ts:443-450`，`#close` 在 `:452-471` 必调 `closed`）。
+- 建议改法：`sessionClosed` 只在有 `unconfirmed` 出口时重排；预算满的退回改为等 `noticeTaken`（第 5 条的订阅）再领；全文在收口时存一次（放进 `final` 或任务上），送达只引用地址。
+
+## 10. 建议（偏离计划，可能拖住核对）：结果未知的回执在每一轮都重发，不是“句柄关闭后”；重发本身又让坏掉的句柄关不掉
+
+- 位置：`backend/jobs/delivery.ts:107-114`、`:132-137`；`center.ts:215-218`（`progress` 也走 `#changed`）
+- 现象：`#pass` 由任何 `onChanged(owner)` 触发，包括后台命令每 250 毫秒一次的 `progress`；每轮都先 `#resendUnconfirmed`。句柄坏着时重发得 `log-broken`、什么都定不下，但每次 `view()` 的 `#acquire` 都 `cancelIdle`，放掉后重新计 30 秒；只要同一会话还有命令在出输出，坏句柄就一直不被关闭、不重开，核对一直拖着（与第 8 条叠加时，不点名的 `wait` 也一直卡着）。另：受理批写下、反应批写失败时（`commands.ts` 的 `reactionsBroken`），这条带唤起的提醒按 `log-broken` 记成未知；重开后重发只重放受理结果，唤起不会再判，根会话停在空闲直到用户开口。
+- 建议改法：`#resendUnconfirmed` 只在 `sessionClosed` 触发的那一轮做（给 `#pass` 一个原因参数）；唤起丢失可记为已知限制，或重放得 `ok` 后补一次 `start`（宿主身份）。
+- 第 10 条更正：唤起的运行草稿与 `noticeQueued` 在同一个受理批里（`commands.ts:465-467`），重开后的去向取决于恢复与 `wakeIfDue` 的判定点，我没有核实，“唤起丢失”一句撤回，不计入发现。第 10 条只保留“每轮重发、坏句柄关不掉”。
+
+## 11. 建议（码表对不上、吞错）：`TRANSIENT` 里有内核与会话表都不会交回的码；抛出的“已在停止”被当成结果未知；短回执的失败被静默吞掉
+
+- 位置：`backend/jobs/delivery.ts:21-23`、`:183-189`、`:204`；`ledger.ts:75-76`
+- 现象：(a) `notice` 的码表（`nb-harness/src/kernel/api/codes.ts:16`）加上会话表打开失败时按指令交回的存储码（`kit/sessions/table.ts:316-318`，`storageErrors`）里没有 `open-failed`、`unavailable`；`unavailable` 只以 `SessionTableStopping` 抛出（`table.ts:36-40`），进 `catch` 后被记成 `unknown-outcome` → `unconfirmed`，`wait` 说“可能已在对话里”，实际确定没写。`log-corrupt`、`needs-migration`、`invalid-session-id` 落进“永久”分支，这点合理，但码表外的码一律当永久、没有一处列出“永久”的集合，读者看不出哪些码被有意归类。(b) 短回执 `.catch(() => null)` 不记诊断（AGENTS 的禁止清单：不用静默的 catch 吞错）；短回执若是抛错或 `log-broken`（可能已写下），这几件按“暂时”退回、之后再送全文，模型可能先看到一条“还有 N 件没放下”的过时短回执。(c) `ledger.replay` 的 catch 把 `error.message` 当 `code`，抛出的 `SessionTableStopping` 不会被认成可留的码，只是碰巧走到 `left`。
+- 建议改法：删掉码表里没有的两项；`catch` 里先认 `SessionTableStopping`/`SessionUnavailable` 的 `code`（按错误类型，不按文案）归“暂时”；短回执失败记诊断，结果未知时按 `unconfirmed` 处理那条短回执。
+
+## 12. 建议（多余的读与重复的全文）：收口时对每件都读一次结果，前台又读一次；超过 50 KiB 的子代理报告存两到三份全文，回执的地址指向截过的那份
+
+- 位置：`backend/jobs/center.ts:228-229`、`subagents/tools.ts:254-262`、`subagents/children.ts:113-133`、`subagents/result.ts:180-186`、`delivery.ts:143-147`
+- 现象：(a) `end()` 对所有任务都调 `driver.result()`，包括前台在等的、`settleEarly` 已交回而随即删掉的；前台 `settle` 不用 `job.final`，再调一次 `children.report(job)`。子代理报告超过 `WINDOW_BYTES`（50 KiB）时 `clip` 每次都 `save` 一份，前台任务因此存两份。(b) 后台任务的 `final` 已是 `clip` 截过的文字（≤50 KiB，中间写着原全文地址）；送达见它超过 12 KiB 又 `saveFull(body)`，存下的是截过的版本，回执段末的“全文：”指向它，而真正的全文地址在被 `segment` 省略掉的中间。12–50 KiB 的报告没有这个问题。(c) `final` 在收口时把子会话“异步提问”的当前列表也冻进去（`#result` 里的 `asyncQuestionsOf`），计划写这一项“照旧现读、不进冻结的段落”。
+- 建议改法：只在没有前台在等时读 `final`，前台读 `job.final`（一份文字，Spec 13“同一份”）；`final` 交回结构 `{text, fullAddress?}`，`clip` 已存过就把地址带出来，送达直接用，不再 `saveFull`；异步提问在组回执时现读。
+
+## 13. 建议（过时的提问可能仍送达）：撤回过时提问只看还在表里、状态为 `pending` 的出口
+
+- 位置：`backend/jobs/delivery.ts:121-130`、`:132-137`
+- 现象：(a) `#withdrawStaleQuestions` 遍历 `noticeExits(owner)`，只覆盖还在 `#jobs` 里的任务；任务收口后在这一轮送达之前被 `wait` 取走结果（`take` 删除任务）、被 `#trim` 删、或 `receiptTaken` 删，待发的提问提醒就没人撤回，下一个边界照样进请求，模型看到一个已经答过、子代理也已结束的提问。送达队列被前一轮的发送占着时这个窗口会变大。(b) 提问出口为 `unconfirmed` 时不撤回，`#resendUnconfirmed` 还会把这条过时的提问原样重发。(c) 撤回得别的失败码时 `continue`，没有诊断，且只有下一次变化才重试。
+- 建议改法：删除任务前（`take`、`receiptTaken`、`#trim`、`detach`）若 `questionExit` 是待发的提醒，交给送达撤回；`#resendUnconfirmed` 跳过已过时的提问出口；撤回失败记诊断。
+
+## 14. 重要（测试）：验收映射里与上面几处缺陷对应的场景都没有用例，现有的“只一次”判据测不到同一请求里的重复
+
+- 位置：`packages/neuro-book/src/plugins/agent/jobs.test.ts`（“回执只交一次”“后台命令”的新用例）、`subagents.test.ts:250-265`
+- 现象：计划“验收映射”列的以下场景没有用例：同一件第二次送达（第二个提问）；`wait` 返回时另一件结束照样送达；点名等已在对话里的得“已在对话里”（实际得 `job-unknown`，第 5 条）；子会话不唤起；门关着时随下一句话带上（只测了用户停的那条）；超预算发短回执且取走后补送；超长结果留头留尾有地址；送达未确认的两处写失败与重发（Task 记录自认未做）；`kill` 带 `runId` 在 neuro-book 层交回“已经结束”（只在 nb-harness 测了 `abort`）；提问在子会话里被用户答了、提醒撤回、父会话不被唤起。第 2、3、4、7、8、9、13 条都落在这些空白里。
+- 判据偏弱：“回执恰好进一次请求”用 `asked.filter((text) => text.includes("做完了"))).toHaveLength(1)`（`jobs.test.ts` 新增第一条），数的是“含它的请求有几次”，同一次请求里出现两遍（提醒加 `wait` 结果）也算 1；应数出现次数，或数 `hostNotice` 与 `wait` 结果的合计。账本用例名写“不唤起”，只在提醒出现那一刻看 `status.state === "idle"`，没断言提醒的 `wake: false`。
+- 建议改法：先补第 2、5、8 条对应的单元用例（`JobCenter` 加假送达即可，不必真实内核），再按计划补写失败注入。
+
+## 15. 建议（测试时序）：改过的“输出 4、7”用例断言只走提醒这一条出口，依赖送达先于内核的下一次请求
+
+- 位置：`jobs.test.ts`“输出 4、7：……kill 停掉它，回执随下一次请求送来，之后 wait 没有可等的”
+- 现象：`kill` 等命令收口（`shell-background.ts` 的 `kill` 里 `await done`，`done` 里调 `jobs.end`）后返回；送达随后在自己的队列里读结果文件、发提醒，内核同时在写工具结果、开下一次请求。提醒若晚于那次请求的边界才入队，`wait` 会经 `takeover` 撤回它并自己交回正文，这条用例就失败（找不到 `hostNotice`，`wait` 文字也不是“没有可等的任务”）。两种都是合法的“恰好一次”；另一条改过的用例（“wait 交回退出码”）已按“合计一次”写，这条却断言了具体路径。
+- 如何核实：在审查 worktree（HEAD f7b43a4f9，`bun install` 后 `node_modules/@notnotype/nb-harness` 解析到该 worktree 的包）里 `bun test src/plugins/agent/jobs.test.ts -t "kill 停掉它" --rerun-each 15`：15 过 0 失败，负载约 4；高负载下未测，属于从代码推断的时序依赖。
+- 建议改法：同样按“`wait` 结果与 `hostNotice` 里合计恰好一次含‘已停止’”断言；或在 `kill` 之后用 `endpoint.hold()` 挂住下一次请求，等提醒入队再放行，让时序成为用例的一部分。
+
+## 16. 建议（可简化、状态多余）：出口的占位对象、一词两义的 `announced`、通知不一致
+
+- 位置：`center.ts:41-48`、`:269-295`、`:307-310`；`delivery.ts:151-158`、`:213`；`ledger.ts:73`
+- 现象：(a) `claim` 先写一个 `commandId: null, args: null` 的占位 `NoticeExit`，`#sendResults` 再换成真的；为此 `NoticeExit` 的两个字段可空、`#send` 里 `exit.args!`、`exit.commandId!` 非空断言，`mine` 的过滤还重复判 `commandId === null`。可以让 `claim` 只写一个 `{kind: "claimed"}`（或直接在组好正文后才写出口，组正文期间靠 `exit === claimedMarker` 判断有没有被 `wait` 拿走）。(b) `announced` 同时表示“发了短回执”和“永久送不了、什么都没发”（`delivery.ts:213`），后者的注释与 `JobExit` 的说明不符，账本与 `wait` 也无从区分。(c) `receiptSettled` 只 `#ownerChanged` 不 `#notify`，`announce`、`unclaim` 两者都不发；账本、远程、等待者对出口变化的感知各不相同（第 8 条就是后果）。(d) `stopByUser`（任务上）与 `outcome.byUser`（结局上）是同一事实的两份状态；第 6 条修好后可由驱动统一报 `byUser`。(e) `ledger.ts:73` 判 `entry.state === "starting"` 走不到：`unsettled` 已排除 `starting`。(f) 账本写盘用裸 `writeFile`+`rename`，计划“技术选型”写的是 `nb-file-lock` 的加锁替换写；也没有 fsync，掉电后可能读到空文件，`read()` 记诊断后当空账本，回执全丢。
+- 建议改法：按上面逐项收；出口变化统一走一个 `#exitChanged(job)`，同时通知等待者与 owner 监听者。
+
+## 17. 建议（边界）：根会话判定依赖关系表加载成功；`prune` 读快照失败会让 `wait` 整个抛错；`abort{runId}` 先于权限判定
+
+- 位置：`agent.ts:386`、`agent.ts:214`（`relations-scan-failed`）；`delivery.ts:83-89`、`center.ts:340`；`nb-harness/src/kernel/run/commands.ts:386-387`
+- 现象：(a) `isRoot: (id) => relations.parentOf(id) === null`。启动时列会话失败只记 `relations-scan-failed`、关系表缺项，子会话会被当根会话，子会话的回执带唤起（Spec 14：子会话的不带）。Spec 14 的判据是“会话头没有 `caller`”；omp 对第 3 稿的第 10 条主张用关系表，但两者在关系表缺项时结论不同，失败方向是“多唤起、花钱”。(b) `prune` 的 `snapshot()` 是查询，会话打不开时抛 `SessionUnavailable`，`JobCenter.wait` 没接住，`wait` 工具以 `tool-threw` 失败；base 上 `wait` 不碰会话。(c) 内核 `abort` 的 `runId` 不匹配判断排在 `canAbort` 之前：无权停的发出者点名一个旧 `runId` 得 `{aborted: false}` 而不是 `not-allowed`。不改变任何状态，只是失败语义与不点名时不一致；Spec 120 没说这种情况。
+- 建议改法：(a) 判根会话读会话头的 `caller`（关系表做缓存）；(b) `prune` 失败记诊断、跳过；(c) 可不改，在 Spec 120 写一句“点名的不在跑时不做权限判定”。
+
+## 未发现问题的方面
+
+- 内核 `senderOnly`：受理、归约、快照、预算计算（`noticeBytes` 带上它）、用户与别的宿主撤回得 `not-allowed`、发出者照常撤回，按代码与 `notice.test.ts` 新用例核对，没有发现问题；同一发出者按 `key` 替换 `senderOnly` 的提醒仍可用，符合“只有发出者能动”。
+- 内核 `abort{runId}`：不匹配时不登记、不写日志、不动缓冲区与门，与 Spec 120 一致；`buffer.test.ts` 新用例覆盖已收口与下一次运行两种。`commandId` 重发在不匹配时不留记录、重算结果，因为 `runId` 唯一，结论不变。
+- 会话活动 `quiet`：`advanceIndex` 只冻结 `lastActivityAt`，`throughSeq` 照常前移，索引一致性不受影响。新用例只覆盖 `noticeQueued`、`noticeRemoved` 与两种受理记录，没覆盖 `noticeTaken`、`wakeGate`；这两种在实际运行里总与算活动的事件同批出现，影响小，不单列。
+- 两个并发 `wait`、`wait` 与送达在同一个同步段里写出口：`take` 与 `claim` 都是同步的，`#notify` 在 `#ownerChanged` 之后同步触发等待者，送达的领取在之后的微任务里，所以 `wait` 先拿；没发现交两次（除第 7 条前台那条路）。
+- `#sendResults` 组正文期间被 `wait` 拿走的过滤与 `takeover` 在同一条队列里等结算：顺利、暂时失败、短回执三种结算下 `wait` 交回的 `InContext` 都对（结果未知见第 2 条）。
+- `kill` 带 `runId` 与“已经结束”：`children.ts` 把 `aborted: false` 报成 `already-ended`、`center.kill` 照转，没发现问题（neuro-book 层缺用例，见第 14 条）。
+- 插件停止的先后：`closeGate` → `delivery.close` → `jobs.close` → 停后台命令 → 关会话 → 等账本补发 → `ledger.stop` → `jobs.clear`；账本在停止过程中仍跟着，`interrupted` 的件留在账本里（补发未完时的例外见第 1 条）。
+- 跨包导入：新代码只经 `@notnotype/nb-harness/kernel/contracts`、`kit/sessions` 公开子路径，没有深导入。
+
+## 各级数量
+
+阻断 0；重要 10（第 1–9、14 条）；建议 7（第 10–13、15–17 条）。共 17 条。

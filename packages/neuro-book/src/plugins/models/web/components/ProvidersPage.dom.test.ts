@@ -5,9 +5,10 @@
 
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
+import {Select} from "@notnotype/nb-ui/components";
 
 import {createFakeModelsRemote} from "nbook/plugins/lab/web/fixtures/models-scene/fake-remote";
-import {generatedRows, SAMPLE_ROWS, SAMPLE_SNAPSHOT} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {generatedRows, SAMPLE_ROWS, SAMPLE_SNAPSHOT, sampleRow} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -301,5 +302,94 @@ describe("检测全部", () => {
         query<HTMLButtonElement>("[data-models-check-all]").click();
         await waitUntil("两个都检完", () => store.checks.get(checkKey("deepseek", "deepseek-flash"))?.status === "done" && store.checks.get(checkKey("deepseek", "deepseek-pro"))?.status === "done", {timeoutMs: 10_000});
         expect(document.querySelector("[role='alertdialog']")).toBeNull();
+    });
+});
+
+describe("服务商的代理（高级）", () => {
+    const proxyOf = (store: Awaited<ReturnType<typeof render>>["store"]) => store.snapshot.value?.providers.find((item) => item.id === selected())?.proxy;
+    async function openAdvanced(wrapper: Awaited<ReturnType<typeof render>>["wrapper"]) {
+        query<HTMLButtonElement>("[data-provider-advanced]").click();
+        await flushPromises();
+        const select = wrapper.findAllComponents(Select).find((item) => (item.vm.$attrs as Record<string, unknown>)["data-proxy-select"] !== undefined);
+        if (select === undefined) throw new Error("没有代理下拉");
+        return select;
+    }
+
+    it("选直连写进去；选自定义先停在自定义、地址框出现并拿到焦点，不合规的原位写原因不写，合规的回车写进去；选跟随应用清掉", async () => {
+        const {wrapper, store} = await render();
+        const select = await openAdvanced(wrapper);
+        select.vm.$emit("update:modelValue", "direct");
+        await waitUntil("写进直连", () => proxyOf(store)?.mode === "direct");
+        select.vm.$emit("update:modelValue", "custom");
+        await waitUntil("地址框出现", () => document.querySelector("[data-proxy-input]") !== null);
+        const input = query<HTMLInputElement>("[data-proxy-input] input, input[data-proxy-input]");
+        await waitUntil("焦点进地址框", () => document.activeElement === input);
+        expect(proxyOf(store)?.mode).toBe("direct");
+        await type(input, "socks5://127.0.0.1:1080");
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await flushPromises();
+        expect(query("[data-proxy-problem]").getAttribute("role")).toBe("alert");
+        expect(proxyOf(store)?.mode).toBe("direct");
+        await type(input, "http://127.0.0.1:7890");
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("写进自定义", () => proxyOf(store)?.mode === "custom");
+        expect(proxyOf(store)).toEqual({mode: "custom", url: "http://127.0.0.1:7890"});
+
+        // 清空已保存的地址再失焦：框里换回实际的地址，生效的不变。先离开再回来，免得走的是“编辑时别处改了”的那条路。
+        input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        await type(input, "");
+        input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await flushPromises();
+        expect(input.value).toBe("http://127.0.0.1:7890");
+        expect(proxyOf(store)).toEqual({mode: "custom", url: "http://127.0.0.1:7890"});
+
+        select.vm.$emit("update:modelValue", "app");
+        await waitUntil("跟随应用", () => proxyOf(store) === null);
+    });
+
+    it("写失败：框里不留没保存的地址，也不停在没写进去的“自定义”", async () => {
+        const fake = createFakeModelsRemote(SAMPLE_SNAPSHOT);
+        const store = createModelsStore(fake.remote);
+        stores.push(store);
+        const wrapper = mount(ProvidersPage, {global, props: {store, writable: true, reportWriteFailure: () => undefined}, attachTo: document.body});
+        mounted.push(wrapper);
+        await waitUntil("服务商详情", () => document.querySelector("[data-provider-detail]") !== null, {timeoutMs: 10_000});
+        const select = await openAdvanced(wrapper);
+        select.vm.$emit("update:modelValue", "custom");
+        await flushPromises();
+        await flushPromises();
+        fake.failWrites(true);
+        const input = query<HTMLInputElement>("[data-proxy-input] input, input[data-proxy-input]");
+        await type(input, "http://127.0.0.1:7890");
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("代理地址框收起", () => document.querySelector("[data-proxy-input]") === null);
+        expect(proxyOf(store)).toBeNull();
+
+        // 已保存了自定义地址，再改一个新的写失败：框里退回已保存的地址。
+        fake.failWrites(false);
+        select.vm.$emit("update:modelValue", "custom");
+        await waitUntil("地址框出现", () => document.querySelector("[data-proxy-input]") !== null);
+        const saved = query<HTMLInputElement>("[data-proxy-input] input, input[data-proxy-input]");
+        await type(saved, "http://127.0.0.1:7890");
+        saved.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("写进自定义", () => proxyOf(store)?.mode === "custom");
+        saved.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        fake.failWrites(true);
+        saved.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        await type(saved, "http://10.0.0.1:3128");
+        saved.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("退回已保存的地址", () => saved.value === "http://127.0.0.1:7890");
+        expect(proxyOf(store)).toEqual({mode: "custom", url: "http://127.0.0.1:7890"});
+    });
+});
+
+describe("列表里没有的已配置模型（决定 30）", () => {
+    it("行上标“列表里没有”，照常可用", async () => {
+        const rows = {...SAMPLE_ROWS, deepseek: [...SAMPLE_ROWS.deepseek!, sampleRow("deepseek-v4-flash", {name: "DeepSeek V4 Flash", unlisted: true})]};
+        await render({rows});
+        await waitUntil("行出来", () => document.querySelector("[data-model-row='deepseek-v4-flash']") !== null);
+        expect(query("[data-model-row='deepseek-v4-flash'] [data-model-unlisted]").textContent?.trim()).toBe("列表里没有");
+        expect(document.querySelectorAll("[data-model-unlisted]")).toHaveLength(1);
     });
 });

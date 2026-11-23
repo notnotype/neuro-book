@@ -1,0 +1,141 @@
+# w00026 t55 调研报告：工作台布局与拖动模块
+
+先说结论：这个模块里真正的死代码很少，只有几处没人读的出口和参数，加起来约 10 行。开发者觉得“肯定存留了许多无用的逻辑”，我没在这块代码里找到那么多。能简化的主要是同一规则写了几份，另有一处热路径上的重复量取。我没有用 e2e 做对照实验，下面的数字都是从代码读出来的。以下路径都相对 `packages/neuro-book/src/plugins/workbench/web/`。
+
+## 简化候选（按收益排序，均不碰公开面与持久化格式，除非另注）
+
+### 1. 效率与层次：一次判定里重复整份量取判定几何
+- **位置**：`layout-drag.ts:457` 的 `geometry()`，调用点在 `:547`、`:574`、`:621`、`:675`、`:725`。
+- **现状**：不在实时布局里时（`feel=indicator`、键盘、减少动效、最大化），`frozen()` 为 null，每次调 `geometry(doc)` 都重新 `measureGeometry`。每块面板约 4 次 `querySelector` 加 3 到 4 次 `getBoundingClientRect`，外加三条入口条。
+- **重复量取的路径**：
+  - 指针在工具面板的标签条上：`dropAt:675` 量一次，`stripDrop:574` 再量一次。
+  - 落到边上且预览缓存未命中：`previewOf:547` 再量一次。
+  - 浮动落点：`floatDrop:621` 再量一次。
+  - 文件拖动 `fileDrop:725` 一路到 `floatDrop` 或 `previewOf`，同样重复。
+- **改成**：用现成的 `dropFor` 传 `panels` 的做法，把 `seen: DragGeometry` 显式传给 `stripDrop`、`previewOf`、`floatDrop`。或者在 `resolveDrop` 的 `finally`（`:821`）里，和 `run.transient` 一起清掉一个按判定缓存的 `DragGeometry`。`fileDrop` 没有这个收口点，只能走前一种。
+- **收益**：每次指针判定省 1 到 2 次整份量取，约 50 到 120 次矩形读加选择器查询。这些读之间没有写，浏览器只布局一次，所以不是瓶颈，价值在于去掉“`geometry()` 这一刻量不量”的隐式规则。净行数约 -3。
+- **风险**：低。实时布局路径不受影响。
+- **守护**：`workbench-dnd.e2e.ts`、`workbench-float.e2e.ts`、`workbench-live-drag.e2e.ts`、`workbench-drag-cost.e2e.ts`。`layout-drag.ts` 没有单元测试。
+
+### 2. 简化与层次：“能不能浮出来、已经独占一个窗”的规则写了三份
+- **位置**：
+  - `layout-drag.ts:609-614` 的 `canFloat`，加 `:941-942` 的 `alone`。
+  - `components/WorkbenchShell.vue:303-304`（`frameActionsOf` 的 `floatable`），加 `:480-482`（`moveMenuItems` 的 `alone`）。
+  - `commands/panel-commands.ts:121-123`。
+- **改成**：在 `state/layout-present.ts` 或 `layout-constraints.ts` 加一个 `floatBlock(doc, catalog, tabKey)` 谓词，三处都读它。Shell 里两处现在各自拼 `floatable !== false && movable !== false`，改完只剩一处。
+- **收益**：约 -10 行，三处不会再漂移。
+- **风险**：低到中。命令的不可用原因文案要保留，所以谓词只返回“能不能”，原因文案仍由调用方给。
+- **守护**：`state/layout-present.test.ts`、`workbench-float.e2e.ts`、`workbench-views.e2e.ts`。
+
+### 3. 复用：“来源是它容器唯一的成员”有两份实现
+- **位置**：`layout-drag.ts:248-253` 的 `emptyRegionContainer`，对 `entry-drop.ts:109-118` 的 `soleContainerOf`。
+- **现状**：前者数 `Object.values(doc.panels)` 里 `container` 相同的个数，后者数区域分节。浮动窗按 `nb-workbench-layout/src/layout-doc.ts:1324` 的校验不允许带 `container`，所以对合法文档两份结果一致。
+- **改成**：导出 `soleContainerOf`，`emptyRegionContainer` 写成 `soleContainerOf(doc, source)?.container ?? run.newContainer`。
+- **收益**：约 -6 行，去掉一个遍历全部面板的循环（每次判定与每次键盘枚举各调一次）。
+- **风险**：低。
+- **守护**：`entry-drop.test.ts`、`workbench-containers.e2e.ts`、`workbench-dnd.e2e.ts`。
+
+### 4. 简化：Shell 里活动栏与入口条的入口映射几乎逐字重复
+- **位置**：`components/WorkbenchShell.vue:520-526` 的 `toolEntries`，对 `:581-592` 的 `stripEntries.entriesOf`。
+- **现状**：`label`、`views`、`tooltip` 三行完全相同，`viewId`、`pressed` 的逻辑也近似，只差 `count` 的取法。
+- **改成**：抽一个 `entryOf(entry, region, count)`，两处共用。
+- **收益**：约 -8 行。
+- **风险**：低。
+- **守护**：`WorkbenchToolStrip.dom.test.ts`、`WorkbenchRegionStrip.dom.test.ts`、`workbench-containers.e2e.ts`。
+
+### 5. 简化：落点键 `JSON.stringify([…key, part ?? null])` 有三份
+- **位置**：`layout-drag.ts:320`（`facts.key`）、`:886`（`actionKey`）、`components/WorkbenchShell.vue:837`（文件拖动，用 `layoutDropKey`）。
+- **改成**：在 `entry-drop.ts` 加 `dropKeyOf(action, part)`，三处共用。
+- **热路径**：实时布局每次判定约 4 次 `JSON.stringify`（`dropFor:633` 每次先拼 key 再查缓存、`stableDrop:835`、`facts`、`actionKey`）。落点指示且开分区时，`withSectors:749-750` 再加 1 加分区数，约 10 次。每次对象只有几百字节，我估计每帧合计 20 到 60µs，不值得为它改机制，只合并写法。
+- **收益**：约 -3 行，主要是单一出处。
+- **风险**：低。
+
+### 6. 效率：键盘 `stripStopsOf` 反复整条重量
+- **位置**：`layout-drag.ts:579-586`。
+- **现状**：先 `tabStripStops(strip)` 量一次，再对每个停靠点调 `resolveTabStripInsertion(strip, point)`，每次内部都 `measureTabStrip(strip)`，共 1+N 次。`pointOfCandidate` 对每个 strip 候选又调一次（`:773`），`regions` 的过滤里还会再算一遍（`:945`）。N 个标签的条一次方向键约 N² 次条量取。
+- **改成**：函数里先 `const snapshot = measureTabStrip(strip)`，用 `tabStripInsertionIn(snapshot, point)`。再按面板在一次枚举内缓存结果。
+- **收益**：只影响键盘拖动，不在每帧热路径上。
+- **风险**：低。
+- **守护**：`drag-keyboard.test.ts`，以及 `workbench-dnd.e2e.ts` 里的键盘用例。
+
+### 7. 简化：没有消费者的出口和参数
+我搜过 `packages/` 下除 node_modules 与 legacy 之外的全部源码。
+
+| 位置 | 内容 | 删什么 |
+|---|---|---|
+| `components/WorkbenchSurface.vue:59-60`、`:128-130`、`WorkbenchSurface.md:74` | `issues` 事件与 `onIssues`。搜 `@issues`、`onIssues`：`WorkbenchShell.vue`、两个 Lab 夹具都不接。`useGridHost.md:11` 写明 `onIssues` “可省”。 | 约 -4 行（连文档），但见“顺便发现”第 1 条 |
+| `state/layout-doc-store.ts:282` | `state.renderedFloats` 没人读，使用方都走 `actions.floats()`（搜 `renderedFloats`，只有 store 自己） | -1 个字段 |
+| `entry-drop.ts:17` | `BAR_STRIP` 导出，只在本文件内用（搜 `BAR_STRIP`） | 去掉 `export` |
+| `state/layout-constraints.ts:144`、`:157` | `layoutEdgeTarget`、`layoutSeamAccepts` 的 `_tabs` 参数（库的策略回调传，应用忽略）；这两个函数的调用方只有 `createLayoutPolicy` 和 `layout-constraints.test.ts` | 参数 -2 |
+| `WorkbenchShell.vue:1072` | `#lifted-head="{contentKey}"` 解构了不用。`WorkbenchSurface.vue:80`、`:621-622` 还在透传 | 去掉解构，Surface 的槽属性可一起去 |
+| `state/layout-doc-store.ts:286` | `actions.presentation()` 只有 `layout-doc-store.test.ts:747`、`:756` 用，是测试用的观测缝 | 建议保留，不改 |
+
+- **风险**：低。
+- **守护**：`layout-constraints.test.ts`、`layout-doc-store.test.ts`、`WorkbenchPanelHead.dom.test.ts`，以及 `lab-workbench-surface.e2e.ts`（Lab 夹具会编到）。
+
+### 8. 复用：`keepVisible` 在 store 里重写一次
+- **位置**：`state/layout-doc-store.ts:170` 的 `clampFloatRect(wanted, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT})`，与 `drag-geometry.ts:173` 的 `keepVisible` 一样。
+- **改成**：把 `keepVisible` 和 `wholeInTree` 挪到 `state/layout-constraints.ts`（`FLOAT_KEEP_WIDTH` 本来就在那里），store 与 drag-geometry 都引它。store 里的状态层不该依赖拖动模块，所以不能直接从 `drag-geometry` 引。
+- **收益**：约 -3 行，store 少一个 `@notnotype/nb-layout` 导入。
+- **风险**：低。
+- **守护**：`drag-geometry.test.ts:244-246`、`layout-doc-store.test.ts`、`workbench-float.e2e.ts`。
+
+### 9. 层次：视图标签键的格式在应用里手写了
+- **位置**：
+  - `state/layout-present.ts:18` 的 `VIEW_KEY_PREFIX = "view:"`，是对 `nb-workbench-layout/src/layout-doc.ts:110` 里 `tabKey` 格式的再写。
+  - `layout-present.ts:233-235` 的 `panelTitle` 自己 `startsWith` 加 `slice`，不用同文件 `:249` 的 `viewIdOf`。
+  - `layout-present.ts:240`、`state/layout-doc-store.ts:467`、`:503`、`state/default-tree.ts:122`、`commands/view-commands.ts:96` 都内联 `tabKey({kind:"view", viewId})`，而 `viewKey`（`layout-present.ts:246`）已存在。
+  - `state/default-tree.ts:151` 写 `` `view:${id}` ``。
+- **改成（内部部分）**：`panelTitle` 改用 `viewIdOf`（约 -2 行）。上面几处内联统一用 `viewKey`。
+- **公开面候选（单列）**：在 `nb-workbench-layout` 导出 `viewTabKey` 与 `viewIdOfTabKey`，让 `VIEW_KEY_PREFIX` 不再在应用里重写。这是别的包的新导出，我没把它算进内部简化。
+- **风险**：低。
+- **守护**：`state/layout-present.test.ts`（44 处引用）、`default-tree.test.ts`、`layout-doc-store.test.ts`。
+
+### 10. 简化：小处的同形重复
+- `layout-drag.ts:381` 与 `:430` 都写 `editor ? [data-panel-strip=…] : [data-panel-head=…]`，可抽成一个选择器函数。
+- `layout-drag.ts:357`、`:360` 的 `at === null ? null : {point: at.point, panel: at.container}` 写了两遍。
+- `layout-drag.ts:575`、`:694`、`:696`、`:772` 反复展开 `[...seen.panels, ...seen.floats]`。
+- `components/WorkbenchShell.vue:895` 与 `:898` 的 `cardTitle`、`dragGhost` 各调一次 `ghostOf(dragSource)`，后者可以是 `wantsGhost ? cardTitle : null`。
+- `drag?.live.active.value === true` 在 Shell 里出现 4 次（`:867`、`:988`、`:1084`），可收成一个 computed。
+- **合计**：约 -8 行。
+- **风险**：低。
+- **守护**：同候选 1。
+
+### 11. 效率（微）：`frameIn` 每帧分配
+- **位置**：`layout-drag.ts:311-312`，`card.rect` 每帧调用，每次 `[...panels, ...floats].find`。
+- **改成**：分别 `find`，每帧省一个数组分配，约十来个元素。
+- **风险**：低，收益很小，顺手改。
+
+### 12. 简化（可选，建议先不做）：`idleRun(judged)` 的特例
+- **位置**：`layout-drag.ts:198-238`、`:890-904`。
+- **现状**：收场时 `onActiveChange(false)` 把 `run` 换成空闲份，却要带着最后一次判定，只因为紧接着的 `onEnd` 要读 `refusal`。
+- **改成**：模块内一个 `lastRefusal` 变量，`resolve` 写、`onEnd` 读，`idleRun()` 就不带参数，`DragRun` 的头注释少 4 行。
+- **风险**：中，是会话收场顺序的耦合，e2e 之外没单元测试兜底，收益很小。
+
+## 公开面候选（单列，默认不动）
+- `nb-workbench-layout` 的 `LayoutPolicy.edgeTarget`、`seamAccepts` 的 `tabs` 参数：库内只是透传（`layout-drop.ts:152`、`:250`），本仓库唯一的策略实现（工作台）忽略它。要删得改库的签名。
+- `nb-layout` 的 `grid-drop.ts:74` 里 `containsPoint` 是私有函数，应用的 `drag-geometry.ts:70` 的 `contains` 是同一个判定。要合并就得导出它，不值得。
+- 候选 9 里 `nb-workbench-layout` 导出 `viewTabKey` 与 `viewIdOfTabKey`。
+- 这几项我都没去查 `packages/nb-layout/api/*.api.txt` 对应条目，决定时再确认。
+
+## 顺便发现的问题（不混进简化候选）
+1. **产品外壳没接网格诊断**：`WorkbenchSurface` 发 `issues`，`WorkbenchShell` 不接，所以产品里网格的诊断与被拒的提交全部静默丢掉。`nb-layout` 的 `useGridHost.md:44` 说 `onIssues` 是“诊断的唯一出口”。这要么是该接到诊断出口（补一条），要么是确认可以丢（然后走候选 7 删掉）。需要开发者定。
+2. **孤立或错位的注释**：
+   - `state/layout-doc-store.ts:266-268`：“视图按此刻的声明该回哪……”挂在 `declaredRegion` 的 JSDoc 上面，描述的是 `homeOf`（`:276`）。
+   - `components/WorkbenchSurface.vue:262`：“卡片跟着拖动中的预览走……”夹在 `swapColumn` 的 JSDoc 前面，该属于 `cards`（`:283`）。
+   - `layout-drag.ts:366-370`：“标签条里排序”这段挂在 `sortTargetOf` 上，描述的是 `measureSorted`。
+   - `layout-drag.ts:470`：`entriesIn` 的注释说“实时布局用拿起时量的那份（`frozen`）”，但函数本身只读 DOM，用冻结几何的是调用方。
+
+## 看过、没发现可简化的部分
+- `layout-drag.ts` 的实时布局适配（`liveHost`、`structure` 键、`run` 的缓存失效、`stableDrop`）。与 nb-layout 的 `createLiveDragSession` 分工清楚，没有在共用机制上叠特例。`previewsOf` 与 `previewsAt` 两个失效字段，换成别的写法不会更简单。
+- `drag-geometry.ts` 的 `collapsedGeometry`、`bandsAfterCollapse`、`sortedOffset` 和 `drag-keyboard.ts`：纯函数，每个分支都有 `drag-geometry.test.ts`、`drag-keyboard.test.ts` 守着。
+- `drag-presentation.ts`：Shell 用到的每个字段都有读者。
+- `entry-drop.ts` 的 `applyEntryDrop`：三种动作的分支虽多，但每个都对应 Spec 输出，合并不了。
+- `editor-area.ts`：贡献选取与挂载很紧凑，没有可删的。
+- `state/containers.ts`、`layout-host.ts`、`layout-constraints.ts`（除候选 7、8）：导出都有调用方。
+- `state/layout-present.ts`：`layoutStructureKey` 的 WeakMap 缓存是对的，每帧只多一次对象身份查找。
+- `WorkbenchSurface.vue` 的 `lastPresented` 与 `freshlyJoined`：看起来重，但是为了离开过渡里卡片外观不跳，Spec 与 e2e 都有对应，不建议动。
+- `WorkbenchDragFeedback.vue`：没有可简化的。
+
+## 汇总
+若候选 1 到 11 全做：净删约 45 到 55 行，主要是去重；热路径上省的是候选 1 的重复量取，其余是单一出处。建议先做 2、3、4、7、8、9（内部部分）、10，行为面最窄，测试兜底最足。候选 1 单独一轮，做完在 indicator 模式和文件拖动上各跑一次相关 e2e。

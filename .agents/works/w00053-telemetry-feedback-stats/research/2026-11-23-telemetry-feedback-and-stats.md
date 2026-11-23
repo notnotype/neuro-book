@@ -21,6 +21,7 @@
    - **关键交互红线**：Agent 写入反馈文件/队列时**绝不阻塞**当前 ReAct 循环；写入后**不自动上传**；由用户界面弹出**非阻塞审批入口/窗口**，用户审阅并点击确认后才上传。
 3. **用户自用统计插件**：面向用户本人展示使用记录、字数统计、总消耗 Token 等数据，并提供**仪表盘视图**与**贡献点**，允许其它插件向仪表盘贡献指标/卡片。
 4. **隐私开关时机**：安装阶段（首次启动）即可选择，默认匿名且勾选，说明用于提供匿名数据以改善产品体验。
+5. **服务端敏捷性与低锁定约束**：`neuro-book-site` 计划独立部署在 VPS；如果能兼顾 Cloudflare 更好，但**不强依赖 Cloudflare**，后续切出 Cloudflare 时要求改动尽量少、切换灵活，整体保持敏捷迭代。
 
 ## 2. 仓库现有约束与可复用基础（已验证）
 
@@ -74,6 +75,10 @@
   - **D1 Free**：500 万行读/天、10 万行写/天、5 GB 存储、10 个库；**Paid（随 $5 Workers 计划）**含 250 亿读/月、5,000 万写/月、5 GB 存储；
   - **Workers Analytics Engine Free**：10 万数据点写/天、1 万次 SQL 读/天，**但数据仅保留 3 个月**，且无现成产品分析前端看板；
   - **R2 Free**：10 GB 存储/月、100 万 Class A 写/月、无出站流量费。
+- **可移植关键底座（2026-11-23 核实官方文档）**：
+  - **Hono（`hono.dev`）**：基于 Web Standards（`Request`/`Response`），同一套业务路由零改动运行于 **Bun、Node.js、Deno 与 Cloudflare Workers**，切运行环境只换极薄入口文件；
+  - **Cloudflare R2 S3 兼容 API**：经标准 endpoint（`https://<ACCOUNT_ID>.r2.cloudflarestorage.com`）实现 `PutObject`、`GetObject`、`HeadObject`、`ListObjectsV2`、`CreateMultipartUpload` / `UploadPart` / `CompleteMultipartUpload` 等核心 S3 操作。用标准 S3 客户端代替 CF 专有 `env.R2_BUCKET` 绑定，换 MinIO / RustFS / AWS S3 / 阿里云 OSS 只需改环境变量；
+  - **Cloudflare Hyperdrive**：Workers Free 与 Paid 计划均包含（Free 100,000 SQL 查询/天，Paid 无查询条数上限，免出站流量费），支持 Workers 用标准 PostgreSQL 驱动（`pg`/`postgres.js`）经连接池连外部/VPS PostgreSQL，避免为兼容 Workers 而引入 D1 SQLite 方言差异。
 
 ### 5.2 三种备选方案与推荐组合对比
 
@@ -82,13 +87,65 @@
 | **方案 1：纯 Cloudflare（Workers + D1 + Analytics Engine + Pages）** | 仅提供写入与 SQL API，**无现成分析看板** | **极佳**：零运维数据库、自带边缘限流与防刷、免费额度极充裕 | 免管服务器和数据库；但统计图表页和反馈管理页都要自写 | Analytics Engine 仅留 3 个月；自己维护多维统计看板容易变成长期负担；国内直连偶有延迟抖动（异步上报可容忍） |
 | **方案 2：重写 `neuro-book-site` 一起承担** | 仍需自研图表或内嵌分析引擎 | 可共用账号、管理台和 `nb-ui` 风格 | 前置开发量最大（与 `w00037` 账号/备份/插件市场/社区耦合） | 严重拉长插件上线周期；若仍沿用单机 SQLite（768 MiB），不适合直接抗公网高频埋点与刷量 |
 | **方案 3：只搭 Umami（自托管或 Cloud）** | **极佳**：开箱即用看板、自定义事件、留存、错误追踪 | **装不下**：无文本工单流，事件属性限 500 字符 | 自托管需维护 VPS + PostgreSQL + 备份；Cloud 免费档免运维但有 100K 事件/月和 6 个月上限 | 无法解决 Agent/用户审批后的反馈文本收集；客户端直连 Umami 地址会强耦合 |
-| **推荐组合：Cloudflare 统一网关 + D1（收反馈） + Umami（看统计），客户端只认自有域名，与 `neuro-book-site` 重写解耦** | **极佳**：Worker 清洗/限流后转发给 Umami（初期可用 Umami Cloud 免费档，量大了无缝切自托管） | **极佳**：Worker 验参/二次脱敏/限流后落 D1，配极简后台或转 GitHub Issues / Webhook 通知 | 初期**零服务器/零数据库运维**，上线最快；客户端永不绑定具体后台 | 需管理两处配置（Cloudflare + Umami），但经同一网关域名对外呈现为单一后端 |
+| **推荐组合：可移植薄网关（Hono） + Umami（看统计） + 标准 PostgreSQL（收反馈），与 `neuro-book-site` 重写解耦** | **极佳**：网关清洗/限流后转发给 Umami（支持 VPS Docker 自托管或先用 Umami Cloud 免费档，客户端零感知切换） | **极佳**：网关验参/二次脱敏/限流后落 PostgreSQL 独立 schema/库（可配极简查询页或转 GitHub Issue/Webhook）；也可经 `FeedbackStore` 接口临时挂 D1 | **VPS 优先零锁定**：Umami 与反馈共享同一台 VPS 上的 PostgreSQL，Docker Compose 一键部署；Cloudflare 仅作可选外层 DNS/WAF/限流代理，或可选把同一套 Hono 网关直接跑在 CF Workers 上 | 需在生产 VPS 核对剩余内存/磁盘（Umami + Postgres 需常驻内存）；若初期不想动 VPS 内存，可先用 Umami Cloud 免费档 + CF Worker 跑同一套 Hono 网关，日后切回 VPS 只换入口与 DNS |
+
+### 5.3 专题评估：Cloudflare Workers 能否做 `neuro-book-site` 微服务？如何兼顾 VPS 独立部署与灵活切出？
+
+开发者同时计划重写 `neuro-book-site`，未来将承载 **OAuth 登录、备份与同步、Skill / 插件 / Profile 市场（含杀毒扫描与审核）、小说发布、用户交流与论坛**（已记入 [w00037-official-site](../../w00037-official-site/README.md)），并提出核心约束：**主定位独立部署在 VPS，如果 Cloudflare 支持更好，但绝不强依赖 Cloudflare，切出时改动要小、要敏捷。**
+
+#### 结论一：不要用 Cloudflare Workers 拆微服务
+
+- **技术上能跑，但会直接踩进两层坑**：
+  1. **单人/小团队的微服务税**：Cloudflare Service Bindings（`WorkerEntrypoint` RPC）要求按依赖顺序分步发版、多 Worker 本地联调复杂、跨库无 ACID 事务，前期把账号/市场/小说/论坛拆成多个独立部署服务会严重拖慢敏捷迭代。
+  2. **强锁定，违背“灵活切出 Cloudflare”**：`Service Bindings`、`D1`（专有绑定 + SQLite 方言 + 单库 10 GB 硬上限 + 单 DO 串行写）、`Queues`、`Workflows`、`Cloudflare Containers` 全部是 **Cloudflare 专有运行时能力**。一旦把业务写死在这些绑定上，迁回 VPS 时不仅要换部署，还要改数据库方言、重写服务间调用、替换队列与存储 SDK，绝不是“改得少”。
+- 另需注意：成熟开源软件（如 Umami、Discourse/Flarum/Fider）本身无法运行在纯 Workers + D1 上；Cloudflare Free/Pro 单次 HTTP 请求体上限 100 MB、Isolate 内存固定 128 MB；标准节点在中国大陆直连偶有绕路与晚高峰抖动。
+
+#### 结论二：VPS 优先的「可移植模块化单体」——兼容 Cloudflare 且可随时切出
+
+真正兼顾**敏捷开发 + VPS 独立部署 + 兼容 Cloudflare + 切出改动极小**的做法，不是按云厂商拆微服务，而是把 Cloudflare 限定在**标准协议可替换层**，业务本身按**模块化单体 + 端口接口**写：
+
+| 层级 | 推荐选型（VPS 主运行） | 如何兼容 Cloudflare | 切出 Cloudflare 的代价 |
+|---|---|---|---|
+| **架构边界** | **单仓模块化单体**（内部按域分包：`auth` / `market` / `novels` / `forum` / `backup` / `feedback`） | 可整包或按需把无状态 API/网关路由打包成单个 Worker | **零改业务代码**；未来若某模块真的成为流量瓶颈，再沿已有域接口独立拆容器 |
+| **HTTP / API 层** | **Hono**（Web Standards `Request`/`Response`），业务只收注入的 `Ports`，不直接读 CF `env` | 同一套 Hono App：VPS 用 `Bun.serve` / `@hono/node-server`，CF 用 `export default app` | **只换 ~20 行入口文件 + 切 DNS** |
+| **数据库层** | **标准 PostgreSQL + Drizzle ORM**（VPS Docker 常驻；可与自托管 Umami 分库共用同一 PG 实例） | 若部分路由跑在 CF Workers 上，经 **Hyperdrive**（Free 10 万查/天，Paid 无限）用同一套 PG 驱动直连 | **零 SQL 方言迁移**，无需从 D1 SQLite 迁库 |
+| **大文件/对象存储** | **标准 S3 API 客户端**（如 `@aws-sdk/client-s3` / `aws4fetch`），预签名 URL 直传 | 哪怕主站在 VPS 上跑，也能直接把大文件（插件包、加密备份、小说资源）存 **Cloudflare R2** 享 $0 出站带宽 | **只改 4 个环境变量**（Endpoint/Bucket/AK/SK），随时切 MinIO / RustFS / OSS / S3 |
+| **异步重任务**（插件杀毒/静检） | **PostgreSQL 任务表（`SKIP LOCKED` / `pg-boss`）+ VPS 独立 Scanner 容器**（ClamAV 等） | 保持独立进程，不依赖 CF Queues / Workflows / Containers | **零迁移成本** |
+| **边缘加速与防护** | 生产主机 Nginx/Caddy 直接接 TLS，支持无 CF 运行 | 外层按需套 Cloudflare DNS / WAF / Rate Limit / Turnstile（橙云代理） | **DNS 切灰云或换线路，零代码改动** |
+
+#### 推荐的演进拓扑（`w00053` 立刻落地，`w00037` 平滑衔接）
+
+```text
+客户端（NeuroBook 插件） / 浏览器
+  │  （可选外层：Cloudflare DNS / WAF / 限流；随时可切灰云直连 VPS）
+  │
+  ├── telemetry.nbook.notnotype.com ──▶ [Hono 可移植网关] (w00053 立刻落地)
+  │     │   默认跑 VPS Docker；亦可用同一份代码跑 CF Workers（只换入口）
+  │     ├── 匿名事件 ──▶ Umami（VPS Docker 自托管，或初期先挂 Umami Cloud 免费档）
+  │     └── 审批反馈 ──▶ PostgreSQL (schema: feedback) + 可选 GitHub Issue / Webhook
+  │
+  └── nbook.notnotype.com ────────────▶ [neuro-book-site 模块化单体 (Hono + Vue/nb-ui)] (w00037 重写)
+        │   主部署：VPS Docker Compose（不绑死 CF）
+        ├── 内部域模块：auth(OAuth) / market / novels / forum / backup / feedback-admin
+        ├── 元数据与任务队列 ──▶ 同实例 PostgreSQL（分库隔离，单库内保留 ACID 事务与 JOIN）
+        ├── 插件包/加密备份/小说资源 ──▶ 标准 S3 API（默认可接 Cloudflare R2 吃零出站费，随时可换）
+        └── 插件杀毒/静态扫描 ──▶ VPS 独立 Scanner Worker 容器（读 PG 任务表 + S3 拉包）
+```
+
+这套方案同时满足四条诉求：
+1. **敏捷**：`w00053` 今天就能单独起一个极小的 Hono 网关 + Umami，不必等 `neuro-book-site` 重写；
+2. **VPS 独立部署**：整套栈都能用一份 `docker-compose.yml` 在单台 VPS 上完整跑起来（不依赖任何 CF 私有服务）；
+3. **能白嫖 Cloudflare 最好的两样东西**：R2（经标准 S3 API 享 $0 出站流量）与外层 WAF/CDN/Workers 入口（均为可插拔层）；
+4. **切出成本接近零**：去掉 Cloudflare 时，代码一行核心业务不用改，只换环境变量（S3 endpoint）和 DNS 解析。
+
+*(待核实：当前生产 VPS 的剩余内存与磁盘余量尚未实时 SSH 盘点；此前 Task 128 记录旧版 `neuro-book-site` 容器上限为 768 MiB。在 VPS 上同时常驻 PostgreSQL + Umami + 新站前，需先做一次只读资源盘点。)*
 
 ## 6. 隐私与合规风险提示（默认勾选匿名统计）
 
 开发者倾向在安装/首次启动向导中**默认勾选匿名使用统计**，需在设计阶段明确兜底以防合规与写作社区信任风险：
 
 1. **先确认再首报**：在 `FirstRunWizard` 走完并点击“完成”之前不发任何事件；用户在向导中取消勾选后全程零上报。
+  - **已核实边界**：`FirstRunWizard.md` 显示第 1 步支持点“跳过”或按 `Esc` 直接跳过向导。若隐私开关放在第 1 步之后，用户中途跳过时根本没看到开关——必须在设计阶段明确规则：要么把隐私勾选放在第 1 步（或跳过前必见位置），要么规定“跳过向导 = 视为未确认，保持关闭”。
 2. **严格白名单字段**：事件负载只允许版本、发行渠道、OS/arch、运行形态（桌面/Web/CLI）、匿名随机实例 ID（可随时重置，不绑定账号或设备硬件指纹）、受控事件名与受控枚举维度；禁止传任何用户输入、项目名、路径、模型 Key 或正文片段。
 3. **透明可检查**：设置页提供显式开关、字段说明，以及“查看最近上报记录 / 清除匿名标识”的能力；向导页面用通俗中文直白列出“发什么、绝不发什么”。
 4. **两条开关独立**：关闭“自动匿名使用统计”不影响用户主动触发“发送反馈 / 审批上传 Agent 反馈”，反之亦然。
@@ -97,8 +154,11 @@
 
 ## 7. 待开发者拍板的下一批问题
 
-1. **后端落地选型**：采用推荐组合（Cloudflare Worker 统一网关 + D1 收反馈 + Umami 看统计），还是坚持纯 Cloudflare 或纯自托管 VPS？如果用 Umami，首版先挂 Umami Cloud 免费档还是直接自托管 Docker + PostgreSQL？
-2. **插件拆分方式**：按推荐拆成两个独立内置插件——「个人统计插件（纯本地、提供仪表盘与贡献点）」和「遥测与反馈插件（联网、含隐私开关与 Agent 反馈通道）」——是否同意？
-3. **Agent 非阻塞反馈的审批粒度**：每条 Agent 写的反馈都经右下角通知点开审阅后手动上传，还是同时提供一个可选项“记住选择：以后自动上传 Harness 工具错误，仅对用户建议类弹窗确认”？
-4. **个人统计插件首版指标范围**：首版优先覆盖「字数统计与趋势（复用 `projects.stats`）+ Token/费用消耗（复用 `SessionCore`）+ 使用时长/活跃天数」，仪表盘入口放在书架页、工作台视图还是独立编辑区标签页？
-5. **`neuro-book-site` 重写关系**：是否先把重写想法记入 `w00037-official-site`（保持独立排期，不阻塞本 Work），后续另开评估是否把新官网也迁到 Cloudflare 栈（Workers + D1 + R2）？
+1. **首版遥测与反馈后端的部署起点**（代码一律按可移植 Hono + 标准接口写，客户端只认自有域名 `telemetry.nbook.notnotype.com`）：
+   - **A（纯 VPS 优先，零 CF 依赖）**：在 VPS 上用 Docker Compose 跑 `Hono 网关 + PostgreSQL + Umami`（Cloudflare 最多只套外层 DNS/WAF）；反馈直接落同一 PostgreSQL；
+   - **B（最省事混合起步，随时切回 VPS）**：`Hono 网关` 先跑 Cloudflare Workers Free（吃免费抗刷/限流）+ `Umami Cloud 免费档`（0 运维，10 万事件/月）+ 反馈经 Hyperdrive 落 VPS/托管 PostgreSQL（或 Webhook 先落 GitHub Private Repo/D1），等重写官网上 VPS 时把网关迁回 VPS Docker。
+2. **插件拆分方式**：按推荐拆成两个独立内置插件——「个人统计插件（纯本地、零网络、提供仪表盘与贡献点）」和「遥测与反馈插件（联网、含隐私开关与 Agent 非阻塞反馈通道）」——是否同意？
+3. **Agent 非阻塞反馈的审批粒度**：每条 Agent 写的反馈都经右下角通知点开审阅后手动上传，还是同时提供可选开关“允许自动上传 Harness 工具错误，仅对含用户描述的反馈弹窗确认”？
+4. **个人统计插件首版指标与入口**：首版优先覆盖「字数统计与趋势（复用 `projects.stats`）+ Token/费用消耗（复用 `SessionCore`）+ 使用时长/活跃天数」，仪表盘入口放在书架页、工作台侧栏视图还是独立编辑区标签页？
+5. **向导“跳过”时的隐私边界**：用户在 `FirstRunWizard` 第 1 步直接点“跳过”/按 `Esc` 没看到隐私开关时，按“未确认则关闭”处理，还是把匿名统计开关直接放到第 1 步可见区域？
+6. **`neuro-book-site` 重写技术基线（`w00037`）**：是否认同按「VPS 独立部署的模块化单体（Hono + PostgreSQL + 标准 S3 API）+ 可选 Cloudflare 外层代理/R2」作为 `w00037` 的默认架构基线，不再引入 Cloudflare 专有微服务绑定？

@@ -126,4 +126,15 @@ describe("取在线目录", () => {
         aborted.abort();
         expect(await fetchOnlineCatalog({etag: null, signal: aborted.signal, url})).toMatchObject({status: "failed", reason: "cancelled"});
     });
+
+    test("网络出口选不出路：以 proxy 失败，请求不发", async () => {
+        const server = serve(() => new Response(zstd(payload)));
+        try {
+            const result = await fetchOnlineCatalog({etag: null, signal: signal(), url: server.url, route: async () => ({ok: false, code: "proxy-unreadable", message: "reg exited with 1"})});
+            expect(result).toEqual({status: "failed", reason: "proxy", message: "reg exited with 1"});
+            expect(server.seen).toHaveLength(0);
+        } finally {
+            server.stop();
+        }
+    });
 });

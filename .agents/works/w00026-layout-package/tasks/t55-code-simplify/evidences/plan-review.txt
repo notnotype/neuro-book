@@ -1,0 +1,184 @@
+# t55 计划审查报告（只读；条目按核实先后追加，最终排序见最终回复）
+
+[F01 重要] S2 合并两个手势会话：两边的差别不止 issues 一处，计划对 Grid 做法的描述也不准
+位置：plan.md「两个手势会话 —— 切片 S2」第 2 条；splitter-session.ts:109-134 对 grid-gesture.ts:208-225、307-330
+现象：
+ 1) 计划把 Grid 的做法写成“没有真实变化时不写 issues，诊断由求解后统一写入”。实际是：grid-gesture.ts:313-315 的 applyCollapse 在无变化时返回 {applied:false, issues}，solve() 随后 *回退去跑一遍 solveSashDrag*（:225-240），把折叠诊断并进 owner.issues（:242-244）。也就是 Grid 的“折叠失败”会重新按当前位移求解一次，可能刷新 sizes/snapState/active/compensated/collapsed，并且预览是否为 null 取决于 anyChange。
+ 2) Splitter 的 collapseOn（:109-134）折叠失败直接 return null，会话状态（sizes、state、snapState）原样不动，session.issues 只是被换成折叠诊断。没有回退求解。
+ 3) 另有几处不一致，抽核心时必须逐项定口径：cancel 后 sizes 在 Splitter 是 input.baselinePx、在 Grid 是 null（读时回落 baseline）；Grid 的 jump 把 deltaOverride 存在 owner 上并持续到下一次 update 才清（:350-362、:377），Splitter 的 jump 只是一次性 drag(target) 且 delta 变量不动；Grid 的 changed 是跨全部 owner 重新聚合（:262-266），Splitter 的 changed 是 state!==null；Grid 的 solve() 每次都重解所有 owner，jump 里每个 owner 一轮就再解全体。
+为什么是问题：“统一成 Grid 做法”要么给 Splitter 增加回退求解（会改变 Enter 折叠失败后 Splitter 的 state/预览返回值），要么核心带一个“失败时是否回退”的开关——后者就是计划想去掉的两份分叉。计划的止损条件“先写 issues 事件的现状断言，会变就停”只看 issues 内容，看不到 state/预览返回值/snapState 的变化，守不住。
+如何核实：读上面两段；splitter-session.ts 没有单元测试（调研也承认），只有 splitter.dom.test.ts（Enter 相关在 :477、:600、:1398、:1406）。useSashGesture.ts:514-519 对 toggleCollapsed 的返回值只在非 null 时 onPreview，随后一律 notifyGesture(session.issues)。
+建议改法：S2 前先写一页“两边行为表”（上面 1 到 3 的每一项各取哪边）再动手；核心只抽两边已经逐字相同的求解流程，折叠失败后的处理保留成会话各自的一小段，不强求统一；验证补用例：Enter 折叠失败后 Splitter 的 gesture-update/gesture-end 载荷与提交内容，不只看 issues。
+
+[F02 建议] S1 的范围写“非 Vue”，但两项改动必然要改 src/vue 下的文件，与 S3 同文件
+位置：plan.md「S1」“sashKey”条与“零碎”条里的 allocateSashPanels；sash-gesture.ts:33 sashKey(sash: GridSashRef)；vue/useSashGesture.ts:281；vue/Splitter.vue:10、:221；sash-drag.ts:213
+现象：
+ - 计划把 sashKey 改成 (branchId, index)，但现有签名是 sashKey(sash: GridSashRef)，除 sash-gesture.ts 自己外 vue/useSashGesture.ts:281 也在调（sashes.map((sash) => sashKey(sash))）。S1 改签名后 typecheck 在 vue 文件上就会失败，S1 必须改 useSashGesture.ts；而计划说 src/vue 的四处在 S3 改。另外调研说 grid-rects.ts 手写两处，实际只有 grid-rects.ts:361 一处是 sashKey 字段，:323 是 edge 键（`${branch.id}:${sash}`，同格式但语义是边界标识）；也要决定它是否改调 sashKey。
+ - “allocateSashPanels 并进 allocatePanels”方向不明。allocateSashPanels 是导出的，生产消费者有 sash-drag.ts:213 与 vue/Splitter.vue:221，测试 grid-geometry.test.ts 里 12 处；allocatePanels 是内部函数（带 report 回调）。删导出名要改 Splitter.vue。
+为什么是问题：S1/S3 分片边界是“非 Vue”对“Vue”，实际 S1 要碰 Vue 文件；Sonnet 编码者照字面执行会在“改了 Vue 文件越界”与“typecheck 不过”之间卡住，或悄悄带来与 S3 的合并冲突（S3 也改 Splitter.vue 的卸载与 console.warn）。
+如何核实：rg -nw "sashKey|allocateSashPanels" packages/nb-layout/src。两者都不在 api/*.api.txt 与 SDK 快照里（已查，没有命中）。
+建议改法：计划里写明方向：保留 allocateSashPanels 的名字，给它加可选 report 参数，删内部那份 allocatePanels（或相反，列出要改的 Vue 文件）；sashKey 新增 (branchId, index) 形式的重载或改签名并明列 S1 允许改 useSashGesture.ts:281 的一行；S3 因 S1 先合入不会冲突，但要写进“允许改动文件”。
+
+[F03 建议] S1 的 need(id,{kind?,parent?}) 要求“三种英文 message 不变”，但现状有九种以上，且测试不断言 message
+位置：plan.md「S1」第 4 条；grid.ts:270-273、:535-538、:555-558、:596-599、:619-622、:647-650、:707-710、:730-743
+现象：not-found 三种（Unknown node id / Unknown parent id / Unknown branch id）之外，wrong-node-kind 至少 4 种（Only leaves can be removed/moved/split、`The parent X is not a branch`、`X is not a branch`），root 无父的 invalid-argument 有 3 种（resize along / collapse in / size along）。计划只提了“三种”。grid.test.ts:218、:1654 注释明确测试只比码与 params、不断言 message，所以“message 不变”机检不到。
+为什么是问题：要保持 message 就得把每个调用点的措辞传进 need，省下的约 30 行基本抵消；编码者若统一措辞会改文案，没有测试兜底。另外 resize / resizeBranch 是计划自己列为公开面删除候选（P1），S7 可能随后删掉，给它们套 need 是先改后删。
+如何核实：rg -n '"wrong-node-kind"|"not-found"|root has no parent' packages/nb-layout/src/grid.ts。
+建议改法：要么只收 not-found 这一类（三种措辞用一个 label 参数）、其余原样；要么明写“message 允许统一，Spec 失败 5 只约束码与 params”，并把 resize/resizeBranch 排除在外。
+
+[F04 建议] S1 moveLeaf：回滚确实不可达，但“只删 nextTree/originalTree”还会留下重复查找，守卫的位置与不变式没写
+位置：plan.md「S1」第 3 条；grid.ts:766-805、:198-210（collapse）、:626-631（addLeaf 守卫）
+核实结果：对着 collapse() 逐种推演——来源 S 与目标 T 不同（同分支走前面早返回）；S 删叶后只可能：(a) 剩 1 个孩子 X，X 顶替 S（T 要么就是 X，要么在 X 里）；(b) 剩 0 个孩子，S 被摘掉（S 只有 L 一个孩子，T 不可能在 S 内）；(c) S 是根且被顶替，tree=X。三种下 T 都还在。根叶没有分支，早在 not-found 返回。所以两处回滚不可达，克隆没有用；没有“改了一半”的失败路径。
+仍有的问题：
+ 1) 去掉克隆后，前面已经找到的 hit / target 就是活树节点，stagedHit、stagedTarget、destination 三次重新 find 都成了冗余；计划只说删 nextTree 与回滚，编码者为通过类型检查（find 返回可空）多半保留 destination 的 null 检查或加 `!`。要写明用 target.node（同一对象，collapse 里 survivor.size 只改属性、不换对象）。
+ 2) 新增的守卫必须放在第一次修改之前（含 fixed 跨轴那条之后、filter 之前），因为失败路径没有回滚了；计划的用例“树不变”能抓到放错位置，但计划没写位置。公式要与 addLeaf 对齐：scaleIssue(scale.nodes, Math.max(scale.depth, (depthOf(parentId) ?? 1) + 1))（节点数不增加，不要照抄 +1）。
+ 3) 守卫按移动前的深度算，会误拒一种极端情形：T 是 S 的另一孩子 X 内的空分支，且 T 在深度 MAX；S 塌陷后 T 上移一层，移入本来合法。属于 Spec 之外的新失败条件，要么接受并在 grid.md 写一句，要么先算塌陷后的深度。
+ 4) 行为上有一个可见差别：成功的跨分支 moveLeaf 之前整棵树换成克隆（所有节点引用换新），之后节点引用保持。useGridLayout 已按 revision 而不是引用判变化（useGridLayout.ts:70-75 注释），生产里只有 Lab 的 GridStructureScene 调 moveLeaf，且 e2e 用的 "move-to-end"（GridStructureScene.vue:47）是同分支重排，不走克隆路径；跨分支那条只有 grid.test.ts 覆盖，e2e 覆盖不到。
+如何核实：见上面行号；rg -n "\.moveLeaf\(" packages --glob '!*.test.ts' 只有 GridStructureScene.vue:47。
+建议改法：计划里写明用 target.node、守卫前置与公式；用例补“已在 MAX 深度时移入空分支失败且 serialize 前后相等”之外再加一条“塌陷后变浅的合法移动”或把第 3 点记为已知保守。
+
+[F05 重要] S3 “Splitter.vue 的 sashSizes 里 console.warn 改用 layoutDevWarning”不是只搬不改，会让默认情形下的警告消失、并让现有测试挂掉
+位置：plan.md「S3」最后一条；vue/Splitter.vue:63-76；dev-checks.ts:36-46、:49-51；vue/splitter.dom.test.ts:706-723
+现象：Splitter 现在对非法 sashSizes 无条件 console.warn（多出条数一条，非法值每个下标一条，computed 重算时反复报）。layoutDevWarning 只有在宿主调过 setLayoutDevChecks(true) 时才输出（开关默认关，dev-checks.ts 头注释写明库不读 import.meta.env），并且按 owner+kind 去重。所以：(1) 没打开开关的宿主（包括 npm 用户）从此得不到这条警告；(2) 若 kind 取“每种一个”，splitter.dom.test.ts:720-722 里 `sashSizes[0]`、`sashSizes[1]` 两条不会同时出现，用例要改断言；该用例也没有开 dev 开关。
+为什么是问题：README 已定“行为合同不变”，plan 却在 S3 里当成零碎清理。编码者为让测试通过会放宽断言或在测试里打开开关，正是禁止清单里“为让测试通过而改断言”的情形。Spec 里没有 sashSizes 警告的条目（rg "sashSizes" docs/specs 无命中），所以也没有合同可依据。
+如何核实：读上面行号；`rg -n "sashSizes" docs/specs` 为空；dev-checks.ts 的 enabled 缺省 false。
+建议改法：从 S3 移除这一条（收益只有几行），或改成交开发者的“公开面与待定”项：这条警告是否算产品行为（默认开）还是 dev 检查。
+
+[F06 重要] S3 新增的“不读 top 就不做命中测试”用例写不成计划描述的样子；且该包的 dom 测试跑在 happy-dom
+位置：plan.md「S3」DragQuery.top 条；vue/drag-session.ts:91-96、:252；vue/drag-session.dom.test.ts:9、:58；vue/useDragSession.dom.test.ts:60
+现象：计划写“用真实的 document.elementsFromPoint 包一层计数，测试结束还原；这是在测外部可观察的开销，不是替身”。但 drag-session.dom.test.ts:9 与 :58、useDragSession.dom.test.ts:60、SortableList.dom.test.ts:20 都说明 happy-dom 没有 elementsFromPoint，现有用例是 Object.assign(document, {elementsFromPoint: () => hit}) 塞假的。所以这里没有“真实的”可包；计数的只会是替身。
+为什么是问题：docs/testing/README.md 的测试写法规定测行为不测实现、依赖用真的；“某函数被调了几次”是实现细节的断言，且是对替身计数。写出来是 governance:check 会盯的那类用例，编码者要么违规、要么放弃这条。真正能证明这个收益的是 Chromium 里的 e2e：workbench-drag-cost.e2e.ts 已经在数每帧样式重算次数（它头注释说判定里的 elementsFromPoint 每帧强制一次样式重算），那里才是现成的真实度量处。
+还有一处调研没写：生产里读 top 的宿主只有 ExplorerTree.vue:263（`resolve: ({top, point})` 在参数里解构，getter 被立刻读一次，等于没省）；workbench 的 layout-drag.ts、nb-story BookFrame、Lab 场景都不读 top。没有任何宿主对 query 做展开（rg 未见 `...query`），live-drag-session.ts:113 原样传递；所以 getter 本身安全，但“省”的只是不读 top 的那几个宿主。
+如何核实：rg -n "elementsFromPoint" packages（只有测试里的替身和 drag-session.ts:92）；rg -n "\btop\b" 各宿主 resolve。
+建议改法：去掉 dom 用例；若要证据，在 workbench-drag-cost 或 lab-drag-session 的 e2e 里用 CDP 或 page.evaluate 包住真实 document.elementsFromPoint 数次数（Chromium 里是真的），并在 plan 里写明这是 e2e 而不是 dom 用例。
+
+[F07 重要] S5 “能否浮出、是否已独占一个窗”四处并成一个谓词，不是只搬不改：四份判据现在互不相同
+位置：plan.md「S5」第 3 条（app 2）；web/layout-drag.ts:608-614（canFloat）与 :941-942（alone）；components/WorkbenchShell.vue:303-304（frameActionsOf 的 floatable）与 :480-482（moveMenuItems 的 alone）；commands/panel-commands.ts:111-123（FLOAT_COMMAND）
+现象（逐份对照源码）：
+ - layout-drag.ts canFloat：标签必须在文档里找得到；窗数 >= LAYOUT_MAX_FLOATS 就不行；只看 floatable !== false，不看 movable；编辑器标签（viewId 为 null）允许浮出。alone 另算，且只用于键盘候选。
+ - Shell frameActionsOf：viewId 必须非 null（编辑器标签不显示“浮出”按钮）；floatable !== false 且 movable !== false；不查窗数上限（按钮显示，命令里再拒）。
+ - Shell moveMenuItems：只看 floatable === false 或 alone；不看 movable；alone 用 panelOfView 取 home。
+ - panel-commands FLOAT_COMMAND：alone、floatable === false、movable === false 任一为真就不可用；编辑器标签允许；窗数上限在 floatTab 结果里才报。
+ 其中 movable 的差别在 layout-drag 里碰巧不可达（layout-drag.ts:793-799 的 movable() 已让 movable:false 的视图起不了拖），但“编辑器标签有没有浮出入口”“要不要查窗数上限”是真差别。
+为什么是问题：计划说“不可用原因的文案仍由调用方给”，把这四处当同一规则；实际要么谓词带上三个参数（是否要求视图、是否查上限、是否看 movable），要么悄悄统一成某一份，改变其中至少一处的可观察行为（例如编辑器标签的帧上按钮、窗数到上限时按钮是否灰）。守着它的只有 workbench-float/views e2e，未必断言这些边。调研自己也把风险标成“低到中”，计划抄成了无条件项。
+如何核实：读上面五段；rg -n "floatable|movable" packages/neuro-book/src/plugins/workbench/web。
+建议改法：要么改成只收 alone 那一小句（isSoleWindow(doc, home)，四处确实同形：isFloating 且 tabs.length === 1），floatable/movable 的判定留在各处；要么先写一张四处判据对照表，把每个差别判为“有意”或“漂移”，漂移的才统一，并各补一条用例。
+
+[F08 重要] 验证覆盖不到：S1 与 S4 改的代码被别的包消费，计划只给它们跑本包测试和应用 typecheck
+位置：plan.md「切片」表的“自跑验证”列；packages/nb-workbench-layout/src/layout-project.test.ts（用 createGrid、resizeBranch）；packages/neuro-book/src/plugins/workbench/web/state/*.test.ts、shared/*.test.ts
+现象：
+ - S1（grid.ts 的 need、find 合并、moveLeaf、resizeBranches 之外还有 grid-geometry 的 allocatePanels、grid-rects、live-drop）只跑 nb-layout 的 test/typecheck/api:check。nb-workbench-layout 的 projectLayoutDoc、previewPanelRects、layout-project.test.ts 都建在 createGrid、layout、placeGrid 上，应用的 workbench/web 也一样；它们是 S1 改动的第一批下游，却要等到 S5 才被跑到。
+ - S4 改的是 layout-doc.ts（normalizeDoc、findTab、validateLayoutDoc 拆文件）、layout-project.ts（presentationCollapse）、layout-drop.ts，这些被应用的 layout-doc-store、layout-present、default-tree、containers、editor-panels 直接消费，服务端经 workbench/shared 也导入。S4 的验证只写“应用 typecheck”：类型过了不代表 findTab 改 for…in、presentationCollapse 带上一轮投影后行为不变。这些应用单元测试要到 S5 才跑，S4 却先合入 master。
+ - e2e：S4/S5 的清单没有 lab-drop-sectors（edgeTargetsOf 的消费者之一 layoutDropSectors 画的分区）；S1 的 moveLeaf 跨分支路径没有任何 e2e（见 F04）。
+为什么是问题：合入 master 之后才发现下游测试红，要回头追是哪一片；计划又承诺“一项候选一个提交，坏了只退那一段”，需要每片自己的验证能定位。
+如何核实：rg -n "nb-workbench-layout" packages/neuro-book/src --glob '*.test.ts' -l 有十余个单元测试；这些都是 bun test，不是 e2e，可以直接跑。
+建议改法：S1 的验证加 `bun run --cwd packages/nb-workbench-layout test` 与应用 workbench/web 下受影响测试；S4 的验证加应用 `bun test` 覆盖 workbench/web/state 与 workbench/shared（plan 的 S5 行已有类似写法，前移到 S4）；S4 的 e2e 清单加 lab-drop-sectors。
+
+[F09 建议] S4 的 edgeTargetsOf 若一次算四向，会让每次指针移动在面板中央也调四次 policy.edgeTarget；与计划自己的“热路径只减不增”口径相反
+位置：plan.md「S4」第 3 条（wbl 6）；nb-workbench-layout/src/layout-drop.ts:128-171（nearestEdge）、:152（edgeTargetFor）
+现象：nearestEdge 现在是惰性的：depths 过滤出窄带内的边（指针在面板中央时为空），`within.length === 0 ||` 短路，整个函数一次 edgeTargetFor 都不调（layout-drop.ts:166-168）。把三处并成 `edgeTargetsOf(...)` 返回四向 Map，若 nearestEdge 也先取这份，指针每次在面板中央移动就多调四次宿主的 policy.edgeTarget（应用里是 layoutEdgeTarget，每次 findTreeNode 加兄弟扫描）。调研已指出“最多多算 3 次”，但没发现中央时是从 0 变成 4。
+为什么是问题：layoutDropPanelAt/resolveLayoutDrop 每次指针移动都走；计划的分拣口径是“热路径上的重复量取”才收，这里反过来增加。policy.edgeTarget 是宿主回调，库不能假设它便宜或无副作用。
+如何核实：读 layout-drop.ts:160-171；layoutDropSectors（:328 附近）与 enumerateDropCandidates（:513 附近）本来就四向全算，真正省不下的只有这两处。
+建议改法：edgeTargetsOf 做成按边惰性取值并带本次缓存的小函数（`targetOf(edge)`），三处共用；nearestEdge 保持按窄带取；或者只让 layoutDropSectors 与 enumerateDropCandidates 共用，nearestEdge 不动。
+
+[F10 建议] S3 拆 NestedGrid.vue：两处“只搬不改时序”的前提计划没验证，写法要点没给，编码者易做成改行为
+位置：plan.md「S3」NestedGrid.vue 拆分第 1、2 条；vue/NestedGrid.vue:280-299（layerContents）、:350-360（sashLooks/sashLookOf）、:381-386（sashAriaLabel）、:485（清理）、:758（模板）、:634-657（watch props.node）
+(a) 拿起项留住：现在 previousContents/heldLifted 活在一个只依赖 props.contents、props.lifted 的独立 computed 里，所以“上一轮”就是“上一次这两个 prop 变化时的值”。计划要“在 useContentLayer 算 placements 时维护”，而 placements（useContentLayer.ts:77）还依赖 items、dpr、leaving，布局与过渡一动就重算；每次重算都会把 previousContents 刷成当前 contents。主路径（拿起与摘掉在同一次更新里）因为 heldLifted 一旦记下就不再按 key 改而仍然成立，NestedGrid.dom.test.ts:1622-1645 守着；但“上一轮”的含义变了，是否还等价没人推演。更稳的写法是原样搬那个 computed（输入仍只是 contents()/lifted() 两个函数），不要塞进 placements。
+(b) 分隔线外观每次渲染只算一次：sashLookOf 今天在模板里被调三次（:758 的 data-sash-kind、sashBoxStyle、sashAriaLabel 经 sashProps），每次都问宿主并 set。要“只算一次”只能是：渲染函数里先算一张表，或一个 computed。绝不能做成挂在 layers 的 watcher 里算：NestedGrid.dom.test.ts:2069 单独 setProps({paneLabel}) 不改 layers，要求读屏名称跟着变（:214-218 也靠宿主语言的响应式读）。做成 computed 则要承认一个行为差别：宿主回调读的若是非响应式状态，此刻每次渲染都会重问，改后只在 props 变或 layers 变时重问。NestedGrid.md:147 只写了“一次渲染里可能问几次”，没承诺每次渲染都问。计划要在 S3 的说明里写明选哪种。
+(c) watcher 的创建顺序：layers 的 watcher（:473 起，pre 刷新）里有 sashLooks 的清理（:485）、motion.update、parking.update、contentLayer.update；把这些搬进 composable 后，如果新 watcher 在别处创建，pre 刷新里同一组件的 job 按触发顺序而非创建顺序跑，motion.update 与 contentLayer.update 的先后（:472-481 注释“先判过渡，再停放”）一旦变了就是行为变化。计划只说 flush: "sync" 原样保留，没提 pre 的先后。
+(d) “只为那一个孩子建面板配置”：buildGridBranchPanels 是逐孩子独立映射（grid-splitter.ts:13-28，没有跨孩子信息），改法安全；但它有 grid-splitter.dom.test.ts 三处按整数组断言，编码者改签名要同步测试；建议保持函数不变，调用处传 [child]。
+如何核实：读上面行号；NestedGrid.dom.test.ts:1594-1650（拿起）、:204-220、:522-535、:2060-2075（paneLabel、sashStyle）。
+建议改法：S3 说明里写死——(a) 原样搬 computed；(b) 用 computed 或渲染时一张表，不用 watcher，并在交付报告写明“宿主回调的重问频率变化”；(c) 所有 watcher 仍在 NestedGrid.vue 里创建，composable 只导出函数与 computed。
+
+[F11 建议] S1 把矩形判点合成 containsPoint(rect, point, margin = 0)：三份的边距语义不同，其中一份是公开导出
+位置：plan.md「S1」矩形条（core 8）；grid-drop.ts:74-76（闭区间，无边距）、live-drop.ts:64-67（insideShownSlot，边距 stickyPx 直接加减，不夹）、sash-hit-area.ts:51-55（hitTestSashBand，`Math.max(0, margin)` 夹到非负）；api/index.api.txt:817-819（insideShownSlot 在公开面，`stickyPx?: number`）
+现象：三处区间都是闭区间，但边距处理不同：insideShownSlot 允许负的 stickyPx（把空位缩小），hitTestSashBand 把负边距夹成 0；NaN 边距在夹过的那份里让 Math.max 返回 NaN、判点恒假，在没夹的那份里同样恒假，但与 margin 缺省 0 的 grid-drop 版本不一致。
+为什么是问题：insideShownSlot 是 @experimental 公开函数，计划同时说“公开面冻结”。合成时若把夹的逻辑放进 containsPoint，insideShownSlot 的负边距行为变了；不夹则 hitTestSashBand 变了。计划没写取哪边。
+如何核实：读上面三段；rg -n "stickyPx|margin" packages/nb-layout/src/live-drop.test.ts sash-hit-area.test.ts 看有没有负值用例。
+建议改法：containsPoint 不夹；hitTestSashBand 在调用前自己 Math.max(0, margin)；并在计划里写这一句。
+
+[F12 建议] 切片依赖：S2 与 S3 都只依赖 S1，却共改文件与测试；S2 改 resizeBranches 换树引用，波及 S3 的文件
+位置：plan.md「切片」表；splitter.dom.test.ts；vue/NestedGrid.vue:634、:655；grid.ts:445-517（resizeBranches）
+现象：
+ - S2 要在 splitter.dom.test.ts 先写 Enter 折叠失败的现状断言；S3 要改同一文件里的 sashSizes 警告用例（:706-723，见 F05）。两片并行会冲突。S2 的“前提 grep”（useGridHost、useGridLayout 不持有 root() 引用）里也没提到 S3 要动的 NestedGrid.vue。
+ - resizeBranches 改成 tree = candidate 以后，每次提交 root() 换一个新对象。useGridLayout.node 是 computed(root())，之前同一 Grid 原地改时引用不变，现在每次提交都变，NestedGrid 的 props.node 随之变；NestedGrid.vue:634 的 watch([... props.node]) 会调 scope.invalidate()、:655 的开发检查会重跑。revision 本来就在每次 publish 里递增并触发同一个 invalidate，所以今天看不出差别；但这条“引用不变”的假设是 useGridLayout.ts:70-75 注释里写明的，计划应把它列入前提 grep，而不是只写 useGridHost、useGridLayout 两个文件。Lab 里 NestedGridAcceptanceFixture.vue:328、:338 与 LivePanelsScene.vue:81、:174 也读 root()（读后即用，应无碍）。
+ - 反过来，S1 对 moveLeaf 去克隆，让成功的跨分支移动不再换引用——与 S2 方向相反，两边都是“引用是否变”的约定，计划没有把它写成一条统一约定（“结构变化后节点引用失效”只写在 grid.ts:260 的注释里）。
+为什么是问题：并行冲突在合并时才暴露；引用约定不统一，下次再有人改就是第三种口径。
+如何核实：rg -n "root\(\)" packages --glob '!*.test.ts' 只有 useGridLayout.ts:74、两个 Lab 场景、layout-drop.ts:422/436。
+建议改法：表里把 S2 写成“S1 之后、S3 之前或之后串行”，或把 splitter.dom.test.ts 的改动划给其中一片；前提 grep 加 NestedGrid.vue 的 props.node 监听。
+
+[F13 建议] 计划里几处与源码对不上的小事实（编码者会照字面做，遇到才返工）
+ 1) plan「S5」“emptyRegionContainer 改调导出的 soleContainerOf”：entry-drop.ts:109 的 soleContainerOf 不是导出的（`function soleContainerOf`），要先加 export；且两者的统计方式不同（前者数 doc.panels 里 container 相同的个数，后者数区域分节），调研靠 layout-doc.ts:1324“浮动窗不带 container”推出合法文档下一致，计划没把这个推断写成前提也没补用例。
+ 2) plan「S5」“keepVisible、wholeInTree 挪到 state/layout-constraints.ts”：drag-geometry.test.ts:14、:244-246 与 layout-drag.ts:24 都从 ./drag-geometry 导入它们，搬走要同步改这两个文件的导入；计划没列测试文件。
+ 3) plan「Spec 与文档改动」“useContentLayer 的同名文档”：vue/ 下没有 useContentLayer.md（有 NestedGrid.md、useGridHost.md、useLayoutExtent.md 等），拿起项留住的说明已经在 NestedGrid.md:64。要么写“新增”，要么删这条。
+ 4) plan「S1」“findBranch 改用同一个查找”：findBranch 只认分支（grid-gesture.ts:133-149，叶 id 命中也返回 null），通用 find 命中叶会返回叶，projectGridGesture 随后读 branch.children 会炸；改时要保留 kind 判断。
+ 5) plan「S4」previewEdgeDrop 后半段改调 previewPanelRects(...)[placed] ?? null：previewPanelRects 返回普通对象（Object.fromEntries），placed 若是 toString、valueOf 这类原型成员名且没出现在结果里，会取到函数而不是 null。FORBIDDEN_IDS 只拦 __proto__、constructor、prototype。面板 id 由宿主计数器生成，几乎碰不到，改用 Object.hasOwn 一句即可。
+ 6) plan「S1」脚本：pack.ts:127-128 的 dist/package.json exports 就是由 pack.ts 的 ENTRIES 生成的，api-report.ts:162-165 的运行期对账是拿它和自己的 ENTRIES 比。共用一份 scripts/entries.ts 后，对账确实成了同义反复，删它是对的；但 pack.ts 的条目带 source、vue，api-report 的只有 name、subpath，共享文件要取并集，计划没写。
+ 7) plan「S3」“先收尾手势再通知的先后由 useSashGesture 的注册顺序保证”：今天成立（useSashGesture 在 NestedGrid.vue:628 之前调用，teardown 经 onBeforeUnmount 先于 :669 的 emit("extent", null)）；但这条顺序正是 S3 要拆 NestedGrid 的地方，拆出 composable 后只要 emit 的钩子挪到 useSashGesture 之前就失效。计划写一句注释不够，要在“拆分完成后检查”里列这一条。
+如何核实：各条给了文件行号。
+
+[F14 重要] S1 给 moveLeaf “补上深度与节点数守卫”建立在一个已被文档否定的前提上，并且是新增失败条件，不是只搬不改
+位置：plan.md「S1」第 3 条（“同时补上 addLeaf、splitLeaf 已有的守卫”）与「验收映射」；调研 survey-core.txt 顺便发现 1；packages/nb-layout/src/grid.md:37、:57；grid-snapshot.ts:116-119、:216
+现象（已跑探针，只读）：用 createGrid 建一棵根为第 1 层、空分支 b16 在第 16 层的树，再 moveLeaf("x", "b16", 0)：返回 {ok:true}，移动后树深 17 层；用这棵树的 serialize() 去 restore，返回 {ok:true, dropped:[], clamped:[]}（没有被 limit-exceeded 拒绝）。同一棵树上再 splitLeaf 才报 `Nesting too deep: 18 > 16`。原因是 grid-snapshot.ts:216 从深度 0 起数根，而结构操作的 treeScale 把根算第 1 层；grid.md:37 已把它写成已知问题：“深度的计法与快照恢复差一层……17 层的快照能恢复，18 层才拒”。所以调研写的“超限且 serialize 之后 restore 会被 limit-exceeded 拒绝”不成立。
+为什么是问题：
+ 1) 计划的动机（造出无法保存或恢复的树）不成立；加守卫是让 moveLeaf 比现状更严（原来成功的移动现在失败），属于对外可见的行为变化，与 README“行为合同不变”冲突，却被写在“理顺简化”的同一个提交里。Spec 失败 5 的码表没有按操作列 limit-exceeded，所以也没有 Spec 依据。
+ 2) grid.md:57 明文写“跨分支操作先在候选树中完成再发布”，去掉克隆后这句要改（计划“Spec 与文档改动”一节没列 grid.md）。
+ 3) 守卫的位置若放在 collapse 之后会留下改了一半的树（去回滚之后没有别的兜底），只能放在所有修改之前。
+如何核实：探针（不改仓库，写在 /tmp）：建 15 层嵌套分支链 root → b2 → … → b15 → b16(空)，另放叶 x；`createGrid(tree).moveLeaf("x","b16",0)` 得 {ok:true}，深度 17；`restore(serialize())` 得 ok。
+建议改法：把“补守卫”从 S1 拆出去，列进交给开发者的待定项（是否要让 moveLeaf 与 addLeaf、splitLeaf 一样按 16 层拒）；S1 只做去克隆，并在 grid.md:57 改成“同一棵树上原地改，失败前不改”；若开发者要守卫，用例按 17 层建，别按“restore 会拒”写理由。
+
+[F15 建议] S2“删 applyBranchResize”会弄坏仍保留的 resizeBranch；计划把它当成只有 resizeBranches 用
+位置：plan.md「S2」第 3 条；grid.ts:428（定义）、:503（resizeBranches 内）、:605（resizeBranch 内）
+现象：applyBranchResize 有两个调用点。:605 是公开方法 Grid.resizeBranch（计划自己的“公开面与待定”第 1 条把它留到 S7，生产无人调用，但 grid.test.ts 约 46 处、nb-workbench-layout/layout-project.test.ts 4 处在用）。
+为什么是问题：编码者照字面删函数，resizeBranch 编译不过；要么悄悄把循环内联进 resizeBranch（又是一份重复），要么在 S2 里连带删 resizeBranch（动公开面，违反冻结）。
+如何核实：rg -n "applyBranchResize" packages/nb-layout/src/grid.ts 三行。
+建议改法：S2 写成“resizeBranches 不再调用 applyBranchResize；函数留给 resizeBranch，S7 若删 resizeBranch 再一起删”。另外 planBranchResize 对候选树的 child.collapse 就地替换（:366-371），改成 tree = candidate 之后 collapsedRemembering 读 node.size 与现在“先写尺寸后写收起”的顺序等价（我按代码推演了固定与按比例两种，等价），但这条在计划里只是“要核对”，应写成要补的用例：一次提交里同时收起一个保留像素的面板并拖动另一个，比较 intents、collapsed、restoreSize 与改前一致。
+
+[F16 重要] S4 measureTabStrip“改成一遍”的写法有歧义：从分组之后的 lines 拼 all 会改变 members 的顺序
+位置：plan.md「S4」第 1 条（wbl 5）；nb-workbench-layout/src/vue/tab-strip-geometry.ts:83-90（rowsOf）、:136-142（measureTabStrip）、:70-79（wrappedLines）、:177-179（samePartition 与行尾后继）
+现象：今天的 all 是整条 strip.querySelectorAll("[data-panel-tab]") 的 DOM 顺序，原始矩形；excludedRect 取自它（不是补位后的）。rowsOf 返回的 lines 已经按 Math.round(frame.top) 分组、按 top 升序重排、并对来源之后的成员补位（closeGap）。计划写“all 由各行原始成员拼出”：如果实现成 rowsOf(...).flatMap(r => r.lines.flat())，既丢了“原始矩形”（excludedRect 会变成补位后的），也可能改变顺序（同一视觉行里 frame 的 top 不同——例如 align-items 不是 stretch、高度不一——会被拆成两组再按 top 排）。members 的顺序被 samePartition、行尾后继（:177-179）直接使用，顺序一变，插入位的 before/after 就变。
+为什么是问题：调研自己标了“风险低到中，唯一要核对的是 all 的顺序”，计划抄成了无条件的改法，只靠新增的“停靠点与逐点 resolve 相同”用例，而这条用例两边都走新的 measureTabStrip，比不出 members 顺序是否变了。
+如何核实：读上面行号；tab-strip-geometry.dom.test.ts 现有用例（:54-125）的夹具标签等高，覆盖不到高度不同的行。
+建议改法：rowsOf 内部先对每行取 DOM 顺序的原始 Member[]（分组与补位之前），all 由各行原始列表按行的 DOM 顺序拼成，excluded 从 all 里取；补一条用例：同一行里标签高度不同（top 不同）时 members 顺序与改前一致，用改前的 measureTabStrip 输出做对照（可先在 master 上把结果存成字面量）。
+
+------------------------------------------------------------
+修订（对上面各条的更正，按核实后的结论为准；本文件只追加，不改前文）
+
+[R1 更正 F06] 前面写的“workbench 的 layout-drag.ts 不读 top”是错的：那次 rg 的输出被 `head` 截断了。核实结果：
+ - layout-drag.ts:808 的 resolveDrop 在参数里解构 {source, point, top, region}，:810 用 top 判“被菜单对话框挡住”，:818 用 top?.closest("[data-no-drag]")，每次指针判定都读。
+ - ExplorerTree.vue:263 与 DragSessionScene.vue:57 也在参数里解构 top；WorkbenchShell.vue:834 的 fileDropHost.resolve(point, top) 把资源树给的 top 往下传。
+ - 不读 top 的只有 nb-story BookFrame 换边、LivePanelsScene、useSortable（resolve 只取 {source, point, region}）。
+ 因此：惰性 getter 对工作台这个最热的宿主一点不省（参数解构就在入口处读一次，时刻与现在相同）；计划“不读 top 的宿主省一次整页命中测试”只对上面三个成立，收益比计划写的小，且 workbench-drag-cost 不会因此变化。所有宿主都在 resolve 的参数里解构或只取别的字段，没有存下 query 以后再读的，也没有展开 query（本条已用不截断的 rg 重搜：createDragSession、useDragSession、useSortable、useLiveDragSession、createLiveDragSession 共 20 个文件，逐个看过 resolve 签名）。惰性 getter 的风险是“读的时刻从判定之内挪到第一次读”：若某个宿主在 resolve 里先写 DOM 再读 top，会读到写之后的结果；现有宿主都在入口解构，无此情形。F06 的另两点（happy-dom 没有 elementsFromPoint、dom 用例是对替身计数）不受影响。S3 改的是所有拖动会话的公共适配，e2e 清单应加 lab-explorer、lab-sortable-list（useSortable 与资源树）、lab-agent-ui（状态栏排序，见 status-line.dom.test.ts:143 的注释）。
+
+[R2 更正 F14 与 F04（并为一条）] 对 moveLeaf 深度守卫的评价改为：
+ - 调研给的理由（serialize 之后 restore 会被 limit-exceeded 拒绝）不成立：探针里 17 层的树 restore 成功，grid.md:37 已把“结构操作根算第 1 层、恢复从 0 数起”写成已知问题。
+ - 但 Spec ui/nested-grid 失败 5 的操作列表里有“移动”，码表里 limit-exceeded 写“超过 256 个节点或 16 层”，没有按操作拆开；按结构操作的计法，moveLeaf 移出第 17 层应该拒。所以守卫更像是向 Spec 对齐的修复，而不是新合同。我先前建议“从 S1 拆出去交开发者”收回。
+ - 正确的做法：守卫单独一个提交，提交说明写 Spec 失败 5 的依据而不是“restore 会拒”；用例按结构计法建 17 层（第 16 层的空分支 + 另一处的叶），断言 {code:"limit-exceeded", params:{limit:"depth", max:16}} 且 serialize 前后相等；位置在所有修改之前，公式照 addLeaf（nodes 不加一，depth 取 max(scale.depth, depthOf(parentId)+1)）；grid.md:57 “跨分支操作先在候选树中完成再发布”要同批改成原地改、失败前不改；塌陷后变浅被误拒（F04 第 3 点）作为已知保守写进 grid.md 的已知问题那一段。
+
+[R3 更正 F13 第 5 条] 撤回。原型成员名当面板 id 几乎碰不到，README 已定过度防御的不改，不应进计划。
+
+[R4 更正 F10(c)] “pre 刷新里同一组件的 job 按触发顺序而非创建顺序跑”我没有在 Vue 3.5.39 的调度器里核实，改为“watcher 的先后可能变”：建议本身（所有 watcher 仍在 NestedGrid.vue 里创建，composable 只导出函数与 computed）不变。已核实的一条相反的事：unmountComponent 先 invokeArrayFns(bum)（按注册顺序）再 scope.stop()（runtime-core 3.5.39），useSashGesture 用的是 onBeforeUnmount，所以 S3 删 scope.dispose() 与 Splitter 的 onBeforeUnmount 在今天的注册顺序下等价（cancel 里的 settle 把 binding 置 null，useSashGesture.ts:290-291，teardown 先取消“unmount”，随后的 invalidate/dispose 只剩 resetHover 与 detach，幂等）。
+
+[R5 更正 F12 第一点] 计划表只写 S2、S3 都依赖 S1，正文是“下一片从新的 master 开”，没说并行。按计划串行则 splitter.dom.test.ts 不冲突；只在并行时才冲突。该条其余两点（S2 把 resizeBranches 的节点引用换新、引用约定要统一写进一处）不变。
+
+[R6 补 F08] S3 的 e2e 清单加 lab-explorer、lab-sortable-list、lab-agent-ui（R1）；S4 的“自跑验证”加应用里 neuro-book/src/sdk/sdk.test.ts（:63 按文本解析 nb-workbench-layout 的 index.ts 取导出类型名，S4 把 export * 改成显式清单后它读到的类型名集合会变）。
+
+============================================================
+索引（按影响排序，已吸收 R1 到 R6）
+重要：F07 S5 浮出谓词四份判据不同；F01 S2 两会话差别不止 issues；F05 S3 Splitter 的 console.warn 改 layoutDevWarning 是行为变化；F16 S4 measureTabStrip 改一遍会改 members 顺序/原始矩形；F08 验证覆盖缺口（S1/S4 下游、S3 的 e2e、sdk.test.ts、lab-drop-sectors）；F06 S3 的 top getter（dom 用例写不成、收益比计划小）
+建议：F14 moveLeaf 守卫（含 F04）；F15 applyBranchResize 仍被 resizeBranch 用；F12 S2/S3 与引用约定；F10 NestedGrid 拆分的写法要点；F09 edgeTargetsOf 惰性；F02 S1 其实要改 Vue 文件；F03 need() 的 message；F11 containsPoint 边距语义；F13 小事实（撤回第 5 条）
+阻断：无
+
+未发现问题的方面：
+- 删除项逐个 rg -w 核实，生产里确无调用方，也不在 packages/nb-layout/api/*.api.txt 与 packages/neuro-book/src/sdk/nb-layout-surface.txt：normConstraint、branchSashSizes、collapsePolicyProblem（只有 grid-geometry.test.ts 一处用例）、sashCollapsePolicy 与 SASH_COLLAPSE_THRESHOLD（只有 sash-drag.test.ts）、projectGridGesture、sashDistance、LIVE_SETTLE_MS、LIVE_STICKY_PX、GRID_EDGE_RATIO_DEFAULT、useSashScope、SashGestureScope.dispose（api 里没有，测试 useSashGesture.dom.test.ts:55 一处）、SashPoint、SashRect、DragEdgeRect、state.renderedFloats、BAR_STRIP、LivePanelsScene 的 data-live-body 与 extentNow、NAV_WIDTH、NAV_COLLAPSED_WIDTH。md 文档里也没有对它们的引用。#lifted-head 在 WorkbenchSurface.vue 的槽属性不在 SDK 里（rg WorkbenchSurface packages/neuro-book/src/sdk 为空；nb-layout-surface.txt:327 的 lifted-head 是 NestedGrid 的，计划不动）。
+- moveLeaf 两处回滚确实不可达（按 collapse() 逐种推演，见 F04），去克隆后没有失败时改了一半的路径，只要守卫放在所有修改之前。
+- S3 删 Splitter 的 onBeforeUnmount 与 NestedGrid 的 scope.dispose()：今天的注册顺序下等价（R4）。
+- DropFeedbackOverlay 的 announcedText 与 labelText 等价（同为 props.label.trim()，一个由 immediate watcher 写、一个是 computed，渲染出的文字一样）。
+- nb-workbench-layout 的 index.ts 改显式清单：应用与 Lab、e2e 按名字导入的，由应用 `typecheck`（含 tsconfig.browser-test.json，它的 include 里有 e2e）兜底；我对 109 个导出名各做了 rg -w，外部引用为 0 的有 29 个（多数是类型），比调研列的 14 个多，清单以 typecheck 为准；sdk.test.ts:63 另见 R6。
+- S1/S4/S6 并行：S1（nb-layout/src 非 Vue 与 scripts，另有 F02 说的两个 Vue 文件）、S4（nb-workbench-layout）、S6（Lab 夹具 fixtures/nb-layout 与 nb-story 的 BookFrame、book-grid）按计划列的文件没有重叠；S6 的 GridPanelsScene.vue 导入 nb-workbench-layout，若 S4 先合入并收窄入口，S6 要在新 master 上重跑 typecheck（计划已写“下一片从新的 master 开”）。
+- S6 夹具里 JSON.parse(JSON.stringify(x)) 换 structuredClone：三处被拷的都是函数内的纯字面量（无 Proxy、无 NaN、无 undefined），等价。
+- BookFrame 的 focusRemaining 改调 shellOf：data-detail-key 只在 DetailShell（NestedGrid 内容层，gridBox 内）出现，平板与手机的抽屉用的是别的组件，等价。
+- presentationCollapse 带上一轮投影、live-drag.ts 两次 followAt 合一（followAt 纯读状态，afterRender 不改 run 状态）、layoutDropPanelAt 惰性 sourceTabs、findTab 改 for…in：按代码推演等价。
+
+各级数量：阻断 0；重要 6（F07、F01、F05、F16、F08、F06）；建议 10（F14、F15、F12、F10、F09、F02、F03、F11、F13、F04 已并入 F14，实际独立条目 9 + F04 并入）。
+数量更正（以此行为准）：阻断 0；重要 6（F07、F01、F05、F16、F08、F06）；建议 9（F14 含 F04、F15、F12、F10、F09、F02、F03、F11、F13）。共 15 条。

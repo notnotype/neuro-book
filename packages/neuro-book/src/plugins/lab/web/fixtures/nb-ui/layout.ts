@@ -53,6 +53,7 @@ export const layoutFixtures: LabFixture[] = [
             {id: "open", label: "展开", input: {props: {}, model: {open: true}, slots: {trigger: true, default: true}}},
             {id: "closed", label: "收起", input: {props: {}, model: {open: false}, slots: {trigger: true, default: true}}},
             {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {open: false}, slots: {trigger: true, default: true}}},
+            {id: "no-trigger", label: "没有触发器：只按 open 出现与消失（改 open 看过渡）", input: {props: {}, model: {open: true}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Collapsible"),
     }),

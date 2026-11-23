@@ -16,7 +16,7 @@ t14 做了任务中心（`wait`、`kill`、`jobs`，`shell` 与子代理的 `asy
 
 ## 技术选型
 
-无通用问题：送达用内核的提醒，计时用注入的时钟，输出记录与账本沿用现有的文件写法（`nb-file-lock` 的加锁替换写账本）。
+无通用问题：送达用内核的提醒，计时用注入的时钟，输出记录与账本沿用现有的文件写法（账本只有本进程写，临时文件改名）。
 
 ## 关键设计
 
@@ -102,7 +102,7 @@ export interface BackgroundTarget {
 ```
 
 - 时限不变：命令照原样把 `timeout`（缺省 300 秒）交给 `executeShell`，转后台后仍按它；门槛不短于时限时不转。
-- 移交不同步拷贝大文件（提案第 9 条、审查第 11 条）：`OutputCapture` 从一开始就把输出写进同一个文件系统上的暂存文件（内存里只留尾部与统计）；`take` 在一个同步步骤里把暂存文件改名成 `jobs/<任务 id>/output.log`、把出口换成追加写这个文件，并断开 `call.signal`。改名失败就留在前台。任务 id 在 `prepare` 里占下，目录用它建（审查第 17 条）。
+- 移交不同步拷贝大文件（提案第 9 条、审查第 11 条）：会自动转时 `OutputCapture` 从第一块起就把输出写进暂存文件（仍在系统临时目录：套件的边界不许工具往根里写；内存里只留尾部与统计）；`take` 在一个同步步骤里把暂存文件改名成 `jobs/<任务 id>/output.log`、接着往同一个描述符追加，并断开 `call.signal`。改名失败（跨文件系统）就留在前台。任务 id 在 `prepare` 里占下，目录用它建（审查第 17 条）。
 - 只对顶层会话：子会话与代码里调的 `threshold` 交回 null。
 
 `backend/builtin/shell-background.ts`：`startBackgroundCommand` 拆出“输出记录”，`async` 从零开始用它，接手时接上暂存的统计。接手交回“跑了 60 秒还没结束，已转到后台：任务 job-x，时限照旧。到目前为止的最后几行：……全文写进 <地址>。结束时回执会自动送来，不用 wait 轮询”；`details` 加 `autoBackground: true`。设置 `nbook.agent/shellAutoBackground`：秒，缺省 60，0–3600，0 为不自动转；只允许用户层。

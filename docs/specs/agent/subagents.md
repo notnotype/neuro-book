@@ -112,6 +112,7 @@ owners:
 23. `fork` 一个子会话得到的新会话仍是同一个父会话的子会话（会话头照抄 `caller`），在 `tree` 里 `forked` 为真；派它的那次调用的卡片不跟它。`fork` 一个父会话得到的新会话不拥有原来的子会话，对它们 `agent_send` 得 `not-owner`。
 24. 父 Agent 在进程重启后找回子会话：`sessions://` 的根里，本会话的子会话列出标题（`name` 或 `prompt` 的开头，输出 2）与派它的调用 id（[`resources.md`](resources.md) 输出 13）。
 25. 远程 `ancestors({sessionId})` 交回这个会话的祖先链 `[{id, title, profile, icon, archived, owner?}]`，从父会话起，不受归档与作品范围过滤。`owner` 是那个祖先会话头的归属（planned，只有树根可能有，[`sessions.md`](sessions.md) 输出 23）：浏览器据此知道一个子会话属于谁的树（[`conversation.md`](conversation.md) 输出 53）。
+26. （planned）**提问的提醒。** 后台的子代理停在一个交给调用方的同步提问上、没有前台在等时，任务中心把提问作为一条回执提醒送给父会话（[`jobs.md`](jobs.md) 输出 14），写明子会话 id、提问 id、题干与 `agent_answer` 的写法，不论父会话是不是根会话都带唤起（子代理停在提问上等着，没人答就一直等）；同一个提问只送一次，已经送出的提问前台的 `agent_send`、`agent_answer` 不再交一次。提醒取走之前提问被答了、任务停了，提醒撤回。
 
 ## 状态与转换
 

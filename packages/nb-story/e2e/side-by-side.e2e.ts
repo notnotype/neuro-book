@@ -286,13 +286,25 @@ test.describe("宽屏 1440", () => {
         return {x: box.x + box.width / 2, y: box.y + box.height / 2};
     };
 
-    test("拖右边那张的头到左边：落点盖在左边那张上、标题小块跟手，松手对调，元素还连着，地址跟着对调", async ({page}) => {
+    /** `locator` 的中心在 `area` 里。 */
+    async function centerIn(locator: Locator, area: Locator): Promise<boolean> {
+        const at = await centerOf(locator);
+        const box = await area.boundingBox();
+        return box !== null && at.x >= box.x && at.x <= box.x + box.width && at.y >= box.y && at.y <= box.y + box.height;
+    }
+    const liftedCard = (page: Page) => page.locator("[data-content][data-lifted]");
+
+    test("拖右边那张的头到左边（实时布局）：右边那张拿起跟手、只有它自己的头，停稳后左边那张滑到右边；没有落点盖层与标题小块；松手对调，元素还连着，地址跟着对调", async ({page}) => {
         await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
         const moved = await card(page, 1).elementHandle();
         await dragHead(page, 1, await centerOf(card(page, 0)), false);
-        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
-        await expect(page.getByTestId("swap-chip")).toContainText(NAN);
+        await expect(liftedCard(page)).toHaveCount(1);
+        await expect(liftedCard(page).getByTestId("card-name")).toHaveText(NAN);
+        await expect(liftedCard(page).locator("[data-detail-handle]")).toHaveCount(1);
+        await expect.poll(() => centerIn(card(page, 0), leaf(page, "drawer2"))).toBe(true);
+        await expect(page.locator("[data-drop-feedback-area]")).toHaveCount(0);
+        await expect(page.getByTestId("swap-chip")).toHaveCount(0);
         await page.mouse.up();
         await expect(card(page, 0).getByTestId("card-name")).toHaveText(NAN);
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(LIN);
@@ -301,17 +313,49 @@ test.describe("宽屏 1440", () => {
         await expect(page).toHaveURL(/entity=e8-2&.*entity2=e1-1/u);
     });
 
-    test("拖到自己那一栏、拖到主区松手都不动；Escape 取消；点头部的关闭按钮不起拖；只有一张时不起拖", async ({page}) => {
+    test("实时布局里停稳之前甩过去马上松手也对调：放下按指针下的落点，不等预览", async ({page}) => {
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        const head = (await card(page, 1).locator("[data-detail-handle]").first().boundingBox())!;
+        const to = await centerOf(card(page, 0));
+        await page.mouse.move(head.x + 8, head.y + head.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(to.x, to.y, {steps: 2});
+        await page.mouse.up();
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(NAN);
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(LIN);
+    });
+
+    test("减少动态效果时是落点指示：落点盖在左边那张上、标题小块跟手，没有拿起的卡片；松手对调，元素还连着，地址跟着对调", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        const moved = await card(page, 1).elementHandle();
+        await dragHead(page, 1, await centerOf(card(page, 0)), false);
+        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
+        await expect(page.getByTestId("swap-chip")).toContainText(NAN);
+        await expect(liftedCard(page)).toHaveCount(0);
+        await page.mouse.up();
+        await expect(card(page, 0).getByTestId("card-name")).toHaveText(NAN);
+        await expect(card(page, 1).getByTestId("card-name")).toHaveText(LIN);
+        expect(await moved!.evaluate((element) => element.isConnected)).toBe(true);
+        await expect(card(page, 0)).toHaveAttribute("aria-current", "true");
+        await expect(page).toHaveURL(/entity=e8-2&.*entity2=e1-1/u);
+    });
+
+    test("拖到自己那一栏（实时布局里是原位）、拖到主区松手都不动；Escape 取消，预览回原样；点头部的关闭按钮不起拖；只有一张时不起拖", async ({page}) => {
         await open(page, "/book/fox/overview?at=38.57&entity=e1-1&entity2=e8-2");
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
         await dragHead(page, 1, await centerOf(card(page, 1)));
         await dragHead(page, 1, await centerOf(leaf(page, "main")));
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
         await dragHead(page, 1, await centerOf(card(page, 0)), false);
-        await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();
+        await expect.poll(() => centerIn(card(page, 0), leaf(page, "drawer2"))).toBe(true);
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(card(page, 1).getByTestId("card-name")).toHaveText(NAN);
+        await expect(liftedCard(page)).toHaveCount(0);
+        await expect.poll(() => centerIn(card(page, 0), leaf(page, "drawer"))).toBe(true);
         await expect(page.getByTestId("swap-chip")).toHaveCount(0);
 
         const close = card(page, 1).getByRole("button", {name: "关闭"});

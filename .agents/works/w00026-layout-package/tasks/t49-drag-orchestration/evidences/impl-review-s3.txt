@@ -1,0 +1,62 @@
+我对照读了新旧两版的 `layout-drag.ts`、已删的 `live-drag.ts`、库里的引擎 `live-drag.ts`、会话 `live-drag-session.ts`，还有 `NestedGrid` 和 `WorkbenchSurface` 的相关部分。没有跑测试和 e2e，下面的结论都是读代码推断。
+
+没有发现阻断或重要问题，以下六条都是建议级，按影响从大到小排。
+
+### 1. 建议：`NestedGrid` 留住的拿起项，叶取“上一次出现时的叶”，不再是提交文档里的来源叶
+- **位置**：`packages/nb-layout/src/vue/NestedGrid.vue:283-297`（`heldLifted`、`previousContents`）；使用方 `WorkbenchSurface.vue:608-617`
+- **现象**：原来 `WorkbenchSurface` 补回拿起项时，`leaf` 固定是已提交文档里的来源面板（`lifted.home`）。现在 `heldLifted` 是网格记下的最后一次出现的那一项。
+- **复现序列**：拖到某个边缘候选，K 出现在候选文档的新叶 X 上；再拖到没有落点的地方，预览变成来源收起。此时 K 不在 `contents` 里，保留的项还带着 X，而 X 已不在显示的文档里。
+- **后果**：content 槽里 `roleOf(X)` 为 null，`insetOf(X)` 为 `{}`。卡片内容外层的 `data-panel-role`、`role`、`id`、padding 和圆角变量都没了，编辑器标签的 `panel-id` 也还是 X。原来这时拿到的是来源面板的这些值。
+- **为什么是问题**：这是搬动后行为变了的地方，而且是静态可达的普通拖法，不是边角。我没找到会让它崩的路径，视觉影响应该很小，所以只列建议。
+- **核实**：e2e 里“拖到边缘候选，再拖到空白”，读卡片内容外层的 `data-panel-role` 与 padding。
+- **改法**：保留项的叶改用来源在已提交文档里的面板。把 `lifted` 的类型加上 `home`，只在 `contents` 缺 K 时才用它；或者让宿主给 `heldLifted` 一个叶的解析回调。
+
+### 2. 建议：`unmoved` 沿用的判定存在 `run.judged` 里，会被同一像素上的别的判定覆盖
+- **位置**：`layout-drag.ts:672`（`dropAt` 开头）、`:871`（`run.judged = judged`）
+- **现象**：原来收起或展开那一刻的判定存在 `run.held` 里，私有，只在 `dropAt` 里清掉。现在 `unmoved` 为真时返回 `run.judged`，而 `resolve` 每次都会覆盖它。
+- **触发条件**：收起之后、松手之前，在同一像素上有一次走了 `covered` 或 `onButtons` 的判定。预览重排可能让 `[data-no-drag]` 的按钮短暂滑到静止的指针下，滚动也会触发重判。这次判定把 `run.judged` 写成 `NOT_JUDGED`，之后 `unmoved` 仍为真，返回的就是 `NOT_JUDGED`。
+- **后果**：松手时本该是收起那一刻屏幕上的落点，变成取消。原来 `held` 保留的是收起时的判定。
+- **概率**：低。
+- **核实**：用同一像素连发两次判定的单测，第一次让 `top` 在 `[data-no-drag]` 里。
+- **改法**：`dropAt` 里 `unmoved` 为真之前不要被 `covered` 或 `onButtons` 的结果覆盖。具体是 `resolve` 在这两种早返回时不改写 `run.judged`，或另存一份“收起时的判定”。
+
+### 3. 建议：`homeRect ??=` 把“量到 null”当成“还没量”
+- **位置**：`packages/nb-layout/src/live-drag.ts:310`
+- **现象**：字段注释写“第一次要卡片时问，之后不变，undefined 是还没问”。原来用 `=== undefined` 判断。现在 `??=` 在结果为 null 时每帧重问一次。
+- **后果**：来源面板量不到（从活动栏拿起、面板隐藏）时，每帧都对几何做一次 `find`。收起后的几何里这块面板也不会出现，所以当前行为应该不变，只是合同变松了。
+- **核实**：给宿主的 `card.rect` 加计数，来源面板量不到时看它每帧被调几次。
+- **改法**：改成 `if (current.homeRect === undefined) current.homeRect = …`。`stays ??=` 是布尔，没有这个问题。
+
+### 4. 建议：文档与注释没跟上
+- `WorkbenchSurface.md:49` 仍写 `lifted?: {key; home}`。新增的 `origin`、`motionMs` 也没登记。仓库规定改组件要同步并列的 `.md`。
+- `drag-geometry.ts:75` 的注释还提 `expandSource`，这个宿主方法已经不存在。
+- Spec `workbench-layout.md:365-366` 的实现入口和合同测试仍链到已删的 `web/live-drag.ts` 和 `web/live-drag.test.ts`。Spec 在主工作区更新，所以这条要在晋升时改。
+- **核实**：跑 `governance:check`，我没跑。
+
+### 5. 建议：工作台这一侧的 `facts` 映射没有单测了
+- 原来的 24 例在库里只剩带抽象 `container`、`home` 的版本。`liveHost.facts` 把 `dropStripOf` 和 `homeStripOf` 映射成 `container` 与 `home`，`key` 区分 `in-place-strip` 与 `in-place`，`slotOnScreen` 只在 `edge` 时给。这些，以及 `candidateDoc(…, collapsed)` 里 `join-container` 的分支，现在只靠 e2e 守着。
+- 我对照读过，`container` 非空时 `dropStripOf` 和 `homeStripOf` 等价，`key` 和 `slot` 与原来一致。但这是逐行对出来的，不是测试守出来的。
+- **改法**：补一个只喂 `LayoutDragDrop` 夹具的 `facts` 与 `candidateDoc` 单测。
+
+### 6. 建议：引擎第一帧量到之前，每次判定都重量一遍几何
+- **位置**：`layout-drag.ts:676`、`:819-823`
+- **现象**：原来第一次判定冻结并存下，之后到 `nextTick` 重量之前复用。现在每次判定都新建一份 `transient`，用完即丢。
+- **影响**：只会在“拿起到第一帧”这段出现，且要有多次判定才有意义。每次都做整份 `measureGeometry` 和所有标签条的量取。松手早于第一帧时，最终判定走的也是现量。
+- **核实**：给 `freeze` 加计数，快速点按再拖，看拿起到第一帧之间被调几次。我没测，不给数字。
+
+## 未发现问题的方面
+- **`run.transient` 的读取路径**：键盘 `regions` 和 `stops`、`containerDrop`、`fileDrop`、`windowDrop` 都不在实时布局里，`live.state().active` 为假，`transient` 不会被设。
+- **`measureSorted` 的 `sortTargetOf`**：`follow.read` 在 `tick` 里排在 `geometry ??= measure` 之后。`afterRender` 和 `end` 的路径不读几何。
+- **`stripDrop` 的 `heldTab`、`stripSnapshot`**：都经 `frozen()`，在 `resolveDrop` 之内。
+- **`freeze` 写 `run.sort.grab`**：现量时也写，引擎第一帧量完会覆盖。排序在第一帧之后才开始，没有交叠。
+- **`dropOrigin` 按 `frozen()` 身份作废缓存**：作废时机等价于原来的收起和展开处清缓存。`dropFor` 的所有调用点前都有 `dropOrigin`。入口条在它之前返回，只是不更新 `previewsAt`，不会读到过期条目。
+- **`candidateDoc` 的 `collapsed` 与 `run.beforeCollapse === null`**：只在 `removeTab` 失败时不同，那时下一次判定会按结构键取消整场。
+- **`facts` 取代 `candidateOf` 与 `elsewhere`**：`immediate` 只在 `container` 非空时才看 `home`。这时 `homeStripOf` 与 `dropStripOf` 等价。
+- **先后关系**：`activate` 与 `settleMotion`、`begin` 的先后一致；`end` 先于宿主的 `onActiveChange(false)`；`commitsUnderPointer` 取“或”；结构键在 `begin` 之后取；`sampled` 在手势排发布帧之前叫醒引擎。
+- **`shownAction`、`slot`、`card`**：`shownAction` 只在 `changed` 里更新。我查过预览键相同而落点不同的情形，引擎不会产生。`card` 的 `{key}` 对象每场只建一次，身份稳定。
+- **`origin` 与 `motionMs`**：`NestedGrid` 的 `rootEl` 就是原来选的 `[data-grid-scope]`，同一元素。`motionMs` 现在从网格读，`--nb-layout-motion-layout` 若在网格上被覆盖，行为比原来更准。
+- **`unmoved` 的“第一次不等就清掉”和 `collapsed` 返回 null**：与原来的 `held` 语义一致。
+- **`WorkbenchSurface` 去掉补回**：我没找到“K 缺席而 `lifted` 晚于缺席才出现”的路径，现有引擎路径上拿起和摘掉是同一同步段，`before` 里都有 K。
+
+## 各级数量
+阻断 0，重要 0，建议 6。

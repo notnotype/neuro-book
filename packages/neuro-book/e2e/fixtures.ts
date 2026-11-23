@@ -39,8 +39,11 @@ export function track(child: ChildProcessWithoutNullStreams): ProcessHandle {
     };
 }
 
-/** 模型服务不取在线模型目录（docs/specs/models/service.md“模型来源”）：用例不出本机，模型清单只随打包目录。 */
-const NO_ONLINE_CATALOG = {NBOOK_MODELS_CATALOG_URL: ""};
+/**
+ * 用例不出本机：模型服务不取在线模型目录（docs/specs/models/service.md“模型来源”），模型清单只随打包目录；“测试代理”的目标指到本机
+ * 一个关着的端口（docs/specs/network/egress.md），不去 Cloudflare。要测“测试代理”的用例经 `env` 换成自己的本机端点。
+ */
+const NO_ONLINE_CATALOG = {NBOOK_MODELS_CATALOG_URL: "", NBOOK_NETWORK_TEST_URL: "http://127.0.0.1:9/cdn-cgi/trace"};
 
 export interface ProductServer extends ProcessHandle {
     readonly url: string;

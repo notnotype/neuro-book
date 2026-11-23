@@ -13,7 +13,7 @@
  *   取消要等它，流里报错会被拖到时限），流里报错又被适配器重发时用它当原文。
  */
 
-import {sanitizeProviderText, type ModelRequest} from "../kernel/index.js";
+import {proxySecrets, sanitizeProviderText, type ModelRequest, type NetworkRoute} from "../kernel/index.js";
 import {buildResolution, requestAuth, type KeyAccess, type ModelTarget, type ProviderTarget} from "./target.js";
 
 /** 一次检测的结果。`message` 是遮盖过的服务商原文或英文开发者文字；通过时为空串。 */
@@ -27,7 +27,8 @@ export interface ProbeOutcome {
     readonly url: string | null;
     /**
      * 失败的码：`http`（非 2xx）、`network`（连不上、读断）、`no-content`（回应结束或要重发时还没有生成内容）、`timeout`、
-     * `cancelled`；请求发出前的：`unknown-model`、`transport-unsupported`、`missing-key`、`endpoint-mismatch`；其余是适配器的错误码。
+     * `cancelled`；请求发出前的：`unknown-model`、`transport-unsupported`、`missing-key`、`endpoint-mismatch`、网络出口的
+     * `proxy-unsupported`、`proxy-invalid`、`proxy-unreadable`；其余是适配器的错误码。
      */
     readonly code: string | null;
     readonly message: string;
@@ -39,6 +40,8 @@ export interface ProbeOptions {
     readonly timeoutMs: number;
     /** 计时用；缺省 `performance.now`。 */
     readonly now?: () => number;
+    /** 网络出口（同对话请求）；不给时直连。选不出路时以出口的码失败，请求没有发出。 */
+    readonly route?: NetworkRoute;
 }
 
 /** 检测请求的最大输出：证据一到就中止，上限只在不交增量的回应上起作用；推理模型要留出能报出输出的余地。 */
@@ -172,7 +175,14 @@ export async function probeProtocol(provider: ProviderTarget, model: ModelTarget
         return new Response(recording(response.body, head), {status: response.status, statusText: response.statusText, headers: response.headers});
     }) as typeof fetch;
 
-    const hooks = {send, transport: () => ({})};
+    // 选到的代理带凭据时一并遮盖：代理在错误正文里回显 `Proxy-Authorization` 时不交出去。
+    const route = options.route;
+    const routed = route === undefined ? undefined : async (url: URL) => {
+        const decided = await route(url);
+        if (decided.ok) for (const secret of proxySecrets(decided.proxy)) if (!secrets.includes(secret)) secrets.push(secret);
+        return decided;
+    };
+    const hooks = {send, transport: () => ({}), ...(routed === undefined ? {} : {route: routed})};
     let built = buildResolution(provider, model, access, hooks);
     if (!built.ok && built.code === "unknown-model" && model.contextWindow === undefined) built = buildResolution(provider, {...model, contextWindow: PROBE_WINDOW}, access, hooks);
     if (!built.ok) return local(built.code);

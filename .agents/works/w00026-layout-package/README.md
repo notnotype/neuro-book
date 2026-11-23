@@ -140,9 +140,12 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-23：开发者要求接着做 t49，做完后新建的 [t55](tasks/t55-code-simplify/README.md) 用 `/simplify` 把这个 Work 留下的无用逻辑深度理顺、简化并顺带审查（代码量大时派 Sonnet 子代理）。顺序 t49 → t55 → t50。
 
+2026-11-23：[t49](tasks/t49-drag-orchestration/README.md) 完成，合入 master（`6bb4c87c8`）：实时布局的编排进 nb-layout（`createLiveDragSession`、`useLiveDragSession`，引擎不公开），工作台改用，nb-story 的拖详情换边改成实时让位，Lab 加卡片互拖场景作第二个形状；计划审满三轮后开发者定按第 4 稿开工。开发者定 0.1.0 连这批一起发。下一个是 t55。
+
 ## 后续
 
 - 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
 - 插件 SDK 只导出 `NestedGrid` 组件，不导出 `createGrid` 与宿主工具，插件建不出网格（t39 设计审查第 9 条）。要不要给插件开放网格宿主（`createGrid`、`useGridHost` 一起，放哪个子路径、兼容承诺多大）另行决定。
 - ADR 0054 第 10 条的另两项（主题级 CSS 变量、README 的 `data-*` 表）没有机检（t48 只做了 `@stable` 符号那一项）。
+- 工作台不接 `WorkbenchSurface` 的 `issues`，产品里网格的诊断与被拒的提交都静默丢掉（`useGridHost.md` 说它是诊断的唯一出口；t55 调研 app 的顺便发现 1）。开发者 2026-11-23 定：接到诊断出口，另开 Task，不放进 t55。
 - API 报告列出 9 个类型与 1 个值“由公开名字引到、没有导出”（`GridPlacement` 一族、`GridRestoreReport`、`DragStops`、`DragActivation`、`dropKindData`）：要不要导出，等有使用方时再定。

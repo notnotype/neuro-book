@@ -16,10 +16,6 @@
             "title": "流中途的时限（秒）",
             "description": "回复到一半，这么久没有新内容就算卡死；0 表示不设"
         },
-        "catalogAutoUpdate": {
-            "title": "自动更新模型列表",
-            "description": "每天在后台向各服务商取一次模型列表，并取一次 OMP 的在线模型目录（catalog.stencil.so）；添加服务商、设好密钥后也会马上取一次；关掉后只在点“重新拉取”时取"
-        },
         "compaction": {
             "title": "自动压缩的触发点",
             "description": "上下文用到这个量就自动压缩。可以留预留量、按窗口的百分比，或者写固定的 token 数；每个模型也可以单独设置。"
@@ -82,14 +78,13 @@
             "label": "接口地址",
             "hint": "请求发到 {{url}}",
             "restore": "恢复模板地址",
-            "overridden": "已改成别的地址；模板的地址是 {{url}}。模型的能力与单价仍按模板的目录。",
             "invalid": "地址要以 http:// 或 https:// 开头"
         },
         "api": {
             "label": "接口格式"
         },
         "advanced": "高级",
-        "advancedHint": "认证方式、请求头",
+        "advancedHint": "认证方式、请求头、代理",
         "auth": {
             "label": "认证方式",
             "hint": "密钥放在哪个请求头里。缺省按接口格式：OpenAI 系是 Authorization: Bearer，Anthropic 是 x-api-key",
@@ -97,13 +92,21 @@
             "bearer": "Authorization: Bearer",
             "none": "不要认证"
         },
+        "proxy": {
+            "label": "代理",
+            "modes": {
+                "app": "跟随应用",
+                "system": "跟随系统",
+                "custom": "自定义",
+                "direct": "直连"
+            },
+            "url": "代理地址",
+            "placeholder": "http://127.0.0.1:7890",
+            "invalid": "须为 http 或 https 地址，不带用户名与密码；不支持 SOCKS"
+        },
         "headers": {
             "label": "请求头",
             "hint": "每个请求都带上；模型可以在编辑对话框里另加或覆盖同名的"
-        },
-        "protocol": {
-            "note": "改了接口格式或地址以后，请求按通用协议发送，不再带这家服务商的专用处理。",
-            "changed": "已改，模板是 {{value}}"
         },
         "region": {
             "label": "地区"
@@ -136,6 +139,9 @@
                 "transport-unsupported": "不支持这种协议",
                 "no-address": "模板没有这种协议的地址",
                 "cancelled": "已取消",
+                "proxy-unsupported": "代理不支持（SOCKS 或自动配置脚本）",
+                "proxy-invalid": "代理地址无效",
+                "proxy-unreadable": "无法读取系统的代理设置",
                 "other": "失败（{{code}}）"
             }
         }
@@ -169,6 +175,7 @@
         "incomplete": "缺上下文窗口",
         "incompleteTip": "要补上下文窗口才能启用",
         "missing": "服务商已不再提供",
+        "unlisted": "列表里没有",
         "unsupported": "不能当对话模型用",
         "priceUnknown": "单价未知",
         "free": "免费",
@@ -199,7 +206,8 @@
                 "cancelled": "已取消",
                 "timeout": "超时",
                 "no-credentials": "没有可用的密钥",
-                "storage": "列表存不下来"
+                "storage": "列表存不下来",
+                "proxy": "代理设置无效"
             }
         },
         "search": "搜索模型名或 id",
@@ -240,7 +248,12 @@
         "notRun": "没检成：{{reason}}",
         "cancel": "取消检测 {{name}}",
         "okAt": "检测通过 · {{time}}",
-        "unknown": "结果未知：检测被取消，请求可能已经发出"
+        "unknown": "结果未知：检测被取消，请求可能已经发出",
+        "proxy": {
+            "proxy-unsupported": "代理是 SOCKS 或自动配置脚本，不支持。改用代理软件的 HTTP 端口。",
+            "proxy-invalid": "代理地址无效。在“网络”或这家服务商的“高级”里修改。",
+            "proxy-unreadable": "无法读取系统的代理设置。"
+        }
     },
     "caps": {
         "vision": "能看图",

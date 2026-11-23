@@ -10,6 +10,7 @@
     },
     "exports": {
         "./server": "./src/server/index.ts",
+        "./network": "./src/network/index.ts",
         "./http/contracts": "./src/shared/http-contracts.ts",
         "./socket": "./src/shared/socket.ts",
         "./web": "./src/web/index.ts",

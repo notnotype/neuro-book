@@ -1,5 +1,5 @@
 /**
- * 模型服务两页在 Lab 里用的远程合同替身（合同版本 5）：服务商与模型行在内存里，写方法照服务端的语义改它们并推 `changed`
+ * 模型服务两页在 Lab 里用的远程合同替身（合同版本 6）：服务商与模型行在内存里，写方法照服务端的语义改它们并推 `changed`
  * （docs/specs/models/service.md 输出 12 到 15 里页面看得到的部分）。每个返回值与事件都过一遍 JSON 编解码，像真实链路那样不带
  * 共享引用与函数。只服务 Lab 场景，不进测试：页面与服务端的真实来回由 `e2e/models.e2e.ts` 验。
  * 检测、协议检测与拉取不发请求，给固定的结果（协议检测：两种 OpenAI 通过，Anthropic 404，Gemini 400）；连接版本由地址、协议与密钥
@@ -43,6 +43,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         if (options.slowWrites === true) await new Promise((resolve) => setTimeout(resolve, 20));
     };
     let roles: SnapshotRole[] = json(initial.roles);
+    let catalog: ModelsSnapshot["catalog"] = json(initial.catalog);
     let failing = false;
     const listeners = new Set<(snapshot: ModelsSnapshot) => void>();
 
@@ -50,6 +51,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
     const snapshotOf = (): ModelsSnapshot => ({
         providers: [...providers.values()].map((state) => ({...state.meta, modelCount: state.listed.length, enabledCount: state.listed.filter((row) => row.enabled).length, excludedCount: state.available.length, modelsRevision: `r${String(state.version)}`, connection: connectionOf(state)})),
         roles,
+        catalog,
     });
     const publish = (): void => {
         const next = snapshotOf();
@@ -111,7 +113,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
             const state: ProviderState = {
                 meta: {
                     id, template, region: region ?? null, name: display, icon: null, baseUrl: baseUrl ?? (blank ? null : `https://api.${id}.example`), templateBaseUrl: blank ? null : `https://api.${id}.example`,
-                    api: api ?? "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, key: {kind: "none"}, followSource: true, source: SOURCE_CATALOG,
+                    api: api ?? "openai-completions", templateApi: "openai-completions", auth: "default", headers: {}, proxy: null, key: {kind: "none"}, followSource: true, source: SOURCE_CATALOG,
                     modelCount: 0, enabledCount: 0, excludedCount: 0, modelsRevision: "r1", connection: "",
                 },
                 secret: "",
@@ -145,6 +147,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
                     ...(patch.auth === undefined ? {} : {auth: patch.auth}),
                     ...(patch.headers === undefined ? {} : {headers: patch.headers}),
                     ...(patch.followSource === undefined ? {} : {followSource: patch.followSource}),
+                    ...(patch.proxy === undefined ? {} : {proxy: patch.proxy}),
                 };
             });
         },
@@ -236,6 +239,17 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         },
         setKey: async ({provider, value}) => setKey(provider, value.startsWith("env:") ? {kind: "env", name: value.slice(4), found: false} : {kind: "stored"}, value),
         clearKey: async ({provider}) => setKey(provider, {kind: "none"}, ""),
+        // 现在更新在线目录：先标在取，下一轮事件循环交回新的时间（模型数不变）。
+        refreshCatalog: async () => {
+            if (!catalog.enabled) return {ok: false as const, code: "catalog-disabled" as const, detail: {detail: "Lab 场景：关掉了在线目录"}};
+            catalog = {...catalog, refreshing: true};
+            publish();
+            setTimeout(() => {
+                catalog = {...catalog, refreshing: false, checkedAt: Date.now(), modelCount: catalog.modelCount ?? 1104, error: null};
+                publish();
+            }, 0);
+            return ok(null);
+        },
         // 重新拉取：先标在拉取，下一轮事件循环交回列表（空白模板把示例候选里还不在列表的放进可加的，目录模板的行不变）。
         refreshSource: async ({provider}) => {
             const state = providers.get(provider);

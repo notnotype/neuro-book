@@ -1,0 +1,76 @@
+## 实现审查：w00026 t49 切片 1、2（`fed1207e0`、`fa694ead7`）
+
+我只读了两个提交、原 `live-drag.ts` 与 `layout-drag.ts`，没跑任何测试。结论里凡是从代码推断的，都已标出。
+
+### 重要
+
+**1. `afterRender` 在 `publish()` 之前调用（`live-drag.ts:353-354`，`tick` 末尾）**
+- **现象**：先 `host.follow?.afterRender(...)`，再 `publish()`（也就是 `changed`，宿主在这里写 `lifted` 的 `shallowRef`）。
+- **为什么是问题**：原实现里 `card.value`、`previewKey.value` 这些响应式写入都在 `placeSortedAfterRender` 之前，宿主的 `nextTick` 因此排在 flush 之后。
+  - 搬到引擎后，`lifted` 只经 `changed` 才进响应式。
+  - 当这一帧只有卡片收回或拿起变了、预览没换时，`host.show` 没写过响应式，没有挂起的 flush。
+  - 此时 `nextTick` 取到 `resolvedPromise`，回调先于随后 `publish()` 排的 `flushJobs` 执行，读到的是渲染前的 DOM，错一帧。
+  - 这正是原代码里 `lifted !== (card.value !== null)` 这个条件要覆盖的情形，也就是“离开容器重新拿起卡片”那一帧。
+- **如何核实**：在 `live-drag.test.ts` 的 `setup` 里让 `afterRender` 和 `changed` 都往同一个数组记录，断言“离开容器”那一帧里 `changed` 在前。现有测试里 `afterRender: () => undefined`，过不了也看不出。
+- **建议改法**：`publish()` 移到 `afterRender` 之前。`publish()` 自带去重，提前调用没有副作用。
+
+### 建议（测试区分不出的地方）
+
+**2. 一帧内各步的先后基本没被断言（`live-drag.test.ts`）**
+- `afterRender` 从未被记录，调用条件“预览换了或卡片拿起收回”和先后都没测。第 1 条就是漏在这里。
+- “第一帧开头先 `measure`”没断言。`setup` 里 `judge` 不读 `geometry()`。把 `measure` 挪到 `wiring.judge()` 之后，31 例全过，而宿主 `judge` 里读 `geometry()` 会拿到 null。
+- `follow.read` 在 `judge` 之前、写在 `judge` 之后也没断言：`followed` 只在写的那一步记录，`read` 本身没记。
+- 建议：给 `judge`、`follow.read`、`pointer`、`show`、`afterRender` 各加一条往同一个 `calls` 数组记录的桩，加一例断言整帧顺序，和已有的 `["collapsed","show"]` 一个写法。
+
+**3. `origin` 恒为 `{0,0}`，偏移相关的断言都是空的（`live-drag.test.ts` 的 `setup`）**
+- `slotInGrid`（`slot.left - origin.x`）、卡片 `place` 的相对坐标、“`origin` 拿起时只读一次”都测不出来。把 `x`、`y` 写反也能全过。
+- 建议：`origin` 改成可变的非零值，再加一例：`begin` 之后改值，断言 `slotInGrid` 与卡片仍按拿起时那份算。
+
+**4. `createLiveDragSession` 的接线有几处没测（`live-drag-session.dom.test.ts`）**
+- `sampled: () => started.wake()` 没有用例。`sampled` 那条用例用的是裸 `createDragSession`，删掉合成里的这一行，所有用例照过。
+- 缺少这些用例：`grid` 整场固定、工厂只调一次、`dispose` 在拖动中收场（引擎 `end` 并交出 IDLE）。
+- “拿起”那条用例里 `settleMotion` 与 `begin` 的先后断言不了：`begin` 不进 `log`，两行对调测试照过。
+- 建议：让 `begin` 触发的 `origin()` 或 `changed` 往 `log` 记录；或者让 `grid().origin` 记录，断言它出现在 `settleMotion` 之后。
+
+**5. `useLiveDragSession` 完全没有测试（`useLiveDragSession.ts`）**
+- 计划要的“根换掉重建、卸载时复位”没有用例。
+- 需要覆盖：拖动中换根或卸载后 `liveState` 回到 IDLE、`session` 与 `live` 为 null；`lifted` 与 `dragging` 的定义。
+- 复位的写法看起来是对的，但没有证据。
+
+**6. 合成对键盘不设防（`live-drag-session.ts:104`、`:116`）**
+- `options.live(source, keyboard)` 返回非 null 时，键盘拖动也会 `begin`，并且 `commitsUnderPointer` 对键盘也为真。原代码是 `!keyboard && (live.active || …)`，现在 `|| started.state().active` 没有这个前提。
+- 键盘走 `startKeyboard`（`drag-gesture.ts:502`），`activate` 返回真之后如果 `regions.length === 0` 就 `return false`，既不 `start` 也不触发 `activeChanged(false)`，引擎于是留在 active 状态没人 `end`。
+- 这要宿主主动返回键盘来源才会触发，后果是 `run` 残留、`structure` 读到 `active` 为真。Spec 也写了“键盘拖动不走实时布局”。
+- 建议：库里 `if (keyboard) return true`，不问 `live`；`commitsUnderPointer` 加 `!keyboard &&`。
+
+**7. `NestedGrid` 的 `layerContents` 依赖“上一轮读到过它”（`NestedGrid.vue:281-297`，从代码推断）**
+- 在“`contents` 先掉了 K、`lifted` 过一轮渲染才到”的顺序下，`before` 里已经没有 K，`heldLifted` 为 null，不会留住，实例照样卸载。
+- 旧写法靠宿主给的 `lifted.home`，不依赖读取历史。
+- 当前引擎保证同一个 `tick` 里先 `show` 后 `changed`，同一次 flush，所以现在不会触发。但这是库的隐含合同，第三方宿主分两次写就会掉进去。
+- 写法本身没有别的毛病：`previousContents` 每次求值都更新，只有 `contents` 在两次读取之间变两次才会错过，而 props 更新到渲染是同步的。
+- dom 测试只覆盖“同一次 `setProps`”。建议补两例：`lifted` 晚一轮到（预期记为已知限制，或在合同里写明）、`lifted.key` 从 x 换成 y。至少把“`lifted` 必须与 `contents` 在同一次渲染里变”写进 Spec 的 `lifted` 一条。
+
+**8. 切片 2 新增了导出，但没动 `api/vue.api.txt`（从提交的文件清单推断）**
+- `vue/index.ts` 新增了 `createLiveDragSession`、`useLiveDragSession` 及类型，`NestedGrid` 的 expose 也加了 `origin`、`motionMs`，而提交里没有 `api/*.api.txt`。
+- 计划里“每片自跑 `api:check`”与“切片 6 重生成 API 报告”自相矛盾。如果每片要过，这一片的 `api:check` 会失败。
+- 建议：要么这一片就重生成，要么把计划里的门禁改成“切片 6 才过”。
+
+**9. `LiveDragHost.card.rect` 的签名和计划不一致（`live-drag.ts`，宿主接口）**
+- 计划是 `(source, container)`，实现多了第三个参数 `geometry: G | null`，而引擎里这个值永远不是 null（`tick` 开头已经 `measure`）。
+- 宿主要多写一个永远不会走的 null 分支。建议改成 `G`。同时在 Spec 里写明传的是当前几何（收起后的那份），与原 `panelRect` 读 `run.frozen` 一致。
+
+### 未发现问题的方面
+
+逐条对过原实现，下面这些搬得对：
+- `stepPreview`、`tearOff`、`collapse` 与 `expand`（含 `host.collapsed` 返回 null 时 `collapsed` 为真但不换几何）。
+- `absorbedIn` 的置位与清空（`inPlace || laid`；来源收起的预览与撕下置 null）。
+- `wantsCard`、`followAt`、`candidateOf.immediate`。
+  - 原来 `immediate` 用 `dropStripOf`，`elsewhere` 用 `homeStripOf`，现在合并成 `facts.home`。我查了 `entry-drop.ts`：两者只在 `join` 入口上不同，那时 `container` 为 null，`immediate` 仍为假，等价。
+- `updateCard`（`homeRect` 缓存、`keepSize` 区间判断、`absorbedIn` 非空时问吸收它的那块）、续帧条件、`end` 的先放回再撤预览。
+- `unmoved` 与原 `held` 的等价：`unmovedAt` 取 `tick` 里 `judge` 之后的 `last.point`，与原 `session.state.value.point` 同源，指针没动时才为真，与 `drop()` 里用 `current.point` 比较的结果一致。
+- 合成的收场先后（`end` 先于宿主 `onActiveChange(false)`）与 `activate` 里的先后（宿主 `activate` → 网格与动效 → `live` → `settleMotion` → `begin`），结构键两次取值一致，dom 测试能区分。
+- `useLiveDragSession` 的复位写法、`sampled` 的排帧先后（那条测试能区分前后）。
+
+### 各级数量
+
+阻断 0，重要 1，建议 8（第 2 到 9 条）。

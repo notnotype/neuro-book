@@ -1,7 +1,7 @@
 /**
  * 拖动中画什么（docs/specs/ui/workbench-layout.md 输出 30、38）：把手势的落点和实时布局的状态翻译成外壳要画的东西。纯函数，文字和坐标留在外壳。
  *
- * 要不要卡片、什么时候换预览是 `LiveDrag` 的状态机定的，这里不再判断一次。
+ * 要不要卡片、什么时候换预览是 nb-layout 实时布局的引擎定的（`createLiveDragSession`），这里不再判断一次。
  */
 
 import {findTab} from "@notnotype/nb-workbench-layout";

@@ -38,8 +38,7 @@ import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
-import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
-import type {LiveCardRefresh} from "../live-drag";
+import type {LayoutDrag, LayoutDragDrop, LiveCardRefresh} from "../layout-drag";
 import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
@@ -804,9 +803,8 @@ onMounted(() => {
         feel: () => props.dragFeel ?? "live",
         cardShrink: () => props.dragCardShrink ?? "strip",
         cardRefresh: () => props.dragCardRefresh ?? "display",
-        settleMotion: () => surface.value?.settleMotion(),
+        grid: () => surface.value,
         showPreview: (next) => props.layout.actions.setLivePreview(next),
-        placeCard: (rect) => surface.value?.placeLifted(rect),
         moveGhost: (point) => feedback.value?.moveGhost(point),
         floats: () => props.layout.actions.floats(),
         markFloatMove: (panel, rect) => props.layout.actions.previewFloat(panel, rect ?? null, "move"),
@@ -893,10 +891,7 @@ const liveLabel = computed(() => {
 });
 
 /** 跟手的卡片：内容项拿起来了，拖影就不画了。 */
-const liftedCard = computed(() => {
-    const card = drag.value?.live.card.value ?? null;
-    return card === null ? null : {...card, home: findTab(doc.value, card.key)?.panel ?? null};
-});
+const liftedCard = computed(() => drag.value?.live.card.value ?? null);
 const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dragSource.value)));
 const wantsGhost = computed(() => dragView.value.ghost);
 /** 拖影的身份；位置经 `moveGhost` 写。 */

@@ -3,6 +3,7 @@
  * 重试一次、错误详情先遮盖密钥再截短。
  */
 
+import {EgressError} from "@notnotype/nb-host/network";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {ProviderFailureCode} from "../../shared/contracts";
@@ -150,8 +151,11 @@ export async function postJson(url: string, body: unknown, key: string, scope: C
                 signal: scope.signal,
                 redirect: "manual",
             });
-        } catch {
-            return {ok: false, code: scope.signal.aborted ? "timeout" : "unreachable"};
+        } catch (error) {
+            if (scope.signal.aborted) return {ok: false, code: "timeout"};
+            // 网络出口选不出路（代理是 SOCKS 或自动配置脚本、地址不对、系统设置读不到）：请求没有发出，原因写进详情。
+            if (error instanceof EgressError) return {ok: false, code: "unreachable", detail: clip(error.message, DETAIL_LIMIT)};
+            return {ok: false, code: "unreachable"};
         }
         if (response.ok) {
             const read = await readBounded(response, SUCCESS_BODY_LIMIT, scope.signal);

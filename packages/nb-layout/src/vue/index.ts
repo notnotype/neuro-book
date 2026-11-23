@@ -79,6 +79,30 @@ export {
     useDropTarget,
 } from "./drop-targets";
 
+/* 实时布局的编排（Spec `ui/layout-drag` 的“实时布局的编排”）：会话、引擎与网格一次接好 */
+export {
+    createLiveDragSession,
+} from "./live-drag-session";
+export type {
+    LiveDragSessionHandle,
+    LiveDragSessionOptions,
+    LiveGrid,
+} from "./live-drag-session";
+export {
+    useLiveDragSession,
+} from "./useLiveDragSession";
+export type {
+    LiveDragSessionRefs,
+} from "./useLiveDragSession";
+export type {
+    LiveDrag,
+    LiveDragHost,
+    LiveDragState,
+    LiveDropFacts,
+    LiveFollowAt,
+    LiveShowTarget,
+} from "../live-drag";
+
 /* 核心入口里的类型，Vue 层的签名里用到 */
 export type {
     DragState,
