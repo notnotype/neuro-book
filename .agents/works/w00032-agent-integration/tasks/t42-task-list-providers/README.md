@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t42-task-list-providers
-status: planned
-updated: 2026-11-19
+status: active
+updated: 2026-11-23
 ---
 
 # 后台任务清单的提供方与分组视图
