@@ -1,0 +1,354 @@
+// API 报告：@notnotype/nb-layout/vue（bun run api:report 生成，不手改）
+// tool typescript 6.0.3 (report)
+// tool vue-tsc 3.3.7
+// tool typescript 5.9.3 (vue-tsc)
+// tool vue-component-meta 3.3.14
+// tool typescript 5.9.3 (vue-component-meta)
+// tool rolldown-plugin-dts 0.27.14
+// tool vue 3.5.39
+
+### experimental interface DragKeyboardOptions
+引用：GridDropPoint
+interface DragKeyboardOptions<S, R> {
+    sourceAt(target: Element): S | null;
+    regions(source: S): ReadonlyArray<R>;
+    stops(region: R): DragStops;
+    start(source: S, regions: ReadonlyArray<R>, origin: HTMLElement): {
+        readonly region: number;
+        readonly at: number | GridDropPoint;
+    };
+    refocus(source: S): HTMLElement | null;
+}
+
+### experimental interface DragQuery
+引用：GridDropPoint
+interface DragQuery<S, R> {
+    readonly source: S;
+    readonly point: GridDropPoint;
+    readonly top: Element | null;
+    readonly region: R | null;
+}
+
+### experimental interface DragSession
+引用：DragState
+interface DragSession<S, D> {
+    readonly state: Readonly<ShallowRef<DragState<S, D> | null>>;
+    invalidate(): void;
+    flush(): void;
+    abort(): void;
+    dispose(): void;
+}
+
+### experimental type DragSessionHandle
+引用：DragSession, DragState
+type DragSessionHandle<S, D> = {
+    readonly session: Readonly<ShallowRef<DragSession<S, D> | null>>;
+    readonly state: ComputedRef<DragState<S, D> | null>;
+};
+
+### experimental interface DragSessionOptions
+引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState
+interface DragSessionOptions<S, D, R> {
+    readonly root: HTMLElement;
+    sourceAt(target: Element): S | null;
+    activate?(source: S, keyboard: boolean, at: DragActivation | null): boolean;
+    commitsUnderPointer?(keyboard: boolean): boolean;
+    structure?(): string;
+    resolve(query: DragQuery<S, R>): D | null;
+    actionKey(drop: D): string | null;
+    commit(drop: D, source: S, keyboard: boolean): void;
+    onEnd?(end: DragEnd, last: DragState<S, D>): void;
+    onActiveChange?(active: boolean): void;
+    readonly scroll?: "reevaluate" | "withdraw";
+    readonly autoScroll?: {
+        readonly element: HTMLElement;
+        readonly edgePx?: number;
+        readonly maxStepPx?: number;
+    };
+    readonly keyboard?: DragKeyboardOptions<S, R>;
+    readonly config?: Partial<DragGestureConfig>;
+}
+
+### experimental interface DragState
+引用：GridDropPoint
+interface DragState<S, D> {
+    readonly source: S;
+    readonly point: GridDropPoint;
+    readonly drop: D | null;
+    readonly keyboard: boolean;
+}
+
+### experimental component DropFeedbackOverlay
+引用：GridOrientation
+props:
+  iconClass?: string | undefined
+  label: string
+  preview: Readonly<{ readonly areaRect: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null; readonly entryRect?: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null | undefined; readonly indicator: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null; readonly orientation: GridOrientation; readonly armed?: boolean | undefined; readonly labelAt?: "below" | "line-end" | undefined; }> | null
+attrs:
+  → <div>（inheritAttrs: false）
+
+### experimental type DropFeedbackPreview
+引用：GridDropRect, GridOrientation
+type DropFeedbackPreview = Readonly<{
+    readonly areaRect: GridDropRect | null;
+    readonly entryRect?: GridDropRect | null;
+    readonly indicator: GridDropRect | null;
+    readonly orientation: GridOrientation;
+    readonly armed?: boolean;
+    readonly labelAt?: "below" | "line-end";
+}>;
+
+### experimental component DropIndicatorLabel
+props:
+  iconClass?: string | undefined
+  label: string
+attrs:
+  → 根元素
+slots:
+  icon: {}
+
+### experimental component DropSectorsOverlay
+props:
+  active: string | null
+  labels?: Readonly<Record<string, string | undefined>> | undefined
+  rect: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null
+  sectors: readonly { readonly id: string; readonly points: readonly (readonly [number, number])[]; }[]
+attrs:
+  → <div>（inheritAttrs: false）
+
+### experimental component FloatWindowHandles
+引用：GridExtent, GridRect
+props:
+  max: GridExtent
+  min: GridExtent
+  moveIconClass?: string | undefined = ""
+  rect: GridRect
+attrs:
+  → 根元素
+events:
+  commit(rect: GridRect)
+  move(position: { readonly x: number; readonly y: number; })
+  preview(rect: GridRect | null)
+
+### experimental type GridHost
+引用：GridCollapseResult, GridExtent, GridFailure, GridHostBindings, GridLayoutResult, GridNode
+type GridHost<T> = {
+    readonly node: ComputedRef<GridNode<T> | null>;
+    readonly layout: Readonly<Ref<GridLayoutResult>>;
+    readonly revision: Readonly<Ref<number>>;
+    readonly extent: Readonly<Ref<GridExtent | null>>;
+    invalidate(): void;
+    setCollapsed(id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready">;
+    readonly bindings: ComputedRef<GridHostBindings<T>>;
+};
+
+### experimental type GridHostBindings
+引用：GridExtent, GridGestureCommit, GridGestureStart, GridHostIssue, GridLayoutCommitResult, GridLayoutResult, GridNode
+type GridHostBindings<T> = {
+    readonly node: GridNode<T> | null;
+    readonly layout: GridLayoutResult;
+    readonly revision: number;
+    readonly contextKey: string;
+    readonly disabled: boolean;
+    readonly onGestureCommit: (commit: GridGestureCommit) => GridLayoutCommitResult;
+    readonly onExtent: (extent: GridExtent | null) => void;
+    readonly onIssues: (issues: readonly GridHostIssue[]) => void;
+    readonly onGestureStart: (start: GridGestureStart) => void;
+};
+
+### experimental type GridHostIssue
+引用：GridFailure, GridHostIssueCode, GridIssue, GridIssueCode
+type GridHostIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
+
+### experimental type GridHostOptions
+引用：Grid, GridBranchesResizeResult, GridGestureCommit, GridHostIssue, GridLayoutResult
+type GridHostOptions<T> = {
+    readonly grid: MaybeRefOrGetter<Grid<T> | null>;
+    readonly contextKey?: MaybeRefOrGetter<string>;
+    readonly disabled?: MaybeRefOrGetter<boolean>;
+    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {
+        ok: true;
+    }>, before: GridLayoutResult) => void;
+    readonly onIssues?: (issues: readonly GridHostIssue[]) => void;
+};
+
+### experimental type GridLayoutCommitResult
+引用：GridCommitFailureCode, GridFailure
+type GridLayoutCommitResult = {
+    readonly ok: true;
+} | GridFailure<GridCommitFailureCode>;
+
+### experimental component NestedGrid
+引用：GridContentInput, GridExtent, GridFailure, GridFloatInput, GridGestureCancellation, GridGestureCommit, GridGesturePreview, GridGestureStart, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridLeafShape, GridNode, GridRect, GridSwap
+props:
+  contents?: readonly GridContentInput[] | undefined = []
+  contextKey?: string | undefined = ""
+  disabled?: boolean | undefined = false
+  dragging?: boolean | undefined = false
+  floats?: readonly GridFloatInput[] | undefined = []
+  layout: GridLayoutResult
+  leafShape?: ((leaf: string) => GridLeafShape | undefined) | undefined = undefined
+  lifted?: { readonly key: string; } | null | undefined = null
+  maximized?: { readonly leaf: string; readonly exclude: readonly string[]; } | null | undefined = null
+  node: GridNode<unknown> | null
+  onGestureCommit?: ((commit: GridGestureCommit) => GridFailure<string> | { readonly ok: true; }) | undefined = undefined
+  paneLabel?: ((id: string) => string | undefined) | undefined
+  revision?: number | undefined = 0
+  sashDisabled?: ((sash: { readonly branch: string; readonly before: string; readonly after: string; }) => boolean) | undefined = undefined
+  sashKind?: ((sash: { readonly branch: string; readonly before: string; readonly after: string; }) => string | undefined) | undefined = undefined
+  sashStyle?: ((sash: { readonly branch: string; readonly before: string; readonly after: string; }) => Record<string, string> | undefined) | undefined = undefined
+  swap?: GridSwap | null | undefined = null
+attrs:
+  → 根元素
+events:
+  content-parked(key: string)
+  extent(extent: GridExtent | null)
+  gesture-cancel(info: GridGestureCancellation)
+  gesture-end(commit: GridGestureCommit)
+  gesture-start(info: GridGestureStart)
+  gesture-update(preview: GridGesturePreview<unknown>)
+  issues(issues: readonly (GridIssue<GridIssueCode | "not-published"> | GridFailure<string>)[])
+slots:
+  "float-chrome"?(props: { id: string; rect: GridRect; }): unknown
+  "lifted-head"?(props: { contentKey: string; }): unknown
+  "swap-backdrop"?(props: { inset: readonly [ number, number, number, number ]; radius: readonly [ string, string, string, string ] | null; }): unknown
+  content(props: { contentKey: string; leaf: string; active: boolean; }): unknown
+  empty(): unknown
+  leaf(props: { node: GridLeaf<unknown>; }): unknown
+  overlay?(): unknown
+exposed:
+  moving: boolean
+  outgoingLeaves: ReadonlySet<string>
+  placeFloat: (id: string, offset: { readonly x: number; readonly y: number; } | null) => void
+  placeLifted: (rect: GridRect) => void
+  settleMotion: () => void
+  shapedLeaves: ReadonlySet<string>
+  swappingLeaves: ReadonlySet<string>
+
+### experimental interface SortableHandle
+引用：SortableSection
+interface SortableHandle {
+    readonly preview: ComputedRef<readonly SortableSection[]>;
+    readonly held: Readonly<Ref<string | null>>;
+    readonly announcement: Readonly<Ref<string>>;
+}
+
+### experimental component SortableList
+引用：SortableMove
+props:
+  disabled?: boolean | undefined = false
+  label: (key: string) => string
+  onMove?: ((move: SortableMove) => void | PromiseLike<unknown>) | undefined = undefined
+  sections: readonly { readonly id: string; readonly title: string; readonly keys: readonly string[]; }[]
+attrs:
+  → 根元素
+slots:
+  head?(props: { section: string; title: string; }): VNodeChild
+  item(props: { itemKey: string; held: boolean; section: string; }): VNodeChild
+
+### experimental interface SortableMove
+引用：SortableSlot
+interface SortableMove {
+    readonly key: string;
+    readonly from: SortableSlot;
+    readonly to: SortableSlot;
+}
+
+### experimental component Splitter
+引用：SplitterGestureCancellation, SplitterGestureState, SplitterPanelConfig
+props:
+  direction?: "horizontal" | "vertical" | undefined = "horizontal"
+  disabled?: boolean | undefined = false
+  panels?: SplitterPanelConfig[] | undefined = []
+  sashSizes?: readonly number[] | undefined = []
+  sizesPx?: readonly number[] | undefined = undefined
+attrs:
+  & HTMLAttributes
+  → 根元素
+events:
+  gesture-cancel(info: SplitterGestureCancellation)
+  gesture-end(state: SplitterGestureState)
+  gesture-start(state: SplitterGestureState)
+  gesture-update(state: SplitterGestureState)
+  layout(sizesPx: readonly number[])
+slots:
+  Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
+
+### experimental interface SplitterPanelConfig
+引用：SashCollapseState
+interface SplitterPanelConfig {
+    id?: string;
+    defaultSizePx?: number;
+    minSizePx?: number;
+    maxSizePx?: number;
+    sizing?: "fixed" | "weight";
+    collapse?: SashCollapseState;
+    label?: string;
+}
+
+### experimental interface UseSortableOptions
+引用：SortableAxis, SortableMove, SortableSection
+interface UseSortableOptions {
+    readonly root: Readonly<Ref<HTMLElement | null>>;
+    readonly sections: () => readonly SortableSection[];
+    readonly axis?: SortableAxis;
+    readonly disabled?: () => boolean;
+    readonly label: (key: string) => string;
+    readonly sectionLabel: (section: string) => string;
+    readonly onMove: (move: SortableMove) => void | PromiseLike<unknown>;
+}
+
+### experimental function createDragSession
+引用：DragSession, DragSessionOptions
+declare function createDragSession<S, D, R = never>(options: DragSessionOptions<S, D, R>): DragSession<S, D>;
+
+### experimental function dropTargetAt
+引用：DropKind
+declare function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {
+    readonly element: Element;
+    readonly data: T;
+} | null;
+
+### experimental function layoutMotionMs
+declare function layoutMotionMs(element: Element): number;
+
+### experimental function moveGridFocus
+declare function moveGridFocus(container: Element | null, direction: "next" | "previous"): boolean;
+
+### experimental function registerDropTarget
+引用：DropKind
+declare function registerDropTarget<T>(element: Element, kinds: ReadonlyArray<DropKind<T>>, data: () => T): () => void;
+
+### experimental function useDragSession
+引用：DragSessionHandle, DragSessionOptions
+declare function useDragSession<S, D, R = never>(root: Readonly<Ref<HTMLElement | null>>, createOptions: (root: HTMLElement) => Omit<DragSessionOptions<S, D, R>, "root">): DragSessionHandle<S, D>;
+
+### experimental function useDropTarget
+引用：DropKind
+declare function useDropTarget<T>(element: Readonly<Ref<Element | null>>, kinds: ReadonlyArray<DropKind<T>>, data: () => T): void;
+
+### experimental function useGridHost
+引用：GridHost, GridHostOptions
+declare function useGridHost<T>(options: GridHostOptions<T>): GridHost<T>;
+
+### experimental function useLayoutExtent
+引用：GridExtent
+declare function useLayoutExtent(element: Readonly<Ref<HTMLElement | null>>): Readonly<Ref<GridExtent | null>>;
+
+### experimental function useSortable
+引用：SortableHandle, UseSortableOptions
+declare function useSortable(options: UseSortableOptions): SortableHandle;
+
+## 由公开名字引到、没有导出的声明
+
+### interface DragActivation
+interface DragActivation {
+    readonly pressed: GridDropPoint;
+    readonly point: GridDropPoint;
+}
+
+### interface DragStops
+interface DragStops {
+    readonly axis: "horizontal" | "vertical" | "both" | null;
+    readonly points: ReadonlyArray<GridDropPoint>;
+}
