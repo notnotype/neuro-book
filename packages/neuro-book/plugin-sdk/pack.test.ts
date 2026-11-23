@@ -343,6 +343,8 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
         const nestedGrid = /\b(_default(?:\$\d+)?) as NestedGrid\b/u.exec(components)?.[1];
         expect(nestedGrid).toBeDefined();
         expect(components).toContain(`/** @experimental */\ndeclare const ${nestedGrid}:`);
+        // 非组件的 nb-layout 名字的标注来自源码 JSDoc，随声明一起进来。
+        expect(components).toMatch(/\* @experimental\s*\*\/\s*(?:type|interface) GridIssue\b/u);
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {

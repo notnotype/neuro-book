@@ -18,8 +18,8 @@ import {join, relative} from "node:path";
 import ts from "typescript";
 import {createChecker} from "vue-component-meta";
 
-import {componentSurface, type ComponentSurface} from "./api-components";
-import {byCodeUnit, readSurface, type EntrySurface, type Surface} from "./api-surface";
+import {componentSurface, componentTypeTexts, type ComponentSurface} from "./api-components";
+import {byCodeUnit, readSurface, type EntrySurface, type Surface, type SurfaceProblem} from "./api-surface";
 import {componentTags} from "./component-tags";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..");
@@ -62,23 +62,23 @@ export function rewritePaths(text: string, roots: readonly string[]): string {
     return result;
 }
 
-/** `publicNames` 是四个入口的全部公开名字：组件的类型文字里引到的可能在别的入口（例如 `GridNode` 在核心入口）。 */
-export function formatEntry(subpath: string, entry: EntrySurface, components: ReadonlyMap<string, ComponentSurface>, header: readonly string[], publicNames: readonly string[]): string {
+export function formatEntry(subpath: string, entry: EntrySurface, components: ReadonlyMap<string, ComponentSurface>, header: readonly string[]): string {
     const lines: string[] = [`// API 报告：@notnotype/nb-layout${subpath === "." ? "" : subpath.slice(1)}（bun run api:report 生成，不手改）`, ...header, ""];
     for (const item of entry.names) {
         lines.push(`### ${item.stability ?? "untagged"} ${item.kind} ${item.name}${item.deprecated ? " @deprecated" : ""}`);
         const component = components.get(item.name);
-        const body = component === undefined ? [...item.declarations] : componentLines(component);
-        // 组件的引用从五段的类型文字里认公开名字：组件不参与声明的引用遍历（见 `api-surface.ts`）。
-        const references = component === undefined ? item.references : publicNames.filter((name) => name !== item.name && body.some((line) => new RegExp(`\\b${name}\\b`, "u").test(line)));
-        if (references.length > 0) lines.push(`引用：${references.join(", ")}`);
-        lines.push(...body, "");
+        lines.push(...referenceLines(item), ...(component === undefined ? item.declarations : componentLines(component)), "");
     }
     if (entry.unexported.length > 0) {
         lines.push("## 由公开名字引到、没有导出的声明", "");
-        for (const item of entry.unexported) lines.push(`### ${item.kind} ${item.name}`, ...item.declarations, "");
+        for (const item of entry.unexported) lines.push(`### ${item.kind} ${item.name}`, ...referenceLines(item), ...item.declarations, "");
     }
     return `${lines.join("\n").trimEnd()}\n`;
+}
+
+/** “引用”行：公开名字一行，没导出的另一行（SDK 的快照沿两行取闭包）。 */
+function referenceLines(item: {readonly references: readonly string[]; readonly unexportedReferences: readonly string[]}): string[] {
+    return [...(item.references.length > 0 ? [`引用：${item.references.join(", ")}`] : []), ...(item.unexportedReferences.length > 0 ? [`引用（没导出）：${item.unexportedReferences.join(", ")}`] : [])];
 }
 
 function componentLines(component: ComponentSurface): string[] {
@@ -159,17 +159,23 @@ async function build(): Promise<void> {
 export async function generate(): Promise<Map<string, string>> {
     const files = (await readdir(DIST)).filter((name) => name.endsWith(".d.ts")).map((name) => join(DIST, name));
     const program = ts.createProgram(files, {noEmit: true, strict: true, skipLibCheck: true, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ESNext, types: []});
+    // 入口清单在 `pack.ts` 里另有一份：发布的子路径和这里的对不上时（加了第五个入口），宁可报错也不少出一份报告。
+    const published = Object.keys((JSON.parse(await readFile(join(DIST, "package.json"), "utf8")) as {exports: Record<string, unknown>}).exports).filter((subpath) => subpath !== "./style.css").sort(byCodeUnit);
+    const known = ENTRIES.map((entry) => entry.subpath as string).sort(byCodeUnit);
+    if (published.join("\n") !== known.join("\n")) throw new Error(`published entries ${published.join(", ")} differ from the report's ${known.join(", ")}; update ENTRIES in api-report.ts`);
     const tags = componentTags(await readFile(join(PACKAGE_ROOT, "src/vue/index.ts"), "utf8"));
-    const surface: Surface = readSurface(program, new Map(ENTRIES.map((entry) => [entry.name, join(DIST, `${entry.name}.d.ts`)])), new Set(tags.keys()));
-    const problems = [...surface.problems];
+    const problems: SurfaceProblem[] = [];
 
     const meta = createChecker(join(PACKAGE_ROOT, "tsconfig.vue.json"), {schema: false, forceUseTs: true, noDeclarations: false});
     const ownSource = (file: string) => file.startsWith(join(PACKAGE_ROOT, "src") + "/");
     const components = new Map<string, ComponentSurface>();
     for (const name of tags.keys()) {
         const file = join(PACKAGE_ROOT, `src/vue/${name}.vue`);
-        const component = componentSurface(meta.getComponentMeta(file), file, ownSource);
-        components.set(name, component);
+        components.set(name, componentSurface(meta.getComponentMeta(file), file, ownSource));
+    }
+    const surface: Surface = readSurface(program, new Map(ENTRIES.map((entry) => [entry.name, join(DIST, `${entry.name}.d.ts`)])), new Map([...components].map(([name, component]) => [name, componentTypeTexts(component)])));
+    problems.push(...surface.problems);
+    for (const [name, component] of components) {
         const declared = declaredProps(program, join(DIST, "vue.d.ts"), name);
         const missing = component.propNames.filter((prop) => !declared.has(prop));
         if (missing.length > 0) problems.push({severity: "error", name, message: `props from the source are missing on the published declaration's $props: ${missing.join(", ")}`});
@@ -180,11 +186,10 @@ export async function generate(): Promise<Map<string, string>> {
     if (errors.length > 0) throw new Error(`api report: ${errors.length} error(s)`);
 
     const header = toolVersions();
-    const publicNames = [...new Set(surface.entries.flatMap((entry) => entry.names.map((item) => item.name)))].sort(byCodeUnit);
     const reports = new Map<string, string>();
     for (const entry of ENTRIES) {
         const read = surface.entries.find((item) => item.entry === entry.name)!;
-        reports.set(`${entry.name}.api.txt`, rewritePaths(formatEntry(entry.subpath, read, components, header, publicNames), [PACKAGE_ROOT, REPO_ROOT]));
+        reports.set(`${entry.name}.api.txt`, rewritePaths(formatEntry(entry.subpath, read, components, header), [PACKAGE_ROOT, REPO_ROOT]));
     }
     return reports;
 }
@@ -221,7 +226,8 @@ async function main(argv: readonly string[]): Promise<number> {
         let failed = false;
         for (const [name, text] of reports) {
             await writeFile(join(scratch, name), text);
-            const before = await readFile(join(API_DIR, name), "utf8").catch((error: unknown) => {
+            // 换行按 LF 比：`.gitattributes` 已固定 LF，这里再兜一层，免得别的工具改写了换行时报一整份差异。
+            const before = await readFile(join(API_DIR, name), "utf8").then((text) => text.replace(/\r\n/gu, "\n")).catch((error: unknown) => {
                 if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
                 throw error;
             });

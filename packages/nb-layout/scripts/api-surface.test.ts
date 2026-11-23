@@ -5,7 +5,7 @@ import ts from "typescript";
 import {byCodeUnit, readSurface} from "./api-surface";
 
 /** 用内存里的几份声明文件建程序，形状照 `build:package` 的产物：入口只有导入导出，声明在共享块里、导出名是压缩名。 */
-function surfaceOf(files: Record<string, string>, entries: readonly string[] = ["index"], components: readonly string[] = []) {
+function surfaceOf(files: Record<string, string>, entries: readonly string[] = ["index"], components: Readonly<Record<string, readonly string[]>> = {}) {
     const paths = Object.fromEntries(Object.entries(files).map(([name, text]) => [`/pkg/${name}`, text]));
     const options: ts.CompilerOptions = {noEmit: true, strict: true, skipLibCheck: true, noLib: true, types: [], module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ESNext};
     const host = ts.createCompilerHost(options);
@@ -17,7 +17,7 @@ function surfaceOf(files: Record<string, string>, entries: readonly string[] = [
     host.getCurrentDirectory = () => "/pkg";
     host.getSourceFile = (name, version) => (name in paths ? ts.createSourceFile(name, paths[name]!, version, true) : undefined);
     const program = ts.createProgram(Object.keys(paths), options, host);
-    return readSurface(program, new Map(entries.map((entry) => [entry, `/pkg/${entry}.d.ts`])), new Set(components));
+    return readSurface(program, new Map(entries.map((entry) => [entry, `/pkg/${entry}.d.ts`])), new Map(Object.entries(components)));
 }
 
 const entryOf = (...names: string[]) => `import { ${names.map((name, i) => `x${i} as ${name}`).join(", ")} } from "./shared.js";\nexport { ${names.join(", ")} };\n`;
@@ -38,8 +38,8 @@ describe("api-surface：经检查器解到共享块里的真声明", () => {
         });
         expect(surface.problems).toEqual([]);
         expect(surface.entries[0]!.names).toEqual([
-            {name: "Box", kind: "interface", stability: "experimental", deprecated: false, references: [], declarations: ["interface Box {\n    readonly size: number;\n}"]},
-            {name: "makeBox", kind: "function", stability: "experimental", deprecated: true, references: ["Box"], declarations: ["declare function makeBox(size: number): Box;"]},
+            {name: "Box", kind: "interface", stability: "experimental", deprecated: false, references: [], unexportedReferences: [], declarations: ["interface Box {\n    readonly size: number;\n}"]},
+            {name: "makeBox", kind: "function", stability: "experimental", deprecated: true, references: ["Box"], unexportedReferences: [], declarations: ["declare function makeBox(size: number): Box;"]},
         ]);
     });
 
@@ -104,17 +104,34 @@ describe("api-surface：标注齐全", () => {
         expect(surface.problems.filter((problem) => problem.name === "one").map((problem) => problem.message)).toEqual(["declared together with other names in one statement; only the first declarator gets the JSDoc tag"]);
     });
 
-    it("组件只核标注，不打印、不参与引用遍历", () => {
+    it("组件只核标注、不打印声明；引用按五段的类型文字认，属性名与公开名字同名不算", () => {
         const surface = surfaceOf(
             {
-                "index.d.ts": entryOf("Widget"),
-                "shared.d.ts": shared("type __VLS_Props = { hidden: Secret };\ntype Secret = 1;\n/** @experimental */\ndeclare const _default: __VLS_Props;", "_default"),
+                "index.d.ts": entryOf("Widget", "Shape", "size"),
+                "shared.d.ts": shared("type __VLS_Props = { hidden: Secret };\ntype Secret = 1;\ntype Inner = 2;\n/** @experimental */\ndeclare const _default: __VLS_Props;\n/** @experimental */\ntype Shape = 3;\n/** @experimental */\ndeclare function size(): void;", "_default", "Shape", "size"),
             },
             ["index"],
-            ["Widget"],
+            {Widget: ["Shape | null", "Inner"]},
         );
-        expect(surface.problems).toEqual([]);
-        expect(surface.entries[0]).toEqual({entry: "index", names: [{name: "Widget", kind: "component", stability: "experimental", deprecated: false, references: [], declarations: []}], unexported: []});
+        expect(surface.problems.filter((problem) => problem.severity === "error")).toEqual([]);
+        expect(surface.entries[0]!.names[0]).toEqual({name: "Shape", kind: "type", stability: "experimental", deprecated: false, references: [], unexportedReferences: [], declarations: ["type Shape = 3;"]});
+        expect(surface.entries[0]!.names.find((item) => item.name === "Widget")).toEqual({name: "Widget", kind: "component", stability: "experimental", deprecated: false, references: ["Shape"], unexportedReferences: ["Inner"], declarations: []});
+        expect(surface.entries[0]!.unexported.map((item) => item.name)).toEqual(["Inner"]);
+    });
+
+    it("`@stable` 的组件引到 `@experimental` 的名字或没导出的声明时报错", () => {
+        const surface = surfaceOf(
+            {
+                "index.d.ts": entryOf("Widget", "Shape"),
+                "shared.d.ts": shared("type Inner = 2;\n/** @stable */\ndeclare const _default: unknown;\n/** @experimental */\ntype Shape = 3;", "_default", "Shape"),
+            },
+            ["index"],
+            {Widget: ["Shape", "Inner"]},
+        );
+        expect(surface.problems.filter((problem) => problem.severity === "error").map((problem) => [problem.name, problem.message])).toEqual([
+            ["Widget", "@stable but its signature references names that are not @stable: Shape"],
+            ["Widget", "@stable but its signature references unexported declarations: Inner"],
+        ]);
     });
 
     it("打印出来含 `$` 加数字或 `__VLS` 的非组件声明报错", () => {
@@ -143,7 +160,8 @@ describe("api-surface：可达未导出与闭包", () => {
                 "Kind",
             ),
         });
-        expect(surface.entries[0]!.unexported.map((item) => [item.name, item.kind])).toEqual([["Inner", "type"], ["Item", "type"], ["Placement", "type"], ["brand", "const"]]);
+        expect(surface.entries[0]!.unexported.map((item) => [item.name, item.kind, item.unexportedReferences])).toEqual([["Inner", "type", []], ["Item", "type", ["Inner"]], ["Placement", "type", ["Item"]], ["brand", "const", []]]);
+        expect(surface.entries[0]!.names.map((item) => [item.name, item.unexportedReferences])).toEqual([["Kind", ["brand"]], ["place", ["Placement"]]]);
         expect(surface.problems.filter((problem) => problem.severity === "warning").map((problem) => problem.name).sort(byCodeUnit)).toEqual(["Inner", "Item", "Placement", "brand"]);
         expect(surface.problems.filter((problem) => problem.severity === "error")).toEqual([]);
     });
@@ -177,5 +195,9 @@ describe("api-surface：可达未导出与闭包", () => {
             ["index", [["Shape", []]], []],
             ["vue", [["Shape", []], ["useShape", ["Shape"]]], []],
         ]);
+    });
+
+    it("公开名字的声明不在本包的声明文件顶层时报错，不让引用静默变空", () => {
+        expect(() => surfaceOf({"index.d.ts": `declare namespace N { /** @experimental */ type Deep = 1; }\nimport Deep = N.Deep;\nexport { Deep };\n`})).toThrow("index: Deep is not declared at the top level of the package's declaration files");
     });
 });

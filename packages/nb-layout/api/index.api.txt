@@ -66,6 +66,7 @@ interface DragGestureConfig {
 }
 
 ### experimental interface DropKind
+引用（没导出）：dropKindData
 interface DropKind<T> {
     readonly id: string;
     readonly [dropKindData]?: T;
@@ -485,6 +486,7 @@ type GridRestoreFailureCode = "invalid-snapshot" | "unsupported-version" | "unre
 
 ### experimental type GridRestoreResult
 引用：GridFailure, GridRestoreFailureCode
+引用（没导出）：GridRestoreReport
 type GridRestoreResult = ({
     ok: true;
 } & GridRestoreReport) | (GridFailure<GridRestoreFailureCode> & GridRestoreReport);
@@ -822,6 +824,7 @@ declare function moveInSections(sections: readonly SortableSection[], key: strin
 
 ### experimental function placeGrid
 引用：GridExtent, GridLayoutResult, GridNode
+引用（没导出）：GridPlacement
 declare function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent: GridExtent, dpr: number): GridPlacement<R>;
 
 ### experimental function resizeFloatRect
@@ -902,6 +905,8 @@ declare function stepLiveDrop(state: LiveDropState, input: {
 ## 由公开名字引到、没有导出的声明
 
 ### interface GridLeafPlacement
+引用：GridAxis, GridLeaf, GridRect
+引用（没导出）：GridPathStep
 interface GridLeafPlacement<R> {
     readonly key: string;
     readonly node: GridLeaf<R>;
@@ -916,6 +921,7 @@ interface GridLeafPlacement<R> {
 }
 
 ### interface GridPathStep
+引用：GridAxis
 interface GridPathStep {
     readonly id: string;
     readonly axis: GridAxis;
@@ -924,11 +930,13 @@ interface GridPathStep {
 }
 
 ### interface GridPlacement
+引用（没导出）：GridPlacementItem
 interface GridPlacement<R> {
     readonly items: ReadonlyArray<GridPlacementItem<R>>;
 }
 
 ### type GridPlacementItem
+引用（没导出）：GridLeafPlacement, GridSashPlacement
 type GridPlacementItem<R> = ({
     readonly kind: "leaf";
 } & GridLeafPlacement<R>) | ({
@@ -936,6 +944,7 @@ type GridPlacementItem<R> = ({
 } & GridSashPlacement<R>);
 
 ### type GridRestoreReport
+引用：GridDroppedRef
 type GridRestoreReport = {
     dropped: GridDroppedRef[];
     clamped: string[];
@@ -948,6 +957,8 @@ interface GridSashEnds {
 }
 
 ### interface GridSashPlacement
+引用：GridAxis, GridBranch, GridRect
+引用（没导出）：GridSashEnds
 interface GridSashPlacement<R> {
     readonly key: string;
     readonly sashKey: string;

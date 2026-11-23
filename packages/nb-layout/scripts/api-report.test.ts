@@ -9,10 +9,10 @@ const HEADER = ["// tool typescript 6.0.3 (report)", "// tool vue 3.5.0"];
 const entry: EntrySurface = {
     entry: "vue",
     names: [
-        {name: "Box", kind: "component", stability: "experimental", deprecated: false, references: [], declarations: []},
-        {name: "size", kind: "function", stability: "stable", deprecated: true, references: ["Extent"], declarations: ["declare function size(): Extent;"]},
+        {name: "Box", kind: "component", stability: "experimental", deprecated: false, references: ["Extent"], unexportedReferences: [], declarations: []},
+        {name: "size", kind: "function", stability: "stable", deprecated: true, references: ["Extent"], unexportedReferences: ["Hidden"], declarations: ["declare function size(): Extent;"]},
     ],
-    unexported: [{name: "Hidden", kind: "type", declarations: ["type Hidden = 1;"]}],
+    unexported: [{name: "Hidden", kind: "type", references: ["Extent"], unexportedReferences: [], declarations: ["type Hidden = 1;"]}],
 };
 const box: ComponentSurface = {props: ["extent: Extent"], attrs: ["→ 根元素"], events: ["change(value: number)"], slots: [], exposed: [], propNames: ["extent"]};
 
@@ -22,7 +22,6 @@ const report = (overrides: {header?: readonly string[]; declaration?: string; st
         {...entry, names: [entry.names[0]!, {...entry.names[1]!, stability: overrides.stability ?? "stable", declarations: [overrides.declaration ?? "declare function size(): Extent;"]}]},
         new Map([["Box", box]]),
         overrides.header ?? HEADER,
-        ["Box", "Extent", "size"],
     );
 
 describe("api-report：格式", () => {
@@ -43,11 +42,13 @@ describe("api-report：格式", () => {
                 "",
                 "### stable function size @deprecated",
                 "引用：Extent",
+                "引用（没导出）：Hidden",
                 "declare function size(): Extent;",
                 "",
                 "## 由公开名字引到、没有导出的声明",
                 "",
                 "### type Hidden",
+                "引用：Extent",
                 "type Hidden = 1;",
                 "",
             ].join("\n"),
@@ -58,7 +59,7 @@ describe("api-report：格式", () => {
         const parsed = parseReport(report());
         expect(parsed.header).toEqual(HEADER);
         expect([...parsed.segments.keys()]).toEqual(["Box", "size"]);
-        expect(parsed.segments.get("size")).toEqual({stability: "stable", text: "### stable function size @deprecated\n引用：Extent\ndeclare function size(): Extent;"});
+        expect(parsed.segments.get("size")).toEqual({stability: "stable", text: "### stable function size @deprecated\n引用：Extent\n引用（没导出）：Hidden\ndeclare function size(): Extent;"});
     });
 
     it("绝对路径换成包名或去掉包目录：换一个检出位置报告不变", () => {

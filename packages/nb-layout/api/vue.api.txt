@@ -9,6 +9,7 @@
 
 ### experimental interface DragKeyboardOptions
 引用：GridDropPoint
+引用（没导出）：DragStops
 interface DragKeyboardOptions<S, R> {
     sourceAt(target: Element): S | null;
     regions(source: S): ReadonlyArray<R>;
@@ -48,6 +49,7 @@ type DragSessionHandle<S, D> = {
 
 ### experimental interface DragSessionOptions
 引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState
+引用（没导出）：DragActivation
 interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
     sourceAt(target: Element): S | null;
@@ -342,12 +344,14 @@ declare function useSortable(options: UseSortableOptions): SortableHandle;
 ## 由公开名字引到、没有导出的声明
 
 ### interface DragActivation
+引用：GridDropPoint
 interface DragActivation {
     readonly pressed: GridDropPoint;
     readonly point: GridDropPoint;
 }
 
 ### interface DragStops
+引用：GridDropPoint
 interface DragStops {
     readonly axis: "horizontal" | "vertical" | "both" | null;
     readonly points: ReadonlyArray<GridDropPoint>;

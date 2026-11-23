@@ -10,7 +10,7 @@ import {fileURLToPath} from "node:url";
 
 import {moduleExports} from "@notnotype/neuro-book-test-support/module-exports";
 
-import {nbLayoutSurface, SNAPSHOT} from "../../scripts/nb-layout-surface";
+import {changedNames, nbLayoutSurface, SNAPSHOT} from "../../scripts/nb-layout-surface";
 import {SDK_ENTRIES} from "./entries";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..", "..");
@@ -92,7 +92,18 @@ const exportedTypes = (text: string): string[] => moduleExports(text).filter((it
 describe("SDK 转出的 nb-layout 名字", () => {
     it("签名与入库的快照相同：不同时判断是否不兼容（不兼容就提 PLUGIN_API_SINCE、写变更记录），再重写快照", async () => {
         // 快照的来历与重写命令见 scripts/nb-layout-surface.ts；口径见 docs/specs/runtime/plugin-code-loading.md 的“共享入口即兼容承诺”。
-        expect(await nbLayoutSurface(), "SDK 转出的 nb-layout 名字的签名变了：不兼容就提 PLUGIN_API_SINCE 并写变更记录，兼容的不提；判断后 bun scripts/nb-layout-surface.ts --write").toBe(readFileSync(SNAPSHOT, "utf8"));
+        const before = readFileSync(SNAPSHOT, "utf8").replace(/\r\n/gu, "\n");
+        const after = await nbLayoutSurface();
+        const changed = changedNames(before, after);
+        expect(
+            changed,
+            [
+                `SDK 转出的 nb-layout 名字（或它们引到的）变了：${changed.join(", ")}。`,
+                "不兼容（删名字、改名、加必填属性、参数变窄、返回或事件载荷变化）就提 src/shared/product.ts 的 PLUGIN_API_SINCE，并在 CHANGELOG.md 的“不兼容的改动”里写；兼容的不提。",
+                "判断后在 packages/neuro-book 下 bun scripts/nb-layout-surface.ts --write 重写快照。",
+            ].join("\n"),
+        ).toEqual([]);
+        expect(after).toBe(before);
     });
 });
 

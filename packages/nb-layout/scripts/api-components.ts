@@ -43,14 +43,41 @@ export function componentSurface(meta: ComponentMeta, file: string, ownSource: (
     };
 }
 
+/**
+ * 五段里的类型文字，去掉每行开头的名字（属性名、事件名、插槽名）：用来认组件引到了哪些公开名字，属性名碰巧与公开函数同名
+ * 时不算引用。
+ */
+export function componentTypeTexts(component: ComponentSurface): string[] {
+    const strip = (line: string) => line.replace(/^(?:"[^"]*"|[\w$-]+)\??(?::\s*|(?=\())/u, "");
+    return [...component.props, ...component.events, ...component.slots, ...component.exposed].map(strip).concat(component.attrs);
+}
+
 /** 码元比较，同 `api-surface.ts`。 */
 function byCodeUnit(a: string, b: string): number {
     return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** `<script>` 块：属性顺序任意（`<script setup lang="ts">`、`<script lang="ts" setup>`）。 */
+function scriptBlocks(sfc: string): {readonly setup: boolean; readonly file: ts.SourceFile}[] {
+    return [...sfc.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gu)].map((match) => ({setup: /\bsetup\b/u.test(match[1]!), file: ts.createSourceFile("block.ts", match[2]!, ts.ScriptTarget.Latest, true)}));
+}
+
 function scriptSetup(sfc: string): ts.SourceFile | null {
-    const match = /<script\s+setup[^>]*>([\s\S]*?)<\/script>/u.exec(sfc);
-    return match === null ? null : ts.createSourceFile("setup.ts", match[1]!, ts.ScriptTarget.Latest, true);
+    return scriptBlocks(sfc).find((block) => block.setup)?.file ?? null;
+}
+
+/** `defineOptions({inheritAttrs: false})` 或非 setup 的 `<script>` 里 `export default {inheritAttrs: false}`；读语法树，注释与字符串里的不算。 */
+function inheritAttrsOff(sfc: string): boolean {
+    let off = false;
+    const visit = (node: ts.Node): void => {
+        if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === "inheritAttrs" && node.initializer.kind === ts.SyntaxKind.FalseKeyword) {
+            const owner = node.parent.parent;
+            if ((ts.isCallExpression(owner) && ts.isIdentifier(owner.expression) && owner.expression.text === "defineOptions") || ts.isExportAssignment(owner)) off = true;
+        }
+        ts.forEachChild(node, visit);
+    };
+    for (const block of scriptBlocks(sfc)) visit(block.file);
+    return off;
 }
 
 /** 找 `宏名<类型>()` 的类型参数（含包在 `withDefaults(...)` 里的）。 */
@@ -79,19 +106,20 @@ function print(node: ts.Node): string {
 function attrsLines(setup: ts.SourceFile | null, sfc: string): string[] {
     const lines: string[] = [];
     const propsType = macroType(setup, "defineProps");
+    // 只认写在宏里的类型字面量或交叉：`defineProps<Props>()` 这类引用另一个类型的，透传藏在那个类型里，这里读不到，宁可报错。
+    if (propsType !== null && !ts.isTypeLiteralNode(propsType) && !ts.isIntersectionTypeNode(propsType)) throw new Error(`write the defineProps type inline (a type literal, or an intersection with it) so the report can see attribute pass-through: ${print(propsType)}`);
     if (propsType !== null && setup !== null && ts.isIntersectionTypeNode(propsType)) {
         const external = externalImports(setup);
         for (const member of propsType.types) {
             if (referencesAny(member, external)) lines.push(`& ${print(member)}`);
         }
     }
-    // `defineOptions({inheritAttrs: false})` 与非 setup 的 `<script>` 里 `export default {inheritAttrs: false}` 都算。
-    if (!/inheritAttrs:\s*false/u.test(sfc)) {
+    if (!inheritAttrsOff(sfc)) {
         lines.push("→ 根元素");
     } else {
         const variable = /const\s+(\w+)\s*=\s*useAttrs\(\)/u.exec(sfc)?.[1];
         // 属性值里可能有 `>`（`v-if="a > 0"`），按引号跳过整段值，不按第一个 `>` 截断标签。
-        const bound = new RegExp(`<([\\w-]+)\\b(?:[^>"']|"[^"]*"|'[^']*')*?\\sv-bind="(?:\\$attrs${variable === undefined ? "" : `|${variable}`})"`, "u").exec(sfc);
+        const bound = new RegExp(`<([\\w-]+)\\b(?:[^>"']|"[^"]*"|'[^']*')*?\\sv-bind="(?:\\{\\s*\\.\\.\\.)?(?:\\$attrs${variable === undefined ? "" : `|${variable}`})\\b`, "u").exec(sfc);
         lines.push(bound === null ? "→ 不落（inheritAttrs: false）" : `→ <${bound[1]}>（inheritAttrs: false）`);
     }
     return lines;
