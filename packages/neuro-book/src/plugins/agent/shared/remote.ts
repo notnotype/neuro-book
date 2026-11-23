@@ -109,7 +109,7 @@ const commandArgs = {
     start: {},
     resume: {mode: Type.Optional(ReleaseMode)},
     release: {inputIds: Type.Array(Type.String())},
-    abort: {keepQueue: Type.Optional(Type.Boolean())},
+    abort: {keepQueue: Type.Optional(Type.Boolean()), runId: Type.Optional(Type.String())},
     rewind: {to: Nullable(Type.String()), resend: Type.Optional(Input)},
     switchBranch: {node: Type.String()},
     fork: {leaf: Type.Optional(Nullable(Type.String()))},

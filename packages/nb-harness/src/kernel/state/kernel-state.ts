@@ -196,6 +196,7 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
                 queuedAt: event.seq,
                 ...(data.key === undefined ? {} : {key: data.key as string}),
                 ...(data.commandId === undefined ? {} : {commandId: data.commandId as string}),
+                ...(data.senderOnly === true ? {senderOnly: true as const} : {}),
             };
             return {...state, notices: [...state.notices, notice]};
         }

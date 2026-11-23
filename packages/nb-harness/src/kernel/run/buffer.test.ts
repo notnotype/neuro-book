@@ -203,6 +203,31 @@ describe("回到空闲（harness.runtime 输出 7、104）", () => {
 });
 
 describe("停止（harness.runtime 输出 30）", () => {
+    test("输出 120：点名停一次运行——已收口的、已是下一次运行时 aborted: false，不动缓冲区、不关门；点名在跑的那次照常停", async () => {
+        const block = blocking();
+        await using session = await createTestSession({tools: [block.tool]});
+        session.model.script("答一");
+        const first = await session.raw.send({commandId: nextId(), input: {text: "第一问"}});
+        if (!first.ok || first.value.runId === null) throw new Error("send failed");
+        await session.raw.waitRun(first.value.runId);
+        expect(await session.raw.abort({commandId: nextId(), runId: first.value.runId})).toMatchObject({ok: true, value: {aborted: false}});
+
+        session.model.script({tools: [{tool: "lab.block"}]}, "答二");
+        const second = await session.raw.send({commandId: nextId(), input: {text: "第二问"}});
+        if (!second.ok || second.value.runId === null) throw new Error("send failed");
+        await block.started;
+        await session.raw.enqueue({commandId: nextId(), input: {text: "排一"}, mode: "followup"});
+        const head = (await session.raw.snapshot()).head;
+        expect(await session.raw.abort({commandId: nextId(), runId: first.value.runId})).toMatchObject({ok: true, value: {aborted: false}});
+        const untouched = await session.raw.snapshot();
+        expect([untouched.head, untouched.buffer.map((item) => [item.input.text, item.state]), untouched.wakeGate.open]).toEqual([head, [["排一", "ready"]], true]);
+
+        const stopping = session.raw.abort({commandId: nextId(), runId: second.value.runId, keepQueue: true});
+        block.release();
+        expect(await stopping).toMatchObject({ok: true, value: {aborted: true}});
+        expect((await session.raw.waitRun(second.value.runId)).reason).toBe("aborted");
+    });
+
     test("验收 8：停止留着、停止进行中用户又发一句：收口后先跑留着的，再跑新话；会话身份的话不取用户留着的", async () => {
         const block = blocking();
         await using session = await createTestSession({tools: [block.tool]});

@@ -383,6 +383,8 @@ export function abortCommand(host: CommandHost, issuer: Issuer, args: CommandMap
     if (running !== undefined) return running.then((result) => (result.ok ? {...result, replayed: true} : result));
     // 句柄坏了：新的停止写不下受理记录，不登记、不中止（损坏时运行已经停了）。已提交的键在上面按记录重放。
     if (core.broken) return Promise.resolve({ok: false, code: "log-broken"} as CommandResult<"abort">);
+    // 点名的那次运行已经不在跑（收口了，或已是下一次）：什么都不动（runtime.md 输出 120）。
+    if (args.runId !== undefined && control.active?.runId !== args.runId) return Promise.resolve({ok: true, value: {aborted: false}, seq: core.head, replayed: false});
     if (control.active !== null && !canAbort(core.header, core.leafState.kernel.runBy ?? USER, issuer)) return Promise.resolve({ok: false, code: "not-allowed"} as CommandResult<"abort">);
     const settled = control.recordStop({by: issuer, keep: args.keepQueue === true, scope: core.session.kernel.buffer.map((item) => item.id)}, {commandId: args.commandId, argsHash});
     if (settled === null) return Promise.resolve({ok: true, value: {aborted: false}, seq: core.head, replayed: false});
@@ -438,7 +440,7 @@ export const NOTICE_TOTAL_MAX_BYTES = 128 * 1024;
 
 /** 一条待发提醒按合计上限算的字节数：`noticeQueued` 里留下的整条记录（不含按 seq 补的 `queuedAt`）。 */
 export const noticeBytes = (notice: Omit<PendingNotice, "queuedAt">): number =>
-    Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake, commandId: notice.commandId}), "utf8");
+    Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake, commandId: notice.commandId, senderOnly: notice.senderOnly}), "utf8");
 
 /** 唤起里与提醒无关的条件（runtime.md 输出 116）：空闲、门开着、叶子上没有暂停的运行、开得起运行。收口批另按运行控制的检查判。 */
 const canWake = (host: CommandHost): boolean => host.control.idle && gateOpen(host.core) && pausedRun(host) === null && startProblem(host) === null;
@@ -452,7 +454,7 @@ export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
         // 同一个发出者的同一个 `key` 替换还没取走的那条；上限按扣掉它之后算。
         const replaced = args.key === undefined ? undefined : pending.find((item) => item.key === args.key && sameIssuer(item.by, issuer));
         const rest = replaced === undefined ? pending : pending.filter((item) => item !== replaced);
-        const record = {id: host.core.newId(), by: issuer, ...(args.key === undefined ? {} : {key: args.key}), text: args.text, wake: args.wake === true, commandId: args.commandId};
+        const record = {id: host.core.newId(), by: issuer, ...(args.key === undefined ? {} : {key: args.key}), text: args.text, wake: args.wake === true, commandId: args.commandId, ...(args.senderOnly === true ? {senderOnly: true as const} : {})};
         const total = rest.reduce((sum, item) => sum + noticeBytes(item), noticeBytes(record));
         if (rest.length + 1 > NOTICE_MAX_PENDING || total > NOTICE_TOTAL_MAX_BYTES) return {fail: "notice-budget"};
         const drafts: EventDraft[] = [];
@@ -496,7 +498,8 @@ export function removeNoticeCommand(host: CommandHost, issuer: Issuer, args: Com
     return accept(host, "removeNotice", args, () => {
         const item = host.core.session.kernel.notices.find((notice) => notice.id === args.noticeId);
         if (item === undefined) return {fail: noticeTaken(host.core, args.noticeId) ? "notice-taken" : "notice-not-found"};
-        if (!canRemove(item, issuer)) return {fail: "not-allowed"};
+        // 只有发出者能撤回的（后台任务的回执，runtime.md 输出 112）：用户也不行。
+        if (item.senderOnly === true ? !sameIssuer(item.by, issuer) : !canRemove(item, issuer)) return {fail: "not-allowed"};
         return {value: {}, drafts: [{type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [item.id], ...byField(issuer), reason: issuer.kind === "user" ? "cancelled" : "withdrawn"} as JsonValue}]};
     });
 }
