@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {DragEnd} from "../drag-gesture";
 import {createDragSession} from "./drag-session";
-import type {DragKeyboardOptions, DragQuery, DragSession} from "./drag-session";
+import type {DragKeyboardOptions, DragQuery, DragSession, DragSessionOptions} from "./drag-session";
 
 /**
  * 会话的 DOM 适配里 happy-dom 看得到的部分（docs/specs/ui/layout-drag.md）：按下的归属、遮挡、取消的来源、按键拦截。
@@ -25,7 +25,7 @@ function pointer(type: string, init: PointerEventInit = {}): PointerEvent {
     return new PointerEvent(type, {bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, ...init});
 }
 
-function start(options: {readonly keyboard?: DragKeyboardOptions<string, string>} = {}): void {
+function start(options: Partial<Omit<DragSessionOptions<string, Drop, string>, "root">> = {}): void {
     session = createDragSession<string, Drop, string>({
         root,
         sourceAt: (target) => (target.closest("[data-source]") === null ? null : "row"),
@@ -64,11 +64,35 @@ afterEach(() => {
 });
 
 describe("输出 2、3：按下与拿起", () => {
-    it("主键按下加移动过门槛：根取得捕获，发布第一次判定", () => {
+    it("主键按下加移动过门槛：根取得捕获，发布第一次判定；指针拖动的判定 region 为 null", () => {
         start();
         grab();
         expect(session.state.value).toMatchObject({source: "row", point: {x: 10, y: 0}, drop: {key: "a"}, keyboard: false});
         expect(root.hasPointerCapture(1)).toBe(true);
+        expect(queries.at(-1)?.region).toBeNull();
+    });
+
+    it("拿起时清掉已选中的文字", () => {
+        start();
+        const range = document.createRange();
+        range.selectNodeContents(inner);
+        document.getSelection()?.addRange(range);
+        expect(document.getSelection()?.rangeCount).toBe(1);
+        grab();
+        expect(session.state.value).not.toBeNull();
+        expect(document.getSelection()?.rangeCount).toBe(0);
+    });
+
+    it("来源元素在拖动中被卸载不算取消：之后的移动照常跟手，松手照常提交", async () => {
+        start();
+        grab();
+        source.remove();
+        root.dispatchEvent(pointer("pointermove", {clientX: 20, clientY: 0}));
+        await vi.waitFor(() => expect(session.state.value?.point).toEqual({x: 20, y: 0}));
+        expect(ends).toEqual([]);
+        root.dispatchEvent(pointer("pointerup", {clientX: 20, clientY: 0, buttons: 0}));
+        expect(commits).toEqual([{key: "a"}]);
+        expect(ends).toEqual([{kind: "committed"}]);
     });
 
     it("内层停止传播的按下不起拖（分隔线的命中带）", () => {
@@ -140,6 +164,24 @@ describe("输出 7：取消的来源", () => {
         expect(ends).toEqual([{kind: "cancelled", reason: "focus-left"}]);
     });
 
+    it("捕获取不到：setPointerCapture 报 NotFoundError 时按失去捕获取消，不把异常抛出", () => {
+        Object.assign(root, {setPointerCapture: () => {
+            throw new DOMException("指针已经不在", "NotFoundError");
+        }});
+        start();
+        grab();
+        expect(ends).toEqual([{kind: "cancelled", reason: "capture-lost"}]);
+        expect(session.state.value).toBeNull();
+    });
+
+    it("捕获取不到：调用后 hasPointerCapture 为假时按失去捕获取消", () => {
+        Object.assign(root, {hasPointerCapture: () => false});
+        start();
+        grab();
+        expect(ends).toEqual([{kind: "cancelled", reason: "capture-lost"}]);
+        expect(session.state.value).toBeNull();
+    });
+
     it("pointercancel 取消", () => {
         start();
         grab();
@@ -171,6 +213,39 @@ describe("放下与 click", () => {
         source.dispatchEvent(new MouseEvent("click", {bubbles: true, detail: 1}));
         source.dispatchEvent(new MouseEvent("click", {bubbles: true, detail: 1}));
         expect(clicks).toEqual([0, 1]);
+    });
+});
+
+describe("状态与转换：一场进行中的第二次按下", () => {
+    it("指针拖动中第二根指针按下并移动被忽略：这一场不变、不结束，也不另起一场", async () => {
+        start();
+        grab();
+        source.dispatchEvent(pointer("pointerdown", {pointerId: 2, clientX: 0, clientY: 0}));
+        source.dispatchEvent(pointer("pointermove", {pointerId: 2, clientX: 50, clientY: 0}));
+        // 第二根指针若起了一场会立即发布它的坐标；排在可能的重判后面的一帧跑完再看。
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(session.state.value).toMatchObject({source: "row", point: {x: 10, y: 0}, keyboard: false});
+        expect(ends).toEqual([]);
+        expect(root.hasPointerCapture(2)).toBe(false);
+    });
+});
+
+describe("失败与恢复：`commit` 抛出", () => {
+    it("异常冒出会话；抛出时一场已经收场：不留捕获与监听，下一场照常开始", () => {
+        start({commit: () => {
+            throw new Error("commit failed");
+        }});
+        const touch = (): boolean => !root.dispatchEvent(new Event("touchmove", {bubbles: true, cancelable: true}));
+        grab();
+        // happy-dom 把监听里的异常从 dispatchEvent 抛回；浏览器里它交给全局的错误报告，同样没有被会话吞掉。
+        expect(() => source.dispatchEvent(pointer("pointerup", {clientX: 10, clientY: 0, buttons: 0}))).toThrow("commit failed");
+        expect(ends).toEqual([{kind: "committed"}]);
+        expect(session.state.value).toBeNull();
+        expect(root.hasPointerCapture(1)).toBe(false);
+        expect(touch()).toBe(false);
+        grab();
+        expect(session.state.value).toMatchObject({source: "row", keyboard: false});
+        expect(root.hasPointerCapture(1)).toBe(true);
     });
 });
 
@@ -206,6 +281,24 @@ describe("输出 12：滚动", () => {
         grab();
         const count = queries.length;
         inner.dispatchEvent(new Event("scroll"));
+        await vi.waitFor(() => expect(queries.length).toBe(count + 1));
+    });
+
+    it("根外面的滚动不算：排在它后面的一帧跑完时没有重新判定", async () => {
+        start();
+        grab();
+        const count = queries.length;
+        document.querySelector("#outside")?.dispatchEvent(new Event("scroll"));
+        // 会话的重判排在 requestAnimationFrame 上；排在它后面的一帧跑完，排过的重判一定已经跑了。
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(queries.length).toBe(count);
+    });
+
+    it("窗口尺寸变化重新判定", async () => {
+        start();
+        grab();
+        const count = queries.length;
+        window.dispatchEvent(new Event("resize"));
         await vi.waitFor(() => expect(queries.length).toBe(count + 1));
     });
 });
@@ -272,6 +365,16 @@ describe("输出 15：键盘拖动", () => {
         press(" ");
         root.dispatchEvent(pointer("pointerdown"));
         expect(ends).toEqual([{kind: "cancelled", reason: "pressed-elsewhere"}]);
+    });
+
+    it("状态与转换：键盘拖动中在来源上按下再移过门槛，键盘拖动按 pressed-elsewhere 取消，同一次按下接着起一场指针拖动", () => {
+        start({keyboard: keyboard()});
+        press(" ");
+        expect(session.state.value).toMatchObject({keyboard: true});
+        grab();
+        expect(ends).toEqual([{kind: "cancelled", reason: "pressed-elsewhere"}]);
+        expect(session.state.value).toMatchObject({source: "row", point: {x: 10, y: 0}, keyboard: false});
+        expect(root.hasPointerCapture(1)).toBe(true);
     });
 });
 
