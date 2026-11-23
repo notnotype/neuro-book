@@ -145,7 +145,8 @@ const status = computed<EntryPageStatus>(() => {
 const headRead = useWorldRead(world, "entry", () => (windowLine.value !== "" && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
 const headSource = computed(() => {
     if (windowLine.value !== "") return headRead.value?.data;
-    return state.position === null && !state.planned ? entry.value : undefined;
+    // 有稿时这一页读的是稿开始的位置（见 `lockedAt`），不是缺省位置。
+    return lockedAt.value === null && state.position === null && !state.planned ? entry.value : undefined;
 });
 watch(headSource, (read) => {
     const shown = read?.view;
@@ -240,7 +241,8 @@ const toggleValue = (address: TextAddress): void => {
 // 写不了的原因（输出 27、28）；就地改另外只在实际模式下可用（输出 16）。
 const blocked = computed(() => writeBlocked(world));
 const readOnly = computed(() => readOnlyBanner(world));
-const editBlocked = computed(() => (state.planned ? canonText("blocked.planned") : blocked.value));
+// 有稿时这一页按实际读（见 `mode`），“按计划”的开关不作数。
+const editBlocked = computed(() => (mode.value === "planned" ? canonText("blocked.planned") : blocked.value));
 /** 条目自己的名字与简介当作两个文字字段，确认条照字段的写法改它们（输出 16、页头的改名）。 */
 const HEAD_FIELDS: Readonly<Record<string, {readonly key: "name" | "summary"; readonly label: string}>> = {"entry.name": {key: "name", label: "entry.nameLabel"}, "entry.summary": {key: "summary", label: "entry.summaryLabel"}};
 const fieldAt = (path: string) => {
@@ -590,7 +592,8 @@ const textTab = useTextTab({
     call: props.client.call,
     name: () => view.value?.name ?? "",
     position: () => position.value,
-    blocked: () => (editBlocked.value === null ? "" : port.t(editBlocked.value)),
+    // 条目已删除时稿还在（能看、能放弃），提交不可用：恢复以后才能发。
+    blocked: () => (view.value?.deleted === true ? text("textEdit.blockedDeleted") : editBlocked.value === null ? "" : port.t(editBlocked.value)),
     notices: props.notices,
     text,
     translate: (value) => port.t(value),
@@ -598,11 +601,30 @@ const textTab = useTextTab({
 // 稿在别处的标签里就有了（刷新以后）：这一页挂上时去读。
 void props.draft.load();
 const editorRef = shallowRef<{focusBlock(key: string): void} | null>(null);
-/** 点“编辑”以后焦点进第一块：阅读视图先退场、编辑视图才挂上，等进场结束再给。 */
+/** 点“编辑”进去以后焦点进第一块：阅读视图先退场、编辑视图才挂上，等进场结束再给。只管这一次点击：没进去就不留着。 */
 let focusFirst = false;
 const startEditing = async (): Promise<void> => {
-    focusFirst = true;
-    await textTab.start();
+    actionError.value = "";
+    const failed = await textTab.start();
+    focusFirst = failed === "";
+    // 没进去（读不出块）：人还在阅读视图，原因写在那里。
+    actionError.value = failed;
+};
+/** 编辑视图的事件：文字分页里与“已删除”下面是同一个编辑视图，接法只写一处。 */
+const editorOn = {
+    update: textTab.update,
+    add: textTab.add,
+    split: textTab.split,
+    merge: textTab.merge,
+    remove: textTab.remove,
+    restore: textTab.restore,
+    blur: () => textTab.flush(),
+    submit: () => void textTab.submit(),
+    discard: () => void textTab.leave(),
+    cancel: () => void textTab.leave(),
+    takeOver: () => void textTab.takeOver(),
+    adopt: () => void textTab.adopt(),
+    retry: () => void textTab.retry(),
 };
 const focusEditor = (): void => {
     const first = textTab.editor.value.blocks.find((block) => block.state !== "removed");
@@ -622,12 +644,6 @@ onBeforeUnmount(() => {
     textTab.flush();
     props.onCommitReady(null);
 });
-/** 剧情的入口现在能不能用：所选位置要是某一章、按实际读、能写，并且没有没提交的主文字。 */
-const storyReason = computed(() => {
-    if (textTab.dirty.value) return port.t(text("block.storyPending"));
-    return editBlocked.value === null ? "" : port.t(editBlocked.value);
-});
-
 // 这一块在剧情里变了与在剧情里加一块共用一个对话框；源文字取条目读取里所选位置上的那一块（不是渲染出来的文字）。加的块不带
 // `after`：放在这个位置上最后一块之后（内核的缺省）。
 const blockDraft = shallowRef<{readonly block: string | null; readonly source: string; readonly original: string} | null>(null);
@@ -812,7 +828,7 @@ const setPosition = (value: string): void => {
             :same-as="entry?.sameAs ?? null"
             :positions="options"
             :position="positionValue(position)"
-            :planned="state.planned"
+            :planned="mode === 'planned'"
             :not-appeared="notAppeared"
             :position-gone="state.positionGone"
             :disconnected="world.connection.value === 'ended'"
@@ -858,27 +874,12 @@ const setPosition = (value: string): void => {
                     @cancel="edit.cancel()"
                 />
             </template>
-            <Transition v-if="tab === 'text'" name="canon-text-swap" mode="out-in" @after-enter="focusEditor">
-                <EntryTextEditor
-                    v-if="textTab.editing.value"
-                    ref="editorRef"
-                    key="edit"
-                    v-bind="textTab.editor.value"
-                    :input="props.sourceInput ?? undefined"
-                    @update="textTab.update"
-                    @add="textTab.add"
-                    @split="textTab.split"
-                    @merge="textTab.merge"
-                    @remove="textTab.remove"
-                    @restore="textTab.restore"
-                    @blur="textTab.flush()"
-                    @submit="textTab.submit()"
-                    @discard="textTab.leave()"
-                    @cancel="textTab.leave()"
-                    @take-over="textTab.takeOver()"
-                    @adopt="textTab.adopt()"
-                    @retry="textTab.retry()"
-                />
+            <!-- 条目已删除、稿还在：页头换成“已删除”，稿列在它下面，能看、能放弃。 -->
+            <template #deleted>
+                <EntryTextEditor v-if="textTab.editing.value" class="mt-6" v-bind="textTab.editor.value" :input="props.sourceInput ?? undefined" v-on="editorOn" />
+            </template>
+            <Transition v-if="tab === 'text'" name="nb-ui-switch" mode="out-in" @after-enter="focusEditor">
+                <EntryTextEditor v-if="textTab.editing.value" ref="editorRef" key="edit" v-bind="textTab.editor.value" :input="props.sourceInput ?? undefined" v-on="editorOn" />
             <EntryText
                 v-else
                 key="read"
@@ -889,7 +890,7 @@ const setPosition = (value: string): void => {
                 :editable="view !== null && !view.deleted"
                 :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
                 :story="view !== null && !view.deleted && position.kind === 'chapter'"
-                :story-reason="storyReason"
+                :story-reason="editBlocked === null ? '' : port.t(editBlocked)"
                 @value="toggleValue"
                 @entry="(id: string) => props.open({kind: 'entry', id})"
                 @edit="startEditing()"
@@ -1078,22 +1079,3 @@ const setPosition = (value: string): void => {
         </Dialog>
     </div>
 </template>
-
-<style scoped>
-/* 阅读与编辑两个视图的切换（设计语言的动效表：换内容）。 */
-.canon-text-swap-enter-active,
-.canon-text-swap-leave-active {
-    transition: opacity var(--motion-base), transform var(--motion-base);
-}
-.canon-text-swap-enter-from,
-.canon-text-swap-leave-to {
-    opacity: 0;
-    transform: translateY(4px);
-}
-@media (prefers-reduced-motion: reduce) {
-    .canon-text-swap-enter-active,
-    .canon-text-swap-leave-active {
-        transition: none;
-    }
-}
-</style>

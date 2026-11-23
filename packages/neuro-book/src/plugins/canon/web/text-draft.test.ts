@@ -9,29 +9,32 @@ import {describe, expect, it} from "bun:test";
 import type {TextBlockInfo} from "@notnotype/nb-canon/schema";
 
 import {addAfter, allowed, changedCount, compile, emptyDraft, hasChanges, isNewKey, mergeUp, rebase, removeBlock, resolve, restoreBlock, setText, splitAt, SUBMIT_OPS_MAX, textOf} from "./text-draft";
-import type {TextDraft, TextRead} from "./text-draft";
+import type {BlockAllowed, TextDraft, TextRead} from "./text-draft";
 
 const AT = {kind: "chapter", chapter: "ch3", edge: "end", line: "main"} as const;
 const read = (blocks: readonly TextBlockInfo[], version = 1): TextRead => ({version, inputDigest: `d${String(version)}`, at: AT, blocks});
 const free = (id: string, source: string, init: number): TextBlockInfo => ({id, source, write: "init", fixed: [], anchor: id, init});
+/** 初值里的块，现在这个位置上的值是一条剧情变更给的。 */
+const replaced = (id: string, source: string, init: number, change = "c5"): TextBlockInfo => ({id, source, write: "change", change, fixed: [change], anchor: id, init});
 
 /** 第 3 章末尾：A（有剧情块挂在后面）、X 与 Y（剧情加出来的）、B′（剧情换过）、C（没人碰过）。 */
 const LAYERED = read([
     {id: "b1", source: "A", write: "init", fixed: ["c2"], anchor: "b1", init: 0},
     {id: "b4", source: "X", write: "change", change: "c2", fixed: ["c2", "c3"], anchor: "b1"},
     {id: "b5", source: "Y", write: "change", change: "c3", fixed: ["c3"], anchor: "b1"},
-    {id: "b2", source: "B′", write: "change", change: "c1", fixed: ["c1"], anchor: "b2", init: 1},
-    {id: "b3", source: "C", write: "init", fixed: [], anchor: "b3", init: 2},
+    replaced("b2", "B′", 1, "c1"),
+    free("b3", "C", 2),
 ]);
 /** 三块都没被碰过。 */
 const PLAIN = read([free("b1", "甲", 0), free("b2", "乙", 1), free("b3", "丙", 2)]);
 
-const kinds = (value: Readonly<Record<string, {readonly kind: string} | null>>): Record<string, string | null> => Object.fromEntries(Object.entries(value).map(([key, blocked]) => [key, blocked?.kind ?? null]));
+const kinds = (block: BlockAllowed | undefined): Record<string, string | null> => Object.fromEntries(Object.entries(block ?? {}).map(([action, blocked]) => [action, (blocked as {kind: string} | null)?.kind ?? null]));
+const can = (draft: TextDraft, from: TextRead, key: string) => allowed(draft, from).blocks.get(key)!;
 
 describe("author-ui 输出 39：哪一块能做什么", () => {
     it("被剧情碰过的块只能改字；没被碰过的初值块能删、能拆；新块不能插在剧情加出来的块前面", () => {
-        const can = allowed(emptyDraft(LAYERED), LAYERED);
-        expect(Object.fromEntries(Object.entries(can.blocks).map(([key, block]) => [key, kinds(block as never)]))).toEqual({
+        const all = allowed(emptyDraft(LAYERED), LAYERED);
+        expect(Object.fromEntries([...all.blocks].map(([key, block]) => [key, kinds(block)]))).toEqual({
             // A：有块挂在它后面，不能删、不能拆；它后面紧挨着 X，放不了新块。
             b1: {edit: null, remove: "story", split: "story", mergeUp: "story", addAfter: "before-story"},
             b4: {edit: null, remove: "story", split: "story", mergeUp: "story", addAfter: "before-story"},
@@ -41,28 +44,46 @@ describe("author-ui 输出 39：哪一块能做什么", () => {
             // C 自己能删能拆，但上一块 B′ 被剧情换过，并不进去。
             b3: {edit: null, remove: null, split: null, mergeUp: "story", addAfter: null},
         });
-        expect(can.first).toBeNull();
-        expect(can.blocks.b1!.remove).toEqual({kind: "story", changes: ["c2"]});
+        expect(all.first).toBeNull();
+        expect(all.blocks.get("b1")!.remove).toEqual({kind: "story", changes: ["c2"]});
     });
 
-    it("最前面是剧情加出来的块时，最前放不了；从别的线带过来的块不能改", () => {
-        const head = read([{id: "b9", source: "X", write: "change", change: "c1", fixed: ["c1"], anchor: null}, free("b1", "甲", 0), {id: "b7", source: "带来的", write: "none", fixed: []}]);
-        const can = allowed(emptyDraft(head), head);
-        expect(can.first).toEqual({kind: "before-story"});
-        expect(can.blocks.b9!.addAfter).toBeNull();
-        expect(kinds(can.blocks.b7 as never)).toEqual({edit: "carried", remove: "carried", split: "carried", mergeUp: "carried", addAfter: "carried"});
+    it("最前面是剧情加出来的块时，最前放不了；内核说不能改的块什么都做不了", () => {
+        const head = read([{id: "b9", source: "X", write: "change", change: "c1", fixed: ["c1"], anchor: null}, free("b1", "甲", 0), {id: "b7", source: "不能改的", write: "none", fixed: []}]);
+        const all = allowed(emptyDraft(head), head);
+        expect(all.first).toEqual({kind: "before-story"});
+        expect(all.blocks.get("b9")!.addAfter).toBeNull();
+        expect(kinds(all.blocks.get("b7"))).toEqual({edit: "carried", remove: "carried", split: "carried", mergeUp: "carried", addAfter: "carried"});
         // 甲后面紧挨着的那块不在初值里：放不了。
-        expect(can.blocks.b1!.addAfter).toEqual({kind: "before-story"});
+        expect(all.blocks.get("b1")!.addAfter).toEqual({kind: "before-story"});
     });
 
     it("并到上一块：两块都没被碰过、在初值里相邻才行；第一块没有上一块；新块随便并", () => {
-        expect(kinds(Object.fromEntries(Object.entries(allowed(emptyDraft(PLAIN), PLAIN).blocks).map(([key, block]) => [key, block.mergeUp])))).toEqual({b1: "first", b2: null, b3: null});
+        const all = allowed(emptyDraft(PLAIN), PLAIN);
+        expect(["b1", "b2", "b3"].map((key) => all.blocks.get(key)!.mergeUp?.kind ?? null)).toEqual(["first", null, null]);
         // 初值里 b1 与 b3 之间还有一块（这个位置上被剧情删了，看不到）：不相邻。
         const gap = read([free("b1", "甲", 0), free("b3", "丙", 2)]);
-        expect(allowed(emptyDraft(gap), gap).blocks.b3!.mergeUp).toEqual({kind: "not-adjacent"});
+        expect(can(emptyDraft(gap), gap, "b3").mergeUp).toEqual({kind: "not-adjacent"});
         // 新块并进被剧情换过的块：等于改那一块的字，可以。
         const added = addAfter(emptyDraft(LAYERED), "b2");
-        expect(allowed(added.draft, LAYERED).blocks[added.key]).toEqual({edit: null, remove: null, split: null, mergeUp: null, addAfter: null});
+        expect(can(added.draft, LAYERED, added.key)).toEqual({edit: null, remove: null, split: null, mergeUp: null, addAfter: null});
+    });
+
+    it("块 id 与对象自带的名字重合（constructor、__proto__、toString）照样当普通的块", () => {
+        const odd = read([free("constructor", "甲", 0), free("__proto__", "乙", 1), free("toString", "丙", 2)]);
+        let draft = emptyDraft(odd);
+        expect([hasChanges(draft), allowed(draft, odd).blocks.size, textOf(draft, odd, "constructor")]).toEqual([false, 3, "甲"]);
+        for (const id of ["constructor", "__proto__", "toString"]) draft = setText(draft, odd, id, `${textOf(draft, odd, id)}改`);
+        expect([changedCount(draft), rebase(draft, odd).conflicts]).toEqual([3, []]);
+        expect(compile(draft, odd, "e1").ops).toEqual([
+            {op: "set", at: {entry: "e1", path: "text[constructor]"}, value: "甲改", read: "甲"},
+            {op: "set", at: {entry: "e1", path: "text[__proto__]"}, value: "乙改", read: "乙"},
+            {op: "set", at: {entry: "e1", path: "text[toString]"}, value: "丙改", read: "丙"},
+        ]);
+        // 存进记录再读出来（一次 JSON 往返）以后还是这三块。
+        expect(compile(JSON.parse(JSON.stringify(draft)) as TextDraft, odd, "e1").ops.length).toBe(3);
+        for (const id of ["constructor", "__proto__", "toString"]) draft = setText(draft, odd, id, textOf(emptyDraft(odd), odd, id));
+        expect(draft).toEqual(emptyDraft(odd));
     });
 });
 
@@ -73,25 +94,38 @@ describe("author-ui 输出 39、45：块的操作与“有没有未提交的内�
         expect([hasChanges(start), hasChanges(edited), changedCount(edited), textOf(edited, PLAIN, "b2")]).toEqual([false, true, 1, "乙改"]);
         expect(setText(edited, PLAIN, "b2", "乙")).toEqual(start);
         const removed = removeBlock(edited, PLAIN, "b2");
-        expect([removed.removed, allowed(removed, PLAIN).blocks.b2!.edit]).toEqual([["b2"], {kind: "removed"}]);
-        expect(restoreBlock(removed, "b2")).toEqual(edited);
+        expect([removed.removed, can(removed, PLAIN, "b2").edit]).toEqual([["b2"], {kind: "removed"}]);
+        expect(restoreBlock(removed, PLAIN, "b2")).toEqual(edited);
         // 没改过字就删、再恢复：回到没动过。
-        expect(restoreBlock(removeBlock(start, PLAIN, "b2"), "b2")).toEqual(start);
+        expect(restoreBlock(removeBlock(start, PLAIN, "b2"), PLAIN, "b2")).toEqual(start);
     });
 
-    it("从光标处拆开：前半留在原块，后半成新的一块，切口两边的空行不留；并到上一块中间空一行", () => {
+    it("从光标处拆开：前半留在原块，后半成新的一块，切口两边的空行不留；再并回去等于没动过", () => {
         const source = read([free("b1", "第一段。\n\n第二段。", 0), free("b2", "乙", 1)]);
         const split = splitAt(emptyDraft(source), source, "b1", "第一段。\n".length);
         expect(split.draft.order).toEqual(["b1", split.key, "b2"]);
         expect([isNewKey(split.key), textOf(split.draft, source, "b1"), textOf(split.draft, source, split.key)]).toEqual([true, "第一段。", "第二段。"]);
-        // 再并回去：文字回到原样，新块没了，等于没动过。
         const merged = mergeUp(split.draft, source, split.key);
         expect(merged?.into).toBe("b1");
         expect(merged?.draft).toEqual(emptyDraft(source));
-
-        const joined = mergeUp(emptyDraft(source), source, "b2")!;
-        expect([textOf(joined.draft, source, "b1"), joined.draft.removed]).toEqual(["第一段。\n\n第二段。\n\n乙", ["b2"]]);
         expect(mergeUp(emptyDraft(source), source, "b1")).toBeNull();
+    });
+
+    it("并到上一块中间空一行；恢复并掉的那一块时，并过去的那段字从上一块拿回来，不留在两块里", () => {
+        const joined = mergeUp(emptyDraft(PLAIN), PLAIN, "b2")!;
+        expect([textOf(joined.draft, PLAIN, "b1"), joined.draft.removed]).toEqual(["甲\n\n乙", ["b2"]]);
+        expect(restoreBlock(joined.draft, PLAIN, "b2")).toEqual(emptyDraft(PLAIN));
+        // 并了以后上一块又改过、已经不是以那段字结尾了：恢复只撤掉删除，上一块不动。
+        const reworked = setText(joined.draft, PLAIN, "b1", "甲与乙揉在一起改过的一段。");
+        const restored = restoreBlock(reworked, PLAIN, "b2");
+        expect([restored.removed, textOf(restored, PLAIN, "b1"), textOf(restored, PLAIN, "b2")]).toEqual([[], "甲与乙揉在一起改过的一段。", "乙"]);
+    });
+
+    it("空的新块不算有未提交的内容；写了字才算", () => {
+        const blankBlock = addAfter(emptyDraft(PLAIN), "b1");
+        expect([hasChanges(blankBlock.draft), changedCount(blankBlock.draft)]).toEqual([false, 0]);
+        const typed = setText(blankBlock.draft, PLAIN, blankBlock.key, "新的");
+        expect([hasChanges(typed), changedCount(typed)]).toEqual([true, 1]);
     });
 });
 
@@ -112,6 +146,21 @@ describe("author-ui 输出 44：世界变了以后把稿对到新读的块上", 
         // 别处删了没碰过的块：稿里也没有了。
         const dropped = rebase(draft, read([free("b1", "甲", 0), free("b3", "丙", 1)], 2));
         expect([dropped.conflicts, dropped.draft.order]).toEqual([[], ["b1", key, "b3"]]);
+    });
+
+    it("别处在同一处加了剧情块：我的新块排到它后面，照样编得进去（内核里改设定的块就排在那里）", () => {
+        const first = addAfter(emptyDraft(PLAIN), "b1", "新一");
+        const second = addAfter(first.draft, first.key, "新二");
+        const head = addAfter(second.draft, null, "开头");
+        const fresh = read([{id: "b8", source: "开头的剧情块", write: "change", change: "c8", fixed: ["c8"], anchor: null}, {id: "b1", source: "甲", write: "init", fixed: ["c9"], anchor: "b1", init: 0}, {id: "b9", source: "X", write: "change", change: "c9", fixed: ["c9"], anchor: "b1"}, free("b2", "乙", 1), free("b3", "丙", 2)], 2);
+        const result = rebase(head.draft, fresh);
+        expect([result.conflicts, result.draft.order]).toEqual([[], ["b8", head.key, "b1", "b9", first.key, second.key, "b2", "b3"]]);
+        const compiled = compile(result.draft, fresh, "e1");
+        expect([[...compiled.problems], compiled.ops]).toEqual([[], [
+            {op: "addBlock", entry: "e1", source: "开头", after: null},
+            {op: "addBlock", entry: "e1", source: "新一", after: "b1"},
+            {op: "addBlock", entry: "e1", source: "新二", after: "b1"},
+        ]]);
     });
 
     it("同一块两边都改了：列成冲突；选我的以后读到的原文换成现在的，选现在的就不算我动过", () => {
@@ -159,15 +208,44 @@ describe("author-ui 输出 44：世界变了以后把稿对到新读的块上", 
         expect([undone.removed, rebase(undone, fresh).conflicts]).toEqual([[], []]);
     });
 
-    it("拆过、并过的块后来被剧情碰了：改的字不能照发（换出去的那一半在初值里），列成冲突；只是改字的块不受影响", () => {
-        const source = read([free("b1", "前半。\n\n后半。", 0), free("b2", "乙", 1)]);
+    it("改了字的块写回的地方换了（别处用同样的字在剧情里换了它）：原文没变也要问；选我的就认下新的地方，选现在的就不改", () => {
+        const draft = setText(emptyDraft(PLAIN), PLAIN, "b1", "甲（我的）");
+        const fresh = read([replaced("b1", "甲", 0), free("b2", "乙", 1), free("b3", "丙", 2)], 2);
+        const result = rebase(draft, fresh);
+        expect(result.conflicts).toEqual([{kind: "rerouted", key: "b1", mine: "甲（我的）", theirs: "甲", manual: false}]);
+        const accepted = resolve(result.draft, fresh, result.conflicts[0]!, "mine");
+        expect([rebase(accepted, fresh).conflicts, compile(accepted, fresh, "e1").ops]).toEqual([[], [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: "甲（我的）", read: "甲"}]]);
+        expect(resolve(result.draft, fresh, result.conflicts[0]!, "theirs")).toEqual(emptyDraft(PLAIN));
+        // 只是有剧情块挂到它后面（改字还是写进初值）：不问。
+        const anchored = read([{id: "b1", source: "甲", write: "init", fixed: ["c9"], anchor: "b1", init: 0}, {id: "b9", source: "X", write: "change", change: "c9", fixed: ["c9"], anchor: "b1"}, free("b2", "乙", 1), free("b3", "丙", 2)], 2);
+        expect(rebase(draft, anchored).conflicts).toEqual([]);
+    });
+
+    it("拆过、并过的块写回的地方换了：没有能自动做的选择，稿原样留着等作者整理；只是改字的块照常能选", () => {
+        const source = read([free("b1", "前半。\n\n后半。", 0), free("b2", "乙", 1), free("b3", "丙", 2)]);
         const split = splitAt(setText(emptyDraft(source), source, "b2", "乙改"), source, "b1", "前半。".length);
-        const touched = (id: string, text: string, init: number): TextBlockInfo => ({id, source: text, write: "change", change: "c5", fixed: ["c5"], anchor: id, init});
-        const fresh = read([touched("b1", "前半。\n\n后半。", 0), touched("b2", "乙", 1)], 2);
+        const fresh = read([replaced("b1", "前半。\n\n后半。", 0), replaced("b2", "乙", 1, "c6"), free("b3", "丙", 2)], 2);
         const result = rebase(split.draft, fresh);
-        expect(result.conflicts).toEqual([{kind: "locked", key: "b1", remove: false, reason: {kind: "story", changes: ["c5"]}}]);
-        const undone = resolve(result.draft, fresh, result.conflicts[0]!, "theirs");
-        expect([textOf(undone, fresh, "b1"), textOf(undone, fresh, "b2"), rebase(undone, fresh).conflicts]).toEqual(["前半。\n\n后半。", "乙改", []]);
+        expect(result.conflicts).toEqual([
+            {kind: "rerouted", key: "b2", mine: "乙改", theirs: "乙", manual: false},
+            {kind: "rerouted", key: "b1", mine: "前半。", theirs: "前半。\n\n后半。", manual: true, structural: true},
+        ]);
+        for (const choice of ["mine", "theirs", "keep", "drop"] as const) expect(resolve(result.draft, fresh, result.conflicts[1]!, choice)).toEqual(result.draft);
+        // 作者回去把拆出来的并回去：这一块回到原样，冲突没有了。
+        const tidied = mergeUp(result.draft, fresh, split.key)!.draft;
+        expect(rebase(tidied, fresh).conflicts.map((conflict) => conflict.key)).toEqual(["b2"]);
+
+        // 并掉的那一块别处改了：标成与别的块换过文字，选完以后要作者再看一眼。
+        const merged = mergeUp(emptyDraft(PLAIN), PLAIN, "b2")!.draft;
+        const changed = read([free("b1", "甲", 0), free("b2", "乙（别处改了）", 1), free("b3", "丙", 2)], 2);
+        expect(rebase(merged, changed).conflicts).toEqual([{kind: "changed", key: "b2", mine: null, theirs: "乙（别处改了）", structural: true}]);
+    });
+
+    it("新块并进被剧情换过的块只是给它加字：不算换过文字，照常提交", () => {
+        const added = addAfter(emptyDraft(LAYERED), "b2", "新写的一段。");
+        const merged = mergeUp(added.draft, LAYERED, added.key)!;
+        expect([merged.into, merged.draft.moved, rebase(merged.draft, LAYERED).conflicts]).toEqual(["b2", undefined, []]);
+        expect(compile(merged.draft, LAYERED, "e1").ops).toEqual([{op: "set", at: {entry: "e1", path: "text[b2]"}, value: "B′\n\n新写的一段。", read: "B′"}]);
     });
 });
 
@@ -189,7 +267,7 @@ describe("author-ui 输出 44：编成一批操作", () => {
             {op: "removeBlock", at: {entry: "e1", path: "text[b3]"}},
         ]);
         expect(compiled.keys).toEqual(["b2", afterY.key, second.key, tail.key, "b3"]);
-        expect([compiled.problems, compiled.tooMany]).toEqual([{}, false]);
+        expect([[...compiled.problems], compiled.tooMany]).toEqual([[], false]);
     });
 
     it("最前的新块 after 是 null；空的新块不发；清空的旧块按删掉算", () => {
@@ -203,14 +281,12 @@ describe("author-ui 输出 44：编成一批操作", () => {
         const blockedSlot = addAfter(emptyDraft(LAYERED), "b1", "想插在 A 与 X 之间");
         const compiled = compile(setText(blockedSlot.draft, LAYERED, "b2", ""), LAYERED, "e1");
         expect(compiled.ops).toEqual([]);
-        expect(compiled.problems).toEqual({[blockedSlot.key]: {kind: "before-story"}, b2: {kind: "story", changes: ["c1"]}});
+        expect(Object.fromEntries(compiled.problems)).toEqual({[blockedSlot.key]: {kind: "before-story"}, b2: {kind: "story", changes: ["c1"]}});
     });
 
     it("净变化是零时没有操作；超过一次能发的项数时标出来，操作照样编全", () => {
         expect(compile(emptyDraft(PLAIN), PLAIN, "e1").ops).toEqual([]);
-        const blankBlock = addAfter(emptyDraft(PLAIN), "b1").draft;
-        // 空的新块不发出去，也不算有未提交的内容。
-        expect([compile(blankBlock, PLAIN, "e1").ops, hasChanges(blankBlock), changedCount(blankBlock)]).toEqual([[], false, 0]);
+        expect(compile(addAfter(emptyDraft(PLAIN), "b1").draft, PLAIN, "e1").ops).toEqual([]);
         const many = read(Array.from({length: SUBMIT_OPS_MAX}, (_, index) => free(`b${String(index + 1)}`, `第 ${String(index + 1)} 块`, index)));
         let draft = emptyDraft(many);
         for (const block of many.blocks) draft = setText(draft, many, block.id, `${block.source}（改）`);

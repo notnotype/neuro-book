@@ -3,6 +3,8 @@
 import {computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
+import {Textarea} from "@notnotype/nb-ui/components";
+
 import {editorLanguagesKey} from "../code/languages";
 import {loadMonaco, modelUri} from "../code/load-monaco";
 import type {MonacoApi} from "../code/load-monaco";
@@ -25,8 +27,20 @@ const fontOptions = (value: CodeEditorOptions): Monaco.editor.IEditorOptions => 
     lineHeight: value.lineHeight,
 });
 
+/**
+ * 原文阶段的行高照 Monaco 的算法取，换成编辑器时这一块的高度不跳：0 是按字号自动（macOS 1.5 倍，别处 1.35 倍），小于 8 当
+ * 倍数，其余是像素。
+ */
+const plainLineHeight = computed((): number => {
+    const {fontSize, lineHeight} = options.value;
+    if (lineHeight === 0) return Math.round((/Mac/u.test(navigator.platform) ? 1.5 : 1.35) * fontSize);
+    return lineHeight < 8 ? lineHeight * fontSize : lineHeight;
+});
+
 const root = ref<HTMLElement | null>(null);
 const host = ref<HTMLElement | null>(null);
+/** Monaco 加载失败以后的退路：普通文本框，照样能改。 */
+const fallback = ref<{readonly $el: HTMLTextAreaElement} | null>(null);
 const stage = ref<"plain" | "ready" | "failed">("plain");
 const failure = ref<string | null>(null);
 const height = ref(0);
@@ -89,6 +103,8 @@ const activate = async (): Promise<void> => {
         overviewRulerLanes: 0,
         overviewRulerBorder: false,
         hideCursorInOverviewRuler: true,
+        // 一页里有很多个输入框：Tab 用来在它们与旁边的按钮之间走，不留在框里缩进（缩进用 Monaco 的缩进命令）。
+        tabFocusMode: true,
         // 高度随内容，没有可滚的东西：滚轮交给外面的页面。
         scrollbar: {vertical: "hidden", horizontal: "hidden", handleMouseWheel: false, alwaysConsumeMouseWheel: false},
         contextmenu: false,
@@ -114,6 +130,10 @@ const activate = async (): Promise<void> => {
 const focus = (): void => {
     if (editor !== null) {
         editor.focus();
+        return;
+    }
+    if (stage.value === "failed") {
+        fallback.value?.$el.focus();
         return;
     }
     focusWhenReady = true;
@@ -162,6 +182,7 @@ onBeforeUnmount(() => {
 defineExpose({
     focus,
     cursorOffset: (): number | null => {
+        if (stage.value === "failed") return fallback.value?.$el.selectionStart ?? null;
         const position = editor?.getPosition() ?? null;
         return model === null || position === null ? null : model.getOffsetAt(position);
     },
@@ -172,16 +193,36 @@ defineExpose({
     <div ref="root" class="code-input" data-code-input :data-code-input-stage="stage">
         <!-- 没建 Monaco 时的原文：能聚焦，聚焦就建（建好后焦点进编辑器）。 -->
         <pre
-            v-if="stage !== 'ready'"
+            v-if="stage === 'plain'"
             class="code-input__plain"
-            :style="{fontSize: `${String(options.fontSize)}px`}"
-            :tabindex="stage === 'failed' ? undefined : 0"
+            :style="{fontSize: `${String(options.fontSize)}px`, lineHeight: `${String(plainLineHeight)}px`}"
+            tabindex="0"
+            role="textbox"
+            aria-multiline="true"
+            :aria-readonly="readonly"
             :aria-label="label"
             data-code-input-plain
             @focus="focus"
         >{{ modelValue }}</pre>
+        <!-- Monaco 加载失败：退回普通文本框，内容照样能改、能交回去。 -->
+        <Textarea
+            v-else-if="stage === 'failed'"
+            ref="fallback"
+            class="code-input__fallback"
+            variant="bare"
+            autosize
+            :rows="1"
+            :style="{fontSize: `${String(options.fontSize)}px`, lineHeight: `${String(plainLineHeight)}px`}"
+            :readonly="readonly"
+            :aria-label="label"
+            :model-value="modelValue"
+            data-code-input-fallback
+            @update:model-value="(value: string) => emit('update:modelValue', value)"
+            @focus="emit('focus')"
+            @blur="emit('blur')"
+        />
         <div v-show="stage === 'ready'" ref="host" :style="{height: `${String(height)}px`}" data-code-input-monaco></div>
-        <p v-if="failure !== null" class="px-2 pb-1 text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert">{{ failure }}</p>
+        <p v-if="failure !== null" class="px-2 pb-1 text-[length:var(--text-xs)] text-[var(--status-danger)]" role="alert" data-code-input-failure>{{ failure }}</p>
     </div>
 </template>
 
@@ -196,11 +237,15 @@ defineExpose({
     margin: 0;
     padding: 6px 8px;
     font-family: var(--font-mono);
-    line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--text-main);
-    min-height: calc(1.5em + 12px);
+    min-height: calc(1lh + 12px);
+}
+
+.code-input__fallback {
+    padding: 6px 8px;
+    font-family: var(--font-mono);
 }
 
 .code-input__plain:focus-visible {

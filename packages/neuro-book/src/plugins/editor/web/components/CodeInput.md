@@ -15,8 +15,9 @@
 
 ## 交互
 
-- 一页里可以有很多个：还没进入视野、也没拿到焦点时只画等宽的原文（能用 Tab 聚焦），进入视野或拿到焦点时才建 Monaco；建好以后不再拆。因为聚焦才建的，建好后焦点进编辑器、光标在文末。
+- 一页里可以有很多个：还没进入视野、也没拿到焦点时只画等宽的原文（能用 Tab 聚焦，读屏报成多行文本框），进入视野或拿到焦点时才建 Monaco；建好以后不再拆。因为聚焦才建的，建好后焦点进编辑器、光标在文末。原文的行高照 Monaco 的算法取，换成编辑器时高度不跳。
 - 输入、撤销、查找照 Monaco；自带的右键菜单关掉。
+- Tab 与 Shift+Tab 离开输入框、走到页面上的下一个与上一个控件（Monaco 的 `tabFocusMode`），不在框里缩进。
 - 不处理保存的快捷键：Ctrl+S 照常冒泡到工作台，由“保存”命令交给所在的页面（输出 68）。
 
 ## 数据
@@ -44,7 +45,7 @@ type Emits = {
 type Exposed = {
     /** 把焦点放进输入框；还没建 Monaco 时先建。 */
     focus(): void;
-    /** 光标在文字里的偏移（按 `modelValue` 的字符数）；还没建 Monaco 时为 null。失焦以后仍是最后的位置。 */
+    /** 光标在文字里的偏移（按 `modelValue` 的字符数）；还没建 Monaco 时为 null。失焦以后仍是最后的位置。加载失败时取文本框的。 */
     cursorOffset(): number | null;
 };
 ```
@@ -56,7 +57,7 @@ type Exposed = {
 - 没建 Monaco：等宽的原文，`data-code-input-stage="plain"`。
 - 建好：`data-code-input-stage="ready"`。
 - 只读：能选能复制，不能输入。
-- Monaco 加载失败：留着等宽的原文，下面一行写原因（`role="alert"`），`data-code-input-stage="failed"`；这时不能编辑。
+- Monaco 加载失败：换成普通文本框（nb-ui `Textarea`，高度随内容），照样能改、照样交回改动；下面一行写原因（`role="alert"`），`data-code-input-stage="failed"`。没有语法配色与查找。
 
 ## 不支持
 

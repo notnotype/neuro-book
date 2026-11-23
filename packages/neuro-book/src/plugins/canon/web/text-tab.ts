@@ -17,7 +17,7 @@ import type {ConflictChoice, ConflictItem} from "./components/TextConflictDialog
 import type {EditorBlock} from "./components/EntryTextEditor.vue";
 import {failureText} from "./failures";
 import type {CanonNotices} from "./notices";
-import {addAfter, allowed, changedCount, isNewKey, isRemoved, mergeUp, removeBlock, restoreBlock, setText, splitAt, SUBMIT_OPS_MAX, textOf} from "./text-draft";
+import {addAfter, allowed, changedCount, isNewKey, isRemoved, mergeUp, own, removeBlock, restoreBlock, setText, splitAt, SUBMIT_OPS_MAX, textOf} from "./text-draft";
 import type {Blocked, Conflict} from "./text-draft";
 import {SUBMIT_ATTEMPTS} from "./text-drafts";
 import type {BlockProblem, Blocker, SubmitResult, TextDraftSession} from "./text-drafts";
@@ -47,9 +47,7 @@ export interface TextTabOptions {
 export interface TextTab {
     /** 在编辑（有稿，可以没有改动）。 */
     readonly editing: ComputedRef<boolean>;
-    /** 有稿时这一页该停在的位置（稿开始时内核解析后的位置）。 */
-    readonly lockedAt: ComputedRef<ReadPosition | null>;
-    /** 有没提交的内容：剧情的入口这时不可用。 */
+    /** 有没提交的内容。 */
     readonly dirty: ComputedRef<boolean>;
     /** 编辑视图的属性。 */
     readonly editor: ComputedRef<{
@@ -65,7 +63,8 @@ export interface TextTab {
     readonly conflicts: ComputedRef<readonly ConflictItem[]>;
     /** 冲突对话框开着。 */
     readonly asking: ShallowRef<boolean>;
-    start(): Promise<void>;
+    /** 进编辑；返回没进去的原因（读不出块），空串是进去了。没进去时人还在阅读视图，由宿主写在那里。 */
+    start(): Promise<string>;
     update(key: string, text: string): void;
     add(after: string | null): void;
     split(key: string, offset: number): void;
@@ -93,9 +92,9 @@ export function useTextTab(options: TextTabOptions): TextTab {
     /** 整批的说明：最近一次提交没发出去的原因、开始编辑时读不出块的原因。作者再动一下就收起。 */
     const message = shallowRef("");
     const asking = shallowRef(false);
-    const choices = reactive<Record<string, ConflictChoice>>({});
-
-    const blockerText = (blocker: Blocker): string => text(blocker === "chapter-not-found" ? "textEdit.blockerChapter" : blocker === "line-not-found" ? "textEdit.blockerLine" : blocker === "entry-missing" ? "textEdit.blockerEntry" : "textEdit.blockerUnavailable");
+    /** 作者在对话框里选到一半的选择，按冲突的键（块 id 可以是任何字符串，不用普通对象当字典）。 */
+    const choices = reactive(new Map<string, ConflictChoice>());
+    const blockerText = (blocker: Blocker): string => text(blocker === "chapter-not-found" ? "textEdit.blockerChapter" : blocker === "line-not-found" ? "textEdit.blockerLine" : blocker === "entry-missing" ? "textEdit.blockerEntry" : blocker === "too-large" ? "textEdit.blockerTooLarge" : "textEdit.blockerUnavailable");
 
     const reason = (blocked: Blocked | null): string => {
         if (blocked === null) return "";
@@ -121,9 +120,9 @@ export function useTextTab(options: TextTabOptions): TextTab {
         if (read === null) {
             // 读不出块：只有稿里动过的文字可看。
             const frozen = text("textEdit.blockedGone");
-            return draft.order.filter((key) => draft.texts[key] !== undefined || isRemoved(draft, key)).map((key) => ({
+            return draft.order.filter((key) => own(draft.texts, key) !== undefined || isRemoved(draft, key)).map((key) => ({
                 key,
-                text: draft.texts[key] ?? draft.base[key] ?? "",
+                text: own(draft.texts, key) ?? own(draft.base, key) ?? "",
                 state: isNewKey(key) ? "new" : isRemoved(draft, key) ? "removed" : "edited",
                 story: false,
                 blocked: {edit: frozen, remove: frozen, split: frozen, merge: frozen, add: frozen},
@@ -133,15 +132,15 @@ export function useTextTab(options: TextTabOptions): TextTab {
         const can = allowed(draft, read);
         return draft.order.map((key): EditorBlock => {
             const info = read.blocks.find((block) => block.id === key);
-            const allow = can.blocks[key]!;
-            const blockState: EditorBlock["state"] = isNewKey(key) ? "new" : isRemoved(draft, key) ? "removed" : info === undefined ? "gone" : draft.base[key] !== undefined ? "edited" : "same";
+            const allow = can.blocks.get(key)!;
+            const blockState: EditorBlock["state"] = isNewKey(key) ? "new" : isRemoved(draft, key) ? "removed" : info === undefined ? "gone" : own(draft.base, key) !== undefined ? "edited" : "same";
             return {
                 key,
                 text: textOf(draft, read, key),
                 state: blockState,
                 story: info !== undefined && (info.fixed.length > 0 || info.write !== "init"),
                 blocked: {edit: reason(allow.edit), remove: reason(allow.remove), split: reason(allow.split), merge: reason(allow.mergeUp), add: reason(allow.addAfter)},
-                problem: problemText(state.problems[key]),
+                problem: problemText(own(state.problems, key)),
             };
         });
     });
@@ -149,8 +148,14 @@ export function useTextTab(options: TextTabOptions): TextTab {
     const dirty = computed(() => state.draft !== null && (changedCount(state.draft) > 0 || state.draft.pending !== undefined));
 
     const conflictItem = (conflict: Conflict): ConflictItem => {
-        if (conflict.kind === "changed") return {id: conflict.key, kind: "changed", mine: conflict.mine, theirs: conflict.theirs, choice: choices[conflict.key] ?? null};
-        if (conflict.kind === "gone") return {id: conflict.key, kind: "gone", mine: conflict.mine, theirs: null, choice: choices[conflict.key] ?? null};
+        const chosen = choices.get(conflict.key) ?? null;
+        if (conflict.kind === "changed") return {id: conflict.key, kind: "changed", mine: conflict.mine, theirs: conflict.theirs, choice: chosen};
+        if (conflict.kind === "gone") return {id: conflict.key, kind: "gone", mine: conflict.mine, theirs: null, choice: chosen};
+        if (conflict.kind === "rerouted") {
+            // 拆过、并过的块没有能自动做的选择：只说明情况，作者回去整理。
+            if (conflict.manual) return {id: conflict.key, kind: "manual", mine: conflict.mine, theirs: conflict.theirs, reason: text("textEdit.conflictManual"), choice: null};
+            return {id: conflict.key, kind: "rerouted", mine: conflict.mine, theirs: conflict.theirs, reason: text("textEdit.conflictRerouted"), choice: chosen};
+        }
         // 现在做不了的只有一个选择，不用作者再点一次。
         return {id: conflict.key, kind: "locked", mine: null, theirs: state.read?.blocks.find((block) => block.id === conflict.key)?.source ?? null, reason: text(conflict.remove ? "textEdit.conflictLockedRemove" : "textEdit.conflictLockedEdit"), choice: "theirs"};
     };
@@ -161,10 +166,13 @@ export function useTextTab(options: TextTabOptions): TextTab {
             case "published":
                 if (result.revision !== undefined) options.notices.show({revision: result.revision, title});
                 break;
-            case "conflicts":
-                for (const key of Object.keys(choices)) delete choices[key];
+            case "conflicts": {
+                // 上一轮选过、这一轮还在的冲突留着选择；不在了的丢掉。
+                const still = new Set(state.conflicts.map((conflict) => conflict.key));
+                for (const key of [...choices.keys()]) if (!still.has(key)) choices.delete(key);
                 asking.value = true;
                 break;
+            }
             case "too-many":
                 message.value = text("textEdit.resultTooMany", {count: result.count, max: SUBMIT_OPS_MAX});
                 break;
@@ -202,7 +210,13 @@ export function useTextTab(options: TextTabOptions): TextTab {
     };
     /** 发一次提交。`settled` 是作者刚在冲突里选完：这时即使已经没有改动也要走一遍，让会话收场、回到阅读视图。 */
     const submit = async (settled = false): Promise<void> => {
-        if (state.draft === null || state.phase !== "idle" || options.blocked() !== "" || (!settled && !dirty.value)) return;
+        if (state.draft === null || state.phase === "submitting") return;
+        // 现在写不了（只读、别人独占、断开、条目已删除）：用键盘提交的人看不到按钮上的原因，写在那一行。
+        if (options.blocked() !== "") {
+            message.value = options.blocked();
+            return;
+        }
+        if (!settled && !dirty.value) return;
         message.value = "";
         const sent = title();
         report(await session.submit(sent), sent);
@@ -213,16 +227,17 @@ export function useTextTab(options: TextTabOptions): TextTab {
         report(await session.confirm(), sent);
     };
 
-    // 连上以后：等着结局的再确认一次，读不出块的再读一次。
+    // 连上以后：断着的时候没读到暂存的现在读，等着结局的再确认一次，读不出块的再读一次。
     watch(() => options.world.connection.value, (now) => {
-        if (now !== "online" || state.draft === null) return;
-        if (state.phase === "confirming") void retry();
+        if (now !== "online") return;
+        if (!state.loaded) void session.reload();
+        else if (state.draft === null) return;
+        else if (state.phase === "confirming") void retry();
         else if (state.blocker === "unavailable") void session.reload();
     });
 
     return {
         editing: computed(() => state.draft !== null),
-        lockedAt: computed(() => state.draft?.at ?? null),
         dirty,
         editor: computed(() => ({
             blocks: blocks.value,
@@ -239,33 +254,40 @@ export function useTextTab(options: TextTabOptions): TextTab {
         start: async () => {
             message.value = "";
             const failed = await session.begin(options.position());
-            if (failed !== null) message.value = blockerText(failed);
+            if (state.draft === null) return blockerText(failed ?? "unavailable");
             // 没有主文字：先放一个空的新块，进来就能写（空的新块不算改动，也不会发出去）。
-            else if (state.draft !== null && state.draft.order.length === 0) session.edit((draft) => addAfter(draft, null).draft);
+            if (state.draft.order.length === 0) session.edit((draft) => addAfter(draft, null).draft);
+            return "";
         },
         update: (key, value) => edit((draft, read) => setText(draft, read, key, value)),
         add: (after) => edit((draft) => addAfter(draft, after).draft),
         split: (key, offset) => edit((draft, read) => splitAt(draft, read, key, offset).draft),
         merge: (key) => edit((draft, read) => mergeUp(draft, read, key)?.draft ?? draft),
         remove: (key) => edit((draft, read) => removeBlock(draft, read, key)),
-        restore: (key) => edit((draft) => restoreBlock(draft, key)),
+        restore: (key) => edit((draft, read) => restoreBlock(draft, read, key)),
         flush: () => void session.flush(),
         leave: async () => {
             message.value = "";
             asking.value = false;
-            await session.discard();
+            // 存下来的稿删不掉时不离开（否则重开以后它又回来了）：留在编辑并写明。
+            if (!(await session.discard())) message.value = text("textEdit.resultDiscardFailed");
         },
         submit: () => submit(),
         retry,
         takeOver: () => session.takeOver(),
         adopt: () => session.adopt(),
         choose: (id, choice) => {
-            choices[id] = choice;
+            choices.set(id, choice);
         },
         confirmConflicts: async () => {
-            for (const conflict of [...state.conflicts]) session.choose(conflict, conflict.kind === "locked" ? "theirs" : choices[conflict.key] ?? "theirs");
+            const picked = [...state.conflicts];
+            // 这一轮里有与别的块换过文字的块、有现在做不了而撤掉的动作：稿的结构变了，让作者看过再提交，不接着发。
+            const review = picked.some((conflict) => conflict.structural === true || conflict.kind === "locked");
+            for (const conflict of picked) session.choose(conflict, conflict.kind === "locked" ? "theirs" : choices.get(conflict.key) ?? "theirs");
+            choices.clear();
             asking.value = false;
-            await submit(true);
+            if (review) message.value = text("textEdit.resultReview");
+            else await submit(true);
         },
         storyWrite: async (request) => {
             for (let round = 0; round < SUBMIT_ATTEMPTS; round += 1) {

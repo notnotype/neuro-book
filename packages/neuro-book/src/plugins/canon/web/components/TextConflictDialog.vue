@@ -10,7 +10,7 @@ export type ConflictChoice = "mine" | "theirs" | "keep" | "drop";
 
 export interface ConflictItem {
     readonly id: string;
-    readonly kind: "changed" | "gone" | "locked";
+    readonly kind: "changed" | "gone" | "locked" | "rerouted" | "manual";
     readonly mine: string | null;
     readonly theirs: string | null;
     readonly reason?: string;
@@ -27,7 +27,9 @@ const emit = defineEmits<{
 const text = useCanonText();
 
 const complete = computed(() => props.items.every((item) => item.choice !== null));
-/** 点过“提交”而还有没选的：列表下面写一句；选全了或重新打开时收起。 */
+/** 有要回去整理的块（没有可选的）：这一轮发不出去，只能“回去再改”。 */
+const needsBack = computed(() => props.items.some((item) => item.kind === "manual"));
+/** 点过“提交”而发不出去（还有没选的、有要回去整理的）：列表下面写一句；选全了或重新打开时收起。 */
 const tried = shallowRef(false);
 watch(() => props.open, () => {
     tried.value = false;
@@ -62,7 +64,8 @@ const rows = computed(() => props.items.map((item) => ({item, diff: item.mine !=
     >
         <ul class="text-conflicts" data-text-conflicts>
             <li v-for="{item, diff} in rows" :key="item.id" class="text-conflicts__row" :data-conflict="item.id" :data-conflict-kind="item.kind">
-                <template v-if="item.kind === 'changed'">
+                <p v-if="item.kind === 'rerouted' || item.kind === 'manual'" class="text-conflicts__note">{{ item.reason }}</p>
+                <template v-if="item.kind === 'changed' || item.kind === 'rerouted'">
                     <button type="button" class="text-conflicts__pick" :aria-pressed="item.choice === 'theirs'" data-pick="theirs" @click="emit('choose', item.id, 'theirs')">
                         <span class="text-conflicts__name">{{ text("textEdit.conflictTheirs") }}</span>
                         <span v-if="diff !== null" class="text-conflicts__text"><span class="text-conflicts__same">{{ diff.head }}</span><mark class="text-conflicts__diff">{{ diff.theirs }}</mark><span class="text-conflicts__same">{{ diff.tail }}</span></span>
@@ -84,7 +87,7 @@ const rows = computed(() => props.items.map((item) => ({item, diff: item.mine !=
                         <span class="text-conflicts__text">{{ item.mine }}</span>
                     </button>
                 </template>
-                <template v-else>
+                <template v-else-if="item.kind === 'locked'">
                     <button type="button" class="text-conflicts__pick text-conflicts__pick--wide" :aria-pressed="item.choice === 'theirs'" data-pick="theirs" @click="emit('choose', item.id, 'theirs')">
                         <span class="text-conflicts__name">{{ text("textEdit.conflictUndo") }}</span>
                         <span class="text-conflicts__text">{{ item.reason }}</span>
@@ -93,7 +96,9 @@ const rows = computed(() => props.items.map((item) => ({item, diff: item.mine !=
                 </template>
             </li>
         </ul>
-        <p v-if="tried && !complete" class="mt-3 text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-text-conflicts-incomplete>{{ text("textEdit.conflictIncomplete") }}</p>
+        <Transition name="text-conflicts-hint">
+            <p v-if="tried && !complete" class="mt-3 text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-text-conflicts-incomplete>{{ text(needsBack ? "textEdit.conflictNeedsBack" : "textEdit.conflictIncomplete") }}</p>
+        </Transition>
     </Dialog>
 </template>
 
@@ -127,7 +132,12 @@ const rows = computed(() => props.items.map((item) => ({item, diff: item.mine !=
     border: 1px solid var(--divider);
     border-radius: var(--radius-control);
     text-align: left;
-    transition: border-color var(--motion-fast), background-color var(--motion-fast);
+    transition: border-color var(--motion-fast) var(--ease-layout), background-color var(--motion-fast) var(--ease-layout);
+}
+.text-conflicts__note {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
 }
 .text-conflicts__pick[aria-pressed="true"] {
     border-color: var(--accent-main);
@@ -154,9 +164,12 @@ const rows = computed(() => props.items.map((item) => ({item, diff: item.mine !=
     background: color-mix(in srgb, var(--status-warning) 22%, transparent);
     color: var(--text-main);
 }
-@media (prefers-reduced-motion: reduce) {
-    .text-conflicts__pick {
-        transition: none;
-    }
+.text-conflicts-hint-enter-active,
+.text-conflicts-hint-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+.text-conflicts-hint-enter-from,
+.text-conflicts-hint-leave-to {
+    opacity: 0;
 }
 </style>

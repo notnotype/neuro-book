@@ -355,7 +355,8 @@ describe("author-ui 输出 46：提交的结局不明", () => {
         author.faults.lose = "before";
         expect((await session.submit("改主文字")).status).toBe("unknown");
         expect(await sources(author.canon, entry)).toEqual(["A", "B"]);
-        expect((await session.confirm()).status).toBe("published");
+        // 作者没点“再试”、又按了一次提交（标题也换了）：发出去的还是冻结着的那个请求。
+        expect((await session.submit("换了标题")).status).toBe("published");
         expect(await sources(author.canon, entry)).toEqual(["A", "B", "新块"]);
         expect(await revisionTitles(author.canon, entry)).toEqual(["建条目", "改主文字"]);
 

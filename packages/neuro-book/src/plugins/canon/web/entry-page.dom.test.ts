@@ -30,6 +30,7 @@ import {CANON_COMPONENTS_POINT} from "../shared/contracts";
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import EntryPage from "./components/EntryPage.vue";
+import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
@@ -838,7 +839,7 @@ describe("写入", () => {
         expect(await initText(other.canon, id)).toEqual(["第一块。", "紧跟在剧情加的那一块后面。", "第二块。"]);
     });
 
-    it("剧情的入口只在选了某一章时出现；“这一块在剧情里变了”保存时别处刚改过这一块：写明并列出现在的原文、不盖掉，再保存才记下；有没提交的主文字时入口不可用", async () => {
+    it("剧情的入口只在选了某一章时出现；“这一块在剧情里变了”保存时别处刚改过这一块：写明并列出现在的原文、不盖掉，再保存才记下；编辑期间没有剧情的入口", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         star.init.text = [{id: "b1", source: "第一块。"}];
@@ -880,9 +881,156 @@ describe("写入", () => {
         // 是第 2 章的剧情变化：第 1 章末尾读到的还是设定。
         expect(await textAt(other.canon, id, {kind: "chapter", chapter: "1", edge: "end"})).toEqual(["第一块（别处改了设定）。"]);
 
-        // 有没提交的主文字时剧情的入口不可用（回到阅读视图要先提交或放弃，这里看的是编辑期间它不在页上，以及入口的原因）。
+        // 编辑期间阅读视图不在页上，所以没有剧情的入口；取消以后它们回来。
         await startEditing(wrapper);
-        expect(wrapper.find("[data-block-actions]").exists()).toBe(false);
+        expect([wrapper.find("[data-text-edit]").exists(), wrapper.find("[data-block-actions]").exists(), wrapper.find("[data-story-add]").exists()]).toEqual([false, false, false]);
+        await wrapper.get("[data-text-cancel]").trigger("click");
+        await waitUntil("剧情的入口回来", () => wrapper.find("[data-block-actions]").exists() && wrapper.find("[data-story-add]").exists());
+    });
+
+    it("别的调用方独占写入时：提交点不了、原因写在那一行；用保存命令提交也不发、写明原因；释放以后连按两次保存只发一次", async () => {
+        const {other, open, page} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[0]!, "第一块（改）。");
+        await waitUntil("有改动", () => page.uncommitted!(id));
+
+        const lease = await other.canon.hold("第 3 章记账");
+        if (!lease.ok) throw new Error(JSON.stringify(lease.failure));
+        await waitUntil("提交点不了", () => wrapper.get("[data-text-submit]").attributes("disabled") !== undefined);
+        expect(wrapper.get("[data-text-submit-blocked]").text()).toContain("第 3 章记账");
+        await page.commit!(id);
+        await waitUntil("写明原因", () => wrapper.find("[data-text-message]").exists());
+        expect(wrapper.get("[data-text-message]").text()).toContain("第 3 章记账");
+        expect([await initText(other.canon, id), page.uncommitted!(id)]).toEqual([["第一块。"], true]);
+
+        await lease.value.release();
+        await waitUntil("能提交了", () => wrapper.get("[data-text-submit]").attributes("disabled") === undefined);
+        await Promise.all([page.commit!(id), page.commit!(id)]);
+        expect(await initText(other.canon, id)).toEqual(["第一块（改）。"]);
+        const revisions = await other.canon.call("revisions", {filter: {entry: id}});
+        expect(revisions.ok && revisions.value.items.map((item) => item.title)).toEqual(["改星瑕的主文字", "写入"]);
+    });
+
+    it("条目在别处被删掉、稿还在：稿列在“已删除”下面，看得到、提交不可用并写原因，能放弃", async () => {
+        const {other, open, page} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[0]!, "还没提交的一块。");
+        await waitUntil("有改动", () => page.uncommitted!(id));
+
+        const status = await other.canon.call("status", {});
+        if (!status.ok) throw new Error("读不到");
+        expect((await other.canon.call("editEntries", {input: {requestId: `elsewhere-${nextId()}`, by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "别处删", ops: [{op: "delete", entry: id}]}})).ok).toBe(true);
+        await waitUntil("已删除", () => wrapper.text().includes("这个条目已删除"));
+        await waitUntil("稿还列着", () => areas(wrapper).length === 1);
+        expect([areas(wrapper)[0]!.value, page.uncommitted!(id)]).toEqual(["还没提交的一块。", true]);
+        expect(wrapper.get("[data-text-submit]").attributes("disabled")).toBeDefined();
+        expect(wrapper.get("[data-text-submit-blocked]").text()).toBe("条目已删除，恢复以后才能提交");
+        await page.commit!(id);
+        await waitUntil("写明原因", () => wrapper.find("[data-text-message]").exists());
+        expect(wrapper.get("[data-text-message]").text()).toBe("条目已删除，恢复以后才能提交");
+
+        await wrapper.get("[data-text-discard]").trigger("click");
+        await waitUntil("确认放弃", () => document.body.textContent?.includes("放弃没提交的修改？") === true);
+        dialogButton("放弃").click();
+        await waitUntil("稿没了", () => !wrapper.find("[data-text-editor]").exists());
+        expect([page.uncommitted!(id), wrapper.text().includes("这个条目已删除")]).toEqual([false, true]);
+    });
+
+    it("有稿时这一页停在稿开始的位置、按实际读：位置与“按计划”换了也不换读取；稿开始的那一章没了：只列动过的文字，只能放弃，放弃以后才跟到现在的位置", async () => {
+        const {other, open, page} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "她有 {panel.存款} 元。"}, {id: "b2", source: "第二块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        await publish(other.canon, [change(id, "1", "领了工资", 200), change(id, "2", "买了书", -300)]);
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        state.position = "1:end";
+        await waitUntil("第 1 章末尾的值", () => wrapper.find("[data-value]").exists() && valueText(wrapper) === "1,200");
+        await startEditing(wrapper);
+        expect(areas(wrapper).length).toBe(2);
+        typeInto(areas(wrapper)[1]!, "改过的第二块。");
+        await waitUntil("有改动", () => page.uncommitted!(id));
+
+        // 标签的状态换了位置、开了“按计划”（页头的控件锁着，这里直接改状态：等于恢复出来的状态与稿不一致）。
+        state.position = "2:end";
+        state.planned = true;
+        state.tab = "data:panel";
+        await waitUntil("数据分页", () => wrapper.find("[data-edit='panel.存款']").exists());
+        // 读的还是第 1 章末尾；按实际读，所以就地改可用（按计划时不可用）。
+        expect([wrapper.text().includes("1,200"), wrapper.text().includes("900")]).toEqual([true, false]);
+        expect(wrapper.get("[data-edit='panel.存款']").attributes("disabled")).toBeUndefined();
+
+        // 活页夹里拿掉第 1 章：稿对不上世界了。
+        await writeFile(join(tmp, "Book", "manuscripts.binder", "binder.xml"), '<binder nextId="3"><chapter id="2" title="打工"/></binder>');
+        await waitUntil("章表变了", async () => {
+            const chapters = await other.canon.call("chapters", {});
+            return chapters.ok && chapters.value.items.length === 1;
+        }, {timeoutMs: 10_000});
+        state.tab = "text";
+        await waitUntil("编辑视图", () => wrapper.find("[data-text-editor]").exists());
+        await page.commit!(id);
+        await waitUntil("写明原因", () => wrapper.find("[data-text-message]").exists());
+        expect(wrapper.get("[data-text-message]").text()).toContain("开始编辑时的那一章已经不在了");
+        // 只列动过的那一块，不能改、不能加块、不能提交。
+        expect([areas(wrapper).map((area) => [area.value, area.readOnly]), wrapper.find("[data-text-add]").exists()]).toEqual([[["改过的第二块。", true]], false]);
+        expect(wrapper.get("[data-text-submit]").attributes("disabled")).toBeDefined();
+
+        await wrapper.get("[data-text-discard]").trigger("click");
+        await waitUntil("确认放弃", () => document.body.textContent?.includes("放弃没提交的修改？") === true);
+        dialogButton("放弃").click();
+        await waitUntil("回到阅读视图，读现在的位置", () => wrapper.find("[data-value]").exists() && valueText(wrapper) !== "1,200");
+        expect([page.uncommitted!(id), wrapper.find("[data-position-locked]").exists()]).toEqual([false, false]);
+    });
+
+    it("同一个条目在两个编辑组里各开一页：先挂的那一页卸载以后保存命令照样提交；一页都没挂时保存报没保存成功、稿还在", async () => {
+        const {other, open, page} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: "第一块。"}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const first = await open(id);
+        const second = await open(id);
+        first.state.tab = "text";
+        second.state.tab = "text";
+        await startEditing(second.wrapper);
+        typeInto(areas(second.wrapper)[0]!, "第一块（改）。");
+        await waitUntil("有改动", () => page.uncommitted!(id));
+
+        second.wrapper.unmount();
+        await waitUntil("另一页也在编辑", () => areas(first.wrapper).length === 1);
+        await page.commit!(id);
+        expect(await initText(other.canon, id)).toEqual(["第一块（改）。"]);
+
+        await startEditing(first.wrapper);
+        typeInto(areas(first.wrapper)[0]!, "第一块（再改）。");
+        await waitUntil("有改动", () => page.uncommitted!(id));
+        first.wrapper.unmount();
+        await expect(page.commit!(id)).rejects.toThrow();
+        expect([await initText(other.canon, id), page.uncommitted!(id)]).toEqual([["第一块（改）。"], true]);
+    });
+
+    it("点“编辑”时读不出块：人还在阅读视图，原因写在页头下面", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await waitUntil("阅读视图", () => wrapper.find("[data-text-edit]").exists());
+        await venue!.endProject();
+        await waitUntil("横幅", () => wrapper.text().includes("世界已断开"), {timeoutMs: 10_000});
+        // 断开以后“编辑”点不了；这里是点下去的那一刻刚断开：阅读视图已经发出了“编辑”。
+        wrapper.findComponent(EntryText).vm.$emit("edit");
+        await waitUntil("写明原因", () => wrapper.find("[data-entry-action-error]").exists());
+        expect([wrapper.get("[data-entry-action-error]").text(), wrapper.find("[data-text-editor]").exists()]).toEqual(["读不到最新的文字", false]);
     });
 
     it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {

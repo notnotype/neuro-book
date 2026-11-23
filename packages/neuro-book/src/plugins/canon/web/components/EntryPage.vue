@@ -83,6 +83,8 @@ defineSlots<{
     default?(): unknown;
     /** 页头之下、分页内容之上：确认条（各分页共用这一处）。 */
     bar?(): unknown;
+    /** 条目已删除时，“已删除”与恢复按钮下面：这个条目还留着的没提交的主文字。 */
+    deleted?(): unknown;
 }>();
 
 const blockedReason = computed(() => (props.editReason === "" ? undefined : props.editReason));
@@ -136,6 +138,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
             <p class="mt-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleted") }}</p>
             <Button v-if="props.editable" class="mt-3" size="sm" :disabled="blockedReason !== undefined" :title="blockedReason" data-entry-restore @click="emit('restore')">{{ text("entry.restore") }}</Button>
             <p v-if="props.actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ props.actionError }}</p>
+            <slot name="deleted" />
         </div>
         <template v-else>
             <!-- 窄屏上页头换成几行，吸顶会占掉大半个视口，只在宽屏吸顶。 -->
