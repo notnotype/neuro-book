@@ -155,6 +155,17 @@ describe("输出 1：起拖门槛", () => {
         expect(t.published).toEqual([]);
     });
 
+    it("状态表：待起拖时收到 pointercancel，回到空闲，没有结束回调，之后的移动不起拖", () => {
+        const t = setup();
+        t.gesture.press({pointerId: 1, pointerType: "mouse", point: {x: 0, y: 0}, source: "row"});
+        t.gesture.pointerCancel(1);
+        expect(t.gesture.idle).toBe(true);
+        expect(t.ends).toEqual([]);
+        expect(t.log).toEqual(["armed", "disarmed"]);
+        t.gesture.move(1, {x: 50, y: 0}, 1);
+        expect(t.published).toEqual([]);
+    });
+
     it("触摸按住 200 毫秒起拖，坐标是抖动后的最后位置", () => {
         const t = setup();
         t.gesture.press({pointerId: 1, pointerType: "touch", point: {x: 50, y: 50}, source: "row"});
@@ -324,6 +335,23 @@ describe("输出 6：放下", () => {
         expect(t.published.slice(shown)).toEqual([null]);
     });
 
+    it("`commitsUnderPointer` 为真：落点撤下期间（输出 12）原地松手也不提交，结束为 no-action", () => {
+        const t = setup({scroll: "withdraw", commitsUnderPointer: () => true});
+        t.grab({x: 50, y: 0});
+        t.gesture.scrolled();
+        t.gesture.release(1, {x: 50, y: 0});
+        expect(t.commits).toEqual([]);
+        expect(t.ends.map(({end}) => end)).toEqual([{kind: "no-action"}]);
+    });
+
+    it("`commitsUnderPointer` 为真：松手处的落点 `actionKey` 为 null（只显示）时不提交，结束为 no-action", () => {
+        const t = setup({commitsUnderPointer: () => true});
+        t.grab({x: 50, y: 0});
+        t.gesture.release(1, {x: 250, y: 0});
+        expect(t.commits).toEqual([]);
+        expect(t.ends.map(({end}) => end)).toEqual([{kind: "no-action"}]);
+    });
+
     it("一场只提交一次：放下之后再松手没有效果", () => {
         const t = setup();
         t.grab({x: 50, y: 0});
@@ -347,6 +375,21 @@ describe("时序与寿命：收场顺序", () => {
         t.grab({x: 150, y: 3});
         t.gesture.cancel("escape");
         expect(t.ends[0]?.last).toEqual({source: "row", point: {x: 150, y: 3}, drop: {name: "b", key: "b"}, keyboard: false});
+    });
+});
+
+describe("失败与恢复：`commit` 抛出", () => {
+    it("异常从 release 抛出；抛出时一场已经收场（拆了监听、反馈撤下、回到空闲），下一场照常开始", () => {
+        const t = setup({commit: () => {
+            throw new Error("commit failed");
+        }});
+        t.grab({x: 50, y: 0});
+        t.log.length = 0;
+        expect(() => t.gesture.release(1, {x: 50, y: 0})).toThrow("commit failed");
+        expect(t.gesture.idle).toBe(true);
+        expect(t.log).toEqual(["released", "publish-null", "inactive", "ended"]);
+        t.grab({x: 150, y: 0});
+        expect(t.last()).toMatchObject({source: "row", drop: {name: "b"}});
     });
 });
 
@@ -482,7 +525,7 @@ describe("输出 10：按键归属", () => {
         const t = setup();
         t.grab({x: 50, y: 0});
         const count = t.published.length;
-        for (const key of ["ArrowLeft", "ArrowDown", "Tab", "Enter", " ", "Home", "End"]) {
+        for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab", "Enter", " ", "Home", "End"]) {
             expect(t.gesture.key({key, shift: false})).toBe(true);
         }
         expect(t.published).toHaveLength(count);
@@ -704,8 +747,16 @@ describe("输出 15：键盘拖动", () => {
 
     function keyboardSetup(overrides: Partial<DragGestureHost<string, Drop, Region>> = {}, start: {readonly region: number; readonly at: number | GridDropPoint} = {region: 0, at: 0}) {
         const regions: Region[] = [];
+        let regionsCalls = 0;
         const t = setup({
-            keyboard: {regions: () => ["first", "second"], stops: (region) => STOPS[region], start: () => start},
+            keyboard: {
+                regions: () => {
+                    regionsCalls++;
+                    return ["first", "second"];
+                },
+                stops: (region) => STOPS[region],
+                start: () => start,
+            },
             resolve: ({point, region}) => {
                 if (region !== null) regions.push(region);
                 return zoneAt(point);
@@ -713,7 +764,7 @@ describe("输出 15：键盘拖动", () => {
             ...overrides,
         });
         const press = (key: string, shift = false) => t.gesture.key({key, shift});
-        return {...t, press, regions};
+        return {...t, press, regions, regionsCalls: () => regionsCalls};
     }
 
     it("拿起停在起点，状态标明是键盘拖动；不取指针捕获", () => {
@@ -726,6 +777,28 @@ describe("输出 15：键盘拖动", () => {
         expect(t.gesture.keyboard).toBe(true);
         expect(pointers).toEqual([null]);
         expect(t.last()).toMatchObject({point: {x: 10, y: 0}, keyboard: true});
+    });
+
+    it("输入 activate：键盘拿起时收到 keyboard 为真、at 为 null", () => {
+        const seen: unknown[] = [];
+        const t = keyboardSetup({activate: (_source, keyboard, at) => {
+            seen.push({keyboard, at});
+            return true;
+        }});
+        expect(t.gesture.startKeyboard("row")).toBe(true);
+        expect(seen).toEqual([{keyboard: true, at: null}]);
+    });
+
+    it("状态表：区域列表只在拿起时取一次，Tab、方向键与放下都不再取", () => {
+        const t = keyboardSetup();
+        t.gesture.startKeyboard("row");
+        t.press("ArrowRight");
+        t.press("Tab");
+        t.press("ArrowDown");
+        t.press("Tab", true);
+        t.press("Enter");
+        expect(t.ends).toHaveLength(1);
+        expect(t.regionsCalls()).toBe(1);
     });
 
     it("Tab 与 Shift+Tab 循环区域，停在区域的第一个位置；判定拿到停在的区域", () => {
@@ -755,12 +828,31 @@ describe("输出 15：键盘拖动", () => {
         expect(t.last()?.point).toEqual({x: 20, y: 0});
     });
 
-    it("起点可以是来源自己的坐标：直接 Enter 不移动", () => {
+    it("轴为 both：ArrowDown 与 ArrowRight 都前进一格，ArrowUp 与 ArrowLeft 都后退一格", () => {
+        const points = [{x: 10, y: 0}, {x: 20, y: 10}, {x: 30, y: 20}];
+        const t = keyboardSetup({keyboard: {regions: () => ["first"], stops: () => ({axis: "both", points}), start: () => ({region: 0, at: 0})}});
+        t.gesture.startKeyboard("row");
+        t.press("ArrowDown");
+        expect(t.last()?.point).toEqual(points[1]);
+        t.press("ArrowRight");
+        expect(t.last()?.point).toEqual(points[2]);
+        t.press("ArrowUp");
+        expect(t.last()?.point).toEqual(points[1]);
+        t.press("ArrowLeft");
+        expect(t.last()?.point).toEqual(points[0]);
+    });
+
+    it("起点可以是来源自己的坐标：直接 Enter 不移动；没提交也在下一帧还焦点", () => {
         const t = keyboardSetup({}, {region: 0, at: {x: 250, y: 0}});
         t.gesture.startKeyboard("row");
         expect(t.last()?.drop?.name).toBe("keep");
+        t.log.length = 0;
         t.press("Enter");
         expect(t.commits).toEqual([]);
+        expect(t.ends.map(({end}) => end)).toEqual([{kind: "no-action"}]);
+        expect(t.log).not.toContain("focus");
+        t.clock.frame();
+        expect(t.log.at(-1)).toBe("focus");
     });
 
     it("Enter 按放下规则提交；焦点在下一帧还，不吞 click", () => {
