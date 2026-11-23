@@ -96,6 +96,18 @@ function winningScope(event: PointerEvent, kind: SashPointerKind): {entry: SashS
     return null;
 }
 
+/**
+ * 根在屏幕上的盒比布局盒，每轴一个；量不到（没有布局、尺寸为零）时按 1。
+ *
+ * 只换算缩放：祖先带旋转或斜切时 client rect 是外接框，比例与方向都不对，这种宿主不支持。`offsetWidth` 取整到整数 px，
+ * 没缩放的根也会量出约 `0.5 / 宽` 的偏差，所以两者差不到 1px 时按没缩放算，普通页面的位移逐像素不变。
+ */
+function scaleOf(root: HTMLElement): {x: number; y: number} {
+    const rect = root.getBoundingClientRect();
+    const ratio = (shown: number, laid: number): number => (Number.isFinite(shown) && shown > 0 && laid > 0 && Math.abs(shown - laid) >= 1 ? shown / laid : 1);
+    return {x: ratio(rect.width, root.offsetWidth), y: ratio(rect.height, root.offsetHeight)};
+}
+
 /** 集合比较：两个 key 集合内容相同即视为没变，避免下游重复重建。 */
 function sameKeys(left: ReadonlySet<string>, right: readonly string[]): boolean {
     return left.size === right.length && right.every((key) => left.has(key));
@@ -113,6 +125,11 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
     let binding: SashGestureBinding<S, C> | null = null;
     let pointerId: number | null = null;
     let startPoint = {x: 0, y: 0};
+    /**
+     * 按下时冻结的根的缩放比：屏幕上的盒（client rect）比布局盒。祖先带 `transform: scale()` 时指针位移是屏幕 px，按它换回布局 px
+     * （docs/specs/ui/nested-grid.md“副作用与数据”）；不乘设备像素比，client 坐标本来就是 CSS px。
+     */
+    let pointerScale = {x: 1, y: 1};
     let frame = 0;
     let pendingDelta = {x: 0, y: 0};
     /** 键盘会话模式：Enter 与方向键互不混用（见 `keyboardSession`）。 */
@@ -320,7 +337,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         const source = current.session.source;
         current.session.cancel(reason);
-        settle(source, source !== "pointer" || reason === "unmount" || reason === "context-changed" || disposed ? "reset" : "refresh");
+        // 失焦不按最后坐标重新悬停：那会把刚放掉的页面级光标又拿回来（Spec `ui/nested-grid` 输出 16）。
+        settle(source, source !== "pointer" || reason === "unmount" || reason === "context-changed" || reason === "blur" || disposed ? "reset" : "refresh");
         current.onPreview(null);
         current.onCancel?.({reason, sashes: current.session.sashes});
     }
@@ -366,6 +384,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         pointerId = event.pointerId;
         startPoint = {x: event.clientX, y: event.clientY};
+        pointerScale = scaleOf(root);
         pendingDelta = {x: 0, y: 0};
         /**
          * 拖动期间自己持有全亮与光标：不等停留计时，也不因指针离开线盒而消失。
@@ -387,7 +406,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         lastPoint = {x: event.clientX, y: event.clientY};
         lastKind = pointerKindOf(event);
         if (binding !== null && pointerId === event.pointerId) {
-            pendingDelta = {x: event.clientX - startPoint.x, y: event.clientY - startPoint.y};
+            pendingDelta = {x: (event.clientX - startPoint.x) / pointerScale.x, y: (event.clientY - startPoint.y) / pointerScale.y};
             if (frame === 0) {
                 frame = view().requestAnimationFrame(flush);
             }
@@ -452,9 +471,15 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }
 
+    /**
+     * 窗口失焦：进行中的手势取消；只是悬停时也清掉光标与停留计时（Spec `ui/nested-grid` 输出 16）。不清的话切回来时
+     * 整页还是分隔线光标，线也会在失焦期间到点显现。
+     */
     function onWindowBlur(): void {
         if (binding !== null && binding.session.reason === null) {
             cancel("blur");
+        } else if (binding === null) {
+            resetHover();
         }
     }
 

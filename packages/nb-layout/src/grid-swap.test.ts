@@ -106,9 +106,23 @@ describe("宿主列的叶对不上呈现", () => {
     it("忽略之后有一边为空，或离开的叶还在别的过渡里：不交换，交回原因", () => {
         expect(planSwap({swap: swap(["hidden"], ["b1"]), items, previous, band: null, now: [], busy: new Set()})).toMatchObject({kind: "skip"});
         // a1 上一帧就在：不是换上来的。
-        expect(planSwap({swap: swap(["a2"], ["a1"]), items: frame("a1"), previous, band: null, now: [], busy: new Set()})).toMatchObject({kind: "skip"});
+        const notNew = planSwap({swap: swap(["a2"], ["a1"]), items: frame("a1"), previous, band: null, now: [], busy: new Set()});
+        expect(notNew).toMatchObject({kind: "skip"});
+        expect(notNew.kind === "skip" ? notNew.issue.params : null).toEqual({cause: "no-entering"});
         const busy = planSwap({swap: swap(["a1", "a2"], ["b1"]), items, previous, band: null, now: [], busy: new Set(["a2"])});
         expect(busy.kind === "skip" ? busy.issue.params : null).toEqual({cause: "busy", id: "a2"});
+    });
+
+    it("上一帧尺寸为 0 的叶不认作离开的（输出 67）：组里只剩有尺寸的那块", () => {
+        // a2 上一帧宽高为 0（宿主把它收到了零）：它不在画面上，没有可滑出去的东西。
+        const zeroed = previous.map((item) => (item.kind === "leaf" && item.node.id === "a2" ? {...item, rect: {...item.rect, height: 0}} : item));
+        const plan = planned({swap: swap(["a1", "a2"], ["b1"]), items, previous: zeroed, band: null, now: [], busy: new Set()});
+        expect(plan.band.groups.map((group) => [...group.leaves])).toEqual([["a1"], ["b1"]]);
+    });
+
+    it("这一帧还在的叶不认作离开的（输出 67）：组里只剩真的走了的那块", () => {
+        const plan = planned({swap: swap(["a1", "a2"], ["b1"]), items: frame("a2", "b1"), previous, band: null, now: [], busy: new Set()});
+        expect(plan.band.groups.map((group) => [...group.leaves])).toEqual([["a1"], ["b1"]]);
     });
 });
 

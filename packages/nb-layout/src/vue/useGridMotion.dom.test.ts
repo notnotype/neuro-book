@@ -252,6 +252,17 @@ describe("decideMotion 与交换（docs/specs/ui/nested-grid.md 的“交换”�
         expect(holding.kind === "move" && holding.swap === undefined && holding.swapSkipped === undefined).toBe(true);
     });
 
+    it("手势预览中、矩形没变时带着交换：静默放弃，不交换也不报 swap-skipped（时序“swap”）", () => {
+        const silent = (decision: ReturnType<typeof decideMotion>): boolean => decision.kind !== "move" || (decision.swap === undefined && decision.swapSkipped === undefined);
+        // 预览中：这一帧照样能换（两组都对得上），但不交换。
+        const previewing = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), previewing: true}), warmedColumn());
+        expect(silent(previewing)).toBe(true);
+        // 矩形没变：宿主列的叶对不上这一帧（a1、a2 还在），真去规划会报 no-leaving；这里什么都不做。
+        const unchanged = decideMotion(frame({items: column(["a1", "a2"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), warmedColumn());
+        expect(unchanged.kind).toBe("none");
+        expect(silent(unchanged)).toBe(true);
+    });
+
     /** 左右两列各放一组叶，中间是主区：两个区域各自的交换。 */
     function columns(left: readonly string[], right: readonly string[]): GridPlacementItem<unknown>[] {
         const side = (id: string, group: readonly string[]): GridNodeInput<string> => (group.length === 1

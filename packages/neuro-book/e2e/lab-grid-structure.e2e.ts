@@ -236,6 +236,52 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
         expect(ended - second).toBeGreaterThan(500);
     });
 
+    test("主线程繁忙（每帧忙等 40ms）时，一块的四条边一起到位，不动的那条边逐帧不挪（输出 36）", async ({page}) => {
+        await open(page, true);
+        type Edges = Record<"a" | "b" | "c", {left: number; right: number; top: number; bottom: number}>;
+        const edgesNow = (): Promise<Edges> => page.evaluate(() => {
+            const read = (id: string) => {
+                const {left, right, top, bottom} = document.querySelector(`[data-leaf='${id}']`)!.getBoundingClientRect();
+                return {left, right, top, bottom};
+            };
+            return {a: read("a"), b: read("b"), c: read("c")};
+        });
+        const before = await edgesNow();
+        // 点在页面里、第一帧就开始量；每一帧先忙等 40ms 再读，模拟主线程繁忙、掉帧。
+        const rows = await page.evaluate(async () => {
+            const read = (id: string) => {
+                const {left, right, top, bottom} = document.querySelector(`[data-leaf='${id}']`)!.getBoundingClientRect();
+                return {left, right, top, bottom};
+            };
+            const frames: Array<Record<"a" | "b" | "c", {left: number; right: number; top: number; bottom: number}>> = [];
+            document.querySelector<HTMLElement>("[data-structure-action='widen']")!.click();
+            for (let index = 0; index < 120; index += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const until = performance.now() + 40;
+                while (performance.now() < until) {
+                    // 忙等：不让出主线程。
+                }
+                frames.push({a: read("a"), b: read("b"), c: read("c")});
+                if (index > 2 && document.querySelector("[data-grid-scope] [data-moving]") === null) break;
+            }
+            return frames;
+        });
+        await settled(page);
+        const after = await edgesNow();
+        // 不动的边：前后一样、同一块的别的边动了（终点由宿主算，这里不预设谁让位）。
+        const still = (["a", "b", "c"] as const).flatMap((id) => (["left", "right", "top", "bottom"] as const)
+            .filter((edge) => Math.abs(after[id][edge] - before[id][edge]) < 0.5)
+            .filter(() => (["left", "right"] as const).some((edge) => Math.abs(after[id][edge] - before[id][edge]) > 1))
+            .map((edge) => ({id, edge})));
+        // a 的左边贴着网格根，不说明什么；要有一块让位的叶的一条横向边不动、另一条在动。
+        expect(still.some(({id, edge}) => id !== "a" && (edge === "left" || edge === "right"))).toBe(true);
+        // 确实量到了半路。
+        expect(rows.some((row) => Math.abs(row.a.right - before.a.right) > 1 && Math.abs(row.a.right - after.a.right) > 1)).toBe(true);
+        for (const row of rows) {
+            for (const {id, edge} of still) expect(Math.abs(row[id][edge] - before[id][edge]), `${id} 的 ${edge}`).toBeLessThan(0.5);
+        }
+    });
+
     test("减少动态效果：没有过渡", async ({page}) => {
         await open(page);
         await act(page, "widen");
@@ -367,12 +413,14 @@ test.describe("焦点与读屏顺序（输出“Tab 顺序”“移动焦点”�
         expect(await prevented(false)).toBe(true);
     });
 
-    test("F6 按树序在叶之间走，回到上次的焦点，最外层绕回；分隔线不是落点", async ({page}) => {
+    test("F6 按树序在叶之间走，回到上次的焦点、没有就是第一个可聚焦的元素，最外层绕回；分隔线不是落点（输出 129）", async ({page}) => {
         await open(page);
         const input = leaf(page, "b").locator("[data-structure-input]");
         await input.focus();
         await page.keyboard.press("F6");
         expect(await focusedIn(page)).toBe("c");
+        // c 里还没有过焦点：落在它第一个可聚焦的元素上。
+        await expect(button(page, "c", "first")).toBeFocused();
         await page.keyboard.press("F6");
         expect(await focusedIn(page)).toBe("a");
         await page.keyboard.press("F6");

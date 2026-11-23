@@ -119,11 +119,14 @@ test.describe("指针拖动", () => {
         expect(await log(page)).toEqual(["end:no-action"]);
     });
 
-    test("松手在窗口外：没有落点，不提交", async ({page}) => {
+    test("松手在窗口外：判定收到的 top 是 null（输出 5），没有落点，不提交", async ({page}) => {
         await open(page);
         await grabTo(page, sourceA(page), target(page, "first"), "first");
+        await expect(sessionRoot(page)).toHaveAttribute("data-session-top", "element");
         await page.mouse.move(-40, 300, {steps: 3});
         await expect(sessionRoot(page)).toHaveAttribute("data-session-over", "none");
+        // 夹具在 top 为 html、body 时同样没有落点：只看 `over` 分不出 top 是不是 null。
+        await expect(sessionRoot(page)).toHaveAttribute("data-session-top", "null");
         await page.mouse.up();
         await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
         expect(await log(page)).toEqual(["end:no-action"]);

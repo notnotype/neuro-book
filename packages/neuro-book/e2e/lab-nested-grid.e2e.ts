@@ -10,6 +10,7 @@
  * 6. 三个恢复场景：未知引用过滤保留原件、畸形快照拒绝、高版本快照拒绝
  * 7. 主题（nbook、macos）× 配色（light、dark）× 桌面与 390×844 画布的几何与一次键盘调整
  * 8. 分隔线的对齐只跟挪得动它的滚动，位置没变时不写
+ * 9. 视口变化、承载盒显隐零提交；减少动效下的悬停显现；Tab 聚焦全亮；祖先缩放下的位移换算
  *
  * 手势一律以 px 提交（`GridGestureCommit.changes`），断言面是真实 DOM 几何与提交载荷。
  */
@@ -289,6 +290,123 @@ test("程序布局零提交", async ({page}) => {
     expect(names.filter((n) => n === "gesture-end")).toHaveLength(0);
 });
 
+const twoFrames = (page: Page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+test("视口变化、承载盒隐藏再显示都不报告为用户提交（输出 10）", async ({page}) => {
+    await gotoNestedGrid(page);
+    const {leftLeaf, gesture} = nestedGridLocators(page);
+    const target = page.locator("#nb-lab-target");
+    const width0 = (await target.boundingBox())!.width;
+
+    // 组件的视口（Lab 的画布）变窄再变回来：网格确实重新量过、重新排过。浏览器窗口的尺寸不改画布，用画布的宽度手柄，方向键每次 10px。
+    const handle = page.locator('.lab-main [aria-label="调整宽度"]');
+    await handle.focus();
+    for (let step = 0; step < 10; step += 1) await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await target.boundingBox())!.width).toBeLessThan(width0 - 20);
+    for (let step = 0; step < 10; step += 1) await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await target.boundingBox())!.width).toBeCloseTo(width0, 0);
+
+    // 承载盒临时隐藏再显示：网格量到零、再量回来。
+    await target.evaluate((element: HTMLElement) => {
+        element.style.display = "none";
+    });
+    await expect(leftLeaf).toBeHidden();
+    await twoFrames(page);
+    await target.evaluate((element: HTMLElement) => {
+        element.style.display = "";
+    });
+    await expect(leftLeaf).toBeVisible();
+    await twoFrames(page);
+
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "0");
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "none");
+    await showEventLog(page);
+    const names = await eventNames(page);
+    expect(names.filter((n) => n === "layout").length).toBeGreaterThan(1);
+    expect(names.filter((n) => n === "gesture-start" || n === "gesture-end")).toHaveLength(0);
+});
+
+test("减少动态效果：悬停照旧要停满时长才显现，线不渐显（输出 13）", async ({page}) => {
+    // 配置里默认减少动态效果（playwright.config.ts 的 reducedMotion）。
+    await gotoNestedGrid(page);
+    expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+    const {outerSash} = nestedGridLocators(page);
+    const box = (await outerSash.boundingBox())!;
+    // 在页面里记下指针到线上的时刻与线显现的时刻：一步移过去，只有一次落在线上的 pointermove。
+    await outerSash.evaluate((sash) => {
+        const probe = {entered: 0, revealed: 0};
+        (window as unknown as {__reveal: typeof probe}).__reveal = probe;
+        window.addEventListener("pointermove", () => {
+            if (probe.entered === 0) probe.entered = performance.now();
+        }, {capture: true});
+        new MutationObserver(() => {
+            if (probe.revealed === 0 && sash.getAttribute("data-sash-revealed") === "true") probe.revealed = performance.now();
+        }).observe(sash, {attributes: true, attributeFilter: ["data-sash-revealed"]});
+    });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(outerSash).toHaveAttribute("data-sash-revealed", "true");
+    const probe = await page.evaluate(() => (window as unknown as {__reveal: {entered: number; revealed: number}}).__reveal);
+    expect(probe.entered).toBeGreaterThan(0);
+    expect(probe.revealed - probe.entered).toBeGreaterThanOrEqual(245);
+    const line = outerSash.locator(".sash-line");
+    expect(await line.evaluate((element) => getComputedStyle(element).transitionDuration)).toBe("0s");
+    expect(await line.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+});
+
+test("Tab 走到分隔线：线立即全亮（输出 14）", async ({page}) => {
+    // 不减少动效：悬停的线要渐显，“立即”才区分得出来（配置缺省是减少动效，那时所有过渡都是 0）。
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await gotoNestedGrid(page);
+    const {outerSash} = nestedGridLocators(page);
+    const line = outerSash.locator(".sash-line");
+    expect(await line.evaluate((element) => getComputedStyle(element).transitionDuration)).not.toBe("0s");
+    // 从网格前面的按钮按 Tab 进来：键盘聚焦，`:focus-visible` 成立；指针不在线上。
+    await page.locator("[data-lab-action=reset]").focus();
+    await page.keyboard.press("Tab");
+    await expect(outerSash).toBeFocused();
+    await expect(outerSash).not.toHaveAttribute("data-sash-revealed", "true");
+    // 聚焦后第一次读就是 1，也没有在走的过渡。
+    expect(await line.evaluate((element) => ({opacity: getComputedStyle(element).opacity, running: element.getAnimations().length})))
+        .toEqual({opacity: "1", running: 0});
+});
+
+test("祖先缩放：命中按屏幕上的位置，指针位移按根的缩放比换成布局 px（副作用与数据）", async ({page}) => {
+    await gotoNestedGrid(page);
+    const {outerSash, innerSash, gesture} = nestedGridLocators(page);
+    await page.locator("#nb-lab-target").evaluate((element: HTMLElement) => {
+        element.style.transformOrigin = "0 0";
+        element.style.transform = "scale(0.75)";
+    });
+    // 分隔线 7px 宽，屏幕上是四分之三。
+    await expect.poll(async () => (await outerSash.boundingBox())!.width).toBeCloseTo(5.25, 1);
+    const payload = async (): Promise<{target: Record<string, number>; baseline: Record<string, number>}> =>
+        JSON.parse((await gesture.getAttribute("data-lab-gesture-payload"))!).changes[0];
+
+    // 横向的线：偏离线中心 1px 按下（抓取偏移不为 0），屏幕上拖 60px 是布局里的 80px。
+    const outer = (await outerSash.boundingBox())!;
+    const ox = outer.x + outer.width / 2 + 1;
+    const oy = outer.y + outer.height / 2;
+    await page.mouse.move(ox, oy);
+    await page.mouse.down();
+    await page.mouse.move(ox + 60, oy, {steps: 6});
+    await page.mouse.up();
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
+    const across = await payload();
+    expect(Math.abs(across.target.left - across.baseline.left - 80)).toBeLessThanOrEqual(1);
+
+    // 纵向的线各算各的比例：屏幕上往下拖 30px 是布局里的 40px。
+    const inner = (await innerSash.boundingBox())!;
+    const ix = inner.x + inner.width / 2;
+    const iy = inner.y + inner.height / 2 - 1;
+    await page.mouse.move(ix, iy);
+    await page.mouse.down();
+    await page.mouse.move(ix, iy + 30, {steps: 6});
+    await page.mouse.up();
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "2");
+    const down = await payload();
+    expect(Math.abs(down.target.top - down.baseline.top - 40)).toBeLessThanOrEqual(1);
+});
+
 test("分隔线的对齐只跟挪得动它的滚动：叶里的滚动不排帧、不写分隔线；重新对齐时位置没变也不写", async ({page}) => {
     await gotoNestedGrid(page);
     // 叶里放一块能滚的内容：网格里面的滚动（资源管理器的树、编辑器正文）挪不动分隔线。
@@ -342,12 +460,24 @@ test("分隔线的对齐只跟挪得动它的滚动：叶里的滚动不排帧�
     expect(counts.outside.writes).toBe(0);
 });
 
-test("恢复场景：未知引用过滤但原件保留且调整后不丢", async ({page}) => {
+/** 页面里没捕获的异常（验收 5）：在打开场景之前挂上。 */
+function collectPageErrors(page: Page): Error[] {
+    const errors: Error[] = [];
+    page.on("pageerror", (error) => errors.push(error));
+    return errors;
+}
+
+test("恢复场景：未知引用过滤但原件保留且调整后不丢；恢复不算用户提交，没有未捕获异常", async ({page}) => {
+    const errors = collectPageErrors(page);
     await gotoNestedGrid(page, {scene: "unknown-ref"});
 
     const {outerSash, leftLeaf, topLeaf, bottomLeaf, gesture, recovery} = nestedGridLocators(page);
     await expect(recovery).toHaveAttribute("data-lab-restore-status", "dropped-unknown");
     await expect(recovery).toHaveAttribute("data-lab-dropped-count", "1");
+    // 快照恢复不被报告为用户提交（输出 10）。
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "0");
+    await showEventLog(page);
+    expect((await eventNames(page)).filter((n) => n === "gesture-end")).toHaveLength(0);
 
     // 呈现层仅渲染已识别的节点，未识别的节点被过滤
     await expect(leftLeaf).toBeVisible();
@@ -371,9 +501,11 @@ test("恢复场景：未知引用过滤但原件保留且调整后不丢", async
     const rawAfter = JSON.parse((await recovery.getAttribute("data-lab-raw-record"))!);
     expect(JSON.stringify(rawAfter)).toContain("ghost-plugin");
     expect(JSON.stringify(rawAfter)).toContain("unknown-plugin-view");
+    expect(errors).toEqual([]);
 });
 
 test("恢复场景：畸形重复身份整体拒绝且无异常", async ({page}) => {
+    const errors = collectPageErrors(page);
     await gotoNestedGrid(page, {scene: "malformed"});
 
     const {leftLeaf, topLeaf, bottomLeaf, recovery} = nestedGridLocators(page);
@@ -384,9 +516,11 @@ test("恢复场景：畸形重复身份整体拒绝且无异常", async ({page})
     await expect(leftLeaf).toBeVisible();
     await expect(topLeaf).toBeVisible();
     await expect(bottomLeaf).toBeVisible();
+    expect(errors).toEqual([]);
 });
 
 test("恢复场景：高版本快照整体拒绝且保留原件", async ({page}) => {
+    const errors = collectPageErrors(page);
     await gotoNestedGrid(page, {scene: "high-version"});
 
     const {leftLeaf, topLeaf, bottomLeaf, recovery} = nestedGridLocators(page);
@@ -402,6 +536,7 @@ test("恢复场景：高版本快照整体拒绝且保留原件", async ({page})
     await expect(leftLeaf).toBeVisible();
     await expect(topLeaf).toBeVisible();
     await expect(bottomLeaf).toBeVisible();
+    expect(errors).toEqual([]);
 });
 
 for (const combination of [

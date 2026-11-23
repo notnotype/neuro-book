@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
 import {layoutMotionMs} from "./layout-motion";
 import {layoutDurationMs, readLayoutVar} from "./layout-vars";
+import {NB_LAYOUT_THEME_VARS} from "../theme-vars";
 
 /**
  * JS 读变量（docs/specs/ui/nested-grid.md 输出 142）：宿主没给时按清单里的缺省值，与 CSS 每处 `var()` 的回退同值；
@@ -28,6 +29,15 @@ describe("JS 读 nb-layout 的变量", () => {
         expect(layoutMotionMs(node)).toBe(470);
         expect(layoutDurationMs(node, "--nb-layout-motion-move")).toBe(280);
         expect(readLayoutVar(node, "--nb-layout-sash-line-size")).toBe("3px");
+    });
+
+    it("宿主没给时库里等过渡收尾读到的时长，就是清单（NB_LAYOUT_THEME_VARS）里 CSS 回退的那个值", () => {
+        const entry = NB_LAYOUT_THEME_VARS.find((candidate) => candidate.name === "--nb-layout-motion-layout");
+        const fallback = entry?.fallback ?? "";
+        // CSS 每处 `var()` 写的回退与清单一致，由 `theme-vars.test.ts` 扫源码；这里接上 JS 这一头。
+        expect(fallback).toMatch(/^\d+(?:\.\d+)?m?s$/u);
+        const listed = fallback.endsWith("ms") ? Number.parseFloat(fallback) : Number.parseFloat(fallback) * 1000;
+        expect(layoutMotionMs(element())).toBe(listed);
     });
 
     it("宿主给了：ms 与 s 都认；写成别的（none、calc()）当 0", () => {

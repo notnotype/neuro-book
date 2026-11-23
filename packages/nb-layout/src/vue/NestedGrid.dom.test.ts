@@ -4,8 +4,10 @@ import {h, nextTick, ref} from "vue";
 import NestedGrid from "./NestedGrid.vue";
 import LeavingHost from "./test-fixtures/LeavingHost.vue";
 import {moveGridFocus} from "./grid-focus";
+import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "./text";
 import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
+import type {GridLeafShape} from "../grid-rects";
 
 /**
  * 递归渲染层的行为用例：树 → 面板 px + 叶插槽 + 一次会话的指针/键盘提交。
@@ -185,6 +187,20 @@ describe("NestedGrid 按矩形摆放", () => {
         expect(sash.attributes("aria-label")).toMatch(/^Resize width between left and \S+$/u);
     });
 
+    it("文字（输出 143）：宿主经 LAYOUT_TEXT_KEY 注入时，分隔线的读屏名称与值的文字用宿主的", async () => {
+        const grid = nestedGrid();
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: grid.root(), layout: grid.layout(CONTAINER)},
+            global: {provide: {[LAYOUT_TEXT_KEY as symbol]: layoutCatalogTranslate("zh-CN")}},
+        });
+        wrappers.push(wrapper);
+        await nextTick();
+        expect(wrapper.get('[data-sash="root:0"]').attributes("aria-label")).toBe("调整 left 与 right 的宽度");
+        expect(wrapper.get('[data-sash="right:0"]').attributes("aria-label")).toBe("调整 top 与 bottom 的高度");
+        expect(wrapper.get('[data-sash="root:0"]').attributes("aria-valuetext")).toBe("300 像素");
+    });
+
     it("分隔线的显示名（输出 152）：读屏名称用 paneLabel 给的名字，挨着分支时问分支 id；没给、返回 undefined 或空串时用节点 id", async () => {
         const grid = nestedGrid();
         const names: Record<string, string> = {left: "导航", right: "右侧", top: ""};
@@ -284,6 +300,43 @@ describe("分界线上的手势", () => {
         expect(change.active).toEqual(["top", "bottom"]);
         expect(wrapper.emitted("gesture-end")).toHaveLength(1);
     });
+
+    it.each([
+        ["contextKey", () => ({contextKey: "other"})],
+        ["revision", () => ({revision: 1})],
+        ["node（节点撤销）", () => ({node: nestedGrid().root()})],
+    ] as const)("手势进行中 %s 变了：取消（context-changed），不提交，之后的松手也不结算（输出 9，状态表“调整中 → 上下文失效”）", async (_label, change) => {
+        for (const source of ["keyboard", "pointer"] as const) {
+            const grid = nestedGrid();
+            const commits: GridGestureCommit[] = [];
+            const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: (commit) => {
+                commits.push(commit);
+                return {ok: true};
+            }});
+            stubLayout(wrapper);
+            await nextTick();
+            const innerSash = wrapper.get<HTMLElement>('[data-sash="right:0"]').element;
+            if (source === "keyboard") {
+                innerSash.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+            } else {
+                innerSash.dispatchEvent(pointerEvent("pointerdown", 600, 300));
+                innerSash.dispatchEvent(pointerEvent("pointermove", 600, 340));
+                await settleFrame();
+            }
+            await nextTick();
+            expect(wrapper.emitted("gesture-update"), source).toBeDefined();
+
+            await wrapper.setProps(change());
+            await nextTick();
+            expect(wrapper.emitted("gesture-cancel")?.map((event) => (event[0] as {reason: string}).reason), source).toEqual(["context-changed"]);
+
+            innerSash.dispatchEvent(source === "keyboard" ? new KeyboardEvent("keyup", {key: "ArrowDown", bubbles: true, cancelable: true}) : pointerEvent("pointerup", 600, 340));
+            await nextTick();
+            expect(wrapper.emitted("gesture-end"), source).toBeUndefined();
+            expect(commits, source).toEqual([]);
+            wrapper.unmount();
+        }
+    });
 });
 
 describe("命中结果映射到分界线的状态", () => {
@@ -304,24 +357,62 @@ describe("命中结果映射到分界线的状态", () => {
         expect(rootSash.getAttribute("data-sash-hover")).toBe("true");
         expect(rootSash.hasAttribute("data-sash-cross")).toBe(false);
         expect(innerSash.hasAttribute("data-sash-hover")).toBe(false);
+        // 有效悬停立即给光标（输出 12）：宽度轴 ew-resize。
+        const cursor = () => document.documentElement.getAttribute("data-nb-sash-cursor");
+        expect(cursor()).toBe("ew-resize");
 
         // 只在内层横线的命中带内
         leaf.dispatchEvent(pointerEvent("pointermove", 600, 302));
         await nextTick();
         expect(innerSash.getAttribute("data-sash-hover")).toBe("true");
         expect(rootSash.hasAttribute("data-sash-hover")).toBe(false);
+        expect(cursor()).toBe("ns-resize");
 
         // 交点：两条命中带同时包含指针
         leaf.dispatchEvent(pointerEvent("pointermove", 302, 302));
         await nextTick();
         expect(rootSash.getAttribute("data-sash-cross")).toBe("true");
         expect(innerSash.getAttribute("data-sash-cross")).toBe("true");
+        // 同 scope 双轴：move。
+        expect(cursor()).toBe("move");
 
         // 离开所有分界线：状态清空
         leaf.dispatchEvent(pointerEvent("pointermove", 500, 500));
         await nextTick();
         expect(wrapper.findAll("[data-sash-hover]")).toHaveLength(0);
         expect(wrapper.findAll("[data-sash-cross]")).toHaveLength(0);
+        expect(cursor()).toBeNull();
+    });
+
+    it("交汇处增减命中不重置停留计时（输出 13）：竖线上停 150ms 再移到交点停 100ms，满 250ms 就显现，中途不闪", async () => {
+        // test-lint-allow fake-timer: 停留计时用窗口的 setTimeout，没有注入时钟的入口；同 splitter.dom.test.ts 的悬停用例
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout"]});
+        onTestFinished(() => void vi.useRealTimers());
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        const innerSash = wrapper.get<HTMLElement>('[data-sash="right:0"]').element;
+        const leaf = wrapper.get<HTMLElement>("[data-leaf='top']").element;
+
+        leaf.dispatchEvent(pointerEvent("pointermove", 302, 100));
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(150);
+        // 移到交点：命中多了横线，计时接着走。
+        leaf.dispatchEvent(pointerEvent("pointermove", 302, 302));
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(99);
+        expect(rootSash.hasAttribute("data-sash-revealed")).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await nextTick();
+        expect([rootSash.getAttribute("data-sash-revealed"), innerSash.getAttribute("data-sash-revealed")]).toEqual(["true", "true"]);
+
+        // 从交点退回竖线（命中少了横线）：已显现的竖线不淡出、不重新等。
+        leaf.dispatchEvent(pointerEvent("pointermove", 302, 100));
+        await nextTick();
+        expect(rootSash.getAttribute("data-sash-revealed")).toBe("true");
+        expect(innerSash.hasAttribute("data-sash-revealed")).toBe(false);
     });
 
     it("禁用与 0px 接缝不进入命中，也不标记", async () => {
@@ -364,6 +455,47 @@ describe("命中结果映射到分界线的状态", () => {
         zero.get<HTMLElement>("[data-leaf='a']").element.dispatchEvent(pointerEvent("pointermove", 300, 200));
         await nextTick();
         expect(zeroSash.hasAttribute("data-sash-hover")).toBe(false);
+    });
+
+    it("最大化时被盖住的分隔线不能拖（输出 99）：按下拖动不开始手势，方向键也不提交；还原后照常", async () => {
+        // 还原要按量到的容器重新摆放：桩布局盒给出容器尺寸（同“降到零”那条）。
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const grid = nestedGrid();
+        const commits: GridGestureCommit[] = [];
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: (commit) => {
+            commits.push(commit);
+            return {ok: true};
+        }});
+        await wrapper.setProps({maximized: {leaf: "top", exclude: []}});
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        const innerSash = wrapper.get<HTMLElement>('[data-sash="right:0"]').element;
+        expect(rootSash.hasAttribute("data-obscured")).toBe(true);
+
+        rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+        rootSash.dispatchEvent(pointerEvent("pointermove", 420, 80));
+        await settleFrame();
+        rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80));
+        innerSash.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        innerSash.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(wrapper.emitted("gesture-start")).toBeUndefined();
+        expect(commits).toEqual([]);
+
+        await wrapper.setProps({maximized: null});
+        await nextTick();
+        innerSash.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        innerSash.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(commits).toHaveLength(1);
     });
 
     it("宿主让某条分隔线不能拖（`sashDisabled`）：只这一条不进命中、不可聚焦，线照画；别的照常", async () => {
@@ -513,6 +645,104 @@ describe("命中结果映射到分界线的状态", () => {
     });
 });
 
+describe("嵌套的 NestedGrid（输出 24、25、131）", () => {
+    /** 外层是 `nestedGrid()`；`top` 那块叶里再挂一个 NestedGrid（内层两块 i1、i2，中间一条线 inner:0）。每块叶一个按钮。 */
+    function mountNested(innerDisabled = false) {
+        const inner = createGrid<string>({kind: "branch", id: "inner", orientation: "horizontal", children: [
+            {kind: "leaf", id: "i1", ref: "i1", size: {width: 349, height: 0}},
+            {kind: "leaf", id: "i2", ref: "i2", size: {width: 349, height: 0}},
+        ]}, {sashSize: SASH});
+        const disabled = ref(innerDisabled);
+        const innerEvents: string[] = [];
+        const outer = nestedGrid();
+        const button = (id: string) => h("button", {"data-button": id}, id);
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: outer.root(), layout: outer.layout(CONTAINER), onGestureCommit: () => ({ok: true})},
+            slots: {
+                leaf: ({node}: {node: {id: string}}) => (node.id !== "top" ? button(node.id) : h(NestedGrid, {
+                    node: inner.root(),
+                    layout: inner.layout({width: 699, height: 300}),
+                    disabled: disabled.value,
+                    onGestureCommit: () => ({ok: true} as const),
+                    onGestureStart: () => void innerEvents.push("gesture-start"),
+                    onGestureEnd: () => void innerEvents.push("gesture-end"),
+                    onGestureCancel: () => void innerEvents.push("gesture-cancel"),
+                }, {leaf: ({node: child}: {node: {id: string}}) => button(child.id)})),
+            },
+        });
+        wrappers.push(wrapper);
+        stubLayout(wrapper);
+        const innerRoot = wrapper.get<HTMLElement>("[data-leaf='top'] [data-grid-scope]").element;
+        stubRect(innerRoot, {left: 301, top: 0, right: 1000, bottom: 300});
+        Object.defineProperty(innerRoot, "clientWidth", {value: 699, configurable: true});
+        Object.defineProperty(innerRoot, "clientHeight", {value: 300, configurable: true});
+        const innerSash = wrapper.get<HTMLElement>("[data-leaf='top'] [data-sash='inner:0']").element;
+        const outerEvents = (): string[] => (["gesture-start", "gesture-update", "gesture-end", "gesture-cancel"] as const).filter((name) => wrapper.emitted(name) !== undefined);
+        return {wrapper, innerRoot, innerSash, innerEvents, outerEvents, disabled};
+    }
+
+    it("内层是自己的 scope（输出 24）：在内层分隔线上拖动，内层开始与结束，外层一个手势事件也没有", async () => {
+        const {innerSash, innerEvents, outerEvents} = mountNested();
+        stubRect(innerSash, {left: 650, top: 0, right: 651, bottom: 300});
+        await nextTick();
+        innerSash.dispatchEvent(pointerEvent("pointerdown", 650, 150));
+        innerSash.dispatchEvent(pointerEvent("pointermove", 690, 150));
+        await settleFrame();
+        innerSash.dispatchEvent(pointerEvent("pointerup", 690, 150));
+        await nextTick();
+        expect(innerEvents).toEqual(["gesture-start", "gesture-end"]);
+        expect(outerEvents()).toEqual([]);
+    });
+
+    it("内外两条线的命中带重合（输出 25）：内层赢，悬停与按下都归内层；内层禁用后才让外层", async () => {
+        // 内层的线贴着外层竖线（x=300）：303 同时落在两条线的命中带里。
+        const {wrapper, innerSash, innerEvents, outerEvents, disabled} = mountNested();
+        stubRect(innerSash, {left: 304, top: 0, right: 305, bottom: 300});
+        await nextTick();
+        const outerSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        const innerLeaf = wrapper.get<HTMLElement>("[data-leaf='i1']").element;
+        innerLeaf.dispatchEvent(pointerEvent("pointermove", 303, 100));
+        await nextTick();
+        expect([innerSash.getAttribute("data-sash-hover"), outerSash.hasAttribute("data-sash-hover")]).toEqual(["true", false]);
+        innerLeaf.dispatchEvent(pointerEvent("pointerdown", 303, 100));
+        innerLeaf.dispatchEvent(pointerEvent("pointerup", 303, 100));
+        await nextTick();
+        expect(innerEvents).toContain("gesture-start");
+        expect(outerEvents()).toEqual([]);
+
+        disabled.value = true;
+        await nextTick();
+        innerLeaf.dispatchEvent(pointerEvent("pointermove", 303, 110));
+        await nextTick();
+        expect([innerSash.hasAttribute("data-sash-hover"), outerSash.getAttribute("data-sash-hover")]).toEqual([false, "true"]);
+        innerLeaf.dispatchEvent(pointerEvent("pointerdown", 303, 110));
+        innerLeaf.dispatchEvent(pointerEvent("pointerup", 303, 110));
+        await nextTick();
+        expect(outerEvents()).toContain("gesture-start");
+    });
+
+    it("moveGridFocus 嵌套时内层先走，走到头交给外层，最外层绕回（输出 131）", async () => {
+        const {wrapper} = mountNested();
+        await nextTick();
+        const root = wrapper.element as HTMLElement;
+        const focusOn = (id: string) => root.querySelector<HTMLElement>(`[data-button='${id}']`)?.focus();
+        const focused = () => document.activeElement?.getAttribute("data-button");
+        focusOn("i1");
+        expect(moveGridFocus(root, "next")).toBe(true);
+        expect(focused()).toBe("i2");
+        expect(moveGridFocus(root, "next")).toBe(true);
+        expect(focused()).toBe("bottom");
+        expect(moveGridFocus(root, "next")).toBe(true);
+        expect(focused()).toBe("left");
+        // 往前走：从外层的 left 绕到最后一块 bottom，再进内层时落在内层那一块上次的焦点（i2）。
+        expect(moveGridFocus(root, "previous")).toBe(true);
+        expect(focused()).toBe("bottom");
+        expect(moveGridFocus(root, "previous")).toBe(true);
+        expect(root.querySelector("[data-leaf='top']")?.contains(document.activeElement)).toBe(true);
+    });
+});
+
 describe("拖动期间的预览布局", () => {
     it("预览沿父盒实时重投影且与 DOM 同源，松手后回到宿主发布的布局", async () => {
         const grid = nestedGrid();
@@ -608,6 +838,8 @@ describe("提交被拒的码（Spec ui/nested-grid 失败 6、输出 139）", ()
             },
         });
         expect(await dragOnce(wrapper)).toEqual([{code: "handler-threw", ok: false}]);
+        // 失败 6：message 带异常的文字。
+        expect(((wrapper.emitted("issues") ?? []).flat(2) as GridFailure[])[0]?.message).toContain("boom");
         expect(frameRect(wrapper, "left").width).toBe(300);
     });
 
@@ -618,6 +850,16 @@ describe("提交被拒的码（Spec ui/nested-grid 失败 6、输出 139）", ()
         await nextTick();
         expect(emittedIssues(wrapper)).toEqual([{code: "not-published"}]);
         expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("not-published 每发生一次发一条（输出 140）：同样的两场各发一次，不按只发新增去重", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        await dragOnce(wrapper);
+        await nextTick();
+        await dragOnce(wrapper);
+        await nextTick();
+        expect(emittedIssues(wrapper)).toEqual([{code: "not-published"}, {code: "not-published"}]);
     });
 });
 
@@ -662,6 +904,117 @@ describe("手势的诊断只发新增（Spec 输出 140）", () => {
         expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toEqual([{code: "over-constrained", cause: "range-overflow", id: "root", axis: "width", total: 999, min: 1200}]);
         await drag();
         expect(ranges()).toBe(2);
+    });
+
+    it("gesture-update 的载荷是这一次求解的全部（输出 140）：每一帧的 `issues` 都带着，`layout.issues` 是预览布局自己的那份", async () => {
+        // 交点上拖：宽这根轴能动、有预览；高这根轴两块的最小高度合计超过容器，每一帧都是 range-overflow。
+        const tall = {width: 0, height: 400};
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}},
+                {kind: "branch", id: "right", orientation: "vertical", size: {width: 699, height: 0}, children: [
+                    {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}, minimumSize: tall},
+                    {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}, minimumSize: tall},
+                ]},
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        stubLayout(wrapper);
+        await nextTick();
+        const innerSash = wrapper.get<HTMLElement>('[data-sash="right:0"]').element;
+        innerSash.dispatchEvent(pointerEvent("pointerdown", 302, 302));
+        for (const step of [20, 40]) {
+            innerSash.dispatchEvent(pointerEvent("pointermove", 302 + step, 302 + step));
+            await settleFrame();
+        }
+        const updates = (wrapper.emitted("gesture-update") ?? []).map((event) => event[0] as GridGesturePreview<string>);
+        expect(updates).toHaveLength(2);
+        // 通知只发了一次，载荷每一帧都有：通知与快照是两回事。
+        expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toHaveLength(1);
+        for (const preview of updates) {
+            expect(preview.issues.map((issue) => ({code: issue.code, ...issue.params}))).toContainEqual({code: "over-constrained", cause: "range-overflow", id: "right", axis: "height", total: 599, min: 800});
+            // 预览布局自己的诊断：重算出来的降级（min-total），不是会话的 range-overflow。
+            expect(preview.layout.issues.map((issue) => ({code: issue.code, ...issue.params}))).toContainEqual({code: "over-constrained", cause: "min-total", id: "right", axis: "height", available: 599, required: 800});
+            expect(preview.layout.issues.some((issue) => issue.params?.cause === "range-overflow")).toBe(false);
+        }
+        innerSash.dispatchEvent(pointerEvent("pointerup", 342, 342));
+        await nextTick();
+    });
+
+    it("按住方向键不放算一场（输出 140）：连发几次 keydown、一次 keyup，range-overflow 只发一次", async () => {
+        const wide = {width: 600, height: 0};
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, minimumSize: wide},
+                {kind: "leaf", id: "right", ref: "right", size: {width: 699, height: 0}, minimumSize: wide},
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        // 键盘不经命中判定，只要根盒的尺寸（会话按它冻结）。
+        const scope = wrapper.get<HTMLElement>("[data-grid-scope]").element;
+        stubRect(scope, {left: 0, top: 0, right: CONTAINER.width, bottom: CONTAINER.height});
+        Object.defineProperty(scope, "clientWidth", {value: CONTAINER.width, configurable: true});
+        Object.defineProperty(scope, "clientHeight", {value: CONTAINER.height, configurable: true});
+        await nextTick();
+        const sash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        for (let repeat = 0; repeat < 3; repeat += 1) sash.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true, repeat: repeat > 0}));
+        sash.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(wrapper.emitted("gesture-start")).toHaveLength(1);
+        expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toHaveLength(1);
+    });
+
+    it("拖动途中某一帧里 gesture-update 的监听抛出（输出 140）：手势照常进行，继续移动、松手照样提交一次", async () => {
+        const grid = nestedGrid();
+        const commits: GridGestureCommit[] = [];
+        let throws = 1;
+        const errors: unknown[] = [];
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: (commit) => {
+                commits.push(commit);
+                return {ok: true};
+            },
+            listeners: {onGestureUpdate: () => {
+                if (throws > 0) {
+                    throws -= 1;
+                    throw new Error("first frame listener threw");
+                }
+            }},
+        });
+        // 帧回调里抛出的异常不经 dispatchEvent 回来：浏览器报告它、接着跑后面的帧。happy-dom 会把它变成进程级的未处理错误，
+        // 这里像浏览器那样在帧回调外面收下它，确认它照常冒出了库的回调。
+        const frame = window.requestAnimationFrame;
+        window.requestAnimationFrame = (callback) => frame.call(window, (time) => {
+            try {
+                callback(time);
+            } catch (error) {
+                errors.push(error);
+            }
+        });
+        onTestFinished(() => {
+            window.requestAnimationFrame = frame;
+        });
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+        rootSash.dispatchEvent(pointerEvent("pointermove", 360, 80));
+        await settleFrame();
+        expect(throws).toBe(0);
+        rootSash.dispatchEvent(pointerEvent("pointermove", 420, 80));
+        await settleFrame();
+        expect(frameRect(wrapper, "left").width).toBe(420);
+        rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80));
+        await nextTick();
+        expect(commits).toHaveLength(1);
+        expect(commits[0]!.changes[0]!.target.left! - commits[0]!.changes[0]!.baseline.left!).toBeCloseTo(120, 6);
+        expect(errors.map((error) => String(error))).toEqual(["Error: first frame listener threw"]);
     });
 
     it("被拒的提交每次都发；键盘每按一次键是一场手势", async () => {
@@ -1157,6 +1510,39 @@ describe("键盘会话：Enter 与方向键互不混用", () => {
         expect(commits).toHaveLength(1);
         expect(commits[0]!.changes[0]!.collapsed).toEqual({});
     });
+
+    it("方向会话里 Escape 回滚，下一场从发布的几何开始（状态表“键盘方向/Home/End”）", async () => {
+        const grid = collapsibleRoot();
+        const published = grid.layout(CONTAINER);
+        const commits: GridGestureCommit[] = [];
+        const wrapper = mountRenderer(grid.root(), published, {
+            onGestureCommit: (commit) => {
+                commits.push(commit);
+                return {ok: true};
+            },
+        });
+        stubSingleSash(wrapper);
+        await nextTick();
+        const sash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+
+        keyboardEvent(sash, "keydown", "ArrowRight");
+        keyboardEvent(sash, "keydown", "ArrowRight");
+        await nextTick();
+        expect(frameRect(wrapper, "left").width).toBe(220);
+        keyboardEvent(sash, "keydown", "Escape");
+        await nextTick();
+        expect(wrapper.emitted("gesture-cancel")?.at(-1)?.[0]).toMatchObject({reason: "escape"});
+        expect(frameRect(wrapper, "left").width).toBe(200);
+
+        keyboardEvent(sash, "keyup", "ArrowRight");
+        keyboardEvent(sash, "keydown", "ArrowRight");
+        keyboardEvent(sash, "keyup", "ArrowRight");
+        await nextTick();
+        expect(commits).toHaveLength(1);
+        const change = commits[0]!.changes[0]!;
+        expect(change.baseline.left).toBeCloseTo(published.sizes.left!.width, 6);
+        expect(change.target.left! - change.baseline.left!).toBeCloseTo(10, 6);
+    });
 });
 
 describe("NestedGrid 内容层", () => {
@@ -1233,6 +1619,55 @@ describe("NestedGrid 内容层", () => {
         expect(body?.style.width).toMatch(/^[1-9][0-9]*(\.[0-9]+)?px$/u);
     });
 
+    it("拿起的内容项（输出 89、90）：placeLifted 直接写元素、不引起重渲染（插槽不重跑）；过渡在走时它也不带过渡标记，不算停放", async () => {
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const pair = (left: number): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: left, height: 0}, sizing: "fixed"},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 999 - left, height: 0}},
+        ]}, {sashSize: SASH});
+        const renders = new Map<string, number>();
+        const start = pair(500);
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: start.root(), layout: start.layout(CONTAINER), contents: [{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}]},
+            slots: {content: ({contentKey}: {contentKey: string}) => {
+                renders.set(contentKey, (renders.get(contentKey) ?? 0) + 1);
+                return h("button", {"data-inside": contentKey}, contentKey);
+            }},
+        });
+        wrappers.push(wrapper);
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "10s");
+        const exposed = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void; moving: boolean};
+        // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局，再由程序改宽，让过渡走起来。
+        const again = pair(500);
+        await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
+        const wider = pair(300);
+        await wrapper.setProps({node: wider.root(), layout: wider.layout(CONTAINER)});
+        exposed.placeLifted({x: 11, y: 22, width: 33, height: 44});
+        await wrapper.setProps({lifted: {key: "x"}});
+        await nextTick();
+        const lifted = wrapper.get("[data-content='x']").element as HTMLElement;
+        expect(exposed.moving).toBe(true);
+        expect(wrapper.get("[data-content='y']").attributes("data-moving")).toBeDefined();
+        expect(lifted.hasAttribute("data-lifted")).toBe(true);
+        expect([lifted.hasAttribute("data-moving"), lifted.hasAttribute("inert"), lifted.style.visibility]).toEqual([false, false, ""]);
+
+        const before = new Map(renders);
+        exposed.placeLifted({x: 15, y: 25, width: 40, height: 50});
+        exposed.placeLifted({x: 18, y: 28, width: 45, height: 55});
+        await nextTick();
+        expect(lifted.style.transform).toBe("translate(18px, 28px)");
+        expect([lifted.style.width, lifted.style.height]).toEqual(["45px", "55px"]);
+        expect(renders).toEqual(before);
+    });
+
     it("拿起的内容项并进已有的叶：那块叶刚才显示着的内容留在落地的卡片下面、不可交互，过渡结束才隐藏", async () => {
         const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}]);
         wrapper.element.style.setProperty("--nb-layout-motion-layout", "30ms");
@@ -1290,11 +1725,121 @@ describe("NestedGrid 内容层", () => {
         expect(head.style.visibility).toBe("hidden");
     });
 
+    describe("卡片形状（输出 51 到 56）", () => {
+        const SHAPE = {inset: ["4px", "6px", "8px", "2px"], radius: ["10px", "11px", "12px", "13px"]} as const;
+        type Exposed = {shapedLeaves: ReadonlySet<string>; moving: boolean};
+
+        /** 同“降到零”那条：宿主把 a 收起为零，a 的内容不跟外框；`motion` 是过渡时长。 */
+        async function collapseWithShape(shape: (leaf: string) => GridLeafShape | undefined, motion = "30ms") {
+            // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+            const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+            // test-lint-allow spy: 同上，桩布局盒的高
+            const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+            onTestFinished(() => {
+                width.mockRestore();
+                height.mockRestore();
+            });
+            const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+                {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
+            ]}, {sashSize: SASH});
+            const open = side(false);
+            const wrapper = mount(NestedGrid, {
+                attachTo: attachContainer(),
+                props: {node: open.root(), layout: open.layout(CONTAINER), contents: [{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}], leafShape: shape},
+                slots: {content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
+            });
+            wrappers.push(wrapper);
+            wrapper.element.style.setProperty("--nb-layout-motion-layout", motion);
+            const again = side(false);
+            await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
+            const closed = side(true);
+            await wrapper.setProps({node: closed.root(), layout: closed.layout(CONTAINER)});
+            return {wrapper, exposed: wrapper.vm as unknown as Exposed, frame: (id: string) => wrapper.get(`[data-leaf='${id}']`).element as HTMLElement, content: (key: string) => wrapper.get(`[data-content='${key}']`).element as HTMLElement};
+        }
+
+        it("过渡中外框与内容外层都按形状裁，内容外层另外裁掉面板头、只圆下面两个角；跟着外框的叶不裁；过渡结束摘掉（输出 51、52）", async () => {
+            const {exposed, frame, content} = await collapseWithShape(() => SHAPE);
+            expect(exposed.moving).toBe(true);
+            expect(frame("a").style.clipPath).toBe("inset(4px 6px 8px 2px round 10px 11px 12px 13px)");
+            expect(content("x").style.clipPath).toBe("inset(32px 6px 8px 2px round 0 0 12px 13px)");
+            // 没有伸出去的颜色时不画投影、不压到别的外框下面。
+            expect([frame("a").style.boxShadow, frame("a").style.zIndex]).toEqual(["", ""]);
+            // b 的内容跟着外框：外框不按形状裁。
+            expect(frame("b").style.clipPath).toBe("");
+            await vi.waitFor(() => expect(exposed.moving).toBe(false));
+            // 结束：外框不再裁，宿主画在外框里的投影露出来（输出 52）。
+            expect(frame("a").style.clipPath).toBe("");
+        });
+
+        it("形状伸出外框（负内缩加 fill）：伸出去的部分用外框的投影画成 fill 的颜色，这块外框压到别的外框下面（输出 53、54）", async () => {
+            const {frame} = await collapseWithShape(() => ({inset: ["0px", "-6px", "0px", "0px"], radius: ["0px", "8px", "8px", "0px"], fill: "rgb(1, 2, 3)"}));
+            expect(frame("a").style.boxShadow).toContain("rgb(1, 2, 3)");
+            expect(frame("a").style.boxShadow).toContain("calc(-1 * (-6px))");
+            expect(frame("a").style.zIndex).toBe("-1");
+            // 邻居是 `z-index: auto`、按 DOM 序叠的那一档：-1 在它下面。
+            expect(frame("b").style.zIndex).toBe("");
+        });
+
+        it("`shapedLeaves`：过渡中是按形状裁的叶，结束为空；插槽渲染时读到的是这一轮的；减少动态效果时一直为空（输出 56，时序“moving、shapedLeaves、swappingLeaves”）", async () => {
+            const {exposed} = await collapseWithShape(() => SHAPE);
+            expect([...exposed.shapedLeaves]).toEqual(["a"]);
+            await vi.waitFor(() => expect(exposed.shapedLeaves.size).toBe(0));
+
+            const still = await collapseWithShape(() => SHAPE, "0ms");
+            expect(still.exposed.shapedLeaves.size).toBe(0);
+            expect(still.frame("a").style.clipPath).toBe("");
+        });
+
+        it("插槽在形状开始的那一次渲染里就读到这一轮的 `shapedLeaves`（时序“moving、shapedLeaves、swappingLeaves”）", async () => {
+            // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+            const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+            // test-lint-allow spy: 同上，桩布局盒的高
+            const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+            onTestFinished(() => {
+                width.mockRestore();
+                height.mockRestore();
+            });
+            const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+                {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
+            ]}, {sashSize: SASH});
+            const seen: string[] = [];
+            let exposed: Exposed | null = null;
+            const open = side(false);
+            const wrapper = mount(NestedGrid, {
+                attachTo: attachContainer(),
+                props: {node: open.root(), layout: open.layout(CONTAINER), contents: [{key: "x", leaf: "a", insetTop: 32, active: true}], leafShape: () => SHAPE},
+                slots: {leaf: ({node}: {node: {id: string}}) => {
+                    seen.push(`${node.id}|${exposed === null ? "" : [...exposed.shapedLeaves].join(",")}`);
+                    return h("span", {"data-head": node.id});
+                }},
+            });
+            wrappers.push(wrapper);
+            exposed = wrapper.vm as unknown as Exposed;
+            wrapper.element.style.setProperty("--nb-layout-motion-layout", "30ms");
+            const again = side(false);
+            await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
+            seen.length = 0;
+            const closed = side(true);
+            await wrapper.setProps({node: closed.root(), layout: closed.layout(CONTAINER)});
+            expect(seen.length).toBeGreaterThan(0);
+            expect(seen.every((entry) => entry.endsWith("|a"))).toBe(true);
+        });
+    });
+
     it("分隔线的 aria-controls 列外框与活动内容", () => {
         const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}]);
         const controls = wrapper.get("[data-sash]").attributes("aria-controls")?.split(" ") ?? [];
         expect(controls).toContain(wrapper.get("[data-leaf='a']").attributes("id"));
         expect(controls).toContain(wrapper.get("[data-content='x']").attributes("id"));
+    });
+
+    it("分隔线的 aria-controls 只列活动的内容（输出 95）：同一块叶里不活动的内容不在里面", () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: false}, {key: "y", leaf: "a", insetTop: 32, active: true}]);
+        const controls = wrapper.get("[data-sash]").attributes("aria-controls")?.split(" ") ?? [];
+        expect(controls).toEqual([wrapper.get("[data-leaf='a']").attributes("id"), wrapper.get("[data-content='y']").attributes("id")]);
+        expect(controls).not.toContain(wrapper.get("[data-content='x']").attributes("id"));
     });
 
     it("外框和内容都不接焦点：点空白时焦点落在它们上面会打断内部滚动区的键盘滚动", () => {
@@ -1372,6 +1917,8 @@ describe("NestedGrid 浮动窗", () => {
         expect([content.style.left, content.style.top]).toEqual(["100px", "82px"]);
         const chrome = wrapper.get("[data-float-chrome=\"f\"]").element as HTMLElement;
         expect(chrome.parentElement).toBe(wrapper.element);
+        // 手柄的矩形同窗（输出 113）。
+        expect([chrome.style.left, chrome.style.top, chrome.style.width, chrome.style.height]).toEqual(["100px", "50px", "300px", "200px"]);
         expect(Number(chrome.style.zIndex)).toBeGreaterThan(Number(content.style.zIndex));
         expect(Number(content.style.zIndex)).toBeGreaterThan(Number(frame.style.zIndex));
     });
@@ -1398,6 +1945,38 @@ describe("NestedGrid 浮动窗", () => {
         await wrapper.setProps({floats: [other, FLOAT]});
         expect(wrapper.get("[data-leaf=\"f\"]").element).toBe(frame);
         expect(Number(frame.style.zIndex)).toBeGreaterThan(below);
+    });
+
+    it("浮动窗不按卡片形状裁（输出 55）：新开的窗在过渡里，外框没有 clip-path，也不在 `shapedLeaves` 里", async () => {
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const shape = {inset: ["4px", "4px", "4px", "4px"], radius: ["8px", "8px", "8px", "8px"]} as const;
+        const wrapper = mountFloats({floats: [], leafShape: () => shape});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "30ms");
+        await wrapper.setProps({revision: 1});
+        await wrapper.setProps({floats: [FLOAT]});
+        const exposed = wrapper.vm as unknown as {moving: boolean; shapedLeaves: ReadonlySet<string>};
+        expect(exposed.moving).toBe(true);
+        expect((wrapper.get("[data-leaf=\"f\"]").element as HTMLElement).style.clipPath).toBe("");
+        expect(exposed.shapedLeaves.has("f")).toBe(false);
+    });
+
+    it("窗排在树的后面（输出 101）：DOM 序与树序不一致时，aria-owns 先按树序列树里的，末尾是窗的外框与内容", async () => {
+        const wrapper = mountFloats({});
+        const swapped = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "b", ref: "b", size: {width: 499, height: 0}},
+            {kind: "leaf", id: "a", ref: "a", size: {width: 500, height: 0}},
+        ]}, {sashSize: SASH});
+        await wrapper.setProps({node: swapped.root(), layout: swapped.layout(CONTAINER)});
+        const idOf = (selector: string) => wrapper.get(selector).attributes("id");
+        const owns = wrapper.element.getAttribute("aria-owns")?.split(" ") ?? [];
+        expect(owns).toEqual([idOf("[data-leaf=\"b\"]"), idOf("[data-sash]"), idOf("[data-leaf=\"a\"]"), idOf("[data-leaf=\"f\"]"), idOf("[data-content=\"x\"]")]);
     });
 
     it("最大化：窗不算被盖住，别的叶才算", () => {
@@ -1480,6 +2059,8 @@ describe("NestedGrid 交换", () => {
         const content = wrapper.get("[data-content='view-a1']").element as HTMLElement;
         expect(content.hasAttribute("inert")).toBe(true);
         expect(content.style.visibility).toBe("");
+        // 输出 75：离开的一组的内容也带 out。
+        expect(content.getAttribute("data-swap")).toBe("out");
         expect(wrapper.get("[data-leaf='b1']").attributes("data-swap")).toBe("in");
         expect(wrapper.get("[data-content='view-b1']").attributes("data-swap")).toBe("in");
         const sash = wrapper.findAll(".nb-grid-sash").find((item) => item.attributes("data-swap") === "out");
@@ -1538,11 +2119,54 @@ describe("NestedGrid 交换", () => {
         expect(wrapper.emitted("issues")).toBeUndefined();
     });
 
+    it("token 没变不算新的交换（时序“swap”）：同一个 token 再给一次、配一次布局变化，照常过渡、不滑", async () => {
+        const wrapper = await mountColumn();
+        await wrapper.setProps({swap: swap(1, A, B), ...toB()});
+        expect(wrapper.find("[data-swap]").exists()).toBe(true);
+        await vi.waitFor(() => expect(wrapper.find("[data-swap]").exists()).toBe(false));
+        const back = column(A);
+        // 新对象、同一个 token：宿主只是重建了这份描述。
+        await wrapper.setProps({swap: {...swap(1, B, A), direction: -1}, node: back.root(), layout: back.layout(CONTAINER)});
+        expect(wrapper.find("[data-swap]").exists()).toBe(false);
+        expect(wrapper.find("[data-leaf='b1']").exists()).toBe(false);
+        expect(wrapper.emitted("issues")).toBeUndefined();
+    });
+
+    it("插槽在交换提交那一次渲染里读到的就是这一轮的 `swappingLeaves` 与 `moving`；滑出去的叶的面板头照常渲染（时序“moving、shapedLeaves、swappingLeaves”，输出 156）", async () => {
+        const seen: string[] = [];
+        let exposed: {swappingLeaves: ReadonlySet<string>; moving: boolean} | null = null;
+        const wrapper = await mountColumn("30ms", {
+            leaf: (({node}: {node: {id: string}}) => {
+                const swapping = exposed === null ? "" : [...exposed.swappingLeaves].sort().join(",");
+                seen.push(`${node.id}|${swapping}|${String(exposed?.moving ?? false)}`);
+                return h("span", {"data-head": node.id});
+            }) as (props: never) => unknown,
+        });
+        exposed = wrapper.vm as unknown as {swappingLeaves: ReadonlySet<string>; moving: boolean};
+        seen.length = 0;
+        await wrapper.setProps({swap: swap(1, A, B), ...toB()});
+        expect(wrapper.get("[data-leaf='a1']").attributes("data-swap")).toBe("out");
+        // 交换提交后的每一次插槽调用都已经是新值：没有先按旧值渲染一遍再补。
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.every((entry) => entry.endsWith("|a1,a2,b1|true"))).toBe(true);
+        // 滑出去的叶照常调插槽（宿主还有它们）。
+        expect(seen.some((entry) => entry.startsWith("a1|"))).toBe(true);
+        expect(seen.some((entry) => entry.startsWith("b1|"))).toBe(true);
+    });
+
     it("宿主列的叶对不上呈现、忽略之后为空：照常过渡，经 issues 交回原因", async () => {
         const wrapper = await mountColumn();
         await wrapper.setProps({swap: swap(1, ["hidden"], B), ...toB()});
         expect(wrapper.find("[data-swap]").exists()).toBe(false);
         expect(emittedIssues(wrapper)).toEqual([{code: "swap-skipped", cause: "no-leaving"}]);
+    });
+
+    it("swap-skipped 每发生一次发一条（输出 140）：同样不成立的交换给两次，两条", async () => {
+        const wrapper = await mountColumn();
+        await wrapper.setProps({swap: swap(1, ["hidden"], B), ...toB()});
+        const back = column(A);
+        await wrapper.setProps({swap: swap(2, ["hidden"], A), node: back.root(), layout: back.layout(CONTAINER)});
+        expect(emittedIssues(wrapper)).toEqual([{code: "swap-skipped", cause: "no-leaving"}, {code: "swap-skipped", cause: "no-leaving"}]);
     });
 
     it("滑到一半点回去：同一分支同一序号的线一条滑出去、一条回来，回来的那条照样能拖；滑出去的线对读屏隐藏", async () => {
@@ -1764,6 +2388,20 @@ describe("离开的内容由库留到过渡结束（Spec ui/nested-grid 输出 1
         await nextTick();
         expect(moveGridFocus(root.parentElement, "next")).toBe(true);
         expect(document.activeElement?.getAttribute("data-focus")).toBe("z");
+    });
+
+    it("留着的内容不进 aria-owns（输出 155）：它的叶离开后 DOM 序与树序不一致，读屏顺序里有别的内容，没有它", async () => {
+        const {wrapper, host} = await mountHost(true);
+        const root = wrapper.element as HTMLElement;
+        const idOf = (key: string) => root.querySelector(`[data-content='${key}']`)?.id;
+        const kept = idOf("y");
+        host.close("y");
+        await nextTick();
+        expect(stateOf(wrapper, "y").content).toMatchObject({leaving: true});
+        const owns = root.getAttribute("aria-owns")?.split(" ") ?? [];
+        expect(owns).toContain(idOf("x"));
+        expect(owns).toContain(idOf("z"));
+        expect(owns).not.toContain(kept);
     });
 
     it("离开的叶没带着留着的内容（区域隐藏，宿主数据都在）：面板头照常渲染，读得到这一轮的", async () => {
