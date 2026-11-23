@@ -43,6 +43,8 @@ function value<T>(result: {readonly ok: true; readonly value: T} | {readonly ok:
     return result.value;
 }
 
+const value_ = value;
+
 function diagnostics(w: TasksWorld, event: string): unknown[] {
     return w.settings.diagnostics("hub").query({}).records.filter((record) => record.event === event);
 }
@@ -483,10 +485,167 @@ describe("清单关闭（输出 21）", () => {
         p.state.answer = () => new Promise(() => {});
         (await w.owner("a")).tasks.provide(p.value);
         const [key] = keys(await rows(client));
-        void client.stop({key: key!});
+        const pending = client.stop({key: key!});
         await waitUntil("提供方收到停止", () => p.state.stops.length === 1);
         expect(await w.settings.hub.stop()).toMatchObject({status: "closed"});
         expect(p.state.stops[0]!.signal.aborted).toBe(true);
         expect(p.state.unsubscribed).toBe(1);
+        // 链路随服务一起关：调用要么在关之前拿到“未知”，要么以链路断开结束，不会一直挂着。
+        const result = await pending;
+        expect(result.ok ? result.value : result.code).toSatisfy((value: unknown) => JSON.stringify(value) === JSON.stringify({outcome: "unknown"}) || typeof value === "string");
+    });
+});
+
+describe("实现审查补的边界（第 1 片 omp）", () => {
+    test("撤回只能在调过提供方之后：同一段里先调 stop 再退订，撤回之后的停止得 row-gone、不再调它", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const order: string[] = [];
+        let revoke: () => void = () => undefined;
+        const value: TaskProvider = {
+            rows: () => [row("1")],
+            subscribe: () => () => void order.push("unsubscribe"),
+            stop: () => {
+                order.push("stop");
+                queueMicrotask(revoke);
+                return new Promise(() => {});
+            },
+        };
+        revoke = (await w.owner("a")).tasks.provide(value);
+        const [key] = keys(await rows(client));
+        expect(value_(await client.stop({key: key!}))).toEqual({outcome: "unknown"});
+        expect(order).toEqual(["stop", "unsubscribe"]);
+        expect(await client.stop({key: key!})).toMatchObject({ok: false, code: "row-gone"});
+        expect(order).toEqual(["stop", "unsubscribe"]);
+    });
+
+    test("停止的结果读字段时抛错：当场交回未知、记诊断，不留未处理的拒绝", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const p = provider([row("1")]);
+        p.state.answer = () => Promise.resolve(Object.defineProperty({kind: "rejected"}, "reason", {get: () => {
+            throw new Error("reason broke");
+        }}) as StopOutcome);
+        (await w.owner("a")).tasks.provide(p.value);
+        const [key] = keys(await rows(client));
+        expect(value_(await client.stop({key: key!}))).toEqual({outcome: "unknown"});
+        expect(diagnostics(w, "tasks.provider-stop-failed")).toHaveLength(1);
+    });
+
+    test("布尔字段不是布尔值的行丢掉、记诊断", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        (await w.owner("a")).tasks.provide(provider([row("ok"), row("bad", {foreground: "yes" as unknown as boolean})]).value);
+        expect(titles(await rows(client))).toEqual(["行 ok"]);
+        expect(diagnostics(w, "tasks.provider-row-invalid")).toHaveLength(1);
+    });
+
+    test("会话块有组头时，打开只取组头那一家的，不拼别家的", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        (await w.owner("early")).tasks.provide(provider([row("job", {owner: {kind: "session", session: "r", title: "根", open: {command: "test.tasks-owner-early.open", args: {session: "other"}}}})]).value);
+        (await w.owner("late")).tasks.provide(provider([row("head", {head: true, owner: {kind: "session", session: "r", title: "根", open: {command: "test.tasks-owner-late.open", args: {session: "r"}}}})]).value);
+        const [group] = (await rows(client)).groups as Extract<RowGroup, {kind: "session"}>[];
+        expect(group!.head!.source).toEqual({kind: "provider", plugin: "test.tasks-owner-late"});
+        expect(group!.open).toEqual({command: "test.tasks-owner-late.open", args: {session: "r"}});
+    });
+
+    test("门面释放：自己的任务先落定为中断，退订回调里再调句柄不起作用", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const owner = await w.owner("a");
+        const handle = owner.tasks.start({title: "导出"});
+        owner.tasks.provide({rows: () => [], subscribe: () => () => handle.succeed("退订时报成功"), stop: async () => ({kind: "accepted"})});
+        await owner.stop();
+        expect(value_(await client.own({})).tasks.find((task) => task.id === handle.id)).toMatchObject({state: "interrupted"});
+    });
+
+    test("只有提供方的变化也推：后台工作的件数随提供方的行变，分组行跟着推", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const own: OwnPayload[] = [];
+        const grouped: RowsPayload[] = [];
+        expect((await client.events.ownChanged.subscribe({}, (payload) => void own.push(payload))).ok).toBe(true);
+        expect((await client.events.rowsChanged.subscribe(ALL, (payload) => void grouped.push(payload))).ok).toBe(true);
+        const p = provider([]);
+        (await w.owner("a")).tasks.provide(p.value);
+        p.set([row("1")]);
+        await waitUntil("两路都推到这一行", () => {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            return own.at(-1)?.background.count === 1 && grouped.at(-1) !== undefined && keys(grouped.at(-1)!).length === 1;
+        });
+    });
+
+    test("撤回发生在算好之后、发出之前：那一份不发，下一份去掉这一家", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const grouped: RowsPayload[] = [];
+        expect((await client.events.rowsChanged.subscribe(ALL, (payload) => void grouped.push(payload))).ok).toBe(true);
+        let current: readonly ProvidedRow[] = [row("original")];
+        let notify: () => void = () => undefined;
+        let revoke: () => void = () => undefined;
+        revoke = (await w.owner("a")).tasks.provide({rows: () => {
+            const rows_ = current;
+            if (rows_[0]?.id === "obsolete") queueMicrotask(revoke);
+            return rows_;
+        }, subscribe: (listener) => {
+            notify = listener;
+            return () => undefined;
+        }, stop: async () => ({kind: "accepted"})});
+        await waitUntil("推到 original", () => {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            return grouped.some((payload) => keys(payload).some((key) => key.endsWith(":original")));
+        });
+        current = [row("obsolete")];
+        notify();
+        for (let step = 0; step < 6; step += 1) {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            await Promise.resolve();
+        }
+        await waitUntil("推到去掉之后的那一份", () => {
+            w.settings.clock.advance(PUSH_INTERVAL_MS);
+            return keys(grouped.at(-1)!).length === 0;
+        });
+        expect(grouped.some((payload) => keys(payload).some((key) => key.endsWith(":obsolete")))).toBe(false);
+    });
+
+    test("自己 50 件失败的任务字段写满、各在一个会话里：分组行仍不超过 512 KiB，一件不少", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const nul = "\u0000";
+        for (let index = 0; index < 50; index += 1) {
+            const handle = w.tasks.start({title: nul.repeat(200), owner: {kind: "session", session: `s${String(index)}`, title: nul.repeat(200)}});
+            handle.fail({message: nul.repeat(500)});
+        }
+        const payload = await rows(client);
+        expect(Buffer.byteLength(JSON.stringify(payload), "utf8")).toBeLessThanOrEqual(512 * 1024);
+        expect(payload.groups).toHaveLength(50);
+        expect(payload.more).toBe(0);
+    });
+
+    test("几百个小组不会被每组的余量裁空", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        for (let index = 0; index < 260; index += 1) w.tasks.start({title: `t${String(index)}`, owner: {kind: "project", project: `p${String(index)}`, title: `项目 ${String(index)}`}});
+        const payload = await rows(client);
+        expect(payload.groups).toHaveLength(260);
+        expect(payload.more).toBe(0);
+    });
+
+    test("只有在跑的行也超出上限时：先不列不是组头的在跑行（最早开始的先），组头留着", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const long = (id: string, over: Partial<ProvidedRow> = {}) => row(id, {message: "长".repeat(420), title: "题".repeat(100), ...over});
+        for (const name of ["x", "y", "z"]) {
+            const owner = {kind: "session", session: `root-${name}`, title: name} as const;
+            (await w.owner(name)).tasks.provide(provider([long(`${name}-head`, {head: true, owner, startedAt: 0}), ...Array.from({length: 99}, (_, index) => long(`${name}-run-${String(index)}`, {owner, startedAt: 1_000 + index}))]).value);
+        }
+        const payload = await rows(client);
+        expect(payload.more).toBeGreaterThan(0);
+        const listed = keys(payload);
+        expect(listed.filter((key) => key.endsWith("-head"))).toHaveLength(3);
+        const kept = listed.filter((key) => key.includes("-run-")).map((key) => Number(key.split("-run-")[1]));
+        expect(kept.length).toBe(3 * 99 - payload.more);
+        expect(Math.min(...kept)).toBeGreaterThanOrEqual(Math.floor(payload.more / 3) - 1);
     });
 });

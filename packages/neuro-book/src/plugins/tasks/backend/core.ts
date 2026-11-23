@@ -54,6 +54,8 @@ export interface TasksCore {
     rows(filter: RowsFilter): RowsPayload;
     /** 停提供方的一行（输出 24）。 */
     stop(key: string): Promise<StopResult>;
+    /** 提供方撤回过几次：推送前比对，算好之后又有撤回的那一份不发（输出 21）。 */
+    revocations(): number;
     detail(id: string): Outcome<TaskDetail | null, "unknown-task">;
     cancel(id: string): Outcome<null, "unknown-task" | "not-cancellable" | "not-running">;
     retry(id: string): Outcome<null, "unknown-task" | "not-retryable">;
@@ -249,7 +251,6 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
     return {
         facade: (consumer) => ({start: (input) => startFor(consumer, input), provide: (provider) => providers.provide(consumer, provider)}),
         release(consumer) {
-            providers.release(consumer);
             let touched = false;
             const interrupted: TaskRecord[] = [];
             for (const record of [...running.values(), ...finished]) {
@@ -261,6 +262,8 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
                 if (record.state === "running") interrupted.push(record);
             }
             for (const record of interrupted) finish(record, "interrupted", record.message);
+            // 自己的任务先落定（清掉重试、在跑的转为已中断），再撤回提供方：撤回会调提供方的退订，那里面再调这家的任务句柄也只是不起作用。
+            providers.release(consumer);
             if (touched || interrupted.length > 0) changed();
             // 状态先落定、推送先排上，再 abort：发起方的 abort 监听里再调句柄也只会得到“不起作用”。
             for (const record of interrupted) record.controller.abort("interrupted");
@@ -280,6 +283,7 @@ export function createTasksCore(options: TasksCoreOptions): TasksCore {
             });
         },
         stop: (key) => providers.stop(key),
+        revocations: () => providers.revocations,
         detail(id) {
             const record = find(id);
             if (record === undefined) return {ok: false, code: "unknown-task", detail: `no task ${id}`};

@@ -88,6 +88,8 @@ export class ProviderRegistry {
     readonly #entries = new Map<ConsumerIdentity, Entry>();
     #generation = 0;
     #version = 0;
+    /** 撤回过几次：推送发出之前比对，算好之后又有撤回的那一份不发（remote.ts）。 */
+    #revocations = 0;
     #closed = false;
 
     constructor(private readonly options: {readonly clock: RuntimeClock; readonly report: TasksDiagnostic; readonly changed: () => void}) {}
@@ -103,12 +105,16 @@ export class ProviderRegistry {
         const entry: Entry = {consumer, plugin, generation: this.#generation, provider, unsubscribe: null, dirty: true, failed: false, sealed: false, rows: [], overflow: [], invalid: new Set(), inflight: new Set()};
         this.#entries.set(consumer, entry);
         try {
-            entry.unsubscribe = provider.subscribe(() => {
+            const unsubscribe = provider.subscribe(() => {
                 if (entry.sealed) return;
                 entry.dirty = true;
                 this.options.changed();
             });
+            if (typeof unsubscribe !== "function") throw new TypeError("subscribe() did not return a function");
+            entry.unsubscribe = unsubscribe;
         } catch (error) {
+            // 提供方可能在抛错之前已经把 `notify` 接进了自己的事件源：封住它，之后调用不起作用。提供方自己负责拆掉装上的监听。
+            entry.sealed = true;
             this.#entries.delete(consumer);
             throw new TypeError(`subscribing to the task provider of ${plugin} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -151,6 +157,11 @@ export class ProviderRegistry {
         const outcome = await new Promise<StopOutcome>((resolve) => {
             const controller = new AbortController();
             let settled = false;
+            const failed = (error: unknown): void => {
+                if (settled) return;
+                this.options.report("provider-stop-failed", `stopping ${row.id} of ${entry.plugin} threw: ${error instanceof Error ? error.message : String(error)}`, {plugin: entry.plugin, row: row.id});
+                flight.settle({kind: "unknown"});
+            };
             let cancelTimer = (): void => {};
             const flight: InFlight = {
                 controller,
@@ -167,10 +178,23 @@ export class ProviderRegistry {
                 controller.abort("timeout");
                 flight.settle({kind: "unknown"});
             }, STOP_WAIT_MS);
-            Promise.resolve().then(() => entry.provider.stop(row.id, controller.signal)).then((value) => flight.settle(this.#outcome(entry, row.id, value)), (error: unknown) => {
-                this.options.report("provider-stop-failed", `stopping ${row.id} of ${entry.plugin} threw: ${error instanceof Error ? error.message : String(error)}`, {plugin: entry.plugin, row: row.id});
-                flight.settle({kind: "unknown"});
-            });
+            // 在查过键的同一个同步段里调提供方：撤回只能发生在这之后（撤回时在途的那次以“未知”结算），不会把已撤回的那一家调起来。
+            // 结算之后（到点、撤回）才来的结果丢掉，不再校验、不记诊断。
+            let pending: Promise<unknown>;
+            try {
+                pending = Promise.resolve(entry.provider.stop(row.id, controller.signal));
+            } catch (error) {
+                failed(error);
+                return;
+            }
+            pending.then((value) => {
+                if (settled) return;
+                try {
+                    flight.settle(this.#outcome(entry, row.id, value));
+                } catch (error) {
+                    failed(error);
+                }
+            }, failed);
         });
         return {ok: true, value: outcome.kind === "rejected" ? {outcome: "rejected", reason: outcome.reason} : {outcome: outcome.kind}};
     }
@@ -181,8 +205,14 @@ export class ProviderRegistry {
         for (const entry of [...this.#entries.values()]) this.#revoke(entry, false);
     }
 
+    /** 撤回过几次（输出 21）：比对前后两次就知道中间有没有撤回。 */
+    get revocations(): number {
+        return this.#revocations;
+    }
+
     #revoke(entry: Entry, push = true): void {
         entry.sealed = true;
+        this.#revocations += 1;
         this.#entries.delete(entry.consumer);
         for (const flight of [...entry.inflight]) {
             flight.controller.abort("revoked");
@@ -254,6 +284,9 @@ export class ProviderRegistry {
         if (typeof row.kind !== "string" || !KIND_PATTERN.test(row.kind)) return "bad kind";
         if (row.form !== "once") return "bad form";
         if (!STATES.has(row.state)) return "bad state";
+        for (const flag of ["head", "foreground", "stoppable"] as const) {
+            if (row[flag] !== undefined && typeof row[flag] !== "boolean") return `bad ${flag}`;
+        }
         if (!isTime(row.startedAt)) return "bad startedAt";
         if (row.endedAt !== undefined && row.endedAt !== null && !isTime(row.endedAt)) return "bad endedAt";
         const title = normalizeText(row.title, TITLE_MAX);

@@ -33,7 +33,7 @@ function task(id: string, extra: Partial<TaskItem> = {}): TaskItem {
     return {id, title: id, message: null, state: "running", progress: null, cancellable: false, cancelRequested: false, retryable: false, hasDetail: false, startedAt: NOW, endedAt: null, owner: {kind: "app"}, ...extra};
 }
 
-const ownRow = (item: TaskItem): ListedRow => ({key: `own:${item.id}`, source: {kind: "own", id: item.id}, kind: "nbook.tasks.task", kindLabel: null, title: item.title, message: item.message, state: item.state, progress: item.progress, startedAt: item.startedAt, endedAt: item.endedAt, foreground: false, stoppable: false, open: null, own: item});
+const ownRow = (item: TaskItem): ListedRow => ({key: `own:${item.id}`, source: {kind: "own", id: item.id}, kind: "nbook.tasks.task", kindLabel: null, title: item.title, message: item.message, state: item.state, progress: item.progress, startedAt: item.startedAt, endedAt: item.endedAt, foreground: false, stoppable: false, open: null, own: {id: item.id, cancellable: item.cancellable, cancelRequested: item.cancelRequested, retryable: item.retryable, hasDetail: item.hasDetail}});
 
 function providerRow(id: string, extra: Partial<ListedRow> = {}): ListedRow {
     return {key: `p:nbook.agent:1:${id}`, source: {kind: "provider", plugin: "nbook.agent"}, kind: "nbook.agent.shell", kindLabel: "命令", title: id, message: null, state: "running", progress: null, startedAt: NOW, endedAt: null, foreground: false, stoppable: true, open: null, own: null, ...extra};

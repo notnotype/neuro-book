@@ -44,7 +44,7 @@ const OWN: readonly TaskItem[] = [
     {...base, id: "t7", state: "running", title: "导出《长夜》为 PDF", message: "第 20 章，共 26 章", progress: 75, cancellable: true, startedAt: at(0, 10, 12), owner: {kind: "project", project: "p-night", title: "长夜"}},
 ];
 
-const ownRow = (task: TaskItem): ListedRow => ({key: `own:${task.id}`, source: {kind: "own", id: task.id}, kind: "nbook.tasks.task", kindLabel: null, title: task.title, message: task.message, state: task.state, progress: task.progress, startedAt: task.startedAt, endedAt: task.endedAt, foreground: false, stoppable: false, open: null, own: task});
+const ownRow = (task: TaskItem): ListedRow => ({key: `own:${task.id}`, source: {kind: "own", id: task.id}, kind: "nbook.tasks.task", kindLabel: null, title: task.title, message: task.message, state: task.state, progress: task.progress, startedAt: task.startedAt, endedAt: task.endedAt, foreground: false, stoppable: false, open: null, own: {id: task.id, cancellable: task.cancellable, cancelRequested: task.cancelRequested, retryable: task.retryable, hasDetail: task.hasDetail}});
 const agentRow = (id: string, over: Omit<Partial<ListedRow>, "source" | "own">): ListedRow => ({key: `p:nbook.agent:1:${id}`, source: {kind: "provider", plugin: "nbook.agent"}, kind: "nbook.agent.shell", kindLabel: "命令", title: id, message: null, state: "running", progress: null, startedAt: at(0, 10, 40), endedAt: null, foreground: false, stoppable: true, open: null, own: null, ...over});
 const open = (session: string) => ({command: "nbook.agent.focus-session", args: {sessionId: session}});
 const own = (id: string): ListedRow => ownRow(OWN.find((task) => task.id === id)!);

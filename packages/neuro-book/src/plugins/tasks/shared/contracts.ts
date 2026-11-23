@@ -194,7 +194,8 @@ export const ListedRowSchema = Type.Object({
     foreground: Type.Boolean(),
     stoppable: Type.Boolean(),
     open: Nullable(RowOpenSchema),
-    own: Nullable(TaskItemSchema),
+    /** 自己的任务能做的操作（标题、进展等已在行上，不再带一份完整的任务）。 */
+    own: Nullable(Type.Object({id: Type.String(), cancellable: Type.Boolean(), cancelRequested: Type.Boolean(), retryable: Type.Boolean(), hasDetail: Type.Boolean()}, {additionalProperties: false})),
 }, {additionalProperties: false});
 export type ListedRow = Static<typeof ListedRowSchema>;
 
@@ -225,7 +226,7 @@ const NoInput = Type.Object({}, {additionalProperties: false});
 
 const methods = {
     own: {input: NoInput, output: OwnPayloadSchema, effect: "read", errors: {"too-large": Detail}},
-    rows: {input: RowsFilterSchema, output: RowsPayloadSchema, effect: "read"},
+    rows: {input: RowsFilterSchema, output: RowsPayloadSchema, effect: "read", errors: {"too-large": Detail}},
     detail: {input: IdInput, output: Nullable(TaskDetailSchema), effect: "read", errors: {"unknown-task": Detail}},
     cancel: {input: IdInput, output: Type.Null(), effect: "write", errors: {"unknown-task": Detail, "not-cancellable": Detail, "not-running": Detail}},
     retry: {input: IdInput, output: Type.Null(), effect: "write", errors: {"unknown-task": Detail, "not-retryable": Detail}},

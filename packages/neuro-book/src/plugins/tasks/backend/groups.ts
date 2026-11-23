@@ -16,9 +16,12 @@ import type {AcceptedRow} from "./providers";
 /** 视图的范围（输出 22），形状同远程合同的过滤。 */
 export type RowsFilter = Static<typeof RowsFilterSchema>;
 
-/** `rows` 整份的上限（同 v1 的清单）；每组按这么多字节估计组头与外壳，整份另留一份载荷外壳的余量，每行另算一个逗号。 */
+/**
+ * `rows` 整份的上限（同 v1 的清单）。修剪按估算：每行按它编码后的字节数加一个逗号，每个还有行的组按它的外壳（组头之外的字段）编码后
+ * 的字节数加一点余量，整份另留一份载荷外壳的余量；最后在 remote.ts 按真实编码再核一次。
+ */
 export const ROWS_MAX_BYTES = 512 * 1024;
-const GROUP_OVERHEAD_BYTES = 2 * 1024;
+const GROUP_SLACK_BYTES = 512;
 const ENVELOPE_BYTES = 4 * 1024;
 const BACKGROUND_ITEMS = 20;
 /** 自己的任务在视图里的种类：没有提供方前缀。 */
@@ -55,7 +58,7 @@ function ownItem(task: TaskItem): Item {
         foreground: false,
         stoppable: false,
         open: null,
-        own: task,
+        own: {id: task.id, cancellable: task.cancellable, cancelRequested: task.cancelRequested, retryable: task.retryable, hasDetail: task.hasDetail},
     };
     return {row, generation: null, owner: task.owner, head: false, startedAt: Date.parse(task.startedAt), endedAt: task.endedAt === null ? null : Date.parse(task.endedAt), live: task.state === "running", fromOwn: true, bytes: Buffer.byteLength(JSON.stringify(row), "utf8")};
 }
@@ -97,9 +100,17 @@ function byState(a: Item, b: Item): number {
  * 超出上限时去掉的先后（输出 23）：提供方结束的行（最早结束的先）、自己结束但不是失败的任务（同上）、不是组头的在跑行（最早开始的先）、
  * 组头；自己失败的任务一直留着。交回留下的。
  */
-function trim(items: readonly Item[], groups: number): readonly Item[] {
+function trim(items: readonly Item[]): readonly Item[] {
     const budget = ROWS_MAX_BYTES - ENVELOPE_BYTES;
-    let total = items.reduce((sum, item) => sum + item.bytes + 1, 0) + groups * GROUP_OVERHEAD_BYTES;
+    // 每组的外壳只在组里还有行时算：删空一组时把它的外壳退回预算。
+    const members = new Map<string, number>();
+    const shells = new Map<string, number>();
+    for (const item of items) {
+        const key = groupOf(item.owner);
+        members.set(key, (members.get(key) ?? 0) + 1);
+        if (!shells.has(key)) shells.set(key, shellBytes(item.owner));
+    }
+    let total = items.reduce((sum, item) => sum + item.bytes + 1, 0) + [...shells.values()].reduce((sum, bytes) => sum + bytes, 0);
     if (total <= budget) return items;
     const ended = (item: Item) => item.endedAt ?? 0;
     const order = [
@@ -113,27 +124,60 @@ function trim(items: readonly Item[], groups: number): readonly Item[] {
         if (total <= budget) break;
         dropped.add(item);
         total -= item.bytes + 1;
+        const key = groupOf(item.owner);
+        const left = members.get(key)! - 1;
+        members.set(key, left);
+        if (left === 0) total -= shells.get(key)!;
     }
     return items.filter((item) => !dropped.has(item));
 }
 
+const groupOf = (owner: RowOwner): string => (owner.kind === "app" ? "app" : `${owner.kind}:${owner.kind === "project" ? owner.project : owner.session}`);
+
+/** 一个组除了行与组头之外的字段编码后的字节数，加一点余量。 */
+function shellBytes(owner: RowOwner): number {
+    const shell = owner.kind === "session"
+        ? {kind: "session", session: owner.session, title: owner.title, open: (owner as {open?: RowOpen}).open ?? null, head: null, waiting: false, rows: []}
+        : owner.kind === "project" ? {kind: "project", project: owner.project, title: owner.title, current: false, rows: []} : {kind: "app", rows: []};
+    return Buffer.byteLength(JSON.stringify(shell), "utf8") + GROUP_SLACK_BYTES;
+}
+
 /**
- * 一个根会话的块（输出 26）：组头与它的标题、“打开”只认最早登记的那家提供方——几家都交了组头时，别家的组头当普通行，不能换掉
- * 组头停的对象；没有组头时取最早登记的那家的行的归属。
+ * 修剪之前先定每个根会话的组头（输出 26）：只认最早登记的那家交的 `head`，别家的当普通行（记一次冲突诊断）。这样修剪按定好的角色排
+ * 先后；真正的组头被裁掉时这一块就没有组头，不会把别家的行提上来。
  */
-function sessionGroup(session: string, items: Item[], conflict: (session: string) => void): {readonly group: RowGroup; readonly waiting: boolean; readonly at: number} {
-    const byGeneration = [...items].sort((a, b) => (a.generation ?? Number.MAX_SAFE_INTEGER) - (b.generation ?? Number.MAX_SAFE_INTEGER));
-    const heads = byGeneration.filter((item) => item.head);
-    const head = heads[0] ?? null;
-    if (heads.length > 1 && heads.some((item) => item.generation !== head!.generation)) conflict(session);
+function settleHeads(items: readonly Item[], conflict: (session: string) => void): readonly Item[] {
+    const chosen = new Map<string, Item>();
+    for (const item of items) {
+        if (!item.head || item.owner.kind !== "session") continue;
+        const current = chosen.get(item.owner.session);
+        if (current === undefined || (item.generation ?? Number.MAX_SAFE_INTEGER) < (current.generation ?? Number.MAX_SAFE_INTEGER)) chosen.set(item.owner.session, item);
+    }
+    const conflicted = new Set<string>();
+    const settled = items.map((item) => {
+        if (!item.head || item.owner.kind !== "session" || chosen.get(item.owner.session) === item) return item;
+        if (item.generation !== chosen.get(item.owner.session)!.generation) conflicted.add(item.owner.session);
+        return {...item, head: false};
+    });
+    for (const session of conflicted) conflict(session);
+    return settled;
+}
+
+/**
+ * 一个根会话的块（输出 26）。组头已由 `settleHeads` 定好：有组头时标题与“打开”只取它（行上的 `open`，没有时取它的归属的 `open`），不拼
+ * 别家的；没有组头时取最早登记的那家提供方的行的归属。
+ */
+function sessionGroup(session: string, items: Item[]): {readonly group: RowGroup; readonly waiting: boolean; readonly at: number} {
+    const head = items.find((item) => item.head) ?? null;
     const rest = items.filter((item) => item !== head).sort(byState);
-    const fromProvider = byGeneration.find((item) => !item.fromOwn) ?? null;
+    const fromProvider = [...items].sort((a, b) => (a.generation ?? Number.MAX_SAFE_INTEGER) - (b.generation ?? Number.MAX_SAFE_INTEGER)).find((item) => !item.fromOwn) ?? null;
     // 会话块里的行按归属的会话分来，归属一定是会话。
-    const title = ((head ?? fromProvider ?? items[0]!).owner as Extract<RowOwner, {kind: "session"}>).title;
-    const ownerOpen = fromProvider === null ? null : ((fromProvider.owner as {open?: RowOpen}).open ?? null);
+    const source = head ?? fromProvider ?? items[0]!;
+    const owner = source.owner as Extract<RowOwner, {kind: "session"}> & {readonly open?: RowOpen};
+    const open = head !== null ? (head.row.open ?? owner.open ?? null) : fromProvider === null ? null : (owner.open ?? null);
     const waiting = items.some((item) => item.row.state === "waiting");
     return {
-        group: {kind: "session", session, title, open: head?.row.open ?? ownerOpen, head: head?.row ?? null, waiting, rows: rest.map((item) => item.row)},
+        group: {kind: "session", session, title: owner.title, open, head: head?.row ?? null, waiting, rows: rest.map((item) => item.row)},
         waiting,
         at: head?.startedAt ?? Math.min(...items.map((item) => item.startedAt)),
     };
@@ -146,8 +190,7 @@ export function buildRows(own: readonly TaskItem[], snapshot: {readonly version:
     // 超过一家上限没列出的也计数：范围内的进 `more`，范围外在跑的进 `elsewhere`。
     const overflowInScope = snapshot.overflow.filter((row) => inScope(row.owner, filter)).length;
     const elsewhere = all.filter((item) => item.live && !inScope(item.owner, filter)).length + snapshot.overflow.filter((row) => isLive(row.state) && !inScope(row.owner, filter)).length;
-    const keyOf = (owner: RowOwner): string => (owner.kind === "app" ? "app" : `${owner.kind}:${owner.kind === "project" ? owner.project : owner.session}`);
-    const items = trim(scoped, new Set(scoped.map((item) => keyOf(item.owner))).size);
+    const items = trim(settleHeads(scoped, conflict));
     const more = scoped.length - items.length + overflowInScope;
 
     const sessions = new Map<string, Item[]>();
@@ -158,7 +201,7 @@ export function buildRows(own: readonly TaskItem[], snapshot: {readonly version:
         else if (item.owner.kind === "project") projects.set(item.owner.project, [...(projects.get(item.owner.project) ?? []), item]);
         else app.push(item);
     }
-    const sessionGroups = [...sessions].map(([session, members]) => sessionGroup(session, members, conflict)).sort((a, b) => (a.waiting !== b.waiting ? (a.waiting ? -1 : 1) : b.at - a.at)).map((entry) => entry.group);
+    const sessionGroups = [...sessions].map(([session, members]) => sessionGroup(session, members)).sort((a, b) => (a.waiting !== b.waiting ? (a.waiting ? -1 : 1) : b.at - a.at)).map((entry) => entry.group);
     // 当前项目在前；其余的名字是 Text，按语言翻译后才有意义，服务端只按 id 排、窗口再按名字排（输出 26）。
     const projectGroups: RowGroup[] = [...projects].sort(([a], [b]) => (a === filter.project ? -1 : b === filter.project ? 1 : a < b ? -1 : a > b ? 1 : 0)).map(([project, members]) => ({
         kind: "project",

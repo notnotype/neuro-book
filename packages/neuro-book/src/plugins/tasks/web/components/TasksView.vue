@@ -9,7 +9,7 @@ import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {fullTime, shortTime} from "nbook/shared/short-time";
 import {useForegroundVisibility} from "nbook/ui/foreground-visibility";
 
-import type {ListedRow, RowGroup, RowOpen, RowState, TaskItem} from "../../shared/contracts";
+import type {ListedRow, RowGroup, RowOpen, RowState} from "../../shared/contracts";
 import {tasksText} from "../../shared/text";
 import {groupKey} from "../rows";
 import type {RowsStore} from "../rows";
@@ -124,10 +124,11 @@ const stopping = (row: ListedRow): boolean => props.rows.stopping.value.has(row.
 const detail = ref<{readonly title: string; readonly text: string; readonly truncated: boolean} | null>(null);
 const detailOpen = ref(false);
 
-async function openDetail(item: TaskItem): Promise<void> {
-    const found = await props.store.detail(item.id);
+async function openDetail(row: ListedRow): Promise<void> {
+    if (row.own === null) return;
+    const found = await props.store.detail(row.own.id);
     if (found === null) return;
-    detail.value = {title: port.t(tasksText("list.detailTitle", {title: port.t(item.title)})), text: found.text, truncated: found.truncated};
+    detail.value = {title: port.t(tasksText("list.detailTitle", {title: port.t(row.title)})), text: found.text, truncated: found.truncated};
     detailOpen.value = true;
 }
 
@@ -194,7 +195,7 @@ const toggleLabel = (group: DisplayGroup): string => port.t(tasksText(group.coll
                                 <template v-if="row.own !== null">
                                     <Button v-if="row.state === 'running' && row.own.cancellable" size="sm" variant="ghost" focus-ring="inset" :disabled="row.own.cancelRequested" :aria-describedby="titleId(row.key)" data-task-cancel @click="store.cancel(row.own.id)">{{ port.t(tasksText(row.own.cancelRequested ? "list.cancelling" : "list.cancel")) }}</Button>
                                     <Button v-if="row.own.retryable" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-task-retry @click="store.retry(row.own.id)">{{ port.t(tasksText("list.retry")) }}</Button>
-                                    <Button v-if="row.own.hasDetail" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-task-detail @click="openDetail(row.own)">{{ port.t(tasksText("list.detail")) }}</Button>
+                                    <Button v-if="row.own.hasDetail" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-task-detail @click="openDetail(row)">{{ port.t(tasksText("list.detail")) }}</Button>
                                 </template>
                                 <template v-else>
                                     <Button v-if="row.open !== null" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(row.key)" data-row-open @click="openRow(row)">{{ port.t(tasksText("list.open")) }}</Button>
