@@ -5,7 +5,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridSwap} from "@notnotype/nb-layout";
 import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
@@ -31,14 +31,15 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {focusLandings, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
-import type {FocusLanding} from "../state/layout-present";
+import {focusLandings, isSoleWindow, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import type {ContainerEntry, FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop, LiveCardRefresh} from "../layout-drag";
+import {dropKeyOf} from "../entry-drop";
 import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
@@ -478,8 +479,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const [into, fresh, reset] = [itemsOf("container"), itemsOf("new-container"), itemsOf("reset")];
     // 已经独占一个窗的再浮动没有意义。
     const home = panelOfView(opened.viewId);
-    const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
-    const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || alone ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
+    const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || isSoleWindow(doc.value, home) ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
     // 入口代表的容器只有这一节（并成一行，输出 47）：它的“重置”就是视图的“重置位置”，只接“移到”。
     const {container: owner} = opened;
     const container = owner === null ? [] : containerMoveItemsOf(owner).map((item): ContextMenuItem => ({
@@ -516,14 +516,20 @@ const containerCount = (views: readonly string[]): number | null => {
     return total > 0 ? total : null;
 };
 
-/** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
-const toolEntries = computed((): ToolStripEntry[] => regionEntries(renderedDoc.value, "sidebar", catalog.value, state.value.containers).map((entry) => {
+/**
+ * 活动栏与入口条上的一个入口：`pressed` 是按下态（当前容器且区域可见），由调用方按自己区域的可见求值；角标各区域取法不同，由 `countOf` 按入口唯一的那个视图（含几个视图时是 null）给。
+ */
+function entryOf(entry: ContainerEntry, pressed: boolean, countOf: (viewId: string | null) => number | null): ToolStripEntry & RegionStripEntry {
     const label = text(entry.label.title);
     const views = entry.views.map(viewTitle);
     // 容器的名称就是它唯一那个视图的标题时，悬停文字不把同一个词写两遍。
     const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
-    return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value, count: containerCount(entry.views)};
-}));
+    const viewId = entry.views.length === 1 ? (entry.views[0] ?? null) : null;
+    return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId, current: entry.current, pressed, count: countOf(viewId)};
+}
+
+/** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
+const toolEntries = computed((): ToolStripEntry[] => regionEntries(renderedDoc.value, "sidebar", catalog.value, state.value.containers).map((entry) => entryOf(entry, entry.current && sidebarShowing.value, () => containerCount(entry.views))));
 
 const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntries(resolver) ?? []).map((item) => ({id: item.id, title: item.title, icon: item.icon, interactive: item.command !== null, pressed: item.pressed, disabledReason: item.disabledReason})));
 
@@ -580,16 +586,9 @@ function selectRegionEntry(region: PanelName, container: string): void {
 const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", RegionStripEntry[]>> => {
     const entriesOf = (region: "auxiliarybar" | "panel"): RegionStripEntry[] => {
         const showing = regionShowing(region);
-        return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => {
-            const label = text(entry.label.title);
-            const views = entry.views.map(viewTitle);
-            const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
-            const viewId = entry.views.length === 1 ? (entry.views[0] ?? null) : null;
-            // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里；几个视图的容器各节头
-            // 已经各写各的数，入口不再写合计。右栏的入口是图标，没有节头，写容器的合计。
-            const count = region === "panel" ? (viewId !== null ? props.views.badge?.(viewId) ?? null : null) : containerCount(entry.views);
-            return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId, current: entry.current, pressed: entry.current && showing, count};
-        });
+        // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里；几个视图的容器各节头
+        // 已经各写各的数，入口不再写合计。右栏的入口是图标，没有节头，写容器的合计。
+        return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => entryOf(entry, entry.current && showing, (viewId) => (region === "panel" ? (viewId !== null ? props.views.badge?.(viewId) ?? null : null) : containerCount(entry.views))));
     };
     return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
 });
@@ -834,7 +833,7 @@ const fileDropHost: WorkbenchFileDropHost = {
     resolve: (point, top) => {
         const drop = drag.value?.fileDrop(point, top instanceof Element ? top : null) ?? null;
         if (drop === null) return null;
-        const file: WorkbenchFileDrop = {action: drop.action, ...(drop.part === undefined ? {} : {part: drop.part}), key: JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]), label: dropLabel(drop)};
+        const file: WorkbenchFileDrop = {action: drop.action, ...(drop.part === undefined ? {} : {part: drop.part}), key: dropKeyOf(drop.action, drop.part), label: dropLabel(drop)};
         fileDrops.set(file, drop);
         return file;
     },
@@ -895,7 +894,7 @@ const liftedCard = computed(() => drag.value?.live.card.value ?? null);
 const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dragSource.value)));
 const wantsGhost = computed(() => dragView.value.ghost);
 /** 拖影的身份；位置经 `moveGhost` 写。 */
-const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
+const dragGhost = computed(() => (wantsGhost.value ? cardTitle.value : null));
 /** 正被拖着、入口条上留着位置的入口：只含被拖视图的那个容器的。 */
 function entryPlaceholderIn(entries: ReadonlyArray<{readonly id: string; readonly viewId: string | null}>): string | null {
     const viewId = dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value);
@@ -1069,7 +1068,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         </WorkbenchPanelHead>
                     </WorkbenchRegionStrip>
                 </template>
-                <template #lifted-head="{contentKey}">
+                <template #lifted-head>
                     <div class="workbench-shell__card-head" data-drag-card-head>
                         <template v-if="cardTitle !== null">
                             <span v-if="cardTitle.icon !== undefined" class="workbench-shell__card-icon" :class="cardTitle.icon" aria-hidden="true"></span>

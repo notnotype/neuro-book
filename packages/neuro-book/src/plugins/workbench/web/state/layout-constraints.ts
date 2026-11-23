@@ -2,7 +2,7 @@
  * 面板的约束（docs/specs/ui/workbench-layout.md 输出 5、6）：工作台给 nb-layout 的策略。库不知道角色与名字的含义。
  */
 
-import {GRID_UNBOUNDED} from "@notnotype/nb-layout";
+import {clampFloatRect, GRID_UNBOUNDED} from "@notnotype/nb-layout";
 import {findTreeNode, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridOrientation} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
@@ -52,6 +52,12 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
     const offset = FLOAT_CASCADE * (existing % 8);
     return {x: Math.max(0, ((extent?.width ?? size.width) - size.width) / 2) + offset, y: Math.max(0, ((extent?.height ?? size.height) - size.height) / 2) + offset, ...size};
 }
+
+/** 拖窗时夹回树区域：至少留一段头在里面，抓得到。容器还没量到时不夹。 */
+export const keepVisible = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}));
+
+/** 新开的窗整个夹回树区域：在状态栏上松手时，只留头在里面就等于开到了屏幕外。拖窗不一样，用户自己摆的，`keepVisible` 只保证抓得到。 */
+export const wholeInTree = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: rect.width, height: rect.height}));
 
 /** 放不下时先收哪个区域（输出 10）。 */
 const COLLAPSE_REGIONS: ReadonlyArray<PanelName> = ["auxiliarybar", "panel", "sidebar"];
@@ -141,7 +147,7 @@ const onlyRole = (doc: LayoutDoc, nodeId: string, role: PanelRecord["role"]): bo
 /**
  * 这条边是不是落点、怎么分（输出 25 到 27）。工具面板只有所在方向上的两条边，别的边没有窄带，算中央。固定的面板不参与一起分，规则在 `placeLeaf`，所以编辑区分屏不分走侧栏、面板的空间。
  */
-export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, panelId: string, edge: LayoutEdge, split: DropSplit = "half"): LayoutEdgeTarget | null {
+export function layoutEdgeTarget(doc: LayoutDoc, panelId: string, edge: LayoutEdge, split: DropSplit = "half"): LayoutEdgeTarget | null {
     const panel = doc.panels[panelId];
     if (panel === undefined) return null;
     if (panel.role === "tool") {
@@ -154,7 +160,7 @@ export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, p
 /**
  * 这条缝是不是落点（输出 26）：两边同类才是。编辑组之间，或同一列、同一排的工具面板之间；所以活动栏、侧栏、编辑区、右栏之间，编辑区与面板之间都没有缝落点，骨架插不进东西。
  */
-export function layoutSeamAccepts(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, before: string, after: string): boolean {
+export function layoutSeamAccepts(doc: LayoutDoc, before: string, after: string): boolean {
     if (onlyRole(doc, before, "editor") && onlyRole(doc, after, "editor")) return true;
     if (!onlyRole(doc, before, "tool") || !onlyRole(doc, after, "tool")) return false;
     const parent = findTreeNode(doc.tree.root, before)?.parent;
@@ -166,8 +172,9 @@ export function createLayoutPolicy(overrides: {readonly canInsert?: LayoutPolicy
     const {dropSplit, ...rest} = overrides;
     return {
         accepts: layoutAccepts,
-        edgeTarget: (doc, tabs, panel, edge) => layoutEdgeTarget(doc, tabs, panel, edge, dropSplit?.() ?? "half"),
-        seamAccepts: layoutSeamAccepts,
+        // 库把被拖的标签也传给这两个回调；工作台的规则只看目标的位置，用不上。
+        edgeTarget: (doc, _tabs, panel, edge) => layoutEdgeTarget(doc, panel, edge, dropSplit?.() ?? "half"),
+        seamAccepts: (doc, _tabs, before, after) => layoutSeamAccepts(doc, before, after),
         newId: (kind) => `${kind === "panel" ? "p" : "b"}-${crypto.randomUUID()}`,
         ...rest,
     };

@@ -123,7 +123,7 @@ describe("哪条边是落点（输出 25、26）", () => {
         };
     }
 
-    const target = (doc: LayoutDoc, panel: string, edge: LayoutEdge) => layoutEdgeTarget(doc, [], panel, edge);
+    const target = (doc: LayoutDoc, panel: string, edge: LayoutEdge) => layoutEdgeTarget(doc, panel, edge);
 
     it("侧栏、右栏的分节只有上下两条边，左右两条算中央", () => {
         const doc = splitDoc();
@@ -157,11 +157,11 @@ describe("哪条边是落点（输出 25、26）", () => {
 
     it("只有两边同类的缝是落点：骨架上的缝插不进东西", () => {
         const doc = splitDoc();
-        expect(layoutSeamAccepts(doc, [], "g0", "g1")).toBe(true);
-        expect(layoutSeamAccepts(doc, [], "x", "x2")).toBe(true);
-        expect(layoutSeamAccepts(doc, [], "column", "center")).toBe(false);
-        expect(layoutSeamAccepts(doc, [], "center", "aux")).toBe(false);
-        expect(layoutSeamAccepts(doc, [], "area", "row")).toBe(false);
+        expect(layoutSeamAccepts(doc, "g0", "g1")).toBe(true);
+        expect(layoutSeamAccepts(doc, "x", "x2")).toBe(true);
+        expect(layoutSeamAccepts(doc, "column", "center")).toBe(false);
+        expect(layoutSeamAccepts(doc, "center", "aux")).toBe(false);
+        expect(layoutSeamAccepts(doc, "area", "row")).toBe(false);
     });
 
     it("编辑组挨着面板的那条边是拆这一组，不从面板取空间", () => {

@@ -92,7 +92,7 @@ type Slots = {
     /** 内容项。工具视图的 `contentKey` 是 `view:<id>`，编辑器标签是 `tab:<id>`，空的编辑组是 `editor:<面板 id>`；挪到别的面板时实例不重建。 */
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
     /** 拿起的内容项上面那一条头。 */
-    "lifted-head"?(props: {contentKey: string}): unknown;
+    "lifted-head"?(): unknown;
     /** 盖在分隔线之上、拿起的内容之下，不接指针（实时布局的分区与空位）。 */
     overlay?(): unknown;
     /** 浮动窗的手柄。 */

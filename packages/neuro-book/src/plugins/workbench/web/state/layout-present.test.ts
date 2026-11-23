@@ -8,7 +8,7 @@ import {defaultLayoutDoc} from "./default-tree";
 import {moveContainerTo, sectionLanding, settleContainers} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import type {VisibilityFacts} from "./layout-present";
-import {effectiveVisibleTabs, focusLandings, layoutContents, layoutStructureKey, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "./layout-present";
+import {effectiveVisibleTabs, focusLandings, isSoleWindow, layoutContents, layoutStructureKey, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "./layout-present";
 import {createLayoutPolicy, PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
@@ -115,6 +115,17 @@ describe("浮动窗", () => {
         expect(folded.ok && layoutStructureKey(folded.doc)).toBe(layoutStructureKey(base));
         const hidden = setPanelHidden(base, anchor, true);
         expect(hidden.ok && layoutStructureKey(hidden.doc)).toBe(layoutStructureKey(base));
+    });
+
+    test("独占一个窗：浮动着且只有一个标签才算；停靠的、有几个标签的、找不到标签的都不算", () => {
+        const current = floated();
+        expect(isSoleWindow(current, panelOf(current))).toBe(true);
+        expect(isSoleWindow(current, OUTLINE)).toBe(false);
+        expect(isSoleWindow(current, null)).toBe(false);
+        expect(isSoleWindow(current, undefined)).toBe(false);
+        const joined = moveTabToStrip(current, {tab: "view:outline", panel: panelOf(current), index: 1, activate: false}, createLayoutPolicy());
+        if (!joined.ok) throw new Error(joined.message);
+        expect(isSoleWindow(joined.doc, panelOf(current))).toBe(false);
     });
 
     test("浮动的编辑组写“浮动编辑区”，不写序号；树里的序号不算它", () => {

@@ -14,7 +14,7 @@ import {VIEW_LOCATIONS} from "../shared/views";
 import {containerRegion, moveContainerTo, regionAnchor, regionContainers, regionSections, sectionLanding} from "./state/containers";
 
 /** 活动栏这条入口条的 id：键盘区域、实时布局的“吸收它的标签条”都用它。面板 id 是随机串或名字，撞不上。 */
-export const BAR_STRIP = "activitybar";
+const BAR_STRIP = "activitybar";
 
 /** 一个区域的入口条的 id：侧栏是活动栏，右栏、底部面板是它们的入口条叶（只在呈现里，不是面板，撞不上面板 id）。 */
 export const entryStripOf = (region: PanelName): string => (region === "sidebar" ? BAR_STRIP : regionStripLeafId(region));
@@ -51,6 +51,9 @@ export const isEntryAction = (action: WorkbenchDropAction): action is EntryDropA
 
 /** 落点的比较键：库的落点按库的规则（浮动只看种类），入口的落点就是它的内容。 */
 export const workbenchDropKey = (action: WorkbenchDropAction): string => (isEntryAction(action) ? JSON.stringify(action) : layoutDropKey(action));
+
+/** 落点加编辑组的分区（`part`）在判定里的键：同一个键就是画出来一样的落点（实时布局的缓存、放下时的去重、文件拖动的比较都用它）。 */
+export const dropKeyOf = (action: WorkbenchDropAction, part: string | undefined): string => JSON.stringify([workbenchDropKey(action), part ?? null]);
 
 /**
  * 这个落点算落在哪条标签条上（实时布局：标签条吸收来源，卡片收回）；不是标签条为 null。入口条的入口之间是一条标签条（输出 38“标签条上”）；

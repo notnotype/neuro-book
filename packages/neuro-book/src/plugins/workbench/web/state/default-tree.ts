@@ -13,6 +13,7 @@ import {SHELL_ACTIVITYBAR_WIDTH, SHELL_SIZE_DEFAULTS, SHELL_STATUSBAR_HEIGHT} fr
 import {containerRegion, NO_CONTAINERS, regionAnchor, sectionLanding, settleContainers, viewHome} from "./containers";
 import type {ContainerCatalog, ViewHome} from "./containers";
 import {createLayoutPolicy} from "./layout-constraints";
+import {viewKey} from "./layout-present";
 
 /** 第一个编辑组的面板 id。 */
 export const INITIAL_EDITOR_PANEL = "g0";
@@ -119,7 +120,7 @@ function retireReplacedViews(doc: LayoutDoc, catalog: ViewCatalog): LayoutDoc {
     if (retired.size === 0) return doc;
     let next = doc;
     for (const old of retired) {
-        const key = tabKey({kind: "view", viewId: old});
+        const key = viewKey(old);
         for (let removed = removeTab(next, key); removed.ok; removed = removeTab(next, key)) next = removed.doc;
         // 它是当前容器时先让 `settleContainers` 换到相邻的（成员没了），再从入口顺序里删；区域里只剩它一个时当前容器清空。
         next = settleContainers(next);
@@ -148,7 +149,7 @@ export function reconcileViews(original: LayoutDoc, catalog: ViewCatalog, contai
     // 先摘掉被取代的旧视图，再补缺的：不然没有缺失视图时直接返回，旧标签永远留着。
     const doc = retireReplacedViews(original, catalog);
     const present = new Set(Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)));
-    const missing = homesOf([...catalog.keys()].filter((id) => !present.has(`view:${id}`)), catalog, containers);
+    const missing = homesOf([...catalog.keys()].filter((id) => !present.has(viewKey(id))), catalog, containers);
     if (missing.length === 0) return doc === original ? doc : settleContainers(doc);
     let next = doc;
     /** 这一次才出现的容器，按区域：补完分节之后按 (order, key) 排进入口顺序。 */
