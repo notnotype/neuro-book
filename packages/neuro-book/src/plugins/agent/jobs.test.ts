@@ -500,6 +500,49 @@ describe("后台命令", () => {
         await waitUntil("账本清空", async () => !(await Bun.file(ledger).exists()));
     });
 
+    test("自动转后台：前台的命令跑过 60 秒转到后台，交回任务 id 与最后几行；时限照旧；结束时回执送回，输出完整", async () => {
+        const {w, session, home} = await open();
+        const started = join(w.stateRoot, `started-${String((counter += 1))}`);
+        const cmd = gated(w, "做完了");
+        endpoint.script({tool: "shell", args: {command: `echo 开始; touch ${started}; ${cmd.command}`}}, "好");
+        const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "跑"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await waitUntil("命令开始了", () => Bun.file(started).exists());
+        w.settings.clock.advance(60_000);
+        await session.waitRun(sent.value.runId);
+        const [moved] = await results(session, "nbook.agent.shell");
+        expect(moved!.details).toMatchObject({autoBackground: true});
+        expect(moved!.text).toContain("已转到后台");
+        expect(moved!.text).toContain("时限照旧（300 秒）");
+        expect(moved!.text).toContain("开始");
+        const jobId = moved!.details!.jobId!;
+        await cmd.release();
+        await waitUntil("回执送到", async () => (await notices(session)).some((text) => text.includes(jobId)));
+        expect(await readFile(join(home, "jobs", jobId, "output.log"), "utf8")).toBe("开始\n做完了\n");
+        expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "completed", exitCode: 0, lines: 2});
+    });
+
+    test("自动转后台：设置为 0 时不转，跑到结束照前台交回", async () => {
+        counter += 1;
+        const w = await agentWorld(join(root, `w${String(counter)}`), {userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}, "nbook.agent/shellAutoBackground": 0}});
+        worlds.push(w);
+        const created = await w.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const started = join(w.stateRoot, `started-${String((counter += 1))}`);
+        const cmd = gated(w, "前台做完");
+        endpoint.script({tool: "shell", args: {command: `touch ${started}; ${cmd.command}`}}, "好");
+        const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "跑"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await waitUntil("命令开始了", () => Bun.file(started).exists());
+        w.settings.clock.advance(120_000);
+        await cmd.release();
+        await session.waitRun(sent.value.runId);
+        const [ran] = await results(session, "nbook.agent.shell");
+        expect(ran!.details?.jobId).toBeUndefined();
+        expect(ran!.text).toContain("前台做完");
+    });
+
     test("输出 8：插件停止时在跑的后台命令按 interrupted 收口，status.json 照写", async () => {
         const {w, session, home} = await open();
         await turn(session, [{tool: "shell", args: {command: "sleep 30", async: true}}, "好"]);

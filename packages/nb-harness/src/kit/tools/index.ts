@@ -27,6 +27,7 @@ export {SessionEditStores} from "./snapshot.js";
 export type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
 export type {AskAnswer, AskQuestion} from "./ask.js";
 export type {BackgroundTarget, PreparedCommand, ShellAutoBackground, ShellBackground, ShellHandover, ShellOutcome} from "./shell.js";
+export {DEFAULT_TIMEOUT_SECONDS} from "./shell.js";
 export type {SpoolHandover} from "./output-capture.js";
 export {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, PART_LINES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
 export {OutputCapture, saveFullOutput} from "./output-capture.js";

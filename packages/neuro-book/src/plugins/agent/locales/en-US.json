@@ -161,6 +161,10 @@
             "title": "Running jobs",
             "description": "How many sub-agents and background commands can run at once across all sessions."
         },
+        "shellAutoBackground": {
+            "title": "Move commands to the background after (seconds)",
+            "description": "A foreground shell command still running after this many seconds moves to the background; its receipt comes back to the conversation when it ends, and its timeout is unchanged. 0 turns this off. Commands in sub-agents never move."
+        },
         "requestTrace": {
             "title": "Record model requests",
             "description": "Record what each model request sent, what came back, how long it took and what it used, and view it on the Model requests page. Requests made while this is off are not recorded; existing records stay viewable."

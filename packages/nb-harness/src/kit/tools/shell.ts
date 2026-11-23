@@ -19,7 +19,8 @@ import {findAddresses, substitute} from "./shell-address.js";
 import {OutputCapture, saveFullOutput, type SpoolHandover} from "./output-capture.js";
 import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
-const DEFAULT_TIMEOUT_SECONDS = 300;
+/** 前台 `shell` 缺省的时限（秒）；自动转后台照它判门槛。 */
+export const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 3_600;
 
 /**
@@ -121,7 +122,7 @@ export interface ShellAutoBackground {
      * 这次调用要不要自动转：交回门槛（到点完成的 Promise，用宿主的时钟计；`signal` 中止时它不再完成）；null 表示不转（设置为 0、子会话）。
      * 代码里调的套件先排除。暂存在系统临时目录里，接手的一方改名接过（改名失败，例如跨文件系统时，`take` 抛错、命令留在前台）。
      */
-    threshold(request: {readonly call: ToolContext; readonly context: ToolSessionContext}, signal: AbortSignal): Promise<void> | null;
+    threshold(request: {readonly args: Readonly<Record<string, unknown>>; readonly call: ToolContext; readonly context: ToolSessionContext}, signal: AbortSignal): Promise<void> | null;
     /** 接手的第一步（异步）：占任务 id 与名额、建好输出目录。交回 null 表示接不了，命令留在前台。 */
     prepare(request: {readonly prepared: PreparedCommand; readonly args: Readonly<Record<string, unknown>>; readonly call: ToolContext; readonly context: ToolSessionContext; readonly files: SessionFiles}): Promise<BackgroundTarget | null>;
 }
@@ -163,7 +164,7 @@ async function run(context: ToolSessionContext, {files, artifacts}: KitServices,
 
     // 自动转后台只对模型直接调的（代码里调的寿命跟着那段代码）。门槛的等待在命令结束时取消。
     const thresholdStop = new AbortController();
-    const plan = call.within === undefined ? auto?.threshold({call, context}, thresholdStop.signal) ?? null : null;
+    const plan = call.within === undefined ? auto?.threshold({args, call, context}, thresholdStop.signal) ?? null : null;
     const capture = new OutputCapture({spoolFromStart: plan !== null});
     // 命令用自己的信号跑，接手之前跟着这次调用的；接手时断开，父会话的运行被中止不再影响它。
     const command = new AbortController();
