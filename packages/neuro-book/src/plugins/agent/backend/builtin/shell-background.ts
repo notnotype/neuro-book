@@ -157,20 +157,27 @@ export function startBackgroundCommand(jobs: JobCenter, job: Job, directory: str
     const fd = openSync(join(directory, OUTPUT_FILE), "wx", 0o600);
     const output = commandOutput(jobs, job, fd, directory, clock);
     const controller = new AbortController();
-    let interrupted = false;
-    const done = executeShell({command: command.command, cwd: command.cwd, env: {...command.env}, ...(command.timeoutMs === undefined ? {} : {timeoutMs: command.timeoutMs}), signal: controller.signal}, (error, chunk) => {
+    const ended = executeShell({command: command.command, cwd: command.cwd, env: {...command.env}, ...(command.timeoutMs === undefined ? {} : {timeoutMs: command.timeoutMs}), signal: controller.signal}, (error, chunk) => {
         if (error !== null) output.fail(error.message);
         else output.take(chunk);
-    }).then((result) => endOf(result, interrupted), (error: unknown) => {
+    });
+    drive(jobs, job, output, ended, () => controller.abort(), directory, address);
+}
+
+/**
+ * 登记一条在跑命令的驱动：命令结束时收口（`status.json`、任务的终态）。停它时插件停止按 interrupted 记（jobs.md 输出 8），否则是被停掉；
+ * 等收口、`status.json` 写完再返回。`async` 的命令与自动转后台的命令共用。
+ */
+function drive(jobs: JobCenter, job: Job, output: ReturnType<typeof commandOutput>, ended: Promise<Parameters<typeof endOf>[0]>, abort: () => void, directory: string, address: string): void {
+    let interrupted = false;
+    const done = ended.then((result) => endOf(result, interrupted), (error: unknown) => {
         output.fail(error instanceof Error ? error.message : String(error));
         return {state: "failed" as const, exitCode: null, timedOut: false};
     }).then((end) => output.finish(end));
-
     jobs.start(job, {
-        // 插件停止时按 interrupted 记（jobs.md 输出 8），否则是被停掉；等命令收口、`status.json` 写完再返回。
         kill: async (reason) => {
             interrupted = reason === "interrupted";
-            controller.abort();
+            abort();
             await done;
         },
         result: () => commandResult(job.id, directory, address, output.problem()),
@@ -225,12 +232,15 @@ export function shellAutoBackground(jobs: JobCenter, clock: Clock & {now(): numb
         options.report(code, message, data);
         return new Error(message);
     };
+    /** 每次调用定门槛时读到的秒数：结果文字照它写，不在到点之后重读设置。 */
+    const thresholds = new WeakMap<object, number>();
     return {
-        threshold: ({args, context}, signal) => {
+        threshold: ({args, call, context}, signal) => {
             const seconds = options.seconds();
             if (seconds === 0 || options.isChild(context.sessionId)) return null;
             const timeout = typeof args.timeout === "number" ? args.timeout : DEFAULT_TIMEOUT_SECONDS;
             if (timeout <= seconds) return null;
+            thresholds.set(call, seconds);
             return clock.wait(seconds * 1000, signal);
         },
         prepare: async ({args, call, context, files}) => {
@@ -259,27 +269,14 @@ export function shellAutoBackground(jobs: JobCenter, clock: Clock & {now(): numb
                     }
                     const so = handover.output;
                     const output = commandOutput(jobs, job, adopted.fd, directory, clock, {bytes: so.bytes, lines: so.lines, tail: so.tail, truncated: so.full});
-                    let interrupted = false;
-                    const done = handover.done.then((result) => endOf(result, interrupted), (error: unknown) => {
-                        output.fail(error instanceof Error ? error.message : String(error));
-                        return {state: "failed" as const, exitCode: null, timedOut: false};
-                    }).then((end) => output.finish(end));
-                    jobs.start(job, {
-                        kill: async (reason) => {
-                            interrupted = reason === "interrupted";
-                            handover.abort();
-                            await done;
-                        },
-                        result: () => commandResult(job.id, directory, address, output.problem()),
-                        address,
-                    });
+                    drive(jobs, job, output, handover.done, handover.abort, directory, address);
                     adopted.settle();
                     const lines = so.tail.split("\n").filter((line) => line.trim() !== "").slice(-5).join("\n");
                     const timeout = typeof args.timeout === "number" ? args.timeout : DEFAULT_TIMEOUT_SECONDS;
                     return {
                         sink: (error, chunk) => (error !== null ? output.fail(error.message) : output.take(chunk)),
                         result: {
-                            text: `跑了 ${String(options.seconds())} 秒还没结束，已转到后台：任务 ${job.id}，时限照旧（${String(timeout)} 秒）。${lines === "" ? "" : `到目前为止的最后几行：\n${lines}\n`}全文写进 ${address}。结束时回执会自动送来，不用 wait 轮询。`,
+                            text: `跑了 ${String(thresholds.get(call) ?? options.seconds())} 秒还没结束，已转到后台：任务 ${job.id}，时限照旧（${String(timeout)} 秒）。${lines === "" ? "" : `到目前为止的最后几行：\n${lines}\n`}全文写进 ${address}。结束时回执会自动送来，不用 wait 轮询。`,
                             details: {jobId: job.id, invocation: call.invocation, output: address, autoBackground: true},
                         },
                     };

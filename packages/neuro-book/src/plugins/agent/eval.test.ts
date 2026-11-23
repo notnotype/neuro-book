@@ -413,7 +413,8 @@ describe("eval", () => {
         const next = await one(session, {code: "typeof k"});
         expect(next.text.split("\n")[0]).toContain("内核已重置（空闲）");
         expect(next.text).toContain("undefined");
-        expect((await session.snapshot()).notices).toEqual([]);
+        // 新内核起来时撤回还没取走的提醒：撤回在送达的队列里，和这次结果交回没有先后。
+        await waitUntil("提醒撤回了", async () => (await session.snapshot()).notices.length === 0);
     });
 
     test("eval.md：两次调用之间内核进程被外部杀掉，当场发提醒；下一次结果第一行照旧写", async () => {
@@ -475,7 +476,10 @@ describe("eval", () => {
         advanced = await closeIdle(w, before);
         w.settings.clock.advance(EVAL_IDLE_MS - advanced);
         await waitUntil("关闭期间空闲的内核与子进程结束了", () => (pids.some(alive) ? null : true));
-        const after = await one(w.service.session(session.id), {code: "typeof kept"});
+        // 会话关着也照发提醒（eval.md 输出 20）：再打开时它已在待发里。
+        const closed = w.service.session(session.id);
+        await waitUntil("关着时照发的提醒", async () => (await closed.snapshot()).notices.some((item) => item.text.includes("eval 的内核已重置（空闲）")));
+        const after = await one(closed, {code: "typeof kept"});
         expect(after.text.split("\n")[0]).toContain("内核已重置（空闲）");
         expect(after.text).toContain("undefined");
     });

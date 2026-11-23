@@ -262,11 +262,18 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         else process.env.TMPDIR = savedTmp;
     });
 
-    async function run(args: Readonly<Record<string, unknown>>, auto: import("./shell.js").ShellAutoBackground): Promise<Result> {
+    async function run(args: Readonly<Record<string, unknown>>, auto: import("./shell.js").ShellAutoBackground, signal = new AbortController().signal): Promise<Result> {
         const tool = shellTool(createDialects(() => []), undefined, auto).create(context, {files, artifacts});
-        const result = await tool.execute(args, {callId: "c-1", signal: new AbortController().signal} as unknown as ToolContext);
+        const result = await tool.execute(args, {callId: "c-1", signal} as unknown as ToolContext);
         return (typeof result === "string" ? {text: result} : result) as Result;
     }
+
+    /** 暂存（同步写入）已经以 `end` 结尾。 */
+    const spooled = async (end: string): Promise<boolean> => {
+        const [directory] = await readdir(spools);
+        if (directory === undefined) return false;
+        return (await readFile(join(spools, directory, "output.log"), "utf8").catch(() => "")).endsWith(end);
+    };
 
     /** 先输出 `before`，等测试放行再输出“二”。 */
     const gated = (before = "echo 一") => {
@@ -274,15 +281,18 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         return {command: `${before}; while [ ! -f ${go} ]; do sleep 0.05; done; echo 二`, release: () => writeFile(go, "")};
     };
 
-    test("跑过门槛：移交给宿主，交回宿主的结果；命令接着跑、照原时限，输出一行不丢地进了宿主的文件", async () => {
+    test("跑过门槛：移交给宿主，交回宿主的结果；命令断开这次调用的信号接着跑，输出一行不丢地进了宿主的文件", async () => {
         const h = host();
         const cmd = gated();
-        const running = run({command: cmd.command}, h.auto);
+        const call = new AbortController();
+        const running = run({command: cmd.command}, h.auto, call.signal);
         h.reach();
         expect(await running).toEqual({text: "已转到后台"});
         const given = h.handover()!;
         // 门槛先于第一块输出还是后于它不确定：两种情形下内存里的与之后追加的合起来都是全部输出。
         expect(given.output.spool).toBeNull();
+        // 移交之后中止这次调用（父会话的运行被中止）不停命令。
+        call.abort();
         await cmd.release();
         expect(await given.done).toMatchObject({exitCode: 0, timedOut: false, cancelled: false});
         expect(await readFile(h.output, "utf8")).toBe("一\n二\n");
@@ -294,7 +304,7 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         const h = host();
         const cmd = gated("seq 1 20000; echo 一");
         const running = run({command: cmd.command}, h.auto);
-        await waitUntil("已超出窗口", async () => (await readdir(spools)).length === 1);
+        await waitUntil("门槛之前的输出都进了暂存", () => spooled("20000\n一\n"));
         h.reach();
         expect(await running).toEqual({text: "已转到后台"});
         const given = h.handover()!;
