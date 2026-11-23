@@ -129,9 +129,10 @@ test("验收 2：子会话要审批，停在父会话输入框上方、标来源
     // 一层（没有逗号分隔的第二层）、0 1px 2px；颜色是 `--shadow-color` 混出来的，写法随浏览器。
     expect(face.shadow).not.toContain("),");
     expect(face.shadow).toMatch(/ 0px 1px 2px 0px$/u);
-    // 后台派出的子代理完成前这一轮不收起。先等父会话这一轮的最后一句回复出来（这一轮随即收口）再批：批得比它早，子代理的
-    // 回执会被同一次运行接着读进来，整轮随之收起，这句就看不到了（负载高时会撞上）。
+    // 后台派出的子代理完成前这一轮不收起。先等父会话这一轮收口（回复出来、发送按钮回来）再批：批得比它早，子代理的回执会被
+    // 同一次运行接着读进来，整轮随之收起，这句就看不到了（负载高时会撞上）。
     await expect(page.getByText("派出去了")).toBeVisible();
+    await expect(page.getByRole("button", {name: "发送", exact: true})).toBeVisible();
     await dock.locator("[data-approval-decision='allow']").click();
     await expect(dock).toHaveCount(0);
     // 完成后收起，展开看卡片。

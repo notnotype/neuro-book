@@ -11,7 +11,8 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {JobCenter} from "./backend/jobs/center";
 import {SessionRelations} from "./backend/subagents/relations";
-import {SubagentTree} from "./backend/subagents/tree";
+import {fitTree, SubagentTree} from "./backend/subagents/tree";
+import type {TreeItem} from "./shared/subagents";
 
 describe("会话树（subagents.md 输出 21）", () => {
     test("读索引的途中后代写了日志：读到的旧索引不留在缓存里，下一次取到这次运行的收口", async () => {
@@ -77,5 +78,19 @@ describe("会话树（subagents.md 输出 21）", () => {
             release();
             await table.stop();
         }
+    });
+
+    test("放不进一条消息时先去掉历史运行的首句、再去掉全部首句，后代与状态不丢；仍放不下交回 null", () => {
+        const run = (runId: string) => ({runId, reason: "completed", endedAt: 1, line: "长".repeat(100)});
+        const item = (id: string): TreeItem => ({id, parent: "p", callId: null, invocation: null, forked: false, profile: null, name: id, state: "idle", runs: [run(`${id}-1`), run(`${id}-2`), run(`${id}-3`)]});
+        const items = [item("a"), item("b")];
+        const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
+        expect(fitTree(items, bytes(items))).toBe(items);
+        const lastOnly = fitTree(items, bytes(items) - 1)!;
+        expect(lastOnly.map((entry) => entry.runs.map((entry) => entry.line !== undefined))).toEqual([[false, false, true], [false, false, true]]);
+        const none = fitTree(items, bytes(lastOnly) - 1)!;
+        expect(none.map((entry) => entry.runs.some((entry) => entry.line !== undefined))).toEqual([false, false]);
+        expect(none.map((entry) => [entry.id, entry.runs.length])).toEqual([["a", 3], ["b", 3]]);
+        expect(fitTree(items, 10)).toBeNull();
     });
 });

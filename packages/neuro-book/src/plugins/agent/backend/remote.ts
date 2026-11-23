@@ -31,7 +31,7 @@ import type {SkillCatalog} from "./skills/catalog";
 import type {OpenFolderResult} from "./skills/folder";
 import type {SkillInstaller} from "./skills/install";
 import type {SessionRelations} from "./subagents/relations";
-import {TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
+import {fitTree, TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
 
 type Contract = typeof agentSessionsContract;
 type Methods = RemoteImplementation<Contract>["methods"];
@@ -200,7 +200,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         },
         tree: async ({sessionId}, context) => {
             const items = await tree.tree(sessionId);
-            return byteLength(items) <= PAGE_BYTES ? context.ok(items) : context.fail("result-too-large");
+            const fitted = fitTree(items, PAGE_BYTES);
+            return fitted !== null ? context.ok(fitted) : context.fail("result-too-large");
         },
         jobs: ({sessionId}, context) => context.ok(jobsOf(sessionId)),
         jobTail: async ({sessionId, jobId, lines = TAIL_LINES}, context) => {
@@ -393,7 +394,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                     if (context.signal.aborted) return;
                     // 与查询 `tree` 同一个上限：放不进一条消息时不推（写诊断），宿主照旧显示上一份；请求里的长文字已在算的时候截短。
                     const stop = tree.watch(sessionId, (items) => {
-                        if (byteLength(items) <= PAGE_BYTES) sink.next(items);
+                        const fitted = fitTree(items, PAGE_BYTES);
+                        if (fitted !== null) sink.next(fitted);
                         else report("tree-too-large", `the sub-agent tree of session ${sessionId} does not fit in one message; the push was skipped`, {session: sessionId});
                     }, pushFailed("treeChanged"));
                     context.signal.addEventListener("abort", stop, {once: true});
