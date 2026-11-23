@@ -136,7 +136,8 @@ defineExpose({focusBlock});
 <template>
     <div class="text-editor" data-text-editor :data-text-editor-phase="props.phase" @keydown="onKeydown">
         <div ref="bar" class="text-editor__bar" :data-state="props.message !== '' || props.saved === 'failed' || props.saved === 'too-large' ? 'problem' : dirty ? 'dirty' : 'clean'">
-            <p class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2" role="status">
+            <!-- 基准宽度 14rem：右边的按钮多到剩不下这么宽时，这一行自己占一行、按钮换到下一行，不把字挤成一词一行。 -->
+            <p class="flex min-w-0 flex-[1_1_14rem] flex-wrap items-center gap-x-2" role="status">
                 <Transition name="text-editor-dot"><span v-if="dirty" class="text-editor__dot" aria-hidden="true" /></Transition>
                 <Transition name="text-editor-fade"><span v-if="dirty" class="text-[var(--text-main)]" data-text-count>{{ text("textEdit.count", {count: props.count}) }}</span></Transition>
                 <Transition name="text-editor-fade" mode="out-in">
