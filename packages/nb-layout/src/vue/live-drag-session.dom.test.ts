@@ -12,6 +12,8 @@ import {useLiveDragSession} from "./useLiveDragSession";
 /**
  * 实时布局的拖动会话（Spec `ui/layout-drag` 的“实时布局的编排”）：会话、引擎与网格之间接线的先后。帧用 happy-dom 真实的 `requestAnimationFrame`。
  * 引擎自己的规则在 `live-drag.test.ts`；真实浏览器里的手感由 `e2e/lab-live-panels.e2e.ts` 与工作台的 e2e 证明。
+ * 合成把会话的 `sampled` 接到引擎的 `wake`，帧因此排在会话发布的帧前面：happy-dom 把帧回调里新排的帧放进同一批跑，这里分不出先后；
+ * 真实浏览器里顺序反了每帧多一次强制的样式重算，由 `e2e/workbench-drag-cost.e2e.ts` 的每帧上限守着。
  */
 
 type Drop = {readonly key: string};
@@ -208,18 +210,6 @@ describe("合成的先后", () => {
         grab();
         source.dispatchEvent(pointer("pointerup", {clientX: 10, clientY: 0, buttons: 0}));
         expect(log).toContain("commit:a");
-    });
-
-    it("会话的 sampled 由合成接到引擎：停着的帧循环在指针一动时排帧", async () => {
-        start();
-        grab();
-        await nextFrame();
-        await nextFrame();
-        await nextFrame();
-        const measured = log.filter((entry) => entry === "facts").length;
-        source.dispatchEvent(pointer("pointermove", {clientX: 40, clientY: 0}));
-        await nextFrame();
-        expect(log.filter((entry) => entry === "facts").length).toBeGreaterThan(measured);
     });
 
     it("键盘拖动不走实时布局：不问 live，放下也不按指针下提交", async () => {
