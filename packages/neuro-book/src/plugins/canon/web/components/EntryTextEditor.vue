@@ -6,16 +6,8 @@ import type {Component} from "vue";
 import {AlertDialog, Button} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
+import type {EditorBlock} from "./entry-text-editor";
 import PlainSourceInput from "./PlainSourceInput.vue";
-
-export interface EditorBlock {
-    readonly key: string;
-    readonly text: string;
-    readonly state: "same" | "edited" | "new" | "removed" | "gone";
-    readonly story: boolean;
-    readonly blocked: {readonly edit: string; readonly remove: string; readonly split: string; readonly merge: string; readonly add: string};
-    readonly problem: string;
-}
 
 const props = withDefaults(defineProps<{
     blocks: readonly EditorBlock[];

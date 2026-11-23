@@ -13,8 +13,8 @@ import type {ComputedRef, ShallowRef} from "vue";
 import type {EntryOp, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import type {CanonClient} from "../shared/contracts";
-import type {ConflictChoice, ConflictItem} from "./components/TextConflictDialog.vue";
-import type {EditorBlock} from "./components/EntryTextEditor.vue";
+import type {EditorBlock} from "./components/entry-text-editor";
+import type {ConflictChoice, ConflictItem} from "./components/text-conflict-dialog";
 import {failureText} from "./failures";
 import type {CanonNotices} from "./notices";
 import {addAfter, allowed, changedCount, isNewKey, isRemoved, mergeUp, own, removeBlock, restoreBlock, setText, splitAt, SUBMIT_OPS_MAX, textOf} from "./text-draft";
@@ -100,8 +100,12 @@ export function useTextTab(options: TextTabOptions): TextTab {
     watch(() => options.blocked(), (now) => {
         if (now === "") blockedAsked.value = false;
     });
-    /** 作者在对话框里选到一半的选择，按冲突的键（块 id 可以是任何字符串，不用普通对象当字典）。 */
+    /**
+     * 作者在对话框里选到一半的选择，按“这一条冲突是什么”记（哪一块、哪一种、两边各是什么）：回去再改、再提交时同一条冲突还选着；
+     * 两边的文字变了、换了一份稿（放弃再开始、换成那边的）就是另一条冲突，不带着上一次的选择。
+     */
     const choices = reactive(new Map<string, ConflictChoice>());
+    const signature = (conflict: Conflict): string => JSON.stringify([conflict.kind, conflict.key, "mine" in conflict ? conflict.mine : null, "theirs" in conflict ? conflict.theirs : null]);
     const blockerText = (blocker: Blocker): string => text(blocker === "chapter-not-found" ? "textEdit.blockerChapter" : blocker === "line-not-found" ? "textEdit.blockerLine" : blocker === "entry-missing" ? "textEdit.blockerEntry" : blocker === "too-large" ? "textEdit.blockerTooLarge" : "textEdit.blockerUnavailable");
 
     const reason = (blocked: Blocked | null): string => {
@@ -156,7 +160,7 @@ export function useTextTab(options: TextTabOptions): TextTab {
     const dirty = computed(() => state.draft !== null && (changedCount(state.draft) > 0 || state.draft.pending !== undefined));
 
     const conflictItem = (conflict: Conflict): ConflictItem => {
-        const chosen = choices.get(conflict.key) ?? null;
+        const chosen = choices.get(signature(conflict)) ?? null;
         if (conflict.kind === "changed") return {id: conflict.key, kind: "changed", mine: conflict.mine, theirs: conflict.theirs, choice: chosen};
         if (conflict.kind === "gone") return {id: conflict.key, kind: "gone", mine: conflict.mine, theirs: null, choice: chosen};
         if (conflict.kind === "rerouted") {
@@ -188,7 +192,7 @@ export function useTextTab(options: TextTabOptions): TextTab {
         if (result.status === "published" && result.revision !== undefined) options.notices.show({revision: result.revision, title});
         if (result.status === "conflicts") {
             // 上一轮选过、这一轮还在的冲突留着选择；不在了的丢掉。
-            const still = new Set(state.conflicts.map((conflict) => conflict.key));
+            const still = new Set(state.conflicts.map(signature));
             for (const key of [...choices.keys()]) if (!still.has(key)) choices.delete(key);
             asking.value = true;
         }
@@ -251,6 +255,7 @@ export function useTextTab(options: TextTabOptions): TextTab {
         asking,
         start: async () => {
             message.value = "";
+            choices.clear();
             const failed = await session.begin(options.position());
             if (state.draft === null) return blockerText(failed ?? "unavailable");
             // 没有主文字：先放一个空的新块，进来就能写（空的新块不算改动，也不会发出去）。
@@ -269,20 +274,25 @@ export function useTextTab(options: TextTabOptions): TextTab {
             blockedAsked.value = false;
             asking.value = false;
             // 存下来的稿删不掉时不离开（否则重开以后它又回来了）：留在编辑并写明。
-            if (!(await session.discard())) message.value = text("textEdit.resultDiscardFailed");
+            if (await session.discard()) choices.clear();
+            else message.value = text("textEdit.resultDiscardFailed");
         },
         submit: () => submit(),
         retry,
         takeOver: () => session.takeOver(),
-        adopt: () => session.adopt(),
+        adopt: () => {
+            choices.clear();
+            return session.adopt();
+        },
         choose: (id, choice) => {
-            choices.set(id, choice);
+            const conflict = state.conflicts.find((item) => item.key === id);
+            if (conflict !== undefined) choices.set(signature(conflict), choice);
         },
         confirmConflicts: async () => {
             const picked = [...state.conflicts];
             // 这一轮里有与别的块换过文字的块、有现在做不了而撤掉的动作：稿的结构变了，让作者看过再提交，不接着发。
             const review = picked.some((conflict) => conflict.structural === true || conflict.kind === "locked");
-            for (const conflict of picked) session.choose(conflict, conflict.kind === "locked" ? "theirs" : choices.get(conflict.key) ?? "theirs");
+            for (const conflict of picked) session.choose(conflict, conflict.kind === "locked" ? "theirs" : choices.get(signature(conflict)) ?? "theirs");
             choices.clear();
             asking.value = false;
             if (review) message.value = text("textEdit.resultReview");

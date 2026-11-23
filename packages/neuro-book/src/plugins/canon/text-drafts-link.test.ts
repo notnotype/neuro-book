@@ -18,7 +18,7 @@ import type {StorageService} from "nbook/shared/storage";
 import {until} from "./testing/harness";
 import {textScene} from "./testing/text-scene";
 import type {SceneWindow, TextScene} from "./testing/text-scene";
-import {addAfter, setText} from "./web/text-draft";
+import {addAfter, removeBlock, setText} from "./web/text-draft";
 import {createTextDrafts, TEXT_DRAFTS_RECORD} from "./web/text-drafts";
 import {createCanonWorld} from "./web/world";
 
@@ -326,6 +326,50 @@ describe("author-ui 输出 45、46：暂存的回执丢了、链路断开", () =
         other.dispose();
     }), 60_000);
 
+    it("被确定地拒收、解冻又没存下去：不说成“没发出去”，仍按等结局；存储好了再确认，发出去的还是那个请求，只发布一次", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft) => addAfter(draft, "b1", "只该有一份").draft);
+        // 日志写不进去（确定没发布），扣住这条回复；回复放行以后解冻的那一次存储写没到就断了。
+        scene.failAppend();
+        const refused = scene.holdReply(writing);
+        const submitting = session.submit("改主文字");
+        await refused.held;
+        scene.loseRequest(savingDraft);
+        refused.release();
+        expect(await submitting).toEqual({status: "unknown"});
+        const frozen = session.state.draft?.pending?.requestId;
+        expect([session.state.phase, frozen !== undefined, scene.sources(entry, at)]).toEqual(["confirming", true, ["A"]]);
+
+        expect(await window.reconnect()).toEqual({ok: true});
+        const kept = await stored(window.storage, entry);
+        expect(kept.status === "ok" && kept.value.pending?.requestId).toBe(frozen!);
+        expect((await session.confirm()).status).toBe("published");
+        expect([scene.sources(entry, at), scene.titles(entry), (await stored(window.storage, entry)).status]).toEqual([["A", "只该有一份"], ["建条目", "改主文字"], "missing"]);
+        desk.dispose();
+    }), 60_000);
+
+    it("块的编号是对象自带的名字（`__proto__`）：内核拒收时原因照样落在那一块上", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        // 经底层发布把块的编号换成 `__proto__`（导入来的数据可以是任何编号）。
+        const read = scene.world.object({kind: "entry", id: entry});
+        if (typeof read === "string") throw new Error(read);
+        const object = read.object as {init: {text: unknown[]}};
+        const imported = await scene.world.publish({requestId: "import-proto", by: {kind: "author"}, what: "edit", title: "导入", baseVersion: scene.world.status().version, puts: [{ref: {kind: "entry", id: entry}, after: {...object, init: {...object.init, text: [{id: "__proto__", source: "A"}]}} as never}]});
+        if (!imported.ok) throw new Error(JSON.stringify(imported.failure));
+
+        const desk = deskOf(await scene.window("browser-1"));
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, blocks) => setText(draft, blocks, "__proto__", "没闭合的 {表达式"));
+        expect((await session.submit("改主文字")).status).toBe("problems");
+        expect(Object.entries(session.state.problems)).toMatchObject([["__proto__", {kind: "rejected"}]]);
+        desk.dispose();
+    }), 60_000);
+
     it("暂存写不进去（链路断着）：连上以后不用再打字，失焦或转入后台的那一次补存下去", () => inScene(async (scene) => {
         const entry = await scene.seed(["A"]);
         const [window, witness] = [await scene.window("browser-1"), await scene.window("browser-2")];
@@ -416,6 +460,102 @@ describe("author-ui 输出 45、46：暂存的回执丢了、链路断开", () =
         const later = await stored(witness.storage, entry);
         expect([session.state.saved, later.status === "ok" && later.value.texts]).toEqual(["saved", {b1: "还没传的字"}]);
         desk.dispose();
+    }), 60_000);
+});
+
+describe("author-ui 输出 45、46：放弃与确认、两处同时开始、大块的冻结", () => {
+    it("放弃在途（记录已经删了、回执还没到）时不能确认：冻结的请求从没发出去过，放弃以后也不会发", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft) => addAfter(draft, "b1", "放弃了的一块").draft);
+        // 冻结写进去了，发给世界的请求没到就断了。
+        const dropped = scene.loseRequest(writing);
+        expect(await session.submit("改主文字")).toEqual({status: "unknown"});
+        await dropped.lost;
+        expect(await window.reconnect()).toEqual({ok: true});
+
+        // 放弃：存储已经把记录删了，回执扣着。这时另一处（重新连上、另一个页面）来确认。
+        const removing = scene.holdReply((ask) => ask.contract === "nbook.storage/project" && ask.method === "remove");
+        const leaving = session.discard();
+        await removing.held;
+        expect(await session.confirm()).toEqual({status: "busy"});
+        removing.release();
+        expect(await leaving).toBe(true);
+        expect([session.state.draft, scene.sources(entry, at), scene.titles(entry), (await stored(window.storage, entry)).status]).toEqual([null, ["A"], ["建条目"], "missing"]);
+        desk.dispose();
+    }), 60_000);
+
+    it("同一个会话被两处同时开始编辑：只开一份稿；读块的途中另一个窗口暂存了它的稿，这边打的字不被盖掉，暂存时被告知", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A", "B"]);
+        const [mine, theirs] = [deskOf(await scene.window("browser-1")), deskOf(await scene.window("browser-2"))];
+        const session = mine.drafts.session(entry);
+        const reading = scene.holdReply((ask) => ask.method === "textBlocks");
+        const first = session.begin(at);
+        await reading.held;
+        // 第一处读过暂存（没有稿）、读块还没回来。另一个窗口（同一份浏览器配置）这时进编辑、暂存了它的稿。
+        const other = theirs.drafts.session(entry);
+        await other.begin(at);
+        other.edit((draft, read) => setText(draft, read, "b2", "另一个窗口的字"));
+        await other.flush();
+        // 这个窗口的另一个页面这时也点了“编辑”：与第一处是同一次开始，不另读一次暂存、不把那边的稿装进来。
+        const second = session.begin(at);
+        reading.release();
+        expect([await first, await second]).toEqual([null, null]);
+
+        session.edit((draft, read) => setText(draft, read, "b1", "这个窗口刚打的字"));
+        await session.flush();
+        expect([session.state.draft?.texts, session.state.saved]).toEqual([{b1: "这个窗口刚打的字"}, "diverged"]);
+        const kept = await stored((await scene.window("browser-3")).storage, entry);
+        expect(kept.status === "ok" && kept.value.texts).toEqual({b2: "另一个窗口的字"});
+        theirs.dispose();
+        mine.dispose();
+    }), 60_000);
+
+    it("一块几十万字的修改：稿存得下、请求发得出，冻结也存得下（不把文字再存一遍），照常发布", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        const large = "a".repeat(530_000);
+        session.edit((draft, read) => setText(draft, read, "b1", large));
+        await session.flush();
+        expect(session.state.saved).toBe("saved");
+        expect((await session.submit("改主文字")).status).toBe("published");
+        expect(scene.sources(entry, at).map((source) => source.length)).toEqual([530_000]);
+        desk.dispose();
+    }), 60_000);
+
+    it("冻结的稿读回来与冻结时逐字相同：回执丢了以后另一个窗口读到它去确认，发出去的还是那个请求", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A", "B"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setText(draft, read, "b1", "A 改"));
+        session.edit((draft) => addAfter(draft, "b1", "新的一块").draft);
+        session.edit((draft, read) => removeBlock(draft, read, "b2"));
+        // 请求停在落盘之前、链路断开：冻结在存储里，结局不明。
+        const gate = scene.pauseAppend();
+        const first = session.submit("改主文字");
+        await gate.entered;
+        window.disconnect();
+        expect(await first).toEqual({status: "unknown"});
+        const sent = session.state.draft!.pending!;
+        desk.dispose();
+
+        // 同一份浏览器配置的另一个窗口读到带冻结的稿：还原出来的请求与发出去的那个一样，重发拿回原来那一次的结果。
+        const other = deskOf(await scene.window("browser-2"));
+        const reopened = other.drafts.session(entry);
+        const loading = reopened.load();
+        gate.release();
+        await loading;
+        expect(published(scene, sent.requestId)).toBe(true);
+        expect([reopened.state.draft, scene.sources(entry, at), scene.titles(entry)]).toEqual([null, ["A 改", "新的一块"], ["建条目", "改主文字"]]);
+        other.dispose();
     }), 60_000);
 });
 

@@ -21,6 +21,8 @@
 
 ## 数据
 
+类型 `ConflictItem`、`ConflictChoice` 在 `text-conflict-dialog.ts`（宿主逻辑也用它）。
+
 ```ts
 interface ConflictItem {
     /** 这条冲突的键（块的键）。 */

@@ -5,17 +5,7 @@ import {computed, shallowRef, watch} from "vue";
 import {Dialog} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
-
-export type ConflictChoice = "mine" | "theirs" | "keep" | "drop";
-
-export interface ConflictItem {
-    readonly id: string;
-    readonly kind: "changed" | "gone" | "locked" | "rerouted" | "manual";
-    readonly mine: string | null;
-    readonly theirs: string | null;
-    readonly reason?: string;
-    readonly choice: ConflictChoice | null;
-}
+import type {ConflictChoice, ConflictItem} from "./text-conflict-dialog";
 
 const props = withDefaults(defineProps<{open: boolean; items: readonly ConflictItem[]; busy?: boolean}>(), {busy: false});
 const emit = defineEmits<{

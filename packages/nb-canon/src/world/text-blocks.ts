@@ -142,7 +142,8 @@ export function textBlocks(world: World, entry: string, position: ReadPosition):
     const addedAfter = (block: string): string | null | undefined => {
         const step = [...(originsOf(block) ?? [])].reverse().find((item) => item.kind === "patch" && item.op === "addBlock");
         if (step === undefined || step.kind !== "patch") return undefined;
-        const patch = world.data.changes.get(step.change)?.patches.find((item) => item.op === "addBlock" && item.at.entry === entry && blockOf(item) === block);
+        // 同一条变更里可以先加、删掉、再加同一个编号的块：现在在的是最后加的那一份。
+        const patch = [...(world.data.changes.get(step.change)?.patches ?? [])].reverse().find((item) => item.op === "addBlock" && item.at.entry === entry && blockOf(item) === block);
         return patch === undefined ? undefined : afterOf(patch);
     };
     /** 沿锚点追到初值里的块；中途断了为 undefined。路上经过的块结果相同，一并记下：一条锚点链上每块只追一次。 */
