@@ -84,6 +84,45 @@
 | **方案 3：只搭 Umami（自托管或 Cloud）** | **极佳**：开箱即用看板、自定义事件、留存、错误追踪 | **装不下**：无文本工单流，事件属性限 500 字符 | 自托管需维护 VPS + PostgreSQL + 备份；Cloud 免费档免运维但有 100K 事件/月和 6 个月上限 | 无法解决 Agent/用户审批后的反馈文本收集；客户端直连 Umami 地址会强耦合 |
 | **推荐组合：Cloudflare 统一网关 + D1（收反馈） + Umami（看统计），客户端只认自有域名，与 `neuro-book-site` 重写解耦** | **极佳**：Worker 清洗/限流后转发给 Umami（初期可用 Umami Cloud 免费档，量大了无缝切自托管） | **极佳**：Worker 验参/二次脱敏/限流后落 D1，配极简后台或转 GitHub Issues / Webhook 通知 | 初期**零服务器/零数据库运维**，上线最快；客户端永不绑定具体后台 | 需管理两处配置（Cloudflare + Umami），但经同一网关域名对外呈现为单一后端 |
 
+### 5.3 专题评估：Cloudflare Workers 能否承载 `neuro-book-site` 的多模块/微服务架构？
+
+开发者同时计划重写 `neuro-book-site`，未来将承载 **OAuth 登录、备份与同步、Skill / 插件 / Profile 市场（含杀毒扫描与审核）、小说发布、用户交流与论坛**（已记入 [w00037-official-site](../../w00037-official-site/README.md)），并提出：能否直接用 Cloudflare Workers 构建这类微服务架构？
+
+**结论：技术上可行，但对单人/小团队不建议一开始就拆成七八个细粒度微服务 Worker；更稳妥的做法是在 Cloudflare 上按「少数粗粒度部署单元 + 主站模块化单体 Worker + R2 存大文件与正文 + Containers 按需跑重任务」演进。**
+
+#### Cloudflare 生态做多服务的真实优势（2026-11-23 核实官方文档）
+
+1. **Service Bindings（零网络开销 RPC）**：Worker 之间通过 `WorkerEntrypoint` 直接调用方法，默认运行在同一节点的同一线程中，无公网跳数也不重复计费；且被调 Worker 可完全不暴露公网（适合内部 Auth / 审核服务），单次请求最多 32 次 Worker 调用。
+2. **R2 零出站流量费**：Free 档即含 10 GB 存储、100 万 Class A 写、1,000 万 Class B 读，超出存储 $0.015/GB-月、出站带宽永久 $0。非常适合承载 **Skill / 插件 / Profile 压缩包分发、小说正文与封面、客户端加密云备份**，避开单台 VPS 磁盘与带宽瓶颈。
+3. **Cloudflare Containers 补齐了重计算短板**：Workers Paid（$5/月）已支持按需容器（空闲自动休眠到零、按 10ms 计费，月含 25 GiB-小时内存、375 vCPU-分钟、200 GB-小时磁盘，规格 `lite` 256 MiB 至 `standard-4` 12 GiB）。`w00037` 要求的插件**杀毒扫描（如 ClamAV）、深度静态检测、大包解包**这类超出 V8 Isolate 能力的任务，可通过 Queues + Containers 异步处理。
+4. **Paid 计划起步成本低且免运维**：$5/月包含 Workers 1,000 万请求、3,000 万 CPU ms（单次请求 CPU 上限可调至 5 分钟，默认 30 秒）、D1 250 亿读 / 5,000 万写 / 5 GB（最多含 10 万个库）、Queues 100 万操作、Workflows 50 万步。
+
+#### 必须提前面对的 6 个真实硬约束
+
+1. **D1 不是无限扩展的 PostgreSQL**：单个 D1 数据库硬上限 **10 GB（不可申请提高）**；每个库由单个 Durable Object 串行执行 SQL（平均 1ms 查询 ≈ 上限 1,000 QPS，10ms 写 ≈ 上限 100 QPS），查询结果上限 50 MB（2026-11-04 生效），`LIKE` 模式限 50 字节。**对策**：小说正文、附件与压缩包必须放 **R2**，D1 只放元数据与索引；或按域分库。
+2. **中文全文检索偏弱**：D1 支持 SQLite FTS5，但内置分词器（`unicode61` / `trigram`）对中文小说、帖子和插件搜索效果一般，索引体积容易膨胀；站内搜索做深时仍需外接专用搜索服务或额外索引方案。
+3. **微服务拆分税（分布式复杂度）**：官方明确要求 Service Bindings 各 Worker 按依赖顺序分步部署（先发兼容版被调方 → 再发调用方 → 再删旧方法）；多 Worker 本地联调需起多个 `wrangler dev`（单命令多 `-c` 仍标为 experimental）；**跨 D1 库无分布式事务**，单人维护过度拆分会大幅拖慢迭代速度。
+4. **100 MB 请求体上限与 128 MB Isolate 内存**：Free/Pro 域名单次 HTTP 请求体上限 100 MB，Worker Isolate 内存固定 128 MB（Containers 出站 HTTP 单体同样默认限 100 MiB）。云备份与大插件包必须走 **R2 预签名 URL / Multipart 直传**，不能由 Worker 整包缓冲中转。
+5. **成熟开源服务端跑不进纯 Workers**：Umami（Next.js + Postgres）、Discourse / Flarum / Fider 等社区软件无法直接部署到 Workers + D1。若官网全栈押 Cloudflare，论坛/市场/小说发布界面需自研（优点是能统一复用 `nb-ui` 与 OAuth）；若想复用成熟开源社区或统计，仍需保留少量容器/托管服务。
+6. **中国大陆访问延迟与平台锁定**：Cloudflare 标准节点国内直连偶有绕路与晚高峰丢包；异步遥测/反馈可完全容忍，但小说阅读、论坛与 OAuth 页面在国内直连体验需提前预期。同时应通过 Drizzle ORM + 标准 SQL + 定期 D1 导出备份到 R2 降低锁定风险。
+
+#### 推荐的粗粒度演进拓扑（兼顾 `w00053` 与 `w00037`）
+
+```text
+客户端（NeuroBook 插件） / 浏览器
+  ├── telemetry.nbook.notnotype.com ──▶ [Worker 1: telemetry-gateway] (w00053 立刻落地)
+  │                                       ├── 匿名事件 ──▶ Umami (Cloud 免费档起步 / 可随时切自托管)
+  │                                       └── 审批反馈 ──▶ D1 (feedback-db) + 可选 GitHub Issue/Webhook
+  │
+  └── nbook.notnotype.com ────────────▶ [Worker 2: site-core 模块化单体] (w00037 重写官网)
+                                          ├── 内部按域分包：auth(OAuth) / market / novels / forum / backup
+                                          ├── 元数据 ──▶ 1~2 个 D1 库（先保留单库事务与 JOIN）
+                                          ├── 大文件/正文/插件包/加密备份 ──▶ R2（预签名直传，零出站费）
+                                          └── 插件审核队列 ──▶ Queues ──▶ [Worker 3 + Container: scanner] (ClamAV/静检)
+```
+
+这套拓扑既拿到 Cloudflare 免管服务器与 R2 零带宽费的好处，又把“服务数量”压在 2~3 个粗边界内；未来若论坛或小说站体量真的起来，再把对应子域拆成独立 Worker 或独立开源服务，没有任何返工浪费。
+
 ## 6. 隐私与合规风险提示（默认勾选匿名统计）
 
 开发者倾向在安装/首次启动向导中**默认勾选匿名使用统计**，需在设计阶段明确兜底以防合规与写作社区信任风险：

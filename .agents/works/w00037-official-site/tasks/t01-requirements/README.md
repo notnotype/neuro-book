@@ -2,20 +2,20 @@
 schema: nbook.task/v2
 taskId: t01-requirements
 status: planned
-updated: 2026-10-30
+updated: 2026-11-23
 ---
 
 # 需求与范围讨论
 
 ## 目标与范围
 
-与开发者讨论官方网站与服务的需求与范围：账号、备份与跨设备同步、社区、官方插件市场与它的安全措施。
+与开发者讨论官方网站与服务的需求、重写策略与架构范围：账号与 OAuth 登录、备份与跨设备同步、Skill / 插件 / Profile 市场及其安全措施、小说发布、用户交流与论坛，以及 Cloudflare Workers 与自托管架构的取舍。
 
 合同：只做讨论，行为合同未变。
 
 ## 当前状态
 
-2026-10-30 经 nbdev 新建，尚未开工。
+2026-10-30 经 nbdev 新建，尚未开工。2026-11-23 补记开发者提出的官网重写倾向、扩展能力清单与 Cloudflare Workers 架构评估入口（见 [w00053 调研报告](../../../w00053-telemetry-feedback-stats/research/2026-11-23-telemetry-feedback-and-stats.md)）。
 
 ## 下一步
 
