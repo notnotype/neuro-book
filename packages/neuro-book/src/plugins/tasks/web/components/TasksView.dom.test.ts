@@ -191,8 +191,10 @@ describe("TasksView", () => {
         const stopping = wrapper.get('[data-row="p:nbook.agent:1:bun run build"] [data-row-stop]');
         expect(stopping.text()).toBe("正在停止");
         expect(stopping.attributes("disabled")).toBeDefined();
-        // 行键里有空格：读屏照样从“停止”找到这一行的标题。
-        expect(document.getElementById(stopping.attributes("aria-describedby")!)?.textContent).toContain("bun run build");
+        // 行键里有空格：`aria-describedby` 按空白拆成几个 id，读屏照样要从“停止”找到这一行的标题。
+        const described = stopping.attributes("aria-describedby")!.split(/\s+/u);
+        expect(described).toHaveLength(1);
+        expect(document.getElementById(described[0]!)?.textContent).toContain("bun run build");
         await block.get("[data-group-stop]").trigger("click");
         await block.get("[data-group-open]").trigger("click");
         await wrapper.get('[data-row="p:nbook.agent:1:校对"] [data-row-open]').trigger("click");
