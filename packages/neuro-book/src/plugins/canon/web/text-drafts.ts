@@ -158,8 +158,12 @@ export interface TextDraftSession {
     confirm(): Promise<SubmitResult>;
     /** 作者选完了一条冲突。 */
     choose(conflict: Conflict, choice: Choice): void;
-    /** 别的窗口也在改时：用这里的内容覆盖那边的。 */
-    takeOver(): Promise<void>;
+    /**
+     * 别的窗口也在改时：用这里的内容覆盖那边的，再读一次块（那边可能已经发布过，编辑里要看得到）。那边的记录带着一次还在等
+     * 结果的提交时不覆盖、返回 `pending`：那是那次提交唯一存下来的一份，盖掉以后没人再确认它，这里的稿多半也带着它发过的
+     * 新块。作者先换成那边的（`adopt`）确认掉它。读不出那条记录时是 `failed`。
+     */
+    takeOver(): Promise<"taken" | "pending" | "failed">;
     /** 别的窗口也在改时：换成那边的内容（那边已经没有稿了就回到阅读）。 */
     adopt(): Promise<void>;
     /** 读不出块、读不出存储（连接断了）以后再读一次。 */
@@ -705,20 +709,25 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 touch();
             },
             takeOver: async () => {
-                if (busy() || state.draft === null) return;
+                if (busy() || state.draft === null) return "failed";
                 const refreshed = await enqueue(async () => {
                     const record = await open();
-                    if (record === null || typeof record === "string") return false;
+                    if (record === null || typeof record === "string") return "failed";
                     const snapshot = await record.read();
-                    if (snapshot.status === "error") return false;
+                    if (snapshot.status === "error") return "failed";
+                    const theirs = snapshot.status === "ok" ? snapshot.value.pending?.requestId : undefined;
+                    if (theirs !== undefined && theirs !== state.draft?.pending?.requestId) return "pending";
                     uncertain = null;
                     revision = snapshot.revision;
                     reset = snapshot.status === "corrupt" || snapshot.status === "unsupported-version";
                     durable = null;
                     state.saved = "unsaved";
-                    return true;
+                    return "taken";
                 });
-                if (refreshed) await persist();
+                if (refreshed !== "taken") return refreshed;
+                await persist();
+                if (state.draft !== null && state.draft.pending === undefined) await align();
+                return "taken";
             },
             adopt: async () => {
                 if (busy()) return;

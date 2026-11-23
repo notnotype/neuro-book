@@ -169,7 +169,8 @@ export function useTextTab(options: TextTabOptions): TextTab {
             return {id: conflict.key, kind: "rerouted", mine: conflict.mine, theirs: conflict.theirs, reason: text("textEdit.conflictRerouted"), choice: chosen};
         }
         // 现在做不了的只有一个选择，不用作者再点一次。
-        return {id: conflict.key, kind: "locked", mine: null, theirs: state.read?.blocks.find((block) => block.id === conflict.key)?.source ?? null, reason: text(conflict.remove ? "textEdit.conflictLockedRemove" : "textEdit.conflictLockedEdit"), choice: "theirs"};
+        const why = conflict.reason.kind === "not-adjacent" ? "textEdit.conflictNotAdjacent" : conflict.remove ? "textEdit.conflictLockedRemove" : "textEdit.conflictLockedEdit";
+        return {id: conflict.key, kind: "locked", mine: null, theirs: state.read?.blocks.find((block) => block.id === conflict.key)?.source ?? null, reason: text(why), choice: "theirs"};
     };
 
     /** 一次提交没发出去、要整批写明的原因；别的结局是空串。 */
@@ -279,7 +280,10 @@ export function useTextTab(options: TextTabOptions): TextTab {
         },
         submit: () => submit(),
         retry,
-        takeOver: () => session.takeOver(),
+        takeOver: async () => {
+            message.value = "";
+            if ((await session.takeOver()) === "pending") message.value = text("textEdit.takeOverPending");
+        },
         adopt: () => {
             choices.clear();
             return session.adopt();

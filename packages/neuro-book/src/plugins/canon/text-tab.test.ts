@@ -122,6 +122,58 @@ describe("author-ui 输出 44：冲突里的选择", () => {
     }), 60_000);
 });
 
+describe("author-ui 输出 39、44：拆与并遇上别处加的块", () => {
+    it("并过的两块中间别处加了一块：列成冲突，照现在的把并撤掉、不接着提交；两块都回到没动过", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const {tab, dispose} = tabOf(await scene.window("browser-1"), entry);
+        await tab.start();
+        tab.merge("b2");
+        await scene.edit([{op: "addBlock", entry, source: "丙", after: "b1"}], "creative", at);
+        await tab.submit();
+        expect(tab.conflicts.value).toMatchObject([{id: "b2", kind: "locked", reason: "这一块与上一块中间多了别的块，不能并了"}]);
+        await tab.confirmConflicts();
+        expect([tab.editing.value, tab.editor.value.message, tab.editor.value.count, tab.editor.value.blocks.map((block) => block.text)]).toEqual([true, "有几块照现在的恢复了，看过再提交", 0, ["甲", "丙", "乙"]]);
+        expect([scene.sources(entry, at), scene.titles(entry)]).toEqual([["甲", "丙", "乙"], ["建条目", "别处的改动"]]);
+        dispose();
+    }), 60_000);
+
+    it("拆开以后别处在同一块后面加了一块：不问，提交以后拆出去的那一半仍紧跟着前半，别处加的排在它后面", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲\n\n乙"]);
+        const {tab, dispose} = tabOf(await scene.window("browser-1"), entry);
+        await tab.start();
+        tab.split("b1", "甲".length);
+        await scene.edit([{op: "addBlock", entry, source: "丙", after: "b1"}], "creative", at);
+        await tab.submit();
+        expect([tab.editing.value, tab.conflicts.value, scene.sources(entry, at)]).toEqual([false, [], ["甲", "乙", "丙"]]);
+        dispose();
+    }), 60_000);
+});
+
+describe("author-ui 输出 45：另一个窗口也在改", () => {
+    it("那边的提交还在等结果时点“用这里的”：不覆盖，写明先换成那边的", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲"]);
+        const [one, two] = [tabOf(await scene.window("browser-1"), entry), tabOf(await scene.window("browser-2"), entry)];
+        await one.tab.start();
+        one.tab.add("b1");
+        one.tab.update(one.tab.editor.value.blocks[1]!.key, "只该有一份");
+        one.tab.flush();
+        await until(() => one.tab.editor.value.saved === "saved");
+        await two.tab.start();
+        const lost = scene.loseReply((ask) => ask.method === "editEntries");
+        await one.tab.submit();
+        await lost.lost;
+        expect(one.tab.editor.value.phase).toBe("confirming");
+        two.tab.update("b1", "甲改");
+        two.tab.flush();
+        await until(() => two.tab.editor.value.saved === "diverged");
+
+        await two.tab.takeOver();
+        expect([two.tab.editor.value.saved, two.tab.editor.value.message]).toEqual(["diverged", "另一个窗口有一次提交还在等结果，先换成那边的"]);
+        two.dispose();
+        one.dispose();
+    }), 60_000);
+});
+
 describe("author-ui 输出 45：放弃", () => {
     it("链路断着时放弃：留在编辑，写明暂存没有删掉；连上以后再放弃才离开", () => inScene(async (scene) => {
         const entry = await scene.seed(["A"]);
