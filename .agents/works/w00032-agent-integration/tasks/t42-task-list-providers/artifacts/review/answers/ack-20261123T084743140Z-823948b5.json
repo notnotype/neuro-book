@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t42-task-list-providers",
+    "artifactId": "review",
+    "ackId": "20261123T084743140Z-823948b5",
+    "answers": [
+        "20261123T084718110Z-7e2f769b"
+    ],
+    "through": "20261123T084718110Z-7e2f769b",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t42-task-list-providers/README.md"
+    ],
+    "ackedAt": "2026-11-23T08:47:43.140Z"
+}
