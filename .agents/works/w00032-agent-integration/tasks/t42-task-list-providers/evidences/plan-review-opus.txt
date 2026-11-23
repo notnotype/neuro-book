@@ -1,0 +1,283 @@
+# w00032 t42 计划第 1 稿与 planned Spec 审查（Opus）
+
+审查对象：提交 6b197049c 的 plan.md 与 docs/specs 改动。只读，按核实顺序追加；最后有按严重程度的汇总。
+
+## F1 会话组头的“等你批准的是哪个工具”同步拿不到
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md:106、plan.md:112；docs/specs/agent/sessions.md 输出 30；packages/nb-harness/src/kit/sessions/table.ts:59-87、192-194、402-419；packages/nb-harness/src/kernel/api/host.ts:127-131、141-147；packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts:147-172
+- **现象**：计划要求根会话行的进展写“等你批准的是哪个工具”，但 `rows()` 必须同步、不做 I/O。会话表的表项只记 `waiting: boolean`，不留 `pending`；状态帧里的 `InteractionSummary` 只有 `{id, callId, kind}`，没有工具名。现有代码里取工具名的唯一路径是 `tree.ts` 的 `await view.snapshot()` 加 `await view.path()`，再按 `callId` 在日志里找工具调用——全是异步。计划 3.5 的“套件”一条只补 `runId`，没说工具名从哪来。
+- **为什么是问题**：照字面实现第 3 片时，要么在 `rows()` 里做异步读（违反输出 20 的“同步、不做 I/O”，也违反第二轮第 13 条），要么只能写“等你处理”，与 sessions.md 输出 30 的 planned 句子不符，第 3 片返工。
+- **另一处同类缺口**：表的 `onActivityChanged` 只在 `idle`/`waiting` 布尔翻转时触发（table.ts:415-416）；等待中换了一个审批（同一运行先后两次审批、中间不经 running）或 `phase` 变了都不触发，即使有了缓存，行的进展也不会跟着刷新。（审批答完回到 running 会触发一次，所以先后两次审批多数情况会经过 running；但同一次 `waiting` 里 `pending` 有多项、答掉一项剩一项时不触发。）
+- **如何核实**：读 table.ts 的 `Entry` 与 `#watch`；grep `callId` 在 backend 的用法，只有 tree.ts 经 path 解析。
+- **建议改法**：二选一写进计划与 Spec。（a）套件表项另记“当前等用户的事项”的摘要：在 `#watch` 里收到 `interactionRequested` 日志帧时按 `callId` 记下工具名（日志帧在同一订阅里先于状态帧到达），状态帧到时按 `status.pending` 取第一项，变化时触发 `onActivityChanged`（或另开一个更细的变化事件）；`activityWithBackground()` 交回 `{id, state, runId, pendingTool?}`。（b）缩减 Spec：组头进展只写“等你处理”“正在回复”，工具名留给打开会话后看。（a）要给套件补用例，并写明“句柄打开之前已在等的审批”的取法（打开时的 `snapshot()` 已有 status，但没有工具名，要在 `#open` 里读一次 path，或接受打开前的那一项不写工具名）。
+
+## F2 `stop(rowId)` 带不出“出行时那次运行”，“已换运行得 rejected”与“行已不在得 target-gone”互相抢
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：plan.md:46、74、110、140、155；background-tasks.md 输出 21、24；sessions.md 输出 30
+- **现象**：会话行的停止要绑定“出这一行时那次运行”的 `runId`，但 `TaskProvider.stop(rowId, signal)` 只带行 id。两种实现各自出问题：
+  - 行 id 稳定（例如 `session:<id>`）：提供方在 `stop` 时只能取它“此刻”的 `runId`。窗口看到的那份行至少晚 0–250 ms（推送合并）再加往返，期间会话可能已收口并由收口批开了下一次运行（control.ts `#finish`：先 `idle` 再 `launch(next)`，同一个同步段）。提供方拿当前的 `runId` 去 `abort`，停的正是用户没看到的下一次运行——恰是 sessions.md 输出 30 与 runtime.md 输出 120 要防的。
+  - 行 id 带 `runId`（例如 `session:<id>:<runId>`）：清单按 3.1 第 3 条先查“行已不在”，新一轮推送合并读过行之后旧行就不在了，得 `target-gone`；只有在清单的快照还没刷新的空档里才会转给提供方、得 `rejected`（“已经结束”）。结果取决于合并器有没有读过新行，不确定。
+- **为什么是问题**：Spec 输出 30 承诺“那次运行已经收口时交回被拒：已经结束”，计划第 5 片与验收映射（plan.md:140、155）要写“停的运行已换得 rejected”的用例；按前一种实现会停错运行，按后一种这条用例在真实运行时里时过时不过（取决于 250 ms 合并的时机），只能靠伪造时序写出来。
+- **如何核实**：对照 plan.md:46 的 `stop` 签名与 :74 的 `target-gone` 判定；control.ts:240-250 `#finish` 的“先 idle、再 launch(next)”。
+- **建议改法**：让行 id 带上运行（`session:<sessionId>:<runId>`；子会话同），并把 Spec 的说法改成与之一致：运行已换时窗口得 `target-gone`（“已经不在，重取行”），提供方的 `rejected` 只覆盖“清单快照还没刷新、转到提供方时运行已收口”的空档，`abort({runId})` 交回 `{aborted: false}` 时映射成 `rejected`。测试改成断言“不停下一次运行，交回 target-gone 或 rejected 之一、下一次运行照常在跑”。或者在 `stop` 的参数里显式带上窗口看到的行（`stop(row: ProvidedRow, signal)` 或 `stop(rowId, {seen: row})`），由提供方按 `seen.runId` 停；这样“rejected：已经结束”是确定的，代价是接口多一项。二者都要在 3.1 的不变量里写明“清单对 `stop` 的存在性检查用的是哪一份快照”（见 F4）。
+
+## F3 从清单停会话之后会话进入“留着的话等你放行”，清单里却随之消失；“保留排队的话”的说法不准
+
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：plan.md:106、110；sessions.md 输出 30（“缓冲区里排着的话照留”）；harness/runtime.md 输出 30（`keepQueue: true` 时全部就绪的话写 `inputHeld{heldBy: 停的人}`）；table.ts:184-194（`activity()` 有 `held`，`activityWithBackground()` 没有）；sessions.md 输出 15
+- **现象**：以用户身份 `abort({keepQueue: true})` 之后，缓冲区里就绪的话全部变成用户留着的（`heldBy: user`），会话空闲且 `held`。Agent 自己的活动条目把这种会话算作等用户（sessions.md 输出 15 的 `state: "held"`），但计划取的是 `activityWithBackground()`，它不含 `held`：组头这一行在停止后就没了。用户在清单里点了停止，看到整个会话组消失（或只剩无停止的组头），而那几句话其实在等他放行，清单不给任何提示。
+- **为什么是问题**：决定 1 的“在跑或等你处理的根会话”里，“等你处理”按 Agent 现有的口径包括留着的话；清单与状态栏活动条目口径不一致。Spec 写“照留”，读者会以为排着的话会在停止后接着发出，实际是要用户手动放行。
+- **如何核实**：runtime.md 输出 30 原文；table.ts `activity()` 与 `activityWithBackground()` 的过滤条件对比。
+- **建议改法**：Spec 输出 30 把“照留”改成“改为你留着的话，要你在对话里放行”（与 runtime.md 输出 30 的口径一致）；并决定 `held` 的根会话出不出行——推荐出一行 `waiting`，进展写“有留着的话等你放行”，打开去会话、不可停（套件给 `activityWithBackground` 加 `held` 状态，或 Agent 层合并 `activity()` 的 `held` 项；注意 `activity()` 不含后台会话）。若不出行，把这一点写成已知限制。
+
+## F4 撤回时在途的 `stop`、提供方不结算的 `stop`、撤回之后的 `notify`：计划都没定结果
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：plan.md:43-46、75、79；background-tasks.md 输出 21、24
+- **现象**：
+  1. 在途的 `stop`：撤回“先封住派发（之后的 `stop` 得 `target-gone`）”只管撤回之后到的；已经转给提供方、Promise 还没结算的那一次，计划只说 `signal` 会 abort，没说清单交给窗口什么、等不等提供方。
+  2. 不结算的 `stop`：`stop` 交回 Promise，提供方可能永远不结算（Agent 的 `jobs.kill` 会 `await driver.kill()`，子代理驱动要等运行收口；`abort` 要等收口批写下）。清单侧没有超时，远程方法就一直挂着，窗口的按钮一直是“正在停止”。`signal` 只在撤回或服务停止时 abort，正常运行中没有任何东西让它结束。
+  3. 撤回之后的 `notify`：计划写“清单先退订再丢回调”，但交给提供方的 `notify` 闭包本身在撤回后仍可被调用（提供方的退订实现有误，或它在别处留了引用）。若闭包只是“标脏并触发变化”，旧一代的 `notify` 会把新一代（同一插件撤回后再 `provide`）标脏，或在已删的表项上写。
+  4. `rows()` 里同步调用 `notify`（重入），或 `rows()` 里调用撤回函数：计划没说读的过程中标脏是否保留到下一轮。
+- **为什么是问题**：第 1 片的用例要覆盖“撤回与代次、停止三种结果”，这几处不定，用例只能按实现偶然的行为写；第 2 条会让一个坏的提供方把窗口的按钮永久卡在“正在停止”，违反输出 20 的“一家出错只影响它自己”的精神（它只影响这一行，但用户无从恢复）。
+- **如何核实**：plan.md:43-47、75；`jobs/center.ts:345-356`（`kill` 等驱动）；runtime.md 输出 30（`abort` 等收口批）。
+- **建议改法**：在 3.1 的不变量里写死：（1）撤回时清单立即以 `unknown` 结算这一家所有在途的 `stop`，并 abort 它们的 `signal`，之后提供方的 Promise 结果丢弃；（2）`stop` 有清单侧的上限（例如 10 秒，用注入时钟），到点以 `unknown` 交回并 abort `signal`（`signal` 的说明改成“撤回、服务停止或清单不再等时 abort”）；（3）`notify` 闭包按代次捕获，代次不是当前的一律无效；（4）读 `rows()` 前先清脏标记，读期间来的 `notify` 留到下一轮。用例按这四条写。
+
+## F5 “后台任务每件一行：isLive 的”没区分前台等着的任务，状态栏会把前台子代理数成后台工作；`attach` 不发变化
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md:105、109；jobs.md 输出 20（planned）与术语“前台任务／后台任务”（jobs.md:26）；jobs/center.ts:85-86（`waiters`）、:248-264（`attach` 不调 `#changed`，`detach` 调）；background-tasks.md 输出 27
+- **现象**：任务中心的 `live()` 包括有前台调用在等的任务（`waiters > 0`，例如同步的 `agent_spawn`、前台的 `agent_send`、没转后台的 shell）。jobs.md 的术语里这些是“前台任务”，不是“后台任务”。计划只写“`isLive` 的”，没说 `waiters > 0` 的出不出行；行上 `foreground` 只给会话行打（plan.md:106-107），任务行一律不是前台。
+- **为什么是问题**：
+  - 照字面实现，Agent 前台等着的子代理与命令都进 `background`，状态栏的“N 个任务”在用户就盯着对话时也在跳——决定 3 明确“状态栏只数后台的一次性工作、不数会话的运行”，前台等待的子代理在用户看来就是会话在运行。
+  - 若改成只列 `waiters === 0` 的，那么前台子代理的行在“前台等待以 question、插话、超时返回”那一刻才出现（jobs.md:26），但 `attach`（waiters 0→1，`wait`/`agent_send` 再次前台等一个后台任务）不触发 `onChanged`，行会滞留到下一次别的变化。
+  - 与“没有任务覆盖的子会话”一条耦合：前台子代理的子会话被它的任务覆盖（target 匹配），若任务行因前台而不列，这个子会话就哪里都不出现——只能靠根会话组头。
+- **如何核实**：center.ts 的 `attach`/`detach` 与 `live()`；running-work.ts:74-77（现有的“在跑的工作”同样不分前后台，但那里只用于关机确认，口径无所谓）。
+- **建议改法**：计划与 jobs.md 输出 20 写明：前台等着的任务也出行（状态与归属不变），但标 `foreground: true`，不进 `background` 计数；由 `waiters` 决定，`attach` 补一次 `#ownerChanged`（或在提供方订阅时另听前台等待的开始）。若开发者想要“前台的不出行”，则写明子会话覆盖的判定只认后台任务，免得前台子代理在清单里完全不可见。
+
+## F6 回执出口的几种状态里，`announced`、`unconfirmed` 与送不到的任务行会一直留着；“已受理”的口径没写到出口状态
+
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：plan.md:105；jobs.md 输出 20（planned）；jobs/center.ts:42-54（`JobExit`）、:303-306（`announce`）、:500-507（`#trim` 只丢 `notice.pending`）；jobs/delivery.ts:262-292
+- **现象**：结束了的任务的出口有：`undefined`（还没领）、`notice.sending`、`notice.pending`（提醒已受理、在会话的待发里）、`notice.unconfirmed`（写入结果未知）、`announced`（预算满了只送了“用 wait 取”的短回执；永久送不到的也走 `announce`，delivery.ts:285-290）、`taken`（已移出）。计划的判据“出口不是已受理或已取走的提醒”只对得上 `pending` 与 `taken`。按字面：
+  - `announced`：短回执已经进了会话，但任务不会被 `#trim` 丢（只丢 `pending`），只等 `wait` 取。Agent 不 `wait` 时这一行永远在清单里，标“失败/完成”。
+  - 永久送不到（会话已删、读不懂）：同样记成 `announced`，归属的根会话可能已经不存在，行永远留着、组头只有标题与“打开”（打开必然失败）。
+  - `unconfirmed`：只在句柄关闭后重发一次，可能长时间不变。
+  这三类都不受 `KEPT_PER_OWNER`/`KEPT_TOTAL` 约束，进程里会累积，最后撑到一家 200 行的上限，挤掉在跑的行（见 F8）。
+- **为什么是问题**：jobs.md 输出 20 承诺“回执进了会话就不再列”；`announced` 的短回执也算进了会话（Agent 已被告知），用户会看到不该看到的残留行；送不到的行既不能停也打不开。
+- **如何核实**：center.ts `#trim` 的过滤条件；delivery.ts `#send` 里 `announce` 的两个调用点。
+- **建议改法**：jobs.md 输出 20 按出口状态写全：`undefined` 与 `notice.sending`、`notice.unconfirmed` 列；`notice.pending`、`announced`、`taken` 不列（`announced` 的全文由 `wait` 取，清单不负责提醒）。永久送不到的另列一类或直接不列并记诊断。补一个用例：预算满、走短回执后行消失。另外 `claim()`/`unclaim()` 改出口不发变化（center.ts:269-291），按上面的判据 `sending` 与 `undefined` 都列，所以没关系；但若以后改判据，需要它们发变化——在提供方的注释里写明这一依赖。
+
+## F7 上限的算术与修剪规则不闭合：一家 200 行 × 4 KiB = 800 KiB 已超 512 KiB；全是在跑的行时没有规则；“200 行之外”删哪些没写
+
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：plan.md:73、88；background-tasks.md 输入（“一家至多 200 行”）、输出 19、23、26；tasks/backend/core.ts:31（`LIST_MAX_BYTES`）
+- **现象**：
+  1. 单家上限就能超总上限：200 行 × 4 KiB = 800 KiB，加上清单盖的键（`p:<插件>:<代次>:<行 id>`，行 id 至多 200 字符）、来源与可做的操作，远程里的一行比提供方交的 4 KiB 还大。计划写“最坏是各家的行加起来，超出时从结束得最早的起不列”，但没算出来：只要有一家交满，修剪就是常态，不是异常。
+  2. 全是在跑（或 `waiting`）的行时，“从结束得最早的起不列”删完结束的还超，计划与 Spec 都没说接下来删什么、是否跳过整次推送（v1 的做法是跳过推送、`list` 得 `too-large`）。若继续跳过推送，窗口停在旧的一份上，行为又回到 v1 的“整份不发”，与 `more` 的设计矛盾。
+  3. “一家超过 200 行的不列”（输出 19）有两种读法：整家不列，或第 201 行起不列。计划（plan.md:73）是后者，但删哪些（提供方给的顺序？结束的先删？）没写；若按提供方给的顺序截，在跑的行可能被截掉而留下结束的。
+  4. “另有 N 件没列出”：计划写“组尾”（plan.md:73），Spec 写“列表末尾”（输出 26），`more` 只有一个总数，没法按组写。
+  5. 修剪按 `scope` 后的行做还是按全部行做没写：按全部行修剪再按范围过滤，会让当前项目的行因别的项目的行太多而被挤掉；`more` 也要说明只数范围内的。
+- **为什么是问题**：第 1 片的“rows 的上限”用例（plan.md:138）没有可照写的判据；会话组头（`head` 行）若被截掉，组头就退化成“只写标题、带打开”，用户看不到这个会话在跑也停不了它。
+- **如何核实**：按 plan.md:73 与 :88 的数字直接算；对照 remote.ts:77-83 v1 的“超限跳过推送”。
+- **建议改法**：写成一条确定的修剪顺序并给数字依据：先按范围过滤；单家先保留全部在跑与 `waiting`（含全部 `head`），结束的按结束时刻新到旧补到 200 行；整份按编码大小再修剪时，先删结束的（最早结束的先），仍超时删不是 `head` 的在跑行（最早开始的先），`head` 行最后删；`more` 只数范围内被删的。把单行上限降到 2 KiB 或单家 100 行，使“单家交满”不超总上限（100 × 4 KiB = 400 KiB，留出自己的任务与信封），这样总上限的修剪只在几家同时交满时发生。`own` 的 512 KiB 跳过推送规则保留。
+
+## F8 “看过只算显示着的”跨了两份订阅，收起的组、被修剪掉的行、两份推送的先后都没定；状态栏的“清单为空”指哪份没定
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：plan.md:116、120-121；background-tasks.md 输出 12、13、27、28；tasks/web/store.ts:60-63、105-110、128-131
+- **现象**：
+  1. 现在的 `markSeen` 在 `own` 自己的数据上算（store.ts:60-63），视图可见就把全部结束的记为看过。v2 输出 28 改成“当前范围里显示着的”，于是 `own` 仓库要知道 `rows` 仓库此刻显示了哪些行。计划把仓库拆成两份（plan.md:116），没写这份耦合：`own` 推来一件新失败、`rows` 还没推到它时，视图可见也不算看过；之后 `rows` 推到时要不要补记看过——现有代码只在 `accept(own)` 与 `setViewVisible` 时记，`rows` 变化不会触发。
+  2. 收起的组（决定 6）里的行算不算“显示着的”没写。
+  3. 因 512 KiB 被修剪、计进 `more` 的自己的任务，永远“没显示”，危险色的失败图标消不掉（除非用户移除）。
+  4. 状态栏输出 12 有“清单为空：条目不出现”“没有在跑、清单不空：淡色图标”两档。v2 计数改看 `rows.background`、失败图标看 `own`；只有 Agent 的会话行（前台）或 Agent 已结束未送达的任务行时，“清单为空”按哪份算没写。
+  5. 状态栏要 `background`，它只在 `rows` 事件里，所以每个窗口哪怕从没打开过视图，也要订阅整份 `rows`（至多 512 KiB、每秒 4 次）来拿一个计数与 20 个标题。
+- **为什么是问题**：plan.md:152 的验收映射写了“看过只算显示着的、切范围不撤通知”，但判据不定，用例没法照写；第 3 条会让用户看到一个怎么也消不掉的失败图标。
+- **如何核实**：读 store.ts 的 `markSeen`/`accept`/`setViewVisible` 的触发点；对照输出 28 原文。
+- **建议改法**：Spec 输出 28 写清“显示着的”= 当前范围内、在 `rows.groups` 里、所在组展开的；`rows` 每次更新与组的展开都要重算看过（`own` 仓库接收一个“显示着的自己任务 id 集合”的输入）。被修剪的自己任务：要么修剪时自己的任务排在提供方的行之后才删，要么失败的自己任务永不修剪。状态栏的“清单为空”定为“`own` 为空且 `background.count` 为 0”。`background` 挪到 `own` 事件的载荷里（`own` 本来就无过滤、全局），或单开一个 `background` 事件，状态栏不必订阅整份 `rows`；视图不可见时可以不订阅 `rows`。
+
+## F9 `runOutcome` 排在 `tree.runs` 之后，常见情况下永远轮不到；它要打开子会话、整份重放日志，“有界”只对交回的大小成立
+
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：plan.md:123-125；conversation.md 输出 33（planned 那一句的位置）；sessions.md 输出 19（“这几项不为取数打开会话”）、31；agent/web/subagent-card.ts:5-6、125-136；nb-harness/src/kernel/api/storage.ts:12-17、36-37（`IndexedRun` 只有 `runId`、`reason`、`endedAt`，留最近 20 次）；nb-harness/src/kernel/run/results.ts:25-41
+- **现象**：
+  1. 终态的取法是先找到的算。planned 句子插在“`tree` 项 `runs` 里同一次运行的收口原因”之后。`tree.runs` 来自会话索引，留最近 20 次收口，几乎总能找到这次运行——于是卡片在 `subagent-card.ts:135-136` 就交回 `{state, line: ""}`，写“已完成”，`runOutcome` 永远不被调用；t22 推过来要补的“完成写结果第一句”（回执经提醒送达、父会话没有 `wait` 的工具结果时）仍然缺。只有超过 20 次之前的运行才会走到 `runOutcome`。
+  2. 服务端读“最后一条回复的首句”只能经 `runResultOf`，它在打开着的会话的内存事件上算；子会话空闲 30 秒就关（table.ts `IDLE_CLOSE_MS`），读一次就要重新打开子会话、整份重放日志。一个父会话里有十几张子代理卡片时，打开对话就会在服务端打开十几个子会话。sessions.md 输出 19 对 `tree`、`jobs` 这类卡片用的读写明了“不为取数打开会话”，`runOutcome` 打破了这个约定，计划没提。
+  3. 卡片推导是纯函数（subagent-card.ts 头注释），`runOutcome` 是异步读；计划没写谁去取、缓存在哪（参照 `SubagentsEntry` 的 `createRunResults`）、何时取（每次重算都取会打爆远程）。
+- **为什么是问题**：第 4 片照字面实现，e2e 看到的仍是“已完成”，或者改了顺序后每张卡都打开子会话。
+- **如何核实**：subagent-card.ts 的先后；storage.ts 的 `IndexedRun`；table.ts 的空闲关闭与 `#use`（查询会打开会话）。
+- **建议改法**：最省的改法是不加 `runOutcome`：在会话索引的 `IndexedRun` 上加 `line?`（最后一条回复的首句，至多 200 字符，收口时写索引顺手算），`tree.runs` 就带着它，卡片在现有的第三步直接用，不必打开会话、不必新远程方法；“回退后接着跑读到最近一次”的限制也随之消失（索引按收口记）。若保留 `runOutcome`，Spec 要把它挪到 `tree.runs` 之前（或改成“`tree.runs` 找到了但没有首句时再取”），写明它会打开会话、由宿主按 `(sessionId, runId)` 缓存、只取一次，并在 sessions.md 输出 19 旁边注明这是例外。
+
+## F10 `focus-session` 现在拿不到“打不开”：`host.open` 交回 `void`，打开是异步的、失败只画在视图里；计划没写判据与改法
+
+- **严重程度**：重要；**类别**：接口与合同 / 测试
+- **位置**：plan.md:111、157；conversation.md 输出 53（planned）；background-tasks.md 输出 25；agent/web/plugin.ts:398-406（`ownedTree`）、861-866（`reveal` 忽略 `commands.execute` 的结果）、890-901（`focus-session`）；agent/web/session-host.ts:310（`open(id): Promise<void>`）、1090-1103（`open` 在编辑区页面上把有归属的会话 `owners.elsewhere(id)` 转出去，即再 `void commands.execute(FOCUS_SESSION_COMMAND)`，结果丢掉）、1109 起（`openHere` 同步换当前会话，快照异步读，失败记在 `target.failed` 供视图重试）
+- **现象**：`focus-session` 的三条路径都不检查结果：`OPEN_VIEW_COMMAND`/`OPEN_PAGE_COMMAND` 的执行结果被忽略；`host.open` 不交回成败，它只是切换当前会话，读快照失败（`session-not-found`、`log-corrupt`、`needs-migration`）稍后才在视图里画成“打开失败、可重试”；编辑区页面遇到有归属的会话时又经 `void commands.execute` 转一次。计划只写“视图或会话打不开时交回失败”，没定“打不开”指什么、命令等不等快照、`host.open` 的接口怎么改。
+- **为什么是问题**：照字面实现要么让命令等完整的快照加载（清单的“打开”在大会话上要等几秒才结算，期间用户又点别处时 `routing`/`generation` 作废，结果算什么？），要么只能检查视图命令的结果、会话的失败仍交回成功，Spec 输出 53 的承诺落空。`host.open` 有多处调用方（联系人、请求页、子代理卡片），改签名会波及。
+- **如何核实**：读上面列的几段；`grep -n "open(id: string" agent/web/*.ts` 只有 `Promise<void>` 的签名。
+- **建议改法**：把“打不开”限定为能在打开前确定的：视图或页面命令交回失败，或 `remote.header({sessionId})` 交回 `session-not-found`/`log-corrupt`/`needs-migration`（`ownedTree` 已经读了归属，`sessionOwners.ownerOf` 交回 `missing`/`unreadable` 时可直接用）。命令先读头、再揭示视图、再 `host.open`，不等快照；打开之后的读快照失败仍由视图显示（写进 Spec 为已知边界）。`elsewhere` 的转交改成 `await` 并传回结果。测试放在 Agent 浏览器入口的现有测试里：会话不存在时 `commands.execute` 交回失败、清单弹提示。
+
+## F11 插件在工具里登记的任务，`kind` 是 `<插件 id>.<名字>`，过不了行的 `kind` 校验，会被整行丢掉
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：plan.md:56、105；background-tasks.md 输入（`kind` 小写字母开头、只含小写字母、数字与 `-`，至多 40）、输出 19；agent/backend/jobs/tool-jobs.ts:16、55（`center.reserve(..., \`${scope.plugin}.${input.kind}\`, ...)`）；jobs/center.ts:14
+- **现象**：任务中心里插件登记的任务 `job.kind` 是 `nbook.xxx.<名字>`，带点。计划 3.5 只写了 `shell`、`agent` 两种的 `kind`，插件登记的只说“显示它的 label”（那是 `kindLabel`）。照字面把 `job.kind` 交出去，清单按输出 19 校验失败、整行丢掉并记 `provider-row-invalid`，插件登记的任务在清单里看不到。
+- **另一面**：即使 Agent 映射成一个合格的 `kind`（例如 `plugin-job`），清单盖章后是 `nbook.agent.plugin-job`，丢了“哪个插件、哪一种”；决定 4 说以后按种类筛选，到时这一类没法细分。
+- **为什么是问题**：验收映射（plan.md:154）只列了“命令一行”“子代理可打开”，没有插件登记的任务，这条丢行不会被测出来。
+- **如何核实**：tool-jobs.ts:55 的 `reserve` 参数；对照 Spec 输入里的 `kind` 规则。
+- **建议改法**：计划与 jobs.md 输出 20 写明三种 `kind`：`shell`、`agent`、`plugin`（或 `plugin-<名字>`，名字本身合 `KIND_PATTERN`、至多 40 字符时拼得下的话要算长度）；种类名用 `job.label`。是否要让清单的盖章认“代登记的插件”（行上另带 `via?: 插件 id`），留给加筛选时再定，写进已知限制。`task-rows.test.ts` 加一条插件登记的任务出一行。
+
+## F12 子代理在等你批准时，清单里看不出来：子会话被任务覆盖不出行，任务行的状态映射没写，组的“等你处理”只看组头
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md:55、97、105-107；background-tasks.md 输入（“`waiting` 是等用户处理”）、输出 26（“等你处理的那块是浅警示色底”“等你处理的在前”）；jobs/center.ts:17（`JobState` 有 `question`，是等父 Agent 回答，不是等用户）；table.ts:415（子会话 `waiting` 只在等用户的事项上为真）；sessions.md 输出 15
+- **现象**：最常见的“需要你”场景之一：根会话前台等着一个子代理，子代理的子会话停在一个审批上。此时根会话的状态是 `running`（它在等工具调用），组头不是 `waiting`；子会话被它的任务覆盖（plan.md:107），不出行；任务行的 `state` 取自 `JobState`，计划没写映射——`running` 映射成 `running`，`question`（等父 Agent，不是等用户）若照字面映射成 `waiting` 反而会误报“等你处理”。结果清单里这个会话块是普通底色、不排在前面，没有任何“等你批准”的提示；而 Agent 自己的状态栏活动条目（sessions.md 输出 15，前台子会话也算）此刻写的是“等你处理”。
+- **为什么是问题**：决定 2 把“等你处理的会话组头用警示色、排在前面”作为注意力排序的核心；按计划实现，子代理的审批（用户最需要在清单里看到的那一类）恰好漏掉。两处入口口径不一致。
+- **如何核实**：table.ts `#watch` 里 `waiting` 的算法（审批总算等用户）；计划 3.5 对任务行状态没有映射；Spec 输出 26 “等你处理”的判据只依组头（`head` 行）。
+- **建议改法**：在 jobs.md 输出 20 写明任务行的状态映射：`running` → `running`；`question` → `running`（进展写“在问：…”，同卡片）；子代理任务的 `target` 子会话在表里 `waiting` 时 → `waiting`，进展写“等你批准：工具”（受 F1 约束）。Spec 输出 26 把会话块的“等你处理”定义为“组里任何一行是 `waiting`”，排序同。验收加一条：子代理等审批时，它的根会话块是警示底、排在前面。
+
+## F13 第二轮第 15 条没有真正回应：子代理驱动停不下时吞掉失败，`kill` 仍交回 `killed`，清单会报“已受理”；`job-unknown` 没有映射
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md:110；jobs.md 输出 20（planned：“已经结束交回被拒，抛错交回未知”）；agent/backend/subagents/children.ts:53-59；jobs/center.ts:345-356；proposal-review-r2.txt 第 15 条
+- **现象**：子代理驱动的 `kill` 在 `abort` 交回 `{ok: false}`（`not-allowed`、`log-broken`、`session-busy` 等）时只记诊断 `subagent-kill-failed`，然后 `return undefined`；`JobCenter.kill` 把 `undefined` 当成 `killed`。计划的映射只有“`already-ended` → rejected，抛错 → unknown”，于是这种“根本没停”的情况交回 `accepted`。这正是第二轮第 15 条指出的问题（“用户看到已停止，真实运行可能没收到停止”），计划第 1 节把它列为已回应，但 3.5 的映射没改驱动。`kill` 的第三个结果 `job-unknown`（任务已移出，例如回执刚被取走）计划也没映射。
+- **为什么是问题**：清单承诺“已受理、没受理、未知”三分（输出 24、第二轮第 15 条），实际在最该报“没受理”或“未知”的时候报了“已受理”；按钮的“正在停止”随即消失，行却一直在跑。
+- **如何核实**：读 children.ts:53-59 的分支；center.ts:352-355 `stopped === "already-ended" ? ... : "killed"`。
+- **建议改法**：把 `JobDriver.kill` 的结果扩成 `void | "already-ended" | "failed"`（或抛出带码的错误），子代理驱动在 `aborted.ok === false` 时交回 `failed`，`JobCenter.kill` 透传为 `"failed"`；提供方映射：`killed` → accepted，`already-ended` → rejected（“已经结束”），`job-unknown` → rejected（“已经不在”），`failed` → `unknown`（`log-broken`、抛错）或 rejected（`not-allowed`，原因写码）。远程 `killJob` 同样受益，计划把这条列入第 3 片的改动与 `task-rows.test.ts`（驱动拒绝的用例，第二轮第 15 条的验收）。
+
+## F14 “子会话被任务覆盖”的判据要按 `(sessionId, runId)` 且只认在跑的任务；回退后同一 `runId` 接着跑时停会话行会停到重跑的那次
+
+- **严重程度**：建议；**类别**：正确性 / 文档
+- **位置**：plan.md:107、110；sessions.md 输出 30；jobs/center.ts:196-203（`forRun` 先给在跑的、没有时给已结束的）；nb-harness/src/kernel/run/control.ts:240-250（收口后同一同步段里 `idle` 再 `launch(next)`）；proposal-review-r1.txt 第 10 条
+- **现象**：
+  1. 计划写“不是任何在跑的子代理任务的 `target` 的”，没写按会话还是按会话加运行比。只按会话比时：任务的那次运行已收口、驱动还没调 `end()` 的空档里，子会话已经由收口批开了下一次运行（用户排着的话），这次运行没有任务却被当成覆盖，不出行；按 `(sessionId, runId)` 比则正确。若照 `forRun` 的写法“没有在跑的就给已结束的”，回退后接着跑的同一 `runId` 会被已结束的旧任务“覆盖”，子会话不出行。
+  2. `abort({runId})` 只按 `runId` 认运行。回退到运行中途、同一 `runId` 接着跑（runtime.md 输出 36）之后，窗口里旧的那一行（同一 `runId`）点停止会停下重跑的那次——第一轮第 10 条指出的问题在会话行上重现。计划没有把它列为已知限制。
+- **为什么是问题**：第 1 条会让一次真实在跑的子会话运行在清单里不可见；第 2 条与 Spec 输出 30 “不停下一次运行”的承诺在接着跑的情形下不成立。
+- **如何核实**：center.ts `forRun`；runtime.md 输出 36、120。
+- **建议改法**：sessions.md 输出 30 写明覆盖判据：“有一个在跑的子代理任务，其 `target` 的会话与运行都等于这个子会话此刻的运行”。第 2 条记为已知限制（与提案第四节第 3 小节第 11 条的“回退后读到最近一次”并列），或在套件的 `activityWithBackground` 里带上运行的接续代次（`runResumed` 的 seq），行 id 带它（与 F2 的改法合并）。
+
+## F15 `start()` 的 `owner` 没有校验规则：`owner.open` 的命令不盖章，会话组头的 `open` 取谁的没定
+
+- **严重程度**：建议；**类别**：安全与性能 / 接口与合同
+- **位置**：plan.md:33-38、67、98；background-tasks.md 输入（`TaskInput { owner?: TaskOwner }`，只写“缺省应用”）、输出 19（只对提供方的行查 `open` 的命令是不是它自己的）、输出 26（“没有这一行时只写标题、带打开”）
+- **现象**：`TaskOwner` 的 `session` 分支带 `open?: RowOpen`。提供方的行经输出 19 校验“命令以提供方插件 id 开头”，而 `start()` 交的 `owner` 计划与 Spec 都没写校验：不合格时抛 `TypeError` 还是忽略、`title` 的上限、`open` 的命令要不要是发起方自己的。同一个根会话的组里可能同时有 Agent 的行与别的插件用 `start({owner: {kind: "session", session: X, open: ...}})` 登记的任务；Agent 没有 `head` 行时，组头的标题与“打开”取“owner 的”——取哪一行的 `owner` 没定，后来的插件可以让 Agent 会话的组头打开它自己的命令、写它自己的标题。
+- **为什么是问题**：输入不合格时的行为是 `start` 现有合同的一部分（“同步抛 TypeError，不登记”），新增字段不写就会出现两种实现；组头的来源不定，第 1 片 `groupRows` 的用例没有判据。
+- **如何核实**：对照 Spec 输入与输出 19 的覆盖范围。
+- **建议改法**：Spec 输入补一句：`owner` 按 `ProvidedRow.owner` 同样的规则校验，不合格同步抛 `TypeError`；`owner.open` 的命令必须是发起方自己的。输出 26 写明无 `head` 时组头取“这个根会话的组里最早开始的那一行的 `owner`”或“提供方的行优先于自己的任务”。或者干脆让 `TaskOwner.session` 不带 `open`，会话组头的“打开”一律由组头行或提供方给，自己的任务不能定它。
+
+## F16 “读行在推送合并时做”与“每个订阅一个 PushThrottle”合不上：谁来读、读几次、`own` 是否跟着提供方的变化重推，都没写
+
+- **严重程度**：建议；**类别**：安全与性能 / 代码质量
+- **位置**：plan.md:79、81、90；tasks/backend/remote.ts:97-115（每个订阅一个合并器，`compute` 各自调 `core.list()`）、core.ts:118-120（单一的 `changed` 监听）；agent/backend/jobs/center.ts:220-223（后台命令每出一行就 `progress` → `#changed`）
+- **现象**：计划说提供方 `notify` 只标脏、“读行在推送合并时做（每 250 毫秒至多一次）、一次读一家”，同时又说“推送：每个订阅一个 PushThrottle，同 v1”。N 个窗口、每个窗口一份 `own` 加一份 `rows`，读行发生在每个订阅各自的 `compute` 里：第一个读到脏标记的订阅读、清标记，其余订阅读快照——这能成立，但计划没写，照“每个订阅一个合并器、各自读”的字面实现就是第二轮第 13 条说的“每家每秒 4×N 次读取”。另外 `notify` 若走 `core.onChanged`（plan.md:79“触发清单的变化”），每次 Agent 的变化都会让所有窗口的 `own` 订阅重推一份没变的自己的任务；后台命令每输出一行就有一次 `jobs.onChanged`，这条路径会持续以每秒 4 次 × 窗口数重推整份 `own`。
+- **为什么是问题**：不是正确性问题，但第 1 片的结构会按这里定；第二轮第 13 条要的“合并器共用有版本的投影”没落到计划里。
+- **如何核实**：remote.ts 的订阅结构；center.ts:220-223。
+- **建议改法**：3.2 写明：登记表维护一份全局的“已读快照 + 版本号”，`notify` 只标脏并触发 `rows` 一类订阅；任何订阅的 `compute` 先调 `registry.snapshot()`（脏就读一次、清标记、版本加一），再按自己的范围分组。`own` 的订阅只听自己任务的变化（核心拆成两个变化信号）。`rows` 的推送按版本号去重（同一版本不重推）。
+
+## F17 会话组按“组里最近的开始时刻”排序会在用户要点停止时跳动；项目组“按名字”排在服务端，名字是 `Text`
+
+- **严重程度**：建议；**类别**：代码质量 / 正确性
+- **位置**：plan.md:94-97；background-tasks.md 输出 26（会话组的顺序、项目组“其余按名字”）
+- **现象**：
+  1. 会话组按“组里最近的开始时刻新的在前”：一个会话里 Agent 每起一个后台命令或子代理，这个块就跳到最上面（4 次/秒的推送节奏下）。用户正把鼠标移到另一块的“停止”上时，块的位置换了，点到别的会话的停止——会话行的停止是不可撤销的写操作。
+  2. `groupRows` 在服务端按项目“名字”排，但 `title` 是 `Text`，可能是文字引用，按窗口语言翻译之后才有名字；服务端按什么排没定义。
+- **为什么是问题**：第 1 条是误操作风险，正好落在“停止”这个写操作上；第 2 条照字面实现时排序对文字引用没有意义。
+- **如何核实**：plan.md:97；Spec 输入里 `TaskOwner.project.title: Text`。
+- **建议改法**：会话组按根会话这次活动开始的时刻（或组头行的 `startedAt`；没有组头时按组里最早的一行）排序，等你处理的在前不变；这样只有状态变化才换位置。项目组的排序交给窗口（服务端只给“当前项目在前”），或规定项目的 `title` 只能是字面字符串。
+
+## F18 有归属的会话（bot 的主对话及其子会话）出不出行、以用户身份停它意味着什么，计划没写
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：plan.md:104-108、111；sessions.md 输出 25（`list` 不列有归属的，但“在跑的工作、活动与 `running()` 照样算它们”）、26；提案第四节第 2 小节第 6 条（“bot 的主对话走 bot 插件”的导航）；agent/web/plugin.ts:890-896
+- **现象**：`activityWithBackground()` 含有归属的会话，计划的根会话行没有排除它们，所以每个 bot 收到消息、主对话在跑时，清单里都会冒出一个会话块，带“停止”。会话列表刻意不列这些会话（输出 25），清单却列，两处口径不同；停止以用户身份 `abort({keepQueue: true})` 会把 bot 排着的来信全部变成“用户留着的话”（见 F3），bot 之后不会自动处理这些消息。打开走 `focus-session`，它对有归属的会话打开消息视图——这算是提案说的“走 bot 插件的导航”还是 Agent 的，计划没对照。
+- **为什么是问题**：这是用户可见的范围决定，计划没交给开发者；默认照字面实现，会把 bot 的每次回复都变成清单里一闪而过的块，也给了一个会打乱 bot 收件队列的停止按钮。
+- **如何核实**：sessions.md 输出 25 原文；table.ts `activityWithBackground` 不看归属。
+- **建议改法**：交开发者定：（a）有归属的会话不出行（与会话列表一致，bot 有自己的界面），或（b）出行但停止时不 `keepQueue`、或不可停，只可打开。计划与 sessions.md 输出 30 写明选了哪种；打开的去处写明是 Agent 按归属的导航（conversation.md 输出 53），并在提案决策记录里注明与第 6 条的对应。
+- **更正（F18 建议的（b））**：不带 `keepQueue` 时用户停会清空缓冲区里用户能取消的全部话（runtime.md 输出 30，用户能取消全部），对 bot 更糟；（b）应只保留“出行但不可停、只可打开”这一种。
+
+## F19 远程 v2 的事件 `own`、`rows` 与同名方法冲突，合同照字面定义不出来
+
+- **严重程度**：重要；**类别**：接口与合同
+- **位置**：plan.md:87-89；background-tasks.md 远程服务版本 2 的表（`own` 读 + `own` 事件，`rows` 读 + `rows` 事件）、输出 23；packages/nb-runtime/src/remote/contract.ts:120-126、141-143
+- **现象**：`defineRemoteService` 把方法名放进 `names`，事件名与任一方法同名时记 `事件名不合法或与方法重名`，合同定义失败。计划与 Spec 让方法与事件都叫 `own`、`rows`。
+- **为什么是问题**：第 1 片一写合同就报错；Spec 是 planned 合同的唯一真相源，实现者要自己改名，Spec 与实现随即不一致。
+- **如何核实**：读 contract.ts:141-143 的判定。（未运行，按源码判断。）
+- **建议改法**：沿用 v1 与 Agent 的命名习惯（`list`/`changed`，`tree`/`treeChanged`）：方法 `own`、`rows`，事件 `ownChanged`、`rowsChanged`；改 Spec 的版本 2 表与输出 23、28 的引用。
+
+## F20 Spec 的“验收与 Smoke”没有为 planned 条目加组合场景；e2e 在第 2 片里用谁作提供方没写
+
+- **严重程度**：建议；**类别**：测试 / 文档
+- **位置**：background-tasks.md “验收与 Smoke”（仍是 1–6，Smoke 一行未改）；docs/specs/README.md:50（验收只写跨多条规则的组合场景与多窗口、重启这类特殊环境）；plan.md:139、151、162；proposal-review-r2.txt 第 11、13、15 条的“验收”建议
+- **现象**：输出 18–28 是跨插件、多窗口、带代次的行为，正是 README 要求写成组合场景的那一类；第二轮审查也逐条给了验收（第 11 条：两窗口、合并窗口内停用再启用、旧点击迟到、新一代没收到 `stop`；第 13 条：一家坏提供方不阻止另两家的更新与停止；第 15 条：驱动拒绝、停止中退出、ACK 后断线）。Spec 没有追加这些验收，计划的验收映射只按输出编号列测试文件，第二轮的这几个场景没有对应。另外第 2 片（窗口）排在第 3 片（Agent 作提供方）之前，`background-tasks.e2e.ts` 要“看提供方的行的停止与打开”，但计划没说 e2e 场地里谁交出行、`open` 指向谁的浏览器命令（测试插件要同时有服务端入口作提供方与浏览器入口贡献命令）。
+- **为什么是问题**：晋升时“这一句有测试的断言守着”的核对没有可对的场景；e2e 的提供方要临时搭，容易做成只在测试里存在的捷径。
+- **如何核实**：对照 Spec 现有验收 1–6；`tasks/testing/world.ts` 只有 `start()` 的测试插件。
+- **建议改法**：Spec 追加验收 7–10（代次与迟到点击、坏提供方隔离、停止三种结果含驱动拒绝、范围切换不撤通知），Smoke 一行写明 e2e 覆盖哪几条；计划第 2 片写明 e2e 的测试插件同时作提供方（服务端）并贡献一个打开命令（浏览器端，含一个必然失败的命令，用来测输出 25 的失败提示）。
+
+## F21 只写了“提供方的入口停止时自动撤回”，没写 `nbook.tasks` 自己停止（或先于 Agent 收口）时怎样释放提供方的订阅
+
+- **严重程度**：建议；**类别**：不变量 / 资源释放
+- **位置**：plan.md:30、75、79；tasks/backend/plugin.ts:40（`core.close()` 作为作用域资源）；tasks/backend/core.ts:313-320（`close()` 只清监听、abort 自己的任务）；agent/backend/plugin.ts:81（`tasksKey` 是可选依赖）、:197-200（Agent 的停止从 `context.signal` 开始）
+- **现象**：计划的撤回路径只覆盖“提供方的门面释放”。`nbook.tasks` 的入口先停（单独停用它，或整体关停时次序与预期不同）时，`core.close()` 现在只清自己的监听，不会调用各提供方 `subscribe` 交回的退订，也不会结算在途的 `stop`。Agent 那边挂在 `table.onActivityChanged`、`jobs.onChanged` 与标题变化上的监听会一直调一个已关闭登记表的 `notify`；Agent 只在激活时 `provide` 一次，`nbook.tasks` 重新激活后不会重新登记，Agent 的行要等 Agent 重启才回来。另外 `provide` 交回的撤回函数不是门面方法（不受门面撤回守护），Agent 在它自己的停止里调用它时，登记表可能已经关了——计划没说这时是无操作。
+- **为什么是问题**：资源释放与寿命是本 Task 高风险的部分（第二轮第 13 条“释放反向订阅”）；按现有 `close()` 照写，会留下跨插件的悬挂监听。
+- **如何核实**：core.ts `close()`；runtime/plugins.md 实现合同里“可选依赖的借用在 `entry-work`”。可选依赖的提供方单独停止时运行时是否连带重启消费者，未核实（从代码与 Spec 推断）。
+- **建议改法**：3.1 加一条：`core.close()` 对每家提供方先封派发、以 `unknown` 结算在途的 `stop` 并 abort 它们的 `signal`、调用退订，再丢弃；撤回函数在登记表关闭后调用是无操作。若运行时不会在 `nbook.tasks` 重新激活时重启 Agent，计划写成已知限制，或让 Agent 订阅 `tasksKey` 的可用性变化后重新 `provide`。
+
+## F22 提案第四节第 2 小节第 4 条（“按筛选分页”）被“另有 N 件没列出”取代，提案的决策记录与 Task 范围没跟着改
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：docs/proposals/unified-background-tasks.md:76（第 4 条“按筛选分页，计数取汇总，不靠可见的那一页”）与 :129（决策记录只记了第 8 条的缩减）；t42 README.md:15（范围仍写“按筛选分页”）；plan.md:73、88、134（“提案只追加决策记录（已追加决定 4）”）
+- **现象**：开发者已确认上限与“另有 N 件没列出”，这实际上是不做分页、被截掉的行没有入口——缩减了已接受提案的第 4 条（第二轮第 12 条原本要求“还有 N 件可进入后续页”）。计划第 4 节只追加了决定 4 的记录，这一条的缩减没有写进提案的决策记录，Task README 的范围也还写着分页。
+- **为什么是问题**：提案是 accepted 的真相源，之后的读者会以为分页已经实现或待实现；第二轮第 12 条的“截掉的工作没有操作入口”在这一版是被接受的限制，要写成已知限制而不是悄悄消失。
+- **如何核实**：对照三处原文。
+- **建议改法**：提案决策记录追加一条（开发者 2026-11-23，t42 计划：第 4 条缩减为上限加“另有 N 件没列出”，不分页；截掉的行在视图里没有入口，已知限制）；README 范围改成同样的说法；background-tasks.md 非目标加一句“分页”。
+
+## F23 ADR 0056 要求“先用真实内核探针列全路径，再写 planned 的 Spec”，计划没有探针，依赖的几处时序都是推断
+
+- **严重程度**：重要；**类别**：与已定设计一致 / 测试
+- **位置**：docs/adr/0056-background-work-providers-and-session-notices.md:36（后果第 1 条）；plan.md 全文（没有探针或证据文件）；本报告 F1、F2、F3、F12、F14
+- **现象**：会话行依赖的几条时序——收口后同一同步段里 `idle` 再开下一次运行时 `onActivityChanged` 触发几次、行的 `runId` 何时换；用户 `abort({keepQueue: true})` 之后会话进入 `held`、从 `activityWithBackground` 消失；子代理等审批时根会话与子会话各自的 `waiting`；回执出口在“领取、受理、短回执、取走”之间的停留时长——计划都没有用真实会话表与任务中心跑过。上面几条发现都是读源码得出的，而 ADR 明确要求各 Task 先跑探针再写 planned Spec。
+- **为什么是问题**：这些时序决定 Spec 输出 30 与 jobs.md 输出 20 怎样写才能被真实运行时测出来（F2 的“rejected 还是 target-gone”就是例子）；不先跑，第 3 片会在实现时才发现 Spec 写不出可测的判据。
+- **如何核实**：ADR 原文；Task 目录里没有 `evidences/` 的探针产物（`ls .agents/works/w00032-agent-integration/tasks/t42-task-list-providers/` 只有 README、plan 与 artifacts）。
+- **建议改法**：第 3 片开工前加一步探针（真实 `SessionTable` + `JobCenter`，脚本模型）：一次运行收口后排着的话开下一次运行、记下 `activityWithBackground` 与变化事件的序列；从清单停会话行之后缓冲区与活动的状态；前台子代理等审批时两层的状态；预算满走短回执时任务的出口。按探针结果定稿 sessions.md 输出 30 与 jobs.md 输出 20，再交 omp。
+
+## F24 会话行必填的 `startedAt`（组头的“开始时刻”、会话块的排序都用它）同样没有同步来源
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md:62、97、112；background-tasks.md 输入（`startedAt: number` 必填）、输出 26（组头写开始时刻；会话组按开始时刻排序）；nb-harness/src/kit/sessions/table.ts（表项不记时刻，`clock.now()` 只用于打开耗时，:372、:389）；kernel/api/host.ts:141-147（`RunStatus` 不带开始时刻）
+- **现象**：任务行有 `Job.startedAt`；会话行要“这次运行的开始时刻”，但会话表与状态帧都没有。计划“套件”一条只补 `runId`。在 `rows()` 里按 `runId` 去日志找 `runStarted` 是异步的；用 `rows()` 被调用的时刻代替，每次读行都会变（组头时刻乱跳、F17 的排序跟着跳）。
+- **为什么是问题**：与 F1 同类：第 3 片照字面写不出同步的 `rows()`。
+- **如何核实**：grep table.ts 的时刻字段。
+- **建议改法**：与 F1 合并成一次套件改动：表项在状态帧里看到新的 `runId` 时记下 `runStartedAt = clock.now()`（打开时已在跑的会话，用打开时的快照读一次 `runStarted` 的时刻，或接受用打开时刻并写进注释），`activityWithBackground()` 交回 `{id, state, runId, startedAt, pending?}`。套件 `table` 用例覆盖“收口批开的下一次运行换了 `runId` 与 `startedAt`”。
+
+## F25 范围开关要一条新命令与一个公开状态键，Spec 的命令表没列；按钮平时透明，用户看不出现在是哪个范围
+
+- **严重程度**：建议；**类别**：文档 / 交互
+- **位置**：plan.md:118；background-tasks.md “命令”一段（只列 `nbook.tasks.show`、`nbook.tasks.clear-finished`）、输出 26 第 1 点；workbench/views.md 输出 10（标题动作是命令；`toggled` 是公开状态的布尔键；按钮只在鼠标位于范围上时显示，其余时候透明）
+- **现象**：做成面板头的 `toggled` 开关，就要一条命令（例如 `nbook.tasks.toggle-all-projects`）与一个按窗口的公开状态键，命令是否对 Agent 开放、在不在命令面板里，Spec 的命令表都没写。另外 views.md 输出 10 让标题动作平时透明，范围开关的按下状态在鼠标不在面板上时看不见，而视图内容本身也不标明当前范围：用户在“全部项目”下离开、回来时可能误以为看的是当前项目。
+- **为什么是问题**：命令是公开合同的一部分（“边界与兼容”列了命令）；第二点是可感知的状态被藏起来，与“状态变化要可见”的界面准则相冲。
+- **如何核实**：对照 Spec 的命令段与 views.md 输出 10。
+- **建议改法**：Spec 命令段补这条命令（不对 Agent 开放，与现有两条一致）；在“全部项目”下，项目组照常写“项目「名字」”，并在列表顶上或空状态里写一句当前范围（或者在“当前项目”范围下，别的项目有在跑的行时末尾写“别的项目还有 N 件在跑”）。这一条属于前端，交给 Sonnet 的前端审查再看一遍。
+
+## 未发现问题的方面
+
+- 代次键防旧点击落到新一代（第二轮第 11 条）：`p:<插件>:<代次>:<行 id>` 加派发时核对，思路成立；问题只在“行已不在”用哪份快照（F2、F16）。
+- `own` 仍整份推送、沿用 512 KiB 跳过推送：自己的任务每项多一个 `owner`（标题至多 1 KiB、`open` 至多 4×200 字符），结束的 50 件加常见的在跑件数仍远低于上限，够用。
+- 版本升到 2 让旧窗口得 `version-changed`：远程层已有这个码（nb-runtime/src/remote/protocol.ts:33、node.ts:535-541），做法与 Agent 的 sessions v2 相同。
+- 根会话已空闲、只剩后台任务或子会话在跑：每一行各自可停（任务行走 `kill`，没有任务覆盖的子会话行走 `abort`），组头不可停是合理的；缺的只是 `held` 状态（F3）。
+- 回执“受理”前后的闪烁：`sending`、`undefined` 都列，`pending` 不列，`wait` 接走一件时同一条提醒里的其余几件退回后重新出现、重送后再消失——这是真实状态，不算重复；`unclaim` 不发变化只让重现晚到下一次变化（下一次重送的 `receiptSettled` 会发），影响小。
+- 结束通知只给自己的任务、切换范围不撤通知（第一轮第 24、28 条）：方向正确；判据的细节见 F8。
+- 状态栏只数非前台的在跑行（决定 3）：口径清楚；Agent 第一个就没守住的那处见 F5。
+
+## 各级数量
+
+- 阻断：0
+- 重要：16（F1、F2、F3、F4、F5、F6、F7、F8、F9、F10、F11、F12、F13、F19、F23、F24）
+- 建议：9（F14、F15、F16、F17、F18、F20、F21、F22、F25）
+- 合计 25 条
+
+## 对计划第 8 节风险的判断
+
+- “`rows` 的上限与 `more` 的取舍在提供方很多时会把结束的行挤出列表”：低估了。不需要“提供方很多”，单家交满 200 行 × 4 KiB 就超 512 KiB；而且按现在的写法，被挤掉的可能是在跑的行与会话组头，不只是结束的行（F7）；另有 `announced` 与送不到的任务行只增不减，会自己把一家撑满（F6）。
+- “`foreground` 由提供方自报，状态栏的口径靠提供方守约”：作为跨插件的约定可以接受（提供方都是内置的服务端插件），但第一个提供方按计划就没守住：前台等着的子代理与命令会被数进状态栏（F5）。建议在 jobs.md 输出 20 把 Agent 自己的 `foreground` 判据写死（按 `waiters`），清单这边不必加校验。

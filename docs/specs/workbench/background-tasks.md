@@ -22,6 +22,7 @@ owners:
 - （planned 改写）提供方的行的状态与寿命：清单不存、不改，行何时出现、何时离开由提供方定；Agent 的任务中心、`jobId` 与它的远程合同照旧（[`agent/jobs`](../agent/jobs.md)）。
 - （planned）按形态（一次性、服务、定时）与种类筛选：行带这两个字段、种类在行上显示，筛选等第一个服务或定时的提供方出现时再加。
 - （planned）项目子进程里发起的工作：第一批只收服务端插件登记的，`project` 只是归属。
+- （planned）分页：超出上限没列出的行只写件数（输出 23、26），视图里没有入口。
 - 暂停、排队、依赖与优先级；进度的历史。
 - 书架页（`/`）没有状态栏与底部面板：在那里只有结束时的通知（输出 15）。
 
@@ -73,15 +74,16 @@ interface BackgroundTasks {
     start(input: TaskInput): TaskHandle;
     provide(provider: TaskProvider): () => void;   // 每个调用方同一时刻一个，已有在用的再调用同步抛 TypeError；交回撤回函数
 }
-interface TaskInput { /* 上面的字段 */ owner?: TaskOwner }   // 缺省应用
-type TaskOwner =
+interface TaskInput { /* 上面的字段 */ owner?: OwnTaskOwner }   // 缺省应用；不合格同步抛 TypeError
+type OwnTaskOwner =
     | {kind: "app"}
     | {kind: "project"; project: string; title: Text}
-    | {kind: "session"; session: string; title: Text; open?: RowOpen};   // session 是根会话
+    | {kind: "session"; session: string; title: Text};             // session 是根会话
+type RowOwner = OwnTaskOwner | {kind: "session"; session: string; title: Text; open?: RowOpen};   // 只有提供方的行能带 open
 interface TaskProvider {
     rows(): readonly ProvidedRow[];                                       // 同步、不做 I/O
     subscribe(notify: () => void): () => void;                           // 行有变化时调 notify；交回退订
-    stop(rowId: string, signal: AbortSignal): Promise<StopOutcome>;      // 撤回或服务停止时 signal abort
+    stop(rowId: string, signal: AbortSignal): Promise<StopOutcome>;      // 撤回、服务停止或清单不再等（输出 24）时 signal abort
 }
 type StopOutcome = {kind: "accepted"} | {kind: "rejected"; reason: Text} | {kind: "unknown"};
 interface ProvidedRow {
@@ -93,8 +95,8 @@ interface ProvidedRow {
     kind: string;                        // 小写字母开头，只含小写字母、数字与 -，至多 40 个字符
     kindLabel: Text;                     // 行上显示的种类名
     form: "once";
-    owner: TaskOwner;
-    head?: boolean;                      // 会话自己的运行，画成会话组的组头
+    owner: RowOwner;
+    head?: boolean;                      // 根会话自己的运行，画成会话块的组头
     foreground?: boolean;                // 前台的行
     startedAt: number;                   // 毫秒时刻
     endedAt?: number | null;
@@ -104,17 +106,17 @@ interface ProvidedRow {
 type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 命令 id 以提供方插件 id 加 "." 开头；至多 4 个参数，值至多 200 个字符
 ```
 
-- 行的文字值、进度与时刻的规则同 `TaskInput`；一行编码后至多 4 KiB；一家至多 200 行。
+- 行的文字值、进度与时刻的规则同 `TaskInput`；一行编码后至多 2 KiB；一家至多 100 行。`owner` 的标题规则同任务标题。
 - `waiting` 是等用户处理（例如等批准），算在跑。
 
 （planned）远程服务 `nbook.tasks/tasks` 版本 2 取代下面的版本 1：
 
 | 名字 | 种类 | 输入 | 结果 |
 |---|---|---|---|
-| `own` | 读 | 无 | 自己的全部任务（形状同版本 1 的清单，每项加 `owner`） |
-| `own` | 事件 | 无过滤 | 同上 |
-| `rows` | 读 | `{scope: {project} \| "all"}` | `{groups, more, background}`，见输出 23 |
-| `rows` | 事件 | 同上 | 同上 |
+| `own` | 读 | 无 | `{tasks, background}`：自己的全部任务（形状同版本 1 的清单，每项加 `owner`）与后台工作的计数，见输出 23 |
+| `ownChanged` | 事件 | 无过滤 | 同上 |
+| `rows` | 读 | `{scope: {project} \| "all"}` | `{version, groups, more, elsewhere}`，见输出 23 |
+| `rowsChanged` | 事件 | 同上 | 同上 |
 | `detail`、`cancel`、`retry`、`remove`、`clearFinished` | | 同版本 1 | 只对自己的任务 |
 | `stop` | 写 | `{key}` | `{outcome: "accepted" \| "rejected" \| "unknown", reason?}` |
 
@@ -132,7 +134,7 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 
 清单的每项：`{id, title, message, state, progress, cancellable, cancelRequested, retryable, hasDetail, startedAt, endedAt}`：`message` 没有时 `null`；`progress` 只对在跑的有意义（数字或 `null`），结束的为 `null`；`retryable` 是“状态为失败、发起方给了 `retry`、发起方的入口还没停止”（已中断的不能重试）；时刻是 ISO 8601 字符串，在跑的 `endedAt` 为 `null`。
 
-命令（`nbook.tasks` 的浏览器入口贡献，不对 Agent 开放）：`nbook.tasks.show` 打开“后台任务”视图（同 [`workbench/views`](views.md) 输出 14 的 `nbook.view.open`）；`nbook.tasks.clear-finished` 清除已结束的任务（视图头的动作）。
+命令（`nbook.tasks` 的浏览器入口贡献，不对 Agent 开放）：`nbook.tasks.show` 打开“后台任务”视图（同 [`workbench/views`](views.md) 输出 14 的 `nbook.view.open`）；`nbook.tasks.clear-finished` 清除已结束的任务（视图头的动作）；（planned）`nbook.tasks.toggle-all-projects` 切换视图的范围（视图头的开关，按下是全部项目，输出 26）。
 
 ## 输出与可观察行为
 
@@ -171,23 +173,23 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 15. **书架页。** 没有状态栏与底部面板的页面上，输出 14 的通知照发，没有视图与条目。
 16. **文字跟随界面语言。** 视图、条目、提示与通知里的任务标题与进展按窗口当前语言翻；切换语言后原地换文字，任务不变。
 17. （planned）**关闭服务前报出。** `nbook.tasks` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），每件在跑的任务报一项，写它的标题。
-18. （planned）**提供方登记。** 服务端插件经 `provide` 把自己登记成提供方，每次登记是新的一代。交回的撤回函数只第一次调用起作用；登记方的入口停止（门面释放）时自动撤回。一个调用方同一时刻只能有一个，再调用同步抛 `TypeError`；撤回之后可以再登记。
-19. （planned）**行。** 清单读提供方的 `rows()` 时逐行校验：不合格的行（字段、上限、`kind` 的写法、`open` 的命令不是它自己的）丢掉，记诊断 `provider-row-invalid`（行 id 与原因，不含正文）；同 id 的留第一个；一家超过 200 行的不列。`kind` 盖成 `<提供方插件>.<kind>`。提供方的行没有“移除”“重试”“详情”，输出 7 的移除、清除已结束与输出 8 的上限都不管它们。
-20. （planned）**隔离。** 一家的 `rows()` 抛错时，这一家的行清空、记诊断 `provider-failed`（连续失败只记一次），别家照常；它下一次 `notify` 时再读。`notify` 只标记有变化，行在推送合并时读（同输出 9 的节奏）。
-21. （planned）**撤回与代次。** 撤回时先封住这一家的操作（之后的 `stop` 得 `target-gone`），再退订，丢掉它的行与回调，推送一次。窗口拿到的每行有一个带代次的键：提供方停用又登记之后，对旧一代的行的操作得 `target-gone`，不落到新一代的同名行上。
+18. （planned）**提供方登记。** 服务端插件经 `provide` 把自己登记成提供方，每次登记是新的一代。交回的撤回函数只第一次调用起作用，清单关闭之后调用是空操作；登记方的入口停止（门面释放）时自动撤回。一个调用方同一时刻只能有一个，再调用同步抛 `TypeError`；撤回之后可以再登记。`start` 的 `owner` 按行的同样规则校验，不合格同步抛 `TypeError`。
+19. （planned）**行。** 清单读提供方的 `rows()` 时逐行校验：不合格的行（字段、上限、`kind` 的写法、`open` 的命令不是它自己的）丢掉，记诊断 `provider-row-invalid`（行 id 与原因，不含正文）；同 id 的留第一个。一家超过 100 行时先留全部在跑与 `waiting` 的（含组头），结束的按结束时刻新到旧补满。`kind` 盖成 `<提供方插件>.<kind>`。提供方的行没有“移除”“重试”“详情”，输出 7 的移除、清除已结束与输出 8 的上限都不管它们：它们何时离开清单由提供方定。
+20. （planned）**隔离。** 提供方的 `notify` 只标记有变化；行在推送合并时读，所有订阅共用一份已读的快照，一次变化只读一次。一家的 `rows()` 抛错时，这一家的行清空、记诊断 `provider-failed`（连续失败只记一次），别家照常；它下一次 `notify` 时再读。
+21. （planned）**撤回、关闭与代次。** 撤回时先封住这一家的操作（之后的 `stop` 得 `target-gone`），它在途的 `stop` 立即以“未知”交回窗口并 abort 它们的 `signal`，提供方之后的结果丢弃；再退订，丢掉它的行与回调，推送一次。`nbook.tasks` 停止时对每家照做。撤回之后旧一代的 `notify` 不起作用。窗口拿到的每行有一个带代次的键：提供方停用又登记之后，对旧一代的行的操作得 `target-gone`，不落到新一代的同名行上。
 22. （planned）**归属与范围。** 每行属于应用、某个项目或某个根会话；`start` 不给 `owner` 的属于应用。窗口按范围取行：“当前项目”取应用、这个项目与全部会话的行，“全部项目”取全部。
-23. （planned）**远程合同版本 2。** 事件 `own` 推自己的全部任务，规则同输出 9。事件 `rows` 按订阅时的范围推 `{groups, more, background}`：`groups` 按输出 26 的顺序分好组，每行带键、来源（自己或哪家提供方）、种类与可做的操作；`more` 是因上限没列出的件数；`background` 是不分范围的在跑后台一次性工作（自己在跑的任务，加提供方不是前台的在跑行）的件数与前 20 件的标题、进展与进度。整份编码后超过 512 KiB 时从结束得最早的行起不列、计进 `more`。版本 1 的窗口连上得 `version-changed`。
-24. （planned）**停止。** 窗口对 `stoppable` 的提供方的行执行 `stop`：清单转给提供方，交回它给的结果，已受理、被拒（带原因）或未知；未知的不自动重试。行的状态只随提供方之后交出的行变。窗口里结果回来之前这一行的“停止”变成不可用的“正在停止”；被拒时弹一条提示写原因，未知时提示“不知道停没停下，看一下它的状态”。
-25. （planned）**打开。** 行或会话组头的 `open` 由窗口经命令服务执行；命令交回失败时弹一条提示写原因，不以命令发出当作打开成功。
+23. （planned）**远程合同版本 2。** 事件 `ownChanged` 推 `{tasks, background}`：`tasks` 是自己的全部任务，规则同输出 9（整份超过 512 KiB 时跳过推送、`own` 得 `too-large`）；`background` 是不分范围的在跑后台一次性工作（自己在跑的任务，加提供方不是前台的在跑行）的件数与前 20 件的标题、进展与进度，它变了也推。事件 `rowsChanged` 按订阅时的范围推 `{version, groups, more, elsewhere}`：`groups` 按输出 26 分好组，每行带键、来源（自己或哪家提供方）、种类与可做的操作；`more` 是范围内因上限没列出的件数；`elsewhere` 是范围外在跑的件数；内容没变不重推。整份编码后超过 512 KiB 时依次不列：提供方结束的行（最早结束的先）、自己结束但不是失败的任务（最早结束的先）、不是组头的在跑行（最早开始的先）、组头；自己失败的任务一直列。版本 1 的窗口连上得 `version-changed`。
+24. （planned）**停止。** 窗口对 `stoppable` 的提供方的行执行 `stop`：清单按最新读到的行查键，转给提供方，交回它给的结果，已受理、被拒（带原因）或未知；提供方 10 秒内没有结果时交回未知并 abort `signal`；未知的不自动重试。行的状态只随提供方之后交出的行变。窗口里结果回来之前这一行的“停止”变成不可用的“正在停止”；被拒时弹一条提示写原因，未知时提示“不知道停没停下，看一下它的状态”，`target-gone` 时提示“它已经不在了”。
+25. （planned）**打开。** 行或会话块组头的 `open` 由窗口经命令服务执行；命令交回失败时弹一条提示写原因，不以命令发出当作打开成功。
 26. （planned）**分组视图。** 输出 10 的视图改成按归属分组：
-    - 范围：面板头里一个开关“显示全部项目”，按下是全部项目、松开是当前项目；按窗口记，缺省当前项目。
-    - 分组依次是会话、项目、应用。会话组：每个根会话一块浅底的圆角块，等你处理的那块是浅警示色底；块里第一行是组头，写会话标题（加粗）、等你处理时的“等你处理”徽标、它此刻在做什么、开始时刻，带“打开”“停止”；组头取自这个会话自己的行（`head`），没有这一行时（根会话已空闲、只剩后台任务在跑）只写标题、带“打开”。它的其余行缩进在组头下面。项目组写“项目「名字」”加件数，当前项目在前、其余按名字；应用组写“应用”加件数。
-    - 会话组的顺序：等你处理的在前，其余按组里最近的开始时刻新的在前。组内在跑与等你处理的在上、结束的在下，各按新到旧。
+    - 范围：视图头里一个开关“显示全部项目”（命令 `nbook.tasks.toggle-all-projects`），按下是全部项目、松开是当前项目；按窗口记，缺省当前项目。
+    - 分组依次是会话、项目、应用。会话块：每个根会话一块浅底的圆角块，块里任何一行在等你处理时是浅警示色底。块里第一行是组头，写会话标题（加粗）、等你处理时的“等你处理”徽标、它此刻在做什么、开始时刻，带“打开”“停止”；组头取自这个会话自己的行（`head`）。没有这一行时（根会话已空闲、只剩别的行），组头只写标题，带提供方给的“打开”（只有自己的任务时没有“打开”）。其余行缩进在组头下面。项目组写“项目「名字」”加件数，当前项目在前、其余按名字；应用组写“应用”加件数。
+    - 会话块的顺序：等你处理的在前，其余按组头的开始时刻（没有组头时按块里最早开始的一行）新的在前。组内在跑与等你处理的在上、结束的在下，各按新到旧。
     - 组头都有收起箭头，缺省展开；收起与展开按窗口记住。
     - 行的列同输出 10，标题前多一个淡色的种类名。提供方的行：可停的有“停止”，有 `open` 的有“打开”，没有移除。
-    - 有没列出的行时，列表末尾写“另有 N 件没列出”。
-27. （planned）**状态栏数后台的一次性工作。** 输出 12 的条目改数 `background`：自己在跑的任务加提供方不是前台的在跑行；悬停列出前 20 件，更多时末尾写“还有 N 件”。会话的运行（前台的行）不数；视图的范围不影响它。
-28. （planned）**看过与通知只对自己的任务。** 输出 13、14 只看 `own`：提供方的行不发结束通知、不算“没看过的失败”。视图可见时只把当前范围里显示着的、自己的已结束任务算看过；切换范围不撤回通知、不算任务离开清单。
+    - 列表末尾：有没列出的行时写“另有 N 件没列出”；当前项目范围下别的项目有在跑的时写“别的项目还有 N 件在跑”。
+27. （planned）**状态栏数后台的一次性工作。** 输出 12 的条目改看 `ownChanged` 的 `background`：自己在跑的任务加提供方不是前台的在跑行；悬停列出前 20 件，更多时末尾写“还有 N 件”。会话的运行（前台的行）不数；视图的范围不影响它。“清单为空”是自己的任务为空且 `background` 的件数为 0。
+28. （planned）**看过与通知只对自己的任务。** 输出 13、14 只看 `ownChanged` 的 `tasks`：提供方的行不发结束通知、不算“没看过的失败”。视图可见、页面在前台时，自己的已结束任务里显示着的才算看过：在当前范围、在分组里、所在组展开、没有因上限不列；`rowsChanged` 每次更新、组展开或收起时重算。切换范围不撤回通知、不算任务离开清单。
 
 ## 状态与转换
 
@@ -250,7 +252,12 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 5. Given 50 件结束的任务，When 第 51 件结束，Then 结束最早的那件被移出。
 6. Given 一件标题与进展是文字引用的在跑任务，When 界面语言从 zh-CN 切到 en-US，Then 视图、条目与悬停提示原地换成英文。
 
-Smoke：`packages/neuro-book/e2e/background-tasks.e2e.ts`（真实浏览器的两个窗口，验收 1、2、4）；服务端的合同测试覆盖验收 3、5，视图的组件测试覆盖验收 6。
+7. （planned）Given 一个测试插件作提供方交出一行可停的行，两个窗口都看到它，When 插件撤回又重新登记、交出同 id 的行，Then 一个窗口对旧一代的行迟到的“停止”得“它已经不在了”，新一代的提供方没有收到 `stop`。
+8. （planned）Given 三家提供方，其中一家的 `rows()` 抛错、另一家交出一行不合格的行，When 推送，Then 别家的行照常更新、可停，坏的那一家只少了它自己的行，诊断各记一条。
+9. （planned）Given 提供方的 `stop` 分别交回已受理、被拒、迟迟不交回，When 窗口点“停止”，Then 依次看到行随提供方的状态变、被拒的原因提示、10 秒后的“不知道停没停下”提示；撤回时在途的那次立即以未知交回。
+10. （planned）Given 当前项目 A 的窗口开着视图，项目 B 的自己的任务失败，When 切到“全部项目”再切回，Then 切到之前状态栏仍是失败图标，切到之后才算看过；来回切换不撤回 B 的失败通知。
+
+Smoke：`packages/neuro-book/e2e/background-tasks.e2e.ts`（真实浏览器的两个窗口，验收 1、2、4）；服务端的合同测试覆盖验收 3、5，视图的组件测试覆盖验收 6。（planned）验收 7–9 由服务端的合同测试覆盖，验收 10 由仓库测试覆盖；`background-tasks.e2e.ts` 加两个窗口里的分组、范围开关、提供方的行的停止与打开（测试插件同时作提供方并贡献打开命令，其中一个必然失败）。
 
 ## 实现合同
 
