@@ -1,0 +1,151 @@
+# w00026 t55 调研报告：`packages/nb-layout/src/vue/`
+
+先给结论：这个目录里真正的死代码很少，能删的合计约 60 到 90 行，不到 6700 行源码的 2%。多出来的逻辑大多是有测试守着、带理由注释的防御和时序处理。更大的收益在结构上：`NestedGrid.vue` 脚本部分有 730 行，按层拆出去可以降到约 450 行，但这是搬动，不是删除。
+
+我没改任何文件，也没跑 tsc、vue-tsc 和测试，所以所有"行数"和"调用方"都是读代码加 `rg` 搜出来的。搜索排除了 `node_modules`、`packages/neuro-book-legacy`、`dist`。
+
+## 一、简化与死代码（按收益排序）
+
+**1. 简化：删掉多余的卸载收尾（共 4 行）**
+- 位置：`NestedGrid.vue:669-674`，`Splitter.vue:305-307`。
+- 现在：`useSashGesture` 自己在 setup 里注册了 `onBeforeUnmount(teardown)`（`useSashGesture.ts:654`），组件的这条钩子注册得更晚，所以总是先跑 teardown。NestedGrid 随后又调 `scope.dispose()`，这一步什么也没做：手势已收尾，`disposed` 已是 true，`resetHover` 和 `detach` 都是空操作。Splitter 的 `scope.invalidate()` 同理，`binding` 已为 null。
+- 改成：删 `Splitter.vue:305-307` 的整条钩子，删 `NestedGrid.vue:671` 的 `scope.dispose()` 及其上一行"先收尾手势再通知"的注释（这句话改由 `useSashGesture` 的注册顺序保证，需要时在 `useSashGesture.ts:654` 补一句）。之后 `SashGestureScope.dispose` 只剩 `useSashGesture.dom.test.ts:55` 在用，可以一并从类型里去掉。
+- 风险：低。
+- 公开面和持久化：都不碰，`useSashGesture` 不在入口里。
+- 守着的测试：`NestedGrid.dom.test.ts` 里"卸载先收尾手势再发 null"的用例、`splitter.dom.test.ts`、`useSashGesture.dom.test.ts`。
+
+**2. 简化：`DropFeedbackOverlay.vue` 里 `announcedText` 重复了 `labelText`（删约 8 行）**
+- 位置：`DropFeedbackOverlay.vue:169`（`labelText = computed(() => props.label.trim())`）与 `:180`、`:297-303`（`announcedText` ref 加一个 immediate watch，写的也是 `label.trim()`）。
+- 改成：删掉 `announcedText` 的 ref 和 watch，模板的 `{{ announcedText }}` 改成 `{{ labelText }}`。
+- 风险：低，两者在每次渲染时的值相同。
+- 测试：`DropFeedbackOverlay.dom.test.ts`，live region 的断言。
+
+**3. 死代码和未用的导入（约 12 行）**
+- `sash-scope.ts:12-15` 的 `useSashScope`：全仓搜 `useSashScope` 只有定义本身，没有调用方。删掉它和 `inject` 的导入。
+- `sash-feedback.ts:134` 的 `export type {SashHitTarget, SashPoint, SashPointerKind}`：没有任何文件从 `./sash-feedback` 导入这三个类型，`useSashGesture.ts` 是从 `../sash-hit-area` 取的。删这行，第 11 行的类型导入保留（`sashCursorFor` 要用）。
+- `NestedGrid.vue:38`：`GridSashRef` 只在导入里出现，没有使用。
+- `Splitter.vue:23`：`SashCollapseState` 只在导入里出现，没有使用。
+- `useGridLayout.ts:27` 的 `export type {GridLayoutCommitResult}`：只有 `useGridLayout.dom.test.ts:8` 从这里取，改成从 `../grid-types` 取后可以删。
+- 内部导出只在文件内部用到的（`SASH_BAND_MAX_PX`、`SashBandInput`、`SashCursor`、`SashRegistration`、`SashGestureOptions`、`SashSnapMeasure`）：只是去掉 `export`，不是删行。
+- 风险：低。
+- 测试：`vue-tsc`（`bun run --cwd packages/nb-layout typecheck`）。该包没开 `noUnusedLocals`，所以才留下未用的导入，可以考虑给 `tsconfig.vue.json` 打开，让以后不再留。
+
+**4. 简化：`useGridMotion.ts` 里三段重复（约 12 行）**
+- 位置：`useGridMotion.ts`。
+- 现在：
+  - `if (timer !== null) clearTimeout(timer); timer = setTimeout(stop, ms + SLACK)` 在 `stop`、`start`、`land` 里各写一遍。
+  - `nextTick(() => {void root.offsetWidth; growing.value = new Map()})` 在 `start`（`:274-277`）与 `land`（`:338-341`）里各写一遍。
+  - `root === null ? 0 : layoutMotionMs(root)` 在 `update`（`:313-314`）与 `land`（`:325-326`）里各写一遍。
+- 改成：提成 `armTimer(ms)`、`flushGrowingStart()`、`motionDuration()` 三个内部函数。
+- 风险：低。
+- 测试：`useGridMotion.dom.test.ts`、`NestedGrid.dom.test.ts` 的过渡用例。
+
+**5. 复用：宽高都大于零的判断散落 8 处以上**
+- `useContentLayer.ts:35`（`hasSize`）、`useLeafParking.ts:22` 和 `:39`。
+- 源码顶层 `grid-motion.ts:73` 有一个 `hasSize`，`grid-motion.ts:263` 又在函数里重定义了一个带类型守卫的同名版本，遮住了外层那个。`grid-swap.ts:135` 里内联写了一遍。
+- 改成：在 `grid-rects.ts` 导出一个内部 `hasSize(rect): rect is GridRect`，上述几处都用它。
+- 预计删约 6 行，主要价值是只留一份定义。风险：低。
+- 测试：`grid-motion.test.ts`、`grid-swap.test.ts`、`useLeafParking.dom.test.ts`、`useContentLayer` 经 NestedGrid 的用例。
+
+**6. 层次：分隔线的 `branchId:index` 键有 5 处各拼一遍**
+- 位置：`sash-gesture.ts:33`（`sashKey`）、`grid-rects.ts:361`、`sash-feedback.ts:86`（`sashHitKey`）、`SashHandle.vue:67`、`useSashGesture.ts:658` 和 `:661`。
+- 这几处必须保持一致：线的身份键、悬停键、`data-sash`、登记表键靠的是同一个字符串。哪一处单独改格式，登记就对不上。
+- 改成：一个 `sashKeyOf(branchId, index)`，`sashKey`、`sashHitKey` 和那几处都调它。
+- 预计删约 4 行，风险：低。测试：`useSashGesture.dom.test.ts`、`NestedGrid.dom.test.ts`。
+
+**7. 简化：`useSashGesture.ts` 的小重复（约 8 行）**
+- `setHovered` 和 `setRevealed`（`:185-197`）是同一份"集合没变就不写"，提成一个 `setKeys(ref, keys)`。
+- `onPointerDown`（`:397-398`）里 `winner.hits.map(sashHitKey)` 算了两遍。
+- `keydown`（`:525` 与 `:540`）里 `keyboardStep(event, axis)` 先判空、后面又取一次并加 `!`。
+- 风险：低。测试：`useSashGesture.dom.test.ts`、`splitter.dom.test.ts`。
+
+**8. 简化：NestedGrid 三条过渡 CSS 的 `transition` 重复（约 25 行）**
+- 位置：`NestedGrid.vue:908-958`。
+- 现在：四个 `left, top, width, height` 的时长加曲线，在 `[data-moving]`、`frame[data-moving]`、`[data-swap]` 三条规则里整串重复，各自带完整的 `var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(...))`，共约 50 行。
+- 改成：改写成 `transition-property` / `-duration` / `-timing-function` 三个长写属性。基础规则写一次时长和曲线，frame 规则只改 `transition-property` 与曲线列表，swap 规则只加 `clip-path`。
+- 风险：中。视觉靠 e2e 才验得出，规则优先级也要保持（`[data-float-gesture]{transition:none}` 仍然压得住）。`theme-vars.test.ts` 会扫源码里每处 `var()` 回退值是否与清单一致，回退值出现次数变少不会让它失败。
+- 测试：`theme-vars.test.ts` 和 `NestedGrid.dom.test.ts`，视觉等价另需看 e2e（我没跑）。
+
+## 二、效率（热路径）
+
+**9. 效率：`sashProps` 为每条分隔线建整支分支的面板配置**
+- 位置：`NestedGrid.vue:412`，`buildGridBranchPanels(sash.branch.children, …)[sash.index]`。
+- 现在：只用 `[sash.index]` 一项，却为每条分隔线 map 整个 `children`。一支有 k+1 个孩子、k 条线时，每次渲染分配 k×(k+1) 个对象。分隔线拖动期间每帧都渲染。
+- 改成：只为那一个孩子建一项（先取 `children[sash.index]` 再交给 `buildGridBranchPanels`）。
+- 省下：每帧从 k×(k+1) 次分配降到 k 次。k=5 时约 30 降到 5，绝对值很小。
+- 风险：低。测试：`NestedGrid.dom.test.ts`（aria 值）、`grid-splitter.dom.test.ts`。
+
+**10. 效率：`sashLookOf` 每条线每次渲染最多被调 3 次**
+- 位置：`NestedGrid.vue:355`。调用点：`sashAriaLabel`（经 `sashProps`）、模板里 `data-sash-kind`（`:758`）、`sashBoxStyle`（`:365`）。
+- 现在：宿主的 `sashKind`、`sashStyle`、`paneLabel` 回调每条线每次渲染各被调 2 到 3 次，`sashStyle` 每次还新建一个对象；并且 `sashLooks.set(...)` 写在渲染函数里，渲染有副作用。
+- 改成：每条线每次渲染只算一次，再统一用。例如用 `sashAttrs(item)` 返回合并后的属性对象，`v-bind` 一次。`NestedGrid.md` 已经声明过"paneLabel 一次渲染可能问几次"，改成一次是兼容的。
+- 省下：宿主回调每帧省 2/3。
+- 风险：低到中，要保住"离开的线沿用离开前最后一次的值"。
+- 测试：`NestedGrid.dom.test.ts` 里 `paneLabel`、`sashKind`、`sashStyle` 和交换的用例。
+
+**11. 效率：悬停命中每次 pointermove 都读所有分隔线的矩形**
+- 位置：`useSashGesture.ts:157-179`（`hitTargets`）经 `onPointerMove` 的 `winningScope`（`:81-97`）。
+- 现在：非拖动时的每个 pointermove，对路径上每个 scope 做 N 次 `getBoundingClientRect` 加 N 个对象分配，再加一次 `composedPath()` 数组；没有按帧合并。N 取 10 到 20 时，鼠标在工作台上扫过去每秒几十到上百次。
+- 改成（可选）：把 hover 的命中判定按 rAF 合并，或者按布局版本缓存矩形。
+- 风险：中。光标和命中带的更新会晚一帧，`useSashGesture.dom.test.ts` 的光标和显现计时断言多是同步的。建议先量再定，收益不确定，我不推荐直接动。
+
+**12. 效率：`placeFloat` 每帧扫网格根的全部子元素**
+- 位置：`NestedGrid.vue:692-698`。
+- 现在：拖浮动窗时每帧遍历根的所有子元素并读 `dataset`。子元素数 = 叶 + 分隔线 + 每个标签的内容项，几十个量级。
+- 改成：手势开始（`offset` 第一次非 null）时按 id 取一次元素集合缓存，`null` 时清掉。
+- 风险：中，换叶或新标签挂上后缓存会漏，要在 layers 变化时失效。收益小，列出备选。
+
+**13. 效率：`useSortable` 每个拖动帧量两次布局**
+- 位置：`useSortable.ts:121-133`（`measure`）在 `resolve`（`:268`）与 `watch(state, …, {flush: "post"})`（`:198`）各调一次。后者只为了取 `extent` 夹住被拖行。
+- 改成：`resolve` 里记下 `extent`，post 的 watch 复用。
+- 省下：每帧一次 `querySelectorAll` 加 N 次 `offsetTop` 链遍历。
+- 风险：中。行高不等时，换序后 `extent` 的并集理论上不变，但这是推断，没验证。收益小，列出备选。
+
+## 三、层次（结构；多是搬动，不删行）
+
+**14. 层次：`NestedGrid.vue` 的 730 行脚本里有四段可以按层拆走**
+- 交换：`:166-216` 的 `swapSide`、`swapBackdrop`、`swappingLeaves`、`swapClipStyle`、`freshSwap`/`takeSwap`，约 50 行，可成 `useGridSwap(motion)`。
+- 分隔线的呈现：`:349-430`，约 80 行（`sashLooks`、`paneNameOf`、`sashLookOf`、`sashBoxStyle`、`sashAriaLabel`、`sashProps`、`isZeroLength`），可成 `useSashPresentation`，也正好承接第 9、10 条。
+- 手势宿主：`:502-667`，约 165 行（`host.begin/onCommit/onCancel`、`publishedMatches`、预览的收放），可成 `useGridGesture`。
+- 拿起项的留住：`:270-298`，约 30 行（`previousContents`、`heldLifted`、`layerContents`）。这个 computed 带副作用：读它时同时改两个闭包变量，只是靠"每轮只算一次"才不出错。`useContentLayer` 本来就接收 `lifted` 和 `liftedRect`，拿起项的语义现在被拆在两个文件里。把"留住拿起项"并进 `useContentLayer`，组件就不再有带副作用的 computed。
+- 开发模式检查：`:654-667` 与 `begin` 里 `:588-593` 的 `warnDev`、`describe`、`isCommitResult`，约 25 行，纯搬进 `dev-checks.ts`。
+- 效果：`NestedGrid.vue` 脚本约 730 行降到约 450 行。风险：中，改动大，时序（`flush: "sync"`、`computed` 里同步算）是合同，必须原样保留，我在这里没有证据证明可以安全拆开。建议做的话分四次独立提交，每次只搬一段，用 `NestedGrid.dom.test.ts` 守着（2457 行的测试，覆盖较细）。
+
+**15. 层次：`useGridHost` 与 `useGridLayout` 两层**
+- `useGridLayout` 全仓唯一的产品调用方是 `useGridHost.ts:90`，又被 `useGridHost.md` 称为"内部模块"。`useGridHost` 大半是转发（`node`、`layout`、`revision`、`invalidate`），`GridLayoutHost` 类型约 12 行只为这一次转发。
+- 改成：合并成一个文件。省约 25 行。
+- 风险：中。`useGridLayout.dom.test.ts`（415 行）要整体改引用。拆开的原因（只发新增、提交校验与尺寸接线分开测）有测试价值，收益不大，我倾向不动，列出备选。
+
+**16. 层次：`useDragSession` 与 `useLiveDragSession` 的"根出现就建、换根先销毁、清理"是同一个模式**
+- 位置：`useDragSession.ts:34-42` 与 `useLiveDragSession.ts:42-64`，`useSortable.ts:218-228` 也有一份类似的根监听。
+- 省约 10 行，需要抽一个泛型小函数，收益有限。风险：低。
+
+## 四、公开面候选（不放进内部清单）
+
+- `useLiveDragSession` 的返回值 `LiveDragSessionRefs.session` 和 `.live`：全仓调用方只用了 `state`、`liveState`、`lifted`、`dragging`（`nb-story/src/web/shell/BookFrame.vue:255`、`neuro-book/src/plugins/lab/web/fixtures/nb-layout/LivePanelsScene.vue:131`）。工作台的 `layout-drag.ts` 直接用的是 `createLiveDragSession`。这两个字段可能不需要公开。这个接口标注了"1.0 之前签名会变"，可以改。
+- `NestedGrid` 的 `defineExpose` 里的 `outgoingLeaves`、`shapedLeaves`、`swappingLeaves` 有产品调用方（`WorkbenchSurface.vue:301-304`），保留。
+- `SashGestureScope.dispose`（内部类型，不在入口里）可以在第 1 条里一起删。
+- 这条的改动要同步 `api/*.api.txt`（`bun run --cwd packages/nb-layout api:report`），插件 SDK 没有转出 `useLiveDragSession`，所以不碰 SDK 快照。
+
+## 五、验证建议（改完要跑）
+
+- 单个包：`bun run --cwd packages/nb-layout test`（先 `bun test` 再 `vitest run`）和 `typecheck`。
+- 动了公开面的（第四节）再跑 `api:check`。
+- 动了 CSS（第 8 条）、第 14 条的拆分，或 `placeFloat`、`sashProps` 的呈现（第 9、10 条）后，补跑覆盖它们的 e2e 文件，视觉等价靠它。
+
+## 六、顺便发现的问题（不是简化）
+
+- `NestedGrid.vue:282-298` 的 `layerContents` computed 在读取时写 `previousContents` 与 `heldLifted`。如果同一轮里有别的代码读它（例如 `useContentLayer` 里 `options.contents()` 以外的调用），或者 Vue 把它读两次，"上一轮的 contents"就会被覆盖，拿起项的留住就丢了。目前每轮只被 `useContentLayer` 的 `placements` 读一次，所以没问题，但这是个只靠"调用方恰好只读一次"撑着的不变量，在第 14 条里一起收掉最稳。
+- `Splitter.vue:53` 起的 `sashSizes` computed 里有 `console.warn`，每次重算都可能再警告一次，不像 NestedGrid 那样每种只报一次（`layoutDevWarning`）。这是风格和噪声问题，不影响功能。
+- `useSashGesture.ts:341` 的 `settle(source, source !== "pointer" || reason === ... ? "reset" : "refresh")` 一条三元里塞了五个条件，我没找到错误，但阅读上很难核对；改写成表驱动的小函数更好，可当可读性候选。
+
+## 七、看过、没发现可简化的部分
+
+- `drag-session.ts`、`live-drag-session.ts`：事件挂拆、先后合同和 `activate`/`resolve` 的包装都带理由注释，没有重复。`live-drag-session.ts:71-81` 那个转发对象看着多余，但它是为了"工厂拿到 `live` 时引擎还没建"，必须保留。
+- `useContentLayer.ts`、`useLeafParking.ts`：两层停放判定有重叠，但语义不同（叶降到零 vs 内容自己为零，如收成标题行时叶有高度而内容是零），合并会改行为，不建议。
+- `useGridFocus.ts` / `grid-focus.ts`：Tab 接管、哨兵、`tabbable` 的使用都是必要的，没有可复用的现成函数。`NestedGrid.vue:317-322` 的 `holdsFocus` 与 `useGridFocus.ts:19-22` 的 `elementOf` 都用 `getRootNode().getElementById(domIdOf(key))`，可以把 `elementOf` 提到 `useRenderOrder` 复用，约 5 行，收益太小，没单列。
+- `useSashSnap.ts`、`SashHandle.vue` 的 snap：已经是"批量读、再批量写"，每元素缓存上次写入值，没有明显浪费。
+- `frozen-slot.ts`、`useRenderOrder.ts`、`useDevicePixelRatio.ts`、`useLayoutExtent.ts`、`layout-text.ts`、`text.ts`、`layout-vars.ts`：每个都小而紧，注释写的是原因，没发现可删。
+- `FloatWindowHandles.vue`、`SortableList.vue`、`DropSectorsOverlay.vue`、`DropIndicator*.vue`：没有重复的计算或状态，CSS 只有必要的一份。`DropIndicatorLabel` 里的 `label.trim()` 判断与 `DropFeedbackOverlay` 的 `labelVisible` 看着重复，但前者是公开组件，保留。
+- `lab-sources.ts`：`neuro-book/src/plugins/lab/web/component-index.ts:10` 在用，保留。
+- 持久化（`GridSnapshot`、`GRID_SNAPSHOT_VERSION`、`LAYOUT_DOC_VERSION`）：上述候选都不碰；`@experimental` 标注和写"为什么"的注释我没建议动。

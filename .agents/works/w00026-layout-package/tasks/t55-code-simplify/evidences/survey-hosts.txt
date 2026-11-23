@@ -1,0 +1,172 @@
+# w00026 t55 只读调研报告：nb-layout 的几个宿主
+
+范围：Lab 的 `fixtures/nb-layout/`、nb-story 的 `BookFrame.vue` 与 `book-grid.ts`、t49 新增的三处（`LivePanelsScene.vue`、`BookFrame.vue` 的拖动换边、`live-drag-session.md` 与 README 相关行）。全程只读，没有跑测试，也没有跑 e2e。
+
+结论先说：t49 的接线与 `createLiveDragSession` 头注释的合同一致，文档与代码一致，没有发现会改变行为的缺陷。能省的东西不多，成块的是 Lab 验收夹具里的重复，以及一处每帧都做的 `elementsFromPoint`。
+
+行数是估算。“守着它的测试”一栏只列我读到的。
+
+## 内部候选（按收益排序）
+
+### 1. 效率：`drag-session.ts:252` 每次判定都无条件做 `elementsFromPoint`
+- **现在**：`resolve: ({source, point, region}) => options.resolve({source, point, region, top: topElementAt(document, point)})`，每次 `evaluate` 都做一次整页命中测试。
+- 引擎的头注释花了很大篇幅让帧里“先读后写”，免得判定里的 `elementsFromPoint` 强制重算样式。
+- 但 BookFrame 的换边判定和 LivePanelsScene 的 `resolve` 都不读 `top`。这两个宿主每帧白做一次命中测试。
+- **改成**：把 `DragQuery.top` 做成惰性的 `get top()`，带一次缓存，只在宿主读它时才测。类型与签名不变。
+- **省多少**：不读 `top` 的宿主每次判定省 1 次 `elementsFromPoint`，指针移动时约 60 次/秒。
+- **风险**：低。
+  - 宿主解构 `({top})` 时才会触发读取。
+  - 要查有没有宿主 `{...query}` 展开，展开会把惰性取值提前触发。我只确认了本模块的两处没有展开。
+  - 工作台的 `fileDrop` 用 `top`，读一次，行为不变。
+- **公开面 / 持久化**：公开类型不变，不碰持久化。
+- **测试**：`drag-session.dom.test.ts`、`useDragSession.dom.test.ts`、`live-drag-session.dom.test.ts`。
+  - 加一条断言：不读 `top` 就不调用 `elementsFromPoint`。
+  - 还要跑 `e2e/workbench-drag-cost.e2e.ts` 看每帧上限，以及 `lab-drag-session.e2e.ts`。
+
+### 2. 简化：`NestedGridAcceptanceFixture.vue` 脚本里的重复，约 -40 行
+- **`syncRawRecordIntent`（322 到 354 行，33 行，带 `any`）**：两个分支结构相同，都是按 id 把两个孩子的一条轴的尺寸抄回原件。
+  - 改成一个 `copySizes(rawParent, liveParent, axis)`，两处调用，约 14 行。
+  - 行为不变：原件里的 `ghost-plugin` 在运行时的树里找不到，照样不被动。
+- **`resetState`（398 到 413 行）**：逐个重置 8 个 `lastGesture*` ref。
+  - 把手势记录放进一个 `shallowRef<GestureRecord>`，由一个 `NO_GESTURE` 常量重置，约 -12 行。
+  - 模板里的 `data-lab-*` 属性名不变。
+- **`restore*`（5 个 ref，228 到 316 行）**：同样的做法，每个分支都在赋 5 个字段。
+- **`JSON.parse(JSON.stringify(x))` 出现 3 次**：换成 `structuredClone(x)`。
+- **风险**：低。守着它的是 `e2e/lab-nested-grid.e2e.ts`，它断言 `data-lab-raw-record`、`data-lab-restore-*`、`data-lab-last-*`。
+- **范围**：只动夹具；公开面与持久化都不碰。
+
+### 3. 层次：BookFrame 的换边拖动抽成单独的 composable
+- **位置**：`BookFrame.vue:215 到 287`，约 75 行。这一段包含 `swapHost`、`resolve`、`measureShells`、`shellRect`、`inside`、`dragTitle`、`swapPreview`。
+- **现在**：这块拖动逻辑和档位、顶栏、菜单、抽屉浮层一起放在一个 560 行的 SFC 里。它的 `resolve`、`swapHost` 是纯逻辑，现在只能靠 e2e 测。
+- **改成**：抽成同目录的 `detail-swap-drag.ts`，导出 `useDetailSwapDrag({gridBox, gridRef, shownDetails, swap})`，返回 `{swapDrag, swapLive, liftedDetail, dragging, swapPreviewed, swapPreview, dragTitle}`。
+  - `book.swapDetails` 以及依赖（`shownDetails`、`gridRef`、`gridBox`）通过参数传入，`swapPreviewed` 由它返回给 `detailContents`。
+  - `BookFrame.vue` 本身少约 75 行，换边的判定可以脱离挂载做单元测试。
+- **净删除**：约 0，只是搬位置。
+- **风险**：低。
+- **守着它的测试**：`packages/nb-story/e2e/side-by-side.e2e.ts`、`book-grid.test.ts`。
+- **备注**：是否值得做看开发者要不要给这块补单元测试。
+
+### 4. 简化 / 公开面：矩形包含判断有 8 份
+- **位置**：
+  - `grid-drop.ts:75`（`containsPoint`，用 `<=`）
+  - `live-drag.ts:160`（`inside`，用 `<`）
+  - `live-drop.ts:66`（带粘滞边距）
+  - `sash-hit-area.ts:53`（带间隙）
+  - `nb-workbench-layout/src/layout-drop.ts:66`（`contains`，用 `<`）
+  - `neuro-book/plugins/workbench/web/drag-geometry.ts:70`（`contains`，用 `<`）
+  - `LivePanelsScene.vue:90`（`inside`，用 `<`）
+  - `BookFrame.vue:225`（`inside`，用 `<=`）
+- **改成**：在 nb-layout 根入口导出一个 `pointInRect(rect, point)`，其余几处改调它。
+- **省多少**：约 -12 行；价值主要是以后只有一份。
+- **风险**：中。
+  - 这是新增公开导出，归“公开面候选”。
+  - 更要紧的是 `<=` 与 `<` 不一致，统一会在两张相邻卡片的共用边上改变 1 像素处的判定。
+  - BookFrame 先判自己再判另一张，共用边现在归自己；统一成 `<` 后共用边会归另一张。
+  - 建议只统一内部两份 `<` 的拷贝（`live-drag.ts` 与 `layout-drop.ts` 等），宿主那两份保留原语义，不要为凑一份改行为。
+- **守着它的测试**：`grid-drop.test.ts`、`live-drag.test.ts`、`layout-drop` 的测试。
+
+### 5. 简化 / 公开面：几处没有调用方的参数和返回值
+- **`LiveDragSessionOptions.live(source, keyboard)` 的 `keyboard` 永远是 `false`**（`live-drag-session.ts:103` 先返回了键盘分支，才调 `options.live(source, keyboard)`）。
+  - 全仓搜 `live:` 与 `live(` 的实现，只有工作台 `layout-drag.ts:847` 在写 `!keyboard &&`，是死条件。
+  - 宿主 BookFrame、LivePanelsScene 都忽略这个参数。
+  - 改成 `live(source)`：`api/vue.api.txt` 的 `LiveDragSessionOptions.live` 会变，`live-drag-session.md` 示例里的 `(source, keyboard) => source` 也要改。
+  - `@experimental`，属于“公开面候选”。
+- **`useLiveDragSession` 返回的 `session`、`live` 两个 shallowRef 没有产品调用方**。
+  - 全仓搜 `useLiveDragSession(`：只有 BookFrame（取 `state, liveState, lifted, dragging`）、LivePanelsScene（取 `liveState, lifted, dragging`）、`live-drag-session.dom.test.ts`（断言用）。
+  - 已有 `state` 由 `session` 推出。
+  - 这两个 ref 与它们的卸载置空约 8 行。
+  - 注意 `useDragSession` 本身也返回 `session`，保持对称也是理由，我倾向保留，列出来请开发者定。
+- **`stepLiveDrop` 的 `settleMs?` 选项没有调用方**（`live-drop.ts:48`）。
+  - 它在 `api/index.api.txt:899-903` 里，是对外承诺，也有“自己编排”这个定位。不建议动。
+- **测试**：`live-drag-session.dom.test.ts`。
+
+### 6. 简化：`IDLE` 与 `IDLE_STATE` 是同一个字面量
+- `useLiveDragSession.ts:18` 的 `IDLE` 与 `live-drag.ts:153` 的 `IDLE_STATE` 逐字段相同。
+- 把 `IDLE_STATE` 从 `live-drag.ts` 导出（这个模块不进包入口，`vue/index.ts` 只 `export type` 取类型），`useLiveDragSession` 改成导入，约 -1 行，主要是只留一份。
+- 风险：低。公开面不变。
+
+### 7. 简化：`LivePanelsScene.vue` 里几处多余，约 -8 行
+- `extentNow`（173 行）是 `host.extent.value` 的别名，只用一次。
+- `data-live-body`（217 行）在 `e2e/lab-live-panels.e2e.ts` 里没有引用，我只在这个 e2e 里确认了。
+- `widen()` / `reset()`（187 到 192 行）各自 `createGrid(tree(...))`，可以写成 `setColumns(left, right)`。
+- `homeRect` 同时在 `activate`（167 行）和 `measure`（117 行）赋值。
+  - 这不是多余：拿起时第一次判定是同步在 `activate` 返回后做的，那时引擎还没量几何，必须有 `activate` 里的值。
+  - 但 `activate` 是在 `settleMotion` 之前调用的，这一次量到的可能是过渡中间的矩形，要等第一帧 `measure` 才纠正（见“顺便发现的问题”）。
+- 更根本的做法是引擎本来就缓存了来源那块的矩形（`live-drag.ts:177` 的 `LiveRun.homeRect`），宿主为了“判回到原位”又存了一份。
+  - 可以考虑让引擎暴露 `live.home()`，宿主不再自己存 `homeRect`，`activate` 也可以删。
+  - 这是给 `LiveDrag` 加公开方法（`@experimental`），归“公开面候选”。
+  - 风险：中。引擎里 `homeRect` 是“第一次要卡片时才问”，要提前到拿起时，会改变问 `host.card.rect` 的时机。
+- **测试**：`e2e/lab-live-panels.e2e.ts`，涉及引擎时加 `live-drag.test.ts`。
+
+### 8. 层次：Lab 夹具之间的重复，约 -60 行
+- 5 个场景（`GridStructureScene`、`GridPanelsScene`、`GridLeavingScene`、`GridSwapScene`、`LivePanelsScene`）各写一份几乎相同的根容器、`__actions` 工具栏样式，约 16 行 × 5。
+- `GridStructureScene.vue:48 到 52` 与 `GridPanelsScene.vue:191 到 194` 的 F6 处理逐字相同。
+- `createInstance` 计数器在 `GridStructureScene.vue:32 到 36` 与 `GridPanelsScene.vue:184 到 188` 各一份。
+- **改成**：
+  - 一个共用的 `scene-chrome.css` 或公共 class，只放根与工具栏。各场景的 `min-height` 与颜色保留自己的，因为 e2e 按像素认颜色与尺寸。
+  - 一个 `useF6Focus(containerEl)` 的小函数。
+  - 一个 `useInstanceCounter()`，放进 `GridStructureLeaf.vue` 旁边。
+- **风险**：低到中。样式合并要对照截图，e2e 按像素认。守着它的是 `e2e/lab-grid-*.e2e.ts`。
+- 这一条价值最低，只是体量大。
+
+### 9. 简化：BookFrame 与 book-grid 的零碎处，约 -6 行
+- `focusRemaining` 里的 `` `[data-detail-key="${rest.key}"]` `` 与 `shellOf` 的选择器是同一个字符串，可以改成 `shellOf(rest.key)`。外层 root 与 gridBox 的范围里取到的是同一个元素。
+- `shellRect` / `measureShells`（`BookFrame.vue:221 到 235`）、`DragSessionScene.vue` 的 `rectOf`、`LivePanelsScene.vue:73 到 77` 的拷贝，都把 DOMRect 抄成新对象。DOMRect 本身已经满足 `GridDropRect`，可以直接用，每个矩形少一次分配，也少几行。
+- `book-grid.ts:19、20` 的 `NAV_WIDTH` 与 `NAV_COLLAPSED_WIDTH` 带了 `export`，全仓搜 `NAV_WIDTH`、`NAV_COLLAPSED_WIDTH`（排除 dev-panel 里同名但不相关的 `NAV_WIDTH_DEFAULT`）没有外部引用，去掉 `export`。
+- `BookFrame.vue:140 与 170` 的两个 watcher 都在 `host.invalidate()`，把 `overlayDrawer` 并进第一个 watcher 的来源能少一个，约 -2 行。
+  - 风险：中。第一个 watcher 里 `grid.setCollapsed` 对未变化的值要不要返回成功，没验证；`overlayDrawer` 变化时 `twoCards` 判定也会重跑。建议不动。
+- **测试**：`book-grid.test.ts`、`side-by-side.e2e.ts`。
+
+### 10. 效率：LivePanelsScene 每次交候选都复制整棵网格
+- `facts`（99 行）每次 `offer` 都调 `slotOf` → `placed` → `copyOf()`（`serialize` + `restore`）+ `removeLeaf` + `splitLeaf`，再做 `layout` 与 `placeGrid`。
+- 指针停在同一条边上时，每帧重复一遍，而候选键没变。`show` 和 `commit` 里还各算一次。
+- 4 块叶下可以忽略，但这是给 npm 用户看的“完整例子”。
+- **改成**：按 `${target}:${side}` 加 `live.geometry()` 的身份缓存 `slot` 与预览树，约 +8 行。换来每帧 0 次树复制。
+- 这一条是否值得，看示例要不要演示缓存；我倾向不改，在 `live-drag.ts` 的 `geometry()` 注释里已经提示了“宿主的预览缓存按身份作废”。
+- 风险：低。
+
+### 11. 层次：Lab 夹具的归属
+- `TabStripFixture.vue` 与 `GridPanelsScene.vue` 测的是 nb-workbench-layout（`@notnotype/nb-workbench-layout`），却放在 `fixtures/nb-layout/`，`index.ts` 还从 nb-workbench-layout 导入类型。
+- `NestedGridAcceptanceFixture.vue` 静态导入全部 6 个其它场景，注释说“组件模块在选中场景时才加载”，实际 default 场景也会加载其余场景。
+- **改成**：
+  - 把工作台层的夹具搬到 `fixtures/nb-workbench-layout/`。
+  - 分发处用 `defineAsyncComponent`。
+- 净删除约 0，只改位置。风险：低。
+- 价值很小，只在以后继续拆包时才有意义。
+
+## 公开面候选（汇总，不与上面混）
+| 项 | 改动 | 风险 |
+|---|---|---|
+| `LiveDragSessionOptions.live` | 去掉恒为 `false` 的 `keyboard` 参数 | 低 |
+| `useLiveDragSession` 返回值 | 去掉 `session`、`live` 两个 ref | 低，但与 `useDragSession` 不对称 |
+| `pointInRect` | 新增导出（#4） | 中，`<=` 与 `<` 不一致 |
+| `LiveDrag.home()` | 新增方法（#7） | 中，改问矩形的时机 |
+| `LiveDragHost.collapsed`、`LiveDropFacts.home`、`slotOnScreen` | 改可选：BookFrame 与 LivePanelsScene 都写 `home: false`，BookFrame 写 `collapsed: () => null` | 低，只放宽，不破坏现有宿主 |
+
+## 顺便发现的问题（正确性，不算简化）
+1. **LivePanelsScene 的 `homeRect` 在 `settleMotion` 之前量**。
+   - `live-drag-session.ts:101` 先调宿主的 `activate`，`109` 才 `settleMotion`；`LivePanelsScene.vue:167` 的 `measured()` 因此可能量到过渡中间的矩形。
+   - 拿起后那一次同步判定（`start()` 里的 `publish()`）用这个旧矩形判“原位”。
+   - 影响很小：候选要稳定 150ms 才换预览，第一帧 `measure`（117 行）又会纠正它。
+   - 但 `live-drag-session.md` 与头注释都没说宿主的 `activate` 先于 `settleMotion`，宿主读 DOM 时不知道会量到过渡中间。
+   - 建议在 `LiveDragSessionOptions.activate` 的注释或 md 里写一句。
+2. **`NestedGridAcceptanceFixture.vue` 里 `unknown-ref` 与 `malformed` 场景的快照版本是字面量 `2`**（247 与 282 行）。
+   - `GridSnapshot` 这一个有类型约束，版本升了会报编译错误。
+   - 不带类型的 `malformedSnapshot` 没有约束，`GRID_SNAPSHOT_VERSION` 升到 3 时，它会因为版本不符而被拒，不再因为重复 id 被拒，场景悄悄测错东西。
+   - 建议改用 `GRID_SNAPSHOT_VERSION`。
+3. **没有发现文档与代码不一致**。
+   - `live-drag-session.md` 的宿主表（`facts`、`show`、`measure`、`collapsed`、`staysWithoutSource`、`card`、`follow`）与 `live-drag.ts` 的 `LiveDragHost` 逐项一致。
+   - “约定”里键盘、减少动效、`grid()` 为 null 时不问 `live` 的描述与 `live-drag-session.ts:103-106` 一致。
+   - 头注释的先后（`activate` → `offer` → `end` 先于 `onActiveChange(false)` → `commitsUnderPointer` → `sampled`）与代码一致。
+   - README 第 131 行与 CHANGELOG 第 18 行的措辞和导出一致。
+
+## 看过、没发现可简化的部分
+- `live-drag-session.ts`：转发对象 `live`、`started`、`created` 这几个中间变量是为类型收窄与“工厂只调一次”服务，各有用处。
+- `live-drag.ts` 的帧顺序、`tearOff`、`collapse` 与 `expand`、`publish` 的去重，都有测试守着，每帧的分配只有 `snapshot()` 的一个小对象，不值得改。
+- `frame-loop.ts`、`live-drop.ts` 的纯函数。`stepLiveDrop` 每帧一次对象展开，量很小。
+- `book-grid.ts` 的 `createBookGrid`、`setCardCount`、`detailsWidth`、`cardWidthOf`：`book-grid.test.ts` 守着，注释写的是原因。
+- BookFrame 的内容层部分（`detailContents`、`detailOf`、`closeDetail`、`onContentParked`）：`leave: "retain"` 与停放焦点的处理都是有理由的。
+- `DragSessionScene.vue`、`GridLeavingScene.vue`、`GridLeavingCard.vue`、`GridSwapScene.vue`、`GridStructureLeaf.vue`、`StarterScene.vue`（README 起步例子原样搬来，不能改）、`SortableListFixture.vue`、`DropFeedbackOverlayFixture.vue`。
+- `GridPanelsScene.vue` 的 `ACTIONS` 与 `LAYER_ACTIONS` 表，是 e2e 的定位点，结构合理。
+
+我没有读 DetailShell 里与 `@swap` 按钮的关系；改 BookFrame 的换边拖动前要对着它看一遍。
