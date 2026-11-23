@@ -6,7 +6,7 @@
 import {shallowRef, useTemplateRef} from "vue";
 
 import {createGrid} from "@notnotype/nb-layout";
-import type {Grid} from "@notnotype/nb-layout";
+import type {Grid, GridBranch, GridNode} from "@notnotype/nb-layout";
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
@@ -37,13 +37,35 @@ const containerEl = useTemplateRef<HTMLElement>("containerEl");
 const grid = shallowRef<Grid<string>>(createInitial());
 const host = useGridHost<string>({grid, contextKey: "structure"});
 
+function parentBranchOf(node: GridNode<string> | null, id: string): GridBranch<string> | null {
+    if (node?.kind !== "branch") return null;
+    if (node.children.some((child) => child.id === id)) return node;
+    for (const child of node.children) {
+        const found = parentBranchOf(child, id);
+        if (found !== null) return found;
+    }
+    return null;
+}
+
+/** 把 `id` 沿父分支的主轴（横排）拉宽 `delta` px：同一分支的兄弟平分差额。基线取当前呈现，守恒与约束由 `resizeBranches` 核对。 */
+function widenBy(id: string, delta: number): void {
+    const extent = host.extent.value;
+    const parent = parentBranchOf(grid.value.root(), id);
+    if (extent === null || parent === null) return;
+    const sizes = grid.value.layout(extent).sizes;
+    const baseline = Object.fromEntries(parent.children.map((child) => [child.id, sizes[child.id]!.width]));
+    const share = delta / (parent.children.length - 1);
+    const target = Object.fromEntries(parent.children.map((child) => [child.id, baseline[child.id]! + (child.id === id ? delta : -share)]));
+    grid.value.resizeBranches([{branchId: parent.id, axis: "width", baseline, target}]);
+}
+
 const ACTIONS: Readonly<Record<string, () => void>> = {
     "split-before": () => grid.value.splitLeaf("a", {branchId: "a-split", orientation: "horizontal", side: "before", ratio: 0.5, leaf: {kind: "leaf", id: "n", ref: "n", minimumSize: {width: 40, height: 0}}}),
     "close-new": () => grid.value.removeLeaf("n"),
     // 同一分支内的序号是移除之前的：3 才是最后。
     "move-to-end": () => grid.value.moveLeaf("a", "root", 3),
-    "widen": () => grid.value.resize("a", "width", 120),
-    "narrow": () => grid.value.resize("a", "width", -60),
+    "widen": () => widenBy("a", 120),
+    "narrow": () => widenBy("a", -60),
 };
 
 /** 收起与展开走宿主的入口（Spec `ui/nested-grid` 输出 149）：它自己重发布局，不再 `invalidate()`。 */

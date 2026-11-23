@@ -205,7 +205,7 @@ function allocatePanels(panels: readonly SashPanel[], available: number, report?
 
 /**
  * 水位法：只把剩余空间按权重分给 `open` 里的节点，触界者按方向固定后继续分。
- * 与历史 `shareAxis` 逐步等价——全 weight 输入必须给出完全相同的几何。
+ * 全 weight 输入时退化为纯按权重比例分配。
  */
 function shareWeighted(
     indices: readonly number[],
@@ -402,19 +402,6 @@ function sashPanelsOf<T>(children: readonly GridNode<T>[], axis: GridAxis, sashS
             ...(child.collapse === undefined ? {} : {collapse: child.collapse}),
         };
     });
-}
-
-/**
- * 有界比例分配（历史入口，兄弟补偿专用）：只在纯 `weight` 树上退化为按意向比例分余量，
- * 且**永不缩到最小尺寸之下**——装不下就停在各自的最小尺寸（布局分配走 `allocateAxis`）。
- */
-export function shareAxis<T>(children: GridNode<T>[], axis: GridAxis, available: number, sashSize: number | GridSashResolver): number[] {
-    if (children.length === 0) {
-        return [];
-    }
-    const panels = sashPanelsOf(children, axis, sashSize);
-    const lowTotal = panels.reduce((sum, panel) => sum + sashPanelBounds(panel).low, 0);
-    return allocateSashPanels(panels, Math.max(Math.max(0, finite(available, 0)), lowTotal));
 }
 
 /**

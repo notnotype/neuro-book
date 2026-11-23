@@ -74,7 +74,7 @@ describe("隐藏的面板不进呈现树", () => {
         const {projection, grid, layout} = solve(doc);
         expect(shapeOfInput(projection.input)).toBe("H[ea,eb]");
         const before = {ea: layout.sizes.ea?.width ?? 0, eb: layout.sizes.eb?.width ?? 0};
-        const result = grid.resizeBranch((projection.input as {id: string}).id, "width" as GridAxis, before, {ea: before.ea + 50, eb: before.eb - 50});
+        const result = grid.resizeBranches([{branchId: (projection.input as {id: string}).id, axis: "width" as GridAxis, baseline: before, target: {ea: before.ea + 50, eb: before.eb - 50}}]);
         expect(result.ok).toBe(true);
     });
 
@@ -136,7 +136,7 @@ describe("意图只从呈现尺寸写回", () => {
         const start = docOf(H([V(["a", "b"], "column"), "ea"]));
         const {projection, grid, layout} = solve(start, {width: 1000, height: 900});
         const base = {a: layout.sizes.a?.height ?? 0, b: layout.sizes.b?.height ?? 0};
-        expect(grid.resizeBranch("column", "height", base, {a: base.a + 100, b: base.b - 100}).ok).toBe(true);
+        expect(grid.resizeBranches([{branchId: "column", axis: "height", baseline: base, target: {a: base.a + 100, b: base.b - 100}}]).ok).toBe(true);
         const presented = grid.layout({width: 1000, height: 900}).sizes;
         const written = rebaseIntents(start, presented, projection.collapsedTo);
         expect(sizeOf(written.tree.root, "a").height).toBeCloseTo(base.a + 100);
@@ -391,7 +391,7 @@ describe("带容器的区域", () => {
         const start = regions();
         const dragged = solve(start, EXTENT);
         const base = {s1: dragged.layout.sizes.s1?.height ?? 0, s2: dragged.layout.sizes.s2?.height ?? 0};
-        expect(dragged.grid.resizeBranch("side", "height", base, {s1: base.s1 + 120, s2: base.s2 - 120}).ok).toBe(true);
+        expect(dragged.grid.resizeBranches([{branchId: "side", axis: "height", baseline: base, target: {s1: base.s1 + 120, s2: base.s2 - 120}}]).ok).toBe(true);
         const inA = rebaseIntents(start, dragged.grid.layout(EXTENT).sizes, dragged.projection.collapsedTo);
         const heights = (doc: LayoutDoc): number[] => ["s1", "s2", "s3"].map((id) => sizeOf(doc.tree.root, id).height);
 
@@ -442,7 +442,7 @@ describe("带容器的区域", () => {
         const three = settle(regions({sidebar: {...ANCHORS.sidebar, entries: ["A"]}, s3: {container: "A"}}));
         const uneven = solve(three, EXTENT);
         const base = {s1: uneven.layout.sizes.s1?.height ?? 0, s2: uneven.layout.sizes.s2?.height ?? 0, s3: uneven.layout.sizes.s3?.height ?? 0};
-        expect(uneven.grid.resizeBranch("side", "height", base, {...base, s1: base.s1 + 60, s2: base.s2 - 60}).ok).toBe(true);
+        expect(uneven.grid.resizeBranches([{branchId: "side", axis: "height", baseline: base, target: {...base, s1: base.s1 + 60, s2: base.s2 - 60}}]).ok).toBe(true);
         const start = rebaseIntents(three, uneven.grid.layout(EXTENT).sizes, uneven.projection.collapsedTo, fixedNodesOf(uneven.projection.input));
         const original = heights(start, ["s1", "s2", "s3"]);
         original.forEach((height, index) => expect(height).toBeCloseTo([base.s1 + 60, base.s2 - 60, base.s3][index] as number, 6));

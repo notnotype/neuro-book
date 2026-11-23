@@ -18,7 +18,6 @@ import type {
     GridBranch,
     GridBranchResize,
     GridBranchesResizeResult,
-    GridBranchResizeResult,
     GridCollapseResult,
     GridExtent,
     GridFailure,
@@ -31,7 +30,6 @@ import type {
     GridOptions,
     GridRefEncoder,
     GridRefResolver,
-    GridResizeResult,
     GridRestoreResult,
     GridResult,
     GridSetSizeResult,
@@ -41,7 +39,7 @@ import type {
     SashCollapseState,
 } from "./grid-types";
 import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
-import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
+import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, type GridSashResolver} from "./grid-geometry";
 import {gridFailure} from "./grid-failure";
 import {parseSnapshot, serializeTree} from "./grid-snapshot";
 import {cloneNode, findInTree, type GridHit} from "./grid-tree";
@@ -72,14 +70,6 @@ export type Grid<T> = {
     splitLeaf(targetId: string, split: GridSplitInput<T>): GridResult;
     removeLeaf(id: string): GridResult;
     moveLeaf(id: string, parentId: string, index: number): GridResult;
-    /** 单节点增量入口；新消费者应优先使用 `resizeBranches` 提交完整手势目标。 */
-    resize(id: string, axis: GridAxis, delta: number): GridResizeResult;
-    /**
-     * 单个分支的原子入口（单轴）：`baseline` 与 `target` 是同一当前容器中该分支全部直接子节点的呈现 px；
-     * 基线必须符合当前树的呈现；目标必须守恒且符合当前约束。按未触界节点的比例反解意图，
-     * 保留仍能呈现目标的兄弟意图；失败不改变树，no-op 不改快照。
-     */
-    resizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>): GridBranchResizeResult;
     /**
      * 一次手势的批量原子入口（可含交汇处的多根轴）：全部变化在同一候选树上规划，
      * 任何一项不通过就整批不落账；通过后一次写回尺寸意图与收起状态。
@@ -137,31 +127,6 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
 
     function find(id: string, node: GridNode<T> | null = tree, parent: GridBranch<T> | null = null): GridHit<T> | null {
         return node ? findInTree(id, node, parent) : null;
-    }
-
-    /** 直接改变主动节点沿 axis 的意图，返回实际生效的增量（自身触界时小于请求值）。 */
-    function shiftNode(node: GridNode<T>, axis: GridAxis, delta: number): number {
-        const before = node.size[axis];
-        const bounds = constraintsOf(node, axis, sashSize);
-        node.size[axis] = clampAxis(before + delta, bounds.low, bounds.high);
-        return node.size[axis] - before;
-    }
-
-    /**
-     * `resize` 拖按比例分的节点时，按比例分、没收起的兄弟共同让出/吸收 `target`，返回实际生效的总增量（触界时小于请求值）。
-     * 保留像素的兄弟与收起中的兄弟不进来（Spec 输出 153）：前者的意图是像素偏好，后者的意图是展开后要回到的值。
-     */
-    function shiftSiblings(parent: GridBranch<T>, sourceId: string, axis: GridAxis, target: number): number {
-        const siblings = parent.children.filter((child) => child.id !== sourceId && child.sizing !== "fixed" && child.collapse?.collapsed !== true);
-        if (siblings.length === 0 || target === 0) {
-            return 0;
-        }
-        const before = siblings.reduce((sum, node) => sum + node.size[axis], 0);
-        const assigned = shareAxis(siblings, axis, Math.max(0, before + target), sashSize);
-        siblings.forEach((child, index) => {
-            child.size[axis] = assigned[index]!;
-        });
-        return siblings.reduce((sum, node) => sum + node.size[axis], 0) - before;
     }
 
     /**
@@ -244,50 +209,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         return find(id)?.node ?? null;
     }
 
-    function resize(id: string, axis: GridAxis, delta: number): GridResizeResult {
-        const hit = find(id);
-        if (!hit) {
-            return gridFailure("not-found", `Unknown node id: ${id}`, {id});
-        }
-        if (!hit.parent) {
-            return gridFailure("invalid-argument", `The root has no parent branch to resize along: ${id}`, {field: "root", id});
-        }
-        if (axisOf(hit.parent.orientation) !== axis) {
-            return gridFailure("wrong-axis", `${id} can only be resized along its parent's main axis (${hit.parent.orientation})`, {
-                id,
-                parent: hit.parent.id,
-                orientation: hit.parent.orientation,
-            });
-        }
-        if (!Number.isFinite(delta)) {
-            return gridFailure("not-finite", `The resize delta is not finite: ${String(delta)}`, {field: "delta", value: String(delta)});
-        }
-        // 收起中的节点意图是展开后要回到的值，收起不写意图（Spec 输出 147）：按增量改会被收起的刚性范围夹成 `collapsedSize`。
-        if (delta === 0 || hit.node.collapse?.collapsed === true) {
-            return {ok: true, applied: 0};
-        }
-        const before = hit.node.size[axis];
-        const applied = shiftNode(hit.node, axis, delta);
-        if (hit.node.sizing === "fixed") {
-            // 保留像素的节点只改它自己（Spec 输出 153）：差额由布局里按比例分的兄弟吸收，没有就留白，同增删。
-            return {ok: true, applied};
-        }
-        // 兄弟触界只能让出可用空间：把没能被吸收的部分退回主动节点，父分支总量守恒。
-        const absorbed = shiftSiblings(hit.parent, id, axis, -applied);
-        const residual = -applied - absorbed;
-        if (Math.abs(residual) > EPSILON) {
-            shiftNode(hit.node, axis, residual);
-        }
-        return {ok: true, applied: hit.node.size[axis] - before};
-    }
-
     /**
      * 单个分支的原子调整计划：先核对基线与目标，再把目标反解成新的尺寸意图。
      *
      * `fixed` 子节点直接以目标 px 为新意图；`weight` 子节点沿用免费水位反解（自由节点定标，
      * 触界节点保留仍与目标兼容的旧权重）。尺寸意图只出现在返回值里，由调用方在全部通过后落账；
      * 唯一的例外是 `change.collapsed` 的收起状态，直接写在 `branch` 的孩子上（后面的反解要看到收起之后的范围），
-     * 所以 `resizeBranches` 传的是候选树里的副本；`resizeBranch` 不带收起变化，不会写。
+     * 所以 `resizeBranches` 传的是候选树里的副本。
      */
     function planBranchResize(
         branch: GridBranch<T>,
@@ -406,20 +334,6 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         return {ok: true, sizes, collapsed};
     }
 
-    /** 把单个分支的计划写回活树（`resizeBranch` 用，规划通过后才调用）。 */
-    function applyBranchResize(branchId: string, axis: GridAxis, sizes: Record<string, number>): void {
-        const hit = find(branchId);
-        if (!hit || hit.node.kind !== "branch") {
-            return;
-        }
-        for (const child of hit.node.children) {
-            const value = sizes[child.id];
-            if (value !== undefined) {
-                child.size[axis] = value;
-            }
-        }
-    }
-
     /**
      * 一次手势的批量原子入口：在同一棵候选树上按加入顺序逐项规划，全部通过后候选树整棵换成活树。
      * 任一分支的收起状态在本场改变时，先应用到候选分支再规划（收起改变几何，也改变可分配范围）。
@@ -530,7 +444,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             return gridFailure("invalid-argument", `The size must not be negative: ${String(px)}`, {field: "px-negative", id});
         }
         const axis = axisOf(hit.parent.orientation);
-        // 夹进它自己的范围，同 `resize`、`resizeBranch` 写保留像素的意图，越界的值不会经收起抄进 `restoreSize`；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
+        // 夹进它自己的范围，同 `resizeBranches` 写保留像素的意图，越界的值不会经收起抄进 `restoreSize`；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
         const bounds = constraintOnAxis(node, axis, sashSize);
         const size = clampAxis(px, bounds.low, bounds.high);
         let changed = node.size[axis] !== size;
@@ -545,27 +459,6 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             }
         }
         return {ok: true, changed, size, ...(node.collapse === undefined ? {} : {collapse: {...node.collapse}})};
-    }
-
-    function resizeBranch(
-        branchId: string,
-        axis: GridAxis,
-        baseline: Readonly<Record<string, number>>,
-        target: Readonly<Record<string, number>>,
-    ): GridBranchResizeResult {
-        const hit = find(branchId);
-        if (!hit) {
-            return gridFailure("not-found", `Unknown branch id: ${branchId}`, {id: branchId});
-        }
-        if (hit.node.kind !== "branch") {
-            return gridFailure("wrong-node-kind", `${branchId} is not a branch`, {id: branchId, expected: "branch"});
-        }
-        const planned = planBranchResize(hit.node, {branchId, axis, baseline, target});
-        if (!planned.ok) {
-            return planned;
-        }
-        applyBranchResize(branchId, axis, planned.sizes);
-        return {ok: true, sizes: planned.sizes};
     }
 
     return {
@@ -755,8 +648,6 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             return {ok: true};
         },
 
-        resize,
-        resizeBranch,
         resizeBranches,
         setCollapsed,
         setSize,

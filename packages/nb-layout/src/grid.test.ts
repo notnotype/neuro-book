@@ -59,6 +59,19 @@ function extent(sizes: Record<string, GridExtent>, id: string): GridExtent {
     return value;
 }
 
+/** 单分支的 `resizeBranches`：取回该轴上的意图（节点 id → 意图），失败原样返回，用例只关心一支。 */
+function resizeOne(
+    grid: ReturnType<typeof createGrid<string>>,
+    branchId: string,
+    axis: GridAxis,
+    baseline: Readonly<Record<string, number>>,
+    target: Readonly<Record<string, number>>,
+) {
+    const result = grid.resizeBranches([{branchId, axis, baseline, target}]);
+    if (!result.ok) return result;
+    return {ok: true as const, sizes: Object.fromEntries(Object.entries(result.intents).map(([id, size]) => [id, size[axis]]))};
+}
+
 describe("拆分树原语：两轴几何", () => {
     it("外层按主轴分配，分支的列宽不取内层叶高度之和", () => {
         const sizes = createGrid(fixture(), {sashSize: SASH}).layout(CONTAINER).sizes;
@@ -103,57 +116,6 @@ describe("拆分树原语：两轴几何", () => {
 
         expect(extent(sizes, "root").width).toBe(extent(sizes, "left").width + extent(sizes, "right").width + SASH);
         expect(extent(sizes, "right").height).toBe(extent(sizes, "top").height + extent(sizes, "bottom").height + SASH);
-    });
-
-    it("调整外层 sash：叶与分支兄弟互相吸收，内层总高不变", () => {
-        const grid = createGrid(fixture(), {sashSize: SASH});
-        const applied = grid.resize("left", "width", -100);
-
-        expect(applied).toEqual({ok: true, applied: -100});
-        const sizes = grid.layout(CONTAINER).sizes;
-
-        expect(extent(sizes, "left").width).toBe(200);
-        expect(extent(sizes, "right").width).toBe(799);
-        expect(extent(sizes, "right").height).toBe(600);
-        expect(extent(sizes, "top")).toEqual({width: 799, height: 400});
-        expect(extent(sizes, "bottom")).toEqual({width: 799, height: 199});
-    });
-
-    it("调整内层 sash：外层列宽与容器都不变", () => {
-        const grid = createGrid(fixture(), {sashSize: SASH});
-
-        expect(grid.resize("top", "height", 50)).toEqual({ok: true, applied: 50});
-        const sizes = grid.layout(CONTAINER).sizes;
-
-        expect(extent(sizes, "top")).toEqual({width: 699, height: 450});
-        expect(extent(sizes, "bottom")).toEqual({width: 699, height: 149});
-        expect(extent(sizes, "right").width).toBe(699);
-        expect(extent(sizes, "root")).toEqual({width: 1000, height: 600});
-    });
-
-    it("主动节点触界：只吸收兄弟可用空间，外层总量守恒", () => {
-        const grid = createGrid(fixture(), {sashSize: SASH});
-
-        // left 下限 100：right 想要的 10000 只拿得到 200
-        expect(grid.resize("right", "width", 10000)).toEqual({ok: true, applied: 200});
-        const sizes = grid.layout(CONTAINER).sizes;
-
-        expect(extent(sizes, "left").width).toBe(100);
-        expect(extent(sizes, "right").width).toBe(899);
-        expect(extent(sizes, "root").width).toBe(1000);
-    });
-
-    it("内层叶触界：外层列宽不变，内层总量守恒", () => {
-        const grid = createGrid(fixture(), {sashSize: SASH});
-
-        // top 上限 800、bottom 下限 100：两者都触界后 top 停在 499
-        expect(grid.resize("top", "height", 10000)).toEqual({ok: true, applied: 99});
-        const sizes = grid.layout(CONTAINER).sizes;
-
-        expect(extent(sizes, "top").height).toBe(499);
-        expect(extent(sizes, "bottom").height).toBe(100);
-        expect(extent(sizes, "right").height).toBe(600);
-        expect(extent(sizes, "right").width).toBe(699);
     });
 
     it("布局是呈现：换更小容器再回来，序列化不变且原分配可恢复", () => {
@@ -434,7 +396,7 @@ describe("拆分树原语：手势会话的诊断（Spec 输出 139、140）", (
     });
 });
 
-describe("拆分树原语：resize 边界", () => {
+describe("拆分树原语：单分支调整边界", () => {
     it("混合零权重在正权重全部触顶后吸收剩余空间，全零权重均分", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
             leaf("a", "width", 100, 0, 20), leaf("b", "width", 0, 0, 100), leaf("c", "width", 0, 0, 10),
@@ -442,17 +404,8 @@ describe("拆分树原语：resize 边界", () => {
         expect(grid.layout({width: 100, height: 20}).sizes).toMatchObject({a: {width: 20}, b: {width: 70}, c: {width: 10}});
         const zero = createGrid(branch("root", "height", "vertical", 0, [leaf("a", "height", 0), leaf("b", "height", 0)]));
         expect(zero.layout({width: 20, height: 100}).sizes).toMatchObject({a: {height: 50}, b: {height: 50}});
-        expect(zero.resizeBranch("root", "height", {a: 50, b: 50}, {a: 60, b: 40}).ok).toBe(true);
+        expect(resizeOne(zero, "root", "height", {a: 50, b: 50}, {a: 60, b: 40}).ok).toBe(true);
         expect(zero.layout({width: 20, height: 100}).sizes).toMatchObject({a: {height: 60}, b: {height: 40}});
-    });
-
-    it("单节点 resize 的兄弟补偿也同时求上下界，整体意图守恒", () => {
-        const grid = createGrid(branch("root", "width", "horizontal", 0, [
-            leaf("active", "width", 100), leaf("a", "width", 80, 0, 20), leaf("b", "width", 15, 30, 100), leaf("c", "width", 5, 0, 10),
-        ]));
-        expect(grid.resize("active", "width", 10)).toEqual({ok: true, applied: 10});
-        const root = grid.root();
-        expect(root?.kind === "branch" ? root.children.map((child) => child.size.width) : []).toEqual([110, 20, 60, 10]);
     });
 
     it("下限触界的原意图不被 no-op 或另一侧手势夹取", () => {
@@ -461,17 +414,17 @@ describe("拆分树原语：resize 边界", () => {
         ]));
         const saved = grid.serialize();
         const baseline = {a: 100, b: 50, c: 50};
-        expect(grid.resizeBranch("root", "height", baseline, baseline).ok).toBe(true);
+        expect(resizeOne(grid, "root", "height", baseline, baseline).ok).toBe(true);
         expect(grid.serialize()).toEqual(saved);
-        expect(grid.resizeBranch("root", "height", baseline, {a: 100, b: 60, c: 40})).toEqual({ok: true, sizes: {a: 20, b: 120, c: 80}});
+        expect(resizeOne(grid, "root", "height", baseline, {a: 100, b: 60, c: 40})).toEqual({ok: true, sizes: {a: 20, b: 120, c: 80}});
         expect(grid.layout({width: 20, height: 200}).sizes).toMatchObject({a: {height: 100}, b: {height: 60}, c: {height: 40}});
     });
 
     it("原子手势拒绝过期基线与越界目标，失败不改快照", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 100, 100), leaf("b", "width", 100)]));
         const saved = grid.serialize();
-        expect(grid.resizeBranch("root", "width", {a: 120, b: 80}, {a: 130, b: 70}).ok).toBe(false);
-        expect(grid.resizeBranch("root", "width", {a: 100, b: 100}, {a: 90, b: 110}).ok).toBe(false);
+        expect(resizeOne(grid, "root", "width", {a: 120, b: 80}, {a: 130, b: 70}).ok).toBe(false);
+        expect(resizeOne(grid, "root", "width", {a: 100, b: 100}, {a: 90, b: 110}).ok).toBe(false);
         expect(grid.serialize()).toEqual(saved);
     });
 
@@ -493,7 +446,7 @@ describe("拆分树原语：resize 边界", () => {
             leaf("a", "width", 100, 0, 100), leaf("b", "width", 100, 0, 1000), leaf("c", "width", 100, 0, 1000),
         ]));
         expect(grid.layout({width: 600, height: 20}).sizes).toMatchObject({a: {width: 100}, b: {width: 250}, c: {width: 250}});
-        expect(grid.resizeBranch("root", "width", {a: 100, b: 250, c: 250}, {a: 100, b: 270, c: 230})).toEqual({ok: true, sizes: {a: 100, b: 108, c: 92}});
+        expect(resizeOne(grid, "root", "width", {a: 100, b: 250, c: 250}, {a: 100, b: 270, c: 230})).toEqual({ok: true, sizes: {a: 100, b: 108, c: 92}});
         const sizes = grid.layout({width: 600, height: 20}).sizes;
         expect(extent(sizes, "b").width).toBeCloseTo(270);
         expect(extent(sizes, "c").width).toBeCloseTo(230);
@@ -502,20 +455,10 @@ describe("拆分树原语：resize 边界", () => {
     it("触界且意图在当前约束外时 no-op 不改快照", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 200, 0, 100), leaf("b", "width", 100)]));
         const before = grid.serialize();
-        expect(grid.resizeBranch("root", "width", {a: 100, b: 500}, {a: 100, b: 500}).ok).toBe(true);
+        expect(resizeOne(grid, "root", "width", {a: 100, b: 500}, {a: 100, b: 500}).ok).toBe(true);
         expect(grid.serialize()).toEqual(before);
     });
 
-    it("未知节点、根节点、轴不符与非有限增量都返回失败", () => {
-        const grid = createGrid(fixture(), {sashSize: SASH});
-
-        expect(grid.resize("nope", "width", 10).ok).toBe(false);
-        expect(grid.resize("root", "width", 10).ok).toBe(false);
-        // top 的父分支是竖直的：沿宽度调整不属于父分支主轴
-        expect(grid.resize("top", "width", 10).ok).toBe(false);
-        expect(grid.resize("top", "height", Number.NaN).ok).toBe(false);
-        expect(grid.resize("top", "height", 0)).toEqual({ok: true, applied: 0});
-    });
 });
 
     it("viewport 缩放后三兄弟手势按当前呈现一次换回完整意图", () => {
@@ -524,7 +467,7 @@ describe("拆分树原语：resize 边界", () => {
             leaf("b", "width", 300, 0, 1000),
             leaf("c", "width", 500, 0, 1000),
         ]));
-        const result = grid.resizeBranch("root", "width", {a: 100, b: 150, c: 250}, {a: 120, b: 130, c: 250});
+        const result = resizeOne(grid, "root", "width", {a: 100, b: 150, c: 250}, {a: 120, b: 130, c: 250});
 
         expect(result).toEqual({ok: true, sizes: {a: 240, b: 260, c: 500}});
         expect(grid.layout({width: 500, height: 20}).sizes).toMatchObject({
@@ -538,10 +481,10 @@ describe("拆分树原语：resize 边界", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
         const before = grid.serialize();
 
-        expect(grid.resizeBranch("root", "height", {left: 300, right: 699}, {left: 250, right: 749}).ok).toBe(false);
-        expect(grid.resizeBranch("root", "width", {left: 300}, {left: 250}).ok).toBe(false);
-        expect(grid.resizeBranch("root", "width", {left: 300, right: 699}, {left: Number.NaN, right: 699}).ok).toBe(false);
-        expect(grid.resizeBranch("root", "width", {left: 300, right: 699}, {left: 250, right: 700}).ok).toBe(false);
+        expect(resizeOne(grid, "root", "height", {left: 300, right: 699}, {left: 250, right: 749}).ok).toBe(false);
+        expect(resizeOne(grid, "root", "width", {left: 300}, {left: 250}).ok).toBe(false);
+        expect(resizeOne(grid, "root", "width", {left: 300, right: 699}, {left: Number.NaN, right: 699}).ok).toBe(false);
+        expect(resizeOne(grid, "root", "width", {left: 300, right: 699}, {left: 250, right: 700}).ok).toBe(false);
         expect(grid.serialize()).toEqual(before);
     });
 
@@ -638,7 +581,7 @@ describe("拆分树原语：结构", () => {
     });
 });
 
-describe("拆分树原语：结构操作与 resize 不改兄弟的意图（Spec ui/nested-grid 输出 153）", () => {
+describe("拆分树原语：结构操作不改兄弟的意图（Spec ui/nested-grid 输出 153）", () => {
     const ROW: GridExtent = {width: 1200, height: 400};
     const fixed = {sizing: "fixed" as const};
     const folded = (restoreSize: number) => ({collapse: {collapsedSize: 0, restoreSize, collapseThreshold: 24, expandThreshold: 24, collapsed: true}});
@@ -752,46 +695,6 @@ describe("拆分树原语：结构操作与 resize 不改兄弟的意图（Spec 
         expect(grid.serialize()).toEqual(before);
     });
 
-    it("resize 拖保留像素的节点只改它自己、夹在它自己的约束里；拖按比例分的节点只由按比例分、没收起的兄弟分摊", () => {
-        const grid = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("nav", "width", 188, 150, 300), ...fixed},
-            leaf("a", "width", 1),
-            leaf("b", "width", 1, 100),
-        ]));
-        expect(grid.resize("nav", "width", 50)).toEqual({ok: true, applied: 50});
-        expect(intents(grid, ["nav", "a", "b"])).toEqual([238, 1, 1]);
-        expect(widthsOf(grid, ["nav", "a", "b"])).toEqual([238, 481, 481]);
-        expect(grid.resize("nav", "width", 200)).toEqual({ok: true, applied: 62});
-        expect(grid.resize("nav", "width", -500)).toEqual({ok: true, applied: -150});
-        expect(intents(grid, ["nav", "a", "b"])).toEqual([150, 1, 1]);
-
-        const mixed = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("nav", "width", 188), ...fixed},
-            leaf("a", "width", 600),
-            leaf("b", "width", 600),
-            {...leaf("c", "width", 300), ...folded(300)},
-        ]));
-        expect(mixed.resize("a", "width", 100)).toEqual({ok: true, applied: 100});
-        expect(intents(mixed, ["nav", "a", "b", "c"])).toEqual([188, 700, 500, 300]);
-
-        // 没有能分摊的兄弟（只有保留像素的、或按比例分的全收起了）：拖不动，意图不变。
-        const alone = createGrid(branch("root", "width", "horizontal", 0, [{...leaf("nav", "width", 188), ...fixed}, leaf("a", "width", 600), {...leaf("b", "width", 300), ...folded(300)}]));
-        expect(alone.resize("a", "width", 100)).toEqual({ok: true, applied: 0});
-        expect(intents(alone, ["nav", "a", "b"])).toEqual([188, 600, 300]);
-    });
-
-    it("resize 收起中的节点不改任何意图：意图是展开后要回到的值", () => {
-        const grid = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("nav", "width", 188, 150, 300), ...fixed, ...folded(188)},
-            {...leaf("a", "width", 600), ...folded(600)},
-            leaf("b", "width", 600),
-        ]));
-        expect(grid.resize("nav", "width", 50)).toEqual({ok: true, applied: 0});
-        expect(grid.resize("a", "width", 50)).toEqual({ok: true, applied: 0});
-        expect(intents(grid, ["nav", "a", "b"])).toEqual([188, 600, 600]);
-        grid.setCollapsed("nav", false);
-        expect(widthsOf(grid, ["nav", "b"])).toEqual([188, 1012]);
-    });
 });
 
 describe("拆分树原语：拆分叶", () => {
@@ -862,7 +765,7 @@ describe("拆分树原语：拆分叶", () => {
         const restored = createGrid<string>(null, {sashSize: SASH});
         expect(restored.restore(grid.serialize(), (ref) => ({ref})).ok).toBe(true);
         expect(extent(restored.layout({width: 1001, height: 600}).sizes, "added").width).toBeCloseTo(349.5);
-        expect(restored.resizeBranch("pair", "width", {editor: 349.5, added: 349.5}, {editor: 300, added: 399}).ok).toBe(true);
+        expect(resizeOne(restored, "pair", "width", {editor: 349.5, added: 349.5}, {editor: 300, added: 399}).ok).toBe(true);
         expect(extent(restored.layout({width: 1001, height: 600}).sizes, "added").width).toBeCloseTo(399);
     });
 
@@ -1024,7 +927,7 @@ describe("拆分树原语：快照", () => {
 
     it("快照往返：分支与叶的尺寸意图都进快照，恢复后分配一致", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
-        grid.resize("right", "width", 50);
+        expect(grid.resizeBranches([{branchId: "root", axis: "width", baseline: {left: 300, right: 699}, target: {left: 250, right: 749}}]).ok).toBe(true);
         const saved = grid.serialize();
         const right = saved.root.kind === "branch" ? saved.root.children[1] : null;
 
@@ -1783,33 +1686,25 @@ describe("失败码与诊断码的写法（Spec ui/nested-grid 边界与兼容�
 describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）", () => {
     const split = (over: Record<string, unknown> = {}) => ({branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}, ...over}) as Parameters<ReturnType<typeof createGrid<string>>["splitLeaf"]>[1];
 
-    it("单节点调整：不在、根节点、错轴、非有限的调整量", () => {
-        const grid = createGrid(fixture(), {sashSize: SASH});
-        expect(codeOf(grid.resize("ghost", "width", 10))).toEqual({code: "not-found", params: {id: "ghost"}});
-        expect(codeOf(grid.resize("root", "width", 10))).toEqual({code: "invalid-argument", params: {field: "root", id: "root"}});
-        expect(codeOf(grid.resize("left", "height", 10))).toEqual({code: "wrong-axis", params: {id: "left", parent: "root", orientation: "horizontal"}});
-        expect(codeOf(grid.resize("left", "width", Number.NaN))).toEqual({code: "not-finite", params: {field: "delta", value: "NaN"}});
-    });
-
     it("按分支调整：不在与不是分支分开报，错轴、尺寸没覆盖、尺寸不合法、不守恒、基线失效、目标换不成意图", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
         const before = grid.serialize();
         const base = {left: 300, right: 699};
-        expect(codeOf(grid.resizeBranch("ghost", "width", base, base))).toEqual({code: "not-found", params: {id: "ghost"}});
-        expect(codeOf(grid.resizeBranch("left", "width", base, base))).toEqual({code: "wrong-node-kind", params: {id: "left", expected: "branch"}});
-        expect(codeOf(grid.resizeBranch("root", "height", base, base))).toEqual({code: "wrong-axis", params: {id: "root", orientation: "horizontal"}});
-        expect(codeOf(grid.resizeBranch("root", "width", {left: 300}, {left: 300}))).toEqual({code: "invalid-argument", params: {field: "sizes-cover", id: "root"}});
-        expect(codeOf(grid.resizeBranch("root", "width", {left: Number.NaN, right: 699}, base)))
+        expect(codeOf(resizeOne(grid, "ghost", "width", base, base))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(resizeOne(grid, "left", "width", base, base))).toEqual({code: "wrong-node-kind", params: {id: "left", expected: "branch"}});
+        expect(codeOf(resizeOne(grid, "root", "height", base, base))).toEqual({code: "wrong-axis", params: {id: "root", orientation: "horizontal"}});
+        expect(codeOf(resizeOne(grid, "root", "width", {left: 300}, {left: 300}))).toEqual({code: "invalid-argument", params: {field: "sizes-cover", id: "root"}});
+        expect(codeOf(resizeOne(grid, "root", "width", {left: Number.NaN, right: 699}, base)))
             .toEqual({code: "not-finite", params: {field: "size", side: "baseline", id: "left"}});
-        expect(codeOf(grid.resizeBranch("root", "width", base, {left: -1, right: 1000})))
+        expect(codeOf(resizeOne(grid, "root", "width", base, {left: -1, right: 1000})))
             .toEqual({code: "invalid-argument", params: {field: "size-negative", side: "target", id: "left"}});
         // 同一个子节点两侧都不合法时报基线那一侧。
-        expect(codeOf(grid.resizeBranch("root", "width", {left: -1, right: 1000}, {left: Number.NaN, right: 699})))
+        expect(codeOf(resizeOne(grid, "root", "width", {left: -1, right: 1000}, {left: Number.NaN, right: 699})))
             .toEqual({code: "invalid-argument", params: {field: "size-negative", side: "baseline", id: "left"}});
-        expect(codeOf(grid.resizeBranch("root", "width", base, {left: 400, right: 699}))).toEqual({code: "not-conserved", params: {id: "root", target: 1099, baseline: 999}});
-        expect(codeOf(grid.resizeBranch("root", "width", {left: 1, right: 998}, {left: 2, right: 997}))).toEqual({code: "stale-baseline", params: {id: "root"}});
+        expect(codeOf(resizeOne(grid, "root", "width", base, {left: 400, right: 699}))).toEqual({code: "not-conserved", params: {id: "root", target: 1099, baseline: 999}});
+        expect(codeOf(resizeOne(grid, "root", "width", {left: 1, right: 998}, {left: 2, right: 997}))).toEqual({code: "stale-baseline", params: {id: "root"}});
         // left 最大 800：目标 900 呈现不出来，换不成能复现目标的意图。
-        expect(codeOf(grid.resizeBranch("root", "width", base, {left: 900, right: 99}))).toEqual({code: "not-finite", params: {field: "intent", id: "root"}});
+        expect(codeOf(resizeOne(grid, "root", "width", base, {left: 900, right: 99}))).toEqual({code: "not-finite", params: {field: "intent", id: "root"}});
         expect(grid.serialize()).toEqual(before);
     });
 
@@ -1906,7 +1801,7 @@ describe("拆分树原语：实例之间（Spec ui/nested-grid 副作用与数�
         const snapshot = untouched.serialize();
         const layout = untouched.layout(CONTAINER);
 
-        expect(changed.resize("left", "width", -100).ok).toBe(true);
+        expect(changed.resizeBranches([{branchId: "root", axis: "width", baseline: {left: 300, right: 699}, target: {left: 200, right: 799}}]).ok).toBe(true);
         expect(changed.addLeaf("right", 0, leaf("added", "height", 50)).ok).toBe(true);
         expect(changed.removeLeaf("bottom").ok).toBe(true);
 
