@@ -150,6 +150,8 @@ const LAYER_ACTIONS: Readonly<Record<string, () => void>> = {
     // 右栏里竖着长出一块新面板、再关掉：它的内容标了留住，关掉时叶留着缩回去（nested-grid 输出 86、155）。
     "open-c3-below-c": () => commit((current) => openPanelAtEdge(current, {id: "c3", panel: tool("c3"), target: target(current, "c", "bottom")}, POLICY)),
     "close-c3": () => commit((current) => removeTab(current, "view:c3")),
+    // DOM 里排最后的 d 挪到左栏最上面：树序的最后一站成了 c，DOM 序的最后还是 d（nested-grid 输出 125）。
+    "d-above-b": () => commit((current) => movePanelToEdge(current, {panel: "d", target: target(current, "b", "top")}, POLICY)),
     "float-fw": () => {
         floatOn.value = !floatOn.value;
     },

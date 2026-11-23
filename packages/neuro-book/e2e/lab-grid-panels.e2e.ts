@@ -459,12 +459,13 @@ test.describe("命中与焦点", () => {
 
     test("从 grid 后面按 Shift+Tab 进来：落在树序最后一站的最后一个控件，不按 DOM 序（输出 125）", async ({page}) => {
         await open(page);
-        await act(page, "a-between-c-d");
+        await act(page, "d-above-b");
         await settled(page);
-        // 树序里右栏是 c、a、d，d 是最后一站；DOM 里 a 的内容还排在最前面。
+        // d 挪到了左栏，树序的最后一站是右栏的 c；DOM 里 d 还排在最后，浏览器自己走会落进 d。
+        await expect(page.locator("[data-grid-scope]")).toHaveAttribute("aria-owns", /.+/u);
         await page.locator("[data-panels-after]").focus();
         await page.keyboard.press("Shift+Tab");
-        expect(await focusedPlace(page)).toBe("view:d");
+        expect(await focusedPlace(page)).toBe("view:c");
         expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-structure-last"))).toBe(true);
     });
 
@@ -568,6 +569,10 @@ test.describe("叠放（输出 87、88、90、104）", () => {
         // 命中穿过盖层，落在底下的窗里。
         expect(await layerAt(page, overlayOnly)).toBe("content view:fw");
 
+        // A 的内容变矮：内容体要靠伸展才占满头下面，内容高时它靠收缩也正好填满，看不出来。
+        await leafOf(page, "view:a").locator(".grid-structure-leaf__tall").evaluate((element: HTMLElement) => {
+            element.style.height = "0px";
+        });
         await act(page, "lift-a");
         await expect(content(page, "view:a")).toHaveAttribute("data-lifted", "");
         const card = await contentBox(page, "view:a");
@@ -608,9 +613,11 @@ test.describe("叠放（输出 87、88、90、104）", () => {
         await expect(frame(page, "fw")).toBeVisible();
         await act(page, "a-between-c-d");
         await expect(content(page, "view:a")).toHaveAttribute("data-flying", "");
-        // 飞的 A 从左栏去右栏，经过窗：重叠处命中的是窗的内容。
+        // 飞的 A 从左栏去右栏，经过窗：重叠处命中的是窗的内容。只在 A 还在飞的帧里认：落地后 A 和窗的内容同一档，压不压得住按 DOM 序，不说明飞行的叠放。
         await expect.poll(() => page.evaluate(() => {
-            const flying = document.querySelector("[data-content='view:a']")!.getBoundingClientRect();
+            const flyingEl = document.querySelector("[data-content='view:a']")!;
+            if (!flyingEl.hasAttribute("data-flying")) return "不在飞";
+            const flying = flyingEl.getBoundingClientRect();
             const window = document.querySelector("[data-content='view:fw']")!.getBoundingClientRect();
             const [left, right] = [Math.max(flying.left, window.left), Math.min(flying.right, window.right)];
             const [top, bottom] = [Math.max(flying.top, window.top), Math.min(flying.bottom, window.bottom)];
