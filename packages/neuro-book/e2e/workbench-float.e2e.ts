@@ -272,16 +272,31 @@ test.describe("应用内浮动", () => {
         await expect.poll(() => writesOf(page)).toBeGreaterThan(baseline);
         const writes = await writesOf(page);
         const node = await content(page, E).elementHandle();
+        /** 这一点命中的元素在哪块面板里（内容项写着它的叶）。 */
+        const panelAt = (point: {x: number; y: number}) => page.evaluate(({x, y}) => {
+            const hit = document.elementFromPoint(x, y);
+            return hit?.closest("[data-content-leaf]")?.getAttribute("data-content-leaf") ?? hit?.closest("[data-leaf]")?.getAttribute("data-leaf") ?? null;
+        }, point);
+        // 手柄盖着整个窗，空白处不接指针（ui/nested-grid 输出 113）：窗的正文中央命中的是窗的内容，不是手柄。
+        const body = await centerOf(content(page, E));
+        const chromeBox = (await page.locator(`[data-float-chrome="${panel}"]`).boundingBox())!;
+        expect(body.x > chromeBox.x && body.x < chromeBox.x + chromeBox.width && body.y > chromeBox.y && body.y < chromeBox.y + chromeBox.height).toBe(true);
+        expect(await page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest("[data-content]")?.getAttribute("data-content") ?? null, body)).toBe(`view:${E}`);
         const from = await press(page, tab(page, E));
         // 整窗本身就在跟手，没有拖影。
         await expect(ghost(page)).toHaveCount(0);
-        const over = await inLeaf(page, await sectionOf(page, A), {x: 0.5, y: 0.5});
+        const alpha = await sectionOf(page, A);
+        const over = await inLeaf(page, alpha, {x: 0.5, y: 0.5});
         await page.mouse.move(over.x, over.y, {steps: 4});
         const moved = await boxOf(page, panel);
         expect(moved.x).toBeCloseTo(start.x + over.x - from.x, 0);
         expect(moved.y).toBeCloseTo(Math.max(0, start.y + over.y - from.y), 0);
-        // 拖动中不接指针：判定看得到底下。
+        // 拖动中不接指针：判定看得到底下（ui/nested-grid 输出 114）。指针压着窗的头，命中的是底下甲那一节；窗的正文中央也命中不到窗。
         expect(await leaf(page, panel).evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
+        expect(await panelAt(over)).toBe(alpha);
+        const movedBody = await centerOf(content(page, E));
+        expect(await panelAt(movedBody)).not.toBeNull();
+        expect(await panelAt(movedBody)).not.toBe(panel);
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
@@ -414,7 +429,7 @@ test.describe("应用内浮动", () => {
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
-    test("框架按钮浮动、停靠的过渡：整张卡片从那一节拿起来飞到窗的位置，停靠时飞回去；每一帧外框与内容是同一块，内容在上面（ui/nested-grid 输出 88、107、109）", async ({page}) => {
+    test("框架按钮浮动、停靠的过渡：整张卡片从那一节拿起来飞到窗的位置，停靠时飞回去；每一帧外框与内容是同一块，内容在上面；投影与圆角在外框上，第一帧就有，停靠时按加速的曲线淡去（ui/nested-grid 输出 88、107、109、110、112）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const moving = page.locator("[data-workbench-surface] [data-moving]");
@@ -428,7 +443,7 @@ test.describe("应用内浮动", () => {
                 const rect = element.getBoundingClientRect();
                 return {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
             };
-            const rows: Array<{float: boolean; frame: ReturnType<typeof box>; content: ReturnType<typeof box>; contentOnTop: boolean}> = [];
+            const rows: Array<{float: boolean; frame: ReturnType<typeof box>; content: ReturnType<typeof box>; contentOnTop: boolean; at: number; shadow: string; radius: number; contentShadow: string}> = [];
             document.querySelector<HTMLElement>(button)!.click();
             for (let index = 0; index < 90; index += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -438,7 +453,18 @@ test.describe("应用内浮动", () => {
                     const rect = box(contentEl);
                     // 内容正中命中的是内容自己：外框的卡片底色没盖住它。
                     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-                    rows.push({float: frameEl.hasAttribute("data-float"), frame: box(frameEl), content: rect, contentOnTop: hit !== null && contentEl.contains(hit)});
+                    // 窗的投影与圆角（ui/nested-grid 输出 107、110、112）：过渡中读到的是插值。
+                    const style = getComputedStyle(frameEl);
+                    rows.push({
+                        float: frameEl.hasAttribute("data-float"),
+                        frame: box(frameEl),
+                        content: rect,
+                        contentOnTop: hit !== null && contentEl.contains(hit),
+                        at: performance.now(),
+                        shadow: style.boxShadow,
+                        radius: Number.parseFloat(style.borderTopLeftRadius),
+                        contentShadow: getComputedStyle(contentEl).boxShadow,
+                    });
                 }
                 if (index > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
@@ -479,6 +505,11 @@ test.describe("应用内浮动", () => {
         expect(near(floating.find((row) => row.float)!.frame, source)).toBe(true);
         expect(floating.some(({frame}) => !near(frame, source) && !near(frame, floatBox))).toBe(true);
         expectOneCard(floating, true);
+        // 投影与圆角第一帧就有（输出 107），画在外框自身、不在内容上（输出 112）。
+        const firstFloat = floating.find((row) => row.float)!;
+        expect(firstFloat.shadow).not.toBe("none");
+        expect(firstFloat.radius).toBeGreaterThan(0);
+        for (const row of floating.filter((item) => item.float)) expect(row.contentShadow).toBe("none");
 
         // 停靠：窗的叶回到树里的第一帧，外框还在窗的位置，从那里飞回去；内容跟着、压在外框上面。
         const docking = await film(`[data-panel-head="${panel}"] [data-panel-action="nbook.view.dock"]`, E);
@@ -486,6 +517,16 @@ test.describe("应用内浮动", () => {
         expect(near(docking.find((row) => !row.float)!.frame, floatBox)).toBe(true);
         expect(docking.some(({frame}) => !near(frame, floatBox) && !near(frame, source))).toBe(true);
         expectOneCard(docking, false);
+        // 窗的投影与圆角随过渡淡去（输出 110）：落回树里那一帧还是卡片，圆角一路只减不增，走完才没；曲线是加速的，过渡走到一半时圆角还剩大半。
+        const landing = docking.filter((row) => !row.float);
+        const [first, last] = [landing[0]!, landing.at(-1)!];
+        expect(first.radius).toBeGreaterThan(0);
+        expect(first.shadow).not.toBe("none");
+        for (let index = 1; index < landing.length; index += 1) expect(landing[index]!.radius).toBeLessThanOrEqual(landing[index - 1]!.radius + 0.01);
+        expect(last.radius).toBe(0);
+        expect(last.shadow).toBe("none");
+        const middle = landing.reduce((best, row) => (Math.abs(row.at - (first.at + last.at) / 2) < Math.abs(best.at - (first.at + last.at) / 2) ? row : best));
+        expect(middle.radius).toBeGreaterThan(first.radius * 0.6);
 
         // 侧栏的分节头在它自己的叶里：浮出去、停靠回来，两头都有头，每一帧内容的上边都是外框上边加头高（不用上面那段放宽）。
         const expectHeadKept = (rows: Awaited<ReturnType<typeof film>>) => {

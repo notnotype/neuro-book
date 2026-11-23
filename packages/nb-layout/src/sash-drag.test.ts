@@ -272,6 +272,14 @@ describe("拖动求解：收起与恢复", () => {
         expect(result?.collapsed).toEqual({second: true});
         expect(result?.issues).toEqual([]);
     });
+
+    it("直接求解一块没有收起策略的面板收起：尺寸不变，结果里有 no-collapse-policy（Spec ui/nested-grid 输出 139）", () => {
+        const result = solveSashCollapse({panels: [fixed("plain", 64, 320), weight("tail", 0)], sizesPx: [200, 400], sashIndex: 0, index: 0, collapsed: true});
+
+        expect(result?.sizesPx).toEqual([200, 400]);
+        expect(result?.collapsed).toEqual({});
+        expect(result?.issues.map((issue): Record<string, unknown> => ({code: issue.code, ...issue.params}))).toEqual([{code: "no-collapse-policy", id: "plain"}]);
+    });
 });
 
 /** 左栏 280 / 右栏 308 的记忆尺寸：两侧外栏同形，用同一组帧做镜像对照。 */

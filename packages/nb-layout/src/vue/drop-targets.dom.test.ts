@@ -53,6 +53,17 @@ describe("dropTargetAt", () => {
         expect(dropTargetAt(leaf, defineDropKind<{readonly group: string}>("test.file"))?.element).toBe(outer);
     });
 
+    it("登记与注销都不写 DOM 标记：元素的 HTML 前后相同", () => {
+        const {outer, middle, leaf} = nested();
+        const before = outer.outerHTML;
+        const off = registerDropTarget(outer, [FILE], () => ({group: "g"}));
+        registerDropTarget(middle, [TAB], () => ({group: "g"}));
+        expect(dropTargetAt(leaf, FILE)?.element).toBe(outer);
+        expect(outer.outerHTML).toBe(before);
+        off();
+        expect(outer.outerHTML).toBe(before);
+    });
+
     it("注销之后不再命中，同一元素的其它登记不受影响", () => {
         const {outer, leaf} = nested();
         const off = registerDropTarget(outer, [FILE], () => ({group: "g"}));

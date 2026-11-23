@@ -2,6 +2,7 @@ import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import FloatWindowHandles from "./FloatWindowHandles.vue";
+import {LAYOUT_TEXT_KEY, layoutCatalogTranslate, type LayoutTranslate} from "./text";
 
 /** 浮动窗的手柄（同名 .md）：指针与键盘算出的矩形。真实浏览器的拖动在 e2e/workbench-float.e2e.ts。 */
 
@@ -14,8 +15,8 @@ afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
 });
 
-function handles() {
-    const wrapper = mount(FloatWindowHandles, {props: {rect: RECT, min: MIN, max: MAX}, attachTo: document.body});
+function handles(translate?: LayoutTranslate) {
+    const wrapper = mount(FloatWindowHandles, {props: {rect: RECT, min: MIN, max: MAX}, attachTo: document.body, ...(translate === undefined ? {} : {global: {provide: {[LAYOUT_TEXT_KEY as symbol]: translate}}})});
     mounted.push(wrapper);
     // happy-dom 没有指针捕获。
     for (const handle of wrapper.findAll("[data-float-handle]")) (handle.element as HTMLElement).setPointerCapture = () => undefined;
@@ -78,5 +79,10 @@ describe("FloatWindowHandles", () => {
         expect(wrapper.emitted("commit")?.at(-1)).toEqual([{...RECT, width: 410}]);
         await wrapper.get("[data-float-move-handle]").trigger("keydown", {key: "ArrowDown", shiftKey: true});
         expect(wrapper.emitted("move")?.at(-1)).toEqual([{x: 100, y: 81}]);
+    });
+
+    it("文字（nested-grid 输出 143）：宿主经 LAYOUT_TEXT_KEY 注入时两个控件的读屏名称用宿主的", () => {
+        const wrapper = handles(layoutCatalogTranslate("zh-CN"));
+        expect(wrapper.findAll("button").map((button) => button.attributes("aria-label")).sort()).toEqual(["用方向键移动浮动窗", "用方向键调整浮动窗大小"]);
     });
 });

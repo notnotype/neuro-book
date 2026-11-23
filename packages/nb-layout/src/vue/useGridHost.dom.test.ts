@@ -1,4 +1,4 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {defineComponent, h, nextTick, shallowRef, watch, type MaybeRefOrGetter, type ShallowRef} from "vue";
 
@@ -238,6 +238,88 @@ describe("useGridHost", () => {
         expect(harness.applied).toHaveLength(1);
         expect(harness.host.layout.value.sizes.left!.width - before).toBeCloseTo(40, 6);
         expect(harness.issues.map((issue) => issue.code)).toContain("notify-failed");
+    });
+
+    it("`onApplied` 每次抛出都发一条 `notify-failed`（输出 140）：不按只发新增去重", async () => {
+        const harness = mountHost(twoColumns(), {onApplied: () => {
+            throw new Error("宿主存盘失败");
+        }});
+        await nextTick();
+        await dragSash(harness);
+        await dragSash(harness);
+        expect(harness.applied).toHaveLength(2);
+        expect(harness.issues.filter((issue) => issue.code === "notify-failed")).toHaveLength(2);
+    });
+
+    it("预览布局自己的诊断不经通知，松手落账后的布局重算照常发（输出 140）", async () => {
+        // 右边一列里一行两块保留像素的叶，合计正好是右列的宽：发布时没有诊断；拖窄右列，预览布局里这一行就装不下了。
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 598, height: 0}, sizing: "fixed"},
+                {kind: "branch", id: "right", orientation: "vertical", size: {width: 401, height: 0}, children: [
+                    {kind: "branch", id: "row", orientation: "horizontal", size: {width: 0, height: 300}, children: [
+                        {kind: "leaf", id: "p", ref: "p", size: {width: 200, height: 0}, sizing: "fixed"},
+                        {kind: "leaf", id: "q", ref: "q", size: {width: 200, height: 0}, sizing: "fixed"},
+                    ]},
+                    {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 299}},
+                ]},
+            ],
+        }, {sashSize: SASH});
+        const harness = mountHost(grid);
+        await nextTick();
+        expect(harness.issues).toEqual([]);
+        const sash = harness.wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        sash.dispatchEvent(pointerEvent("pointerdown", 500.5, 300));
+        sash.dispatchEvent(pointerEvent("pointermove", 540.5, 300));
+        await settleFrame();
+        const preview = harness.wrapper.findComponent(NestedGrid).emitted("gesture-update")?.at(-1)?.[0] as {layout: {issues: readonly {code: string; params?: Record<string, unknown>}[]}};
+        const previewIssues = preview.layout.issues.filter((issue) => issue.params?.id === "row");
+        expect(previewIssues.length).toBeGreaterThan(0);
+        expect(harness.issues).toEqual([]);
+
+        sash.dispatchEvent(pointerEvent("pointerup", 540.5, 300));
+        await nextTick();
+        expect(harness.applied).toHaveLength(1);
+        expect(harness.issues.map((issue) => `${issue.code}/${String(issue.params?.cause)}/${String(issue.params?.id)}`)).toEqual(previewIssues.map((issue) => `${issue.code}/${String(issue.params?.cause)}/${String(issue.params?.id)}`));
+    });
+
+    it("经 useGridHost 接线时，拖动中承载盒的尺寸变了：进行中的手势取消（context-changed），不提交（输出 40）", async () => {
+        class ResizeObserverProbe {
+            static instances: ResizeObserverProbe[] = [];
+            constructor(private readonly callback: ResizeObserverCallback) {
+                ResizeObserverProbe.instances.push(this);
+            }
+            observe(): void {}
+            unobserve(): void {}
+            disconnect(): void {}
+            trigger(): void {
+                this.callback([], this as unknown as ResizeObserver);
+            }
+        }
+        // test-lint-allow module-mock: happy-dom 的 ResizeObserver 不会回调；替身在尺寸变了之后回调，同 NestedGrid.dom.test.ts 输出 144 那条
+        vi.stubGlobal("ResizeObserver", ResizeObserverProbe);
+        onTestFinished(() => void vi.unstubAllGlobals());
+        const harness = mountHost();
+        await nextTick();
+        const sash = harness.wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        sash.dispatchEvent(pointerEvent("pointerdown", 500.5, 300));
+        sash.dispatchEvent(pointerEvent("pointermove", 540.5, 300));
+        await settleFrame();
+        const grid = harness.wrapper.findComponent(NestedGrid);
+        expect(grid.emitted("gesture-update")).toBeDefined();
+
+        box = {width: 900, height: 600};
+        for (const probe of ResizeObserverProbe.instances) probe.trigger();
+        await nextTick();
+        expect(harness.host.extent.value).toEqual({width: 900, height: 600});
+        expect(grid.emitted("gesture-cancel")?.map((event) => (event[0] as {reason: string}).reason)).toEqual(["context-changed"]);
+        sash.dispatchEvent(pointerEvent("pointerup", 540.5, 300));
+        await nextTick();
+        expect(grid.emitted("gesture-end")).toBeUndefined();
+        expect(harness.applied).toEqual([]);
     });
 
     it("`host.setCollapsed`：标记变了才重发布局（版本递增、诊断经 `onIssues`），没变时版本不变；不触发 `onApplied`（输出 149）", async () => {

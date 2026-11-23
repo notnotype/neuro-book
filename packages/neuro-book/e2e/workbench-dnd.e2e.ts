@@ -9,7 +9,7 @@
  *
  * 不在这里的：
  * - 落点判定的逐行规则（`nb-workbench-layout` 的 `layout-drop.test.ts`）、会话的取消路径（Escape、失去指针捕获、窗口失焦、拖动中的按键归会话、
- *   触摸起拖）：`lab-drag-session.e2e.ts`；
+ *   触摸起拖）：`lab-drag-session.e2e.ts`；这里只留视图来源走一遍的一条（ui/layout-drag 验收 1、4）；
  * - 内容在面板之间滑动的组件级判据：`lab-grid-panels.e2e.ts`，这里只留产品页上的一条（验收 1）；
  * - 编辑器标签在编辑组之间的拖动（固定分区、多行、合并同一标签）：`editor-area.e2e.ts`，这个外壳的编辑器是样例，没有标签；
  * - 容器的验收（拖空切容器、结构键、入口上并入）：`workbench-containers.e2e.ts`。
@@ -1240,6 +1240,73 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
+    });
+
+    test("视图的标签拖动中：方向键不切换标签；失去捕获、窗口失焦、焦点移出工作台都取消，拖影撤下、不写，回到来源松手不切换活动标签（ui/layout-drag 验收 1、4）", async ({page}) => {
+        await open(page);
+        const floating = await floatOfTwo(page);
+        const tabsBefore = await tabsOf(page, floating);
+        /** 按下、过门槛，拖动进行中。 */
+        const grab = async (viewId: string): Promise<{x: number; y: number}> => {
+            const from = await centerOf(tab(page, viewId));
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+            await expect(ghost(page)).toBeVisible();
+            return from;
+        };
+        const twoFrames = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        /** 取消之后回到按下的标签上松手：那一下 click 要被吞掉，活动标签还是 `active`。 */
+        const releaseOnSource = async (from: {x: number; y: number}, active: string, writes: number): Promise<void> => {
+            await expect(ghost(page)).toHaveCount(0);
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.up();
+            await twoFrames();
+            await expect(tab(page, active)).toHaveAttribute("aria-selected", "true");
+            expect(await tabsOf(page, floating)).toEqual(tabsBefore);
+            expect(await writesOf(page)).toBe(writes);
+        };
+
+        // 方向键（验收 4）：焦点在活动的戊上，标签条是自动激活的，方向键没被拖动拦下就会切到己。
+        await tab(page, E).click();
+        await expect(tab(page, E)).toHaveAttribute("aria-selected", "true");
+        let writes = await settledWrites(page);
+        await grab(E);
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("ArrowLeft");
+        await page.keyboard.press("End");
+        await twoFrames();
+        await expect(tab(page, E)).toHaveAttribute("aria-selected", "true");
+        await expect(tab(page, F)).toHaveAttribute("aria-selected", "false");
+        await expect(ghost(page)).toBeVisible();
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        expect(await writesOf(page)).toBe(writes);
+
+        // 三种取消都拖不活动的己：松手时的 click 没被吞就会激活它。
+        writes = await settledWrites(page);
+        // 捕获的取得与释放都在下一个指针事件时才生效：先动一下让捕获真的到根上，释放之后再动一下让 `lostpointercapture` 派发出来。
+        let from = await grab(F);
+        await page.mouse.move(from.x + 11, from.y + 10);
+        await page.locator(".workbench-shell-host").evaluate((host) => host.releasePointerCapture(1));
+        await page.mouse.move(from.x + 12, from.y + 10);
+        await releaseOnSource(from, E, writes);
+
+        // 窗口失焦：无头 Chrome 没有真实的窗口失焦，派发窗口自己的 blur。
+        from = await grab(F);
+        await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
+        await releaseOnSource(from, E, writes);
+
+        from = await grab(F);
+        await page.evaluate(() => {
+            const outside = document.createElement("button");
+            outside.dataset.outsideShell = "";
+            document.body.append(outside);
+            outside.focus();
+        });
+        await releaseOnSource(from, E, writes);
+        await page.evaluate(() => document.querySelector("[data-outside-shell]")?.remove());
     });
 
     test.describe("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）", () => {
