@@ -43,3 +43,6 @@ t49 做完后，用 /simplify 把 w00026 期间 nb-layout、nb-workbench-layout 
 - 改前基线（master）：应用 20 个 e2e 文件 385 条，加 nb-story 换边 19 条，全过（`lab-tab-strip:41` 单独重跑过）。
 - 改后两轮集成 e2e 与 S7 的 6 个文件（95 条）都对照基线：没过的都单独重跑通过；只有 `workbench-float:316` 在 master 上 `--repeat-each=8` 也失败 1 次，算原有偶发。
 - 各包单元与 dom 测试、类型检查、`api:check` 在合入后的 master 上重跑通过。
+
+发布：0.1.0 在 t55 合入之前已从 `85e34f4f5` 发出（带 `resize`、`resizeBranch`、`live(source, keyboard)` 等），所以 S7 的删除对已发版本是不兼容的改动，提成 0.2.0（`9df83e25a`，变更记录定稿）。开发者推 master、在 npm 网页认证后本机发布 `@notnotype/nb-layout@0.2.0`；应用与 SDK 的 0.16.0 由 v0.16.0 的标签流水线发，本机发布等它发完才跑，只发了 nb-layout。registry 冒烟通过（[`evidences/registry-smoke-0.2.0.txt`](evidences/registry-smoke-0.2.0.txt)）。nb-story 的网页包随 nb-layout 变了字节，没提版本，留到它下次发布。
+
