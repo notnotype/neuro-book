@@ -326,6 +326,50 @@ describe("author-ui 输出 45、46：暂存的回执丢了、链路断开", () =
         other.dispose();
     }), 60_000);
 
+    it("被确定地拒收、解冻又没存下去：不说成“没发出去”，仍按等结局；存储好了再确认，发出去的还是那个请求，只发布一次", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft) => addAfter(draft, "b1", "只该有一份").draft);
+        // 日志写不进去（确定没发布），扣住这条回复；回复放行以后解冻的那一次存储写没到就断了。
+        scene.failAppend();
+        const refused = scene.holdReply(writing);
+        const submitting = session.submit("改主文字");
+        await refused.held;
+        scene.loseRequest(savingDraft);
+        refused.release();
+        expect(await submitting).toEqual({status: "unknown"});
+        const frozen = session.state.draft?.pending?.requestId;
+        expect([session.state.phase, frozen !== undefined, scene.sources(entry, at)]).toEqual(["confirming", true, ["A"]]);
+
+        expect(await window.reconnect()).toEqual({ok: true});
+        const kept = await stored(window.storage, entry);
+        expect(kept.status === "ok" && kept.value.pending?.requestId).toBe(frozen!);
+        expect((await session.confirm()).status).toBe("published");
+        expect([scene.sources(entry, at), scene.titles(entry), (await stored(window.storage, entry)).status]).toEqual([["A", "只该有一份"], ["建条目", "改主文字"], "missing"]);
+        desk.dispose();
+    }), 60_000);
+
+    it("块的编号是对象自带的名字（`__proto__`）：内核拒收时原因照样落在那一块上", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        // 经底层发布把块的编号换成 `__proto__`（导入来的数据可以是任何编号）。
+        const read = scene.world.object({kind: "entry", id: entry});
+        if (typeof read === "string") throw new Error(read);
+        const object = read.object as {init: {text: unknown[]}};
+        const imported = await scene.world.publish({requestId: "import-proto", by: {kind: "author"}, what: "edit", title: "导入", baseVersion: scene.world.status().version, puts: [{ref: {kind: "entry", id: entry}, after: {...object, init: {...object.init, text: [{id: "__proto__", source: "A"}]}} as never}]});
+        if (!imported.ok) throw new Error(JSON.stringify(imported.failure));
+
+        const desk = deskOf(await scene.window("browser-1"));
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, blocks) => setText(draft, blocks, "__proto__", "没闭合的 {表达式"));
+        expect((await session.submit("改主文字")).status).toBe("problems");
+        expect(Object.entries(session.state.problems)).toMatchObject([["__proto__", {kind: "rejected"}]]);
+        desk.dispose();
+    }), 60_000);
+
     it("暂存写不进去（链路断着）：连上以后不用再打字，失焦或转入后台的那一次补存下去", () => inScene(async (scene) => {
         const entry = await scene.seed(["A"]);
         const [window, witness] = [await scene.window("browser-1"), await scene.window("browser-2")];

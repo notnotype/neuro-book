@@ -420,19 +420,29 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 state.phase = "confirming";
                 return {status: "unknown"};
             }
+            const frozen = state.draft!.pending;
             state.draft = withoutPending(state.draft!);
-            await persist();
+            const unfrozen = await persist();
+            // 解冻没存下去（存储这时也写不进；被别的窗口写过的不算，那条记录已经不是这一份了）：记录里多半还冻结着。这时说
+            // “没发出去”，重开以后读到冻结的记录又会把它发了。留着冻结、按结局不明，等存储好了再确认；记录里现在是什么要重新核对。
+            if (!unfrozen.ok && unfrozen.code !== "conflict" && frozen !== undefined) {
+                state.draft = {...state.draft, pending: frozen};
+                durable = null;
+                state.phase = "confirming";
+                return {status: "unknown"};
+            }
             if (failure.code === "stale-read" || failure.code === "version-conflict" || failure.code === "value-conflict") return "again";
             state.phase = "idle";
             if (failure.code === "validation-failed") {
-                const problems: Record<string, BlockProblem> = {};
+                // 用条目数组建字典：块 id 可以是任何字符串（`__proto__` 也是），逐个赋值会写到原型上。
+                const problems: Array<[string, BlockProblem]> = [];
                 for (const item of (failure.problems as ReadonlyArray<{code: string; message: string; op?: number; path?: string}> | undefined) ?? []) {
                     const op = item.op ?? Number(/^ops\[(\d+)\]$/u.exec(item.path ?? "")?.[1] ?? Number.NaN);
                     const key = keys[op];
-                    if (key !== undefined) problems[key] = {kind: "rejected", code: item.code, message: item.message};
+                    if (key !== undefined) problems.push([key, {kind: "rejected", code: item.code, message: item.message}]);
                 }
-                if (Object.keys(problems).length > 0) {
-                    state.problems = problems;
+                if (problems.length > 0) {
+                    state.problems = Object.fromEntries(problems);
                     return {status: "problems"};
                 }
             }
