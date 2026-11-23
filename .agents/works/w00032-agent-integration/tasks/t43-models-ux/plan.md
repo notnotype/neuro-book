@@ -12,7 +12,7 @@
 
 依据：[`models/service.md`](../../../../../docs/specs/models/service.md)、[`models/settings-pages.md`](../../../../../docs/specs/models/settings-pages.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的“输入框与待处理区”、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 7、22、[`harness/models.md`](../../../../../docs/specs/harness/models.md)、[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`web/tools.md`](../../../../../docs/specs/web/tools.md)；[ADR 0036](../../../../../docs/adr/0036-app-package-installs-omp.md)、[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md)。取代 t09 决定 11、12（目录与自定义两种服务商）。
 
-工作方式：分五段，**A 推理档与选择器（已合入）→ B1 模板与身份（已合入）→ B2a 模型来源（已合入）→ B2b 协议检测（已合入）→ C 网络与代理**。每段一条分支、单独实现审查（后端 omp、前端 Claude Sonnet）、单独合入。计划审查：A、C 已审两轮，B 已审三轮（上限）；**不再开第四轮**，B2 开工前对照 B1 的实际形状微调本稿，靠实现审查兜底（决定 26）。主会话自己写代码。代码在 Work 的 worktree 上做（`.worktree/w00032-agent-integration` 快进到 master；有别的会话在用时另开 `feat/w00032-t43-<段>`）。Spec 与 Task 记录在主工作区改，随各段合入的同一窗口更新，只写已合入的行为（第二轮 omp 第 37 条）。
+工作方式：分五段，**A 推理档与选择器（已合入）→ B1 模板与身份（已合入）→ B2a 模型来源（已合入）→ B2b 协议检测（已合入）→ C 网络与代理（已合入）**。每段一条分支、单独实现审查（后端 omp、前端 Claude Sonnet）、单独合入。计划审查：A、C 已审两轮，B 已审三轮（上限）；**不再开第四轮**，B2 开工前对照 B1 的实际形状微调本稿，靠实现审查兜底（决定 26）。主会话自己写代码。代码在 Work 的 worktree 上做（`.worktree/w00032-agent-integration` 快进到 master；有别的会话在用时另开 `feat/w00032-t43-<段>`）。Spec 与 Task 记录在主工作区改，随各段合入的同一窗口更新，只写已合入的行为（第二轮 omp 第 37 条）。
 
 ## 取舍
 

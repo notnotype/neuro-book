@@ -142,10 +142,17 @@ updated: 2026-11-22
 - 单个检测被取消也标“结果未知”（计划只说检测全部）；检测进行中“检测协议”换成“取消协议检测”，不停用。
 - 检测全部的名单在确认时定下，途中被停用或移出的跳过。
 
+段 C（网络与代理）：2026-11-23 合入 master（合并提交 c911bacde，测试代理的修正 0a24a3294）。合入前的验证：nb-host、nb-harness、nb-models（含浏览器侧）、neuro-book（后端、web 与 browser-test）的类型检查；审查修正之后跑了 `test:affected`（未提交的改动，全部通过：bun 与 vitest 两部分，含 neuro-book 的 1049 条 vitest）；e2e network、settings、models 26 条通过（基线 25 条加新的 `network.e2e.ts`，修正前后各跑一轮）；lab-scenes 只剩 ThemeEditor 的原有 404（这次 icons、scene-full 两组），临时滤掉后版面比对里没有本段组件的项（报出的 AgentDock、SubagentCard、ProfileSettingsPage 等与 B2b 时相同）；网络页 390 宽不横向溢出由 e2e 量。合入后在主工作区负载 22 下暴露一处偶发：测试用的转发代理一个连接只转一个请求，Bun 复用到代理的连接时 `ECONNRESET`，补 `Connection: close` 后连跑 20 次通过。Spec（新 `network/egress.md`；`models/service.md` 输出 9、12 与合同 v6、输入的 `proxy`、`catalogAutoUpdate` 的键；`models/settings-pages.md` 输出 4、6；`harness/models.md` 的 `route`；`web/tools.md`）与 `CHANGELOG` 同日提交。实现审查后端 omp（`review` 角色 `aihub/gpt-6.2-sol:max`）17 条（阻断 1、重要 13、建议 3）、前端 Sonnet 13 条（重要 7、建议 6；说明里把“说明文字”“动效与细节”列进重点），逐条核实：后端改 16 条（第 1 条降为重要）、不改 1 条（Windows 的“自动检测设置”，缺省开着，判成不支持会让缺省用户每个请求都失败，记已知限制），前端改 11 条、部分 2 条，见[处理](evidences/impl-review-c-disposition.md)；变异检查第一轮 16 个、修正后 23 个，全部杀掉（3 个第一次没杀掉、补了用例）。与计划不同的地方：
+- harness 不收 `fetch`，收结构化的选路函数 `NetworkRoute`（nb-host 的 `routeFor` 形状一致）：harness 与 nb-models 不依赖 nb-host，选路失败与地址核对走同一条路交回码；`fetchFor` 只给网页工具用。选完路之后再核一次配置版本。
+- “自动更新模型列表”的设置项挪到 `nbook.network`（决定 32），网络页是 page 分区。
+- 快照加在线目录的状态 `catalog`、合同加 `refreshCatalog`（网络页的“现在更新”）。
+- 服务商列表外、用户配置过的模型照用、标 `unlisted`（决定 30，开发者在本段开工后定）。
+- nb-ui `Collapsible` 的触发器改成可选，用来做随状态出现与消失的一块（网络页的行与服务商的代理地址框）。
+
 ## 下一步
 
 段 A 待办：给开发者看常驻卡片（提示卡、批注卡、向导浮层）改轻投影后的亮暗截图（决定 10；截图已拍，在 Task 的 `shots/`）。
 
-段 C（代理与网络出口，加进 B2a 建的 `nbook.network`；协议检测的请求点也换成 `fetchFor`），[计划](plan.md#段-c网络与代理)的 C 节。
+五段都已合入。Windows 的系统代理在 pc-notype 上实测（计划 C4）还没做；macOS 的读法没有真机验证。UI 设计标准按开发者 2026-11-23 的要求另开 Task（草稿在 `.local/agent/ui-design-standard/`，11 项待定全部按推荐通过）。
 
 待查：`lab-agent-ui:572`（模型选择器窄面板与英文）在 B1 起点上就失败，段 A 合入时是通过的，原因没查。
