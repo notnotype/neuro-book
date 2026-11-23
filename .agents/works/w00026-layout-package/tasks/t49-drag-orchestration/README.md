@@ -29,7 +29,8 @@ updated: 2026-11-23
 - 切片 1（`fed1207e0`）：引擎 `nb-layout/src/live-drag.ts`（不从入口导出），工作台 `live-drag.test.ts` 的 24 例迁来并按规则补到 33 例；五个变异都被抓住。
 - 切片 2（`fa694ead7`）：会话加 `sampled`；`createLiveDragSession`、`useLiveDragSession`；`NestedGrid` 留住不在 `contents` 里的拿起项、expose `origin`、`motionMs`。四个变异都被抓住。
 - 切片 1、2 的后台实现审查（Claude Sonnet，[报告](evidences/impl-review-s12.txt)）：重要 1、建议 8。成立的修在 `aac7b7e67`：先交出状态再排渲染之后的跟手（只有卡片拿起收回的那一帧原来会错一帧）、合成对键盘拖动不走实时布局、`card.rect` 收这一刻的几何、补整帧先后与非零原点等用例。合成接 `sampled` 的先后在 happy-dom 里分不出（它把帧回调里新排的帧放进同一批跑），那例删掉，由 `workbench-drag-cost.e2e.ts` 的每帧上限守着（`7a8dc0049`）。`lifted` 要和摘掉它的 `contents` 同一次渲染里变（审查第 7 条），写进 Spec；API 报告在切片 6 重生成。
-- 切片 3（`e5874e4f3`）：工作台改用 `createLiveDragSession`，删掉 `live-drag.ts`；三份工作台 e2e 68 条全过，和改前的基线一样。后台实现审查在跑。
+- 切片 3（`e5874e4f3`）：工作台改用 `createLiveDragSession`，删掉 `live-drag.ts`；三份工作台 e2e 68 条全过，和改前的基线一样。后台实现审查（Claude Sonnet，[报告](evidences/impl-review-s3.txt)）：阻断 0、重要 0、建议 6。改了四条（`cd8266de5`）：留住的拿起项用拿起那一刻的叶（中途预览把它摆到别的叶、再摘掉时，原来会落到已经不在的叶上）；收起那一刻的判定排在遮挡判断之前；来源那块的矩形只问一次；`WorkbenchSurface.md` 与注释跟上。不改两条：工作台 `facts` 的映射另写单测（逐行对过，e2e 守着）；引擎量到之前每次判定都现量（只在拿起到第一帧那一段）。
+- 切片 4（`65160b5e3`）：Lab 场景 `live-panels` 与 `lab-live-panels.e2e.ts` 5 例。变异：粘住、`unmoved`、不清 `unmoved`、拿起前不 `settleMotion` 各让对应用例失败；“留住拿起项”第一次没被抓住（预览一直把来源摆在新块上），第 1 例改成中途先停到不是落点的地方。
 
 ## 下一步
 
