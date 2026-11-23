@@ -38,8 +38,8 @@ import {
     stripDynamicTabs,
     tabKey,
     treeLeaves,
-    validateLayoutDoc,
 } from "./layout-doc";
+import {validateLayoutDoc} from "./layout-doc-validate";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutResult} from "./layout-doc";
 import type {GridSnapshotBranch, GridSnapshotNode} from "@notnotype/nb-layout";
 import {enumerateDropCandidates} from "./layout-drop";

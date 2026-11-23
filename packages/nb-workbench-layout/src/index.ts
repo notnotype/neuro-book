@@ -50,7 +50,6 @@ export {
     tabKey,
     treeEditorAnchor,
     treeLeaves,
-    validateLayoutDoc,
 } from "./layout-doc";
 export type {
     LayoutBar,
@@ -98,6 +97,7 @@ export type {
     LayoutDropSectorId,
     LayoutDropSource,
 } from "./layout-drop";
+export {validateLayoutDoc} from "./layout-doc-validate";
 // 意图回写只导出两个说清时机的入口，底下的 `rebaseIntents`、`fixedNodesOf` 不导出（模块头注释）。
 export {applyGestureCommit, rebaseForOperation} from "./intent-writeback";
 export type {IntentWritebackRejection} from "./intent-writeback";
