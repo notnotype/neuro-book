@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t42-task-list-providers",
+    "artifactId": "review",
+    "answerId": "20261123T084718110Z-7e2f769b",
+    "artifactVersion": 1,
+    "contentHash": "07f347a1e7561d5a443de7f232aca74a4e7aa39ab222af816b09cb778a41800e",
+    "submittedAt": "2026-11-23T08:47:16.568Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "group-head-r1": "blocks",
+        "session-collapse-r1": "expanded"
+    },
+    "comments": {},
+    "note": null
+}
