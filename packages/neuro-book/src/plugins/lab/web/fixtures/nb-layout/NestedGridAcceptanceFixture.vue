@@ -10,6 +10,7 @@ import {computed, ref, shallowRef, watch} from "vue";
 
 import {
     createGrid,
+    GRID_SNAPSHOT_VERSION,
     type Grid,
     type GridAxis,
     type GridBranchChange,
@@ -20,6 +21,7 @@ import {
     type GridGestureStart,
     type GridIssue,
     type GridLayoutResult,
+    type GridNode,
     type GridRestoreResult,
     type GridSashRef,
     type GridSnapshot,
@@ -75,15 +77,29 @@ const innerSashSizes = computed(() => [innerSashPx.value] as const);
 
 const layoutEpoch = ref(0);
 
-// 手势提交记录：只有实际产生尺寸改变的 gesture-end 才递增；挂载、视口变化、测量与程序布局均为 0
-const commitCount = ref(0);
-const lastGestureState = ref<"none" | "commit" | "cancel">("none");
-const lastGestureSource = ref<"none" | "pointer" | "keyboard">("none");
-const lastGestureSash = ref("");
-const lastActive = ref<string[]>([]);
-const lastCompensated = ref<string[]>([]);
-const lastGesturePayload = ref("");
-const lastGestureText = ref("尚无用户调整提交");
+/** 手势提交记录：整份替换而不逐字段改，重置只需换回 `NO_GESTURE`。 */
+type GestureRecord = {
+    /** 只有实际产生尺寸改变的 gesture-end 才递增；挂载、视口变化、测量与程序布局均为 0。 */
+    count: number;
+    state: "none" | "commit" | "cancel";
+    source: "none" | "pointer" | "keyboard";
+    sash: string;
+    active: readonly string[];
+    compensated: readonly string[];
+    payload: string;
+    text: string;
+};
+const NO_GESTURE: GestureRecord = {
+    count: 0,
+    state: "none",
+    source: "none",
+    sash: "",
+    active: [],
+    compensated: [],
+    payload: "",
+    text: "尚无用户调整提交",
+};
+const gesture = shallowRef<GestureRecord>(NO_GESTURE);
 /** Renderer 的手势诊断（容量不足、提交被拒绝）：与布局诊断一起显示，不冒充布局降级。 */
 const gestureIssues = ref<readonly (GridIssue | GridFailure)[]>([]);
 /** 夹具自己的去重键，同库里通知用的键：码、`cause`、轴与所在的节点。 */
@@ -105,12 +121,16 @@ const visibleIssues = computed(() => {
 });
 
 // 恢复场景事实：原件记录在内存、过滤情况与拒绝原因
-const restoreStatus = ref<"success" | "dropped-unknown" | "rejected">("success");
-const restoreReason = ref("");
-/** 恢复失败的码与版本：e2e 按码判，不按文字。 */
-const restoreCode = ref("");
-const restoreVersion = ref("");
-const droppedRefs = ref<GridDroppedRef[]>([]);
+type RestoreRecord = {
+    status: "success" | "dropped-unknown" | "rejected";
+    reason: string;
+    /** 恢复失败的码与版本：e2e 按码判，不按文字。 */
+    code: string;
+    version: string;
+    dropped: readonly GridDroppedRef[];
+};
+const RESTORE_OK: RestoreRecord = {status: "success", reason: "", code: "", version: "", dropped: []};
+const restore = shallowRef<RestoreRecord>(RESTORE_OK);
 const rawRecordRef = ref<unknown>(null);
 
 /** 进行中的手势：只用于把取消回执翻成可读标识；尺寸与收起事实一律来自提交载荷。 */
@@ -130,14 +150,17 @@ const host = useGridHost<string>({
         }
         const active = commit.changes.flatMap((change) => [...change.active]);
         const compensated = commit.changes.flatMap((change) => [...change.compensated]);
-        commitCount.value++;
-        lastGestureState.value = "commit";
-        lastGestureSource.value = commit.source;
-        lastGestureSash.value = activeSashes.map(sashLabelOf).join(" + ");
-        lastActive.value = active;
-        lastCompensated.value = compensated;
-        lastGesturePayload.value = JSON.stringify(commit);
-        lastGestureText.value = `提交 · ${commit.source} · ${lastGestureSash.value} · 主动 [${active.join(", ")}] · 补偿 [${compensated.join(", ")}]`;
+        const sash = activeSashes.map(sashLabelOf).join(" + ");
+        gesture.value = {
+            count: gesture.value.count + 1,
+            state: "commit",
+            source: commit.source,
+            sash,
+            active,
+            compensated,
+            payload: JSON.stringify(commit),
+            text: `提交 · ${commit.source} · ${sash} · 主动 [${active.join(", ")}] · 补偿 [${compensated.join(", ")}]`,
+        };
     },
     onIssues: pushIssues,
 });
@@ -177,7 +200,7 @@ function sashLabelOf(sash: {branchId: string; index: number}): string {
 
 function onGestureStart(info: GridGestureStart): void {
     activeSashes = info.sashes;
-    lastGestureSource.value = info.source;
+    gesture.value = {...gesture.value, source: info.source};
     emitLabEvent("gesture-start", info);
 }
 
@@ -234,16 +257,12 @@ function initScene(sceneId: string): void {
     });
 
     if (sceneId === "default") {
-        restoreStatus.value = "success";
-        restoreReason.value = "";
-        restoreCode.value = "";
-        restoreVersion.value = "";
-        droppedRefs.value = [];
+        restore.value = RESTORE_OK;
         rawRecordRef.value = gridRef.value.serialize();
     } else if (sceneId === "unknown-ref") {
         // (a) 未知引用：在右侧上下分栏中混入未知插件节点 ghost-plugin
         const snapshotWithUnknown: GridSnapshot = {
-            version: 2,
+            version: GRID_SNAPSHOT_VERSION,
             root: {
                 kind: "branch",
                 id: "root",
@@ -265,20 +284,22 @@ function initScene(sceneId: string): void {
                 ],
             },
         };
-        rawRecordRef.value = JSON.parse(JSON.stringify(snapshotWithUnknown));
+        rawRecordRef.value = structuredClone(snapshotWithUnknown);
         const res = gridRef.value.restore(snapshotWithUnknown, (ref) =>
             ref === "unknown-plugin-view" ? null : {ref},
         );
-        restoreStatus.value = "dropped-unknown";
-        restoreReason.value = "过滤未解析引用：unknown-plugin-view（原件在内存完整保留）";
-        restoreCode.value = "";
-        restoreVersion.value = "";
-        droppedRefs.value = res.dropped;
+        restore.value = {
+            status: "dropped-unknown",
+            reason: "过滤未解析引用：unknown-plugin-view（原件在内存完整保留）",
+            code: "",
+            version: "",
+            dropped: res.dropped,
+        };
         emitLabEvent("restore", res);
     } else if (sceneId === "malformed") {
         // (b) 畸形快照：存在重复节点身份 id: "left"，应被整体拒绝且不半更新
         const malformedSnapshot = {
-            version: 2,
+            version: GRID_SNAPSHOT_VERSION,
             root: {
                 kind: "branch",
                 id: "root",
@@ -290,7 +311,7 @@ function initScene(sceneId: string): void {
                 ],
             },
         };
-        rawRecordRef.value = JSON.parse(JSON.stringify(malformedSnapshot));
+        rawRecordRef.value = structuredClone(malformedSnapshot);
         const res = gridRef.value.restore(malformedSnapshot, (ref) => ({ref}));
         showRestoreFailure(res);
         emitLabEvent("restore", res);
@@ -309,7 +330,7 @@ function initScene(sceneId: string): void {
                 ],
             },
         };
-        rawRecordRef.value = JSON.parse(JSON.stringify(highVersionSnapshot));
+        rawRecordRef.value = structuredClone(highVersionSnapshot);
         const res = gridRef.value.restore(highVersionSnapshot, (ref) => ({ref}));
         showRestoreFailure(res);
         emitLabEvent("restore", res);
@@ -318,38 +339,32 @@ function initScene(sceneId: string): void {
     host.invalidate();
 }
 
+/** 原件里的节点记录；`unknown-ref` 场景里混入的未知节点在运行时的树中不存在，不会被动到。 */
+type RawNode = {id: string; kind: string; size: {width: number; height: number}; children?: RawNode[]};
+
+/** 把运行时树里 `parent` 各孩子在 `axis` 上的尺寸抄回原件里同 id 的孩子。 */
+function copySizes(rawParent: RawNode, parent: GridNode<string>, axis: GridAxis): void {
+    if (parent.kind !== "branch") return;
+    for (const child of parent.children) {
+        const raw = rawParent.children?.find((c) => c.id === child.id);
+        if (raw) raw.size[axis] = child.size[axis];
+    }
+}
+
 /** 调整已知节点后同步更新原件内存记录，确保未识别节点不被抹除 */
 function syncRawRecordIntent(branchId: string, axis: GridAxis): void {
     if (!rawRecordRef.value || typeof rawRecordRef.value !== "object") return;
-    const envelope = rawRecordRef.value as {root?: any};
-    if (!envelope.root || envelope.root.kind !== "branch") return;
+    const rawRoot = (rawRecordRef.value as {root?: RawNode}).root;
+    if (!rawRoot || rawRoot.kind !== "branch") return;
+    const root = gridRef.value?.root();
+    if (!root || root.kind !== "branch") return;
 
     if (branchId === "root" && axis === "width") {
-        const rootTree = gridRef.value?.root();
-        if (rootTree && rootTree.kind === "branch") {
-            const leftChild = rootTree.children.find((c) => c.id === "left");
-            const rightChild = rootTree.children.find((c) => c.id === "right");
-            const rawLeft = envelope.root.children.find((c: any) => c.id === "left");
-            const rawRight = envelope.root.children.find((c: any) => c.id === "right");
-            if (rawLeft && leftChild) rawLeft.size.width = leftChild.size.width;
-            if (rawRight && rightChild) rawRight.size.width = rightChild.size.width;
-        }
+        copySizes(rawRoot, root, "width");
     } else if (branchId === "right" && axis === "height") {
-        const rootTree = gridRef.value?.root();
-        if (rootTree && rootTree.kind === "branch") {
-            const rightBranch = rootTree.children.find((c) => c.id === "right");
-            if (rightBranch && rightBranch.kind === "branch") {
-                const topChild = rightBranch.children.find((c) => c.id === "top");
-                const bottomChild = rightBranch.children.find((c) => c.id === "bottom");
-                const rawRight = envelope.root.children.find((c: any) => c.id === "right");
-                if (rawRight && rawRight.kind === "branch") {
-                    const rawTop = rawRight.children.find((c: any) => c.id === "top");
-                    const rawBottom = rawRight.children.find((c: any) => c.id === "bottom");
-                    if (rawTop && topChild) rawTop.size.height = topChild.size.height;
-                    if (rawBottom && bottomChild) rawBottom.size.height = bottomChild.size.height;
-                }
-            }
-        }
+        const right = root.children.find((c) => c.id === "right");
+        const rawRight = rawRoot.children?.find((c) => c.id === "right");
+        if (right && rawRight && rawRight.kind === "branch") copySizes(rawRight, right, "height");
     }
 }
 
@@ -361,10 +376,13 @@ function onGestureUpdate(preview: {layout: GridLayoutResult; changes: readonly G
 function onGestureCancel(info: GridGestureCancellation): void {
     const label = info.sashes.map(sashLabelOf).join(" + ");
     emitLabEvent("gesture-cancel", info);
-    lastGestureState.value = "cancel";
-    lastGestureSash.value = label;
-    lastGesturePayload.value = JSON.stringify(info);
-    lastGestureText.value = `未提交 · ${info.reason} · ${label}`;
+    gesture.value = {
+        ...gesture.value,
+        state: "cancel",
+        sash: label,
+        payload: JSON.stringify(info),
+        text: `未提交 · ${info.reason} · ${label}`,
+    };
 }
 
 /** 程序布局重排：直接改意图并重算呈现，不产生任何用户手势提交 */
@@ -386,26 +404,21 @@ function triggerProgrammaticLayout(): void {
 
 /** 恢复被拒：显示失败的英文 message，码与版本写进属性。 */
 function showRestoreFailure(res: GridRestoreResult): void {
-    restoreStatus.value = "rejected";
-    restoreReason.value = res.ok ? "" : res.message;
-    restoreCode.value = res.ok ? "" : res.code;
     const version = res.ok ? undefined : res.params?.version;
-    restoreVersion.value = version === undefined ? "" : String(version);
-    droppedRefs.value = [];
+    restore.value = {
+        status: "rejected",
+        reason: res.ok ? "" : res.message,
+        code: res.ok ? "" : res.code,
+        version: version === undefined ? "" : String(version),
+        dropped: [],
+    };
 }
 
 /** 重置状态 */
 function resetState(): void {
     controls.value = Object.fromEntries(CONTROLS.map((control) => [control.id, false]));
     events.value = [];
-    commitCount.value = 0;
-    lastGestureState.value = "none";
-    lastGestureSource.value = "none";
-    lastGestureSash.value = "";
-    lastActive.value = [];
-    lastCompensated.value = [];
-    lastGesturePayload.value = "";
-    lastGestureText.value = "尚无用户调整提交";
+    gesture.value = NO_GESTURE;
     gestureIssues.value = [];
     activeSashes = [];
     initScene(props.scene);
@@ -574,16 +587,16 @@ function formatPx(val?: number): string {
                     <span
                         class="min-w-0 flex-1 truncate font-mono text-[var(--text-main)]"
                         data-lab-gesture
-                        :data-lab-commit-count="commitCount"
-                        :data-lab-gesture-state="lastGestureState"
-                        :data-lab-gesture-source="lastGestureSource"
-                        :data-lab-last-sash="lastGestureSash"
-                        :data-lab-last-active="JSON.stringify(lastActive)"
-                        :data-lab-last-compensated="JSON.stringify(lastCompensated)"
-                        :data-lab-gesture-payload="lastGesturePayload"
-                        :title="lastGestureText"
+                        :data-lab-commit-count="gesture.count"
+                        :data-lab-gesture-state="gesture.state"
+                        :data-lab-gesture-source="gesture.source"
+                        :data-lab-last-sash="gesture.sash"
+                        :data-lab-last-active="JSON.stringify(gesture.active)"
+                        :data-lab-last-compensated="JSON.stringify(gesture.compensated)"
+                        :data-lab-gesture-payload="gesture.payload"
+                        :title="gesture.text"
                     >
-                        用户调整: 提交次数 {{ commitCount }} · {{ lastGestureText }}
+                        用户调整: 提交次数 {{ gesture.count }} · {{ gesture.text }}
                     </span>
 
                     <!-- 降级诊断指示：布局降级与手势诊断分开来源、同一个出口 -->
@@ -611,20 +624,20 @@ function formatPx(val?: number): string {
                 <!-- 快照恢复可观察事实 -->
                 <div
                     data-lab-recovery
-                    :data-lab-restore-status="restoreStatus"
-                    :data-lab-restore-reason="restoreReason"
-                    :data-lab-restore-code="restoreCode"
-                    :data-lab-restore-version="restoreVersion"
-                    :data-lab-dropped-count="droppedRefs.length"
+                    :data-lab-restore-status="restore.status"
+                    :data-lab-restore-reason="restore.reason"
+                    :data-lab-restore-code="restore.code"
+                    :data-lab-restore-version="restore.version"
+                    :data-lab-dropped-count="restore.dropped.length"
                     :data-lab-raw-record="JSON.stringify(rawRecordRef)"
                     class="flex min-w-0 items-center gap-2 text-[10px] text-[var(--text-muted)] font-mono border-t border-[color-mix(in_srgb,var(--border-color)_20%,transparent)] pt-1"
                 >
                     <span class="uppercase tracking-wider">恢复记录:</span>
-                    <span :class="restoreStatus === 'success' ? 'text-[var(--text-secondary)]' : restoreStatus === 'dropped-unknown' ? 'text-[var(--status-info,#3b82f6)]' : 'text-[var(--status-warning,#eab308)]'">
-                        {{ restoreStatus }} {{ restoreReason ? `(${restoreReason})` : '' }}
+                    <span :class="restore.status === 'success' ? 'text-[var(--text-secondary)]' : restore.status === 'dropped-unknown' ? 'text-[var(--status-info,#3b82f6)]' : 'text-[var(--status-warning,#eab308)]'">
+                        {{ restore.status }} {{ restore.reason ? `(${restore.reason})` : '' }}
                     </span>
-                    <span v-if="droppedRefs.length > 0" class="text-[var(--text-secondary)]">
-                        · 未解析: {{ droppedRefs.map((d) => d.ref).join(", ") }}
+                    <span v-if="restore.dropped.length > 0" class="text-[var(--text-secondary)]">
+                        · 未解析: {{ restore.dropped.map((d) => d.ref).join(", ") }}
                     </span>
                 </div>
             </div>

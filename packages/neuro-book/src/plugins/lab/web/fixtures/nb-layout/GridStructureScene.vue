@@ -7,9 +7,10 @@ import {shallowRef, useTemplateRef} from "vue";
 
 import {createGrid} from "@notnotype/nb-layout";
 import type {Grid} from "@notnotype/nb-layout";
-import {NestedGrid, moveGridFocus, useGridHost} from "@notnotype/nb-layout/vue";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
+import {createInstanceCounter, moveFocusOnF6} from "./scene-support";
 
 const createInitial = (): Grid<string> => createGrid<string>({
     kind: "branch",
@@ -29,11 +30,7 @@ const createInitial = (): Grid<string> => createGrid<string>({
     ],
 }, {sashSize: 4});
 
-let instances = 0;
-const createInstance = (): number => {
-    instances += 1;
-    return instances;
-};
+const createInstance = createInstanceCounter();
 
 /** F6 移动焦点的范围；尺寸由 `NestedGrid` 自己量。 */
 const containerEl = useTemplateRef<HTMLElement>("containerEl");
@@ -55,10 +52,7 @@ const COLLAPSE_ACTIONS: Readonly<Record<string, () => void>> = {
     "expand-c": () => void host.setCollapsed("c", false),
 };
 
-/** 产品里是工作台的两条命令；这里不接命令系统，直接调。 */
-function onKeydown(event: KeyboardEvent): void {
-    if (event.key === "F6" && moveGridFocus(containerEl.value, event.shiftKey ? "previous" : "next")) event.preventDefault();
-}
+const onKeydown = (event: KeyboardEvent): void => moveFocusOnF6(event, containerEl.value);
 
 function run(name: string): void {
     ACTIONS[name]?.();
