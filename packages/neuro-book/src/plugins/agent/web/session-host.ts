@@ -1110,16 +1110,16 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
      * 待发的提醒排在话的后面（conversation.md 输出 51）：标签“提醒 · 来源”，只能取消。门关着、又没有运行时按留着画，计进“已暂停 N 条”，
      * “继续”与空着回车把它们送出去；有运行时下一次请求就会带上它们，不算留着。
      */
-    function noticeView(target: Current, notice: KernelNotice) {
-        const name = authorOf(target, notice.by).label;
-        return {
+    function noticeViews(target: Current) {
+        const held = target.transcript.wakeGateOpen() || target.transcript.run().status !== "idle" ? {} : {held: {reason: deps.text.t(agentText("conversation.held.notice"))}};
+        return target.transcript.notices().map((notice: KernelNotice) => ({
             id: notice.id,
             text: notice.summary,
             delivery: "steer" as const,
-            author: {label: deps.text.t(agentText("conversation.author.notice", {name})), icon: "i-lucide-bell"},
+            author: {label: deps.text.t(agentText("conversation.author.notice", {name: authorOf(target, notice.by).label})), icon: "i-lucide-bell"},
             editable: false,
-            ...(target.transcript.wakeGateOpen() || target.transcript.run().status !== "idle" ? {} : {held: {reason: deps.text.t(agentText("conversation.held.notice"))}}),
-        };
+            ...held,
+        }));
     }
 
     /** 停止的第二个选项（输出 49）：在跑、缓冲区里有用户自己的话时给出，条数是全部条数（用户的停止清空全部）。 */
@@ -1860,7 +1860,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 modes: meta !== null && meta !== undefined && meta.profile !== MAIN_PROFILE ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),
                 mode: modeOfCurrent(target ?? null),
                 resume: target?.transcript.interrupted() === true,
-                queued: target === null || target === undefined ? [] : [...target.transcript.queue().map((item) => queuedView(target, item)), ...target.transcript.notices().map((item) => noticeView(target, item))],
+                queued: target === null || target === undefined ? [] : [...target.transcript.queue().map((item) => queuedView(target, item)), ...noticeViews(target)],
                 draft,
                 recall: target === null || target === undefined ? [] : recallOf(target.transcript.messages()),
                 attachments: [...uploads].map(([localId, entry]) => (entry.state === "ready"

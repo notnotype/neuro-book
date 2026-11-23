@@ -132,8 +132,17 @@ export type RemoteSessionSnapshot = Omit<SessionSnapshot, "notices"> & {readonly
 /** 摘要至多多少个字符。 */
 export const NOTICE_SUMMARY_CHARS = 200;
 
-/** 提醒正文的开头，按字符（码点）截，不切开代理对。 */
-export const noticeSummary = (text: string): string => [...text].slice(0, NOTICE_SUMMARY_CHARS).join("");
+/** 提醒正文的开头，按字符（码点）截，不切开代理对；只走到第 200 个字符，不展开全文。 */
+export function noticeSummary(text: string): string {
+    let out = "";
+    let taken = 0;
+    for (const char of text) {
+        if (taken === NOTICE_SUMMARY_CHARS) break;
+        out += char;
+        taken += 1;
+    }
+    return out;
+}
 
 export function remoteNotice(notice: PendingNotice): RemoteNotice {
     return {id: notice.id, by: notice.by, ...(notice.key === undefined ? {} : {key: notice.key}), wake: notice.wake, queuedAt: notice.queuedAt, summary: noticeSummary(notice.text), bytes: new TextEncoder().encode(notice.text).length};
