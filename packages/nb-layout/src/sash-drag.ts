@@ -16,8 +16,8 @@
  *
  * `Grid` 与独立 `Splitter` 共用这一份实现；阈值与记忆尺寸由宿主的收起策略给出。
  */
-import {EPSILON, GRID_UNBOUNDED, allocateSashPanels, clampAxis, finite, round, sashPanelBounds, type SashPanel} from "./grid-geometry";
-import {gridIssue} from "./grid-issue";
+import {EPSILON, GRID_UNBOUNDED, allocateSashPanels, clampAxis, finite, sashPanelBounds, type SashPanel} from "./grid-geometry";
+import {gridIssue, round} from "./grid-issue";
 import type {GridAxis, GridIssue, GridIssueCode} from "./grid-types";
 
 /** 主轴位移的正方向 = 分隔条向右（水平分支）或向下（竖直分支）移动。 */

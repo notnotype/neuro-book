@@ -9,6 +9,7 @@
  * - 只 `console.warn`，不走 `onIssues`：这是给写宿主的人看的接线错误，不是运行时诊断；被拒的提交照旧经 `issues` 事件交出。
  */
 
+import {axisOf} from "./grid-geometry";
 import type {GridLayoutResult, GridNode} from "./grid-types";
 
 type DevCheckState = {enabled: boolean; reported: WeakMap<object, Set<string>>};
@@ -63,7 +64,7 @@ export function onlyZeroWidthBoundaries(root: GridNode<unknown> | null, layout: 
     };
     const visit = (node: GridNode<unknown>): void => {
         if (node.kind === "leaf") return;
-        const axis = node.orientation === "horizontal" ? "width" : "height";
+        const axis = axisOf(node.orientation);
         const sashes = layout.sashSizes[node.id] ?? [];
         node.children.forEach((child, index) => {
             const next = node.children[index + 1];

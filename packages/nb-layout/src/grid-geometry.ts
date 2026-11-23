@@ -20,7 +20,7 @@ import type {
     GridSizing,
     SashCollapseState,
 } from "./grid-types";
-import {gridIssue} from "./grid-issue";
+import {gridIssue, round} from "./grid-issue";
 
 export const EPSILON = 1e-6;
 
@@ -46,11 +46,6 @@ export function crossAxisOf(orientation: GridOrientation): GridAxis {
 
 export function finite(value: number, fallback: number): number {
     return Number.isFinite(value) ? value : fallback;
-}
-
-/** 诊断文案里的数字：不暴露浮点尾巴。 */
-export function round(value: number): number {
-    return Math.round(value * 100) / 100;
 }
 
 /** 把宿主给的一对约束归一为 0 ≤ min ≤ max；缺省按 `minimumSize: 0`、`maximumSize: 不限`。 */
@@ -117,9 +112,9 @@ export type SashPanel = {
 
 /** 面板沿主轴的**有效**范围：收起时是刚性 collapsedSize，否则是声明的 [min, max]（max 不低于 min）。 */
 export function sashPanelBounds(panel: SashPanel): {low: number; high: number} {
-    if (panel.collapse?.collapsed === true) {
-        const size = Math.max(0, finite(panel.collapse.collapsedSize, 0));
-        return {low: size, high: size};
+    const rigid = collapsedRigid(panel.collapse);
+    if (rigid !== null) {
+        return rigid;
     }
     const low = Math.max(0, finite(panel.minimum, 0));
     return {low, high: Math.max(low, finite(panel.maximum, low))};
@@ -268,8 +263,13 @@ function collapsedRigid(collapse: SashCollapseState | undefined): {low: number; 
     if (collapse?.collapsed !== true) {
         return null;
     }
-    const size = Math.max(0, finite(collapse.collapsedSize, 0));
+    const size = collapsedSizeOf(collapse);
     return {low: size, high: size};
+}
+
+/** 收起后占的尺寸：非有限或负值按 0。 */
+function collapsedSizeOf(collapse: SashCollapseState): number {
+    return Math.max(0, finite(collapse.collapsedSize, 0));
 }
 
 /**
@@ -277,7 +277,7 @@ function collapsedRigid(collapse: SashCollapseState | undefined): {low: number; 
  * 收成标题行的（`collapsedSize` 大于 0）还看得见，只在父分支主轴上是刚性的。
  */
 function collapsedToZero(collapse: SashCollapseState | undefined): boolean {
-    return collapse?.collapsed === true && Math.max(0, finite(collapse.collapsedSize, 0)) === 0;
+    return collapse?.collapsed === true && collapsedSizeOf(collapse) === 0;
 }
 
 /** 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。 */

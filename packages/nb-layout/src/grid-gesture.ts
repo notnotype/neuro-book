@@ -238,8 +238,9 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
             owner.collapsed = {...result.collapsed};
             // 两处诊断合在一起，同键的只留折叠那一条：快照里同一个键最多一条（Spec 输出 140）。
             const collapseKeys = new Set(collapseIssues.map(issueKey));
-            owner.issues = [...collapseIssues, ...result.issues.filter((issue) => !collapseKeys.has(issueKey(issue)))];
-            issues.push(...result.issues.filter((issue) => !collapseKeys.has(issueKey(issue))));
+            const dragIssues = result.issues.filter((issue) => !collapseKeys.has(issueKey(issue)));
+            owner.issues = [...collapseIssues, ...dragIssues];
+            issues.push(...dragIssues);
         }
         for (const owner of owners) {
             const sizes = owner.sizes ?? owner.baseline;

@@ -46,7 +46,6 @@ export type SplitterGestureSession = SashGestureSessionCore<SplitterGestureState
 export function createSplitterSession(input: SplitterSessionInput): SplitterGestureSession {
     const axis = input.axis;
     const ids = input.ids;
-    let delta = {x: 0, y: 0};
     let snapState: SashDragSnapState | null = null;
     let sizes: readonly number[] = input.baselinePx;
     let collapsed: Readonly<Record<string, boolean>> = {};
@@ -165,8 +164,7 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
             if (cancelReason !== null) {
                 return null;
             }
-            delta = next;
-            return drag(axis === "width" ? delta.x : delta.y);
+            return drag(axis === "width" ? next.x : next.y);
         },
 
         jump(edge) {
