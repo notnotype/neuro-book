@@ -149,6 +149,31 @@ describe("author-ui 输出 39、44：拆与并遇上别处加的块", () => {
     }), 60_000);
 });
 
+describe("author-ui 输出 45：另一个窗口也在改", () => {
+    it("那边的提交还在等结果时点“用这里的”：不覆盖，写明先换成那边的", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲"]);
+        const [one, two] = [tabOf(await scene.window("browser-1"), entry), tabOf(await scene.window("browser-2"), entry)];
+        await one.tab.start();
+        one.tab.add("b1");
+        one.tab.update(one.tab.editor.value.blocks[1]!.key, "只该有一份");
+        one.tab.flush();
+        await until(() => one.tab.editor.value.saved === "saved");
+        await two.tab.start();
+        const lost = scene.loseReply((ask) => ask.method === "editEntries");
+        await one.tab.submit();
+        await lost.lost;
+        expect(one.tab.editor.value.phase).toBe("confirming");
+        two.tab.update("b1", "甲改");
+        two.tab.flush();
+        await until(() => two.tab.editor.value.saved === "diverged");
+
+        await two.tab.takeOver();
+        expect([two.tab.editor.value.saved, two.tab.editor.value.message]).toEqual(["diverged", "另一个窗口有一次提交还在等结果，先换成那边的"]);
+        two.dispose();
+        one.dispose();
+    }), 60_000);
+});
+
 describe("author-ui 输出 45：放弃", () => {
     it("链路断着时放弃：留在编辑，写明暂存没有删掉；连上以后再放弃才离开", () => inScene(async (scene) => {
         const entry = await scene.seed(["A"]);
