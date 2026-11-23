@@ -129,6 +129,23 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
+    it("主文字的块由模型自己分：create 的 text 是一块；addBlock 的 after 写块 id 是放在它后面，写 null 是放在最前，不写是放在最后", async () => {
+        const {author, run, close} = await scene();
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建条目", edits: [{op: "create", key: "school", name: "学院", kind: "组织", text: "第一段。\n\n第二段，和第一段在同一块里。"}]});
+        expect(created.status).not.toBe("error");
+        const school = (created.details as {ids: Record<string, string>}).ids["tmp:school"]!;
+        const version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: school}));
+        const added = await run(AGENT_TOOL_IDS.write, {title: "加三块", version, edits: [
+            {op: "addBlock", entry: school, text: "放在最前", after: null},
+            {op: "addBlock", entry: school, text: "跟在第一块后面", after: "b1"},
+            {op: "addBlock", entry: school, text: "放在最后"},
+        ]});
+        expect(added.status).not.toBe("error");
+        const blocks = await author.canon.call("textBlocks", {id: school});
+        expect(blocks.ok && blocks.value?.blocks.map((block) => block.source)).toEqual(["放在最前", "第一段。\n\n第二段，和第一段在同一块里。", "跟在第一块后面", "放在最后"]);
+        await close();
+    }, 60_000);
+
     it("读过之后作者改了：带旧版本的写入被拒，回话写明之间的修订，请它重读", async () => {
         const {author, run, close} = await scene();
         await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", name: "星瑕", kind: "人物", components: ["人物"]}]});

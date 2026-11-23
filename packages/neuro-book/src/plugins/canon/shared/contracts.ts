@@ -13,7 +13,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {ActorSchema, AddressSchema, AuthorizationSchema, EntryEditsSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute, FieldDeclaration, OriginStep, Placement, TreeItem, TreeItemAt, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute, FieldDeclaration, OriginStep, Placement, TreeItem, TreeItemAt, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, TextBlocksRead, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -100,6 +100,8 @@ const methods = {
     status: {input: Type.Object({}), output: Out, effect: "read", errors},
     /** 带视图令牌时 `position` 可以不写，读到上限为止。 */
     entry: {input: Type.Object({id: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, withOrigins: Type.Optional(Type.Boolean()), withChangedAt: Type.Optional(Type.Boolean()), view: View}), output: Out, effect: "read", errors},
+    /** 主文字的每一块能怎么改（canon.project 的 `textBlocks`）；只按实际模式读，不收视图令牌（作者界面按块编辑用）。 */
+    textBlocks: {input: Type.Object({id: Type.String(), position: Type.Optional(ReadPositionSchema)}), output: Out, effect: "read", errors},
     /** 给了 `position` 时每项另带这个位置上的名字、出场与本体（输出 30）；`mode` 缺省实际模式。 */
     tree: {input: Type.Object({parent: Type.Union([Type.String(), Type.Null()]), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
     /** 一个地址的来历的一页，从最近一步往前（canon.model 输出 37）；带视图令牌拒。 */
@@ -364,6 +366,8 @@ export interface CanonOutputs {
     readonly status: CanonStatus;
     /** 条目存在时另带上级链（从最上面一级到直接上级）、本体与分组（输出 33）；带视图令牌读时没有这三项。 */
     readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>; readonly ancestors?: readonly EntryName[]; readonly sameAs?: EntryName | null; readonly folder?: string; readonly declarations?: Readonly<Record<string, readonly FieldDeclaration[]>>};
+    /** 条目不存在或已删除为 null；`inputDigest` 与 `version` 合起来就是写入时带的读取戳，`at` 是解析后的位置（写明线）。 */
+    readonly textBlocks: ({readonly version: number; readonly inputDigest: string} & TextBlocksRead) | null;
     /** 给了位置时每项是 `TreeItemAt`；`remaining` 是这一层在这一页之后还会列出几项。 */
     readonly tree: Page<TreeItem & Partial<Pick<TreeItemAt, "nameAt" | "appeared" | "sameAs">>> & {readonly remaining: number};
     /** 来历的一页：`items` 从最近一步往前；`initial` 与 `reduced` 是页外的初值与归纳两步。 */

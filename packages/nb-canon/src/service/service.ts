@@ -30,6 +30,7 @@ import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/wr
 import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
 import {editEntries, previewEntries, type EntryEditResult, type EntryEdits} from "../world/entry-edits";
 import {marksIn} from "../world/references";
+import {textBlocks} from "../world/text-blocks";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
@@ -411,6 +412,16 @@ export class WorldService {
             }
         }
         return found;
+    }
+
+    /**
+     * 主文字的每一块在这个位置上的样子与能怎么改（方法表 `textBlocks`）：与块同一次读取的读取戳和解析后的位置一起给，调用方
+     * 之后的写入带这个戳、照这个位置给，写队列里比到世界变了就拒收（revisions.md 输出 25 的读取戳）。只按实际模式读。
+     */
+    textBlocks(id: string, position: ReadPosition) {
+        const world = this.#world;
+        const read = textBlocks(world, id, position);
+        return read === null || typeof read === "string" ? read : {...this.#stampOf(world), ...read};
     }
 
     /**

@@ -23,6 +23,7 @@ import {LOCAL_ID_PREFIX} from "../core/ids";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
 import {MAIN_LINE} from "../lines/table";
+import {textTouches, writeBack} from "./text-blocks";
 import type {Problem, World, WriteFailure, WriteResult} from "./world";
 
 /**
@@ -63,12 +64,25 @@ type Expect =
     | {readonly op: number; readonly at: Address; readonly story: boolean; readonly value: unknown}
     | {readonly op: number; readonly at: Address; readonly story: boolean; readonly has: string; readonly present: boolean};
 
+/** 一项操作写下的东西在候选对象里的位置：发布前的校验按对象与路径报问题，靠它对回是第几项（输出 25）。 */
+interface Target {
+    readonly op: number;
+    readonly ref: {readonly kind: "entry" | "change"; readonly id: string};
+    readonly path: string;
+}
+
 export interface EntryPlan {
     readonly ok: true;
     readonly position: ReadPosition;
     readonly request: WriteRequest;
     readonly routes: readonly EditRoute[];
     readonly expects: readonly Expect[];
+    readonly targets: readonly Target[];
+    /**
+     * 这个变更 id 在原世界里还没有：发布前的校验报新变更的问题时用的是候选里刚发的 id，不是请求里的临时 id，靠它认出
+     * “这一批合成的那条剧情变更”。
+     */
+    readonly isNewChange: (id: string) => boolean;
     /** 改了值的地址：结果里列出后面改过它们的记录。 */
     readonly addresses: readonly Address[];
 }
@@ -434,6 +448,15 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
     const expects: Expect[] = [];
     const addresses: Address[] = [];
     const seen: Address[] = [];
+    const targets: Target[] = [];
+    /** 这一批里上一个落在同一处的新块（键是条目加锚点）：下一项接在它后面，同一处的几项才按写的先后排。 */
+    const placed = new Map<string, string>();
+    /** 改设定的一项写下的块在候选对象里的位置。 */
+    const locate = (index: number, route: EditRoute, at: Address): void => {
+        if (route.kind === "patch") targets.push({op: index, ref: {kind: "change", id: route.change}, path: `patches[${String(route.patch)}]`});
+        else if (route.kind === "change") targets.push({op: index, ref: {kind: "change", id: STORY_CHANGE_TMP}, path: `patches[${String(story.length - 1)}]`});
+        else if (route.kind === "init" && at.path.startsWith("text[")) targets.push({op: index, ref: {kind: "entry", id: at.entry}, path: `init.${at.path}`});
+    };
 
     const current = (at: Address, index: number): ViewValue | {readonly ok: false; readonly failure: EntryEditFailure} => {
         const value = currentAt(world, position, at);
@@ -496,6 +519,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 if (isFailure(routed)) return routed;
                 if (routed.patch !== undefined) story.push(routed.patch);
                 routes.push(routed.route);
+                locate(index, routed.route, op.at);
                 expects.push({op: index, at: op.at, story: intent === "story", value: next});
                 addresses.push(op.at);
                 break;
@@ -601,22 +625,36 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
             case "addBlock": {
                 const entry = draft.entry(op.entry);
                 if (entry === undefined) return problem(index, "not-found", "the entry does not exist");
+                if (entry.deleted === true) return {ok: false, failure: {code: "field-unavailable", op: index}};
                 const taken = usedBlockIds(world, world.data.entries.get(op.entry), op.entry);
                 for (const key of draft.fresh) if (key.startsWith(`${op.entry}/text[`)) taken.add(key.slice(`${op.entry}/text[`.length, -1));
                 const id = nextLocalId(LOCAL_ID_PREFIX.block, taken);
                 draft.fresh.add(`${op.entry}/text[${id}]`);
                 const at: Address = {entry: op.entry, path: `text[${id}]`};
                 if (intent === "story") {
-                    // 增块不写 `after` 是插在最前（apply.ts）；不写时放在这个位置上最后一块之后。
+                    // 补丁里不写 `after` 是插在最前（apply.ts）。操作里不写是放在这个位置上最后一块之后，写 `null` 才是最前。
                     const view = line.engine.entry(op.entry, position, "actual");
                     const lastBlock = view !== null && view !== "chapter-not-found" ? view.text.at(-1)?.id ?? null : null;
-                    story.push({op: "addBlock", at, value: {source: op.source, after: op.after ?? lastBlock} as never});
+                    const anchor = op.after === undefined ? lastBlock : op.after;
+                    const slot = `${op.entry}\n${anchor ?? ""}`;
+                    // 同一处的后一项挂在这一批里上一项后面：补丁照旧一条条套，先后就是写的先后，已有日志的重放不受影响。
+                    story.push({op: "addBlock", at, value: {source: op.source, after: placed.get(slot) ?? anchor} as never});
+                    placed.set(slot, id);
                     routes.push({kind: "change", at: storyPlacement(world, storyAt!)});
-                } else {
-                    const anchor = op.after === undefined ? -1 : entry.init.text.findIndex((block) => block.id === op.after);
-                    if (op.after !== undefined && anchor < 0) return problem(index, "element-missing", "the block to insert after is not in the initial text");
-                    entry.init.text.splice(anchor < 0 ? entry.init.text.length : anchor + 1, 0, {id, source: op.source});
+                    targets.push({op: index, ref: {kind: "change", id: STORY_CHANGE_TMP}, path: `patches[${String(story.length - 1)}]`});
+                } else if (op.after === undefined) {
+                    entry.init.text.push({id, source: op.source});
                     routes.push({kind: "init"});
+                    targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: `init.${at.path}`});
+                } else {
+                    if (op.after !== null && !entry.init.text.some((block) => block.id === op.after)) return problem(index, "element-missing", "the block to insert after is not in the initial text");
+                    const slot = `${op.entry}\n${op.after ?? ""}`;
+                    // 同一处的后一项接在这一批里上一项后面（它刚放进初值，一定找得到）。
+                    const after = placed.get(slot) ?? op.after;
+                    entry.init.text.splice(after === null ? 0 : entry.init.text.findIndex((block) => block.id === after) + 1, 0, {id, source: op.source});
+                    placed.set(slot, id);
+                    routes.push({kind: "init"});
+                    targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: `init.${at.path}`});
                 }
                 expects.push({op: index, at, story: intent === "story", value: op.source});
                 addresses.push(at);
@@ -626,12 +664,14 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 const block = /^text\[(.+)\]$/u.exec(op.at.path)?.[1];
                 const entry = draft.entry(op.at.entry);
                 if (block === undefined || entry === undefined) return problem(index, "type-mismatch", "removeBlock needs the address of a block");
+                if (entry.deleted === true) return {ok: false, failure: {code: "field-unavailable", op: index}};
                 if (intent === "story") {
                     story.push({op: "removeBlock", at: op.at, value: null as never});
                     routes.push({kind: "change", at: storyPlacement(world, storyAt!)});
                 } else {
-                    const touched = touchedBy(world, position, op.at.entry, (patch) => patch.at.path === op.at.path);
-                    if (touched.length > 0 || !entry.init.text.some((candidate) => candidate.id === block)) return problem(index, "element-from-change", "this block was added or changed by a story change; remove it as a story change instead", {reason: touched.join(",")});
+                    // 被碰过也包括被当作锚点：有变更把新块挂在它后面时删它，那条变更就套不上（`textTouches`）。
+                    const touched = textTouches(world, position, op.at.entry).touched.get(block) ?? [];
+                    if (touched.length > 0 || !entry.init.text.some((candidate) => candidate.id === block)) return problem(index, "element-from-change", "this block was added or changed by a story change, or a story change adds a block after it; remove it as a story change instead", {reason: touched.join(",")});
                     entry.init.text = entry.init.text.filter((candidate) => candidate.id !== block);
                     routes.push({kind: "init"});
                 }
@@ -714,7 +754,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
         ...(intent === "story" ? {chapter: storyAt!.chapter} : {}),
         puts,
     };
-    return {ok: true, position, request, routes, expects, addresses};
+    return {ok: true, position, request, routes, expects, targets, isNewChange: (id) => !world.data.changes.has(id), addresses};
 }
 
 /**
@@ -743,19 +783,16 @@ function routeSet(world: World, draft: Draft, position: ReadPosition, intent: "c
         if (!writeInit(draft.entry(at.entry)!, at.path, next)) return {ok: false, failure: {code: "field-unavailable", op: index}};
         return {route: {kind: "init"}};
     }
-    const origins = world.lineAt(position)!.engine.origins(at, position, "actual");
-    if (origins === "chapter-not-found") return {ok: false, failure: {code: "chapter-not-found"}};
-    const steps = origins.filter((step) => step.kind !== "check" || step.result === "anchor");
-    const last = steps.at(-1)!;
+    const back = writeBack(world, position, at);
+    if (back.kind === "chapter-not-found" || back.kind === "line-not-found") return {ok: false, failure: {code: back.kind}};
     // 带过去的值不是哪条记录写的：要改它，在这条线上记一条剧情变化（worldlines 输出 19）。
-    const view = world.lineAt(position)!;
-    if (last.kind === "patch" && view.synthetic.has(last.change)) return {ok: false, failure: {code: "validation-failed", problems: [{code: "carried-value", path: `ops[${String(index)}]`, message: "the value was carried over from another world line; record a story change on this line instead"}]}};
-    if (last.kind === "reduce" || last.kind === "check" || (last.kind === "patch" && (last.op === "add" || last.op === "note"))) return {ok: false, failure: {code: "accumulated-value", origins, op: index}};
-    if (last.kind === "init") {
+    if (back.kind === "carried") return {ok: false, failure: {code: "validation-failed", problems: [{code: "carried-value", path: `ops[${String(index)}]`, message: "the value was carried over from another world line; record a story change on this line instead"}]}};
+    if (back.kind === "accumulated") return {ok: false, failure: {code: "accumulated-value", origins: back.origins, op: index}};
+    if (back.kind === "init") {
         if (!writeInit(draft.entry(at.entry)!, at.path, next)) return {ok: false, failure: {code: "field-unavailable", op: index}};
         return {route: {kind: "init"}};
     }
-    const change = draft.change(last.change)!;
+    const change = draft.change(back.change)!;
     const before = structuredClone(change.patches);
     let patchIndex = -1;
     change.patches = change.patches.map((patch, position) => {
@@ -767,13 +804,23 @@ function routeSet(world: World, draft: Draft, position: ReadPosition, intent: "c
         if (replaced !== patch && patchIndex < 0) patchIndex = position;
         return replaced;
     });
-    if (sameJson(change.patches, before)) return {ok: false, failure: {code: "accumulated-value", origins, op: index}};
+    if (sameJson(change.patches, before)) return {ok: false, failure: {code: "accumulated-value", origins: back.origins, op: index}};
     return {route: {kind: "patch", change: change.id, patch: patchIndex}};
 }
 
 /** 在候选世界上逐项读回核对（输出 25）：剧情变化在新变更之后的那一点读，改设定在读取位置读。 */
 export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult {
-    if (!result.ok) return result;
+    if (!result.ok) {
+        if (result.failure.code !== "validation-failed" || plan.targets.length === 0) return result;
+        // 发布前的校验按候选对象与路径报问题：对得上某一项写下的位置时带上它的序号。
+        const located = result.failure.problems.map((item) => {
+            const ref = item.ref;
+            const found = ref === undefined ? undefined : plan.targets.find((candidate) => candidate.ref.kind === ref.kind && candidate.path === item.path
+                && (candidate.ref.id === ref.id || (candidate.ref.id === STORY_CHANGE_TMP && ref.kind === "change" && plan.isNewChange(ref.id))));
+            return found === undefined ? item : {...item, op: found.op};
+        });
+        return {ok: false, failure: {...result.failure, problems: located}};
+    }
     const changeId = result.ids[STORY_CHANGE_TMP];
     for (const expect of plan.expects) {
         let got: unknown;

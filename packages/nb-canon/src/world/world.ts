@@ -103,6 +103,8 @@ export interface Problem {
     readonly message: string;
     /** 有细分原因的码带它（`ref-invalid` 的 `entry-missing`、`ref-type-mismatch`……，components.md 输出 18）。 */
     readonly reason?: string;
+    /** 一次改几处里，这条问题出在第几项写下的东西上（从 0 起，revisions.md 输出 25）；对不上哪一项时没有。 */
+    readonly op?: number;
 }
 
 export interface ConflictDetail {

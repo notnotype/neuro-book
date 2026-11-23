@@ -265,6 +265,52 @@ describe("canon.project：世界服务在项目子进程里", () => {
         keep.release();
     }, 30_000);
 
+    it("textBlocks 与 canon.revisions 输出 25：经链路读主文字的块（带读取戳与解析后的位置），照着它带戳写入；之间别处写过就被拒，重读再写通过", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const author = await windowOf(h, "browser-1", "profile-1");
+        await binder(h, `<binder><chapter id="1"/></binder>`);
+        await until(async () => {
+            const read = await author.canon.call("chapters", {});
+            return read.ok && read.value.items.length === 1;
+        });
+        const by = {kind: "author"} as const;
+        const created = await author.canon.call("editEntries", {input: {requestId: "text-1", by, what: "edit", title: "建两个", ops: [
+            {op: "create", id: "tmp:a", entry: {name: "学院", kind: "组织", text: ["第一块", "第二块"]}},
+            {op: "create", id: "tmp:b", entry: {name: "别的", kind: "组织"}},
+        ]}});
+        if (!created.ok) throw new Error(JSON.stringify(created.failure));
+        const [entry, other] = [created.value.ids["tmp:a"]!, created.value.ids["tmp:b"]!];
+        const story = await author.canon.call("editEntries", {input: {requestId: "text-2", by, what: "edit", title: "第 1 章加一块", baseVersion: created.value.version, intent: "story", position: {kind: "chapter", chapter: "1", edge: "end"}, ops: [{op: "addBlock", entry, source: "剧情加的", after: "b1"}]}});
+        if (!story.ok) throw new Error(JSON.stringify(story.failure));
+
+        // 不写位置就是缺省位置（最后一章末尾），回来的位置写明了线。
+        const read = await author.canon.call("textBlocks", {id: entry});
+        if (!read.ok || read.value === null) throw new Error("读不到块");
+        expect(read.value).toMatchObject({version: story.value.version, at: {kind: "chapter", chapter: "1", edge: "end", line: "main"}});
+        expect(read.value.blocks.map((block) => [block.id, block.source, block.write, block.fixed.length, block.anchor, block.init])).toEqual([
+            ["b1", "第一块", "init", 1, "b1", 0],
+            ["b3", "剧情加的", "change", 1, "b1", undefined],
+            ["b2", "第二块", "init", 0, "b2", 1],
+        ]);
+        expect(await author.canon.call("textBlocks", {id: "e999"})).toEqual({ok: true, value: null});
+        expect(await author.canon.call("textBlocks", {id: entry, position: {kind: "chapter", chapter: "9", edge: "end"}})).toMatchObject({ok: false, failure: {code: "chapter-not-found"}});
+
+        const submit = (requestId: string, from: NonNullable<typeof read.value>) => author.canon.call("editEntries", {input: {requestId, by, what: "edit", title: "改第二块", baseVersion: from.version, readStamp: {version: from.version, input: from.inputDigest}, intent: "creative", position: from.at, ops: [{op: "set", at: {entry, path: "text[b2]"}, value: "第二块（改）", read: "第二块"}, {op: "addBlock", entry, source: "新的一块", after: from.blocks[2]!.anchor!}]}});
+        // 别处改了不相干的条目：带旧戳的写入整批拒收。
+        expect((await author.canon.call("editEntries", {input: {requestId: "text-3", by, what: "edit", title: "改别的", baseVersion: story.value.version, ops: [{op: "aliases", entry: other, add: ["另一个"]}]}})).ok).toBe(true);
+        expect(await submit("text-4", read.value)).toMatchObject({ok: false, failure: {code: "stale-read", revisions: [{title: "改别的"}]}});
+        const fresh = await author.canon.call("textBlocks", {id: entry});
+        if (!fresh.ok || fresh.value === null) throw new Error("读不到块");
+        expect((await submit("text-5", fresh.value)).ok).toBe(true);
+        const after = await author.canon.call("textBlocks", {id: entry});
+        expect(after.ok && after.value?.blocks.map((block) => block.source)).toEqual(["第一块", "剧情加的", "第二块（改）", "新的一块"]);
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
     it("输出 10：独占期间别的窗口写入得到 busy；持有窗口的链路断开，独占随租约订阅结束", async () => {
         const h = await projectHarness(tmp, {plugins: serverPlugins()});
         const keep = leaseOf(await h.manager.acquire("book", "test"));
