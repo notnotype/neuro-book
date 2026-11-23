@@ -21,7 +21,9 @@ t49 做完后，用 /simplify 把 w00026 期间 nb-layout、nb-workbench-layout 
 2. 主会话分拣：过度防御、收益小的不改；写 `plan.md`，交一次计划审查（Claude Sonnet）。
 3. 按模块派 Sonnet 在各自的 worktree 里改，现有测试就是判据；主会话审 diff、跑受影响的测试与 e2e（改前先在 master 上跑一份基线）。
 
-五份调研已交回（[`evidences/survey-*.txt`](evidences/)）：真正没有调用方的代码不多，生产代码约 300 到 400 行可删或可合并；更大的收益是同一规则写了几份、热路径上的重复量取和 `NestedGrid.vue` 按层拆开。分拣结果与切片见 [`plan.md`](plan.md)，公开面的候选单列在其中“公开面与待定”一节交开发者。
+五份调研已交回（[`evidences/survey-*.txt`](evidences/)）：真正没有调用方的代码不多，生产代码约 300 到 400 行可删或可合并；更大的收益是同一规则写了几份、热路径上的重复量取和 `NestedGrid.vue` 按层拆开。分拣结果与切片见 [`plan.md`](plan.md)。
+
+开发者 2026-11-23 定（plan 的“公开面与待定”）：nb-layout 那几个没有使用方的公开名字在发布前删掉（切片 S7），0.1.0 等 t55 合入后再发；nb-workbench-layout 的 `showPanelAndInsert`、`splitIntoSections` 删掉；工作台接网格诊断另开 Task。
 
 ## 下一步
 

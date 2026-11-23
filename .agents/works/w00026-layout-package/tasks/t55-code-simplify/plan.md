@@ -61,7 +61,7 @@
 - 小重复（wbl 8）：`axisOf` 只留 `layout-doc.ts` 一份；`intent-writeback.ts` 改调 `holdsEditor`；`isBarInput` 并进 `isBarLeaf`；`normalizeDoc`；去重键改用 `layoutDropKey`；夹具的 `sizeOf` 改调 `findTreeNode`。新增导出 `rectContains`（半开区间）给应用用，`layout-drop.ts` 自己的 `contains` 换成它。
 - `presentationCollapse` 把上一轮的投影带到下一轮（wbl 9）；`layoutDropPanelAt` 只在需要时算 `sourceTabs`，`findTab` 改 `for…in`（wbl 10）。
 - `index.ts` 从 `export *` 改成显式清单（wbl 12）：外部用到的名字照旧导出，调研列出的外部为零的那批不导出；`entry.test.ts` 改成对清单断言。本包是私有包，不在冻结面内，这一条记进待确认清单。`layout-doc.ts` 的校验段拆成 `layout-doc-validate.ts`。
-- `showPanelAndInsert`、`rebaseOriginal`、`splitIntoSections` 先不删，交开发者（见“公开面与待定”）。
+- 删 `showPanelAndInsert`、`rebaseOriginal`、`splitIntoSections`（开发者定，见“公开面与待定”第 6 条）。
 
 ### `packages/neuro-book/src/plugins/workbench/web/` —— 切片 S5（S4 合入后）
 
@@ -94,7 +94,10 @@ nb-layout 0.1.0 还没发到 npm，现在删名字没有使用方受影响；发
 6. nb-workbench-layout 的 `showPanelAndInsert`、`splitIntoSections`：没有调用方；前者 t24 记录过“留着，作为库操作”（wbl 2、3）。
 7. 工作台不接 `WorkbenchSurface` 的 `issues`，产品里网格的诊断与被拒的提交都静默丢掉（app 顺便发现 1）：接到诊断出口，还是确认丢掉。
 
-开发者定了要改的，另开切片 S7，在 S1 到 S6 之后做，改 api 报告与 CHANGELOG 的 0.1.0 条目；SDK 快照受影响时按 `PLUGIN_API_SINCE` 的规则判。
+开发者 2026-11-23 定：
+- 1 到 5 在发布前删掉，另开切片 S7（S1、S2、S3 合入之后做）：删 `resize`、`resizeBranch`（连带 `shiftNode`、`shiftSiblings`、`shareAxis` 与两个结果类型）与 `setCollapsed`；`live(source)` 去掉 `keyboard`；`useLiveDragSession` 不再返回 `session`、`live`；5 那批不再从根入口导出（包内照用，测试改从源文件导入）。改 api 报告、README 与 CHANGELOG 的 0.1.0 条目；Lab 的 `GridStructureScene` 与 `nb-workbench-layout` 测试里对 `resize`、`resizeBranch` 的使用改成 `resizeBranches`；SDK 快照受影响时按 `PLUGIN_API_SINCE` 的规则判。0.1.0 等 t55 合入后再发。
+- 6 两个都删，并进 S4（连同 `rebaseOriginal` 与它们的测试；`splitIntoSections` 那两条独有的断言里，“平分原份额”补到 `movePanelToEdge` 的用例里，另一条随函数删）。
+- 7 接到诊断出口，另开 Task，不放进 t55（记在 Work README 的“后续”）。
 
 ## Spec 与文档改动
 
@@ -110,6 +113,7 @@ Spec 不改。随代码改的文档：`live-drag-session.md`（activate 的先�
 | S2 | 两个手势会话 | S1 | Sonnet | 同 S1 |
 | S3 | nb-layout Vue 层 | S1 | Sonnet | 同 S1 |
 | S5 | 工作台布局与拖动 | S4 | Sonnet | 应用 `typecheck`、`bun test` 覆盖 `workbench/web` 与 `state` |
+| S7 | nb-layout 公开面收窄 | S1、S2、S3 | Sonnet | 同 S1，另加应用 `typecheck` 与 SDK 快照检查 |
 
 - 每片在自己的 worktree（`.worktree/w00026-t55-sN`，分支 `w00026/t55-sN`），一项候选一个提交，提交信息写候选编号；编码者不跑 e2e。
 - 主会话审 diff、自己重跑上面的验证与本片的 e2e，处理完合入 master，下一片从新的 master 开。
