@@ -172,7 +172,7 @@ function cloneTree<T>(node: GridNode<T> | null): GridNode<T> | null {
  * 它只活在预览树里，绝不落账——宿主提交走 `resizeBranches` 的意图反解。
  * 分支副轴（例如外层横向分支里的竖直子分支）不受影响，所以同帧的多根轴不会互相污染。
  */
-export function projectGridGesture<T>(
+function projectGridGesture<T>(
     baseline: GridGestureBaseline<T>,
     solves: readonly {branchId: string; axis: GridAxis; sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>}[],
 ): {tree: GridNode<T> | null; layout: GridLayoutResult} {

@@ -426,9 +426,6 @@ function distribute(
     }
 }
 
-/** 默认收起阈值：吸附与恢复各 24px（CSS px，不随 DPR 变化）。 */
-export const SASH_COLLAPSE_THRESHOLD = 24;
-
 /**
  * 当前分隔线相对按下基线的绝对位移（左侧面板之和的变化量）。
  *
@@ -472,21 +469,4 @@ export function sashEdgeDelta(input: {
     const shrinkAfter = Math.max(0, afterSize - afterBounds.low);
     const growBefore = Math.max(0, beforeBounds.high - beforeSize);
     return Math.min(shrinkAfter, growBefore);
-}
-
-/** 便捷构造：宿主给出展开尺寸与记忆尺寸，得到一份完整的收起策略。 */
-export function sashCollapsePolicy(input: {
-    collapsedSize: number;
-    restoreSize: number;
-    collapsed?: boolean;
-    collapseThreshold?: number;
-    expandThreshold?: number;
-}): SashPanel["collapse"] {
-    return {
-        collapsedSize: Math.max(0, finite(input.collapsedSize, 0)),
-        restoreSize: Math.max(0, finite(input.restoreSize, 0)),
-        collapseThreshold: Math.max(0, finite(input.collapseThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
-        expandThreshold: Math.max(0, finite(input.expandThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
-        collapsed: input.collapsed === true,
-    };
 }

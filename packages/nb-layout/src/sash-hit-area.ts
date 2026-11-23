@@ -73,7 +73,7 @@ export function collectSashHits(
 }
 
 /** 指针到分隔线中心的距离：竖线看 x、横线看 y。 */
-export function sashDistance(point: SashPoint, target: SashHitTarget): number {
+function sashDistance(point: SashPoint, target: SashHitTarget): number {
     return target.axis === "width"
         ? Math.abs(point.x - (target.rect.left + target.rect.right) / 2)
         : Math.abs(point.y - (target.rect.top + target.rect.bottom) / 2);

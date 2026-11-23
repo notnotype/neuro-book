@@ -1,10 +1,29 @@
 import {describe, expect, it} from "bun:test";
 import {createGrid} from "./grid";
-import {branchSashPanels, type SashPanel} from "./grid-geometry";
-import {sashCollapsePolicy, solveSashCollapse, solveSashDrag, type SashDragResult, type SashDragSnapState} from "./sash-drag";
+import {branchSashPanels, finite, type SashPanel} from "./grid-geometry";
+import {solveSashCollapse, solveSashDrag, type SashDragResult, type SashDragSnapState} from "./sash-drag";
 import type {GridBranchInput, GridLeafInput} from "./grid-types";
 
 const UNBOUNDED = Number.MAX_SAFE_INTEGER;
+/** 默认收起阈值：吸附与恢复各 24px。 */
+const SASH_COLLAPSE_THRESHOLD = 24;
+
+/** 便捷构造：给出展开尺寸与记忆尺寸，得到一份完整的收起策略。 */
+function sashCollapsePolicy(input: {
+    collapsedSize: number;
+    restoreSize: number;
+    collapsed?: boolean;
+    collapseThreshold?: number;
+    expandThreshold?: number;
+}): SashPanel["collapse"] {
+    return {
+        collapsedSize: Math.max(0, finite(input.collapsedSize, 0)),
+        restoreSize: Math.max(0, finite(input.restoreSize, 0)),
+        collapseThreshold: Math.max(0, finite(input.collapseThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
+        expandThreshold: Math.max(0, finite(input.expandThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
+        collapsed: input.collapsed === true,
+    };
+}
 
 function fixed(id: string, minimum: number, maximum = UNBOUNDED): SashPanel {
     return {id, size: minimum, minimum, maximum, sizing: "fixed"};

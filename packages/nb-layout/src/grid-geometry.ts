@@ -61,14 +61,6 @@ export function normExtent(value: GridExtent | undefined, fallback: GridExtent):
     };
 }
 
-/** 归一约束对：max 不低于 min，避免宿主给出反向区间后分配逻辑反复抖动。 */
-export function normConstraint(minimum: GridExtent, maximum: GridExtent): {minimumSize: GridExtent; maximumSize: GridExtent} {
-    return {
-        minimumSize: minimum,
-        maximumSize: {width: Math.max(minimum.width, maximum.width), height: Math.max(minimum.height, maximum.height)},
-    };
-}
-
 export function clampAxis(value: number, low: number, high: number): number {
     const min = Math.max(0, finite(low, 0));
     const max = Math.max(min, finite(high, min));
@@ -131,18 +123,6 @@ export function sashPanelBounds(panel: SashPanel): {low: number; high: number} {
     }
     const low = Math.max(0, finite(panel.minimum, 0));
     return {low, high: Math.max(low, finite(panel.maximum, low))};
-}
-
-/** 收起策略是否合法：尺寸非负有限、collapsedSize 严格小于展开最小尺寸。 */
-export function collapsePolicyProblem(policy: SashCollapseState, expandedMinimum: number): string | null {
-    const values = [policy.collapsedSize, policy.restoreSize, policy.collapseThreshold, policy.expandThreshold];
-    if (values.some((value) => !Number.isFinite(value) || value < 0)) {
-        return "收起策略的尺寸与阈值必须是有限非负数";
-    }
-    if (policy.collapsedSize >= Math.max(0, finite(expandedMinimum, 0))) {
-        return `收起尺寸 ${round(policy.collapsedSize)} 必须小于展开最小尺寸 ${round(expandedMinimum)}`;
-    }
-    return null;
 }
 
 /**
@@ -462,11 +442,6 @@ function hasWeightedChild<T>(branch: GridBranch<T>, axis: GridAxis, sashSize: nu
 /** 分支直接子节点沿主轴的分配面板（含收起策略）：拖动会话与视图共用同一份输入。 */
 export function branchSashPanels<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): SashPanel[] {
     return sashPanelsOf(branch.children, axisOf(branch.orientation), sashSize);
-}
-
-/** 分支各条边界的配置 sash 占用（px；顺序对应相邻 children）。 */
-export function branchSashSizes<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): number[] {
-    return sashValues(branch, sashSize);
 }
 
 const NO_AXES: ReadonlySet<GridAxis> = new Set();

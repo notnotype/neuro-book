@@ -7,9 +7,9 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 
 /** 候选连续这么久不变才换预览（提案第 3 节）。 */
-export const LIVE_SETTLE_MS = 150;
+const LIVE_SETTLE_MS = 150;
 /** 空位周围这么宽还算在空位里：指针贴着边缘时预览不来回跳。 */
-export const LIVE_STICKY_PX = 8;
+const LIVE_STICKY_PX = 8;
 
 /** @experimental */
 export interface LiveDropCandidate {

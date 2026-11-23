@@ -59,7 +59,7 @@ export type GridEdgeDrop = "left" | "right" | "top" | "bottom" | "center";
 export const GRID_DROP_INDICATOR_PX = 2;
 
 /** 边缘落点的默认边缘带比例：与编辑器现有 20% 语义一致。 */
-export const GRID_EDGE_RATIO_DEFAULT = 0.2;
+const GRID_EDGE_RATIO_DEFAULT = 0.2;
 
 function finitePoint(point: GridDropPoint): boolean {
     return Number.isFinite(point.x) && Number.isFinite(point.y);
