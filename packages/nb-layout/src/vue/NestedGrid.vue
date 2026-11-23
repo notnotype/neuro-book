@@ -12,10 +12,9 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
-import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
 import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
-import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -28,6 +27,7 @@ import {useLeafParking} from "./useLeafParking";
 import {useGridFocus} from "./useGridFocus";
 import {useLayoutExtent} from "./useLayoutExtent";
 import {useRenderOrder} from "./useRenderOrder";
+import {useSashPresentation} from "./useSashPresentation";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
 import {layoutMotionMs} from "./layout-motion";
@@ -319,29 +319,6 @@ const order = useRenderOrder(layers, instanceId, (item) => (item.kind === "conte
 const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 
-/**
- * 宿主给分隔线的种类、样式与两侧的显示名（`sashKind`、`sashStyle`、`paneLabel`），按每次渲染记下：交换里滑出去的线两侧已经不在宿主的布局里，
- * 问宿主只会得到错的结果，沿用它离开前最后一次的。不在渲染层里的线的记录在布局变化时清掉（见 `layers` 的 watcher）。
- */
-type SashLook = {readonly kind: string | undefined; readonly style: Record<string, string> | undefined; readonly before: string; readonly after: string};
-const sashLooks = new Map<string, SashLook>();
-function paneNameOf(id: string): string {
-    const label = props.paneLabel?.(id);
-    return label === undefined || label === "" ? id : label;
-}
-function sashLookOf(sash: GridSashPlacement<unknown>): SashLook {
-    if (sash.leaving === true) return sashLooks.get(sash.key) ?? {kind: undefined, style: undefined, before: sash.before, after: sash.after};
-    const ref = {branch: sash.branch.id, before: sash.before, after: sash.after};
-    const look = {kind: props.sashKind?.(ref), style: props.sashStyle?.(ref), before: paneNameOf(sash.before), after: paneNameOf(sash.after)};
-    sashLooks.set(sash.key, look);
-    return look;
-}
-
-function sashBoxStyle(sash: GridSashPlacement<unknown> & {readonly kind: "sash"}): Record<string, string> {
-    const rect = growing.value.get(sash.key) ?? sash.rect;
-    return {...sashLookOf(sash).style, position: "absolute", ...gridRectStyle(rect), ...swapClipStyle(sash, rect)};
-}
-
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
 function controlledIds(leaf: string): string {
     const frame = domIdOf(`leaf:${leaf}`);
@@ -349,62 +326,17 @@ function controlledIds(leaf: string): string {
     return content === undefined ? frame : `${frame} ${domIdOf(content.key)}`;
 }
 
-/**
- * 这条线沿自己的长度方向为零：它在一个收起为零的分支里（docs/specs/ui/nested-grid.md 输出 136），两边的叶都看不见。
- * 粗细还在，所以 `SashHandle` 按粗细判的“接缝”认不出它；按不可交互交给它，就不可聚焦、不进指针命中，展开后矩形有了长度自己恢复。
- */
-function isZeroLength(sash: GridSashPlacement<unknown>): boolean {
-    return (sash.axis === "width" ? sash.rect.height : sash.rect.width) <= 0;
-}
-
-/** 分隔线的读屏名称：两侧用显示名（`paneLabel`），离开的线用离开前最后一次的。 */
-function sashAriaLabel(sash: GridSashPlacement<unknown>): string {
-    const look = sashLookOf(sash);
-    return text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: look.before, after: look.after});
-}
-
-function sashProps(sash: GridSashPlacement<unknown>) {
-    // 交换里滑出去的分隔线：两侧已经不在布局里，尺寸用冻结的，不能拖。
-    if (sash.frozen !== undefined) {
-        return {
-            branchId: sash.branch.id,
-            index: sash.index,
-            axis: sash.axis,
-            size: sash.size,
-            beforePx: sash.frozen.beforePx,
-            afterPx: sash.frozen.afterPx,
-            disabled: true,
-            detached: true,
-            ends: sash.ends,
-            ariaLabel: sashAriaLabel(sash),
-            ariaControls: domIdOf(`leaf:${sash.controls}`),
-            ariaMin: 0,
-            ariaMax: Math.round(sash.branchLength),
-            ariaNow: Math.round(sash.frozen.beforePx),
-            ariaValueText: text("splitter.pixels", {size: Math.round(sash.frozen.beforePx)}),
-        };
-    }
-    const sizes = renderLayout.value.sizes;
-    const nowPx = Math.max(0, sizes[sash.before]?.[sash.axis] ?? 0);
-    const panel = buildGridBranchPanels(sash.branch.children, renderLayout.value, sash.axis)[sash.index];
-    return {
-        branchId: sash.branch.id,
-        index: sash.index,
-        axis: sash.axis,
-        size: sash.size,
-        beforePx: nowPx,
-        afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
-        disabled: gesturesDisabled.value || isZeroLength(sash) || props.sashDisabled?.({branch: sash.branch.id, before: sash.before, after: sash.after}) === true,
-        detached: false,
-        ends: sash.ends,
-        ariaLabel: sashAriaLabel(sash),
-        ariaControls: controlledIds(sash.controls),
-        ariaMin: Math.round(panelBounds(panel).low),
-        ariaMax: ariaMax(panel, sash.branchLength),
-        ariaNow: Math.round(nowPx),
-        ariaValueText: panel?.collapse?.collapsed === true ? text("splitter.collapsed") : text("splitter.pixels", {size: Math.round(nowPx)}),
-    };
-}
+const {sashKindOf, sashBoxStyle, sashProps} = useSashPresentation({
+    host: props,
+    layers: () => layers.value,
+    layout: () => renderLayout.value,
+    gesturesDisabled: () => gesturesDisabled.value,
+    growing: () => growing.value,
+    swapClip: swapClipStyle,
+    domIdOf,
+    controlledIds,
+    text,
+});
 
 /**
  * 内容项带不带过渡标记。用着起点矩形（`growing`，键见 `startKey`：停放过的内容随新叶长出来、换成按叶的矩形摆的那一帧、落地的卡片）的那一次渲染不带：
@@ -458,8 +390,6 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
-    const rendered = new Set(layers.value.map((item) => item.key));
-    for (const key of sashLooks.keys()) if (!rendered.has(key)) sashLooks.delete(key);
     if (props.maximized != null) raisedLeaf.value = props.maximized.leaf;
     const before = old?.[1] ?? null;
     if (liftedKey !== null || before === null) return;
@@ -731,7 +661,7 @@ defineExpose({
                     <FrozenSlot :frozen="frozenLeaves.has(item.node.id)" :name="`leaf ${item.node.id}`"><slot name="leaf" :node="item.node"></slot></FrozenSlot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashLookOf(item).kind" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKindOf(item)" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"
