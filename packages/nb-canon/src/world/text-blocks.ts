@@ -52,20 +52,18 @@ interface TextTouches {
 }
 
 /**
- * 这条线上没撤销的变更碰过这个条目的哪些块。按全部变更算、不看先后，也不看实际还是计划、生效还是待定：后面的变更改过一块，
- * 或把新块挂在它后面，从初值里去掉它，那些变更就套不上（连带同一条变更里别的补丁）。
+ * 没撤销的变更碰过这个条目的哪些块。按全部变更算：不看先后，不看实际还是计划、生效还是待定，也不看在哪条线上——初值是各条线
+ * 共用的，别的线上的变更改过一块、或把新块挂在它后面，从初值里去掉它，那条变更同样套不上（连带同一条变更里别的补丁）。
  */
-export function textTouches(world: World, position: ReadPosition, entry: string): TextTouches {
+export function textTouches(world: World, entry: string): TextTouches {
     const touched = new Map<string, string[]>();
     const anchors = new Map<string, string | null>();
-    const view = world.lineAt(position);
-    if (view === undefined) return {touched, anchors};
     const touch = (block: string, change: string): void => {
         const list = touched.get(block);
         if (list === undefined) touched.set(block, [change]);
         else if (!list.includes(change)) list.push(change);
     };
-    for (const change of view.records.changes.values()) {
+    for (const change of world.data.changes.values()) {
         if (change.status === "undone") continue;
         for (const patch of change.patches) {
             if (patch.at.entry !== entry) continue;
@@ -89,14 +87,17 @@ function blockOf(patch: Patch): string | null {
 export interface TextBlockInfo {
     readonly id: string;
     readonly source: string;
-    /** 改设定时改这一块的字写到哪：初值、给出它的那条变更（`change` 是哪条），或不能这样改（从别的线带过来的）。 */
+    /**
+     * 改设定时改这一块的字写到哪：初值，或给出它的那条变更（`change` 是哪条）。`none` 是两者都不是、不能这样改：主文字的块不能
+     * 带到别的线、也没有累出来的值，现在到不了这里，到了就照不能改处理。
+     */
     readonly write: "init" | "change" | "none";
     readonly change?: string;
     /** 碰过它的变更（`textTouches`）；非空时改设定不能把它从初值里删掉。 */
     readonly fixed: readonly string[];
     /**
      * 改设定时把新块放在这一块后面，`addBlock` 该写的 `after`：初值里的块是它自己；变更加出来的块是沿锚点追到的那个初值的块，
-     * 追到最前是 `null`。追不到（它是从别的线带过来的）时没有这一项，它后面放不了。
+     * 追到最前是 `null`。追不到（找不到加它的那条补丁）时没有这一项，它后面放不了。
      */
     readonly anchor?: string | null;
     /** 在初值的主文字里是第几块（从 0 起）；不在初值里时没有。 */
@@ -118,8 +119,8 @@ export function textBlocks(world: World, entry: string, position: ReadPosition):
     if (view === "chapter-not-found") return view;
     if (view === null || view.deleted) return null;
     const initIndex = new Map((world.data.entries.get(entry)?.init.text ?? []).map((block, index) => [block.id, index] as const));
-    const {touched, anchors} = textTouches(world, at, entry);
-    /** 沿锚点追到初值里的块；中途断了（那一块不是这条线上的变更加的）为 undefined。 */
+    const {touched, anchors} = textTouches(world, entry);
+    /** 沿锚点追到初值里的块；中途断了（找不到加那一块的补丁）为 undefined。 */
     const anchorOf = (block: string): string | null | undefined => {
         const seen = new Set<string>();
         let current: string | null = block;
@@ -133,8 +134,8 @@ export function textBlocks(world: World, entry: string, position: ReadPosition):
     const blocks = view.text.map((block): TextBlockInfo => {
         const init = initIndex.get(block.id);
         const fixed = touched.get(block.id) ?? [];
-        // 这条线上没有带过来的值、初值里的块又没被碰过：它的来历只有初值一步，不必为每一块重放一遍条目的事件。
-        const back: WriteBack = init !== undefined && fixed.length === 0 && line.synthetic.size === 0 ? {kind: "init"} : writeBack(world, at, {entry, path: `text[${block.id}]`});
+        // 初值里的块没被任何变更碰过：它的来历只有初值一步，不必为每一块重放一遍条目的事件（块也不能从别的线带过来）。
+        const back: WriteBack = init !== undefined && fixed.length === 0 ? {kind: "init"} : writeBack(world, at, {entry, path: `text[${block.id}]`});
         const anchor = anchorOf(block.id);
         return {
             id: block.id,

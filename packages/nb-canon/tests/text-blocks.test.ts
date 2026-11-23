@@ -116,6 +116,34 @@ describe("canon.revisions 输出 25：主文字的块", () => {
         }
     });
 
+    test("不写 after 的与写了的混在一批里：两种意图排出来的顺序相同", async () => {
+        for (const intent of ["creative", "story"] as const) {
+            const scene = await open(`mixed-${intent}`, ["A", "B"]);
+            try {
+                // 甲放最后；乙挂在 B（此刻的最后一块）后面，所以在甲前面；丙再放最后；丁挂在 A 后面。
+                ok(await scene.edit(intent, end("ch2"), [
+                    {op: "addBlock", entry: scene.entry, source: "甲"},
+                    {op: "addBlock", entry: scene.entry, source: "乙", after: "b2"},
+                    {op: "addBlock", entry: scene.entry, source: "丙"},
+                    {op: "addBlock", entry: scene.entry, source: "丁", after: "b1"},
+                ]));
+                expect({intent, text: scene.text(end("ch2")).map(([, source]) => source)}).toEqual({intent, text: ["A", "丁", "B", "乙", "甲", "丙"]});
+            } finally {
+                await scene.world.stop();
+            }
+        }
+        for (const intent of ["creative", "story"] as const) {
+            const scene = await open(`mixed-2-${intent}`, ["A", "B"]);
+            try {
+                // 先挂在最后一块后面、再不写：后一项在它后面。
+                ok(await scene.edit(intent, end("ch2"), [{op: "addBlock", entry: scene.entry, source: "甲", after: "b2"}, {op: "addBlock", entry: scene.entry, source: "乙"}]));
+                expect({intent, text: scene.text(end("ch2")).map(([, source]) => source)}).toEqual({intent, text: ["A", "B", "甲", "乙"]});
+            } finally {
+                await scene.world.stop();
+            }
+        }
+    });
+
     test("改设定删初值的块：有剧情加出来的块挂在它后面时拒收，世界与日志不动；那条变更撤销以后可以删", async () => {
         const scene = await open("remove-anchor", ["A", "B"]);
         try {
@@ -130,6 +158,51 @@ describe("canon.revisions 输出 25：主文字的块", () => {
             // 没有东西挂在 B 后面：照常能删，剧情加出来的块不受影响。
             ok(await scene.edit("creative", end("ch3"), [{op: "removeBlock", at: scene.at("b2")}]));
             expect(scene.text(end("ch3"))).toEqual([["b1", "A"], ["b3", "X"]]);
+        } finally {
+            await scene.world.stop();
+        }
+    });
+
+    test("别的世界线上的变更碰过的块同样不能删：初值是各条线共用的", async () => {
+        const scene = await open("other-line", ["A", "B", "C"]);
+        try {
+            // 第 1 章的一条变更作切口，从它分出子线；子线的第 2 章把 X 挂在 A 后面、把 B 整块换掉。
+            const cut = await scene.change({kind: "chapter", chapter: "ch1", key: 0}, []);
+            const forked = await scene.world.publish({requestId: id(), by: author, what: "edit", title: "分叉", baseVersion: scene.world.status().version, puts: [{ref: {kind: "change", id: "tmp:fork"}, after: {id: "tmp:fork", kind: "written", text: "分叉", at: {kind: "chapter", chapter: "ch2", key: 0}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: author, nature: "fork", fork: {line: "tmp:line", name: "支线", parent: "main", cut, type: "branch"}}}]} as WriteRequest);
+            if (!forked.ok) throw new Error(JSON.stringify(forked.failure));
+            const line = forked.ids["tmp:line"]!;
+            const branch = await scene.change({kind: "chapter", chapter: "ch2", key: 5, line}, [{op: "addBlock", at: scene.at("b9"), value: {after: "b1", source: "X"}}, {op: "replaceBlock", at: scene.at("b2"), value: "B′"}]);
+            const onBranch: ReadPosition = {kind: "chapter", chapter: "ch3", edge: "end", line};
+            expect(scene.text(onBranch).map(([, source]) => source)).toEqual(["A", "X", "B′", "C"]);
+            // 主线上读不到那条变更，A 与 B 的原文也没变；但它们被子线的变更碰过。
+            const main: ReadPosition = {kind: "chapter", chapter: "ch3", edge: "end", line: "main"};
+            expect(scene.blocks(main).map((block) => [block.source, block.write, block.fixed])).toEqual([["A", "init", [branch]], ["B", "init", [branch]], ["C", "init", []]]);
+            for (const block of ["b1", "b2"]) {
+                const refused = failure(await scene.edit("creative", main, [{op: "removeBlock", at: scene.at(block)}]));
+                expect(refused.problems?.[0]).toMatchObject({code: "element-from-change", reason: branch});
+            }
+            expect(scene.text(onBranch).map(([, source]) => source)).toEqual(["A", "X", "B′", "C"]);
+            ok(await scene.edit("creative", main, [{op: "removeBlock", at: scene.at("b3")}]));
+            expect(scene.text(onBranch).map(([, source]) => source)).toEqual(["A", "X", "B′"]);
+        } finally {
+            await scene.world.stop();
+        }
+    });
+
+    test("还原加了一块的那次改设定：后面有剧情加出来的块挂在它后面时报有依赖，不让那一块连带消失", async () => {
+        const scene = await open("revert-anchor", ["A"]);
+        try {
+            const added = ok(await scene.edit("creative", end("ch3"), [{op: "addBlock", entry: scene.entry, source: "B"}]));
+            const story = ok(await scene.edit("story", end("ch2"), [{op: "addBlock", entry: scene.entry, source: "X"}]));
+            expect(scene.text(end("ch3"))).toEqual([["b1", "A"], ["b2", "B"], ["b3", "X"]]);
+            const refused = await scene.world.revert(added.revision.id, false, {requestId: id(), by: author, title: "还原"});
+            expect(refused.ok === false && refused.failure).toMatchObject({code: "has-dependents"});
+            expect(JSON.stringify(refused.ok === false ? refused.failure : null)).toContain(story.revision.id);
+            expect(scene.text(end("ch3"))).toEqual([["b1", "A"], ["b2", "B"], ["b3", "X"]]);
+            // 连同后面的一起还原：两块都没了，不留下套不上的变更。
+            const both = await scene.world.revert(added.revision.id, true, {requestId: id(), by: author, title: "一起还原"});
+            expect(both.ok).toBe(true);
+            expect(scene.text(end("ch3"))).toEqual([["b1", "A"]]);
         } finally {
             await scene.world.stop();
         }

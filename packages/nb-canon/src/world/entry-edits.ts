@@ -451,6 +451,8 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
     const targets: Target[] = [];
     /** 这一批里上一个落在同一处的新块（键是条目加锚点）：下一项接在它后面，同一处的几项才按写的先后排。 */
     const placed = new Map<string, string>();
+    /** 剧情变化加块时，这个条目在读取位置上此刻的最后一块（算上这一批前面加在末尾的）：不写 `after` 的项接在它后面。 */
+    const tails = new Map<string, string | null>();
     /** 改设定的一项写下的块在候选对象里的位置。 */
     const locate = (index: number, route: EditRoute, at: Address): void => {
         if (route.kind === "patch") targets.push({op: index, ref: {kind: "change", id: route.change}, path: `patches[${String(route.patch)}]`});
@@ -633,13 +635,22 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 const at: Address = {entry: op.entry, path: `text[${id}]`};
                 if (intent === "story") {
                     // 补丁里不写 `after` 是插在最前（apply.ts）。操作里不写是放在这个位置上最后一块之后，写 `null` 才是最前。
-                    const view = line.engine.entry(op.entry, position, "actual");
-                    const lastBlock = view !== null && view !== "chapter-not-found" ? view.text.at(-1)?.id ?? null : null;
-                    const anchor = op.after === undefined ? lastBlock : op.after;
-                    const slot = `${op.entry}\n${anchor ?? ""}`;
-                    // 同一处的后一项挂在这一批里上一项后面：补丁照旧一条条套，先后就是写的先后，已有日志的重放不受影响。
-                    story.push({op: "addBlock", at, value: {source: op.source, after: placed.get(slot) ?? anchor} as never});
-                    placed.set(slot, id);
+                    if (!tails.has(op.entry)) {
+                        const view = line.engine.entry(op.entry, position, "actual");
+                        tails.set(op.entry, view !== null && view !== "chapter-not-found" ? view.text.at(-1)?.id ?? null : null);
+                    }
+                    const tail = tails.get(op.entry)!;
+                    // 补丁照旧一条条套、每条都插在自己的锚点正后面，所以要排成写的先后，后一项得挂在这一批里上一项后面：不写 `after`
+                    // 的挂在此刻的最后一块后面，写了的挂在同一处上一项后面。这样两种意图排出来的顺序相同，已有日志的重放也不受影响。
+                    let anchor: string | null;
+                    if (op.after === undefined) anchor = tail;
+                    else {
+                        const slot = `${op.entry}\n${op.after ?? ""}`;
+                        anchor = placed.get(slot) ?? op.after;
+                        placed.set(slot, id);
+                    }
+                    story.push({op: "addBlock", at, value: {source: op.source, after: anchor} as never});
+                    if (anchor === tail) tails.set(op.entry, id);
                     routes.push({kind: "change", at: storyPlacement(world, storyAt!)});
                     targets.push({op: index, ref: {kind: "change", id: STORY_CHANGE_TMP}, path: `patches[${String(story.length - 1)}]`});
                 } else if (op.after === undefined) {
@@ -670,7 +681,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                     routes.push({kind: "change", at: storyPlacement(world, storyAt!)});
                 } else {
                     // 被碰过也包括被当作锚点：有变更把新块挂在它后面时删它，那条变更就套不上（`textTouches`）。
-                    const touched = textTouches(world, position, op.at.entry).touched.get(block) ?? [];
+                    const touched = textTouches(world, op.at.entry).touched.get(block) ?? [];
                     if (touched.length > 0 || !entry.init.text.some((candidate) => candidate.id === block)) return problem(index, "element-from-change", "this block was added or changed by a story change, or a story change adds a block after it; remove it as a story change instead", {reason: touched.join(",")});
                     entry.init.text = entry.init.text.filter((candidate) => candidate.id !== block);
                     routes.push({kind: "init"});
