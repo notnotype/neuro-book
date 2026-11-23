@@ -707,24 +707,6 @@ export function setContainerEntries(doc: LayoutDoc, anchor: string, entries: Rea
     return finish(doc, next);
 }
 
-/**
- * 树里一块多标签的工具面板拆成一个标签一块（多标签的浮动窗停靠进区域之后，输出 39、40）：按原顺序，都写同一个归属。归属是 `container`，没给就沿用这块面板的，
- * 再没有就是区域的当前容器；不在带容器的区域里时不写归属，只拆，这时点名 `container` 会被拒绝。第一块沿用原来的 id，其余的 id 用 `policy.newId`。只有一个标签时只定归属。
- * `container` 不要求已经在入口顺序里：入口顺序由调用方在同一次提交里补。
- */
-export function splitIntoSections(doc: LayoutDoc, input: {readonly panel: string; readonly container?: string}, policy: LayoutPolicy): LayoutResult {
-    const panel = doc.panels[input.panel];
-    if (panel === undefined) return failure("not-found", `Panel ${input.panel}`);
-    if (panel.role !== "tool" || panel.name !== undefined) return failure("rejected", "Only unnamed tool panels can be split");
-    if (findTreeNode(doc.tree.root, input.panel) === null) return failure("rejected", "Dock the floating window before splitting it");
-    const next = editable(doc);
-    // 面板自己带着的归属只在带容器的区域里才算“沿用”：在别处它是要清掉的残留，不能当成调用方点名的容器交给 `settleLanding`。
-    const kept = containerAnchorOf(doc, input.panel) === null ? undefined : panel.container;
-    const problem = settleLanding(next, input.panel, input.container ?? kept, policy) ?? splitPanelInPlace(next, input.panel, () => policy.newId("panel"));
-    if (problem !== null) return failure("rejected", problem);
-    return finish(doc, next);
-}
-
 export function insertTab(doc: LayoutDoc, input: {readonly panel: string; readonly tab: TabRef; readonly index?: number; readonly activate?: boolean}): LayoutResult {
     const panel = doc.panels[input.panel];
     if (panel === undefined) return failure("not-found", `Panel ${input.panel}`);
@@ -1166,32 +1148,6 @@ export function setBarHidden(doc: LayoutDoc, bar: LayoutBar, hidden: boolean): L
     const rest = next.hiddenBars.filter((candidate) => candidate !== bar);
     next.hiddenBars = hidden ? [...rest, bar] : rest;
     return finish(doc, next);
-}
-
-/**
- * 放进隐藏的面板：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（面板拖到零时把它的标签放回去）。
- *
- * 只给不用容器的面板用，工作台不用它。带容器的区域里显隐记在锚上，分节不接收标签：目标是锚或分节时拒绝，不留“成功了但区域还隐藏着”的结果。
- * 带容器的区域用 `setPanelHidden(锚, false)` 加 `openPanelAtEdge`。
- */
-export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource; readonly index?: number}, policy: LayoutPolicy): LayoutResult {
-    const record = doc.panels[input.panel];
-    if (record !== undefined && (isContainerAnchor(record) || containerAnchorOf(doc, input.panel) !== null)) return failure("rejected", "Regions with containers are not shown and received through here");
-    const shown = setPanelHidden(doc, input.panel, false);
-    if (!shown.ok) return shown;
-    const expanded = setPanelCollapsed(shown.doc, input.panel, false);
-    if (!expanded.ok) return expanded;
-    const target = expanded.doc.panels[input.panel] as PanelRecord;
-    if (input.source.kind === "tab") {
-        if (findTab(expanded.doc, input.source.tab)?.panel === input.panel) return rebaseOriginal(doc, activateTab(expanded.doc, input.source.tab));
-        return rebaseOriginal(doc, moveTabToStrip(expanded.doc, {tab: input.source.tab, panel: input.panel, index: input.index ?? target.tabs.length}, policy));
-    }
-    return rebaseOriginal(doc, movePanelToStrip(expanded.doc, {panel: input.source.panel, target: input.panel}, policy));
-}
-
-/** 组合操作的结果和最开始一样时，返回最开始的对象。 */
-function rebaseOriginal(original: LayoutDoc, result: LayoutResult): LayoutResult {
-    return result.ok && sameLayoutShape(original, result.doc) ? {ok: true, doc: original} : result;
 }
 
 /** 存盘前去掉动态标签（未绑定项目的窗口与新项目的模板）：只留工具面板与一个空编辑组。 */
