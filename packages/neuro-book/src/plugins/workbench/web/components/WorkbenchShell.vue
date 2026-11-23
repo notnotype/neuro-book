@@ -32,7 +32,7 @@ import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
 import {focusLandings, isSoleWindow, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
-import type {FocusLanding} from "../state/layout-present";
+import type {ContainerEntry, FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
@@ -515,14 +515,20 @@ const containerCount = (views: readonly string[]): number | null => {
     return total > 0 ? total : null;
 };
 
-/** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
-const toolEntries = computed((): ToolStripEntry[] => regionEntries(renderedDoc.value, "sidebar", catalog.value, state.value.containers).map((entry) => {
+/**
+ * 活动栏与入口条上的一个入口：`pressed` 是按下态（当前容器且区域可见），由调用方按自己区域的可见求值；角标各区域取法不同，由 `countOf` 按入口唯一的那个视图（含几个视图时是 null）给。
+ */
+function entryOf(entry: ContainerEntry, pressed: boolean, countOf: (viewId: string | null) => number | null): ToolStripEntry & RegionStripEntry {
     const label = text(entry.label.title);
     const views = entry.views.map(viewTitle);
     // 容器的名称就是它唯一那个视图的标题时，悬停文字不把同一个词写两遍。
     const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
-    return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value, count: containerCount(entry.views)};
-}));
+    const viewId = entry.views.length === 1 ? (entry.views[0] ?? null) : null;
+    return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId, current: entry.current, pressed, count: countOf(viewId)};
+}
+
+/** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
+const toolEntries = computed((): ToolStripEntry[] => regionEntries(renderedDoc.value, "sidebar", catalog.value, state.value.containers).map((entry) => entryOf(entry, entry.current && sidebarShowing.value, () => containerCount(entry.views))));
 
 const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntries(resolver) ?? []).map((item) => ({id: item.id, title: item.title, icon: item.icon, interactive: item.command !== null, pressed: item.pressed, disabledReason: item.disabledReason})));
 
@@ -579,16 +585,9 @@ function selectRegionEntry(region: PanelName, container: string): void {
 const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", RegionStripEntry[]>> => {
     const entriesOf = (region: "auxiliarybar" | "panel"): RegionStripEntry[] => {
         const showing = regionShowing(region);
-        return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => {
-            const label = text(entry.label.title);
-            const views = entry.views.map(viewTitle);
-            const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
-            const viewId = entry.views.length === 1 ? (entry.views[0] ?? null) : null;
-            // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里；几个视图的容器各节头
-            // 已经各写各的数，入口不再写合计。右栏的入口是图标，没有节头，写容器的合计。
-            const count = region === "panel" ? (viewId !== null ? props.views.badge?.(viewId) ?? null : null) : containerCount(entry.views);
-            return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId, current: entry.current, pressed: entry.current && showing, count};
-        });
+        // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里；几个视图的容器各节头
+        // 已经各写各的数，入口不再写合计。右栏的入口是图标，没有节头，写容器的合计。
+        return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => entryOf(entry, entry.current && showing, (viewId) => (region === "panel" ? (viewId !== null ? props.views.badge?.(viewId) ?? null : null) : containerCount(entry.views))));
     };
     return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
 });
