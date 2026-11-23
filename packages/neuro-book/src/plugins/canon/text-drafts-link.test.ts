@@ -449,13 +449,15 @@ describe("author-ui 输出 45、46：放弃与确认、两处同时开始、大�
         const [mine, theirs] = [deskOf(await scene.window("browser-1")), deskOf(await scene.window("browser-2"))];
         const session = mine.drafts.session(entry);
         const reading = scene.holdReply((ask) => ask.method === "textBlocks");
-        const [first, second] = [session.begin(at), session.begin(at)];
+        const first = session.begin(at);
         await reading.held;
-        // 另一个窗口（同一份浏览器配置）这时进编辑、暂存了它的稿。
+        // 第一处读过暂存（没有稿）、读块还没回来。另一个窗口（同一份浏览器配置）这时进编辑、暂存了它的稿。
         const other = theirs.drafts.session(entry);
         await other.begin(at);
         other.edit((draft, read) => setText(draft, read, "b2", "另一个窗口的字"));
         await other.flush();
+        // 这个窗口的另一个页面这时也点了“编辑”：与第一处是同一次开始，不另读一次暂存、不把那边的稿装进来。
+        const second = session.begin(at);
         reading.release();
         expect([await first, await second]).toEqual([null, null]);
 

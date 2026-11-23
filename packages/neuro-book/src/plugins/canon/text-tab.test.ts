@@ -93,13 +93,14 @@ describe("author-ui 输出 44：冲突里的选择", () => {
         await tab.leave();
         expect(tab.editing.value).toBe(false);
 
-        // 第二份稿改成同样的字、别处的也没再动：冲突长得一样，但没选过。
+        // 第二份稿从别的原文起步，改成同样的字，别处又改回原来那一句：冲突的两边与上一份稿的一模一样，但这一份稿里没选过。
+        await elsewhere(scene, entry, "中间的样子");
         await tab.start();
         tab.update("b1", "第一份稿");
-        await elsewhere(scene, entry, "别处又改的");
+        await elsewhere(scene, entry, "别处改的");
         await tab.submit();
-        expect(tab.conflicts.value).toMatchObject([{mine: "第一份稿", theirs: "别处又改的", choice: null}]);
-        expect([tab.editing.value, scene.titles(entry)]).toEqual([true, ["建条目", "别处的改动", "别处的改动"]]);
+        expect(tab.conflicts.value).toMatchObject([{mine: "第一份稿", theirs: "别处改的", choice: null}]);
+        expect([tab.editing.value, scene.titles(entry)]).toEqual([true, ["建条目", "别处的改动", "别处的改动", "别处的改动"]]);
         dispose();
     }), 60_000);
 
