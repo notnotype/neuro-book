@@ -787,6 +787,21 @@ describe("写入", () => {
         dialogButton("提交").click();
         await waitUntil("以我的为准", async () => (await initText(other.canon, id))[0] === "第一块（我的第二版）。");
         await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists());
+
+        // 再来一次，这回选“现在的”：我对这一块的改动不要了，没有别的改动，不多出修订，回到阅读视图。
+        await startEditing(wrapper);
+        typeInto(areas(wrapper)[0]!, "第一块（我的第三版）。");
+        await waitUntil("有改动", () => wrapper.find("[data-text-count]").exists());
+        await elsewhere("b1", "第一块（别处的第三版）。");
+        const before = await other.canon.call("status", {});
+        await wrapper.get("[data-text-submit]").trigger("click");
+        await waitUntil("对照", () => document.body.querySelector("[data-text-conflicts]") !== null);
+        picks("theirs").click();
+        await waitUntil("选上了", () => picks("theirs").getAttribute("aria-pressed") === "true");
+        dialogButton("提交").click();
+        await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists() && wrapper.get("[data-entry-text]").text().includes("别处的第三版"));
+        const after = await other.canon.call("status", {});
+        expect([await initText(other.canon, id), before.ok && after.ok && after.value.version === before.value.version]).toEqual([["第一块（别处的第三版）。", "第二块（别处）。"], true]);
     });
 
     it("被剧情改过的块只能改字：删、拆、并不可用并写原因，改的字写进那条剧情变更；新块不能插在剧情加出来的块前面", async () => {

@@ -200,8 +200,9 @@ export function useTextTab(options: TextTabOptions): TextTab {
         message.value = "";
         session.edit(change);
     };
-    const submit = async (): Promise<void> => {
-        if (state.draft === null || state.phase !== "idle" || options.blocked() !== "" || !dirty.value) return;
+    /** 发一次提交。`settled` 是作者刚在冲突里选完：这时即使已经没有改动也要走一遍，让会话收场、回到阅读视图。 */
+    const submit = async (settled = false): Promise<void> => {
+        if (state.draft === null || state.phase !== "idle" || options.blocked() !== "" || (!settled && !dirty.value)) return;
         message.value = "";
         const sent = title();
         report(await session.submit(sent), sent);
@@ -254,7 +255,7 @@ export function useTextTab(options: TextTabOptions): TextTab {
             asking.value = false;
             await session.discard();
         },
-        submit,
+        submit: () => submit(),
         retry,
         takeOver: () => session.takeOver(),
         adopt: () => session.adopt(),
@@ -264,7 +265,7 @@ export function useTextTab(options: TextTabOptions): TextTab {
         confirmConflicts: async () => {
             for (const conflict of [...state.conflicts]) session.choose(conflict, conflict.kind === "locked" ? "theirs" : choices[conflict.key] ?? "theirs");
             asking.value = false;
-            await submit();
+            await submit(true);
         },
         storyWrite: async (request) => {
             for (let round = 0; round < SUBMIT_ATTEMPTS; round += 1) {
