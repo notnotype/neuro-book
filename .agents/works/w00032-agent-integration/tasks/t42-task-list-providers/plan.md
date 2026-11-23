@@ -64,7 +64,7 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 
 - **同步投影**（第二轮第 13 条）：一次推送读各家，不等异步。
 - **大小**（第一轮第 12 条、第二轮第 12 条；审查 F7）：一行编码后至多 2 KiB，一家至多 100 行，单家交满 200 KiB，加自己的任务与信封仍在 512 KiB 内；整份上的修剪只在几家同时交满时发生（3.3）。超出的行丢掉、记诊断 `provider-row-invalid`；一家超过 100 行时先留全部在跑与 `waiting` 的（含组头），结束的按结束时刻新到旧补满。
-- **代次**（第二轮第 11 条）：每次 `provide` 生成新的代次；行在远程里的键是 `p:<插件>:<代次>:<行 id>`，派发时按清单**最新的已读快照**查键，代次不符或行已不在得 `target-gone`。
+- **代次**（第二轮第 11 条）：每次 `provide` 生成新的代次；行在远程里的键是 `p:<插件>:<代次>:<行 id>`，派发时按清单**最新的已读快照**查键，代次不符或行已不在得 `row-gone`。
 - **撤回与关闭**（第二轮第 13 条；审查 F4、F21）：撤回时先封住派发；这一家在途的 `stop` 立即以 `unknown` 交回窗口并 abort 它们的 `signal`，提供方之后的结果丢弃；再退订、丢行与回调、推送一次。`nbook.tasks` 自己停止（`core.close()`）时对每家照做一遍。交给提供方的 `notify` 闭包绑定代次，不是当前代次的调用无效。
 - **`stop` 的上限**（审查 F4）：清单等提供方至多 10 秒（注入时钟），到点以 `unknown` 交回、abort `signal`。
 - **`start()` 的归属**（审查 F15）：按行的同样规则校验，不合格同步抛 `TypeError`；自己的任务不能带 `open`，会话块的“打开”只来自提供方。
@@ -80,8 +80,8 @@ type RowOpen = {command: string; args?: Readonly<Record<string, string>>};   // 
 `nbook.tasks/tasks` 升到版本 2（旧窗口得 `version-changed`）。方法与事件不能同名（`nb-runtime/remote/contract.ts`；审查 F19）：
 
 - `own` 读、`ownChanged` 事件（无过滤）：`{tasks, background}`。`tasks` 是自己的全部任务（v1 的清单每项加 `owner`），规则同 v1，整份超 512 KiB 时跳过推送、读得 `too-large`。`background` 是不分范围的在跑后台一次性工作（自己在跑的任务加提供方不是前台的在跑行）的件数与前 20 件的标题、进展与进度：状态栏只订这一份（审查 F8）。`background` 随提供方的行变，所以 `ownChanged` 也听提供方的变化，但只在 `background` 变了时才重推。
-- `rows` 读、`rowsChanged` 事件（过滤 `{scope: {project} | "all"}`）：`{version, groups, more, elsewhere}`。先按范围过滤，再分组（3.4）；`more` 是范围内因上限没列出的件数；`elsewhere` 是范围外在跑的件数（审查 F25）。同一版本不重推。整份编码后超过 512 KiB 时依次删：提供方结束的行（最早结束的先）、自己结束但不是失败的任务（最早结束的先）、不是组头的在跑行（最早开始的先）、组头；自己失败的任务不删（审查 F7、F8）。
-- 自己任务的 `detail`、`cancel`、`retry`、`remove`、`clearFinished` 不变；新 `stop({key})` 写，结果 `{outcome: "accepted" | "rejected" | "unknown", reason?}`，失败码 `target-gone`、`not-stoppable`。`unknown` 不自动重试。
+- `rows` 读、`rowsChanged` 事件（过滤 `{project, all}`：窗口的当前项目与是否取全部项目；取全部时当前项目仍排在前面）：`{version, groups, more, elsewhere}`。先按范围过滤，再分组（3.4）；`more` 是范围内因上限没列出的件数；`elsewhere` 是范围外在跑的件数（审查 F25）。同一版本不重推。整份编码后超过 512 KiB 时依次删：提供方结束的行（最早结束的先）、自己结束但不是失败的任务（最早结束的先）、不是组头的在跑行（最早开始的先）、组头；自己失败的任务不删（审查 F7、F8）。
+- 自己任务的 `detail`、`cancel`、`retry`、`remove`、`clearFinished` 不变；新 `stop({key})` 写，结果 `{outcome: "accepted" | "rejected" | "unknown", reason?}`，失败码 `row-gone`、`not-stoppable`。`unknown` 不自动重试。
 - 推送：每个订阅一个 `PushThrottle`，`compute` 调 `registry.snapshot()` 与核心，按内容去重。
 
 ### 3.4 分组：`backend/groups.ts`
@@ -116,7 +116,7 @@ Agent 有 `tasksKey` 时在激活里 `provide`，没有就不交（“在跑的�
 **停止**（第一轮第 21 条，第二轮第 15、18 条；审查 F2、F13）：
 
 - 后台任务：`jobs.kill(null, id)`（用户停：回执照送、不唤起）。`JobDriver.kill` 的结果扩成 `void | "already-ended" | "failed"`，子代理驱动 `abort` 交回失败时交回 `failed`（不再吞掉），`JobCenter.kill` 透传；远程 `killJob` 同受益。映射：`killed` → accepted；`already-ended`、`job-unknown` → rejected（“已经结束”“已经不在”）；`failed` 里 `not-allowed` → rejected（写码），其余与抛错 → unknown。
-- 会话与子会话：从行 id 取出运行，以用户身份 `abort({keepQueue: true, runId})`；`{aborted: false}` → rejected（“已经结束”）。运行已换时窗口多半先得 `target-gone`（新快照里没有旧行），两者都不停下一次运行。停下之后排着的话变成用户留着的、要用户在对话里放行（`harness/runtime.md` 输出 30），会话行随之变成“有留着的话等你放行”。回退到运行中途、同一 `runId` 接着跑时，旧行的停止会停到接着跑的那次：已知限制（同第一轮第 10 条）。
+- 会话与子会话：从行 id 取出运行，以用户身份 `abort({keepQueue: true, runId})`；`{aborted: false}` → rejected（“已经结束”）。运行已换时窗口多半先得 `row-gone`（新快照里没有旧行），两者都不停下一次运行。停下之后排着的话变成用户留着的、要用户在对话里放行（`harness/runtime.md` 输出 30），会话行随之变成“有留着的话等你放行”。回退到运行中途、同一 `runId` 接着跑时，旧行的停止会停到接着跑的那次：已知限制（同第一轮第 10 条）。
 
 **打开**（第一轮第 17 条，第二轮第 14 条；审查 F10）：会话、子会话、子代理行与会话块的组头走 `nbook.agent.focus-session {sessionId}`；命令行没有打开。`focus-session` 交回失败的判据限定为打开前就能确定的：视图或页面命令交回失败，或读会话头得 `session-not-found`、`log-corrupt`、`needs-migration`；之后读快照的失败仍画在视图里（已知边界）。编辑区页面把有归属的会话转给 `focus-session` 时等它的结果。
 
@@ -126,7 +126,7 @@ Agent 有 `tasksKey` 时在激活里 `provide`，没有就不交（“在跑的�
 - 状态栏（审查 F8）：件数与悬停看 `own.background`；“清单为空”是自己的任务为空且 `background` 件数为 0。
 - 看过（审查 F8）：视图可见、页面在前台时，自己的已结束任务里“显示着的”算看过：在当前范围、在 `rows` 的分组里、所在组展开、没被修剪。`rows` 每次更新、组展开或收起时重算。切换范围不撤回通知。
 - 视图：每个会话一块浅底的圆角块，等你处理的那块浅警示色底；块里组头是会话自己、其余行缩进；项目与应用的组头是小标题加件数；组头都有收起箭头，默认展开，按窗口记住（决定 5、6，草稿 `TaskGroupsDraft` 的 `blocks`）。行的列同现在，标题前多一个淡色的种类名；提供方的行只有“停止”“打开”。列表末尾：有没列出的写“另有 N 件没列出”；当前项目范围下别的项目有在跑的写“别的项目还有 N 件在跑”（审查 F25）。
-- 停止：结果回来之前按钮写“正在停止”；`rejected` 弹提示写原因，`unknown` 提示“不知道停没停下，看一下它的状态”，`target-gone` 提示“它已经不在了”并以下一份推送为准。
+- 停止：结果回来之前按钮写“正在停止”；`rejected` 弹提示写原因，`unknown` 提示“不知道停没停下，看一下它的状态”，`row-gone` 提示“它已经不在了”并以下一份推送为准。
 - 范围开关：视图的标题动作（[`workbench/views.md`](../../../../../docs/specs/workbench/views.md) 输出 10）。新命令 `nbook.tasks.toggle-all-projects`（不对 Agent 开放）加按窗口的公开状态键，`toggled` 时按下是全部项目；按窗口记。
 - 打开：执行行上的命令，失败时弹提示写原因。
 - 结束通知只看 `own`（决定 3、第一轮第 24 条）。
@@ -173,6 +173,15 @@ Agent 有 `tasksKey` 时在激活里 `provide`，没有就不交（“在跑的�
 - 合同测试：`tasks.test.ts`（核心与远程，真实入口）、Agent 的集成用例（真实会话表与任务中心）、套件的 `table` 用例、内核的索引用例。
 - 浏览器：`background-tasks.e2e.ts`、`agent-subagents.e2e.ts`。
 - 未验证边界：服务与定时形态（没有提供方）；项目子进程登记（第一批不收）。
+
+## 7a. omp 审查（第 1 稿）带来的补充
+
+omp（`@review`）审第 1 稿 22 条（[`evidences/plan-review-omp.txt`](evidences/plan-review-omp.txt)），大半与 Opus 的重合、第 2 稿已改；另加：
+
+- 第 1 片：几家交了同一个根会话的组头时只认最早登记的那家，记诊断（omp 17）；提供方在同一代里不复用已消失的行 id（omp 6，写进输出 19）；`rows` 的过滤带窗口的当前项目，取全部时当前项目仍在前（omp 12）。
+- 第 2 片：“打开”在窗口按命令注册表核对命令确实是那家提供方贡献的，不只看前缀（omp 11）；范围每变一次有世代，迟到的读与订阅丢弃；“看过”只认当前世代 `rows` 里已经画成终态的自己的任务（omp 14）；窄屏两行、组的收起开关有名称与展开状态、按钮的 `aria-describedby`、悬停保留进展（omp 22）。
+- 第 3 片：标题有初值与变化通知，压缩时进展写“正在压缩”（omp 3）；Agent 停止的第一步撤回提供方，门面释放兜底（omp 4）；任务中心的 `claim`、`unclaim` 发变化（omp 8）；不出 `starting` 的占位（omp 15）；组合验收：装与不装 `tasksKey`、手动压缩、后台根、只剩后代，“在跑的工作”不重报（omp 21）。
+- 已知限制照旧：被截掉的行没有入口（omp 1，开发者已定不分页）；回退后同一 `runId` 接着跑（omp 6）；`focus-session` 打开之后的失败只画在视图里（omp 9）；`own` 超过上限时照 v1 跳过推送（omp 13）。
 
 ## 8. 不做与风险
 
