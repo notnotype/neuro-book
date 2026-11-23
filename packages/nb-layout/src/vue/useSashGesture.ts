@@ -20,7 +20,7 @@ import {createIssueGate} from "../issue-gate";
 import type {GridFailure, GridIssue, GridIssueCode} from "../grid-types";
 import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureCancelReason, type SashGestureHost} from "../sash-gesture";
 
-export type SashRegistration = {
+type SashRegistration = {
     readonly branchId: string;
     readonly sashIndex: number;
     readonly axis: "width" | "height";
@@ -47,7 +47,7 @@ export type SashGestureScope = {
     invalidate(): void;
 };
 
-export type SashGestureOptions<S, C> = {
+type SashGestureOptions<S, C> = {
     /** 键盘与指针共用同一个宿主适配器；返回 null 表示此刻不能开始手势。 */
     host: () => SashGestureHost<S, C> | null;
     /** scope 根：指针监听、捕获与命中协调都挂在这里。 */

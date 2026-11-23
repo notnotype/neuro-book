@@ -35,7 +35,7 @@ import {layoutDevChecksEnabled, layoutDevWarning, onlyZeroWidthBoundaries} from 
 import {usableExtent} from "../grid-geometry";
 import {gridIssue} from "../grid-issue";
 import type {GridExtent, GridFailure, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
-import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
+import type {SashGestureBinding, SashGestureHost} from "../sash-gesture";
 
 defineOptions({name: "NestedGrid"});
 
