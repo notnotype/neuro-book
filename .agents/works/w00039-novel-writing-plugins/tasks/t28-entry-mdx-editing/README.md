@@ -110,8 +110,13 @@ updated: 2026-11-23
 
 S0 的 Spec 草稿已按第 4 稿改（`canon/revisions.md` 输出 25、`canon/project.md` 的 `textBlocks`、`canon/author-ui.md` 输出 39 与 44 到 47、验收 16、`canon/agent-tools.md`）；`docs:check` 通过。设计不再开第三轮审查；S1（内核）与 S3（稿与暂存）做完各交一次实现审查。审查 worktree 已删。
 
+2026-11-23 实现（Work 的 worktree，分支 `feat/w00039-t28-entry-text`，从 master `e3129eede` 开；交互稿的草稿文件挪到了本机 `drafts-backup/`，spike 分支留着没删）：
+
+- **S2 编辑区**（提交 `5f6ea1f94`）：页面的实现可以给 `uncommitted(arg)`、`commit(arg)`，标签条的圆点与公开状态 `dirty` 取前者，“保存”调用后者并等它；经服务 `nbook.editor/components` 交出 `CodeInput`（Monaco，高度随内容，进入视野或拿到焦点才建）；Monaco 主题的跟随抽成各实例共用一个观察器。验证：editor 插件 `bun test` 256 条、组件测试 39 条、类型检查、`governance:check` 都过；页面那三条行为各做了变异检查（都被拦住）；`CodeInput` 在真实浏览器的 Lab 场景里用脚本走过（打字后高度跟着变、长行折行不溢出、只读、二十个里只建了看得见的 9 个、键盘聚焦后光标在文末，没有报错）。与计划不同的两处：`CodeInput` 不发“请求保存”事件（Ctrl+S 照常交给保存命令，免得一次按键提交两次），Spec 输出 69 已同改；它没有 dom 测试（happy-dom 里起不了 Monaco），靠 Lab 场景的脚本与之后的 e2e。
+- **S1 内核**（提交 `44f8760cc`）：`addBlock` 的 `after: null` 与同一处几项的先后；删初值的块时被当作锚点也拒收；已删除的条目上加块、删块拒收；校验细项带 `op`；读取 `textBlocks`（内核、世界服务、远程合同）；Agent 工具传 `after: null`、说明里写什么时候另起一块。新用例 `nb-canon/tests/text-blocks.test.ts` 17 条（审查复现过的几种情形都在里面）、应用里链路与 Agent 工具各一条。验证：nb-canon 全量 673 条、类型检查；应用里 canon、plot、sdk 的 `bun test` 416 条；八处变异检查都被拦住。实现审查：Opus 在审（后台），omp 等 S3 做完与它合成一个范围交一次。
+
 ## 下一步
 
-1. 把 Work 的 worktree 从 spike 分支换到从 master 新开的分支（草稿文件挪到本机的 `drafts-backup/`），按切片实现：S2 编辑区（与内核互不相干，先做）、S1 内核、S3 稿与暂存、S4 文字分页、S5 e2e 与收口。
-2. S1、S3 各交一次实现审查（Opus 先审，omp 后台）；S2、S4 的前端交 Sonnet。
+1. S3 稿模型与暂存登记（`canon/web/text-draft.ts`、`text-drafts.ts`），S4 文字分页，S5 e2e 与收口。
+2. 处理 S1 的 Opus 审查；S1 加 S3 交一次 omp（后台）；S2、S3、S4 的前端交 Sonnet。
 3. 做完给开发者用，再定“单独编辑一个块”这类交互调整。
