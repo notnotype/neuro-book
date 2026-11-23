@@ -12,22 +12,33 @@ import type {InjectionKey} from "vue";
 
 import {NB_LAYOUT_CATALOGS} from "../locales";
 
+/** @experimental */
 export type LayoutTextKey = "splitter.resizeWidth" | "splitter.resizeHeight" | "splitter.collapsed" | "splitter.pixels" | "floatWindow.resize" | "floatWindow.move"
     | "sortable.handle" | "sortable.hint" | "sortable.placeholder" | "sortable.picked" | "sortable.moved" | "sortable.dropped" | "sortable.cancelled" | "sortable.unchanged";
 
-/** 代入目录里 `{{名字}}` 的参数，同 nb-ui 的文字参数（docs/specs/ui/i18n.md）。 */
+/**
+ * 代入目录里 `{{名字}}` 的参数，同 nb-ui 的文字参数（docs/specs/ui/i18n.md）。
+ * @experimental
+ */
 export type LayoutTextParams = Readonly<Record<string, string | number>>;
 
 /**
  * 宿主注入的翻译函数。组件在模板或 `computed` 里调用它，所以它每次调用都要读宿主的当前语言，换语言后组件才会更新。键不带
  * 命名空间；宿主转给自己的端口时按命名空间 `nb-layout`（`NB_LAYOUT_NAMESPACE`）查目录。
+ * @experimental
  */
 export type LayoutTranslate = (key: LayoutTextKey, params?: LayoutTextParams) => string;
 
-/** 用 `Symbol.for`：出现两份 nb-layout 模块时（开发构建、打包配置出错），按名字取的键仍是同一个，组件照样拿得到宿主的函数。 */
+/**
+ * 用 `Symbol.for`：出现两份 nb-layout 模块时（开发构建、打包配置出错），按名字取的键仍是同一个，组件照样拿得到宿主的函数。
+ * @experimental
+ */
 export const LAYOUT_TEXT_KEY: InjectionKey<LayoutTranslate> = Symbol.for("nb-layout.text") as InjectionKey<LayoutTranslate>;
 
-/** 自带目录里的语言。 */
+/**
+ * 自带目录里的语言。
+ * @experimental
+ */
 export type LayoutCatalogLocale = keyof typeof NB_LAYOUT_CATALOGS;
 
 const PLACEHOLDER = /\{\{\s*(\w+)\s*\}\}/gu;
@@ -51,6 +62,7 @@ function lookup(locale: LayoutCatalogLocale, key: LayoutTextKey): string | undef
  *
  * @throws RangeError `locale` 不是自带目录里的语言（类型已经挡住；JS 调用方传 `"zh"`、`navigator.language` 这类值时），在宿主
  * 提供文字的那一刻报出来，不悄悄换成英文。
+ * @experimental
  */
 export function layoutCatalogTranslate(locale: LayoutCatalogLocale): LayoutTranslate {
     if (!Object.hasOwn(NB_LAYOUT_CATALOGS, locale)) throw new RangeError(`nb-layout has no built-in catalog for locale "${String(locale)}"; use one of ${Object.keys(NB_LAYOUT_CATALOGS).join(", ")}`);

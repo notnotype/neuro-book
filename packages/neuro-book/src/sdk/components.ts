@@ -3,8 +3,10 @@
  * 的“共享入口即兼容承诺”）。nb-ui 是不发布的私有包，作者装不到它；组件的构建期实现与类型随 SDK 包分发，插件运行时宿主模块表给的
  * 是宿主自己用的那一份。
  *
- * 逐个列名而不是整体再导出：这里每一项都是兼容承诺，nb-ui 入口里给工作台用的内部件（分栏树、拖动手势、表单字段上下文、
- * 建议菜单的内部函数）不对外。nb-ui 新增单文件组件时在这里加一项：`sdk.test.ts` 把名单与 nb-ui 组件入口逐个对照，
+ * 逐个列名而不是整体再导出：这里每一项都受插件 API 的兼容起点保护（docs/specs/runtime/plugin-code-loading.md 的
+ * “共享入口即兼容承诺”），nb-ui 入口里给工作台用的内部件（分栏树、拖动手势、表单字段上下文、建议菜单的内部函数）不对外。
+ * nb-ui、nb-workbench-layout 的名字与这里声明的弃用别名是 SDK 自己的承诺；nb-layout 的名字在 nb-layout 里标 `@experimental`，
+ * 它们的签名发生不兼容改动时同样提 `PLUGIN_API_SINCE`，`sdk.test.ts` 的 nb-layout 快照会提醒（w00026 t48）。nb-ui 新增单文件组件时在这里加一项：`sdk.test.ts` 把名单与 nb-ui 组件入口逐个对照，
  * `plugin-sdk/pack.test.ts` 核对生成的声明文件与名单一致。
  */
 

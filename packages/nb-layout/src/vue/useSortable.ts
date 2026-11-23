@@ -23,12 +23,14 @@ import {useDragSession} from "./useDragSession";
 import {layoutDurationMs} from "./layout-vars";
 import {useLayoutText} from "./layout-text";
 
+/** @experimental */
 export interface SortableMove {
     readonly key: string;
     readonly from: SortableSlot;
     readonly to: SortableSlot;
 }
 
+/** @experimental */
 export interface UseSortableOptions {
     readonly root: Readonly<Ref<HTMLElement | null>>;
     readonly sections: () => readonly SortableSection[];
@@ -43,6 +45,7 @@ export interface UseSortableOptions {
     readonly onMove: (move: SortableMove) => void | PromiseLike<unknown>;
 }
 
+/** @experimental */
 export interface SortableHandle {
     /** 拖动中与等写入时是放下后的样子，其余时间等于 `sections()`。 */
     readonly preview: ComputedRef<readonly SortableSection[]>;
@@ -57,6 +60,7 @@ const INTERACTIVE = "button, input, select, textarea, a[href], [contenteditable=
 
 const isThenable = (value: unknown): value is PromiseLike<unknown> => typeof (value as PromiseLike<unknown> | null)?.then === "function";
 
+/** @experimental */
 export function useSortable(options: UseSortableOptions): SortableHandle {
     const t = useLayoutText();
     const vertical = (options.axis ?? "vertical") === "vertical";

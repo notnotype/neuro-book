@@ -13,6 +13,7 @@
 import {onScopeDispose, ref, watch, type Ref} from "vue";
 import type {GridExtent} from "../grid-types";
 
+/** @experimental */
 export function useLayoutExtent(element: Readonly<Ref<HTMLElement | null>>): Readonly<Ref<GridExtent | null>> {
     const extent: Ref<GridExtent | null> = ref(null);
     let observer: ResizeObserver | null = null;

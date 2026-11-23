@@ -16,8 +16,10 @@
  * `themed` 的那一批进 README 的变量表、承诺不随意改名；其余是内部名字。
  */
 
+/** @experimental */
 export type NbLayoutVarName = `--nb-layout-${string}`;
 
+/** @experimental */
 export type NbLayoutThemeVar =
     | {readonly name: NbLayoutVarName; readonly kind: "bridged"; readonly from: `--${string}` | null; readonly fallback: string; readonly themed: boolean}
     | {readonly name: NbLayoutVarName; readonly kind: "host"; readonly fallback: string}
@@ -28,6 +30,7 @@ const bridged = (name: NbLayoutVarName, from: `--${string}` | null, fallback: st
 /** 分隔线、描边的系统色：前景色压淡，暗色与亮色宿主都看得见。 */
 const DIVIDER = "color-mix(in srgb, CanvasText 15%, transparent)";
 
+/** @experimental */
 export const NB_LAYOUT_THEME_VARS: readonly NbLayoutThemeVar[] = [
     // 动效：时长与 nb-ui 的缺省相同；系统减少动态效果时由 `vue/global.css` 归零。
     bridged("--nb-layout-motion-fast", "--motion-fast", "120ms", true),

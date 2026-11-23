@@ -16,7 +16,10 @@ interface Registration {
 
 const registrations = new WeakMap<Element, Registration[]>();
 
-/** 登记一个落点，返回注销函数。种类按 `id` 比较：热更新重新求值定义种类的模块后，已登记的元素仍然查得到。 */
+/**
+ * 登记一个落点，返回注销函数。种类按 `id` 比较：热更新重新求值定义种类的模块后，已登记的元素仍然查得到。
+ * @experimental
+ */
 export function registerDropTarget<T>(element: Element, kinds: ReadonlyArray<DropKind<T>>, data: () => T): () => void {
     const registration: Registration = {kinds: new Set(kinds.map((kind) => kind.id)), data};
     registrations.set(element, [...(registrations.get(element) ?? []), registration]);
@@ -27,7 +30,10 @@ export function registerDropTarget<T>(element: Element, kinds: ReadonlyArray<Dro
     };
 }
 
-/** 组件里登记：元素出现时登记，换元素或组件卸载时注销。 */
+/**
+ * 组件里登记：元素出现时登记，换元素或组件卸载时注销。
+ * @experimental
+ */
 export function useDropTarget<T>(element: Readonly<Ref<Element | null>>, kinds: ReadonlyArray<DropKind<T>>, data: () => T): void {
     watch(element, (current, _previous, onCleanup) => {
         if (current !== null) onCleanup(registerDropTarget(current, kinds, data));
@@ -37,6 +43,7 @@ export function useDropTarget<T>(element: Readonly<Ref<Element | null>>, kinds: 
 /**
  * 从 `top` 往上找最近的、登记了这个种类的元素。内层登记了别的种类不挡外层。`top` 来自会话的遮挡判定，被菜单或对话框挡住时
  * 它就在浮层里，往上找不到登记的元素。
+ * @experimental
  */
 export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readonly element: Element; readonly data: T} | null {
     for (let element = top; element !== null; element = element.parentElement) {

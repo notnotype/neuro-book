@@ -372,6 +372,34 @@ function isShippedExampleFile(path: string): boolean {
     return name !== "dist" && name !== "node_modules" && !name.endsWith(".test.ts");
 }
 
+/**
+ * nb-layout 组件的稳定性标注（w00026 t48）：组件声明上带不了注释，nb-layout 把标注写在 `src/vue/index.ts` 组件行的行尾，
+ * 它自己的 `scripts/pack.ts` 打包后插进声明。这里的组件声明是另行生成的，照同样的写法读那一行、插同样的注释，插件作者
+ * 悬停时才看得到它们是 `@experimental`。SDK 没转出的组件跳过。
+ */
+export function tagLayoutComponents(declarations: string, layoutEntry: string): string {
+    const exportList = declarations.slice(declarations.lastIndexOf("\nexport {"));
+    const local = new Map<string, string>();
+    for (const item of /\{([^}]*)\}/u.exec(exportList)?.[1]?.split(",") ?? []) {
+        const parts = item.trim().split(/\s+as\s+/u);
+        local.set(parts.at(-1)!, parts[0]!);
+    }
+    let text = declarations;
+    for (const line of layoutEntry.split("\n")) {
+        const match = /^export \{default as (\w+)\} from "\.\/[\w-]+\.vue";\s*\/\/\s*@(stable|experimental)\s*$/u.exec(line);
+        if (match === null) {
+            if (/^export \{default as \w+\} from /u.test(line)) throw new Error(`nb-layout 的组件行没有稳定性标注：${line}`);
+            continue;
+        }
+        const declared = local.get(match[1]!);
+        if (declared === undefined) continue;
+        const at = new RegExp(`^declare const ${declared.replace(/\$/gu, "\\$")}:`, "mu").exec(text);
+        if (at === null) throw new Error(`components.d.ts 里找不到 ${match[1]} 的声明（${declared}）`);
+        text = `${text.slice(0, at.index)}/** @${match[2]} */\n${text.slice(at.index)}`;
+    }
+    return text;
+}
+
 export async function buildSdk(outDir: string): Promise<BuiltSdk> {
     await clearPreviousSdk(outDir);
     // 先写下带包名的清单：中途失败留下的半成品下次照样被认作上次生成的 SDK、能清掉重建。最后会被完整的清单覆盖。
@@ -413,7 +441,8 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
     const declarations = await readFile(componentsDts, "utf8");
     const exportList = declarations.lastIndexOf("\nexport {");
     if (exportList === -1) throw new Error("components.d.ts 末尾没有导出列表，插不进 nb-ui 的模板类型补充");
-    await writeFile(componentsDts, `${declarations.slice(0, exportList)}\n${ariaAugmentation}${declarations.slice(exportList)}`);
+    const layoutEntry = await readFile(join(repoRoot, "packages/nb-layout/src/vue/index.ts"), "utf8");
+    await writeFile(componentsDts, tagLayoutComponents(`${declarations.slice(0, exportList)}\n${ariaAugmentation}${declarations.slice(exportList)}`, layoutEntry));
     // 构建预设：命令行工具，打进内核的清单与应用的版本工具；Vite 与编译器、图标数据留作依赖。声明文件一并生成，作者的
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
     const tools = await rolldown({

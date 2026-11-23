@@ -24,6 +24,7 @@ function state(): DevCheckState {
 /**
  * 打开或关闭开发模式的配置检查（缺省关）。宿主在自己的开发构建里打开，例如 `if (import.meta.env.DEV) setLayoutDevChecks(true)`。
  * 在网格挂载之前调：开关不是响应式的，挂载之后才打开时，已经挂着的网格要到下一次布局变化才查分隔条那一条。
+ * @experimental
  */
 export function setLayoutDevChecks(enabled: boolean): void {
     state().enabled = enabled;

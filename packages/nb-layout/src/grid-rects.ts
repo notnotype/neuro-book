@@ -9,6 +9,7 @@
 
 import type {GridAxis, GridBranch, GridExtent, GridLayoutResult, GridLeaf, GridNode} from "./grid-types";
 
+/** @experimental */
 export interface GridRect {
     readonly x: number;
     readonly y: number;
@@ -73,7 +74,10 @@ export interface GridSashPlacement<R> {
 
 export type GridPlacementItem<R> = ({readonly kind: "leaf"} & GridLeafPlacement<R>) | ({readonly kind: "sash"} & GridSashPlacement<R>);
 
-/** 宿主给的内容项（docs/specs/ui/nested-grid.md 输出 80）。 */
+/**
+ * 宿主给的内容项（docs/specs/ui/nested-grid.md 输出 80）。
+ * @experimental
+ */
 export interface GridContentInput {
     /** 身份：不变就不重建、不换父元素。换 `leaf` 是在叶之间移动。 */
     readonly key: string;
@@ -92,6 +96,7 @@ export interface GridContentInput {
 /**
  * 宿主在叶的外框里画成的卡片：相对外框四边的内缩（上、右、下、左）与四个角的圆角（左上、右上、右下、左下），都是 CSS 长度。
  * 过渡中外框露出、盖住保持尺寸的内层时按它裁（docs/specs/ui/nested-grid.md 输出 51）。
+ * @experimental
  */
 export interface GridLeafShape {
     readonly inset: readonly [string, string, string, string];
@@ -129,7 +134,10 @@ export interface GridPlacement<R> {
     readonly items: ReadonlyArray<GridPlacementItem<R>>;
 }
 
-/** 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。 */
+/**
+ * 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。
+ * @experimental
+ */
 export function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {readonly width: number; readonly height: number}): GridRect {
     const width = Math.min(rect.width, extent.width);
     const height = Math.min(rect.height, extent.height);
@@ -141,13 +149,19 @@ export function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {readon
     };
 }
 
-/** 缩放的方向：正号是右、下边跟着指针，负号是左、上边跟着指针，同时改写 `x`、`y`。 */
+/**
+ * 缩放的方向：正号是右、下边跟着指针，负号是左、上边跟着指针，同时改写 `x`、`y`。
+ * @experimental
+ */
 export interface LayoutFloatResize {
     readonly width: -1 | 0 | 1;
     readonly height: -1 | 0 | 1;
 }
 
-/** 缩放之后的矩形。到了尺寸的上下限时对边不动。 */
+/**
+ * 缩放之后的矩形。到了尺寸的上下限时对边不动。
+ * @experimental
+ */
 export function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max: GridExtent}): GridRect {
     const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high));
     const width = clamp(start.width + direction.width * delta.x, bounds.min.width, bounds.max.width);
@@ -160,7 +174,10 @@ export function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, d
     };
 }
 
-/** 宿主给的浮动窗：一块不在树里的叶，内容项照常归属它，所以进出浮动窗内容不换父元素。 */
+/**
+ * 宿主给的浮动窗：一块不在树里的叶，内容项照常归属它，所以进出浮动窗内容不换父元素。
+ * @experimental
+ */
 export interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
@@ -276,6 +293,7 @@ function lastLeafOf<R>(node: GridNode<R>): string {
     return current.id;
 }
 
+/** @experimental */
 export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent: GridExtent, dpr: number): GridPlacement<R> {
     const scale = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
     const items: Array<GridPlacementItem<R>> = [];

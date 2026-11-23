@@ -57,6 +57,7 @@ function sizeProblem(side: "baseline" | "target", value: number | undefined): {k
     return value < 0 ? {kind: "negative", side} : null;
 }
 
+/** @experimental */
 export type Grid<T> = {
     /** 当前布局树；结构变化后重新取。节点 `size` 是意图，不是呈现尺寸。 */
     root(): GridNode<T> | null;
@@ -100,7 +101,9 @@ export type Grid<T> = {
     layout(container: GridExtent): GridLayoutResult;
 };
 
+/** @experimental */
 export function createGrid<T extends string>(root: GridNodeInput<T> | null, options?: GridOptions<T>): Grid<T>;
+/** @experimental */
 export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOptions<T> & {encodeRef: GridRefEncoder<T>}): Grid<T>;
 export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOptions<T> = {}): Grid<T> {
     const sashSize: number | GridSashResolver = typeof options.sashSize === "function"

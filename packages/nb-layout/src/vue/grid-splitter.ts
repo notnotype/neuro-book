@@ -70,7 +70,10 @@ export function ariaMax(panel: SplitterPanelConfig | undefined, available: numbe
     return Math.round(Math.max(low, Math.min(high, available)));
 }
 
-/** 面板配置：Splitter 的面板声明，也是分隔线 aria 的输入。 */
+/**
+ * 面板配置：Splitter 的面板声明，也是分隔线 aria 的输入。
+ * @experimental
+ */
 export interface SplitterPanelConfig {
     id?: string;
     /** 主轴初始 px（独立模式下未受控时由它分配）。 */

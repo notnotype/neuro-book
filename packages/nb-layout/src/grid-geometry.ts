@@ -24,11 +24,16 @@ import {gridIssue} from "./grid-issue";
 
 export const EPSILON = 1e-6;
 
-/** 「不限」的上界。用安全整数而不是 Infinity：意图要 JSON 序列化，Infinity 会变成 null。 */
+/**
+ * 「不限」的上界。用安全整数而不是 Infinity：意图要 JSON 序列化，Infinity 会变成 null。
+ * @experimental
+ */
 export const GRID_UNBOUNDED = Number.MAX_SAFE_INTEGER;
 
 export const ZERO_EXTENT: GridExtent = {width: 0, height: 0};
+/** @experimental */
 export const UNBOUNDED_EXTENT: GridExtent = {width: GRID_UNBOUNDED, height: GRID_UNBOUNDED};
+/** @experimental */
 export type GridSashResolver = (branchId: string, sashIndex: number) => number;
 
 export function axisOf(orientation: GridOrientation): GridAxis {
@@ -103,7 +108,10 @@ export function extentOf(axis: GridAxis, along: number, cross: number): GridExte
 /* 唯一空间分配算法                                                            */
 /* -------------------------------------------------------------------------- */
 
-/** 一个待分配面板：宿主给出的意图、有效范围与运行期策略。 */
+/**
+ * 一个待分配面板：宿主给出的意图、有效范围与运行期策略。
+ * @experimental
+ */
 export type SashPanel = {
     id: string;
     /** 尺寸意图：`fixed` 是 px 目标，`weight` 是相对权重。 */

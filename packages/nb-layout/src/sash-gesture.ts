@@ -7,13 +7,22 @@
  */
 import type {GridAxis, GridBranchResize, GridExtent, GridFailure, GridIssue, GridIssueCode} from "./grid-types";
 
-/** 一场分隔线手势的输入来源。`NestedGrid` 与独立 `Splitter` 共用。 */
+/**
+ * 一场分隔线手势的输入来源。`NestedGrid` 与独立 `Splitter` 共用。
+ * @experimental
+ */
 export type SashGestureSource = "pointer" | "keyboard";
 
-/** 手势被取消的原因：没有变化、Escape、指针被系统收回、失焦、卸载、上下文换了。`NestedGrid` 与独立 `Splitter` 共用。 */
+/**
+ * 手势被取消的原因：没有变化、Escape、指针被系统收回、失焦、卸载、上下文换了。`NestedGrid` 与独立 `Splitter` 共用。
+ * @experimental
+ */
 export type SashGestureCancelReason = "no-change" | "escape" | "pointercancel" | "blur" | "unmount" | "context-changed";
 
-/** 一条分隔线的身份：所属分支、边界序号与其被调整的主轴。 */
+/**
+ * 一条分隔线的身份：所属分支、边界序号与其被调整的主轴。
+ * @experimental
+ */
 export type GridSashRef = {
     readonly branchId: string;
     readonly index: number;
@@ -25,7 +34,10 @@ export function sashKey(sash: GridSashRef): string {
     return `${sash.branchId}:${sash.index}`;
 }
 
-/** 一次会话要产出的提交载荷。 */
+/**
+ * 一次会话要产出的提交载荷。
+ * @experimental
+ */
 export type SashGestureCommit<C = GridBranchResize> = {
     readonly sessionId: string;
     readonly contextKey: string;
@@ -35,7 +47,10 @@ export type SashGestureCommit<C = GridBranchResize> = {
     readonly changes: readonly C[];
 };
 
-/** 会话核心：两种宿主实现同一份，输入层不关心它是整棵树还是单个分支。 */
+/**
+ * 会话核心：两种宿主实现同一份，输入层不关心它是整棵树还是单个分支。
+ * @experimental
+ */
 export type SashGestureSessionCore<S, C = GridBranchResize> = {
     readonly sessionId: string;
     readonly sashes: readonly GridSashRef[];

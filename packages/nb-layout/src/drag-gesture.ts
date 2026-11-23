@@ -8,6 +8,7 @@
 
 import type {GridDropPoint} from "./grid-drop";
 
+/** @experimental */
 export interface DragGestureConfig {
     /** 鼠标与笔过门槛要移动的距离。 */
     readonly distancePx: number;
@@ -17,8 +18,10 @@ export interface DragGestureConfig {
     readonly touchTolerancePx: number;
 }
 
+/** @experimental */
 export const DRAG_GESTURE_DEFAULTS: DragGestureConfig = {distancePx: 6, touchDelayMs: 200, touchTolerancePx: 6};
 
+/** @experimental */
 export type DragCancelReason =
     | "escape"
     | "pointer-cancel"
@@ -30,12 +33,16 @@ export type DragCancelReason =
     | "structure-changed"
     | "disposed";
 
+/** @experimental */
 export type DragEnd =
     | {readonly kind: "committed"}
     | {readonly kind: "no-action"}
     | {readonly kind: "cancelled"; readonly reason: DragCancelReason};
 
-/** 一场进行中对外发布的状态。 */
+/**
+ * 一场进行中对外发布的状态。
+ * @experimental
+ */
 export interface DragState<S, D> {
     readonly source: S;
     readonly point: GridDropPoint;
@@ -547,13 +554,19 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
 
 declare const dropKindData: unique symbol;
 
-/** 一种来源能落到哪些元素的约定：提供方定义、双方共用。类型参数是落点登记时给出的数据。 */
+/**
+ * 一种来源能落到哪些元素的约定：提供方定义、双方共用。类型参数是落点登记时给出的数据。
+ * @experimental
+ */
 export interface DropKind<T> {
     readonly id: string;
     readonly [dropKindData]?: T;
 }
 
-/** 放在核心入口：`shared/` 里的合同要能定义它，又不把 Vue 层带进来。 */
+/**
+ * 放在核心入口：`shared/` 里的合同要能定义它，又不把 Vue 层带进来。
+ * @experimental
+ */
 export function defineDropKind<T>(id: string): DropKind<T> {
     return {id};
 }

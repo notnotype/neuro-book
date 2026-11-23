@@ -10,13 +10,19 @@ import type {GridLayerItem, GridPlacementItem, GridRect} from "./grid-rects";
 import {gridIssue} from "./grid-issue";
 import type {GridAxis, GridIssue} from "./grid-types";
 
-/** 裁切窗：两组外接矩形的四边内缩（px：上、右、下、左）与四个角（CSS 长度：左上、右上、右下、左下）。 */
+/**
+ * 裁切窗：两组外接矩形的四边内缩（px：上、右、下、左）与四个角（CSS 长度：左上、右上、右下、左下）。
+ * @experimental
+ */
 export interface GridSwapWindow {
     readonly inset: readonly [number, number, number, number];
     readonly radius?: readonly [string, string, string, string];
 }
 
-/** 宿主给的交换（`NestedGrid` 的 `swap`）。 */
+/**
+ * 宿主给的交换（`NestedGrid` 的 `swap`）。
+ * @experimental
+ */
 export interface GridSwap {
     /** 变了才算一次新的交换。 */
     readonly token: number;
