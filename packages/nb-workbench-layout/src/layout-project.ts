@@ -277,23 +277,27 @@ export function presentationCollapse(doc: LayoutDoc, extent: GridExtent, options
         return Math.max(0, minimumOf(input, "width", null, sashSize) - extent.width) + Math.max(0, minimumOf(input, "height", null, sashSize) - extent.height);
     };
     const removed = new Set<string>();
-    if (overflowOf(removed) === 0) return {removed, squeezed: false};
+    // `overflow` 始终是 `removed` 当前这一份的结果：每一步只多算新的那一次，上一步算过的带到下一步。
+    let overflow = overflowOf(removed);
+    if (overflow === 0) return {removed, squeezed: false};
     const shown = new Set(treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "tool" && isPanelShown(doc, id)));
     const queue = [...options.order.filter((id) => shown.has(id)), ...[...shown].filter((id) => !options.order.includes(id))];
     const ordered = [...queue.filter((id) => id !== options.focused), ...queue.filter((id) => id === options.focused)];
     let squeezed = true;
     for (const id of ordered) {
         removed.add(id);
-        if (overflowOf(removed) === 0) {
+        overflow = overflowOf(removed);
+        if (overflow === 0) {
             squeezed = false;
             break;
         }
     }
     // 前面收走的不一定帮上了忙（窄的时候，收走纵向的那块不省宽度）：从后往前放回来，放回来不更挤的就不收。全收走还放不下时也一样，不然窗口再窄一点底部面板反而不见了。
     for (const back of [...removed].reverse()) {
-        const before = overflowOf(removed);
         removed.delete(back);
-        if (overflowOf(removed) > before) removed.add(back);
+        const after = overflowOf(removed);
+        if (after > overflow) removed.add(back);
+        else overflow = after;
     }
     return {removed, squeezed};
 }
