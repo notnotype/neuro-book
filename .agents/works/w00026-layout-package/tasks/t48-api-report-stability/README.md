@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t48-api-report-stability
-status: active
+status: done
 updated: 2026-11-23
 ---
 
@@ -43,10 +43,27 @@ updated: 2026-11-23
 - 单测里抓到一处真问题：`Pick<HTMLAttributes, "id">` 这种包在工具类型里的透传认不出来，改成遍历这一项里的全部类型引用。
 - `docs:check`、`governance:check` 的失败都是 master 上原有的（network 插件的消息目录、`bots/view.md`、nb-models 与 lab-agent-ui 的固定等待），不在本 Task 的文件里。
 
+## 实现审查
+
+Claude Sonnet（[证据](evidences/impl-review.txt)），重要 2、建议 8，都成立；修正在 `2c01811da`，合入 master `dfa4fb999`：
+
+1. 组件的 `@stable` 闭包是空的（重要）：组件的引用改由 `readSurface` 按五段的类型文字认（去掉行首的属性名、事件名，同名不算），闭包对组件照样核；补“`@stable` 组件引到 `@experimental`”的单测；变异：`NestedGrid` 行尾改 `// @stable`，`api:check` 报出它引到的 16 个非 `@stable` 名字。
+2. 报告与快照没固定换行（重要）：`.gitattributes` 给它们 `text eol=lf`，`api:check` 与快照测试读入时再按 LF 比。
+3. 组件段的正则读法（建议）：`<script>` 属性顺序任意；`defineProps<Props>()` 这种读不到透传的报错要求写在宏里；`inheritAttrs` 读语法树；认 `v-bind="{...$attrs}"`；各补单测。
+4. SDK 快照的闭包不含没导出的声明（建议）：报告每段另有“引用（没导出）”行，没导出的段也记引用，快照沿它们取闭包（现状快照不变）。
+5. 闭包里“引到没导出的”用名字正则（建议）：改成按符号算出的结果直接判。
+6. 声明不在根文件时静默为空（建议）：公开名字的声明不在本包声明文件顶层时报错，补单测。
+7. 入口清单三处各一份（建议）：报告脚本开头核对产物 `package.json` 的子路径，对不上就报错。
+8. SDK 提醒照不了做（建议）：提示列出变了的名字、给 `PLUGIN_API_SINCE` 所在文件与变更记录、写明在哪个目录重写；报告目录改成按仓库路径。
+9. 测试缺口（建议）：补 SDK `tagLayoutComponents` 的单测（含两个抛错分支）与产物里 `GridIssue` 带标注的断言；变异做了第 1 条与改签名两种。“两次生成同字节”不另加单测：`api:check` 每次都拿新生成的与入库的逐字比，已经守着。
+10. 文档（建议）：README 写明报告与变更记录在 GitHub 仓库里、不随 npm 包发布；SDK 模块头那句另起一段。
+
+验证：nb-layout `bun test scripts` 44 个、`typecheck`、`api:check` 通过；应用 `bun test src/sdk`、`plugin-sdk/layout-tags.test.ts`、`plugin-sdk/pack.test.ts`（13 个）、`typecheck` 通过。
+
 ## 当前状态
 
-已合入；实现审查（Claude Sonnet，不阻塞）在跑，报告回来后处理，修正单独提交。
+完成，已合入。
 
 ## 下一步
 
-处理实现审查；之后 nb-layout 首发（发布手册“新包首发”，要开发者在本机登录 npm）。
+nb-layout 首发（发布手册“新包首发”，要开发者在本机登录 npm）。

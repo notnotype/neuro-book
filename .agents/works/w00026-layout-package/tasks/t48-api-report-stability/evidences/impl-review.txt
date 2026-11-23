@@ -1,0 +1,115 @@
+# t48 实现审查（Claude Sonnet，claude -p --model claude-sonnet-5-5；范围 b3e67fe07..c4850b5af）
+
+### 1. `@stable` 的闭包核对对组件是空的
+- 严重程度：重要　类别：正确性（合同没兑现）
+- 位置：`scripts/api-surface.ts:117-119`、`:146-161`；`scripts/api-report.ts:73`
+- 现象：`readSurface` 给组件的 `references` 恒为 `[]`、`declarations` 恒为 `[]`。组件的“引用”要到 `formatEntry` 里才用正则算出来。`closureProblems` 在 `readSurface` 里就跑完了，所以 `@stable` 的组件引到 `@experimental` 的名字、或引到没导出的声明，都不会报错。
+- 为什么是问题：计划和 README 的“版本承诺”都写“签名闭包里的公开名字都是 `@stable`（报告机检）”。最先要晋升的恰好是 `NestedGrid`、`Splitter` 这类组件。现在没有 `@stable` 名字，所以没人发现；晋升那天这条机检不会拦。没有测试覆盖这种情况：`api-surface.test.ts` 的闭包用例只用了非组件，组件用例只测了“不打印”。
+- 如何核实：把 `src/vue/index.ts` 里 `NestedGrid` 行尾改成 `// @stable`，跑 `bun run api:check`。预期只得到“公开面变了”，没有“引用了非 `@stable`”的错误。
+- 建议改法：
+  - 先把组件的引用算出来（`generate()` 里取到组件五段之后，复用 `formatEntry` 那段正则）。
+  - 再对完整的 `entries` 调 `closureProblems`，也补上组件的没导出声明检查。
+  - 补一条“`@stable` 组件引到 `@experimental` 类型”的单测。
+- 顺带：组件引用靠 `\b名字\b` 匹配整行文本。小写的公开函数名如果碰巧和 prop 名、事件名相同，会产生假引用，假引用还会进 SDK 快照的闭包。
+
+### 2. 报告与 SDK 快照没有固定换行，Windows 检出可能全部失败
+- 严重程度：重要（未在 Windows 复现）　类别：跨平台
+- 位置：`.gitattributes`（没有 `packages/nb-layout/api/*.api.txt` 与 `packages/neuro-book/src/sdk/nb-layout-surface.txt` 的规则）；`api-report.ts:224`、`:136-142`；`sdk.test.ts:95`
+- 现象：`api:check` 把 `readFile` 读到的原文直接按 `\n` 切、整段比较。SDK 快照测试用 `toBe(readFileSync(SNAPSHOT))`。仓库已经给 `bun.lock`、`*.mjs` 单独写了 `eol=lf`，说明有机器会改写换行。
+- 为什么是问题：开发者有 Windows 机器。在 `core.autocrlf=true` 的检出里，四份报告和快照会带 `\r`，`api:check` 与 SDK 快照测试会稳定失败，而且 diff 里看不出差异。
+- 如何核实：运行 `git ls-files --eol packages/nb-layout/api packages/neuro-book/src/sdk/nb-layout-surface.txt`。在 Windows 上用 autocrlf 检出一份，跑 `api:check` 与 `bun test src/sdk`。
+- 建议改法：在 `.gitattributes` 给这几个文件写 `text eol=lf`；或者两处读入时都做 `replace(/\r\n/g, "\n")`。
+
+### 3. 组件五段靠正则读 `.vue`，写法稍变就静默漏项
+- 严重程度：建议　类别：健壮性
+- 位置：`scripts/api-components.ts:52`、`:82`、`:89`、`:92-94`
+- 现象：
+  - `scriptSetup` 的正则是 `<script\s+setup`，`<script lang="ts" setup>` 匹配不上。结果 `setup === null`：attrs 的 `&` 行、`defineSlots` 的类型都读不到，退回 vue-component-meta 的结果，也不报错。
+  - attrs 只认 `defineProps<A & B>` 这种直接的交叉类型。`type Props = A & HTMLAttributes; defineProps<Props>()` 或 `interface Props extends HTMLAttributes` 会得到空的 attrs 段。
+  - `/inheritAttrs:\s*false/` 会命中注释或字符串。
+  - `v-bind="{...$attrs, x}"` 这类写法会被判成“不落”。
+- 为什么是问题：现有 7 个组件都是 `<script setup lang="ts">` 加直接交叉，输出正确，我逐个对过。但这几处都是静默降级，没有交叉核对能发现。现有的 `$props` 核对只查“源码里的 props 都在发布声明里”，这一个方向。
+- 建议改法：
+  - `scriptSetup` 的正则放宽到属性任意顺序。
+  - `defineProps` 的类型参数不是内联交叉时直接抛错，让人改成可识别的写法。
+  - 用语法树或 `@vue/compiler-sfc` 读 `inheritAttrs`，别用全文正则。
+  - 补两条单测：`lang` 在 `setup` 前、`defineProps<Props>()`。
+
+### 4. SDK 快照的闭包不含没导出的声明
+- 严重程度：建议　类别：覆盖缺口
+- 位置：`packages/neuro-book/scripts/nb-layout-surface.ts:32-70`；`api-surface.ts:125`
+- 现象：报告里每段的“引用”只列公开名字，没导出的声明单独放在最后一节，快照取闭包时不读那一节。SDK 转出的名字如果经签名引到没导出的声明（例如 `DragKeyboardOptions → DragStops`），那个声明变了，快照不变，提醒不响。
+- 如何核实：现状没有命中。我对快照搜 `DragStops`、`DragActivation`、`GridPlacement`、`dropKindData`，都是 0。这是以后会出现的缺口：SDK 一旦多转出 `useDragSession` 一类，这些声明就会被引到。
+- 建议改法：让段里的“引用”行也列出没导出的声明（带标记），快照遍历时把那一节里对应的段一并取进来。
+
+### 5. 闭包核对里“引到没导出的声明”用名字正则
+- 严重程度：建议　类别：正确性/简化
+- 位置：`api-surface.ts:156`
+- 现象：`referencesOf` 已经按符号算出了每个名字直接引到的没导出符号，但这里丢掉，改成拿整个入口的没导出名字，对声明文字做 `\b名字\b` 匹配。
+- 为什么是问题：形参名、属性名、字符串里碰巧同名就会误报。名字含 `$` 时 `\b` 失效。
+- 建议改法：把 `refs.unexported` 随 `SurfaceEntry` 存下来，直接判。
+
+### 6. 声明文件不在“本包文件”里时，引用与可达性静默为空
+- 严重程度：建议　类别：健壮性
+- 位置：`api-surface.ts:66`、`:196-198`；`api-report.ts:160`
+- 现象：`ownFiles` 是程序的根文件，而根文件是 `dist/package` 顶层的 `*.d.ts`（`readdir` 不递归）。如果以后共享块输出到子目录，或不再是根文件，`isTopLevelOwn` 全部返回 false。结果所有“引用”行变空、“可达未导出”变成 0，没有任何报错。
+- 建议改法：在 `readSurface` 里断言每个公开符号的声明文件都在 `ownFiles` 里，不在就抛错。
+
+### 7. 入口清单在三处各写一份
+- 严重程度：建议　类别：维护性
+- 位置：`api-report.ts:31`（注释写“同 `pack.ts` 的 `ENTRIES`”）、`pack.ts:35`、`src/exports.test.ts:26`
+- 现象：`pack.ts` 加第五个入口时，报告脚本不会出那一份报告，也不报错。靠 `exports.test.ts` 里写死的四项比较会失败，才间接提醒。
+- 建议改法：`generate()` 开头比对 `dist/package/package.json` 的 `exports` 与 `ENTRIES`，不一致就抛错；或者导出 `pack.ts` 的清单共用。
+
+### 8. SDK 提醒的措辞只能让人知道失败，不能让人照做
+- 严重程度：建议　类别：可用性
+- 位置：`sdk.test.ts:95`；`nb-layout-surface.ts:55`
+- 现象：
+  - 报错里的命令 `bun scripts/nb-layout-surface.ts --write` 没写在哪个目录跑（`packages/neuro-book`）。
+  - 没写 `PLUGIN_API_SINCE` 在 `src/shared/product.ts`，也没写变更记录在哪。
+  - 失败输出是 440 行快照的整体 diff，没有“哪几个名字变了”的摘要。
+  - 报告目录是 `import.meta.resolve("@notnotype/nb-layout")` 再 `../api` 推出来的，依赖 `exports["."]` 恰好在 `src/` 下一层；计划写的是按仓库路径读。
+- 建议改法：测试先算出变了的名字列表放进报错，再给完整命令和两个位置；报告目录改成从仓库根拼路径。
+
+### 9. 测试缺口与变异做法（主会话来做）
+- 严重程度：建议　类别：测试
+- 位置：`scripts/*.test.ts`、`plugin-sdk/pack.test.ts`
+- 现象：
+  - 计划列的“两次相同”没有单测。确定性只靠 `api:check` 对入库文件的比对。
+  - `tagLayoutComponents`（SDK）的两个抛错分支没有测试。
+  - `main` 的 check 流程与 `--no-build` 没有测试。
+  - SDK 的 `components.d.ts` 里非组件类型带 `@experimental`，只靠 `pack.test.ts` 断言了 `NestedGrid`。我手动构建了 SDK：`components.d.ts` 里有 48 处 `@experimental`，`GridIssue`、`SplitterPanelConfig` 等都带标签，现状没问题，但没有断言。
+- 变异做法：
+  - 删掉某个声明的 `@experimental`，`api:check` 与 `api-surface` 单测应失败。
+  - 把 `NestedGrid` 行尾改成 `// @stable`，看第 1 条（现状不失败，应该失败）。
+  - 改 `GridIssue` 的一个字段，`api:check` 与 `bun test src/sdk` 都应失败。
+  - 只改 `typescript` 版本行，应只有提示、不失败。
+
+### 10. 文档的小问题
+- 严重程度：建议　类别：文档
+- 位置：`packages/nb-layout/README.md` “版本承诺”；`packages/neuro-book/src/sdk/components.ts:8-9`
+- 现象：
+  - nb-layout 的 README 会随 npm 包发布，而包里没有 `api/` 目录和变更记录（CHANGELOG 里写了“不进 npm 包”）。“版本承诺”一节却让读者 `bun run api:report`、看 `api/*.api.txt` 和变更记录，没写这些在 GitHub 仓库里。
+  - `components.ts` 模块头把原来单独成句的“nb-ui 新增单文件组件时……”接到了新加句子的同一行尾，那一行很长。
+- 建议改法：README 写明“仓库里的”和路径；模块头那句另起一行。
+
+### 未发现问题的方面
+- 约 164 处源码 JSDoc 改动：我读了 `src` 的全部 diff。没有放进文件头注释块，单行注释改成多行时文字没变，重载每个都标、实现签名不标，`@throws` 之后追加正确。`api:check` 对“每处恰好一个标签”的核对通过。
+- `api-surface` 读法：我在内存里对枚举、类、函数加命名空间合并、类型参数或形参与顶层同名、成员与顶层同名、`typeof`、计算属性键、继承、泛型默认值、标签放错块等用例试了一遍，行为符合预期；`export default` 是 `const` 时也正常。
+- 7 个真实组件的输出：与源码对照无误（NestedGrid 的 17 个 props 与缺省值、事件、插槽、expose；Splitter 的 `& HTMLAttributes` 与模板字面量插槽；两个 `inheritAttrs: false` 组件的落点）。
+- 确定性：四份报告里没有绝对路径、`node_modules`、`.worktree`、`import(`。
+- `parseReport` 的切分：未导出的节用两词的 `### 种类 名字`，不会被三词正则误当成段；声明文字里不会出现以 `## `、`### ` 起头的行。
+- `compareReport`：新增 `@stable` 名字、降级、删除都要求变更记录，头与正文分开比。
+- 组件标签插入：`tagComponentDeclarations`（nb-layout）与 `tagLayoutComponents`（SDK）一致，缺标注或找不到声明时都抛错。
+- 验证：
+  - `bun test scripts`：39 通过。
+  - `bun run api:check`：通过，10 条“可达未导出”警告，与计划写的 9 个类型加 1 个值一致。
+  - nb-layout 与 neuro-book 的 `typecheck`：通过。
+  - `bun test src/sdk`：13 通过。
+  - `plugin-sdk/pack.test.ts` 里“类型导出的名字”一条：通过。
+  - `governance:check` 有失败，全部在本分支没碰的文件（`nb-models/src/core/sources.test.ts`、`plugins/network/locales`、`e2e/lab-agent-ui.e2e.ts`）。
+  - 副产物：我为核实构建了 SDK，输出在 `/tmp/t48-sdk-out`，不在仓库里。
+
+### 汇总
+- 阻断 0，重要 2（第 1、2 条），建议 8（第 3 至 10 条）。
+- 有效发现编号：1、2、3、4、5、6、7、8、9、10。第 2 条未在 Windows 上复现；第 4 条现状没有命中，是未来才会出现的缺口。
