@@ -8,7 +8,7 @@
  * 发出者的权限都经 `permissions.ts`（输出 108）。
  */
 
-import type {Attributed, CommandMap, CommandName, CommandResult, InputMode, Issuer, JsonValue, LogEvent, ModelPort, Placement, ReleaseMode, Resources, UserInput} from "../api/index.js";
+import type {Attributed, CommandMap, CommandName, CommandResult, InputMode, Issuer, JsonValue, LogEvent, ModelPort, PendingNotice, Placement, ReleaseMode, Resources, UserInput} from "../api/index.js";
 import {LogBrokenError, type EventDraft, type SessionCore} from "../dispatch/core.js";
 import {canonicalJson, sha256} from "../log/json.js";
 import type {RunControl} from "./control.js";
@@ -20,7 +20,7 @@ import {defaultSettings, type ViewEnvironment} from "../extension/ctx.js";
 import {byField, interceptInput, queuedData} from "./input.js";
 import {settingsProblem} from "./settings.js";
 import {releaseClaims, type Claim} from "./interaction.js";
-import {firstWake, gateDraft, gateOpen, userRunsChat, wakeRunDrafts} from "./wake.js";
+import {firstWake, gateDraft, gateOpen, hasWake, userRunsChat, wakeRunDrafts} from "./wake.js";
 
 export interface CommandHost {
     readonly core: SessionCore;
@@ -436,8 +436,12 @@ export const NOTICE_KEY_MAX_CHARS = 200;
 export const NOTICE_MAX_PENDING = 64;
 export const NOTICE_TOTAL_MAX_BYTES = 128 * 1024;
 
-const noticeBytes = (notice: {readonly id: string; readonly by: Issuer; readonly key?: string; readonly text: string; readonly wake: boolean; readonly commandId?: string}): number =>
+/** 一条待发提醒按合计上限算的字节数：`noticeQueued` 里留下的整条记录（不含按 seq 补的 `queuedAt`）。 */
+export const noticeBytes = (notice: Omit<PendingNotice, "queuedAt">): number =>
     Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake, commandId: notice.commandId}), "utf8");
+
+/** 唤起里与提醒无关的条件（runtime.md 输出 116）：空闲、门开着、叶子上没有暂停的运行、开得起运行。收口批另按运行控制的检查判。 */
+const canWake = (host: CommandHost): boolean => host.control.idle && gateOpen(host.core) && pausedRun(host) === null && startProblem(host) === null;
 
 export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMap["notice"]["args"] & {commandId: string}): Promise<CommandResult<"notice">> {
     return accept(host, "notice", args, () => {
@@ -456,7 +460,7 @@ export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
         drafts.push({type: "noticeQueued", kind: "ctrl", scope: "session", data: record as unknown as JsonValue});
         const value = {noticeId: record.id, ...(replaced === undefined ? {} : {replaced: replaced.id})};
         // 唤起（输出 116）：空闲、门开着、叶子上没有暂停的运行、开得起运行时同一批开运行。运行不再取输入的窗口里不判，留给收口批。
-        if (!record.wake || !host.control.idle || !gateOpen(host.core) || pausedRun(host) !== null || startProblem(host) !== null) return {value, drafts};
+        if (!record.wake || !canWake(host)) return {value, drafts};
         const wake = wakeRunDrafts(host.core, firstWake(rest)?.by ?? issuer);
         return {value, drafts: [...drafts, ...wake.drafts], launch: wake.runId};
     });
@@ -468,10 +472,12 @@ export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
  */
 export async function wakeIfDue(host: CommandHost): Promise<void> {
     const {core} = host;
+    // 没有带唤起的提醒就不必排队；排进去之后再按当时的状态判一次。
+    if (!hasWake(core.session.kernel.notices)) return;
     await core.queue.run(async () => {
-        if (host.closed() || core.broken || !host.control.idle) return;
+        if (host.closed() || core.broken) return;
         const wake = firstWake(core.session.kernel.notices);
-        if (wake === undefined || !gateOpen(core) || pausedRun(host) !== null || startProblem(host) !== null) return;
+        if (wake === undefined || !canWake(host)) return;
         const woken = wakeRunDrafts(core, wake.by);
         try {
             await writeAndReact(core, woken.drafts, host.react);
@@ -490,8 +496,7 @@ export function removeNoticeCommand(host: CommandHost, issuer: Issuer, args: Com
     return accept(host, "removeNotice", args, () => {
         const item = host.core.session.kernel.notices.find((notice) => notice.id === args.noticeId);
         if (item === undefined) return {fail: noticeTaken(host.core, args.noticeId) ? "notice-taken" : "notice-not-found"};
-        // 用户能取消任何一条；会话与宿主只能撤回自己发的。
-        if (issuer.kind !== "user" && !sameIssuer(item.by, issuer)) return {fail: "not-allowed"};
+        if (!canRemove(item, issuer)) return {fail: "not-allowed"};
         return {value: {}, drafts: [{type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [item.id], ...byField(issuer), reason: issuer.kind === "user" ? "cancelled" : "withdrawn"} as JsonValue}]};
     });
 }

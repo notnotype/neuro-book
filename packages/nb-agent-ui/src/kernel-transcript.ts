@@ -321,13 +321,31 @@ function issuerOf(value: unknown): KernelIssuer | {readonly kind: "user"} | null
     return null;
 }
 
-/** 日志帧的 `noticeQueued` 或快照的 `notices` 里的一项（快照给 `summary`，帧给 `text`）。按码点截，不切开代理对。 */
+/** 会话或宿主的发出者；用户的与读不懂的是 null。 */
+function otherIssuerOf(value: unknown): KernelIssuer | null {
+    const issuer = issuerOf(value);
+    return issuer === null || issuer.kind === "user" ? null : issuer;
+}
+
+/** 前 `count` 个字符（码点），不切开代理对；只走到第 `count` 个，不展开全文。 */
+function firstChars(text: string, count: number): string {
+    let out = "";
+    let taken = 0;
+    for (const char of text) {
+        if (taken === count) break;
+        out += char;
+        taken += 1;
+    }
+    return out;
+}
+
+/** 日志帧的 `noticeQueued` 或快照的 `notices` 里的一项（快照给 `summary`，帧给 `text`）。 */
 function noticeOf(value: unknown): KernelNotice | null {
     if (!isRecord(value) || typeof value.id !== "string") return null;
-    const by = issuerOf(value.by);
+    const by = otherIssuerOf(value.by);
     const text = typeof value.text === "string" ? value.text : typeof value.summary === "string" ? value.summary : null;
-    if (by === null || by.kind === "user" || text === null) return null;
-    return {id: value.id, by, summary: [...text].slice(0, NOTICE_SUMMARY_CHARS).join(""), wake: value.wake === true};
+    if (by === null || text === null) return null;
+    return {id: value.id, by, summary: firstChars(text, NOTICE_SUMMARY_CHARS), wake: value.wake === true};
 }
 
 function heldCauseOf(value: unknown): KernelHeldCause | undefined {
@@ -561,8 +579,7 @@ export function createKernelTranscript(options: KernelTranscriptOptions = {}): K
                 const text = stringField(data, "text") ?? "";
                 // 带范围的附件文字里已经有它的标签，气泡按标签显示，不再单列一块。
                 const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" && typeof item.from !== "number" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
-                const issuer = issuerOf(data.by);
-                const by = issuer === null || issuer.kind === "user" ? null : issuer;
+                const by = otherIssuerOf(data.by);
                 const author = by === null ? undefined : options.authorOf?.(by);
                 logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false, ...(author === undefined ? {} : {author})});
                 return;
@@ -701,9 +718,10 @@ export function createKernelTranscript(options: KernelTranscriptOptions = {}): K
                 return;
             case "hostNotice": {
                 // 取走的提醒：过程里的一行，标签写来源，正文折叠（agent/conversation.md 输出 51）。来源名与这个发出者发的话的作者相同。
-                const by = issuerOf(data.by);
-                const author = by === null || by.kind === "user" ? undefined : options.authorOf?.(by)?.label;
-                const name = typeof author === "string" ? author : by === null || by.kind === "user" ? "" : by.kind === "host" ? by.source.label : by.id;
+                const by = otherIssuerOf(data.by);
+                const author = by === null ? undefined : options.authorOf?.(by)?.label;
+                // 宿主没给 `authorOf`（或给的是文案引用）时按发出者自己的名字。
+                const name = typeof author === "string" ? author : by === null ? "" : by.kind === "host" ? by.source.label : by.id;
                 logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.hostNotice", {name}), text: stringField(data, "text") ?? ""});
                 return;
             }

@@ -11,7 +11,7 @@ import {reduceSessionKernel, type SessionKernelState} from "../state/kernel-stat
 import {byField} from "./input.js";
 import {canRemove, releasable} from "./permissions.js";
 import {ctrl} from "./writes.js";
-import {firstWake, gateDraft, wakeRunDrafts} from "./wake.js";
+import {firstWake, gateDraft, gateOpen, wakeRunDrafts} from "./wake.js";
 
 /** 一次停止的受理（输出 30）：同步记下，收口批按它处理。 */
 export interface StopRecord {
@@ -45,15 +45,16 @@ export interface SettleInput {
     /** 不带原因关闭会话时的码（`session-closed`），写进留着的原因。 */
     readonly closingCode: string | null;
     readonly deferred: readonly Deferred[];
-    /** 推迟的指令为什么不能开运行（待做的重新装配、正在关闭、开不起运行）；能开时为 null。 */
+    /** 为什么开不起运行（待做的重新装配、正在关闭、开不起运行），推迟的指令与唤起共用；能开、或没有要开的时为 null。 */
     readonly skip: string | null;
     /** 收口的运行：只压缩的运行不改门（runtime.md 输出 117）。 */
     readonly kind: "chat" | "compact";
     /** 会话正在关闭或进程正在收尾：这时的收口都关门，`finished` 也算（输出 117）。 */
     readonly closing: boolean;
-    /** 唤起为什么开不起运行（同 `skip` 的查法，不论有没有推迟的指令都查）；能开时为 null（输出 116）。 */
-    readonly wakeBlocked: string | null;
 }
+
+/** 运行的循环交给收口的那部分；其余由运行控制补上。 */
+export type SettleRequest = Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode" | "kind" | "closing">;
 
 export interface SettleBatch {
     readonly drafts: EventDraft[];
@@ -136,9 +137,10 @@ export function settleBatch(core: SessionCore, input: SettleInput): SettleBatch 
     }
 
     // 门（输出 117）：对话运行有停止的受理、不是正常结束、或会话正在关闭时关。之后的唤起按关过之后的门判。
-    let open = core.session.kernel.wakeGate?.open === true;
-    if (input.kind === "chat" && open && (stop !== null || reason === "aborted" || reason === "error" || reason === "interrupted" || input.closing)) {
-        drafts.push(gateDraft(false, stop !== null ? "stopped" : input.closing ? "closing" : reason));
+    let open = gateOpen(core);
+    const closeCause = input.kind !== "chat" ? null : stop !== null ? "stopped" : input.closing ? "closing" : reason === "aborted" || reason === "error" || reason === "interrupted" ? reason : null;
+    if (open && closeCause !== null) {
+        drafts.push(gateDraft(false, closeCause));
         open = false;
     }
 
@@ -150,7 +152,7 @@ export function settleBatch(core: SessionCore, input: SettleInput): SettleBatch 
     }
     // 唤起（输出 116）：门开着、开得起运行、有带唤起的待发提醒时开一次运行。收口批里叶子上不会有暂停的运行。
     const wake = firstWake(core.session.kernel.notices);
-    if (wake === undefined || !open || input.wakeBlocked !== null) return {drafts, next: null};
+    if (wake === undefined || !open || input.skip !== null) return {drafts, next: null};
     const woken = wakeRunDrafts(core, wake.by);
     drafts.push(...woken.drafts);
     return {drafts, next: woken.runId};
@@ -169,7 +171,8 @@ function deferredRun(core: SessionCore, input: SettleInput, drafts: EventDraft[]
     const effective: Issuer[] = [];
     for (const item of input.deferred) {
         // 送进来的话都被取消了的指令整条不生效：不放行别的话，也不算谁开的（输出 104）。不带话的（`resume`、`release`）照常。
-        const arrivedHere = item.inputIds.filter((id) => projected.buffer.some((entry) => entry.id === id));
+        const present = new Set(projected.buffer.map((entry) => entry.id));
+        const arrivedHere = item.inputIds.filter((id) => present.has(id));
         if (item.inputIds.length > 0 && arrivedHere.length === 0) continue;
         const released = releaseDrafts(projected.buffer, item.issuer, item.mode, item.only);
         drafts.push(...released.drafts);

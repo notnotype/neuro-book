@@ -12,7 +12,9 @@ import type {AnyProfile, CompactionMethodImpl, Issuer, LogEvent, LogStore, Model
 import {defineExtension} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {createTestModel} from "../testing/model.js";
-import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
+import {heldCompaction} from "../testing/compaction.js";
+import {blockingTool, gate} from "../testing/gate.js";
+import {createTestSession, type TestSession} from "../testing/test-session.js";
 
 let root = "";
 beforeAll(async () => {
@@ -25,25 +27,6 @@ afterAll(async () => {
 let commands = 0;
 const id = () => `w-${(commands += 1)}`;
 const HOST: Issuer = {kind: "host", source: {plugin: "lab.jobs", label: "后台任务"}};
-
-function gate() {
-    let open!: () => void;
-    const promise = new Promise<void>((resolve) => {
-        open = resolve;
-    });
-    return {promise, open};
-}
-
-function blockingTool(toolId = "lab.block") {
-    const started = gate();
-    const release = gate();
-    const tool: TestTool = {id: toolId, execute: async () => {
-        started.open();
-        await release.promise;
-        return "工具完成";
-    }};
-    return {tool, started: started.promise, release: () => release.open()};
-}
 
 const types = (events: readonly LogEvent[]) => events.map((event) => event.type);
 const allEvents = async (session: TestSession) => (await session.raw.log({afterSeq: 0, limit: 2000})).events;
@@ -130,23 +113,17 @@ describe("输出 116：唤起", () => {
     });
 
     test("只压缩的运行里用户发了话、又到了带唤起的提醒：收口只开一次运行，记成用户的，第一次请求两样都带", async () => {
-        const entered = gate();
-        const hold = gate();
-        const slow: CompactionMethodImpl = async (job) => {
-            entered.open();
-            await hold.promise;
-            return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
-        };
+        const {method: slow, entered, release} = heldCompaction();
         const profile = defineProfile({id: "lab.wake-compact", version: "1", name: "压缩", description: "压缩测试", system: "系统", compaction: {onThreshold: ["slow"]}}) as AnyProfile;
         await using session = await createTestSession({profile, compaction: {methods: {slow}}});
         session.model.script("答一", "答二");
         await session.say("第一问");
         const compacting = await session.raw.compact({commandId: id()});
         if (!compacting.ok || compacting.value.runId === undefined) throw new Error("compact did not start");
-        await entered.promise;
+        await entered;
         await session.raw.send({commandId: id(), input: {text: "压缩期间的话"}});
         await notice(session, "压缩期间结束的后台任务", {wake: true});
-        hold.open();
+        release();
         await session.raw.waitRun(compacting.value.runId);
         await settled(session);
         const chats = (await runsStarted(session)).filter((run) => run.kind === "chat");
@@ -159,25 +136,19 @@ describe("输出 116：唤起", () => {
 
 describe("输出 116：收口批里的唤起", () => {
     test("只压缩的运行里到了两条带唤起的提醒、没有推迟的话：收口批开一次唤起的运行，记成最早那条的发出者，第一次请求两条都带", async () => {
-        const entered = gate();
-        const hold = gate();
-        const slow: CompactionMethodImpl = async (job) => {
-            entered.open();
-            await hold.promise;
-            return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
-        };
+        const {method: slow, entered, release} = heldCompaction();
         const profile = defineProfile({id: "lab.wake-settle", version: "1", name: "压缩", description: "压缩测试", system: "系统", compaction: {onThreshold: ["slow"]}}) as AnyProfile;
         await using session = await createTestSession({profile, compaction: {methods: {slow}}});
         session.model.script("答一", "处理了两件");
         await session.say("第一问");
         const compacting = await session.raw.compact({commandId: id()});
         if (!compacting.ok || compacting.value.runId === undefined) throw new Error("compact did not start");
-        await entered.promise;
+        await entered;
         await notice(session, "先结束的", {wake: true});
         const other: Issuer = {kind: "host", source: {plugin: "lab.other", label: "别的插件"}};
         expect((await session.raw.as(other).notice({commandId: id(), text: "后结束的", wake: true})).ok).toBe(true);
         expect((await runsStarted(session)).filter((run) => run.kind === "chat")).toHaveLength(1);
-        hold.open();
+        release();
         await session.raw.waitRun(compacting.value.runId);
         await settled(session);
         const chats = (await runsStarted(session)).filter((run) => run.kind === "chat");
@@ -392,13 +363,7 @@ describe("输出 117：门", () => {
     });
 
     test("压缩期间用户的话被取消、宿主的话还在：收口开的后继记成宿主的，不开门", async () => {
-        const entered = gate();
-        const hold = gate();
-        const slow: CompactionMethodImpl = async (job) => {
-            entered.open();
-            await hold.promise;
-            return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
-        };
+        const {method: slow, entered, release} = heldCompaction();
         const profile = defineProfile({id: "lab.wake-cancel", version: "1", name: "压缩", description: "压缩测试", system: "系统", compaction: {onThreshold: ["slow"]}}) as AnyProfile;
         await using session = await createTestSession({profile, compaction: {methods: {slow}}});
         session.model.script({fail: "provider"}, "宿主的那一轮");
@@ -406,12 +371,12 @@ describe("输出 117：门", () => {
         expect((await session.raw.snapshot()).wakeGate.open).toBe(false);
         const compacting = await session.raw.compact({commandId: id()});
         if (!compacting.ok || compacting.value.runId === undefined) throw new Error("compact did not start");
-        await entered.promise;
+        await entered;
         const mine = await session.raw.send({commandId: id(), input: {text: "用户的话"}});
         await session.raw.as(HOST).send({commandId: id(), input: {text: "宿主的话"}});
         if (!mine.ok) throw new Error(mine.code);
         expect((await session.raw.remove({commandId: id(), inputId: mine.value.inputId})).ok).toBe(true);
-        hold.open();
+        release();
         await session.raw.waitRun(compacting.value.runId);
         await settled(session);
         const chats = (await runsStarted(session)).filter((run) => run.kind === "chat");

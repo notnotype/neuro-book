@@ -9,6 +9,7 @@
 
 import type {JsonValue, ToolCall} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
+import {gateDraft, gateOpen} from "./wake.js";
 
 function unansweredCalls(core: SessionCore): EventDraft[] {
     const step = core.leafState.kernel.history.current?.steps.at(-1);
@@ -86,8 +87,8 @@ export function recoveryDrafts(core: SessionCore): EventDraft[] {
     if (turn !== null) drafts.push({type: "turnEnded", kind: "ctrl", scope: "path", data: {turnId: turn.id, reason: "interrupted"}});
     drafts.push({type: "runEnded", kind: "ctrl", scope: "path", data: {runId: state.run.runId, reason: "interrupted"}});
     // 中断收口关门（runtime.md 输出 117）：重开之后后台的提醒不唤起，等用户自己继续。只压缩的运行不改门。
-    const compactOnly = core.leafState.kernel.lastChat?.runId !== state.run.runId;
-    if (!compactOnly && core.session.kernel.wakeGate?.open === true) drafts.push({type: "wakeGate", kind: "ctrl", scope: "session", data: {open: false, cause: "interrupted"}});
+    const wasChat = core.leafState.kernel.lastChat?.runId === state.run.runId;
+    if (wasChat && gateOpen(core)) drafts.push(gateDraft(false, "interrupted"));
     // 回到空闲：还就绪的话与收口同批转成留着，不自动发出（runtime.md 输出 34、104）。
     const ready = core.session.kernel.buffer.filter((item) => item.state === "ready").map((item) => item.id);
     if (ready.length > 0) drafts.push({type: "inputHeld", kind: "ctrl", scope: "session", data: {ids: ready, cause: {end: "interrupted"}}});

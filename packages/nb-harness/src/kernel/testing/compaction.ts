@@ -4,8 +4,21 @@
  */
 
 import type {CompactionMethodImpl} from "../api/index.js";
+import {gate} from "./gate.js";
 
 export const failingCompaction: CompactionMethodImpl = async () => ({failed: "test-failure"});
+
+/** 停在中途的压缩：开始时 `entered` 完成，`release()` 之后交回一段固定的摘要。测试在压缩进行中发指令。 */
+export function heldCompaction(): {readonly method: CompactionMethodImpl; readonly entered: Promise<void>; release(): void} {
+    const entered = gate();
+    const hold = gate();
+    const method: CompactionMethodImpl = async (job) => {
+        entered.open();
+        await hold.promise;
+        return {method: job.method, firstKeptEntryId: null, replacement: "摘要", omitted: [], tokensBefore: job.tokens, tokensAfter: 1, details: {require: []}};
+    };
+    return {method, entered: entered.promise, release: () => hold.open()};
+}
 
 export const summarizingCompaction: CompactionMethodImpl = async (job) => {
     const cut = job.cuts.filter((item) => item.kind === "turn").at(-1);

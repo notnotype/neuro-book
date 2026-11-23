@@ -123,7 +123,8 @@ export interface SessionKernelState {
     /** 待发的提醒（runtime.md 输出 112）：只由 `noticeQueued`、`noticeRemoved`、`noticeTaken` 归约，回退不改。 */
     readonly notices: readonly PendingNotice[];
     /** 唤起的门（runtime.md 输出 117）；没有门事件的旧日志为 null，按关着算。 */
-    readonly wakeGate: {readonly open: boolean; readonly cause: string} | null;
+    /** 没有门事件的旧日志按关着算（runtime.md 输出 117），所以初值是关着、没有原因。 */
+    readonly wakeGate: {readonly open: boolean; readonly cause: string | null};
     readonly core: CoreSettings;
     /** 扩展 id → 用户改过的设置项。 */
     readonly settings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
@@ -142,7 +143,7 @@ export interface SessionKernelState {
 export const DEFAULT_CORE_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
 export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS): SessionKernelState {
-    return {buffer: [], notices: [], wakeGate: null, core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
+    return {buffer: [], notices: [], wakeGate: {open: false, cause: null}, core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
 }
 
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {

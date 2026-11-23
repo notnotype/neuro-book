@@ -8,13 +8,22 @@ import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {byField} from "./input.js";
 import {ctrl} from "./writes.js";
 
-/** 门开着；没有门事件的旧日志按关着算（输出 117）。 */
-export const gateOpen = (core: SessionCore): boolean => core.session.kernel.wakeGate?.open === true;
+export const gateOpen = (core: SessionCore): boolean => core.session.kernel.wakeGate.open;
 
 export const gateDraft = (open: boolean, cause: string): EventDraft => ({type: "wakeGate", kind: "ctrl", scope: "session", data: {open, cause}});
 
 /** 最早那条带唤起的待发提醒：唤起开的运行记成它的发出者开的（输出 116）。 */
 export const firstWake = (notices: readonly PendingNotice[]): PendingNotice | undefined => notices.find((notice) => notice.wake);
+
+export const hasWake = (notices: readonly PendingNotice[]): boolean => firstWake(notices) !== undefined;
+
+/**
+ * 没有进行中的一轮、也没有就绪的话时，开不开一轮没有输入的（输出 114）：有带唤起的提醒，或这次运行是用户开的、又有提醒。
+ * 循环顶部与预览（按用户继续算）共用。
+ */
+export const opensEmptyTurn = (notices: readonly PendingNotice[], runBy: Issuer | null | undefined): boolean => hasWake(notices) || (notices.length > 0 && runBy?.kind === "user");
+
+export const emptyTurnDraft = (core: SessionCore): EventDraft => ctrl("turnStarted", {turnId: core.newId(), inputId: null});
 
 /** 唤起开的运行：受理时只写 `runStarted`，第一个边界再决定开什么样的一轮（输出 114）。 */
 export function wakeRunDrafts(core: SessionCore, by: Issuer): {runId: string; drafts: EventDraft[]} {

@@ -12,8 +12,9 @@ import {defineProfile} from "../extension/profile.js";
 import {mapEventContent} from "../helpers/content.js";
 import {mergeSteers} from "../helpers/turns.js";
 import type {ConversationTurn} from "../api/index.js";
-import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
-import {NOTICE_MAX_PENDING, NOTICE_TEXT_MAX_BYTES, NOTICE_TOTAL_MAX_BYTES} from "./commands.js";
+import {createTestSession, type TestSession} from "../testing/test-session.js";
+import {blockingTool} from "../testing/gate.js";
+import {NOTICE_MAX_PENDING, NOTICE_TEXT_MAX_BYTES, NOTICE_TOTAL_MAX_BYTES, noticeBytes} from "./commands.js";
 
 let root = "";
 beforeAll(async () => {
@@ -27,26 +28,6 @@ let commands = 0;
 const id = () => `n-${(commands += 1)}`;
 const HOST: Issuer = {kind: "host", source: {plugin: "lab.jobs", label: "后台任务"}};
 const OTHER_HOST: Issuer = {kind: "host", source: {plugin: "lab.other", label: "别的插件"}};
-
-function gate() {
-    let open!: () => void;
-    const promise = new Promise<void>((resolve) => {
-        open = resolve;
-    });
-    return {promise, open};
-}
-
-/** 一个停住的工具：测试在它执行期间发指令。 */
-function blockingTool(toolId = "lab.block") {
-    const started = gate();
-    const release = gate();
-    const tool: TestTool = {id: toolId, execute: async () => {
-        started.open();
-        await release.promise;
-        return "工具完成";
-    }};
-    return {tool, started: started.promise, release: () => release.open()};
-}
 
 const host = (session: TestSession, issuer: Issuer = HOST) => session.raw.as(issuer);
 
@@ -94,7 +75,7 @@ describe("输出 112：发提醒、撤回与取消", () => {
         }
         expect(refused).toBe("notice-budget");
         const kept = (await fresh.raw.snapshot()).notices;
-        const encoded = kept.reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify({id: item.id, by: item.by, key: item.key, text: item.text, wake: item.wake, commandId: item.commandId}), "utf8"), 0);
+        const encoded = kept.reduce((sum, item) => sum + noticeBytes(item), 0);
         expect(encoded).toBeLessThanOrEqual(NOTICE_TOTAL_MAX_BYTES);
 
         // 指令 id 留在待发的记录里，也算进合计：正文很短、指令 id 很长的照样超出。

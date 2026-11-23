@@ -26,6 +26,9 @@ export interface ContentMap {
 
 type Mapper = (data: Record<string, unknown>, map: Required<ContentMap>, type: string) => Promise<Record<string, unknown>>;
 
+/** 正文只在 `text` 字段里的事件。 */
+const textField: Mapper = async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})});
+
 /** 每个内核事件带内容的字段；`null` 表示不带内容（只有 id、码、计数这类）。 */
 const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     sessionCreated: async (data, map, type) => ({...data, initial: await map.data(data.initial as JsonValue, {type, field: "initial"})}),
@@ -35,7 +38,7 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     inputConsumed: null,
     inputHeld: null,
     inputReleased: null,
-    noticeQueued: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
+    noticeQueued: textField,
     noticeRemoved: null,
     noticeTaken: null,
     wakeGate: null,
@@ -61,14 +64,14 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     turnEnded: null,
     input: async (data, map, type) => said(data, map, type),
     steer: async (data, map, type) => said(data, map, type),
-    hostNotice: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
+    hostNotice: textField,
     assistant: async (data, map, type) => ({
         ...data,
         content: await blocks(data.content as readonly Record<string, unknown>[], map, type, "content"),
         toolCalls: await Promise.all((data.toolCalls as readonly {id: string; tool: string; args: Readonly<Record<string, JsonValue>>}[]).map(async (call) => ({...call, args: await map.args(call.args, {type, field: "toolCalls.args", tool: call.tool, callId: call.id})}))),
     }),
-    continued: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
-    notice: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
+    continued: textField,
+    notice: textField,
     modelStarted: null,
     modelEnded: null,
     modelFailed: async (data, map, type) => ({
