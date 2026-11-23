@@ -407,9 +407,23 @@ describe("eval", () => {
         expect((await one(session, {code: "const = 1"})).code).toBe("code-error");
         w.settings.clock.advance(EVAL_IDLE_MS);
         await waitUntil("空闲的内核结束了", () => (alive(pid!) ? null : true));
+        // 当场知道的重置给会话发一条不带唤起的提醒（eval.md），下一次结果第一行照旧写（说两遍）。
+        await waitUntil("重置的提醒待发", async () => (await session.snapshot()).notices.some((item) => item.text.includes("eval 的内核已重置（空闲）")));
+        expect((await session.snapshot()).notices.find((item) => item.text.includes("eval 的内核已重置"))).toMatchObject({wake: false});
         const next = await one(session, {code: "typeof k"});
         expect(next.text.split("\n")[0]).toContain("内核已重置（空闲）");
         expect(next.text).toContain("undefined");
+        expect((await session.snapshot()).notices).toEqual([]);
+    });
+
+    test("eval.md：两次调用之间内核进程被外部杀掉，当场发提醒；下一次结果第一行照旧写", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const [pid] = pidsIn((await one(session, {code: "'pid ' + process.pid"})).text);
+        process.kill(pid!, "SIGKILL");
+        await waitUntil("意外退出的提醒待发", async () => (await session.snapshot()).notices.some((item) => item.text.includes("eval 的内核已重置（意外退出）")));
+        const next = await one(session, {code: "1 + 1"});
+        expect(next.text.split("\n")[0]).toContain("内核已重置（意外退出）");
     });
 
     test("输出 11、12：全服务端的内核超过 8 个时，最久没用的那个结束；那个会话下一次提示被回收", async () => {
@@ -423,6 +437,7 @@ describe("eval", () => {
         }
         await waitUntil("最久没用的内核结束了", () => (alive(pids[0]!) ? null : true));
         expect(pids.slice(1).every(alive)).toBe(true);
+        await waitUntil("被回收的提醒待发", async () => (await sessions[0]!.snapshot()).notices.some((item) => item.text.includes("eval 的内核已重置（被回收）")));
         const next = await one(sessions[0]!, {code: "typeof k"});
         expect(next.text.split("\n")[0]).toContain("内核已重置（被回收）");
     }, 60_000);

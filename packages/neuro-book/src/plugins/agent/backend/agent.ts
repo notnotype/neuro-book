@@ -39,6 +39,7 @@ import {RequestOwners} from "./requests";
 import {ChildRuns} from "./subagents/children";
 import {JobDelivery} from "./jobs/delivery";
 import {JobLedger} from "./jobs/ledger";
+import {evalNotices, type EvalNotices} from "./eval/notices";
 import {SessionRelations} from "./subagents/relations";
 import {isModeSwitch, type PendingItem} from "./subagents/result";
 import {SubagentTree} from "./subagents/tree";
@@ -87,6 +88,8 @@ export interface AgentRuntime {
     readonly relations: SessionRelations;
     /** 任务中心（jobs.md）。 */
     readonly jobs: JobCenter;
+    /** eval 内核重置的提醒（eval.md）：eval 工具经它给会话发提醒、撤回。 */
+    readonly evalNotices: EvalNotices;
     /** 此刻在跑、停止服务端会中断的会话与任务（sessions.md 输出 20），给宿主的 `runningWorkKey` 登记用；同步。 */
     runningWork(): ReadonlyArray<RunningWorkItem>;
     /** 会话树的累计花费：费用守卫按树比（run-guards.md 输出 13）。 */
@@ -389,6 +392,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         return !entry.ok || entry.value.caller === undefined;
     };
     delivery = new JobDelivery({jobs, table, clock, isRoot, newId: () => crypto.randomUUID(), report: options.report});
+    const kernelNotices = evalNotices(table, () => crypto.randomUUID(), options.report);
     delivery.start();
     // 账本：先跟着任务中心写，再补发上次留下的回执（jobs.md 输出 17）。补发要开会话，不挡住启动。
     const ledger = new JobLedger({file: join(options.stateRoot, "agent", "jobs", "ledger.json"), jobs, report: options.report});
@@ -450,6 +454,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profileAdmin,
         relations,
         jobs,
+        evalNotices: kernelNotices,
         runningWork: () => agentRunningWork({table, relations, titles, jobs, internal}),
         children,
         tree,
