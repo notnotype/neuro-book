@@ -4,6 +4,8 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-23
+
 ### 新增
 
 - 插件 SDK：`NestedGrid` 的内容项多了 `leave`：标 `"retain"` 的内容被宿主去掉、它的叶又在缩回去时，库用它最后一次的渲染留到过渡结束才卸载，带 `data-content-leaving`。不给时与原来相同（当即卸载）。
