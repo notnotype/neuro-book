@@ -91,10 +91,13 @@ type DynamicCache = {readonly key: string; readonly item: TreeItem};
 export class SubagentTree {
     readonly #indexed = new Map<string, IndexCache>();
     readonly #dynamic = new Map<string, DynamicCache>();
+    /** 每个会话写过几批日志：读索引的途中又写了，读到的是写之前的，不能放进缓存。 */
+    readonly #writes = new Map<string, number>();
 
     constructor(private readonly options: SubagentTreeOptions) {
         options.table.onLog((id) => {
             this.#indexed.delete(id);
+            this.#writes.set(id, (this.#writes.get(id) ?? 0) + 1);
         });
     }
 
@@ -102,9 +105,11 @@ export class SubagentTree {
         const open = this.options.table.isOpen(id);
         const cached = this.#indexed.get(id);
         if (cached !== undefined && !(cached.whileOpen && !open)) return cached.entry;
+        const writes = this.#writes.get(id) ?? 0;
         const read = await this.options.entry(id);
         const entry = read.ok ? read.value : null;
-        this.#indexed.set(id, {entry, whileOpen: open});
+        // 读的途中写了日志（例如子会话刚收口）：这一份照样交回，但不缓存，否则失效已经过去，旧的收口会一直留到句柄关闭。
+        if ((this.#writes.get(id) ?? 0) === writes) this.#indexed.set(id, {entry, whileOpen: open});
         return entry;
     }
 
