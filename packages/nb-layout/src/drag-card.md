@@ -1,10 +1,11 @@
 # 拖动卡片与帧循环
 
-拖动时跟着指针走的那张卡片，和驱动它的帧循环。两样都是纯 TS，时间与排帧由你给；卡片缩到多大、什么时候要卡片、卡片里画什么，由你定。
+拖动时跟着指针走的那张卡片，和驱动它的帧循环。两样都是纯 TS，时间与排帧由调用方给；卡片缩到多大、什么时候要卡片、卡片里画什么，由调用方定。它们是包内零件，不从入口导出，本文给改包内代码的人看。
 
 ```ts
-import {createDragCard, createFrameLoop} from "@notnotype/nb-layout";
-import type {DragCard} from "@notnotype/nb-layout";
+import {createDragCard} from "./drag-card";
+import type {DragCard} from "./drag-card";
+import {createFrameLoop} from "./frame-loop";
 
 let card: DragCard | null = null;
 let pointer = {x: 0, y: 0};
@@ -51,4 +52,4 @@ const session = createDragSession({
 
 一帧里先读、后写，样式只重算一次：判定（[拖动会话](vue/drag-session.md)的 `resolve`，读 DOM）在前，写卡片在后。要做到这一点，帧循环的帧要排在会话发布的帧前面：在会话的 `sampled` 里调 `wake`（会话自己的 `pointermove` 处理一开头同步调它），并且在你的 `frame` 里先调 `session.flush()` 让会话做完这一帧的判定，再写卡片。顺序反了不报错，只是每帧多一次强制的样式重算。
 
-要的是整套实时布局（候选稳定才换预览、来源收起与展开、空位粘住、卡片拿起与收回），用[实时布局的拖动会话](vue/live-drag-session.md)，这些都接好了；`stepLiveDrop`、`insideShownSlot` 与这两样零件留作底层，自己编排时用。
+要的是整套实时布局（候选稳定才换预览、来源收起与展开、空位粘住、卡片拿起与收回），用[实时布局的拖动会话](vue/live-drag-session.md)，这些都接好了；`stepLiveDrop`、`insideShownSlot` 与这两样零件是它用的底层，不从入口导出。

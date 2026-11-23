@@ -22,7 +22,7 @@ const {state} = useDragSession(rootEl, (root) => ({
 | `commit(drop, source, keyboard)` | 提交 |
 | `commitsUnderPointer?(keyboard)` | 为真时放下提交此刻判定的落点，不要求与最后显示过的相同。别的东西跟着指针即时让位（实时布局、`useSortable`）时用：显示的总比指针慢一拍。缺省假 |
 | `onActiveChange?(active)` | 一场开始与结束：宿主在这里写光标、禁选这类标记 |
-| `sampled?()` | 有新的指针样本：会话自己的 `pointermove` 处理一开头同步调，早于它排发布的帧。按需排帧的循环（`createFrameLoop`）在这里叫醒，帧就排在发布的前面 |
+| `sampled?()` | 有新的指针样本：会话自己的 `pointermove` 处理一开头同步调，早于它排发布的帧。宿主自己按需排帧的循环在这里叫醒，帧就排在发布的前面 |
 | `onEnd?(end, last)` | 一场结束时调：`committed`（提交了）、`no-action`（放下了但没有要做的动作）、`cancelled`（带原因：Escape、失焦、根没了等） |
 | `structure?()` | 此刻的结构键；一场里它变了整场取消 |
 | `scroll?` | `"reevaluate"`（缺省）滚动时重新判定；`"withdraw"` 滚动时撤下落点，直到指针再动 |
