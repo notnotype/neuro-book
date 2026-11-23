@@ -26,18 +26,11 @@ import {dts} from "rolldown-plugin-dts";
 import {build, type Plugin} from "vite";
 
 import {componentTags, tagComponentDeclarations} from "./component-tags";
+import {ENTRIES} from "./entries";
 import {exportDiff, forbiddenFile, reachablePackages, specNumbers} from "./pack-check";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..");
 const SOURCE = join(PACKAGE_ROOT, "src");
-
-/** 发布的入口：子路径、产物名、源码入口。`./lab-sources` 不发（它用 `import.meta.glob`，只有 Vite 宿主能用）。 */
-const ENTRIES = [
-    {subpath: ".", name: "index", source: "src/index.ts", vue: false},
-    {subpath: "./vue", name: "vue", source: "src/vue/index.ts", vue: true},
-    {subpath: "./text", name: "text", source: "src/vue/text.ts", vue: false},
-    {subpath: "./locales", name: "locales", source: "src/locales/index.ts", vue: false},
-] as const;
 
 const EXTERNAL = [/^vue($|\/)/u, /^tabbable($|\/)/u];
 

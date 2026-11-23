@@ -21,19 +21,12 @@ import {createChecker} from "vue-component-meta";
 import {componentSurface, componentTypeTexts, type ComponentSurface} from "./api-components";
 import {byCodeUnit, readSurface, type EntrySurface, type Surface, type SurfaceProblem} from "./api-surface";
 import {componentTags} from "./component-tags";
+import {ENTRIES} from "./entries";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PACKAGE_ROOT, "../..");
 const DIST = join(PACKAGE_ROOT, "dist/package");
 const API_DIR = join(PACKAGE_ROOT, "api");
-
-/** 发布入口：报告文件名与子路径，同 `pack.ts` 的 `ENTRIES`。 */
-const ENTRIES = [
-    {name: "index", subpath: "."},
-    {name: "vue", subpath: "./vue"},
-    {name: "text", subpath: "./text"},
-    {name: "locales", subpath: "./locales"},
-] as const;
 
 const HEADER_PREFIX = "// tool ";
 /** 这几个名字是快照格式：变了要同批核对工作台层的 `LAYOUT_DOC_VERSION` 与迁移（ADR 0054 第 10 条）。 */
@@ -159,10 +152,6 @@ async function build(): Promise<void> {
 export async function generate(): Promise<Map<string, string>> {
     const files = (await readdir(DIST)).filter((name) => name.endsWith(".d.ts")).map((name) => join(DIST, name));
     const program = ts.createProgram(files, {noEmit: true, strict: true, skipLibCheck: true, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ESNext, types: []});
-    // 入口清单在 `pack.ts` 里另有一份：发布的子路径和这里的对不上时（加了第五个入口），宁可报错也不少出一份报告。
-    const published = Object.keys((JSON.parse(await readFile(join(DIST, "package.json"), "utf8")) as {exports: Record<string, unknown>}).exports).filter((subpath) => subpath !== "./style.css").sort(byCodeUnit);
-    const known = ENTRIES.map((entry) => entry.subpath as string).sort(byCodeUnit);
-    if (published.join("\n") !== known.join("\n")) throw new Error(`published entries ${published.join(", ")} differ from the report's ${known.join(", ")}; update ENTRIES in api-report.ts`);
     const tags = componentTags(await readFile(join(PACKAGE_ROOT, "src/vue/index.ts"), "utf8"));
     const problems: SurfaceProblem[] = [];
 
