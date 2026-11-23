@@ -418,6 +418,21 @@ describe("canon.project 的 textBlocks：主文字的块能怎么改", () => {
         }
     });
 
+    test("同一条变更里先加、删掉、再加同一个编号的块：锚点取现在在的那一份", async () => {
+        const scene = await open("re-add", ["A", "B", "C"]);
+        try {
+            await scene.change({kind: "chapter", chapter: "ch2", key: 5}, [
+                {op: "addBlock", at: scene.at("b9"), value: {after: "b1", source: "第一次"}},
+                {op: "removeBlock", at: scene.at("b9"), value: null},
+                {op: "addBlock", at: scene.at("b9"), value: {after: "b2", source: "第二次"}},
+            ]);
+            expect(scene.text(end("ch3")).map(([, source]) => source)).toEqual(["A", "B", "第二次", "C"]);
+            expect(scene.blocks(end("ch3")).find((block) => block.id === "b9")).toMatchObject({source: "第二次", anchor: "b2"});
+        } finally {
+            await scene.world.stop();
+        }
+    });
+
     test("剧情里一块接一块往后补了 150 块：每块的锚点都追到初值的那一块，一次读取不随块数平方变慢", async () => {
         const scene = await open("anchor-chain", ["A", "B"]);
         try {
