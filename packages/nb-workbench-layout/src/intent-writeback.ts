@@ -8,12 +8,10 @@
  * （t26 深度审查 api-03），所以不从入口导出；测试从本模块直接导入。
  */
 
-import type {GridExtent, GridFailure, GridNodeInput, GridOrientation, GridSnapshotNode} from "@notnotype/nb-layout";
-import {barOfRef, isSectionCollapsed, setPanelCollapsed, setPanelHidden, treeLeaves} from "./layout-doc";
+import type {GridExtent, GridFailure, GridNodeInput, GridSnapshotNode} from "@notnotype/nb-layout";
+import {axisOf, barOfRef, holdsEditor, isSectionCollapsed, setPanelCollapsed, setPanelHidden} from "./layout-doc";
 import type {LayoutDoc, LayoutFailureCode} from "./layout-doc";
 import type {LayoutProjection} from "./layout-project";
-
-const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
 
 /**
  * 手势前后两份布局里，差不到这个值就算这次没动。两份都来自 nb-layout 的 `layout()`，没有经过 DOM 取整；0.5 是从工作台原来的写法搬来的，
@@ -88,7 +86,6 @@ export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, Gri
     // `frozen`：呈现尺寸不是意图的节点。保留像素的节点只会被压缩，不会自己变（输出 8）；由调用方给，因为谁保留像素是呈现树决定的。
     const isFrozen = (node: GridSnapshotNode): boolean => frozen.has(node.id) || frozen.has(collapsedTo.get(node.id) ?? "");
     const isSkipped = (node: GridSnapshotNode): boolean => isFrozen(node) || (node.kind === "leaf" && (barOfRef(node.ref) !== null || isSectionCollapsed(doc, node.id)));
-    const holdsEditor = (node: GridSnapshotNode): boolean => treeLeaves(node).some((leaf) => doc.panels[leaf.id]?.role === "editor");
 
     const write = (node: GridSnapshotNode): GridSnapshotNode => {
         const size = isSkipped(node) ? undefined : sizeOfNode(node);
@@ -97,7 +94,7 @@ export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, Gri
         const children = node.children.map(write);
         const main = axisOf(node.orientation);
         const away = (child: GridSnapshotNode): boolean => isSkipped(child) || sizeOfNode(child) === undefined;
-        if (!node.children.some(away) || holdsEditor(node)) return {...node, size: nextSize, children};
+        if (!node.children.some(away) || holdsEditor(doc, node)) return {...node, size: nextSize, children};
         const present = node.children.filter((child) => !away(child));
         const before = present.reduce((sum, child) => sum + child.size[main], 0);
         const after = children.filter((_, index) => !away(node.children[index] as GridSnapshotNode)).reduce((sum, child) => sum + child.size[main], 0);

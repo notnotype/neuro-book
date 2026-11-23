@@ -15,7 +15,7 @@
  */
 
 import {GRID_UNBOUNDED, UNBOUNDED_EXTENT} from "@notnotype/nb-layout";
-import {barOfRef, hiddenRegionsAtZero, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
+import {axisOf, barOfRef, hiddenRegionsAtZero, isBarLeaf, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "./layout-doc";
 import {INNER_SECTIONS_SUFFIX, STRIP_LEAF_PREFIX} from "./presented-ids";
 import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "@notnotype/nb-layout";
@@ -86,10 +86,6 @@ export function regionOfStripLeaf(id: string): PanelName | null {
     const region = id.slice(STRIP_LEAF_PREFIX.length);
     return REGION_NAMES.has(region) ? (region as PanelName) : null;
 }
-
-const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
-
-const isBarInput = (node: GridNodeInput<string>): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
 
 /**
  * 按所在分支写运行约束。呈现里的单子分支已经塌陷，所以这里看到的才是真实的父分支。
@@ -228,7 +224,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
                 collapsedTo.set(node.id, survivor.id);
                 return presentedAs(node, {...survivor, size: {...node.size}});
             }
-            sashes.set(node.id, children.slice(0, -1).map((child, index) => (isBarInput(child) || isBarInput(children[index + 1] as GridNodeInput<string>) ? 0 : options.sashSize)));
+            sashes.set(node.id, children.slice(0, -1).map((child, index) => (isBarLeaf(child) || isBarLeaf(children[index + 1] as GridNodeInput<string>) ? 0 : options.sashSize)));
             return presentedAs(node, {kind: "branch", id: node.id, orientation: node.orientation, size: {...node.size}, children});
         }
         const bar = barOfRef(node.ref);

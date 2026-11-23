@@ -4,7 +4,7 @@
 
 import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
 import type {GridExtent, GridOrientation, GridSnapshotNode} from "@notnotype/nb-layout";
-import {barOfRef, barRef, panelRef, tabKey} from "./layout-doc";
+import {barOfRef, barRef, findTreeNode, panelRef, tabKey} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, LayoutPolicy, PanelName, PanelRecord, TabRef} from "./layout-doc";
 
 type Shape = string | {readonly orientation: GridOrientation; readonly children: ReadonlyArray<Shape>; readonly id?: string};
@@ -54,18 +54,9 @@ export function shapeOf(node: GridSnapshotNode): string {
 }
 
 export function sizeOf(root: GridSnapshotNode, id: string): GridExtent {
-    const find = (node: GridSnapshotNode): GridSnapshotNode | null => {
-        if (node.id === id) return node;
-        if (node.kind === "leaf") return null;
-        for (const child of node.children) {
-            const found = find(child);
-            if (found !== null) return found;
-        }
-        return null;
-    };
-    const found = find(root);
+    const found = findTreeNode(root, id);
     if (found === null) throw new Error(`树里没有 ${id}`);
-    return found.size;
+    return found.node.size;
 }
 
 /** 接受矩阵（docs/specs/ui/workbench-layout.md 输出 26）。 */

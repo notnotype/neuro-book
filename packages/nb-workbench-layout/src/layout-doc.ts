@@ -149,7 +149,7 @@ function freshId(next: MutableDoc, policy: LayoutPolicy, kind: "panel" | "branch
     return idTaken(next, id) ? null : id;
 }
 
-const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
+export const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
 const crossOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "height" : "width");
 const orientationOfEdge = (edge: LayoutEdge): GridOrientation => (edge === "left" || edge === "right" ? "horizontal" : "vertical");
 const isBeforeEdge = (edge: LayoutEdge): boolean => edge === "left" || edge === "top";
@@ -342,10 +342,10 @@ export function countsInShare(doc: LayoutDoc, node: GridSnapshotNode): boolean {
     return isNodeShown(doc, node) && !isSectionCollapsed(doc, node.id);
 }
 
-const isBarLeaf = (node: GridSnapshotNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
-
 /** 文档树和呈现树都能问：只看结构与 `ref`。 */
 export type LayoutTreeNode = {readonly kind: "leaf"; readonly ref: string} | {readonly kind: "branch"; readonly children: ReadonlyArray<LayoutTreeNode>};
+
+export const isBarLeaf = (node: LayoutTreeNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
 
 /** 这个节点含编辑组吗。 */
 export function holdsEditor(doc: LayoutDoc, node: LayoutTreeNode): boolean {
@@ -476,9 +476,14 @@ function hideEmptiedRegions(original: LayoutDoc, next: MutableDoc): void {
     }
 }
 
+/** 改到一半的文档过规范形：占不占份额按这份文档当前的显隐与收起判。 */
+const normalizeDoc = (next: MutableDoc): void => {
+    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+};
+
 /** 出口：过规范形、查规模；结果和现状一样时返回原对象。 */
 function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
-    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+    normalizeDoc(next);
     hideEmptiedRegions(original, next);
     expandWhereAxisChanged(original, next);
     const scale = countScale(next.tree.root);
@@ -1197,7 +1202,7 @@ export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
         next.panels[id] = {...panel, tabs, active};
         settleEmptyPanel(next, id);
     }
-    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+    normalizeDoc(next);
     return next as unknown as LayoutDoc;
 }
 

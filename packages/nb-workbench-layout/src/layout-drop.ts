@@ -63,9 +63,10 @@ export interface LayoutDropInput {
     readonly newContainer?: string;
 }
 
-const contains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
+/** 点在矩形里：半开区间，左、上边算在里面，右、下边不算。 */
+export const rectContains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
 
-const inGeometry = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => contains(geometry.body, point) || (geometry.strip !== null && contains(geometry.strip, point));
+const inGeometry = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => rectContains(geometry.body, point) || (geometry.strip !== null && rectContains(geometry.strip, point));
 
 /** 落点的比较键：会话判断“和上次显示的是不是同一个”、实时布局判断候选稳定不稳定都用它。`float` 的矩形每帧变，只看种类。 */
 export const layoutDropKey = (action: LayoutDropAction): string => (action.kind === "float" ? "float" : JSON.stringify(action));
@@ -87,7 +88,7 @@ export function sourceTabs(doc: LayoutDoc, source: LayoutDropSource): ReadonlyAr
 /** 交界那一行算正文：标签条要真的在里面，或者指针在缝上且离标签条更近。 */
 const onStrip = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => {
     const strip = geometry.strip;
-    return strip !== null && (contains(strip, point) || (!contains(geometry.body, point) && distanceTo(strip, point) < distanceTo(geometry.body, point)));
+    return strip !== null && (rectContains(strip, point) || (!rectContains(geometry.body, point) && distanceTo(strip, point) < distanceTo(geometry.body, point)));
 };
 
 /**
@@ -192,7 +193,7 @@ function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
 export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeometry | null {
     const floated = input.floats?.find((geometry) => inGeometry(geometry, input.point));
     if (floated !== undefined) return floated;
-    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return null;
     const tabs = sourceTabs(input.doc, input.source);
     const accepted = (geometry: LayoutDropPanelGeometry): boolean => {
         const panel = input.doc.panels[geometry.id];
@@ -289,7 +290,7 @@ const seamTarget = (seam: LayoutSeam): LayoutEdgeTarget => ({kind: "between", br
  */
 export function layoutDropOverPanel(input: LayoutDropInput): boolean {
     if (input.floats?.some((geometry) => inGeometry(geometry, input.point)) === true) return true;
-    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return false;
+    if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return false;
     return input.panels.some((geometry) => distanceTo(frameOf(geometry), input.point) <= SEAM_PX);
 }
 
@@ -303,7 +304,7 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
         const panel = input.doc.panels[floated.id];
         return panel === undefined ? null : resolveInPanel(input, floated, panel, tabs);
     }
-    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    if (input.excluded?.some((rect) => rectContains(rect, input.point)) === true) return null;
     const seam = seamAt(input, tabs);
     if (seam !== null) return {kind: "edge", target: seamTarget(seam)};
     const hit = layoutDropPanelAt(input) ?? undefined;
@@ -483,7 +484,7 @@ export function enumerateDropCandidates(input: {
     const candidates: LayoutDropCandidate[] = [];
     const seen = new Set<string>();
     const add = (region: string, action: LayoutDropAction): void => {
-        const key = JSON.stringify(action);
+        const key = layoutDropKey(action);
         if (seen.has(key) || isInPlace(doc, source, action)) return;
         seen.add(key);
         candidates.push({region, action});
