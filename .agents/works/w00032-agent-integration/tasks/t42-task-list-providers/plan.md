@@ -183,6 +183,15 @@ omp（`@review`）审第 1 稿 22 条（[`evidences/plan-review-omp.txt`](eviden
 - 第 3 片：标题有初值与变化通知，压缩时进展写“正在压缩”（omp 3）；Agent 停止的第一步撤回提供方，门面释放兜底（omp 4）；任务中心的 `claim`、`unclaim` 发变化（omp 8）；不出 `starting` 的占位（omp 15）；组合验收：装与不装 `tasksKey`、手动压缩、后台根、只剩后代，“在跑的工作”不重报（omp 21）。
 - 已知限制照旧：被截掉的行没有入口（omp 1，开发者已定不分页）；回退后同一 `runId` 接着跑（omp 6）；`focus-session` 打开之后的失败只画在视图里（omp 9）；`own` 超过上限时照 v1 跳过推送（omp 13）。
 
+## 7b. 第 3 片开工前的探针带来的细化
+
+探针结果与核对见 [`evidences/probe-session-rows.txt`](evidences/probe-session-rows.txt)，sessions.md 输出 30、jobs.md 输出 20 的句子都对得上；实现按下面三处细化：
+
+- **任务中心另给清单一个变化信号**：`JobCenter.onListChanged(listener)`，凡是改变清单可见的东西都发：登记开始、结束、提问、进展、`attach`、`detach`、`claim`、`unclaim`、`announce`、`receiptTaken`、`receiptSettled`、移出。`claim`、`unclaim` 不发现有的 `onChanged`：送达订着它，每次都重排一轮，暂时送不了时 `unclaim` 再发就绕过退避连续重送。计划 7a 里“`claim`、`unclaim` 发变化”按这个信号实现。
+- **有留着的话的行**：它没有在跑的运行，行 id 是 `session:<会话>:held`；开始时刻取会话表看到留着的话的时刻（打开句柄时就有的，取打开的时刻）。Spec 同改（sessions.md 输出 30）。
+- **会话表交回的形状**：`activityWithBackground()` 交回 `{id, state: "running" | "waiting" | "held", runId?, startedAt?, pending?}`；`held` 只在空闲且有只有用户能放行的话时出现，后台会话也算；`runId`、`startedAt` 只在跑与等你时有，`pending` 只在等你时有。`onActivityChanged` 另在等你的事项种类变了时发（换运行一定先经过空闲，已经会发）。`running-work.ts` 跳过 `held`。
+- 前台子代理等你批准时父会话算在跑：组头写“正在回复”，块里任务那一行是等你处理（“等你批准”），块按等你处理排在前面。
+
 ## 8. 不做与风险
 
 - 不做：形态与种类的筛选（决定 4）；分页（被截掉的行没有入口，已知限制）；项目入口登记；提供方的行持久化。
