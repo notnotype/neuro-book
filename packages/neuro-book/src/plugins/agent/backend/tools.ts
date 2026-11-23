@@ -21,6 +21,7 @@ import type {ToolRequirements} from "../shared/profile-tools";
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../shared/points";
 import type {AgentToolServices} from "../shared/resources";
+import type {ToolJobScope} from "./jobs/tool-jobs";
 
 /** 撤回时等执行中的调用结算的上限（提案 P11 停止的第一步）。 */
 export const REVOKE_GRACE_MS = 5_000;
@@ -40,7 +41,8 @@ export interface AgentToolsOptions {
     readonly evalObjectOf?: (object: string) => {readonly plugin: string} | undefined;
     /** 交给工具工厂的会话服务（资源视图与全文保存），按内核给的会话上下文构造。 */
     /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
-    readonly services: (context: ToolSessionContext, toolId: string) => AgentToolServices;
+    /** `scope`：这一代工具实现的登记范围（贡献它的插件、正在执行的调用、撤回），工具登记任务用。 */
+    readonly services: (context: ToolSessionContext, toolId: string, scope: ToolJobScope) => AgentToolServices;
     /** 工具的发布与撤回：工具目录的界面要重取。 */
     readonly catalogChanged: () => void;
 }
@@ -52,6 +54,10 @@ export class AgentTools {
     readonly #published = new Map<string, Handle>();
     /** 工具 id → 用着它的包装（撤回时逐个作废）。 */
     readonly #wrappers = new Map<string, Set<ToolWrapper>>();
+    /**
+     * 会话关了、工具实现已释放，但这一代登记的任务还在跑：它们的撤回监听留在这里，这一代撤回时照样调（工具登记任务，jobs.md 输出 19）。
+     */
+    readonly #orphans = new Map<Handle, Set<() => void>>();
     /** 报过 `eval-object-missing` 的工具：每次取工具集都会重算，同一个只报一次。 */
     readonly #missing = new Set<string>();
 
@@ -66,6 +72,9 @@ export class AgentTools {
             if (this.#published.get(handle.id) !== handle) return;
             this.#published.delete(handle.id);
             this.options.catalogChanged();
+            const orphans = this.#orphans.get(handle);
+            this.#orphans.delete(handle);
+            for (const listener of orphans ?? []) listener();
             await Promise.all([...(this.#wrappers.get(handle.id) ?? [])].map((wrapper) => wrapper.revoke(handle)));
         },
     };
@@ -164,6 +173,14 @@ export class AgentTools {
         this.#wrappers.get(id)?.delete(wrapper);
     }
 
+    /** 释放了的工具实现留下的撤回监听：这一代撤回时调。 */
+    adopt(handle: Handle, listeners: ReadonlySet<() => void>): void {
+        if (listeners.size === 0) return;
+        let set = this.#orphans.get(handle);
+        if (set === undefined) this.#orphans.set(handle, (set = new Set()));
+        for (const listener of listeners) set.add(listener);
+    }
+
     #declaration(id: string, plugin: string, declaration: AgentToolDeclaration): ToolDeclaration {
         const fixed = declaration.effect;
         // 按参数求等级：提供方已激活、实现给了 `effect` 时用它；否则用声明里的（作者写最保守的）。
@@ -207,6 +224,10 @@ interface Built {
     revoked: boolean;
     /** 进行中的调用各一个：撤回时开始它的 5 秒计时。调用结束时移除。 */
     readonly onRevoke: Set<() => void>;
+    /** 正在执行的调用的 `invocation`：工具登记任务只认它们（jobs.md）。 */
+    readonly live: Set<string>;
+    /** 撤回时调一次的：这一代登记的任务按中断收口。 */
+    readonly retired: Set<() => void>;
 }
 
 class ToolWrapper implements ToolImplementation {
@@ -254,7 +275,13 @@ class ToolWrapper implements ToolImplementation {
         }
         // 等工厂的这段时间里运行可能已中止、这一代可能已撤回、会话可能已关闭：这时不再开始执行，免得中止之后才有副作用。
         if (context.signal.aborted || built.revoked || this.#disposed) return unavailable(this.id);
-        return implementation.execute(args, context);
+        // 执行期间这次调用可以登记任务；结算之后不行（jobs.md 的工具登记任务）。
+        built.live.add(context.invocation);
+        try {
+            return await implementation.execute(args, context);
+        } finally {
+            built.live.delete(context.invocation);
+        }
     }
 
     /** 提供方的这一代撤回：作废它，交回的 Promise 在进行中的调用都结算或 5 秒到时完成。 */
@@ -264,6 +291,7 @@ class ToolWrapper implements ToolImplementation {
         this.#built = null;
         built.revoked = true;
         for (const listener of [...built.onRevoke]) listener();
+        for (const listener of [...built.retired]) listener();
         await this.#retire(built);
     }
 
@@ -272,6 +300,8 @@ class ToolWrapper implements ToolImplementation {
         this.registry.forget(this.id, this);
         const built = this.#built;
         this.#built = null;
+        // 会话关了不停插件登记的任务：撤回监听交给登记表，插件这一代撤回时照样停下它们。
+        if (built !== null && !built.revoked) this.registry.adopt(built.handle, built.retired);
         if (built !== null) await this.#retire(built);
     }
 
@@ -279,15 +309,20 @@ class ToolWrapper implements ToolImplementation {
         const handle = await this.registry.current(this.id);
         if (handle === null || this.#disposed) return null;
         if (this.#built?.handle === handle) return this.#built;
+        const live = new Set<string>();
+        const retired = new Set<() => void>();
+        let built!: Built;
+        const scope: ToolJobScope = {plugin: handle.plugin, sessionId: this.context.sessionId, live, revoked: () => built.revoked, onRevoke: (listener) => void retired.add(listener)};
         let implementation: Promise<ToolImplementation>;
         try {
-            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context, this.id)));
+            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context, this.id, scope)));
         } catch (error) {
             // 句柄在这之间被撤回，或工厂同步抛错。
             implementation = Promise.reject(error);
         }
         implementation.catch(() => undefined);
-        this.#built = {handle, implementation, calls: new Set(), revoked: false, onRevoke: new Set()};
+        built = {handle, implementation, calls: new Set(), revoked: false, onRevoke: new Set(), live, retired};
+        this.#built = built;
         return this.#built;
     }
 

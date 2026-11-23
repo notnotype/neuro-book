@@ -97,7 +97,7 @@ export interface KernelEvents {
      * 会话或宿主交给会话、下一次对话请求带上的一段文字（runtime.md 输出 112）。不进输入的就绪与留着：取走之前一直待发。
      * `by` 总是写：用户发不了提醒。
      */
-    noticeQueued: K<"session", "ctrl", {id: string; by: Issuer; key?: string; text: string; wake: boolean; commandId?: string}>;
+    noticeQueued: K<"session", "ctrl", {id: string; by: Issuer; key?: string; text: string; wake: boolean; commandId?: string; senderOnly?: true}>;
     /** 替换（同一发出者的同一个 `key`）、发出者撤回或用户取消。`by` 用户不写。 */
     noticeRemoved: K<"session", "ctrl", {ids: readonly string[]; by?: Issuer; reason: "replaced" | "withdrawn" | "cancelled"}>;
     /** 与写进路径的 `hostNotice` 同一个写入批（输出 113）；`runId` 是取走它们的运行。 */

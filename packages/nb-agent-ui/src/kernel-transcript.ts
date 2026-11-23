@@ -62,6 +62,8 @@ export type KernelNotice = {
     readonly by: KernelIssuer;
     readonly summary: string;
     readonly wake: boolean;
+    /** 只有发送方能撤回（后台任务的回执，runtime.md 输出 112）：排队区不画取消。 */
+    readonly senderOnly: boolean;
 };
 
 /**
@@ -345,7 +347,7 @@ function noticeOf(value: unknown): KernelNotice | null {
     const by = otherIssuerOf(value.by);
     const text = typeof value.text === "string" ? value.text : typeof value.summary === "string" ? value.summary : null;
     if (by === null || text === null) return null;
-    return {id: value.id, by, summary: firstChars(text, NOTICE_SUMMARY_CHARS), wake: value.wake === true};
+    return {id: value.id, by, summary: firstChars(text, NOTICE_SUMMARY_CHARS), wake: value.wake === true, senderOnly: value.senderOnly === true};
 }
 
 function heldCauseOf(value: unknown): KernelHeldCause | undefined {

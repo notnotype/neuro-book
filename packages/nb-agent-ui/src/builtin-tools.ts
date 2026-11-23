@@ -190,8 +190,8 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     {
         id: "bash", toolNames: ["bash", "shell"], category: "other", icon: "i-lucide-terminal",
         label: agentRef("tool.bash"), summary: (call) => argString(call, "command"), presentation: "card",
-        // 转后台的命令（`async`）是常显的节点：回复完了它还在跑，进度要留在眼前（Spec“注册表”的 presentationOf）。
-        presentationOf: (call) => (argBoolean(call, "async") === true ? "node" : "card"), hostNode: "backgroundCommand",
+        // 转后台的命令（`async`，或跑过门槛自动转的，结果带 `autoBackground`）是常显的节点：回复完了它还在跑，进度要留在眼前（Spec“注册表”的 presentationOf）。
+        presentationOf: (call) => (argBoolean(call, "async") === true || (call.result?.details as {autoBackground?: unknown} | undefined)?.autoBackground === true ? "node" : "card"), hostNode: "backgroundCommand",
     },
     {
         id: "execute_sql", toolNames: ["execute_sql"], category: "other", icon: "i-lucide-database",

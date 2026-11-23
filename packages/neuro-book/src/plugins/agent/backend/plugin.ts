@@ -43,7 +43,7 @@ import {writeEvalDocs} from "./eval/objects";
 import {EVAL_STATE_EXTENSION, EVAL_TOOL, evalDeclaration, evalStateExtension, evalTool, kernelEntry} from "./eval/tool";
 import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
 import {approvalPreview} from "./builtin/preview";
-import {shellBackground} from "./builtin/shell-background";
+import {shellAutoBackground, shellBackground} from "./builtin/shell-background";
 import {BUILTIN_PROFILE_CONTRIBUTIONS, builtinProfiles} from "./builtin/profiles";
 import {modesExtensions} from "./permissions/modes";
 import {readProjectRules} from "./permissions/project-rules";
@@ -132,7 +132,7 @@ export const agentBackendPlugin: PluginDefinition = {
             });
             const clock = context.services.require(clockKey);
             // eval 的内核跟着这一次激活：会话关闭不结束内核（eval.md 输出 11），停止时会话都关完之后再全部结束。
-            const evalTools = evalTool({entry: kernelEntry(), clock, toolsOf: (context) => runtime.codeTools(context)});
+            const evalTools = evalTool({entry: kernelEntry(), clock, toolsOf: (context) => runtime.codeTools(context), notices: runtime.evalNotices});
             const previews = new PreviewTokens(clock);
             const stateRoot = context.services.require(stateRootKey).path;
             const profilesRoot = join(stateRoot, "agent", "profiles");
@@ -205,7 +205,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 // 别的插件拿到按调用方生成的门面：视图的发出者由门面盖章（sessions.md 输出 21）。
                 services: [provideServicePerConsumer(agentKey, (consumer) => agentFacade(runtime.service, consumer), {release: (facade) => revokeAgentFacade(facade)}), provideService(agentProfilePartsKey, {modes: modesExtensions})],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, skillInstaller: installer, skillsFolder: {path: userSkills, open: () => openFolder(userSkills, process.env, process.platform)}, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews)), provideRemote(agentRequestsContract, () => requestsRemote({recorder: runtime.requests, owners: runtime.requestOwners, titles: runtime.titles, sessionEntry: (id) => runtime.sessionEntry(id)}))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock, report), ...subagentToolImplementations, [EVAL_TOOL]: evalTools.implementation}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers}), [EVAL_STATE_EXTENSION]: evalStateExtension}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock), shellAutoBackground(runtime.jobs, runtime.kernelClock, {seconds: () => settings.get(agentSettings.settings.shellAutoBackground), isChild: (id) => runtime.relations.parentOf(id) !== null, report})), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock, report), ...subagentToolImplementations, [EVAL_TOOL]: evalTools.implementation}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers}), [EVAL_STATE_EXTENSION]: evalStateExtension}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

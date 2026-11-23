@@ -4,6 +4,7 @@
  */
 
 import type {ServerFilesResult, StagedSink, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
+import type {ToolContext} from "@notnotype/nb-harness/kernel/contracts";
 
 /** 地址的分类（输出 2）：算不算作品内容；Agent 写它是放行、要询问还是拒绝。审批按它判断。 */
 export interface ResourceClass {
@@ -51,8 +52,25 @@ export interface SessionArtifacts {
     save(label: string, write: (sink: StagedSink) => Promise<void>): Promise<ServerFilesResult<{readonly address: string}>>;
 }
 
+/** 在调用里登记的一件后台任务（jobs.md 输出 19）。 */
+export interface ToolJob {
+    readonly id: string;
+    /** 进展的最后一行。 */
+    progress(line: string): void;
+    /** 结束时给出回执的结果文字（按 UTF-8 至多 12 KiB，超出截断并注明），之后不再向插件取任何东西。 */
+    end(state: "completed" | "failed" | "aborted", text: string): void;
+}
+
+/** 工具在一次调用里登记后台任务（jobs.md 输出 19），名额与后台命令、子代理共用。 */
+export interface ToolJobs {
+    /** 只能在这次调用的 `execute` 结算之前调。`stop` 必给：用户、Agent 停它，或插件撤回时调用。 */
+    begin(call: ToolContext, input: {readonly kind: string; readonly label: string; readonly summary: string; stop(byUser: boolean): void | Promise<void>}): {readonly ok: true; readonly job: ToolJob} | {readonly ok: false; readonly code: "concurrency-limit" | "unavailable" | "invalid"};
+}
+
 /** 工具工厂的第二个参数（docs/specs/agent/contributions.md）。 */
 export interface AgentToolServices {
     readonly resources: SessionResources;
     readonly artifacts: SessionArtifacts;
+    /** 在调用里把长任务登记成 Agent 的后台任务（jobs.md 输出 19）。 */
+    readonly jobs: ToolJobs;
 }

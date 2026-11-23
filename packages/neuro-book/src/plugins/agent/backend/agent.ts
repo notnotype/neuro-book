@@ -37,6 +37,10 @@ import {JobCenter} from "./jobs/center";
 import {agentRunningWork, SessionTitles} from "./running-work";
 import {RequestOwners} from "./requests";
 import {ChildRuns} from "./subagents/children";
+import {JobDelivery} from "./jobs/delivery";
+import {JobLedger} from "./jobs/ledger";
+import {toolJobs} from "./jobs/tool-jobs";
+import {evalNotices, type EvalNotices} from "./eval/notices";
 import {SessionRelations} from "./subagents/relations";
 import {isModeSwitch, type PendingItem} from "./subagents/result";
 import {SubagentTree} from "./subagents/tree";
@@ -52,6 +56,7 @@ import {modesContract} from "./permissions/modes";
 import {objectDoc, validEvalObjects, type EvalObject} from "./eval/objects";
 import {EVAL_TOOL, evalDeclarationFor, KERNEL_NAMES, type CodeTool} from "./eval/tool";
 import {AgentTools} from "./tools";
+
 
 export interface AgentRuntimeOptions {
     readonly stateRoot: string;
@@ -85,6 +90,8 @@ export interface AgentRuntime {
     readonly relations: SessionRelations;
     /** 任务中心（jobs.md）。 */
     readonly jobs: JobCenter;
+    /** eval 内核重置的提醒（eval.md）：eval 工具经它给会话发提醒、撤回。 */
+    readonly evalNotices: EvalNotices;
     /** 此刻在跑、停止服务端会中断的会话与任务（sessions.md 输出 20），给宿主的 `runningWorkKey` 登记用；同步。 */
     runningWork(): ReadonlyArray<RunningWorkItem>;
     /** 会话树的累计花费：费用守卫按树比（run-guards.md 输出 13）。 */
@@ -178,7 +185,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     let hostRef: AgentHost | null = null;
     // 全局对象（contributions.md 输出 25）：声明在进程生命期内不变，挑一次。
     const evalObjects = validEvalObjects(options.declarations, KERNEL_NAMES, options.report);
-    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
+    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId, scope) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context), jobs: toolJobs(jobs, scope, {report: options.report})})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
@@ -212,10 +219,16 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
     const clock = kernelClock(options.clock);
+    // 送达在会话表建好之后才有；任务中心在那之前建，经这个引用接上（`wait` 接过回执、开始前移出已被取走的）。
+    let delivery: JobDelivery | null = null;
     const jobs = new JobCenter({
         clock,
         newId: () => crypto.randomUUID().replaceAll("-", ""),
         limits: () => ({perSession: options.settings.get(agentSettings.settings.subagentsPerSession), global: options.settings.get(agentSettings.settings.backgroundJobs)}),
+        takeover: (job, exit) => delivery?.takeover(job, exit) ?? Promise.resolve("maybe"),
+        prune: async (owner) => {
+            await delivery?.prune(owner);
+        },
     });
     let stopping = false;
     const models = traceModelPort(options.models === null ? NO_MODELS : options.models.port((profile) => {
@@ -287,6 +300,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => {
         restore.forget(id);
         internal.delete(id);
+        delivery?.sessionClosed(id);
     }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), refuse: (header) => (header.owner === undefined ? null : "owned-session"), report: options.report});
     const table = sessions;
     titles.follow(table);
@@ -374,6 +388,18 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         return created;
     }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
     const children = new ChildRuns({table, jobs, report: options.report});
+    // 根会话：会话头没有调用方（读索引，不看会话关系表：启动时关系表可能还没载全）。
+    const isRoot = async (id: string) => {
+        const entry = await store.entry(id);
+        return !entry.ok || entry.value.caller === undefined;
+    };
+    // 账本：先跟着任务中心写，再补发上次留下的回执（jobs.md 输出 17）。补发要开会话，不挡住启动。
+    const ledger = new JobLedger({file: join(options.stateRoot, "agent", "jobs", "ledger.json"), jobs, report: options.report});
+    delivery = new JobDelivery({jobs, table, clock, isRoot, newId: () => crypto.randomUUID(), report: options.report, persist: () => ledger.flush()});
+    const kernelNotices = evalNotices(table, () => crypto.randomUUID(), options.report);
+    delivery.start();
+    ledger.follow();
+    const replayed = ledger.replay(table).catch((error: unknown) => options.report("job-ledger-replay-failed", "replaying the job ledger threw", {message: error instanceof Error ? error.message : String(error)}));
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
     const profileAdmin: ProfileAdmin = {
@@ -430,6 +456,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profileAdmin,
         relations,
         jobs,
+        evalNotices: kernelNotices,
         runningWork: () => agentRunningWork({table, relations, titles, jobs, internal}),
         children,
         tree,
@@ -454,15 +481,22 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             sweepTimer?.();
             sweepTimer = null;
             table.closeGate();
-            // 先关任务中心的门：之后已打开会话里的工具起不了新的后台命令（否则它在 `jobs.clear()` 之后没人收口）。
+            // 先停送达（之后不再发回执，没送出的留在账本里、下次启动补发），再关任务中心的门：之后已打开会话里的工具起不了新的后台命令
+            // （否则它在 `jobs.clear()` 之后没人收口）。
+            delivery?.close();
             jobs.close();
-            // 后台命令按 interrupted 收口、写完 `status.json`；子代理运行不在这里停，由下面关会话收口。
-            await Promise.allSettled(jobs.live().filter((job) => job.kind === "shell").map((job) => job.driver?.kill("interrupted")));
+            // 后台命令与插件登记的任务在这里按中断停下（后台命令写完 `status.json`）；子代理的运行由下面关会话收口。
+            await Promise.allSettled(jobs.live().filter((job) => job.kind !== "agent").map((job) => job.driver?.kill("interrupted")));
             await userProfiles.stop();
+            // 排着的 eval 提醒在会话关闭之前发完或撤完：之后才执行就只剩会话已关的诊断。
+            await kernelNotices.settled();
             await table.stop();
             await meta.settled();
             // 会话都关了，不会再有模型请求：等记录写完。
             await requests.close();
+            // 账本记下收口了、回执还没有出口的任务，再丢任务表（丢的时候账本已不再跟）。
+            await replayed;
+            await ledger.stop();
             jobs.clear();
         },
     };

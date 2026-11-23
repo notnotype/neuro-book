@@ -90,6 +90,12 @@ describe("NeuroBook 的内置工具", () => {
         expect(presentationOf(ask, callWith("ask", {questions: [{question: "要几章？"}]}, {status: "running"}))).toBe("node");
     });
 
+    it("shell 跑过门槛自动转后台（结果带 autoBackground）也是常显的节点；结果来之前按卡片", () => {
+        const shell = entry("shell");
+        expect(presentationOf(shell, callWith("shell", {command: "bun run build"}, {status: "running"}))).toBe("card");
+        expect(presentationOf(shell, callWith("shell", {command: "bun run build"}, {status: "success", result: {text: "已转到后台", details: {jobId: "job-1", autoBackground: true}} as never}))).toBe("node");
+    });
+
     it("shell 带 async 是常显的节点（画宿主注入的后台命令），参数还在生成时按卡片；不带 async 是卡片", () => {
         const shell = entry("shell");
         expect(presentationOf(shell, callWith("shell", {command: "bun run build", async: true}, {status: "running"}))).toBe("node");

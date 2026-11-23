@@ -49,12 +49,16 @@ export class ChildRuns {
         const report = () => this.#result(job, view, runId, save);
         this.#reports.set(job, report);
         this.options.jobs.start(job, {
+            // 只停这个任务跟着的那次运行：用户在子会话里刚开的下一轮不受影响（runtime.md 输出 120）。
             kill: async (_reason, byUser) => {
                 const stopper = byUser === true ? this.options.table.view(child) : view;
-                const aborted = await stopper.abort({commandId: crypto.randomUUID(), keepQueue: true});
+                const aborted = await stopper.abort({commandId: crypto.randomUUID(), keepQueue: true, runId});
                 if (!aborted.ok) this.options.report("subagent-kill-failed", `could not abort the run of sub-agent session ${child}: ${aborted.code}`, {session: child, code: aborted.code});
+                else if (!aborted.value.aborted) return "already-ended";
+                return undefined;
             },
             result: async () => (await report()).text,
+            saveFull: save,
         }, {sessionId: child, runId});
         void this.#follow(job, child, issuer, view, runId);
     }
@@ -96,7 +100,10 @@ export class ChildRuns {
             update();
             const run = await view.waitRun(runId);
             const line = lineOf(run);
-            jobs.end(job, STATUS_OF_REASON[run.reason], {reason: run.reason, ...(line === undefined ? {} : {line})});
+            // 用户在子会话里直接停的（不经 `killJob`）也算用户停的：回执不唤起父会话（审查第 6 条）。`RunResult` 不带停的人，从收口事件读。
+            const ended = run.reason === "aborted" ? (await view.path()).find((event) => event.type === "runEnded" && (event.data as {runId?: string}).runId === runId) : undefined;
+            const byUser = (ended?.data as {stoppedBy?: Issuer} | undefined)?.stoppedBy?.kind === "user";
+            jobs.end(job, STATUS_OF_REASON[run.reason], {reason: run.reason, ...(line === undefined ? {} : {line}), ...(byUser ? {byUser: true as const} : {})});
         } catch (error) {
             // 子会话打不开，或插件正在停止：照实记成中断，等它的调用与 `wait` 都能收口。
             this.options.report("subagent-follow-failed", `could not follow the run ${runId} of sub-agent session ${child}`, {session: child, message: error instanceof Error ? error.message : String(error)});

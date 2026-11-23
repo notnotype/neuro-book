@@ -807,6 +807,12 @@ describe("提醒（conversation.md 输出 51）", () => {
         await until("提醒排上", () => h.ctx().composer.queued.length === 1);
         expect(h.ctx().composer.queued[0]).toEqual({id: idleNotice.value.noticeId, text: "空闲时的提醒", delivery: "steer", author: {label: "conversation.author.notice · 日程", icon: "i-lucide-bell"}, editable: false});
         expect(h.ctx().run.status).toBe("idle");
+        // 只有发送方能撤回的（后台任务的回执）：排队区没有取消。
+        const receipt = await hosted.notice({commandId: crypto.randomUUID(), text: "后台任务的回执", senderOnly: true});
+        if (!receipt.ok) throw new Error(`notice failed: ${JSON.stringify(receipt)}`);
+        await until("回执排上", () => h.ctx().composer.queued.length === 2);
+        expect(h.ctx().composer.queued[1]).toMatchObject({id: receipt.value.noticeId, editable: false, removable: false});
+        expect(h.ctx().composer.queued[0]!.removable).toBeUndefined();
 
         // 发话开一轮：空闲时的提醒随第一次请求带上。
         const hold = endpoint.hold();
@@ -815,6 +821,7 @@ describe("提醒（conversation.md 输出 51）", () => {
         await hold.arrived;
         await until("运行中、提醒取走", () => h.ctx().run.status === "running" && h.ctx().composer.queued.length === 0);
         expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("空闲时的提醒");
+        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("后台任务的回执");
         for (const text of ["排一", "排二"]) h.host.act({type: "composer.submit", text, delivery: "followup"});
         await until("话排上", () => h.ctx().composer.queued.length === 2);
         const queued = await hosted.notice({commandId: crypto.randomUUID(), text: "内核重置了"});

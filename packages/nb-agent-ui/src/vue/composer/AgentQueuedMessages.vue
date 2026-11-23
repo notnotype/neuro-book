@@ -5,7 +5,7 @@ import type {Text} from "@notnotype/nb-ui/text";
 import {firstLine} from "../../format";
 import {useAgentText} from "../host";
 
-type Queued = {id: string; text: string; delivery: "steer" | "followup"; author?: {label: Text; icon: string}; editable?: boolean; held?: {reason: Text}};
+type Queued = {id: string; text: string; delivery: "steer" | "followup"; author?: {label: Text; icon: string}; editable?: boolean; removable?: boolean; held?: {reason: Text}};
 
 const props = defineProps<{
     queued: ReadonlyArray<Queued>;
@@ -73,7 +73,8 @@ const iconOf = (item: Queued) => (item.author !== undefined ? item.author.icon :
                 </span>
                 <span class="acv-queued__text">{{ firstLine(item.text) }}</span>
                 <IconButton v-if="item.editable !== false" icon-class="i-lucide-pencil" size="xs" :title="t('composer.queued.edit')" :aria-label="t('composer.queued.edit')" data-queued-edit @click="emit('edit', item.id)" />
-                <IconButton icon-class="i-lucide-x" size="xs" :title="t('composer.queued.remove')" :aria-label="t('composer.queued.remove')" data-queued-remove @click="emit('remove', item.id)" />
+                <!-- 只有发送方能撤回的（后台任务的回执）没有取消 -->
+                <IconButton v-if="item.removable !== false" icon-class="i-lucide-x" size="xs" :title="t('composer.queued.remove')" :aria-label="t('composer.queued.remove')" data-queued-remove @click="emit('remove', item.id)" />
             </li>
             <li v-if="hidden > 0 || expanded" class="acv-queued__more">
                 <button type="button" class="acv-queued__more-button nb-ui-focus-ring" :aria-expanded="expanded" data-queued-more @click="expanded = !expanded">{{ expanded ? t("composer.queued.collapse") : t("composer.queued.more", {count: hidden}) }}</button>

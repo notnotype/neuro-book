@@ -47,7 +47,8 @@ export interface CommandMap {
     edit: {args: {inputId: string; input: UserInput}; value: {}};
     remove: {args: {inputId: string}; value: {}};
     /** 交给会话一条提醒，下一次对话请求带上（runtime.md 输出 112）；只给会话与宿主。`replaced` 是被它替换掉的那条。 */
-    notice: {args: {text: string; key?: string; wake?: boolean}; value: {noticeId: string; replaced?: string}};
+    /** `senderOnly`：只有发出者能撤回（后台任务的回执），用户身份撤回得 `not-allowed`（runtime.md 输出 112）。 */
+    notice: {args: {text: string; key?: string; wake?: boolean; senderOnly?: boolean}; value: {noticeId: string; replaced?: string}};
     /** 撤回或取消一条还没取走的提醒：用户能取消任何一条，会话与宿主只能撤回自己发的。 */
     removeNotice: {args: {noticeId: string}; value: {}};
     /** 应答等用户的事项。`answer` 只给提问；`note` 是拒绝时附给模型的话。 */
@@ -56,7 +57,8 @@ export interface CommandMap {
     /** 缓冲区空时是没有新输入的“继续”运行；末尾已是完整回复时失败 `nothing-to-continue`。 */
     start: {args: {}; value: {runId: string}};
     /** 幂等：没有运行时 `aborted: false`。缺省清空缓冲区，`keepQueue` 保留。 */
-    abort: {args: {keepQueue?: boolean}; value: {aborted: boolean}};
+    /** `runId`：只停这次运行，在跑的不是它时 `aborted: false`（runtime.md 输出 120）。 */
+    abort: {args: {keepQueue?: boolean; runId?: string}; value: {aborted: boolean}};
     /** 回退到 `rewindTargets()` 给出的边界；运行中得 `running`，先 `abort`。`resend` 回退后入队并开始（编辑重发）。 */
     rewind: {args: {to: string | null; resend?: UserInput}; value: {leaf: string | null; inputId?: string; runId?: string}};
     /** 落到那条分支最近写入的末端。 */
@@ -173,6 +175,8 @@ export interface PendingNotice {
     /** 发出时的 seq，按它排。 */
     queuedAt: number;
     commandId?: string;
+    /** 只有发出者能撤回。 */
+    senderOnly?: true;
 }
 
 export interface ExtensionInfo {

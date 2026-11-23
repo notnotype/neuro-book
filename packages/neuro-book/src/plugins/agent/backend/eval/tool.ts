@@ -25,6 +25,7 @@ import {IMPORT_HELPER} from "./constants";
 import {objectsSection, type EvalObject} from "./objects";
 import {rewriteCell} from "./rewrite";
 import {describeExit, Kernel, KernelRegistry, type CellEnd, type KernelHolder} from "./kernels";
+import type {EvalNotices} from "./notices";
 
 export const EVAL_TOOL = "nbook.agent.eval";
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -93,6 +94,8 @@ export interface EvalToolDeps {
     readonly clock: RuntimeClock;
     readonly idleMs?: number;
     readonly handshakeMs?: number;
+    /** 当场知道的重置给会话发提醒、新内核起来时撤回（eval.md）；不给时只写在下一次结果里。 */
+    readonly notices?: EvalNotices;
 }
 
 /** 内核入口：打包产物里是与本模块的包同目录的 `eval-kernel.js`（`build:server` 与应用包一起产出），源码里是 `kernel-entry.ts`。 */
@@ -147,7 +150,7 @@ class EvalSession implements ToolImplementation {
 
     async execute(args: Readonly<Record<string, unknown>>, ctx: ToolContext): Promise<ToolResult> {
         if (this.#closed) return failure("kernel-unavailable", "会话已关闭，内核不再可用。");
-        const kernel = this.registry.take(this.context.sessionId, () => new SessionKernel(this.deps, this.registry));
+        const kernel = this.registry.take(this.context.sessionId, () => new SessionKernel(this.context.sessionId, this.deps, this.registry));
         if (kernel === null) return failure("kernel-unavailable", "服务端正在停止，内核不再可用。");
         return kernel.execute(args, ctx, this.context, this.services);
     }
@@ -180,7 +183,7 @@ class SessionKernel implements KernelHolder {
     #ranAt: number | null = null;
     #idle: (() => void) | null = null;
 
-    constructor(private readonly deps: EvalToolDeps, private readonly registry: KernelRegistry<SessionKernel>) {}
+    constructor(private readonly sessionId: string, private readonly deps: EvalToolDeps, private readonly registry: KernelRegistry<SessionKernel>) {}
 
     get holding(): boolean {
         return this.#kernel?.alive === true;
@@ -191,7 +194,7 @@ class SessionKernel implements KernelHolder {
     }
 
     evict(): void {
-        void this.#reset("被回收");
+        void this.#reset("被回收", true);
     }
 
     async close(): Promise<void> {
@@ -208,8 +211,10 @@ class SessionKernel implements KernelHolder {
             return await this.#execute(args, ctx, context, services);
         } finally {
             this.#busy = false;
-            // 每个出口都重新计空闲，语法错误这类提前交回的也算：内核不随会话关闭结束，漏排一次就只剩总数上限能回收它。
+            // 每个出口都重新计空闲，语法错误这类提前交回的也算：内核不随会话关闭结束，漏排一次就只剩总数上限能回收它。内核在这次调用
+            // 的结尾（单元已交回、结果还在整理）退出时，`exited` 因为还忙没有重置：这里补上，提醒照发（eval.md 输出 20）。
             if (this.holding) this.#scheduleIdle();
+            else if (this.#kernel !== null) void this.#reset("意外退出", true);
         }
     }
 
@@ -244,6 +249,14 @@ class SessionKernel implements KernelHolder {
             this.#profile = profile;
             this.#place = where;
             fresh = true;
+            // 两次调用之间内核自己退出了：当场知道，发提醒（单元执行中的退出由 `#run` 写进那次结果）。`#reset` 先把 `#kernel` 置空再杀，
+            // 那次退出到这里时已不是当前内核。
+            const current = started.kernel;
+            void current.exited.then(() => {
+                if (this.#kernel === current && !this.#busy) void this.#reset("意外退出", true);
+            });
+            // 新一代能用了：旧一代还没取走的提醒撤回。
+            this.deps.notices?.ready(this.sessionId);
         }
         this.registry.admit(this);
         const kernel = this.#kernel;
@@ -363,20 +376,21 @@ class SessionKernel implements KernelHolder {
         };
     }
 
-    async #reset(reason: ResetReason): Promise<void> {
+    /** `outside`：不在调用里、当场知道的重置（空闲、被回收、两次调用之间意外退出）：发提醒（每一代内核起来时都跑了一个单元，重置就丢了变量）。 */
+    async #reset(reason: ResetReason, outside = false): Promise<void> {
         this.#clearIdle();
         const kernel = this.#kernel;
         this.#kernel = null;
         if (kernel !== null) {
             this.#reason = reason;
+            if (outside) this.deps.notices?.reset(this.sessionId, `eval 的内核已重置（${reason}），之前的变量没了。下一次 eval 会起新的内核。`);
             await kernel.kill();
         }
     }
 
     #scheduleIdle(): void {
         this.#clearIdle();
-        // 到点时内核已经自己没了（两次调用之间被外部结束），原因是意外退出，不是空闲。
-        this.#idle = this.deps.clock.schedule(() => void this.#reset(this.#kernel?.alive === false ? "意外退出" : "空闲"), this.deps.idleMs ?? EVAL_IDLE_MS);
+        this.#idle = this.deps.clock.schedule(() => void this.#reset("空闲", true), this.deps.idleMs ?? EVAL_IDLE_MS);
     }
 
     #clearIdle(): void {

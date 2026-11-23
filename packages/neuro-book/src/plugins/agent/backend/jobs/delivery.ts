@@ -1,0 +1,316 @@
+/**
+ * 回执的送达（docs/specs/agent/jobs.md 输出 13–16）：后台任务结束、或子代理停在一个交给调用方的提问上时，以宿主身份给启动它的会话发一条
+ * 提醒（`notice`，只有发送方能撤回）。发送方不管会话开没开：会话表的视图按需打开，空闲后自己关。
+ *
+ * 每个会话一条串行队列：领取、发送、撤回、重发都排在里面，所以同一条回执的发送与撤回不会颠倒。领取与 `wait` 都在任务中心的同步段里写
+ * 任务的出口（`center.ts`），回执只交一次：`wait` 要交回一件已经经提醒送出的，经 `takeover` 在这条队列里撤回那条提醒。
+ *
+ * 一条提醒可以装几件任务的回执；`wait` 撤回其中一件时整条撤回，其余几件退回、下一轮重送。提问一件一条，记在本模块自己的表里：任务
+ * 移出表之后，答过、停了的提问照样撤得回。
+ *
+ * 重试的时机：暂时送不了的按退避（1 分钟起翻倍、至多 30 分钟）再领；写入结果未知的只在会话的句柄关闭之后按原样重发一次，不每轮都发
+ * （否则重发本身会让坏掉的句柄一直关不掉）。
+ */
+
+import type {Clock, Issuer} from "@notnotype/nb-harness/kernel/contracts";
+import type {SessionTable} from "@notnotype/nb-harness/kit/sessions";
+
+import {isLive, type InContext, type Job, type JobCenter, type NoticeExit} from "./center";
+import {pack, receiptTitle, segment, SEGMENT_MAX_BYTES, shortReceipt} from "./receipt";
+
+/** 回执提醒的发出者：排队区写“提醒 · 后台任务”。 */
+export const RECEIPT_ISSUER: Issuer = {kind: "host", source: {plugin: "nbook.agent", label: "后台任务"}};
+
+/** 暂时送不了（按退避再送）的码：预算满了、会话这会儿打不开或正在关。 */
+const TRANSIENT = new Set(["notice-budget", "session-busy", "storage-failed", "session-closed"]);
+/** 写入结果未知：同一个指令 id 与参数重发才能定。 */
+const UNKNOWN = new Set(["log-broken", "unknown-outcome"]);
+
+const RETRY_FIRST_MS = 60_000;
+const RETRY_MAX_MS = 30 * 60_000;
+
+export interface JobDeliveryOptions {
+    readonly jobs: JobCenter;
+    readonly table: SessionTable;
+    readonly clock: Clock;
+    /** 根会话（没有调用方）的回执带唤起；子会话的不带。读会话头的索引判定。 */
+    readonly isRoot: (sessionId: string) => Promise<boolean>;
+    readonly newId: () => string;
+    readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /** 发出一条回执之前把它的指令 id 与参数落盘（账本）：进程在受理之后、记账之前退出时，补发能按原样重发。 */
+    readonly persist?: () => Promise<void>;
+}
+
+/** 送出去、还在待发的提问提醒：按提醒 id 记，答了、停了就撤回。 */
+interface QuestionNotice {
+    readonly owner: string;
+    readonly job: Job;
+    readonly questionId: string;
+    readonly exit: NoticeExit;
+}
+
+export class JobDelivery {
+    readonly #queues = new Map<string, Promise<void>>();
+    /** 一条提醒装了哪几件：撤回整条时其余几件要退回重送。 */
+    readonly #members = new WeakMap<NoticeExit, Job[]>();
+    readonly #questions = new Map<string, QuestionNotice>();
+    /** 句柄关闭过、结果未知的回执可以重发了。 */
+    readonly #resendDue = new WeakSet<NoticeExit>();
+    /** 全文只存一次：组正文与重送都用这个地址。 */
+    readonly #saved = new WeakMap<Job, Promise<string | null>>();
+    /** 按会话的退避：上一次的间隔，与还没到点的那次重试。 */
+    readonly #backoff = new Map<string, number>();
+    readonly #timers = new Map<string, AbortController>();
+    #closed = false;
+    #stop: (() => void) | null = null;
+
+    constructor(private readonly options: JobDeliveryOptions) {}
+
+    start(): void {
+        this.#stop = this.options.jobs.onChanged((owner) => this.schedule(owner));
+    }
+
+    /** 插件停止的第一步：之后不再领取、不再发送。还没送出的回执留在账本里，下次启动补发（`ledger.ts`）。 */
+    close(): void {
+        this.#closed = true;
+        this.#stop?.();
+        this.#stop = null;
+        for (const timer of this.#timers.values()) timer.abort();
+        this.#timers.clear();
+    }
+
+    /** 会话的句柄关了（损坏或空闲）：结果未知的回执可以按原样重发了（审查第 16 条）。 */
+    sessionClosed(sessionId: string): void {
+        const due = this.options.jobs.noticeExits(sessionId).filter(({exit}) => exit.state === "unconfirmed");
+        for (const {exit} of due) this.#resendDue.add(exit);
+        if (due.length > 0) this.schedule(sessionId);
+    }
+
+    schedule(owner: string): void {
+        if (this.#closed) return;
+        void this.#enqueue(owner, () => this.#pass(owner));
+    }
+
+    /**
+     * `wait` 接过一件已经经提醒送出的回执（审查第 1 条）：排在这个会话的队列里，等在途的发送结算，再撤回那条提醒。撤回成功，回执没进过请求，
+     * 由 `wait` 交回；已被取走就在对话里；结果未知、撤回出错时说“可能在”，`wait` 不再给一次（绝不交两次）。
+     */
+    takeover(job: Job, exit: NoticeExit): Promise<InContext> {
+        return this.#enqueue(job.owner, async (): Promise<InContext> => {
+            if (exit.state === "unconfirmed") return "maybe";
+            if (exit.state !== "pending" || exit.noticeId === undefined) return "no";
+            const removed = await this.#remove(job.owner, exit.noticeId);
+            if (removed === "removed") {
+                this.#questions.delete(exit.noticeId);
+                this.#returnOthers(exit, job);
+                return "no";
+            }
+            return removed === "taken" ? "yes" : "maybe";
+        });
+    }
+
+    /** `wait` 开始前：回执提醒已被取走的（不在这个会话的待发里了）记成交过、移出。读不了快照时跳过，不让 `wait` 失败。 */
+    async prune(owner: string): Promise<void> {
+        const pending = this.options.jobs.noticeExits(owner).filter(({exit}) => exit.state === "pending");
+        if (pending.length === 0) return;
+        let waiting: Set<string>;
+        try {
+            waiting = new Set((await this.#view(owner).snapshot()).notices.map((item) => item.id));
+        } catch (error) {
+            this.options.report("job-receipt-prune-failed", `could not read session ${owner} to settle receipts`, {session: owner, message: error instanceof Error ? error.message : String(error)});
+            return;
+        }
+        for (const {job, exit} of pending) if (exit.noticeId !== undefined && !waiting.has(exit.noticeId)) this.options.jobs.receiptTaken(job, exit);
+    }
+
+    #enqueue<T>(owner: string, step: () => Promise<T>): Promise<T> {
+        const previous = this.#queues.get(owner) ?? Promise.resolve();
+        const next = previous.then(step);
+        const settled = next.then(() => undefined, () => undefined);
+        this.#queues.set(owner, settled);
+        void settled.then(() => {
+            if (this.#queues.get(owner) === settled) this.#queues.delete(owner);
+        });
+        return next;
+    }
+
+    #view(owner: string) {
+        return this.options.table.view(owner, RECEIPT_ISSUER);
+    }
+
+    /** 撤回一条提醒：撤掉了、已被取走、或没撤成（出错，记诊断）。 */
+    async #remove(owner: string, noticeId: string): Promise<"removed" | "taken" | "failed"> {
+        try {
+            const removed = await this.#view(owner).removeNotice({commandId: this.options.newId(), noticeId});
+            if (removed.ok || removed.code === "notice-not-found") return "removed";
+            if (removed.code === "notice-taken") return "taken";
+            this.options.report("job-receipt-withdraw-failed", `could not withdraw the receipt notice ${noticeId} in session ${owner}: ${removed.code}`, {session: owner, code: removed.code});
+        } catch (error) {
+            this.options.report("job-receipt-withdraw-failed", `withdrawing the receipt notice ${noticeId} in session ${owner} threw`, {session: owner, message: error instanceof Error ? error.message : String(error)});
+        }
+        return "failed";
+    }
+
+    /** 一轮：撤回过时的提问、重发到期的结果未知的、领取并送出新的。出错只记诊断，不让队列断掉。 */
+    async #pass(owner: string): Promise<void> {
+        if (this.#closed) return;
+        try {
+            await this.#withdrawStaleQuestions(owner);
+            await this.#resendDue_(owner);
+            const {results, questions} = this.options.jobs.claim(owner);
+            if (results.length > 0) await this.#sendResults(owner, results);
+            for (const job of questions) await this.#sendQuestion(owner, job);
+        } catch (error) {
+            this.options.report("job-receipt-failed", `delivering receipts to session ${owner} threw`, {session: owner, message: error instanceof Error ? error.message : String(error)});
+        }
+    }
+
+    /** 提问在提醒取走之前被答了、停了、换了，或任务已移出表：撤回它（subagents.md 输出 26）。 */
+    async #withdrawStaleQuestions(owner: string): Promise<void> {
+        for (const [noticeId, entry] of [...this.#questions]) {
+            if (entry.owner !== owner) continue;
+            const {job, questionId} = entry;
+            if (isLive(job.state) && job.question?.id === questionId && this.options.jobs.get(job.id) === job) continue;
+            const removed = await this.#remove(owner, noticeId);
+            if (removed === "failed") continue;
+            this.#questions.delete(noticeId);
+            if (job.questionExit?.exit === entry.exit) delete job.questionExit;
+        }
+    }
+
+    /** 句柄关闭过的、结果未知的按原样重发一次；过时的提问不再发（审查第 13 条）。 */
+    async #resendDue_(owner: string): Promise<void> {
+        for (const {job, exit} of this.options.jobs.noticeExits(owner)) {
+            if (exit.state !== "unconfirmed" || !this.#resendDue.has(exit)) continue;
+            this.#resendDue.delete(exit);
+            const question = job.questionExit?.exit === exit ? job.questionExit : undefined;
+            if (question !== undefined && (job.question?.id !== question.id || !isLive(job.state))) {
+                delete job.questionExit;
+                continue;
+            }
+            await this.#send(owner, exit);
+        }
+    }
+
+    /** 全文的地址：驱动有现成的（后台命令的输出文件）用它；没有的存一份，每件只存一次（审查第 9、12 条）。 */
+    #address(job: Job, body: string): Promise<string | null> {
+        const ready = job.driver?.address;
+        if (ready !== undefined) return Promise.resolve(ready);
+        if (job.driver?.saveFull === undefined || Buffer.byteLength(body, "utf8") <= SEGMENT_MAX_BYTES) return Promise.resolve(null);
+        const cached = this.#saved.get(job);
+        if (cached !== undefined) return cached;
+        const saving = job.driver.saveFull(body).then((saved) => ("address" in saved ? saved.address : null), () => null);
+        this.#saved.set(job, saving);
+        return saving;
+    }
+
+    async #sendResults(owner: string, claimed: readonly Job[]): Promise<void> {
+        // 正文在领取之后组：收口时读下的结果（`final`），长的留头留尾、写全文地址。
+        const parts = await Promise.all(claimed.map(async (job) => {
+            const body = await (job.final ?? Promise.resolve(`${job.id}：${job.state}`));
+            return `${receiptTitle(job)}\n${segment(body, await this.#address(job, body))}`;
+        }));
+        const wakes = await this.options.isRoot(owner);
+        // 组正文期间被 `wait` 拿走的不再送：只装出口仍是这次领取的。
+        const mine = claimed.map((job, index) => ({job, part: parts[index]!, exit: job.exit})).filter((item) => item.exit?.kind === "notice" && item.exit.state === "sending" && item.exit.commandId === null);
+        for (const notice of pack(mine.map((item) => item.part))) {
+            const members = notice.indexes.map((index) => mine[index]!);
+            const live = members.filter(({job, exit}) => job.exit === exit);
+            if (live.length === 0) continue;
+            const text = live.length === members.length ? notice.text : pack(live.map((item) => item.part))[0]!.text;
+            // 根会话带唤起；只有被用户停掉的几件时不带（回执进了缓冲区，下一次请求必定带上）。
+            const wake = wakes && live.some(({job}) => job.outcome?.byUser !== true);
+            const exit: NoticeExit = {kind: "notice", commandId: this.options.newId(), args: {text, wake}, state: "sending"};
+            for (const {job} of live) job.exit = exit;
+            this.#members.set(exit, live.map((item) => item.job));
+            await this.options.persist?.();
+            await this.#send(owner, exit);
+        }
+    }
+
+    async #sendQuestion(owner: string, job: Job): Promise<void> {
+        const claimed = job.questionExit;
+        if (claimed === undefined || claimed.exit.kind !== "notice") return;
+        const text = await (job.driver?.result() ?? Promise.resolve(""));
+        if (job.questionExit !== claimed) return;
+        // 提问不论是不是根会话都唤起：子代理停在提问上等着，没人答就一直等（审查 omp 第 15 条）。门关着时内核照样不唤起。
+        const exit: NoticeExit = {kind: "notice", commandId: this.options.newId(), args: {text: `${receiptTitle(job)}\n${segment(text, null)}`, key: `question:${job.id}`, wake: true}, state: "sending"};
+        job.questionExit = {id: claimed.id, exit};
+        this.#members.set(exit, [job]);
+        await this.#send(owner, exit);
+        if (exit.state === "pending" && exit.noticeId !== undefined) this.#questions.set(exit.noticeId, {owner, job, questionId: claimed.id, exit});
+    }
+
+    /** 发一条（或按原样重发一条）回执提醒，按结果结算出口。 */
+    async #send(owner: string, exit: NoticeExit): Promise<void> {
+        const args = exit.args!;
+        const members = this.#members.get(exit) ?? [];
+        // 重发一条写入结果未知的：没能确认就保持未确认（等下一次关闭），不退回重领，否则换了指令 id 可能交两次（审查 omp 第 1 条）。
+        const resending = exit.state === "unconfirmed";
+        let outcome: {ok: true; noticeId: string} | {ok: false; code: string};
+        try {
+            const sent = await this.#view(owner).notice({commandId: exit.commandId!, text: args.text, ...(args.key === undefined ? {} : {key: args.key}), wake: args.wake, senderOnly: true});
+            outcome = sent.ok ? {ok: true, noticeId: sent.value.noticeId} : {ok: false, code: sent.code};
+        } catch (error) {
+            // 插件正在停止（会话表关了门）：不算结果未知，回执留给账本下次补发。
+            if (this.#closed) {
+                for (const job of members) this.options.jobs.unclaim(job, exit);
+                return;
+            }
+            outcome = {ok: false, code: "unknown-outcome"};
+            this.options.report("job-receipt-unknown", `sending a receipt to session ${owner} threw`, {session: owner, message: error instanceof Error ? error.message : String(error)});
+        }
+        if (outcome.ok) {
+            exit.state = "pending";
+            exit.noticeId = outcome.noticeId;
+            this.#backoff.delete(owner);
+            this.options.jobs.receiptSettled(owner);
+            return;
+        }
+        if (UNKNOWN.has(outcome.code) || resending) {
+            exit.state = "unconfirmed";
+            this.options.jobs.receiptSettled(owner);
+            return;
+        }
+        // 预算满了：改发一条很短的“用 wait 取”，它几乎总能放下（审查第 6 条）；连它都放不下就按退避再送。
+        if (outcome.code === "notice-budget" && args.key === undefined) {
+            const short = await this.#view(owner).notice({commandId: this.options.newId(), text: shortReceipt(members), wake: false, senderOnly: true}).catch((error: unknown) => ({ok: false as const, code: error instanceof Error ? error.message : String(error)}));
+            if (short.ok) {
+                for (const job of members) this.options.jobs.announce(job, exit);
+                this.options.jobs.receiptSettled(owner);
+                return;
+            }
+            this.options.report("job-receipt-short-failed", `even the short receipt to session ${owner} did not fit: ${short.code}`, {session: owner, code: short.code});
+        }
+        if (!TRANSIENT.has(outcome.code)) {
+            // 会话不在了、读不懂这类永久送不了的：只留给 `wait`，记诊断。
+            this.options.report("job-receipt-undeliverable", `a receipt cannot be delivered to session ${owner}: ${outcome.code}`, {session: owner, code: outcome.code});
+            for (const job of members) this.options.jobs.announce(job, exit);
+            this.options.jobs.receiptSettled(owner);
+            return;
+        }
+        this.options.report("job-receipt-deferred", `a receipt to session ${owner} is deferred: ${outcome.code}`, {session: owner, code: outcome.code});
+        for (const job of members) this.options.jobs.unclaim(job, exit);
+        this.#retryLater(owner);
+    }
+
+    /** 暂时送不了：按退避再领一次（1 分钟起翻倍，至多 30 分钟），不跟着句柄的开关打转（审查第 9 条）。 */
+    #retryLater(owner: string): void {
+        if (this.#closed || this.#timers.has(owner)) return;
+        const delay = Math.min((this.#backoff.get(owner) ?? RETRY_FIRST_MS / 2) * 2, RETRY_MAX_MS);
+        this.#backoff.set(owner, delay);
+        const cancel = new AbortController();
+        this.#timers.set(owner, cancel);
+        void this.options.clock.wait(delay, cancel.signal).then(() => {
+            this.#timers.delete(owner);
+            this.schedule(owner);
+        }, () => undefined);
+    }
+
+    /** 整条撤回之后，除了被 `wait` 接走的那件，其余几件的出口退回，下一轮重送。 */
+    #returnOthers(exit: NoticeExit, taken: Job): void {
+        const others = (this.#members.get(exit) ?? []).filter((job) => job !== taken);
+        for (const job of others) this.options.jobs.unclaim(job, exit);
+        if (others.length > 0) this.schedule(taken.owner);
+    }
+}

@@ -108,7 +108,7 @@ describe("sessions.md 输出 20：在跑的工作", () => {
         expect(w.work.collect().items).toEqual([{plugin: PLUGIN, text: agentText("work.job.shell", {command: "sleep 30"})}]);
     });
 
-    test("根会话本轮已结束、两个子代理还在跑：根报一项（带根的标题），两个子代理各报一项", async () => {
+    test("根会话本轮已结束、两个子代理还在跑：只报根一项（带根的标题），子代理归在里面、不另报", async () => {
         const {w, parent} = await open();
         endpoint.scriptFor("慢慢查甲", "甲查完了");
         endpoint.scriptFor("慢慢查乙", "乙查完了");
@@ -119,11 +119,7 @@ describe("sessions.md 输出 20：在跑的工作", () => {
         await titled(parent, "派");
 
         expect(w.work.collect()).toEqual({
-            items: [
-                {plugin: PLUGIN, text: agentText("work.session.running", {title: "派"})},
-                {plugin: PLUGIN, text: agentText("work.job.agent", {name: "慢慢查甲"})},
-                {plugin: PLUGIN, text: agentText("work.job.agent", {name: "慢慢查乙"})},
-            ],
+            items: [{plugin: PLUGIN, text: agentText("work.session.running", {title: "派"})}],
             failed: [],
         });
         holdA.release();

@@ -161,6 +161,10 @@
             "title": "同时在跑的任务",
             "description": "所有会话的子代理与后台命令加起来，同时在跑的至多几个。"
         },
+        "shellAutoBackground": {
+            "title": "命令自动转后台（秒）",
+            "description": "前台的 shell 命令跑过这么多秒还没结束就转到后台，结束时回执自动送回对话；时限照旧。0 为不自动转。子代理里的命令不转。"
+        },
         "requestTrace": {
             "title": "记录模型请求",
             "description": "记下每次模型请求发出的内容、回来的结果、用时与用量，在“模型请求”页查看。关掉之后的请求不记，已有的照样能看。"
@@ -384,6 +388,7 @@
             "showResult": "看结果全文",
             "hideResult": "收起结果",
             "command": "后台命令",
+            "autoBackground": "自动转到后台",
             "commandJob": "任务 {{id}}",
             "stop": "停止",
             "lastLine": "最后一行：{{line}}",
@@ -871,6 +876,7 @@
         },
         "job": {
             "shell": "后台命令「{{command}}」正在运行",
+            "plugin": "{{label}}「{{name}}」正在运行",
             "agent": "子代理「{{name}}」正在运行"
         }
     }

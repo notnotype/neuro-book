@@ -5,6 +5,7 @@
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
+import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {AnyProfile, CompactionMethodImpl, Issuer, LogEvent} from "../api/index.js";
@@ -12,6 +13,8 @@ import {defineProfile} from "../extension/profile.js";
 import {mapEventContent} from "../helpers/content.js";
 import {mergeSteers} from "../helpers/turns.js";
 import type {ConversationTurn} from "../api/index.js";
+import {createJsonlStore} from "../log/jsonl-store.js";
+import {createTestClock} from "../testing/clock.js";
 import {createTestSession, type TestSession} from "../testing/test-session.js";
 import {blockingTool} from "../testing/gate.js";
 import {NOTICE_MAX_PENDING, NOTICE_TEXT_MAX_BYTES, NOTICE_TOTAL_MAX_BYTES, noticeBytes} from "./commands.js";
@@ -38,6 +41,46 @@ async function notice(session: TestSession, text: string, options: {key?: string
 }
 
 describe("输出 112：发提醒、撤回与取消", () => {
+    test("senderOnly：只有发出者能撤回，用户与别的宿主撤回得 not-allowed；快照带着它", async () => {
+        await using session = await createTestSession();
+        const sent = await host(session).notice({commandId: id(), text: "后台任务的回执", senderOnly: true});
+        if (!sent.ok) throw new Error(sent.code);
+        expect((await session.raw.snapshot()).notices).toEqual([expect.objectContaining({id: sent.value.noticeId, senderOnly: true})]);
+        for (const remover of [session.raw, host(session, OTHER_HOST)]) {
+            const refused = await remover.removeNotice({commandId: id(), noticeId: sent.value.noticeId});
+            expect(refused.ok ? null : refused.code).toBe("not-allowed");
+        }
+        expect((await host(session).removeNotice({commandId: id(), noticeId: sent.value.noticeId})).ok).toBe(true);
+        const removed = (await session.raw.log({afterSeq: 0})).events.filter((event) => event.type === "noticeRemoved").map((event) => event.data);
+        expect(removed).toEqual([{ids: [sent.value.noticeId], by: HOST, reason: "withdrawn"}]);
+        // 不带 senderOnly 的照旧：用户能取消。
+        const plain = await notice(session, "普通的提醒");
+        expect((await session.raw.removeNotice({commandId: id(), noticeId: plain})).ok).toBe(true);
+    });
+
+    test("session.md 输出 19：提醒与门的事件不算会话活动，索引的最后活动时刻不前移", async () => {
+        const dir = join(root, `quiet-${id()}`);
+        const clock = createTestClock();
+        await using session = await createTestSession({store: {root: dir}, clock});
+        session.model.script("答");
+        await session.say("问");
+        const store = createJsonlStore({root: dir});
+        const activity = async () => {
+            const entry = await store.entry(session.raw.id);
+            if (!entry.ok) throw new Error(entry.code);
+            return entry.value.lastActivityAt;
+        };
+        const before = await activity();
+        await clock.advance(60_000);
+        const queued = await notice(session, "后台发来的");
+        expect((await host(session).removeNotice({commandId: id(), noticeId: queued})).ok).toBe(true);
+        expect(await activity()).toBe(before);
+        // 对照：用户的话照常前移。
+        session.model.script("又答");
+        await session.say("又问");
+        expect(await activity()).toBeGreaterThan(before);
+    });
+
     test("会话与宿主能发；用户发得 not-allowed；空的得 empty-input；同一个 commandId 重发交回第一次的结果", async () => {
         await using session = await createTestSession();
         const first = await host(session).notice({commandId: "same", text: "后台任务结束了"});

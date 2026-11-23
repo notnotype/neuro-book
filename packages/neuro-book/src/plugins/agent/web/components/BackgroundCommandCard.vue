@@ -20,7 +20,7 @@ const store = inject(subagentStoreKey, null);
 const TAIL_EVERY_MS = 1_000;
 const TAIL_LINES = 50;
 
-const details = computed(() => (props.call.result?.details ?? {}) as {jobId?: string; output?: string});
+const details = computed(() => (props.call.result?.details ?? {}) as {jobId?: string; output?: string; autoBackground?: boolean});
 const command = computed(() => {
     const args = props.call.args;
     return args !== null && typeof args === "object" && !Array.isArray(args) && typeof args.command === "string" ? args.command : "";
@@ -124,6 +124,8 @@ watch(() => [job.value?.lastLine, state.value, store?.now.value] as const, ([lin
         <div class="bg-card__head">
             <span class="i-lucide-square-terminal bg-card__icon" aria-hidden="true" />
             <span class="bg-card__title">{{ t("conversation.subagent.command") }}</span>
+            <!-- 前台跑过门槛自动转的（builtin-tools.md 输出 31）：卡头注明 -->
+            <span v-if="details.autoBackground === true" class="bg-card__meta" data-background-auto>{{ t("conversation.subagent.autoBackground") }}</span>
             <code class="bg-card__command" :title="command">{{ command }}</code>
             <span class="bg-card__meta">{{ meta }}</span>
             <template v-if="running">

@@ -10,7 +10,7 @@ import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {builtinDeclarations, builtinTools as kitTools, READ_RETURNS} from "@notnotype/nb-harness/kit/tools";
-import type {KitToolImplementation, SessionEditStores, ShellBackground} from "@notnotype/nb-harness/kit/tools";
+import type {KitToolImplementation, SessionEditStores, ShellAutoBackground, ShellBackground} from "@notnotype/nb-harness/kit/tools";
 
 import {TOOLS_POINT} from "../../shared/points";
 import {switchModeDeclaration, switchModeTool} from "../permissions/modes";
@@ -51,8 +51,8 @@ function wrap(tool: KitToolImplementation): AgentToolImplementation {
 }
 
 /** 每次激活一套：行锚快照跟着入口这一代。审批预览要读同一份快照，由入口建好传进来。 */
-export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings, shellBackground: ShellBackground): Readonly<Record<string, AgentToolImplementation>> {
-    const tools = kitTools({stores, dialects, shellBackground});
+export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings, shellBackground: ShellBackground, shellAutoBackground?: ShellAutoBackground): Readonly<Record<string, AgentToolImplementation>> {
+    const tools = kitTools({stores, dialects, shellBackground, ...(shellAutoBackground === undefined ? {} : {shellAutoBackground})});
     return {
         "nbook.agent.read": wrap(tools.read),
         "nbook.agent.write": wrap(tools.write),

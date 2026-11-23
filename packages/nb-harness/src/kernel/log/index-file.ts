@@ -26,6 +26,11 @@ export function emptyIndex(header: SessionHeader): SessionIndexEntry {
     };
 }
 
+/** 不算会话活动的事件：后台发来的提醒与门（session.md 输出 19），连同发提醒、撤回提醒的受理记录，免得把没人动过的会话顶到列表前面。 */
+const QUIET: ReadonlySet<string> = new Set(["noticeQueued", "noticeRemoved", "noticeTaken", "wakeGate"]);
+const QUIET_COMMANDS: ReadonlySet<string> = new Set(["notice", "removeNotice"]);
+const quiet = (event: LogEvent): boolean => QUIET.has(event.type) || (event.type === "commandAccepted" && QUIET_COMMANDS.has((event.data as {name?: string}).name ?? ""));
+
 export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent[]): SessionIndexEntry {
     let next = index;
     for (const event of events) {
@@ -38,7 +43,7 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
             description: event.type === "descriptionChanged" ? (data.description as string) : next.description,
             archived: event.type === "archived" ? (data.archived as boolean) : next.archived,
             turns: event.type === "turnStarted" ? next.turns + 1 : next.turns,
-            lastActivityAt: Math.max(next.lastActivityAt, event.at),
+            lastActivityAt: quiet(event) ? next.lastActivityAt : Math.max(next.lastActivityAt, event.at),
             throughSeq: event.seq,
         };
     }

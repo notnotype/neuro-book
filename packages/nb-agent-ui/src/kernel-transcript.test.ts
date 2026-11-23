@@ -775,7 +775,7 @@ describe("提醒与门（harness/runtime.md 输出 112–117，agent/conversatio
             await session.raw.as(HOST).notice({commandId: id(), text: "会被撤回的"});
             const withdrawn = transcript.notices().find((item) => item.summary === "会被撤回的")!;
             expect((await session.raw.as(HOST).removeNotice({commandId: id(), noticeId: withdrawn.id})).ok).toBe(true);
-            expect(transcript.notices()).toEqual([{id: sent.value.noticeId, by: HOST, summary: [...long].slice(0, NOTICE_SUMMARY_CHARS).join(""), wake: false}]);
+            expect(transcript.notices()).toEqual([{id: sent.value.noticeId, by: HOST, summary: [...long].slice(0, NOTICE_SUMMARY_CHARS).join(""), wake: false, senderOnly: false}]);
             // 快照（内核的给全文）重建的与跟着帧的一样。
             expect((await rebuilt(session.raw)).notices()).toEqual(transcript.notices());
 
@@ -799,7 +799,7 @@ describe("提醒与门（harness/runtime.md 输出 112–117，agent/conversatio
     test("快照里的提醒是摘要：按 summary 建待发列表", () => {
         const transcript = createKernelTranscript({toolName: (tool) => tool});
         transcript.applySnapshot({head: 3, notices: [{id: "n1", by: HOST, wake: true, queuedAt: 2, summary: "开头", bytes: 9000}], wakeGate: {open: false, cause: "stopped"}});
-        expect(transcript.notices()).toEqual([{id: "n1", by: HOST, summary: "开头", wake: true}]);
+        expect(transcript.notices()).toEqual([{id: "n1", by: HOST, summary: "开头", wake: true, senderOnly: false}]);
         expect(transcript.wakeGateOpen()).toBe(false);
     });
 

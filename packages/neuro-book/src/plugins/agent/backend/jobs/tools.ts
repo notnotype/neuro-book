@@ -21,7 +21,7 @@ export const JOBS_TOOL = "nbook.agent.jobs";
 export const WAIT_TIMEOUT_SECONDS = 1_800;
 
 export const waitDeclaration: AgentToolDeclaration = {
-    description: "等后台任务（后台命令、子代理的运行）：返回最先结束的一个；子代理有提问交给你、或用户插话时提前返回。只在没有别的事可做时用，不要轮询。",
+    description: "等后台任务（后台命令、子代理的运行）：返回最先结束的一个；子代理有提问交给你、或用户插话时提前返回。后台任务结束时回执会自动送来，只在接下来的事要等它时用，不要轮询。",
     parameters: {
         type: "object",
         properties: {
@@ -77,21 +77,25 @@ export function jobDetails(job: Job): JsonValue {
 
 function jobLine(job: Job, now: number): string {
     const seconds = Math.max(0, Math.round(((job.endedAt ?? now) - job.startedAt) / 1000));
-    const kind = job.kind === "agent" ? "子代理" : "命令";
-    return `${job.id}（${kind}：${job.summary}）${STATE_TEXT[job.state]}，${String(seconds)} 秒${job.waiters > 0 ? "，前台在等" : ""}`;
+    return `${job.id}（${job.label}：${job.summary}）${STATE_TEXT[job.state]}，${String(seconds)} 秒${job.waiters > 0 ? "，前台在等" : ""}`;
 }
 
 async function waitResult(outcome: WaitOutcome, timeoutSeconds: number, now: number): Promise<ToolResult> {
     switch (outcome.kind) {
         case "failed":
-            if (outcome.code === "no-jobs") return failed("no-jobs", "没有可等的任务：你启动的任务都已结束并取过结果。");
+            if (outcome.code === "no-jobs") return failed("no-jobs", "没有可等的任务：你启动的任务都已结束，回执都已经交给你了。");
             if (outcome.code === "job-foreground") return failed("job-foreground", `${outcome.job ?? ""} 正被你的另一个调用等着，它会交回结果，不用再等。`);
             return failed("job-unknown", `没有 ${outcome.job ?? ""} 这个任务：不是你启动的、不存在，或结果已经取过。用 jobs 看还有哪些。`);
         case "ready": {
             const {job, others} = outcome;
-            const head = isLive(job.state) && job.question !== undefined
-                ? `${job.id}（子代理：${job.summary}）在问你（提问 ${job.question.id}）：${job.question.text}\n用 agent_answer 回答。`
-                : await job.driver?.result() ?? `${job.id}：${STATE_TEXT[job.state]}`;
+            // 这件的回执此前经提醒送来过（jobs.md 的回执）：已在对话里的不再给一次；写入结果未知的也不给，免得交两次。
+            const head = outcome.inContext === "yes"
+                ? `${job.id}（${job.label}：${job.summary}）的回执已经在对话里（作为提醒送来过），不用再取。`
+                : outcome.inContext === "maybe"
+                    ? `${job.id}（${job.label}：${job.summary}）的回执可能已经在对话里（送出时结果未知），系统会核对，不用再取。`
+                    : isLive(job.state) && job.question !== undefined
+                        ? `${job.id}（${job.label}：${job.summary}）在问你（提问 ${job.question.id}）：${job.question.text}\n用 agent_answer 回答。`
+                        : await job.final ?? `${job.id}：${STATE_TEXT[job.state]}`;
             const rest = others.length === 0 ? "" : `\n\n其余任务：\n${others.map((other) => jobLine(other, now)).join("\n")}`;
             return {text: `${head}${rest}`, details: {jobs: [jobDetails(job), ...others.map(jobDetails)]}};
         }

@@ -207,6 +207,17 @@ export const agentSettings = defineSettings("nbook.agent", {
         group: "subagents",
         order: 30,
     },
+    // 前台的 shell 跑过这么多秒还没结束就转后台（builtin-tools.md），0 为不转（t22 决定 2）。
+    shellAutoBackground: {
+        schema: Type.Integer({minimum: 0, maximum: 3600}),
+        default: 60,
+        title: agentText("settings.shellAutoBackground.title"),
+        description: agentText("settings.shellAutoBackground.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "subagents",
+        order: 40,
+    },
     // 模型请求记录：缺省开着并存原始请求体、留 14 天、不记请求头（t30 决定 8 到 10）。
     requestTrace: {
         schema: Type.Boolean(),

@@ -5,8 +5,9 @@
  */
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {openSync, renameSync, rmSync, writeSync} from "node:fs";
+import {mkdir, readdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
+import {dirname, join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -205,4 +206,161 @@ describe("shell", () => {
         expect(cancelled).toMatchObject({status: "error", code: "cancelled"});
         expect(await readFile(savedPath(cancelled.details!.artifact!), "utf8")).toContain("20000");
     }, 30_000);
+});
+
+describe("自动转后台（host-kit.md 的自动转后台）", () => {
+    /**
+     * 宿主一侧照接口实现：门槛由测试放行；接手时把到此刻的输出接成任务的输出文件（内存里的文字写进新文件，暂存改名接过），之后的输出
+     * 追加到同一个文件。暂存所在的系统临时目录在测试里指到 `spools`，用来看移交前后暂存有没有留下。
+     */
+    function host(options: {readonly prepare?: "null" | "reject" | "throw"} = {}) {
+        let reach!: () => void;
+        const reached = new Promise<void>((resolve) => {
+            reach = resolve;
+        });
+        const output = join(root, "job-output.log");
+        const calls = {prepared: 0, discarded: 0};
+        let handover: import("./shell.js").ShellHandover | null = null;
+        const auto: import("./shell.js").ShellAutoBackground = {
+            threshold: () => reached,
+            prepare: async () => {
+                calls.prepared += 1;
+                if (options.prepare === "null") return null;
+                if (options.prepare === "reject") throw new Error("名额坏了");
+                return {
+                    take: (given) => {
+                        if (options.prepare === "throw") throw new Error("接不了");
+                        handover = given;
+                        let fd: number;
+                        if (given.output.spool === null) {
+                            fd = openSync(output, "wx");
+                            writeSync(fd, given.output.text ?? "");
+                        } else {
+                            renameSync(given.output.spool.path, output);
+                            rmSync(dirname(given.output.spool.path), {recursive: true, force: true});
+                            fd = given.output.spool.fd;
+                        }
+                        return {sink: (_error, chunk) => void writeSync(fd, chunk), result: {text: "已转到后台"}};
+                    },
+                    discard: () => void (calls.discarded += 1),
+                };
+            },
+        };
+        return {auto, reach, output, calls, handover: () => handover};
+    }
+
+    let spools = "";
+    let savedTmp: string | undefined;
+    beforeEach(async () => {
+        spools = join(root, "spools");
+        await mkdir(spools);
+        savedTmp = process.env.TMPDIR;
+        process.env.TMPDIR = spools;
+    });
+    afterEach(() => {
+        if (savedTmp === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = savedTmp;
+    });
+
+    async function run(args: Readonly<Record<string, unknown>>, auto: import("./shell.js").ShellAutoBackground, signal = new AbortController().signal): Promise<Result> {
+        const tool = shellTool(createDialects(() => []), undefined, auto).create(context, {files, artifacts});
+        const result = await tool.execute(args, {callId: "c-1", signal} as unknown as ToolContext);
+        return (typeof result === "string" ? {text: result} : result) as Result;
+    }
+
+    /** 暂存（同步写入）已经以 `end` 结尾。 */
+    const spooled = async (end: string): Promise<boolean> => {
+        const [directory] = await readdir(spools);
+        if (directory === undefined) return false;
+        return (await readFile(join(spools, directory, "output.log"), "utf8").catch(() => "")).endsWith(end);
+    };
+
+    /** 先输出 `before`，等测试放行再输出“二”。 */
+    const gated = (before = "echo 一") => {
+        const go = join(root, "go");
+        return {command: `${before}; while [ ! -f ${go} ]; do sleep 0.05; done; echo 二`, release: () => writeFile(go, "")};
+    };
+
+    test("跑过门槛：移交给宿主，交回宿主的结果；命令断开这次调用的信号接着跑，输出一行不丢地进了宿主的文件", async () => {
+        const h = host();
+        const cmd = gated();
+        const call = new AbortController();
+        const running = run({command: cmd.command}, h.auto, call.signal);
+        h.reach();
+        expect(await running).toEqual({text: "已转到后台"});
+        const given = h.handover()!;
+        // 门槛先于第一块输出还是后于它不确定：两种情形下内存里的与之后追加的合起来都是全部输出。
+        expect(given.output.spool).toBeNull();
+        // 移交之后中止这次调用（父会话的运行被中止）不停命令。
+        call.abort();
+        await cmd.release();
+        expect(await given.done).toMatchObject({exitCode: 0, timedOut: false, cancelled: false});
+        expect(await readFile(h.output, "utf8")).toBe("一\n二\n");
+        expect(h.calls).toEqual({prepared: 1, discarded: 0});
+        expect(await readdir(spools)).toEqual([]);
+    });
+
+    test("移交前已超出窗口：交出暂存与它的统计，接过之后全文完整", async () => {
+        const h = host();
+        const cmd = gated("seq 1 20000; echo 一");
+        const running = run({command: cmd.command}, h.auto);
+        await waitUntil("门槛之前的输出都进了暂存", () => spooled("20000\n一\n"));
+        h.reach();
+        expect(await running).toEqual({text: "已转到后台"});
+        const given = h.handover()!;
+        expect(given.output.text).toBeNull();
+        expect(given.output.lines).toBe(20001);
+        expect(given.output.tail.endsWith("20000\n一\n")).toBe(true);
+        await cmd.release();
+        await given.done;
+        const lines = (await readFile(h.output, "utf8")).split("\n");
+        expect(lines.length).toBe(20003);
+        expect(lines.slice(0, 2)).toEqual(["1", "2"]);
+        expect(lines.slice(-3)).toEqual(["一", "二", ""]);
+        expect(await readdir(spools)).toEqual([]);
+    });
+
+    test("代码里调的不转：门槛到了也不问宿主，跑完照前台交回", async () => {
+        const h = host();
+        h.reach();
+        const cmd = gated();
+        const tool = shellTool(createDialects(() => []), undefined, h.auto).create(context, {files, artifacts});
+        const running = tool.execute({command: cmd.command}, {callId: "c-1", signal: new AbortController().signal, within: {invocation: "eval-1"}} as unknown as ToolContext);
+        await cmd.release();
+        const ran = await running;
+        expect(typeof ran === "string" ? ran : ran.text).toContain("一\n二");
+        expect(h.calls.prepared).toBe(0);
+    });
+
+    test("门槛之前就结束：照前台交回，不移交", async () => {
+        const h = host();
+        const ran = await run({command: "echo 很快"}, h.auto);
+        expect(ran.text).toContain("很快");
+        expect(ran.text).toContain("[退出码 0]");
+        expect(h.calls.prepared).toBe(0);
+        expect(await Bun.file(h.output).exists()).toBe(false);
+    });
+
+    test("宿主接不了（prepare 交回 null、失败，take 抛错）：命令留在前台跑完；失败的原因写进结果，暂存不留下、全文照常保存", async () => {
+        for (const mode of ["null", "reject", "throw"] as const) {
+            const h = host({prepare: mode});
+            const cmd = gated("seq 1 20000; echo 一");
+            const running = run({command: cmd.command}, h.auto);
+            await waitUntil("已超出窗口", async () => (await readdir(spools)).length === 1);
+            h.reach();
+            await waitUntil("宿主看过了", () => h.calls.prepared === 1);
+            await cmd.release();
+            const ran = await running;
+            expect(ran.text).toContain("一\n二");
+            expect(ran.text.includes("没转成")).toBe(mode !== "null");
+            if (mode === "reject") expect(ran.text).toContain("名额坏了");
+            if (mode === "throw") expect(ran.text).toContain("接不了");
+            const saved = await readFile(savedPath((ran.details as {artifact: string}).artifact), "utf8");
+            expect(saved.startsWith("1\n2\n")).toBe(true);
+            expect(saved.endsWith("20000\n一\n二\n")).toBe(true);
+            expect(h.calls.discarded).toBe(mode === "throw" ? 1 : 0);
+            expect(await readdir(spools)).toEqual([]);
+            await rm(join(root, "go"), {force: true});
+        }
+    });
 });
