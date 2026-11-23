@@ -21,7 +21,7 @@ updated: 2026-11-23
 
 - **重写倾向**：倾向重新开发 `neuro-book-site`，不再背负旧版历史遗留包裹。
 - **扩展承载范围**：除原有账号、备份与跨设备同步外，明确规划承载 **Skill / 插件 / Profile 市场**（延续安全扫描、检测与审核方向）、**小说发布**、**用户交流与论坛**、**OAuth 登录**。
-- **服务端架构候选**：评估是否以 **Cloudflare Workers + Service Bindings + D1 / R2 / Queues / Containers** 承载多模块服务（对比自托管 VPS 容器），具体一手限制与“粗粒度模块化单体 vs 细粒度微服务”分析见 [w00053 调研第 5.3 节](../w00053-telemetry-feedback-stats/research/2026-11-23-telemetry-feedback-and-stats.md#53-专题评估cloudflare-workers-能否承载-neuro-book-site-的多模块微服务架构)。
+- **部署定位与低锁定架构基线**：主定位**独立部署在 VPS**；可兼容 Cloudflare（例如外层 DNS/WAF、经标准 S3 API 使用 R2 享零出站流量、或同一套 Web Standards HTTP 路由按需部署到 Workers），但**不强依赖 Cloudflare 专有能力（D1 / Service Bindings / Queues / Containers）**，确保切出 Cloudflare 时改动极小。不建议前期拆细粒度微服务，推荐「VPS 优先的可移植模块化单体（Hono + PostgreSQL + 标准 S3 API）」，详见 [w00053 调研第 5.3 节](../w00053-telemetry-feedback-stats/research/2026-11-23-telemetry-feedback-and-stats.md#53-专题评估cloudflare-workers-能否做-neuro-book-site-微服务如何兼顾-vps-独立部署与灵活切出)。
 - **与遥测/反馈的关系**：产品遥测与非阻塞反馈在 [w00053](../w00053-telemetry-feedback-stats/README.md) 独立推进，暂不阻塞或强耦合官网重写排期。
 
 ## Task

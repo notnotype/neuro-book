@@ -19,16 +19,17 @@ updated: 2026-11-23
 3. 要做面向用户自己的**统计插件**（使用记录、字数统计、总消耗 Token 等），提供仪表盘与贡献点。
 4. 隐私开关放在安装/首次启动流程中供用户选择，**默认匿名并勾选**（改善产品体验）。
 5. `neuro-book-site` 后续倾向重写以摆脱历史包裹，并规划承载 Skill / 插件 / Profile 市场、小说发布、用户交流与论坛、OAuth 登录等能力（已同步登记到 [w00037-official-site](../w00037-official-site/README.md)），暂不强耦合本 Work 进度。
+6. 服务端强调**敏捷与低厂商锁定**：`neuro-book-site` 计划独立部署在 VPS，兼容 Cloudflare 更佳，但**不强依赖 Cloudflare**，后续切出 Cloudflare 时要求改动极小、切换灵活。
 
 ## 调研
 
-- [统计、遥测与非阻塞反馈插件调研](research/2026-11-23-telemetry-feedback-and-stats.md)（2026-11-23）：历史线索核对、仓库既有约束与可复用源（`diagnostics.md`、`FirstRunWizard`、`notifications`、`projects.stats`、`SessionCore`）、`oh-my-pi` `report_issue` 拆解、Cloudflare / 重写官网 / Umami 对比与推荐组合架构、Cloudflare Workers 微服务架构专题评估、隐私风险提示。
+- [统计、遥测与非阻塞反馈插件调研](research/2026-11-23-telemetry-feedback-and-stats.md)（2026-11-23）：历史线索核对、仓库既有约束与可复用源（`diagnostics.md`、`FirstRunWizard`、`notifications`、`projects.stats`、`SessionCore`）、`oh-my-pi` `report_issue` 拆解、Cloudflare / 重写官网 / Umami 对比、可移植 VPS 优先架构（Hono + PostgreSQL + 标准 S3 API，避免 CF 专有绑定锁定）、向导跳过与隐私风险提示。
 
 ## 待定问题
 
-- 后端落地选型：推荐组合（Cloudflare Worker 统一网关 + D1 收反馈 + Umami 看统计）vs 纯 Cloudflare vs 自托管。
+- 首版后端部署起点：纯 VPS Docker（Hono 网关 + PostgreSQL + Umami）vs 混合敏捷起步（同一套 Hono 网关先跑 CF Workers + Umami Cloud 免费档，日后一键切回 VPS）。
 - 是否拆为「个人统计插件（纯本地）」与「遥测反馈插件（联网）」两个独立内置插件。
-- Agent 反馈的审批粒度、个人统计仪表盘的入口与首版指标范围、与 `w00037` 的衔接方式。
+- Agent 反馈的审批粒度、个人统计仪表盘入口与首版指标范围、`FirstRunWizard` 点“跳过”时的隐私开关口径、`w00037` 重写技术基线。
 
 ## Task
 
