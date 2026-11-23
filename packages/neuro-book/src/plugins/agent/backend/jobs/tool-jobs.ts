@@ -58,12 +58,14 @@ export function toolJobs(center: JobCenter, scope: ToolJobScope, options: {reado
             let text = "";
             mine.add(job);
             center.start(job, {
-                // 用户或 Agent 停它：插件停下工作时调 `end`；它没调就按已停止收口，任务不会一直算在跑。
+                // 用户或 Agent 停它、`nbook.agent` 停止时停它（`interrupted`）：插件停下工作时调 `end`；它没调就照停的原因收口，
+                // 任务不会一直算在跑（否则账本里留成在跑，下次启动说成“服务重启时中断”）。
                 kill: async (reason, byUser) => {
                     await input.stop(byUser === true);
-                    if (reason === undefined && isLive(job.state)) {
+                    if (isLive(job.state)) {
                         mine.delete(job);
-                        center.end(job, "aborted", {reason: "aborted"});
+                        const state = reason ?? "aborted";
+                        center.end(job, state, {reason: state});
                     }
                 },
                 result: async () => text,

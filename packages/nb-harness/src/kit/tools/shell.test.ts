@@ -320,6 +320,18 @@ describe("自动转后台（host-kit.md 的自动转后台）", () => {
         expect(await readdir(spools)).toEqual([]);
     });
 
+    test("代码里调的不转：门槛到了也不问宿主，跑完照前台交回", async () => {
+        const h = host();
+        h.reach();
+        const cmd = gated();
+        const tool = shellTool(createDialects(() => []), undefined, h.auto).create(context, {files, artifacts});
+        const running = tool.execute({command: cmd.command}, {callId: "c-1", signal: new AbortController().signal, within: {invocation: "eval-1"}} as unknown as ToolContext);
+        await cmd.release();
+        const ran = await running;
+        expect(typeof ran === "string" ? ran : ran.text).toContain("一\n二");
+        expect(h.calls.prepared).toBe(0);
+    });
+
     test("门槛之前就结束：照前台交回，不移交", async () => {
         const h = host();
         const ran = await run({command: "echo 很快"}, h.auto);

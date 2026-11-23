@@ -122,7 +122,7 @@ describe("工具登记的任务（jobs.md 输出 19）", () => {
         expect(jobs.list("s").find((job) => job.id === first.id)?.kind).toBe("test.p.work");
     });
 
-    test("停它：插件的 stop 收到是不是用户停的；插件没调 end 就按已停止收口；结果超过 12 KiB 截掉", async () => {
+    test("停它：插件的 stop 收到是不是用户停的；插件没调 end 就按已停止收口，nbook.agent 停止时按中断收口；结果超过 12 KiB 截掉", async () => {
         const {jobs, tool} = scoped();
         const stopped: boolean[] = [];
         const byAgent = begun(tool.begin(call(), input({stop: (byUser) => void stopped.push(byUser)})));
@@ -133,6 +133,11 @@ describe("工具登记的任务（jobs.md 输出 19）", () => {
         const listed = new Map(jobs.list("s").map((job) => [job.id, job]));
         expect(listed.get(byAgent.id)).toMatchObject({state: "aborted"});
         expect(listed.get(byUser.id)).toMatchObject({state: "aborted", outcome: {byUser: true}});
+        // `nbook.agent` 停止时对在跑的任务调 `kill("interrupted")`（agent.ts 的 stop）。
+        const atStop = begun(tool.begin(call(), input()));
+        const stopping = jobs.list("s").find((item) => item.id === atStop.id)!;
+        await stopping.driver!.kill("interrupted");
+        expect(stopping.state).toBe("interrupted");
 
         const long = begun(tool.begin(call(), input()));
         long.end("completed", "字".repeat(5000));

@@ -203,6 +203,8 @@ async function run(context: ToolSessionContext, {files, artifacts}: KitServices,
                 // 一个同步步骤：命令这期间结束了、调用中止了，就照前台交回；否则移交，此后的输出进后台的记录。
                 if (target !== null) {
                     const output = finished || signal.aborted ? null : capture.soFar();
+                    // 命令没结束、调用也没中止却交不出：暂存出过错，原因同样写进前台的结果。
+                    if (output === null && !finished && !signal.aborted) notMoved = `到此刻的输出交不出（${capture.spoolProblem ?? "暂存不可用"}）`;
                     if (output === null) target.discard();
                     else {
                         try {
