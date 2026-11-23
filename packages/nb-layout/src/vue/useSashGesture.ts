@@ -320,7 +320,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         const source = current.session.source;
         current.session.cancel(reason);
-        settle(source, source !== "pointer" || reason === "unmount" || reason === "context-changed" || disposed ? "reset" : "refresh");
+        // 失焦不按最后坐标重新悬停：那会把刚放掉的页面级光标又拿回来（Spec `ui/nested-grid` 输出 16）。
+        settle(source, source !== "pointer" || reason === "unmount" || reason === "context-changed" || reason === "blur" || disposed ? "reset" : "refresh");
         current.onPreview(null);
         current.onCancel?.({reason, sashes: current.session.sashes});
     }
@@ -452,9 +453,15 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }
 
+    /**
+     * 窗口失焦：进行中的手势取消；只是悬停时也清掉光标与停留计时（Spec `ui/nested-grid` 输出 16）。不清的话切回来时
+     * 整页还是分隔线光标，线也会在失焦期间到点显现。
+     */
     function onWindowBlur(): void {
         if (binding !== null && binding.session.reason === null) {
             cancel("blur");
+        } else if (binding === null) {
+            resetHover();
         }
     }
 
