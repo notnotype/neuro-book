@@ -14,7 +14,7 @@ import {applyLayoutDrop, enumerateDropCandidates, findTab, isFloating, isPanelSh
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, PanelName, TabRef} from "@notnotype/nb-workbench-layout";
 import {createLiveDragSession} from "@notnotype/nb-layout/vue";
-import {measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops} from "@notnotype/nb-workbench-layout/vue";
+import {measureTabStrip, tabStripInsertionIn, tabStripStopInsertions} from "@notnotype/nb-workbench-layout/vue";
 import type {DragSession, LiveDrag, LiveDragHost, LiveDragState, LiveGrid} from "@notnotype/nb-layout/vue";
 import type {TabStripHeld, TabStripSnapshot} from "@notnotype/nb-workbench-layout/vue";
 
@@ -578,10 +578,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     function stripStopsOf(doc: LayoutDoc, panel: string): ReadonlyArray<{readonly point: GridDropPoint; readonly index: number}> {
         const strip = stripOf(panel);
         if (strip === null || options.titleOnly(panel)) return [];
-        return tabStripStops(strip).flatMap((point) => {
-            const measured = resolveTabStripInsertion(strip, point);
-            return measured === null ? [] : [{point, index: stripIndex(doc, panel, measured)}];
-        });
+        return tabStripStopInsertions(strip).map(({point, insertion}) => ({point, index: stripIndex(doc, panel, insertion)}));
     }
 
     /** 量实时布局判定用的几何（引擎拿起后第一帧开头调，或这一次判定现量）。 */
