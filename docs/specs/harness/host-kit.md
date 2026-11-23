@@ -90,7 +90,7 @@ type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) =
     - `shellEnv`：给 `shell` 的环境变量名与它指向的地址，定位不到本机路径的变量不设；
     - `searchExcludes(root)`：以这个全局地址为根搜索时不进的子目录（以 `/` 开头）；只省下无谓的读，搜到的每个结果的授权仍以 `readPath` 为准。
 11. **宿主写全文**：`ArtifactStore.save(label, write)` 以宿主身份（不代表会话）为当前会话新建一份全文：写入函数正常结束即提交，交回它的全局地址；写入函数抛错时不留下文件、交回失败。`label` 只收单段、不含路径分隔符，否则为 `invalid-address`。会话经 `SessionFiles.write` 写不了全文所在的位置（`permission-denied`），读照常。
-12. （planned）**自动转后台。** `shellTool(dialects, background?, auto?)` 的第三个参数 `ShellAutoBackground` 可选，不给时和现在一样：`threshold({args, call, context}, signal)` 交回门槛（宿主时钟上到点完成的 Promise）或 null；`prepare(...)` 异步占任务 id 与名额、建输出目录，交回 `BackgroundTarget` 或 null；门槛到了之后一个同步步骤里，命令已结束或调用已中止就 `discard()`、照前台交回，否则 `take({prepared, output, done, abort})` 交回此后接收输出的出口与给模型的结果，命令断开这次调用的信号、照原时限跑完。`output` 是到此刻的输出（`OutputSoFar`）：还没超出窗口时是内存里的全部文字（`text`），超出之后是系统临时目录里的暂存（`spool` 的描述符与路径），连同字节数、换行数、结尾与是否到了 64 MiB；`take` 交回之后暂存归接手的一方。`prepare` 失败或 `take` 抛错时 `discard()`、留在前台，暂存仍归套件、命令结束时照常删掉，失败的原因写进前台的结果。代码里调的不转。
+12. **自动转后台。** `shellTool(dialects, background?, auto?)` 的第三个参数 `ShellAutoBackground` 可选，不给时和现在一样：`threshold({args, call, context}, signal)` 交回门槛（宿主时钟上到点完成的 Promise）或 null；`prepare(...)` 异步占任务 id 与名额、建输出目录，交回 `BackgroundTarget` 或 null；门槛到了之后一个同步步骤里，（planned）命令已结束或调用已中止就 `discard()`、照前台交回，否则 `take({prepared, output, done, abort})` 交回此后接收输出的出口与给模型的结果，命令断开这次调用的信号、照原时限跑完。`output` 是到此刻的输出（`OutputSoFar`）：还没超出窗口时是内存里的全部文字（`text`），超出之后是系统临时目录里的暂存（`spool` 的描述符与路径），连同字节数、换行数、结尾与是否到了 64 MiB；`take` 交回之后暂存归接手的一方。`prepare` 失败时留在前台，`take` 抛错时 `discard()`、留在前台，暂存（出过错、交不出时也一样）仍归套件、命令结束时照常删掉，失败的原因写进前台的结果。代码里调的不转。
 
 ## 状态与转换
 

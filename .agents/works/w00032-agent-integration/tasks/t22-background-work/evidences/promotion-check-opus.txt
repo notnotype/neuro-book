@@ -1,0 +1,268 @@
+# w00032 t22 planned 条目晋升核对（Opus，只读）
+
+核对对象：master 上 d0ce2c513、82c9af608、8eedb4d69、9c62f5373、852dd269e、689c838b5、209136cc8、c57d77294、e5639a48c 引入或改动的 `（planned）` 句子；实现取自 Work 分支 `57bfa88ef^..HEAD` 中 t22 的提交（HEAD 0d325eee5）。行号为 worktree 当前 HEAD 的行号。没有跑测试，断言靠读测试代码判断。
+
+## docs/specs/harness/runtime.md 输出 112（`senderOnly` 那一句）
+
+- 句 1：`notice` 带 `senderOnly: true` 时只有发出者能撤回 → 实现 `packages/nb-harness/src/kernel/run/commands.ts:502`（`item.senderOnly === true ? !sameIssuer(item.by, issuer) : !canRemove(...)`）；命令参数 `kernel/api/host.ts:51` → 断言 `notice.test.ts`“senderOnly：只有发出者能撤回，用户与别的宿主撤回得 not-allowed；快照带着它”`packages/nb-harness/src/kernel/run/notice.test.ts:49-53`（用户与另一个宿主得 `not-allowed`，发出者撤回成功），`:55` 撤回记 `reason: "withdrawn"`。
+- 句 2：用户身份撤回得 `not-allowed` → 同上 `commands.ts:502` → 断言 `notice.test.ts:49-51`（`session.raw` 即用户身份）。
+- 句 3：`noticeQueued` 与快照的待发提醒带上它 → 实现 `commands.ts:457`（记录里带 `senderOnly: true`）、`kernel/api/events.ts:100`、归约 `kernel/state/kernel-state.ts:199`、`PendingNotice` `kernel/api/host.ts:179` → 断言 `notice.test.ts:48` 快照 `notices` 含 `senderOnly: true`。日志事件本身没有直接断言，但内存状态经 `kernel/dispatch/core.ts:214` 用同一个归约从事件得出，快照带着它即说明事件带着它。
+- 句 4（后台任务的回执用）：只是指向，回执确实带 `senderOnly`，见 jobs.md 输出 14 一节。
+- 判定：**可晋升**。去掉这一句前面的 `（planned）`。
+
+## docs/specs/harness/runtime.md 输出 120
+
+- 句 1：`abort({keepQueue?, runId?})` 给了 `runId` 时只停这次运行；在跑的不是它（已经收口，或已是下一次运行）得 `{aborted: false}` → 实现 `packages/nb-harness/src/kernel/run/commands.ts:388`；远程合同带上 `runId` `packages/neuro-book/src/plugins/agent/shared/remote.ts`（`abort: {keepQueue, runId}`） → 断言 `buffer.test.ts`“输出 120：点名停一次运行——……”`packages/nb-harness/src/kernel/run/buffer.test.ts:213`（已收口的）、`:221`（已是下一次运行）。
+- 句 2：不写日志、不动缓冲区、不改门 → 同 `commands.ts:388`（在 `recordStop` 之前返回） → 断言 `buffer.test.ts:223`（`head` 不变、缓冲区仍是 `["排一","ready"]`、`wakeGate.open` 仍为真）。
+- 句 3：是它时同输出 30 → `commands.ts:389-397` → 断言 `buffer.test.ts:225-228`（`aborted: true`，运行以 `aborted` 收口）。
+- 句 4：没给时照旧停在跑的那次 → 原有路径 → 断言：同 describe“停止（harness.runtime 输出 30）”里原有的各用例（不带 `runId`）。
+- 句 5：任务中心停一次子代理运行时带上它 → 见 jobs.md 输出 18 一节。
+- 附注（不在 Spec 里、调用方能观察到）：权限检查 `commands.ts:386` 排在点名判断 `:388` 之前（3da7fc603“abort 先判权限”）。点名一个已经收口的运行，而当前在跑的那次本人无权停时，交回的是 `not-allowed` 而不是 `{aborted: false}`。Spec 句 1 没写这个先后，建议补半句“权限照在跑的那次判，无权时得 `not-allowed`”，或者接受现状不写。
+- 判定：**可晋升**（句 5 随 jobs.md 输出 18 一起判）。去掉 `（planned）`；可选补上权限的先后。
+
+## docs/specs/harness/session.md 输出 19（提醒与门不算活动）
+
+- 句 1：`noticeQueued`、`noticeRemoved`、`noticeTaken`、`wakeGate`，以及 `notice`、`removeNotice` 的受理记录不算活动 → 实现 `packages/nb-harness/src/kernel/log/index-file.ts:30-32`（`QUIET`、`QUIET_COMMANDS`），用在 `advanceIndex` 的 `lastActivityAt`（同文件 `:46`）→ 断言 `notice.test.ts`“session.md 输出 19：提醒与门的事件不算会话活动，索引的最后活动时刻不前移”`packages/nb-harness/src/kernel/run/notice.test.ts:75-77`（宿主发一条、撤回一条，`lastActivityAt` 不变；覆盖了 `noticeQueued`、`noticeRemoved` 与两种受理记录），`:79-81` 对照用户说话前移。
+- `noticeTaken`、`wakeGate` 没有直接断言。读 `kernel/run/wake.ts:13` 的所有调用方（`settle.ts:143,150`、`recover.ts:91`、`commands.ts:73`、`session/session.ts:538,645`）与取走提醒的运行：这两种事件总是和 `runStarted`、`runFinished`、建会话等算活动的事件写在同一批里，单独豁免它们在 `list` 上看不出差别。
+- 句 2：后台发来的提醒不把会话顶到列表前面 → 同上 → 同上 `:77`。
+- 判定：**可晋升**。把括号改成不带 planned 的说明：“创建与最后活动时刻（提醒与门的事件 ……不算活动，后台发来的提醒不把会话顶到列表前面）”。
+
+## docs/specs/harness/session.md 输出 27（`noticeQueued` 的 `senderOnly?`）
+
+- 句：`noticeQueued{…, commandId, senderOnly?}`（`senderOnly` 是 planned）→ 实现 `packages/nb-harness/src/kernel/api/events.ts:100`、写入 `kernel/run/commands.ts:457`、归约 `kernel/state/kernel-state.ts:199`（重开时同一个归约读回） → 断言 `notice.test.ts:48`（快照经归约得出 `senderOnly: true`，见 runtime.md 输出 112 一节）。没有“重开之后仍带 `senderOnly`”的用例；重开走同一个 `reduceSessionKernel`，风险低。
+- 判定：**可晋升**。删去“（`senderOnly` 是 planned）”。整条的 `（planned）` 属于别的 Task，不在本次范围。
+
+## docs/specs/agent/jobs.md “不承诺”两行（第 18、21 行）与输出 6
+
+- “不承诺”第 1 行：“任务结束时不通知……（planned：改为回执，见输出 13–17）”；第 2 行：“任务表不持久化……（planned：另记账本，重启后补发回执，见输出 17）”。这两句本身不要求新行为，只是指向输出 13–17；随输出 13–17 的晋升改写原句即可，例如第 1 行改成“任务结束时经回执送回启动它的会话（输出 13–17）”，第 2 行改成“任务表不持久化：进程重启后为空，原来在跑的按“已中断”收口；还没交出回执的另记账本、重启后补发（输出 17）”。输出 13–17 里仍留 planned 的句子不影响这两行的改写。
+- 输出 6 的 planned 括号“只丢回执已经进了会话缓冲区的，还没送出、只送了短回执的留着” → 实现 `packages/neuro-book/src/plugins/agent/backend/jobs/center.ts:500-507`（`#trim` 只数 `exit.kind === "notice" && exit.state === "pending"` 的） → 断言 `jobs.test.ts`“输出 6：前台以终态交回就移出；回执已进会话的后台任务每个会话至多留 32 个，先丢最早结束的；还没送出的不丢”`packages/neuro-book/src/plugins/agent/jobs.test.ts:386`（33 件没送出的全留着）、`:388-392`（记成已受理后再收口一件，丢最早的一件）。“只送了短回执的留着”（`announced`）没有单独断言，代码上由同一个过滤保证。
+- 附注：`#trim` 只在 `end()` 里调（`center.ts:235`）；回执被受理（`pending`）的那一刻不裁，到下一件收口才裁。对调用方看不出差别，不必写进 Spec。
+- 判定：输出 6 **可晋升**，去掉括号里的“planned：”，保留括号内容（或并进正文：“多了先丢最早结束的，只丢回执已经进了会话缓冲区的……”）。两行“不承诺”随输出 13–17 改写。
+
+## docs/specs/agent/jobs.md 输出 13（回执的约定）
+
+- 句 1：每件后台任务不论怎样结束，启动它的会话恰好收到一次回执，经三个出口之一（前台、`wait`、提醒） → 实现 `center.ts:42-56`（`JobExit`）、`center.ts:271-285`（`claim`）、`center.ts:380-395`（`wait` 的 `take`）、`center.ts:257-265`（前台 `detach`）、`delivery.ts:207-229` → 断言：完成 `jobs.test.ts:483-484`（“输出 7、场景 9”，`wait` 与提醒合计恰好一次）、`:536-537`（“回执：后台命令在父会话空闲时结束……”，请求里只出现一遍）；被 Agent 停 `:511-513`（“输出 4、7”）；被用户停 `:550-556`（“回执：用户停掉的任务照送……”）与 `subagents.test.ts`“jobs.md 输出 14：用户在子会话里直接停掉后台子代理……”（`packages/neuro-book/src/plugins/agent/subagents.test.ts` 约 250-264 行）；插件停止 `jobs.test.ts:590-596`（账本补发）、`:715`（插件登记的任务按中断送回）。“失败”与“服务重启”（进程崩溃、账本里是 `running`）两种结局没有用例。
+- 句 2：出口在任务中心的同一个同步段里写，两个并发的 `wait`、`wait` 与提醒都不会交回同一件 → `center.ts:379-395`、`center.ts:271-285`、`delivery.ts:98-110`（`takeover` 排在送达队列里） → 断言 `jobs.test.ts`“两个并发的 wait 不交回同一件”`:217-225`；`wait` 与提醒 `jobs.test.ts`“回执：模型在生成要调 wait 的那条回复时任务结束，wait 撤回待发的回执自己交回”`:574-577`。
+- 句 3：结果文字在任务收口时读下，`wait` 与提醒用同一份（子会话回退之后接着跑同一个运行，读到的仍是收口那一刻的） → `center.ts:231`（`job.final`）、`tools.ts:98`、`delivery.ts:210` → 断言：没有。没有用例断言“收口后子会话变了，`wait` 或回执给的仍是收口那一刻的文字”。
+- 判定：**部分**。句 1、句 2 有实现有断言（句 1 的“失败”“服务重启”两种结局缺用例，但走的是同一条出口，风险低）；句 3 没有断言。建议改成：“……`wait`、`wait` 与提醒都不会交回同一件。（planned）结果文字在任务收口时读下，`wait` 与提醒用同一份（子会话回退之后接着跑同一个运行，读到的仍是收口那一刻的）。”——实现已在，补一条“收口后在子会话里再写一轮，`wait` 仍交回收口那一刻的文字”的用例即可整条晋升。
+
+## docs/specs/agent/jobs.md 输出 14（送达）
+
+- 句 1：任务结束、没有前台在等时，以宿主身份 `{plugin: "nbook.agent", label: "后台任务"}` 发一条 `senderOnly` 的提醒 → `delivery.ts:22`（`RECEIPT_ISSUER`）、`delivery.ts:252`（`senderOnly: true`）、`center.ts:275`（有前台在等的不领） → 断言 `jobs.test.ts:550`（快照 `senderOnly: true`）、`subagents.test.ts` 用户停子代理那例（`senderOnly: true`）。发出者是 `nbook.agent`/“后台任务”没有断言（neuro-book 包里没有测试读 `notices[].by`）。
+- 句 2：用户删不掉，只有发送方能撤回 → 内核 `nb-harness/src/kernel/run/commands.ts:502` → 断言 `jobs.test.ts:554`（经远程 `removeNotice` 得 `not-allowed`）；发送方撤回 `:576-577`（`reason: "withdrawn"`）。
+- 句 3：发送方不管会话开没开 → `delivery.ts:137-139`（`table.view` 按需打开） → 断言：送达路径没有“会话关着时送达”的用例；账本补发走同一个 `table.view`，`jobs.test.ts:591-594`（新进程里会话还没打开，补发照样进待发）可以作旁证。
+- 句 4：根会话（会话头没有 `caller`）的带唤起 → `backend/agent.ts:392-395`（`isRoot`）、`delivery.ts:213,222` → 断言 `jobs.test.ts:532-533`（最后一次运行 `wake: true`、`by.kind: "host"`）。
+- 句 5：子会话的不带 → `delivery.ts:213,222` → 断言：没有（没有“子会话自己派的后台任务回执送回子会话、不唤起”的用例）。
+- 句 6：只有被用户停掉的几件时不带 → `delivery.ts:222`、`center.ts:226` → 断言 `jobs.test.ts:550,553`（`wake: false`、只有一次运行）、`subagents.test.ts` 用户在子会话里停那例（`wake: false`、`runStarted` 只有一次）。
+- 句 7：正文开头说明这是回执、不用再 `wait` → `receipt.ts:15`（`RECEIPT_HEAD`）、`receipt.ts:68` → 断言：没有（neuro-book 的测试里没有断言这句开头）。
+- 句 8：每件一段，写种类、摘要、状态（被用户停的写“被用户停止”）与结果 → `receipt.ts:51-56`（`receiptTitle`）、`delivery.ts:211` → 断言 `jobs.test.ts:704`（`长任务 ${job.id}：整理大纲`，种类与摘要）、`:703`（结果）、`:551`（“被用户停止”）、`:715`（“已中断”）。
+- 句 9：每段至多 12 KiB，超长的留头留尾、段末写全文地址（后台命令的 `output.log`，子代理的全文存进父会话的 `artifacts/`） → `receipt.ts:11,40-48`（`segment`）、`delivery.ts:196-205`（`#address`：命令用驱动的 `address`，子代理用 `saveFull`）、`backend/subagents/children.ts:16,61` → 断言：没有（没有超过 12 KiB 的回执用例；`eval.test.ts:578-581` 的“全文：”是 eval 自己的结果截断，不是回执）。
+- 句 10：一条至多 30 KiB，放不下的下一条再送 → `receipt.ts:13,59-74`（`pack`）、`delivery.ts:216-228` → 断言：没有。
+- 句 11：同时结束的几件合成一条 → `center.ts:271-285`（一次领取全部）、`delivery.ts:216` → 断言：没有。
+- 判定：**部分**。可去掉 planned 的：句 1（发 `senderOnly` 提醒）、句 2、句 4、句 6、句 8。留 planned 的：句 1 里的发出者身份、句 3、句 5、句 7、句 9、句 10、句 11。建议挪完的原文片段：
+  “14. **送达。** 任务结束、没有前台在等时，（planned：以宿主身份 `{plugin: "nbook.agent", label: "后台任务"}`）给启动它的会话发一条 `senderOnly` 的提醒（用户删不掉，只有发送方能撤回），（planned）发送方不管会话开没开。根会话（会话头没有 `caller`）的带唤起；（planned）子会话的不带；只有被用户停掉的几件时不带（下一次请求必定带上）。（planned）正文开头说明这是回执、不用再 `wait`；每件一段，写种类、摘要、状态（被用户停的写“被用户停止”）与结果，（planned）至多 12 KiB，超长的留头留尾、段末写全文地址（后台命令的 `output.log`，子代理的全文存进父会话的 `artifacts/`）；一条至多 30 KiB，放不下的下一条再送。同时结束的几件合成一条。”
+  这些句子多是纯函数（`segment`、`pack`）与一处判断，补一个 `receipt.ts` 的单元用例（开头、超长留头留尾带地址、超 30 KiB 拆两条）加一个“子会话的回执不唤起”“两件同一刻结束合成一条”的集成用例，就能整条晋升；成本小于挪标记，建议优先补测试。
+
+## docs/specs/agent/jobs.md 输出 15（`wait` 与回执）
+
+- 句 1：`wait` 要交回的一件已经经提醒送出、提醒还没取走时，先撤回那条提醒再自己交回 → `center.ts:396-402`（`deliver` 调 `takeover`）、`delivery.ts:98-110`（排在送达队列里撤回，撤成交回 `no`） → 断言 `jobs.test.ts`“回执：模型在生成要调 wait 的那条回复时任务结束，wait 撤回待发的回执自己交回”`:574`（`wait` 的结果含命令输出）、`:575`（没有 `hostNotice`）、`:576-577`（一条 `noticeRemoved`、`reason: "withdrawn"`）。
+- 句 2：提醒已被取走，交回“回执已经在对话里”，不再给一次 → `delivery.ts:113-124`（`prune`）、`center.ts:309-320`（`receiptTaken` 记进 `#delivered`）、`center.ts:364`（点名的交回 `inContext: "yes"`）、`delivery.ts:108`（撤回时发现已取走也是 `yes`）、文字 `tools.ts:92-93` → 断言 `jobs.test.ts`“jobs.md 输出 15：回执已被取走的，点名 wait 交回“已在对话里”……”`:403`（`inContext: "yes"`，在任务中心一层）。工具结果的那句文字没有断言，`inContext → 文字` 只有 `tools.ts:92-93` 一处映射。
+- 句 3：送出时写入结果未知的，点名的 `wait` 交回“可能已经在对话里” → `center.ts:378,385`、`delivery.ts:100`、文字 `tools.ts:94-95` → 断言：没有（已知取舍：写入结果未知没有故障注入用例）。
+- 句 4：不点名的不等它 → `center.ts:372,378` → 断言 `jobs.test.ts:405-408`（出口手动置成 `unconfirmed`，不点名的 `wait` 得 `no-jobs`）。
+- 句 5：`no-jobs` 写“回执都已经交给你了” → `tools.ts:86` → 断言：没有（仓库测试里搜不到这句）。
+- 判定：**部分**。建议挪成：“……提醒已被取走，交回“回执已经在对话里”，不再给一次。（planned）送出时写入结果未知的，点名的 `wait` 交回“可能已经在对话里”；不点名的不等它。（planned）`no-jobs` 写“回执都已经交给你了”。”句 5 只是一句文案，补一行断言（`jobs.test.ts` 场景 2 第三次 `wait` 的结果文字）就能去掉。
+
+## docs/specs/agent/jobs.md 输出 16（送达的失败）
+
+- 句 1：预算满（`notice-budget`）时改发一条“还有 N 件回执没放下：……，用 wait 取”的短回执，之后这几件只由 `wait` 交回 → `delivery.ts:276-283`、`receipt.ts:77-79`、`center.ts:303-306`（`announce`） → 断言：没有（已知取舍：短回执没有故障注入用例）。
+- 句 2：会话这会儿打不开、短回执也放不下时稍后重送（任务再有变化或会话的句柄关闭时） → 实现 `delivery.ts:24-25`（`TRANSIENT`：`notice-budget`、`session-busy`、`storage-failed`、`session-closed`）、`delivery.ts:292-294,297-308`（按退避重领：1 分钟起翻倍、至多 30 分钟）、`delivery.ts:69-71`（任务有变化就排一轮） → 断言：没有（送达路径；账本的“暂时送不了留到下次”见输出 17）。
+  - **不符**：Spec 写“任务再有变化或会话的句柄关闭时”重送；代码是“任务再有变化，或按退避计时到点”重送。句柄关闭（`delivery.ts:83-87` 的 `sessionClosed`）只给写入结果未知的那几条排重发，不给暂时送不了的排重送。代码注释 `delivery.ts:11-12,297` 说明了理由（按退避、不跟着句柄的开关打转，3da7fc603 审查第 9 条）。按代码改 Spec 更合理：“会话这会儿打不开、短回执也放不下时稍后重送：按退避（1 分钟起翻倍、至多 30 分钟），或任务再有变化时”。
+- 句 3：写入结果未知时，会话的句柄关闭后用同一个指令 id 与原样的参数重发；受理过的只交回原结果、不再写；再次未知就等下一次关闭 → `delivery.ts:82-87,182-193,245-252,270-273`（`resending` 时失败也保持 `unconfirmed`）、账本记下指令 id 与参数 `ledger.ts:32,40-44`、发出前落盘 `delivery.ts:226` → 断言：送达路径没有（已知取舍）；账本按原样重发有 `jobs.test.ts`“记着在途回执的项按原样重发（同一个指令 id 与参数）”`:252`。
+- 句 4：会话已不在、日志读不懂时记诊断，只留给 `wait` → `delivery.ts:285-290`（诊断 `job-receipt-undeliverable`，出口记成 `announced`） → 断言：没有。
+- 判定：**部分**，且句 2 **不符**（按代码改 Spec）。整条四句都没有送达路径上的断言，建议整条保留 `（planned）`，只把句 2 改成贴代码的写法；或者补“会话已不在”（删掉会话再让任务结束，断言诊断、`wait` 仍取得到）这一条成本低的用例，把句 4 先去掉 planned。
+
+## docs/specs/agent/jobs.md 输出 17（账本）
+
+- 句 1：还没交出回执的后台任务记在 `<状态根>/agent/jobs/ledger.json` → `backend/agent.ts:397` → 断言 `jobs.test.ts:539`、`:589-590`。
+- 句 2：（身份、状态、结果地址，不存正文） → `ledger.ts:18-46` → **不符**：`entryOf`（`ledger.ts:40-44`）对“正在送出或写入结果未知的那条回执提醒”记下 `notice: {commandId, text, key?, wake}`，`text` 就是回执正文（至多 30 KiB）。这是 8b76204e2（omp 审查第 5 条）为“按原样重发、不交两次”加的，有用例 `jobs.test.ts:236-257`。按代码改 Spec：“（身份、状态、结果地址，不存结果的正文；正在送出或送出时结果未知的那条回执另记它的指令 id 与原样的参数，补发时按原样重发）”。
+- 句 3：任务开始时加 → `ledger.ts:36,114`（在跑的算没交出）、`ledger.ts:58-60`（跟着任务中心重写） → 断言 `jobs.test.ts`“补发时暂时送不了的留在账本里；补发期间新起的任务照样记下”`:274`、`:590`。
+- 句 4：回执有了出口时去掉 → `ledger.ts:36`（提醒已受理 `pending`、`taken` 的不记） → 断言 `jobs.test.ts:539`（回执送到后账本清空）。附注：只送了短回执（`announced`）的仍留在账本里（`ledger.ts:36` 与文件头注释），Spec 输出 6 的括号写了任务表这样做，输出 17 没写账本也这样；建议补半句“只送了短回执的留着”。
+- 句 5：插件停止、服务重启之后再起时，每项给它的启动方补发一条不带唤起的回执（“服务重启时中断，没跑完”，或“服务停止前已……，回执没来得及送出”，带结果地址） → `ledger.ts:90-111`（`wake: false`，文字 `:95-96`，地址 `:39,96`） → 断言 `jobs.test.ts`“回执：插件停止时在跑的后台命令记进账本，同一个状态根再起时补发……”`:594`（“回执没来得及送出”）、`:595`（会话空闲，没有唤起）。“服务重启时中断，没跑完”（账本里是 `running`，即进程没走停止流程就退出）与“带结果地址”没有断言。附注：正常停止时在跑的命令先按 `interrupted` 收口再落账本（`:590`），补发文字是“服务停止前已中断，回执没来得及送出”，与 Spec 两种写法之一相符。
+- 句 6：发完去掉 → `ledger.ts:107` → 断言 `jobs.test.ts:253`、`:596`。
+- 句 7：会话已不在的去掉 → `ledger.ts:107`（`session-not-found`） → 断言：没有。
+- 句 8：暂时送不了的留到下次 → `ledger.ts:107-108` → 断言 `jobs.test.ts:274`（`session-busy` 留着）。附注：代码对 `ok` 与 `session-not-found` 以外的**一切**失败码都留着（含 `log-corrupt` 这类永久的），日志读不懂的会话每次启动都会补发一次失败、永远留在账本里。和输出 16 句 4“日志读不懂时记诊断”不一致；属于窄场景，可以记为已知限制，或把永久失败码也去掉。
+- 未写进 Spec 的：账本里记着在途回执的项按原样重发、不另写重启的回执（`ledger.ts:99-101`，`jobs.test.ts:236-257`）。
+- 判定：**部分**，句 2 **不符**（按代码改 Spec）。建议原文改成：“17. **账本。** 还没交出回执的后台任务记在 `<状态根>/agent/jobs/ledger.json`（身份、状态、结果地址，不存结果的正文；正在送出或送出时结果未知的那条回执另记指令 id 与原样的参数）：任务开始时加，回执有了出口时去掉（只送了短回执的留着）。插件停止、服务重启之后再起时，每项给它的启动方补发一条不带唤起的回执（“服务停止前已……，回执没来得及送出”；（planned）进程没走停止就退出的写“服务重启时中断，没跑完”，带结果地址），记着在途那条的按原样重发，发完去掉；（planned）会话已不在的去掉；暂时送不了的留到下次。”
+
+## docs/specs/agent/jobs.md 输出 18（`kill` 只停跟着的那次运行）
+
+- 句 1：`kill` 与远程 `killJob` 停子代理任务时只停它跟着的那次运行 → `backend/subagents/children.ts:52-58`（`abort({keepQueue: true, runId})`），内核 `nb-harness/src/kernel/run/commands.ts:388` → 断言：内核一层有 `buffer.test.ts:221-223`（点名已收口的那次，下一轮不受影响）；任务中心与子代理一层没有用例（`subagents.test.ts:494-508`“jobs.md 输出 9–11”只断言 `killJob` 停得掉在跑的那次）。
+- 句 2：那次已经收口、用户又开了下一轮时交回“已经结束”，不停下一轮 → `children.ts:57`（`aborted: false` 交回 `already-ended`）、`center.ts:351-353`、`tools.ts:128`（“已经结束了。”） → 断言：没有（窗口在子会话的 `runFinished` 与任务中心 `end` 之间，难以稳定构造）。
+- 判定：**部分**。内核的点名停止已断言，接线这一层没有。建议整条保留 `（planned）`，或改写成“`kill` 与远程 `killJob` 停子代理任务时点名它跟着的那次运行（runtime.md 输出 120）；（planned）那次已经收口、用户又开了下一轮时交回“已经结束”，不停下一轮。”——前半句靠内核用例与 `children.ts:55` 一行接线成立。
+
+## docs/specs/agent/jobs.md 输出 19（工具里登记的任务）
+
+（`tool-jobs.ts` 指 `packages/neuro-book/src/plugins/agent/backend/jobs/tool-jobs.ts`。）
+
+- 句 1：插件贡献的工具在一次调用的 `execute` 里经 `AgentToolServices.jobs.begin(call, {kind, label, summary, stop})` 登记 → `tool-jobs.ts:52-84`、`shared/resources.ts`（`ToolJobs`）、接线 `backend/tools.ts:312-324`（每一代工具实现一个 `ToolJobScope`） → 断言 `jobs.test.ts`“工具里登记任务：插件的工具在调用里登记一种任务……”`:697`（真实插件登记成功）。
+- 句 2：只认这一代工具实现里正在执行的调用 → `tool-jobs.ts:53`、`backend/tools.ts:277-283`（`live` 集合随调用进出） → 断言 `jobs.test.ts:116-117`（别的调用、别的会话得 `unavailable`）。
+- 句 3：`execute` 结算之后或插件已停止时得 `unavailable` → `tool-jobs.ts:53` → 断言 `jobs.test.ts:699-700`（结算之后）、`:151`（撤回之后）。
+- 句 4：`kind`（小写字母开头，至多 40 个字符）盖成 `<贡献工具的插件>.<kind>` → `tool-jobs.ts:16`（`/^[a-z][a-z0-9-]{0,39}$/u`）、`:55` → 断言 `jobs.test.ts:118`（`"Work"` 得 `invalid`）、`:122`（`test.p.work`）。40 个字符的上限没有断言。**小的不符**：代码还限定了字符集（只许小写字母、数字、`-`），Spec 只写了“小写字母开头”，按代码补进 Spec（“小写字母开头，只含小写字母、数字与 `-`，至多 40 个字符”）。
+- 句 5：`label` 至多 20 个字符、`summary` 至多 200 个字符，不合格得 `invalid`、不占名额 → `tool-jobs.ts:54` → 断言 `jobs.test.ts:118`（21 字的标签、201 字的摘要），`:119-121`（四次 `invalid` 之后 `global: 2` 仍能登记两件，第三件才 `concurrency-limit`，说明没占名额）。代码另把空白标签当 `invalid`（`label.trim() === ""`，`:118` 有断言），Spec 没写，可补。
+- 句 6：名额满得 `concurrency-limit` → `tool-jobs.ts:56` → 断言 `jobs.test.ts:121`。
+- 句 7：`wait`、`kill`、`jobs`、回执与远程照常 → 任务中心通用路径 → 断言：回执 `jobs.test.ts:703-704`；`kill` `:129-131`。`wait`、`jobs`、远程对工具登记的任务没有单独断言（同一张任务表、同一份 `list`，风险低）。
+- 句 8：`kill` 调插件的 `stop` → `tool-jobs.ts:62-63` → 断言 `jobs.test.ts:132`（`stopped` 依次收到 `false`、`true`，即 Agent 停与用户停）。
+- 句 9：插件给的结果文字按 UTF-8 至多 12 KiB → `tool-jobs.ts:13,30-36,79` → 断言 `jobs.test.ts:137-142`。
+- 句 10：`kill` 之后插件没有调 `end` 的，按 `aborted` 收口 → `tool-jobs.ts:64-67` → 断言 `jobs.test.ts:134-135`。
+- 句 11：贡献工具的插件停止时先封住登记，再对它在跑的任务调 `stop`（抛错只记诊断 `tool-job-stop-failed`）、按 `interrupted` 收口 → `tool-jobs.ts:42-50`、`backend/tools.ts:71-79,288-296`（撤回，含会话已关时登记表收养的监听 `#orphans`） → 断言 `jobs.test.ts:150-155`（单元：封住、抛错记诊断、照样 `interrupted`）、`:711-715`（真实插件停止：`stop` 被调到、回执写“已中断”）。
+- 句 12：`nbook.agent` 停止时它们与后台命令一起按 `interrupted` 停下 → `backend/agent.ts:490`（对非 `agent` 的在跑任务调 `driver.kill("interrupted")`） → 断言：没有。**从代码推断可能不符**：工具任务的驱动 `tool-jobs.ts:62-68` 在 `reason === "interrupted"` 时只调插件的 `stop`、不调 `center.end`，任务是否按 `interrupted` 收口要看插件在 `stop` 里自己调不调 `end`（调的话是插件给的状态，不一定是 `interrupted`），或 `nbook.agent` 停止时登记点会不会撤回别的插件的贡献、触发 `onRevoke`（未验证）。不收口时账本（`ledger.ts:36`）把它记成 `running`，下次启动补发的是“服务重启时中断，没跑完”。建议在驱动里对 `reason === "interrupted"` 也在 `stop` 之后按 `interrupted` 收口（与 `撤回` 路径 `tool-jobs.ts:48` 一致），并补用例；或者把这句留 planned。
+- 句 13：任何插件贡献的工具都能登记，名额与后台命令、子代理共用 → `tool-jobs.ts:55`（经 `center.reserve`，`center.ts:170-173` 全局名额对所有种类计数） → 断言 `jobs.test.ts:668-716`（测试插件 `test.jobsrc` 不是内置插件）；名额共用 `:121`（只在工具任务之间，混合种类没有断言，代码路径相同）。
+- 判定：**部分**。除句 12 外各句有实现有断言（句 4 的字符集按代码补写）。建议挪成：“……贡献工具的插件停止时先封住登记，再对它在跑的任务调 `stop`（抛错只记诊断 `tool-job-stop-failed`）、按 `interrupted` 收口；（planned）`nbook.agent` 停止时它们与后台命令一起按 `interrupted` 停下。任何插件贡献的工具都能登记，名额与后台命令、子代理共用。”同时 `kind` 的写法改成贴代码的。
+
+## docs/specs/agent/sessions.md 输出 20（在跑的工作，t22 改的括号）
+
+整条的 `（planned）` 来自 w00046 t06（04124d30e），不在本次范围；只核 t22 加的括号“t22 改：子代理的任务不另报……；插件在工具里登记的任务写它的种类名与摘要”。
+
+- 句 1：子代理的任务不另报，它的子会话在跑、已经归在根会话那一项里 → `packages/neuro-book/src/plugins/agent/backend/running-work.ts:63-67`（会话按根归并）、`:75`（`kind === "agent"` 跳过） → 断言 `running-work.test.ts`“根会话本轮已结束、两个子代理还在跑：只报根一项（带根的标题），子代理归在里面、不另报”`packages/neuro-book/src/plugins/agent/running-work.test.ts:111-125`（`items` 只有根一项）。
+- 句 2：插件在工具里登记的任务写它的种类名与摘要 → `running-work.ts:76`（`work.job.plugin`，`{label, name: summary}`）、文案 `locales/zh-CN.json` 的 `work.job.plugin` → 断言：没有（仓库测试里搜不到 `work.job.plugin`）。
+- 附注：正文“任务中心里在跑的任务（……含会话已空闲时还在跑的后台命令与子代理运行），每件一项，写命令或子代理名”与括号里“子代理的任务不另报”互相矛盾；晋升时应改正文而不是留一个“t22 改”的括号。
+- 判定：**部分**。t22 这部分里句 1 已兑现，句 2 没有断言。整条仍属 w00046 的 planned。建议把正文直接改成：“……任务中心里在跑的后台命令与插件在工具里登记的任务（含会话已空闲时还在跑的），每件一项，后台命令写命令，插件的写它的种类名与摘要；子代理的任务不另报，它的子会话在跑、已经归在根会话那一项里。”删掉“t22 改”的括号；句 2 补一条用例（`running-work.test.ts` 里用 `toolJobs` 登记一件，断言 `work.job.plugin` 那一项）。
+
+## docs/specs/agent/sessions.md 输出 29（快照的 `senderOnly?`）
+
+- 句：快照的待发提醒摘要带 `senderOnly?`；只有发送方能撤回的带 `senderOnly: true` → `packages/neuro-book/src/plugins/agent/shared/remote.ts:130,154`（`RemoteNotice.senderOnly`，只在为真时写） → 断言 `session-host.test.ts`“提醒（conversation.md 输出 51）”那例 `packages/neuro-book/src/plugins/agent/session-host.test.ts:811-814`：真实服务端、经远程快照到窗口，`senderOnly: true` 的提醒在排队区成了 `removable: false`，路径是 `remote.ts:154` → `nb-agent-ui/src/kernel-transcript.ts:350` → `web/session-host.ts:1329`。远程快照字段本身没有直接断言，但这条链只有这一处来源。
+- 附注：远程合同 `nbook.agent/sessions` 加了一个可选字段，版本没有升（仍是 2）。旧窗口读到多出的字段只会忽略，取消按钮点了得 `not-allowed`；这是可接受的兼容，Spec 不必改，但可在“边界与兼容”里提一句“加可选字段不升版本”。
+- 判定：**可晋升**。去掉这句前面的“（planned）”。
+
+## docs/specs/agent/conversation.md 输出 36（自动转后台的 `shell` 画成后台命令卡）
+
+- 句 1：跑过门槛自动转到后台的 `shell`（结果带 `details.autoBackground`）也画这张卡 → `packages/nb-agent-ui/src/builtin-tools.ts:193-194`（`presentationOf` 看结果的 `autoBackground`，`hostNode: "backgroundCommand"`）、结果的 `details` `packages/neuro-book/src/plugins/agent/backend/builtin/shell-background.ts:280` → 断言 `builtin-tools.test.ts`“shell 跑过门槛自动转后台（结果带 autoBackground）也是常显的节点；结果来之前按卡片”`packages/nb-agent-ui/src/builtin-tools.test.ts:96`（`node`）；`autoBackground: true` 进结果 `jobs.test.ts:610,658`。
+- 句 2：卡头注明“自动转到后台” → `packages/neuro-book/src/plugins/agent/web/components/BackgroundCommandCard.vue:128`、文案 `locales/zh-CN.json` 的 `conversation.subagent.autoBackground` → 断言：没有（`BackgroundCommandCard` 没有 dom 测试，`data-background-auto` 在测试里搜不到；Lab 的 `SubagentCardFixture.vue` 也没有 `autoBackground` 的场景）。
+- 句 3：转之前是普通的命令卡 → `builtin-tools.ts:194` → 断言 `builtin-tools.test.ts:95`（运行中、没有结果时是 `card`）。
+- 判定：**部分**。建议挪成：“（planned 去掉）跑过门槛自动转到后台的 `shell`（结果带 `details.autoBackground`……）也画这张卡，（planned）卡头注明“自动转到后台”；转之前是普通的命令卡。”或补一个 `BackgroundCommandCard` 的 dom 用例（或 Lab 场景加一张自动转的卡）后整句晋升。
+
+## docs/specs/agent/conversation.md 输出 51（只有发送方能撤回的提醒没有取消）
+
+- 句：只有发送方能撤回的（快照里带 `senderOnly`）连取消也没有 → `packages/neuro-book/src/plugins/agent/web/session-host.ts:1329`（`removable: false`）、`packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.vue:77`（`v-if="item.removable !== false"`） → 断言 `session-host.test.ts:814-815`（回执那行 `removable: false`、普通提醒没有这个字段）；`AgentQueuedMessages.dom.test.ts`“removable 为 false 的行（只有发送方能撤回的回执）没有取消，也没有编辑”`packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.dom.test.ts:38-43`（第一行没有 `data-queued-remove`，第二行有）。
+- 判定：**可晋升**。去掉“（planned）”。整条末尾“会话发的话（planned）”属于别的 Task，不动。
+
+## docs/specs/ui/agent-conversation-view.md 排队区条目的 `removable`
+
+- 句 1：`removable` 缺省为真，决定有没有取消 → `packages/nb-agent-ui/src/types.ts`（`ComposerView.queued` 的 `removable?`）、`AgentQueuedMessages.vue:8,77` → 断言 `AgentQueuedMessages.dom.test.ts:42`（不写 `removable` 的行有取消）。
+- 句 2：（planned）为假时没有，例如只有发送方能撤回的提醒 → 同上 → 断言 `AgentQueuedMessages.dom.test.ts:41`。
+- 判定：**可晋升**。去掉括号里的“（planned）”。
+
+## docs/specs/agent/subagents.md 输出 26（提问的提醒）
+
+- 句 1：后台的子代理停在一个交给调用方的同步提问上、没有前台在等时，任务中心把提问作为一条回执提醒送给父会话 → `center.ts:275,279-281`（`claim` 领提问）、`delivery.ts:231-242`（`#sendQuestion`，`senderOnly`、一件一条、`key: question:<任务 id>`） → 断言 `subagents.test.ts`“jobs.md 的回执：后台子代理向父 Agent 提问，提醒唤起空闲的父会话、请求里有题干……”`packages/neuro-book/src/plugins/agent/subagents.test.ts:272`（父会话路径上出现带题干的 `hostNotice`）。
+- 句 2：写明子会话 id、提问 id、题干与 `agent_answer` 的写法 → `backend/subagents/result.ts:139`（“提问 <id>：<题干>\n用 agent_answer 回答（id: <子会话>，question: <提问 id>）”），经驱动的 `result()`（`children.ts:59`） → 断言 `subagents.test.ts:274`（从提醒正文里按“提问 <id>：”取出提问 id）、`:276-277`（拿它 `agent_answer` 成功、结果交回）。子会话 id 与“agent_answer”字样没有单独断言（测试用的子会话 id 来自派发结果），但同一行文字。
+- 句 3：不论父会话是不是根会话都带唤起（子代理停在提问上等着） → `delivery.ts:236-237`（`wake: true`） → 断言：没有。47bcb0e35 删掉了原来的 `runStarted` 唤起断言（`subagents.test.ts:275-276` 的注释说明：提醒可能随这一轮接着请求带上，也可能另开唤起的运行），之后没有用例断言这条提醒 `wake: true`。补法：断言父会话快照里那条提醒的 `wake` 为真（在提醒被取走前读），或在测试里让父会话先空闲再让子代理提问。
+- 句 4：同一个提问只送一次 → `center.ts:279`（`questionExit?.id !== question.id` 才领） → 断言：没有直接断言（`jobs.test.ts:415` 只领了一次）。
+- 句 5：已经送出的提问前台的 `agent_send`、`agent_answer` 不再交一次 → `center.ts:443-444`（`follow` 不把已有出口的提问当新提问） → 断言 `jobs.test.ts`“subagents.md 输出 26：已经作为提醒送出的提问，前台跟随不再交一次”`:415-419`（领取之后前台 `follow` 到超时也不返回 `question`）。
+- 句 6：提醒取走之前提问被答了、任务停了，提醒撤回 → `delivery.ts:168-179`（`#withdrawStaleQuestions`）、`:241`（只记受理了的） → 断言：没有。
+- 判定：**部分**。可去掉 planned 的：句 1、句 2、句 5。留 planned 的：句 3、句 4、句 6。建议挪成：“26. **提问的提醒。** 后台的子代理停在一个交给调用方的同步提问上、没有前台在等时，任务中心把提问作为一条回执提醒送给父会话（[`jobs.md`](jobs.md) 输出 14），写明子会话 id、提问 id、题干与 `agent_answer` 的写法，（planned）不论父会话是不是根会话都带唤起（子代理停在提问上等着，没人答就一直等）；（planned）同一个提问只送一次，已经送出的提问前台的 `agent_send`、`agent_answer` 不再交一次。（planned）提醒取走之前提问被答了、任务停了，提醒撤回。”（句 5 已有断言，但和句 4 在同一个分号句里；拆开写成“同一个提问只送一次（planned）；已经送出的提问……不再交一次”也行。）
+
+## docs/specs/agent/eval.md 输出 20（重置的提醒）
+
+（`notices.ts`、`tool.ts` 指 `packages/neuro-book/src/plugins/agent/backend/eval/` 下的文件；`eval.test.ts` 指 `packages/neuro-book/src/plugins/agent/eval.test.ts`。）
+
+- 句 1：空闲回收、被登记表回收、两次调用之间内核进程意外退出，这三种重置以宿主身份 `{plugin: "nbook.agent", label: "eval"}` 给会话发一条不带唤起的提醒“eval 的内核已重置（原因），之前的变量没了”（`key: "eval-kernel"`） → `notices.ts:11`（发出者）、`:33`（`key: "eval-kernel"`、`wake: false`）；三处来源 `tool.ts:197`（被回收）、`:256`（两次调用之间退出，`!this.#busy`）、`:393`（空闲），都走 `tool.ts:380-386` 的 `outside` → 断言：空闲 `eval.test.ts:411-412`（正文、`wake: false`）；意外退出 `:425`；被回收 `:441`。发出者身份与 `key` 没有断言。附注：实际正文多一句“下一次 eval 会起新的内核。”（`tool.ts:386`），Spec 引的是开头，不算不符。
+- 句 2：会话关着也发 → `notices.ts:33`（`table.view` 按需打开） → 断言 `eval.test.ts:478-481`（关闭期间空闲到点、再打开时提醒已在待发）。
+- 句 3：下一次 eval 结果的第一行照旧写（输出 12） → `tool.ts:267` → 断言 `eval.test.ts:414`、`:427`、`:443`、`:483`。
+- 句 4：新一代内核起来、能用之后，还没取走的那条撤回 → `tool.ts:259`（`notices.ready`）、`notices.ts:38-46` → 断言 `eval.test.ts:417`。
+- 句 5：发送与撤回在同一条串行队列里，旧一代的提醒不会晚于新内核受理 → `notices.ts:21-30`（每会话一条队列）、`:39`（队列里还有在途发送时也排撤回） → 断言：没有专门的先后用例；`eval.test.ts:413-417` 在空闲提醒受理之后才起新内核，覆盖不到“发送还在途时新内核就起来”的先后。代码路径简单，风险低。
+- 句 6：执行中的崩溃、回退、换 Profile、换目录、主动重置只写在结果里 → `tool.ts:223-240,273`（这几处 `#reset` 不带 `outside`） → 断言：只写在结果里有（`eval.test.ts:188,343,382,398,497,507`、`eval-projects.test.ts:149`），“不发提醒”这一半没有否定断言（这些用例都没读快照的 `notices`）。
+- 判定：**部分**（接近可晋升）。句 1 主体、句 2、3、4 有断言；句 5 与句 6 的否定一半没有断言。建议挪成：“……新一代内核起来、能用之后，还没取走的那条撤回，（planned）发送与撤回在同一条串行队列里，旧一代的提醒不会晚于新内核受理。执行中的崩溃、回退、换 Profile、换目录、主动重置只写在结果里（planned：不发提醒）。”补法很便宜：在“reset: true 先重置”“会话关闭之后回退”两例末尾加一行 `expect((await session.snapshot()).notices).toEqual([])`，句 6 即可去掉 planned；句 5 可以接受为实现合同里的不变量、不要求用例。
+
+## docs/specs/agent/builtin-tools.md 输出 31（自动转后台）
+
+（`shell-background.ts` 指 `packages/neuro-book/src/plugins/agent/backend/builtin/shell-background.ts`；套件 `shell.ts`、`shell.test.ts` 指 `packages/nb-harness/src/kit/tools/` 下的文件。）
+
+- 句 1：模型直接调的、不在子代理会话里的前台 `shell`，跑过设置的秒数还没结束就转到后台 → `shell-background.ts:238-245`（门槛）、`backend/plugin.ts:208`（`isChild: relations.parentOf(id) !== null`）、套件 `shell.ts:170`（`call.within` 时不问门槛）、`:196-218`（移交） → 断言 `jobs.test.ts`“自动转后台：前台的命令跑过 60 秒转到后台……”`:607-610`（推 60 秒后 `details.autoBackground: true`）；子会话不转 `jobs.test.ts`“设置为 0、子会话、时限不长于门槛的不转……”`:77`（单元，`isChild` 是假的）。
+- 句 2：设置 `nbook.agent/shellAutoBackground`（缺省 60，整数 0–3600，0 为不转；只允许用户层，在“运行可靠性”分区） → `packages/neuro-book/src/plugins/agent/shared/settings.ts:211-221` → 断言：缺省 60 `jobs.test.ts:607`（没设设置，推 60 秒就转）；0 不转 `:621-640`、`:89-90`；门槛到点 `:83-86`。范围、用户层、分区没有断言（`shared/settings.test.ts` 只测了 `resumeMode`；同表的 `backgroundJobs` 等也没有）。
+- 句 3：登记成后台任务，交回任务 id、时限、到目前为止的最后几行与输出文件的地址 → `shell-background.ts:250,274-281` → 断言 `jobs.test.ts:611-614`（“已转到后台”、“时限照旧（300 秒）”、最后几行含“开始”、`details.jobId`）。结果文字里的输出文件地址没有断言。
+- 句 4：`details` 同 `async` 再加 `autoBackground: true` → `shell-background.ts:280`（`{jobId, invocation, output, autoBackground}`，与 `async` 的 `:55` 一致） → 断言 `jobs.test.ts:610,658`（只断言 `autoBackground: true`；`output` 与 `invocation` 没有断言）。
+- 句 5：命令只起一次 → 套件 `shell.ts:186-195,208-212`（移交同一个 `done`） → 断言 `jobs.test.ts:617`（输出文件是“开始\n做完了\n”，“开始”只出现一次）；套件 `shell.test.ts:297-298`。
+- 句 6：时限照原来的（不写 `timeout` 时 300 秒） → 套件 `shell.ts:191`（时限在命令起时定）、`shell-background.ts:275` → 断言 `jobs.test.ts:612`（300 秒）、`:642-666`（“自动转后台：移交前的大段输出全部接过；时限照旧，到点按超时收口”，`timeout: 2`、移交后到点 `timedOut: true`）。
+- 句 7：已有的输出一行不丢地接进任务的输出文件 → `shell-background.ts:195-223,266-271` → 断言 `jobs.test.ts:617`、`:664`（20000 行全在、之后还有超时那一行）、`:665`（`lines`、`bytes` 与文件一致）。
+- 句 8：结束时回执送回会话 → `shell-background.ts:272`（`drive` 登记成普通的后台任务） → 断言 `jobs.test.ts:616`。
+- 句 9：已有的输出还没超出窗口时写进新的输出文件，超出之后的暂存改名接过，改名不成（跨文件系统）就拷贝一份 → `shell-background.ts:196-205`（新文件）、`:206-210`（改名）、`:211-222`（拷贝） → 断言：新文件 `jobs.test.ts:617`；改名 `:664`（20000 行已超出窗口）。拷贝一路没有断言。
+- 句 10：命令的时限不长于门槛、代码里调的、接不了的（名额满、会话工作区不可用、建不了输出目录或接不过已有的输出）留在前台照原合同跑完 → 时限 `shell-background.ts:241-242`；代码里调的 套件 `shell.ts:170`；名额满 `shell-background.ts:252`；工作区 `:247-248`；目录 `:256-261`；接不过 `:265-269` → 断言：时限 `jobs.test.ts:78`；接不了的三种在套件层 `shell.test.ts`“宿主接不了（prepare 交回 null、失败，take 抛错）……”`:333-350`（假宿主）。代码里调的不转、Agent 层的四种具体原因没有断言（`eval.test.ts:592` 断言的是代码里的 `async`，不是自动转）。
+- 句 11：名额满以外的原因记诊断 `shell-auto-background-failed`，结果末尾注明“想转到后台，没转成”与原因 → `shell-background.ts:231-234,248,260,268`、套件 `shell.ts:199-201,214-216,235` → 断言 套件 `shell.test.ts:343-345`（“没转成”与原因、名额满那种没有）。诊断码没有断言。
+  - **小的不符（从代码推断）**：到门槛时套件的暂存写失败过（`OutputCapture.spoolProblem`，`nb-harness/src/kit/tools/output-capture.ts:88,109`），`capture.soFar()` 交回 null，`shell.ts:203-204` 直接 `discard()` 留在前台，不写 `notMoved`，所以结果里没有“想转到后台，没转成”，Agent 层也不记诊断（结果里只有“全文没能保存：……”）。这属于 Spec 的“接不过已有的输出”，按 Spec 改代码（`soFar()` 为 null 且不是因为已结束时把 `notMoved` 设成暂存的问题）更合理；窄场景，也可以记为已知限制。
+- 判定：**部分**。句 5–8 有完整断言；句 1、3、4、6、9、10、11 的主体有断言，缺的是子会话的集成、地址与 `details` 的其余字段、拷贝一路、代码里调的、Agent 层的诊断码；句 2 只缺设置声明的三项。建议挪成：
+  “31. **自动转后台。** 模型直接调的、不在子代理会话里的前台 `shell`，跑过设置 `nbook.agent/shellAutoBackground` 的秒数（缺省 60，整数 0–3600，0 为不转；只允许用户层，在“运行可靠性”分区）还没结束就转到后台：登记成后台任务（[`jobs.md`](jobs.md)），交回任务 id、时限、到目前为止的最后几行与输出文件的地址，`details` 同 `async` 再加 `autoBackground: true`；命令只起一次、时限照原来的（不写 `timeout` 时 300 秒），已有的输出一行不丢地接进任务的输出文件，结束时回执送回会话。已有的输出还没超出窗口时写进新的输出文件，超出之后的暂存改名接过，（planned）改名不成（跨文件系统）就拷贝一份。命令的时限不长于门槛、（planned）代码里调的、接不了的（名额满、会话工作区不可用、建不了输出目录或接不过已有的输出）留在前台照原合同跑完；名额满以外的原因（planned：记诊断 `shell-auto-background-failed`，）结果末尾注明“想转到后台，没转成”与原因。”
+  “代码里调的不转”补一条 eval 里跑 `sleep` 超过门槛仍在前台交回的用例即可去掉；拷贝一路难以在测试里造跨文件系统，可接受为实现合同里的不变量。
+
+## docs/specs/agent/run-guards.md 设置行 `nbook.agent/shellAutoBackground`
+
+- 句：缺省 60、整数 0–3600、前台的 `shell` 跑过这么多秒就转后台、0 为不转 → `packages/neuro-book/src/plugins/agent/shared/settings.ts:211-221`（`Type.Integer({minimum: 0, maximum: 3600})`、`default: 60`、`layers: ["user"]`、`section: RUN_GUARDS_SECTION`） → 断言：行为（缺省 60、0 不转）见 builtin-tools.md 输出 31 一节；范围与分区没有断言，和同表其它行（`backgroundJobs`、`subagentsPerSession` 等）一样只有声明。
+- 判定：**可晋升**（按这张表其它行的同等标准）。去掉“（planned，”改成“（[`builtin-tools.md`](builtin-tools.md) 输出 31）”。若要求严格逐句断言，在 `shared/settings.test.ts` 里照 `resumeMode` 那例加三行（用户层、范围、分区）。
+
+## docs/specs/harness/host-kit.md 输出 12（`ShellAutoBackground`）
+
+- 句 1：`shellTool(dialects, background?, auto?)` 的第三个参数 `ShellAutoBackground` 可选，不给时和现在一样 → 套件 `shell.ts:248-249`、`:170`（`auto?.threshold` 缺省 null） → 断言：不给时的行为由 `shell.test.ts` 里不带 `auto` 的原有用例覆盖。
+- 句 2：`threshold({args, call, context}, signal)` 交回门槛（宿主时钟上到点完成的 Promise）或 null → 接口 `shell.ts:120-126`；宿主实现 `shell-background.ts:238-245`（`clock.wait`） → 断言 `jobs.test.ts:83-86`（测试时钟推到点才完成）、`:77-78,90`（null）；套件放行 `shell.test.ts:289-290`。
+- 句 3：`prepare(...)` 异步占任务 id 与名额、建输出目录，交回 `BackgroundTarget` 或 null → `shell.ts:127-128,199`；宿主 `shell-background.ts:246-262` → 断言 `shell.test.ts:333-349`（`null` 那种留在前台、不写“没转成”）；真实宿主占名额与建目录 `jobs.test.ts:599-619` 间接。
+- 句 4：门槛到了之后一个同步步骤里，命令已结束或调用已中止就 `discard()`、照前台交回 → `shell.ts:201-206` → 断言：没有（`shell.test.ts:323-330`“门槛之前就结束”是门槛之前，不调 `prepare`；已知取舍：准备期间命令已结束没有稳定的用例）。
+- 句 5：否则 `take({prepared, output, done, abort})` 交回此后接收输出的出口与给模型的结果 → `shell.ts:207-212` → 断言 `shell.test.ts:290`（交回宿主的结果）、`:298`（之后的输出进了宿主的文件）。
+- 句 6：命令断开这次调用的信号、照原时限跑完 → `shell.ts:174-177,211` → 断言 `shell.test.ts:295-297`（移交后中止调用，命令照常退出码 0）；时限 `jobs.test.ts:642-666`。
+- 句 7：`output` 是到此刻的输出（`OutputSoFar`）：还没超出窗口时是内存里的全部文字（`text`），超出之后是系统临时目录里的暂存（`spool` 的描述符与路径），连同字节数、换行数、结尾与是否到了 64 MiB → `nb-harness/src/kit/tools/output-capture.ts:19-29,108-114` → 断言 `shell.test.ts:293`（窗口内 `spool` 为 null）、`:311-313`（超出后 `text` 为 null、`lines`、`tail`）；`bytes` 经宿主 `jobs.test.ts:665` 间接；“是否到了 64 MiB”（`full`）没有断言。
+- 句 8：`take` 交回之后暂存归接手的一方 → `shell.ts:209`（`capture.release()`）、`output-capture.ts:117-119` → 断言 `shell.test.ts:300,320`（接手方删掉后系统临时目录里没有残留，套件没有再写、再删）。
+- 句 9：`prepare` 失败或 `take` 抛错时 `discard()`、留在前台 → `shell.ts:199-202,213-217` → 断言 `shell.test.ts:342,349`。**小的不符**：`prepare` 失败（reject）时没有 `BackgroundTarget`，套件不可能调 `discard()`，用例也断言 `reject` 时 `discarded` 为 0（`:349`）。按代码改 Spec：“`prepare` 失败时留在前台；`take` 抛错时 `discard()`、留在前台”。
+- 句 10：暂存仍归套件、命令结束时照常删掉 → `shell.ts:243-244`（`capture.dispose()`） → 断言 `shell.test.ts:350`（三种失败后系统临时目录为空）、`:346-348`（全文照常存进 artifacts）。
+- 句 11：失败的原因写进前台的结果 → `shell.ts:199-201,214-216,235` → 断言 `shell.test.ts:343-345`。附注同 builtin-tools.md 输出 31 句 11：`soFar()` 为 null 时不写原因。
+- 句 12：代码里调的不转 → `shell.ts:170` → 断言：没有。
+- 判定：**部分**。句 4、句 12 没有断言，句 9 字面**不符**（按代码改），句 7 的 `full` 没有断言。建议挪成：“……`prepare(...)` 异步占任务 id 与名额、建输出目录，交回 `BackgroundTarget` 或 null；门槛到了之后一个同步步骤里，（planned）命令已结束或调用已中止就 `discard()`、照前台交回，否则 `take({prepared, output, done, abort})` 交回此后接收输出的出口与给模型的结果，……`prepare` 失败时留在前台，`take` 抛错时 `discard()`、留在前台，暂存仍归套件、命令结束时照常删掉，失败的原因写进前台的结果。（planned）代码里调的不转。”句 12 在套件层补一条 `call.within` 有值、门槛已放行仍前台交回的单元用例很便宜，补了即可去掉。
+
+## 不在 Spec 里、调用方能观察到的行为（供补写）
+
+- 诊断码（`options.report` 的码）：送达 `job-receipt-prune-failed`、`job-receipt-withdraw-failed`、`job-receipt-failed`、`job-receipt-unknown`、`job-receipt-short-failed`、`job-receipt-undeliverable`、`job-receipt-deferred`（`delivery.ts:120,147,149,164,261,283,287,292`）；账本 `job-ledger-unreadable`、`job-ledger-replay-failed`、`job-ledger-write-failed`（`ledger.ts:81,105,108,132`，`backend/agent.ts:402`）；eval 提醒 `eval-notice-failed`（`eval/notices.ts:25,36,45`）；子代理停止 `subagent-kill-failed`（`children.ts:56`）。Spec 里只写了 `tool-job-stop-failed` 与 `shell-auto-background-failed`。
+- 暂时送不了的回执的重送节奏：1 分钟起翻倍、至多 30 分钟（`delivery.ts:29-30,297-308`），见 jobs.md 输出 16 句 2 的不符。
+- 暂时送不了的码集合：`notice-budget`、`session-busy`、`storage-failed`、`session-closed`（`delivery.ts:25`）；写入结果未知的：`log-broken`、`unknown-outcome`（`:27`）。
+- 提问的回执一件一条，带 `key: "question:<任务 id>"`（`delivery.ts:237`），快照里看得到这个 `key`。
+- `wait` 点名一件“回执已被取走、已移出表”的任务时交回“已经在对话里”，这种记录全服务端至多留 1,024 件（`center.ts:144-145,315`），更早的点名得 `job-unknown`。
+- 工具登记的任务：`begin` 的失败码 `invalid`（jobs.md 的失败表里没有这一码）；空白标签算 `invalid`；`kind` 只许小写字母、数字与 `-`；`progress` 的一行截到 200 个字符（`tool-jobs.ts:54,16,75`）。
+- `abort` 的权限检查先于点名 `runId` 的判断（`nb-harness/src/kernel/run/commands.ts:386-388`），见 runtime.md 输出 120 的附注。
+- 账本为空时删掉 `ledger.json` 文件（`ledger.ts:124-126`），测试以“文件不在”判“账本清空”；补发失败的除 `session-not-found` 外一律留在账本里，包括永久的失败（`ledger.ts:107`）。
+- 远程合同 `nbook.agent/sessions` 加了可选字段 `senderOnly`，版本仍是 2（`shared/remote.ts:384`）。
+- 回执正文的开头一句（`receipt.ts:15`）、短回执的文字（`receipt.ts:78`）、账本补发的文字（`ledger.ts:95-96`）、自动转后台的结果文字（`shell-background.ts:279`）、`wait` 的三种 `inContext` 文字（`tools.ts:86,93,95`）。
+
+## 汇总
+
+共核 22 节（jobs.md 的“不承诺”两行与输出 6 合为一节）。
+
+**可晋升（去掉 `（planned）`）**
+- harness/runtime.md 输出 112 的 `senderOnly` 句
+- harness/runtime.md 输出 120（可选补半句“权限照在跑的那次判”）
+- harness/session.md 输出 19 的括号（`noticeTaken`、`wakeGate` 没有单独断言，但总与算活动的事件同批写，看不出差别）
+- harness/session.md 输出 27 的“（`senderOnly` 是 planned）”
+- agent/jobs.md 输出 6 的括号；“不承诺”两行随输出 13–17 改写原句
+- agent/sessions.md 输出 29 的 `senderOnly` 句
+- agent/conversation.md 输出 51 的“连取消也没有”
+- ui/agent-conversation-view.md 的 `removable`
+- agent/run-guards.md 的 `shellAutoBackground` 行（按同表其它行的标准；严格逐句时补三行设置声明的断言）
+
+**部分（挪 `（planned）` 到这些句子上）**
+- jobs.md 输出 13：句 3“结果文字在收口时读下，`wait` 与提醒用同一份”
+- jobs.md 输出 14：发出者身份、“发送方不管会话开没开”、“子会话的不带”、正文开头、12 KiB 分段与全文地址、30 KiB 拆条、几件合成一条（建议补 `receipt.ts` 单元用例与两条集成用例后整条晋升）
+- jobs.md 输出 15：“点名的 `wait` 交回可能已经在对话里”（已知取舍）、“`no-jobs` 写回执都已经交给你了”（补一行断言即可）
+- jobs.md 输出 16：四句送达路径都没有断言，整条保留 planned
+- jobs.md 输出 17：“服务重启时中断，没跑完”的文字、带结果地址、会话已不在的去掉
+- jobs.md 输出 18：“已经收口、用户又开了下一轮时交回已经结束”；内核层的点名停止已断言
+- jobs.md 输出 19：“`nbook.agent` 停止时它们与后台命令一起按 `interrupted` 停下”
+- sessions.md 输出 20（t22 括号）：插件登记的任务一项写种类名与摘要；正文与括号矛盾，要改正文
+- conversation.md 输出 36：卡头注明“自动转到后台”（`BackgroundCommandCard` 没有 dom 用例）
+- subagents.md 输出 26：带唤起（47bcb0e35 删掉了原断言）、同一个提问只送一次、答了或停了撤回提醒
+- eval.md 输出 20：发送与撤回的先后、“只写在结果里”的不发提醒一半（各加一行 `notices` 为空的断言即可）
+- builtin-tools.md 输出 31：拷贝一路、代码里调的不转、诊断码
+- host-kit.md 输出 12：“门槛到了时命令已结束或调用已中止就 `discard()`”（已知取舍）、“代码里调的不转”
+
+**不符**
+- jobs.md 输出 16 句 2：Spec 写“任务再有变化或会话的句柄关闭时”重送，代码是“任务再有变化或按退避（1 分钟起翻倍、至多 30 分钟）”；句柄关闭只给写入结果未知的排重发。按代码改 Spec。
+- jobs.md 输出 17 句 2：Spec 写账本“不存正文”，代码对在途或结果未知的那条回执记下 `notice.text`（回执正文，至多 30 KiB），为的是按原样重发。按代码改 Spec。
+- host-kit.md 输出 12 句 9：“`prepare` 失败……时 `discard()`”做不到（没有 `BackgroundTarget`），用例也断言不调。按代码改 Spec。
+- jobs.md 输出 19 句 4（小）：`kind` 实际限定为小写字母、数字与 `-`，Spec 只写了“小写字母开头”。按代码补 Spec。
+- jobs.md 输出 19 句 12（从代码推断，未验证）：`nbook.agent` 停止时工具任务的驱动只调插件的 `stop`、不按 `interrupted` 收口，账本里会是 `running`。建议改代码（与撤回路径一致）并补用例。
+- builtin-tools.md 输出 31 句 11 与 host-kit.md 输出 12 句 11（小，从代码推断）：门槛时暂存写失败过（`soFar()` 为 null）会悄悄留在前台，不写“想转到后台，没转成”、不记诊断。建议改代码，或记为已知限制。
+
