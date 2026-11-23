@@ -129,10 +129,16 @@ nb-harness 内核里现成的（[`harness/runtime.md`](../../../../../docs/specs
 | 20 提问提醒的撤回与在途发送没定序 | 成立，要改 | 发送、撤回、重发排在同一条串行队列 |
 | 21 验收缺关键时序 | 成立，要改 | 验收映射补上第 1、2、4、5、6 条与两处写失败、空闲时杀内核 |
 
+## 进展
+
+| 片 | 提交 | 验证 |
+|---|---|---|
+| 1 内核：`abort{runId}`、`senderOnly`、提醒与门不算会话活动 | 分支 57bfa88ef；Spec master d0ce2c513 | nb-harness 内核 509 条全过、typecheck 过（nb-harness、neuro-book `tsc`）；变异 4 处（不看 `runId`、不看 `senderOnly`、索引照常前移、受理记录照常前移）各有用例失败。实现中发现受理 `notice`、`removeNotice` 时另写的 `commandAccepted` 也会前移活动时刻，一并算作不算活动，Spec 同改 |
+
 ## 当前状态
 
-[计划第 4 稿](plan.md)写好（决定 18 与 Opus 审查的处理），开始实施第 1 片；omp 对第 3 稿的审查在后台。
+[计划第 4 稿](plan.md)写好（决定 18 与 Opus 审查的处理）；第 1 片完成；omp 对第 3 稿的审查在后台。
 
 ## 下一步
 
-第 1 片（内核：`abort{runId}`、`senderOnly`、提醒与门不算会话活动）→ 第 2 片（出口、回执与送达、账本）。
+第 2 片（出口、回执与送达、账本、子代理的提问提醒）。
