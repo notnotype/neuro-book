@@ -223,9 +223,33 @@ export function useGridMotion(options: {
         }
     }
 
-    function stop(): void {
+    function disarmTimer(): void {
         if (timer !== null) clearTimeout(timer);
         timer = null;
+    }
+
+    /** 过渡的收尾：时长之外多等一小段，让浏览器自己的过渡先走完；每次重新计时，旧的作废。 */
+    function armTimer(durationMs: number): void {
+        disarmTimer();
+        timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
+    }
+
+    /** 当前网格上的布局过渡时长；没挂上时是 0。 */
+    function motionDuration(): number {
+        const root = options.root.value;
+        return root === null ? 0 : layoutMotionMs(root);
+    }
+
+    /** 先让第一帧的矩形进到样式里（强制一次布局），再清掉起点写终点：否则浏览器把两次改动并成一次，过渡不启动。 */
+    function flushGrowingStart(): void {
+        void nextTick(() => {
+            void options.root.value?.offsetWidth;
+            growing.value = new Map();
+        });
+    }
+
+    function stop(): void {
+        disarmTimer();
         if (!moving.value) return;
         finishTransitions();
         moving.value = false;
@@ -246,7 +270,6 @@ export function useGridMotion(options: {
     }
 
     function start(durationMs: number, move: GridMotionMove): void {
-        if (timer !== null) clearTimeout(timer);
         // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
         const follow = [...move.following].filter((key) => !landing.has(key));
         following.value = new Set(inRound ? follow.filter((key) => following.value.has(key)) : follow);
@@ -263,18 +286,14 @@ export function useGridMotion(options: {
         leaving.value = move.leaving;
         leavingContentItems.value = move.leavingContents;
         if (move.swap !== undefined) band.value = move.swap;
-        timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
+        armTimer(durationMs);
         const entering = move.entering;
         if (entering.size === 0) return;
         // 过渡中又来一次变化时，已经画着的项的起点是上一帧的矩形，也就是上一轮的终点，正是它此刻在走的那次过渡的终点：样式写回这个值不打断那次过渡
         // （CSS 过渡里终点没变就接着走），下一帧写新终点时从此刻的位置反向，不跳。所以不用读 DOM 取当前位置；起点不再是上一轮的终点时这条就不成立了。
         // 交换是例外：起点是读到的此刻位置（`bandOffsets`），写起点的那一帧不带过渡标记，进行中的过渡就停在那里，下一帧整条带重新开始一段完整的过渡。
         growing.value = entering;
-        // 先让第一帧的矩形进到样式里（强制一次布局），再写终点：否则浏览器把两次改动并成一次，过渡不启动。
-        void nextTick(() => {
-            void options.root.value?.offsetWidth;
-            growing.value = new Map();
-        });
+        flushGrowingStart();
     }
 
     /**
@@ -310,8 +329,7 @@ export function useGridMotion(options: {
         if (decision.kind === "none") return;
         if (decision.swapSkipped !== undefined) options.onSwapSkipped?.(decision.swapSkipped);
         if (decision.settleFirst === true) stop();
-        const root = options.root.value;
-        const duration = root === null ? 0 : layoutMotionMs(root);
+        const duration = motionDuration();
         if (duration > 0) start(duration, decision);
         // 过渡中切到了减少动态效果：不开新一轮，进行中的直接到终点，留着缩回去的叶也摘掉（不然它和回到树里的同一块叶一起画）。
         else stop();
@@ -322,29 +340,21 @@ export function useGridMotion(options: {
      * 和新项一样先写第一帧、再写终点。`held` 是落进的叶里刚才还显示着的内容：卡片长满之前它还在下面，不然卡片四周是空的叶。
      */
     function land(key: string, entering?: ReadonlyMap<string, GridRect>, kept?: ReadonlySet<string>): void {
-        const root = options.root.value;
-        const duration = root === null ? 0 : layoutMotionMs(root);
+        const duration = motionDuration();
         if (duration <= 0) return;
         landing.add(key);
         if (kept !== undefined && kept.size > 0) held.value = new Set([...held.value, ...kept]);
         following.value = new Set([...following.value].filter((candidate) => candidate !== key));
         flying.value = new Set([...flying.value, key]);
         moving.value = true;
-        if (timer !== null) clearTimeout(timer);
-        timer = setTimeout(stop, duration + MOTION_SLACK_MS);
+        armTimer(duration);
         if (entering === undefined || entering.size === 0) return;
         // 同一轮的布局变化可能刚写了别的新项的起点：并进去，不盖掉。
         growing.value = new Map([...growing.value, ...entering]);
-        void nextTick(() => {
-            void options.root.value?.offsetWidth;
-            growing.value = new Map();
-        });
+        flushGrowingStart();
     }
 
-    onBeforeUnmount(() => {
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
-    });
+    onBeforeUnmount(disarmTimer);
 
     return {
         moving,
