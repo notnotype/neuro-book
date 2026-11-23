@@ -81,6 +81,7 @@ omp（`@review`）审第 1 稿 22 条（阻断 1、重要 19、建议 2，[`evid
 |---|---|---|
 | 1 提供方核心与远程 v2 | 分支 bf4abac78、d592d0d52；Spec master（`target-gone` 是远程层保留码，改名 `row-gone`；`rows` 的过滤改成 `{project, all}`，取全部时当前项目仍在前） | `tasks` 合同测试 45 条全过（原有 29 条只换了方法名，新 `providers.test.ts` 16 条）、`src/architecture.test.ts`、typecheck、`TasksView` 的 dom 测试过；变异 12 处（撤回时在途的结算、10 秒上限、代次、组头取最早登记的、前台不计数、`own` 去重、一家上限先留在跑的、`elsewhere`、出错清行、`open` 只收自己的命令、等你处理在前、不可停）各有用例失败。窗口的仓库只换到 `own`、`ownChanged`，视图第 2 片改 |
 | 2 窗口：按归属分组的视图 | 分支 96edb3cf5、8b6175edf | `tasks` 合同与仓库测试 64 条、`TasksView` 的 dom 测试 10 条全过；`tsc`、`vue-tsc`（web 与浏览器测试）、Lab 登记测试、`src/architecture.test.ts` 过；Lab 截图看过宽版、390 宽与英文（会话块、项目与应用组、收起、正在取消与正在停止、末尾没列出的）；`e2e/background-tasks.e2e.ts` 原有 4 条过，新加的提供方一条（等你处理的徽标、停止被拒的原因、打开别人的命令的提示、行清空后整块消失）单独跑过。前端审查见下一节 |
+| 3 Agent 作提供方 | 分支 b31dc82ef（探针见 [`evidences/probe-session-rows.txt`](evidences/probe-session-rows.txt)） | 套件会话表 16 条（运行与开始时刻、换运行、留着的话的时刻）、套件全部 386 条；`agent` 插件全部 605 条，其中新 `task-rows.test.ts` 6 条（真实内核、任务中心与 `nbook.tasks`：后台命令、前台子代理等你批准、向父 Agent 提问、根会话组头与留着的话、有归属的会话、没有任务跟着的子会话）与 `jobs.test.ts` 新 2 条（`stop-failed`、清单信号）；typecheck；e2e `agent-subagents`、`agent-conversation`、`background-tasks` 三份 35 条（新加的一条：后台任务视图里子代理等你批准、点“打开”到子会话）。变异 8 处（回执出口、等你处理、有归属、子会话覆盖、在跑的工作不报留着的话、领取发清单信号、停不下时复位用户停、留着的话不可停）各有用例失败。没测到：插件登记的任务那一行（只是种类与标签两处取值）、压缩时的“正在压缩”、`focus-session` 读不到会话头时交回失败（浏览器里造不出那样的行）。快速审查（Opus 先审、omp 后台）在跑 |
 
 ## 第 1 片的实现审查
 
@@ -123,8 +124,8 @@ omp（`@review`）审第 1 片原提交 19 条（阻断 3、重要 14、建议 2
 
 ## 当前状态
 
-2026-11-23：决定 1–7 已定，计划第 2 稿经开发者确认；第 1 片做完并处理了 Opus 与 omp 的实现审查；第 2 片（窗口）做完并处理了 Sonnet 的前端审查；第 3 片的探针已跑完（[`evidences/probe-session-rows.txt`](evidences/probe-session-rows.txt)），计划补了 7b。
+2026-11-23：决定 1–7 已定，计划第 2 稿经开发者确认；第 1 片做完并处理了 Opus 与 omp 的实现审查；第 2 片（窗口）做完并处理了 Sonnet 的前端审查；第 3 片（Agent 作提供方）做完，快速审查在跑。
 
 ## 下一步
 
-第 3 片（Agent 交出后台任务与会话的行）先跑剩下的两个探针（子代理等批准、回执短的退出），再按计划实现，快速审查（Opus 加 omp）。
+处理第 3 片的快速审查（Opus 的结论处理完就开工第 4 片，omp 的回来后另行处理）；第 4 片：会话索引带回复首句与子代理卡片的终态。
