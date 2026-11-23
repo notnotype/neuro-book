@@ -24,7 +24,7 @@ import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainer
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
 import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints} from "./layout-constraints";
-import {effectiveVisibleTabs, mergedSections, regionOccupied} from "./layout-present";
+import {effectiveVisibleTabs, mergedSections, regionOccupied, viewKey} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
@@ -463,7 +463,7 @@ function defineLayoutDocStore(bound: boolean) {
                  * 让视图看得见（输出 22、35 的 `nbook.view.open`）：所在区域显示、切到它的容器，分节展开，激活它。盖着它的最大化退出；它就在最大化的面板里时不退出。
                  */
                 revealView: (viewId: string): LayoutResult => {
-                    const key = tabKey({kind: "view", viewId});
+                    const key = viewKey(viewId);
                     const found = findTab(doc.value, key);
                     // 浮动窗在最大化的面板上面，不用退出；它可能被别的窗盖着，提到最前。
                     const floating = found !== null && isFloating(doc.value, found.panel);
@@ -499,7 +499,7 @@ function defineLayoutDocStore(bound: boolean) {
                         if (last?.viewId === viewId) return revealContainer(target.container);
                     }
                     return apply((current) => {
-                        const key = tabKey({kind: "view", viewId});
+                        const key = viewKey(viewId);
                         if (findTab(current, key) === null) return notFound(key);
                         if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
                         const {container} = target;

@@ -6,7 +6,7 @@
  * 选择之间目标容器没了（没有成员也没有声明），按 `stale-target` 拒绝且不写。
  */
 
-import {findTab, tabKey} from "@notnotype/nb-workbench-layout";
+import {findTab} from "@notnotype/nb-workbench-layout";
 import type {LayoutResult} from "@notnotype/nb-workbench-layout";
 import {Type} from "typebox";
 
@@ -18,7 +18,7 @@ import {workbenchText} from "../../shared/text";
 import {OPEN_VIEW_COMMAND, VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore, MoveViewTarget} from "../state/layout-doc-store";
-import {moveTargetsOf} from "../state/layout-present";
+import {moveTargetsOf, viewKey} from "../state/layout-present";
 import type {MoveTarget} from "../state/layout-present";
 import {workbenchState} from "../state/public-state";
 
@@ -93,7 +93,7 @@ function resultOf(result: LayoutResult): CommandResult<null> {
     return {ok: false, code: "invalid-args", reason: TEXT.rejected};
 }
 
-const isPlaced = (store: LayoutDocStore, viewId: string): boolean => findTab(store.actions.document(), tabKey({kind: "view", viewId})) !== null;
+const isPlaced = (store: LayoutDocStore, viewId: string): boolean => findTab(store.actions.document(), viewKey(viewId)) !== null;
 
 function targetsFor(store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null {
     const movable = store.state.catalog.get(viewId)?.movable !== false;

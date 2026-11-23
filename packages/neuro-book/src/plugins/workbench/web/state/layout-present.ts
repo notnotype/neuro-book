@@ -231,13 +231,13 @@ export function panelTitle(doc: LayoutDoc, catalog: ViewCatalog, panelId: string
         return editors.length > 1 ? workbenchText("viewCommands.parts.editorAt", {index: editors.indexOf(panelId) + 1}) : workbenchText("viewCommands.parts.editor");
     }
     const active = panel?.active ?? null;
-    const viewId = active !== null && active.startsWith(VIEW_KEY_PREFIX) ? active.slice(VIEW_KEY_PREFIX.length) : null;
+    const viewId = active === null ? null : viewIdOf(active);
     return (viewId === null ? undefined : catalog.get(viewId)?.title) ?? panelId;
 }
 
 /** 视图不在它声明的容器（没声明的是它的隐式容器）时才能“重置位置”（输出 23）；浮动着的不在任何容器里。 */
 export function canResetView(doc: LayoutDoc, catalog: ViewCatalog, viewId: string, containers: ContainerCatalog = NO_CONTAINERS): boolean {
-    const found = findTab(doc, tabKey({kind: "view", viewId}));
+    const found = findTab(doc, viewKey(viewId));
     const home = viewHome(viewId, catalog, containers);
     return found !== null && home !== null && viewSection(doc, viewId)?.container !== home.container;
 }

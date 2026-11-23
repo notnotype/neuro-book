@@ -10,7 +10,7 @@
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, enumerateDropCandidates, findTab, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {applyLayoutDrop, enumerateDropCandidates, findTab, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, rectContains, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, PanelName, TabRef} from "@notnotype/nb-workbench-layout";
 import {createLiveDragSession} from "@notnotype/nb-layout/vue";
@@ -21,7 +21,7 @@ import type {TabStripHeld, TabStripSnapshot} from "@notnotype/nb-workbench-layou
 import {nextTick, readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {centerOf, collapsedGeometry, contains, heldTabIn, offset, sortedOffset, stripIndex, windowRect} from "./drag-geometry";
+import {centerOf, collapsedGeometry, heldTabIn, offset, sortedOffset, stripIndex, windowRect} from "./drag-geometry";
 import type {DragGeometry, EntryBand, FrozenGeometry, WindowDrag} from "./drag-geometry";
 import {barStops, pointOfCandidate} from "./drag-keyboard";
 import {applyEntryDrop, barSpotAt, dropKeyOf, dropStripOf, entryDropAt, entryStripOf, homeStripOf, isEntryAction, regionOfEntryStrip, soleRegionContainer} from "./entry-drop";
@@ -488,7 +488,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         });
     }
 
-    const bandAt = (bands: ReadonlyArray<EntryBand>, point: GridDropPoint): EntryBand | undefined => bands.find((band) => contains(band.rect, point));
+    const bandAt = (bands: ReadonlyArray<EntryBand>, point: GridDropPoint): EntryBand | undefined => bands.find((band) => rectContains(band.rect, point));
     /** 键盘区域的 id 是入口条的 id（`entryStripOf`）。 */
     const bandOfRegion = (id: string): EntryBand | undefined => geometry(options.doc()).bands.find((band) => entryStripOf(band.region) === id);
 
