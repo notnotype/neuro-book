@@ -151,6 +151,19 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
 
 const edgeTargetFor = (policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null => (policy.edgeTarget === undefined ? edgeTargetOf(doc, panel, edge) : policy.edgeTarget(doc, tabs, panel, edge));
 
+/**
+ * 这块面板四个方向上能分出去的边，按左、右、上、下的顺序。只给要整张用到的两处（分区、键盘候选）：`nearestEdge` 只对指针所在窄带里的边按需求值，指针在中央时一次都不问策略，不走这里。
+ * 调用方先判策略接不接受 `edge`。
+ */
+function edgeTargetsOf(policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string): ReadonlyMap<LayoutEdge, LayoutEdgeTarget> {
+    const targets = new Map<LayoutEdge, LayoutEdgeTarget>();
+    for (const edge of ["left", "right", "top", "bottom"] as const) {
+        const target = edgeTargetFor(policy, doc, tabs, panel, edge);
+        if (target !== null) targets.set(edge, target);
+    }
+    return targets;
+}
+
 const hasArea = (rect: GridDropRect): boolean => rect.right > rect.left && rect.bottom > rect.top;
 
 /**
@@ -325,13 +338,7 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     const centerAction: LayoutDropAction = {kind: "center", panel: geometry.id};
     const takesCenter = input.noCenter !== true && input.policy.accepts(tabs, panel, "center");
     if (panel.tabs.length === 0 && takesCenter) return [{id: "center", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: centerAction}];
-    const targets = new Map<LayoutEdge, LayoutEdgeTarget>();
-    if (input.policy.accepts(tabs, panel, "edge")) {
-        for (const edge of ["left", "right", "top", "bottom"] as const) {
-            const target = edgeTargetFor(input.policy, input.doc, tabs, geometry.id, edge);
-            if (target !== null) targets.set(edge, target);
-        }
-    }
+    const targets = input.policy.accepts(tabs, panel, "edge") ? edgeTargetsOf(input.policy, input.doc, tabs, geometry.id) : new Map<LayoutEdge, LayoutEdgeTarget>();
     const near = input.edgeRatio ?? LAYOUT_EDGE_RATIO;
     const far = 1 - near;
     const [left, right, top, bottom] = [targets.has("left"), targets.has("right"), targets.has("top"), targets.has("bottom")];
@@ -504,10 +511,7 @@ export function enumerateDropCandidates(input: {
         if (policy.accepts(tabs, panel, "center")) add(leaf.id, {kind: "center", panel: leaf.id});
         // 接受中央的空面板整块都是中央（`resolveInPanel`）：边上没有另外的落点。
         if (policy.accepts(tabs, panel, "edge") && !(panel.tabs.length === 0 && policy.accepts(tabs, panel, "center"))) {
-            for (const edge of ["left", "right", "top", "bottom"] as const) {
-                const target = edgeTargetFor(policy, doc, tabs, leaf.id, edge);
-                if (target !== null) add(leaf.id, {kind: "edge", target});
-            }
+            for (const target of edgeTargetsOf(policy, doc, tabs, leaf.id).values()) add(leaf.id, {kind: "edge", target});
         }
     }
     // 缝归树序靠前的那块：键盘在区域之间循环，缝不单独成一个区域。
