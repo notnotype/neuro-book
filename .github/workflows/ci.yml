@@ -70,7 +70,7 @@ jobs:
       - run: bun run test:affected ${{ steps.scope.outputs.args }} --typecheck
 
   app-package:
-    name: 应用包、SDK 与 nb-layout 的产物能打出来
+    name: 应用包、SDK 与 nb-layout 的产物能打出来，nb-layout 的公开面与 API 报告一致
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -86,6 +86,9 @@ jobs:
         working-directory: packages/neuro-book
       # nb-layout 的编译产物与构建完的自查（导出名、纯 TS 入口不拉进 Vue、随包文件）；浏览器冒烟仍只在 release:smoke。
       - run: bun run build:package
+        working-directory: packages/nb-layout
+      # 公开面与入库的 api/*.api.txt 一致（w00026 t48）；产物上一步已经打好，不再构建。
+      - run: bun run api:check --no-build
         working-directory: packages/nb-layout
       - run: bun run smoke:server
         working-directory: packages/neuro-book

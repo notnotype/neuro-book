@@ -11,6 +11,7 @@ export const LIVE_SETTLE_MS = 150;
 /** 空位周围这么宽还算在空位里：指针贴着边缘时预览不来回跳。 */
 export const LIVE_STICKY_PX = 8;
 
+/** @experimental */
 export interface LiveDropCandidate {
     readonly key: string;
     /** 不等稳定就换（标签条内要跟手）。 */
@@ -19,6 +20,7 @@ export interface LiveDropCandidate {
     readonly slot: GridDropRect | null;
 }
 
+/** @experimental */
 export type LivePreview =
     /** 按这个候选摆。 */
     | {readonly kind: "candidate"; readonly key: string}
@@ -27,6 +29,7 @@ export type LivePreview =
     /** 还没预览过：就是已提交的布局。 */
     | {readonly kind: "none"};
 
+/** @experimental */
 export interface LiveDropState {
     readonly candidate: string | null;
     readonly changedAt: number;
@@ -35,9 +38,13 @@ export interface LiveDropState {
     readonly slot: GridDropRect | null;
 }
 
+/** @experimental */
 export const initialLiveDrop = (now: number): LiveDropState => ({candidate: null, changedAt: now, preview: {kind: "none"}, slot: null});
 
-/** 这一帧的候选进来，得到这一帧的预览。 */
+/**
+ * 这一帧的候选进来，得到这一帧的预览。
+ * @experimental
+ */
 export function stepLiveDrop(state: LiveDropState, input: {readonly now: number; readonly candidate: LiveDropCandidate | null; readonly settleMs?: number}): LiveDropState {
     const key = input.candidate?.key ?? null;
     const changedAt = key === state.candidate ? state.changedAt : input.now;
@@ -50,7 +57,10 @@ export function stepLiveDrop(state: LiveDropState, input: {readonly now: number;
     return state.preview.kind === "none" ? base : {...base, preview: {kind: "source-removed"}, slot: null};
 }
 
-/** 指针在已显示的空位里（含边距）：候选不变，松手放到这块。空位是稳定目标：长出来之后它底下的东西变了。 */
+/**
+ * 指针在已显示的空位里（含边距）：候选不变，松手放到这块。空位是稳定目标：长出来之后它底下的东西变了。
+ * @experimental
+ */
 export function insideShownSlot(state: LiveDropState, point: GridDropPoint, stickyPx: number = LIVE_STICKY_PX): boolean {
     const {slot} = state;
     return slot !== null && point.x >= slot.left - stickyPx && point.x <= slot.right + stickyPx && point.y >= slot.top - stickyPx && point.y <= slot.bottom + stickyPx;

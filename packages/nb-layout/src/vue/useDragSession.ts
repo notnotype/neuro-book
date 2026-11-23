@@ -16,6 +16,7 @@ import type {DragState} from "../drag-gesture";
 import {createDragSession} from "./drag-session";
 import type {DragSession, DragSessionOptions} from "./drag-session";
 
+/** @experimental */
 export type DragSessionHandle<S, D> = {
     /** 当前根上的会话；没有根时是 null。 */
     readonly session: Readonly<ShallowRef<DragSession<S, D> | null>>;
@@ -23,6 +24,7 @@ export type DragSessionHandle<S, D> = {
     readonly state: ComputedRef<DragState<S, D> | null>;
 };
 
+/** @experimental */
 export function useDragSession<S, D, R = never>(
     root: Readonly<Ref<HTMLElement | null>>,
     createOptions: (root: HTMLElement) => Omit<DragSessionOptions<S, D, R>, "root">,

@@ -1,0 +1,972 @@
+// API 报告：@notnotype/nb-layout（bun run api:report 生成，不手改）
+// tool typescript 6.0.3 (report)
+// tool vue-tsc 3.3.7
+// tool typescript 5.9.3 (vue-tsc)
+// tool vue-component-meta 3.3.14
+// tool typescript 5.9.3 (vue-component-meta)
+// tool rolldown-plugin-dts 0.27.14
+// tool vue 3.5.39
+
+### experimental const DRAG_GESTURE_DEFAULTS
+引用：DragGestureConfig
+declare const DRAG_GESTURE_DEFAULTS: DragGestureConfig;
+
+### experimental type DragCancelReason
+type DragCancelReason = "escape" | "pointer-cancel" | "capture-lost" | "blur" | "hidden" | "focus-left" | "pressed-elsewhere" | "structure-changed" | "disposed";
+
+### experimental interface DragCard
+引用：DragCardFrame, GridRect
+interface DragCard {
+    step(frame: DragCardFrame): {
+        readonly rect: GridRect | null;
+        readonly settling: boolean;
+    };
+}
+
+### experimental interface DragCardFrame
+引用：DragCardSize, GridDropPoint
+interface DragCardFrame {
+    readonly now: number;
+    readonly elapsed: number;
+    readonly pointer: GridDropPoint;
+    readonly origin: GridDropPoint;
+    readonly target: DragCardSize;
+    readonly refreshMs?: number;
+}
+
+### experimental interface DragCardOptions
+interface DragCardOptions {
+    readonly tauMs?: number;
+    readonly stillPx?: number;
+    readonly refreshSlackMs?: number;
+}
+
+### experimental interface DragCardSize
+interface DragCardSize {
+    readonly width: number;
+    readonly height: number;
+}
+
+### experimental type DragEnd
+引用：DragCancelReason
+type DragEnd = {
+    readonly kind: "committed";
+} | {
+    readonly kind: "no-action";
+} | {
+    readonly kind: "cancelled";
+    readonly reason: DragCancelReason;
+};
+
+### experimental interface DragGestureConfig
+interface DragGestureConfig {
+    readonly distancePx: number;
+    readonly touchDelayMs: number;
+    readonly touchTolerancePx: number;
+}
+
+### experimental interface DropKind
+interface DropKind<T> {
+    readonly id: string;
+    readonly [dropKindData]?: T;
+}
+
+### experimental interface FrameLoop
+interface FrameLoop {
+    start(): void;
+    wake(): void;
+    stop(): void;
+}
+
+### experimental interface FrameLoopOptions
+interface FrameLoopOptions {
+    requestFrame(run: (now: number) => void): number;
+    cancelFrame(frame: number): void;
+    frame(now: number, elapsed: number): boolean;
+    readonly nominalMs?: number;
+}
+
+### experimental const GRID_MAX_DEPTH
+declare const GRID_MAX_DEPTH = 16;
+
+### experimental const GRID_MAX_NODES
+declare const GRID_MAX_NODES = 256;
+
+### experimental const GRID_SNAPSHOT_VERSION
+declare const GRID_SNAPSHOT_VERSION = 2;
+
+### experimental const GRID_UNBOUNDED
+declare const GRID_UNBOUNDED: number;
+
+### experimental type Grid
+引用：GridAxis, GridBranchResize, GridBranchResizeResult, GridBranchesResizeResult, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridResizeResult, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
+type Grid<T> = {
+    root(): GridNode<T> | null;
+    find(id: string): GridNode<T> | null;
+    addLeaf(parentId: string, index: number, leaf: GridLeafInput<T>): GridResult;
+    splitLeaf(targetId: string, split: GridSplitInput<T>): GridResult;
+    removeLeaf(id: string): GridResult;
+    moveLeaf(id: string, parentId: string, index: number): GridResult;
+    resize(id: string, axis: GridAxis, delta: number): GridResizeResult;
+    resizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>): GridBranchResizeResult;
+    resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
+    setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
+    setSize(id: string, px: number): GridSetSizeResult;
+    serialize(): GridSnapshot;
+    restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
+    layout(container: GridExtent): GridLayoutResult;
+};
+
+### experimental type GridAxis
+type GridAxis = "width" | "height";
+
+### experimental type GridBranch
+引用：GridExtent, GridNode, GridOrientation, GridSizing, SashCollapseState
+type GridBranch<T> = {
+    kind: "branch";
+    id: string;
+    orientation: GridOrientation;
+    size: GridExtent;
+    minimumSize: GridExtent;
+    maximumSize: GridExtent;
+    sizing: GridSizing;
+    collapse?: SashCollapseState;
+    children: GridNode<T>[];
+};
+
+### experimental type GridBranchChange
+引用：GridBranchResize, GridExtent
+type GridBranchChange = GridBranchResize & {
+    readonly extent: GridExtent;
+    readonly active: readonly string[];
+    readonly compensated: readonly string[];
+    readonly collapsed: Readonly<Record<string, boolean>>;
+};
+
+### experimental type GridBranchInput
+引用：GridExtent, GridNodeInput, GridOrientation, GridSizing, SashCollapseState
+type GridBranchInput<T> = {
+    kind: "branch";
+    id: string;
+    orientation: GridOrientation;
+    size?: GridExtent;
+    minimumSize?: GridExtent;
+    maximumSize?: GridExtent;
+    sizing?: GridSizing;
+    collapse?: SashCollapseState;
+    children: GridNodeInput<T>[];
+};
+
+### experimental type GridBranchResize
+引用：GridAxis
+type GridBranchResize = {
+    readonly branchId: string;
+    readonly axis: GridAxis;
+    readonly baseline: Readonly<Record<string, number>>;
+    readonly target: Readonly<Record<string, number>>;
+    readonly collapsed?: Readonly<Record<string, boolean>>;
+};
+
+### experimental type GridBranchResizeResult
+引用：GridFailure, GridFailureCode
+type GridBranchResizeResult = {
+    ok: true;
+    sizes: Record<string, number>;
+} | GridFailure<GridFailureCode>;
+
+### experimental type GridBranchesResizeResult
+引用：GridExtent, GridFailure, GridFailureCode
+type GridBranchesResizeResult = {
+    readonly ok: true;
+    readonly intents: Record<string, GridExtent>;
+    readonly collapsed: Record<string, boolean>;
+} | GridFailure<GridFailureCode>;
+
+### experimental type GridCollapseResult
+引用：GridFailure, GridFailureCode, SashCollapseState
+type GridCollapseResult = {
+    readonly ok: true;
+    readonly changed: boolean;
+    readonly collapse: SashCollapseState;
+} | GridFailure<GridFailureCode>;
+
+### experimental type GridCommitFailureCode
+引用：GridFailureCode
+type GridCommitFailureCode = GridFailureCode | "not-ready" | "stale-context" | "stale-revision" | "stale-size" | "handler-missing" | "handler-threw";
+
+### experimental type GridConstraint
+引用：GridExtent
+type GridConstraint = {
+    minimumSize: GridExtent;
+    maximumSize: GridExtent;
+};
+
+### experimental interface GridContentInput
+interface GridContentInput {
+    readonly key: string;
+    readonly leaf: string;
+    readonly insetTop: number;
+    readonly active: boolean;
+    readonly leave?: "unmount" | "retain";
+}
+
+### experimental type GridDropMember
+引用：GridDropRect
+type GridDropMember = Readonly<{
+    id: string;
+    rect: GridDropRect;
+}>;
+
+### experimental type GridDropPoint
+type GridDropPoint = Readonly<{
+    x: number;
+    y: number;
+}>;
+
+### experimental type GridDropRect
+type GridDropRect = Readonly<{
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}>;
+
+### experimental type GridDroppedRef
+type GridDroppedRef = {
+    ref: string;
+    code: "unknown-ref";
+};
+
+### experimental type GridEdgeDrop
+type GridEdgeDrop = "left" | "right" | "top" | "bottom" | "center";
+
+### experimental type GridExtent
+type GridExtent = {
+    width: number;
+    height: number;
+};
+
+### experimental interface GridFailure
+引用：GridIssue
+interface GridFailure<C extends string = string> extends GridIssue<C> {
+    readonly ok: false;
+}
+
+### experimental type GridFailureCode
+type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "wrong-sizing";
+
+### experimental interface GridFloatInput
+引用：GridRect
+interface GridFloatInput {
+    readonly id: string;
+    readonly rect: GridRect;
+    readonly gesture?: "move" | "resize";
+}
+
+### experimental type GridGestureBaseline
+引用：GridExtent, GridLayoutResult, GridNode, GridSashResolver
+type GridGestureBaseline<T> = {
+    readonly contextKey: string;
+    readonly revision: number;
+    readonly root: GridNode<T> | null;
+    readonly extent: GridExtent;
+    readonly layout: GridLayoutResult;
+    readonly sashSize: number | GridSashResolver;
+};
+
+### experimental type GridGestureCancellation
+引用：GridSashRef, SashGestureCancelReason
+type GridGestureCancellation = {
+    readonly reason: SashGestureCancelReason;
+    readonly sashes: readonly GridSashRef[];
+};
+
+### experimental type GridGestureCommit
+引用：GridBranchChange, GridExtent, SashGestureSource
+type GridGestureCommit = {
+    readonly sessionId: string;
+    readonly contextKey: string;
+    readonly source: SashGestureSource;
+    readonly revision: number;
+    readonly extent: GridExtent;
+    readonly changes: readonly GridBranchChange[];
+};
+
+### experimental type GridGesturePreview
+引用：GridBranchChange, GridIssue, GridIssueCode, GridLayoutResult, GridNode
+type GridGesturePreview<T> = {
+    readonly layout: GridLayoutResult;
+    readonly tree: GridNode<T> | null;
+    readonly changes: readonly GridBranchChange[];
+    readonly issues: readonly GridIssue<GridIssueCode>[];
+};
+
+### experimental interface GridGestureSession
+引用：GridBranchChange, GridGestureCommit, GridGesturePreview, SashGestureSessionCore, SashGestureSource
+interface GridGestureSession<T = unknown> extends SashGestureSessionCore<GridGesturePreview<T>, GridBranchChange> {
+    readonly sessionId: string;
+    readonly source: SashGestureSource;
+    update(delta: {
+        x: number;
+        y: number;
+    }): GridGesturePreview<T> | null;
+    jump(edge: "start" | "end"): GridGesturePreview<T> | null;
+    setCollapsed(collapsed: boolean): GridGesturePreview<T> | null;
+    toggleCollapsed(): GridGesturePreview<T> | null;
+    finish(): GridGestureCommit | null;
+}
+
+### experimental type GridGestureSessionInput
+引用：GridGestureBaseline, GridSashRef, SashGestureSource
+type GridGestureSessionInput<T> = GridGestureBaseline<T> & {
+    readonly sessionId: string;
+    readonly source: SashGestureSource;
+    readonly sashes: readonly GridSashRef[];
+};
+
+### experimental type GridGestureStart
+引用：GridSashRef, SashGestureSource
+type GridGestureStart = {
+    readonly sessionId: string;
+    readonly contextKey: string;
+    readonly source: SashGestureSource;
+    readonly revision: number;
+    readonly sashes: readonly GridSashRef[];
+};
+
+### experimental type GridHostIssueCode
+type GridHostIssueCode = "not-published" | "notify-failed";
+
+### experimental type GridInsertion
+引用：GridDropRect
+type GridInsertion = Readonly<{
+    kind: "insert";
+    beforeId: string | null;
+    indicator: GridDropRect;
+    areaRect: GridDropRect;
+    targetId: string | null;
+    halfRect: GridDropRect | null;
+}> | Readonly<{
+    kind: "keep";
+    areaRect: GridDropRect;
+}>;
+
+### experimental interface GridIssue
+引用：GridParamValue
+interface GridIssue<C extends string = string> {
+    readonly code: C;
+    readonly message: string;
+    readonly params?: Readonly<Record<string, GridParamValue>>;
+}
+
+### experimental type GridIssueCode
+type GridIssueCode = "over-constrained" | "unabsorbed-space" | "conflicting-bounds" | "no-collapse-policy" | "no-room-to-collapse" | "no-room-to-restore" | "swap-skipped";
+
+### experimental type GridLayoutCommitResult
+引用：GridCommitFailureCode, GridFailure
+type GridLayoutCommitResult = {
+    readonly ok: true;
+} | GridFailure<GridCommitFailureCode>;
+
+### experimental type GridLayoutResult
+引用：GridConstraint, GridExtent, GridIssue, GridIssueCode
+type GridLayoutResult = {
+    sizes: Record<string, GridExtent>;
+    constraints: Record<string, GridConstraint>;
+    sashSizes: Record<string, number[]>;
+    issues: GridIssue<GridIssueCode>[];
+};
+
+### experimental type GridLeaf
+引用：GridExtent, GridSizing, SashCollapseState
+type GridLeaf<T> = {
+    kind: "leaf";
+    id: string;
+    ref: T;
+    size: GridExtent;
+    minimumSize: GridExtent;
+    maximumSize: GridExtent;
+    sizing: GridSizing;
+    collapse?: SashCollapseState;
+};
+
+### experimental type GridLeafInput
+引用：GridExtent, GridSizing, SashCollapseState
+type GridLeafInput<T> = {
+    kind: "leaf";
+    id: string;
+    ref: T;
+    size?: GridExtent;
+    minimumSize?: GridExtent;
+    maximumSize?: GridExtent;
+    sizing?: GridSizing;
+    collapse?: SashCollapseState;
+};
+
+### experimental interface GridLeafShape
+interface GridLeafShape {
+    readonly inset: readonly [
+        string,
+        string,
+        string,
+        string
+    ];
+    readonly radius: readonly [
+        string,
+        string,
+        string,
+        string
+    ];
+    readonly fill?: string;
+}
+
+### experimental type GridListInsertion
+引用：GridDropRect
+type GridListInsertion = Readonly<{
+    beforeId: string | null;
+    indicator: GridDropRect;
+}>;
+
+### experimental type GridNode
+引用：GridBranch, GridLeaf
+type GridNode<T> = GridLeaf<T> | GridBranch<T>;
+
+### experimental type GridNodeInput
+引用：GridBranchInput, GridLeafInput
+type GridNodeInput<T> = GridLeafInput<T> | GridBranchInput<T>;
+
+### experimental type GridOptions
+引用：GridRefEncoder
+type GridOptions<T> = {
+    sashSize?: number | ((branchId: string, sashIndex: number) => number);
+    encodeRef?: GridRefEncoder<T>;
+};
+
+### experimental type GridOrientation
+type GridOrientation = "horizontal" | "vertical";
+
+### experimental type GridParamValue
+type GridParamValue = string | number;
+
+### experimental interface GridRect
+interface GridRect {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
+### experimental type GridRefEncoder
+type GridRefEncoder<T> = (ref: T) => string;
+
+### experimental type GridRefResolution
+引用：GridExtent, GridSizing, SashCollapseState
+type GridRefResolution<T> = {
+    ref: T;
+    minimumSize?: GridExtent;
+    maximumSize?: GridExtent;
+    sizing?: GridSizing;
+    collapse?: SashCollapseState;
+};
+
+### experimental type GridRefResolver
+引用：GridRefResolution
+type GridRefResolver<T> = (ref: string) => GridRefResolution<T> | null;
+
+### experimental type GridResizeResult
+引用：GridFailure, GridFailureCode
+type GridResizeResult = {
+    ok: true;
+    applied: number;
+} | GridFailure<GridFailureCode>;
+
+### experimental type GridRestoreFailureCode
+type GridRestoreFailureCode = "invalid-snapshot" | "unsupported-version" | "unresolved-root" | "duplicate-id" | "limit-exceeded";
+
+### experimental type GridRestoreResult
+引用：GridFailure, GridRestoreFailureCode
+type GridRestoreResult = ({
+    ok: true;
+} & GridRestoreReport) | (GridFailure<GridRestoreFailureCode> & GridRestoreReport);
+
+### experimental type GridResult
+引用：GridFailure, GridFailureCode
+type GridResult = {
+    ok: true;
+} | GridFailure<GridFailureCode>;
+
+### experimental type GridSashRef
+引用：GridAxis
+type GridSashRef = {
+    readonly branchId: string;
+    readonly index: number;
+    readonly axis: GridAxis;
+};
+
+### experimental type GridSashResolver
+type GridSashResolver = (branchId: string, sashIndex: number) => number;
+
+### experimental type GridSetSizeResult
+引用：GridFailure, GridFailureCode, SashCollapseState
+type GridSetSizeResult = {
+    readonly ok: true;
+    readonly changed: boolean;
+    readonly size: number;
+    readonly collapse?: SashCollapseState;
+} | GridFailure<GridFailureCode>;
+
+### experimental type GridSizing
+type GridSizing = "weight" | "fixed";
+
+### experimental type GridSnapshot
+引用：GRID_SNAPSHOT_VERSION, GridSnapshotNode
+type GridSnapshot = {
+    version: typeof GRID_SNAPSHOT_VERSION;
+    root: GridSnapshotNode;
+};
+
+### experimental type GridSnapshotBranch
+引用：GridExtent, GridOrientation, GridSnapshotNode
+type GridSnapshotBranch = {
+    kind: "branch";
+    id: string;
+    orientation: GridOrientation;
+    size: GridExtent;
+    children: GridSnapshotNode[];
+};
+
+### experimental type GridSnapshotLeaf
+引用：GridExtent
+type GridSnapshotLeaf = {
+    kind: "leaf";
+    id: string;
+    ref: string;
+    size: GridExtent;
+};
+
+### experimental type GridSnapshotNode
+引用：GridSnapshotBranch, GridSnapshotLeaf
+type GridSnapshotNode = GridSnapshotLeaf | GridSnapshotBranch;
+
+### experimental type GridSplitInput
+引用：GridLeafInput, GridOrientation, GridSplitSide
+type GridSplitInput<T> = {
+    branchId: string;
+    orientation: GridOrientation;
+    side: GridSplitSide;
+    leaf: Omit<GridLeafInput<T>, "size">;
+    ratio?: number;
+};
+
+### experimental type GridSplitSide
+type GridSplitSide = "before" | "after";
+
+### experimental interface GridSwap
+引用：GridAxis, GridSwapWindow
+interface GridSwap {
+    readonly token: number;
+    readonly leaving: ReadonlyArray<string>;
+    readonly entering: ReadonlyArray<string>;
+    readonly axis: GridAxis;
+    readonly direction: 1 | -1;
+    readonly gap: number;
+    readonly window?: GridSwapWindow;
+}
+
+### experimental interface GridSwapWindow
+interface GridSwapWindow {
+    readonly inset: readonly [
+        number,
+        number,
+        number,
+        number
+    ];
+    readonly radius?: readonly [
+        string,
+        string,
+        string,
+        string
+    ];
+}
+
+### experimental interface LayoutFloatResize
+interface LayoutFloatResize {
+    readonly width: -1 | 0 | 1;
+    readonly height: -1 | 0 | 1;
+}
+
+### experimental interface LiveDropCandidate
+引用：GridDropRect
+interface LiveDropCandidate {
+    readonly key: string;
+    readonly immediate: boolean;
+    readonly slot: GridDropRect | null;
+}
+
+### experimental interface LiveDropState
+引用：GridDropRect, LivePreview
+interface LiveDropState {
+    readonly candidate: string | null;
+    readonly changedAt: number;
+    readonly preview: LivePreview;
+    readonly slot: GridDropRect | null;
+}
+
+### experimental type LivePreview
+type LivePreview = {
+    readonly kind: "candidate";
+    readonly key: string;
+} | {
+    readonly kind: "source-removed";
+} | {
+    readonly kind: "none";
+};
+
+### experimental const NB_LAYOUT_THEME_VARS
+引用：NbLayoutThemeVar
+declare const NB_LAYOUT_THEME_VARS: readonly NbLayoutThemeVar[];
+
+### experimental type NbLayoutThemeVar
+引用：NbLayoutVarName
+type NbLayoutThemeVar = {
+    readonly name: NbLayoutVarName;
+    readonly kind: "bridged";
+    readonly from: `--${string}` | null;
+    readonly fallback: string;
+    readonly themed: boolean;
+} | {
+    readonly name: NbLayoutVarName;
+    readonly kind: "host";
+    readonly fallback: string;
+} | {
+    readonly name: NbLayoutVarName;
+    readonly kind: "inline";
+    readonly fallback?: string;
+};
+
+### experimental type NbLayoutVarName
+type NbLayoutVarName = `--nb-layout-${string}`;
+
+### experimental const SORTABLE_STICKY_PX
+declare const SORTABLE_STICKY_PX = 12;
+
+### experimental type SashCollapsePolicy
+type SashCollapsePolicy = {
+    collapsedSize: number;
+    restoreSize: number;
+    collapseThreshold: number;
+    expandThreshold: number;
+    toggleable?: boolean;
+    restoreToShare?: boolean;
+};
+
+### experimental type SashCollapseState
+引用：SashCollapsePolicy
+type SashCollapseState = SashCollapsePolicy & {
+    collapsed: boolean;
+};
+
+### experimental type SashGestureCancelReason
+type SashGestureCancelReason = "no-change" | "escape" | "pointercancel" | "blur" | "unmount" | "context-changed";
+
+### experimental type SashGestureCommit
+引用：GridBranchResize, GridExtent, SashGestureSource
+type SashGestureCommit<C = GridBranchResize> = {
+    readonly sessionId: string;
+    readonly contextKey: string;
+    readonly source: SashGestureSource;
+    readonly revision: number;
+    readonly extent: GridExtent;
+    readonly changes: readonly C[];
+};
+
+### experimental type SashGestureSessionCore
+引用：GridBranchResize, GridIssue, GridIssueCode, GridSashRef, SashGestureCancelReason, SashGestureCommit, SashGestureSource
+type SashGestureSessionCore<S, C = GridBranchResize> = {
+    readonly sessionId: string;
+    readonly sashes: readonly GridSashRef[];
+    readonly source: SashGestureSource;
+    readonly reason: SashGestureCancelReason | null;
+    readonly changed: boolean;
+    readonly issues: readonly GridIssue<GridIssueCode>[];
+    update(delta: {
+        x: number;
+        y: number;
+    }): S | null;
+    jump(edge: "start" | "end"): S | null;
+    toggleCollapsed(): S | null;
+    finish(): SashGestureCommit<C> | null;
+    cancel(reason: SashGestureCancelReason): void;
+};
+
+### experimental type SashGestureSource
+type SashGestureSource = "pointer" | "keyboard";
+
+### experimental type SashPanel
+引用：GridSizing, SashCollapseState
+type SashPanel = {
+    id: string;
+    size: number;
+    minimum: number;
+    maximum: number;
+    sizing: GridSizing;
+    collapse?: SashCollapseState;
+};
+
+### experimental type SortableAxis
+type SortableAxis = "vertical" | "horizontal";
+
+### experimental interface SortableLayout
+引用：SortableSpan
+interface SortableLayout {
+    readonly sections: ReadonlyArray<{
+        readonly id: string;
+        readonly head: SortableSpan | null;
+        readonly members: ReadonlyArray<{
+            readonly key: string;
+            readonly span: SortableSpan;
+        }>;
+    }>;
+}
+
+### experimental interface SortableSection
+interface SortableSection {
+    readonly id: string;
+    readonly keys: readonly string[];
+}
+
+### experimental interface SortableSlot
+interface SortableSlot {
+    readonly section: string;
+    readonly index: number;
+}
+
+### experimental interface SortableSpan
+interface SortableSpan {
+    readonly start: number;
+    readonly end: number;
+}
+
+### experimental interface SortableSwitch
+引用：SortableSlot
+interface SortableSwitch {
+    readonly from: SortableSlot;
+    readonly to: SortableSlot;
+    readonly at: number;
+}
+
+### experimental interface SplitterGestureCancellation
+引用：SashGestureCancelReason, SashGestureSource
+interface SplitterGestureCancellation {
+    source: SashGestureSource;
+    sash: string;
+    reason: SashGestureCancelReason;
+}
+
+### experimental interface SplitterGestureState
+引用：SashGestureSource
+interface SplitterGestureState {
+    source: SashGestureSource;
+    sash: string;
+    active: string[];
+    compensated: string[];
+    sizesPx: number[];
+    collapsed: Record<string, boolean>;
+}
+
+### experimental const UNBOUNDED_EXTENT
+引用：GridExtent
+declare const UNBOUNDED_EXTENT: GridExtent;
+
+### experimental function clampFloatRect
+引用：GridExtent, GridRect
+declare function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {
+    readonly width: number;
+    readonly height: number;
+}): GridRect;
+
+### experimental function createDragCard
+引用：DragCard, DragCardOptions, DragCardSize, GridDropPoint, GridDropRect
+declare function createDragCard(from: GridDropRect | null, pointer: GridDropPoint, fallback: DragCardSize, options?: DragCardOptions): DragCard;
+
+### experimental function createFrameLoop
+引用：FrameLoop, FrameLoopOptions
+declare function createFrameLoop(options: FrameLoopOptions): FrameLoop;
+
+### experimental function createGrid
+引用：Grid, GridNodeInput, GridOptions, GridRefEncoder
+declare function createGrid<T extends string>(root: GridNodeInput<T> | null, options?: GridOptions<T>): Grid<T>;
+declare function createGrid<T>(root: GridNodeInput<T> | null, options: GridOptions<T> & {
+    encodeRef: GridRefEncoder<T>;
+}): Grid<T>;
+
+### experimental function createGridGestureSession
+引用：GridGestureSession, GridGestureSessionInput
+declare function createGridGestureSession<T>(input: GridGestureSessionInput<T>): GridGestureSession<T>;
+
+### experimental function defineDropKind
+引用：DropKind
+declare function defineDropKind<T>(id: string): DropKind<T>;
+
+### experimental const initialLiveDrop
+引用：LiveDropState
+declare const initialLiveDrop: (now: number) => LiveDropState;
+
+### experimental function insideShownSlot
+引用：GridDropPoint, LiveDropState
+declare function insideShownSlot(state: LiveDropState, point: GridDropPoint, stickyPx?: number): boolean;
+
+### experimental function moveInSections
+引用：SortableSection, SortableSlot
+declare function moveInSections(sections: readonly SortableSection[], key: string, to: SortableSlot): readonly SortableSection[];
+
+### experimental function placeGrid
+引用：GridExtent, GridLayoutResult, GridNode
+declare function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent: GridExtent, dpr: number): GridPlacement<R>;
+
+### experimental function resizeFloatRect
+引用：GridExtent, GridRect, LayoutFloatResize
+declare function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, delta: {
+    readonly x: number;
+    readonly y: number;
+}, bounds: {
+    readonly min: GridExtent;
+    readonly max: GridExtent;
+}): GridRect;
+
+### experimental function resolveGridEdgeDrop
+引用：GridDropPoint, GridDropRect, GridEdgeDrop
+declare function resolveGridEdgeDrop(input: {
+    readonly point: GridDropPoint;
+    readonly rect: GridDropRect;
+    readonly edgeRatio?: number;
+}): GridEdgeDrop | null;
+
+### experimental function resolveGridInsertion
+引用：GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOrientation
+declare function resolveGridInsertion(input: {
+    readonly orientation: GridOrientation;
+    readonly point: GridDropPoint;
+    readonly containerRect: GridDropRect;
+    readonly members: readonly GridDropMember[];
+    readonly edgeRatio?: number;
+}): GridInsertion | null;
+
+### experimental function resolveListInsertion
+引用：GridDropMember, GridDropPoint, GridDropRect, GridListInsertion, GridOrientation
+declare function resolveListInsertion(input: {
+    readonly orientation: GridOrientation;
+    readonly point: GridDropPoint;
+    readonly containerRect: GridDropRect;
+    readonly members: readonly GridDropMember[];
+    readonly edgeGap?: number;
+}): GridListInsertion | null;
+
+### experimental function setLayoutDevChecks
+declare function setLayoutDevChecks(enabled: boolean): void;
+
+### experimental function slotOfKey
+引用：SortableSection, SortableSlot
+declare function slotOfKey(sections: readonly SortableSection[], key: string): SortableSlot | null;
+
+### experimental function solveSashCollapse
+引用：GridIssue, GridIssueCode, SashPanel
+declare function solveSashCollapse(input: {
+    panels: readonly SashPanel[];
+    sizesPx: readonly number[];
+    sashIndex: number;
+    index: number;
+    collapsed: boolean;
+}): {
+    sizesPx: readonly number[];
+    collapsed: Readonly<Record<string, boolean>>;
+    issues: readonly GridIssue<GridIssueCode>[];
+} | null;
+
+### experimental function sortableSlotIn
+引用：SortableLayout, SortableSlot, SortableSpan, SortableSwitch
+declare function sortableSlotIn(layout: SortableLayout, source: string, held: SortableSpan, last?: SortableSwitch | null): SortableSlot | null;
+
+### experimental function sortableSlots
+引用：SortableSection, SortableSlot
+declare function sortableSlots(sections: readonly SortableSection[], source: string): SortableSlot[];
+
+### experimental function stepLiveDrop
+引用：LiveDropCandidate, LiveDropState
+declare function stepLiveDrop(state: LiveDropState, input: {
+    readonly now: number;
+    readonly candidate: LiveDropCandidate | null;
+    readonly settleMs?: number;
+}): LiveDropState;
+
+## 由公开名字引到、没有导出的声明
+
+### interface GridLeafPlacement
+interface GridLeafPlacement<R> {
+    readonly key: string;
+    readonly node: GridLeaf<R>;
+    readonly rect: GridRect;
+    readonly grow: {
+        readonly axis: GridAxis;
+        readonly edge: "start" | "end";
+    } | null;
+    readonly path: ReadonlyArray<GridPathStep>;
+    readonly leaving?: true;
+    readonly float?: boolean;
+}
+
+### interface GridPathStep
+interface GridPathStep {
+    readonly id: string;
+    readonly axis: GridAxis;
+    readonly before: string | null;
+    readonly after: string | null;
+}
+
+### interface GridPlacement
+interface GridPlacement<R> {
+    readonly items: ReadonlyArray<GridPlacementItem<R>>;
+}
+
+### type GridPlacementItem
+type GridPlacementItem<R> = ({
+    readonly kind: "leaf";
+} & GridLeafPlacement<R>) | ({
+    readonly kind: "sash";
+} & GridSashPlacement<R>);
+
+### type GridRestoreReport
+type GridRestoreReport = {
+    dropped: GridDroppedRef[];
+    clamped: string[];
+};
+
+### interface GridSashEnds
+interface GridSashEnds {
+    readonly start: string | null;
+    readonly end: string | null;
+}
+
+### interface GridSashPlacement
+interface GridSashPlacement<R> {
+    readonly key: string;
+    readonly sashKey: string;
+    readonly branch: GridBranch<R>;
+    readonly index: number;
+    readonly axis: GridAxis;
+    readonly rect: GridRect;
+    readonly size: number;
+    readonly before: string;
+    readonly after: string;
+    readonly controls: string;
+    readonly ends: GridSashEnds;
+    readonly branchLength: number;
+    readonly leaving?: true;
+    readonly frozen?: {
+        readonly beforePx: number;
+        readonly afterPx: number;
+    };
+}
+
+### const dropKindData
+declare const dropKindData: unique symbol;

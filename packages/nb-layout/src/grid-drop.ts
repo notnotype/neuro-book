@@ -10,10 +10,13 @@
  */
 import type {GridOrientation} from "./grid-types";
 
+/** @experimental */
 export type GridDropPoint = Readonly<{x: number; y: number}>;
 
+/** @experimental */
 export type GridDropRect = Readonly<{left: number; top: number; right: number; bottom: number}>;
 
+/** @experimental */
 export type GridDropMember = Readonly<{id: string; rect: GridDropRect}>;
 
 /**
@@ -25,6 +28,7 @@ export type GridDropMember = Readonly<{id: string; rect: GridDropRect}>;
  * `targetId` 是指针真正落在的那一片——`beforeId` 与 `areaRect` 都由它推出来；`halfRect` 是这一半的可见
  * 几何（前缘带取前一半、后缘带与追加取后一半）。命中带仍是 20%，半区是承诺的落点范围，两件事不互相
  * 影响：`keep` 与 `areaRect` 的既有口径一个字节都不变。成员表为空（整盒接收、没有候选叶）时两者都是 `null`。
+ * @experimental
  */
 export type GridInsertion =
     | Readonly<{
@@ -44,9 +48,11 @@ export type GridInsertion =
  *
  * 与 `GridInsertion` 的差别是没有区域：列表的条目高亮由调用方按 `beforeId` 自己画，这里只承诺
  * 「插到谁前面」和那条线画在哪。
+ * @experimental
  */
 export type GridListInsertion = Readonly<{beforeId: string | null; indicator: GridDropRect}>;
 
+/** @experimental */
 export type GridEdgeDrop = "left" | "right" | "top" | "bottom" | "center";
 
 /** 指示线厚度（CSS px）：视觉常量，不参与任何尺寸计算。 */
@@ -129,6 +135,7 @@ type VisibleGridDropMember = Readonly<{id: string; rect: GridDropRect}>;
  * 候选叶由**真实叶末端**选出——第一个「末端不早于指针」的可见成员，也就是指针真正落在的那一叶；
  * 叶间隙因此归后一叶（它的末端是第一个越过指针的）。不要按中点找候选：那会把非末叶的后半判成下一叶，
  * 反馈带跳到下一叶前缘，中央区的后半甚至会被算成一次插入。
+ * @experimental
  */
 export function resolveGridInsertion(input: {
     readonly orientation: GridOrientation;
@@ -247,6 +254,7 @@ export function resolveGridInsertion(input: {
  *
  * 容器外、非有限坐标、零尺寸容器一律返回 `null`；声明了成员却一个可用几何都量不出来时同样返回
  * `null`——那种情况不能冒充空列表。`resolveGridInsertion` 的边缘带合同不受本函数影响。
+ * @experimental
  */
 export function resolveListInsertion(input: {
     readonly orientation: GridOrientation;
@@ -332,6 +340,7 @@ export function resolveListInsertion(input: {
 /**
  * 四边 + 中心落点：左右优先于上下（与编辑器现有分组语义一致），先到者胜。
  * `edgeRatio` 非法、矩形无效、指针在矩形外都返回 `null`。
+ * @experimental
  */
 export function resolveGridEdgeDrop(input: {
     readonly point: GridDropPoint;

@@ -159,6 +159,7 @@ function relocate(input: {
  * 「按指针位置展开」的分工，按钮/菜单/Enter 才回记忆尺寸。策略带 `restoreToShare` 时记忆尺寸换成它按权重该得的那一份：
  * 把它翻成展开后重新分配，取给它的那一项，所以和宿主改收起记录后重新布局给它的尺寸相同。
  * 返回 null 表示输入非法；`collapsed` 只含真正改变的收起状态。
+ * @experimental
  */
 export function solveSashCollapse(input: {
     panels: readonly SashPanel[];

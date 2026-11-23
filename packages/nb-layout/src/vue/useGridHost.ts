@@ -22,10 +22,16 @@ import {layoutDevWarning} from "../dev-checks";
 import type {GridBranchesResizeResult, GridCollapseResult, GridExtent, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 import {useGridLayout} from "./useGridLayout";
 
-/** 交给宿主的诊断：布局重算的、手势的、被拒的提交（带 `ok`）。 */
+/**
+ * 交给宿主的诊断：布局重算的、手势的、被拒的提交（带 `ok`）。
+ * @experimental
+ */
 export type GridHostIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
 
-/** 整包绑到 `NestedGrid` 上的属性与事件处理。 */
+/**
+ * 整包绑到 `NestedGrid` 上的属性与事件处理。
+ * @experimental
+ */
 export type GridHostBindings<T> = {
     readonly node: GridNode<T> | null;
     readonly layout: GridLayoutResult;
@@ -42,6 +48,7 @@ export type GridHostBindings<T> = {
     readonly onGestureStart: (start: GridGestureStart) => void;
 };
 
+/** @experimental */
 export type GridHost<T> = {
     /** 当前树；结构变更后调用 `invalidate()` 重新读取。 */
     readonly node: ComputedRef<GridNode<T> | null>;
@@ -62,6 +69,7 @@ export type GridHost<T> = {
     readonly bindings: ComputedRef<GridHostBindings<T>>;
 };
 
+/** @experimental */
 export type GridHostOptions<T> = {
     /** 网格实例；建议放在 `shallowRef` 里（实例不该被深度代理）。为 null 时布局为空、拒绝提交。 */
     readonly grid: MaybeRefOrGetter<Grid<T> | null>;
@@ -75,6 +83,7 @@ export type GridHostOptions<T> = {
     readonly onIssues?: (issues: readonly GridHostIssue[]) => void;
 };
 
+/** @experimental */
 export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
     const extent = shallowRef<GridExtent | null>(null);
     const contextKey = (): string => toValue(options.contextKey) ?? "";

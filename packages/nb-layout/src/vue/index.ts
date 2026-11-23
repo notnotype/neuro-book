@@ -7,13 +7,13 @@
 import "./global.css";
 
 /* 组件 */
-export {default as NestedGrid} from "./NestedGrid.vue";
-export {default as Splitter} from "./Splitter.vue";
-export {default as SortableList} from "./SortableList.vue";
-export {default as DropFeedbackOverlay} from "./DropFeedbackOverlay.vue";
-export {default as DropSectorsOverlay} from "./DropSectorsOverlay.vue";
-export {default as DropIndicatorLabel} from "./DropIndicatorLabel.vue";
-export {default as FloatWindowHandles} from "./FloatWindowHandles.vue";
+export {default as NestedGrid} from "./NestedGrid.vue"; // @experimental
+export {default as Splitter} from "./Splitter.vue"; // @experimental
+export {default as SortableList} from "./SortableList.vue"; // @experimental
+export {default as DropFeedbackOverlay} from "./DropFeedbackOverlay.vue"; // @experimental
+export {default as DropSectorsOverlay} from "./DropSectorsOverlay.vue"; // @experimental
+export {default as DropIndicatorLabel} from "./DropIndicatorLabel.vue"; // @experimental
+export {default as FloatWindowHandles} from "./FloatWindowHandles.vue"; // @experimental
 
 /* 组件的类型 */
 export type {

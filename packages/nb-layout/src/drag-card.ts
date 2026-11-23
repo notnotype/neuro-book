@@ -9,11 +9,13 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import type {GridRect} from "./grid-rects";
 
+/** @experimental */
 export interface DragCardSize {
     readonly width: number;
     readonly height: number;
 }
 
+/** @experimental */
 export interface DragCardOptions {
     /** 逼近的时间常数：每帧按 `1 - e^(-elapsed / tauMs)` 的比例走。缺省 90。 */
     readonly tauMs?: number;
@@ -23,6 +25,7 @@ export interface DragCardOptions {
     readonly refreshSlackMs?: number;
 }
 
+/** @experimental */
 export interface DragCardFrame {
     readonly now: number;
     /** 离上一帧的毫秒数；不是有限数或为负时按 0。 */
@@ -37,6 +40,7 @@ export interface DragCardFrame {
     readonly refreshMs?: number;
 }
 
+/** @experimental */
 export interface DragCard {
     /** 一帧：交回要写的矩形（相对 `origin`），和上一次一样时是 null；`settling` 为真是尺寸或追赶还没到终点，要再排一帧。 */
     step(frame: DragCardFrame): {readonly rect: GridRect | null; readonly settling: boolean};
@@ -47,6 +51,7 @@ const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
 /**
  * 从内容此刻所在的矩形（视口坐标）拿起：尺寸是它的，抓住的点是指针在它上面的比例，卡片从这个矩形的位置追到指针下。
  * 量不到（null、宽或高不是正的有限数）时尺寸是 `fallback`，抓在上沿中点，不追赶。
+ * @experimental
  */
 export function createDragCard(from: GridDropRect | null, pointer: GridDropPoint, fallback: DragCardSize, options: DragCardOptions = {}): DragCard {
     const tauMs = options.tauMs ?? 90;

@@ -89,6 +89,7 @@ export function noteFocus(scope: GridFocusItems, target: EventTarget | null): vo
 
 /**
  * 在叶之间按树序移动焦点：从 `from` 所在的 grid 开始，走到头交给外层，最外层绕回。`container` 是宿主已知的、包着 grid 的元素（或 grid 根本身）。返回是否移动了。
+ * @experimental
  */
 export function moveGridFocus(container: Element | null, direction: "next" | "previous"): boolean {
     const step = direction === "next" ? 1 : -1;

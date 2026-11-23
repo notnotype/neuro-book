@@ -1,0 +1,440 @@
+// 插件 SDK 转出的 nb-layout 名字与它们引到的名字，取自 nb-layout 的 api/*.api.txt（bun scripts/nb-layout-surface.ts --write 生成，不手改）
+
+### experimental component DropFeedbackOverlay
+引用：GridOrientation
+props:
+  iconClass?: string | undefined
+  label: string
+  preview: Readonly<{ readonly areaRect: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null; readonly entryRect?: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null | undefined; readonly indicator: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null; readonly orientation: GridOrientation; readonly armed?: boolean | undefined; readonly labelAt?: "below" | "line-end" | undefined; }> | null
+attrs:
+  → <div>（inheritAttrs: false）
+
+### experimental type DropFeedbackPreview
+引用：GridDropRect, GridOrientation
+type DropFeedbackPreview = Readonly<{
+    readonly areaRect: GridDropRect | null;
+    readonly entryRect?: GridDropRect | null;
+    readonly indicator: GridDropRect | null;
+    readonly orientation: GridOrientation;
+    readonly armed?: boolean;
+    readonly labelAt?: "below" | "line-end";
+}>;
+
+### experimental component DropIndicatorLabel
+props:
+  iconClass?: string | undefined
+  label: string
+attrs:
+  → 根元素
+slots:
+  icon: {}
+
+### experimental component DropSectorsOverlay
+props:
+  active: string | null
+  labels?: Readonly<Record<string, string | undefined>> | undefined
+  rect: Readonly<{ left: number; top: number; right: number; bottom: number; }> | null
+  sectors: readonly { readonly id: string; readonly points: readonly (readonly [number, number])[]; }[]
+attrs:
+  → <div>（inheritAttrs: false）
+
+### experimental component FloatWindowHandles
+引用：GridExtent, GridRect
+props:
+  max: GridExtent
+  min: GridExtent
+  moveIconClass?: string | undefined = ""
+  rect: GridRect
+attrs:
+  → 根元素
+events:
+  commit(rect: GridRect)
+  move(position: { readonly x: number; readonly y: number; })
+  preview(rect: GridRect | null)
+
+### experimental type GridAxis
+type GridAxis = "width" | "height";
+
+### experimental type GridBranch
+引用：GridExtent, GridNode, GridOrientation, GridSizing, SashCollapseState
+type GridBranch<T> = {
+    kind: "branch";
+    id: string;
+    orientation: GridOrientation;
+    size: GridExtent;
+    minimumSize: GridExtent;
+    maximumSize: GridExtent;
+    sizing: GridSizing;
+    collapse?: SashCollapseState;
+    children: GridNode<T>[];
+};
+
+### experimental type GridBranchChange
+引用：GridBranchResize, GridExtent
+type GridBranchChange = GridBranchResize & {
+    readonly extent: GridExtent;
+    readonly active: readonly string[];
+    readonly compensated: readonly string[];
+    readonly collapsed: Readonly<Record<string, boolean>>;
+};
+
+### experimental type GridBranchResize
+引用：GridAxis
+type GridBranchResize = {
+    readonly branchId: string;
+    readonly axis: GridAxis;
+    readonly baseline: Readonly<Record<string, number>>;
+    readonly target: Readonly<Record<string, number>>;
+    readonly collapsed?: Readonly<Record<string, boolean>>;
+};
+
+### experimental type GridCommitFailureCode
+引用：GridFailureCode
+type GridCommitFailureCode = GridFailureCode | "not-ready" | "stale-context" | "stale-revision" | "stale-size" | "handler-missing" | "handler-threw";
+
+### experimental type GridConstraint
+引用：GridExtent
+type GridConstraint = {
+    minimumSize: GridExtent;
+    maximumSize: GridExtent;
+};
+
+### experimental interface GridContentInput
+interface GridContentInput {
+    readonly key: string;
+    readonly leaf: string;
+    readonly insetTop: number;
+    readonly active: boolean;
+    readonly leave?: "unmount" | "retain";
+}
+
+### experimental type GridDropRect
+type GridDropRect = Readonly<{
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}>;
+
+### experimental type GridExtent
+type GridExtent = {
+    width: number;
+    height: number;
+};
+
+### experimental interface GridFailure
+引用：GridIssue
+interface GridFailure<C extends string = string> extends GridIssue<C> {
+    readonly ok: false;
+}
+
+### experimental type GridFailureCode
+type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "wrong-sizing";
+
+### experimental interface GridFloatInput
+引用：GridRect
+interface GridFloatInput {
+    readonly id: string;
+    readonly rect: GridRect;
+    readonly gesture?: "move" | "resize";
+}
+
+### experimental type GridGestureCancellation
+引用：GridSashRef, SashGestureCancelReason
+type GridGestureCancellation = {
+    readonly reason: SashGestureCancelReason;
+    readonly sashes: readonly GridSashRef[];
+};
+
+### experimental type GridGestureCommit
+引用：GridBranchChange, GridExtent, SashGestureSource
+type GridGestureCommit = {
+    readonly sessionId: string;
+    readonly contextKey: string;
+    readonly source: SashGestureSource;
+    readonly revision: number;
+    readonly extent: GridExtent;
+    readonly changes: readonly GridBranchChange[];
+};
+
+### experimental type GridGesturePreview
+引用：GridBranchChange, GridIssue, GridIssueCode, GridLayoutResult, GridNode
+type GridGesturePreview<T> = {
+    readonly layout: GridLayoutResult;
+    readonly tree: GridNode<T> | null;
+    readonly changes: readonly GridBranchChange[];
+    readonly issues: readonly GridIssue<GridIssueCode>[];
+};
+
+### experimental type GridGestureStart
+引用：GridSashRef, SashGestureSource
+type GridGestureStart = {
+    readonly sessionId: string;
+    readonly contextKey: string;
+    readonly source: SashGestureSource;
+    readonly revision: number;
+    readonly sashes: readonly GridSashRef[];
+};
+
+### experimental type GridHostIssueCode
+type GridHostIssueCode = "not-published" | "notify-failed";
+
+### experimental interface GridIssue
+引用：GridParamValue
+interface GridIssue<C extends string = string> {
+    readonly code: C;
+    readonly message: string;
+    readonly params?: Readonly<Record<string, GridParamValue>>;
+}
+
+### experimental type GridIssueCode
+type GridIssueCode = "over-constrained" | "unabsorbed-space" | "conflicting-bounds" | "no-collapse-policy" | "no-room-to-collapse" | "no-room-to-restore" | "swap-skipped";
+
+### experimental type GridLayoutCommitResult
+引用：GridCommitFailureCode, GridFailure
+type GridLayoutCommitResult = {
+    readonly ok: true;
+} | GridFailure<GridCommitFailureCode>;
+
+### experimental type GridLayoutResult
+引用：GridConstraint, GridExtent, GridIssue, GridIssueCode
+type GridLayoutResult = {
+    sizes: Record<string, GridExtent>;
+    constraints: Record<string, GridConstraint>;
+    sashSizes: Record<string, number[]>;
+    issues: GridIssue<GridIssueCode>[];
+};
+
+### experimental type GridLeaf
+引用：GridExtent, GridSizing, SashCollapseState
+type GridLeaf<T> = {
+    kind: "leaf";
+    id: string;
+    ref: T;
+    size: GridExtent;
+    minimumSize: GridExtent;
+    maximumSize: GridExtent;
+    sizing: GridSizing;
+    collapse?: SashCollapseState;
+};
+
+### experimental interface GridLeafShape
+interface GridLeafShape {
+    readonly inset: readonly [
+        string,
+        string,
+        string,
+        string
+    ];
+    readonly radius: readonly [
+        string,
+        string,
+        string,
+        string
+    ];
+    readonly fill?: string;
+}
+
+### experimental type GridNode
+引用：GridBranch, GridLeaf
+type GridNode<T> = GridLeaf<T> | GridBranch<T>;
+
+### experimental type GridOrientation
+type GridOrientation = "horizontal" | "vertical";
+
+### experimental type GridParamValue
+type GridParamValue = string | number;
+
+### experimental interface GridRect
+interface GridRect {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
+### experimental type GridSashRef
+引用：GridAxis
+type GridSashRef = {
+    readonly branchId: string;
+    readonly index: number;
+    readonly axis: GridAxis;
+};
+
+### experimental type GridSizing
+type GridSizing = "weight" | "fixed";
+
+### experimental interface GridSwap
+引用：GridAxis, GridSwapWindow
+interface GridSwap {
+    readonly token: number;
+    readonly leaving: ReadonlyArray<string>;
+    readonly entering: ReadonlyArray<string>;
+    readonly axis: GridAxis;
+    readonly direction: 1 | -1;
+    readonly gap: number;
+    readonly window?: GridSwapWindow;
+}
+
+### experimental interface GridSwapWindow
+interface GridSwapWindow {
+    readonly inset: readonly [
+        number,
+        number,
+        number,
+        number
+    ];
+    readonly radius?: readonly [
+        string,
+        string,
+        string,
+        string
+    ];
+}
+
+### experimental component NestedGrid
+引用：GridContentInput, GridExtent, GridFailure, GridFloatInput, GridGestureCancellation, GridGestureCommit, GridGesturePreview, GridGestureStart, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridLeafShape, GridNode, GridRect, GridSwap
+props:
+  contents?: readonly GridContentInput[] | undefined = []
+  contextKey?: string | undefined = ""
+  disabled?: boolean | undefined = false
+  dragging?: boolean | undefined = false
+  floats?: readonly GridFloatInput[] | undefined = []
+  layout: GridLayoutResult
+  leafShape?: ((leaf: string) => GridLeafShape | undefined) | undefined = undefined
+  lifted?: { readonly key: string; } | null | undefined = null
+  maximized?: { readonly leaf: string; readonly exclude: readonly string[]; } | null | undefined = null
+  node: GridNode<unknown> | null
+  onGestureCommit?: ((commit: GridGestureCommit) => GridFailure<string> | { readonly ok: true; }) | undefined = undefined
+  paneLabel?: ((id: string) => string | undefined) | undefined
+  revision?: number | undefined = 0
+  sashDisabled?: ((sash: { readonly branch: string; readonly before: string; readonly after: string; }) => boolean) | undefined = undefined
+  sashKind?: ((sash: { readonly branch: string; readonly before: string; readonly after: string; }) => string | undefined) | undefined = undefined
+  sashStyle?: ((sash: { readonly branch: string; readonly before: string; readonly after: string; }) => Record<string, string> | undefined) | undefined = undefined
+  swap?: GridSwap | null | undefined = null
+attrs:
+  → 根元素
+events:
+  content-parked(key: string)
+  extent(extent: GridExtent | null)
+  gesture-cancel(info: GridGestureCancellation)
+  gesture-end(commit: GridGestureCommit)
+  gesture-start(info: GridGestureStart)
+  gesture-update(preview: GridGesturePreview<unknown>)
+  issues(issues: readonly (GridIssue<GridIssueCode | "not-published"> | GridFailure<string>)[])
+slots:
+  "float-chrome"?(props: { id: string; rect: GridRect; }): unknown
+  "lifted-head"?(props: { contentKey: string; }): unknown
+  "swap-backdrop"?(props: { inset: readonly [ number, number, number, number ]; radius: readonly [ string, string, string, string ] | null; }): unknown
+  content(props: { contentKey: string; leaf: string; active: boolean; }): unknown
+  empty(): unknown
+  leaf(props: { node: GridLeaf<unknown>; }): unknown
+  overlay?(): unknown
+exposed:
+  moving: boolean
+  outgoingLeaves: ReadonlySet<string>
+  placeFloat: (id: string, offset: { readonly x: number; readonly y: number; } | null) => void
+  placeLifted: (rect: GridRect) => void
+  settleMotion: () => void
+  shapedLeaves: ReadonlySet<string>
+  swappingLeaves: ReadonlySet<string>
+
+### experimental type SashCollapsePolicy
+type SashCollapsePolicy = {
+    collapsedSize: number;
+    restoreSize: number;
+    collapseThreshold: number;
+    expandThreshold: number;
+    toggleable?: boolean;
+    restoreToShare?: boolean;
+};
+
+### experimental type SashCollapseState
+引用：SashCollapsePolicy
+type SashCollapseState = SashCollapsePolicy & {
+    collapsed: boolean;
+};
+
+### experimental type SashGestureCancelReason
+type SashGestureCancelReason = "no-change" | "escape" | "pointercancel" | "blur" | "unmount" | "context-changed";
+
+### experimental type SashGestureSource
+type SashGestureSource = "pointer" | "keyboard";
+
+### experimental component SortableList
+引用：SortableMove
+props:
+  disabled?: boolean | undefined = false
+  label: (key: string) => string
+  onMove?: ((move: SortableMove) => void | PromiseLike<unknown>) | undefined = undefined
+  sections: readonly { readonly id: string; readonly title: string; readonly keys: readonly string[]; }[]
+attrs:
+  → 根元素
+slots:
+  head?(props: { section: string; title: string; }): VNodeChild
+  item(props: { itemKey: string; held: boolean; section: string; }): VNodeChild
+
+### experimental interface SortableMove
+引用：SortableSlot
+interface SortableMove {
+    readonly key: string;
+    readonly from: SortableSlot;
+    readonly to: SortableSlot;
+}
+
+### experimental interface SortableSlot
+interface SortableSlot {
+    readonly section: string;
+    readonly index: number;
+}
+
+### experimental component Splitter
+引用：SplitterGestureCancellation, SplitterGestureState, SplitterPanelConfig
+props:
+  direction?: "horizontal" | "vertical" | undefined = "horizontal"
+  disabled?: boolean | undefined = false
+  panels?: SplitterPanelConfig[] | undefined = []
+  sashSizes?: readonly number[] | undefined = []
+  sizesPx?: readonly number[] | undefined = undefined
+attrs:
+  & HTMLAttributes
+  → 根元素
+events:
+  gesture-cancel(info: SplitterGestureCancellation)
+  gesture-end(state: SplitterGestureState)
+  gesture-start(state: SplitterGestureState)
+  gesture-update(state: SplitterGestureState)
+  layout(sizesPx: readonly number[])
+slots:
+  Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
+
+### experimental interface SplitterGestureCancellation
+引用：SashGestureCancelReason, SashGestureSource
+interface SplitterGestureCancellation {
+    source: SashGestureSource;
+    sash: string;
+    reason: SashGestureCancelReason;
+}
+
+### experimental interface SplitterGestureState
+引用：SashGestureSource
+interface SplitterGestureState {
+    source: SashGestureSource;
+    sash: string;
+    active: string[];
+    compensated: string[];
+    sizesPx: number[];
+    collapsed: Record<string, boolean>;
+}
+
+### experimental interface SplitterPanelConfig
+引用：SashCollapseState
+interface SplitterPanelConfig {
+    id?: string;
+    defaultSizePx?: number;
+    minSizePx?: number;
+    maxSizePx?: number;
+    sizing?: "fixed" | "weight";
+    collapse?: SashCollapseState;
+    label?: string;
+}

@@ -1,0 +1,30 @@
+// API 报告：@notnotype/nb-layout/text（bun run api:report 生成，不手改）
+// tool typescript 6.0.3 (report)
+// tool vue-tsc 3.3.7
+// tool typescript 5.9.3 (vue-tsc)
+// tool vue-component-meta 3.3.14
+// tool typescript 5.9.3 (vue-component-meta)
+// tool rolldown-plugin-dts 0.27.14
+// tool vue 3.5.39
+
+### experimental const LAYOUT_TEXT_KEY
+引用：LayoutTranslate
+declare const LAYOUT_TEXT_KEY: InjectionKey<LayoutTranslate>;
+
+### experimental type LayoutCatalogLocale
+引用：NB_LAYOUT_CATALOGS
+type LayoutCatalogLocale = keyof typeof NB_LAYOUT_CATALOGS;
+
+### experimental type LayoutTextKey
+type LayoutTextKey = "splitter.resizeWidth" | "splitter.resizeHeight" | "splitter.collapsed" | "splitter.pixels" | "floatWindow.resize" | "floatWindow.move" | "sortable.handle" | "sortable.hint" | "sortable.placeholder" | "sortable.picked" | "sortable.moved" | "sortable.dropped" | "sortable.cancelled" | "sortable.unchanged";
+
+### experimental type LayoutTextParams
+type LayoutTextParams = Readonly<Record<string, string | number>>;
+
+### experimental type LayoutTranslate
+引用：LayoutTextKey, LayoutTextParams
+type LayoutTranslate = (key: LayoutTextKey, params?: LayoutTextParams) => string;
+
+### experimental function layoutCatalogTranslate
+引用：LayoutCatalogLocale, LayoutTranslate
+declare function layoutCatalogTranslate(locale: LayoutCatalogLocale): LayoutTranslate;

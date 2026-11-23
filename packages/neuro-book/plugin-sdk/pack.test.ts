@@ -339,6 +339,10 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
         // 弃用别名带着 @deprecated 进了声明文件，作者的编辑器才会划线。
         expect(components).toMatch(/@deprecated 改用 `SashGestureSource`[\s\S]*?SplitterGestureSource/u);
         expect(components).toContain('"aria-description"?: string;');
+        // nb-layout 的组件带着它的稳定性标注（w00026 t48），作者悬停时看得到。
+        const nestedGrid = /\b(_default(?:\$\d+)?) as NestedGrid\b/u.exec(components)?.[1];
+        expect(nestedGrid).toBeDefined();
+        expect(components).toContain(`/** @experimental */\ndeclare const ${nestedGrid}:`);
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {

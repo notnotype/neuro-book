@@ -5,6 +5,7 @@
 
 import {layoutDurationMs} from "./layout-vars";
 
+/** @experimental */
 export function layoutMotionMs(element: Element): number {
     return layoutDurationMs(element, "--nb-layout-motion-layout");
 }

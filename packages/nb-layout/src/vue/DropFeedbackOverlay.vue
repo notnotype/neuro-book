@@ -13,6 +13,7 @@ import type {GridOrientation} from "../grid-types";
  *
  * 业务语义（落点种类、并入数量、文案与播报）全部由宿主决定：种类/数量走调用方的 `data-*` 属性，
  * 图标走 `iconClass`，文案走 `label`。
+ * @experimental
  */
 export type DropFeedbackPreview = Readonly<{
     readonly areaRect: GridDropRect | null;

@@ -8,9 +8,14 @@
 import enUS from "./en-US";
 import zhCN from "./zh-CN";
 
+/** @experimental */
 export const NB_LAYOUT_NAMESPACE = "nb-layout";
 
-/** 源语言，也是没有注入时组件的语言：发到 npm 的库缺省用英文。宿主登记目录时用它，不写死。 */
+/**
+ * 源语言，也是没有注入时组件的语言：发到 npm 的库缺省用英文。宿主登记目录时用它，不写死。
+ * @experimental
+ */
 export const NB_LAYOUT_SOURCE_LOCALE = "en-US";
 
+/** @experimental */
 export const NB_LAYOUT_CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;

@@ -10,6 +10,7 @@ import {fileURLToPath} from "node:url";
 
 import {moduleExports} from "@notnotype/neuro-book-test-support/module-exports";
 
+import {nbLayoutSurface, SNAPSHOT} from "../../scripts/nb-layout-surface";
 import {SDK_ENTRIES} from "./entries";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..", "..");
@@ -87,6 +88,13 @@ const exportedValues = (text: string): Array<{readonly name: string; readonly fr
 
 /** 模块里的类型导出：`type` 的再导出与就地声明的类型。 */
 const exportedTypes = (text: string): string[] => moduleExports(text).filter((item) => item.kind === "type").map((item) => item.name);
+
+describe("SDK 转出的 nb-layout 名字", () => {
+    it("签名与入库的快照相同：不同时判断是否不兼容（不兼容就提 PLUGIN_API_SINCE、写变更记录），再重写快照", async () => {
+        // 快照的来历与重写命令见 scripts/nb-layout-surface.ts；口径见 docs/specs/runtime/plugin-code-loading.md 的“共享入口即兼容承诺”。
+        expect(await nbLayoutSurface(), "SDK 转出的 nb-layout 名字的签名变了：不兼容就提 PLUGIN_API_SINCE 并写变更记录，兼容的不提；判断后 bun scripts/nb-layout-surface.ts --write").toBe(readFileSync(SNAPSHOT, "utf8"));
+    });
+});
 
 describe("SDK 的子路径表", () => {
     it("两份 tsconfig 的 SDK 别名与子路径表一致：新增子路径漏改一处时这里失败", () => {

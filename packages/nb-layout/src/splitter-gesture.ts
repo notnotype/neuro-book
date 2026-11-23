@@ -6,7 +6,10 @@
  */
 import type {SashGestureCancelReason, SashGestureSource} from "./sash-gesture";
 
-/** 一次用户调整手势的可观察状态。 */
+/**
+ * 一次用户调整手势的可观察状态。
+ * @experimental
+ */
 export interface SplitterGestureState {
     source: SashGestureSource;
     /** 主动操作的 sash 稳定 id，形如 `outline~editor`；面板 id 由宿主声明或按序号派生。 */
@@ -21,6 +24,7 @@ export interface SplitterGestureState {
     collapsed: Record<string, boolean>;
 }
 
+/** @experimental */
 export interface SplitterGestureCancellation {
     source: SashGestureSource;
     sash: string;

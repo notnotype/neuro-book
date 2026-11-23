@@ -25,6 +25,7 @@ import {rolldown} from "rolldown";
 import {dts} from "rolldown-plugin-dts";
 import {build, type Plugin} from "vite";
 
+import {componentTags, tagComponentDeclarations} from "./component-tags";
 import {exportDiff, forbiddenFile, reachablePackages, specNumbers} from "./pack-check";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..");
@@ -188,6 +189,10 @@ async function main(argv: readonly string[]): Promise<void> {
     const inputs = await buildScripts(outDir);
     if (!web) {
         await buildTypes(outDir);
+        // 组件声明上带不了注释，稳定性标注从入口的行尾插进去（见 `component-tags.ts`）。
+        const vueTypes = join(outDir, "vue.d.ts");
+        const tags = componentTags(await readFile(join(PACKAGE_ROOT, "src/vue/index.ts"), "utf8"));
+        await writeFile(vueTypes, tagComponentDeclarations(await readFile(vueTypes, "utf8"), tags));
         const source = JSON.parse(await readFile(join(PACKAGE_ROOT, "package.json"), "utf8")) as SourceManifest;
         await writeFile(join(outDir, "package.json"), `${JSON.stringify(publishedManifest(source), null, 4)}\n`);
         await cp(join(PACKAGE_ROOT, "README.md"), join(outDir, "README.md"));

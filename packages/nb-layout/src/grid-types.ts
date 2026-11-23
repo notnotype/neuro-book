@@ -11,17 +11,26 @@
  *   推导外还可由宿主**额外声明**（例如分支暂时没有叶时仍要固定占位）。约束是运行期的，不进快照。
  * - **呈现**：`layout(container)` 的输出，可由视口重算，永远不写回意图。
  */
+
+/** @experimental */
 export type GridOrientation = "horizontal" | "vertical";
 
-/** 二维几何的一根轴；某根轴是主轴还是交叉轴由所在分支的 `orientation` 决定。 */
+/**
+ * 二维几何的一根轴；某根轴是主轴还是交叉轴由所在分支的 `orientation` 决定。
+ * @experimental
+ */
 export type GridAxis = "width" | "height";
 
-/** 宽高两轴的一对数值：尺寸、尺寸意图与尺寸约束共用这一种表达。 */
+/**
+ * 宽高两轴的一对数值：尺寸、尺寸意图与尺寸约束共用这一种表达。
+ * @experimental
+ */
 export type GridExtent = {width: number; height: number};
 
 /**
  * 主轴分配策略：`weight` 按意向比例分余量（历史行为），`fixed` 把 `size` 当**像素目标**优先保留。
  * 只影响沿父分支主轴的那一根轴；交叉轴始终由父分支共享空间给定。
+ * @experimental
  */
 export type GridSizing = "weight" | "fixed";
 
@@ -30,6 +39,7 @@ export type GridSizing = "weight" | "fixed";
  * 反向越过后恢复到记忆的 `restoreSize`。`collapsed` 是当前状态。
  *
  * 不写快照：它是宿主按领域记录给出的运行期约束，恢复时以当前记录为准。
+ * @experimental
  */
 export type SashCollapsePolicy = {
     /** 收起后的主轴占用（CSS px，允许 0）；必须小于展开最小尺寸。 */
@@ -58,8 +68,10 @@ export type SashCollapsePolicy = {
     restoreToShare?: boolean;
 };
 
+/** @experimental */
 export type SashCollapseState = SashCollapsePolicy & {collapsed: boolean};
 
+/** @experimental */
 export type GridLeaf<T> = {
     kind: "leaf";
     id: string;
@@ -74,6 +86,7 @@ export type GridLeaf<T> = {
     collapse?: SashCollapseState;
 };
 
+/** @experimental */
 export type GridBranch<T> = {
     kind: "branch";
     id: string;
@@ -90,9 +103,13 @@ export type GridBranch<T> = {
     children: GridNode<T>[];
 };
 
+/** @experimental */
 export type GridNode<T> = GridLeaf<T> | GridBranch<T>;
 
-/** 叶的建树输入：意图与约束可省略（缺省为 0 / 不限）；`sizing` 缺省 `weight`。 */
+/**
+ * 叶的建树输入：意图与约束可省略（缺省为 0 / 不限）；`sizing` 缺省 `weight`。
+ * @experimental
+ */
 export type GridLeafInput<T> = {
     kind: "leaf";
     id: string;
@@ -104,7 +121,10 @@ export type GridLeafInput<T> = {
     collapse?: SashCollapseState;
 };
 
-/** 分支的建树输入：`size` 是外部分配意图，省略时由调用方之后用 `resize` 或快照恢复确定。 */
+/**
+ * 分支的建树输入：`size` 是外部分配意图，省略时由调用方之后用 `resize` 或快照恢复确定。
+ * @experimental
+ */
 export type GridBranchInput<T> = {
     kind: "branch";
     id: string;
@@ -117,9 +137,13 @@ export type GridBranchInput<T> = {
     children: GridNodeInput<T>[];
 };
 
+/** @experimental */
 export type GridNodeInput<T> = GridLeafInput<T> | GridBranchInput<T>;
 
-/** 新叶相对目标叶的位置；left/top 归 `before`、right/bottom 归 `after` 的宿主词汇映射留在交互层。 */
+/**
+ * 新叶相对目标叶的位置；left/top 归 `before`、right/bottom 归 `after` 的宿主词汇映射留在交互层。
+ * @experimental
+ */
 export type GridSplitSide = "before" | "after";
 
 /**
@@ -127,6 +151,7 @@ export type GridSplitSide = "before" | "after";
  *
  * 新分支继承目标叶的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图——
  * 只开放比例、不开放 `size`：否则初始意图会出现两个 authority，测得的 px 还会被当成权重。
+ * @experimental
  */
 export type GridSplitInput<T> = {
     /** 新分支的稳定 id；派生 id 会在重复拆分时冲突，身份由宿主保证。 */
@@ -143,9 +168,11 @@ export type GridSplitInput<T> = {
 /**
  * 快照只保存稳定结构、宿主引用与尺寸意图：叶与分支的 `size` 都进快照，否则恢复时只能从子节点
  * 重猜列宽（内层叶高度不能当成外层列宽）。运行期约束不进快照——恢复以当前宿主约束为准。
+ * @experimental
  */
 export type GridSnapshotLeaf = {kind: "leaf"; id: string; ref: string; size: GridExtent};
 
+/** @experimental */
 export type GridSnapshotBranch = {
     kind: "branch";
     id: string;
@@ -154,11 +181,16 @@ export type GridSnapshotBranch = {
     children: GridSnapshotNode[];
 };
 
+/** @experimental */
 export type GridSnapshotNode = GridSnapshotLeaf | GridSnapshotBranch;
 
+/** @experimental */
 export type GridSnapshot = {version: typeof GRID_SNAPSHOT_VERSION; root: GridSnapshotNode};
 
-/** 引用解析结果：`ref` 是宿主对象；约束与运行期策略由当前宿主给出，缺省时回落到当前树里同 id 的节点。 */
+/**
+ * 引用解析结果：`ref` 是宿主对象；约束与运行期策略由当前宿主给出，缺省时回落到当前树里同 id 的节点。
+ * @experimental
+ */
 export type GridRefResolution<T> = {
     ref: T;
     minimumSize?: GridExtent;
@@ -169,17 +201,25 @@ export type GridRefResolution<T> = {
     collapse?: SashCollapseState;
 };
 
+/** @experimental */
 export type GridRefResolver<T> = (ref: string) => GridRefResolution<T> | null;
 
-/** 把宿主引用编码成快照里的稳定字符串；非字符串引用必须显式提供。 */
+/**
+ * 把宿主引用编码成快照里的稳定字符串；非字符串引用必须显式提供。
+ * @experimental
+ */
 export type GridRefEncoder<T> = (ref: T) => string;
 
-/** 失败里的参数值：只用字符串与数字，和 `ui/i18n` 的 `TextRef.params` 同型，宿主可以直接交给翻译端口。 */
+/**
+ * 失败里的参数值：只用字符串与数字，和 `ui/i18n` 的 `TextRef.params` 同型，宿主可以直接交给翻译端口。
+ * @experimental
+ */
 export type GridParamValue = string | number;
 
 /**
  * 诊断（Spec `ui/nested-grid` 输出 139）。`code` 给程序分支；`message` 是库内的英文，只给日志看，调用方不按它分支；
  * `params` 给宿主拼自己的界面文字，其中 `cause`、`axis`、`id` 三个名字在所有诊断里意思相同。码集合开放：新增码不算破坏，按码分支要有默认分支。
+ * @experimental
  */
 export interface GridIssue<C extends string = string> {
     readonly code: C;
@@ -187,12 +227,18 @@ export interface GridIssue<C extends string = string> {
     readonly params?: Readonly<Record<string, GridParamValue>>;
 }
 
-/** 失败（Spec `ui/nested-grid` 失败 5 到 7）：诊断加 `ok: false`。 */
+/**
+ * 失败（Spec `ui/nested-grid` 失败 5 到 7）：诊断加 `ok: false`。
+ * @experimental
+ */
 export interface GridFailure<C extends string = string> extends GridIssue<C> {
     readonly ok: false;
 }
 
-/** 求解与手势产生的诊断码（Spec 输出 139）；与失败码不相交。 */
+/**
+ * 求解与手势产生的诊断码（Spec 输出 139）；与失败码不相交。
+ * @experimental
+ */
 export type GridIssueCode =
     | "over-constrained"
     | "unabsorbed-space"
@@ -202,10 +248,16 @@ export type GridIssueCode =
     | "no-room-to-restore"
     | "swap-skipped";
 
-/** 只由组件与组合式函数发出、求解不会产生的诊断码。 */
+/**
+ * 只由组件与组合式函数发出、求解不会产生的诊断码。
+ * @experimental
+ */
 export type GridHostIssueCode = "not-published" | "notify-failed";
 
-/** 结构操作的失败码（Spec `ui/nested-grid` 失败 5）。 */
+/**
+ * 结构操作的失败码（Spec `ui/nested-grid` 失败 5）。
+ * @experimental
+ */
 export type GridFailureCode =
     | "not-found"
     | "wrong-node-kind"
@@ -220,10 +272,16 @@ export type GridFailureCode =
     | "not-collapsible"
     | "wrong-sizing";
 
-/** 快照恢复的失败码（Spec `ui/nested-grid` 失败 7）。 */
+/**
+ * 快照恢复的失败码（Spec `ui/nested-grid` 失败 7）。
+ * @experimental
+ */
 export type GridRestoreFailureCode = "invalid-snapshot" | "unsupported-version" | "unresolved-root" | "duplicate-id" | "limit-exceeded";
 
-/** 提交手势的失败码（Spec `ui/nested-grid` 失败 6）：落账时结构操作的失败原样转交，另加提交自己的几种拒绝。 */
+/**
+ * 提交手势的失败码（Spec `ui/nested-grid` 失败 6）：落账时结构操作的失败原样转交，另加提交自己的几种拒绝。
+ * @experimental
+ */
 export type GridCommitFailureCode =
     | GridFailureCode
     | "not-ready"
@@ -236,15 +294,23 @@ export type GridCommitFailureCode =
 /**
  * `useGridHost` 接一次提交的结果：码是库定义的这几种。宿主自己写 `onGestureCommit` 时返回 `{ok: true} | GridFailure`，
  * 可以用自己的码拒绝（码集合开放，Spec 失败 6），这个类型可以赋给它。
+ * @experimental
  */
 export type GridLayoutCommitResult = {readonly ok: true} | GridFailure<GridCommitFailureCode>;
 
+/** @experimental */
 export type GridResult = {ok: true} | GridFailure<GridFailureCode>;
 
-/** 单节点调整的实际增量。 */
+/**
+ * 单节点调整的实际增量。
+ * @experimental
+ */
 export type GridResizeResult = {ok: true; applied: number} | GridFailure<GridFailureCode>;
 
-/** 一次分支调整：同一容器内该分支全部直接子节点的完整呈现基线与目标（px，各自守恒）。 */
+/**
+ * 一次分支调整：同一容器内该分支全部直接子节点的完整呈现基线与目标（px，各自守恒）。
+ * @experimental
+ */
 export type GridBranchResize = {
     readonly branchId: string;
     readonly axis: GridAxis;
@@ -254,10 +320,16 @@ export type GridBranchResize = {
     readonly collapsed?: Readonly<Record<string, boolean>>;
 };
 
-/** 原子分支调整发布的完整意图；键为该分支的直接子节点 id。 */
+/**
+ * 原子分支调整发布的完整意图；键为该分支的直接子节点 id。
+ * @experimental
+ */
 export type GridBranchResizeResult = {ok: true; sizes: Record<string, number>} | GridFailure<GridFailureCode>;
 
-/** 一次手势的批量原子结果：新尺寸意图按节点 id 发布，收起变化按节点 id 发布。 */
+/**
+ * 一次手势的批量原子结果：新尺寸意图按节点 id 发布，收起变化按节点 id 发布。
+ * @experimental
+ */
 export type GridBranchesResizeResult =
     | {readonly ok: true; readonly intents: Record<string, GridExtent>; readonly collapsed: Record<string, boolean>}
     | GridFailure<GridFailureCode>;
@@ -265,6 +337,7 @@ export type GridBranchesResizeResult =
 /**
  * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、148）：`changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的
  * 收起策略（含记下的 `restoreSize`），宿主要跨会话保存时从这里取，策略本身不写快照。
+ * @experimental
  */
 export type GridCollapseResult =
     | {readonly ok: true; readonly changed: boolean; readonly collapse: SashCollapseState}
@@ -273,12 +346,16 @@ export type GridCollapseResult =
 /**
  * `Grid.setSize` 的结果（Spec `ui/nested-grid` 输出 154）：`size` 是存下的意图（夹进节点自己的约束之后），宿主拿它存偏好；
  * `changed` 是意图或记忆的恢复尺寸有没有变；节点有收起策略时另带调用之后的 `collapse`，同 `GridCollapseResult`。
+ * @experimental
  */
 export type GridSetSizeResult =
     | {readonly ok: true; readonly changed: boolean; readonly size: number; readonly collapse?: SashCollapseState}
     | GridFailure<GridFailureCode>;
 
-/** 快照里没解析出的一条引用；今天只有一种原因。 */
+/**
+ * 快照里没解析出的一条引用；今天只有一种原因。
+ * @experimental
+ */
 export type GridDroppedRef = {ref: string; code: "unknown-ref"};
 
 /** 恢复成功与失败都带的两项。 */
@@ -289,10 +366,13 @@ type GridRestoreReport = {
     clamped: string[];
 };
 
+/** @experimental */
 export type GridRestoreResult = ({ok: true} & GridRestoreReport) | (GridFailure<GridRestoreFailureCode> & GridRestoreReport);
 
+/** @experimental */
 export type GridConstraint = {minimumSize: GridExtent; maximumSize: GridExtent};
 
+/** @experimental */
 export type GridLayoutResult = {
     /** 每个节点在当前容器内的呈现尺寸。字典无原型，任意合法字符串 id 都可安全索引。 */
     sizes: Record<string, GridExtent>;
@@ -303,6 +383,7 @@ export type GridLayoutResult = {
     issues: GridIssue<GridIssueCode>[];
 };
 
+/** @experimental */
 export type GridOptions<T> = {
     /** 兄弟之间的 sash 占用；函数形式可表达宿主明确隐藏的特定 sash。 */
     sashSize?: number | ((branchId: string, sashIndex: number) => number);
@@ -310,8 +391,11 @@ export type GridOptions<T> = {
     encodeRef?: GridRefEncoder<T>;
 };
 
+/** @experimental */
 export const GRID_SNAPSHOT_VERSION = 2;
 /** 旧版只记录单轴尺寸，无法把内部高度可靠地当成外部宽度，恢复时必须整体拒绝。 */
 export const GRID_LEGACY_SNAPSHOT_VERSION = 1;
+/** @experimental */
 export const GRID_MAX_NODES = 256;
+/** @experimental */
 export const GRID_MAX_DEPTH = 16;

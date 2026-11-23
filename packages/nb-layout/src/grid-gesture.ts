@@ -14,7 +14,10 @@ import {issueKey} from "./issue-gate";
 import type {GridSashRef, SashGestureCancelReason, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
 import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridIssueCode, GridLayoutResult, GridNode} from "./grid-types";
 
-/** 手势开始时冻结的外部事实：整场手势只对它求解，不重读活动树或产品策略。 */
+/**
+ * 手势开始时冻结的外部事实：整场手势只对它求解，不重读活动树或产品策略。
+ * @experimental
+ */
 export type GridGestureBaseline<T> = {
     /** 副作用上下文标识（工作面 / 布局键）：变化即取消。 */
     readonly contextKey: string;
@@ -26,13 +29,17 @@ export type GridGestureBaseline<T> = {
     readonly sashSize: number | GridSashResolver;
 };
 
+/** @experimental */
 export type GridGestureSessionInput<T> = GridGestureBaseline<T> & {
     readonly sessionId: string;
     readonly source: SashGestureSource;
     readonly sashes: readonly GridSashRef[];
 };
 
-/** 一个分支在此次手势中的变化；`baseline`/`target` 是该分支全部直接子节点的主轴 px。 */
+/**
+ * 一个分支在此次手势中的变化；`baseline`/`target` 是该分支全部直接子节点的主轴 px。
+ * @experimental
+ */
 export type GridBranchChange = GridBranchResize & {
     /** 求解时该分支的父预览盒。 */
     readonly extent: GridExtent;
@@ -41,7 +48,10 @@ export type GridBranchChange = GridBranchResize & {
     readonly collapsed: Readonly<Record<string, boolean>>;
 };
 
-/** `NestedGrid` 的 `gesture-start` 载荷：一场手势开始，宿主据此记下它对应的上下文与版本。 */
+/**
+ * `NestedGrid` 的 `gesture-start` 载荷：一场手势开始，宿主据此记下它对应的上下文与版本。
+ * @experimental
+ */
 export type GridGestureStart = {
     readonly sessionId: string;
     readonly contextKey: string;
@@ -50,13 +60,19 @@ export type GridGestureStart = {
     readonly sashes: readonly GridSashRef[];
 };
 
-/** `NestedGrid` 的 `gesture-cancel` 载荷：手势取消，预览已经撤回。 */
+/**
+ * `NestedGrid` 的 `gesture-cancel` 载荷：手势取消，预览已经撤回。
+ * @experimental
+ */
 export type GridGestureCancellation = {
     readonly reason: SashGestureCancelReason;
     readonly sashes: readonly GridSashRef[];
 };
 
-/** 一次手势的最终提交：宿主用它一次性落账（`resizeBranches` 或映射到自己的意图）。 */
+/**
+ * 一次手势的最终提交：宿主用它一次性落账（`resizeBranches` 或映射到自己的意图）。
+ * @experimental
+ */
 export type GridGestureCommit = {
     readonly sessionId: string;
     readonly contextKey: string;
@@ -66,7 +82,10 @@ export type GridGestureCommit = {
     readonly changes: readonly GridBranchChange[];
 };
 
-/** 手势过程中的几何预览：渲染层用它替代受控布局，宿主无需参与。 */
+/**
+ * 手势过程中的几何预览：渲染层用它替代受控布局，宿主无需参与。
+ * @experimental
+ */
 export type GridGesturePreview<T> = {
     readonly layout: GridLayoutResult;
     readonly tree: GridNode<T> | null;
@@ -75,6 +94,7 @@ export type GridGesturePreview<T> = {
     readonly issues: readonly GridIssue<GridIssueCode>[];
 };
 
+/** @experimental */
 export interface GridGestureSession<T = unknown> extends SashGestureSessionCore<GridGesturePreview<T>, GridBranchChange> {
     readonly sessionId: string;
     readonly source: SashGestureSource;
@@ -180,6 +200,7 @@ export function projectGridGesture<T>(
 
 /**
  * 建立一场手势会话。`sashes` 是本次按下命中的分隔线（同一棵树内最多一根 width 轴 + 一根 height 轴）。
+ * @experimental
  */
 export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): GridGestureSession<T> {
     let delta = {x: 0, y: 0};

@@ -1,0 +1,62 @@
+// API 报告：@notnotype/nb-layout/locales（bun run api:report 生成，不手改）
+// tool typescript 6.0.3 (report)
+// tool vue-tsc 3.3.7
+// tool typescript 5.9.3 (vue-tsc)
+// tool vue-component-meta 3.3.14
+// tool typescript 5.9.3 (vue-component-meta)
+// tool rolldown-plugin-dts 0.27.14
+// tool vue 3.5.39
+
+### experimental const NB_LAYOUT_CATALOGS
+declare const NB_LAYOUT_CATALOGS: {
+    readonly "zh-CN": {
+        splitter: {
+            resizeWidth: string;
+            resizeHeight: string;
+            collapsed: string;
+            pixels: string;
+        };
+        floatWindow: {
+            resize: string;
+            move: string;
+        };
+        sortable: {
+            handle: string;
+            hint: string;
+            placeholder: string;
+            picked: string;
+            moved: string;
+            dropped: string;
+            cancelled: string;
+            unchanged: string;
+        };
+    };
+    readonly "en-US": {
+        splitter: {
+            resizeWidth: string;
+            resizeHeight: string;
+            collapsed: string;
+            pixels: string;
+        };
+        floatWindow: {
+            resize: string;
+            move: string;
+        };
+        sortable: {
+            handle: string;
+            hint: string;
+            placeholder: string;
+            picked: string;
+            moved: string;
+            dropped: string;
+            cancelled: string;
+            unchanged: string;
+        };
+    };
+};
+
+### experimental const NB_LAYOUT_NAMESPACE
+declare const NB_LAYOUT_NAMESPACE = "nb-layout";
+
+### experimental const NB_LAYOUT_SOURCE_LOCALE
+declare const NB_LAYOUT_SOURCE_LOCALE = "en-US";

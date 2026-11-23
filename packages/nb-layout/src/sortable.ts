@@ -6,15 +6,22 @@
  * 往后时被拖的后沿过了下一个邻居的中线、往前时前沿过了上一个邻居的中线，就换过去。轴是哪一个由调用方决定，这里只有一维的区间。
  */
 
+/** @experimental */
 export type SortableAxis = "vertical" | "horizontal";
 
-/** 沿轴的一段：起点与终点。 */
+/**
+ * 沿轴的一段：起点与终点。
+ * @experimental
+ */
 export interface SortableSpan {
     readonly start: number;
     readonly end: number;
 }
 
-/** 这一刻的布局，呈现顺序。来源也在里面，在它此刻（上一次预览）的位置上。 */
+/**
+ * 这一刻的布局，呈现顺序。来源也在里面，在它此刻（上一次预览）的位置上。
+ * @experimental
+ */
 export interface SortableLayout {
     readonly sections: ReadonlyArray<{
         readonly id: string;
@@ -24,19 +31,28 @@ export interface SortableLayout {
     }>;
 }
 
-/** 一个位置：哪个分区，按摘掉来源之后的次序数的第几位。 */
+/**
+ * 一个位置：哪个分区，按摘掉来源之后的次序数的第几位。
+ * @experimental
+ */
 export interface SortableSlot {
     readonly section: string;
     readonly index: number;
 }
 
-/** 分区与它的成员次序（宿主的模型）。 */
+/**
+ * 分区与它的成员次序（宿主的模型）。
+ * @experimental
+ */
 export interface SortableSection {
     readonly id: string;
     readonly keys: readonly string[];
 }
 
-/** 按呈现顺序列出来源能去的每个位置：每区从 0 到（不算来源的）成员数，空分区只有第 0 位。 */
+/**
+ * 按呈现顺序列出来源能去的每个位置：每区从 0 到（不算来源的）成员数，空分区只有第 0 位。
+ * @experimental
+ */
 export function sortableSlots(sections: readonly SortableSection[], source: string): SortableSlot[] {
     return sections.flatMap((section) => {
         const count = section.keys.filter((key) => key !== source).length;
@@ -44,7 +60,10 @@ export function sortableSlots(sections: readonly SortableSection[], source: stri
     });
 }
 
-/** `key` 此刻在哪个位置；不在任何分区里为 null。 */
+/**
+ * `key` 此刻在哪个位置；不在任何分区里为 null。
+ * @experimental
+ */
 export function slotOfKey(sections: readonly SortableSection[], key: string): SortableSlot | null {
     for (const section of sections) {
         const index = section.keys.indexOf(key);
@@ -53,7 +72,10 @@ export function slotOfKey(sections: readonly SortableSection[], key: string): So
     return null;
 }
 
-/** 把 `key` 移到 `to`（下标夹在那一区的范围里）。位置不变或 `key`、目标分区不存在时交回同一份。 */
+/**
+ * 把 `key` 移到 `to`（下标夹在那一区的范围里）。位置不变或 `key`、目标分区不存在时交回同一份。
+ * @experimental
+ */
 export function moveInSections(sections: readonly SortableSection[], key: string, to: SortableSlot): readonly SortableSection[] {
     const from = slotOfKey(sections, key);
     const target = sections.find((section) => section.id === to.section);
@@ -74,10 +96,14 @@ const mid = (span: SortableSpan): number => (span.start + span.end) / 2;
  * 刚换过去时，从换位的地方往回挪不到这么多不换回来（工作台实时布局的粘滞是 8px）。中线的规则自带的回滞是“来源离开后邻居让出的长度”减去来源的
  * 长度：来源是一区唯一的一项（它一走那一区换成占位）、拖进或拖出空分区时，让出的比来源短，两头的判定线重叠，没有粘滞就会在
  * 分区头附近逐帧来回换。
+ * @experimental
  */
 export const SORTABLE_STICKY_PX = 12;
 
-/** 上一次换位：从哪到哪，换的时候被拖的前沿在哪。 */
+/**
+ * 上一次换位：从哪到哪，换的时候被拖的前沿在哪。
+ * @experimental
+ */
 export interface SortableSwitch {
     readonly from: SortableSlot;
     readonly to: SortableSlot;
@@ -93,6 +119,7 @@ const sameSlot = (a: SortableSlot, b: SortableSlot): boolean => a.section === b.
  * 一次可以连换几位：第一步按真实布局比，后面几步用“摘掉来源”推算的位置（来源后面的邻居都往前让一个来源占的长度），推算与真实
  * 布局有出入时下一帧按重排后的真实布局再判。往后要过“下一个邻居的中线”（它此刻在来源后面，位置含来源的长度），往前要过
  * “上一个邻居的中线”，刚换过去时往回挪一点不会马上换回来。
+ * @experimental
  */
 export function sortableSlotIn(layout: SortableLayout, source: string, held: SortableSpan, last: SortableSwitch | null = null): SortableSlot | null {
     const slots: SortableSlot[] = [];

@@ -12,6 +12,7 @@ import {createDragGesture} from "../drag-gesture";
 import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragState, DragStops} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 
+/** @experimental */
 export interface DragQuery<S, R> {
     readonly source: S;
     readonly point: GridDropPoint;
@@ -21,6 +22,7 @@ export interface DragQuery<S, R> {
     readonly region: R | null;
 }
 
+/** @experimental */
 export interface DragKeyboardOptions<S, R> {
     /** 按下空格时焦点处的来源；焦点不在来源或它的把手上时为 null。 */
     sourceAt(target: Element): S | null;
@@ -34,6 +36,7 @@ export interface DragKeyboardOptions<S, R> {
     refocus(source: S): HTMLElement | null;
 }
 
+/** @experimental */
 export interface DragSessionOptions<S, D, R> {
     /** 手势的范围：来源只认这里面的，指针捕获由它持有。 */
     readonly root: HTMLElement;
@@ -65,6 +68,7 @@ export interface DragSessionOptions<S, D, R> {
     readonly config?: Partial<DragGestureConfig>;
 }
 
+/** @experimental */
 export interface DragSession<S, D> {
     readonly state: Readonly<ShallowRef<DragState<S, D> | null>>;
     /** 内容变了而指针没动：撤下落点，直到指针再动。 */
@@ -86,6 +90,7 @@ function topElementAt(document: Document, point: GridDropPoint): Element | null 
     return null;
 }
 
+/** @experimental */
 export function createDragSession<S, D, R = never>(options: DragSessionOptions<S, D, R>): DragSession<S, D> {
     const {root, keyboard, autoScroll} = options;
     const document = root.ownerDocument;

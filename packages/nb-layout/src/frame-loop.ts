@@ -5,6 +5,7 @@
  * 这样帧循环的帧排在会话发布的帧前面，一帧里先判定（读 DOM）再写卡片。挂反了不报错，只是每帧多一次强制的样式重算。
  */
 
+/** @experimental */
 export interface FrameLoopOptions {
     requestFrame(run: (now: number) => void): number;
     cancelFrame(frame: number): void;
@@ -14,6 +15,7 @@ export interface FrameLoopOptions {
     readonly nominalMs?: number;
 }
 
+/** @experimental */
 export interface FrameLoop {
     /** 开始：撤掉排着的帧，排第一帧。 */
     start(): void;
@@ -23,6 +25,7 @@ export interface FrameLoop {
     stop(): void;
 }
 
+/** @experimental */
 export function createFrameLoop(options: FrameLoopOptions): FrameLoop {
     const nominalMs = options.nominalMs ?? 1000 / 60;
     let started = false;
