@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {githubRepository, parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
+import {failureLines, githubRepository, parseCommand, pushArgv, rehearsalPassed, rehearsalsOn, ReleaseCommand, ReleaseCommandFailure, triggeredRun, type CommandResult, type WorkflowJob, type WorkflowRun} from "#scripts/release/release";
 
 const HEAD = "a".repeat(40);
 const RELEASE_COMMIT = "b".repeat(40);
@@ -19,7 +19,7 @@ const GREEN: WorkflowJob[] = [{name: "门禁", conclusion: "success"}, {name: "�
  * `runs` 是手动触发的运行列表（演练检查读它）；`dispatched` 在 `gh workflow run` 之后才出现，`pushRuns` 在推送之后才出现：
  * 和真实的一样，触发前列出来的运行不是这次触发的。
  */
-function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; conclusion?: string; pending?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string}) {
+function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; conclusion?: string; pending?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string; failingCheck?: string}) {
     const calls: string[][] = [];
     let head = HEAD;
     let dispatchedYet = false;
@@ -43,6 +43,7 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
             pushedYet = true;
             return {code: options.push ?? 0, stdout: ""};
         }
+        if (options.failingCheck !== undefined && line === `bun run ${options.failingCheck} --all`) return {code: 1, stdout: JSON.stringify({failures: ["Spec 未登记在“已实现规范”：docs/specs/bots/view.md"]})};
         if (line.startsWith("gh workflow run")) dispatchedYet = true;
         if (line.startsWith("gh run list") && line.includes("--event push")) return {code: 0, stdout: JSON.stringify(pushedYet ? options.pushRuns ?? [] : [])};
         if (line.startsWith("gh run list")) return {code: 0, stdout: JSON.stringify([...(dispatchedYet ? options.dispatched ?? [] : []), ...(options.runs ?? [])])};
@@ -178,5 +179,24 @@ describe("演练", () => {
         expect(pushed).toBeGreaterThanOrEqual(0);
         expect(pushed).toBeLessThan(order.indexOf("gh workflow run release.yml --ref master --repo notnotype/neuro-book"));
         expect(order).toContain("gh run watch 5 --interval 30 --repo notnotype/neuro-book");
+    });
+
+    it("推送前先在本机跑治理与文档检查；任何一项没通过就不推、不触发", async () => {
+        const passing = fake({dispatched: [run({databaseId: 5, createdAt: NOW})]});
+        await passing.command.rehearse();
+        const order = passing.lines();
+        expect(order.indexOf("bun run governance:check --all")).toBeLessThan(order.indexOf("bun run docs:check --all"));
+        expect(order.indexOf("bun run docs:check --all")).toBeLessThan(order.findIndex((line) => line.startsWith("git push")));
+
+        for (const failingCheck of ["governance:check", "docs:check"]) {
+            const failing = fake({failingCheck});
+            await expect(failing.command.rehearse()).rejects.toBeInstanceOf(ReleaseCommandFailure);
+            expect(failing.lines().some((line) => line.startsWith("git push") || line.startsWith("gh workflow run"))).toBe(false);
+        }
+    });
+
+    it("检查输出的失败逐条列出；不是 JSON 时交回原文开头", () => {
+        expect(failureLines(`$ bun run x\n${JSON.stringify({failures: ["甲", "乙"]})}\nerror: exit 1`)).toBe("  ✗ 甲\n  ✗ 乙");
+        expect(failureLines("崩了")).toBe("崩了");
     });
 });

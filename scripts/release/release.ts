@@ -102,6 +102,17 @@ export function githubRepository(url: string): string {
     return match[1] as string;
 }
 
+/** 检查脚本输出的 JSON 里的 `failures`（逐条一行）；解析不了时原样交回开头一段。 */
+export function failureLines(output: string): string {
+    try {
+        const failures = (JSON.parse(output.slice(output.indexOf("{"), output.lastIndexOf("}") + 1)) as {failures?: unknown}).failures;
+        if (Array.isArray(failures)) return failures.map((line) => `  ✗ ${String(line)}`).join("\n");
+    } catch {
+        // 不是预期的 JSON：下面交回原文。
+    }
+    return output.slice(0, 2000);
+}
+
 /**
  * master 与标签一次推送：`--atomic` 让远端两个引用一起更新或都不更新，不会出现标签上去了、master 没上去。master 的源写确切的
  * 提交号，不写分支名：主工作区几个会话共用，推送那一刻的本地 master 可能已经被别人推进。
@@ -205,8 +216,24 @@ export class ReleaseCommand {
         return result.conclusion === "success";
     }
 
+    /**
+     * 推送前在本机跑 CI 治理作业的两项检查（`--all`：发布流水线调用 CI 时也是全部）。别人合入 master 的提交带着的
+     * 目录登记、固定等待、规范注册表这类问题，不推上去也看得出来；推上去再等 CI 才发现，一轮要白等十几分钟。
+     * 单测、类型检查与构建仍交给流水线：它们要几十分钟，本机跑不值。
+     */
+    async #preflight(): Promise<void> {
+        for (const check of ["governance:check", "docs:check"]) {
+            this.#log(`本机预检：bun run ${check} --all`);
+            const result = await this.#run(["bun", "run", check, "--all"], {capture: true});
+            if (result.code === 0) continue;
+            this.#log(failureLines(result.stdout));
+            throw new ReleaseCommandFailure(`${check} 没通过：修好、提交后再来（CI 同样会在这一步失败，没有推送）`);
+        }
+    }
+
     async rehearse(): Promise<boolean> {
         const head = await this.#onMaster();
+        await this.#preflight();
         const dispatchFilter = ["--event", "workflow_dispatch", "--branch", "master"];
         const known = await this.#known(dispatchFilter);
         // 推的是读到的那个提交，不是分支名：推送前别人推进了本地 master 时，演练的就不是推上去的提交。
