@@ -153,6 +153,20 @@ function relocate(input: {
     return settleSides({sizes: input.sizes, total: input.total, sashIndex: input.sashIndex, desiredBoundary: desired, boundsOf: input.boundsOf});
 }
 
+/** 收起会让出空间，但另一侧吸收不了：拖动路径与显式折叠路径共用这一条诊断。 */
+function noRoomToCollapse(panelId: string): GridIssue<"no-room-to-collapse"> {
+    return gridIssue("no-room-to-collapse", `Panel ${panelId} has no boundary to absorb its space once collapsed; it stays expanded`, {id: panelId});
+}
+
+/** 展开要的空间比能腾出来的多：拖动路径与显式折叠路径共用这一条诊断。 */
+function noRoomToRestore(panelId: string, capacity: number, required: number): GridIssue<"no-room-to-restore"> {
+    return gridIssue("no-room-to-restore", `Panel ${panelId} has ${round(capacity)}px to restore into, below its minimum ${round(required)}; it stays collapsed`, {
+        id: panelId,
+        available: capacity,
+        required,
+    });
+}
+
 /**
  * 键盘/命令式的显式折叠与恢复：走与拖动同一份收起策略与容量判定，不复制阈值算法。
  * 只覆盖目标面板的收起状态，兄弟保持各自状态；恢复用记忆的 `restoreSize`——这是与拖动
@@ -195,18 +209,14 @@ export function solveSashCollapse(input: {
         // 另一侧吸收不了让出的空间（兄弟都到上限或都已收起）时，算出的尺寸和不等于总量：不收，和拖动路径同一个诊断（Spec 输出 20）。
         // 不拦的话手势会发布一个不守恒的预览，落账时 `resizeBranches` 以 `not-conserved` 拒绝。
         if (Math.abs(next.reduce((sum, size) => sum + size, 0) - total) > EPSILON) {
-            issues.push(gridIssue("no-room-to-collapse", `Panel ${panel.id} has no boundary to absorb its space once collapsed; it stays expanded`, {id: panel.id}));
+            issues.push(noRoomToCollapse(panel.id));
             return {sizesPx: [...sizes], collapsed: {}, issues};
         }
         return {sizesPx: next, collapsed: {[panel.id]: true}, issues};
     }
     const capacity = capacityFor(sizes, total, input.index, boundsOf);
     if (capacity < targetBounds.low - EPSILON) {
-        issues.push(gridIssue("no-room-to-restore", `Panel ${panel.id} has ${round(capacity)}px to restore into, below its minimum ${round(targetBounds.low)}; it stays collapsed`, {
-            id: panel.id,
-            available: capacity,
-            required: targetBounds.low,
-        }));
+        issues.push(noRoomToRestore(panel.id, capacity, targetBounds.low));
         return {sizesPx: [...sizes], collapsed: {}, issues};
     }
     const remembered = panel.collapse.restoreToShare === true
@@ -278,21 +288,26 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
         // 收起先于恢复判定，同帧让出的空间才能成为恢复容量的事实。两侧都可收起时，一侧的展开可能正是另一侧收起所缺的
         // 吸收边界（面板从零拉出、同一帧把编辑器拖到零），所以两遍判定重复到不再变化：每个面板一帧里只会朝一个方向变一次，
         // 最多两轮就稳定，结果不取决于这一位移是一帧到达还是分几帧到达。
+        // 两遍判定与稳定后的诊断共用这两条判据：诊断说“想变却变不了”，指的就是它们为真而 pass 里没改成。
+        const wantsCollapse = (index: number): boolean => {
+            const policy = panels[index]!.collapse;
+            return policy !== undefined && !isCollapsed(index) && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON;
+        };
+        const wantsExpand = (index: number): boolean => {
+            const policy = panels[index]!.collapse;
+            if (policy === undefined || !isCollapsed(index)) {
+                return false;
+            }
+            const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
+            return idealSizeOf(index) >= Math.max(boundsWith(panels[index]!, false).low, collapsedSize + policy.expandThreshold) - EPSILON;
+        };
         const collapsePass = (): boolean => {
             let changed = false;
             for (const index of [sashIndex, sashIndex + 1]) {
-                const panel = panels[index]!;
-                const policy = panel.collapse;
-                if (!policy || isCollapsed(index)) {
+                if (!wantsCollapse(index) || !boundsFit({index, collapsed: true})) {
                     continue;
                 }
-                if (idealSizeOf(index) >= boundsOf(index).low - policy.collapseThreshold - EPSILON) {
-                    continue;
-                }
-                if (!boundsFit({index, collapsed: true})) {
-                    continue;
-                }
-                overrides[panel.id] = true;
+                overrides[panels[index]!.id] = true;
                 changed = true;
             }
             return changed;
@@ -300,26 +315,15 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
         const expandPass = (): boolean => {
             let changed = false;
             for (const index of [sashIndex, sashIndex + 1]) {
-                const panel = panels[index]!;
-                const policy = panel.collapse;
-                if (!policy || !isCollapsed(index)) {
+                if (!wantsExpand(index) || capacityFor(baseline, total, index, boundsOf) < boundsWith(panels[index]!, false).low - EPSILON) {
                     continue;
                 }
-                const expandedBounds = boundsWith(panel, false);
-                const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
-                if (idealSizeOf(index) < Math.max(expandedBounds.low, collapsedSize + policy.expandThreshold) - EPSILON) {
-                    continue;
-                }
-                const capacity = capacityFor(baseline, total, index, boundsOf);
-                if (capacity < expandedBounds.low - EPSILON) {
-                    continue;
-                }
-                overrides[panel.id] = false;
+                overrides[panels[index]!.id] = false;
                 changed = true;
             }
             return changed;
         };
-        for (let round = 0; round < 3; round += 1) {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
             const collapsedNow = collapsePass();
             const expandedNow = expandPass();
             if (!collapsedNow && !expandedNow) {
@@ -329,23 +333,10 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
         // 稳定后仍想变却变不了的，给出原因（只报一次）。
         for (const index of [sashIndex, sashIndex + 1]) {
             const panel = panels[index]!;
-            const policy = panel.collapse;
-            if (!policy) {
-                continue;
-            }
-            if (!isCollapsed(index) && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON) {
-                issues.push(gridIssue("no-room-to-collapse", `Panel ${panel.id} has no boundary to absorb its space once collapsed; it stays expanded`, {id: panel.id}));
-            } else if (isCollapsed(index)) {
-                const expandedBounds = boundsWith(panel, false);
-                const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
-                if (idealSizeOf(index) >= Math.max(expandedBounds.low, collapsedSize + policy.expandThreshold) - EPSILON) {
-                    const capacity = capacityFor(baseline, total, index, boundsOf);
-                    issues.push(gridIssue("no-room-to-restore", `Panel ${panel.id} has ${round(capacity)}px to restore into, below its minimum ${round(expandedBounds.low)}; it stays collapsed`, {
-                        id: panel.id,
-                        available: capacity,
-                        required: expandedBounds.low,
-                    }));
-                }
+            if (wantsCollapse(index)) {
+                issues.push(noRoomToCollapse(panel.id));
+            } else if (wantsExpand(index)) {
+                issues.push(noRoomToRestore(panel.id, capacityFor(baseline, total, index, boundsOf), boundsWith(panel, false).low));
             }
         }
     }
