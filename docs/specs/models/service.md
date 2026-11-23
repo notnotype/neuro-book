@@ -17,7 +17,7 @@ owners:
 
 不承诺：
 
-- OAuth 登录（用订阅账号）；各协议标准列表接口之外的发现方式（Ollama、LM Studio、LiteLLM 的专用接口）；兼容选项、扩展窗口、用命令取密钥；阶梯价；代理设置。重试次数在 [`agent.run-guards`](../agent/run-guards.md)。
+- OAuth 登录（用订阅账号）；各协议标准列表接口之外的发现方式（Ollama、LM Studio、LiteLLM 的专用接口）；兼容选项、扩展窗口、用命令取密钥；阶梯价。重试次数在 [`agent.run-guards`](../agent/run-guards.md)。
 - 不经 HTTP 请求的传输（Cursor、Bedrock 的签名认证、Codex 这类登录通道）：模板列出但不能添加（输出 19）。
 - 协议检测只在实例现在的地址（或模板给那种协议的路由）上试四种对话协议，不猜别的地址，也不判断哪个模型能用（输出 26）。
 - 在线目录只补打包目录里没有的模型：打包目录里已有的行不随在线目录更新（价目、窗口照打包的）。
@@ -57,6 +57,7 @@ type Providers = Array<{
     auth: "default" | "bearer" | "none";
     headers?: Record<string, string>; // 值可写 env:<变量名>
     followSource: boolean;            // 服务商新出的模型自动加入（输出 22）
+    proxy?: {mode: "system"} | {mode: "direct"} | {mode: "custom"; url: string};   // 这家自己的代理，盖过应用级的（network/egress.md）；不写是跟随应用
     excluded: string[];               // 用户移出的来源模型 id
     models: Array<{
         id: string;                   // 第一个 / 之后的整体（OpenRouter 的 id 自带 /）
@@ -92,7 +93,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 
 另有两个设置项 `nbook.models/streamFirstEventTimeoutSeconds`、`streamIdleTimeoutSeconds`：整数 0–3600，缺省 300，0 表示不设，只允许用户层，显示在 [`agent.run-guards`](../agent/run-guards.md) 的分区里。
 
-`nbook.models/catalogAutoUpdate`：布尔，缺省开，只允许用户层，显示在 `nbook.network` 的“网络”分区里；开着时模型服务在后台自动拉列表与在线目录（输出 25），关着时只在用户点“重新拉取”时拉。
+`nbook.network/catalogAutoUpdate`：布尔，缺省开，只允许用户层；由 `nbook.network` 声明、在它的“网络”页里画（页面只能写本插件声明的项），模型服务读；开着时模型服务在后台自动拉列表与在线目录（输出 25），关着时只在用户点“重新拉取”时拉。
 
 启动环境 `NBOOK_MODELS_CATALOG_URL`：在线目录的地址，缺省 `https://catalog.stencil.so/models.json.zstd`；设成空串不取在线目录（离线环境；e2e 与测试场地这样设）。
 
@@ -116,10 +117,10 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
    `settings.model` 除了模型引用，还可以是 `role:<角色 id>`（会话选的是角色，改绑后跟着变）：角色不存在或 id 为空得 `unknown-model`，存在但没绑定得 `role-unbound`。
 
    走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在列表里（含已移出）、没启用、有效上下文窗口不明、目录里有但不能当对话模型发（行的状态 `unsupported`）：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（输出 18）。失败结果带上选中了什么：走到角色时（包括角色绑定的模型解析失败）带 `role`（角色 id），`no-credentials` 带 `provider`（服务商 id）；会话直接选了模型引用时没有 `role`。对话的提示卡据此写哪个角色、哪家服务商（[agent.conversation](../agent/conversation.md)）。
-9. **来源漂移**：设置里来历是 `source` 的条目在来源里没有了（服务商的列表不再有它，或 OMP 升级后目录里没有了），条目保留、模型行标 `missing`（界面写“服务商已不再提供”，可移除），解析为 `unknown-model`，写一条诊断；用户在界面里重新选。目录里有这一行、但它不能当对话模型发（传输不走 HTTP 请求的 Bedrock、Cursor、Codex，或图片生成这类不是对话类的模型）时，行标 `unsupported`，同样解析为 `unknown-model`。
+9. **来源漂移**：设置里来历是 `source` 的条目在来源里没有了（服务商的列表不再有它，或 OMP 升级后目录里没有了），条目保留、模型行标 `missing`（界面写“服务商已不再提供”，可移除），解析为 `unknown-model`，写一条诊断；用户在界面里重新选。目录里有这一行、但它不能当对话模型发（传输不走 HTTP 请求的 Bedrock、Cursor、Codex，或图片生成这类不是对话类的模型）时，行标 `unsupported`，同样解析为 `unknown-model`。服务商的列表里没有、但用户配置过（设置里有条目，或被角色绑着）且目录里有这一行的模型不算漂移：照常可用、照常解析，行上 `unlisted: true`（界面写“列表里没有”）；没配置过的目录模型仍跟着列表走。账号真用不了时调用以服务商的错误失败（服务商的列表可能不全，例如 DeepSeek 的 `/models` 不列 `deepseek-v4-flash`）。
 10. **`modelsKey`**：`port(profileDefaults?)` 交出所有会话共用的模型端口，`profileDefaults(profile)` 每次解析都调，换 Profile、改 Profile 设置即时生效；`snapshot()` 给出启用的模型、角色及其有效性；`onChange`。
 11. **检测**：`check` 发一条很短的请求（最大输出 min(32, 模型上限)、不带推理、超时 30 秒），结果是通过，或失败的类别、一句话与服务商原文（遮盖过、截到 8 KB）。结果不落盘。服务端没有批量检测：“检测全部”由调用方逐个调 `check`、自己限并发（设置页的做法见 [`models/settings-pages.md`](settings-pages.md) 输出 8）。
-12. **远程合同 `nbook.models/settings`**（版本 5，服务端提供，浏览器调用；相对版本 4：删 `checkAll`，加 `detectApi`、`adoptApi`，快照的服务商加连接版本 `connection`；补丁一律“省略不改、`null` 清除”）：
+12. **远程合同 `nbook.models/settings`**（版本 6，服务端提供，浏览器调用；相对版本 5：服务商加 `proxy`（快照与 `updateProvider`），模型行加 `unlisted`，快照加在线目录的状态 `catalog`，加 `refreshCatalog`，列表失败原因加 `proxy`；补丁一律“省略不改、`null` 清除”）：
 
     | 方法 | 读写 | 业务码 |
     |---|---|---|
@@ -127,7 +128,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
     | `snapshot()`，事件 `changed` | read | 无 |
     | `addProvider({template, region?, name?, baseUrl?, api?})` | write | `unknown-template`、`template-unavailable`、`invalid-value`、`write-conflict`、`settings-unavailable`、`credentials-unavailable` |
     | `duplicateProvider(id)` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable`、`credentials-unavailable`、`partially-applied` |
-    | `updateProvider({id, patch})`（`name`、`region`、`baseUrl`、`api`、`auth`、`headers`、`followSource`）、`removeProvider` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable`（删除另有 `credentials-unavailable`） |
+    | `updateProvider({id, patch})`（`name`、`region`、`baseUrl`、`api`、`auth`、`headers`、`followSource`、`proxy`：自定义地址须为 http 或 https、不带用户名密码，否则 `invalid-value`）、`removeProvider` | write | `unknown-provider`、`invalid-value`、`write-conflict`、`settings-unavailable`（删除另有 `credentials-unavailable`） |
     | `setIcon({provider, icon})` | write | 同上，加 `icon-rejected` |
     | `providerModels({provider, scope?, offset, limit, revision?})`、`enabledModels({providers?, usable?, offset, limit, revision?})` | read | `unknown-provider`（前者）、`revision-changed` |
     | `modelsByReference({references})` | read | 无 |
@@ -135,6 +136,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
     | `setRole`、`addRole`、`updateRole`、`removeRole` | write | `unknown-role`、`builtin-role`、`invalid-value`、`write-conflict`、`settings-unavailable` |
     | `setKey`、`clearKey` | write | `unknown-provider`、`invalid-value`、`credentials-unavailable`、`settings-unavailable`、`partially-applied` |
     | `refreshSource({provider})`：受理即回，结果经 `changed` 的快照交（输出 25）；会写缓存 | write | `unknown-provider`、`no-credentials`、`settings-unavailable` |
+    | `refreshCatalog({})`：现在取一次在线目录（网络页的“现在更新”），受理即回、已在取时不另发，结果经快照的 `catalog`（`enabled`、`refreshing`、`checkedAt`、`modelCount`、`error`）交 | write | `catalog-disabled`（启动环境关掉了在线目录） |
     | `check({provider, model})` | read | `unknown-provider`、`unknown-model` |
     | `detectApi({provider, model?})`：协议检测（输出 26） | read | `unknown-provider`、`no-credentials`、`no-model` |
     | `adoptApi({provider, api, connection})`：采纳检测出的协议 | write | `unknown-provider`、`connection-changed`、`invalid-value`、`write-conflict`、`settings-unavailable` |

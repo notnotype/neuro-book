@@ -171,6 +171,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections`（list）、`settings.pages`（page）与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
 | 模型服务 | [`models/service.md`](models/service.md) | `nbook.models`：服务商与模型的配置、凭据库与 `env:`、模型角色与解析、写入只经服务端、检测与发现、远程合同 |
 | 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
+| 网络出口与代理 | [`network/egress.md`](network/egress.md) | `nbook.network` 与 nb-host 的网络出口：跟随系统、自定义、直连的选路，环境变量与各平台系统代理的读法，选不出路的失败，服务商自己的代理，“网络”页（测试代理、模型目录的现在更新） |
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
 | Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
 | Agent 的运行保护 | [`agent/run-guards.md`](agent/run-guards.md) | `nbook.agent` 默认装上的扩展：费用告警与上限、重复工具调用的提醒与停止；重发次数与卡死超时的设置、设置分区 |
