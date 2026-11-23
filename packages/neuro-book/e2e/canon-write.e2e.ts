@@ -141,6 +141,10 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await page.keyboard.type("星瑕是第三魔法学院的一年级学生。");
     await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
     await expect(tabDot(page)).toHaveCount(1);
+    // Tab 离开输入框，走到这一块后面的“在这里加一块”（不留在框里缩进）；再回到输入框里。
+    await page.keyboard.press("Tab");
+    await expect(textBlocks(page).nth(0).locator("[data-text-add]")).toBeFocused();
+    await focusBlock(page, 0);
     // 焦点在代码输入框里按 Ctrl+S：经“保存”命令提交这一页，只提交一次。
     await page.keyboard.press("Control+s");
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("一年级学生");
@@ -232,6 +236,26 @@ test("同一块两边都改了（验收 16）：另一个窗口先提交，这�
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（别处改的）");
     await expect(entryPage(page).locator("[data-entry-text]")).not.toContainText("（这边改的）");
     await expect(tabDot(page)).toHaveCount(0);
+});
+
+test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回普通文本框，照样能改、能提交", async ({page}) => {
+    // 拦掉 Monaco 的分包：这一页里它加载不了。
+    await page.route("**/assets/editor.all-*.js", (route) => route.abort());
+    await open(page);
+    await openEntry(page, "人物", "星瑕");
+    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    const fallback = textBlocks(page).nth(0).locator("[data-code-input-fallback]");
+    await expect(fallback).toBeVisible();
+    await expect(textBlocks(page).nth(0).locator("[data-code-input-failure]")).toBeVisible();
+    const before = await fallback.inputValue();
+    await fallback.fill(`${before}（文本框里改的）`);
+    await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
+    await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
+    await expect(tabDot(page)).toHaveCount(0);
+    // 被拦掉的请求在控制台里各有一条“加载失败”，是这条用例自己造的。
+    errors = errors.filter((message) => !message.includes("Failed to load resource") && !message.includes("Failed to fetch dynamically imported module"));
 });
 
 test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值；条目页开着时 Agent 又改了，页上出 Agent 提示，从提示撤销", async ({page}) => {
