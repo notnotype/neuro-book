@@ -132,6 +132,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             chapters: (input) => withWorld((service) => read(input.view === undefined ? service.chapters() : service.viewed(own(input.view)).chapters())),
             components: () => withWorld((service) => within(service.components())),
             render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(own(input.view)).render(input.entry, input.position, input.mode, input.audience))),
+            renderSource: (input) => withWorld((service) => read(service.renderSource(input.entry, input.source, position(service, input.position), input.mode))),
             preview: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "preview");
                 if (refused !== null) return refused;

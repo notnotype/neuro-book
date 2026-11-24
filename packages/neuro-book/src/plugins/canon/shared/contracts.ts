@@ -207,6 +207,8 @@ const methods = {
     /** 登记的 Component 类型与字段声明（canon.components 输出 21）；带不带视图令牌一样。 */
     components: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
     render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
+    /** 把一段没提交的源文字当作条目的主文字渲染给作者（canon.rendering 输出 16）；不收视图令牌（作者界面的预览用）。 */
+    renderSource: {input: Type.Object({entry: Type.String(), source: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode}), output: Out, effect: "read", errors},
     /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
     preview: {input: Type.Object({request: Type.Union([WriteRequestSchema, Type.Object({revert: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String())})]), view: View}), output: Out, effect: "read", errors},
     outcome: {input: Type.Object({requestId: Type.String()}), output: Out, effect: "read", errors},
@@ -389,6 +391,8 @@ export interface CanonOutputs {
     readonly chapters: ReadStamp & {readonly items: readonly ChapterItem[]};
     readonly components: ReadStamp & {readonly items: readonly ComponentType[]};
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
+    /** 同 `render` 给作者的形状，`blocks` 只有一块（id 为 `source`）。 */
+    readonly renderSource: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
     /** 存下来的对象；不存在时 `object` 为 null。 */
     readonly object: {readonly version: number; readonly object: unknown};
     readonly lines: {readonly version: number; readonly lines: readonly {readonly id: string; readonly name: string; readonly parent: string; readonly fork: string; readonly type: string; readonly who?: string; readonly cut: string; readonly trigger?: string; readonly exists: {readonly actual: boolean; readonly planned: boolean}; readonly unbuildable: string | null; readonly built: boolean; readonly resident: boolean}[]};

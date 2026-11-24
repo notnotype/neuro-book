@@ -41,6 +41,21 @@ export function renderEntryForAuthor(world: World, entry: string, position: Read
     return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAuthor(block.id, block.source, shared))};
 }
 
+/** 按给的源文字渲染时那一块的 id（rendering.md 输出 16）：不是存下来的块，不与 `b` 加号的块 id 重复。 */
+export const SOURCE_BLOCK_ID = "source";
+
+/**
+ * 把一段还没存下的源文字当作这个条目的主文字渲染给作者（rendering.md 输出 16）：求值的上下文与渲染存下来的块相同，结果是
+ * 一块。不写入，也不过写入的队列：过不了写入检查的源文字照出错的块给（纯文本与诊断），由调用方显示。
+ */
+export function renderSourceForAuthor(world: World, entry: string, source: string, position: ReadPosition, mode: Mode): EntryRender<AuthorBlock> {
+    const engine = world.lineAt(position, mode)?.engine;
+    if (engine === undefined) return "line-not-found";
+    const view = engine.entry(entry, position, mode);
+    if (view === "chapter-not-found" || view === null) return view;
+    return {version: world.version, position, mode, blocks: [renderBlockForAuthor(SOURCE_BLOCK_ID, source, context(engine, world, entry, position, mode, {}))]};
+}
+
 export function renderEntryForAgent(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AgentBlock> {
     const engine = world.lineAt(position, mode)?.engine;
     if (engine === undefined) return "line-not-found";

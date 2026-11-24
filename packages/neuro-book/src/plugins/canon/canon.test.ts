@@ -311,6 +311,38 @@ describe("canon.project：世界服务在项目子进程里", () => {
         keep.release();
     }, 30_000);
 
+    it("renderSource 与 canon.rendering 输出 16：经链路把一段没提交的源文字渲染成给作者的一块；写得不对给行、列；不写入", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const author = await windowOf(h, "browser-1", "profile-1");
+        const by = {kind: "author"} as const;
+        const created = await author.canon.call("editEntries", {input: {requestId: "source-1", by, what: "edit", title: "建两个", ops: [
+            {op: "create", id: "tmp:a", entry: {name: "学院", kind: "组织", text: ["存下来的"]}},
+            {op: "create", id: "tmp:b", entry: {name: "星瑾", kind: "人物"}},
+        ]}});
+        if (!created.ok) throw new Error(JSON.stringify(created.failure));
+        const [entry, other] = [created.value.ids["tmp:a"]!, created.value.ids["tmp:b"]!];
+
+        const rendered = await author.canon.call("renderSource", {entry, source: `# 学院\n\n院长是 <Ref id="${other}" />。`, mode: "actual"});
+        if (!rendered.ok || rendered.value === null) throw new Error("读不到渲染");
+        expect([rendered.value.version, rendered.value.mode, rendered.value.blocks.length]).toEqual([created.value.version, "actual", 1]);
+        const block = rendered.value.blocks[0] as {id: string; tree: {children: Array<{type: string; children: Array<Record<string, unknown>>}>}};
+        expect([block.id, block.tree.children.map((node) => node.type)]).toEqual(["source", ["heading", "paragraph"]]);
+        expect(block.tree.children[1]!.children.filter((node) => node.type !== "text")).toEqual([{type: "canonRef", id: other, name: "星瑾", deleted: false}]);
+
+        const broken = await author.canon.call("renderSource", {entry, source: "一段\n\n他说{+5}", mode: "actual"});
+        expect(broken.ok && broken.value?.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "no-field-expression", line: 3}), text: "一段\n\n他说{+5}"}]);
+        expect(await author.canon.call("renderSource", {entry: "e999", source: "字", mode: "actual"})).toEqual({ok: true, value: null});
+
+        // 只读：存下来的主文字与世界的版本都没变。
+        const after = await author.canon.call("textBlocks", {id: entry});
+        expect(after.ok && [after.value?.version, after.value?.blocks.map((item) => item.source)]).toEqual([created.value.version, ["存下来的"]]);
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
     it("输出 10：独占期间别的窗口写入得到 busy；持有窗口的链路断开，独占随租约订阅结束", async () => {
         const h = await projectHarness(tmp, {plugins: serverPlugins()});
         const keep = leaseOf(await h.manager.acquire("book", "test"));
