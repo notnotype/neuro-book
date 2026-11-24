@@ -1,0 +1,29 @@
+{
+    "name": "@notnotype/nb-site-web",
+    "version": "0.1.0",
+    "private": true,
+    "description": "官方站的前端：Vue 3、Vite、Tailwind 与 nb-ui；只经两个合同包认识后端的接口",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "exports": {
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "vue-tsc --noEmit"
+    },
+    "dependencies": {
+        "@notnotype/nb-ui": "workspace:*",
+        "vue": "^3.5.24"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@tailwindcss/vite": "^4.3.3",
+        "@types/bun": "^1.3.14",
+        "@vitejs/plugin-vue": "^6.0.7",
+        "tailwindcss": "^4.3.3",
+        "typescript": "^6.0.3",
+        "vite": "^8.1.4",
+        "vue-tsc": "^3.3.7"
+    }
+}

@@ -470,6 +470,103 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/nb-site-contract-tests": {
+      "name": "@notnotype/nb-site-contract-tests",
+      "version": "0.1.0",
+      "dependencies": {
+        "@notnotype/nb-site-identity-contract": "workspace:*",
+        "@notnotype/nb-site-telemetry-contract": "workspace:*",
+      },
+      "devDependencies": {
+        "@notnotype/nb-site-server": "workspace:*",
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/nb-site-identity": {
+      "name": "@notnotype/nb-site-identity",
+      "version": "0.1.0",
+      "dependencies": {
+        "@notnotype/nb-site-identity-contract": "workspace:*",
+        "hono": "^4.12.30",
+      },
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/nb-site-identity-contract": {
+      "name": "@notnotype/nb-site-identity-contract",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/nb-site-server": {
+      "name": "@notnotype/nb-site-server",
+      "version": "0.1.0",
+      "bin": {
+        "nb-site": "./src/main.ts",
+      },
+      "dependencies": {
+        "@notnotype/nb-flock": "workspace:*",
+        "@notnotype/nb-site-identity": "workspace:*",
+        "@notnotype/nb-site-identity-contract": "workspace:*",
+        "@notnotype/nb-site-telemetry": "workspace:*",
+        "@notnotype/nb-site-telemetry-contract": "workspace:*",
+        "commander": "^14.0.2",
+        "hono": "^4.12.30",
+      },
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/nb-site-telemetry": {
+      "name": "@notnotype/nb-site-telemetry",
+      "version": "0.1.0",
+      "dependencies": {
+        "@notnotype/nb-site-telemetry-contract": "workspace:*",
+        "hono": "^4.12.30",
+      },
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/nb-site-telemetry-contract": {
+      "name": "@notnotype/nb-site-telemetry-contract",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/nb-site-web": {
+      "name": "@notnotype/nb-site-web",
+      "version": "0.1.0",
+      "dependencies": {
+        "@notnotype/nb-ui": "workspace:*",
+        "vue": "^3.5.24",
+      },
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@tailwindcss/vite": "^4.3.3",
+        "@types/bun": "^1.3.14",
+        "@vitejs/plugin-vue": "^6.0.7",
+        "tailwindcss": "^4.3.3",
+        "typescript": "^6.0.3",
+        "vite": "^8.1.4",
+        "vue-tsc": "^3.3.7",
+      },
+    },
     "packages/nb-story": {
       "name": "@notnotype/nb-story",
       "version": "0.2.3",
@@ -1431,6 +1528,20 @@
     "@notnotype/nb-runtime": ["@notnotype/nb-runtime@workspace:packages/nb-runtime"],
 
     "@notnotype/nb-session": ["@notnotype/nb-session@workspace:packages/nb-session"],
+
+    "@notnotype/nb-site-contract-tests": ["@notnotype/nb-site-contract-tests@workspace:packages/nb-site-contract-tests"],
+
+    "@notnotype/nb-site-identity": ["@notnotype/nb-site-identity@workspace:packages/nb-site-identity"],
+
+    "@notnotype/nb-site-identity-contract": ["@notnotype/nb-site-identity-contract@workspace:packages/nb-site-identity-contract"],
+
+    "@notnotype/nb-site-server": ["@notnotype/nb-site-server@workspace:packages/nb-site-server"],
+
+    "@notnotype/nb-site-telemetry": ["@notnotype/nb-site-telemetry@workspace:packages/nb-site-telemetry"],
+
+    "@notnotype/nb-site-telemetry-contract": ["@notnotype/nb-site-telemetry-contract@workspace:packages/nb-site-telemetry-contract"],
+
+    "@notnotype/nb-site-web": ["@notnotype/nb-site-web@workspace:packages/nb-site-web"],
 
     "@notnotype/nb-story": ["@notnotype/nb-story@workspace:packages/nb-story"],
 
@@ -4425,6 +4536,34 @@
     "@notnotype/nb-session/@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "@notnotype/nb-session/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-contract-tests/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-contract-tests/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-identity/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-identity/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-identity-contract/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-identity-contract/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-server/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-server/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-telemetry/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-telemetry/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-telemetry-contract/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-telemetry-contract/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-site-web/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-site-web/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-story/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

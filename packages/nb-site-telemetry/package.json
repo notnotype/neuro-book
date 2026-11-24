@@ -1,0 +1,28 @@
+{
+    "name": "@notnotype/nb-site-telemetry",
+    "version": "0.1.0",
+    "private": true,
+    "description": "官方站的统计模块：自己的 SQLite 库与纯 SQL 迁移、挂在统计合同前缀下的 Hono 子应用与写入口；由 nb-site-server 装进进程",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        ".": "./src/index.ts",
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@notnotype/nb-site-telemetry-contract": "workspace:*",
+        "hono": "^4.12.30"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}
