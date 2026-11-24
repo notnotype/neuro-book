@@ -230,6 +230,14 @@ watch(page, () => {
     padding: 0 var(--space-4);
 }
 
+/*
+ * Table 默认让单元格换行，窄容器里会把列挤到一字一行。数据表格要每行一样高、放不下时横向滚动（DataTable.md 的“布局”），
+ * 所以在这里关掉换行；Table 自己的默认不变。
+ */
+.nb-data-table-body :deep(td) {
+    white-space: nowrap;
+}
+
 .nb-data-table-layer {
     position: absolute;
     inset: 0;
