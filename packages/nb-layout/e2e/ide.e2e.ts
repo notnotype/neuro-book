@@ -11,14 +11,16 @@
  * - 最大化期间点按钮不先退出（`toggleTool` 里去掉 `maximized = false`）：“最大化”用例失败，点完按钮标题条上仍是 Restore。
  * - 区展开而 `shown` 为空时不补第一个（`reconcile` 里去掉补的那一句）：“恢复宽度”用例失败，拖开的右区标题是空的。
  * - 读档不放回尺寸意图（`fromSaved` 里去掉 `setSize`）：“存取”用例失败，收着存下的左区展开后是 260 不是 320。
- * - 读档不把 `restoreSize` 放进策略：没有用例失败，也不可能有。库在收起时把节点当时的尺寸意图记成恢复尺寸，
- *   `setSize` 在收起着时也重写它，展开回到的是意图；策略里给的值在这个布局里读不到。所以“读档放回意图”才是
- *   该守的事，上一条守着它；模型测试里“重新载入后恢复尺寸还在”守的是同一个结果。
+ * - 读档不把 `restoreSize` 放进策略（三个区都改成缺省值）：本文件八个用例全过，模型测试也全过，实测过。库在收起时把
+ *   节点当时的尺寸意图记成恢复尺寸，`setSize` 在收起着时也重写它，展开回到的是意图；策略里给的值在这个布局里读不到。
+ *   所以该守的是“读档放回意图”，上一条守着它。
+ * - 分隔线停用的两条用例都失败在 `aria-disabled` 那一句上，没有走到“拖不动”的尺寸断言；就算停用被去掉，`reconcile`
+ *   也会把没有按钮的区收回去，所以“拖不动”那几句单靠 e2e 分不出是停用还是兜底挡住的，兜底由模型测试守。
  */
 
 import {expect, test, type Page} from "@playwright/test";
 
-import {boxOf, centerOf, dragTo, settled, type Point} from "./drag";
+import {boxOf, centerOf, dragTo, settled, twoFrames, type Point} from "./drag";
 import {serveExample} from "./serve";
 
 const KEY = "nb-layout-example:ide";
@@ -87,6 +89,9 @@ async function dragSash(page: Page, id: string, delta: Point): Promise<void> {
     await page.mouse.down();
     await page.mouse.move(at.x + delta.x, at.y + delta.y, {steps: 8});
     await page.mouse.up();
+    // 手势落账与过渡都要几帧：“拖不动”的用例随后断言尺寸没变，不等的话在任何变化开始之前就会通过。
+    await twoFrames(page);
+    await settled(page);
 }
 
 /** 插到按钮 `before` 前面的点：它靠条起点那一边往里 3 像素（插入位按按钮中线判，过了中线就是它后面）。 */
@@ -215,6 +220,8 @@ test("没有按钮的区：拖走最后一个时区收起，它的分隔线拖�
     await dragSash(page, "center:0", {x: 0, y: -150});
     await sash(page, "center:0").focus();
     await page.keyboard.press("Enter");
+    await twoFrames(page);
+    await settled(page);
     await expectSize(page, "bottom", 0);
     expect(Math.round((await boxOf(frame(page, "editor"))).height)).toBe(Math.round(editor.height));
 
@@ -369,5 +376,7 @@ test("存取：改宽、排序、跨条、收起之后重新载入都还原；�
         // 读档坏了之后还能照常用，并且之后的保存不再冒充原件。
         await button(page, "outline").click();
         await expectSize(page, "right", 240);
+        expect(await page.evaluate((key) => localStorage.getItem(key), BACKUP)).toBe(broken);
+        expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).not.toBe(broken);
     }
 });
