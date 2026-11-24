@@ -24,11 +24,13 @@ export interface EntryTextNode {
     readonly name?: string;
     readonly deleted?: boolean;
     readonly caption?: string;
+    /** 节点在这一块源文字里的位置（mdast 给的，行从 1 起）；换成 canon 节点的没有。 */
+    readonly position?: {readonly start: {readonly line: number}};
 }
 
 export type EntryTextBlock =
     | {readonly id: string; readonly tree: EntryTextNode}
-    | {readonly id: string; readonly error: {readonly message: string}; readonly text: string};
+    | {readonly id: string; readonly error: {readonly message: string; readonly line?: number; readonly column?: number}; readonly text: string};
 
 /** 文字里一个值指向的地址。 */
 export interface TextAddress {
