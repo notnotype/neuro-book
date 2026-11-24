@@ -33,6 +33,10 @@ const LEGACY: readonly Legacy[] = [
     {key: "copyButton.copy", zh: "复制"}, // controls/CopyButton.vue 的按钮文字（w00028 t04 新增）
     {key: "copyButton.copied", zh: "已复制"}, // 同上，复制成功的回执（新增）
     {key: "copyButton.failed", zh: "复制失败，请手动选择文字"}, // 同上，两条复制路径都失败（新增）
+    {key: "dataTable.count", params: {from: 41, to: 60, total: 1284}, zh: "第 41 到 60 条，共 1,284 条"}, // display/DataTable.vue 页脚的条数（w00037 t10 新增）
+    {key: "dataTable.countTotal", params: {total: 0}, zh: "共 0 条"}, // 同上，没有数据与窄于 480px 时的条数（新增）
+    {key: "dataTable.countUnknown", zh: "—"}, // 同上，还不知道总数时的条数（新增）
+    {key: "dataTable.retry", zh: "重试"}, // 同上，retryLabel 缺省（新增）
     {key: "detailDialog.copy", zh: "复制原文"}, // feedback/DetailDialog.vue 页脚的复制按钮（w00028 t04 新增）
     {key: "detailDialog.close", zh: "关闭"}, // 同上，页脚按钮（新增）
     {key: "detailDialog.truncated", zh: "原文过长，已截断"}, // 同上，原文被截断时块底的说明（新增）

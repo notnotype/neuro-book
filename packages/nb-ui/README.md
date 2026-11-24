@@ -133,6 +133,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`Badge`](src/components/display/Badge.md)：状态徽章。
 - [`Kbd`](src/components/display/Kbd.md)：键帽。
 - [`Table`](src/components/display/Table.md)：数据表格。
+- [`DataTable`](src/components/display/DataTable.md)：带工具条与分页的数据表格，各种状态下工具条与页脚不动。
 - [`CodeBlock`](src/components/display/CodeBlock.md)：代码块。
 - [`DiffView`](src/components/display/DiffView.md)：比较改前改后，按行、按字标出改动。
 

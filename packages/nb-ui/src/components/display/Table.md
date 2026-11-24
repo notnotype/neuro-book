@@ -12,6 +12,8 @@
 
 `loading` 为真时，正文只显示居中的 `Spinner`，不显示行或空态；否则 `rows` 为空时显示 `empty` 插槽，未提供时以 `emptyText` 作为 `EmptyState` 标题；有行时显示数据。表头在上述状态中都保留。组件没有 disabled、只读或错误状态。
 
+`stickyHeader` 为真时表头吸顶：根改为两个方向都可滚动，并占满父容器的高度（`height: 100%`、`min-height: 0`），所以父容器要有确定的高度；表头单元格贴在根的顶边，底色取面板色（`--bg-panel`），下边一条边框色的线。吸顶只能贴在最近的滚动容器上，根本来就横向滚动，外面再包一层竖向滚动时表头不会吸顶，所以竖向滚动也交给根。表格放在别的底色上时表头仍是面板色。默认 false，根只横向滚动、高度随内容。
+
 ## 数据
 
 ```ts
@@ -42,6 +44,8 @@ interface TableProps<Row extends object> {
     hoverable?: boolean;
     /** 单元格密度；可选，默认 "default" */
     density?: TableDensity;
+    /** 表头吸顶，根承担两个方向的滚动并占满父容器的高度；可选，默认 false */
+    stickyHeader?: boolean;
 }
 
 interface TableEmits<Row extends object> {

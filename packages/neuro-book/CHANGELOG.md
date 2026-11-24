@@ -7,6 +7,7 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 ### 新增
 
 - 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
+- 插件 SDK 的组件子路径加上 `DataTable`（带工具条与分页的数据表格：加载、空、出错时工具条与页脚不动，表头吸顶）；`Table` 多一个 `stickyHeader` 属性，表头吸顶。
 
 ## [0.17.0] - 2026-11-24
 

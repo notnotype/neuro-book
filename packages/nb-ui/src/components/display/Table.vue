@@ -26,10 +26,13 @@ const props = withDefaults(defineProps<{
     /** 行悬停高亮 */
     hoverable?: boolean;
     density?: TableDensity;
+    /** 表头吸顶：根承担两个方向的滚动并占满父容器的高度（Table.md 的“布局与状态”） */
+    stickyHeader?: boolean;
 }>(), {
     loading: false,
     hoverable: true,
     density: "default",
+    stickyHeader: false,
 });
 
 const emit = defineEmits<{
@@ -63,23 +66,33 @@ function alignClass(column: TableColumn<Row>): string {
     return "text-left";
 }
 
+/*
+ * 吸顶只能贴在最近的滚动容器上：根一旦横向 overflow 就是滚动容器，外面再包一层竖向滚动，表头贴的是根而不是外层，
+ * 所以吸顶时由根自己承担竖向滚动。border-collapse 下行的边框不跟着吸顶的单元格走，下边线改由表头单元格的内阴影画，
+ * 表头那一行不再画边框，免得没滚动时叠成两条线。
+ */
+const STICKY_HEAD_CELL = "sticky top-0 z-[1] bg-[var(--bg-panel)] shadow-[inset_0_-1px_0_var(--border-color)]";
+
 function cellPaddingClass(): string {
     return props.density === "compact" ? "px-3 py-1.5" : "px-3 py-2.5";
 }
 </script>
 
 <template>
-    <!-- 表格容器：窄屏横向滚动 -->
-    <div class="w-full overflow-x-auto">
+    <!-- 表格容器：窄屏横向滚动；吸顶时两个方向都在这里滚动 -->
+    <div
+        class="w-full"
+        :class="props.stickyHeader ? 'h-full min-h-0 overflow-auto' : 'overflow-x-auto'"
+    >
         <table class="w-full border-collapse text-sm">
             <thead>
-                <tr class="border-b border-[var(--border-color)]">
+                <tr :class="props.stickyHeader ? '' : 'border-b border-[var(--border-color)]'">
                     <th
                         v-for="column in props.columns"
                         :key="column.key"
                         scope="col"
                         class="whitespace-nowrap px-3 py-2 text-xs font-medium text-[var(--text-muted)]"
-                        :class="alignClass(column)"
+                        :class="[alignClass(column), props.stickyHeader ? STICKY_HEAD_CELL : '']"
                         :style="{width: column.width}"
                     >{{ column.label }}</th>
                 </tr>

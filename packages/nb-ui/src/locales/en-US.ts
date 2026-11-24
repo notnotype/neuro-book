@@ -23,6 +23,12 @@ export default {
         copied: "Copied",
         failed: "Copy failed; select manually",
     },
+    dataTable: {
+        count: "{{from, number}}–{{to, number}} of {{total, number}}",
+        countTotal: "Total: {{total, number}}",
+        countUnknown: "—",
+        retry: "Retry",
+    },
     detailDialog: {
         copy: "Copy output",
         close: "Close",

@@ -21,6 +21,7 @@ export {default as Progress} from "./display/Progress.vue";
 export {default as Skeleton} from "./display/Skeleton.vue";
 export {default as Spinner} from "./display/Spinner.vue";
 export {default as Table} from "./display/Table.vue";
+export {default as DataTable} from "./display/DataTable.vue";
 export {default as AlertDialog} from "./feedback/AlertDialog.vue";
 export {default as ContextMenu} from "./popup/ContextMenu.vue";
 export {default as Dialog} from "./feedback/Dialog.vue";

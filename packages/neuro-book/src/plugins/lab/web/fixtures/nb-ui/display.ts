@@ -5,9 +5,12 @@ import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
 
+import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
+import {SAMPLE_COLUMNS, SAMPLE_LAST_PAGE, SAMPLE_PAGE_SIZE, SAMPLE_TOTAL, samplePage} from "./data-table-sample";
+import type {SampleDataTable} from "./data-table-sample";
 
 const CHAPTER_ROWS = [
     {title: "第一章 灯塔", words: 3182, status: "已定稿", updated: "10-02"},
@@ -142,6 +145,20 @@ export const displayFixtures: LabFixture[] = [
             {id: "empty", label: "空表", input: {props: {columns: CHAPTER_COLUMNS, rows: [], emptyText: "这一卷还没有章节"}}},
         ],
         subject: nbUiSubject("Table"),
+    }),
+    // 夹具扮演使用方：翻页、重试时模拟一次取数，控制区切到各个状态；场景是各状态的起点。
+    defineLabFixture<SampleDataTable>({
+        component: "DataTable",
+        scenes: [
+            {id: "page", label: "正常一页", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(1), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 1}}},
+            {id: "last-page", label: "最后一页 6 行", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(SAMPLE_LAST_PAGE), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: SAMPLE_LAST_PAGE}}},
+            {id: "empty", label: "空", input: {props: {columns: SAMPLE_COLUMNS, rows: [], rowKey: "id", total: 0, pageSize: SAMPLE_PAGE_SIZE, emptyText: "没有符合筛选的章节"}, model: {page: 1}}},
+            {id: "initial-loading", label: "首次加载", input: {props: {columns: SAMPLE_COLUMNS, rows: [], rowKey: "id", total: null, pageSize: SAMPLE_PAGE_SIZE, loading: true}, model: {page: 1}}},
+            {id: "page-loading", label: "翻页加载", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, loading: true}, model: {page: 8}}},
+            {id: "error", label: "出错", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, error: "章节列表没有取回来，请稍后重试"}, model: {page: 7}}},
+            {id: "page-english", label: "英文界面", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 7}}},
+        ],
+        load: async () => (await import("./DataTableFixture.vue")).default,
     }),
     defineSubjectFixture<typeof Breadcrumb>({
         component: "Breadcrumb",

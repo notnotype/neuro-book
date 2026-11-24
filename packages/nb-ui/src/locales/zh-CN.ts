@@ -27,6 +27,12 @@ export default {
         copied: "已复制",
         failed: "复制失败，请手动选择文字",
     },
+    dataTable: {
+        count: "第 {{from, number}} 到 {{to, number}} 条，共 {{total, number}} 条",
+        countTotal: "共 {{total, number}} 条",
+        countUnknown: "—",
+        retry: "重试",
+    },
     detailDialog: {
         copy: "复制原文",
         close: "关闭",

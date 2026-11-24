@@ -435,3 +435,38 @@ test("通知的“详情”：开对话框，“复制原文”写进剪贴板�
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SAVE_FAILED_DETAIL);
     await insecure.close();
 });
+
+test("数据表格：表格区滚动后表头留在原处，最后一页不满时表格区照样占满、页脚贴在组件底边（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=DataTable&s=page");
+    const table = stage(page).locator(".nb-data-table");
+    // Table 的根就是表格区的滚动容器（stickyHeader），表格区的第一个子元素。
+    const scroller = table.locator(".nb-data-table-body > :first-child");
+    const head = table.locator("thead th").first();
+    // 先确认这一页在表格区里放不下：不能滚动时“表头不动”会空过。
+    const overflow = await scroller.evaluate((element) => element.scrollHeight - element.clientHeight);
+    expect(overflow).toBeGreaterThan(120);
+
+    const headBefore = (await head.boundingBox())!;
+    const firstRowBefore = (await table.locator("tbody tr").first().boundingBox())!;
+    await scroller.evaluate((element) => {
+        element.scrollTop = 120;
+    });
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(120);
+    const headAfter = (await head.boundingBox())!;
+    const firstRowAfter = (await table.locator("tbody tr").first().boundingBox())!;
+    expect(firstRowAfter.y).toBeCloseTo(firstRowBefore.y - 120, 0);
+    expect(headAfter.y).toBeCloseTo(headBefore.y, 1);
+
+    // 缺省的手机画布只有 352px 高，6 行正好放满；换成高一些的画布，最后一页才留得出空白。
+    await openScene(page, "c=DataTable&s=last-page&vp=1100x800");
+    await expect(table.locator("tbody tr")).toHaveCount(6);
+    const box = (await table.boundingBox())!;
+    const body = (await table.locator(".nb-data-table-body").boundingBox())!;
+    const foot = (await table.locator(".nb-data-table-foot").boundingBox())!;
+    const lastRow = (await table.locator("tbody tr").last().boundingBox())!;
+    // 行没有占满：最后一行下面留着空白，页脚仍在底部、紧接着表格区。
+    expect(lastRow.y + lastRow.height).toBeLessThan(body.y + body.height - 100);
+    expect(foot.y + foot.height).toBeCloseTo(box.y + box.height, 1);
+    expect(foot.y).toBeCloseTo(body.y + body.height, 1);
+});

@@ -17,7 +17,7 @@ import type {SashGestureCancelReason as CancelReason, SashGestureSource as Sourc
 export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
-    ContextMenu, CopyButton, DateInput, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
+    ContextMenu, CopyButton, DataTable, DateInput, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
     EmptyState, Field, IconButton, ImagePreviewDialog, InfoTip, Input, Kbd,
     Menubar, Notification, NotificationStack, NumberInput, OverlayScrollbar,
     Pagination, Popover, Progress, QuickPick, RadioGroup, ScrollArea, SearchSelect,
