@@ -29,7 +29,7 @@ owners:
 
 ## 输入与前置条件
 
-三个写入口在遥测写入口地址下，请求体是 JSON，至多 16 KiB；不需要也不接受登录凭据。请求的 `Content-Type` 是 `application/json`，不带 `Content-Encoding`（或为 `identity`），否则按 `invalid_report` 拒收。写入口不回应跨域预检：它不给网页用。
+三个写入口在遥测写入口地址下，请求体是 JSON，至多 16 KiB；不需要也不接受登录凭据。请求的 `Content-Type` 是 `application/json`（按媒体类型本身精确比较，可带参数），不带 `Content-Encoding`（或为 `identity`），否则按 `invalid_report` 拒收。写入口不回应跨域预检：它不给网页用。
 
 `POST /v1/daily`：
 
@@ -40,11 +40,11 @@ owners:
 | `appVersion` | 匿名 | 语义化版本号，至多 32 个字符 |
 | `channel` | 匿名 | `canary`、`preview`、`stable` |
 | `form` | 匿名 | `desktop`、`cli` |
-| `os`、`osMajor`、`arch` | 匿名 | `windows`、`macos`、`linux`、`other`；系统大版本（见下文的取值表，其余 `other`）；`x64`、`arm64`、`other` |
+| `osVersion`、`arch` | 匿名 | 系统与它的大版本合成的一个取值（见下文的取值表）；`x64`、`arm64`、`other` |
 | `locale` | 匿名 | 界面语言（见下文的取值表），其余 `other` |
 | `region` | 匿名 | 八个大区之一（见下文的取值表），由发送方从本机时区换算；换算不出时发 `other` |
 | `daysSinceLast` | 匿名 | `first`、1 到 28 的整数、`more` |
-| `installWeek` | 匿名 | 形如 `2026-W48` 的周；安装满 12 周后发 `older` |
+| `installWeek` | 匿名 | 形如 `2026-W48` 的周（ISO 周）；安装满 12 周后发 `older`。只收服务端日所在周往前 13 周到往后 1 周之间的周，之外的按取值不合格拒收 |
 | `usageEnabled` | 匿名 | 布尔 |
 | `noticeSeen` | 匿名 | `wizard`、`workbench`、`settings` |
 | `usage` | 使用 | 见下表；只在使用档打开时出现 |
@@ -53,7 +53,7 @@ owners:
 
 | 字段 | 取值 |
 |---|---|
-| `errors` | 至多 50 项 `{owner, code, count}`：`owner` 是应用自带插件的 id（名单在合同包的清单里，随使用档的版本发布），其余 `other`；同一对 `owner` 与 `code` 至多出现一次；`code` 是 1 到 64 个字符的小写字母、数字、点、下划线、连字符；`count` 是次数分档 |
+| `errors` | 至多 50 项 `{owner, code, count}`：`owner` 是应用自带插件的 id（名单在合同包的清单里，随使用档的版本发布），其余 `other`；同一对 `owner` 与 `code` 至多出现一次；`code` 是使用档清单里这个 `owner` 名下列出的错误码（码表在合同包的清单里），清单里没有的由发送方记成 `other`；`owner` 为 `other` 时 `code` 只能是 `other`；`count` 是次数分档 |
 | `crashes` | 次数分档 |
 | `upgrade` | `none`、`succeeded`、`failed` |
 
@@ -63,13 +63,13 @@ owners:
 
 | 字段 | 取值 |
 |---|---|
-| `osMajor` | `os` 为 `windows` 时 `10`、`11`；为 `macos` 时 `13`、`14`、`15`、`26`、`27`；其余一律 `other`（Linux 的内核版本不收） |
+| `osVersion` | `windows-10`、`windows-11`、`windows`（别的大版本）；`macos-13`、`macos-14`、`macos-15`、`macos-26`、`macos-27`、`macos`（别的大版本）；`linux`（内核版本不收）；`other` |
 | `locale` | `zh-CN`、`en-US`、`other` |
 | `region` | `east-asia`、`southeast-asia`、`south-asia`、`europe`、`north-america`、`latin-america`、`middle-east-africa`、`oceania`、`other` |
 
 `POST /v1/heartbeat`：`manifest`、`appVersion`、`form`。
 
-`POST /v1/event`：`manifest`、`reportId`、`appVersion`、`form`、`kind`（`crash`、`upgrade_failed`）、`code`（规则同上表的 `code`，可省）。立即事件属于使用档：`manifest.usage` 必填，`kind` 与 `code` 按使用档的版本校验；使用档版本比服务端新时照服务端认识的最新版本处理，不丢弃整条。
+`POST /v1/event`：`manifest`、`reportId`、`appVersion`、`form`、`kind`（`crash`、`upgrade_failed`）、`code`（使用档清单里为这个 `kind` 列出的码，其余 `other`；可省）。每日上报与立即事件的编号各自去重，互不相干。立即事件属于使用档：`manifest.usage` 必填（缺了按 `manifest` 不合格拒收，`field` 是 `manifest.usage`），`kind` 与 `code` 按使用档的版本校验；使用档版本比服务端新时照服务端认识的最新版本处理，不丢弃整条。
 
 ## 输出与可观察行为
 
@@ -114,7 +114,7 @@ owners:
 
 - 收集清单是公开合同，带中英文的字段说明；应用里的收集项说明与官网的“我们收集什么”由它生成。
 - 清单的变更分三种，各自提高所属档的版本：只加取值或改说明；新增字段或改分档表；使用档新增类别。分档表改了算新的版本，不与旧版本的数混在同一个序列里。
-- 匿名档版本比服务端新的上报按服务端认识的最新版本记入（输出 5）。所以改了分档表、或加了取值的新版本，要先让服务端升级到认识它，再发带这个版本的应用；顺序反了时，前一种会把新旧两种分档记进同一个序列，后一种里用到新取值的上报会被整份拒收。
+- 匿名档版本比服务端新的上报按服务端认识的最新版本记入（输出 5）。所以改了分档表、或加了取值的新版本，要先让服务端升级到认识它，再发带这个版本的应用；顺序反了时，前一种会把新旧两种分档记进同一个序列，后一种里用到新取值的上报会被整份拒收。把服务端换回上一个版本时同样如此。
 - 写入口的路径带 `v1`；不兼容的改动用新的路径，旧路径保留到旧版本的应用不再上报。
 - 信任边界：服务端把每个字段都当不可信输入。
 
