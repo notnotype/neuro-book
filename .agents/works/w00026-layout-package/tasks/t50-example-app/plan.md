@@ -1,4 +1,4 @@
-# t50 计划：官方示例应用（标签编组）
+# t50 计划：官方示例应用（标签编组），第 2 稿
 
 ## Context
 
@@ -30,102 +30,140 @@
 
 ## 关键设计
 
+第 2 稿按设计审查第 1 轮（[报告](evidences/design-review-r1.txt)，重要 7、建议 11，都成立）修订；每处改动后括号里写审查条号。
+
 ### `packages/nb-layout/examples/tabbed-panels/`
 
-一个独立的 Vite 项目，第三方把目录拷走、`npm install` 就能跑。不是工作区成员（根 `workspaces` 不登记，不加包要登记的那串位置）：在仓库里，它的 `@notnotype/nb-layout`、`vue`、`vite` 从根 `node_modules` 解析（`@notnotype/nb-layout` 是指到 `packages/nb-layout` 的工作区链接，读源码入口）。
+一个独立的 Vite 项目，第三方把目录拷走、`npm install` 就能跑。不是工作区成员（根 `workspaces` 不登记）：在仓库里，它的 `@notnotype/nb-layout`、`vue`、`vite` 从根 `node_modules` 解析（`@notnotype/nb-layout` 是指到 `packages/nb-layout` 的工作区链接，读源码入口；审查在 TS 5.9.3、`skipLibCheck: false` 下实测 0 错误）。
 
 文件（行数是预估上限，体验审查同类分项的数在括号里）：
 
-- `package.json`：`private`，依赖 `@notnotype/nb-layout: "^<当前版本>"`、`vue`，开发依赖 `vite`、`@vitejs/plugin-vue`、`vue-tsc`、`typescript`（版本与发布冒烟的空宿主一致）；脚本 `dev`、`build`、`typecheck`。
-- `tsconfig.json`、`vite.config.ts`、`index.html`：同发布冒烟的空宿主（`strict`、`skipLibCheck: false`）。
-- `README.md`：目录、概念与阅读顺序（先 `model.ts`，再 `drop.ts`，再 `App.vue`），怎么跑；写明它绕过的库空缺（见下）。不贴代码片段。
-- `src/main.ts`：导入 `style.css`，挂载。界面文字用英文，不注入文字（库缺省就是英文，示例展示“不接文字也能用”；接文字的写法 README 已有）。
-- `src/model.ts`（约 120，体验审查 120 + 存取 30）：编组与标签的模型。
-  - 状态：`groups: Map<groupId, {tabs: string[], active: string}>`，加一棵 `Grid<string>`（叶的 `ref` 是编组 id，侧栏叶的 `ref` 是 `"explorer"`）。
-  - 操作，每个返回是否成功、成功后由调用方 `host.invalidate()` 与保存：`activate`、`closeTab`（编组空了就 `removeLeaf`）、`moveTab(tab, toGroup, index)`、`splitWithTab(tab, targetGroup, side)`（`splitLeaf` 出新编组；被拒，例如 `limit-exceeded`，就什么都不改）。来源编组空了，删叶与挪标签在同一个同步段里做。
-  - 存取：`save()` 写 `localStorage` 一个键（网格快照、编组表、侧栏收起状态，带格式版本）；`load()` 用 `createGrid(null, {sashSize})` 加 `restore(快照, 解析)`，解析函数按 `ref` 查策略表（侧栏的 `sizing`、`minimumSize`、`collapse`）；版本不认识、结构坏、`restore` 失败或 `dropped` 非空时，原件另存到备份键、用缺省布局，不覆盖原件（README“约定”推荐的做法的完整版）。
-- `src/drop.ts`（约 50，体验审查 37 + 指示几何 55 的一部分）：落点规则，纯函数。
-  - 标签条上：`resolveListInsertion` 判插在哪两个标签之间；
-  - 编组正文上：`resolveGridEdgeDrop` 判四边，中央是“移进这个编组”；
-  - 自己那组只有这一个标签时，拆到自己的边与移进自己都不是落点；拖到自己标签条上是重排。
+- `package.json`：`private`、`"license": "MIT"`，依赖只有 `@notnotype/nb-layout: "^<当前版本>"`、`vue`，开发依赖只有 `vite`、`@vitejs/plugin-vue`、`vue-tsc`、`typescript`；脚本 `dev`、`build`、`typecheck`。**它是这几个版本的唯一出处**：发布冒烟的空宿主也从这里读依赖版本，不再另写一份（12）。
+- `LICENSE`：MIT 全文（目录被拷走后包的 `LICENSE` 就不在旁边了，13）。
+- `tsconfig.json`：`strict`、`skipLibCheck: false`、`types: ["vite/client"]`（`types: []` 在 TS 6 下对 `import "…/style.css"` 报 TS2882，审查实测；包的对等依赖接 TS 6，1）。`vite.config.ts`、`index.html` 照常。
+- `README.md`：目录、概念与阅读顺序（先 `model.ts`，再 `drop.ts`，再 `App.vue`），怎么跑；它跟着仓库 master 上的 nb-layout，可能用到还没发布的名字，照已发布版本抄的读者看对应版本的标签（12）；写明它绕过的库空缺与已知限制（见下）。不贴代码片段。
+- `src/main.ts`：导入 `style.css`；开发构建里在挂载前调 `setLayoutDevChecks(import.meta.env.DEV)`（库不读构建环境，开不开由宿主定，18）；挂载。界面文字用英文，不注入文字（库缺省就是英文，示例展示“不接文字也能用”；接文字的写法 README 已有）。
+- `src/model.ts`（约 150，体验审查模型 120 + 存取 30）：编组与标签的模型。
+  - 状态：`groups: Map<groupId, {tabs: string[], active: string}>` 加一棵 `Grid<string>`（编组叶的 `ref` 是编组 id，侧栏叶的 `ref` 是 `"explorer"`）。模型对象放在 `shallowRef` 里，每个操作成功后由调用方 `host.invalidate()`（树变了）并让编组表的响应式更新（编组表用 `reactive` 的 `Map`），再保存（8）。
+  - **编组的策略只有一个出处**：`groupPolicy()` 给 `minimumSize`（标签条放得下两个标签的宽、标签条加一行正文的高）；建缺省布局、`splitLeaf` 建新编组、载入时的解析函数都用它，载入前后同一个编组的约束相同（9）。侧栏的策略（`sizing: "fixed"`、`minimumSize`、`collapse`）同样一处。
+  - **id**：新编组 `group-<n>`、新分支 `split-<n>`，`n` 取模型里现有同类 id 的最大序号加一（每次现算，不用模块里的计数器：重新载入后计数器从头数，会撞 id，`splitLeaf` 回 `duplicate-id`，3）。
+  - 操作，每个返回 `{ok: true} | GridFailure`：`activate`、`closeTab`、`moveTab(tab, toGroup, index)`、`splitWithTab(tab, targetGroup, side)`。
+    - 来源编组空了：删叶与挪标签在同一个同步段里做。
+    - **最后一个编组的最后一个标签不能关**：关闭按钮不画；`load()` 把“没有编组叶”判为存档坏（根只剩侧栏时它会被展平成占满全宽的单叶、`fixed` 失效、存档之后永远回不来，审查实测，2）。
+    - 拆分被拒（`limit-exceeded`、`duplicate-id`）时模型不变，失败交回调用方，界面在状态行里显示 `message`（落点上看不出会被拒，只在拒绝之后说明原因；不在判落点时复算库的深度口径，14）。
+  - 存取：
+    - `save()` 写 `localStorage` 一个键：`{version: 1, grid: 快照, groups, explorerCollapsed}`。收起状态不在快照里，单独存（README“约定”的做法）。`onApplied`、结构操作之后、`host.setCollapsed` 之后都调（`setCollapsed` 不触发 `onApplied`，5）。
+    - `load()`：读出、解析、`validate`，通过才 `createGrid(null, {sashSize})` 加 `restore(快照, 解析)`；解析函数按 `ref` 给侧栏或编组的策略，存档里收起状态放进侧栏的 `collapse`。
+    - **存档坏的判据**（`validate` 与 `restore` 的结果合起来，10）：读 `localStorage` 抛错；JSON 解析失败；`version` 不认识；字段形状不对；`restore` 失败或 `dropped` 非空；树里没有编组叶；编组表与树里的编组叶不是一一对应；同一个标签出现在两个编组；某编组 `tabs` 为空或 `active` 不在 `tabs` 里。
+    - 坏了：原件原样另存到备份键（写备份抛错时不覆盖原键），用缺省布局，状态行说明“读档失败，原件留在备份里”；之后的保存写主键。
+    - `save()` 抛错（存储满、隐私模式）时不让它冒进 `onApplied`：捕获后写进状态行并 `console.warn`，布局照常（10）。
+- `src/drop.ts`（约 60，体验审查落点 37 + 指示几何的一部分）：落点规则，纯函数，输入是这一刻量到的矩形。
+  - 标签条上：`resolveListInsertion` 判插在哪两个标签之间；插入位等于来源原位（自己前后两条缝）时不是落点。
+  - 编组正文上：`resolveGridEdgeDrop` 判四边，中央是“移进这个编组”。
+  - 自己那组只有这一个标签时，拆到自己的边与移进自己都不是落点；移进自己所在的编组不是落点。
+  - 侧栏、分隔线、网格外面都不是落点。
   - 落点形状 `{kind: "insert", group, index} | {kind: "split", group, side} | {kind: "into", group}`，加 `actionKey`。
-- `src/TabBar.vue`（约 40，体验审查 28）：一个编组的标签条：按钮、选中、关闭按钮（关闭按钮不起拖：`sourceAt` 排除它）；带 `data-tab`、`data-group` 供会话认来源与落点。
-- `src/App.vue`（约 150，体验审查 143 + 拖动适配 65）：
-  - `useGridHost({grid, contextKey, onApplied: save})` 绑到 `NestedGrid`；叶插槽按 `ref` 画侧栏或编组（标签条加正文）。
-  - 内容项标 `leave: "retain"`：关掉最后一个标签时编组缩回去再卸载（经 `NestedGrid` 的内容层，不只用叶插槽）。
-  - `useDragSession(网格外框, …)`：`sourceAt` 认标签；`activate` 冻结这一场的几何（各标签条、各编组正文的视口矩形）；`resolve` 调 `drop.ts`；`commit` 调 `model.ts` 的操作，然后 `invalidate` 与保存；`onActiveChange` 写拖动中的光标。
+- `src/TabBar.vue`（约 60，体验审查 28）：一个编组的标签条。
+  - `role="tablist"`，标签是 `role="tab"`、`aria-selected`；漫游 `tabindex`，左右键在标签之间走（15）。
+  - 关闭按钮在标签里（不画在最后一个编组的最后一个标签上），带 `data-tab-close`；关掉之后焦点给这个编组新选中的标签（15）。
+  - 带 `data-tab`、`data-group` 供会话认来源与落点；高度是一个 CSS 变量，`App.vue` 给内容项的 `insetTop` 读同一个常数（7）。
+- `src/TabPanel.vue`（约 20）：一个标签的正文：一个 `textarea`（叶里有能聚焦的东西，F6 才进得去；换标签、挪编组后打的字还在，演示内容项换叶不重建）。**数据经属性传进来**，不按 key 去查编组表：关掉最后一个标签那一帧，留住的内容是冻结的插槽调用，查已删的数据会抛错（`NestedGrid.md` 内容层的推荐写法，7）。
+- `src/App.vue`（约 170，体验审查应用层 143 + 拖动适配 65 的一部分）：
+  - `useGridHost({grid, contextKey, onApplied: save})` 绑到 `NestedGrid`；叶插槽按 `ref` 画侧栏或编组的标签条；正文经内容层，内容项 `{key: tab, leaf: group, insetTop, active, leave: "retain"}`：关掉最后一个标签时编组缩回去再卸载。`paneLabel` 给编组的显示名（“Group 2”），读屏不念生成的 id（18）。
+  - `content-parked`：焦点在被停放的正文里时，交给那个编组选中的标签（15）。
+  - `useDragSession(网格外框, …)`（8、4、6）：
+    - `sourceAt` 认 `[data-tab]`，排除 `[data-tab-close]`；
+    - 不冻结几何：`resolve` 每次现量（标签条与标签的矩形、编组正文按 `[data-content-leaf]` 取叶外框上的正文区域），落点指示手感下布局整场不变，现量不会读到过渡中间的值，也跟得上标签条滚动与窗口缩放；
+    - `NestedGrid` 绑 `:dragging="state !== null"`；
+    - `commit` 调 `model.ts` 的操作，成功后 `invalidate` 与保存，失败写状态行；
+    - `onActiveChange` 写拖动中的光标。
   - 落点反馈：`DropFeedbackOverlay`，预览矩形由落点算（插入是一条竖线，拆分是那半边，移进是整块正文），文字英文。
-  - 侧栏收起按钮走 `host.setCollapsed`，收起状态从网格读（同 README 起步）。
+  - 侧栏收起按钮走 `host.setCollapsed`，之后保存；收起状态从网格读（同 README 起步）。
   - F6、Shift+F6 调 `moveGridFocus`，返回真才 `preventDefault`。
-  - 主题：在根上设几个 `--nb-layout-*` 变量，演示换外观（名单来自 `NB_LAYOUT_THEME_VARS`，示例只设几个，注释里说其余用缺省）。
+  - 状态行：读档失败、保存失败、拆分被拒的原因；平时空着。
+  - 主题：在根上设几个 `--nb-layout-*` 变量演示换外观（名单来自 `NB_LAYOUT_THEME_VARS`，示例只设几个，注释说其余用缺省）。
 
-**注释**：示例是给第一次接入的人读的，按教学材料写：逐步讲这一步做什么、为什么、不这样会怎样；不引 Spec 条目编号，要讲的规则直接写出来。这需要把“教学注释”的例外从 `plugin-sdk/examples/` 扩到 `packages/nb-layout/examples/`（`docs/standards/code/common.md` 的注释一节与根 `AGENTS.md` 的摘要各改一句）；记进待确认清单。
+**注释**：示例是给第一次接入的人读的，按教学材料写：逐步讲这一步做什么、为什么、不这样会怎样；不引 Spec 条目编号，要讲的规则直接写出来；讲解随 e2e 一起改。注释的语言跟包的说明走（现在是中文；提案“公开入口”一节说包内说明的语言随第二档另定，到时一起改，17）。
 
-**绕过的库空缺**（实施中撞到的照实补，记进 Work“后续”，不在 t50 里加接口）：
+**绕过的库空缺与已知限制**（写进示例 README；实施中撞到新的照实补，记进 Work“后续”，不在 t50 里加接口）：
 
-- 没有 `grid.clone()`：示例不需要预览树（落点指示手感不改布局），撞不到；写一句“实时布局要克隆时用 serialize 加 restore”。
+- 没有 `grid.clone()`：落点指示手感不改布局，示例撞不到；写一句“实时布局要克隆时用 serialize 加 restore”。
 - 没有方向焦点：F6 只有前后两向，示例照用。
 - `NestedGrid` 不是泛型组件：叶插槽里 `node.ref` 是 `unknown`，示例收窄一次。
 - 会话没有缺省的“交互元素不起拖”过滤与拖影：`sourceAt` 自己排除关闭按钮；不画拖影。
 - 没有 `restoreOrKeep`：`model.ts` 的 `load` 就是它的完整写法。
+- 同向拆分造出同向嵌套的分支，连续拆越来越深，到 16 层被拒；删叶会把只剩一个孩子的分支展平，分支自己的约束会丢，所以示例只给叶挂策略（9）。
+- 落点上看不出拆分会被拒，拒了才在状态行说（14）。
 
 ### `packages/nb-layout`（脚本与测试）
 
-- `package.json` 的 `typecheck` 末尾加 `vue-tsc --noEmit -p examples/tabbed-panels/tsconfig.json`：CI 的 `test:affected --typecheck` 按包跑 `typecheck`，示例里的改动算 nb-layout 受影响，两次发布之间库的类型变了、示例跟不上时 CI 就挂。
-- 新增 `test:e2e`：先 `vite build` 示例，再 `playwright test -c e2e/playwright.config.ts`。`e2e/playwright.config.ts` 照 nb-story 的写（本机 Chrome、Node 运行、输出目录按检出分开）；被测的静态服务由用例自己起停（`node:http` 读示例的 `dist`，端口 0）；`e2e/tsconfig.json` 照 nb-story 的写，`typecheck` 一并检查它。
-- `src/examples.test.ts`（bun test）：示例 `package.json` 里 `@notnotype/nb-layout` 的范围要接得住包的当前版本（提版时示例跟着改）；示例只从四个公开入口与 `style.css` 导入 `@notnotype/nb-layout`（扫 `src/` 里的导入语句，深导入就失败）。
+- `package.json`：
+  - `typecheck` 末尾加 `vue-tsc --noEmit -p examples/tabbed-panels/tsconfig.json` 与 `tsc --noEmit -p e2e/tsconfig.json`：CI 的 `test:affected --typecheck` 按包跑 `typecheck`，两次发布之间库的类型变了、示例跟不上时 CI 就挂。
+  - 新增 `test:e2e`：先 `vite build` 示例，再 `playwright test -c e2e/playwright.config.ts`。
+  - 开发依赖加 `@playwright/test`（与 nb-story 同范围）与 `@types/node`；`bun.lock` 随之改，这次提交会让 CI 的 `test:affected` 选中全部包，只此一次（11）。
+- `e2e/playwright.config.ts`、`e2e/tsconfig.json` 照 nb-story 的写（本机 Chrome、Node 运行、输出目录按检出分开）。被测的静态服务由用例自己起停：`node:http` 读示例的 `dist`，端口 0，按扩展名给 `Content-Type`（模块脚本要 `text/javascript`，18）。
+- `src/examples.test.ts`（bun test，13）：
+  - 示例 `package.json`：`license` 是 MIT，依赖与开发依赖正好是上面列的那几个，`@notnotype/nb-layout` 的范围接得住包的当前版本（提版时示例跟着改）。
+  - 示例里每条导入的说明符（`.ts` 与 `.vue` 的 `<script>`，含 `import type`、`export … from`、动态 `import()`）只能是：以 `./` 开头且解析后仍在示例目录里；`vue`；`@notnotype/nb-layout` 与 `/vue`、`/text`、`/locales`、`/style.css`。`../` 指进包源码、`@notnotype/nb-ui`、`@notnotype/nb-workbench-layout` 都失败。
+  - 示例的文件里没有 Spec 条目编号（同 `readme.test.ts` 的写法）。
 - `README.md`：在“起步”之后加一节“示例应用”，一句话说它演示什么，GitHub 链接到示例目录；“我要做 X”表里“一组可拖的东西”“拖到边缘、插到两项之间的落点几何”“落点反馈”三行加一句“示例见 tabbed-panels”。
+
+接受的代价（11）：`test-affected.ts` 按包目录取受影响的包，示例目录的改动算 nb-layout 有改动，经依赖闭包带上 nb-workbench-layout、dev-panel、nb-story、neuro-book 的测试。改一行示例注释也跑这些。不为它在 `test-affected.ts` 里加子路径例外：示例改动少，加例外是一条只服务它的特例。
 
 ### `scripts/release/pack-smoke.ts`
 
-`smokeLayoutHost` 之后加 `smokeLayoutExample`：把 `packages/nb-layout/examples/tabbed-panels/` 拷进冒烟临时根，依赖改成这次的包来源（`from.spec`、`from.overrides`，同空宿主），`bun install`、`vue-tsc`（不跳过库检查）、`vite build`。证明示例照第三方的装法能对着发布出去的类型与产物编译、打包；浏览器里的行为由仓库内的 e2e 覆盖（两者跑的是同一份示例源码，产物与源码在运行期的差别由起步例子的浏览器检查覆盖）。nb-layout 还是 `private` 时同样跳过。
+- 空宿主与示例共用一份依赖版本：`smokeLayoutHost` 的依赖行改成读示例 `package.json` 的依赖与开发依赖、只把 `@notnotype/nb-layout` 换成这次的包来源；空宿主的 `tsconfig` 也改成 `types: ["vite/client"]`（1、12）。
+- 新增 `smokeLayoutExample`：从示例目录只拷 `package.json`、`LICENSE`、`tsconfig.json`、`vite.config.ts`、`index.html`、`src/`（不带 `node_modules`、`dist`，12）进冒烟临时根，把 `@notnotype/nb-layout` 换成 `from.spec`、加 `from.overrides`，`bun install`、`vue-tsc`（不跳过库检查）、`vite build`。证明示例照第三方的装法能对着发布出去的类型与产物编译、打包。浏览器里的行为由仓库内的 e2e 覆盖：两者跑的是同一份示例源码，产物与源码在运行期的差别由起步例子的浏览器检查覆盖。nb-layout 还是 `private` 时同样跳过。
 
 ## Spec 与文档改动
 
 - Spec 不改：示例不引入新行为。
-- `docs/standards/code/common.md` 注释一节的“例外：示例插件”扩成两处示例目录；根 `AGENTS.md` 注释一节的摘要同步一句（根 `AGENTS.md` 有别的会话未提交的改动，只暂存这一行）。
-- `packages/nb-layout/AGENTS.md`：“许可与发布”加一条：`examples/` 是 MIT、不随包发布、只经公开入口，与包同样不从 AGPL 的代码搬内容。
+- `docs/standards/code/common.md` 注释一节：现有“例外：示例插件”不动，另加一条“例外：nb-layout 的示例”：读者是第三方开发者，可以逐步讲解，但不引 Spec 条目编号，要讲的规则直接写出来；讲解随示例的 e2e 改；示例 README 只做目录、概念与阅读顺序（17）。根 `AGENTS.md` 注释一节的摘要加半句指到它（根 `AGENTS.md` 有别的会话未提交的改动：用 `git update-index --cacheinfo` 只提交自己这一行）。
+- `packages/nb-layout/AGENTS.md`：“许可与发布”加一条：`examples/` 是 MIT、不随包发布、只经公开入口（`examples.test.ts` 核对），与包同样不从 AGPL 的代码搬内容。
 - `packages/nb-layout/CHANGELOG.md`：不写（示例不在包里，用户装到的东西没变）。
 - 发版手册不改：冒烟多一步，手册写的是命令，不列步骤。
 
 ## 切片
 
-1. **示例本体**：`examples/tabbed-panels/` 全部文件。自跑：示例目录 `vue-tsc --noEmit`、`vite build`，`bun run dev` 起来手动拖一遍（开发服务经 `run_in_background`，结束停掉）。
-2. **仓库里的检查**：`typecheck` 接上示例、`examples.test.ts`、`test:e2e` 与 e2e 用例、README 一节与注释例外。自跑：`bun run --cwd packages/nb-layout typecheck`、`bun test src/examples.test.ts`、`bun run --cwd packages/nb-layout test:e2e`、`bun run --cwd packages/nb-layout test`（`readme.test.ts`）、`bun run docs:check`、`bun run governance:check`。
-3. **发布冒烟**：`smokeLayoutExample`。自跑：`prox bun run release:smoke`（本机来源，工作树干净时）。
+1. **示例本体**：`examples/tabbed-panels/` 全部文件。自跑：示例目录 `vue-tsc --noEmit`、`vite build`，`bun run dev` 起来手动拖一遍（开发服务经 `run_in_background`，结束停掉）。不在示例目录里 `npm install`（会留一份 `node_modules` 盖住根的 Vue，12）。
+2. **仓库里的检查**：`typecheck` 接上示例与 e2e、`examples.test.ts`、`test:e2e` 与 e2e 用例、README 一节、注释例外与 nb-layout `AGENTS.md`。自跑：`bun run --cwd packages/nb-layout typecheck`、`bun run --cwd packages/nb-layout test`（含 `examples.test.ts`、`readme.test.ts`）、`bun run --cwd packages/nb-layout test:e2e`、`bun run docs:check`、`bun run governance:check`。
+3. **发布冒烟**：空宿主读示例的依赖、`smokeLayoutExample`。自跑：`prox bun run release:smoke`（本机来源，工作树干净时）。
 
-一片一个提交；切片 1 与 2 写在同一个 worktree（`.worktree/w00026-t50-example`，分支 `w00026/t50-example`），全部做完再合入。切片 1 后派一次实现审查（前端，Sonnet，后台不阻塞），切片 3 后收口。
+一片一个提交；都写在 worktree `.worktree/w00026-t50-example`（分支 `w00026/t50-example`），全部做完再合入。切片 2 后派一次实现审查（前端，Sonnet，后台不阻塞），切片 3 后收口。
 
 ## 验收映射
 
-示例不新增 Spec 条目；e2e 按示例的行为写，每条对应一个用例（`packages/nb-layout/e2e/tabbed-panels.e2e.ts`）：
+示例不新增 Spec 条目；e2e 按示例的行为写（`packages/nb-layout/e2e/tabbed-panels.e2e.ts`）。拖动统一经一个辅助函数走四步：起拖、移动到目标、**等落点反馈出现**、松手（会话只在最后显示过的动作与松手时相同时提交，反馈没出就松手是 `no-action`，5）；起拖前等网格上没有进行中的过渡（`[data-moving]` 消失，4）。
 
 | 行为 | 用例 |
 |---|---|
-| 打开是缺省布局：侧栏加三个编组，各有标签，点标签切换正文 | 缺省布局 |
-| 把标签拖到别的编组标签条的两个标签之间，插在那里；来源编组的其余标签还在 | 拖进别的标签条 |
+| 打开是缺省布局：侧栏加三个编组，各有标签，点标签切换正文；方向键在标签之间走 | 缺省布局 |
+| 把标签拖到别的编组标签条的两个标签之间，插在那里；来源编组的其余标签还在；正文里打的字跟着走 | 拖进别的标签条 |
+| 同一条标签条里换位置；拖回自己原来的位置没有落点反馈，松手不变 | 同组重排 |
 | 拖到编组正文中央，移进那个编组、排在最后、成为选中 | 拖进编组正文 |
-| 把一个编组的最后一个标签拖到另一个编组的右边缘，右边拆出新编组，来源编组消失 | 拖到边缘拆分 |
-| 拖动中出现落点反馈，按 Escape 取消，布局与标签都不变 | 取消 |
-| 在关闭按钮上按下拖动不起拖 | 关闭按钮不起拖 |
-| 关掉编组的最后一个标签，编组缩回去后从页面上消失 | 关闭最后一个标签 |
-| 拖宽侧栏、收起侧栏、拆分之后重新载入，布局、标签与收起状态都还原 | 存取 |
-| 存档被改坏后载入：用缺省布局，原件留在备份键里 | 读失败保留原件 |
+| 把一个编组的最后一个标签拖到另一个编组的右边缘，右边拆出新编组，来源编组消失；拖到下边缘，下面拆出新编组 | 拖到边缘拆分 |
+| 单标签编组的标签拖到自己的边或正文、拖到侧栏与分隔线上：没有落点反馈，松手不变 | 不是落点的地方 |
+| 同一条拖动路径：先松手确认布局变了；再从同一起点走一遍、等反馈出现后按 Escape，反馈消失、布局与标签同起点 | 取消（同路径对照，16） |
+| 在关闭按钮上按下拖动不起拖（没有落点反馈） | 关闭按钮不起拖 |
+| 关掉编组的最后一个标签，编组缩回去后从页面上消失；焦点落在别处的标签上而不是 `body`；只剩一个编组一个标签时没有关闭按钮 | 关闭标签 |
+| 拖宽侧栏、收起侧栏、重新载入：宽度与收起状态都还原（收起之后不做别的操作，5）；拆分之后重新载入，标签与布局还原；**载入之后再拆分成功** | 存取 |
+| 存档坏的三种（JSON 坏、编组表缺一个编组、同一标签在两个编组）各载一次：用缺省布局、状态行说明、原件原样在备份键里 | 读失败保留原件 |
 | F6、Shift+F6 在侧栏与编组之间移动焦点 | F6 |
 
-否定断言（“不起拖”“不变”）先做变异检查再算数：例如去掉 `sourceAt` 里对关闭按钮的排除，“关闭按钮不起拖”要失败。
+否定断言先做变异检查再算数：去掉 `sourceAt` 对关闭按钮的排除，“关闭按钮不起拖”要失败；去掉 `drop.ts` 对原位的排除，“同组重排”的原位一步要失败；去掉“收起之后保存”，“存取”的收起一步要失败。取消一条的取消逻辑在库里、示例里没有可变异的代码，用同路径对照代替（16）。
 
 ## 验证
 
 - 仓库内：上面切片 2 的命令；e2e 前看负载。
 - 发布冒烟：切片 3 的本机冒烟。registry 来源的冒烟在下次发 nb-layout 时跑，本 Task 不发版。
-- 行数证据：按体验审查的分项（模型、落点、标签条、拖动适配、指示几何、应用层）数示例的行数，写进 t50 README。
-- 未验证边界：示例在 Vite 以外的打包器；触摸拖动（会话支持，示例的 e2e 只测指针）；键盘拖动（示例不接，见“不做”）。
+- 行数证据：按体验审查的“落点指示版”口径（模型、落点、标签条、拖动适配的指示版 65、指示几何 55、应用层）数示例的行数，写进 t50 README，并写明实时布局的适配层示例没有覆盖。
+- 未验证边界：Vite 以外的打包器；触摸拖动（会话支持，e2e 只测指针）；键盘拖动（示例不接）；拆分被拒的状态行（要 16 层或 256 个节点才触发，e2e 不种这样的存档，从代码看它与另两种失败走同一条显示路径）；TS 6 下的示例类型检查（仓库与冒烟都装 5.9，审查实测过 `vite/client` 那一处，其余未验证）。
 
 ## 不做与风险
 
 - **不做实时布局的手感**：示例只做落点指示一种。实时布局要克隆树、冻结几何、做卡片，形状已有 `live-drag-session.md` 与 Lab 的卡片互拖场景；两种都放进一个示例会让它翻倍、读者分不清哪些是必需的。要做时另开一个示例。记进待确认清单。
-- **不接键盘拖动**：会话支持，但要给区域与停点，示例会再长约 50 行。记进待确认清单。
+- **不接键盘拖动**：会话支持，但要给区域与停点，示例会再长约 50 行。标签条的键盘与语义做了（`tablist`、方向键、关闭后的焦点）。记进待确认清单。
+- 不做新建标签与编组：最后一个标签不让关就够了；新建要一个“新标签”的来源与命名，与布局库无关。
 - 不做浮动窗、`SortableList`、`Splitter` 的示例：README 的表已指到它们的说明。
 - 风险：示例不是工作区成员，靠根 `node_modules` 的提升解析依赖；哪天依赖不再提升到根，示例的类型检查会在 CI 报找不到模块，而不是静默通过。
-- 风险：示例的依赖版本（`vite`、`vue-tsc`）与仓库实际装的不同，第三方装到的与 CI 检的不一样；`examples.test.ts` 只核 nb-layout 的范围，其余靠发布冒烟按第三方的装法装一次。
+- 风险：示例跟着 master，可能用到 npm 上还没有的名字；冒烟用的是这次打的包，看不出这种偏差。示例 README 写明（12）。
