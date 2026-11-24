@@ -123,9 +123,11 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         };
         const response = await sendReport(site.url, "daily", report);
         expect(response.status).toBe(200);
-        const body = response.body as {readonly dropped: readonly string[]; readonly duplicate: boolean};
+        const body = response.body as {readonly serverDay: string; readonly dropped: readonly string[]; readonly duplicate: boolean};
         expect(body.duplicate).toBe(false);
         expect([...body.dropped].sort()).toEqual(["extra", "manifest.x", "usage.errors.x", "usage.x"]);
+        // “其余字段照常记入”：同一个编号再发一次是重发、回第一次的服务端日，说明第一次确实记入了。
+        expect(outcome(await sendReport(site.url, "daily", report))).toMatchObject({status: 200, body: {serverDay: body.serverDay, duplicate: true}});
     });
 
     it("C4 按清单逐个字段造不合格的值：缺字段、不在取值表里、整数越界、写法不对，各自 400 并指向那个字段（输出 4、12）", async () => {
@@ -172,16 +174,22 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         for (const {field, got} of [...dailyResults, ...eventResults]) expect({field, got}).toEqual({field, got: invalid(field)});
     });
 
-    it("C5 匿名档版本比服务端新：200；使用档版本比服务端新：200，使用段整段丢弃并列在 dropped 里（输出 5，验收 4）", async () => {
-        const newerAnonymous = await sendReport(site.url, "daily", {...dailyReport(), manifest: {anonymous: LATEST_ANONYMOUS_MANIFEST.version + 1}});
-        expect(outcome(newerAnonymous)).toMatchObject({status: 200, body: {duplicate: false, dropped: []}});
+    it("C5 匿名档版本比服务端新：200；使用档版本比服务端新：200，使用段整段丢弃并列在 dropped 里；两种都被记入（输出 5，验收 4）", async () => {
+        const now = await serverNow(site);
+        const anonymousReport = {...dailyReport(), manifest: {anonymous: LATEST_ANONYMOUS_MANIFEST.version + 1}};
+        const newerAnonymous = await sendReport(site.url, "daily", anonymousReport);
+        expect(outcome(newerAnonymous)).toEqual({status: 200, body: {serverDay: utcDate(now), duplicate: false, dropped: []}});
         // 使用段的内容不看：里面写什么都整段丢弃。
-        const newerUsage = await sendReport(site.url, "daily", {
+        const usageReport = {
             ...dailyReport({withUsage: true}),
             manifest: {anonymous: LATEST_ANONYMOUS_MANIFEST.version, usage: LATEST_USAGE_MANIFEST.version + 1},
             usage: {errors: "anything", future: 1},
-        });
-        expect(outcome(newerUsage)).toMatchObject({status: 200, body: {duplicate: false, dropped: ["usage"]}});
+        };
+        const newerUsage = await sendReport(site.url, "daily", usageReport);
+        expect(outcome(newerUsage)).toEqual({status: 200, body: {serverDay: utcDate(now), duplicate: false, dropped: ["usage"]}});
+        // “匿名档字段被记入”：同一个编号再发一次是重发，回第一次的服务端日。
+        expect(outcome(await sendReport(site.url, "daily", anonymousReport))).toEqual({status: 200, body: {serverDay: utcDate(now), duplicate: true, dropped: []}});
+        expect(outcome(await sendReport(site.url, "daily", usageReport))).toEqual({status: 200, body: {serverDay: utcDate(now), duplicate: true, dropped: ["usage"]}});
     });
 
     it("C6 usageEnabled 为假却带使用段：400，指向 usage（输出 6，验收 3）", async () => {
@@ -221,7 +229,7 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         for (const needle of [cookie, credential]) expect({needle, found: placesContaining(site, dataDir, needle)}).toEqual({needle, found: []});
     });
 
-    it("C11 请求体恰好 16384 字节不是 413；16385 字节与分块传输的大请求体 413；过大且内容类型不对时先报内容类型（输出 11、13）", async () => {
+    it("C11 请求体恰好 16384 字节不是 413；16385 字节与分块传输的大请求体 413、16384 字节的分块请求 200；过大且内容类型不对时先报内容类型（输出 11、13）", async () => {
         const padded = (bytes: number): string => {
             const report = dailyReport();
             const bare = JSON.stringify({...report, pad: ""});
@@ -236,13 +244,16 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         expect(outcome(await sendReport(site.url, "daily", undefined, {body: over}))).toEqual({status: 413, body: {code: "payload_too_large"}});
 
         // 流式的请求体没有 Content-Length，按分块传输发：服务端边读边数。
-        const chunked = new ReadableStream<Uint8Array>({
-            start(controller) {
-                controller.enqueue(new TextEncoder().encode(padded(20_000)));
-                controller.close();
-            },
-        });
-        expect(outcome(await sendReport(site.url, "daily", undefined, {body: chunked}))).toEqual({status: 413, body: {code: "payload_too_large"}});
+        const chunked = (text: string): ReadableStream<Uint8Array> =>
+            new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(text));
+                    controller.close();
+                },
+            });
+        expect(outcome(await sendReport(site.url, "daily", undefined, {body: chunked(padded(20_000))}))).toEqual({status: 413, body: {code: "payload_too_large"}});
+        // 不超过上限的分块请求照常收：服务端把读过的块重新交给后面的步骤。
+        expect(outcome(await sendReport(site.url, "daily", undefined, {body: chunked(padded(INGEST_MAX_BODY_BYTES))}))).toMatchObject({status: 200, body: {duplicate: false, dropped: ["pad"]}});
 
         expect(outcome(await sendReport(site.url, "daily", undefined, {body: over, headers: {"Content-Type": "text/plain"}}))).toEqual(invalid(null));
     });

@@ -4,8 +4,10 @@
  *
  *     bun packages/nb-site-telemetry/scripts/measure-ingest.ts [每轮毫秒数，缺省 10000]
  *
- * 起真实的 `nb-site serve`（按路径起进程入口，本包不能依赖它），钉在 0、1 两个核上；压测端是另一个进程，钉在其余的核上，
- * 每轮 C 个并发循环发请求。每日上报带使用段与两项错误（走校验与存储里最重的那条路径），每份的编号都不同。
+ * 起真实的 `nb-site serve`，钉在 0、1 两个核上。被测程序与合同测试取法相同：设了 `NB_SITE_SERVER_COMMAND`（JSON 数组的 argv，
+ * 例如镜像打好的 `["bun","--no-env-file","/abs/dist/image/server.js"]`）就用它；没设时按路径起同一个检出里的源码入口
+ * `nb-site-server/src/main.ts`（本包不能依赖入口包，只按路径起）。启动时打印实际起的命令。
+ * 压测端是另一个进程，钉在其余的核上，每轮 C 个并发循环发请求。每日上报带使用段与两项错误（走校验与存储里最重的那条路径），每份的编号都不同。
  * 限流额度给到上限，数据目录建在系统临时目录下、跑完删掉。需要 Linux 的 `taskset` 与至少 3 个核。
  */
 
@@ -18,6 +20,18 @@ import {INGEST_PATHS, LATEST_ANONYMOUS_MANIFEST, LATEST_USAGE_MANIFEST, type Ing
 
 const TELEMETRY_URL = "https://telemetry.measure.test";
 const SERVER_ENTRY = join(import.meta.dir, "../../nb-site-server/src/main.ts");
+const SERVER_COMMAND_ENV = "NB_SITE_SERVER_COMMAND";
+
+/** 被测程序的 argv（不含子命令）：见文件头。设得不对时报错，不退回缺省，免得量错对象。 */
+function serverCommand(): string[] {
+    const raw = process.env[SERVER_COMMAND_ENV];
+    if (raw === undefined || raw === "") return [process.execPath, SERVER_ENTRY];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((part) => typeof part === "string" && part !== "")) {
+        throw new Error(`${SERVER_COMMAND_ENV} must be a JSON array of non-empty strings`);
+    }
+    return parsed as string[];
+}
 
 /** 每一轮：压哪个写入口、几个并发。 */
 const ROUNDS: readonly {readonly kind: Extract<IngestKind, "daily" | "heartbeat">; readonly concurrency: number}[] = [
@@ -155,7 +169,9 @@ async function main(durationMs: number): Promise<void> {
         NB_SITE_PORT: "0",
         NB_SITE_TELEMETRY_RATE_LIMIT: "1000000",
     };
-    const server = Bun.spawn(["taskset", "-c", "0,1", process.execPath, SERVER_ENTRY, "serve"], {env, stdout: "pipe", stderr: "inherit"});
+    const command = serverCommand();
+    console.log(`server command: ${JSON.stringify(command)} serve`);
+    const server = Bun.spawn(["taskset", "-c", "0,1", ...command, "serve"], {env, stdout: "pipe", stderr: "inherit"});
     const logLines = {lines: 0};
     try {
         const url = await listen(server.stdout, logLines);

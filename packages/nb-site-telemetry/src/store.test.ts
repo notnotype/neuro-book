@@ -254,11 +254,20 @@ describe("库一时用不了（输出 10）", () => {
         expect((error as SQLiteError).code).toBe("SQLITE_FULL");
     });
 
-    it("别的错误不算：不是 SQLite 的错误、约束类错误", () => {
+    it("别的错误不算：不是 SQLite 的错误、约束类错误、同一条连接上的 LOCKED", () => {
         expect(isDbUnavailable(new Error("database is locked"))).toBe(false);
         const db = root.open();
         const error = thrownBy(() => db.query("INSERT INTO telemetry_aggregate_cursor (source, last_id) VALUES ('daily', 1)").run());
         expect((error as SQLiteError).code).toBe("SQLITE_CONSTRAINT_PRIMARYKEY");
         expect(isDbUnavailable(error)).toBe(false);
+
+        // 同一条连接上一条语句还读着一张表时对它改结构：SQLite 回 LOCKED，是程序错误。
+        db.exec("CREATE TABLE scratch (x INTEGER) STRICT; INSERT INTO scratch VALUES (1), (2)");
+        const reading = db.query("SELECT x FROM scratch").iterate();
+        reading.next();
+        const locked = thrownBy(() => db.exec("DROP TABLE scratch"));
+        reading.return?.();
+        expect((locked as SQLiteError).code).toBe("SQLITE_LOCKED");
+        expect(isDbUnavailable(locked)).toBe(false);
     });
 });

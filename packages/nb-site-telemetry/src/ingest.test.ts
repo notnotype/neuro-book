@@ -102,6 +102,37 @@ describe("取不到来源地址（site.telemetry-ingest 输出 9 的前提，sit
     });
 });
 
+describe("发送方没发完请求体就断开", () => {
+    /**
+     * 照 Bun 在对端断开时的做法造请求：先 abort 请求的 signal，请求体的流再以 `AbortError` 出错（真实进程上的复现见
+     * w00037 t06 的 Task 记录）。`contentLength` 为真时带 `Content-Length`，读的是 `c.req.text()`；否则是分块传输，
+     * 由 `bodyLimit` 边读边数。
+     */
+    function abandoned(contentLength: boolean): Request {
+        const controller = new AbortController();
+        const half = new TextEncoder().encode(JSON.stringify(dailyBody()).slice(0, 40));
+        const body = new ReadableStream<Uint8Array>({
+            start(stream) {
+                stream.enqueue(half);
+            },
+            pull(stream) {
+                controller.abort();
+                stream.error(new DOMException("The connection was closed.", "AbortError"));
+            },
+        });
+        const headers: Record<string, string> = {"Content-Type": "application/json", ...(contentLength ? {"Content-Length": "400"} : {})};
+        return new Request(`http://telemetry.test${INGEST_PATHS.daily.slice(TELEMETRY_INGEST_PREFIX.length)}`, {method: "POST", headers, body, signal: controller.signal, duplex: "half"} as RequestInit);
+    }
+
+    it("按读不成请求体回 400 invalid_report、field 为 null，不抛给入口（入口会记成 error 行与 500）", async () => {
+        for (const contentLength of [true, false]) {
+            const response = await module.ingest.request(abandoned(contentLength));
+            expect({contentLength, status: response.status, body: await response.json()}).toEqual({contentLength, status: 400, body: {code: "invalid_report", field: null}});
+        }
+        expect(lines).toEqual([]);
+    });
+});
+
 describe("库被别的连接占着写（site.telemetry-ingest 输出 10）", () => {
     let release: () => void;
 

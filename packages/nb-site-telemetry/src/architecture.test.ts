@@ -2,6 +2,11 @@
  * 本包的结构守卫：来源地址只在写入口里取（docs/specs/site/telemetry-ingest.md 输出 8）。`clientAddress` 的调用只许出现在
  * `ingest.ts`，那里取到就交给限流器、不写日志；别的文件要来源地址，得先回到这条 Spec 说清它去哪。
  * 守卫按源码文字找调用（`clientAddress(`、`clientAddress?.(`），传递与声明（`clientAddress: …`）不算。规则带反例，证明它拦得下。
+ *
+ * 它只是提醒，不是“不留来源地址”的防线：它只数直接调用，换个名字（`const where = options.clientAddress; where(c)`）、
+ * `.call`、方括号取属性、绕过入口直接读转发头，以及取到之后在 `ingest.ts` 里写进日志，它都看不见；去注释的正则也会把
+ * 同一行字符串里 `//` 之后的调用当成注释。真正的防线是合同用例 C13（`nb-site-contract-tests` 的 `telemetry-ingest.test.ts`：
+ * 进程的输出与数据目录的文件里找不到来源地址的任何写法），从外面看行为。
  */
 
 import {describe, expect, it} from "bun:test";

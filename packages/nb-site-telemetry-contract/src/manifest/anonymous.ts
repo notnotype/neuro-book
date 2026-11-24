@@ -128,8 +128,8 @@ const ANONYMOUS_V1: AnonymousManifest = deepFreeze({
             tier: "anonymous",
             required: true,
             description: {
-                "zh-CN": "应用是在哪一周安装的（ISO 周，例如 2026-W48），安装满 12 周后不再发具体的周。用来看新用户之后还在不在用。服务端只收它的日期所在周往前 13 周到往后 1 周之间的周，之外的整份不收。",
-                "en-US": "The week the app was installed (an ISO week, such as 2026-W48); after 12 weeks the exact week is no longer sent. Used to see whether new users keep using the app. The server only accepts weeks from 13 weeks before to 1 week after its current week and rejects the whole report otherwise.",
+                "zh-CN": "应用是在哪一周安装的（ISO 周，例如 2026-W48），安装满 12 周后不再发具体的周。用来看新用户之后还在不在用。",
+                "en-US": "The week the app was installed (an ISO week, such as 2026-W48); after 12 weeks the exact week is no longer sent. Used to see whether new users keep using the app.",
             },
             // 这里只管写法；“服务端日所在周往前 13 周到往后 1 周”要服务端的日期，是服务端的规则（协议字段表），不进 schema。
             schema: Type.Union([Type.String({pattern: "^\\d{4}-W(0[1-9]|[1-4]\\d|5[0-3])$"}), Type.Literal("older")]),

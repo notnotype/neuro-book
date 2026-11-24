@@ -7,7 +7,7 @@
  * 2. 取来源地址，取不到回 503；
  * 3. 限流：从这里起每个请求都计入，包括后面被判 400、413 的；
  * 4. 请求体上限（`hono/body-limit`）；
- * 5. 读请求体、解析 JSON；
+ * 5. 读请求体、解析 JSON（第 4、5 步读到一半发送方断开时同样按读不成回 400，见 `uploadAbandoned`）；
  * 6. 取一次时间，按它的服务端日校验（`validate.ts`）；
  * 7. 用同一个时间写库（`store.ts`），回应。
  * 只有 `POST` 有路由：别的方法与跨域预检落到入口的 404，也就不回跨域头（协议：写入口不给网页用）。
@@ -62,6 +62,15 @@ function acceptsReportBody(c: Context): boolean {
     return encoding === undefined || encoding.trim().toLowerCase() === "identity";
 }
 
+/**
+ * 读请求体失败时，是不是发送方没发完就断开了：这时 Bun 已经 abort 了请求的 `signal`（读的 reject 是 `AbortError`）。
+ * 桌面应用关机、断网、休眠时中途断开是常态，不是程序错误，所以按“请求体读不成”回 400 `invalid_report`、`field` 为 null
+ * （响应已经没人收），不抛给入口的 `onError` 记成 error 行与 500。`signal` 没 abort 的读失败照常抛。
+ */
+function uploadAbandoned(c: Context): boolean {
+    return c.req.raw.signal.aborted;
+}
+
 function failure(c: Context, code: Exclude<IngestErrorCode, "invalid_report">): Response {
     return c.json({code}, INGEST_ERROR_STATUS[code]);
 }
@@ -100,7 +109,20 @@ export function createIngestApp(options: IngestOptions): Hono {
         await next();
     };
 
-    const sizeLimit = bodyLimit({maxSize: INGEST_MAX_BODY_BYTES, onError: (c) => failure(c, "payload_too_large")});
+    const limitBody = bodyLimit({maxSize: INGEST_MAX_BODY_BYTES, onError: (c) => failure(c, "payload_too_large")});
+    // 分块传输的请求体由 `bodyLimit` 边读边数，发送方在这时断开，读的 reject 从它这里出来；`next()` 之后的错误不归这里管。
+    const sizeLimit: MiddlewareHandler = async (c, next) => {
+        let passed = false;
+        try {
+            return await limitBody(c, async () => {
+                passed = true;
+                await next();
+            });
+        } catch (error) {
+            if (passed || !uploadAbandoned(c)) throw error;
+            return invalidReport(c, null);
+        }
+    };
 
     const logDbUnavailable = (code: string, nowMs: number): void => {
         const last = dbUnavailableLoggedAt.get(code);
@@ -113,7 +135,13 @@ export function createIngestApp(options: IngestOptions): Hono {
     const handler =
         <K extends IngestKind>(kind: K, write: Writer<K>) =>
         async (c: Context): Promise<Response> => {
-            const text = await c.req.text();
+            let text: string;
+            try {
+                text = await c.req.text();
+            } catch (error) {
+                if (!uploadAbandoned(c)) throw error;
+                return invalidReport(c, null);
+            }
             let body: unknown;
             try {
                 body = JSON.parse(text);
