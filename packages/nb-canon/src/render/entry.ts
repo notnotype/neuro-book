@@ -10,6 +10,7 @@ import {LOCAL_ID_PREFIX} from "../core/ids";
 import type {Block, ReadPosition} from "../core/schema";
 import type {Engine, Mode} from "../engine/types";
 import type {World} from "../world/world";
+import {parseDraft} from "./syntax";
 import {renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type RenderContext, renderBlockPlain, type PlainBlock, type PlainContext} from "./render";
 
 /** 渲染结果带着读取它的版本、位置与模式：回写时照带（rendering.md 输出 12）。 */
@@ -53,7 +54,7 @@ export function renderSourceForAuthor(world: World, entry: string, source: strin
     if (engine === undefined) return "line-not-found";
     const view = engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
-    return {version: world.version, position, mode, blocks: [renderBlockForAuthor(SOURCE_BLOCK_ID, source, context(engine, world, entry, position, mode, {}))]};
+    return {version: world.version, position, mode, blocks: [renderBlockForAuthor(SOURCE_BLOCK_ID, source, context(engine, world, entry, position, mode, {}), parseDraft)]};
 }
 
 export function renderEntryForAgent(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AgentBlock> {

@@ -88,6 +88,14 @@ export function parseBlock(source: string): ParseResult {
     return result;
 }
 
+/**
+ * 解析一段没存下来的源文字（按给的源文字渲染，rendering.md 输出 16）：结果不进缓存。缓存是给存下来的块用的，它们的原文稳定；
+ * 预览的源文字作者每停顿一次就换一份，留下来的全是再也用不到的整篇与语法树。缓存里正好有（与某个存下来的块相同）就用。
+ */
+export function parseDraft(source: string): ParseResult {
+    return cache.get(source) ?? parseUncached(source);
+}
+
 function parseUncached(source: string): ParseResult {
     let tree: Root;
     try {

@@ -11,6 +11,7 @@ import type {ShallowRef} from "vue";
 
 import type {ReadPosition} from "@notnotype/nb-canon/schema";
 
+import {RENDER_SOURCE_MAX} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import type {EntryTextBlock} from "./components/entry-text";
 
@@ -70,6 +71,11 @@ export function useTextPreview(options: TextPreviewOptions): TextPreview {
         const input = options.input();
         if (input === null) return;
         const mine = ++sent;
+        // 太长的不发（世界服务也会拒）：解析的时间随长度涨，项目进程在这期间做不了别的。
+        if (input.source.length > RENDER_SOURCE_MAX) {
+            failure.value = "too-large";
+            return;
+        }
         const result = await options.call("renderSource", input);
         if (mine !== sent) return;
         if (!result.ok) {

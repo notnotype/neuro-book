@@ -21,7 +21,7 @@ import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {componentsPoint, type ComponentContribution} from "./shared/components";
-import {CANON_BUDGET_BYTES, canonClientKey} from "./shared/contracts";
+import {CANON_BUDGET_BYTES, canonClientKey, RENDER_SOURCE_MAX} from "./shared/contracts";
 import type {CanonClient, CanonEvent} from "./shared/contracts";
 import {publish, serverPlugins, until, version, windowOf} from "./testing/harness";
 import {CANON_PROBE_ID, PROBE_DIAGNOSTIC, PROBE_MARK} from "./testing/probe-plugin";
@@ -334,6 +334,9 @@ describe("canon.project：世界服务在项目子进程里", () => {
         const broken = await author.canon.call("renderSource", {entry, source: "一段\n\n他说{+5}", mode: "actual"});
         expect(broken.ok && broken.value?.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "no-field-expression", line: 3}), text: "一段\n\n他说{+5}"}]);
         expect(await author.canon.call("renderSource", {entry: "e999", source: "字", mode: "actual"})).toEqual({ok: true, value: null});
+        // 太长的不渲染：正好到上限的照常，多一个字符就拒。
+        expect((await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX), mode: "actual"})).ok).toBe(true);
+        expect(await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX + 1), mode: "actual"})).toMatchObject({ok: false, failure: {code: "too-large"}});
 
         // 只读：存下来的主文字与世界的版本都没变。
         const after = await author.canon.call("textBlocks", {id: entry});

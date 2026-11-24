@@ -36,6 +36,12 @@ export type {LineOption} from "./reads";
 /** 请求与读取结果经 JSON 编码后的上限：远程消息上限减 64 KiB，留给帧包络（输出 18）。 */
 export const CANON_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024;
 
+/**
+ * `renderSource` 一次肯渲染的源文字长度（字符数；canon.rendering 输出 16）。解析的时间随长度涨（量过：10 万字符约 0.24 秒，
+ * 20 万约 0.36 秒，100 万约 1.5 秒），项目进程在这期间做不了别的，而预览是作者每停顿一下就读一次。
+ */
+export const RENDER_SOURCE_MAX = 200_000;
+
 /** 远程调用原样的结果：业务失败的码是 `canon`、详情是 nb-canon 的失败对象；别的码是路由层的失败。 */
 export type RemoteRaw = {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly code: string; readonly detail?: unknown; readonly cause?: unknown};
 
@@ -207,7 +213,10 @@ const methods = {
     /** 登记的 Component 类型与字段声明（canon.components 输出 21）；带不带视图令牌一样。 */
     components: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
     render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
-    /** 把一段没提交的源文字当作条目的主文字渲染给作者（canon.rendering 输出 16）；不收视图令牌（作者界面的预览用）。 */
+    /**
+     * 把一段没提交的源文字当作条目的主文字渲染给作者（canon.rendering 输出 16）；不收视图令牌（作者界面的预览用）。`source`
+     * 超过 `RENDER_SOURCE_MAX` 时回 `too-large`，不渲染。
+     */
     renderSource: {input: Type.Object({entry: Type.String(), source: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode}), output: Out, effect: "read", errors},
     /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
     preview: {input: Type.Object({request: Type.Union([WriteRequestSchema, Type.Object({revert: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String())})]), view: View}), output: Out, effect: "read", errors},

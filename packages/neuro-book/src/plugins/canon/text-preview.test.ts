@@ -12,6 +12,7 @@ import type {ReadPosition} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {until} from "./testing/harness";
+import {RENDER_SOURCE_MAX} from "./shared/contracts";
 import {textScene} from "./testing/text-scene";
 import type {SceneWindow, TextScene} from "./testing/text-scene";
 import type {EntryTextNode} from "./web/components/entry-text";
@@ -48,8 +49,14 @@ function deskOf(window: SceneWindow, entry: string) {
     const stamp = shallowRef(0);
     const timers: Array<{run(): void; ms: number; cancelled: boolean}> = [];
     const scope = effectScope();
+    /** 发出去的渲染请求数。 */
+    let calls = 0;
+    const call: SceneWindow["canon"]["call"] = (method, input) => {
+        if (method === "renderSource") calls += 1;
+        return window.canon.call(method, input);
+    };
     const preview = scope.run(() => useTextPreview({
-        call: window.canon.call,
+        call,
         input: (): PreviewInput | null => (source.value === null ? null : {entry, source: source.value, position: at, mode: "actual"}),
         stamp: () => stamp.value,
         schedule: (run, ms) => {
@@ -62,6 +69,7 @@ function deskOf(window: SceneWindow, entry: string) {
         source,
         stamp,
         preview,
+        calls: () => calls,
         shown: () => words(preview.block.value?.tree),
         /** 还等着的延后执行。 */
         waiting: () => timers.filter((timer) => !timer.cancelled),
@@ -176,6 +184,25 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
         desk.stamp.value += 1;
         await until(() => desk.preview.failure.value === null);
         expect(desk.shown()).toBe("断着的时候写的");
+        desk.dispose();
+    }));
+
+    it("整篇超过一次肯渲染的长度：不发请求，原因是 too-large，留着上一次的；改短了照常读", () => inScene(async (scene) => {
+        const entry = await scene.seed([]);
+        const desk = deskOf(await scene.window("browser-1"), entry);
+        desk.source.value = "短的";
+        await until(() => desk.shown() === "短的");
+        const before = desk.calls();
+        desk.source.value = "字".repeat(RENDER_SOURCE_MAX + 1);
+        await nextTick();
+        desk.fire();
+        await until(() => desk.preview.failure.value !== null);
+        expect([desk.preview.failure.value, desk.calls() - before, desk.shown()]).toEqual(["too-large", 0, "短的"]);
+        desk.source.value = "又短了";
+        await nextTick();
+        desk.fire();
+        await until(() => desk.shown() === "又短了");
+        expect(desk.preview.failure.value).toBeNull();
         desk.dispose();
     }));
 
