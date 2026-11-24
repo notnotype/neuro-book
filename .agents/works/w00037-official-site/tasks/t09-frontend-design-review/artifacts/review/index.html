@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>官方站前端 第 3 轮：按第 2 轮的意见改过的三处</title>
+<title>官方站前端 第 4 轮：图表库与看板</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -17,6 +17,10 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3 { margin: 0 0 8px; font-size: 16px; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cand.lib { display: grid; grid-template-columns: minmax(0, 820fr) minmax(0, 420fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .cand.lib { grid-template-columns: minmax(0, 1fr); } }
+.facts { font-size: 14px; }
+.facts th { width: 9.5em; font-weight: 400; white-space: nowrap; }
 /* 每个候选一行三张：登录页、手机上的登录页、看板；同一列是同一个页面，上下对着比 */
 .shots { display: grid; grid-template-columns: minmax(0, 1440fr) minmax(0, 390fr) minmax(0, 1440fr); gap: 10px; align-items: start; }
 .shots a { display: block; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
@@ -39,43 +43,41 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>官方站前端 第 3 轮：按第 2 轮的意见改过的三处</h1>
+<h1>官方站前端 第 4 轮：图表库与看板</h1>
 
-<section data-nbdev-question="social-icons" data-nbdev-type="confirm" data-nbdev-label="登录与注册页的 GitHub、Google 图标照图做">
-  <h2>登录与注册页照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：GitHub、Google 是表单下面的两个图标，两页同一种画法；注册时点图标，用上面已填的注册码与用户名，邮箱与密码不用填。</strong></p>
-  <div class="stack">
-    <a href="r3/login.webp" data-nbdev-skip><img src="r3/login.webp" alt="登录页：用户名或邮箱、密码、登录按钮，下面是 GitHub 与 Google 两个图标"></a>
-    <a href="r3/register.webp" data-nbdev-skip><img src="r3/register.webp" alt="注册页：注册码、用户名、邮箱、密码、同意条款、注册按钮，下面是 GitHub 与 Google 两个图标"></a>
-    <a href="r3/paper-phones.webp" data-nbdev-skip><img class="phones" src="r3/paper-phones.webp" alt="390 宽的登录页与注册页"></a>
-  </div>
-</section>
-
-<section data-nbdev-question="account-page-r3" data-nbdev-type="confirm" data-nbdev-label="账号页照图做（没有横幅，两种账号版式相同）">
-  <h2>账号页照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：横幅去掉了。没有邮箱的账号只在邮箱那一格里多一枚“待补”、目录的“资料”后面多一个点，别的位置都不动。</strong></p>
-  <div class="cands two">
-    <div class="cand">
-      <h3>有邮箱（上）与没有邮箱（下）</h3>
-      <a class="shot" href="r3/account-states.webp" data-nbdev-skip><img src="r3/account-states.webp" alt="两种账号的账号页上半部分，上下对齐"></a>
+<section data-nbdev-question="chart-library" data-nbdev-type="single" data-nbdev-recommend="echarts">
+  <h2>看板的图用哪个图表库？</h2>
+  <p class="rec"><strong>推荐 ECharts：提示框、十字线、线尾的名字都自带，要自己写的最少；它最大，但看板只有管理员打开，做成单独的一块，普通用户不会下载到。</strong></p>
+  <div class="cands">
+    <div class="cand lib" data-nbdev-option="echarts" data-nbdev-label="ECharts 6.1.0">
+      <a class="shot" href="r4/cand-echarts.webp" data-nbdev-skip><img src="r4/cand-echarts.webp" alt="ECharts 画的活跃图，鼠标停在 11-17"></a>
+      <div>
+        <h3>ECharts 6.1.0</h3>
+        <table class="facts"><tbody><tr><th>这张图的下载体积</th><td>178 KB</td></tr><tr><th>最近一次发布</th><td>2026-05-19</td></tr><tr><th>提示框</th><td>自带，是页面元素，可以照应用里浮层的样子画</td></tr><tr><th>十字线</th><td>自带</td></tr><tr><th>线尾写名字</th><td>自带</td></tr><tr><th>这张图的代码</th><td>57 行</td></tr></tbody></table>
+      </div>
     </div>
-    <div class="cand">
-      <h3>没有邮箱的账号，整页与 390 宽</h3>
-      <div class="pair">
-        <a href="r3/account.webp" data-nbdev-skip><img src="r3/account.webp" alt="账号页：资料、登录与安全、已登录的设备"></a>
-        <a href="r3/account-phone.webp" data-nbdev-skip><img src="r3/account-phone.webp" alt="390 宽的账号页"></a>
+    <div class="cand lib" data-nbdev-option="chartjs" data-nbdev-label="Chart.js 4.6.2">
+      <a class="shot" href="r4/cand-chartjs.webp" data-nbdev-skip><img src="r4/cand-chartjs.webp" alt="Chart.js 画的活跃图，鼠标停在 11-17"></a>
+      <div>
+        <h3>Chart.js 4.6.2</h3>
+        <table class="facts"><tbody><tr><th>这张图的下载体积</th><td>56 KB</td></tr><tr><th>最近一次发布</th><td>2026-11-23</td></tr><tr><th>提示框</th><td>自带，画在画布上，只能调颜色与字体</td></tr><tr><th>十字线</th><td>没有，图上这条是自己写的</td></tr><tr><th>线尾写名字</th><td>没有，要自己画</td></tr><tr><th>这张图的代码</th><td>100 行</td></tr></tbody></table>
+      </div>
+    </div>
+    <div class="cand lib" data-nbdev-option="uplot" data-nbdev-label="uPlot 1.6.32">
+      <a class="shot" href="r4/cand-uplot.webp" data-nbdev-skip><img src="r4/cand-uplot.webp" alt="uPlot 画的活跃图，鼠标停在 11-17"></a>
+      <div>
+        <h3>uPlot 1.6.32</h3>
+        <table class="facts"><tbody><tr><th>这张图的下载体积</th><td>24 KB</td></tr><tr><th>最近一次发布</th><td>2025-03-14</td></tr><tr><th>提示框</th><td>没有，图上这个是自己写的</td></tr><tr><th>十字线</th><td>自带</td></tr><tr><th>线尾写名字</th><td>没有，要自己画</td></tr><tr><th>这张图的代码</th><td>76 行，另加提示框的样式</td></tr></tbody></table>
       </div>
     </div>
   </div>
 </section>
 
-<section data-nbdev-question="data-table" data-nbdev-type="confirm" data-nbdev-label="数据表格与分页照图做，并做成 nb-ui 的通用组件">
-  <h2>数据表格与分页照图做，并做成 nb-ui 的通用组件吗？</h2>
-  <p class="rec"><strong>推荐同意：工具条、表格、分页三块位置固定，最后一页不满时分页条也在原处；给 nb-ui 加“分页”和“带工具条与分页的数据表格”两个组件，用户、注册码与邀请码、OAuth 客户端、审计四页都用它。</strong></p>
+<section data-nbdev-question="dashboard-final" data-nbdev-type="confirm" data-nbdev-label="看板照图做">
+  <h2>看板照图做吗？</h2>
+  <p class="rec"><strong>推荐同意：排法与第 1 轮相同，两张趋势图换成了真的图表（这张用 ECharts 画），三条线各用一种颜色，鼠标停在哪一天就显示那一天的数。</strong></p>
   <div class="stack">
-    <a href="r3/users.webp" data-nbdev-skip><img src="r3/users.webp" alt="用户页：筛选、搜索、用户表、条数与分页，每页 20 个"></a>
-    <a href="r3/users-p7-foot.webp" data-nbdev-skip><img src="r3/users-p7-foot.webp" alt="翻到第 7 页时的分页条：1、省略号、6、7、8、省略号、65"></a>
-    <a href="r3/codes.webp" data-nbdev-skip><img src="r3/codes.webp" alt="注册码页：同一个表格，换了列、筛选与右上角的发放按钮；最后一页只有 6 行，分页条仍在底部"></a>
+    <a href="r4/dashboard.webp" data-nbdev-skip><img src="r4/dashboard.webp" alt="看板：今天的四个数，活跃与在线两张趋势图，版本、系统、留存"></a>
   </div>
 </section>
 
@@ -84,7 +86,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <table>
     <thead><tr><th>事项</th><th>现在图上是什么</th></tr></thead>
     <tbody>
-      <tr><td>图表库与看板的最终样子</td><td>第 1 轮里手画的示意图</td></tr>
+      <tr><td>看板下面的“错误与崩溃”一块</td><td>还没画，定了图表库之后照同样的画法出</td></tr>
       <tr><td>红色印章里的字</td><td>临时写的 NB</td></tr>
       <tr><td>隐私政策与服务条款两页</td><td>等条款的文字起草后再排</td></tr>
     </tbody>
@@ -101,6 +103,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>第一版界面只有中文</li>
     <li>全站用默认配色，只有登录页这一组画成稿纸（第 1 轮）</li>
     <li>注册、同意条款、授权确认与登录页用同一张稿纸（第 2 轮）</li>
+    <li>GitHub、Google 是登录与注册表单下面的两个图标（第 3 轮）</li>
+    <li>账号页一页到底、没有横幅；没有邮箱的账号只在邮箱那一格与目录里标出（第 3 轮）</li>
+    <li>列表页用同一个带工具条与分页的数据表格，做成 nb-ui 的通用组件（第 3 轮）</li>
   </ol>
 </section>
 </main>
