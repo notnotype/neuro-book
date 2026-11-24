@@ -118,7 +118,9 @@ function forkRecordProblems(change: StoryChange & {fork: Fork}, input: ForkCheck
         const end = after.changes.get(fork.endAt);
         if (end === undefined || lineOf(end.at) !== fork.line || table.point(fork.endAt) === null) fail("fork.endAt", "endAt must be a scheduled record on this line");
     }
-    // 带过去的地址：在切口处存在的条目上声明过的字段或列表，不重复（输出 14）。
+    // 带过去的地址：在切口处存在的条目上声明过的字段或列表，不重复（输出 14）。原样留着的不重查“声明过”：带着的实例字段后来被
+    // 去掉时，这条分叉还要能改别的地方（canon/revisions.md 输出 3）。
+    const kept = new Set((previous?.carry ?? []).map((address) => addressKey(address)));
     const seen = new Set<string>();
     for (const [index, address] of (fork.carry ?? []).entries()) {
         const path = `fork.carry[${String(index)}]`;
@@ -131,7 +133,7 @@ function forkRecordProblems(change: StoryChange & {fork: Fork}, input: ForkCheck
             fail(path, "carry names a field or a list, not an element or its sub-field");
             continue;
         }
-        if (entry === undefined || fieldsOf(input.registry, entry, parsed.namespace)?.some((field) => field.id === parsed.field) !== true) {
+        if (!kept.has(key) && (entry === undefined || fieldsOf(input.registry, entry, parsed.namespace)?.some((field) => field.id === parsed.field) !== true)) {
             fail(path, "carry names a declared field of an existing entry");
             continue;
         }

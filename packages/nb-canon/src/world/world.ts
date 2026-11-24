@@ -12,8 +12,8 @@ import {validateStatements, type Statement} from "@notnotype/nb-time";
 
 import {EMPTY_DIAGNOSTIC_REGISTRY, stableKeyProblem, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markProblem, type MarkRegistry} from "../components/marks";
-import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
-import {namespaceFields} from "../model/apply";
+import {effectiveFields, fieldShapeProblem, type ComponentRegistry, type ComponentType} from "../components/registry";
+import {namespaceFields, type ChangeResult} from "../model/apply";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
@@ -41,6 +41,7 @@ import {
     type ObjectRef,
     type Op,
     type Patch,
+    type InstanceFieldDeclaration,
     type ReadPosition,
     type Revision,
     type StoryChange,
@@ -1272,7 +1273,80 @@ function tellingProblem(telling: Telling, chapterText: (chapter: string) => stri
     return null;
 }
 
-/** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16）。 */
+/**
+ * 实例字段声明的校验（components.md 输出 23）：只查这次新写或改过的声明，原样留着的不查。还原是补偿写入、不经校验，可能留下
+ * 这里不允许新写的组合（上限指着去掉的字段、两项同名）；整份重查的话，那样的一组之后什么都改不了。
+ * 返回这次新写或改过的声明的 id（调用方据此决定哪些字段的值要重核）。
+ */
+function declarationProblems(problems: Problem[], ref: ObjectRef, namespace: string, type: ComponentType, declared: readonly InstanceFieldDeclaration[], previous: readonly InstanceFieldDeclaration[]): ReadonlySet<string> {
+    const before = new Map(previous.map((field) => [field.id, field]));
+    const rewritten = declared.filter((field) => !sameJson(before.get(field.id), field));
+    const gone = previous.filter((field) => !declared.some((other) => other.id === field.id));
+    const base = `init.data.${namespace}.declared`;
+    if (rewritten.length > 0 && !type.instanceFields) {
+        problems.push({code: "fields-not-declarable", ref, path: base, message: "this component type does not allow fields declared on an instance"});
+        return new Set(rewritten.map((field) => field.id));
+    }
+    const active = effectiveFields(type, declared);
+    const isActive = (field: InstanceFieldDeclaration) => active.includes(field);
+    const exactNumber = (id: string) => active.some((field) => field.id === id && field.kind === "number" && field.precision !== "semantic");
+    for (const field of rewritten) {
+        const path = `${base}[${field.id}]`;
+        const old = before.get(field.id);
+        const shape = fieldShapeProblem(field, path, true);
+        if (shape !== null) {
+            problems.push({code: "type-mismatch", ref, ...shape});
+            continue;
+        }
+        if ((old === undefined && type.fields.some((fixed) => fixed.id === field.id)) || declared.filter((other) => other.id === field.id).length > 1) {
+            problems.push({code: "id-taken", ref, path: `${path}.id`, message: `field id "${field.id}" is already declared in this namespace`});
+            continue;
+        }
+        if (!isActive(field)) continue;
+        // 新写的、改了显示名的、刚恢复的：显示名在生效的字段里唯一。
+        if ((old === undefined || old.label !== field.label || old.removed === true) && active.some((other) => other !== field && other.label === field.label)) {
+            problems.push({code: "label-taken", ref, path: `${path}.label`, message: `another field in this namespace is already labelled "${field.label}"`});
+        }
+        if (typeof field.max === "string" && (old === undefined || old.max !== field.max || old.removed === true) && !exactNumber(field.max)) {
+            problems.push({code: "field-referenced", ref, path: `${path}.max`, message: `max "${field.max}" is not an exact number field in effect in this namespace`});
+        }
+    }
+    // 去掉或删掉一个字段时，不能还有生效的声明拿它当上限。
+    const dropped = [...gone, ...rewritten.filter((field) => field.removed === true && before.get(field.id)?.removed !== true)];
+    for (const target of dropped) {
+        const holder = declared.find((field) => isActive(field) && field.max === target.id);
+        if (holder !== undefined) problems.push({code: "field-referenced", ref, path: `${base}[${holder.id}].max`, message: `field "${holder.id}" still uses "${target.id}" as its max`});
+    }
+    return new Set(rewritten.map((field) => field.id));
+}
+
+/**
+ * 原样留着、可以不查的补丁的下标（revisions.md 输出 3）：字段被去掉、设定组被去掉或没启用以后，旧变更里对它的补丁不适用；
+ * 不放过它们的话这条变更就再也改不了别的地方。四条都满足才算：写入前这条变更已经是已写且生效的；安放（含所在的线）没变；
+ * 这处补丁按内容在旧列表里有一份对得上（多出来的重复照新写的查）；不适用的原因是这三种之一。
+ */
+function toleratedPatches(previous: StoryChange | undefined, change: StoryChange, detail: ChangeResult | undefined): ReadonlySet<number> {
+    const tolerated = new Set<number>();
+    if (previous === undefined || previous.kind !== "written" || previous.status !== "active" || !sameJson(previous.at, change.at)) return tolerated;
+    if (detail === undefined || !detail.applied) return tolerated;
+    const remaining = new Map<string, number>();
+    for (const patch of previous.patches) {
+        const key = stableStringify(patch);
+        remaining.set(key, (remaining.get(key) ?? 0) + 1);
+    }
+    for (const [index, patch] of change.patches.entries()) {
+        const key = stableStringify(patch);
+        const left = remaining.get(key) ?? 0;
+        if (left === 0) continue;
+        remaining.set(key, left - 1);
+        const result = detail.patches[index];
+        if (result === undefined || result === "applied") continue;
+        if (result.notApplicable === "undeclared" || result.notApplicable === "removed" || result.notApplicable === "disabled") tolerated.add(index);
+    }
+    return tolerated;
+}
+
+/** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16、23）。 */
 function validate(world: World, data: WorldData, lines: LineSet, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
     const problems: Problem[] = [];
     const {registry, chapterText} = world.options;
@@ -1326,10 +1400,12 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 problems.push({code: "component-version-unsupported", ref, path: `init.data.${namespace}`, message: "component version differs from the registered type"});
                 continue;
             }
-            const declaredProblem = nsData.declared === undefined ? null : fieldsProblem([...type.fields, ...nsData.declared], `init.data.${namespace}.declared`);
-            if (declaredProblem !== null) problems.push({code: "type-mismatch", ref, ...declaredProblem});
+            const rewritten = declarationProblems(problems, ref, namespace, type, nsData.declared ?? [], old?.declared ?? []);
             for (const field of effectiveFields(type, nsData.declared)) {
                 const value = nsData.fields[field.id] ?? null;
+                // 只核这次值变了或声明变了的字段（components.md 输出 23）：原样留着的值不合现在的声明时（类型改过字段、还原留下的组合）
+                // 不挡这一组别的修改。
+                if (old !== undefined && !rewritten.has(field.id) && sameJson(old.fields[field.id] ?? null, value)) continue;
                 const problem = valueProblem(field, value);
                 if (problem !== null) {
                     const redeclared = nsData.declared?.some((declared) => declared.id === field.id) === true && !(old?.declared ?? []).some((declared) => declared.id === field.id) && field.id in (old?.fields ?? {});
@@ -1403,6 +1479,8 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
             if (change.patches.length > 0) problems.push({code: "narration-with-patches", ref, path: "patches", message: "a narration only tells; it cannot change the world"});
             if (change.told.length === 0) problems.push({code: "narration-without-telling", ref, path: "told", message: "a narration needs at least one telling"});
         }
+        const detail = change.kind === "written" && change.status === "active" ? engineOfChange?.detail(id) : undefined;
+        const tolerated = toleratedPatches(world.object(ref) as StoryChange | undefined, change, detail);
         for (const [index, patch] of change.patches.entries()) {
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
@@ -1412,7 +1490,8 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 const problem = blockProblem(blockSource);
                 if (problem !== null) problems.push({code: problem.code, ref, path: `patches[${String(index)}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
             }
-            if (typeof patch.value === "number" && patch.op !== "note") {
+            // 原样留着、已经不适用的补丁不再查依据：它没套上，前面的值也不是它当初算依据时的值。
+            if (typeof patch.value === "number" && patch.op !== "note" && !tolerated.has(index)) {
                 const basisProblem = checkBasis(patch, change, engineOfChange, data, chapterText, strictBasis);
                 if (basisProblem !== null) problems.push({...basisProblem, ref, path: `patches[${String(index)}]`});
             }
@@ -1431,14 +1510,13 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 problems.push({code: "not-appeared", ref, message: `entry "${entryId}" has not appeared at this placement`});
             }
         }
-        const detail = engineOfChange?.detail(id);
         if (detail === undefined) continue;
         if (!detail.applied) {
             problems.push({code: detail.reason, ref, path: detail.failedPatch >= 0 ? `patches[${String(detail.failedPatch)}]` : "patches", message: `change cannot apply at its placement (${detail.reason})`});
             continue;
         }
         for (const [index, result] of detail.patches.entries()) {
-            if (result === "applied") continue;
+            if (result === "applied" || tolerated.has(index)) continue;
             const why = result.notApplicable;
             const code = why === "disabled" || why === "removed" ? "component-disabled" : why === "undeclared" ? "unknown-field" : why;
             problems.push({code, ref, path: `patches[${String(index)}]`, message: `patch does not apply (${why})`});

@@ -97,13 +97,19 @@ export const ComponentDeclarationSchema = Type.Object({
     usageNotes: Type.Optional(Text),
 }, {additionalProperties: false});
 
+/**
+ * 实例上的字段声明：字段声明加“已去掉”的标记（components.md 输出 4）。去掉不删声明：种类留着，恢复时不会变；
+ * 标记只属于实例声明，类型固定的字段、预设与列表的子字段里写了它由登记拒收（`fieldsProblem`）。
+ */
+export const InstanceFieldDeclarationSchema = Type.Object({...FieldDeclarationCore, item: Type.Optional(Type.Array(Type.Object(FieldDeclarationCore))), removed: Type.Optional(Type.Literal(true))});
+
 export const NamespaceDataSchema = Type.Object({
     type: Id,
     version: Type.Integer({minimum: 1}),
     enabled: Type.Boolean(),
     removed: Type.Optional(Type.Boolean()),
     fields: Type.Record(Type.String(), Type.Unknown()),
-    declared: Type.Optional(Type.Array(FieldDeclarationSchema)),
+    declared: Type.Optional(Type.Array(InstanceFieldDeclarationSchema)),
 });
 
 export const BlockSchema = Type.Object({id: Id, source: Text});
@@ -435,6 +441,7 @@ export type TellingDraft = Omit<Telling, "id"> & {readonly id?: string};
 export type Basis = Static<typeof BasisSchema>;
 export type FieldKind = Static<typeof FieldKindSchema>;
 export type FieldDeclaration = Static<typeof FieldDeclarationSchema>;
+export type InstanceFieldDeclaration = Static<typeof InstanceFieldDeclarationSchema>;
 export type NamespaceData = Static<typeof NamespaceDataSchema>;
 export type Block = Static<typeof BlockSchema>;
 export type EntryState = Static<typeof EntryStateSchema>;

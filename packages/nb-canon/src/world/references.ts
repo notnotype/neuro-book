@@ -8,7 +8,7 @@
  */
 
 import {markReferences, type MarkRegistry, type MarkTarget} from "../components/marks";
-import {effectiveFields, type ComponentRegistry} from "../components/registry";
+import {effectiveFields, retainedFields, type ComponentRegistry} from "../components/registry";
 import {parsePath} from "../core/address";
 import type {Check, Decision, Entry, FieldDeclaration, Mark, ObjectKind, ObjectRef, Patch, StoryChange, Telling, WriteRequest} from "../core/schema";
 
@@ -70,7 +70,7 @@ function walkReferences(kind: ObjectKind, value: unknown, context: ReferenceCont
         add("sameAs", "entry", entry, "sameAs", false);
         for (const [address, basis] of Object.entries(entry.initBasis ?? {})) if (basis.kind === "derived") add(`initBasis[${JSON.stringify(address)}].check`, "check", basis, "check", false);
         for (const [namespace, data] of Object.entries(entry.init?.data ?? {})) {
-            const fields = fieldsOf(context.registry, entry, namespace);
+            const fields = retainedFieldsOf(context.registry, entry, namespace);
             if (fields === undefined) continue;
             for (const field of fields) fieldReferences(`init.data.${namespace}.fields.${field.id}`, field, data.fields, field.id, add);
         }
@@ -205,7 +205,7 @@ function patchReferences(base: string, patch: Patch, context: ReferenceContext, 
     const parsed = parsePath(patch.at?.path ?? "");
     if (parsed === null || parsed.root !== "namespace") return;
     const target = context.entry(patch.at.entry);
-    const field = target === undefined ? undefined : fieldsOf(context.registry, target, parsed.namespace)?.find((candidate) => candidate.id === parsed.field);
+    const field = target === undefined ? undefined : retainedFieldsOf(context.registry, target, parsed.namespace)?.find((candidate) => candidate.id === parsed.field);
     if (field === undefined) return;
     const path = `${base}.value`;
     if (parsed.element === undefined) {
@@ -228,6 +228,14 @@ export function fieldsOf(registry: ComponentRegistry, entry: Entry, namespace: s
     const type = registry.byNamespace(namespace);
     if (data === undefined || type === undefined || type.id !== data.type) return undefined;
     return effectiveFields(type, data.declared);
+}
+
+/** 遍历引用用的字段：去掉的字段里的引用照旧算（components.md 输出 22），所以比 `fieldsOf` 多出去掉过的实例字段。 */
+function retainedFieldsOf(registry: ComponentRegistry, entry: Entry, namespace: string): readonly FieldDeclaration[] | undefined {
+    const data = entry.init?.data?.[namespace];
+    const type = registry.byNamespace(namespace);
+    if (data === undefined || type === undefined || type.id !== data.type) return undefined;
+    return retainedFields(type, data.declared);
 }
 
 /** 同一位置、同一目标是同一条引用；用来算“这次新写或改过的引用”。 */

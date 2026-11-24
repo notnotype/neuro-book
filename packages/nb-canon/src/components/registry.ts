@@ -7,7 +7,7 @@
  */
 
 import {ENABLE_FIELD, isIdentifierName, isNamespaceName} from "../core/identifiers";
-import {ComponentDeclarationSchema, schemaProblems, FieldDeclarationSchema, type FieldDeclaration} from "../core/schema";
+import {ComponentDeclarationSchema, schemaProblems, FieldDeclarationSchema, type FieldDeclaration, type InstanceFieldDeclaration} from "../core/schema";
 import {stableStringify} from "../core/stable-json";
 
 /** 贡献点 `canon.components` 的一条声明（components.md 输入与前置条件的表）。 */
@@ -122,30 +122,40 @@ function declarationProblem(declaration: ComponentDeclaration): {path: string; m
     return fieldsProblem(declaration.fields ?? [], "fields");
 }
 
-/** 一组字段声明（类型固定的，或实例上的）是否合规：id 合法、不重复、不叫“启用”，`max` 与 `options` 对得上。 */
+/**
+ * 一条字段声明自己合不合规（不看它与别的声明的关系）：id 合法、不叫“启用”，种类与各项属性对得上，列表的子字段同样。
+ * `removed` 只有实例声明能带（`instance` 为真时放行），子字段任何时候都不能带。
+ */
+export function fieldShapeProblem(field: FieldDeclaration, path: string, instance = false): {path: string; message: string} | null {
+    const schema = schemaProblems(FieldDeclarationSchema, field);
+    if (schema !== null) return {path, message: schema.map((problem) => `${problem.path} ${problem.message}`).join("; ")};
+    if (!isIdentifierName(field.id)) return {path: `${path}.id`, message: `field id "${field.id}" is not an identifier`};
+    if (field.id === ENABLE_FIELD) return {path: `${path}.id`, message: `field id "${ENABLE_FIELD}" is reserved`};
+    if (!instance && "removed" in field) return {path: `${path}.removed`, message: "only a field declared on an instance can be marked removed"};
+    if (field.kind === "enum" && (field.options === undefined || field.options.length === 0)) return {path: `${path}.options`, message: "enum needs options"};
+    if (field.precision !== undefined && field.kind !== "number" && field.kind !== "text") return {path: `${path}.precision`, message: "precision applies to number and text"};
+    if (field.keyedBy !== undefined && field.kind !== "list") return {path: `${path}.keyedBy`, message: "keyedBy applies to lists"};
+    if (field.targets !== undefined && field.kind !== "ref" && field.keyedBy === undefined) return {path: `${path}.targets`, message: "targets applies to ref fields and lists keyed by ref"};
+    if ((field.min !== undefined || field.max !== undefined) && (field.kind !== "number" || field.precision === "semantic")) {
+        return {path, message: "min and max apply to exact numbers"};
+    }
+    if (field.kind === "list") {
+        const item = field.item ?? [];
+        if (item.some((sub) => (sub.kind as string) === "list")) return {path: `${path}.item`, message: "lists do not nest"};
+        return fieldsProblem(item, `${path}.item`);
+    }
+    return null;
+}
+
+/** 一组类型固定的字段声明（或列表的子字段）是否合规：各条自己合规，id 不重复，`max` 指向同一组里的精确档数值字段。 */
 export function fieldsProblem(fields: readonly FieldDeclaration[], base: string): {path: string; message: string} | null {
     const ids = new Set<string>();
     for (const [index, field] of fields.entries()) {
         const path = `${base}[${String(index)}]`;
-        const schema = schemaProblems(FieldDeclarationSchema, field);
-        if (schema !== null) return {path, message: schema.map((problem) => `${problem.path} ${problem.message}`).join("; ")};
-        if (!isIdentifierName(field.id)) return {path: `${path}.id`, message: `field id "${field.id}" is not an identifier`};
-        if (field.id === ENABLE_FIELD) return {path: `${path}.id`, message: `field id "${ENABLE_FIELD}" is reserved`};
+        const problem = fieldShapeProblem(field, path);
+        if (problem !== null) return problem;
         if (ids.has(field.id)) return {path: `${path}.id`, message: `duplicate field id "${field.id}"`};
         ids.add(field.id);
-        if (field.kind === "enum" && (field.options === undefined || field.options.length === 0)) return {path: `${path}.options`, message: "enum needs options"};
-        if (field.precision !== undefined && field.kind !== "number" && field.kind !== "text") return {path: `${path}.precision`, message: "precision applies to number and text"};
-        if (field.keyedBy !== undefined && field.kind !== "list") return {path: `${path}.keyedBy`, message: "keyedBy applies to lists"};
-        if (field.targets !== undefined && field.kind !== "ref" && field.keyedBy === undefined) return {path: `${path}.targets`, message: "targets applies to ref fields and lists keyed by ref"};
-        if ((field.min !== undefined || field.max !== undefined) && (field.kind !== "number" || field.precision === "semantic")) {
-            return {path, message: "min and max apply to exact numbers"};
-        }
-        if (field.kind === "list") {
-            const item = field.item ?? [];
-            if (item.some((sub) => (sub.kind as string) === "list")) return {path: `${path}.item`, message: "lists do not nest"};
-            const problem = fieldsProblem(item, `${path}.item`);
-            if (problem !== null) return problem;
-        }
     }
     for (const [index, field] of fields.entries()) {
         if (typeof field.max !== "string") continue;
@@ -172,8 +182,29 @@ export function generateFieldId(label: string, taken: ReadonlySet<string>): stri
     }
 }
 
-/** 一个实例上生效的字段声明：类型固定的，加上类型允许时实例自己声明的。 */
-export function effectiveFields(type: ComponentType, declared: readonly FieldDeclaration[] | undefined): readonly FieldDeclaration[] {
+/**
+ * 一个实例上生效的字段声明（components.md 输出 22）：类型固定的，加上类型允许时实例自己声明、没去掉的；同一个 id 两边都有时
+ * 固定的生效（类型后来加了同 id 的固定字段，实例上的那一条不再起作用）。读取、补丁、约束都只认它。
+ */
+export function effectiveFields(type: ComponentType, declared: readonly InstanceFieldDeclaration[] | undefined): readonly FieldDeclaration[] {
+    return instanceFields(type, declared, false);
+}
+
+/**
+ * 实例上留着数据的字段声明：生效的，加上去掉过的。去掉的字段读不到，但它的值、值里的引用都留着（输出 4），遍历引用时用它，
+ * 所以恢复一个字段不会把它里面的引用算成新写的。
+ */
+export function retainedFields(type: ComponentType, declared: readonly InstanceFieldDeclaration[] | undefined): readonly FieldDeclaration[] {
+    return instanceFields(type, declared, true);
+}
+
+function instanceFields(type: ComponentType, declared: readonly InstanceFieldDeclaration[] | undefined, withRemoved: boolean): readonly FieldDeclaration[] {
     if (!type.instanceFields || declared === undefined || declared.length === 0) return type.fields;
-    return [...type.fields, ...declared];
+    let fields: FieldDeclaration[] | null = null;
+    for (const field of declared) {
+        if ((field.removed === true && !withRemoved) || type.fields.some((fixed) => fixed.id === field.id)) continue;
+        fields ??= [...type.fields];
+        fields.push(field);
+    }
+    return fields ?? type.fields;
 }
