@@ -440,6 +440,11 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
                 return undefined;
             }}),
             headers: {...target.headers, ...request.headers},
+            // 缓存键按会话固定：pi-ai 在调用方没给 `sessionId`、`promptCacheKey` 时每次现生成一个随机 UUID 当 `prompt_cache_key`，
+            // 服务端按它分片或粘住节点，相邻两轮落到不同节点就整段不命中（ollama-cloud 实测：键不变 99.9%，只换键 0%）。
+            // 只给 `promptCacheKey`、不给 `sessionId`：后者还牵动 Codex 等协议的传输状态与会话头，那是另一件事。
+            // `complete()` 没有会话（不带 meta），照旧由 pi-ai 生成。
+            ...(meta?.session === undefined ? {} : {promptCacheKey: meta.session}),
             ...(request.params.maxTokens === undefined ? {} : {maxTokens: request.params.maxTokens}),
             ...(request.params.temperature === undefined ? {} : {temperature: request.params.temperature}),
             ...(request.params.disableReasoning === true ? {disableReasoning: true} : {}),
