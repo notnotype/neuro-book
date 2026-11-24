@@ -734,6 +734,34 @@ describe("写入", () => {
         expect([page.uncommitted!(id), await initText(other.canon, id)]).toEqual([false, ["第一块。", "第二块。", "第三块。"]]);
     });
 
+    it("输出 48，编辑时的预览：进编辑旁边就有，是输入框里的整篇照此刻的数据画的；打字、别处改了值都跟着变；写得不对时写出行、留着上一次的；关掉就没有这一栏", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await startEditing(wrapper);
+        const pane = () => wrapper.find("[data-text-preview]");
+        await waitUntil("预览读到", () => pane().exists() && pane().text().includes("她有 1,000 元。"));
+        // 预览里的值只是文字；页面放宽成两栏的宽度；预览不算阅读视图。
+        expect([pane().findAll("button").length, wrapper.get("[data-entry-page]").attributes("data-wide"), wrapper.find("[data-entry-text]").exists()]).toEqual([0, "", false]);
+
+        typeInto(area(wrapper), "她有 {panel.存款} 元，都存着。");
+        await waitUntil("预览跟着打的字变", () => pane().text().includes("她有 1,000 元，都存着。"));
+        await editElsewhere(other.canon, [{op: "set", at: {entry: id, path: "panel.存款"}, value: 250}]);
+        await waitUntil("别处改了值，预览跟着变", () => pane().text().includes("她有 250 元，都存着。"));
+
+        typeInto(area(wrapper), "她有 {panel.存款 元");
+        await waitUntil("写得不对", () => wrapper.find("[data-text-preview-note]").exists());
+        expect([wrapper.get("[data-text-preview-note]").text().startsWith("第 1 行第 "), pane().text().includes("她有 250 元，都存着。"), wrapper.find("[data-text-problem]").exists()]).toEqual([true, true, false]);
+        typeInto(area(wrapper), "她有 {panel.存款} 元。");
+        await waitUntil("改对了", () => !wrapper.find("[data-text-preview-note]").exists() && pane().text().includes("她有 250 元。"));
+
+        await wrapper.get("[data-text-preview-toggle]").trigger("click");
+        await waitUntil("预览栏收起", () => !pane().exists());
+        expect([state.preview, wrapper.get("[data-entry-page]").attributes("data-wide"), area(wrapper).value]).toEqual([false, undefined, "她有 {panel.存款} 元。"]);
+    });
+
     it("别处也改了主文字：提交时出一条对照，选“我的”以后以我的为准、选“现在的”放弃我的；别处改的是这个条目的字段或别的条目时不问，直接发布（验收 16）", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

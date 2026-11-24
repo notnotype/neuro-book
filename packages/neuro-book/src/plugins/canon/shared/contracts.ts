@@ -36,6 +36,19 @@ export type {LineOption} from "./reads";
 /** 请求与读取结果经 JSON 编码后的上限：远程消息上限减 64 KiB，留给帧包络（输出 18）。 */
 export const CANON_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024;
 
+/**
+ * `renderSource` 一次肯渲染的源文字长度（canon.rendering 输出 16），按 `String.length` 算（UTF-16 码元，基本平面以外的字算
+ * 两个）。两条理由，都用内核真实的渲染量过（5 万字符）：
+ *
+ * - 结果要放得进一次读取的预算（`CANON_BUDGET_BYTES`，960 KiB）：渲染结果每个字符占 3 到 16 字节，最费的是一句一段的短
+ *   段落，5 万字符约 780 KiB。
+ * - 项目进程渲染时做不了别的，而预览是作者每停顿一下就读一次：带字段的正文约 0.16 秒，满篇都是字段的约 0.4 秒，长段落
+ *   的纯文字约 0.03 秒。
+ *
+ * 只管长度，不管结构：一个字一段这类极端的写法，不到这个长度结果就超预算，照 `too-large` 回。
+ */
+export const RENDER_SOURCE_MAX = 50_000;
+
 /** 远程调用原样的结果：业务失败的码是 `canon`、详情是 nb-canon 的失败对象；别的码是路由层的失败。 */
 export type RemoteRaw = {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly code: string; readonly detail?: unknown; readonly cause?: unknown};
 
@@ -207,6 +220,11 @@ const methods = {
     /** 登记的 Component 类型与字段声明（canon.components 输出 21）；带不带视图令牌一样。 */
     components: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
     render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
+    /**
+     * 把一段没提交的源文字当作条目的主文字渲染给作者（canon.rendering 输出 16）；不收视图令牌（作者界面的预览用）。`source`
+     * 超过 `RENDER_SOURCE_MAX` 时回 `too-large`，不渲染。
+     */
+    renderSource: {input: Type.Object({entry: Type.String(), source: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode}), output: Out, effect: "read", errors},
     /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
     preview: {input: Type.Object({request: Type.Union([WriteRequestSchema, Type.Object({revert: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String())})]), view: View}), output: Out, effect: "read", errors},
     outcome: {input: Type.Object({requestId: Type.String()}), output: Out, effect: "read", errors},
@@ -389,6 +407,8 @@ export interface CanonOutputs {
     readonly chapters: ReadStamp & {readonly items: readonly ChapterItem[]};
     readonly components: ReadStamp & {readonly items: readonly ComponentType[]};
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
+    /** 同 `render` 给作者的形状，`blocks` 只有一块（id 为 `source`）。 */
+    readonly renderSource: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
     /** 存下来的对象；不存在时 `object` 为 null。 */
     readonly object: {readonly version: number; readonly object: unknown};
     readonly lines: {readonly version: number; readonly lines: readonly {readonly id: string; readonly name: string; readonly parent: string; readonly fork: string; readonly type: string; readonly who?: string; readonly cut: string; readonly trigger?: string; readonly exists: {readonly actual: boolean; readonly planned: boolean}; readonly unbuildable: string | null; readonly built: boolean; readonly resident: boolean}[]};

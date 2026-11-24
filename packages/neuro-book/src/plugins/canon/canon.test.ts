@@ -21,7 +21,7 @@ import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {componentsPoint, type ComponentContribution} from "./shared/components";
-import {CANON_BUDGET_BYTES, canonClientKey} from "./shared/contracts";
+import {CANON_BUDGET_BYTES, canonClientKey, RENDER_SOURCE_MAX} from "./shared/contracts";
 import type {CanonClient, CanonEvent} from "./shared/contracts";
 import {publish, serverPlugins, until, version, windowOf} from "./testing/harness";
 import {CANON_PROBE_ID, PROBE_DIAGNOSTIC, PROBE_MARK} from "./testing/probe-plugin";
@@ -306,6 +306,45 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect((await submit("text-5", fresh.value)).ok).toBe(true);
         const after = await author.canon.call("textBlocks", {id: entry});
         expect(after.ok && after.value?.blocks.map((block) => block.source)).toEqual(["第一块", "剧情加的", "第二块（改）", "新的一块"]);
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
+    it("renderSource 与 canon.rendering 输出 16：经链路把一段没提交的源文字渲染成给作者的一块；写得不对给行、列；不写入", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const author = await windowOf(h, "browser-1", "profile-1");
+        const by = {kind: "author"} as const;
+        const created = await author.canon.call("editEntries", {input: {requestId: "source-1", by, what: "edit", title: "建两个", ops: [
+            {op: "create", id: "tmp:a", entry: {name: "学院", kind: "组织", text: ["存下来的"]}},
+            {op: "create", id: "tmp:b", entry: {name: "星瑾", kind: "人物"}},
+        ]}});
+        if (!created.ok) throw new Error(JSON.stringify(created.failure));
+        const [entry, other] = [created.value.ids["tmp:a"]!, created.value.ids["tmp:b"]!];
+
+        const rendered = await author.canon.call("renderSource", {entry, source: `# 学院\n\n院长是 <Ref id="${other}" />。`, mode: "actual"});
+        if (!rendered.ok || rendered.value === null) throw new Error("读不到渲染");
+        expect([rendered.value.version, rendered.value.mode, rendered.value.blocks.length]).toEqual([created.value.version, "actual", 1]);
+        const block = rendered.value.blocks[0] as {id: string; tree: {children: Array<{type: string; children: Array<Record<string, unknown>>}>}};
+        expect([block.id, block.tree.children.map((node) => node.type)]).toEqual(["source", ["heading", "paragraph"]]);
+        expect(block.tree.children[1]!.children.filter((node) => node.type !== "text")).toEqual([{type: "canonRef", id: other, name: "星瑾", deleted: false}]);
+
+        const broken = await author.canon.call("renderSource", {entry, source: "一段\n\n他说{+5}", mode: "actual"});
+        expect(broken.ok && broken.value?.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "no-field-expression", line: 3}), text: "一段\n\n他说{+5}"}]);
+        expect(await author.canon.call("renderSource", {entry: "e999", source: "字", mode: "actual"})).toEqual({ok: true, value: null});
+        // 太长的不渲染：正好到上限的照常，多一个字符就拒。
+        expect((await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX), mode: "actual"})).ok).toBe(true);
+        expect(await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX + 1), mode: "actual"})).toMatchObject({ok: false, failure: {code: "too-large"}});
+
+        // 嵌套深到栈溢出的（几万层引用）：照出错的块给，不是说不清原因的内部错误。
+        const deep = await author.canon.call("renderSource", {entry, source: "> ".repeat(RENDER_SOURCE_MAX / 2), mode: "actual"});
+        expect(deep.ok && deep.value?.blocks).toEqual([expect.objectContaining({id: "source", error: expect.objectContaining({code: "mdx-invalid"})})]);
+
+        // 只读：存下来的主文字与世界的版本都没变。
+        const after = await author.canon.call("textBlocks", {id: entry});
+        expect(after.ok && [after.value?.version, after.value?.blocks.map((item) => item.source)]).toEqual([created.value.version, ["存下来的"]]);
 
         await author.close();
         keep.release();

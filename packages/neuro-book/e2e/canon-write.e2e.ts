@@ -108,6 +108,8 @@ async function focusSource(page: Page): Promise<void> {
 }
 /** 输入框里的文字：Monaco 把空格画成不换行空格，两种都认。 */
 const sourceText = (page: Page) => textSource(page).locator(".view-lines");
+/** 输入框里文字正好是 `text` 的第一个记号：Monaco 按记号的种类给类名 `mtkN`，没有着色的是 `mtk1`。 */
+const sourceToken = (page: Page, text: string) => textSource(page).locator(".view-lines span > span").filter({hasText: new RegExp(`^${text}$`, "u")}).first();
 const dirtyLabel = (page: Page) => entryPage(page).locator("[data-text-dirty]");
 const tabDot = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]");
 
@@ -147,6 +149,36 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await expect(sourceText(page)).toContainText("一年级学生。{character.外观}");
     await page.keyboard.type("是她的样子。");
     await expect(sourceText(page)).toContainText("{character.外观}是她的样子。");
+    // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成外观当时的值；预览里的值不是按钮。
+    const preview = entryPage(page).locator("[data-text-preview]");
+    await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
+    await expect(preview.getByRole("button")).toHaveCount(0);
+    // 编辑区窄于 880 像素（1440 的窗口、两边的侧栏都开着）时预览排在输入框下面；窗口拉宽以后左右各半、预览栏在右边。
+    const boxes = async () => ({source: (await textSource(page).boundingBox())!, preview: (await preview.boundingBox())!});
+    await expect.poll(async () => {
+        const now = await boxes();
+        return now.preview.y >= now.source.y + now.source.height && now.preview.x < now.source.x + now.source.width;
+    }).toBe(true);
+    await page.setViewportSize({width: 1920, height: 900});
+    await expect.poll(async () => {
+        const now = await boxes();
+        return now.preview.x >= now.source.x + now.source.width;
+    }).toBe(true);
+    // 预览栏吸顶的位置跟着页头的高度（条目页量出来交给它的）：页头底边再让开 12 像素。
+    const headerHeight = Math.round((await entryPage(page).locator("header").boundingBox())!.height);
+    await expect.poll(() => preview.evaluate((element) => getComputedStyle(element).top)).toBe(`${String(headerHeight + 12)}px`);
+    const sourceBox = (await boxes()).source;
+    // 源文字按条目的写法着色：花括号里的字段名（含中文）有自己的颜色（没着色的记号是 `mtk1`）。
+    await expect(sourceToken(page, "character")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
+    await expect(sourceToken(page, "外观")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
+    // “预览”是开关：关掉以后没有预览栏，输入框占满；再打开又有。
+    await entryPage(page).locator("[data-text-preview-toggle]").click();
+    await expect(preview).toHaveCount(0);
+    await expect.poll(async () => (await textSource(page).boundingBox())!.width).toBeGreaterThan(sourceBox.width + 100);
+    await entryPage(page).locator("[data-text-preview-toggle]").click();
+    await expect(preview).toContainText("银白长发是她的样子。");
+    await page.setViewportSize({width: 1440, height: 900});
+    await focusSource(page);
     // Tab 离开输入框（不留在框里缩进）；再回到输入框里。
     await page.keyboard.press("Tab");
     await expect(entryPage(page).locator("[data-text-source]:focus-within")).toHaveCount(0);
@@ -201,6 +233,45 @@ test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点�
     await expect(page.locator("[data-revert-dialog]")).toHaveCount(0);
     await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(1);
     await expect(entryPage(page).locator("[data-entry-text]")).not.toContainText("她住在旧城区。");
+});
+
+test("长的主文字左右分屏（author-ui 输出 48）：打字以后预览栏滚到光标那一段；页面往下滚时预览栏吸在页头下面，不被盖住也不伸出去", async ({page}) => {
+    // 两边的侧栏都开着时，窗口要这么宽编辑区才放得下两栏。
+    await page.setViewportSize({width: 1920, height: 900});
+    await open(page);
+    await openEntry(page, "人物", "星瑕");
+    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    await focusSource(page);
+    await page.keyboard.press("Control+End");
+    // 一次写进八十段：源文字与预览都比看得到的区域高。
+    await page.keyboard.insertText(Array.from({length: 80}, (_item, index) => `\n\n第 ${String(index + 1)} 段的文字。`).join(""));
+    const preview = entryPage(page).locator("[data-text-preview]");
+    await expect(preview).toContainText("第 80 段的文字。");
+    await page.keyboard.type("末尾接着写的字");
+    const last = preview.locator("p", {hasText: "末尾接着写的字"});
+    await expect(last).toHaveCount(1);
+    // 预览栏自己滚到了光标所在的那一段：它在栏里看得到的范围内（排版有不到一个像素的小数，留 1 像素）。
+    await expect.poll(async () => {
+        const [pane, target] = [(await preview.boundingBox())!, (await last.boundingBox())!];
+        return target.y >= pane.y - 1 && target.y + target.height <= pane.y + pane.height + 1;
+    }).toBe(true);
+    expect(await preview.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    // 页面往下滚（滚轮在输入框上：输入框不自己滚，交给页面）：预览栏吸在页头底边下面 12 像素，整栏都在视口里。
+    await textSource(page).hover();
+    await page.mouse.wheel(0, 1200);
+    const header = entryPage(page).locator("header");
+    await expect.poll(async () => {
+        const [head, pane] = [(await header.boundingBox())!, (await preview.boundingBox())!];
+        return [Math.round(pane.y - (head.y + head.height)), pane.y + pane.height <= 900];
+    }).toEqual([12, true]);
+
+    // 不留稿：放弃。
+    await entryPage(page).locator("[data-text-discard]").click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "放弃", exact: true}).click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
+    await expect(tabDot(page)).toHaveCount(0);
 });
 
 test("别处也改了主文字（验收 16）：另一个窗口先提交，这边提交时出对照；选“现在的”就照别处的那一版", async ({page, browser}) => {

@@ -25,7 +25,7 @@ import type {ChangedAt, EntryView, FieldState, Mode, NamespaceView, OriginStep, 
 import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
-import {renderEntryForAgent, renderEntryForAuthor, type RenderOptions} from "../render/entry";
+import {renderEntryForAgent, renderEntryForAuthor, renderSourceForAuthor, type RenderOptions} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
 import {editEntries, previewEntries, type EntryEditResult, type EntryEdits} from "../world/entry-edits";
@@ -1151,6 +1151,13 @@ export class WorldService {
 
     render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent") {
         return this.#renderOn(this.#world, entry, position, mode, audience);
+    }
+
+    /** 把一段没提交的源文字当作条目的主文字渲染给作者（方法表 `renderSource`，rendering.md 输出 16）；只读。 */
+    renderSource(entry: string, source: string, position: ReadPosition, mode: Mode) {
+        const world = this.#world;
+        const result = renderSourceForAuthor(world, entry, source, position, mode);
+        return result === null || typeof result === "string" ? result : {...result, ...this.#stampOf(world)};
     }
 
     #renderOn(world: World, entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent", options: RenderOptions = {}) {

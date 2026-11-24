@@ -652,6 +652,10 @@
         "blockedDeleted": "条目已删除，恢复以后才能提交",
         "dirty": "有未提交的修改",
         "insert": "插入",
+        "preview": "预览",
+        "previewProblem": "第 {{line}} 行第 {{column}} 列写得不对：{{message}}",
+        "previewTooLarge": "太长，预览不了",
+        "previewUnavailable": "现在读不到预览",
         "wholeStory": "这个条目的文字里有随剧情变的段落，现在不能在这里改",
         "wholeTooMany": "这个条目的主文字有 {{count}} 块，超过一次能改的 {{max}} 块"
     }

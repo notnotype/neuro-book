@@ -28,6 +28,8 @@ import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
 import type {TextDraftSession} from "../text-drafts";
+import {ENTRY_LANGUAGE} from "../entry-language";
+import {useTextPreview} from "../text-preview";
 import {useTextTab} from "../text-tab";
 import {useWorldList, useWorldRead} from "../use-reads";
 import type {RevertRequests} from "../revert";
@@ -605,6 +607,30 @@ const textTab = useTextTab({
 });
 // 稿在别处的标签里就有了（刷新以后）：这一页挂上时去读。
 void props.draft.load();
+/* ---------- 编辑时的预览（输出 48） ---------- */
+
+/** “预览”开关开着（记在标签上；加这一项之前存下的标签没有它，按开着算）。 */
+const previewOn = computed(() => state.preview !== false);
+/** 预览栏在页面上：开关开着、在文字分页里编辑。已删除的条目只列稿，不预览；读不出块时（`frozen`）编辑视图不出预览栏，也不读。 */
+const previewing = computed(() => previewOn.value && tab.value === "text" && textTab.editing.value && view.value?.deleted !== true && !textTab.editor.value.frozen);
+const preview = useTextPreview({
+    call: props.client.call,
+    input: () => (previewing.value ? {entry: props.id, source: textTab.editor.value.text, position: position.value, mode: mode.value} : null),
+    // 世界变了（别处改了字段的值、条目的名字）或重新连上：重读。
+    stamp: () => `${String(world.status.value.data?.version ?? "")}|${world.connection.value}`,
+});
+/** 读到的那一块；整篇是空的时候给空数组，照阅读视图的空状态画。还没读到过时为 null：栏里什么都不画。 */
+const previewBlocks = computed((): readonly EntryTextBlock[] | null => {
+    const block = preview.block.value;
+    if (block === null) return null;
+    return (block.tree.children ?? []).length === 0 ? [] : [block];
+});
+const previewNote = computed(() => {
+    if (preview.failure.value !== null) return text(preview.failure.value === "too-large" ? "textEdit.previewTooLarge" : "textEdit.previewUnavailable");
+    const problem = preview.problem.value;
+    return problem === null ? "" : text("textEdit.previewProblem", {line: problem.line, column: problem.column, message: problem.message});
+});
+
 const editorRef = shallowRef<{focus(): void} | null>(null);
 /** 点“编辑”进去以后焦点进输入框：阅读视图先退场、编辑视图才挂上，等进场结束再给。只管这一次点击：没进去就不留着。 */
 let focusFirst = false;
@@ -625,6 +651,7 @@ const editorOn = {
     takeOver: () => void textTab.takeOver(),
     adopt: () => void textTab.adopt(),
     retry: () => void textTab.retry(),
+    "update:preview": (value: boolean) => (state.preview = value),
 };
 const focusEditor = (): void => {
     if (focusFirst) editorRef.value?.focus();
@@ -783,6 +810,7 @@ const setPosition = (value: string): void => {
             :removable-group="removableGroup"
             :action-error="actionError"
             :position-locked="textTab.editing.value ? text('textEdit.locked') : ''"
+            :wide="previewing"
             @edit-name="edit.open('entry.name')"
             @edit-summary="edit.open('entry.summary')"
             @aliases="changeAliases"
@@ -814,10 +842,25 @@ const setPosition = (value: string): void => {
             </template>
             <!-- 条目已删除、稿还在：页头换成“已删除”，稿列在它下面，能看、能放弃。 -->
             <template #deleted>
-                <EntryTextEditor v-if="textTab.editing.value" class="mt-6" v-bind="textTab.editor.value" :inserts="inserts" :input="props.sourceInput ?? undefined" v-on="editorOn" />
+                <EntryTextEditor v-if="textTab.editing.value" class="mt-6" v-bind="textTab.editor.value" :inserts="inserts" :input="props.sourceInput ?? undefined" :language="ENTRY_LANGUAGE" v-on="editorOn" />
             </template>
             <Transition v-if="tab === 'text'" name="nb-ui-switch" mode="out-in" @after-enter="focusEditor">
-                <EntryTextEditor v-if="textTab.editing.value" ref="editorRef" key="edit" v-bind="textTab.editor.value" :inserts="inserts" :input="props.sourceInput ?? undefined" v-on="editorOn" />
+                <EntryTextEditor
+                    v-if="textTab.editing.value"
+                    ref="editorRef"
+                    key="edit"
+                    v-bind="textTab.editor.value"
+                    :inserts="inserts"
+                    :input="props.sourceInput ?? undefined"
+                    :language="ENTRY_LANGUAGE"
+                    :preview="previewOn"
+                    :preview-note="previewNote"
+                    v-on="editorOn"
+                >
+                    <template #preview>
+                        <EntryText v-if="previewBlocks !== null" :blocks="previewBlocks" :self="props.id" :interactive="false" />
+                    </template>
+                </EntryTextEditor>
             <EntryText
                 v-else
                 key="read"

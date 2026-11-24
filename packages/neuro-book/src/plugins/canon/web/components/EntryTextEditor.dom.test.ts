@@ -6,6 +6,7 @@
 
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
+import {h} from "vue";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
@@ -111,5 +112,52 @@ describe("author-ui 输出 39：输入与“插入”", () => {
         expect([wrapper.emitted("update"), area.value, area.selectionStart, document.activeElement === area]).toEqual([[["魔力：{panel.魔力}点"]], "魔力：{panel.魔力}点", "魔力：{panel.魔力}".length, true]);
 
         expect(show({}).find("[data-text-insert]").exists()).toBe(false);
+    });
+});
+
+describe("author-ui 输出 48：预览栏", () => {
+    const withPreview = (props: Record<string, unknown>) => {
+        const wrapper = mount(EntryTextEditor, {props: {...base, ...props}, slots: {preview: () => h("p", {"data-rendered": ""}, "渲染出来的样子")}, global: {provide: provideText(port)}, attachTo: document.body});
+        mounted.push(wrapper);
+        return wrapper;
+    };
+
+    it("“预览”是个开关：开着时有预览栏、里面是宿主给的内容；点它发出反过来的值，关着时没有预览栏", async () => {
+        const on = withPreview({preview: true});
+        expect([on.get("[data-text-preview-toggle]").attributes("aria-pressed"), on.get("[data-text-preview]").find("[data-rendered]").text(), on.get("[data-text-preview]").attributes("aria-label")]).toEqual(["true", "渲染出来的样子", "预览"]);
+        await on.get("[data-text-preview-toggle]").trigger("click");
+        expect(on.emitted("update:preview")).toEqual([[false]]);
+
+        const off = withPreview({preview: false});
+        expect([off.get("[data-text-preview-toggle]").attributes("aria-pressed"), off.find("[data-text-preview]").exists(), off.find("[data-rendered]").exists()]).toEqual(["false", false, false]);
+        await off.get("[data-text-preview-toggle]").trigger("click");
+        expect(off.emitted("update:preview")).toEqual([[true]]);
+    });
+
+    it("宿主没给预览的内容（已删除的条目只列稿）、或读不出块：没有开关也没有预览栏", () => {
+        const wrapper = show({preview: true});
+        expect([wrapper.find("[data-text-preview-toggle]").exists(), wrapper.find("[data-text-preview]").exists()]).toEqual([false, false]);
+        const frozen = withPreview({preview: true, frozen: true});
+        expect([frozen.find("[data-text-preview-toggle]").exists(), frozen.find("[data-text-preview]").exists()]).toEqual([false, false]);
+    });
+
+    it("栏顶上的一句：写着的时候栏里的内容标成旧的；没有时不写、不标。播报的区域一直在，那一句写在它里面", async () => {
+        const wrapper = withPreview({preview: true});
+        const status = () => wrapper.get("[data-text-preview] [role='status']");
+        expect([status().text(), wrapper.find("[data-text-preview-note]").exists(), wrapper.find("[data-stale]").exists()]).toEqual(["", false, false]);
+        await wrapper.setProps({previewNote: "第 3 行第 3 列写得不对：缺一个花括号"});
+        await flushPromises();
+        expect([status().text(), status().find("[data-text-preview-note]").exists(), wrapper.find("[data-stale]").exists()]).toEqual(["第 3 行第 3 列写得不对：缺一个花括号", true, true]);
+        await wrapper.setProps({previewNote: ""});
+        await flushPromises();
+        expect(wrapper.find("[data-stale]").exists()).toBe(false);
+    });
+
+    it("开着预览照样能打字、能“插入”：改动照常交出去", async () => {
+        const wrapper = withPreview({preview: true, text: "甲", inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}]});
+        const area = wrapper.get("textarea").element as HTMLTextAreaElement;
+        area.value = "甲乙";
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+        expect([wrapper.emitted("update"), wrapper.find("[data-text-insert]").exists()]).toEqual([[["甲乙"]], true]);
     });
 });

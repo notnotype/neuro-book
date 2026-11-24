@@ -4,9 +4,9 @@ import {describe, expect, test} from "bun:test";
 import type {Expression} from "estree";
 
 import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type WriteRequest} from "../src/index";
-import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain, splitBlocks, type PlainOptions} from "../src/render/entry";
+import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain, renderSourceForAuthor, splitBlocks, type PlainOptions} from "../src/render/entry";
 import {evaluate, renderBlockPlain, type PlainBlock, type Resolve} from "../src/render/render";
-import {parseBlock} from "../src/render/syntax";
+import {parseBlock, parseDraft} from "../src/render/syntax";
 import {scanAnnotations, writeBack} from "../src/render/writeback";
 import {World, type WriteResult} from "../src/world/world";
 import {PANEL, PERSON} from "./fixtures/world";
@@ -135,6 +135,74 @@ describe("canon.rendering 场景 1：两种渲染与读不到的值（输出 6�
         const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
         if (agent === null || typeof agent === "string") throw new Error("no render");
         expect(agent.blocks[0]!.text).toBe('见<Ref id="e2" name="星瑾" />（化名）{panel.存款 = 0}（未知）');
+    });
+});
+
+describe("canon.rendering 输出 16：按给的源文字渲染", () => {
+    const DRAFT = '# 近况\n\n魔力 {panel.魔力}，同行的是 <Ref id="e2" />。';
+
+    test("没存下的源文字按条目此刻的数据渲染成一块：字段是值、引用是名字，节点带着它在源文字里的行；世界不变", () => {
+        const base = world();
+        const rendered = renderSourceForAuthor(base, "e1", DRAFT, at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        expect([rendered.version, rendered.position, rendered.mode, rendered.blocks.length]).toEqual([base.version, at("ch5"), "actual", 1]);
+        const block = rendered.blocks[0] as unknown as {id: string; tree: {children: Array<{type: string; position: {start: {line: number}}; children: Array<Record<string, unknown>>}>}};
+        expect(block.id).toBe("source");
+        expect(block.tree.children.map((node) => [node.type, node.position])).toEqual([["heading", {start: {line: 1}}], ["paragraph", {start: {line: 3}}]]);
+        // 位置只留块一级节点的起始行：行内的节点没有位置，哪里都没有列与偏移。
+        expect([block.tree.children[1]!.children.some((node) => "position" in node), /"(?:column|offset|end)"/u.test(JSON.stringify(block))]).toEqual([false, false]);
+        expect(block.tree.children[1]!.children.filter((node) => node.type !== "text")).toEqual([
+            {type: "canonValue", path: "panel.魔力", entry: null, label: "魔力", raw: 3110, display: "3,110"},
+            {type: "canonRef", id: "e2", name: "星瑾", deleted: false},
+        ]);
+        // 只读：存下来的主文字与版本都没动。
+        expect([base.version, base.data.entries.get("e1")!.init.text]).toEqual([2, [{id: "b1", source: BLOCK}]]);
+    });
+
+    test("读的是给的位置上的数据：第 1 章面板还没启用，字段是占位", () => {
+        const rendered = renderSourceForAuthor(world(), "e1", "魔力 {panel.魔力}", at("ch1"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        const paragraph = (rendered.blocks[0] as unknown as {tree: {children: Array<{children: Array<{type: string}>}>}}).tree.children[0]!.children;
+        expect(paragraph.map((node) => node.type)).toEqual(["text", "canonPlaceholder"]);
+    });
+
+    test("过不了写入检查的源文字：照出错的块给纯文本与行、列", () => {
+        const rendered = renderSourceForAuthor(world(), "e1", "第一段\n\n他说{+5}", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        expect(rendered.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "no-field-expression", line: 3, column: 3}), text: "第一段\n\n他说{+5}"}]);
+    });
+
+    test("条目不存在是 null；那一章不在是 chapter-not-found；那条线不在是 line-not-found", () => {
+        expect(renderSourceForAuthor(world(), "nobody", "字", at("ch5"), "actual")).toBeNull();
+        expect(renderSourceForAuthor(world(), "e1", "字", at("ch9"), "actual")).toBe("chapter-not-found");
+        expect(renderSourceForAuthor(world(), "e1", "字", {...at("ch5"), line: "nowhere"}, "actual")).toBe("line-not-found");
+    });
+
+    test("读的是给的模式：别的条目的字段按实际与按计划各是各的值；引用不存在的条目写“已删除的条目”", () => {
+        const base = cast([]);
+        const values = (mode: "actual" | "planned") => {
+            const rendered = renderSourceForAuthor(base, "e1", '存款 {ref("e2").panel.存款}，同行的是 <Ref id="e404" />', at("ch3"), mode);
+            if (rendered === null || typeof rendered === "string") throw new Error("no render");
+            const paragraph = (rendered.blocks[0] as unknown as {tree: {children: Array<{children: Array<Record<string, unknown>>}>}}).tree.children[0]!.children;
+            return paragraph.filter((node) => node.type !== "text").map((node) => (node.type === "canonValue" ? node.raw : [node.name, node.deleted]));
+        };
+        expect([values("actual"), values("planned")]).toEqual([[800, ["已删除的条目", true]], [900, ["已删除的条目", true]]]);
+    });
+
+    test("解析的结果不留：同一段没存过的源文字每次都重新解析；与存下来的块相同时用留着的那一份", () => {
+        const draft = "只在预览里出现过的一段 {panel.魔力}";
+        renderSourceForAuthor(world(), "e1", draft, at("ch5"), "actual");
+        expect(parseDraft(draft)).not.toBe(parseDraft(draft));
+        // `BLOCK` 是存下来的块，渲染过就在缓存里。
+        renderEntryForAuthor(world(), "e1", at("ch5"), "actual");
+        expect(parseDraft(BLOCK)).toBe(parseBlock(BLOCK));
+    });
+
+    test("嵌套深到栈溢出的源文字（几万层引用）：照出错的块给，不抛", () => {
+        const deep = "> ".repeat(25_000);
+        const rendered = renderSourceForAuthor(world(), "e1", deep, at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        expect(rendered.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "mdx-invalid", line: 1}), text: deep}]);
     });
 });
 

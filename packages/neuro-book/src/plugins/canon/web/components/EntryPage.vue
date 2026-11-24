@@ -3,7 +3,7 @@
  * 条目页的骨架（docs/specs/canon/author-ui.md 输出 6 到 9、27）：页头、几行状态说明、分页条；分页的内容由宿主放进默认插槽。
  * 受控：位置、“按计划”、当前分页都由宿主给，交互时发出新值。
  */
-import {computed, nextTick, ref, useId} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
 import {Button, DropdownMenu, IconButton, Input, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
 import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
@@ -54,7 +54,9 @@ const props = withDefaults(defineProps<{
     actionError?: string;
     /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：这三个控件不可用、悬停提示是它。默认空（能换）。 */
     positionLocked?: string;
-}>(), {positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: "", actionError: ""});
+    /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
+    wide?: boolean;
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: "", actionError: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -121,6 +123,52 @@ const commitAlias = (): void => {
     if (alias !== "" && !props.aliases.includes(alias)) emit("aliases", {add: [alias]});
 };
 
+/**
+ * 量三个尺寸：页头吸顶时的高度、滚动区看得到的高度与宽度。前两个写成根上的 CSS 变量，给分页里要吸在页头下面的东西（主文字
+ * 的预览栏，输出 48）用；页头不吸顶（窄屏）时高度是 0。宽度决定 `wide` 生不生效。滚动区是最近的会纵向滚动的上级（编辑区的
+ * 页面容器），本组件只量它、不改它。
+ */
+const root = ref<HTMLElement | null>(null);
+const header = ref<HTMLElement | null>(null);
+const sticky = shallowRef({top: 0, viewport: 0, width: 0});
+let scroller: HTMLElement | null = null;
+let sizes: ResizeObserver | null = null;
+const measure = (): void => {
+    const head = header.value;
+    const top = head !== null && getComputedStyle(head).position === "sticky" ? head.offsetHeight : 0;
+    const viewport = scroller?.clientHeight ?? 0;
+    const width = scroller?.clientWidth ?? 0;
+    if (top !== sticky.value.top || viewport !== sticky.value.viewport || width !== sticky.value.width) sticky.value = {top, viewport, width};
+};
+const scrollParent = (from: HTMLElement): HTMLElement | null => {
+    for (let element = from.parentElement; element !== null; element = element.parentElement) {
+        const overflow = getComputedStyle(element).overflowY;
+        if (overflow === "auto" || overflow === "scroll") return element;
+    }
+    return null;
+};
+onMounted(() => {
+    if (root.value === null || typeof ResizeObserver === "undefined") return;
+    scroller = scrollParent(root.value);
+    sizes = new ResizeObserver(measure);
+    if (scroller !== null) sizes.observe(scroller);
+    if (header.value !== null) sizes.observe(header.value);
+});
+// 页头只在读到条目以后才有：出现、换掉时改量新的那个。
+watch(header, (now, before) => {
+    if (before !== null) sizes?.unobserve(before);
+    if (now !== null) sizes?.observe(now);
+    measure();
+}, {flush: "post"});
+onBeforeUnmount(() => sizes?.disconnect());
+const stickyStyle = computed(() => ({"--entry-page-sticky-top": `${String(sticky.value.top)}px`, ...(sticky.value.viewport > 0 ? {"--entry-page-viewport": `${String(sticky.value.viewport)}px`} : {})}));
+/**
+ * 滚动区不窄于这个宽度才放宽：内容列左右各 32 像素的内边距，里面的编辑视图要 880 像素才左右分屏（`EntryTextEditor` 的容器
+ * 查询）。窄于它时放宽了也还是上下排，页头与内容白白变一次宽度。
+ */
+const WIDE_MIN = 880 + 64;
+const column = computed(() => (props.wide && sticky.value.width >= WIDE_MIN ? "entry-page__column entry-page__column--wide" : "entry-page__column"));
+
 const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
 const PANEL_ID = `canon-entry-panel-${useId()}`;
@@ -128,7 +176,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
 </script>
 
 <template>
-    <article class="min-h-full" data-entry-page>
+    <article ref="root" class="min-h-full" :style="stickyStyle" :data-wide="props.wide ? '' : undefined" data-entry-page>
         <WorldBanners :disconnected="props.disconnected" :read-only="props.readOnly" @retry="emit('retry')" />
         <p v-if="props.status === 'loading'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--text-muted)]" role="status" aria-busy="true">{{ text("entries.loading") }}</p>
         <p v-else-if="props.status === 'failed'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert">{{ text("world.failed") }}</p>
@@ -142,8 +190,8 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
         </div>
         <template v-else>
             <!-- 窄屏上页头换成几行，吸顶会占掉大半个视口，只在宽屏吸顶。 -->
-            <header class="z-[1] border-b border-[var(--divider)] bg-[var(--panel-surface)] px-8 pt-5 min-[481px]:sticky min-[481px]:top-0 max-[480px]:px-4">
-                <div class="mx-auto flex max-w-[760px] flex-wrap items-start gap-x-4 gap-y-2">
+            <header ref="header" class="z-[1] border-b border-[var(--divider)] bg-[var(--panel-surface)] px-8 pt-5 min-[481px]:sticky min-[481px]:top-0 max-[480px]:px-4">
+                <div class="mx-auto flex flex-wrap items-start gap-x-4 gap-y-2" :class="column">
                     <div class="min-w-0 flex-1 basis-64">
                         <div class="flex flex-wrap items-baseline gap-x-2">
                             <h1 class="text-[length:var(--text-xl)] font-semibold text-[var(--text-main)]">{{ props.name }}</h1>
@@ -180,9 +228,9 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         </DropdownMenu>
                     </div>
                 </div>
-                <Tabs class="mx-auto mt-3 max-w-[760px]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                <Tabs class="mx-auto mt-3" :class="column" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
             </header>
-            <div class="mx-auto max-w-[760px] px-8 py-5 max-[480px]:px-4">
+            <div class="mx-auto px-8 py-5 max-[480px]:px-4" :class="column">
                 <p v-if="props.actionError !== ''" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-danger)]" data-entry-action-error>{{ props.actionError }}</p>
                 <slot name="bar" />
                 <p v-if="props.positionGone" role="status" class="mb-3 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.positionGone") }}</p>
@@ -194,3 +242,16 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
         </template>
     </article>
 </template>
+
+<style scoped>
+/*
+ * 页头、分页条与内容列同一个上限，放宽时一起变（主文字左右分屏，输出 48）。放宽后内容列去掉内边距是 1496 像素，两栏各约
+ * 736，不超过一栏时的 760。上限的变化不加过渡：过渡的中途内容列会越过左右分屏的分界，版式在动画中间跳一下。
+ */
+.entry-page__column {
+    max-width: 760px;
+}
+.entry-page__column--wide {
+    max-width: 1560px;
+}
+</style>

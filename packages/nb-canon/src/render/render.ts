@@ -18,7 +18,7 @@ export {displayText};
 import type {ChapterOrder} from "../core/position";
 import type {ReadPosition} from "../core/schema";
 import type {Engine, EntryView, IncompleteMark, Mode} from "../engine/types";
-import {parseBlock, type ExpressionSite, type FieldReference, type SyntaxProblem} from "./syntax";
+import {parseBlock, type ExpressionSite, type FieldReference, type ParseResult, type SyntaxProblem} from "./syntax";
 
 export interface Resolved {
     readonly value: unknown;
@@ -176,9 +176,12 @@ export interface RenderContext {
     readonly entryName: (id: string) => string | null;
 }
 
-/** 给作者的一块：语法树里的表达式节点换成 canon 节点，只含注释的表达式去掉（输出 7）。 */
-export function renderBlockForAuthor(id: string, source: string, context: RenderContext): AuthorBlock {
-    const parsed = parseBlock(source);
+/**
+ * 给作者的一块：语法树里的表达式节点换成 canon 节点，只含注释的表达式去掉（输出 7）。`parse` 缺省是带缓存的解析；渲染没存
+ * 下来的源文字时换成不进缓存的（`parseDraft`）。
+ */
+export function renderBlockForAuthor(id: string, source: string, context: RenderContext, parse: (source: string) => ParseResult = parseBlock): AuthorBlock {
+    const parsed = parse(source);
     if (!parsed.ok) return {id, error: parsed.problem, text: source};
     const sites = new Map(parsed.block.expressions.map((site) => [site.start, site]));
     const tree = structuredClone(parsed.block.tree);
