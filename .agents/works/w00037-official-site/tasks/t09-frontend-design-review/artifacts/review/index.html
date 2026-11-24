@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>官方站前端 第 1 轮：外观</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1320px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; gap: 16px; }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+/* 每个候选一行三张：登录页、手机上的登录页、看板；同一列是同一个页面，上下对着比 */
+.shots { display: grid; grid-template-columns: minmax(0, 1440fr) minmax(0, 390fr) minmax(0, 1440fr); gap: 10px; align-items: start; }
+.shots a { display: block; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
+.shots img { display: block; width: 100%; height: auto; }
+@media (max-width: 760px) { .shots { grid-template-columns: minmax(0, 1fr); } }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>官方站前端 第 1 轮：外观</h1>
+
+<section data-nbdev-question="look" data-nbdev-type="single" data-nbdev-recommend="mixed">
+  <h2>官方站用应用的默认外观，还是另做一套“稿纸”外观？</h2>
+  <p class="rec"><strong>推荐 C：配色与应用共用一套，不用多维护一份；只有登录页这一处画成稿纸，让人记得住。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="house" data-nbdev-label="A 默认外观">
+      <h3>A 默认外观</h3>
+      <div class="shots">
+        <a href="r1/a-login.webp" data-nbdev-skip><img src="r1/a-login.webp" alt="A 的登录页：暖灰底上居中的一张卡"></a>
+        <a href="r1/a-login-phone.webp" data-nbdev-skip><img src="r1/a-login-phone.webp" alt="A 的登录页，390 宽"></a>
+        <a href="r1/a-dashboard.webp" data-nbdev-skip><img src="r1/a-dashboard.webp" alt="A 的看板：暖色底、蓝色强调"></a>
+      </div>
+      <p>和应用里的对话框、设置页是同一种画法，不新增任何配色。</p>
+    </div>
+    <div class="cand" data-nbdev-option="paper" data-nbdev-label="B 稿纸外观">
+      <h3>B 稿纸外观</h3>
+      <div class="shots">
+        <a href="r1/b-login.webp" data-nbdev-skip><img src="r1/b-login.webp" alt="B 的登录页：整页是绿格稿纸，产品名与说明一格一字"></a>
+        <a href="r1/b-login-phone.webp" data-nbdev-skip><img src="r1/b-login-phone.webp" alt="B 的登录页，390 宽"></a>
+        <a href="r1/b-dashboard.webp" data-nbdev-skip><img src="r1/b-dashboard.webp" alt="B 的看板：冷白的纸、蓝黑墨水色的强调"></a>
+      </div>
+      <p>登录页是稿纸，全站换成冷白的纸与蓝黑墨水的强调色；官方站要多维护明暗两份配色。</p>
+    </div>
+    <div class="cand" data-nbdev-option="mixed" data-nbdev-label="C 默认配色，登录页画成稿纸">
+      <h3>C 默认配色，登录页画成稿纸</h3>
+      <div class="shots">
+        <a href="r1/c-login.webp" data-nbdev-skip><img src="r1/c-login.webp" alt="C 的登录页：稿纸的版式，用应用的暖色与蓝色强调"></a>
+        <a href="r1/c-login-phone.webp" data-nbdev-skip><img src="r1/c-login-phone.webp" alt="C 的登录页，390 宽"></a>
+        <a href="r1/a-dashboard.webp" data-nbdev-skip><img src="r1/a-dashboard.webp" alt="C 的看板，与 A 相同"></a>
+      </div>
+      <p>登录之后的页面与 A 完全一样。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="dashboard-first-screen" data-nbdev-type="text">
+  <h2>看板首屏的内容与先后，有要增减或调换的吗？</h2>
+  <p class="rec"><strong>推荐照图：上面一条是今天的四个数，中间是活跃与在线两张趋势图，下面是版本、系统、留存；错误码与崩溃放在再往下一屏。</strong></p>
+</section>
+
+<section>
+  <h2>这一轮没定、后面的轮次再看</h2>
+  <table>
+    <thead><tr><th>事项</th><th>现在图上是什么</th></tr></thead>
+    <tbody>
+      <tr><td>图表库</td><td>手画的示意图，数是编的</td></tr>
+      <tr><td>红色印章里的字</td><td>临时写的 NB；有正式标志时换成标志</td></tr>
+      <tr><td>注册、同意条款、授权确认、账号页，管理面板的其它四页</td><td>还没画</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>主页只做登录入口；旁边留一行产品说明与隐私政策、服务条款的链接</li>
+    <li>管理员登录后先看统计看板</li>
+    <li>普通用户登录后直接进账号页</li>
+    <li>登录、注册、同意条款、授权确认与公开页适配手机；管理面板只做桌面宽度</li>
+    <li>第一版界面只有中文</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

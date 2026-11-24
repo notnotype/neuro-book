@@ -1,0 +1,69 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00037-official-site",
+    "taskId": "t09-frontend-design-review",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "官方站前端 第 1 轮：外观",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "907440101c97323a2d2ff8f845858cf3265d1405af83824f1a89261d3971aa06",
+    "files": [
+        "index.html",
+        "r1/a-dashboard.webp",
+        "r1/a-login-phone.webp",
+        "r1/a-login.webp",
+        "r1/b-dashboard.webp",
+        "r1/b-login-phone.webp",
+        "r1/b-login.webp",
+        "r1/c-login-phone.webp",
+        "r1/c-login.webp"
+    ],
+    "questions": [
+        {
+            "id": "look",
+            "type": "single",
+            "label": "官方站用应用的默认外观，还是另做一套“稿纸”外观？",
+            "options": [
+                {
+                    "value": "house",
+                    "label": "A 默认外观"
+                },
+                {
+                    "value": "paper",
+                    "label": "B 稿纸外观"
+                },
+                {
+                    "value": "mixed",
+                    "label": "C 默认配色，登录页画成稿纸"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "mixed"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dashboard-first-screen",
+            "type": "text",
+            "label": "看板首屏的内容与先后，有要增减或调换的吗？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-24T12:30:52.453Z"
+}
