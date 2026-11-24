@@ -18,7 +18,8 @@ import {addExact, exactProblem, subtractExact} from "../core/decimal";
 import {chapterEnd, compareRanks, positionRank} from "../core/position";
 import {sameJson, stableStringify} from "../core/stable-json";
 import {valueAt, type ViewValue} from "../core/view-value";
-import type {Actor, Address, Entry, EntryEdits, EntryOp, FieldDeclaration, NamespaceData, NewEntry, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
+import {generateFieldId, type ComponentType} from "../components/registry";
+import type {Actor, Address, Entry, EntryEdits, EntryOp, FieldDeclaration, FieldDraft, NamespaceData, NewEntry, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {LOCAL_ID_PREFIX} from "../core/ids";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
@@ -261,6 +262,12 @@ function addressesOf(op: EntryOp, index: number): readonly Address[] {
             return [{entry: op.entry, path: `text[+${String(index)}]`}];
         case "component":
             return [{entry: op.entry, path: `$component.${op.type}`}];
+        case "fieldAdd":
+            return [{entry: op.entry, path: `$declared.${op.namespace}[+${String(index)}]`}];
+        case "fieldRename":
+        case "fieldRemove":
+        case "fieldRestore":
+            return [op.at];
         case "place":
             return [{entry: op.entry, path: "$place"}];
         case "delete":
@@ -282,7 +289,7 @@ class Draft {
     readonly entries = new Map<string, Entry>();
     readonly changes = new Map<string, StoryChange>();
     readonly created = new Set<string>();
-    /** 这一批新加的设定组（`条目/命名空间`）与元素（`条目/命名空间.字段[元素]`）：后面的项不能再改它们。 */
+    /** 这一批新加的设定组（`条目/命名空间`）、字段（`条目/命名空间.字段`）与元素（`条目/命名空间.字段[元素]`）：后面的项不能再改它们。 */
     readonly fresh = new Set<string>();
 
     constructor(private readonly world: World) {}
@@ -383,18 +390,59 @@ function orderAfter(world: World, draft: Draft, parent: string | null, after: st
     return middle > before && middle < next ? middle : null;
 }
 
-/** 照登记的类型建一个设定组的数据：字段先都是未知，再填上给的。 */
-function namespaceData(world: World, type: string, fields: Readonly<Record<string, unknown>> | undefined): {readonly namespace: string; readonly data: NamespaceData} | null {
+/** 照登记的类型建一个设定组的数据：字段先都是未知，再填上给的；`declare` 是这个实例自己的字段声明（新建的实例没有用过的 id）。 */
+function namespaceData(world: World, type: string, fields: Readonly<Record<string, unknown>> | undefined, declare: readonly FieldDraft[] = []): {readonly namespace: string; readonly data: NamespaceData} | {readonly problem: FieldProblem} | null {
     const declared = world.options.registry.types.find((candidate) => candidate.id === type);
     if (declared === undefined) return null;
-    return {
-        namespace: declared.namespace,
-        data: {type: declared.id, version: declared.version, enabled: true, fields: {...Object.fromEntries(declared.fields.map((field) => [field.id, null])), ...structuredClone(fields ?? {})}, ...(declared.instanceFields ? {declared: []} : {})},
-    };
+    const data: NamespaceData = {type: declared.id, version: declared.version, enabled: true, fields: Object.fromEntries(declared.fields.map((field) => [field.id, null])), ...(declared.instanceFields ? {declared: []} : {})};
+    for (const draft of declare) {
+        const made = declareField(declared, data, draft, new Set());
+        if (typeof made !== "string") return {problem: made};
+        data.fields[made] = null;
+    }
+    Object.assign(data.fields, structuredClone(fields ?? {}));
+    return {namespace: declared.namespace, data};
+}
+
+type FieldProblem = {readonly code: string; readonly message: string};
+
+/**
+ * 在一个实例上加一条字段声明，返回它的 id（components.md 输出 4）。声明上的规则（类型允不允许、显示名、上限）由世界层一处判
+ * （输出 23），这里只定 id：给了的先用，没给按显示名生成；已经占着的（任何声明用着，或 `used` 里的）换一个生成的，不拒收，
+ * 所以预设带写死的 id、而作者先自己加过同 id 的一项时照样加得上。
+ */
+function declareField(type: ComponentType, data: NamespaceData, draft: FieldDraft, used: ReadonlySet<string>): string | FieldProblem {
+    if ("removed" in draft) return {code: "type-mismatch", message: "a new field cannot be declared as removed"};
+    const taken = new Set([...used, ...type.fields.map((field) => field.id), ...(data.declared ?? []).map((field) => field.id), ...Object.keys(data.fields)]);
+    const id = draft.id !== undefined && !taken.has(draft.id) ? draft.id : generateFieldId(draft.label, taken);
+    (data.declared ??= []).push({...structuredClone(draft), id});
+    return id;
+}
+
+/** 一个实例上留着数据的字段 id：剧情变更的补丁指过的（初值里的键由 `declareField` 自己看）。生成新 id 时避开，同 `usedElementIds`。 */
+function patchedFieldIds(world: World, entryId: string, namespace: string): Set<string> {
+    const used = new Set<string>();
+    for (const change of world.data.changes.values()) {
+        for (const patch of change.patches) {
+            if (patch.at.entry !== entryId) continue;
+            const parsed = parsePath(patch.at.path);
+            if (parsed?.root === "namespace" && parsed.namespace === namespace) used.add(parsed.field);
+        }
+    }
+    return used;
+}
+
+/** 字段声明的操作指到的实例：条目上有这一组、没去掉，类型登记着。 */
+function instanceOf(world: World, entry: Entry, namespace: string): {readonly type: ComponentType; readonly data: NamespaceData} | FieldProblem {
+    const data = entry.init.data[namespace];
+    if (data === undefined || data.removed === true) return {code: "element-missing", message: "the component is not on this entry"};
+    const type = world.options.registry.byNamespace(namespace);
+    if (type === undefined || type.id !== data.type) return {code: "component-unknown", message: "component type is not registered"};
+    return {type, data};
 }
 
 /** 照 `NewEntry` 建条目对象（id 是临时 id）。 */
-function buildEntry(world: World, draft: Draft, id: string, input: NewEntry): Entry | string {
+function buildEntry(world: World, draft: Draft, id: string, input: NewEntry): Entry | string | FieldProblem {
     const data: Record<string, NamespaceData> = {};
     const queryOnly: string[] = [];
     for (const component of input.components ?? []) {
@@ -402,8 +450,9 @@ function buildEntry(world: World, draft: Draft, id: string, input: NewEntry): En
             queryOnly.push(component.type);
             continue;
         }
-        const built = namespaceData(world, component.type, component.fields);
+        const built = namespaceData(world, component.type, component.fields, component.declare);
         if (built === null) return component.type;
+        if ("problem" in built) return built.problem;
         data[built.namespace] = built.data;
     }
     const parent = input.parent ?? null;
@@ -475,10 +524,11 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
         if ("at" in op) {
             const parsed = parsePath(op.at.path);
             const freshBlock = parsed?.root === "text" && draft.fresh.has(`${op.at.entry}/text[${parsed.block}]`);
-            if (freshBlock || (parsed?.root === "namespace" && (draft.fresh.has(`${op.at.entry}/${parsed.namespace}`) || (parsed.element !== undefined && draft.fresh.has(`${op.at.entry}/${parsed.namespace}.${parsed.field}[${parsed.element}]`))))) {
-                return problem(index, "created-in-batch", "this component or element is added in the same batch; give its initial values in the operation that adds it");
+            if (freshBlock || (parsed?.root === "namespace" && (draft.fresh.has(`${op.at.entry}/${parsed.namespace}`) || draft.fresh.has(`${op.at.entry}/${parsed.namespace}.${parsed.field}`) || (parsed.element !== undefined && draft.fresh.has(`${op.at.entry}/${parsed.namespace}.${parsed.field}[${parsed.element}]`))))) {
+                return problem(index, "created-in-batch", "this component, field or element is added in the same batch; give its initial values in the operation that adds it");
             }
         }
+        if (op.op === "fieldAdd" && draft.fresh.has(`${op.entry}/${op.namespace}`)) return problem(index, "created-in-batch", "this component is added in the same batch; declare its fields in the operation that adds it");
         for (const address of addressesOf(op, index)) {
             const earlier = seen.find((candidate) => overlaps(candidate, address));
             if (earlier !== undefined) return problem(index, "duplicate-address", `an earlier operation in this batch already changes ${earlier.path}`);
@@ -497,6 +547,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 if (repeated !== undefined) return problem(index, "duplicate-address", `component type "${repeated}" is listed twice`);
                 const built = buildEntry(world, draft, op.id, op.entry);
                 if (typeof built === "string") return problem(index, "component-unknown", `component type "${built}" is not registered`);
+                if ("code" in built) return problem(index, built.code, built.message);
                 draft.entries.set(op.id, built);
                 draft.created.add(op.id);
                 routes.push({kind: "entry"});
@@ -711,10 +762,46 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                         delete existing.removed;
                         for (const [field, value] of Object.entries(op.fields ?? {})) existing.fields[field] = structuredClone(value);
                     } else {
-                        const built = namespaceData(world, op.type, op.fields)!;
+                        const built = namespaceData(world, op.type, op.fields, op.action === "add" ? op.declare : undefined)!;
+                        if ("problem" in built) return problem(index, built.problem.code, built.problem.message);
                         entry.init.data[built.namespace] = built.data;
                         draft.fresh.add(`${op.entry}/${built.namespace}`);
                     }
+                }
+                routes.push({kind: "entry"});
+                break;
+            }
+            case "fieldAdd": {
+                const entry = draft.entry(op.entry);
+                if (entry === undefined) return problem(index, "not-found", "the entry does not exist");
+                const instance = instanceOf(world, entry, op.namespace);
+                if ("code" in instance) return problem(index, instance.code, instance.message);
+                const made = declareField(instance.type, instance.data, op.field, patchedFieldIds(world, op.entry, op.namespace));
+                if (typeof made !== "string") return problem(index, made.code, made.message);
+                instance.data.fields[made] = op.value === undefined ? null : structuredClone(op.value);
+                draft.fresh.add(`${op.entry}/${op.namespace}.${made}`);
+                routes.push({kind: "entry"});
+                break;
+            }
+            case "fieldRename":
+            case "fieldRemove":
+            case "fieldRestore": {
+                const entry = draft.entry(op.at.entry);
+                if (entry === undefined) return problem(index, "not-found", "the entry does not exist");
+                const parsed = parsePath(op.at.path);
+                if (parsed === null || parsed.root !== "namespace" || parsed.element !== undefined || parsed.sub !== undefined) return problem(index, "type-mismatch", "the address must name a field");
+                const instance = instanceOf(world, entry, parsed.namespace);
+                if ("code" in instance) return problem(index, instance.code, instance.message);
+                if (instance.type.fields.some((field) => field.id === parsed.field)) return problem(index, "field-fixed", "this field belongs to the component type; only fields declared on the entry can be renamed or removed");
+                const found = instance.data.declared?.find((field) => field.id === parsed.field);
+                if (found === undefined) return problem(index, "field-missing", "this entry does not declare this field");
+                if (op.op === "fieldRename") found.label = op.label;
+                else if (op.op === "fieldRemove") {
+                    if (found.removed === true) return problem(index, "field-missing", "this field is already removed");
+                    found.removed = true;
+                } else {
+                    if (found.removed !== true) return problem(index, "field-missing", "this field is not removed");
+                    delete found.removed;
                 }
                 routes.push({kind: "entry"});
                 break;

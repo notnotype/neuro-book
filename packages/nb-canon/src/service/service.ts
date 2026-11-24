@@ -453,7 +453,14 @@ export class WorldService {
             const type = world.options.registry.byNamespace(namespace);
             if (type !== undefined) declarations[namespace] = effectiveFields(type, stored.init.data[namespace]?.declared);
         }
-        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder, declarations};
+        // 去掉过的实例字段（components.md 输出 4）：界面据此给“恢复”。被类型固定的字段盖住的不算，它恢复了也不起作用。
+        const removedFields: Record<string, readonly {readonly id: string; readonly label: string}[]> = {};
+        for (const namespace of Object.keys(view.namespaces)) {
+            const type = world.options.registry.byNamespace(namespace);
+            const removed = (stored.init.data[namespace]?.declared ?? []).filter((field) => field.removed === true && type?.fields.some((fixed) => fixed.id === field.id) !== true);
+            if (type !== undefined && removed.length > 0) removedFields[namespace] = removed.map((field) => ({id: field.id, label: field.label}));
+        }
+        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder, declarations, ...(Object.keys(removedFields).length === 0 ? {} : {removedFields})};
     }
 
     /** 给每个字段状态补上最近一次改动（输出 32）。引擎给的视图可能与它的快照共用对象，这里只新建要改的那几层。 */

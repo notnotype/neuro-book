@@ -257,3 +257,116 @@ describe("canon.revisions 输出 25：一次改几处", () => {
         ok(editEntries(base, input, "t", now(2, "aaaa1111")));
     });
 });
+
+describe("canon.components 输出 4、canon.revisions 输出 25：实例字段的四个操作", () => {
+    const LUCK = {op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "幸运", kind: "number"}, value: 7} as const;
+    /** 校验细项的码（世界层报的没有序号）。 */
+    const codes = (result: {ok: boolean; failure?: unknown}): string[] => {
+        const failure = (result as {failure?: {code: string; problems?: Array<{code: string; path?: string}>}}).failure;
+        return failure === undefined ? ["ok"] : failure.code === "validation-failed" ? failure.problems!.map((item) => `${item.code}:${item.path ?? ""}`) : [failure.code];
+    };
+    const declared = (base: World) => base.data.entries.get("e1")!.init.data.panel!.declared!;
+
+    test("新增：id 按显示名生成、带初值、读得到；修订按字段记；给的 id 占着时换一个", () => {
+        const done = ok(editEntries(world(), batch([LUCK]), "t"));
+        expect(declared(done.world)).toEqual([{id: "幸运", label: "幸运", kind: "number"}]);
+        expect(read(done.world, "panel.幸运")).toBe(7);
+        expect(done.routes).toEqual([{kind: "entry"}]);
+        expect(done.revision.ops[0]).toMatchObject({kind: "modify", fields: [{path: "init.data.panel.declared[幸运]"}, {path: "init.data.panel.declared#order"}, {path: "init.data.panel.fields.幸运", after: 7}]});
+
+        // “存款”是类型固定的字段：给了这个 id 也加得上，换成按显示名生成的。
+        const other = ok(editEntries(done.world, batch([{op: "fieldAdd", entry: "e1", namespace: "panel", field: {id: "存款", label: "金库", kind: "number"}}], {baseVersion: 3}), "t"));
+        expect(declared(other.world).map((field) => field.id)).toEqual(["幸运", "金库"]);
+        expect(read(other.world, "panel.金库")).toBeNull();
+    });
+
+    test("改名、去掉、恢复：去掉后读不到、值留着，恢复后回来；去掉过的 id 不分给新加的，同名的可以再加，这时恢复旧的被拒", () => {
+        const added = ok(editEntries(world(), batch([LUCK]), "t")).world;
+        const at = {entry: "e1", path: "panel.幸运"};
+        const renamed = ok(editEntries(added, batch([{op: "fieldRename", at, label: "运气"}], {baseVersion: 3}), "t")).world;
+        expect(declared(renamed)[0]).toMatchObject({id: "幸运", label: "运气"});
+
+        const removed = ok(editEntries(renamed, batch([{op: "fieldRemove", at}], {baseVersion: 4}), "t")).world;
+        expect(read(removed, "panel.幸运")).toBeUndefined();
+        expect(removed.data.entries.get("e1")!.init.data.panel!.fields.幸运).toBe(7);
+        expect(problemCode(editEntries(removed, batch([{op: "set", at, value: 9}], {baseVersion: 5}), "t"))).toBe("field-unavailable");
+
+        const again = ok(editEntries(removed, batch([{op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "运气", kind: "text"}, value: "不错"}], {baseVersion: 5}), "t")).world;
+        expect(declared(again).map((field) => [field.id, field.label, field.removed ?? false])).toEqual([["幸运", "运气", true], ["运气", "运气", false]]);
+        expect(codes(editEntries(again, batch([{op: "fieldRestore", at}], {baseVersion: 6}), "t"))).toEqual(["label-taken:init.data.panel.declared[幸运].label"]);
+
+        const restored = ok(editEntries(removed, batch([{op: "fieldRestore", at}], {baseVersion: 5}), "t")).world;
+        expect(read(restored, "panel.幸运")).toBe(7);
+    });
+
+    test("初值里留着键、剧情变更的补丁指过的 id 不分给新加的字段", () => {
+        const added = ok(editEntries(world(), batch([LUCK]), "t")).world;
+        const told = ok(editEntries(added, batch([{op: "add", at: {entry: "e1", path: "panel.幸运"}, delta: 2}], {baseVersion: 3, intent: "story"}), "t")).world;
+        // 照老办法直接删掉声明（不经操作）：值留在初值里，第 50 章的补丁还指着它。
+        const entry = structuredClone(told.data.entries.get("e1")!) as Entry;
+        entry.init.data.panel!.declared = [];
+        const dropped = ok(told.publish({requestId: id(), by: author, what: "edit", title: "删声明", baseVersion: told.version, puts: [{ref: {kind: "entry", id: "e1"}, after: entry}]} as WriteRequest, "t") as WriteResult).world;
+        const again = ok(editEntries(dropped, batch([{op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "幸运", kind: "text"}, value: "好"}], {baseVersion: dropped.version}), "t")).world;
+        expect(declared(again)).toEqual([{id: "幸运2", label: "幸运", kind: "text"}]);
+        expect(read(again, "panel.幸运2")).toBe("好");
+    });
+
+    test("拒收：类型固定的字段、没有这个声明、去掉两次、恢复没去掉的、地址不是字段、类型不允许、显示名重复、上限落空", () => {
+        const base = ok(editEntries(world(), batch([LUCK]), "t")).world;
+        const attempt = (...ops: EntryOp[]) => editEntries(base, batch(ops, {baseVersion: 3}), "t");
+        const at = {entry: "e1", path: "panel.幸运"};
+        expect(problemCode(attempt({op: "fieldRemove", at: {entry: "e1", path: "panel.存款"}}))).toBe("field-fixed");
+        expect(problemCode(attempt({op: "fieldRename", at: {entry: "e1", path: "panel.没有"}, label: "名字"}))).toBe("field-missing");
+        expect(problemCode(attempt({op: "fieldRestore", at}))).toBe("field-missing");
+        expect(problemCode(attempt({op: "fieldRemove", at: {entry: "e1", path: "panel.物品[i1]"}}))).toBe("type-mismatch");
+        expect(problemCode(attempt({op: "fieldRemove", at: {entry: "e1", path: "没有这一组.幸运"}}))).toBe("element-missing");
+        const removed = ok(attempt({op: "fieldRemove", at})).world;
+        expect(problemCode(editEntries(removed, batch([{op: "fieldRemove", at}], {baseVersion: 4}), "t"))).toBe("field-missing");
+        expect(codes(attempt({op: "fieldAdd", entry: "e1", namespace: "character", field: {label: "种族", kind: "text"}}))).toEqual(["fields-not-declarable:init.data.character.declared"]);
+        expect(codes(attempt({op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "存款", kind: "number"}}))).toEqual(["label-taken:init.data.panel.declared[存款2].label"]);
+        expect(codes(attempt({op: "fieldRename", at, label: "存款"}))).toEqual(["label-taken:init.data.panel.declared[幸运].label"]);
+        expect(codes(attempt({op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "耐力", kind: "number", max: "没有"}}))).toEqual(["field-referenced:init.data.panel.declared[耐力].max"]);
+        expect(problemCode(attempt({op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "耐力", kind: "number", removed: true} as never}))).toBe("type-mismatch");
+        expect(base.version).toBe(3);
+    });
+
+    test("同一批：两项新增并存、上限可以指向同一批前一项；对刚加的字段再改、同一个字段既改名又去掉都拒收", () => {
+        const base = world();
+        const cap = {op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "幸运上限", kind: "number"}, value: 10} as const;
+        const done = ok(editEntries(base, batch([cap, {...LUCK, field: {...LUCK.field, max: "幸运上限"}}]), "t")).world;
+        expect(declared(done).map((field) => field.id)).toEqual(["幸运上限", "幸运"]);
+        expect(problemCode(editEntries(base, batch([LUCK, {op: "set", at: {entry: "e1", path: "panel.幸运"}, value: 9}]), "t"))).toBe("created-in-batch");
+        const at = {entry: "e1", path: "panel.幸运"};
+        expect(problemCode(editEntries(done, batch([{op: "fieldRename", at, label: "运气"}, {op: "fieldRemove", at}], {baseVersion: 3}), "t"))).toBe("duplicate-address");
+        expect(problemCode(editEntries(done, batch([{op: "set", at, value: 9}, {op: "fieldRemove", at}], {baseVersion: 3}), "t"))).toBe("duplicate-address");
+    });
+
+    test("新加一组设定、新建条目时带上它自己的字段声明；同一批里再给这一组加字段被拒", () => {
+        const base = world();
+        const removed = ok(editEntries(base, batch([{op: "component", entry: "e1", type: PANEL.id, action: "remove"}]), "t")).world;
+        expect(problemCode(editEntries(base, batch([{op: "component", entry: "e2", type: PANEL.id, action: "add"}, {op: "fieldAdd", entry: "e2", namespace: "panel", field: {label: "幸运", kind: "number"}}]), "t"))).toBe("created-in-batch");
+        const added = ok(editEntries(removed, batch([{op: "component", entry: "e2", type: PANEL.id, action: "add", declare: [{label: "幸运", kind: "number"}], fields: {幸运: 3}}], {baseVersion: 3}), "t")).world;
+        expect(added.data.entries.get("e2")!.init.data.panel).toMatchObject({declared: [{id: "幸运", label: "幸运", kind: "number"}], fields: {幸运: 3, 存款: null}});
+
+        const created = ok(editEntries(base, batch([{op: "create", id: "tmp:n", entry: {name: "彗", kind: "人物", components: [{type: PANEL.id, declare: [{label: "战绩", kind: "text"}, {id: "幸运", label: "幸运", kind: "number"}], fields: {战绩: "三胜"}}]}}]), "t"));
+        expect(created.world.data.entries.get(created.ids["tmp:n"]!)!.init.data.panel).toMatchObject({declared: [{id: "战绩"}, {id: "幸运"}], fields: {战绩: "三胜", 幸运: null}});
+    });
+
+    test("还原：加一项、去掉各还原一次；旧条目的数据里没有声明的列表时，第一次加的那一项要连同之后的一起还原", () => {
+        const added = ok(editEntries(world(), batch([LUCK]), "t"));
+        const removed = ok(editEntries(added.world, batch([{op: "fieldRemove", at: {entry: "e1", path: "panel.幸运"}}], {baseVersion: 3}), "t"));
+        const back = removed.world.revert(removed.revision.id, false, {requestId: id(), by: author}, "t") as WriteResult;
+        expect(read(ok(back).world, "panel.幸运")).toBe(7);
+        const gone = ok(back).world.revert(added.revision.id, false, {requestId: id(), by: author}, "t") as {ok: false; failure: {code: string; dependents: readonly string[]}};
+        // 还原“去掉”的那次修订之后，加它的那一次仍然有依赖（去掉、再还原去掉，改的都是这条声明）。
+        expect(gone.failure.code).toBe("has-dependents");
+        expect(declared(ok(ok(back).world.revert(added.revision.id, true, {requestId: id(), by: author}, "t") as WriteResult).world)).toEqual([]);
+
+        // 人物后来才允许实例字段：星瑕的人物数据里没有 `declared`。
+        const allowing = world().withOptions({...options(), registry: buildRegistry([PANEL, {...PERSON, instanceFields: true}])});
+        const first = ok(editEntries(allowing, batch([{op: "fieldAdd", entry: "e1", namespace: "character", field: {label: "种族", kind: "text"}}]), "t"));
+        const second = ok(editEntries(first.world, batch([{op: "fieldAdd", entry: "e1", namespace: "character", field: {label: "生日", kind: "text"}}], {baseVersion: 3}), "t"));
+        expect(first.revision.ops[0]).toMatchObject({fields: [{path: "init.data.character.declared"}, {path: "init.data.character.fields.种族"}]});
+        expect((second.world.revert(first.revision.id, false, {requestId: id(), by: author}, "t") as {failure: {code: string; dependents: readonly string[]}}).failure).toMatchObject({code: "has-dependents", dependents: [second.revision.id]});
+    });
+});
