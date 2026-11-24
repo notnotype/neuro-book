@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-requirements
-status: planned
-updated: 2026-11-23
+status: active
+updated: 2026-11-24
 ---
 
 # 需求与范围讨论
