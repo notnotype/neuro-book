@@ -1,12 +1,15 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: accepted
 created: 2026-11-24
-decided: null
+decided: 2026-11-24
 supersedes: []
 superseded-by: null
 specs: []
-adrs: []
+adrs:
+  - docs/adr/0059-official-site-one-process-split-ready-modules.md
+  - docs/adr/0060-official-site-identity-on-better-auth.md
+  - docs/adr/0061-official-site-sqlite-file-per-module.md
 ---
 
 # 官方站重写：一个进程、两个模块、按能拆开的边界写
@@ -213,3 +216,4 @@ adrs: []
 - 2026-11-24，开发者：生产主机在境外；遥测不带持久标识、按匿名档与要同意的三级分级；还要有主动反馈与调查问卷（收件在第二阶段）。
 - 2026-11-24，开发者（审查之后）：数据库用每个模块一个 SQLite 文件；遥测的原始上报留 7 天；境外存放先不找人确认；第一版的范围先查旧站的账号数再定。
 - 2026-11-24，开发者：第一版就做全（不采用“先只做遥测加管理员登录”的建议）。
+- 2026-11-24，开发者：接受本提案（“可以，先写吧”），要求先把 ADR、Task 与文档写好，开工另等指示。
