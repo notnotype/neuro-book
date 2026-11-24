@@ -63,3 +63,4 @@ updated: 2026-11-24
 | [t02](tasks/t02-collection-scope-and-terms/README.md) | 遥测收集范围与条款 | active |
 | [t03](tasks/t03-telemetry-for-plugins/README.md) | 把遥测开放给第三方插件 | shelved |
 | [t04](tasks/t04-surveys/README.md) | 调查问卷 | planned |
+| [t05](tasks/t05-adr-and-specs/README.md) | ADR 与 `planned` Spec（未开工，等提案接受） | planned |
