@@ -1,0 +1,149 @@
+### 1. 整篇冲突的判定不能靠 `rebase` 的冲突表：别处新加的块会被静默留在“我的整篇”后面，会话也没有“整篇选一次”的接口
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：plan 3.3“冲突按整篇问”；`text-draft.ts:346-401`（`rebase`）、`text-draft.ts:464-493`（`compile`）、`text-drafts.ts:704-710`（`choose`）、`text-drafts.ts:331-348`（`align`）；Spec author-ui 输出 44
+- **现象**：`rebase` 只遍历 `draft.base` 里的键（动过的旧块）。“第一块 setText、其余 removeBlock”之后，开始编辑时读到的每一块都在 `base` 里，所以别处改了其中任何一块，会出 `changed`、`gone`、`locked` 一类冲突，这部分能收拢。但别处在这之后新加的块不在 `draft.base`、不在 `draft.order`：`rebase` 末尾 `order = read.blocks.map(id)` 把它排进块序，不出任何冲突；`compile` 对没有 `base` 的旧块直接 `continue`。结果是请求发出去：第一块被设成我的整篇，别处新加的块原样留在我的整篇后面。作者提交的是“整篇”，内核里落下的却是“我的整篇加上他没看过的别人那段”。Spec 输出 44 的判据是“读到的整篇与开始编辑时读到的整篇相同才自动再发”，这条在新块的情形下会被 `rebase` 判成“没有冲突”而自动再发（至多 3 次循环里），不会问。
+  另外：计划写“用我的（在新读到的块上重建只含这篇文字的稿再发）”，会话里没有这个动作：`choose(conflict, choice)` 是按单条冲突调、只改 `state.conflicts` 里那一条；`edit(change)` 要求 `phase === "idle"` 且不清 `state.conflicts`，对话框的 `asking`、`confirmConflicts` 都读 `state.conflicts`，重建稿以后它们仍是上一轮的旧冲突。还有 Spec 44 的“重读发现有了随剧情变的段落时不能用我的”：现有 `locked` 冲突的唯一选择是 `theirs`（`restoreBlock`，会让别处挡住的那一块留在整篇里），计划里没有“整篇”层面对应的处理。
+- **为什么是问题**：整篇覆盖本来就比按块合并更危险，唯一的保护就是“判定相同才自动发”。判定漏掉新增块，等于用户看不到的内容被带进提交，而且这是静默的。
+- **如何核实**：真实世界服务里做一条：多块条目开始编辑、整篇改一句；另一处经 `editEntries` 在末尾 `addBlock`；提交。预期（Spec）是问一次，按现有代码是直接发布，条目里多出别处那一块。再给 `rebase` 一个手写的 `read`（多一个不在 `draft.order` 的块）断言 `conflicts` 为空。
+- **建议改法**：整篇层判定不要再靠 `conflicts.length`，在 `text-whole.ts` 里另写 `wholeChanged(startRead, nowRead)`：开始编辑时读到的各块（id 加 source，稿里 `base` 加已有的那些）与新读到的逐块比，id 列表或任何 source 不同就算“别处改了整篇”，再决定自动再发还是问。会话加一个“整篇”动作（例如 `resolveWhole(choice)`：`mine` 在新读上 `emptyDraft(read)` 后 `setWholeText`、同时清 `state.conflicts` 与 `generation`、`touch()`；`theirs` 等于 `discard`），不要让界面层绕开 `choose`。在计划里写明 `locked` 在整篇下的处理（不能用我的）。
+
+### 2. “第一次改动才建稿”：`begin` 是异步的，期间的输入、已有暂存稿、编辑器基准与 `begin` 读到的块不是同一份
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：plan 3.3“界面”（第一次改动时才建稿 `session.begin`）、验收映射第一行；`text-drafts.ts:648-670`（`begin`）、`text-drafts.ts:563-585`（`pull`）、`text-drafts.ts:671-680`（`edit`）、`text-drafts.ts:601-613`（`load`）；Spec author-ui 输出 45
+- **现象**：（a）`begin` 先 `pull()` 读存储、再 `readBlocks()`，两次异步往返，期间 `state.draft` 为 null，`edit` 在 `draft === null` 时直接 `return`，不报错也不排队。编辑器里已经打下的字（150 毫秒防抖交出）要等 `begin` 返回才能 `edit`；计划没写这段时间编辑器是否只读、交出的文字存在哪、`begin` 失败（`too-large`、`line-not-found`、`unavailable`）时已打下的字怎么办（编辑器里有字、会话里没有稿，圆点与暂存都没有，刷新就丢）。（b）`begin` 先 `pull()`：存储里已经有稿（上次没提交、别的窗口留下的）时 `state.draft` 被换成那份稿，`begin` 返回，不再读块也不建新稿。计划里“打开就能打字”：页面挂上时 `props.draft.load()` 是异步的，作者在 `state.loaded` 变真之前打下第一个字，就会出现编辑器里是世界文字加这个字、`pull` 却采用了暂存稿：这个字要么被重载吞掉，要么被 `setWholeText` 按世界文字的基准套到另一份稿上。Spec 输出 45 写的是“没读到暂存的不当成没有稿，这之前只有阅读”，计划的“打开就能打字”与它冲突，没写 `loaded` 为假时编辑器只读。（c）编辑器的基准是条目读取里的 `view.text`（`useWorldRead` 实时刷新），`begin` 读的是 `textBlocks`，是另一次读取：两次之间别处改了某一块，`emptyDraft(read)` 取的是新块，作者看到的却是旧文字，`setWholeText` 把整篇设成基于旧文字的版本，读取戳也是新的：`stale-read` 不会触发，别处那次修改被静默覆盖，不问。（d）已有的稿（含 t28 按块的稿）打开时：计划只写了“打开条目时已经有稿的情形”在重点里，正文没有处理；t28 的稿可以带 `new:` 键、`merged`、`split`、`moved`，`setWholeText` 在这样的稿上第一块 `setText`、其余 `removeBlock`，遗留的 `merged`、`split`、`moved`、`routes` 会让下一轮 `rebase` 出 `structural`、`manual` 冲突，整篇对话框表达不了。
+- **为什么是问题**：这是编辑器的第一个动作，现在没有一个状态机描述它。a、c 都是静默丢失或静默覆盖。
+- **如何核实**：dom 测试里用手动时钟与延迟的 `call`：打字后让 `textBlocks` 慢 500ms 再返回；存储里先放一份稿再挂载，立刻打字；`begin` 前改世界。
+- **建议改法**：在 3.3 写一张编辑器状态表：`loaded` 为假或 `begin` 在途时只读（或排队：交出的文字先放进一个 pending 值，`begin` 成功后一次 `edit`）；`begin` 返回后用 `wholeText(emptyDraft(read))` 与编辑器的基准文字比，不同就不套用、重载编辑器并提示；`begin` 采用了别处的稿时，编辑器按那份稿重载并写明；t28 的稿进入时先 `normalizeToWhole`（清掉 `merged`、`split`、`moved`、`routes`，按 `read` 重算 `base`），不要在现有字段上叠。
+
+### 3. 嵌入组件的“交出文字”契约漏了三件事：卸载与提交前的收口（flush）、写不出时的暂存状态、提交后交回世界文字的交接
+- **严重程度**：重要；**类别**：不变量 / 正确性
+- **位置**：plan 3.1（`update:modelValue` 150 毫秒后与失焦、`save`、`Exposed`）与 3.3“界面”“内核拒收”；`EntryPageHost.vue:640-649`（`onHidden`、`onMounted`、`onBeforeUnmount`、`props.onCommitReady`）、`text-tab.ts:240-262`；Spec 输出 44、45
+- **现象**：（a）`Exposed` 只有 `focus`、`insert`。条目页现有的几处“交出”都是同步结算当前输入：`onCommitReady(() => textTab.submit())`（窗口的保存命令）、`visibilitychange` 的 `textTab.flush()`、`onBeforeUnmount`。它们只收口会话的暂存，不收口编辑器自己最后 150 毫秒的缓冲。条目页每个分页都是 `v-if`，从“文字”切到数据分页就卸载编辑器，最后不足 150 毫秒的字丢；Ctrl+S 在编辑器里按下时也没有写“先交出缓冲再 `save`”的次序，提交的是少了最后几个字的文字（t28 前端审查第 18 条同类，当时的建议是暴露 `flush()`，这一稿没有采纳）。（b）`problem: [reason]`（编解码器 `Unrepresentable`，例如多段单元格、合并单元格、没有表头的表格）时“给出原因，不交出”：会话的稿停在上一次能写出的版本，状态行仍写“已暂存”（`saved === "saved"`），而页面上的内容比暂存新；Spec 输出 45 的判据是“存下去的就是页面上现在的内容时才写已暂存”。计划只在 3.1 的 Props 里有 `problem`，3.3 没有把它接到状态行、没有说这时能不能提交（提交的是旧文字）、刷新会丢什么。（c）提交成功后会话 `finish()` → `leave()`，`state.draft` 变 null，编辑器的 `modelValue` 回到条目读取的 `view.text`；这个读取要等世界读取层重读才变新（`use-reads.ts` 里“世界变化后读取层重读”是异步的，从代码推断），中间有一段 `modelValue` 是旧世界文字：编辑器按“外面换了值”重载成旧文字，随后再重载成新的，光标与撤销历史都没了；Spec 44 要求“成功后留在编辑器里”。放弃、`adopt` 回到“那边没有稿”同理。
+- **为什么是问题**：三件事都发生在最常走的路径（切分页、Ctrl+S、提交）上，且丢的是作者刚打的字。
+- **如何核实**：dom 测试：打字后 100 毫秒内卸载组件，断言最后一个字交出；Ctrl+S 前 100 毫秒打字，断言 `submit` 带着它；构造一个 `Unrepresentable` 的表格，断言状态行不写“已暂存”；提交成功后让条目读取延迟 300 毫秒返回，断言编辑器没有闪回旧文字。
+- **建议改法**：`Exposed` 加 `flush(): void`（同步交出缓冲，`save` 事件之前先发 `update:modelValue`），页面在 `onCommitReady`、`onHidden`、卸载、分页切换处调用；`problem` 进会话（例如 `state.unwritable = reason`），状态行写“有一处写不出，未暂存”并禁用提交；提交成功后 `modelValue` 保持“最后提交的文字”直到条目读取的版本不低于发布的版本，再放手。
+
+### 4. 转义规则写死在 nb-markdown 的核心里：`{` 完全不转义，`<` 只在能读成标签时转义，完全转义那一级的“逐个试撤”还会把已经加上的反斜杠撤掉
+- **严重程度**：重要；**类别**：正确性 / 接口与合同
+- **位置**：plan 3.2“作者在正文里打的 `{`、`<` 写出去时转义”；`packages/nb-markdown/src/language/codec/render/escape.ts:248-292`（`needsEscape`，`case "<"` 在 267 行，`default` 在 290 行没有 `{`）、`codec/write.ts:57-66、565-570`（`LADDER`、逐个试撤）；`syntax/types.ts` 的 `MarkdownSyntax` 没有声明转义的字段；`nb-canon/src/render/syntax.ts:221-231`（`no-field-expression` 的提示就是“在正文里转义花括号”）
+- **现象**：`needsEscape` 对 `{` 没有分支，只返回 false；`<` 只有 `opensHtml` 为真（完整标签、注释、`<网址>`）才转义，所以 `1<2`、`<3`、`x<y`、`a<=b` 这类紧贴的小于号原样写出；已在 scratch 里用 `mdast-util-from-markdown` 加 `mdxjs()` 实测，这几条都报 `Unexpected character ... before name`（`a < b` 带空格的反而收，`a } b` 也收）。没配平的 `{ foo` 同样实测报 `Unexpected end of file in expression`。计划说“写出时转义”，但转义是核心里写死的纯函数，语法模块（`MarkdownSyntax`）只有 `readInline`、`writeInline` 一类，没有“这个语言要多转义哪些字符”的口子；`createMarkdownLanguage` 也没有选项。更要紧的是降级阶梯：最小转义读不回来时升到 `full`（所有 ASCII 标点加哨兵反斜杠），写完后“从后往前逐个试撤，撤了还读得回来就撤”。编辑器用的 marked 读 `{ foo`（没配平）与读 `\{ foo` 结果都是文字，所以 `\{` 会被当成“可撤”撤掉，写出的又是裸 `{`，内核报“表达式没有闭合”。即使加了条目语法，能读成原子的 `{a.b}` 被撤掉反斜杠后读回就不是文字了，所以那种撤不掉；没有配平的撤得掉。也就是说“是否转义”现在靠读回判断，对内核的读法是错的。
+- **为什么是问题**：这条是整个方案能不能写出内核收得下的文字的前提，计划把它写成一句话，没有改动范围：要改 nb-markdown（一个发布的包，`package.json` 里 version 0.3.0、`publishConfig.access` 是 public），要改它的 Spec（`workspace/markdown-dialect.md` 输出 4、`workspace/markdown-syntaxes.md`），计划 4 节的 Spec 改动表一个都没列。
+- **如何核实**：用 `createMarkdownLanguage([coreSyntax])` 建语言，读 `a < b` 与 `{ foo`，写回，对结果跑 `blockProblem`。再按上面方式在 `LADDER` 的 `full` 一级对 `{` 看试撤。
+- **建议改法**：`MarkdownSyntax` 加 `escapes?: string`（“这个语法要求必须转义的字符”，如 `{<`），`createMarkdownLanguage` 汇总成 `language.mandatoryEscapes`；`needsEscape` 对这些字符一律转义，逐个试撤跳过它们；`escapeText` 的 `ctx.escape` 同一份规则。同时把 `markdown-dialect.md` 输出 4、nb-markdown 的版本与 changelog 写进 4 节的表。如果不想改发布的包：在 canon 一侧用 `writeInline` 的 hook 给 `text` 节点覆盖写法也行，但那等于复制一份转义，也要写进计划。
+
+### 5. 编辑器会写出而内核拒收的写法比计划列的多：核心的硬换行在多处写成 `<br>`，对照测试只有单向，“过不了的逐条定”留空
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：plan 3.2 最后一段（对照测试）、9“风险一”；`nb-markdown/src/language/syntax/core/write.ts:169-186`（硬换行在表格、标题里写 `<br>`；在段首、段末、紧挨另一个换行时写 `<br>`）、`write.ts:57-66`（降级阶梯最后一级 `htmlEmphasis: true`，强调写成 `<strong>`、`<em>`、`<del>`）；`nb-canon/src/render/syntax.ts:117-125`（任何不在 `TAGS` 里的 JSX 名都 `unknown-tag`）
+- **现象**：内核只认 `<Ref>`、`<Image>`；`<br>`、`<strong>`、粘贴进来的 HTML 与注释都拒收。编辑器会写出它们的路径里，普通作者最常碰到的是：Shift+Enter 按两次（相邻换行）、在段首或段末按 Shift+Enter、表格单元格里换行、标题里换行；这些都写 `<br>`。计划只在 3.2 提到“表格”和“换行”，并且说“过不了的逐条定：改写法，或记为已知限制并在提交时把内核的原因指给作者”，没有决定。如果选“记为已知限制”，作者按两次 Shift+Enter 提交就被拒收，原因是 `tag <br> is not allowed (12:30)`，他不知道自己做了什么。
+  对照测试方向也不全：3.2 的测试只证明“编辑器写出的东西内核收得下”；另一个方向“内核收的东西编辑器读出来是同一件事”（`{…}` 的范围、标签的范围、转义、缩进）没有测试，只有风险二里的“星瑕样本的主文字断言条数一致”，样本里没有注释里带引号、属性里带 `>`、缩进开头的写法（见第 7、8 条）。
+- **为什么是问题**：这几条在第一次试用就会碰到，而计划把它们交给实现阶段临时判断。
+- **如何核实**：用 `createMarkdownLanguage([entrySyntax, coreSyntax])` 读 `a<br>b`、写出一个段首带硬换行的段落，对输出跑 `blockProblem`；表格单元格里放硬换行。
+- **建议改法**：在 3.2 就定：条目语言里硬换行一律写成反斜杠加换行（内核 mdx 收，段首、段末、相邻处用空行拆段落代替），表格与标题里没有硬换行这个动作（编辑器里禁用）；`htmlEmphasis` 那一级对条目语言不可用（写不出就 `Unrepresentable`、走 `problem` 路径，见第 3 条）；对照测试加反方向（内核的 `ParsedBlock` 里 `expressions`、`refs`、`images` 的起止对编辑器读出的原子的原文逐个相等），语料取星瑕样本加一份手写的刁钻清单。
+
+### 6. 编辑器侧再写一个“原子分词器”，与内核的解析器是两套：注释里的引号、`//` 注释、属性里的 `>`、独占一行的标签后接文字，都会被读成别的东西
+- **严重程度**：重要；**类别**：正确性 / 上游选择
+- **位置**：plan 3.2 第一段（“`{…}`（按 JS 的词法配平）、`<Ref … />`、`<Image … />`”）、9“风险二”；t28 spike `EntryTextSpike.vue` 的 `braceEnd`、`TAG = /^<(Ref|Image)\b[^>]*\/>/`、`COMMENT_ONLY`；内核 `nb-canon/src/render/syntax.ts`（`ExpressionSite`、`RefTag`、`ImageTag` 带源文起止偏移，`siteFrom` 把只含注释的表达式放行）
+- **现象**：spike 的 `braceEnd` 只认引号字符串，不认注释：`{/* 作者备注：don't */}` 里的 `'` 会开一个字符串，找不到配平，分词返回 -1，整段落成文字；写回时 `{` 被转义成 `\{`，这块文字提交以后内核读到的是正文文字 `{/* ... */}`，不再是注释表达式，作者在阅读里看到一段多出来的怪字。反过来 `{// 备注\n}`（只含行注释）内核当“只含注释”放行、渲染树里没有节点，COMMENT_ONLY 的正则不认 `//`，按值的原子处理，值的小块对不上（第 9 条）。`TAG` 的 `[^>]*` 对 `alt={a.b > 1 ? "x" : "y"}` 或 `alt="a>b"` 提前截断（内核 `BINARY` 允许 `>`）。独占一行的标签后面紧跟一行文字（没有空行）时，marked 把整段当作一个 HTML 块，spike 的认领条件 `replace(TAG,"") === ""` 不成立，落成不可编辑的原样块，值也不显示。
+- **为什么是问题**：这是第二套对“什么是表达式”的定义，读错一次就改了作者的文字，而且写回校验发现不了（`\{...}` 读回仍是文字，自洽）。内核已经有这件事的权威实现，且给出了偏移。
+- **如何核实**：`parseBlock` 读 `{/* don't */}`、`{a.b > 1 ? "x" : "y"}`、`<Image src="a" alt={a.b > 1 ? "x" : "y"} />`，对比 spike 分词器的结果。
+- **建议改法**：不要在编辑器侧写词法：条目语法的分词器在 `start`/`tokenizer` 里用内核 `parseBlock` 的结果（可以在读入整篇前先对整篇 `parseBlock` 一次，按偏移切出原子，marked 的预处理会改偏移时对 `\r\n`、制表符做对照），或把 `braceEnd` 改成真正的 JS 词法（注释、模板、转义）并用内核的差分测试守住（第 5 条的反方向测试）。上游选择：nb-canon 的 `parseBlock` 依赖 micromark 与 acorn，若浏览器端放不下，就在计划里写“编辑器侧词法是内核的子集”并列出子集，而不是“按 JS 的词法配平”一句话。
+
+### 7. 两套解析器对同一段源文字读成不同的东西、而且内核不拒收：缩进开头的段落在编辑器里是代码块，写回后内核里也变了
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan 1“约束”（“两边读法不同的边角……只做到写出去的内核收得下”）、3.2 的对照测试范围；`nb-canon/src/render/syntax.ts:105-109`（`mdxjs()`，不含缩进代码）；`nb-markdown` 的 `Marked({gfm: true})`（`language.ts`）
+- **现象**：已用 scratch 实测（marked 与 `mdast-util-from-markdown` 加 `mdxjs()` 读同一段）：`"    他推开门。\n\n    她笑了。"`，marked 读成一个 `code` 块，内核读成两个 `paragraph`。MDX 关掉了缩进代码；网文正文里用四个半角空格起段并不少见。后果有两层：阅读与编辑时，这样的条目在富文本里是一整块等宽的代码；一旦作者在那个块里改一个字，编解码器把它写成围栏代码块，提交后内核读到的是代码块，渲染（作者视角与 Agent 纯文字）都变了，而内核对围栏代码块当然收（不拒收）。同类的还有：编辑器读 `- [ ] x` 为任务列表、内核读成文字 `[ ] x`；裸网址 `https://x.com` 编辑器读成链接、内核读成文字；文首的 `---`…`---` 被编辑器当 frontmatter（`MarkdownFrontmatter` 在 `createMarkdownEditorExtensions` 里，嵌入组件没有属性面板，作者看不到也改不了）而内核读成分割线加段落。计划的对照测试只管“拒收”，管不到“收了但变了意思”。
+- **为什么是问题**：计划已承认“两边读法不同的边角只做到写出去的内核收得下”，但缩进开头不是边角，它会让作者没碰的内容在第一次编辑后换意思，而且没有任何提示。
+- **如何核实**：scratch 里的两行脚本（见上）；再对星瑕样本与手工造的几份旧条目用“读 → 改一个字 → 写 → 内核读”比 mdast 的节点类型序列。
+- **建议改法**：对照测试加“内核读的 mdast 类型序列与编辑器写出后内核读的相同”这一类断言（只比块的类型，不比文字）；条目语言里把缩进代码关掉（marked 的 `tokenizer.code` 返回 undefined，或语法模块加分词覆盖）、`MarkdownFrontmatter` 对嵌入组件不挂载，任务列表与裸网址的读法要么对齐内核要么从工具栏与读法里去掉（见第 12 条）；记入 3.2。
+
+### 8. “多块的条目并成一块”会改掉别处引用的块：`text[块 id]` 是文档化的写法，样本里就有，合并后第一块的引用会取到整篇，后面几块的引用落空
+- **严重程度**：重要；**类别**：正确性 / 兼容
+- **位置**：plan 3.3“整篇与块的换算”、6“开发者定的”第 4 条；`docs/specs/canon/rendering.md:141`（样本里 `{ref("e2").text[b1]}` 引另一块的原文）、`nb-canon/src/core/address.ts:26`（`text[<块 id>]` 是合法地址）、`render/render.ts:322`（`quoted-block`）、`world/entry-edits.ts:674-695`（`removeBlock` 不检查有没有别处的表达式引用它）
+- **现象**：开发者定的是“多块的旧条目第一次提交时并成一块”，计划按这个做。后果：引用方（别的条目或同一条目里）写着 `{ref("e2").text[b1]}`，e2 被并成一块后，b1 的内容变成 e2 的整篇主文字，引用方的渲染悄悄变了（长了几倍）；引用 b2 以后各块的则变成读不到值。没有任何提示，`removeBlock` 也不查。合并以后块 id 对应的修订历史、回执里“改了 text[b2]”的地址也失去指向。开发者的决定没有提到这件事，计划在“多块”的界面上只给了一句“并成一块”。
+- **为什么是问题**：这是已定决定的后果，不是对它的质疑；但后果是静默改动别处的显示，应该至少让作者知道。
+- **如何核实**：星瑕样本里按 rendering.md 的样例造一个多块的 e2，让别的条目引它的 b1，经编辑器改一字并提交，读引用方的渲染。
+- **建议改法**：提交前用内核的引用查询（世界里按 `text[…]` 找反向引用，内核渲染的纯文字结果有 `reads`、`mentions`，是否有按 `text[…]` 的反向索引没有核实）列出会受影响的条目，状态行写一句并要求确认；做不到就在 3.3 写明“合并时被引用的块保留为独立块、其余并入”这一折中，或在 Spec 里把它列入已知限制。
+
+### 9. 一次最多 50 项：块数超过 50 的条目第一次提交就被拒绝，而计划没有处理，也没有在开始编辑时提示
+- **严重程度**：重要；**类别**：遗漏
+- **位置**：plan 3.3“整篇与块的换算”；`nb-canon/src/core/schema.ts:416`（`ops` 的 `maxItems: 50`）、`text-draft.ts:73`（`SUBMIT_OPS_MAX`）、`text-draft.ts:464-493`（`compile` 的 `tooMany`）、`text-tab.ts:179`（“too-many”提示）
+- **现象**：整篇换算是一项 `set` 加（块数减 1）项 `removeBlock`。Agent 的 `canon_write`、导入工具与旧版按块编辑留下的条目，每段一块是自然的写法；51 块以上的条目一次提交就是 `tooMany`：作者读完整篇、改完一个字、点提交，才被告知“一次最多 50 项”，稿不能提交，内容与暂存留着。计划写“多块的旧条目第一次提交时并成一块”，没有给这种条目的路。（从代码推断：没有统计星瑕样本以外的数据里块数的分布，但上限在 schema 里是确定的。）
+- **为什么是问题**：卡住的是第一次提交，而且是只有这类条目才碰到，作者没有路走。
+- **如何核实**：造 60 块的条目，整篇改一个字，断言 `compile(...).tooMany`。
+- **建议改法**：开始编辑时（`read.blocks.length > SUBMIT_OPS_MAX`）直接按“只读”处理并写原因，或在提交时分批（先 `set` 第一块并删前 49 块，再按块数继续删，每一批一条修订，说明是同一次整理），选一种写进计划与 Spec 44；分批要写明失败在中途时的状态。
+
+### 10. 值的小块“按出现顺序对上”：全篇一条顺序，一处对不上就全部退回原文；两次读取的版本不配套时会贴错值；位置换了的过渡没写
+- **严重程度**：重要；**类别**：正确性 / 界面
+- **位置**：plan 3.3“值的小块”、9“风险二”；`EntryPageHost.vue:210-211、136`（`renderRead` 与 `entryRead` 是两次读取）、`nb-canon/src/render/render.ts:170-211`（`AuthorBlock`：出错的块没有 `tree`，只有 `error` 与 `text`；只含注释的表达式返回 null）；Spec rendering 输出 12（渲染结果带版本、位置与模式）
+- **现象**：（a）对齐范围是全篇：渲染树里每块出错的块没有任何节点，而编辑器读同一块可能读出原子；`{// 备注\n}` 这类只含行注释的表达式内核不出节点、编辑器按 `COMMENT_ONLY` 只认 `/* */`（第 6 条）。任何一处条数不同，计划的做法是“条数对不上时全部显示原文”：一块写坏的旧文字（或一条行注释）让整篇条目的值都不显示，作者看到满篇 `{panel.存款}` 以为功能坏了。渲染结果是按块给的（带块 id，与 `view.text` 一一对应），对齐完全可以按块做，坏块只影响自己。（b）表在世界文字上建：按 `view.text`（条目读取）读出原子、按 `renderRead`（渲染读取）取显示文字。这是两次读取，世界发布一次修订时它们不同时刷新：版本不同的两次读取拼出的表，会把新旧值错位贴上（条数一样、值是错的，比不显示更糟）。渲染结果带 `version`，条目读取也带 `version`，计划没有要求两者相等才建表。（c）换位置时两次读取都要重来；`use-reads.ts` 文件头写明换输入时旧的读取接着显示到新的读到为止（已核实），而 `entryRead` 与 `renderRead` 是两个独立的读取、各自切换，所以会出现一个读取已是新位置、另一个还是旧位置的时刻，小块会在新位置的标签下显示旧位置的值，e2e 验收 1 里“换位置后值跟着变”看的是最终值，看不到这一瞬间。计划没写过渡。（d）Spec 输出 10（planned）写了小块要有“不完整”的警告色、“第 N 章改过”的悬停提示（来自 `view.namespaces[].fields[].changedAt`，以字段路径 `ns.field` 为键），计划的“原文到显示”是 `string → string`，没有地方放警告状态与提示，字段路径也要从表达式里反推；`<Image>` 的“图片：说明”、`<Ref>` 的名字则没问题。
+- **为什么是问题**：值的小块是这个编辑器区别于普通 Markdown 编辑器的卖点，(a) 使它在有一块脏数据时整体失效，(b) 使它偶发地显示别人的值。
+- **如何核实**：dom 测试：给 `renderRead` 的第二块是出错块；先给版本 N 的 `view.text`、版本 N+1 的 `render`；再断言只有坏块退回原文、版本不配套时不建表。
+- **建议改法**：对齐按块 id 做（`render.blocks[i].id` 对 `view.text` 的同 id 块，各自读原子、各自对条数）；建表的前提是两次读取的 `version` 与 `position`、`mode` 都相等，否则保留上一张表并标“更新中”（细状态，不加说明文字）；表的值从 `string` 改成 `{shown, state: "ok"|"unknown"|"incomplete", changedAt?}`；换位置时小块先淡到原文再换，不显示旧位置的值。
+
+### 11. “是否只读”的判据没有数据来源：需要在每次打开（以及世界变了之后）都读 `textBlocks`，计划没写，也没算它的代价；稿的各种状态在“拿掉块操作”之后去哪了没写清
+- **严重程度**：重要；**类别**：遗漏
+- **位置**：plan 3.3“进不了编辑的条目”“界面”；`text-tab.ts:240-262`、`text-drafts.ts:337-348`（块只在 `begin` 与 `align` 里读）、`nb-canon/src/world/text-blocks.ts:124-137`（读一次来历要重放条目的事件）、`EntryPageHost.vue`（条目读取 `view.text` 只有 `id` 与 `source`）；`e2e/canon-write.e2e.ts:326-355`（稿开始的那一章被删后刷新）
+- **现象**：（a）“有被剧情变更碰过的块（`textBlocks` 的 `write` 不是初值，或删不了）时只读，状态行写明原因”要在打开条目页时就知道，也就是文字分页一挂上就得发一次 `textBlocks`（现在只有 `begin` 才读；条目读取里的 `view.text` 没有 `write`、`fixed`）。`text-blocks.ts` 自己的注释写着读一次来历要重放条目的事件，“200 块要十几秒，这期间挡着写队列”；它做了每块只读一次的优化，但被剧情碰过的块每次都要重放。条目页是常开的页面，每次打开、每次世界变了（别处的写入会刷新条目读取）都发一次，计划没有写缓存键（版本加位置）、也没有写读不到时（`too-large`、`line-not-found`、`unavailable`）编辑器怎么办：Spec 47 要求超过上限时“只有阅读，写明主文字太大”。（b）计划的“界面”一段只列了“未提交、暂存状态、提交、放弃”。现有的 `EntryTextEditor` 状态行还有这些，e2e 与 Spec 输出 45、46 都依赖：`confirming`（“正在确认上一次提交”加“再试”，编辑器只读）、`diverged`（“另一个窗口也在改”，“用这里的”“换成那边的”）、`frozen`（`read === null`：稿开始的那一章被删，只显示稿、只能放弃）、`resumed`（会话在没有页面时确认出的结局）、“取消”与“放弃”（有无东西可丢）、`takeOverPending`、条目已删除时 `#deleted` 插槽里同一个编辑视图。计划把“`EntryTextEditor` 的块操作”列入“拿掉的”，没有说上面这些保留在哪个组件里，也没有说嵌入的编辑器在这些状态下怎么映射成 `readonly`（`phase !== "idle"`、`draft.pending !== undefined`、`read === null` 各自只读的条件不同）。`frozen` 时 `wholeText(draft, read)` 的 `read` 为 null，3.3 的函数签名要它不能为 null。
+- **为什么是问题**：(a) 是性能与可用性（页面卡写队列），(b) 是照 Spec 实现时会漏的一整块行为，e2e 现有 4 条用例覆盖它们，改成整篇后要不要保留没有映射表。
+- **如何核实**：看 `EntryPageHost.vue` 里 `view.text` 的来源类型；统计星瑕样本里被剧情碰过的条目（计划说没有，等于没有测试样本）；e2e 里 canon-write 的第 3、4、5 条用例逐条对状态。
+- **建议改法**：3.3 增加一张“状态到 UI”的表（行是会话状态：loaded、blocker、saved、phase、pending、resumed、diverged；列是编辑器只读、状态行文字、可点的按钮），并写 `textBlocks` 的读取时机与缓存键（读取戳加位置，世界版本变才重读）；`wholeText` 的 `read` 允许为 null（只用稿里的文字）；没有被剧情碰过的条目也要有至少一条样本与测试（可在测试里造一个）。
+
+### 12. 工具栏、斜杠菜单、块手柄的动作表是写死的，“不可用”只会置灰不会隐藏；开发者批准的“去掉批注、注音、双语、表情”也不等于“这个语言里不可用或内核不收的动作”
+- **严重程度**：重要；**类别**：界面 / 接口与合同
+- **位置**：plan 3.1 第三条“语言里没有的动作……试跑为不可用，不显示”、6 节第 3 条；`markdown/web/components/menus/MarkdownToolbar.vue:56-81`（`items` 是固定列表）、`:137-149`（`itemOf`：`disabled: !enabled`）、`MarkdownSlashMenu.vue:25-93`、`MarkdownBlockGutter.vue`；`editor/shared/editing.ts:24-67`（动作表）；t28 前端审查第 11 条（`evidences/design-review-frontend-sonnet.txt`，第 114 行起，同样的问题，这一稿没有采纳其建议）
+- **现象**：（a）固定列表里每个动作都画按钮，不可用的是 `disabled`，不是不画。“试跑为不可用，不显示”这句话与实现矛盾：要不显示，得改 `MarkdownToolbar`、`MarkdownSlashMenu`、`MarkdownSelectionMenu`、`MarkdownBlockGutter` 四处按白名单过滤，计划的文件改动里没有它们。（b）更要紧的是 t28 审查第 11 条的发现：`callout`、`align`、`bilingual` 的 `enabled` 只查“光标在不在可转换的块里”，不查 schema 有没有对应的节点；颜色、高亮、上下标直接 `editor.can().setMark(...)`，标记类型不存在时 `getMarkType` 会抛错（该审查为“从代码推断，未运行”，本次同样没有运行）。spike 用 try/catch 包起来，正式做法没有写。（c）批准的“去掉四项”是方言层面的说法，实际上不可用或不能让内核收的动作更多：颜色、高亮、上标、下标（`<span style>`、`<sup>`，写出来内核拒收）、对齐、提示块（callout 方言，语言里没有）、任务列表（内核读成文字，见第 7 条）、属性（frontmatter 面板，嵌入组件没有）、图片（`![]()` 要走作品的上传与资源地址，嵌入组件的 `host.assets` 为 null，计划 9 节还写“图片在正文里的实际显示不做”）、块手柄的“复制”“属性”。开发者批准的是“带章节同一套的工具栏（去掉批注、注音、双语、表情）”，没有逐个看到这张清单；以“同一套”的口径做出来，作者看到的是一排灰按钮加几个点了就写出内核拒收文字的按钮。
+- **为什么是问题**：违反开发者要的“同一套”之外，还让作者能做出提交必败的内容。
+- **如何核实**：用 `createMarkdownLanguage([coreSyntax])` 建编辑器，对 `markdownEditingActions` 的每个动作调 `enabled` 看哪些抛错；逐个动作写出再过内核。
+- **建议改法**：嵌入组件加属性 `actions: readonly EditingActionId[]`（白名单，可以是 `undefined` 表示章节那一套），四个菜单按它过滤而不是置灰；计划里列出白名单的具体清单（建议：撤销重做、粗体、斜体、删除线、行内代码、链接、标题、列表、引用、代码块、分割线、表格）并让开发者看一眼；动作的 `enabled` 在 schema 没有对应节点或标记时直接为 false，不抛错。
+
+### 13. 重新提供 `editorMenusKey` 只换 `run`、`execute` 不够：菜单对象还有贡献项、工具栏显隐与位置、批注页边、`has()`，它们仍指向“活动标签”与章节的设置
+- **严重程度**：建议；**类别**：不变量 / 代码质量
+- **位置**：plan 3.1 第三条与 9“风险三”；`editor/shared/contracts.ts:159-205`（`EditorMenus`）、`editor/web/editing-menus.ts:34-103`（`activeAddress`、`contributed`、`runContributed`、`has`）、`markdown/web/components/menus/MarkdownToolbar.vue:59、95`、`MarkdownContextMenu.vue:67-71`、`MarkdownBlockGutter.vue:251-255`
+- **现象**：`EditorMenus` 有 `contributed(point)`、`runContributed(point, id)`：工具栏、斜杠菜单、选区菜单、右键菜单、块手柄都把其它插件贡献的项画出来。`activeAddress()` 在活动标签是页面（条目页）时为 null，`resource` 上下文的项因此不显示或不执行，但没有上下文限定的贡献项（`declaration.context` 不是 `resource`）会照常显示并 `execute(command, args)`，命令服务按“活动组的活动控件”找目标（`editing-commands.ts` 的 `activeHandle`），条目页没有句柄，点了得到 `unavailable` 的拒绝而不是在嵌入的编辑器上生效。`toolbarVisible`、`toolbarPlacement` 是用户给章节工具栏的设置（“显示或隐藏工具栏”命令 `nbook.view.toggle-editor-toolbar` 改它），嵌入后条目页的工具栏会跟着消失，计划没说想不想要；`commentMargin`、`has(command)` 在没有批注的语言里无意义。现状没有别的插件往这几个点贡献项（`grep` 只在 editor 自己和测试里出现），所以今天不会撞上，但嵌入组件是公开的服务，之后别人贡献一项就会进到条目页。
+- **为什么是问题**：计划把风险写成“与编辑区后续的改动脱节”，实际是“与别的插件的贡献”脱节；“把 `run`、`execute` 换掉”是子集。
+- **如何核实**：在 Lab 里给 `EditorMenus` 的测试替身加一条无上下文的贡献项，看嵌入的工具栏是否画出、点击后命令是否作用在嵌入的编辑器上。
+- **建议改法**：嵌入组件自己造一个完整的 `EditorMenus`（不 `...hostMenus` 展开）：`contributed` 返回空、`toolbarVisible` 常真（或由属性给）、`has` 只认语言支持的命令；在 3.1 写出这张字段清单。
+
+### 14. 拿掉“文字里的值点开来历”之后，e2e 验收 1 与 2、Spec 验收 1、2、输出 7、11，以及 `EntryText`、剧情对话框的去向没有写进计划
+- **严重程度**：重要；**类别**：测试 / 文档
+- **位置**：plan 4（Spec 改动表）、5 的 S4、6 第 2 条；`e2e/canon-author.e2e.ts:66-67、118-132、149-157`；`docs/specs/canon/author-ui.md` 输出 7（“展开的来历……是这个标签自己的状态”）、输出 11、43（列了“主文字的块”对话框）、验收 1、2；`EntryPageHost.vue:225-240、893-919`（`originKeys` 只在 `tab === "text"` 时取、`toggleValue`、`state.origin`）、`EntryPageHost.vue` 里 `openBlock`、`blockDraft`、`storyWrite`、`text-tab.ts:305-332`
+- **现象**：（a）`canon-author.e2e.ts` 验收 1 与 2 用 `[data-value$="|panel.存款"]` 在文字分页里读值、点值展开来历、检查“估计”的警告色，验收 2 还断言展开的来历在换标签后仍在。`state.origin`（展开哪个值）与来历列表只在文字分页里有入口（`originKeys` 的条件是 `tab === "text"`）；开发者同意了“来历到数据分页看”，意味着这两条 e2e 与 Spec 验收 1、2、输出 7 里“展开的来历”的说法要改，计划 4 节只改输出 10，S4 只写了 `canon-write` 的用例改成整篇。输出 11 的“点一个值”同样要限定在数据分页。（b）计划 3.3 的“拿掉的”列了“阅读视图 `EntryText` 的‘编辑’按钮与每块的剧情菜单、文末的‘在剧情里加一块’”，没有说 `EntryText` 本身的去向：阅读模式是同一个编辑器只读，`EntryText`（渲染树加值按钮）还有没有使用方？若删，`EntryText.dom.test.ts`、Lab 的 `EntryTextFixture`、`EntryText.md` 都要处理；若留作编辑器加载失败时的退路，计划没写这个设计。`EntryPageHost.vue` 里剧情对话框一整套（`blockDraft`、`openBlock`、`storyWrite`、`textTab.storyWrite` 的重试循环）也成了没有入口的死代码，计划只说“拿掉块操作”，Spec 输出 43 还在把“主文字的块”对话框列为对话框。（c）计划的“拿掉的”是开发者同意的范围之外的清理，但它们与保留的 `text-draft.ts` 拆与并函数（“留着不删”）的做法不一致：一边留一批没有调用方的函数，一边要拆的 UI 的所有配套测试都要改，应该给一条判断口径。
+- **为什么是问题**：计划列的验收映射没有覆盖这些现有测试，S4 跑 `canon-write.e2e.ts` 会漏掉 `canon-author.e2e.ts`，到合入前才发现。
+- **如何核实**：`grep -n "data-value\|data-origin-list" e2e/*.ts`；`grep -rn "storyWrite\|openBlock\|EntryText\b" src/plugins/canon/web`。
+- **建议改法**：4 节的 Spec 表加：输出 7、11、43、验收 1、2；S4 的 e2e 清单加 `canon-author.e2e.ts` 验收 1、2，以及验收 14（390 宽、文字分页不横向滚动，新的编辑器加工具栏要过它）；明说 `EntryText` 与剧情对话框删除（连同测试、Lab 场景），或写出保留它们的理由；小块 DOM 上保留 `data-value` 一类的定位属性，e2e 才有办法点。
+
+### 15. 由 canon 建语法对象、经属性交给 markdown 的组件，违反 `nbook.markdown` 合同写明的边界，canon 的浏览器入口会静态带进 Tiptap
+- **严重程度**：重要；**类别**：接口与合同 / 上游选择
+- **位置**：plan 2（技术选型）、3.1（`syntaxes?: readonly MarkdownSyntax[]`）、3.2（`plugins/canon/web/entry-syntax.ts`）；`markdown/shared/contracts.ts:1-6`（“服务只交组件。语言、编解码器与语法模块只在这些组件里用，组件第一次挂上时才加载，引用本合同的插件与首屏都不带它们”）；`markdown/web/plugin.ts:7-12`（入口不引 nb-markdown 的组件与编辑内核，后端类型检查不展开 `.vue`）；t28 前端审查第 12 条（c）（d）
+- **现象**：`MarkdownSyntax` 里是 Tiptap 的 `AnyExtension`（节点扩展 `Node.create(...)`）、marked 的 `MarkedExtension`、一组写法函数，不能写成纯数据。计划让 canon 在 `entry-syntax.ts` 里造这个对象，再作为属性交给 `MarkdownEmbed`：（a）canon 的浏览器入口（或它引用链上的任何非 `.vue` 的 `.ts`）会静态引用 `@tiptap/core`、`marked`，首屏就带上；canon 现在没有依赖 nb-markdown（`grep` 为空），要新增包依赖；（b）`Props.syntaxes` 的类型要从 `@notnotype/nb-markdown/language/types` 引到 `markdown/shared/contracts.ts`，而那个文件在后端 tsc 与“浏览器入口没有 DOM 类型”的范围里（`@tiptap/core` 的类型引用 `Element` 一类），可能引起 `tsc` 错误（未验证）；（c）语言按 `syntaxes` 建一份 `Marked` 实例，每个挂载都建一遍，没有说缓存与键；（d）这一条与 t28 审查第 12 条同源，当时的建议是“语言按 id 取：canon 经新贡献点登记，markdown 内部组成语言”，计划没有采纳也没有写不采纳的理由。
+- **为什么是问题**：违反 nbook.markdown 自己写的合同（Spec `workspace/markdown-syntaxes.md`），并让 canon 的首屏变大；之后别的插件也想嵌条目语法时没有通用的做法。
+- **如何核实**：`grep -rn "nb-markdown" src/plugins/canon`；看 `entry-syntax.ts` 是否会被 `web/plugin.ts` 的静态引用链到；在改动后跑后端 tsc 与 `boundary.test.ts`。
+- **建议改法**：两种之一，写进 3.1：把 `entry-syntax.ts` 做成 `MarkdownEmbed` 按名字取的语法实现（经 `nbook.markdown.syntaxes` 一类的已有贡献点登记，属性只传 `syntaxIds: string[]`）；或把 `EntryTextEditor.vue` 整个作为异步组件，`entry-syntax.ts` 只能被它引用，canon 的入口不出现 tiptap，并在 Spec 里写这是 markdown 合同的例外。
+
+### 16. 状态行没有设计稿与注意力排序，390 宽的排布、出现与消失的过渡、阅读与编辑选择的作用范围都是空的
+- **严重程度**：建议；**类别**：界面
+- **位置**：plan 3.3“界面”“两种模式”、5（S1 的 Lab 截图、没有 S 做静态稿）；`.agents/skills/ui-development/SKILL.md` 三、UI 专属检查第 4、6、7 条；`EntryTextEditor.vue:150-175`（现有状态行是 `flex-wrap` 加折行的一行）；t28 前端审查第 14、19 条
+- **现象**：（a）状态行要放：暂存与未提交状态（点、文字）、“插入”、“源文字”、阅读与编辑开关、“放弃”或“取消”、“提交”、“再试”、“另一个窗口也在改”的两个选择，底下一行原因，再加 Markdown 工具栏。至少是六七个控件，是信息密度高的界面；SKILL 第 4 条要求动手前先和开发者确认注意力排序（先看什么、默认折叠什么），出静态稿（`design-review` 技能），计划没有这一步，S1 的验证只有“Lab 截图（含 390 宽）”。工具栏在窄屏会收进“⋯”（`MarkdownToolbar` 自己的折叠），状态行在 390 宽折成几行、与页头吸顶的关系、工具栏是否也吸顶，计划没有写。（b）动效：计划没有任何状态变化的过渡：阅读与编辑切换（工具栏与“插入”出现消失）、未提交状态出现、原因行出现（现有的 `text-editor-note` 过渡可沿用，但新组件要明说沿用）、提交中；SKILL 第 6 条要求列进审查重点。（c）阅读与编辑的选择“记在这部作品的本机记录里，下次打开条目沿用”：是一部作品一个值，还是每个条目一个值，计划与 Spec 输出 39 都没说；Spec 验收 16 写“重新打开这个条目仍是阅读”，像是按条目；若按条目，浏览很多条目的作者要逐个切；若按作品，只想看一眼某个条目的作者把全作品都切成了阅读，下一个想写的条目打开是只读。两个窗口同时开着同一作品时，本机记录的变化不会让另一个窗口跟着变（未验证）。缺省为编辑、打开就有工具栏与光标，也会让只想看的人误触，是否要缺省阅读，Spec 没有论证。（d）“插入”选了一个字段以后小块在提交之前显示原文（`{面板.魔力}`），而宿主此刻就知道这个字段的当前值（条目读取里有）；作者会觉得插入失败。计划 3.3 只对“没动过的表达式”显示值。
+- **为什么是问题**：这些是开发者试用时会立刻碰到的东西（上一轮就因为“编辑起来不顺畅，查看起来也不好看”被推翻过），应该先给他看稿。
+- **如何核实**：先在 Lab 里出静态稿；390 宽截图（亮色）；英文场景（SKILL 第 7 条）。
+- **建议改法**：S1 之前加一片静态稿（或把 S1 的 Lab 场景算作稿，先给开发者看再做 S3）；写明模式记录是每个条目一个值还是全作品一个值（建议每个条目，缺省值取全作品的“上次用的”）；“插入”时把字段当前值写进显示表。
+
+### 17. 验收映射里缺的几行：本报告第 1、2、3、5、7、9、10 条各对应的测试没有列，现有映射里有的“用真实运行时写出来”也要核对
+- **严重程度**：建议；**类别**：测试
+- **位置**：plan 7（验收映射）、Spec author-ui 验收 16
+- **现象**：映射表里没有：别处新加块后的整篇冲突（第 1 条）；已有暂存稿或加载中打字（第 2 条）；卸载与 Ctrl+S 前的最后几个字、写不出时的状态行（第 3 条）；内核反方向的对照与缩进开头的往返（第 5、7 条）；被引用的块并掉后的引用（第 8 条）；超过 50 块（第 9 条）；一块出错、只含行注释的表达式时其它值仍显示、两次读取版本不一致（第 10 条）；t28 遗留稿的迁移。映射表里“整篇冲突……canon 的 bun 测试（真实世界服务）”这一类可以真实写出来，因为 `world` 的写入与读取都是真的；“没动过的表达式显示当时的值，换位置后跟着变”写成 dom 测试时，渲染读取要用真实的 nb-canon 渲染而不是替身，否则对齐的问题（第 10 条）测不出来。
+- **建议改法**：每条发现落成一条用例后补进 7 节；dom 测试里的渲染树用 `nb-canon` 的真实渲染函数产出。
+
+
+### 未发现问题的方面
+- 开发者已定的五条（不分节、完整编辑器、阅读模式、值不展开来历、工具栏去掉四项、多块并成一块、保留源文字切换）计划逐条覆盖，没有悄悄改项；问题在“去掉四项”不等于实际不可用的集合（第 12 条）和多块并成一块的后果没写（第 8 条），不是改了已定项。
+- 暂存、结局不明（`pending`、`confirming`）、`takeOver`、`adopt`、`diverged` 在会话内部的写入、冻结与重发逻辑本身不依赖“有没有开始编辑这个动作”，整篇换算不改它们的顺序保证；需要补的是界面与“整篇”接口（第 1、2、11 条），没发现会话内部需要改的时序问题。
+- 转义里 `[`、`*`、`_`、`&`、`|` 等其它字符对内核没有额外风险（实测 `a } b`、`a\{ b`、`a \<b`、`&lt;`、`![a](b)`、`[a](<b c>)`、`{x}` 在行内代码里、表格里的 `{a || b}` 内核都收）。
+- 条目语法的 `{…}` 读成原子在行内代码与围栏代码里不会被误认（从 marked 的分词顺序推断，未运行）。
+
+### 数量
+- 阻断 1（第 1 条）、重要 13（第 2、3、4、5、6、7、8、9、10、11、12、14、15 条）、建议 3（第 13、16、17 条）；共 17 条，无撤回。
+- 没能核实：第 12 条（b）里个别动作在没有对应节点的语言里 `enabled` 是否抛错（沿用 t28 审查的“从代码推断”，没运行）；第 15 条（b）后端 tsc 是否因 `MarkdownSyntax` 类型报错；第 16 条（c）两个窗口的本机记录是否互相通知；第 9 条真实数据里块数的分布；第 8 条是否有按 `text[…]` 的反向引用索引。
+- 已在 scratch 里实测（`/tmp/review-w00039-t39-design/scratch/t.ts`、`t2.ts`）：缩进段落在 marked 与 mdxjs 下读法不同；`1<2`、`<3`、`x<y`、`a<=b`、`<br>`、`{ foo`、`a {b`、`<https://…>`、`<!-- -->` 内核拒收，`a < b`、`a } b`、`{/* don't */}` 在 mdx 解析层收（内核的 `blockProblem` 另有白名单，`{}` 会被它拒为 no-field-expression）。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
