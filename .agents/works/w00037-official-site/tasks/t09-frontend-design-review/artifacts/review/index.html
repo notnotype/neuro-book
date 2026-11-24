@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>官方站前端 第 1 轮：外观</title>
+<title>官方站前端 第 2 轮：登录之外的几页</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -22,6 +22,11 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .shots a { display: block; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
 .shots img { display: block; width: 100%; height: auto; }
 @media (max-width: 760px) { .shots { grid-template-columns: minmax(0, 1fr); } }
+.stack { display: grid; gap: 10px; }
+.pair { display: grid; grid-template-columns: minmax(0, 1440fr) minmax(0, 390fr); gap: 10px; align-items: start; }
+.stack a, .pair a { display: block; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
+.stack img, .pair img { display: block; width: 100%; height: auto; }
+.stack img.phones { max-width: 900px; margin: 0 auto; }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
@@ -30,55 +35,43 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>官方站前端 第 1 轮：外观</h1>
+<h1>官方站前端 第 2 轮：登录之外的几页</h1>
 
-<section data-nbdev-question="look" data-nbdev-type="single" data-nbdev-recommend="mixed">
-  <h2>官方站用应用的默认外观，还是另做一套“稿纸”外观？</h2>
-  <p class="rec"><strong>推荐 C：配色与应用共用一套，不用多维护一份；只有登录页这一处画成稿纸，让人记得住。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="house" data-nbdev-label="A 默认外观">
-      <h3>A 默认外观</h3>
-      <div class="shots">
-        <a href="r1/a-login.webp" data-nbdev-skip><img src="r1/a-login.webp" alt="A 的登录页：暖灰底上居中的一张卡"></a>
-        <a href="r1/a-login-phone.webp" data-nbdev-skip><img src="r1/a-login-phone.webp" alt="A 的登录页，390 宽"></a>
-        <a href="r1/a-dashboard.webp" data-nbdev-skip><img src="r1/a-dashboard.webp" alt="A 的看板：暖色底、蓝色强调"></a>
-      </div>
-      <p>和应用里的对话框、设置页是同一种画法，不新增任何配色。</p>
-    </div>
-    <div class="cand" data-nbdev-option="paper" data-nbdev-label="B 稿纸外观">
-      <h3>B 稿纸外观</h3>
-      <div class="shots">
-        <a href="r1/b-login.webp" data-nbdev-skip><img src="r1/b-login.webp" alt="B 的登录页：整页是绿格稿纸，产品名与说明一格一字"></a>
-        <a href="r1/b-login-phone.webp" data-nbdev-skip><img src="r1/b-login-phone.webp" alt="B 的登录页，390 宽"></a>
-        <a href="r1/b-dashboard.webp" data-nbdev-skip><img src="r1/b-dashboard.webp" alt="B 的看板：冷白的纸、蓝黑墨水色的强调"></a>
-      </div>
-      <p>登录页是稿纸，全站换成冷白的纸与蓝黑墨水的强调色；官方站要多维护明暗两份配色。</p>
-    </div>
-    <div class="cand" data-nbdev-option="mixed" data-nbdev-label="C 默认配色，登录页画成稿纸">
-      <h3>C 默认配色，登录页画成稿纸</h3>
-      <div class="shots">
-        <a href="r1/c-login.webp" data-nbdev-skip><img src="r1/c-login.webp" alt="C 的登录页：稿纸的版式，用应用的暖色与蓝色强调"></a>
-        <a href="r1/c-login-phone.webp" data-nbdev-skip><img src="r1/c-login-phone.webp" alt="C 的登录页，390 宽"></a>
-        <a href="r1/a-dashboard.webp" data-nbdev-skip><img src="r1/a-dashboard.webp" alt="C 的看板，与 A 相同"></a>
-      </div>
-      <p>登录之后的页面与 A 完全一样。</p>
-    </div>
+<section data-nbdev-question="paper-pages" data-nbdev-type="confirm" data-nbdev-label="注册、同意条款、授权确认三页照图做">
+  <h2>注册、同意条款、授权确认这三页照图做吗？</h2>
+  <p class="rec"><strong>推荐同意：三页与登录页用同一张稿纸，只换右边那张卡；注册时在同一页里选“设密码、GitHub、Google”，选了后两种就不用填邮箱与密码。</strong></p>
+  <div class="stack">
+    <a href="r2/register.webp" data-nbdev-skip><img src="r2/register.webp" alt="注册页：注册码、用户名、登录方式三选一、邮箱、密码、同意条款"></a>
+    <a href="r2/cards.webp" data-nbdev-skip><img src="r2/cards.webp" alt="三张卡：选了 GitHub 的注册、条款有更新、授权确认"></a>
+    <a href="r2/paper-phones.webp" data-nbdev-skip><img class="phones" src="r2/paper-phones.webp" alt="390 宽的注册、同意条款、授权确认"></a>
   </div>
 </section>
 
-<section data-nbdev-question="dashboard-first-screen" data-nbdev-type="text">
-  <h2>看板首屏的内容与先后，有要增减或调换的吗？</h2>
-  <p class="rec"><strong>推荐照图：上面一条是今天的四个数，中间是活跃与在线两张趋势图，下面是版本、系统、留存；错误码与崩溃放在再往下一屏。</strong></p>
+<section data-nbdev-question="account-page" data-nbdev-type="confirm" data-nbdev-label="账号页照图做">
+  <h2>账号页照图做吗？</h2>
+  <p class="rec"><strong>推荐同意：一页到底，左边是目录；最上面是待办，这张图是从旧站迁来、还没有邮箱的账号。</strong></p>
+  <div class="pair">
+    <a href="r2/account.webp" data-nbdev-skip><img src="r2/account.webp" alt="账号页：资料、登录与安全、已登录的设备、邀请码、已授权的应用"></a>
+    <a href="r2/account-phone.webp" data-nbdev-skip><img src="r2/account-phone.webp" alt="390 宽的账号页"></a>
+  </div>
+</section>
+
+<section data-nbdev-question="users-page" data-nbdev-type="confirm" data-nbdev-label="管理面板的用户页照图做">
+  <h2>管理面板的用户页照图做吗？</h2>
+  <p class="rec"><strong>推荐同意：重置密码、封禁、设为管理员、结束全部会话都收在行尾的“…”里；注册码与邀请码、OAuth 客户端、审计三页照这一页的样子做，不再单独出图。</strong></p>
+  <div class="stack">
+    <a href="r2/users.webp" data-nbdev-skip><img src="r2/users.webp" alt="用户页：筛选、搜索、用户表与翻页"></a>
+  </div>
 </section>
 
 <section>
-  <h2>这一轮没定、后面的轮次再看</h2>
+  <h2>还没定、后面的轮次再看</h2>
   <table>
     <thead><tr><th>事项</th><th>现在图上是什么</th></tr></thead>
     <tbody>
-      <tr><td>图表库</td><td>手画的示意图，数是编的</td></tr>
-      <tr><td>红色印章里的字</td><td>临时写的 NB；有正式标志时换成标志</td></tr>
-      <tr><td>注册、同意条款、授权确认、账号页，管理面板的其它四页</td><td>还没画</td></tr>
+      <tr><td>图表库与看板的最终样子</td><td>第 1 轮里手画的示意图</td></tr>
+      <tr><td>红色印章里的字</td><td>临时写的 NB</td></tr>
+      <tr><td>隐私政策与服务条款两页</td><td>等条款的文字起草后再排</td></tr>
     </tbody>
   </table>
 </section>
@@ -87,10 +80,11 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <h2>已定</h2>
   <ol class="decided">
     <li>主页只做登录入口；旁边留一行产品说明与隐私政策、服务条款的链接</li>
-    <li>管理员登录后先看统计看板</li>
+    <li>管理员登录后先看统计看板；看板首屏按第 1 轮图上的排法</li>
     <li>普通用户登录后直接进账号页</li>
     <li>登录、注册、同意条款、授权确认与公开页适配手机；管理面板只做桌面宽度</li>
     <li>第一版界面只有中文</li>
+    <li>全站用默认配色，只有登录页这一组画成稿纸（第 1 轮）</li>
   </ol>
 </section>
 </main>
