@@ -328,7 +328,8 @@ async function main(): Promise<number> {
         results.push({
             id: "S10",
             ok: secondCode === 1 && busy.includes(firstUrl) && firstHealth === 200 && firstCode === 0,
-            evidence: `second-exit=${String(secondCode)} busy-has-url=${String(busy.includes(firstUrl))} first-health=${String(firstHealth)} first-exit=${String(firstCode)}`,
+            // 占用提示没带地址时（CI 上出现过：认领探测 3 秒内没得到应答会写“没有应答”那一条、不带地址），要看第二个实例到底写了什么。
+            evidence: `second-exit=${String(secondCode)} busy-has-url=${String(busy.includes(firstUrl))} first-health=${String(firstHealth)} first-exit=${String(firstCode)}${busy.includes(firstUrl) ? "" : ` first-url=${firstUrl} second-stderr=${JSON.stringify(second.stderr().slice(-800))}`}`,
         });
     } finally {
         await rm(root, {recursive: true, force: true});
