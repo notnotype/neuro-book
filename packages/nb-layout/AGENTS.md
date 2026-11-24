@@ -20,6 +20,7 @@
 
 - 本包是 MIT（ADR 0054 第 5 条），仓库其余是 AGPL-3.0-only。MIT 的包不从 AGPL 的代码搬内容：要从 AGPL 的包（nb-ui 等）复制进来的，逐文件复核来历（同一作者写的也写明），复核记在 Task 里。反方向（AGPL 的代码用本包）不受限。
 - 发到 npm 的是编译产物：`bun run build:package`（`scripts/pack.ts`）写 `dist/package/`，构建完自查导出名、纯 TS 入口不拉进 Vue、随包文件与 JS 和 CSS 里没有 Spec 编号；`--web` 另写 `dist/web-build/` 给 nb-story 的网页构建读。仓库里的使用方（新应用、工作台、Lab、开发者面板）照旧走源码。改入口、加依赖、加样式文件之后跑一次。
+- 示例应用在 `examples/`：MIT（每个目录带一份 `LICENSE`）、不随包发布，只经四个公开入口与 `style.css` 用本包，不搬 AGPL 的代码；`src/examples.test.ts` 核对导入、依赖与许可证，模型层的测试在 `src/examples-<示例>.test.ts`，界面在 `e2e/<示例>.e2e.ts`（`bun run test:e2e`）。示例不是工作区成员，依赖从根 `node_modules` 解析；不在示例目录里装依赖。注释是教学材料（见 `docs/standards/code/common.md` 注释一节的例外）。
 - 首发开关是 `package.json` 的 `private`：还在时发布冒烟只验、不发；删它是开发者的发布决定（发布手册的“新包首发”）。
 
 ## 稳定性标注与 API 报告

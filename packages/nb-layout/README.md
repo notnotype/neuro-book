@@ -113,6 +113,16 @@ function toggleFiles(): void {
 
 接线的细节（`contextKey` 只经选项给、诊断一个出口、提交前的布局）见 [`useGridHost`](src/vue/useGridHost.md)；组件的属性、插槽与事件见 [`NestedGrid`](src/vue/NestedGrid.md)；树的结构操作与快照见 [`grid`](src/grid.md)。
 
+## 示例应用
+
+仓库里有照公开入口写的完整示例，每个目录可以单独拷走、`npm install` 后 `npm run dev`：
+
+- [`tabbed-panels`](https://github.com/notnotype/neuro-book/tree/master/packages/nb-layout/examples/tabbed-panels)：标签编组。标签在编组之间拖、拖到边上拆出新编组、关空的编组缩回去、侧栏收起、布局存进浏览器、读档失败保留原件、F6 在面板之间走。本库不带的“标签停靠”就是这样在它之上搭的。
+- [`desktop`](https://github.com/notnotype/neuro-book/tree/master/packages/nb-layout/examples/desktop)：浮动窗口的桌面。拖标题栏移动、拖边角缩放、按到就到最上面、最大化与最小化、拖到桌面左右缘平铺进布局树再取消平铺。演示浮动窗与树之间来回。
+- [`ide`](https://github.com/notnotype/neuro-book/tree/master/packages/nb-layout/examples/ide)：IDE 式的工具窗。三个停靠区靠边上的按钮条开关、收起再展开回到原来的宽度、按钮在条之间拖动换区、编辑区最大化、快捷键。演示停靠区的收起与恢复。
+
+示例跟着仓库 master 上的本库，可能用到 npm 上还没发布的名字。
+
 ## 我要做 X 用哪个导出
 
 | 要做的事 | 用这个 | 从哪个入口 |
@@ -120,19 +130,20 @@ function toggleFiles(): void {
 | 建树、拆分、关闭、移动叶 | `createGrid`，`grid.splitLeaf`、`grid.removeLeaf`、`grid.moveLeaf`、`grid.addLeaf` | 根 |
 | 把网格画出来、接手势 | `NestedGrid` 加 `useGridHost` | `./vue` |
 | 关掉一块，内容跟着缩回去再卸载 | `NestedGrid` 的内容层，内容项标 `leave: "retain"`（[说明](src/vue/NestedGrid.md)；只用 leaf 插槽时删叶没有缩回去的过渡） | `./vue` |
-| 收起与展开一块面板 | `host.setCollapsed`（直接调 `grid.setCollapsed` 的，之后要调 `host.invalidate()`） | `./vue`、根 |
+| 收起与展开一块面板 | `host.setCollapsed`（直接调 `grid.setCollapsed` 的，之后要调 `host.invalidate()`；示例见 ide） | `./vue`、根 |
 | 把一块保留像素的设成已知宽度（偏好、菜单） | `grid.setSize`，之后调 `host.invalidate()` | 根 |
 | 保存与恢复 | `grid.serialize()`、`grid.restore(快照, 解析引用)` | 根 |
 | 键盘在叶之间走（F6） | `moveGridFocus`，键位由宿主登记 | `./vue` |
 | 量一个盒子的布局尺寸 | `useLayoutExtent`（[说明](src/vue/useLayoutExtent.md)） | `./vue` |
-| 一组可拖的东西（拖动会话） | `useDragSession`、`createDragSession`（[说明](src/vue/drag-session.md)） | `./vue` |
-| 拖到边缘、插到两项之间的落点几何 | `resolveGridEdgeDrop`、`resolveListInsertion` | 根 |
-| 拖动时的落点反馈 | `DropFeedbackOverlay`、`DropSectorsOverlay`、`DropIndicatorLabel` | `./vue` |
+| 一组可拖的东西（拖动会话） | `useDragSession`、`createDragSession`（[说明](src/vue/drag-session.md)；示例见 tabbed-panels、ide，整窗移动见 desktop） | `./vue` |
+| 拖到边缘、插到两项之间的落点几何 | `resolveGridEdgeDrop`、`resolveListInsertion`（示例见 tabbed-panels） | 根 |
+| 拖动时的落点反馈 | `DropFeedbackOverlay`、`DropSectorsOverlay`、`DropIndicatorLabel`（示例见 tabbed-panels） | `./vue` |
 | 实时布局：拖动中布局真的变，拿起的内容做成卡片跟手 | `useLiveDragSession`、`createLiveDragSession`（[说明](src/vue/live-drag-session.md)） | `./vue` |
 | 自己画卡片：把布局摆成每块的矩形 | `placeGrid` | 根 |
 | 只要一行或一列的分栏 | `Splitter` | `./vue` |
 | 可排序的列表 | `SortableList`、`useSortable` | `./vue` |
-| 浮动窗的把手 | `FloatWindowHandles` | `./vue` |
+| 浮动窗的把手 | `FloatWindowHandles`（示例见 desktop） | `./vue` |
+| 把浮动窗的矩形夹进一块区域、按手柄改尺寸 | `clampFloatRect`、`resizeFloatRect`（都只收尺寸、从 0 开始：区域不在网格根原点时先减掉原点；示例见 desktop） | 根 |
 | 换主题 | 设 `--nb-layout-*` 变量；全部名单 `NB_LAYOUT_THEME_VARS` | 根 |
 | 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；只有一种语言时用 `layoutCatalogTranslate`；目录在 `./locales` | `./text`、`./locales` |
 | 分隔线读屏时念出面板的名字，不念 id | `NestedGrid` 的 paneLabel 属性、`Splitter` 面板配置的 label | `./vue` |
