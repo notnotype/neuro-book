@@ -35,6 +35,8 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `sandbox.run(command, {dataDir, env, command, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行 |
 | `SiteProcess` | `url`、`pid`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
 | `holdWriteLock(dataDir, module)`（`fault.ts`） | 从进程外占住一个模块的库的写锁，返回放锁的函数 |
+| `sendReport(url, kind, report, request)`（`telemetry.ts`） | 往写入口发一份上报，带沙箱遥测地址的 `Host` 与 JSON 内容类型；`request` 可换请求体、方法与头（值为 null 的去掉）。`dailyReport`、`heartbeatReport`、`eventReport`、`usageSegment` 按合同包最新的清单造合格的样例 |
+| `dataFilesContaining(dataDir, needle)`（`files.ts`） | 数据目录下字节里含有某个串的文件，给“某样东西不进库”的断言用 |
 | `listBackups`、`quickCheck`（`backup.ts`） | 列出名字是备份时间的目录；只读打开副本跑 `quick_check` |
 | `reservePort`、`isListening`、`rawHttp`、`requestJson`、`testControlRequest` | 预留端口与检查有没有人监听；原始套接字请求（测读不出主机名）；按 JSON 读响应。都带截止时刻（缺省 10 秒），到点中断连接并报错 |
 

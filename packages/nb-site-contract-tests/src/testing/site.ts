@@ -32,6 +32,10 @@ export const SERVER_COMMAND_ENV = "NB_SITE_SERVER_COMMAND";
 /** 上一个发布版本的程序，形式同上；只有相邻版本测试用它，没设时那组用例跳过。 */
 export const PREVIOUS_SERVER_COMMAND_ENV = "NB_SITE_PREVIOUS_SERVER_COMMAND";
 
+/** 沙箱给被测进程的站点地址与遥测写入口地址（`baseEnv()`）；发到写入口的请求带后者的主机名作 `Host`。 */
+export const SANDBOX_SITE_URL = "https://site.test";
+export const SANDBOX_TELEMETRY_URL = "https://telemetry.test";
+
 export type LogLine = Readonly<Record<string, unknown>>;
 export type Env = Readonly<Record<string, string | undefined>>;
 
@@ -386,8 +390,8 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         PATH: process.env.PATH ?? "",
         HOME: home,
         TMPDIR: tmp,
-        NB_SITE_URL: "https://site.test",
-        NB_SITE_TELEMETRY_URL: "https://telemetry.test",
+        NB_SITE_URL: SANDBOX_SITE_URL,
+        NB_SITE_TELEMETRY_URL: SANDBOX_TELEMETRY_URL,
         NB_SITE_SESSION_SECRET: sessionSecret,
         NB_SITE_HOST: "127.0.0.1",
         NB_SITE_PORT: "0",

@@ -5,7 +5,7 @@
 
 import {createIdentityModule, identityMigrations, parseIdentityConfig, type IdentityConfig} from "@notnotype/nb-site-identity";
 import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
-import {createTelemetryModule, parseTelemetryConfig, telemetryMigrations, type TelemetryConfig} from "@notnotype/nb-site-telemetry";
+import {createTelemetryModule, parseTelemetryConfig, TELEMETRY_INGEST_PREFIX, telemetryMigrations, type TelemetryConfig} from "@notnotype/nb-site-telemetry";
 import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
 
 import type {SiteModule} from "./module";
@@ -21,15 +21,30 @@ const identity = {
     },
 } satisfies SiteModule<IdentityConfig>;
 
-/** 统计模块声明了写入口（`ingest`），所以进程要求 `NB_SITE_TELEMETRY_URL`；写入口上的 mount 由 t06 加。 */
+/**
+ * 统计模块在两个入口上各有一个 mount：站点地址上的接口（`TELEMETRY_API_PREFIX`），写入口主机上的三个写入口
+ * （`TELEMETRY_INGEST_PREFIX`）。声明了写入口（`ingest`），所以进程要求 `NB_SITE_TELEMETRY_URL`。
+ */
 const telemetry = {
     name: "telemetry",
     surfaces: ["site", "ingest"],
     migrations: telemetryMigrations,
     parseConfig: parseTelemetryConfig,
     create: (context) => {
-        const module = createTelemetryModule({db: context.db, config: context.config, log: context.log});
-        return {mounts: [{surface: "site", prefix: TELEMETRY_API_PREFIX, app: module.site}]};
+        const module = createTelemetryModule({
+            db: context.db,
+            config: context.config,
+            log: context.log,
+            clock: context.clock,
+            jobs: context.jobs,
+            clientAddress: (c) => context.clientAddress(c),
+        });
+        return {
+            mounts: [
+                {surface: "site", prefix: TELEMETRY_API_PREFIX, app: module.site},
+                {surface: "ingest", prefix: TELEMETRY_INGEST_PREFIX, app: module.ingest},
+            ],
+        };
     },
 } satisfies SiteModule<TelemetryConfig>;
 

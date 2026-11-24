@@ -2,7 +2,7 @@
 
 本包位于 `packages/nb-site-telemetry`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。官方站各包共用的规则（依赖方向、迁移、起服务、跑合同测试）在 [`../nb-site-server/AGENTS.md`](../nb-site-server/AGENTS.md)，本文件只保留本包的专属规则。
 
-`@notnotype/nb-site-telemetry` 是官方站的统计模块（[ADR 0059](../../docs/adr/0059-official-site-one-process-split-ready-modules.md)、[ADR 0061](../../docs/adr/0061-official-site-sqlite-file-per-module.md)）：自己的 SQLite 库 `telemetry.db` 与它的迁移、挂在 `TELEMETRY_API_PREFIX` 下的 Hono 子应用，以后另有挂在写入口主机上的写入口。行为合同是 [`site/telemetry-ingest.md`](../../docs/specs/site/telemetry-ingest.md)。
+`@notnotype/nb-site-telemetry` 是官方站的统计模块（[ADR 0059](../../docs/adr/0059-official-site-one-process-split-ready-modules.md)、[ADR 0061](../../docs/adr/0061-official-site-sqlite-file-per-module.md)）：自己的 SQLite 库 `telemetry.db` 与它的迁移、挂在 `TELEMETRY_API_PREFIX` 下的 Hono 子应用，以及挂在写入口主机 `TELEMETRY_INGEST_PREFIX` 下的三个写入口。行为合同是 [`site/telemetry-ingest.md`](../../docs/specs/site/telemetry-ingest.md)。
 
 ## 边界
 
@@ -14,6 +14,8 @@
 ## 源码分工
 
 - `src/validate.ts` 按合同包的收集清单校验请求体、归一成记录；判的先后照协议输出 13，不拿整份 schema 判。`src/store.ts` 把记录写进库，每次写是一个同步事务；数据库错误按结果码分类，不看文字。`src/days.ts` 是服务端日、心跳段与 ISO 周的换算，时间都由调用方传入。
+- `src/ingest.ts` 是三个写入口：请求按协议输出 13 的先后走，每一步在哪个文件见它的文件头。来源地址只在这里取、只交给限流器，不进日志、错误与库；`src/architecture.test.ts` 核对 `clientAddress` 只在这个文件里被调用。`src/rate-limit.ts` 是限流，状态只在内存里，进程重启清零。
+- `src/index.ts` 的 `createTelemetryModule` 把交进来的连接改成 `busy_timeout = 0`、`secure_delete = ON`，理由与成立的前提写在那里；改连接参数先看那段注释。
 - 包内测试用 `src/testing/db.ts` 建真的库：本包不能依赖入口，它只照入口运行器的做法执行迁移；经真实运行器建库由合同测试覆盖。
 
 ## 完成门禁
