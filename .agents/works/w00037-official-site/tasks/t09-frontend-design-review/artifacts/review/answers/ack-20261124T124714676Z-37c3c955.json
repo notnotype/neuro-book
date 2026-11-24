@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00037-official-site",
+    "taskId": "t09-frontend-design-review",
+    "artifactId": "review",
+    "ackId": "20261124T124714676Z-37c3c955",
+    "answers": [
+        "20261124T124524630Z-a5aeaf74"
+    ],
+    "through": "20261124T124524630Z-a5aeaf74",
+    "included": [
+        ".agents/works/w00037-official-site/tasks/t09-frontend-design-review/README.md"
+    ],
+    "ackedAt": "2026-11-24T12:47:14.676Z"
+}
