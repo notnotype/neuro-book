@@ -1,0 +1,151 @@
+# t50 切片 1、2 实现审查报告（nb-layout 示例 tabbed-panels，b67b080e1..HEAD）
+
+范围：packages/nb-layout 下 examples/tabbed-panels、scripts/examples.ts、e2e、src/examples*.test.ts、README/AGENTS、package.json。
+已跑：`bun test src/examples*.test.ts`（27 通过）、`bun run typecheck`（退出码 0，根上 vue-tsc 用的是 TS 5.9.3，与示例声明一致）。未跑 e2e 与开发服务。
+另做的实验都在 /tmp/claude-1000/review-t50-impl-s12/scratch/，未改仓库。
+
+## 发现（按影响排序）
+
+### 1. 重要 / 数据保留 / 备份写失败后，第一次保存就覆盖了读不了的原件
+- 位置：examples/tabbed-panels/src/model.ts:297-305（keepOriginal）、:308-317（saveLayout）、App.vue:45-48（persist）
+- 现象：读档失败后 `keepOriginal` 先把原件写到备份键；备份写抛错时只返回缺省布局和提示 “the original could not be backed up”，原键里的坏存档没动。但之后用户做任何一次操作，`persist()` 就用缺省布局的新存档写主键，原件永久丢失。
+- 为什么是问题：计划（plan.md“存档坏的判据”一条）写的是“写备份抛错时不覆盖原键”；库 README“约定”写的是“读失败时保留原件，不要拿缺省布局覆盖它”。这个示例正是在教这条，教学注释说得对、行为却相反。提示文字还告诉用户“原件没备份”，下一步却替他覆盖。备份写失败最常见的原因是存储满，此时主键写入因新存档更小反而可能成功，正好把原件覆盖。
+- 如何核实：scratch/exp2.test.ts 第二个用例：getItem 返回 `{not json`，setItem 对备份键抛错、对别的键照写；`loadLayout` 之后 `saveLayout` 交回 null，主键内容不再等于原件（输出 `original still there? false`）。单元测试 examples-tabbed-panels.test.ts 没有“备份写抛错”这一例（读档坏的 10 例都是备份成功）。
+- 建议改法：加一个“本次会话禁止写主键”的状态（例如 `loadLayout` 回 `readOnly: true`，`saveLayout` 见到就交回原因，状态行说明“修好之前不保存”），并补上这一例单元测试。
+
+### 2. 建议 / 测试覆盖 / e2e 只跑生产构建，示例里“开发时开接线检查”的那条路径没有任何证据
+- 位置：package.json（`test:e2e` 先 `examples.ts build` 再跑 Playwright）、examples/tabbed-panels/src/main.ts:230（`setLayoutDevChecks(import.meta.env.DEV)`）、e2e/tabbed-panels.e2e.ts 全文
+- 现象：e2e 吃的是 `vite build` 的产物，`import.meta.env.DEV` 为假、Vue 的开发期警告也被剥掉；用例里没有 `pageerror`、`console` 收集。库在开发模式下的接线诊断（`revision-mismatch`、`is kept until the transition ends` 之类，见 useGridHost.md、NestedGrid.md）示例从未被观察过。
+- 为什么是问题：main.ts 的注释把这个检查讲成“绑错了会在控制台说出来”，读者照抄后第一个依赖的就是它；示例自己是否在开发模式下干净，没有证据。我用 happy-dom 在开发模式挂载 App.vue 只看到挂载阶段无警告（scratch/app.dom.test.ts，无布局尺寸，拖动与关闭路径没走到）。
+- 如何核实：看 `scripts/examples.ts` 的 build 命令与 `playwright.config.ts` 的 webServer 缺省（用例自己起静态服务读 dist）。
+- 建议改法：e2e 里收集 `page.on("pageerror")` 与 `console` 的 warning/error，用例末尾断言为空；构建加 `--mode development`（或另起 dev 服务）跑一条主路径，至少覆盖拖动提交与关闭最后一个标签（后者是 retain 与冻结插槽的路径）。
+
+### 3. 建议 / 正确性 / `moveTab` 把失效的 `before` 悄悄退化成“放到末尾”，同组里 `before === tab` 也变成移到末尾
+- 位置：model.ts:141-143（`const at = before === null ? rest.length : rest.indexOf(before); rest.splice(at < 0 ? rest.length : at, ...)`）
+- 现象：`moveTab("README.md","group-2","ghost")` 返回 ok 并把标签放到最后；同组里 `moveTab("main.ts","group-1","main.ts")` 返回 ok，main.ts 跑到最后（scratch/exp2.test.ts 输出）。
+- 为什么是问题：库的 DropFeedbackOverlay.md 明确要求“失效的锚点不能悄悄退化成末尾”；这个模型自己的合同是返回 `Failure`（`unknown-tab`、`unknown-group`），对 `before` 却不检查。现在只有 drop.ts 的 `isOwnPosition` 一道在挡“插在自己前面”，UI 走不到，但模型是 README 说要“先读”的第一份教学文件，第三方照抄 `moveTab` 去接别的落点来源时会踩。
+- 如何核实：同上实验。
+- 建议改法：`before` 非空且不在目标编组的 `rest` 里时返回 `unknown-anchor` 失败（模型尚未改动，顺序上放在 `takeOut` 之前）；同组 `before === tab` 当作原位、直接返回 ok 不改。补一例单元测试。
+
+### 4. 建议 / 教学注释 / `measure` 的理由与 `structure` 的注释互相矛盾
+- 位置：App.vue:130-133（“……标签条变了、窗口缩放了也跟得上”）对 App.vue:158-159（“窗口缩放、别处改了树，整场取消”）
+- 现象：现量几何的理由里写“窗口缩放了也跟得上”，可窗口缩放会让 `extent` 变、`useGridLayout.publish` 里 `revision.value += 1`（src/vue/useGridLayout.ts:81），`structure` 随之变化，整场取消（drag-gesture.ts:286 `evaluate`）。一场里不会有窗口缩放的落点判定。
+- 为什么是问题：教学注释把“每次现量”的理由讲成能应对缩放，读者会误以为 `structure` 之外还有缩放保护，或者误以为必须现量。真正的理由只剩“起拖前过渡被 `settleMotion` 送到终点之后量一次就够，现量只是少存一份状态”。
+- 如何核实：读 useGridLayout.ts:75-90 与 drag-gesture.ts:282-291。
+- 建议改法：把这句改成实际理由；或者在 `activate` 里量一次存起来，`resolve` 只读缓存（也省掉每次移动的 N 次 `getBoundingClientRect`），注释就不用再解释现量。
+
+### 5. 建议 / 样式 / 标签条高度很可能是 33 像素，内容层 `insetTop` 与落点 `body.top` 都按 32
+- 位置：TabBar.vue:143-149（`.tab-bar {height: var(--tab-bar-height); border-bottom: 1px solid}`，没有 `box-sizing`）、App.vue:23/77/143、e2e/tabbed-panels.e2e.ts:42-53（硬编码 32）
+- 现象：`height` 是 content-box，加 1 像素下边框就是 33；全仓示例目录与 `global.css` 都没有 `box-sizing` 重置（grep 过）。内容项从叶顶往下 32 开始，盖住标签条最下面 1 像素边框；`measure()` 里 strip 矩形到 33、body 从 32 开始，两者重叠 1 像素（`resolveDrop` 先判 strip，所以没有错判）。
+- 为什么是问题：App.vue:22 的注释特意写“标签条的样式与内容层的 `insetTop` 读同一个数”，这里恰好因为边框读成了两个数。属于从代码推断，未在浏览器量。
+- 如何核实：开发服务里量 `[data-tab-strip]` 的 `getBoundingClientRect().height`（应为 33）；或给 `.tab-bar` 加 `box-sizing: border-box` 看边框是否变得可见。
+- 建议改法：`.tab-bar { box-sizing: border-box }`（教学上顺带讲一句“高度要把边框算进去”），e2e 里的 32 改为读 CSS 变量或从 strip 的高度推。
+
+### 6. 建议 / 代码质量 / 能不能关的规则写了两份，模型的 `canClose` 在界面里没人用，计划里“去掉模型拒绝”的变异无法被 e2e 抓到
+- 位置：model.ts:118-121（`canClose`）与 :123-128（`closeTab` 里的拒绝）；App.vue:72（`closable: group.tabs.length > 1 || model.groups.size > 1`）；TabBar.vue:114（Delete 也读 `props.closable`）
+- 现象：同一条规则（最后一个编组的最后一个标签不能关）在 App.vue 里按另一个表达式重写了一遍；`grep canClose` 只有 model.ts 自己用。e2e 的“Delete 关不掉最后一个”走的是 TabBar 的 `closable` 守卫，到不了模型的拒绝；计划的变异清单“去掉 `closeTab` 对最后一个标签的拒绝，Delete 一步失败”在现实现里不成立（按钮不画、Delete 被 TabBar 吃掉）。模型的拒绝只有单元测试那一例在守。
+- 为什么是问题：同一件事各写一份，改一边忘另一边；示例是第三方照抄的材料。
+- 如何核实：`grep -rn canClose examples e2e src`；对 model.ts 去掉 `closeTab` 里的拒绝再跑 e2e，“关闭标签”不会失败。
+- 建议改法：App.vue 的 `closable` 用 `model.canClose(group.active)`（或给模型加 `canCloseIn(group)`），TabBar 不再自己读规则；或者保留防御但注释说明“模型是最终的守卫，界面是为了不画按钮”。
+
+### 7. 建议 / 可访问性 / 拖动提交后焦点掉到 body（从代码推断，未验证）
+- 位置：App.vue:175-180（`commit`）对比 App.vue:107-121（切换、关闭有 `withFocus`）
+- 现象：指针拖动时先在标签按钮上按下，Chrome 里按钮得到焦点；提交后该标签的按钮在来源编组的 TabBar 里被卸载、在目标编组里新建（`v-for` 的 key 是标签名，但跨了两个 TabBar 组件实例），同组换位也是 DOM 移动。焦点无处可去，落到 body；`restoreFocus` 只在键盘拖动时才还（drag-gesture.ts:263-271 `current.cursor === null` 提前返回）。
+- 为什么是问题：示例为切换与关闭写了完整的焦点接力，唯独拖动提交没有；鼠标加键盘混用的人拖完再按方向键没有反应。这是第三方最容易漏的一处，示例没有讲。
+- 如何核实：e2e 里拖完断言 `document.activeElement`；或手动拖完按 ArrowRight。
+- 建议改法：`commit` 成功后若来源按钮原本是焦点，等 nextTick 把焦点给移动后的标签按钮（复用 `focusActiveTab(目标编组)`）。
+
+### 8. 建议 / 状态行 / 状态行内容一旦设置就不再清除
+- 位置：App.vue:43、:47、:58、:87（只写不清）
+- 现象：读档提示、保存失败、操作被拒的文字写进 `status` 后，之后任何成功操作都不清它。“Saving the layout failed” 在下一次保存成功之后仍挂在工具栏上；读档提示永远在。
+- 为什么是问题：状态行是 `role="status"`，一直显示过期信息会误导；注释写的是“平时空着”。
+- 如何核实：看代码；单元测试与 e2e 都没覆盖“成功后清掉”。
+- 建议改法：`persist()` 成功时清掉“保存失败”这一条（分开存读档提示与保存错误），或统一在 `settle` 成功时清空。
+
+### 9. 建议 / 库合同用法 / `clone()` 丢弃 `restore` 的结果
+- 位置：model.ts:183-188
+- 现象：`grid.restore(...)` 的返回值（`{ok, dropped, message}`）没看。库自己在 README“约定”里强调两种失败都要看（`restore` 失败、`dropped` 非空）。
+- 为什么是问题：`fromSaved` 把这两种都当存档坏处理，`clone` 却不看；万一失败，临时树是空树，`canSplit` 里 `splitLeaf` 回 `not-found`，界面显示成“放不下”类的原因，难以排查。当前从活树 `serialize` 出来的快照深度不超过 16，实际走不到，但示例是教学材料，同一个文件里前后两种写法不一致。
+- 如何核实：看代码；构造不到失败，属于合同用法问题。
+- 建议改法：`clone` 里检查结果，失败就 `throw`（这是程序错误，不是用户输入问题），并写一句理由。
+
+### 10. 建议 / 脆弱写法 / 模板 `ref="grid"` 与同名的 `const grid = computed(...)` 撞名
+- 位置：App.vue:41（`const grid = computed(...)`）、:52（`useTemplateRef("grid")`）、:220（`ref="grid"`）
+- 现象：`<script setup>` 编译后 `ref="grid"` 变成 `ref_key: "grid", ref: grid`，而 `grid` 是只读 computed（compiler-sfc 输出核实过，scratch/compile.ts）。在 Vue 3.5.39 里运行时用 `knownTemplateRefs` 避开了对 computed 的写入，我用开发构建模拟没有警告（scratch/refwarn.ts）。
+- 为什么是问题：示例依赖 `vue ^3.5.24`，这一避让是 3.5.x 某个补丁才有的行为（我没有验证 3.5.24 是否已有）；更重要的是读者照抄后把 ref 名改成别的地方就会撞出只读警告。教学材料里不该留这种需要版本背景才成立的写法。
+- 如何核实：`bun scratch/compile.ts examples/tabbed-panels/src/App.vue`；旧版 Vue 下挂载看 `Write operation failed: computed value is readonly`。
+- 建议改法：模板 ref 改名 `gridEl`/`gridView` 与 `const grid` 不同名。
+
+### 11. 建议 / 重复 / 切换焦点在 TabBar 与 App.vue 各做了一遍
+- 位置：TabBar.vue:109-112（`emit("activate")` 后自己 `nextTick` 聚焦）；App.vue:107-121（`withFocus` 同样 `nextTick` 聚焦）
+- 现象：方向键切换时，两处各排一个 `nextTick` 去聚焦同一个按钮。去掉任意一个行为不变。
+- 为什么是问题：读者不知道焦点归谁管；App.vue 的注释说“切换与关闭之后的焦点由这里给”，TabBar 的却没删。
+- 如何核实：删掉 TabBar 那一行，e2e 第一条（ArrowRight 后 `toBeFocused`）仍应通过。
+- 建议改法：删 TabBar 里的那一行。
+
+### 12. 建议 / 键盘 / 标签的方向键处理不看修饰键，会吞掉 Alt+Left、Alt+Right（浏览器后退、前进）
+- 位置：TabBar.vue:103-118
+- 现象：焦点在标签上按 Alt+ArrowLeft，`preventDefault` 之后浏览器后退被拦；Ctrl/Meta 组合同理。
+- 为什么是问题：示例按 WAI-ARIA 写标签页，抄去的人会带着这个行为；成本是一行判断。
+- 如何核实：看代码；手动按 Alt+Left。
+- 建议改法：`if (event.altKey || event.ctrlKey || event.metaKey) return;` 放在最前。
+
+### 13. 建议 / 可访问性 / 侧栏切换按钮同时有 `aria-pressed` 与会变的文字
+- 位置：App.vue:214
+- 现象：按钮文字在 “Hide explorer”/“Show explorer” 之间变，同时 `aria-pressed` 也变。
+- 为什么是问题：切换按钮二选一：文字不变用 `aria-pressed`，文字变就不要 `aria-pressed`；两者同用读屏会念“Hide explorer，已按下”，语义反了。e2e 靠文字取按钮，选后者更直接。
+- 如何核实：看代码。
+- 建议改法：去掉 `aria-pressed`，改 `aria-expanded` 配稳定文字也可以。
+
+### 14. 建议 / 存档判据 / `isSavedShape` 与 `fromSaved` 放过了几种手改或异常存档
+- 位置：model.ts:195-218、:257-267
+- 现象（scratch/exp1.test.ts）：`explorer.restoreSize` 为负数、0、1e9 都被收下（负数被库夹成 0，展开键之后回不到合理宽度）；根方向改成 `vertical`、侧栏被放进纵向分支里的存档都判为好；`groups` 是数组也只因“引用了不认识的面板”被拒，错误文案误导。
+- 为什么是问题：计划列的判据没有要求这些，不算漏实现；但示例标榜“读到的每一项都核对”，而“侧栏是根的直接子叶”这一条恰是 `canClose` 注释（只剩侧栏会被展平拉满）所依赖的前提。
+- 如何核实：scratch/exp1.test.ts。
+- 建议改法：加两条判据：侧栏叶的父亲是根且根是 horizontal；`restoreSize` 大于等于侧栏最小宽。数组形的 `groups` 在 `isSavedShape` 里直接拒。优先级低，窄边角，按“简单 fail-closed 规则”处理即可。
+
+### 15. 建议 / 注释与计划不同步 / examples.test.ts 的测试名引用尚不存在的消费方
+- 位置：src/examples.test.ts:48（“几个示例的依赖版本相同（发布冒烟的空宿主也读同一份）”）
+- 现象：仓库里没有任何地方读示例的 package.json（切片 3 才做 `smokeLayoutHost`/`smokeLayoutExample`，grep 过）。只有一个示例时这条断言也恒真（`new Set([x]).size === 1`）。
+- 为什么是问题：测试名宣称一个现在不存在的约束；切片 3 若改了方案，这句话无人维护。
+- 如何核实：`grep -rn 空宿主 packages scripts`。
+- 建议改法：测试名只写“几个示例的依赖版本相同”，切片 3 落地后再补括号；或者等有第二个示例再加这一条。
+
+### 16. 建议 / 边界 / 标签放不下时被裁掉的标签仍可被方向键聚焦，聚焦会滚动 `overflow: hidden` 的标签条
+- 位置：TabBar.vue:143-149（`overflow: hidden`）、TabBar.vue:150 的注释、README“绕过的库的空缺”倒数第三条
+- 现象（从代码推断，未验证）：组最小宽 160、每个标签最小 56 加关闭按钮，4 个标签的组缩到 160 时 2 个被裁。方向键 `focus()` 到被裁的标签，浏览器会把容器滚到可见——这正是注释说的“滚出去的标签库判插入位时会跳过、插入线与实际位置对不上”那个状态。README 只说“被裁掉”，没说键盘能把它们滚进来。
+- 为什么是问题：注释的保证（标签条不滚动）能被键盘破坏。
+- 如何核实：开发服务里把 group-1 拖窄到最小，用方向键走到第 4 个标签，看 `.tab-bar` 的 `scrollLeft`。
+- 建议改法：`overflow: clip`（不可滚动），或在 README 里补一句。
+
+## 该记进摩擦记录的库问题
+
+1. 宿主要拿“叶的视口矩形”只能 `querySelector('[data-leaf=…]')` 加 `getBoundingClientRect()`，再手工加上 `insetTop`（示例里 32 出现在 CSS 变量、`insetTop`、`measure()`、e2e 四处）。库有 `placeGrid` 与 `origin()`，但没有“某叶的内容区视口矩形”的现成入口，也不替宿主把面板头高度折进去。
+2. 宿主自己的拖动会话起拖时要记得调 `NestedGrid` 的 `settleMotion()`（刚关掉、刚拆分时过渡还在走），库的分隔线手势会自动做，宿主会话要自己做；会话与网格之间没有连线，漏了不报诊断。
+3. 每个模型操作之后宿主都要 `host.invalidate()`、`triggerRef`、存档三件套；`invalidate` 不分“结构变了”与“只是选中变了”，点一下标签也让 revision 加一、重算整张布局。对只改了宿主自己的状态的操作，应该有不重算的路径，或文档说明可以不调。
+4. 没有 `grid.clone()`（示例 README 已记）；`restore` 的结果容易被忽略（`clone` 就忽略了），建议提供 `restoreOrThrow` 一类，或让 `createGrid(snapshot, resolve)` 直接返回带结果的树。
+5. 想在落点上问“这次拆分放不放得下”只能复制树、做一遍、读 `issues`；库 README 说可读根节点 `constraints`，但那只回答“现在的最小尺寸”，不回答“再拆一次之后”。需要一个 `grid.canSplit(...)` 或 `layout` 的“假设拆分”入口。
+6. 移走一个编组的最后一个标签（内容换叶、没有内容被去掉）时，那块叶没有“缩回去”的过渡（NestedGrid.md：离开的叶只在有挂着的内容或被去掉并标 retain 的活动内容时才留着），关掉最后一个标签却有。同一个视觉操作两种动画（未在浏览器验证，从文档推断）。
+7. `content-parked` 事件示例没接，也没在注释里说明为什么不会触发；库文档说“宿主决定焦点去哪”，但没给出哪些宿主操作会触发它的清单，读者无法判断自己的宿主是否需要接。
+8. 示例要自己在 `useDragSession` 的 `resolve` 里按 `[data-drag-feedback]` 约定放过反馈元素；`DropFeedbackOverlay` 已经带 attrs 透传，但忘了加 `data-drag-feedback` 时没有诊断（落点会被反馈盖住）。
+
+## 未发现问题的方面
+
+- 模型不变量：scratch/exp3.test.ts 随机 400 轮、每轮 40 步（挪、拆、关、选中、收起、存了再读）共 16000 步，每步之后 `toSaved()` 再 `fromSaved()` 都通过，叶 id 与 ref 一致，没有 `over-constrained` 之外的布局诊断；scratch/exp4.test.ts 同样的随机操作后侧栏恒为 240、每个编组宽高不小于 100。拒绝只出现 `self`、`last-tab` 两种，符合预期。`nextId` 在存了再读之后不撞 id。
+- `useDragSession` 的用法：`structure` 用 `host.revision` 正确（窗口缩放会让 `publish` 加 revision，评估时取消整场）；`commit` 内 `invalidate` 之后 `dragging` 已在 `finish` 里先置空，库不会误把离开的叶当拖动中的叶；`resolve` 里 `splitTrials` 按“编组:边”缓存、`activate` 清空，来源整场固定，缓存键足够；`actionKey` 对被挡的拆分返回 null，放下时不提交，和 drag-gesture.ts 的 `drop()` 一致。
+- `leave: "retain"` 与冻结插槽：`TabPanel`、`TabBar` 的数据全经属性进来，叶插槽里的 `groupViews.get(node.id)!` 受 `v-else-if groupViews.has(node.id)` 守卫，且冻结的是整个插槽调用（NestedGrid.vue 的 `frozenLeaves`），关最后一个标签的路径与库的“时序与寿命”要求一致；删数据与改 `contents`、改树在同一个同步段里（`settle`）。
+- `examples.test.ts` 的导入白名单：`scanImports`/`sourceFiles` 覆盖 `.vue`，`../../src` 一类相对越界会被抓到；`caretAccepts` 对 0.x 的 `^0.2.0` 只接 0.2.x 的判断正确。typecheck 里示例用的 `vue-tsc` 是根上的 TS 5.9.3，与示例 package.json 的 `^5.9.3` 一致，并非计划里担心的 TS 6。
+- e2e 的否定断言：“不是落点”“拖回原位”都先走到真落点、等 `data-drop` 变化再一步跳走，不是空过；“放不下”用 `splits < 8` 把“从未被挡”判成失败；起拖前统一等 `[data-moving]` 消失；没有固定时长等待。
+
+## 数量
+
+- 阻断：0
+- 重要：1（发现 1）
+- 建议：15（发现 2 至 16）
+- 另：摩擦记录 8 条，未发现问题的方面 5 条
+
+最严重的几条：
+1. 发现 1：备份写失败后第一次保存就覆盖读不了的原件（与计划和库 README 的“保留原件”相反，已实验复现，单元测试缺这一例）。
+2. 发现 7：拖动提交后焦点掉到 body（示例其余操作都有焦点接力，从代码推断）。
+3. 发现 6 与 3：能不能关的规则两份、计划里的变异无法被 e2e 抓到；`moveTab` 把失效锚点悄悄退成末尾。
+4. 发现 2：e2e 只跑生产构建，开发期接线检查与 Vue 警告没有证据。

@@ -10,3 +10,7 @@ M6 收起后保存（toggleExplorer 不调 persist） → :228 失败
 恢复后工作树干净，示例重建。
 
 没做变异的两处：侧栏与分隔线不是落点，代码里没有显式的排除（drop.ts 只遍历编组的几何），没有可改坏的一行；“最后一个标签关不掉”在界面上有两层（不画按钮、Delete 看 closable），模型层的拒绝由 src/examples-tabbed-panels.test.ts 覆盖。
+
+实现审查之后（2026-11-24）：
+M7 去掉模型 closeTab 对最后一个标签的拒绝 → :216（关闭标签，Delete 一步）失败。审查指出原来 Delete 在界面上先被 closable 挡住、到不了模型；改成能不能关只问模型之后这一步才测得到它。
+另：用开发构建（vite build --mode development，import.meta.env.DEV 为真、接线检查打开）跑一遍 13 条，全过，页面没有脚本错误与控制台报错（用例在 afterEach 里收集）。
