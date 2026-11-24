@@ -38,6 +38,7 @@
 - [桌面发行](desktop-distribution.md)：Electrobun 桌面壳随包带 Bun、先做 Windows 安装包与便携包、状态根与 `nbook` 共用、外部工具向导，打 `v*` 标签后 CI 构建冒烟并发布 npm 包、桌面包与 GitHub Release。
 - [统一后台任务](unified-background-tasks.md)：`nbook.tasks` 汇总所有后台工作成一份清单，状态各归其主、插件作为提供方交出行，按归属（应用、项目、会话）与形态（一次性、服务、定时）分组；内核缓冲区加“提示”，下一次请求带上、可唤起，唤起的门挂在会话上；Agent 的后台任务结果作为提示送回会话。
 - [nb-layout 做成能发到 npm 的通用布局库](nb-layout-general-library.md)：工作台的布局文档与拖动控制器拆进不发布的工作区包，nb-layout 只留网格、分隔线、拖动会话与落点几何，收窄入口、统一错误码、去掉 nb-ui 依赖、发编译产物；许可证与发布时机交开发者定。
+- [官方站重写](official-site-rewrite.md)：账号与统计两个模块跑在一个进程里，按以后能拆成服务的边界写（包、数据库角色、HTTP 合同、黑盒合同测试）；身份库用 Better Auth，旧站账号数据导入、其余留存。
 
 ### 旧应用的提案（只作参照）
 
