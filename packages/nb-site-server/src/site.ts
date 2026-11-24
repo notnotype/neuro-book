@@ -1,6 +1,6 @@
 /**
- * 装配根应用（`site.operations` 的输入一节、输出 3、4、8）：请求编号与请求日志 → 读不出主机名的请求回 400 → 两个健康检查
- * → 按主机名分到站点或写入口的子应用 → 各模块的 mount。
+ * 装配根应用（`site.operations` 的输入一节、输出 3、4、8、11）：请求编号与请求日志 → 读不出主机名的请求回 400 → 两个健康检查
+ * 与测试控制入口（设了口令时）→ 按主机名分到站点或写入口的子应用 → 各模块的 mount。
  *
  * 两个入口各是一个 Hono 应用，根应用把请求原样交给其中一个的 `fetch`：同一个前缀在两个入口上可以各挂各的模块。
  * 交出去之后根应用的上下文变量就看不到了，所以请求的状态（命中了哪个模块、请求编号）放在随 `fetch` 第二个参数传下去的
@@ -42,6 +42,8 @@ export interface SiteAppOptions {
     readonly telemetryHost: string | null;
     readonly readiness: () => ReadinessReport;
     readonly log: Logger;
+    /** 测试控制入口（`test-control.ts`）；没设口令时不给，`/test-control/*` 就与别的不存在的地址一样落到站点的 404。 */
+    readonly testControl?: Hono;
 }
 
 const NOT_FOUND = {code: "not_found"} as const;
@@ -136,6 +138,9 @@ export function createSiteApp(options: SiteAppOptions): Hono<SiteEnv> {
         const report = options.readiness();
         return report.ready ? c.json({status: "ready", modules: report.modules}) : c.json({status: "not_ready", code: "not_ready", modules: report.modules}, 503);
     });
+
+    // 与健康检查同一层、在分派之前：任何读得出的主机名上都可用（`site.operations` 输出 11）。
+    if (options.testControl !== undefined) root.route("/test-control", options.testControl);
 
     root.all("*", (c) => {
         // 主机名在上面已经核对过读得出来。

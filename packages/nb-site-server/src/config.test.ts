@@ -111,6 +111,23 @@ describe("parseSiteConfig", () => {
         expect(problemsOf({...validEnv(), NB_SITE_SESSION_SECRET: "密".repeat(31)})).toEqual([{name: "NB_SITE_SESSION_SECRET", problem: "too_short"}]);
     });
 
+    it("测试控制口令：按字符数至少 32 个；设了它时监听地址只许本机回环，问题记在监听地址上", () => {
+        const token = "口".repeat(32);
+        const withToken = (host?: string): Env => ({...validEnv(), NB_SITE_TEST_CONTROL: token, ...(host === undefined ? {} : {NB_SITE_HOST: host})});
+        const result = parseSiteConfig(withToken(), SITE_MODULES);
+        if (!result.ok) throw new Error(JSON.stringify(result.problems));
+        expect(result.config.base.testControlToken).toBe(token);
+        expect(problemsOf({...validEnv(), NB_SITE_TEST_CONTROL: "口".repeat(31)})).toEqual([{name: "NB_SITE_TEST_CONTROL", problem: "too_short"}]);
+        for (const host of ["127.0.0.1", "127.8.9.10", "::1", "0:0:0:0:0:0:0:1"]) expect({host, ok: parseSiteConfig(withToken(host), SITE_MODULES).ok}).toEqual({host, ok: true});
+        for (const host of ["0.0.0.0", "10.0.0.1", "::", "::ffff:127.0.0.1", "fe80::1"]) {
+            expect({host, problems: problemsOf(withToken(host))}).toEqual({host, problems: [{name: "NB_SITE_HOST", problem: "not_loopback"}]});
+        }
+        // 没设口令（含空串）时不限制监听地址，也没有口令。
+        const without = parseSiteConfig({...validEnv(), NB_SITE_HOST: "0.0.0.0", NB_SITE_TEST_CONTROL: ""}, SITE_MODULES);
+        if (!without.ok) throw new Error(JSON.stringify(without.problems));
+        expect(without.config.base.testControlToken).toBeNull();
+    });
+
     it("可信代理接受单个地址与 IPv6 网段", () => {
         const result = parseSiteConfig({...validEnv(), NB_SITE_TRUSTED_PROXIES: "10.0.0.1, fd00::/8"}, SITE_MODULES);
         if (!result.ok) throw new Error(JSON.stringify(result.problems));
@@ -145,11 +162,12 @@ describe("parseSiteConfig", () => {
             NB_SITE_TRUSTED_PROXIES: "SECRET-VALUE",
             NB_SITE_BACKUP_KEEP: "SECRET-VALUE",
             NB_SITE_SHUTDOWN_TIMEOUT_MS: "SECRET-VALUE",
+            NB_SITE_TEST_CONTROL: "SECRET-VALUE",
         };
         const failure = configFailure(problemsOf(env));
         const text = JSON.stringify(failure);
         expect(failure.code).toBe("config_invalid");
         expect(text).not.toContain("SECRET-VALUE");
-        expect((failure.fields?.problems as unknown[]).length).toBe(9);
+        expect((failure.fields?.problems as unknown[]).length).toBe(10);
     });
 });

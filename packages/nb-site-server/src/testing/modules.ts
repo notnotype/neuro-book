@@ -2,15 +2,16 @@
  * 只给 `serve.test.ts`、`commands.test.ts` 与 `backup.test.ts` 用的夹具模块；产品代码不引用本目录（`docs/testing/README.md` 的测试文件组织）。
  * `fixture-main.ts` 按环境变量 `NB_SITE_FIXTURE`（逗号分隔）挑出这里的模块交给同一个 `runCli`：
  *
- * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务、命令与一组可操纵的路由；备份时在副本里删掉 `label` 为
- *   `raw` 的行（`prepareBackupCopy`，代表统计模块清空原始上报表）；
+ * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务（含给测试控制入口跑的 `count`、`fail`、`hold`）、命令与
+ *   一组可操纵的路由（含回显 `clock.now()` 的 `/now`）；备份时在副本里删掉 `label` 为 `raw` 的行（`prepareBackupCopy`，
+ *   代表统计模块清空原始上报表）；
  * - `alpha-failing`：`alpha`，第二条迁移是坏 SQL；
  * - `beta`：只挂站点入口的第二个模块（测按模块的锁、就绪检查逐个点名）；`create()` 是异步的。
  *
  * 夹具的行为由 `NB_SITE_ALPHA_*`、`NB_SITE_BETA_*` 控制，它们与产品模块的变量一样经 `parseConfig` 读，不经入口。
  *
  * 标准输入是测试往子进程里送信号以外的指令的通道，每行一个词：`release` 放行 `/api/alpha/slow`，`go` 放行 `alpha-wait` 命令
- * 与 `NB_SITE_ALPHA_WAIT` 停住的那一步。
+ * 与 `NB_SITE_ALPHA_WAIT` 停住的那一步，`finish` 让 `hold` 任务跑完。
  */
 
 import {readSync} from "node:fs";
@@ -95,9 +96,32 @@ function createAlpha(context: ModuleContext<AlphaConfig>): ModuleInstance {
     if (config.jobMs !== undefined) {
         context.jobs.register({name: "tick", intervalMs: config.jobMs, run: () => log.info("fixture.job_ran", "fixture job ran", {job: "tick"})});
     }
+    // 给测试控制入口跑的任务：间隔一小时，用例里不会按间隔跑到。`count` 的效果经 `/job-count` 读；`fail` 抛错；
+    // `hold` 开始与结束各写一行日志，中间等标准输入的一行 `finish`。
+    const HOUR_MS = 3_600_000;
+    let jobCount = 0;
+    context.jobs.register({name: "count", intervalMs: HOUR_MS, run: () => void (jobCount += 1)});
+    context.jobs.register({
+        name: "fail",
+        intervalMs: HOUR_MS,
+        run: () => {
+            throw new RangeError("fixture job failure with secret-detail-job");
+        },
+    });
+    context.jobs.register({
+        name: "hold",
+        intervalMs: HOUR_MS,
+        run: async () => {
+            log.info("fixture.hold_started", "fixture hold job started");
+            await stdinLines.wait("finish");
+            log.info("fixture.hold_finished", "fixture hold job finished");
+        },
+    });
 
     const site = new Hono();
     site.get("/where", (c) => c.json({surface: "site"}));
+    site.get("/now", (c) => c.json({now: context.clock.now()}));
+    site.get("/job-count", (c) => c.json({count: jobCount}));
     site.get("/client", (c) => c.json({address: context.clientAddress(c)}));
     site.get("/slow", async (c) => {
         log.info("fixture.slow_started", "slow request started");

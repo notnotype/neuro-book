@@ -40,6 +40,15 @@
 - 备份副本里不该留的数据（统计模块的原始上报）在 `prepareBackupCopy` 里删：它拿到的是副本的连接，在备份命令的进程里调用，不经 `create()`。
 - 只给测试用的夹具模块与入口放在 `src/testing/`，产品代码不引用（`src/architecture.test.ts` 检查）。
 
+## 测试控制入口
+
+合同测试与被测服务之间的约定（[`site/operations.md`](../../docs/specs/site/operations.md) 输出 11）：设了 `NB_SITE_TEST_CONTROL` 的 `serve` 多两个地址，`POST /test-control/clock` 把模块经 `context.clock` 取到的时间往前拨，`POST /test-control/jobs/run` 立即跑一次某个模块的定时任务。实现在 `src/test-control.ts`。
+
+- 三道限制：不设口令时这两个地址根本不挂，与别的不存在的地址一样回 404；设了口令时监听地址只许本机回环（`127.0.0.0/8`、`::1`），否则配置校验以 `not_loopback` 拒绝；每个请求都要带 `Authorization: Bearer <口令>`，没带或不对同样回 404。
+- 生产环境与镜像都不设它。它只给合同测试用：合同测试起被测进程时每次生成一个随机口令。
+- 口令是秘密：不进日志、失败行与响应体。拨过的偏移量属于 `serve` 的这一次运行，入口自己的时限（停止、就绪检查）按单调时钟算，不受拨动影响。
+- 模块要让随时间变化的行为能被合同测试验证，就只经 `context.clock` 取时间、只经 `context.jobs` 登记定时任务；绕开它们的（例如第三方库自己读系统时间）拨不到。
+
 ## 部署
 
 - 两个健康检查（`/health/live`、`/health/ready`）在任何主机名上都可用；反向代理只把它们开放给本机回环，不转发外部的请求。

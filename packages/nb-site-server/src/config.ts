@@ -26,6 +26,11 @@ export interface BaseConfig {
     readonly trustedProxies: BlockList;
     readonly backupKeep: number;
     readonly shutdownTimeoutMs: number;
+    /**
+     * `NB_SITE_TEST_CONTROL` 的口令；没设时为 null，`serve` 就不挂测试控制入口（`site.operations` 输出 11）。
+     * 这是秘密：只交给比较口令的那一处，不进日志、失败行与响应。
+     */
+    readonly testControlToken: string | null;
 }
 
 export interface SiteConfig {
@@ -37,7 +42,7 @@ export interface SiteConfig {
 export type SiteConfigResult = {readonly ok: true; readonly config: SiteConfig} | {readonly ok: false; readonly problems: readonly ConfigProblem[]};
 
 /** 问题词：取自 `site.operations` 失败与恢复一节的词表。 */
-type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip";
+type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip" | "not_loopback";
 
 type Parsed<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly problem: Problem};
 
@@ -91,6 +96,25 @@ function parseInteger(value: string, min: number, max: number): Parsed<number> {
     return number < min || number > max ? bad("out_of_range") : ok(number);
 }
 
+/** 测试控制口令的最短长度，按 Unicode 码点计（`site.operations` 的配置表）。 */
+const TEST_CONTROL_MIN_LENGTH = 32;
+
+const LOOPBACK_V4 = (() => {
+    const list = new BlockList();
+    list.addSubnet("127.0.0.0", 8, "ipv4");
+    return list;
+})();
+
+/**
+ * 本机回环：`127.0.0.0/8` 与 `::1`。IPv6 先经 `URL` 规范化，`0:0:0:0:0:0:0:1` 这类写法也认；`::ffff:127.0.0.1` 这类
+ * 映射地址不算：认得少只会多拒，不会让测试控制入口暴露到回环之外。
+ */
+function isLoopback(host: string): boolean {
+    const family = isIP(host);
+    if (family === 4) return LOOPBACK_V4.check(host, "ipv4");
+    return family === 6 && URL.parse(`http://[${host}]/`)?.hostname === "[::1]";
+}
+
 /** 逗号分隔的网段；只写地址时当作单个地址（IPv4 的 /32、IPv6 的 /128）。 */
 function parseSubnets(value: string): Parsed<BlockList> {
     const list = new BlockList();
@@ -136,6 +160,11 @@ export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteC
     const backupKeep = field("NB_SITE_BACKUP_KEEP", (value) => parseInteger(value, 1, Number.MAX_SAFE_INTEGER), 7);
     // 上界是计时器能表示的最大延时：更大的值会被 `setTimeout` 改成 1 毫秒，“多等一会儿”变成“一点也不等”。
     const shutdownTimeoutMs = field("NB_SITE_SHUTDOWN_TIMEOUT_MS", (value) => parseInteger(value, 1, MAX_TIMER_DELAY_MS), 10_000);
+    // 缺省是“没设”而不是某个值，所以不经 `field` 的缺省值；空串同样算没设。
+    const rawToken = present(env.NB_SITE_TEST_CONTROL);
+    if (rawToken !== undefined && [...rawToken].length < TEST_CONTROL_MIN_LENGTH) problems.push({name: "NB_SITE_TEST_CONTROL", problem: "too_short"});
+    // 测试控制入口能改服务看到的时间，只许在本机回环上提供（`site.operations` 的边界一节）；问题记在监听地址上。
+    if (rawToken !== undefined && host !== undefined && !isLoopback(host)) problems.push({name: "NB_SITE_HOST", problem: "not_loopback"});
 
     const moduleConfigs = new Map<string, unknown>();
     for (const module of modules) {
@@ -157,6 +186,7 @@ export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteC
                 trustedProxies: trustedProxies!,
                 backupKeep: backupKeep!,
                 shutdownTimeoutMs: shutdownTimeoutMs!,
+                testControlToken: rawToken ?? null,
             },
             modules: moduleConfigs,
         },

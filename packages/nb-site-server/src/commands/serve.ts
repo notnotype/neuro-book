@@ -22,9 +22,13 @@ import {lockModules} from "../lock";
 import {errorType, type Logger} from "../log";
 import type {Clock, CommandFailure, ModuleInstance, SiteModule} from "../module";
 import {createSiteApp, MountError, siteFetch, type MountedModule} from "../site";
+import {createTestControl} from "../test-control";
 import {closeAll, failed, lockFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
 
-/** 给模块的业务时间（`ModuleContext.clock`），是墙钟；入口自己的时限不用它。 */
+/**
+ * 给模块的业务时间（`ModuleContext.clock`），是墙钟；设了测试控制口令时换成测试控制入口的时钟（墙钟加拨过的偏移量）。
+ * 入口自己的时限（停止、就绪结果的复用、卡住的期限）按单调时钟算，不用它，也就不受拨动影响。
+ */
 const SYSTEM_CLOCK: Clock = {now: () => Date.now()};
 
 /** 停定时任务、每个模块的 `close()` 各自的上限（`site.operations` 输出 9 的“每个模块至多 2 秒收尾”）。 */
@@ -82,6 +86,9 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
 
         // 5. 建实例（try 之内、受理之前）：建成一个就记进 `created`，之后任何退出路径都会 `close()` 它。
         const clientAddress = createClientAddress(base.trustedProxies);
+        // 测试控制入口的状态属于这一次运行；没设口令时不建，模块拿到的就是墙钟。
+        const testControl = base.testControlToken === null ? undefined : createTestControl({token: base.testControlToken, scheduler, log});
+        const clock = testControl?.clock ?? SYSTEM_CLOCK;
         for (const module of modules) {
             const moduleLog = log.child({module: module.name});
             let instance: ModuleInstance;
@@ -91,8 +98,8 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
                     config: parsed.config.modules.get(module.name),
                     site: base.site,
                     log: moduleLog,
-                    clock: SYSTEM_CLOCK,
-                    jobs: scheduler.registry(moduleLog),
+                    clock,
+                    jobs: scheduler.registry(module.name, moduleLog),
                     clientAddress,
                 });
             } catch (error) {
@@ -114,11 +121,12 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
         const mounts: MountedModule[] = created.flatMap(({module, instance}) => instance.mounts.map((mount) => ({module, mount})));
         let app: ReturnType<typeof createSiteApp>;
         try {
-            app = createSiteApp({mounts, telemetryHost: base.telemetryHost, readiness: createReadiness(targets, {log}), log});
+            app = createSiteApp({mounts, telemetryHost: base.telemetryHost, readiness: createReadiness(targets, {log}), log, testControl: testControl?.app});
         } catch (error) {
             if (!(error instanceof MountError)) throw error;
             return failed(startFailure(error.module, error));
         }
+        if (testControl !== undefined) log.warn("site.test_control_enabled", "test control endpoints are enabled; NB_SITE_TEST_CONTROL is for contract tests only");
 
         // 7. 监听之前再查一次停止（try 之内、受理之前）。先让出一次：上一次让出之后的步骤（最后一条迁移之后的收尾、
         // 探测连接、同步的 create()）期间到的信号排在宏任务里，不让出就看不见，进程会先监听再停。

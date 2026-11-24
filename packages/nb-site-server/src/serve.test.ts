@@ -1,5 +1,5 @@
 /**
- * `nb-site serve`（`site.operations` 输出 1 到 4、8、9，状态表与失败表），起真子进程、连真端口：
+ * `nb-site serve`（`site.operations` 输出 1 到 4、8、9、11，状态表与失败表），起真子进程、连真端口：
  * 夹具模块经 `testing/fixture-main.ts` 进同一个 `runCli`，最后一组用产品入口 `main.ts` 与两个真模块。
  *
  * 每个用例起一到两个 Bun 进程（各约 100 到 300 毫秒），超出快速类 200 毫秒的预算：这里测的就是进程的启动、信号与退出码，
@@ -11,6 +11,7 @@
 
 import {Database} from "bun:sqlite";
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
+import {randomBytes} from "node:crypto";
 import {mkdir, readdir, rm} from "node:fs/promises";
 import {connect} from "node:net";
 import {join} from "node:path";
@@ -423,6 +424,122 @@ describe("停止", () => {
         expect(await site.waitForExit()).toBe(0);
         expect(site.logs().find((line) => line.event === "module.close_timeout")).toMatchObject({module: "alpha", forced: true});
         expect(events(site).at(-1)).toBe("site.stopped");
+    });
+});
+
+describe("测试控制入口（输出 11）", () => {
+    // 每个用例一个新口令；用例结束后在整段输出里搜它。
+    let token: string;
+    beforeEach(() => {
+        token = randomBytes(24).toString("hex");
+    });
+
+    /** `authorization` 为 null 时不带这个请求头。 */
+    async function control(url: string, path: string, body: unknown, authorization: string | null = `Bearer ${token}`): Promise<{status: number; body: unknown}> {
+        const {status, body: responseBody} = await getJson(`${url}test-control/${path}`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", ...(authorization === null ? {} : {Authorization: authorization})},
+            body: typeof body === "string" ? body : JSON.stringify(body),
+        });
+        return {status, body: responseBody};
+    }
+
+    async function moduleNow(url: string): Promise<number> {
+        return ((await getJson(`${url}api/alpha/now`)).body as {now: number}).now;
+    }
+
+    it("没设口令时两个地址与别的不存在的地址一样回 404，带了 Authorization 也一样", async () => {
+        const {site, url} = await startServing({root, env: env()});
+        const missing = await getJson(`${url}nothing-here`);
+        expect(missing).toMatchObject({status: 404, body: {code: "not_found"}});
+        expect(await control(url, "clock", {advanceMs: 1000})).toEqual({status: 404, body: missing.body});
+        expect(await control(url, "jobs/run", {module: "alpha", job: "count"})).toEqual({status: 404, body: missing.body});
+        expect((await getJson(`${url}api/alpha/job-count`)).body).toEqual({count: 0});
+        expect(events(site)).not.toContain("site.test_control_enabled");
+    });
+
+    it("设了口令：启动日志有一行 warn；不带或带错口令时回 404，与别的不存在的地址相同；整段输出里没有口令", async () => {
+        const {site, url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        expect(site.logs().find((line) => line.event === "site.test_control_enabled")).toMatchObject({level: "warn"});
+        const missing = (await getJson(`${url}nothing-here`)).body;
+        const wrong = [null, `Bearer ${token.slice(0, -1)}x`, `Bearer ${token}x`, token, `bearer ${token}`, "Bearer "];
+        for (const authorization of wrong) {
+            expect({authorization, result: await control(url, "clock", {advanceMs: 1000}, authorization)}).toEqual({authorization, result: {status: 404, body: missing}});
+            expect({authorization, result: await control(url, "jobs/run", {module: "alpha", job: "count"}, authorization)}).toEqual({authorization, result: {status: 404, body: missing}});
+        }
+        expect((await getJson(`${url}api/alpha/job-count`)).body).toEqual({count: 0});
+        // 带对口令时同一个请求生效，证明上面的 404 是口令不对，不是请求写错了。
+        expect(await control(url, "jobs/run", {module: "alpha", job: "count"})).toEqual({status: 200, body: {status: "done"}});
+        site.signal("SIGTERM");
+        expect(await site.waitForExit()).toBe(0);
+        expect(allOutput(site)).not.toContain(token);
+    });
+
+    it("拨时间：模块取到的时间往前走，几次拨动累加，回的 now 是拨过之后的时间", async () => {
+        const {url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        const before = await moduleNow(url);
+        const first = await control(url, "clock", {advanceMs: 60_000});
+        expect(first.status).toBe(200);
+        const firstNow = (first.body as {now: number}).now;
+        expect(firstNow).toBeGreaterThanOrEqual(before + 60_000);
+        expect(await moduleNow(url)).toBeGreaterThanOrEqual(firstNow);
+
+        const second = await control(url, "clock", {advanceMs: 1_000});
+        expect(second.status).toBe(200);
+        expect((second.body as {now: number}).now).toBeGreaterThanOrEqual(firstNow + 1_000);
+    });
+
+    it("请求体不合格时回 400 bad_request，时间不动", async () => {
+        const {url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        const clockBodies: unknown[] = [{advanceMs: 0}, {advanceMs: -5}, {advanceMs: 1.5}, {advanceMs: "10"}, {}, {advanceMs: 1, extra: true}, [1], "not json", {advanceMs: Number.MAX_SAFE_INTEGER + 1}];
+        for (const body of clockBodies) expect({body, result: await control(url, "clock", body)}).toEqual({body, result: {status: 400, body: {code: "bad_request"}}});
+        const jobBodies: unknown[] = [{}, {module: "alpha"}, {module: 1, job: "count"}, {module: "alpha", job: "count", extra: 1}, "not json"];
+        for (const body of jobBodies) expect({body, result: await control(url, "jobs/run", body)}).toEqual({body, result: {status: 400, body: {code: "bad_request"}}});
+        expect((await getJson(`${url}api/alpha/job-count`)).body).toEqual({count: 0});
+        // 时间没被拨过：模块的时间与墙钟相差远小于上面任何一次合格的拨动。
+        expect(Math.abs((await moduleNow(url)) - Date.now())).toBeLessThan(5_000);
+    });
+
+    it("跑任务：跑完才回 200，看得到任务的效果；没有这个模块或任务回 404 not_found", async () => {
+        const {url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        expect(await control(url, "jobs/run", {module: "alpha", job: "count"})).toEqual({status: 200, body: {status: "done"}});
+        expect((await getJson(`${url}api/alpha/job-count`)).body).toEqual({count: 1});
+        expect(await control(url, "jobs/run", {module: "nope", job: "count"})).toEqual({status: 404, body: {code: "not_found"}});
+        expect(await control(url, "jobs/run", {module: "alpha", job: "nope"})).toEqual({status: 404, body: {code: "not_found"}});
+    });
+
+    it("任务出错回 500 job_failed，响应体不带错误内容，日志有一行 job.failed", async () => {
+        const {site, url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        expect(await control(url, "jobs/run", {module: "alpha", job: "fail"})).toEqual({status: 500, body: {code: "job_failed", module: "alpha", job: "fail"}});
+        expect(site.logs().find((line) => line.event === "job.failed")).toMatchObject({level: "error", module: "alpha", job: "fail", errorType: "RangeError"});
+        expect(allOutput(site)).not.toContain("secret-detail-job");
+    });
+
+    it("任务正在跑时，再要一次会等那一次结束才开始", async () => {
+        const {site, url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        const holdEvents = (): string[] => events(site).filter((event) => event.startsWith("fixture.hold_"));
+        const first = control(url, "jobs/run", {module: "alpha", job: "hold"});
+        await site.waitForLog("first hold started", (line) => line.event === "fixture.hold_started");
+        const second = control(url, "jobs/run", {module: "alpha", job: "hold"});
+        // 入口受理第二次请求时写一行 test_control.job_run，之后同步地交给调度；等到这一行，第二次要是没排队，
+        // 它的 hold_started 已经写出来了。
+        await waitUntil("second run requested", () => site.logs().filter((line) => line.event === "test_control.job_run").length >= 2);
+        site.writeStdin("finish\n");
+        expect(await first).toEqual({status: 200, body: {status: "done"}});
+        await waitUntil("second hold started", () => holdEvents().length >= 3);
+        site.writeStdin("finish\n");
+        expect(await second).toEqual({status: 200, body: {status: "done"}});
+        expect(holdEvents()).toEqual(["fixture.hold_started", "fixture.hold_finished", "fixture.hold_started", "fixture.hold_finished"]);
+    });
+
+    it("设了口令而监听地址不是本机回环时以 config_invalid 退出、不监听，标准错误里没有口令", async () => {
+        for (const host of ["0.0.0.0", "::"]) {
+            const site = await startSite({root, args: ["serve"], env: env({NB_SITE_TEST_CONTROL: token, NB_SITE_HOST: host})});
+            expect(await site.waitForExit()).toBe(1);
+            expect({host, failure: failureLine(site)}).toMatchObject({host, failure: {code: "config_invalid", problems: [{name: "NB_SITE_HOST", problem: "not_loopback"}]}});
+            expect(events(site)).not.toContain("site.listening");
+            expect(allOutput(site)).not.toContain(token);
+        }
     });
 });
 

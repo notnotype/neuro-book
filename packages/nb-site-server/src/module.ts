@@ -31,12 +31,18 @@ export interface ModuleLog {
     error(event: string, message: string, fields?: Readonly<Record<string, unknown>>): void;
 }
 
-/** 模块取时间只经这里，不直接用 `Date.now()`：以后合同测试要从进程外拨时间时只换这一处（Task README 里待定的测试通道）。 */
+/**
+ * 模块取时间只经这里，不直接用 `Date.now()`：合同测试经测试控制入口（`site.operations` 输出 11）把 `serve` 交给模块的时钟
+ * 往前拨，只有经这里取的时间跟着走。模块命令是另一个进程，拿到的总是墙钟。
+ */
 export interface Clock {
     now(): number;
 }
 
-/** 一个定时任务。上一次没跑完时不开始下一次；抛错或 reject 只记一行 `job.failed`，下一次照常排。 */
+/**
+ * 一个定时任务。上一次没跑完时不开始下一次；抛错或 reject 只记一行 `job.failed`，下一次照常排。测试控制入口能按模块名与
+ * `name` 立即跑一次（同样不与正在跑的那一次叠着），所以同一个模块里 `name` 不能重复。
+ */
 export interface JobDefinition {
     readonly name: string;
     readonly intervalMs: number;
