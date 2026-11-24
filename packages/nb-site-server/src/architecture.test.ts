@@ -4,7 +4,7 @@
  *   `ALLOWED`，防止模块悄悄依赖上别的工作区实现。放在本包：模块包与合同包都是本包的依赖，改了它们的清单，
  *   `test:affected` 顺着依赖图会选中这里。合同测试包与前端包的清单各由它们自己的 `boundary.test.ts` 检查。
  * - `ATTACH` 守卫（ADR 0061 决策 1）：每个模块只打开自己的库文件，源码与迁移里不许出现附加别的库的语句。
- *   迁移运行器在执行前对迁移文字再查一次（`db/migrate.ts`），是同一条规则在运行期的第二道。
+ *   迁移运行器在执行前对迁移文字再查一次（`db/migrate.ts`），是同一条规则在运行期的第二道；它的拒收清单里写着这个词，不扫它。
  * - 两个模块的路径前缀互不重叠：入口按前缀把子应用挂在同一个站点地址上。
  * 每条规则都带一个反例，证明它拦得下违规。
  */
@@ -95,10 +95,14 @@ function attachFindings(files: readonly string[]): string[] {
     return files.filter((file) => ATTACH.test((file.endsWith(".sql") ? stripSqlComments : stripTsComments)(readFileSync(file, "utf8"))));
 }
 
+/** 迁移运行器在拒收清单里写着这个词：它就是运行期的那道检查，由 `db/migrate.test.ts` 证明它拒收附加语句。 */
+const ATTACH_CHECKER = join(import.meta.dir, "db", "migrate.ts");
+
 function tsSources(directory: string): string[] {
     return readdirSync(directory, {withFileTypes: true, recursive: true})
         .filter((entry) => entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts"))
-        .map((entry) => join(entry.parentPath, entry.name));
+        .map((entry) => join(entry.parentPath, entry.name))
+        .filter((file) => file !== ATTACH_CHECKER);
 }
 
 function sqlMigrations(packageDir: string): string[] {
