@@ -49,4 +49,6 @@ updated: 2026-11-24
 | Task | 内容 | 状态 |
 |---|---|---|
 | [t01](tasks/t01-research-and-design/README.md) | 调研与架构取舍：统计插件、遥测反馈与后端选型 | active |
-| [t02](tasks/t02-collection-scope-and-terms/README.md) | 遥测收集范围与条款 | planned |
+| [t02](tasks/t02-collection-scope-and-terms/README.md) | 遥测收集范围与条款 | active |
+| [t03](tasks/t03-telemetry-for-plugins/README.md) | 把遥测开放给第三方插件 | shelved |
+| [t04](tasks/t04-surveys/README.md) | 调查问卷 | planned |
