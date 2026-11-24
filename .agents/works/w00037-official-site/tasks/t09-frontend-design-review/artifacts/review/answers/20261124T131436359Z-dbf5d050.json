@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00037-official-site",
+    "taskId": "t09-frontend-design-review",
+    "artifactId": "review",
+    "answerId": "20261124T131436359Z-dbf5d050",
+    "artifactVersion": 5,
+    "contentHash": "6d7d600d057b1f8ca69546d826a74da76dcc096867d056943dddec70cc87fda3",
+    "submittedAt": "2026-11-24T13:14:35.232Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "dashboard-errors": true
+    },
+    "comments": {
+        "dashboard-errors": "可以加点颜色，红色可能更加让我有危机感"
+    },
+    "note": null
+}
