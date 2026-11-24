@@ -1,0 +1,209 @@
+### 1. “图片存放目录沿用章节插图的规则”在设定这边算不出目录：规则要“正在编辑的文件”，条目没有文件；而且导入路径也违反包边界
+严重程度：重要　类别：正确性
+位置：plan.md 技术选型表“图片存放的目录”、设计七；`packages/neuro-book/src/plugins/editor/shared/image-location.ts:35-50`；`markdown/web/media.ts` 的 `destination`；`packages/neuro-book/AGENTS.md` 第 15 行；`src/architecture.test.ts:125`
+现象：
+1. `imageDirectory(location, folder, currentAddress)` 在 `currentAddress` 不是 `project://` 地址时对四种存放位置都返回 null（我跑了：传 null 时 `folder`、`root`、`same`、`sibling` 全是 null；传 `project://第一卷/a.md` 才是 `插图`、空串、`第一卷`、`第一卷/插图`）。`MarkdownMedia.destination` 又在得 null 时整体返回 null，插图卡片因此上传置灰。章节编辑器有“正在编辑的文件”，条目页没有：条目是世界里的对象，不是作品里的文件。计划写“图片存放目录沿用编辑器插件的规则”，没写条目页拿什么当 `currentAddress`。照字面实现，`ImageInput` 的上传在任何设置下都不可用；实现者要么传一个编造的地址（比如条目页的 `canon://` 地址，同样得 null），要么悄悄绕过规则自己定一个目录，正好是计划想避免的“设定这边另定目录”。
+2. 即便给一个伪地址，`same`、`sibling` 两个选项对条目没有意义（条目没有“所在目录”）；设置是编辑器插件的（`nbook.editor/imageLocation`、`imageFolder`），设定页读它要么依赖 `settingsKey` 读对方的项，要么复制规则。计划没提读设置。
+3. 计划写的引用路径是 `editor/shared/image-location.ts`。AGENTS.md 与 `architecture.test.ts` 规定跨插件运行时导入只能指向对方的 `shared/contracts.ts`。该文件的内容已由 `editor/shared/contracts.ts:20-21` 再导出（`imageDirectory`、`normalizeImageFolder`、`ImageLocation`），所以改成从 contracts 导入就合规；但不改的话 S6 做完才被架构测试拦下，返工。canon 已有先例（`web/plugin.ts:20` 从 `editor/shared/contracts` 导入）。
+如何核实：`bun run` 一个脚本 import 该函数传 null（脚本在 `lab/sonnet2/a.ts`）。
+建议改法：计划写明条目页的上传目录：不用 `same`、`sibling`，只认 `folder`、`root` 两种，或更简单地对条目固定用 `imageFolder` 的规范化结果（`normalizeImageFolder` 直接调用，不经 `imageDirectory`）；说清设置怎么读。导入改走 `editor/shared/contracts`。验收映射加一行“没有当前文件时上传目录是 X”。
+
+### 2. 图片端口只有“取地址、列出、上传”三个动作，选图卡片已有的在途、取消、失败、重名、过滤、新鲜度都没有安排
+严重程度：重要　类别：不变量
+位置：plan.md 设计七；对照 `markdown/web/components/menus/MarkdownImageCard.vue`（`onFile`、`onFocusOut`）与同名 `.md`“交互”“内容”；`markdown/web/media.ts`；`markdown/web/parts/asset-urls.ts`；`files/shared/contracts.ts:402-414`、`docs/specs/workspace/files.md` 的“写入图片”
+现象（参照有、计划没有的项）：
+1. 上传的在途状态：卡片上传时按钮置灰转圈、Esc 经 `AbortSignal` 取消、焦点离开不收起（`choosing`、`uploading`）。计划的 `FieldEditor` 浮层“点外面就放弃草稿”，而系统选文件框打开、上传在途时点别处会被浮层当成点外面：草稿没了，文件却已经写进作品。浮层必须像卡片一样在选文件框开着与上传在途时不算放弃，计划没写。
+2. 失败的分类：服务给的码（`unsupported-type`、`extension-mismatch`、`too-large`、`conflict`、`generation-gone`、`network`、`unknown-outcome`）里，`network` 与 `unknown-outcome` 是“图可能已经写下，不要当成一定没写”，卡片用 `imageFailureNotice` 区分并给通知。计划只说“上传一张并得到作品内路径”，没有失败通道，`ImageInput` 的 `problem` 只能放一个字符串。
+3. 上传的类型与大小：上传只收 PNG、JPEG、GIF、WebP，上限 32 MiB；卡片的选文件框用 accept 限制并用 `localName` 把 `.jfif` 之类换成 `.jpg`，计划没提。选了一个 SVG（列表里能看到的图片扩展名不限于这四种）会得到 415，没有写在哪里提示。
+4. 重名：`exists: "rename"` 加序号并回写实际地址（`renamed`），卡片据此用实际地址。计划的端口签名“上传一张并得到作品内路径”隐含了这点，但没写“用返回的地址，不用请求的地址”，选了同名图两次时容易写错；并且文件名里有空格、中文（“粘贴的图片 20261124-101010.png”“名字 2.png”）要能通过内核的 `assetPathProblem`，计划没有用例。
+5. “从作品里选”：`FilesService.list` 只列一个目录。卡片的列表 = 存放目录里的最近 12 张（`recent`）加按名字搜索整部作品（`find`，是另接的远程调用，`MediaSources.find`，不在 `FilesService` 里）。计划的“列出作品里的图”只对应前者；作者想选别的目录里的图（例如章节插图在 `插图/`、设定图在 `设定/`）就得手填路径，这条退路与“从作品里选”的定位冲突。需要在计划里定：只列存放目录并截断（12 张）、还是接 `find`。
+6. 取图地址的新鲜度：`rawUrl` 是同一个 URL，`Cache-Control: no-cache`，浏览器在 `<img>` 已显示的情况下不会因为文件改了而重取。章节编辑器用 `createAssetUrls`（订阅文件监视，变了加 `?v=版本号`，失同步时全部加）解决。`CanonImage` 若只调用端口的 `rawUrl`，文件在资源管理器里被换掉（同名替换）或被删又恢复后，卡片上仍是旧图或旧的“找不到”占位，直到重载页面。这一点计划没有提；要么端口复用 `AssetUrls`（合同要经 `markdown/shared/contracts` 暴露，现在它在 `markdown/web/parts/` 里，不满足跨插件规则），要么写进“不做”。
+7. 缩略图的加载：卡片缩略图懒加载、异步解码、加载失败画占位图标（`<img>` 的 error）。“文件不在时显示‘图片找不到’占位”在计划里是靠端口（rawUrl 非 null 就显示）还是靠 `<img>` 的 error 事件没写：`rawUrl` 对不存在的文件仍返回 URL，只有 error 事件才知道，所以必须是后者；很大的图（32 MiB）要 `loading="lazy"` 与 `decoding="async"`，否则角色页一次挂十几张衣柜图会卡。
+8. 上传先于保存：上传立即写进作品文件，不属于修订，放弃草稿、保存失败、“撤销”都不会删它。验证里“上传立绘……撤销”之后作品里会留下孤立的图，计划没说这是有意的（卡片也是同样的做法，所以可以接受，但应写一句，免得审查或验收时被当成缺陷）。
+为什么是问题：这些都是同一应用里同类交互已经做对的，计划是“端口三个方法”，实现者会漏掉其中大部分，S6 的验收只列了“显示、找不到的占位、选图、上传”四项。
+如何核实：读 `MarkdownImageCard.vue` 的 `onFile` 与 `onFocusOut`、`files.md` 码表与 `asset-urls.ts`。
+建议改法：端口合同写成 `{url(path), list(options), upload(file, signal) → {ok, address, renamed} | {ok:false, code, outcomeUnknown}}`；验收映射补“上传在途时点浮层外面不放弃”“上传失败分三类提示（不支持的类型、太大、结果未知）”“重名用返回的地址”；浮层对 `choosing`、`uploading` 跟卡片一样免疫点外面。新鲜度写明做或不做。
+
+### 3. 选种类自动勾设定组：对话框的草稿里没有“勾选是否被作者动过”的记号，换种类的规则没定
+严重程度：重要　类别：正确性
+位置：plan.md 设计四“用它的三处”第一项；`canon/web/new-entry.ts`（`NewEntryDraft`）、`components/NewEntryDialog.vue`、`entries-view.ts:66-69`（`startNewPerson`）
+现象：现有草稿里“种类”是随手输入的 `Input`（每敲一个字发一次 `update:draft`），下面是已有种类的小按钮；“分组”靠 `folderTouched` 记作者有没有改过，没改就跟着种类。计划要“选了登记的种类就把默认设定组勾上，作者还能改”，但草稿里没有对应的 `typesTouched`，也没写这几种路径：
+1. 作者先手勾了“面板”，再点“人物”按钮：默认组是覆盖掉手勾的、还是并上去？
+2. 点了“人物”（自动勾人物、形象），手动取消“形象”，又点“组织”再点回“人物”：形象是不是又被勾上？反过来点“组织”时，刚才自动勾的人物、形象要不要取消？“组织”没有默认设定组时，若不取消，新建的组织会带着人物、形象两个不属于它的组。
+3. 种类是输入框：敲 `人物` 两个字时，只有敲完那一刻才命中登记；敲 `人物卡` 时命中又丢了。每敲一个字都按“命中就重勾”会在作者敲到一半又删掉重敲时反复覆盖他的勾选。这里要么只在点按钮或失焦时才套用，要么按 `typesTouched` 记号只在没动过时套用。
+4. 登记里写了的设定组 id 在这个窗口里没登记（插件停用、第三方登记写错）时，勾选项里没有这一项：默认勾不上，也不报错。计划没写是忽略还是提示，`confirm` 时也不该把不存在的 id 送进 `components[]`。
+5. 空状态的“新建人物”要改走这张表：现在 `startNewPerson` 是把人物类型 id 写死再传给草稿；计划说改成读表，但没说表里查不到“人物”（作者的作品里没有激活登记这个种类的插件）时按钮是隐藏还是退回空对话框。
+后果：照字面实现，作者改过的勾选在换种类、甚至敲字的过程中被悄悄冲掉，或者新建的组织带着人物的两组设定；两者都不会在界面上有任何提示，也没有测试能碰到（验收映射只有“新建人物默认带两组”）。
+如何核实：读 `NewEntryDialog.vue` 里 `kind` 输入的 `@update:model-value` 与按钮的 `@click`；`newEntryOp` 直接用 `draft.types`。
+建议改法：草稿加 `typesTouched`，与 `folderTouched` 同样处理：作者手动改过勾选前，选种类（点按钮或输入框失焦）整组换成该种类的默认；改过以后不再换。写明第 4 点的忽略方式，并在 `entries-view.dom.test.ts` 加三条用例：改勾选后换种类不冲掉、没改过时换种类整组换、默认里有未登记的 id 时被忽略。
+
+### 4. “适用的在前、其余收在‘全部’里”：登记的类型只有几个，多一层收起不值得；而“适用”本身对没登记种类的条目为空
+严重程度：建议　类别：代码质量
+位置：plan.md 设计四；`EntryPageHost.vue:396-412`（现有 `addableTypes`，一个 Select）
+现象：现在“添加一组设定”是一个下拉，列“登记了、有命名空间、条目上还没有”的类型，去掉过的写“恢复”。内置类型：人物、形象、面板加剧情插件的五个，一共八个上下；已经有的会排除，一个 `人物` 条目已带人物、形象，可添加的是面板与剧情五个，剧情五个按计划“补 `kinds`”后各自有适用的种类（`plot/shared/declarations.ts` 里的 `targets` 指向人物、组织、知情点、目标等），“适用在前”可能是几项，“其余”又是几项。收进“全部”要多一次点开，为的是少看几行；下拉里把适用的排前面就够了（nb-ui `Select` 现在没有分组，`popup/Select.md` 里没有这一项；要标题就得改 nb-ui），不需要新的“收起”状态与键盘行为。
+另一点：条目的种类是随手写的词（`角色`、`人物 `），不在登记里时“适用”恒为空，下拉里第一个分组消失、只有“全部”折着，作者打开下拉看到的是一个收起的标题，需要多点一下才能看到任何东西；这是对“种类自由”的一个反效果。
+为什么是问题：窄场景（几个类型）加了一个新的交互形态（收起），而且与同一页别处的下拉不一致。
+如何核实：数 `components` 登记的个数：`canon/shared/components.ts`、`plot/shared/declarations.ts`。
+建议改法：只按“适用的在前”排序，在选项文字后加一小段“适用于人物”的提示或用分隔线；若开发者就是要“全部”收起，则适用为空时默认展开，并注意这要给 `Select` 加分组或换成自写的列表（nb-ui 的改动要算进 S4）。
+
+### 5. `SuggestInput` 建在 `SearchSelect` 上：打的字只是搜索词，没选“用‘某某’”就离开会丢掉输入，回车还会选中最像的建议值
+严重程度：阻断（照字面实现，性别、生死、现在穿的这几项的“直接打字”就是坏的）　类别：正确性
+位置：plan.md 技术选型表最后一行、设计五末段；`packages/nb-ui/src/components/form/SearchSelect.vue`（`closeMenu`、`choose`、`onKeydown`，第 143-205 行）与同名 `.md`“不支持”“交互”
+现象：`SearchSelect.md` 的“不支持”第一行就写着“自由输入（打的字不能成为值）”，交互里写“输入的文字只是搜索词，只有选中一个选项才改值；不选就离开时，输入框恢复显示已选项的名字”。读源码确认：
+1. `blur` 直接 `closeMenu()`：`query = null`，输入框回到已选项，不发任何更新。作者在“性别”里打 `半精灵`，不按回车、也不点末尾那行“用‘半精灵’”，直接点浮层里的“保存”（保存按钮在浮层里，点它就让输入框失焦）：输入丢了，草稿还是旧值，保存的是旧值或提示“没有改动”。文字类字段里这是最自然的操作路径（打完点保存），不是边角。
+2. 回车选中高亮项：打字时高亮落在筛选后的第一个可选项。建议值是 `男、女、不明`，作者打 `不` 想写“不详”，高亮在“不明”，回车写进去的是“不明”，而“用‘不’”排在最后一行。计划写的“末尾多一行‘用某某’”决定了高亮默认落不到它上面（`choosable[0]`）。
+3. 远程模式的“用某某”行靠一个固定的哨兵值再映射回打的字（`EntryPicker` 的 `CREATE`），打的字等于某个建议值时按计划不再出这一行，那时回车选建议值，没问题；但“打的字”包含前后空白、全角空格、大小写时怎么匹配“同名建议值”计划没说（`EntryPicker` 用 `item.name === createName` 严格相等，`SearchSelect` 的筛选却是不分大小写的包含）。
+4. 计划说“键盘与输入法都处理过”：`SearchSelect` 的输入法组字只处理了“组字中不筛选、Enter 交给输入法”，没有处理“组字刚结束就点保存”。
+5. 与“确认条里的同一字段在哪里改都是同一个控件”冲突：确认条的 `Textarea` 现在是多行输入（性格、背景），换成单行 combobox 会丢掉换行。计划里只说建议值用它，没说多行文字是否排除；声明里 `suggestions` 只用于 `text`，而 `text` 同时包括成段文字。
+为什么是问题：这不是样式取舍，是“写进去的值与作者看到的不一致”，而且没有任何提示。人物的十个字段里有三个带建议值（性别、生死、现在穿的），都是短文字、最常用的就是自己打。
+如何核实：读 `SearchSelect.vue` 的 `closeMenu`、`choose`、`onInput`；挂一个远程模式的 `SearchSelect`（`filter: false`），打字后触发 blur，看 `update:modelValue` 有没有发出（从代码推断，未跑）。
+建议改法（二选一，开发者答复里要的是“有建议值的项用选择控件”，所以不要退回纯输入框）：(a) 不用 `SearchSelect`，做一个“输入框加下拉建议”的组合（nb-ui 里加一个，或在设定插件里用 `Input` 加 `SuggestionMenu`，后者正是候选菜单的本职：“输入时弹出的候选菜单，焦点留在输入处”），值始终是输入框里的字，点建议只是替换输入；(b) 仍用 `SearchSelect`，但 `SuggestInput` 在 blur 与保存前把没提交的搜索词当作“用‘某某’”提交（需要读 `SearchSelect` 的搜索词，它没有暴露，要改 nb-ui），并让“用某某”行在输入非空且不等于任何建议值时排在第一行。多行成段文字不用它。无论哪个，加用例：打字后直接点保存，保存的就是打的字。
+
+### 6. `FieldEditor` 向宿主登记路径：没有写“同一路径登记两次”“先挂后卸”“每次渲染建新组件”这几个会让草稿画不出或画两次的情形
+严重程度：重要　类别：正确性
+位置：plan.md 设计五“谁来画”“`FieldEditor`: Component<…>”；`EntryPageHost.vue:344-351`（`editHere`）、`:696-712`（`fieldTableOf` 缓存）、`:905-906`（`:key="dataNamespace"`）
+现象：计划的判据是“草稿标了就地，并且此刻有登记了这条路径的编辑器时由它画，别的情况出确认条”。登记怎么存没写，几种路径会出错：
+1. 登记用的是集合还是计数：路径相同的 `FieldEditor` 同时挂两份时（比如卡片上同一个字段在两处各放一个编辑器，或 Lab 里把两个界面并排挂）一份卸载就把另一份的登记一起删掉：确认条同时出现，行内编辑器也还在，作者看到两处编辑。同一个键还可能“先挂后卸”：换分页时新组件的 `onMounted` 与旧组件的 `onUnmounted` 都是渲染后的回调，顺序不保证是先卸后挂；用 `Set.add`/`Set.delete` 时，后到的 `delete` 把新登记删了，草稿出确认条。用“每个编辑器一个令牌、登记表按令牌计数”才稳，计划没写。
+2. 热更新（开发服务）与 `:key` 变化都是卸载再挂载，登记要在 `onBeforeUnmount`（或 `watchEffect` 的清理）里撤；在 `onMounted` 里登记会在挂上之前的一帧里没有登记，那一帧草稿落在确认条上，页顶确认条闪一下再消失（`ConfirmBar` 是 `sticky`，不推动内容，但作者会看到两处编辑器的交替）。要登记在 `setup` 里同步做、用响应式表，让 `editHere` 在同一次渲染里就读到。
+3. `FieldEditor` 是 context 上的一个组件。现有的 `FieldTable` 靠 `fieldTableOf(namespace)` 缓存成每个命名空间一个组件定义（`:696-712`）；如果 `FieldEditor` 的 getter 每次读都新建 `defineComponent`，每次渲染都是新类型，Vue 会卸载重挂，浮层里填的字与焦点全丢。`contexts` 里是 getter（`get FieldTable()`），照同样做法缓存，计划没写。
+4. 草稿在专门界面加载中、加载失败、贡献方停用时由确认条画（计划已写）；反过来，专门界面已挂着，但画这个路径的 `FieldEditor` 被 `v-if` 藏起来（比如放在“更多”折叠的行里、或某个分页没渲染的卡片里）时，登记也没有，草稿也出确认条：这种情况是 `FieldEditor` 必须挂在值旁边、不受折叠影响，计划没有约束专门界面（第三方也一样）。建议写进 Spec：`FieldEditor` 要与它的值同时挂载。
+如何核实：读 `fieldTableOf` 的缓存写法；Vue 的 `unmounted` 与 `mounted` 同在 post 队列，同一个 `patch` 里先 `unmount(n1)` 再挂 n2，所以普通换页顺序是对的，但 `v-for` 的重排与 `KeepAlive` 激活不保证（从代码推断，未跑）。
+建议改法：登记表用 `reactive(new Map<string, number>())` 或令牌集合，登记在 `setup`、撤销在 `onBeforeUnmount`；`FieldEditor` 与 `FieldDetail` 按命名空间缓存；Spec 写一句“编辑器必须与值同时挂载”；验收映射加：同路径两个编辑器卸一个另一个仍接手、换分页再换回、热更新不闪确认条。
+
+### 7. `other(type)` 把“没加这一组”“启用前的位置”“已去掉可恢复”“类型不可用”“不在 `uses` 里”折成 null 或抛错：角色卡无法给出对的按钮，抛错还会让整页数据区空白
+严重程度：重要　类别：正确性
+位置：plan.md 设计五 `other`、设计六“人物分页”（“没有形象组时是‘添加形象’”）；`EntryPageHost.vue:164`、`:400-405`（`addableTypes`）、`:696-740`（`contexts` 缓存）；author-ui.md 的 `removedComponents`；components.md 输出 5、6、7
+现象：
+1. null 的含义：计划写“条目在所选位置上没有这一组、或它的类型不可用时为 null”。人物卡据此显示“添加形象”。但现有“添加一组设定”（`addableTypes`）已区分三种情形：从没加过（普通名字）、去掉过（`removedComponents`，写“恢复‘形象’”）、已加但在这个位置没启用（components.md 输出 6：启用前的位置读不到，但要标“第 N 章起生效”）。三种在 `other()` 里都是 null。按钮写“添加形象”：去掉过的组点了应是恢复而不是新加；形象从第 3 章起才启用、作者在第 2 章看人物时，也会看到“添加形象”，点了得到的是对一个已存在的组的加（结果在内核里取决于输出 3 与 7，计划没写）。类型被停用（插件不可用）时，按钮点了得到 `addComponent` 的 `{ok:false, reason}`，但按钮本来就不该出现。`ComponentPeer | null` 装不下“恢复”“第 N 章起”“不可用”这三个状态，要有 `{state: "absent" | "removed" | "later" | "unavailable"}` 之类。
+2. 抛错：`other` 对 `uses` 没列的类型“抛错”。`EntryPageHost` 与 canon 的 web 目录里没有 `onErrorCaptured`（我搜了 `canon/web`：没有结果），数据分页组件的渲染里抛出的错误会交给应用级错误处理，那一块区域变空白，没有回退到通用字段表，也没有诊断位置。第三方设定组界面写错一个类型 id 的后果是整页数据区空白。现有 `ComponentViewRegistry` 只处理加载失败。建议返回 null 并写一条带贡献 id 的诊断，或者在宿主里 `onErrorCaptured` 退回通用字段表（author-ui.md 验收 9 的退回路径本来就有）。
+3. 响应式与身份：现有 `contexts` 是 `Map<命名空间, context>`，每个命名空间一个固定对象，字段读取是 getter。计划说“`other` 只是按 `uses` 放行”，但没说它返回的 `ComponentPeer` 是不是同一个缓存的对象：若每次调用新建一个 `{namespace, get fields(){…}}`，界面里 `computed(() => ctx.other(x))` 或 `watch(() => ctx.other(x), …)` 每次重算都是新对象，触发每一次依赖变化的回调（同 vue-watch-getter-new-array 那类问题）。`other` 读 `view.value.namespaces` 才响应式，界面必须在渲染或 computed 里调它，不能在 `setup` 里调一次存起来：这条要写进接口注释。设定组被去掉再加回、换位置后启用变了时，同一个类型的 peer 要换成新对象还是原对象更新字段，计划没定。
+如何核实：读 `addableTypes`（有 `removed` 分支）与 `contextFor`；`grep -rn onErrorCaptured packages/neuro-book/src/plugins/canon/web` 无结果。
+建议改法：`other` 返回 `{status: "present", peer} | {status: "removed"|"later"|"absent"|"unavailable"}`（`later` 带章号）；没列的类型也返回 `absent` 并写一条诊断；peer 缓存在 `contexts` 同层；接口注释写“在渲染里读，不要缓存”。
+
+### 8. 两个界面与 `ImageInput` 若自己经 context 或端口读写数据，按标签规则 Lab 挂不了：计划里的“Lab 场景（含 390 宽与英文）”做不出来
+严重程度：重要　类别：测试
+位置：plan.md 切片 S6、S7 与“不做与风险”末条（“Lab 里各登记一个没有端口的场景”）；`docs/standards/code/components.md` 的“能力标签”“禁止规则”；`packages/neuro-book/src/plugins/lab/web/component-index-model.ts:255-262`（`deriveMountability`）；`canon/web/components/FieldsDataView.md` “隐藏通道理由”
+现象：Lab 的能不能挂由标签推导：带任何 `io:` 标签或 `state:shared-write` 的组件一律“只能在正式界面验证”。现有的 `FieldsDataView` 因为经 `context.origins` 读来历，标了 `io:read`，所以它的文档写“只在真实界面里验证（`entry-page.dom.test.ts`），Lab 里看 `FieldTable` 与 `OriginList`”。计划里：
+- `CharacterView`、`LookView` 要读来历（`FieldDetail`）、`other` 读形象的字段、`fieldAdd`、`addComponent`：和 `FieldsDataView` 同类，照标签规则会标 `io:read`（读来历）。计划却要求 S7 做 Lab 场景，含 390 宽与英文。
+- `ImageInput` 若自己调端口的列目录与上传，标 `io:read`、`io:mutate`；见下一条，非宿主组件不许标 `io:mutate`。
+- `CanonImage` 经端口取地址是同步计算，不是 io，可以挂；风险一节里“没有端口的场景”也可以。
+结果：S7 做完发现两个界面挂不进 Lab，要么放弃 390 宽与英文的静态核对（只剩 e2e，且 e2e 是生产构建加减弱动效），要么返工拆组件。
+为什么是问题：390 宽与英文场景是计划自己在 S7 里写下的验收，而这两个界面是本期最大的界面；组件拆分是设计问题，不是实现细节。
+如何核实：读 `deriveMountability`；`FieldsDataView.md` 的“隐藏通道理由”。
+建议改法：计划里把两个界面各拆成两层：纯展示的 `CharacterCard`、`LookCard`（只收 props：已算好的行、立绘地址、各项的值与可用状态，事件上抛；无标签或只有 `state:local`），以及薄的、绑 `context` 的 `CharacterView`、`LookView`（标 `io:read` 的一层，只在 e2e 与 `entry-page.dom.test.ts` 里验证）。Lab 场景挂前者，覆盖 390、英文、没有形象、没有立绘、报错各状态。在“切片”里把这个拆分写进 S7，在“验收映射”里按层分配用例。
+
+### 9. `ComponentViewContext` 新增的成员写成了必有，正文却说“条目页之外的宿主可以不给”；而且条目页之外还没有任何宿主造过完整的 context
+严重程度：建议　类别：不变量
+位置：plan.md 设计五代码块与其后“条目页之外的宿主……这几项都可以不给，界面要能在没有它们时只读地画出来”；`canon/web/component-views.ts:27-69`（现有 `listAdd?` 是可选的先例）；`EntryPageHost.vue:713-740`（`contextFor` 是唯一造 context 的地方）
+现象：`other`、`addComponent`、`showTab`、`FieldEditor`、`FieldDetail`、`editing`、`edit(path, options)` 在计划的接口里都没带 `?`，只有 `fieldAdd` 等四个可选。正文却说可以不给。两者不能同时成立：必有，则 Lab、dom 测试、别的插件的测试场地要造 context 就得全给；可选，则每个界面里都要 `context.FieldEditor?.` 判空，而 `FieldEditor` 又是个组件（`<component :is>`），缺它时“只读地画出来”的值按钮是什么、停用的原因怎么写没有说明。我在应用里搜 `ComponentViewContext` 的使用：只有 `EntryPageHost` 造它，其余（`FieldsDataView`、`PanelDataView`、剧情插件的三个界面）都只收它；也没有测试替身。也就是说计划隐含地要新建“假 context”这个共用测试件（至少要有 `fields`、`declarations`、`origins`、`record` 的假实现），而计划没把它列为一项工作，也没说放在哪里（`canon/testing/`）。
+为什么是问题：三个“可以不给”的承诺互相矛盾，第三方照 `uses` 写界面时不知道该按必有还是可选写；S5 的 dom 测试、S7 的 Lab 都会各写一份假 context，几份各自漂移。
+如何核实：`grep -rn ComponentViewContext packages/neuro-book/src --include='*.ts' --include='*.vue'`。
+建议改法：接口分两层：读的与本组的（`fields`、`declarations`、`origins`、`record`、`place`、`FieldTable`）必有，新增的“就地编辑 / 读别的组 / 加一项”全部可选，并写明缺失时的退路：缺 `FieldEditor` 时值按钮走 `edit(path)` 出确认条（本来就是现有行为，所以这条退路是现成的）。在 `canon/testing/` 放一个 `createViewContext(overrides)` 造假 context，S5 的测试、S7 的 Lab 都用它。
+
+### 10. 浮层里放 `SearchSelect`、`EntryPicker`：按 reka 的实现点列表里一项不会被外层当成点外面，但全靠“后挂的层在 DOM 里排在后面”，仓库里没有先例，计划的用例又是 happy-dom 里的
+严重程度：建议　类别：测试
+位置：plan.md 验收映射“浮层里的下拉选一项不关掉浮层”；`node_modules/reka-ui/dist/DismissableLayer/utils.js`（`isLayerExist`）与 `DismissableLayer.js`；`nb-ui/.../feedback/Popover.vue:44-47`；`popup/SuggestionMenu.vue`（模板里 `@pointer-down-outside.prevent` 等）
+判断（我读了实现，下面是依据，不是推断）：
+1. 外层 `Popover`（非模态）的“点外面”判定是 `usePointerDownOutside`：在 document 上听 `pointerdown`，目标若在“更晚的 `[data-dismissable-layer]`”里就不算外面（`isLayerExist`：`nodeList.indexOf(mainLayer) < nodeList.indexOf(targetLayer)`，nodeList 是 `document.querySelectorAll("[data-dismissable-layer]")` 的文档顺序）。`SuggestionMenu` 自己也是一个 `PopoverContent`，传送到 `body` 末尾；列表在外层浮层打开之后才首次打开，所以排在外层后面，点列表里的行不会让外层收起。`Escape`：`onKeyStroke` 只让“最高层”处理（`index === layers.size - 1`），列表开着时是列表那一层，外层不理；`SearchSelect` 的 Escape 只在列表开着时 `stopPropagation`（`:200`），列表关着时外层照常收到 Escape。焦点：列表按下时不夺焦点（`onSurfaceMousedown`），所以 `focusOutside` 也不触发。结论是能工作。
+2. 脆弱处：(a) 依赖文档顺序：外层浮层关了再开（传送位置在 body 末尾，排到任何还留着的列表之后）、或内层列表先于外层挂着（外层打开时列表已开着，`FieldEditor` 的浮层是在点值以后才开，一般不会）都会让顺序反过来；(b) nb-ui 的 `Select`（`popup/Select.vue`，reka 的 Select）是另一套：它会 `disableOutsidePointerEvents`，把 body 的 `pointer-events` 设成 none，外层浮层在它开着时 `isPointerEventsEnabled` 为假，同样不被关掉，但选完关闭后焦点回到 Select 的触发器（仍在浮层里），所以也行；这部分我没跑；(c) 仓库里“浮层里放选择类控件”的唯一先例是 `Dialog`（`NewEntryDialog`），`Popover` 里放的都是按钮、复选框、输入框（`ProviderHeader`、`ModelRow`、`PeoplePicker`），没有放过 `SearchSelect`。
+3. 计划的用例写在 `entry-page.dom.test.ts` 里，happy-dom 里没有真实的指针命中，`pointerdown` 事件目标是脚本指定的，能验证“目标在内层行里时不收起”这一条规则，验证不了真实布局下列表盖在浮层外、`avoid-collisions` 后的位置、以及点列表上浮层之外的那部分。
+建议改法：(a) 验收映射的“浮层里的下拉选一项不关掉浮层”写成明确两条：点 `EntryPicker` 的候选行、点 `SuggestInput` 的建议行；(b) 在“开发服务真实页面走一遍”里加一步：在浮层里点开 `EntryPicker`，列表伸出浮层边界后点列表里超出浮层的那一行；(c) 不用新建机制。把以上写进 `FieldEditor` 的 `.md`“注意事项”，以后换 reka 版本时有处可查。
+
+### 11. `FieldDetail` 要的东西全在 `FieldsDataView` 的脚本里，计划没说抽出来；不抽就是同一套来历翻页、记一句的草稿与错误处理写两份，而 `semanticNotes` 成了死参数
+严重程度：重要　类别：代码质量
+位置：plan.md 设计五 `FieldDetail`、设计六“每一项上的入口”；`canon/web/components/FieldsDataView.vue:34-103`；`FieldsDataView.md`；`canon/web/plugin.ts:318`（`semanticNotes: true` 是唯一的使用处）
+现象：`FieldsDataView` 里与 `FieldDetail` 同一件事的部分：`useOriginPagesMap`（按页读来历、`stamp` 变了按已读步数重读）、`originRows`、`semanticNotes` 取最近一页与“还有更早的 N 句”、`RecordForm` 的草稿（存 `context.state.records`，切走再回来还在）、`recordErrors`、`savingPath`（“一次只记一笔”的约束）、`recordReason`（初值上、写不了时的原因）、`recordable`、`open` 的展开状态（`context.state.open`，`accumulated-value` 失败时宿主往里写 `bag.open`/`bag.selected`）。计划要把这些在 `FieldDetail` 里再做一遍，并让 `CharacterView` 里语义档的各句、起点也经它来。不抽取的后果：
+1. “一次只记一笔”靠 `FieldsDataView` 里一个 `savingPath` 保证。`FieldDetail` 是按路径挂的组件，每个实例各有各的 `savingPath`；同一页上两处细节（例如语义档与自己加的数）同时开着时，两笔记录可以并发，`state.records` 的草稿键与错误表也要跨实例共用，计划没有写。
+2. `accumulated-value` 失败后宿主写 `state.views[ns].open`（`EntryPageHost.vue:285-291`）：这是给 `FieldTable` 用的；角色卡里没人读这个键，计划说“换成 `FieldDetail`”但没说宿主怎么让浮层里的编辑器切到 `FieldDetail`（是 `editing` 变化时编辑器自己渲染，还是宿主设一个“看来历”的状态），没有回路。
+3. `FieldsDataView` 的 `semanticNotes` 只有人物这一个调用方（`plugin.ts:318`）；人物改用 `CharacterView` 后这个参数与 `.md`、测试里对应的部分就是死代码，计划“文档改动”里没有列出要删。AGENTS 的规则是不留不可达的第二条路径。
+4. `FieldDetail` 的 `path` 是“本组里的路径”，所以它只能给本组的字段；人物卡上立绘来自形象（`other`），立绘“第 N 章改过”的来历入口因而无处可挂（`ComponentPeer` 没有 `FieldDetail`）。若这是有意的，应写进计划，否则作者在人物卡上看到立绘换过却点不出来历。
+如何核实：对照 `FieldsDataView.vue` 的脚本与计划 `FieldDetail` 的职责清单。
+建议改法：把 `FieldsDataView` 里“来历翻页 + 记一句”抽成 `useFieldDetail(context)`（或 `FieldDetailPanel.vue`），`FieldsDataView` 与 `FieldDetail` 共用；`accumulated` 的回路写明（`context.state.detail = path`，`FieldEditor` 与 `FieldDetail` 都读它）；计划“文档改动”里加：删除 `FieldsDataView` 的 `semanticNotes` 与对应测试；立绘来历入口的取舍写一句。
+
+### 12. 图片端口走 `provide`/`inject` 而 context 走 props：端口里带上传与列目录，`ImageInput` 与 `FieldEditor` 就成了非宿主的 `io:mutate` 组件，违反组件规范的档位 A
+严重程度：重要　类别：代码质量
+位置：plan.md 设计七第一条；`docs/standards/code/components.md` “能力标签”“禁止规则”“需要理由的声明”；对照 `markdown/web/components/menus/MarkdownImageCard.md`（标签 `state:local, env:timer, env:portal`，插图能力 `media` 经 props 交进来）；`canon/web/components/ImageInput.md`（现 `state:inject`，只为文字端口）
+现象：规范里 `state:inject` 是“比 store 更隐蔽”的通道，组件的 `.md` 必须声明；任何 `io:` 标签要写“为什么该请求不能由宿主发起并把结果传入”；“非宿主组件声明 `io:mutate`”是档位 A 的位置类违规，“理由不改变违规档位，不是豁免”。计划让 `ImageInput` 从注入的端口调“上传一张”与“列出作品里的图”，这是组件自己发起的写与读，要标 `io:mutate`、`io:read`；`ImageInput` 不是宿主（宿主是 `EntryPageHost`，规范要求“同一领域只有一个宿主”）。同一个端口又被 `CanonImage`（取地址，纯计算）与 `ImageInput`（读写）共用。选图卡片的做法是：能力经 props 交进来（`media`），组件的标签里没有 `io:`；虽然它也在组件里调 `media.upload`，规范与它之间有出入，但先例是“props 交进来”，不是 `inject`。
+计划的对照：“同文字端口的做法”：文字端口只给字符串，没有副作用，不能类比。
+后果：S6 写 `.md` 时标签与规范冲突，要么 `governance:check` 报，要么实现者悄悄不标，整份声明“不予采信”。
+建议改法：上传与列目录改成宿主发起：`ImageInput` 只发 `pick-file(file)`、`browse(query)` 事件，并经 props 收 `uploading`、`candidates`、`problem`；宿主一层（`EntryPageHost` 为确认条与元素对话框、`FieldEditor` 的上层）持有端口，做上传并回填。`CanonImage` 取地址这一项仍可用 `inject`（`state:inject`，无 io）。这样 `ImageInput` 是受控零件，Lab 可以挂（与上一条的“Lab 挂不了”一并解决）。
+
+### 13. `SuggestInput` 的“用‘某某’”与 `EntryPicker` 的“新建‘某某’”是同一套机关抄两遍：计划说“做法同”，却没抽共用，两处的边角规则已经不一样
+严重程度：建议　类别：代码质量
+位置：plan.md 设计五末段、技术选型表末行；`canon/web/components/EntryPicker.vue:39-96`
+现象：`EntryPicker` 里为“选不到想要的就现建”做了：记住 `SearchSelect` 发来的搜索词（`query`）、一个哨兵值 `CREATE`、仅当结果已按当前词查回（`results.query === query`）、词非空且没有同名项时才多一行、选中哨兵时发 `create` 而不改值、选中后用 `picked` 记住名字让输入框显示正确。`SuggestInput` 要的是同一个机关，只是选中哨兵时要改值（用打的字），而且列表来自本地的 `suggestions`，不是远程查找。两处的差别：(1) 哨兵选中后行为不同（发 `create` 与改值）；(2) “同名项”判断：`EntryPicker` 用严格相等的 `name`，`SuggestInput` 要不要 trim、不分大小写，计划没定；(3) `EntryPicker` 等结果回来才显示“新建”（避免打字中闪），`SuggestInput` 本地筛选无此问题，直接显示；(4) 选中后输入框显示名字：`EntryPicker` 靠 `picked` + `selectedName`，`SuggestInput` 的值就是显示的字，远程模式下要把 `selectedLabel` 设成值本身，否则 `SearchSelect` 在值不在 `options` 时显示空串（`display` 的求值：`props.modelValue === "" ? "" : props.selectedLabel ?? ""`，没给 `selectedLabel` 时显示空）。第 (4) 点是最容易漏的：当前值是作者自己写的“半精灵”，不在建议里，下次打开不给 `selectedLabel` 就显示成空，像是没填。
+建议改法：不要求共用组件，但要在计划里写明 `SuggestInput` 的规则表（同名判断、`selectedLabel` 取值、哨兵选中后的行为、本地筛选而非远程），并加三条用例：已有的自己写的值打开时显示出来；打的字等于某个建议值（含前后空白、大小写）时不出“用某某”；选“用某某”后输入框显示这个字。和上面第 5 条一起处理：若改用 `Input` 加 `SuggestionMenu`，这条随之消失。
+
+### 14. 放开“读别的组”以后 context 的边界只剩一句运行时的“`uses` 里列了才行”，而它既不是权限也没有校验；`addComponent` 绕过了“就地改”的写入闸门
+严重程度：建议　类别：不变量
+位置：plan.md 设计五 `uses`、`other`、`addComponent`、`showTab`；`canon/shared/component-views.ts:20-23`（声明 schema `additionalProperties: false`，`validateComponentViewContribution`）
+现象：
+1. 现在 context 的边界是“只有本组”：`fields`、`declarations`、`edit`、`record` 全是本命名空间。计划后只剩：只读 peer（`namespace`、`fields`、`declarations`、`origins`），不能 `edit`。这个边界可以接受，但 `uses` 只是声明，不是授权：任何人写 `uses: ["nbook.canon.person"]` 就能读人物组的全部字段与来历，且读的是作者视角的全部（含未发布的内容，如果以后有“只给读者看”的字段）；计划没有写 `uses` 不是权限、只是依赖声明，也没写以后若要分层放哪里。建议在 Spec 一句话写清“`uses` 声明依赖，不限制可读范围，canon 的字段读取对作者视角全开”。
+2. `uses` 的校验：`validateComponentViewContribution` 只校验声明形状。`uses` 里的 id 是否是字符串数组、是否重复、是否是已登记的类型，计划都没写；写错一个 id 的后果是 `other` 永远 null，界面一直显示“添加形象”，而 `addComponent` 对不存在的类型要么失败要么被内核拒收，作者看到的是一个按钮点了没用。至少应在加载时对没登记的 id 写一条诊断。
+3. `addComponent` 是一次真实的创作修改（`runEntries`），但它绕开了 `edit` 那条路上的闸门：`editBlocked`（按计划、只读、独占写入、已删除）、位置（只能“head”）、`deleteOpen` 之类。现有的 `confirmAdd` 在 `EntryPageHost` 里直接 `runEntries`，所以宿主自己的“添加一组设定”同样不查 `editBlocked`；但作者在这个入口前看到的是页头的按钮，该按钮本身有停用与原因（`blockedReason`）。角色卡上的“添加形象”也要停用并写原因（同值按钮写不了时的做法），计划没提。`showTab(type)` 在目标分页不存在（`other` 为 null）时的行为也没说。
+4. 第三方界面的 `addComponent` 一次加一组，不带 `declare`（设计一里 `component` 的 `declare` 是内核层的），形象组预设里要不要带初值的声明由谁决定没说。
+建议改法：Spec 写清楚 `uses` 的含义与不做什么；加载时对未登记的 `uses` id 写诊断；`addComponent` 与 `fieldAdd` 在写不了时的原因通过 `context.blocked` 同一条通道告知，界面按它停用。
+
+### 15. 验收映射里界面部分只列了“编辑器怎么画”，值入口、焦点回哪、添加一项资料的整套界面、两个界面本身的各种状态都没有落到能区分成立与否的断言上
+严重程度：重要　类别：测试
+位置：plan.md 验收映射第 253-256 行（四行）与切片 S5、S7 的“自跑验证”；author-ui.md 输出 16、30
+现象：计划的界面行为有这些，验收映射没有对应的行：
+1. 值本身是按钮、带 `data-edit="<完整路径>"`、写不了时停用并写原因（按计划、只读、独占写入、已删除）：没有断言。没有它就没有输出 30 的“保存或取消以后焦点回到触发它的那个值”：现在的 `refocus` 是 `document.querySelector('[data-edit=…]')` 取第一个匹配，若同一路径在页上出现两处（卡片的值与 `FieldDetail` 里的“改起点”）会焦点落错处，没有用例。
+2. “第 N 章改过”按钮点开来历（`FieldDetail`）；只有初值的值没有这个入口；语义档点了展开细节（起点、各句、记一句、改起点）；`accumulated-value` 换成 `FieldDetail`：四条行为都是新做的，没有对应用例（“加一项资料”的整套也没有）。
+3. “添加一项资料”：预设里还没加的、去掉过的（“恢复‘某某’”）、自己写名字（重名时原因写在输入下面）、去掉一项时的确认、行尾“更多”的改名与去掉：全套是新界面，验收映射里只有内核的 `fieldAdd` 等，界面一行也没有。e2e 的“主路径”只走“加一项种族、去掉再恢复”。
+4. 人物卡的各个状态：没有形象组（“添加形象”）、有形象没有立绘（“添加立绘”）、点立绘切到形象分页（`showTab`）、形象组被去掉后的显示、立绘文件不存在的占位；形象分页：衣柜为空、“换上”打开“现在穿的”并预填套名与预选意图、套名在衣柜里被改名或去掉后“现在穿的”还是旧名的显示：全没有。
+5. 浮层的行为：固定大小下预览两行、更多收成“还有 N 项”、报错与预览共用一个位置、保存与取消的位置不动：没有断言。它是“不推动别的区域”这条规范的落点，应该有 e2e 量尺寸（保存按钮的 `getBoundingClientRect` 在预览回来前后相同），变异检查时删掉固定高度能让它失败。
+6. 成段文字的编辑层：浮在原处、占位不变、别的内容不动：同样要量（后一段的 `top` 编辑前后不变）。
+7. 390 宽与英文：S7 写了 Lab 场景，S8 的 e2e 是 1440 宽；两种宽度下的操作都能完成（规范“完成标准”）没有用例落实（见第 8 条，Lab 挂不了会让它落空）。
+8. “真的过渡，不用替身”：现有 `entry-page.dom.test.ts:85` 已有 `global.stubs: {transition: false}` 的先例，可行；但 happy-dom 不载入样式，过渡的完成事件没有时长可等，这样的用例只证明“进入类名出现过、离开后元素被移除”，证明不了过渡的时长与不跳。真实过渡只有开发服务的真实页面能看（计划的 S8 已有这一步）；建议 S8 的真实页面清单把“浮层打开、预览回来、报错出现、成段文字展开、换装”五个会变高或换内容的瞬间逐个列出来看，不要只写“走主路径”。
+为什么是问题：计划把“每条行为落到断言”作为要求，这几类是本 Task 新增的大头。
+建议改法：验收映射按上面八类各补行；浮层与成段文字的尺寸断言写成 e2e 量几何，并做一次变异（删固定高度）。
+
+### 16. 设计六里几处界面细节与规范冲突或没写：“更多”只在悬停时出现、两栏卡片在 390 宽怎么排、衣柜与立绘的出现与消失没有过渡、内容列封顶
+严重程度：重要　类别：不变量
+位置：plan.md 设计六（“自己加的项行尾有‘更多’：位置一直留着，指到这一行或聚焦时显出来”“左边立绘……右边……”“衣柜（一套一张卡）”）；`packages/nb-ui/docs/ui-development-spec.md` 第 3 节第 4、5 条与自检清单；`packages/nb-ui/docs/design-language.md` 动效一节；author-ui.md 输出 16（入口常显）
+现象：
+1. “更多”只在指到这一行或聚焦时显出来：位置不动、只改可见度，不违反“不推动”；但触屏与键盘之外的指点设备上没有悬停，作者永远找不到改名与去掉的入口，而输出 16 明确要求入口“常显……键盘可达”。规范自检清单（ui-development-spec 第 248 行）还有一条“悬停让位的元素不挂悬停交互”，同一思路。这一项是“自己加的项”的唯一管理入口，不能藏。建议常显，淡色低对比，或在聚焦行内/选中的行显出，且 390 宽下一律常显。
+2. 两栏：“左边立绘、右边各项”在 390 宽怎么排没写（立绘移到上方整宽？缩成一个头像？），英文下字段名更长的列宽怎么办没写；规范要求 390×844 下核心操作都能完成、无页面级横向滚动。第 2 轮静态稿有机会定，但计划没把它列为稿子要回答的问题。
+3. 出现与消失：立绘从“添加立绘”占位变成图、衣柜加一套或去掉一套、“添加形象”变成已有形象、保存后值换成新值、预览回来，这些都是内容变化；计划只在成段文字提到“高度变化有过渡”。规范（design-language 动效一节）要求状态变化有过渡，开发者 11-23 点名反复犯“界面不写说明、要有动效”。衣柜是可增减的列表：加一张卡后面的卡是跳开还是滑开，要写（列表项进出用 `nb-ui-switch` 配方或 `TransitionGroup`，卡片等高）。
+4. 卡片等高：衣柜“一套一张卡：图、名字、样子”，样子是成段文字；规范第 3 节第 5 条要求同一列表里的卡片等高，文字用 `line-clamp`、全文靠详情看。计划没写样子最多几行、点哪里看全文。
+5. 内容列封顶：条目页内容列有封顶宽度（计划“不做”里提到页头与内容列差 32 像素，另行处理）；两个界面在 1920 宽下不能无限拉伸，大图（“形象分页是大图”）要写最大尺寸与保持比例（`object-fit`）。
+6. 建议值的下拉、预设列表、“添加一项资料”的浮层也都是浮层，大小固定的规则只写在 `FieldEditor` 上；“添加一项资料”里预设项数量不定（预设 7 个，去掉过的还会加），内容高度会变：同样要固定外框、内部滚动。
+为什么是问题：这几条在静态稿之后才发现的话，返工的是整个版式；计划写明“动手前出第 2 轮稿子”，应在计划里先列出稿子要回答的问题。
+建议改法：计划“设计六”末尾加一段“第 2 轮稿子要回答”清单：390 宽的排法、更多的常显形态、衣柜卡片等高与增减的过渡、立绘占位与图的切换、各浮层的固定尺寸、1920 宽的封顶。
+
+### 17. 固定大小的浮层要装下图片输入（缩略图、路径、说明、选图列表、上传）和 `SuggestInput`，两种内容差一个数量级：一个固定大小要么短项太空、要么图片装不下
+严重程度：建议　类别：不变量
+位置：plan.md 设计五“浮层的大小固定”、设计七“`ImageInput` 升级：缩略图、从作品里选、上传、说明”；`canon/web/components/ImageInput.vue`（现在是两个输入框加一行原因，没有尺寸）
+现象：`FieldEditor` 的浮层大小固定（上一轮定的）。短项（性别：一个建议值输入加意图、预览两行、保存与取消）与图片项（缩略图、路径、说明、从作品里选的列表最多 12 行、上传、问题）所需高度相差很多；一个固定值要按最大者定，短项的浮层就是一块大空白，作者对着一个只有一行的输入看到半屏的浮层；按最小者定，图片项装不下，要在内部滚动，而内部滚动里的列表又是 `SuggestionMenu` 之类再伸出的浮层。计划写的是“`FieldEditor` 的 `layout` 只有 `popover` 与 `block` 两种”，没写浮层的尺寸随字段种类分档。另外 `ImageInput` 同时用在确认条（整宽、只有一行高）、元素对话框（`md` 宽）与 `FieldEditor`（固定浮层）三处，缩略图的大小、列表是内嵌还是再弹出，三处要一致，计划只写“都用它”。
+建议改法：浮层尺寸按“种类档”固定（短文字、选项/建议值、引用、图片，各一个固定大小），同一字段种类在任何一次编辑里不变；`ImageInput` 的“从作品里选”在浮层里用点开以后整块换内容（不是再弹出一层），缩略图固定 72 像素之类的方块，三处共用同一布局，宽窄由外层决定。静态稿里把图片项浮层与短项浮层并排画出来。
+
+### 18. “点外面、Escape、取消都是放弃”没有排除保存中：保存请求在途时放弃，失败回来会把已放弃的草稿重新写回，浮层自己再弹出来
+严重程度：重要　类别：正确性
+位置：plan.md 设计五“浮层里的短项”；`canon/web/in-place-edit.ts:209-219`（`applyFailure`）、`:245-263`（`submit`）、`:306-311`（`cancel`）
+现象：`submit` 先取 `const draft = options.draft()`，`await world.write(...)`，失败时 `applyFailure(draft, failure)`，它用捕获的旧 `draft` 调 `options.setDraft({...draft, requestId: …})`（`value-conflict` 与普通失败各一处，除了“结局不明要再查一次”的情形）。现有确认条上“取消”在保存中也能按（`cancel` 没看 `saving`），不过确认条一直在页顶，结果回来时作者看得到错误。计划把“点外面”也接成放弃：作者点“保存”，请求在途，随手点了一下浮层外面（或者按 Escape），`cancel()` 把草稿置空、浮层收起；请求失败（版本冲突、网络、预览已过期）回来，`applyFailure` 把旧草稿写回 `state.edit`，`editHere` 与登记仍成立，浮层自己重新弹出来，带着失败的原因，作者没有任何动作；若是成功，则存下了作者以为已经放弃的值，页面出现“已保存”提示。两种都违背“点外面是放弃”的字面。
+为什么是问题：浮层的收起门槛比确认条低得多（任何一次点击），保存中又正是请求等待网络的时间窗，撞上的概率不低；而计划的“浮层里的短项”一节没有区分保存中。
+如何核实：读 `submit` 与 `applyFailure`；dom 测试里让 `world.write` 返回一个延迟 reject 的 promise，保存中调用 `cancel()`，再 resolve 失败，看 `state.edit` 是否重新非空（从代码推断，未跑）。
+建议改法：保存中浮层忽略点外面与 Escape（并且取消按钮停用，Escape 不放弃），保存结束后再按常规处理；同时让 `applyFailure` 在草稿已被置空（`options.draft() === null` 或 `requestId` 已变）时不回写。两条都加用例，其中第二条在确认条上也成立，是现有缺陷，改在 `in-place-edit.ts`。
+
+---
+## 对上一轮两处没采纳的取舍的判断
+- “点外面只收起、草稿留着、旁边显示未保存标记”不采纳：同意。短项重填代价小，少一种“收起但还在改”的状态是对的；但前提是第 18 条（保存中不放弃）和第 2 条里上传在途、选文件框开着时不放弃都要补，否则放弃的代价不小（上传的文件留在作品里，保存失败时草稿被写回）。
+- “值是来历按钮、旁边另放常显的小‘改’按钮”不采纳：同意，卡片是填表，点值就改更直接；代价是输出 16 的“值与‘改’各一个停靠点”要在 Spec 里改写，并要保证每一项都有 `data-edit`（第 15 条第 1 点）。
+
+## 计划“不做与风险”里与界面有关的各项
+- “图片端口在没有文件服务的窗口里不在”：判断成立，但退路只有“输入退回两个输入框”，要加上取目录规则（第 1 条）与端口拆成读与写（第 12 条），否则“Lab 里各登记一个没有端口的场景”做得出但没有价值。
+- “就地改与确认条共用一份状态”：风险只列了切走再回来、世界变了、保存失败；缺“草稿归谁画”的登记细节（第 6 条）与保存中放弃（第 18 条）。
+- “通用字段表与面板的就地展开不做”：同意，但接口上要让没有 `FieldEditor` 的宿主有明确退路（第 9 条）。
+- “重整人物字段牵动的文件多”“世界层校验”“removed 属性”属内核，不在本轮范围。
+
+## 未发现问题的方面
+- 取图地址里带项目 id 与代次：`rawUrl` 由窗口绑定的客户端按固定的 `project` 算，窗口内不变，代次变会 410，由端口按需重算即可，未发现额外问题。
+- 浮层里放 `SearchSelect`、`EntryPicker` 点候选行不关浮层：读 reka 实现后判断可行（第 10 条只提验证与脆弱处）。
+- `Escape` 在列表关着时由外层接收：`SearchSelect` 只在列表开着时 `stopPropagation`，无问题。
+- “真的过渡，不用替身”：`entry-page.dom.test.ts:85` 已有 `stubs: {transition: false}` 的先例，可做（局限见第 15 条第 8 点）。
+
+## 数量
+共 18 条：阻断 1（第 5 条）、重要 11（第 1、2、3、6、7、8、11、12、15、16、18 条）、建议 6（第 4、9、10、13、14、17 条）。没有撤回的条目。
+
+有效发现的编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18
