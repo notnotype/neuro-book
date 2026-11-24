@@ -108,6 +108,8 @@ async function focusSource(page: Page): Promise<void> {
 }
 /** 输入框里的文字：Monaco 把空格画成不换行空格，两种都认。 */
 const sourceText = (page: Page) => textSource(page).locator(".view-lines");
+/** 输入框里文字正好是 `text` 的第一个记号：Monaco 按记号的种类给类名 `mtkN`，没有着色的是 `mtk1`。 */
+const sourceToken = (page: Page, text: string) => textSource(page).locator(".view-lines span > span").filter({hasText: new RegExp(`^${text}$`, "u")}).first();
 const dirtyLabel = (page: Page) => entryPage(page).locator("[data-text-dirty]");
 const tabDot = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]");
 
@@ -147,6 +149,23 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await expect(sourceText(page)).toContainText("一年级学生。{character.外观}");
     await page.keyboard.type("是她的样子。");
     await expect(sourceText(page)).toContainText("{character.外观}是她的样子。");
+    // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成外观当时的值；预览里的值不是按钮。
+    const preview = entryPage(page).locator("[data-text-preview]");
+    await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
+    await expect(preview.getByRole("button")).toHaveCount(0);
+    // 够宽时左右各半：预览栏在输入框的右边。
+    const [sourceBox, previewBox] = [await textSource(page).boundingBox(), await preview.boundingBox()];
+    expect(previewBox!.x).toBeGreaterThanOrEqual(sourceBox!.x + sourceBox!.width);
+    // 源文字按条目的写法着色：花括号里的字段名（含中文）有自己的颜色（没着色的记号是 `mtk1`）。
+    await expect(sourceToken(page, "character")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
+    await expect(sourceToken(page, "外观")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
+    // “预览”是开关：关掉以后没有预览栏，输入框占满；再打开又有。
+    await entryPage(page).locator("[data-text-preview-toggle]").click();
+    await expect(preview).toHaveCount(0);
+    await expect.poll(async () => (await textSource(page).boundingBox())!.width).toBeGreaterThan(sourceBox!.width + 100);
+    await entryPage(page).locator("[data-text-preview-toggle]").click();
+    await expect(preview).toContainText("银白长发是她的样子。");
+    await focusSource(page);
     // Tab 离开输入框（不留在框里缩进）；再回到输入框里。
     await page.keyboard.press("Tab");
     await expect(entryPage(page).locator("[data-text-source]:focus-within")).toHaveCount(0);

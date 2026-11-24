@@ -7,6 +7,8 @@
 
 条目页的文字分页（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 9、10）：显示世界服务给作者的渲染（[`canon/rendering.md`](../../../../../../../docs/specs/canon/rendering.md) 输出 7）。文字里的每个值是一个按钮，点了在它所在的块后面展开来历（插槽）。这是阅读视图：右上“编辑”进整篇编辑（`EntryTextEditor`，输出 39）。改什么、怎样写进世界由宿主定。受控。
 
+同一个组件也画编辑时的预览（输出 48）：`interactive` 为假时值与条目引用只是文字。
+
 ## 布局与交互
 
 正文排版，宽度由父容器封顶。块是 mdast 的语法树：段落、标题、列表、引用、强调、删除线、行内代码、代码块、链接（只显示文字）、换行、分隔线、表格自己画，认不出的节点画它的子节点或文字。canon 的节点：
@@ -16,6 +18,8 @@
 - 条目引用：到那个条目的链接，单击发 `entry`；已删除的写原来的名字，次级色，不可点。
 - 占位、图片：次级色的一句。
 - 出错的块：它的纯文本与一句原因（危险色），别的块照常。
+- 不能点的画法（`interactive` 为假）：值是同样带虚线下划线的文字，悬停写它的显示名；条目引用是强调色的文字。都不发事件，也不写“改过”的标记。根上的标记从 `data-entry-text` 换成 `data-entry-preview`（找阅读视图的地方不该认到预览）。
+- 块一级的元素（段落、标题、列表项、引用、代码块、分隔线、表格）带 `data-source-line`：它在这一块源文字里的行号（节点带着位置时才有）。预览跟着光标滚到对应的段落时按它找。
 - 能改（`editable`）：右上“编辑”，单击发 `edit`；没有主文字时是“还没有主文字”下面一个“开始写”。`editReason` 非空时它不可用，悬停写原因。
 
 ## 数据
@@ -23,7 +27,7 @@
 ```ts
 type EntryTextBlock =
     | {readonly id: string; readonly tree: EntryTextNode}
-    | {readonly id: string; readonly error: {readonly message: string}; readonly text: string};
+    | {readonly id: string; readonly error: {readonly message: string; readonly line?: number; readonly column?: number}; readonly text: string};
 
 interface TextAddress {
     readonly entry: string;
@@ -42,6 +46,8 @@ type EntryTextProps = {
     editable?: boolean;
     /** 不能进编辑的原因；非空时那个按钮不可用。默认空串。 */
     editReason?: string;
+    /** 值与条目引用能点。为假时它们只是文字（编辑时的预览）。默认 true。 */
+    interactive?: boolean;
 };
 
 type EntryTextEmits = {
