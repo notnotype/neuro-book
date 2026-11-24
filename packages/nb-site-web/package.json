@@ -9,8 +9,9 @@
         "./package.json": "./package.json"
     },
     "scripts": {
+        "build": "vite build",
         "test": "bun test",
-        "typecheck": "vue-tsc --noEmit"
+        "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.tests.json"
     },
     "dependencies": {
         "@notnotype/nb-ui": "workspace:*",

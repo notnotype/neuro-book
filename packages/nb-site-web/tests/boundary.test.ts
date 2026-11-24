@@ -20,7 +20,7 @@ interface Manifest {
     readonly devDependencies?: Readonly<Record<string, string>>;
 }
 
-/** `src/` 与 `tests/` 下的源文件，连同测试文件：测试支持包的 `sourceFiles` 缺省跳过测试。`src/` 在前端骨架落地前还不存在。 */
+/** `src/` 与 `tests/` 下的源文件，连同测试文件：测试支持包的 `sourceFiles` 缺省跳过测试。 */
 function allSources(): string[] {
     return ["src", "tests"]
         .map((name) => join(PACKAGE_ROOT, name))

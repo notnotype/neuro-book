@@ -3,12 +3,18 @@
         "target": "ES2022",
         "module": "ESNext",
         "moduleResolution": "bundler",
-        "lib": ["ESNext"],
-        "types": ["bun"],
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "types": ["vite/client"],
         "strict": true,
         "noEmit": true,
         "skipLibCheck": true,
+        "jsx": "preserve",
         "forceConsistentCasingInFileNames": true
     },
-    "include": ["tests"]
+    "include": ["src/**/*.ts", "src/**/*.vue"],
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

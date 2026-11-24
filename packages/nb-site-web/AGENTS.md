@@ -13,4 +13,7 @@
 ```text
 bun run typecheck
 bun test
+bun run build
 ```
+
+`tests/build.test.ts` 在临时目录里真跑一次 `vite build`；`bun run build` 把产物写进 `dist/`（不入库），`vite preview` 看页面。

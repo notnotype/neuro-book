@@ -1,0 +1,26 @@
+/*
+ * Tailwind 的标准分层写法（与 dev-panel 的 src/web/app.css 相同）：先 `@import "tailwindcss"`（preflight、theme、utilities
+ * 各在自己的层），再导入 nb-ui 的入口（token 进 base 层、语义类进 components 层）。站点自己的原子类在 utilities 层，
+ * 压过 nb-ui 的语义类。
+ *
+ * 不分层的全局规则里，特异性低于一个类的（`html, body`、`body`）会压过所有分层的声明，包括原子类与 nb-ui 的语义类，
+ * 所以放进 base 层。
+ */
+@import "tailwindcss";
+@import "@notnotype/nb-ui/tailwind.css";
+@source "./**/*.vue";
+@source "./**/*.ts";
+
+@layer base {
+    html, body {
+        min-height: 100%;
+    }
+
+    body {
+        margin: 0;
+        background: var(--bg-main);
+        color: var(--text-main);
+        font-family: var(--font-ui);
+        font-size: var(--text-sm);
+    }
+}
