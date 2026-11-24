@@ -1,4 +1,4 @@
-# t50 计划：官方示例应用，第 7 稿（标签编组、桌面、IDE 工具窗）
+# t50 计划：官方示例应用，第 8 稿（标签编组、桌面、IDE 工具窗）
 
 ## Context
 
@@ -130,7 +130,7 @@
 - `docs/standards/code/common.md` 注释一节：现有“例外：示例插件”不动，另加一条“例外：nb-layout 的示例”：读者是第三方开发者，可以逐步讲解，但不引 Spec 条目编号，要讲的规则直接写出来；讲解随示例的 e2e 改；示例 README 只做目录、概念与阅读顺序（17）。根 `AGENTS.md` 注释一节的摘要加半句指到它（根 `AGENTS.md` 有别的会话未提交的改动：用 `git update-index --cacheinfo` 只提交自己这一行）。
 - `packages/nb-layout/AGENTS.md`：“许可与发布”加一条：`examples/` 是 MIT、不随包发布、只经公开入口（`examples.test.ts` 核对），与包同样不从 AGPL 的代码搬内容。
 - `packages/nb-layout/CHANGELOG.md`：不写（示例不在包里，用户装到的东西没变）。
-- `docs/standards/releasing.md`：“源码包先各自提版”一步加半句“nb-layout 提版时同改 `examples/tabbed-panels/package.json` 的版本范围”（三轮 5）。冒烟多的一步不写进手册：手册写的是命令，不列步骤。
+- `docs/standards/releasing.md`：“源码包先各自提版”一步加半句“nb-layout 提版时同改 `examples/*/package.json` 里它的版本范围”（三轮 5）。冒烟多的一步不写进手册：手册写的是命令，不列步骤。
 
 ## 切片
 
@@ -196,13 +196,13 @@
 
 两个新示例都是布局形状的演示，外观、图标与命名用自己的，不照搬任何产品的品牌与视觉。
 
-第 6 稿按这一节的第一轮审查（[报告](evidences/design-review-examples-r1.txt)）、第 7 稿按第二轮（[报告](evidences/design-review-examples-r2.txt)，重要 5、建议 6，都成立）重写了两个示例。下面是写代码要的全部决定，编码子代理照这一节写，不需要读审查报告。
+第 6 稿按这一节的第一轮审查（[报告](evidences/design-review-examples-r1.txt)）、第 7 稿按第二轮（[报告](evidences/design-review-examples-r2.txt)）、第 8 稿按第三轮（[报告](evidences/design-review-examples-r3.txt)，重要 1、建议 7，都成立）重写了两个示例。下面是写代码要的全部决定，编码子代理照这一节写，不需要读审查报告。
 
 ### `examples/desktop/`：浮动窗口的桌面
 
 演示浮动窗（`floats`、`float-chrome`、`FloatWindowHandles`、`placeFloat`、`clampFloatRect`、`resizeFloatRect`）、窗与树之间来回（贴边平铺）、层叠次序。
 
-**树**：竖向 `[desktop, dock]`。`dock` 保留像素 56；与上面那条分隔线不能拖：`sashDisabled` 判 `after === "dock"`（`before` 在平铺之后会变成分支的 id）。`desktop` 叶最小 240×160；平铺进来的窗叶最小 240×160。
+**树**：竖向 `[desktop, dock]`，`sashSize` 4。`dock` 保留像素 56；与上面那条分隔线不能拖：`sashDisabled` 判 `after === "dock"`（`before` 在平铺之后会变成分支的 id）。`desktop` 叶最小 240×160；平铺进来的窗叶最小 240×160。
 
 **窗与缺省**：四扇，`notes`、`calc`、`clock`、`files`（外观自己画，不照搬任何产品），缺省都浮动，矩形相对网格根：notes `{x:40,y:40,w:420,h:300}`，calc `{x:500,y:80,w:320,h:360}`，clock `{x:860,y:60,w:300,h:220}`，files `{x:200,y:400,w:480,h:300}`；层叠次序同上（files 在最上）。每扇有标题栏（标题、最小化、最大化、关闭；平铺的窗换成“取消平铺”、没有最大化）与正文（`textarea`）。标题栏的按钮离窗的上、右边至少 8px（库的缩放手柄带贴着边往里 6px，上边 3px）。
 
@@ -217,55 +217,63 @@
 | 关闭 | — | — | — | — | — | 重新打开，浮动在 `floatRect` |
 
 - 最小化的窗内容项还在（`active: false` 停放，打的字还在）；关闭的窗从内容层拿掉（卸载，打的字没了）。底栏一直列出四个窗的按钮，带 `data-window-state`（`floating`、`maximized`、`tiled-left`、`tiled-right`、`minimized`、`closed`）。
-- 层叠：按下浮动窗的任何地方把它挪到 `floats` 末尾（库只改层级，不搬节点）。
+- 层叠：按下浮动窗的任何地方（含它的缩放手柄）把它挪到 `floats` 末尾。监听挂在承载盒的捕获阶段，按 `closest("[data-content-leaf], [data-float-chrome]")` 取窗 id：手柄是网格根的直接子元素、不在窗的内容里，而且它在 `pointerdown` 里阻止冒泡，挂在窗上收不到。
 
 **移动先试拖动会话**：用 `useDragSession`（根是网格的承载盒）驱动整窗移动：`sourceAt` 认浮动、非最大化窗的标题栏，排除标题栏上的按钮；`activate` 记下起点与这扇窗此刻画着的矩形，并把它的 `gesture` 设成 `"move"`；`resolve` 算新矩形（起点矩形加偏移，`deskClamp` 夹进桌面，取整），调 `placeFloat(id, 夹过的偏移)` 让窗跟手（`resolve` 允许在读完 DOM 之后写跟手的反馈），交回落点；`commitsUnderPointer` 为真；`commit` 写回；`onEnd` 不是提交时 `placeFloat(id, null)`、去掉 `gesture`。Escape、失焦由会话取消。标题栏 `touch-action: none`。会话驱动不了（例如捕获落在设了 `gesture` 之后不接指针的外框里），就退回自己接指针（`pointerdown` 记起点、过 4px 才捕获并设 `gesture`、Escape 用挂在 window 上、只在拖动期间装的监听），并把缺什么写进报告。
 
-- 落点（写在承载盒的 `data-drop` 上，同标签编组）：`move`；指针在桌面叶左缘或右缘 20px 以内（按起拖时量到的桌面叶矩形）是 `tile:left`、`tile:right`；那一侧平铺不下（试平铺后布局 `over-constrained`）是 `blocked:left`、`blocked:right`，只显示不提交（`actionKey` 为 `null`），反馈写 “Not enough room”。
+- 坐标：会话给的指针是视口坐标；`placeGrid` 与 `floats` 的矩形相对网格根；`DropFeedbackOverlay` 要视口坐标。两者之间加减 `NestedGrid` 的 `origin()`。`placeGrid` 的第四个参数 `dpr` 界面里传 `window.devicePixelRatio`，模型层的几何函数把它当参数收（bun 里没有这个全局）。
+- `structure` 给 `host.revision`：拖动中视口变了、布局重发，整场取消，不拿起拖时量的桌面矩形判。
+- 落点（写在承载盒的 `data-drop` 上，同标签编组）：`move`；指针 `x <= 桌面叶左缘 + 20` 是 `tile:left`，`x >= 桌面叶右缘 - 20` 是 `tile:right`（越过边缘也算，左边已有平铺窗时桌面叶左缘不在 0）；那一侧平铺不下（试平铺后布局 `over-constrained`）是 `blocked:left`、`blocked:right`，反馈写 “Not enough room”。被挡时松手按 `move` 处理：窗停在松手处，不平铺（`actionKey` 交回 `move` 的键，不是 `null`：`null` 会走“没有动作”，窗弹回按下前）。
 - 试平铺：在复制的树上照“平铺”的步骤做一遍（复制同标签编组：`serialize` 加 `createGrid(null)` 加 `restore`，策略按 ref 再给），布局之后用 `placeGrid` 取新叶的矩形，就是反馈画的区域（不是“半屏”：第二扇时三块平分）。
-- 松手：`move` 时把夹过的矩形写进这扇窗、`placeFloat(id, null)`、去掉 `gesture`，同一次渲染里完成（停在松手处，不弹回）。`tile:*` 时先照 `move` 把拖到的矩形发布出去，等下一帧再改树变成平铺，库从这个矩形把窗飞进那一侧（同一拍里改树，起点是按下前的矩形，窗会先跳回去再飞）。
+- 松手：`move`（含被挡）时把夹过的位置写进这扇窗（只写 `x`、`y`，宽高不动：窗比桌面大时夹过的宽高是缩小的，写回去视口变大后也回不来）、`placeFloat(id, null)`、去掉 `gesture`，同一次渲染里完成（停在松手处，不弹回）。`tile:*` 时先照 `move` 把拖到的矩形发布出去，等下一帧再改树变成平铺，库从这个矩形把窗飞进那一侧（同一拍里改树，起点是按下前的矩形，窗会先跳回去再飞）。
 
 **平铺的树操作**：按桌面叶此刻的父节点选，不按“第几扇”：父节点是横向分支 → `addLeaf` 到这个分支的头（左）或尾（右）；否则 → `splitLeaf` 桌面叶（左 `before`、右 `after`）。同一侧已有平铺窗时**先加新的、再 `removeLeaf` 旧的**（只剩一扇时先删会把那一行展平，分支 id 没了，`addLeaf` 找不到它，审查实测）。树操作成功之后才改窗的模式、从 `floats` 拿掉；失败时窗留在原处并在状态行说原因。取消平铺、最小化、关闭平铺的窗都是 `removeLeaf`。
 
 **夹取与缩放**：
 - `deskClamp(rect, desk)`：`desk` 是桌面叶此刻相对网格根的矩形（`placeGrid(root, layout, extent)` 里桌面叶那一块，有平铺窗时它不从 0 开始）。减掉 `desk` 的原点，`clampFloatRect(相对矩形, desk 的宽高, {width: min(窗宽, desk 宽), height: min(窗高, desk 高)})`，再加回原点（`clampFloatRect` 只收宽高、夹在从 0 开始的区域里，`keep` 取窗自己的大小时比区域大的窗会被推出去，审查实测）。
 - 画之前每扇浮动窗都过一遍 `deskClamp`：视口变小、平铺占了地方之后窗都在桌面里；记录的 `floatRect` 不改，视口变回来窗回原处。
-- 缩放：`FloatWindowHandles` 放在 `float-chrome` 插槽（最大化的窗不画），`min` 240×160，`max` 取桌面的宽高；`preview` 的矩形先与桌面求交（向固定的那几条边收，不平移）再取整，画它（`gesture: "resize"`）；`commit` 同样求交后写回；`null` 回原矩形；`move`（键盘移动）的位置过 `deskClamp` 后写回（`resizeFloatRect` 的 `max` 是尺寸不是边界，不求交时预览能伸出桌面，松手后又被夹，窗会跳）。
+- 缩放：`FloatWindowHandles` 放在 `float-chrome` 插槽（最大化的窗不画），`min` 240×160，`max` 取桌面的宽高；`preview` 的矩形先与桌面求交（向固定的那几条边收，不平移）再取整，画它（`gesture: "resize"`）；`commit` 同样求交后写回；`null` 回原矩形；`move`（键盘移动）的位置过 `deskClamp` 后只写回 `x`、`y`（`resizeFloatRect` 的 `max` 是尺寸不是边界，不求交时预览能伸出桌面，松手后又被夹，窗会跳）。
 - 最大化：窗的画法矩形取桌面叶此刻的矩形（不用 `maximized`，它管树里的叶），有平铺窗、视口变了都跟着变；恢复回到 `floatRect`。最大化与恢复是瞬间的（浮动窗的矩形变化库不做过渡）。
 
-**存取**：一个 `localStorage` 键：每扇窗的模式、`floatRect`、最小化之前的模式、层叠次序、树的快照。判据同标签编组，另加：窗 id 不认识或缺一扇；矩形不是有限数；平铺的窗与树里的叶对不上（树里有不是平铺窗的叶，或平铺窗不在树里）；同一侧两扇平铺。
+**存取**：一个 `localStorage` 键：每扇窗的模式、`floatRect`、最小化之前的模式、层叠次序、树的快照。存档坏（用缺省布局、原件放备份键、写不进备份就这一页不再保存，同标签编组）的判据，逐条：
+- 读存储抛错、JSON 坏、版本不认识、字段形状不对；
+- 窗正好是四扇、id 都认识；模式是六个取值之一；层叠次序是四个 id 的一个排列；矩形是有限数、宽高不小于最小尺寸；
+- 快照 `restore` 失败或 `dropped` 非空；叶的 id 与 ref 相同；
+- 树的锚点：`desktop`、`dock` 各正好一块；根是竖向、`dock` 是它的最后一个孩子；除 `desktop`、`dock` 以外的叶都是平铺的窗，且都在 `desktop` 所在的那个横向分支里；
+- 模式与树一致：模式是平铺的窗正好就是这些叶；`tiled-left` 的在 `desktop` 左边、`tiled-right` 的在右边；同一侧不超过一扇。
+不一致按坏档处理，不悄悄修。
 
 ### `examples/ide/`：IDE 式的工具窗
 
 演示停靠区的收起与恢复（`setCollapsed`、`restoreSize`）、按钮条之间的拖动（`useDragSession` 加竖向与横向的 `resolveListInsertion`）、编辑区最大化（`maximized`）。
 
-**树**：根竖向 `[main, bottom-stripe]`，`bottom-stripe` 保留像素 24、整宽一行。`main` 横向 `[left-stripe, left, center, right, right-stripe]`，两条保留像素 28；`center` 竖向 `[editor, bottom]`。最大化编辑区时 `exclude` 三条：下条在 `main` 外面，不会落进被盖住的外接矩形里。条旁的分隔线都不能拖（`sashDisabled`：`before` 或 `after` 是三条之一）。
+**树**：根竖向 `[main, bottom-stripe]`，`sashSize` 4，`bottom-stripe` 保留像素 24、整宽一行。`main` 横向 `[left-stripe, left, center, right, right-stripe]`，两条保留像素 28；`center` 竖向 `[editor, bottom]`，`editor` 最小 300×200（不给时窄窗口里它会被挤到几十像素，没有诊断）。最大化编辑区时 `exclude` 三条：下条在 `main` 外面，不会落进被盖住的外接矩形里。条旁的分隔线都不能拖（`sashDisabled`：`before` 或 `after` 是三条之一）。
 
 **区与缺省**：三个区保留像素、可收起到 0：`left` 宽 260、最小 160；`right` 宽 240、最小 160；`bottom` 高 200、最小 100；都 `collapseThreshold: 24`、`expandThreshold: 24`、`collapsedSize: 0`，`restoreSize` 取缺省尺寸。缺省 `left` 展开显示 Project，`right`、`bottom` 收着。区的面板头高 28（工具窗的标题与“隐藏”按钮），内容项 `insetTop` 读同一个常数。
 
 **工具窗**：六个：Project、Structure、Bookmarks 在左条，Outline 在右条，Terminal、Problems 在下条。每个区有一个 `shown`（可以为空）。
-- 点条上的按钮：区收着 → 展开、`shown` 设成它；区开着显示别的 → 换成它；已显示它 → 收起这个区。区里一次只显示一个，内容项按 `active` 停放，不卸载。
+- 点条上的按钮：区收着 → 展开、`shown` 设成它；区开着显示别的 → 换成它；已显示它 → 收起这个区（`shown` 留着，下次展开还是它）。区里一次只显示一个，内容项按 `active` 停放，不卸载。
 - 按钮的选中态从网格与 `shown` 算：区展开且 `shown` 是它。
 - 区被拖分隔线或在分隔线上按 Enter 展开、`shown` 为空的，设成这条上的第一个（`onApplied` 里看）。条上没有按钮的区：它的分隔线不能拖（`sashDisabled`），点不到、也展不开。
 - 拖条上的按钮（`useDragSession`，根是承载盒；落点在三条的矩形里按条的方向用 `resolveListInsertion` 判，反馈画插入线，`data-drop` 写完整动作 `move:<条>:<插在谁前面或 end>`，原位不是落点，同标签编组）：同一条里换位置；拖到另一条，工具窗归那一条的区，成为那个区的 `shown`、区展开；拖走的是来源区的 `shown` 时换成来源条上剩下的第一个，没有就收起来源区。
 - 关掉（收起区、换走）焦点所在的工具窗时，焦点给编辑区的正文。
 
-**编辑区**：一组标签（`main.ts`、`util.ts`、`README.md`）加一个正文（`textarea`），不做拆分。标题栏的按钮或快捷键最大化编辑区：`maximized: {leaf: "editor", exclude: [三条]}`，再按恢复，只在内存。最大化期间点条上的按钮、按快捷键、把按钮拖进别的条：先退出最大化，再照常做。
+**编辑区**：一组标签（`main.ts`、`util.ts`、`README.md`）加一个正文（`textarea`），不做拆分。标题栏的按钮或快捷键最大化编辑区：`maximized: {leaf: "editor", exclude: [三条]}`，再按恢复，只在内存。最大化期间点条上的按钮、按快捷键：先退出最大化，再照常做；把按钮拖进别的条：拖动照常，放下（提交）时先退出最大化再移动。
 
 **快捷键**：监听挂在 `window` 上（焦点落到 body 时示例根上的监听收不到），按 `event.code` 判：Alt+Shift+Digit1 到 Digit6 依次开关 Project、Structure、Bookmarks、Outline、Terminal、Problems；Alt+Shift+KeyM 最大化或恢复编辑区；焦点在工具窗里时 Escape 回编辑区正文。（Linux 上的 Chrome 用 Alt+数字切换浏览器标签，所以加 Shift。）键位写进示例 README。
 
-**存取**：树的快照、各区的收起状态与 `restoreSize`（都不在快照里，另存）、各区的 `shown`、各条上按钮的次序与归属。判据同标签编组，另加：工具窗 id 不认识或缺一个；一个工具窗出现在两条上；`shown` 不在它那条上；展开的区必须有按钮且 `shown` 非空（不然造出收不起的空区）。
+**存取**：IDE 的树形状是固定的，不存快照：存三个区的尺寸、收起状态与 `restoreSize`，各区的 `shown`，各条上按钮的次序与归属。读档时先建缺省的树，再用 `setSize`、`setCollapsed` 把尺寸与收起放回去（`restoreSize` 在策略里给）。存档坏的判据（处理同标签编组）：读存储抛错、JSON 坏、版本不认识、字段形状不对；尺寸不是有限数或小于最小尺寸；工具窗正好六个、id 都认识、每个只在一条上；`shown` 为空或在它那条上；展开的区必须有按钮且 `shown` 非空（不然造出收不起的空区）。
 
-**已知限制**：收起到 0 的区旁边仍有分隔线占着的那条缝（`sashSize` 不随收起变）。
+**已知限制**：收起到 0 的区旁边仍有分隔线占着的那条缝（`sashSize` 不随收起变）。读档后展开回到存下的尺寸靠 `setSize` 放回意图：库在 `setCollapsed(false)` 时回到意图、不看策略里的 `restoreSize`（审查实测），所以收起着存档的区，意图要存收起前的尺寸。
 
 ### 三个示例共用的检查
 
 - 目录：`examples/tabbed-panels/`、`examples/desktop/`、`examples/ide/`，各自独立（第三方拷走一个目录就能跑），不互相导入；三者都有的小件（读失败的处理、拖动的辅助）各写一份，不抽共用包：抽出来第三方就拷不走一个目录。
 - `src/examples.test.ts` 对 `examples/*/` 每个目录做同样的检查（许可证、依赖清单、导入白名单、Spec 编号）；三份 `package.json` 的依赖与开发依赖逐项相同（`name` 不比，例一 18）。
-- 模型层的单元测试一个示例一个文件：`src/examples-tabbed-panels.test.ts`、`examples-desktop.test.ts`、`examples-ide.test.ts`（例一 12）。
-- `scripts/examples.ts`（`typecheck`、`build`，遍历 `examples/*/`）、`e2e/serve.ts`、`e2e/drag.ts` 由主会话在切片 2 写好；两个编码子代理只能用、不能改，缺什么写进报告（例一 12）。
+- 模型层的单元测试一个示例一个文件：`src/examples-tabbed-panels.test.ts`、`examples-desktop.test.ts`、`examples-ide.test.ts`。
+- `scripts/examples.ts`（`typecheck`、`build`，遍历 `examples/*/`）、`e2e/serve.ts`、`e2e/drag.ts` 由主会话在切片 2 写好；两个编码子代理只能用、不能改，缺什么写进报告。
 - e2e 每个示例一份 `e2e/<示例>.e2e.ts`；`test:e2e` 先构建三个示例。
-- 发布冒烟的 `smokeLayoutExample` 对三个示例各装一次、类型检查、构建；三次安装共用 bun 的全局缓存，每次约十几秒（例一 18）。
+- 发布冒烟的 `smokeLayoutExample` 对三个示例各装一次、类型检查、构建；三次安装共用 bun 的全局缓存，每次约十几秒。
 - nb-layout README 的“示例应用”一节列三个，各一句话说演示什么（主会话写）。
 
 ### 摩擦记录
@@ -286,7 +294,9 @@ desktop（`e2e/desktop.e2e.ts`）：
 | 最小化后底栏按钮的状态变、点回原处；平铺的窗最小化后点回原来那一侧；那一侧被占了就浮动；关闭后点底栏重新打开、打的字没了；最小化之后打的字还在 | 最小化与关闭 |
 | 拖到左缘出现落点反馈 `tile:left`，松手后窗占左边、正文里的字还在；另一扇贴右缘，三块平分；只剩一扇时再贴同一侧换下它，被换下的回到它的浮动矩形；“取消平铺”回到浮动；左侧有平铺窗时浮动窗被夹在平铺窗右边 | 贴边平铺 |
 | 视口窄到平铺不下时落点是 `blocked:*`、写 “Not enough room”、松手不平铺 | 平铺不下 |
-| 底栏上面那条分隔线拖不动 | 底栏 |
+| 底栏上面那条分隔线拖不动，平铺之前与之后各试一次 | 底栏 |
+| 按住后面那扇窗的缩放手柄：它到最上面，缩放照常 | 按手柄抬升 |
+| 最大化的窗没有缩放手柄 | 最大化 |
 | 移动、平铺、最小化之后重新载入都还原；存档坏时用缺省布局、原件在备份键 | 存取 |
 | 视口缩小后浮动窗都在桌面里；视口变回来窗回原处 | 夹取 |
 
@@ -295,9 +305,9 @@ ide（`e2e/ide.e2e.ts`）：
 | 行为 | 用例 |
 |---|---|
 | 点左条的按钮：区收着时展开显示它；显示别的时换成它；已显示它时收起；按钮的选中态跟着变 | 开关工具窗 |
-| 拖左区分隔线改宽，收起再展开回到拖后的宽度；重新载入后再收起展开也一样；从收着拖分隔线展开右区，右区显示右条的第一个、按钮选中 | 恢复宽度 |
+| 拖左区分隔线改宽，收起再展开回到拖后的宽度；重新载入后在分隔线上按 Enter 收起、再按 Enter 展开也回到拖后的宽度（按按钮的话存不存 `restoreSize` 都会过）；从收着拖分隔线展开右区，右区显示右条的第一个、按钮选中 | 恢复宽度 |
 | 条上拖按钮换位置；拖到右条后工具窗在右区显示、右区展开；从下条拖到左条；拖走正在显示的，左区换成剩下的第一个，拖走最后一个时左区收起；没有按钮的区的分隔线拖不动、Enter 也展不开；条旁的分隔线拖不动 | 排序与跨条 |
-| 最大化编辑区盖住三个区、三条都还在；最大化时点条上的按钮先退出最大化再打开 | 最大化 |
+| 最大化编辑区盖住三个区、三条都还在；最大化时点条上的按钮先退出最大化再打开；最大化时把按钮拖进别的条，放下时退出最大化并移动 | 最大化 |
 | 快捷键开关工具窗、最大化编辑区；点了工具窗里不可聚焦的地方之后快捷键照样生效；焦点在工具窗里时 Escape 回编辑区；关掉焦点所在的工具窗后焦点在编辑区 | 快捷键与焦点 |
 | 改宽、排序、跨条、收起之后重新载入都还原；存档坏时用缺省布局、原件在备份键 | 存取 |
 
@@ -305,13 +315,15 @@ ide（`e2e/ide.e2e.ts`）：
 - desktop：状态表里每一格（含“不能做”的格子交回失败、模型不变）；平铺的树操作在“桌面叶的父是横向分支”与“不是”两种形状下都对，只剩一扇时换下、对侧再贴、最小化后回原侧与被占时浮动；`deskClamp`（有原点、窗比桌面大）；试平铺放不下；存档的每条坏法各一例。
 - ide：点按钮的三种结果；跨条移动后两边的 `shown` 与收起；没有按钮的区展不开；最大化期间的操作先退出最大化；存档的每条坏法各一例；重新载入后 `restoreSize` 还在。
 
-否定断言同标签编组：先看到状态变化再断言没有（`data-drop` 的先正后否，或等两帧）；每个独立的排除各变异一次，变异清单与结果写进子代理的报告。
+否定断言同标签编组：先看到状态变化再断言没有（`data-drop` 的先正后否，或等两帧）。变异（各改坏一处、对应用例要失败，结果写进子代理的报告）：
+- desktop：`sourceAt` 不排除标题栏按钮；边缘带不算越过的部分；被挡时 `actionKey` 给 `null`；`deskClamp` 不减原点；缩放预览不求交；抬升挂在窗上而不是承载盒的捕获阶段；移动写回夹过的宽高。
+- ide：没有按钮的区的分隔线可以拖；条旁的分隔线可以拖；最大化期间点按钮不先退出；区展开时 `shown` 为空不补第一个；读档不放回 `restoreSize`。
 
 ### 切片（替换上面的“切片”）
 
 1. 标签编组本体（主会话写）。
 2. 仓库里的检查按“三个示例共用的检查”通用化，接上标签编组的 e2e 与模型测试（主会话写）。
-3. desktop、ide 两个示例（各派一个 Sonnet 编码子代理，各自的 worktree，从切片 2 的提交开分支；只改自己的示例目录、自己的 e2e 文件与模型测试文件；说明给本计划与标签编组作参照；它们在报告里列出遇到的不好用之处，主会话核实后并进摩擦记录；两个子代理同时跑 e2e 会互相拖慢，说明里要求跑 e2e 前看负载、只跑自己的文件）。两片的实现审查各派一次（前端，Sonnet，后台不阻塞）。
+3. desktop、ide 两个示例（各派一个 Sonnet 编码子代理，各自的 worktree，从切片 2 的提交开分支；只改自己的示例目录、自己的 e2e 文件与模型测试文件；说明给本计划与标签编组作参照；它们在报告里列出遇到的不好用之处，主会话核实后并进摩擦记录；两个子代理同时跑 e2e 会互相拖慢，说明里要求跑 e2e 前看负载、只跑自己的文件；新 worktree 先 `bun install`，构建自己的示例用 `bun scripts/examples.ts build <名字>`，Playwright 的过滤写 `e2e/<名字>.e2e`，写绝对路径时 worktree 名里的词也会被匹配）。两片的实现审查各派一次（前端，Sonnet，后台不阻塞）。
 4. 发布冒烟三个示例都装一次；本机冒烟。
 5. 收口：行数证据、摩擦记录按影响排序、README 与文档。
 
