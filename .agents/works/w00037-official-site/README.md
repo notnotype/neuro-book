@@ -26,19 +26,24 @@ updated: 2026-11-24
 - **设计审查之后（开发者 2026-11-24）**：数据库用每个模块一个 SQLite 文件（取代上面的 PostgreSQL）；第一版的范围先查旧站的账号数再定；境外存放先不找人确认。提案草稿见 [官方站重写](../../../docs/proposals/official-site-rewrite.md)。
 - **与遥测/反馈的关系**：产品遥测与非阻塞反馈在 [w00053](../w00053-telemetry-feedback-stats/README.md) 独立推进，暂不阻塞或强耦合官网重写排期。
 
-## 切片（开发者 2026-11-24 同意；轮到时再建 Task）
+## 开工顺序（主会话 2026-11-24 的安排；开发者说开工后才开始）
 
-1. 接受提案，写 ADR 与 `planned` Spec（账号、对外 OAuth、“问身份”、运行与部署、旧站数据导入）。
-2. 脚手架：七个包、进程入口、迁移、合同测试的底座与测试文档里新的一类、镜像。
-3. 账号核心：密码注册与登录、注册码与邀请码、会话、同意记录、管理接口与审计、限流。
-4. 社交登录与对外 OAuth 服务。
-5. 前端设计评审（静态稿与评审板），再做前端实现，含三个公开页面。
-6. 旧站数据导入与切换演练（查生产快照要另取授权）。
-7. 部署与切换。
+提案已接受（[官方站重写](../../../docs/proposals/official-site-rewrite.md)），ADR 0059 到 0061 与七份 `planned` Spec 已写。第一版做全（开发者 2026-11-24）。
 
-统计模块的服务端与看板在 [w00053](../w00053-telemetry-feedback-stats/README.md) 的切片里，装进同一个进程。
+| 顺序 | Task | 说明 |
+|---|---|---|
+| 1 | t05 脚手架 | 之后的一切都建在它上面 |
+| 2 | t06 统计的写入 | 唯一已有使用方的部分，不依赖账号；做完可以先在遥测的域名上线（t13 的第一步） |
+| 3 | t07 账号核心 | |
+| 4 | t08 社交登录与对外 OAuth | 要开发者的 Google、GitHub 应用与定死的站点地址 |
+| 与 1 到 4 同时 | t09 前端设计评审 | 不依赖后端实现，要开发者参与 |
+| 5 | t10 前端实现、t11 看板 | 等 t09 定稿与接口可用 |
+| 6 | t12 旧站导入与演练 | 要生产快照的授权 |
+| 7 | t13 部署与切换 | 每一步生产操作另取授权 |
 
-第一版做全（开发者 2026-11-24）：不采用“先只做遥测加管理员登录、旧站先不动”的建议。
+应用这边（本机统计、遥测插件、条款）在 [w00053](../w00053-telemetry-feedback-stats/README.md)，与上表的 1 到 4 可以同时做。
+
+还没决定、会卡住某一步的事：前端的样子与图表库（t09）；站点域名是否沿用、遥测写入口的域名（t08、t13、OpenRouter 归属）；Google 与 GitHub 的 OAuth 应用（t08）；处理者的名称与联系方式（条款）；异地备份（t13）；旧站不合规则的用户名怎么处理（t12，要先看生产数据）。
 
 ## Task
 
@@ -47,4 +52,13 @@ updated: 2026-11-24
 | [t01](tasks/t01-requirements/README.md) | 需求与范围讨论 |
 | [t02](tasks/t02-selection/README.md) | 选型：身份库、数据库访问与测试里的 PostgreSQL |
 | [t03](tasks/t03-architecture/README.md) | 架构细节讨论与提案 |
-| [t04](tasks/t04-adr-and-specs/README.md) | ADR 与 `planned` Spec（未开工，等提案接受） |
+| [t04](tasks/t04-adr-and-specs/README.md) | ADR 0059 到 0061 与七份 `planned` Spec（已写，假设待追认） |
+| [t05](tasks/t05-scaffold/README.md) | 脚手架：包、进程入口、迁移、合同测试底座、镜像（未开工） |
+| [t06](tasks/t06-telemetry-ingest/README.md) | 统计模块：三个写入口、原始上报留 7 天、聚合（未开工） |
+| [t07](tasks/t07-identity-core/README.md) | 账号核心（未开工） |
+| [t08](tasks/t08-social-login-and-oauth-provider/README.md) | 社交登录与对外 OAuth 服务（未开工） |
+| [t09](tasks/t09-frontend-design-review/README.md) | 前端设计评审（未开工） |
+| [t10](tasks/t10-frontend/README.md) | 前端实现（未开工） |
+| [t11](tasks/t11-dashboard/README.md) | 统计看板（未开工） |
+| [t12](tasks/t12-legacy-import/README.md) | 旧站数据导入与切换演练（未开工） |
+| [t13](tasks/t13-deploy-and-cutover/README.md) | 部署与切换（未开工） |

@@ -45,15 +45,16 @@ updated: 2026-11-24
 - 收集分档（基础信息、使用统计、主动反馈、登录后）与上报形态，见 [t02](tasks/t02-collection-scope-and-terms/README.md)。
 - Agent 反馈的审批粒度、个人统计仪表盘入口与首版指标范围、`FirstRunWizard` 点“跳过”时的隐私开关口径、`w00037` 重写技术基线。
 
-## 切片（按提案的“分阶段”；轮到时再建 Task）
+## 开工顺序（主会话 2026-11-24 的安排；开发者说开工后才开始）
 
-1. 接受提案，写 ADR 与 `planned` Spec（本机统计、遥测；诊断加本机观察接口）。
-2. 收集清单与统计模块的服务端（三个写入口、原始上报留 7 天、聚合），在 w00037 的脚手架之后。
-3. 本机统计插件：记数服务、指标声明、字数与模型用量的交数、日历热力图。
-4. 遥测插件：告知与开关、每日上报与在线心跳、“查看将要发送的内容”、非发行构建不发；首批一级只有“稳定性”一类。
-5. 看板（活跃与新增、按周留存、在线、版本与平台、同意率、错误码）。
-6. 应用里的遥测说明与官方站的隐私政策、服务条款（中英两版）。
-7. 第二阶段：诊断报告、主动反馈、调查问卷（[t04](tasks/t04-surveys/README.md)）与它们的收件。
+提案已接受（[本机统计、遥测与反馈](../../../docs/proposals/telemetry-stats-feedback.md)），ADR 0062 与三份 `planned` Spec 已写。统计模块的服务端与看板在 [w00037](../w00037-official-site/README.md) 的 t06、t11。
+
+| 顺序 | Task | 说明 |
+|---|---|---|
+| 1 | t06 本机统计插件 | 不依赖官方站，可以与官方站的脚手架同时做 |
+| 2 | t07 遥测插件 | 要 t06 的只读接口；端到端验证要官方站的写入口 |
+| 随时 | t08 条款 | 可以先起草；遥测插件的告知文字与 Google 登录上线都要它 |
+| 第二阶段 | 诊断报告、主动反馈、调查问卷（t04）与它们的收件 | 第一版之后 |
 
 ## Task
 
@@ -63,4 +64,7 @@ updated: 2026-11-24
 | [t02](tasks/t02-collection-scope-and-terms/README.md) | 遥测收集范围与条款 | active |
 | [t03](tasks/t03-telemetry-for-plugins/README.md) | 把遥测开放给第三方插件 | shelved |
 | [t04](tasks/t04-surveys/README.md) | 调查问卷 | planned |
-| [t05](tasks/t05-adr-and-specs/README.md) | ADR 与 `planned` Spec（未开工，等提案接受） | planned |
+| [t05](tasks/t05-adr-and-specs/README.md) | ADR 0062 与三份 `planned` Spec（已写，假设待追认） | planned |
+| [t06](tasks/t06-stats-plugin/README.md) | 本机统计插件（未开工） | planned |
+| [t07](tasks/t07-telemetry-plugin/README.md) | 遥测插件（未开工） | planned |
+| [t08](tasks/t08-terms/README.md) | 遥测说明、隐私政策与服务条款（未开工） | planned |

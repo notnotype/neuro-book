@@ -5,7 +5,14 @@ created: 2026-11-24
 decided: 2026-11-24
 supersedes: []
 superseded-by: null
-specs: []
+specs:
+  - docs/specs/site/operations.md
+  - docs/specs/site/accounts.md
+  - docs/specs/site/admin.md
+  - docs/specs/site/oauth-provider.md
+  - docs/specs/site/telemetry-ingest.md
+  - docs/specs/site/telemetry-dashboard.md
+  - docs/specs/site/legacy-import.md
 adrs:
   - docs/adr/0059-official-site-one-process-split-ready-modules.md
   - docs/adr/0060-official-site-identity-on-better-auth.md

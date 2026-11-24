@@ -5,7 +5,11 @@ created: 2026-11-24
 decided: 2026-11-24
 supersedes: []
 superseded-by: null
-specs: []
+specs:
+  - docs/specs/telemetry/protocol.md
+  - docs/specs/telemetry/client.md
+  - docs/specs/stats/local.md
+  - docs/specs/runtime/diagnostics.md
 adrs:
   - docs/adr/0062-telemetry-tiers-by-identifiability.md
 ---

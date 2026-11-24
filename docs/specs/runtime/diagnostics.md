@@ -58,6 +58,7 @@ owners:
 - 查询：按级别与来源过滤本实例有界内存记录，返回结果与截断信息。旧日志、其它实例日志和无可确认实例身份的记录不进入当前实例查询；后端既有历史日志检索仍由原日志能力入口负责。
 - 紧急输出：诊断不可用或降级时，启动失败与关键阶段结果仍出现在紧急输出；紧急输出不保证结构化查询，也不复制完整日志职责。
 - 降级可见：至少能查询“当前是否降级”及降级原因；降级不静默。
+- 本机观察（planned）：同一运行实例里的其它插件可以登记一个观察者；此后每条被接受的记录在脱敏之后交给它一次，交的是时间、级别、事件名、来源与错误码，不含消息与结构化数据。观察者抛错或变慢不影响记录调用的结果与各出口；登记之前的记录不补交，还在有界内存里的可以用查询读到；撤销登记之后不再收到。诊断自己不因此发起网络请求，观察者拿到这些字段之后做什么由它自己负责。
 
 ## 状态与转换
 
@@ -132,4 +133,5 @@ owners:
 - 实现入口：[`diagnostics.ts`](../../../packages/nb-runtime/src/diagnostics/diagnostics.ts)、后端出口 [`plugin.ts`](../../../packages/nb-host/src/server/diagnostics/plugin.ts)、浏览器出口 [`plugin.ts`](../../../packages/nb-host/src/web/diagnostics/plugin.ts)
 - 合同测试：[`diagnostics.test.ts`](../../../packages/nb-runtime/src/diagnostics/diagnostics.test.ts)、[`jsonl-exporter.test.ts`](../../../packages/nb-host/src/server/diagnostics/jsonl-exporter.test.ts)、[`plugin.test.ts`](../../../packages/nb-host/src/server/diagnostics/plugin.test.ts)、[`console-exporter.test.ts`](../../../packages/nb-host/src/web/diagnostics/console-exporter.test.ts)
 - Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）。这是旧应用宿主上的 smoke，运行的是旧应用里的内核副本；新应用宿主的 smoke 随应用骨架建立。
+- 批准依据：本机观察见 [ADR 0062](../../adr/0062-telemetry-tiers-by-identifiability.md) 决策 7。
 - 批准依据：开发者于 2026-09-20 明确接受总体推进方向（第一切片止于环境适配入口与小内核，第二切片用内置服务插件验证），并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表把 `runtime-diagnostics` 定义为提供日志实现与结构化生命周期诊断、早期必需、完整日志失败仍有最小输出的服务。
