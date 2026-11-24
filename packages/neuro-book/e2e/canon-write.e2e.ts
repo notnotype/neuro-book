@@ -235,6 +235,45 @@ test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点�
     await expect(entryPage(page).locator("[data-entry-text]")).not.toContainText("她住在旧城区。");
 });
 
+test("长的主文字左右分屏（author-ui 输出 48）：打字以后预览栏滚到光标那一段；页面往下滚时预览栏吸在页头下面，不被盖住也不伸出去", async ({page}) => {
+    // 两边的侧栏都开着时，窗口要这么宽编辑区才放得下两栏。
+    await page.setViewportSize({width: 1920, height: 900});
+    await open(page);
+    await openEntry(page, "人物", "星瑕");
+    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    await focusSource(page);
+    await page.keyboard.press("Control+End");
+    // 一次写进八十段：源文字与预览都比看得到的区域高。
+    await page.keyboard.insertText(Array.from({length: 80}, (_item, index) => `\n\n第 ${String(index + 1)} 段的文字。`).join(""));
+    const preview = entryPage(page).locator("[data-text-preview]");
+    await expect(preview).toContainText("第 80 段的文字。");
+    await page.keyboard.type("末尾接着写的字");
+    const last = preview.locator("p", {hasText: "末尾接着写的字"});
+    await expect(last).toHaveCount(1);
+    // 预览栏自己滚到了光标所在的那一段：它在栏里看得到的范围内。
+    await expect.poll(async () => {
+        const [pane, target] = [(await preview.boundingBox())!, (await last.boundingBox())!];
+        return target.y >= pane.y && target.y + target.height <= pane.y + pane.height;
+    }).toBe(true);
+    expect(await preview.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    // 页面往下滚（滚轮在输入框上：输入框不自己滚，交给页面）：预览栏吸在页头底边下面 12 像素，整栏都在视口里。
+    await textSource(page).hover();
+    await page.mouse.wheel(0, 1200);
+    const header = entryPage(page).locator("header");
+    await expect.poll(async () => {
+        const [head, pane] = [(await header.boundingBox())!, (await preview.boundingBox())!];
+        return [Math.round(pane.y - (head.y + head.height)), pane.y + pane.height <= 900];
+    }).toEqual([12, true]);
+
+    // 不留稿：放弃。
+    await entryPage(page).locator("[data-text-discard]").click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "放弃", exact: true}).click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
+    await expect(tabDot(page)).toHaveCount(0);
+});
+
 test("别处也改了主文字（验收 16）：另一个窗口先提交，这边提交时出对照；选“现在的”就照别处的那一版", async ({page, browser}) => {
     await open(page);
     await openEntry(page, "人物", "星瑕");

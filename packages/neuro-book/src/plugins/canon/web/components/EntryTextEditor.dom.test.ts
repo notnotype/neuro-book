@@ -134,14 +134,20 @@ describe("author-ui 输出 48：预览栏", () => {
         expect(off.emitted("update:preview")).toEqual([[true]]);
     });
 
-    it("宿主没给预览的内容（已删除的条目只列稿）：没有开关也没有预览栏", () => {
+    it("宿主没给预览的内容（已删除的条目只列稿）、或读不出块：没有开关也没有预览栏", () => {
         const wrapper = show({preview: true});
         expect([wrapper.find("[data-text-preview-toggle]").exists(), wrapper.find("[data-text-preview]").exists()]).toEqual([false, false]);
+        const frozen = withPreview({preview: true, frozen: true});
+        expect([frozen.find("[data-text-preview-toggle]").exists(), frozen.find("[data-text-preview]").exists()]).toEqual([false, false]);
     });
 
-    it("栏顶上的一句：写着的时候栏里的内容标成旧的；没有时不写、不标", async () => {
-        const wrapper = withPreview({preview: true, previewNote: "第 3 行第 3 列写得不对：缺一个花括号"});
-        expect([wrapper.get("[data-text-preview-note]").text(), wrapper.get("[data-text-preview-note]").attributes("role"), wrapper.find("[data-stale]").exists()]).toEqual(["第 3 行第 3 列写得不对：缺一个花括号", "status", true]);
+    it("栏顶上的一句：写着的时候栏里的内容标成旧的；没有时不写、不标。播报的区域一直在，那一句写在它里面", async () => {
+        const wrapper = withPreview({preview: true});
+        const status = () => wrapper.get("[data-text-preview] [role='status']");
+        expect([status().text(), wrapper.find("[data-text-preview-note]").exists(), wrapper.find("[data-stale]").exists()]).toEqual(["", false, false]);
+        await wrapper.setProps({previewNote: "第 3 行第 3 列写得不对：缺一个花括号"});
+        await flushPromises();
+        expect([status().text(), status().find("[data-text-preview-note]").exists(), wrapper.find("[data-stale]").exists()]).toEqual(["第 3 行第 3 列写得不对：缺一个花括号", true, true]);
         await wrapper.setProps({previewNote: ""});
         await flushPromises();
         expect(wrapper.find("[data-stale]").exists()).toBe(false);

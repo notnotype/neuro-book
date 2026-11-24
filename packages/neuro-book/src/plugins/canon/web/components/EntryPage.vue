@@ -54,7 +54,7 @@ const props = withDefaults(defineProps<{
     actionError?: string;
     /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：这三个控件不可用、悬停提示是它。默认空（能换）。 */
     positionLocked?: string;
-    /** 页头与内容列放宽到两栏的宽度（主文字左右分屏时，输出 48）。默认 false。 */
+    /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
 }>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: "", actionError: ""});
 
@@ -124,19 +124,21 @@ const commitAlias = (): void => {
 };
 
 /**
- * 给分页里要吸在页头下面的东西（主文字的预览栏，输出 48）两个尺寸，写成根上的 CSS 变量：页头吸顶时的高度，与滚动区看得到的
- * 高度。页头不吸顶（窄屏）时前一个是 0。滚动区是最近的会纵向滚动的上级（编辑区的页面容器），本组件只量它、不改它。
+ * 量三个尺寸：页头吸顶时的高度、滚动区看得到的高度与宽度。前两个写成根上的 CSS 变量，给分页里要吸在页头下面的东西（主文字
+ * 的预览栏，输出 48）用；页头不吸顶（窄屏）时高度是 0。宽度决定 `wide` 生不生效。滚动区是最近的会纵向滚动的上级（编辑区的
+ * 页面容器），本组件只量它、不改它。
  */
 const root = ref<HTMLElement | null>(null);
 const header = ref<HTMLElement | null>(null);
-const sticky = shallowRef({top: 0, viewport: 0});
+const sticky = shallowRef({top: 0, viewport: 0, width: 0});
 let scroller: HTMLElement | null = null;
 let sizes: ResizeObserver | null = null;
 const measure = (): void => {
     const head = header.value;
     const top = head !== null && getComputedStyle(head).position === "sticky" ? head.offsetHeight : 0;
     const viewport = scroller?.clientHeight ?? 0;
-    if (top !== sticky.value.top || viewport !== sticky.value.viewport) sticky.value = {top, viewport};
+    const width = scroller?.clientWidth ?? 0;
+    if (top !== sticky.value.top || viewport !== sticky.value.viewport || width !== sticky.value.width) sticky.value = {top, viewport, width};
 };
 const scrollParent = (from: HTMLElement): HTMLElement | null => {
     for (let element = from.parentElement; element !== null; element = element.parentElement) {
@@ -160,8 +162,12 @@ watch(header, (now, before) => {
 }, {flush: "post"});
 onBeforeUnmount(() => sizes?.disconnect());
 const stickyStyle = computed(() => ({"--entry-page-sticky-top": `${String(sticky.value.top)}px`, ...(sticky.value.viewport > 0 ? {"--entry-page-viewport": `${String(sticky.value.viewport)}px`} : {})}));
-/** 内容列的上限：平时一栏 760 像素；放宽时两栏各 760，加中间的间隔。 */
-const column = computed(() => (props.wide ? "entry-page__column entry-page__column--wide" : "entry-page__column"));
+/**
+ * 滚动区不窄于这个宽度才放宽：内容列左右各 32 像素的内边距，里面的编辑视图要 880 像素才左右分屏（`EntryTextEditor` 的容器
+ * 查询）。窄于它时放宽了也还是上下排，页头与内容白白变一次宽度。
+ */
+const WIDE_MIN = 880 + 64;
+const column = computed(() => (props.wide && sticky.value.width >= WIDE_MIN ? "entry-page__column entry-page__column--wide" : "entry-page__column"));
 
 const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
@@ -224,7 +230,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                 </div>
                 <Tabs class="mx-auto mt-3" :class="column" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
             </header>
-            <div class="mx-auto px-8 py-5 max-[480px]:px-4" :class="column" data-entry-page-body>
+            <div class="mx-auto px-8 py-5 max-[480px]:px-4" :class="column">
                 <p v-if="props.actionError !== ''" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-danger)]" data-entry-action-error>{{ props.actionError }}</p>
                 <slot name="bar" />
                 <p v-if="props.positionGone" role="status" class="mb-3 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.positionGone") }}</p>
@@ -238,10 +244,12 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
 </template>
 
 <style scoped>
-/* 页头、分页条与内容列同一个上限，放宽时一起变（主文字左右分屏，输出 48）。 */
+/*
+ * 页头、分页条与内容列同一个上限，放宽时一起变（主文字左右分屏，输出 48）。放宽后内容列去掉内边距是 1496 像素，两栏各约
+ * 736，不超过一栏时的 760。上限的变化不加过渡：过渡的中途内容列会越过左右分屏的分界，版式在动画中间跳一下。
+ */
 .entry-page__column {
     max-width: 760px;
-    transition: max-width var(--motion-move) var(--ease-layout);
 }
 .entry-page__column--wide {
     max-width: 1560px;

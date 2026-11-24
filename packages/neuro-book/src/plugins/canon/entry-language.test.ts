@@ -69,6 +69,20 @@ describe("author-ui 输出 48：条目主文字的着色", () => {
         expect(colored("```\n{不是表达式}\n```\n{panel.魔力}").map((line) => line.map(([, type]) => type))).toEqual([["string"], ["variable.source"], ["string"], ["delimiter.bracket", "type.field", "delimiter", "type.field", "delimiter.bracket"]]);
     });
 
+    it("没写完的写法只影响它那一段：行中间没闭合的花括号、没闭合的标签，空行以后照正文与标题画", () => {
+        expect(colored("他说{+5 \n\n下一段 有 2 个字\n# 标题").slice(2)).toEqual([[], [["# 标题", "keyword"]]]);
+        expect(colored('先写 <Ref id="e2"\n\n后面 word = 1').slice(2)).toEqual([[]]);
+    });
+
+    it("行首开始的表达式可以跨空行：空行后面还是表达式", () => {
+        expect(colored("{\n\npanel.魔力\n}").map((line) => line.map(([, type]) => type))).toEqual([["delimiter.bracket"], [], ["type.field", "delimiter", "type.field"], ["delimiter.bracket"]]);
+    });
+
+    it("加粗里的字段照样着色；两边带空格的星号不是强调", () => {
+        expect(colored("**{panel.魔力}**")[0]!.filter(([, type]) => type !== "")).toEqual([["{", "delimiter.bracket"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ["}", "delimiter.bracket"]]);
+        expect(colored("2 * 3 * 4")).toEqual([[]]);
+    });
+
     it("只含注释的表达式整个是注释", () => {
         expect(colored("{/* 待补 */}")).toEqual([[["{/* 待补 */}", "comment"]]]);
     });

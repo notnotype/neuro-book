@@ -104,21 +104,29 @@ const insert = (snippet: string): void => {
 
 /* ---------- 预览栏（输出 48） ---------- */
 
-const previewing = computed(() => props.preview && slots.preview !== undefined);
+/** 能预览：宿主给了内容，并且稿读得出块（读不出时宿主不读，栏里没有东西可画）。 */
+const canPreview = computed(() => slots.preview !== undefined && !props.frozen);
+const previewing = computed(() => props.preview && canPreview.value);
 const pane = shallowRef<HTMLElement | null>(null);
-/** 作者在这一次编辑里打过字：之前预览栏不自己滚（刚打开时从头看）。 */
-let typed = false;
+/**
+ * 作者刚打过字、预览栏还没跟过去。只跟这一次：之后栏里的内容再因为别的事变了（别处改了值、出错的那一句出现与消失），
+ * 不把作者自己滚到的位置拽回光标那里。
+ */
+let followNext = false;
 const onInput = (value: string): void => {
-    typed = true;
+    followNext = true;
     emit("update", value);
 };
 /**
  * 预览栏自己滚动时（左右分屏、内容比栏高），把光标所在那一行对应的段落滚进栏里。光标的位置在这时才取：输入框交出改动的
- * 那一刻光标还没挪到新位置。段落在源文字里的行号由宿主画在元素上（`data-source-line`）。
+ * 那一刻光标还没挪到新位置。段落在源文字里的行号由宿主画在元素上（`data-source-line`）。只看栏里的内容
+ * （`.text-editor__preview`）：栏顶上那一句的出现与消失不算内容换了。
  */
 const follow = (): void => {
     const box = pane.value;
-    if (box === null || !typed || box.scrollHeight <= box.clientHeight) return;
+    if (box === null || !followNext) return;
+    followNext = false;
+    if (box.scrollHeight <= box.clientHeight) return;
     const offset = input?.cursorOffset() ?? null;
     if (offset === null) return;
     const caret = props.text.slice(0, offset).split("\n").length;
@@ -138,7 +146,8 @@ const changes = typeof MutationObserver === "undefined" ? null : new MutationObs
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(follow);
 });
-watch(pane, (now) => {
+const previewBody = shallowRef<HTMLElement | null>(null);
+watch(previewBody, (now) => {
     changes?.disconnect();
     if (now !== null) changes?.observe(now, {childList: true, subtree: true, characterData: true});
 }, {flush: "post"});
@@ -176,7 +185,7 @@ defineExpose({focus});
                 </span>
             </Transition>
             <Transition name="text-editor-fade"><Button v-if="props.phase === 'confirming'" size="sm" variant="ghost" data-text-retry @click="emit('retry')">{{ text("textEdit.retry") }}</Button></Transition>
-            <Button v-if="slots.preview !== undefined" size="sm" :variant="props.preview ? 'subtle' : 'ghost'" :aria-pressed="props.preview" data-text-preview-toggle @click="emit('update:preview', !props.preview)">
+            <Button v-if="canPreview" size="sm" :variant="props.preview ? 'subtle' : 'ghost'" :aria-pressed="props.preview" data-text-preview-toggle @click="emit('update:preview', !props.preview)">
                 <span class="i-lucide-columns-2 size-3.5" aria-hidden="true" />{{ text("textEdit.preview") }}
             </Button>
             <DropdownMenu v-if="!props.frozen && insertItems.length > 0" align="end" :items="insertItems" :disabled="locked" @select="insert">
@@ -227,12 +236,15 @@ defineExpose({focus});
             </div>
             <Transition name="text-editor-pane">
                 <section v-if="previewing" ref="pane" class="text-editor__pane" :aria-label="text('textEdit.preview')" data-text-preview>
-                    <Transition name="text-editor-note">
-                        <div v-if="props.previewNote !== ''" class="text-editor__note">
-                            <p class="pb-2 text-[length:var(--text-xs)] text-[var(--status-warning)]" role="status" data-text-preview-note>{{ props.previewNote }}</p>
-                        </div>
-                    </Transition>
-                    <div class="text-editor__preview" :data-stale="props.previewNote !== '' ? '' : undefined"><slot name="preview" /></div>
+                    <!-- 播报的区域一直在，只换里面的字：随内容一起插进来的区域，读屏多半不报。 -->
+                    <div role="status">
+                        <Transition name="text-editor-note">
+                            <div v-if="props.previewNote !== ''" class="text-editor__note">
+                                <p class="pb-2 text-[length:var(--text-xs)] text-[var(--status-warning)]" data-text-preview-note>{{ props.previewNote }}</p>
+                            </div>
+                        </Transition>
+                    </div>
+                    <div ref="previewBody" class="text-editor__preview" :data-stale="props.previewNote !== '' ? '' : undefined"><slot name="preview" /></div>
                 </section>
             </Transition>
         </div>
@@ -354,18 +366,12 @@ defineExpose({focus});
 .text-editor-fade-leave-to {
     opacity: 0;
 }
-.text-editor-pane-enter-active,
-.text-editor-pane-leave-active {
+/* 预览栏出现时淡入；关掉时没有过渡，立刻让出位置（输入框马上变宽，不等它淡完）。 */
+.text-editor-pane-enter-active {
     transition: opacity var(--motion-fast) var(--ease-layout);
 }
-.text-editor-pane-enter-from,
-.text-editor-pane-leave-to {
+.text-editor-pane-enter-from {
     opacity: 0;
-}
-/* 退场的那一栏不占位置：否则输入框要等它淡完才变宽。 */
-.text-editor-pane-leave-active {
-    position: absolute;
-    visibility: hidden;
 }
 .text-editor-note-enter-active,
 .text-editor-note-leave-active {

@@ -37,7 +37,7 @@ export interface TextPreviewOptions {
     /** 要渲染什么；null 是不渲染（预览关着、不在编辑）。 */
     readonly input: () => PreviewInput | null;
     /** 变了就马上重读的东西：世界的版本、连接的状态（别处改了字段的值或条目的名字、重新连上）。 */
-    readonly stamp: () => unknown;
+    readonly stamp: () => string | number;
     /** 排一次延后的执行，返回取消它的函数；缺省用定时器，测试换成手动的。 */
     readonly schedule?: (run: () => void, ms: number) => () => void;
 }
@@ -102,7 +102,12 @@ export function useTextPreview(options: TextPreviewOptions): TextPreview {
         return input === null ? null : JSON.stringify([input.entry, input.position, input.mode]);
     };
     // 开始预览、换了位置或模式、世界变了：马上读。停下预览：在途的作废，留着的也丢掉（再打开时世界可能已经变了）。
-    watch(() => [target(), options.stamp()] as const, ([now]) => {
+    // 交给 `watch` 的是一个字符串：交数组的话每次求值都是新的一个，Vue 当它变了；而 `target()` 经 `input()` 也读到源文字，
+    // 于是源文字每变一次这里就马上读一次，下面那条的停顿白等。
+    watch(() => {
+        const now = target();
+        return now === null ? null : `${now}\u0000${String(options.stamp())}`;
+    }, (now) => {
         if (now !== null) {
             void read();
             return;

@@ -89,15 +89,17 @@ describe("author-ui 输出 48：预览什么时候读", () => {
 
         desk.source.value = `见 <Ref id="${other}" />`;
         await until(() => desk.shown() === "见 [条目 2]");
-        expect(desk.waiting().length).toBe(0);
+        expect([desk.waiting().length, desk.calls()]).toEqual([0, 1]);
 
         desk.source.value = "改一";
         await nextTick();
         desk.source.value = "改二";
         await nextTick();
-        expect([desk.waiting().map((timer) => timer.ms), desk.shown()]).toEqual([[PREVIEW_DELAY], "见 [条目 2]"]);
+        // 停顿之前一次也不发：只有一个等着的延后执行。
+        expect([desk.waiting().map((timer) => timer.ms), desk.shown(), desk.calls()]).toEqual([[PREVIEW_DELAY], "见 [条目 2]", 1]);
         desk.fire();
         await until(() => desk.shown() === "改二");
+        expect(desk.calls()).toBe(2);
         desk.dispose();
     }));
 
@@ -142,9 +144,10 @@ describe("author-ui 输出 48：预览什么时候读", () => {
         await nextTick();
         desk.source.value = null;
         await nextTick();
-        expect([desk.shown(), desk.waiting().length]).toEqual(["", 0]);
+        expect([desk.shown(), desk.waiting().length, desk.calls()]).toEqual(["", 0, 1]);
         desk.source.value = "丙";
         await until(() => desk.shown() === "丙");
+        expect(desk.calls()).toBe(2);
         desk.dispose();
     }));
 });

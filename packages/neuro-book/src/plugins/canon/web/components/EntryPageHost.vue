@@ -609,18 +609,21 @@ const textTab = useTextTab({
 void props.draft.load();
 /* ---------- 编辑时的预览（输出 48） ---------- */
 
-/** 预览栏在页面上：开关开着、在文字分页里编辑（已删除的条目只列稿，不预览；读不出位置时也不读）。 */
-const previewing = computed(() => state.preview !== false && tab.value === "text" && textTab.editing.value && view.value?.deleted !== true && !textTab.editor.value.frozen);
+/** “预览”开关开着（记在标签上；加这一项之前存下的标签没有它，按开着算）。 */
+const previewOn = computed(() => state.preview !== false);
+/** 预览栏在页面上：开关开着、在文字分页里编辑。已删除的条目只列稿，不预览；读不出块时（`frozen`）编辑视图不出预览栏，也不读。 */
+const previewing = computed(() => previewOn.value && tab.value === "text" && textTab.editing.value && view.value?.deleted !== true && !textTab.editor.value.frozen);
 const preview = useTextPreview({
     call: props.client.call,
     input: () => (previewing.value ? {entry: props.id, source: textTab.editor.value.text, position: position.value, mode: mode.value} : null),
     // 世界变了（别处改了字段的值、条目的名字）或重新连上：重读。
     stamp: () => `${String(world.status.value.data?.version ?? "")}|${world.connection.value}`,
 });
-/** 整篇是空的时候照阅读视图的空状态画。 */
-const previewBlocks = computed((): readonly EntryTextBlock[] => {
+/** 读到的那一块；整篇是空的时候给空数组，照阅读视图的空状态画。还没读到过时为 null：栏里什么都不画。 */
+const previewBlocks = computed((): readonly EntryTextBlock[] | null => {
     const block = preview.block.value;
-    return block === null || (block.tree.children ?? []).length === 0 ? [] : [block];
+    if (block === null) return null;
+    return (block.tree.children ?? []).length === 0 ? [] : [block];
 });
 const previewNote = computed(() => {
     if (preview.failure.value !== null) return text(preview.failure.value === "too-large" ? "textEdit.previewTooLarge" : "textEdit.previewUnavailable");
@@ -850,12 +853,12 @@ const setPosition = (value: string): void => {
                     :inserts="inserts"
                     :input="props.sourceInput ?? undefined"
                     :language="ENTRY_LANGUAGE"
-                    :preview="state.preview !== false"
+                    :preview="previewOn"
                     :preview-note="previewNote"
                     v-on="editorOn"
                 >
                     <template #preview>
-                        <EntryText :blocks="previewBlocks" :self="props.id" :interactive="false" data-text-preview-body />
+                        <EntryText v-if="previewBlocks !== null" :blocks="previewBlocks" :self="props.id" :interactive="false" />
                     </template>
                 </EntryTextEditor>
             <EntryText
