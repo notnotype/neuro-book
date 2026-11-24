@@ -2099,61 +2099,36 @@ function canonEntryPageFixtures() {
                 {id: "sample", label: "值、改过、未知、引用、出错的块", input: {props: {blocks, self: "xingxia", marks}}},
                 {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
                 {id: "editable", label: "能改：右上“编辑”", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
-                {id: "story", label: "选了某一章：每一块有剧情的菜单，文末“在剧情里加一块”", input: {props: {blocks, self: "xingxia", marks, editable: true, story: true}}},
                 {id: "empty", label: "还没有主文字：开始写", input: {props: {blocks: [], self: "xingxia", editable: true}}},
-                {id: "blocked", label: "写不了：入口不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先关掉按计划", story: true, storyReason: "先关掉按计划"}}},
-                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks, editable: true, story: true}}},
+                {id: "blocked", label: "写不了：入口不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先关掉按计划"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
             ],
             load: async () => (await import("./EntryTextFixture.vue")).default,
         }),
         defineLabFixture<typeof EntryTextEditor>({
             component: "EntryTextEditor",
             scenes: (() => {
-                const free = {edit: "", remove: "", split: "", merge: "", add: ""};
-                const story = {edit: "", remove: "剧情改过这一块，只能改字", split: "剧情改过这一块，只能改字", merge: "剧情改过这一块，只能改字", add: ""};
-                const block = (key: string, text: string, extra: Record<string, unknown> = {}) => ({key, text, state: "same" as const, story: false, blocked: free, problem: "", ...extra});
-                const base = {addFirstBlocked: "", count: 0, saved: "none" as const, phase: "idle" as const, submitBlocked: "", message: ""};
-                const plain = [
-                    block("b1", "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。", {blocked: {...free, merge: "前面没有块了"}}),
-                    block("b2", "她的银白色长发是天生的。\n\n存款 {panel.存款} 联邦币。"),
-                    block("b3", "现在她以哥哥的样子回到家。"),
-                ];
+                const base = {problem: "", dirty: false, saved: "none" as const, phase: "idle" as const, submitBlocked: "", message: ""};
+                const plain = "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的。\n\n存款 {panel.存款} 联邦币。";
+                const inserts = [{label: "面板 · 存款", snippet: "{panel.存款}"}, {label: "面板 · 魔力", snippet: "{panel.魔力}"}, {label: "人物 · 外观", snippet: "{character.外观}"}];
                 return [
-                    {id: "clean", label: "刚进编辑：没有改动，右边是“取消”", input: {props: {...base, blocks: plain}}},
-                    {id: "single", label: "只有一块：就是编辑一篇文字", input: {props: {...base, blocks: [block("b1", "第一段。\n\n第二段，和第一段在同一块里。", {blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "empty", label: "没有主文字：一个空的新块", input: {props: {...base, blocks: [block("new:1", "", {state: "new", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "dirty", label: "改了一块、加了一块、删了一块：已暂存", input: {props: {...base, count: 3, saved: "saved", blocks: [
-                        block("b1", "星瑕是个不怎么出门的数字游民，靠外包维生。", {state: "edited", blocked: {...free, merge: "前面没有块了"}}),
-                        block("new:1", "新加的一块。", {state: "new"}),
-                        block("b2", "她的银白色长发是天生的。", {state: "removed"}),
-                        block("b3", "现在她以哥哥的样子回到家。"),
-                    ]}}},
-                    {id: "story", label: "被剧情改过的块只能改字；紧挨着剧情加出来的块前面放不了新块", input: {props: {...base, blocks: [
-                        block("b1", "星瑕是个不怎么出门的数字游民。", {story: true, blocked: {...story, merge: "前面没有块了", add: "这里不能加块：后面是剧情加出来的块"}}),
-                        block("b4", "第 2 章里加的一块：她搬进了旧城区。", {story: true, blocked: story}),
-                        block("b2", "她的银白色长发是天生的。"),
-                    ]}}},
-                    {id: "problem", label: "有一块写得不对：原因在那一块下面", input: {props: {...base, count: 1, saved: "saved", blocks: [plain[0]!, block("b2", "存款 {panel.存款 联邦币。", {state: "edited", problem: "写得不对：Unexpected end of file in expression, expected a corresponding closing brace for `{` (1:4)"}), plain[2]!]}}},
-                    {id: "not-saved", label: "暂存写不进去", input: {props: {...base, count: 1, saved: "failed", blocks: [block("b1", "改过的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "unsaved", label: "正在打字：还没暂存，那一行不写状态", input: {props: {...base, count: 1, saved: "unsaved", blocks: [block("b1", "正在改的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "too-large", label: "内容太大，没有暂存", input: {props: {...base, count: 1, saved: "too-large", blocks: [block("b1", "很长很长的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "gone", label: "有一块已经被别处删了：等提交时选", input: {props: {...base, count: 1, saved: "saved", blocks: [plain[0]!, block("b2", "我改过、别处删掉的一块。", {state: "gone", blocked: {edit: "这一块已经被别处删了", remove: "这一块已经被别处删了", split: "这一块已经被别处删了", merge: "这一块已经被别处删了", add: "这一块已经被别处删了"}}), plain[2]!]}}},
-                    {id: "diverged", label: "另一个窗口也在改：用这里的、换成那边的", input: {props: {...base, count: 1, saved: "diverged", blocks: [block("b1", "改过的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "submitting", label: "正在提交：输入框只读", input: {props: {...base, count: 1, saved: "saved", phase: "submitting", blocks: [block("b1", "改过的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "confirming", label: "上一次提交结果不明：正在确认，可以再试或放弃", input: {props: {...base, count: 1, saved: "saved", phase: "confirming", blocks: [block("b1", "改过的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "blocked", label: "世界只读：提交不可用，原因写在那一行", input: {props: {...base, count: 1, saved: "saved", submitBlocked: "世界是只读的：日志里有一行认不出的格式", blocks: [block("b1", "改过的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "message", label: "提交没发出去：整批的说明", input: {props: {...base, count: 51, saved: "saved", message: "这次改了 51 处，一次最多提交 50 处", blocks: [block("b1", "改过的一块。", {state: "edited", blocked: {...free, merge: "前面没有块了"}})]}}},
-                    {id: "frozen", label: "开始编辑时的那一章没了：只能看与放弃", input: {props: {...base, count: 1, saved: "saved", frozen: true, message: "开始编辑时的那一章已经不在了：复制要留的文字，然后放弃", blocks: [block("b1", "改过的一块，还能选中复制。", {state: "edited", blocked: {edit: "x", remove: "x", split: "x", merge: "x", add: "x"}})]}}},
-                    {id: "many", label: "二十块", input: {props: {...base, blocks: Array.from({length: 20}, (_, index) => block(`b${String(index + 1)}`, `第 ${String(index + 1)} 块的文字。`, index === 0 ? {blocked: {...free, merge: "前面没有块了"}} : {}))}}},
-                    {id: "dirty-english", label: "英文界面", input: {props: {...base, count: 2, saved: "saved", blocks: [
-                        block("b1", "Xingxia rarely leaves her flat; she lives on contract work for small studios.", {state: "edited", blocked: {...free, merge: "There is no block before this one"}}),
-                        block("b2", "Her silver hair is natural.", {story: true, blocked: {edit: "", remove: "The story changed this block; only its text can be edited", split: "The story changed this block; only its text can be edited", merge: "The story changed this block; only its text can be edited", add: ""}}),
-                        block("new:1", "A new block.", {state: "new"}),
-                    ]}}},
-                    {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, count: 2, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", blocks: [
-                        block("b1", "Xingxia rarely leaves her flat; she lives on contract work for small studios.", {state: "edited", blocked: {...free, merge: "There is no block before this one", add: "No block can be added here: a block added by the story follows"}}),
-                        block("b2", "Her silver hair is natural.", {story: true, blocked: {edit: "", remove: "The story changed this block; only its text can be edited", split: "The story changed this block; only its text can be edited", merge: "The story changed this block; only its text can be edited", add: ""}}),
-                    ]}}},
+                    {id: "clean", label: "刚进编辑：没有改动，右边是“取消”", input: {props: {...base, text: plain, inserts}}},
+                    {id: "empty", label: "没有主文字：一个空的输入框", input: {props: {...base, text: "", inserts}}},
+                    {id: "no-fields", label: "条目没有字段：不出“插入”", input: {props: {...base, text: plain}}},
+                    {id: "dirty", label: "改过：已暂存", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n新加的一段。`, inserts}}},
+                    {id: "problem", label: "写得不对：原因在输入框下面", input: {props: {...base, dirty: true, saved: "saved", text: "存款 {panel.存款 联邦币。", problem: "写得不对：Unexpected end of file in expression, expected a corresponding closing brace for `{` (1:4)", inserts}}},
+                    {id: "not-saved", label: "暂存写不进去", input: {props: {...base, dirty: true, saved: "failed", text: plain, inserts}}},
+                    {id: "unsaved", label: "正在打字：还没暂存，那一行不写状态", input: {props: {...base, dirty: true, saved: "unsaved", text: plain, inserts}}},
+                    {id: "too-large", label: "内容太大，没有暂存", input: {props: {...base, dirty: true, saved: "too-large", text: plain, inserts}}},
+                    {id: "diverged", label: "另一个窗口也在改：用这里的、换成那边的", input: {props: {...base, dirty: true, saved: "diverged", text: plain, inserts}}},
+                    {id: "submitting", label: "正在提交：输入框只读", input: {props: {...base, dirty: true, saved: "saved", phase: "submitting", text: plain, inserts}}},
+                    {id: "confirming", label: "上一次提交结果不明：正在确认，可以再试或放弃", input: {props: {...base, dirty: true, saved: "saved", phase: "confirming", text: plain, inserts}}},
+                    {id: "blocked", label: "世界只读：提交不可用，原因写在那一行", input: {props: {...base, dirty: true, saved: "saved", submitBlocked: "世界是只读的：日志里有一行认不出的格式", text: plain, inserts}}},
+                    {id: "message", label: "提交没发出去：整批的说明", input: {props: {...base, dirty: true, saved: "saved", message: "别处一直在改，稍后再提交", text: plain, inserts}}},
+                    {id: "frozen", label: "开始编辑时的那一章没了：只能看与放弃", input: {props: {...base, dirty: true, saved: "saved", frozen: true, message: "开始编辑时的那一章已经不在了：复制要留的文字，然后放弃", text: "改过的文字，还能选中复制。", inserts}}},
+                    {id: "long", label: "四十段", input: {props: {...base, text: Array.from({length: 40}, (_, index) => `第 ${String(index + 1)} 段的文字。`).join("\n\n"), inserts}}},
+                    {id: "dirty-english", label: "英文界面", input: {props: {...base, dirty: true, saved: "saved", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.\n\nHer silver hair is natural.", inserts: [{label: "Panel · Savings", snippet: "{panel.存款}"}]}}},
+                    {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, dirty: true, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.", inserts: [{label: "Panel · Savings", snippet: "{panel.存款}"}]}}},
                 ];
             })(),
             load: async () => (await import("./EntryTextEditorFixture.vue")).default,

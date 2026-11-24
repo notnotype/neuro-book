@@ -1,7 +1,7 @@
 /**
  * 条目页文字分页的宿主逻辑（docs/specs/canon/author-ui.md 输出 39、44 到 46）：把这个条目的稿会话（`text-drafts.ts`）接到编辑视图
- * `EntryTextEditor` 与冲突对话框 `TextConflictDialog` 上。组件是受控的，写入都在这里：编辑视图的每个动作换成稿模型
- * （`text-draft.ts`）的一次操作；提交的结局换成那一行的说明、冲突对话框或保存后的提示。
+ * `EntryTextEditor` 与冲突对话框 `TextConflictDialog` 上。组件是受控的，写入都在这里：作者改的是整篇（`text-whole.ts`），每次
+ * 输入换成整篇的一次改写；提交的结局换成那一行的说明、冲突对话框或保存后的提示。
  *
  * 会话不随页面卸载（标签不在前台时圆点还要问它），所以这里不持有稿，只持有这一页的界面状态：整批的说明、冲突对话框开没开、
  * 作者在对话框里选到一半的选择。
@@ -10,22 +10,18 @@
 import {computed, reactive, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
-import type {EntryOp, ReadPosition} from "@notnotype/nb-canon/schema";
+import type {ReadPosition} from "@notnotype/nb-canon/schema";
 
 import type {CanonClient} from "../shared/contracts";
-import type {EditorBlock} from "./components/entry-text-editor";
 import type {ConflictChoice, ConflictItem} from "./components/text-conflict-dialog";
 import {failureText} from "./failures";
 import type {CanonNotices} from "./notices";
-import {addAfter, allowed, changedCount, isNewKey, isRemoved, mergeUp, own, removeBlock, restoreBlock, setText, splitAt, SUBMIT_OPS_MAX, textOf} from "./text-draft";
-import type {Blocked, Conflict} from "./text-draft";
-import {SUBMIT_ATTEMPTS} from "./text-drafts";
+import {hasChanges, SUBMIT_OPS_MAX} from "./text-draft";
 import type {BlockProblem, Blocker, SubmitResult, TextDraftSession} from "./text-drafts";
+import {joinBlocks, setWhole, toWhole, wholeProblem} from "./text-whole";
+import type {WholeConflict, WholeProblem} from "./text-whole";
 import type {useCanonText} from "./text";
 import type {CanonWorld} from "./world";
-
-/** 剧情对话框的一次写入的结局：`changed` 是对话框对着的那一块被别处改了（现在的原文；null 是已经不在了）。 */
-export type StoryWritten = {readonly ok: true} | {readonly ok: false; readonly changed: string | null} | {readonly ok: false; readonly failure: string};
 
 export interface TextTabOptions {
     readonly entry: string;
@@ -51,9 +47,11 @@ export interface TextTab {
     readonly dirty: ComputedRef<boolean>;
     /** 编辑视图的属性。 */
     readonly editor: ComputedRef<{
-        readonly blocks: readonly EditorBlock[];
-        readonly addFirstBlocked: string;
-        readonly count: number;
+        /** 作者的整篇；读不出块时是稿里存着的那一份。 */
+        readonly text: string;
+        /** 输入框下面要写的原因（内核说写得不对）；空串没有。 */
+        readonly problem: string;
+        readonly dirty: boolean;
         readonly saved: TextDraftSession["state"]["saved"];
         readonly phase: TextDraftSession["state"]["phase"];
         readonly submitBlocked: string;
@@ -63,14 +61,11 @@ export interface TextTab {
     readonly conflicts: ComputedRef<readonly ConflictItem[]>;
     /** 冲突对话框开着。 */
     readonly asking: ShallowRef<boolean>;
-    /** 进编辑；返回没进去的原因（读不出块），空串是进去了。没进去时人还在阅读视图，由宿主写在那里。 */
+    /** 进编辑；返回没进去的原因（读不出块、这个条目不能整篇改），空串是进去了。没进去时人还在阅读视图，由宿主写在那里。 */
     start(): Promise<string>;
-    update(key: string, text: string): void;
-    add(after: string | null): void;
-    split(key: string, offset: number): void;
-    merge(key: string): void;
-    remove(key: string): void;
-    restore(key: string): void;
+    update(text: string): void;
+    /** 在整篇的 `offset` 处插入一段写法；`offset` 为 null（取不到光标）时接在末尾。 */
+    insert(snippet: string, offset: number | null): void;
     flush(): void;
     leave(): Promise<void>;
     submit(): Promise<void>;
@@ -79,12 +74,10 @@ export interface TextTab {
     adopt(): Promise<void>;
     choose(id: string, choice: ConflictChoice): void;
     confirmConflicts(): Promise<void>;
-    /**
-     * 剧情的三个对话框的写入（输出 39）：记一条剧情变化。带读块时的读取戳，之间世界变了就重读；`block` 是对话框对着的那一块与
-     * 打开时的原文，重读到的原文不一样就不发、交回现在的。
-     */
-    storyWrite(request: {readonly title: string; readonly ops: EntryOp[]; readonly block?: {readonly id: string; readonly source: string}}): Promise<StoryWritten>;
 }
+
+/** 对话框里那一条冲突的 id：整篇只有一条。 */
+const WHOLE = "whole";
 
 export function useTextTab(options: TextTabOptions): TextTab {
     const {session, text} = options;
@@ -101,76 +94,44 @@ export function useTextTab(options: TextTabOptions): TextTab {
         if (now === "") blockedAsked.value = false;
     });
     /**
-     * 作者在对话框里选到一半的选择，按“这一条冲突是什么”记（哪一块、哪一种、两边各是什么）：回去再改、再提交时同一条冲突还选着；
-     * 两边的文字变了、换了一份稿（放弃再开始、换成那边的）就是另一条冲突，不带着上一次的选择。
+     * 作者在对话框里选到一半的选择，按“这一条冲突是什么”记（两边各是什么）：回去再改、再提交时同一条冲突还选着；两边的文字
+     * 变了、换了一份稿（放弃再开始、换成那边的）就是另一条冲突，不带着上一次的选择。
      */
     const choices = reactive(new Map<string, ConflictChoice>());
-    const signature = (conflict: Conflict): string => JSON.stringify([conflict.kind, conflict.key, "mine" in conflict ? conflict.mine : null, "theirs" in conflict ? conflict.theirs : null]);
+    const signature = (conflict: WholeConflict): string => JSON.stringify([conflict.mine, conflict.theirs]);
+    /** 整篇的稿至多一条冲突。按块的冲突只会出自还没换算的旧稿，这一页不提交那样的稿（见下面的 `watch`）。 */
+    const conflict = computed((): WholeConflict | null => state.conflicts.find((item): item is WholeConflict => item.kind === "whole") ?? null);
     const blockerText = (blocker: Blocker): string => text(blocker === "chapter-not-found" ? "textEdit.blockerChapter" : blocker === "line-not-found" ? "textEdit.blockerLine" : blocker === "entry-missing" ? "textEdit.blockerEntry" : blocker === "too-large" ? "textEdit.blockerTooLarge" : "textEdit.blockerUnavailable");
 
-    const reason = (blocked: Blocked | null): string => {
-        if (blocked === null) return "";
-        switch (blocked.kind) {
-            case "story": return text("textEdit.blockedStory");
-            case "carried": return text("textEdit.blockedCarried");
-            case "before-story": return text("textEdit.blockedBeforeStory");
-            case "not-adjacent": return text("textEdit.blockedNotAdjacent");
-            case "first": return text("textEdit.blockedFirst");
-            case "removed": return text("textEdit.blockedRemoved");
-            case "gone": return text("textEdit.blockedGone");
-        }
-    };
+    const wholeReason = (problem: WholeProblem): string => (problem.kind === "too-many" ? text("textEdit.wholeTooMany", {count: problem.count, max: SUBMIT_OPS_MAX}) : text("textEdit.wholeStory"));
     const problemText = (problem: BlockProblem | undefined): string => {
         if (problem === undefined) return "";
-        if (problem.kind === "rejected") return text("textEdit.problemRejected", {message: problem.message});
-        return problem.reason.kind === "before-story" || problem.reason.kind === "carried" ? text("textEdit.problemSlot") : text("textEdit.problemClear");
+        return problem.kind === "rejected" ? text("textEdit.problemRejected", {message: problem.message}) : text("textEdit.wholeStory");
     };
 
-    const blocks = computed((): EditorBlock[] => {
+    /**
+     * 按块改出来的旧稿（没有 `whole`）一见到就换算成整篇：这一页只会改、只会提交整篇的稿。等着上一次提交结局的不动（冻结着
+     * 的请求要原样重发），它确认完以后稿要么收掉、要么解冻再走到这里。
+     */
+    watch(() => [state.draft, state.read, state.phase] as const, ([draft, read, phase]) => {
+        if (draft === null || read === null || phase !== "idle" || draft.whole !== undefined || draft.pending !== undefined) return;
+        session.edit((old, from) => (old.whole === undefined ? toWhole(old, from) : old));
+    }, {immediate: true});
+
+    const whole = computed((): string => {
         const [draft, read] = [state.draft, state.read];
-        if (draft === null) return [];
-        if (read === null) {
-            // 读不出块：只有稿里动过的文字可看。
-            const frozen = text("textEdit.blockedGone");
-            return draft.order.filter((key) => own(draft.texts, key) !== undefined || isRemoved(draft, key)).map((key) => ({
-                key,
-                text: own(draft.texts, key) ?? own(draft.base, key) ?? "",
-                state: isNewKey(key) ? "new" : isRemoved(draft, key) ? "removed" : "edited",
-                story: false,
-                blocked: {edit: frozen, remove: frozen, split: frozen, merge: frozen, add: frozen},
-                problem: "",
-            }));
-        }
-        const can = allowed(draft, read);
-        return draft.order.map((key): EditorBlock => {
-            const info = read.blocks.find((block) => block.id === key);
-            const allow = can.blocks.get(key)!;
-            const blockState: EditorBlock["state"] = isNewKey(key) ? "new" : isRemoved(draft, key) ? "removed" : info === undefined ? "gone" : own(draft.base, key) !== undefined ? "edited" : "same";
-            return {
-                key,
-                text: textOf(draft, read, key),
-                state: blockState,
-                story: info !== undefined && (info.fixed.length > 0 || info.write !== "init"),
-                blocked: {edit: reason(allow.edit), remove: reason(allow.remove), split: reason(allow.split), merge: reason(allow.mergeUp), add: reason(allow.addAfter)},
-                problem: problemText(own(state.problems, key)),
-            };
-        });
+        if (draft === null) return "";
+        if (draft.whole !== undefined) return draft.whole.text;
+        // 还没换算的旧稿：读得出块时照换算的结果显示，读不出时只有稿里动过的文字。
+        return read !== null ? toWhole(draft, read).whole?.text ?? "" : Object.values(draft.texts).join("\n\n");
     });
 
-    const dirty = computed(() => state.draft !== null && (changedCount(state.draft) > 0 || state.draft.pending !== undefined));
+    const dirty = computed(() => state.draft !== null && (hasChanges(state.draft) || state.draft.pending !== undefined));
 
-    const conflictItem = (conflict: Conflict): ConflictItem => {
-        const chosen = choices.get(signature(conflict)) ?? null;
-        if (conflict.kind === "changed") return {id: conflict.key, kind: "changed", mine: conflict.mine, theirs: conflict.theirs, choice: chosen};
-        if (conflict.kind === "gone") return {id: conflict.key, kind: "gone", mine: conflict.mine, theirs: null, choice: chosen};
-        if (conflict.kind === "rerouted") {
-            // 拆过、并过的块没有能自动做的选择：只说明情况，作者回去整理。
-            if (conflict.manual) return {id: conflict.key, kind: "manual", mine: conflict.mine, theirs: conflict.theirs, reason: text("textEdit.conflictManual"), choice: null};
-            return {id: conflict.key, kind: "rerouted", mine: conflict.mine, theirs: conflict.theirs, reason: text("textEdit.conflictRerouted"), choice: chosen};
-        }
-        // 现在做不了的只有一个选择，不用作者再点一次。
-        const why = conflict.reason.kind === "not-adjacent" ? "textEdit.conflictNotAdjacent" : conflict.remove ? "textEdit.conflictLockedRemove" : "textEdit.conflictLockedEdit";
-        return {id: conflict.key, kind: "locked", mine: null, theirs: state.read?.blocks.find((block) => block.id === conflict.key)?.source ?? null, reason: text(why), choice: "theirs"};
+    const conflictItem = (item: WholeConflict): ConflictItem => {
+        // 现在不能整篇改了的只有一个选择，不用作者再点一次。
+        if (item.locked !== undefined) return {id: WHOLE, kind: "locked", mine: item.mine, theirs: item.theirs, reason: wholeReason(item.locked), choice: "theirs"};
+        return {id: WHOLE, kind: "changed", mine: item.mine, theirs: item.theirs, choice: choices.get(signature(item)) ?? null};
     };
 
     /** 一次提交没发出去、要整批写明的原因；别的结局是空串。 */
@@ -192,9 +153,9 @@ export function useTextTab(options: TextTabOptions): TextTab {
         message.value = resultMessage(result);
         if (result.status === "published" && result.revision !== undefined) options.notices.show({revision: result.revision, title});
         if (result.status === "conflicts") {
-            // 上一轮选过、这一轮还在的冲突留着选择；不在了的丢掉。
-            const still = new Set(state.conflicts.map(signature));
-            for (const key of [...choices.keys()]) if (!still.has(key)) choices.delete(key);
+            // 上一轮选过、这一轮还是那一条冲突的留着选择；两边的文字变了就丢掉。
+            const still = conflict.value === null ? null : signature(conflict.value);
+            for (const key of [...choices.keys()]) if (key !== still) choices.delete(key);
             asking.value = true;
         }
     };
@@ -241,9 +202,9 @@ export function useTextTab(options: TextTabOptions): TextTab {
         editing: computed(() => state.draft !== null),
         dirty,
         editor: computed(() => ({
-            blocks: blocks.value,
-            addFirstBlocked: state.draft === null || state.read === null ? "" : reason(allowed(state.draft, state.read).first),
-            count: state.draft === null ? 0 : changedCount(state.draft),
+            text: whole.value,
+            problem: problemText(Object.values(state.problems)[0]),
+            dirty: dirty.value,
             saved: state.saved,
             phase: state.phase,
             submitBlocked: options.blocked(),
@@ -252,23 +213,25 @@ export function useTextTab(options: TextTabOptions): TextTab {
             message: message.value !== "" ? message.value : blockedAsked.value && options.blocked() !== "" ? options.blocked() : state.resumed !== null && resultMessage(state.resumed) !== "" ? resultMessage(state.resumed) : state.blocker === null ? "" : blockerText(state.blocker),
             frozen: state.draft !== null && state.read === null,
         })),
-        conflicts: computed(() => state.conflicts.map(conflictItem)),
+        conflicts: computed(() => (conflict.value === null ? [] : [conflictItem(conflict.value)])),
         asking,
         start: async () => {
             message.value = "";
             choices.clear();
             const failed = await session.begin(options.position());
             if (state.draft === null) return blockerText(failed ?? "unavailable");
-            // 没有主文字：先放一个空的新块，进来就能写（空的新块不算改动，也不会发出去）。
-            if (state.draft.order.length === 0) session.edit((draft) => addAfter(draft, null).draft);
-            return "";
+            // 这些块不能整篇改（有随剧情变的段落、块太多）：没有要保住的改动时不进编辑。带着改动的稿照常进，提交时再问。
+            const problem = state.read === null || hasChanges(state.draft) || state.draft.pending !== undefined ? null : wholeProblem(state.read);
+            if (problem === null) return "";
+            await session.discard();
+            return wholeReason(problem);
         },
-        update: (key, value) => edit((draft, read) => setText(draft, read, key, value)),
-        add: (after) => edit((draft) => addAfter(draft, after).draft),
-        split: (key, offset) => edit((draft, read) => splitAt(draft, read, key, offset).draft),
-        merge: (key) => edit((draft, read) => mergeUp(draft, read, key)?.draft ?? draft),
-        remove: (key) => edit((draft, read) => removeBlock(draft, read, key)),
-        restore: (key) => edit((draft, read) => restoreBlock(draft, read, key)),
+        update: (value) => edit((draft, read) => setWhole(draft, read, value)),
+        insert: (snippet, offset) => edit((draft, read) => {
+            const now = draft.whole?.text ?? joinBlocks(read);
+            const at = offset === null ? now.length : Math.min(Math.max(offset, 0), now.length);
+            return setWhole(draft, read, `${now.slice(0, at)}${snippet}${now.slice(at)}`);
+        }),
         flush: () => void session.flush(),
         leave: async () => {
             message.value = "";
@@ -288,47 +251,16 @@ export function useTextTab(options: TextTabOptions): TextTab {
             choices.clear();
             return session.adopt();
         },
-        choose: (id, choice) => {
-            const conflict = state.conflicts.find((item) => item.key === id);
-            if (conflict !== undefined) choices.set(signature(conflict), choice);
+        choose: (_id, choice) => {
+            if (conflict.value !== null) choices.set(signature(conflict.value), choice);
         },
         confirmConflicts: async () => {
-            const picked = [...state.conflicts];
-            // 这一轮里有与别的块换过文字的块、有现在做不了而撤掉的动作：稿的结构变了，让作者看过再提交，不接着发。
-            const review = picked.some((conflict) => conflict.structural === true || conflict.kind === "locked");
-            for (const conflict of picked) session.choose(conflict, conflict.kind === "locked" ? "theirs" : choices.get(signature(conflict)) ?? "theirs");
+            const picked = conflict.value;
+            if (picked !== null) session.choose(picked, picked.locked !== undefined ? "theirs" : choices.get(signature(picked)) ?? "theirs");
             choices.clear();
             asking.value = false;
-            if (review) message.value = text("textEdit.resultReview");
-            else await submit(true);
-        },
-        storyWrite: async (request) => {
-            for (let round = 0; round < SUBMIT_ATTEMPTS; round += 1) {
-                const read = await options.call("textBlocks", {id: options.entry, position: options.position()});
-                if (!read.ok) return {ok: false, failure: options.translate(failureText(read.failure).text)};
-                if (read.value === null) return {ok: false, failure: text("textEdit.blockerEntry")};
-                if (request.block !== undefined) {
-                    const now = read.value.blocks.find((block) => block.id === request.block!.id)?.source ?? null;
-                    if (now !== request.block.source) return {ok: false, changed: now};
-                }
-                const result = await options.world.write("editEntries", {input: {
-                    requestId: `text-story-${crypto.randomUUID()}`,
-                    by: {kind: "author"},
-                    what: "edit",
-                    title: request.title,
-                    baseVersion: read.value.version,
-                    readStamp: {version: read.value.version, input: read.value.inputDigest},
-                    intent: "story",
-                    position: read.value.at,
-                    ops: request.ops,
-                }});
-                if (result.ok) {
-                    options.notices.show({revision: result.value.revision, title: request.title});
-                    return {ok: true};
-                }
-                if (result.failure.code !== "stale-read" && result.failure.code !== "version-conflict") return {ok: false, failure: options.translate(failureText(result.failure).text)};
-            }
-            return {ok: false, failure: text("block.busyElsewhere")};
+            // 选了“现在的”以后没有要发的：照样走一遍，让会话收场、回到阅读视图。
+            await submit(true);
         },
     };
 }

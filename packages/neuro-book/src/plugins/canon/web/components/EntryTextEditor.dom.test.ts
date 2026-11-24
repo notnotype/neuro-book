@@ -1,6 +1,6 @@
 /**
- * 按块编辑的编辑视图（EntryTextEditor.vue；docs/specs/canon/author-ui.md 输出 39、45、46）自己管的几件事：离开的按钮什么时候先问、
- * Esc、另一个窗口也在改与等结局时的按钮、拆开以后焦点与光标去哪。输入框用组件自带的退路（普通文本框）。写入与提交在宿主那边，
+ * 整篇编辑的编辑视图（EntryTextEditor.vue；docs/specs/canon/author-ui.md 输出 39、45、46）自己管的几件事：离开的按钮什么时候先问、
+ * Esc、另一个窗口也在改与等结局时的按钮、打字与“插入”发出什么。输入框用组件自带的退路（普通文本框）。写入与提交在宿主那边，
  * 见 `entry-page.dom.test.ts`。
  */
 
@@ -11,16 +11,13 @@ import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {canonCatalogs} from "../text";
 import EntryTextEditor from "./EntryTextEditor.vue";
-import type {EditorBlock} from "./entry-text-editor";
 
 const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
-const free = {edit: "", remove: "", split: "", merge: "", add: ""};
-const block = (key: string, text: string, extra: Partial<EditorBlock> = {}): EditorBlock => ({key, text, state: "same", story: false, blocked: free, problem: "", ...extra});
-const base = {addFirstBlocked: "", count: 0, saved: "none" as const, phase: "idle" as const, submitBlocked: "", message: ""};
+const base = {text: "第一段。", problem: "", dirty: false, saved: "none" as const, phase: "idle" as const, submitBlocked: "", message: ""};
 
 const mounted: Array<ReturnType<typeof mount>> = [];
 const show = (props: Record<string, unknown>) => {
-    const wrapper = mount(EntryTextEditor, {props: {...base, blocks: [block("b1", "第一块。")], ...props}, global: {provide: provideText(port)}, attachTo: document.body});
+    const wrapper = mount(EntryTextEditor, {props: {...base, ...props}, global: {provide: provideText(port)}, attachTo: document.body});
     mounted.push(wrapper);
     return wrapper;
 };
@@ -43,7 +40,7 @@ describe("author-ui 输出 39、45：离开编辑", () => {
     });
 
     it("有改动、读不出块、等上一次提交的结局时是“放弃”：先问一句，确认才发；这时 Esc 不接", async () => {
-        for (const props of [{count: 1, blocks: [block("b1", "改过。", {state: "edited"})]}, {frozen: true}, {phase: "confirming" as const}]) {
+        for (const props of [{dirty: true, text: "改过。"}, {frozen: true}, {phase: "confirming" as const}]) {
             const wrapper = show(props);
             expect([wrapper.find("[data-text-discard]").exists(), wrapper.find("[data-text-cancel]").exists(), wrapper.get("[data-text-discard]").text()]).toEqual([true, false, "放弃"]);
             escape(wrapper);
@@ -61,12 +58,12 @@ describe("author-ui 输出 39、45：离开编辑", () => {
 
 describe("author-ui 输出 45、46：状态行", () => {
     it("另一个窗口也在改：两个按钮各发各的；等上一次提交的结局：写“正在确认”，有“再试”，提交点不了", async () => {
-        const diverged = show({count: 1, saved: "diverged", blocks: [block("b1", "改过。", {state: "edited"})]});
+        const diverged = show({dirty: true, saved: "diverged", text: "改过。"});
         await diverged.get("[data-text-take-over]").trigger("click");
         await diverged.get("[data-text-adopt]").trigger("click");
         expect([diverged.emitted("take-over")?.length, diverged.emitted("adopt")?.length, diverged.get("[data-text-submit]").attributes("disabled") !== undefined]).toEqual([1, 1, true]);
 
-        const confirming = show({count: 1, saved: "saved", phase: "confirming", blocks: [block("b1", "改过。", {state: "edited"})]});
+        const confirming = show({dirty: true, saved: "saved", phase: "confirming", text: "改过。"});
         expect([confirming.get("[data-text-confirming]").text(), confirming.find("[data-text-saved]").exists(), confirming.get("[data-text-submit]").attributes("disabled") !== undefined]).toEqual(["正在确认上一次提交", false, true]);
         await confirming.get("[data-text-retry]").trigger("click");
         expect(confirming.emitted("retry")?.length).toBe(1);
@@ -76,28 +73,41 @@ describe("author-ui 输出 45、46：状态行", () => {
 
     it("“提交”点不了的原因写在状态行；整批的说明里正写着同一句时不写两遍", async () => {
         const reason = "世界是只读的";
-        const wrapper = show({count: 1, saved: "saved", submitBlocked: reason, blocks: [block("b1", "改过。", {state: "edited"})]});
+        const wrapper = show({dirty: true, saved: "saved", submitBlocked: reason, text: "改过。"});
         expect([wrapper.get("[data-text-submit-blocked]").text(), wrapper.find("[data-text-message]").exists()]).toEqual([reason, false]);
         await wrapper.setProps({message: reason});
         expect([wrapper.find("[data-text-submit-blocked]").exists(), wrapper.get("[data-text-message]").text()]).toEqual([false, reason]);
     });
 });
 
-describe("author-ui 输出 39：拆开以后", () => {
-    it("带着光标的位置发 split；宿主给回两块以后焦点进新的那一块，光标在它的开头", async () => {
-        const wrapper = show({blocks: [block("b1", "前半。后半。")]});
-        // 同真实的宿主：收到 split 就在同一拍里把新的块给回来。
-        const offsets: number[] = [];
-        await wrapper.setProps({onSplit: (_key: string, offset: number) => {
-            offsets.push(offset);
-            void wrapper.setProps({blocks: [block("b1", "前半。", {state: "edited"}), block("new:1", "后半。", {state: "new"})], count: 2});
-        }});
+describe("author-ui 输出 39：输入与“插入”", () => {
+    it("打字发 update；内核说写得不对时原因在输入框下面；提交在途时输入框只读、“插入”点不了", async () => {
+        const wrapper = show({inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}]});
+        await wrapper.get("textarea").setValue("第一段。改了");
+        expect(wrapper.emitted("update")).toEqual([["第一段。改了"]]);
+        expect(wrapper.find("[data-text-problem]").exists()).toBe(false);
+        await wrapper.setProps({problem: "写得不对：少了一个花括号"});
+        expect(wrapper.get("[data-text-problem]").text()).toBe("写得不对：少了一个花括号");
+        await wrapper.setProps({phase: "submitting"});
+        expect([wrapper.get("textarea").attributes("readonly") !== undefined, wrapper.get("[data-text-insert]").attributes("disabled") !== undefined]).toEqual([true, true]);
+    });
+
+    it("从“插入”里选一个字段：带着光标的位置发 insert，焦点回到输入框；条目没有字段时不出“插入”", async () => {
+        const wrapper = show({text: "魔力：点", inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}, {label: "面板 · 存款", snippet: "{panel.存款}"}]});
         const area = wrapper.get("textarea").element as HTMLTextAreaElement;
         area.focus();
         area.setSelectionRange(3, 3);
-        await wrapper.get("[data-text-split]").trigger("click");
+        const trigger = wrapper.get("[data-text-insert]").element as HTMLElement;
+        trigger.focus();
+        trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
         await flushPromises();
-        const areas = wrapper.findAll("textarea").map((item) => item.element as HTMLTextAreaElement);
-        expect([offsets, areas.map((item) => item.value), document.activeElement === areas[1], areas[1]?.selectionStart]).toEqual([[3], ["前半。", "后半。"], true, 0]);
+        await flushPromises();
+        const items = [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")];
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["面板 · 魔力", "面板 · 存款"]);
+        items[0]!.click();
+        await flushPromises();
+        expect([wrapper.emitted("insert"), document.activeElement === area]).toEqual([[["{panel.魔力}", 3]], true]);
+
+        expect(show({}).find("[data-text-insert]").exists()).toBe(false);
     });
 });
