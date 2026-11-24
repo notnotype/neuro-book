@@ -31,7 +31,7 @@
 ### 3.2 文字分页（`text-tab.ts`、`components/EntryTextEditor.vue`、`TextConflictDialog.vue`、`EntryPageHost.vue`、`EntryText.vue`）
 
 - `text-tab.ts`：编辑视图的属性从块的列表换成 `text`（稿的整篇；读不出块时也给稿里的）与 `problem`（内核拒收的原因、行、列）；动作只剩 `update(text)`、`insert(snippet, offset)`、提交、放弃、另一窗口的两个选择、再试。`start()` 在 `wholeProblem` 非空时不进编辑、返回原因。冲突只有一条，对话框的两个选择对应 `mine`、`theirs`；`locked` 的只能照现在的来。
-- `EntryTextEditor.vue`：状态行与各状态照旧（正在确认、另一个窗口也在改、读不出位置时只列稿），块的列表换成一个输入框，去掉块的增、拆、并、删、恢复；状态行左边加“插入”（nb-ui 的下拉菜单）：本条目各命名空间的字段（显示名）与“条目引用……”（现有的 `EntryPicker`）。插入的位置取输入框的 `cursorOffset()`，取不到时接在末尾。
+- `EntryTextEditor.vue`：状态行与各状态照旧（正在确认、另一个窗口也在改、读不出位置时只列稿），块的列表换成一个输入框，去掉块的增、拆、并、删、恢复；状态行加“插入”（nb-ui 的下拉菜单，条目有字段时才出）：本条目各设定组的字段。插入的位置取输入框的 `cursorOffset()`，取不到时接在末尾。条目引用要另接条目选择器的对话框，这一版不做。
 - `TextConflictDialog.vue`：仍是并排对照加选择，条目只有一条，标题里的“第 N 块”换成“主文字”。
 - `EntryPageHost.vue`：接上面的属性与动作；删掉每块的剧情菜单、文末“在剧情里加一块”与它们的对话框代码（`text-tab.ts` 的 `storyWrite` 一并删）。
 - `EntryText.vue`：去掉 `story` 属性与剧情菜单；排版改用章节的正文样式（`@notnotype/nb-markdown/markdown.css` 的类），值按钮、来历照旧。
@@ -59,7 +59,7 @@
 |---|---|
 | 输出 39：点“编辑”得到读到的各块连成的整篇；提交后是一块 | `text-tab.test.ts`（真实世界服务）；e2e |
 | 输出 39：有随剧情变的段落、超过 50 块的条目进不了编辑并写原因 | `text-whole.test.ts`；`text-tab.test.ts` |
-| 输出 39：“插入”在光标处写入字段与条目引用的写法 | `EntryTextEditor.dom.test.ts`；e2e |
+| 输出 39：“插入”在光标处写入字段的写法 | `EntryTextEditor.dom.test.ts`；e2e |
 | 输出 44：别处没动整篇时不问（别处改了别的东西）；别处改了、加了块、删了块都问一次；两边一样不问 | `text-whole.test.ts`；`text-drafts-link.test.ts` |
 | 输出 44：选“我的”以我的为准；选“现在的”回到阅读视图；再被改要再问 | `text-tab.test.ts` |
 | 输出 44：内核拒收时原因写在输入框下面，稿还在 | `text-tab.test.ts` |
