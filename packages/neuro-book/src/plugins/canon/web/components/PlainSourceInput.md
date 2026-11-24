@@ -5,7 +5,7 @@
 
 # PlainSourceInput
 
-主文字一块的源文字输入的退路：一个随内容增高的普通文本框，合同与编辑器插件交出的代码输入框（`nbook/plugins/editor/web/components/CodeInput.md`）相同。窗口里没有编辑器插件时（只装世界引擎的窗口、组件测试）`EntryTextEditor` 用它，按块编辑照样能用，只是没有语法配色。
+主文字整篇源文字输入的退路：一个随内容增高的普通文本框，合同与编辑器插件交出的代码输入框（`nbook/plugins/editor/web/components/CodeInput.md`）相同。窗口里没有编辑器插件时（只装世界引擎的窗口、组件测试）`EntryTextEditor` 用它，整篇编辑照样能用，只是没有语法配色。
 
 ```ts
 type Props = {

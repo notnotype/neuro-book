@@ -11,6 +11,9 @@
  * 初值的块后面，所以插不到剧情加出来的块前面。这里不重新推断来历。
  *
  * 块 id 由内核定、可以是任何字符串（旧数据里有 `constructor` 这样的）：按 id 取字典里的值一律只认自有属性（`own`）。
+ *
+ * 第一版界面不分节，作者改的是整篇（`text-whole.ts`，建在这里的 `setText`、`removeBlock`、`addAfter`、`compile` 上）；拆、并与
+ * `rebase` 的按块冲突现在没有界面上的调用方，分节的事定了以后要么用上、要么删。
  */
 
 import {EntryEditsSchema} from "@notnotype/nb-canon/schema";

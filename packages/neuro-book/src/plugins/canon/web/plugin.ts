@@ -141,7 +141,7 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 通知可选：没有工作台的窗口里保存后的提示只留在页面顶上那一份。
         // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
         // 选线可选：没有工作台的窗口里没有快速选择，选线命令得到 `unavailable`。
-        // Storage 可选：没有时主文字的稿只在内存里（author-ui.md 输出 45）。编辑器的组件可选：没有时按块编辑用普通文本框。
+        // Storage 可选：没有时主文字的稿只在内存里（author-ui.md 输出 45）。编辑器的组件可选：没有时整篇编辑用普通文本框。
         dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}, {key: storageKey, required: false}, {key: editorComponentsKey, required: false}],
         provides: [canonClientKey, canonReadsKey],
         receives: [CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT],
