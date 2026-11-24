@@ -1,0 +1,267 @@
+Better Auth 选型探针（2026-11-24）
+环境：Bun 1.4.4，better-auth 1.7.27，@better-auth/oauth-provider 1.7.27，hono 4.13.21，pg 8.23.1，PostgreSQL 18（临时容器）。
+运行方式：系统临时目录里 bun run spike.ts；请求经 Hono 的 app.fetch 进入，数据库是真实 PostgreSQL。
+空闲内存另测：初始化后处理一次请求再强制回收，RSS 85 MB；跑完下面全部流程（含 argon2 哈希）后 165 MB。
+表结构导出：bunx auth generate --output schema.sql 生成 12 张表的纯 SQL（create schema if not exists，表名带 schema 前缀）。
+
+===== 输出 =====
+[S0 migrate tables] user, session, account, verification, jwks, oauthClient, oauthResource, oauthClientResource, oauthRefreshToken, oauthAccessToken, oauthConsent, oauthClientAssertion
+[S0 id column types] account:integer, jwks:integer, oauthAccessToken:integer, oauthClient:integer, oauthClientAssertion:integer, oauthClientResource:integer, oauthConsent:integer, oauthRefreshToken:integer, oauthResource:integer, session:integer, user:integer, verification:integer
+[S3 user.email nullable] NO
+[S3 sign-up without email] 400 {"message":"[body.email] Invalid input: expected string, received undefined","code":"VALIDATION_ERROR"}
+[S4 sign-up without code] 403 {"message":"registration_code_required","code":"REGISTRATION_CODE_REQUIRED"}
+[S1/S4 sign-up with code] 200 id="1"
+[S4 rows after reject+accept] 1
+[S2/S7 legacy login via own route] 200 {"user":{"id":1000,"username":"olduser"}} cookie=yes
+2026-11-24T06:17:31.768Z WARN [Better Auth]: Invalid password
+[S2 legacy login wrong password] 401
+[S1 next id after import] "1001"
+[S5 discovery] {"status":200,"issuer":"http://localhost:3999/api/identity/auth","authorization_endpoint":"http://localhost:3999/api/identity/auth/oauth2/authorize","token_endpoint":"http://localhost:3999/api/identity/auth/oauth2/token","userinfo_endpoint":"http://localhost:3999/api/identity/auth/oauth2/userinfo","methods":["client_secret_basic","client_secret_post","private_key_jwt"]}
+[S5 adminCreateOAuthClient] {"client_id":"<随机值>","hasSecret":true}
+[S5 authorize without session] 302 -> /sign-in?response_type=code&redirect_uri=https%3A%2F%2Fllmlint.example%2Fauth%2F
+[S5 authorize with session] 302 -> https://llmlint.example/auth/neurobook?code=<已省略>&state=st-123&iss=http%3A%2F%2Flocalhost%3A3 
+[S5 token] {"status":200,"token_type":"Bearer","expires_in":3600,"opaque":true,"id_token":true}
+[S5 userinfo] 200 {"sub":"1000","name":"旧用户","id":1000,"username":"olduser","displayName":"旧用户","status":"active"}
+[S5 code replay] 400 {"error_description":"invalid code","error":"invalid_grant"}
+[S8 ban] {"ban":200,"sessionBefore":true,"sessionAfter":false,"loginAfterBan":401}
+[S8 list-users] 200 total=3
+[S8 list-users as non-admin] 403
+[S10 rss MB] 165
+
+===== 脚本 spike.ts =====
+// 一次性探针：核对 Better Auth 能否满足 neuro-book-site 重写的账号要求。不进仓库。
+import {betterAuth} from "better-auth";
+import {APIError} from "better-auth/api";
+import {admin, jwt, username} from "better-auth/plugins";
+import {getMigrations} from "better-auth/db/migration";
+import {oauthProvider, oauthProviderAuthServerMetadata} from "@better-auth/oauth-provider";
+import {PostgresDialect} from "kysely";
+import {Pool} from "pg";
+import {Hono} from "hono";
+import {createHash, randomBytes, scrypt as scryptCb, timingSafeEqual} from "node:crypto";
+import {promisify} from "node:util";
+
+const scrypt = promisify(scryptCb);
+const BASE = "http://localhost:3999";
+const pool = new Pool({connectionString: "postgres://postgres:spike@127.0.0.1:55432/spike", max: 5});
+
+/** 旧站的哈希格式：scrypt:<盐>:<十六进制>。 */
+async function legacyHash(password: string): Promise<string> {
+    const salt = randomBytes(16).toString("hex");
+    const key = (await scrypt(password, salt, 64)) as Buffer;
+    return `scrypt:${salt}:${key.toString("hex")}`;
+}
+async function legacyVerify(password: string, stored: string): Promise<boolean> {
+    const [prefix, salt, keyHex] = stored.split(":");
+    if (prefix !== "scrypt" || !salt || !keyHex) return false;
+    const storedKey = Buffer.from(keyHex, "hex");
+    const inputKey = (await scrypt(password, salt, storedKey.length)) as Buffer;
+    return storedKey.length === inputKey.length && timingSafeEqual(storedKey, inputKey);
+}
+
+const validCodes = new Set(["REG-OK"]);
+
+const auth = betterAuth({
+    baseURL: BASE,
+    basePath: "/api/identity/auth",
+    secret: "spike-secret-spike-secret-spike-secret-1234",
+    database: {
+        dialect: new PostgresDialect({pool}),
+        type: "postgres",
+        schemaName: "identity",
+    },
+    advanced: {database: {generateId: "serial"}},
+    disabledPaths: ["/token"],
+    emailAndPassword: {
+        enabled: true,
+        password: {
+            hash: async (password) => `argon2-new:${await Bun.password.hash(password)}`,
+            verify: async ({password, hash}) =>
+                hash.startsWith("scrypt:")
+                    ? legacyVerify(password, hash)
+                    : Bun.password.verify(password, hash.replace(/^argon2-new:/, "")),
+        },
+    },
+    databaseHooks: {
+        user: {
+            create: {
+                before: async (user, ctx) => {
+                    const code = (ctx?.body as {registrationCode?: string} | undefined)?.registrationCode;
+                    if (!code || !validCodes.has(code)) {
+                        throw new APIError("FORBIDDEN", {message: "registration_code_required", code: "REGISTRATION_CODE_REQUIRED"});
+                    }
+                    return {data: user};
+                },
+            },
+        },
+    },
+    plugins: [
+        username(),
+        admin(),
+        jwt({disableSettingJwtHeader: true}),
+        oauthProvider({
+            loginPage: "/sign-in",
+            consentPage: "/consent",
+            customUserInfoClaims: ({user}) => ({
+                id: Number(user.id),
+                username: (user as {username?: string}).username,
+                displayName: user.name,
+                status: "active",
+            }),
+        }),
+    ],
+});
+
+const results: Array<[string, string]> = [];
+const note = (k: string, v: unknown) => {
+    results.push([k, typeof v === "string" ? v : JSON.stringify(v)]);
+    console.log(`[${k}]`, typeof v === "string" ? v : JSON.stringify(v));
+};
+
+async function call(path: string, init: RequestInit & {cookie?: string} = {}) {
+    const headers = new Headers(init.headers);
+    if (init.cookie) headers.set("cookie", init.cookie);
+    if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+    if (!headers.has("origin")) headers.set("origin", BASE);
+    const res = await app.fetch(new Request(`${BASE}${path}`, {...init, headers, redirect: "manual"}));
+    const text = await res.text();
+    let json: unknown = undefined;
+    try { json = JSON.parse(text); } catch { /* 非 JSON */ }
+    const setCookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    return {status: res.status, json, text, setCookie, location: res.headers.get("location")};
+}
+
+// 自家路由包一层：对外合同是自己的，内部调库。
+const app = new Hono();
+app.post("/api/identity/v1/login", async (c) => {
+    const body = await c.req.json<{username: string; password: string}>();
+    const res = await auth.api.signInUsername({body, asResponse: true, headers: c.req.raw.headers});
+    if (!res.ok) return c.json({error: "invalid_credentials"}, 401);
+    const data = (await res.json()) as {user: {id: string; username?: string}};
+    for (const cookie of res.headers.getSetCookie()) c.header("set-cookie", cookie, {append: true});
+    return c.json({user: {id: Number(data.user.id), username: data.user.username}});
+});
+app.get("/.well-known/oauth-authorization-server", (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw));
+app.on(["GET", "POST"], "/api/identity/auth/*", (c) => auth.handler(c.req.raw));
+
+async function main() {
+    await pool.query(`drop schema if exists identity cascade`);
+    const {toBeCreated, runMigrations} = await getMigrations(auth.options);
+    await runMigrations();
+    note("S0 migrate tables", toBeCreated.map((t) => t.table).join(", "));
+    const idType = await pool.query(
+        `select table_name, data_type from information_schema.columns where table_schema='identity' and column_name='id' order by 1`);
+    note("S0 id column types", idType.rows.map((r) => `${r.table_name}:${r.data_type}`).join(", "));
+    const emailCol = await pool.query(
+        `select is_nullable from information_schema.columns where table_schema='identity' and table_name='user' and column_name='email'`);
+    note("S3 user.email nullable", emailCol.rows[0]?.is_nullable);
+
+    // S3：没有邮箱能不能注册
+    const noEmail = await call("/api/identity/auth/sign-up/email", {
+        method: "POST", body: JSON.stringify({name: "无邮箱", username: "noemail", password: "password1234", registrationCode: "REG-OK"})});
+    note("S3 sign-up without email", `${noEmail.status} ${noEmail.text.slice(0, 160)}`);
+
+    // S4：注册码闸门
+    const noCode = await call("/api/identity/auth/sign-up/email", {
+        method: "POST", body: JSON.stringify({email: "a@example.com", name: "A", username: "alice", password: "password1234"})});
+    note("S4 sign-up without code", `${noCode.status} ${noCode.text.slice(0, 160)}`);
+    const withCode = await call("/api/identity/auth/sign-up/email", {
+        method: "POST", body: JSON.stringify({email: "a@example.com", name: "A", username: "alice", password: "password1234", registrationCode: "REG-OK"})});
+    note("S1/S4 sign-up with code", `${withCode.status} id=${JSON.stringify((withCode.json as {user?: {id: unknown}})?.user?.id)}`);
+    const afterReject = await pool.query(`select count(*)::int n from identity."user"`);
+    note("S4 rows after reject+accept", afterReject.rows[0].n);
+
+    // S2：按旧站的 id 与哈希导入一个账号，再用原密码登录
+    const legacy = await legacyHash("old-password");
+    await pool.query(
+        `insert into identity."user"(id, name, email, "emailVerified", username, "displayUsername", "createdAt", "updatedAt", role)
+         values (1000, '旧用户', 'u1000@legacy.invalid', false, 'olduser', 'olduser', now(), now(), 'admin')`);
+    await pool.query(
+        `insert into identity.account("accountId", "providerId", "userId", password, "createdAt", "updatedAt")
+         values ('1000', 'credential', 1000, $1, now(), now())`, [legacy]);
+    await pool.query(`select setval(pg_get_serial_sequence('identity."user"', 'id'), (select max(id) from identity."user"))`);
+    const login = await call("/api/identity/v1/login", {method: "POST", body: JSON.stringify({username: "olduser", password: "old-password"})});
+    note("S2/S7 legacy login via own route", `${login.status} ${login.text} cookie=${login.setCookie ? "yes" : "no"}`);
+    const badLogin = await call("/api/identity/v1/login", {method: "POST", body: JSON.stringify({username: "olduser", password: "wrong"})});
+    note("S2 legacy login wrong password", `${badLogin.status}`);
+    const next = await call("/api/identity/auth/sign-up/email", {
+        method: "POST", body: JSON.stringify({email: "b@example.com", name: "B", username: "bob", password: "password1234", registrationCode: "REG-OK"})});
+    note("S1 next id after import", JSON.stringify((next.json as {user?: {id: unknown}})?.user?.id));
+    const adminCookie = login.setCookie;
+
+    // S5：对外提供 OAuth（llmlint-web 的用法：机密客户端、授权码 + S256 PKCE、client_secret_basic、userinfo）
+    const meta = await call("/.well-known/oauth-authorization-server");
+    const m = meta.json as Record<string, unknown>;
+    note("S5 discovery", {status: meta.status, issuer: m?.issuer, authorization_endpoint: m?.authorization_endpoint, token_endpoint: m?.token_endpoint, userinfo_endpoint: m?.userinfo_endpoint, methods: m?.token_endpoint_auth_methods_supported});
+    let client: {client_id?: string; client_secret?: string} = {};
+    try {
+        client = await auth.api.adminCreateOAuthClient({
+            headers: new Headers({cookie: adminCookie}),
+            body: {
+                client_id: "llmlint-web",
+                client_name: "llmlint",
+                redirect_uris: ["https://llmlint.example/auth/neurobook"],
+                token_endpoint_auth_method: "client_secret_basic",
+                skip_consent: true,
+                scope: "openid profile",
+            } as never,
+        }) as never;
+        note("S5 adminCreateOAuthClient", {client_id: client.client_id, hasSecret: Boolean(client.client_secret)});
+    } catch (error) {
+        note("S5 adminCreateOAuthClient FAILED", JSON.stringify({m: (error as Error).message, body: (error as {body?: unknown}).body, status: (error as {status?: unknown}).status, stack: String((error as Error).stack).slice(0, 600)}));
+    }
+    if (client.client_id && client.client_secret) {
+        const verifier = randomBytes(32).toString("base64url");
+        const challenge = createHash("sha256").update(verifier).digest("base64url");
+        const q = new URLSearchParams({
+            response_type: "code", client_id: client.client_id, redirect_uri: "https://llmlint.example/auth/neurobook",
+            scope: "openid profile", state: "st-123", code_challenge: challenge, code_challenge_method: "S256"});
+        const anon = await call(`/api/identity/auth/oauth2/authorize?${q}`);
+        note("S5 authorize without session", `${anon.status} -> ${anon.location?.slice(0, 80)}`);
+        const authz = await call(`/api/identity/auth/oauth2/authorize?${q}`, {cookie: adminCookie});
+        note("S5 authorize with session", `${authz.status} -> ${authz.location?.slice(0, 120)} ${authz.status >= 400 ? authz.text.slice(0, 200) : ""}`);
+        const code = authz.location ? new URL(authz.location, BASE).searchParams.get("code") : null;
+        if (code) {
+            const basic = Buffer.from(`${encodeURIComponent(client.client_id)}:${encodeURIComponent(client.client_secret)}`).toString("base64");
+            const token = await call("/api/identity/auth/oauth2/token", {
+                method: "POST",
+                headers: {"content-type": "application/x-www-form-urlencoded", authorization: `Basic ${basic}`},
+                body: new URLSearchParams({grant_type: "authorization_code", code, redirect_uri: "https://llmlint.example/auth/neurobook", code_verifier: verifier}).toString(),
+            });
+            const t = token.json as {access_token?: string; token_type?: string; expires_in?: number; id_token?: string};
+            note("S5 token", {status: token.status, token_type: t?.token_type, expires_in: t?.expires_in, opaque: t?.access_token ? t.access_token.split(".").length !== 3 : null, id_token: Boolean(t?.id_token), err: token.status >= 400 ? token.text.slice(0, 200) : undefined});
+            if (t?.access_token) {
+                const ui = await call("/api/identity/auth/oauth2/userinfo", {headers: {authorization: `Bearer ${t.access_token}`}});
+                note("S5 userinfo", `${ui.status} ${ui.text}`);
+            }
+            const replay = await call("/api/identity/auth/oauth2/token", {
+                method: "POST",
+                headers: {"content-type": "application/x-www-form-urlencoded", authorization: `Basic ${basic}`},
+                body: new URLSearchParams({grant_type: "authorization_code", code, redirect_uri: "https://llmlint.example/auth/neurobook", code_verifier: verifier}).toString(),
+            });
+            note("S5 code replay", `${replay.status} ${replay.text.slice(0, 120)}`);
+        }
+    }
+
+    // S8：管理员封禁
+    const bobId = (next.json as {user?: {id: string}})?.user?.id;
+    const bobCookie = next.setCookie;
+    const meBefore = await call("/api/identity/auth/get-session", {cookie: bobCookie});
+    const ban = await call("/api/identity/auth/admin/ban-user", {method: "POST", cookie: adminCookie, body: JSON.stringify({userId: bobId})});
+    const meAfter = await call("/api/identity/auth/get-session", {cookie: bobCookie});
+    const bobLogin = await call("/api/identity/v1/login", {method: "POST", body: JSON.stringify({username: "bob", password: "password1234"})});
+    note("S8 ban", {ban: ban.status, sessionBefore: Boolean((meBefore.json as {user?: unknown})?.user), sessionAfter: Boolean((meAfter.json as {user?: unknown} | null)?.user), loginAfterBan: bobLogin.status});
+    const list = await call("/api/identity/auth/admin/list-users?limit=10", {cookie: adminCookie});
+    note("S8 list-users", `${list.status} total=${(list.json as {total?: number})?.total}`);
+    const listAsUser = await call("/api/identity/auth/admin/list-users?limit=10", {cookie: withCode.setCookie});
+    note("S8 list-users as non-admin", `${listAsUser.status}`);
+
+    note("S10 rss MB", Math.round(process.memoryUsage.rss() / 1024 / 1024));
+    await pool.end();
+}
+
+main().catch(async (error) => {
+    console.error("SPIKE CRASH", error);
+    await pool.end().catch(() => {});
+    process.exit(1);
+});
