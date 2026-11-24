@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>官方站前端 第 2 轮：登录之外的几页</title>
+<title>官方站前端 第 3 轮：按第 2 轮的意见改过的三处</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -26,7 +26,11 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .pair { display: grid; grid-template-columns: minmax(0, 1440fr) minmax(0, 390fr); gap: 10px; align-items: start; }
 .stack a, .pair a { display: block; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
 .stack img, .pair img { display: block; width: 100%; height: auto; }
-.stack img.phones { max-width: 900px; margin: 0 auto; }
+.stack img.phones { max-width: 800px; margin: 0 auto; }
+.cands.two { grid-template-columns: minmax(0, 9fr) minmax(0, 11fr); align-items: start; }
+@media (max-width: 900px) { .cands.two { grid-template-columns: minmax(0, 1fr); } }
+.cand a.shot { display: block; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
+.cand a.shot img { display: block; width: 100%; height: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
@@ -35,32 +39,43 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>官方站前端 第 2 轮：登录之外的几页</h1>
+<h1>官方站前端 第 3 轮：按第 2 轮的意见改过的三处</h1>
 
-<section data-nbdev-question="paper-pages" data-nbdev-type="confirm" data-nbdev-label="注册、同意条款、授权确认三页照图做">
-  <h2>注册、同意条款、授权确认这三页照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：三页与登录页用同一张稿纸，只换右边那张卡；注册时在同一页里选“设密码、GitHub、Google”，选了后两种就不用填邮箱与密码。</strong></p>
+<section data-nbdev-question="social-icons" data-nbdev-type="confirm" data-nbdev-label="登录与注册页的 GitHub、Google 图标照图做">
+  <h2>登录与注册页照图做吗？</h2>
+  <p class="rec"><strong>推荐同意：GitHub、Google 是表单下面的两个图标，两页同一种画法；注册时点图标，用上面已填的注册码与用户名，邮箱与密码不用填。</strong></p>
   <div class="stack">
-    <a href="r2/register.webp" data-nbdev-skip><img src="r2/register.webp" alt="注册页：注册码、用户名、登录方式三选一、邮箱、密码、同意条款"></a>
-    <a href="r2/cards.webp" data-nbdev-skip><img src="r2/cards.webp" alt="三张卡：选了 GitHub 的注册、条款有更新、授权确认"></a>
-    <a href="r2/paper-phones.webp" data-nbdev-skip><img class="phones" src="r2/paper-phones.webp" alt="390 宽的注册、同意条款、授权确认"></a>
+    <a href="r3/login.webp" data-nbdev-skip><img src="r3/login.webp" alt="登录页：用户名或邮箱、密码、登录按钮，下面是 GitHub 与 Google 两个图标"></a>
+    <a href="r3/register.webp" data-nbdev-skip><img src="r3/register.webp" alt="注册页：注册码、用户名、邮箱、密码、同意条款、注册按钮，下面是 GitHub 与 Google 两个图标"></a>
+    <a href="r3/paper-phones.webp" data-nbdev-skip><img class="phones" src="r3/paper-phones.webp" alt="390 宽的登录页与注册页"></a>
   </div>
 </section>
 
-<section data-nbdev-question="account-page" data-nbdev-type="confirm" data-nbdev-label="账号页照图做">
+<section data-nbdev-question="account-page-r3" data-nbdev-type="confirm" data-nbdev-label="账号页照图做（没有横幅，两种账号版式相同）">
   <h2>账号页照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：一页到底，左边是目录；最上面是待办，这张图是从旧站迁来、还没有邮箱的账号。</strong></p>
-  <div class="pair">
-    <a href="r2/account.webp" data-nbdev-skip><img src="r2/account.webp" alt="账号页：资料、登录与安全、已登录的设备、邀请码、已授权的应用"></a>
-    <a href="r2/account-phone.webp" data-nbdev-skip><img src="r2/account-phone.webp" alt="390 宽的账号页"></a>
+  <p class="rec"><strong>推荐同意：横幅去掉了。没有邮箱的账号只在邮箱那一格里多一枚“待补”、目录的“资料”后面多一个点，别的位置都不动。</strong></p>
+  <div class="cands two">
+    <div class="cand">
+      <h3>有邮箱（上）与没有邮箱（下）</h3>
+      <a class="shot" href="r3/account-states.webp" data-nbdev-skip><img src="r3/account-states.webp" alt="两种账号的账号页上半部分，上下对齐"></a>
+    </div>
+    <div class="cand">
+      <h3>没有邮箱的账号，整页与 390 宽</h3>
+      <div class="pair">
+        <a href="r3/account.webp" data-nbdev-skip><img src="r3/account.webp" alt="账号页：资料、登录与安全、已登录的设备"></a>
+        <a href="r3/account-phone.webp" data-nbdev-skip><img src="r3/account-phone.webp" alt="390 宽的账号页"></a>
+      </div>
+    </div>
   </div>
 </section>
 
-<section data-nbdev-question="users-page" data-nbdev-type="confirm" data-nbdev-label="管理面板的用户页照图做">
-  <h2>管理面板的用户页照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：重置密码、封禁、设为管理员、结束全部会话都收在行尾的“…”里；注册码与邀请码、OAuth 客户端、审计三页照这一页的样子做，不再单独出图。</strong></p>
+<section data-nbdev-question="data-table" data-nbdev-type="confirm" data-nbdev-label="数据表格与分页照图做，并做成 nb-ui 的通用组件">
+  <h2>数据表格与分页照图做，并做成 nb-ui 的通用组件吗？</h2>
+  <p class="rec"><strong>推荐同意：工具条、表格、分页三块位置固定，最后一页不满时分页条也在原处；给 nb-ui 加“分页”和“带工具条与分页的数据表格”两个组件，用户、注册码与邀请码、OAuth 客户端、审计四页都用它。</strong></p>
   <div class="stack">
-    <a href="r2/users.webp" data-nbdev-skip><img src="r2/users.webp" alt="用户页：筛选、搜索、用户表与翻页"></a>
+    <a href="r3/users.webp" data-nbdev-skip><img src="r3/users.webp" alt="用户页：筛选、搜索、用户表、条数与分页，每页 20 个"></a>
+    <a href="r3/users-p7-foot.webp" data-nbdev-skip><img src="r3/users-p7-foot.webp" alt="翻到第 7 页时的分页条：1、省略号、6、7、8、省略号、65"></a>
+    <a href="r3/codes.webp" data-nbdev-skip><img src="r3/codes.webp" alt="注册码页：同一个表格，换了列、筛选与右上角的发放按钮；最后一页只有 6 行，分页条仍在底部"></a>
   </div>
 </section>
 
@@ -85,6 +100,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>登录、注册、同意条款、授权确认与公开页适配手机；管理面板只做桌面宽度</li>
     <li>第一版界面只有中文</li>
     <li>全站用默认配色，只有登录页这一组画成稿纸（第 1 轮）</li>
+    <li>注册、同意条款、授权确认与登录页用同一张稿纸（第 2 轮）</li>
   </ol>
 </section>
 </main>
