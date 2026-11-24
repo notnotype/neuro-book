@@ -154,8 +154,12 @@ const openAddress = (): TextAddress | null => {
 </script>
 
 <template>
-    <!-- 能点的是阅读视图（`data-entry-text`）；不能点的是编辑时的预览，另一个标记：找“回到阅读视图了没有”的地方不该认到它。 -->
     <div class="entry-text min-w-0 text-[var(--text-main)]" :data-entry-text="props.interactive ? '' : undefined" :data-entry-preview="props.interactive ? undefined : ''">
+        <!--
+            根上只能有这一个元素，注释也要写在它里面：开发构建保留模板里的注释，根上多一条注释，组件的根就成了片段。条目页把本
+            组件直接放在先出后进的 `Transition` 里，根是片段时退场收不了尾，换上来的编辑视图一直不出现（生产构建剥掉注释，看不出来）。
+        -->
+        <!-- 能点的是阅读视图（`data-entry-text`）；不能点的是编辑时的预览，另一个标记：找“回到阅读视图了没有”的地方不该认到它。 -->
         <div v-if="props.blocks.length === 0" class="my-2 flex flex-col items-start gap-3">
             <p class="text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
             <Button v-if="props.editable" variant="primary" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-text-edit @click="emit('edit')">{{ text("textEdit.start") }}</Button>
