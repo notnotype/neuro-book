@@ -1,0 +1,157 @@
+# w00037 t05 实现审查（Opus）：提交范围 3c4dc0466..49ab37bab
+
+### 1. 迁移里写 `COMMIT; BEGIN;` 能骗过 `inTransaction` 检查，迁移的前半段与账本不在同一个事务里
+- **严重程度**：重要；**类别**：不变量
+- **位置**：packages/nb-site-server/src/db/migrate.ts:158-162（检查），:16-17 与 :82 的注释（“由执行之后的 db.inTransaction 检查准确地认出来”）
+- **现象**：`applyOne` 只在执行完迁移 SQL 后看 `db.inTransaction`。迁移里先 `COMMIT` 再 `BEGIN`，执行完时又处在一个（新的、DEFERRED 的）事务里，检查通过，账本写进第二个事务。前半段已在运行器的事务之外提交；第二个事务失败时前半段留在库里、账本没有记录，下次启动重跑整条，撞上“已存在”。`ROLLBACK; BEGIN;` 同理（还会连运行器在事务里重读账本的结果一起丢掉，且 `COMMIT` 与 `BEGIN` 之间写锁是放开的）。
+- **为什么是问题**：运行器的核心保证是“每条迁移与它的账本行在同一个事务里提交”，模块头与 `MigrationFailureReason` 的注释都说事务语句会被准确认出。修订表第 16 条接受的是“`COMMIT` 漏过时前半条已提交、从空库测试会暴露”；但 `COMMIT; BEGIN;` 从空库跑完全成功（下面 run1），测试暴露不了，只在生产库上后半段遇到真实数据报错时才出现半截迁移。
+- **如何核实**：`bun /tmp/review-w00037-t05-impl/lab-opus/e1.ts`（真实 bun:sqlite 文件库，直接调 `runMigrations`；运行器本来就是同步函数，不涉及进程时序）。输出：`CREATE TABLE a; COMMIT; BEGIN; CREATE TABLE b;` → `{"ok":true}`、账本记了 `0001_a`；把后半段写坏 → 第一次 `sql_error`，表 `a` 已在库里、账本为空；再跑一次 → `table a already exists`，这个数据目录卡死，只能手工修库。
+- **建议改法**：不再靠事后看 `inTransaction`，改用一个守卫保存点：`BEGIN IMMEDIATE` 之后 `SAVEPOINT site_migration_guard`，执行迁移，再 `RELEASE site_migration_guard`。迁移结束或回滚了外层事务时保存点随之消失，`RELEASE` 报 `no such savepoint`，按 `transaction_ended` 失败（`COMMIT; BEGIN;` 与单独的 `COMMIT` 一并认出）。注释里“准确地认出来”改成实际能保证的范围。
+
+### 2. 请求方在 `X-Forwarded-For` 里随便塞一个不合法的值，就能让 `clientAddress` 对自己返回 null
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：packages/nb-site-server/src/client-address.ts:180-181
+- **现象**：可信对端给的转发头只要有任何一跳不合法，整条返回 null，包括请求方自己写的、位于第一个不可信跳左边的部分。反向代理（nginx 的 `$proxy_add_x_forwarded_for`、Caddy 缺省）是在请求方给的值后面追加对端地址，所以请求方发 `X-Forwarded-For: garbage`，服务看到 `garbage, <请求方真实地址>`，本该取到最右边那个不可信的真实地址，实际得 null。
+- **为什么是问题**：`clientAddress` 的用途是账号的限流与统计的去重（client-address.ts 头注释），接口约定“调用方按取不到处理”。无论 t07 把 null 当放行、当一个公共桶还是当拒绝，结果都由请求方自己决定：放行就是绕过限流；公共桶就是请求方能把自己并进别人的桶、拖累所有取不到地址的正常请求。“从右往左取第一个不可信”这条规则的意义正是让请求方写的左半段不起作用，现在左半段反而能一票否决。另外，代理在每一跳后面带端口（`1.2.3.4:5678`，Azure 应用网关、IIS ARR 的写法）时永远取不到地址。
+- **如何核实**：真子进程（fixture-main，`NB_SITE_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8`，对端 127.0.0.1），curl `/api/alpha/client`：`garbage, 203.0.113.9` → `{"address":null}`（应为 `203.0.113.9`）；`1.2.3.4:5678, 203.0.113.9` → null；`203.0.113.9:4444` → null。脚本与输出在 /tmp/review-w00037-t05-impl/lab-opus/e3/（命令见本报告的会话，out.log 为子进程日志）。现有用例 serve.test.ts:203 只测了“垃圾值右边全是可信代理”这一种，那时返回 null 是对的，所以没抓到。
+- **建议改法**：去掉 181 行的整条否决，把合法性判断并进从右往左的循环：逐跳 `normalize`，不合法 → 返回 null（此时它右边全是可信代理，确实无从判断）；不可信 → 返回它；可信 → 继续。左边没走到的跳不解析。补一条用例 `garbage, 203.0.113.9` → `203.0.113.9`。带端口的写法是否要认，交 t07 决定，至少在 `ModuleContext.clientAddress` 的注释里写明不认。
+
+### 3. 停止时限收到 2^31 毫秒（约 24.8 天）以上的值，停止时在途请求被立即断开，标准错误还多出非 JSON 的警告
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/config.ts:137（上限 `Number.MAX_SAFE_INTEGER`）；serve.ts:35（`setTimeout(resolve, deadline - Date.now())`）
+- **现象**：`setTimeout` 的延时超过 2147483647 时 Bun 把它改成 1 毫秒并往标准错误打 `TimeoutOverflowWarning`。配置校验放过这类值，于是“想等久一点”的配置变成“一点也不等”。
+- **为什么是问题**：与 Spec 输出 9“等在途请求结束（至多停止时限）”相反；标准错误多出三行非 JSON，违背输出 1 与 8“每行一个 JSON 对象”。`NB_SITE_BACKUP_KEEP` 同样放到 MAX_SAFE_INTEGER 但不进计时器，不受影响。
+- **如何核实**：真子进程，`NB_SITE_SHUTDOWN_TIMEOUT_MS=3000000000`，起一个 `/api/alpha/slow` 后发 SIGTERM：27 毫秒内退出，日志 `site.drain_cut forced:false`，curl 连接被断，err.log 是那三行警告（/tmp/review-w00037-t05-impl/lab-opus/e5/）。
+- **建议改法**：`parseInteger(value, 1, 2_147_483_647)`，超出报 `out_of_range`；config.test.ts 的 `out_of_range` 用例补这个上界。
+
+### 4. 模块命令拿不到停止请求：入口装了 SIGINT、SIGTERM 处理函数后，等输入的命令（t07 的创建管理员）按 Ctrl-C 杀不掉
+- **严重程度**：重要；**类别**：不变量
+- **位置**：packages/nb-site-server/src/lifecycle.ts:64（对所有子命令都装处理函数）；commands/module-command.ts:50-58（只在运行前查一次 `stop.requested`）；module.ts:109-118（`CommandContext` 没有停止信号）
+- **现象**：`runCli` 在解析命令前就装上信号处理函数，替换了系统的缺省动作。模块命令一旦进入 `run()`，入口再也不看停止状态，`CommandContext` 里也没有任何东西能让命令知道。第二次信号置 `forced`，但只有 `serve` 用它。
+- **为什么是问题**：Spec 输出 5 规定创建管理员“密码只从标准输入读”，部署的人在提示处按 Ctrl-C 是最常见的放弃方式；现在进程不退，只多一行 `process.signal` 日志，还拿着本模块的锁（服务没在跑时），这期间 `serve` 起不来（`data_dir_busy`）。t12 的导入是 `exclusive`、可能跑很久，同样无法中止。命令结束后的退出码还是 0（看不出被要求停过）。这是给后面几片留的接口不对。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e6/main.ts 用真实的 `runCli` 起一个 `shared` 命令，`run()` 里等标准输入一行（模拟读密码）。真子进程依次收到 SIGINT、SIGINT、SIGTERM 后 1 秒仍在运行，日志三行 `process.signal`（后两行 `forced:true`）；直到标准输入 EOF 才以 0 退出。
+- **建议改法**：`CommandContext` 加 `signal: AbortSignal`（第一次停止请求时 abort），命令自己决定在哪里收手；`runModuleCommand` 让 `command.run()` 与 `stop.whenForced` 赛跑，强制时走 finally 关库放锁、以非零码（或 130）退出。`migrate` 在迁移之外也可以同样处理。模块命令的这条语义写进 `SiteCommand` 的注释与 Spec 的创建管理员一节。
+
+### 5. 就绪结果的 1 秒复用按墙钟判断，墙钟回拨多久，旧结果（包括 503）就冻结多久
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/health.ts:78-79；serve.ts:22、105（传入的是 `SYSTEM_CLOCK = Date.now`）
+- **现象**：`now - cached.at < READINESS_CACHE_MS` 在墙钟回拨后为负数，一直成立，直到墙钟追回原来的时刻。
+- **为什么是问题**：违反 Spec 的时序一节“恢复后回 200，不需要重启”：虚拟机恢复、NTP 跳变把墙钟往回拨一小时，若缓存里正好是 503，容器编排在这一小时里一直看到不就绪，多半会重启它。另外，复用窗口用的是 `ModuleContext.clock` 那一类“可被合同测试拨动的时钟”；修订表第 8 条要做进程外拨时间，往回拨时会同样冻结就绪检查。缓存的有效期是进程内部的时长，应当用单调时钟，与业务时间分开。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e7.ts 直接调 `createReadiness`（纯函数，时钟是它的参数）：先得 503，时钟回拨 1 小时、模块恢复，59 分 59 秒后仍是 503，满 1 小时零 1 秒才 200。
+- **建议改法**：复用判断改用 `performance.now()`（单调），`createReadiness` 不再收 `clock`；同时只缓存“就绪”或只要求 `now >= cached.at` 时才复用，二选一即可。`settlesBefore` 的停止时限（serve.ts:35、139、148）同理改用单调时钟。
+
+### 6. `ModuleContext.db` 写着“模块可以在上面开跨 await 的事务”，却没说明同一条连接上的其它请求会被卷进这个事务
+- **严重程度**：建议；**类别**：文档（接口合同，影响 t06、t07）
+- **位置**：packages/nb-site-server/src/module.ts:63-67；health.ts:5-7（以此为前提加了“业务连接在事务里就不拿写锁”的分支）
+- **现象**：每个模块只有一条业务连接。一个请求在它上面 `BEGIN` 之后 `await`，这期间别的请求（同模块的其它路由、定时任务）在同一条连接上执行的语句都落进这个事务：它回滚时别人的写入一起消失，别人再 `BEGIN` 直接报 “cannot start a transaction within a transaction”。
+- **为什么是问题**：接口注释把“跨 await 的事务”写成模块可以随意做的事，读者照它写 t07 时，只要有一处绕过 Better Auth 的 Kysely（它自己有串行队列）直接用 `ctx.db`，或 t06 的定时任务与请求共用连接，就会出现“注册回滚连带吞掉别人的写入”。就绪检查的特殊分支也是建在“模块会在这条连接上长时间开事务”上的，这条前提应当和它的约束一起写清楚。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e8.ts：同一条 bun:sqlite 连接，A 请求 `BEGIN`、插入、`await`、`ROLLBACK`；B 请求在 A 的 `await` 期间插入一行；结束后表是空的，B 的写入被 A 的回滚带走。
+- **建议改法**：在 `ModuleContext.db` 的注释里写明约束：连接上的所有访问（请求、定时任务、`close()`）必须经模块自己的同一个串行队列，开跨 await 的事务的一方在提交前独占这条连接；做不到时模块应自己另开连接（`openModuleDb` 可以导出给适配器）。不需要改代码。
+
+### 7. 锁文件打不开、库不是 WAL 这类“程序之外”的失败走 `process.fatal`：标准错误没有失败行，日志只有 `errorType: "Error"`
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/cli.ts:73-76；lock.ts:59、74-77（“文件打不开照常抛出”）；db/open.ts:27（日志模式不是 wal 时抛普通 `Error`）；serve.ts:53（取锁在 try 之外）
+- **现象**：`<数据目录>/<模块>.lock` 是目录、属主不对、数据目录所在文件系统不支持 WAL 时，命令抛出普通异常，`runCli` 的 catch 只往标准输出写一行 `{"event":"process.fatal","errorType":"Error","message":"command threw"}`，标准错误什么都没有，以 1 退出。
+- **为什么是问题**：计划 3.5 与 Spec 输出 1 的口径是“所有失败都以 1 结束，向标准错误写一行 JSON，`code` 取失败表里的码”；部署脚本与合同测试按标准错误的最后一行判断原因，这里拿不到行，也看不出是哪个模块、哪类错误（`EISDIR`、`EACCES` 都报成 `Error`）。这些是部署环境的问题，不是程序错误，不该和“代码抛了”混在一起。
+- **如何核实**：真子进程，数据目录里建一个名为 `alpha.lock` 的目录后 `serve`：exit=1，stdout 只有上面那一行，stderr 为空（/tmp/review-w00037-t05-impl/lab-opus/e9/d4.out、d4.err）。对照：库文件是目录、不是 SQLite、只读时都能得到带 `dbCode` 的 `migration_failed` 行，没有路径（同目录 d1 到 d3）。
+- **建议改法**：`lockModules` 接住 `openSync` 的系统错误，返回 `{ok: false, module, errorCode}`，由命令报 `data_dir_busy` 以外的码（Spec 失败表里没有合适的码时加一个，例如 `data_dir_unusable`，带 `module` 与 `errorCode`）；`openModuleDb` 的日志模式检查同样归到这个码。`runCli` 的 catch 再往标准错误补一行 `{"code":"internal"}`，保证“失败必有一行”。
+
+### 8. 校验和按 LF 归一化，执行的却是原文：字符串字面量里的换行随检出方式不同写进库，校验和认为是同一条迁移
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/db/migrate.ts:94-98（校验和）、158（`db.exec(migration.sql)` 执行原文）
+- **现象**：归一化只用于算校验和。迁移里有跨行的字符串字面量（种子数据、`CHECK` 里的文字、触发器 `RAISE` 的说明）时，CRLF 检出的机器把 `\r\n` 原样写进库，LF 检出的写 `\n`，两边校验和相同。
+- **为什么是问题**：校验和的含义是“这是同一条迁移”；现在同一个校验和对应两种落库结果，从 Windows 上迁移过的数据目录与 Linux 上的在字面量上不同，以后按文字比较的查询或唯一约束会出现只在一边成立的情况。BOM 那半边没有这个问题（实测 bun:sqlite 执行带 BOM 的文字不报错）。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e1.ts 末尾：`INSERT INTO t VALUES ('a\r\nb')` 存进去的长度是 4，而 `migrationChecksum` 对 CRLF 与 LF 两个版本给出同一个值（migrate.test.ts:317 的用例已证）。
+- **建议改法**：归一化一次，校验和与执行都用归一化后的文字（`const text = normalize(sql)`，`applyOne` 执行 `text`）。这样“校验和相同”就等于“执行的文字相同”。顺手在 `.gitattributes` 给 `*.sql` 定 `eol=lf`，从源头去掉分歧。
+
+### 9. 没有 `Host` 头或 `Host` 不合 URL 语法的请求得 500 并记一行 `level: error`，Spec 要它们落到站点
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/site.ts:123-125（`new URL(c.req.url)` 没有接住）；测试 serve.test.ts:161 的 `undefined`
+- **现象**：真子进程上用原始套接字发请求：`GET /api/alpha/where HTTP/1.0`（不带 Host）、`Host: x@ingest.example`、`Host: ingest.example:abc`、`Host: ingest.example/x` 都回 500 `{"code":"internal"}`，各记一行 `http.unhandled_error`（`errorType: TypeError`）。Bun 交来的 `req.url` 这时不是合法 URL。另外，不带 Host 时 Hono 自己切出来的路径少了第一段（日志里 `path` 是 `/alpha/where`，请求的是 `/api/alpha/where`），与 `new URL` 的理解不一致。
+- **为什么是问题**：Spec 输入一节“主机名与遥测写入口相同的只到写入口，其余的到站点的接口”，这些请求应到站点（或回 400），不是服务端错误。任何人都能用一行请求制造 error 级日志与 5xx，干扰按 5xx 报警的监控。现有用例“Host 为 undefined”实际是 fetch 自动补了 Host，没测到缺失的情况。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e10/raw.ts 对真子进程逐个发原始请求，结果与 out.log 在同目录。同一次实验里：absolute-form 的请求目标优先于 Host（符合 RFC 9112）；两个 Host 头取第一个；`ingest%2eexample` 被解码成写入口；末尾两个点落到站点；健康检查在任何 Host 上都可用。这些都与 Spec 不冲突。
+- **建议改法**：分派里用 `URL.parse(c.req.url)`（返回 null 不抛），解析不了就交给站点或直接回 400 `{"code":"bad_request"}`，不进 `onError`；在根应用最前面对“URL 解析不了”的请求统一回 400，同时消掉 Hono 与 URL 对路径理解不一致的问题。用例改成原始套接字发不带 Host 的请求。
+
+### 10. “迁移期间收到 SIGTERM”的用例靠一条约 0.8 秒的迁移接住信号，测试进程慢于它就误报；它也没证明“正在执行的那一条做完了”
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-server/src/serve.test.ts:95-102；testing/modules.ts:19-23
+- **现象**：子进程写出 `0001_items` 的 `migration.applied` 后立即开始 `0002_slow`（本机实测 793 毫秒，load 3.5）。测试要经管道读到这一行、`waitUntil` 每 10 毫秒轮询一次、再发信号；这段延迟超过 0.8 秒（负载高、机器快使迁移变短都会）时，子进程已经执行完 `0003_after_slow` 并开始监听，用例在 `not.toContain("site.listening")` 或账本断言上失败，与产品无关。反方向，信号落在两条迁移之间的让出里时 `0002_slow` 根本不执行，用例照样通过：它只断言 `0003` 不在账本里，没有断言 `0002` 在，也没有核对 `process.signal` 出现在 `0002` 提交之前，所以“把正在执行的那一条做完”这半句其实没被测到。
+- **为什么是问题**：测试规范要求等可观察的状态、不靠时长；这条的成败取决于两个进程的相对速度。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e11.ts 单独计时那条迁移（793 毫秒）；按代码推演 migrate.ts:221-233 与 serve.ts:112 的检查点即可得出上面两种结果。没有在高负载下实跑复现。
+- **建议改法**：让信号在子进程开始迁移之前就排进队列，结果就不依赖速度：夹具模块的 `parseConfig` 里同步读一行标准输入（`readSync(0, …)`）再返回，测试先发 SIGTERM、再写这一行；运行器执行第一条（这时信号还没被处理），提交后让出，第二条不执行。断言改成：账本恰好是第一条、日志里 `process.signal` 在第一条的 `migration.applied` 之后且没有第二条的 `migration.applied`、没有 `site.listening`、退出码 0。慢迁移夹具随之可以删掉。
+
+### 11. “立即 503”的判据 `durationMs < 100` 留的余量偏小，可放宽到 200
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-server/src/serve.test.ts:144-147
+- **现象**：要区分的是“不等锁”（约 0 毫秒）与“等满 `busy_timeout`”（250 毫秒）。看服务端自己记下的时长，已经避开了测试进程的负载；剩下的风险只是服务端进程在这次请求里被调度器抢占超过 100 毫秒。本机 load 3 到 5 时不会，load 15 以上（仓库记忆里 e2e 开始超时的区间）有可能。
+- **为什么是问题**：判据离被区分的两种行为一边 0、一边 250，取 100 时偏向误报一侧；取 200 仍能杀死“探测连接用 250 毫秒等锁”的变异。
+- **如何核实**：按代码推演；未在高负载下实跑。
+- **建议改法**：改成 `toBeLessThan(200)`，并在注释里写明这个数是“小于 busy_timeout 250”推出来的，改 250 时一起改。
+
+### 12. 模块命令在运行之前被信号拦下时以 0 退出，看起来像成功
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/commands/module-command.ts:43、50
+- **现象**：`shared` 或 `exclusive` 命令在迁移期间或迁移之后、`run()` 之前收到停止请求，直接 `return SUCCEEDED`，命令没有执行，退出码 0、标准输出没有结果行。
+- **为什么是问题**：Spec 输出 5：创建管理员“成功时标准输出一行结果，失败时非零码退出”。部署脚本 `nb-site create-admin … && echo done` 会把“被打断、账号没建”当成成功。`serve`、`migrate` 在迁移期间被停以 0 退出是 Spec 输出 9 明文规定的，但那条说的是“停止”，命令的目的是产生一个效果，没产生就不是成功。
+- **如何核实**：按代码读；与第 4 条同一处，第 4 条的实验（e6）里命令进入 `run()` 之后收到信号、最终仍以 0 退出，也是同一类表现。
+- **建议改法**：命令被停时返回一个失败（例如 `{code: "interrupted", …}`，以 1 或 130 退出），写进 `SiteCommand` 的注释；Spec 失败表补这个码。和第 4 条一起改。
+
+### 13. 监听前的那次停止检查前面没有让出事件循环：建实例期间、或没有待执行迁移时收到的信号查不到，照样开始监听
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/commands/serve.ts:111-112（注释“迁移做完之后、建实例期间到的信号在这里生效，不监听就退出”）
+- **现象**：信号处理函数只在事件循环转到宏任务时执行。从最后一次 `yieldToEventLoop`（只在提交了一条迁移之后才有）到第 7 步之间全是同步代码与已 resolve 的 Promise，没有宏任务边界，所以第 7 步只能看见“最后一条迁移提交后那次让出里”到达的信号。没有待执行迁移时（最常见的重启）`runMigrations` 一次都不让出，第 7 步对启动期间的信号完全无效。
+- **为什么是问题**：修订表第 2 条要求“`serve` 在监听之前再查一次”，注释也写着建实例期间的信号会生效，实际不成立；进程会先监听、写出 `site.listening`，再按停止的步骤退出。影响不大（随后正常排空），但注释说的保证是假的，后来者会依赖它。
+- **如何核实**：/tmp/review-w00037-t05-impl/lab-opus/e12/main.ts 用真实 `runCli` 起一个 `create()` 同步忙 1.5 秒的模块，看到 `lab.create_started` 后发 SIGTERM：日志顺序是 `lab.create_started` → `site.listening` → `process.signal` → `site.stopped`，退出码 0。
+- **建议改法**：第 7 步之前 `await new Promise((resolve) => setImmediate(resolve))`（`migrate.ts` 已有同样的 `yieldToEventLoop`，导出复用），注释改成“让出一次，让排队的信号先跑”。`openAndMigrate` 进入每个模块前同样让出一次，`migrate` 命令也受益。
+
+### 14. 就绪检查“业务连接在事务里就不拿写锁”的分支，正好把“事务卡住没提交”这种故障报成 200，而且一直报下去
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-server/src/health.ts:40-42、5-7
+- **现象**：只要 `business.inTransaction` 为真，探测只读迁移记录，不再证明拿得到写锁。业务连接上的事务若因模块的错误路径没有 `COMMIT`/`ROLLBACK`（t07 在这条连接上开跨 await 的事务，异常分支漏收口是最可能出的错），这条连接从此一直在事务里：后面所有请求的写入都落进这个永远不提交的事务（见第 6 条），进程外的备份看不到它们，重启即丢；而就绪检查在这段时间里每次都回 200。去掉这个分支时，探测的 `BEGIN IMMEDIATE` 会撞上卡住的写锁、回 503，故障能被看见。
+- **为什么是问题**：Spec 输出 4 的就绪检查要回答“库能不能写”；这个分支是为了不在本进程自己持锁时误报 503 而加的，但它对“持锁持了多久”不加区分，把短暂的正常事务和永久卡住的事务一样当作就绪。实现者自报第 2、8 条只考虑了“进程外的写者看不出来”这一半代价。
+- **如何核实**：按代码推演；可用现有夹具复现：起 alpha，`POST /api/alpha/txn/begin` 后不提交，之后任意多次 `/health/ready` 都是 200（serve.test.ts:129 的用例本身就是这一步，只是它随后提交了）。
+- **建议改法**：保留分支，但给它一个期限：第一次看到 `business.inTransaction` 为真时记下单调时间，之后的检查若仍在事务里且已超过一个上限（例如 30 秒，或复用停止时限），按 `not_ready`、`reason: "transaction_stuck"` 报并记一行 warn。把“本进程持锁时不算占用”和这个上限一起写进 Spec 输出 4（实现者自报第 8 条）。
+- **补充（第 14 条的改法的限制）**：只看 `inTransaction` 分不出“同一个事务一直开着”和“每次检查都碰上一个新的短事务”；高并发时后者也会连续为真。要准确，可以让入口给业务连接包一层计数（每次 `BEGIN` 时加一），或者退一步：分支里仍先试探 `BEGIN IMMEDIATE`，撞上 `SQLITE_BUSY` 时才按“本进程持锁”放行，并记下持续时长。哪种都不需要模块配合以外的东西，交实现者选。
+
+### 15. 给 t07 的接口两处小别扭：`clientAddress` 只收 Hono 的 `Context`，`create()` 与 `start()` 只能同步
+- **严重程度**：建议；**类别**：代码质量（接口）
+- **位置**：packages/nb-site-server/src/module.ts:79、93-94、149；client-address.ts:160-174
+- **现象**：`clientAddress(c: Context)` 实际只用到 `c.env.server` 与 `c.req.raw`。t07 把请求交给 Better Auth 的 `auth.handler(request)` 之后，Better Auth 的钩子、限流回调手里只有 `Request` 与请求头，没有 Hono 的 `Context`；它自带的取地址逻辑缺省读 `X-Forwarded-For`，正是 client-address.ts 头注释要防的“两种读法”。`create()` 返回 `ModuleInstance`、`start()` 返回 `void`，模块没有地方做异步的初始化（例如在监听之前确认 Better Auth 的上下文能建成、预热密钥派生），只能推到第一次请求时才失败。
+- **为什么是问题**：照现在的形状写 t07，要么在 mount 外再包一层把地址塞进内部请求头（又一处读法），要么改接口；改接口在 t07 时会连带改 `serve` 的收口顺序。现在改成本最低。（从代码推断；没有装 Better Auth 验证它的钩子签名。）
+- **如何核实**：读 module.ts 与 client-address.ts；Better Auth 的钩子签名留到 t07 核对。
+- **建议改法**：`clientAddress(request: Request)`，入口用 `WeakMap<Request, Server>` 或在 `siteFetch` 里把对端地址算好放进 `WeakMap<Request, string | null>`，模块拿 `c.req.raw` 或 Better Auth 给的 `Request` 都能问；`create()` 允许返回 `Promise<ModuleInstance>`（`serve` 已经在 async 函数里，只多一个 await，收口规则不变）。
+
+## 按影响的阅读顺序
+条目按核实先后编号。按影响排：重要 1、2、4；建议里先看 14、13、12、7、9、3、5，再看 6、15、8、10、11。
+
+## 对“实现者自报的偏差与读法”16 条的判断
+1. 监听地址只收 IP、`not_ip`：取值合理（避免 `localhost` 解析成 ::1 还是 127.0.0.1 的歧义）；Spec 的问题词表写着“只追加”，要把 `not_ip` 追加进 Spec，并在配置表写明只收 IP 字面量。写进 Spec。
+2. 业务连接在事务里时不拿写锁：方向可以接受，但要加期限，否则把卡住的事务报成就绪（第 14 条）。改代码，并写进 Spec 输出 4。
+3. 失败行字段与 `reason` 取值：合理；`reason` 的六个词与 `dbCode`、`dbMessage`、`migration` 可为 null 应写进 Spec 失败表（合同测试会按它断言）。另：`listen_failed` 的 `errorCode` 拿不到系统码时退成 `errorType`（serve.ts:120），一个字段混两种含义，建议拿不到时省略或另放 `errorType`。写进 Spec，小改代码。
+4. 失败行比 Spec 多 `time`、`level`、`event`、`message`：合理；Spec 输出 1 改成“至少带 `code` 与 `problems`”。写进 Spec。
+5. 模块命令只校验入口与本模块的配置：合理，与 ADR 0059 拆进程的意图一致；Spec 创建管理员一节写明不要求统计模块的变量。写进 Spec。
+6. `site.stopped` 在取锁之后每条路径都写；`close()` 抛错只记日志；第二个信号以 0 退出、不等 `close()`：读法合理。但有两处要知道：排空、停定时任务、`close()` 共用一个截止时刻，排空用满时限时 `close()` 只剩 0 毫秒、库随即被关（t06 的聚合收尾会被截掉）；nb-site-server/AGENTS.md:43 写“时限用来排空 HTTP，`close()`、关库与放锁还要一点时间”，与代码不符（`close()` 是被同一时限截断的）。改文档，或给 `close()` 单独的小预算。
+7. 请求之外的未处理错误写 `process.fatal`、照常排空、以 1 退出：符合 Spec 输出 8。保留。
+8. “别的进程”不含本进程：可以接受，必须写进 Spec 输出 4，并配上第 14 条的期限。写进 Spec。
+9. 主机名只去掉一个末尾的点：合理（合法的绝对域名只有一个点），实测两个点落到站点，不会误进写入口。保留。
+10. `NB_SITE_TELEMETRY_URL` 只在有模块声明写入口时必填：合理，是拆进程的前提；Spec 配置表的“必填：是”要改成“装了统计模块的进程必填”。写进 Spec。
+11. 可信代理收单个地址、可信对端没给转发头时取不到、全可信时取最左：这三点都合理；但同一处“任何一跳不合法就整条 null”要改（第 2 条）。改代码。
+12. 整数范围：端口、份数、时限的下界合理；停止时限的上界要收到 2147483647（第 3 条）。改代码。
+13. 创建管理员按锁判断服务在不在跑、`migrate` 没做完报 `not_ready`：读法合理；副作用是服务没在跑时命令拿着锁等密码输入，这期间 `serve` 起不来，加上第 4 条按 Ctrl-C 退不出，体验差。命令拿锁的范围可以只包住“迁移”，迁移做完就放锁再运行（运行时靠 SQLite 写锁排队，与服务在跑时同一条路）。建议改代码。
+14. 会话密钥按码点数：合理（与 `[...secret].length` 一致）；Spec 的“32 个字符”补一句“按 Unicode 码点计”。写进 Spec。
+15. commander 的用法错误自己 `exit(1)`：此时还没打开任何东西，不收口没有后果；但它往标准错误写的是纯文字，不是 JSON 行。Spec 的公开输出只覆盖输出 1 与 2，可以接受；在 Spec 边界一节写明用法错误的输出不属于公开接口即可。写进 Spec。
+16. 统计模块声明了写入口、还没有路由：可以接受（让 `NB_SITE_TELEMETRY_URL` 的校验现在就生效）；t06 加路由时去掉 modules.ts:143 的说明。保留。
+
+## 未发现问题的方面
+- 锁：`lockModules` 取不到或抛出时都放掉已取的；`serve`、`migrate`、模块命令的每条返回与抛出路径都经 finally 放锁；flock 按打开的文件描述计，同一进程里第二次取也拿不到（lock.test.ts 覆盖）。服务、`migrate`、`exclusive`、`shared` 两两组合的结果与 `SiteCommand` 注释一致。
+- 就绪检查：检查是同步的，`inTransaction` 的读取与探测之间没有可插入的事件；并发请求不会看到算了一半的结果；探测失败时 `ROLLBACK` 只在 `BEGIN` 成功之后执行；`query().get()` 会 reset，不会留下读快照挡住检查点（实测）。
+- 迁移运行器：外键在每条返回与抛出路径上都在事务外重新打开（只在已提交或已回滚后执行，`PRAGMA` 不会落在事务里被忽略）；事务里重读账本、乱序与改号规则、账本多列的兼容都有用例；校验和的 BOM 处理与执行一致。
+- 日志：配置失败行只有变量名与问题词（看了 config.ts 的结构，测试也搜了取值）；库文件是目录、不是 SQLite、只读三种打开失败的 `dbMessage` 都不含路径（实测）；未捕获异常与处理函数抛错只记类型；请求编号由服务生成，入站的 `X-Request-Id` 不进日志与响应头。
+- 测试进程收口：`stopAllSiteProcesses` 在 `afterEach` 里 SIGKILL 并等退出，`startServing` 中途失败的进程也在集合里。
+- 模块包不依赖入口包，依赖白名单有反例用例；合同测试包对 `nb-site-server` 的开发依赖有书面理由与守卫。
+- 全包测试 95 条通过、类型检查通过（load 2.9，在被审 worktree 上只读运行）。
+
+## 各级数量
+阻断 0；重要 3；建议 12；共 15 条。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
