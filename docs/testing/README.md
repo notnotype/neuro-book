@@ -104,6 +104,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | 类别 | 内容 | 包脚本 | 什么时候跑 |
 | --- | --- | --- | --- |
 | 快速 | 同进程测试与几十毫秒级的子进程测试；可以用真文件、真端口 | `test` | 每次改动，按受影响范围 |
+| 服务进程 | 每个测试文件起被测的服务进程，只经 HTTP 与命令行；真端口、真 SQLite 文件（官方站的 `nb-site-contract-tests`） | `test` | 同快速类，按受影响范围；CI 的 `check` 作业经依赖图选中，`site-image` 作业对着打好的产物再跑一遍 |
 | 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收，本地跑（CI 不跑） |
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量 |
 | 全量 | 以上全部 | — | 手动；CI 手动触发时跑全部包的快速类 |
@@ -122,6 +123,17 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - 旧应用不参加；准备退役的 `llmlint` 选中了也不跑，在跳过里写明理由。
 
 包内再缩小到文件时，在包目录把测试文件路径传给 `bun run test <路径>`。在命令行给 `bun test` 传 `--path-ignore-patterns` 会盖掉 bunfig 里的同名设置（例如排除 DOM 测试的那条）；只想缩小范围时直接传测试路径。
+
+### 服务进程测试
+
+起被测服务进程、只经 HTTP 与命令行断言的测试（官方站的合同测试，底座是 `packages/nb-site-contract-tests/src/testing/site.ts`）：
+
+- 起进程、跑命令放在 `beforeAll` 里，用例本身只发请求、读结果：Bun 的 junit 报告不把钩子的耗时算进用例，单个用例仍守 200 毫秒的预算。用例里非起进程不可、或要等被测程序自己的时限（例如就绪结果的复用窗口）的，在用例旁写明原因。
+- 每个测试文件一个 `createTestTmpRoot`，各用例在根下建自己的数据目录；文件结束时先停进程再删根。
+- 端口给 0，从被测程序的监听日志读实际地址，不先探一个空端口再交给子进程；就绪按 `/health/ready` 等到 200（`waitUntil`）。
+- 停止发 `SIGTERM` 并核对退出码；用例里起、没停的进程在 `afterEach` 里停掉，`beforeAll` 里起的在 `afterAll` 里停掉，`process.on("exit")` 对还活着的 `SIGKILL` 兜底。测试进程自己被 `SIGKILL` 时子进程会留下，按进程号结束。
+- 子进程的环境只给明确列出的变量（`PATH`、`HOME` 与 `TMPDIR` 指向临时根下的空目录，加被测程序的配置），不继承测试进程的环境；工作目录是临时根。Bun 进程带 `--no-env-file`，否则它会读工作目录的 `.env`。
+- 被测程序经路径启动，`--files` 选不到它：改了入口或模块后去掉 `--files` 再跑一次（见上面 `--files` 一条）。
 
 ## 真实模型测试
 
@@ -157,7 +169,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
    子目录，并且必须在 `finally` 中清理。
 6. **验收/沙盒脚本**默认输出到 `<系统Temp>/neuro-book/acceptance/` 或 task/run 专用子目录，
    禁止把用户公共目录写为默认值；需要仓库外路径时通过参数显式传入，并打印实际路径。
-7. **公开环境键由测试支持包拥有**：
+7. **公开环境键由测试支持包拥有**；被测程序的命令这类只属于某个测试包的键由那个包拥有，Owner 一列写明：
 
    | 环境键 | Owner 与约束 |
    | --- | --- |
@@ -165,6 +177,8 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
    | `NBOOK_AGENT_TEMP_ROOT` | Agent 测试、fixture、cache、scratch 与 acceptance 的共同父根；必须是宿主 Temp 内的绝对真实路径 |
    | `NBOOK_AGENT_WORKTREE_ROOT` | governance/worktree 工具的 repo-relative locator；默认 `.worktree`，不得指向包源码或运行数据根 |
    | `NBOOK_TEST_TMPDIR` | Vitest global setup 为单次 run 写入；必须包含在 `NBOOK_AGENT_TEMP_ROOT` 内，普通测试不得长期覆盖 |
+   | `NB_SITE_SERVER_COMMAND` | `nb-site-contract-tests`：被测的官方站程序，JSON 数组形式的 argv（例如 `["bun","--no-env-file","/abs/server.js"]`）；没设时用本仓库 `nb-site-server` 的源码入口，设错时测试报错、不退回缺省 |
+   | `NB_SITE_PREVIOUS_SERVER_COMMAND` | `nb-site-contract-tests`：上一个发布版本的程序，形式同上；只给相邻版本测试用，没设时那一组跳过并在组名里写明 |
 
 ## 测试文件组织
 
