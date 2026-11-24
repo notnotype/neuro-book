@@ -80,7 +80,9 @@ async function setup(project: readonly PluginDefinition[] = []): Promise<{other:
         // 同编辑器：每个标签一份 context，`state` 是 initialState 的响应式副本，切走再回来是同一个。
         const context: EditorPageContext<EntryPageState> = {recent: [], arg: id, state: given ?? reactive(page.initialState!(id))};
         const mountOnce = (): ReturnType<typeof mount> => {
-            const wrapper = mount(component, {props: {context}, global: {provide: provideText(port)}, attachTo: document.body});
+            // 过渡用真的（测试工具缺省把 `Transition` 换成直接画出子节点的替身）：阅读视图与编辑视图在一个先出后进的过渡里换，
+            // 退场收不了尾时换上来的那一个永远不出现，替身看不到这种事。
+            const wrapper = mount(component, {props: {context}, global: {provide: provideText(port), stubs: {transition: false}}, attachTo: document.body});
             cleanups.push(() => wrapper.unmount());
             return wrapper;
         };
@@ -857,8 +859,9 @@ describe("写入", () => {
         expect(wrapper.get("[data-text-submit-blocked]").text()).toContain("第 3 章记账");
         await page.commit!(id);
         await waitUntil("写明原因", () => wrapper.find("[data-text-message]").exists());
-        // 原因照整批的说明显示，状态行里不再写一遍。
-        expect([wrapper.get("[data-text-message]").text().includes("第 3 章记账"), wrapper.find("[data-text-submit-blocked]").exists()]).toEqual([true, false]);
+        // 原因照整批的说明显示，状态行里不再写一遍（那一句淡出以后才从页面上拿掉）。
+        expect(wrapper.get("[data-text-message]").text()).toContain("第 3 章记账");
+        await waitUntil("状态行里那一句收起", () => !wrapper.find("[data-text-submit-blocked]").exists());
         expect([await initText(other.canon, id), page.uncommitted!(id)]).toEqual([["第一块。"], true]);
 
         // 独占放开：原因没了，那句说明跟着收起。
