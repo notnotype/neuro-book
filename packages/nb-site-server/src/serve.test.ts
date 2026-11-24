@@ -139,11 +139,12 @@ describe("健康检查", () => {
         const holder = new Database(join(dataDir, "alpha.db"));
         external.push(holder);
         holder.exec("BEGIN IMMEDIATE");
-        const started = performance.now();
         const busy = await getJson(`${url}health/ready`);
-        // 探测连接不等锁：远小于业务连接的 250 毫秒等待（留出慢机器的余量）。
-        expect(performance.now() - started).toBeLessThan(1_000);
         expect(busy).toMatchObject({status: 503, body: {code: "not_ready", modules: {alpha: "not_ready"}}});
+        // 探测连接不等锁：服务端记下的处理时长远小于业务连接的 250 毫秒等锁上限（看服务端的时长，不受测试进程的负载影响）。
+        const requestId = busy.headers.get("X-Request-Id");
+        const handled = await site.waitForLog("ready request line", (line) => line.event === "http.request" && line.requestId === requestId);
+        expect(handled.durationMs as number).toBeLessThan(100);
         expect(site.logs().find((line) => line.event === "health.not_ready")).toMatchObject({module: "alpha", reason: "db_unavailable", dbCode: "SQLITE_BUSY"});
         holder.exec("ROLLBACK");
         await waitUntil("readiness recovers", async () => (await fetch(`${url}health/ready`)).status === 200);
