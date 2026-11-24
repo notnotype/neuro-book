@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t50-example-app",
+    "artifactId": "examples",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "nb-layout 的三个示例应用与摩擦记录",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "fd5381e004229ace1d4a3b13bdb2c8386d53780ea12570e954dba63702abbc4d",
+    "files": [
+        "desktop-2-tile-feedback.webp",
+        "desktop-3-tiled.webp",
+        "ide-1-default.webp",
+        "ide-2-all-open.webp",
+        "index.html",
+        "tabbed-1-default.webp",
+        "tabbed-2-split-feedback.webp"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-24T11:16:12.227Z"
+}

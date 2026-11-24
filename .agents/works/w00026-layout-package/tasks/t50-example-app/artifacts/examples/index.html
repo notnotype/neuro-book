@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>t50 nb-layout 的三个示例应用与摩擦记录</title>
+<style>
+  body { font: 14px/1.6 system-ui, sans-serif; color: #1d2330; max-width: 1240px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 22px; } h2 { font-size: 18px; margin-top: 32px; }
+  figure { margin: 12px 0; } figure img { width: 100%; border: 1px solid #d5d9e0; border-radius: 6px; }
+  figcaption { color: #556; font-size: 13px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #d5d9e0; padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: #f3f5f8; }
+</style>
+</head>
+<body>
+<h1>nb-layout 的三个示例应用</h1>
+<p>三个示例都只经 nb-layout 的公开入口写成，每个目录可以单独拷走、装依赖就跑。已合入 master，在 <code>packages/nb-layout/examples/</code>。截图是 1440×900 的亮色。</p>
+
+<h2>标签编组（tabbed-panels）</h2>
+<p>标签在编组之间拖、拖到编组边上拆出新编组、关空的编组缩回去、侧栏收起、布局存进浏览器。</p>
+<div class="pair">
+  <figure><img src="tabbed-1-default.webp" alt="标签编组的缺省布局"><figcaption>缺省：侧栏加三个编组</figcaption></figure>
+  <figure><img src="tabbed-2-split-feedback.webp" alt="拖标签到第二个编组的右边缘"><figcaption>把 main.ts 拖到第二个编组的右边缘：落点反馈 “Split right”</figcaption></figure>
+</div>
+
+<h2>浮动窗口的桌面（desktop）</h2>
+<p>拖标题栏移动、拖边角缩放、按到就到最上面、最大化与最小化、拖到桌面左右缘平铺进布局树。</p>
+<div class="pair">
+  <figure><img src="desktop-2-tile-feedback.webp" alt="把 Notes 拖到桌面左缘"><figcaption>把 Notes 拖到左缘：左半边的落点反馈 “Tile left”</figcaption></figure>
+  <figure><img src="desktop-3-tiled.webp" alt="Notes 平铺在左边"><figcaption>松手后 Notes 平铺在左边；Calculator 的记录位置在左半边，被夹到平铺窗的右边</figcaption></figure>
+</div>
+
+<h2>IDE 式的工具窗（ide）</h2>
+<p>三个停靠区靠边上的按钮条开关、收起再展开回到原来的宽度、按钮在条之间拖动换区、编辑区最大化、快捷键。</p>
+<div class="pair">
+  <figure><img src="ide-1-default.webp" alt="IDE 的缺省布局"><figcaption>缺省：左区显示 Project，右区与下区收着</figcaption></figure>
+  <figure><img src="ide-2-all-open.webp" alt="三个区都展开"><figcaption>点开 Terminal 与 Outline：三个区都展开</figcaption></figure>
+</div>
+
+<h2>做示例时记下的不好用之处（58 条，归成六组）</h2>
+<p>逐条记录在 Task 的 <code>friction.md</code>。按影响排序：几个示例都撞到、每个示例为它多写的代码与要守的不显然约束，以及照抄的第三方漏了它会出什么错。</p>
+<table>
+  <tr><th>排序</th><th>组</th><th>三个示例怎么撞到的</th><th>后续 Task 的候选</th></tr>
+  <tr><td>1</td><td>结构操作不能“试做”，树不能复制</td><td>标签编组与桌面都要判断“这次拆分、平铺放不放得下”：复制一棵树、照做一遍、读 over-constrained，各约 30 行；只剩一扇时换窗照直觉写会丢窗；同向拆分越拆越深</td><td>库加 grid.clone()（带运行期策略）、结构操作的试做或 canSplit、“在某块叶旁插入兄弟”</td></tr>
+  <tr><td>2</td><td>收起与展开的语义分散</td><td>IDE 一个示例撞了八条：收起前的宽度有两种读法，还会在收起时被改写，存档该存什么只能猜；收起不通知；没有“这块区现在不能展开”；按钮条会被别处的拖动挤到 0</td><td>统一“展开回到哪”并写在一处；收起也通知；策略加“不能展开”与“刚性”；宿主工具补 setSize</td></tr>
+  <tr><td>3</td><td>浮动窗的几何接口</td><td>桌面一个示例撞了十五条：夹取函数没有原点；缩放手柄的上限是尺寸不是边界；取不到某块叶此刻的矩形；“按到窗就抬升”要在外层捕获；矩形变化没有过渡</td><td>夹取与缩放收区域矩形；网格交出摆放结果；浮动窗的按下事件；整窗移动的组合函数</td></tr>
+  <tr><td>4</td><td>拖动会话的约定没有诊断</td><td>三个示例都撞到：起拖要自己把过渡送到终点；反馈层忘了标记时落点会被盖住；网格诊断不接就完全无声</td><td>开发时检查漏调、漏标记；诊断缺省打到控制台</td></tr>
+  <tr><td>5</td><td>说明与标记没写清</td><td>读源码或跑探针才知道：分隔线标记的格式、禁用分隔线的回调收到的是分支 id、最大化排除只对外接矩形外的叶有效、离开中的插槽是冻结的</td><td>一次把说明补齐（便宜，不改行为）</td></tr>
+  <tr><td>6</td><td>其它</td><td>滚动的标签条插入位会错；TS 6 下的一处类型配置（发布冒烟已改）；焦点只有前后两向；整窗移动没有键盘</td><td>按需</td></tr>
+</table>
+<p>推荐的先后：第 5 组最便宜，可以随时做；第 1、2 组是改库的行为与接口，影响最大；第 3 组只在有浮动窗的宿主里用得上，可以等有使用方再定。</p>
+</body>
+</html>
