@@ -232,9 +232,9 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
     await open(page);
     await openEntry(page, "星瑕");
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
-    const field = fieldValue(page, "character.状态");
+    const field = fieldValue(page, "character.身份");
     const before = await field.innerText();
-    await entryPage(page).locator("[data-edit=\"character.状态\"]").click();
+    await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
     const bar = entryPage(page).locator("[data-confirm-bar]");
     await bar.getByRole("textbox").fill("在打工");
     await bar.getByRole("button", {name: "保存"}).click();
@@ -256,11 +256,11 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
 test("验收 11：只用键盘改一个值：Tab 走到“改”、Enter、填、Tab 到“保存”、Enter，焦点回到“改”；再 Enter、Escape，确认条收起、焦点还在“改”", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
-    const edit = entryPage(page).locator("[data-edit=\"character.外观\"]");
-    const before = await fieldValue(page, "character.外观").innerText();
+    await entryPage(page).getByRole("tab", {name: "形象"}).click();
+    const edit = entryPage(page).locator("[data-edit=\"look.外貌\"]");
+    const before = await fieldValue(page, "look.外貌").innerText();
     // 值按钮与“改”各一个 Tab 停靠，值在前。
-    await fieldValue(page, "character.外观").focus();
+    await fieldValue(page, "look.外貌").focus();
     await page.keyboard.press("Tab");
     await expect(edit).toBeFocused();
     await page.keyboard.press("Enter");
@@ -273,7 +273,7 @@ test("验收 11：只用键盘改一个值：Tab 走到“改”、Enter、填�
     for (let presses = 0; presses < 4 && !(await save.evaluate((element) => element === document.activeElement)); presses += 1) await page.keyboard.press("Tab");
     await expect(save).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(fieldValue(page, "character.外观")).toHaveText("银白长发");
+    await expect(fieldValue(page, "look.外貌")).toHaveText("银白长发");
     await expect(edit).toBeFocused();
 
     await page.keyboard.press("Enter");
@@ -314,7 +314,7 @@ test("验收 14：390 像素宽时，条目页、回执页、变更详情页与�
     };
     // 在宽屏上走到每一处，再换成 390 宽量。
     await openEntry(page, "星瑕");
-    for (const tab of ["文字", "人物", "面板", "情节"]) {
+    for (const tab of ["文字", "人物", "形象", "面板", "情节"]) {
         await entryPage(page).getByRole("tab", {name: new RegExp(`^${tab}`, "u")}).click();
         await narrow(entryPage(page));
     }

@@ -132,14 +132,15 @@ function toBuiltin(sample: PrototypeSample): PrototypeSample {
                 const person = character ?? identity;
                 if (person === undefined) return {...put, after: {...moved, init: {...init, data: rest}}};
                 const own = [...(owners.get(put.ref.id) ?? [])];
+                // 人物与形象排在前面：数据分页按这里的先后排，面板这些跟在后面。
                 const data = {
-                    ...rest,
                     character: {
                         enabled: person.enabled,
                         fields: character === undefined ? {} : {性格: character.fields.性格 ?? null, ...Object.fromEntries(own.map((field) => [field, character.fields[field] ?? null]))},
                         declared: declarations.filter((field) => (own as string[]).includes(field.id)),
                     },
                     look: {enabled: person.enabled, fields: {外貌: person.fields.外观 ?? null}},
+                    ...rest,
                 };
                 return {...put, after: {...moved, init: {...init, data}}};
             }),

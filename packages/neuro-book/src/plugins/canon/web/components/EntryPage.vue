@@ -228,7 +228,8 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         </DropdownMenu>
                     </div>
                 </div>
-                <Tabs class="mx-auto mt-3" :class="column" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                <!-- 一组设定一个分页，分页会比一行多：放不下时逐级让位、收进“更多”，分页条自己不横向滚动（author-ui 输出 9、32）。 -->
+                <Tabs class="mx-auto mt-3" :class="column" size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
             </header>
             <div class="mx-auto px-8 py-5 max-[480px]:px-4" :class="column">
                 <p v-if="props.actionError !== ''" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-danger)]" data-entry-action-error>{{ props.actionError }}</p>
