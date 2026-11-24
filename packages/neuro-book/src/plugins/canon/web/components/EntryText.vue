@@ -27,7 +27,9 @@ const props = withDefaults(defineProps<{
     editable?: boolean;
     /** 不能进编辑的原因：非空时那个按钮不可用，悬停写原因。 */
     editReason?: string;
-}>(), {marks: () => ({}), open: undefined, editable: false, editReason: ""});
+    /** 值与条目引用能点（展开来历、打开条目）。为假时它们只是文字：编辑时的预览用（输出 48）。默认 true。 */
+    interactive?: boolean;
+}>(), {marks: () => ({}), open: undefined, editable: false, editReason: "", interactive: true});
 
 const emit = defineEmits<{
     /** 点了一个值：展开或收起它的来历。 */
@@ -51,33 +53,37 @@ function children(node: EntryTextNode): VNodeChild[] {
 
 const HEADINGS = ["h2", "h3", "h4", "h5", "h5", "h5"] as const;
 
+/** 块一级的元素带着它在这一块源文字里的行号：预览跟着光标滚到对应的段落时按它找（输出 48）。 */
+const line = (node: EntryTextNode): {"data-source-line"?: number} => (node.position === undefined ? {} : {"data-source-line": node.position.start.line});
+
 function renderNode(node: EntryTextNode): VNodeChild {
     switch (node.type) {
         case "text": return node.value ?? "";
         // 段落、标题、列表、引用、代码、表格、分隔线的样子来自章节的正文样式（块的根上的 `.nb-markdown`），这里不另写。
-        case "paragraph": return h("p", children(node));
-        case "heading": return h(HEADINGS[Math.min(Math.max((node.depth ?? 1) - 1, 0), 5)]!, children(node));
+        case "paragraph": return h("p", line(node), children(node));
+        case "heading": return h(HEADINGS[Math.min(Math.max((node.depth ?? 1) - 1, 0), 5)]!, line(node), children(node));
         case "list": return h(node.ordered === true ? "ol" : "ul", children(node));
-        case "listItem": return h("li", children(node));
-        case "blockquote": return h("blockquote", children(node));
+        case "listItem": return h("li", line(node), children(node));
+        case "blockquote": return h("blockquote", line(node), children(node));
         case "emphasis": return h("em", children(node));
         case "strong": return h("strong", children(node));
         case "delete": return h("del", children(node));
         case "inlineCode": return h("code", node.value ?? "");
-        case "code": return h("pre", h("code", node.value ?? ""));
+        case "code": return h("pre", line(node), h("code", node.value ?? ""));
         case "break": return h("br");
-        case "thematicBreak": return h("hr");
+        case "thematicBreak": return h("hr", line(node));
         // 表格比内容列宽时在自己的框里横向滚动，不把页面撑出横向滚动条。
-        case "table": return h("div", {class: "overflow-x-auto"}, h("table", h("tbody", children(node))));
+        case "table": return h("div", {class: "overflow-x-auto", ...line(node)}, h("table", h("tbody", children(node))));
         case "tableRow": return h("tr", children(node));
         case "tableCell": return h("td", children(node));
         case "image": return node.alt ?? "";
         case "canonValue": return valueNode(node);
         case "canonComputed": return h("span", {class: "text-[var(--text-secondary)]", title: node.source}, node.display ?? "");
         case "canonPlaceholder": return h("span", {class: "text-[var(--text-muted)]"}, node.reason ?? "");
-        case "canonRef": return node.deleted === true
-            ? h("span", {class: "text-[var(--text-muted)]"}, node.name !== undefined && node.name !== "" ? node.name : text("value.deletedRef"))
-            : h("button", {type: "button", class: "text-[var(--accent-main)] hover:underline", onClick: () => emit("entry", node.id!)}, node.name ?? "");
+        case "canonRef":
+            if (node.deleted === true) return h("span", {class: "text-[var(--text-muted)]"}, node.name !== undefined && node.name !== "" ? node.name : text("value.deletedRef"));
+            if (!props.interactive) return h("span", {"class": "text-[var(--accent-main)]", "data-ref": node.id}, node.name ?? "");
+            return h("button", {type: "button", class: "text-[var(--accent-main)] hover:underline", onClick: () => emit("entry", node.id!)}, node.name ?? "");
         case "canonImage": return h("span", {class: "text-[var(--text-muted)]"}, node.caption ?? "");
         default: return node.children !== undefined ? children(node) : (node.value ?? "");
     }
@@ -89,6 +95,13 @@ function valueNode(node: EntryTextNode): VNodeChild {
     const shown = node.unknown === true ? text("value.unknown") : (node.display ?? "");
     const mark = address.entry === props.self ? props.marks[address.path] : undefined;
     const warn = node.unknown === true || node.incomplete !== undefined;
+    // 不能点时是同样画法的文字，悬停写它是哪个字段。
+    if (!props.interactive) {
+        return [
+            h("span", {"class": ["canon-value canon-value-static", warn ? "text-[var(--status-warning)]" : ""], "title": node.label ?? address.path, "data-value": key}, shown),
+            node.incomplete === undefined ? null : h("span", {class: "ml-1 text-[length:var(--text-xs)] text-[var(--status-warning)]"}, text("value.incomplete")),
+        ];
+    }
     return [
         h("button", {
             "type": "button",
@@ -141,7 +154,8 @@ const openAddress = (): TextAddress | null => {
 </script>
 
 <template>
-    <div class="entry-text min-w-0 text-[var(--text-main)]" data-entry-text>
+    <!-- 能点的是阅读视图（`data-entry-text`）；不能点的是编辑时的预览，另一个标记：找“回到阅读视图了没有”的地方不该认到它。 -->
+    <div class="entry-text min-w-0 text-[var(--text-main)]" :data-entry-text="props.interactive ? '' : undefined" :data-entry-preview="props.interactive ? undefined : ''">
         <div v-if="props.blocks.length === 0" class="my-2 flex flex-col items-start gap-3">
             <p class="text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
             <Button v-if="props.editable" variant="primary" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-text-edit @click="emit('edit')">{{ text("textEdit.start") }}</Button>
@@ -178,7 +192,10 @@ const openAddress = (): TextAddress | null => {
     padding: 0 1px;
     cursor: pointer;
 }
-:deep(.canon-value:hover),
+:deep(.canon-value-static) {
+    cursor: inherit;
+}
+:deep(.canon-value:not(.canon-value-static):hover),
 :deep(.canon-value-open) {
     background: var(--bg-hover);
     border-radius: 3px;

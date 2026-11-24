@@ -71,4 +71,25 @@ describe("EntryText", () => {
         expect(wrapper.get("[data-block='b2']").text()).toContain("旧人");
         expect(wrapper.get("[data-block-error]").text()).toBe("<Foo />这一块没有渲染出来：不认识的标签 <Foo>");
     });
+
+    it("输出 48，不能点的画法（编辑时的预览）：值与引用是文字不是按钮，点了不发事件；根上的标记与阅读视图不同", async () => {
+        const wrapper = text({interactive: false});
+        expect([wrapper.findAll("button").length, wrapper.findAll("[data-value]").map((item) => [item.element.tagName, item.text()])]).toEqual([0, [["SPAN", "900"], ["SPAN", "未知"], ["SPAN", "50"]]]);
+        expect(wrapper.get("[data-ref='e2']").text()).toBe("星瑾");
+        await wrapper.findAll("[data-value]")[0]!.trigger("click");
+        await wrapper.get("[data-ref='e2']").trigger("click");
+        expect([wrapper.emitted("value"), wrapper.emitted("entry")]).toEqual([undefined, undefined]);
+        expect([wrapper.find("[data-entry-text]").exists(), wrapper.find("[data-entry-preview]").exists(), text().find("[data-entry-text]").exists()]).toEqual([false, true, true]);
+    });
+
+    it("输出 48：块一级的元素带着它在源文字里的行号", () => {
+        const at = (line: number) => ({position: {start: {line}}});
+        const lined: EntryTextBlock[] = [{id: "source", tree: root(
+            {type: "heading", depth: 1, ...at(1), children: [t("标题")]},
+            {...p(t("一段")), ...at(3)},
+            {type: "list", ordered: false, ...at(5), children: [{type: "listItem", ...at(5), children: [{...p(t("甲")), ...at(5)}]}, {type: "listItem", ...at(6), children: [{...p(t("乙")), ...at(6)}]}]},
+        )}];
+        const wrapper = text({blocks: lined});
+        expect(wrapper.findAll("[data-source-line]").map((item) => [item.element.tagName, item.attributes("data-source-line")])).toEqual([["H2", "1"], ["P", "3"], ["LI", "5"], ["P", "5"], ["LI", "6"], ["P", "6"]]);
+    });
 });
