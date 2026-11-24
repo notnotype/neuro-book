@@ -5,13 +5,23 @@
  */
 import {TITLES, WINDOW_IDS, type Mode, type WindowId} from "./model";
 
+/** 按钮的状态也要说出来，不只靠圆点的样式：读屏用户念到的是“Notes, minimized”。 */
+const SPOKEN: Readonly<Record<Mode, string>> = {
+    floating: "open",
+    maximized: "maximized",
+    "tiled-left": "tiled left",
+    "tiled-right": "tiled right",
+    minimized: "minimized",
+    closed: "closed",
+};
+
 defineProps<{states: Readonly<Record<WindowId, Mode>>}>();
 defineEmits<{click: [id: WindowId]}>();
 </script>
 
 <template>
     <nav class="taskbar" aria-label="Windows">
-        <button v-for="id in WINDOW_IDS" :key="id" type="button" class="taskbar__button" :data-window="id" :data-window-state="states[id]" @click="$emit('click', id)">
+        <button v-for="id in WINDOW_IDS" :key="id" type="button" class="taskbar__button" :data-window="id" :data-window-state="states[id]" :aria-label="`${TITLES[id]}, ${SPOKEN[states[id]]}`" @click="$emit('click', id)">
             <span class="taskbar__dot" aria-hidden="true"></span>{{ TITLES[id] }}
         </button>
     </nav>

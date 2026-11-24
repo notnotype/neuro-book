@@ -8,9 +8,12 @@
  *
  * 数据全经属性传进来，不按 id 查模型：窗被关掉时它的叶可能还留着缩回去，那几帧里这个组件还会重新渲染。
  */
-import type {Mode} from "./model";
+import {TITLE_BAR_HEIGHT, type Mode} from "./model";
 
 export type WindowAction = "minimize" | "maximize" | "close" | "untile";
+
+/** 样式里的 `v-bind(titleBarHeight)` 把它写成这个组件的 CSS 变量：高度只在模型里定义一处，内容层的 `insetTop` 读的也是它。 */
+const titleBarHeight = `${TITLE_BAR_HEIGHT}px`;
 
 const props = defineProps<{id: string; title: string; mode: Mode}>();
 const emit = defineEmits<{action: [id: string, action: WindowAction]}>();
@@ -46,8 +49,8 @@ const placed = () => tiled() || props.mode === "floating" || props.mode === "max
     align-items: center;
     justify-content: space-between;
     box-sizing: border-box;
-    /* 按钮 22px 高，加 1px 的下边线共 39px，按钮上下各留 8px：离窗的上边不小于 8px（见文件头）；这个高度与 App.vue 的 TITLE_BAR_HEIGHT 是同一个数。 */
-    height: 39px;
+    /* 按钮 22px 高，加 1px 的下边线共 39px，按钮上下各留 8px：离窗的上边不小于 8px（见文件头）。改高度要连按钮一起看。 */
+    height: v-bind(titleBarHeight);
     padding: 0 10px 0 12px;
     background: linear-gradient(#eef0f6, #dfe3ec);
     border-bottom: 1px solid #c4cad8;

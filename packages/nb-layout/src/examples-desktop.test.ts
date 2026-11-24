@@ -211,6 +211,22 @@ describe("平铺的树操作", () => {
         expect(layout.mode("calc")).toBe("tiled-left");
     });
 
+    it("最小化的平铺窗点底栏，那一侧空着但此刻平铺不下：浮动在记着的矩形，不留在最小化里", () => {
+        const layout = DesktopLayout.createDefault();
+        layout.tile("notes", "left", WIDE);
+        layout.tile("calc", "right", WIDE);
+        layout.minimize("notes");
+        const rect = layout.windows.get("notes")!.floatRect;
+        // 窄到三块放不下（三个最小宽度加分隔线超过 700），而桌面加 calc 两块放得下。
+        expect(code(layout.canTile("clock", "left", NARROW))).toBe("no-room");
+        expect(layout.dockClick("notes", NARROW).ok).toBe(true);
+        expect(layout.mode("notes")).toBe("floating");
+        expect(layout.windows.get("notes")!.floatRect).toEqual(rect);
+        expect(layout.windows.get("notes")!.before).toBeNull();
+        expect(layout.stack().at(-1)).toBe("notes");
+        expect(treeLeaves(layout)).toEqual([DESKTOP, "calc", "dock"]);
+    });
+
     it("读了存档再平铺：新分支的 id 不撞", () => {
         const layout = DesktopLayout.createDefault();
         layout.tile("notes", "left", WIDE);
@@ -276,6 +292,21 @@ describe("试平铺", () => {
 });
 
 describe("夹取与求交", () => {
+    it("resize 把宽高夹到最小尺寸以上再写：写出的存档读得回来", () => {
+        const layout = DesktopLayout.createDefault();
+        expect(layout.resize("notes", {x: 5, y: 6, width: 150, height: 100}).ok).toBe(true);
+        expect(layout.windows.get("notes")!.floatRect).toEqual({x: 5, y: 6, width: 240, height: 160});
+        // 够大的矩形原样写。
+        layout.resize("notes", {x: 5, y: 6, width: 300, height: 200});
+        expect(layout.windows.get("notes")!.floatRect).toEqual({x: 5, y: 6, width: 300, height: 200});
+        layout.resize("notes", {x: 0, y: 0, width: 10, height: 10});
+        const storage = memoryStorage();
+        saveLayout(storage, layout);
+        const loaded = loadLayout(storage);
+        expect(loaded.notice).toBeNull();
+        expect(loaded.layout.windows.get("notes")!.floatRect).toEqual({x: 0, y: 0, width: 240, height: 160});
+    });
+
     it("deskClamp：有平铺窗时桌面不从 0 开始，窗被夹在平铺窗右边", () => {
         const desk = {x: 400, y: 0, width: 800, height: 600};
         const clamped = deskClamp({x: 40, y: 40, width: 420, height: 300}, desk);
@@ -317,6 +348,25 @@ describe("存档与读档", () => {
         expect(loaded.stack()).toEqual(layout.stack());
     });
 
+    it("读档之后每块叶的最小尺寸与保留像素都在：桌面叶、平铺窗叶、底栏", () => {
+        const layout = DesktopLayout.createDefault();
+        layout.tile("notes", "left", WIDE);
+        const storage = memoryStorage();
+        saveLayout(storage, layout);
+        const loaded = loadLayout(storage).layout;
+        // 约束不在快照里，是读档时按 ref 给回去的：读档前后同一块叶的约束一样，而且就是策略规定的那几个数。
+        const constraints = loaded.grid.layout(WIDE).constraints;
+        expect(constraints).toEqual(layout.grid.layout(WIDE).constraints);
+        for (const id of ["notes", DESKTOP]) expect(constraints[id]!.minimumSize).toEqual({width: 240, height: 160});
+        expect(constraints.dock!.minimumSize.height).toBe(56);
+        expect(loaded.grid.layout(WIDE).sizes.dock!.height).toBe(56);
+        // 能区分“给了策略”与“没给”：窄到放不下时，读回来的树也像原来的树一样报 over-constrained（没有最小尺寸的叶放得下，不会报）。
+        const narrow = {width: 400, height: 600};
+        const squeezed = loaded.grid.layout(narrow);
+        expect(squeezed.issues.some((issue) => issue.code === "over-constrained")).toBe(true);
+        expect(squeezed.sizes).toEqual(layout.grid.layout(narrow).sizes);
+    });
+
     const saved = () => JSON.parse(JSON.stringify(DesktopLayout.createDefault().toSaved())) as Record<string, any>;
     /** 一份有一扇平铺窗的存档，坏法在它上面改。 */
     const tiled = () => {
@@ -343,6 +393,7 @@ describe("存档与读档", () => {
         ["快照坏", () => JSON.stringify({...saved(), grid: {version: SNAPSHOT_VERSION, root: {kind: "leaf"}}})],
         ["树里有不认识的叶", () => withRoot(rootOf([leaf("desktop"), leaf("stranger"), leaf("dock", {width: 0, height: 56})]))],
         ["叶的 id 与 ref 不同", () => withRoot(rootOf([{...leaf("desktop"), ref: "notes"}, leaf("dock", {width: 0, height: 56})]))],
+        ["底栏的高度不是 56", () => withRoot(rootOf([leaf("desktop"), leaf("dock", {width: 0, height: 300})]))],
         ["没有桌面", () => withRoot(rootOf([leaf("notes"), leaf("dock", {width: 0, height: 56})]), {})],
         ["没有底栏", () => withRoot(rootOf([leaf("desktop"), leaf("notes")]))],
         ["底栏不是最后一行", () => withRoot(rootOf([leaf("dock", {width: 0, height: 56}), leaf("desktop")]))],
@@ -367,6 +418,19 @@ describe("存档与读档", () => {
         expect(keep).toBe(true);
         expect(layout.toSaved()).toEqual(DesktopLayout.createDefault().toSaved());
         expect(storage.items.get(BACKUP_KEY)).toBe(raw);
+    });
+
+    it("窗状态里多出来的字段不收，也不会写回", () => {
+        const value = tiled();
+        value.windows.notes.junk = "x";
+        value.windows.notes.floatRect.extra = 1;
+        const loaded = DesktopLayout.fromSaved(value);
+        expect(loaded.ok).toBe(true);
+        if (!loaded.ok) return;
+        const state = loaded.layout.toSaved().windows.notes;
+        expect(Object.keys(state).sort()).toEqual(["before", "floatRect", "mode"]);
+        expect(Object.keys(state.floatRect).sort()).toEqual(["height", "width", "x", "y"]);
+        expect(JSON.stringify(loaded.layout.toSaved())).not.toContain("junk");
     });
 
     it("上面几份坏档的底本是好的：没改坏时读得进去", () => {

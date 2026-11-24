@@ -119,6 +119,10 @@ test("拖标题栏移动：松手后停在松手处；拖出桌面被夹住；�
         const gaps = await buttonGaps(page, id);
         expect(gaps.top).toBeGreaterThanOrEqual(8);
         expect(gaps.right).toBeGreaterThanOrEqual(8);
+        // 标题栏的样式与内容层让出的高度读同一个数：正文的顶边就是标题栏的底边，不盖住它、也不留缝。
+        const bar = await boxOf(title(page, id));
+        const body = await boxOf(text(page, id));
+        expect(Math.abs(body.y - (bar.y + bar.height))).toBeLessThanOrEqual(1);
     }
     const before = await boxOf(frame(page, "notes"));
     const from = await centerOf(title(page, "notes"));
@@ -290,8 +294,12 @@ test("有平铺窗时最大化只铺满剩下的桌面", async ({page}) => {
 test("最小化：底栏按钮状态变、点回原处；打的字还在；平铺的最小化后点回原来那一侧", async ({page}) => {
     const before = await boxOf(frame(page, "notes"));
     await text(page, "notes").fill("kept while minimized");
+    await expect(dock(page, "notes")).toHaveAttribute("aria-label", "Notes, open");
     await action(page, "notes", "minimize").click();
     await expectState(page, "notes", "minimized");
+    // 状态不只靠圆点的样式：按钮的名字带上它；标题栏的按钮随窗消失，焦点交给底栏上这扇窗的按钮。
+    await expect(dock(page, "notes")).toHaveAttribute("aria-label", "Notes, minimized");
+    await expect(dock(page, "notes")).toBeFocused();
     // 窗不在画面上，正文停放在内容层里：实例还在，打的字也在。
     await expect(frame(page, "notes")).toHaveCount(0);
     await expect(text(page, "notes")).toHaveCount(1);
@@ -327,10 +335,28 @@ test("平铺的窗最小化后，那一侧被占了就浮动", async ({page}) =>
     await expectState(page, "calc", "tiled-left");
 });
 
-test("关闭：点底栏重新打开，打的字没了", async ({page}) => {
+test("平铺的窗最小化后点底栏，那一侧空着但视口窄到放不下：浮动，不留在最小化里", async ({page}) => {
+    // 先贴 calc：notes 贴左后，calc 被夹到桌面左缘，标题栏会被 clock 盖住拖不到。
+    await tile(page, "calc", "right");
+    await tile(page, "notes", "left");
+    await action(page, "notes", "minimize").click();
+    await expectState(page, "notes", "minimized");
+    await settled(page);
+    // 窄到三块放不下（三个最小宽度 240 加分隔线），桌面加 calc 两块放得下。
+    await page.setViewportSize({width: 700, height: 900});
+    await settled(page);
+    await dock(page, "notes").click();
+    await expectState(page, "notes", "floating");
+    await expect(frame(page, "notes")).toBeVisible();
+    await expect(page.locator("[data-status]")).toHaveText("");
+});
+
+test("关闭：点底栏重新打开，打的字没了；键盘关掉平铺的窗，焦点同样给底栏按钮", async ({page}) => {
     await text(page, "clock").fill("gone after closing");
     await action(page, "clock", "close").click();
     await expectState(page, "clock", "closed");
+    await expect(dock(page, "clock")).toHaveAttribute("aria-label", "Clock, closed");
+    await expect(dock(page, "clock")).toBeFocused();
     await expect(frame(page, "clock")).toHaveCount(0);
     await expect(text(page, "clock")).toHaveCount(0);
     await dock(page, "clock").click();
@@ -340,6 +366,14 @@ test("关闭：点底栏重新打开，打的字没了", async ({page}) => {
     await expectRect(page, "clock", {x: 860, width: 300, height: 220});
     // 重新打开的窗在最上面。
     expect(await zOf(page, "clock")).toBeGreaterThan(await zOf(page, "files"));
+
+    // 平铺的窗：聚焦标题栏的按钮、按回车关掉，焦点还是给底栏上这扇窗的按钮。
+    await tile(page, "notes", "left");
+    await expect(dock(page, "notes")).toHaveAttribute("aria-label", "Notes, tiled left");
+    await action(page, "notes", "close").focus();
+    await page.keyboard.press("Enter");
+    await expectState(page, "notes", "closed");
+    await expect(dock(page, "notes")).toBeFocused();
 });
 
 test("拖到左缘：出现落点反馈，松手后窗占左边、正文里的字还在；另一扇贴右缘，三块平分", async ({page}) => {
@@ -405,6 +439,47 @@ test("同一侧换窗：被换下的回到它的浮动矩形；取消平铺回�
     expect(await zOf(page, "clock")).toBeGreaterThan(await zOf(page, "notes"));
     await expect(frame(page, "desktop")).toBeVisible();
     await expectRect(page, "desktop", {x: 0});
+});
+
+test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按下之前的位置", async ({page}) => {
+    // 过渡要真的在跑：时长为 0 时采样不到中间帧，用例会空过。
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    const pressed = await boxOf(frame(page, "notes"));
+    await pickUp(page, title(page, "notes"));
+    await moveTo(page, {x: 10, y: 450}, "tile:left");
+    const dropped = await boxOf(frame(page, "notes"));
+    // 松手后每一帧都记下窗外框的矩形，直到平铺完成、过渡结束。
+    await page.evaluate(() => {
+        const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
+        win.__frames = [];
+        win.__sampling = true;
+        const sample = () => {
+            const element = document.querySelector("[data-leaf='notes']");
+            if (element !== null) {
+                const {y, height} = element.getBoundingClientRect();
+                win.__frames.push({y, height});
+            }
+            if (win.__sampling) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+    });
+    await page.mouse.up();
+    await expectState(page, "notes", "tiled-left");
+    await expect(page.locator("[data-moving]").first()).toBeAttached();
+    await settled(page);
+    const frames = await page.evaluate(() => {
+        const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
+        win.__sampling = false;
+        return win.__frames;
+    });
+    // 窗从松手处出发：松手处到按下之前的位置隔得远，所以“第一帧离哪个近”能区分两种起点。
+    expect(Math.abs(dropped.y - pressed.y)).toBeGreaterThan(200);
+    const first = frames.findIndex((each) => Math.abs(each.y - dropped.y) > 1);
+    expect(first).toBeGreaterThanOrEqual(0);
+    const start = frames[first]!;
+    expect(Math.abs(start.y - dropped.y)).toBeLessThan(Math.abs(start.y - pressed.y));
+    // 之后还有几帧才到终点：确实是在飞，不是一帧就到。
+    expect(frames.length - first).toBeGreaterThanOrEqual(4);
 });
 
 test("视口窄到平铺不下：落点是 blocked、写 Not enough room，松手不平铺、窗停在松手处", async ({page}) => {
@@ -496,6 +571,25 @@ test("存档坏了：用缺省布局，原件放进备份键，状态行说明",
     await expectState(page, "notes", "minimized");
     expect((await saved(page)).windows.notes!.mode).toBe("minimized");
     expect(await page.evaluate((key) => localStorage.getItem(key), BACKUP)).toBe(broken);
+});
+
+test("存档坏、备份也写不进：这一页不再保存，提示一直挂着，成功的操作也清不掉它，原件留在主键", async ({page}) => {
+    // 让写备份键抛错（像存储满了）；其余照常。在页面脚本之前装上，读档时就生效。
+    await page.addInitScript((backup) => {
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+            if (key === backup) throw new DOMException("full", "QuotaExceededError");
+            original.call(this, key, value);
+        };
+    }, BACKUP);
+    await page.evaluate((key) => localStorage.setItem(key, "{not json"), KEY);
+    await page.reload();
+    await expect(page.locator("[data-status]")).toContainText("changes will not be kept");
+    // 一次成功的操作（它会清掉一次性的状态）之后，常驻的说明还在；主键仍是坏档原文。
+    await action(page, "notes", "minimize").click();
+    await expectState(page, "notes", "minimized");
+    await expect(page.locator("[data-status]")).toContainText("changes will not be kept");
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe("{not json");
 });
 
 test("视口缩小后浮动窗都在桌面里；视口变回来窗回原处；窗比桌面大时松手不把缩小的宽高写回", async ({page}) => {

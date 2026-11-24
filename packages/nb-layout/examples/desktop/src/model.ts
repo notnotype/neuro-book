@@ -20,6 +20,8 @@ export const ROOT = "root";
 export const DESKTOP = "desktop";
 export const DOCK = "dock";
 export const DOCK_HEIGHT = 56;
+/** 标题栏的高度（CSS px）：标题栏的样式与内容层的 `insetTop` 读同一个数。库不量面板头，内容层从叶的顶上往下让出这么多。 */
+export const TITLE_BAR_HEIGHT = 39;
 /** 桌面叶与窗（浮动的、平铺的）的最小尺寸。 */
 export const WINDOW_MIN: GridExtent = {width: 240, height: 160};
 
@@ -177,10 +179,14 @@ export class DesktopLayout {
         return OK;
     }
 
-    /** 缩放的结果：调用方先与桌面求交、取整。 */
+    /**
+     * 缩放的结果：调用方先与桌面求交、取整。宽高在这里夹到最小尺寸以上再写：桌面叶比最小尺寸还小时（视口很矮），
+     * 求交的结果会小于它，而读档拒收小于最小尺寸的矩形，写进去就是下次载入读不了的存档。画的时候仍会被夹进桌面。
+     */
     resize(id: WindowId, rect: GridRect): Result {
         if (this.mode(id) !== "floating") return this.wrongMode(id, "be resized");
-        this.windows.set(id, {...this.windows.get(id)!, floatRect: rect});
+        const floatRect = {...rect, width: Math.max(rect.width, WINDOW_MIN.width), height: Math.max(rect.height, WINDOW_MIN.height)};
+        this.windows.set(id, {...this.windows.get(id)!, floatRect});
         return OK;
     }
 
@@ -232,7 +238,8 @@ export class DesktopLayout {
     /**
      * 点底栏上这扇窗的按钮。浮动的挪到最上；平铺的什么都不改（界面把焦点给它的正文）；
      * 最小化的回到来时的模式，来自平铺而那一侧已被占了就浮动在 `floatRect`；关闭的重新打开，浮动在 `floatRect`。
-     * 回到平铺要先试一遍放得下放不下：放不下时窗留在最小化，交回原因。
+     * 回到平铺要先试一遍放得下放不下：放不下时同样浮动在 `floatRect`，不留在最小化里：
+     * 最小化是用户主动收起的，卡在里面、只能等别处腾出地方，比降级成浮动更糟。
      */
     dockClick(id: WindowId, extent: GridExtent): Result {
         const state = this.windows.get(id)!;
@@ -248,13 +255,13 @@ export class DesktopLayout {
         if (state.mode !== "minimized") return OK;
         const before = state.before!;
         const side = sideOf(before);
-        if (side === null || this.tiledOn(side) !== undefined) {
+        // 来自平铺的窗，那一侧被占了或此刻平铺不下（先在复制的树上试），都浮动在 `floatRect`。
+        const tileable = side !== null && this.tiledOn(side) === undefined && this.previewTile(id, side, extent, 1).result.ok;
+        if (side === null || !tileable) {
             this.windows.set(id, {...state, mode: side === null ? before : "floating", before: null});
             this.toTop(id);
             return OK;
         }
-        const preview = this.previewTile(id, side, extent, 1);
-        if (!preview.result.ok) return preview.result;
         return this.applyTile(id, side);
     }
 
@@ -358,7 +365,11 @@ export class DesktopLayout {
         const restored = grid.restore(raw.grid, (ref) => (isKnownRef(ref) ? {ref, ...policyFor(ref)} : null));
         if (!restored.ok) return failure("bad-grid", restored.message);
         if (restored.dropped.length > 0) return failure("bad-grid", "The saved layout refers to unknown panes");
-        const windows = new Map(WINDOW_IDS.map((id) => [id, raw.windows[id]]));
+        // 窗状态只取认识的字段重建：存档里多出来的字段不收，也就不会在下次保存时写回。
+        const windows = new Map(WINDOW_IDS.map((id) => {
+            const {mode, floatRect, before} = raw.windows[id];
+            return [id, {mode, floatRect: {x: floatRect.x, y: floatRect.y, width: floatRect.width, height: floatRect.height}, before}] as const;
+        }));
         const checked = checkTree(grid, windows);
         if (!checked.ok) return checked;
         return {ok: true, layout: new DesktopLayout(grid, windows, [...raw.order])};
@@ -367,7 +378,7 @@ export class DesktopLayout {
 
 /**
  * 树的锚点，以及模式与树是否对得上。逐条：
- * - 叶的 id 与 ref 相同；`desktop`、`dock` 各正好一块；
+ * - 叶的 id 与 ref 相同；`desktop`、`dock` 各正好一块；底栏的高度等于 `DOCK_HEIGHT`；
  * - 根是竖向、`dock` 是它的最后一个孩子；除这两块以外的叶都是平铺的窗，且都是桌面叶所在那个横向分支的直接孩子；
  * - 模式是平铺的窗正好就是这些叶；`tiled-left` 的在桌面叶左边、`tiled-right` 的在右边；同一侧不超过一扇。
  */
@@ -376,6 +387,8 @@ function checkTree(grid: Grid<string>, windows: ReadonlyMap<WindowId, WindowStat
     const leaves = [...walk(root)].filter((node) => node.kind === "leaf");
     if (leaves.some((leaf) => leaf.id !== leaf.ref)) return failure("bad-grid", "Leaf ids and refs differ");
     if (leaves.filter((leaf) => leaf.id === DESKTOP).length !== 1 || leaves.filter((leaf) => leaf.id === DOCK).length !== 1) return failure("bad-grid", "The desktop or the dock is missing or duplicated");
+    // 底栏的高度是锚点的一部分：它的分隔线被禁用，存档里的坏值在界面上没有办法改回来；示例改了 `DOCK_HEIGHT` 之后，老存档里的旧高度也要判坏。
+    if (grid.find(DOCK)?.size.height !== DOCK_HEIGHT) return failure("bad-grid", "The dock has an unexpected height");
     if (root?.kind !== "branch" || root.orientation !== "vertical" || root.children.at(-1)?.id !== DOCK) return failure("bad-grid", "The dock is not the last row");
     const row = parentOf(root, DESKTOP)!;
     const tiledLeaves = leaves.filter((leaf) => leaf.id !== DESKTOP && leaf.id !== DOCK).map((leaf) => leaf.id);

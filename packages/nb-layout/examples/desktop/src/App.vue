@@ -27,6 +27,7 @@ import {
     loadLayout,
     roundRect,
     saveLayout,
+    TITLE_BAR_HEIGHT,
     TITLES,
     WINDOW_IDS,
     WINDOW_MIN,
@@ -40,9 +41,6 @@ import {
 import Taskbar from "./Taskbar.vue";
 import WindowBody from "./WindowBody.vue";
 import WindowFrame, {type WindowAction} from "./WindowFrame.vue";
-
-/** 标题栏的高度：标题栏的样式与内容层的 `insetTop` 读同一个数。库不量面板头，内容层从叶的顶上往下让出这么多。 */
-const TITLE_BAR_HEIGHT = 39;
 
 /** 浏览器禁用存储（某些隐私模式、沙箱里的 iframe）时连读 `localStorage` 都会抛错。 */
 function openStorage(): LayoutStorage | null {
@@ -62,14 +60,21 @@ const loaded = loadLayout(storage);
  */
 const layout = shallowRef(loaded.layout);
 const grid = computed(() => layout.value.grid);
-/** 状态行：读档失败、保存失败、操作被拒的原因。平时空着。 */
-const status = shallowRef(loaded.notice ?? "");
+/**
+ * 这一页不保存时（存储不可用、存档读不了而且备份也写不进去）的提示：常驻，直到重新载入，不被后面成功的操作清掉。
+ * 它和一次性的操作结果分开放：只放在状态行里的话，第一次成功的操作就把它清了，之后所有改动都不存，界面上却什么都看不到。
+ */
+const sticky = loaded.keep ? "" : (loaded.notice ?? "");
+/** 一次性的状态：读档的说明、保存失败、操作被拒的原因。下一次成功的操作清掉它。 */
+const notice = shallowRef(loaded.keep ? (loaded.notice ?? "") : "");
+/** 状态行显示的：有一次性的就显示它，没有时显示常驻的。 */
+const status = computed(() => notice.value || sticky);
 
 function persist(): void {
     // 存档读不了、备份也没写进去时不再保存：再存就拿缺省布局覆盖了原件。
     if (!loaded.keep) return;
     const failed = saveLayout(storage, layout.value);
-    if (failed !== null) status.value = failed;
+    if (failed !== null) notice.value = failed;
 }
 
 // contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 是拖完分隔线、提交落账之后：在这里存档。
@@ -83,18 +88,23 @@ const box = useTemplateRef<HTMLElement>("box");
  */
 function settle(result: Result, tree = true): boolean {
     if (!result.ok) {
-        status.value = result.message;
+        notice.value = result.message;
         return false;
     }
-    // 状态行说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。
-    status.value = "";
+    // 一次性的状态说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。常驻的不清。
+    notice.value = "";
     if (tree) host.invalidate();
     triggerRef(layout);
     persist();
     return true;
 }
 
-/** 设备像素比：库按它取整，这里量桌面叶的矩形也要用同一个。浏览器缩放会改视口宽度、让网格重算，所以不另外监听。 */
+/**
+ * 设备像素比：库按它取整，这里量桌面叶的矩形也要用同一个。
+ * 已知限制：这里在计算属性里直接读 `window.devicePixelRatio`，不是响应式的。浏览器缩放通常会改视口的 CSS 宽度、
+ * 让网格重算，这里跟着重算；但窗口拖到比例不同的另一块屏幕上而视口宽度没变时，这里还是旧的比例，
+ * 取整可能与库差一个设备像素。库内部有响应式的版本，但没有导出，示例只能这样读。
+ */
 const dpr = (): number => window.devicePixelRatio || 1;
 
 /**
@@ -143,14 +153,18 @@ const contents = computed<GridContentInput[]>(() => WINDOW_IDS.flatMap((id) => (
 
 const titleOf = (id: string): string => (isWindowId(id) ? TITLES[id] : id);
 
-/** 标题栏的按钮。操作都在模型里判能不能做，这里只转发。 */
+/**
+ * 标题栏的按钮。操作都在模型里判能不能做，这里只转发。
+ * 最小化与关闭之后，按钮随窗一起从页面上消失，焦点会掉到 body：交给底栏上这扇窗的按钮，它一直在，
+ * 键盘用户可以接着按回车把窗找回来。
+ */
 function onAction(id: string, action: WindowAction): void {
     if (!isWindowId(id)) return;
     const model = layout.value;
     if (action === "maximize") settle(model.toggleMaximize(id), false);
-    else if (action === "minimize") settle(model.minimize(id));
-    else if (action === "close") settle(model.close(id));
-    else settle(model.untile(id));
+    else if (action === "minimize" || action === "close") {
+        if (settle(action === "minimize" ? model.minimize(id) : model.close(id))) void nextTick(() => box.value?.querySelector<HTMLElement>(`[data-window="${CSS.escape(id)}"]`)?.focus());
+    } else settle(model.untile(id));
 }
 
 /** 点底栏按钮。平铺的窗什么都不改，焦点给它的正文；回到平铺时模型先试放得下放不下。 */
@@ -231,18 +245,24 @@ const drag = useDragSession<WindowId, Drop>(box, () => ({
         const extent = host.extent.value;
         if (current === null || extent === null) return null;
         const target = moveTarget(current.start, current.pressed, point, current.desk);
-        // 窗跟手：网格把它的外框、正文、手柄一起挪。会话允许 resolve 在读完 DOM 之后写跟手的反馈。
-        gridView.value?.placeFloat(current.id, {x: target.x - current.start.x, y: target.y - current.start.y});
         const rect = {...current.start, ...target};
+        // 先读后写：读 DOM（`inViewport` 量网格根的矩形）都在前面做完，最后才写窗跟手的反馈（`placeFloat` 改 translate）。
+        // 写在读之前的话，每个指针样本都要浏览器同步重算样式与布局。
         const side = tileSide(point, inViewport(current.desk));
-        if (side === null) return {kind: "move", rect};
-        let trial = tileTrials.get(side);
-        if (trial === undefined) {
-            trial = layout.value.previewTile(source, side, extent, dpr());
-            tileTrials.set(side, trial);
+        let drop: Drop;
+        if (side === null) drop = {kind: "move", rect};
+        else {
+            let trial = tileTrials.get(side);
+            if (trial === undefined) {
+                trial = layout.value.previewTile(source, side, extent, dpr());
+                tileTrials.set(side, trial);
+            }
+            const area = trial.area === null ? null : inViewport(trial.area);
+            drop = {kind: "tile", side, rect, area, blocked: trial.result.ok ? null : trial.result.message};
         }
-        const area = trial.area === null ? null : inViewport(trial.area);
-        return {kind: "tile", side, rect, area, blocked: trial.result.ok ? null : trial.result.message};
+        // 窗跟手：网格把它的外框、正文、手柄一起挪。
+        gridView.value?.placeFloat(current.id, {x: target.x - current.start.x, y: target.y - current.start.y});
+        return drop;
     },
     actionKey,
     // 顺序：会话先收场（`onEnd`），再调 `commit`。提交的是 `move` 或平铺；平铺放不下时按 `move` 处理，窗停在松手处。
