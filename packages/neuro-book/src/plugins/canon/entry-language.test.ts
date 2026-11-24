@@ -41,32 +41,32 @@ function tokens(source: string): Array<Array<[string, string]>> {
 const colored = (source: string) => tokens(source).map((line) => line.filter(([, type]) => type !== ""));
 
 describe("author-ui 输出 48：条目主文字的着色", () => {
-    it("花括号里的字段：名字（含中文）是变量，点是分隔符；条件里的数、字符串与运算符各自着色", () => {
-        expect(colored("魔力 {character.外观}")).toEqual([[["{", "delimiter.bracket"], ["character", "variable"], [".", "delimiter"], ["外观", "variable"], ["}", "delimiter.bracket"]]]);
-        expect(colored('{panel.魔力 >= 1000 ? "能" : "不能"}')[0]!.filter(([, type]) => !type.startsWith("delimiter") && type !== "variable")).toEqual([[">=", "operator"], ["1000", "number"], ["?", "operator"], ['"能"', "string"], [":", "operator"], ['"不能"', "string"]]);
+    it("花括号里的字段：名字（含中文）是字段名一类，点是分隔符；条件里的数、字符串与运算符各自着色", () => {
+        expect(colored("魔力 {character.外观}")).toEqual([[["{", "delimiter.bracket"], ["character", "type.field"], [".", "delimiter"], ["外观", "type.field"], ["}", "delimiter.bracket"]]]);
+        expect(colored('{panel.魔力 >= 1000 ? "能" : "不能"}')[0]!.filter(([, type]) => !type.startsWith("delimiter") && type !== "type.field")).toEqual([[">=", "operator"], ["1000", "number"], ["?", "operator"], ['"能"', "string"], [":", "operator"], ['"不能"', "string"]]);
         // 相邻的同类记号合成一个（`)` 与 `.`）。
-        expect(colored('{ref("e2").panel.存款}')[0]!.slice(1, 5)).toEqual([["ref", "type"], ["(", "delimiter"], ['"e2"', "string"], [").", "delimiter"]]);
+        expect(colored('{ref("e2").panel.存款}')[0]!.slice(1, 5)).toEqual([["ref", "keyword"], ["(", "delimiter"], ['"e2"', "string"], [").", "delimiter"]]);
     });
 
     it("标签：名字、属性名、属性值；属性里的花括号照表达式画", () => {
         expect(colored('同行的是 <Ref id="e2" />。')).toEqual([[["<Ref", "tag"], ["id", "attribute.name"], ["=", "delimiter"], ['"e2"', "attribute.value"], ["/>", "tag"]]]);
-        expect(colored('<Image src={panel.图} alt="说明" />')[0]!.map(([, type]) => type)).toEqual(["tag", "attribute.name", "delimiter", "delimiter.bracket", "variable", "delimiter", "variable", "delimiter.bracket", "attribute.name", "delimiter", "attribute.value", "tag"]);
+        expect(colored('<Image src={panel.图} alt="说明" />')[0]!.map(([, type]) => type)).toEqual(["tag", "attribute.name", "delimiter", "delimiter.bracket", "type.field", "delimiter", "type.field", "delimiter.bracket", "attribute.name", "delimiter", "attribute.value", "tag"]);
     });
 
     it("Markdown 的记号：标题整行、列表与引用的记号、分隔线、加粗与强调、行内代码、链接", () => {
         expect(colored("## 近况")).toEqual([[["## 近况", "keyword"]]]);
         expect(colored("- 一项\n1. 二项\n> 引用\n---")).toEqual([[["-", "keyword"]], [["1.", "keyword"]], [[">", "comment"]], [["---", "keyword"]]]);
-        expect(colored("**加粗** 与 *强调* 与 `代码` 与 [链接](https://example.com)")).toEqual([[["**加粗**", "strong"], ["*强调*", "emphasis"], ["`代码`", "variable"], ["[", "string.link"], ["](https://example.com)", "string.link"]]]);
+        expect(colored("**加粗** 与 *强调* 与 `代码` 与 [链接](https://example.com)")).toEqual([[["**加粗**", "strong"], ["*强调*", "emphasis"], ["`代码`", "string"], ["[", "string.link"], ["](https://example.com)", "string.link"]]]);
     });
 
     it("标题里的表达式照表达式画；标题在行尾结束，行尾正好是花括号时也不带到下一行", () => {
-        expect(colored("# 近况 {panel.魔力}\n下一行")).toEqual([[["# 近况 ", "keyword"], ["{", "delimiter.bracket"], ["panel", "variable"], [".", "delimiter"], ["魔力", "variable"], ["}", "delimiter.bracket"]], []]);
+        expect(colored("# 近况 {panel.魔力}\n下一行")).toEqual([[["# 近况 ", "keyword"], ["{", "delimiter.bracket"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ["}", "delimiter.bracket"]], []]);
     });
 
     it("不是写法的地方不着色：比较号、转义的花括号、代码围栏里的花括号", () => {
         expect(colored("a < b、1<2")).toEqual([[]]);
         expect(colored("他说\\{+5}")).toEqual([[["\\{", "string.escape"]]]);
-        expect(colored("```\n{不是表达式}\n```\n{panel.魔力}").map((line) => line.map(([, type]) => type))).toEqual([["string"], ["variable.source"], ["string"], ["delimiter.bracket", "variable", "delimiter", "variable", "delimiter.bracket"]]);
+        expect(colored("```\n{不是表达式}\n```\n{panel.魔力}").map((line) => line.map(([, type]) => type))).toEqual([["string"], ["variable.source"], ["string"], ["delimiter.bracket", "type.field", "delimiter", "type.field", "delimiter.bracket"]]);
     });
 
     it("只含注释的表达式整个是注释", () => {

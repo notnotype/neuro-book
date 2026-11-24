@@ -46,13 +46,13 @@ const language: LanguageDefinition["language"] = {
             [/\{\s*\/\*/u, {token: "comment", next: "@expressionComment"}],
             [/\{/u, {token: "delimiter.bracket", next: "@expression"}],
             [/<\/?[A-Za-z][\w.]*/u, {token: "tag", next: "@tag"}],
-            [/`[^`\n]+`/u, "variable"],
+            [/`[^`\n]+`/u, "string"],
             [/\*\*(?:[^\\*\n]|@escapes|\*(?!\*))+\*\*/u, "strong"],
             [/\*(?:[^\\*\n]|@escapes)+\*/u, "emphasis"],
             [/~~[^~\n]+~~/u, "comment"],
             [/(!?\[)((?:[^\]\\\n]|@escapes)*)(\]\([^)\n]*\))/u, ["string.link", "", "string.link"]],
         ],
-        // `{` 到配对的 `}`：字段的路径、字符串、数与运算符。
+        // `{` 到配对的 `}`：字段的路径、字符串、数与运算符。字段名归在 `type` 这一类：主题里 `variable` 与正文同色，看不出是引用。
         expression: [
             [/\}/u, {token: "delimiter.bracket", next: "@pop"}],
             [/\{/u, {token: "delimiter.bracket", next: "@push"}],
@@ -61,8 +61,8 @@ const language: LanguageDefinition["language"] = {
             [/'(?:[^'\\\n]|\\.)*'/u, "string"],
             [/\d+(?:\.\d+)?/u, "number"],
             [/\b(?:true|false|null)\b/u, "keyword"],
-            [/ref(?=\s*\()/u, "type"],
-            [new RegExp(NAME, "u"), "variable"],
+            [/ref(?=\s*\()/u, "keyword"],
+            [new RegExp(NAME, "u"), "type.field"],
             [/[.,()[\]]/u, "delimiter"],
             [/[?:<>=!&|+\-*/%]+/u, "operator"],
         ],
