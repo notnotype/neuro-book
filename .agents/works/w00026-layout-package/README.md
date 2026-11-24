@@ -142,7 +142,7 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-23：[t49](tasks/t49-drag-orchestration/README.md) 完成，合入 master（`6bb4c87c8`）：实时布局的编排进 nb-layout（`createLiveDragSession`、`useLiveDragSession`，引擎不公开），工作台改用，nb-story 的拖详情换边改成实时让位，Lab 加卡片互拖场景作第二个形状；计划审满三轮后开发者定按第 4 稿开工。开发者定 0.1.0 连这批一起发。下一个是 t55。
 
-2026-11-23：[t55](tasks/t55-code-simplify/README.md) 完成，合入 master（`a11a86cf0`）：七片简化净删约 250 行，nb-layout 发布前删了没有使用方的公开名字；0.1.0 现在可以发。下一个是 t50。
+2026-11-23：[t55](tasks/t55-code-simplify/README.md) 完成，合入 master（`a11a86cf0`）：七片简化净删约 250 行，nb-layout 发布前删了没有使用方的公开名字；0.1.0 在 t55 合入前已发出，t55 删掉的公开名字对它不兼容，所以提版发了 0.2.0（registry 冒烟通过）。下一个是 t50。
 
 ## 后续
 
