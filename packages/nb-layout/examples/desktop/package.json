@@ -1,0 +1,21 @@
+{
+    "name": "nb-layout-example-desktop",
+    "private": true,
+    "license": "MIT",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+    },
+    "dependencies": {
+        "@notnotype/nb-layout": "^0.2.0",
+        "vue": "^3.5.24"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-vue": "^6.0.7",
+        "typescript": "^5.9.3",
+        "vite": "^8.1.4",
+        "vue-tsc": "^3.3.7"
+    }
+}
