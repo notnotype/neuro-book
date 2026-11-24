@@ -111,13 +111,27 @@ describe("parseSiteConfig", () => {
         expect(problemsOf({...validEnv(), NB_SITE_SESSION_SECRET: "密".repeat(31)})).toEqual([{name: "NB_SITE_SESSION_SECRET", problem: "too_short"}]);
     });
 
-    it("测试控制口令：按字符数至少 32 个；设了它时监听地址只许本机回环，问题记在监听地址上", () => {
-        const token = "口".repeat(32);
+    it("测试控制口令：32 到 256 个字母、数字、- 与 _；短了报 too_short，过长或含别的字符报 bad_format", () => {
+        const tokenProblems = (token: string): unknown[] => {
+            const result = parseSiteConfig({...validEnv(), NB_SITE_TEST_CONTROL: token}, SITE_MODULES);
+            return result.ok ? [] : [...result.problems];
+        };
+        for (const token of ["a".repeat(32), "Az09-_".repeat(6).slice(0, 32), "x".repeat(256)]) expect({token, problems: tokenProblems(token)}).toEqual({token, problems: []});
+        const accepted = parseSiteConfig({...validEnv(), NB_SITE_TEST_CONTROL: "Az09-_".repeat(6)}, SITE_MODULES);
+        if (!accepted.ok) throw new Error(JSON.stringify(accepted.problems));
+        expect(accepted.config.base.testControlToken).toBe("Az09-_".repeat(6));
+        for (const token of ["a".repeat(31), "口".repeat(31)]) {
+            expect({token, problems: tokenProblems(token)}).toEqual({token, problems: [{name: "NB_SITE_TEST_CONTROL", problem: "too_short"}]});
+        }
+        // 汉字放不进请求头，末尾的空格会被 HTTP 客户端去掉：配得进去却永远对不上。
+        for (const token of ["x".repeat(257), "口".repeat(32), `${"a".repeat(32)} `, `${"a".repeat(16)}.${"a".repeat(16)}`, `${"a".repeat(32)}=`]) {
+            expect({token, problems: tokenProblems(token)}).toEqual({token, problems: [{name: "NB_SITE_TEST_CONTROL", problem: "bad_format"}]});
+        }
+    });
+
+    it("设了测试控制口令时监听地址只许本机回环，问题记在监听地址上", () => {
+        const token = "a".repeat(32);
         const withToken = (host?: string): Env => ({...validEnv(), NB_SITE_TEST_CONTROL: token, ...(host === undefined ? {} : {NB_SITE_HOST: host})});
-        const result = parseSiteConfig(withToken(), SITE_MODULES);
-        if (!result.ok) throw new Error(JSON.stringify(result.problems));
-        expect(result.config.base.testControlToken).toBe(token);
-        expect(problemsOf({...validEnv(), NB_SITE_TEST_CONTROL: "口".repeat(31)})).toEqual([{name: "NB_SITE_TEST_CONTROL", problem: "too_short"}]);
         for (const host of ["127.0.0.1", "127.8.9.10", "::1", "0:0:0:0:0:0:0:1"]) expect({host, ok: parseSiteConfig(withToken(host), SITE_MODULES).ok}).toEqual({host, ok: true});
         for (const host of ["0.0.0.0", "10.0.0.1", "::", "::ffff:127.0.0.1", "fe80::1"]) {
             expect({host, problems: problemsOf(withToken(host))}).toEqual({host, problems: [{name: "NB_SITE_HOST", problem: "not_loopback"}]});

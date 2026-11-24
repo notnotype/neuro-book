@@ -270,6 +270,14 @@ describe("按主机分派与请求日志", () => {
         expect(await client(trusted.url, "203.0.113.9:4444")).toBeNull();
         expect(await client(trusted.url, "198.51.100.7, 10.1.2.3:8080")).toBeNull();
         expect(await client(trusted.url, undefined)).toBeNull();
+        // 同一个地址的几种写法得到同一个值：IPv4 映射的 IPv6 地址（点分与十六进制两种写法）当作 IPv4，其余 IPv6 用小写的
+        // 压缩写法（`site.operations` 的“来源地址”一段）。
+        for (const hop of ["::ffff:192.0.2.1", "::ffff:c000:201", "::FFFF:192.0.2.1", "192.0.2.1"]) expect({hop, address: await client(trusted.url, hop)}).toEqual({hop, address: "192.0.2.1"});
+        for (const hop of ["2001:DB8::1", "2001:db8:0:0:0:0:0:1", "2001:0db8::0001"]) expect({hop, address: await client(trusted.url, hop)}).toEqual({hop, address: "2001:db8::1"});
+        // 可信代理的比较用规范化之后的写法：映射写法的可信代理照样被跳过，不可信的映射写法也不会被当成可信。
+        expect(await client(trusted.url, "198.51.100.7, ::ffff:10.1.2.3")).toBe("198.51.100.7");
+        expect(await client(trusted.url, "198.51.100.7, ::ffff:203.0.113.9")).toBe("203.0.113.9");
+        for (const hop of ["fe80::1%eth0", "::ffff:999.0.0.1", "2001:db8::1::2"]) expect({hop, address: await client(trusted.url, hop)}).toEqual({hop, address: null});
         expect(allOutput(trusted.site)).not.toContain("203.0.113.5");
         trusted.site.signal("SIGTERM");
         expect(await trusted.site.waitForExit()).toBe(0);
@@ -530,6 +538,23 @@ describe("测试控制入口（输出 11）", () => {
         site.writeStdin("finish\n");
         expect(await second).toEqual({status: 200, body: {status: "done"}});
         expect(holdEvents()).toEqual(["fixture.hold_started", "fixture.hold_finished", "fixture.hold_started", "fixture.hold_finished"]);
+    });
+
+    it("收到停止信号之后，排着队与新要的“立即跑一次”都回 503 not_ready，已经开始的那一次照常跑完", async () => {
+        const {site, url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        const holdEvents = (): string[] => events(site).filter((event) => event.startsWith("fixture.hold_"));
+        const first = control(url, "jobs/run", {module: "alpha", job: "hold"});
+        await site.waitForLog("first hold started", (line) => line.event === "fixture.hold_started");
+        const queued = control(url, "jobs/run", {module: "alpha", job: "hold"});
+        // 第二次的 test_control.job_run 写出来时它已经排在第一次后面（见上一条用例）。
+        await waitUntil("second run requested", () => site.logs().filter((line) => line.event === "test_control.job_run").length >= 2);
+        site.signal("SIGTERM");
+        await site.waitForLog("signal", (line) => line.event === "process.signal");
+        site.writeStdin("finish\n");
+        expect(await first).toEqual({status: 200, body: {status: "done"}});
+        expect(await queued).toEqual({status: 503, body: {code: "not_ready"}});
+        expect(await site.waitForExit()).toBe(0);
+        expect(holdEvents()).toEqual(["fixture.hold_started", "fixture.hold_finished"]);
     });
 
     it("设了口令而监听地址不是本机回环时以 config_invalid 退出、不监听，标准错误里没有口令", async () => {

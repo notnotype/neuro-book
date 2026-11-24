@@ -73,6 +73,9 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
     const probes = new Map<string, Database>();
     const created: Created[] = [];
     const scheduler = new JobScheduler();
+    // 第一次停止请求一到（信号处理函数之后的微任务里）就不再开始新的任务运行；停计时、等正在跑的那一次仍在收口的
+    // finally 里、排空之后（`jobs.ts` 的文件头）。不放在第 10 步的 await 之后：停止可能在监听之前就到了。
+    void stop.whenRequested.then(() => scheduler.stopAccepting());
     let server: Server<undefined> | undefined;
     // 从这里起进收口的 try：下面任何一步失败或抛出，finally 都把已经拿到的东西按相反顺序放掉。
     try {

@@ -196,12 +196,8 @@ describe("就绪检查与存活检查（输出 3、4，时序“恢复后回 200
         } finally {
             release();
         }
-        const body = notReady.body as {status?: unknown; code?: unknown; modules?: Record<string, unknown>};
-        expect(body.status).toBe("not_ready");
-        expect(body.code).toBe("not_ready");
-        expect(body.modules?.identity).not.toBe("ready");
-        expect(body.modules?.identity).toEqual(expect.any(String));
-        expect(body.modules?.telemetry).toBe("ready");
+        // 被进程外的写者占着是 `not_ready`；`transaction_stuck` 只给本进程自己的事务（`site.operations` 输出 4）。
+        expect(notReady.body).toEqual({status: "not_ready", code: "not_ready", modules: {identity: "not_ready", telemetry: "ready"}});
         expect(JSON.stringify(notReady.body)).not.toContain(dataDir);
 
         expect(await site.ready()).toEqual({status: "ready", modules: {identity: "ready", telemetry: "ready"}});

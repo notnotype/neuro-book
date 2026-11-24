@@ -42,7 +42,7 @@ export interface SiteConfig {
 export type SiteConfigResult = {readonly ok: true; readonly config: SiteConfig} | {readonly ok: false; readonly problems: readonly ConfigProblem[]};
 
 /** 问题词：取自 `site.operations` 失败与恢复一节的词表。 */
-type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip" | "not_loopback";
+type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip" | "not_loopback" | "bad_format";
 
 type Parsed<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly problem: Problem};
 
@@ -96,8 +96,21 @@ function parseInteger(value: string, min: number, max: number): Parsed<number> {
     return number < min || number > max ? bad("out_of_range") : ok(number);
 }
 
-/** 测试控制口令的最短长度，按 Unicode 码点计（`site.operations` 的配置表）。 */
+/**
+ * 测试控制口令（`site.operations` 的配置表）：32 到 256 个大小写字母、数字、`-`、`_`。口令要原样放进 `Authorization` 请求头，
+ * 汉字放不进请求头、末尾的空格会被 HTTP 客户端去掉，这类值配得进去却永远对不上，所以在启动时就拒绝。
+ */
 const TEST_CONTROL_MIN_LENGTH = 32;
+const TEST_CONTROL_MAX_LENGTH = 256;
+const TEST_CONTROL_CHARS = /^[A-Za-z0-9_-]+$/u;
+
+/** 短于下限是 `too_short`；够长但过长或含别的字符是 `bad_format`。长度按码点计，短的那一侧与会话密钥同一种数法。 */
+function testControlProblem(token: string): Problem | undefined {
+    const length = [...token].length;
+    if (length < TEST_CONTROL_MIN_LENGTH) return "too_short";
+    if (length > TEST_CONTROL_MAX_LENGTH || !TEST_CONTROL_CHARS.test(token)) return "bad_format";
+    return undefined;
+}
 
 const LOOPBACK_V4 = (() => {
     const list = new BlockList();
@@ -162,7 +175,8 @@ export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteC
     const shutdownTimeoutMs = field("NB_SITE_SHUTDOWN_TIMEOUT_MS", (value) => parseInteger(value, 1, MAX_TIMER_DELAY_MS), 10_000);
     // 缺省是“没设”而不是某个值，所以不经 `field` 的缺省值；空串同样算没设。
     const rawToken = present(env.NB_SITE_TEST_CONTROL);
-    if (rawToken !== undefined && [...rawToken].length < TEST_CONTROL_MIN_LENGTH) problems.push({name: "NB_SITE_TEST_CONTROL", problem: "too_short"});
+    const tokenProblem = rawToken === undefined ? undefined : testControlProblem(rawToken);
+    if (tokenProblem !== undefined) problems.push({name: "NB_SITE_TEST_CONTROL", problem: tokenProblem});
     // 测试控制入口能改服务看到的时间，只许在本机回环上提供（`site.operations` 的边界一节）；问题记在监听地址上。
     if (rawToken !== undefined && host !== undefined && !isLoopback(host)) problems.push({name: "NB_SITE_HOST", problem: "not_loopback"});
 

@@ -92,8 +92,8 @@ export function createTestControl(options: TestControlOptions): TestControl {
         const outcome = await handle.runNow();
         if (outcome === "done") return c.json({status: "done"});
         if (outcome === "failed") return c.json({code: "job_failed", module, job}, 500);
-        // 调度还没开始或已经停了：监听之后、模块 start() 之前，或停止之后还连着的请求。Spec 没给这种情形定码，
-        // 借用就绪检查的 `not_ready`。
+        // 调度还没开始（监听之后、模块 start() 之前）、服务正在停止（收到停止信号之后排空期间的请求，以及排在正在跑的
+        // 那一次后面、还没轮到的）或已经停了（`site.operations` 输出 11）。
         return c.json({code: "not_ready"}, 503);
     });
     return {clock, app};

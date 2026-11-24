@@ -20,7 +20,7 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 
 ## 写法
 
-- 每个测试文件在顶层调用一次 `useSiteSandbox(<文件名>)`：一个文件一个临时根（ADR 0061 决策 4），各用例在根下用 `dataDir()` 建自己的数据目录。
+- 每个测试文件在顶层调用一次 `useSiteSandbox(<文件名>)`：一个文件一个临时根（ADR 0061 决策 4），各用例在根下用 `dataDir()` 建自己的数据目录。例外是测底座自己收口的 `src/sandbox.test.ts`：它从外面取消一个按路径运行的测试入口（`src/testing/cancel-entry.ts`），服务由那个入口经沙箱起。
 - 起进程、跑命令放在 `describe` 的 `beforeAll` 里，用例只发请求、读结果，单个用例守 200 毫秒的预算（测试文档的“服务进程测试”）；超出的在用例旁写明原因。
 - 断言只用 [`site/operations.md`](../../docs/specs/site/operations.md) 与模块 Spec 写明的字段名、码、问题词与 `reason`；Spec 没写的输出（日志的 `message`）不断言。被测程序与 Spec 对不上时，不改用例去迁就它，报给 Task。
 - 随时间变化的行为用测试控制入口（`advanceClock`、`runJob`），不按真实时间等。故障注入只用 `src/testing/fault.ts` 那种只碰 Spec 写明的文件布局、不读写表的做法。
@@ -33,10 +33,10 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `sandbox.dataDir()` | 临时根下一个新的空数据目录 |
 | `sandbox.start({dataDir, env, command, timeoutMs})` | 起 `serve`，等到 `site.listening`；进程先退出或超时都立即失败，错误里带已收到的输出。缺省带一个随机的测试控制口令，`env: {NB_SITE_TEST_CONTROL: undefined}` 去掉它 |
 | `sandbox.run(command, {dataDir, env, command, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行 |
-| `SiteProcess` | `url`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
+| `SiteProcess` | `url`、`pid`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
 | `holdWriteLock(dataDir, module)`（`fault.ts`） | 从进程外占住一个模块的库的写锁，返回放锁的函数 |
 | `listBackups`、`quickCheck`（`backup.ts`） | 列出名字是备份时间的目录；只读打开副本跑 `quick_check` |
-| `reservePort`、`isListening`、`rawHttp`、`requestJson`、`testControlRequest` | 预留端口与检查有没有人监听；原始套接字请求（测读不出主机名）；按 JSON 读响应 |
+| `reservePort`、`isListening`、`rawHttp`、`requestJson`、`testControlRequest` | 预留端口与检查有没有人监听；原始套接字请求（测读不出主机名）；按 JSON 读响应。都带截止时刻（缺省 10 秒），到点中断连接并报错 |
 
 子进程的环境只有 `PATH`、指向临时根下空目录的 `HOME` 与 `TMPDIR`，加一套合格的 `NB_SITE_*`；工作目录是临时根。不继承测试进程的环境。
 

@@ -176,7 +176,12 @@ export interface SiteModule<C = unknown> {
      * 副本 `VACUUM`，删掉的内容不留在空闲页里，再做 `quick_check`。
      *
      * `copy` 是副本的读写连接，不是原库：这里改什么都不影响服务正在用的库。备份命令是另一个进程，不调用 `create()`，
-     * 也不读本模块的配置，所以这里不能依赖 `create()` 建的状态。同步调用；抛错时这次备份以 `backup_failed` 失败。
+     * 也不读本模块的配置，所以这里不能依赖 `create()` 建的状态。
+     *
+     * 同步调用，入口不等它：返回之后马上 `VACUUM`、关连接、改名，写成 async 的话 `await` 之后的删除落在副本关掉之后，
+     * 要删的数据留在正式备份里。返回类型是 `undefined` 而不是 `void`，就是让类型检查拦下返回 Promise 的实现；类型断言能绕过它，
+     * 所以入口另在运行时查一遍。返回之前提交或回滚自己开的事务。抛错、返回了 `undefined` 以外的值、或留下
+     * 未提交的事务时，这次备份以 `backup_failed`（`prepare_failed`）失败。
      */
-    prepareBackupCopy?(copy: Database): void;
+    prepareBackupCopy?(copy: Database): undefined;
 }

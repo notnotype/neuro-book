@@ -4,7 +4,7 @@
  *
  * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务（含给测试控制入口跑的 `count`、`fail`、`hold`）、命令与
  *   一组可操纵的路由（含回显 `clock.now()` 的 `/now`）；备份时在副本里删掉 `label` 为 `raw` 的行（`prepareBackupCopy`，
- *   代表统计模块清空原始上报表）；
+ *   代表统计模块清空原始上报表），`NB_SITE_ALPHA_PREPARE` 让这一步写错（见 `prepareAlphaCopy`）；
  * - `alpha-failing`：`alpha`，第二条迁移是坏 SQL；
  * - `beta`：只挂站点入口的第二个模块（测按模块的锁、就绪检查逐个点名）；`create()` 是异步的。
  *
@@ -14,6 +14,7 @@
  * 与 `NB_SITE_ALPHA_WAIT` 停住的那一步，`finish` 让 `hold` 任务跑完。
  */
 
+import type {Database} from "bun:sqlite";
 import {readSync} from "node:fs";
 
 import {Hono} from "hono";
@@ -173,6 +174,31 @@ function createAlpha(context: ModuleContext<AlphaConfig>): ModuleInstance {
     };
 }
 
+/**
+ * `alpha` 的 `prepareBackupCopy`。备份命令不读模块的配置（见 `SiteModule.prepareBackupCopy`），夹具只好直接读环境变量：
+ * `NB_SITE_ALPHA_WAIT=backup` 先停住；`NB_SITE_ALPHA_PREPARE` 是 `throw`（抛错）、`async`（写成了 async，返回 Promise）、
+ * `open-txn`（开了事务不提交）时各模拟一种写错的模块，没设时正常删掉 `raw`。
+ */
+function prepareAlphaCopy(copy: Database): undefined {
+    if (process.env.NB_SITE_ALPHA_WAIT === "backup") blockOnStdinLine("backup");
+    const removeRaw = (): void => void copy.query(`DELETE FROM "item" WHERE "label" = 'raw'`).run();
+    switch (process.env.NB_SITE_ALPHA_PREPARE) {
+        case "throw":
+            throw new RangeError("fixture prepare failure with secret-detail-prepare");
+        case "async":
+            // 类型检查本来会拦下 async 的实现（返回类型是 undefined），这里用类型断言绕过，测入口在运行时的那道检查。
+            // 删除在第一个 await 之前、同步做完了，Promise 也已 resolve：入口照样拒绝，它看不出 Promise 里还剩什么没做。
+            return (async () => removeRaw())() as unknown as undefined;
+        case "open-txn":
+            copy.exec("BEGIN");
+            removeRaw();
+            return undefined;
+        default:
+            removeRaw();
+            return undefined;
+    }
+}
+
 function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
     return {
         name: "alpha",
@@ -187,11 +213,7 @@ function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
             if (context.config.waitInCreate) blockOnStdinLine("create");
             return createAlpha(context);
         },
-        prepareBackupCopy: (copy) => {
-            // 备份命令不读模块的配置（见 `SiteModule.prepareBackupCopy`），夹具只好直接读环境变量。
-            if (process.env.NB_SITE_ALPHA_WAIT === "backup") blockOnStdinLine("backup");
-            copy.query(`DELETE FROM "item" WHERE "label" = 'raw'`).run();
-        },
+        prepareBackupCopy: prepareAlphaCopy,
         commands: [
             {
                 name: "alpha-exclusive",

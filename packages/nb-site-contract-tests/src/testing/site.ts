@@ -10,14 +10,17 @@
  *
  * 收口：每个起过的进程都登记在这里。用例里起的，在这个用例的 `afterEach` 里停掉；`beforeAll` 里起的属于整个文件（几个用例共用），
  * 在 `afterAll` 里停掉，之后再删临时根（删目录不等于关了里面的文件）。测试进程退出时（正常结束或未捕获异常）`process.on("exit")`
- * 对还活着的 SIGKILL。测试进程自己被 SIGKILL 时子进程会留下，是已知限制（w00037 t05 计划第 8 节）。
+ * 对还活着的 SIGKILL；测试进程被 `SIGTERM`、`SIGINT` 取消时也先 SIGKILL 它们，再按原信号结束自己（`installExitHook`）。
+ * 测试进程自己被 SIGKILL 时子进程会留下，是已知限制（w00037 t05 计划第 8 节）。
+ *
+ * 时限：底座发的每个请求都带截止时刻，到点中断连接并报错；属于某个被测进程的请求，错误里附上它到这时为止的输出。
  */
 
 import {afterAll, afterEach, beforeAll, beforeEach} from "bun:test";
 import {randomBytes} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {mkdir, rm} from "node:fs/promises";
-import {connect, createServer, type AddressInfo} from "node:net";
+import {connect, createServer, type AddressInfo, type Socket} from "node:net";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -106,6 +109,8 @@ export interface JsonResponse {
 export interface SiteProcess {
     /** 根地址，带末尾的 `/`，取自 `site.listening` 那一行。 */
     readonly url: string;
+    /** 进程号；测试进程被取消之后核对子进程有没有留下时用。 */
+    readonly pid: number;
     readonly dataDir: string | undefined;
     /** 这个进程的测试控制口令；起进程时去掉了口令则为 null。 */
     readonly testControlToken: string | null;
@@ -116,7 +121,7 @@ export interface SiteProcess {
     /** 到目前为止的整段标准输出与标准错误。 */
     stdout(): string;
     stderr(): string;
-    /** 等到 `GET /health/ready` 回 200，返回响应体；缺省等 10 秒。 */
+    /** 等到 `GET /health/ready` 回 200，返回响应体；缺省等 10 秒，正在等的那一次请求也在这个时限内中断，错误里带进程的输出。 */
     ready(timeoutMs?: number): Promise<unknown>;
     /** 发 SIGTERM 并等它退出，返回退出码；超时（缺省 10 秒）后 SIGKILL 并抛错。 */
     stop(timeoutMs?: number): Promise<number>;
@@ -152,6 +157,8 @@ interface Child {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+/** 底座发的一次请求（含读完响应体）的缺省上限：合同里没有哪个请求要等这么久，到点说明被测程序挂住了。 */
+const REQUEST_TIMEOUT_MS = 10_000;
 /** 收口时等 SIGTERM 生效的上限；被测程序的停止时限缺省 10 秒，但测试里没有在途的慢请求，正常几十毫秒就退出。 */
 const CLEANUP_TIMEOUT_MS = 5_000;
 
@@ -159,13 +166,44 @@ const CLEANUP_TIMEOUT_MS = 5_000;
 const alive = new Set<Child>();
 let exitHookInstalled = false;
 
+function killAlive(): void {
+    for (const child of alive) child.subprocess.kill("SIGKILL");
+}
+
+/**
+ * 进程级的兜底，整个测试进程装一次（几个测试文件各调一次 `useSiteSandbox`）。
+ *
+ * - `exit`：只能做同步的事，kill 是同步的，不等它退出。
+ * - `SIGTERM`、`SIGINT`：测试被取消时 Bun 按信号的缺省动作直接结束进程，`afterEach`、`afterAll` 与 `exit` 都不跑，子进程会
+ *   留下来接着占端口与库锁。处理函数同样只同步地 SIGKILL，不等它们退出：等的话取消要多花时间，而 SIGKILL 不会被拦住。
+ *   然后去掉自己并用同一个信号再结束一次，退出方式与没装处理函数时一样，调用方照样看到“被信号结束”。
+ */
 function installExitHook(): void {
     if (exitHookInstalled) return;
     exitHookInstalled = true;
-    // exit 事件里只能做同步的事：kill 是同步的，不等它退出。
-    process.on("exit", () => {
-        for (const child of alive) child.subprocess.kill("SIGKILL");
-    });
+    process.on("exit", killAlive);
+    let cancelling = false;
+    const onSignal = (signal: NodeJS.Signals): void => {
+        // 去掉处理函数之前又来一个信号时（同一轮事件循环里的 SIGINT 与 SIGTERM）只结束一次。
+        if (cancelling) return;
+        cancelling = true;
+        killAlive();
+        process.off("SIGTERM", onSignal);
+        process.off("SIGINT", onSignal);
+        process.kill(process.pid, signal);
+    };
+    process.on("SIGTERM", onSignal);
+    process.on("SIGINT", onSignal);
+}
+
+/** 到 `deadline`（`performance.now()` 的时刻）为止的中断信号；已经过了时立即中断。 */
+function signalUntil(deadline: number): AbortSignal {
+    return AbortSignal.timeout(Math.max(1, Math.ceil(deadline - performance.now())));
+}
+
+/** 截止时刻到了而中断的请求；`cause` 是原来的错误。 */
+function isTimeout(error: unknown): boolean {
+    return error instanceof DOMException && error.name === "TimeoutError";
 }
 
 function collectLines(stream: ReadableStream<Uint8Array>, into: string[]): Promise<void> {
@@ -237,10 +275,23 @@ export async function reservePort(): Promise<number> {
     return port;
 }
 
-/** 这个地址上有没有人在监听：连得上为 true，被拒绝（`ECONNREFUSED`）为 false，别的错误照常抛出。 */
-export function isListening(port: number, host = "127.0.0.1"): Promise<boolean> {
+/**
+ * 套接字到 `timeoutMs` 还没 close 就断开它，以 `message` 失败；close 时清掉计时器。给本机地址上的原始连接用：连接本身
+ * 没有截止时刻，对方接受了却一直不回时会一直等。
+ */
+function boundSocket(socket: Socket, timeoutMs: number, message: string, reject: (error: Error) => void): void {
+    const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error(message));
+    }, timeoutMs);
+    socket.once("close", () => clearTimeout(timer));
+}
+
+/** 这个地址上有没有人在监听：连得上为 true，被拒绝（`ECONNREFUSED`）为 false，别的错误与超时照常抛出。 */
+export function isListening(port: number, host = "127.0.0.1", timeoutMs = REQUEST_TIMEOUT_MS): Promise<boolean> {
     return new Promise((resolve, reject) => {
         const socket = connect({host, port});
+        boundSocket(socket, timeoutMs, `connecting to ${host}:${String(port)} neither succeeded nor was refused within ${String(timeoutMs)}ms`, reject);
         socket.once("connect", () => {
             socket.destroy();
             resolve(true);
@@ -253,11 +304,15 @@ export function isListening(port: number, host = "127.0.0.1"): Promise<boolean> 
     });
 }
 
-/** 经原始套接字发一段请求文字，读到对方关闭连接为止。`fetch` 总会补上 `Host`，测“读不出主机名”只能这样发。 */
-export function rawHttp(url: string, request: string): Promise<string> {
+/**
+ * 经原始套接字发一段请求文字，读到对方关闭连接为止；`timeoutMs` 内没关就断开并抛错。`fetch` 总会补上 `Host`，
+ * 测“读不出主机名”只能这样发。
+ */
+export function rawHttp(url: string, request: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<string> {
     const {hostname, port} = new URL(url);
     return new Promise((resolve, reject) => {
         const socket = connect({host: hostname, port: Number(port)});
+        boundSocket(socket, timeoutMs, `raw request to ${url} was not answered and closed within ${String(timeoutMs)}ms`, reject);
         const chunks: Buffer[] = [];
         socket.once("connect", () => socket.end(request));
         socket.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -266,10 +321,21 @@ export function rawHttp(url: string, request: string): Promise<string> {
     });
 }
 
-/** 请求并把响应体按 JSON 读出；响应体不是 JSON 时抛错（合同里每个响应体都是 JSON）。 */
+/**
+ * 请求并把响应体按 JSON 读出；响应体不是 JSON 时抛错（合同里每个响应体都是 JSON）。`init` 没带 `signal` 时整个请求
+ * （含读完响应体）至多 `REQUEST_TIMEOUT_MS`，到点中断并抛错。
+ */
 export async function requestJson(url: string, init?: RequestInit): Promise<JsonResponse> {
-    const response = await fetch(url, init);
-    const text = await response.text();
+    const signal = init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    let response: Response;
+    let text: string;
+    try {
+        response = await fetch(url, {...init, signal});
+        text = await response.text();
+    } catch (error) {
+        if (!isTimeout(error)) throw error;
+        throw new Error(`${init?.method ?? "GET"} ${url} did not complete before its deadline`, {cause: error});
+    }
     let body: unknown;
     try {
         body = JSON.parse(text);
@@ -279,12 +345,13 @@ export async function requestJson(url: string, init?: RequestInit): Promise<Json
     return {status: response.status, headers: response.headers, body};
 }
 
-/** 测试控制入口的一次请求；`token` 为 null 时不带 `Authorization`。 */
-export function testControlRequest(url: string, path: "clock" | "jobs/run", body: unknown, token: string | null): Promise<JsonResponse> {
+/** 测试控制入口的一次请求；`token` 为 null 时不带 `Authorization`。`signal` 缺省同 `requestJson`。 */
+export function testControlRequest(url: string, path: "clock" | "jobs/run", body: unknown, token: string | null, signal?: AbortSignal): Promise<JsonResponse> {
     return requestJson(`${url}test-control/${path}`, {
         method: "POST",
         headers: {"Content-Type": "application/json", ...(token === null ? {} : {Authorization: `Bearer ${token}`})},
         body: JSON.stringify(body),
+        ...(signal === undefined ? {} : {signal}),
     });
 }
 
@@ -401,8 +468,19 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         }
     });
 
+    /** 这个进程的一次请求：到截止时刻中断，错误里附上它到这时为止的输出（挂住的原因多半在里面）。 */
+    const childRequest = async <T>(child: Child, what: string, send: (signal: AbortSignal) => Promise<T>, deadline = performance.now() + REQUEST_TIMEOUT_MS): Promise<T> => {
+        try {
+            return await send(signalUntil(deadline));
+        } catch (error) {
+            if (!(error instanceof Error && isTimeout(error.cause))) throw error;
+            throw new Error(`${what} did not complete before its deadline\n${describeOutput(child)}`, {cause: error});
+        }
+    };
+
     const toProcess = (child: Child, url: string, options: ProcessOptions, token: string | null): SiteProcess => ({
         url,
+        pid: child.subprocess.pid,
         dataDir: options.dataDir,
         testControlToken: token,
         get exitCode() {
@@ -411,16 +489,20 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         logs: () => parseLines(child.stdout),
         stdout: () => child.stdout.join("\n"),
         stderr: () => child.stderr.join("\n"),
-        ready: (timeoutMs = DEFAULT_TIMEOUT_MS) =>
-            waitUntil(
+        ready: async (timeoutMs = DEFAULT_TIMEOUT_MS) => {
+            // 轮询与正在等的那一次请求共用一个截止时刻：`waitUntil` 要等检查函数返回才看时限，请求本身得自己到点中断。
+            const deadline = performance.now() + timeoutMs;
+            const result = await waitUntil(
                 "GET /health/ready answers 200",
                 async () => {
                     if (child.exitCode !== null) throw new Error(`serve exited with ${String(child.exitCode)} while waiting for readiness\n${describeOutput(child)}`);
-                    const response = await requestJson(`${url}health/ready`);
+                    const response = await childRequest(child, `GET /health/ready (waiting up to ${String(timeoutMs)}ms for readiness)`, (signal) => requestJson(`${url}health/ready`, {signal}), deadline);
                     return response.status === 200 ? {body: response.body} : undefined;
                 },
                 {timeoutMs},
-            ).then((result) => result.body),
+            );
+            return result.body;
+        },
         stop: async (timeoutMs = DEFAULT_TIMEOUT_MS) => {
             const {code, killed} = await terminate(child, timeoutMs);
             if (killed) throw new Error(`serve did not exit within ${String(timeoutMs)}ms of SIGTERM\n${describeOutput(child)}`);
@@ -428,14 +510,14 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         },
         advanceClock: async (ms) => {
             if (token === null) throw new Error("this process was started without a test control token");
-            const response = await testControlRequest(url, "clock", {advanceMs: ms}, token);
+            const response = await childRequest(child, "POST /test-control/clock", (signal) => testControlRequest(url, "clock", {advanceMs: ms}, token, signal));
             const now = (response.body as {readonly now?: unknown} | null)?.now;
             if (response.status !== 200 || typeof now !== "number") throw new Error(`POST /test-control/clock answered ${String(response.status)}: ${JSON.stringify(response.body)}`);
             return now;
         },
         runJob: (module, job) => {
             if (token === null) throw new Error("this process was started without a test control token");
-            return testControlRequest(url, "jobs/run", {module, job}, token);
+            return childRequest(child, "POST /test-control/jobs/run", (signal) => testControlRequest(url, "jobs/run", {module, job}, token, signal));
         },
     });
 
