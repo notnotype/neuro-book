@@ -153,18 +153,31 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     const preview = entryPage(page).locator("[data-text-preview]");
     await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
     await expect(preview.getByRole("button")).toHaveCount(0);
-    // 够宽时左右各半：预览栏在输入框的右边。
-    const [sourceBox, previewBox] = [await textSource(page).boundingBox(), await preview.boundingBox()];
-    expect(previewBox!.x).toBeGreaterThanOrEqual(sourceBox!.x + sourceBox!.width);
+    // 编辑区窄于 880 像素（1440 的窗口、两边的侧栏都开着）时预览排在输入框下面；窗口拉宽以后左右各半、预览栏在右边。
+    const boxes = async () => ({source: (await textSource(page).boundingBox())!, preview: (await preview.boundingBox())!});
+    await expect.poll(async () => {
+        const now = await boxes();
+        return now.preview.y >= now.source.y + now.source.height && now.preview.x < now.source.x + now.source.width;
+    }).toBe(true);
+    await page.setViewportSize({width: 1920, height: 900});
+    await expect.poll(async () => {
+        const now = await boxes();
+        return now.preview.x >= now.source.x + now.source.width;
+    }).toBe(true);
+    // 预览栏吸顶的位置跟着页头的高度（条目页量出来交给它的）：页头底边再让开 12 像素。
+    const headerHeight = Math.round((await entryPage(page).locator("header").boundingBox())!.height);
+    await expect.poll(() => preview.evaluate((element) => getComputedStyle(element).top)).toBe(`${String(headerHeight + 12)}px`);
+    const sourceBox = (await boxes()).source;
     // 源文字按条目的写法着色：花括号里的字段名（含中文）有自己的颜色（没着色的记号是 `mtk1`）。
     await expect(sourceToken(page, "character")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
     await expect(sourceToken(page, "外观")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
     // “预览”是开关：关掉以后没有预览栏，输入框占满；再打开又有。
     await entryPage(page).locator("[data-text-preview-toggle]").click();
     await expect(preview).toHaveCount(0);
-    await expect.poll(async () => (await textSource(page).boundingBox())!.width).toBeGreaterThan(sourceBox!.width + 100);
+    await expect.poll(async () => (await textSource(page).boundingBox())!.width).toBeGreaterThan(sourceBox.width + 100);
     await entryPage(page).locator("[data-text-preview-toggle]").click();
     await expect(preview).toContainText("银白长发是她的样子。");
+    await page.setViewportSize({width: 1440, height: 900});
     await focusSource(page);
     // Tab 离开输入框（不留在框里缩进）；再回到输入框里。
     await page.keyboard.press("Tab");
