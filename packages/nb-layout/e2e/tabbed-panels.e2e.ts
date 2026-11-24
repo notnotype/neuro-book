@@ -282,6 +282,24 @@ test("读档失败：用缺省布局、状态行说明、原件原样留在备�
     }
 });
 
+test("存档坏、备份也写不进：这一页不再保存，提示一直挂着，原件留在主键", async ({page}) => {
+    // 让写备份键抛错（像存储满了）；其余照常。在页面脚本之前装上，读档时就生效。
+    await page.addInitScript((backup) => {
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+            if (key === backup) throw new DOMException("full", "QuotaExceededError");
+            original.call(this, key, value);
+        };
+    }, BACKUP);
+    await page.evaluate((key) => localStorage.setItem(key, "{not json"), KEY);
+    await page.reload();
+    await expect(page.locator("[data-status]")).toContainText("changes will not be kept");
+    await tabButton(page, "group-1", "main.ts").click();
+    await expect(tabButton(page, "group-1", "main.ts")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("[data-status]")).toContainText("changes will not be kept");
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe("{not json");
+});
+
 test("F6 与 Shift+F6 在侧栏与编组之间移动焦点", async ({page}) => {
     await page.locator(".explorer__file").first().focus();
     await page.keyboard.press("F6");

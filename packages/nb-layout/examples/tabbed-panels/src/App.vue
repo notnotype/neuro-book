@@ -39,6 +39,8 @@ const loaded = loadLayout(storage);
  */
 const layout = shallowRef(loaded.layout);
 const grid = computed(() => layout.value.grid);
+/** 这一页不保存时（存档读不了、备份也写不进）的提示：一直挂着，直到重新载入，不被后面成功的操作清掉。 */
+const sticky = loaded.keep ? "" : (loaded.notice ?? "");
 /** 状态行：读档失败、保存失败、操作被拒的原因。平时空着。 */
 const status = shallowRef(loaded.notice ?? "");
 
@@ -61,7 +63,7 @@ function settle(result: Result): boolean {
         return false;
     }
     // 状态行说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。
-    status.value = "";
+    status.value = sticky;
     host.invalidate();
     triggerRef(layout);
     persist();
