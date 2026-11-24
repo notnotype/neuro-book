@@ -1,0 +1,119 @@
+[run] p1 NODE_ENV=production
+[P1.1 imported hash prefix] scrypt:ffe
+[P1.1 wrong password] 401 prefix=scrypt:ffe
+[P1.1 wrong events] []
+[P1.1 first login with scrypt hash] 200 prefix=$argon2id$ sessionA=valid sessions=2
+[P1.1 first events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","rehash compare-and-swap changed=1"]
+[P1.1 next login with argon2id hash] 200 prefix=$argon2id$
+[P1.1 again events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2"]
+[P1.2 rehash with another session alive] 200 prefix=$argon2id$ sessionA=valid sessionB=valid sessions=4
+[P1.2 events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","rehash compare-and-swap changed=1"]
+[P1.3 five concurrent logins] statuses=200,200,200,200,200 prefix=$argon2id$ ms=293
+[P1.3 events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","after-hook path=/sign-in/username plaintextInBody=true userId=2","after-hook path=/sign-in/username plaintextInBody=true userId=2","after-hook path=/sign-in/username plaintextInBody=true userId=2","after-hook path=/sign-in/username plaintextInBody=true userId=2","rehash compare-and-swap changed=1","rehash compare-and-swap changed=0","rehash compare-and-swap changed=0","rehash compare-and-swap changed=0","rehash compare-and-swap changed=0"]
+[P1.3 login after race] 200
+[P1.4 reset during login, mode=cas] login=200 body={"redirect":false,"token":"M8lDsHM4Zt3X2eO5kL7K93ZY9swOdwUb" setCookie=true racedSession=valid thenOldPassword=401 thenAdminPassword=200 prefix=$argon2id$
+[P1.4 cas events] ["databaseHooks.account.update.after path=/admin/set-user-password arg=1","admin reset=200 revoke=200 during login","after-hook path=/sign-in/username plaintextInBody=true userId=2","after-hook path=/sign-in/username plaintextInBody=true userId=2"]
+[P1.4 reset during login, mode=internal] login=200 body={"redirect":false,"token":"b4p9rCJLHoV6qbVdxS1LyXg6k6RldHF0" setCookie=true racedSession=valid thenOldPassword=401 thenAdminPassword=200 prefix=$argon2id$
+[P1.4 internal events] ["databaseHooks.account.update.after path=/admin/set-user-password arg=1","admin reset=200 revoke=200 during login","after-hook path=/sign-in/username plaintextInBody=true userId=2","after-hook path=/sign-in/username plaintextInBody=true userId=2"]
+[P1.4 reset during login, mode=cas-recheck] login=401 body={"message":"invalid_credentials"} setCookie=true racedSession=invalid thenOldPassword=401 thenAdminPassword=200 prefix=$argon2id$
+[P1.4 cas-recheck events] ["databaseHooks.account.update.after path=/admin/set-user-password arg=1","admin reset=200 revoke=200 during login","after-hook path=/sign-in/username plaintextInBody=true userId=2","recheck stash=request-state sameCtx=true hashChangedSinceVerify=true","recheck current hash with plaintext ok=false","after-hook path=/sign-in/username plaintextInBody=true userId=2","recheck stash=request-state sameCtx=true hashChangedSinceVerify=false"]
+[P1.4b reset between read and write in rehash, mode=cas] login=200 thenOldPassword=401 thenAdminPassword=200
+[P1.4b cas events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","databaseHooks.account.update.after path=/admin/set-user-password arg=1","admin reset=200 revoke=200 during login","rehash compare-and-swap changed=0","after-hook path=/sign-in/username plaintextInBody=true userId=2"]
+[P1.4b reset between read and write in rehash, mode=internal] login=200 thenOldPassword=200 thenAdminPassword=401
+[P1.4b internal events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","databaseHooks.account.update.after path=/admin/set-user-password arg=1","admin reset=200 revoke=200 during login","databaseHooks.account.update.after path=/sign-in/username arg=1","rehash via internalAdapter.updatePassword (no compare)","after-hook path=/sign-in/username plaintextInBody=true userId=2"]
+[P1.5 rehash via internalAdapter with session policy in db hook] login=200 setCookie=true thisSession=invalid sessions=0
+[P1.5 events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","databaseHooks.account.update.after path=/sign-in/username arg=1","policy hook deleteUserSessions(2) rows 2->0","rehash via internalAdapter.updatePassword (no compare)"]
+[P1.5 same with adapter compare-and-swap (db hook not run)] login=200 thisSession=valid
+[P1.5 cas events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","rehash compare-and-swap changed=1"]
+[P1.6 rehash throws] status=500 setCookie=false body= session=invalid sessionRows 1->2 prefix=scrypt:e23
+[P1.6 events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2"]
+[P1.7 email sign-in] 200 prefix=$argon2id$
+[P1.7 events] ["after-hook path=/sign-in/email plaintextInBody=true userId=2","rehash compare-and-swap changed=1"]
+[P1.8 auth.api.signInUsername] token=true setCookie=true prefix=$argon2id$
+[P1.8 events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","rehash compare-and-swap changed=1"]
+[run] p2 NODE_ENV=production
+[R1a default, no forwarding header, 5 tries] statuses=401,401,401,429,429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R1b another client, also no header] statuses=429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R1c x-forwarded-for: 203.0.113.1, 4 tries] statuses=401,401,401,429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R1d spoofed x-forwarded-for, new value each time, 6 tries] statuses=401,401,401,401,401,401
+[R1e two-value x-forwarded-for without trustedProxies] statuses=429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R1f auth.api.signInUsername x6, same ip] statuses=401,401,401,401,401,401
+[R1g second auth instance, no header] statuses=429 X-Retry-After=9 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R1g second auth instance, x-forwarded-for 203.0.113.1] statuses=429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R2 keys by header (none, xff single, xff two, ipv6, garbage, x-real-ip only, Forwarded only, then GET get-session)] ["no-trusted-ip|/sign-in/username (window=10 max=3)","203.0.113.1|/sign-in/username (window=10 max=3)","no-trusted-ip|/sign-in/username (window=10 max=3)","2001:0db8:0001:0002:0000:0000:0000:0000|/sign-in/username (window=10 max=3)","no-trusted-ip|/sign-in/username (window=10 max=3)","no-trusted-ip|/sign-in/username (window=10 max=3)","no-trusted-ip|/sign-in/username (window=10 max=3)","no-trusted-ip|/get-session (window=10 max=100)"]
+[R3 trustedProxies=[10.0.0.0/8]] ["\"203.0.113.6, 10.0.0.1\" -> 203.0.113.6|/sign-in/username (window=10 max=3)","\"1.2.3.4, 203.0.113.6, 10.0.0.1\" -> 203.0.113.6|/sign-in/username (window=10 max=3)","\"10.0.0.1\" -> no-trusted-ip|/sign-in/username (window=10 max=3)","\"garbage, 203.0.113.6, 10.0.0.1\" -> 203.0.113.6|/sign-in/username (window=10 max=3)","\"203.0.113.6, garbage\" -> no-trusted-ip|/sign-in/username (window=10 max=3)","\"1.2.3.4\" -> 1.2.3.4|/sign-in/username (window=10 max=3)"]
+[R4 ipAddressHeaders=[x-real-ip]: x-real-ip set, then only xff set] ["203.0.113.7|/sign-in/username (window=10 max=3)","no-trusted-ip|/sign-in/username (window=10 max=3)"]
+[R5 disableIpTracking, no header x6] statuses=401,401,401,401,401,401
+[R5 disableIpTracking, xff x6] statuses=401,401,401,401,401,401
+[R5 storage consulted] 0 times
+[R6 rateLimit.enabled=false, no header x6] statuses=401,401,401,401,401,401
+[R6 rateLimit.enabled=false, xff x6] statuses=401,401,401,401,401,401
+[R7 customRules /sign-in/username=false, xff x6] statuses=401,401,401,401,401,401
+[R7 same instance, /sign-in/email xff x5] statuses=401,401,401,429,429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R8 storage=database, xff x4] statuses=401,401,401,429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+[R8 rows] {"tables":["rateLimit"],"rows":[{"id":"wta24kSlgvGetb6AfCjXt7kKImybCLhZ","key":"203.0.113.12|/sign-in/username","count":3,"lastRequest":1795521364022}]}
+[R9 real HTTP: plain no header, plain spoofed, rewritten no header, rewritten spoofed] {"statuses":[401,401,401,401],"keys":["no-trusted-ip|/sign-in/username (window=10 max=3)","1.2.3.4|/sign-in/username (window=10 max=3)","127.0.0.1|/sign-in/username (window=10 max=3)","127.0.0.1|/sign-in/username (window=10 max=3)"]}
+[run] p2env NODE_ENV=(unset)
+[E1 default config, no header x5] statuses=401,401,401,401,401
+[E2 enabled=true, key for no-header request] ["no-trusted-ip|/sign-in/username (window=10 max=3)"]
+[run] p2env NODE_ENV=development
+[E1 default config, no header x5] statuses=401,401,401,401,401
+[E2 enabled=true, key for no-header request] ["127.0.0.1|/sign-in/username (window=10 max=3)"]
+[run] p2env NODE_ENV=test
+[E1 default config, no header x5] statuses=401,401,401,401,401
+[E2 enabled=true, key for no-header request] ["127.0.0.1|/sign-in/username (window=10 max=3)"]
+[run] p3 NODE_ENV=production
+[D discovery] {"grant_types_supported":["authorization_code","client_credentials","refresh_token"],"scopes_supported":["openid","profile","email","offline_access"],"jwks_uri":"http://localhost:3999/api/identity/auth/jwks","token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"introspection_endpoint":"http://localhost:3999/api/identity/auth/oauth2/introspect","userinfo_endpoint":"http://localhost:3999/api/identity/auth/oauth2/userinfo"}
+[D1 scope=profile] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile" refresh_token=absent id_token=absent
+[D2 scope=profile offline_access] token=200 keys=access_token,expires_at,expires_in,refresh_token,scope,token_type scope="profile offline_access" refresh_token=present id_token=absent
+[D2 refresh_token grant] 200 token=200 keys=access_token,expires_at,expires_in,refresh_token,scope,token_type scope="profile offline_access" refresh_token=present id_token=absent
+[D2 reuse rotated refresh token] 400 invalid_grant
+[D3 scope=openid profile] token=200 keys=access_token,expires_at,expires_in,id_token,scope,token_type scope="openid profile" refresh_token=absent id_token=present
+[D3b scope=openid profile offline_access] token=200 keys=access_token,expires_at,expires_in,id_token,refresh_token,scope,token_type scope="openid profile offline_access" refresh_token=present id_token=present
+[D6 client_credentials grant] 400 unauthorized_client client is not authorized to use grant type client_credentials
+[D4 after ban] ban=200 sessionsLeft=0 oldAccessUserinfo=401 refresh=200 newAccessToken newAccessUserinfo=400 sub=undefined
+[D4 banned user password sign-in] 403 BANNED_USER
+[D4 second refresh while still banned] 200 ok
+[D5 after admin reset only] reset=200 oldAccessUserinfo=400 refresh=200 newAccessToken
+[D5 after reset + revoke-user-sessions] revoke=200 accessFromFirstRefreshUserinfo=401 refresh=200 newAccessToken newAccessUserinfo=400 sub=undefined
+[D7 non-offline access token after ban] 401
+[G discovery] {"grant_types_supported":["authorization_code"],"scopes_supported":["openid","profile","email","offline_access"],"jwks_uri":"http://localhost:3999/api/identity/auth/jwks","token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"introspection_endpoint":"http://localhost:3999/api/identity/auth/oauth2/introspect","userinfo_endpoint":"http://localhost:3999/api/identity/auth/oauth2/userinfo"}
+[G1 scope=profile offline_access] token=200 keys=access_token,expires_at,expires_in,refresh_token,scope,token_type scope="profile offline_access" refresh_token=present id_token=absent
+[G1 refresh_token grant] 400 unsupported_grant_type unsupported grant_type refresh_token
+[G2 scope=openid profile] token=200 keys=access_token,expires_at,expires_in,id_token,scope,token_type scope="openid profile" refresh_token=absent id_token=present
+[L1 discovery] {"grant_types_supported":["authorization_code"],"scopes_supported":["profile","email"],"jwks_uri":"http://localhost:3999/api/identity/auth/jwks","token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"introspection_endpoint":"http://localhost:3999/api/identity/auth/oauth2/introspect","userinfo_endpoint":"(absent)"}
+[L1a scope=profile email] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile email" refresh_token=absent id_token=absent
+[L1b scope=profile offline_access] authorize error invalid_scope: The following scopes are invalid: offline_access
+[L1c scope=openid profile] authorize error invalid_scope: The following scopes are invalid: openid
+[L1d scope=openid] authorize error invalid_scope: The following scopes are invalid: openid
+[L1e no scope parameter] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile email" refresh_token=absent id_token=absent
+[L1f grant_type=refresh_token (junk token)] 400 {"error_description":"unsupported grant_type refresh_token","error":"unsupported_grant_type"}
+[L1f grant_type=refresh_token (no token)] 400 {"error_description":"unsupported grant_type refresh_token","error":"unsupported_grant_type"}
+[L1g admin create client scope=profile offline_access] 400 {"error":"invalid_scope","error_description":"cannot request scope offline_access"}
+[L1g admin create client scope=openid profile] 400 {"error":"invalid_scope","error_description":"cannot request scope openid"}
+[L1h update-client via handler] 404
+[L1h admin update client scope add offline_access] 400 {"error":"invalid_scope","error_description":"cannot request scope offline_access"}
+[L1h after update attempt, scope=profile offline_access] authorize error invalid_scope: The following scopes are invalid: offline_access
+[L1 stored client secret] {"s":"OVFVr86Pe7d5jr-ZxA__GTxH","n":43}
+[L1i access token: after reset only / after reset + revoke sessions] 400 / 401
+[L1j access token after ban] 401
+[L1k userinfo with scope=profile email] 400 {"error_description":"Missing required scope","error":"invalid_scope"}
+[D8 openid+offline_access, ban] userinfoBefore=200 sub=2 oldAccessAfterBan=401 refresh=200  newAccessUserinfo=200 sub=2 id_tokenInRefresh=present
+[D8 openid+offline_access, reset password + revoke sessions] oldAccess=401 refresh=200  newAccessUserinfo=200 sub=3
+[D8 openid without offline_access: access token after reset only / after reset + revoke] 200 / 401
+[L5a scope=openid profile, id_token stripped in after hook] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="openid profile" refresh_token=absent id_token=absent
+[L5a userinfo] 200 {"sub":"4","name":"carl"}
+[L5b scope=profile] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile" refresh_token=absent id_token=absent
+[L5b userinfo] 400
+[L5c scope=openid profile offline_access] authorize error invalid_scope: The following scopes are invalid: offline_access
+[L6a client asks scope=profile] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile" refresh_token=absent id_token=absent
+[L6a userinfo] 200 {"sub":"4","name":"carl"}
+[L6b client asks scope=openid profile] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile" refresh_token=absent id_token=absent
+[L6c no scope parameter] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile email" refresh_token=absent id_token=absent
+[L2 discovery] {"grant_types_supported":["authorization_code"],"scopes_supported":["profile","email"],"jwks_uri":"(absent)","token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"introspection_endpoint":"http://localhost:3999/api/identity/auth/oauth2/introspect","userinfo_endpoint":"(absent)"}
+[L2 create client] 200 {"client_id":"NIojupRjfsqDICMxgVwSzgiTEwyLiPOX","client_secret":"ppYMNzzgJVggcFTrVinuMBFlKfQOroBv","
+[L2a scope=profile email] token=200 keys=access_token,expires_at,expires_in,scope,token_type scope="profile email" refresh_token=absent id_token=absent
+[L2 stored client secret] {"s":"041c844010f5a835fb9d9c3d","n":144}
+[L2 GET /jwks] 404
+[L3 disableJwtPlugin with default storeClientSecret] constructed
+[L4 disableJwtPlugin with storeClientSecret=hashed] threw: unable to store hashed secrets because id tokens will be signed with secret
