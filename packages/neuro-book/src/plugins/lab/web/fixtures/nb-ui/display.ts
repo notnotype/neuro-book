@@ -1,6 +1,6 @@
 /** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, CodeBlock, DiffView, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, CodeBlock, DiffView, EmptyState, Kbd, Pagination, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -151,6 +151,18 @@ export const displayFixtures: LabFixture[] = [
             {id: "long", label: "很多级", input: {props: {items: ["manuscript", "第二卷", "上部", "雪线", "草稿", "第十七章 雪线（修订三）"].map((label, index, all) => ({label, current: index === all.length - 1}))}}},
         ],
         subject: nbUiSubject("Breadcrumb"),
+    }),
+    defineSubjectFixture<typeof Pagination>({
+        component: "Pagination",
+        scenes: [
+            {id: "few", label: "5 页", input: {props: {pageCount: 5}, model: {modelValue: 2}}},
+            {id: "many-first", label: "100 页的第 1 页", input: {props: {pageCount: 100}, model: {modelValue: 1}}},
+            {id: "many-middle", label: "100 页的第 50 页", input: {props: {pageCount: 100}, model: {modelValue: 50}}},
+            {id: "many-last", label: "100 页的第 100 页", input: {props: {pageCount: 100}, model: {modelValue: 100}}},
+            {id: "single", label: "只有 1 页", input: {props: {pageCount: 1}, model: {modelValue: 1}}},
+            {id: "disabled", label: "整条不可用", input: {props: {pageCount: 65, disabled: true}, model: {modelValue: 1}}},
+        ],
+        subject: nbUiSubject("Pagination"),
     }),
     defineSubjectFixture<typeof Tree>({
         component: "Tree",

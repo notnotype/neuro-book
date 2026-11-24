@@ -125,6 +125,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`Separator`](src/components/layout/Separator.md)：分隔线。
 - [`DropIndicatorLabel`](src/components/layout/DropIndicatorLabel.md)：拖放的提示药丸。
 - [`Breadcrumb`](src/components/navigation/Breadcrumb.md)：面包屑。
+- [`Pagination`](src/components/navigation/Pagination.md)：分页条，页数多时固定 7 格，翻页时宽度与箭头位置不变。
 - [`Tree`](src/components/navigation/Tree.md)：通用层级树，单选或多选。
 
 ### 展示

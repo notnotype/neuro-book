@@ -96,6 +96,12 @@ export default {
         increase: "增加",
         decrease: "减少",
     },
+    pagination: {
+        prev: "上一页",
+        next: "下一页",
+        nav: "分页",
+        page: "第 {{page}} 页",
+    },
     searchSelect: {
         empty: "没有匹配的选项",
         clear: "清除选择",

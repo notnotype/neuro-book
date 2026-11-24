@@ -74,6 +74,10 @@ const LEGACY: readonly Legacy[] = [
     {key: "notification.collapse", zh: "收起"}, // 同上，展开后的折叠小条（新增）
     {key: "numberInput.increase", zh: "增加"}, // form/NumberInput.vue 的 incrementLabel 缺省
     {key: "numberInput.decrease", zh: "减少"}, // 同上，decrementLabel 缺省
+    {key: "pagination.prev", zh: "上一页"}, // navigation/Pagination.vue 的 prevLabel 缺省（w00037 t10 新增）
+    {key: "pagination.next", zh: "下一页"}, // 同上，nextLabel 缺省（新增）
+    {key: "pagination.nav", zh: "分页"}, // 同上，navLabel 缺省（新增）
+    {key: "pagination.page", params: {page: 7}, zh: "第 7 页"}, // 同上，页码按钮的读屏名（新增）
     {key: "searchSelect.empty", zh: "没有匹配的选项"}, // form/SearchSelect.vue 的 emptyText 缺省
     {key: "searchSelect.clear", zh: "清除选择"}, // 同上，清空按钮的 aria-label（w00039 t37 新增）
     {key: "slider.thumb", params: {index: 2}, zh: "滑块 2"}, // form/Slider.vue 的 `滑块 ${index}`

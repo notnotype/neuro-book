@@ -4,6 +4,10 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ## [Unreleased]
 
+### 新增
+
+- 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
+
 ## [0.17.0] - 2026-11-24
 
 ### 新增

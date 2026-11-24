@@ -92,6 +92,12 @@ export default {
         increase: "Increase",
         decrease: "Decrease",
     },
+    pagination: {
+        prev: "Previous page",
+        next: "Next page",
+        nav: "Pagination",
+        page: "Page {{page}}",
+    },
     searchSelect: {
         empty: "No matching options",
         clear: "Clear selection",

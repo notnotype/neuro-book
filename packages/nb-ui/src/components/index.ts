@@ -46,6 +46,7 @@ export {default as OverlayScrollbar} from "./layout/OverlayScrollbar.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";
 export {default as Breadcrumb} from "./navigation/Breadcrumb.vue";
+export {default as Pagination} from "./navigation/Pagination.vue";
 export {default as Tree} from "./navigation/Tree.vue";
 export {default as CheckboxGroup} from "./form/CheckboxGroup.vue";
 export {default as ColorSwatches} from "./form/ColorSwatches.vue";
