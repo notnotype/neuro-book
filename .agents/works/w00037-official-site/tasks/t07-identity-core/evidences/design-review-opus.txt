@@ -1,0 +1,219 @@
+# w00037 t07 设计审查（Opus）：计划固定副本 /tmp/review-w00037-t07-design/plan.md
+# 实验目录 /tmp/review-w00037-t07-design/lab-opus/（node_modules 软链到规划探针目录：better-auth 1.7.27、kysely 0.29.9、Bun 1.4.4）
+
+### 1. 登出经库的 signOut：库把删会话失败吞掉、照样回成功并清 Cookie，会话在服务端仍然有效
+
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：计划 3.6 接口映射表 `POST logout` 一行（“自家路由包库：auth.api.signOut … 删当前会话行”）
+- **现象**：better-auth 1.7.27 `dist/api/routes/sign-out.mjs` 第 44 到 54 行：`findSession` 与 `deleteSession` 各包在 `try { … } catch (e) { ctx.context.logger.error("Failed to delete session from database", e) }` 里，随后无条件 `deleteSessionCookie(ctx)` 并回 `{success: true}`。
+- **为什么是问题**：别的进程持着账号库写锁时（`create-admin`、部署的人开着的 sqlite3、合同测试的故障注入；业务连接 `busy_timeout = 250`），登出回 200、浏览器的 Cookie 被清，但会话行还在：同一个令牌（被盗的 Cookie、另一个标签页留着的副本）继续有效。`site.accounts` 输出 5“登出只结束当前会话”与失败表“`unavailable` 账号库不可用”都要求这时回 503 而不是假装成功。计划 3.3 写“库不包装数据库错误（p10）”只对注册端点验过，没覆盖 signOut。
+- **如何核实**：`lab-opus/q1-lib-errors.ts` 的 a 段（真实库、计划的自定义方言与队列、草稿 0001_init.sql）：另一条连接 `BEGIN IMMEDIATE` 后调 `auth.api.signOut({headers, returnHeaders: true})`，得 `{"success":true}` 与三条 `Max-Age=0` 的 Set-Cookie；之后 `session` 表仍有 1 行，`getSession` 仍返回该账号。
+- **建议改法**：登出不经 signOut。模块已有 `readSession` 得到的会话 id，在 `run` 里 `DELETE FROM session WHERE id = ?`（失败照常抛 `SQLiteError`、按 3.3 回 503），再经 `nbSession` 插件加一个 `SERVER_ONLY` 的 `clearSessionCookie` 端点调库的 `deleteSessionCookie(ctx)` 取清除用的 Set-Cookie（Cookie 名字与属性仍只由库决定）。第 3 片加一条包内用例：外部持写锁时登出得 503 `unavailable`、会话仍可用；释放后登出成功。
+
+### 2. 库的 getSession 把数据库错误包成 APIError(INTERNAL_SERVER_ERROR)：按计划的出错出口，whoami 与所有要会话的接口在库不可用时回 500 internal，不是 503 unavailable
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划 3.3“错误”一段（“库不包装数据库错误……经 auth.api 调的库端点抛出的就是原样的 SQLiteError”）；3.6 出错出口第 2 条（“漏到出口的 APIError 当程序错误……回 500”）；3.5 `readSession` 第 1 步
+- **现象**：`dist/api/routes/session.mjs` 第 231 到 235 行，getSession 的整段包在 `try … catch (error) { if (isAPIError(error)) throw error; logger.error("INTERNAL_SERVER_ERROR", error); throw APIError.from("INTERNAL_SERVER_ERROR", …, {cause: error}) }` 里。`SQLiteError` 只在 `cause` 上。
+- **为什么是问题**：`site.accounts` 输出 7 要求 whoami 在“账号库不可读时回 503 与 `unavailable`”；失败表的 `unavailable` 也覆盖 `me`、`admin/*` 等每个走 `requireSession` 的接口。计划的出口按“顶层是 `SQLiteError` 才归类、`APIError` 一律 500”实现时，这些请求全部变成 500 `internal`，统计模块（t11 的“问身份”）收到的也不是它约定要处理的 503。另外 getSession 的 `logger.error("INTERNAL_SERVER_ERROR", error)` 会把错误对象交给 `logger.log`：计划 3.4 只取 `message` 的写法挡住了它，这一条要保留并在注释里写明原因。
+- **如何核实**：`lab-opus/q1-lib-errors.ts` b 段：把 `session` 表改名，让库的查询拿到真实的 `SQLiteError`，`auth.api.getSession` 抛出的链是 `APIError(status INTERNAL_SERVER_ERROR) → SQLiteError(SQLITE_ERROR)`。
+- **建议改法**：出错出口与 `readSession` 的调用处沿 `cause` 链找 `SQLiteError` 再按 3.3 的码表归类（只认 `cause`，不看文字）；或者 `readSession` 自己 `catch` getSession 的 `APIError` 并取 `cause` 重抛。3.3 那句“库不包装数据库错误”改成按端点列出：getSession 包成 APIError、signOut 吞掉（第 1 条）、注册与发会话原样抛出。第 3 片的“`SQLiteError` 映射成 503”用例要经 getSession 那一条路径造错，而不只是 `run`。
+
+### 3. 模块自己的每次读也走 `BEGIN IMMEDIATE`：进程外有写者时，只读接口也停事件循环 250 毫秒后回 503
+
+- **严重程度**：重要；**类别**：安全与性能 / 正确性
+- **位置**：计划 3.3“模块自己的读写只经 `run(fn)` … `db.transaction(fn).immediate()`”；3.5 `whoami` 一段（“永不写账号库……账号库的写锁都不影响它”）；3.9、3.10 的列表与详情
+- **现象**：`run` 不分读写，一律 IMMEDIATE。WAL 下读本来不受别的连接的写锁影响，IMMEDIATE 却要先拿写锁。
+- **为什么是问题**：`create-admin` 在服务运行时写库（`site.operations` 时序一节明确允许）、部署的人用 sqlite3 查库、合同测试的故障注入，这些时刻 `GET me`、会话列表、管理列表、登录第 5 步的找账号（只读）都会在 `busy_timeout` 里同步阻塞整个事件循环约 250 毫秒，然后以 `SQLITE_BUSY` 回 503。`db/open.ts` 的注释把 250 毫秒的停顿算作“只有进程外写者偶发撞上”，但前提是读不撞；IMMEDIATE 读把撞的面扩到所有请求，几个请求排在一起时停顿累加（每个都 250 毫秒）。whoami 走库的 getSession（自动提交的读）不受影响，计划那句说法只对 whoami 成立，对 `me` 不成立。
+- **如何核实**：`lab-opus/q1-lib-errors.ts` c 段：另一条连接 `BEGIN IMMEDIATE` 期间，`conn.run(读一行)` 等 252 毫秒后 `SQLITE_BUSY`；同一时刻 `db.transaction(读).deferred()` 风格的读（bun:sqlite 缺省的 `BEGIN`）立即返回。
+- **建议改法**：拆成 `read(fn)`（`db.transaction(fn)()`，延迟事务，只读快照）与 `write(fn)`（`.immediate()`）；只读接口与登录第 5 步用 `read`。两者都仍在队列锁里，排队语义不变。第 2 片的 `connection.test.ts` 加一条：外部持写锁时 `read` 成功、`write` 得 `SQLITE_BUSY`。`requireSession` 里每小时一次的 `updatedAt` 写与每日延长，遇到 `SQLITE_BUSY` 时记一行警告、不让本来只读的请求失败（这两次写不是请求要的结果）。
+
+### 4. “旧格式账号可被分辨”就是“账号存在可被分辨”：计划把它记成不涉及存在与否的已知限制，与输出 4 直接冲突
+
+- **严重程度**：重要；**类别**：安全与性能 / 文档
+- **位置**：计划 3.7 登录第 6 步末句；第 8 节“旧格式账号可被分辨”；第 6 节“输出 4 的时间不可分辨”一行
+- **现象**：账号不存在时算一次 argon2id 假校验（p5：19 MiB、t=2 约 71 毫秒）；旧站导入、还没登录过的账号走 scrypt（p5：63 到 65 毫秒）。计划写“账号存在与否仍分辨不出，但能分辨出‘这是旧站导入还没换过格式的账号’”。
+- **为什么是问题**：不存在的用户名永远走 argon2id，所以“这次走的是 scrypt”只可能发生在存在的账号上：攻击者对一个用户名测出偏快约 6 到 8 毫秒的稳定差，就知道它存在。导入后旧站的全部账号一开始都是这种格式，直到各自第一次登录，所以这不是边角，而是上线初期绝大多数账号。`site.accounts` 输出 4“响应时间不因账号是否存在而有可分辨的差别”没有例外。差值是固定偏移，不是噪声：限流允许每个来源每 5 分钟 30 次、换来源不受限，几百个样本就能把均值差从抖动里分出来。包内用例只数“调用了一次校验”，测不到这件事。
+- **如何核实**：对照计划自己的 p5 数字（`/tmp/w00037-t07-plan/lab/p5-hash.out`）；逻辑上，不存在的账号没有任何路径会走 scrypt（3.7 第 6 步）。
+- **建议改法**：两个可选做法交开发者：(1) 给 `invalid_credentials` 的响应补齐到一个下限，例如“自请求进入哈希限额起至少 X 毫秒”，X 取两种算法在 2 核上的上界之上（按 p5 约 120 毫秒），只对失败补，成功的不补；这几行在登录路由里，包内用例用注入的睡眠函数核对“失败的总等待不低于下限”。(2) 保留现状，但在 `site.accounts` 输出 4 写明例外“导入后还没登录过的旧账号，存在与否可从耗时分辨”，并在第 8 节改正“仍分辨不出存在”的说法。推荐 (1)：代价小，且 Spec 的承诺不打折。
+
+### 5. 管理处置只在中间件里认一次管理员身份，事务里不复核：被封或被降级的管理员，已经进门的请求照样生效
+
+- **严重程度**：重要；**类别**：安全与性能 / 不变量
+- **位置**：计划 3.10“每个处置是一个同步事务”与处置表的“检查”列；3.6“角色门槛”
+- **现象**：角色门槛在 `requireSession` 之后按读出的会话判 `role`；处置的 `run` 里只查目标（存在、不是自己、`last_admin`），不查操作者。门槛与 `run` 之间至少隔着 getSession 之后的 await、`requireSession` 的延长或 `updatedAt` 写、队列排队；重置密码还隔着事务外约 71 毫秒的哈希（计划自己写的“事务外经限额算新密码的哈希”）。
+- **为什么是问题**：管理员 A 封禁或降级管理员 B（B 的会话被删，`site.accounts` 输出 6、`site.admin` 输出 2、3），而 B 的一个请求已经过了门槛、正在排队或算哈希：它在 A 的事务提交之后照样执行，例如重置别人的密码并拿到新密码、封别人、发注册码，审计里记的操作者还是 B。`site.admin` 时序一节“封禁、改角色……的响应返回时，失效已经生效”，计划 3.7 对登录专门做了“事务里复核封禁与哈希”，管理处置没有对应的复核。`last_admin` 的计数在事务里重算，所以“互相降级”不会把管理员降光（这一点计划是对的），但“已被降级的人仍能处置别人”没有挡住。
+- **如何核实**：照计划包内测试的注入方式：在处置路由的门槛与 `run` 之间插一个等待（与第 5 片验收 7 同一种注入），期间另一个管理员封禁操作者，放行后看处置是否生效、审计是否多一条。按计划的写法会生效。
+- **建议改法**：每个处置的 `run` 第一步复核操作者：`SELECT 1 FROM session s JOIN user u ON u.id = s.userId WHERE s.id = ? AND u.role = 'admin' AND u.banned = 0`（会话行还在，即没被输出 6 的任何变更删掉），不成立回 `unauthenticated`（会话已失效）。写进 3.10 的处置表作为所有处置共同的第一项检查；第 7 片的变异加一条“去掉操作者复核”。普通用户的写接口（`PATCH me`、邀请码、改密码）同理可在各自的 `run` 里复核会话行仍在，代价是一句查询。
+
+### 6. 限流键满 10 万后“窗口内新键一律拒绝”：一段 IPv6 前缀就能把所有还没出现过的用户挡在登录与注册之外
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：计划 3.8“上限”一段；第 4 节 A8 末句（把这条写进 Spec）
+- **现象**：每个计数器至多 10 万个键，满了以后窗口内新出现的键 `take` 一律回 `rate_limited`。登录·来源的键是 IPv4 地址或 IPv6 的 /64。
+- **为什么是问题**：一个 /48 有 65536 个 /64，两个 /48（很多主机商按 /48 或 /56 成段给）就超过 10 万。攻击者在一个 5 分钟窗口里从 10 万个 /64 各发一次登录（约 333 次每秒，请求在第 3 步计数，之后被哈希限额挡成 `overloaded` 也无妨，键已经进表），此后到窗口结束，任何不在表里的正常用户的第一次登录都得 `rate_limited`；每个窗口重复一次即可持续。注册计数器同理（窗口 1 小时，只要每小时 10 万次）。这把“防内存无限长”的保护变成了全站拒绝登录的开关，而 Spec A8 会把它定成合同。另外清理在 `purge`（每 10 分钟）里做：已过去的窗口的键在被清掉之前是否还占名额，计划没写；若占，满的状态会比窗口长。统计模块同样的取舍后果只是丢上报，登录的后果重得多，“与统计模块同一种口径”不是理由。
+- **如何核实**：纯计算：100000 ÷ 300 秒 ≈ 333 次每秒；IPv6 /48 内 /64 的个数 2^16 = 65536。计划包内用例“满 10 万键”只验了“拒绝”，正是这条行为。
+- **建议改法**：满了以后新键并进一个按窗口计的溢出桶（例如登录·来源的溢出桶上限取 10 倍单键上限），同时记一行 `identity.rate_limit_full` 警告；正常用户与攻击者在溢出桶里竞争，不会被一刀切。或者满时对 IPv6 改按 /48 聚合。`take` 遇到已过窗口的旧键先按新键处理并计入可回收，不等 `purge`。A8 改写成“满时新来源共用一个额度”，不写“一律拒绝”。失败计数满时“一律先等 2 秒”只是变慢，可以保留，但同样写进 Spec。
+
+### 7. 空列表给出的 `anchor` 会被自己的校验拒收
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划 3.10“分页”第 1、2 条；探针 `/tmp/w00037-t07-plan/lab/p11-page.ts` 第 36 行
+- **现象**：p11 取基准用 `coalesce(max(id), 0)`，空表时得 0，响应里的 `anchor` 是 `rc0`、`ic0`、`a0`；校验要求“数字部分是正整数、不大于当前的 `max(id)`”，0 不是正整数，空表时 `max(id)` 也是 NULL。
+- **为什么是问题**：新部署时注册码、邀请码、审计三个列表都是空的；前端带着上一个响应的 `anchor` 再取（翻页、越界的页码）就得 `validation_failed`，违反 `site.admin` 输出 10“`anchor` 不是本接口给出的值时”才拒收、输出 10“`page` 越界时 `items` 为空、不算错误”。
+- **如何核实**：读 p11 的 SQL 与 3.10 的校验规则即可；第 7 片的合同用例目前只在“账号多于一页”上翻页，空列表没有用例。
+- **建议改法**：校验改成“非负整数、不大于 `coalesce(max(id), 0)`”；`anchor = 0` 时 `items` 为空、`total` 为 0。第 7 片加一条：空的审计列表带 `a0` 取第 2 页得空 `items`。
+
+### 8. `create-admin` 原始模式读密码只认回车与 Ctrl-C：退格、多字节字符会被原样写进管理员密码
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划 3.12 第 2 步；原型 `/tmp/w00037-t07-plan/lab/p8-stdin.ts` 第 4 到 13 行
+- **现象**：`setRawMode(true)` 后终端不再做行编辑，退格到达程序时是 `0x7f`（或 `0x08`），Ctrl-U 是 `0x15`，Ctrl-D 是 `0x04`；计划写“逐字节读到回车”，原型对每个数据块直接转字符串拼接。管道一支也是 `s += chunk` 逐块转字符串。
+- **为什么是问题**：部署的人在不回显的提示下打错一个字、按退格改正，存下的密码里多了 `DEL` 与那个错字；`DEL` 是合法码点，8 到 128 个码点的校验照样通过，命令报成功，随后用自己以为的密码登录得 `invalid_credentials`，而且无从察觉原因。这是“拿回管理员”的唯一入口（3.12、第 10 节第 4 条的理由），失败的代价是再跑一遍、但人往往先怀疑别处。多字节字符（中文或带重音的密码）在块边界被切开时，`chunk.toString()` 会把半个字符变成 U+FFFD，存下的密码与键入的不同；管道一支同理。计划的手工验证只看“不回显、Ctrl-C 得 interrupted”，测不到这两点。
+- **如何核实**：`script -qc` 造终端，输入 `abcdefgx`、退格、`h`、回车：按原型写法得到的串是 `abcdefgx\x7fh`。多字节：在管道里按 1 字节一块写入“密码密码密码ab”，逐块 `toString` 拼出的串含 U+FFFD。
+- **建议改法**：用一个 `TextDecoder("utf-8", {stream: true})` 解码，按码点处理：`0x7f`、`0x08` 删掉最后一个码点；`0x15` 清空；`0x04` 在空输入时按取消（`interrupted` 或 `invalid_argument`，二选一写进 B1）；其余控制字符拒收。终端里要求输入两次并比对，不一致以 `invalid_argument`（`problem: "mismatch"`）失败，这是不回显输入的通行做法。管道一支整体读完再解码。读密码函数做成接收字节流的纯函数，第 4 片的包内用例按字节序列表驱动覆盖上面几种。
+
+### 9. 队列没有自锁检测与等待上限：库里任何一处在事务中改用基础 adapter，整个账号模块永久卡死；重入判断误判时静默落进别人的事务
+
+- **严重程度**：重要；**类别**：不变量 / 安全与性能
+- **位置**：计划 3.3“做法”前三条与“调用方要守的约束”；第 8 节“队列与异步上下文”一条；原型 `/tmp/w00037-t07-plan/lab/conn.ts`
+- **现象**：方言的 `acquireConnection` 无条件 `await mutex.lock()`，没有超时，也不看当前异步上下文是否已经持锁；`run` 的重入只信库的 ALS 里 `isTransactionActive === true`，不核对这个事务此刻是否真的是连接上正开着的那一个。
+- **为什么是问题**：(1) 自锁。库的事务里，凡是经基础 `adapter` 而不是 `getCurrentAdapter(adapter)` 访问库的代码，都会在方言里排到自己身后、永不返回；之后每个请求、`purge` 任务、`close()` 都排在它后面，进程不崩、不报错，就绪检查（只看探测连接与 `inTransaction`）30 秒后才报 `transaction_stuck`。1.7.27 里已经有这种代码：`internalAdapter.reserveVerificationValue`（`dist/db/internal-adapter.mjs` 第 968、981 行直接用 `adapter`），被 core 的 DPoP（`oauth2/dpop.mjs`）与 `revokeUnprovenAccountAccess` 调用；t08 的对外 OAuth 插件与库的小版本升级随时可能把这类调用带进事务路径。原来的 bun 方言下这类代码只是落在同一条连接上，换成队列后变成死锁，是这个设计新引入的失败方式。(2) 误判。ALS 随 `setTimeout`、不等待的 Promise 带出事务之后，`run` 判为“已持锁”、不拿锁，直接 `db.transaction(fn)()`：此刻若另一个库事务正跨 await 开着，写入成了它的保存点、随它回滚；若没有，则在锁外开了一个延迟事务。两种都不报错。计划对此只靠注释、源码扫描（只扫 `ctx.db`，扫不到这一类）与审查。
+- **如何核实**：`lab-opus/q2-deadlock.ts`：在 `runWithTransaction` 里调库自己的 `internalAdapter.reserveVerificationValue`，3 秒后仍在等、`mutex.held = true`；之后一个无关的 `conn.run(select 1)` 1 秒后仍在等。
+- **建议改法**：让两种错误都当场抛出而不是挂起或静默：
+  - 模块对 `runWithTransaction` 只经自己的 `withLibTransaction(fn)` 调用，它在自己的 ALS 里放一个事务令牌；方言 `beginTransaction` 记下“当前事务的令牌”，`commit`/`rollback` 清掉。
+  - `run` 判重入时要求“ALS 里的令牌等于方言记的当前令牌，且 `db.inTransaction`”，否则抛 `IdentityQueueMisuse`（程序错误，回 500 并记日志）；不再单信库的 `isTransactionActive`。
+  - `acquireConnection` 在当前上下文持有令牌（即在自己的事务里又来取连接）时立即抛同一个错误；另给等锁设一个上限（例如 10 秒）以 `unavailable` 失败并记 `identity.queue_timeout`，让漏掉的情形至少不会永久卡住。
+  - 第 2 片 `connection.test.ts` 补两条：事务里经基础 adapter 取连接得到 `IdentityQueueMisuse`；事务内 `setTimeout` 派生的 `run` 在事务提交后执行时抛错。把 `reserveVerificationValue` 一类“不取当前事务”的调用列进 t08 的接缝清单与库升级清单。
+
+  - 补充（第 9 条的令牌怎样取才成立）：令牌就是方言在 `beginTransaction` 时递增的序号。模块代码确知自己在事务里的入口只有两处：自己的 `withLibTransaction` 回调的开头、t08 挂在库事务里的数据库钩子的开头；在入口读当时的序号放进模块自己的 ALS。泄漏出去的上下文带着旧序号，方言的序号已经变了或事务已经结束，`run` 就能发现。
+
+### 10. “whoami 永不写账号库”不成立：库的 getSession 遇到按系统时间到期的会话会自己删行，撞写锁时整个 whoami 失败
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划 3.5“`whoami` 不延长、不写”一段；3.14 表“会话到期”一行（“库只在系统时间过了到期时间才自己删”）
+- **现象**：`dist/api/routes/session.mjs` 第 156 到 165 行：`expiresAt < new Date()` 时 `deleteSession(token)`，只在 `deferSessionRefresh` 打开且是 GET 时跳过。生产里模块时钟就是系统时间，所以每个带着到期 Cookie 的 whoami、`requireSession` 都会让库写一次库。
+- **为什么是问题**：(1) 这次删除撞上进程外的写锁时，getSession 抛 `APIError(INTERNAL_SERVER_ERROR)`（第 2 条），whoami 本该回 `anonymous`，却按计划的出口回 500；计划用来论证“whoami 不受写锁影响”的前提没了。(2) 这是一处计划以为没有的库内写入，绕过模块的 `run`；虽经方言排进队列，但它是“库按系统时间判断”的一条分支，与 3.14“随时间变化的判断不交给库”的原则相反。合同测试里模块时钟在前，永远走不到这条分支，所以测不出来。
+- **如何核实**：`lab-opus/q3-getsession-writes.ts`：会话的 `expiresAt` 设成系统时间之前、另一条连接持写锁，缺省配置下 `auth.api.getSession` 抛 `APIError`、`cause.code = SQLITE_BUSY`；加 `session.deferSessionRefresh: true` 后同样情形返回 `null`、不写库（会话行留给模块删）。
+- **建议改法**：装配里加 `session: {deferSessionRefresh: true}`，并且只用 GET 方式调 getSession（`auth.api.getSession` 缺省即是；第 39 行 POST 加 defer 会改走另一支，不要用）。到期的行由 `readSession` 第 2 步（`requireSession` 路径）与 `purge` 删，都经模块的 `write`。3.14 表“会话到期”一行改成“库的到期分支被 `deferSessionRefresh` 关掉，不写库”。第 3 片的包内用例补一条：按系统时间到期 + 外部写锁下 whoami 得 `anonymous`。
+
+### 11. `generateId: "serial"` 是全库的设置：库对它关掉了单次使用的检查，第一条迁移又把 `verification.id` 定成整数
+
+- **严重程度**：建议；**类别**：安全与性能 / 不变量
+- **位置**：计划 3.4 装配的 `advanced.database.generateId`；3.2 库的四张表（`verification` 一行“t08 的社交流程状态用它”）；3.2“接缝”一段
+- **现象**：`@better-auth/core/dist/db/adapter/get-id-field.mjs` 第 31 到 36 行：`generateId === "serial"` 时，靠“由被保护的值推出主键、重复插入即拒”实现的单次使用检查（库的原话：SAML 断言 id、DPoP 证明、`private_key_jwt` 断言）不再成立，只打一行警告。`q2-deadlock.ts` 运行时库打出了这行：“Single-use checks … are not enforced with generateId: serial”。对外 OAuth 插件的 `private_key_jwt` 防重放（`@better-auth/oauth-provider/dist/authorize-*.mjs` 第 4935 到 4986 行）与 core 的 DPoP 都走这条路。
+- **为什么是问题**：ADR 0060 决策 7 只要求账号 id 是稳定的数字，计划把它扩成了所有表、包括 t08 要用的 `verification` 与以后的 OAuth 表。t08 若打开 `private_key_jwt` 或 DPoP，重放检查静默失效；改成字符串 id 又要重建 `verification` 表（0001 发布后不改，只能在 0002 里建新表、搬数据、改名）。授权码的消费走 `consumeVerificationValue`，不受影响，所以第一版只用授权码加 PKCE 时不出事，但这一点没有写在任何地方。
+- **如何核实**：读上面两处源码；运行 `lab-opus/q2-deadlock.ts` 看警告行。
+- **建议改法**：在 3.2“接缝”与第 8 节写明：`serial` 关掉库的单次使用检查，t08 的白名单不提供 `private_key_jwt` 与 DPoP；以后要提供时先把 `verification` 等表换成字符串 id（附迁移代价）。如果 t08 计划里已经预见要用，现在就在 0001 把 `verification.id` 定成 `TEXT PRIMARY KEY`，并核对库的 `generateId` 能否只对 `user`、`session`、`account` 用数字（本次没有探，属推断）。
+
+### 12. 合同包：失败码表漏了 `internal`；用户名对外给的是哪种写法没定，且“先转小写再比”放进了开尔文符号
+
+- **严重程度**：建议；**类别**：正确性 / 文档
+- **位置**：计划 3.1“失败码”第 1 条与 `ErrorBody`；3.6 出错出口（回 500 `{"error":{"code":"internal"}}`）；第 4 节 A3；3.1 `USERNAME` 与 3.2 `user` 表“`username` 存小写、`displayUsername` 存原样”
+- **现象**：(1) 3.6 与 A3 都让账号前缀之下回 `internal`，A3 还要把它加进失败表，但 3.1 的 `IDENTITY_FAILURE_CODES` 列表里没有它；`ErrorBody` 的 `code` 是 `IdentityFailureCode` 且 `additionalProperties: false`，500 的响应体核对不过自己的 schema，前端的目录覆盖测试也遍历不到它。(2) `PublicProfile`、`WhoamiResponse`、`AdminUserItem` 都只有 `username`，没说是小写的登录名还是 `displayUsername`。旧站导入特意保留“用户名的显示写法”（`site.legacy-import` 去向表），若对外一律给小写，这份数据没有任何出口；若给显示写法，新注册的 `Alice` 对外显示成大写，又与 Spec 字段规则“输入的大写字母按小写处理”的字面不一致。(3) 在全部码点上试 `toLowerCase()` 后落进 `^[a-z0-9_.]+$` 的非 ASCII 字符恰有一个：U+212A 开尔文符号变成 `k`。`Kate` 会以用户名 `kate` 通过校验，`displayUsername` 存进一个与 `Kate` 视觉相同的串。
+- **如何核实**：(1)(2) 对照 3.1、3.6、A3 的原文；(3) `lab-opus/q4-casefold.ts`：遍历 U+0080 到 U+10FFFF，命中 1 个，`"Kate".toLowerCase() === "kate"` 为真。
+- **建议改法**：(1) `IDENTITY_FAILURE_CODES` 加 `internal`（500），`contract.test.ts` 的期望值随 A3 一起改。(2) 合同里写明：`username` 是小写的登录名；另加 `usernameDisplay`（或明确不对外给显示写法、并让 t12 不再保留它），交开发者定，写进 `site.accounts` 术语“公开资料”。(3) 校验原始输入用 `^[A-Za-z0-9_.]+$`，过了再转小写；显示写法只可能与登录名差大小写。
+
+### 13. 库的结构检查在第一次调用时才跑：照计划的装配，表不对时 `create()` 照样成功，进程就绪后每个请求都失败
+
+- **严重程度**：建议；**类别**：正确性 / 测试
+- **位置**：计划 3.4“数据库连接”一条（“启动时表少了列会报 `SCHEMA_MISMATCH`……模块把它当启动失败”）；第 5 节第 3 片“库的表少一列时 `create` 失败”
+- **现象**：p1 的 C 组是在第一次注册请求时报的错，不是在装配时。`better-auth/dist/api/to-auth-endpoints.mjs` 第 41 行：每次端点调用前 `rawContext.checkSchema?.()`，结果缓存。
+- **为什么是问题**：计划没写由什么触发这次检查。照字面装配，`create()` 不碰库就返回，入口开始监听、就绪检查（只看迁移记录）回 200，随后每个要会话的请求都抛 `SCHEMA_MISMATCH`（不是 `SQLiteError`，也不是 `APIError`，按 3.6 回 500）；部署的人看到的是“服务正常、接口全 500”，而 `site.operations` 有现成的 `start_failed` 出口。
+- **如何核实**：`lab-opus/q5-schema-check.ts`：迁移去掉 `session.impersonatedBy` 一列，`betterAuth()` 与 `await auth.$context` 都成功（`$context.checkSchema` 是函数），第一次 `auth.api.getSession` 抛 `SCHEMA_MISMATCH`。
+- **建议改法**：`create()` 里 `await (await auth.$context).checkSchema?.()`（内部接口，列进库升级清单），或无 Cookie 调一次 `auth.api.getSession` 触发；抛错按 `start_failed` 收口。第 3 片的包内用例照现在写的保留，它能挡住“忘了触发”。
+
+### 14. 库升级清单只列了内部接口，没列“模块用自己的 SQL 写库的表”这一层耦合
+
+- **严重程度**：建议；**类别**：测试 / 不变量
+- **位置**：计划 3.7 注册第 7 步（“写入用自己的 SQL，列的存法照库的”）、3.10、3.12；第 8 节“库的升级”；3.2 库的四张表的比对
+- **现象**：`user`、`account`、`session` 的插入与更新（注册、改密码、封禁、改角色、延长、最后使用时间、创建管理员）都是模块的 SQL，按 1.7.27 的存法写 ISO 字符串与 0/1；库读这些行时按它自己的转换解析。第 8 节说“升级时跑第 3、4 片的包内用例，它们就是这几处的契约测试”，列的是 `createSession`、`setSessionCookie`、`runWithTransaction`、取事务上下文、`SERVER_ONLY`。
+- **为什么是问题**：库的小版本改了存法（日期改存整数、布尔的转换、插件给 `user` 加一个带缺省值的非空列）时：结构检查只报“少列”，不报存法；模块写的行要么插不进去（新的非空列），要么被库读成别的值（例如 `banned` 读成真值的规则变了），而这些行恰好是登录、封禁走的路径。现在的用例多数是“模块写、模块读”，看不出库那一侧读错。另外 3.2 说“升级时按 ADR 0060 后果第三条比对”，但仓库里没有留下 1.7.27 导出的原始结构，比对时没有基准；手工加的 `AUTOINCREMENT` 每次都会出现在差异里。
+- **如何核实**：读计划 3.7、3.10、3.12 的写入方式与第 8 节清单。
+- **建议改法**：包内加一组“存法契约”用例：同一份账号分别经库（`internalAdapter.createUser`、`linkAccount`、`createSession`、`updateUser`）与经模块的 SQL 写入，逐列比较原始行的类型与写法，再经库的 `findUserById`、`getSession` 读回比较；升级时它先失败。把 1.7.27 由 `p0` 导出的库结构原文存成包里的基准文件，加一条用例“当前库导出的结构等于基准”（升级时失败，提示去比对），另一条“迁移里库的四张表等于基准，只差写明的 `AUTOINCREMENT` 替换”。第 8 节的升级清单合并成一张表：内部接口、存法、第 1、2、10、13 条查出的库内行为（signOut 吞错、getSession 包错与到期删行、结构检查的时机），每项对应一条用例名。
+
+### 15. 验收映射与 Spec 建议里的几处出入：IPv6 前缀其实能在合同里测、`site.admin` 的 Smoke 没对上、两处顺序与放行表的取舍没写进 Spec
+
+- **严重程度**：建议；**类别**：测试 / 文档
+- **位置**：计划第 6 节输出 19、输出 7 两行与末尾 Smoke；第 4 节 A7；3.6“同意门槛”末句
+- **现象与问题**：
+  - 输出 19 一行说“合同只能从 127.0.0.1 发，转发头里写 IPv6 也只能验一个地址”，所以 IPv6 前缀放包内。底座已把 127.0.0.1 设成可信代理（3.16），每个请求的 `X-Forwarded-For` 可以写任意地址：同一个 /64 里的两个地址共用额度、不同 /64 不共用，合同里两三个请求就能验，这条理由不成立。满 10 万键放包内的理由成立。
+  - `site.admin` 的“Smoke：合同测试包里的封禁与重置密码用例”在第 6 节与第 8 片都没有对应，只标了 `site.accounts` 的三条。
+  - 合同底座已有 `holdWriteLock`（`nb-site-contract-tests/src/testing/fault.ts`），第 1、3 条的“登出在写锁下得 503”“只读接口在写锁下照常”都能写成合同用例，不必只在包内。
+  - A7 的先后：登录是“`validation_failed` 在 `rate_limited` 之前”，注册反过来“`rate_limited` 在 `validation_failed` 之前”，没有写理由。注册每来源每小时只有 5 次，填错字段的尝试也计数，同一网络出口后面（学校、公司）的几个人连填错几次就会整小时注册不了。建议注册也先校验字段再计数，或者写明为什么不同。
+  - 同意门槛：Spec 输出 10 的放行表写的是“`me`”，计划解释成只有 `GET me`、`PATCH me` 在门槛之内，并称“照 Spec 原文”。原文没有区分方法，这是一个取舍，应进第 4 节的 Spec 改动（A10 只写了 `me/consent`）。
+  - 失败 20 次后等 2 秒的合同用例：来源加用户名每 5 分钟只许 10 次，同一个用户名攒满 20 次失败至少要 3 个来源地址；第 6 节写“每个用例给自己的 `X-Forwarded-For`”，这条用例要写明用多个。
+- **如何核实**：对照第 6 节表格、3.16 的底座与 `site.admin` 的“验收与 Smoke”一节。
+- **建议改法**：按上面逐条改第 6 节与第 4 节；第 8 片的 Smoke 加 `site.admin` 的封禁与重置密码两条。
+
+### 16. “为 t12 准备的”几列没有对照旧库的结构：邀请码的备注、创建者可空、停用只有布尔时的 `disabled_at`
+
+- **严重程度**：建议；**类别**：不变量 / 文档
+- **位置**：计划 3.2 `identity_invite_code` 一行与“为 t12 准备的”一列
+- **现象**：`site.legacy-import` 去向表对注册码与邀请码写的是同一组：“码、可用次数、已用次数、过期时间、是否停用、备注、创建者，原样”。`identity_invite_code` 没有 `note` 列，`owner_id` 是非空；两张码表的停用都存成时间 `disabled_at`，旧库是否只有布尔没有核对（t01 只记了“含注册码、邀请码”，t12 还没读旧库结构，计划第 11 节也只列了 scrypt 格式这一项没核对）。
+- **为什么是问题**：0001 发布后不改。旧库的邀请码若有备注或有创建者为空的（例如管理员发的），导入要么丢数据、要么违反非空约束、在预检之外才失败；只能再写 0002 补列或重建表。现在补一列的代价是零。
+- **如何核实**：对照 `site.legacy-import` 去向表与草稿 `0001_init.sql` 的 `identity_invite_code`。
+- **建议改法**：开第 2 片之前，由主会话按 t12 的授权范围读一次旧站的表结构（只看结构、不读数据）：确认邀请码有没有备注、创建者能不能为空、停用是布尔还是时间；按结果定 0001 的列，并把“旧库只有布尔时 `disabled_at` 取什么值”写进 `site.legacy-import`。读不到时至少给 `identity_invite_code` 加可空的 `note`，在第 11 节记下“码表的旧结构没有核对”。
+
+### 17. 账号模块没有 `close()`：停止时队列里还有人持锁或排队，入口照样关库
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：计划 3.3、3.15（模块实例的形状）；`nb-site-server/src/module.ts` 第 100 到 112 行 `ModuleInstance.close` 的约定
+- **现象**：计划没有给账号模块写 `close()`。入口在 HTTP 排空（有停止时限）与定时任务停下之后、关库之前调用 `close()`；排空超时时，仍有请求停在库的事务里（跨 await 持着队列锁与写锁）或排在队列里。
+- **为什么是问题**：关库会回滚正开着的事务（数据不坏），但排着的请求随后在已关的连接上执行，抛的是 bun 的“数据库已关闭”而不是 `SQLiteError`，按 3.6 回 500 并记成程序错误；`purge` 若正好在跑也一样。`module.ts` 的注释要求“这条连接上的全部访问（请求、定时任务、`close()`）必须由模块自己排成一队”，`close()` 是其中明确点名的一项。
+- **如何核实**：读 `module.ts` 第 68 到 77、100 到 112 行与计划 3.3。
+- **建议改法**：`close()` 先让队列拒收新的取锁（以 `unavailable` 失败），再等当前持锁者放锁，至多到入口给的 2 秒；超时记一行 `identity.close_timeout`。第 2 片的 `connection.test.ts` 加一条：持锁期间 `close()` 等它放锁，之后的 `run` 得 `unavailable`。
+
+## 未发现问题的方面
+
+- 3.2 与 3.10：所有表 `AUTOINCREMENT`、账号与码不能删、旧数据只在空库上导入、`create-admin` 也走自增，所以“基准那一刻的最大 id”确实等于“那一刻已经存在的条目”，与按建立时间排序互不影响，导入的旧条目没有问题（只有空表一处，见第 7 条）。`LIKE … ESCAPE '\'` 的转义、`total` 与 `counts` 一条 SQL 都对。
+- 3.7 注册：条件扣码、再查占用、写入都在一个 `BEGIN IMMEDIATE` 事务里；进程内有队列，跨进程（`create-admin`）有写锁在事务开头取得，先查后写在两种并发下都成立。任一步失败整体回滚（p6）。
+- 3.7 登录第 9 步：哈希变了时用这次的密码对新哈希再校验，对上才发会话。这时的密码校验实际发生在改动之后，不违反“改动完成之后才建成的会话……也无效”的本意；管理员重置的随机密码对不上。四种并发的结论与验收 7 的映射成立（封禁的事务排在登录事务之后、删掉全部会话）。
+- 3.10 `last_admin`：计数在处置自己的事务里重算，两个管理员互相降级时后一个被拒，不会把管理员降光（操作者本身的复核另见第 5 条）。
+- 3.3 与就绪检查：探测连接撞上写锁且业务连接 `inTransaction` 时按本进程持锁算，库的事务跨 await 持写锁不会让就绪检查误报；哈希都在事务外，哈希限额与队列锁不会嵌套持有。
+- 3.12：信号的处理与 `module-command.ts` 的约定一致（同步事务里信号插不进来，做完照常报成功；重试之前看 `signal`）；占位邮箱写法与 `site.legacy-import` 一致，且新 id 一定大于导入的 id，不会撞。
+- 3.5 会话到期在合同测试里的缝：模块时钟总在系统时间前面，库的到期判断不会先于模块触发（生产里另有第 10 条）。直接删 `session` 行在本 Task 没有绕过任何库的钩子或缓存（`cookieCache` 关、没有 `secondaryStorage`）。
+- 第 2 节“三者版本不一致会装出两份全局上下文”：库的全局上下文挂在 `Symbol.for("better-auth:global")` 上，两份副本也共用；钉同一版本仍然对，理由写得不准，不构成问题。
+
+## 各级数量
+
+阻断 0；重要 9（第 1、2、3、4、5、6、8、9、10 条）；建议 8（第 7、11、12、13、14、15、16、17 条）。
+
+## 对第 10 节第 1 条的判断（三个候选）
+
+推荐 A，带三处修改；不推荐 B 与 C。
+
+- **C（会话也自己做、完全不用库）**：t08 的两样都建在库的会话上：对外 OAuth 插件在授权时按库的 Cookie 与 `session` 表认人（第六轮探针的“随账号失效靠删会话”就是这个依赖），通用 OAuth 插件的回调用库的 `setSessionCookie` 发会话。C 等于要么在 t08 里桥接两套会话，要么 t08 也不用库，后者就是推翻 ADR 0060。ADR 0060 否掉“自己写核心、协议用小库”的理由（arctic 弃用、授权服务器库建在 Koa 上或存储全要自己接）现在仍成立，没有新证据支持走到这一步。
+- **B（库的端点加钩子）**：计划列的四处代价都核得上源码：注册的事务跨哈希（p3）、没有密码时不算哈希、库的封禁先删会话再回到我们的代码（审计不在同一事务）、错误码要逐个翻译；第 1、2、10 条查出的库内行为在 B 下同样要补，而且补丁更分散。
+- **A 的长期代价，按审查说明点名的几件**：
+  - 四个内部接口的稳定性不一样。`internalAdapter.createSession`、`setSessionCookie`、带 `SERVER_ONLY` 的 `createAuthEndpoint` 是库自己的插件也在用的面（1.7.27 的 `createSession` 是五个位置参数，签名以前变过，所以要钉版本）。`runWithTransaction` 与 `getCurrentDBAdapterAsyncLocalStorage` 在 `@better-auth/core/context`，后者的注释原话是“This is for internal use only”，ALS 里 `{adapter, pendingHooks, isTransactionActive}` 的形状没有文档，最脆。
+  - 但这份脆弱不是 A 带来的：t08 的社交注册由库的 `createOAuthUser` 在它自己开的事务里建账号，ADR 0060 决策 6 又要求扣注册码与建账号同一事务，模块代码迟早要跑在库开的事务里、调可重入的 `run`。所以 A 与 B 在这一维上代价相同，应该做的是第 9 条的加固，再加第 14 条把升级清单与存法契约写全。
+  - 库在 A 下的价值：t07 里只剩会话的签名与查找、结构检查、t08 要的 `username` 与 `admin` 插件的列；主要价值在 t08 的协议部分，这正是 ADR 0060 背景里“协议部分不手写”的出发点，选库的理由在 A 下仍然成立。
+- **三处修改**：
+  - 登出与读会话不要整段信库：登出改成模块删行加库清 Cookie（第 1 条）；getSession 按 `cause` 归类、打开 `deferSessionRefresh`（第 2、10 条）。
+  - 队列加自锁检测、事务令牌与等锁上限（第 9 条）。
+  - 读写分开，读不取写锁（第 3 条）。
+- **可选的简化**：登录可以照 p4 已验过的“先发会话、再在一个同步事务里复核，不成立就删掉这一行并且不发 Cookie”，不用 `runWithTransaction`。令牌从未离开服务端，保证与 p6 相同，登录路径就不再依赖库的事务。注册仍用 `runWithTransaction`，失败时连会话一起回滚，重试不会撞上自己刚建的用户名。
+- **ADR 0063**：写，内容是“账号的写由模块做，库负责会话与协议”与上面那张内部接口清单。它实际取代的是 ADR 0060 决策 5 第二条，决策 1、4 的字面并没有被违反，头部写“细化决策 1、4 的做法，取代决策 5 第二条”更准确。精确钉版本意味着库的安全修复不会自动到达，ADR 里要写明谁、多久看一次上游公告。
+
+## 对第 10 节其余十件事的判断
+
+2. 同意，但按第 3、9、17 条修改队列。另开第二条连接同样要撞 `busy_timeout`、停事件循环，不如一条。
+3. 同意。19456 KiB、t=2、p=1 正是 OWASP 给的第一档；参数存在哈希串里，以后可以提。
+4. 同意三处：邮箱可省并用占位、顺手解封、写命令行审计。另按第 8 条修读密码。
+5. 同意各做一份，但不要照搬统计模块“满了一律拒绝”的口径（第 6 条）。
+6. 同意照 Spec 保留当前会话，ADR 0063 改掉决策 5 第二条。
+7. 同意 `whoami(request): Promise<Response>`。它的可靠性取决于第 2、10 条，修好之后统计模块按 503 处理的约定才成立。
+8. 同意放开 `typebox`。
+9. 同意缺省开放：注册本来就要注册码。
+10. 同意。补一个事实：库把来源地址存成空串而不是 NULL（`internal-adapter.mjs` 的 `createSession`），读的地方不要按 NULL 判断。
+11. 同意不加 `STRICT`，配合第 14 条的基准文件做比对。
+
+## 对“主会话的审定”另加四点的判断
+
+- 直接删 `session` 行，并要求有“删行后 `getSession` 立即读不到”的用例：同意。升级清单里除了“会话缓存”，还要加第 1 条（signOut 吞错）与第 10 条（getSession 到期删行）。
+- 等 2 秒期间不持队列锁、不占哈希限额：同意。等待中的请求数没有上限，但每个只占一个计时器，可以接受。
+- 占位邮箱以 `site.legacy-import` 为准：同意，两处现在已经一致。
+- 第 4 片拆成 4a、4c、4b：同意。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17
