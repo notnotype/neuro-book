@@ -107,6 +107,20 @@ describe("OMP 适配器", () => {
         expect(ompModelInfo(resolved.model)).toMatchObject({id: "local-test/m", contextWindow: 32_000, maxOutput: 4_000});
     });
 
+    test("服务端按 prompt_cache_key 分片缓存：同一会话的每次请求键不变，换会话才换键", async () => {
+        // 服务商目录不认这个自定义端点，键的开关按服务商声明的能力走：这里声明它收这个字段。
+        const keyed = ompCall({model: {...resolved.model, compat: {...resolved.model.compat, supportsPromptCacheKey: true}}, apiKey: resolved.apiKey, priceKnown: false});
+        const keyOf = async (meta?: {session: string}): Promise<unknown> => {
+            replies = [{text: "好"}];
+            await keyed(request(), new AbortController().signal, () => undefined, meta);
+            return (bodies.at(-1) as {prompt_cache_key?: unknown}).prompt_cache_key;
+        };
+        const first = await keyOf({session: "s-1"});
+        expect(typeof first).toBe("string");
+        expect(await keyOf({session: "s-1"})).toBe(first);
+        expect(await keyOf({session: "s-2"})).not.toBe(first);
+    });
+
     test("网关没送结束原因：按被截断记 length", async () => {
         const {response} = await run(request(), {text: "半句", noFinish: true});
         expect(response.stopReason).toBe("length");
