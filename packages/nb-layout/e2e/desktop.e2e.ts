@@ -12,6 +12,13 @@
  * - `deskClamp` 不减桌面的原点：“左侧有平铺窗时……浮动窗被夹在平铺窗右边”失败（窗被推到桌面右边）。
  * - 缩放预览不与桌面求交：“向桌面外拉大”失败（预览的高度伸出桌面，松手后才被夹）。
  * - 按下抬升挂在冒泡阶段（手柄在 `pointerdown` 里阻止冒泡，收不到）：“按住后面那扇窗的缩放手柄”失败（窗没到最上面）。
+ * - 实现审查之后又做的一轮（同样各改坏一处、只跑对应的用例）：
+ *   - 状态行只显示一次性的状态、不回退到常驻的“这一页不保存”：“存档坏、备份也写不进”失败（成功的操作之后提示没了）。
+ *   - 最小化与关闭之后不把焦点给底栏按钮：“最小化：底栏按钮状态变……”与“关闭：点底栏重新打开……”失败。
+ *   - 底栏恢复放不下时不降级、照样平铺（模型单元测试里同一处也失败）：“平铺的窗最小化后点底栏，那一侧空着但视口窄到放不下”失败。
+ *   - `tileOnNextFrame` 改成同一拍里改树：“松手到边缘：窗从松手的位置飞进那一侧”失败（第一帧离按下之前的位置近）。
+ *   - 没做出能失败的变异：删掉 `tileOnNextFrame` 里那次强制读布局，这条用例照过。Chromium 在鼠标松手的事件之后自己已经算过样式
+ *     （命中测试），所以它不是必需的；采样器自己读布局也会替它算样式，所以采样从松手之后才开始。触摸与笔没有试过。
  * - 移动把夹过的宽高写回模型：“视口缩小后浮动窗都在桌面里……”失败（变回大视口后 notes 还是缩小的 360 宽）。
  */
 
@@ -448,7 +455,9 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
     await pickUp(page, title(page, "notes"));
     await moveTo(page, {x: 10, y: 450}, "tile:left");
     const dropped = await boxOf(frame(page, "notes"));
-    // 松手后每一帧都记下窗外框的矩形，直到平铺完成、过渡结束。
+    // 松手后每一帧都记下窗外框的矩形，直到平铺完成、过渡结束。采样本身会读布局、强制浏览器算样式，
+    // 所以从松手那一刻之后才开始：它的 `pointerup` 监听挂在 window 的冒泡阶段，晚于示例的提交，
+    // 它请求的第一帧排在示例“下一帧改树”的后面，不会替示例把样式提前算好。
     await page.evaluate(() => {
         const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
         win.__frames = [];
@@ -461,7 +470,7 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
             }
             if (win.__sampling) requestAnimationFrame(sample);
         };
-        requestAnimationFrame(sample);
+        window.addEventListener("pointerup", () => requestAnimationFrame(sample), {once: true});
     });
     await page.mouse.up();
     await expectState(page, "notes", "tiled-left");

@@ -208,8 +208,9 @@ function releaseMove(): void {
 
 /**
  * 松手后下一帧再改树：先把拖到的矩形发布出去（`commit` 里已写进模型），等浏览器把它算成当前样式，再平铺。
- * 同一拍里改树的话，库从按下之前的矩形开始飞，窗会先跳回去再飞进那一侧。
- * 读一次 `getBoundingClientRect` 是为了让浏览器此刻就算好样式，过渡的起点才是拖到的位置。
+ * 同一拍里改树的话，库从按下之前的矩形开始飞，窗会先跳回去再飞进那一侧：e2e 把它改成同一拍时会失败。
+ * 下面读一次 `getBoundingClientRect` 是保险，让浏览器此刻就算好样式。实测在 Chromium 里鼠标松手的事件之后浏览器自己
+ * 已经算过一遍样式（命中测试），删掉这一行用例也不失败，所以没有证据说它必不可少；触摸与笔没有试过，留着它不花什么。
  */
 function tileOnNextFrame(id: WindowId, side: Side): void {
     requestAnimationFrame(() => {
