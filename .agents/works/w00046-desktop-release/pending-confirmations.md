@@ -106,3 +106,8 @@
 | 2026-11-20 | t24 | 公开接口 | 插件 SDK 的组件子路径加上 `ImagePreviewDialog`、`SidePanel`（SDK 测试要求 nb-ui 入口里的组件都列出，或写进“不给插件”的名单） | 两个都是通用组件，没有不给插件用的理由 | 移进 `NOT_FOR_PLUGINS`，发布后再拿掉算不兼容 | |
 | 2026-11-20 | t24 | 流程 | 发版用一条命令 `bun run release <版本>`：要求 HEAD 上有通过的演练（`bun run release rehearse`），发版提交建在演练过的提交上，master 与标签原子推送；macOS 构建并入 Release 流水线，失败不挡 Windows 与 npm | v0.14.0 打了标签才发现冒烟失败；macOS 尽力而为 | 不用这条命令时照旧手工 prepare、打标签 | [t24](tasks/t24-release-one-command/README.md) |
 | 2026-11-20 | t24 | 流程 | Release 说明仍是“推送时记”：改动的同一个提交写 `[Unreleased]`，门禁由变更记录生成；不在 Actions 里用 Agent 写 | 我们不走 PR，按 PR 生成的工具没有材料；Actions 里生成的说明发布前没人看；要往仓库放模型密钥（[调研](tasks/t24-release-one-command/research-release-notes.md)） | 要做 omp 那样的本机整理步骤（发版前用模型改写 `[Unreleased]`、看 diff 再继续）另建 Task | |
+| 2026-11-23 | t25 | 产品取舍 | 这一版是 0.16.0（canary）：服务商模板、模型清单、代理是新增为主，没有不兼容的改动 | 新增为主 | 换成补丁号只是 `bun run release` 的参数 | [t25](tasks/t25-release-0-16-0-17/README.md) |
+| 2026-11-24 | t25 | 产品取舍 | 这一版是 0.17.0（canary），不是 0.16.1：后台任务分组、条目页整篇编辑与预览是新增，缓存键只是其中的修复 | 新增不少，补丁号不合适 | 同上 | [t25](tasks/t25-release-0-16-0-17/README.md) |
+| 2026-11-24 | t25 | 偏离发布手册 | 0.17.0 用 `--no-rehearsal`：演练在 fcdc023c6 上通过，之后只多了 `.agents/`、`docs/` 与一个测试文件的提交，对新 HEAD 重跑了治理与文档检查（`--all`）。`PLUGIN_API_SINCE` 仍不动 | 演练之后别的会话与我自己还在合入文档；nb-layout 0.2.0 删掉的名字不在 SDK 签名快照里 | 重新演练一轮约 40 分钟 | [t25](tasks/t25-release-0-16-0-17/README.md) |
+| 2026-11-24 | t25 | 流程 | 发版命令自动重跑一次只有 macOS 失败的作业；`rehearse` 预检先查发布目录干净 | macOS 的 runner 紧张时排队 15 分钟被放弃；干净检查在第一步才报会浪费一轮演练 | 去掉 `#finish` 里的重跑，回到手册的手工做法 | [t25](tasks/t25-release-0-16-0-17/README.md) |
+| 2026-11-24 | t25 | 已知限制 | shell 输出 21 与 S10 冒烟在推送 CI 上各偶发过一次，没有定位；已加现场证据，等再出现 | 本机压满 CPU、整份与整包都复现不了 | 无 | [t25](tasks/t25-release-0-16-0-17/README.md) |
