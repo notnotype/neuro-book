@@ -1,0 +1,12 @@
+t50 标签编组示例的变异检查（2026-11-24，分支 w00026/t50-example 提交 90450af6f）
+做法：逐个改坏一处，重建示例，只跑对应的 e2e 用例，再恢复（脚本 /tmp/claude-1000/t50-mut.py）。
+
+M1 关闭按钮排除（App.vue sourceAt 不排除 data-tab-close） → e2e/tabbed-panels.e2e.ts:190 失败
+M2 原位排除（drop.ts 去掉 isOwnPosition） → :93 失败
+M3 移进自己（drop.ts 中央对来源编组也给 into） → :154 失败
+M4 单标签拆自己（drop.ts 去掉单标签自己的边） → :154 失败
+M5 试拆（App.vue 试拆结果一律记为能拆） → :125 失败
+M6 收起后保存（toggleExplorer 不调 persist） → :228 失败
+恢复后工作树干净，示例重建。
+
+没做变异的两处：侧栏与分隔线不是落点，代码里没有显式的排除（drop.ts 只遍历编组的几何），没有可改坏的一行；“最后一个标签关不掉”在界面上有两层（不画按钮、Delete 看 closable），模型层的拒绝由 src/examples-tabbed-panels.test.ts 覆盖。
