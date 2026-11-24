@@ -263,6 +263,24 @@ function starterComponent(readme: string): string {
     return readme.slice(start + 7, end + 1);
 }
 
+/** nb-layout 的示例应用：`packages/nb-layout/examples/*`，每个目录一个独立的 Vite 项目。 */
+const LAYOUT_EXAMPLES = join(REPOSITORY, "packages", "nb-layout", "examples");
+
+async function layoutExampleNames(): Promise<string[]> {
+    const entries = await readdir(LAYOUT_EXAMPLES, {withFileTypes: true});
+    const names = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => ((await stat(join(LAYOUT_EXAMPLES, entry.name, "package.json")).catch(() => null)) === null ? null : entry.name)));
+    return names.filter((name): name is string => name !== null).sort();
+}
+
+/**
+ * 示例的依赖，nb-layout 换成这次的包来源。依赖版本只有示例的 `package.json` 一个出处：空宿主也读它（几个示例的依赖逐项相同，
+ * `packages/nb-layout/src/examples.test.ts` 核对），不在这里另写一份。
+ */
+async function layoutExampleDependencies(name: string, from: ReturnType<typeof sources>): Promise<Record<string, string>> {
+    const manifest = JSON.parse(await readFile(join(LAYOUT_EXAMPLES, name, "package.json"), "utf8")) as {dependencies: Record<string, string>; devDependencies: Record<string, string>};
+    return {...manifest.dependencies, ...manifest.devDependencies, "@notnotype/nb-layout": from.spec("@notnotype/nb-layout")};
+}
+
 /**
  * nb-layout 的发布包（ADR 0054 第 6 条：承诺的宿主是 Vue 3 加 Vite）。空的 Vite 项目只装它：`App.vue` 原样取包里 README
  * 的“起步”，`types.ts` 从四个入口各导入值与类型；`vue-tsc` 不跳过库检查、`vite build`，再在浏览器里拖一次、按一次方向键
@@ -275,11 +293,12 @@ async function smokeLayoutHost(root: string, from: ReturnType<typeof sources>): 
         name: "nb-layout-host-smoke",
         private: true,
         type: "module",
-        dependencies: {"@notnotype/nb-layout": from.spec("@notnotype/nb-layout"), vue: "^3.5.24", vite: "^8.1.4", "@vitejs/plugin-vue": "^6.0.7", "vue-tsc": "^3.3.7", typescript: "^5.9.3"},
+        dependencies: await layoutExampleDependencies((await layoutExampleNames())[0]!, from),
         overrides: from.overrides,
     });
     await writeJson(join(host, "tsconfig.json"), {
-        compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", lib: ["ESNext", "DOM", "DOM.Iterable"], types: [], strict: true, noEmit: true, skipLibCheck: false},
+        // types 写 vite/client：写成 [] 时 TS 6 对 `import "@notnotype/nb-layout/style.css"` 报 TS2882（t50 设计审查实测）。
+        compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", lib: ["ESNext", "DOM", "DOM.Iterable"], types: ["vite/client"], strict: true, noEmit: true, skipLibCheck: false},
         include: ["src"],
     });
     await writeFile(join(host, "vite.config.ts"), `import vue from "@vitejs/plugin-vue";\nimport {defineConfig} from "vite";\n\nexport default defineConfig({plugins: [vue()]});\n`);
@@ -324,6 +343,29 @@ async function smokeLayoutHost(root: string, from: ReturnType<typeof sources>): 
         await server.stop(true);
     }
     step("nb-layout 宿主：README 的起步例子与四个入口的类型检查通过，Vite 构建通过，浏览器里拖动与方向键都改了宽度、样式生效");
+}
+
+/**
+ * 每个示例照第三方的装法装一次：只拷要发给读者的文件（不带 node_modules、dist），nb-layout 换成这次的包来源，
+ * 不跳过库检查的类型检查、构建。证明示例能对着发布出去的类型与产物编译；浏览器里的行为由 nb-layout 的 e2e 在源码上覆盖。
+ */
+async function smokeLayoutExamples(root: string, from: ReturnType<typeof sources>): Promise<void> {
+    const names = await layoutExampleNames();
+    for (const name of names) {
+        const source = join(LAYOUT_EXAMPLES, name);
+        const project = join(root, `layout-example-${name}`);
+        await mkdir(project, {recursive: true});
+        for (const file of ["LICENSE", "README.md", "tsconfig.json", "vite.config.ts", "index.html"]) await cp(join(source, file), join(project, file));
+        await cp(join(source, "src"), join(project, "src"), {recursive: true});
+        const manifest = JSON.parse(await readFile(join(source, "package.json"), "utf8")) as Record<string, unknown>;
+        const dependencies = await layoutExampleDependencies(name, from);
+        await writeJson(join(project, "package.json"), {...manifest, dependencies: {"@notnotype/nb-layout": dependencies["@notnotype/nb-layout"], vue: dependencies.vue}, devDependencies: Object.fromEntries(Object.entries(dependencies).filter(([dependency]) => dependency !== "@notnotype/nb-layout" && dependency !== "vue")), overrides: from.overrides});
+        await mustRun(`安装 nb-layout 示例 ${name}`, ["bun", "install"], {cwd: project});
+        await installedVersions(project, from.expected);
+        await mustRun(`nb-layout 示例 ${name} 的类型检查（不跳过库检查）`, [join(project, "node_modules", ".bin", "vue-tsc"), "--noEmit", "-p", "tsconfig.json"], {cwd: project});
+        await mustRun(`构建 nb-layout 示例 ${name}`, [join(project, "node_modules", ".bin", "vite"), "build"], {cwd: project});
+    }
+    step(`nb-layout 示例 ${names.join("、")}：照第三方的装法装上这次的包，类型检查与构建通过`);
 }
 
 async function checkLayoutPage(url: string): Promise<void> {
@@ -627,7 +669,10 @@ if (import.meta.main) {
         }
         await smokeStory(root, from);
         await smokeVueHost(root, from);
-        if (from.expected.has("@notnotype/nb-layout")) await smokeLayoutHost(root, from);
+        if (from.expected.has("@notnotype/nb-layout")) {
+            await smokeLayoutHost(root, from);
+            await smokeLayoutExamples(root, from);
+        }
         else step("nb-layout 还是 private、registry 上没有，跳过它的宿主冒烟");
         await smokeAppAndPlugin(root, from, tarballs, manifest);
         if (manifest !== null) {
