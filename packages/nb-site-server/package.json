@@ -16,7 +16,9 @@
     },
     "scripts": {
         "test": "bun test",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "build:image": "bun image/build.ts",
+        "smoke:image": "bun image/smoke.ts"
     },
     "dependencies": {
         "@notnotype/nb-flock": "workspace:*",
