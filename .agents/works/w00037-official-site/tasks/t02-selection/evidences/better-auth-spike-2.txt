@@ -1,0 +1,249 @@
+Better Auth 选型探针第二轮（2026-11-24）：通用 OAuth 插件接仿真上游；授权中途登录接自家登录路由
+环境同第一轮。仿真上游是同一脚本里起的 HTTP 服务（127.0.0.1:4010），库经真实网络请求换令牌、取用户信息。
+
+===== 输出 =====
+[P0 password sign-up] 200
+2026-11-24T06:27:14.226Z ERROR [Better Auth]: signup_disabled
+[P1a unknown upstream, sign-in only] callback 302 -> /sign-in-error?error=signup_disabled 
+[P1b sign-up intent without code] callback 302 -> /sign-in-error?error=REGISTRATION_CODE_REQUIRED&error_description=registration_code_required 
+[P1b users after reject] 1
+[P1c sign-up intent with code] callback 302 -> /done callbackPath=/api/identity/auth/callback/github
+[P1c stored] {"id":2,"username":"octo","email":"octo@example.com","emailVerified":true,"providerId":"github","accountId":"9001"}
+[P1c session] user 2 octo
+[P1d returning upstream user] callback 302 -> /done
+2026-11-24T06:27:14.309Z ERROR [Better Auth]: account_not_linked
+[P1e upstream email collides with password account] callback 302 -> /sign-in-error?error=account_not_linked
+[P1e accounts on alice] alice:credential
+[P2 authorize, no session] 302 -> /sign-in?response_type=code&redirect_uri=https%3A%2F%2Fclien…
+[P2 own login route with oauth_query] 200 location=undefined body={"redirect":true,"url":"/consent?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&scope=openid+profile&state=s1&client_id=<随机值>&code_challenge=vuhTHIMx8j4MS
+[P2 consent accept] 200 {"redirect":true,"url":"https://client.example/cb?code=<已省略>&state=s1&iss=http%3A%2F%2Flocalhost%3A3999%2Fapi%2Fidentity%2Fauth"} location=undefined
+[P2 token after consent] 200 Bearer
+[P3 library endpoints total] 83
+
+===== 脚本 spike2.ts =====
+// 一次性探针第二轮：通用 OAuth 插件接仿真上游；授权中途登录怎样接上自家登录路由。不进仓库。
+import {betterAuth} from "better-auth";
+import {APIError, getOAuthState} from "better-auth/api";
+import {admin, genericOAuth, jwt, username} from "better-auth/plugins";
+import {getMigrations} from "better-auth/db/migration";
+import {oauthProvider} from "@better-auth/oauth-provider";
+import {PostgresDialect} from "kysely";
+import {Pool} from "pg";
+import {Hono} from "hono";
+import {createHash, randomBytes} from "node:crypto";
+
+const BASE = "http://localhost:3999";
+const UP = "http://127.0.0.1:4010";
+const pool = new Pool({connectionString: "postgres://postgres:spike@127.0.0.1:55432/spike", max: 5});
+
+// 仿真的上游：授权页立即带 code 跳回；code 就是上游用户的键。
+const upstreamUsers: Record<string, {id: number; login: string; name: string; email: string | null; email_verified: boolean}> = {
+    u1: {id: 9001, login: "octo", name: "Octo", email: "octo@example.com", email_verified: true},
+    u2: {id: 9002, login: "clash", name: "Clash", email: "alice@example.com", email_verified: true},
+};
+let nextUpstreamUser = "u1";
+const upstream = Bun.serve({
+    port: 4010,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/authorize") {
+            const back = new URL(url.searchParams.get("redirect_uri")!);
+            back.searchParams.set("code", nextUpstreamUser);
+            back.searchParams.set("state", url.searchParams.get("state") ?? "");
+            return Response.redirect(back.toString(), 302);
+        }
+        if (url.pathname === "/token") {
+            const form = new URLSearchParams(await req.text());
+            return Response.json({access_token: `tok-${form.get("code")}`, token_type: "bearer", scope: "read:user"});
+        }
+        if (url.pathname === "/user") {
+            const key = (req.headers.get("authorization") ?? "").replace(/^Bearer tok-/i, "");
+            const user = upstreamUsers[key];
+            return user ? Response.json(user) : new Response("unauthorized", {status: 401});
+        }
+        return new Response("not found", {status: 404});
+    },
+});
+
+const validCodes = new Set(["REG-OK"]);
+
+const auth = betterAuth({
+    baseURL: BASE,
+    basePath: "/api/identity/auth",
+    secret: "spike-secret-spike-secret-spike-secret-1234",
+    database: {dialect: new PostgresDialect({pool}), type: "postgres", schemaName: "identity3"},
+    advanced: {database: {generateId: "serial"}},
+    disabledPaths: ["/token"],
+    emailAndPassword: {enabled: true},
+    databaseHooks: {
+        user: {
+            create: {
+                before: async (user, ctx) => {
+                    const fromBody = (ctx?.body as {registrationCode?: string} | undefined)?.registrationCode;
+                    const state = ctx?.path?.startsWith("/callback") || ctx?.path?.includes("callback")
+                        ? await getOAuthState<{registrationCode?: string; username?: string}>()
+                        : null;
+                    const code = fromBody ?? state?.registrationCode;
+                    if (!code || !validCodes.has(code)) {
+                        throw new APIError("FORBIDDEN", {message: "registration_code_required", code: "REGISTRATION_CODE_REQUIRED"});
+                    }
+                    const extra = state?.username ? {username: state.username, displayUsername: state.username} : {};
+                    return {data: {...user, ...extra}};
+                },
+            },
+        },
+    },
+    plugins: [
+        username(),
+        admin(),
+        jwt({disableSettingJwtHeader: true}),
+        oauthProvider({loginPage: "/sign-in", consentPage: "/consent"}),
+        genericOAuth({
+            config: [{
+                providerId: "github",
+                clientId: "fake-client",
+                clientSecret: "fake-secret",
+                authorizationUrl: `${UP}/authorize`,
+                tokenUrl: `${UP}/token`,
+                userInfoUrl: `${UP}/user`,
+                scopes: ["read:user"],
+                disableImplicitSignUp: true,
+                mapProfileToUser: (profile: Record<string, unknown>) => ({
+                    name: String(profile.name ?? profile.login),
+                    email: profile.email as string,
+                    emailVerified: Boolean(profile.email_verified),
+                }),
+            }],
+        }),
+    ],
+});
+
+const note = (k: string, v: unknown) => console.log(`[${k}]`, typeof v === "string" ? v : JSON.stringify(v));
+
+const app = new Hono();
+app.post("/api/identity/v1/login", async (c) => {
+    const body = await c.req.json<{username: string; password: string; oauth_query?: string}>();
+    const res = await auth.api.signInUsername({body: body as never, asResponse: true, headers: c.req.raw.headers});
+    const text = await res.text();
+    for (const cookie of res.headers.getSetCookie()) c.header("set-cookie", cookie, {append: true});
+    return c.body(text, res.status as 200, {"content-type": "application/json", ...(res.headers.get("location") ? {location: res.headers.get("location")!} : {})});
+});
+app.on(["GET", "POST"], "/api/identity/auth/*", (c) => auth.handler(c.req.raw));
+
+/** 极简 cookie 罐：模拟浏览器在同一站点上带 cookie。 */
+class Jar {
+    private map = new Map<string, string>();
+    absorb(res: Response) {
+        for (const c of res.headers.getSetCookie()) {
+            const [pair] = c.split(";");
+            const i = pair.indexOf("=");
+            const name = pair.slice(0, i);
+            const value = pair.slice(i + 1);
+            if (value === "" || /max-age=0/i.test(c)) this.map.delete(name); else this.map.set(name, value);
+        }
+    }
+    header() { return [...this.map].map(([k, v]) => `${k}=${v}`).join("; "); }
+}
+
+async function call(jar: Jar, path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers);
+    const cookie = jar.header();
+    if (cookie) headers.set("cookie", cookie);
+    if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+    headers.set("origin", BASE);
+    const res = await app.fetch(new Request(path.startsWith("http") ? path : `${BASE}${path}`, {...init, headers, redirect: "manual"}));
+    jar.absorb(res);
+    const text = await res.text();
+    let json: any; try { json = JSON.parse(text); } catch { /* 非 JSON */ }
+    return {status: res.status, json, text, location: res.headers.get("location")};
+}
+
+/** 走一遍“点社交登录按钮 → 上游 → 回调”，返回回调的结果。 */
+async function social(jar: Jar, body: Record<string, unknown>) {
+    const start = await call(jar, "/api/identity/auth/sign-in/social", {method: "POST", body: JSON.stringify({provider: "github", callbackURL: "/done", errorCallbackURL: "/sign-in-error", ...body})});
+    if (!start.json?.url) return {step: "start", ...start};
+    const up = await fetch(start.json.url, {redirect: "manual"});
+    const cb = up.headers.get("location")!;
+    const done = await call(jar, cb);
+    return {step: "callback", callbackPath: new URL(cb).pathname, ...done};
+}
+
+async function main() {
+    await pool.query(`drop schema if exists identity3 cascade`);
+    await (await getMigrations(auth.options)).runMigrations();
+
+    // 先建一个密码账号 alice（邮箱 alice@example.com）
+    const alice = new Jar();
+    const signUp = await call(alice, "/api/identity/auth/sign-up/email", {method: "POST", body: JSON.stringify({email: "alice@example.com", name: "Alice", username: "alice", password: "password1234", registrationCode: "REG-OK"})});
+    note("P0 password sign-up", signUp.status);
+
+    // P1a：上游账号没注册过，直接点“登录”
+    nextUpstreamUser = "u1";
+    const a = await social(new Jar(), {});
+    note("P1a unknown upstream, sign-in only", `${a.step} ${a.status} -> ${a.location} ${a.status >= 400 ? a.text.slice(0, 160) : ""}`);
+
+    // P1b：带注册意图但没有注册码
+    const b = await social(new Jar(), {requestSignUp: true, additionalData: {username: "octo"}});
+    note("P1b sign-up intent without code", `${b.step} ${b.status} -> ${b.location} ${b.status >= 400 ? b.text.slice(0, 160) : ""}`);
+    const countB = await pool.query(`select count(*)::int n from identity3."user"`);
+    note("P1b users after reject", countB.rows[0].n);
+
+    // P1c：带注册意图、注册码与用户名
+    const octo = new Jar();
+    const c = await social(octo, {requestSignUp: true, additionalData: {registrationCode: "REG-OK", username: "octo"}});
+    note("P1c sign-up intent with code", `${c.step} ${c.status} -> ${c.location} callbackPath=${c.callbackPath}`);
+    const row = await pool.query(`select u.id, u.username, u.email, u."emailVerified", a."providerId", a."accountId" from identity3."user" u join identity3.account a on a."userId"=u.id where u.username='octo'`);
+    note("P1c stored", row.rows[0] ?? "no row");
+    const sess = await call(octo, "/api/identity/auth/get-session");
+    note("P1c session", sess.json?.user ? `user ${sess.json.user.id} ${sess.json.user.username}` : "none");
+
+    // P1d：同一上游账号再次登录（不带注册意图）
+    const d = await social(new Jar(), {});
+    note("P1d returning upstream user", `${d.step} ${d.status} -> ${d.location}`);
+
+    // P1e：上游邮箱撞上已有的密码账号 alice
+    nextUpstreamUser = "u2";
+    const e = await social(new Jar(), {requestSignUp: true, additionalData: {registrationCode: "REG-OK", username: "clash"}});
+    note("P1e upstream email collides with password account", `${e.step} ${e.status} -> ${e.location}`);
+    const linked = await pool.query(`select u.username, a."providerId" from identity3."user" u join identity3.account a on a."userId"=u.id where u.email='alice@example.com' order by 2`);
+    note("P1e accounts on alice", linked.rows.map((r) => `${r.username}:${r.providerId}`).join(", "));
+
+    // P2：授权中途要登录，用自家登录路由接上
+    const adminJar = new Jar();
+    await call(adminJar, "/api/identity/v1/login", {method: "POST", body: JSON.stringify({username: "alice", password: "password1234"})});
+    await pool.query(`update identity3."user" set role='admin' where username='alice'`);
+    const client = await auth.api.adminCreateOAuthClient({
+        headers: new Headers({cookie: adminJar.header()}),
+        body: {client_name: "测试客户端", redirect_uris: ["https://client.example/cb"], token_endpoint_auth_method: "client_secret_basic", skip_consent: false, scope: "openid profile"} as never,
+    }) as {client_id: string; client_secret: string};
+    const verifier = randomBytes(32).toString("base64url");
+    const q = new URLSearchParams({response_type: "code", client_id: client.client_id, redirect_uri: "https://client.example/cb", scope: "openid profile", state: "s1",
+        code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256"});
+    const browser = new Jar();
+    const step1 = await call(browser, `/api/identity/auth/oauth2/authorize?${q}`);
+    note("P2 authorize, no session", `${step1.status} -> ${step1.location?.slice(0, 60)}…`);
+    const signedQuery = step1.location!.slice(step1.location!.indexOf("?") + 1);
+    const step2 = await call(browser, "/api/identity/v1/login", {method: "POST", body: JSON.stringify({username: "alice", password: "password1234", oauth_query: signedQuery})});
+    note("P2 own login route with oauth_query", `${step2.status} location=${step2.location?.slice(0, 80)} body=${step2.text.slice(0, 200)}`);
+    const consentUrl: string | undefined = step2.json?.url ?? step2.location ?? undefined;
+    if (consentUrl?.includes("/consent")) {
+        const consentQuery = consentUrl.slice(consentUrl.indexOf("?") + 1);
+        const step3 = await call(browser, "/api/identity/auth/oauth2/consent", {method: "POST", body: JSON.stringify({accept: true, oauth_query: consentQuery})});
+        note("P2 consent accept", `${step3.status} ${step3.text.slice(0, 160)} location=${step3.location?.slice(0, 80)}`);
+        const final: string | undefined = step3.json?.url ?? step3.json?.redirect_uri ?? step3.location ?? undefined;
+        const code = final ? new URL(final).searchParams.get("code") : null;
+        if (code) {
+            const basic = Buffer.from(`${client.client_id}:${client.client_secret}`).toString("base64");
+            const token = await call(new Jar(), "/api/identity/auth/oauth2/token", {method: "POST",
+                headers: {"content-type": "application/x-www-form-urlencoded", authorization: `Basic ${basic}`},
+                body: new URLSearchParams({grant_type: "authorization_code", code, redirect_uri: "https://client.example/cb", code_verifier: verifier}).toString()});
+            note("P2 token after consent", `${token.status} ${token.json?.token_type}`);
+        }
+    }
+    const paths = Object.values(auth.api as Record<string, {path?: string}>).map((e) => e?.path).filter(Boolean);
+    note("P3 library endpoints total", paths.length);
+}
+
+main().catch((error) => { console.error("SPIKE2 CRASH", error); process.exitCode = 1; })
+    .finally(async () => { upstream.stop(true); await pool.end().catch(() => {}); });
