@@ -129,6 +129,48 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
+    it("在条目上加自己的字段、改名、去掉、恢复；新建与加设定组时带声明；拒收时回话写得出原因（输出 6、7）", async () => {
+        const {run, close} = await scene();
+        // 新建时就在面板上声明三个字段，给其中一个初值（Agent 写数要带依据，这里给文字的那个）；人物有建议值的字段在读出来时写明“也可以写别的”。
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [
+            {op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物"], declare: {面板: [{label: "战绩"}, {label: "魔力上限", kind: "number"}, {label: "魔力", kind: "number", max: "魔力上限"}]}, fields: {"面板.战绩": "三胜"}},
+        ]});
+        expect(created.text).toContain("已写入");
+        const read = await run(AGENT_TOOL_IDS.read, {entry: "星瑕"});
+        expect(read.text).toContain("【人物】（设定组 character，可以加字段）");
+        expect(read.text).toContain("常见的写法：男、女、不明（也可以写别的）");
+        expect(read.text).toContain("战绩 = 三胜");
+        expect(read.text).toContain("- 魔力 = 未知｜数；最大 魔力上限");
+
+        const added = await run(AGENT_TOOL_IDS.write, {title: "加种族", version: versionIn(read), edits: [{op: "addField", entry: "星瑕", component: "人物", label: "种族", value: "精灵"}]});
+        expect(added.status).not.toBe("error");
+        const renamed = await run(AGENT_TOOL_IDS.write, {title: "改名", version: versionIn(await run(AGENT_TOOL_IDS.read, {entry: "星瑕"})), edits: [{op: "renameField", entry: "星瑕", field: "人物.种族", label: "血统"}]});
+        expect(renamed.status).not.toBe("error");
+        expect((await run(AGENT_TOOL_IDS.read, {entry: "星瑕"})).text).toContain("血统（种族） = 精灵");
+
+        const removed = await run(AGENT_TOOL_IDS.write, {title: "去掉", version: versionIn(await run(AGENT_TOOL_IDS.read, {entry: "星瑕"})), edits: [{op: "removeField", entry: "星瑕", field: "人物.血统"}]});
+        expect(removed.status).not.toBe("error");
+        const after = await run(AGENT_TOOL_IDS.read, {entry: "星瑕"});
+        expect(after.text).not.toContain("血统");
+        // 去掉过的字段按显示名或 id 都认得；恢复以后值还在。
+        const restored = await run(AGENT_TOOL_IDS.write, {title: "恢复", version: versionIn(after), edits: [{op: "restoreField", entry: "星瑕", field: "人物.血统"}]});
+        expect(restored.status).not.toBe("error");
+        const back = await run(AGENT_TOOL_IDS.read, {entry: "星瑕"});
+        expect(back.text).toContain("血统（种族） = 精灵");
+
+        // 拒收的原因能照着改：固定的字段、同名、没有去掉过的字段。
+        const fixed = await run(AGENT_TOOL_IDS.write, {title: "去掉性格", version: versionIn(back), edits: [{op: "removeField", entry: "星瑕", field: "人物.性格"}]});
+        expect(fixed.status).toBe("error");
+        expect(fixed.text).toContain("设定组固定的字段");
+        const duplicate = await run(AGENT_TOOL_IDS.write, {title: "再加一个血统", version: versionIn(back), edits: [{op: "addField", entry: "星瑕", component: "人物", label: "血统"}]});
+        expect(duplicate.status).toBe("error");
+        expect(duplicate.text).toContain("已经有一个叫这个名字的字段");
+        const missing = await run(AGENT_TOOL_IDS.write, {title: "恢复没有的", version: versionIn(back), edits: [{op: "restoreField", entry: "星瑕", field: "人物.身高"}]});
+        expect(missing.status).toBe("error");
+        expect(missing.text).toContain("没有去掉过的字段“身高”");
+        await close();
+    }, 60_000);
+
     it("主文字的块由模型自己分：create 的 text 是一块；addBlock 的 after 写块 id 是放在它后面，写 null 是放在最前，不写是放在最后", async () => {
         const {author, run, close} = await scene();
         const created = await run(AGENT_TOOL_IDS.write, {title: "建条目", edits: [{op: "create", key: "school", name: "学院", kind: "组织", text: "第一段。\n\n第二段，和第一段在同一块里。"}]});

@@ -55,6 +55,8 @@ function kindText(field: FieldDeclaration): string {
             break;
         case "text":
             parts.push(field.precision === "semantic" ? "文字（语义档：改起点或记一句）" : "文字");
+            // 建议值只是提示（components.md 输出 24）：写明可以写别的，免得模型当成选项。
+            if (field.suggestions !== undefined && field.suggestions.length > 0) parts.push(`常见的写法：${field.suggestions.join("、")}（也可以写别的）`);
             break;
         case "enum":
             parts.push(`选项：${(field.options ?? []).join("、")}`);
@@ -86,7 +88,7 @@ export function fieldsText(view: EntryView, declarations: Readonly<Record<string
     for (const [namespace, data] of Object.entries(view.namespaces)) {
         const type = components.find((candidate) => candidate.namespace === namespace);
         const fields = declarations[namespace] ?? [];
-        lines.push(`【${type?.label ?? namespace}】（设定组 ${namespace}${data.readOnly === undefined ? "" : "，只读"}）`);
+        lines.push(`【${type?.label ?? namespace}】（设定组 ${namespace}${data.readOnly === undefined ? "" : "，只读"}${type?.instanceFields === true ? "，可以加字段" : ""}）`);
         for (const declaration of fields) {
             const path = `${namespace}.${declaration.id}`;
             if (field !== undefined && field !== path) continue;
@@ -177,4 +179,10 @@ const PROBLEM_HINTS: Readonly<Record<string, string>> = {
     "constraint-violated": "超出了字段的范围",
     "ref-invalid": "引用的条目不存在、已删除或种类不对",
     "unknown-field": "没有这个字段",
+    "fields-not-declarable": "这组设定不能在条目上加自己的字段",
+    "label-taken": "这组设定里已经有一个叫这个名字的字段，换个名字；要恢复一个去掉过的同名字段，先给现在的那个改名",
+    "field-fixed": "这是设定组固定的字段，不能改名、去掉",
+    "field-missing": "条目上没有这个自己加的字段，或它已经是这个状态（去掉过的再去掉、没去掉的再恢复）",
+    "field-referenced": "还有别的字段拿它当上限，或上限指向的字段不在；先改那个字段",
+    "id-taken": "这个 id 已经用过，不写 id、让系统按名字生成",
 };

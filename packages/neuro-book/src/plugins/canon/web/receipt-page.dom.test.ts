@@ -11,7 +11,7 @@ import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {reactive} from "vue";
 
-import type {Entry} from "@notnotype/nb-canon";
+import type {Entry, EntryOp} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -218,6 +218,30 @@ describe("回执页", () => {
         await waitUntil("带来的变化", () => third.find("[data-receipt-impact]").exists() && third.get("[data-receipt-impact]").text().includes("现在的状态"));
         expect(third.get("[data-receipt-impact]").text()).toContain("还没归纳");
         expect(third.get("[data-receipt-impact]").text()).not.toContain("notReduced");
+    });
+
+    it("条目自己的字段声明的改动写成添加了一项、一项改名、去掉了一项、恢复了一项，不写成“启用的数据：改了”（输出 20）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const edit = async (ops: EntryOp[]): Promise<string> => {
+            const status = await other.canon.call("status", {});
+            if (!status.ok) throw new Error(JSON.stringify(status.failure));
+            const done = await other.canon.call("editEntries", {input: {requestId: `req-${nextId()}`, by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "改资料项", ops}});
+            if (!done.ok) throw new Error(JSON.stringify(done.failure));
+            return done.value.revision;
+        };
+        const rows = async (revision: string): Promise<string[]> => {
+            const receipt = await open(revision);
+            await waitUntil("回执", () => receipt.find("[data-receipt-section='modify'] dt").exists());
+            return [...receipt.get("[data-receipt-section='modify']").element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent?.replace(/\s+/gu, " ").trim() ?? ""}`);
+        };
+        const at = {entry: id, path: "panel.幸运"};
+        const added = await edit([{op: "fieldAdd", entry: id, namespace: "panel", field: {label: "幸运", kind: "number"}, value: 7}, {op: "fieldAdd", entry: id, namespace: "panel", field: {label: "声望", kind: "text"}}]);
+        expect(await rows(added)).toEqual(["添加了一项：幸运、声望", "幸运：（没有） → 7"]);
+        expect(await rows(await edit([{op: "fieldRename", at, label: "运气"}]))).toEqual(["一项改名：幸运 → 运气"]);
+        expect(await rows(await edit([{op: "fieldRemove", at}]))).toEqual(["去掉了一项：幸运"]);
+        expect(await rows(await edit([{op: "fieldRestore", at}]))).toEqual(["恢复了一项：运气"]);
     });
 
     it("章序调整的回执：“章序”一节写调整前后的章序（输出 20）", async () => {

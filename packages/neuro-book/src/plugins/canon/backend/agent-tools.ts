@@ -14,7 +14,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {agentTool, TOOLS_POINT} from "@notnotype/nb-plugin-sdk/agent";
 import type {AgentToolImplementation} from "@notnotype/nb-plugin-sdk/agent";
 import type {JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-import type {ComponentType, EntryEdits, EntryOp, EntryView, FieldDeclaration, ReadPosition} from "@notnotype/nb-canon/schema";
+import type {ComponentType, EntryEdits, EntryOp, EntryView, FieldDeclaration, FieldDraft, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectsService} from "nbook/shared/projects";
@@ -91,6 +91,7 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "listAdd（entry、field 列表、value 元素 {子字段: 值}，以条目为键的列表另写 target 条目）；listRemove（entry、field 写到元素）；",
         "aliases（entry、add、remove）；addBlock（entry、text、after 块 id：放在它后面，null 放在最前，不写放在最后）；removeBlock（entry、block）；",
         "addComponent、removeComponent（entry、component 设定组）；move（entry、parent 上级或 null、after 兄弟或 null、folder、kind）；delete、restore（entry）。",
+        "有的设定组（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 设定组、label 显示名、kind 缺省 text，可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"设定组\": [声明…]}，addComponent 写 [声明…]。",
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
         "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
@@ -207,11 +208,32 @@ function candidateText(item: FoundEntry): string {
 }
 
 /** 条目的读取：视图与字段声明。 */
-async function entryOf(context: Context, id: string): Promise<{readonly view: EntryView; readonly declarations: Readonly<Record<string, readonly FieldDeclaration[]>>} | {readonly problem: string}> {
+async function entryOf(context: Context, id: string): Promise<{readonly view: EntryView; readonly declarations: Readonly<Record<string, readonly FieldDeclaration[]>>; readonly removedFields: Readonly<Record<string, readonly {readonly id: string; readonly label: string}[]>>} | {readonly problem: string}> {
     const read = await context.call("entry", {id, position: context.position, mode: "actual"});
     if (!read.ok) return {problem: failureText(read.failure as {code: string} & Record<string, unknown>)};
     if (read.value.view === null || read.value.view.deleted) return {problem: `条目 ${id} 不存在或已删除。`};
-    return {view: read.value.view, declarations: read.value.declarations ?? {}};
+    return {view: read.value.view, declarations: read.value.declarations ?? {}, removedFields: read.value.removedFields ?? {}};
+}
+
+/** 模型写的字段声明里照搬的几项；别的键（`op`、`entry`、`value` 之类）不属于声明。 */
+const DECLARATION_KEYS = ["id", "label", "kind", "precision", "unit", "min", "max", "options", "suggestions", "retold", "targets", "keyedBy", "carry", "item"] as const;
+
+/** 模型写的一条字段声明换成内核的写法：要有 `label`，`kind` 不写是文字；形状对不对由内核判。 */
+function fieldDraftOf(given: unknown): FieldDraft | {readonly problem: string} {
+    if (typeof given !== "object" || given === null || typeof (given as {label?: unknown}).label !== "string") return {problem: "字段声明要写 label（显示名）。"};
+    const record = given as Record<string, unknown>;
+    return {kind: "text", ...Object.fromEntries(DECLARATION_KEYS.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]))} as FieldDraft;
+}
+
+function fieldDrafts(given: unknown): readonly FieldDraft[] | {readonly problem: string} {
+    if (!Array.isArray(given)) return {problem: "declare 是字段声明的列表。"};
+    const drafts: FieldDraft[] = [];
+    for (const item of given) {
+        const draft = fieldDraftOf(item);
+        if ("problem" in draft) return draft;
+        drafts.push(draft);
+    }
+    return drafts;
 }
 
 /** 值按声明预检，并把引用的名字换成 `{ref: id}`；只为回话好懂，内核的校验才是最终的。 */
@@ -365,20 +387,37 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             if ("problem" in resolved) return at(resolved.problem);
             parent = resolved.id;
         }
-        const components: {type: string; fields?: Record<string, unknown>}[] = [];
+        const components: {type: string; fields?: Record<string, unknown>; declare?: FieldDraft[]}[] = [];
         for (const name of (Array.isArray(edit.components) ? edit.components : []) as string[]) {
             const type = componentNamed(context.components, String(name));
             if ("problem" in type) return at(type.problem);
             if (components.some((component) => component.type === type.id)) return at(`设定组“${name}”列了两次。`);
             components.push({type: type.id});
         }
+        // `declare`：`{"设定组": [声明…]}`，新建时就在那组设定上声明这个条目自己的字段；没列在 `components` 里的一并启用。
+        const declaring = new Map<string, readonly FieldDraft[]>();
+        for (const [group, given] of Object.entries(typeof edit.declare === "object" && edit.declare !== null ? (edit.declare as Record<string, unknown>) : {})) {
+            const type = componentNamed(context.components, group);
+            if ("problem" in type) return at(`declare 的“${group}”：${type.problem}`);
+            const drafts = fieldDrafts(given);
+            if ("problem" in drafts) return at(`declare 的“${group}”：${drafts.problem}`);
+            let target = components.find((component) => component.type === type.id);
+            if (target === undefined) {
+                target = {type: type.id};
+                components.push(target);
+            }
+            target.declare = [...drafts];
+            declaring.set(type.id, drafts);
+        }
         // `fields` 写到的设定组没列在 `components` 里时一并启用（agent-tools.md 输出 6）。
         for (const [path, value] of Object.entries((edit.fields ?? {}) as Record<string, unknown>)) {
             const [group = "", name = ""] = path.split(".");
             const type = componentNamed(context.components, group);
             if ("problem" in type) return at(`初值的字段“${path}”：${type.problem}`);
-            const field = uniqueNamed(type.fields, name, (candidate) => candidate.id, (candidate) => candidate.label);
-            if ("problem" in field) return at(`初值的字段“${path}”：${field.problem === "none" ? `设定组 ${type.namespace} 里没有字段“${name}”；有：${type.fields.map((candidate) => candidate.label).join("、")}。` : `“${name}”对应几个字段：${field.candidates.join("、")}，写字段 id。`}`);
+            // 这一项里刚声明的字段也能给初值：没写 id 的，内核按显示名生成，这里按同样的名字认。
+            const declaredHere = (declaring.get(type.id) ?? []).map((draft) => ({...draft, id: draft.id ?? draft.label}) as FieldDeclaration);
+            const field = uniqueNamed([...type.fields, ...declaredHere], name, (candidate) => candidate.id, (candidate) => candidate.label);
+            if ("problem" in field) return at(`初值的字段“${path}”：${field.problem === "none" ? `设定组 ${type.namespace} 里没有字段“${name}”；有：${[...type.fields, ...declaredHere].map((candidate) => candidate.label).join("、")}。` : `“${name}”对应几个字段：${field.candidates.join("、")}，写字段 id。`}`);
             const checked = await resolveValue(context, field, value, keys);
             if ("problem" in checked) return at(checked.problem);
             let target = components.find((component) => component.type === type.id);
@@ -410,7 +449,33 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         case "removeComponent": {
             const type = context.components.find((candidate) => candidate.id === edit.component || candidate.label === edit.component || candidate.namespace === edit.component);
             if (type === undefined) return at(`没有设定组“${String(edit.component)}”；有：${context.components.map((candidate) => candidate.label).join("、")}。`);
-            return {op: {op: "component", entry: id, type: type.id, action: edit.op === "addComponent" ? "add" : "remove"}};
+            if (edit.op === "removeComponent" || edit.declare === undefined) return {op: {op: "component", entry: id, type: type.id, action: edit.op === "addComponent" ? "add" : "remove"}};
+            const drafts = fieldDrafts(edit.declare);
+            if ("problem" in drafts) return at(drafts.problem);
+            return {op: {op: "component", entry: id, type: type.id, action: "add", declare: [...drafts]}};
+        }
+        case "addField": {
+            if (id.startsWith("tmp:")) return at("这一批新建的条目，字段声明写在 create 的 declare 里。");
+            const type = componentNamed(context.components, String(edit.component));
+            if ("problem" in type) return at(type.problem);
+            const draft = fieldDraftOf(edit);
+            if ("problem" in draft) return at(draft.problem);
+            const checked = await resolveValue(context, {...draft, id: draft.id ?? draft.label} as FieldDeclaration, edit.value, keys);
+            if ("problem" in checked) return at(checked.problem);
+            return {op: {op: "fieldAdd", entry: id, namespace: type.namespace, field: draft, ...(edit.value === undefined ? {} : {value: checked.value})}};
+        }
+        case "restoreField": {
+            // 去掉过的字段不在生效的声明里，按条目读取另列的那一份找。
+            if (typeof edit.field !== "string") return at("要写 field。");
+            const read = await entryOf(context, id);
+            if ("problem" in read) return at(read.problem);
+            const [group = "", name = ""] = edit.field.split(".");
+            const type = componentNamed(context.components, group);
+            if ("problem" in type) return at(type.problem);
+            const removed = read.removedFields[type.namespace] ?? [];
+            const found = uniqueNamed(removed, name, (candidate) => candidate.id, (candidate) => candidate.label);
+            if ("problem" in found) return at(found.problem === "none" ? `${type.label}里没有去掉过的字段“${name}”${removed.length === 0 ? "。" : `；去掉过的有：${removed.map((candidate) => candidate.label).join("、")}。`}` : `“${name}”对应几个去掉过的字段：${found.candidates.join("、")}，写字段 id。`);
+            return {op: {op: "fieldRestore", at: {entry: id, path: `${type.namespace}.${found.id}`}}};
         }
         case "move": {
             let parent: string | null | undefined;
@@ -438,6 +503,11 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
     if ("problem" in address) return at(address.problem);
     const target = {entry: id, path: address.path};
     switch (edit.op) {
+        case "renameField":
+            if (typeof edit.label !== "string") return at("renameField 要写 label（新的显示名）。");
+            return {op: {op: "fieldRename", at: target, label: edit.label}};
+        case "removeField":
+            return {op: {op: "fieldRemove", at: target}};
         case "set": {
             const declaration = address.item ?? (address.path.includes("[") ? undefined : address.field);
             const checked = await resolveValue(context, declaration, edit.value, keys);
