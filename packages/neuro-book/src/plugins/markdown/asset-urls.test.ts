@@ -4,6 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {watch} from "node:fs";
 import {mkdir, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -17,6 +18,7 @@ import {createAssetUrls} from "./web/parts/asset-urls";
 
 let tmp = "";
 let counter = 0;
+let fences = 0;
 const closers: Array<() => Promise<void>> = [];
 
 beforeAll(async () => {
@@ -28,6 +30,29 @@ afterEach(async () => {
 afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
+
+/**
+ * 做完写入之后，等这些写入的原始事件全部投递给文件服务的监视器：再到场景之外写一个屏障文件，等本测试自己的监视器看到它。
+ * Bun 的全部 `fs.watch` 共用一个 inotify 实例、由同一个线程按发生顺序投递，屏障到了，前面每个文件的事件也已到了。
+ * 不等的话，轮询里推进手动时钟会在事件陆续到达的途中就把批切走，每批都不超过上限，就不会失同步（慢的机器上稳定复现）。
+ * 与 `files/changes.test.ts` 的 `writeAndSee` 同一做法。
+ */
+async function writeAndSee(write: () => Promise<void>): Promise<void> {
+    fences += 1;
+    const fence = join(tmp, `fence-${String(fences)}`);
+    await mkdir(fence);
+    let seen = false;
+    const probe = watch(fence, (_event, filename) => {
+        if (filename === "fence") seen = true;
+    });
+    try {
+        await write();
+        await writeFile(join(fence, "fence"), "");
+        await waitUntil("屏障文件的原始事件", () => seen);
+    } finally {
+        probe.close();
+    }
+}
 
 /** 建场地与地址服务，订阅一张图片，等窗口的订阅建立。返回收到通知的次数与当前 URL。 */
 async function watched(layout: Readonly<Record<string, string>>, address: string) {
@@ -119,7 +144,9 @@ describe("Spec workspace.markdown-dialect 输出 18：图片的地址", () => {
         const before = scene.url();
         const unwatched = scene.assets.resolve(null, "/正文/b.png")?.url;
         await mkdir(join(scene.created.project, "批量"), {recursive: true});
-        await Promise.all(Array.from({length: MAX_BATCH_PATHS + 1}, (_unused, index) => writeFile(join(scene.created.project, "批量", `f${String(index)}.md`), "x")));
+        await writeAndSee(async () => {
+            await Promise.all(Array.from({length: MAX_BATCH_PATHS + 1}, (_unused, index) => writeFile(join(scene.created.project, "批量", `f${String(index)}.md`), "x")));
+        });
         await scene.notifiedAfter("失同步通知到订阅者");
         expect(scene.url()).not.toBe(before);
         expect(scene.assets.resolve(null, "/正文/b.png")?.url).not.toBe(unwatched);
