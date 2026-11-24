@@ -35,6 +35,7 @@ updated: 2026-11-24
 
 - 首版后端部署起点：纯 VPS Docker（Hono 网关 + PostgreSQL + Umami）vs 混合敏捷起步（同一套 Hono 网关先跑 CF Workers + Umami Cloud 免费档，日后一键切回 VPS）。
 - 是否拆为「个人统计插件（纯本地）」与「遥测反馈插件（联网）」两个独立内置插件。
+- 收集分档（基础信息、使用统计、主动反馈、登录后）与上报形态，见 [t02](tasks/t02-collection-scope-and-terms/README.md)。
 - Agent 反馈的审批粒度、个人统计仪表盘入口与首版指标范围、`FirstRunWizard` 点“跳过”时的隐私开关口径、`w00037` 重写技术基线。
 
 ## Task
