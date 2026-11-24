@@ -1,0 +1,99 @@
+# w00039 t39 实现审查报告（范围 62451e1a3..HEAD）
+
+### 1. “插入”经整篇回写：编辑器里的撤销历史被清掉，光标落在插入内容的前面（文本框退路里落在文末）
+- **严重程度**：重要；**类别**：正确性 / 界面（从代码与 Monaco、浏览器的已知行为推断，没有在真实浏览器里验证）
+- **位置**：`web/components/EntryTextEditor.vue` 的 `insert`（约 88 行）、`web/text-tab.ts` 的 `insert`、`plugins/editor/web/components/CodeInput.vue` 约 163 到 173 行的 `modelValue` 监听、`PlainSourceInput.vue`。
+- **现象**：“插入”的做法是取光标偏移 -> 宿主把整篇字符串切开拼上写法 -> 整篇作为新的 `modelValue` 回灌输入框。代码输入框（生产环境用的是它）收到不同的值就走 `model.setValue(text)`，然后 `editor.setPosition(旧位置)`。
+  1. Monaco 的 `setValue` 会清空撤销栈：作者写了几千字再“插入”一个字段，Ctrl+Z 就撤不回去了，整篇的输入历史都没了。
+  2. 光标回到的是插入之前的位置，也就是在刚插进去的 `{命名空间.字段}` 前面；接着打字会写到写法前面。
+  3. 没有编辑器插件的窗口里走 `PlainSourceInput`：Vue 给 textarea 赋新值，浏览器把光标移到整篇末尾，`nextTick(focus)` 只还焦点不还光标，接着打字落在文末而不在插入处。
+- **为什么是问题**：待确认清单第 133 行只接受了“拆开、并块以后那一块里 Ctrl+Z 撤不回去”这个取舍；那是低频动作、每次只影响一块。“插入”现在是编辑视图里的常用动作，影响的是整篇。Spec 输出 39 要求“选了在光标处插入它的写法，焦点回到输入框”，“焦点回到输入框”只是焦点，没有说光标；dom 测试只断言了文字与焦点，没有断言光标位置。
+- **如何核实**：真实浏览器里在编辑器输入几句、插入一个字段、按 Ctrl+Z、再打字。`CodeInput.vue` 里能看到 `setValue` 与 `setPosition(position)` 用的是修改前读到的位置。待确认清单 133 行写明“换文字清撤销历史”是已知行为。
+- **建议改法**：让输入框自己做插入，不经整篇回灌。输入框合同加 `insertAtCursor(text)`：`CodeInput` 用 `editor.executeEdits`（保留撤销栈、光标落在插入内容之后，内容变化事件照常发 `update:modelValue`），`PlainSourceInput` 用 `setRangeText` 再派发 `input` 事件。宿主的 `insert`、`cursorOffset()`、“取不到光标接在末尾”和偏移夹取都可以删掉。至少要补一条断言插入后光标位置的测试。
+
+### 2. 验收 16 里的“插入”没有 e2e：真实的代码输入框与光标取值从来没被跑过
+- **严重程度**：重要；**类别**：测试
+- **位置**：`e2e/canon-write.e2e.ts`（整份）；计划第 6 小节验收映射“输出 39：插入 -> `EntryTextEditor.dom.test.ts`；e2e”；Spec author-ui 验收 16（“从‘插入’里选‘魔力’”）。
+- **现象**：`grep -n "data-text-insert\|插入" e2e/canon-write.e2e.ts` 没有命中。“插入”只有两处 dom 测试：组件测试用的是普通文本框（`PlainSourceInput`），页面测试用的也是文本框退路。生产路径是 Monaco 的 `CodeInput.cursorOffset()`（`model.getOffsetAt(editor.getPosition())`）加 `setValue`，没有任何测试进过。
+- **为什么是问题**：计划自己承诺了 e2e；第 1 条列的撤销历史、光标位置、菜单关闭后焦点是否真回到输入框（nb-ui 的下拉菜单关闭时会把焦点还给触发器，`nextTick(focus)` 与它谁先谁后只有真实浏览器说得清）都落在这一段上，而 dom 测试在 happy-dom 里 `document.activeElement === area` 是过的。
+- **如何核实**：对照 `git diff 62451e1a3..HEAD -- e2e/canon-write.e2e.ts`：没有新增“插入”相关的用例。
+- **建议改法**：在 `canon-write` 的“开始写”用例里加一步：条目有字段时选“插入”，断言输入框文字里多了 `{命名空间.字段}`、光标紧跟其后（在 Monaco 里接着打字，字落在写法后面）、Ctrl+Z 能撤掉插入或之前的输入。
+
+### 3. 主文字里有空白块的条目：一进编辑就是“有未提交的修改”，提交会删掉空块
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`web/text-whole.ts` 的 `toWhole`（约 74 到 77 行，`.filter((block) => block.trim() !== "")`）与 `joinBlocks`；`web/text-tab.ts` 的 `watch(... immediate)`。
+- **现象**：`begin` 建空稿后，`text-tab` 的 `watch` 立刻对它调 `toWhole`。`toWhole` 取“没删的、非空白的块”连起来当 `text`，而 `base` 取 `joinBlocks(read)`（空块也占一个分隔）。条目的块里有空白块时两者不等。在真实场地上跑过（`bun test`，scratch 脚本 `s2.test.ts` 的 S3）：条目 `["甲","","乙"]`，`tab.start()` 之后没有任何输入，`editor.text` 是 `"甲\n\n乙"`，`dirty === true`，`saved === "unsaved"`；`wholeDraft` 编出 `set text[b1] "甲\n\n乙"` 加两个 `removeBlock`。结果：标签带未保存的圆点，“取消”变成“放弃”，直接提交会把空块与第三块并掉。输入框里看不到那个空块，作者不知道发生了什么。
+- **同类**：在没有块的条目里只打一个空格，`hasChanges` 为真（`whole.text !== whole.base`）、`changedCount` 为 1，但 `compile` 出 0 项操作；界面写“有未提交的修改”，点提交其实什么都不发（走 `nothing` 回到阅读）。（脚本 `probe1.test.ts`）
+- **为什么是问题**：违背“进编辑时没有改动”的约定（`dom` 测试与 e2e 都断言进来时 `dirty` 为假，但只用了没有空块的条目）。空白块能存在：`addBlock` 的 `source` 在 schema 里没有最小长度，Agent、其他写入口都能建出来。
+- **建议改法**：换算与比较统一用同一个规范形：`toWhole` 的 `text` 与 `base` 都按“去掉空白块后连起来”算，或者 `hasChanges` 对整篇比较时忽略只有空白块与首尾空白的差别。要保留“空白块也算内容”的话，`toWhole` 应该用 `joinBlocks` 的逻辑，不过滤空白块。补一条空白块的用例。
+
+（第 3 条位置更正：`toWhole` 在 `web/text-whole.ts` 79 到 82 行，过滤空白块在 80 行；`watch` 在 `web/text-tab.ts` 116 行。第 1 条里 `EntryTextEditor.vue` 的 `insert` 在 86 行，`text-tab.ts` 的 `insert` 在 230 行。）
+
+### 4. 按块改的旧稿换算成整篇时，别处对同一块的改动被悄悄覆盖；记录的理由（“旧稿没记开始时的整篇”）不完全成立
+- **严重程度**：建议；**类别**：不变量 / 正确性
+- **位置**：`web/text-whole.ts` 的 `toWhole`（79 到 82 行，`base: joinBlocks(read)`）；`web/text-tab.ts` 的 `watch`（116 行）；待确认清单 2026-11-24 t39 最后一条“旧稿换算成整篇”。
+- **现象**：真实场地上复现（`bun test`，scratch 脚本 `s2.test.ts` 的 S2）：用 t28 的方式（`session.edit(setText(.., "b2", "乙（我改）"))`）存一份旧稿，关掉；别处把 `b2` 改成“乙（别处改）”；重新打开页面 `useTextTab`。结果：`editor.text` 是 `"甲\n\n乙（我改）"`，点提交没有冲突，世界里变成 `["甲\n\n乙（我改）"]`，别处的改动没有问过就被盖掉（还把两块并成一块）。
+- **为什么是问题**：清单里写的理由是“旧稿没记开始时的整篇”。其实旧稿的 `draft.base` 记着每个动过的块在开始编辑时读到的原文（没动过的块读到的还是现在的原文，没有别处的改动才对得上），能近似还原“开始时的整篇”：`base = 读到的块按序，动过的块用 draft.base[id]，没动过的用现在的 source`。这样至少同一块两边都改的情形（原先 t28 会问）还会问。清单里写“给旧稿另做一次按块的对照（小）”，做法就是这个。代价小而不是不能做。
+- **影响范围**：只有 t28 分支上试用过、存了稿没提交的机器；盖掉别处改动的数据损失是静默的。
+- **建议改法**：`toWhole` 用 `draft.base` 还原 `base`（读到的块已经没有的 id 与别处新加的块无法还原，照现在的算，这部分仍是静默），或者换算时发现任何一块的 `read.source !== draft.base[id]` 就把它当作冲突交给 `realign`。如果仍选择不做，把清单里的理由改成“记了每块的原文但只能近似，按块的对照不做”，免得后来的人以为信息不存在。
+
+### 5. 迁移时丢掉的行为覆盖：选择的记忆在放弃、重开时清掉、“带改动的稿照常进编辑”、阅读视图“没有剧情入口”的断言空过
+- **严重程度**：建议；**类别**：测试
+- **位置**：`text-tab.test.ts`（删掉了 t28 的“放弃以后重新开始的是另一份稿：上一份稿里选过的不带过来”）；`web/text-tab.ts` 的 `start()`（`choices.clear()`、`wholeProblem` 的跳过条件）与 `leave()`（`choices.clear()`）；`web/entry-page.dom.test.ts` 约 807 行。
+- **现象**：
+  1. 被删的那条用例测的是 `choices`（按“两边各是什么”记的选择，`signature`）在放弃、重开时清掉：两份稿的冲突两边文字一模一样时，不带上一份稿里选过的。功能还在（`start` 与 `leave` 里都有 `choices.clear()`），整篇的冲突里同样会发生（作者选“我的”后放弃，重新开始、别处又改成同样的字），现在没人测。把两处 `choices.clear()` 删掉，`text-tab.test.ts` 与 dom 测试全过（按代码推断，没有跑变异）。
+  2. 计划与 `start()` 的注释都写“别处先留下带改动的稿时照常进编辑”，没有任何用例。我在真实场地上跑了（scratch 脚本 `s4.test.ts` 的 S4）：存好整篇的稿、别处把某块改成剧情变更、重开 `start()` 返回 `""`、进了编辑、`dirty` 为真；继续改再提交得到 `locked` 冲突。行为是对的，但没有测试守着；`hasChanges(state.draft) || pending` 里任何一边写错都没人发现。
+  3. `entry-page.dom.test.ts` 的“被剧情改过的块”用例里 `expect([find("[data-block-actions]").exists(), find("[data-story-add]").exists()]).toEqual([false, false])`：这两个属性在组件里已经不存在，断言按构造就为真，守不住什么（“否定断言要先变异”）。要守的是“没有剧情入口”这个行为，可以断言阅读视图里没有 menu 按钮，或直接删掉这一句。
+  4. 整篇的稿的冻结与结局不明：`text-drafts-link.test.ts` 里冻结相关的用例仍用按块的 `addAfter`/`setText` 造稿，没有一条整篇的稿走“冻结 -> 回执丢了 -> 别的窗口重开确认”。我手工在真实场地上跑过（scratch `s6.test.ts`）：能确认发布、没有重复修订，没有发现问题；只是没有测试守着 `toStored`/`fromStored` 对 `whole` 稿的往返。
+- **建议改法**：补 1、2 两条（每条几行，用现有的 `tabOf` 与场地）；3 改成真正能失败的断言或删掉；4 在 `text-drafts-link.test.ts` 加一条整篇稿的丢回执用例（可套用上面已有的那条）。
+
+### 6. 没有生产调用方的代码与残留：`changedCount`、`Textarea` 导入、冲突对话框里按块的种类、不可达的 `too-many`
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`web/text-draft.ts` 的 `changedCount`（本次还给它加了 `whole` 分支）；`web/components/EntryPageHost.vue` 第 12 行；`web/text-drafts.ts` 的 `choose`；`web/text-tab.ts` 的 `resultMessage` 里 `too-many`；`web/components/TextConflictDialog.vue`。
+- **现象**：
+  - `changedCount` 的唯一用途“未提交几块”这一行已经删了，`grep -rn changedCount src` 只剩定义与测试；本次还专门给它写了 `whole` 分支和测试。`splitAt`、`mergeUp`、`restoreBlock`、`previousKey`、`rebase`、`resolve` 同样没有生产调用方（`text-draft.ts` 文件头写明“分节的事定了以后要么用上、要么删”，这几个是有交代的；`changedCount` 没有）。
+  - `EntryPageHost.vue` 第 12 行仍 `import {…, Textarea}`，模板里已没有 `<Textarea`（`grep -c "<Textarea"` 为 0）。tsconfig 没开 `noUnusedLocals`，不会报错，但是剧情对话框删除后的残留。
+  - `TextDraftSession.choose` 把 `Choice`（含 `keep`、`drop`）里整篇冲突不认的值悄悄当成 `"theirs"`（`conflict.kind === "whole" ? resolveWhole(..., choice === "mine" ? "mine" : "theirs")`）；类型上放进来的是并集，应该让 `WholeConflict` 的 `choose` 签名只收 `mine | theirs`，而不是在中间吞掉。
+  - 整篇编辑下提交的操作数就是块数，`wholeProblem` 已经挡住 50 以上，`SubmitResult.too-many` 与 `textEdit.resultTooMany` 在整篇的稿上没有可达路径（只剩旧稿经 `toWhole` 之前的路径，而那条路径这一页不提交）。
+  - `TextConflictDialog.vue` 里 `gone`/`rerouted`/`manual` 三种分支与对应文案（`conflictKeep`、`conflictDrop` 等）现在没有调用方；`TextConflictDialog.md` 已写明是“按块编辑时留下的”，是有交代的，只是这些文案还在 zh/en 两份里要维护。
+- **为什么是问题**：留着没人调的分支会让下一个读代码的人去猜它还有什么用，加上本次扩展的是已经死掉的函数。
+- **建议改法**：删掉 `changedCount` 及其测试（或在 `text-draft.ts` 头注释里把它列进“等分节定了再说”的清单）；删 `Textarea` 导入；`choose` 的签名分开；其余按文件头已有的交代处理。
+
+### 7. 阅读视图的“与章节一致”是写死的 17px、1.95、1.1em：不跟章节的字体设置走；块间距的 em 基准与块内不同；表格没包滚动层
+- **严重程度**：建议；**类别**：界面
+- **位置**：`web/components/EntryText.vue` 的 `<style scoped>`（`.entry-text` 三个变量、`.entry-text__block + .entry-text__block`）与 `renderNode` 的 `table`；对照 `plugins/markdown/web/components/MarkdownControl.vue` 约 55 到 56 行、`plugins/editor/web/plugin.ts` 约 164 行。
+- **现象**：
+  1. 章节正文的字号、行距是用户设置（`markdown.fontSize`、`markdown.lineHeight`，经 `markdownEditorOptionsKey` 写进 `--markdown-font-size`、`--markdown-line-height`），条目的阅读视图写死 `17px`、`1.95`、`1.1em`，注释写“取章节纸面的缺省值”。用户把章节字号改成 20px 后，条目页的文字仍是 17px，与“章节一致”的目的不符；两处的缺省值以后也会各改各的。
+  2. `.entry-text__block + .entry-text__block { margin-top: var(--markdown-block-gap) }`：变量是 `1.1em`，写在 `.entry-text` 上，在 `section` 上取值时 em 按 `section` 自己的字号（页面继承的字号，不是正文的 17px）算；块内部的 `.nb-markdown > * + *` 按子元素的 17px 算。块之间与块内的段距不一致（约少 3px，取决于页面字号）。
+  3. `.entry-text` 原来带 `text-md` 与 `leading-8`，现在没了，“还没有主文字”、“编辑”按钮、来历的外框改按页面字号显示；设计上也许是有意的，但组件 `.md` 没写。
+  4. `markdown.css` 的注释说“编辑器的表格节点视图与展示器都包 `.tableWrapper`”；`renderNode` 的 `table` 直接是 `<table>`，宽表格会撑宽正文（这条在改动之前同样如此，不是回归，只是“与章节一致”仍差这一处）。
+- **如何核实**：在设置里改“Markdown 字号”，对比章节与条目文字页；看 Lab `EntryText` 场景的计算样式里 section 的 `margin-top`。
+- **建议改法**：变量从 `markdownEditorOptionsKey`（可选注入）取，没有时用现在的缺省；段距写成 `calc(var(--markdown-block-gap))` 之前先把变量改成以 `.nb-markdown` 为基准的值，或把 `.entry-text__block` 自己设 `font-size: var(--markdown-font-size)`；`table` 外面包 `.tableWrapper`；`EntryText.md` 的“布局与交互”里写明排版取自章节正文样式。
+
+### 8. 主文字被剧情改过以后：作者能一直往里打字，冲突对话框只列“现在的”，作者自己写的整篇看不到
+- **严重程度**：建议；**类别**：界面
+- **位置**：`web/text-tab.ts` 的 `conflictItem`（`locked` 分支）与 `start()`；`web/components/TextConflictDialog.vue` 的 `locked` 模板（只显示 `item.reason` 与 `item.theirs`）。
+- **现象**：scratch `s4.test.ts` 的 S4：别处在作者编辑期间（或存下稿以后）把某块改成了剧情变更；作者重开稿、继续打字，点提交才得到对话框，里面只有“照现在的”一个按钮，`mine` 没有显示。作者要回到编辑才能复制自己的整篇。编辑视图在这之前没有任何提示（状态行与输入框都照常，提交也不禁用）。
+- **为什么是问题**：Spec 输出 44 说“重读发现条目进不了编辑了时只能照现在的来”，所以不是越权；但整篇的稿一般很长，丢的是整篇；而对话框的旧设计里按块的 `locked` 只丢一块。至少要让作者能在对话框里看到、复制自己的整篇，或在对话框之前就提示。
+- **建议改法**：`locked` 的行里把 `mine` 也列出来（只读、可选中复制）；或者宿主在稿读到“现在进不了整篇编辑”时（`realign` 的 `locked` 分支，`resume` 时就知道）把 `message` 写成“这个条目现在不能在这里改，先复制要留的文字，然后放弃”，输入框改只读，与读不出块时一致。
+
+（第 7 条建议改法第二点更正：块间距要么把变量改成像素或 `rem`，要么在 `.entry-text__block` 上设 `font-size: var(--markdown-font-size)` 再取 `1.1em`，让两处的 em 同一个基准。）
+
+## 未发现问题的方面（逐项查过）
+- `realign` 的分支（作者没改、两边一样、基准没变只问一次、锁住的块不编操作、冻结的请求与位置随稿带着）、`resolveWhole` 的 `mine` 以新读到的为基准（再改再问）与 `theirs`：对照 `text-whole.test.ts` 与我在真实场地上的几条脚本（别处加块、别处改字、别处改成同样的字、选“我的”之后再被改），没有发现整篇与块一级字段不一致的路径。`hasChanges` 对整篇的稿看 `whole.text !== whole.base`，锁住分支里块一级为空时不会把暂存删掉，已确认。
+- `align` 按 `draft.whole` 选 `rebase` 或 `realign`：读的途中稿换了一份仍按读回来时的稿，不会拿旧稿对新读到的块。
+- 提交、冻结、结局不明、解冻：整篇的稿经 `toStored`/`fromStored` 往返、丢回执后在另一个窗口重开确认，发布一次、没有重复修订（`s6.test.ts`）。
+- `start()` 在 `wholeProblem` 非空时放弃刚建的稿（`discard` 取消了 `watch` 触发的暂存排队）、带改动的稿照常进编辑且提交时得到 `locked` 冲突（`s4.test.ts`）、`insert` 的偏移越界与取不到光标（`s4.test.ts` 的 S5：夹到 0 与末尾）。
+- 删掉的东西没有残留引用：`storyWrite`、`story-edit/remove/add`、`focusBlock`、`EditorBlock`、块的增拆并删事件与文案键在源码、测试、文档里都查不到；`locales` 的 zh-CN 与 en-US 键集合完全一致，`textEdit.*` 与 `block.*` 每个键仍有直接引用（对话框里按块的几个键有调用方，见第 6 条）。
+- `EntryText.vue` 的 `.nb-markdown` 对 `button.canon-value` 没有规则命中（`markdown.css` 里只有 `a`、`code`、`pre`、`table` 等元素选择器）；值按钮、来历展开、出错的块的结构没变；`@notnotype/nb-markdown/markdown.css` 是包的公开出口、只多带样式（`stickers.css` 一并 `@import`）；`MarkdownControl.vue` 已用同一入口。
+- 组件文档与实现：`EntryTextEditor.md`、`EntryText.md`、`EntryPageHost.md`、`PlainSourceInput.md`、`TextConflictDialog.md` 与实现一致（`EntryText.md` 的 `env:portal` 标签随 `DropdownMenu` 一起删得对）；`EntryTextEditor.dom.test.ts`、`EntryText.dom.test.ts`、`text-whole.test.ts`、`text-drafts-link.test.ts`、`text-tab.test.ts` 在本机跑过全过（62 条 bun、9 条 vitest）；没有发现 mock、spy、假计时器与固定等待。
+- 动效保留：状态行各项、整批说明、输入框下面的原因都有 `Transition`；英文场景在 Lab 里有登记。
+
+## 没能核实的事项
+- 第 1 条的撤销历史与光标位置、菜单关闭后焦点是否回到输入框：只从 `CodeInput.vue` 的实现与 Monaco、浏览器行为推断，没有在真实浏览器里跑（不允许跑 e2e 与开发服务）。
+- 第 7 条的视觉差异（字号随设置、块间距 3px 左右的差别）、390 宽下状态行的折行：没有截图。
+- `e2e/canon-write.e2e.ts` 改写后的用例没有跑；`entry-page.dom.test.ts` 整份没有跑（负载 13 以上，只跑了与之相关的几份）。
+
+有效发现编号：1、2、3、4、5、6、7、8
+数量：阻断 0；重要 2（第 1、2 条）；建议 6（第 3、4、5、6、7、8 条）。
+有效发现：1、2、3、4、5、6、7、8
