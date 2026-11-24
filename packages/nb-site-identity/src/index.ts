@@ -10,8 +10,14 @@ import {Hono} from "hono";
 
 export {identityMigrations, type IdentityMigration} from "./migrations";
 
-/** 账号模块自己的配置；本 Task 没有变量，以后读 `NB_SITE_IDENTITY_*`。 */
-export type IdentityConfig = Readonly<Record<never, never>>;
+/** 账号模块自己的配置：会话密钥，以后加 `NB_SITE_IDENTITY_*`。 */
+export interface IdentityConfig {
+    /** `NB_SITE_SESSION_SECRET`。变量名是全站的（`site.operations` 的配置表），但只有账号模块用它，所以由本模块读。 */
+    readonly sessionSecret: string;
+}
+
+/** 会话密钥至少这么多个字符（按 Unicode 码点数）。 */
+const SESSION_SECRET_MIN_LENGTH = 32;
 
 /** 配置问题只带变量名与固定的问题词，不带取值（`site.operations` 输出 1）。 */
 export interface IdentityConfigProblem {
@@ -40,8 +46,12 @@ export interface IdentityModule {
     readonly site: Hono;
 }
 
-export function parseIdentityConfig(_env: Readonly<Record<string, string | undefined>>): IdentityConfigResult {
-    return {ok: true, config: {}};
+/** 问题词取自 `site.operations` 失败与恢复一节的词表；说明与问题里只有变量名，不带取值。 */
+export function parseIdentityConfig(env: Readonly<Record<string, string | undefined>>): IdentityConfigResult {
+    const secret = env.NB_SITE_SESSION_SECRET;
+    if (secret === undefined || secret === "") return {ok: false, problems: [{name: "NB_SITE_SESSION_SECRET", problem: "missing"}]};
+    if ([...secret].length < SESSION_SECRET_MIN_LENGTH) return {ok: false, problems: [{name: "NB_SITE_SESSION_SECRET", problem: "too_short"}]};
+    return {ok: true, config: {sessionSecret: secret}};
 }
 
 export function createIdentityModule(_options: IdentityModuleOptions): IdentityModule {

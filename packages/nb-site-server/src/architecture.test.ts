@@ -6,6 +6,7 @@
  * - `ATTACH` 守卫（ADR 0061 决策 1）：每个模块只打开自己的库文件，源码与迁移里不许出现附加别的库的语句。
  *   迁移运行器在执行前对迁移文字再查一次（`db/migrate.ts`），是同一条规则在运行期的第二道；它的拒收清单里写着这个词，不扫它。
  * - 两个模块的路径前缀互不重叠：入口按前缀把子应用挂在同一个站点地址上。
+ * - 产品代码不引用 `src/testing/`：夹具模块与测试入口只给本包的测试用（`docs/testing/README.md` 的测试文件组织）。
  * 每条规则都带一个反例，证明它拦得下违规。
  */
 
@@ -152,5 +153,23 @@ describe("路径前缀", () => {
         const identity: string = IDENTITY_API_PREFIX;
         const telemetry: string = TELEMETRY_API_PREFIX;
         expect(identity === telemetry || identity.startsWith(`${telemetry}/`) || telemetry.startsWith(`${identity}/`)).toBe(false);
+    });
+});
+
+/** 从某个文件导入 `testing/` 下的模块：相对路径里出现 `testing` 这一段。 */
+const TESTING_IMPORT = /\bfrom\s+["'](?:\.{1,2}\/)+(?:[^"']*\/)?testing\//u;
+
+describe("夹具目录", () => {
+    it("产品代码不引用 src/testing/", () => {
+        const testingDir = join(import.meta.dir, "testing");
+        const product = tsSources(import.meta.dir).filter((file) => !file.startsWith(`${testingDir}/`));
+        expect(product.length).toBeGreaterThan(0);
+        expect(product.filter((file) => TESTING_IMPORT.test(readFileSync(file, "utf8"))).map((file) => relative(import.meta.dir, file))).toEqual([]);
+    });
+
+    it("反例：相对路径导入 testing/ 被拦下，名字里带 testing 的别的模块不算", () => {
+        expect(TESTING_IMPORT.test(`import {fixtureModules} from "./testing/modules";`)).toBe(true);
+        expect(TESTING_IMPORT.test(`import {startSite} from "../testing/process";`)).toBe(true);
+        expect(TESTING_IMPORT.test(`import {x} from "./load-testing";`)).toBe(false);
     });
 });

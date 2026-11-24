@@ -1,0 +1,140 @@
+/**
+ * 装配根应用（`site.operations` 的输入一节、输出 3、4、8）：请求编号与请求日志 → 两个健康检查 → 按主机名分到站点或
+ * 写入口的子应用 → 各模块的 mount。
+ *
+ * 两个入口各是一个 Hono 应用，根应用把请求原样交给其中一个的 `fetch`：同一个前缀在两个入口上可以各挂各的模块。
+ * 交出去之后根应用的上下文变量就看不到了，所以请求的状态（命中了哪个模块、请求编号）放在随 `fetch` 第二个参数传下去的
+ * `RequestState` 里；模块的子应用经 `app.route` 挂进入口应用，抛出的异常由入口应用的 `onError` 接住。
+ */
+
+import type {Server} from "bun";
+import {randomUUID} from "node:crypto";
+
+import {Hono} from "hono";
+
+import type {ReadinessReport} from "./health";
+import {hostnameKey} from "./hostname";
+import {errorType, type Logger} from "./log";
+import type {ModuleMount, Surface} from "./module";
+
+/** 入口经 `fetch` 的第二个参数交给每个请求的东西；`server` 用来取 TCP 对端地址（`client-address.ts`）。 */
+export interface SiteBindings {
+    readonly server: Server<undefined>;
+    readonly request: RequestState;
+}
+
+/** 一个请求在入口里的状态。`module` 是日志里的 `module`：命中了 mount 就是那个模块，否则是 `site`。 */
+export interface RequestState {
+    module: string;
+    readonly requestId: string;
+}
+
+type SiteEnv = {Bindings: SiteBindings};
+
+export interface MountedModule {
+    readonly module: string;
+    readonly mount: ModuleMount;
+}
+
+export interface SiteAppOptions {
+    readonly mounts: readonly MountedModule[];
+    /** 写入口的主机名（`hostnameKey` 之后）；为 null 时所有请求都到站点。 */
+    readonly telemetryHost: string | null;
+    readonly readiness: () => ReadinessReport;
+    readonly log: Logger;
+}
+
+const NOT_FOUND = {code: "not_found"} as const;
+
+function surfaceApp(surface: Surface, options: SiteAppOptions): Hono<SiteEnv> {
+    const app = new Hono<SiteEnv>();
+    for (const {module, mount} of options.mounts) {
+        if (mount.surface !== surface) continue;
+        const tag = async (c: {env: SiteBindings}, next: () => Promise<void>): Promise<void> => {
+            c.env.request.module = module;
+            await next();
+        };
+        app.use(mount.prefix, tag);
+        app.use(`${mount.prefix}/*`, tag);
+        app.route(mount.prefix, mount.app);
+    }
+    app.notFound((c) => c.json(NOT_FOUND, 404));
+    app.onError((error, c) => {
+        options.log.error("http.unhandled_error", "request handler threw", {requestId: c.env.request.requestId, module: c.env.request.module, errorType: errorType(error)});
+        return c.json({code: "internal"}, 500);
+    });
+    return app;
+}
+
+/** 模块交来的 mount 不合格：这是那个模块的程序错误，`serve` 按 `start_failed` 报出 `module`。 */
+export class MountError extends Error {
+    override readonly name = "MountError";
+
+    constructor(
+        readonly module: string,
+        message: string,
+    ) {
+        super(message);
+    }
+}
+
+/** 校验 mount 的形状：前缀写法、同一个入口上前缀不重复。 */
+function checkMounts(mounts: readonly MountedModule[]): void {
+    const seen = new Set<string>();
+    for (const {module, mount} of mounts) {
+        if (!/^\/[^?#]*[^/?#]$/u.test(mount.prefix)) throw new MountError(module, `mount prefix must start with "/" and not end with "/"`);
+        const key = `${mount.surface} ${mount.prefix}`;
+        if (seen.has(key)) throw new MountError(module, `mount prefix is already used on the ${mount.surface} surface`);
+        seen.add(key);
+    }
+}
+
+export function createSiteApp(options: SiteAppOptions): Hono<SiteEnv> {
+    checkMounts(options.mounts);
+    const site = surfaceApp("site", options);
+    const ingest = surfaceApp("ingest", options);
+    const root = new Hono<SiteEnv>();
+
+    root.use(async (c, next) => {
+        const started = performance.now();
+        await next();
+        // 交给入口应用的 `fetch` 得到的是一个新的 Response，`next()` 之前设的头不会带过去，所以在这里加。
+        const response = new Response(c.res.body, c.res);
+        response.headers.set("X-Request-Id", c.env.request.requestId);
+        c.res = response;
+        options.log.info("http.request", "request handled", {
+            requestId: c.env.request.requestId,
+            module: c.env.request.module,
+            method: c.req.method,
+            // 只有路径：查询串里可能有令牌。
+            path: c.req.path,
+            status: c.res.status,
+            durationMs: Math.round(performance.now() - started),
+        });
+    });
+
+    // 健康检查在分派之前，任何主机名上都能用；反向代理与容器的健康检查用回环地址来。
+    root.get("/health/live", (c) => c.json({status: "live"}));
+    root.get("/health/ready", (c) => {
+        const report = options.readiness();
+        return report.ready ? c.json({status: "ready", modules: report.modules}) : c.json({status: "not_ready", code: "not_ready", modules: report.modules}, 503);
+    });
+
+    root.all("*", (c) => {
+        const toIngest = options.telemetryHost !== null && hostnameKey(new URL(c.req.url).hostname) === options.telemetryHost;
+        return (toIngest ? ingest : site).fetch(c.req.raw, c.env);
+    });
+    root.onError((error, c) => {
+        options.log.error("http.unhandled_error", "request handler threw", {requestId: c.env.request.requestId, module: c.env.request.module, errorType: errorType(error)});
+        return c.json({code: "internal"}, 500);
+    });
+    return root;
+}
+
+/**
+ * 交给 `Bun.serve` 的 `fetch`：每个请求新建它的状态，连同 `server` 作为第二个参数传下去。请求编号由这里生成，
+ * 不读请求方给的 `X-Request-Id`（`site.operations` 输出 8）。
+ */
+export function siteFetch(app: Hono<SiteEnv>): (request: Request, server: Server<undefined>) => Response | Promise<Response> {
+    return (request, server) => app.fetch(request, {server, request: {module: "site", requestId: randomUUID()}});
+}

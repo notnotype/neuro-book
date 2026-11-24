@@ -1,0 +1,149 @@
+/**
+ * `nb-site migrate` 与模块的子命令（`site.operations` 的时序一节；`SiteCommand` 的两种占用方式），起真子进程。
+ * 夹具模块 `alpha` 提供 `alpha-exclusive` 与 `alpha-shared` 两个命令（`testing/modules.ts`）。
+ *
+ * 每个用例起一到两个 Bun 进程，超出快速类 200 毫秒的预算，理由同 `serve.test.ts`。
+ */
+
+import {Database} from "bun:sqlite";
+import {afterEach, beforeEach, describe, expect, it} from "bun:test";
+import {mkdir, rm} from "node:fs/promises";
+import {join} from "node:path";
+
+import {tryLock, type FileLock} from "@notnotype/nb-flock";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {startServing, startSite, stopAllSiteProcesses, type LogLine, type SiteProcess} from "./testing/process";
+
+let root: string;
+let dataDir: string;
+const held: FileLock[] = [];
+
+beforeEach(async () => {
+    root = await createTestTmpRoot("nb-site-commands", "nb-site-server commands.test.ts");
+    dataDir = join(root, "data");
+    await mkdir(dataDir);
+});
+
+afterEach(async () => {
+    await stopAllSiteProcesses();
+    for (const lock of held.splice(0)) lock.release();
+    await rm(root, {recursive: true, force: true});
+});
+
+function env(extra: Readonly<Record<string, string>> = {}): Record<string, string> {
+    return {
+        NB_SITE_URL: "https://site.example",
+        NB_SITE_TELEMETRY_URL: "https://ingest.example",
+        NB_SITE_DATA_DIR: dataDir,
+        NB_SITE_PORT: "0",
+        NB_SITE_FIXTURE: "alpha,beta",
+        ...extra,
+    };
+}
+
+async function run(args: readonly string[], extra?: Readonly<Record<string, string>>): Promise<{readonly site: SiteProcess; readonly code: number}> {
+    const site = await startSite({root, args, env: env(extra)});
+    return {site, code: await site.waitForExit()};
+}
+
+function failureLine(site: SiteProcess): LogLine {
+    return JSON.parse(site.stderr.at(-1) ?? "null") as LogLine;
+}
+
+function applied(site: SiteProcess): LogLine[] {
+    return site.logs().filter((line) => line.event === "migration.applied");
+}
+
+function labels(): string[] {
+    const db = new Database(join(dataDir, "alpha.db"), {readonly: true});
+    try {
+        return db
+            .query<{label: string}, []>(`SELECT "label" FROM "item" ORDER BY "id"`)
+            .all()
+            .map((row) => row.label);
+    } finally {
+        db.close();
+    }
+}
+
+describe("migrate", () => {
+    it("对每个模块执行还没执行的迁移后以 0 退出，再执行一次什么都不做", async () => {
+        const first = await run(["migrate"]);
+        expect(first.code).toBe(0);
+        expect(applied(first.site)).toMatchObject([
+            {module: "alpha", migration: "0001_items"},
+            {module: "beta", migration: "0001_beta"},
+        ]);
+        const second = await run(["migrate"]);
+        expect(second.code).toBe(0);
+        expect(applied(second.site)).toEqual([]);
+    });
+
+    it("服务在跑时以 data_dir_busy 退出", async () => {
+        await startServing({root, env: env()});
+        const {site, code} = await run(["migrate"]);
+        expect(code).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "data_dir_busy", module: "alpha"});
+    });
+
+    it("进程里没有模块用到写入口时不要求写入口地址", async () => {
+        // beta 只声明站点入口（拆成两个进程后只装账号模块的那个进程就是这样）。
+        const {code} = await run(["migrate"], {NB_SITE_FIXTURE: "beta", NB_SITE_TELEMETRY_URL: ""});
+        expect(code).toBe(0);
+    });
+
+    it("配置不合格时以 config_invalid 退出", async () => {
+        const {site, code} = await run(["migrate"], {NB_SITE_DATA_DIR: "relative"});
+        expect(code).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "config_invalid", problems: [{name: "NB_SITE_DATA_DIR", problem: "not_absolute"}]});
+    });
+});
+
+describe("模块的命令", () => {
+    it("exclusive：服务没在跑时先执行本模块的迁移再运行", async () => {
+        const {site, code} = await run(["alpha-exclusive", "first"]);
+        expect(code).toBe(0);
+        expect(applied(site)).toMatchObject([{module: "alpha", migration: "0001_items"}]);
+        expect(site.logs().find((line) => line.event === "fixture.command_ran")).toMatchObject({module: "alpha", command: "alpha-exclusive"});
+        expect(labels()).toEqual(["first"]);
+    });
+
+    it("exclusive：服务在跑时以 data_dir_busy 退出", async () => {
+        await startServing({root, env: env()});
+        const {site, code} = await run(["alpha-exclusive", "blocked"]);
+        expect(code).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "data_dir_busy", module: "alpha"});
+        expect(labels()).toEqual([]);
+    });
+
+    it("shared：服务在跑时直接运行，服务读得到它写的", async () => {
+        const {url} = await startServing({root, env: env()});
+        const {site, code} = await run(["alpha-shared", "while-serving"]);
+        expect(code).toBe(0);
+        expect(applied(site)).toEqual([]);
+        expect(await (await fetch(`${url}api/alpha/items`)).json()).toEqual({count: 1});
+    });
+
+    it("shared：服务没在跑时先执行迁移再运行", async () => {
+        const {site, code} = await run(["alpha-shared"]);
+        expect(code).toBe(0);
+        expect(applied(site)).toMatchObject([{module: "alpha", migration: "0001_items"}]);
+        expect(labels()).toEqual(["shared"]);
+    });
+
+    it("shared：锁被别人占着而迁移记录不完整时以 not_ready 退出", async () => {
+        const lock = tryLock(join(dataDir, "alpha.lock"));
+        if (lock === null) throw new Error("alpha.lock is already held");
+        held.push(lock);
+        const {site, code} = await run(["alpha-shared"]);
+        expect(code).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "not_ready", module: "alpha"});
+    });
+
+    it("命令 resolve 出失败时把它写到标准错误、以 1 退出", async () => {
+        const {site, code} = await run(["alpha-shared", "fail"]);
+        expect(code).toBe(1);
+        expect(failureLine(site)).toMatchObject({level: "error", event: "command.failed", code: "fixture_refused", command: "alpha-shared"});
+    });
+});

@@ -27,6 +27,22 @@
 - 账本里有、清单里没有的迁移：编号比清单最大的还大，是更新的版本留下的，照常运行；不大于清单最大编号（合并后改号、只改名），拒绝运行。发布过的迁移不改号、不改名、不改内容。
 - 源码与迁移里不许附加别的库（`ATTACH`），由 `src/architecture.test.ts` 检查。
 
+## 模块怎样接进入口
+
+- 模块交给入口的形状是 `src/module.ts` 的 `SiteModule`，产品的列表在 `src/modules.ts`。模块用到的入口（`site`、`ingest`）静态写在 `surfaces` 里；声明了 `ingest` 的模块装进进程时才要求 `NB_SITE_TELEMETRY_URL`。
+- 模块的库连接（`ModuleContext.db`）归模块所有，可以开跨 await 的事务；入口不在上面执行语句，就绪检查另有一条不等锁的探测连接。
+- 模块取时间用 `context.clock`，定时任务经 `context.jobs` 登记，不直接用 `Date.now()` 与 `setInterval`：入口在 `start()` 之后才开始调度、停止时在 `close()` 之前停掉。
+- 要请求方地址时用 `context.clientAddress(c)`，不自己读 `X-Forwarded-For`；返回值不写进日志。
+- 模块的子命令写在 `commands` 里，按 `access` 选 `exclusive` 或 `shared`（规则见 `SiteCommand` 的注释）；命令名不能与 `serve`、`migrate`、`backup` 及别的模块的命令重名。
+- 日志与失败行的 `message` 用英文、`event` 与 `code` 是稳定的英文词；不放环境变量的取值、数据目录的路径、来源地址、请求头与请求体。错误只记类型。
+- 只给测试用的夹具模块与入口放在 `src/testing/`，产品代码不引用（`src/architecture.test.ts` 检查）。
+
+## 部署
+
+- 两个健康检查（`/health/live`、`/health/ready`）在任何主机名上都可用；反向代理只把它们开放给本机回环，不转发外部的请求。
+- 容器的停止宽限（`docker stop -t`、Compose 的 `stop_grace_period`）至少比 `NB_SITE_SHUTDOWN_TIMEOUT_MS` 多 5 秒：时限用来排空 HTTP，模块的 `close()`、关库与放锁还要一点时间，宽限先到时容器会被 SIGKILL。缺省时限 10 秒与 `docker stop` 缺省的 10 秒相同，部署时要改其中一个。
+- `NB_SITE_TRUSTED_PROXIES` 只写真正会转发请求的那一层代理的地址；写宽了，外面的人就能用伪造的 `X-Forwarded-For` 冒充来源地址。
+
 ## 完成门禁
 
 ```text

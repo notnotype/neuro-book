@@ -1,0 +1,172 @@
+/**
+ * 进程的配置，只来自环境变量（`site.operations` 的输入一节、输出 1）。入口读各进程都要的那几项，各模块的 `parseConfig`
+ * 读自己的（会话密钥归账号模块）；问题合在一起报。
+ *
+ * 不泄漏取值靠结构保证：每个校验函数只返回问题词，拼说明与输出那一行的代码只拿到变量名与问题词，拿不到值。
+ * 校验在读写任何数据文件之前做；只 `stat` 与 `access` 数据目录本身。
+ */
+
+import {accessSync, constants, statSync} from "node:fs";
+import {BlockList, isIP} from "node:net";
+import {isAbsolute} from "node:path";
+
+import {hostnameKey} from "./hostname";
+import type {CommandFailure, ConfigProblem, SiteModule, SiteSettings} from "./module";
+
+export type Env = Readonly<Record<string, string | undefined>>;
+
+export interface BaseConfig {
+    readonly site: SiteSettings;
+    /** 只有本进程有模块用到写入口时才有；按主机分派用它。 */
+    readonly telemetryHost: string | null;
+    readonly dataDir: string;
+    readonly host: string;
+    /** 0 表示由系统挑一个空闲端口。 */
+    readonly port: number;
+    readonly trustedProxies: BlockList;
+    readonly backupKeep: number;
+    readonly shutdownTimeoutMs: number;
+}
+
+export interface SiteConfig {
+    readonly base: BaseConfig;
+    /** 按模块名取各模块 `parseConfig` 的结果。 */
+    readonly modules: ReadonlyMap<string, unknown>;
+}
+
+export type SiteConfigResult = {readonly ok: true; readonly config: SiteConfig} | {readonly ok: false; readonly problems: readonly ConfigProblem[]};
+
+/**
+ * 问题词：除 `not_ip` 外取自 `site.operations` 失败与恢复一节的词表。`not_ip` 是监听地址不是 IP 地址时的词，
+ * 词表里还没有，见 w00037 t05 的交回说明。
+ */
+type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip";
+
+type Parsed<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly problem: Problem};
+
+const ok = <T>(value: T): Parsed<T> => ({ok: true, value});
+const bad = (problem: Problem): Parsed<never> => ({ok: false, problem});
+
+/** 没设与设成空串都算没给：容器与 Compose 里常见 `NB_SITE_X=` 这种写法。 */
+function present(value: string | undefined): string | undefined {
+    return value === undefined || value === "" ? undefined : value;
+}
+
+/** HTTPS 根地址：没有路径（只能是 `/`）、查询串与片段。解析不了的也算 `not_https`。 */
+function parseRootUrl(value: string): Parsed<URL> {
+    let url: URL;
+    try {
+        url = new URL(value);
+    } catch {
+        // 解析不了就不是 HTTPS 地址；错误对象里带着原值，不往外传。
+        return bad("not_https");
+    }
+    if (url.protocol !== "https:") return bad("not_https");
+    if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return bad("has_path");
+    return ok(url);
+}
+
+function parseDataDir(value: string): Parsed<string> {
+    if (!isAbsolute(value)) return bad("not_absolute");
+    try {
+        if (!statSync(value).isDirectory()) return bad("not_directory");
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        // 不存在或路径中间有一段不是目录：程序不替部署的人创建；别的错误（多半是没有权限）按不可写报。
+        return bad(code === "ENOENT" || code === "ENOTDIR" ? "not_directory" : "not_writable");
+    }
+    try {
+        accessSync(value, constants.W_OK | constants.X_OK);
+    } catch {
+        // access 失败只有一种含义：不可写。
+        return bad("not_writable");
+    }
+    return ok(value);
+}
+
+/** `min` 到 `max` 的整数。`-1` 这种是整数、只是越界。 */
+function parseInteger(value: string, min: number, max: number): Parsed<number> {
+    if (!/^-?\d+$/u.test(value)) return bad("not_integer");
+    const number = Number(value);
+    return number < min || number > max ? bad("out_of_range") : ok(number);
+}
+
+/** 逗号分隔的网段；只写地址时当作单个地址（IPv4 的 /32、IPv6 的 /128）。 */
+function parseSubnets(value: string): Parsed<BlockList> {
+    const list = new BlockList();
+    for (const entry of value.split(",").map((item) => item.trim())) {
+        const [address = "", prefix, extra] = entry.split("/");
+        const family = isIP(address);
+        if (family === 0 || extra !== undefined) return bad("bad_subnet");
+        const bits = prefix === undefined ? (family === 4 ? 32 : 128) : /^\d+$/u.test(prefix) ? Number(prefix) : -1;
+        if (bits < 0 || bits > (family === 4 ? 32 : 128)) return bad("bad_subnet");
+        list.addSubnet(address, bits, family === 4 ? "ipv4" : "ipv6");
+    }
+    return ok(list);
+}
+
+/**
+ * 读入口这一层的配置与每个模块的配置。`NB_SITE_TELEMETRY_URL` 只在某个模块声明了 `ingest` 入口时才要求，
+ * 两个地址的主机名不同也只在那时核对：只装账号模块的进程用不上写入口。
+ */
+export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteConfigResult {
+    const problems: ConfigProblem[] = [];
+    const field = <T>(name: string, parse: (value: string) => Parsed<T>, fallback?: T): T | undefined => {
+        const value = present(env[name]);
+        if (value === undefined) {
+            if (fallback === undefined) problems.push({name, problem: "missing"});
+            return fallback;
+        }
+        const parsed = parse(value);
+        if (parsed.ok) return parsed.value;
+        problems.push({name, problem: parsed.problem});
+        return undefined;
+    };
+
+    const siteUrl = field("NB_SITE_URL", parseRootUrl);
+    const needsIngest = modules.some((module) => module.surfaces.includes("ingest"));
+    const telemetryUrl = needsIngest ? field("NB_SITE_TELEMETRY_URL", parseRootUrl) : undefined;
+    if (siteUrl !== undefined && telemetryUrl !== undefined && hostnameKey(siteUrl.hostname) === hostnameKey(telemetryUrl.hostname)) {
+        problems.push({name: "NB_SITE_TELEMETRY_URL", problem: "same_host"});
+    }
+    const dataDir = field("NB_SITE_DATA_DIR", parseDataDir);
+    const host = field("NB_SITE_HOST", (value) => (isIP(value) === 0 ? bad("not_ip") : ok(value)), "127.0.0.1");
+    const port = field("NB_SITE_PORT", (value) => parseInteger(value, 0, 65_535), 8080);
+    const trustedProxies = field("NB_SITE_TRUSTED_PROXIES", parseSubnets, new BlockList());
+    const backupKeep = field("NB_SITE_BACKUP_KEEP", (value) => parseInteger(value, 1, Number.MAX_SAFE_INTEGER), 7);
+    const shutdownTimeoutMs = field("NB_SITE_SHUTDOWN_TIMEOUT_MS", (value) => parseInteger(value, 1, Number.MAX_SAFE_INTEGER), 10_000);
+
+    const moduleConfigs = new Map<string, unknown>();
+    for (const module of modules) {
+        const result = module.parseConfig(env);
+        if (result.ok) moduleConfigs.set(module.name, result.config);
+        else problems.push(...result.problems);
+    }
+
+    if (problems.length > 0) return {ok: false, problems};
+    return {
+        ok: true,
+        config: {
+            base: {
+                site: {siteUrl: siteUrl!.origin, telemetryUrl: telemetryUrl?.origin ?? null},
+                telemetryHost: telemetryUrl === undefined ? null : hostnameKey(telemetryUrl.hostname),
+                dataDir: dataDir!,
+                host: host!,
+                port: port!,
+                trustedProxies: trustedProxies!,
+                backupKeep: backupKeep!,
+                shutdownTimeoutMs: shutdownTimeoutMs!,
+            },
+            modules: moduleConfigs,
+        },
+    };
+}
+
+/** `config_invalid` 的那一行：说明里只列变量名。 */
+export function configFailure(problems: readonly ConfigProblem[]): CommandFailure {
+    return {
+        code: "config_invalid",
+        message: `invalid configuration: ${problems.map((problem) => `${problem.name} (${problem.problem})`).join(", ")}`,
+        fields: {problems},
+    };
+}
