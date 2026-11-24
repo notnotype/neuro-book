@@ -54,13 +54,13 @@ describe("author-ui 输出 48：条目主文字的着色", () => {
     });
 
     it("Markdown 的记号：标题整行、列表与引用的记号、分隔线、加粗与强调、行内代码、链接", () => {
-        expect(colored("## 近况")).toEqual([[["## 近况", "keyword"]]]);
+        expect(colored("## 近况")).toEqual([[["## 近况", "keyword.heading"]]]);
         expect(colored("- 一项\n1. 二项\n> 引用\n---")).toEqual([[["-", "keyword"]], [["1.", "keyword"]], [[">", "comment"]], [["---", "keyword"]]]);
         expect(colored("**加粗** 与 *强调* 与 `代码` 与 [链接](https://example.com)")).toEqual([[["**加粗**", "strong"], ["*强调*", "emphasis"], ["`代码`", "string"], ["[", "string.link"], ["](https://example.com)", "string.link"]]]);
     });
 
     it("标题里的表达式照表达式画；标题在行尾结束，行尾正好是花括号时也不带到下一行", () => {
-        expect(colored("# 近况 {panel.魔力}\n下一行")).toEqual([[["# 近况 ", "keyword"], ["{", "delimiter.bracket"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ["}", "delimiter.bracket"]], []]);
+        expect(colored("# 近况 {panel.魔力}\n下一行")).toEqual([[["# 近况 ", "keyword.heading"], ["{", "delimiter.bracket"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ["}", "delimiter.bracket"]], []]);
     });
 
     it("不是写法的地方不着色：比较号、转义的花括号、代码围栏里的花括号", () => {
@@ -70,7 +70,7 @@ describe("author-ui 输出 48：条目主文字的着色", () => {
     });
 
     it("没写完的写法只影响它那一段：行中间没闭合的花括号、没闭合的标签，空行以后照正文与标题画", () => {
-        expect(colored("他说{+5 \n\n下一段 有 2 个字\n# 标题").slice(2)).toEqual([[], [["# 标题", "keyword"]]]);
+        expect(colored("他说{+5 \n\n下一段 有 2 个字\n# 标题").slice(2)).toEqual([[], [["# 标题", "keyword.heading"]]]);
         expect(colored('先写 <Ref id="e2"\n\n后面 word = 1').slice(2)).toEqual([[]]);
     });
 
