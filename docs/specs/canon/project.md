@@ -75,7 +75,7 @@ owners:
 | `origins`（planned） | 读 | 地址（条目 id 加路径）、读取位置、模式、游标、条数 | 这个地址的来历的一页，从最近一步往前（[`canon.model`](model.md) 输出 37） |
 | `components` | 读 | — | 登记的 Component 类型与字段声明（[`canon.components`](components.md) 输出 21） |
 | `render` | 读 | 条目、读取位置、模式、给作者或 Agent | [`canon.rendering`](rendering.md) 输出 7、8；结果带版本、位置与模式，回写时照带 |
-| `renderSource`（planned） | 读 | 条目、一段源文字、读取位置、模式；不收视图令牌 | [`canon.rendering`](rendering.md) 输出 16：把这段源文字当作条目的主文字渲染成给作者的一块，带版本、位置与模式；不写入。条目不存在为 `null`；结果超过输出 18 的预算时是 `too-large` |
+| `renderSource`（planned） | 读 | 条目、一段源文字、读取位置、模式；不收视图令牌 | [`canon.rendering`](rendering.md) 输出 16：把这段源文字当作条目的主文字渲染成给作者的一块，带版本、位置与模式；不写入。条目不存在为 `null`；源文字超过 20 万个字符、或结果超过输出 18 的预算时是 `too-large` |
 | `preview` | 读 | 写入请求，或还原请求（修订 id、是否连同依赖） | [`canon.revisions`](revisions.md) 输出 5；还原请求的预览另给补偿与需要的作者授权（同一 Spec 输出 21） |
 | `previewEdit` | 读 | `input`：`{kind: "edit" \| "delta" \| "note", …}`，`kind` 写明是哪一种，其余是 `editInPlace`、`recordDelta` 或 `recordNote` 那一种写入的业务字段，不带独占令牌 | [`canon.revisions`](revisions.md) 输出 22 |
 | `outcome` | 读 | 请求 id | 这次写入有没有发布、发布成了哪次修订（[`canon.revisions`](revisions.md) 输出 16） |
