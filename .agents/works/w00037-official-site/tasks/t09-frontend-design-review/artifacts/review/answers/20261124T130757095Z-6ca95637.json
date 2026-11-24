@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00037-official-site",
+    "taskId": "t09-frontend-design-review",
+    "artifactId": "review",
+    "answerId": "20261124T130757095Z-6ca95637",
+    "artifactVersion": 4,
+    "contentHash": "2456d7bbf868745dc5042a408da2267a226902229866e1b2f805aa9a4ca1778a",
+    "submittedAt": "2026-11-24T13:07:55.944Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "chart-library": "echarts",
+        "dashboard-final": true
+    },
+    "comments": {},
+    "note": null
+}
