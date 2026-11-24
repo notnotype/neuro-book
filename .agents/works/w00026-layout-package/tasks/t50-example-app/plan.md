@@ -269,7 +269,7 @@
 ### 三个示例共用的检查
 
 - 目录：`examples/tabbed-panels/`、`examples/desktop/`、`examples/ide/`，各自独立（第三方拷走一个目录就能跑），不互相导入；三者都有的小件（读失败的处理、拖动的辅助）各写一份，不抽共用包：抽出来第三方就拷不走一个目录。
-- `src/examples.test.ts` 对 `examples/*/` 每个目录做同样的检查（许可证、依赖清单、导入白名单、Spec 编号）；三份 `package.json` 的依赖与开发依赖逐项相同（`name` 不比，例一 18）。
+- `src/examples.test.ts` 对 `examples/*/` 每个目录做同样的检查（许可证、依赖清单、导入白名单、Spec 编号）；三份 `package.json` 的依赖与开发依赖逐项相同（`name` 不比）。
 - 模型层的单元测试一个示例一个文件：`src/examples-tabbed-panels.test.ts`、`examples-desktop.test.ts`、`examples-ide.test.ts`。
 - `scripts/examples.ts`（`typecheck`、`build`，遍历 `examples/*/`）、`e2e/serve.ts`、`e2e/drag.ts` 由主会话在切片 2 写好；两个编码子代理只能用、不能改，缺什么写进报告。
 - e2e 每个示例一份 `e2e/<示例>.e2e.ts`；`test:e2e` 先构建三个示例。
