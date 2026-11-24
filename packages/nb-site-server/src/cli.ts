@@ -9,6 +9,7 @@
 
 import {Command} from "commander";
 
+import {backup} from "./commands/backup";
 import {migrate} from "./commands/migrate";
 import {runModuleCommand} from "./commands/module-command";
 import {SUCCEEDED, type CommandResult} from "./commands/prepare";
@@ -18,7 +19,7 @@ import {installProcessLifecycle} from "./lifecycle";
 import {createLogger, errorType, writeFailure, writeStderr, writeStdout} from "./log";
 import type {CommandFailure, SiteModule} from "./module";
 
-/** 入口自己的子命令；模块的命令不能与它们同名。`backup` 由第 4 片加，名字先占住。 */
+/** 入口自己的子命令；模块的命令不能与它们同名。 */
 const ENTRY_COMMANDS = new Set(["serve", "migrate", "backup"]);
 
 const INTERNAL: CommandFailure = {code: "internal", message: "internal error, see the process.fatal log line"};
@@ -57,6 +58,12 @@ export async function runCli(argv: readonly string[], modules: readonly SiteModu
             .description("check the configuration and run pending migrations, then exit")
             .action(async () => {
                 result = await migrate(process.env, modules, log, lifecycle);
+            });
+        program
+            .command("backup")
+            .description("write a consistent copy of every module database into the data directory's backups/, then prune old copies")
+            .action(async () => {
+                result = await backup(process.env, modules, log, lifecycle);
             });
         for (const module of modules) {
             for (const command of module.commands ?? []) {

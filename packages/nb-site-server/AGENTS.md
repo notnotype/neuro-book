@@ -2,7 +2,7 @@
 
 本包位于 `packages/nb-site-server`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。本文件除了本包的规则，还写官方站七个包共用的规则；其余六个包的 `AGENTS.md` 链接这里。
 
-`@notnotype/nb-site-server` 是官方站的进程入口（[ADR 0059](../../docs/adr/0059-official-site-one-process-split-ready-modules.md)、[ADR 0061](../../docs/adr/0061-official-site-sqlite-file-per-module.md)）：命令行 `nb-site`，把账号与统计两个模块装进一个 Bun 进程，负责配置、每个模块的库连接与迁移、健康检查、日志与停止。行为合同是 [`site/operations.md`](../../docs/specs/site/operations.md)；设计与切片见 w00037 t05 的计划。
+`@notnotype/nb-site-server` 是官方站的进程入口（[ADR 0059](../../docs/adr/0059-official-site-one-process-split-ready-modules.md)、[ADR 0061](../../docs/adr/0061-official-site-sqlite-file-per-module.md)）：命令行 `nb-site`，把账号与统计两个模块装进一个 Bun 进程，负责配置、每个模块的库连接与迁移、健康检查、日志、停止与备份。行为合同是 [`site/operations.md`](../../docs/specs/site/operations.md)；设计与切片见 w00037 t05 的计划。
 
 ## 七个包与依赖方向
 
@@ -37,6 +37,7 @@
 - 要请求方地址时用 `context.clientAddress(c)`，不自己读 `X-Forwarded-For`；返回值不写进日志。
 - 模块的子命令写在 `commands` 里，按 `access` 选 `exclusive` 或 `shared`（规则见 `SiteCommand` 的注释；`shared` 只在迁移期间拿锁）；命令名不能与 `serve`、`migrate`、`backup` 及别的模块的命令重名。会停下来等输入或跑很久的命令要看 `context.signal`，收手时 reject 为 `signal.reason`，入口报 `interrupted`。
 - 日志与失败行的 `message` 用英文、`event` 与 `code` 是稳定的英文词；不放环境变量的取值、数据目录的路径、来源地址、请求头与请求体。错误只记类型。
+- 备份副本里不该留的数据（统计模块的原始上报）在 `prepareBackupCopy` 里删：它拿到的是副本的连接，在备份命令的进程里调用，不经 `create()`。
 - 只给测试用的夹具模块与入口放在 `src/testing/`，产品代码不引用（`src/architecture.test.ts` 检查）。
 
 ## 部署

@@ -165,4 +165,12 @@ export interface SiteModule<C = unknown> {
      */
     create(context: ModuleContext<C>): ModuleInstance | Promise<ModuleInstance>;
     readonly commands?: readonly SiteCommand<C>[];
+    /**
+     * 备份命令写出本模块库的副本之后，在副本上调用（例如清空统计模块的原始上报表，`site.operations` 输出 6）；随后入口对
+     * 副本 `VACUUM`，删掉的内容不留在空闲页里，再做 `quick_check`。
+     *
+     * `copy` 是副本的读写连接，不是原库：这里改什么都不影响服务正在用的库。备份命令是另一个进程，不调用 `create()`，
+     * 也不读本模块的配置，所以这里不能依赖 `create()` 建的状态。同步调用；抛错时这次备份以 `backup_failed` 失败。
+     */
+    prepareBackupCopy?(copy: Database): void;
 }

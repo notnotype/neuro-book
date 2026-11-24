@@ -10,7 +10,8 @@ import {join} from "node:path";
 /** 模块名也是库文件名与日志里的 `module`，只许小写字母开头的字母数字。 */
 export const MODULE_NAME = /^[a-z][a-z0-9]*$/u;
 
-function dbPath(dataDir: string, name: string): string {
+/** 模块的库文件路径；备份命令也按它找库（备份不经 `openModuleDb`，只读打开）。 */
+export function moduleDbPath(dataDir: string, name: string): string {
     if (!MODULE_NAME.test(name)) throw new Error(`invalid module name: ${JSON.stringify(name)}`);
     return join(dataDir, `${name}.db`);
 }
@@ -28,7 +29,7 @@ export class JournalModeError extends Error {
  * 模块名不合格时抛普通 `Error`（程序错误）；文件系统不支持 WAL 时抛 `JournalModeError`；文件不是 SQLite 库时抛 `SQLiteError`。
  */
 export function openModuleDb(dataDir: string, name: string): Database {
-    const db = new Database(dbPath(dataDir, name), {create: true, strict: true});
+    const db = new Database(moduleDbPath(dataDir, name), {create: true, strict: true});
     try {
         const mode = db.query<{journal_mode: string}, []>("PRAGMA journal_mode = WAL").get()?.journal_mode;
         if (mode !== "wal") throw new JournalModeError(`database journal mode is ${String(mode)}, expected wal`);
@@ -50,7 +51,7 @@ export function openModuleDb(dataDir: string, name: string): Database {
  * 健康检查不等锁，也就不会让事件循环停下来（`site.operations` 输出 4）。日志模式是库文件的属性，这里不再设。
  */
 export function openProbeDb(dataDir: string, name: string): Database {
-    const db = new Database(dbPath(dataDir, name), {readwrite: true, create: false, strict: true});
+    const db = new Database(moduleDbPath(dataDir, name), {readwrite: true, create: false, strict: true});
     try {
         db.exec("PRAGMA busy_timeout = 0");
     } catch (error) {

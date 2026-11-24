@@ -1,8 +1,9 @@
 /**
- * 只给 `serve.test.ts` 与 `commands.test.ts` 用的夹具模块；产品代码不引用本目录（`docs/testing/README.md` 的测试文件组织）。
+ * 只给 `serve.test.ts`、`commands.test.ts` 与 `backup.test.ts` 用的夹具模块；产品代码不引用本目录（`docs/testing/README.md` 的测试文件组织）。
  * `fixture-main.ts` 按环境变量 `NB_SITE_FIXTURE`（逗号分隔）挑出这里的模块交给同一个 `runCli`：
  *
- * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务、命令与一组可操纵的路由；
+ * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务、命令与一组可操纵的路由；备份时在副本里删掉 `label` 为
+ *   `raw` 的行（`prepareBackupCopy`，代表统计模块清空原始上报表）；
  * - `alpha-failing`：`alpha`，第二条迁移是坏 SQL；
  * - `beta`：只挂站点入口的第二个模块（测按模块的锁、就绪检查逐个点名）；`create()` 是异步的。
  *
@@ -34,8 +35,8 @@ interface AlphaConfig {
 const fixtureLog = createLogger(writeStdout);
 
 /**
- * `NB_SITE_ALPHA_WAIT` 选中的那一步（`parse` 是 `parseConfig`，`create` 是 `create()`）先写一行 `fixture.waiting_stdin`，
- * 再同步阻塞着读标准输入的一行。同步读期间信号处理函数跑不了，信号排在宏任务里，等入口下一次让出事件循环才处理
+ * `NB_SITE_ALPHA_WAIT` 选中的那一步（`parse` 是 `parseConfig`，`create` 是 `create()`，`backup` 是 `prepareBackupCopy`）
+ * 先写一行 `fixture.waiting_stdin`，再同步阻塞着读标准输入的一行。同步读期间信号处理函数跑不了，信号排在宏任务里，等入口下一次让出事件循环才处理
  * （探过 Bun 1.4.4：`readSync` 不被信号打断，处理函数在之后第一次 `setImmediate` 时执行）。测试先发信号、再写这一行，
  * 信号就一定在这一步之后、入口的下一个检查点之前被处理，结果不依赖两个进程的相对速度。
  */
@@ -161,6 +162,11 @@ function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
         create: (context) => {
             if (context.config.waitInCreate) blockOnStdinLine("create");
             return createAlpha(context);
+        },
+        prepareBackupCopy: (copy) => {
+            // 备份命令不读模块的配置（见 `SiteModule.prepareBackupCopy`），夹具只好直接读环境变量。
+            if (process.env.NB_SITE_ALPHA_WAIT === "backup") blockOnStdinLine("backup");
+            copy.query(`DELETE FROM "item" WHERE "label" = 'raw'`).run();
         },
         commands: [
             {
