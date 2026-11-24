@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>官方站前端 第 4 轮：图表库与看板</title>
+<title>官方站前端 第 5 轮：看板下半屏的错误、崩溃与升级</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -43,41 +43,13 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>官方站前端 第 4 轮：图表库与看板</h1>
+<h1>官方站前端 第 5 轮：看板下半屏的错误、崩溃与升级</h1>
 
-<section data-nbdev-question="chart-library" data-nbdev-type="single" data-nbdev-recommend="echarts">
-  <h2>看板的图用哪个图表库？</h2>
-  <p class="rec"><strong>推荐 ECharts：提示框、十字线、线尾的名字都自带，要自己写的最少；它最大，但看板只有管理员打开，做成单独的一块，普通用户不会下载到。</strong></p>
-  <div class="cands">
-    <div class="cand lib" data-nbdev-option="echarts" data-nbdev-label="ECharts 6.1.0">
-      <a class="shot" href="r4/cand-echarts.webp" data-nbdev-skip><img src="r4/cand-echarts.webp" alt="ECharts 画的活跃图，鼠标停在 11-17"></a>
-      <div>
-        <h3>ECharts 6.1.0</h3>
-        <table class="facts"><tbody><tr><th>这张图的下载体积</th><td>178 KB</td></tr><tr><th>最近一次发布</th><td>2026-05-19</td></tr><tr><th>提示框</th><td>自带，是页面元素，可以照应用里浮层的样子画</td></tr><tr><th>十字线</th><td>自带</td></tr><tr><th>线尾写名字</th><td>自带</td></tr><tr><th>这张图的代码</th><td>57 行</td></tr></tbody></table>
-      </div>
-    </div>
-    <div class="cand lib" data-nbdev-option="chartjs" data-nbdev-label="Chart.js 4.6.2">
-      <a class="shot" href="r4/cand-chartjs.webp" data-nbdev-skip><img src="r4/cand-chartjs.webp" alt="Chart.js 画的活跃图，鼠标停在 11-17"></a>
-      <div>
-        <h3>Chart.js 4.6.2</h3>
-        <table class="facts"><tbody><tr><th>这张图的下载体积</th><td>56 KB</td></tr><tr><th>最近一次发布</th><td>2026-11-23</td></tr><tr><th>提示框</th><td>自带，画在画布上，只能调颜色与字体</td></tr><tr><th>十字线</th><td>没有，图上这条是自己写的</td></tr><tr><th>线尾写名字</th><td>没有，要自己画</td></tr><tr><th>这张图的代码</th><td>100 行</td></tr></tbody></table>
-      </div>
-    </div>
-    <div class="cand lib" data-nbdev-option="uplot" data-nbdev-label="uPlot 1.6.32">
-      <a class="shot" href="r4/cand-uplot.webp" data-nbdev-skip><img src="r4/cand-uplot.webp" alt="uPlot 画的活跃图，鼠标停在 11-17"></a>
-      <div>
-        <h3>uPlot 1.6.32</h3>
-        <table class="facts"><tbody><tr><th>这张图的下载体积</th><td>24 KB</td></tr><tr><th>最近一次发布</th><td>2025-03-14</td></tr><tr><th>提示框</th><td>没有，图上这个是自己写的</td></tr><tr><th>十字线</th><td>自带</td></tr><tr><th>线尾写名字</th><td>没有，要自己画</td></tr><tr><th>这张图的代码</th><td>76 行，另加提示框的样式</td></tr></tbody></table>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="dashboard-final" data-nbdev-type="confirm" data-nbdev-label="看板照图做">
-  <h2>看板照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：排法与第 1 轮相同，两张趋势图换成了真的图表（这张用 ECharts 画），三条线各用一种颜色，鼠标停在哪一天就显示那一天的数。</strong></p>
+<section data-nbdev-question="dashboard-errors" data-nbdev-type="confirm" data-nbdev-label="看板下半屏的错误、崩溃、升级照图做">
+  <h2>看板下半屏的错误、崩溃、升级照图做吗？</h2>
+  <p class="rec"><strong>推荐同意：接在留存下面，往下滚才看到。错误按份数从多到少排，右边那条是“出现过这个错误的上报里，一天出现了几次”，颜色越深次数越多；崩溃与升级沿用版本、系统那种横条。</strong></p>
   <div class="stack">
-    <a href="r4/dashboard.webp" data-nbdev-skip><img src="r4/dashboard.webp" alt="看板：今天的四个数，活跃与在线两张趋势图，版本、系统、留存"></a>
+    <a href="r5/dashboard.webp" data-nbdev-skip><img src="r5/dashboard.webp" alt="看板整页：上面是第 4 轮定下的部分，最下面一行是错误表、崩溃与升级"></a>
   </div>
 </section>
 
@@ -86,7 +58,6 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <table>
     <thead><tr><th>事项</th><th>现在图上是什么</th></tr></thead>
     <tbody>
-      <tr><td>看板下面的“错误与崩溃”一块</td><td>还没画，定了图表库之后照同样的画法出</td></tr>
       <tr><td>红色印章里的字</td><td>临时写的 NB</td></tr>
       <tr><td>隐私政策与服务条款两页</td><td>等条款的文字起草后再排</td></tr>
     </tbody>
@@ -106,6 +77,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>GitHub、Google 是登录与注册表单下面的两个图标（第 3 轮）</li>
     <li>账号页一页到底、没有横幅；没有邮箱的账号只在邮箱那一格与目录里标出（第 3 轮）</li>
     <li>列表页用同一个带工具条与分页的数据表格，做成 nb-ui 的通用组件（第 3 轮）</li>
+    <li>图表库用 ECharts；看板上半屏照第 4 轮的图做（第 4 轮）</li>
   </ol>
 </section>
 </main>
