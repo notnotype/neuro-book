@@ -29,5 +29,6 @@ t02 之后的 Task 叠在一条线上：t03 从 t02 的分支 `feat/w00025-t02-e
 - 2026-11-12 开发者试用 t13 后提了批注界面的五条反馈（浮层位置、重叠波浪线、点击不该弹卡片、页边样式与动画、块批注样式与入口）和“编辑批注内的文字”的核对，建 [t22](tasks/t22-comments-feedback/README.md)，开发者在场，方案会话里确认。
 - 2026-11-12 开发者试用 t22 后提了第二轮反馈：悬停弹卡片改成 Ctrl 悬停与小符号、页边按段排槽位（同段多条切换、展开浮着），建 [t23](tasks/t23-comments-margin-by-block/README.md)，开发者在场，方案会话里确认（“可以”）。
 - 2026-11-18 开发者提出 Markdown 正文字体设置与编辑器里的 Ctrl+滚轮调字号，建 [t27](tasks/t27-editor-font-size/README.md)（由 w00046 的桌面试用中问到字号设置引出）；同日完成并合入 master（b611b2ca4）：Markdown 正文字体、字号、行距设置，桌面里编辑器上的 Ctrl+滚轮改字号，界面缩放不再受滚轮影响。
+- 2026-11-24 开发者在确认 w00039 t39（条目主文字的整篇编辑器）的计划时提出“现有的章节编辑器也应该有阅读模式”，并同意建 Task：[t28](tasks/t28-editor-reading-mode/README.md)，未开工。
 - t02 到 t19 的状态以各 Task README 与 `nbdev status --work w00025` 为准；t19 已撤销，由 [w00041](../w00041-themes-and-backgrounds/README.md) 重做。
 
