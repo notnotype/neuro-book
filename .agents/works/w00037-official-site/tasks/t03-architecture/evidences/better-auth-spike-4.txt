@@ -1,0 +1,206 @@
+Better Auth 选型探针第四轮（2026-11-24）：SQLite 上注册码的消费是否与建账号同事务；对外 OAuth 的完整流程；封禁后的访问令牌
+环境：Bun 1.4.4，better-auth 1.7.27，@better-auth/oauth-provider 1.7.27；数据库是临时目录里的 SQLite 文件（WAL），注册码表与库的表在同一个文件里。
+
+===== 输出（只留结果行） =====
+[T1 first sign-up] 200
+[T1 duplicate username with code ONE] 400 {"message":"Username is already taken. Please try another.","code":"USERNAME_IS_ALREADY_TA used(ONE)=0
+[T1 ONE then reuse] first=200 second=403 used(ONE)=1 users=2
+[T2 concurrent on one-use code] statuses=200,403,403,403,403,403,403,403 used(RACE)=1 racers=1
+[T3 social sign-up with taken username] 302 /sign-in-error?error=unable_to_create_user used(SOC)=0
+[T3 social sign-up ok] 302 /done used(SOC)=1
+[T4 oauth on sqlite] {"authorize":302,"loginContinues":true,"consent":200,"token":200,"userinfo":"200 sub=2","replay":400}
+[T5 access token after ban] ban=200 userinfo=401
+
+===== 脚本 spike4.ts =====
+// 一次性探针第四轮：SQLite 上注册码的消费是否与建账号同事务；对外 OAuth 的完整流程。不进仓库。
+import {betterAuth} from "better-auth";
+import {APIError, getOAuthState} from "better-auth/api";
+import {admin, genericOAuth, jwt, username} from "better-auth/plugins";
+import {getMigrations} from "better-auth/db/migration";
+import {oauthProvider} from "@better-auth/oauth-provider";
+import {Database} from "bun:sqlite";
+import {Hono} from "hono";
+import {mkdtempSync, rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {createHash, randomBytes, scrypt as scryptCb} from "node:crypto";
+import {promisify} from "node:util";
+
+const scrypt = promisify(scryptCb);
+const BASE = "http://localhost:3999";
+const UP = "http://127.0.0.1:4012";
+const dir = mkdtempSync(join(tmpdir(), "nbsite-spike3-"));
+
+const upstreamUsers: Record<string, {id: number; login: string; name: string; email: string; email_verified: boolean}> = {
+    gh: {id: 9001, login: "octo", name: "Octo", email: "octo@example.com", email_verified: true},
+    gg: {id: 7001, login: "octo-g", name: "Octo G", email: "octo@example.com", email_verified: true},
+};
+let nextUpstreamUser = "gh";
+const upstream = Bun.serve({
+    port: 4012, hostname: "127.0.0.1",
+    async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/authorize") {
+            const back = new URL(url.searchParams.get("redirect_uri")!);
+            back.searchParams.set("code", nextUpstreamUser);
+            back.searchParams.set("state", url.searchParams.get("state") ?? "");
+            return Response.redirect(back.toString(), 302);
+        }
+        if (url.pathname === "/token") {
+            const form = new URLSearchParams(await req.text());
+            return Response.json({access_token: `tok-${form.get("code")}`, token_type: "bearer"});
+        }
+        if (url.pathname === "/user") {
+            const user = upstreamUsers[(req.headers.get("authorization") ?? "").replace(/^Bearer tok-/i, "")];
+            return user ? Response.json(user) : new Response("unauthorized", {status: 401});
+        }
+        return new Response("not found", {status: 404});
+    },
+});
+
+const provider = (providerId: string) => ({
+    providerId, clientId: "fake", clientSecret: "fake",
+    authorizationUrl: `${UP}/authorize`, tokenUrl: `${UP}/token`, userInfoUrl: `${UP}/user`,
+    scopes: ["read"], disableImplicitSignUp: true,
+    mapProfileToUser: (profile: Record<string, unknown>) => ({
+        name: String(profile.name), email: profile.email as string, emailVerified: Boolean(profile.email_verified)}),
+});
+
+function makeAuth(file: string, disableImplicitLinking: boolean) {
+    const db = new Database(join(dir, file));
+    db.exec("PRAGMA journal_mode = WAL;");
+    const auth = betterAuth({
+        baseURL: BASE, basePath: "/api/identity/auth",
+        secret: "spike-secret-spike-secret-spike-secret-1234",
+        database: db,
+        advanced: {database: {generateId: "serial"}},
+        disabledPaths: ["/token"],
+        account: {accountLinking: {disableImplicitLinking}},
+        emailAndPassword: {
+            enabled: true,
+            password: {
+                hash: async (password) => `argon2-new:${await Bun.password.hash(password)}`,
+                verify: async ({password, hash}) => {
+                    if (hash.startsWith("scrypt:")) {
+                        const [, salt, keyHex] = hash.split(":");
+                        const key = (await scrypt(password, salt!, 64)) as Buffer;
+                        return key.toString("hex") === keyHex;
+                    }
+                    return Bun.password.verify(password, hash.replace(/^argon2-new:/, ""));
+                },
+            },
+        },
+        databaseHooks: {user: {create: {before: async (user, ctx) => {
+            const fromBody = (ctx?.body as {registrationCode?: string} | undefined)?.registrationCode;
+            const state = ctx?.path?.includes("callback") ? await getOAuthState<{registrationCode?: string; username?: string}>() : null;
+            const code = fromBody ?? state?.registrationCode ?? "";
+            // 条件更新：还有额度才扣；与库建用户用的是同一个连接。
+            const changed = db.query(`update registration_code set used = used + 1 where code = ? and used < max_uses`).run(code).changes;
+            if (changed !== 1) throw new APIError("FORBIDDEN", {message: "registration_code_required"});
+            return {data: {...user, ...(state?.username ? {username: state.username, displayUsername: state.username} : {})}};
+        }}}},
+        plugins: [username(), admin(), jwt({disableSettingJwtHeader: true}),
+            oauthProvider({loginPage: "/sign-in", consentPage: "/consent"}),
+            genericOAuth({config: [provider("github"), provider("google")]})],
+    });
+    const app = new Hono();
+    app.on(["GET", "POST"], "/api/identity/auth/*", (c) => auth.handler(c.req.raw));
+    return {auth, app, db};
+}
+
+class Jar {
+    private map = new Map<string, string>();
+    absorb(res: Response) {
+        for (const c of res.headers.getSetCookie()) {
+            const [pair] = c.split(";"); const i = pair!.indexOf("=");
+            const name = pair!.slice(0, i); const value = pair!.slice(i + 1);
+            if (value === "" || /max-age=0/i.test(c)) this.map.delete(name); else this.map.set(name, value);
+        }
+    }
+    header() { return [...this.map].map(([k, v]) => `${k}=${v}`).join("; "); }
+}
+type App = ReturnType<typeof makeAuth>["app"];
+async function call(app: App, jar: Jar, path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers);
+    if (jar.header()) headers.set("cookie", jar.header());
+    if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+    headers.set("origin", BASE);
+    const res = await app.fetch(new Request(path.startsWith("http") ? path : `${BASE}${path}`, {...init, headers, redirect: "manual"}));
+    jar.absorb(res);
+    const text = await res.text();
+    let json: any; try { json = JSON.parse(text); } catch { /* 非 JSON */ }
+    return {status: res.status, json, text, location: res.headers.get("location")};
+}
+async function social(app: App, jar: Jar, providerId: string, body: Record<string, unknown>) {
+    const start = await call(app, jar, "/api/identity/auth/sign-in/social", {method: "POST", body: JSON.stringify({provider: providerId, callbackURL: "/done", errorCallbackURL: "/sign-in-error", ...body})});
+    if (!start.json?.url) return {status: start.status, location: `start failed: ${start.text.slice(0, 120)}`};
+    const up = await fetch(start.json.url, {redirect: "manual"});
+    return call(app, jar, up.headers.get("location")!);
+}
+const note = (k: string, v: unknown) => console.log(`[${k}]`, typeof v === "string" ? v : JSON.stringify(v));
+const signUp = (app: App, jar: Jar, name: string) => call(app, jar, "/api/identity/auth/sign-up/email", {method: "POST",
+    body: JSON.stringify({email: `${name}@example.com`, name, username: name, password: "password1234", registrationCode: "REG-OK"})});
+
+const used = (db: Database, code: string) => (db.query(`select used from registration_code where code = ?`).get(code) as {used: number}).used;
+const signUpWith = (app: App, jar: Jar, name: string, code: string, email = `${name}@example.com`) => call(app, jar, "/api/identity/auth/sign-up/email", {method: "POST",
+    body: JSON.stringify({email, name, username: name, password: "password1234", registrationCode: code})});
+
+async function main() {
+    const {auth, app, db} = makeAuth("main.db", true);
+    await (await getMigrations(auth.options)).runMigrations();
+    db.exec(`create table registration_code (code text primary key, max_uses integer not null, used integer not null default 0)`);
+    db.exec(`insert into registration_code(code, max_uses) values ('ONE', 1), ('MANY', 100), ('RACE', 1), ('SOC', 1)`);
+
+    // T1：建账号失败（用户名重复）时，注册码有没有被扣掉
+    const alice = new Jar();
+    note("T1 first sign-up", (await signUpWith(app, alice, "alice", "MANY")).status);
+    const dup = await signUpWith(app, new Jar(), "alice", "ONE", "other@example.com");
+    note("T1 duplicate username with code ONE", `${dup.status} ${dup.text.slice(0, 90)} used(ONE)=${used(db, "ONE")}`);
+    const ok = await signUpWith(app, new Jar(), "carol", "ONE");
+    const again = await signUpWith(app, new Jar(), "dave", "ONE");
+    note("T1 ONE then reuse", `first=${ok.status} second=${again.status} used(ONE)=${used(db, "ONE")} users=${(db.query(`select count(*) n from user`).get() as {n: number}).n}`);
+
+    // T2：一个额度的码，8 个并发注册
+    const results = await Promise.all(Array.from({length: 8}, (_, i) => signUpWith(app, new Jar(), `racer${i}`, "RACE")));
+    note("T2 concurrent on one-use code", `statuses=${results.map((r) => r.status).join(",")} used(RACE)=${used(db, "RACE")} racers=${(db.query(`select count(*) n from user where username like 'racer%'`).get() as {n: number}).n}`);
+
+    // T3：社交注册扣码；回调失败（用户名重复）时码还在不在
+    nextUpstreamUser = "gh";
+    const socDup = await social(app, new Jar(), "github", {requestSignUp: true, additionalData: {registrationCode: "SOC", username: "alice"}});
+    note("T3 social sign-up with taken username", `${socDup.status} ${socDup.location} used(SOC)=${used(db, "SOC")}`);
+    const socOk = await social(app, new Jar(), "github", {requestSignUp: true, additionalData: {registrationCode: "SOC", username: "octo"}});
+    note("T3 social sign-up ok", `${socOk.status} ${socOk.location} used(SOC)=${used(db, "SOC")}`);
+
+    // T4：对外 OAuth 的完整流程（SQLite 上）
+    db.query(`update user set role = 'admin' where username = 'alice'`).run();
+    await call(app, alice, "/api/identity/auth/sign-in/username", {method: "POST", body: JSON.stringify({username: "alice", password: "password1234"})});
+    const client = await auth.api.adminCreateOAuthClient({headers: new Headers({cookie: alice.header()}),
+        body: {client_name: "测试客户端", redirect_uris: ["https://client.example/cb"], token_endpoint_auth_method: "client_secret_basic", skip_consent: false, scope: "openid profile"} as never}) as {client_id: string; client_secret: string};
+    const verifier = randomBytes(32).toString("base64url");
+    const q = new URLSearchParams({response_type: "code", client_id: client.client_id, redirect_uri: "https://client.example/cb", scope: "openid profile", state: "s1",
+        code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256"});
+    const browser = new Jar();
+    const step1 = await call(app, browser, `/api/identity/auth/oauth2/authorize?${q}`);
+    const signed = step1.location!.slice(step1.location!.indexOf("?") + 1);
+    const step2 = await call(app, browser, "/api/identity/auth/sign-in/username", {method: "POST", body: JSON.stringify({username: "carol", password: "password1234", oauth_query: signed})});
+    const consentUrl: string = step2.json?.url ?? "";
+    const step3 = await call(app, browser, "/api/identity/auth/oauth2/consent", {method: "POST", body: JSON.stringify({accept: true, oauth_query: consentUrl.slice(consentUrl.indexOf("?") + 1)})});
+    const code = step3.json?.url ? new URL(step3.json.url).searchParams.get("code") : null;
+    const basic = Buffer.from(`${client.client_id}:${client.client_secret}`).toString("base64");
+    const tokenReq = () => call(app, new Jar(), "/api/identity/auth/oauth2/token", {method: "POST",
+        headers: {"content-type": "application/x-www-form-urlencoded", authorization: `Basic ${basic}`},
+        body: new URLSearchParams({grant_type: "authorization_code", code: code ?? "", redirect_uri: "https://client.example/cb", code_verifier: verifier}).toString()});
+    const token = await tokenReq();
+    const userinfo = await call(app, new Jar(), "/api/identity/auth/oauth2/userinfo", {headers: {authorization: `Bearer ${token.json?.access_token}`}});
+    const replay = await tokenReq();
+    note("T4 oauth on sqlite", {authorize: step1.status, loginContinues: Boolean(consentUrl.includes("/consent")), consent: step3.status, token: token.status, userinfo: `${userinfo.status} sub=${userinfo.json?.sub}`, replay: replay.status});
+    // T5：封禁后，已发出的访问令牌还能不能用
+    const carolId = (db.query(`select id from user where username = 'carol'`).get() as {id: number}).id;
+    const ban = await call(app, alice, "/api/identity/auth/admin/ban-user", {method: "POST", body: JSON.stringify({userId: String(carolId)})});
+    const afterBan = await call(app, new Jar(), "/api/identity/auth/oauth2/userinfo", {headers: {authorization: `Bearer ${token.json?.access_token}`}});
+    note("T5 access token after ban", `ban=${ban.status} userinfo=${afterBan.status}`);
+    db.close();
+}
+
+main().catch((error) => { console.error("SPIKE3 CRASH", error); process.exitCode = 1; })
+    .finally(() => { upstream.stop(true); rmSync(dir, {recursive: true, force: true}); });

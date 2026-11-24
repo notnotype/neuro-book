@@ -23,6 +23,7 @@ updated: 2026-11-24
 - **扩展承载范围**：除原有账号、备份与跨设备同步外，明确规划承载 **Skill / 插件 / Profile 市场**（延续安全扫描、检测与审核方向）、**小说发布**、**用户交流与论坛**、**OAuth 登录**。
 - **部署定位与低锁定架构基线**：主定位**独立部署在 VPS**；可兼容 Cloudflare（例如外层 DNS/WAF、经标准 S3 API 使用 R2 享零出站流量、或同一套 Web Standards HTTP 路由按需部署到 Workers），但**不强依赖 Cloudflare 专有能力（D1 / Service Bindings / Queues / Containers）**，确保切出 Cloudflare 时改动极小。不建议前期拆细粒度微服务，推荐「VPS 优先的可移植模块化单体（Hono + PostgreSQL + 标准 S3 API）」，详见 [w00053 调研第 5.3 节](../w00053-telemetry-feedback-stats/research/2026-11-23-telemetry-feedback-and-stats.md#53-专题评估cloudflare-workers-能否做-neuro-book-site-微服务如何兼顾-vps-独立部署与灵活切出)。
 - **重写方向（开发者 2026-11-24）**：按微服务的思想搭，按 2 核 2 GB 承接 100 同时访问设计；Bun、TypeScript、前后端分离、前端用 nb-ui；后端测试要能在换语言重写后复用；第一版只做管理面板（用户、邀请码、类似 Umami 的数据收集、OAuth），先不做市场。取代上一条里“不建议拆微服务”的建议，详见 [t01](tasks/t01-requirements/README.md)。
+- **设计审查之后（开发者 2026-11-24）**：数据库用每个模块一个 SQLite 文件（取代上面的 PostgreSQL）；第一版的范围先查旧站的账号数再定；境外存放先不找人确认。提案草稿见 [官方站重写](../../../docs/proposals/official-site-rewrite.md)。
 - **与遥测/反馈的关系**：产品遥测与非阻塞反馈在 [w00053](../w00053-telemetry-feedback-stats/README.md) 独立推进，暂不阻塞或强耦合官网重写排期。
 
 ## Task
