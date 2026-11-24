@@ -50,7 +50,7 @@ const language: LanguageDefinition["language"] = {
         root: [
             [/^\s*`{3,}[^\n]*/u, {token: "string", next: "@fenceBacktick"}],
             [/^\s*~{3,}[^\n]*/u, {token: "string", next: "@fenceTilde"}],
-            [/^(\s{0,3})(#{1,6})(?=\s)/u, ["", {token: "keyword", next: "@heading"}]],
+            [/^(\s{0,3})(#{1,6})(?=\s)/u, ["", {token: "keyword.heading", next: "@heading"}]],
             [/^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/u, "keyword"],
             [/^\s*>+/u, "comment"],
             [/^(\s*)([-*+]|\d{1,9}[.)])(?=\s)/u, ["", "keyword"]],
@@ -59,12 +59,12 @@ const language: LanguageDefinition["language"] = {
             [/^\s*\{/u, {token: "delimiter.bracket", next: "@flowExpression"}],
             {include: "@inline"},
         ],
-        // 标题的一整行按关键字画，里面的表达式、标签照各自的画。
+        // 标题的一整行按关键字的颜色画、加粗（编辑器主题里 `keyword.heading` 那一条），里面的表达式、标签照各自的画。
         heading: [
             [/\n/u, {token: "", next: "@pop"}],
             {include: "@inline"},
-            [/[^\\{<`*[!\n]+/u, "keyword"],
-            [/./u, "keyword"],
+            [/[^\\{<`*[!\n]+/u, "keyword.heading"],
+            [/./u, "keyword.heading"],
         ],
         inline: [
             [/@escapes/u, "string.escape"],
