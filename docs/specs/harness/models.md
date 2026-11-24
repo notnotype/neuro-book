@@ -91,6 +91,7 @@ ompModelInfo(model: Model): ModelInfo;
     - `OmpTarget.keyless` 为真时，发出前剥掉值恰好是占位哨兵（或 `Bearer <哨兵>`）的 `Authorization`、`x-api-key`、`x-goog-api-key`；用户自己配的同名头照发。
     - `OmpTarget.route`（网络出口，[`network/egress.md`](../network/egress.md)）在每个请求发出前按完整地址选路，交回的 `proxy` 原样写进 Bun 的按次 `proxy`（`false` 是直连，盖过 `HTTP_PROXY`、`HTTPS_PROXY` 与 pi-ai 的 `PI_PROXY`）；选不出路时不发，`ompCall` 以 `local` 类别交回出口的码（`proxy-unsupported`、`proxy-invalid`、`proxy-unreadable`），与 `guard` 一样优先于适配器的通用错误、各协议不重试。选完路之后再核一次 `guard`（选路是异步的，期间配置可能已经变了）。选到的代理带凭据时，凭据进错误文字的遮盖名单。`buildResolution` 没收到 `route` 时用 `DIRECT_ROUTE`（直连）；列表、在线目录与协议检测同样收 `route`。
 22. **回复的签发身份**：回复带 `origin = {provider, api, model, deployment, credential?}`（`provider`、`api`、`model` 是发给 OMP 的身份；`deployment` 由宿主给，区分实例与它当时的有效地址和协议；`credential` 只在签名绑定凭据的协议上有，是凭据值的 HMAC，不含原文）。它经 `modelEnded` 事件写进会话日志、在重开后的历史投影与 `Message` 里保留。下一次请求送回历史时，思考签名与服务商元数据只在 `origin` 整组相同（OMP 身份、协议、作答的模型、部署、`credential`）时原样送回；旧日志没有 `origin` 时按 `model` 的第一段等于当前实例 id 判断，模型 id 照历史交给 OMP，换了模型时由它不送签名；不相同时送回不带专用元数据的历史，不报错。同名删了重建（新 `uid`）、换地址或协议、同址换凭据（密钥或认证头）、同一实例换了模型之后，旧回复的签名都不再送回。
+23. **缓存键按会话固定**：调用说明带 `session` 时，同一会话的每次请求（对话、压缩、审批模型）发给服务商的 `prompt_cache_key`（协议支持该字段的）相同，不同会话不同；不带（`complete()`）时由 OMP 自己生成。服务端按这个键分片缓存，每次换键等于每轮换一台后端，整段前缀都不命中。
 
 ## 状态与转换
 
