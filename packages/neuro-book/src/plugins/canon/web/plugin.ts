@@ -17,7 +17,7 @@ import type {PropType} from "vue";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
-import {editorComponentsKey, EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
+import {editorComponentsKey, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
@@ -46,6 +46,7 @@ import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMM
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
+import {ENTRY_LANGUAGE, ENTRY_LANGUAGE_DECLARATION, entryLanguageDefinition} from "./entry-language";
 import {createEntryPage, originsFetcher} from "./entry-page";
 import {createTextDrafts} from "./text-drafts";
 import {createNotices} from "./notices";
@@ -156,6 +157,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: ENTRY_PAGE, declaration: ENTRY_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: RECEIPT_PAGE, declaration: RECEIPT_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
+            {capability: EDITOR_LANGUAGES_POINT, id: ENTRY_LANGUAGE, declaration: ENTRY_LANGUAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: BUILTIN_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
@@ -310,6 +312,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem, [LINE_ITEM]: lineItem},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                     [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},
+                    [EDITOR_LANGUAGES_POINT]: {[ENTRY_LANGUAGE]: {load: () => Promise.resolve(entryLanguageDefinition)}},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
                         [PERSON_COMPONENT]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
