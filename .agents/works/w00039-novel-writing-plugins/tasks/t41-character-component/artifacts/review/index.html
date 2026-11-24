@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 轮：人物与形象两个分页</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cands.with-phone { grid-template-columns: minmax(0, 5fr) minmax(0, 5fr) minmax(0, 2fr); }
+@media (max-width: 760px) { .cands, .cands.with-phone { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 4px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; list-style: none; }
+.tabs li:first-child { font-weight: 600; box-shadow: 0 2px 0 var(--accent); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 2 轮：人物与形象两个分页</h1>
+
+<section data-nbdev-question="person-tab" data-nbdev-type="confirm" data-nbdev-label="人物分页照这个样子做">
+  <h2>人物分页照这个样子做？</h2>
+  <p class="rec"><strong>推荐同意：立绘读自形象这一组；右边一行一项的短资料，自己加的项排在后面；下面是现在的状态与成段的文字。</strong></p>
+  <div class="cands with-phone">
+    <div class="cand">
+      <h3>填好的人物</h3>
+      <img src="r2/person-filled.webp" alt="填好的人物分页：左边立绘，右边性别、年龄、身份、所属、现在在哪、生死、种族、喜好与添加一项资料，下面是现在的状态、性格、说话方式、背景">
+    </div>
+    <div class="cand">
+      <h3>条目上没有形象这一组</h3>
+      <img src="r2/person-no-look.webp" alt="没有形象这一组时：立绘的位置是添加形象，分页里没有形象">
+    </div>
+    <div class="cand">
+      <h3>手机宽</h3>
+      <img src="r2/person-phone.webp" alt="手机宽：立绘在上，资料排成一列">
+    </div>
+    <div class="cand">
+      <h3>刚新建的人物</h3>
+      <img src="r2/person-empty.webp" alt="刚新建的人物：立绘的位置是添加立绘，每一项写着填写">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="edit-flow" data-nbdev-type="confirm" data-nbdev-label="改一项照这个方式做">
+  <h2>改一项：短的在浮层里改，成段的浮在原处改？</h2>
+  <p class="rec"><strong>推荐同意：点值就改，别的内容都不动；点浮层外面或按 Esc 等于取消；值在剧情里变过时，点“第 N 章改过”看来历。</strong></p>
+  <div class="cands">
+    <div class="cand">
+      <h3>有建议值的：下拉里选，也能直接写</h3>
+      <img src="r2/edit-suggest.webp" alt="改性别：浮层里一个下拉，列着男、女、不明">
+    </div>
+    <div class="cand">
+      <h3>指向条目的：按名字搜</h3>
+      <img src="r2/edit-ref.webp" alt="改所属：浮层里是条目搜索，下面选一直是这样还是从第 3 章末尾起，写着在第 3 章末尾记一条变更">
+    </div>
+    <div class="cand">
+      <h3>成段的文字</h3>
+      <img src="r2/edit-text.webp" alt="改背景：编辑层浮在这一段上面，里面是输入框、意图与保存取消">
+    </div>
+    <div class="cand">
+      <h3>点“第 2 章改过”看来历</h3>
+      <img src="r2/origins.webp" alt="现在在哪的来历：第 2 章把妹妹接回老宅同住，初值是第三魔法学院宿舍">
+    </div>
+    <div class="cand">
+      <h3>现在的状态：之前记下的各句与记一句</h3>
+      <img src="r2/semantic.webp" alt="现在的状态点开：第 2 章、第 1 章记下的两句与起点，下面是记一句的输入框与改起点">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="look-tab" data-nbdev-type="confirm" data-nbdev-label="形象分页照这个样子做">
+  <h2>形象分页照这个样子做？</h2>
+  <p class="rec"><strong>推荐同意：大图、外貌、现在穿的在上，衣柜在下；点某一套的“换上”就是改现在穿的，预选“从这一章起”。</strong></p>
+  <div class="cands with-phone">
+    <div class="cand">
+      <h3>填好的形象</h3>
+      <img src="r2/look-filled.webp" alt="形象分页：左边大的立绘，右边外貌与现在穿的，下面衣柜四套各一张卡，现在穿的那一套写着穿着">
+    </div>
+    <div class="cand">
+      <h3>换装</h3>
+      <img src="r2/look-wearing.webp" alt="点学院制服的换上：浮层里现在穿的填好学院制服，选着从第 3 章末尾起">
+    </div>
+    <div class="cand">
+      <h3>手机宽</h3>
+      <img src="r2/look-phone.webp" alt="手机宽：立绘在上，外貌与现在穿的在下">
+    </div>
+    <div class="cand">
+      <h3>选立绘：从作品的图片里选，或者上传</h3>
+      <img src="r2/look-pick-image.webp" alt="点立绘：浮层里是作品里的图片，可以上传，下面填图片的说明">
+    </div>
+    <div class="cand">
+      <h3>刚加上、还空着</h3>
+      <img src="r2/look-empty.webp" alt="空的形象分页：添加立绘、外貌的提示、添加一套">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="add-and-new" data-nbdev-type="confirm" data-nbdev-label="添加一项资料与新建条目照这个样子做">
+  <h2>添加一项资料与新建条目照这个样子做？</h2>
+  <p class="rec"><strong>推荐同意：添加一项里列预设的与去掉过的，也能自己写名字；新建时选了“人物”就勾上人物与形象两组，还能改。</strong></p>
+  <div class="cands">
+    <div class="cand">
+      <h3>添加一项资料</h3>
+      <img src="r2/add-field.webp" alt="添加一项资料的浮层：生日、弱点、动机、初次登场，恢复身高，下面是自己写名字的输入框">
+    </div>
+    <div class="cand">
+      <h3>新建条目</h3>
+      <img src="r2/new-entry.webp" alt="新建条目的对话框：种类下面列着人物、组织、地点、物品，启用哪些数据里人物与形象已经勾上">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="tab-order" data-nbdev-type="single" data-nbdev-recommend="person-first">
+  <h2>人物的条目打开时先看哪个分页？</h2>
+  <p class="rec"><strong>推荐 A 人物在前：打开一个人物，先看到他是谁、长什么样；主文字退到后面。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="person-first" data-nbdev-label="A 人物在前">
+      <h3>A 人物在前</h3>
+      <ul class="tabs"><li>人物</li><li>形象</li><li>文字</li><li>经历</li><li>情节</li></ul>
+    </div>
+    <div class="cand" data-nbdev-option="text-first" data-nbdev-label="B 文字在前">
+      <h3>B 文字在前（现在的做法）</h3>
+      <ul class="tabs"><li>文字</li><li>人物</li><li>形象</li><li>经历</li><li>情节</li></ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>一个设定组是数据加展示，一个分页对应一个设定组；形象单独成组，人物的展示引用它；展示部分先用 Vue 组件写（2026-11-24）</li>
+    <li>改一项时就地改，不跳到页面顶上的确认条；本期只做人物、形象两个分页（2026-11-24）</li>
+    <li>“添加”分两个入口：添加一项资料、添加一组设定（2026-11-24）</li>
+    <li>四样预设都要；预设选项做成可以自己填的建议值；模板不写示例内容（2026-11-24）</li>
+    <li>种类登记默认带哪几组设定：新建人物直接带人物与形象（2026-11-24）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

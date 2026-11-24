@@ -1,0 +1,167 @@
+# w00037 t05 第 4 到 7 片实现审查（omp）
+
+审查范围：`18fdeb9cf..57eaf72b5`，不含 `packages/nb-site-web/` 的前端骨架。
+
+### 1. SIGTERM 后排空窗口仍能触发定时任务
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/nb-site-server/src/jobs.ts:50-67,83-85`；`packages/nb-site-server/src/commands/serve.ts:156-169`；`packages/nb-site-server/src/test-control.ts:88-97`。
+- **现象**：收到停止信号后，`serve()` 先等待 HTTP 排空；`scheduler.stop()` 到 `finally` 才调用。此期间 scheduler 状态仍是 `running`，而测试控制路由保持可用；排空期间到达的 `/test-control/jobs/run` 会实际启动任务并回 200，而非 503 `not_ready`。
+- **为什么是问题**：Spec 输出 11 明确规定“服务正在停止时”跑任务回 503，避免停止生命周期已开始后启动新的后台工作。新任务可能使用随后被 `close()`、关库的模块资源。原有停机等待也只会在排空后才发现这次运行，并可能因 2 秒收尾预算到期而关闭仍被任务使用的数据库。
+- **如何核实**：真实 Bun 服务进程实验：`NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00037-t05-impl2/lab-omp bun /tmp/review-w00037-t05-impl2/lab-omp/stopping-job-stream.ts`。脚本先发起带未完成请求体的真实 HTTP `POST /test-control/jobs/run`，用另一条真实 HTTP 健康请求确认服务仍在处理请求后发 `SIGTERM`，信号日志出现后补完请求体。被测进程在 `process.signal` 之后记录了 `test_control.job_run`，HTTP 回 `200 {"status":"done"}`，以 0 退出；没有返回 503。
+- **建议改法**：收到第一次停止信号时立即把调度器置为“不再接受/开始排队的新任务”，并让等待中的 `runNow()` settle 为 `unavailable`；仍按既定顺序在 HTTP 排空后清理定时器并等待已开始的那一次运行。补一条真实进程用例，任务请求在停止信号之后、排空完成之前才到达，断言 503 且任务副作用未发生。
+
+### 2. 最后一个模块复制期间收到 SIGTERM 仍提交备份并以成功退出
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-server/src/commands/backup.ts:183-202`。
+- **现象**：停止标志只在 `for (const module of modules)` 每轮开始处、`await yieldToEventLoop()` 之后检查。若当前模块是最后一个，信号在它同步执行 `prepareBackupCopy` 时到达，函数返回后循环立即结束，没有下一次让出或停止检查；程序仍把 `.partial` 改名为正式备份、写 `backup.done` 并返回成功。
+- **为什么是问题**：违反 Spec 输出 6“还没写完就收到 SIGTERM 或 SIGINT 时以 `interrupted` 结束，写到一半的那一份不算备份”。此时停止信号到达时副本还在加工，调用者却收到成功且留下完整备份。单模块进程部署时每次备份都是这个最后模块边界；双模块也可能在第二模块发生。
+- **如何核实**：真实 CLI 进程实验：`NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00037-t05-impl2/lab-omp bun /tmp/review-w00037-t05-impl2/lab-omp/backup-last-signal.ts`。用 `alpha` 单模块真实迁移后，备份进程进入最后的同步 `prepareBackupCopy` 阻塞点，发 `SIGTERM` 后再放行。结果 exit code 为 `0`，标准输出包含 `backup.done`，`backups/` 下有完整时间目录。
+- **建议改法**：让 `prepareBackupCopy` 可合作中止，或至少在每个同步复制 / 清理阶段结束并让出事件循环后再次检查停止标志、禁止正式改名；收口时按 Spec 删掉当前 `.partial`。追加真实进程测试，专门以单模块夹具覆盖最后一个模块中的信号。
+
+### 3. 备份清理沿 `backups/` 符号链接删除数据目录外的内容
+- **严重程度**：重要；**类别**：安全与性能 / 正确性。
+- **位置**：`packages/nb-site-server/src/commands/backup.ts:162-168,145-154`。
+- **现象**：备份路径固定拼为 `<dataDir>/backups`；`mkdirSync(backupsDir, {recursive:true})` 对已存在的符号链接不报错，后续锁、备份和 prune 都沿链接进入目标目录。prune 按看似合法的时间目录名递归删除它们。
+- **为什么是问题**：Spec 要求只在数据目录里的备份目录清理匹配名字的备份，不往数据目录之外写；在一个已存在的 `backups` 符号链接指向目录中，部署者手工存的同名目录会被递归删除。单靠输入数据目录必须是目录的校验，并不能保证子目录不是链接。
+- **如何核实**：真实 `nb-site` fixture CLI 实验 `/tmp/review-w00037-t05-impl2/lab-omp/backup-symlink-prune.ts`（命令为 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00037-t05-impl2/lab-omp bun /tmp/review-w00037-t05-impl2/lab-omp/backup-symlink-prune.ts`）：先创建 `data/backups -> external-backups`，在目标里放 `20200101T000000000Z/keep.txt`，迁移后以 `NB_SITE_BACKUP_KEEP=1` 备份。结果备份退出码 0，外部目录的旧时间目录被删除，`keep.txt` 读回为 `deleted`。
+- **建议改法**：对 `backups` 目录拒绝符号链接，按 `lstat` 验证目录本身是普通目录，且确保备份读写与 prune 不沿链接逃逸；增加上述真实文件系统用例，断言 symlink 目标内容保留、命令按合同失败。
+
+### 4. `prepareBackupCopy` 的 `void` 签名放过异步清理，备份照样报成功
+- **严重程度**：建议；**类别**：正确性 / 不变量。
+- **位置**：`packages/nb-site-server/src/module.ts:174-181`、`packages/nb-site-server/src/commands/backup.ts:115-141`。
+- **现象**：注释约定钩子同步执行，但 TypeScript 允许把返回 `Promise<void>` 的函数赋给返回 `void` 的回调。若模块误把异步清理接进来，入口既不等完成也不拒绝，立即 `VACUUM`、关连接、检查结构并提交完好的未清理副本。
+- **为什么是问题**：`quick_check` 不检查该剔除的行。统计模块接入后，误写异步回调可能把原始上报纳入正式备份。当前产品模块没有这个钩子。同步抛错能正确报 `prepare_failed`。同步回调留下未提交的事务时，紧接的 `VACUUM` 失败，真实进程报 `copy_failed`，没有提交正式备份。
+- **如何核实**：用真实 `runCli` 和 SQLite 的 `/tmp/review-w00037-t05-impl2/lab-omp/backup-failure-reasons.ts`。`async` 场景用异步清理回调从副本删一条合成行，实际退出 0，有 `backup.done`，正式副本里仍能读到这条行。
+- **建议改法**：保持同步约定，把返回类型收紧成 `undefined`，用类型检查卡住误接的异步函数。注明返回前必须提交或回滚所开的事务，入口在钩子后检查 `inTransaction`，按 `prepare_failed` 报错。
+
+### 5. 备份副本比原库开放，能把仅属主可读的数据复制成其他用户可读
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-site-server/src/commands/backup.ts:105-109,164-178`。
+- **现象**：`backups/` 和 `.partial` 按进程缺省目录权限创建，`VACUUM INTO` 新建的副本不继承原库的访问权限。真实命令在 `umask 0022` 下把 `0600` 的原库复制成 `0644`，备份目录和本份子目录均为 `0755`。
+- **为什么是问题**：配置只要求数据目录可写，没有要求对其他用户不可遍历。管理员可以只收紧原库文件，仍让同一主机上的其他用户读到完整副本；待清理的 `.partial` 此时还含未剔除的数据。事后给正式副本改权限挡不住复制阶段的读取。
+- **如何核实**：普通用户以 `umask 0022` 运行 `/tmp/review-w00037-t05-impl2/lab-omp/backup-failure-reasons.ts copy_mode`，脚本迁移并把原库设为 `0600` 后执行真实 `backup`。退出 0，脚本读得原库模式 `384`、副本模式 `420`（八进制 `0600`、`0644`）。
+- **建议改法**：创建当前 `.partial` 时就显式用 `0700`，正式改名保留该模式。明确备份目录权限和既有宽权限目录的处理方式，并覆盖默认 `umask` 加私有原库的用例。
+
+### 6. 拨钟只限制偏移量，模块时钟仍会超出安全整数范围
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-server/src/test-control.ts:60-81`。
+- **现象**：代码检查了 `offsetMs + advanceMs` 是否为安全整数，返回值和模块时钟用的却是 `Date.now() + offsetMs`。大步长可被接受，随后合法的 1 毫秒拨动也可能仍返回同一个 `now`。
+- **为什么是问题**：输出 11 要求每次拨动累加且时间向前走。测试入口一旦接受该值，本次进程便不能再把时间拨回可表示区间。该值也超出 JS `Date` 的表示范围，模块若用它生成日期会报错。
+- **如何核实**：真实 Bun CLI 的 `/tmp/review-w00037-t05-impl2/lab-omp/control-contract-edges.ts`。ASCII 口令场景首个请求被接受后，`now` 已经不是安全整数，`new Date(now)` 无效。接着四次各拨 1 毫秒均为 200，其中连续三次回 `9008994789767608`。该路由和偏移量在基准提交中均不存在。
+- **建议改法**：按要交给模块的最终时间校验，先算再提交偏移量，给测试钟留出明确的可用范围与墙钟继续走的余量。写明上限并补一条临界值用例，断言被拒绝的拨动没有改变偏移量。
+
+### 7. 配置接受无法原样通过 Bearer 请求头送回的口令
+- **严重程度**：建议。**类别**：正确性。
+- **位置**：`packages/nb-site-server/src/config.ts:163-167`、`src/test-control.ts:59-66`、`src/config.test.ts:114-122`。
+- **现象**：配置只检查口令至少 32 个 Unicode 码点，单测明确接受 32 个汉字。入口却对 `Bearer ` 加配置原值取摘要，按 HTTP 库解析后的请求头逐字节比较。
+- **为什么是问题**：进程报告入口已启用并照常监听，但合同调用方可能无法用配置中有效的值完成授权。尾随空格被 HTTP 客户端规范化后也会产生这种启动成功、调用永远 404 的状态。
+- **如何核实**：`/tmp/review-w00037-t05-impl2/lab-omp/control-contract-edges.ts` 实际启动两个 CLI 服务。32 个汉字的合成口令通过配置，合同客户端使用的 Bun `fetch` 拒绝构造请求头（`TypeError`）。另一个合成口令以空格结尾，`fetch` 照常发出请求但回 404。同脚本的纯 ASCII 口令得到 200。
+- **建议改法**：在 Spec 明确口令使用可无歧义传输的字符集，例如 Base64URL，不自动改写配置的值。不合格值启动时按配置失败收口，保留端到端用例验证合格值能授权。
+
+### 8. SIGTERM 取消合同测试时，`exit` 钩子没停掉服务子进程
+- **严重程度**：重要；**类别**：不变量 / 测试。
+- **位置**：`packages/nb-site-contract-tests/src/testing/site.ts:154-169,389-402`；`docs/testing/README.md:134`。
+- **现象**：底座靠 `afterEach`、`afterAll` 和 `process.on("exit")` 收口。Bun 测试父进程按默认动作处理 SIGTERM 时，这些钩子都没有终止已登记的子进程。
+- **为什么是问题**：只取消测试进程本身就会留下仍能接连接、占着库锁的服务；不必用文档已列为例外的 SIGKILL。关掉父进程的日志管道也不等于关掉子进程。
+- **如何核实**：在受控临时根运行 `/tmp/review-w00037-t05-impl2/lab-omp/contract-sigterm.ts`。驱动器起真实 `bun test`，用未修改的沙箱起真实 `runCli` 服务，等就绪后只给测试父进程发 SIGTERM。父进程退出码 143，此后服务的原端口仍回 HTTP（本次因日志管道断开回了 500）。探针在 `finally` 单独终止该服务，随后核对它已退出。
+- **建议改法**：底座保证测试取消信号也进入收口，或通过现有受管子进程机制管理测试所拥有的进程。若加信号处理，防止重复收尾，等子进程退出后保留原信号退出语义；补一条测真实测试父进程被取消的回归用例。
+
+### 9. 副本校验删除后测试照过，真实 SQLite 反例可补这条用例
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-server/src/commands/backup.ts:133-141`、`src/backup.test.ts:98-120`；`packages/nb-site-contract-tests/src/operations.test.ts:321-325`。
+- **现象**：当前用例在好副本上从外部执行 `quick_check`，没有断言命令拒绝一个能写出、却过不了校验的副本。只删产品副本校验，备份包内用例仍 8 过，合同测试仍 29 过、2 跳过。
+- **为什么是问题**：看起来跑过两层校验，实际没有一条保护发布前的拒绝行为。该分支不是防不可能的事：真实 SQLite 能通过 `VACUUM INTO` 复制出含有 STRICT 类型不一致行的库。
+- **如何核实**：在实验目录生成 `beta.db`：普通 `INTEGER` 列写一行非数字文本，用 SQLite CLI 临时关闭 defensive 后只将表的存储定义改为 `STRICT`。用真夹具 `beta`（无副本清理钩子）执行备份。原版回 `backup_failed/check_failed`、没有完整时间目录；外部源码副本 `backup-no-quick-check/` 只删校验块，变异版退出 0、发 `backup.done`，正式副本的 `PRAGMA quick_check` 返回 `non-INTEGER value in fixture.value`。两组测试在此变异版上的结果如上。
+- **建议改法**：补一条包内 CLI 用例，使用这个小型 SQLite 文件（入库夹具附生成说明，或测试支持工具生成，不要求 CI 安装 `sqlite3`）。断言退出非零、`reason` 与 `module`、没有正式目录、输出不带路径或 SQLite 说明。保留合同包对成功副本的独立校验，不把坏库的构造搬进合同包。
+
+### 10. `ready(timeoutMs)` 的上限不涵盖正在等待的 HTTP 请求
+- **严重程度**：建议；**类别**：不变量 / 测试。
+- **位置**：`packages/nb-site-contract-tests/src/testing/site.ts:270-279,414-423`；`packages/neuro-book-test-support/src/wait.ts:16-24`。
+- **现象**：`ready()` 只给轮询传了超时；`waitUntil` 必须等每次 `check()` 返回才检查时限，甚至晚到的 200 也会先被判成功。`requestJson()` 没有给这次请求和读体设截止时刻。
+- **为什么是问题**：底座对替代实现和打好的产物都承诺在给定时限内判断就绪。监听成功但 readiness 不完成时，只能依赖顶层测试钩子的超时，不能按约定立即给出明确诊断并收掉该请求。
+- **如何核实**：运行实验目录下的 `bun test ./contract-ready-deadline.test.ts`（受控临时根按报告尾部设置）。真实 Bun 子进程接收就绪请求，等驱动观察到该请求且超过声明时限后才放行。传 `ready(50)`，实测约 103 毫秒后仍正常返回 `{status:"ready"}`。
+- **建议改法**：用一份绝对截止时刻约束轮询和该轮 HTTP／读体；超时时 abort 请求，附服务最近输出。底座的其他 HTTP 与原始套接字辅助函数同样应能在用例取消时关闭连接。
+
+### 11. 先监听后拒绝配置，验收 4、5 仍能通过
+- **严重程度**：建议；**类别**：测试 / 文档。
+- **位置**：`packages/nb-site-contract-tests/src/operations.test.ts:103-126,359-361,414-419`、`src/testing/site.ts:228-238`；`docs/testing/README.md:133`。
+- **现象**：负向用例先探空闲端口、关闭探测 socket，等错误配置的进程退出后才探端口。能查出 `site.listening` 日志，也能查出退出后仍有监听者，不能查出没有发该行日志的短暂监听。临时释放的端口还可被并行运行的进程领取，造成反向误报。文档写成一律不给子进程预先探测的端口，没有说明这个例外。
+- **为什么是问题**：Spec 输出 1 和验收 4、5 要求坏配置连端口也不监听，不只是没有打印监听日志。尤其验收 5 要挡住非回环地址，不能用监听日志代替监听行为。
+- **如何核实**：外部源码副本 `lab-omp/early-bind/` 在原配置校验之前实际监听再关闭，保留原诊断且不记录 `site.listening`。对着它跑过滤 `去掉 NB_SITE_|设了口令而监听` 的合同测试，5 条均过。`lab-omp/contract-early-bind.trace` 有失败子进程的成功 `listen(2)`，包括一次 `0.0.0.0`。
+- **建议改法**：合同包保留黑盒的退出码、诊断、不改目录断言；明确日志不是从未监听的证据。用另一条覆盖真实端口行为的入口测试（例如 Linux 上跟踪被测子进程的 `listen(2)`）证明没有短暂监听，或明确把这条判据交给入口包。删掉无区分力的退出后端口探测，不应以固定等待或多轮盲探代替。
+
+### 12. 持锁用例放过不在 Spec 词表中的就绪状态
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-contract-tests/src/operations.test.ts:186-205`；主工作区 `docs/specs/site/operations.md:67`。
+- **现象**：持有进程外写锁时，用例只断言 `modules.identity` 是不等于 `ready` 的字符串。本场景没有本进程持锁的卡住事务，合同状态应为 `not_ready`。
+- **为什么是问题**：任何拼错或私有的状态都能通过；调用方无法按公开的三种状态辨认。产品当前返回正确值，缺的是对合同字面的保护。
+- **如何核实**：`lab-omp/wrong-readiness/` 是外部源码副本，仅把 503 里的 `identity` 改成 `invalid-fixture-state`。用 `NB_SITE_SERVER_COMMAND` 指向该副本，跑 `bun test src/operations.test.ts -t '库被进程外占着写锁'`，仍 1 过、0 失败。
+- **建议改法**：断言本场景的完整 `modules` 值是 `{identity: "not_ready", telemetry: "ready"}`；保留恢复后重新获得 200 的断言。
+
+### 13. 镜像冒烟的预期失败命令无退出上限，回归时到不了清理
+- **严重程度**：重要；**类别**：不变量 / 测试。
+- **位置**：`packages/nb-site-server/image/smoke.ts:48-51,86-96,120-149`；`.github/workflows/ci.yml:96-99`。
+- **现象**：`busy` 和 `test-control` 用前台 `docker run`。辅助函数等 Docker CLI 退出和两路输出收齐才返回，没有时限。第二个实例若误拿到锁，或非回环配置若未被拒，容器将运行 `serve` 等停止信号，脚本也一直等，后面的断言和 `finally` 都到不了。就绪轮询的 30 秒也未约束一轮中挂住的 HTTP 请求或 `docker inspect`。
+- **为什么是问题**：本来应该由冒烟立即定位的回归会变成 CI 的 20 分钟作业超时；本地没有这个外层上限。靠作业取消中断脚本也不保证能执行 `finally`。
+- **如何核实**：静态核对。两个 `docker run` 都没用 `--detach` 且默认执行 `serve`；`docker()` 一直等待 `child.exited`，前台容器不退出就到不了后面的检查。按说明未起 Docker，未实测容器行为或 CI 取消。
+- **建议改法**：按容器名登记后启动，对应退出、Docker CLI 和就绪请求分别设截止时刻。断言超时时收集有限输出并进入有界清理；不要把 CI 作业时限当作脚本资源收口机制。
+
+### 14. 镜像冒烟删除容器或卷失败后仍能报通过
+- **严重程度**：建议；**类别**：不变量 / 测试。
+- **位置**：`packages/nb-site-server/image/smoke.ts:60-68,130-132,145-150`。
+- **现象**：脚本在进入 `finally` 前打印 `smoke:image passed`。移除容器或卷的 Docker 命令退出非零时，`removeOrReport` 只写标准错误，随后继续；若本地临时目录能删掉，整个脚本仍退出 0。
+- **为什么是问题**：CI 只看命令退出码，清理失败不能使作业失败；本地重跑每次都用新名字，遗留对象不会由下一次清理。发生在挂宿主目录的容器上时，脚本还会尝试删除它挂载的路径。
+- **如何核实**：静态沿 `docker()` 的非零退出码追到 `removeOrReport()` 和顶层 `finally`，二者均未把该错误变成失败。未运行 Docker。
+- **建议改法**：清理时把对象不存在与实际删除失败分开，继续尝试收掉其余对象，汇总实际失败后给非零退出码并保留原来的冒烟失败原因。把成功日志移到清理之后。
+
+### 15. 重开副本失败时绕过 `backup_failed` 原因词表
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-server/src/commands/backup.ts:115-117,133-141`；`src/cli.ts:90-95`。
+- **现象**：写出副本后，两处 `new Database(copyPath, …)` 都在相应失败映射的 `try` 之外。打开失败落到 CLI 的兜底，标准错误只剩 `internal`，没有 `reason`、模块名或 SQLite 错误码。
+- **为什么是问题**：数据目录权限类错误不是程序自身的内部错误。尤其只读重开失败时，程序无法证明副本可用；运维需要知道失败在校验哪个模块，而非按缺陷处理 `internal`。锁仍由外层 `finally` 释放，正式目录没有发布。
+- **如何核实**：非 root 下用真实 `beta` 夹具。正常迁移后将源库切成 `journal_mode=DELETE`，预先建可写的 `backups/`，只在运行 `backup` 的外部 shell 设 `umask 0444`。`lab-omp/backup-check-open.N9P6lqcE/backup-open.trace` 显示 `VACUUM INTO` 成功以读写方式创建副本，下一次 `openat(..., O_RDONLY)` 以 `EACCES` 失败。命令退出 1、报 `internal`；恢复实验副本的读取权限后，`quick_check` 为 `ok`。实测的是校验打开，准备阶段的读写打开是同形代码路径。
+- **建议改法**：把连接的创建、使用和收口放进同一失败映射；校验打开失败归 `check_failed`，准备打开失败采用明确约定的 `backup_failed` 原因。继续只输出固定内容、模块与错误码，不输出底层说明。
+
+### 16. 客户端断开后，尚未开始的定时任务仍留在队列并执行
+- **严重程度**：建议；**类别**：不变量。
+- **位置**：`packages/nb-site-server/src/test-control.ts:83-97`、`src/jobs.ts:27-29,63-67,82-88`。
+- **现象**：授权请求排队后只等 `runNow()` 的结果，队列既没收到请求的取消信号，也没再查客户端是否断开。前一轮结束后，即使后一条请求的连接已关闭，后一轮仍会执行。
+- **为什么是问题**：测试客户端超时后重试时，第一次没开始的任务仍会产生副作用，重试又会排一次。一串已经断开的请求也能继续占用同一任务的队列。当前 Spec 没约定断线语义；这条不涉及取消已经开始的任务，也不是生产入口可以被未授权调用。
+- **如何核实**：真实程序的 `lab-omp/queued-job-disconnect.ts`。第一条请求让 `alpha/hold` 开始并等待标准输入；第二条请求发完，确认进了队列且未开始，立即重置该请求的连接。再放行第一轮，观察到 `fixture.hold_finished` 后又有一条 `fixture.hold_started`；第二轮同样可以完成。服务最后退出 0。
+- **建议改法**：明确断线的合同。如果任务绑定在该 HTTP 调用上，验证 Bun 能通知断开，排队项在开始前按请求取消信号撤销，已开始的仍由调度器跟踪收口；补一条只取消第二个排队项的进程用例。若要保留“受理即执行”，则文档必须明确超时或断开不代表取消，调用方不能盲目重试。
+
+## 补测取舍
+
+| 未覆盖项 | 判断与写法 |
+| --- | --- |
+| `prepare_failed` | **本轮补。** 像现有 `alpha` 一样注册测试夹具，钩子同步抛带合成标记的错误。真实 CLI 应退出 1、给出 `reason` 与 `module`，不打印标记或路径，不发布正式备份；下一次正常备份应能取得锁。未提交事务单独断言不发布副本；现版由 `VACUUM` 拒绝，见第 4 条。 |
+| `copy_failed` | **本轮补，成本低。** 在临时根放一个内容明确不是 SQLite 的 `<模块>.db`；实测只读打开后 `VACUUM INTO` 报 `SQLITE_NOTADB`。断言失败原因、模块和不发布副本，不要求各平台给同一个底层错误说明。 |
+| `check_failed` 与删掉副本校验的变异 | **本轮补一条，共用证据。** 用第 9 条的真实 SQLite 夹具，能写出副本但校验非 ok。测试应在原版通过、移除校验后失败。副本重开失败还需正确归类，见第 15 条；不要以仅测试重开失败代替真正的校验反例。 |
+| `io_failed` | **本轮补，成本低。** 在 `<数据目录>/backups` 位置先放普通文件。真实 CLI 已得到 `io_failed` 和 `EEXIST`；断言失败原因、文件仍在、输出不含路径。无需模拟磁盘写满。 |
+| `prune_failed` | **值得补，用有权限前提的包内用例。** 非 root Linux 上，令 `keep=1` 并放一个不可写且非空的旧备份目录。实测为 `prune_failed`、带新备份 `name`，新副本仍可打开。`finally` 恢复夹具权限；root 或文件系统不执行该权限语义时不强行测此反例。它与其他失败最重要的区别是“命令失败但新备份已经发布”。 |
+| 口令比较耗时 | **不补耗时断言。** 预先散列期望头值；请求值散列后经 `timingSafeEqual` 比较两个 32 字节摘要。散列耗时可随输入长度变，不随匹配前缀变；没有可在 CI 上可靠归因于这段比较的 HTTP 延迟阈值。保留行为测试：不带、同长错值、不同长度、正确值、日志不含口令。第 7 条的格式与传输另测。 |
+
+## 既有问题与已安排事项（不计入发现）
+
+- 导入边界：`packages/nb-site-contract-tests/src/boundary.test.ts` 及共享的 `packages/neuro-book-test-support/src/import-boundary.ts` 在 `18fdeb9cf` 与被审提交之间无差异。静态扫描能拦普通静态导入、字面量动态导入和按路径解析出的上级包引用；不解析 `require`、非普通引号的说明符或相对导入目标的真实链接。它是防误用的守卫，不应当成完整的模块加载隔离；若要加严，优先修共享扫描器，不在合同包再维护一份正则。
+- `.partial` 的失败即删、下次开始前清历史残留，已定随修正片落地；本审查未重复立项。
+- 第 1 条特指停止信号后启动测试控制请求所触发的工作；证据不证明停止后接受了新 TCP 连接。第 8 条的依据是测试父进程退出后原端口仍回 HTTP；500 的原因是根据已关闭的日志管道推断，不作为判据。
+
+## 验证与范围
+
+- 确认审查范围 `18fdeb9cf..57eaf72b5`；`git rev-list --count` 为 7，按给定提交端点审查。未审 `packages/nb-site-web/`。
+- Bun 1.4.4，Linux x64。实验与包测试设 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp`、`NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00037-t05-impl2/lab-omp`；源码变异只在该目录的副本内。
+- `bun run --cwd packages/nb-site-server test`：131 通过、0 失败。`bun run --cwd packages/nb-site-contract-tests test`：29 通过、2 跳过、0 失败。两包的 `bun run --cwd <包目录> typecheck` 均退出 0。
+- `NB_SITE_PREVIOUS_SERVER_COMMAND` 指向被审提交同版的 `src/main.ts`，单跑 `bun run --cwd packages/nb-site-contract-tests test src/adjacent-version.test.ts`：1 通过。这是底座自测，不是不同版本兼容证据；实际基准版本命令接入留给 t06。
+- 仅在外部源码副本 `lab-omp/artifact.aAt3vKPz/` 运行 `bun --no-env-file image/build.ts --no-docker`，产物 `server.js` 179481 字节、linked map 465029 字节。把 `NB_SITE_SERVER_COMMAND` 指向该 `server.js` 后，合同测试仍 29 通过、2 跳过、0 失败。映射文件的 54 项来自入口、生产模块和依赖，未列出 `testing/`、测试文件或 `.env`；没有使用仓库内旧产物。
+- `bun run test:affected --since 18fdeb9cf --dry-run` 选中服务器、合同测试和前端包；未据此运行前端测试。`actionlint -ignore 'unexpected key "queue"' .github/workflows/*.yml` 退出 0；忽略项是 `release.yml` 已记录的语法支持差异。
+- 推送 master、PR、`release.yml` 调用 CI 三条路径只做工作流静态核对；本次未启动 Docker、未构建镜像、未跑 e2e，也未触发 GitHub Actions。第 13、14 条是静态发现。
+
+## 未发现问题的方面
+
+- 在线备份的单库 WAL 一致性：包内真实进程用例中能读到服务已提交的写入，读不到还在事务中的写入；同步剔除钩子改的是副本，不动原库。正常 `backup.lock` 的两个进程互斥、回拨时保留本次备份、筛选时跳过非目录项与非合式名字均未发现问题；顶层目录链接、文件权限和重开失败见上文。
+- 测试控制默认不挂路由、无效授权与未命中路由同形、`127.0.0.0/8` 与规范化 `::1` 的判断、拒绝 IPv4 映射地址，未发现绕过。静态核对拨钟未进入入口自己的就绪与停止计时，也不直接触发调度。正常运行下按间隔和显式调用共用同一任务队列；两次显式调用的串行用例通过。未发现挂载改动破坏健康检查与请求编号；停机和断线情形见第 1、16 条。
+- 合同底座在正常跑法下使用独立临时根、显式子进程环境和动态端口。相邻版本未配置时明确跳过。镜像 Dockerfile 静态确认产物按清单拷贝、`/data` 预设属主并用非 root 用户运行；冒烟随机密钥按变量名传递，未见值进入命令行或脚本日志。镜像行为和 GitHub runner 未实测。
+
+严重程度：阻断 0，重要 6（1、2、3、5、8、13），建议 10（4、6、7、9、10、11、12、14、15、16）。
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16

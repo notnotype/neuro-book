@@ -1,0 +1,104 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t41-character-component",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：人物的角色卡",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "734f5acccc4c47a0b893624407b4aa63035c2f26f15163f404c239b72a94832b",
+    "files": [
+        "index.html",
+        "r1/add-component.webp",
+        "r1/add-field.webp",
+        "r1/editing-short.webp",
+        "r1/editing-text.webp",
+        "r1/empty.webp",
+        "r1/filled-phone.webp",
+        "r1/filled.webp",
+        "r1/full.webp",
+        "r1/now-character.webp",
+        "r1/now-edit.webp"
+    ],
+    "questions": [
+        {
+            "id": "card-layout",
+            "type": "confirm",
+            "label": "角色卡照这个样子做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "edit-inline",
+            "type": "single",
+            "label": "改一项时就地展开，还是沿用页面顶上的确认条？",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "A 就地展开"
+                },
+                {
+                    "value": "bar",
+                    "label": "B 页面顶上的确认条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "inline"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "add-entries",
+            "type": "confirm",
+            "label": "添加分成两个入口：添加一项资料、添加一组设定",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "many-groups",
+            "type": "single",
+            "label": "设定组加多了以后：都排在“资料”这一页，还是每组各一个分页？",
+            "options": [
+                {
+                    "value": "one-page",
+                    "label": "A 都排在资料这一页"
+                },
+                {
+                    "value": "tabs",
+                    "label": "B 每组各一个分页"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one-page"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-24T13:19:34.783Z"
+}

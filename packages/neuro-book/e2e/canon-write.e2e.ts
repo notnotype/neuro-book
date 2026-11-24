@@ -152,6 +152,15 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成外观当时的值；预览里的值不是按钮。
     const preview = entryPage(page).locator("[data-text-preview]");
     await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
+    // 打字时不弹补全，回车总是换行（workbench/editor 输出 69）：新一行打“是”，文档里有以它开头的词（“是她的样子。”），弹了补全的话
+    // 回车会把这一行换成那个词、不换行。看预览里的三行；再删回去。
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("是");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("末");
+    await expect(preview).toContainText("银白长发是她的样子。 是 末");
+    for (let index = 0; index < 4; index += 1) await page.keyboard.press("Backspace");
+    await expect(preview).not.toContainText("末");
     await expect(preview.getByRole("button")).toHaveCount(0);
     // 编辑区窄于 880 像素（1440 的窗口、两边的侧栏都开着）时预览排在输入框下面；窗口拉宽以后左右各半、预览栏在右边。
     const boxes = async () => ({source: (await textSource(page).boundingBox())!, preview: (await preview.boundingBox())!});

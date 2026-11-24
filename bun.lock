@@ -707,7 +707,7 @@
     },
     "packages/neuro-book": {
       "name": "@notnotype/neuro-book",
-      "version": "0.16.0",
+      "version": "0.17.0",
       "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-file-lock": "workspace:*",

@@ -19,6 +19,8 @@ import {spawn} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
+import {releaseDirectories} from "#scripts/release/packages";
+
 const REPOSITORY = fileURLToPath(new URL("../../", import.meta.url));
 const WORKFLOW = "release.yml";
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -210,6 +212,24 @@ export class ReleaseCommand {
         return {conclusion: view.conclusion, jobs: view.jobs};
     }
 
+    /**
+     * 发布这一轮盯完之后：只有 macOS 没成功（Apple Silicon 的 runner 紧张时作业排队 15 分钟就被放弃，v0.17.0 就是）时，
+     * Windows 与 npm 已经发出，手册规定的补法是重跑失败的作业，由 `github-release` 把 macOS 的资产补传到已公开的 Release。
+     * 这里自动重跑一次再盯；再没成功就照实说明，让开发者用 `desktop-macos.yml` 补包。
+     */
+    async #finish(run: WorkflowRun, first: {conclusion: string | null; jobs: WorkflowJob[]}): Promise<boolean> {
+        if (first.conclusion === "success" || !rehearsalPassed(first.jobs)) return this.#releaseOutcome(first);
+        this.#log("只有 macOS 的作业没成功（Windows 与 npm 已经发出）：重跑失败的作业一次");
+        const rerun = await this.#run(await this.#gh(["run", "rerun", String(run.databaseId), "--failed"]));
+        if (rerun.code !== 0) {
+            this.#log("重跑没有受理");
+            return this.#releaseOutcome(first);
+        }
+        // 重跑受理后运行回到排队，但状态翻过来有几秒的延迟：不等的话 `gh run watch` 看到的还是上一轮的“已结束”。
+        for (let attempt = 0; attempt < 12 && (await this.#view(run)).status === "completed"; attempt += 1) await this.#sleep(5_000);
+        return this.#releaseOutcome(await this.#watch(run));
+    }
+
     /** 发布这一轮：全绿为成功；只有 macOS 失败时 Windows 与 npm 已经发出，照实说明、按失败退出，让开发者去补 macOS。 */
     #releaseOutcome(result: {conclusion: string | null; jobs: WorkflowJob[]}): boolean {
         if (result.conclusion !== "success" && rehearsalPassed(result.jobs)) this.#log("macOS 的构建没成功，Release 只带 Windows 的资产：在 Actions 里重跑失败的 macOS 作业，或用 Desktop macOS 工作流补包");
@@ -222,6 +242,10 @@ export class ReleaseCommand {
      * 单测、类型检查与构建仍交给流水线：它们要几十分钟，本机跑不值。
      */
     async #preflight(): Promise<void> {
+        // 与 `release:prepare` 的“目录干净”同一个判据：这里先查，免得推上去、演练完才在发版第一步被拦（别的会话在示例目录里
+        // `bun install` 留下的未跟踪锁文件就拦过 v0.17.0）。
+        const dirty = (await this.#must(["git", "status", "--porcelain", "--untracked-files=all", "--", ...releaseDirectories(), "bun.lock"])).split("\n").filter((line) => line !== "");
+        if (dirty.length > 0) throw new ReleaseCommandFailure(`会发布的目录或 bun.lock 有没提交的改动（发版会拒绝它们，没有推送）：\n${dirty.join("\n")}`);
         for (const check of ["governance:check", "docs:check"]) {
             this.#log(`本机预检：bun run ${check} --all`);
             const result = await this.#run(["bun", "run", check, "--all"], {capture: true});
@@ -288,7 +312,8 @@ export class ReleaseCommand {
             this.#log(`推送报了错，但远端的 ${tag} 已经指向 ${commit.slice(0, 9)}：按推上去了处理`);
         }
         this.#log(`✓ 推送了 master 与 ${tag}（${commit.slice(0, 9)}）`);
-        return this.#releaseOutcome(await this.#watch(await this.#waitForRun(pushFilter, commit, "push", known)));
+        const triggered = await this.#waitForRun(pushFilter, commit, "push", known);
+        return this.#finish(triggered, await this.#watch(triggered));
     }
 
     async watchTag(version: string): Promise<boolean> {
@@ -296,7 +321,7 @@ export class ReleaseCommand {
         const commit = await this.#must(["git", "rev-list", "-n", "1", `refs/tags/${tag}`]);
         const run = triggeredRun(await this.#runs(["--event", "push", "--branch", tag]), commit, "push", new Set());
         if (run === null) throw new ReleaseCommandFailure(`没有 ${tag} 的 Release 流水线`);
-        return this.#releaseOutcome(await this.#watch(run));
+        return this.#finish(run, await this.#watch(run));
     }
 }
 

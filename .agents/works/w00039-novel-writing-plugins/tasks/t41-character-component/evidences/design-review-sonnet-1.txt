@@ -1,0 +1,65 @@
+### 1. 就地草稿只有“本组的 FieldEditor 正好在页上”这一种画法，几条路径下草稿成了看不见的孤儿
+严重程度：重要　类别：正确性
+位置：plan.md 设计五（`other` 的 `ComponentPeer` 含 `edit`；“草稿里记下是不是就地的，就地的由 FieldEditor 画，不是的照旧出确认条”）；`EntryPageHost.vue:344-351`（`editHere`）、`:831`（`v-if="editHere && edit.bar.value !== null"`）
+现象：现在的确认条只在 `draft.path` 以“当前数据分页的命名空间.”开头时才画（`editHere`）。计划加了两种草稿，各自有画不出来的路径：
+1. 人物界面经 `other(形象).edit("立绘")` 改对方的字段：`ComponentPeer` 明确含 `edit`，草稿路径是 `look.立绘`，而页上是人物分页，`editHere` 为假，没有确认条；对方的 `FieldEditor` 在 LookView 里，没挂载。草稿存在、预览在后台跑，作者什么都看不到，也点不了保存。计划里点立绘走 `showTab`，没走这条，但接口把它开放了。
+2. 草稿是就地的（`inline: true`）时确认条被压住，由 `FieldEditor` 画。可 `FieldEditor` 只在专门界面挂着时才存在：专门界面加载中、加载失败、贡献方停止后回退成通用字段表（author-ui.md 验收 9）、`uses` 的组在这个位置没有时，通用字段表和“读取中”都不画编辑器，也不出确认条。人物页在回退时就是个“改”按钮点了没反应的字段表（点“改”走的是 `inline` 缺省，那倒会出确认条；但此前已有的就地草稿仍悬着，并把预览一直跑下去）。
+3. 草稿的字段被去掉或改名（计划新增的 `fieldRemove`/`fieldRename`）：`fieldAt` 找不到声明，`kindOf` 退成 text，保存得到 `field-unavailable`，而去掉它的按钮就在同一张卡上。
+为什么是问题：计划的风险一节把“就地改与确认条共用一份状态”列为要在两种画法下都成立的路径，但只列了切走再回来、世界变了、保存失败，没有“草稿归谁画”这个前提。
+如何核实：读 `editHere` 与 `:831`；在 dom 测试里给 `ComponentViewRegistry` 交一个会 reject 的 `load()`，再 `edit.open("character.x")` 带 inline 即可复现（从代码推断，未跑）。
+建议改法：(a) `editHere` 改成“`!draft.inline || 当前分页没有交付 FieldEditor`”，即专门界面没挂上时一律退回确认条；(b) `ComponentPeer` 去掉 `edit`（只留读和 `record`），或让 `edit` 对别组的路径自动 `showTab` 到它所在分页；(c) `fieldRemove`/`fieldRename` 成功时，若草稿在这个字段上就清掉草稿；(d) 在验收映射里加“专门界面回退时的就地草稿”一行。
+
+### 2. 浮层一被点外面就关，而草稿要“切走再回来还在”：关浮层等于取消还是留着草稿，计划没定
+严重程度：重要　类别：正确性
+位置：plan.md 设计六“锚在这一项上的浮层”；`nb-ui/src/components/feedback/Popover.vue`、`Popover.md`；`ConfirmBar.vue:61-65`；author-ui.md 输出 7、16、29、30
+现象：nb-ui `Popover` 非模态（`modal` 缺省 false），点外面、焦点移到浮层之外、Escape 都会发 `update:open(false)`；锚点模式下 Escape 关掉后焦点回到“锚点”元素。计划用它承载短项的就地改，同时沿用“草稿存在标签状态里”。两者的关系没有写：
+- 点外面（含点页签、点页头、点页面别处）时，把 `update:open(false)` 接到 `cancel()`，作者填了一半的字就丢了，违反输出 7“填了一半的就地改……切到别的标签再回来保持不变”；接成“只收起、草稿留着”，则 `editing` 仍非 null、浮层关着，作者没有可见的入口接着改，再点同一项是 `open` 重置草稿还是继续，也没定。
+- 浮层里还要放嵌套的浮层：`EntryPicker`（底下是 `SuggestionMenu`，传送出去的列表）、`Select`、建议值的组合控件。reka 靠 `[data-dismissable-layer]` 的先后判断“在更高一层里”，不算外面；仓库里没有“Popover 里放 SearchSelect”的先例（`PeoplePicker` 只放复选框），计划的验证里也没有这条。
+- `ConfirmBar` 的 Escape 处理没有看 `event.isComposing`。短项几乎全是中文，输入法组字时按 Esc 是取消组字，现在会连草稿一起放弃（`MarkdownImageCard` 的文档专门写了“输入法组字时的方向键、回车与 Esc 归输入法”）。计划把“真实输入法在浮层里的输入”列为未验证，但这是读代码就能判定的缺陷，不必等真人试。
+- 浮层关闭后焦点：`edit.cancel()`/保存都会 `refocus(path)`，它找的是 `[data-edit="<路径>"]` 的“改”按钮；计划里短项浮层锚在“这一项”上，是否有 `data-edit` 的元素（输出 16、30 要求有，且“值”与“改”各一个 Tab 停靠点）没写。
+如何核实：读 `Popover.vue`（`interact-outside` 只对 `anchor` 内放行）与 `Popover.md` 的“锚在外部元素上”；`ConfirmBar.vue:61` 无 `isComposing`。
+建议改法：定一句规则写进计划与 Spec 输出 16：点外面只收起浮层、草稿留着，该项旁显示“未保存的改动”标记并可一点即回；Escape 与“取消”才放弃（且 Escape 要跳过 `isComposing`）；浮层的 `update:open(false)` 不直接接 `cancel`。加一条 dom 用例：浮层开着点页签再回来，输入框里还是填的字。
+
+### 3. 角色卡没有写“改”按钮和展开来历的位置：与输出 12、16、30 的入口冲突，焦点回哪里也没答
+严重程度：重要　类别：不变量
+位置：plan.md 设计六“短项……在锚在这一项上的浮层里改”；author-ui.md 输出 12、16、30；`FieldTable.vue`（值按钮与“改”按钮并列，`data-edit`）
+现象：现有字段表里，点“值”展开来历，旁边另有常显的“改”按钮；输出 16 写明“常显，与值按钮并列，键盘可达，悬停才出现的按钮在触屏上找不到”；输出 30 写明值与“改”各是一个 Tab 停靠点、保存或取消后焦点回到“改”按钮。计划里角色卡的短项“在锚在这一项上的浮层里改”，但没说什么触发它：
+- 若点值本身就进入改，值点开来历（输出 12）的入口没了；若另放铅笔图标，常显还是悬停显示、触屏上怎么办没写；每个自己加的项还要加“改名”“去掉”，一行三个按钮，与“界面不靠说明文字、控件要克制”的取向冲突，应收进一个“更多”菜单。
+- 计划对“角色卡上没有‘改’按钮时焦点回到哪”没有回答；任务说明要求回答。上一条里说的 `refocus` 查的是 `[data-edit]`，卡片必须给触发元素同样的属性，否则焦点掉到 body。
+- 写不了时（按计划、只读、独占写入、已删除）“改”不可用并写原因（输出 16、28；`context.blocked`），卡片上没有按钮时这条原因挂在哪也没写；成段文字是“原地换成输入框”，触发是点文字本身，键盘用户怎么进入也没写。
+如何核实：对照 `FieldTable.vue` 的模板（`data-edit`、`editReason`）与 Spec 输出 16、30。
+建议改法：计划里写明卡片上每一项的触发件：值文字是展开来历的按钮，旁边一个常显的小“改”按钮（图标加可读名字），两者各一个 Tab 停靠点，`data-edit="<完整路径>"` 落在“改”按钮上；写不了时按钮停用并带 `title`，同通用字段表；改名、去掉收进一个“更多”按钮。静态稿第 2 轮要画出这些零件，不要等 S7。
+
+### 4. 角色卡取代人物的界面后，通用字段表上的几项能力没有去处：来历、语义档各句、“改过”标记、累出来的数
+严重程度：重要　类别：不变量
+位置：plan.md 设计六；author-ui.md 输出 10、11、12、13、17（planned）、16 的 `accumulated-value`；`FieldsDataView.vue`、`in-place-edit.ts` 的 `accumulated`；`canon/web/plugin.ts:318`（人物界面现在是 `FieldsDataView` 加 `semanticNotes`）
+现象：计划把人物分页换成角色卡，并且 author-ui.md 输出 13 要改写。但输出 13 现在写的“语义档在值下面依次列出起点与之后记下的每一句、未归纳时写‘还没归纳’”，以及：
+- 值点开来历（输出 12、`context.origins`）、“改过”标记（输出 10，`FieldRow.mark`）、“记一句”的表单（输出 17，`RecordForm`）；
+- 现在的状态（语义档）：计划只说它放在右列，没说各句、起点、“还没归纳”画在哪、怎么记一句；
+- 就地改遇到 `accumulated-value`：`useInPlaceEdit.applyFailure` 会 `locked` 并调 `options.accumulated(path)`，去 `state.views[namespace].open/selected` 里展开来历；卡片没有来历面板时，作者看到“这个数是几笔累出来的”、保存被锁、没有任何下一步。人物自己的字段都是文字或语义档，数字只可能出现在“自己加的项”里（Agent 的 `addField` 可以带任意种类），所以这是少见但出得来的死路。
+计划只写“`FieldTable` 嵌一节”之外没有任何回退，`context.FieldTable` 现成可用，但它的“改”走 `context.edit`（确认条），计划把它放在卡片里就会出现“同一页里两种改法”：短项浮层、自己加的项走确认条。
+如何核实：`FieldsDataView.vue` 的 `origin` 插槽、`RecordForm`、`semanticPaths`；`in-place-edit.ts` 的 `applyFailure`。
+建议改法：计划补一小节“卡片上每种字段的展示与来历”：值按钮展开来历（同 `OriginList`），语义档的各句直接复用 `FieldsDataView` 的 `semanticNotes` 逻辑（抽成可嵌的一节），累出来的数与数、语义档字段留在通用字段表那一节里（嵌 `context.FieldTable({fields})`，并给它也加 `inline` 选项，使整页只有一种改法）。输出 13 的改写要把这些保留项写明，不要只写“角色卡”。
+
+### 5. FieldEditor 的两种画法没有给出“内容高度会变”时怎么不跳：预览、报错、意图、保存取消的位置与高度都没定
+严重程度：重要　类别：不变量
+位置：plan.md 设计五 `FieldEditor` / 设计六“成段的文字原地换成输入框，高度变化有过渡”；`packages/nb-ui/docs/ui-development-spec.md` 第 3 节第 4 条；`ConfirmBar.vue` 的预览区（`min-h-[1.5rem]`）
+现象：确认条里有五块高度会变的东西：预览（“正在预览”一行 → 写回哪里一行 → 若干条“带来的变化”）、错误（`role="alert"`，可再带“再查一次”按钮）、意图（只有一项时不显示）、锁定、保存中。确认条贴在页顶且 sticky，高度怎么变都不推动别的内容；搬进浮层或原地展开以后，这些就成了：
+- 浮层（popover）：内容变高时 reka 的 floating-ui 会重新定位，字段在视口下半部时从“下方”翻到“上方”，浮层整个跳一下；`impact` 行数不定，没有上限。规范写的是“同一个对话框或面板在几种状态之间外框尺寸不变，按内容最多的那种状态定尺寸，长短不定的内容放进固定高度区域里滚动”。计划没有按这条定预览区的高度与滚动。
+- 块（block，成段文字）：规范同一条写的是，“不得不变尺寸的（长文展开、输入增行）用过渡动画，周围的卡片是滑开而不是跳开”，但同一条也把“点一下卡片就整体变大、把后面的卡片推开”列为违反的典型，要求“卡片在原地向下长并浮在后面的卡片上面，别的卡片不动”。计划只写“高度变化有过渡”，没有说选哪种：在性格、说话方式、背景三段竖排的卡片里，原地换成输入框 + 预览 + 保存取消，要么把下面两段推开（推开违规，哪怕有过渡），要么浮在它们上面（需要定 z 序与遮挡、最后一段到页底时怎么办）。这是开发者 11-23 点名反复犯的问题，计划应当在静态稿之前把选择写出来。
+- 输入框的行数：确认条 `Textarea` 是 2 行；原地换成输入框时要按原文的行数起步，否则一点就变矮或变高一截。
+- 两种画法共用一个 `FieldEditor`，`layout` 只有两个取值，预览与错误放在输入下面还是旁边、390 宽怎么排，都没写。
+如何核实：读 `Popover.vue`（`avoid-collisions` 缺省 true）与规范第 3 节第 4 条的最后两个子条目。
+建议改法：在计划里定死两条：浮层有固定的预览区（两行预览、其余折进“还有 N 项”），错误与预览共用一个槽、不叠加；块的编辑器用“浮在后面内容上方”的画法，原位置的高度不变（页边批注式），动画取 `--motion-move` 与 `--ease-layout`。S5 之前出静态稿时把“预览回来前、预览回来后、报错、390 宽”四个状态都画出来。
+
+### 6. `FieldEditor`/`edit` 的接口装不下计划自己列的用例：现在穿的的动态候选、换装、建议值的落点
+严重程度：重要　类别：代码质量（接口与合同）
+位置：plan.md 设计五（`FieldEditor: Component<{path; layout?}>`、`edit(path, {inline})`）、设计六（形象分页“现在穿的（从衣柜的名字里选，也能自己填）”、e2e 的“换装”）、设计二（`suggestions` 是静态数组）；`in-place-edit.ts` 的 `ConfirmBarModel`、`FieldInput.vue`、`ConfirmBar.vue`
+现象：
+1. “现在穿的”的候选是衣柜这个列表里各元素的名字，运行时才有，而 `suggestions` 是字段声明里的静态数组，`FieldEditor` 的 props 只有 `path` 与 `layout`，宿主算 `options` 时读的是 `declaration.options`（枚举）。LookView 没有办法把“衣柜的名字”交给它。要加 `suggestions?: readonly string[]` 之类的 prop，或让 `context` 提供“这个字段的候选”的覆盖。
+2. “换装”要一点就换。`context` 里没有“直接把某字段设成某值”的入口，只有 `edit(path)`，所以换装只能是：点“换”→ 浮层 → 选名字 → 等预览 → 点保存。e2e 的主路径和开发者对“换装”的预期不一致，计划也没写。
+3. 建议值要在三处生效才一致：`ConfirmBarModel`（`options` 只来自 `declaration.options`）、`FieldInput`（`ConfirmBarKind` 没有“带建议值的文字”这一种）、`ElementDialog` 的子字段（设计二明说“列表的子字段也可以带”）。计划只在 `FieldEditor` 一处写了“控件按声明选”，别处的 `text` 字段在确认条里还是纯 `Textarea`，同一字段两种控件。
+4. 控件本身没有定：技术选型表写“nb-ui 现在没有能自填的下拉，候选是输入框加建议值按钮，或给 nb-ui 加一个组合框”，推到第 2 轮稿子里决定；但切片里 S5（`FieldEditor`）排在 S7 与稿子答复之前，且“Spec 与文档改动”表里没有 nb-ui 的行。若选组合框，要改 nb-ui（带 `.md`、测试、Lab 场景），这一片没排。
+5. 自己写名字的“添加一项资料”：新项的种类、是否可选种类、与已有显示名重名（`label-taken`）的反馈位置，都没有写。
+如何核实：读 `in-place-edit.ts` 的 `bar` 与 `FieldInput.vue` 的 `kind` 分支。
+建议改法：S5 之前先定控件（我倾向“选择 + 末项‘自己填……’切成输入框”这类不用动 nb-ui 的做法，要动 nb-ui 就单独成一片放在 S5 前）；`FieldEditor` 加 `suggestions` prop，并在 `ConfirmBarKind` 里加一种；`context` 加 `set(path, value, options?)` 之类“跳过编辑器、仍走预览的一步写”给换装用，或者在计划里明说换装就是走编辑器、少一步不做。

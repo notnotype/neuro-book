@@ -1,0 +1,161 @@
+# w00037 t05 第 6 片 前端审查（Sonnet）：packages/nb-site-web，提交 dd76cb497、5ebe3b432
+
+实验与产物都在 /tmp/review-w00037-t05-impl2/lab-sonnet/（lab 里的 m/pkg 是 src 的副本，node_modules 以符号链接指向审查 worktree；没改仓库文件，没起开发服务）。
+先报对照结果：审查 worktree 里 `bun run typecheck`、`bun test`（4 通过）、`bun run build`（输出到 /tmp）都通过。
+
+### 1. 暗色系统下每次整页加载先闪一下白底（明暗只在 JS 里装）
+
+严重程度：重要
+位置：packages/nb-site-web/src/main.ts:12-24、src/index.html:11、src/app.css:19-25
+
+现象：明暗与配色全部由 main.ts 在模块脚本里写到 `<html>` 上。构建产物 CSS 里没有任何 `--bg-main` 的声明（`grep -o -- "--bg-main:[^;]*;" dist/assets/*.css` 无输出；该变量只由 `applyColorway` 以内联 style 写入），`color-scheme` 也只出现在 `.nb-ui-colorway` 上（这个 class 同样是 `applyColorway` 加的）。所以脚本执行之前，`body { background: var(--bg-main) }` 无效、画布是浏览器默认的白，`color-scheme` 是 light。
+
+为什么是问题：`<script type="module">` 是延迟执行的，样式表阻塞渲染而脚本不阻塞，首帧可以在 main.ts 跑之前画出来。暗色系统的用户每次刷新、每次从 GitHub、Google 的授权回跳回到站点都会先看到白屏再变暗。dev-panel 是本机工具，这个代价可以不管；官方站是公开站点，登录与授权确认页正是这种整页跳转落点。t10 计划 3.8 的内容安全策略 `script-src 'self'` 又排除了内联脚本，常见的“头部放一小段内联脚本先设主题”的办法用不了，要换办法。
+
+如何核实：从代码与产物推断，没有在真实浏览器里截首帧（任务不许起开发服务）。可复现：`bun run --cwd packages/nb-site-web build`，看 dist/assets/*.css 里 `--bg-main` 只被引用、没有被声明；暗色系统下对产物开 Chrome 并在“性能”里降 CPU 与网络速度即可看到。
+
+建议改法：
+- 最小：index.html 加 `<meta name="color-scheme" content="light dark">`（或 app.css 的 base 层给 `:root` 写 `color-scheme: light dark`）。浏览器在脚本之前就按系统明暗画默认画布与默认文字色，没有白闪；之后 JS 装上 nbook 配色。
+- 如果以后让用户自己选明暗（见第 2 条），选择要在首帧前生效，需要一个不是内联的、同步的外部脚本（`<script src="…">` 放在 head、不带 `type="module"` 与 `defer`，文件放在 Vite 的 publicDir，也满足 `script-src 'self'`）。现在不必做，但这条约束要在第 2 条选的方案里留位置。
+
+### 2. 明暗装法写在 main.ts 顶层，是同一套逻辑的第三份拷贝，以后加“用户切明暗”要重写
+
+严重程度：建议
+位置：packages/nb-site-web/src/main.ts:8-24
+
+现象：`installTheme`、`matchMedia`、`applyColorway`、`dataset.nbTheme/nbAppearance` 这一套在 main.ts 里是模块顶层的副作用，没有函数参数（明暗只能是系统值）、没有导出、不可测。仓库里同样的写法已有两份：packages/dev-panel/src/web/host/theme.ts、packages/nb-story/src/web/host/theme.ts（后者的注释写“照 dev-panel 的 host/theme.ts”）。三份里取配色的 `nbookTheme.colorways![… ? "nbook-light" : "nbook-dark"]!` 一字不差，两处带非空断言：主题包缺键时启动期抛 TypeError，没有诊断。
+
+为什么是问题：
+- 对“以后用户可以切明暗”：t10 计划 3.9 写明这一版“明暗跟随系统，没有要记的偏好”，所以现在不碍；但真要加时，要把这段从顶层拆成带 `Appearance` 参数的函数、再接存储与首帧（第 1 条），等于重写 main.ts 的这一块。dev-panel 与 nb-story 已经是函数加偏好的形状，骨架没有照它们的形状起步。
+- 按仓库“反复撞同一个结构问上游”的做法：同一件事（非 Nuxt 宿主装 nbook 主题并跟随系统明暗）已有三份拷贝，nb-ui 里 Nuxt 路径有 colorway-store，非 Nuxt 路径没有对等的公共入口。
+
+如何核实：`grep -rl 'applyColorway(' packages --include='*.ts'`（排除 node_modules、dist、测试）列出 dev-panel、nb-story、nb-site-web 三处；对照 nb-story/src/web/host/theme.ts 的 apply()。
+
+建议改法：
+- 这个 Task 内：把 main.ts 里的主题段挪成 src/host/theme.ts 的 `applyAppearance(appearance: "system" | "light" | "dark")` 加 `followSystem()`，与 dev-panel 的函数形状一致，main.ts 只调用；配色查不到时抛带主题 id 与配色 id 的错误，不用 `!`。
+- 另外作为候选交开发者：nb-ui 提供一个非 Nuxt 宿主用的 `mountTheme(themeModule, {appearance})`，三个宿主都删掉自己的拷贝。代价是动 nb-ui 的公共面与三处调用方，是否值得由开发者定；本 Task 不必做。
+
+### 3. `cssMinify: "esbuild"` 的理由已经过时，注释对 nb-ui 现状的描述是错的，也没有测试守着
+
+严重程度：建议
+位置：packages/nb-site-web/vite.config.ts:14-17
+
+现象：注释写“nb-ui 先写不带前缀的，结果只剩 Chrome 不认的 `-webkit-`”，并说“nb-ui 改成前缀在前之后可以去掉这一行”。但 packages/nb-ui/src/styles.css:205-211 与 240-241 现在已经把 `-webkit-backdrop-filter` 写在 `backdrop-filter` 前面（209 行附近的注释还专门讲了这条规则）。nb-ui 里其它地方没有 backdrop-filter 声明（`grep -rn backdrop-filter packages/nb-ui/src packages/nb-ui/themes` 只剩 styles.css 的这两对和注释）。
+
+为什么是问题：
+- 注释陈述的前提不成立。这是计划 3.10 “照抄 cssMinify 与它的注释理由”照抄出来的：理由是 dev-panel 2026-10-13 的，nb-ui 之后已修。
+- 实测删掉这一行也没有问题：lab 里把 vite.config.ts 去掉 cssMinify 后构建（/tmp/review-w00037-t05-impl2/lab-sonnet/out-m6），产物里 `-webkit-backdrop-filter` 与 `backdrop-filter` 各 3 种取值、集合相同，`var(--overlay-blur)` 那对也是前缀在前、两条都在。
+- 没有测试守着：dev-panel 的 tests/web-build.test.ts 有“每条 -webkit- 都有同值标准写法”的断言，骨架的 build.test.ts 没有，所以这行配置既没有被验证有效，也不会在失效时被发现。
+- 代价：esbuild 压缩 CSS 取代缺省的 Lightning CSS，后者在 Vite 里是 CSS 降级与前缀补全的主力（对 Tailwind v4 大量用的 color-mix、嵌套有关）。为一个已修复的问题继续付这个代价，没有记录的理由。
+
+如何核实：见上，读 styles.css 205-211；lab 里 `run.sh m6` 的产物与 out-base 对比（两条都在）。
+
+建议改法（二选一，交开发者或主会话定）：
+- 删掉这一行与注释，构建测试里加一条“前缀与标准写法成对”的断言（照 dev-panel 的写法），这样以后 nb-ui 回退时能发现；
+- 或保留，但把注释改成真实状态（“nb-ui 目前已把前缀写在前面，保留是防回退，由 build.test.ts 的断言守着”），并补上同一条断言。无论哪种，都不要留“没有测试的魔法配置”。
+
+### 4. 边界测试是禁止名单，漏过应用包、内核包、合同测试包、新模块包与 `bun:`/`node:`
+
+严重程度：重要
+位置：packages/nb-site-web/tests/boundary.test.ts:14-16、38-40、24-31
+
+现象：规则是“除了 `nb-site-(identity|telemetry|server)` 三个名字，什么都许”。我用测试支持包的 `offendingSpecifiers` 配这条规则跑了一组导入（探针 /tmp/review-w00037-t05-impl2/lab-sonnet/probe.ts），以下全部放行：
+`@notnotype/neuro-book`（应用包）、`@notnotype/nb-runtime`、`@notnotype/nb-site-contract-tests`、`@notnotype/nb-site-web`（自己）、`@notnotype/nb-site-new-module`（以后新增的模块包）、`bun:sqlite`、`node:fs`、`require("@notnotype/nb-site-identity")`、`import.meta.glob("../../nb-site-identity/src/*.ts")`。
+另外：扫描只覆盖 src/ 与 tests/ 下的 .ts、.vue，包根的 vite.config.ts 与 src 里的 .css（`@import`、`@source` 可以指向别的包的源码）不在范围内；清单检查只读 dependencies 与 devDependencies，不读 peerDependencies、optionalDependencies。
+
+为什么是问题：
+- 提案与 docs/modules/monorepo-boundaries.md 写的是“前端只经两个合同包认识后端”“不依赖应用包”，这是正向的要求；测试只拦了三个名字，守的是“不出现这三个名字”，不是这条要求。官方站以后新增的模块包（命名同样是 nb-site-*）默认就能被前端导入，没有人会想起来改这个正则。
+- 对照 t05 计划 3.9 里 nb-site-contract-tests 的 boundary 测试：同一份计划给它的是白名单（运行时依赖只有两个合同包，devDependencies 里的工作区包只有 nb-site-server 与测试支持包）。同一族的包，前端用禁止名单、合同测试用白名单，没有记录的理由。
+- 浏览器端代码导入 `bun:`、`node:` 内置模块在构建时或运行时才会失败，边界测试看不到。
+
+如何核实：`bun /tmp/review-w00037-t05-impl2/lab-sonnet/probe.ts /home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t05-review2/packages/nb-site-web`，看每行的 `[]`（放行）与 `[...]`（拦下）。
+
+建议改法：改成白名单，仍用 `offendingSpecifiers` 与测试支持包的写法。
+- src 的源码：`@notnotype/*` 只许 `nb-ui`（含子路径）、`nb-site-identity-contract`、`nb-site-telemetry-contract`；其它包名（第三方）照旧许；`bun:`、`node:` 开头的不许（tests/ 与 vite.config.ts 里许）。
+- 清单：dependencies、devDependencies 里 `workspace:` 开头的条目必须在 {nb-ui、两个合同包}（devDependencies 另许 neuro-book-test-support 与以后的测试包）里。这样新增模块包、应用包、内核包进前端都会失败。
+- 扫描范围加上 vite.config.ts；反例补一条 `bun:sqlite` 与一条应用包。
+- 如果 t10 的真实冒烟要让前端 devDependencies 依赖 nb-site-contract-tests（t10 计划 3.10 末尾提到“B10 前确认”），在白名单里加一行并写原因，比现在默默放行好。
+
+### 5. Tailwind 会扫到 src 里的测试文件：t10 计划把 `*.dom.test.ts` 放在 src 下，测试里的类名会进产物 CSS；两条 `@source` 本身也是多余的
+
+严重程度：建议
+位置：packages/nb-site-web/src/app.css:11-12
+
+现象：
+- 把一个 src/App.dom.test.ts（内容只有一个字符串 `"w-[137px] text-[13.37px]"`）放进 lab 副本后构建（out-m7），产物 CSS 里出现了 `.w-\[137px\]{width:137px}`。也就是 `@source "./**/*.ts"`（加上 Tailwind 自己的自动检测）会把测试里的类名当作站点用到的类。
+- 反过来，去掉两条 `@source` 后产物 CSS 逐字节相同（out-m2：107056 字节，三项探针都在）：Vite 的 root 是 src，Tailwind 的 Vite 插件以它为扫描根，两条 `@source` 没起作用。
+
+为什么是问题：nb-ui 的 tailwind.css 为此专门写了 `@source not "./components/**/*.test.ts"`，注释说“测试里的类名不是发布面”。t10 计划 2.技术选型写组件测试是 `src/**/*.dom.test.ts`（与源码放在一起），一旦有断言写真实类名（比如检查调用方传的宽度会覆盖默认宽），那条只有测试用的规则就进了线上 CSS。dev-panel 的测试都在 tests/ 下，所以它没有这个问题，骨架照它抄时没抄到这一层差别。另外，现在两条 `@source` 既不起作用，注释又说它们是“Tailwind 的标准分层写法”的一部分，读的人会以为 Tailwind 靠它们找到站点源码。
+
+如何核实：lab 里 `/tmp/review-w00037-t05-impl2/lab-sonnet/run.sh m7`（把 src/App.dom.test.ts 放进 m/pkg 后）；`grep -c '137px' out-m7/assets/*.css` 得 1。去掉 @source 的对照是 run.sh m2。
+
+建议改法：app.css 加 `@source not "./**/*.test.ts";`（并写一句原因，引用 nb-ui 同样的做法）；两条正向 `@source` 要么删掉，要么注释里说明它们只是显式声明、不是必须。测试里的类名不进产物这件事，可以在 build.test.ts 里用一个固定的反例守住（这条要等 src 里真的有测试文件之后才有意义，不必现在加）。
+
+### 6. 构建测试的“站点原子类”探针绑在占位的 App.vue 上；主题的运行期接线没有任何检查
+
+严重程度：建议
+位置：packages/nb-site-web/tests/build.test.ts:39-44
+
+现象：我在 lab 副本里逐个做了变异（run.sh 的输出）：
+- 去掉 `@import "@notnotype/nb-ui/tailwind.css"`：`.nb-ui-scrollbar-thin` 断言失败，被抓到（CSS 从 107 KB 掉到 15 KB）。
+- main.ts 不再导入 nbook 主题：`[data-nb-theme=nbook]` 断言失败，被抓到。
+- 去掉两条 `@source`：三项断言全过（见第 5 条，它们本来就没起作用）。
+- main.ts 里去掉 `installTheme(...)`、`applyColorway(...)` 或 dataset 赋值：没有任何测试失败（这些是运行期行为，构建产物看不出）。
+
+问题有两点：
+1. `.min-h-svh` 是“站点自己的原子类”的探针，但它来自 App.vue 里的占位页面。t10 一开始就会替换 App.vue（路由视图、布局），这个类消失后，这条断言要么红、要么被随手改成别的类，而“站点源码被 Tailwind 扫到”这个本意并没有与具体页面绑定。注释里“取 App.vue 用到的一个”也写明了这种绑定。
+2. 构建测试声称守的是“nb-ui 没接上”，但它能证明的是 CSS 在、变量选择器在；明暗与配色有没有真的写到 `<html>` 上，只有在浏览器里才看得到。t10 的 Playwright 场景（“亮暗两种配色下的样子”）会覆盖，但在那之前没有任何东西守 main.ts 的接线。
+
+为什么是问题：第 1 点是下一个 Task 必然要碰的测试脆点；第 2 点是骨架这一片“证明接通了”的证据缺口，现在靠截图与人眼。
+
+如何核实：lab 里按上面逐项变异（run.sh 与 m/pkg/src 的副本）；`grep -n "min-h-svh" packages/nb-site-web/src` 只有 App.vue 一处。
+
+建议改法：
+- 探针换成会长期存在的位置，例如让 `src/index.html` 的根元素或将来的根布局组件带一个固定的、本站独有的原子类，测试里注明“换页面时保留它”；或者在测试里写一个临时副本的方式不可行（Tailwind 扫的是真实源码），那就在 App.vue 的注释里写明这个类是 build.test.ts 的探针，t10 改 App.vue 时一并迁移。
+- 主题接线先不加测试，但在 AGENTS.md 或 Task 记录里写明“主题接线靠 t10 的假接口浏览器场景核”，免得被误认为已有覆盖。
+
+### 7. 整页会滚的站点，根元素只挂了 `nb-ui-scrollbar-thin`，没有按 nb-ui 规范定滚动槽位
+
+严重程度：建议
+位置：packages/nb-site-web/src/index.html:2
+
+现象：index.html 的根沿用了 dev-panel 的 `class="nb-ui-scrollbar-thin"`。dev-panel 是“整页不滚、外壳铺满视口”的外壳（它的 app.css 里有注释说明不预留槽位）。官方站是整页滚动的文档型站点：稿纸页（短）居中，账号页（长）一页到底。
+
+为什么是问题：ui-development-spec 4.6 写“整页会滚的宿主自己在根上挂 `.nb-ui-scrollbar-stable`，整页不滚、外壳铺满视口的宿主不挂”。官方站不属于后一类。不挂的结果是：短页面没有滚动条、长页面有，路由切换时居中的稿纸与页头会横向跳一个滚动条宽度（窄屏触控设备是叠加滚动条，不跳）。这条要在根元素上定，骨架正好是定这件事的地方，后面各页都继承它；dev-panel 的注释本来就按“外壳型”写，没有被抄过来。
+
+如何核实：从规范文字与代码推断，没有在真实浏览器里量宽度变化（当前只有一个页面，量不出）。核对：ui-development-spec.md 4.6 的“其它约定”第一条；index.html 第 2 行；t10 计划 3.1 的布局类型（paper、account、admin、plain）都是整页滚动。
+
+建议改法：根元素 class 改为 `nb-ui-scrollbar-thin nb-ui-scrollbar-stable`（若规范认为二者可叠加，以 styles.css 里两条规则的实际作用为准），并在 app.css 加一句“整页滚动的站点：根上挂 stable，见 nb-ui 规范 4.6”的注释；或明确写“整页滚动，不预留槽位，原因…”。二选一，别留着从 dev-panel 抄来的状态而不说。
+
+### 8. AGENTS.md 写的 `vite preview` 没有对应脚本；index.html 的空图标与无脚本回退没有说明
+
+严重程度：建议
+位置：packages/nb-site-web/AGENTS.md:19、package.json:11-15、src/index.html:7
+
+现象：
+- AGENTS.md 最后一行写“`vite preview` 看页面”，package.json 的 scripts 只有 build、test、typecheck，没有 preview。根 AGENTS.md 又写 `bunx` 不支持 `--cwd`，在包外跑要先 `cd`。读 AGENTS.md 的人会直接敲 `vite preview` 失败（没有全局 vite）。
+- `<link rel="icon" href="data:,">` 是从 dev-panel 抄来的“不要请求 favicon”写法。官方站是公开站点，授权确认页上用户在决定是否放行第三方应用，标签页没有品牌图标；t10 计划里没有一处提到站点图标。
+- 没有 `<noscript>`：禁用脚本时是纯色空白页，没有任何提示。公开站点的最低要求是写一句话（t10 计划 3.8 的内容安全策略也不影响 `<noscript>` 里的静态文字）。
+- 已有的基本项没有问题：`lang="zh-CN"` 与第一版只做中文一致；`viewport` 正确，没有禁缩放；`<title>NeuroBook</title>` 合理（t10 计划按路由标题键改 document.title）。
+
+为什么是问题：第一条是文档与脚本不一致（简报重点 5）；后两条是公开站点的基本项，在骨架里补一行比以后翻出来补更便宜，也不会与 t09 的页面稿冲突。
+
+如何核实：`cat packages/nb-site-web/package.json | grep -n preview`（无）；`bun run --cwd packages/nb-site-web preview` 报找不到脚本。
+
+建议改法：package.json 加 `"preview": "vite preview"`，AGENTS.md 改写成 `bun run --cwd packages/nb-site-web preview`；favicon 与 `<noscript>` 在 t10 的页面里一起定，现在至少在 AGENTS.md 或 Task 记录里记一条待办，别让 `data:,` 被当作“已决定”。
+
+## 未发现问题的方面
+
+- Tailwind 与 nb-ui 的层次：`@import "tailwindcss"` 在前、nb-ui 入口在后，与 dev-panel 一致；产物里 `@layer` 依次是 properties、theme、base、components、utilities，nb-ui 的 token 在 base、语义类在 components、站点原子类在 utilities；`html, body`、`body` 规则在 base 层，不会压过原子类。没有发现撞名：站点自己没有不分层的语义类。
+- nb-ui 的图标插件与字体：`@iconify/tailwind4` 与 lucide 是 nb-ui 自己的 dependencies，从 nb-ui 的位置解析，站点不必重复登记（dev-panel 重复登记了，不是必须）；nbook 主题的 Fraunces 字体进了产物（`font-src 'self'` 可用）。
+- 主题装法与“用户以后可以切明暗”：除第 1、2 条外，没有结构性障碍；`data-nb-theme`、`data-nb-appearance` 与 nb-ui 的 colorway-store 写的是同一组属性。
+- tsconfig 的拆法：`vue-tsc --noEmit`（tsconfig.json，src 下的 .ts 与 .vue）加 `tsc -p tsconfig.tests.json`（tests 与 vite.config.ts）覆盖现有的全部源文件；lab 里在 src 放 `.vue` 与 `.ts` 的类型错误，vue-tsc 都报出。`tests` 里导入 `.vue` 会因缺声明失败，但 t10 计划的组件测试在 src 里（由 vue-tsc 管），纯逻辑测试不导入 .vue，所以现在不算问题。包根以后加 `e2e/` 与 `playwright.config.ts` 时要再加一份配置，到那时处理。
+- vite.config.ts：root 为 src、base 为 "/"（深层路径刷新也能取到资源）、产物进 dist（已被根 .gitignore 的 `dist/` 忽略）、rolldown 的 pluginTimings 关闭有理由；构建后 index.html 没有内联脚本，满足 t10 计划 3.8 的 `script-src 'self'`。
+- build.test.ts 的其它部分：临时根与清理、超时显式 180 秒、头注释说明了超过快速类预算的原因、stderr 为空的断言。对 nb-ui 入口缺失与主题模块缺失两种接线错误，变异后确实失败（见第 6 条）。
+- 与前端计划的衔接：t10 计划 3.1 到 3.3 要建的路由、接口层、消息目录都只依赖 main.ts 能多装几个插件与根组件，骨架没有留下需要返工的接法（主题那一块见第 2 条）。
+- index.html 基本项：lang、viewport、charset、标题。
+- 依赖：package.json 的运行时依赖只有 nb-ui 与 vue，没有模块包与进程入口；devDependencies 的版本线与 dev-panel 一致。
+
+## 数量
+
+阻断 0；重要 2（第 1、4 条）；建议 6（第 2、3、5、6、7、8 条）；共 8 条。

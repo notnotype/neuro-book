@@ -1,0 +1,221 @@
+# w00037 t05 实施计划 审查报告（审查对象 /tmp/review-w00037-t05-plan/plan-copy.md）
+
+### 1. 就绪检查在模块自己的连接上 BEGIN IMMEDIATE/ROLLBACK，会回滚 Better Auth 正在进行的跨 await 事务，破坏注册的原子性
+- 严重程度：阻断
+- 类别：接口与合同、并发
+- 位置：计划 3.5“健康检查”第二条；3.2 ModuleContext.db“只是本模块的连接”；Spec operations 输出 4
+- 现象：就绪检查“对每个模块在它自己的连接上 BEGIN IMMEDIATE → 读账本 → ROLLBACK”。t07 的身份模块会把同一个 Database 交给 Better Auth；Better Auth 1.7.27 认出 bun:sqlite 后用 BunSqliteDialect（/tmp/nbsite-spike/node_modules/@better-auth/kysely-adapter/dist/bun-sqlite-dialect-C1xgdqho.mjs 第 37 到 45 行：在同一个 Database 上执行 "begin"，各句之间是 await，最后 "commit"），注册时 runWithTransaction 包住建用户与建账号，注册码的扣减也要在这个事务里（ADR 0060 决策 6）。事务跨 await 期间事件循环会处理别的请求，其中就包括 /health/ready。
+- 如何核实：lab/e5-ready-in-txn.ts 模拟这个时序（begin、扣码、await、建用户、await、commit），中途调计划写法的就绪检查。结果：就绪检查得到 "cannot start a transaction within a transaction"，回了 not_ready；它在 finally 里的 ROLLBACK 把外面的事务回滚了，扣码被撤销；之后的建用户在自动提交下写进了库；最后 commit 报 "cannot commit - no transaction is active"。最后库里有用户，码却还是 1 次。改用 bun 的 db.transaction(...).immediate() 包就绪检查时，它在已有事务里退化成 SAVEPOINT，不再破坏外层事务，但“证明拿得到写锁”就不成立了（外层事务本来就拿着锁）。
+- 为什么是问题：被探测的频率越高（容器健康检查、上游监控每几秒一次），撞上的概率越高。后果是注册码没扣、账号却建成了，正是 ADR 0060 决策 6 要防的情况；而且就绪检查会随机回 503，触发部署侧把健康的服务判成不健康。Spec 输出 4 已按“能取得写锁”改写，t07 照字面实现就会出这个问题。
+- 建议改法：就绪检查不碰模块的业务连接。入口为每个库另开一条专用的探测连接（同一文件，busy_timeout 很小或为 0），在这条连接上做 BEGIN IMMEDIATE/ROLLBACK；或者把检查改成在探测连接上只读账本，再加 `PRAGMA quick_check(1)` 之类不开写事务的读。计划里写明“业务连接上不许由入口开事务”，在 ModuleContext 的注释里约定 db 归模块所有。Spec 输出 4 的“能取得写锁”可以保留，前提是用独立连接实现。
+
+### 2. “迁移期间收到信号就不监听”在计划的写法下不成立：同步迁移之间不让出事件循环，信号处理函数要等到 Bun.serve 之后才跑；这条也没有测试
+- 严重程度：重要
+- 类别：时序、验收映射
+- 位置：计划 3.5 serve 第 6 步（“信号在两条迁移之间才被处理”）；第 6 节输出 9 那一行；Spec operations 输出 9
+- 现象：信号处理函数是 JS 回调，只在事件循环转一圈时才执行。迁移、create、Bun.serve 之间如果都是同步调用（bun:sqlite 是同步的，运行器“约 120 行”也没写要 await），信号会一直排队，等到监听之后才被处理。
+- 如何核实：lab/e1-signal.ts 模拟三条各 300 毫秒的同步迁移，在 350 毫秒时发 SIGTERM。不让出时（none）：三条都执行完、打出 site.listening 之后才看到 signal；只 await Promise.resolve() 让出微任务（yield-micro）结果相同；每条之后 await setImmediate 让出宏任务（yield-macro）时，信号在第 2 条之后被处理，但第 3 条照样执行，因为循环里没有检查标志。Bun 1.4.4 实测。
+- 为什么是问题：Spec 输出 9 写的是“把正在执行的迁移做完、不监听端口、以 0 退出”。按计划实现会把剩下的迁移全部做完，然后监听，再停止。端口会短暂可连，部署侧可能在这个窗口里把它判成已启动。计划第 6 节输出 9 只列了在途请求与时限两种用例，这条时序没有测试，变异检查里也没有。
+- 建议改法：运行器每提交一条迁移之后 `await new Promise(r => setImmediate(r))`，再查“已收到停止”的标志，置位了就不执行下一条；serve 在 create 之后、Bun.serve 之前再查一次。在 serve.test.ts 里加一个夹具：迁移是两条，第一条慢（例如递归 CTE 算一会儿），起进程、看到第一条的 migration.applied 后发 SIGTERM，断言以 0 退出、没有 site.listening、第二条不在账本里。注意：“看到 migration.applied 再发信号”要求那一行在下一条迁移开始前就写出去，writeSync 满足这一点。
+
+### 3. 迁移在 foreign_keys = ON 的事务里执行：一条照常写的“重建表”迁移会静默级联删掉子表，身份库里就是全部会话与密码
+- 严重程度：重要
+- 类别：遗漏（数据格式、迁移）
+- 位置：计划 3.3 db/open.ts（打开即设 foreign_keys = ON）、运行规则 2、拒收 PRAGMA 的校验；第 8 节第三条风险
+- 现象：openModuleDb 一打开就设 foreign_keys = ON，运行器在同一条连接上给每条迁移包事务，并且拒收 PRAGMA。SQLite 改列的标准做法是建新表、拷数据、DROP 旧表、改名。foreign_keys 打开时，DROP TABLE 会先隐式执行一次 DELETE，触发 ON DELETE CASCADE。Better Auth 导出的表里 session、account（存 password）、oauth* 都是 `references "user" ("id") on delete cascade`（/tmp/nbsite-spike/schema.sql 第 5、7、13、19 到 23 行）。
+- 如何核实：lab/e4-fk-rebuild.ts 先设 foreign_keys=ON，在 db.transaction(...).immediate() 里执行一次不带 PRAGMA 的 user 表重建，session 表从 2 行变成 0 行，没有任何报错。事务内加 PRAGMA defer_foreign_keys = ON 同样是 0 行（延迟只推后检查，不拦级联动作）。Bun 1.4.4 实测。
+- 为什么是问题：计划第 8 节把这件事写成“本运行器不支持，第一次遇到时加开关”，可是它不会报错：迁移作者照着 SQLite 文档写重建，PRAGMA 被拒，删掉 PRAGMA 之后迁移就“通过”了。迁移测试只看结构，账号却全丢了。ADR 0060 已经预见 Better Auth 升级时要“手写增量迁移”，改约束、改 NOT NULL 就要重建表。
+- 建议改法：运行器在执行迁移之前，在事务外设 `PRAGMA foreign_keys = OFF`；每条迁移在提交前于事务内跑 `PRAGMA foreign_key_check`，有结果就当迁移失败回滚；全部做完后再设回 ON。这是 SQLite 文档的写法，运行器替作者做掉，也就不需要“按文件声明的开关”。db/migrate.test.ts 加一条：重建父表后子表行数不变；再加一条：留下悬空外键时迁移被拒。第 8 节那条风险随之删掉。
+
+### 4. 账本规则有一类条目没有定义：账本里有、列表里没有、编号不大于列表最大编号。两个分支合并改号、迁移改名时，这类条目会被静默忽略，同一段 SQL 可能执行两遍
+- 严重程度：重要
+- 类别：数据格式、兼容与迁移
+- 位置：计划 3.3 每个模块的执行规则 1 到 4
+- 现象：规则 1 管“列表里有、账本里有”，规则 2 管“列表里有、账本里没有”，规则 4 只管“账本里有、列表里没有，且编号比列表最大的还大”。账本里有、列表里没有、编号不大于列表最大编号的条目，四条规则都不管。
+- 逐个情况推演（按计划的字面规则）：
+  - 上一个版本接管：账本 {1,2,3}，列表 {1,2}，3 走规则 4，放行。正确。
+  - 回滚程序后再升级到下一个正式版：账本 {1,2,3}，列表 {1,2,3,4}，只执行 4。正确。回滚后改写了 0003 再发版：校验和不同被拒，正确；但计划与 Spec 都没写部署的人遇到之后怎么办（只能手改账本）。
+  - 两个分支各加一条迁移再合并：主线发布了 0002_a；分支的 0002_b 已在预发或开发者自己的数据目录上跑过，合并时改号成 0003_b。账本 {0001, 0002_b}，列表 {0001, 0002_a, 0003_b}。0002_a：账本里没有编号大于 2 的条目，执行；0003_b：执行，与已经执行过的 0002_b 是同一段 SQL，第二遍要么因为“表已存在”报 migration_failed，要么把可重复的语句（INSERT、UPDATE）再做一遍。0002_b 属于上面那类没定义的条目，被静默忽略。
+  - 只把迁移改名（0002_x 改成 0002_y，SQL 不变）：同上，旧名被忽略，新名被当成没执行过再跑一遍。
+- 为什么是问题：账本的形状与规则一旦发布就不能改（3.3 自己写的），漏掉的这一类以后也补不进来：上一个版本的程序会按旧规则放行。
+- 建议改法：加第 5 条规则：账本里有、列表里没有、编号不大于列表最大编号的条目一律失败，报 migration_failed，说明写“账本里有本版本不认识的旧迁移”；同时规定同一个编号在账本与列表里只能对应同一个 id（编号相同、id 不同即失败）。db/migrate.test.ts 补“合并改号”“改名”两条。再给 Spec 的失败表或 nb-site-server/AGENTS.md 写一句校验和不同时的处理办法。
+
+### 5. 模块生命周期缺“开始”这一步：定时任务只能在 create 里启动，早于监听；失败的收口路径不调 close()；close() 没有时限
+- 严重程度：重要
+- 类别：接口与合同、资源释放、时序
+- 位置：计划 3.2 ModuleInstance（只有 mounts、ready、close）；3.5 serve 第 4、5、7 步
+- 现象：
+  - t06 的聚合与原始上报清理是定时任务（telemetry-ingest 输出 3、5：每天至少删一次，聚合间隔缺省 10 分钟）。接口里没有“监听之后开始”的钩子，定时器只能在 create() 里起。create 在第 4 步，监听在第 5 步。
+  - 第 5 步绑端口失败（listen_failed）时，计划只写“finally 关掉已打开的库、放锁”，没有调用已经 create 出来的实例的 close()。定时器还挂着：如果 cli.ts 不 process.exit，进程会因为事件循环里还有定时器而不退出；即使退出，也是在库已关闭之后。在 create 与 listen 之间收到信号的路径同样没有写。
+  - 第 7 步的时限只套在 server.stop() 上，各模块的 close() 不受约束。t06 的 close() 要等一次正在进行的聚合（同步的，没问题），但 t07 以后的 close() 如果 await 什么东西卡住，进程就一直不退，直到容器的 SIGKILL。
+- 为什么是问题：t06 照这个接口写，第一条定时清理就落在 create 里，这三条路径都会碰上。计划声称 3.5 列清了“每步在 try 内外、受理前后”，但实例的收口没有进这张表。
+- 建议改法：ModuleInstance 加 `start?(): void`，在 site.listening 之后调；收口改成“凡 create 成功的实例，在任何退出路径上都按相反顺序 close()”，放进同一个 finally；close() 与剩余的停止时限一起赛跑，超时记一行 warn 继续关库。serve.test.ts 用 ingest 或新夹具挂一个计时模块，断言 listen_failed 时进程在 1 秒内退出、close 被调用（夹具往标准输出写一行）。
+
+### 6. “拆成两个进程只改入口包”不成立：数据目录锁是整目录一把，基础配置把账号模块的密钥设成了所有进程的必填项
+- 严重程度：重要
+- 类别：与已定设计一致（ADR 0059 决策 7 与后果三）、上游选择
+- 位置：计划 3.2 最后两段；3.4 配置表与数据目录布局；3.5 serve 第 2 步、migrate；Spec operations 的副作用与数据
+- 现象：
+  - serve 与 migrate 拿的是 `<数据目录>/site.lock`，一个数据目录一把。拆成 main-identity 与 main-telemetry 两个进程之后，它们要么共用一个数据目录（ADR 0061 后果“拆进程之后每个服务各写自己的文件”，同一个卷最自然），后起的那个拿不到锁，以 data_dir_busy 退出；要么各用一个数据目录，那么 Spec 里作为公开合同的布局（一个目录里两个库、backups/<时间>/ 里两个库）就要改，合同测试的 holdWriteLock 与备份用例也要跟着改。
+  - NB_SITE_SESSION_SECRET 是入口的基础配置、必填。只装统计模块的进程用不上它，却必须配；NB_SITE_URL 与 NB_SITE_TELEMETRY_URL“主机不同”的校验对只装账号的进程也没有意义。
+- 为什么是问题：开发者定的是“以后能拆成两个进程”，计划用它来论证模块接口的形状（3.2“装配、迁移、健康检查、日志、锁、备份都按传入的模块列表工作”），可是锁和配置恰好没有按模块列表来。等拆的时候再改，锁文件名和配置都已经是发布过的公开合同。
+- 建议改法：锁按模块拿，`<数据目录>/<模块>.lock`，serve 与 migrate 按模块列表逐个 tryLock，任一个拿不到就 data_dir_busy；Spec 的布局改成每个模块一个锁文件。代价几乎为零，合同测试照旧。会话密钥改由账号模块的 parseConfig 读（变量名可以不变，仍叫 NB_SITE_SESSION_SECRET），入口只校验各进程都要的那几项。两个地址的主机校验放在入口，只在装了带 ingest mount 的模块时才做。
+
+### 7. SiteModule 装不下 t07 的 create-admin 与 t12 的导入：模块没有提供命令的位置，也没有定这两个命令与锁、迁移的关系；运行器在事务外读账本
+- 严重程度：重要
+- 类别：接口与合同、并发与跨进程
+- 位置：计划 3.2 SiteModule；3.3 执行时机与规则 1、2；3.5 命令列表；Spec operations 输出 5、legacy-import 输入与时序
+- 现象：
+  - create-admin 只属于账号模块，要用 Better Auth 实例算哈希、删会话；导入要在账号库里写 user、account 与码表（legacy-import 输出 3：全有或全无）。按 ADR 0059 决策 3，这些写入只能由账号模块的代码经它自己的连接完成。SiteModule 只有 migrations、parseConfig、create、prepareBackupCopy 四项，create 又会装出 HTTP 子应用、起定时器（第 5 条），不适合在命令里调用。t07 只能给接口加字段，或者让 cli.ts 绕开模块列表去 import 账号包，后者在拆成两个进程时要把命令拆到对应的入口去。
+  - 锁的关系没写。3.3 说 create-admin 是“进程外的写者”，也就是服务在跑时也能执行，所以它不能拿 site.lock。可它也可能在服务从没启动过时执行：bun:sqlite 打开不存在的库会建一个空文件，没有表，命令失败；要是它自己跑迁移又不拿锁，就会和同时启动的 serve 并发迁移。导入要求“服务没有在这个数据目录上运行”，正该拿 site.lock，计划也没写。
+  - 运行器规则 1 在事务外读账本，然后对每一条“在 immediate 事务里执行 SQL 并写账本”。两个运行器并发时，两边都读到空账本，后到的拿到写锁后再执行一遍 0001：CREATE TABLE 报“已存在”，变成 migration_failed，或者重复执行可重复的语句。现在靠 site.lock 挡住，可只要有一个不拿锁的命令会跑迁移，这道防线就没了。
+- 建议改法：SiteModule 加 `commands?: readonly SiteCommand[]`，SiteCommand 包含名字、要不要独占数据目录（exclusive 或 shared-with-serve）、`run(context)`，context 里有本模块已迁移的连接与配置；cli.ts 按模块列表注册子命令。写明锁的规则：独占的命令（迁移、导入）拿锁并先跑迁移；与服务共存的命令（create-admin）先试锁，拿到就跑迁移，拿不到就在 BEGIN IMMEDIATE 里核对账本已完整，不完整报 migration_failed 或 not_ready。运行器改成在每条迁移的 immediate 事务里重读这一条的账本记录，已存在就跳过。
+
+### 8. 合同测试底座没有给“控制时间、触发定时任务、卡在某个时点”留通道，后面三份 Spec 的验收照字面写不出来；审定第 1 条“产品里不加模拟故障的开关”会把这条路堵死
+- 严重程度：重要
+- 类别：接口与合同、验收映射（后续 Task）
+- 位置：计划 3.2 ModuleContext（没有时钟）；3.8 环境只给明确列出的几项；文末审定第 1 条
+- 现象：合同测试只经 HTTP 与命令行，被测进程只拿到列出的环境变量。下面几条验收要求测试控制被测进程的时间或时序：
+  - telemetry-ingest 验收 1“把服务的时钟拨到 8 天后并触发删除”，以及“至多一个聚合间隔后出现在聚合里”的时序；
+  - accounts 输出 19 的限流窗口（5 分钟、1 小时）、发起社交流程的 10 分钟有效期；
+  - accounts 验收 7“在密码校验通过之后、会话建成之前，管理员重置了这个账号的密码”，这是要把请求停在一个中间点。
+  ModuleContext 只有 db、config、site、log，没有时钟；3.8 也没有说测试怎样让进程用假时钟、怎样立即跑一次定时任务。
+- 为什么是问题：t06 是紧接着的 Task。它要么往接口里加时钟、往产品里加只给测试用的入口，这与审定第 1 条的口径冲突；要么把这些验收挪进进程内测试，那就违背了“后端测试换语言后能复用”。两条路都改动脚手架的接口与 Spec。
+- 建议改法：本 Task 就定下一个统一的测试通道并写进 site.operations：例如 `NB_SITE_TEST_CONTROL=1` 时进程在回环地址上多挂 `/_test/clock`（设、拨时间）与 `/_test/jobs/<名字>`（立即跑一次）。没设这个变量时这些路由不存在，镜像与生产都不设，合同测试有一条断言没设时访问回 404。ModuleContext 加 `clock: {now(): number}` 与 `jobs` 登记入口（配合第 5 条的 start）。“卡在中间点”这一类（accounts 验收 7）在这里一并决定，是给出钩子，还是在 Spec 里改成进程内测试并写明理由。
+
+### 9. 进程外有人持写锁时，每次就绪检查都让整个事件循环停 250 毫秒；20 个并发探测就能让存活检查等将近 5 秒
+- 严重程度：重要
+- 类别：并发、可用性（重点 4）
+- 位置：计划 3.3 db/open.ts 的 busy_timeout = 250 与注释；3.5 健康检查（每次请求现查、不缓存，在主机分派之前、任何主机都能到）；第 8 节第二条风险
+- 现象：bun:sqlite 是同步的，BEGIN IMMEDIATE 等锁期间事件循环停着。计划只估了单次 250 毫秒，没算并发：这些等待是串行累加的。
+- 如何核实：lab/e9b-busy.ts 起一个照计划写法做就绪检查的服务（busy_timeout=250），另一个进程持 BEGIN EXCLUSIVE；用外部 curl 同时发 20 个 /health/ready，300 毫秒后再发一个 /health/live。存活检查的总耗时是 4.73 秒，20 个就绪请求都回 503，合计约 5 秒（Bun 1.4.4 实测）。同进程里的 fetch 测不出这个现象，因为客户端和服务端一起被卡住了；所以要用外部 curl。
+- 为什么是问题：会碰到的进程外写者有操作员开着的 sqlite3 shell、t07 的 create-admin、合同测试的 holdWriteLock，以后可能还有 t12 的导入。在这些时候，容器或监控按固定间隔探测 /health/ready，加上反向代理没有屏蔽 /health/*（计划只写“反向代理与容器的健康检查用回环地址来”，路由却对任何主机开放），会把一次几百毫秒的锁放大成整站几秒无响应，存活检查也跟着超时。存活检查一超时，编排器可能直接重启容器。Spec 输出 3 写的“进程能响应时回 200”在这种情况下也守不住。
+- 建议改法：就绪检查用独立的探测连接（与第 1 条同一处改动），busy_timeout 设 0：拿不到锁立刻判 not_ready，不等。同一时刻只跑一个检查（single-flight），结果复用 1 秒以内的那一次（“恢复后下一次就回 200”仍然成立）。在 nb-site-server/AGENTS.md 的部署一节写明 /health/* 只对回环开放，交给 t13 的反向代理配置。业务连接的 250 毫秒保持不变，但要在注释里写清它的代价是“每个撞锁的请求让全站停 250 毫秒”，不只是“让就绪检查回 503”。
+
+### 10. 按主机分派没有写比较的是哪个字段：直接比 Host 头时大小写不同就分错；比 URL.host 时带 :443 就分错；末尾带点的写法哪种都分错
+- 严重程度：重要
+- 类别：接口与合同、异常输入（重点 6）
+- 位置：计划 3.5“按主机分派”（“请求的 Host 与 NB_SITE_TELEMETRY_URL 的主机相同”）；3.4 same_host 校验
+- 现象与核实：lab/e8-run.sh 起一个 Bun.serve，用 curl 改 Host 头请求，看 req.url 与 new URL(req.url) 的各字段（Bun 1.4.4）：
+  - `Host: TELEMETRY.test`：req.url 与 URL.hostname 都已转成小写，原始头还是大写。按原始头比，结果不相等。
+  - `Host: telemetry.test:443`：req.url 是 `http://telemetry.test:443/...`。反向代理终结 TLS 之后 scheme 是 http，所以 :443 不算缺省端口，URL.host 里保留着它；而配置 `https://telemetry.test` 的 URL.host 里没有端口。按 host 比，结果不相等，写入口回 404。Nginx 用 `proxy_set_header Host $http_host` 转发、客户端又显式带了端口时，就是这个情况。
+  - `Host: telemetry.test.`（FQDN 末尾带点）：hostname 是 `telemetry.test.`，不做归一就不相等。
+  - 配置里写 `https://telemetry.test:8443` 时：校验按 hostname 比还是按 host 比，同样没定。按 host 比，`https://x.test` 与 `https://x.test:8443` 能通过“主机不同”的校验，而分派按 hostname 比时它们是同一个主机。
+- 为什么是问题：分不到 ingest 的请求一律落到 site 的接口上，写入口回 404。发送方按协议对 404 不会重发（protocol 失败表只对 5xx 退避），上报就静默丢了。这些情况由反向代理的配置细节决定，合同测试用的是 `https://telemetry.test` 加回环地址，覆盖不到。
+- 建议改法：写死比较规则：取 `new URL(req.url).hostname`，去掉末尾的点，与配置 URL 的 hostname（同样去掉末尾的点）比较，不看端口；same_host 校验用同一个函数。serve.test.ts 的 ingest 夹具加大小写、带 :443、末尾带点三种 Host。Spec 的“请求按主机分到两处”补一句“按主机名比较，不分大小写、不看端口”。
+
+### 11. hono/request-id 照收入站的 X-Request-Id：日志里的 requestId 是请求方写的值，违反“日志不含请求头”，还给了请求方往统计日志里写追踪编号的通道
+- 严重程度：建议
+- 类别：泄漏与合同（重点 6）
+- 位置：计划第 2 节 HTTP 一行（“只接受 [\w\-=]{1,255} 的入站编号”）；3.5 请求日志；Spec operations 输出 8；telemetry-ingest 输出 8
+- 现象：node_modules/hono/dist/middleware/request-id/request-id.js：设了 headerName 就先读请求头，值合格就原样当 requestId 用，写进响应头；headerName 设成空串时既不读请求头，也不写响应头。计划用的是缺省配置。
+- 为什么是问题：Spec 输出 8 写明每行日志“不含……请求头”，3.5 也写“不记任何请求头”，可 requestId 字段正是请求头的原值。在写入口上，发送方可以每次都带同一个 X-Request-Id，日志里就有了一个跨请求的稳定标识，这与统计 Spec “不留可识别的东西”的方向相反。最多 255 个字符，还能用 base64 夹带任意内容。合同测试“响应头等于日志 requestId”照样能过，测不出来。
+- 建议改法：自己写一个约 5 行的中间件：总是用 crypto.randomUUID() 生成编号，写进 c.set 与响应头，不读请求头。或者调用 requestId({headerName: ""})，再另外设置响应头。合同日志用例加一条：带 `X-Request-Id: attacker-chosen` 请求，断言日志与响应头里都不是这个值。
+
+### 12. 合同测试底座依赖的输出细节没有写进 Spec，换语言重写时照 Spec 写不出能过测试的程序；早退与输出缓冲时底座只能干等超时
+- 严重程度：重要
+- 类别：接口与合同（重点 5）、上游选择（“后端测试换语言后能复用”）
+- 位置：计划 3.8 SiteSandbox.start、要点第二、三条；3.4 问题词；第 4 节 Spec 改动；Spec operations 输出 1、2
+- 现象：合同测试会按下面这些断言，Spec（已按计划第 4 节改过）里却只有笼统的说法：
+  - 监听日志的字段名 `url`、值的格式 `http://127.0.0.1:43127/`（Spec 输出 2 只写“带实际监听的地址”）；底座靠它找端口，字段名不对就起不来。
+  - `problems` 每项的字段名 `name`、`problem`，以及 11 个问题词（Spec 输出 1 只写“变量名与一个固定的问题词”）；计划 3.4 写明“合同测试按它断言”。
+  - migration.applied 行的 `module`、`migration` 字段；日志行的 `event`、`requestId`、`path` 等字段名（Spec 输出 8 只列了含义）。
+  - 被测程序的运行方式：每行输出立即落到管道（不缓冲）；SIGTERM 后以 0 退出；工作目录与 HOME 不影响行为。
+  另外两处底座行为：
+  - 输出缓冲：C 的 stdio、Python 在标准输出是管道时按块缓冲，site.listening 那一行要攒满 4 到 8 KiB 才写出去，底座要等满 10 秒超时才报错，而且只带标准错误。
+  - 早退：start 只写了“超过 timeoutMs 抛错”。进程在打出监听行之前就退出（配置错、端口占用）时，应当立即以退出码与标准错误失败，不该再等 10 秒。计划里配置用例要连起十几个进程，它们本来就应该走 run，但 start 的这条路径要写清楚。
+  - 子进程的工作目录没写。缺省继承测试进程的工作目录（包目录），Bun 会读那里的 bunfig.toml；传进去的 HOME 也让 Bun 读 ~/.bunfig.toml。两者都可能带 preload。
+- 为什么是问题：NB_SITE_SERVER_COMMAND 的用途就是“换语言重写后指向新程序”。Spec 不写这些，新程序的作者就只能去读测试源码；Spec 是合同，测试是它的证据，依赖方向反了。
+- 建议改法：第 4 节的 Spec 改动补上监听行与迁移行的字段名、problems 的形状与问题词表（放在失败与恢复里）、日志行的字段名，并加一句“每行输出在写出时即刷新”。start 同时监听子进程的 exited，先到先判。spawn 时显式给 cwd 为临时根，HOME 给临时根下的一个空目录，计划里的 TMPDIR 那一条照旧。
+
+### 13. 备份命令的几处边界：backups/ 没人建，第一次备份必失败；清理按“所有目录名排序”，会把手工放进去的目录算进保留份数或删掉；时钟回拨会让刚写出的备份被当成最旧的删掉
+- 严重程度：建议
+- 类别：遗漏（失败路径）
+- 位置：计划 3.5 backup 第 2 到 4 步；3.4 数据目录布局
+- 现象与核实：
+  - 第 2 步对 `<数据目录>/backups/backup.lock` 调 tryLock，第 3 步才在 backups/ 下 mkdir（不带 recursive）。计划没有任何一步建 backups/。nb-flock 的 tryLock 遇到“目录不存在”时抛 Error，不返回 null（packages/nb-flock/src/index.ts 第 36 行注释与第 62 行 openSync(path, "a")）。所以从空数据目录起的服务第一次备份会抛出非预期的异常，或者被一个笼统的 catch 报成 backup_failed。合同用例“服务运行时跑 backup，以 0 退出”会在实现时撞上，计划现在的步骤照字面实现不出来。
+  - 第 4 步“按名字排序删掉超过 KEEP 份的旧目录”没有限定名字的格式。部署的人在升级前手工拷进去的 `before-upgrade-v2/` 按字母排序排在 `2026…` 之后，被当成最新的一份，挤掉一个真实备份，而且永远不会被删；名字排在前面的手工目录则会被删掉。
+  - 名字取 UTC 墙钟。主机时钟往回调（NTP 修正、换主机）之后，新备份的名字比旧的小，排序时被当成最旧的，在同一次运行里就被删掉，命令仍报 backup.done。
+- 建议改法：第 2 步之前 `mkdir(backups, {recursive: true})`；清理只看匹配 `^\d{8}T\d{9}Z$` 的目录，其余的一律不碰；删除时跳过本次刚写出的那一份（按名字精确排除），保证至少留下本次的备份。backup.test.ts 加“从没有 backups/ 的数据目录第一次备份”“backups/ 里有一个手工目录”两条。
+
+### 14. 错误输出的通道不全：migration_failed 不带 SQLite 的原因，部署的人没法判断；create() 抛错没有失败码；请求之外的未捕获异常按 Bun 的缺省打出非 JSON 的堆栈
+- 严重程度：建议
+- 类别：失败有通道、日志与泄漏
+- 位置：计划 3.3 规则 3（“带模块名与迁移 id，不带 SQL 与路径”）；3.5 serve 第 4 步；3.2 site.ts 的未捕获异常；Spec operations 失败表
+- 现象：
+  - migration_failed 只给模块名与迁移 id。Spec 写的处理办法是“看说明里的模块与迁移名；修好后重新启动”，可部署的人看不出要修什么：是磁盘满（SQLITE_FULL）、库被锁（SQLITE_BUSY，busy_timeout 只有 250 毫秒，迁移时有外部写者就会碰上），还是 SQL 本身有错。SQLite 的错误码与说明文字（例如 "table user already exists"、"UNIQUE constraint failed: user.email"）只含标识符，不含取值与路径；文件路径出现在 "unable to open database file" 这类说明里时，也只是数据目录下的固定文件名。
+  - 第 4 步各模块 create() 抛错（t07 里 Better Auth 初始化失败，例如密钥格式不对）时，失败表里没有对应的码；计划也没写这时走哪条收口路径（同第 5 条）。
+  - 计划只给 Hono 请求里的异常写了 level:error 的 JSON 行。定时任务（t06）里的异常、未处理的 Promise 拒绝不经过 Hono，Bun 的缺省行为是把堆栈以纯文本打到标准错误并退出。这违背 Spec 输出 8“每行一个 JSON”，堆栈里还会带上源码路径与错误信息的原文。
+- 建议改法：migration_failed 那一行加 `sqliteCode`（例如 SQLITE_BUSY、SQLITE_FULL、SQLITE_ERROR）与 SQLite 的说明文字；如果担心说明里带出数据，可以只给码。失败表加 `start_failed`（模块初始化失败），带模块名与错误类型。cli.ts 装 `process.on("uncaughtException")` 与 `unhandledRejection`：写一行 JSON（错误类型与模块），然后按停止流程收口，以 1 退出。
+
+### 15. 停止时限的缺省值 10 秒正好等于 docker stop 的宽限 10 秒：有在途请求时，进程在自己强制断开之前或之后不久就被 SIGKILL，Spec 的“以 0 退出”在缺省容器里守不住
+- 严重程度：建议
+- 类别：时序、与部署的耦合
+- 位置：计划 3.4 NB_SITE_SHUTDOWN_TIMEOUT_MS 缺省 10000；3.5 第 7 步；3.11 smoke（`docker stop`，缺省 10 秒）与第 8 节 1 号进程那一条
+- 现象：第 7 步是先等在途请求，最多等时限那么久，再 server.stop(true)，然后 close()、关库、放锁、写 site.stopped。docker stop 发出 SIGTERM，10 秒后发 SIGKILL。两个 10 秒同时开始计时：只要有一个请求跑满时限，关库与写 site.stopped 就和 SIGKILL 赛跑，退出码会变成 137。smoke 只在空闲时 stop，覆盖不到。
+- 为什么是问题：WAL 能扛住被杀，数据不会坏，但 t13 按“健康检查不过就换回上一个镜像”、“退出码”判断升级是否正常时，会读到一个与 Spec 不一致的结果。这件事要在 t13 的 Compose 里配 stop_grace_period，计划给 t13 的部署说明里却没写这一条。
+- 建议改法：缺省改成 8000，给后面的收口留 2 秒；或者保持 10000，同时在 nb-site-server/AGENTS.md 的部署一节写明“stop_grace_period 必须大于 NB_SITE_SHUTDOWN_TIMEOUT_MS 加 2 秒”。另外，停止期间收到第二个 SIGTERM 或 SIGINT 怎样处理（立即强制断开，或者忽略）要写下来。
+
+### 16. 拒收事务语句靠“分号或行首后跟关键字”扫文字：多行 CASE 的 END 会被误拒，注释、块注释之后的关键字会漏过；漏过一句 COMMIT 就会留下半条迁移，而且以后每次启动都失败
+- 严重程度：建议
+- 类别：别扭之处、失败路径
+- 位置：计划 3.3 格式与编号第三条；文末“实施时注意的两点”第一条
+- 现象与核实：
+  - 误拒：`CREATE VIEW v AS SELECT CASE WHEN … ELSE 'b'\nEND AS c;` 这种 END 独占一行的写法很常见，按计划的规则会被当成事务语句拒收。lab/e10-commit-in-migration.ts 用一条近似计划规则的正则验证过，结果是 true。
+  - 漏过：`/* x */ COMMIT;`、`-- 注释\n` 之后紧跟的关键字，要看实现时怎样“去掉注释”，计划没写。
+  - 漏过的后果：同一个脚本里，迁移 SQL 中间夹一句 COMMIT，后面的一句违反约束。结果是 COMMIT 之前建的表 a 已经提交，之后的表 b 也留在库里（COMMIT 之后的语句在自动提交下执行），账本却没有这条迁移。以后每次启动都重跑这条迁移，报“table a already exists”，只能手工修库。Bun 1.4.4 实测，tables 输出是 site_migrations、a、b。
+- 为什么是问题：扫描是为了挡住“破坏单事务”的语句，可这件事可以直接、准确地检测出来。现在的做法既误伤合法的 SQL（计划自己也承认挡掉了触发器），又不可靠。
+- 建议改法：执行的时候检测，不扫文字。db.exec(sql) 之后、写账本之前，检查 `db.inTransaction` 仍为真，否则抛错，说明“迁移结束了事务”。PRAGMA、ATTACH、VACUUM 的检测保留文字扫描（ATTACH 守卫已经在 architecture.test.ts 里），或者在执行后用 `PRAGMA database_list` 检查有没有多出来的库。这样触发器的 BEGIN … END 也能放开，不必记成已知限制。迁移测试补一条“SQL 里夹 COMMIT 时整条被拒、库里不留表”的用例。注意：检测到时 COMMIT 之前的部分已经提交了，所以还要再加一道：在迁移之前做一次 SQL 层面的预检（单独开一条连接，在事务里执行这条迁移、检查之后回滚），或者明确接受“只在开发时暴露”，靠迁移测试兜住。
+
+### 17. 依赖白名单与 3.1 的共同写法自相矛盾：模块包与入口包的 devDependencies 里都有测试支持包，白名单却不许；nb-site-web 依赖的 nb-ui 也不在任何一行
+- 严重程度：建议
+- 类别：接口一致性
+- 位置：计划 3.1 第一段（每个包的 devDependencies 都有 `@notnotype/neuro-book-test-support`）；3.9 白名单表与“核对 dependencies 与 devDependencies”
+- 现象：白名单核对 dependencies 和 devDependencies 里所有 workspace: 条目。表里只有合同包那一行写了“devDependencies 只许测试支持包”，nb-site-identity、nb-site-telemetry、nb-site-server 三行都没有写测试支持包，可 3.1 要求每个包都带它。照字面实现，第 1 片的白名单测试一写好就会失败；实现者只能自己决定怎么放宽，而“放宽到哪里”正是这条守卫要固定下来的东西。nb-site-web 依赖 workspace 包 @notnotype/nb-ui，3.9 写着“工作区里别的包一律要先加进这张表”，表里却没有 nb-site-web 这一行；它的 boundary.test.ts 只禁止依赖模块包与入口包。
+- 建议改法：表加一列“devDependencies 另许”，五个包都写测试支持包；加 nb-site-web 一行（允许 nb-ui，禁止两个模块包与 nb-site-server，合同包按 t10 的需要放开）。变异检查再加一条：给模块包的 devDependencies 加一个别的 workspace 包，测试应当失败。
+
+### 18. site_migrations“形状以后不能改”定得过死，又没有给出真正能保证兼容的读写约定
+- 严重程度：建议
+- 类别：数据格式、兼容
+- 位置：计划 3.3 账本一段；第 4 节证据一节要写的“账本的形状不能改”
+- 现象：上一个版本读账本这件事，真正的兼容条件是“上一个版本用到的列还在、含义不变，它写入的行能被接受”，并不是“形状不能改”。计划没有规定运行器读写账本时要显式列出列名（`SELECT id, checksum FROM …`、`INSERT INTO site_migrations(id, checksum, applied_at) VALUES …`）。如果实现写成 `SELECT *` 或 `INSERT … VALUES (?,?,?)`，以后加一个带缺省值的列就会让上一个版本插入失败。如果写成显式列名，加列本来是安全的，“不能改”就成了不必要的禁令：以后想记下“哪个程序版本执行的”“耗时”这类排障信息都做不到。另外 applied_at 的格式没定（ISO 8601 UTC 还是 Unix 毫秒），校验和只去掉了 CRLF，没有处理 UTF-8 BOM：Windows 编辑器保存的文件可能带 BOM，同样会被当成“已执行过的迁移被改过”。
+- 建议改法：把合同写成“id、checksum、applied_at 三列的名字与含义不变；只许加带缺省值、可为空的列；运行器读写时一律显式列出列名”，db/migrate.test.ts 加一条“账本多一列时照常运行”。applied_at 定为 ISO 8601 UTC 到毫秒。计算校验和之前同时去掉开头的 BOM。
+
+### 19. “按可信代理取来源地址”这条安全边界没有归属：两个模块都要用，模块包又不能依赖入口；入口只交出一个 BlockList，取对端地址还要求 Bun 的 server 对象一路传进 Hono
+- 严重程度：重要
+- 类别：接口与合同、安全边界
+- 位置：计划 3.4 SiteSettings（trustedProxies 是 BlockList）；第 2 节可信代理一行（“t07 判断对端用同一个对象的 check”）；3.5 第 5 步 `Bun.serve({hostname, port, fetch})`
+- 现象：accounts 输出 19 与 telemetry-ingest 输出 8、9 都要求：来源地址只从可信代理的转发头取，取不到就拒绝，并且来源地址不进日志。做到这一点要有三步：拿到 TCP 对端地址，判断它是否在可信网段内，再解析 X-Forwarded-For（取哪一跳、多个代理怎样处理、头里是 IPv6 地址时怎样处理）。计划只交出了第二步要用的 BlockList。第一步在 Hono 里要靠 `getConnInfo(c)`，它要求 Bun.serve 把 server 作为第二个参数传给 app.fetch（node_modules/hono/dist/adapter/bun/conninfo.js：没有就抛 "env has to include the 2nd argument of fetch."）。3.5 没有写 fetch 怎样接，如果写成 `fetch: req => app.fetch(req)`，两个模块都拿不到对端地址。第三步没有地方放：模块包只许依赖自己的合同包与通用包，所以 t06 与 t07 只能各写一份。
+- 为什么是问题：同一条安全规则写两份，两边对 XFF 的解读可能不一致，例如一边取最左一跳，另一边取最右的非可信一跳，结果一个模块能被伪造来源地址绕过限流。拆成两个进程时，这段逻辑又要第三次重写。
+- 建议改法：ModuleContext 加 `clientAddress(c: Context): string | null`，由入口实现：用 getConnInfo 取对端地址，在可信网段内才读 X-Forwarded-For，从右往左跳过可信的代理，取第一个不可信的地址，格式不合法就返回 null。serve 第 5 步写成 `fetch: (req, server) => root.fetch(req, server)`，或者直接 `fetch: root.fetch`。serve.test.ts 加一个夹具路由回显 clientAddress，覆盖可信与不可信的对端、多跳 XFF、头里有垃圾值这几种情况。合同测试只能从回环地址发请求，可信代理配成 127.0.0.1/32 就能测。
+
+### 20. Dockerfile 没有在镜像里建 /data 并交给 bun 用户：Compose 用命名卷挂 /data 时，卷的根目录属主是 root，服务以 not_writable 起不来
+- 严重程度：建议
+- 类别：部署、普遍做法
+- 位置：计划 3.11 Dockerfile 与“/data 要对 uid 1000 可写，写进 AGENTS.md 给 t13”
+- 现象：镜像里没有 /data 这个目录。Docker 新建命名卷时，会把镜像里同名路径的内容与属主复制进卷；镜像里没有这个路径时，卷的根目录属主是 root。容器以 USER bun（uid 1000）运行，access(W_OK) 失败，报 config_invalid、not_writable。smoke 用 `--user $(id -u)` 加绑定挂载，测不到这条路径。
+- 建议改法：Dockerfile 加 `RUN mkdir /data && chown bun:bun /data`（一行，不涉及安装依赖，不违背“只拷贝”的初衷）。这样命名卷自动得到正确的属主，绑定挂载仍按部署说明处理。smoke 可以再加一次不带 --user、用命名卷的运行，验证这一点。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- server.stop() 的行为：lab/e2-stop-keepalive.ts 实测 Bun 1.4.4。有一条空闲的 keep-alive 连接（模拟 Nginx 的 upstream keepalive）时，stop() 立即 resolve，那条连接约 50 毫秒后被关掉；有一个 500 毫秒的在途请求时，请求照常完成，Promise 在 501 毫秒时 resolve。计划 3.5 第 7 步的前提成立，空闲连接不会把每次停止都拖到时限。
+- 只读连接的 VACUUM INTO：lab/e6-ro.ts 实测三种情况都成功。服务已正常停止、没有 -wal 与 -shm 时成功（会建出 -shm）；进程被 SIGKILL、留下未检查点的 -wal 时成功，副本里有 WAL 中的数据；副本的文件头是回滚日志模式（第 18、19 字节为 1），恢复时不依赖 -wal。
+- 日志用 writeSync：lab/e7-writesync.ts 实测读端很慢时不报 EAGAIN，只是阻塞（单次最长约 2 秒）。作为 Bun.spawn 的子进程时，父进程这一侧会先缓冲，不阻塞。为了“退出前最后几行不丢”换来这个代价，可以接受；部署时 Docker 的日志驱动不要配成会卡住的模式即可。
+- 进程启动耗时：lab/e11.ts（载入 Hono 与 bun:sqlite、监听再退出）实测 15 到 26 毫秒，计划说的“约 15 毫秒”属实，配置用例每条起一个进程不会超出预算。
+- 仓库登记：STRICT_TEST_ROOTS 按 startsWith 匹配（scripts/ci/test-conventions.ts 第 112 行），`packages/nb-site-` 能覆盖七个包；workspace-graph 把 devDependencies 也算进依赖图（scripts/ci/workspace-graph.ts 第 36 行），合同测试包经 devDependencies 依赖 nb-site-server，改入口或模块时会被选中。
+- 选型：commander、用 nb-flock 而不是 nb-file-lock（进程怎样结束都由内核放锁，正适合单写者）、VACUUM INTO 代替在线备份接口（bun:sqlite 确实没有 backup 接口，VACUUM INTO 同样是在线的一致副本，与 ADR 0061 决策 3 的意图一致）、单文件产物进镜像，这几项的理由都成立。
+- 配置校验不泄漏取值：“校验函数只返回问题词，拼说明的代码拿不到值”，这个结构本身就能保证，没有发现能把取值带出来的路径。listen_failed、backup_failed 的说明文字计划没写细，需要实现时注意（第 14 条）。
+- 存活检查不碰库、在主机分派之前：符合 Spec 输出 3。它在锁竞争下的延迟问题见第 9 条。
+
+## 各级数量
+阻断 1（第 1 条）；重要 11（第 2、3、4、5、6、7、8、9、10、12、19 条）；建议 8（第 11、13、14、15、16、17、18、20 条）。合计 20 条，没有撤回的。
+
+## 对文末“主会话的审定”七条的判断
+1. 故障注入只持写锁：作为本 Task 的做法可以接受。但“产品里不加模拟故障的开关”说得太绝对了，t06、t07 的验收需要控制时间与触发定时任务的测试通道（第 8 条），这件事应当在本 Task 里统一定下来。
+2. 决策 6 的读法：合理。代价是合同测试绑定了“每个模块一个 SQLite 文件”的布局，计划已经承认；这个读法没有引入别的问题。
+3. 决策 2 照字面执行：本身没有问题，但它让“按可信代理取来源地址”这类两个模块共用的安全逻辑没有地方放（第 19 条）。改法不用动 ADR：由入口经 ModuleContext 提供。
+4. Spec 已改：改得不够。“能取得写锁”必须用独立的探测连接实现（第 1 条），锁应当按模块分（第 6 条），主机比较规则（第 10 条）、日志与 problems 的字段名（第 12 条）也要写进 Spec。
+5. 验收 2 移到 t06：同意，t06 是第一个有真实迁移的 Task。
+6. 根 AGENTS.md 在合入时由主会话改：同意，可以避开主工作区里未提交的改动。
+7. 不另出一版设计：包的划分确实已经审过，这一点同意。但“只剩几处自己写的小工具”低估了自己写的迁移运行器与进程生命周期：第 2、3、4、5、7、16 条都落在这两块，而且大多涉及以后不能改的格式或公开合同。至少运行器与 serve 的时序值得在第 3 片之前按本报告改一轮再动工。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20

@@ -1,0 +1,383 @@
+[run] all better-auth=1.7.27
+[Q1] === 发现文档 ===
+[Q1.O GET /.well-known/openid-configuration] 200 content-type=application/json cache-control=public, max-age=15, stale-while-revalidate=15, stale-if-error=86400 issuer=https://site.test
+[Q1.O GET /.well-known/oauth-authorization-server] 200 content-type=application/json cache-control=public, max-age=15, stale-while-revalidate=15, stale-if-error=86400 issuer=https://site.test
+[Q1.O GET /api/identity/auth/.well-known/openid-configuration] 404 content-type=null cache-control=null issuer=-
+[Q1.O GET /api/identity/auth/.well-known/oauth-authorization-server] 404 content-type=null cache-control=null issuer=-
+[Q1.O GET /.well-known/oauth-authorization-server/api/identity/auth] 404 content-type=null cache-control=null issuer=-
+[Q1.O full /.well-known/openid-configuration]
+{
+  "scopes_supported": [
+    "openid",
+    "profile",
+    "email"
+  ],
+  "issuer": "https://site.test",
+  "authorization_endpoint": "https://site.test/api/identity/auth/oauth2/authorize",
+  "token_endpoint": "https://site.test/api/identity/auth/oauth2/token",
+  "jwks_uri": "https://site.test/api/identity/auth/jwks",
+  "introspection_endpoint": "https://site.test/api/identity/auth/oauth2/introspect",
+  "revocation_endpoint": "https://site.test/api/identity/auth/oauth2/revoke",
+  "response_types_supported": [
+    "code"
+  ],
+  "response_modes_supported": [
+    "query"
+  ],
+  "grant_types_supported": [
+    "authorization_code"
+  ],
+  "token_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post",
+    "private_key_jwt"
+  ],
+  "token_endpoint_auth_signing_alg_values_supported": [
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "EdDSA"
+  ],
+  "introspection_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post",
+    "private_key_jwt"
+  ],
+  "introspection_endpoint_auth_signing_alg_values_supported": [
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "EdDSA"
+  ],
+  "revocation_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post",
+    "private_key_jwt"
+  ],
+  "revocation_endpoint_auth_signing_alg_values_supported": [
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "EdDSA"
+  ],
+  "code_challenge_methods_supported": [
+    "S256"
+  ],
+  "authorization_response_iss_parameter_supported": true,
+  "dpop_signing_alg_values_supported": [
+    "EdDSA",
+    "ES256",
+    "ES512",
+    "PS256",
+    "RS256"
+  ],
+  "backchannel_logout_supported": true,
+  "backchannel_logout_session_supported": true,
+  "claims_supported": [
+    "sub",
+    "iss",
+    "aud",
+    "exp",
+    "iat",
+    "sid",
+    "scope",
+    "azp",
+    "name",
+    "picture",
+    "given_name",
+    "family_name",
+    "email",
+    "email_verified"
+  ],
+  "claims_parameter_supported": true,
+  "userinfo_endpoint": "https://site.test/api/identity/auth/oauth2/userinfo",
+  "subject_types_supported": [
+    "public"
+  ],
+  "acr_values_supported": [
+    "0"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "RS256"
+  ],
+  "end_session_endpoint": "https://site.test/api/identity/auth/oauth2/end-session",
+  "request_parameter_supported": false,
+  "request_uri_parameter_supported": false,
+  "prompt_values_supported": [
+    "login",
+    "consent",
+    "create",
+    "select_account",
+    "none"
+  ]
+}
+[Q1.O oauth-authorization-server equals openid-configuration] true onlyInOidc= onlyInAs=
+[Q1.O POST /.well-known/openid-configuration] 405 allow=GET, HEAD
+[Q1.O auth.api.getOpenIdConfig() issuer] https://site.test
+[Q1.O probe authorization_endpoint] https://site.test/api/identity/auth/oauth2/authorize -> 302
+[Q1.O probe token_endpoint] https://site.test/api/identity/auth/oauth2/token -> 400 {"error":"invalid_request","error_description":"grant_type is required"}
+[Q1.O probe jwks_uri] https://site.test/api/identity/auth/jwks -> 200 {"keys":[{"alg":"RS256","e":"AQAB","kty":"RSA","n":"1HvVY3BkLuO0bgPM_vWu8rIiL43CO0Cf7KGz1RcsRRmArUr1
+[Q1.O probe introspection_endpoint] https://site.test/api/identity/auth/oauth2/introspect -> 400 {"error":"invalid_request","error_description":"token is required"}
+[Q1.O probe revocation_endpoint] https://site.test/api/identity/auth/oauth2/revoke -> 400 {"error":"invalid_request","error_description":"token is required"}
+[Q1.O probe userinfo_endpoint] https://site.test/api/identity/auth/oauth2/userinfo -> 401 {"error_description":"access token not found","error":"invalid_request"}
+[Q1.O probe end_session_endpoint] https://site.test/api/identity/auth/oauth2/end-session -> 400 {"error":"invalid_request","error_description":"No active session is available for logout"}
+[Q1.V0 GET /.well-known/openid-configuration] 404 issuer=- id_token_signing_alg_values_supported=undefined
+[Q1.V0 GET /api/identity/auth/.well-known/openid-configuration] 200 issuer=https://site.test/api/identity/auth id_token_signing_alg_values_supported=["EdDSA"]
+[Q1.V0 GET /.well-known/oauth-authorization-server/api/identity/auth] 200 issuer=https://site.test/api/identity/auth id_token_signing_alg_values_supported=["EdDSA"]
+[Q1.V0 GET /api/identity/auth/.well-known/oauth-authorization-server] 200 issuer=https://site.test/api/identity/auth id_token_signing_alg_values_supported=["EdDSA"]
+[Q1.V0 GET /.well-known/oauth-authorization-server] 404 issuer=- id_token_signing_alg_values_supported=undefined
+[Q1.A1 advertisedMetadata token_endpoint_auth_methods_supported=[basic,none]] {"token_endpoint_auth_methods_supported":["client_secret_basic","none"],"introspection_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"revocation_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"introspection_endpoint":"https://site.test/api/identity/auth/oauth2/introspect","end_session_endpoint":"https://site.test/api/identity/auth/oauth2/end-session","registration_endpoint":"(absent)"}
+[Q1.A1 basic-registered client uses client_secret_post] 400 {"error_description":"client registered for client_secret_basic cannot use client_secret_post","error":"invalid_client"}
+[Q1.A1 same code then with client_secret_basic] 200 ok
+[Q1.A1 admin create client_secret_post client] 200 {"client_id":"lwaybCsUarDGcVAnVcZqNlwrKCAaScFe","client_secret":"ZQRjBwiMTDLwshUGKfcBnAFpcWPCvPpe","client_secret_expire
+[Q1.A1 POST /oauth2/register (dynamic registration default)] 403 {"error":"access_denied","error_description":"Client registration is disabled"}
+[Q1.C60 codeExpiresIn=60: signed login query exp - now (s)] 60 (default instance for comparison below)
+[Q1.O default codeExpiresIn: signed login query exp - now (s)] 600
+[Q1.C60 authorization code lifetime in verification row (s)] 60
+[Q2] === id_token ===
+[Q2.O jwks rows before any token] 0
+[Q2.O token response keys] 200 access_token,expires_at,expires_in,id_token,scope,token_type token_type=Bearer expires_in=3600 scope="openid profile email"
+[Q2.O id_token header] {"alg":"RS256","kid":"1"}
+[Q2.O id_token payload (scope=openid profile email, nonce=n-123)]
+{
+  "auth_time": 1795523583,
+  "acr": "0",
+  "at_hash": "N9-sGJItm_AOGaIpcZxsEg",
+  "iss": "https://site.test",
+  "sub": "2",
+  "aud": "EbTeGZbbUcGuLJsTlwcqDFoaTJyUPICk",
+  "nonce": "n-123",
+  "iat": 1795523583,
+  "exp": 1795559583
+}
+[Q2.O id_token lifetime exp-iat (s)] 36000
+[Q2.O id_token sub vs user id] sub="2" carlId=2 typeof=string
+[Q2.O auth_time vs session.createdAt] auth_time=1795523583 session.createdAt=2026-11-24T12:33:03.588Z
+[Q2.O at_hash matches left half of SHA-256(access_token)] true
+[Q2.O GET /jwks (n truncated)]
+{
+  "keys": [
+    {
+      "alg": "RS256",
+      "e": "AQAB",
+      "kty": "RSA",
+      "n": "10vsX02tK-3hKicC…(342)",
+      "kid": "1"
+    }
+  ]
+}
+[Q2.O jose verify against /jwks with issuer=https://site.test aud=client_id] verified alg=RS256 kid=1 sub=2
+[Q2.O jwks table rows (privateKey truncated)] [{"id":1,"alg":"RS256","crv":null,"pk":"\"049d43b1cfc28652f7e2c84ffd3b759347dce4d","n":3312,"pub":"{\"e\":\"AQAB\",\"kty\":\"RSA\",\"n\":\"1","createdAt":"2026-11-24T12:33:03.737Z","expiresAt":null}]
+[Q2.O privateKey looks like JSON JWK (plaintext)?] false
+[Q2.O no nonce: nonce claim] absent
+[Q2.O scope=openid only: id_token claims] ["acr","at_hash","aud","auth_time","exp","iat","iss","sub"]
+[Q2.O scope=openid only: userinfo] 200 {"sub":"2"}
+[Q2.O customUserInfoClaims in id_token?] preferred_username=false email_pending=false email=false name=false
+[Q2.O public client created] client_secret=absent
+[Q2.O public client token] 200 access_token,expires_at,expires_in,id_token,scope,token_type
+[Q2.O public client id_token verify] verified alg=RS256 kid=1 sub=2
+[Q2.O public client without PKCE] 302 https://client.example/cb?error=invalid_request&error_description=pkce+is+required+for+public+clients&state=s&iss=https%3A%2F%2Fsite.test
+[Q2.O after manual createJwk: kids in /jwks; new id_token kid; old id_token kid] 1,2 new=2 old=1
+[Q2.O after manual createJwk: old id_token verifies] verified alg=RS256 kid=1 sub=2
+[Q2.V0 default config id_token header] {"alg":"EdDSA","kid":"1"}
+[Q2.V0 default /jwks] [{"alg":"EdDSA","crv":"Ed25519","kty":"OKP","x":"ixtm8DxH9oJ7…","kid":"1"}]
+[Q2.V0 jwks row] [{"alg":"EdDSA","crv":"Ed25519","pk":"\"0c018e2e12b5cddfaa810f1","n":340}]
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field userId in table session has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field userId in table account has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field scopes in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field clientCredentialsScopes in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field userId in table oauthClient has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field contacts in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field redirectUris in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field postLogoutRedirectUris in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field grantTypes in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field responseTypes in table oauthClient has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.889Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field allowedScopes in table oauthResource has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field sessionId in table oauthRefreshToken has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field userId in table oauthRefreshToken has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field resources in table oauthRefreshToken has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field requestedUserInfoClaims in table oauthRefreshToken has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field scopes in table oauthRefreshToken has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field sessionId in table oauthAccessToken has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field userId in table oauthAccessToken has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field resources in table oauthAccessToken has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field requestedUserInfoClaims in table oauthAccessToken has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field refreshId in table oauthAccessToken has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field scopes in table oauthAccessToken has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field userId in table oauthConsent has a different type in the database. Expected string but got INTEGER.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field resources in table oauthConsent has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field requestedUserInfoClaims in table oauthConsent has a different type in the database. Expected string[] but got TEXT.
+[2m2026-11-24T12:33:04.890Z[0m [33mWARN[0m [1m[Better Auth]:[0m Field scopes in table oauthConsent has a different type in the database. Expected string[] but got TEXT.
+[Q2.V0b same db switched to RS256: id_token header] {"alg":"EdDSA","kid":"1"}
+[Q2.V0b discovery id_token_signing_alg_values_supported] ["RS256"]
+[Q2.V0b /jwks keys] ["1:EdDSA"]
+[Q2.P disablePrivateKeyEncryption: privateKey starts with] {"crv":"Ed25519","d"
+[Q2.E idTokenExpiresIn=3600: exp-iat] 3600
+[Q2.R t=0 id_token A kid; jwks rows] 1 rows=[{"id":1,"expiresAt":"2026-11-24T12:33:08.653Z"}]
+[Q2.R t=2.3s id_token B kid; /jwks kids] 2 jwks=1,2
+[Q2.R t=2.3s verify A / B] verified alg=RS256 kid=1 sub=2 / verified alg=RS256 kid=2 sub=2
+[Q2.R t=5.8s (A expired+grace passed) /jwks kids] ["2"]
+[Q2.R t=5.8s verify A / B] verify failed: JWKSNoMatchingKey no applicable key found in the JSON Web Key Set / verified alg=RS256 kid=2 sub=2
+[Q2.R jwks rows kept in db] [{"id":1,"expiresAt":"2026-11-24T12:33:08.653Z"},{"id":2,"expiresAt":"2026-11-24T12:33:11.191Z"}]
+[Q3] === 用户信息端点 ===
+[Q3.O user=carl scope="openid"] userinfo=200 {"sub":"2"} | id_token extra claims=
+[Q3.O user=carl scope="openid profile"] userinfo=200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","preferred_username":"carl"} | id_token extra claims=
+[Q3.O user=carl scope="openid email"] userinfo=200 {"sub":"2","email":"carl@example.com","email_verified":false,"email_pending":false} | id_token extra claims=
+[Q3.O user=carl scope="openid profile email"] userinfo=200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","email":"carl@example.com","email_verified":false,"preferred_username":"carl","email_pending":false} | id_token extra claims=
+[Q3.O user=old scope="openid"] userinfo=200 {"sub":"3"} | id_token extra claims=
+[Q3.O user=old scope="openid profile"] userinfo=200 {"sub":"3","name":"Old Display","given_name":"Old","family_name":"Display","preferred_username":"old"} | id_token extra claims=
+[Q3.O user=old scope="openid email"] userinfo=200 {"sub":"3","email":"u3@placeholder.invalid","email_verified":false,"email_pending":true} | id_token extra claims=
+[Q3.O user=old scope="openid profile email"] userinfo=200 {"sub":"3","name":"Old Display","given_name":"Old","family_name":"Display","email":"u3@placeholder.invalid","email_verified":false,"preferred_username":"old","email_pending":true} | id_token extra claims=
+[Q3.O scope="profile email" (no openid)] authorize=code token=200 access_token,expires_at,expires_in,scope,token_type scope="profile email" userinfo=400 {"error_description":"Missing required scope","error":"invalid_scope"}
+[Q3.O no scope parameter] token=200 scope="openid profile email" id_token=present userinfo=200
+[Q3.O POST userinfo with access_token in body] 200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","email":"carl@example.c
+[Q3.O userinfo with junk token] 401 www-authenticate=Bearer error="invalid_token", error_description="Invalid access token" {"error":"invalid_token","error_description":"Invalid access token"}
+[Q3.O userinfo without token] 401 {"error_description":"access token not found","error":"invalid_request"}
+[Q3.O2 user=carl scope="openid"] userinfo=200 {"sub":"2"} | id_token={"sub":"2"}
+[Q3.O2 user=carl scope="openid profile email"] userinfo=200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","email":"carl@example.com","email_verified":false,"preferred_username":"carl","email_pending":false} | id_token={"name":"Carl Display","email":"carl@example.com","email_verified":false,"preferred_username":"carl","email_pending":false,"sub":"2"}
+[Q3.O2 user=old scope="openid"] userinfo=200 {"sub":"3"} | id_token={"sub":"3"}
+[Q3.O2 user=old scope="openid profile email"] userinfo=200 {"sub":"3","name":"Old Display","given_name":"Old","family_name":"Display","preferred_username":"old","email_pending":true} | id_token={"name":"Old Display","preferred_username":"old","email_pending":true,"sub":"3"}
+[Q3.O3 customUserInfoClaims returns email:null for placeholder (no hook)] 200 {"sub":"3","email":null,"email_verified":false,"email_pending":true}
+[Q3.O2 requireOpenId: scope="profile email"] error=invalid_scope the openid scope is required state=st-1 iss=https://site.test
+[Q3.O2 requireOpenId: no scope parameter] error=invalid_scope the openid scope is required
+[Q4] === 随账号失效 ===
+[Q4 sqlite DDL of session / verification] [{"name":"session","sql":"CREATE TABLE \"session\" (\"id\" integer not null primary key, \"expiresAt\" date not null, \"token\" text not null unique, \"createdAt\" date not null, \"updatedAt\" date not null, \"ipAddress\" text, \"userAgent\" text, \"userId\" integer not null references \"user\" (\"id\") on delete cascade, \"impersonatedBy\" text)"},{"name":"verification","sql":"CREATE TABLE \"verification\" (\"id\" integer not null primary key, \"identifier\" text not null, \"value\" text not null, \"expiresAt\" date not null, \"createdAt\" date not null, \"updatedAt\" date not null)"}]
+[Q4 oauthAccessToken columns] ["id","token","clientId","sessionId","userId","referenceId","authorizationCodeId","resources","requestedUserInfoClaims","refreshId","expiresAt","createdAt","revoked","confirmation","scopes"]
+[Q4 ban (session ids)] sessionIdsBefore=2,12 tokenSessionId=12 sessionIdsAfter= tokenSessionIdAfter=12 maxSessionIdOverall=11 fk={"foreign_keys":0}
+[Q4 ban] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[ban=200] sessionsLeft=0 userinfoAfter=401 invalid_token unusedCode=400 invalid_request session no longer exists | id_token still verified alg=RS256 kid=1 sub=2
+[Q4 ban, then another user signs in (session id reuse) (session ids)] sessionIdsBefore=9,12 tokenSessionId=12 sessionIdsAfter= tokenSessionIdAfter=12 maxSessionIdOverall=12 fk={"foreign_keys":0}
+[Q4 ban, then another user signs in (session id reuse)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[ban=200 leaSignIn=200 leaSessionId=12] sessionsLeft=0 userinfoAfter=401 invalid_token unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=9
+[Q4 admin set-user-password only (library default) (session ids)] sessionIdsBefore=3,13 tokenSessionId=13 sessionIdsAfter=3,13 tokenSessionIdAfter=13 maxSessionIdOverall=13 fk={"foreign_keys":0}
+[Q4 admin set-user-password only (library default)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[reset=200] sessionsLeft=2 userinfoAfter=200  unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=3
+[Q4 admin set-user-password + revoke-user-sessions (session ids)] sessionIdsBefore=4,14 tokenSessionId=14 sessionIdsAfter= tokenSessionIdAfter=14 maxSessionIdOverall=13 fk={"foreign_keys":0}
+[Q4 admin set-user-password + revoke-user-sessions] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[reset=200 revoke=200] sessionsLeft=0 userinfoAfter=401 invalid_token unusedCode=400 invalid_request session no longer exists | id_token still verified alg=RS256 kid=1 sub=4
+[Q4 user change-password revokeOtherSessions=true (from the session that authorized) (session ids)] sessionIdsBefore=5,14 tokenSessionId=14 sessionIdsAfter=14 tokenSessionIdAfter=14 maxSessionIdOverall=14 fk={"foreign_keys":0}
+[Q4 user change-password revokeOtherSessions=true (from the session that authorized)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[change=200 newSessionToken=yes] sessionsLeft=1 userinfoAfter=401 invalid_token unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=5
+[Q4 user change-password revokeOtherSessions=false (session ids)] sessionIdsBefore=6,15 tokenSessionId=15 sessionIdsAfter=6,15 tokenSessionIdAfter=15 maxSessionIdOverall=15 fk={"foreign_keys":0}
+[Q4 user change-password revokeOtherSessions=false] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[change=200] sessionsLeft=2 userinfoAfter=200  unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=6
+[Q4 user deletes consent (/oauth2/delete-consent) (session ids)] sessionIdsBefore=7,16 tokenSessionId=16 sessionIdsAfter=7,16 tokenSessionIdAfter=16 maxSessionIdOverall=16 fk={"foreign_keys":0}
+[Q4 user deletes consent (/oauth2/delete-consent)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[consents=1 delete=200 consentsAfter=0] sessionsLeft=2 userinfoAfter=200  unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=7
+[Q4 gil candidate: mark access tokens revoked via db] rows=2 userinfoAfterMark=401
+[Q4 gil after consent deleted: next authorize in same browser] trace=consent
+[Q4 admin disables client (session ids)] sessionIdsBefore=8,17 tokenSessionId=17 sessionIdsAfter=8,17 tokenSessionIdAfter=17 maxSessionIdOverall=17 fk={"foreign_keys":0}
+[Q4 admin disables client] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[disabled=200] sessionsLeft=2 userinfoAfter=401 invalid_token unusedCode=401 invalid_client client is disabled | id_token still verified alg=RS256 kid=1 sub=8
+[Q4 hal disabled client: new authorize] url=https://site.test/api/identity/auth/error?error=client_disabled&error_description=client+is+disabled
+[Q4 revoke endpoint] eveLoginWithNewPw=login revokeAccess=200  userinfoAfter=401 revokeUnknown=400 {"error_description":"token not found","error":"invalid_request"} revokeIdToken=200 null
+[Q5] === 授权确认与登出 ===
+[Q5.1 first authorize scope=openid profile] trace=login+consent result=code state=st-1 iss=https://site.test
+[Q5.2 again same scope (same browser)] trace=direct result=code state=st-1 iss=https://site.test
+[Q5.3 narrower scope=openid] trace=direct result=code state=st-1 iss=https://site.test
+[Q5.4 broader scope=openid profile email] trace=consent result=code state=st-1 iss=https://site.test
+[Q5.5 prompt=consent] trace=consent result=code state=st-1 iss=https://site.test
+[Q5.6 prompt=none with consent and session] trace=direct result=code state=st-1 iss=https://site.test
+[Q5.7 prompt=none other client without consent] trace=direct result=error=consent_required End-User consent is required state=st-1 iss=https://site.test
+[Q5.8 prompt=none no session] trace=direct result=error=login_required authentication required state=st-1 iss=https://site.test
+[Q5.9 prompt=login with session] trace=login result=code state=st-1 iss=https://site.test
+[Q5.10 max_age=0 with session] trace=login result=code state=st-1 iss=https://site.test
+[Q5.11 max_age=3600 with session] trace=direct result=code state=st-1 iss=https://site.test
+[Q5.12 prompt=none&max_age=0] trace=direct result=error=login_required authentication required state=st-1 iss=https://site.test
+[Q5.13 deny at consent (other user)] trace=login+consent result=error=access_denied User denied access state=st-1 iss=https://site.test
+[Q5.14 prompt=select_account] trace=direct result=error=null  url=https://site.test/api/identity/auth/error?error=unsupported_prompt_select_account&error_description= state=null iss=null
+[Q5.15 prompt=create] trace=login+login+login+login+login result=error=null  url=/sign-in?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&scope=openid+profile+emai state=null iss=null
+[Q5 oauthConsent rows] [{"clientId":"ssFdXSYAkqjfhSeVXKEtUDFwMgsUoBfe","userId":2,"scopes":"[\"openid\",\"profile\",\"email\"]"}]
+[Q5 discovery end_session_endpoint] https://site.test/api/identity/auth/oauth2/end-session
+[Q5 id_token has sid (client without enable_end_session)] false
+[Q5 GET /oauth2/end-session no params, no session] 400 {"error":"invalid_request","error_description":"No active session is available for logout"}
+[Q5 GET /oauth2/end-session id_token_hint, client without enable_end_session] 401 {"error":"invalid_client","error_description":"The client is not allowed to initiate logout"}
+[Q5 client enable_end_session=true: id_token sid] 14
+[Q5 end-session with id_token_hint (enable_end_session client)] 302 location=https://client.example/bye?state=bye-1 sessionBefore=valid sessionAfter=invalid accessTokenAfter=401
+[Q6] === 可达端点 ===
+[Q6 endpoint table]
+GET    /api/identity/auth/jwks api=getJwks anon=200 user=200 {"keys":[{"alg":"RS256","e":"AQAB","kty":"RSA","n":"6owBilPZ
+GET    /api/identity/auth/.well-known/oauth-authorization-server api=getOAuthServerConfig SERVER_ONLY anon=404 user=404
+GET    /api/identity/auth/.well-known/openid-configuration api=getOpenIdConfig SERVER_ONLY anon=404 user=404
+GET    /api/identity/auth/oauth2/authorize api=oauth2Authorize anon=302 user=302
+POST   /api/identity/auth/oauth2/authorize api=oauth2Authorize anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+POST   /api/identity/auth/oauth2/consent api=oauth2Consent anon=400 user=400 VALIDATION_ERROR
+POST   /api/identity/auth/oauth2/continue api=oauth2Continue anon=401 user=400 invalid_request
+POST   /api/identity/auth/oauth2/token api=oauth2Token anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+POST   /api/identity/auth/oauth2/introspect api=oauth2Introspect anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+POST   /api/identity/auth/oauth2/revoke api=oauth2Revoke anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+GET    /api/identity/auth/oauth2/userinfo api=oauth2UserInfo anon=401 user=401 invalid_request
+POST   /api/identity/auth/oauth2/userinfo api=oauth2UserInfo anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+GET    /api/identity/auth/oauth2/end-session api=oauth2EndSession anon=400 user=400 invalid_request
+POST   /api/identity/auth/oauth2/end-session api=oauth2EndSession anon=400 user=400 invalid_request
+POST   /api/identity/auth/oauth2/end-session/confirm api=oauth2EndSessionConfirmation scope=http anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+POST   /api/identity/auth/oauth2/register api=registerOAuthClient anon=403 user=403 access_denied
+POST   /api/identity/auth/admin/oauth2/create-client api=adminCreateOAuthClient SERVER_ONLY anon=404 user=404
+POST   /api/identity/auth/oauth2/create-client api=createOAuthClient anon=401 user=400 invalid_redirect_uri
+GET    /api/identity/auth/oauth2/get-client api=getOAuthClient anon=400 user=400 VALIDATION_ERROR
+GET    /api/identity/auth/oauth2/public-client api=getOAuthClientPublic anon=400 user=400 VALIDATION_ERROR
+POST   /api/identity/auth/oauth2/public-client-prelogin api=getOAuthClientPublicPrelogin anon=400 user=400 VALIDATION_ERROR
+GET    /api/identity/auth/oauth2/get-clients api=getOAuthClients anon=401 user=200 []
+PATCH  /api/identity/auth/admin/oauth2/update-client api=adminUpdateOAuthClient SERVER_ONLY anon=404 user=404
+POST   /api/identity/auth/oauth2/update-client api=updateOAuthClient anon=400 user=400 VALIDATION_ERROR
+POST   /api/identity/auth/oauth2/client/rotate-secret api=rotateClientSecret anon=400 user=400 VALIDATION_ERROR
+POST   /api/identity/auth/oauth2/client/rotate-keys api=rotateClientKeys anon=400 user=400 invalid_client
+POST   /api/identity/auth/oauth2/delete-client api=deleteOAuthClient anon=400 user=400 VALIDATION_ERROR
+GET    /api/identity/auth/oauth2/get-consent api=getOAuthConsent anon=400 user=400 VALIDATION_ERROR
+GET    /api/identity/auth/oauth2/get-consents api=getOAuthConsents anon=401 user=200 []
+POST   /api/identity/auth/oauth2/update-consent api=updateOAuthConsent anon=400 user=400 VALIDATION_ERROR
+POST   /api/identity/auth/oauth2/delete-consent api=deleteOAuthConsent anon=400 user=400 VALIDATION_ERROR
+POST   /api/identity/auth/admin/oauth2/resources api=adminCreateOAuthResource SERVER_ONLY anon=404 user=404
+GET    /api/identity/auth/admin/oauth2/resources api=adminListOAuthResources SERVER_ONLY anon=404 user=404
+GET    /api/identity/auth/admin/oauth2/resources/:identifier api=adminGetOAuthResource SERVER_ONLY anon=404 user=404
+PATCH  /api/identity/auth/admin/oauth2/resources/:identifier api=adminUpdateOAuthResource SERVER_ONLY anon=404 user=404
+DELETE /api/identity/auth/admin/oauth2/resources/:identifier api=adminDeleteOAuthResource SERVER_ONLY anon=404 user=404
+POST   /api/identity/auth/admin/oauth2/resources/:identifier/clients/:client_id api=adminLinkClientResource SERVER_ONLY anon=404 user=404
+DELETE /api/identity/auth/admin/oauth2/resources/:identifier/clients/:client_id api=adminUnlinkClientResource SERVER_ONLY anon=404 user=404
+GET    /.well-known/openid-configuration (root, plugin onRequest) anon=200
+HEAD   /.well-known/openid-configuration (root, plugin onRequest) anon=200
+POST   /.well-known/openid-configuration (root, plugin onRequest) anon=405
+GET    /.well-known/oauth-authorization-server (root, plugin onRequest) anon=200
+HEAD   /.well-known/oauth-authorization-server (root, plugin onRequest) anon=200
+POST   /.well-known/oauth-authorization-server (root, plugin onRequest) anon=405
+[Q6 normal user POST /oauth2/create-client] 201 {"client_id":"hjTJxgCLFwmkSacwkyPlZptuROnCUxAx","client_secret":"LdICkhBtGFFKCpSQbSZbaGjoHOBGNFdP","client_secret_expires_at":0,"user_id":"2","client_id_issued_
+[Q6 GET /oauth2/public-client anonymous] 401 {"message":"Unauthorized","code":"UNAUTHORIZED"}
+[Q6 GET /oauth2/public-client with user session] 200 {"client_id":"aQQGMMGWFvpULFKiOnmlfkHJUFPeQHvR","client_name":"测试客户端","redirect_uris":[]}
+[Q6 POST /oauth2/introspect with client_secret_basic] 200 {"active":true,"iss":"https://site.test","client_id":"aQQGMMGWFvpULFKiOnmlfkHJUFPeQHvR","azp":"aQQGMMGWFvpULFKiOnmlfkHJUFPeQHvR","sub":"2","sid":"5","exp":1795527202,"iat":1795523602,"scope":"openid profile email","token
+[Q6 authorize with resource=https://api.example/] 302 https://client.example/cb?error=invalid_target&error_description=requested+resource+https%3A%2F%2Fapi.example%2F+is+not+configured&state=s&iss=https%3A%2F%2Fsit
+[Q6 with disabledPaths]
+/oauth2/introspect POST=404 GET=404
+/oauth2/register POST=404 GET=404
+/oauth2/create-client POST=404 GET=404
+/oauth2/get-client POST=404 GET=404
+/oauth2/public-client POST=404 GET=404
+/oauth2/public-client-prelogin POST=404 GET=404
+/oauth2/get-clients POST=404 GET=404
+/oauth2/update-client POST=404 GET=404
+/oauth2/client/rotate-secret POST=404 GET=404
+/oauth2/delete-client POST=404 GET=404
+/oauth2/get-consent POST=404 GET=404
+/oauth2/get-consents POST=404 GET=404
+/oauth2/update-consent POST=404 GET=404
+/oauth2/delete-consent POST=404 GET=404
+/oauth2/continue POST=404 GET=404
+/oauth2/end-session POST=404 GET=404
+/oauth2/end-session/confirm POST=404 GET=404
+/.well-known/openid-configuration POST=404 GET=404
+/.well-known/oauth-authorization-server POST=404 GET=404
+/token POST=404 GET=404
+(root) /.well-known/openid-configuration GET=404
+(root) /.well-known/oauth-authorization-server GET=404
+[Q6 with disabledPaths: full flow still works] trace=login,consent token=200 userinfo=200
+[Q6 with disabledPaths: auth.api.getOAuthConsents direct call] ok rows=1
+[Q6 with disabledPaths: auth.api.getOpenIdConfig direct call] ok issuer=https://site.test

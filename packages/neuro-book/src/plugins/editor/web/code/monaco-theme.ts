@@ -25,6 +25,8 @@ export interface SyntaxRule {
 export const SYNTAX_RULES: ReadonlyArray<SyntaxRule> = [
     {token: "comment", color: "--syntax-comment"},
     {token: "keyword", color: "--syntax-keyword"},
+    // 标记语言的标题行（语言贡献把它记成 `keyword.heading`）：颜色照关键字，另加粗，长文里一眼找得到分节。
+    {token: "keyword.heading", fontStyle: "bold"},
     {token: "string", color: "--syntax-string"},
     // JSON 的键是 `string.key.json`：按属性名着色，和字符串值分开。
     {token: "string.key", color: "--syntax-attribute"},

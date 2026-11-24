@@ -1,0 +1,136 @@
+# w00039 t41 计划审查第 2 轮（内核与后端，Opus 接替）
+
+### 1. 类型后来加的固定字段与条目上已有的实例字段同 id：这一组整组写不进去、连“去掉这一组”“去掉这一项”也不行，读到的值不合声明
+- 严重程度：重要；类别：不变量
+- 位置：plan.md“不做与风险”第 3 条（留给本条定）；设计二 `presets` 规则（预设“id 要写”）；设计三（类型版本不升的做法）；components/registry.ts:176-179（`effectiveFields` 直接拼接，不去重）；world/world.ts:1329（对 `[...type.fields, ...declared]` 整份跑 `fieldsProblem`）、1331-1337（命名空间一变就逐个字段核值，不分改没改）；model/apply.ts:223（`find` 取第一个，固定的赢）。
+- 现象（`lab/opus2/q1-fixed-collides.ts`，真实 `editEntries`）：条目上实例字段“种族”（文字，值“精灵”），之后类型版本不变、加固定字段“种族”。
+  - 固定的是数：读到 `{"value":"精灵"}`（数的字段读出文字）；剧情意图 `set 种族=3` 照收（补丁按固定声明核）。
+  - 两种情况下，创作修改 `set 性格`、`component remove` 都被拒：`type-mismatch`，路径 `init.data.character.declared[2].id`、`duplicate field id "种族"`（是数时再多一条值不合）。剧情意图改别的字段、改别名照收。
+  - 按本计划的“去掉是打标记”，`fieldRemove` 后声明仍在 `declared` 里，照样重复；内核没有删声明的操作。作者在界面上没有任何出路，只能等类型改回去。
+- 本计划里什么时候会碰到：
+  1. 预设的 id 是写死、跨条目共用的（种族、生日、身高……）。以后把某个预设提成固定字段（第二期“面板的预设项”、第三期都可能这样做），每个点过这个预设的条目同时撞上。这是最可能的路径。
+  2. 作者先自己加了“种族”（`generateFieldId` 按显示名给 id，就是 `种族`），以后类型加了同名固定字段或预设：固定的情况同上；预设的情况下点“种族”得到 `label-taken`，作者改过名（id 仍是 `种族`、显示名是“血统”）时显示名不撞而 id 撞，计划没说这时报什么码、用不用预设的 id。
+  3. 人物从不开实例字段改成开：Context 第 5 条探针说没开时直接写的 `declared` 照收，试验作品里若有这样写下的，开了以后就进了这条判定。现有数据里大概率没有，不算主要路径。
+- 该在哪层处理（建议按这个顺序选一种，写进 components.md 输出 4 与本节）：
+  - A（推荐，改动小）：世界层按“原样留着的不查”逐项判。`fieldsProblem` 只对这次新加或改过的实例声明查 id 重复（和固定的、和别的），原样留着的一项被固定字段盖住时不报；`effectiveFields` 去重、固定的赢，被盖住的实例声明不参与读、写、补丁，条目读取像 `removedFields` 一样列出它（`shadowedFields`），值不合固定声明时读成未知并给一条诊断。`valueProblem` 也只查值或声明变了的字段（这一处和下面第 4 条共用）。
+  - B（改上游）：实例字段的 id 与固定字段分开取名（例如 `generateFieldId` 给实例字段固定加前缀），从根上不会撞；代价是地址写法变了、已有的面板实例字段要迁。
+  - 预设：`fieldAdd` 带预设时把预设的 id 当首选，占了就退回生成（不拒收）；显示名相同才 `label-taken`。
+- 验收：加“类型新加同 id 固定字段后，改性格、去掉这一组、去掉这一项都照收，读取列出被盖住的一项”一例，并对“只查新加的声明”做一次变异。
+
+### 2. `max` 指向去掉的一项只在 `planEntries` 里拦：还原“恢复”、直接写入都能造出来，世界层照收，之后上限读的是看不见、也改不动的旧值（第二段收窄，见第 6 条）
+- 严重程度：重要；类别：不变量
+- 位置：plan.md 设计一 `fieldRemove` 规则（“别的没去掉的声明的 max 指着它时 field-referenced……恢复一个 max 指着已去掉字段的声明同理”）与“世界层的校验照旧兜底”；world/world.ts:1329（`fieldsProblem` 对含去掉项的整份列表查 `max`，目标在列表里就算合格）；model/apply.ts:386-399（`constraintViolation` 用 `data.fields[field.max]` 直接读值，不看目标是否生效）；world/world.ts:904-953（依赖只按路径重叠）。
+- 现象：
+  1. 还原：`lab/opus2/q3-revert-restore-max.ts`（真实 `World.publish` 与 `revert`，用今天的 schema 就能写下 `removed`）：加“上限”→去掉→恢复→加“魔力”（`max: "上限"`）→还原“恢复”那次。还原照收，结果是 `[{上限, removed:true}, {魔力, max:"上限"}]`。“加魔力”的路径是 `declared[魔力]`、`declared#order`，与 `declared[上限].removed` 不重叠，不算依赖；世界层的 `fieldsProblem` 看到“上限”还在列表里，`max` 合格。
+  2. `fieldAdd` 本身：新加一项的 `max` 写成一个去掉过的字段，计划只给 `fieldRemove`、`fieldRestore` 写了 `field-referenced`，没写 `fieldAdd`；世界层同样放过。
+  3. 后果（从代码推断，没有跑新内核）：`effectiveFields` 跳过“上限”，读不到、补丁不适用，但 `constraintViolation` 仍按 `data.fields["上限"]` 取值，上限冻结在初值（例中 10），作者看不见它。之后把“魔力”加到 11 的剧情变更报约束不满足、整条套不上。
+- 反过来，还原“加上限”这一次（把声明真正删掉，本设计里唯一的删声明路径）在“魔力”指着它时世界层报 `type-mismatch`、路径是下标；之后去掉“魔力”也没用（打标记后它还在列表里），这次修订永远还原不了，除非先还原“加魔力”。
+- 建议：`max` 的合法性放在世界层一处判，并按“生效的声明”判：新写或改过的生效声明的 `max` 必须指向生效的精确数字段，否则 `field-referenced`（带路径 `declared[<id>].max`，不是下标）；`planEntries` 的三处规则（加、去掉、恢复）都只是提前给出同一个码。`constraintViolation` 的上限目标不在生效声明里时当作未知、不检查（与“值或上限是未知时不检查”一致）。验收加“还原恢复使 max 落空被拒”与“加一项的 max 指向去掉的一项被拒”两例。
+
+### 3. 旧条目没有 `declared` 数组时，第一次“加一项”记成整个 `declared` 的叶子：之后这个条目上每次加、改名、去掉都依赖它，单独还原不了
+- 严重程度：重要；类别：正确性
+- 位置：plan.md 设计一 `fieldAdd`（“数据里还没有 declared 时先补空数组”）与 Context 第 1 条探针（“修订记成 declared[<字段 id>]……都是现有的叶子写法”）；core/paths.ts:46（只有前后两边都是数组时才按 id 列表拆）；world/world.ts:933（前缀重叠即依赖）。
+- 现象：`lab/opus2/q2-revert-declared.ts`（真实 `World.publish` 与 `revert`）。条目一开始没有 `declared`：加 X 记成 `["init.data.character.declared", "init.data.character.fields.上限"]`；之后加 Y 记成 `declared[魔力]`、`declared#order`；还原“加 X”得到 `has-dependents: ["r4","r3"]`，连无关的“加 Y”也算依赖。一开始有 `declared: []` 时只记 `declared[上限]`、`declared#order`，“加 Y”不算依赖。
+- 本计划里谁会碰到：人物从不开实例字段改成开，现有的人物数据都没有 `declared`（`buildEntry` 只在类型开了实例字段时才写 `declared: []`，entry-edits.ts:392；原型转换只在给了声明时写，sample/convert.ts:144）。样本之外的试验作品里，每个旧人物上作者加的第一项都成了之后全部字段操作的依赖；Context 第 1 条探针与验收映射“加、改名、去掉各还原一次”大概率是在带 `declared: []` 的夹具上跑的，测不出这条。
+- 建议：在路径的 diff 里把“有 id 的列表从没有变成有”当作从空数组开始（`paths.ts` 的 `declaredIdList` 分支允许 `before === undefined`），这是记录新写入的方式，旧修订原样重放不受影响；还原后留下 `declared: []` 与原来不写等价。若不想动记录方式，就在 `planEntries` 补空数组时让它不进这次修订——做不到，因为同一次写入；所以只能改 diff，或读取层把没有 `declared` 当空、而写入层第一次遇到时另起一次只补空数组的修订（不推荐，多一次修订）。验收的还原用例加一条“旧条目没有 declared”。
+
+### 4. 显示名规则只在 `planEntries` 判、又把去掉过的一项算进去：作者去掉“种族”后再也加不了一个新的“种族”；还原改名能造出重名；恢复另有没列出的拒收（第 3 点关于还原的一句收窄，见第 6 条）
+- 严重程度：重要；类别：正确性
+- 位置：plan.md 设计一 `fieldAdd`（“显示名与现有字段重复：label-taken；撞的是去掉过的一项时问题里带上它的 id”）、`fieldRename`/`fieldRestore` 的拒收清单；components/registry.ts:126-160（`fieldsProblem` 不查显示名）；world/world.ts:1037-1050（`newReferences` 按“改前用改前的声明、改后用改后的声明”求新引用）。
+- 现象与核实：
+  1. 加不了新的同名项：去掉是打标记、声明永远留着，而计划让 `label-taken` 把去掉过的也算上。作者把数的“种族”去掉、想要一个文字的“种族”：`fieldAdd` 拒收，`fieldRestore` 只能拿回数的那一项；内核没有删声明的操作，这个显示名在这个条目上永久被占，只能起名“种族2”。这正是本设计想解决的“种类变了”场景，现在变成死路。
+  2. 还原造出重名：A 从“种族”改名“血统”，之后加 B 叫“种族”，再还原 A 的改名（路径 `declared[A].label` 与 `declared[B]` 不重叠，不算依赖），A 回到“种族”，两项同名。世界层不查显示名，照收。类型后来加了同显示名的固定字段时也一样。components.md 输出 8 的 planned 句子（写显示名时不唯一拒收 `ambiguous-field`）将来落地时，这个条目上的这两项都不能按名字写。
+  3. 恢复的拒收没写全：`lab/opus2/q5-restore-ref.ts`（真实 `World.publish`，用“删声明再加回同一份”模拟去掉与恢复，读者同样经 `effectiveFields`）：实例引用字段“师门”指着“青云门”，去掉期间删了“青云门”，恢复得到 `ref-invalid`（`entry-deleted`，路径 `init.data.character.fields.师门.ref`）。原因：去掉的字段不参与 `referencesOf`，恢复时它值里的引用全算新写的。还原“去掉”那次同样被拒。计划的拒收清单只有 `field-fixed`、`field-missing`、`field-referenced`。
+- 建议：
+  - 显示名只要求在**生效的**声明里唯一，规则放在世界层（新写或改过的生效声明撞名时 `label-taken`），`planEntries` 提前给同一个码；这样还原与类型变化也被拦住或显式报出。
+  - `fieldAdd` 撞上去掉过的一项的显示名时不拒收，返回值或预览里带上那一项的 id（界面据此问“恢复原来的，还是新加一项”）；若坚持拒收，至少给一个“我就是要新加”的参数。
+  - 恢复时值里的引用按“原样留着”处理（值没变，不算新写的引用），或把 `ref-invalid` 明写进恢复的拒收清单与界面的处理；二选一写进 components.md 输出 4。
+
+### 5. 读 `declared` 的地方逐处核过：大多经 `effectiveFields`，漏了约束的上限取值与分叉的 `carry`；`removed` 挂在共用的字段声明 schema 上，子字段与预设里写了它算什么没定
+- 严重程度：建议；类别：不变量
+- 位置：plan.md 设计一“读取这一侧”（“读 declared 的地方都经它或 namespaceFields，实施时先列全再改”）、世界层第 2 处；core/schema.ts:66-87（`FieldDeclarationCore` 由固定字段、实例声明、列表子字段共用，`FieldDeclarationSchema` 没有 `additionalProperties: false`）；world/forks.ts:134。
+- 逐处列出（主工作区 `grep -rn declared packages/nb-canon/src packages/neuro-book/src/plugins/{canon,plot}`）：
+  - 经 `effectiveFields`：`namespaceFields`（model/apply.ts:189）及其调用方 apply.ts:223（补丁）、390（约束）、engine/views.ts:79、engine/reference.ts:478（主文字的字段引用）、world/world.ts:790（决策的 `about`，只查新写的）；`fieldsOf`（world/references.ts:226）及其调用方 references.ts:73、208（引用）、world/forks.ts:134、152（`carry`）；service/service.ts:454（条目读取的 `declarations`）；service/reads.ts:262。
+  - 直接读原始数组：world.ts:1329（`fieldsProblem`，应当含去掉的，保证 id 不重复）、world.ts:1335（`field-redeclare-mismatch` 的判定，改成打标记后基本只剩直接写入会走到）、apply.ts:397（`data.fields[field.max]` 直接取上限的值，不看目标是否生效，见第 2 条）。
+  - 只写不读：entry-edits.ts:392（`buildEntry`）、sample/convert.ts:144、scripts/canon-sample.ts:58。
+  - 应用这一侧（canon、plot 插件的非测试源码）没有直接读 `declared` 的，都经服务返回的 `declarations`；渲染经 engine/reference.ts。读取路径本身是全的。
+- 漏掉的两处：
+  1. `carry`（forks.ts:134）每次碰到分叉这条变更都整份重查“是声明了的字段”，不比旧值。回溯分叉带着某个实例字段，作者去掉这一项以后，再改这条分叉的任何地方都报 `invalid-fork`，与第 3 处放宽要解决的是同一类问题，四条判据只管补丁、管不到它（从代码推断）。建议同样按“原样留着的不查”：只查新写或改过的 `carry` 项。
+  2. 约束的上限取值，见第 2 条。
+- schema：计划把 `removed` 加进实例声明，但三处共用一个 schema，又不是严格的（今天就能在任何字段声明上写 `removed` 而不被拒）。只给固定字段写了“登记时整条不登记”，列表子字段（`item[]`）、预设（`presets[]`）里出现 `removed` 算什么没定：子字段被 `effectiveFields` 当作不存在？还是忽略？建议实例声明另起 `InstanceFieldDeclarationSchema = 字段声明 + removed?: true`，只用在 `NamespaceDataSchema.declared`；`fieldsProblem` 对子字段与预设里出现的 `removed` 报错。
+
+### 6. 还原是补偿写入、不跑世界层校验：还原“加一项”能留下 `max` 落空的声明，之后这一组整组写不进去；第 2、4 条里关于还原被拒的说法据此更正
+- 严重程度：重要；类别：不变量
+- 位置：world/world.ts:582-586（`compensation` 为真时 `validate`、线的规则、分叉、标注、引用全部跳过）；plan.md 设计一“世界层的校验照旧兜底”、“不改：……还原与依赖的算法”；验收映射“修订的形状与还原（加、改名、去掉各还原一次）”。
+- 现象：`lab/opus2/q6-revert-add-under-max.ts`（真实 `World.publish` 与 `revert`，`declared: []` 起步）：加“上限”→加“魔力”（`max: "上限"`）→还原“加上限”：照收（“加魔力”不算依赖），结果 `declared` 只剩 `{魔力, max:"上限"}`；之后改这一组的任何地方（例中改“性格”）都被拒：`type-mismatch`，路径写成 `init.data.character.declared[1].max`（下标按“固定字段加实例声明”拼起来的列表算，实际是 `declared[0]`，第 1 条探针里的 `declared[2]` 同样错位）。去掉“魔力”也没用（打标记后它还在），只能再还原“加魔力”。
+- 更正：第 2 条第二段说还原“加上限”会被世界层以 `type-mismatch` 拒收、“永远还原不了”，不对：还原照收，坏的是之后的写入。第 4 条第 3 点说还原“去掉”那次同样被拒，也不对：还原不查引用，照收，留下指向已删条目的引用。第 2 条第一段（还原“恢复”造出 `max` 指向去掉的一项）与第 4 条第 2 点（还原改名造出重名）的结论不变，而且更确定：还原根本不看这些规则。
+- 为什么是问题：计划把 `field-referenced`、`label-taken` 都放在 `planEntries`，靠“世界层照旧兜底”；但还原这条路两层都不经过，依赖算法又只按路径重叠，`max` 这种声明之间的指向不算依赖。四种字段修订里，还原“加一项”“恢复”都能造出坏的声明组合。
+- 建议（与第 1 条的 A 合并成一条规则即可）：世界层对实例声明的校验只查新写或改过的生效声明，原样留着的声明有问题时读取层容忍（`max` 目标不生效就不检查上限，被盖住的不参与）、不挡别的写入；这样还原留下的组合不会锁死整组。另一条路是让依赖算法把“`max` 指着 X”算作依赖创建或恢复 X 的修订，代价是改“不改还原与依赖的算法”这句。路径下标顺手改成按 `declared` 自己的下标或 `declared[<id>]`。验收的还原用例加“还原加一项、之后另一项的 max 指着它”。
+
+### 7. 样本的迁法照字面做会丢数据：“现在的态度”的值与两条语义档补丁在星瑾身上不在星瑕身上；一个命名空间拆成两组、按条目声明，现有的转换做不到；还有四类地址没列
+- 严重程度：重要；类别：正确性
+- 位置：plan.md 设计三“星瑕样本”；packages/neuro-book/scripts/canon-sample.ts:41-79（`renumber` 只按 `.identity.外观` 换源文；`builtinTypes` 按命名空间整块映射）；packages/nb-canon/src/sample/convert.ts:46-51、137-146（`SampleType` 一个原型命名空间对一个目标命名空间，`declared` 按命名空间给、写进这个命名空间的每个条目）；xingxia-prototype.json。
+- 核实（用 python 读原型 JSON，命令见本条末）：
+  1. 原型的 `character` 在 6 个条目上（星瑕、星瑾、父母、刻薄的亲戚、魔法精灵、彗），每个都有“身体、样子、外观、性格、态度”五个键。星瑕的“态度”是 null、没有补丁；**星瑾**的“态度”初值是“生哥哥的气”，剧情变更 c10、c17 对 `xingjin` 的 `character.态度` 各有一条 `note`，原型的 `reductions` 两条归纳就是它们。计划只让星瑕声明这三项，星瑾的态度连同样本里唯一一组语义档的数据就读不到了。
+  2. `SampleType.declared` 是按命名空间给的，原样用会把三项声明写进全部 6 个人物；要“只在星瑕上”，转换得支持按条目给声明。外观要从 `character` 搬到 `look`，其余留在 `character`，也就是一个原型命名空间拆到两个目标命名空间，`SampleTypes` 现在的形状表达不了，计划没提要改 nb-canon 的转换。
+  3. 要跟着改地址的，除了主文字源文还有：剧情变更 c18 的补丁 `character.外观`（“按正文改设定：银白→淡金色”，样本里改设定那条主路径）；星瑕初值的 `initBasis["character.外观"]` 与 `initTold["character.外观"]`（外观的来历引文，转成条目的 `retold`）；马甲“魔法少女”的建议 s3 的目标 `identity.外观`（这一处今天已经对不上，一并处理）。只改源文的话，c18 不再套上，外貌永远是“银白”，来历引文挂在读不到的地址上。
+  4. 源文：星瑕自己的引用写的是 `{character.外观}`（没有前导的点），马甲的是 `{ref("brother").identity.外观}`。计划写“`.identity.外观`、`.character.外观` 一并换成 `.look.外貌`”，照字面替换会漏掉星瑕自己那一处。
+  5. 马甲两个条目（种类“身份”、`sameAs` 星瑕）原来只有 `identity`，外观搬走后它们只剩形象一组、没有人物这一组；计划没说这是不是想要的。
+- 建议：设计三写成“逐个地址的映射表”（原地址 → 新地址，覆盖补丁、`initBasis`、`initTold`/`retold`、核对点、建议目标、源文的两种写法），转换按条目给声明；星瑾的“态度”二选一：也在星瑾上声明“现在的态度”，或映射到固定的“现在的状态”（语义档，种类相同）。`canon-sample.test.ts` 加断言：第 3 章末尾星瑕的外貌是“淡金色……”、星瑾的态度归纳读得到、星瑕初值外貌有来历引文。
+- 命令：`cd packages/nb-canon/src/sample && python3 -c "import json;d=json.load(open('xingxia-prototype.json'));print([ (p['ref']['id'],pt['at']) for it in d['items'] for p in it['draft']['puts'] if p['ref']['kind']=='change' for pt in (p.get('after') or {}).get('patches',[]) if pt['at']['path'].startswith(('character','identity'))])"`。
+
+### 8. 设计二说“`digest` 的输入都加上（登记变了的通知靠它）”与代码不符：通知比的是整份类型，`digest` 变了会让每条线整本重算
+- 严重程度：建议；类别：安全与性能
+- 位置：plan.md 设计二表格下一段；components/registry.ts:109-112（`digest` 只含 id、命名空间、版本、`fields`、`instanceFields`）；service/service.ts:1433-1446（`setRegistries`：`inputChanged: components` 按 `stableStringify(types)` 整份比较，注释写明“`digest` 不含显示名与给 Agent 的说明，所以另比整份类型”）；world/world.ts:241、engine/incremental.ts:535、lines/set.ts:84（`digest` 不同就 `structural: true`，整本重算）。
+- 现象：计划依赖的机制不存在——通知不靠 `digest`。只要 `kinds`、`presets` 进了 `ComponentType`，`setRegistries` 的整份比较自然会发通知；反过来把它们加进 `digest`，插件只改了适用的种类或预设（纯界面提示，不影响任何计算）也会让世界的每条线整本重算。`suggestions` 写在字段声明里，已经随 `fields` 进了 `digest`，改建议值同样触发重算。
+- 建议：`kinds`、`presets` 只进 `ComponentType` 与 `components` 读取，不进 `digest`；`digest` 计算时把字段声明里的 `suggestions` 去掉（递归到 `item`），保持“只含影响计算的部分”这条既有约定。验收加一条：只改 `presets` 时收到 `inputChanged: components`、`digest` 不变。
+
+### 9. 预设的校验范围没定：预设之间的 `max`、预设里的 `removed`、预设 id 与条目上已有 id 的关系
+- 严重程度：建议；类别：接口与合同（代码质量）
+- 位置：plan.md 设计二 `presets` 行（“id 要写、不与固定字段和别的预设重复，按 fieldsProblem 校验”）；components/registry.ts:118-123（`declarationProblem` 只对固定字段跑 `fieldsProblem`）、126-160。
+- 现象：
+  1. “按 `fieldsProblem` 校验”可以是对 `presets` 单独跑，也可以对 `[...fields, ...presets]` 跑。后者让预设的 `max` 指向另一个预设合法，但作者只点了其中一个时，`fieldAdd` 在世界层得到 `max ... is not an exact number field`（第 6 条的路径错位问题同样出现）；前者让预设的 `max` 指向固定字段也不合法。正确的范围是：固定字段单独校验（今天如此，固定字段的 `max` 不能指预设），预设对“固定字段加这一个预设”逐个校验，预设的 `max` 只能指固定字段。
+  2. 第 5 条：`removed` 在预设里出现算什么没定，应当拒收。
+  3. 预设的 id 是写死、跨条目共用的，计划没说点预设时 `fieldAdd` 的 `field.id` 是不是就用它，被占时报什么（见第 1 条：建议用作首选、占了就退回生成）。
+- 建议：在设计二写明上面三点，`components.test.ts` 加“预设的 max 指向预设被拒”“预设里有 removed 被拒”两例。
+
+### 10. 种类登记“同一个词登记两次就两条都不用”堵死了别的插件给人物加默认组；Agent `create` 的种类默认与 `fields` 带出的组谁先没写
+- 严重程度：建议；类别：接口与合同
+- 位置：plan.md 设计四（`EntryKindDeclaration`、撞名规则、“Agent 的 create：没写 components 时按种类的默认，写了就照写的”）；docs/specs/canon/agent-tools.md 输出 7 第 3 小条（“`fields` 写到的设定组没列在 `components` 里时一并启用”）；plot/shared/declarations.ts:13（`ENTRY_TYPES` 里也有“人物”“组织”）。
+- 现象：
+  1. 一条登记同时做两件事：声明“有这个种类”与“它默认带哪几组”。撞名两条都不用，意味着剧情插件以后想让新建人物默认带知情、态度时，只要它也登记“人物”，内置的人物与形象默认也一起没了——新建人物变成什么都不带，诊断只有一条。“不做”里已经列了“剧情插件给自己的种类登记默认设定组”，这条规则会让它将来做不了，得先改登记的形状。同命名空间撞名两条都不用是因为数据放不下两份；种类的默认组是可以合并的列表，不需要同样严格。
+  2. Agent 写 `create {kind: "人物", fields: {"look.外貌": …}}` 而不写 `components`：按设计四用默认（人物、形象），按输出 7 再加 `fields` 带出的组；但 `fields` 带出的组算不算“写了 components”，计划没说。若算，写一个字段就失去全部默认。另外 `components: []`（明说不要）与不写是否区分也没说。
+  3. 种类、`targets`、`ENTRY_TYPES` 是同一批词，人物的“所属”`targets: ["组织"]`、“现在在哪”`targets: ["地点"]` 写死在声明里，种类登记改了名字（例如“组织”改“势力”）时引用照样按旧词核对、整批 `ref-type-mismatch`。这是今天就有的耦合，计划多加了一处同样的词（`kinds`），建议在 `entry-kinds.ts` 里导出这几个词的常量，三处共用。
+- 建议：把登记拆成“种类”（谁登记的是唯一的，撞名按现规则）与“默认组的追加”（任何插件都能对某个种类追加，按插件顺序合并去重）；或者至少规定撞名时内置的那一条胜出。`create` 写成：默认组 = 没写 `components` 时种类的默认；最终启用 = 默认组或写了的 `components`，再并上 `fields` 带出的组；`components: []` 表示不要默认。
+
+### 11. 人物的十个固定字段只给了显示名没给 id：版本不升时，新 id 若与旧 id（外观、状态、态度、身体、样子）相同，旧值与旧补丁会按新意思回来
+- 严重程度：建议；类别：不变量
+- 位置：plan.md 设计三“人物”一行（只列显示名：性别、年龄、身份、所属、性格、背景、说话方式、现在的状态、现在在哪、生死）与“版本不升……旧字段的值与对它们的补丁留在数据里……读不到”；canon/shared/components.ts:49-54（旧 id：外观、状态、态度〔显示名“现在的态度”〕、身体、样子〔显示名“现在的样子”〕、性格）。
+- 现象：“读不到、不报错”这句话成立的前提是新的固定字段没有沿用任何旧 id。逐条路径核过（从代码读，读写都经 `effectiveFields`）：旧键只在 `fields` 里、不在声明里时，读取跳过、写入校验只遍历生效字段、`set` 得 `field-unavailable`、旧补丁 `undeclared`（剧情变更被碰到时靠设计一第 3 处放过）、核对点在 engine/reference.ts:125 因字段不在而跳过、主文字引用显示占位——都成立。但“现在的状态”最自然的实现是沿用 id `状态`（旧的是普通文字，新的是语义档），那样试验作品里旧的“状态”值与补丁会作为语义档的值回来，`note` 补丁与 `set` 补丁混在一起；“性格”沿用 id 并新加 `retold`，这是想要的，应当明说。
+- 建议：设计三给出十个固定字段的 id，写明除“性格”外不沿用旧 id；`canon.test.ts` 那条“旧数据读得出来”的用例里旧数据带上 `状态`、`态度` 的值与补丁，断言新人物上读不到它们。
+
+## 未发现问题的方面
+
+- 设计一读取一侧的路径本身是全的：除第 2、5 条列出的两处外，读 `declared` 的地方都经 `effectiveFields` 或 `namespaceFields`/`fieldsOf`；应用侧没有直接读 `declared` 的非测试代码。
+- `fieldAdd` 把“初值里留着键、任何补丁指过”的 id 算占用：要扫全部剧情变更的补丁，代价与 `usedElementIds`（entry-edits.ts:312-327，每次 `listAdd` 扫一遍全部变更）同一量级，一批最多 50 项，可以接受；按 `patch.at.entry` 先筛即可。
+- 四条判据：在第 1 轮第 2 条之外，仔细检查后没有发现新的“这次写入造成的不适用”被放过的写法。同一请求里新写一条更早的变更去停用设定组、同时碰了旧变更，旧变更里的补丁会被放过；但今天没被碰到的旧变更本来就不重查，二者一致，不算漏洞。补偿写入（还原）不跑校验，与判据无关（见第 6 条）。
+- 依赖判定对 `declared[<id>]`、`declared[<id>].removed`、`declared#order` 的路径：重叠与“顺序只是追加”的豁免都如计划所说（探针 q2、q3 的修订路径），问题只在第 3 条（没有 `declared` 的旧条目）与第 6 条（声明之间的 `max` 指向不算依赖）。
+- 设计三“读不到、不报错”：在新固定字段不沿用旧 id 的前提下成立（第 11 条）。
+
+## 对“不做与风险”各项的判断
+
+- 不做第二、三期与通用字段表的就地展开：合理；但第 1 条说明第二期“把预设提成固定字段”会撞上实例字段，第一期就要把规则定下。
+- 不做剧情插件给自己的种类登记默认组：合理，但第 10 条的撞名规则会让它将来做不了，形状要现在定。
+- 不做用显示名写字段、升级函数、按引用反查：合理；用显示名写字段落地时要先解决第 4 条的重名。
+- 页头对齐：与本审查无关。
+- 风险“世界层那一处放宽”：判据已按第 1 轮修好；兜底的变异检查合适。另需补：分叉的 `carry` 同类问题（第 5 条）。
+- 风险“实例声明多一个 removed”：兜底不够——“都经 effectiveFields”还漏两处（第 2、5 条），还原另有一条不经校验的路（第 6 条）。
+- 风险“固定字段或预设与实例字段同 id”：本轮第 1 条已写全，建议采用其中的 A，并与第 6 条合并成“声明只查新写或改过的、生效的”一条规则。
+- 风险“牵动的文件多”：兜底合适；样本另见第 7 条。
+- 风险“就地改与确认条共用状态”、“图片端口不在”：界面部分，不在本审查范围。
+
+## 各级数量
+
+阻断 0；重要 6（第 1、2、3、4、6、7 条）；建议 5（第 5、8、9、10、11 条）。第 2 条第二段、第 4 条第 3 点关于还原的一句已由第 6 条更正。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11

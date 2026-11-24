@@ -1,0 +1,226 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00037-official-site",
+    "taskId": "t09-frontend-design-review",
+    "artifactId": "review",
+    "version": 6,
+    "supersedes": 5,
+    "action": "publish",
+    "kind": "design",
+    "title": "官方站前端 第 1 轮：外观",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "e8a5c2974ef526a96090e0204fa4d9724e97d2e2c410bb33f87ce57e1470661c",
+    "files": [
+        "index.html",
+        "r1/a-dashboard.webp",
+        "r1/a-login-phone.webp",
+        "r1/a-login.webp",
+        "r1/b-dashboard.webp",
+        "r1/b-login-phone.webp",
+        "r1/b-login.webp",
+        "r1/c-login-phone.webp",
+        "r1/c-login.webp",
+        "r2/account-phone.webp",
+        "r2/account.webp",
+        "r2/cards.webp",
+        "r2/paper-phones.webp",
+        "r2/register.webp",
+        "r2/users.webp",
+        "r3/account-phone.webp",
+        "r3/account-states.webp",
+        "r3/account.webp",
+        "r3/codes.webp",
+        "r3/login.webp",
+        "r3/paper-phones.webp",
+        "r3/register.webp",
+        "r3/users-p7-foot.webp",
+        "r3/users.webp",
+        "r4/cand-chartjs.webp",
+        "r4/cand-echarts.webp",
+        "r4/cand-uplot.webp",
+        "r4/dashboard.webp",
+        "r5/dashboard-red.webp",
+        "r5/dashboard.webp"
+    ],
+    "questions": [
+        {
+            "id": "look",
+            "type": "single",
+            "label": "官方站用应用的默认外观，还是另做一套“稿纸”外观？",
+            "options": [
+                {
+                    "value": "house",
+                    "label": "A 默认外观"
+                },
+                {
+                    "value": "paper",
+                    "label": "B 稿纸外观"
+                },
+                {
+                    "value": "mixed",
+                    "label": "C 默认配色，登录页画成稿纸"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "mixed"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dashboard-first-screen",
+            "type": "text",
+            "label": "看板首屏的内容与先后，有要增减或调换的吗？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "paper-pages",
+            "type": "confirm",
+            "label": "注册、同意条款、授权确认三页照图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "account-page",
+            "type": "confirm",
+            "label": "账号页照图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "users-page",
+            "type": "confirm",
+            "label": "管理面板的用户页照图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "social-icons",
+            "type": "confirm",
+            "label": "登录与注册页的 GitHub、Google 图标照图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "account-page-r3",
+            "type": "confirm",
+            "label": "账号页照图做（没有横幅，两种账号版式相同）",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "data-table",
+            "type": "confirm",
+            "label": "数据表格与分页照图做，并做成 nb-ui 的通用组件",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "chart-library",
+            "type": "single",
+            "label": "看板的图用哪个图表库？",
+            "options": [
+                {
+                    "value": "echarts",
+                    "label": "ECharts 6.1.0"
+                },
+                {
+                    "value": "chartjs",
+                    "label": "Chart.js 4.6.2"
+                },
+                {
+                    "value": "uplot",
+                    "label": "uPlot 1.6.32"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "echarts"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "dashboard-final",
+            "type": "confirm",
+            "label": "看板照图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "dashboard-errors",
+            "type": "confirm",
+            "label": "看板下半屏的错误、崩溃、升级照图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 5,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-24T13:21:57.881Z"
+}

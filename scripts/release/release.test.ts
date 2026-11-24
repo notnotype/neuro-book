@@ -13,17 +13,19 @@ function run(overrides: Partial<WorkflowRun>): WorkflowRun {
  * 记录调用的替身：按命令前缀给结果，没写的命令成功、输出为空。git、gh 的真实行为由开发者第一次运行时核对（t24 的证据）。
  * 状态随调用变：prepare 之后 HEAD 变成发版提交。
  */
+const MAC_ABANDONED: WorkflowJob = {name: "macOS / macOS 桌面包（Apple Silicon）", conclusion: "cancelled"};
 const GREEN: WorkflowJob[] = [{name: "门禁", conclusion: "success"}, {name: "发 npm", conclusion: "skipped"}];
 
 /**
  * `runs` 是手动触发的运行列表（演练检查读它）；`dispatched` 在 `gh workflow run` 之后才出现，`pushRuns` 在推送之后才出现：
  * 和真实的一样，触发前列出来的运行不是这次触发的。
  */
-function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; conclusion?: string; pending?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string; failingCheck?: string}) {
+function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[]; dispatched?: WorkflowRun[]; pushRuns?: WorkflowRun[]; push?: number; tagExists?: boolean; conclusion?: string; pending?: number; jobs?: WorkflowJob[]; intruder?: boolean; remoteTag?: string; failingCheck?: string; dirty?: string[]; macFailsOnce?: boolean}) {
     const calls: string[][] = [];
     let head = HEAD;
     let dispatchedYet = false;
     let pushedYet = false;
+    let rerunYet = false;
     const respond = (argv: readonly string[]): CommandResult => {
         const line = argv.join(" ");
         if (line === "git remote get-url --push origin") return {code: 0, stdout: "git@github.com:notnotype/neuro-book.git\n"};
@@ -44,6 +46,11 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
             return {code: options.push ?? 0, stdout: ""};
         }
         if (options.failingCheck !== undefined && line === `bun run ${options.failingCheck} --all`) return {code: 1, stdout: JSON.stringify({failures: ["Spec 未登记在“已实现规范”：docs/specs/bots/view.md"]})};
+        if (line.startsWith("git status --porcelain")) return {code: 0, stdout: (options.dirty ?? []).map((path) => `?? ${path}\n`).join("")};
+        if (line.startsWith("gh run rerun")) {
+            rerunYet = true;
+            return {code: 0, stdout: ""};
+        }
         if (line.startsWith("gh workflow run")) dispatchedYet = true;
         if (line.startsWith("gh run list") && line.includes("--event push")) return {code: 0, stdout: JSON.stringify(pushedYet ? options.pushRuns ?? [] : [])};
         if (line.startsWith("gh run list")) return {code: 0, stdout: JSON.stringify([...(dispatchedYet ? options.dispatched ?? [] : []), ...(options.runs ?? [])])};
@@ -54,6 +61,8 @@ function fake(options: {branch?: string; contains?: boolean; runs?: WorkflowRun[
                 options.pending! -= 1;
                 return {code: 0, stdout: JSON.stringify({status: "in_progress", conclusion: null, jobs: options.jobs ?? GREEN})};
             }
+            // 重跑之前 macOS 的作业没成功（整轮因此失败），重跑之后全绿。
+            if (options.macFailsOnce === true && !rerunYet) return {code: 0, stdout: JSON.stringify({status: "completed", conclusion: "failure", jobs: [...GREEN, MAC_ABANDONED]})};
             return {code: 0, stdout: JSON.stringify({status: "completed", conclusion: options.conclusion ?? "success", jobs: options.jobs ?? GREEN})};
         }
         return {code: 0, stdout: ""};
@@ -193,6 +202,32 @@ describe("演练", () => {
             await expect(failing.command.rehearse()).rejects.toBeInstanceOf(ReleaseCommandFailure);
             expect(failing.lines().some((line) => line.startsWith("git push") || line.startsWith("gh workflow run"))).toBe(false);
         }
+    });
+
+    it("会发布的目录有没提交的改动（含未跟踪文件）：演练前就停，不推送", async () => {
+        const dirty = fake({dirty: ["packages/nb-layout/examples/desktop/bun.lock"]});
+        await expect(dirty.command.rehearse()).rejects.toThrow(/bun\.lock/);
+        expect(dirty.lines().some((line) => line.startsWith("git push") || line.startsWith("bun run governance:check"))).toBe(false);
+        const status = dirty.lines().find((line) => line.startsWith("git status --porcelain")) ?? "";
+        expect(status).toContain("--untracked-files=all");
+        expect(status).toContain("packages/nb-layout");
+    });
+
+    it("发布只有 macOS 没成功：重跑失败的作业一次再盯，补上就算成功；重跑后仍没成功照旧交回 false", async () => {
+        const pushRuns = [run({databaseId: 9, headSha: RELEASE_COMMIT, event: "push", conclusion: null, status: "in_progress", createdAt: NOW})];
+        const recovered = fake({runs: [run({})], pushRuns, macFailsOnce: true});
+        expect(await recovered.command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: true})).toBe(true);
+        expect(recovered.lines().filter((line) => line.startsWith("gh run rerun 9 --failed"))).toHaveLength(1);
+
+        const stuck = fake({runs: [run({})], pushRuns, conclusion: "failure", jobs: [...GREEN, MAC_ABANDONED]});
+        expect(await stuck.command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: true})).toBe(false);
+        expect(stuck.lines().filter((line) => line.startsWith("gh run rerun"))).toHaveLength(1);
+
+        // Windows 一侧失败不是补 macOS 能解决的：不重跑。
+        const broken = fake({runs: [run({})], pushRuns, conclusion: "failure", jobs: [...GREEN, {name: "桌面包与 Windows 冒烟", conclusion: "failure"}]});
+        // 替身对每次 view 都给同样的作业，所以跳过演练检查（演练检查也读它）。
+        expect(await broken.command.release({kind: "release", version: "0.15.0", stage: undefined, rehearsal: false})).toBe(false);
+        expect(broken.lines().some((line) => line.startsWith("gh run rerun"))).toBe(false);
     });
 
     it("检查输出的失败逐条列出；不是 JSON 时交回原文开头", () => {

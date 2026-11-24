@@ -1,0 +1,301 @@
+Better Auth 三处行为探针（w00037 t07 开工前，第五轮）
+库版本：better-auth 1.7.27、@better-auth/oauth-provider 1.7.27、@better-auth/core 1.7.27（/tmp/nbsite-spike 里已装的，未升级）
+脚本：/tmp/nbsite-spike/spike5.ts（bun:sqlite，Hono 挂 auth.handler）；输出：/tmp/nbsite-spike/out5.txt
+运行：NODE_ENV=production bun spike5.ts p1|p2|p3；p2 的环境对照另起进程，见第二处
+证据口径：“实测”= spike5 跑出来的；“从源码读到”= 只读了 node_modules；“没有核实”= 两者都没有。
+除注明者外，请求都经 Hono -> auth.handler(new Request(...))。
+
+======================================================================
+第一处：登录后把旧哈希换成新算法
+======================================================================
+
+结论
+- 库没有“登录成功后换哈希”的现成挂钩（从源码读到）：password.verify 只收 {hash, password}，拿不到账号行；
+  sign-in/username 与 sign-in/email 校验通过后直接 createSession，不回调任何“需要重哈希”的接口。
+- 可用的现成位置是 hooks.after（实测）：ctx.path 是 /sign-in/username 或 /sign-in/email，
+  ctx.context.newSession 有值即登录成功，ctx.body.password 是明文，newSession.user.id 拿到用户，
+  再用 internalAdapter.findCredentialAccount(userId) 拿到账号行。经 handler 与直接调 auth.api.signInUsername 都会跑（实测 P1.7、P1.8）。
+- 最小做法：在 after 钩子里，账号行的密码以 "scrypt:" 开头时，算 argon2id，再用
+  ctx.context.adapter.updateMany 做“比较后替换”（where id = 账号 id 且 password = 刚读到的旧哈希）。
+- 不撤会话、不触发数据库钩子（实测 P1.2、P1.5）。用 internalAdapter.updatePassword 写则会触发
+  databaseHooks.account.update（参数是更新的行数 1，不是账号行），且不做比较，会覆盖并发的管理员重置（实测 P1.4b）。
+- 并发：5 个登录同时用旧哈希，5 个都 200，比较后替换只成功 1 次、其余 changed=0，最后是可用的 argon2id（实测 P1.3）。
+- 另发现库本身的时间窗：校验旧密码通过之后、建会话之前管理员重置密码并结束全部会话，这次登录仍然 200 并拿到有效会话
+  （实测 P1.4，与换哈希无关，任何哈希格式都有）。用请求级状态记下 verify 校验通过的那条哈希、在 after 钩子里比对，可以关上（实测 P1.4 cas-recheck）。
+
+能照抄的写法（spike5.ts part1 里 mode = "cas-recheck" 的路径，去掉实验开关后）
+  import {createAuthMiddleware} from "better-auth/api";
+  import {defineRequestState, hasRequestState} from "@better-auth/core/context"; // better-auth 不再导出它，要把 @better-auth/core 列为直接依赖，版本与 better-auth 锁同一个
+
+  const verifiedHash = defineRequestState<{hash: string | null}>(() => ({hash: null}));
+
+  emailAndPassword.password = {
+    hash: (pw) => Bun.password.hash(pw, {algorithm: "argon2id"}),
+    verify: async ({password, hash}) => {
+      const ok = hash.startsWith("scrypt:") ? await verifyLegacyScrypt(password, hash) : await Bun.password.verify(password, hash);
+      if (ok && await hasRequestState()) (await verifiedHash.get()).hash = hash;   // 记下这次校验通过的是哪条哈希
+      return ok;
+    },
+  };
+
+  hooks.after = createAuthMiddleware(async (ctx) => {
+    if (ctx.path !== "/sign-in/username" && ctx.path !== "/sign-in/email") return;
+    const session = ctx.context.newSession;                    // 没有就是登录失败
+    const password = (ctx.body as {password?: unknown})?.password;
+    if (!session || typeof password !== "string") return;
+    const account = await ctx.context.internalAdapter.findCredentialAccount(session.user.id);
+    // 1) 校验之后哈希被改过（重置、改密码）：用现在的哈希再验一次，不对就撤掉刚建的会话
+    const verified = (await verifiedHash.get()).hash;
+    if (verified !== null && verified !== account?.password) {
+      const stillOk = account?.password ? await ctx.context.password.verify({hash: account.password, password}) : false;
+      if (!stillOk) {
+        await ctx.context.internalAdapter.deleteSession(session.session.token);
+        throw ctx.error("UNAUTHORIZED", {message: "invalid_credentials"});
+      }
+    }
+    // 2) 旧格式：比较后替换成 argon2id；失败只记日志，不影响登录（见 P1.6）
+    if (!account?.password?.startsWith("scrypt:")) return;
+    try {
+      const next = await ctx.context.password.hash(password);
+      await ctx.context.adapter.updateMany({model: "account",
+        where: [{field: "id", value: account.id}, {field: "password", value: account.password}],
+        update: {password: next, updatedAt: new Date()}});      // 返回行数：1 换成了，0 被别人先改了
+    } catch (error) { ctx.context.logger.error("legacy rehash failed", error); }
+  });
+
+实测输出（out5.txt 摘录，NODE_ENV=production，库的限流关掉）
+  [P1.1 wrong password] 401 prefix=scrypt:881                         错密码不动哈希
+  [P1.1 first login with scrypt hash] 200 prefix=$argon2id$ sessionA=valid
+  [P1.1 first events] ["after-hook path=/sign-in/username plaintextInBody=true userId=2","rehash compare-and-swap changed=1"]
+  [P1.1 next login with argon2id hash] 200 prefix=$argon2id$          同一个密码换格式后照常登录
+  [P1.2 rehash with another session alive] 200 prefix=$argon2id$ sessionA=valid sessionB=valid sessions=4
+  [P1.3 five concurrent logins] statuses=200,200,200,200,200 prefix=$argon2id$ ms=304
+  [P1.3 events] 5 次 after-hook；"changed=1" 1 次，"changed=0" 4 次
+  [P1.4 reset during login, mode=cas] login=200 ... racedSession=valid thenOldPassword=401 thenAdminPassword=200
+      （verify 通过后插入：管理员 set-user-password 加 revoke-user-sessions；登录仍拿到有效会话）
+  [P1.4 reset during login, mode=cas-recheck] login=401 body={"message":"invalid_credentials"} setCookie=true racedSession=invalid
+      events: "recheck ... hashChangedSinceVerify=true","recheck current hash with plaintext ok=false"
+  [P1.4b reset between read and write in rehash, mode=cas] login=200 thenOldPassword=401 thenAdminPassword=200   events: "changed=0"
+  [P1.4b reset between read and write in rehash, mode=internal] login=200 thenOldPassword=200 thenAdminPassword=401
+      （internalAdapter.updatePassword 不比较，把管理员刚设的密码盖回旧密码）
+  [P1.5 rehash via internalAdapter with session policy in db hook] login=200 setCookie=true thisSession=invalid sessions=0
+      events: "databaseHooks.account.update.after path=/sign-in/username arg=1","policy hook deleteUserSessions(2) rows 2->0"
+  [P1.5 same with adapter compare-and-swap (db hook not run)] login=200 thisSession=valid
+  [P1.6 rehash throws] status=500 setCookie=false body= session=invalid sessionRows 1->2 prefix=scrypt:133
+      （after 钩子抛普通错误：整个登录 500、没有 Cookie，但会话行已写进库、哈希没换）
+  [P1.7 email sign-in] 200 prefix=$argon2id$
+  [P1.8 auth.api.signInUsername] token=true setCookie=true prefix=$argon2id$
+
+副作用小结
+- 换哈希只改 account.password 与 updatedAt；不动 session 表，已有会话与本次会话都在（实测）。
+- 登录多一次 argon2id 计算，只在旧格式那一次（实测 P1.3 五个并发共 304 ms，本机）。这次计算计入合同输出 20 的“同时在算的哈希”上限时要算进去（推断）。
+- after 钩子里抛 APIError 时，库保留已合并的响应头：P1.4 cas-recheck 的 401 仍带 Set-Cookie（指向已删的会话，无害；自家路由包一层时应丢掉这类头）。抛普通 Error 时整个请求 500（实测 P1.6），所以换哈希必须 try/catch。
+- 改密码的“删全部会话”策略不要写在 databaseHooks.account.update 里：库自己的 updatePassword（管理员重置、改密码、用 internalAdapter 换哈希）都走这条，钩子参数只是行数，拿不到用户；用 internalAdapter 换哈希时它还会把这次登录的会话一起删掉（实测 P1.5）。应写在对应端点的 after 钩子或自家路由里（推断，基于 P1.5）。
+
+没有核实
+- Postgres 上 updateMany 的返回值同样是行数（只在 bun:sqlite 上实测）。
+- 社交登录、授权中途登录（oauth_query）路径上的换哈希：社交登录不经密码，不涉及；oauth_query 续接仍是 /sign-in/username，按 P1.8 推断同样会跑，未单独跑。
+
+======================================================================
+第二处：取不到真实 IP 时库的限流行为
+======================================================================
+
+结论
+- 来源地址只从请求头取，不看套接字地址（实测 R9：真实 HTTP、不带头时键是 no-trusted-ip，带伪造头时键就是伪造值）。
+  缺省只读 x-forwarded-for；可用 advanced.ipAddress.ipAddressHeaders 换成别的头（实测 R4，换了之后 x-forwarded-for 不再看）；
+  Forwarded 头不读（实测 R2）。IPv6 按 /64 归并（实测 R2；可用 ipv6Subnet 改，从源码读到）。
+- 没配 trustedProxies 时，只信“只有一个值”的头：两个以上的值、不是 IP 的值都当取不到（实测 R2、R1e）。
+  配了 trustedProxies 时，从右往左剥掉受信网段里的地址，取第一个不受信的；最右是坏值时当取不到（实测 R3）。
+- 取不到时：既不跳过也不拒绝，所有这样的请求按路径共用一个桶（键 "no-trusted-ip|<路径>"），只在第一次打一条 WARN（实测 R1a、R1b、R2）。
+  一个人连错 3 次之后，所有不带头的人在 10 秒内都登录不了。
+  例外：开了 advanced.ipAddress.disableIpTracking 时，取不到 IP 的请求直接跳过限流（实测 R5，存储一次都没被调用）；
+  而 disableIpTracking 会让 getIP 永远取不到，所以它等于整体关掉限流（实测 R5，带头也不限）。
+- 头可伪造时：每次换一个 x-forwarded-for 值，6 次错误登录全是 401、从不 429（实测 R1d）。配了 trustedProxies 也一样：
+  链上只有一个值（代理没有追加、而是透传客户端的头）时，那个值被直接采用（实测 R3 "1.2.3.4" -> 1.2.3.4）。
+  所以只有在代理自己覆盖或追加这个头时它才可信。
+- 存储：缺省存在进程内存，是模块级的一张表，同一进程里的多个 betterAuth 实例共用（实测 R1g：另一个实例、另一个库文件，
+  同一个键直接 429）；重启清零（从源码读到）。可换 storage: "database"（rateLimit 表，实测 R8）、"secondary-storage"
+  （要 secondaryStorage.increment，从源码读到），或 customStorage: {consume(key, rule)}（实测 R2 到 R5、R9）。
+- 能整体关掉：rateLimit.enabled: false（实测 R6）；也能按路径关：customRules {"/sign-in/username": false}（实测 R7，别的路径照旧）。
+  缺省只在 NODE_ENV=production 时打开（实测 E1：unset、development、test 下 5 次都不限）；
+  development 与 test 下取不到 IP 时回落成 127.0.0.1，unset 与 production 下是 no-trusted-ip（实测 E2）。
+- 只在 auth.handler 这条路上限：自家路由直接调 auth.api.signInUsername 时，同一个 IP 6 次错误登录全是 401（实测 R1f）。
+  ADR 0060 定的是“自家路由包一层”；包法若是调 auth.api.*，库的限流根本不生效。
+- 回应形状：429，体 {"message":"Too many requests. Please try again later."}，头 X-Retry-After，没有标准的 Retry-After（实测 R1a）。
+- 库的规则与合同不同：缺省 /sign-in、/sign-up、/change-password、/change-email 前缀都是 10 秒 3 次，其余 10 秒 100 次（实测 R2 的 window/max，规则从源码读到）；
+  键只有“来源地址加路径”，没有合同输出 19 的“来源地址加用户名”“按用户名计失败”。
+
+建议做法（推断，基于上面的实测）
+  在 Hono 一层自己做限流，库的限流整体关掉：rateLimit: {enabled: false}。来源地址在 Hono 一层按部署方式取：
+  反向代理覆盖写一个单值头（如 nginx 的 proxy_set_header X-Real-IP $remote_addr），Hono 只读这个头；取不到就按合同回 forbidden_origin。
+  同时把取到的地址写回请求的 x-forwarded-for（单值）再交给 auth.handler，库记在 session.ipAddress 的值才与限流用的一致；
+  R9 的“rewritten”分支就是这个写法（直连时用 server.requestIP，键变成 127.0.0.1，伪造头被丢掉）。
+  不要用 disableIpTracking 当“关限流”的开关：它同时让 session.ipAddress 一直为空（从源码读到 getIP 的提前返回；session 字段未单独实测）。
+
+实测输出（out5.txt 摘录）
+  [R1a default, no forwarding header, 5 tries] statuses=401,401,401,429,429 X-Retry-After=10 body429={"message":"Too many requests. Please try again later."} Retry-After=null
+  [R1b another client, also no header] statuses=429
+  [R1c x-forwarded-for: 203.0.113.1, 4 tries] statuses=401,401,401,429
+  [R1d spoofed x-forwarded-for, new value each time, 6 tries] statuses=401,401,401,401,401,401
+  [R1e two-value x-forwarded-for without trustedProxies] statuses=429          （落进 no-trusted-ip 那个已满的桶）
+  [R1f auth.api.signInUsername x6, same ip] statuses=401,401,401,401,401,401
+  [R1g second auth instance, x-forwarded-for 203.0.113.1] statuses=429        （另一个实例，共用内存桶）
+  [R2 keys by header] none -> no-trusted-ip；单值 203.0.113.1 -> 203.0.113.1；两个值 -> no-trusted-ip；
+      2001:db8:1:2:3:4:5:6 -> 2001:0db8:0001:0002:0000:0000:0000:0000；not-an-ip -> no-trusted-ip；
+      只有 x-real-ip -> no-trusted-ip；只有 Forwarded -> no-trusted-ip；GET get-session -> window=10 max=100
+  [R3 trustedProxies=[10.0.0.0/8]] "203.0.113.6, 10.0.0.1" -> 203.0.113.6；"1.2.3.4, 203.0.113.6, 10.0.0.1" -> 203.0.113.6；
+      "10.0.0.1" -> no-trusted-ip；"garbage, 203.0.113.6, 10.0.0.1" -> 203.0.113.6；"203.0.113.6, garbage" -> no-trusted-ip；"1.2.3.4" -> 1.2.3.4
+  [R4 ipAddressHeaders=[x-real-ip]] x-real-ip 203.0.113.7 -> 203.0.113.7；只有 xff -> no-trusted-ip
+  [R5 disableIpTracking, xff x6] statuses=401 x6；[R5 storage consulted] 0 times
+  [R6 rateLimit.enabled=false, xff x6] statuses=401 x6
+  [R7 customRules /sign-in/username=false, xff x6] 401 x6；[R7 same instance, /sign-in/email xff x5] statuses=401,401,401,429,429
+  [R8 rows] {"tables":["rateLimit"],"rows":[{"key":"203.0.113.12|/sign-in/username","count":3,...}]}
+  [R9 real HTTP] keys: 直连不带头 no-trusted-ip；直连伪造 1.2.3.4；改写后不带头 127.0.0.1；改写后伪造 127.0.0.1
+  [E1 default config, no header x5] unset / development / test 三种 NODE_ENV 下都是 401 x5
+  [E2 enabled=true, key for no-header request] unset: no-trusted-ip；development、test: 127.0.0.1
+
+没有核实
+- secondary-storage 的行为（只读了源码：用 increment(key, ttl)，超限时 retryAfter 固定回整个窗口）。
+- 多进程部署下内存桶不共享（从源码推断：模块级 Map，各进程各一份）。
+- 真实 nginx 或别的代理追加 x-forwarded-for 的实际格式（R9 用 Bun.serve 直连，没有经过代理）。
+
+======================================================================
+第三处：刷新令牌与 id_token（@better-auth/oauth-provider）
+======================================================================
+
+说明：管理员登记客户端的 /admin/oauth2/create-client、update-client 是只供服务端调用的端点（经 handler 回 404，实测 L1h），
+所以这两步与 spike4 一样直接调 auth.api.adminCreateOAuthClient / adminUpdateOAuthClient，绕过了 HTTP；其余授权、登录续接、令牌、
+用户信息、管理员封禁与重置都经 handler。客户端一律 client_secret_basic、skip_consent、PKCE S256。
+
+结论
+- 缺省会发刷新令牌，条件是请求范围里有 offline_access（实测 D1 无、D2 有）。缺省范围是 openid profile email offline_access，
+  缺省 grantTypes 是 authorization_code client_credentials refresh_token（实测 D discovery）。刷新会轮换，旧的再用回 invalid_grant（实测 D2）。
+- 只把 grantTypes 收成 ["authorization_code"] 不够：请求了 offline_access 时令牌端点照样发出 refresh_token，只是拿去换时回
+  unsupported_grant_type（实测 G1）。原因是发令牌时只看“客户端能用 authorization_code 就能用 refresh_token”，不看服务方的 grantTypes（从源码读到 clientAllowsGrant）。
+- 关得掉的配置：oauthProvider({scopes: ["profile", "email"], grantTypes: ["authorization_code"]})（实测 L1）：
+  · 请求 offline_access 在授权端点就跳回 invalid_scope，不发码（L1b）；管理员登记或改客户端时带 offline_access、openid 也被拒（L1g、L1h）；
+  · 不带 scope 参数时按 profile email 发，没有 refresh_token、没有 id_token（L1e）；
+  · 令牌端点对 grant_type=refresh_token 一律 400 {"error":"unsupported_grant_type"}，带不带令牌都一样（L1f）；
+  · 发现文档 grant_types_supported 只剩 authorization_code，scopes_supported 只剩 profile email（L1 discovery）。
+- id_token：只看范围里有没有 openid（从源码读到 isIdToken）。缺省配置下请求 openid 就发（D3、D3b）。L1 下不请求 openid 时令牌回应没有 id_token（L1a、L1e），
+  请求了 openid 时授权端点直接 invalid_scope、根本拿不到令牌（L1c、L1d）。
+- 但 L1 配置下库的用户信息端点不能用：它要求访问令牌带 openid 范围，否则回 400 {"error_description":"Missing required scope","error":"invalid_scope"}
+  （实测 L1k，源码 userInfoEndpoint 里写死）。合同的“不支持 openid”与“用户信息端点回 sub”在库里不能同时由配置做到，见“对合同的影响”。
+- 关不掉时（缺省配置，带 offline_access）：封禁之后已有的刷新令牌照样换出新的访问令牌，新访问令牌调用户信息端点 200、sub 是被封的账号，
+  而且可以一直续（实测 D8 ban、D4 second refresh）。管理员重置密码并结束全部会话之后也一样（实测 D8 reset）。
+  被封账号的密码登录是 403 BANNED_USER（D4），旧的访问令牌是 401（D8），只有刷新令牌这条路不看封禁（源码 handleRefreshTokenGrant 只查令牌、客户端、过期与会话；
+  offline_access 的刷新令牌不随会话失效）。
+- 访问令牌随会话失效（对照）：不带 offline_access 的访问令牌，封禁后 401（D7、L1j）；只重置密码不结束会话时仍 200，结束会话后 401（D8 最后一行、L1i 的 401）。
+  所以合同输出 8 的“密码被重置后访问令牌失效”依赖 ADR 0060 定的“重置密码删全部会话”，库自己不做。
+- 两个候选做法让 L1 的效果与用户信息端点并存（实测，都只在 spike 里跑过一遍）：
+  · L5：scopes 放进 openid，在 hooks.after 里对 /oauth2/token 的回应去掉 id_token：令牌没有 id_token，用户信息 200 {"sub":"4","name":"carl"}；
+    客户端不带 openid 时用户信息仍 400（L5b），要客户端带 openid。
+  · L6：再加 hooks.before 对 /oauth2/authorize 补上 openid（只补不拒：登录后的续接会带着补过的签名参数再进一次授权端点，拒了续接就 400），
+    令牌回应去掉 id_token、scope 字符串里去掉 openid：客户端只要 profile 时令牌没有 id_token、scope="profile"、用户信息 200（L6a）；
+    客户端自己带了 openid 时也被接受、同样没有 id_token（L6b）。
+- disableJwtPlugin（L2）：发现文档没有 jwks_uri，/jwks 404；但它强制客户端密钥加密存（库里 144 个字符的密文），
+  配 storeClientSecret: "hashed" 时构造就抛错“unable to store hashed secrets because id tokens will be signed with secret”（L4）。
+  保留 jwt 插件（L1）时密钥存的是 43 个字符的摘要，但发现文档带 jwks_uri。
+
+实测输出（out5.txt 摘录）
+  [D discovery] grant_types_supported=["authorization_code","client_credentials","refresh_token"] scopes_supported=["openid","profile","email","offline_access"] jwks_uri=.../jwks
+  [D1 scope=profile] token=200 ... refresh_token=absent id_token=absent
+  [D2 scope=profile offline_access] token=200 ... refresh_token=present id_token=absent
+  [D2 refresh_token grant] 200 ... refresh_token=present；[D2 reuse rotated refresh token] 400 invalid_grant
+  [D3 scope=openid profile] ... id_token=present；[D3b scope=openid profile offline_access] ... refresh_token=present id_token=present
+  [D6 client_credentials grant] 400 unauthorized_client（客户端缺省 grantTypes 只有 authorization_code）
+  [D8 openid+offline_access, ban] userinfoBefore=200 sub=2 oldAccessAfterBan=401 refresh=200 newAccessUserinfo=200 sub=2 id_tokenInRefresh=present
+  [D4 banned user password sign-in] 403 BANNED_USER；[D4 second refresh while still banned] 200 ok
+  [D8 openid+offline_access, reset password + revoke sessions] oldAccess=401 refresh=200 newAccessUserinfo=200 sub=3
+  [D8 openid without offline_access: access token after reset only / after reset + revoke] 200 / 401
+  [D7 non-offline access token after ban] 401
+  （D4、D5 行里的 newAccessUserinfo=400 是因为那组令牌没有 openid 范围，被用户信息端点按 L1k 拒掉，不说明封禁生效；以 D8 为准）
+  [G discovery] grant_types_supported=["authorization_code"]；[G1 scope=profile offline_access] ... refresh_token=present
+  [G1 refresh_token grant] 400 unsupported_grant_type unsupported grant_type refresh_token
+  [L1 discovery] grant_types_supported=["authorization_code"] scopes_supported=["profile","email"] jwks_uri=.../jwks
+  [L1a scope=profile email] token=200 keys=access_token,expires_at,expires_in,scope,token_type refresh_token=absent id_token=absent
+  [L1b scope=profile offline_access] authorize error invalid_scope: The following scopes are invalid: offline_access
+  [L1c scope=openid profile] authorize error invalid_scope: The following scopes are invalid: openid
+  [L1e no scope parameter] token=200 scope="profile email" refresh_token=absent id_token=absent
+  [L1f grant_type=refresh_token (junk token)] 400 {"error_description":"unsupported grant_type refresh_token","error":"unsupported_grant_type"}
+  [L1g admin create client scope=profile offline_access] 400 {"error":"invalid_scope","error_description":"cannot request scope offline_access"}
+  [L1h admin update client scope add offline_access] 400 {"error":"invalid_scope",...}
+  [L1k userinfo with scope=profile email] 400 {"error_description":"Missing required scope","error":"invalid_scope"}
+  [L1i access token: after reset only / after reset + revoke sessions] 400 / 401   （400 同 L1k；401 说明会话删了令牌就失效）
+  [L1 stored client secret] n=43；[L2 stored client secret] n=144；[L2 discovery] jwks_uri=(absent)；[L2 GET /jwks] 404
+  [L4 disableJwtPlugin with storeClientSecret=hashed] threw: unable to store hashed secrets because id tokens will be signed with secret
+  [L5a scope=openid profile, id_token stripped in after hook] token=200 keys=access_token,expires_at,expires_in,scope,token_type id_token=absent；[L5a userinfo] 200 {"sub":"4","name":"carl"}
+  [L5b userinfo] 400
+  [L6a client asks scope=profile] token=200 scope="profile" id_token=absent；[L6a userinfo] 200 {"sub":"4","name":"carl"}
+  [L6b client asks scope=openid profile] token=200 scope="profile" id_token=absent
+
+顺带看到的（实测，与本处问题相邻）
+- 发现文档里另有 introspection_endpoint、client_secret_post、private_key_jwt、dpop 等合同没有的能力（L1 discovery），
+  userinfo_endpoint 只在服务方范围含 openid 时出现（D、G 有；L1、L2 没有）。合同输出 2 的发现文档要由自家路由给（推断）。
+- 用户信息端点在 profile 范围下只回 sub 与 name，没有用户名（L5a、L6a）；库有 customUserInfoClaims 选项可以加字段（从源码读到，未实测）。
+
+没有核实
+- L5、L6 两种做法在授权确认页（skip_consent=false）与“已同意过、免确认”路径上的表现；同意记录里会存下 openid（推断）。
+- L6 能否按“首次进入授权端点”区分来源、对客户端主动请求的 openid 回 invalid_scope（只在钩子里看 ctx.path 做不到，见 L6 的说明；用 ctx.request 的地址区分未试）。
+- 刷新令牌在客户端被停用、用户撤销授权之后的行为（合同不发刷新令牌，未测）。
+- 撤销端点对刷新令牌的处理（未测）。
+
+======================================================================
+对合同的影响
+======================================================================
+
+合同没有改，下面是建议，按严重程度排。
+
+1. 对外 OAuth：“不支持 openid”与“用户信息端点回资料”在库里不能只靠配置同时成立（必须定）
+   位置：docs/specs/site/oauth-provider.md 的“目标与非目标”第 3 条（不发 id_token，不支持 openid 范围；发现文档里不出现公钥地址）、
+   “输出与可观察行为”第 7 条（用户信息）。
+   事实：库的 /oauth2/userinfo 对不带 openid 的访问令牌一律 400 invalid_scope（L1k）；带 openid 就会发 id_token（D3），
+   要靠钩子去掉（L5、L6）。
+   两条路，交开发者选：
+   a) 合同不动，自家实现用户信息端点（输出 7 本来就要库没有的字段：用户名、邮箱是否待补；库只回 sub、name，L6a），
+      库的 /oauth2/userinfo 不对外。代价：要在库外验访问令牌。库没有公开的验令牌函数（requireActiveAccessToken 只在内部；
+      introspect 端点要客户端凭据），只能按库的存储格式自己查 oauthAccessToken 表，升级时要跟（从源码读到，未实测）。
+   b) 用 L6 的做法：服务方范围含 openid，授权端点补 openid，令牌回应去掉 id_token 与 scope 里的 openid（L6a、L6b 实测）。
+      合同要改：第 3 条改成“不发 id_token；请求里的 openid 不起作用（按没请求处理）”，因为 L6 下客户端带 openid 也被接受（L6b），
+      与输出 3 的“范围在允许之内，否则跳回标准错误码”不一致；若要保留“带 openid 回 invalid_scope”，得另找办法区分首次进入与登录后续接（未核实）。
+      输出 7 的用户名、邮箱待补仍要用 customUserInfoClaims 补（未实测）。
+   两条路都要求发现文档由自家路由给：库的文档带 jwks_uri（保留 jwt 插件时）、introspection_endpoint、client_secret_post 等合同没有的能力；
+   关掉 jwt 插件能去掉 jwks_uri，但会把客户端密钥改成加密存（L2、L4），与“副作用与数据”的“密钥与令牌只存摘要”冲突。
+
+2. 重置密码与登录并发：旧密码在重置之后仍可能拿到会话（建议补一句时序）
+   位置：docs/specs/site/accounts.md “状态与转换”的“时序与寿命”（现在只有“封禁与登录并发时”一条）；
+   docs/specs/site/admin.md 输出 4（“该账号的旧密码不能再登录”）。
+   事实：库在校验密码之后、建会话之前不再读哈希。校验通过之后管理员重置密码并结束全部会话，这次登录仍 200、会话有效（P1.4，任何哈希格式都有）。
+   用第一处的写法（记下校验的哈希、after 钩子里比对）能关上（P1.4 cas-recheck 实测）。
+   建议在“时序与寿命”加一条：“改密码或重置密码与登录并发时：改动完成之前用旧密码校验通过、之后才建成的会话也无效，这次登录回 invalid_credentials。”
+   并在 accounts.md 验收里加一条对应场景。用户自己改密码（me/password）走同一条路，同样适用。
+   封禁的同类并发：admin 插件在 databaseHooks.session.create.before 里重新读用户、已封禁就拒（从源码读到），所以校验之后才封禁的那次登录建不成会话；没有跑并发实测。
+
+3. 旧密码格式（accounts.md 输出 21）不用改
+   “换格式不会覆盖在这次登录期间被改掉或重置的密码”用比较后替换能做到（P1.4b cas），用 internalAdapter.updatePassword 做不到（P1.4b internal）。
+   实现时要照第一处的写法，不要用库的 updatePassword。
+
+4. 限流（accounts.md 输出 19）不用改，但库的限流要整体关掉
+   合同要的键（来源地址加用户名、按用户名计失败）、回应（rate_limited 与 Retry-After）、取不到地址时回 forbidden_origin，
+   库都给不了：库只按“地址加路径”计，取不到地址时所有人共用一个桶，回 X-Retry-After，且只在 auth.handler 上生效（R1a、R1f）。
+   建议在 ADR 0060 决策第 5 条“库的默认行为另外收紧”里加一项：关掉库的限流（rateLimit.enabled: false），由 Hono 一层按合同做；
+   并删去或更新“后果”最后一条“没有经探针核对的”三项。
+
+5. 令牌随账号失效（oauth-provider.md 输出 8、admin.md 输出 2 与 4）不用改，补一条验收
+   不发刷新令牌（L1 配置）时，访问令牌随会话失效：封禁 401（L1j）；重置密码只有在同时结束会话后才 401（L1i、D8）。
+   库的重置不删会话，所以这条全靠 ADR 0060 的“重置密码删全部会话”。oauth-provider.md 验收第 3 条只测了封禁，建议加：
+   “管理员重置该账号的密码：用户信息端点得 401。”
+   若将来要发刷新令牌，必须另外补“封禁与重置后刷新令牌失效”：库的刷新令牌（offline_access）不看封禁、不随会话失效（D8）。
+
+6. 顺带看到、与三处问题无关的一处（从源码读到，未实测）
+   oauth-provider.md 输出 6 写“授权码 1 分钟内有效”，库缺省 codeExpiresIn 是 600 秒；访问令牌缺省 3600 秒与合同一致。实现时要配 codeExpiresIn: 60。
+
+======================================================================
+总的没有核实
+======================================================================
+- 全部只在 bun:sqlite 上跑，Postgres 没跑。
+- 没有经过真实反向代理（R9 是 Bun.serve 直连）。
+- L5、L6 两种去 id_token 的做法只覆盖免确认的客户端；确认页、已同意免确认、撤销授权的路径没跑。
+- 自家用户信息端点（合同影响第 1 条的 a）怎样验访问令牌，没有写原型。
+- 封禁与登录并发的时间窗（只从源码读到建会话时查封禁，未跑并发）。
+- secondary-storage 限流、多进程下的内存桶。

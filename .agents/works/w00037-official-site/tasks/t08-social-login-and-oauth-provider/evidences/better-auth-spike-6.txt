@@ -1,0 +1,739 @@
+Better Auth 对外 OAuth 按标准 OpenID Connect 配置时的行为（第六轮探针）
+======================================================================
+
+版本：better-auth 1.7.27、@better-auth/oauth-provider 1.7.27（/tmp/nbsite-spike/package.json 已装的，未升级）。
+脚本：/tmp/nbsite-spike/spike6.ts；结果行：/tmp/nbsite-spike/out6.txt（bun spike6.ts 全部六问一次跑完）。
+搭法：bun:sqlite、generateId serial、disabledPaths ["/token"]、库的限流关掉；baseURL https://site.test、basePath /api/identity/auth；
+插件 username、admin、jwt({disableSettingJwtHeader: true, jwt: {issuer: "https://site.test"}, jwks: {keyPairConfig: {alg: "RS256", modulusLength: 2048}}})、
+oauthProvider({scopes: ["openid","profile","email"], grantTypes: ["authorization_code"], loginPage, consentPage})。下文叫它“配置 O”。
+挂载：Hono 把 /api/identity/auth/* 与站点根的 /.well-known/* 都交给 auth.handler。
+除特别注明外，请求都经 auth.handler(new Request(...))。绕过 HTTP 的地方：管理员登记与改动客户端（adminCreateOAuthClient、adminUpdateOAuthClient 只供服务端调用，
+经 handler 是 404，与前几轮相同）直接调 auth.api；Q2 的手动轮换直接调 createJwk；Q4 的“标为撤销”候选做法直接写库。
+证据标记：“实测”= 跑出来的；“从源码读到”= 只读了 node_modules 的源码；“没有核实”= 都没有。行首方括号是 out6.txt 里的行名。
+
+======================================================================
+问 1：发现文档
+======================================================================
+
+结论
+- 位置与签发者（实测）：配置 O（jwt.issuer = https://site.test）下，两份文档都在站点根：GET /.well-known/openid-configuration 与
+  GET /.well-known/oauth-authorization-server 都是 200，issuer = "https://site.test"，不带路径；基路径下的两个地址与
+  /.well-known/oauth-authorization-server/api/identity/auth 都是 404。前提是站点根的 /.well-known/* 也交给 auth.handler：
+  这两份是 oauth-provider 插件的 onRequest 按“签发者的路径”匹配后直接回的（从源码读到 handleIssuerMetadataRequest），不是普通路由。
+  响应头 Content-Type: application/json、Cache-Control: public, max-age=15, stale-while-revalidate=15, stale-if-error=86400；POST 回 405，Allow: GET, HEAD。
+  服务端直接调 auth.api.getOpenIdConfig() 也能拿到同一份（issuer 相同）。
+- 不设 jwt.issuer（库的缺省，配置 V0，实测）：issuer = "https://site.test/api/identity/auth"（带基路径），文档在
+  /api/identity/auth/.well-known/openid-configuration、/api/identity/auth/.well-known/oauth-authorization-server、
+  /.well-known/oauth-authorization-server/api/identity/auth，站点根的两个地址 404。合同要“签发者不带路径”，必须设 jwt.issuer。
+- 两份内容完全相同（实测 [Q1.O oauth-authorization-server equals openid-configuration] true）：服务方范围含 openid 时，
+  oauth-authorization-server 也回 OIDC 文档（从源码读到）。端点地址都在基路径下（https://site.test/api/identity/auth/oauth2/...、.../jwks）。
+- 文档里出现、合同不提供的能力（实测全文见下）：
+  · introspection_endpoint 与 introspection_endpoint_auth_methods_supported；
+  · token_endpoint_auth_methods_supported 里的 client_secret_post、private_key_jwt，及 token_endpoint_auth_signing_alg_values_supported；
+  · revocation_endpoint_auth_methods_supported 里的 client_secret_post、private_key_jwt；
+  · dpop_signing_alg_values_supported；backchannel_logout_supported: true、backchannel_logout_session_supported: true；
+  · end_session_endpoint（无条件出现，见问 5）；claims_parameter_supported: true；prompt_values_supported 里的 create、select_account；
+  · claims_supported 里的 picture、given_name、family_name 等库自带的资料字段，没有我们要加的字段。
+  不出现的：registration_endpoint（allowDynamicClientRegistration 缺省 false；POST /oauth2/register 回 403 access_denied “Client registration is disabled”，实测）；
+  grant_types_supported 只有 authorization_code，response_types_supported 只有 code（实测）。
+  反过来，token_endpoint_auth_methods_supported 缺省不列 none，但公开客户端实际能用（问 2 实测），文档与行为不一致。
+- 能靠配置去掉的（实测 A1）：advertisedMetadata.token_endpoint_auth_methods_supported 设成 ["client_secret_basic","none"] 后，
+  该字段就只剩这两项；advertisedMetadata 另有 scopes_supported、claims_supported 两项（从源码读到）。只有这三项可改。
+  去不掉的（从源码读到 authServerMetadata、oidcServerMetadata 写死；扩展的 metadata() 只能加键、不能覆盖已有键）：introspection_endpoint、
+  introspection 与 revocation 的认证方式列表、end_session_endpoint、backchannel_logout_*、dpop_*、claims_parameter_supported、prompt_values_supported、acr_values_supported。
+  A1 实测：改了 advertisedMetadata 后 introspection_endpoint、end_session_endpoint 仍在，introspection/revocation 的认证方式仍是三项。
+- 行为（实测）：只登记了 client_secret_basic 的客户端用 client_secret_post 换令牌，回 400 invalid_client
+  “client registered for client_secret_basic cannot use client_secret_post”，同一个码随后用 basic 照样换成（没被消耗）。
+  但管理员登记 token_endpoint_auth_method = client_secret_post 的客户端，库接受（200）；“只有 basic 与 none”要由自家的登记接口挡。
+- 顺带实测：codeExpiresIn 同时决定授权码寿命与“登录、确认跳转里签名参数”的寿命。缺省 600 秒；配 60 秒时，授权码行的寿命是 60 秒，
+  带去登录页的签名参数 exp 也只有 60 秒（[Q1.C60 ...] 60，对照 [Q1.O default ...] 600）。合同要“授权请求 10 分钟、授权码 1 分钟”，
+  库的一个参数做不到两者，见“对合同的影响”。
+
+自家发现文档的路由要与库的真实行为保持一致的字段（建议从 auth.api.getOpenIdConfig() 取出再按白名单挑字段，而不是手写，
+这样端点地址、签名算法随库的配置变）：
+  issuer；authorization_endpoint、token_endpoint、userinfo_endpoint、jwks_uri、revocation_endpoint（都取库给的值）；
+  response_types_supported ["code"]、response_modes_supported ["query"]、grant_types_supported ["authorization_code"]；
+  code_challenge_methods_supported ["S256"]；subject_types_supported ["public"]；
+  id_token_signing_alg_values_supported（必须是实际签名用的算法，问 2 发现库在换算法后可能对不上，要以 /jwks 里正在用的钥为准）；
+  token_endpoint_auth_methods_supported ["client_secret_basic","none"]（库还接受 post 与 private_key_jwt，靠登记接口只发这两种客户端来保证）；
+  revocation_endpoint_auth_methods_supported ["client_secret_basic"]（库另接受 post、private_key_jwt，公开客户端怎样撤销见“没有核实”）；
+  scopes_supported ["openid","profile","email"]；claims_supported（按问 3 实际会出的字段写）；
+  authorization_response_iss_parameter_supported true（库跳回时总带 iss，实测）；
+  不列 introspection_endpoint、end_session_endpoint、registration_endpoint、backchannel_*、dpop_*、claims_parameter_supported
+  （claims 参数库是接受的，不列它对客户端无害；要列就得承认它）、request_parameter_supported 与 request_uri_parameter_supported 可照抄 false。
+
+实测输出（out6.txt）：配置 O 的 /.well-known/openid-configuration 全文
+  [Q1.O full /.well-known/openid-configuration]
+  {
+    "scopes_supported": [
+      "openid",
+      "profile",
+      "email"
+    ],
+    "issuer": "https://site.test",
+    "authorization_endpoint": "https://site.test/api/identity/auth/oauth2/authorize",
+    "token_endpoint": "https://site.test/api/identity/auth/oauth2/token",
+    "jwks_uri": "https://site.test/api/identity/auth/jwks",
+    "introspection_endpoint": "https://site.test/api/identity/auth/oauth2/introspect",
+    "revocation_endpoint": "https://site.test/api/identity/auth/oauth2/revoke",
+    "response_types_supported": [
+      "code"
+    ],
+    "response_modes_supported": [
+      "query"
+    ],
+    "grant_types_supported": [
+      "authorization_code"
+    ],
+    "token_endpoint_auth_methods_supported": [
+      "client_secret_basic",
+      "client_secret_post",
+      "private_key_jwt"
+    ],
+    "token_endpoint_auth_signing_alg_values_supported": [
+      "RS256",
+      "RS384",
+      "RS512",
+      "PS256",
+      "PS384",
+      "PS512",
+      "ES256",
+      "ES384",
+      "ES512",
+      "EdDSA"
+    ],
+    "introspection_endpoint_auth_methods_supported": [
+      "client_secret_basic",
+      "client_secret_post",
+      "private_key_jwt"
+    ],
+    "introspection_endpoint_auth_signing_alg_values_supported": [
+      "RS256",
+      "RS384",
+      "RS512",
+      "PS256",
+      "PS384",
+      "PS512",
+      "ES256",
+      "ES384",
+      "ES512",
+      "EdDSA"
+    ],
+    "revocation_endpoint_auth_methods_supported": [
+      "client_secret_basic",
+      "client_secret_post",
+      "private_key_jwt"
+    ],
+    "revocation_endpoint_auth_signing_alg_values_supported": [
+      "RS256",
+      "RS384",
+      "RS512",
+      "PS256",
+      "PS384",
+      "PS512",
+      "ES256",
+      "ES384",
+      "ES512",
+      "EdDSA"
+    ],
+    "code_challenge_methods_supported": [
+      "S256"
+    ],
+    "authorization_response_iss_parameter_supported": true,
+    "dpop_signing_alg_values_supported": [
+      "EdDSA",
+      "ES256",
+      "ES512",
+      "PS256",
+      "RS256"
+    ],
+    "backchannel_logout_supported": true,
+    "backchannel_logout_session_supported": true,
+    "claims_supported": [
+      "sub",
+      "iss",
+      "aud",
+      "exp",
+      "iat",
+      "sid",
+      "scope",
+      "azp",
+      "name",
+      "picture",
+      "given_name",
+      "family_name",
+      "email",
+      "email_verified"
+    ],
+    "claims_parameter_supported": true,
+    "userinfo_endpoint": "https://site.test/api/identity/auth/oauth2/userinfo",
+    "subject_types_supported": [
+      "public"
+    ],
+    "acr_values_supported": [
+      "0"
+    ],
+    "id_token_signing_alg_values_supported": [
+      "RS256"
+    ],
+    "end_session_endpoint": "https://site.test/api/identity/auth/oauth2/end-session",
+    "request_parameter_supported": false,
+    "request_uri_parameter_supported": false,
+    "prompt_values_supported": [
+      "login",
+      "consent",
+      "create",
+      "select_account",
+      "none"
+    ]
+  }
+  （/.well-known/oauth-authorization-server 回的与上面逐字相同。）
+
+实测输出摘录
+  [Q1.O GET /.well-known/openid-configuration] 200 content-type=application/json cache-control=public, max-age=15, stale-while-revalidate=15, stale-if-error=86400 issuer=https://site.test
+  [Q1.O GET /.well-known/oauth-authorization-server] 200 content-type=application/json cache-control=public, max-age=15, stale-while-revalidate=15, stale-if-error=86400 issuer=https://site.test
+  [Q1.O GET /api/identity/auth/.well-known/openid-configuration] 404 content-type=null cache-control=null issuer=-
+  [Q1.O GET /api/identity/auth/.well-known/oauth-authorization-server] 404 content-type=null cache-control=null issuer=-
+  [Q1.O GET /.well-known/oauth-authorization-server/api/identity/auth] 404 content-type=null cache-control=null issuer=-
+  [Q1.O POST /.well-known/openid-configuration] 405 allow=GET, HEAD
+  [Q1.O probe authorization_endpoint] https://site.test/api/identity/auth/oauth2/authorize -> 302
+  [Q1.O probe token_endpoint] https://site.test/api/identity/auth/oauth2/token -> 400 {"error":"invalid_request","error_description":"grant_type is required"}
+  [Q1.O probe jwks_uri] https://site.test/api/identity/auth/jwks -> 200 {"keys":[{"alg":"RS256","e":"AQAB","kty":"RSA","n":"oNQ3Ib20H2LEVG5FCWYU33a4ix7UoNm0VzgmU7v3CNUG7uOJ
+  [Q1.O probe introspection_endpoint] https://site.test/api/identity/auth/oauth2/introspect -> 400 {"error":"invalid_request","error_description":"token is required"}
+  [Q1.O probe revocation_endpoint] https://site.test/api/identity/auth/oauth2/revoke -> 400 {"error":"invalid_request","error_description":"token is required"}
+  [Q1.O probe userinfo_endpoint] https://site.test/api/identity/auth/oauth2/userinfo -> 401 {"error_description":"access token not found","error":"invalid_request"}
+  [Q1.O probe end_session_endpoint] https://site.test/api/identity/auth/oauth2/end-session -> 400 {"error":"invalid_request","error_description":"No active session is available for logout"}
+  [Q1.V0 GET /.well-known/openid-configuration] 404 issuer=- id_token_signing_alg_values_supported=undefined
+  [Q1.V0 GET /api/identity/auth/.well-known/openid-configuration] 200 issuer=https://site.test/api/identity/auth id_token_signing_alg_values_supported=["EdDSA"]
+  [Q1.V0 GET /.well-known/oauth-authorization-server/api/identity/auth] 200 issuer=https://site.test/api/identity/auth id_token_signing_alg_values_supported=["EdDSA"]
+  [Q1.V0 GET /api/identity/auth/.well-known/oauth-authorization-server] 200 issuer=https://site.test/api/identity/auth id_token_signing_alg_values_supported=["EdDSA"]
+  [Q1.V0 GET /.well-known/oauth-authorization-server] 404 issuer=- id_token_signing_alg_values_supported=undefined
+  [Q1.A1 advertisedMetadata token_endpoint_auth_methods_supported=[basic,none]] {"token_endpoint_auth_methods_supported":["client_secret_basic","none"],"introspection_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"revocation_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post","private_key_jwt"],"introspection_endpoint":"htt
+  [Q1.A1 basic-registered client uses client_secret_post] 400 {"error_description":"client registered for client_secret_basic cannot use client_secret_post","error":"invalid_client"}
+  [Q1.A1 same code then with client_secret_basic] 200 ok
+  [Q1.A1 admin create client_secret_post client] 200 {"client_id":"TDsjOdYLjvAdkFcVBcYYlVyjMXXPRwVn","client_secret":"safzzuTAVxBeOmCWDjYJPJBNtbiFOOpS","client_secret_expire
+  [Q1.A1 POST /oauth2/register (dynamic registration default)] 403 {"error":"access_denied","error_description":"Client registration is disabled"}
+  [Q1.C60 codeExpiresIn=60: signed login query exp - now (s)] 60 (default instance for comparison below)
+  [Q1.O default codeExpiresIn: signed login query exp - now (s)] 600
+  [Q1.C60 authorization code lifetime in verification row (s)] 60
+
+======================================================================
+问 2：id_token
+======================================================================
+
+结论
+- 何时发（实测）：令牌请求的范围含 openid 时令牌回应带 id_token，回应键为 access_token,expires_at,expires_in,id_token,scope,token_type；
+  没有 refresh_token（grantTypes 只留授权码、范围不含 offline_access）。公开客户端（token_endpoint_auth_method none）同样拿到 RS256 的 id_token，
+  不带 PKCE 时授权端点跳回 invalid_request “pkce is required for public clients”。
+- 签名算法：缺省 EdDSA（Ed25519）（实测 V0：头 {"alg":"EdDSA","kid":"1"}，发现文档 id_token_signing_alg_values_supported ["EdDSA"]）。
+  配 jwks.keyPairConfig = {alg: "RS256", modulusLength: 2048} 后是 RS256（实测 O：头 {"alg":"RS256","kid":"1"}，文档 ["RS256"]，/jwks 给 kty RSA、e AQAB、n 342 字符）。
+  可选的算法（从源码读到 jose generateKeyPair 支持的都行，库的类型列出 EdDSA、ES256、ES512、PS256、RS256 等）；keyPairConfigs 可另配几种，
+  但 id_token 只用主算法签，额外算法只在按受众指定算法时用（从源码读到 resolveSigningKey）。头里没有 typ。
+- 公钥地址（实测）：GET /api/identity/auth/jwks，回 {"keys":[{alg,e,kty,n,kid}]}，kid 是 jwks 表的行 id（"1"、"2"……）。用 jose 的
+  createLocalJWKSet + jwtVerify（issuer https://site.test、audience 客户端 id）验签通过。地址可由 jwks.jwksPath 改，或用 jwks.remoteUrl 指向外部（从源码读到）。
+- 密钥的存放与生成（实测）：存在 jwks 表（id、publicKey、privateKey、createdAt、expiresAt、alg、crv）。第一次签发或第一次请求 /jwks 时才生成
+  （[Q2.O jwks rows before any token] 0，签发后 1 行）。私钥是加密存的：库里是一串十六进制密文（RS256 私钥 3312 字符，不含 JWK 的 "d" 字段）；
+  算法是 XChaCha20-Poly1305，密钥取 SHA-256(auth 的 secret)（从源码读到 better-auth crypto symmetricEncrypt）。
+  配 jwks.disablePrivateKeyEncryption: true 时存明文 JWK（实测 P：以 {"crv":"Ed25519","d" 开头）。
+  后果（从源码读到）：换掉 secret 后私钥解不开，签发报错“Failed to decrypt private key”；库支持 secrets: [{version, value}] 多版本密钥轮换，密文带版本信封。没有实测。
+- 轮换（实测）：
+  · 定期：jwks.rotationInterval（秒）给新钥写 expiresAt；过期后下一次签发自动生成新钥（R：2 秒后新 id_token 的 kid 从 1 变 2）。
+    /jwks 继续列出已过期但在 gracePeriod（缺省 30 天）内的旧钥，所以旧 id_token 仍验得过（R t=2.3s：A、B 都 verified）；
+    过了宽限期旧钥从 /jwks 消失，旧 id_token 验签失败 JWKSNoMatchingKey（R t=5.8s）。过期的行留在库里不删。
+  · 手动：服务端调 createJwk({context}, jwt 插件的选项) 新增一把钥后，之后的 id_token 立即用新钥（kid 2），/jwks 同时列出 1、2，旧的仍验得过（O，绕过 HTTP）。
+    库没有对外的轮换端点。手动加的旧钥没有 expiresAt，会一直留在 /jwks 里，要自己给它写 expiresAt 才会按宽限期退出（从源码读到）。
+  · 换算法有坑（实测 V0b）：同一个库先用 EdDSA 签过，再把 keyPairConfig 改成 RS256（不列 keyPairConfigs）：发现文档改称 ["RS256"]，
+    但 id_token 仍用旧的 EdDSA 钥签（头 {"alg":"EdDSA","kid":"1"}），/jwks 也只有那把 EdDSA 钥。原因是找不到 RS256 钥时退回“最新一把未过期的钥”
+    （从源码读到 resolveSigningKey）。只认 RS256 的客户端会验签失败。所以第一版就定 RS256，上线前确认 jwks 表里没有别的算法的钥。
+- 字段（实测，scope=openid profile email、nonce=n-123）：auth_time、acr("0")、at_hash、iss("https://site.test")、sub、aud(客户端 id，字符串)、nonce、iat、exp。
+  没有 sid（客户端没开 enable_end_session 时不发，问 5）、没有 azp、没有 nbf、jti。
+  · sub 是账号 id 的字符串（"2"，typeof string，等于 user 表的整数 id）。
+  · auth_time 等于会话的 createdAt（秒）。at_hash 等于 SHA-256(access_token) 左半的 base64url（实测比对 true）。
+  · 带 nonce 时原样回带；不带时没有 nonce 字段。
+  · 资料字段一律不在 id_token 里：即使请求了 profile email，也没有 name、email 等（库按 OIDC Core 5.4 把范围请求的资料只给用户信息端点，
+    源码在 id_token 里把这些名字显式置空）；只请求 openid 时字段是 acr,at_hash,aud,auth_time,exp,iat,iss,sub。
+    customUserInfoClaims 加的字段也不进 id_token（实测）；要进 id_token 得另配 customIdTokenClaims（问 3 的 O2 实测能按范围加）。
+- 有效期（实测）：缺省 exp - iat = 36000 秒（10 小时）；idTokenExpiresIn: 3600 后是 3600。访问令牌缺省 3600 秒（expires_in=3600）。
+
+实测输出摘录（out6.txt）
+  [Q2] === id_token ===
+  [Q2.O jwks rows before any token] 0
+  [Q2.O token response keys] 200 access_token,expires_at,expires_in,id_token,scope,token_type token_type=Bearer expires_in=3600 scope="openid profile email"
+  [Q2.O id_token header] {"alg":"RS256","kid":"1"}
+  [Q2.O id_token lifetime exp-iat (s)] 36000
+  [Q2.O id_token sub vs user id] sub="2" carlId=2 typeof=string
+  [Q2.O auth_time vs session.createdAt] auth_time=1795523273 session.createdAt=2026-11-24T12:27:53.444Z
+  [Q2.O at_hash matches left half of SHA-256(access_token)] true
+  [Q2.O GET /jwks (n truncated)]
+  [Q2.O jose verify against /jwks with issuer=https://site.test aud=client_id] verified alg=RS256 kid=1 sub=2
+  [Q2.O jwks table rows (privateKey truncated)] [{"id":1,"alg":"RS256","crv":null,"pk":"\"c58b58d5f21e89e074a59eb1b1a314135d055fd","n":3312,"pub":"{\"e\":\"AQAB\",\"kty\":\"RSA\",\"n\":\"2","createdAt":"2026-11-24T12:27:53.540Z","expiresAt":null}]
+  [Q2.O privateKey looks like JSON JWK (plaintext)?] false
+  [Q2.O no nonce: nonce claim] absent
+  [Q2.O scope=openid only: id_token claims] ["acr","at_hash","aud","auth_time","exp","iat","iss","sub"]
+  [Q2.O scope=openid only: userinfo] 200 {"sub":"2"}
+  [Q2.O customUserInfoClaims in id_token?] preferred_username=false email_pending=false email=false name=false
+  [Q2.O public client created] client_secret=absent
+  [Q2.O public client token] 200 access_token,expires_at,expires_in,id_token,scope,token_type
+  [Q2.O public client id_token verify] verified alg=RS256 kid=1 sub=2
+  [Q2.O public client without PKCE] 302 https://client.example/cb?error=invalid_request&error_description=pkce+is+required+for+public+clients&state=s&iss=https%3A%2F%2Fsite.test
+  [Q2.O after manual createJwk: kids in /jwks; new id_token kid; old id_token kid] 1,2 new=2 old=1
+  [Q2.O after manual createJwk: old id_token verifies] verified alg=RS256 kid=1 sub=2
+  [Q2.V0 default config id_token header] {"alg":"EdDSA","kid":"1"}
+  [Q2.V0 default /jwks] [{"alg":"EdDSA","crv":"Ed25519","kty":"OKP","x":"cZvOU-5dMGTn…","kid":"1"}]
+  [Q2.V0 jwks row] [{"alg":"EdDSA","crv":"Ed25519","pk":"\"2fa2f5e92a9501913917f69","n":340}]
+  [Q2.V0b same db switched to RS256: id_token header] {"alg":"EdDSA","kid":"1"}
+  [Q2.V0b discovery id_token_signing_alg_values_supported] ["RS256"]
+  [Q2.V0b /jwks keys] ["1:EdDSA"]
+  [Q2.P disablePrivateKeyEncryption: privateKey starts with] {"crv":"Ed25519","d"
+  [Q2.E idTokenExpiresIn=3600: exp-iat] 3600
+  [Q2.R t=0 id_token A kid; jwks rows] 1 rows=[{"id":1,"expiresAt":"2026-11-24T12:27:57.979Z"}]
+  [Q2.R t=2.3s id_token B kid; /jwks kids] 2 jwks=1,2
+  [Q2.R t=2.3s verify A / B] verified alg=RS256 kid=1 sub=2 / verified alg=RS256 kid=2 sub=2
+  [Q2.R t=5.8s (A expired+grace passed) /jwks kids] ["2"]
+  [Q2.R t=5.8s verify A / B] verify failed: JWKSNoMatchingKey no applicable key found in the JSON Web Key Set / verified alg=RS256 kid=2 sub=2
+  [Q2.R jwks rows kept in db] [{"id":1,"expiresAt":"2026-11-24T12:27:57.979Z"},{"id":2,"expiresAt":"2026-11-24T12:28:00.615Z"}]
+  id_token 载荷（O，scope=openid profile email，nonce=n-123）：
+    { "auth_time": 1795523273, "acr": "0", "at_hash": "-TtL7-RG6300ibvlwOKV-A", "iss": "https://site.test", "sub": "2", "aud": "tkiAntkMNomuBwRtMEfGilwcHZrBVwzK", "nonce": "n-123", "iat": 1795523273, "exp": 1795559273}
+
+  更正（问 2“签名算法”一条）：可配的算法以 jwt 插件的类型 JWKOptions 为准，只有 EdDSA、ES256、ES512、PS256、RS256 五种（从源码读到 types.d.mts），
+  不是“jose 支持的都行”。RS256 在其中，实测可用。
+
+======================================================================
+问 3：用户信息端点
+======================================================================
+
+搭法：配置 O 加 customUserInfoClaims（按范围加：有 profile 时 preferred_username = 登录用的小写用户名；有 email 时 email_pending = 邮箱是否待补，
+并在待补时返回 email: undefined 想去掉占位邮箱）。user 表加了一个 emailPending 布尔字段代表“邮箱待补”；账号 old 模拟旧站导入：
+邮箱改成 u<id>@placeholder.invalid、emailPending = 1。客户端 skip_consent。全部经 handler。
+
+结论
+- 四种范围（实测，普通账号 carl）：
+  · openid → {"sub":"2"}
+  · openid profile → sub、name（显示名）、given_name、family_name、preferred_username
+  · openid email → sub、email、email_verified（false）、email_pending
+  · openid profile email → 以上之和
+  库自带的 given_name、family_name 是把显示名按空格拆开得来的（“Carl Display”拆成 Carl 与 Display；没有空格的名字不出这两项，从源码读到 splitDisplayName）；
+  email_verified 取 user.emailVerified，第一版不验证邮箱，所以所有账号都是 false。合同没要这三项，见“对合同的影响”。
+- 按范围加字段（实测）：customUserInfoClaims 收到访问令牌的 scopes，按范围加 preferred_username、email_pending 生效；sub 由库重新钉住，扩展改不了（从源码读到）。
+- 同样的字段不会自动进 id_token（实测 O：id_token 里没有任何资料字段）。另配 customIdTokenClaims 可以按范围放进 id_token（实测 O2：
+  scope 含 profile email 时 id_token 有 name、email、email_verified、preferred_username、email_pending；只有 openid 时只有 sub）。
+  customIdTokenClaims 不能覆盖 iss、sub、aud、exp、nonce、auth_time、acr、at_hash 等保留字段，会被剥掉并记警告（从源码读到 stripReservedIdTokenClaims）。
+- 占位邮箱（实测）：
+  · customUserInfoClaims 返回 email: undefined 去不掉：库跳过值为 undefined 的扩展字段，库自带的 email 照出，旧账号回 "email":"u3@placeholder.invalid"（O）。
+  · 返回 email: null 时变成 "email": null，email_verified 仍在（O3）。这不是“没有这个字段”，标准客户端可能当成空邮箱。
+  · 用 hooks.after 拦 /oauth2/userinfo，在 email_pending 为真时从回应里删 email、email_verified：旧账号回
+    {"sub":"3","name":...,"preferred_username":"old","email_pending":true}，普通账号不受影响（O2）。
+  · id_token 一侧：customIdTokenClaims 在待补时不放 email，id_token 就没有 email（O2），因为库自己从不往 id_token 里放 email。
+  所以“两处都不出现占位邮箱”能做到：id_token 靠 customIdTokenClaims 不放；用户信息端点要靠 after 钩子删，单用 customUserInfoClaims 做不到。
+- 不带 openid（实测）：
+  · 缺省（requireOpenId 关）：scope="profile email" 授权照样发码、令牌照发（没有 id_token，scope="profile email"），但用户信息端点回
+    400 {"error_description":"Missing required scope","error":"invalid_scope"}，令牌只能用来做别的（我们没有别的资源），等于拿到一张没用的令牌。
+  · 不带 scope 参数：按客户端登记的范围补成 "openid profile email"，发 id_token，用户信息 200。
+  · 配 requireOpenId: true：不带 openid 的请求（包括不带 scope 参数的）在授权端点就跳回 invalid_scope “the openid scope is required”，带 state 与 iss（O2）。
+- 其它（实测）：用户信息端点 GET 与 POST（表单里放 access_token）都可用；令牌无效回 401 invalid_token 并带 WWW-Authenticate；
+  不带令牌回 401，错误码却是 invalid_request “access token not found”。
+
+实测输出（out6.txt）
+  [Q3] === 用户信息端点 ===
+  [Q3.O user=carl scope="openid"] userinfo=200 {"sub":"2"} | id_token extra claims=
+  [Q3.O user=carl scope="openid profile"] userinfo=200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","preferred_username":"carl"} | id_token extra claims=
+  [Q3.O user=carl scope="openid email"] userinfo=200 {"sub":"2","email":"carl@example.com","email_verified":false,"email_pending":false} | id_token extra claims=
+  [Q3.O user=carl scope="openid profile email"] userinfo=200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","email":"carl@example.com","email_verified":false,"preferred_username":"carl","email_pending":false} | id_token extra claims=
+  [Q3.O user=old scope="openid"] userinfo=200 {"sub":"3"} | id_token extra claims=
+  [Q3.O user=old scope="openid profile"] userinfo=200 {"sub":"3","name":"Old Display","given_name":"Old","family_name":"Display","preferred_username":"old"} | id_token extra claims=
+  [Q3.O user=old scope="openid email"] userinfo=200 {"sub":"3","email":"u3@placeholder.invalid","email_verified":false,"email_pending":true} | id_token extra claims=
+  [Q3.O user=old scope="openid profile email"] userinfo=200 {"sub":"3","name":"Old Display","given_name":"Old","family_name":"Display","email":"u3@placeholder.invalid","email_verified":false,"preferred_username":"old","email_pending":true} | id_token extra claims=
+  [Q3.O scope="profile email" (no openid)] authorize=code token=200 access_token,expires_at,expires_in,scope,token_type scope="profile email" userinfo=400 {"error_description":"Missing required scope","error":"invalid_scope"}
+  [Q3.O no scope parameter] token=200 scope="openid profile email" id_token=present userinfo=200
+  [Q3.O POST userinfo with access_token in body] 200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","email":"carl@example.c
+  [Q3.O userinfo with junk token] 401 www-authenticate=Bearer error="invalid_token", error_description="Invalid access token" {"error":"invalid_token","error_description":"Invalid access token"}
+  [Q3.O userinfo without token] 401 {"error_description":"access token not found","error":"invalid_request"}
+  [Q3.O2 user=carl scope="openid"] userinfo=200 {"sub":"2"} | id_token={"sub":"2"}
+  [Q3.O2 user=carl scope="openid profile email"] userinfo=200 {"sub":"2","name":"Carl Display","given_name":"Carl","family_name":"Display","email":"carl@example.com","email_verified":false,"preferred_username":"carl","email_pending":false} | id_token={"name":"Carl Display","email":"carl@example.com","email_verified":false,"preferred_username":"carl","email_pending":false,"sub":"2"}
+  [Q3.O2 user=old scope="openid"] userinfo=200 {"sub":"3"} | id_token={"sub":"3"}
+  [Q3.O2 user=old scope="openid profile email"] userinfo=200 {"sub":"3","name":"Old Display","given_name":"Old","family_name":"Display","preferred_username":"old","email_pending":true} | id_token={"name":"Old Display","preferred_username":"old","email_pending":true,"sub":"3"}
+  [Q3.O3 customUserInfoClaims returns email:null for placeholder (no hook)] 200 {"sub":"3","email":null,"email_verified":false,"email_pending":true}
+  [Q3.O2 requireOpenId: scope="profile email"] error=invalid_scope the openid scope is required state=st-1 iss=https://site.test
+  [Q3.O2 requireOpenId: no scope parameter] error=invalid_scope the openid scope is required
+
+======================================================================
+问 4：随账号失效
+======================================================================
+
+做法：每种情况各用一个账号，客户端不免确认（skip_consent false）。同一个浏览器会话里先走完一次授权拿访问令牌与 id_token，
+再走一次授权（已同意，直接发码）留一个没用掉的授权码；做完动作后：用旧访问令牌调用户信息端点、把留着的码拿去换令牌（换成了再调一次用户信息）、
+用 /jwks 验旧 id_token 的签名。封禁、重置、结束会话、改密码、删同意都经 handler；停用客户端直接调 auth.api.adminUpdateOAuthClient。
+
+结论
+- 访问令牌（实测）：只要授权时的那个会话被删，令牌就失效。库在会话删除时把该会话名下的访问令牌写上 revoked（实测令牌行 revoked 有值；
+  从源码读到 session.delete 钩子 prepareBackchannelLogoutPlan / applyBackchannelLogoutPlan），用户信息端点回 401 invalid_token。
+  · 封禁：401（封禁会删全部会话）。
+  · 管理员重置密码（库的缺省，不删会话）：200，令牌照用；加上 revoke-user-sessions 后 401。ADR 0060 定的“重置密码删全部会话”是必须的。
+  · 用户自己改密码 revokeOtherSessions=true（从授权时的那个会话发起）：401。库删掉全部会话后另建一个新会话发回，旧会话名下的令牌被撤。
+    revokeOtherSessions=false：200，令牌照用。合同输出 6 要“改密码后其它会话失效、当前会话保留”：如果授权发生在“当前会话”里，
+    按 revokeOtherSessions=true 的做法令牌会失效，但若自家实现改成“保留当前会话、只删其它会话”，在当前会话里发的令牌就不会失效（推断，没有实测这种实现）。
+  · 用户撤销对客户端的授权（库的 /oauth2/delete-consent）：只删同意记录，令牌照用（200），没用掉的码照换（200）；下次授权重新显示确认页。
+    候选做法（实测，直接写库）：自家撤销路由删同意记录之后，把 oauthAccessToken 里该用户、该客户端的行写上 revoked，旧令牌随即 401。
+  · 管理员停用客户端：令牌 401（从源码读到每次校验都查客户端的 disabled）；没用掉的码换令牌回 401 invalid_client “client is disabled”；
+    新的授权请求被带到库的错误页 /api/identity/auth/error?error=client_disabled（不跳回客户端）。
+- 没用掉的授权码（实测）：库换码时只查“码对应的会话还在不在”，不查账号状态与同意记录：
+  · 封禁、重置加结束会话之后：400 invalid_request “session no longer exists”（不是合同失败一节写的 invalid_grant）。
+  · 只重置不结束会话、改密码不撤其它会话、删同意记录：码照换（200），新令牌可用。
+  · 停用客户端：401 invalid_client。
+- 严重：SQLite 上会话 id 被复用，让已失效的码复活（实测）。配置 generateId: "serial" 时库建的 SQLite 表是 "id" integer not null primary key，
+  没有 AUTOINCREMENT（实测 DDL），SQLite 会把新行的 id 取成“当前最大 id + 1”。被删的会话恰好是最大 id 时，下一个新会话拿到同一个 id，
+  码与令牌只按会话 id 查会话，于是：
+  · 封禁 kim 之后，另一个用户 lea 登录，lea 的会话 id 正是 kim 授权时那个会话的 id（12）；kim 没用掉的码随即换出令牌（200），
+    新令牌调用户信息 200，回的是被封账号的资料（[Q4 ban, then another user signs in (session id reuse)]）。
+  · 用户自己改密码 revokeOtherSessions=true：库删全部会话再建新会话，新会话复用了旧 id（11），没用掉的码照换（200）。
+  这一点与 OIDC 无关，是 serial id 加 SQLite 的问题；码的寿命配成 60 秒时窗口很短，但被封账号能在窗口内拿到有效令牌。
+  Postgres 的 identity 列不复用 id（推断，没有在 Postgres 上跑）。修法候选见“对合同的影响”。
+  另：SQLite 的 foreign_keys 是关的（实测 pragma 为 0），表里写的 on delete cascade / set null 不生效；令牌失效靠库自己写 revoked，不靠外键。
+- id_token（实测）：以上每种情况之后，旧 id_token 用 /jwks 验签仍然通过（签名与 exp 都有效），库收不回。它的有效期缺省 10 小时，
+  可用 idTokenExpiresIn 缩短（问 2 实测 3600 秒可配）。客户端应当只在登录那一刻用 id_token 认人（验签、iss、aud、nonce、exp），
+  之后要知道账号是否仍可用，调用户信息端点（访问令牌会随封禁、重置等失效）；不要把 id_token 当作长期凭据或拿它调我们的接口。
+  撤销端点对 id_token 回 200、内容为 null，什么也不做（实测）。
+- 撤销端点（实测）：客户端用 client_secret_basic 撤自己的访问令牌回 200，之后用户信息 401；撤一个不存在的令牌回
+  400 {"error":"invalid_request","error_description":"token not found"}。合同输出 10“撤销不存在的令牌也回成功”与库不一致（RFC 7009 要求回 200）。
+
+实测输出（out6.txt）
+  [Q4] === 随账号失效 ===
+  [Q4 sqlite DDL of session / verification] [{"name":"session","sql":"CREATE TABLE \"session\" (\"id\" integer not null primary key, \"expiresAt\" date not null, \"token\" text not null unique, \"createdAt\" date not null, \"updatedAt\" date not null, \"ipAddress\" text, \"userAgent\" text, \"userId\" integer not null references \"user\" (\"id\") on delete cascade, \"impersonatedBy\" text)"},{"name":"verification","sql":"CREATE TABLE \"verification\" (\"id
+  [Q4 ban (session ids)] sessionIdsBefore=2,12 tokenSessionId=12 sessionIdsAfter= tokenSessionIdAfter=12 maxSessionIdOverall=11 fk={"foreign_keys":0}
+  [Q4 ban] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[ban=200] sessionsLeft=0 userinfoAfter=401 invalid_token unusedCode=400 invalid_request session no longer exists | id_token still verified alg=RS256 kid=1 sub=2
+  [Q4 ban, then another user signs in (session id reuse) (session ids)] sessionIdsBefore=9,12 tokenSessionId=12 sessionIdsAfter= tokenSessionIdAfter=12 maxSessionIdOverall=12 fk={"foreign_keys":0}
+  [Q4 ban, then another user signs in (session id reuse)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[ban=200 leaSignIn=200 leaSessionId=12] sessionsLeft=0 userinfoAfter=401 invalid_token unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=9
+  [Q4 admin set-user-password only (library default) (session ids)] sessionIdsBefore=3,13 tokenSessionId=13 sessionIdsAfter=3,13 tokenSessionIdAfter=13 maxSessionIdOverall=13 fk={"foreign_keys":0}
+  [Q4 admin set-user-password only (library default)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[reset=200] sessionsLeft=2 userinfoAfter=200  unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=3
+  [Q4 admin set-user-password + revoke-user-sessions (session ids)] sessionIdsBefore=4,14 tokenSessionId=14 sessionIdsAfter= tokenSessionIdAfter=14 maxSessionIdOverall=13 fk={"foreign_keys":0}
+  [Q4 admin set-user-password + revoke-user-sessions] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[reset=200 revoke=200] sessionsLeft=0 userinfoAfter=401 invalid_token unusedCode=400 invalid_request session no longer exists | id_token still verified alg=RS256 kid=1 sub=4
+  [Q4 user change-password revokeOtherSessions=true (from the session that authorized) (session ids)] sessionIdsBefore=5,14 tokenSessionId=14 sessionIdsAfter=14 tokenSessionIdAfter=14 maxSessionIdOverall=14 fk={"foreign_keys":0}
+  [Q4 user change-password revokeOtherSessions=true (from the session that authorized)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[change=200 newSessionToken=yes] sessionsLeft=1 userinfoAfter=401 invalid_token unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=5
+  [Q4 user change-password revokeOtherSessions=false (session ids)] sessionIdsBefore=6,15 tokenSessionId=15 sessionIdsAfter=6,15 tokenSessionIdAfter=15 maxSessionIdOverall=15 fk={"foreign_keys":0}
+  [Q4 user change-password revokeOtherSessions=false] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[change=200] sessionsLeft=2 userinfoAfter=200  unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=6
+  [Q4 user deletes consent (/oauth2/delete-consent) (session ids)] sessionIdsBefore=7,16 tokenSessionId=16 sessionIdsAfter=7,16 tokenSessionIdAfter=16 maxSessionIdOverall=16 fk={"foreign_keys":0}
+  [Q4 user deletes consent (/oauth2/delete-consent)] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[consents=1 delete=200 consentsAfter=0] sessionsLeft=2 userinfoAfter=200  unusedCode=200 tokens issued  lateUserinfo=200 | id_token still verified alg=RS256 kid=1 sub=7
+  [Q4 gil candidate: mark access tokens revoked via db] rows=2 userinfoAfterMark=401
+  [Q4 gil after consent deleted: next authorize in same browser] trace=consent
+  [Q4 admin disables client (session ids)] sessionIdsBefore=8,17 tokenSessionId=17 sessionIdsAfter=8,17 tokenSessionIdAfter=17 maxSessionIdOverall=17 fk={"foreign_keys":0}
+  [Q4 admin disables client] trace=login,consent secondCodeTrace=direct userinfoBefore=200 action=[disabled=200] sessionsLeft=2 userinfoAfter=401 invalid_token unusedCode=401 invalid_client client is disabled | id_token still verified alg=RS256 kid=1 sub=8
+  [Q4 hal disabled client: new authorize] url=https://site.test/api/identity/auth/error?error=client_disabled&error_description=client+is+disabled
+  [Q4 revoke endpoint] eveLoginWithNewPw=login revokeAccess=200  userinfoAfter=401 revokeUnknown=400 {"error_description":"token not found","error":"invalid_request"} revokeIdToken=200 null
+
+======================================================================
+问 5：授权确认与登出
+======================================================================
+
+做法：配置 O，客户端不免确认；同一个浏览器会话里连续发授权请求，记录每次经过了哪些页面（login、consent、direct = 直接带码跳回）。全部经 handler。
+
+结论
+- 确认（实测）：第一次授权先登录、再显示确认页，同意后带码跳回（Q5.1）。之后同样范围或更窄的范围直接发码、不再确认（Q5.2、Q5.3）；
+  范围变宽时重新确认（Q5.4）。同意记录每个用户、每个客户端一行，记下同意过的范围（oauthConsent 行 scopes ["openid","profile","email"]）。
+  拒绝时带 access_denied “User denied access” 跳回（Q5.13）。跳回都带原样的 state 与 iss=https://site.test。
+  免确认的客户端（skip_consent）从不显示确认页（问 3、问 4 实测）。
+- prompt 与 max_age（实测）：
+  · prompt=consent：即使同意过也再显示确认页（Q5.5）。
+  · prompt=none：有会话且同意过 → 直接发码（Q5.6）；没同意过 → 跳回 consent_required（Q5.7）；没有会话 → 跳回 login_required（Q5.8）；
+    与 max_age=0 同用 → login_required（Q5.12）。
+  · prompt=login：有会话也要重新登录，登录后发码（Q5.9）。
+  · max_age=0：重新登录后发码（Q5.10）；max_age=3600 且会话够新 → 直接发码（Q5.11）。登录后库按“会话比这次请求新”去掉 max_age 继续（从源码读到）。
+  · prompt=select_account：没配 selectAccount 页面时被带到库的错误页 /api/identity/auth/error?error=unsupported_prompt_select_account，不跳回客户端（Q5.14）。
+  · prompt=create：带去登录页，登录后库只去掉 login、不去掉 create，于是又回到登录页，探针连续五次都走不出来（Q5.15）。
+    发现文档却在 prompt_values_supported 里列了 create 与 select_account。合同不支持这两个值，应在自家路由层拒绝（或在授权端点的 before 钩子里改写），
+    自家发现文档的 prompt_values_supported 只列 none、login、consent。
+- 登出端点（实测）：库有 OpenID Connect 的 RP 发起登出端点 GET/POST /api/identity/auth/oauth2/end-session（另有 POST /oauth2/end-session/confirm），
+  总是登记、总是写进发现文档的 end_session_endpoint（问 1：配置改不掉）。是否可用按客户端定：
+  · 客户端没开 enable_end_session（管理员登记时的缺省）：带 id_token_hint 调回 401 invalid_client “The client is not allowed to initiate logout”；
+    这类客户端的 id_token 里也没有 sid。不带参数、没有会话时回 400 “No active session is available for logout”。
+  · 客户端开了 enable_end_session 并登记 post_logout_redirect_uris：id_token 带 sid；带 id_token_hint 调登出后 302 到登记的地址并带 state，
+    那个浏览器会话失效、该会话名下的访问令牌 401。
+  合同不提供登出时：自家发现文档不列 end_session_endpoint，自家登记接口不接受 enable_end_session 与 post_logout_redirect_uris，
+  挂载白名单里不放 /oauth2/end-session 与 /oauth2/end-session/confirm（问 6）。库的发现文档里它总会出现，所以发现文档必须自己给。
+
+实测输出（out6.txt）
+  [Q5] === 授权确认与登出 ===
+  [Q5.1 first authorize scope=openid profile] trace=login+consent result=code state=st-1 iss=https://site.test
+  [Q5.2 again same scope (same browser)] trace=direct result=code state=st-1 iss=https://site.test
+  [Q5.3 narrower scope=openid] trace=direct result=code state=st-1 iss=https://site.test
+  [Q5.4 broader scope=openid profile email] trace=consent result=code state=st-1 iss=https://site.test
+  [Q5.5 prompt=consent] trace=consent result=code state=st-1 iss=https://site.test
+  [Q5.6 prompt=none with consent and session] trace=direct result=code state=st-1 iss=https://site.test
+  [Q5.7 prompt=none other client without consent] trace=direct result=error=consent_required End-User consent is required state=st-1 iss=https://site.test
+  [Q5.8 prompt=none no session] trace=direct result=error=login_required authentication required state=st-1 iss=https://site.test
+  [Q5.9 prompt=login with session] trace=login result=code state=st-1 iss=https://site.test
+  [Q5.10 max_age=0 with session] trace=login result=code state=st-1 iss=https://site.test
+  [Q5.11 max_age=3600 with session] trace=direct result=code state=st-1 iss=https://site.test
+  [Q5.12 prompt=none&max_age=0] trace=direct result=error=login_required authentication required state=st-1 iss=https://site.test
+  [Q5.13 deny at consent (other user)] trace=login+consent result=error=access_denied User denied access state=st-1 iss=https://site.test
+  [Q5.14 prompt=select_account] trace=direct result=error=null  url=https://site.test/api/identity/auth/error?error=unsupported_prompt_select_account&error_description= state=null iss=null
+  [Q5.15 prompt=create] trace=login+login+login+login+login result=error=null  url=/sign-in?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&scope=openid+profile+emai state=null iss=null
+  [Q5 oauthConsent rows] [{"clientId":"gllyHeXVGifQaiFCZlQnNgfAgyMHjUZs","userId":2,"scopes":"[\"openid\",\"profile\",\"email\"]"}]
+  [Q5 discovery end_session_endpoint] https://site.test/api/identity/auth/oauth2/end-session
+  [Q5 id_token has sid (client without enable_end_session)] false
+  [Q5 GET /oauth2/end-session no params, no session] 400 {"error":"invalid_request","error_description":"No active session is available for logout"}
+  [Q5 GET /oauth2/end-session id_token_hint, client without enable_end_session] 401 {"error":"invalid_client","error_description":"The client is not allowed to initiate logout"}
+  [Q5 client enable_end_session=true: id_token sid] 14
+  [Q5 end-session with id_token_hint (enable_end_session client)] 302 location=https://client.example/bye?state=bye-1 sessionBefore=valid sessionAfter=invalid accessTokenAfter=401
+
+======================================================================
+问 6：可达端点
+======================================================================
+
+做法：配置 O 下遍历 auth.api，挑出路径在 /oauth2/、/.well-known/、/admin/oauth2/ 之下与 /jwks 的端点，按登记的每个方法各发一次请求
+（不带会话一次、带普通用户会话一次，空 JSON 体），再探站点根的两份发现文档；然后用 disabledPaths 把合同不要的路径关掉重探一遍。
+状态码 404 = 经 handler 到不了；其它码 = 到得了（400、401、415 只是参数或认证不对）。
+
+全部登记的路径与方法（实测，基路径 /api/identity/auth 省略）及分类
+  分类说明：A = 合同需要、对外放行；B = 合同需要，但只由自家路由在服务端调 auth.api，不对外放行；
+            C = 合同不需要，有专门的配置让它拒绝（括号里写配置与实测的拒绝码）；
+            D = 合同不需要，没有专门的配置，只能靠 disabledPaths 或挂载白名单挡（实测 disabledPaths 后 404）；
+            S = 只供服务端调用（SERVER_ONLY），经 handler 本来就是 404。
+  GET    /oauth2/authorize ............ A（缺省流程的入口）
+  POST   /oauth2/authorize ............ D（同一路径的表单提交；合同只要 GET 时只能在路由层按方法挡，disabledPaths 只按路径、不分方法）
+  POST   /oauth2/token ................ A
+  GET    /oauth2/userinfo ............. A
+  POST   /oauth2/userinfo ............. A（OIDC 要求两种方法都支持；不放行也可以，按合同定）
+  POST   /oauth2/revoke ............... A（合同输出 10）
+  GET    /jwks ........................ A（新增：发现文档的 jwks_uri；路径可由 jwks.jwksPath 改）
+  GET/HEAD 站点根 /.well-known/openid-configuration、/.well-known/oauth-authorization-server
+         ............................... 地址合同需要，但库给的内容含不提供的能力（问 1）：应由自家路由给，不把站点根交给 handler
+                                         （或用 disabledPaths 关掉，实测关掉后站点根也 404）。POST 回 405。
+  GET    /.well-known/openid-configuration、/.well-known/oauth-authorization-server（基路径下）.... S（404）
+  POST   /oauth2/consent .............. B（自家的 POST oauth/authorization 包一层；也可放行给浏览器，ADR 0060 定为包一层）
+  GET    /oauth2/get-consents ......... B（自家的 GET me/grants；普通用户经 handler 可调，200）
+  POST   /oauth2/delete-consent ....... B（自家的 DELETE me/grants/:id；注意它不撤令牌，问 4）
+  GET    /oauth2/public-client ........ B 或 D（确认页取客户端名字可以用它，要会话；匿名 401，带会话 200 回 client_name 等）
+  POST   /oauth2/continue ............. D（选账号、注册、登录后步骤的续接，合同不用；匿名 401）
+  POST   /oauth2/register ............. C（allowDynamicClientRegistration 缺省 false：403 access_denied）
+  POST   /oauth2/client/rotate-keys ... C（allowClientKeyRotation 缺省 false：400 invalid_client；探针的 disabledPaths 清单漏了它，没有测 404）
+  POST   /oauth2/introspect ........... D（客户端凭据可内省自己的令牌，实测 200 active:true 并带 sub、sid、scope）
+  POST   /oauth2/create-client ........ D（普通登录用户经 handler 就能登记客户端，实测 201 并拿到密钥；clientPrivileges 钩子可限权，没有实测）
+  GET    /oauth2/get-client、GET /oauth2/get-clients、POST /oauth2/update-client、POST /oauth2/client/rotate-secret、POST /oauth2/delete-client
+         ............................... D（用户管自己登记的客户端；get-clients 带会话 200）
+  POST   /oauth2/public-client-prelogin  D（allowPublicClientPrelogin 控制，缺省不开，实测 400；没有核实开关的效果）
+  GET    /oauth2/get-consent、POST /oauth2/update-consent .... D
+  GET/POST /oauth2/end-session、POST /oauth2/end-session/confirm .... D（问 5；按客户端的 enable_end_session 决定能否用，路径本身总在）
+  POST /admin/oauth2/create-client、PATCH /admin/oauth2/update-client .... S（自家管理员接口在服务端调）
+  POST/GET /admin/oauth2/resources、GET/PATCH/DELETE /admin/oauth2/resources/:identifier、
+  POST/DELETE /admin/oauth2/resources/:identifier/clients/:client_id .... S
+  另：jwt 插件的 GET /token（会话换 JWT）照前几轮放在 disabledPaths（实测 404）。
+
+disabledPaths 的效果（实测）
+- 把 D 类与库的两份发现文档、/token 都列进 disabledPaths 后，这些路径 GET、POST 都 404，站点根的发现文档也 404。
+- 同时完整流程（授权、登录续接、确认、换令牌、用户信息）照常（trace=login,consent token=200 userinfo=200）；
+  服务端直接调 auth.api.getOAuthConsents、auth.api.getOpenIdConfig 不受 disabledPaths 影响（ok）。
+  所以 B 类可以既在 disabledPaths 里关掉、又由自家路由在服务端调。
+- disabledPaths 只按路径，不分方法；只要 GET 不要 POST 的（/oauth2/authorize）要在挂载层按“方法加路径”白名单挡，ADR 0060 决策 3 已是这种做法。
+- 顺带实测：授权请求带 resource 参数时跳回 invalid_target（没配资源），不会换出 JWT 访问令牌；访问令牌一律是不透明的。
+
+实测输出（out6.txt）
+  [Q6 normal user POST /oauth2/create-client] 201 {"client_id":"gaYuwxPcPgxhCuAcKDrBAEwwClnPjKek","client_secret":"QJEeEDLFnyOXeklCcBDGdlKpHdDqkdVR","client_secret_expires_at":0,"user_id":"2","client_id_issued_
+  [Q6 GET /oauth2/public-client anonymous] 401 {"message":"Unauthorized","code":"UNAUTHORIZED"}
+  [Q6 GET /oauth2/public-client with user session] 200 {"client_id":"CnDovXFzhgsTmqpbIrvXHMNpjtncUkDg","client_name":"测试客户端","redirect_uris":[]}
+  [Q6 POST /oauth2/introspect with client_secret_basic] 200 {"active":true,"iss":"https://site.test","client_id":"CnDovXFzhgsTmqpbIrvXHMNpjtncUkDg","azp":"CnDovXFzhgsTmqpbIrvXHMNpjtncUkDg","sub":"2","sid":"5","exp":1795527100,"iat":1795523500,"scope":"openid p
+  [Q6 authorize with resource=https://api.example/] 302 https://client.example/cb?error=invalid_target&error_description=requested+resource+https%3A%2F%2Fapi.example%2F+is+not+configured&state=s&iss=https%3A%2F%2Fsit
+  [Q6 with disabledPaths: full flow still works] trace=login,consent token=200 userinfo=200
+  [Q6 with disabledPaths: auth.api.getOAuthConsents direct call] ok rows=1
+  [Q6 with disabledPaths: auth.api.getOpenIdConfig direct call] ok issuer=https://site.test
+  [Q6 endpoint table]
+  GET    /api/identity/auth/jwks api=getJwks anon=200 user=200 {"keys":[{"alg":"RS256","e":"AQAB","kty":"RSA","n":"sFvyDpKa
+  GET    /api/identity/auth/.well-known/oauth-authorization-server api=getOAuthServerConfig SERVER_ONLY anon=404 user=404
+  GET    /api/identity/auth/.well-known/openid-configuration api=getOpenIdConfig SERVER_ONLY anon=404 user=404
+  GET    /api/identity/auth/oauth2/authorize api=oauth2Authorize anon=302 user=302
+  POST   /api/identity/auth/oauth2/authorize api=oauth2Authorize anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+  POST   /api/identity/auth/oauth2/consent api=oauth2Consent anon=400 user=400 VALIDATION_ERROR
+  POST   /api/identity/auth/oauth2/continue api=oauth2Continue anon=401 user=400 invalid_request
+  POST   /api/identity/auth/oauth2/token api=oauth2Token anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+  POST   /api/identity/auth/oauth2/introspect api=oauth2Introspect anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+  POST   /api/identity/auth/oauth2/revoke api=oauth2Revoke anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+  GET    /api/identity/auth/oauth2/userinfo api=oauth2UserInfo anon=401 user=401 invalid_request
+  POST   /api/identity/auth/oauth2/userinfo api=oauth2UserInfo anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+  GET    /api/identity/auth/oauth2/end-session api=oauth2EndSession anon=400 user=400 invalid_request
+  POST   /api/identity/auth/oauth2/end-session api=oauth2EndSession anon=400 user=400 invalid_request
+  POST   /api/identity/auth/oauth2/end-session/confirm api=oauth2EndSessionConfirmation scope=http anon=415 user=415 UNSUPPORTED_MEDIA_TYPE
+  POST   /api/identity/auth/oauth2/register api=registerOAuthClient anon=403 user=403 access_denied
+  POST   /api/identity/auth/admin/oauth2/create-client api=adminCreateOAuthClient SERVER_ONLY anon=404 user=404
+  POST   /api/identity/auth/oauth2/create-client api=createOAuthClient anon=401 user=400 invalid_redirect_uri
+  GET    /api/identity/auth/oauth2/get-client api=getOAuthClient anon=400 user=400 VALIDATION_ERROR
+  GET    /api/identity/auth/oauth2/public-client api=getOAuthClientPublic anon=400 user=400 VALIDATION_ERROR
+  POST   /api/identity/auth/oauth2/public-client-prelogin api=getOAuthClientPublicPrelogin anon=400 user=400 VALIDATION_ERROR
+  GET    /api/identity/auth/oauth2/get-clients api=getOAuthClients anon=401 user=200 []
+  PATCH  /api/identity/auth/admin/oauth2/update-client api=adminUpdateOAuthClient SERVER_ONLY anon=404 user=404
+  POST   /api/identity/auth/oauth2/update-client api=updateOAuthClient anon=400 user=400 VALIDATION_ERROR
+  POST   /api/identity/auth/oauth2/client/rotate-secret api=rotateClientSecret anon=400 user=400 VALIDATION_ERROR
+  POST   /api/identity/auth/oauth2/client/rotate-keys api=rotateClientKeys anon=400 user=400 invalid_client
+  POST   /api/identity/auth/oauth2/delete-client api=deleteOAuthClient anon=400 user=400 VALIDATION_ERROR
+  GET    /api/identity/auth/oauth2/get-consent api=getOAuthConsent anon=400 user=400 VALIDATION_ERROR
+  GET    /api/identity/auth/oauth2/get-consents api=getOAuthConsents anon=401 user=200 []
+  POST   /api/identity/auth/oauth2/update-consent api=updateOAuthConsent anon=400 user=400 VALIDATION_ERROR
+  POST   /api/identity/auth/oauth2/delete-consent api=deleteOAuthConsent anon=400 user=400 VALIDATION_ERROR
+  POST   /api/identity/auth/admin/oauth2/resources api=adminCreateOAuthResource SERVER_ONLY anon=404 user=404
+  GET    /api/identity/auth/admin/oauth2/resources api=adminListOAuthResources SERVER_ONLY anon=404 user=404
+  GET    /api/identity/auth/admin/oauth2/resources/:identifier api=adminGetOAuthResource SERVER_ONLY anon=404 user=404
+  PATCH  /api/identity/auth/admin/oauth2/resources/:identifier api=adminUpdateOAuthResource SERVER_ONLY anon=404 user=404
+  DELETE /api/identity/auth/admin/oauth2/resources/:identifier api=adminDeleteOAuthResource SERVER_ONLY anon=404 user=404
+  POST   /api/identity/auth/admin/oauth2/resources/:identifier/clients/:client_id api=adminLinkClientResource SERVER_ONLY anon=404 user=404
+  DELETE /api/identity/auth/admin/oauth2/resources/:identifier/clients/:client_id api=adminUnlinkClientResource SERVER_ONLY anon=404 user=404
+  GET    /.well-known/openid-configuration (root, plugin onRequest) anon=200
+  HEAD   /.well-known/openid-configuration (root, plugin onRequest) anon=200
+  POST   /.well-known/openid-configuration (root, plugin onRequest) anon=405
+  GET    /.well-known/oauth-authorization-server (root, plugin onRequest) anon=200
+  HEAD   /.well-known/oauth-authorization-server (root, plugin onRequest) anon=200
+  POST   /.well-known/oauth-authorization-server (root, plugin onRequest) anon=405
+  [Q6 with disabledPaths]
+  /oauth2/introspect POST=404 GET=404
+  /oauth2/register POST=404 GET=404
+  /oauth2/create-client POST=404 GET=404
+  /oauth2/get-client POST=404 GET=404
+  /oauth2/public-client POST=404 GET=404
+  /oauth2/public-client-prelogin POST=404 GET=404
+  /oauth2/get-clients POST=404 GET=404
+  /oauth2/update-client POST=404 GET=404
+  /oauth2/client/rotate-secret POST=404 GET=404
+  /oauth2/delete-client POST=404 GET=404
+  /oauth2/get-consent POST=404 GET=404
+  /oauth2/get-consents POST=404 GET=404
+  /oauth2/update-consent POST=404 GET=404
+  /oauth2/delete-consent POST=404 GET=404
+  /oauth2/continue POST=404 GET=404
+  /oauth2/end-session POST=404 GET=404
+  /oauth2/end-session/confirm POST=404 GET=404
+  /.well-known/openid-configuration POST=404 GET=404
+  /.well-known/oauth-authorization-server POST=404 GET=404
+  /token POST=404 GET=404
+  (root) /.well-known/openid-configuration GET=404
+  (root) /.well-known/oauth-authorization-server GET=404
+
+说明：问 1 到问 6 的摘录各取自单独跑的那一问（bun spike6.ts qN），客户端 id、时间戳、jwks 的 n 与最终的 out6.txt（六问一次跑完）不同，
+结论行逐条对过、相同。out6.txt 里的 WARN 行来自问 2 的 V0b（同一个库文件第二次建实例时库的表结构比对告警），与结论无关。
+
+======================================================================
+对合同的影响
+======================================================================
+
+合同没有改。下面逐条对 docs/specs/site/oauth-provider.md 给位置与建议写法，按严重程度排；最后两条落在别的文档。
+
+1. 失效的授权码会因 SQLite 复用会话 id 而复活（必须处理；不止影响 OAuth）
+   位置：“输出与可观察行为”第 8 条（没用掉的授权码换不出令牌）；“状态与转换”。
+   事实：问 4 实测。码与令牌只按会话 id 找会话；serial id 在 SQLite 上没有 AUTOINCREMENT，被删的会话恰是最大 id 时，下一个任何人的新会话复用这个 id，
+   被封账号没用掉的码在 60 秒内能换出有效令牌，用户信息 200。
+   建议：合同的写法不用改，第 8 条本身是对的；要在实现与 ADR 0060 里补约束，并在验收里加一条：
+   “封禁某账号之后、另一个账号登录之后，前者此前拿到但没用掉的授权码仍换不出令牌。”
+   修法候选（都没有核实）：会话表用 INTEGER PRIMARY KEY AUTOINCREMENT（手写迁移，ADR 0060 后果第 3 条已要求手写增量迁移）；
+   或让会话改用随机 id（generateId 可按模型给函数，库类型 GenerateIdFn 收 model 参数，是否能只对 session 用随机 id 没试）；
+   或在令牌端点的 before 钩子里额外核对“码记下的会话属于码记下的用户且账号没被封”。
+
+2. 范围、id_token 与发现文档（开发者已定，按决定改写）
+   位置：“目标与非目标”第 3 条；“输入与前置条件”最后一段的“范围只有 profile 与 email”；“输出与可观察行为”第 2 条。
+   建议的新写法：
+   · 目标与非目标第 3 条改成：“按 OpenID Connect Core 1.0 提供授权码流程：接受 openid 范围，换令牌时发 id_token。不提供 RP 发起的登出
+     （end_session）、会话管理与前后通道登出，不支持 claims 请求参数的扩展用法、request 与 request_uri 参数、prompt=create 与 prompt=select_account。”
+     第 4 条（不支持刷新令牌）保留。新加一条：“不提供令牌内省端点。”
+   · 输入与前置条件：标准端点改成“授权、令牌、用户信息、撤销、公钥（JWKS）、/.well-known/openid-configuration 与 /.well-known/oauth-authorization-server
+     （两份内容相同）”；“范围只有 profile 与 email”改成“范围只有 openid、profile、email；授权请求必须带 openid”（库用 requireOpenId: true 实现，
+     问 3 实测不带 openid 跳回 invalid_scope。不这样定时，不带 openid 的请求能拿到令牌但用户信息端点回 400，客户端得到一张没用的令牌）。
+   · 输出 2 改成：“发现文档在站点根的 /.well-known/openid-configuration 与 /.well-known/oauth-authorization-server，内容相同，
+     issuer 等于站点地址（不带路径）。列出的每个端点都可达，并只列本 Spec 支持的能力：response_types_supported ["code"]、
+     grant_types_supported ["authorization_code"]、code_challenge_methods_supported ["S256"]、token_endpoint_auth_methods_supported
+     ["client_secret_basic","none"]、scopes_supported ["openid","profile","email"]、subject_types_supported ["public"]、
+     id_token_signing_alg_values_supported ["RS256"]、prompt_values_supported ["none","login","consent"]、claims_supported（输出 7 与新输出的字段）、
+     authorization_response_iss_parameter_supported true。不出现内省、动态注册、登出端点。”
+     实现提示（可放实现合同）：库的发现文档改不掉内省、登出、post 与 private_key_jwt 等（问 1），由自家路由从 auth.api.getOpenIdConfig() 取值按白名单输出。
+     需要 jwt 插件设 jwt.issuer = 站点地址，否则签发者带基路径（问 1 实测）。
+   · 边界与兼容：第 2 条的 RFC 列表加“OpenID Connect Core 1.0、OpenID Connect Discovery 1.0”；第 1 条加“公钥地址”。
+
+3. 新增一条输出：id_token
+   位置：“输出与可观察行为”第 6 条之后新加。
+   建议写法：“请求含 openid 时，令牌回应另有 id_token：RS256 签名，头里的 kid 能在公钥地址里找到；载荷有 iss（站点地址）、sub（与用户信息的 sub 相同）、
+   aud（客户端 id）、iat、exp（签发后 1 小时）、auth_time（这次登录建立会话的时间）、at_hash；授权请求带了 nonce 时原样带回。
+   [资料字段二选一，见下]。id_token 发出后收不回：客户端只在登录时用它认人，之后要知道账号是否仍可用就调用户信息端点。”
+   事实：问 2 实测字段与库的缺省一致；库另带 acr "0"（写不写进合同都行，库去不掉）；缺省有效期 10 小时，idTokenExpiresIn 可配，建议与访问令牌同为 1 小时。
+   资料字段：库缺省不把任何资料放进 id_token（问 2），customIdTokenClaims 可以按范围放（问 3 的 O2）。交开发者二选一：
+   a) id_token 只有身份字段，资料只从用户信息端点拿（库的缺省，符合 OIDC Core 5.4）；b) 按范围同时放进 id_token（很多客户端库习惯从 id_token 读 email）。
+   公钥：新加一条“签名密钥轮换后，旧钥在公钥地址里至少保留 id_token 的有效期，之前签发的 id_token 在到期前仍验得过”（库的 gracePeriod 缺省 30 天，问 2 实测宽限期内验得过、过了验不过）。
+
+4. 用户信息的字段名与“邮箱待补”的写法
+   位置：“输出与可观察行为”第 7 条。
+   事实：问 3 实测。库在 profile 下自带 name、given_name、family_name（把显示名按空格拆），email 下自带 email、email_verified（第一版恒为 false）。
+   customUserInfoClaims 能按范围加字段，但去不掉库自带的字段；要去掉占位邮箱或拆出来的名字，得用 /oauth2/userinfo 的 after 钩子（实测可行）。
+   建议写法：“带有效访问令牌调用户信息端点（GET 或 POST），回 sub（账号的数字 id 的字符串形式）；有 profile 范围时另有 preferred_username（登录用的小写用户名）
+   与 name（显示名）；有 email 范围时另有 email_pending（邮箱是否待补），邮箱不是待补时另有 email 与 email_verified（第一版恒为 false），
+   邮箱待补时不出现 email 与 email_verified。”given_name、family_name 要不要去掉交开发者：保留则合同写“另有库按空格拆出的 given_name、family_name”，
+   去掉则实现用 after 钩子删。email_pending 是自定义字段名，按 OIDC 的建议应加命名空间或换成别的名字，交开发者定名。
+   另：不带令牌时库回 401 invalid_request（问 3），带无效令牌回 401 invalid_token；“失败与恢复”可写成“用户信息端点按 RFC 6750 回 401 与 WWW-Authenticate”。
+
+5. 令牌随账号失效：撤销授权不撤令牌、改密码的写法（必须写清实现责任）
+   位置：“输出与可观察行为”第 8 条；自家接口表的 DELETE me/grants/:id。
+   事实：问 4 实测。封禁、重置加结束会话、改密码时删其它会话（授权发生在被删的会话里）、停用客户端之后访问令牌 401；
+   库的删同意记录不撤令牌、不废码（都还能用）；只重置不结束会话时令牌照用。没用掉的码在封禁或重置后回 400 invalid_request（不是 invalid_grant），
+   停用客户端后回 401 invalid_client。
+   建议：第 8 条保留现有句子，补两句：“撤销授权由 DELETE me/grants/:id 完成，它同时撤掉该用户在这个客户端名下已发出的访问令牌与没用掉的授权码。
+   id_token 不随这些变更失效（见 id_token 一条）。”并在验收里加“用户撤销授权后，此前的访问令牌调用户信息端点得 401”。
+   实现提示：撤令牌可以给 oauthAccessToken 写 revoked（实测可行）；废掉没用掉的码库没有现成办法（码存在 verification 表、按码的摘要找），没有核实做法。
+   “改密码”一项：accounts.md 输出 6 规定自己改密码时当前会话保留。若授权恰在当前会话里发生，按“保留当前会话”实现时这张令牌不会失效（推断）。
+   要么第 8 条写成“密码被改或被重置之后，在其它会话里发出的访问令牌失效”，要么实现改密码时把当前会话名下的 OAuth 令牌另外撤掉，交开发者定。
+   失败与恢复：标准端点的错误码表里 invalid_grant 之外，换码时还会出现 invalid_request（会话已不在）与 invalid_client（客户端停用）。
+
+6. 撤销端点对不存在的令牌回 400
+   位置：“输出与可观察行为”第 10 条。
+   事实：问 4 实测，撤一个不存在的令牌回 400 {"error":"invalid_request","error_description":"token not found"}，与 RFC 7009 与合同的“也回成功”不一致；
+   撤 id_token 回 200、什么也不做。
+   建议：合同不改，实现在挂载层把这个 400 改写成 200（或在撤销端点的 after 钩子里改写，没有实测）；验收加“撤销一个不存在的令牌得 200”。
+
+7. 授权请求 10 分钟与授权码 1 分钟共用库的一个参数
+   位置：“输出与可观察行为”第 4 条（超过 10 分钟的请求不继续）、第 6 条（授权码 1 分钟）；“状态与转换”的“时序与寿命”第 1 条。
+   事实：问 1 实测，codeExpiresIn 同时决定授权码寿命与登录、确认跳转里签名参数的寿命；配 60 时两者都是 60 秒，缺省 600 时两者都是 600 秒。
+   建议（交开发者选）：a) 授权码也写成 10 分钟（库的缺省，OIDC 建议值）；b) 保留两种寿命，自家路由在换码前另查码的签发时间（没有核实）；
+   c) 授权请求也写成 1 分钟（用户在登录页停留超过 1 分钟就要重来，不推荐）。
+
+8. 确认与 prompt
+   位置：“输出与可观察行为”第 5 条。
+   事实：问 5 实测与第 5 条一致（覆盖本次范围的同意过就免确认，范围变宽重新确认，拒绝带 access_denied，跳回带 state 与 iss）。
+   建议补一句：“请求带 prompt=consent 时总显示确认页；prompt=none 时不显示任何页面：没有会话跳回 login_required，需要确认跳回 consent_required；
+   prompt=login 或 max_age 超时要求重新登录。prompt 的其它值回 invalid_request。”后一句要实现（库对 create 会让登录续接打转、对 select_account 进库的错误页）。
+   失败与恢复的标准错误码表补 login_required、consent_required。
+
+9. 客户端属性与登记
+   位置：“输入与前置条件”客户端属性一段；“输出与可观察行为”第 9 条。
+   事实：问 1、问 6 实测。库接受管理员登记 client_secret_post 的客户端；普通用户经 handler 的 /oauth2/create-client 就能登记（ADR 0060 已定收紧）。
+   客户端开 enable_end_session 时 id_token 多出 sid、登出端点对它可用（问 5）。
+   建议在客户端属性一段补：“认证方式只有 client_secret_basic（机密）与 none（公开）；不能开启登出与后通道登出。”
+
+10. 副作用与数据：签名私钥
+    位置：“副作用与数据”第 1 条（密钥与令牌只存摘要）。
+    事实：问 2 实测与源码。签 id_token 的私钥存在账号库的 jwks 表里，用 XChaCha20-Poly1305 加密、密钥由站点的 auth secret 派生；
+    客户端密钥与令牌仍只存摘要（保留 jwt 插件时，前一轮实测）。换掉 auth secret 会让私钥解不开（从源码读到）。
+    建议加一句：“签 id_token 的私钥加密后存在账号模块的库里，公钥由公钥地址公开；更换站点密钥前要先轮换签名密钥或按库的多版本密钥做。”
+    第一版就定 RS256，并在上线前确认 jwks 表里只有 RS256 的钥：同一个库从别的算法改配 RS256 时，库仍用旧算法的钥签、发现文档却称 RS256（问 2 的 V0b 实测）。
+
+11. 可达端点清单（输出 1、验收 2）
+    位置：“输出与可观察行为”第 1 条；“验收与 Smoke”第 2 条。
+    事实：问 6 实测清单。合同的写法（列出的之外一律 404）不用改，清单要加公钥地址与站点根的两份发现文档；
+    “身份库自带、不在清单里的地址”在第 6 问的表里是 D 类与基路径下的发现文档、/oauth2/authorize 的 POST、/oauth2/consent 等 B 类。
+    验收 2 建议加上：POST /oauth2/authorize、/oauth2/introspect、/oauth2/end-session、/oauth2/create-client 各请求一次都得 404。
+
+12. 验收补充（汇总）
+    位置：“验收与 Smoke”。
+    建议加：用 jose 一类标准库按发现文档的 jwks_uri 验 id_token（RS256、iss、aud、nonce）；不带 openid 的授权请求跳回 invalid_scope；
+    prompt=none 没同意过时跳回 consent_required；用户撤销授权后访问令牌得 401；封禁后另一个账号登录、前者没用掉的码仍换不出令牌（第 1 条）；
+    撤销不存在的令牌得 200（第 6 条）。
+
+13. 落在别的文档的两处
+    - ADR 0060 决策 5“库的默认行为另外收紧”可加：设 jwt.issuer 为站点地址、jwks 用 RS256、requireOpenId、发现文档自家给、
+      用户撤销授权时撤令牌、SQLite 会话 id 不复用（第 1 条）。这是建议，ADR 没有改。
+    - accounts.md 输出 6 与本合同第 8 条在“自己改密码时当前会话里的 OAuth 令牌”上要对齐（第 5 条）。
+
+======================================================================
+没有核实
+======================================================================
+- 全部只在 bun:sqlite 上跑；Postgres 上会话 id 是否复用（第 1 条）没跑。
+- 会话 id 复用的修法（AUTOINCREMENT、按模型给随机 id、令牌端点钩子）都没试。
+- 废掉某用户在某客户端名下没用掉的授权码的做法没写原型；撤令牌只试了直接写库，没有经自家路由。
+- 改密码时“保留当前会话、只删其它会话”的实现下，当前会话里发出的 OAuth 令牌的去留（第 5 条，推断）。
+- 撤销端点的 after 钩子改写 400 为 200；公开客户端（没有密钥）怎样调撤销端点（库的撤销端点认证方式不含 none，没试）。
+- customIdTokenClaims 放进 id_token 的字段与客户端库（例如只认标准字段的库）的兼容性；email_pending 的命名。
+- 更换 auth secret（含 secrets 多版本）对已存私钥的影响，只读了源码。
+- clientPrivileges 钩子能否把 /oauth2/create-client 收成只许管理员；allowPublicClientPrelogin 打开后的行为。
+- /oauth2/client/rotate-keys 在 disabledPaths 下的 404（清单漏了它）。
+- 浏览器真实导航（Accept: text/html、Sec-Fetch-Mode）下确认与登出页的形态；探针都按 JSON 走续接。
+- 多进程、多实例部署下 jwks 首次懒生成的并发（两个进程同时生成两把钥）。
