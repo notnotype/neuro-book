@@ -1,0 +1,83 @@
+# w00026 t50 ide 实现审查报告（逐条追加）
+
+## F1 [重要] 正确性/库合同：按钮条没有最小与最大尺寸，邻近区的分隔线与窄窗口都能把条压扁
+- 位置：`examples/ide/src/model.ts:26-27`（注释“不给最小与最大尺寸：它们不能拖的原因是分隔线被停用，不是被钉死”）、`:85-88` stripeLeaf；`README.md` “条本身不设尺寸上限与下限”。
+- 现象：条旁的分隔线确实停用了，但拖“相邻区”的分隔线时，库的求解器按“由近到远补偿”把位移传给远端兄弟，条是保留像素、最小 0、最大无限，会被压到 0。实测（scratch/cascade.test.ts，直接用 `solveSashDrag` 加 `grid.resizeBranches` 提交，与 `useSashGesture` 同一条路径）：1440 宽、右区展开，拖 `left|center` 分隔线向右 900px，结果 `[left-stripe 28, left 936, center 300, right 160, right-stripe 0]`，提交后 `grid.find("right-stripe").size.width === 0`。右条消失，其上的按钮点不到、拖不进，要重新载入才恢复（条的尺寸不存档）。
+- 同类：窄窗口。三区都开、宽 800 时 `left-stripe:19 right-stripe:19`，700 时 8，600 时 0，且报 `over-constrained`；条与区一起被压，而编辑区被保护在 300。条是最先被压的东西，却是唯一不该压的。
+- 为什么是问题：违反计划里“条保留像素 28/24、条旁分隔线都不能拖”想达到的结果（条的厚度固定），README 与注释把“不能拖”归因于 sashDisabled，教学上说错：第三方照抄后以为停用分隔线就能钉住条。
+- 如何核实：`bun test /tmp/claude-1000/review-t50-impl-ide/scratch/cascade.test.ts`（输出见上）。从代码推断的真实拖动路径与实测求解一致，未跑 e2e。
+- 建议：条给 `minimumSize` 与 `maximumSize` 都等于厚度（刚性），模型测试加“拖邻区分隔线到头条仍是 28”；改写 model.ts 注释与 README 那句。同时可以把“条旁的分隔线停用”改成“刚性后这些线本来就拖不动”，只留 sashDisabled 的“空区”那一半，或保留作为不画拖动光标的手段并如实说明。
+
+## F2 [重要] 设计/测试：存档里的 `restoreSize` 是死数据，还会让整份存档被拒；“变异无用例失败”不是测得不够，是字段多余
+- 位置：`model.ts:63-64`（ZoneStart.restoreSize）、`:262-266`（toSaved 存 restoreSize）、`:290`（读档校验它）、`:296-303`（放进策略）、`:305-314` 注释；`e2e/ide.e2e.ts:20-24` 变异说明；`src/examples-ide.test.ts` “重新载入后恢复尺寸还在”。
+- 现象：读 `src/grid.ts:398-437`：区是 `sizing: "fixed"`，`setCollapsed(true)` 与 `resizeBranches` 的收起落账都走 `collapsedRemembering`，把 `restoreSize` 改成节点此刻的尺寸意图；`setSize` 在收起着时也重写它。所以策略里初值 `restoreSize` 永远在被读到之前就被覆盖：收起着存档的区，读档时先 `setSize` 再 `setCollapsed(true)` 覆盖；展开着的区，它是过期值，下次收起时被覆盖。编码者“库展开时回到意图、变异无用例失败”的解释成立，且推论更进一步：这个字段不只是测不到，它在这个布局里没有任何读者。
+- 副作用（实测，scratch/restore.test.ts）：1) 展开着的左区拖到 333 后 `toSaved().zones.left` 是 `{size:333, restoreSize:260}`，“恢复尺寸”并不恢复什么；2) 手改 `restoreSize` 为 10 或把 `size` 改成 4200，整份存档被判坏、回缺省布局，备份提示出现，即使坏的只是没人读的字段；3) 示例教学注释（`model.ts:296`、`:305-308`、README“库在展开时回到节点的尺寸意图”）与计划“存三个区的尺寸、收起状态与 restoreSize”让第三方以为存 restoreSize 是必须的。
+- 另：`MAX_SIZE = 4096`（`:50`）是示例自己拍的上限，不是库的约束。大屏、浏览器缩小到 50% 时拖出的合法宽度可能超过它，整份存档被当坏档弃用。
+- 如何核实：`bun test /tmp/claude-1000/review-t50-impl-ide/scratch/restore.test.ts`；对照 `src/grid.ts` 的 `collapsedRemembering` 与 `setSize`。
+- 建议：删掉存档的 `restoreSize` 字段（`SavedZone` 只留 `size`、`collapsed`）、`ZoneStart.restoreSize`、对应校验与测试，改成“存意图，收起着的区读档时 setSize 再 setCollapsed”；`restoreSize` 缺省取 `ZONE_SPECS.size` 即可。把对应的 e2e 变异说明与测试名“恢复尺寸还在”改成“收起着存档的区展开回到收起前的宽度”。MAX_SIZE 去掉，或改为只拒绝非有限数（意图由库夹进范围）。若坚持存它，至少让测试读得出差别（见 F5）。
+
+## F3 [重要] 测试：拖动落点的否定面与横向列表完全没有测到（`drop.ts` 无单元测试，e2e 从不断言 `none`）
+- 位置：`examples/ide/src/drop.ts:31-44`（`resolveDrop`、`isOwnPosition`）；`e2e/ide.e2e.ts`（全文件无 `none`，`beforeTool(page, "bottom", …)` 的下条分支从未被调用）；`src/examples-ide.test.ts`（只测 model）。
+- 现象：计划写了“原位不是落点”“条的外面不是落点”“竖向与横向的 `resolveListInsertion`”，e2e 里所有落点都是肯定的（`move:…`）。下条只作为空条的 `move:bottom:end` 目标与拖出的来源出现，没有“在有成员的横向条里换位置”的用例，所以横向 `resolveListInsertion`（`point.x` 轴、`containerRect.left` 轴）从未在真实矩形上跑过。“原位不是落点”若被删（`isOwnPosition` 改成恒假），没有任何用例失败：原位松手会走 `moveTool` 的同条重排、结果是空操作，却写一次存档并清状态行，反馈上画出一条没有效果的插入线。
+- 我用 scratch/drop.test.ts 直接跑了 `resolveDrop`：竖向与横向、自己的前后位、条尾都与设计一致（`structure` 自己的上半、下半都是 `none`；横向 `move:bottom:terminal`；最后一个拖到自己条尾是 `none`），所以这条是覆盖缺口，不是实现错误。
+- 如何核实：`grep -n none e2e/ide.e2e.ts` 无命中；对照 `e2e/tabbed-panels.e2e.ts:111,182` 有先正后否的写法。
+- 建议：补一个 `src/examples-ide.test.ts` 同级的 drop 纯函数用例（输入是矩形，不需要浏览器），覆盖竖向、横向、原位前后、条外；e2e 在“排序与跨条”里加一次下条内换位置（`beforeTool(page,"bottom","terminal")`）与一次原位先正后否（先移到真落点等 `data-drop`，再回原位等 `none`，模式见 `drag.ts` 文件头）。同时做一次“删掉 `isOwnPosition`”的变异。
+
+## F4 [建议] 测试：两项“拖不动”变异实际失败在 `aria-disabled` 那一句，“拖不动”的尺寸断言没有被证明能失败
+- 位置：`e2e/ide.e2e.ts:14-29` 变异说明、`:215-223`、`:239-258`。
+- 现象：编码者自己写明：去掉停用后两条用例失败在 `aria-disabled` 断言上，没有走到尺寸断言。“没有按钮的区”那条的尺寸断言还有兜底（`reconcile` 把区收回去）所以本来就分不出；“条旁”那条的尺寸断言（三条的 `boxOf` 不变）可以失败但没人验证过。补强（`twoFrames`+`settled`）之后前两项变异没重跑：从代码推断，两项都在补强前的 `aria-disabled` 行失败，补强不改变结论，所以那两项不需要重跑；但这也说明补强本身没被任何变异验证。
+- 为什么是问题：“拖不动”若因 `aria-disabled` 只是样式（库里 `disabled` 实际也阻断手势，见 `useSashPresentation.ts:125`）而与手势脱钩，两条用例都不会发现。
+- 建议：对“条旁”那条做一次变异：保留 `aria-disabled` 却让手势可用不好做，退而求其次，把 `aria-disabled` 断言临时注释掉后重跑变异，看尺寸断言失败，在变异说明里记一行。F1 修好后（条改刚性）这条的意义变成“刚性后没有效果”，需重新写变异说明。
+
+## F5 [建议] 测试：存档坏的用例不断言原因，每例只靠同一句“备份”；名字与实际命中的分支不符
+- 位置：`src/examples-ide.test.ts` “存档坏”一组（约 `:210-232`）。
+- 现象：每例只断言 `notice` 含 "the original is kept as a backup"，该句对所有失败原因都成立。我逐例跑了 `fromSaved`（scratch/reasons.test.ts）：原因都对，但“尺寸不是有限数”那例用的 `null`，实际命中的是 `bad-shape`（`isSavedShape` 的 `typeof number`），`Number.isFinite` 那一支（`1e999` 经 JSON 得到 Infinity，命中 `bad-size`）没有用例；“展开的区没有按钮”那例实际命中的是“open but shows nothing”，与上一例同一分支。
+- 为什么是问题：判据被改动、搬位置，用例仍全过；“测行为”的规则要求断言可观察结果，这里最可观察的是原因文案或码，而 `loadLayout` 不交回 code，只能测 `IdeLayout.fromSaved(...)` 的 `code`。
+- 建议：对每例直接调 `IdeLayout.fromSaved` 断言 `code`（`bad-shape/bad-size/bad-tools/bad-shown`）；`size` 那例改成 `1e999` 的 JSON 文本；`restoreSize` 若按 F2 删掉则同时删掉两例。
+
+## F6 [建议] 摘要/教学注释：对库行为说法不准（`restoreSize` 在 Enter 展开时被读）
+- 位置：`README.md` “库在展开时回到节点的尺寸意图，不看策略里的 restoreSize”；`model.ts:296,307-308`；`e2e/ide.e2e.ts:20-24`；计划同源。
+- 现象：`src/grid.md:19,21,25` 与 `sash-drag.ts:224` 写明：`setCollapsed(false)` 回到意图，分隔线上的 Enter 展开读 `restoreSize`；两者一致只因为库在收起那一刻把 `restoreSize` 写成意图。README 的绝对说法对 Enter 不成立，第三方照着理解成“`restoreSize` 在库里没用”，在 `sizing: "weight"` 或手工改过策略的区会出错。e2e 的 Enter 段注释“分隔线上的 Enter 才靠读档放回去的尺寸”也不准：Enter 收起时 `restoreSize` 被重写为意图，该段在 `restoreSize` 读档失效时照样过，真正守着它的是前一句 `expectSize(left, 320)`。
+- 建议：改成“库在收起那一刻把 `restoreSize` 记成当时的尺寸意图；按钮展开读意图、Enter 展开读 `restoreSize`，两者在这个布局里相等，所以读档只要 `setSize` 放回意图，再 `setCollapsed`”，e2e Enter 段注释改成“验证 Enter 路径与按钮路径给同一个结果”。
+
+## F7 [建议] 测试：“拖动后的那一下点击不触发按钮”的断言空过
+- 位置：`e2e/ide.e2e.ts:196-200`（用例名“拖动后的那一下点击不触发按钮”，注释“松手后浏览器还会发一次 click：它落在被拖的按钮上”）。
+- 现象：该用例把 Project 拖到 Bookmarks 前面再松手。浏览器的 click 落在按下与松手两个目标的最近公共祖先（条的容器）上，不是被拖的按钮，按钮的 `@click` 本来就不会触发；所以 `expectPressed(project, true)` 在库完全不吞 click 时也成立。需要吞 click 的是“按下、挪过门槛、又回到自己身上松手”（落点是原位，`none`），库的 `drag-gesture.ts:230` 管的就是这一种，示例没测。
+- 如何核实：从 DOM 事件规则推断（未跑浏览器）；变异：在 `drag-gesture.ts` 里关掉吞 click，这个用例仍过。
+- 建议：改成从按钮上起拖、挪过门槛、回到按钮自己身上松手，先等 `data-drop` 变成 `none`（和 F3 一起），松手后断言按钮的选中态与区的开合都没变。
+
+## F8 [建议] 焦点/正确性：读档时收着的区，面板头的“隐藏”按钮不是 inert，Tab 得到、按下会展开这个区（从代码推断，未跑浏览器）
+- 位置：`App.vue:274-277`（`v-if="shown !== null"` 只看有没有显示的工具窗，不看区是否展开）与 `hide()`（`:160-163`）、`useLeafParking.ts:5,24-29`（只有“曾经有过尺寸、现在是零”才 inert）。
+- 现象：存档里区是收起的、`shown` 非空（用户收起一个区后重新载入就是这种），这块叶自第一帧起就是零尺寸，`lastSizes` 里没有它，所以不停放、不 inert；面板头里的“Hide X”按钮留在 Tab 序里。键盘按下它：`hide` → `toggleTool(shown)` → `isOpen` 为假，结果是展开这个区再把焦点给编辑区，与“隐藏”相反。
+- 为什么是问题：教学上第三方会抄“头里放按钮”，库的停放规则对“载入时就是零”的叶不给 inert，这是一个没写在示例注释里的约束。
+- 建议：按钮 `v-if` 改读 `zoneViews[zone].open !== null`；`hide` 里先判区是展开的。另记摩擦：载入时就收着的叶没有 inert，宿主要自己兜。
+
+## F9 [建议] 状态行：读档判定“这一页不保存”之后，第一次成功的操作就把提示清掉
+- 位置：`App.vue:78-90`（`settle` 里 `status.value = ""`）、`:48,51-56`（`keep=false` 时 `persist` 直接返回）。
+- 现象：存储不可用或存档坏且备份写不进去时，状态行写“changes will not be kept”或“the original stays untouched”，`keep` 为假，整页不再保存；用户点一下按钮，`settle` 把状态行清空，之后界面看起来一切正常，实际仍然没有保存。注释说的“状态行说的是上一件事”对一次性的事成立，对“整页不保存”这个持续状态不成立。
+- 如何核实：读代码；e2e 里“存档坏”循环只在操作前看了一次状态行。
+- 建议：持续状态另存一个 `standingNotice`，`settle` 只清瞬时的那部分；或 `keep=false` 时不清。
+
+## 该记进摩擦记录的库问题
+1. 保留像素、没有最小最大的叶（条）会被邻近分隔线的“由近到远补偿”压到 0，`sashDisabled` 只停用线、不停用级联；宿主要想钉住一块叶得给 `minimumSize = maximumSize`，这没写在 `sashDisabled` 的说明里（F1）。窄窗口也先压这种叶，诊断是 `over-constrained`，没有“哪块叶该先让”的声明。
+2. 载入时就是零尺寸的叶不 inert（`useLeafParking` 只认“曾经有过尺寸”），叶外框里的按钮仍在 Tab 序（F8）。
+3. `restoreSize` 的两种读法（`setCollapsed(false)` 读意图，分隔线 Enter 读 `restoreSize`）与“收起时写成意图”三者要合起来才知道宿主读档该存什么；`grid.md` 分散在三处。库可以给一个“存档用的收起状态”读取入口，避免宿主猜（F2、F6）。
+4. `useGridHost` 有 `setCollapsed`，没有 `setSize`，宿主要自己 `grid.setSize` 加 `host.invalidate()`；示例的模型不依赖 Vue，所以连 `setCollapsed` 也走 `grid`，两处调用风格不一致，第三方分不清哪个才是“宿主入口”。
+5. `sashDisabled`、`paneLabel` 的 `before/after` 在挨着分支时是分支 id，宿主要读懂树的形状才能判（`model.ts:179-181` 的注释就在讲这个）；没有“按叶 id 集合停用”的声明式写法。
+6. 手势落账后宿主要自己扫描所有区发现谁被拖开（`reconcile`）；`onApplied` 的 `result.collapsed` 其实带有这次变化的区，示例没用，文档也没说宿主该用哪个。
+7. 收起到 0 的区旁边仍留一条分隔线的缝（已知限制）：库没有“收起时连同它的缝一起收掉”的选项。
+8. 最大化的 `exclude` 要宿主列条的 id，而且“条在 main 外面”这个树形约束只能靠宿主记着（下条的位置）。
+
+## 未发现问题的方面
+- `resolveDrop`/`isOwnPosition`：竖向与横向、原位前后、条尾、其它条的判定我逐例跑过，行为与设计一致（缺的是测试，见 F3）。
+- `shown` 的补全规则与 `reconcile`、`moveTool` 的来源区换位/收起、最大化期间“被拒不退出”：读代码并跑过模型测试，没有发现状态不一致的路径。
+- `sashLocked` 对分支 id 的处理（只按区这一侧判）正确；`sashDisabled` 在渲染时被读（`useSashPresentation.ts:125`），`triggerRef(layout)` 后会重算。
+- 快捷键挂在 `window`、按 `event.code`、Alt+Shift 的教学注释对库与浏览器行为的说法都成立；拖动中让位给拖动会话的 Escape 的先后（示例的监听先装、会话的监听按下才装）没问题。
+- 读档判据逐项与计划对得上（原因我逐例核了，见 F5），没有漏判会造出“收不起的空区”的组合；`keepOriginal` 的备份与 `keep=false` 路径正确。
+- 单元测试 44 条通过，`bun run typecheck` 退出码 0。
+
+## 各级数量
+- 阻断：0
+- 重要：3（F1 条被压扁、F2 `restoreSize` 死数据与误拒存档、F3 落点否定面与横向无测试）
+- 建议：6（F4 到 F9）
+- 编码者自报项的结论：“restoreSize 变异无用例失败”的解释成立，且更进一步，字段本身多余，建议删字段而不是改测法（F2）；“拖不动”补强后前两项变异不必重跑，但那两条断言从未被证明能失败（F4）。
