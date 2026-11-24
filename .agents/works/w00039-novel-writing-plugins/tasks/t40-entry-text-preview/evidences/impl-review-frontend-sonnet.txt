@@ -1,0 +1,92 @@
+# w00039 t40 前端实现审查报告（审查范围 07e3d6b03..c4e732693 的前端部分）
+
+### 1. useTextPreview 的第一个 watch 每次按键都立即读一次，停顿延后被绕过（每个键两次整篇渲染）
+- 严重程度：重要　类别：正确性（兼测试空过）
+- 位置：packages/neuro-book/src/plugins/canon/web/text-preview.ts 约 96-110 行（`watch(() => [target(), options.stamp()] as const, ...)`）；text-preview.test.ts 第 1 个用例
+- 现象：getter 返回每次新建的数组，Vue 的 watch 对 getter 来源用 Object.is 比较，数组永远“变了”；而 `target()` 调的是 `options.input()`，宿主的 `input()` 在 EntryPageHost 里读 `textTab.editor.value.text`，所以源文字一变这个 getter 就重新求值、回调就触发，走 `void read()`：立即发请求。第二个 watch 随后又排一次 250ms 后的读。结果是每个按键先立即读一次、停顿后再读一次，Spec 输出 48 的“作者停下输入约四分之一秒后预览换成新的”和计划 3.2 的“只是 source 变了：停顿以后读”都没有实现。
+- 为什么是问题：计划自己写了解析 20 万字符约 0.36 秒、项目进程单线程、解析期间别的调用都等着。连续打字时每个按键都发一次整篇渲染，既是性能问题，也让 `sent` 计数的“只认最后一次”被迫天天起作用。
+- 如何核实：我写了最小实验 /tmp/review-w00039-t40-impl/scratch-frontend/watch.test.ts（用真实的 useTextPreview，input 与宿主同形，读一个 shallowRef 的 source，call 记录 source，schedule 手动）。`bun test` 输出：打开后 calls=["a"]；连着改成 "ab"、"abc"（各 nextTick）后 calls=["a","ab","abc"]，仍有 1 个等着的定时器。即每次改字都已经发出请求，没等延后。
+- 为什么现有测试没抓到：text-preview.test.ts 第 1 个用例只断言 `waiting()` 里有 [PREVIEW_DELAY] 和“还显示旧的”，而 RPC 是异步的，断言时立即读的那次还没回来；`fire()` 之后 `shown()==="改二"` 也会被立即读的结果满足。没有断言 `calls` 在 fire 之前没增加。entry-page.dom.test.ts 的用例同样只 waitUntil 最终文字。
+- 建议改法：第一个 watch 的 getter 返回字符串而不是数组（例如 `` `${target() ?? ""}|${String(stamp)}` `` 再把 null 单独判），或把 `target()` 改成只读 entry/position/mode 的专门 accessor（`PreviewInput` 拆成 `target` 与 `source` 两个 getter）。测试里在连续改字后、fire 之前断言 `desk.calls()` 不变，并在 fire 后断言只多一次。
+
+### 2. 预览栏在“还没读到任何东西”时画出“还没有主文字”，与宿主不读的几种状态不一致
+- 严重程度：重要　类别：正确性 / 界面
+- 位置：EntryPageHost.vue 约 613-628 行（`previewing`、`previewBlocks`），EntryPageHost.vue 模板里 `:preview="state.preview !== false"`，EntryTextEditor.vue 里自己的 `previewing`（`props.preview && slots.preview`），EntryText.vue 160 行空状态
+- 现象：预览栏出不出现由 EntryTextEditor 按 `preview` 属性定；宿主读不读由另一个 `previewing`（多了 `!frozen`、`deleted`、`tab`）定。两套判据对不上时，栏在、却没东西读：`previewBlocks` 在 `block === null` 时是 `[]`，`EntryText` 对空数组固定画“还没有主文字”（data-text-empty）。会出现这段假话的情形：
+  1. 刚进编辑到第一次读回来之前（一个来回，栏还在 150ms 淡入，会闪一下）；
+  2. `frozen`（读不出块、稿还在）：宿主 `previewing` 为假所以不读，栏照样画，且一直写“还没有主文字”，而输入框里正放着稿；
+  3. 第一次读就失败（连接断着、整篇超过 20 万字符 `too-large`、稿里的源文字本来就写得不对）：栏顶上写“太长，预览不了”等，栏里却是“还没有主文字”。
+- 为什么是问题：条目有文字，界面说没有；说明与栏顶那句互相矛盾。计划与 Spec 说“留着上一次读得出来的样子”，从没读到过时应该是空栏或占位，而不是阅读视图的空状态。
+- 如何核实：从代码读出（EntryText.vue 160 行 `v-if="props.blocks.length === 0"`、EntryPageHost `previewBlocks`）；情形 2 用 dom 测试挂 EntryPageHost 进 frozen 状态（entry-page.dom.test.ts 里“开始编辑的那一章不在了”那个用例的位置）看 `[data-text-preview] [data-text-empty]` 即可复现；未在真实浏览器里看，写作“从代码推断”。
+- 建议改法：把“栏在不在”收成一个来源。要么宿主把自己的 `previewing`（含 frozen）作为 `preview` 传给编辑器；要么没有 `block` 时给插槽里放一个不写字的占位（或整栏不画内容、只留栏顶那一句），只有读到过一块且块为空时才用空状态。
+
+### 3. 预览栏“跟到光标”的 `typed` 一次打字后永远为真：别处让预览内容变了，栏也会被拽回光标那一段
+- 严重程度：建议（Spec 把“只在打字时跟”写成合同，这里偏离它）　类别：正确性
+- 位置：EntryTextEditor.vue 约 108-146 行（`typed`、`onInput`、`follow`、`MutationObserver` 回调）
+- 现象：`typed` 在这次编辑里第一次 `onInput` 就置真，之后再不复位。`MutationObserver` 看的是整个预览栏的 childList/subtree/characterData，触发源不止“作者打了字”：世界版本变了或重新连上导致预览重读（EntryPageHost 的 `stamp`，别的窗口、别的编辑、bot 写入都会让它变）、栏顶那一句出现或消失（它也在栏里面）、值被别处改掉，只要预览 DOM 真变了，下一帧就执行 `follow()`，目标段落不完全在栏里就 `scrollTo(smooth)`。
+- 为什么是问题：作者打过一个字以后，用滚轮往上翻预览核对前面的段落，这时别处的写入让某个值变了，栏会自己滚回光标那一段。Spec 输出 48 与 Spec 概览写的是“只在打字时跟到光标那一段”。另外光标是 `follow` 触发那一刻才取的，“打字”这个条件没有任何时间窗口。
+- 如何核实：从代码推断（没有测试覆盖，见第 6 条）。真实浏览器里：左右分屏、长条目，打一个字，往上翻预览，再用另一个窗口改一个被引用条目的名字。
+- 建议改法：把“该跟”做成一次性的：`onInput` 置 `followPending = true`，`follow()` 执行（不论滚没滚）或超时后复位；或只在 `props.text` 变了的那次预览更新后跟。预览栏的 `wheel`/`scroll` 事件由作者触发时也可以清掉它。
+
+### 4. Monarch 规则：没闭合的 `{`、`<Tag` 会把整篇文档剩下的部分都当表达式/标签着色，与“认不出的字照正文画”不符；有一条二次回溯
+- 严重程度：建议　类别：正确性（着色）/ 性能
+- 位置：web/entry-language.ts 的 `inline`、`expression`、`tag` 状态与链接规则（约 52、59-62、76 行）；entry-language.test.ts 最后一个用例只断言“没有 invalid”
+- 现象（我用测试同款的 Monaco `MonarchTokenizer` 跑出来的，脚本 /tmp/review-w00039-t40-impl/scratch-frontend/lang.test.ts，真实分词器、非自造时序）：
+  1. `他说{+5 ` 之后的各行：`下一段正文 有 2 个字` 分成 type.field、number、type.field；`# 标题` 不再是标题（标题名被当字段名）；```` ``` ```` 围栏里的 `code` 也成了字段名。因为 `{` 用 `next` 压栈、只在 `}` 弹栈，扩展到文档末尾或下一个 `}`。
+  2. `先写 <Ref id="e2"` 没写 `>`：后面各行里的英文单词被画成 attribute.name、`=` 画成 delimiter，直到出现 `>`。中文不受影响（属性名只认 ASCII）。
+  3. `**{panel.魔力}**`、`*{panel.魔力}*` 整个按 strong/emphasis 一个记号画，花括号里的字段不着色（加粗规则整串吞掉了表达式）。
+  4. `2 * 3 * 4` 里的 `* 3 *` 被当斜体。
+  5. 链接规则 `(!?\[)((?:[^\]\\\n]|@escapes)*)(\]\([^)\n]*\))` 对一整行 `[` 是二次的：19000 个 `[` 加 `](` 一行，分词 1921 毫秒（同一份脚本里 19000 个 `-`、`*`、`**` 等都在 20 毫秒内）。Monaco 对 20000 字符以上的行自己不分词，所以上界约两秒，非恶意输入碰不到。
+  6. 同一行嵌套 100 层 `{`（`@push`）时 Monaco 抛 “maximum tokenizer stack size reached”。Monaco 的 `safeTokenize` 会接住、那一行按纯文本画（从代码读出，`textModelTokens.js`），不会卡死。
+- 为什么是问题：作者边写边编辑是这条规则的主场，写到一半的 `{` 与 `<Ref` 是最常见的状态（`{` 有自动补 `}`，`<` 没有）。规则文件头与 Spec 都说“认不出的字一律照正文画”，现在这种状态下后面整篇都被着成别的颜色，且测试只检查没有 `invalid` 记号，看不出来。内核对没闭合的 `{` 是拒收，所以这条是着色提示的问题，不是写入错误。
+- 建议改法：最简单的是让表达式与标签在遇到空行（连续两个换行、即段落结束）时强制回到 root（`expression`、`tag` 里加一条 `^\s*$` 退到 `@popall`），Markdown 里没有跨空行的 JSX 表达式；用例里补“没闭合的 `{` 之后的下一段仍按正文着色”。加粗与斜体规则里把 `@inline` 里的 `{` 先让出来或不作处理，视开发者要不要。第 5 点不用改（边角）。
+- 第 4 条的核实补充：用内核真实的 `parseDraft`（packages/nb-canon/src/render/syntax.ts，脚本 scratch-frontend/parse.test.ts）试了“空行能不能结束表达式”。行内表达式 `a {1 +\n\n 2} b` 与 `他说{+5\n\n后面` 都被内核拒收（Unexpected end of file in expression），`<Ref id="x"\n\n/>` 也拒收；而独占一行开头的流式表达式 `{\n\npanel.x\n}` 合法。所以上面的建议要收窄：只有“不在行首开始的 `{`”与标签遇到空行时才退回 root；行首开始的 `{` 不能在空行退出。
+
+### 5. 过渡与放宽的判据：整页放宽按“预览开着”定、分屏按容器宽度定；退场的淡出看不见；放宽的 max-width 过渡会在途中越过 880 的分界
+- 严重程度：建议　类别：正确性 / 界面
+- 位置：EntryPage.vue 末尾 `.entry-page__column` 的 `transition: max-width`；EntryPageHost.vue `:wide="previewing"`；EntryTextEditor.vue `.text-editor-pane-leave-active { position: absolute; visibility: hidden }` 与 `@container (min-width: 880px)`
+- 现象与理由（都是从代码推断，没有在浏览器里量）：
+  1. Spec 输出 48 写的是“编辑区不窄于 880 像素时……内容列随之放宽”。实现里 `wide` 只看“预览开着、在编辑”，不看容器宽度：编辑区只有 800 像素时（1440 的窗口、两边侧栏都开，e2e 里就是这个宽度）打开预览，页头、分页条、内容列也从 760 放宽到占满，而预览仍然排在输入框下面，放宽没有任何用处，还让页头与内容跟着变了一次宽度。
+  2. 分屏的判据是容器查询（`.text-editor` 的宽度），放宽的是它外面的 `max-width`，两者通过 760 到 1560 的 `transition: max-width`（`--motion-move`）耦合：过渡期间容器宽度每帧在变，会在中途越过 880，网格在过渡中间一下子从一栏切成两栏，Monaco（`automaticLayout`）与折行高度每帧重排。
+  3. 预览栏退场：`.text-editor-pane-leave-active` 同时设了 `opacity` 过渡与 `visibility: hidden`。`visibility` 立刻生效，淡出看不见，只是让一个看不见的绝对定位元素在 DOM 里多留一个过渡时长（e2e 的 `toHaveCount(0)` 与 dom 测试的收起判断要等这一段）。EntryTextEditor.md 写“出现时淡入、关掉时立刻让出位置”，与实现一致，但 Spec 与计划说的是“出现与消失有过渡”。
+- 建议改法：1 与 2 一起解决的做法是 `wide` 由编辑器自己的容器宽度决定（例如宿主不管 `wide`，EntryPage 的根上也建一个容器查询，或把放宽改成预览栏所在栏不受 760 约束）；至少把放宽的 `max-width` 过渡去掉（放宽一次到位，由预览栏的淡入承担动效）。3 去掉 `visibility: hidden`、只保留 `position: absolute` 与淡出，或在文档里明确“退场无过渡”，并改 Spec 的说法。
+
+### 6. 测试：跟随光标、吸顶、停顿都没有断言；text-preview 的第一个用例对第 1 条空过
+- 严重程度：重要（第 1 条没被抓住就是证据）　类别：测试
+- 位置：text-preview.test.ts 第一个用例（“打开预览马上读；……只读最后的那一份”）；entry-page.dom.test.ts 新增用例；canon-write.e2e.ts 新增段；EntryTextEditor.vue 的 `follow`
+- 现象：
+  1. text-preview 的“停顿后读最后一份”用例只断言 `waiting()` 里有一个 PREVIEW_DELAY 的定时器与“屏幕上仍是旧的”，而 RPC 是异步的，断言时立即发出的那次请求还没回来；fire 后 `shown()==="改二"` 也会被立即读的结果满足。没有断言 `calls()` 在 fire 之前没增加。我在第 1 条里的实验里 calls 为 ["a","ab","abc"]，现有断言一个都不会红。其余用例同理（“先发的晚回来”是把第一次读扣住，第二次读无论是立即读还是定时读都过）。
+  2. 计划第 6 节验收映射没有“打字后预览滚到光标那一段”这一行，Spec 输出 48 却有这句。`follow()`（`typed`、行号对齐、`scrollTo` 的目标、已经看得到就不动、`MutationObserver` 触发）没有任何单元、dom 或 e2e 用例；`data-source-line` 只测了 EntryText 画出行号，没测它与 `follow` 的对接。我用真实世界服务验证了行号确实随 RPC 回来（scratch-frontend/pos.test.ts：heading 1、paragraph 3、list 5、listItem 5/6、blockquote 8、code 10、table 14、thematicBreak 18、paragraph 20，与源文字行号一致），所以数据是够的，缺的是对接的断言。
+  3. 计划“风险”一节说用 e2e 的可见性断言看住“预览栏被页头盖住或伸出屏幕”。新加的 e2e 只断言了预览栏计算样式里的 `top` 等于页头高度加 12 像素，没有断言栏的上沿不被页头盖住、栏的下沿在视口内、滚一段以后它确实吸住、条目页变长时 `max-height` 生效。变量接线对了不等于吸顶对了。
+  4. “关着时不读”：dom 测试关掉预览后只断言栏消失与 `data-wide` 没了，没断言之后不再发请求；模块级的用例（关掉预览：等着的那次不再读）只证明了 text-preview 本身。
+  5. 计划映射里“窄处预览排在下面、没有横向滚动 | Lab 截图（390 宽）”没有自动判据；e2e 的窄断言是 1440 视口下的相对位置，不查横向滚动。
+- 建议改法：text-preview 用例补 `calls` 断言（连续打字后 fire 前不增加，fire 后只多一次）；给 `follow` 加 dom 或 e2e 用例（长预览 + 光标在后半段，打一个字后断言预览栏 `scrollTop` 增大且目标段落在栏内，再单独断言没打字时世界变了不滚——对应第 3 条）；e2e 补“滚一段以后预览栏上沿 ≥ 页头下沿”的断言。
+- 第 1 条补充：宿主的 `input()` 读的是 `textTab.editor.value.text`，而 `editor` 是一个把 `saved`、`dirty`、`phase`、`message`、`submitBlocked` 等都收在一起的 computed，其中任何一项变（例如暂存状态从 unsaved 变 saved）都会让第一个 watch 的 getter 重新求值，数组每次都“变了”，于是没有打字也会多读一次。改成返回字符串以后这条一并消失。
+
+### 7. 无障碍与小处：栏顶那一句是随内容一起插入的 live region；若干文档与代码不一致的小处
+- 严重程度：建议　类别：界面 / 代码质量 / 文档
+- 位置：EntryTextEditor.vue 模板里 `<p role="status" data-text-preview-note>`（在 `v-if` 的 Transition 内）；EntryPage.vue 227 行 `data-entry-page-body`；EntryPage.vue 里 `column` 注释；EntryPageHost.vue 612 行注释；计划 3.3
+- 现象：
+  1. `role="status"` 的 `<p>` 与它的文字同时由 `v-if` 插入。多数读屏对“带着内容一起出现的 live region”不播报，播报要求区域先在页面上、之后文字才变。写错了当场知道在哪一行，这是这条功能的主要价值，却可能只对看得见的人成立。改法：让一个常驻的空 `role="status"` 容器在栏里，`previewNote` 只改它的文字（动画仍可用外面的网格行高过渡）。
+  2. `EntryPage.vue` 给内容列加的 `data-entry-page-body` 没有任何使用者（grep 全仓：只有这一处定义）。要么去掉，要么 e2e 用起来。
+  3. `column` 的注释写“放宽时两栏各 760，加中间的间隔”，实际是 1560（EntryPage.md 也写 1560），而计划 3.3 写 1520。内容列自己带 `px-8`、max-width 是含内边距的，所以内容区是 1496，两栏各约 736；Spec 的“两栏各不超过 760”成立，但注释的算式与数字对不上。该写成“1560 = 两个 760 的内容列加间隔的近似值”或直接写为什么是 1560；计划稿同步成 1560。
+  4. `EntryPageHost.vue` 612 行注释说“读不出位置时也不读”，代码里没有这一项判断，靠的是 `frozen`（读不出块）；注释应改成 `frozen`，或加上真正的位置判断。
+  5. `state.preview !== false` 在 `previewing` 与模板里各写了一遍，应该是同一个 computed（也方便解决第 2 条）。
+
+## 未发现问题的方面（仔细检查后）
+- `data-entry-text` 换成 `data-entry-preview`：全仓（排除 legacy）按 `data-entry-text` 找阅读视图的只有 canon-write.e2e.ts 与 entry-page.dom.test.ts，都是在“回到阅读视图”之后查，不会认到预览；按 `[data-value]` 找的 dom 用例与 canon-author.e2e 的 `value()` 都发生在阅读视图，没有一处在编辑中查它；`.canon-value` 的 e2e 定位都带 `[data-field=…]` 前缀。没发现被破坏的。
+- `follow()` 的代价：长文下 `querySelectorAll` 与 `slice().split()` 都是一次线性扫描，合并在 `requestAnimationFrame` 里，数量级（几千个元素、20 万字符）没有问题；卸载时 `disconnect()` 与 `cancelAnimationFrame` 都做了；`pane` 随 Transition 卸载时观察器也会断开重接。
+- text-preview 的“只认最后一次”、停预览或作用域销毁时在途请求作废、`too-large` 不发请求并让更早的在途结果作废、`stamp` 变了与停顿中定时器并存时不会读两次（`read()` 先取消定时器）：这些我看过，没发现问题（唯一的问题是第 1 条的 getter 比较）。
+- `EntryPage` 的量取：`scrollParent` 取到的是编辑区的页面容器（EditorGroup.vue 里的 `absolute inset-0 overflow-auto`，中间没有别的 overflow 祖先），页头吸顶用 `getComputedStyle(position)` 判断，页头出现与更换时 `watch(header)` 重新观察；窄到 480 以下时 top 为 0。没发现量错的路径；Lab 里没有滚动区时回落到 `100vh`。
+- 预览里渲染的是文本节点与 `h()` 元素，没有 `v-html`；`data-ref`、`title` 来自内核给的名字与标签，作为属性值写入，没有注入面。
+- Monarch 的 `next` 是压栈（不是切换），所以 `heading` → `expression` → `}` 弹回 `heading` → 行尾弹回 root 是对的；entry-language.test.ts 用 Monaco 内部的 `MonarchTokenizer`：依赖的是 monaco-editor 的内部模块路径与五个参数的构造函数，被 `^0.55.1`（0.x 的 caret 只放行补丁版）限制在 0.55 内，测试文件里有说明，并且 e2e 另有真实页面里的着色断言，我认为合适；以后升 monaco 的次版本时这份测试要一起看。
+- 语言登记：id `canon-entry` 符合 `LANGUAGE_ID_PATTERN`，声明只有 aliases，贡献点与交付都在 plugin.ts；`languages.ts` 的 `has`/`install`/`#load` 对这个形状的消费没有问题；编辑器区没登记时（Lab）`languageId()` 回落纯文本。
+- 预览栏的“单层滚动权”例外：EntryTextEditor.md 里写了理由，Spec 输出 48 把“吸顶、自己滚”写成了合同，不是实现者私下的偏离；我没有就这条另立发现。
+- `vue-tsc --noEmit -p tsconfig.web.json`、`EntryTextEditor.dom.test.ts`、`EntryText.dom.test.ts`、`text-preview.test.ts`、`entry-language.test.ts` 与 entry-page.dom.test.ts 里的新用例（`-t "输出 48"`）在 HEAD 上都通过；没有跑 e2e 与开发服务。
+
+## 汇总
+有效发现 7 条：阻断 0，重要 3（第 1、2、6 条），建议 4（第 3、4、5、7 条）。
+最严重的是第 1 条：`useTextPreview` 第一个 watch 的 getter 返回数组，每个按键与每次暂存状态变化都立即发一次整篇渲染，停顿延后形同虚设；第 6 条是它没被测试发现的原因（并列出 `follow`、吸顶没有断言）；第 2 条是预览栏在没读到内容时对有文字的条目写“还没有主文字”。
+需要主会话在真实浏览器里确认的：第 3 条（打字后往上翻预览、别处改值时栏会不会被拽走）、第 5 条（1440 窗口打开预览时页头是否无谓地变宽，1920 下放宽过渡中间是否有跳）、第 2 条情形 2（frozen 时预览栏的内容）。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7

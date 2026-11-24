@@ -1,0 +1,87 @@
+# w00039 t40 内核与后端审查（renderSource），范围 07e3d6b03..c4e732693
+
+核实环境：nb-canon `bun test tests/rendering.test.ts` 107 过；neuro-book `bun test src/plugins/canon/canon.test.ts -t renderSource` 1 过；nb-canon `tsc --noEmit` 退出码 0。实验脚本与输出在 /tmp/review-w00039-t40-impl/scratch-backend/（path.ts、grow.ts、stack.ts、real.ts、refs.ts 直接调内核；rpc.test.ts 走真实项目子进程与 RPC）。
+
+### 1. 20 万字符的上限不是真正起作用的上限：结果预算在 2.5 万到 8.5 万字符就先到，而且代价已经付了
+严重程度：建议
+类别：安全与性能
+位置：packages/neuro-book/src/plugins/canon/shared/contracts.ts:39-43（RENDER_SOURCE_MAX 与“量过”的注释）；backend/remote.ts:135
+现象：渲染结果的 JSON 是源文字的 11 到 40 倍，而 `read()` 的预算（`CANON_BUDGET_BYTES` 约 983 KB）在结果构建完以后才查。真实内核实测（real.ts、path.ts）：
+- 带字段与引用的正文（每约 110 字符 3 个 `{panel.魔力}` 加 1 个 `<Ref>`，结果是源文字的 11.3 倍）：5.4 万字符 246 毫秒、结果 0.6 MB；10.9 万字符 335 毫秒、1.22 MB（已超预算）；21.9 万字符 683 毫秒、2.46 MB。也就是约 8.5 万字符起，渲染完才得 `too-large`。
+- 字段密集（`魔力{panel.魔力}` 重复）：6 万字符 630 毫秒、1.16 MB（超预算）；15.6 万字符 1.3 秒、3.0 MB。
+- 短段落纯文字（`一段文字。\n\n` 重复）：14 万字符 880 毫秒、结果 5.6 MB，约 2.4 万字符起超预算。真实 RPC（rpc.test.ts）里 `"一段。\n\n"×30000` 得 `too-large`，耗时同量级。
+注释里“10 万字符约 0.24 秒、20 万约 0.36 秒”只对差不多全是纯文字的输入成立：我的 20 万字符纯文本只要 37 毫秒，而上面几组是它的 10 到 35 倍，且最后全被丢弃。
+为什么是问题：项目进程单线程，网页端每停顿 250 毫秒发一次。一个 10 万字符以上的、带字段的主文字，每次停顿都在项目进程里白烧 0.3 到 0.7 秒 CPU，最后回 `too-large`、预览栏什么都没有；这段时间别的窗口的读写都排在后面。20 万这个数对“省 CPU”和“让预览可用”都没有约束力。
+如何核实：`cd packages/nb-canon && bun /tmp/review-w00039-t40-impl/scratch-backend/real.ts`；`bun .../path.ts paras`、`bun .../path.ts exprs`。
+建议改法：二选一，都不复杂。（a）把上限降到结果预算实际撑得住的量级（例如 5 万字符，并在注释里写明依据是“结果约为源文字的 10 到 40 倍、预算约 1 MB”）；（b）保留 20 万，但在渲染前按源文字里 `{`、`<`、换行的个数估一个下限，明显超预算时直接回 `too-large`。注释里的“量过”要写明量的是什么样的文字，别让读者以为是普通上限。
+
+### 2. 没有深度或结构的约束：深层嵌套的输入在 4 万字符就得 RangeError，10 万字符先卡 15 秒
+严重程度：建议（输入要靠粘贴才会出现，但失败方式不好：卡死整个项目进程、错误码误导）
+类别：安全与性能
+位置：packages/nb-canon/src/render/render.ts:187（`structuredClone`）与 :188-212（递归的 `replace`）；syntax.ts:174（递归的 `visit`）；entry.ts:57
+现象：`renderSourceForAuthor` 对任意没校验过的文字走“解析、克隆、递归替换”。实测（stack.ts、grow.ts）：`"> ".repeat(n)`：n=10000（2 万字符）260 毫秒正常；n=20000（4 万字符）695 毫秒后 `RangeError: Maximum call stack size exceeded`（栈在 structuredClone）；n=30000 1.4 秒后抛（栈在 visit）；n=50000 3.8 秒；n=10 万（20 万字符）14.8 秒后抛。嵌套列表（每层缩进多 2 个空格）25 万字符 5.2 秒、100 万字符 43 秒仍未完。真实 RPC（rpc.test.ts）里 4 万字符的 `"> "` 重复得 `{"ok":false,"failure":{"code":"provider-error","detail":"提供方执行失败"}}`，耗时 748 毫秒，之后的调用正常（进程没死）。
+为什么是问题：失败按“提供方执行失败”报给网页端，作者看到的原因与内容无关；10 万个 `>` 这种输入会让单线程的项目进程停 15 秒。写入路径上同样的输入也有这个问题（`blockProblem` 之后每次渲染存下来的块都抛），但那是写入后才有的旧问题；预览把它变成了“每次停顿都能触发、不需要写入”。
+如何核实：`cd packages/nb-canon && bun /tmp/review-w00039-t40-impl/scratch-backend/stack.ts 20000 50000`；真实链路 `cd packages/neuro-book && bun test /tmp/review-w00039-t40-impl/scratch-backend/rpc.test.ts`，看输出里的 DEEP 行。
+建议改法：在 `renderSourceForAuthor` 外层（或 remote.ts 这一层）把渲染里抛的 RangeError 收成 `{code:"too-large"}` 或一个明确的失败码，不让它走 `provider-error`；要限时就在 parseDraft 之后按树的深度或节点数设上限（遍历用显式栈）。如果认定这类输入不会出现、不处理，也请在 RENDER_SOURCE_MAX 的注释里写一句“只约束长度，不约束嵌套深度”。按“窄场景选简单改法”，只做把异常收成明确失败码这一件就够。
+补充（第 2 条）：写入路径的同一问题已实测（stored.ts）：存一块 `"> ".repeat(20000)` 的条目，发布通过，之后 `renderEntryForAuthor` 抛 RangeError。所以这是旧问题，预览只是让它不用写入就能触发；第 2 条的改法放在 `renderBlockForAuthor` 一层能同时盖住两条路径。
+
+### 3. Spec 输出 16 的几句没有用例：“解析的结果也不留”、计划模式、那条线读不到、引用已删除的条目
+严重程度：建议
+类别：测试
+位置：packages/nb-canon/tests/rendering.test.ts:141-178（新加的一组）
+现象：逐句对 rendering.md 输出 16：
+- “块 id 固定为 source、结构与输出 7 相同”：有（用例 1）。
+- “求值与存下来的块用同一个上下文”：只验了实际模式下 ch5 与 ch1 两个位置；没有 `planned` 模式的用例，没有“引用的条目已删除”的用例（`canonRef.deleted: true`、`已删除的条目`），没有引用别的条目的字段（`ref("e2")…`）的用例。把 `renderSourceForAuthor` 里传给 `context` 的 `mode` 换成常量 "actual"，或把 `hideUpcoming` 改成 true，现有断言都不会失败（从代码推断，未做变异）。
+- “不写入、世界版本不变”：有（用例 1 末尾）。
+- “解析的结果也不留”：没有。这是提交 b25146adf 的主要目的，却没有任何用例引用 `parseDraft`；把 `parseDraft` 换回 `parseBlock`，全部用例照过（渲染结果与缓存与否无关）。可观察的做法：同一段未存过的源文字，`parseDraft(s) !== parseDraft(s)`（对比 `parseBlock(s) === parseBlock(s)`）；以及源文字与某个已缓存块相同时返回缓存的那个。
+- “条目不存在、那一章或那条线读不到时的结果与渲染存下来的块相同”：用例 4 只有 `null` 与 `chapter-not-found`，没有 `line-not-found`（位置里写个不存在的线）。RPC 层我在 rpc.test.ts 里验过两种位置都得 `chapter-not-found`、`line-not-found`，所以实现是对的，缺的是常驻用例。
+如何核实：`grep -rn parseDraft packages/nb-canon/tests packages/neuro-book/src` 只在源码里命中；读用例 4 即可。
+建议改法：在同一个 describe 里补三条小用例：计划模式下读到的与实际模式不同的值（星瑕在 ch1 与 ch5 之间有计划即可）；`<Ref>` 指向删除的条目得 deleted:true；`line-not-found`；再加一条按上面可观察的方式断言 parseDraft 不进缓存（这条是对实现细节的断言，但这是 Spec 明写的行为，且没有别的观察口）。
+
+### 4. RENDER_SOURCE_MAX 实际按 UTF-16 码元计，Spec 与注释写的是“字符”
+严重程度：建议
+类别：文档
+位置：packages/neuro-book/src/plugins/canon/backend/remote.ts:135（`input.source.length`）；web/text-preview.ts（同样用 `.length`）；shared/contracts.ts:39-43
+现象：`.length` 对基本平面以外的字符（emoji、少数生僻字）算 2。`"😀".repeat(100001)` 共 10 万个字符，却得 `too-large`。网页端与后端用同一个口径，所以前后一致，只是与 project.md 方法表“20 万个字符”、rendering.md 输出 16 的字面不符。
+为什么是问题：只是字面不符，小说正文里碰到的概率很低，所以不建议改代码。
+如何核实：`"😀".repeat(100001).length` 为 200002。
+建议改法：在 contracts.ts 的注释与 Spec 里写“按 UTF-16 码元计（`String.length`）”；不用改实现。
+
+### 5. 内核公开入口多导出了没人用的两个名字
+严重程度：建议
+类别：代码质量
+位置：packages/nb-canon/src/index.ts:46（`renderSourceForAuthor`、`SOURCE_BLOCK_ID`）
+现象：世界服务直接从 `../render/entry` 取 `renderSourceForAuthor`，测试也从 `../src/render/entry` 导入；`SOURCE_BLOCK_ID` 只在 entry.ts 与 index.ts 出现（grep packages 全部命中文件可见）。两者没有任何包外的使用者。
+为什么是问题：开发者当天说过“内核先不加东西、没人用的能力不开入口”；而且这两个名字进了包的公开面，以后要改就是破坏性改动。
+如何核实：`grep -rn "SOURCE_BLOCK_ID\|renderSourceForAuthor" packages --include='*.ts' --exclude-dir=node_modules`。
+建议改法：从 index.ts 的导出里去掉这两个名字（`renderEntryForAuthor` 等既有名字的去留不在本次范围）；`SOURCE_BLOCK_ID` 也可以不导出，只留 entry.ts 内部常量。
+
+### 6. 记录：世界服务这一层不设上限，进程内直接调用不受 `too-large` 约束
+严重程度：建议
+类别：不变量
+位置：packages/nb-canon/src/service/service.ts:1157；backend/remote.ts:135
+现象：`service.renderSource` 本身不查长度，上限只在 remote.ts 一层。现在项目里唯一的调用方是 remote.ts（grep 确认），所以实际没有绕过；但 project.md 把 `too-large` 写成方法的行为（方法表“源文字超过 20 万个字符……是 too-large”），而 `too-large` 的结果预算也是放在 remote.ts（`within`）的，两者放一处是一致的。
+为什么是问题：不算问题，仅记录：以后若有进程内的调用方（例如别的插件拿 `service` 直接调），上限不会生效；与现有 `too-large` 的放法一致，不建议为此在 service 里加第二层。
+建议改法：不改。如要加，注释里写明“上限只在远程层”。
+
+### 7. （撤回）“不收视图令牌会被忽略而绕过位置上限”
+严重程度：无
+类别：不变量
+核实：真实 RPC（rpc.test.ts）里带 `view: "zzz"` 的 renderSource 得 `{"ok":false,"failure":{"code":"invalid-input","detail":"/：must not have additional properties"}}`，是合同层（`defineRemoteService` 把对象 schema 补成 additionalProperties:false）直接拒，不是被忽略，也没有走到世界服务。与 `textBlocks` 的做法一致；project.md 输出 24 的清单里没有这两个方法。唯一与 `denied()` 不同的是这种拒收不记视图审计，但 `textBlocks` 同样，且输出 24 只要求“带令牌的写入与预览”等列出的方法记审计。持令牌的调用方本来就能不带令牌调 `render`，所以 `renderSource` 没有开出新的位置绕过。
+有效发现的编号：1、2、3、4、5、6（第 7 条已撤回）
+
+### 6. 记录：世界服务这一层不设上限（撤回）
+撤回：与现有 `too-large` 的放法（结果预算同在 remote.ts 一层）一致，唯一调用方是 remote.ts，不算问题；不建议在 service 里加第二层。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- 求值上下文：`renderSourceForAuthor` 用同一个 `context(engine, world, entry, position, mode, {})`，与不带视图令牌的 `renderEntryForAuthor`/`service.render` 一致（位置上的线、模式、`hideUpcoming` 缺省都相同）；条目不存在、那一章或线读不到的返回与存下来的块相同（真实 RPC 验过 null、chapter-not-found、line-not-found）；条目出场前自己的字段照常读，与存下来的块一致。
+- 块 id 固定为 `source`：结果里的 `text[...]` 只在存下来的块里找，草稿不进条目，不会撞；存下来的块 id 由写入方按 `b<数>` 生成，正常路径不会是 `source`。
+- 只读：`parseDraft` 只读缓存、不写；解析结果（含缓存命中时共用的对象）在 `renderBlockForAuthor` 里先 `structuredClone` 再改，不改共享对象；引擎侧只碰既有的 `timeline.lastRead` 单槽读缓存，与普通渲染一样；没有诊断、审计、折叠结果的写入；版本不变。
+- 读取戳、缺省位置、不冻结：与相邻的 `render`、`textBlocks` 一致（`{...result, ...this.#stampOf(world)}`、`position(service, input.position)`）。
+- 合同：`renderSource` 的输入 schema 拒多余字段（带 `view` 得 `invalid-input`）；上限边界（正好 20 万字符通过、多 1 个得 `too-large`）在 canon.test.ts 里被精确测到，不会被请求预算混淆（20 万个“字”约 600 KB，低于预算）。
+- 渲染路径上除 `parseBlock` 外没有按原文或按结果留东西的缓存（`resolverFor` 的 `views` 是每次调用的局部 Map）。
+
+## 各级数量
+阻断 0；重要 0；建议 5（第 1、2、3、4、5 条）；撤回 2（第 6、7 条）。
+
+有效发现的编号：1、2、3、4、5
