@@ -2,6 +2,10 @@
  * `nb-site serve`（`site.operations` 输出 1 到 4、8、9 与状态表）。步骤按顺序写在 `serve()` 里，每步旁边写明它在收口的
  * `try` 之内还是之外、在开始受理请求之前还是之后。收口（`finally`）对每条退出路径都一样：断开 HTTP → 停定时任务 →
  * 按创建的相反顺序 `close()` 已建成的实例 → 关探测连接与库 → 放锁 → `site.stopped`。
+ *
+ * 时限：排空在途请求用停止时限（从收到停止请求算起）；之后停定时任务、每个模块的 `close()` 各另有至多
+ * `MODULE_CLEANUP_MS`，不与排空共用，排空用满时限时模块照样有时间收尾。停止期间再来一次信号时这几步都不再等。
+ * 截止时刻都按单调时钟（`performance.now()`）算，墙钟回拨不会把它推后。
  */
 
 import type {Database} from "bun:sqlite";
@@ -9,6 +13,7 @@ import type {Server} from "bun";
 
 import {createClientAddress} from "../client-address";
 import {configFailure, parseSiteConfig, type Env} from "../config";
+import {yieldToEventLoop} from "../db/migrate";
 import {openProbeDb} from "../db/open";
 import {createReadiness, type ReadinessTarget} from "../health";
 import {JobScheduler} from "../jobs";
@@ -17,22 +22,29 @@ import {lockModules} from "../lock";
 import {errorType, type Logger} from "../log";
 import type {Clock, CommandFailure, ModuleInstance, SiteModule} from "../module";
 import {createSiteApp, MountError, siteFetch, type MountedModule} from "../site";
-import {busyFailure, closeAll, failed, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
+import {closeAll, failed, lockFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
 
+/** 给模块的业务时间（`ModuleContext.clock`），是墙钟；入口自己的时限不用它。 */
 const SYSTEM_CLOCK: Clock = {now: () => Date.now()};
+
+/** 停定时任务、每个模块的 `close()` 各自的上限（`site.operations` 输出 9 的“每个模块至多 2 秒收尾”）。 */
+const MODULE_CLEANUP_MS = 2_000;
 
 function startFailure(module: string, error: unknown): CommandFailure {
     return {code: "start_failed", message: `module ${module} failed to start`, fields: {module, errorType: errorType(error)}};
 }
 
-/** `work` 在 `deadline` 之前、且没被强制时 settle 就返回 true；返回前清掉计时器，免得它把进程多留一会儿。`work` 的失败由调用方先接住。 */
+/**
+ * `work` 在 `deadline`（`performance.now()` 的时刻）之前、且没被强制时 settle 就返回 true；返回前清掉计时器，免得它把进程
+ * 多留一会儿。`work` 的失败由调用方先接住。
+ */
 async function settlesBefore(work: Promise<void>, deadline: number, forced: Promise<void>): Promise<boolean> {
     let settled = false;
     const tracked = work.then(() => {
         settled = true;
     });
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([tracked, new Promise<void>((resolve) => (timer = setTimeout(resolve, Math.max(0, deadline - Date.now())))), forced]);
+    await Promise.race([tracked, new Promise<void>((resolve) => (timer = setTimeout(resolve, Math.max(0, deadline - performance.now())))), forced]);
     clearTimeout(timer);
     return settled;
 }
@@ -51,7 +63,7 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
 
     // 2. 按模块取锁（try 之外、受理之前）：取不到时 `lockModules` 已放掉取到的，不打开库、不执行迁移。
     const locks = lockModules(base.dataDir, modules.map((module) => module.name));
-    if (!locks.ok) return failed(busyFailure(locks.module));
+    if (!locks.ok) return failed(lockFailure(locks));
 
     const dbs = new Map<string, Database>();
     const probes = new Map<string, Database>();
@@ -74,7 +86,7 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
             const moduleLog = log.child({module: module.name});
             let instance: ModuleInstance;
             try {
-                instance = module.create({
+                instance = await module.create({
                     db: dbs.get(module.name)!,
                     config: parsed.config.modules.get(module.name),
                     site: base.site,
@@ -102,22 +114,24 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
         const mounts: MountedModule[] = created.flatMap(({module, instance}) => instance.mounts.map((mount) => ({module, mount})));
         let app: ReturnType<typeof createSiteApp>;
         try {
-            app = createSiteApp({mounts, telemetryHost: base.telemetryHost, readiness: createReadiness(targets, {clock: SYSTEM_CLOCK, log}), log});
+            app = createSiteApp({mounts, telemetryHost: base.telemetryHost, readiness: createReadiness(targets, {log}), log});
         } catch (error) {
             if (!(error instanceof MountError)) throw error;
             return failed(startFailure(error.module, error));
         }
 
-        // 7. 监听之前再查一次停止（try 之内、受理之前）：迁移做完之后、建实例期间到的信号在这里生效，不监听就退出。
+        // 7. 监听之前再查一次停止（try 之内、受理之前）。先让出一次：上一次让出之后的步骤（最后一条迁移之后的收尾、
+        // 探测连接、同步的 create()）期间到的信号排在宏任务里，不让出就看不见，进程会先监听再停。
+        await yieldToEventLoop();
         if (stop.requested) return SUCCEEDED;
 
         // 8. 监听（try 之内；从这一步起受理请求）。
         try {
             server = Bun.serve({hostname: base.host, port: base.port, fetch: siteFetch(app)});
         } catch (error) {
-            // Bun 的说明里带着地址与端口，只报错误码。
-            const errorCode = (error as {code?: unknown}).code;
-            return failed({code: "listen_failed", message: "could not listen on the configured host and port", fields: {errorCode: typeof errorCode === "string" ? errorCode : errorType(error)}});
+            // Bun 的说明里带着地址与端口，只报系统给的错误码；拿不到时省略这个字段。
+            const errorCode = (error as {code?: unknown} | undefined)?.code;
+            return failed({code: "listen_failed", message: "could not listen on the configured host and port", fields: typeof errorCode === "string" ? {errorCode} : {}});
         }
         log.info("site.listening", "site is listening", {url: server.url.href});
 
@@ -144,12 +158,12 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
         // 收口：每条退出路径都走这里（受理之后的路径已不再受理）。
         // 断开还连着的：失败路径上没排空过；排空赢了时这一步什么都不做。
         if (server !== undefined) await server.stop(true);
-        // 停止请求之外的退出路径（迁移失败、监听失败、start 失败）没有 requestedAt，时限从这里算。
-        const deadline = (stop.requestedAt ?? Date.now()) + base.shutdownTimeoutMs;
-        if (!(await settlesBefore(scheduler.stop(), deadline, stop.whenForced))) log.warn("job.stop_timeout", "scheduled jobs did not finish before the stop deadline");
+        if (!(await settlesBefore(scheduler.stop(), performance.now() + MODULE_CLEANUP_MS, stop.whenForced))) {
+            log.warn("job.stop_timeout", "scheduled jobs did not finish in time", {forced: stop.forced});
+        }
         for (const {module, instance, log: moduleLog} of created.reverse()) {
             if (instance.close === undefined) continue;
-            // 时限过了也调用：每个建成的实例都要收到一次 close()；只是不再等它。
+            // 强制之后也调用：每个建成的实例都要收到一次 close()；只是不再等它。
             // 包进 then：同步抛出的 close() 与 reject 的一样处理。
             const close = instance.close.bind(instance);
             const closing = Promise.resolve()
@@ -157,7 +171,9 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
                 .catch((error: unknown) => {
                     moduleLog.error("module.close_failed", "module close() failed", {errorType: errorType(error)});
                 });
-            if (!(await settlesBefore(closing, deadline, stop.whenForced))) log.warn("module.close_timeout", "module close() did not finish before the stop deadline", {module});
+            if (!(await settlesBefore(closing, performance.now() + MODULE_CLEANUP_MS, stop.whenForced))) {
+                log.warn("module.close_timeout", "module close() did not finish in time", {module, forced: stop.forced});
+            }
         }
         closeAll(probes);
         closeAll(dbs);

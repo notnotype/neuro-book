@@ -21,26 +21,28 @@
 - 每个模块的迁移放在模块包的 `migrations/NNNN_<小写下划线名>.sql`：`NNNN` 是四位、模块内递增的编号，id 是去掉 `.sql` 的文件名。两个模块各自编号。
 - 模块包的 `src/migrations.ts` 按编号逐个以 `with {type: "text"}` 导入；`src/migrations.test.ts` 核对清单与目录一一对应。
 - 只往前（ADR 0061 决策 2）：发布过的迁移不能改，每个版本的迁移要让上一个版本照常运行，破坏性的改动拆到下一个版本。
-- 纯 SQL，可以多条语句；运行器给每条迁移包一个 `BEGIN IMMEDIATE` 事务。不能写 `PRAGMA`、`ATTACH`、`DETACH`、`VACUUM`（运行器按文字拒收）；不能结束运行器开的事务（`COMMIT`、`END`、`ROLLBACK`），执行后查出来就失败，但 `COMMIT` 之前的部分已经提交；合同测试每次从空的数据目录启动，会把每条迁移执行一遍，发布前就会暴露。触发器的 `BEGIN … END` 可以写。
+- 纯 SQL，可以多条语句；运行器给每条迁移包一个 `BEGIN IMMEDIATE` 事务，里面再开一个守卫保存点。不能写 `PRAGMA`、`ATTACH`、`DETACH`、`VACUUM`（运行器按文字拒收）；不能结束运行器开的事务（`COMMIT`、`END`、`ROLLBACK`，之后再 `BEGIN` 也一样），执行完释放不了守卫保存点就按 `transaction_ended` 失败，但 `COMMIT` 之前的部分已经提交、撤不回；合同测试每次从空的数据目录启动，会把每条迁移执行一遍，发布前就会暴露。触发器的 `BEGIN … END`、迁移自己的保存点可以写。
+- 触发器里 `RAISE` 的说明只写固定文字，不由数据拼成：迁移失败时 SQLite 的错误说明会原样进标准错误上的失败行（`dbMessage`）。
 - 外键由运行器在事务外关掉、全部做完再打开，迁移里照 SQLite 文档的步骤重建表（建新表、拷数据、删旧表、改名）不会级联删掉子表；每条提交前跑 `PRAGMA foreign_key_check`，留下悬空引用的迁移被回滚。
-- 库里的迁移账本是表 `site_migrations(id, checksum, applied_at)`，上一个版本的程序要读写它：三列的名字与含义不变，只许加可为空或带缺省值的列，读写一律写明列名。`applied_at` 是到毫秒的 ISO 8601 UTC；`checksum` 是去掉开头 BOM、换成 LF 之后的 SHA-256。
+- 库里的迁移账本是表 `site_migrations(id, checksum, applied_at)`，上一个版本的程序要读写它：三列的名字与含义不变，只许加可为空或带缺省值的列，读写一律写明列名。`applied_at` 是到毫秒的 ISO 8601 UTC；`checksum` 是去掉开头 BOM、换成 LF 之后的 SHA-256，执行的也是这份归一化之后的文字（字符串字面量里的 CRLF 落库成 LF）。
 - 账本里有、清单里没有的迁移：编号比清单最大的还大，是更新的版本留下的，照常运行；不大于清单最大编号（合并后改号、只改名），拒绝运行。发布过的迁移不改号、不改名、不改内容。
 - 源码与迁移里不许附加别的库（`ATTACH`），由 `src/architecture.test.ts` 检查。
 
 ## 模块怎样接进入口
 
 - 模块交给入口的形状是 `src/module.ts` 的 `SiteModule`，产品的列表在 `src/modules.ts`。模块用到的入口（`site`、`ingest`）静态写在 `surfaces` 里；声明了 `ingest` 的模块装进进程时才要求 `NB_SITE_TELEMETRY_URL`。
-- 模块的库连接（`ModuleContext.db`）归模块所有，可以开跨 await 的事务；入口不在上面执行语句，就绪检查另有一条不等锁的探测连接。
+- 模块的库连接（`ModuleContext.db`）归模块所有；入口不在上面执行语句，就绪检查另有一条不等锁的探测连接。连接上同一时刻只有一个事务，所以这条连接上的全部访问由模块自己排成一队，开跨 await 的事务的一方提交之前独占它（细节见 `ModuleContext.db` 的注释）。
+- `create()` 可以是异步的；抛错或 reject 都按 `start_failed` 收口。
 - 模块取时间用 `context.clock`，定时任务经 `context.jobs` 登记，不直接用 `Date.now()` 与 `setInterval`：入口在 `start()` 之后才开始调度、停止时在 `close()` 之前停掉。
 - 要请求方地址时用 `context.clientAddress(c)`，不自己读 `X-Forwarded-For`；返回值不写进日志。
-- 模块的子命令写在 `commands` 里，按 `access` 选 `exclusive` 或 `shared`（规则见 `SiteCommand` 的注释）；命令名不能与 `serve`、`migrate`、`backup` 及别的模块的命令重名。
+- 模块的子命令写在 `commands` 里，按 `access` 选 `exclusive` 或 `shared`（规则见 `SiteCommand` 的注释；`shared` 只在迁移期间拿锁）；命令名不能与 `serve`、`migrate`、`backup` 及别的模块的命令重名。会停下来等输入或跑很久的命令要看 `context.signal`，收手时 reject 为 `signal.reason`，入口报 `interrupted`。
 - 日志与失败行的 `message` 用英文、`event` 与 `code` 是稳定的英文词；不放环境变量的取值、数据目录的路径、来源地址、请求头与请求体。错误只记类型。
 - 只给测试用的夹具模块与入口放在 `src/testing/`，产品代码不引用（`src/architecture.test.ts` 检查）。
 
 ## 部署
 
 - 两个健康检查（`/health/live`、`/health/ready`）在任何主机名上都可用；反向代理只把它们开放给本机回环，不转发外部的请求。
-- 容器的停止宽限（`docker stop -t`、Compose 的 `stop_grace_period`）至少比 `NB_SITE_SHUTDOWN_TIMEOUT_MS` 多 5 秒：时限用来排空 HTTP，模块的 `close()`、关库与放锁还要一点时间，宽限先到时容器会被 SIGKILL。缺省时限 10 秒与 `docker stop` 缺省的 10 秒相同，部署时要改其中一个。
+- 停止的时间：`NB_SITE_SHUTDOWN_TIMEOUT_MS` 只管排空在途的 HTTP 请求；之后停定时任务至多 2 秒，再给每个模块的 `close()` 各至多 2 秒，最后关库、放锁（`src/commands/serve.ts` 的 `MODULE_CLEANUP_MS`）。容器的停止宽限（`docker stop -t`、Compose 的 `stop_grace_period`）因此至少是停止时限加 2 秒乘（模块数加 1），再留 1 秒余量；现在两个模块，就是比停止时限多 7 秒。宽限先到时容器会被 SIGKILL。缺省时限 10 秒与 `docker stop` 缺省的 10 秒相同，部署时要改其中一个。
 - `NB_SITE_TRUSTED_PROXIES` 只写真正会转发请求的那一层代理的地址；写宽了，外面的人就能用伪造的 `X-Forwarded-For` 冒充来源地址。
 
 ## 完成门禁

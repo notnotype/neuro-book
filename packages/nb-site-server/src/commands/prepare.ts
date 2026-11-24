@@ -4,11 +4,12 @@
 
 import {SQLiteError, type Database} from "bun:sqlite";
 
-import {runMigrations, type MigrationFailure} from "../db/migrate";
-import {openModuleDb} from "../db/open";
+import {runMigrations, yieldToEventLoop, type MigrationFailure} from "../db/migrate";
+import {JournalModeError, openModuleDb} from "../db/open";
+import type {StopState} from "../lifecycle";
+import type {ModuleLocks} from "../lock";
 import type {Logger} from "../log";
 import type {CommandFailure, SiteModule} from "../module";
-import type {StopState} from "../lifecycle";
 
 /** 一个命令的结果：`failure` 写到标准错误、以 1 退出；没有 `failure` 时以 0 退出（出过致命错误时仍是 1）。 */
 export interface CommandResult {
@@ -21,8 +22,18 @@ export function failed(failure: CommandFailure): CommandResult {
     return {failure};
 }
 
-export function busyFailure(module: string): CommandFailure {
+function busyFailure(module: string): CommandFailure {
     return {code: "data_dir_busy", message: `the data directory is in use by another process (module ${module})`, fields: {module}};
+}
+
+/** 数据目录里这个模块的锁文件或库文件用不了；`errorCode` 是系统给的码，拿不到时省略。 */
+function unusableFailure(module: string, errorCode?: string): CommandFailure {
+    return {code: "data_dir_unusable", message: `a file of module ${module} in the data directory cannot be used`, fields: {module, ...(errorCode === undefined ? {} : {errorCode})}};
+}
+
+/** 取锁没成功时的失败行。 */
+export function lockFailure(locks: Extract<ModuleLocks, {ok: false}>): CommandFailure {
+    return locks.reason === "busy" ? busyFailure(locks.module) : unusableFailure(locks.module, locks.errorCode);
 }
 
 export function migrationFailure(outcome: MigrationFailure): CommandFailure {
@@ -38,15 +49,18 @@ export type MigrateAllOutcome = {readonly kind: "done"} | {readonly kind: "stopp
 
 /**
  * 按模块顺序打开库并执行迁移，打开的连接放进 `opened`（不论成败，由调用方关）。某个模块失败时后面的模块不再执行；
- * 停止请求在两条迁移之间生效。调用方必须已经拿着这些模块的锁。
+ * 停止请求在进入每个模块之前与两条迁移之间生效。调用方必须已经拿着这些模块的锁。
  */
 export async function openAndMigrate(dataDir: string, modules: readonly SiteModule[], log: Logger, stop: StopState, opened: Map<string, Database>): Promise<MigrateAllOutcome> {
     for (const module of modules) {
+        // 先让出一次：读配置、取锁、上一个模块收尾都是同步的，期间到的信号要等事件循环转一圈才被处理。
+        await yieldToEventLoop();
         if (stop.requested) return {kind: "stopped"};
         let db: Database;
         try {
             db = openModuleDb(dataDir, module.name);
         } catch (error) {
+            if (error instanceof JournalModeError) return {kind: "failed", failure: unusableFailure(module.name)};
             // 文件不是 SQLite 库、打不开：归为这个模块的迁移失败，说明里不带路径（SQLite 的说明不含路径）。
             if (!(error instanceof SQLiteError)) throw error;
             return {kind: "failed", failure: migrationFailure({ok: false, code: "migration_failed", reason: "sql_error", module: module.name, migration: null, dbCode: error.code ?? "SQLITE_ERROR", dbMessage: error.message})};

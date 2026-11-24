@@ -45,7 +45,7 @@ export interface JobDefinition {
 
 /**
  * 模块的定时任务都经这里登记，不自己 `setInterval`：入口在 `start()` 之后才开始调度，停止时在 `close()` 之前停掉并等
- * 正在跑的那一次。只能在 `create()` 与 `start()` 里登记，调度开始之后再登记抛错。
+ * 正在跑的那一次（至多 2 秒，见 `ModuleInstance.close`）。只能在 `create()` 与 `start()` 里登记，调度开始之后再登记抛错。
  */
 export interface JobRegistry {
     register(job: JobDefinition): void;
@@ -62,7 +62,11 @@ export interface SiteSettings {
 export interface ModuleContext<C> {
     /**
      * 本模块自己的库连接，迁移已全部执行。连接归模块所有：入口在模块建好之后不在它上面开事务、不执行语句
-     * （就绪检查另有一条探测连接），模块可以在上面开跨 await 的事务。停止时入口在 `close()` 之后关它。
+     * （就绪检查另有一条探测连接）。停止时入口在 `close()` 之后关它。
+     *
+     * 每个模块只有这一条连接，连接上同一时刻只有一个事务：一方 `BEGIN` 之后 `await`，这期间别的请求、定时任务在这条连接
+     * 上执行的语句都落进它的事务，它回滚时一起消失，别人再 `BEGIN` 直接报错。所以这条连接上的全部访问（请求、定时任务、
+     * `close()`）必须由模块自己排成一队；开跨 await 的事务的一方在提交或回滚之前独占这条连接。做不到时模块另开自己的连接。
      */
     readonly db: Database;
     readonly config: C;
@@ -72,8 +76,9 @@ export interface ModuleContext<C> {
     readonly clock: Clock;
     readonly jobs: JobRegistry;
     /**
-     * 请求方的地址：取 TCP 对端地址，对端在 `NB_SITE_TRUSTED_PROXIES` 里时才读 `X-Forwarded-For`，从右往左跳过可信的代理，
-     * 取第一个不可信的地址。转发头里有不合法的地址、或可信的对端没给转发头时返回 null，调用方按“取不到”处理。
+     * 请求方的地址（取法见 `site.operations` 的输入一节）：取 TCP 对端地址，对端在 `NB_SITE_TRUSTED_PROXIES` 里时才读
+     * `X-Forwarded-For`，从右往左跳过可信的代理，取第一个不可信的地址，它左边的不看。走到的那一跳不是合法的 IP 字面量
+     * （带端口的写法也算不合法）、或可信的对端没给转发头时返回 null，调用方按“取不到”处理。
      * 只能用在入口挂上的子应用的请求里。返回值是来源地址，不写进日志（`site.telemetry-ingest` 输出 8）。
      */
     clientAddress(c: Context): string | null;
@@ -94,7 +99,8 @@ export interface ModuleInstance {
     start?(): void;
     /**
      * 停止时在 HTTP 排空、定时任务停下之后、关库之前调用；任何退出路径上，凡 `create()` 成功的实例都按创建的相反顺序
-     * 调用一次。与停止时限剩下的时间赛跑，超时只记一行 `warn`，随后入口照样关库。
+     * 调用一次。每个模块的 `close()` 另有至多 2 秒（`site.operations` 输出 9），不占排空用的停止时限；超时或停止期间
+     * 又来一次信号时只记一行 `warn` 不再等，随后入口照样关库。
      */
     close?(): Promise<void>;
 }
@@ -115,13 +121,21 @@ export interface CommandContext<C> {
     readonly clock: Clock;
     /** 按 `SiteCommand.arguments` 的名字取位置参数；可选参数没给时为 undefined。 */
     readonly args: Readonly<Record<string, string | undefined>>;
+    /** 第一次收到 `SIGTERM` 或 `SIGINT` 时 abort。命令收手的写法见 `SiteCommand`。 */
+    readonly signal: AbortSignal;
 }
 
 /**
  * 模块提供的子命令（t07 的创建管理员、t12 的导入）。`access` 决定它与服务、迁移的关系：
- * - `exclusive`：取本模块的锁、先执行本模块的迁移再运行；取不到锁就 `data_dir_busy`（服务在跑时不能执行）。
- * - `shared`：先试本模块的锁，取到就执行迁移、拿着锁运行；取不到说明服务在跑，核对迁移记录完整后直接运行，
- *   不完整报 `not_ready`（`site.operations` 的时序一节：创建管理员在服务运行期间可以执行）。
+ * - `exclusive`：取本模块的锁、先执行本模块的迁移，拿着锁运行；取不到锁就 `data_dir_busy`（服务在跑时不能执行）。
+ * - `shared`：先试本模块的锁，取到就执行迁移，迁移做完就放锁再运行，所以它停在等输入的地方时服务照样能启动；
+ *   取不到说明服务在跑，核对迁移记录完整后直接运行，不完整报 `not_ready`（`site.operations` 的时序一节）。
+ *   运行时与服务同时写这个库，靠 SQLite 的写锁排队。
+ *
+ * 停止信号（`site.operations` 输出 5、失败表的 `interrupted`）：运行之前收到就不运行；运行中 `context.signal` abort，
+ * 命令自己决定在哪里收手，收手时 reject 为 `signal.reason`（或任何 `AbortError`），入口报 `interrupted`；不理会它的命令，
+ * 第二次信号时入口不再等 `run()`，同样报 `interrupted`。这几种都照常关库、放锁，以 1 退出。收到信号之后仍然做完了的，
+ * 照常按结果报。
  */
 export interface SiteCommand<C> {
     readonly name: string;
@@ -145,7 +159,10 @@ export interface SiteModule<C = unknown> {
     readonly migrations: readonly Migration[];
     /** 读本模块的环境变量（`NB_SITE_<模块>_*`，以及只有本模块用的共用变量）；只报变量名与问题词。 */
     parseConfig(env: Readonly<Record<string, string | undefined>>): ConfigResult<C>;
-    /** 迁移全部成功之后、开始监听之前调用。抛错按 `start_failed` 收口。 */
-    create(context: ModuleContext<C>): ModuleInstance;
+    /**
+     * 迁移全部成功之后、开始监听之前调用，可以是异步的（例如在监听之前确认依赖的库能建成）。抛错或 reject 按
+     * `start_failed` 收口，已建成的别的模块照样 `close()`。
+     */
+    create(context: ModuleContext<C>): ModuleInstance | Promise<ModuleInstance>;
     readonly commands?: readonly SiteCommand<C>[];
 }

@@ -198,17 +198,25 @@ describe("迁移运行器", () => {
         expect(ledgerIds(db)).toEqual(["0001_init", "0002_sessions"]);
     });
 
-    it("每提交一条就让出一次事件循环，停止标志在两条之间置位时后面的不执行", async () => {
+    it("停止请求在一条迁移执行期间到达：把这一条做完、提交，后面的不执行（输出 9）", async () => {
         const db = open();
         let stop = false;
-        // 排在运行器第一次让出之前的宏任务：它只有在运行器让出时才有机会执行。
-        setImmediate(() => {
-            stop = true;
-        });
-        const {outcome, events} = await run(db, [INIT, SESSIONS, AUDIT], () => stop);
+        let checks = 0;
+        // 第一条开始之前排上置位的宏任务，相当于信号在第一条执行期间到达：同步的迁移做完、运行器让出时它才跑。
+        const stopRequested = (): boolean => {
+            checks += 1;
+            if (checks === 1) {
+                setImmediate(() => {
+                    stop = true;
+                });
+            }
+            return stop;
+        };
+        const {outcome, events} = await run(db, [INIT, SESSIONS, AUDIT], stopRequested);
         expect(outcome).toEqual({ok: true, stopped: true});
         expect(events).toEqual([{event: "migration.applied", module: "sample", migration: "0001_init"}]);
         expect(ledgerIds(db)).toEqual(["0001_init"]);
+        expect(tables(db)).toEqual(["site_migrations", "user"]);
         expect(foreignKeysOn(db)).toBe(true);
     });
 
@@ -268,6 +276,41 @@ ALTER TABLE "user_new" RENAME TO "user";`,
             expect(ledgerIds(db)).toEqual(["0001_init"]);
         });
 
+        it("迁移结束事务后又开了一个，照样失败：后开的事务回滚，账本里没有这一条", async () => {
+            const db = open();
+            const commitThenBegin: Migration = {id: "0002_commit_begin", sql: `CREATE TABLE "a" ("id" INTEGER);\nCOMMIT;\nBEGIN;\nCREATE TABLE "b" ("id" INTEGER);`};
+            const commitOutcome = await run(db, [INIT, commitThenBegin]);
+            expect(commitOutcome.outcome).toMatchObject({ok: false, reason: "transaction_ended", migration: "0002_commit_begin"});
+            // 认得出、撤不回：COMMIT 之前的 a 已经提交，之后的 b 随后开的事务一起回滚。
+            expect(tables(db)).toEqual(["a", "site_migrations", "user"]);
+            expect(ledgerIds(db)).toEqual(["0001_init"]);
+            expect(db.inTransaction).toBe(false);
+
+            const other = open("other");
+            const rollbackThenBegin: Migration = {id: "0002_rollback_begin", sql: `CREATE TABLE "a" ("id" INTEGER);\nROLLBACK;\nBEGIN;\nCREATE TABLE "b" ("id" INTEGER);`};
+            const rollbackOutcome = await run(other, [INIT, rollbackThenBegin]);
+            expect(rollbackOutcome.outcome).toMatchObject({ok: false, reason: "transaction_ended", migration: "0002_rollback_begin"});
+            expect(tables(other)).toEqual(["site_migrations", "user"]);
+            expect(ledgerIds(other)).toEqual(["0001_init"]);
+            expect(other.inTransaction).toBe(false);
+        });
+
+        it("迁移释放了运行器的守卫保存点时失败，整条回滚", async () => {
+            const db = open();
+            const {outcome} = await run(db, [INIT, {id: "0002_release_guard", sql: `CREATE TABLE "a" ("id" INTEGER);\nRELEASE site_migration_guard;\nCREATE TABLE "b" ("id" INTEGER);`}]);
+            expect(outcome).toMatchObject({ok: false, reason: "transaction_ended", migration: "0002_release_guard"});
+            expect(tables(db)).toEqual(["site_migrations", "user"]);
+            expect(ledgerIds(db)).toEqual(["0001_init"]);
+        });
+
+        it("迁移开关自己的保存点照常执行", async () => {
+            const db = open();
+            const own: Migration = {id: "0002_own_savepoint", sql: `SAVEPOINT "step";\nCREATE TABLE "a" ("id" INTEGER);\nRELEASE "step";\nSAVEPOINT "undo";\nCREATE TABLE "b" ("id" INTEGER);\nROLLBACK TO "undo";\nRELEASE "undo";`};
+            expect((await run(db, [INIT, own])).outcome).toEqual(DONE);
+            expect(tables(db)).toEqual(["a", "site_migrations", "user"]);
+            expect(ledgerIds(db)).toEqual(["0001_init", "0002_own_savepoint"]);
+        });
+
         it("带 BEGIN … END 的触发器与多行 CASE … END 照常执行", async () => {
             const db = open();
             const trigger: Migration = {
@@ -321,5 +364,12 @@ END AS "kind" FROM "user";`,
         const {outcome, events} = await run(db, [{...INIT, sql: `﻿${INIT.sql.replace(/\n/gu, "\r\n")}`}, SESSIONS]);
         expect(outcome).toEqual(DONE);
         expect(events).toEqual([{event: "migration.applied", module: "sample", migration: "0002_sessions"}]);
+    });
+
+    it("字面量里带 CRLF 的迁移，落进库里的是 LF：校验和相同就是执行的文字相同", async () => {
+        const db = open();
+        const seed: Migration = {id: "0002_seed", sql: `INSERT INTO "user" ("name") VALUES ('top\r\nbottom');\r\n`};
+        expect((await run(db, [INIT, seed])).outcome).toEqual(DONE);
+        expect(db.query<{name: string}, []>(`SELECT "name" FROM "user" WHERE "id" = 2`).get()?.name).toBe("top\nbottom");
     });
 });

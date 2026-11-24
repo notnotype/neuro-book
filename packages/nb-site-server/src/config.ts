@@ -36,10 +36,7 @@ export interface SiteConfig {
 
 export type SiteConfigResult = {readonly ok: true; readonly config: SiteConfig} | {readonly ok: false; readonly problems: readonly ConfigProblem[]};
 
-/**
- * 问题词：除 `not_ip` 外取自 `site.operations` 失败与恢复一节的词表。`not_ip` 是监听地址不是 IP 地址时的词，
- * 词表里还没有，见 w00037 t05 的交回说明。
- */
+/** 问题词：取自 `site.operations` 失败与恢复一节的词表。 */
 type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip";
 
 type Parsed<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly problem: Problem};
@@ -83,6 +80,9 @@ function parseDataDir(value: string): Parsed<string> {
     }
     return ok(value);
 }
+
+/** `setTimeout` 能表示的最大延时（2^31 - 1 毫秒）。 */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /** `min` 到 `max` 的整数。`-1` 这种是整数、只是越界。 */
 function parseInteger(value: string, min: number, max: number): Parsed<number> {
@@ -134,7 +134,8 @@ export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteC
     const port = field("NB_SITE_PORT", (value) => parseInteger(value, 0, 65_535), 8080);
     const trustedProxies = field("NB_SITE_TRUSTED_PROXIES", parseSubnets, new BlockList());
     const backupKeep = field("NB_SITE_BACKUP_KEEP", (value) => parseInteger(value, 1, Number.MAX_SAFE_INTEGER), 7);
-    const shutdownTimeoutMs = field("NB_SITE_SHUTDOWN_TIMEOUT_MS", (value) => parseInteger(value, 1, Number.MAX_SAFE_INTEGER), 10_000);
+    // 上界是计时器能表示的最大延时：更大的值会被 `setTimeout` 改成 1 毫秒，“多等一会儿”变成“一点也不等”。
+    const shutdownTimeoutMs = field("NB_SITE_SHUTDOWN_TIMEOUT_MS", (value) => parseInteger(value, 1, MAX_TIMER_DELAY_MS), 10_000);
 
     const moduleConfigs = new Map<string, unknown>();
     for (const module of modules) {

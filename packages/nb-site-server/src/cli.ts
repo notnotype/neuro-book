@@ -2,8 +2,9 @@
  * 命令行 `nb-site`：按传入的模块列表登记子命令、运行一个，由结果算出退出码（`site.operations` 的输入一节、失败表）。
  * 产品入口 `main.ts` 传两个真模块；拆成两个进程时各传一个；测试的入口 `testing/fixture-main.ts` 传夹具模块。
  *
- * 退出码只在这里算：命令的结果带 `failure` 时把它写到标准错误、得 1；请求之外出过致命错误（`lifecycle.failed`）也得 1；
- * 其余得 0。commander 自己的用法错误与 `--help` 照它的缺省直接退出（错误得 1）。
+ * 退出码只在这里算：命令的结果带 `failure` 时把它写到标准错误、得 1；请求之外出过致命错误（`lifecycle.failed`）或命令抛出了
+ * 异常也得 1，这时标准错误上补一行 `internal`（`site.operations` 输出 10：以非零码结束的命令都有一行），原因在日志的
+ * `process.fatal` 里；其余得 0。commander 自己的用法错误与 `--help` 照它的缺省直接退出（错误得 1），不属于公开输出。
  */
 
 import {Command} from "commander";
@@ -15,10 +16,12 @@ import {serve} from "./commands/serve";
 import {MODULE_NAME} from "./db/open";
 import {installProcessLifecycle} from "./lifecycle";
 import {createLogger, errorType, writeFailure, writeStderr, writeStdout} from "./log";
-import type {SiteModule} from "./module";
+import type {CommandFailure, SiteModule} from "./module";
 
 /** 入口自己的子命令；模块的命令不能与它们同名。`backup` 由第 4 片加，名字先占住。 */
 const ENTRY_COMMANDS = new Set(["serve", "migrate", "backup"]);
+
+const INTERNAL: CommandFailure = {code: "internal", message: "internal error, see the process.fatal log line"};
 
 /** 模块列表的形状是程序写死的，不合格是程序错误，直接抛出。 */
 function checkModules(modules: readonly SiteModule[]): void {
@@ -68,11 +71,20 @@ export async function runCli(argv: readonly string[], modules: readonly SiteModu
             }
         }
         await program.parseAsync([...argv], {from: "user"});
-        if (result.failure !== undefined) writeFailure(writeStderr, result.failure);
-        return result.failure !== undefined || lifecycle.failed ? 1 : 0;
+        if (result.failure !== undefined) {
+            writeFailure(writeStderr, result.failure);
+            return 1;
+        }
+        if (lifecycle.failed) {
+            writeFailure(writeStderr, INTERNAL);
+            return 1;
+        }
+        return 0;
     } catch (error) {
-        // 命令抛出的（不是预料之中的失败）：同样写成一行 JSON，只有错误类型，收口已由各命令的 finally 做完。
+        // 命令抛出的（不是预料之中的失败）：日志里一行只有错误类型的 process.fatal，标准错误上一行 internal；
+        // 收口已由各命令的 finally 做完。
         log.error("process.fatal", "command threw", {errorType: errorType(error)});
+        writeFailure(writeStderr, INTERNAL);
         return 1;
     } finally {
         lifecycle.dispose();

@@ -3,13 +3,16 @@
  * 夹具模块经 `testing/fixture-main.ts` 进同一个 `runCli`，最后一组用产品入口 `main.ts` 与两个真模块。
  *
  * 每个用例起一到两个 Bun 进程（各约 100 到 300 毫秒），超出快速类 200 毫秒的预算：这里测的就是进程的启动、信号与退出码，
- * 进程内调用测不到。迁移期间的信号那一条另有一条要执行约 1 秒的迁移；就绪检查的两条要等 1 秒的结果复用过期；
- * 停止时限的几条各等 300 毫秒的时限。
+ * 进程内调用测不到。就绪检查的一条要等 1 秒的结果复用过期；停止时限的几条各等 300 毫秒的时限，模块收尾超时的一条等 2 秒。
+ *
+ * 要信号在某一步之后、入口的下一个检查点之前到达时，用夹具的 `NB_SITE_ALPHA_WAIT`：子进程在那一步同步阻塞着读标准输入，
+ * 测试先发信号、再写一行放行（见 `testing/modules.ts` 的 `blockOnStdinLine`），不靠两个进程的相对速度。
  */
 
 import {Database} from "bun:sqlite";
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 import {mkdir, readdir, rm} from "node:fs/promises";
+import {connect} from "node:net";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -92,13 +95,30 @@ describe("迁移先于服务", () => {
         expect(allOutput(site)).not.toContain(dataDir);
     });
 
-    it("迁移期间收到 SIGTERM：做完正在执行的那一条、不执行后面的、不监听，以 0 退出", async () => {
-        const site = await startSite({root, args: ["serve"], env: env({NB_SITE_FIXTURE: "alpha-slow"})});
-        await site.waitForLog("first migration applied", (line) => line.event === "migration.applied" && line.migration === "0001_items");
+    // “把正在执行的那一条做完”由 db/migrate.test.ts 的包内用例证明；这里证明信号让后面的迁移不执行、不监听、以 0 退出。
+    it("迁移开始之前收到的 SIGTERM：一条迁移也不执行、不监听，以 0 退出", async () => {
+        const site = await startSite({root, args: ["serve"], env: env({NB_SITE_ALPHA_WAIT: "parse"})});
+        await site.waitForLog("blocked in parseConfig", (line) => line.event === "fixture.waiting_stdin");
         site.signal("SIGTERM");
+        site.writeStdin("go\n");
         expect(await site.waitForExit()).toBe(0);
+        expect(events(site)).toContain("process.signal");
+        expect(events(site)).not.toContain("migration.applied");
         expect(events(site)).not.toContain("site.listening");
-        expect(ledger("alpha")).not.toContain("0003_after_slow");
+        expect(await readdir(dataDir)).not.toContain("alpha.db");
+        expect(site.stderr).toEqual([]);
+    });
+
+    it("建实例期间收到 SIGTERM：迁移做完、不监听，已建成的实例照样 close()，以 0 退出", async () => {
+        const site = await startSite({root, args: ["serve"], env: env({NB_SITE_ALPHA_WAIT: "create"})});
+        await site.waitForLog("blocked in create()", (line) => line.event === "fixture.waiting_stdin");
+        site.signal("SIGTERM");
+        site.writeStdin("go\n");
+        expect(await site.waitForExit()).toBe(0);
+        expect(ledger("alpha")).toEqual(["0001_items"]);
+        expect(events(site)).not.toContain("site.listening");
+        expect(events(site)).toContain("fixture.closed");
+        expect(events(site).at(-1)).toBe("site.stopped");
     });
 
     it("同一个数据目录上的第二个服务以 data_dir_busy 退出，不执行迁移", async () => {
@@ -107,6 +127,15 @@ describe("迁移先于服务", () => {
         expect(await second.waitForExit()).toBe(1);
         expect(failureLine(second)).toMatchObject({code: "data_dir_busy", module: "alpha"});
         expect(events(second)).toEqual([]);
+    });
+
+    it("模块的锁文件用不了（是个目录）时以 data_dir_unusable 退出，带模块与系统的错误码，不带路径", async () => {
+        await mkdir(join(dataDir, "alpha.lock"));
+        const site = await startSite({root, args: ["serve"], env: env()});
+        expect(await site.waitForExit()).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "data_dir_unusable", module: "alpha", errorCode: "EISDIR"});
+        expect(events(site)).not.toContain("migration.applied");
+        expect(allOutput(site)).not.toContain(dataDir);
     });
 });
 
@@ -141,10 +170,12 @@ describe("健康检查", () => {
         holder.exec("BEGIN IMMEDIATE");
         const busy = await getJson(`${url}health/ready`);
         expect(busy).toMatchObject({status: 503, body: {code: "not_ready", modules: {alpha: "not_ready"}}});
-        // 探测连接不等锁：服务端记下的处理时长远小于业务连接的 250 毫秒等锁上限（看服务端的时长，不受测试进程的负载影响）。
+        // 探测连接不等锁：服务端记下的处理时长小于业务连接的等锁上限（看服务端的时长，不受测试进程的负载影响）。
+        // 200 由 `db/open.ts` 的 `busy_timeout = 250` 推出：留出服务端进程被调度器抢占的余量，又能认出“等满 250 毫秒”。
+        // 改 250 时一起改这里。
         const requestId = busy.headers.get("X-Request-Id");
         const handled = await site.waitForLog("ready request line", (line) => line.event === "http.request" && line.requestId === requestId);
-        expect(handled.durationMs as number).toBeLessThan(100);
+        expect(handled.durationMs as number).toBeLessThan(200);
         expect(site.logs().find((line) => line.event === "health.not_ready")).toMatchObject({module: "alpha", reason: "db_unavailable", dbCode: "SQLITE_BUSY"});
         holder.exec("ROLLBACK");
         await waitUntil("readiness recovers", async () => (await fetch(`${url}health/ready`)).status === 200);
@@ -162,6 +193,36 @@ describe("按主机分派与请求日志", () => {
             expect({host, body: await where(host)}).toEqual({host, body: {surface: "site"}});
         }
         expect((await fetch(`${url}health/live`, {headers: {Host: "ingest.example"}})).status).toBe(200);
+    });
+
+    it("请求里读不出主机名时回 400 bad_request，照常写一行请求日志，不记 error 级日志", async () => {
+        const {site, url} = await startServing({root, env: env()});
+        const {hostname, port} = new URL(url);
+        // fetch 总会补上 Host，只能用原始套接字发。
+        const raw = (request: string): Promise<string> =>
+            new Promise((resolve, reject) => {
+                let received = "";
+                const socket = connect(Number(port), hostname, () => socket.write(request));
+                socket.on("data", (chunk) => (received += chunk.toString("utf8")));
+                socket.on("end", () => resolve(received));
+                socket.on("error", reject);
+            });
+        const requests = [
+            "GET /api/alpha/where HTTP/1.0\r\n\r\n",
+            "GET /api/alpha/where HTTP/1.1\r\nHost: ingest.example:abc\r\nConnection: close\r\n\r\n",
+            "GET /api/alpha/where HTTP/1.1\r\nHost: x@ingest.example\r\nConnection: close\r\n\r\n",
+        ];
+        for (const request of requests) {
+            const response = await raw(request);
+            expect({request, status: response.split("\r\n")[0]}).toEqual({request, status: "HTTP/1.1 400 Bad Request"});
+            expect(JSON.parse(response.slice(response.indexOf("\r\n\r\n") + 4))).toEqual({code: "bad_request"});
+        }
+        const lines = await waitUntil("three request lines", () => {
+            const found = site.logs().filter((line) => line.event === "http.request");
+            return found.length >= requests.length ? found : undefined;
+        });
+        expect(lines.map((line) => line.status)).toEqual([400, 400, 400]);
+        expect(site.logs().filter((line) => line.level === "error")).toEqual([]);
     });
 
     it("每个请求一行日志，编号由服务生成、与响应头相同，不含查询串与请求方给的编号", async () => {
@@ -201,6 +262,12 @@ describe("按主机分派与请求日志", () => {
         expect(await client(trusted.url, "192.0.2.1, 198.51.100.7, 10.1.2.3")).toBe("198.51.100.7");
         expect(await client(trusted.url, "10.9.9.9, 10.1.2.3")).toBe("10.9.9.9");
         expect(await client(trusted.url, "garbage, 10.1.2.3")).toBeNull();
+        // 第一个不可信的地址左边是请求方自己写的，不解析：写什么都不能让自己取不到地址。
+        expect(await client(trusted.url, "garbage, 203.0.113.9")).toBe("203.0.113.9");
+        expect(await client(trusted.url, "garbage, 203.0.113.9, 10.1.2.3")).toBe("203.0.113.9");
+        // 带端口的写法不认。
+        expect(await client(trusted.url, "203.0.113.9:4444")).toBeNull();
+        expect(await client(trusted.url, "198.51.100.7, 10.1.2.3:8080")).toBeNull();
         expect(await client(trusted.url, undefined)).toBeNull();
         expect(allOutput(trusted.site)).not.toContain("203.0.113.5");
         trusted.site.signal("SIGTERM");
@@ -242,6 +309,14 @@ describe("模块的生命周期", () => {
         await startServing({root, env: env()});
     });
 
+    it("异步的 create() reject 时得 start_failed 并点名模块，已建成的别的模块照样 close()", async () => {
+        const site = await startSite({root, args: ["serve"], env: env({NB_SITE_FIXTURE: "alpha,beta", NB_SITE_BETA_FAIL: "create"})});
+        expect(await site.waitForExit()).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "start_failed", module: "beta", errorType: "RangeError"});
+        expect(events(site)).not.toContain("site.listening");
+        expect(events(site)).toContain("fixture.closed");
+    });
+
     it("模块的 create() 抛错时得 start_failed 并点名模块，不监听", async () => {
         const site = await startSite({root, args: ["serve"], env: env({NB_SITE_ALPHA_FAIL: "create"})});
         expect(await site.waitForExit()).toBe(1);
@@ -267,6 +342,7 @@ describe("模块的生命周期", () => {
         expect((await fetch(`${url}api/alpha/crash`)).status).toBe(202);
         expect(await site.waitForExit()).toBe(1);
         expect(site.logs().find((line) => line.event === "process.fatal")).toMatchObject({level: "error", errorType: "SyntaxError"});
+        expect(failureLine(site)).toMatchObject({code: "internal"});
         expect(events(site)).toContain("fixture.closed");
         expect(events(site).at(-1)).toBe("site.stopped");
         expect(allOutput(site)).not.toContain("secret-detail-crash");
@@ -328,11 +404,24 @@ describe("停止", () => {
         expect(site.logs().find((line) => line.event === "site.drain_cut")).toMatchObject({forced: true});
     });
 
-    it("模块的 close() 超过停止时限时记一行 warn，随后照样关库退出", async () => {
+    it("模块的 close() 另有 2 秒、不占停止时限；超过时记一行 warn，随后照样关库退出", async () => {
         const {site} = await startServing({root, env: env({NB_SITE_ALPHA_FAIL: "close-hang", NB_SITE_SHUTDOWN_TIMEOUT_MS: "300"})});
+        const signalled = performance.now();
         site.signal("SIGTERM");
         expect(await site.waitForExit()).toBe(0);
-        expect(site.logs().find((line) => line.event === "module.close_timeout")).toMatchObject({level: "warn", module: "alpha"});
+        // 排空立即完成，停止时限 300 毫秒早已用不上；等满的是模块自己的 2 秒（下界留 100 毫秒给计时器的粒度）。
+        expect(performance.now() - signalled).toBeGreaterThanOrEqual(1_900);
+        expect(site.logs().find((line) => line.event === "module.close_timeout")).toMatchObject({level: "warn", module: "alpha", forced: false});
+        expect(events(site).at(-1)).toBe("site.stopped");
+    });
+
+    it("等模块收尾期间再来一次信号：不再等 close()，照样关库退出", async () => {
+        const {site} = await startServing({root, env: env({NB_SITE_ALPHA_FAIL: "close-hang"})});
+        site.signal("SIGTERM");
+        await site.waitForLog("close() called", (line) => line.event === "fixture.closed");
+        site.signal("SIGTERM");
+        expect(await site.waitForExit()).toBe(0);
+        expect(site.logs().find((line) => line.event === "module.close_timeout")).toMatchObject({module: "alpha", forced: true});
         expect(events(site).at(-1)).toBe("site.stopped");
     });
 });

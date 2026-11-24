@@ -38,7 +38,7 @@ it("每个模块一把锁，另一个进程只占着其中一个模块时，别�
 
 it("某个模块取不到时报出它，并放掉已经取到的", () => {
     hold("beta");
-    expect(lockModules(dataDir, ["alpha", "beta"])).toEqual({ok: false, module: "beta"});
+    expect(lockModules(dataDir, ["alpha", "beta"])).toEqual({ok: false, reason: "busy", module: "beta"});
     hold("alpha");
 });
 

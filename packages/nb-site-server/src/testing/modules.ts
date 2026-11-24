@@ -4,35 +4,58 @@
  *
  * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务、命令与一组可操纵的路由；
  * - `alpha-failing`：`alpha`，第二条迁移是坏 SQL；
- * - `alpha-slow`：`alpha`，第二条迁移要跑一阵（测迁移期间的信号）；
- * - `beta`：只挂站点入口的第二个模块（测按模块的锁、就绪检查逐个点名）。
+ * - `beta`：只挂站点入口的第二个模块（测按模块的锁、就绪检查逐个点名）；`create()` 是异步的。
  *
  * 夹具的行为由 `NB_SITE_ALPHA_*`、`NB_SITE_BETA_*` 控制，它们与产品模块的变量一样经 `parseConfig` 读，不经入口。
+ *
+ * 标准输入是测试往子进程里送信号以外的指令的通道，每行一个词：`release` 放行 `/api/alpha/slow`，`go` 放行 `alpha-wait` 命令
+ * 与 `NB_SITE_ALPHA_WAIT` 停住的那一步。
  */
+
+import {readSync} from "node:fs";
 
 import {Hono} from "hono";
 
+import {createLogger, writeStdout} from "../log";
 import type {Migration, ModuleContext, ModuleInstance, SiteModule} from "../module";
 
 const ITEMS: Migration = {id: "0001_items", sql: `CREATE TABLE "item" ("id" INTEGER PRIMARY KEY, "label" TEXT NOT NULL);`};
 const BROKEN: Migration = {id: "0002_broken", sql: `CREATE TABLE "broken" ("id" INTEGER PRIMARY KEY,);`};
-/** 递归 CTE 算上几百万行：同步执行期间信号进不来，测的是“做完正在执行的那一条”。 */
-const SLOW: Migration = {
-    id: "0002_slow",
-    sql: `CREATE TABLE "slow" AS WITH RECURSIVE "n"("x") AS (SELECT 1 UNION ALL SELECT "x" + 1 FROM "n" WHERE "x" < 4000000) SELECT count(*) AS "total" FROM "n";`,
-};
-const AFTER_SLOW: Migration = {id: "0003_after_slow", sql: `CREATE TABLE "after_slow" ("id" INTEGER PRIMARY KEY);`};
 
 interface AlphaConfig {
     /** `create`、`start`：在那一步抛错；`close-hang`：`close()` 永不 settle。 */
     readonly fail: string | undefined;
     /** 定时任务的间隔；没给就不登记。 */
     readonly jobMs: number | undefined;
+    /** `NB_SITE_ALPHA_WAIT=create`：`create()` 开头停住（`blockOnStdinLine`）。 */
+    readonly waitInCreate: boolean;
 }
 
-/** `/api/alpha/slow` 等标准输入来一行 `release` 才回应：服务停止之后新请求进不来，放行只能走进程外的通道。 */
-function stdinReleases(): {wait(): Promise<void>} {
-    const waiting: (() => void)[] = [];
+const fixtureLog = createLogger(writeStdout);
+
+/**
+ * `NB_SITE_ALPHA_WAIT` 选中的那一步（`parse` 是 `parseConfig`，`create` 是 `create()`）先写一行 `fixture.waiting_stdin`，
+ * 再同步阻塞着读标准输入的一行。同步读期间信号处理函数跑不了，信号排在宏任务里，等入口下一次让出事件循环才处理
+ * （探过 Bun 1.4.4：`readSync` 不被信号打断，处理函数在之后第一次 `setImmediate` 时执行）。测试先发信号、再写这一行，
+ * 信号就一定在这一步之后、入口的下一个检查点之前被处理，结果不依赖两个进程的相对速度。
+ */
+function blockOnStdinLine(step: string): void {
+    fixtureLog.info("fixture.waiting_stdin", "fixture is blocked reading one line from stdin", {step});
+    const buffer = Buffer.alloc(64);
+    let read = "";
+    while (!read.includes("\n")) {
+        const count = readSync(0, buffer);
+        if (count === 0) return;
+        read += buffer.subarray(0, count).toString("utf8");
+    }
+}
+
+/**
+ * 按行异步读标准输入，等某个词出现。整个进程只读一次标准输入流，几个等待方共用。给了 `signal` 时它 abort 就 reject 为
+ * `signal.reason`（`SiteCommand` 约定的收手方式）。
+ */
+const stdinLines = (() => {
+    const waiting: {readonly word: string; readonly resolve: () => void}[] = [];
     let started = false;
     const start = (): void => {
         started = true;
@@ -45,24 +68,28 @@ function stdinReleases(): {wait(): Promise<void>} {
                 while ((newline = buffered.indexOf("\n")) >= 0) {
                     const line = buffered.slice(0, newline).trim();
                     buffered = buffered.slice(newline + 1);
-                    if (line === "release") for (const resolve of waiting.splice(0)) resolve();
+                    for (let index = waiting.length - 1; index >= 0; index -= 1) {
+                        if (waiting[index]!.word === line) waiting.splice(index, 1)[0]!.resolve();
+                    }
                 }
             }
         })();
     };
     return {
-        wait: () => {
+        wait(word: string, signal?: AbortSignal): Promise<void> {
             if (!started) start();
-            return new Promise((resolve) => waiting.push(resolve));
+            return new Promise((resolve, reject) => {
+                waiting.push({word, resolve});
+                signal?.addEventListener("abort", () => reject(signal.reason), {once: true});
+            });
         },
     };
-}
+})();
 
 function createAlpha(context: ModuleContext<AlphaConfig>): ModuleInstance {
     const {db, config, log} = context;
     if (config.fail === "create") throw new TypeError("fixture create failure");
     let ready = true;
-    const releases = stdinReleases();
 
     if (config.jobMs !== undefined) {
         context.jobs.register({name: "tick", intervalMs: config.jobMs, run: () => log.info("fixture.job_ran", "fixture job ran", {job: "tick"})});
@@ -73,7 +100,7 @@ function createAlpha(context: ModuleContext<AlphaConfig>): ModuleInstance {
     site.get("/client", (c) => c.json({address: context.clientAddress(c)}));
     site.get("/slow", async (c) => {
         log.info("fixture.slow_started", "slow request started");
-        await releases.wait();
+        await stdinLines.wait("release");
         return c.json({released: true});
     });
     site.post("/ready/:state", (c) => {
@@ -127,10 +154,14 @@ function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
         surfaces: ["site", "ingest"],
         migrations,
         parseConfig: (env) => {
+            if (env.NB_SITE_ALPHA_WAIT === "parse") blockOnStdinLine("parse");
             const jobMs = env.NB_SITE_ALPHA_JOB_MS;
-            return {ok: true, config: {fail: env.NB_SITE_ALPHA_FAIL, jobMs: jobMs === undefined ? undefined : Number(jobMs)}};
+            return {ok: true, config: {fail: env.NB_SITE_ALPHA_FAIL, jobMs: jobMs === undefined ? undefined : Number(jobMs), waitInCreate: env.NB_SITE_ALPHA_WAIT === "create"}};
         },
-        create: createAlpha,
+        create: (context) => {
+            if (context.config.waitInCreate) blockOnStdinLine("create");
+            return createAlpha(context);
+        },
         commands: [
             {
                 name: "alpha-exclusive",
@@ -150,8 +181,23 @@ function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
                 arguments: [{name: "label", required: false}],
                 run: async ({db, log, args}) => {
                     if (args.label === "fail") return {code: "fixture_refused", message: "fixture command refused", fields: {command: "alpha-shared"}};
+                    if (args.label === "throw") throw new TypeError("fixture command threw with secret-detail-command");
                     db.query(`INSERT INTO "item" ("label") VALUES (?)`).run(args.label ?? "shared");
                     log.info("fixture.command_ran", "fixture command ran", {command: "alpha-shared"});
+                    return undefined;
+                },
+            },
+            {
+                // 像创建管理员那样停在等输入的地方：标准输入来一行 `go` 才写入。`stubborn` 时不理会停止信号。
+                name: "alpha-wait",
+                description: "fixture command that waits for a line on stdin, like a password prompt",
+                access: "shared",
+                arguments: [{name: "mode", required: false}],
+                run: async ({db, log, args, signal}) => {
+                    log.info("fixture.command_waiting", "fixture command is waiting for stdin", {command: "alpha-wait"});
+                    await stdinLines.wait("go", args.mode === "stubborn" ? undefined : signal);
+                    db.query(`INSERT INTO "item" ("label") VALUES ('waited')`).run();
+                    log.info("fixture.command_ran", "fixture command ran", {command: "alpha-wait"});
                     return undefined;
                 },
             },
@@ -159,13 +205,19 @@ function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
     };
 }
 
-/** `NB_SITE_BETA_MOUNT_INGEST=1`：把子应用挂到没声明的写入口上，入口应当按 `start_failed` 拒绝。 */
-const beta: SiteModule<{readonly mountIngest: boolean}> = {
+/**
+ * `NB_SITE_BETA_MOUNT_INGEST=1`：把子应用挂到没声明的写入口上，入口应当按 `start_failed` 拒绝。
+ * `NB_SITE_BETA_FAIL=create`：异步的 `create()` reject。
+ */
+const beta: SiteModule<{readonly mountIngest: boolean; readonly failCreate: boolean}> = {
     name: "beta",
     surfaces: ["site"],
     migrations: [{id: "0001_beta", sql: `CREATE TABLE "beta" ("id" INTEGER PRIMARY KEY);`}],
-    parseConfig: (env) => ({ok: true, config: {mountIngest: env.NB_SITE_BETA_MOUNT_INGEST === "1"}}),
-    create: ({config}) => {
+    parseConfig: (env) => ({ok: true, config: {mountIngest: env.NB_SITE_BETA_MOUNT_INGEST === "1", failCreate: env.NB_SITE_BETA_FAIL === "create"}}),
+    create: async ({config}) => {
+        // 真的让出一次再决定，证明入口等的是 settle 之后的结果。
+        await new Promise((resolve) => setImmediate(resolve));
+        if (config.failCreate) throw new RangeError("fixture async create failure");
         const app = new Hono();
         app.get("/where", (c) => c.json({surface: "site", module: "beta"}));
         return {mounts: [{surface: config.mountIngest ? "ingest" : "site", prefix: "/api/beta", app}]};
@@ -175,7 +227,6 @@ const beta: SiteModule<{readonly mountIngest: boolean}> = {
 const FIXTURES: Readonly<Record<string, () => SiteModule>> = {
     alpha: () => alpha([ITEMS]),
     "alpha-failing": () => alpha([ITEMS, BROKEN]),
-    "alpha-slow": () => alpha([ITEMS, SLOW, AFTER_SLOW]),
     beta: () => beta,
 };
 

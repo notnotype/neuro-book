@@ -60,6 +60,8 @@ describe("parseSiteConfig", () => {
         });
         expect(base.trustedProxies.check("127.0.0.1", "ipv4")).toBe(false);
         expect(result.config.modules.get("identity")).toEqual({sessionSecret: SECRET});
+        // 停止时限的上界本身可以用。
+        expect(parseSiteConfig({...validEnv(), NB_SITE_SHUTDOWN_TIMEOUT_MS: "2147483647"}, SITE_MODULES).ok).toBe(true);
     });
 
     it("必填项没给或给了空串都报 missing", () => {
@@ -89,6 +91,7 @@ describe("parseSiteConfig", () => {
         ["NB_SITE_BACKUP_KEEP", "0", "out_of_range"],
         ["NB_SITE_BACKUP_KEEP", "1.5", "not_integer"],
         ["NB_SITE_SHUTDOWN_TIMEOUT_MS", "0", "out_of_range"],
+        ["NB_SITE_SHUTDOWN_TIMEOUT_MS", "2147483648", "out_of_range"],
     ])("%s=%s 报 %s", (name, value, problem) => {
         expect(problemsOf({...validEnv(), [name]: value})).toEqual([{name, problem}]);
     });

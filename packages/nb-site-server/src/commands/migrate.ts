@@ -10,7 +10,7 @@ import type {StopState} from "../lifecycle";
 import {lockModules} from "../lock";
 import type {Logger} from "../log";
 import type {SiteModule} from "../module";
-import {busyFailure, closeAll, failed, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
+import {closeAll, failed, lockFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
 
 export async function migrate(env: Env, modules: readonly SiteModule[], log: Logger, stop: StopState): Promise<CommandResult> {
     const parsed = parseSiteConfig(env, modules);
@@ -18,7 +18,7 @@ export async function migrate(env: Env, modules: readonly SiteModule[], log: Log
     const {dataDir} = parsed.config.base;
 
     const locks = lockModules(dataDir, modules.map((module) => module.name));
-    if (!locks.ok) return failed(busyFailure(locks.module));
+    if (!locks.ok) return failed(lockFailure(locks));
     const dbs = new Map<string, Database>();
     try {
         const migrated = await openAndMigrate(dataDir, modules, log, stop, dbs);

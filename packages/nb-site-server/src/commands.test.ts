@@ -146,4 +146,55 @@ describe("模块的命令", () => {
         expect(code).toBe(1);
         expect(failureLine(site)).toMatchObject({level: "error", event: "command.failed", code: "fixture_refused", command: "alpha-shared"});
     });
+
+    it("命令抛出异常时：日志一行只有错误类型的 process.fatal，标准错误一行 internal，以 1 退出", async () => {
+        const {site, code} = await run(["alpha-shared", "throw"]);
+        expect(code).toBe(1);
+        expect(site.logs().find((line) => line.event === "process.fatal")).toMatchObject({level: "error", errorType: "TypeError"});
+        expect(failureLine(site)).toMatchObject({code: "internal"});
+        expect([...site.stdout, ...site.stderr].join("\n")).not.toContain("secret-detail-command");
+    });
+
+    it("shared：服务没在跑时只在迁移期间占着库，停在等输入的地方时另一个进程能启动服务", async () => {
+        const waiting = await startSite({root, args: ["alpha-wait"], env: env()});
+        await waiting.waitForLog("command waiting", (line) => line.event === "fixture.command_waiting");
+        expect(applied(waiting)).toMatchObject([{module: "alpha", migration: "0001_items"}]);
+        const {url} = await startServing({root, env: env()});
+        waiting.writeStdin("go\n");
+        expect(await waiting.waitForExit()).toBe(0);
+        expect(await (await fetch(`${url}api/alpha/items`)).json()).toEqual({count: 1});
+    });
+});
+
+describe("模块命令被停止信号打断", () => {
+    it("运行中收到 SIGINT：命令看 signal 收手，以 interrupted 退出、不写入，锁随之放掉", async () => {
+        const waiting = await startSite({root, args: ["alpha-wait"], env: env()});
+        await waiting.waitForLog("command waiting", (line) => line.event === "fixture.command_waiting");
+        waiting.signal("SIGINT");
+        expect(await waiting.waitForExit()).toBe(1);
+        expect(failureLine(waiting)).toMatchObject({code: "interrupted", module: "alpha", command: "alpha-wait"});
+        expect(labels()).toEqual([]);
+        expect((await run(["alpha-exclusive", "after"])).code).toBe(0);
+    });
+
+    it("不理会 signal 的命令：第二次信号时入口不再等它，以 interrupted 退出", async () => {
+        const waiting = await startSite({root, args: ["alpha-wait", "stubborn"], env: env()});
+        await waiting.waitForLog("command waiting", (line) => line.event === "fixture.command_waiting");
+        waiting.signal("SIGINT");
+        await waiting.waitForLog("first signal", (line) => line.event === "process.signal");
+        waiting.signal("SIGINT");
+        expect(await waiting.waitForExit()).toBe(1);
+        expect(failureLine(waiting)).toMatchObject({code: "interrupted", command: "alpha-wait"});
+        expect(labels()).toEqual([]);
+    });
+
+    it("运行之前收到信号：不运行命令，以 interrupted 退出", async () => {
+        const site = await startSite({root, args: ["alpha-shared", "never"], env: env({NB_SITE_ALPHA_WAIT: "parse"})});
+        await site.waitForLog("blocked in parseConfig", (line) => line.event === "fixture.waiting_stdin");
+        site.signal("SIGTERM");
+        site.writeStdin("go\n");
+        expect(await site.waitForExit()).toBe(1);
+        expect(failureLine(site)).toMatchObject({code: "interrupted", command: "alpha-shared"});
+        expect(site.logs().map((line) => line.event)).not.toContain("fixture.command_ran");
+    });
 });
