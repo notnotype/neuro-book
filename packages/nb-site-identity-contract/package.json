@@ -1,0 +1,24 @@
+{
+    "name": "@notnotype/nb-site-identity-contract",
+    "version": "0.1.0",
+    "private": true,
+    "description": "官方站账号模块对外的 HTTP 合同：路径前缀，以后是请求与响应的 schema；只依赖 TypeBox，前端、合同测试与账号模块共用",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        ".": "./src/index.ts",
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}

@@ -17,7 +17,8 @@ export type TestRule = "module-mock" | "spy" | "fixed-wait" | "fake-timer" | "fo
 
 export type TestConventionFinding = {path: string; line: number; rule: TestRule; detail: string};
 
-export const STRICT_TEST_ROOTS: readonly string[] = ["packages/neuro-book/", "packages/nb-runtime/", "packages/nb-file-lock/", "packages/nb-flock/", "packages/nb-host/", "packages/nb-models/"];
+// 按路径前缀匹配：`packages/nb-site-` 覆盖官方站的七个包。
+export const STRICT_TEST_ROOTS: readonly string[] = ["packages/neuro-book/", "packages/nb-runtime/", "packages/nb-file-lock/", "packages/nb-flock/", "packages/nb-host/", "packages/nb-models/", "packages/nb-site-"];
 // 只读的旧应用与历史记录不检查。
 const SKIPPED_ROOTS: readonly string[] = ["packages/neuro-book-legacy/", "docs/archived/", ".agents/tasks/"];
 

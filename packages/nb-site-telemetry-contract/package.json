@@ -1,0 +1,27 @@
+{
+    "name": "@notnotype/nb-site-telemetry-contract",
+    "version": "0.1.0",
+    "private": true,
+    "description": "官方站统计模块对外的 HTTP 合同：路径前缀、三个写入口与收集清单的各个版本；只依赖 TypeBox，客户端、前端、合同测试与统计模块共用",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        ".": "./src/index.ts",
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "typebox": "^1.3.6"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}

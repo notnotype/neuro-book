@@ -92,3 +92,22 @@ jobs:
         working-directory: packages/nb-layout
       - run: bun run smoke:server
         working-directory: packages/neuro-book
+
+  site-image:
+    name: 官方站的产物与镜像能打出来，产物过合同测试，镜像能起来并通过就绪检查（不推送）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:image
+        working-directory: packages/nb-site-server
+      # 打出来的单文件产物与源码行为一致：同一套合同测试对着产物再跑一遍，抓打包丢掉的东西（没内联的 SQL、动态导入）。
+      # 源码那一遍在 check 作业里经 test:affected 的依赖图选中。
+      - run: bun test
+        working-directory: packages/nb-site-contract-tests
+        env:
+          NB_SITE_SERVER_COMMAND: '["bun","--no-env-file","${{ github.workspace }}/packages/nb-site-server/dist/image/server.js"]'
+      - run: bun run smoke:image
+        working-directory: packages/nb-site-server
