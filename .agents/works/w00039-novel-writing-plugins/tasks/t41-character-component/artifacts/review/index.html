@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：人物的角色卡</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cands.three { grid-template-columns: minmax(0, 5fr) minmax(0, 5fr) minmax(0, 2fr); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.cand img + img { margin-top: 12px; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：人物的角色卡</h1>
+
+<section>
+  <h2>现状与参照</h2>
+  <div class="cands">
+    <div class="cand">
+      <h3>现在的人物分页</h3>
+      <img src="r1/now-character.webp" alt="现在的人物分页：一行一个字段的表，六个文字字段">
+    </div>
+    <div class="cand">
+      <h3>现在点“改”</h3>
+      <img src="r1/now-edit.webp" alt="现在点改：页面顶上出一个确认条，里面是输入框、改设定还是剧情里变了、取消与保存">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="card-layout" data-nbdev-type="confirm" data-nbdev-label="角色卡照这个样子做">
+  <h2>角色卡照这个样子做？</h2>
+  <p class="rec"><strong>推荐同意：整页只有立绘用力，其余都是字；顺序是长什么样、是谁、此刻怎样，再往下是成段的文字。</strong></p>
+  <div class="cands three">
+    <div class="cand">
+      <h3>填好的人物</h3>
+      <img src="r1/filled.webp" alt="填好的角色卡：左边立绘，右边性别、年龄、身份、所属、现在在哪、生死与现在的状态；下面是外貌、服装、性格、说话方式、背景">
+    </div>
+    <div class="cand">
+      <h3>刚新建的人物</h3>
+      <img src="r1/empty.webp" alt="刚新建的人物：立绘的位置是添加立绘，每一项空着，写着一句提示">
+    </div>
+    <div class="cand">
+      <h3>手机宽</h3>
+      <img src="r1/filled-phone.webp" alt="手机宽：立绘在上，资料排成一列">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="edit-inline" data-nbdev-type="single" data-nbdev-recommend="inline">
+  <h2>改一项时就地展开，还是沿用页面顶上的确认条？</h2>
+  <p class="rec"><strong>推荐 A 就地展开：眼睛不用离开这一项；“一直是这样”还是“从这一章起”在保存旁边选，缺省是前者。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="inline" data-nbdev-label="A 就地展开">
+      <h3>A 就地展开</h3>
+      <img src="r1/editing-text.webp" alt="就地改外貌：这一段换成输入框，下面是一直是这样与从第 3 章末尾起的选择、取消与保存">
+      <img src="r1/editing-short.webp" alt="就地改性别：输入框下面有男、女、不明三个建议值">
+    </div>
+    <div class="cand" data-nbdev-option="bar" data-nbdev-label="B 页面顶上的确认条">
+      <h3>B 页面顶上的确认条</h3>
+      <img src="r1/now-edit.webp" alt="页面顶上的确认条：现在的做法">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="add-entries" data-nbdev-type="confirm" data-nbdev-label="添加分成两个入口：添加一项资料、添加一组设定">
+  <h2>“添加”分成两个入口：添加一项资料、添加一组设定？</h2>
+  <p class="rec"><strong>推荐同意：一项资料是给这个人物多一栏（预设里点一下，或者自己写名字）；一组设定是多一个分区，只列适用于人物的。</strong></p>
+  <div class="cands">
+    <div class="cand">
+      <h3>添加一项资料</h3>
+      <img src="r1/add-field.webp" alt="添加一项资料：种族、生日、身高、喜好、弱点、动机、初次登场几个预设，和自己写一项的名字">
+    </div>
+    <div class="cand">
+      <h3>添加一组设定</h3>
+      <img src="r1/add-component.webp" alt="添加一组设定：数值、技能、物品栏、关系、知情、目标，各带一句说明，底下是全部设定组">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="many-groups" data-nbdev-type="single" data-nbdev-recommend="one-page">
+  <h2>设定组加多了以后：都排在“资料”这一页，还是每组各一个分页？</h2>
+  <p class="rec"><strong>推荐 A 都排在这一页：分页不随设定组变多；只有要大块地方的（数值的流水、经历、情节）才有自己的分页。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="one-page" data-nbdev-label="A 都排在资料这一页">
+      <h3>A 都排在“资料”这一页</h3>
+      <img src="r1/full.webp" alt="全套的角色卡：背景下面接着数值、技能、物品栏、关系几个分区">
+    </div>
+    <div class="cand" data-nbdev-option="tabs" data-nbdev-label="B 每组各一个分页">
+      <h3>B 每组各一个分页</h3>
+      <img src="r1/now-character.webp" alt="现在的做法：文字、人物、面板、经历、情节各一个分页">
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>版式用角色卡：左边立绘，右边基本资料，下面分区就地填（2026-11-24）</li>
+    <li>四样预设都要：预设的资料字段、可自己填的建议值、数值的预设项、新建时的模板；模板不写示例内容（2026-11-24）</li>
+    <li>人物只放最通用的；形象（立绘、外貌、服装、现在穿的）、数值、技能、物品栏、关系各自成组（2026-11-24）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
