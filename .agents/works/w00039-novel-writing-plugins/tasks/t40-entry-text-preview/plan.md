@@ -1,6 +1,6 @@
 # t40 实施计划：条目主文字的分屏预览与源文字高亮
 
-状态：第 1 稿（2026-11-24）。开发者当天在 t39 交付后说：“可以再做一个分屏编辑（试试预览）。然后是代码编辑可以用 Monaco 这个组件来实现，还有文本高亮。”开发者要的是先用起来，本稿没有先交确认：主会话自定的几处记进[待确认清单](../../pending-confirmations.md)。
+状态：第 2 稿（2026-11-24，实施中按查到的事实改了三处，见各节标“实施中改”的地方）。开发者当天在 t39 交付后说：“可以再做一个分屏编辑（试试预览）。然后是代码编辑可以用 Monaco 这个组件来实现，还有文本高亮。”开发者要的是先用起来，本稿没有先交确认：主会话自定的几处记进[待确认清单](../../pending-confirmations.md)。
 
 ## 1. Context
 
@@ -31,6 +31,8 @@ t39 把主文字改成整篇源文字的编辑，渲染结果要提交以后才�
 
 - `render/entry.ts` 加 `renderSourceForAuthor(world, entry, source, position, mode)`：求值的上下文与 `renderEntryForAuthor` 相同（同一个 `context`），把 `source` 当作这个条目的主文字渲染成一块（块 id 固定为 `source`）。不写入、不查写入的白名单以外的东西：出错时照输出 4 给纯文本与诊断（行、列）。条目不存在、那一章或那条线读不到时的返回与 `renderEntryForAuthor` 相同。
 - `service.ts` 加 `renderSource(entry, source, position, mode)`，带读取戳。
+- 实施中改：这条路用不进缓存的解析（`render/syntax.ts` 的 `parseDraft`）。内核的 `parseBlock` 按原文留解析结果、上限一万条，是给存下来的块用的；预览每停顿一次就是一份新的整篇，进了缓存会留下上万份整篇与语法树。
+- 实施中改：长度上限 `RENDER_SOURCE_MAX`（20 万字符，`shared/contracts.ts`）。用内核真实的解析器量：10 万字符约 0.24 秒，20 万约 0.36 秒，100 万约 1.5 秒；项目进程单线程，解析期间别的调用都等着。`remote.ts` 超过就回 `too-large`，网页端超过就不发。
 - 远程合同加 `renderSource: {entry, source, position?, mode}`（读），不收视图令牌（同 `textBlocks`：作者界面用）；`backend/remote.ts` 转给服务，结果照 `read` 的预算（超过得 `too-large`）。
 
 ### 3.2 预览的读取（`canon/web/text-preview.ts` 新）
@@ -45,7 +47,7 @@ t39 把主文字改成整篇源文字的编辑，渲染结果要提交以后才�
 ### 3.3 界面（`canon/web/components/`）
 
 - `EntryTextEditor.vue`：
-  - 属性加 `preview: boolean`（预览开着）、`previewNote: string`（预览栏顶上要写的一句：写得不对的行与原因、读不出来的原因；空串不写）、`previewStale: boolean`（栏里是上一次读得出来的样子）；事件加 `update:preview`；插槽 `preview`（宿主放渲染结果）。
+  - 属性加 `preview: boolean`（预览开着）、`previewNote: string`（预览栏顶上要写的一句：写得不对的行与原因、读不出来的原因；空串不写；有这一句时栏里的内容就是上一次的样子，变淡）；事件加 `update:preview`；插槽 `preview`（宿主放渲染结果）。
   - 状态行在“插入”左边加“预览”按钮（`aria-pressed`）。
   - 编辑区是一个网格：预览开着、这个组件的宽度不小于 880 像素时左右各半（左边输入框，右边预览栏）；窄于它时预览栏排在输入框下面。
   - 左右分屏时预览栏吸在页头下面、自己滚动（高度不超过看得到的区域），输入框照旧随内容长高、跟着页面滚。作者打字以后，预览栏滚到光标所在那一行对应的段落（预览里的每个段落带着它在源文字里的行号）。
@@ -57,7 +59,7 @@ t39 把主文字改成整篇源文字的编辑，渲染结果要提交以后才�
 
 ### 3.4 语言（`canon/web/entry-language.ts` 新、`canon/web/plugin.ts`）
 
-- 语言 id `canon-entry`，别名 `Canon Entry`。规则：标题、列表与引用的记号、分隔线、代码（围栏与行内）、强调与加粗、链接照 Markdown 的画法；`{` 到配对的 `}` 是表达式，里面的名字（含中文）是变量、`.` 与 `[` `]` 是分隔符、字符串、数、运算符各自着色，`{/* */}` 是注释；`<Ref …/>`、`<Image …/>` 这类标签的名字、属性名、属性值各自着色；反斜杠转义（`\{`）不进表达式。
+- 语言 id `canon-entry`，别名 `Canon Entry`。规则：标题、列表与引用的记号、分隔线、代码（围栏与行内）、强调与加粗、链接照 Markdown 的画法；`{` 到配对的 `}` 是表达式，里面的名字（含中文）归在 `type` 这一类（实施中改：主题里 `variable` 与正文同色，真实页面里字段名没有颜色，e2e 查出来的）、`.` 与 `[` `]` 是分隔符、字符串、数、运算符各自着色，`{/* */}` 是注释；`<Ref …/>`、`<Image …/>` 这类标签的名字、属性名、属性值各自着色；反斜杠转义（`\{`）不进表达式。
 - 认不出的字符一律按正文画（`defaultToken` 为空），不标 `invalid`。
 - `plugin.ts` 把它登记到 `editor.languages`；`EntryPageHost` 给编辑视图 `language="canon-entry"`。编辑器区没登记它时（Lab）照旧按纯文本。
 
@@ -90,7 +92,9 @@ t39 把主文字改成整篇源文字的编辑，渲染结果要提交以后才�
 | author-ui 输出 48：停顿后预览换成新的；先发的晚回来不换上；写得不对时留着上一次的并给出行与原因；世界变了重读 | `text-preview.test.ts` |
 | 输出 48：“预览”按钮开关预览栏；关着时不读 | `EntryTextEditor.dom.test.ts`、`entry-page.dom.test.ts` |
 | 输出 48：预览里的值与引用不是按钮 | `EntryText` 的 dom 测试 |
-| 输出 48：真实浏览器里打字后预览出现字段的值；源文字里标题与花括号的颜色与正文不同 | e2e `canon-write` |
+| 输出 48：真实浏览器里打字后预览出现字段的值；字段名的颜色与正文不同；编辑区窄时预览在下面、拉宽后在右边 | e2e `canon-write` |
+| 输出 48：着色规则把各种写法分成哪些记号 | `entry-language.test.ts`（Monaco 真实的分词器） |
+| 输出 48、rendering 输出 16：整篇太长时不发、原因是 too-large | `text-preview.test.ts`、`canon.test.ts` |
 | 窄处预览排在下面、没有横向滚动 | Lab 截图（390 宽） |
 
 ## 7. 验证
