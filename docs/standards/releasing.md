@@ -26,7 +26,7 @@
 
 1. 源码包要发的，先各自提版、补好它的 `[Unreleased]`，合入 master。nb-layout 提版时同改 `packages/nb-layout/examples/*/package.json` 里它的版本范围（`src/examples.test.ts` 核对，`release:check` 不跑测试，漏了要等 CI 才报）。
 2. 这一版插件能用的接口（SDK 的公开面、内置插件导出的服务与合同、宿主共享给插件的模块）有不兼容的改动时，把 `packages/neuro-book/src/shared/product.ts` 的 `PLUGIN_API_SINCE` 改成这次的版本，并在应用记录的 `### 不兼容的改动` 写一条，合入 master；没有就不动它，已经构建的插件在新版本上照样能装（[`runtime/plugin-api.md`](../specs/runtime/plugin-api.md) 的“兼容”）。
-3. 演练：在主工作区的 master 上运行 `bun run release rehearse`。它先在本机跑 `governance:check --all` 与 `docs:check --all`（CI 治理作业的两项检查；没通过就不推），再推 master、在 Actions 里对 master 跑一次 Release 演练（见下文“流水线”的最后一段）并盯到结束。演练要在打标签的那个提交的前一个提交（也就是现在的 HEAD）上通过：只在发布流水线上跑的冒烟，本机验证碰不到（v0.14.0 就是打了标签才发现冒烟被首次启动向导挡住，版本号作废）。
+3. 演练：在主工作区的 master 上运行 `bun run release rehearse`。它先查会发布的目录与 `bun.lock` 干净（含未跟踪文件，与下面 `release:prepare` 的检查同一个判据，别的会话在示例目录里 `bun install` 留下的锁文件就拦过 v0.17.0），再在本机跑 `governance:check --all` 与 `docs:check --all`（CI 治理作业的两项检查；没通过就不推），再推 master、在 Actions 里对 master 跑一次 Release 演练（见下文“流水线”的最后一段）并盯到结束。演练要在打标签的那个提交的前一个提交（也就是现在的 HEAD）上通过：只在发布流水线上跑的冒烟，本机验证碰不到（v0.14.0 就是打了标签才发现冒烟被首次启动向导挡住，版本号作废）。
 4. 发版：`bun run release <版本> [--stage canary|preview]`。它确认 HEAD 上有成功的演练，跑下面的 `release:prepare` 提交 `release: v<版本>`，在这个提交上打标签，把 master 与标签用 `git push --atomic` 一次推送（两个一起成、一起不成），再盯标签触发的 Release 流水线到结束，最后列出各作业的结果。盯的终端断了用 `bun run release watch <版本>` 接着看。`--no-rehearsal` 跳过演练检查，只在明白为什么时用。
 
 `release:prepare <版本> [--stage canary|preview]` 也能单独运行（只提交，不推送）。它先只读检查：在 master、包含 `origin/master`、会发布的目录与 `bun.lock` 干净、版本更高、应用的 `[Unreleased]` 有条目、与上一个桌面版本（与门禁同一来源：GitHub 上低于本次、有安装包的最高稳定版本，要本机的 `gh` 已登录）相比提了版本的源码包有记录且有条目、没有降版本的；全部通过才改两处产品版本与阶段、把这些记录的 `[Unreleased]` 定稿成 `[<各自的版本>] - <今天>`、刷新 `bun.lock`，提交 `release: v<版本>`；写入之后任何一步失败都把这些文件还原、不提交。版本没提而 `[Unreleased]` 有条目的源码包留到它下次提版，只打一行提示。
@@ -67,7 +67,7 @@
 - **被取消**：正式发布按推送先后排队（`queue: max`，至多 100 个等待中的）；满了以后新来的被取消，在 Actions 里重跑那一轮即可，标签不用重推。
 - **恢复不了**（产物过了保留期或被删，而 npm 已发、Release 没有公开）：流水线不自动重建替换。按 Release 草稿、`release-plan.json` 与 registry 只读对账，提高补丁号、重打标签发一个新版本；没公开的草稿由开发者删掉。
 - **`verify-feed` 或 `upgrade-from-previous` 失败**：Release 已经公开。先看作业摘要与证据（`feed-evidence.json`、`upgrade-evidence`）：是 GitHub 的临时问题就重跑作业；是资产或清单的问题，提高补丁号发一个修正版本，有问题的 Release 由开发者决定是否改回草稿。
-- **macOS 构建失败**（`desktop-macos`，不挡发布）：Release 先只带 Windows 的资产公开。在 Actions 里对这一轮“重跑失败的作业”：macOS 重新构建，`github-release` 跟着重跑、把 macOS 的一整套补传到已公开的 Release（缺 Windows 的资产仍然失败），`verify-feed` 与 `upgrade-from-previous` 也跟着重跑。超过可重跑期时用 `desktop-macos.yml` 手动补包。
+- **macOS 构建失败**（`desktop-macos`，不挡发布）：Release 先只带 Windows 的资产公开。Apple Silicon 的 runner 紧张时作业排队约 15 分钟就被放弃（v0.17.0 就是），`bun run release` 在只有 macOS 没成功时自动对这一轮“重跑失败的作业”一次再盯；再没成功，或要手动补时，在 Actions 里对这一轮“重跑失败的作业”：macOS 重新构建，`github-release` 跟着重跑、把 macOS 的一整套补传到已公开的 Release（缺 Windows 的资产仍然失败），`verify-feed` 与 `upgrade-from-previous` 也跟着重跑。超过可重跑期时用 `desktop-macos.yml` 手动补包。
 - **`registry-smoke` 失败**：npm 包已发。先看是不是版本还没在 registry 上可见（等待超过 30 分钟）；是的话等它出现后重跑这个作业。
 
 产物保留 35 天（覆盖首次运行后 30 天的可重跑期），冒烟证据保留 14 天。
