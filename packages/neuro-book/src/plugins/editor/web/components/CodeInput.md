@@ -47,6 +47,12 @@ type Exposed = {
     focus(caret?: "start" | "end"): void;
     /** 光标在文字里的偏移（按 `modelValue` 的字符数）；还没建 Monaco 时为 null。失焦以后仍是最后的位置。加载失败时取文本框的。 */
     cursorOffset(): number | null;
+    /**
+     * 在光标处写入一段文字（有选区时换掉选区），光标落在它后面；照用户输入交出 `update:modelValue`，进撤销历史。只读、还没建
+     * Monaco 时不做，返回 false。加载失败时写进文本框。使用方要在光标处加字时用它，不要把拼好的全文经 `modelValue` 给回来：那是
+     * 整篇替换，撤销历史清空。
+     */
+    insert(text: string): boolean;
 };
 ```
 

@@ -20,6 +20,7 @@ import {textScene} from "./testing/text-scene";
 import type {SceneWindow, TextScene} from "./testing/text-scene";
 import {addAfter, removeBlock, setText} from "./web/text-draft";
 import {createTextDrafts, TEXT_DRAFTS_RECORD} from "./web/text-drafts";
+import {setWhole} from "./web/text-whole";
 import {createCanonWorld} from "./web/world";
 
 let tmp = "";
@@ -656,5 +657,103 @@ describe("author-ui 输出 44、45：提交在途时别的动作、被告知以�
         expect([two.state.saved, kept.status === "ok" && kept.value.texts.b1, two.state.read?.blocks.map((block) => block.source)]).toEqual(["saved", "甲改", ["甲", "那边加的"]]);
         second.dispose();
         first.dispose();
+    }), 60_000);
+});
+
+describe("author-ui 输出 39、44：整篇的稿经真实内核", () => {
+    it("多块的条目整篇改一句：提交以后是一块；改的是别的条目时不问，照常发布", () => inScene(async (scene) => {
+        const [entry, other] = [await scene.seed(["甲", "乙", "丙"]), await scene.seed(["别的条目"])];
+        const desk = deskOf(await scene.window("browser-1"));
+        const session = desk.drafts.session(entry);
+        expect(await session.begin(at)).toBeNull();
+        session.edit((draft, read) => setWhole(draft, read, "甲\n\n乙（改）\n\n丙"));
+        // 别处的写入让读取戳过期：重读以后这个条目的整篇没变，不问。
+        await scene.edit([{op: "set", at: {entry: other, path: "text[b1]"}, value: "别的条目改了"}], "creative", at);
+        expect((await session.submit("整篇改一句")).status).toBe("published");
+        expect([scene.sources(entry, at), scene.titles(entry), session.state.draft]).toEqual([["甲\n\n乙（改）\n\n丙"], ["建条目", "整篇改一句"], null]);
+        desk.dispose();
+    }), 60_000);
+
+    it("别处在末尾加了一块：提交时问，不把那一块悄悄带进去；选“我的”以后世界里只有作者的整篇", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const desk = deskOf(await scene.window("browser-1"));
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, "甲（改）\n\n乙"));
+        await scene.edit([{op: "addBlock", entry, source: "别处加的"}], "creative", at);
+
+        expect((await session.submit("我的整篇")).status).toBe("conflicts");
+        expect(session.state.conflicts).toEqual([{kind: "whole", mine: "甲（改）\n\n乙", theirs: "甲\n\n乙\n\n别处加的"}]);
+        expect(scene.sources(entry, at)).toEqual(["甲", "乙", "别处加的"]);
+
+        session.choose(session.state.conflicts[0]!, "mine");
+        expect((await session.submit("我的整篇")).status).toBe("published");
+        expect(scene.sources(entry, at)).toEqual(["甲（改）\n\n乙"]);
+        desk.dispose();
+    }), 60_000);
+
+    it("别处改了这篇文字、作者选“现在的”：没有要发的，稿收掉，世界里是别处的那一版", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, "我的"));
+        await session.flush();
+        await scene.edit([{op: "set", at: {entry, path: "text[b1]"}, value: "别处的"}], "creative", at);
+        expect((await session.submit("我的")).status).toBe("conflicts");
+        session.choose(session.state.conflicts[0]!, "theirs");
+        expect((await session.submit("我的")).status).toBe("nothing");
+        expect([scene.sources(entry, at), session.state.draft, (await stored(window.storage, entry)).status]).toEqual([["别处的"], null, "missing"]);
+        desk.dispose();
+    }), 60_000);
+
+    it("没有主文字的条目写第一段、之后整篇清空：先加一块，再把它删掉", () => inScene(async (scene) => {
+        const entry = await scene.seed([]);
+        const desk = deskOf(await scene.window("browser-1"));
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, "第一段\n\n第二段"));
+        expect((await session.submit("开始写")).status).toBe("published");
+        expect(scene.sources(entry, at)).toEqual(["第一段\n\n第二段"]);
+
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, ""));
+        expect((await session.submit("清空")).status).toBe("published");
+        expect(scene.sources(entry, at)).toEqual([]);
+        desk.dispose();
+    }), 60_000);
+
+    it("整篇的稿暂存以后重开：读回来还是作者的整篇，照常提交", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const window = await scene.window("browser-1");
+        const first = deskOf(window);
+        const session = first.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, "甲\n\n乙\n\n新加一段"));
+        await session.flush();
+        expect(session.state.saved).toBe("saved");
+        first.dispose();
+
+        const reopened = deskOf(window).drafts.session(entry);
+        await reopened.load();
+        expect(reopened.state.draft?.whole).toEqual({base: "甲\n\n乙", text: "甲\n\n乙\n\n新加一段"});
+        expect((await reopened.submit("重开以后提交")).status).toBe("published");
+        expect(scene.sources(entry, at)).toEqual(["甲\n\n乙\n\n新加一段"]);
+    }), 60_000);
+    it("整篇的稿提交以后回执丢了：等着结局；再确认拿回那一次的结果，只发布一次", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, "甲\n\n乙\n\n新加一段"));
+        scene.loseReply(writing);
+        expect((await session.submit("回执会丢")).status).toBe("unknown");
+        expect(await window.reconnect()).toEqual({ok: true});
+        expect([session.state.phase, session.state.draft?.whole?.text, scene.sources(entry, at)]).toEqual(["confirming", "甲\n\n乙\n\n新加一段", ["甲\n\n乙\n\n新加一段"]]);
+        expect((await session.confirm()).status).toBe("published");
+        expect([session.state.draft, scene.sources(entry, at), scene.titles(entry)]).toEqual([null, ["甲\n\n乙\n\n新加一段"], ["建条目", "回执会丢"]]);
+        desk.dispose();
     }), 60_000);
 });

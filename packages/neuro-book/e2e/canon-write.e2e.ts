@@ -100,15 +100,15 @@ async function openEntry(page: Page, folder: string, name: string): Promise<void
     await expect(entryPage(page).locator("h1")).toHaveText(name);
 }
 
-/** 编辑视图里的各块、与一块里的代码输入框（Monaco 进入视野才建：先等它建好再点）。 */
-const textBlocks = (page: Page) => entryPage(page).locator("[data-text-block]");
-async function focusBlock(page: Page, index: number): Promise<void> {
-    const block = textBlocks(page).nth(index);
-    await expect(block.locator("[data-code-input-stage=\"ready\"]")).toBeVisible();
-    await block.locator(".monaco-editor").click();
+/** 编辑视图里整篇源文字的输入框（Monaco 进入视野才建：先等它建好再点）。 */
+const textSource = (page: Page) => entryPage(page).locator("[data-text-source]");
+async function focusSource(page: Page): Promise<void> {
+    await expect(textSource(page).locator("[data-code-input-stage=\"ready\"]")).toBeVisible();
+    await textSource(page).locator(".monaco-editor").click();
 }
-/** 一块里的文字：Monaco 把空格画成不换行空格，两种都认。 */
-const blockText = (page: Page, index: number) => textBlocks(page).nth(index).locator(".view-lines");
+/** 输入框里的文字：Monaco 把空格画成不换行空格，两种都认。 */
+const sourceText = (page: Page) => textSource(page).locator(".view-lines");
+const dirtyLabel = (page: Page) => entryPage(page).locator("[data-text-dirty]");
 const tabDot = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]");
 
 test("作者从空作品起步：空状态里新建人物，条目页上改外观、开始写主文字并用 Ctrl+S 提交、加别名", async ({page}) => {
@@ -134,20 +134,27 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await expect(entryPage(page).locator("[data-text-empty]")).toHaveText("还没有主文字");
     await entryPage(page).getByRole("button", {name: "开始写"}).click();
-    // 进来是一个空的块，焦点在里面；还没写字时标签没有未保存的圆点。
-    await expect(textBlocks(page)).toHaveCount(1);
+    // 进来是一个空的输入框；还没写字时标签没有未保存的圆点。
+    await expect(textSource(page)).toHaveCount(1);
     await expect(tabDot(page)).toHaveCount(0);
-    await focusBlock(page, 0);
+    await focusSource(page);
     await page.keyboard.type("星瑕是第三魔法学院的一年级学生。");
-    await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
+    await expect(dirtyLabel(page)).toHaveText("有未提交的修改");
     await expect(tabDot(page)).toHaveCount(1);
-    // Tab 离开输入框，走到这一块后面的“在这里加一块”（不留在框里缩进）；再回到输入框里。
+    // “插入”把字段的写法放在光标处，焦点回到输入框、光标在写法后面：接着打的字跟在它后面。
+    await entryPage(page).locator("[data-text-insert]").click();
+    await page.getByRole("menuitem", {name: "人物 · 外观"}).click();
+    await expect(sourceText(page)).toContainText("一年级学生。{character.外观}");
+    await page.keyboard.type("是她的样子。");
+    await expect(sourceText(page)).toContainText("{character.外观}是她的样子。");
+    // Tab 离开输入框（不留在框里缩进）；再回到输入框里。
     await page.keyboard.press("Tab");
-    await expect(textBlocks(page).nth(0).locator("[data-text-add]")).toBeFocused();
-    await focusBlock(page, 0);
+    await expect(entryPage(page).locator("[data-text-source]:focus-within")).toHaveCount(0);
+    await focusSource(page);
     // 焦点在代码输入框里按 Ctrl+S：经“保存”命令提交这一页，只提交一次。
     await page.keyboard.press("Control+s");
-    await expect(entryPage(page).locator("[data-entry-text]")).toContainText("一年级学生");
+    // 提交以后在阅读视图里看结果：插入的写法显示成外观当时的值。
+    await expect(entryPage(page).locator("[data-entry-text]")).toContainText("一年级学生。银白长发是她的样子。");
     await expect(page.locator("[data-notice-bar]")).toContainText("改星瑕的主文字");
     await expect(tabDot(page)).toHaveCount(0);
     await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(1);
@@ -158,40 +165,32 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await expect(entryPage(page).locator("[data-entry-aliases]")).toContainText("小瑕");
 });
 
-test("主文字的稿（验收 16）：从光标处拆成两块，刷新以后标签带圆点、直接在编辑里、改的字还在；提交成一条修订，从提示撤销", async ({page}) => {
+test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点、直接在编辑里、改的字还在；提交成一条修订、主文字是一块，从提示撤销", async ({page}) => {
     await open(page);
     await openEntry(page, "人物", "星瑕");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
-    await expect(textBlocks(page)).toHaveCount(1);
+    await expect(textSource(page)).toHaveCount(1);
     // 编辑期间位置锁在开始编辑的地方。
     await expect(entryPage(page).locator("[data-position-locked]")).toHaveCount(1);
-    await focusBlock(page, 0);
+    await focusSource(page);
     await page.keyboard.press("Control+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
     await page.keyboard.type("她住在旧城区。");
-    // 光标退到“她”前面，从这里拆开：后半成新的一块，焦点跟过去。
-    for (let step = 0; step < "她住在旧城区。".length; step += 1) await page.keyboard.press("ArrowLeft");
-    await textBlocks(page).nth(0).getByRole("button", {name: "从光标处拆开"}).click();
-    await expect(textBlocks(page)).toHaveCount(2);
-    await expect(blockText(page, 0)).toHaveText("星瑕是第三魔法学院的一年级学生。");
-    await expect(blockText(page, 1)).toHaveText("她住在旧城区。");
-    // 不用再点：焦点已经在新块里，光标在它的开头（拆开的地方），接着打的字落在那里。
-    await page.keyboard.type("后来");
-    await expect(blockText(page, 1)).toHaveText("后来她住在旧城区。");
-    await page.keyboard.press("Backspace");
-    await page.keyboard.press("Backspace");
-    await expect(blockText(page, 1)).toHaveText("她住在旧城区。");
-    await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
+    await expect(sourceText(page)).toContainText("她住在旧城区。");
+    await expect(dirtyLabel(page)).toHaveText("有未提交的修改");
     await expect(entryPage(page).locator("[data-text-saved=\"saved\"]")).toBeVisible();
 
     await open(page);
     await expect(tabDot(page)).toHaveCount(1);
-    await expect(textBlocks(page)).toHaveCount(2);
-    await expect(blockText(page, 1)).toHaveText("她住在旧城区。");
+    await expect(textSource(page)).toHaveCount(1);
+    await expect(sourceText(page)).toContainText("她住在旧城区。");
     // 暂存不是修订：还没提交，别的读取看不到。
 
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
-    await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(2);
+    // 整篇写进一块：两段在同一块里。
+    await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(1);
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("她住在旧城区。");
     await expect(tabDot(page)).toHaveCount(0);
     const notice = page.locator("[data-notice-bar]");
@@ -204,17 +203,17 @@ test("主文字的稿（验收 16）：从光标处拆成两块，刷新以后�
     await expect(entryPage(page).locator("[data-entry-text]")).not.toContainText("她住在旧城区。");
 });
 
-test("同一块两边都改了（验收 16）：另一个窗口先提交，这边提交时出对照；选“现在的”就照别处的那一版，选“我的”以我的为准", async ({page, browser}) => {
+test("别处也改了主文字（验收 16）：另一个窗口先提交，这边提交时出对照；选“现在的”就照别处的那一版", async ({page, browser}) => {
     await open(page);
     await openEntry(page, "人物", "星瑕");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
-    await focusBlock(page, 0);
+    await focusSource(page);
     await page.keyboard.press("Control+End");
     await page.keyboard.type("（这边改的）");
     await expect(entryPage(page).locator("[data-text-saved=\"saved\"]")).toBeVisible();
 
-    // 另一份浏览器配置的窗口（稿是各自的）改同一块并提交。
+    // 另一份浏览器配置的窗口（稿是各自的）也改主文字并提交。
     const context = await browser.newContext({viewport: {width: 1440, height: 900}});
     const other = await context.newPage();
     try {
@@ -222,7 +221,7 @@ test("同一块两边都改了（验收 16）：另一个窗口先提交，这�
         await openEntry(other, "人物", "星瑕");
         await entryPage(other).getByRole("tab", {name: "文字"}).click();
         await entryPage(other).getByRole("button", {name: "编辑", exact: true}).click();
-        await focusBlock(other, 0);
+        await focusSource(other);
         await other.keyboard.press("Control+End");
         await other.keyboard.type("（别处改的）");
         await entryPage(other).getByRole("button", {name: "提交", exact: true}).click();
@@ -251,13 +250,18 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     await openEntry(page, "人物", "星瑕");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
-    const fallback = textBlocks(page).nth(0).locator("[data-code-input-fallback]");
+    const fallback = textSource(page).locator("[data-code-input-fallback]");
     await expect(fallback).toBeVisible();
-    await expect(textBlocks(page).nth(0).locator("[data-code-input-failure]")).toBeVisible();
-    // 进编辑时焦点要进第一块：编辑器没建成，焦点落在退回的文本框里、光标在文末，直接打字。
+    await expect(textSource(page).locator("[data-code-input-failure]")).toBeVisible();
+    // 进编辑时焦点要进输入框：编辑器没建成，焦点落在退回的文本框里、光标在文末，直接打字。
     await expect(fallback).toBeFocused();
     await page.keyboard.type("（文本框里改的）");
-    await expect(entryPage(page).locator("[data-text-count]")).toHaveText("未提交 1 块");
+    await expect(dirtyLabel(page)).toHaveText("有未提交的修改");
+    // 退回的文本框里“插入”同样落在光标处。
+    await entryPage(page).locator("[data-text-insert]").click();
+    await page.getByRole("menuitem", {name: "人物 · 外观"}).click();
+    await expect(fallback).toHaveValue(/（文本框里改的）\{character\.外观\}$/u);
+    await expect(fallback).toBeFocused();
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
     await expect(tabDot(page)).toHaveCount(0);
@@ -323,7 +327,7 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await expect(undo).toBeFocused();
 });
 
-test("稿开始的那一章被删以后刷新（输出 46）：页面照常读得出来，编辑里只列动过的文字、不能改，只能放弃", async ({page}) => {
+test("稿开始的那一章被删以后刷新（输出 46）：页面照常读得出来，编辑里是稿里的整篇、不能改，只能放弃", async ({page}) => {
     // 给作品加一章：条目页缺省读这一章末尾，稿就开在这里。
     const binder = join(tmp, "Book", "manuscripts.binder");
     await mkdir(binder, {recursive: true});
@@ -334,7 +338,7 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await expect(position).toContainText("第 1 章末尾");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
-    await focusBlock(page, 0);
+    await focusSource(page);
     await page.keyboard.press("Control+End");
     await page.keyboard.type("（第 1 章里改的）");
     await expect(entryPage(page).locator('[data-text-saved="saved"]')).toBeVisible();
@@ -346,9 +350,9 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await expect(tabDot(page)).toHaveCount(1);
     await expect(entryPage(page).locator("h1")).toHaveText("星瑕");
     await expect(entryPage(page).locator("[data-text-message]")).toContainText("开始编辑时的那一章已经不在了");
-    await expect(textBlocks(page)).toHaveCount(1);
-    await expect(textBlocks(page).nth(0)).toContainText("（第 1 章里改的）");
-    await expect(entryPage(page).locator("[data-text-add]")).toHaveCount(0);
+    await expect(textSource(page)).toHaveCount(1);
+    await expect(textSource(page)).toContainText("（第 1 章里改的）");
+    await expect(entryPage(page).locator("[data-text-insert]")).toHaveCount(0);
     await expect(entryPage(page).getByRole("button", {name: "提交", exact: true})).toBeDisabled();
 
     await entryPage(page).locator("[data-text-discard]").click();

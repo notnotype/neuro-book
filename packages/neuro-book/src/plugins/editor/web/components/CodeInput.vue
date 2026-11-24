@@ -206,6 +206,28 @@ defineExpose({
         const position = editor?.getPosition() ?? null;
         return model === null || position === null ? null : model.getOffsetAt(position);
     },
+    /**
+     * 在光标处写入一段文字（有选区时换掉选区），光标落在它后面；照用户输入交出去，进撤销历史。使用方不要自己把文字拼好再经
+     * `modelValue` 给回来：那样是整篇替换，撤销历史清空、光标回不到原处。只读、编辑器还没建好时不做，返回假。
+     */
+    insert: (text: string): boolean => {
+        if (props.readonly) return false;
+        if (stage.value === "failed") {
+            const element = fallback.value?.$el;
+            if (element === undefined) return false;
+            const at = element.selectionStart + text.length;
+            element.setRangeText(text, element.selectionStart, element.selectionEnd);
+            element.setSelectionRange(at, at);
+            element.dispatchEvent(new Event("input", {bubbles: true}));
+            return true;
+        }
+        const selection = editor?.getSelection() ?? null;
+        if (editor === null || selection === null) return false;
+        editor.pushUndoStop();
+        editor.executeEdits("nbook.code-input.insert", [{range: selection, text, forceMoveMarkers: true}]);
+        editor.pushUndoStop();
+        return true;
+    },
 });
 </script>
 

@@ -28,6 +28,8 @@ import {CANON_BUDGET_BYTES, encodedBytes} from "../shared/contracts";
 import type {CanonClient, CanonFailure, CanonOutputs} from "../shared/contracts";
 import {compile, emptyDraft, hasChanges, own, rebase, resolve} from "./text-draft";
 import type {Blocked, Choice, Conflict, PendingSubmit, TextDraft, TextRead} from "./text-draft";
+import {realign, resolveWhole} from "./text-whole";
+import type {WholeConflict} from "./text-whole";
 import type {CanonWorld} from "./world";
 
 const Texts = Type.Record(Type.String(), Type.String());
@@ -52,6 +54,7 @@ const DraftSchema = Type.Object({
     moved: Type.Optional(Type.Array(Type.String())),
     merged: Type.Optional(Type.Record(Type.String(), Type.Object({into: Type.String(), head: Type.String(), joined: Type.String(), unedited: Type.Optional(Type.Literal(true))}))),
     split: Type.Optional(Type.Record(Type.String(), Type.Object({from: Type.String(), text: Type.String()}))),
+    whole: Type.Optional(Type.Object({base: Type.String(), text: Type.String()})),
     pending: Type.Optional(Type.Object({
         requestId: Type.String(),
         title: Type.String(),
@@ -125,7 +128,8 @@ export interface TextDraftState {
     saved: SavedState;
     /** `confirming`：上一次提交冻结了、结果不明。 */
     phase: "idle" | "submitting" | "confirming";
-    conflicts: readonly Conflict[];
+    /** 按块改的稿是逐块的冲突；整篇的稿（`text-whole.ts`）至多一条。 */
+    conflicts: readonly (Conflict | WholeConflict)[];
     problems: Readonly<Record<string, BlockProblem>>;
     /**
      * 读进来就在等结局的稿，会话自己去确认（没有页面在场时也会）得到的“没发布”一类的结局：界面据此写明上一次提交怎么了。
@@ -157,7 +161,7 @@ export interface TextDraftSession {
     /** 上一次提交结局不明时再确认一次（连上以后、作者点“再试”）。 */
     confirm(): Promise<SubmitResult>;
     /** 作者选完了一条冲突。 */
-    choose(conflict: Conflict, choice: Choice): void;
+    choose(conflict: Conflict | WholeConflict, choice: Choice): void;
     /**
      * 别的窗口也在改时：用这里的内容覆盖那边的，再读一次块（那边可能已经发布过，编辑里要看得到）。那边的记录带着一次还在等
      * 结果的提交时不覆盖、返回 `pending`：那是那次提交唯一存下来的一份，盖掉以后没人再确认它，这里的稿多半也带着它发过的
@@ -328,7 +332,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
         };
 
         /** 读块并把稿对上去；读不出来时稿原样留着。 */
-        const align = async (): Promise<readonly Conflict[] | Blocker> => {
+        const align = async (): Promise<readonly (Conflict | WholeConflict)[] | Blocker> => {
             const [draft, mine] = [state.draft, generation];
             if (draft === null) return [];
             const read = await readBlocks(draft.at);
@@ -340,7 +344,8 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
                 return read;
             }
             // 读的时候作者又打了字：以读回来时的稿为准去对。
-            const rebased = rebase(state.draft, read);
+            // 整篇的稿不按块对：别处新加的块不在稿里，按块对会把它悄悄留在作者的整篇后面（见 `text-whole.ts`）。
+            const rebased = state.draft.whole === undefined ? rebase(state.draft, read) : realign(state.draft, read);
             state.blocker = null;
             state.read = read;
             state.draft = rebased.draft;
@@ -704,7 +709,8 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             choose: (conflict, choice) => {
                 const [draft, read] = [state.draft, state.read];
                 if (draft === null || read === null || state.phase !== "idle") return;
-                state.draft = resolve(draft, read, conflict, choice);
+                // 整篇的冲突只有“我的”与“现在的”两种选择；`keep`、`drop` 是按块的冲突才有的，界面不会对整篇给出它们。
+                state.draft = conflict.kind === "whole" ? resolveWhole(draft, read, conflict, choice === "mine" ? "mine" : "theirs") : resolve(draft, read, conflict, choice);
                 state.conflicts = state.conflicts.filter((item) => item !== conflict);
                 touch();
             },

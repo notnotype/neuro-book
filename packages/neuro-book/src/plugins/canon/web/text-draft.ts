@@ -11,6 +11,9 @@
  * 初值的块后面，所以插不到剧情加出来的块前面。这里不重新推断来历。
  *
  * 块 id 由内核定、可以是任何字符串（旧数据里有 `constructor` 这样的）：按 id 取字典里的值一律只认自有属性（`own`）。
+ *
+ * 第一版界面不分节，作者改的是整篇（`text-whole.ts`，建在这里的 `setText`、`removeBlock`、`addAfter`、`compile` 上）；拆、并与
+ * `rebase` 的按块冲突现在没有界面上的调用方，分节的事定了以后要么用上、要么删。
  */
 
 import {EntryEditsSchema} from "@notnotype/nb-canon/schema";
@@ -64,6 +67,11 @@ export interface TextDraft {
     readonly merged?: Readonly<Record<string, {readonly into: string; readonly head: string; readonly joined: string; readonly unedited?: true}>>;
     /** 从旧块拆出来的新块是从谁拆的、拆出来时的文字：作者在冲突里撤掉对那个旧块的改动时，没再改过的这一半一起撤掉。 */
     readonly split?: Readonly<Record<string, {readonly from: string; readonly text: string}>>;
+    /**
+     * 当一整篇来改的稿（`text-whole.ts`）：`base` 是开始编辑、或作者上一次在冲突里认下别处的版本时读到的整篇，`text` 是作者的
+     * 整篇。有它时它是真相，上面块一级的字段每次按当时读到的块从它重新编出来，不单独改。
+     */
+    readonly whole?: {readonly base: string; readonly text: string};
     readonly pending?: PendingSubmit;
 }
 
@@ -128,6 +136,9 @@ const written = (draft: TextDraft): string[] => draft.order.filter((key) => isNe
 
 /** 有没有未提交的内容：有旧块动过，或有写了字的新块。改回原样的块不算（`setText` 会把它从 `base` 里拿掉）。 */
 export function hasChanges(draft: TextDraft): boolean {
+    // 整篇的稿看整篇：读到的块进不了整篇编辑时块一级的字段是空的，作者的字仍在 `whole` 里，不能当成没有改动把暂存删了。
+    // 两边都只有空白时没有要发的（空白的整篇等于没有主文字）。
+    if (draft.whole !== undefined) return draft.whole.text !== draft.whole.base && !(blank(draft.whole.text) && blank(draft.whole.base));
     return Object.keys(draft.base).length > 0 || written(draft).length > 0;
 }
 
