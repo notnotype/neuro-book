@@ -21,8 +21,10 @@
 - 每个模块的迁移放在模块包的 `migrations/NNNN_<小写下划线名>.sql`：`NNNN` 是四位、模块内递增的编号，id 是去掉 `.sql` 的文件名。两个模块各自编号。
 - 模块包的 `src/migrations.ts` 按编号逐个以 `with {type: "text"}` 导入；`src/migrations.test.ts` 核对清单与目录一一对应。
 - 只往前（ADR 0061 决策 2）：发布过的迁移不能改，每个版本的迁移要让上一个版本照常运行，破坏性的改动拆到下一个版本。
-- 纯 SQL，可以多条语句；运行器给每条迁移包一个事务，所以不能写事务语句（`BEGIN`、`COMMIT`、`END`、`ROLLBACK`、`SAVEPOINT`、`RELEASE`），也不能写 `PRAGMA`、`ATTACH`、`DETACH`、`VACUUM`。带 `BEGIN … END` 的触发器因此也写不进迁移，第一次需要时再放开运行器的校验。
-- 库里的迁移账本是表 `site_migrations(id, checksum, applied_at)`：上一个版本的程序要读它，形状不能改。
+- 纯 SQL，可以多条语句；运行器给每条迁移包一个 `BEGIN IMMEDIATE` 事务。不能写 `PRAGMA`、`ATTACH`、`DETACH`、`VACUUM`（运行器按文字拒收）；不能结束运行器开的事务（`COMMIT`、`END`、`ROLLBACK`），执行后查出来就失败，但 `COMMIT` 之前的部分已经提交；合同测试每次从空的数据目录启动，会把每条迁移执行一遍，发布前就会暴露。触发器的 `BEGIN … END` 可以写。
+- 外键由运行器在事务外关掉、全部做完再打开，迁移里照 SQLite 文档的步骤重建表（建新表、拷数据、删旧表、改名）不会级联删掉子表；每条提交前跑 `PRAGMA foreign_key_check`，留下悬空引用的迁移被回滚。
+- 库里的迁移账本是表 `site_migrations(id, checksum, applied_at)`，上一个版本的程序要读写它：三列的名字与含义不变，只许加可为空或带缺省值的列，读写一律写明列名。`applied_at` 是到毫秒的 ISO 8601 UTC；`checksum` 是去掉开头 BOM、换成 LF 之后的 SHA-256。
+- 账本里有、清单里没有的迁移：编号比清单最大的还大，是更新的版本留下的，照常运行；不大于清单最大编号（合并后改号、只改名），拒绝运行。发布过的迁移不改号、不改名、不改内容。
 - 源码与迁移里不许附加别的库（`ATTACH`），由 `src/architecture.test.ts` 检查。
 
 ## 完成门禁

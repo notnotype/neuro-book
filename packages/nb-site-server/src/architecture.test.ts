@@ -117,11 +117,13 @@ describe("依赖白名单", () => {
         });
     }
 
-    it("反例：模块依赖另一个模块、合同包带上别的第三方包都被拦下", () => {
+    it("反例：模块依赖另一个模块、开发依赖带上别的工作区包、合同包带上别的第三方包都被拦下", () => {
         const identity: Manifest = {name: IDENTITY, dependencies: {[IDENTITY_CONTRACT]: "workspace:*", [TELEMETRY]: "workspace:*"}};
         expect(dependencyViolations(identity, ALLOWED[IDENTITY]!)).toEqual([`${IDENTITY} dependencies -> ${TELEMETRY}`]);
         const pinned: Manifest = {name: IDENTITY, dependencies: {[TELEMETRY]: "^0.1.0"}};
         expect(dependencyViolations(pinned, ALLOWED[IDENTITY]!)).toEqual([`${IDENTITY} dependencies -> ${TELEMETRY}`]);
+        const devOnly: Manifest = {name: TELEMETRY, devDependencies: {[TEST_SUPPORT]: "workspace:*", "@notnotype/nb-runtime": "workspace:*"}};
+        expect(dependencyViolations(devOnly, ALLOWED[TELEMETRY]!)).toEqual([`${TELEMETRY} devDependencies -> @notnotype/nb-runtime`]);
         const contract: Manifest = {name: IDENTITY_CONTRACT, dependencies: {typebox: "^1.3.6", hono: "^4.12.30"}};
         expect(dependencyViolations(contract, ALLOWED[IDENTITY_CONTRACT]!)).toEqual([`${IDENTITY_CONTRACT} dependencies -> hono`]);
     });
