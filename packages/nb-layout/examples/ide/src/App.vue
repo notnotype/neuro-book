@@ -44,8 +44,15 @@ const loaded = loadLayout(storage);
  */
 const layout = shallowRef(loaded.layout);
 const grid = computed(() => layout.value.grid);
-/** 状态行：读档失败、保存失败、操作被拒的原因。平时空着。 */
+/** 状态行里一次性的话：读档失败的说明、保存失败、操作被拒的原因。下一次成功的操作会清掉它。平时空着。 */
 const status = shallowRef(loaded.notice ?? "");
+/**
+ * 状态行里一直在的话：这一页不再保存（存储不可用，或存档读不了而备份也写不进去）。它说的不是上一件事而是现在的状态，
+ * 不能被后面的成功操作清掉，直到重新载入；不然用户看到一切正常、改动却没有保存。
+ */
+const standingNotice = loaded.keep ? "" : (loaded.notice ?? "");
+/** 状态行显示的：一次性的话优先（操作被拒的原因要看得见），没有时显示一直在的。 */
+const statusText = computed(() => status.value || standingNotice);
 const editorFile = shallowRef(FILES[0]!);
 
 function persist(): void {
@@ -81,7 +88,7 @@ function settle(result: Result): boolean {
         status.value = result.message;
         return false;
     }
-    // 状态行说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。
+    // 一次性的话说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。一直在的那句不在这里。
     status.value = "";
     host.invalidate();
     triggerRef(layout);
@@ -158,6 +165,8 @@ function toggleTool(tool: string): void {
 }
 
 function hide(zone: Zone): void {
+    // 区收着时 `shown` 还留着（下次展开还是它），toggleTool 会把它当成“展开”：隐藏只对展开着的区有意义。
+    if (layout.value.isCollapsed(zone)) return;
     const tool = layout.value.shown[zone];
     if (tool !== null && settle(layout.value.toggleTool(tool))) focusEditor();
 }
@@ -248,7 +257,7 @@ const previewLabel = computed(() => {
     <div class="app" :class="{'app--dragging': dragging}" :style="{'--tool-head-height': `${TOOL_HEAD_HEIGHT}px`, '--editor-head-height': `${EDITOR_HEAD_HEIGHT}px`}">
         <header class="titlebar">
             <!-- 状态行在网格外面、高度固定：文字变了不改网格的尺寸，拖动不会因此被取消。 -->
-            <p class="status" role="status" data-status>{{ status }}</p>
+            <p class="status" role="status" data-status>{{ statusText }}</p>
         </header>
         <!-- 承载盒要有确定的高度：NestedGrid 铺满它、自己量它。data-drop 是此刻的落点，拖动时才有。 -->
         <div ref="box" class="grid-box" :data-drop="dragging ? (currentDrop === null ? 'none' : dropKey(currentDrop)) : undefined">
@@ -273,7 +282,8 @@ const previewLabel = computed(() => {
                     />
                     <header v-else-if="toolZone(node.id) !== undefined" class="tool-head" :data-zone-head="node.id">
                         <span class="tool-head__title">{{ zoneViews[toolZone(node.id)!].shown === null ? "" : TITLES[zoneViews[toolZone(node.id)!].shown!] }}</span>
-                        <button v-if="zoneViews[toolZone(node.id)!].shown !== null" type="button" class="tool-head__hide" data-tool-hide :aria-label="`Hide ${TITLES[zoneViews[toolZone(node.id)!].shown!]}`" @click="hide(toolZone(node.id)!)">&minus;</button>
+                        <!-- 只在区展开时画：读档时就收着的叶从第一帧起是零尺寸，库不会把它停放成 inert，按钮留着就能被 Tab 走到、按下去反而展开这个区。 -->
+                        <button v-if="zoneViews[toolZone(node.id)!].open !== null" type="button" class="tool-head__hide" data-tool-hide :aria-label="`Hide ${TITLES[zoneViews[toolZone(node.id)!].shown!]}`" @click="hide(toolZone(node.id)!)">&minus;</button>
                     </header>
                     <header v-else-if="node.id === EDITOR" class="editor-head">
                         <button v-for="file in FILES" :key="file" type="button" class="editor-head__tab" :data-editor-tab="file" :aria-pressed="file === editorFile" @click="editorFile = file">{{ file }}</button>

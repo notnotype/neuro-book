@@ -20,7 +20,7 @@
 
 import {expect, test, type Page} from "@playwright/test";
 
-import {boxOf, centerOf, dragTo, settled, twoFrames, type Point} from "./drag";
+import {boxOf, centerOf, dragTo, moveTo, pickUp, settled, twoFrames, type Point} from "./drag";
 import {serveExample} from "./serve";
 
 const KEY = "nb-layout-example:ide";
@@ -150,7 +150,9 @@ test("恢复宽度：拖宽后收起再展开、重新载入后按 Enter 收起�
     await button(page, "project").click();
     await expectSize(page, "left", 320);
 
-    // 重新载入后用 Enter 收起与展开：按钮的路径不管存不存恢复尺寸都会过，分隔线上的 Enter 才靠读档放回去的尺寸。
+    // 重新载入后用 Enter 收起与展开：分隔线上的 Enter 展开读库记着的恢复尺寸，按钮展开读尺寸意图；库在每次收起的那一刻把
+    // 恢复尺寸记成当时的意图，所以两条路在这里给同一个结果，这一段是在验证它们一致。读档该放回的是意图，由前面的
+    // expectSize(left, 320) 守着。
     await page.reload();
     await expectSize(page, "left", 320);
     await sash(page, "main:1").focus();
@@ -168,10 +170,9 @@ test("恢复宽度：拖宽后收起再展开、重新载入后按 Enter 收起�
     await expectPressed(page, "outline", true);
 });
 
-test("排序与跨条：条上换位置、拖到别的条后在那里显示并展开、拖走正在显示的换成剩下的第一个；拖动后的那一下点击不触发按钮", async ({page}) => {
+test("排序与跨条：条上换位置、拖到别的条后在那里显示并展开、拖走正在显示的换成剩下的第一个", async ({page}) => {
     await dragTo(page, button(page, "project"), await beforeTool(page, "left", "bookmarks"), "move:left:bookmarks");
     await expectStrip(page, "left", ["structure", "project", "bookmarks"]);
-    // 松手后浏览器还会发一次 click：它落在被拖的按钮上，不能把正显示着的 Project 收起来。
     await expectPressed(page, "project", true);
     await expectSize(page, "left", 260);
 
@@ -199,6 +200,51 @@ test("排序与跨条：条上换位置、拖到别的条后在那里显示并�
     await dragTo(page, button(page, "terminal"), await endOfStrip(page, "right"), "move:right:end");
     await expect(page.locator("[data-tool-text='terminal']")).toHaveValue("kept while moving");
     await expect(head(page, "right")).toHaveText("Terminal");
+});
+
+test("同一条里换位置，横向的下条也一样；拖回原位没有落点，松手不变", async ({page}) => {
+    // 下条是横向的：落点按横轴判。
+    await dragTo(page, button(page, "problems"), await beforeTool(page, "bottom", "terminal"), "move:bottom:terminal");
+    await expectStrip(page, "bottom", ["problems", "terminal"]);
+    // 先到一个真落点、等它显示出来，再一步跳到自己前面（插在自己前面就是原位）：落点变成 none，松手不变。
+    await pickUp(page, button(page, "terminal"));
+    await moveTo(page, await beforeTool(page, "bottom", "problems"), "move:bottom:problems");
+    await moveTo(page, await beforeTool(page, "bottom", "terminal"), "none", 1);
+    await page.mouse.up();
+    await expect(page.locator("[data-drop]")).toHaveCount(0);
+    await expectStrip(page, "bottom", ["problems", "terminal"]);
+    // 最后一个拖到自己的条尾：也是原位。
+    await pickUp(page, button(page, "terminal"));
+    await moveTo(page, await beforeTool(page, "bottom", "problems"), "move:bottom:problems");
+    await moveTo(page, await endOfStrip(page, "bottom"), "none", 1);
+    await page.mouse.up();
+    await expect(page.locator("[data-drop]")).toHaveCount(0);
+    await expectStrip(page, "bottom", ["problems", "terminal"]);
+
+    // 竖向的左条：插在自己后面那个按钮前面也是原位。
+    await pickUp(page, button(page, "structure"));
+    await moveTo(page, await beforeTool(page, "left", "project"), "move:left:project");
+    await moveTo(page, await beforeTool(page, "left", "bookmarks"), "none", 1);
+    await page.mouse.up();
+    await expect(page.locator("[data-drop]")).toHaveCount(0);
+    await expectStrip(page, "left", ["project", "structure", "bookmarks"]);
+});
+
+test("拖动后回到自己身上松手：按钮不被触发，区的开合不变", async ({page}) => {
+    await expectPressed(page, "project", true);
+    await expectSize(page, "left", 260);
+    // 按下、挪过起拖门槛、到过一个真落点、再回到自己身上松手：按下与松手落在同一个按钮上，浏览器照常发 click，
+    // 库要把这一次 click 吞掉，不然 Project 被当成点了一下而收起。
+    await pickUp(page, button(page, "project"));
+    await moveTo(page, await beforeTool(page, "left", "bookmarks"), "move:left:bookmarks");
+    await moveTo(page, await centerOf(button(page, "project")), "none", 1);
+    await page.mouse.up();
+    await expect(page.locator("[data-drop]")).toHaveCount(0);
+    await twoFrames(page);
+    await settled(page);
+    await expectPressed(page, "project", true);
+    await expectSize(page, "left", 260);
+    await expectStrip(page, "left", ["project", "structure", "bookmarks"]);
 });
 
 test("没有按钮的区：拖走最后一个时区收起，它的分隔线拖不动、Enter 也展不开；拖回一个就恢复", async ({page}) => {
@@ -230,6 +276,41 @@ test("没有按钮的区：拖走最后一个时区收起，它的分隔线拖�
     await expectStrip(page, "bottom", ["outline"]);
     await expectSize(page, "bottom", 200);
     await expect(sash(page, "center:0")).not.toHaveAttribute("aria-disabled", "true");
+});
+
+test("读档时就收着的区：面板头没有隐藏按钮，展开之后才有", async ({page}) => {
+    await button(page, "project").click();
+    await expectSize(page, "left", 0);
+    await page.reload();
+    await expectSize(page, "left", 0);
+    // 面板头在叶里（零宽），隐藏按钮不在：Tab 走不到它，按下去也不会反过来展开区。
+    await expect(page.locator("[data-zone-head='left']")).toHaveCount(1);
+    await expect(page.locator("[data-zone-head='left'] [data-tool-hide]")).toHaveCount(0);
+    await button(page, "project").click();
+    await expectSize(page, "left", 260);
+    await expect(page.locator("[data-zone-head='left'] [data-tool-hide]")).toHaveCount(1);
+});
+
+test("存档坏而备份也写不进去：状态行一直写着这一页不再保存，后面成功的操作清不掉它，原件留在主键", async ({page}) => {
+    const broken = "{not json";
+    await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [KEY, broken]);
+    // 只让写备份键失败：其它键照常，才能看出“不再保存”是示例自己的决定而不是存储坏了。
+    await page.addInitScript(() => {
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+            if (key.endsWith(":backup")) throw new Error("quota");
+            original.call(this, key, value);
+        };
+    });
+    await page.reload();
+    await expect(page.locator("[data-status]")).toContainText("changes will not be kept");
+    // 一次成功的操作：状态行不能被清掉，布局照常能用。
+    await button(page, "outline").click();
+    await expectSize(page, "right", 240);
+    await twoFrames(page);
+    await expect(page.locator("[data-status]")).toContainText("changes will not be kept");
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(broken);
+    expect(await page.evaluate((key) => localStorage.getItem(key), BACKUP)).toBeNull();
 });
 
 test("条旁的分隔线拖不动：拖得动的那一条拖了，条旁的三条拖了不变", async ({page}) => {

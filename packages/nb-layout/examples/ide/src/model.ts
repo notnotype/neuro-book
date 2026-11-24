@@ -23,7 +23,11 @@ export type Zone = (typeof ZONES)[number];
 export const STRIPE: Readonly<Record<Zone, string>> = {left: "left-stripe", right: "right-stripe", bottom: "bottom-stripe"};
 export const STRIPE_IDS: readonly string[] = Object.values(STRIPE);
 
-/** 条的厚度：左右条是宽，下条是高。保留像素，不给最小与最大尺寸：它们不能拖的原因是分隔线被停用，不是被钉死。 */
+/**
+ * 条的厚度：左右条是宽，下条是高。保留像素，并且在主轴上最小与最大尺寸都等于厚度，把条钉死。
+ * 只停用条旁的分隔线（见 `sashLocked`）钉不住它：`sashDisabled` 只停这一条线，拖别处的分隔线时库的级联补偿
+ * （位移由近到远传给兄弟）和窗口缩小时的压缩照样会挤它，保留像素又没有最小尺寸的叶会被压到 0，按钮就点不到了。
+ */
 const STRIPE_THICKNESS: Readonly<Record<Zone, number>> = {left: 28, right: 28, bottom: 24};
 
 /** 六个工具窗，按快捷键数字的次序。 */
@@ -47,8 +51,6 @@ const ZONE_SPECS: Readonly<Record<Zone, {readonly size: number; readonly minimum
     bottom: {size: 200, minimum: 100, axis: "height"},
 };
 
-const MAX_SIZE = 4096;
-
 const DEFAULT_STRIPS: Readonly<Record<Zone, readonly string[]>> = {
     left: ["project", "structure", "bookmarks"],
     right: ["outline"],
@@ -60,14 +62,12 @@ export type Result = {readonly ok: true} | Failure;
 export type Failure = {readonly ok: false; readonly code: string; readonly message: string};
 const failure = (code: string, message: string): Failure => ({ok: false, code, message});
 
-/** 建树时每个区要的收起状态：缺省与读档都从这里给。 */
-type ZoneStart = {readonly collapsed: boolean; readonly restoreSize: number};
-
 /**
  * 区的叶：保留像素、可以收起到 0。快照只存结构与尺寸意图，保留像素、最小尺寸、收起策略都不在里面，
  * 所以这个形状只有这一个出处，缺省建树与读档共用，载入前后同一个区的约束相同。
+ * 策略里的 `restoreSize` 只是初值：库在每次收起的那一刻把它改写成当时的尺寸意图，所以读档不必也不该存它。
  */
-function zoneLeaf(zone: Zone, start: ZoneStart): GridLeafInput<string> {
+function zoneLeaf(zone: Zone, collapsed: boolean): GridLeafInput<string> {
     const spec = ZONE_SPECS[zone];
     const along = (value: number) => (spec.axis === "width" ? {width: value, height: 0} : {width: 0, height: value});
     return {
@@ -78,13 +78,16 @@ function zoneLeaf(zone: Zone, start: ZoneStart): GridLeafInput<string> {
         minimumSize: along(spec.minimum),
         sizing: "fixed",
         // 阈值 24：拖过最小尺寸再往里 24 像素就收起，从收起处往外拉 24 像素就展开。
-        collapse: {collapsed: start.collapsed, collapsedSize: 0, restoreSize: start.restoreSize, collapseThreshold: 24, expandThreshold: 24},
+        collapse: {collapsed, collapsedSize: 0, restoreSize: spec.size, collapseThreshold: 24, expandThreshold: 24},
     };
 }
 
 function stripeLeaf(zone: Zone): GridLeafInput<string> {
     const thickness = STRIPE_THICKNESS[zone];
-    return {kind: "leaf", id: STRIPE[zone], ref: STRIPE[zone], size: zone === "bottom" ? {width: 0, height: thickness} : {width: thickness, height: 0}, sizing: "fixed"};
+    // 只约束主轴：交叉轴由父分支给，最大值要写 Infinity（写 0 就是上限 0）。
+    const minimumSize = zone === "bottom" ? {width: 0, height: thickness} : {width: thickness, height: 0};
+    const maximumSize = zone === "bottom" ? {width: Number.POSITIVE_INFINITY, height: thickness} : {width: thickness, height: Number.POSITIVE_INFINITY};
+    return {kind: "leaf", id: STRIPE[zone], ref: STRIPE[zone], size: {...minimumSize}, minimumSize, maximumSize, sizing: "fixed"};
 }
 
 /**
@@ -92,7 +95,7 @@ function stripeLeaf(zone: Zone): GridLeafInput<string> {
  * 下条放在 main 外面：最大化编辑区时它盖住的是除条以外全部叶的外接矩形，下条要在这个矩形的外面才不会被盖住。
  * 编辑区给最小尺寸：不给时窄窗口里它会被两侧挤到几十像素，而且没有任何诊断。
  */
-function buildTree(starts: Readonly<Record<Zone, ZoneStart>>): GridNodeInput<string> {
+function buildTree(collapsed: Readonly<Record<Zone, boolean>>): GridNodeInput<string> {
     return {
         kind: "branch",
         id: "root",
@@ -106,7 +109,7 @@ function buildTree(starts: Readonly<Record<Zone, ZoneStart>>): GridNodeInput<str
                 size: {width: 1, height: 1},
                 children: [
                     stripeLeaf("left"),
-                    zoneLeaf("left", starts.left),
+                    zoneLeaf("left", collapsed.left),
                     {
                         kind: "branch",
                         id: "center",
@@ -114,10 +117,10 @@ function buildTree(starts: Readonly<Record<Zone, ZoneStart>>): GridNodeInput<str
                         size: {width: 1, height: 1},
                         children: [
                             {kind: "leaf", id: EDITOR, ref: EDITOR, size: {width: 1, height: 1}, minimumSize: {width: 300, height: 200}},
-                            zoneLeaf("bottom", starts.bottom),
+                            zoneLeaf("bottom", collapsed.bottom),
                         ],
                     },
-                    zoneLeaf("right", starts.right),
+                    zoneLeaf("right", collapsed.right),
                     stripeLeaf("right"),
                 ],
             },
@@ -146,14 +149,7 @@ export class IdeLayout {
 
     /** 缺省布局：左区展开显示 Project，右区与下区收着、还没有显示哪一个。 */
     static createDefault(): IdeLayout {
-        const grid = createGrid<string>(
-            buildTree({
-                left: {collapsed: false, restoreSize: ZONE_SPECS.left.size},
-                right: {collapsed: true, restoreSize: ZONE_SPECS.right.size},
-                bottom: {collapsed: true, restoreSize: ZONE_SPECS.bottom.size},
-            }),
-            {sashSize: SASH_SIZE},
-        );
+        const grid = createGrid<string>(buildTree({left: false, right: true, bottom: true}), {sashSize: SASH_SIZE});
         return new IdeLayout(grid, {...DEFAULT_STRIPS}, {left: "project", right: null, bottom: null});
     }
 
@@ -174,7 +170,7 @@ export class IdeLayout {
 
     /** 这条分隔线此刻不能拖（指针与键盘都不行）。`before`、`after` 是分隔线两侧节点的 id。 */
     sashLocked(before: string, after: string): boolean {
-        // 条旁的分隔线：条是保留像素、没有约束，拖它会把条拖宽或拖窄。
+        // 条旁的分隔线：条已经被最小与最大尺寸钉死，这些线本来拖不动；停用它们是为了不画拖动光标、读屏读成不可用。
         if (STRIPE_IDS.includes(before) || STRIPE_IDS.includes(after)) return true;
         // 没有按钮的区：点不到、也不该被拖开，不然造出收不起来的空区。两侧里挨着区的那一侧是叶，id 就是区名；
         // 另一侧可能是分支（中间那一列），分支的 id 会随树的结构变，所以只按区这一侧判。
@@ -263,7 +259,8 @@ export class IdeLayout {
         const zone = (id: Zone): SavedZone => {
             const node = this.grid.find(id);
             if (node?.kind !== "leaf" || node.collapse === undefined) throw new Error(`The ${id} zone is missing from the grid`);
-            return {size: node.size[ZONE_SPECS[id].axis], restoreSize: node.collapse.restoreSize, collapsed: node.collapse.collapsed};
+            // 意图在收起时不变，收起着的区存的也是收起前的尺寸，不是 0。
+            return {size: node.size[ZONE_SPECS[id].axis], collapsed: node.collapse.collapsed};
         };
         return {
             version: 1,
@@ -287,25 +284,19 @@ export class IdeLayout {
         for (const zone of ZONES) {
             const spec = ZONE_SPECS[zone];
             const saved = raw.zones[zone];
-            if (![saved.size, saved.restoreSize].every((value) => Number.isFinite(value) && value >= spec.minimum && value <= MAX_SIZE)) return failure("bad-size", `The size of the ${zone} zone is out of range`);
+            // 只拒绝读不出来的数与小于最小尺寸的数：上限没有，意图在窗口放不下时由库照约束压缩。
+            if (!Number.isFinite(saved.size) || saved.size < spec.minimum) return failure("bad-size", `The size of the ${zone} zone is out of range`);
             const shown = raw.shown[zone];
             if (shown !== null && !raw.strips[zone].includes(shown)) return failure("bad-shown", `The ${zone} zone shows a tool that is not on its strip`);
             // 展开着的区必须有按钮可显示：不然读出一个收不起来的空区。
             if (!saved.collapsed && shown === null) return failure("bad-shown", `The ${zone} zone is open but shows nothing`);
         }
-        // 恢复尺寸放进策略里；意图与收起状态下面用 setSize、setCollapsed 放回。
-        const grid = createGrid<string>(
-            buildTree({
-                left: {collapsed: false, restoreSize: raw.zones.left.restoreSize},
-                right: {collapsed: false, restoreSize: raw.zones.right.restoreSize},
-                bottom: {collapsed: false, restoreSize: raw.zones.bottom.restoreSize},
-            }),
-            {sashSize: SASH_SIZE},
-        );
+        // 先建全部展开的树；意图与收起状态下面用 setSize、setCollapsed 放回。
+        const grid = createGrid<string>(buildTree({left: false, right: false, bottom: false}), {sashSize: SASH_SIZE});
         for (const zone of ZONES) {
             const saved = raw.zones[zone];
-            // 先放回意图再收起：收起那一刻库把意图记成恢复尺寸，展开（按钮）回到的也是意图，不看策略里的 restoreSize。
-            // 所以收起着存档的区，存下来的 size 必须是收起前的尺寸；这里存的 size 取自网格的意图，它在收起时不变。
+            // 先放回意图再收起：收起那一刻库把 `restoreSize` 记成当时的意图。按钮展开（`setCollapsed(false)`）回到意图，
+            // 分隔线上的 Enter 展开读 `restoreSize`，两者因此一致。所以收起着存档的区，存下来的 size 必须是收起前的尺寸。
             const size = grid.setSize(zone, saved.size);
             if (!size.ok) return failure("bad-size", size.message);
             if (saved.collapsed) {
@@ -318,9 +309,9 @@ export class IdeLayout {
     }
 }
 
-type SavedZone = {readonly size: number; readonly restoreSize: number; readonly collapsed: boolean};
+type SavedZone = {readonly size: number; readonly collapsed: boolean};
 
-/** 存档：三个区的尺寸（意图）、恢复尺寸与收起，各区显示哪一个，各条上的工具窗与次序。最大化只在内存，不存。 */
+/** 存档：三个区的尺寸（意图）与收起，各区显示哪一个，各条上的工具窗与次序。最大化只在内存，不存。 */
 export type SavedLayout = {
     readonly version: 1;
     readonly zones: Readonly<Record<Zone, SavedZone>>;
@@ -341,7 +332,7 @@ function isSavedShape(value: unknown): value is SavedLayout {
         const each = table(zones[zone]);
         const list = strips[zone];
         return each !== null
-            && typeof each.size === "number" && typeof each.restoreSize === "number" && typeof each.collapsed === "boolean"
+            && typeof each.size === "number" && typeof each.collapsed === "boolean"
             && (shown[zone] === null || typeof shown[zone] === "string")
             && Array.isArray(list) && list.every((tool) => typeof tool === "string");
     });
