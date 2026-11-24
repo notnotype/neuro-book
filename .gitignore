@@ -135,6 +135,8 @@ t16-editor-heat.png
 /packages/llmlint/web/public/report.json
 /packages/llmlint/web/*.log
 /packages/*/bun.lock
+# nb-layout 的示例是给第三方照着装的独立项目，仓库里不跟踪它们的锁文件；在示例目录里 bun install 留下的不能挡发版的“目录干净”检查。
+/packages/nb-layout/examples/*/bun.lock
 # 主应用 package 内的应用生成物由 packages/neuro-book/.gitignore 负责。
 # Manager test bundle outputs
 /.tmp-manager-external-yaml/
