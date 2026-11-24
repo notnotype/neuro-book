@@ -251,10 +251,10 @@ test("长的主文字左右分屏（author-ui 输出 48）：打字以后预览�
     await page.keyboard.type("末尾接着写的字");
     const last = preview.locator("p", {hasText: "末尾接着写的字"});
     await expect(last).toHaveCount(1);
-    // 预览栏自己滚到了光标所在的那一段：它在栏里看得到的范围内。
+    // 预览栏自己滚到了光标所在的那一段：它在栏里看得到的范围内（排版有不到一个像素的小数，留 1 像素）。
     await expect.poll(async () => {
         const [pane, target] = [(await preview.boundingBox())!, (await last.boundingBox())!];
-        return target.y >= pane.y && target.y + target.height <= pane.y + pane.height;
+        return target.y >= pane.y - 1 && target.y + target.height <= pane.y + pane.height + 1;
     }).toBe(true);
     expect(await preview.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
