@@ -1,0 +1,103 @@
+# w00026 t50 desktop 实现审查报告
+
+范围：`w00026/t50-example...HEAD`（examples/desktop、src/examples-desktop.test.ts、e2e/desktop.e2e.ts）。只读；跑过 `bun test src/examples.test.ts src/examples-desktop.test.ts`（104 通过）与 `bun run typecheck`（退出码 0）。未跑 e2e 与开发服务，凡涉及浏览器行为的结论都标“从代码推断”或“未验证”。变异实验在 scratch 目录的副本上做，没动仓库。
+
+## 发现
+
+### F1 [重要] 正确性：读档失败的“不会保存”提示在第一次操作时被清掉，之后静默不存档
+- 位置：`examples/desktop/src/App.vue:84-95`（`settle` 开头的 `status.value = ""`）、`:68-73`（`persist`）、`:65`、`model.ts:445-477`（`Loaded.keep`）。
+- 现象：`loadLayout` 在“存储不可用”或“存档坏且备份也写不进去”时交回 `keep: false`，提示写进 `status`（例如 “changes will not be kept”）。但 App 里任何一次成功的 `settle`（包括按下后面的窗把它抬到最上面的 `raiseOnPress`）都会先把 `status` 清空；`persist()` 在 `keep` 为假时直接 `return`，不写任何提示。结果：用户第一次点一下窗，提示消失，此后所有改动都不存，而界面上什么都看不到。
+- 为什么是问题：`keep` 的全部意义就是“不要悄悄丢”，这里在界面层把它悄悄丢了；示例是给第三方照抄的，会把这个“先清再存”的写法一起抄走。两个 notice 里 “changes will not be kept” 这一类恰恰是该常驻的。
+- 如何核实（从代码推断，未跑浏览器）：读 `settle`：成功分支无条件 `status.value = ""`；`persist` 在 `!loaded.keep` 时无输出。e2e 只测了“存档坏且备份写得进去”（keep 为真）的提示，没有 keep 为假的用例（要用 `page.addInitScript` 让 `localStorage.setItem` 抛错）。
+- 建议改法：状态行分两层：常驻的“这一页不保存”单独一个变量（`!loaded.keep` 时一直显示，不被 `settle` 清），一次性的操作结果才被清。补一条 e2e：备份写不进去时点一下窗，提示仍在、重新载入后存档没被覆盖。
+
+### F2 [重要] 测试：读档时“按 ref 给回策略”这条不变量没有任何用例守着
+- 位置：`model.ts:58-65`（`policyFor` 的注释宣称“载入前后同一块叶的约束相同”）、`model.ts:358`（`fromSaved` 的解析函数）；测试 `src/examples-desktop.test.ts`“存了再读”（约 `:268`）只比 `toSaved()`，快照本来就不含策略。
+- 现象：我在副本里把 `fromSaved` 的解析函数改成 `(isKnownRef(ref) ? {ref} : null)`（读档不给最小尺寸、保留像素）：96 个单元用例全部通过。e2e 的“重新载入都还原”在 1440 宽下也不会因此失败（只断言宽度 718）。
+- 为什么是问题：这正是 ide 审查发现过的那一类（读档后叶没有约束、被挤到最小以下，且库不报诊断）；示例注释特意强调了它，却没有用例能在它坏掉时变红。`clone()` 那条路径有“窄到放不下”的用例间接守着，`fromSaved` 这条没有。
+- 如何核实：见上；复现脚本在 scratch 目录（`pkg/`：复制 model.ts 与测试，改一处，`bun test`）。
+- 建议改法：加一条单元用例：存一份有平铺窗的存档，`loadLayout` 之后用 `NARROW` 布局断言 `canTile` 判 `no-room`、`layout(NARROW)` 报 `over-constrained` 且平铺叶的宽度不低于 240；再断言 `dock` 在 `{width:1440,height:900}` 下恰为 56 高。
+
+### F3 [建议] 测试与行为：底栏恢复“放不下”那一支没有用例，且用户卡在最小化里
+- 位置：`model.ts:237-259`（`dockClick` 的最后两行）。
+- 现象：副本里把 `if (!preview.result.ok) return preview.result;` 删掉（放不下也照样 `applyTile`），96 个单元用例全过；e2e 也没有这一支（“视口窄到平铺不下”只测拖动的落点）。另外这一支的行为是：来自平铺、那一侧空着、但此刻窄得放不下时，窗留在最小化、状态行说 “Not enough room”，用户没有别的办法把它找回来（必须先关掉别的平铺窗或把窗口拉宽）。同一侧被占时却会降级成浮动，两条分支对用户的承诺不一致。
+- 为什么是问题：计划写的是“放不下时窗留在最小化，交回原因”，实现照做了，但没有测试；而且最小化的窗是用户主动收起的，卡住比降级成浮动更糟。
+- 建议改法：补单元用例（NARROW 下 `dockClick` 交回 `no-room`、模式仍是 minimized、`before` 不变）；并向开发者确认要不要改成“放不下时浮动在 `floatRect`”，与同侧被占的分支一致（改了就不需要这条用例的“卡住”部分）。
+
+### F4 [建议] 读档判据：`resize()` 不校验最小尺寸，但读档拒收小于最小尺寸的矩形，应用会写出自己读不了的存档
+- 位置：`model.ts:181-185`（`resize` 直接收下任何矩形）对 `model.ts:410-413`（`isSavedRect` 要求宽高不小于 `WINDOW_MIN`）；调用方 `App.vue:275-284`（`withinDesk` 把矩形与桌面求交后写回）。
+- 现象：脚本实测 `layout.resize("notes", {x:0,y:0,width:150,height:100})` 交回 `ok`，`saveLayout` 之后 `loadLayout` 判 “Unrecognised save format”、整份存档改走备份与缺省布局。界面上的触发条件：视口窄或矮到桌面叶小于 240x160（例如开发者工具停靠在下面、视口高度小于约 256px），此时用户缩放窗，`resizeFloatRect` 先夹到最小尺寸、`withinDesk` 又把它收到桌面以内，写出小于最小尺寸的矩形。
+- 为什么是问题：写入与读入的判据不对称：一次合法操作就让下一次载入丢掉全部布局。窄场景，但后果是整份布局进备份。
+- 如何核实：`bun` 脚本（scratch/e.ts）已复现模型层；界面触发条件从代码推断。
+- 建议改法：任选其一：`isSavedRect` 只要求有限正数（画之前本来就会夹进桌面）；或 `resize` 在模型里拒绝小于最小尺寸的矩形（返回 `too-small`，调用方不写）。前者更简单，也不会让存档对 `WINDOW_MIN` 的改动敏感。
+
+### F5 [建议] 读档判据：底栏的像素尺寸不核对，而它的分隔线被禁用，坏值无法在界面上改回来
+- 位置：`model.ts:374-399`（`checkTree`）、`App.vue:298-299`（`sashDisabled`）。
+- 现象：实测把存档里 `dock` 的 `size.height` 改成 300，`fromSaved` 判通过，底栏变成 300px 高，且那条分隔线 `sashDisabled`，用户没有办法改回，只能清 localStorage。同理示例改了 `DOCK_HEIGHT` 之后，老存档里的旧高度会一直留着（快照存的是尺寸意图，不是策略）。窗状态对象里多出来的字段（实测加 `junk`）也被原样收下并在下次保存时写回，“存档里存了库不读的字段”那一类。
+- 为什么是问题：计划把“树的锚点”列为读档判据，底栏高度是锚点的一部分；示例注释里 `policyFor` 强调策略只有一个出处，而尺寸意图却可以从存档里进来。
+- 建议改法：`checkTree` 里加一条：`dock` 的 `size.height` 必须等于 `DOCK_HEIGHT`（读出来用 `grid.find(DOCK)`），不等按坏档处理；或者读档后用 `grid.setSize(DOCK, DOCK_HEIGHT)` 放回（保留像素的叶，库本来支持）。额外字段：`fromSaved` 把每扇窗重新构造成 `{mode, floatRect, before}` 再收下。
+
+### F6 [建议] 教学注释与 README：“飞进、飞出”和“同一拍改树会先跳回再飞”是对库行为的断言，没有测试，其中“飞出”在 Spec 里没有明确条目
+- 位置：`model.ts:6`、`App.vue:7`、`App.vue:195-199`（`tileOnNextFrame` 的注释与 `getBoundingClientRect` 那一行）、`README.md:3, 25, 27`；e2e 只在过渡结束后量终点矩形（`settled` 后 `expectRect`）。
+- 现象：Spec 的“浮动窗：回到树里”（输出 109）覆盖浮动到树的方向；树到浮动（取消平铺、同侧换窗时被换下的窗）要靠“浮动窗：新开的窗”（输出 107，前提是“上一帧没有这块窗、它的活动内容上一帧活动着且有尺寸、在另一块叶里”）：这里是同一个 id 的叶换成同一个 id 的浮动窗，是否算“另一块叶”没有明说。README 却写“它又飞回桌面上”。“先发布矩形、下一帧再改树，否则先跳回再飞”只在探针里采样过一次，e2e 没有任何断言过渡的起点；那一行 `void box.value?.getBoundingClientRect()` 的作用（强制样式计算）也没有任何用例能在它被删时变红。
+- 为什么是问题：第三方照抄时会把这套“先发布、等一帧、强制样式”当成必须；如果库的行为改了或这条从来不成立，示例的注释就是在说错话，且没有东西报警。
+- 如何核实（未验证，从代码与 Spec 推断）：浏览器里取消平铺，逐帧采样叶外框的 `getBoundingClientRect`，看是否从平铺矩形走向浮动矩形；松手平铺时采样第一帧的起点是否等于松手处。
+- 建议改法：加一条 e2e：松手平铺后立刻（过渡开始后一帧内）读窗外框，断言它的起点接近松手处而不是按下之前的位置（先变异：把 `tileOnNextFrame` 改成同步，用例要变红）；取消平铺同理断言起点在平铺矩形。做不到稳定断言时，把这两句改成“经探针观察”并写明版本，不要写成库的保证。
+
+### F7 [建议] 无障碍与焦点：最小化、关闭之后焦点丢到 body；底栏按钮的状态只有圆点颜色和 `data-` 属性
+- 位置：`App.vue:147-154`（`onAction`）、`Taskbar.vue:19-23`、`WindowFrame.vue`。
+- 现象：用键盘或鼠标点标题栏上的最小化、关闭、取消平铺，按钮随窗的叶一起消失，焦点落到 `document.body`；`NestedGrid` 的 `content-parked` 只在焦点在正文里时才发，这里焦点在标题栏的按钮上，所以没有任何处理接住，示例也没有监听 `@content-parked`（ide 示例计划里写了“关掉焦点所在的工具窗后焦点给编辑区”，desktop 没有对应的处理）。底栏按钮的“开着、最小化、关闭”只靠圆点样式与 `data-window-state` 区分，读屏用户听到的都是同一个标题；没有 `aria-pressed` 或任何文字。
+- 为什么是问题：示例是第三方照抄的材料，丢焦点是窗口类界面最常见的遗漏；e2e 没有断言焦点的归属。计划里的“平铺的窗点底栏把焦点给正文”只处理了一条。
+- 如何核实（从代码推断）：聚焦最小化按钮、按 Enter，再看 `document.activeElement`。
+- 建议改法：`onAction` 里 minimize、close 成功后把焦点交给对应的底栏按钮（`[data-window="id"]`）；底栏按钮加 `aria-pressed`（开着为真）或把状态写进可见/视觉隐藏的文字。整窗移动与平铺没有键盘路径，README 已写明，保持。
+
+### F8 [建议] 代码质量：`resolve` 里先写 `placeFloat` 再读 `origin()`，与库对 `resolve` 的约定和自己的注释相反
+- 位置：`App.vue:229-246`。
+- 现象：库的说明写“可以在读完 DOM 之后写跟手的反馈”。示例的 `resolve` 先调 `placeFloat`（写所有同 id 子元素的 `translate`），随后 `inViewport(current.desk)`、`inViewport(trial.area)` 调 `gridView.origin()`（`getBoundingClientRect`）。每个指针样本都是“先写后读”，浏览器要同步重算样式与布局。注释“会话允许 resolve 在读完 DOM 之后写跟手的反馈”和代码顺序不一致。
+- 为什么是问题：教学代码把违反“读在写前”的顺序示范给别人；负载高时会拖慢拖动。严重度低：根盒的矩形不依赖 translate，浏览器多半只做样式重算。
+- 如何核实：读代码即可；性能影响未测。
+- 建议改法：先算 `desk`、`area` 的视口矩形与 `side`，最后再调 `placeFloat`；或在 `activate` 里取一次 `origin()`（网格根在拖动中不会动，页面不滚动时成立；滚动时会话本身会重判）。
+
+### F9 [建议] 坐标：`desk` 里的 `dpr` 不是响应式的，库的 `useDevicePixelRatio` 又没有导出
+- 位置：`App.vue:97-107`（`dpr()` 读 `window.devicePixelRatio`，在 `computed` 里不建立依赖）；注释说“浏览器缩放会改视口宽度、让网格重算，所以不另外监听”。
+- 现象：窗口拖到另一块 dpr 不同的显示器时，视口 CSS 宽度不一定变，`NestedGrid` 内部的 `useDevicePixelRatio` 会重算（它盯 `matchMedia`），而示例的 `desk`、`floatRects` 仍按旧 dpr 取整，桌面叶矩形与网格画的差最多一个设备像素；`roundRect` 把窗取整到整数 CSS 像素，在 dpr 1.25 这类比例下窗边也不在设备像素上。影响很小（亚像素），但注释的理由（“视口宽度会变”）并不总成立。
+- 建议改法：示例里自己监听 `resize` 并 `matchMedia`（几行）；或在摩擦记录里记“库应导出 `useDevicePixelRatio`，或让 `placeGrid` 的结果经 `NestedGrid` 暴露”。
+
+### F10 [建议] 重复来源：标题栏高度 39 在 `App.vue` 和 `WindowFrame.vue` 各写一份，没有用例核对
+- 位置：`App.vue:44-45`（`TITLE_BAR_HEIGHT = 39`）、`WindowFrame.vue` 样式 `height: 39px`。
+- 现象：注释说“是同一个数”，但靠人记。改一处不改另一处，内容区要么盖住标题栏下沿、要么留出缝，库不报诊断；e2e 没有断言正文顶边等于标题栏底边。
+- 建议改法：把高度常量放进 `model.ts`（或一个小模块），`WindowFrame` 用 `:style` 绑定读它，`App.vue` 同样导入（`<script setup>` 的 SFC 不能导出常量，样式里也只能用 `v-bind()`），再加一个 e2e 断言 `[data-window-text]` 外层的顶边等于 `[data-window-title]` 的底边。
+
+### F11 [建议] 行为：拖分隔线预览期间浮动窗不让位，松手时一下跳开
+- 位置：`App.vue:104-119`（`desk` 读 `host.layout`，即已发布的布局；`NestedGrid` 拖动中渲染的是预览布局 `preview.layout`，见 `NestedGrid.vue:154`）。
+- 现象（从代码推断，未验证）：拖平铺窗与桌面之间的分隔线时，桌面叶实时变窄，但 `floatRects` 仍按旧桌面夹取，浮动窗压在变宽的平铺窗上；松手发布新布局后窗才被夹到新桌面里，而“只有矩形变了不过渡”，窗瞬间跳开。
+- 为什么是问题：窗与平铺窗相对位置在手势里和手势后不一致；示例是演示“浮动与树共存”的，这是读者最先会碰到的场景。
+- 建议改法：要么接受并在 README 的已知限制里写一句；要么用 `gesture-update` 事件（预览布局）算 `desk`，手势结束再回到已发布的。后者多十几行，我倾向前者（窄场景、简单规则）。
+
+## 该记进摩擦记录的库问题
+
+1. 取不到“某块叶此刻的矩形”：示例自己 `placeGrid(root, layout, extent, dpr)` 再翻一遍（`leafRect`），而且 `dpr` 要自己取、不能响应；库内部的 `useDevicePixelRatio` 没导出（F9）。候选：`NestedGrid` 的 expose 里加 `leafRects()`，或导出 `useDevicePixelRatio`。
+2. 没有“试做结构操作”的入口：判断“这次平铺放不放得下”只能复制树（快照加读档加按 ref 补策略）再 `layout()` 看 `over-constrained`，库拆或加到放不下时不拒绝。候选：结构操作加 `dryRun` 或返回此次引入的诊断；`grid.clone()`。
+3. 快照不带运行约束：每个调用方都要在建树、复制、读档三处重复给策略（F2 是它的直接后果）；`restore` 缺策略时没有任何诊断。候选：`restore` 在解析函数返回没有 `minimumSize` 的叶时给诊断，或者 `createGrid` 接一个全局的 `policyFor(ref)`。
+4. `placeFloat` 的偏移不属于“记录的矩形”：松手平铺时要靠“先发布矩形、等一帧、再改树”才能让窗从松手处飞进去（F6）。候选：`floats` 条目增加 `settleFrom`，或树结构变化时库以 `placeFloat` 偏移之后的位置为起点。
+5. `clampFloatRect` 只收尺寸、从 0 开始：有平铺窗时桌面叶不从 0 开始，且 `keep` 取窗自己的大小时比区域大的窗被推出左缘；`FloatWindowHandles` 的 `max` 是尺寸不是边界，预览会伸出桌面。示例各自绕了一次（`deskClamp`、`withinDesk`）。候选：这两个函数接一个带原点的区域矩形。
+6. `sashDisabled` 的参数在树变形后变化：平铺之后 `before` 变成分支 id，只能判 `after`（`App.vue:298`）；候选：给“这条线两侧各含哪些叶”。
+7. 整窗移动没有键盘路径：`useDragSession` 的 `keyboard` 要 `regions/stops`，而整窗移动是连续坐标；示例只能靠 `FloatWindowHandles` 的方向键，没法键盘平铺（README 已写）。
+8. 内容项“所属的叶不在树里也不在 floats 里就停放”只写在 `grid-rects.ts` 的类型注释与 `useContentLayer` 里，`NestedGrid.md` 的 `contents` 一节没有这条；最小化的做法依赖它（`useContentLayer.ts:95` 里 `!item.active || item.rect === null` 两个条件各自足够：浮动窗最小化时叶已不在、靠后者停放，平铺窗最小化时叶还在缩回去、靠 `active: false` 停放）。候选：写进 `NestedGrid.md`，并说明两种停放各自适用的情形。
+9. `useGridHost` 不给 `onIssues` 时 `over-constrained` 等诊断完全无声；示例靠预判避开，窗口缩小到放不下时照样静默压缩（README 已写限制）。
+
+## 未发现问题的方面
+
+- 平铺的树操作：父为横向分支用 `addLeaf`、否则 `splitLeaf`；同侧换窗先加后删；两侧都占着时换一侧（实测 `[notes, desktop, calc]` 换右侧得 `[notes, desktop, clock]`，再换左侧得 `[files, desktop, clock]`，三块宽度 477 平分）；取消平铺到只剩桌面时展平回根，桌面高度为 800、底栏 56（实测）；`nextBranchId` 从现有节点取最大序号加一，读档后不撞。
+- 状态表：副本里改动 `toTop(occupant)` 一处，单元用例变红；`wrongMode` 的每一格有用例且断言模型不变。
+- `checkTree` 的条目与注释一致，我没有找到能绕过它的合法形状（桌面所在行、锚点、同侧至多一扇、左右位置）；试了 dock 尺寸（F5）与多余字段（F5）之外的坏法都被拒。
+- 坐标换算：移动用“起点矩形加指针偏移”只读视口坐标差；反馈区域与 `tileSide` 用 `origin()` 换算到视口；`placeGrid` 的 `dpr` 与 `NestedGrid` 同源（`window.devicePixelRatio || 1`，库内是 `useDevicePixelRatio`，只在响应性上有差，见 F9）。
+- 抬升挂在承载盒捕获阶段、选择器含 `[data-leaf]`、`[data-content-leaf]`、`[data-float-chrome]`：三个标记在 `NestedGrid.vue` 里都存在，`placeFloat` 也按这三个标记找同 id 元素。
+- 拖动会话接线：`sourceAt` 排除按钮、`commitsUnderPointer`、`actionKey` 把 blocked 交回 `move` 的键、`structure` 绑 `host.revision`、`onEnd` 非提交时 `releaseMove`、`commit` 只写 `x`、`y`：与 `drag-gesture.ts` 的收场顺序（`ended` 先于 `commit`，`publish(null)` 更早）对得上。
+- 底栏被挤：默认布局下视口高度小于约 220px（加上 36px 的工具栏约 256px）时底栏会被按比例压到 56 以下（实测 150 高时 37.9），这与 README“窗口缩小到连桌面的最小尺寸都放不下时照库的行为压缩”一致，没有当作缺陷；宽度方向三块平铺在 800px 宽时各 264，不低于 240；720px 时库报 `over-constrained`，示例的试平铺会在落点上拦住。
+- e2e 的否定断言：`[data-drop]` 为 0 的几处都在先看到正向落点之后；“点按钮不起拖”有变异记录；“底栏分隔线拖不动”先断言 `aria-disabled` 再拖，并有“旁边的分隔线拖得动”的对照；最大化的窗拖不动有同拖法的正向对照。没有发现空过的否定断言。
+- 类型检查与现有单元测试全部通过；没有跨包深导入、没有静默 `catch`（几处 `catch` 都 `console.warn` 并交回原因）、没有按错误文案分支（只按 `code`）。
+
+## 数量
+
+阻断 0；重要 2（F1、F2）；建议 9（F3 到 F11）；另列摩擦记录 9 条。
