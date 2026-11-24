@@ -1,0 +1,208 @@
+Better Auth 选型探针第三轮（2026-11-24）：改用 bun:sqlite 是否走得通；核对设计审查里关于库行为的发现
+环境：Bun 1.4.4，better-auth 1.7.27，@better-auth/oauth-provider 1.7.27；数据库是临时目录里的 SQLite 文件（WAL）。
+
+===== 输出（只留结果行；中间是库打印的一段唯一约束报错堆栈） =====
+[Q0 sqlite tables] user, session, account, verification, jwks, oauthClient, oauthResource, oauthClientResource, oauthRefreshToken, oauthAccessToken, oauthConsent, oauthClientAssertion
+[Q0 user.id type] INTEGER
+[Q1 sign-up id] "1"
+[Q1 legacy login] 200 id="1000"
+[Q1 next id after import] "1001"
+[R2 non-admin create-client] 201 client_id=issued 
+[R3 sessions] {"before":true,"setRole":200,"sessionAfterSetRole":true,"roleSeenByOldSession":"admin","setPassword":200,"sessionAfterSetPassword":true,"oldPasswordLogin":401}
+[R4 social sign-up username 'Alice' while 'alice' exists] 302 /sign-in-error?error=unable_to_create_user stored=[{"username":"alice"}]
+[Q2 rss MB] 157
+[R5 linking-default] {"githubSignUp":"302 /done","googleSameEmail":"302 /done","accounts":[{"providerId":"github","accountId":"9001","emailVerified":1},{"providerId":"google","accountId":"7001","emailVerified":1}]}
+[R5 linking-disabled] {"githubSignUp":"302 /done","googleSameEmail":"302 /sign-in-error?error=account_not_linked","accounts":[{"providerId":"github","accountId":"9001","emailVerified":1}]}
+
+===== 脚本 spike3.ts =====
+// 一次性探针第三轮：改用 bun:sqlite 是否走得通；核对设计审查里三条关于库行为的发现。不进仓库。
+import {betterAuth} from "better-auth";
+import {APIError, getOAuthState} from "better-auth/api";
+import {admin, genericOAuth, jwt, username} from "better-auth/plugins";
+import {getMigrations} from "better-auth/db/migration";
+import {oauthProvider} from "@better-auth/oauth-provider";
+import {Database} from "bun:sqlite";
+import {Hono} from "hono";
+import {mkdtempSync, rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {randomBytes, scrypt as scryptCb} from "node:crypto";
+import {promisify} from "node:util";
+
+const scrypt = promisify(scryptCb);
+const BASE = "http://localhost:3999";
+const UP = "http://127.0.0.1:4011";
+const dir = mkdtempSync(join(tmpdir(), "nbsite-spike3-"));
+
+const upstreamUsers: Record<string, {id: number; login: string; name: string; email: string; email_verified: boolean}> = {
+    gh: {id: 9001, login: "octo", name: "Octo", email: "octo@example.com", email_verified: true},
+    gg: {id: 7001, login: "octo-g", name: "Octo G", email: "octo@example.com", email_verified: true},
+};
+let nextUpstreamUser = "gh";
+const upstream = Bun.serve({
+    port: 4011, hostname: "127.0.0.1",
+    async fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/authorize") {
+            const back = new URL(url.searchParams.get("redirect_uri")!);
+            back.searchParams.set("code", nextUpstreamUser);
+            back.searchParams.set("state", url.searchParams.get("state") ?? "");
+            return Response.redirect(back.toString(), 302);
+        }
+        if (url.pathname === "/token") {
+            const form = new URLSearchParams(await req.text());
+            return Response.json({access_token: `tok-${form.get("code")}`, token_type: "bearer"});
+        }
+        if (url.pathname === "/user") {
+            const user = upstreamUsers[(req.headers.get("authorization") ?? "").replace(/^Bearer tok-/i, "")];
+            return user ? Response.json(user) : new Response("unauthorized", {status: 401});
+        }
+        return new Response("not found", {status: 404});
+    },
+});
+
+const provider = (providerId: string) => ({
+    providerId, clientId: "fake", clientSecret: "fake",
+    authorizationUrl: `${UP}/authorize`, tokenUrl: `${UP}/token`, userInfoUrl: `${UP}/user`,
+    scopes: ["read"], disableImplicitSignUp: true,
+    mapProfileToUser: (profile: Record<string, unknown>) => ({
+        name: String(profile.name), email: profile.email as string, emailVerified: Boolean(profile.email_verified)}),
+});
+
+function makeAuth(file: string, disableImplicitLinking: boolean) {
+    const db = new Database(join(dir, file));
+    db.exec("PRAGMA journal_mode = WAL;");
+    const auth = betterAuth({
+        baseURL: BASE, basePath: "/api/identity/auth",
+        secret: "spike-secret-spike-secret-spike-secret-1234",
+        database: db,
+        advanced: {database: {generateId: "serial"}},
+        disabledPaths: ["/token"],
+        account: {accountLinking: {disableImplicitLinking}},
+        emailAndPassword: {
+            enabled: true,
+            password: {
+                hash: async (password) => `argon2-new:${await Bun.password.hash(password)}`,
+                verify: async ({password, hash}) => {
+                    if (hash.startsWith("scrypt:")) {
+                        const [, salt, keyHex] = hash.split(":");
+                        const key = (await scrypt(password, salt!, 64)) as Buffer;
+                        return key.toString("hex") === keyHex;
+                    }
+                    return Bun.password.verify(password, hash.replace(/^argon2-new:/, ""));
+                },
+            },
+        },
+        databaseHooks: {user: {create: {before: async (user, ctx) => {
+            const fromBody = (ctx?.body as {registrationCode?: string} | undefined)?.registrationCode;
+            const state = ctx?.path?.includes("callback") ? await getOAuthState<{registrationCode?: string; username?: string}>() : null;
+            if ((fromBody ?? state?.registrationCode) !== "REG-OK") throw new APIError("FORBIDDEN", {message: "registration_code_required"});
+            return {data: {...user, ...(state?.username ? {username: state.username, displayUsername: state.username} : {})}};
+        }}}},
+        plugins: [username(), admin(), jwt({disableSettingJwtHeader: true}),
+            oauthProvider({loginPage: "/sign-in", consentPage: "/consent"}),
+            genericOAuth({config: [provider("github"), provider("google")]})],
+    });
+    const app = new Hono();
+    app.on(["GET", "POST"], "/api/identity/auth/*", (c) => auth.handler(c.req.raw));
+    return {auth, app, db};
+}
+
+class Jar {
+    private map = new Map<string, string>();
+    absorb(res: Response) {
+        for (const c of res.headers.getSetCookie()) {
+            const [pair] = c.split(";"); const i = pair!.indexOf("=");
+            const name = pair!.slice(0, i); const value = pair!.slice(i + 1);
+            if (value === "" || /max-age=0/i.test(c)) this.map.delete(name); else this.map.set(name, value);
+        }
+    }
+    header() { return [...this.map].map(([k, v]) => `${k}=${v}`).join("; "); }
+}
+type App = ReturnType<typeof makeAuth>["app"];
+async function call(app: App, jar: Jar, path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers);
+    if (jar.header()) headers.set("cookie", jar.header());
+    if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+    headers.set("origin", BASE);
+    const res = await app.fetch(new Request(path.startsWith("http") ? path : `${BASE}${path}`, {...init, headers, redirect: "manual"}));
+    jar.absorb(res);
+    const text = await res.text();
+    let json: any; try { json = JSON.parse(text); } catch { /* 非 JSON */ }
+    return {status: res.status, json, text, location: res.headers.get("location")};
+}
+async function social(app: App, jar: Jar, providerId: string, body: Record<string, unknown>) {
+    const start = await call(app, jar, "/api/identity/auth/sign-in/social", {method: "POST", body: JSON.stringify({provider: providerId, callbackURL: "/done", errorCallbackURL: "/sign-in-error", ...body})});
+    if (!start.json?.url) return {status: start.status, location: `start failed: ${start.text.slice(0, 120)}`};
+    const up = await fetch(start.json.url, {redirect: "manual"});
+    return call(app, jar, up.headers.get("location")!);
+}
+const note = (k: string, v: unknown) => console.log(`[${k}]`, typeof v === "string" ? v : JSON.stringify(v));
+const signUp = (app: App, jar: Jar, name: string) => call(app, jar, "/api/identity/auth/sign-up/email", {method: "POST",
+    body: JSON.stringify({email: `${name}@example.com`, name, username: name, password: "password1234", registrationCode: "REG-OK"})});
+
+async function linkingCase(label: string, disableImplicitLinking: boolean) {
+    const {auth, app, db} = makeAuth(`${label}.db`, disableImplicitLinking);
+    await (await getMigrations(auth.options)).runMigrations();
+    nextUpstreamUser = "gh";
+    const first = await social(app, new Jar(), "github", {requestSignUp: true, additionalData: {registrationCode: "REG-OK", username: "octo"}});
+    nextUpstreamUser = "gg";
+    const second = await social(app, new Jar(), "google", {});
+    const rows = db.query(`select a.providerId, a.accountId, u.emailVerified from account a join user u on u.id = a.userId order by a.id`).all();
+    note(`R5 ${label}`, {githubSignUp: `${first.status} ${first.location}`, googleSameEmail: `${second.status} ${second.location}`, accounts: rows});
+    db.close();
+}
+
+async function main() {
+    const {auth, app, db} = makeAuth("main.db", false);
+    const {toBeCreated, runMigrations} = await getMigrations(auth.options);
+    await runMigrations();
+    note("Q0 sqlite tables", toBeCreated.map((t) => t.table).join(", "));
+    note("Q0 user.id type", (db.query(`select type from pragma_table_info('user') where name='id'`).get() as {type: string}).type);
+
+    // Q1：数字 id、旧哈希、导入后续号
+    const alice = new Jar(); const a = await signUp(app, alice, "alice");
+    note("Q1 sign-up id", JSON.stringify(a.json?.user?.id));
+    const salt = randomBytes(16).toString("hex");
+    const legacy = `scrypt:${salt}:${((await scrypt("old-password", salt, 64)) as Buffer).toString("hex")}`;
+    const now = new Date().toISOString();
+    db.query(`insert into user(id, name, email, emailVerified, username, displayUsername, createdAt, updatedAt, role) values (1000, '旧用户', 'u1000@legacy.invalid', 0, 'olduser', 'olduser', ?, ?, 'admin')`).run(now, now);
+    db.query(`insert into account(accountId, providerId, userId, password, createdAt, updatedAt) values ('1000', 'credential', 1000, ?, ?, ?)`).run(legacy, now, now);
+    const adminJar = new Jar();
+    const login = await call(app, adminJar, "/api/identity/auth/sign-in/username", {method: "POST", body: JSON.stringify({username: "olduser", password: "old-password"})});
+    note("Q1 legacy login", `${login.status} id=${JSON.stringify(login.json?.user?.id)}`);
+    const bob = new Jar(); const b = await signUp(app, bob, "bob");
+    note("Q1 next id after import", JSON.stringify(b.json?.user?.id));
+
+    // R2：普通用户能不能登记 OAuth 客户端
+    const create = await call(app, bob, "/api/identity/auth/oauth2/create-client", {method: "POST",
+        body: JSON.stringify({client_name: "evil", redirect_uris: ["https://evil.example/cb"], token_endpoint_auth_method: "client_secret_basic"})});
+    note("R2 non-admin create-client", `${create.status} client_id=${create.json?.client_id ? "issued" : "none"} ${create.status >= 400 ? create.text.slice(0, 120) : ""}`);
+
+    // R3：改角色、管理员重置密码之后，旧会话还在不在
+    const bobId = b.json?.user?.id;
+    const before = await call(app, bob, "/api/identity/auth/get-session");
+    const setRole = await call(app, adminJar, "/api/identity/auth/admin/set-role", {method: "POST", body: JSON.stringify({userId: bobId, role: "admin"})});
+    const afterRole = await call(app, bob, "/api/identity/auth/get-session");
+    const setPw = await call(app, adminJar, "/api/identity/auth/admin/set-user-password", {method: "POST", body: JSON.stringify({userId: bobId, newPassword: "new-password-5678"})});
+    const afterPw = await call(app, bob, "/api/identity/auth/get-session");
+    const oldPwLogin = await call(app, new Jar(), "/api/identity/auth/sign-in/username", {method: "POST", body: JSON.stringify({username: "bob", password: "password1234"})});
+    note("R3 sessions", {before: Boolean(before.json?.user), setRole: setRole.status, sessionAfterSetRole: Boolean(afterRole.json?.user), roleSeenByOldSession: afterRole.json?.user?.role,
+        setPassword: setPw.status, sessionAfterSetPassword: Boolean(afterPw.json?.user), oldPasswordLogin: oldPwLogin.status});
+
+    // R4：社交注册带来的用户名大小写
+    nextUpstreamUser = "gh";
+    upstreamUsers.gh!.email = "alice2@example.com";
+    const cased = await social(app, new Jar(), "github", {requestSignUp: true, additionalData: {registrationCode: "REG-OK", username: "Alice"}});
+    note("R4 social sign-up username 'Alice' while 'alice' exists", `${cased.status} ${cased.location} stored=${JSON.stringify(db.query(`select username from user where lower(username)='alice' order by id`).all())}`);
+    upstreamUsers.gh!.email = "octo@example.com";
+    note("Q2 rss MB", Math.round(process.memoryUsage.rss() / 1024 / 1024));
+    db.close();
+
+    // R5：本地邮箱已验证时，第二个上游用同一邮箱登录会不会被自动并入
+    await linkingCase("linking-default", false);
+    await linkingCase("linking-disabled", true);
+}
+
+main().catch((error) => { console.error("SPIKE3 CRASH", error); process.exitCode = 1; })
+    .finally(() => { upstream.stop(true); rmSync(dir, {recursive: true, force: true}); });
