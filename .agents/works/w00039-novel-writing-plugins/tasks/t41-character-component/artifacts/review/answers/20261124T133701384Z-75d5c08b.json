@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t41-character-component",
+    "artifactId": "review",
+    "answerId": "20261124T133701384Z-75d5c08b",
+    "artifactVersion": 1,
+    "contentHash": "734f5acccc4c47a0b893624407b4aa63035c2f26f15163f404c239b72a94832b",
+    "submittedAt": "2026-11-24T13:37:00.059Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "card-layout": false,
+        "edit-inline": "inline",
+        "add-entries": true,
+        "many-groups": "tabs"
+    },
+    "comments": {
+        "card-layout": "感觉有点不太对啊。先给我讲一下这个 Tab 是什么？Tab 是 Component 吧。我之前想的是服装可以做成一个单独的 Component。你现在的这种做法是全部堆在一个 Component 了吧。\n---\n1. 一个 Component 不是由两个东西组成的吗？：数据部分和展示部分。这个角色卡就是展示部分\n2. 这个角色卡的展示部分是用 MDX 做的吗还是直接用 vue 组件做的？因为其实我也想看看用 MDX 的表达能力能不能做出这种角色卡。我们要提供什么接口给他们（MDX或者 vue 组件）。需要讨论一下。或者其实这可以可以两者都要：提供 react 组件，mdx 就写这一个 tag。\n\n---\n\n我有哪里没有表述清楚吗？有没有术语需要纠正？\n"
+    },
+    "note": null
+}
