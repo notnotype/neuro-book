@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t50-example-app
-status: planned
-updated: 2026-11-22
+status: active
+updated: 2026-11-24
 ---
 
 # 官方示例应用
