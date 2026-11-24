@@ -45,7 +45,9 @@ updated: 2026-11-24
 
 应用这边（本机统计、遥测插件、条款）在 [w00053](../w00053-telemetry-feedback-stats/README.md)，与上表的 1 到 4 可以同时做。
 
-还没决定、会卡住某一步的事：前端的样子与图表库（t09）；站点域名是否沿用、遥测写入口的域名（t08、t13、OpenRouter 归属）；Google 与 GitHub 的 OAuth 应用（t08）；处理者的名称与联系方式（条款）；异地备份（t13）；旧站不合规则的用户名怎么处理（t12，要先看生产数据）。
+已定（开发者 2026-11-24）：站点地址沿用 `nbook.notnotype.com`，遥测写入口单独一个子域名；对外 OAuth 按标准 OpenID Connect 做（见 [t08](tasks/t08-social-login-and-oauth-provider/README.md)）；前端的注意力排序（见 [t09](tasks/t09-frontend-design-review/README.md)）。
+
+还没决定、会卡住某一步的事：前端的外观与图表库（t09 的静态稿）；Google 与 GitHub 的 OAuth 应用（部署验收时要）；处理者的名称与联系方式（条款）；异地备份（t13）；旧站不合规则的用户名怎么处理（t12，要先看生产数据）。
 
 ## Task
 
