@@ -189,6 +189,13 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(refused(put(reverted.world, (entry) => void (entry.init.data.panel!.fields.存款 = 300)))).toEqual(["ok"]);
     });
 
+    test("类型后来不再允许实例字段：原样留着的声明不挡别的修改，再写新的才拒收", () => {
+        const allowing = world([PANEL, {...PERSON, instanceFields: true}]);
+        const start = ok(put(allowing, (entry) => void (entry.init.data.character!.declared = [{id: "种族", label: "种族", kind: "text"}]))).world.withOptions(options());
+        expect(refused(put(start, (entry) => void (entry.init.data.character!.fields.状态 = "受伤")))).toEqual(["ok"]);
+        expect(refused(put(start, (entry) => void declared(entry, "character").push({id: "生日", label: "生日", kind: "text"})))).toEqual(["fields-not-declarable:init.data.character.declared"]);
+    });
+
     test("原样留着的值不合现在的声明时不挡别的修改；改到它的那一次才核", () => {
         const start = world().withOptions(options([PANEL, {...PERSON, fields: PERSON.fields!.map((field) => (field.id === "外观" ? {...field, kind: "number" as const} : field))}]));
         expect(refused(put(start, (entry) => void (entry.init.data.character!.fields.状态 = "受伤")))).toEqual(["ok"]);
