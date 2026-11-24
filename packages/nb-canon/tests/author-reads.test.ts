@@ -161,6 +161,12 @@ describe("canon.project 输出 28、29、34 与 canon.components 输出 21：章
         expect(events).toEqual(["inputChanged:components"]);
         expect(service.status().version).toBe(version);
         expect(service.components().items.some((type) => type.namespace === "panel")).toBe(false);
+        // 只改适用的种类（提示，不进摘要）：照样通知，重读得到新的（components.md 输出 24）。
+        const hinted = declared.filter((type) => type.namespace !== "panel").map((type) => (type.namespace === undefined ? type : {...type, kinds: ["人物"]}));
+        expect(buildRegistry(hinted).digest).toBe(buildRegistry(declared.filter((type) => type.namespace !== "panel")).digest);
+        await service.setRegistries({registry: buildRegistry(hinted)});
+        expect(events).toEqual(["inputChanged:components", "inputChanged:components"]);
+        expect(service.components().items.every((type) => type.kinds?.[0] === "人物")).toBe(true);
         stop();
     });
 });

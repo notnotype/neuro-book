@@ -73,6 +73,8 @@ const FieldDeclarationCore = {
     max: Type.Optional(Type.Union([Type.Number(), Id])),
     options: Type.Optional(Type.Array(Text)),
     retold: Type.Optional(Type.Boolean()),
+    /** 只用于 `text`：建议的值。只是提示，值不必在其中，内核不据此校验（components.md 输出 24）。 */
+    suggestions: Type.Optional(Type.Array(Text)),
     /** `ref` 与以引用为键的列表允许指向的条目种类（条目的 `type`）；没有时任何种类都行（components.md 输出 18）。 */
     targets: Type.Optional(Type.Array(Text)),
     /** 为 `ref` 时列表的元素 id 就是被引用的条目 id（components.md 输出 19）。 */
@@ -92,6 +94,10 @@ export const ComponentDeclarationSchema = Type.Object({
     version: Type.Optional(Type.Integer({minimum: 1})),
     fields: Type.Optional(Type.Array(FieldDeclarationSchema)),
     instanceFields: Type.Optional(Type.Boolean()),
+    /** 这组设定适用的条目种类（条目的 `type`）；只是提示，不限制它加在哪种条目上（components.md 输出 24）。 */
+    kinds: Type.Optional(Type.Array(Text)),
+    /** 给“添加一项”用的预设字段声明；只在 `instanceFields` 为真时可写（components.md 输出 24）。 */
+    presets: Type.Optional(Type.Array(FieldDeclarationSchema)),
     agentView: Type.Optional(Text),
     bookkeepingNotes: Type.Optional(Text),
     usageNotes: Type.Optional(Text),

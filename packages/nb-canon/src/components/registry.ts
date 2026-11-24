@@ -18,6 +18,8 @@ export interface ComponentDeclaration {
     readonly version?: number;
     readonly fields?: readonly FieldDeclaration[];
     readonly instanceFields?: boolean;
+    readonly kinds?: readonly string[];
+    readonly presets?: readonly FieldDeclaration[];
     readonly agentView?: string;
     readonly bookkeepingNotes?: string;
     readonly usageNotes?: string;
@@ -31,6 +33,9 @@ export interface ComponentType {
     readonly version: number;
     readonly fields: readonly FieldDeclaration[];
     readonly instanceFields: boolean;
+    /** 适用的条目种类与预设字段：只是给界面与 Agent 的提示（components.md 输出 24），不参与任何计算。 */
+    readonly kinds?: readonly string[];
+    readonly presets?: readonly FieldDeclaration[];
     readonly agentView?: string;
     readonly bookkeepingNotes?: string;
     readonly usageNotes?: string;
@@ -89,6 +94,8 @@ export function buildRegistry(declarations: readonly ComponentDeclaration[]): Co
             version: declaration.version!,
             fields: declaration.fields ?? [],
             instanceFields: declaration.instanceFields === true,
+            ...(declaration.kinds === undefined ? {} : {kinds: declaration.kinds}),
+            ...(declaration.presets === undefined ? {} : {presets: declaration.presets}),
             ...(declaration.agentView === undefined ? {} : {agentView: declaration.agentView}),
             ...(declaration.bookkeepingNotes === undefined ? {} : {bookkeepingNotes: declaration.bookkeepingNotes}),
             ...(declaration.usageNotes === undefined ? {} : {usageNotes: declaration.usageNotes}),
@@ -107,7 +114,8 @@ export function buildRegistry(declarations: readonly ComponentDeclaration[]): Co
         }
     }
     const digest = stableStringify({
-        types: [...available.values()].sort((a, b) => (a.namespace < b.namespace ? -1 : 1)).map((type) => ({id: type.id, namespace: type.namespace, version: type.version, fields: type.fields, instanceFields: type.instanceFields})),
+        // 只含影响计算的部分：适用的种类、预设与字段的建议值都只是提示，改了它们不该引起整本重算（components.md 输出 24）。
+        types: [...available.values()].sort((a, b) => (a.namespace < b.namespace ? -1 : 1)).map((type) => ({id: type.id, namespace: type.namespace, version: type.version, fields: type.fields.map(withoutSuggestions), instanceFields: type.instanceFields})),
         conflicted: [...conflicted].sort(),
     });
     const versions = [...[...available.values()].map((type) => [type.id, type.version] as const), ...[...queryOnly.values()].map((type) => [type.id, type.version ?? 0] as const)].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
@@ -119,7 +127,35 @@ function declarationProblem(declaration: ComponentDeclaration): {path: string; m
     const namespace = declaration.namespace!;
     if (!isNamespaceName(namespace)) return {path: "namespace", message: `namespace "${namespace}" is not an identifier or is reserved`};
     if (!Number.isInteger(declaration.version) || declaration.version! < 1) return {path: "version", message: "version must be a positive integer"};
-    return fieldsProblem(declaration.fields ?? [], "fields");
+    const fields = declaration.fields ?? [];
+    return fieldsProblem(fields, "fields") ?? presetsProblem(declaration.presets ?? [], fields, declaration.instanceFields === true);
+}
+
+/**
+ * 预设字段（components.md 输出 24）：每个单独与固定字段放在一起看。作者可能只加其中一个，所以 id 不与固定字段、别的预设相同，
+ * 上限只能指向固定字段，不能指向另一个预设。
+ */
+function presetsProblem(presets: readonly FieldDeclaration[], fields: readonly FieldDeclaration[], instanceFields: boolean): {path: string; message: string} | null {
+    if (presets.length > 0 && !instanceFields) return {path: "presets", message: "presets need instanceFields"};
+    const ids = new Set(fields.map((field) => field.id));
+    for (const [index, preset] of presets.entries()) {
+        const path = `presets[${String(index)}]`;
+        const problem = fieldShapeProblem(preset, path);
+        if (problem !== null) return problem;
+        if (ids.has(preset.id)) return {path: `${path}.id`, message: `duplicate field id "${preset.id}"`};
+        ids.add(preset.id);
+        if (typeof preset.max === "string" && !fields.some((field) => field.id === preset.max && field.kind === "number" && field.precision !== "semantic")) {
+            return {path: `${path}.max`, message: `max "${preset.max}" is not an exact number field of this type`};
+        }
+    }
+    return null;
+}
+
+/** 算 `digest` 用：去掉字段声明里的建议值（子字段的也去掉）。 */
+function withoutSuggestions(field: FieldDeclaration): FieldDeclaration {
+    if (field.suggestions === undefined && field.item?.every((sub) => sub.suggestions === undefined) !== false) return field;
+    const {suggestions: _suggestions, ...rest} = field;
+    return {...rest, ...(field.item === undefined ? {} : {item: field.item.map(({suggestions: _dropped, ...sub}) => sub)})};
 }
 
 /**
@@ -134,6 +170,7 @@ export function fieldShapeProblem(field: FieldDeclaration, path: string, instanc
     if (!instance && "removed" in field) return {path: `${path}.removed`, message: "only a field declared on an instance can be marked removed"};
     if (field.kind === "enum" && (field.options === undefined || field.options.length === 0)) return {path: `${path}.options`, message: "enum needs options"};
     if (field.precision !== undefined && field.kind !== "number" && field.kind !== "text") return {path: `${path}.precision`, message: "precision applies to number and text"};
+    if (field.suggestions !== undefined && field.kind !== "text") return {path: `${path}.suggestions`, message: "suggestions apply to text"};
     if (field.keyedBy !== undefined && field.kind !== "list") return {path: `${path}.keyedBy`, message: "keyedBy applies to lists"};
     if (field.targets !== undefined && field.kind !== "ref" && field.keyedBy === undefined) return {path: `${path}.targets`, message: "targets applies to ref fields and lists keyed by ref"};
     if ((field.min !== undefined || field.max !== undefined) && (field.kind !== "number" || field.precision === "semantic")) {
