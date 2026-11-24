@@ -110,6 +110,11 @@ const activate = async (): Promise<void> => {
         hideCursorInOverviewRuler: true,
         // 一页里有很多个输入框：Tab 用来在它们与旁边的按钮之间走，不留在框里缩进（缩进用 Monaco 的缩进命令）。
         tabFocusMode: true,
+        // 打字时不自己弹补全：这里写的多半是正文，弹出来的是文档里别处的词，回车还会被它接走（换成那个词，不换行）。
+        // 编辑器区不承诺补全（docs/specs/workbench/editor.md 的“不承诺”）；要的人按 Ctrl+Space。
+        quickSuggestions: false,
+        suggestOnTriggerCharacters: false,
+        wordBasedSuggestions: "off",
         // 高度随内容，没有可滚的东西：滚轮交给外面的页面。
         scrollbar: {vertical: "hidden", horizontal: "hidden", handleMouseWheel: false, alwaysConsumeMouseWheel: false},
         contextmenu: false,
