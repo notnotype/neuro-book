@@ -45,7 +45,7 @@ afterAll(async () => {
 let sequence = 0;
 function person(name: string, extra: Partial<Entry["init"]> = {}): WriteRequest {
     const id = `tmp:${String(++sequence)}`;
-    const entry: Entry = {id, type: "nbook.canon.person", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: null}}}, ...extra}};
+    const entry: Entry = {id, type: "nbook.canon.person", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {性格: null, 身份: null, 现在的状态: null}}}, ...extra}};
     return {requestId: `req-${String(sequence)}`, by: {kind: "author"}, what: "edit", title: name, baseVersion: 0, puts: [{ref: {kind: "entry", id}, after: entry}]};
 }
 
@@ -137,7 +137,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(await author.canon.call("tree", {parent: star, position: at})).toMatchObject({ok: true, value: {items: [{id: brother, name: "哥哥", nameAt: "哥哥", appeared: true, sameAs: star, hasChildren: false}], remaining: 0}});
         expect(await author.canon.call("tree", {parent: null})).toMatchObject({ok: true, value: {items: [{id: star, hasChildren: true}], remaining: 0}});
         expect(await author.canon.call("entry", {id: brother, position: at, mode: "actual", withChangedAt: true})).toMatchObject({ok: true, value: {ancestors: [{id: star, name: "星瑕"}], sameAs: {id: star, name: "星瑕"}, folder: ""}});
-        expect(await author.canon.call("origins", {at: {entry: star, path: "character.外观"}, position: at, mode: "actual"})).toMatchObject({ok: true, value: {items: [], total: 0, initial: {kind: "init", value: null}, reduced: null}});
+        expect(await author.canon.call("origins", {at: {entry: star, path: "character.性格"}, position: at, mode: "actual"})).toMatchObject({ok: true, value: {items: [], total: 0, initial: {kind: "init", value: null}, reduced: null}});
         expect(await author.canon.call("origins", {at: {entry: star, path: "character.没有"}, mode: "actual"})).toMatchObject({ok: true, value: {total: 0, initial: null}});
 
         // 带视图令牌：章表只到上限所在的章，登记的类型照常，读一次修订被拒。
@@ -146,7 +146,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(await author.canon.call("chapters", {view: view.value.token})).toMatchObject({ok: true, value: {items: [{id: "1"}]}});
         expect((await author.canon.call("components", {view: view.value.token})).ok).toBe(true);
         expect(await author.canon.call("revision", {id: written.value.revision, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
-        expect(await author.canon.call("origins", {at: {entry: star, path: "character.外观"}, mode: "actual", view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await author.canon.call("origins", {at: {entry: star, path: "character.性格"}, mode: "actual", view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
         const viewed = await author.canon.call("entry", {id: brother, mode: "actual", view: view.value.token});
         if (!viewed.ok) throw new Error(viewed.failure.code);
         expect("ancestors" in viewed.value || "sameAs" in viewed.value).toBe(false);
@@ -186,20 +186,20 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(await author.canon.call("editInPlace", {...rename, value: "别的名字"})).toMatchObject({ok: false, failure: {code: "request-id-reused"}});
 
         // 语义档的记一笔：预览的路由是在这一章新记一条变更；写入后字段多一条事件。
-        const note = {requestId: "note-1", by, position: at, at: {entry: star, path: "character.态度"}, text: "把卡推了回去", read: {value: null, version: renamed.value.version}};
+        const note = {requestId: "note-1", by, position: at, at: {entry: star, path: "character.现在的状态"}, text: "把卡推了回去", read: {value: null, version: renamed.value.version}};
         expect(await author.canon.call("previewEdit", {input: {kind: "note", ...note}})).toMatchObject({ok: true, value: {route: {kind: "change", at: {kind: "chapter", chapter: "1", key: 0}}}});
         const noted = await author.canon.call("recordNote", note);
         if (!noted.ok) throw new Error(JSON.stringify(noted.failure));
         const origins = await author.canon.call("origins", {at: note.at, position: at, mode: "actual"});
         expect(origins).toMatchObject({ok: true, value: {total: 1, items: [{kind: "patch", op: "note", text: "把卡推了回去", at: {kind: "chapter", chapter: "1", key: 0}}]}});
-        expect(await author.canon.call("recordNote", {...note, requestId: "note-2", at: {entry: star, path: "character.外观"}})).toMatchObject({ok: false, failure: {code: "validation-failed", problems: [{code: "type-mismatch"}]}});
+        expect(await author.canon.call("recordNote", {...note, requestId: "note-2", at: {entry: star, path: "character.性格"}})).toMatchObject({ok: false, failure: {code: "validation-failed", problems: [{code: "type-mismatch"}]}});
 
         // 有事件的语义档不能直接改：链路上的失败只带步数，不带整份来历（来历用分页的 origins 读）。
         // 条目读取带字段声明（canon.components 输出 21）。
         const read = await author.canon.call("entry", {id: star, position: at, mode: "actual"});
         if (!read.ok) throw new Error(JSON.stringify(read.failure));
-        expect(read.value.declarations).toMatchObject({character: [{id: "外观"}, {id: "状态"}, {id: "态度", precision: "semantic"}, {id: "身体"}, {id: "样子"}, {id: "性格"}]});
-        const attitude = read.value.view?.namespaces.character?.fields.态度?.value;
+        expect(read.value.declarations).toMatchObject({character: [{id: "性别"}, {id: "年龄"}, {id: "身份"}, {id: "所属"}, {id: "性格"}, {id: "背景"}, {id: "说话方式"}, {id: "现在的状态", precision: "semantic"}, {id: "现在在哪"}, {id: "生死"}]});
+        const attitude = read.value.view?.namespaces.character?.fields.现在的状态?.value;
         const refused = await author.canon.call("previewEdit", {input: {kind: "edit", requestId: "edit-9", by, position: at, at: note.at, value: "缓和", read: {value: attitude, version: noted.value.version}}});
         expect(refused).toMatchObject({ok: false, failure: {code: "accumulated-value", steps: 3}});
         expect(refused.ok === false && "origins" in refused.failure).toBe(false);
@@ -235,7 +235,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
 
         const status = await author.canon.call("status", {});
         if (!status.ok) throw new Error("status");
-        const input = {requestId: "batch-2", by, what: "edit" as const, baseVersion: created.value.version, title: "填外观", ops: [{op: "set" as const, at: {entry: star, path: "character.外观"}, value: "银白长发"}, {op: "aliases" as const, entry: star, add: ["瑾"]}]};
+        const input = {requestId: "batch-2", by, what: "edit" as const, baseVersion: created.value.version, title: "填外观", ops: [{op: "set" as const, at: {entry: star, path: "character.性格"}, value: "银白长发"}, {op: "aliases" as const, entry: star, add: ["瑾"]}]};
         const preview = await author.canon.call("previewEntries", {input});
         if (!preview.ok) throw new Error(JSON.stringify(preview.failure));
         const written = await author.canon.call("editEntries", {input});
@@ -244,7 +244,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(stored.ok && stored.value.revision?.ops).toEqual(preview.value.revision.ops);
 
         // 读取戳过期：之间有新修订，整批拒收，版本不动。
-        const stale = await author.canon.call("editEntries", {input: {requestId: "batch-3", by: {kind: "agent", session: "s1"}, what: "creative", baseVersion: created.value.version, readStamp: {version: created.value.version, input: "0"}, title: "Agent 改", ops: [{op: "set", at: {entry: star, path: "character.状态"}, value: "受伤"}]}});
+        const stale = await author.canon.call("editEntries", {input: {requestId: "batch-3", by: {kind: "agent", session: "s1"}, what: "creative", baseVersion: created.value.version, readStamp: {version: created.value.version, input: "0"}, title: "Agent 改", ops: [{op: "set", at: {entry: star, path: "character.身份"}, value: "受伤"}]}});
         expect(stale).toMatchObject({ok: false, failure: {code: "stale-read", revisions: [{id: written.value.revision, title: "填外观"}]}});
         expect(await version(author.canon)).toBe(written.value.version);
 

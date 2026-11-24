@@ -1,6 +1,7 @@
 /**
  * 星瑕样本项目（canon-sample.ts）：生成出来的目录是一部能打开的作品；用产品打开世界的那段代码（`createWorldHost`）重新打开，
- * 条目、马甲关系、内置类型的字段都在，三章都在章表里，星瑕的主文字渲染出来没有坏块、马甲的外观不是占位。
+ * 条目、马甲关系、内置类型的字段都在，三章都在章表里，星瑕的主文字渲染出来没有坏块、马甲的外貌不是占位；换到内置的人物与形象
+ * 两组以后，每个读取位置上的值与原型算出来的逐项相同。
  * 带剧情数据的那份（`--plot`）由真实的项目子进程（canon 与剧情的项目入口）打开，窗口经 `nbook.plot/author` 读出样本里的剧情。
  */
 
@@ -10,7 +11,8 @@ import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {RemoteUse} from "@notnotype/nb-runtime/remote";
-import type {AuthorBlock, AuthorNode} from "@notnotype/nb-canon";
+import type {AuthorBlock, AuthorNode, ReadPosition} from "@notnotype/nb-canon";
+import {loadXingxiaSample} from "@notnotype/nb-canon/sample";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createWorldHost} from "../src/plugins/canon/backend/world-host";
@@ -68,7 +70,14 @@ describe("星瑕样本项目", () => {
             const read = service.entry(star.id, end, "actual");
             if (typeof read === "string" || read.view === null) throw new Error(JSON.stringify(read));
             expect(read.view.namespaces.character?.type).toBe("nbook.canon.person");
-            expect(Object.keys(read.view.namespaces.character?.fields ?? {})).toEqual(expect.arrayContaining(["身体", "样子", "外观", "性格", "态度"]));
+            // 这本书专有的“身体”“现在的样子”是星瑕自己声明的字段；“现在的态度”在星瑾身上，不在她身上。
+            expect(Object.keys(read.view.namespaces.character?.fields ?? {})).toEqual(expect.arrayContaining(["性格", "现在的状态", "身体", "样子"]));
+            expect(Object.keys(read.view.namespaces.character?.fields ?? {})).not.toContain("态度");
+            expect("declarations" in read ? read.declarations.character?.filter((field) => ["身体", "样子"].includes(field.id)).map((field) => [field.label, field.kind]) : []).toEqual([["身体", "enum"], ["现在的样子", "enum"]]);
+            expect(read.view.namespaces.look).toMatchObject({type: "nbook.canon.look", fields: {外貌: {value: "淡金色长发及腰，浅灰蓝的眼睛，个子娇小"}}});
+            const sister = service.entry(roots.items.find((item) => item.name === "星瑾")!.id, end, "actual");
+            if (typeof sister === "string" || sister.view === null) throw new Error(JSON.stringify(sister));
+            expect(Object.keys(sister.view.namespaces.character?.fields ?? {})).toContain("态度");
             expect(read.view.namespaces.panel?.type).toBe("nbook.canon.panel");
             expect(typeof read.view.namespaces.panel?.fields.存款?.value).toBe("number");
             expect(read.view.namespaces.identity).toBeUndefined();
@@ -78,9 +87,63 @@ describe("星瑕样本项目", () => {
             const blocks = rendered.blocks as readonly AuthorBlock[];
             expect(blocks.filter((block) => "error" in block)).toEqual([]);
             const nodes = blocks.flatMap((block) => ("tree" in block ? canonNodes(block.tree) : []));
-            // 马甲的外观原来在身份块里，并进了人物：文字里引用它的地方是值，不是占位。
+            // 马甲的外观原来在身份块里，现在是它自己的形象的外貌：文字里引用它的地方是值，不是占位。
             expect(nodes.filter((node) => node.type === "canonPlaceholder")).toEqual([]);
-            expect(nodes.some((node) => node.type === "canonValue" && node.path === "character.外观" && node.entry !== null)).toBe(true);
+            expect(nodes.some((node) => node.type === "canonValue" && node.path === "look.外貌" && node.entry !== null)).toBe(true);
+        } finally {
+            await host.stop();
+        }
+    });
+
+    it("换到人物与形象两组以后，每个读取位置上的外貌、性格、身体、样子与面板的数都和原型算出来的相同", async () => {
+        const prototype = await loadXingxiaSample();
+        const host = createWorldHost(project(), () => undefined);
+        host.setComponents(BUILTIN_COMPONENTS);
+        try {
+            const service = await host.ready();
+            if ("code" in service) throw new Error(service.code);
+            const ids = new Map<string, string>();
+            const walk = (parent: string | null): void => {
+                const page = service.tree(parent, undefined, 500);
+                if (page === "cursor-stale") throw new Error(page);
+                for (const item of page.items) {
+                    ids.set(item.name, item.id);
+                    if (item.hasChildren) walk(item.id);
+                }
+            };
+            walk(null);
+            /** 原型里一个条目在一个位置上要比的值：地址换成内置类型的；没有值的不列。 */
+            const expectedOf = (data: Readonly<Record<string, {readonly fields: Readonly<Record<string, unknown>>}>>): Record<string, unknown> => {
+                const person = data.character?.fields ?? {};
+                const all: Record<string, unknown> = {
+                    "look.外貌": person.外观 ?? data.identity?.fields.外观,
+                    "character.性格": person.性格,
+                    "character.身体": person.身体,
+                    "character.样子": person.样子,
+                    ...Object.fromEntries(["存款", "魔力", "魔力上限", "回溯"].map((field) => [`panel.${field}`, data.panel?.fields[field]])),
+                };
+                return Object.fromEntries(Object.entries(all).filter(([, value]) => value !== null && value !== undefined));
+            };
+            let compared = 0;
+            for (const result of prototype.results) {
+                const at = result.position as {kind: string; chapter?: string};
+                const position = (at.chapter === undefined ? at : {...at, chapter: at.chapter.replace(/^ch/u, "")}) as ReadPosition;
+                for (const entry of Object.values(result.entries)) {
+                    const expected = expectedOf(entry.state.data);
+                    if (!entry.appeared || Object.keys(expected).length === 0) continue;
+                    const read = service.entry(ids.get(entry.state.name)!, position, "actual");
+                    if (typeof read === "string" || read.view === null) throw new Error(`${entry.state.name}: ${JSON.stringify(read)}`);
+                    const namespaces = read.view.namespaces;
+                    const actual = Object.fromEntries(Object.keys(expected).map((address) => {
+                        const [namespace, field] = address.split(".") as [string, string];
+                        return [address, namespaces[namespace]?.fields[field]?.value];
+                    }));
+                    expect({entry: entry.state.name, position, values: actual}).toEqual({entry: entry.state.name, position, values: expected});
+                    compared += Object.keys(expected).length;
+                }
+            }
+            // 确实比到了东西：七个位置上至少有星瑕的外貌、性格、身体、样子与存款。
+            expect(compared).toBeGreaterThan(30);
         } finally {
             await host.stop();
         }
