@@ -129,7 +129,9 @@ describe("shell", () => {
         expect(long.text).toContain("中间省略");
         expect(long.text).not.toContain("第 30000 行");
         expect(Buffer.byteLength(long.text, "utf8")).toBeLessThan(55 * 1024);
-        const artifact = long.details!.artifact!;
+        // 没有全文地址时把结果末尾带出来：工具会在那里写明全文为什么没能保存（推送 CI 上出现过一次，本机压满 CPU、整份跑、整个包跑都没复现）。
+        if (long.details?.artifact === undefined) throw new Error(`长输出没有全文地址；结果末尾：${long.text.slice(-400)}；details=${JSON.stringify(long.details)}`);
+        const artifact = long.details.artifact;
         expect(artifact.startsWith("work://artifacts/shell-")).toBe(true);
         expect(long.text).toContain(artifact);
         expect((await readFile(savedPath(artifact), "utf8")).split("\n")).toHaveLength(60_001);
