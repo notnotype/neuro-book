@@ -276,7 +276,8 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
     let serving: SiteProcess;
     let servingDir: string;
     let backup: CommandResult;
-    let restored: SiteProcess;
+    /** 用备份的副本起的服务；没有写出备份时为 undefined。 */
+    let restored: SiteProcess | undefined;
     let keepDir: string;
     let keepRuns: CommandResult[];
     let missingDir: string;
@@ -288,14 +289,14 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
         await serving.ready();
         backup = await sandbox.run("backup", {dataDir: servingDir});
 
-        // 副本拷进一个新的数据目录，单独起一个服务。
-        const restoredDir = await sandbox.dataDir();
+        // 副本拷进一个新的数据目录，单独起一个服务。没有备份时不起：空目录起的服务同样会就绪，用例会空过。
         const name = listBackups(servingDir)[0];
         if (name !== undefined) {
+            const restoredDir = await sandbox.dataDir();
             for (const module of MODULES) await copyFile(join(backupsDir(servingDir), name, `${module}.db`), join(restoredDir, `${module}.db`));
+            restored = await sandbox.start({dataDir: restoredDir});
+            await restored.ready();
         }
-        restored = await sandbox.start({dataDir: restoredDir});
-        await restored.ready();
 
         // 保留份数：服务不必在跑，先迁移出两个库，再连着备份三次。
         keepDir = await sandbox.dataDir();
@@ -324,7 +325,8 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
     });
 
     it("用副本单独起的服务就绪（验收 3 的前半）", async () => {
-        expect((await requestJson(`${restored.url}health/ready`)).body).toEqual({status: "ready", modules: {identity: "ready", telemetry: "ready"}});
+        expect(restored).toBeDefined();
+        expect((await requestJson(`${restored!.url}health/ready`)).body).toEqual({status: "ready", modules: {identity: "ready", telemetry: "ready"}});
     });
 
     it("保留份数为 2 时连跑三次，只剩最新的两份", () => {
