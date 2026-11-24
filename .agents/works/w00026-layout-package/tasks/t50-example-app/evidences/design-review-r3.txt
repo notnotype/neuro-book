@@ -1,0 +1,67 @@
+# w00026 t50 设计审查报告（第 3 轮，计划第 3 稿）
+
+审查对象：`.agents/works/w00026-layout-package/tasks/t50-example-app/plan.md`。只读；实验在 `/tmp/claude-1000/review-t50-design-r3/scratch/`（t1.ts、t2.ts，真实 `createGrid`）。第 1、2 轮已处理的不重复，下面只写处理不到位或新引出的。
+
+## 发现
+
+### 1（重要，机制与近似）“放不下”的近似判据在默认布局下过于保守：1440 宽、三个编组各 396 宽，只要最小宽度略大于 196，第一次右拆就被挡，“拆到边缘”与“放不下”两行验收互相冲突，而库其实还能再拆 2 到 3 次
+- 位置：计划 `model.ts` “放不下时不让拆（二轮 1）”；验收映射“拖到边缘拆分”“放不下”两行；待确认清单第 1 行（“只看目标编组自己的近似”）
+- 现象：计划只写了“`groupPolicy()` 给标签条放得下两个标签的宽”，没有给数，也没给默认布局（侧栏宽、三个编组各占多少、各有几个标签）。实验 t1.ts（真实 `createGrid`，侧栏 fixed 240，三个编组等权，sashSize 4，1440 宽）：默认每个编组 396 宽。近似判据要求目标宽 ≥ 2×最小宽 + 4：
+  - 最小宽 220（两个约 110 的标签）：396 < 444，三个编组的左右边缘从一开始就全是 `armed:false`，“右边拆出新编组”一行永远做不出来。库的实际能力：连拆 2 次都正常（372/372/220/220，再 260/260/220/220/220），第 3 次起才 `over-constrained`；也就是库自己会把兄弟压到 372、260 来让出空间，计划说的“兄弟能让出来的空间不算”在这里不是“宁可少拆一点”，而是把能做的全挡了。
+  - 最小宽 190：近似允许第一次（396→196+196），之后所有编组都是 196 < 384，全部被挡；库的实际能力是连拆 3 次都 fits、第 4 次才 `over-constrained`。
+  - 最小宽 150：近似允许一次（196），第二次起被挡；库能拆 4 次以上。
+  所以“一直往同一个编组的右边拆到放不下”在近似判据下是 0 到 1 步，不是计划暗示的“多步到放不下”；用户界面上表现为“有一大片空地却到处是 Not enough room”，作为官方示例会被读成库的缺陷。
+- 另有一处会让该用例不可复现：每次拆分要拖一个标签过去，来源编组若只剩一个标签就会消失、目标编组随之变宽（又能拆了）。计划没写默认布局里各编组的标签数，也没写“来源标签取自有 2 个以上标签的编组”。
+- 如何核实：`bun /tmp/claude-1000/review-t50-design-r3/scratch/t1.ts 220`（改参数 190、150 各跑一次）。
+- 建议改法：不用近似，用试拆。`grid.serialize()` 加 `createGrid(null, {sashSize})` 加 `restore`（README 约定里就是这样“克隆”的，示例的 `model.ts` 已有同一份解析函数）得到一棵临时树，对它 `splitLeaf` 再 `layout(host.extent.value)`，有 `over-constrained`（或 `splitLeaf` 被拒）就 `armed:false`，反馈文字按原因写（放不下 / 层数或节点数到顶）。实测（t2.ts，最小宽 190）：前三次判 fits、第 4 次判 blocked，与上面库的实际行为一致；每次试拆 0.3 到 3 毫秒。它同时消掉第 1 轮 14 条“落点上看不出会被深度上限拒”与“深度口径不复算”的取舍（试拆的结果就是库的口径），按 (目标, 方向, `host.revision`) 缓存即可，不必每个 `resolve` 都做。计划里还要写死：最小宽高的数值、默认布局的宽度与每个编组的标签数、“放不下”那一行用到第几步、来源标签取自哪个编组；这样 e2e 的步数可以事先算出来，不是跑了才知道。若坚持近似，至少把最小宽定到 ≤ 150，并在待确认清单里写明“默认布局下每个编组只能拆一次”，让开发者在知道数字的情况下确认。
+
+### 2（重要，验收映射）`data-drop` 只写“落点种类”，e2e 按它等“到位”会读到旧帧：正向拖动偶发 `no-action`，负向“等 none”会空过变异检查
+- 位置：计划 `App.vue` “拖动中在外框上写 `data-drop`（这一刻的落点种类，没有落点时 none）”；验收映射的拖动辅助函数与否定断言一段（二轮 4 的处理）
+- 现象：读 `drag-gesture.ts`：落点由 rAF 帧发布（`schedule`），放下时 `release()` 先 `clearFrame()` 取消还没发的帧，再用松手坐标重新判，只在“最后发布过的动作 key”与“松手时判的 key”相等时提交（`drop()`：`same = key !== null && current.shown !== null && actionKey(current.shown) === key`）。`data-drop` 只写种类（insert、split、into），而 key 里还有编组、序位、方向：
+  - 正向：路径上先经过同种类的别的落点（从来源标签条横穿过自己的条，或拖过一个编组的右边缘再到另一个编组的右边缘），那一帧已发布，`data-drop=insert` 之类立刻满足，辅助函数不等最后一帧就松手，`shown` 是旧动作、`final` 是新动作，结果 `no-action`，偶发失败。Playwright 的 `mouse.move(..., {steps})` 每步一次往返，帧在中途发布是常态。
+  - 负向：二轮 4 要的“先正后否”改成“等 `data-drop` 变回 none”，但路径上经过分隔线、别的编组的空隙时同样会发布 `none`，辅助函数读到旧的 `none` 就松手；这时 `shown` 是 null，即使被测的排除被去掉、终点其实是落点，也只会 `no-action`，用例照样绿。也就是计划的变异检查清单里“五处排除各去掉一次，对应的那一步失败”很可能做不出失败（会被判成“空过的断言”，实施时才发现）。
+- 如何核实：读 `drag-gesture.ts` 的 `release`、`drop`、`publish`；写探针时在去掉排除后跑负向用例，看是否失败。
+- 建议改法：(a) `data-drop` 写完整动作，如 `insert:group-2:1`、`split:group-2:right`、`into:group-2`、`blocked:group-2:right`（放不下）、`none`，值就是 `actionKey` 或其加前缀；辅助函数按用例自己知道的目标拼出期望值再等。放不下的预览不再与可提交的 split 同值，“Not enough room”可以直接按 `blocked:` 等。(b) 负向用例的“否”一步用一次跳转（`steps: 1`）从上一个确认过的落点直接到目标，路径上不经过任何中间位置；这样 `none` 只可能来自终点那一帧。(c) 负向断言之后松手，并再断言 `data-drop` 已消失与布局不变；变异时去掉排除，这一步必须因为“终点变成落点，`shown` 与 `final` 相同、布局变了”而失败。
+
+### 3（建议，二轮 1 处理不到位）标签条横向滚动时，“追加到末尾”与隐藏在右边的标签对不上；没有用例，滚动条还会占掉定高
+- 位置：计划 `TabBar.vue` “标签不压缩，放不下时标签条横向滚动……插入位按标签真实的矩形判，指针在可见的部分里，线就画在可见的位置（二轮 1）”；验收映射（没有任何一行覆盖溢出）
+- 现象：读 `grid-drop.ts` 的 `resolveListInsertion`：成员先夹进容器，和容器没有交集的成员直接跳过；指针越过最后一个可见成员的中点就返回 `beforeId: null`（追加），线画在最后一个可见成员的后缘。右边还有被滚出去的标签时，线画在可见边缘，结果却插到所有隐藏标签之后，二轮 1(c) 说的“反馈与结果不一致”原样还在；“按真实矩形判”并不改变库已有的行为。另外：会话只接一个 `autoScroll` 元素，计划没接，隐藏的位置只能先滚再拖，也没写进已知限制；e2e 沿用 nb-story 的 `ignoreDefaultArgs: ["--hide-scrollbars"]` 时，横向滚动条是真滚动条，会占掉定高的标签条的一截。
+- 如何核实：读 `grid-drop.ts:155-170`；或用探针对 3 个成员、容器只露出前 2 个的情形调用，`beforeId` 为 null。
+- 建议改法：二选一写进计划。(1) 溢出时把 `beforeId === null` 换成“第一个被滚出右边的标签”（线本来就在那条缝上，一致）；(2) 不要横向滚动，标签压缩到最小宽之后省略号截断（常见做法），也就没有隐藏成员。无论哪个，加一条“拖到溢出的标签条里”的用例（先用 `scrollLeft` 滚到中间再拖），写明滚动条的处理（`scrollbar-width: none` 或让出高度），并在已知限制里补“没接边缘自动滚动”。
+
+### 4（建议，接口）`content-parked` 的处理函数“交给那个编组选中的标签”照字面实现会按 key 查已删的数据，且没有用例
+- 位置：计划 `App.vue` “`content-parked`：焦点在被停放的正文里时，交给那个编组选中的标签（15）”
+- 现象：`NestedGrid.md`“关掉的内容留到过渡结束”写明 `content-parked` 的 key 是宿主刚去掉的那个，“处理函数别按 key 查自己的数据（查不到）”。“那个编组”要从 key（标签 id）找到编组，而 `closeTab` 已经把标签从编组表里删了，查不到；只有“标签被选中状态换掉而被停放”（`isParked: !item.active`）时 key 还在表里。可达场景：焦点在 textarea 里时用 macOS 的 Safari 或 Firefox 点关闭按钮（那里点按钮不会把焦点移过去），Chrome 里点按钮先把焦点移走所以不触发。计划里没有任何一行验收覆盖这个处理函数。
+- 如何核实：读 `useContentLayer.ts:105-110` 与 `NestedGrid.md` 的对应一条。
+- 建议改法：写明处理函数不查 key，直接用“关闭之后焦点去处”那条规则同一个函数（树序上最近的编组选中的标签）；或者在计划里说明这条路径本例不处理并去掉处理函数。若保留，补一个 dom 或 e2e 用例：焦点在 textarea 时用代码调 `closeTab`（不经按钮），断言焦点落在某个标签上而不是 body。
+
+### 5（建议，发版）“提版时 `examples.test.ts` 在 `release:check` 里跑到”不成立；二轮 9(c) 被拒的理由因此不成立
+- 位置：计划末尾“提 nb-layout 版本时示例 `package.json` 的范围要跟着改……发版时 `release:check` 会跑到它，不另写进发版手册（二轮 9）”
+- 现象：`scripts/release/packages.ts` 的 `release:check` 只读文件做清单与导入检查（文件头：“检查只读文件，不打包、不联网”），不跑 `bun test`；`publish.ts` 只跑要发的包的 `typecheck`。`examples.test.ts` 会红的地方是提版提交合入 master 之后 CI 的 `test:affected`（提版改了 `package.json`，选中 nb-layout）。`docs/standards/releasing.md` 第 27 行的流程是“先提版并合入 master”，也就是红灯在合入之后才出现，不是发版时拦下。
+- 如何核实：`grep -n "bun\", \"test\|spawn" scripts/release/packages.ts` 无结果；读 `scripts/release/packages.ts` 开头。
+- 建议改法：把计划里的那句改成“CI 的 `test:affected` 在提版提交上会因它变红”；并按二轮 9(c) 的原建议在 `releasing.md` 的源码包提版一步加半句“nb-layout 同时改示例 `package.json` 里的 `@notnotype/nb-layout` 范围”（代价一行）。
+
+### 6（建议，验收映射）`model.ts` 的后置条件大多只能靠 e2e 间接覆盖，存档坏的判据只测了 9 种里的 3 种
+- 位置：计划 `model.ts` “选中标签的规则”“存档坏的判据”；验收映射“读失败保留原件”“关闭标签”
+- 现象：判据列了 9 项（读抛错、JSON、version、形状、restore 失败或 dropped 非空、侧栏不是恰好一个、没有编组叶、表与叶不一一对应、标签重复、tabs 为空或 active 不在 tabs 里），验收只试 3 种（JSON 坏、缺一个编组、标签重复）；“没有右邻选左邻”“关选中标签的选择”“`last-tab` 在模型层被拒”“`splitLeaf` 被拒时模型不动”都没有用例（后两者靠 Delete 一步与“不种存档”，前面也承认拆分被拒触发不了）。这些是第三方照抄时最容易抄错的纯逻辑，而 `model.ts` 只依赖库的根入口，不需要浏览器。
+- 建议改法：给 `model.ts` 写 bun 单元测试，放在示例目录之外（例如 `src/examples.model.test.ts`），因为 `examples.test.ts` 的导入白名单不放行 `bun:test`，也不要让第三方拷走一个带测试的目录；覆盖选中规则的各分支、`closeTab` 的 `last-tab`、`splitWithTab` 在 `splitLeaf` 被拒（用最小宽很大的假树或深树触发）时模型不变、`load()` 的 9 种坏档各一。这些不改变 e2e 清单。
+
+## 第 2 轮 10 条的处理对照
+- 到位：3（`TabBar`、`TabPanel` 数据经属性）、5（关闭按钮与标签并排、Delete 键）、6（`settleMotion`、`structure`、叶 id 等于 ref、恰一个侧栏叶）、7（不做实时布局、不算第二宿主，写进“不做”与待确认）、8（复用 `scanImports`，已含 `vite.config.ts` 的白名单）、10（`data-drag-feedback`）、2（先 `splitLeaf` 后挪标签；选中规则；`last-tab`；`removeLeaf` 只在 id 不存在或不是叶时才失败，读 `grid.ts` 确认）。
+- 处理不到位或引出新问题：1（近似判据过保守，见第 1 条；溢出的追加不一致，见第 3 条）、4（`data-drop` 只有种类，见第 2 条）、9（理由不成立，见第 5 条）；3 的 `content-parked` 一半见第 4 条。
+
+## 未发现问题的方面
+- 第 3 个重点（`structure: host.revision` 会不会把每一场拖动取消）：不会。`revision` 只在 `useGridLayout.publish()` 里递增，来源是 `extent` 换了对象（`useLayoutExtent` 两轴不变不发新对象）、网格实例或 `contextKey` 变、宿主 `invalidate()`、分隔线提交与 `setCollapsed`。起拖时的 `settleMotion()` 只收尾过渡（`useGridMotion.stop`），不碰 `extent` 与 `revision`；`:dragging` 只影响“离开的叶要不要留着缩回去”；覆盖层是 `position: fixed` 的 Teleport，`onActiveChange` 写光标与禁选也不改网格根的 `clientWidth/clientHeight`。`drag-gesture.start()` 在 `activate` 之后才取 `structure()`，所以 `settleMotion` 之后的版本就是起点版本。唯一要留意的是状态行：若它占网格外框的高度、又在拖动中改文字，网格根的 `clientHeight` 变化会触发 `extent` 再发而把这一场取消；现计划里状态行只在拖动结束后变，不触发，写一句“状态行高度固定或不占网格盒”更稳。
+- 第 2 个重点前半（只显示不提交）：`createDragSession` 的 `actionKey` 明文支持“只显示、不提交的落点为 null”，`drop()` 里 `key === null` 就是 `no-action`；`DropFeedbackOverlay` 的 `armed: false` 只把半区淡到 35%，几何、文案与 `data-drop-armed="false"` 照出；放不下的预览可以直接这样画。
+- 第 5 个重点（关标签后的焦点）：目标元素找得到。焦点的去处是另一个编组的选中标签，它不在离开的叶里，也不 `inert`；带 `data-leaving`、`inert` 的只是缩回去的那一个叶和它的面板头。同一编组里新选中的标签是同一个元素，等一次渲染后 `tabindex` 已是 0。“树序前一个编组”要在改树之前算好（改树之后叶已不在树里），这一点计划写的是“关闭成功后”，实施时要先算再改。
+- 同一个 id 重用（`group-<n>` 取现有最大值加一）与正在缩回去的叶同名：下一场拖动在 `activate` 里 `settleMotion()` 已把过渡收尾、离开的叶卸掉，两者不会同时存在。
+- 冻结插槽：`TabBar`、`TabPanel` 数据经属性传入后，与 `NestedGrid.md` 推荐写法一致；拖动把单标签编组的标签挪走时，内容项换叶、没有被去掉的活动内容项，来源叶当场消失、不走冻结路径。
+- 仓库配套：`readme.test.ts` 的“相对链接”检查对 GitHub 绝对链接放行，“我要做 X”表只核对第 3 列里的裸标识符，计划追加的“示例见 tabbed-panels”不在其中；`GOVERNANCE_NON_EMPTY_LINE_LIMITS` 的根 `AGENTS.md` 上限 220，现 119 行；`bun test` 不匹配 `*.e2e.ts`、Vitest 只含 `src/**/*.dom.test.ts`；`resolveAgentPlaywrightRoot` 接受任意套件名；示例目录不在根 `workspaces`，`@notnotype/nb-layout` 在根 `node_modules` 是工作区链接，`vite`、`@vitejs/plugin-vue`、`vue-tsc`、`typescript`、`vue`、`@playwright/test` 根上都有。
+
+## 数量
+阻断 0；重要 2（第 1、2 条）；建议 4（第 3 到 6 条）；共 6 条。最严重的两条：第 1 条（近似判据在默认布局下几乎把所有右拆都挡掉，库其实还能再拆 2 到 3 次；改成对克隆树试拆再 `layout` 查 `over-constrained`，实测 0.3 到 3 毫秒、与库行为一致）、第 2 条（`data-drop` 只写种类，辅助函数会读到旧帧，正向偶发 `no-action`，负向“等 none”空过变异检查）。
+
+## 对待确认清单末尾三行 t50 的判断
+1. 示例做一个标签编组、只做落点指示、最后一个标签不能关、目标编组放不下就不让拆（只看目标自己的近似）：规模与形状同意；“只看目标自己的近似”建议在开发者看到数字之后重新确认或改成试拆（第 1 条：1440 宽、三个编组各 396、最小宽 190 时只能拆一次，220 时一次也拆不了，而库还能再拆 2 到 3 次）。
+2. 不接键盘拖动、界面英文不注入文字、注释跟包的说明走中文：可以接受；README 里已写“只能用指针移动”，够了。
+3. 注释规范另加“nb-layout 的示例”例外：同意；计划里已写不引 Spec 条目编号、教学注释不写完整导入语句，与 `examples.test.ts` 的文字扫描一致。
