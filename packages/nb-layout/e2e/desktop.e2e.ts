@@ -89,6 +89,15 @@ async function zOf(page: Page, id: string): Promise<number> {
     return frame(page, id).evaluate((element) => Number(getComputedStyle(element).zIndex));
 }
 
+/** 标题栏的按钮离窗的上边、右边各多远：库的缩放手柄带贴着窗的边往里 6px（上边 3px），按钮要在它们之外。 */
+async function buttonGaps(page: Page, id: string): Promise<{top: number; right: number}> {
+    return frame(page, id).evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const buttons = [...element.querySelectorAll("[data-window-action]")].map((button) => button.getBoundingClientRect());
+        return {top: Math.min(...buttons.map((rect) => rect.top - box.top)), right: Math.min(...buttons.map((rect) => box.right - rect.right))};
+    });
+}
+
 /** 桌面叶此刻的矩形（视口坐标）。 */
 const deskBox = (page: Page) => boxOf(frame(page, "desktop"));
 
@@ -106,6 +115,11 @@ async function tile(page: Page, id: string, side: "left" | "right"): Promise<voi
 }
 
 test("拖标题栏移动：松手后停在松手处；拖出桌面被夹住；起拖后 Escape 回到原处", async ({page}) => {
+    for (const id of ["notes", "calc", "clock", "files"]) {
+        const gaps = await buttonGaps(page, id);
+        expect(gaps.top).toBeGreaterThanOrEqual(8);
+        expect(gaps.right).toBeGreaterThanOrEqual(8);
+    }
     const before = await boxOf(frame(page, "notes"));
     const from = await centerOf(title(page, "notes"));
     await dragTo(page, title(page, "notes"), {x: from.x + 100, y: from.y + 50}, "move");
@@ -137,11 +151,11 @@ test("按下后面的窗它到最上面；点标题栏上的按钮不起拖，�
     // 缺省 files 在最上、notes 在最下。
     expect(await zOf(page, "notes")).toBeLessThan(await zOf(page, "files"));
     await text(page, "notes").click({position: {x: 40, y: 20}});
-    expect(await zOf(page, "notes")).toBeGreaterThan(await zOf(page, "files"));
+    await expect.poll(async () => (await zOf(page, "notes")) - (await zOf(page, "files"))).toBeGreaterThan(0);
     expect((await saved(page)).order.at(-1)).toBe("notes");
     // 点标题栏（不是正文）同样挪到最上面。
     await title(page, "calc").click({position: {x: 100, y: 16}});
-    expect(await zOf(page, "calc")).toBeGreaterThan(await zOf(page, "notes"));
+    await expect.poll(async () => (await zOf(page, "calc")) - (await zOf(page, "notes"))).toBeGreaterThan(0);
 
     // 在最小化按钮上按下、挪过起拖门槛、仍在按钮里松手：不起拖，窗没动，点击照常生效。
     const before = await boxOf(frame(page, "clock"));
@@ -408,10 +422,11 @@ test("视口窄到平铺不下：落点是 blocked、写 Not enough room，松�
     await expect(page.locator("[data-drop]")).toHaveCount(0);
     await settled(page);
     await expectState(page, "files", "floating");
-    // 窗停在松手处（被夹进桌面），没有弹回按下之前。
-    const after = await boxOf(frame(page, "files"));
-    expect(after.y).toBeGreaterThan(before.y + 60);
+    // 窗停在松手处：指针在桌面下沿以外，窗被夹到桌面的底边；右边不出桌面。没有弹回按下之前的位置。
     const desk = await deskBox(page);
+    expect(before.y).toBeLessThan(desk.y + desk.height - 300 - 50);
+    await expectRect(page, "files", {y: desk.y + desk.height - 300, height: 300});
+    const after = await boxOf(frame(page, "files"));
     expect(after.x + after.width).toBeLessThanOrEqual(desk.x + desk.width + 1);
 });
 
@@ -502,6 +517,8 @@ test("视口缩小后浮动窗都在桌面里；视口变回来窗回原处；�
     for (const [id, rect] of originals) await expectRect(page, id, rect);
 
     // 视口比 notes（420 宽）还窄：画出来的是缩小的；拖一下之后变回大视口，notes 仍是 420 宽。
+    // 先把 notes 挪到最上面：视口窄了，别的窗被夹过来会盖住它的标题栏。
+    await text(page, "notes").click({position: {x: 40, y: 20}});
     await page.setViewportSize({width: 360, height: 700});
     await expect.poll(async () => (await deskBox(page)).width).toBe(360);
     await expectRect(page, "notes", {x: 0, width: 360});

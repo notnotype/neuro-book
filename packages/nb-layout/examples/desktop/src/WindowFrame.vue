@@ -46,8 +46,8 @@ const placed = () => tiled() || props.mode === "floating" || props.mode === "max
     align-items: center;
     justify-content: space-between;
     box-sizing: border-box;
-    height: 32px;
-    /* 右边与上边留出的空隙见文件头：不要小于 8px。 */
+    /* 按钮 22px 高，加 1px 的下边线共 39px，按钮上下各留 8px：离窗的上边不小于 8px（见文件头）；这个高度与 App.vue 的 TITLE_BAR_HEIGHT 是同一个数。 */
+    height: 39px;
     padding: 0 10px 0 12px;
     background: linear-gradient(#eef0f6, #dfe3ec);
     border-bottom: 1px solid #c4cad8;

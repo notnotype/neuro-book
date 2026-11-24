@@ -42,7 +42,7 @@ import WindowBody from "./WindowBody.vue";
 import WindowFrame, {type WindowAction} from "./WindowFrame.vue";
 
 /** 标题栏的高度：标题栏的样式与内容层的 `insetTop` 读同一个数。库不量面板头，内容层从叶的顶上往下让出这么多。 */
-const TITLE_BAR_HEIGHT = 32;
+const TITLE_BAR_HEIGHT = 39;
 
 /** 浏览器禁用存储（某些隐私模式、沙箱里的 iframe）时连读 `localStorage` 都会抛错。 */
 function openStorage(): LayoutStorage | null {
