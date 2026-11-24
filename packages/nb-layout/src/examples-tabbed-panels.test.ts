@@ -36,6 +36,16 @@ describe("标签编组的操作", () => {
         expect(activeOf(layout, "group-1")).toBe("App.vue");
     });
 
+    it("插入位不在目标编组里时交回失败、模型不变，不悄悄排到最后", () => {
+        const layout = TabbedLayout.createDefault();
+        const before = JSON.stringify(layout.toSaved());
+        const missing = layout.moveTab("README.md", "group-2", "styles.css");
+        expect(missing.ok ? null : missing.code).toBe("bad-position");
+        const self = layout.moveTab("main.ts", "group-1", "main.ts");
+        expect(self.ok ? null : self.code).toBe("bad-position");
+        expect(JSON.stringify(layout.toSaved())).toBe(before);
+    });
+
     it("来源编组空了连叶一起删", () => {
         const layout = TabbedLayout.createDefault();
         layout.moveTab("styles.css", "group-2", null);
@@ -156,14 +166,25 @@ describe("存档与读档", () => {
         ["选中的不在标签里", () => { const value = saved(); value.groups["group-2"].active = "nope"; return JSON.stringify(value); }],
         ["编组没有标签", () => { const value = saved(); value.groups["group-2"] = {tabs: [], active: ""}; return JSON.stringify(value); }],
         ["没有侧栏", () => { const value = saved(); value.grid.root.children = value.grid.root.children.filter((child: {id: string}) => child.id !== "explorer"); return JSON.stringify(value); }],
+        ["侧栏不在最外层那一排", () => { const value = saved(); const [explorer, ...groups] = value.grid.root.children; value.grid.root.children = [{kind: "branch", id: "split-1", orientation: "vertical", size: {width: 1, height: 1}, children: [explorer, groups[0]]}, ...groups.slice(1)]; return JSON.stringify(value); }],
+        ["收起前的宽度不合理", () => JSON.stringify({...saved(), explorer: {collapsed: false, restoreSize: -5}})],
     ];
     it.each(broken)("存档坏（%s）：用缺省布局、说明原因、原件原样搬到备份键", (_name, make) => {
         const raw = make();
         const storage = memoryStorage({[STORAGE_KEY]: raw});
         const {layout, notice} = loadLayout(storage);
         expect(notice).toContain("the original is kept as a backup");
+        expect(loadLayout(memoryStorage({[STORAGE_KEY]: raw})).keep).toBe(true);
         expect(layout.toSaved()).toEqual(TabbedLayout.createDefault().toSaved());
         expect(storage.items.get(BACKUP_KEY)).toBe(raw);
+    });
+
+    it("存档坏、备份也写不进去：用缺省布局，这一页不再保存，原件留在主键", () => {
+        const raw = "{not json";
+        const storage: LayoutStorage = {getItem: () => raw, setItem: () => { throw new Error("quota"); }};
+        const loaded = loadLayout(storage);
+        expect(loaded.keep).toBe(false);
+        expect(loaded.notice).toContain("the original stays untouched");
     });
 
     it("读存储抛错与存储不可用：用缺省布局并说明", () => {

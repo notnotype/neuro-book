@@ -5,8 +5,6 @@
  * 数据全经属性传进来（这一刻的标签与选中的副本），不按编组 id 去查模型。编组被删掉时，它的叶留着缩回去，
  * 那几帧里这个组件还在、还会按响应式依赖更新；按 id 查的话会查到一个已经不在的编组。
  */
-import {nextTick, useTemplateRef} from "vue";
-
 const props = defineProps<{
     group: string;
     label: string;
@@ -21,21 +19,22 @@ const emit = defineEmits<{
     close: [tab: string];
 }>();
 
-const root = useTemplateRef<HTMLElement>("root");
-
-/** 读屏与键盘按 WAI-ARIA 的标签页写法：选中的那个在 Tab 顺序里，其余用方向键到。 */
+/**
+ * 读屏与键盘按 WAI-ARIA 的标签页写法：选中的那个在 Tab 顺序里，其余用方向键到。方向键只换选中，焦点由主界面跟过去
+ * （它对所有“换了选中”的操作统一给焦点）。带修饰键的不管：Alt+左右是浏览器的前进后退。
+ */
 function onKeydown(event: KeyboardEvent, tab: string): void {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const index = props.tabs.indexOf(tab);
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (step !== 0 || event.key === "Home" || event.key === "End") {
         event.preventDefault();
         const next = event.key === "Home" ? 0 : event.key === "End" ? props.tabs.length - 1 : (index + step + props.tabs.length) % props.tabs.length;
-        const target = props.tabs[next]!;
-        emit("activate", target);
-        void nextTick(() => root.value?.querySelector<HTMLElement>(`[data-tab-button="${CSS.escape(target)}"]`)?.focus());
+        emit("activate", props.tabs[next]!);
         return;
     }
-    if (event.key === "Delete" && props.closable) {
+    // 能不能关由模型判：最后一个标签按了也关不掉，状态行会说为什么。
+    if (event.key === "Delete") {
         event.preventDefault();
         emit("close", tab);
     }
@@ -43,7 +42,7 @@ function onKeydown(event: KeyboardEvent, tab: string): void {
 </script>
 
 <template>
-    <div ref="root" class="tab-bar" role="tablist" :aria-label="label" data-tab-strip :data-group="group">
+    <div class="tab-bar" role="tablist" :aria-label="label" data-tab-strip :data-group="group">
         <!-- 关闭按钮与标签并排，不放进 role="tab" 里面：放在里面读屏读不到它。 -->
         <div v-for="tab in tabs" :key="tab" class="tab" role="presentation" :data-tab="tab" :data-selected="tab === active ? '' : undefined">
             <button
@@ -66,6 +65,7 @@ function onKeydown(event: KeyboardEvent, tab: string): void {
 <style scoped>
 .tab-bar {
     display: flex;
+    box-sizing: border-box; /* 高度连下边框一共是标签条的高度，内容层的 insetTop 读的是同一个数。 */
     height: var(--tab-bar-height);
     overflow: hidden;
     background: #eef0f4;

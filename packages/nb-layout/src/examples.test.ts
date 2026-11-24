@@ -45,7 +45,7 @@ describe("示例应用", () => {
         expect(caretAccepts(manifest.dependencies!["@notnotype/nb-layout"]!, own.version)).toBe(true);
     });
 
-    it("几个示例的依赖版本相同（发布冒烟的空宿主也读同一份）", () => {
+    it("几个示例的依赖版本相同", () => {
         const versions = names.map((name) => {
             const {dependencies, devDependencies} = manifestOf(name);
             return JSON.stringify({dependencies, devDependencies});

@@ -43,13 +43,15 @@ const grid = computed(() => layout.value.grid);
 const status = shallowRef(loaded.notice ?? "");
 
 function persist(): void {
+    // 存档读不了、备份也没写进去时不再保存：再存就拿缺省布局覆盖了原件。
+    if (!loaded.keep) return;
     const failed = saveLayout(storage, layout.value);
     if (failed !== null) status.value = failed;
 }
 
 // contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 是拖完分隔线、提交落账之后：在这里存档。
 const host = useGridHost({grid, contextKey: "tabbed-panels", onApplied: persist});
-const gridView = useTemplateRef<InstanceType<typeof NestedGrid>>("grid");
+const gridView = useTemplateRef<InstanceType<typeof NestedGrid>>("gridView");
 const box = useTemplateRef<HTMLElement>("box");
 
 /** 操作成功：树可能变了，通知网格重算；模板跟着重算；存档。失败：说出原因，模型没动。 */
@@ -58,6 +60,8 @@ function settle(result: Result): boolean {
         status.value = result.message;
         return false;
     }
+    // 状态行说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。
+    status.value = "";
     host.invalidate();
     triggerRef(layout);
     persist();
@@ -69,7 +73,8 @@ const groupLabel = (id: string) => `Group ${id.replace(/^group-/u, "")}`;
 /** 每个编组的标签条要的东西；模板里的 v-for 读它，经属性交给 TabBar。 */
 const groupViews = computed(() => {
     const model = layout.value;
-    return new Map([...model.groups].map(([id, group]) => [id, {...group, closable: group.tabs.length > 1 || model.groups.size > 1}]));
+    // 能不能关只问模型：规则只在 canClose 一处，界面不另写一份。
+    return new Map([...model.groups].map(([id, group]) => [id, {...group, closable: model.canClose(group.tabs[0]!)}]));
 });
 
 /** 内容层：每个标签一项，只有选中的 active。`leave: "retain"`：关掉最后一个标签时，库把它留到编组缩回去之后再卸载。 */
@@ -128,8 +133,9 @@ function reveal(tab: string): void {
 const files = computed(() => [...layout.value.groups.values()].flatMap((group) => group.tabs).sort());
 
 /**
- * 这一刻每个编组的几何，每次判落点现量。落点指示的手感下拖动中布局不变，现量读到的就是画面上的样子，
- * 标签条变了、窗口缩放了也跟得上。起拖时如果还有过渡在走（刚关掉、刚拆分），activate 先把它送到终点。
+ * 这一刻每个编组的几何，每次判落点现量。落点指示的手感下拖动中布局不变，现量读到的就是画面上的样子。
+ * 窗口缩放会让网格重发布局，整场拖动由 structure 取消，不会拿缩放前的几何判。
+ * 起拖时如果还有过渡在走（刚关掉、刚拆分），activate 先把它送到终点：库的分隔线手势自己会做，宿主的拖动会话要自己调。
  */
 function measure(): GroupGeometry[] {
     const root = box.value;
@@ -174,9 +180,14 @@ const drag = useDragSession<string, Drop>(box, () => ({
     actionKey,
     commit: (drop, tab) => {
         const model = layout.value;
-        if (drop.kind === "insert") settle(model.moveTab(tab, drop.group, drop.before));
-        else if (drop.kind === "into") settle(model.moveTab(tab, drop.group, null));
-        else settle(model.splitWithTab(tab, drop.group, drop.side));
+        // 按下标签时焦点就在它的按钮上；挪过去之后来源那份按钮没了，焦点会掉到 body。跟着标签走到它的新位置。
+        const hadFocus = focusedGroup() !== null;
+        const result = drop.kind === "insert" ? model.moveTab(tab, drop.group, drop.before) : drop.kind === "into" ? model.moveTab(tab, drop.group, null) : model.splitWithTab(tab, drop.group, drop.side);
+        if (!settle(result) || !hadFocus) return;
+        void nextTick(() => {
+            const group = layout.value.groupOf(tab);
+            if (group !== undefined) focusActiveTab(group);
+        });
     },
 }));
 
@@ -211,13 +222,13 @@ const paneLabel = (id: string) => (id === EXPLORER ? "Explorer" : layout.value.g
 <template>
     <div class="app" :class="{'app--dragging': dragging}" :style="{'--tab-bar-height': `${TAB_BAR_HEIGHT}px`}">
         <header class="toolbar">
-            <button type="button" data-action="toggle-explorer" :aria-pressed="!explorerCollapsed" @click="toggleExplorer()">{{ explorerCollapsed ? "Show explorer" : "Hide explorer" }}</button>
+            <button type="button" data-action="toggle-explorer" @click="toggleExplorer()">{{ explorerCollapsed ? "Show explorer" : "Hide explorer" }}</button>
             <!-- 状态行在网格外面、高度固定：文字变了不改网格的尺寸，拖动不会因此被取消。 -->
             <p class="status" role="status" data-status>{{ status }}</p>
         </header>
         <!-- 承载盒要有确定的高度：NestedGrid 铺满它、自己量它。data-drop 是此刻的落点，拖动时才有。 -->
         <div ref="box" class="grid-box" :data-drop="dragging ? (currentDrop === null ? 'none' : dropKey(currentDrop)) : undefined" @keydown="onKeydown">
-            <NestedGrid ref="grid" v-bind="host.bindings.value" :contents="contents" :dragging="dragging" :pane-label="paneLabel">
+            <NestedGrid ref="gridView" v-bind="host.bindings.value" :contents="contents" :dragging="dragging" :pane-label="paneLabel">
                 <template #leaf="{node}">
                     <nav v-if="node.id === EXPLORER" class="explorer" aria-label="Files">
                         <button v-for="file in files" :key="file" type="button" class="explorer__file" @click="reveal(file)">{{ file }}</button>

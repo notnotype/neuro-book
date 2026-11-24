@@ -15,10 +15,20 @@ let server: Awaited<ReturnType<typeof serveExample>>;
 test.beforeAll(async () => {
     server = await serveExample("tabbed-panels");
 });
+test.afterEach(() => {
+    expect(pageErrors).toEqual([]);
+});
 test.afterAll(async () => {
     await server.close();
 });
+/** 页面里的脚本错误与控制台报错：每个用例结束时都要是空的。 */
+let pageErrors: string[] = [];
 test.beforeEach(async ({page}) => {
+    pageErrors = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("console", (message) => {
+        if (message.type() === "error") pageErrors.push(message.text());
+    });
     await page.goto(server.url);
     await page.evaluate(() => localStorage.clear());
     await page.reload();
@@ -88,6 +98,8 @@ test("把标签拖进别的编组的标签条：插在那里、成为选中，�
     await expectTabs(page, "group-2", ["notes.txt", "README.md", "todo.txt"], "README.md");
     await expectTabs(page, "group-1", ["main.ts", "App.vue", "model.ts"], "main.ts");
     await expect(page.locator("[data-panel-text='README.md']")).toHaveValue("kept while moving");
+    // 按下标签时焦点在它的按钮上，挪过去之后焦点跟着它，不掉到 body。
+    await expect(tabButton(page, "group-2", "README.md")).toBeFocused();
 });
 
 test("同一条标签条里换位置；拖回原位没有落点，松手不变", async ({page}) => {
@@ -221,7 +233,7 @@ test("关闭标签：编组关空后消失、焦点落到前一个编组；Delet
     }
     await expect(tab(page, "group-1", "model.ts").locator("[data-tab-close]")).toHaveCount(0);
     await page.keyboard.press("Delete");
-    await twoFrames(page);
+    await expect(page.locator("[data-status]")).toHaveText("The last tab cannot be closed");
     await expectTabs(page, "group-1", ["model.ts"]);
 });
 

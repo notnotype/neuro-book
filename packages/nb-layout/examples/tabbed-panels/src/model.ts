@@ -135,11 +135,13 @@ export class TabbedLayout {
         const from = this.groupOf(tab);
         if (from === undefined) return failure("unknown-tab", `No tab ${tab}`);
         if (!this.groups.has(to)) return failure("unknown-group", `No group ${to}`);
-        if (from !== to) this.takeOut(tab);
         const target = this.groups.get(to)!;
         const rest = target.tabs.filter((each) => each !== tab);
         const at = before === null ? rest.length : rest.indexOf(before);
-        rest.splice(at < 0 ? rest.length : at, 0, tab);
+        // 插入位不在目标编组里（或就是自己）时不悄悄退成“排到最后”：那是另一个动作，界面显示的不是它。
+        if (at < 0) return failure("bad-position", `No tab ${before} in ${to}`);
+        if (from !== to) this.takeOut(tab);
+        rest.splice(at, 0, tab);
         this.groups.set(to, {tabs: rest, active: tab});
         return {ok: true};
     }
@@ -183,7 +185,9 @@ export class TabbedLayout {
     clone(): TabbedLayout {
         const explorer = this.explorerState();
         const grid = createGrid<string>(null, {sashSize: SASH_SIZE});
-        grid.restore(this.grid.serialize(), (ref) => ({ref, ...policyFor(ref, explorer)}));
+        const restored = grid.restore(this.grid.serialize(), (ref) => ({ref, ...policyFor(ref, explorer)}));
+        // 自己刚存出来的快照读不回来，是模型写错了，不是存档坏了：直接抛。
+        if (!restored.ok || restored.dropped.length > 0) throw new Error(`Copying the layout failed: ${restored.ok ? "unresolved refs" : restored.message}`);
         return new TabbedLayout(grid, new Map(this.groups));
     }
 
@@ -203,6 +207,9 @@ export class TabbedLayout {
         const leaves = [...walk(grid.root())].filter((node) => node.kind === "leaf");
         if (leaves.some((leaf) => leaf.id !== leaf.ref)) return failure("bad-grid", "Leaf ids and refs differ");
         if (leaves.filter((leaf) => leaf.id === EXPLORER).length !== 1) return failure("bad-grid", "The explorer is missing or duplicated");
+        // 侧栏是最外层横向那一排的一块：在别处时它的保留像素会变成高度，收起按钮也收错了方向。
+        const root = grid.root();
+        if (root?.kind !== "branch" || root.orientation !== "horizontal" || !root.children.some((child) => child.id === EXPLORER)) return failure("bad-grid", "The explorer is not in the outer row");
         const groupLeaves = leaves.filter((leaf) => leaf.id !== EXPLORER).map((leaf) => leaf.id);
         if (groupLeaves.length === 0) return failure("bad-grid", "No tab groups");
         if (groupLeaves.length !== groups.size || groupLeaves.some((id) => !groups.has(id))) return failure("bad-groups", "Groups and panes do not match");
@@ -259,7 +266,7 @@ function isSavedShape(value: unknown): value is SavedLayout {
     const saved = value as Record<string, unknown>;
     if (saved.version !== 1 || typeof saved.groups !== "object" || saved.groups === null) return false;
     const explorer = saved.explorer as Record<string, unknown> | null | undefined;
-    if (typeof explorer?.collapsed !== "boolean" || typeof explorer.restoreSize !== "number" || !Number.isFinite(explorer.restoreSize)) return false;
+    if (typeof explorer?.collapsed !== "boolean" || typeof explorer.restoreSize !== "number" || !Number.isFinite(explorer.restoreSize) || explorer.restoreSize < 160 || explorer.restoreSize > 4096) return false;
     return Object.values(saved.groups).every((group: unknown) => {
         const each = group as Record<string, unknown> | null;
         return Array.isArray(each?.tabs) && each.tabs.every((tab) => typeof tab === "string") && typeof each.active === "string";
@@ -273,17 +280,23 @@ export const STORAGE_KEY = "nb-layout-example:tabbed-panels";
 /** 读不了的存档原样搬到这里，不拿缺省布局覆盖它：等程序修好了还能再读。 */
 export const BACKUP_KEY = `${STORAGE_KEY}:backup`;
 
+/**
+ * 读档的结果。`keep` 为假时这一页不要再保存：存档读不了、备份也写不进去，原件只剩主键那一份，
+ * 再存就拿缺省布局把它覆盖了。
+ */
+export type Loaded = {readonly layout: TabbedLayout; readonly notice: string | null; readonly keep: boolean};
+
 /** 读档。没有存档时用缺省布局；存档坏了也用缺省布局，原件留在备份键里，`notice` 告诉用户。 */
-export function loadLayout(storage: LayoutStorage | null): {readonly layout: TabbedLayout; readonly notice: string | null} {
-    if (storage === null) return {layout: TabbedLayout.createDefault(), notice: "Storage is unavailable; changes will not be kept"};
+export function loadLayout(storage: LayoutStorage | null): Loaded {
+    if (storage === null) return {layout: TabbedLayout.createDefault(), notice: "Storage is unavailable; changes will not be kept", keep: false};
     let raw: string | null;
     try {
         raw = storage.getItem(STORAGE_KEY);
     } catch (error) {
         console.warn("Reading the saved layout failed", error);
-        return {layout: TabbedLayout.createDefault(), notice: "Storage is unavailable; changes will not be kept"};
+        return {layout: TabbedLayout.createDefault(), notice: "Storage is unavailable; changes will not be kept", keep: false};
     }
-    if (raw === null) return {layout: TabbedLayout.createDefault(), notice: null};
+    if (raw === null) return {layout: TabbedLayout.createDefault(), notice: null, keep: true};
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);
@@ -291,17 +304,17 @@ export function loadLayout(storage: LayoutStorage | null): {readonly layout: Tab
         return keepOriginal(storage, raw, "The saved layout is not valid JSON");
     }
     const loaded = TabbedLayout.fromSaved(parsed);
-    return loaded.ok ? {layout: loaded.layout, notice: null} : keepOriginal(storage, raw, loaded.message);
+    return loaded.ok ? {layout: loaded.layout, notice: null, keep: true} : keepOriginal(storage, raw, loaded.message);
 }
 
-function keepOriginal(storage: LayoutStorage, raw: string, reason: string): {readonly layout: TabbedLayout; readonly notice: string} {
+function keepOriginal(storage: LayoutStorage, raw: string, reason: string): Loaded {
     try {
         storage.setItem(BACKUP_KEY, raw);
     } catch (error) {
         console.warn("Backing up the unreadable layout failed", error);
-        return {layout: TabbedLayout.createDefault(), notice: `${reason}; the default layout is used and the original could not be backed up`};
+        return {layout: TabbedLayout.createDefault(), notice: `${reason}; the default layout is used and changes will not be kept, so the original stays untouched`, keep: false};
     }
-    return {layout: TabbedLayout.createDefault(), notice: `${reason}; the default layout is used and the original is kept as a backup`};
+    return {layout: TabbedLayout.createDefault(), notice: `${reason}; the default layout is used and the original is kept as a backup`, keep: true};
 }
 
 /** 保存。存储满了、被浏览器禁用时交回原因，界面显示出来；布局照常用。 */
