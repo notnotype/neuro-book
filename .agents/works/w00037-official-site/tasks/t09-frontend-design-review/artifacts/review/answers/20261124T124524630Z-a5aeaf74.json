@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00037-official-site",
+    "taskId": "t09-frontend-design-review",
+    "artifactId": "review",
+    "answerId": "20261124T124524630Z-a5aeaf74",
+    "artifactVersion": 2,
+    "contentHash": "5ea8ca35148dd738547cda4df7a96f7ef276fd9ff7fd9502a37dd5360834d0bd",
+    "submittedAt": "2026-11-24T12:45:23.617Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "paper-pages": true,
+        "account-page": false,
+        "users-page": false
+    },
+    "comments": {
+        "paper-pages": "这个登录方式不对吧。别人家的都是放图标到表单底下",
+        "account-page": "这个：这个账号还没有邮箱是什么组件？我觉得有点丑。另外规范里面不是明确不要做这种（怎么没有检索到？）：\n状态不同（账号有邮箱、无邮箱两种状态）导致布局不同（无邮箱后面的表单会整体往下移动）",
+        "users-page": "这个表单可以抽成一个通用的组件，并且还可以加分页。"
+    },
+    "note": null
+}
