@@ -37,10 +37,17 @@ export type {LineOption} from "./reads";
 export const CANON_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024;
 
 /**
- * `renderSource` 一次肯渲染的源文字长度（字符数；canon.rendering 输出 16）。解析的时间随长度涨（量过：10 万字符约 0.24 秒，
- * 20 万约 0.36 秒，100 万约 1.5 秒），项目进程在这期间做不了别的，而预览是作者每停顿一下就读一次。
+ * `renderSource` 一次肯渲染的源文字长度（canon.rendering 输出 16），按 `String.length` 算（UTF-16 码元，基本平面以外的字算
+ * 两个）。两条理由，都用内核真实的渲染量过（5 万字符）：
+ *
+ * - 结果要放得进一次读取的预算（`CANON_BUDGET_BYTES`，960 KiB）：渲染结果每个字符占 3 到 16 字节，最费的是一句一段的短
+ *   段落，5 万字符约 780 KiB。
+ * - 项目进程渲染时做不了别的，而预览是作者每停顿一下就读一次：带字段的正文约 0.16 秒，满篇都是字段的约 0.4 秒，长段落
+ *   的纯文字约 0.03 秒。
+ *
+ * 只管长度，不管结构：一个字一段这类极端的写法，不到这个长度结果就超预算，照 `too-large` 回。
  */
-export const RENDER_SOURCE_MAX = 200_000;
+export const RENDER_SOURCE_MAX = 50_000;
 
 /** 远程调用原样的结果：业务失败的码是 `canon`、详情是 nb-canon 的失败对象；别的码是路由层的失败。 */
 export type RemoteRaw = {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly code: string; readonly detail?: unknown; readonly cause?: unknown};

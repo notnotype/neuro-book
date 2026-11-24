@@ -43,5 +43,5 @@ export {editEntries, ENTRY_EDITS_MAX, previewEntries, type EntryEditFailure, typ
 export {textBlocks, type TextBlockInfo, type TextBlocksRead} from "./world/text-blocks";
 export {blockProblem, parseBlock, type ExpressionSite, type FieldReference, type ParsedBlock, type SyntaxCode, type SyntaxProblem} from "./render/syntax";
 export {annotation, displayText, evaluate, renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type AuthorNode, type Evaluated, type PlainBlock, type PlainProblem, type RenderContext, type Resolve, type Resolved} from "./render/render";
-export {renderEntryForAgent, renderEntryForAuthor, renderSourceForAuthor, SOURCE_BLOCK_ID, splitBlocks, type EntryRender, type PlainOptions} from "./render/entry";
+export {renderEntryForAgent, renderEntryForAuthor, splitBlocks, type EntryRender, type PlainOptions} from "./render/entry";
 export {scanAnnotations, writeBack, type WriteBackFailure, type WriteBackInput, type WriteBackResult} from "./render/writeback";

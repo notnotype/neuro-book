@@ -45,16 +45,45 @@ export function renderEntryForAuthor(world: World, entry: string, position: Read
 /** 按给的源文字渲染时那一块的 id（rendering.md 输出 16）：不是存下来的块，不与 `b` 加号的块 id 重复。 */
 export const SOURCE_BLOCK_ID = "source";
 
+/** 带着起始行留下来的节点种类：块一级的，预览按它把光标所在的行对到段落上。 */
+const LINED = new Set(["paragraph", "heading", "list", "listItem", "blockquote", "code", "thematicBreak", "table"]);
+
+/**
+ * 语法树里的位置只留块一级节点的起始行，别的都去掉。mdast 给每个节点带起止的行、列、偏移，整棵树因此是源文字的十几到四十
+ * 倍（量过：每个字符 4 到 41 字节），短段落的文字三万字符就超过一次读取的预算；只留起始行以后是 3 到 16 字节。用显式的栈
+ * 走，不递归：这里的源文字没过写入检查，嵌套可以很深。
+ */
+function slimPositions(tree: object): void {
+    const pending: Array<Record<string, unknown>> = [tree as Record<string, unknown>];
+    for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+        const line = (node.position as {start?: {line?: number}} | undefined)?.start?.line;
+        if (line !== undefined && LINED.has(node.type as string)) node.position = {start: {line}};
+        else delete node.position;
+        if (Array.isArray(node.children)) pending.push(...(node.children as Array<Record<string, unknown>>));
+    }
+}
+
 /**
  * 把一段还没存下的源文字当作这个条目的主文字渲染给作者（rendering.md 输出 16）：求值的上下文与渲染存下来的块相同，结果是
  * 一块。不写入，也不过写入的队列：过不了写入检查的源文字照出错的块给（纯文本与诊断），由调用方显示。
+ *
+ * 嵌套深到解析或替换时栈溢出的（几万层引用这类，只会来自粘贴）也照出错的块给：这里的输入是作者正在打的字，不该让调用方
+ * 收到一个说不清原因的内部错误。
  */
 export function renderSourceForAuthor(world: World, entry: string, source: string, position: ReadPosition, mode: Mode): EntryRender<AuthorBlock> {
     const engine = world.lineAt(position, mode)?.engine;
     if (engine === undefined) return "line-not-found";
     const view = engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
-    return {version: world.version, position, mode, blocks: [renderBlockForAuthor(SOURCE_BLOCK_ID, source, context(engine, world, entry, position, mode, {}), parseDraft)]};
+    let block: AuthorBlock;
+    try {
+        block = renderBlockForAuthor(SOURCE_BLOCK_ID, source, context(engine, world, entry, position, mode, {}), parseDraft);
+    } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        block = {id: SOURCE_BLOCK_ID, error: {code: "mdx-invalid", line: 1, column: 1, message: "Nested too deeply to render"}, text: source};
+    }
+    if ("tree" in block) slimPositions(block.tree);
+    return {version: world.version, position, mode, blocks: [block]};
 }
 
 export function renderEntryForAgent(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AgentBlock> {

@@ -338,6 +338,10 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect((await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX), mode: "actual"})).ok).toBe(true);
         expect(await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX + 1), mode: "actual"})).toMatchObject({ok: false, failure: {code: "too-large"}});
 
+        // 嵌套深到栈溢出的（几万层引用）：照出错的块给，不是说不清原因的内部错误。
+        const deep = await author.canon.call("renderSource", {entry, source: "> ".repeat(RENDER_SOURCE_MAX / 2), mode: "actual"});
+        expect(deep.ok && deep.value?.blocks).toEqual([expect.objectContaining({id: "source", error: expect.objectContaining({code: "mdx-invalid"})})]);
+
         // 只读：存下来的主文字与世界的版本都没变。
         const after = await author.canon.call("textBlocks", {id: entry});
         expect(after.ok && [after.value?.version, after.value?.blocks.map((item) => item.source)]).toEqual([created.value.version, ["存下来的"]]);
