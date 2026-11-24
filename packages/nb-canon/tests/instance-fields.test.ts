@@ -135,8 +135,10 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
     test("新写的声明：id 不能与固定的、实例的、去掉过的相同", () => {
         const start = ok(mark(ok(declare(world(), LUCK)).world, "幸运", true)).world;
         expect(refused(declare(start, {id: "存款", label: "另一个存款", kind: "number"}))).toEqual(["id-taken:init.data.panel.declared[存款].id"]);
-        // 同一个 id 写两条时修订按 id 记，两条都算改过，所以同一个问题报两次。
-        expect([...new Set(refused(declare(start, {id: "幸运", label: "新的幸运", kind: "text"})))]).toEqual(["id-taken:init.data.panel.declared[幸运].id"]);
+        expect(refused(declare(start, {id: "幸运", label: "新的幸运", kind: "text"}))).toEqual(["id-taken:init.data.panel.declared[幸运].id"]);
+        // 把已有的一条原样再写一份也是新写了一条，不算原样留着的。
+        expect(refused(declare(start, {...LUCK, removed: true}))).toEqual(["id-taken:init.data.panel.declared[幸运].id"]);
+        expect(refused(declare(ok(declare(world(), LUCK)).world, LUCK))).toEqual(["id-taken:init.data.panel.declared[幸运].id"]);
         expect(refused(declare(start, {id: "不合法 的名字", label: "名字", kind: "text"}))).toEqual(["type-mismatch:init.data.panel.declared[不合法 的名字].id"]);
     });
 

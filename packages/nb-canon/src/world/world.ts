@@ -1287,6 +1287,15 @@ function declarationProblems(problems: Problem[], ref: ObjectRef, namespace: str
         problems.push({code: "fields-not-declarable", ref, path: base, message: "this component type does not allow fields declared on an instance"});
         return new Set(rewritten.map((field) => field.id));
     }
+    // 同一个 id 比写入前多出来的那几条都是新写的，原样抄一份旧声明也算：按条数比，不按“和旧的那条一样不一样”比。
+    const count = (fields: readonly InstanceFieldDeclaration[]) => fields.reduce((counts, field) => counts.set(field.id, (counts.get(field.id) ?? 0) + 1), new Map<string, number>());
+    const had = count(previous);
+    const taken = new Set<string>();
+    for (const [id, now] of count(declared)) {
+        if (now <= (had.get(id) ?? 0) || (now === 1 && !type.fields.some((fixed) => fixed.id === id))) continue;
+        taken.add(id);
+        problems.push({code: "id-taken", ref, path: `${base}[${id}].id`, message: `field id "${id}" is already declared in this namespace`});
+    }
     const active = effectiveFields(type, declared);
     const isActive = (field: InstanceFieldDeclaration) => active.includes(field);
     const exactNumber = (id: string) => active.some((field) => field.id === id && field.kind === "number" && field.precision !== "semantic");
@@ -1298,11 +1307,7 @@ function declarationProblems(problems: Problem[], ref: ObjectRef, namespace: str
             problems.push({code: "type-mismatch", ref, ...shape});
             continue;
         }
-        if ((old === undefined && type.fields.some((fixed) => fixed.id === field.id)) || declared.filter((other) => other.id === field.id).length > 1) {
-            problems.push({code: "id-taken", ref, path: `${path}.id`, message: `field id "${field.id}" is already declared in this namespace`});
-            continue;
-        }
-        if (!isActive(field)) continue;
+        if (taken.has(field.id) || !isActive(field)) continue;
         // 新写的、改了显示名的、刚恢复的：显示名在生效的字段里唯一。
         if ((old === undefined || old.label !== field.label || old.removed === true) && active.some((other) => other !== field && other.label === field.label)) {
             problems.push({code: "label-taken", ref, path: `${path}.label`, message: `another field in this namespace is already labelled "${field.label}"`});
