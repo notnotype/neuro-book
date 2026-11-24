@@ -31,6 +31,8 @@ updated: 2026-11-24
 
 - [统计、遥测与非阻塞反馈插件调研](research/2026-11-23-telemetry-feedback-and-stats.md)（2026-11-23）：历史线索核对、仓库既有约束与可复用源（`diagnostics.md`、`FirstRunWizard`、`notifications`、`projects.stats`、`SessionCore`）、`oh-my-pi` `report_issue` 拆解、Cloudflare / 重写官网 / Umami 对比、可移植 VPS 优先架构（Hono + PostgreSQL + 标准 S3 API，避免 CF 专有绑定锁定）、向导跳过与隐私风险提示。
 
+- 2026-11-24 的三份调研：[各产品怎么分档](research/2026-11-24-telemetry-tiers-survey.md)、[上报形态与隐私技术](research/2026-11-24-reporting-shapes-survey.md)、[条款与合规](research/2026-11-24-terms-and-compliance-survey.md)；用法与结论见 [t02](tasks/t02-collection-scope-and-terms/README.md)。
+
 ## 待定问题
 
 - 首版后端部署起点：纯 VPS Docker（Hono 网关 + PostgreSQL + Umami）vs 混合敏捷起步（同一套 Hono 网关先跑 CF Workers + Umami Cloud 免费档，日后一键切回 VPS）。
