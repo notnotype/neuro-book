@@ -19,7 +19,7 @@ afterEach(async () => {
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
 
-test("vite build 以 0 退出、标准错误为空，产物有 index.html，CSS 里有 nb-ui 的语义类、nbook 主题与站点的原子类", async () => {
+test("vite build 以 0 退出、标准错误为空，产物有 index.html，CSS 里有 nb-ui 的语义类、nbook 主题与站点的原子类，每条 -webkit-backdrop-filter 都有同值的标准写法", async () => {
     const root = await createTestTmpRoot("nb-site-web-build", "nb-site-web vite build");
     roots.push(root);
     const outDir = join(root, "dist");
@@ -42,4 +42,13 @@ test("vite build 以 0 退出、标准错误为空，产物有 index.html，CSS 
     expect(css).toContain(".nb-ui-scrollbar-thin");
     expect(css).toMatch(/\[data-nb-theme=["']?nbook["']?\]/u);
     expect(css).toContain(".min-h-svh");
+
+    // CSS 压缩不能丢掉不带前缀的 `backdrop-filter`：Lightning CSS 曾把它与后写的 `-webkit-` 那条合并成只剩后者，Chrome 不认，
+    // 对话框背后的字透出来（dev-panel 的 `tests/web-build.test.ts` 同一条）。nb-ui 现在把前缀写在前面，用缺省的压缩就行；
+    // 这条守着它以后不回退。
+    const values = (pattern: RegExp): Set<string> => new Set([...css.matchAll(pattern)].map((match) => match[1]!.trim()));
+    const prefixed = values(/-webkit-backdrop-filter:([^;}]+)/gu);
+    const standard = values(/(?<![-\w])backdrop-filter:([^;}]+)/gu);
+    expect(prefixed.has("var(--overlay-blur)")).toBe(true);
+    expect([...prefixed].filter((value) => !standard.has(value))).toEqual([]);
 }, 180_000);

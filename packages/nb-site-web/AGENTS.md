@@ -6,7 +6,7 @@
 
 ## 边界
 
-- 只经两个合同包认识后端的接口：清单与源码都不许出现两个模块包与 `nb-site-server`，由 `tests/boundary.test.ts` 检查。
+- 只经两个合同包认识后端的接口，按白名单检查（`tests/boundary.test.ts`）：`src/` 里的源码与样式只许导入 nb-ui、两个合同包与第三方包，不许别的工作区包与 `bun:`、`node:` 内置模块（前端代码跑在浏览器里）；`tests/` 与 `vite.config.ts` 另许 `bun:`、`node:` 与测试支持包。清单里的工作区包：`dependencies` 只有 nb-ui 与两个合同包，`devDependencies` 只有测试支持包。要放开一项，先在这里写明理由，再改检查。
 
 ## 完成门禁
 
@@ -16,4 +16,4 @@ bun test
 bun run build
 ```
 
-`tests/build.test.ts` 在临时目录里真跑一次 `vite build`；`bun run build` 把产物写进 `dist/`（不入库），`vite preview` 看页面。
+`tests/build.test.ts` 在临时目录里真跑一次 `vite build`；`bun run build` 把产物写进 `dist/`（不入库），`bun run --cwd packages/nb-site-web preview` 起 Vite 的预览服务看页面（地址在它的输出里）。
