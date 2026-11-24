@@ -9,7 +9,7 @@ import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
-import {Dialog, SegmentedControl, Select, Textarea} from "@notnotype/nb-ui/components";
+import {Dialog, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -618,7 +618,6 @@ const startEditing = async (): Promise<void> => {
 /** 编辑视图的事件：文字分页里与“已删除”下面是同一个编辑视图，接法只写一处。 */
 const editorOn = {
     update: textTab.update,
-    insert: textTab.insert,
     blur: () => textTab.flush(),
     submit: () => void textTab.submit(),
     discard: () => void textTab.leave(),

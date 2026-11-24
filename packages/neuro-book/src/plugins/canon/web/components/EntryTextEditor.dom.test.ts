@@ -92,8 +92,10 @@ describe("author-ui 输出 39：输入与“插入”", () => {
         expect([wrapper.get("textarea").attributes("readonly") !== undefined, wrapper.get("[data-text-insert]").attributes("disabled") !== undefined]).toEqual([true, true]);
     });
 
-    it("从“插入”里选一个字段：带着光标的位置发 insert，焦点回到输入框；条目没有字段时不出“插入”", async () => {
+    it("从“插入”里选一个字段：写法落在光标处、光标到了它后面，照打字一样发 update，焦点回到输入框；条目没有字段时不出“插入”", async () => {
         const wrapper = show({text: "魔力：点", inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}, {label: "面板 · 存款", snippet: "{panel.存款}"}]});
+        // 同真实的宿主：收到 update 就把新的整篇给回来（不给回来的话，受控的输入框会被旧的文字盖回去）。
+        await wrapper.setProps({onUpdate: (value: string) => void wrapper.setProps({text: value})});
         const area = wrapper.get("textarea").element as HTMLTextAreaElement;
         area.focus();
         area.setSelectionRange(3, 3);
@@ -106,7 +108,7 @@ describe("author-ui 输出 39：输入与“插入”", () => {
         expect(items.map((item) => item.textContent?.trim())).toEqual(["面板 · 魔力", "面板 · 存款"]);
         items[0]!.click();
         await flushPromises();
-        expect([wrapper.emitted("insert"), document.activeElement === area]).toEqual([[["{panel.魔力}", 3]], true]);
+        expect([wrapper.emitted("update"), area.value, area.selectionStart, document.activeElement === area]).toEqual([[["魔力：{panel.魔力}点"]], "魔力：{panel.魔力}点", "魔力：{panel.魔力}".length, true]);
 
         expect(show({}).find("[data-text-insert]").exists()).toBe(false);
     });

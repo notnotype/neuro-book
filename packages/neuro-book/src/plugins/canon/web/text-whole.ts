@@ -7,7 +7,7 @@
  * 编辑时的比（`realign`），别处加了块、删了块、改了字都看得出来。
  */
 
-import {addAfter, allowed, emptyDraft, isRemoved, removeBlock, setText, SUBMIT_OPS_MAX, textOf} from "./text-draft";
+import {addAfter, allowed, emptyDraft, isNewKey, isRemoved, own, removeBlock, setText, SUBMIT_OPS_MAX, textOf} from "./text-draft";
 import type {Blocked, TextDraft, TextRead} from "./text-draft";
 
 export type WholeText = NonNullable<TextDraft["whole"]>;
@@ -73,12 +73,14 @@ export function setWhole(draft: TextDraft, read: TextRead, text: string): TextDr
 }
 
 /**
- * 按块改出来的旧稿（没有 `whole`）换算成整篇：各块现在的文字连起来。它开始时读到的整篇已经查不到，取这次读到的：换算
- * 之前别处的改动不再问。
+ * 没有 `whole` 的稿换算成整篇：刚开始编辑的空稿，与按块改出来的旧稿。作者的整篇是各块现在的文字连起来（删掉的块与没写
+ * 字的新块不算）；开始时的整篇按这次读到的块拼，其中稿里动过的块用它当时读到的原文（`base`）。这样没动过的稿不算有
+ * 改动，旧稿动过的块别处也改了时提交照样会问。近似之处：旧稿开始以后别处加的、删的块分不出来，算作开始时就是这样。
  */
 export function toWhole(draft: TextDraft, read: TextRead): TextDraft {
-    const text = draft.order.filter((key) => !isRemoved(draft, key)).map((key) => textOf(draft, read, key)).filter((block) => block.trim() !== "").join(SEPARATOR);
-    return wholeDraft(draft, read, {base: joinBlocks(read), text});
+    const text = draft.order.filter((key) => !isRemoved(draft, key) && !(isNewKey(key) && textOf(draft, read, key).trim() === "")).map((key) => textOf(draft, read, key)).join(SEPARATOR);
+    const base = read.blocks.map((block) => own(draft.base, block.id) ?? block.source).join(SEPARATOR);
+    return wholeDraft(draft, read, {base, text});
 }
 
 /**

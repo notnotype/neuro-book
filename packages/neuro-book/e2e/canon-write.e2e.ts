@@ -141,13 +141,20 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await page.keyboard.type("星瑕是第三魔法学院的一年级学生。");
     await expect(dirtyLabel(page)).toHaveText("有未提交的修改");
     await expect(tabDot(page)).toHaveCount(1);
+    // “插入”把字段的写法放在光标处，焦点回到输入框、光标在写法后面：接着打的字跟在它后面。
+    await entryPage(page).locator("[data-text-insert]").click();
+    await page.getByRole("menuitem", {name: "人物 · 外观"}).click();
+    await expect(sourceText(page)).toContainText("一年级学生。{character.外观}");
+    await page.keyboard.type("是她的样子。");
+    await expect(sourceText(page)).toContainText("{character.外观}是她的样子。");
     // Tab 离开输入框（不留在框里缩进）；再回到输入框里。
     await page.keyboard.press("Tab");
     await expect(entryPage(page).locator("[data-text-source]:focus-within")).toHaveCount(0);
     await focusSource(page);
     // 焦点在代码输入框里按 Ctrl+S：经“保存”命令提交这一页，只提交一次。
     await page.keyboard.press("Control+s");
-    await expect(entryPage(page).locator("[data-entry-text]")).toContainText("一年级学生");
+    // 提交以后在阅读视图里看结果：插入的写法显示成外观当时的值。
+    await expect(entryPage(page).locator("[data-entry-text]")).toContainText("一年级学生。银白长发是她的样子。");
     await expect(page.locator("[data-notice-bar]")).toContainText("改星瑕的主文字");
     await expect(tabDot(page)).toHaveCount(0);
     await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(1);
@@ -250,6 +257,11 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     await expect(fallback).toBeFocused();
     await page.keyboard.type("（文本框里改的）");
     await expect(dirtyLabel(page)).toHaveText("有未提交的修改");
+    // 退回的文本框里“插入”同样落在光标处。
+    await entryPage(page).locator("[data-text-insert]").click();
+    await page.getByRole("menuitem", {name: "人物 · 外观"}).click();
+    await expect(fallback).toHaveValue(/（文本框里改的）\{character\.外观\}$/u);
+    await expect(fallback).toBeFocused();
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
     await expect(tabDot(page)).toHaveCount(0);

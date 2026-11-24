@@ -67,7 +67,8 @@ function renderNode(node: EntryTextNode): VNodeChild {
         case "code": return h("pre", h("code", node.value ?? ""));
         case "break": return h("br");
         case "thematicBreak": return h("hr");
-        case "table": return h("table", h("tbody", children(node)));
+        // 表格比内容列宽时在自己的框里横向滚动，不把页面撑出横向滚动条。
+        case "table": return h("div", {class: "overflow-x-auto"}, h("table", h("tbody", children(node))));
         case "tableRow": return h("tr", children(node));
         case "tableCell": return h("td", children(node));
         case "image": return node.alt ?? "";
@@ -160,14 +161,17 @@ const openAddress = (): TextAddress | null => {
 </template>
 
 <style scoped>
-/* 正文的样子与章节一致（`@notnotype/nb-markdown/markdown.css`）：字号、行距、段距取章节纸面的缺省值。块与块之间同样隔一个段距。 */
+/*
+ * 正文的样子与章节一致（`@notnotype/nb-markdown/markdown.css`）：字号、行距、段距取章节纸面的缺省值（不跟“Markdown 正文”
+ * 的设置：那是编辑器插件给章节控件的）。块与块之间同样隔一个段距：段距在块里按正文的字号算，这里照同一个字号算。
+ */
 .entry-text {
     --markdown-font-size: 17px;
     --markdown-line-height: 1.95;
     --markdown-block-gap: 1.1em;
 }
 .entry-text__block + .entry-text__block {
-    margin-top: var(--markdown-block-gap);
+    margin-top: calc(var(--markdown-font-size) * 1.1);
 }
 :deep(.canon-value) {
     border-bottom: 1px dotted var(--accent-main);

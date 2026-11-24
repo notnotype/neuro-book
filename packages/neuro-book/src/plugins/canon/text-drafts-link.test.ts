@@ -741,4 +741,19 @@ describe("author-ui 输出 39、44：整篇的稿经真实内核", () => {
         expect((await reopened.submit("重开以后提交")).status).toBe("published");
         expect(scene.sources(entry, at)).toEqual(["甲\n\n乙\n\n新加一段"]);
     }), 60_000);
+    it("整篇的稿提交以后回执丢了：等着结局；再确认拿回那一次的结果，只发布一次", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window);
+        const session = desk.drafts.session(entry);
+        await session.begin(at);
+        session.edit((draft, read) => setWhole(draft, read, "甲\n\n乙\n\n新加一段"));
+        scene.loseReply(writing);
+        expect((await session.submit("回执会丢")).status).toBe("unknown");
+        expect(await window.reconnect()).toEqual({ok: true});
+        expect([session.state.phase, session.state.draft?.whole?.text, scene.sources(entry, at)]).toEqual(["confirming", "甲\n\n乙\n\n新加一段", ["甲\n\n乙\n\n新加一段"]]);
+        expect((await session.confirm()).status).toBe("published");
+        expect([session.state.draft, scene.sources(entry, at), scene.titles(entry)]).toEqual([null, ["甲\n\n乙\n\n新加一段"], ["建条目", "回执会丢"]]);
+        desk.dispose();
+    }), 60_000);
 });

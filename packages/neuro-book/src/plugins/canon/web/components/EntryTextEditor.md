@@ -21,7 +21,7 @@
 ## 交互
 
 - 输入：发 `update`（整篇文字）。输入框失焦发 `blur`（宿主据此立刻暂存）。
-- “插入”是一个下拉菜单（nb-ui `DropdownMenu`），项是“设定组 · 字段”（`inserts`）。选了发 `insert`（要写入的写法与光标在整篇里的偏移，拿不到光标时是 `null`，宿主接在末尾），之后焦点回到输入框：菜单开着时焦点不在输入框里，所以光标的位置在打开菜单之前由输入框记着、选的时候再取。
+- “插入”是一个下拉菜单（nb-ui `DropdownMenu`），项是“设定组 · 字段”（`inserts`）。选了由输入框自己在光标处写入（它的 `insert`：进它的撤销历史、光标落在写法后面，照打字一样发 `update`），之后焦点回到输入框；菜单开着时焦点不在输入框里，光标的位置由输入框记着。输入框还没就绪时把写法接在整篇末尾发 `update`。
 - “放弃”先问一句（`AlertDialog`），确认才发 `discard`；没有东西可丢（没有改动、读得出块、不在等上一次提交的结局）时是“取消”，直接发 `cancel`，Esc 同它（有改动时 Esc 不接，输入法正在组字时的 Esc 也不算）。
 - 给焦点（`focus()`）时输入框还没就绪（按需加载的输入框）：记下来，就绪时再给。
 - 动效：状态行里各项、整批的说明与输入框下面的原因出现与消失都有过渡，时长与缓动取令牌；输入框里的文字不加。
@@ -56,7 +56,7 @@ type Props = {
     frozen?: boolean;
     /** “插入”里列的写法；空数组时不出“插入”。默认空。 */
     inserts?: readonly InsertItem[];
-    /** 源文字的输入框组件，合同见 `PlainSourceInput.md`（外露 `focus(caret?)` 与 `cursorOffset()`）；不给时用 `PlainSourceInput`。 */
+    /** 源文字的输入框组件，合同见 `PlainSourceInput.md`（外露 `focus(caret?)` 与 `insert(text)`）；不给时用 `PlainSourceInput`。 */
     input?: Component;
     /** 交给输入框的语言 id；默认 "markdown"（Monaco 的 MDX 配色把花括号里的中文字段名标成错误，不用它）。 */
     language?: string;
@@ -64,8 +64,6 @@ type Props = {
 
 type Emits = {
     (event: "update", text: string): void;
-    /** 在 `offset` 处写入 `snippet`；`offset` 为 null 是取不到光标。 */
-    (event: "insert", snippet: string, offset: number | null): void;
     (event: "blur"): void;
     (event: "submit"): void;
     (event: "discard"): void;

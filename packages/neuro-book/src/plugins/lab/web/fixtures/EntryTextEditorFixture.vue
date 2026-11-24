@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 整篇编辑的夹具：注入 canon 的翻译端口；各动作记成事件，`update` 与 `insert` 另把文字写回这一场景自己的副本（受控组件要有人
- * 回写才看得到打的字）。输入框用组件自带的退路（普通文本框）：Lab 里没有编辑器区，代码输入框另有自己的场景。
+ * 整篇编辑的夹具：注入 canon 的翻译端口；各动作记成事件，`update` 另把文字写回这一场景自己的副本（受控组件要有人回写才
+ * 看得到打的字；“插入”也是经它交出来的）。输入框用组件自带的退路（普通文本框）：Lab 里没有编辑器区，代码输入框另有自己的场景。
  */
 import {computed, shallowRef, watch} from "vue";
 
@@ -31,13 +31,8 @@ const update = (value: string): void => {
     typed.value = value;
     record("update", value.length);
 };
-const insert = (snippet: string, offset: number | null): void => {
-    const at = offset ?? text.value.length;
-    typed.value = `${text.value.slice(0, at)}${snippet}${text.value.slice(at)}`;
-    record("insert", snippet);
-};
 </script>
 
 <template>
-    <EntryTextEditor data-lab-subject class="w-full" v-bind="bindings" :text="text" @update="update" @insert="insert" />
+    <EntryTextEditor data-lab-subject class="w-full" v-bind="bindings" :text="text" @update="update" />
 </template>

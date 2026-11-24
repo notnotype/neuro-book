@@ -29,6 +29,8 @@ type Exposed = {
     focus(caret?: "start" | "end"): void;
     /** 光标在文字里的偏移。 */
     cursorOffset(): number | null;
+    /** 在光标处写入一段文字（有选区时换掉选区），光标落在它后面，照打字一样交出 `update:modelValue`；只读时不做，返回 false。 */
+    insert(text: string): boolean;
 };
 ```
 

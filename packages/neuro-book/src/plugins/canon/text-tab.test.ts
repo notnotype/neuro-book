@@ -98,15 +98,24 @@ describe("author-ui 输出 39：整篇的编辑", () => {
         desk.dispose();
     }), 60_000);
 
-    it("“插入”把写法放在光标处；取不到光标时接在末尾", () => inScene(async (scene) => {
-        const entry = await scene.seed(["魔力：点"]);
-        const desk = tabOf(await scene.window("browser-1"), entry);
+    it("别处留下了带改动的稿、现在这个条目不能整篇改了：照常进编辑、看得到稿，提交时再问", () => inScene(async (scene) => {
+        const entry = await scene.seed(["甲", "乙"]);
+        const window = await scene.window("browser-1");
+        const first = tabOf(window, entry);
+        const before = first.start();
+        await before.start();
+        before.update("甲\n\n乙（上次没提交的）");
+        before.flush();
+        await until(() => before.editor.value.saved === "saved");
+        first.dispose();
+        await scene.edit([{op: "set", at: {entry, path: "text[b2]"}, value: "乙（第 3 章起）"}], "story", at);
+
+        const desk = tabOf(window, entry);
         const tab = desk.start();
-        await tab.start();
-        tab.insert("{panel.魔力}", "魔力：".length);
-        expect(tab.editor.value.text).toBe("魔力：{panel.魔力}点");
-        tab.insert("{panel.存款}", null);
-        expect(tab.editor.value.text).toBe("魔力：{panel.魔力}点{panel.存款}");
+        expect(await tab.start()).toBe("");
+        expect([tab.editing.value, tab.editor.value.text, tab.editor.value.dirty]).toEqual([true, "甲\n\n乙（上次没提交的）", true]);
+        await tab.submit();
+        expect(tab.conflicts.value).toMatchObject([{kind: "locked", choice: "theirs"}]);
         desk.dispose();
     }), 60_000);
 
@@ -142,6 +151,30 @@ describe("author-ui 输出 44：提交时别处也改了", () => {
         await elsewhere(scene, entry, "别处第二次");
         await tab.submit();
         expect(tab.conflicts.value).toMatchObject([{theirs: "别处第二次", choice: null}]);
+        desk.dispose();
+    }), 60_000);
+
+    it("放弃以后重新开始的是另一份稿：上一份稿里选过的不带过来", () => inScene(async (scene) => {
+        const entry = await scene.seed(["A"]);
+        const desk = tabOf(await scene.window("browser-1"), entry);
+        const tab = desk.start();
+        await tab.start();
+        tab.update("第一份稿");
+        await elsewhere(scene, entry, "别处改的");
+        await tab.submit();
+        tab.choose("whole", "theirs");
+        tab.asking.value = false;
+        await tab.leave();
+        expect(tab.editing.value).toBe(false);
+
+        // 第二份稿从别的原文起步，改成同样的字，别处又改回原来那一句：冲突的两边与上一份稿的一模一样，但这一份稿里没选过。
+        await elsewhere(scene, entry, "中间的样子");
+        await tab.start();
+        tab.update("第一份稿");
+        await elsewhere(scene, entry, "别处改的");
+        await tab.submit();
+        expect(tab.conflicts.value).toEqual([{id: "whole", kind: "changed", mine: "第一份稿", theirs: "别处改的", choice: null}]);
+        expect([tab.editing.value, scene.titles(entry)]).toEqual([true, ["建条目", "别处的改动", "别处的改动", "别处的改动"]]);
         desk.dispose();
     }), 60_000);
 

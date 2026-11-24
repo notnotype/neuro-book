@@ -8,7 +8,7 @@ import {describe, expect, it} from "bun:test";
 
 import type {TextBlockInfo} from "@notnotype/nb-canon/schema";
 
-import {changedCount, compile, emptyDraft, hasChanges, removeBlock, setText, splitAt, SUBMIT_OPS_MAX} from "./text-draft";
+import {compile, emptyDraft, hasChanges, removeBlock, setText, splitAt, SUBMIT_OPS_MAX} from "./text-draft";
 import type {TextDraft, TextRead} from "./text-draft";
 import {joinBlocks, realign, resolveWhole, setWhole, toWhole, wholeProblem} from "./text-whole";
 
@@ -43,8 +43,13 @@ describe("author-ui 输出 39：整篇与块", () => {
 
     it("改回读到的样子就不算有未提交的内容，多块的条目也不会因此被并成一块", () => {
         const back = setWhole(edited(THREE, "甲\n\n乙改\n\n丙"), THREE, "甲\n\n乙\n\n丙");
-        expect([hasChanges(back), changedCount(back), ops(back, THREE)]).toEqual([false, 0, []]);
-        expect([hasChanges(edited(THREE, "改")), changedCount(edited(THREE, "改"))]).toEqual([true, 1]);
+        expect([hasChanges(back), ops(back, THREE)]).toEqual([false, []]);
+        expect(hasChanges(edited(THREE, "改"))).toBe(true);
+    });
+
+    it("没有主文字的条目里只打了空白：没有要发的，也不算有未提交的内容", () => {
+        const spaces = edited(NONE, "  \n");
+        expect([hasChanges(spaces), ops(spaces, NONE)]).toEqual([false, []]);
     });
 
     it.each<[string, TextRead, NonNullable<ReturnType<typeof wholeProblem>>["kind"] | null]>([
@@ -119,6 +124,21 @@ describe("author-ui 输出 44：世界变了以后要不要问", () => {
         const pending = {requestId: "r1", title: "改", stamp: {version: 1, input: "d1"}, ops: [], keys: []};
         const aligned = realign({...draft, pending}, read(THREE.blocks, 2));
         expect([aligned.draft.pending, aligned.draft.at]).toEqual([pending, AT]);
+    });
+});
+
+describe("没有整篇字段的稿", () => {
+    it("刚开始编辑的空稿换算以后没有改动：条目里有空白的块时也一样", () => {
+        const gappy = read([free("b1", "甲", 0), free("b2", "", 1), free("b3", "丙", 2)]);
+        const fresh = toWhole(emptyDraft(gappy), gappy);
+        expect([fresh.whole, hasChanges(fresh), ops(fresh, gappy)]).toEqual([{base: "甲\n\n\n\n丙", text: "甲\n\n\n\n丙"}, false, []]);
+    });
+
+    it("按块改过的旧稿换算以后，它动过的块别处也改了：提交时照样问", () => {
+        const old = setText(emptyDraft(THREE), THREE, "b2", "乙（旧稿里改的）");
+        const later = read([free("b1", "甲", 0), free("b2", "乙（别处改的）", 1), free("b3", "丙", 2)], 2);
+        const aligned = realign(toWhole(old, later), later);
+        expect(aligned.conflicts).toEqual([{kind: "whole", mine: "甲\n\n乙（旧稿里改的）\n\n丙", theirs: "甲\n\n乙（别处改的）\n\n丙"}]);
     });
 });
 

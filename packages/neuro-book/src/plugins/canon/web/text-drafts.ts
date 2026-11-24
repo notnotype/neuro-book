@@ -709,6 +709,7 @@ export function createTextDrafts(options: TextDraftsOptions): TextDrafts {
             choose: (conflict, choice) => {
                 const [draft, read] = [state.draft, state.read];
                 if (draft === null || read === null || state.phase !== "idle") return;
+                // 整篇的冲突只有“我的”与“现在的”两种选择；`keep`、`drop` 是按块的冲突才有的，界面不会对整篇给出它们。
                 state.draft = conflict.kind === "whole" ? resolveWhole(draft, read, conflict, choice === "mine" ? "mine" : "theirs") : resolve(draft, read, conflict, choice);
                 state.conflicts = state.conflicts.filter((item) => item !== conflict);
                 touch();

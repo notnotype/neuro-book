@@ -18,7 +18,7 @@ import {failureText} from "./failures";
 import type {CanonNotices} from "./notices";
 import {hasChanges, SUBMIT_OPS_MAX} from "./text-draft";
 import type {BlockProblem, Blocker, SubmitResult, TextDraftSession} from "./text-drafts";
-import {joinBlocks, setWhole, toWhole, wholeProblem} from "./text-whole";
+import {setWhole, toWhole, wholeProblem} from "./text-whole";
 import type {WholeConflict, WholeProblem} from "./text-whole";
 import type {useCanonText} from "./text";
 import type {CanonWorld} from "./world";
@@ -64,8 +64,6 @@ export interface TextTab {
     /** 进编辑；返回没进去的原因（读不出块、这个条目不能整篇改），空串是进去了。没进去时人还在阅读视图，由宿主写在那里。 */
     start(): Promise<string>;
     update(text: string): void;
-    /** 在整篇的 `offset` 处插入一段写法；`offset` 为 null（取不到光标）时接在末尾。 */
-    insert(snippet: string, offset: number | null): void;
     flush(): void;
     leave(): Promise<void>;
     submit(): Promise<void>;
@@ -227,11 +225,6 @@ export function useTextTab(options: TextTabOptions): TextTab {
             return wholeReason(problem);
         },
         update: (value) => edit((draft, read) => setWhole(draft, read, value)),
-        insert: (snippet, offset) => edit((draft, read) => {
-            const now = draft.whole?.text ?? joinBlocks(read);
-            const at = offset === null ? now.length : Math.min(Math.max(offset, 0), now.length);
-            return setWhole(draft, read, `${now.slice(0, at)}${snippet}${now.slice(at)}`);
-        }),
         flush: () => void session.flush(),
         leave: async () => {
             message.value = "";

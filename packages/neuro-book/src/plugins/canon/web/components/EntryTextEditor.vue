@@ -25,7 +25,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (event: "update", text: string): void;
-    (event: "insert", snippet: string, offset: number | null): void;
     (event: "blur"): void;
     (event: "submit"): void;
     (event: "discard"): void;
@@ -63,7 +62,7 @@ const savedLabel = computed(() => {
 
 interface SourceInput {
     focus(caret?: "start" | "end"): void;
-    cursorOffset(): number | null;
+    insert(text: string): boolean;
 }
 let input: SourceInput | null = null;
 /** 要给焦点、输入框却还没就绪：输入框是按需加载的组件时，它的实例要等一会儿才有。 */
@@ -82,9 +81,12 @@ const focus = (): void => {
 };
 
 const insertItems = computed(() => props.inserts.map((item) => ({id: item.snippet, label: item.label})));
-/** 菜单开着的时候焦点不在输入框里：输入框记着光标的位置，选完以后照它插入，再把焦点还回去。 */
+/**
+ * 菜单开着的时候焦点不在输入框里：输入框记着光标的位置，写入由它自己做（进它的撤销历史、光标落在写法后面），再把焦点还
+ * 回去。输入框还没就绪时接在整篇末尾。
+ */
 const insert = (snippet: string): void => {
-    emit("insert", snippet, input?.cursorOffset() ?? null);
+    if (input?.insert(snippet) !== true) emit("update", `${props.text}${snippet}`);
     void nextTick(focus);
 };
 

@@ -137,13 +137,13 @@ const written = (draft: TextDraft): string[] => draft.order.filter((key) => isNe
 /** 有没有未提交的内容：有旧块动过，或有写了字的新块。改回原样的块不算（`setText` 会把它从 `base` 里拿掉）。 */
 export function hasChanges(draft: TextDraft): boolean {
     // 整篇的稿看整篇：读到的块进不了整篇编辑时块一级的字段是空的，作者的字仍在 `whole` 里，不能当成没有改动把暂存删了。
-    if (draft.whole !== undefined) return draft.whole.text !== draft.whole.base;
+    // 两边都只有空白时没有要发的（空白的整篇等于没有主文字）。
+    if (draft.whole !== undefined) return draft.whole.text !== draft.whole.base && !(blank(draft.whole.text) && blank(draft.whole.base));
     return Object.keys(draft.base).length > 0 || written(draft).length > 0;
 }
 
 /** 动过的块数（那一行的“未提交几块”）：改了字的、删掉的、新加而写了字的各算一块。 */
 export function changedCount(draft: TextDraft): number {
-    if (draft.whole !== undefined) return hasChanges(draft) ? 1 : 0;
     return Object.keys(draft.base).length + written(draft).length;
 }
 
