@@ -8,18 +8,10 @@
 import type {Database} from "bun:sqlite";
 import {Hono} from "hono";
 
+import type {TelemetryConfig} from "./config";
+
 export {telemetryMigrations, type TelemetryMigration} from "./migrations";
-
-/** 统计模块自己的配置；本 Task 没有变量，以后读 `NB_SITE_TELEMETRY_*`。 */
-export type TelemetryConfig = Readonly<Record<never, never>>;
-
-/** 配置问题只带变量名与固定的问题词，不带取值（`site.operations` 输出 1）。 */
-export interface TelemetryConfigProblem {
-    readonly name: string;
-    readonly problem: string;
-}
-
-export type TelemetryConfigResult = {readonly ok: true; readonly config: TelemetryConfig} | {readonly ok: false; readonly problems: readonly TelemetryConfigProblem[]};
+export {parseTelemetryConfig, type TelemetryConfig, type TelemetryConfigProblem, type TelemetryConfigResult} from "./config";
 
 /** 模块写日志的出口；`event` 是稳定的英文事件名，`message` 是英文说明，`fields` 不放秘密、正文与来源地址。 */
 export interface TelemetryLog {
@@ -38,10 +30,6 @@ export interface TelemetryModuleOptions {
 export interface TelemetryModule {
     /** 站点地址上的子应用；入口把它挂在 `TELEMETRY_API_PREFIX` 下，子应用里的路由不再带前缀。写入口（t06）另给一个挂在写入口主机上的子应用。 */
     readonly site: Hono;
-}
-
-export function parseTelemetryConfig(_env: Readonly<Record<string, string | undefined>>): TelemetryConfigResult {
-    return {ok: true, config: {}};
 }
 
 export function createTelemetryModule(_options: TelemetryModuleOptions): TelemetryModule {

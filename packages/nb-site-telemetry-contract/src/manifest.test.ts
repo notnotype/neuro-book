@@ -261,14 +261,14 @@ describe("收集清单：与协议逐项一致（使用档 1）", () => {
         const code = dependentField(errors.item.fields.code);
         expect(code.dependsOn).toBe("owner");
         expect(Object.keys(code.valuesBy.other!)).toEqual(["other"]);
-        // 第 1 版的码表是占位：每个 owner 只有 other（等主会话定，见 usage.ts 的文件头）。
+        // 第 1 版的码表：每个 owner 只有 other（来由见 usage.ts 的文件头）。
         for (const owner of OWNERS_V1) expect(Object.keys(code.valuesBy[owner]!)).toEqual(["other"]);
     });
 
     it("立即事件的 code 按 kind 取码表，可以省略", () => {
         const code = dependentField(U1.event.code);
         expect([code.dependsOn, code.required]).toEqual(["kind", false]);
-        // 第 1 版同样是占位：每个 kind 只有 other。
+        // 第 1 版同样：每个 kind 只有 other。
         expect(Object.fromEntries(Object.entries(code.valuesBy).map(([kind, values]) => [kind, Object.keys(values)]))).toEqual({crash: ["other"], upgrade_failed: ["other"]});
     });
 });

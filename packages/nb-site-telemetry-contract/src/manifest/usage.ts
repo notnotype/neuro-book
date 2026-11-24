@@ -7,9 +7,9 @@
  * 名单与码表的来源：
  * - `owner` 的取值是应用随发行构建带的插件（`packages/neuro-book/src/manifest.ts` 的 `productPlugins`），只在开发时
  *   加载的（`development-manifest.ts`，例如 Lab）不列。第 1 版照 2026-11-24 的 master 列出。
- * - 每个 `owner` 名下的错误码、立即事件每个 `kind` 名下的码：第 1 版只有 `other`。这是等主会话定的占位：应用里的错误码
- *   分散在各插件的失败类型、诊断事件名与文字目录里，没有一处能列全（w00037 t06 第 1 片的调查）。码表定下来以后按“只加取值”
- *   出新版本。
+ * - 每个 `owner` 名下的错误码、立即事件每个 `kind` 名下的码：使用档第 1 版在所有 `owner`、所有 `kind` 名下都只收 `other`。
+ *   应用里的错误码分散在各插件的失败类型、诊断事件名与文字目录里，没有一处能列全（w00037 t06 第 1 片的调查）；什么算错误码
+ *   由 w00053 定，定下来以后具体的码按“只加取值”进使用档第 2 版。
  */
 
 import {deepFreeze, dependentField, enumField, groupField, listField} from "./fields";
@@ -68,8 +68,8 @@ const OWNERS_V1: ValueTable = {
 const UNLISTED_CODE: Bilingual = {"zh-CN": "这里没有列出的错误码", "en-US": "An error code not listed here"};
 
 /**
- * 第 1 版的码表：每个 `owner` 名下只有 `other`（占位，见文件头）。`owner` 为 `other` 时 `code` 只能是 `other` 是协议的规则，
- * 不是占位，码表定下来以后也保持。
+ * 第 1 版的码表：每个 `owner` 名下只有 `other`（来由见文件头）。`owner` 为 `other` 时 `code` 只能是 `other` 是协议的规则，
+ * 以后的版本加了具体的码也保持。
  */
 const ERROR_CODES_V1: Readonly<Record<string, ValueTable>> = Object.fromEntries(Object.keys(OWNERS_V1).map((owner) => [owner, {other: UNLISTED_CODE}]));
 
@@ -78,7 +78,7 @@ const EVENT_KINDS_V1: ValueTable = {
     upgrade_failed: {"zh-CN": "一次升级没有装上", "en-US": "An upgrade was not installed"},
 };
 
-/** 第 1 版的事件码表：每个 `kind` 名下只有 `other`（占位，见文件头）。 */
+/** 第 1 版的事件码表：每个 `kind` 名下只有 `other`（来由见文件头）。 */
 const EVENT_CODES_V1: Readonly<Record<string, ValueTable>> = Object.fromEntries(Object.keys(EVENT_KINDS_V1).map((kind) => [kind, {other: UNLISTED_CODE}]));
 
 const USAGE_V1: UsageManifest = deepFreeze({

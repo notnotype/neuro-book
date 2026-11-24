@@ -7,10 +7,12 @@
  * 文件的写法与执行规则见 `nb-site-server/AGENTS.md` 的“迁移”；漏列的文件由 `migrations.test.ts` 抓到。
  */
 
+import init from "../migrations/0001_init.sql" with {type: "text"};
+
 export interface TelemetryMigration {
     /** 去掉 `.sql` 的文件名，例如 `0001_init`；写进库里的迁移账本，发布后不能改。 */
     readonly id: string;
     readonly sql: string;
 }
 
-export const telemetryMigrations: readonly TelemetryMigration[] = [];
+export const telemetryMigrations: readonly TelemetryMigration[] = [{id: "0001_init", sql: init}];
