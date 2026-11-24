@@ -17,7 +17,7 @@
 - 作者能在某个人物上自己加一项资料（预设里点，或自己写名字），能改名、去掉；
 - 改一项时就地展开，不再跳到页面顶上的确认条；
 - 图片能显示、能从作品里选、能上传；
-- 新建人物直接带人物与形象两组；“添加一组设定”只列适用于这个种类的。
+- 新建人物直接带人物与形象两组；“添加一组设定”里适用于这个种类的排在前面，其余收在“全部”里。
 
 依据：[`canon/components.md`](../../../../../docs/specs/canon/components.md)（输出 4 写了实例字段的增、改名、删，内核的写入操作里没有）、[`canon/revisions.md`](../../../../../docs/specs/canon/revisions.md) 输出 25（一次改几处）、[`canon/author-ui.md`](../../../../../docs/specs/canon/author-ui.md)（输出 4、12、13、16、38 与输入一节的两个贡献点）、[`canon/agent-tools.md`](../../../../../docs/specs/canon/agent-tools.md) 输出 6。
 
@@ -110,7 +110,11 @@
 | `kinds?: string[]` | 类型声明 | 这组设定适用的条目种类（条目的 `type` 那个词）；不写是没有特别适用的种类。只是提示，内核不拒收不适用的 |
 | `presets?: FieldDeclaration[]` | 类型声明 | 只在 `instanceFields` 为真时可写；“添加一项”里列出的预设字段，id 要写、不与固定字段和别的预设重复，按 `fieldsProblem` 校验 |
 
-`ComponentDeclarationSchema` 是 `additionalProperties: false`，三个都要加进 schema；`ComponentDeclaration`、`ComponentType` 两个接口与 `buildRegistry` 里逐项复制的那一段、`digest` 的输入都加上（登记变了的通知靠它）。`components` 读取返回的是登记的类型原样，界面与 Agent 都读得到，远程合同不用另改。
+`ComponentDeclarationSchema` 是 `additionalProperties: false`，三个都要加进 schema；`ComponentDeclaration`、`ComponentType` 两个接口与 `buildRegistry` 里逐项复制的那一段也加上。`components` 读取返回的是登记的类型原样，界面与 Agent 都读得到，远程合同不用另改。
+
+- **`kinds`、`presets` 不进 `digest`**：`digest` 是“要不要整本重算、丢掉已建的子线视图”的判据，这两样不影响算出来的值。登记变了的通知不靠它（服务比的是整份类型），界面照样会重读。`suggestions` 写在字段声明里，随 `fields` 在 `digest` 里：改建议值会整本重算一次，只在插件更新时发生，不为它另拆摘要。Agent 的读取戳只含类型 id 与版本，同一版本里改了这三样不会让它读到的戳失效：它们只是提示，接受。
+- `fieldsProblem` 补一条：`suggestions` 只用于 `text`（子字段同样查）。
+- **预设是加的时候用的模板，不是持续的约束**：加上以后就是这个条目自己的声明，类型以后改了、撤了某个预设都不影响已经加的。预设的 id 在某个条目上已经占着（现有的、去掉过的、初值或补丁里用过的）时，它不出现在这个条目的“添加一项”里；去掉过的列在“恢复”。
 
 ### 三、内置类型与样本（`packages/neuro-book/src/plugins/canon/shared/components.ts`、`scripts/canon-sample.ts`）
 
@@ -119,7 +123,11 @@
 - 版本不升：升了以后旧数据整组只读、又没有升级函数。这是一处明说的取舍，不是兼容：还没有发布过带世界引擎的版本，真实数据只有样本与开发时的试验作品（开发者定“直接改声明、重做样本，不做升级函数”）。不升的后果：试验作品里旧字段（外观、状态、态度、身体、样子）的值与对它们的补丁留在数据里，界面与主文字里读不到，主文字里引用它们的地方显示占位，不报错；这些作品里的人物也没有形象这一组，要作者自己加。关键设计一的第 3 处保证旧的剧情变更还能改别的地方。
 - **面板**先不动（显示名改“数值”与它的预设项在第二期），只加 `kinds: ["人物"]`。
 - 剧情插件的五个类型按各自的用法补 `kinds`（`plot/shared/declarations.ts`，实施时逐个对照它们 `targets` 的用法）。
-- **星瑕样本**：`character.外观` 与马甲的 `identity.外观` 写到形象组的 `look.外貌`；`性格` 不变；星瑕这本书专有的“身体”“现在的样子”“现在的态度”变成星瑕这个条目上自己声明的字段（样本生成时带 `declared`，种类照原型：两个选项、一个语义档文字），原型里对它们的补丁地址不变。主文字源文里的 `.identity.外观`、`.character.外观` 一并换成 `.look.外貌`。
+- **星瑕样本**：按原型里每个条目实际用到的字段来迁（审查核对过原型：“现在的态度”的初值与两处补丁都在星瑾身上，“身体”“现在的样子”在星瑕身上）：
+  - `character.外观` 与马甲的 `identity.外观` 写到形象组的 `look.外貌`，有这个值或补丁的条目带上形象这一组；`性格` 不变；
+  - “身体”“现在的样子”在星瑕这个条目上声明成她自己的字段，“现在的态度”在星瑾身上声明（种类照原型：两个选项、一个语义档文字）；原型里对它们的补丁地址不变；
+  - 要跟着换地址的不只是字段的值：初值的依据与讲述里以地址为键的几处（原型里有 9 处）、补丁与待定项里的地址、主文字源文里的引用（`.identity.外观`、`.character.外观` 换成 `.look.外貌`），都由生成脚本里的同一张映射表换，不逐处手写；
+  - 验收：生成以后重开世界、逐章读两个人物的各项与算出来的数，和迁之前的原型逐项对上。
 - 写死了旧字段名的地方跟着改：应用这一侧按字段名粗搜到 36 个文件（`canon` 与 `plot` 插件的测试与测试夹具、`canon-write`、`canon-author` 两份 e2e、样本的脚本与测试、两个性能脚本、Lab 的场景登记），其中一部分是剧情插件同名的“态度”，实施时先分清再改。内核的测试用自己的夹具与原型自带的声明，不受影响。先列全读法再逐处迁移，不批量替换。
 
 ### 四、条目的种类（新贡献点 `canon.entry-kinds`，`canon/shared/entry-kinds.ts`）
@@ -136,7 +144,9 @@ interface EntryKindDeclaration {
 ```
 
 - 内置登记四个：人物（人物、形象）、组织、地点、物品（后三个现在没有默认的设定组，第三期补）。
-- 同一个词登记两次：两条都不用，写一条诊断（同命名空间撞名的做法，不按先后决定谁赢）。
+- 同一个词登记两次：两条都不用，写一条诊断（同命名空间撞名的做法，不按先后决定谁赢）。默认里写到没登记、不可用或重复的类型时，那一项当作没写，另写一条诊断。
+- 默认只在“没说要哪几组”的时候用，三处用同一个函数算（`shared/entry-kinds.ts`）：Agent 的 `create` 不写 `components` 时套默认，写了（空数组也算）就照写的，`fields` 里写到的设定组照旧一并启用；新建对话框在作者选种类时把勾选换成这个种类的默认，作者之后改过勾选就不再跟着种类变。没登记的种类没有默认。
+- 设定组的 `kinds` 不写时，它在哪个种类的条目上都收在“全部”里，不排在前面。
 - 用它的三处：新建条目的对话框（种类的候选 = 登记的，加上已有条目用过的；选了登记的种类就把默认的设定组勾上，作者还能改；空状态的“新建人物”改走这张表，不再写死人物的类型 id）、条目页的“添加一组设定”（适用的在前，其余收在“全部”里）、Agent 的 `create`（没写 `components` 时按种类的默认，写了就照写的）。
 
 ### 五、展示组件的接口（`canon/shared/component-views.ts`、`canon/web/component-views.ts`、`components/EntryPageHost.vue`）
@@ -247,7 +257,9 @@ Spec 条目在 S0 写入后回填编号；这里先按行为列。
 | 人物重整以后，带旧字段的旧数据读得出来、不报错，旧的剧情变更还能改文字 | `canon.test.ts`（照旧声明写一份数据，换成新声明再读、再改） |
 | 三个声明属性的校验与读取 | `nb-canon/tests/components.test.ts`、`canon.test.ts` 的 `components` 读取 |
 | 样本照新声明生成、数值不变；星瑕自己声明的三项读得到 | `scripts/canon-sample.test.ts` |
-| 新建人物默认带两组；种类撞名的诊断；添加一组设定的排序 | `entries-view.dom.test.ts`、`entry-page.dom.test.ts` |
+| 新建人物默认带两组，改过勾选以后换种类不冲掉；种类撞名、默认里写到没登记的类型各有诊断；添加一组设定里适用的在前 | `entries-view.dom.test.ts`、`entry-page.dom.test.ts`、`canon.test.ts` |
+| Agent 新建：不写设定组套默认，写空数组不套，`fields` 里写到的照旧启用 | `agent-tools.test.ts` |
+| 去掉、恢复一个指向条目的实例字段：引用的校验与按条目筛改动记录照常；去掉以后它里面的引用不再算 | `nb-canon/tests/references.test.ts` |
 | Agent 的四个操作与按种类的默认 | `agent-tools.test.ts` |
 | 回执里四种改动的写法 | `receipt-page.dom.test.ts` |
 | `other`、`addComponent`、就地改的编辑器（真的过渡，不用替身）；专门界面没挂上时退回确认条；浮层点外面与 Escape 放弃、组字时的 Escape 不放弃；字段被去掉时草稿清掉；浮层里的下拉选一项不关掉浮层 | `entry-page.dom.test.ts`、`component-views.dom.test.ts`、`ConfirmBar.dom.test.ts` |
