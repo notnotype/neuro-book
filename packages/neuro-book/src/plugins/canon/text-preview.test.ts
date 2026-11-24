@@ -95,7 +95,8 @@ describe("author-ui 输出 48：预览什么时候读", () => {
 
     it("先发的晚回来：不盖掉后发的结果", () => inScene(async (scene) => {
         const entry = await scene.seed([]);
-        const desk = deskOf(await scene.window("browser-1"), entry);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window, entry);
         // 第一次读的回复扣住，等第二次读完再放。
         const first = scene.holdReply((ask) => ask.method === "renderSource");
         desk.source.value = "先发的";
@@ -105,9 +106,9 @@ describe("author-ui 输出 48：预览什么时候读", () => {
         desk.fire();
         await until(() => desk.shown() === "后发的");
         first.release();
-        // 放掉以后再读一轮别的东西，确认迟到的回复已经到过、没有换上。
-        desk.stamp.value += 1;
-        await until(() => desk.preview.failure.value === null && desk.shown() === "后发的");
+        // 同一条链路上的回复按先后到：后发的这次调用回来时，放掉的那条已经到过了。
+        await window.canon.call("status", {});
+        await nextTick();
         expect(desk.shown()).toBe("后发的");
         desk.dispose();
     }));
@@ -179,18 +180,16 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
     }));
 
     it("条目读不到（不存在）：没有可看的，也不算失败", () => inScene(async (scene) => {
-        const desk = deskOf(await scene.window("browser-1"), "e999");
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window, "e999");
         const asked = scene.holdReply((ask) => ask.method === "renderSource");
         desk.source.value = "字";
         await asked.held;
         asked.release();
-        desk.stamp.value += 1;
+        // 同一条链路上后发的调用回来时，预览的那条回复已经到过了。
+        await window.canon.call("status", {});
         await nextTick();
-        await until(async () => {
-            await nextTick();
-            return desk.preview.failure.value === null && desk.preview.problem.value === null;
-        });
-        expect(desk.shown()).toBe("");
+        expect([desk.shown(), desk.preview.problem.value, desk.preview.failure.value]).toEqual(["", null, null]);
         desk.dispose();
     }));
 });
