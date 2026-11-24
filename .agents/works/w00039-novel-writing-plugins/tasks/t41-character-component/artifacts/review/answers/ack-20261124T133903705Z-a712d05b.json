@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t41-character-component",
+    "artifactId": "review",
+    "ackId": "20261124T133903705Z-a712d05b",
+    "answers": [
+        "20261124T133701384Z-75d5c08b"
+    ],
+    "through": "20261124T133701384Z-75d5c08b",
+    "included": [
+        ".agents/works/w00039-novel-writing-plugins/tasks/t41-character-component/README.md"
+    ],
+    "ackedAt": "2026-11-24T13:39:03.705Z"
+}
