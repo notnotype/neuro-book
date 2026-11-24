@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00053-telemetry-feedback-stats
 issueId: null
 status: active
-updated: 2026-11-23
+updated: 2026-11-24
 ---
 
 # 统计、遥测与非阻塞反馈插件体系
@@ -21,6 +21,12 @@ updated: 2026-11-23
 5. `neuro-book-site` 后续倾向重写以摆脱历史包裹，并规划承载 Skill / 插件 / Profile 市场、小说发布、用户交流与论坛、OAuth 登录等能力（已同步登记到 [w00037-official-site](../w00037-official-site/README.md)），暂不强耦合本 Work 进度。
 6. 服务端强调**敏捷与低厂商锁定**：`neuro-book-site` 计划独立部署在 VPS，兼容 Cloudflare 更佳，但**不强依赖 Cloudflare**，后续切出 Cloudflare 时要求改动极小、切换灵活。
 
+## 后来的决定（开发者 2026-11-24）
+
+- 遥测的服务端落在重写的官方站里，作为它的统计模块，与 [w00037](../w00037-official-site/README.md) 一起推进；第一版官方站是一个进程里的两个模块（账号、统计），按以后能拆开的边界写。
+- 主会话的理解（待追认）：统计看板自己写，不部署 Umami；“首版后端部署起点”这个待定问题因此不再需要选。
+- 收集哪些数据、条款怎么写，在 [t02](tasks/t02-collection-scope-and-terms/README.md) 讨论。
+
 ## 调研
 
 - [统计、遥测与非阻塞反馈插件调研](research/2026-11-23-telemetry-feedback-and-stats.md)（2026-11-23）：历史线索核对、仓库既有约束与可复用源（`diagnostics.md`、`FirstRunWizard`、`notifications`、`projects.stats`、`SessionCore`）、`oh-my-pi` `report_issue` 拆解、Cloudflare / 重写官网 / Umami 对比、可移植 VPS 优先架构（Hono + PostgreSQL + 标准 S3 API，避免 CF 专有绑定锁定）、向导跳过与隐私风险提示。
@@ -36,3 +42,4 @@ updated: 2026-11-23
 | Task | 内容 | 状态 |
 |---|---|---|
 | [t01](tasks/t01-research-and-design/README.md) | 调研与架构取舍：统计插件、遥测反馈与后端选型 | active |
+| [t02](tasks/t02-collection-scope-and-terms/README.md) | 遥测收集范围与条款 | planned |

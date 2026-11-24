@@ -30,3 +30,5 @@ updated: 2026-11-24
 | Task | 内容 |
 |---|---|
 | [t01](tasks/t01-requirements/README.md) | 需求与范围讨论 |
+| [t02](tasks/t02-selection/README.md) | 选型：身份库、数据库访问与测试里的 PostgreSQL |
+| [t03](tasks/t03-architecture/README.md) | 架构细节讨论与提案 |
