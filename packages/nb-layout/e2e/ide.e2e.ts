@@ -6,10 +6,17 @@
  * `center:0` 编辑区与下区，`root:0` 主区与下条。
  *
  * 变异检查（各改坏示例里的一处、重新构建、只跑对应用例，都要失败；恢复后重新构建再跑全部）：
- * MUTATIONS
+ * - 没有按钮的区的分隔线可以拖（`sashLocked` 里去掉按区判断的那一句）：“没有按钮的区”用例失败，它的分隔线没有 `aria-disabled`。
+ * - 条旁的分隔线可以拖（去掉按条判断的那一句）：“条旁的分隔线拖不动”用例失败，条旁的分隔线没有 `aria-disabled`。
+ * - 最大化期间点按钮不先退出（`toggleTool` 里去掉 `maximized = false`）：“最大化”用例失败，点完按钮标题条上仍是 Restore。
+ * - 区展开而 `shown` 为空时不补第一个（`reconcile` 里去掉补的那一句）：“恢复宽度”用例失败，拖开的右区标题是空的。
+ * - 读档不放回尺寸意图（`fromSaved` 里去掉 `setSize`）：“存取”用例失败，收着存下的左区展开后是 260 不是 320。
+ * - 读档不把 `restoreSize` 放进策略：没有用例失败，也不可能有。库在收起时把节点当时的尺寸意图记成恢复尺寸，
+ *   `setSize` 在收起着时也重写它，展开回到的是意图；策略里给的值在这个布局里读不到。所以“读档放回意图”才是
+ *   该守的事，上一条守着它；模型测试里“重新载入后恢复尺寸还在”守的是同一个结果。
  */
 
-import {expect, test, type Locator, type Page} from "@playwright/test";
+import {expect, test, type Page} from "@playwright/test";
 
 import {boxOf, centerOf, dragTo, settled, type Point} from "./drag";
 import {serveExample} from "./serve";
