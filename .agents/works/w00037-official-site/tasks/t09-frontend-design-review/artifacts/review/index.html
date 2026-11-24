@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>官方站前端 第 5 轮：看板下半屏的错误、崩溃与升级</title>
+<title>官方站前端：外观已定，按第 5 轮的意见改过的看板</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -43,13 +43,12 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>官方站前端 第 5 轮：看板下半屏的错误、崩溃与升级</h1>
+<h1>官方站前端：外观已定，按第 5 轮的意见改过的看板</h1>
 
-<section data-nbdev-question="dashboard-errors" data-nbdev-type="confirm" data-nbdev-label="看板下半屏的错误、崩溃、升级照图做">
-  <h2>看板下半屏的错误、崩溃、升级照图做吗？</h2>
-  <p class="rec"><strong>推荐同意：接在留存下面，往下滚才看到。错误按份数从多到少排，右边那条是“出现过这个错误的上报里，一天出现了几次”，颜色越深次数越多；崩溃与升级沿用版本、系统那种横条。</strong></p>
+<section>
+  <h2>看板下半屏改成了红色，不用再答</h2>
   <div class="stack">
-    <a href="r5/dashboard.webp" data-nbdev-skip><img src="r5/dashboard.webp" alt="看板整页：上面是第 4 轮定下的部分，最下面一行是错误表、崩溃与升级"></a>
+    <a href="r5/dashboard-red.webp"><img src="r5/dashboard-red.webp" alt="看板整页：错误的横条是由浅到深的红，崩溃与升级失败是红色，升级成功是绿色，没出事的那一行是灰色"></a>
   </div>
 </section>
 
@@ -78,6 +77,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>账号页一页到底、没有横幅；没有邮箱的账号只在邮箱那一格与目录里标出（第 3 轮）</li>
     <li>列表页用同一个带工具条与分页的数据表格，做成 nb-ui 的通用组件（第 3 轮）</li>
     <li>图表库用 ECharts；看板上半屏照第 4 轮的图做（第 4 轮）</li>
+    <li>看板下半屏是错误、崩溃、升级；出问题的用红色，升级成功用绿色（第 5 轮）</li>
   </ol>
 </section>
 </main>
