@@ -11,11 +11,12 @@ import {join} from "node:path";
 
 import {AGGREGATE_SOURCES, aggregateAllNow, createAggregator} from "./aggregate";
 import {DAY_MS} from "./days";
-import {lastExpiredSql} from "./purge";
+import {createPurge, lastExpiredSql} from "./purge";
+import {createRateLimiter, RATE_LIMIT_WINDOW_MS} from "./rate-limit";
 import {createTelemetryStore, isDbUnavailable} from "./store";
 import {createTestDbRoot, type TestDbRoot} from "./testing/db";
 import {createTestModule} from "./testing/module";
-import {aggregateTables, dailyRecord, dayAt, eventRecord, rawRows, reportId, TODAY, withUsage} from "./testing/reports";
+import {aggregateTables, dailyRecord, dayAt, eventRecord, NOW, rawRows, reportId, TODAY, withUsage} from "./testing/reports";
 
 let root: TestDbRoot;
 let reference: TestDbRoot;
@@ -259,5 +260,24 @@ describe("删掉的内容不留在文件里", () => {
         }
         await test.run("purge");
         expect(test.logs).toHaveLength(1);
+    });
+});
+
+describe("限流来源的清理（site.telemetry-ingest 输出 8：来源地址只在内存里留到窗口结束）", () => {
+    it("purge 清掉换了窗口之后限流器里的来源；同一个窗口里不动它们", async () => {
+        const db = root.open();
+        let now = NOW;
+        const limiter = createRateLimiter({limit: 5, now: () => now});
+        // 限流器是真的，purge 与模块里的装配一样拿它的 sweep；没有新请求进来时，只有 purge 能让上一个窗口的来源离开内存。
+        const purge = createPurge({db, aggregator: createAggregator(db), limiter, clock: {now: () => now}, retentionDays: 7, log: {info: () => undefined, warn: () => undefined, error: () => undefined}, closing: () => false});
+        limiter.take("198.51.100.1");
+        limiter.take("2001:db8::1");
+
+        await purge();
+        expect(limiter.sources()).toBe(2);
+
+        now += RATE_LIMIT_WINDOW_MS;
+        await purge();
+        expect(limiter.sources()).toBe(0);
     });
 });

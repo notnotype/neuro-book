@@ -5,7 +5,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createRateLimiter, PREFIX48_LIMIT_FACTOR, RATE_LIMIT_WINDOW_MS, type RateLimitDecision} from "./rate-limit";
+import {createRateLimiter, RATE_LIMIT_WINDOW_MS, type RateLimitDecision} from "./rate-limit";
 
 /** 一个窗口的开头，任取一个对齐的时间。 */
 const WINDOW_START = Math.floor(Date.parse("2026-11-24T12:00:00Z") / RATE_LIMIT_WINDOW_MS) * RATE_LIMIT_WINDOW_MS;
@@ -77,11 +77,12 @@ describe("IPv6 按前缀计（输出 9）", () => {
         expect(limiter.sources()).toBe(2);
     });
 
-    it(`同一个 /48 下的 /64 合计到单个来源额度的 ${PREFIX48_LIMIT_FACTOR} 倍为止；别的 /48 不受影响，被挡下的 /64 不占来源数`, () => {
+    // 16 倍是 Spec 写明的数，这里写字面值，不从实现导入：实现里的常量改了，这条要跟着失败。
+    it("同一个 /48 下的 /64 合计到单个来源额度的 16 倍为止；别的 /48 不受影响，被挡下的 /64 不占来源数", () => {
         const limit = 2;
         const {limiter} = limiterAt(limit);
         const results: boolean[] = [];
-        for (let subnet = 0; subnet < PREFIX48_LIMIT_FACTOR; subnet += 1) results.push(...takeMany(limiter.take, `2001:db8:7:${subnet.toString(16)}::1`, limit));
+        for (let subnet = 0; subnet < 16; subnet += 1) results.push(...takeMany(limiter.take, `2001:db8:7:${subnet.toString(16)}::1`, limit));
         expect(results.every(Boolean)).toBe(true);
         const sourcesBefore = limiter.sources();
         // 第 17 个 /64：它自己一次都没用过，但 /48 的合计满了。
@@ -101,6 +102,20 @@ describe("来源数的上限", () => {
         expect(takeMany(limiter.take, "198.51.100.1", 3)).toEqual([true, true, false]);
         setNow(WINDOW_START + RATE_LIMIT_WINDOW_MS);
         expect(limiter.take("198.51.100.3")).toEqual(OK);
+    });
+});
+
+describe("来源数的上限的数（输出 9：10 万个）", () => {
+    // 缺省构造的限流器，写入口用的就是它；上限的数写字面值，不从实现导入。IPv4 地址 10.a.b.c 凑 10 万个不同的来源，每个只用一次额度。
+    const addressOf = (index: number): string => `10.${String(Math.floor(index / 65_536))}.${String(Math.floor(index / 256) % 256)}.${String(index % 256)}`;
+
+    it("同一个窗口里第 100000 个来源还能进，第 100001 个新来源被拒；已有的来源照常用额度", () => {
+        const {limiter} = limiterAt(2);
+        const first = Array.from({length: 100_000}, (_, index) => limiter.take(addressOf(index)).ok);
+        expect(first.every(Boolean)).toBe(true);
+        expect(limiter.sources()).toBe(100_000);
+        expect(limiter.take(addressOf(100_000))).toEqual({ok: false, retryAfterSeconds: RATE_LIMIT_WINDOW_MS / 1000});
+        expect(limiter.take(addressOf(0))).toEqual(OK);
     });
 });
 

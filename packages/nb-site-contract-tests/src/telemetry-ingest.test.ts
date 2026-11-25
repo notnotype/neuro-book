@@ -406,6 +406,13 @@ describe("限流（协议输出 10，site.telemetry-ingest 输出 9）", () => {
         expect(limited.status).toBe(429);
     });
 
+    it("C10 额度用完之后，过大的请求回 429 而不是 413（协议输出 13）", async () => {
+        await toNextWindow(site);
+        for (let index = 0; index < LIMIT; index += 1) expect((await sendReport(site.url, ...oneOfEach(index))).status).toBeLessThan(300);
+        const tooLarge = await sendReport(site.url, "daily", undefined, {body: JSON.stringify({...dailyReport(), pad: "x".repeat(INGEST_MAX_BODY_BYTES)})});
+        expect(outcome(tooLarge)).toEqual({status: 429, body: {code: "rate_limited"}});
+    });
+
     it("C12 内容类型或编码不对的请求不占额度：先发十二个（含不止一个媒体类型的两种），额度照样是完整的", async () => {
         await toNextWindow(site);
         const wrongRequests: (() => Promise<{readonly status: number}>)[] = [
@@ -452,6 +459,8 @@ describe("不留来源地址（site.telemetry-ingest 输出 8、9，验收 3）"
             otherSource: await sendReport(site.url, "heartbeat", heartbeatReport(), {headers: from(SOURCE_V6)}),
             // 对端是可信代理而没给转发头：取不到来源地址。
             noForwarded: await sendReport(site.url, "daily", dailyReport()),
+            // 同样没给转发头，内容类型也不对：判内容类型在先。
+            wrongTypeNoAddress: await sendReport(site.url, "daily", dailyReport(), {headers: {"Content-Type": "text/plain"}}),
         };
         // 停掉进程再看：输出收齐、库文件与日志文件都已落盘。
         await site.stop();
@@ -459,11 +468,15 @@ describe("不留来源地址（site.telemetry-ingest 输出 8、9，验收 3）"
 
     it("可信代理转发的来源照常限流：同一个地址的几种写法算同一个来源", () => {
         const statuses = Object.fromEntries(Object.entries(responses).map(([name, response]) => [name, response.status]));
-        expect(statuses).toEqual({recorded: 200, invalid: 400, tooLarge: 413, limited: 429, wrongType: 400, otherSource: 204, noForwarded: 503});
+        expect(statuses).toEqual({recorded: 200, invalid: 400, tooLarge: 413, limited: 429, wrongType: 400, otherSource: 204, noForwarded: 503, wrongTypeNoAddress: 400});
     });
 
     it("C13 取不到来源地址时回 503 unavailable", () => {
         expect(outcome(responses.noForwarded!)).toEqual({status: 503, body: {code: "unavailable"}});
+    });
+
+    it("C13 内容类型不对又取不到来源地址时，先报内容类型：400 而不是 503（协议输出 13）", () => {
+        expect(outcome(responses.wrongTypeNoAddress!)).toEqual(invalid(null));
     });
 
     it("C13 记入、拒收、过大、限流之后，进程的输出与数据目录的文件里找不到来源地址的任何写法", () => {
@@ -579,6 +592,7 @@ describe("备份里没有原始上报（site.operations 输出 6、验收 3 的�
     const appVersion = "77.66.55-c16marker";
     let report: Report;
     let recorded: IngestResponse;
+    let resentAfterRestore: IngestResponse | undefined;
     let backupDir: string | undefined;
     let restored: SiteProcess | undefined;
 
@@ -597,6 +611,8 @@ describe("备份里没有原始上报（site.operations 输出 6、验收 3 的�
         for (const module of ["identity", "telemetry"]) await copyFile(join(backupDir, `${module}.db`), join(restoredDir, `${module}.db`));
         restored = await sandbox.start({dataDir: restoredDir, env: LARGE_LIMIT});
         await restored.ready();
+        // 恢复之前记入过的那一份，在恢复出来的服务上重发。
+        resentAfterRestore = await sendReport(restored.url, "daily", report);
     }, SETUP_TIMEOUT_MS);
 
     it("C16 记入一份之后备份：副本里找不到它的上报编号，找得到它的应用版本（进了聚合）；用副本起的服务就绪", async () => {
@@ -605,5 +621,10 @@ describe("备份里没有原始上报（site.operations 输出 6、验收 3 的�
         expect(dataFilesContaining(backupDir!, report.reportId as string)).toEqual([]);
         expect(dataFilesContaining(backupDir!, appVersion)).toEqual(["telemetry.db"]);
         expect((await requestJson(`${restored!.url}health/ready`)).status).toBe(200);
+    });
+
+    it("C16 用副本起的服务上，恢复之前记入过的那一份重发得 duplicate: false，被当作新的一份（副作用一节）", () => {
+        expect(resentAfterRestore).toBeDefined();
+        expect(outcome(resentAfterRestore!)).toMatchObject({status: 200, body: {duplicate: false}});
     });
 });

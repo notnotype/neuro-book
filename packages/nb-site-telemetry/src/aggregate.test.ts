@@ -187,6 +187,36 @@ describe("聚合的数", () => {
     });
 });
 
+describe("使用档版本不同的上报分开存（输出 6）", () => {
+    it("使用档的份数、错误项与立即事件，生效版本不同的各是一组，不合成一个数", () => {
+        const db = root.open();
+        const store = createTelemetryStore(db);
+        const usage = withUsage({errors: [{owner: "nbook.http", code: "other", count: "2-4"}], crashes: "1", upgrade: "failed"});
+        const daily = dailyRecord({reportId: reportId("u", 1), ...usage});
+        store.recordDaily(daily, NOW);
+        // 使用档只有第 1 版：直接造“生效版本是 2”的记录，要看的只是聚合按版本分开。
+        store.recordDaily({...dailyRecord({reportId: reportId("u", 2), ...usage}), usageDeclared: 2, usage: {...daily.usage!, version: 2}}, NOW);
+        const event = eventRecord({reportId: reportId("ue", 1)});
+        store.recordEvent(event, NOW);
+        store.recordEvent({...eventRecord({reportId: reportId("ue", 2)}), usage: {declared: 2, effective: 2}}, NOW);
+
+        aggregateAllNow(createAggregator(db));
+
+        expect(db.query("SELECT manifest_usage, reports FROM telemetry_usage_count WHERE dimension = 'reports' ORDER BY 1").all()).toEqual([
+            {manifest_usage: 1, reports: 1},
+            {manifest_usage: 2, reports: 1},
+        ]);
+        expect(db.query("SELECT manifest_usage, reports FROM telemetry_usage_error ORDER BY 1").all()).toEqual([
+            {manifest_usage: 1, reports: 1},
+            {manifest_usage: 2, reports: 1},
+        ]);
+        expect(db.query("SELECT manifest_usage, events FROM telemetry_event_count ORDER BY 1").all()).toEqual([
+            {manifest_usage: 1, events: 1},
+            {manifest_usage: 2, events: 1},
+        ]);
+    });
+});
+
 describe("一批的范围与事务", () => {
     it("编号有大段空号时一批仍取满 n 行，上界是选出的最后一行", () => {
         const db = root.open();
