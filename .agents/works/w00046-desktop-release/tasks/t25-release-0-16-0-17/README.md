@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t25-release-0-16-0-17
 status: active
-updated: 2026-11-24
+updated: 2026-11-25
 ---
 
 # 发 v0.16.0、v0.17.0；推送 CI 的不稳定测试与发版命令的改进
@@ -61,3 +61,4 @@ updated: 2026-11-24
 - S10、shell 输出 21 再出现时读证据：S10 看 `second-stderr`，shell 看错误信息里的“结果末尾”。再出现两次仍无头绪，就给 S10 的探测加日志、给 shell 用例分段计时。
 - 9 个源码包有改动但没提版本（flock、runtime、ui、harness、markdown、agent-ui、story、plugin-sdk 等），要发布时再提；nb-layout 0.2.0 已在 npm 上，再发新版前 2 天内配置 trusted publishing。
 - Release 说明的 omp 式本机整理步骤仍未做；“magpie”的链接没拿到。
+- 2026-11-25 演练（[运行 45638084691](https://github.com/notnotype/neuro-book/actions/runs/45638084691)）CI 挂两条：`scripts/release/packages.test.ts` 里 w00043 t18 加的用例用了 Bun 才有的 `import.meta.dir`，vitest 在 Node 下取到 undefined，已改用文件顶部的 `REPOSITORY`（`87f676f1b`）；`explorer/browse.test.ts` 的“展开的目录改名：子树在新地址继续展开，选择跟随”是原有偶发：本机 master 40 次挂 2 次，11 月 10 日的提交上 40 次挂 7 次，失败时选择变成空（第 256 行），子树已在新地址列出。没查根因；推断是改名的变化分两批到达时，第一批算出的可见行先把选择剪掉了，要查时从 `explorer/web/controller.ts` 的 prune 微任务与 `tree/model.ts` 的 `onPathsChanged` 看起，用 `bun test src/plugins/explorer/browse.test.ts --rerun-each 40 -t '展开的目录改名'` 复现。

@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t26-resume-last-project
-status: active
+status: done
 updated: 2026-11-25
 ---
 
@@ -29,4 +29,4 @@ Claude Sonnet 一份，11 条（阻断 1、重要 5、建议 5），全部成立
 
 ## 下一步
 
-已合入 master（f792fce89）。剩下：推 master 后用 `bun run release rehearse` 演练一次，看安装版冒烟的“再启动直接进上次的作品”与更新冒烟在 Windows runner 上过不过（开发者已同意为此推 master）；macOS 的 Dock 重开在 t23 的真机验收里一起看。演练过了改 `done`。
+已完成。2026-11-25 推 master 后演练（[运行 45638084691](https://github.com/notnotype/neuro-book/actions/runs/45638084691)）：桌面包与 Windows 冒烟（含安装版“再启动直接进上次的作品”）、更新冒烟 A′、B′、macOS 的壳与桌面包都过；演练整体判失败是因为 CI 的两条与本 Task 无关的测试（一条已修，一条原有偶发，见 [t25](../t25-release-0-16-0-17/README.md) 的“下一步”）。macOS 的 Dock 重开在 t23 的真机验收里一起看。
