@@ -439,4 +439,5 @@ interface SplitterPanelConfig {
     sizing?: "fixed" | "weight";
     collapse?: SashCollapseState;
     label?: string;
+    overflow?: "hidden" | "visible";
 }

@@ -9,7 +9,8 @@
 
 ## 布局与交互
 
-- **宽版**（`layout: "wide"`）：左边 260 像素的列表栏，右边聊天区。列表栏顶上有收起按钮；收起后左边换成头像列，头像列顶上的按钮展开列表栏。收起后焦点到头像列的展开按钮，展开后到列表栏的收起按钮（被点的按钮跟着不见）。
+- **宽版**（`layout: "wide"`）：左边的列表栏（缺省 260 像素），右边聊天区。列表的切换行右端有收起按钮；收起后左边换成头像列，头像列顶上的按钮展开列表栏。收起后焦点到头像列的展开按钮，展开后到列表栏的收起按钮（被点的按钮跟着不见）。
+- **拖宽度**（宽版）：列表栏与聊天区之间的线是 nb-layout 的分隔线（`role="separator"`，名称由“消息列表”“聊天区”拼成；指针、键盘与悬停的样子见 [`Splitter`](../../../../nb-layout/src/vue/Splitter.md)）。列表栏宽 200 到 420 像素，聊天区至少留 320 像素（视图窄时列表栏的上限跟着降）。拖到 200 像素以内再过 40 像素收成头像列，收着时往外拖过 40 像素展开；焦点在线上时 `Enter` 收起、展开。松手（或键盘调完）时发 `update:listWidth`（展开着时，取整的像素）与 `update:listCollapsed`（变了才发）；拖动中头像列与列表按当时的收起状态换。给的 `listWidth` 超出范围时按范围显示，不改它；交回的是松手时显示的宽度，所以视图窄、宽度被聊天区的下限压着时拖一下，宿主记着的宽度就换成压过的值。面板比 200 像素窄的时候（往收起的门槛拖、收起与展开的宽度过渡中）列表不跟着挤窄，被面板裁掉右边；头像列与列表在收起状态变的那一刻直接换，不随宽度过渡。窄版时这条线不可拖、不进 Tab 顺序。
 - **窄版**（`layout: "narrow"`）：左边 52 像素的头像列，右边聊天区。头像列从上到下：开列表的按钮、各个联系人的头像、分隔、最近会话的图标（宿主给几个画几个，消息视图给 5 个）。
   - 联系人头像：有未读时右上角一个点，有等你处理的事时点是黄色（`data-strip-waiting`）；选中的有底色；按钮的名称是“名字”加未读数。
   - 会话图标：悬停写标题；名称是标题。
@@ -28,6 +29,8 @@ type AgentMessagesProps = {
     layout: "wide" | "narrow";
     /** 宽版的列表栏收起了没有（受控，`v-model:listCollapsed`）。 */
     listCollapsed: boolean;
+    /** 宽版列表栏的宽度，CSS px（受控，`v-model:listWidth`）；默认 260。 */
+    listWidth?: number;
     /** 窄版的抽屉开着没有（受控，`v-model:drawerOpen`）。 */
     drawerOpen: boolean;
     /** 列表当前页（受控，`v-model:tab`），交给 `AgentMessagesList`。 */
@@ -45,6 +48,7 @@ type AgentMessagesProps = {
 
 type AgentMessagesEmits = {
     (e: "update:listCollapsed", collapsed: boolean): void;
+    (e: "update:listWidth", width: number): void;
     (e: "update:drawerOpen", open: boolean): void;
     (e: "update:tab", tab: "bot" | "sessions"): void;
     (e: "open-contact", key: string): void;
@@ -73,4 +77,4 @@ expose `closeDrawer()`：关抽屉、焦点回到开它的按钮（宿主在会�
 
 ## 隐藏通道理由
 
-`state:inject`：翻译端口（`provideAgentText`）。`state:local`：开抽屉的那个按钮（关后还焦点）。
+`state:inject`：翻译端口（`provideAgentText`）。`state:local`：开抽屉的那个按钮（关后还焦点）；拖动中列表栏收起了没有（松手才交回宿主）。分栏自己的隐藏通道（窗口上的手势监听、分隔线读屏文字的注入点）见 `Splitter` 的文档：宿主没有注入 nb-layout 的文字时，分隔线的读屏文字是英文。

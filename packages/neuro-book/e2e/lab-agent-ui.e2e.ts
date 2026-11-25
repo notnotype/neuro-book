@@ -966,3 +966,121 @@ test.describe("桌面壳里的文字选择", () => {
         expect(await copyable(page, ".lab-main .acv-wizard-frame__title", title)).toBe("");
     });
 });
+
+/**
+ * “消息”视图外框的分栏（AgentMessages.md 的“拖宽度”）：列表栏与聊天区之间是 nb-layout 的分隔线。拖动要真实的布局与指针，happy-dom 给不出。
+ */
+test.describe("消息视图的分栏", () => {
+    const separator = (page: Page) => stage(page).getByRole("separator");
+    const listPanel = (page: Page) => stage(page).locator("[data-messages-list-panel]");
+    const strip = (page: Page) => stage(page).locator("[data-messages-strip]");
+    const widthOf = async (page: Page, selector: string) => stage(page).locator(selector).evaluate((element) => (element as HTMLElement).offsetWidth);
+
+    /** 按住分隔线横着拖 `dx` 像素再松手。 */
+    async function dragSeparator(page: Page, dx: number): Promise<void> {
+        const box = (await separator(page).boundingBox())!;
+        const x = box.x + box.width / 2;
+        const y = box.y + box.height / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + dx, y, {steps: 8});
+        await page.mouse.up();
+        await frames(page);
+    }
+
+    test("宽版：拖线改列表栏的宽度，收起再展开还是拖出来的宽度", async ({page}) => {
+        await openScene(page, "AgentMessages", "wide", "900x560");
+        await expect(listPanel(page)).toBeVisible();
+        expect(await widthOf(page, "[data-messages-list-panel]")).toBe(260);
+
+        await dragSeparator(page, 60);
+        expect(Math.abs(await widthOf(page, "[data-messages-list-panel]") - 320)).toBeLessThanOrEqual(TOLERANCE_PX);
+
+        // 宽度交回了宿主：收起、展开都会按宿主给的宽度重新分配，没交回就回到 260。
+        await stage(page).locator("[data-messages-collapse]").click();
+        await expect(strip(page)).toBeVisible();
+        await stage(page).locator("[data-messages-toggle]").click();
+        await expect(listPanel(page)).toBeVisible();
+        await expect.poll(async () => Math.abs(await widthOf(page, "[data-messages-list-panel]") - 320)).toBeLessThanOrEqual(TOLERANCE_PX);
+    });
+
+    test("宽版：拖到最小宽度以内再过门槛收成头像列，往外拖展开；键盘左右键改宽度", async ({page}) => {
+        await openScene(page, "AgentMessages", "wide", "900x560");
+        // 260 往里拖 130：到 130，小于 200 - 40。
+        await dragSeparator(page, -130);
+        await expect(strip(page)).toBeVisible();
+        await expect(listPanel(page)).toBeHidden();
+        expect(await widthOf(page, "[data-messages-strip]")).toBe(52);
+
+        // 收着时往外拖过门槛就展开，展开后不小于最小宽度。
+        await dragSeparator(page, 170);
+        await expect(listPanel(page)).toBeVisible();
+        await expect(strip(page)).toBeHidden();
+        const expanded = await widthOf(page, "[data-messages-list-panel]");
+        expect(expanded).toBeGreaterThanOrEqual(200);
+
+        await separator(page).focus();
+        await page.keyboard.press("ArrowRight");
+        await frames(page);
+        expect(await widthOf(page, "[data-messages-list-panel]")).toBe(expanded + 10);
+    });
+
+    test("宽版收着时：按住线往外拖过门槛再拖回门槛内，不松手时就回到头像列；焦点在线上按 Enter 展开、再按收起", async ({page}) => {
+        await openScene(page, "AgentMessages", "wide-collapsed", "900x560");
+        await expect(strip(page)).toBeVisible();
+        const box = (await separator(page).boundingBox())!;
+        const x = box.x + box.width / 2;
+        const y = box.y + box.height / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 180, y, {steps: 8});
+        await expect(listPanel(page)).toBeVisible();
+        await expect(strip(page)).toBeHidden();
+        // 拖回门槛内：面板回到头像列的宽度，画的也要换回头像列（列表不能挤在 52 像素里）。
+        await page.mouse.move(x + 10, y, {steps: 8});
+        await expect(strip(page)).toBeVisible();
+        await expect(listPanel(page)).toBeHidden();
+        await page.mouse.up();
+        await frames(page);
+        await expect(strip(page)).toBeVisible();
+
+        await separator(page).focus();
+        await page.keyboard.press("Enter");
+        await expect(listPanel(page)).toBeVisible();
+        await expect.poll(async () => widthOf(page, "[data-messages-list-panel]")).toBe(260);
+        await expect(separator(page)).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(strip(page)).toBeVisible();
+        await expect(listPanel(page)).toBeHidden();
+    });
+
+    test("宽版英文、列表栏最窄：切换行的标签不压到收起按钮", async ({page}) => {
+        await openScene(page, "AgentMessages", "wide-narrowest-english", "900x560");
+        const tab = (await stage(page).locator("[data-messages-tab='sessions']").boundingBox())!;
+        const collapse = (await stage(page).locator("[data-messages-collapse]").boundingBox())!;
+        expect(tab.x + tab.width).toBeLessThanOrEqual(collapse.x);
+    });
+
+    test("窄版：抽屉从头像列伸出来压在聊天区上，行点得到；线拖不动", async ({page}) => {
+        await openScene(page, "AgentMessages", "narrow-drawer", "900x560");
+        await expect(listPanel(page)).toBeVisible();
+        const drawer = (await listPanel(page).boundingBox())!;
+        const rail = (await strip(page).boundingBox())!;
+        expect(drawer.x).toBeGreaterThanOrEqual(rail.x + rail.width - TOLERANCE_PX);
+        expect(drawer.width).toBeGreaterThan(200);
+        // 抽屉真的画在聊天区上面：行中心最上面的元素就是这一行。不靠 click 判断：抽屉被 52 像素的那块面板裁掉时，
+        // click 会先把行滚进那块面板再点，照样点得到。
+        const row = stage(page).locator("[data-messages-contact='nbook.bots/vega']");
+        expect(await row.evaluate((element) => {
+            const box = element.getBoundingClientRect();
+            const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+            return top !== null && element.contains(top);
+        })).toBe(true);
+        await row.click();
+        await expect(page.locator('[data-lab-panel="events"] .nb-lab-event-chip', {hasText: "open-contact"})).toHaveCount(1);
+
+        await dragSeparator(page, 80);
+        expect(await widthOf(page, "[data-messages-strip]")).toBe(52);
+        await expect(separator(page)).toHaveAttribute("aria-disabled", "true");
+    });
+});

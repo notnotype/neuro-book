@@ -432,7 +432,7 @@ export default {
         submit: "发送",
     },
     messages: {
-        tabBot: "bot",
+        tabBot: "Bot",
         tabSessions: "会话",
         search: "搜索 bot",
         running: "正在回复…",
@@ -443,6 +443,7 @@ export default {
         empty: "还没有 bot",
         noMatch: "没有匹配的 bot",
         list: "消息列表",
+        chat: "聊天区",
         openList: "打开列表",
         collapseList: "收起列表",
         expandList: "展开列表",
