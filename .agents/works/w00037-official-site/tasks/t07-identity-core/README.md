@@ -120,5 +120,6 @@ ADR 0063 还没写：ADR 只收开发者接受过的决定，等开发者对“�
 - `purge` 第 3 片就设了 `initialDelayMs: 0`，合进调度器后生效；“启动后先跑一次”的合同用例让任务在启动时撞上进程外的写锁、看它自己记的 `job.failed`（合同里造不出启动时已到期的会话，任务成功时没删到东西也不记日志）。`job.failed` 带 `module` 与 `job` 已写进 `site.operations` 失败表。
 - 注册与重置密码在哈希过载时回 `overloaded` 补了包内用例（合同里保证不了两个请求重叠）。`site.accounts` 的三条 Smoke 早已标好，本片给 `site.admin` 的封禁补标；`accounts-me.test.ts` 的“改资料”多标了一个 Smoke，晋升时一起看。
 - 合入 master 时要改的：`site.telemetry-ingest` 输出 10 里“‘登录照常’那一半等账号有了登录接口再验（planned）”去掉。计划第 7 节的手工主路径（起 `serve`、走注册、登录、`whoami`、登出）主会话在晋升前做。
+- 手工主路径（主会话，2026-11-25，`f8eb66f1e`，脚本 `/tmp/w00037-t07-plan/lab-manual/walk.sh`）：`migrate`、管道给密码的 `create-admin`（标准错误先写一行等密码的提示）、管理员登录（Cookie `__Host-nbsite.session_token`、`Path=/`、`HttpOnly`、`Secure`、`SameSite=Lax`、30 天）、补交同意之前发注册码得 `consent_required`、补交后发一次性注册码、用它注册（带 Chrome 的 `User-Agent`）、`whoami` 是新账号、会话列表只有 `Chrome`、`Linux` 与 `current`、登出回 `{}` 并清掉库的三个 Cookie、带 `no-store`、登出后 `whoami` 是匿名、再用这个码注册得 `registration_code_invalid`、`SIGTERM` 后以 0 退出；服务日志与输出里找不到两个密码。
 
 第 6 到 8 片与上两个修正的实现审查已开（2026-11-25，范围 `02ce9d01b..f8eb66f1e`，账号这一侧的提交）：Opus 先审，omp（`@review`）在后台；审查用的 worktree 是 `.worktree/w00037-t07-review3`。
