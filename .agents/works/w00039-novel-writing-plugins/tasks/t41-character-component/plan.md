@@ -163,6 +163,7 @@ interface EntryKindDeclaration {
   - 空状态的“新建人物”改走这张表，不再写死人物的类型 id；表里没有“人物”时这个按钮不出现，只剩“新建条目”。
   - 条目页的“添加一组设定”：还是一个下拉，适用于这个条目种类的排在前面，其余接在后面，不另加一层收起（审查指出登记的类型一共只有几个、nb-ui 的下拉也没有分组；与开发者确认过的“其余收进全部”有出入，记进待确认清单）。
   - Agent 的 `create`：见下一条。
+  - 条目页的分页顺序（评审板第 2 轮答复“人物在前”）：条目种类的默认设定组的数据分页排到“文字”前面，次序同命名空间的顺序；其余数据分页、附加分页、“情节”照旧。宿主的分页表按条目的种类查这张表，种类改了分页跟着重排，选着的分页不变。
 
 ### 五、展示组件的接口（`canon/shared/component-views.ts`、`canon/web/component-views.ts`、`components/EntryPageHost.vue`）
 
@@ -271,7 +272,7 @@ readonly removedFields?: readonly {id: string; label: string}[];
 | S1b | 内核四个写入操作、`declare`、id 的生成、`removedFields` | 一 | `nb-canon` 的 `entry-edits`、`revisions`、`author-reads` 几份测试，类型检查 |
 | S2 | 声明的三个属性；内置类型重整、形象、样本；迁移应用侧写死旧字段的测试 | 二、三 | `nb-canon` 的 `components`；应用的 `canon`、`plot` 插件测试与样本测试 |
 | S3 | 回执与 Agent 工具 | 八 | `agent-tools.test.ts`、`receipt-page.dom.test.ts` |
-| S4 | 种类的登记、新建对话框、添加一组设定 | 四 | `entries-view`、`NewEntryDialog`、`entry-page` 的 dom 测试 |
+| S4 | 种类的登记、新建对话框、添加一组设定、分页顺序 | 四 | `entries-view`、`NewEntryDialog`、`entry-page` 的 dom 测试 |
 | S5 | 展示接口、就地改的编辑器、`SuggestInput`、抽出 `useFieldDetail`、假的 context | 五 | `component-views`、`entry-page`、`ConfirmBar`、`FieldsDataView` 的 dom 测试 |
 | S6 | 图片端口、`CanonImage`、`ImageInput` | 七 | 各自的 dom 测试，Lab 场景 |
 | S7 | 人物、形象两个界面：展示层与绑定层（评审板第 2 轮答复以后） | 六 | 展示层的 dom 测试与 Lab 场景（含 390 宽与英文），绑定层在 `entry-page.dom.test.ts` |
