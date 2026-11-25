@@ -18,6 +18,8 @@
 
 遮罩根内另有 `aria-live="polite"`、`aria-atomic="true"` 的隐藏区域，只播报 trim 后的标签文案，不随几何逐帧播报。焦点和拖放手势由宿主保持。
 
+所以同一句标签文案在 DOM 里有两份：药丸里一份（`data-drop-feedback-label`），播报区域里一份（`data-drop-feedback-live`）。测试按文字定位会同时命中两个，要先限定在其中一个标记下，例如在 `[data-drop-feedback-label]` 里找药丸上的字。
+
 ## 数据
 
 ```ts

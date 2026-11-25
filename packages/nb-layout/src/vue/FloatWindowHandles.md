@@ -4,7 +4,11 @@
 
 # FloatWindowHandles
 
-浮动窗的手柄（[`ui/workbench-layout.md`](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/workbench-layout.md)“应用内浮动”）：缩放，和键盘移动。放在 `NestedGrid` 的 `float-chrome` 插槽里，盖在窗的内容上面。只算矩形，不写文档，宿主决定写到哪。
+浮动窗的手柄：缩放，和键盘移动。放在 `NestedGrid` 的 `float-chrome` 插槽里，盖在窗的内容上面。只算矩形，不写文档，宿主决定写到哪。
+
+这里的浮动窗是页面里的窗，不是操作系统的窗口，也不是浏览器的弹出窗口：`NestedGrid` 的 `floats` 里的一块叶，不在布局树里，矩形由宿主给（相对网格根），压在树里的面板上面（见 [NestedGrid](NestedGrid.md) 的“交互”里 `floats` 那一段）。窗回到树里、从树里拖出来都由宿主改树与 `floats`，本组件只管窗已经浮着时的缩放与键盘移动；指针拖标题栏移动整个窗不归它管。
+
+把窗的矩形夹进一块区域、按手柄方向改尺寸的纯函数是根入口的 `clampFloatRect`、`resizeFloatRect`（包 [README](../../README.md) 的“我要做 X 用哪个导出”），本组件拖动时用的就是后者。
 
 ## 布局与交互
 
