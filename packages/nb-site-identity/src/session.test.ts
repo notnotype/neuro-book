@@ -181,9 +181,10 @@ describe("问身份与写事务交错", () => {
         await started.promise;
         const crossing = whoami(identity, cookie);
         await waitUntil("问身份的读在排队", () => timers.pending === 1);
+        const nowMs = identity.clock.now();
         const promote = identity.conn.write((tx) => {
             tx.query(`UPDATE "user" SET "role" = 'admin' WHERE "id" = ?`).run(userId);
-            return endAllSessions(tx, userId);
+            return endAllSessions(tx, userId, nowMs);
         });
         await waitUntil("改角色的写排在它后面", () => timers.pending === 2);
         finish.resolve();
@@ -224,7 +225,7 @@ describe("使用中的会话", () => {
         const {session} = await sessions.read(cookie, "use");
         expect(session).not.toBeNull();
 
-        await identity.conn.write((tx) => endSession(tx, sessionId));
+        await identity.conn.write((tx) => endSession(tx, sessionId, identity.clock.now()));
         expect(await sessions.maintain(session!)).toEqual([]);
     });
 

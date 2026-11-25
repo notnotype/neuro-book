@@ -203,7 +203,7 @@ describe("处置的写事务复核操作者（设计审查第 5 条）", () => {
                 } as RequestInit);
                 await body.requested;
                 await target.conn.write((tx) => {
-                    if (change.apply === undefined) endAllSessions(tx, root.userId);
+                    if (change.apply === undefined) endAllSessions(tx, root.userId, target.clock.now());
                     else tx.query(change.apply).run(root.userId);
                 });
                 body.deliver();

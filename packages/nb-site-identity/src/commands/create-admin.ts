@@ -153,7 +153,7 @@ function upsertAdmin(tx: IdentityTx, input: Upsert): UpsertResult {
         tx.query(`UPDATE "user" SET "role" = 'admin', "banned" = 0, "banReason" = NULL, "banExpires" = NULL, "updatedAt" = ? WHERE "id" = ?`).run(at, userId);
         const updated = tx.query(`UPDATE "account" SET "password" = ?, "updatedAt" = ? WHERE "userId" = ? AND "providerId" = 'credential'`).run(input.passwordHash, at, userId);
         if (updated.changes === 0) insertCredentialRow(tx, {userId, passwordHash: input.passwordHash, now: input.now});
-        endAllSessions(tx, userId);
+        endAllSessions(tx, userId, input.now);
         appendAudit(tx, {actorId: null, action: "admin.cli_upsert", targetType: "user", targetId: userId, params: {created: false}, now: input.now});
         return {kind: "done", userId, created: false};
     }

@@ -36,6 +36,9 @@
 | 签名钥 | 找不到配置算法的钥时，库退回“最新的任意一把”签名（第六轮问 2），所以启动检查拒绝别的算法的钥 | `oauth/signing-key.test.ts` “表里有一把别的算法的钥匙时启动失败”“第一次启动后恰有一把 RS256 钥” | 表里混进别的算法时 id_token 不再是 RS256；或启动时没建钥、第一次签发时才建 |
 | 寿命 | `oauthProvider` 的 `codeExpiresIn`、`accessTokenExpiresIn` 缺省是 600 与 3600 秒（`auth.ts` 不写，`LIBRARY_CODE_SECONDS`、`LIBRARY_ACCESS_TOKEN_SECONDS` 记着）；授权码存在 `verification` 表里 | `oauth/provider.test.ts` “寿命” | 库改了缺省：在 `oauthProvider` 的选项里显式写回 Spec 的值 |
 | 客户端密钥 | `storeClientSecret: {hash}` 只给 `hash` 时，库登记客户端与换码时都调它，换码按“哈希相等”认密钥；`generateClientSecret` 发新密钥 | `oauth/provider.test.ts` “客户端密钥”两条 | 已登记客户端的密钥失效，或自家换密钥（计划 3.9）写的哈希库不认 |
+| 撤销 | 删会话行时外键把 `oauthAccessToken.sessionId` 置空，库只在它不为空时查会话，所以直接删会话不让令牌失效；`revoked` 不为空时库的用户信息回 401（`oauth/revoke.ts` 文件头） | `oauth/revoke.test.ts` “一次会话结束”“账号名下的全部失效”“自己改密码”各条的令牌一项 | 结束会话、封禁、改密码之后对外令牌照用：核对库判令牌失效的条件，`revoke.ts` 写的列跟着改 |
+| 撤销 | 没用掉的授权码是 `verification` 的一行，`value` 的 JSON 里 `type` 为 `"authorization_code"`、`userId` 与 `sessionId` 是数字 id 的字符串、`query.client_id` 是客户端 id；删掉这一行换码得 `invalid_grant` | `oauth/revoke.test.ts` 各条的授权码一项，尤其“自己改密码”与“按授权、按客户端撤”（会话没删，只有删码这一道） | 撤销之后码照样换得出：`revoke.ts` 的 JSON 路径跟着库的存法改 |
+| 存法 | `verification`、`oauthAccessToken` 的 `expiresAt` 是库的 ISO 文本；清理任务按模块的时钟删过期的行（`revoke.ts` 的 `purgeExpiredOAuthRows`），库不认过期的行 | `oauth/revoke.test.ts` “清理任务删过期的授权码与访问令牌” | 过期的行删不掉、表一直长，或时间写法变了，按文字比较不再是按时间比较 |
 | 关掉的路径 | `disabledPaths` 让这些路径经 `handler` 一律 404，不分方法，不影响服务端经 `auth.api` 调（`auth.ts` 的 `DISABLED_LIBRARY_PATHS`） | `oauth/provider.test.ts` “关掉的库端点” | 合同不要的库端点从外部能调到，例如普通用户自己登记客户端；库给端点改了路径时也落到这里 |
 
 ## 完成门禁

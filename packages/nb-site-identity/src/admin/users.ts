@@ -3,7 +3,7 @@
  * （`site.admin` 输出 1 到 5、8 到 10；`site.accounts` 输出 4、6 的封禁；w00037 t07 计划 3.10）。
  *
  * 每个处置是一个写事务（`operator.ts` 的 `adminWrite`）：复核操作者 → 账号存在（否则 `not_found`）→ 不是自己（封禁与改角色，
- * `self_forbidden`）→ 改字段 → 结束会话（经 `session.ts` 的 `endAllSessions`，t08 在那里加令牌的撤销）→ 写审计。审计与操作同时生效
+ * `self_forbidden`）→ 改字段 → 结束会话（经 `session.ts` 的 `endAllSessions`，它同一个事务里撤掉对外 OAuth 令牌与授权码）→ 写审计。审计与操作同时生效
  * （输出 8）；没有变化的处置（封已封的、改成原来的角色）照样成功、照样写，两个管理员同时封同一个人时各有一条。处置成功回账号列表
  * 的那一条（处置之后的状态），重置密码回新密码。
  *
@@ -260,7 +260,7 @@ export function registerUserAdminRoutes(app: Hono, options: UserAdminOptions): v
             requireTarget(tx, id);
             forbidSelf(session, id);
             setUserColumn(tx, id, '"banned"', 1, nowMs);
-            endAllSessions(tx, id);
+            endAllSessions(tx, id, nowMs);
             appendAudit(tx, {actorId: session.userId, action: "user.ban", targetType: "user", targetId: id, params: {}, now: nowMs});
             return readItem(tx, id)!;
         });
@@ -291,7 +291,7 @@ export function registerUserAdminRoutes(app: Hono, options: UserAdminOptions): v
             forbidSelf(session, id);
             if (target.role !== role) {
                 setUserColumn(tx, id, '"role"', role, nowMs);
-                endAllSessions(tx, id);
+                endAllSessions(tx, id, nowMs);
             }
             appendAudit(tx, {actorId: session.userId, action: "user.role", targetType: "user", targetId: id, params: {from: target.role, to: role}, now: nowMs});
             return readItem(tx, id)!;
@@ -308,7 +308,7 @@ export function registerUserAdminRoutes(app: Hono, options: UserAdminOptions): v
             requireTarget(tx, id);
             // 条数只数没到期的，与详情的 `sessionCount` 同一个口径；到期的行照样删（`countLiveSessions`）。
             const count = countLiveSessions(tx, id, nowMs);
-            endAllSessions(tx, id);
+            endAllSessions(tx, id, nowMs);
             appendAudit(tx, {actorId: session.userId, action: "user.revoke_sessions", targetType: "user", targetId: id, params: {count}, now: nowMs});
             return readItem(tx, id)!;
         });
@@ -334,7 +334,7 @@ export function registerUserAdminRoutes(app: Hono, options: UserAdminOptions): v
             requireTarget(tx, id);
             const updated = tx.query(`UPDATE "account" SET "password" = ?, "updatedAt" = ? WHERE "userId" = ? AND "providerId" = 'credential'`).run(passwordHash, libDate(nowMs), id);
             if (updated.changes === 0) insertCredentialRow(tx, {userId: id, passwordHash, now: nowMs});
-            endAllSessions(tx, id);
+            endAllSessions(tx, id, nowMs);
             appendAudit(tx, {actorId: session.userId, action: "user.reset_password", targetType: "user", targetId: id, params: {}, now: nowMs});
         });
         if (id === session.userId) appendCookies(c, await sessions.clearCookie());

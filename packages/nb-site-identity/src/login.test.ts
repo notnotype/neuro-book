@@ -260,7 +260,7 @@ describe("登录与改动并发（时序一节）", () => {
         passwords.after = () =>
             identity!.conn.write((tx) => {
                 tx.query(`UPDATE "account" SET "password" = ? WHERE "userId" = ?`).run(resetHash, userId);
-                endAllSessions(tx, userId);
+                endAllSessions(tx, userId, identity!.clock.now());
             });
         expect(await outcome(await login(identity, "alice", PASSWORD))).toEqual(invalidCredentials);
         expect(await sessionCount(identity, userId)).toBe(0);
@@ -286,7 +286,7 @@ describe("登录与改动并发（时序一节）", () => {
         passwords.after = () =>
             identity!.conn.write((tx) => {
                 tx.query(`UPDATE "user" SET "banned" = 1 WHERE "id" = ?`).run(userId);
-                endAllSessions(tx, userId);
+                endAllSessions(tx, userId, identity!.clock.now());
             });
         expect(await outcome(await login(identity, "alice", PASSWORD))).toEqual({status: 403, body: {error: {code: "account_banned"}}});
         expect(await sessionCount(identity, userId)).toBe(0);
@@ -347,7 +347,7 @@ describe("登录与改动并发（时序一节）", () => {
             await trigger.promise;
             return target.conn.write((tx) => {
                 tx.query(`UPDATE "user" SET "banned" = 1 WHERE "id" = ?`).run(userId);
-                return endAllSessions(tx, userId);
+                return endAllSessions(tx, userId, target.clock.now());
             });
         })();
         armed = true;
