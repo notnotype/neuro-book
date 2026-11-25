@@ -8,24 +8,10 @@
 import type {Database} from "bun:sqlite";
 import {Hono} from "hono";
 
+import type {IdentityConfig} from "./config";
+
+export {parseIdentityConfig, type IdentityConfig, type IdentityConfigProblem, type IdentityConfigResult} from "./config";
 export {identityMigrations, type IdentityMigration} from "./migrations";
-
-/** 账号模块自己的配置：会话密钥，以后加 `NB_SITE_IDENTITY_*`。 */
-export interface IdentityConfig {
-    /** `NB_SITE_SESSION_SECRET`。变量名是全站的（`site.operations` 的配置表），但只有账号模块用它，所以由本模块读。 */
-    readonly sessionSecret: string;
-}
-
-/** 会话密钥至少这么多个字符（按 Unicode 码点数）。 */
-const SESSION_SECRET_MIN_LENGTH = 32;
-
-/** 配置问题只带变量名与固定的问题词，不带取值（`site.operations` 输出 1）。 */
-export interface IdentityConfigProblem {
-    readonly name: string;
-    readonly problem: string;
-}
-
-export type IdentityConfigResult = {readonly ok: true; readonly config: IdentityConfig} | {readonly ok: false; readonly problems: readonly IdentityConfigProblem[]};
 
 /** 模块写日志的出口；`event` 是稳定的英文事件名，`message` 是英文说明，`fields` 不放秘密与正文。 */
 export interface IdentityLog {
@@ -44,14 +30,6 @@ export interface IdentityModuleOptions {
 export interface IdentityModule {
     /** 站点地址上的子应用；入口把它挂在 `IDENTITY_API_PREFIX` 下，子应用里的路由不再带前缀。 */
     readonly site: Hono;
-}
-
-/** 问题词取自 `site.operations` 失败与恢复一节的词表；说明与问题里只有变量名，不带取值。 */
-export function parseIdentityConfig(env: Readonly<Record<string, string | undefined>>): IdentityConfigResult {
-    const secret = env.NB_SITE_SESSION_SECRET;
-    if (secret === undefined || secret === "") return {ok: false, problems: [{name: "NB_SITE_SESSION_SECRET", problem: "missing"}]};
-    if ([...secret].length < SESSION_SECRET_MIN_LENGTH) return {ok: false, problems: [{name: "NB_SITE_SESSION_SECRET", problem: "too_short"}]};
-    return {ok: true, config: {sessionSecret: secret}};
 }
 
 export function createIdentityModule(_options: IdentityModuleOptions): IdentityModule {

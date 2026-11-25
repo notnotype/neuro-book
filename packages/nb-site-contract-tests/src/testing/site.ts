@@ -393,6 +393,7 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         NB_SITE_URL: SANDBOX_SITE_URL,
         NB_SITE_TELEMETRY_URL: SANDBOX_TELEMETRY_URL,
         NB_SITE_SESSION_SECRET: sessionSecret,
+        NB_SITE_IDENTITY_TERMS_VERSION: "2026-11-20",
         NB_SITE_HOST: "127.0.0.1",
         NB_SITE_PORT: "0",
     });

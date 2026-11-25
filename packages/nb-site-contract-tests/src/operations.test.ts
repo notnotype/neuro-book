@@ -93,7 +93,7 @@ describe("配置校验（输出 1、10，验收 4）", () => {
         readonly dataDirEntries: readonly string[];
         readonly dataDir: string;
     }
-    const REQUIRED = ["NB_SITE_URL", "NB_SITE_TELEMETRY_URL", "NB_SITE_DATA_DIR", "NB_SITE_SESSION_SECRET"] as const;
+    const REQUIRED = ["NB_SITE_URL", "NB_SITE_TELEMETRY_URL", "NB_SITE_DATA_DIR", "NB_SITE_SESSION_SECRET", "NB_SITE_IDENTITY_TERMS_VERSION"] as const;
     const cases = new Map<string, Case>();
     /** 去掉会话密钥那一次另带的测试控制口令：验收 4 的“其它密钥的值”。 */
     const otherSecret = randomSecret();
