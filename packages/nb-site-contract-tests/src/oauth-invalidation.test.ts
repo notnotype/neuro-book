@@ -326,7 +326,7 @@ describe("已给的授权（输出 15、输出 8 的撤销授权；验收 9）",
     const revokeGrant = (jar: CookieJar, id: number) => identityRequest(s.site.url, identityPath.meGrant(id), {method: "DELETE", jar, from: s.from()});
 
     // 超出预算：注册算一次密码哈希。
-    it("列出自己的授权：客户端名字、范围、给出的时间；撤销一项后它的令牌 401、码换不出，下一次授权重新显示确认页；另一个客户端的照用（验收 9）", async () => {
+    it("列出自己的授权：客户端名字、范围、给出的时间，后给的在前；撤销一项后它的令牌 401、码换不出，下一次授权重新显示确认页；另一个客户端的照用（验收 9）", async () => {
         const self = await s.member("granter");
         const first = await s.register({name: "第一个应用", skipConsent: false});
         const second = await s.register({name: "第二个应用", skipConsent: false});
@@ -336,9 +336,10 @@ describe("已给的授权（输出 15、输出 8 的撤销授权；验收 9）",
         const secondToken = await consentAndIssue(self.jar, second);
 
         const items = await grantsOf(self.jar);
-        expect(items.map(({clientName, scopes}) => ({clientName, scopes: [...scopes].sort()})).sort((x, y) => x.clientName.localeCompare(y.clientName))).toEqual([
-            {clientName: "第一个应用", scopes: ["openid", "profile"]},
+        // 不排序直接比：列表按给出的先后倒序，第二个应用后同意、在前（输出 15）。
+        expect(items.map(({clientName, scopes}) => ({clientName, scopes: [...scopes].sort()}))).toEqual([
             {clientName: "第二个应用", scopes: ["email", "openid", "profile"]},
+            {clientName: "第一个应用", scopes: ["openid", "profile"]},
         ]);
         const firstGrant = items.find((item) => item.clientName === "第一个应用")!;
         const secondGrant = items.find((item) => item.clientName === "第二个应用")!;

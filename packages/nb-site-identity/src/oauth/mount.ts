@@ -3,8 +3,12 @@
  * `LIBRARY_PUBLIC_ENDPOINTS` 里的“方法加路径”交库，其余一律 404，兜底不交库：库的管理端点、删会话与改账号的端点经站点到不了
  * （ADR 0060）。`disabledPaths` 是第二道（`auth.ts`）。
  *
- * 登记的先后就是请求经过的先后：请求体上限 → 白名单里的各路由 → 兜底 404。这一层不经来源头检查：标准端点由别的站点的客户端调，
- * Spec 不对它们要求来源。
+ * 登记的先后就是请求经过的先后：路径写法 → 请求体上限 → 白名单里的各路由 → 兜底 404。这一层不经来源头检查：标准端点由别的站点的
+ * 客户端调，Spec 不对它们要求来源。
+ *
+ * 路径写法：Hono 按 `decodeURI` 之后的路径匹配路由，交库的却是原样的请求地址，库按没解码的那一条认端点。路径里有能解码的百分号
+ * 编码时（`/oauth2/%61uthorize`），两边看到的不是同一条路径，白名单判的就不是库收到的“方法加路径”，所以原样的与解码后的不相等
+ * 时一律 404、不交库（计划“实现审查（第 4 到 7 片）的处理”第 1 条）。`%2F` 与 `%25` 不被 Hono 解码，两边相同，照常落到兜底 404。
  *
  * HEAD：Hono 把 HEAD 按 GET 分派（`c.req.method` 仍是 `HEAD`，最后去掉正文），所以 HEAD 不能单独登记，由 GET 的路由按表判：
  * 表里没有 HEAD 的端点回 404；有的（公钥）先把请求换成 GET 再进处理，因为库对 HEAD 一律 404（升级清单“对外端点的方法”一行）。
@@ -230,16 +234,39 @@ function userInfoEndpoint(auth: IdentityAuth): Handler {
     };
 }
 
+/** 表单里能证明客户端身份的参数（库 1.7.27 的 `CLIENT_AUTHENTICATION_FIELDS`）。 */
+const CLIENT_CREDENTIAL_FIELDS = ["client_secret", "client_assertion", "client_assertion_type"] as const;
+
+/**
+ * 客户端认证参数的形状不合格：库 1.7.27 认证客户端之前（`normalizeClientAuthenticationParameters`）对这几种回 400
+ * `invalid_request`。判法照库，宽了窄了都会让模块与库对同一个请求给出不同的回答：只数非空的值；`client_id` 与表单里的凭据都不能
+ * 出现多次；带 `Authorization` 头（不论哪种方案）时表单里不能再有凭据；密钥与断言不能并存。
+ */
+function malformedClientAuthentication(form: URLSearchParams, authorization: string | null): boolean {
+    const present = (name: string) => form.getAll(name).filter((value) => value !== "").length;
+    if (["client_id", ...CLIENT_CREDENTIAL_FIELDS].some((name) => present(name) > 1)) return true;
+    const hasSecret = present("client_secret") > 0;
+    const hasAssertion = present("client_assertion") > 0 || present("client_assertion_type") > 0;
+    const hasHeader = authorization !== null && authorization !== "";
+    return (hasHeader && (hasSecret || hasAssertion)) || (hasSecret && hasAssertion);
+}
+
 /**
  * 撤销端点：交库、不许缓存。请求带了恰好一个非空的 `token`、库回 400 且 `error` 是 `invalid_request` 时改成 200 空体：库对查不到
  * 的令牌（不存在、已撤销）这样回，输出 10 与 RFC 7009 要 200（计划问 3 实测；只按码认，不看说明文字；升级清单“撤销的回应”
  * 一行）。别的客户端的令牌库本来就回 200、不撤。不带 `token`（或它是空串）库也回 `invalid_request`，这一种原样回（输出 10）。
  *
- * 读 `token` 用请求的副本，交库的仍是原请求；不是表单的请求不读，原样交库。
+ * 库在认证客户端之前判认证参数的形状，不合格的也回 `invalid_request`（`malformedClientAuthentication`）。这种请求的客户端根本没
+ * 认证，改写会把它说成撤销成功，所以交库之前自己判、回 400 `invalid_request` 而不交库；改写只对过了这一步的请求（计划“实现审查
+ * （第 4 到 7 片）的处理”第 2 条）。
+ *
+ * 读表单用请求的副本，交库的仍是原请求；不是表单的请求不读，原样交库。
  */
 function revokeEndpoint(auth: IdentityAuth): Handler {
     return async (c) => {
-        const tokens = mediaTypeOf(c.req.raw) === FORM_MEDIA_TYPE ? new URLSearchParams(await c.req.raw.clone().text()).getAll("token") : [];
+        const form = mediaTypeOf(c.req.raw) === FORM_MEDIA_TYPE ? new URLSearchParams(await c.req.raw.clone().text()) : null;
+        if (form !== null && malformedClientAuthentication(form, c.req.raw.headers.get("authorization"))) return oauthError(c, "invalid_request");
+        const tokens = form?.getAll("token") ?? [];
         const response = await auth.handler(c.req.raw);
         if (tokens.length === 1 && tokens[0] !== "" && response.status === 400 && (await libraryErrorCode(response)) === "invalid_request") {
             return new Response(null, {status: 200, headers: {"Cache-Control": "no-store"}});
@@ -280,6 +307,12 @@ function callbackEndpoint(auth: IdentityAuth, providers: readonly SocialProvider
 export function createOAuthApp(options: OAuthMountOptions): Hono {
     const {auth, log} = options;
     const app = new Hono();
+
+    // 路径写法（文件头）：子应用经 `route` 挂在前缀下，`c.req.path` 是解码后的完整路径，与原样的 pathname 同一个起点。
+    app.use("*", async (c, next) => {
+        if (new URL(c.req.raw.url).pathname !== c.req.path) return notFound(c);
+        await next();
+    });
 
     // 这几个端点不要会话，谁都能发；站点没有全局上限（`Bun.serve` 缺省收到 128 MB），所以在白名单之前挡。超了回标准端点的错误体。
     app.use("*", bodyLimit({maxSize: MAX_BODY_BYTES, onError: (c) => oauthError(c, "invalid_request")}));

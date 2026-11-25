@@ -125,6 +125,33 @@ describe("白名单", () => {
         }
     });
 
+    it("百分号编码的写法是本模块的 404、没交给库：各对外端点编码一个字母，前缀里编码一段；原样的写法照旧可达", async () => {
+        const query = new URLSearchParams({
+            response_type: "code",
+            client_id: client.clientId,
+            redirect_uri: TEST_REDIRECT_URI,
+            scope: "openid",
+            state: "s",
+            code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            code_challenge_method: "S256",
+        });
+        const form = (body: string): RequestInit => ({method: "POST", headers: {"content-type": FORM, authorization: basicAuth(client)}, body});
+        // 每项：编码的写法、原样的写法、请求。原样的写法放在一起发，证明编码之外的部分都是可达的请求。
+        const cases: ReadonlyArray<readonly [encoded: string, plain: string, init: RequestInit]> = [
+            [`/api/identity/auth/oauth2/%61uthorize?${query}`, `${OAUTH_ENDPOINT_PATHS.authorize}?${query}`, {headers: {cookie}}],
+            ["/api/identity/auth/oauth2/%74oken", OAUTH_ENDPOINT_PATHS.token, form("grant_type=authorization_code")],
+            ["/api/identity/auth/oauth2/%75serinfo", OAUTH_ENDPOINT_PATHS.userinfo, {}],
+            ["/api/identity/auth/oauth2/r%65voke", OAUTH_ENDPOINT_PATHS.revoke, form("token=no-such-token")],
+            ["/api/identity/auth/jwk%73", OAUTH_ENDPOINT_PATHS.jwks, {}],
+            [`/api/identity/%61uth/oauth2/authorize?${query}`, `${OAUTH_ENDPOINT_PATHS.authorize}?${query}`, {headers: {cookie}}],
+        ];
+        for (const [encoded, plain, init] of cases) {
+            const method = init.method ?? "GET";
+            expect({encoded, ownNotFound: await isOwnNotFound(await identity.request(encoded, init), method)}).toEqual({encoded, ownNotFound: true});
+            expect({plain, ownNotFound: await isOwnNotFound(await identity.request(plain, init), method)}).toEqual({plain, ownNotFound: false});
+        }
+    });
+
     it("社交回调只放开放了的上游、只收 GET", async () => {
         // 产品的装配还没有开放任何上游（配置在计划 3.12）；这里另建一个开放了 Google 的挂载层，挂法与入口相同。
         const app = new Hono();
@@ -482,6 +509,28 @@ describe("撤销端点", () => {
         }
         // 都没撤掉什么。
         expect((await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: `Bearer ${access_token}`}})).status).toBe(200);
+    });
+
+    it("客户端认证参数不合格回 400 invalid_request、不改写成 200，令牌没被撤：client_id 或 client_secret 出现多次、Basic 又在表单里带密钥", async () => {
+        const {access_token} = await grantTokens(identity, cookie, client);
+        const token = `token=${encodeURIComponent(access_token)}`;
+        const post = (headers: Readonly<Record<string, string>>, body: string) => identity.request(OAUTH_ENDPOINT_PATHS.revoke, {method: "POST", headers: {"content-type": FORM, ...headers}, body});
+        const cases: ReadonlyArray<readonly [label: string, headers: Readonly<Record<string, string>>, body: string]> = [
+            ["client_id 两次、没带密钥", {}, `${token}&client_id=${client.clientId}&client_id=${client.clientId}`],
+            ["client_secret 两次", {}, `${token}&client_id=${client.clientId}&client_secret=${client.clientSecret}&client_secret=${client.clientSecret}`],
+            ["Basic 加表单里的 client_secret", {authorization: basicAuth(client)}, `${token}&client_secret=${client.clientSecret}`],
+        ];
+        const results = [];
+        for (const [label, headers, body] of cases) {
+            const response = await post(headers, body);
+            // 读成文本再比：被改写成 200 时体是空的，`json()` 会抛，看不出回了什么。
+            results.push({label, status: response.status, cacheControl: response.headers.get("cache-control"), body: await response.text()});
+        }
+        expect(results).toEqual(cases.map(([label]) => ({label, status: 400, cacheControl: "no-store", body: JSON.stringify({error: "invalid_request"})})));
+        expect((await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: `Bearer ${access_token}`}})).status).toBe(200);
+        // 空值不算出现（与库一致）：多一个空的 client_id 照常撤。
+        expect((await post({authorization: basicAuth(client)}, `${token}&client_id=&client_id=${client.clientId}`)).status).toBe(200);
+        expect((await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: `Bearer ${access_token}`}})).status).toBe(401);
     });
 
     it("客户端认证不过回 401 invalid_client，不改写成 200", async () => {
