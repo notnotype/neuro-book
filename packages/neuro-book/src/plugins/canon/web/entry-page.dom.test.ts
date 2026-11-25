@@ -1240,7 +1240,8 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
                         editors.value ? h(Editor, {path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
                         editors.value && twice.value ? h(Editor, {key: "second", path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
                     ])),
-                    h("p", {"data-other": ""}, ["nbook.canon.panel", "nbook.canon.look", "nbook.canon.person"].map((type) => context.other!(type).status).join("|")),
+                    h("p", {"data-other": ""}, ["nbook.canon.panel", "nbook.canon.look", "nbook.canon.person", "x.missing"].map((type) => context.other!(type).status).join("|")),
+                    h("p", {"data-labels": ""}, context.declarations.map((field) => field.label).join("|")),
                     h("p", {"data-editing": ""}, String(context.editing ?? "")),
                     h("p", {"data-result": ""}, result.value),
                     h("button", {"data-add-look": "", onClick: async () => void (result.value = JSON.stringify(await context.addComponent!("nbook.canon.look")))}, "加形象"),
@@ -1250,6 +1251,9 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
                         result.value = outcome.ok ? "ok" : "refused";
                     }}, "加重名"),
                     h("button", {"data-remove-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRemove!("种族")))}, "去掉种族"),
+                    h("button", {"data-rename-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRename!("种族", "血统")))}, "种族改名"),
+                    h("button", {"data-restore-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRestore!("种族")))}, "恢复种族"),
+                    h("button", {"data-show-missing": "", onClick: () => context.showTab!("x.missing")}, "切到没有的分页"),
                     h("p", {"data-removed": ""}, (context.removedFields ?? []).map((field) => field.label).join("|")),
                 ]);
             };
@@ -1259,7 +1263,7 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         id: "test.badge",
         entries: [{
             id: "browser", location: "browser", activationEvents: ["onStartup"],
-            contributions: [{capability: CANON_COMPONENT_VIEWS_POINT, id: "test.badge.card", declaration: {title: "徽章", uses: ["nbook.canon.panel", "nbook.canon.look"]}}],
+            contributions: [{capability: CANON_COMPONENT_VIEWS_POINT, id: "test.badge.card", declaration: {title: "徽章", uses: ["nbook.canon.panel", "nbook.canon.look", "x.missing"]}}],
             activate: () => ({contributions: {[CANON_COMPONENT_VIEWS_POINT]: {"test.badge.card": {load: () => Promise.resolve(BadgeView)}}}}),
         }],
     };
@@ -1366,19 +1370,30 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
     });
 
-    it("context：别的组只认 uses 列了的，没加过、加上以后；加一项、重名被拒、去掉以后列在去掉过的里", async () => {
-        const {wrapper} = await badgePage();
-        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent");
+    it("context：别的组只认 uses 列了的，没加过、加上以后、去掉以后，没登记的；加一项、重名被拒、改名、去掉以后列在去掉过的里、恢复；切到没有的分页什么也不做", async () => {
+        const {wrapper, state, other, id} = await badgePage();
+        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent|unavailable");
         await wrapper.get("[data-add-look]").trigger("click");
-        await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent");
+        await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent|unavailable");
+        const status = await other.canon.call("status", {});
+        if (!status.ok) throw new Error("读不到");
+        const removed = await other.canon.call("editEntries", {input: {requestId: "remove-look", by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "去掉形象", ops: [{op: "component", entry: id, type: "nbook.canon.look", action: "remove"}]}} as never);
+        expect(removed.ok).toBe(true);
+        await waitUntil("去掉过形象", () => wrapper.get("[data-other]").text() === "present|removed|absent|unavailable");
+        await wrapper.get("[data-show-missing]").trigger("click");
+        expect(state.tab).toBe("data:badge");
 
         await wrapper.get("[data-add-field]").trigger("click");
         await waitUntil("加上种族", () => wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族"));
         await wrapper.get("[data-add-taken]").trigger("click");
         await waitUntil("重名被拒", () => wrapper.get("[data-result]").text() === "refused");
+        await wrapper.get("[data-rename-field]").trigger("click");
+        await waitUntil("改了名", () => wrapper.get("[data-labels]").text() === "图案|介绍|血统");
         await wrapper.get("[data-remove-field]").trigger("click");
-        await waitUntil("去掉过的", () => wrapper.get("[data-removed]").text() === "种族");
+        await waitUntil("去掉过的", () => wrapper.get("[data-removed]").text() === "血统");
         expect(wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族")).toBe(false);
+        await wrapper.get("[data-restore-field]").trigger("click");
+        await waitUntil("恢复了", () => wrapper.get("[data-labels]").text() === "图案|介绍|血统" && wrapper.get("[data-removed]").text() === "");
     });
 });
 
@@ -1429,6 +1444,15 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("预览", () => editor()?.querySelector("[data-confirm-preview]")?.textContent?.includes("记一条变更") === true);
         [...editor()!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
         await waitUntil("换上了", () => wrapper.get("[data-outfit='i2']").text().includes("穿着") && wrapper.get("[data-fact='现在穿的']").text().includes("第 2 章改过"));
+
+        // 现在穿的的建议值是衣柜里各套的名字：清空输入框、聚焦时全列出来。
+        await wrapper.get("[data-edit='look.现在穿的']").trigger("click");
+        await waitUntil("现在穿的的编辑", () => editor()?.querySelector("[data-suggest-input] input") != null);
+        const field = editor()!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
+        field.value = "";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        await waitUntil("建议值", () => [...document.body.querySelectorAll("[role='option']")].map((option) => option.textContent?.trim()).join("|") === "便装|学院制服");
     });
 
     it("添加一项资料：点预设“种族”加上一项，是自己加的（行尾有“更多”），预设里不再列它", async () => {

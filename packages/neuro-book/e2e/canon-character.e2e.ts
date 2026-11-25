@@ -83,7 +83,7 @@ async function openEntry(page: Page, name: string): Promise<void> {
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动，贴着底边打开时整个滚进可见范围；成段的按 Escape 或点外面、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -133,7 +133,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(passage).toHaveCount(0);
     await expect(valueOf(page, "character.性格")).toContainText("遇事怎么反应");
 
-    // 最后一段（背景）贴着窗口底边时打开：编辑层向下长，打开时整个滚进可见范围，保存按钮不在窗口外（输出 51）。
+    // 最后一段（背景）贴着窗口底边时打开：编辑层向下长，打开时整个滚进可见范围，保存按钮不在窗口外；写一段、点编辑层外面放弃，不存（输出 51）。
     // 先把这一段滚到底边上再点（点击自己不会再滚）；看保存按钮的中心点上是不是它，不靠点击（点击会先把它滚出来）。
     await valueOf(page, "character.背景").evaluate((element) => element.scrollIntoView({block: "end"}));
     await valueOf(page, "character.背景").click();
@@ -143,8 +143,10 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
         const {x, y, width, height} = button.getBoundingClientRect();
         return document.elementFromPoint(x + width / 2, y + height / 2)?.closest("button") === button;
     })).toBe(true);
-    await last.getByRole("textbox").press("Escape");
+    await last.getByRole("textbox").fill("生在北境的小镇。");
+    await entryPage(page).locator("h1").click();
     await expect(last).toHaveCount(0);
+    await expect(valueOf(page, "character.背景")).not.toContainText("生在北境的小镇");
 
     // 年龄：短项在浮层里；预览中（一行）与预览回来（写回哪里与变化两行）时保存按钮在同一个位置；点浮层外面放弃。
     await valueOf(page, "character.年龄").click();
@@ -171,6 +173,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await card.locator("[data-add-field]").click();
     await page.locator("[data-add-field-panel] [data-preset='种族']").click();
     await expect(card.locator("[data-fact='种族']")).toBeVisible();
+    await expect(card.locator("[data-fact]").last()).toHaveAttribute("data-fact", "种族");
 
     // 形象分页：立绘的浮层里上传一张图，存进作品的图片文件夹，保存以后人物分页的立绘是这张图（输出 53）。
     await tab(page, "形象").click();
