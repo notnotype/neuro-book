@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import {Button, Collapsible, SegmentedControl} from "@notnotype/nb-ui/components";
-import {computed, onMounted, reactive, useId} from "vue";
+import {useText} from "@notnotype/nb-ui/text-port";
+import {computed, onMounted, reactive, ref, useId, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
-import type {SettingsService} from "nbook/shared/settings";
+import type {SettingsFailure, SettingsService} from "nbook/shared/settings";
+import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {PROVIDER_LABELS, WEB_PROVIDERS} from "../../shared/contracts";
@@ -18,7 +20,8 @@ import ApiKeyField from "./ApiKeyField.vue";
  * 设置窗口的“搜索与网页”页（docs/specs/web/settings-page.md）。密钥与检测在数据模块里，这里只读状态、调方法；“使用”哪家是设置项
  * `nbook.web/provider`，经传入的配置服务读写（同“网络”页）。写失败都交给窗口通知。加服务时多一节，版式不变。
  *
- * 动效：选中的那家没有密钥时，“使用”下面的提示经 `Collapsible` 出现与消失（高度与透明度，`--motion-move`）。
+ * 动效：选中的那家没有密钥时，“使用”下面的提示经 `Collapsible` 出现与消失（高度与透明度，`--motion-move`）。收起的过程中提示
+ * 还在页面上，所以它写的服务名停在最近一次展开时那家（`noKeyLabel`），不跟着已经改选的那家变。
  */
 const props = defineProps<{
     store: SearchStore;
@@ -28,6 +31,7 @@ const props = defineProps<{
 }>();
 
 const text = useWebText();
+const port = useText();
 const id = useId();
 const {provider: providerSetting} = webSettings.settings;
 
@@ -48,13 +52,22 @@ const selected = computed(() => props.settings.get(providerSetting));
 const providerOptions = WEB_PROVIDERS.map((value) => ({value, label: PROVIDER_LABELS[value]}));
 /** 选中的那家没有密钥：只在状态取到之后说，读取中不说。 */
 const selectedNoKey = computed(() => props.store.status.value !== null && keyState(selected.value) === "unset");
+const noKeyId = `${id}-no-key`;
+const noKeyLabel = ref(PROVIDER_LABELS[selected.value]);
+watch([selectedNoKey, selected], ([open, chosen]) => {
+    if (open) noKeyLabel.value = PROVIDER_LABELS[chosen];
+}, {immediate: true});
+
+/** “使用”没写成（单选与设置行自己的“恢复默认”都走这里）：原因用设置窗口同一套说法（输出 11）。 */
+function reportUseFailure(code: SettingsFailure, detail: string): void {
+    props.reportWriteFailure(text("settings.provider.title"), {reason: settingsFailureText(code, detail, port), uncertain: code === "unknown-outcome"});
+}
 
 async function choose(value: WebProviderId): Promise<void> {
     if (value === selected.value) return;
     const result = await props.settings.update(providerSetting, value, {layer: "user"});
-    if (result.ok) return;
-    // 没写成时单选仍读设置里的值，自己回到写前那家。设置服务的失败码与密钥写入的不是一套，只写码。
-    props.reportWriteFailure(text("settings.provider.title"), {reason: text("provider.writeFailed", {code: result.code}), uncertain: result.code === "unknown-outcome"});
+    // 没写成时单选仍读设置里的值，自己回到写前那家。
+    if (!result.ok) reportUseFailure(result.code, result.detail);
 }
 
 // ---- 每家的密钥与检测 ----
@@ -94,13 +107,14 @@ async function written(provider: WebProviderId, result: Promise<{readonly ok: tr
     <div class="search-settings" data-search-settings>
         <p v-if="!store.available.value" class="search-settings__notice" role="status" data-search-readonly>{{ text("readOnly") }}</p>
         <p v-else-if="keysUnreadable" class="search-settings__notice search-settings__notice--error" role="alert" data-search-keys-unreadable>{{ text("keysUnreadable") }}</p>
-        <SettingsRow :settings="settings" :setting="providerSetting" layer="user">
+        <SettingsRow :settings="settings" :setting="providerSetting" layer="user" @write-failed="(failure) => reportUseFailure(failure.code, failure.detail)">
             <template #default="row">
                 <SegmentedControl
                     :model-value="selected"
                     :options="providerOptions"
                     size="sm"
                     :aria-label="row.label"
+                    :describedby="[row.describedby, selectedNoKey ? noKeyId : undefined].filter((part) => part !== undefined).join(' ')"
                     :disabled="row.disabled || disabled"
                     data-search-use
                     @update:model-value="(value) => choose(value as WebProviderId)"
@@ -108,8 +122,12 @@ async function written(provider: WebProviderId, result: Promise<{readonly ok: tr
             </template>
             <template #below>
                 <Collapsible :open="selectedNoKey">
-                    <p class="search-settings__muted" data-search-use-no-key>{{ text("provider.noKey", {provider: PROVIDER_LABELS[selected]}) }}</p>
+                    <p :id="noKeyId" class="search-settings__hint" data-search-use-no-key>
+                        <span class="search-settings__hint-icon i-lucide-triangle-alert" aria-hidden="true" />{{ text("provider.noKey", {provider: noKeyLabel}) }}
+                    </p>
                 </Collapsible>
+                <!-- 改选之后读屏也要听到：提示随内容进出页面，不当播报区用。 -->
+                <span class="sr-only" role="status">{{ selectedNoKey ? text("provider.noKey", {provider: noKeyLabel}) : "" }}</span>
             </template>
         </SettingsRow>
         <section
@@ -196,6 +214,24 @@ async function written(provider: WebProviderId, result: Promise<{readonly ok: tr
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3);
+}
+
+/* 行下的提示自己留上边距（设置行的 below 槽抵掉了行间距，同“网络”页的行下说明）；选中的那家用不了，用警告色。 */
+.search-settings__hint {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin: 0;
+    padding-top: var(--space-3);
+    user-select: text;
+    color: var(--status-warning);
+}
+
+.search-settings__hint-icon {
+    width: var(--text-sm);
+    height: var(--text-sm);
+    flex-shrink: 0;
+    margin-top: 2px;
 }
 
 .search-settings__muted {

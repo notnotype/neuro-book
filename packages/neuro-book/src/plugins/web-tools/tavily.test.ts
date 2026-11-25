@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, describe, expect, it} from "bun:test";
 
-import {createTavilyProvider, MAX_QUERY_CODE_POINTS} from "./backend/providers/tavily";
+import {createTavilyProvider, MAX_QUERY_CODE_POINTS, MAX_SITES} from "./backend/providers/tavily";
 import type {CallScope} from "./backend/providers/types";
 import {fakeTavily, sampleTavilyHit, TAVILY_UNAUTHORIZED} from "./testing/fake-tavily";
 
@@ -49,6 +49,14 @@ describe("搜索的请求（输出 1）", () => {
         expect((await search("𠀋".repeat(MAX_QUERY_CODE_POINTS))).ok).toBe(true);
         expect(fake.requests).toHaveLength(1);
     });
+
+    it("站点至多 300 个（官方接口的 include_domains 上限），多了不发；空白的不算", async () => {
+        const sites = (n: number): string[] => Array.from({length: n}, (_, index) => `site${String(index)}.example`);
+        expect(await search("小说", {sites: [...sites(MAX_SITES + 1)]})).toMatchObject({ok: false, code: "invalid-request", detail: `at most ${String(MAX_SITES)} sites`});
+        expect(fake.requests).toHaveLength(0);
+        expect((await search("小说", {sites: [...sites(MAX_SITES), " "]})).ok).toBe(true);
+        expect((fake.requests[0]?.body as {include_domains?: unknown[]}).include_domains).toHaveLength(MAX_SITES);
+    });
 });
 
 describe("搜索结果的整理（输出 3）", () => {
@@ -72,19 +80,23 @@ describe("搜索结果的整理（输出 3）", () => {
 });
 
 describe("错误响应（输出 12 与“失败与恢复”）", () => {
-    it("说明取 detail.error（或 detail 字符串）；401 是 auth，422 是 invalid-request，432、433 是 quota，500 是 failed", async () => {
+    it("说明取 detail.error；422 取校验数组第一项的位置与说明、不取回显的值；401 是 auth，422 是 invalid-request，432、433 是 quota，434 是 rate-limited，500 是 failed", async () => {
         fake.script("/search",
             {status: 401, json: TAVILY_UNAUTHORIZED},
-            {status: 422, json: {detail: "max_results must be at most 20"}},
+            // 文档里 422 的形状（ValidationError）。
+            {status: 422, json: {detail: [{type: "string_type", loc: ["body", "query"], msg: "Input should be a valid string", input: "回显的值"}]}},
             {status: 432, json: {detail: {error: "plan limit"}}},
             {status: 433, json: {detail: {error: "pay-as-you-go limit"}}},
-            {status: 500, json: {detail: [{msg: "数组不当说明"}]}},
+            {status: 434, json: {detail: {error: "Retry shortly"}}},
+            {status: 500, json: {error: "不是 detail 的形状"}},
         );
         expect(await search("a")).toEqual({ok: false, code: "auth", status: 401, detail: "Unauthorized: missing or invalid API key."});
-        expect(await search("a")).toEqual({ok: false, code: "invalid-request", status: 422, detail: "max_results must be at most 20"});
+        expect(await search("a")).toEqual({ok: false, code: "invalid-request", status: 422, detail: "query: Input should be a valid string"});
         expect(await search("a")).toEqual({ok: false, code: "quota", status: 432, detail: "plan limit"});
         expect(await search("a")).toEqual({ok: false, code: "quota", status: 433, detail: "pay-as-you-go limit"});
+        expect(await search("a")).toEqual({ok: false, code: "rate-limited", status: 434, detail: "Retry shortly"});
         expect(await search("a")).toEqual({ok: false, code: "failed", status: 500});
+        expect(fake.requests).toHaveLength(6);
     });
 
     it("说明里的密钥遮盖掉", async () => {
@@ -104,7 +116,8 @@ describe("读取（输出 5）", () => {
 
     it("网址在 failed_results 里得 not-found，详情取它的 error、遮盖密钥的片段（整把密钥按输出 14 不交出）；正文为空得 not-found；形状不对得 bad-response", async () => {
         fake.script("/extract",
-            {json: {results: [], failed_results: [{url: "https://example.org/x", error: `Failed to fetch url with ${KEY.slice(0, 14)}`}]}},
+            // 失败记录按网址认：别的网址的原因不安到这次请求上。
+            {json: {results: [], failed_results: [{url: "https://example.org/other", error: "unrelated failure"}, {url: "https://example.org/x", error: `Failed to fetch url with ${KEY.slice(0, 14)}`}]}},
             {json: {results: [], failed_results: [{url: "https://example.org/x", error: `Failed to fetch url with ${KEY}`}]}},
             {json: {results: [], failed_results: []}},
             {json: {results: [{url: "https://example.org/x", title: "空", raw_content: "  \n"}], failed_results: []}},

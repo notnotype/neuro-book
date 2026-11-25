@@ -78,6 +78,17 @@ describe("SearchSettingsPage", () => {
         expect(checkButton().element.disabled).toBe(true);
     });
 
+    it("还没取到状态、或密钥文件读不了时，不说选中的那家没有密钥（输出 11）", async () => {
+        const loading = render({neverLoads: true}, {values: {"nbook.web/provider": "tavily"}});
+        await flushPromises();
+        expect(loading.wrapper.find("[data-search-use-no-key]").exists()).toBe(false);
+        const unreadable = render({unreadable: true}, {values: {"nbook.web/provider": "tavily"}});
+        await waitUntil("提示", () => unreadable.wrapper.find("[data-search-keys-unreadable]").exists() || undefined, {timeoutMs: 10_000});
+        expect(unreadable.wrapper.find("[data-search-use-no-key]").exists()).toBe(false);
+        const ready = render({}, {values: {"nbook.web/provider": "tavily"}});
+        await waitUntil("取到状态后才说", () => ready.wrapper.find("[data-search-use-no-key]").exists() || undefined, {timeoutMs: 10_000});
+    });
+
     it("填密钥：密码框带标签；回车写入、框清空、显示“已设置”；页面上找不到密钥原文；紧接着失焦不再写（输出 3、10）", async () => {
         const {wrapper, fake, input} = render();
         await waitUntil("状态到了", () => input().attributes("placeholder") === "还没有填写" || undefined, {timeoutMs: 10_000});
@@ -266,19 +277,41 @@ describe("SearchSettingsPage", () => {
         expect(wrapper.findAll("[data-search-provider]").map((section) => section.attributes("data-search-provider"))).toEqual(["deepseek", "tavily"]);
         expect(wrapper.find("[data-search-use-no-key]").exists()).toBe(false);
 
+        const hint = () => wrapper.find("[data-search-use-no-key]");
+        const announced = () => wrapper.get('[data-search-settings] [role="status"].sr-only').text();
         await option("tavily").trigger("click");
         await waitUntil("写进去了", () => settings.get(providerSetting) === "tavily" || undefined);
         expect(settings.inspect(providerSetting).user).toMatchObject({value: "tavily"});
-        await waitUntil("提示", () => wrapper.find("[data-search-use-no-key]").exists() || undefined);
-        expect(wrapper.get("[data-search-use-no-key]").text()).toBe("Tavily 还没有密钥");
+        await waitUntil("提示", () => hint().exists() || undefined);
+        expect(hint().text()).toBe("Tavily 还没有密钥");
         expect(option("tavily").attributes("aria-checked")).toBe("true");
+        // 提示是单选组的说明，改选之后也经播报区念出来（输出 10）。
+        expect((group().attributes("aria-describedby") ?? "").split(" ")).toContain(hint().attributes("id"));
+        expect(announced()).toBe("Tavily 还没有密钥");
 
+        // 改选有密钥的那家，提示收起。
+        await option("deepseek").trigger("click");
+        await waitUntil("提示收起", () => !hint().exists() || undefined);
+        expect(announced()).toBe("");
+        await option("tavily").trigger("click");
+        await waitUntil("又选了 Tavily", () => hint().exists() || undefined);
+
+        // 写失败：原因用设置窗口同一套说法；结果未知时标为不确定；设置行自己的“恢复默认”失败同样通知。
         host.user.failWrites("write-failed");
         await option("deepseek").trigger("click");
         await waitUntil("通知", () => failures.length > 0 || undefined);
-        expect(failures).toEqual([{subject: "使用", reason: "没写成（write-failed）", uncertain: false}]);
+        expect(failures[0]).toMatchObject({subject: "使用", uncertain: false});
+        expect(failures[0]!.reason).toMatch(/^写不进设置文件/u);
         expect(settings.get(providerSetting)).toBe("tavily");
         expect(option("tavily").attributes("aria-checked")).toBe("true");
+        host.user.failWrites("unknown-outcome");
+        await option("deepseek").trigger("click");
+        await waitUntil("第二条通知", () => failures.length > 1 || undefined);
+        expect(failures[1]).toEqual({subject: "使用", reason: "可能没有保存，以设置文件为准", uncertain: true});
+        host.user.failWrites("write-failed");
+        await wrapper.get("[data-settings-row-reset]").trigger("click");
+        await waitUntil("恢复默认的通知", () => failures.length > 2 || undefined);
+        expect(failures[2]).toMatchObject({subject: "使用", uncertain: false});
     });
 
     it("使用：网页工具没运行、writable 为假时停用（输出 11）", async () => {
@@ -293,6 +326,16 @@ describe("SearchSettingsPage", () => {
     it("Tavily 一节：写的、清的、检测的都是 tavily；名称与失败原因带 Tavily（输出 3、5、8、9、10）", async () => {
         const {wrapper, fake, input, checkButton, result, clear} = render({check: {ok: false, code: "quota"}}, {provider: "tavily"});
         await waitUntil("状态到了", () => input().attributes("placeholder") === "还没有填写" || undefined, {timeoutMs: 10_000});
+        // 草稿按家分开：在一家的框里输入，只让这一家的“检测”可点（输出 8）。
+        const deepseekInput = wrapper.get<HTMLInputElement>('[data-search-provider="deepseek"] [data-key-input]');
+        const deepseekCheck = () => wrapper.get<HTMLButtonElement>('[data-search-provider="deepseek"] [data-search-check]');
+        await deepseekInput.setValue(KEY);
+        expect(deepseekCheck().element.disabled).toBe(false);
+        expect(checkButton().element.disabled).toBe(true);
+        await deepseekInput.setValue("");
+        await input().setValue("tvly-dom-test-not-real-123456");
+        expect(checkButton().element.disabled).toBe(false);
+        expect(deepseekCheck().element.disabled).toBe(true);
         await type(input(), "tvly-dom-test-not-real-123456");
         expect(fake.calls.filter((call) => call.method === "setKey")).toEqual([{method: "setKey", provider: "tavily", key: "tvly-dom-test-not-real-123456"}]);
         expect(checkButton().attributes("aria-label")).toBe("检测 Tavily 的密钥");
@@ -308,5 +351,22 @@ describe("SearchSettingsPage", () => {
         expect(fake.calls.at(-1)).toEqual({method: "clearKey", provider: "tavily"});
         // DeepSeek 一节没动。
         expect(wrapper.get<HTMLInputElement>('[data-search-provider="deepseek"] [data-key-input]').attributes("placeholder")).toBe("还没有填写");
+    });
+
+    it("两节互不影响：一家检测中时另一家照常可点；一家写失败的主语是它自己（输出 6、8）", async () => {
+        const {wrapper, checkButton} = render({hasKey: true, hasTavilyKey: true, check: "hang"});
+        const tavilyCheck = () => wrapper.get<HTMLButtonElement>('[data-search-provider="tavily"] [data-search-check]');
+        await waitUntil("都已设置", () => (!checkButton().element.disabled && !tavilyCheck().element.disabled) || undefined, {timeoutMs: 10_000});
+        await checkButton().trigger("click");
+        await flushPromises();
+        expect(checkButton().text()).toBe("检测中");
+        expect(tavilyCheck().text()).toBe("检测");
+        expect(tavilyCheck().element.disabled).toBe(false);
+
+        const failing = render({}, {provider: "tavily"});
+        failing.fake.failWrites("credentials-unavailable");
+        await waitUntil("状态到了", () => failing.input().attributes("placeholder") === "还没有填写" || undefined, {timeoutMs: 10_000});
+        await type(failing.input(), "tvly-dom-test-not-real-123456");
+        expect(failing.failures).toEqual([{subject: "Tavily 的 API 密钥", reason: "密钥文件读写失败；请重新输入", uncertain: false}]);
     });
 });

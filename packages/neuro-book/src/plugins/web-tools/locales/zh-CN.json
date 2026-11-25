@@ -44,8 +44,7 @@
         "note": "这把密钥只给搜索与读网页用。"
     },
     "provider": {
-        "noKey": "{{provider}} 还没有密钥",
-        "writeFailed": "没写成（{{code}}）"
+        "noKey": "{{provider}} 还没有密钥"
     },
     "key": {
         "label": "API 密钥",

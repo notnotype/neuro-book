@@ -6,7 +6,7 @@
 export const WEB_PROVIDERS = ["deepseek", "tavily"] as const;
 export type WebProviderId = (typeof WEB_PROVIDERS)[number];
 
-/** 服务的名字是品牌名，各语言一样，所以不进消息目录。 */
+/** 服务的名字是品牌名，各语言一样，页面与工具的文字直接用这里的；设置项的选项名另按约定键登记在消息目录里（`defineSettings` 的 choices 要求）。 */
 export const PROVIDER_LABELS: Readonly<Record<WebProviderId, string>> = {deepseek: "DeepSeek", tavily: "Tavily"};
 
 export const isWebProvider = (value: string): value is WebProviderId => (WEB_PROVIDERS as readonly string[]).includes(value);

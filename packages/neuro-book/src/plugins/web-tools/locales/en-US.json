@@ -1,7 +1,7 @@
 {
     "settings": {
         "provider": {
-            "title": "Use",
+            "title": "Search service",
             "description": "Which service agents use to search and read web pages.",
             "choices": {
                 "deepseek": {
@@ -44,8 +44,7 @@
         "note": "This key is only used to search and read web pages."
     },
     "provider": {
-        "noKey": "{{provider}} has no key yet",
-        "writeFailed": "Not saved ({{code}})"
+        "noKey": "{{provider}} has no key yet"
     },
     "key": {
         "label": "API key",

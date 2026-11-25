@@ -17,7 +17,7 @@ import type {FakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 
 import type {KeyStoreFactory} from "./backend/plugin";
 import {MAX_KEY_LENGTH} from "./backend/settings-remote";
-import {ARCHIVE_LINE_LIMIT, BATCH_DEFAULT_COUNT, BATCH_SUMMARY_LIMIT, FETCH_DEADLINE_MS, FETCH_TEXT_LIMIT, HINT, MAX_COUNT, MAX_QUERIES, SEARCH_DEADLINE_MS, STRUCTURED_MARKDOWN_LIMIT, SUMMARY_LIMIT} from "./backend/tools";
+import {ARCHIVE_LINE_LIMIT, BATCH_DEFAULT_COUNT, BATCH_MAX_COUNT, BATCH_SUMMARY_LIMIT, FETCH_DEADLINE_MS, FETCH_TEXT_LIMIT, HINT, MAX_COUNT, MAX_QUERIES, SEARCH_DEADLINE_MS, STRUCTURED_MARKDOWN_LIMIT, SUMMARY_LIMIT} from "./backend/tools";
 import {webSettings} from "./shared/settings";
 import {fakeDeepSeek, sampleHit} from "./testing/fake-deepseek";
 import {fakeTavily, TAVILY_UNAUTHORIZED} from "./testing/fake-tavily";
@@ -395,6 +395,8 @@ describe("两家服务（输出 1、3、5、12、13、19；验收 5）", () => {
     it("选用改成 Tavily 后，下一次搜索与读取发到 Tavily、带它的密钥，失败文字写 Tavily；改回 DeepSeek 后发到 DeepSeek", async () => {
         const w = await open();
         const {remote, settings} = await w.window("w");
+        // 选用哪家与两家的地址决定密钥发往哪里，都只有用户层（“输入与前置条件”）。
+        for (const setting of [webSettings.settings.provider, webSettings.settings.deepseekBaseUrl, webSettings.settings.tavilyBaseUrl]) expect(settings.declaration(setting)?.layers).toEqual(["user"]);
         await setKey(remote);
         const session = await w.open();
         expect(await settings.update(webSettings.settings.provider, "tavily", {layer: "user"})).toMatchObject({ok: true});
@@ -470,6 +472,9 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         expect(lines.indexOf("查询 3：丙，3 条结果")).toBeGreaterThan(lines.indexOf("查询 2：乙，没搜成：DeepSeek 不认这把密钥：检查设置窗口“搜索与网页”页的密钥。详情：bad key"));
         expect(deepseek.requests.map((request) => request.body)).toEqual(expect.arrayContaining([{query: "甲", count: BATCH_DEFAULT_COUNT}, {query: "乙", count: BATCH_DEFAULT_COUNT}, {query: "丙", count: BATCH_DEFAULT_COUNT}]));
         expect(deepseek.requests).toHaveLength(3);
+        // 每条没搜成的查询记一条诊断（输出 14 的 web.provider-failed）。
+        const failures = w.agent.settings.diagnostics("hub").query({}).records.filter((record) => record.event === "web.provider-failed");
+        expect(failures.map((record) => record.data)).toEqual([{tool: "nbook.web.search", provider: "deepseek", code: "auth", status: 401, requestId: null}]);
 
         // eval 里拿到的结构值按查询的顺序，没搜成的带码（输出 4）。
         const code = "const r = await tool.web_search({queries: ['甲', '乙', '丙']}); JSON.stringify({provider: r.provider, searches: r.searches.map((s) => s.error ? {query: s.query, error: s.error} : {query: s.query, count: s.results.length})})";
@@ -510,5 +515,50 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         expect(batch.text).toContain(`${"长".repeat(BATCH_SUMMARY_LIMIT)}…`);
         expect(batch.text).not.toContain("长".repeat(BATCH_SUMMARY_LIMIT + 1));
         expect(batch.text.split("\n")).toContain("查询 2：空，没有结果");
+    });
+
+    it("几条查询共用一个截止：都挂着时到 20 秒全得 timeout；每个请求各自在 429 后重试一次；几条时每条至多 10 个结果（输出 9、10，输入）", async () => {
+        const w = await open();
+        const session = await w.open();
+        await setKey(await w.settings("w"));
+        deepseek.script("/v1/tools/search", {hang: true}, {hang: true}, {hang: true});
+        const waiting = callTool(session, "web_search", {queries: ["甲", "乙", "丙"]});
+        await waitUntil("three searches in flight", () => deepseek.requests.length === 3 || undefined);
+        w.agent.settings.clock.advance(SEARCH_DEADLINE_MS);
+        expect(await waiting).toMatchObject({status: "error", code: "timeout"});
+        deepseek.reset();
+
+        let limited = 0;
+        deepseek.route("/v1/tools/search", (body) => {
+            if (queryOf(body) !== "乙" || limited > 0) return undefined;
+            limited += 1;
+            return {status: 429, json: {error: {message: "slow down"}}, headers: {"retry-after": "1"}};
+        });
+        const retried = callTool(session, "web_search", {queries: ["甲", "乙"], count: MAX_COUNT});
+        // 重试的等待按宿主时钟（测试场地是手动时钟）：推着时钟等第二次请求到。
+        await waitUntil("the limited query was sent again", () => {
+            w.agent.settings.clock.advance(1000);
+            return deepseek.requests.length === 3 || undefined;
+        });
+        const result = await retried;
+        expect(result.status ?? "ok").toBe("ok");
+        expect(result.text.split("\n")).toContain("查询 2：乙，3 条结果");
+        expect(deepseek.requests.filter((request) => queryOf(request.body) === "乙")).toHaveLength(2);
+        expect(deepseek.requests.every((request) => (request.body as {count?: unknown}).count === BATCH_MAX_COUNT)).toBe(true);
+    });
+
+    it("查询、站点或网址里带着正在用的密钥：不发请求，结果里也不写回它（输出 14）", async () => {
+        const w = await open();
+        const session = await w.open();
+        await setKey(await w.settings("w"));
+        for (const args of [{queries: ["好", `找 ${KEY}`]}, {queries: ["好"], sites: [KEY]}]) {
+            const result = await callTool(session, "web_search", args);
+            expect(result).toMatchObject({status: "error", code: "invalid-request"});
+            expect(result.text).not.toContain(KEY);
+        }
+        const read = await callTool(session, "web_fetch", {url: `https://example.com/?k=${KEY}`});
+        expect(read).toMatchObject({status: "error", code: "invalid-request"});
+        expect(read.text).not.toContain(KEY);
+        expect(deepseek.requests).toHaveLength(0);
     });
 });

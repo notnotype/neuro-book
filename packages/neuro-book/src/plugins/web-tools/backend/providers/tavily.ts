@@ -13,18 +13,24 @@ import {dateProblem, finite, httpHref, text} from "./values";
 
 /** Tavily 建议的查询上限（官方的搜索最佳实践），按 Unicode 码点数（输出 1）。 */
 export const MAX_QUERY_CODE_POINTS = 1500;
+/** `include_domains` 的上限（官方的搜索接口文档）。 */
+export const MAX_SITES = 300;
 
 /**
- * 错误响应是 `{detail: {error}}`（实测 401）；参数校验失败的 422 可能直接给 `detail` 字符串或数组，只取字符串。432 是套餐或
- * 这把密钥的额度用完，433 是按量付费的上限，都按 `quota`；422 是参数不对。
+ * 错误响应（官方文档的 ApiError，实测 401 同样）是 `{detail: {error}}`；参数校验失败的 422 是 `{detail: [{loc, msg, type, input}]}`，
+ * 取第一项的位置与说明，不取 `input`（它回显请求里的值）。432 是套餐或这把密钥的额度用完、433 是按量付费的上限，都按 `quota`；
+ * 434 是按需档一时容量不够、文档说稍后再试，按 `rate-limited`（不重试：只有 429 重试，输出 10）。
  */
 const DIALECT: ServiceDialect = {
     errorMessage: (body) => {
         const detail = (body as {detail?: unknown} | null)?.detail;
-        if (typeof detail === "string") return detail;
-        return (detail as {error?: unknown} | null | undefined)?.error;
+        if (!Array.isArray(detail)) return (detail as {error?: unknown} | null | undefined)?.error;
+        const first = detail[0] as {loc?: unknown; msg?: unknown} | undefined;
+        if (typeof first?.msg !== "string") return undefined;
+        const where = Array.isArray(first.loc) ? first.loc.filter((part) => part !== "body").map(String).join(".") : "";
+        return where === "" ? first.msg : `${where}: ${first.msg}`;
     },
-    statusCodes: {422: "invalid-request", 432: "quota", 433: "quota"},
+    statusCodes: {422: "invalid-request", 432: "quota", 433: "quota", 434: "rate-limited"},
 };
 
 const sitesOf = (request: SearchRequest): readonly string[] => (request.sites ?? []).map((site) => site.trim()).filter((site) => site !== "");
@@ -35,6 +41,7 @@ function queryProblem(request: SearchRequest): string | null {
     const query = request.query.trim();
     if (query === "") return "query is empty";
     if ([...query].length > MAX_QUERY_CODE_POINTS) return `the query is longer than ${String(MAX_QUERY_CODE_POINTS)} characters`;
+    if (sitesOf(request).length > MAX_SITES) return `at most ${String(MAX_SITES)} sites`;
     return null;
 }
 
@@ -68,7 +75,9 @@ function pageOf(json: unknown, url: string, key: string): Outcome<Page> {
     if (!Array.isArray(results)) return {ok: false, code: "bad-response"};
     const first = results[0] as {raw_content?: unknown; title?: unknown} | undefined;
     if (first === undefined) {
-        const failure = Array.isArray(failedResults) ? (failedResults[0] as {error?: unknown} | undefined)?.error : undefined;
+        // 只认这个网址自己的失败记录：别的记录的原因安不到这次请求上。
+        const entry = Array.isArray(failedResults) ? (failedResults as unknown[]).find((item) => httpHref((item as {url?: unknown} | null)?.url) === url) : undefined;
+        const failure = (entry as {error?: unknown} | undefined)?.error;
         // 读不了的原因进详情：它来自服务的成功响应，同样先遮盖密钥再截短（输出 12）。
         return {ok: false, code: "not-found", detail: typeof failure === "string" && failure !== "" ? safeDetail(failure, key) : "the page has no readable content"};
     }

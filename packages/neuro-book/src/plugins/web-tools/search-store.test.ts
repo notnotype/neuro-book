@@ -16,6 +16,8 @@ import type {FakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 
 import {fakeDeepSeek} from "./testing/fake-deepseek";
 import type {FakeDeepSeek} from "./testing/fake-deepseek";
+import {fakeTavily} from "./testing/fake-tavily";
+import type {FakeTavily} from "./testing/fake-tavily";
 import {webWorld} from "./testing/world";
 import type {WebWorld} from "./testing/world";
 import {createSearchStore} from "./web/search-store";
@@ -26,6 +28,7 @@ const KEY = "sk-store-not-real-0123456789";
 let tmp = "";
 let model: FakeEndpoint;
 let deepseek: FakeDeepSeek;
+let tavily: FakeTavily;
 let world: WebWorld | null = null;
 let counter = 0;
 const stores: SearchStore[] = [];
@@ -34,16 +37,19 @@ beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-web", "设置页的数据模块");
     model = fakeEndpoint();
     deepseek = fakeDeepSeek();
+    tavily = fakeTavily();
 });
 afterEach(async () => {
     for (const store of stores.splice(0)) store.dispose();
     deepseek.reset();
+    tavily.reset();
     await world?.close();
     world = null;
 });
 afterAll(async () => {
     model.stop();
     deepseek.stop();
+    tavily.stop();
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
@@ -51,7 +57,7 @@ async function storeOf(prepare?: (root: string) => Promise<void>): Promise<Searc
     counter += 1;
     const root = join(tmp, `w${String(counter)}`);
     await prepare?.(root);
-    world = await webWorld(root, {deepseekBaseUrl: deepseek.baseUrl, modelBaseUrl: model.baseUrl});
+    world = await webWorld(root, {deepseekBaseUrl: deepseek.baseUrl, tavilyBaseUrl: tavily.baseUrl, modelBaseUrl: model.baseUrl});
     const store = createSearchStore(await world.settings("w"), () => 1000);
     stores.push(store);
     return store;
@@ -124,6 +130,25 @@ describe("数据模块接真实服务端", () => {
         await store.check("deepseek");
         expect(store.checks.get("deepseek")).toEqual({status: "done", result: {ok: true}, at: 1000});
         expect(deepseek.requests.at(-1)?.authorization).toBe(`Bearer ${KEY}-new`);
+    });
+
+    it("两家互不影响：一家写入成功不取消另一家已经发出的检测，也不清它的结果（输出 8）", async () => {
+        const store = await storeOf();
+        await store.start();
+        await store.setKey("tavily", "tvly-store-not-real-0123456789");
+        await store.setKey("deepseek", KEY);
+        tavily.script("/search", {hang: true});
+        const checking = store.check("tavily");
+        await waitUntil("the Tavily check reached the endpoint", () => tavily.requests.length >= 1 || undefined);
+        expect(await store.setKey("deepseek", `${KEY}-new`)).toEqual({ok: true});
+        expect(store.checks.get("tavily")).toEqual({status: "running"});
+        // 放开挂着的请求（假端点以 500 作答）：这次检测照常结束，结果留着。
+        tavily.release();
+        await checking;
+        expect(store.checks.get("tavily")).toMatchObject({status: "done", result: {ok: false, code: "failed"}});
+        expect(await store.clearKey("deepseek")).toEqual({ok: true});
+        expect(store.checks.get("tavily")).toMatchObject({status: "done", result: {ok: false, code: "failed"}});
+        expect(deepseek.requests).toHaveLength(0);
     });
 
     it("入口停用：已经发出的检测被取消，迟到的结局不写进状态（时序与寿命）", async () => {
