@@ -122,4 +122,7 @@ ADR 0063 还没写：ADR 只收开发者接受过的决定，等开发者对“�
 - 合入 master 时要改的：`site.telemetry-ingest` 输出 10 里“‘登录照常’那一半等账号有了登录接口再验（planned）”去掉。计划第 7 节的手工主路径（起 `serve`、走注册、登录、`whoami`、登出）主会话在晋升前做。
 - 手工主路径（主会话，2026-11-25，`f8eb66f1e`，脚本 `/tmp/w00037-t07-plan/lab-manual/walk.sh`）：`migrate`、管道给密码的 `create-admin`（标准错误先写一行等密码的提示）、管理员登录（Cookie `__Host-nbsite.session_token`、`Path=/`、`HttpOnly`、`Secure`、`SameSite=Lax`、30 天）、补交同意之前发注册码得 `consent_required`、补交后发一次性注册码、用它注册（带 Chrome 的 `User-Agent`）、`whoami` 是新账号、会话列表只有 `Chrome`、`Linux` 与 `current`、登出回 `{}` 并清掉库的三个 Cookie、带 `no-store`、登出后 `whoami` 是匿名、再用这个码注册得 `registration_code_invalid`、`SIGTERM` 后以 0 退出；服务日志与输出里找不到两个密码。
 
-第 6 到 8 片与上两个修正的实现审查已开（2026-11-25，范围 `02ce9d01b..f8eb66f1e`，账号这一侧的提交）：Opus 先审，omp（`@review`）在后台；审查用的 worktree 是 `.worktree/w00037-t07-review3`。
+第 6 到 8 片与上两个修正的实现审查（2026-11-25，范围 `02ce9d01b..f8eb66f1e`，账号这一侧的提交）：Opus 5 条（都是建议）、omp 3 条（重要 1、建议 2），处理见 `plan.md` 文末两节；审查用的 worktree 已删。
+
+- Opus 那轮的修正 `886e6c5ce`（16 个文件）：结束会话的审计条数与详情的会话数都只数未到期的（`countLiveSessions`）；浏览器标识截到前 512 个字符、规则改成“几个记号都出现”（16 KB 的标识从约 44 毫秒降到 0.1 毫秒）；生成邀请码按账号每小时 10 次（2000 轮“生成再停用”只成 10 次）；头像与网站拒收空白、控制字符与双向控制符。实现者跑的四个包加类型检查、`governance:check` 都过，合同测试连跑 3 遍都过，6 条变异都被抓到（把 Safari 的旧正则放回、保留截断时没有用例失败：截断后结果一样，线性只靠计时数字）。主会话重跑账号与合同包的测试和类型检查通过。
+- 与处理表不同、接受的：两条已有的邀请码用例在中间拨过一小时（一共生成的次数到了新限额）；生成邀请码的先后定为 `validation_failed`、`rate_limited`、`invite_code_limit`，已写进 `site.accounts` 失败先后；结束会话条数的用例只在包内（合同里造不出“已到期而行还在”）。

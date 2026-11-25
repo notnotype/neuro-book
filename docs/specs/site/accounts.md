@@ -132,7 +132,8 @@ owners:
 同时有几处不合格时，回下面先后里的第一个。字段不合格的请求不计入限流。请求体超过 16 KiB 的请求在来源头之后、下面别的检查之前就回 `validation_failed`（读体之前就要拦下）。
 
 - 注册：`forbidden_origin`、`registration_closed`、`validation_failed`、`rate_limited`、`consent_required`、`registration_code_invalid`、`invite_code_invalid`、`username_taken`、`email_taken`。码在占用之前查，没有可用注册码的人试不出哪些用户名与邮箱已被注册。
-- 登录：`forbidden_origin`、`validation_failed`、`rate_limited`、`overloaded`、`invalid_credentials`、`account_banned`。封禁在密码之后查，不知道密码的人试不出谁被封了。
+- 登录：`forbidden_origin`、`validation_failed`、`rate_limited`、`overloaded`、`invalid_credentials`、`account_banned`。
+- 生成邀请码：`validation_failed`、`rate_limited`、`invite_code_limit`。封禁在密码之后查，不知道密码的人试不出谁被封了。
 
 ## 边界与兼容
 
