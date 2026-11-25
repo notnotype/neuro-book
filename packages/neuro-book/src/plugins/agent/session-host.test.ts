@@ -58,16 +58,22 @@ afterAll(async () => {
 });
 
 const PROFILE = "test.sh.main";
+/** 第三方插件的 Profile：声明里按 id 引用模式扩展，工具里没有 `switch_mode`（Agent 不能主动切，用户能切）。 */
+const MODAL_PROFILE = "test.sh.modal";
 const TOOLS = ["read", "write", "edit", "shell", "ask-form"].map((name) => `nbook.agent.${name}`);
 
 function testPlugin(): PluginDefinition {
     const profile = agentProfile(PROFILE, {name: "测试", description: "测试用", icon: "i-lucide-feather", tools: {required: TOOLS, optional: []}});
+    const modal = agentProfile(MODAL_PROFILE, {name: "有模式", description: "测试用", tools: {required: TOOLS, optional: []}, referencedExtensions: [AGENT_MODES_EXTENSION]});
     return {id: "test.sh", entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: ["onStartup", profile.activationEvent],
-        contributions: [profile.contribution],
-        activate: () => ({contributions: {"agent.profiles": {[PROFILE]: defineProfile({id: PROFILE, version: "1", name: PROFILE, description: "测试用", system: "测试。", tools: {required: TOOLS}})}}}),
+        activationEvents: ["onStartup", profile.activationEvent, modal.activationEvent],
+        contributions: [profile.contribution, modal.contribution],
+        activate: () => ({contributions: {"agent.profiles": {
+            [PROFILE]: defineProfile({id: PROFILE, version: "1", name: PROFILE, description: "测试用", system: "测试。", tools: {required: TOOLS}}),
+            [MODAL_PROFILE]: defineProfile({id: MODAL_PROFILE, version: "1", name: MODAL_PROFILE, description: "测试用", system: "测试。", tools: {required: TOOLS}}),
+        }}}),
     })]};
 }
 
@@ -1521,6 +1527,19 @@ describe("Agent 模式（agent/modes.md）", () => {
         await until("别处切了", () => h.ctx().composer.mode === "discuss");
     });
 
+    test("第三方插件的 Profile 声明里引用模式扩展、工具里没有 switch_mode：显示、用户能切；草稿里选的模式新建时提交", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("记下", () => h.ctx().composer.mode === "plan");
+        expect(await h.host.create(MODAL_PROFILE)).not.toBeNull();
+        await until("有模式、草稿的计划模式提交了", () => h.ctx().composer.modes.length === 3 && h.ctx().composer.mode === "plan");
+        expect((await w.service.session(h.host.sessionId.value!).snapshot()).extensionSettings[AGENT_MODES_EXTENSION]?.mode).toBe("plan");
+        h.host.act({type: "mode.set", mode: "discuss"});
+        await until("切到讨论", () => h.ctx().composer.mode === "discuss");
+        expect(h.ctx().composer.notice).toBeUndefined();
+    });
+
     test("没有模式扩展的 Profile：不显示", async () => {
         const w = await world();
         const h = await started(w);
@@ -2738,13 +2757,13 @@ describe("有归属的会话（conversation.md 输出 53：档位按归属）", 
         expect(h.host.sessionId.value).toBe(otherId);
     });
 
-    test("模式选择器看 Profile 的工具里有没有切换模式：有就显示，没有就不显示", async () => {
+    test("模式选择器看目录里的 Profile 引用了模式扩展没有：只列了 switch_mode 不显示，引用了就显示", async () => {
         const w = await world();
         const entry = {key: PROFILE, name: "测试", description: "", source: "test", status: "ok" as const, icon: "i-lucide-feather"};
-        const without = await started(w, {profiles: () => [{...entry, tools: {required: TOOLS, optional: []}}]});
+        const without = await started(w, {profiles: () => [{...entry, tools: {required: [...TOOLS, "nbook.agent.switch-mode"], optional: []}}]});
         await until("打开", () => without.ctx().session !== null && without.ctx().availability.status === "ready");
         expect(without.ctx().composer.modes).toEqual([]);
-        const withModes = await started(w, {profiles: () => [{...entry, tools: {required: [...TOOLS, "nbook.agent.switch-mode"], optional: []}}]});
+        const withModes = await started(w, {profiles: () => [{...entry, tools: {required: TOOLS, optional: []}, referencedExtensions: [AGENT_MODES_EXTENSION]}]});
         await until("打开", () => withModes.ctx().session !== null && withModes.ctx().availability.status === "ready");
         expect(withModes.ctx().composer.modes.length).toBeGreaterThan(0);
     });
