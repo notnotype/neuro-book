@@ -1,0 +1,565 @@
+# 前端核对报告（author-ui.md，t41 晋升前）
+注：Spec 行号以主工作区当前文本为准；测试路径省略前缀 packages/neuro-book/src/plugins/canon/ 时写作 canon/。
+
+### author-ui.md:78 uses 的注释（“这个界面会用到的、同一条目上别的设定组……”）
+- 句子：这个界面会用到的、同一条目上别的设定组（类型 id）
+  测试：canon/web/entry-page.dom.test.ts:1240 与 :1347-1350
+  断言：徽章界面声明 uses=[panel, look]；条目上启用着 character（内置人物）与 panel，没有 look。`context.other` 对 [panel, look, person] 读出 "present|absent|absent"（person 在条目上明明启用却因没列进 uses 读成 absent；look 没加过读成 absent），加上 look 以后变 "present|present|absent"。值由实现（EntryPageHost.vue:787-801 的 otherFor）算出。能区分 uses 起没起作用。
+  判定：去标记
+- 句子：只是依赖的声明，不是权限：设定的读取对作者这一侧本来就全开
+  测试：无
+  断言：这是对 uses 性质的解释，没有可观察的行为；`context.fields` 等读取并不受 uses 限制（实现没有对 uses 做别的用途，只有 otherFor 一处读它）。
+  判定：不是行为
+
+### author-ui.md:116 起 “以下都是 planned，并且都可以不给”（other 到 showDetail）
+测试位置：canon/web/entry-page.dom.test.ts 的 describe“专门界面的接口”（1200-1360）与 describe“人物与形象两个分页”（1363-1449），canon/web/components/CharacterCard.dom.test.ts，e2e/canon-character.e2e.ts。实现：canon/web/components/EntryPageHost.vue:786-801（otherFor）与 :930-975（contextFor）。
+- 句子：条目页给全，别的宿主缺哪一项，界面就退到没有它时的做法
+  测试：无（FieldEditor 没挂时退回确认条的用例 entry-page.dom.test.ts:1296-1301 是界面不挂编辑器，不是宿主不给成员；CharacterView、LookView 没有用残缺 context 挂载的测试）
+  断言：无。实现靠 `?.` 与 `??`（CharacterView.vue:62、79、94、124、179-181），没有断言能区分。
+  判定：留标记（没有断言）
+- 句子：other 的 present（含 peer 读得到字段）
+  测试：entry-page.dom.test.ts:1349（"present|absent|absent"）、:1379（立绘读自形象：peer.fields["立绘"] 的图片路径画成 [data-canon-image='插图/星瑕.png']）
+  断言：值来自真实世界发布的条目；读出的路径是实现从 peer 取出来的。
+  判定：去标记
+- 句子：other 的 absent（没加过）与“没列的一律是 absent（不报错，界面按没有画）”
+  测试：entry-page.dom.test.ts:1349-1350、:1386-1387
+  断言：没加过形象读出 absent；条目上已启用的人物因没列进 uses 读出 absent（见 78 行那一节）；人物分页对 absent 画 [data-portrait='absent']，点了加上后变 'no-image'。
+  判定：去标记
+- 句子：other 的 removed（去掉过，可以恢复）、later（加了，所选位置上还没启用，from 是“第 N 章”）、unavailable（类型没登记或不可用）
+  测试：无。CharacterCard.dom.test.ts:35-45 只测卡片按传入的 portrait 属性画“恢复形象”“第 3 章起有形象”、不画，没有测宿主 `other` 算出这三种状态。
+  断言：无。实现在 EntryPageHost.vue:795-798（later 读 view.upcoming，removed 读 removedComponents，unavailable 读 componentsRead 里查不到），没有任何用例走到。
+  判定：留标记（没有断言）
+- 句子：peer 只能读（命名空间、字段状态、字段声明、来历）
+  测试：无直接断言；类型 ComponentPeer（component-views.ts:34-38）只有 namespace、fields、declarations 三项。
+  断言：实现里没有“来历”：`peerFor`（EntryPageHost.vue:773-785）不给 origins。其余“只能读”由类型保证，没有行为可测。
+  判定：字面不符（实现的 peer 只有命名空间、字段状态、字段声明，没有来历；建议 Spec 把“来历”两个字删掉，或改代码给 peer 加 origins）
+- 句子：addComponent（给这个条目加上 uses 里的一组设定；去掉过的是恢复；写不了时的原因在 blocked 里）
+  测试：entry-page.dom.test.ts:1350（加上形象后 other 变 present）、:1386-1387（点“添加形象”后 no-image）；去掉过的恢复由内核 packages/nb-canon/tests/entry-edits.test.ts:203-209 测同一个 op（{op:"component", action:"add"}，去掉后再 add，removed 标记没了）。
+  断言：分层：宿主对加上与恢复发的是同一个 op（EntryPageHost.vue:936），内核对 add 去掉过的有断言。“写不了时原因在 blocked”指向既有的输出 28 的字段，没有新行为。
+  判定：去标记
+- 句子：showTab（切到那一组的分页；没有这个分页时什么也不做）
+  测试：entry-page.dom.test.ts:1380-1381（点立绘后 state.tab === "data:look"）
+  断言：切到有的分页有断言；“没有这个分页时什么也不做”（EntryPageHost.vue:937-940 的 target 为 undefined 分支）没有用例。
+  判定：留标记（后半句没有断言；可补一条或把后半句删去）
+- 句子：fieldAdd（新增一个字段；类型允许时才有）、removedFields
+  测试：entry-page.dom.test.ts:1348-1357（加“种族”后出现 [data-edit='badge.种族']；加重名“图案”得 refused；去掉后 removedFields 读出“种族”且不再出现在字段里）、:1409-1420（人物分页点预设“种族”加上）
+  断言：值来自真实内核的写入结果与重读。
+  判定：去标记（fieldAdd 与 removedFields）；“类型允许时才有”字面不符：实现里 fieldAdd 总是有（EntryPageHost.vue:941），类型不允许实例字段时由内核拒收、交回 {ok:false, reason}（CharacterView.vue:179 的 can-add 也只看 fieldAdd 在不在）；建议 Spec 改成“类型不允许时被拒，原因交回”
+- 句子：fieldRename（改显示名）
+  测试：无（receipt-page.dom.test.ts:242 直接发 fieldRename 操作测回执，不经 context；没有用例调 context.fieldRename 或点卡片“改名”）
+  断言：无。实现 EntryPageHost.vue:942-947、CharacterView 里的改名对话框都没有测。
+  判定：留标记（没有断言）
+- 句子：fieldRemove（去掉）
+  测试：entry-page.dom.test.ts:1348、:1357；:1337-1345（草稿所在字段被去掉时草稿清掉、不退回确认条）
+  断言：去掉后 removedFields 出现、字段按钮消失、state.edit 为 null、没有确认条。
+  判定：去标记
+- 句子：fieldRestore（恢复）
+  测试：无（nb-canon/tests/entry-edits.test.ts:302 测内核的 fieldRestore，没有用例经 context.fieldRestore 或卡片“恢复”走到宿主 EntryPageHost.vue:953）
+  断言：无。宿主拼的路径 `${namespace}.${path}` 没有断言。
+  判定：留标记（没有断言）
+- 句子：edit 的第二个参数 inline、value、intent
+  测试：entry-page.dom.test.ts:1260-1311（inline：挂着编辑器时无确认条、没挂时退回确认条）、:1390-1407（value、intent：点“换上”后 state.edit 为 {path:"look.现在穿的", intent:"story", value:"学院制服"}，输入框里值为“学院制服”）
+  断言：state.edit 由实现写出；输入框的值读自 DOM。
+  判定：去标记
+- 句子：FieldEditor 的两种 layout（popover 锚在 anchor 上、block 浮在原处向下长）
+  测试：popover：entry-page.dom.test.ts:1260-1311（传 anchor，浮层才出现：EntryPageHost.vue 里 open 要求 anchor !== null）；block：entry-page.dom.test.ts:1423-1436（成段的现在的状态用 textarea 编辑层）、e2e/canon-character.e2e.ts:122-150（性格的编辑层打开与输入时后一段位置不变；背景贴着窗口底边打开后保存按钮在窗口内）
+  断言：见左；popover 的实际落点由 nb-ui 的 Popover 测，这里只断言给了 anchor 才出现。block“向下长”的位置断言在 e2e（未运行）。
+  判定：去标记（e2e 未跑，依赖 e2e 的那一半由主会话确认）
+- 句子：FieldDetail 画一个值的细节：来历、语义档的起点与各句、记一句
+  测试：entry-page.dom.test.ts:1053-1070（语义档：记一句后细节里多一句）、:1423-1436（点开是细节，里面有“改起点”）
+  断言：各句（含刚记的一句）与“记一句”有断言。来历（非语义字段的 OriginList，点“第 N 章改过”进浮层，CharacterView.vue:209-211）与语义档的起点那一行没有用例：CharacterCard.dom.test.ts 只断言点“第 N 章改过”发 origins 事件，entry-page.dom.test.ts 没有点它。
+  判定：留标记（来历与起点没有断言）
+- 句子：editing、detail、showDetail（没有时为 null）
+  测试：entry-page.dom.test.ts:1264 与 :1269（editing 读出“图案”）、:1423-1436（showDetail 开合：点开出 [data-condition-detail]，点“改起点”后细节收起）
+  断言：editing 在编辑时读出字段名；detail 经 showDetail 开合有可见结果。“没有时为 null”未单独断言，影响很小。
+  判定：去标记
+- 说明：Spec 的 context 清单没有写 `presets`（component-views.ts:113 与 EntryPageHost.vue:955 有，CharacterView.vue:113 用它列“添加一项资料”的预设），建议把它补进 Spec 的接口块。
+建议：这一处标记不能整块去掉。去掉标记的是：other 的 present 与 absent、addComponent、fieldAdd、fieldRemove、removedFields、edit 的第二个参数、FieldEditor 两种 layout、editing/detail/showDetail。标记挪到这几句：“条目页给全，别的宿主缺哪一项……”、other 的 removed/later/unavailable 三种、`showTab` 的“没有这个分页时什么也不做”、`fieldRename`、`fieldRestore`、`FieldDetail`；`peer` 那句与 `fieldAdd` 的“类型允许时才有”先改 Spec 字面。
+
+### author-ui.md:153-166 “条目种类的贡献点 canon.entry-kinds”整节
+实现：canon/shared/entry-kinds.ts（声明形状、mergeEntryKinds、defaultComponents、missingDefaults）、canon/backend/plugin.ts:66-95（诊断）、canon/web/plugin.ts:224、canon/web/entries-view.ts:145-149、canon/backend/agent-tools.ts:439-440、canon/shared/components.ts:100-105（内置登记）。
+- 句子：登记一个种类默认带哪几组设定；声明形状 kind、components、order；声明在插件清单里，不交实现
+  测试：canon/entry-kinds.dom.test.ts:34-50（合并后的 kind、components、order 都被读出）；canon/agent-tools.test.ts:98-111（服务端实例读到内置的四条，用的是真实 declarations.list）；canon/web/entries-view.dom.test.ts:216-224；e2e/canon-character.e2e.ts:96-99（产品里浏览器入口读到登记，新建人物勾上人物与形象）
+  断言：声明的三个字段都经真实贡献点读出并起作用（order：-1 排在 0 前面）；三种实例（服务端、浏览器、项目）各有读到。
+  判定：去标记
+- 句子：贡献 id 按插件 id 的前缀校验
+  测试：packages/nb-runtime/src/plugins/owner-contribution-points.test.ts、plugin-manifest.test.ts 里 idPrefix 的通用断言；本点只是 `idPrefix: "plugin"` 一行（shared/entry-kinds.ts:37），没有专门拿错前缀的用例
+  断言：分层：校验由内核实现并测，这里配置一行。
+  判定：去标记（分层；若主会话要求本点自己的拒收用例，则留）
+- 句子：种类仍然只是条目上的一个词，世界里不存这张表
+  测试：无
+  断言：设计说明；entries-view.dom.test.ts:232-233 看到条目的 type 是词“人物”，但“世界里没有这张表”不是可断言的行为。
+  判定：不是行为
+- 句子：同一个词可以有几条登记：默认的设定组先是内置的、再是别的插件的，并起来、去重，order 取最小的
+  测试：canon/entry-kinds.dom.test.ts:35-50
+  断言：第三方登记“人物”的 components=["nbook.canon.look","x.magic"]、order=9，且 id 排在内置前面；合并结果是 ["nbook.canon.person","nbook.canon.look","x.magic"]、order 0（内置在前、look 去重、取最小而不是 9）；整体按 order、词排成 ["法器","人物","组织","地点","物品"]。值由 mergeEntryKinds 算出。
+  判定：去标记
+- 句子：“再是别的插件的（按贡献 id）”
+  测试：无。用例里每个词至多一条第三方登记，没有同一个词两条第三方登记的情形；“按贡献 id”靠 declarations.list 的顺序，mergeEntryKinds 自己只把内置挪到前面、其余保持输入顺序（shared/entry-kinds.ts:57-59）
+  断言：无
+  判定：留标记（没有断言；可补一条：同一个词两条第三方登记、经真实 declarations.list 读出）
+- 句子：默认里写到没登记或不可用的类型时，那一项当作没写，另写一条诊断
+  测试：canon/entry-kinds.dom.test.ts:47-49（defaultComponents 滤掉 x.magic、城市没有默认）、:51-71（项目实例写诊断）
+  断言：defaultComponents(kinds, " 人物 ", available) 只剩 person、look；项目实例（真实 canonNodeWorld）里 `canon.entry-kinds.missing-component` 记录的 data 恰为 [{kind:"法器", type:"x.test.missing"}]（已登记的 nbook.canon.panel 不报；只一条）。
+  判定：去标记
+- 句子：默认只在“没说要哪几组”时用：新建对话框见输出 4；Agent 的新建见 agent-tools 输出 7
+  测试：canon/web/components/NewEntryDialog.dom.test.ts:61-93（动过勾选以后不再跟着种类换）；canon/agent-tools.test.ts:153-158（没写 components：人物、形象，加面板；组织无）与 :211-215（没写 components 套默认、写了 [] 是一组也不要）
+  断言：读回条目的设定组清单，值由真实写入算出。
+  判定：去标记
+- 句子：内置登记人物（人物、形象两组）、组织、地点、物品
+  测试：canon/entry-kinds.dom.test.ts:44（内置的词与 order 次序）、canon/web/entries-view.dom.test.ts:222（对话框候选恰为 人物、组织、地点、物品）、canon/agent-tools.test.ts:107、:153-158
+  断言：人物的默认是 person 加 look；其余三个有登记，组织没有默认（Agent 新建“学院”没有设定组）。地点、物品“没有默认”没有单独断言，但 Spec 这句没有要求它们有。
+  判定：去标记（注：Spec 这句写的是四个种类，说明里写的“五个”应是误记）
+建议：整节去标记，只有“再是别的插件的（按贡献 id）”这半句挪着留（或补一条同词两条第三方登记的用例后一并去掉）；“种类仍然只是条目上的一个词，世界里不存这张表”是设计说明，去标记时不需断言。
+
+### author-ui.md:175 输出 4 末尾（“种类的候选另有登记的种类……作者动过以后不再跟着种类换”）
+实现：canon/web/entries-view.ts:145-158、:218；canon/web/new-entry.ts:36-44（withKind）；canon/web/components/NewEntryDialog.vue。
+- 句子：种类的候选另有登记的种类（输入的 canon.entry-kinds）
+  测试：canon/web/entries-view.dom.test.ts:208-231（空作品点“新建人物”）
+  断言：对话框里 [data-new-entry-kinds] 的按钮文字恰为 人物、组织、地点、物品，值由真实 mergeEntryKinds(BUILTIN_ENTRY_KINDS) 经宿主算出。
+  判定：去标记
+- 句子：排在用过的词前面
+  测试：无。这个用例是空作品，树里没有任何条目，没有“用过的词”可比；NewEntryDialog.dom.test.ts 的 kinds 属性是测试自己给的顺序；entries-view.dom.test.ts:172-206 的用例没有断言候选顺序
+  断言：无。实现在 entries-view.ts:218（`[...new Set([...registered, ...used])]`），把顺序改成先用过的词再登记的，现有用例都不会失败。
+  判定：留标记（没有断言）
+- 句子：点一个种类的按钮、或种类的输入框失焦时，作者还没动过“启用哪些数据”的勾选，就把勾选整组换成这个种类的默认（没登记的种类是空的）
+  测试：canon/web/components/NewEntryDialog.dom.test.ts:61-93；canon/web/entries-view.dom.test.ts:216-222；e2e/canon-character.e2e.ts:96-99
+  断言：点“人物”按钮后勾选恰为 [人物, 形象]；打字时（“地”）不换；输入“地点”后失焦，勾选变为 []（没登记的种类是空的）；宿主一层：空作品点“新建人物”后勾选为人物与形象，建出的条目 data 的键恰为 ["character","look"]。
+  判定：去标记
+- 句子：作者动过以后不再跟着种类换
+  测试：canon/web/components/NewEntryDialog.dom.test.ts:86-92
+  断言：手动勾上“面板”后草稿 typesTouched 为真、types 为 [person, look, panel]；再点“地点”，勾选仍是 [人物, 形象, 面板]。先让触发条件成立（真的点了勾选、真的点了按钮），再断言没变。
+  判定：去标记
+建议：这一处去标记，但“排在用过的词前面”要么挪着留标记、要么补一条（树里已有“人物”“物品”条目、再开对话框，断言候选先登记的后用过的）。
+
+### author-ui.md:183 输出 9（a）“条目的种类登记了默认的设定组时……这个条目有没提交的主文字稿时打开页面选‘文字’”
+实现：canon/web/components/EntryPageHost.vue:200-232。
+- 句子：条目的种类登记了默认的设定组时，这些设定组的数据分页排到“文字”前面
+  测试：canon/web/entry-page.dom.test.ts:286-310；e2e/canon-character.e2e.ts:100、canon-author.e2e.ts:123、canon-write.e2e.ts:129
+  断言：种类是“人物”的条目分页为 ["人物","文字","面板","情节0"]，同样的数据、种类是“物品”的条目为 ["文字","人物","面板","情节0"]（只差种类，区分“按种类登记”与“按设定组自带的 kinds”）；e2e 里新建人物为 人物、形象、文字、经历、情节。
+  判定：去标记
+- 句子：次序仍同命名空间的顺序
+  测试：无。两个默认组的用例（e2e 的人物、形象）里命名空间的顺序与默认清单的顺序相同（都是 character、look），改成按默认清单排或按命名空间排结果一样。
+  断言：无能区分的断言。
+  判定：留标记（没有断言；要补就造一个命名空间顺序是 [look, character] 的条目；或把这半句从 Spec 删去，它只是实现细节）
+- 句子：其余数据分页照旧在“文字”后面
+  测试：canon/web/entry-page.dom.test.ts:296、:309；e2e/canon-author.e2e.ts:123（人物、形象、文字、面板、经历、情节）
+  断言：面板在文字后面；种类不是人物时人物分页也在文字后面。
+  判定：去标记
+- 句子：所以人物条目打开时选中人物分页
+  测试：canon/web/entry-page.dom.test.ts:297；e2e/canon-character.e2e.ts:100-101、canon-write.e2e.ts:129-130
+  断言：未选过分页时 aria-selected 的分页文字是“人物”。
+  判定：去标记
+- 句子：这个条目有没提交的主文字稿时打开页面选“文字”（直接进编辑，输出 45）
+  测试：无。canon/web/entry-page.dom.test.ts 里所有有稿的用例都先写 `state.tab = "text"`（:717、:759、:778、:807、:867、:885、:917、:946、:970）；e2e 的“刷新以后直接在编辑里”（canon-write.e2e.ts:211-246、:414-447）先点过“文字”分页，标签状态随刷新恢复，没走到“还没选过分页、读到稿就定在文字上”的那条 watch。
+  断言：无。实现是 EntryPageHost.vue:229-231 的 watch（`state.tab === null` 且有稿时 `state.tab = "text"`）；删掉它，现有用例都不失败。
+  判定：留标记（没有断言；要补：种类“人物”的条目、有稿、state.tab 为 null 时挂载，断言选中的是“文字”且在编辑）
+建议：这一处的标记挪到“次序仍同命名空间的顺序”与“有没提交的主文字稿时打开页面选‘文字’”两句；前面三句（排到文字前面、其余照旧在后面、打开选人物）去标记。
+
+### author-ui.md:183 输出 9（b）“分页条放不下时……分页条不横向滚动”
+实现：canon/web/components/EntryPage.vue:231-232（`overflow="adapt"`），算法在 packages/nb-ui/src/components/controls/tabs-adapt.ts。
+- 句子：放不下时逐级让位：标题截短，再把放不下的收进末尾的“更多”，当前分页始终在
+  测试：packages/nb-ui/src/components/controls/tabs-adapt.test.ts:19-58（完整、截断、只留图标、收进更多，选中的始终在且带标题）；e2e/lab-tab-strip.e2e.ts:122-150（Lab 里逐级让位、从“更多”选中的回到标签带）；条目页一层只有 EntryPage.vue 传 `overflow="adapt"` 这一行
+  断言：分层：算法与组件在 nb-ui 测；条目页挂的是同一个 Tabs。条目页本身没有“把属性去掉就失败”的用例，只有下一条的 e2e 间接要求它。
+  判定：去标记（分层；建议主会话变异：去掉 EntryPage.vue 的 overflow="adapt"，看 canon-author.e2e.ts 验收 14 是否失败，不失败就留标记）
+- 句子：分页条不横向滚动
+  测试：e2e/canon-author.e2e.ts:314-338（验收 14）
+  断言：390 宽时对条目页的 文字、人物、形象、面板、情节 五个分页逐个量：页面根、其中 overflow-x 为 auto/scroll 的元素、最近的滚动容器、整页的 scrollWidth 都不超过 clientWidth+1；此时 Tabs 的非适配版本有 `overflow-x-auto`（Tabs.vue:198），分页条一横滚就会被量到。
+  判定：去标记（e2e 未运行；依赖上一条的变异）
+
+### author-ui.md:206 输出 20 的“条目自己的字段声明的改动写成……（planned）”
+实现：canon/web/receipt.ts:150-175（declaredField）、canon/locales/zh-CN.json:346-349。
+- 句子：“添加了一项：某某”
+  测试：canon/web/receipt-page.dom.test.ts:241
+  断言：真实内核写入两个 fieldAdd 后，回执页“改了什么”的修改一节恰为 ["添加了一项：幸运、声望", "幸运：（没有） → 7"]（几项连起来，且新字段未填值那一行不重复写）。
+  判定：去标记
+- 句子：“去掉了一项：某某”
+  测试：canon/web/receipt-page.dom.test.ts:243
+  断言：恰为 ["去掉了一项：幸运"]。
+  判定：去标记
+- 句子：“恢复了一项：某某”
+  测试：canon/web/receipt-page.dom.test.ts:244
+  断言：恰为 ["恢复了一项：运气"]（恢复的是改过名的字段，显示的是现在的名字）。
+  判定：去标记
+- 句子：“某某 改名为 某某”
+  测试：canon/web/receipt-page.dom.test.ts:242
+  断言：改名两项后恰为 ["一项改名：幸运 → 运气、声望 → 名望"]；实现的文案是标签“一项改名”加“旧 → 新”（locales/zh-CN.json:349，receipt.ts:168），一次改几项的名字时每一对都写出来。
+  判定：字面不符（实现是“一项改名：旧名 → 新名”，建议 Spec 把“某某 改名为 某某”改成“一项改名：某某 → 某某”）
+建议：改 Spec 那一句字面后整处去标记；若不改字面，标记挪到“某某 改名为 某某”。
+
+### author-ui.md:252 输出 37 的“‘新建人物’启用的是……（planned）”
+实现：canon/web/entries-view.ts:70-72（startNewPerson 用登记的默认）、:145-149、:211（createPerson）；canon/web/components/EntryTree.vue:145-146。
+- 句子：“新建人物”启用的是“人物”这个种类登记的默认设定组
+  测试：canon/web/entries-view.dom.test.ts:208-231；e2e/canon-character.e2e.ts:96-99
+  断言：空作品点“新建人物”，对话框里勾选恰为 人物、形象，种类预填“人物”；新建后读回条目，data 的键恰为 ["character","look"]。默认由 BUILTIN_ENTRY_KINDS 经真实 mergeEntryKinds 与 defaultComponents 算出，startNewPerson 读 kindDefaults（不是写死的两个类型）。用例没有换一份登记（例如第三方给“人物”追加一组）来区分“读登记”与“写死”，但实现读登记，写死的改动只有改实现才会出现。
+  判定：去标记
+- 句子：没有这条登记时不出这个按钮
+  测试：canon/web/components/EntryTree.dom.test.ts:94-96（createPerson 为 false 时空状态只有“新建条目”）
+  断言：视图一层：属性为 false 时只有 ["新建条目"]。宿主一层 entries-view.ts:211 的 `registered.some(kind === "人物")` 没有用例：entries-view.dom.test.ts 的宿主永远用内置登记（kinds: () => mergeEntryKinds(BUILTIN_ENTRY_KINDS)），没有一个“登记里没有人物”的宿主，把这行改成恒为 true 也没有测试失败。
+  判定：留标记（没有断言；补法：宿主测试给 kinds: () => []，断言空状态只有“新建条目”）
+建议：标记挪到“没有这条登记时不出这个按钮（planned）”这半句。
+
+### author-ui.md:253 输出 38 的“适用于这个条目种类的排在前面，其余接在后面（planned）”
+实现：canon/web/components/EntryPageHost.vue:448-455（addableTypes：按组件声明的 kinds 含条目种类分两段）。
+- 句子：适用于这个条目种类的排在前面，其余接在后面
+  测试：canon/web/entry-page.dom.test.ts:286-300
+  断言：种类“人物”的条目（只有人物分页）打开“添加一组设定”，下拉选项文字恰为 ["形象","徽章"]：形象声明 kinds=["人物"]，徽章不写 kinds 且贡献 id “a.test.badge” 排在内置前面（用例注释写明：没有按种类排时徽章会是第一项），所以断言能区分“按种类排”与“按 id 排”。值读自真实 componentsRead 与组件注册。
+  判定：去标记
+说明：“适用于”在实现里按组件声明的 `kinds` 判，不是按 `canon.entry-kinds` 的登记；Spec 这句没有说按哪个，建议主会话核对输出 38 的措辞是否要写成“组件声明的适用种类”。
+
+### author-ui.md:267 输出 49 人物分页（整条，逐句）
+实现：canon/web/components/CharacterView.vue（绑定）、CharacterCard.vue（展示层）；测试：canon/web/components/CharacterCard.dom.test.ts、canon/web/entry-page.dom.test.ts:1363-1449、e2e/canon-character.e2e.ts。
+- 句子：内置人物的数据分页：左边是立绘，右边一行一项的短资料（性别、年龄、身份、所属、现在在哪、生死，再是自己加的各项与“添加一项资料”），下面是现在的状态，再下面是性格、说话方式、背景三段文字
+  测试：无。没有任何用例断言这些块的先后或左右（CharacterCard.dom.test.ts 与 entry-page.dom.test.ts 都是按 data-fact、data-passage 单个取；e2e 只量过 说话方式 的相对位置不变）。短资料的顺序在 CharacterView.vue:42-55（SHORT 在前，自己加的在后），三段文字在 :56-60 的 PASSAGES。
+  断言：无
+  判定：留标记（没有断言；版式与顺序类，要判可补：DOM 里 [data-fact] 的 id 序列为 性别、年龄、身份、所属、现在在哪、生死、自己加的）
+- 句子：立绘读自同一条目上的形象这一组：有立绘时是图，点了切到形象分页
+  测试：entry-page.dom.test.ts:1371-1381；CharacterCard.dom.test.ts:35-46
+  断言：形象这一组有“图片”路径时，立绘格是 [data-portrait='image'] 里的 [data-canon-image='插图/星瑕.png']，点了以后 state.tab 变为 "data:look" 且形象卡出现。
+  判定：去标记
+- 句子：有形象、没有立绘时是“添加立绘”（切到形象分页）
+  测试：entry-page.dom.test.ts:1387（加上形象后格子是 data-portrait='no-image'）、CharacterCard.dom.test.ts:35-46（点它发 portrait 事件）
+  断言：格子与事件有；“切到形象分页”这一半没有用例：点 no-image 格后没有断言 state.tab（CharacterView.vue:92 的 `status === "image" || status === "no-image"` 里去掉 no-image，所有用例仍过）。
+  判定：留标记（切到形象分页没有断言；补一行：点 no-image 格后 state.tab === "data:look"）
+- 句子：没加过形象是“添加形象”（给这个条目加上那一组，输出 38 的同一次写入）
+  测试：entry-page.dom.test.ts:1385-1387
+  断言：没有形象的条目格子是 data-portrait='absent'，点了以后条目上多了形象这一组、格子变为 no-image（经真实内核写入）。
+  判定：去标记
+- 句子：去掉过是“恢复形象”；形象在所选位置上还没启用时写“第 N 章起有形象”；类型不可用时这一格空着
+  测试：展示层：CharacterCard.dom.test.ts:35-46（按传入的 portrait 属性画这几种、later 不可点、unavailable 不画）。绑定层：无（宿主 `other` 的 removed、later、unavailable 三种没有用例，见 116 行那一节；CharacterView.vue:62-67 把状态原样交给卡片）。
+  断言：展示层有，条目页一层从 `other` 算出这三种状态没有。
+  判定：留标记（没有断言）
+- 句子：加上形象被拒时原因写在立绘下面
+  测试：展示层：CharacterCard.dom.test.ts:80-86（portraitError 属性写在 [role='alert']，在途时格子不可用）。绑定层：无（CharacterView.vue:93-100 把 addComponent 的 reason 赋给 portraitError，没有一个被拒的 addComponent 用例）。
+  断言：展示层有；被拒的原因怎么到那里没有。
+  判定：留标记（没有断言；补法：只读时点“添加形象”断言原因出现）
+- 句子：立绘的来历到形象分页看
+  测试：无
+  断言：说明去哪里看，没有行为可测。
+  判定：不是行为
+- 句子：自己加的列表（Agent 能加别的种类）卡片画不成一行，在下面嵌一节通用字段表（输出 12），不从这一页消失
+  测试：entry-page.dom.test.ts:1438-1449
+  断言：自己加的“随身物”列表字段不出 [data-fact='随身物']，通用字段表在 [data-character-view] 里且文字含“怀表”。
+  判定：去标记
+- 句子：宽度不够时立绘在上、资料排成一列；宽窗口里内容列封顶，立绘按比例裁切、不随窗口变大
+  测试：无（e2e/canon-author.e2e.ts:314-338 只量 390 宽时没有横向滚动；没有量立绘在上或封顶）
+  断言：无
+  判定：留标记（外观类，没有断言）
+- 句子：刚新建的人物每一项写“填写”
+  测试：entry-page.dom.test.ts:277-279（性别、身份写“填写”）；e2e/canon-character.e2e.ts:102、:170（性别、年龄写“填写”）
+  断言：短资料里数据没写的项写“填写”。但成段的三段文字与现在的状态不写“填写”：CharacterCard.vue 里 `passage.text ?? passage.hint`、`condition.text ?? hint`，locales/zh-CN.json 的 character.hint.* 是“遇事怎么反应，最在意什么”这类一句提示，e2e/canon-character.e2e.ts:129 也断言 性格 含“遇事怎么反应”。“填写”只出现在这几项的读屏名里（card.valueLabel）。
+  判定：字面不符（实现是：短资料每一项写“填写”，成段的三段文字与现在的状态写一句提示；建议 Spec 把“每一项写‘填写’”改成“短资料每一项写‘填写’，成段的文字与现在的状态写一句提示”）
+建议：这一条的标记挪到：“左边是立绘，右边一行一项……”的版式与顺序、“有形象、没有立绘……（切到形象分页）”、“去掉过是‘恢复形象’……类型不可用时空着”、“加上形象被拒时原因写在立绘下面”、“宽度不够时……”，并改“每一项写‘填写’”的字面；其余三句（有立绘点了切到形象分页、添加形象、自己加的列表嵌字段表）去标记。
+
+### author-ui.md:268 输出 50 形象分页（整条，逐句）
+实现：canon/web/components/LookView.vue、LookCard.vue；测试：CharacterCard.dom.test.ts 的 describe“LookCard”（:107-135）、entry-page.dom.test.ts:1390-1407、e2e/canon-character.e2e.ts:190-212、canon-author.e2e.ts:264-291。
+- 句子：上面是大的立绘、外貌与现在穿的，下面是衣柜（服装列表，一套一张卡：图、名字、样子两行截断）
+  测试：无。LookCard 的用例只断言“穿着”、换上事件、添加一套、添加立绘（CharacterCard.dom.test.ts:107-122），没有断言各块的先后，也没有断言一套的卡里有图、名字、样子，更没有两行截断。
+  断言：无
+  判定：留标记（版式与外观，没有断言）
+- 句子：现在穿的那一套标“穿着”
+  测试：CharacterCard.dom.test.ts:107-122（i1 的卡文字含“穿着”、没有“换上”按钮；i2 有）；entry-page.dom.test.ts:1396、:1406（换上以后 i2 标“穿着”）；e2e/canon-character.e2e.ts:209
+  断言：wearing 由 LookView.vue:50-55 按“现在穿的”的值等于套名算出，真实写入后重读。
+  判定：去标记
+- 句子：现在穿的的建议值是衣柜里各套的名字
+  测试：entry-page.dom.test.ts:1390-1407
+  断言：现在穿的的编辑器是“输入框加候选”（[data-suggest-input]，只有建议值非空时才是这种）；但候选的内容（便装、学院制服）没有断言，把 LookView.vue:56 的 names 换成别的非空列表用例仍过。
+  判定：去标记（小缺口：补一行断言候选恰为 便装、学院制服）
+- 句子：点一套的“换上”打开现在穿的的就地改，填好这一套的名字，意图预选“从这一章起”
+  测试：entry-page.dom.test.ts:1390-1407；e2e/canon-character.e2e.ts:190-212
+  断言：输入框值为“学院制服”，state.edit 为 {path:"look.现在穿的", intent:"story", value:"学院制服"}；e2e 里“剧情里变了”这个单选被选中，预览含“记一条变更”，保存后“穿着”与“第 3 章改过”。
+  判定：字面不符（实现里这个意图的名字是“剧情里变了”，不是“从这一章起”：locales/zh-CN.json:227、Spec 输出 16 的意图二选一也是这个名字；建议 Spec 把“从这一章起”改成“剧情里变了”）
+- 句子：换上的编辑“锚在这个按钮上”
+  测试：无。用例只断言编辑器出现；没有断言它贴着“换上”按钮而不是现在穿的那一格（LookView.vue:73-79 的 wearAnchor 去掉，用例仍过）。
+  断言：无
+  判定：留标记（位置类，没有断言）
+- 句子：（所选位置是初值时只有“改设定”）
+  测试：无。in-place-edit.ts:142 与 :314-318 的退回（给的意图不在可选里就用第一项）没有用例：换上的用例都在第 2 章位置。
+  断言：无
+  判定：留标记（没有断言）
+- 句子：衣柜空着时有“添加一套”（输出 40 的元素对话框）
+  测试：CharacterCard.dom.test.ts:107-122（outfits 清空后 [data-outfit-add] 在）；e2e/canon-character.e2e.ts:195-201（点它开出对话框、填名字保存，衣柜里多一套）
+  断言：衣柜空与非空都有“添加一套”（Spec 只说空着时有，实现始终有）；点了开元素对话框并写入。
+  判定：去标记
+- 句子：这个条目在形象上自己加的项在下面嵌一节通用字段表
+  测试：无（人物页的同类用例是 entry-page.dom.test.ts:1438，形象页没有）
+  断言：无。LookView.vue:42-44、:106 的 others 与 FieldTable 没有用例。
+  判定：留标记（没有断言）
+- 句子：刚加上的形象：立绘的位置是“添加立绘”
+  测试：CharacterCard.dom.test.ts:107-122（portrait 为 null 时 [data-edit='立绘'] 含“添加立绘”）；entry-page.dom.test.ts:1387 的 no-image 是人物页那一格
+  断言：形象卡没有立绘时写“添加立绘”。
+  判定：去标记
+- 句子：外貌写“填写”
+  测试：无；实现是写一句提示：LookCard.vue 里 `appearance.text ?? appearance.hint`，locales/zh-CN.json look.hint.appearance 是“发色、眼睛、体型，一眼认得出来的地方”。
+  判定：字面不符（建议 Spec 把“外貌写‘填写’”改成“外貌写一句提示”）
+- 句子：宽度不够时立绘在上、外貌与现在穿的在下
+  测试：无（390 宽的 e2e 只量没有横向滚动）
+  判定：留标记（外观类，没有断言）
+建议：标记挪到：版式那一句、换上编辑“锚在这个按钮上”、“（所选位置是初值时只有‘改设定’）”、“自己加的项在下面嵌一节通用字段表”、“宽度不够时……”；“从这一章起”“外貌写‘填写’”先改 Spec 字面；穿着、添加一套、添加立绘、建议值去标记。
+
+### author-ui.md:269 输出 51 专门界面里的就地改（整条，逐句）
+实现：canon/web/components/EntryPageHost.vue:370-380、:800-880（FieldEditor、dismiss、两种布局）、canon/web/in-place-edit.ts、canon/web/components/ConfirmBar.vue、SuggestInput.vue；测试：entry-page.dom.test.ts:1200-1360、:1100-1126、ConfirmBar.dom.test.ts、SuggestInput.dom.test.ts、ImageInput.dom.test.ts、e2e/canon-character.e2e.ts:86-188、canon-author.e2e.ts:264-291。
+- 句子：值本身是按钮，点了就改（写不了时按钮不可用、悬停写原因，同输出 16 的“改”）
+  测试：CharacterCard.dom.test.ts:48-62；entry-page.dom.test.ts:1260-1311、:1390-1407
+  断言：值按钮发 edit、写不了时 disabled 且 title 为原因。形象卡（LookCard）同样的写法没有断言 disabled 与 title。
+  判定：去标记（小缺口：LookCard 写不了时不可用没有断言）
+- 句子：不出页面顶上的确认条，输入在这一项上
+  测试：entry-page.dom.test.ts:1260-1311（挂着编辑器时 [data-confirm-bar] 不存在、编辑器在 [data-field-editor]；没挂时退回确认条）、:1423-1436
+  断言：由实现渲染出的 DOM。
+  判定：去标记
+- 句子：短的（短文字、有建议值的文字、引用、图片）在锚在这一项上的浮层里
+  测试：短文字：e2e/canon-character.e2e.ts:152-168（年龄）；有建议值：e2e :108-117（性别的 combobox）、entry-page.dom.test.ts:1260-1281；图片：e2e :176-187（立绘的浮层里上传）。引用：无。
+  断言：编辑器在 body 下的浮层里（document.body.querySelector），传了 anchor 才出现。引用字段（所属、现在在哪）在浮层里改没有用例；引用的条目选择器弹出的候选在浮层外面，点候选会不会被浮层当成“点外面”而放弃，没有用例（从代码推断：dismiss 对点外面无区分，EntryPageHost.vue:824-827、:869-880，未验证）。
+  判定：留标记（引用没有断言）
+- 句子：成段的文字浮在原处、向下长，盖在后面的内容上，别的内容不动、原来那一段的占位不变
+  测试：e2e/canon-character.e2e.ts:119-135；entry-page.dom.test.ts:1423-1436（成段的现在的状态用 textarea 编辑层）
+  断言：打开性格的编辑层并输入后，后一段（说话方式）相对卡片的 x、y、宽、高与打开前完全相等（性格那一段若被撑高，后一段必然移动，所以“原来那一段占位不变”也一并被量到）。触发条件先成立（编辑层打开、已输入），再比较。e2e 未运行。
+  判定：去标记（e2e 未跑，由主会话确认）
+- 句子：打开时整个滚进可见范围（在页面下方打开时保存不在窗口外）
+  测试：e2e/canon-character.e2e.ts:137-151
+  断言：背景滚到窗口底边再点开，轮询到保存按钮中心点处的元素就是保存按钮（elementFromPoint）。e2e 未运行。
+  判定：去标记
+- 句子：里面的东西同确认条：输入、意图、预览、原因、保存与取消，预览写回哪里与带来的变化
+  测试：ConfirmBar.dom.test.ts:30-95；e2e/canon-character.e2e.ts:112-117、:155-156、canon-write.e2e.ts:132-135、canon-character.e2e.ts:205-208
+  断言：预览一句写回哪里（“改初值”“记一条变更”）、变化行、原因、保存不可用的几种情形、意图单选（“剧情里变了”被选中）。
+  判定：去标记
+- 句子：预览与原因共用固定两行的位置（预览回来、原因出现时保存与取消不动）
+  测试：ConfirmBar.dom.test.ts:63-81；e2e/canon-character.e2e.ts:152-168
+  断言：dom：两行里有原因时只有原因一行；e2e：先等“正在预览”读保存按钮的位置，再等预览回来（“改初值”）读一次，两次位置相等。“原因出现时”没有量位置。e2e 未运行。
+  判定：去标记（小缺口：原因出现时保存位置没量）
+- 句子：有原因时只写原因；变化多于一条时收成“还有 N 项”
+  测试：ConfirmBar.dom.test.ts:63-81
+  断言：lines 恰为 ["这个值刚刚变了"]；变化三条时恰为 ["改第 2 章那一笔","少了 1 条待处理，还有 2 项"]，title 为整句。
+  判定：去标记
+- 句子：浮层里的短项是单行的输入框，回车就是保存
+  测试：ConfirmBar.dom.test.ts:83-95
+  断言：rows=1 时没有 textarea，Enter 发 save；预览中不发；多行的文字 Enter 不发。
+  判定：去标记
+- 句子：有建议值的文字是一个输入框，下面列建议值，点一条是把它填进输入框，也可以直接写别的
+  测试：SuggestInput.dom.test.ts:27-60；entry-page.dom.test.ts:1260-1281
+  断言：聚焦列出建议值、打字只列包含的、点一条填进输入框并收起、写别的字照样是值；条目页里写“凤”（不在 龙、虎 里）保存后值为“凤”。
+  判定：去标记
+- 句子：引用是条目选择器
+  测试：确认条一侧有（entry-page.dom.test.ts:569-607，按 targets 筛）；浮层里的引用：无
+  断言：见上。
+  判定：留标记（浮层里的引用没有断言，同上一条）
+- 句子：点浮层外面、按 Escape、点“取消”都是放弃这次填写，草稿不留
+  测试：Escape：entry-page.dom.test.ts:1264-1275、e2e/canon-character.e2e.ts:129-134（成段的）；取消：ConfirmBar.dom.test.ts:52-61（发 cancel）、宿主接 `onCancel: dismiss`（EntryPageHost.vue:855）；点外面：e2e/canon-character.e2e.ts:152-168（年龄，点标题）
+  断言：Escape 后 state.edit 为 null、编辑器消失；e2e 里点外面后编辑器消失、值仍是“填写”。“取消”按钮在不在保存的时候放弃没有单独用例（entry-page.dom.test.ts:1313 里点“取消”是保存在途），靠与 Escape 同一条 dismiss。
+  判定：去标记（短项）；成段的文字点外面见下一条
+- 句子：点浮层外面放弃——成段的文字（block 布局）
+  测试：无
+  断言：实现里没有。block 布局只是 EntryPageHost.vue:859-868 的一个 absolute 的 div（Transition 加 ConfirmBar），没有点外面的监听；点外面放弃只在 popover 布局里经 Popover 的 `onUpdate:open`（:869-880）。e2e 自己的标题也写“成段的按 Escape、短项点外面都不存”。验收 17 写“点背景、写一段并点浮层外面，这段没有保存”，背景是成段的，实现里点外面不会关掉编辑层（“没有保存”靠没点保存而成立，这个断言空过）。从代码推断，未跑。
+  判定：没做（成段的文字点外面不放弃；建议要么给 block 布局加点外面放弃，要么 Spec 改成“短项点浮层外面；成段的按 Escape 或‘取消’”）
+- 句子：保存请求在途、图片上传在途、Escape 落在输入法组字里时不算放弃
+  测试：保存在途：entry-page.dom.test.ts:1313-1335（Escape 与“取消”都不放弃）；组字：:1281-1291（compositionstart 后的 Escape、isComposing 的 Escape 都不放弃，组字结束后的 Escape 放弃；前面先证明页面上的 Escape 平时会放弃，所以否定断言不空）；上传在途：ImageInput.dom.test.ts:56-108（上传中 Escape 取消上传、不往外传）
+  断言：保存在途与组字两条都是先让触发条件成立再断言没放弃。缺口：宿主一层的 `imagePicking?.uploading` 判断（EntryPageHost.vue:824-827）没有用例；点浮层外面在保存在途、上传在途时不放弃也没有用例（现有的“点外面”只在 e2e 的年龄上，那时没有在途的请求）。
+  判定：留标记（上传在途没有宿主一层的断言；点外面在途时不放弃没有断言）
+- 句子：保存或放弃以后焦点回到这个值
+  测试：e2e/canon-author.e2e.ts:264-291（形象的外貌：保存后焦点回到值按钮，再开、Escape 放弃后焦点还在值上）；entry-page.dom.test.ts:455-472（确认条路径）
+  断言：toBeFocused。e2e 未运行。
+  判定：去标记
+- 句子：保存失败回来时这次填写已经放弃（作者点了外面或换了别的字段）就不写回
+  测试：无。in-place-edit.ts:220-224 的新判断没有用例；entry-page.dom.test.ts:1313-1335 只测保存成功时别的字段的草稿留着。
+  断言：无
+  判定：留标记（没有断言；补法：保存请求失败回来前放弃或换字段，断言原因没写回）
+- 句子：成段的文字填了一半切到别的分页再回来还在（同输出 7）
+  测试：entry-page.dom.test.ts:1100-1126（人物分页的性格填了“银发”，卸载再挂上，[data-inline-editor] textarea 的值仍是“银发”；别处改了值以后写“这个值刚刚变了”，保存以新值为准）
+  断言：草稿存在标签状态里，挂回来由编辑器按它画出。用的是卸载再挂载，不是点换分页。
+  判定：去标记
+- 句子：值在所选位置之前被剧情改过时旁边有“第 N 章改过”，它也是按钮，点了在浮层里看来历；只有初值的值没有这个入口
+  测试：“第 N 章改过”：entry-page.dom.test.ts:1406（现在穿的旁含“第 2 章改过”）、CharacterCard.dom.test.ts:48-78（是按钮、发 origins、没有值时没有）；点了看来历：无（CharacterView.vue:75-82、:209-211 的 showDetail 加 Popover 加 FieldDetail 没有用例）；只有初值的值没有：无直接断言（没有写了文字、只在初值设过的值上断言 [data-origins] 不存在）
+  断言：显示与按钮有；来历浮层与“初值没有入口”没有。
+  判定：留标记（点了看来历、初值没有入口没有断言）
+- 句子：语义档的项点了展开细节：起点与之后记下的各句、“记一句”（输出 17）与改起点
+  测试：entry-page.dom.test.ts:1053-1070、:1423-1436
+  断言：点现在的状态展开 [data-condition-detail]，里面有记一句的表单、记了以后多一句、有“改起点”；点“改起点”时编辑层浮在原处、细节收起、没有确认条。起点那一行的内容没有单独断言。
+  判定：去标记
+- 句子：别的数据分页照旧用确认条
+  测试：entry-page.dom.test.ts:1082（面板的存款）、:569-607（另装类型）
+  断言：确认条 [data-confirm-bar] 出现。
+  判定：去标记
+- 句子：专门界面还在加载、加载失败或贡献方停了时也用确认条
+  测试：无。component-views.dom.test.ts:63-89 只测注册表的状态；条目页在这三种状态下换成通用字段表（EntryPageHost.vue:1144）再改值出确认条，没有用例。
+  断言：无
+  判定：留标记（没有断言）
+建议：这一条标记挪到这几句：“引用是条目选择器”（及浮层里的引用）、成段的文字“点浮层外面”（没做，先决定改代码还是改 Spec）、“图片上传在途……不算放弃”、“保存失败回来时……就不写回”、“点了在浮层里看来历；只有初值的值没有这个入口”、“专门界面还在加载、加载失败或贡献方停了时也用确认条”；其余去标记。
+
+### author-ui.md:270 输出 52 添加一项资料（整条，逐句）
+实现：canon/web/components/CharacterView.vue:100-165、CharacterCard.vue；测试：CharacterCard.dom.test.ts:88-105、entry-page.dom.test.ts:1409-1421、:1347-1360、e2e/canon-character.e2e.ts:170-174。
+- 句子：类型允许实例字段时，人物分页的短资料末尾有“添加一项资料”
+  测试：entry-page.dom.test.ts:1409-1415（人物分页有 [data-add-field]）；e2e/canon-character.e2e.ts:170-174
+  断言：按钮存在并能点开。“类型允许实例字段时”：实现不判类型（CharacterView.vue:179 的 can-add 只看宿主有没有给 fieldAdd），内置人物总是允许，没有“不允许时没有按钮”的用例；“末尾”（在短资料之后）没有位置断言。
+  判定：去标记（小缺口：末尾的位置与类型不允许时的情形无断言；后者与 116 行的“fieldAdd 类型允许时才有”同一个字面问题）
+- 句子：浮层里列类型的预设里这个条目还没加的各项、去掉过的各项（写“恢复‘某某’”）
+  测试：CharacterCard.dom.test.ts:88-105（presets 与 removed 两组，去掉过的写“恢复“身高””，点了分别发 add-preset、restore）；entry-page.dom.test.ts:1409-1421（预设里列“种族”，加上以后预设里不再列它）
+  断言：展示层按属性列；条目页一层“还没加的才列”由 CharacterView.vue:113 过滤，加上后少了一项有断言。去掉过的各项由宿主 removedFields 直接交给卡片。
+  判定：去标记
+- 句子：另有一栏自己写名字（本期只加文字的项）；选了或写了就加上
+  测试：选预设：entry-page.dom.test.ts:1409-1421；自己写名字：CharacterCard.dom.test.ts:88-105（trim 后发 add-own）
+  断言：写名字走到加上这一步的绑定（CharacterView.vue:188 `addField({label, kind:'text'})`）没有用例，宿主 fieldAdd 的行为由 entry-page.dom.test.ts:1347-1360 独立测过（kind 为 text）。
+  判定：去标记（小缺口：自己写名字经人物分页加上没有端到端断言）
+- 句子：新的一项是未知、排在自己加的各项最后
+  测试：无。entry-page.dom.test.ts:1419 与 e2e/canon-character.e2e.ts:173 只断言“种族”这一行出现（toBeVisible）；没有断言它写“填写”，也没有断言排在自己加的各项最后（要有两项自己加的才分得出）。
+  断言：无
+  判定：留标记（没有断言）
+- 句子：被拒时原因写在那一栏下面（例如名字与已有的一项相同）
+  测试：展示层：CharacterCard.dom.test.ts:88-105（addError 写在 [role='alert']）；宿主：entry-page.dom.test.ts:1347-1360（重名的 fieldAdd 返回被拒）
+  断言：两头各有；中间绑定（CharacterView.vue:122-131 把 reason 赋给 addError）没有端到端用例。
+  判定：去标记（小缺口，同上）
+- 句子：自己加的项行尾有常显的“更多”：改名、去掉
+  测试：entry-page.dom.test.ts:1419（[data-fact='种族'] 里有 [data-more='种族']）
+  断言：“更多”存在；“常显”（不是悬停才出）与菜单里的“改名”“去掉”两项及其对话框与写入没有用例（CharacterCard.dom.test.ts 不覆盖 rename、remove 事件；宿主的 fieldRename 也没有用例，见 116 行那一节）。
+  判定：留标记（没有断言）
+- 句子：去掉时确认里写“数据会保留，可以恢复”
+  测试：无（人物页头的“去掉某某这组设定”那句“数据会保留”是 entry-page.dom.test.ts:520 的另一处；这一处是 CharacterView.vue 的 removeDescription，没有用例）
+  断言：无
+  判定：留标记（没有断言）
+建议：标记挪到：“新的一项是未知、排在自己加的各项最后”、“自己加的项行尾有常显的‘更多’：改名、去掉”、“去掉时确认里写‘数据会保留，可以恢复’”；其余去标记。
+
+### author-ui.md:271 输出 53 图片的显示、选与上传（整条，逐句）
+实现：canon/web/images.ts、canon/web/components/CanonImage.vue、ImageInput.vue、canon/web/plugin.ts:240-245；测试：canon/web/images.test.ts、CanonImage.dom.test.ts、ImageInput.dom.test.ts、e2e/canon-character.e2e.ts:176-187；文件服务一侧 files/upload-route.test.ts。
+- 句子：图片按作品内路径显示
+  测试：CanonImage.dom.test.ts:34-43；e2e/canon-character.e2e.ts:183-187（上传后形象页与人物页的图是 data-image-state='loaded'、path 为 插图/星瑾.png）
+  断言：src 由注入的取图地址函数算出；读到前 loading、读到后 loaded。
+  判定：去标记
+- 句子：懒加载
+  测试：无。CanonImage.vue 的 `loading="lazy"` 没有被任何用例断言。
+  断言：无
+  判定：留标记（没有断言；补一行 expect(img.attributes("loading")).toBe("lazy")）
+- 句子：文件不在时画“图片找不到”的占位
+  测试：CanonImage.dom.test.ts:44-54、:55-62
+  断言：img 触发 error、没有地址、没有注入函数时画 [role='img'] 且读屏名“图片找不到”；换路径后失败状态不留。
+  判定：去标记
+- 句子：选图片的地方（确认条、元素对话框、专门界面的浮层）是同一个版式
+  测试：entry-page.dom.test.ts:597-606（确认条里 [data-image-input]）、e2e/canon-character.e2e.ts:178-186（浮层里）、ImageInput.dom.test.ts（组件本身）
+  断言：三处都经 FieldInput 渲染同一个 ImageInput（FieldInput.vue:39；ElementDialog.vue:67 同），元素对话框里的图片字段没有单独用例。
+  判定：去标记（同一个组件，三处没有各一份；元素对话框那一处无用例）
+- 句子：作品的图片文件夹（作品设置里的那一项，缺省“插图”）
+  测试：缺省：e2e/canon-character.e2e.ts:180-182（上传后 blank/插图 里有 星瑾.png）；不合规的设置退回“插图”、别的文件夹照用：images.test.ts:45-52；设置项接线：无
+  断言：文件夹由注入的函数给出，函数本身有用例；canon/web/plugin.ts:245 `settings.instance.get(imageFolderSetting)` 没有用例（e2e 用的是缺省值）。
+  判定：去标记（小缺口：作品设置里改了图片文件夹以后候选与上传跟着换，没有端到端用例）
+- 句子：按名字倒序的前 12 张缩略图
+  测试：images.test.ts:36-43；ImageInput.dom.test.ts:56-108
+  断言：14 张图加一个 txt 与子目录：只列图、恰 12 张、第一张是名字最大的“图13.png”；文件夹还没有时为空。缩略图（候选按钮里的 CanonImage）没有断言：用例里候选的 url 是 null。
+  判定：去标记（小缺口：缩略图图片本身没断言）
+- 句子：这一页刚上传的排在最前；每处选图片的地方打开时重列，上一处的原因不带过来
+  测试：images.test.ts:64-95；ImageInput.dom.test.ts:56-70（挂上时调 browse）
+  断言：上传“乙”后候选恰为 [乙, 甲]，别处加了“丁”再 browse 后为 [乙, 甲, 丁]、reason 为空。
+  判定：去标记
+- 句子：“上传”、说明一栏，另可手填作品内路径
+  测试：ImageInput.dom.test.ts:35-44、:56-108
+  断言：路径与说明各发出完整的新值；有上传按钮与选文件。
+  判定：去标记
+- 句子：上传只收 PNG、JPEG、GIF、WebP，不超过 32 MiB
+  测试：images.test.ts:53-62（.bmp 与 33 MiB 本地拦下、不发请求；服务退回的类型不合也算类型或大小不合）；files/upload-route.test.ts:61（UPLOAD_MAX_BYTES + 1 被拒）
+  断言：类型表与上限来自文件插件的常量（shared/upload.ts:10-19 恰是 png、jpg、jpeg、gif、webp 与 32 MiB）。
+  判定：去标记（分层：本地拦与服务端各有用例）
+- 句子：存进那个图片文件夹，重名时用实际存下的名字
+  测试：images.test.ts:45-52；files/upload-route.test.ts:134-148（服务端 exists=rename）
+  断言：替身服务返回改过名的地址时，结果路径是实际存下的“插图/立绘 2.png”；请求落在“project://插图/立绘.png”。请求里带 exists:"rename" 本身没有断言（替身不看选项），由服务端用例证明 rename 的行为。
+  判定：去标记
+- 句子：可以按 Escape 取消（取消以后写一句“图可能已经写进作品”，不算失败）
+  测试：ImageInput.dom.test.ts:91-107（上传中 Escape 调 cancel、不往外传）；images.test.ts:64-95（取消后 notice 有、reason 为空、重列了）
+  断言：取消不进 reason；notice 经 resolve 写出。ImageInput 里 [data-image-notice] 把它显示出来没有用例。
+  判定：去标记（小缺口：提示文字在界面上显示没断言）
+- 句子：失败分三种写原因：类型或大小不合；网络失败或结果不明（图可能已经写进作品，写完重列一次）；别的
+  测试：images.test.ts:53-62、:64-95
+  断言：rejected、unknown、other 三种各返回对应 kind，被拒时 picking.reason 有值。缺口：结果不明时“写完重列一次”（images.ts 的 `result.kind === "cancelled" || "unknown"` 里的 unknown 一半）没有用例，只测了取消的重列；原因在 ImageInput 里写出来（picking.reason 优先于 problem）也没有用例（ImageInput.dom.test.ts 只测 problem 属性）。
+  判定：留标记（结果不明的重列、原因在界面上写出没有断言）
+- 句子：上传进作品的文件放弃填写、撤销修订都不删
+  测试：无。e2e/canon-character.e2e.ts:182 在保存前查文件在，没有“放弃填写后文件还在”“撤销修订后文件还在”。
+  断言：无（否定的话，要先上传、再放弃或撤销、再查文件）
+  判定：留标记（没有断言）
+- 句子：窗口里没有文件服务时没有缩略图与上传，只剩手填路径与说明
+  测试：无。ImageInput.dom.test.ts:35-54 不注入 picking 时只测输入框，没有断言“没有上传按钮与候选”；createCanonImages(null, …) 的 available 为 false 没有用例。
+  断言：无
+  判定：留标记（没有断言）
+- 句子：图片文件在别处被换掉以后，重新打开页面才看到新图
+  测试：无
+  断言：这是已知限制的说明，没有要实现的机制（取图地址按路径、不带时间戳）。
+  判定：不是行为
+建议：标记挪到：“懒加载”、“失败分三种……”里结果不明的重列与原因写出、“上传进作品的文件放弃填写、撤销修订都不删”、“窗口里没有文件服务时……”；其余去标记。
+
+### author-ui.md:337 验收 17 人物与形象（逐段对 e2e）
+e2e：packages/neuro-book/e2e/canon-character.e2e.ts（两个用例：:86-188 空作品那一半、:190-212 星瑕样本那一半）与 canon-author.e2e.ts:314-338（验收 14，390 宽）。均未运行，下面按代码读。
+- Given 空作品，When 点“新建人物”、填名字并新建
+  测试：canon-character.e2e.ts:87-98
+  断言：空作品（只有 .nbook/project.json）的设定视图空状态里点“新建人物”，对话框里“人物”“形象”两个勾已勾上，填“星瑾”、点“新建”，标签列为 人物、形象、文字、经历、情节。
+  判定：去标记
+- Then 条目页先看人物分页
+  测试：canon-character.e2e.ts:98-99（tab(page,"人物") 的 aria-selected 为 true）
+  判定：去标记
+- Then 每一项写“填写”
+  测试：canon-character.e2e.ts:102（只断言性别含“填写”）、:170（年龄回到“填写”）；:129 断言性格含“遇事怎么反应”
+  断言：只有短资料写“填写”；成段的文字写一句提示（见输出 49 一节的字面不符）。
+  判定：字面不符（Then 改成“短资料每一项写‘填写’，成段的文字写一句提示”）
+- Then 立绘的位置是“添加立绘”
+  测试：canon-character.e2e.ts:103（data-portrait="no-image"）
+  断言：属性值 no-image 对应卡片上的“添加立绘”文字（CharacterCard.dom.test.ts:35-46 断言了这个对应）。
+  判定：去标记
+- When 点性别、在浮层里点建议值“女”并保存，Then 值是“女”、别的内容没有移动
+  测试：canon-character.e2e.ts:105-118
+  断言：点性别、在 combobox 里选 option“女”、预览含“改初值”、点保存后性别按钮文字为“女”、编辑器消失。“别的内容没有移动”量的是背景那一段的 boundingBox：打开编辑、选好“女”以后与打开前相等（:112），不是保存以后（保存后没有再量）。
+  判定：去标记（做法与 Spec 的次序不同：位置在保存前量，不是保存后；影响很小）
+- When 点背景、写一段并点浮层外面，Then 这段没有保存
+  测试：canon-character.e2e.ts:119-168 里没有这一步。e2e 做的是：性格写一段、按 Escape（:119-135）；背景只打开、看保存按钮在窗口内、按 Escape，没有写字（:137-151）；年龄写“十七”、点页面标题（浮层外面）、值仍是“填写”（:152-168）。
+  断言：成段的文字“点外面”没有测，实现里也没有这个行为（见输出 51 一节的“没做”）。
+  判定：没做 / 字面不符（先决定：给成段的文字加点外面放弃，还是把这一步改成“短项（年龄）写一个值并点浮层外面，成段的文字（性格）写一段并按 Escape，都没有保存”）
+- When 点“添加一项资料”、选“种族”，Then 短资料末尾多一项“种族”
+  测试：canon-character.e2e.ts:170-174
+  断言：点 [data-add-field]、点预设“种族”，[data-fact='种族'] 可见。“末尾”没有断言（没有比较它与其它各项的先后）。
+  判定：去标记不了（“末尾”没有断言；要么补位置断言，要么 Then 改成“短资料里多一项‘种族’”）
+- When 在形象分页上传一张立绘并保存，Then 人物分页的立绘换成这张图
+  测试：canon-character.e2e.ts:176-187
+  断言：形象分页点立绘，浮层里 setInputFiles 传 星瑾.png，路径框值为“插图/星瑾.png”、作品的 插图/ 目录里有该文件、预览含“改初值”、保存后形象卡里的图加载成功（data-image-state=loaded），切到人物分页，立绘格为 [data-portrait='image'] 里同一路径的图。
+  判定：去标记
+- When 在衣柜里加一套“学院制服”、所选位置换到第 3 章末尾、点它的“换上”并保存
+  测试：canon-character.e2e.ts:190-205
+  断言：这一半用的是星瑕样本（不是接着前一半的空作品），位置不是“换到”：页面缺省位置已是“第 3 章末尾”（:193 断言）；衣柜里点“添加一套”、对话框填名字保存、衣柜里出现“学院制服”；点它的换上，浮层里输入框值为“学院制服”、“剧情里变了”被选中、预览含“记一条变更”、点保存。
+  判定：去标记（做法不同：样本的缺省位置就是第 3 章末尾，没有“换位置”的一步；Given 不是空作品）
+- Then 现在穿的在第 3 章末尾是“学院制服”，旁边写“第 3 章改过”
+  测试：canon-character.e2e.ts:209-211
+  断言：那一套的卡含“穿着”（由 现在穿的 的值等于套名算出）、[data-fact='现在穿的'] 含“第 3 章改过”。没有单独断言现在穿的的文字是“学院制服”，由“穿着”间接成立。
+  判定：去标记
+- 宽度 390 像素时两个分页都没有横向滚动
+  测试：canon-author.e2e.ts:314-338（验收 14）
+  断言：星瑕样本条目页逐个切到 文字、人物、形象、面板、情节，窗口设为 390×844，量页面根、其中会横滚的元素、最近的滚动容器、整页，scrollWidth 都不超过 clientWidth+1；量完恢复 1440。人物、形象在其中。
+  判定：去标记
+建议：验收 17 整条先不去标记。要改的是两处：“每一项写‘填写’”（改字面）、“点背景……点浮层外面”（决定做不做成段文字点外面）；另外“末尾”要补断言或改字面。改完这两三处后，其余各段（新建后先看人物、性别、上传立绘、换上、390 宽）都有 e2e 对应，可以去标记，前提是主会话在 Chrome 里把 canon-character 与 canon-author 的验收 14 实际跑过。
+
+## 汇总
+说明：所有 e2e 断言都按代码读，没有运行；凡依赖 e2e 才算守着的（成段的编辑层不挤别的内容、滚进可见范围、保存按钮位置不动、焦点回到值、390 宽无横滚、上传立绘），去标记前由主会话把 canon-character.e2e.ts、canon-author.e2e.ts 验收 14 与 11 实际跑一遍。没有做变异检查；怀疑区分不了的见末尾“建议变异”。
+
+按标记处（编号用 Spec 行号）：
+- 78 行 uses 的注释：去标记（解释“不是权限”那半句是说明，不是行为）。
+- 116 行起“以下都是 planned”：不能整块去。去标记的子项：other 的 present 与 absent（含没列的一律 absent）、addComponent、fieldAdd（与 removedFields）、fieldRemove、edit 的第二个参数 inline/value/intent、FieldEditor 两种 layout、editing/detail/showDetail。标记要挪到：“条目页给全，别的宿主缺哪一项……”、other 的 removed/later/unavailable 三种、showTab 的“没有这个分页时什么也不做”、fieldRename、fieldRestore、FieldDetail 的来历与起点。字面不符：peer 的“来历”（实现的 ComponentPeer 没有 origins）、fieldAdd 的“类型允许时才有”（实现总是有，不允许时被拒）；另外 context 的 presets 没写进 Spec 的接口块。
+- 153-166 行 canon.entry-kinds 一节：整节去标记，只有“再是别的插件的（按贡献 id）”这半句留（没有同一个词两条第三方登记的断言）；“世界里不存这张表”是设计说明。注：Spec 写的是四个内置种类，不是五个。
+- 175 行输出 4 末尾：去标记，“排在用过的词前面”这半句留（用例是空作品，没有用过的词）。
+- 183 行输出 9（a）：去标记“默认组排到文字前面”“其余在后面”“人物打开选人物”；留标记“次序仍同命名空间的顺序”“有没提交的主文字稿时打开页面选‘文字’”。（b）：去标记（分层：nb-ui 的算法用例加 e2e 验收 14 的 390 宽无横滚），前提是变异确认去掉 overflow="adapt" 后验收 14 失败。
+- 206 行输出 20：添加、去掉、恢复三句去标记；“某某 改名为 某某”字面不符（实现是“一项改名：旧 → 新”），改 Spec 字面后整处去标记。
+- 252 行输出 37：“新建人物启用的是人物的默认设定组”去标记；“没有这条登记时不出这个按钮”留（宿主一层没有用例）。
+- 253 行输出 38：去标记。
+- 267 行输出 49：去标记三句（有立绘点了切到形象分页、添加形象、自己加的列表嵌字段表）；留标记：版式与顺序、有形象没立绘点了切到形象分页、恢复形象/第 N 章起有形象/类型不可用（宿主 other 三种状态没测）、加上被拒的原因（绑定层）、宽度不够时与封顶；字面不符：“刚新建的人物每一项写‘填写’”（成段的写一句提示）。“立绘的来历到形象分页看”不是行为。
+- 268 行输出 50：去标记“穿着”“建议值”“添加一套”“添加立绘”；留标记：版式、锚在换上按钮上、初值时只有改设定、自己加的项嵌字段表、宽度不够时；字面不符：“从这一章起”（应是“剧情里变了”）、“外貌写‘填写’”（实现写一句提示）。
+- 269 行输出 51：去标记大半（值是按钮、不出确认条、编辑层不挤别的内容与滚进可见、里面的东西同确认条、固定两行、单行回车保存、建议值、焦点回到值、切走再回来、语义档细节、别的数据分页用确认条）；留标记：浮层里的引用、图片上传在途不算放弃（宿主一层）、保存失败回来时已放弃不写回、点了第 N 章改过看来历与初值没有入口、专门界面加载/失败/停了时用确认条；没做：成段的文字点浮层外面放弃。
+- 270 行输出 52：去标记大半；留标记：新的一项是未知且排在自己加的各项最后、行尾“更多”里的改名与去掉、去掉时确认里的“数据会保留，可以恢复”。
+- 271 行输出 53：去标记大半；留标记：懒加载、失败三种里结果不明的重列与原因在界面上写出、放弃填写与撤销修订都不删上传的文件、没有文件服务时只剩手填路径；“重新打开页面才看到新图”不是行为。
+- 337 行验收 17：整条先不去标记。要改：“每一项写‘填写’”（字面不符）、“点背景、写一段并点浮层外面”（实现没做成段点外面，e2e 做的是性格 Escape 与年龄点外面）、“末尾多一项种族”（没有位置断言）；后一半在星瑕样本上、位置不是换到而是缺省，写进 Spec 或接受。
+
+分类编号（标记行号）：
+- 去标记（可整处去）：78、253
+- 去标记但带字面或小缺口：153-166（留一句）、175（留一句）、206（改字面后）
+- 要挪标记：116、183(a)、252、267、268、269、270、271
+- 留着（整条先不去）：337
+- 没做：269 的“成段的文字点浮层外面放弃”（连带 337）
+- 字面不符：116（peer 的来历、fieldAdd 类型允许时才有）、206（改名）、267（每一项写填写）、268（从这一章起、外貌写填写）、337（每一项写填写、点背景点外面、末尾）
+- 183(b)：去标记，建议变异
+
+建议变异（主会话做）：
+1. 去掉 EntryPage.vue:232 的 overflow="adapt"，看 canon-author.e2e.ts 验收 14 是否失败（183(b)）。
+2. 在 EntryPageHost.vue:824-827 的 dismiss 里去掉 `imagePicking?.uploading === true`，看有没有用例失败（预期没有，269）。
+3. 把 CharacterView.vue:92 的 `|| status === "no-image"` 去掉（预期没有用例失败，267）。
+4. 把 entries-view.ts:211 的 createPerson 改成恒为 true（预期没有用例失败，252）。
+5. 把 entries-view.ts:218 里候选的先后调换（预期没有用例失败，175）。
+6. 删掉 EntryPageHost.vue:229-231 的 watch（预期没有用例失败，183(a)）。

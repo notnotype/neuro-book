@@ -1,0 +1,409 @@
+# t41 Spec 晋升逐句核对：内核与 Agent 工具（Opus 子代理）
+主工作区 master，Spec 行号以当前文本为准。测试路径省略包前缀时：nb-canon/tests/ 下的写文件名；Agent 工具写 agent-tools.test.ts（packages/neuro-book/src/plugins/canon/）。
+
+### 1. docs/specs/canon/components.md:53 `kinds` 行
+- 句子：“这组设定适用的条目种类（条目的 `type`）的列表”（登记里可写、原样给出）
+  测试：components.test.ts:254-256；author-reads.test.ts:165-169
+  断言：buildRegistry 算出的 types[0] 带 kinds:["人物"]；service.components() 返回的每一项 kinds[0] === "人物"（由 setRegistries 后服务重读算出）
+  判定：去标记
+- 句子：“只是提示”
+  判定：不是行为
+- 句子：“不限制它加在哪种条目上”
+  测试：无。内核测试里加设定组到别的种类上的用例（entry-edits.test.ts:167 把 PERSON 加到“组织”上）用的夹具类型不带 kinds，区分不了；Agent 工具测试里带 kinds 的内置人物、形象、面板都只加在“人物”条目上。
+  实现：内核除登记（nb-canon/src/components/registry.ts:97 转交）与形状（core/schema.ts:98）外没有任何地方读 kinds，world.ts 的 validate（1417-1447）不看它，属“靠没有检查而成立”。
+  判定：留标记（没有断言）。补一条很便宜：给带 kinds:["人物"] 的类型加到“组织”条目上并断言写入通过、读得到。
+建议：标记挪到“不限制它加在哪种条目上”之后（即保持在行尾，但去掉前半句的含义只能整行保留；若补上面那条测试即可整行去标记）。
+
+### 2. docs/specs/canon/components.md:54 `presets` 行
+- 句子：“只在 `instanceFields` 为真时可写”
+  测试：components.test.ts:261
+  断言：instanceFields:false 带 presets 的声明，buildRegistry 的诊断路径为 ["presets"]（registry.ts:139 算出），整条不登记
+  判定：去标记
+- 句子：“给‘添加一项’用的预设字段声明”
+  测试：components.test.ts:254-256（登记原样给出 presets，含 max）；用途在界面，由前端那份核
+  断言：buildRegistry(...).types[0] 的 presets 为 [{id:"种族"},{id:"体力",max:"体力上限"}]
+  判定：去标记（内核这一层只转交，已断言；“添加一项”怎么用归前端核对）
+- 句子：“每个给出 `id`”
+  测试：无（没有一条用例给出缺 id 的预设）
+  实现：presets 用 FieldDeclarationSchema（nb-canon/src/core/schema.ts:100），其中 id 必填（schema.ts:67）；缺 id 时 registry.ts:75-79 按形状拒收
+  判定：留标记（没有断言）。风险很低，与固定字段共用同一份 schema；补法：components.test.ts:29 那张 test.each 加一行“预设没有 id”→ 路径 "presets[0].id"（或 schema 报的路径）。
+建议：若不补测试，标记挪到“每个给出 `id`”之后（行尾现位置即是，等于整行保留）；补一行测试即可整行去标记。
+
+### 3. docs/specs/canon/components.md:73 `suggestions` 行
+- 句子：“只用于 `text`”
+  测试：components.test.ts:259
+  断言：number 字段写 suggestions，诊断路径为 "fields[0].suggestions"（registry.ts:176 算出），整条不登记
+  判定：去标记
+- 句子：“（含列表元素的子字段）”
+  测试：components.test.ts:260（number 子字段写了被拒，路径 fields[0].item[0].suggestions）；components.test.ts:278-279（text 子字段带 suggestions 的声明与不带的摘要相等，说明它被登记了，没被拒成空登记）
+  断言：诊断路径由 registry 算出；摘要相等只有在该声明被接受时才成立（被拒时 types 为空，摘要不同）
+  判定：去标记
+- 句子：“建议的值；只是提示”
+  测试：components.test.ts:256（原样给出 suggestions）
+  判定：前半去标记；“只是提示”不是行为
+- 句子：“值不必在其中”
+  测试：无。内核与 Agent 工具测试里没有一条往带 suggestions 的字段（内置“性别”“生死”，测试类型 test.person 的“性别”）写不在建议里的值并断言写入通过
+  实现：值的校验 nb-canon/src/components/values.ts:13 valueProblem 不读 suggestions；world.ts 也不读（grep 无引用），属“靠没有检查而成立”
+  判定：留标记（没有断言）。补法：instance-fields 或 entry-edits 里给带 suggestions 的文字字段写一个不在列表里的值，断言 ok 且读回该值。
+建议：标记挪到“值不必在其中”之后（即现位置；整行保留，补测试后整行去标记）。
+
+### 4. docs/specs/canon/components.md:107（输出 4）四处标记
+- ① 句子：“一次改几处……给出四个操作：新增、改显示名、去掉、恢复”
+  测试：entry-edits.test.ts:270-282（新增：生成 id、带初值、读得到、修订按字段记）、:284-301（改名、去掉、恢复）；entry-edits-service.test.ts:141-170（经世界服务走 fieldAdd、fieldRemove、fieldRestore）
+  断言：editEntries 写入后 declared 列表的实际内容、read() 读出的值（7 / undefined / 7）、修订 ops 的字段路径，都由内核算出
+  判定：去标记
+- ② 句子：“去掉不删声明，是给它打上‘已去掉’的标记……恢复是去掉标记，种类不变”
+  逐项：
+  · 声明保留、打标记：entry-edits.test.ts:294（去掉后再加同名，declared 为 [["幸运","运气",true],["运气","运气",false]]）——判定：去标记
+  · 种类保留：instance-fields.test.ts:175-176（去掉后改 kind 拒收 field-redeclare-mismatch，说明声明连种类都在）——去标记
+  · 初值保留：instance-fields.test.ts:97、entry-edits.test.ts:291（去掉后初值里 幸运 仍为 7）——去标记
+  · 对它的补丁保留、恢复后回来：instance-fields.test.ts:85-100（第 44 章 +2，恢复后读到 9）——去标记
+  · 值里的引用保留：instance-fields.test.ts:117-125（去掉、删 e2、恢复照收，读回 {ref:"e2"}）——去标记
+  · 读取看不到：instance-fields.test.ts:94、entry-edits.test.ts:290、entry-edits-service.test.ts:162——去标记
+  · 渲染看不到：Agent 文字读取 agent-tools.test.ts:186-187（removeField 后 read 的文字不含“血统”）；内核视图层 instance-fields:94。分层合起来能区分——去标记
+  · 补丁按“不适用”跳过：instance-fields.test.ts:96（同一条变更里另一处 +5 照套，存款 105；若整条套不上会是 100）——去标记
+  · 恢复是去掉标记、种类不变：instance-fields.test.ts:99-100（恢复后数值补丁照套成 9，种类若变则套不上）；entry-edits.test.ts:299-300；entry-edits-service.test.ts:165-167（恢复后 removedFields 消失、回到声明里）——去标记
+  判定：去标记
+- ③ 句子：“去掉过的 id 一直占着：新增的字段不会得到它，也不会得到初值里留着键、或任何剧情变更的补丁指过的 id”
+  测试：去掉过的 id：instance-fields.test.ts:136-140（显式写这个 id 拒收 id-taken）；entry-edits.test.ts:327 与 :336（在“幸运”已去掉的世界上 fieldAdd 显示名“幸运”，外面包了 ok()，若生成器给出“幸运”会被世界层 id-taken 拒收而抛错）。初值留键与补丁指过：entry-edits.test.ts:303-318（直接删声明后再加同名得到“幸运2”；连初值键也删、只剩补丁指着，仍是“幸运2”）
+  断言：declared(...).map(id) 的实际值由 entry-edits 的生成逻辑算出
+  判定：去标记（去掉过的那一条是间接区分：靠 ok() 抛错，不是直接断言 id；主会话若想更稳可加一句 expect(id).toBe("幸运2")，不是必须）
+- ④ 句子：“条目的读取结果另列去掉过的字段（`removedFields`……没有时不写），界面据此给‘恢复’”
+  测试：entry-edits-service.test.ts:150-168
+  断言：world.entry() 读出的 removedFields：加后 undefined、去掉后 {panel:[{id:"幸运",label:"幸运"}]}、恢复后 undefined
+  判定：去标记；“界面据此给‘恢复’”归前端那份核
+- 第 4 节行号更正（判定不变）：entry-edits.test.ts 的四个操作用例实际在 :270-284（新增）、:287-304（改名、去掉、恢复；去掉后读不到 :294、初值留着 :295、标记留着 :299、恢复读回 7 :302-303）、:306-322（初值留键与补丁指过的 id，断言 :314、:321）、:324-351（“幸运”已去掉时再 fieldAdd 同名，包在 ok() 里 :348）。上文写的 :290、:291、:294、:299-300、:303-318、:327、:336 以这里为准。
+- 第 4 节补一条字面差异（不影响判定）：④ 的实现（nb-canon/src/service/service.ts entry()，t41 diff 里新增的 removedFields 那段）只列“没被类型固定字段盖住”的去掉过的实例字段，且只看此刻视图里有的命名空间（view.namespaces，设定组去掉或没启用时不列）。Spec 写“另列去掉过的字段”，比实现宽。建议 Spec 补半句“被类型固定字段盖住的不列”，或接受为边角不写；两种都没有测试。
+
+### 5. docs/specs/canon/components.md:139（输出 21）“另带类型的 `kinds`、`presets`”
+- 句子：“另带类型的 `kinds`、`presets`（planned）”
+  测试：author-reads.test.ts:165-169（经世界服务 setRegistries 后 service.components().items 每项 kinds[0]==="人物"）；components.test.ts:254-256（登记的 types 带 presets、kinds）
+  断言：服务的 components() 直接返回 registry.types（nb-canon/src/service/service.ts:1002-1004），所以“登记原样带 presets”与“服务返回带 kinds”两层合起来能区分；值都由 buildRegistry 算出
+  判定：去标记（分层测过；presets 经服务这一层没有单独断言，但服务是原样转交同一组对象）
+
+### 6. docs/specs/canon/components.md:140（输出 22）整条
+- 句子：“一个实例上生效的字段是类型固定的字段加上没去掉的实例字段”
+  测试：instance-fields.test.ts:84-101（去掉的读不到、恢复后回来）；entry-edits.test.ts:287-303；entry-edits-service.test.ts:157-166（declarations 里有无“幸运”）
+  断言：引擎视图与服务 declarations 的实际内容
+  判定：字面不符（实现是：类型此刻不允许 instanceFields 时只取固定字段，实例声明一概不生效——nb-canon/src/components/registry.ts:245 `if (!type.instanceFields || ...) return type.fields`；instance-fields.test.ts:221-226 造了“类型后来不再允许实例字段”的世界但没断言读取）。建议 Spec 改成“……加上（类型允许实例字段时）没去掉的实例字段”，或者若想让旧声明继续生效就改代码；前一种与 instance-fields:221 的场景一致，倾向改 Spec。其余部分去标记。
+- 句子：“同一个 id 两边都有时固定的生效，实例上的那一条不起作用（类型后来新增了……那一项从此按固定字段的声明读写，值留用）”
+  测试：instance-fields.test.ts:103-115；:163-167
+  断言：:109 读到“精灵”（值留用，能区分）；:110-112 别的修改、去掉这一项、去掉这一组都照收；:114 写数字 3 被 type-mismatch 拒
+  判定：值留用——去标记；“固定的生效、按固定字段的声明读写”——留标记（怀疑区分不了）。理由：:103-115 里固定的“种族”与实例的“种族”种类都是 text，只是显示名不同（血统 / 种族），把优先级反过来（实例的生效）时 :109-:114 的每条断言照样成立，:114 写 3 两种声明都拒；:163-167 两边都是精确档 number，同样区分不了“哪一条生效”。请主会话做一次变异（registry.ts:250 的 `fixed.has(field.id)` 跳过改成让实例那条替掉固定那条）确认。补法：断言服务 entry().declarations.panel 里“种族”只出现一次且显示名是“血统”，或让两边 kind 不同（如固定为 enum）看补丁按哪一条核。
+- 句子：“读取、渲染、补丁、约束、引用种类的核对都只认生效的字段”
+  · 读取：instance-fields.test.ts:94——去标记
+  · 渲染：agent-tools.test.ts:186-187（Agent 读取文字不含去掉的“血统”）——去标记
+  · 补丁：instance-fields.test.ts:281（对去掉的字段新写补丁 unknown-field:patches[2]）；entry-edits.test.ts:296（经一次改几处 set 去掉的字段 field-unavailable）——去标记
+  · 约束：instance-fields.test.ts:196-208（max 指着已不生效的“幸运上限”，值 5 还在，+100 后读到 101，没按 5 截）——去标记
+  · 引用种类的核对：测试：无。实现走 retainedFields（nb-canon/src/world/references.ts:73、:208、:234-239，固定 id 的实例声明被跳过，所以 targets 取固定字段的）。没有用例造“实例 ref 字段被同 id 固定字段盖住、两边 targets 不同”再断言按哪边核——留标记（没有断言）
+- 句子：“例外：去掉的字段里的引用照旧算作引用……指向的条目在这期间被删除也恢复得回来”
+  测试：instance-fields.test.ts:117-131
+  断言：去掉“师门”、删 e2、恢复照收，读回 {ref:"e2"}；对照：新写指向已删 e2 的引用 ref-invalid:...故乡.ref（能区分“恢复不算新写”）
+  判定：去标记
+建议：标题上的“（planned）”去掉，改挂两处：“……那一项从此按固定字段的声明读写，值留用）”之后，与“读取、渲染、补丁、约束、引用种类的核对都只认生效的字段”之后（或把后一句的“引用种类的核对”单拆出来带标记）；第一句按上面的字面不符改 Spec。
+- 第 6 节行号更正：建议变异的那行是 nb-canon/src/components/registry.ts:253（`|| fixed.has(field.id)) continue;`），不是 :250。
+- 第 1-6 节的实验佐证（/tmp/t41-promote/exp/probe.test.ts，在 t41 worktree 的真实 World 上跑，只读）：写一个不在 suggestions 里的值 → ok（第 3 节“值不必在其中”实现了、没测试）；实例“种族”(text) 被同 id 固定字段（enum 精灵/人）盖住后写“矮人”→ type-mismatch（第 6 节“固定的生效”实现了，现有测试区分不了）。
+
+### 7. docs/specs/canon/components.md:141-149（输出 23）整条
+- 句子：“写入时对实例字段声明的校验只针对这次新写或改过的声明；原样留着的不查，也不因为它们有问题而拒收这次写入（还原……可能留下……组合）”
+  测试：instance-fields.test.ts:196-209（还原“加上限”留下 max 指着已无声明的字段，再改存款 ok）；:211-219（还原改名留下两项同名“幸运”，再改存款 ok）；:221-226（类型后来不允许实例字段，原样留着的声明不挡改“状态”）
+  断言：先由 revert / withOptions 造出新写规则会拒的组合（:206、:217 断言了组合确实在数据里），再断言这次写入 refused(...)===["ok"]；对照组 :225 新写一条照拒 fields-not-declarable
+  判定：去标记
+- 小项 1 fields-not-declarable：instance-fields.test.ts:191、:225；entry-edits.test.ts（拒收用例里 fieldAdd 到 character）——码与路径由 world.ts:1286-1288 算出——去标记
+- 小项 2 id-taken（固定的、实例的、去掉过的）：instance-fields.test.ts:137（固定“存款”）、:138 与 :140（去掉过的“幸运”）、:141（实例的）——去标记
+- 小项 3 label-taken（生效里唯一、去掉过的不算、恢复同名拒收）：instance-fields.test.ts:147（撞实例）、:148（撞固定）、:149（去掉过的不算，同名再加 ok）、:150（恢复撞名拒）、:151（改名撞名拒）——去标记
+- 小项 4 field-referenced：
+  · “max 指向一个生效的精确档数值字段”：:156（指向不存在的）、:160（指向去掉的）有断言；指向文字字段、语义档数值字段的情形没有断言（实验确认实现会拒：max->text、max->semantic 都 field-referenced，代码 world.ts:1301-1302、:1323-1326）。“精确档数值”这半边若被改成只看存在与否，现有断言照过。
+  · “这次写入让一个字段不再是生效的精确数（去掉、删掉声明）时……”：:158（去掉）有断言；“删掉声明”没有断言（实验确认会拒，world.ts:1330-1337 同一循环）
+  · “详情的路径写到那条声明”：:158 路径 declared[幸运].max——去标记
+  判定：主体去标记；“精确档数值”与“删掉声明”两个分支是实现了、没测试。风险低（与已测分支同一段代码），建议在 :154 的用例里各加一句即可；不补的话这一小项留标记。
+- 小项 5 field-redeclare-mismatch：
+  · 种类：:176（去掉过的也算）——去标记；精度：:177——去标记
+  · 列表的键、子字段的种类：测试：无。实现 world.ts:1342-1344 patchShape 含 keyedBy 与 item；实验确认改 keyedBy、改子字段 kind 都拒（field-redeclare-mismatch）——留标记（没有断言）
+  · 字面不符：patchShape 把子字段写成 [sub.id, sub.kind, sub.precision] 整列比较，所以给实例列表声明加一个子字段、删一个子字段、改子字段精度也拒收 field-redeclare-mismatch（实验：add sub-field、sub precision 都拒；只改子字段显示名 ok）。Spec 只写“子字段的种类”。建议 Spec 改成“列表的键与子字段（增删子字段、子字段的种类与精度）”，同步改 :184 失败码表那半句；或者若想允许增删子字段就改 patchShape 只比已有子字段的种类与精度。
+- 小项 6 字段的值只核这次值变了或声明变了的；换类型或版本按新写的查：
+  · 值变了才核：instance-fields.test.ts:228-232（类型改了“外观”为 number，原样留着的字符串值不挡改“状态”，改“外观”本身才 type-mismatch）——去标记
+  · 声明变了也核：测试：无专门断言（实验：只改 enum 的 options 把当前值剔掉 → type-mismatch，实现 world.ts:1436 的 rewritten.has 分支）——实现了、没测试
+  · 换类型或版本：:182-188——去标记
+- 句子：“约束（输出 9）的 `max` 指向的字段不生效时，这一项上限不检查”
+  测试：instance-fields.test.ts:196-208（max 指着已无声明的“幸运上限”，值 5 留着，+100 后读到 101）
+  判定：去标记
+建议：标题的“（planned）”去掉；留标记的挪到小项 5 的“列表的键与子字段的种类”之后（并按字面不符改写这半句）。小项 4 的两个分支、小项 6 的“声明变了”若不补测试，各在该半句后挂标记；我倾向补三句断言（都是现有用例里加一行）后不挂。
+
+### 8. docs/specs/canon/components.md:150（输出 24）整条
+- 句子：“三样都只是提示，内核只转交，不据此校验值、不拒收写入”
+  · “只是提示”：不是行为
+  · “内核只转交”：见下面“随 components 返回”——去标记
+  · “不据此校验值、不拒收写入”：测试：无。没有用例往带 suggestions 的字段写建议外的值、或把带 kinds 的设定组加到别的种类上、或写入与预设不同的声明后断言通过。实现靠“没有检查”：world.ts 与 values.ts:13 不读这三样（grep 无引用）；实验（probe.test.ts）确认建议外的值写入 ok——留标记（没有断言）。与第 1、3 节同一个缺口，补一条用例三处都能去标记。
+- 句子：“`suggestions` 只能写在 `text` 字段上”
+  测试：components.test.ts:259-260 —— 诊断路径 fields[0].suggestions、fields[0].item[0].suggestions —— 去标记
+- 句子：“`presets` 只能写在允许 `instanceFields` 的类型上，每个预设单独与固定字段放在一起按字段声明的规则校验（id 与显示名都不与固定字段、别的预设相同，`max` 只能指向固定的精确档数值字段）”
+  测试：components.test.ts:261（不允许实例字段→presets）、:262（id 撞固定）、:263（id 撞别的预设）、:264（max 指向别的预设）、:267（显示名撞固定）、:268（显示名撞别的预设）、:270（max 指向语义档固定字段）；按字段规则核形状：:265（带 removed 被 fieldShapeProblem 拒）
+  断言：buildRegistry 诊断的路径，由 registry.ts:138-155 算出
+  判定：去标记
+- 句子：“固定字段、预设与列表元素的子字段里不能写‘已去掉’的标记”
+  测试：固定字段 instance-fields.test.ts:192（诊断 fields[0].removed）；预设 components.test.ts:265；子字段 instance-fields.test.ts:193（实例声明的列表子字段带 removed → type-mismatch ...item[0].removed）
+  断言：三处都经 registry.ts:173 `!instance && "removed" in field`；登记时固定列表的子字段走同一调用（fieldsProblem(item) → fieldShapeProblem(sub, false)），:193 走的就是这一调用
+  判定：去标记（登记路径上的“固定列表的子字段”没有单独断言，但与 :193 是同一个函数调用，分层算守着）
+- 句子：“不合规则的整条不登记（输出 1）”
+  测试：新用例只断言诊断（problemOf）；“不登记”由同一分支 registry.ts:85-88（push 诊断后 continue）保证，这个分支在 components.test.ts:29-43 断言过 byNamespace(...) 为 undefined
+  判定：去标记（同一分支已有断言；若主会话想严格，可在 :252 的 problemOf 里加 types.length===0）
+- 句子：“预设是新增字段时用的模板：加上以后是这个实例自己的声明，类型之后改、撤预设不影响已有的”
+  测试：无（内核测试与 Agent 工具测试都没有“从预设加字段、再改或撤类型的预设、断言实例声明不变”的用例）
+  实现：内核除 registry.ts:98 转交外不读 presets；“加上”在界面里是一次普通 fieldAdd（把预设声明抄进实例），所以撤预设不影响已有的是结构上成立。界面怎么从预设加字段归前端那份核。
+  判定：留标记（没有断言）。补法：withOptions 换掉类型的 presets 后断言实例 declared 不变、读取不变。
+- 句子：“三样都随 `components`（输出 21）返回”
+  测试：components.test.ts:254-256（登记的 types 带三样）；author-reads.test.ts:169（服务 components() 带 kinds）
+  判定：去标记（同第 5 节）
+- 句子：“它们变了不引起整本重算”
+  测试：components.test.ts:274-281（只改 kinds、presets、字段与子字段的 suggestions 时 digest 相等；改 precision 时不等）；author-reads.test.ts:166（经服务的那组也相等）
+  断言：registry.digest 由 registry.ts:116-120 算出；世界与增量引擎按 digest 判断是否结构性重算（world.ts:243、engine/incremental.ts:535）。断言的是摘要，不是重算本身，但重算只由摘要决定，分层能区分
+  判定：去标记
+- 句子：“调用方照常收到登记变了的通知（输出 21）”
+  测试：author-reads.test.ts:167-168
+  断言：只改 kinds 后 events 变成两条 inputChanged:components（service.ts:1447 按整份 types 比较算出），且重读 kinds 为新值
+  判定：去标记
+建议：标题上的“（planned）”去掉，改挂在“不据此校验值、不拒收写入”之后与“类型之后改、撤预设不影响已有的”之后。
+
+### 9. docs/specs/canon/components.md:184 `field-redeclare-mismatch` 的“或者改了已有声明的种类、精度、列表的键与子字段的种类”
+- 句子：“改了已有声明的种类、精度”
+  测试：instance-fields.test.ts:176（种类，去掉过的那条）、:177（精度）
+  断言：refused(...) 为 ["field-redeclare-mismatch:init.data.panel.declared[幸运]"]（world.ts:1314-1316 算出）；对照 :179 改单位 ok
+  判定：去标记
+- 句子：“列表的键与子字段的种类”
+  测试：无（实现 world.ts:1342-1344；实验确认改 keyedBy、改子字段 kind 都拒）
+  判定：留标记（没有断言）；另有字面不符：实现还拒收增删子字段与改子字段精度（patchShape 比 [sub.id, sub.kind, sub.precision] 整列），建议与第 7 节小项 5 一起改成“列表的键与子字段（增删子字段、子字段的种类与精度）”，或改代码
+建议：标记挪到“列表的键与子字段的种类”之后（即现位置，但把前面的“种类、精度”拆出去不带标记，例如写成“……或者改了已有声明的种类、精度；或者改了列表的键与子字段（planned）”）。
+
+### 10. docs/specs/canon/components.md:185-187 三个失败码的“含义”
+- `fields-not-declarable`“类型不允许实例字段，却新写了字段声明”
+  测试：instance-fields.test.ts:191、:225；entry-edits.test.ts:335
+  判定：去标记（“调用方怎么办”一栏不是行为）
+- `label-taken`“新增、改名或恢复的字段，显示名与一个生效的字段相同”
+  测试：新增 instance-fields.test.ts:147-148、entry-edits.test.ts:336；改名 instance-fields.test.ts:151、entry-edits.test.ts:337；恢复 instance-fields.test.ts:150、entry-edits.test.ts:300
+  判定：去标记
+- `field-referenced`“声明的 `max` 指向的不是生效的精确档数值字段，或要去掉的字段还被别的声明的 `max` 指着”
+  测试：指向不存在的 instance-fields.test.ts:156、entry-edits.test.ts:338；指向去掉的 :160；要去掉的被指着 :158、entry-edits.test.ts:347
+  判定：去标记；附注同第 7 节小项 4：指向“存在但不是精确档数值”的字段（文字、语义档）没有断言，实验确认实现会拒。建议在 :156 附近加一句；不加也不影响这一行去标记（“不是生效的”那一面已有断言）——由主会话定是否严格。
+
+### 11. docs/specs/canon/revisions.md:73 “原样留着的补丁不因为‘不适用’拒收”整项（两处标记合起来）
+- 句子：“被这次请求写到的已写剧情变更里，一处补丁同时满足下面五条时不报问题”（正面）
+  测试：instance-fields.test.ts:246-251（字段去掉后改旧变更的文字 ok，且同一条里别的补丁照套：存款 105）；:253-259（设定组去掉、关掉后同样 ok）
+  断言：先造出“字段/设定组已不可用、旧补丁不适用”的世界，再断言 retitle 的写入通过（refused===["ok"] 或 ok() 不抛）、改后的 text 已存下
+  判定：去标记
+- 条件 1“写入前这条变更已经存在，并且是已写、生效的”
+  测试：已存在：新写的变更照拒由更早的 components.test.ts:187、:197 与 revisions.test.ts:194（component-disabled）守着；已写、生效：instance-fields.test.ts:286-295（待定转生效、计划改成已写，之前写下的不适用补丁这时 unknown-field:patches[0]）
+  判定：去标记
+- 条件 2“它的安放与所在的线没变”
+  测试：instance-fields.test.ts:283（挪到 ch45 → unknown-field:patches[0]）
+  断言：keptAsWritten 比整个 at（nb-canon/src/world/forks.ts:154 sameJson(previous.at, change.at)），线在 at 里
+  判定：去标记（只换线、不换章的情形没有单独用例，但与换章是同一个 sameJson 比较）
+- 条件 3“按内容比，这处补丁在新的补丁列表里出现的次数不超过写入前（多出来的照新写的查）”
+  测试：instance-fields.test.ts:282（再推一份内容相同的 +2 → unknown-field:patches[2]）；:281（推一份不同的 +3 同样拒）
+  判定：去标记
+- 条件 4“不适用的原因是字段不在生效的字段里、命名空间已去掉或在安放上没启用”
+  测试：正面三种都有（:246 字段去掉→undeclared；:255 设定组去掉→removed；:257 关掉→disabled）。反面（别的不适用原因不放过）：无。实现 world.ts:1367 只放过 undeclared / removed / disabled，另两种 NotApplicable（component-unknown、component-version-unsupported，model/apply.ts:58、:216）照拒，但没有用例造“插件停用后改旧变更的文字”并断言被拒
+  判定：正面去标记；“只限这三种”留标记（没有断言）。若开发者认为这条限定是要守的行为，补一条：换掉登记让命名空间 component-unknown，再 retitle 断言拒收
+- 条件 5“写入前它就已经不适用，或者这次请求改了它指着的条目上的那一组设定”
+  测试：:261-271（同一批里去掉字段并改这条变更 → ok，走 initChanged）；:273-276（从变更里拿掉“启用”那处，后面的补丁写入前适用、现在落空 → component-disabled:patches[0]）
+  判定：去标记
+- 句子：“也不查它的依据”
+  测试：instance-fields.test.ts:297-311（第 45 章那条用“由核对点推出”依据的 -20，字段去掉后改文字仍 ok）
+  断言：:308 去掉前、:310 去掉后都 ["ok"]。区分力：去掉后核对点地址上的字段读不到，若照查依据（程序复算差额）应当拒收
+  判定：去标记（区分力来自“复算在去掉后会失败”这一前提，主会话若有疑可做变异：把 world.ts 跳过依据的那一处改成照查）
+- 句子：“这样字段被去掉、设定组被去掉、类型改了字段以后，旧的剧情变更还能改别的地方；从同一条变更里拿掉‘启用’那一处……照新写的拒收”
+  测试：字段、设定组见上；“类型改了字段”：无专门用例（类型删掉一个固定字段后改旧变更），走的是同一个 undeclared 分支；拿掉启用：:276
+  判定：去标记（“类型改了字段”与字段去掉同为 undeclared，分层算守着）
+- 句子：“分叉的 `carry` 同理：只查新写或改过的项，前提同前两条（写入前已写、生效，安放、切口与父线没变）”
+  测试：worldlines.test.ts:1417-1445
+  断言：带着的“幸运”去掉后改分叉文字 ok（:1433-1434）；新写一项指向没声明的字段 → invalid-fork fork.carry[1]（:1435）；待定时写下、去掉后才转生效 → invalid-fork fork.carry[0]（:1443-1444）
+  · 只查新写或改过的项：去标记
+  · 前提“写入前已写、生效”：:1440-1444 去标记
+  · 前提“安放、切口与父线没变”：测试：无（实现 forks.ts:154-156，at、fork.parent、fork.cut 比较）——留标记（没有断言）
+建议：两处标记合并为挂在两处：条件 4 之后（“……或在安放上没启用（planned）”，若开发者认为限定要守），以及句末“前提同前两条（……安放、切口与父线没变）（planned）”。其余去标记。
+- 第 11 节补：“也不查它的依据”的实现在 nb-canon/src/world/world.ts:1527-1531（tolerated 的下标跳过 checkBasis）。
+
+### 12. docs/specs/canon/revisions.md:134 `component` 行“加的时候可以带这个实例自己的字段声明……去掉时不能带初值与声明”
+- 句子：“加的时候可以带这个实例自己的字段声明（`declare`……）”
+  测试：entry-edits.test.ts:368-369（给 e2 新加面板带 declare 与初值 幸运:3）；:371-372（create 的设定组带 declare，生成 id 与给定 id 都在）
+  断言：写入后条目 init.data.panel 的 declared 与 fields 实际内容
+  判定：去标记
+- 句子：“类型要允许实例字段”
+  测试：经 component 加、带 declare 到不允许实例字段的类型上——无专门用例。分层：entry-edits.ts 把声明写进 declared 后由世界层拒（world.ts:1286-1288），世界层 fields-not-declarable 有 instance-fields.test.ts:191 与经 fieldAdd 的 entry-edits.test.ts:335
+  判定：去标记（分层；主会话若要更稳可加一句 component add + declare 到 PERSON）
+- 句子：“去掉过的再加时照 `fieldAdd` 加在留着的数据上”
+  测试：entry-edits.test.ts:381-384（面板去掉再加、带 declare 运气 与初值，declared 为 [幸运, 运气]，fields.运气=3）
+  判定：去标记
+- 句子：“给的初值只能写到这一组生效的字段（固定的与这一项声明的），写到别的键上 `unknown-field`”
+  测试：正面 :368-369、:371-372（写到这一项声明的字段 ok）；反面 :378（create 的设定组 fields 写到“运气”→ unknown-field）
+  断言：新加设定组与 create 共用 namespaceData → assignFields（entry-edits.ts:403-415、:424-426），:378 走的就是这段
+  判定：去标记（component 加的那条路径没有单独的反面用例，共用同一函数，分层算守着）
+- 句子：“去掉时不能带初值与声明”
+  测试：:385（remove 带 declare → type-mismatch）；remove 带 fields：无
+  实现：entry-edits.ts:789 `op.fields !== undefined || op.declare !== undefined` 一起拒
+  判定：“声明”去标记；“初值”实现了、没测试（与“声明”同一行条件，风险很低）。建议 :385 后加一句 remove 带 fields 的断言；不加则在“初值”处留标记
+建议：若不补，标记挪到“去掉时不能带初值”的“初值”之后（或保持行尾、改写为“去掉时不能带声明；也不能带初值（planned）”）；补一句即整句去标记。
+
+### 13. docs/specs/canon/revisions.md:135 `fieldAdd`、`fieldRename`、`fieldRemove`、`fieldRestore` 整行
+- 句子：“在一个实例上新增一个字段声明（可带初值）、改显示名、去掉、恢复”
+  测试：entry-edits.test.ts:270-273（新增带初值 7，读到 7，修订字段路径含 declared[幸运] 与 fields.幸运 after 7）；:291（改名后 label 运气、id 不变）；:293-295、:302-303（去掉、恢复）
+  判定：去标记
+- 句子：“新增时可以给 id：给了就用它，已经占着时 `id-taken`”
+  测试：占着：:276-277（给“存款”，固定字段 → id-taken）、:278-279（给已改名的“幸运” → id-taken）；给了就用：fieldAdd 这条路径上没有“给一个空闲 id 并断言就用它”的用例，create 的 declare 有（:371-372 给 id 幸运，declared 里是 幸运）
+  断言：两条路径共用 declareField（entry-edits.ts:438-445，:441 占着拒、:442 给了就用）
+  判定：去标记（分层）
+- 句子：“没给按显示名生成，避开占着的”
+  测试：:272（生成“幸运”）、:283-284（改名后再加“幸运”→“幸运2”）、:306-322（初值留键、补丁指过的也避开）
+  判定：去标记
+- 第 13 节行号更正：给固定 id“存款”→ id-taken 在 entry-edits.test.ts:278-279，给已改名的“幸运”→ id-taken 在 :280-281，生成“幸运2”在 :283-284（上文 :276-279、:283-284 以此为准）。
+
+### 14. docs/specs/canon/revisions.md:141 “字段声明的四个操作”整项
+- 句子：“指到类型固定的字段拒收（`field-fixed`）”
+  测试：entry-edits.test.ts:328（fieldRemove panel.存款）——去标记
+- 句子：“没有这个实例声明、去掉已经去掉的、恢复没去掉的拒收（`field-missing`）”
+  测试：:329（改名没有的）、:334（去掉两次）、:330（恢复没去掉的）——去标记
+- 句子：“类型不允许实例字段、显示名重复、上限的指向不对分别是 `fields-not-declarable`、`label-taken`、`field-referenced`”
+  测试：:335、:336-337、:338；对回到第几项 :343-349（label-taken@1、field-referenced@1）
+  断言：码与路径由世界层校验算出、再由 entry-edits 对回 op 下标
+  判定：去标记
+- 句子：“改名、去掉、恢复的地址就是字段的地址，与同一批里对这个字段的别的操作按同一处算（`duplicate-address`）”
+  测试：:360（改名+去掉同一字段）、:361（set 该字段 + 去掉）
+  判定：去标记（恢复与别的操作同批没有单独断言；三种操作共用 entry-edits.ts:271-273 的同一个地址分支，分层算守着）
+- 句子：“同一批里新增的字段，初值只能在新增它的那一项里给（`created-in-batch`）”
+  测试：:358（fieldAdd 幸运 后同批 set panel.幸运 → created-in-batch）
+  判定：去标记
+- 句子：“新建条目的 `create` 里，各设定组同样可以带 `declare`”
+  测试：:371-372（create 的面板带两条声明，一条生成 id、一条给定 id，初值写到生成的那条）
+  判定：去标记
+
+### 15. docs/specs/canon/project.md:138（输出 33）只核 `kind`
+- 句子：“`kind`（种类，planned）”：条目读取带上条目的种类；带视图令牌时不给
+  测试：author-reads.test.ts:237（toMatchObject 含 kind:"人物"）；:250（视图令牌读取里没有 "kind"）
+  断言：服务 entry() 返回 kind: stored.type（nb-canon/src/service/service.ts:463）；视图令牌读不走这里
+  判定：留标记（怀疑区分不了）。这个条目的 folder 也是“人物”、type 也是“人物”（夹具 tests/fixtures/world.ts:51 固定 type:"人物", folder:"人物"），把实现写成 kind: stored.folder 或常量“人物”时 :237 照样通过。“视图令牌不给”这半（:250）能区分，去标记。
+  补法：用一个 folder 与 type 不同的条目断言 kind，或在 :237 对一个 type 不是“人物”的条目再读一次。
+建议：补一句断言后去标记；否则标记留在 `kind`（种类）后面（即现位置）。
+
+### 16. docs/specs/canon/agent-tools.md:93 `create` 那一项（从“没写 `components` 时……”到“……没有设定组”）
+- 句子：“没写 `components` 时用这个种类登记的默认设定组（贡献点 `canon.entry-kinds`）”
+  测试：agent-tools.test.ts:153-157（人物不写 components → 【人物】【形象】【面板】；组织“学院”读出来没有【）；:206-214（回话“（设定组：人物、形象、面板）”）；贡献点：:98-112（真实服务端实例里 canon 服务端入口定义的贡献点列出的就是内置四条）
+  断言：Agent 读取文字里的分组标题、写入回话文字，由工具按种类默认算出；场地里的工具直接注入同一份种类（:75），服务端入口里把贡献点接到工具的那一行（backend/agent-tools.ts:717）没被走到，但 :98-112 证明该点给出的就是注入的那份
+  判定：去标记（分层；:717 的接线本身没有断言，一行转交，风险低）
+- 句子：“写了就照写的”（非空列表时不再加默认）
+  测试：无。写了 components:["人物"] 的用例（:128、:166、:278）都没断言读出来没有【形象】
+  实现：backend/agent-tools.ts:431-437（Array.isArray 时只照写的，else 分支才套默认 :440）
+  判定：留标记（没有断言）。补法：:166 后加 expect(read.text).not.toContain("【形象】")
+- 句子：“空列表表示不要默认”
+  测试：:208、:214（“（没有设定组）”）；:278 与 :282-283（components:[] 的星瑾 set 人物.性格 → “先 addComponent”）
+  判定：去标记
+- 句子：“两种情况下 `fields` 写到的设定组都并上”
+  测试：无能区分的。:154 与 :166 写到“面板”的用例同时带了 declare:{面板:…}，declare 本身就会把面板并上（agent-tools.ts:449-453），所以 fields 那一路（:459 之后的 components.find/push）被拿掉时这两条照过
+  判定：留标记（怀疑区分不了）。补法：不带 declare，只写 fields:{"面板.存款"…} 或某个固定字段到没列出的设定组，断言读出来有【面板】；两种情况（写 components 与不写）各一条
+- 句子：“`create` 可以带 `declare`……新建时就在那组设定上声明这个条目自己的字段，`fields` 里可以接着给它们初值”
+  测试：:165-172（声明三项，“战绩 = 三胜”读得到，魔力 带最大）
+  判定：去标记
+- 句子：“按显示名写也认得：没写 id 的声明在工具里先按内核同一个规则生成好 id，显示名带空格、括号时也对得上”
+  测试：:207、:216-217（“身高 (cm)（身高cm2） = 一米七”：生成的 id 与显示名不同，初值照样写到这一项）
+  判定：去标记
+- 句子：“`max` 按显示名写的换成那个字段的 id”
+  测试：:166、:172（max:"魔力上限" → 读出“最大 魔力上限”）
+  断言区分力：“魔力上限”的生成 id 就等于显示名，agent-tools.ts:267 在 id 命中时直接返回，:268-269 的换名分支没被走到；把换名去掉 :172 照过
+  判定：留标记（怀疑区分不了）。补法：max 写一个显示名与 id 不同的字段（如“上限 (点)”），断言写入成功且读出的最大指向它
+- 句子：“`components`、`declare`、`fields` 写了却不是该有的形状（一个名字、null、数组当对象）时拒收、说明该怎么写，不当成没写”
+  测试：只有 components 写成一个名字：:229（“components 是设定组名字的列表”）。declare、fields 写成 null、数组或字符串：无
+  实现：agent-tools.ts:428-430
+  判定：components 去标记；declare、fields 的形状拒收留标记（没有断言）。补法：:229 那张表加两行（declare:[…]、fields:null）
+- 句子：“`declare` 里同一组设定用两个名字写了两次时拒收”
+  测试：:231（面板与 panel → “写了两次”）
+  判定：去标记
+- 句子：“写入成功的回话在每个新条目后面写出它带了哪几组设定（没有时写‘没有设定组’）”
+  测试：:211-214（“xia → ”、“（设定组：人物、形象、面板）”、“（没有设定组）”）
+  判定：去标记
+建议：这一行的“（planned）”从句末移走，分挂在“写了就照写的”“两种情况下 `fields` 写到的设定组都并上”“`max` 按显示名写的换成那个字段的 id”与“`declare`、`fields` 写了却不是该有的形状……”之后（agent-tools.md 整份仍是 planned，按 brief 只动 t41 这几句）。四处都是在现有用例里加一两行就能补。
+- 第 4、6、16 节行号更正（agent-tools.test.ts）：removeField 后读取不含“血统”在 :181-184（不是 :186-187）；组织“学院”没有【在 :158；“最大 魔力上限”在 :173；“常见的写法……（也可以写别的）”在 :171。
+
+### 17. docs/specs/canon/agent-tools.md:94 “字段声明的四个操作”整项
+- 句子：“字段声明的四个操作只能用在允许条目自己加字段的设定组上”
+  测试：无。场地里的内置设定组（人物、形象、面板）都允许实例字段，没有一条用例对不允许的设定组 addField / renameField 等
+  实现：内核拒 fields-not-declarable（world.ts:1286-1288），工具把这个码换成“这组设定不能在条目上加自己的字段”（backend/agent-text.ts:182）
+  判定：留标记（没有断言）。内核那层有断言（entry-edits.test.ts:335），缺的是工具回话这一层
+- 句子：“`field` 写‘设定组.字段’，字段写 id 或显示名”
+  测试：agent-tools.test.ts:177（人物.种族）、:181（人物.血统，此时 id 是“种族”，按显示名认）、:186（restoreField 按去掉过的显示名“血统”认）
+  判定：去标记（按 id 认的那面在 :177 时 id 与显示名相同，靠更早的解析规则用例守着）
+- 句子：“回话里把拒收的原因写成能照着改的话：类型不允许、这个显示名已经有了、字段是类型固定的、没有这个字段”
+  · 类型不允许：无（同上）——留标记
+  · 显示名已经有了：:195-197（“已经有一个叫这个名字的字段”，来自 agent-text.ts:183 对 label-taken 的翻译）——去标记
+  · 字段是类型固定的：:192-194（“设定组固定的字段”，agent-text.ts:184）——去标记
+  · 没有这个字段：:198-200（restoreField 没有的“身高”→“没有去掉过的字段‘身高’”，工具自己的解析，agent-tools.ts restoreField 分支）——去标记。内核 field-missing 的翻译（agent-text.ts:185）没有被走到，但 Spec 只要求说清“没有这个字段”，算守着
+- 句子：“声明里 `kind` 写错时列出几种种类，显示名是空的、写了不认识的键（初值 `value` 写进了声明）时说明（planned）”
+  测试：:224（kind:"数字"→“kind 只能是”）、:225 与 :227（空显示名，addField 与 renameField 各一）、:226（default→“不认识‘default’”）、:230（create 的声明里写 value →“声明里不写初值”）
+  判定：去标记
+- 句子：“`addField` 不给初值时新字段是未知，数与引用也照加（planned）”
+  测试：:221-222（number 与 ref+targets 不给初值，写入不报错）
+  断言：只断言 status 不是 error；“是未知”没有在 addField 这条路径上断言（create 的声明不给值时读出“魔力 = 未知”在 :173，内核 entry-edits.test.ts:372 create 路径 幸运:null）
+  判定：“数与引用也照加”去标记（不预检的分支 agent-tools.ts addField 里 `edit.value === undefined` 直接下发，若照预检会报错，:222 能区分）；“新字段是未知”分层算守着（内核 fieldAdd 不给值时字段是 null，与 create 同一 declareField + 字段 null 的初值），去标记。主会话若想更稳，:222 后读一次断言“力量 = 未知”
+- 句子：“`addComponent` 加一组条目上已经有的设定时回‘这个条目已经有这组设定’（planned）”
+  测试：:228（“已经有设定组‘人物’”）
+  判定：去标记（实现的原话是“这个条目已经有设定组‘人物’：改值用 set，加字段用 addField。”，Spec 里引号内是意思不是原文，属措辞，不是行为差异）
+- 句子：“给 Agent 的字段说明里，文字字段有建议值时列出来，并写明可以写别的”
+  测试：:171（“常见的写法：男、女、不明（也可以写别的）”）
+  判定：去标记（这句本身不带标记，brief 要求一起核）
+建议：标记挪到“回话里……类型不允许”之后，或在“只能用在允许条目自己加字段的设定组上”之后；补法：场地里登记一个不允许实例字段的测试设定组（或用 settings 世界里现有的），对它 addField 断言回话含“不能在条目上加自己的字段”，两处同时去标记。
+
+### 18. docs/specs/canon/agent-tools.md:83-86 四行
+- 83 `addComponent` 的“加的时候可以带 `declare`（……写法同 `addField` 的声明项，类型要允许）”
+  测试：无。agent-tools.test.ts 里 addComponent 只出现在 :228（已有的那组被拒），没有一条带 declare 加设定组的用例
+  实现：backend/agent-tools.ts addComponent 分支（`edit.declare === undefined` 才发不带声明的 component，否则 fieldDrafts → declare）；内核这一层 entry-edits.test.ts:368-369 有断言
+  判定：留标记（没有断言，工具层的映射没被走到）。补法：给“星瑕”removeComponent 面板再 addComponent 面板带 declare:[{label:"战绩"}]，断言读出“战绩”
+- 84 `addField` 整行
+  测试：:175-176（entry、component、label、不写 kind 缺省 text、初值 value“精灵”→ 读出“血统（种族）= 精灵”的前一步）；:221（kind number 与 ref + targets）；max 经同一个 fieldDraftOf 在 create 路径 :166/:173 读出
+  断言：写入成功与读出的文字
+  判定：去标记。附注：unit、min、options、suggestions、precision、item 与“可选的 id”没有逐项断言，都经 fieldDraftOf 的白名单原样拷贝（agent-tools.ts:223、:239），与已断言的 max、targets 同一行代码，分层算守着
+- 85 `renameField` 整行
+  测试：:177-179（改名后读出“血统（种族）”）；空 label 拒 :227
+  判定：去标记
+- 86 `removeField`、`restoreField` 整行（含“恢复时认去掉过的字段”）
+  测试：:181-189（去掉后读不到；restoreField 按去掉过的显示名“血统”认、恢复后值还在）；:198-200（没去掉过的“身高”拒）；:232（同批新建的条目 restoreField 拒）
+  判定：去标记
+建议：83 行那半句留标记（挂在“……类型要允许）”之后）；84-86 三行不挂。
+
+### 汇总
+（实验：/tmp/t41-promote/exp/probe.test.ts 在 t41 worktree 的真实 World 上跑；instance-fields、entry-edits、entry-edits-service、components、author-reads 五个文件在 worktree 里 105 pass。没跑 agent-tools.test.ts。）
+
+整处去标记（每句都有能区分的断言）：
+- 4（components:107 输出 4 的四处标记全部去掉）
+- 5（components:139 “另带类型的 kinds、presets”）
+- 10（components:185-187 三个失败码；field-referenced 有个小缺口见下，不影响这一行去标记）
+- 13（revisions:135 四个字段操作一行）
+- 14（revisions:141 “字段声明的四个操作”一项）
+
+要挪标记（标题或行尾的标记去掉，挂到没守住的那几句后面；括号里是补法，多数是现有用例里加一两行）：
+- 1 components:53 kinds：挂在“不限制它加在哪种条目上”（补：带 kinds 的类型加到“组织”上，写入通过）
+- 2 components:54 presets：挂在“每个给出 id”（补：test.each 加一行缺 id 的预设）
+- 3 components:73 suggestions：挂在“值不必在其中”（补：写建议外的值，写入通过；实验确认会通过）
+- 6 components:140 输出 22：挂在“同一个 id 两边都有时固定的生效……按固定字段的声明读写”（现有 :103-115 两边都是 text，优先级反过来照样过；实验用 enum 确认实现是固定的生效）和“引用种类的核对”（没有用例）
+- 7 components:141-149 输出 23：挂在小项 5“列表的键与子字段的种类”（没有断言，另有字面不符，见下）；小项 4 指向文字或语义档字段、删掉声明，以及小项 6“声明变了也重核值”都是实现了但没有断言，补一句就行，不补就各自挂标记
+- 8 components:150 输出 24：挂在“不据此校验值、不拒收写入”和“类型之后改、撤预设不影响已有的”
+- 9 components:184 field-redeclare-mismatch：拆开写，“种类、精度”去标记，“列表的键与子字段”留标记
+- 11 revisions:73：挂在条件 4“只放过这三种原因”的反面（插件停用造成 component-unknown 时照样拒，没有用例；由开发者定这个限定要不要守），以及 carry 的“安放、切口与父线没变”（forks.ts:154-156，没有用例）
+- 12 revisions:134 component：挂在“去掉时不能带初值”的“初值”（:385 只测了带声明的情况，带初值的没测）
+- 16 agent-tools:93 create：挂四处：“写了就照写的”（没断言没有【形象】）、“两种情况下 fields 写到的设定组都并上”（用例都同时带了 declare，区分不了）、“max 按显示名写的换成 id”（“魔力上限”的 id 就等于显示名，换名分支没走到）、“declare、fields 写成错误形状时拒收”（只测了 components）
+- 17 agent-tools:94：挂在“只能用在允许的设定组上 / 回话说类型不允许”（场地里没有不允许实例字段的设定组）
+- 18 agent-tools:83 addComponent 带 declare：Agent 工具这一层没有用例；84-86 三行去标记
+
+留着（整处保持现状，直到补测试）：
+- 15 project.md:138 kind：:237 那个条目的 folder 与 type 都是“人物”，实现写成 kind: stored.folder 也会通过；“带视图令牌时不给”那半句能区分。补一条 folder 与 type 不同的条目就能去标记。
+
+没做的：无。所有判“没有断言”的句子都在代码里找到了实现（文件:行写在各节）。
+
+字面不符：
+- 6 输出 22 第一句：类型此刻不允许 instanceFields 时，实例声明一概不生效（registry.ts:245）。建议 Spec 加“（类型允许实例字段时）”
+- 7 小项 5 与 9：patchShape（world.ts:1342-1344）比的是整份子字段列表 [id, kind, precision]，所以增删子字段、改子字段精度也会拒收 field-redeclare-mismatch（实验确认；只改子字段显示名照收）。建议 Spec 两处都改成“列表的键与子字段（增删子字段、子字段的种类与精度）”，如果想允许增删子字段就改代码
+- 4 ④ removedFields：实现不列被同 id 固定字段盖住的去掉过的字段，也只看视图里有的命名空间。Spec 写得比实现宽，属边角；可以补半句，也可以不写
+
+请主会话做变异确认的：
+- 6：把 registry.ts:253 的 `fixed.has(field.id)` 跳过改成让实例那条替掉固定那条，看 instance-fields.test.ts:103-115 与 :163-167 是否照过（我推断会照过）
+- 15：把 service.ts:463 的 `kind: stored.type` 改成 `stored.folder`，看 author-reads.test.ts:237 是否照过（我推断会照过）
+- 11 “也不查它的依据”：把 world.ts:1528 的 `!tolerated.has(index)` 去掉，确认 instance-fields.test.ts:310 失败（我推断会失败，也就是这句是守着的）
+
+最严重的几条：6 的“固定的生效”与 15 的 kind，都有测试，但断言区分不了；7/9 的字面不符：子字段的增删会被拒收，Spec 里没写；16 有四处 Agent 工具的说法没有断言，其中“fields 并上”和“max 换成 id”两处的现有用例看着守着，其实区分不了。
