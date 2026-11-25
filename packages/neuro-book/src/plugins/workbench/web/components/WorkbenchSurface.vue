@@ -137,7 +137,10 @@ const host = useGridHost<string>({
     grid,
     contextKey: () => props.contextKey,
     disabled: () => props.disabled,
-    onApplied: (_commit, result, before) => emit("gesture-commit", before.sizes, host.layout.value.sizes, result.collapsed),
+    // 只接手势：工作台的收起与尺寸走文档再投影（换网格实例），不调 `host.setCollapsed`、`host.setSize`。
+    onApplied: (change, before) => {
+        if (change.kind === "gesture") emit("gesture-commit", before.sizes, host.layout.value.sizes, change.collapsed);
+    },
     onIssues: (issues) => emit("issues", issues),
 });
 

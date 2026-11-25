@@ -94,10 +94,9 @@ const explorerCollapsed = computed(() => {
     return layout.value.explorerState().collapsed;
 });
 function toggleExplorer(): void {
+    // 收起变了会走 onApplied，存档在那里。
     const result = host.setCollapsed(EXPLORER, !explorerCollapsed.value);
-    // setCollapsed 不走 onApplied，存档要在这里另调一次，不然收起状态不进存档。
-    if (result.ok) persist();
-    else status.value = result.message;
+    if (!result.ok) status.value = result.message;
 }
 
 /** 焦点在哪个编组里：标签条带 `data-group`，正文在内容层里、带库写的 `data-content-leaf`。 */

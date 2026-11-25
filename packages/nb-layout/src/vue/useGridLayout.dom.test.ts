@@ -5,7 +5,7 @@ import NestedGrid from "./NestedGrid.vue";
 import {createGrid, type Grid, type GridLayoutResult} from "../grid";
 import type {GridGestureCommit} from "../grid-gesture";
 import type {GridExtent, GridIssue, GridLayoutCommitResult} from "../grid-types";
-import {EMPTY_GRID_LAYOUT, useGridLayout, type GridLayoutHost} from "./useGridLayout";
+import {EMPTY_GRID_LAYOUT, useGridLayout, type GridHostChange, type GridLayoutHost} from "./useGridLayout";
 
 /**
  * 宿主装配的行为用例：真手势端到端接纳一次；冻结事实（上下文 / 版本 / 容器尺寸）一旦过期整次拒绝。
@@ -92,8 +92,9 @@ type Harness = {
     readonly grid: Ref<Grid<string> | null>;
     readonly extent: ShallowRef<GridExtent | null>;
     readonly context: Ref<string>;
-    readonly applied: GridGestureCommit[];
-    /** `onApplied` 每次收到的第三个参数：提交之前发布的布局。 */
+    /** `onApplied` 每次收到的第一个参数：这次落账是哪一种。 */
+    readonly applied: GridHostChange[];
+    /** `onApplied` 每次收到的第二个参数：落账之前发布的布局。 */
     readonly befores: GridLayoutResult[];
     /** `onApplied` 被调的那一刻宿主发布着的布局。 */
     readonly duringApplied: GridLayoutResult[];
@@ -111,7 +112,7 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
     const grid = ref<Grid<string> | null>(options.grid ?? twoColumns());
     const extent = shallowRef<GridExtent | null>({...CONTAINER});
     const context = ref("workbench-a");
-    const applied: GridGestureCommit[] = [];
+    const applied: GridHostChange[] = [];
     const befores: GridLayoutResult[] = [];
     const duringApplied: GridLayoutResult[] = [];
     const commits: GridGestureCommit[] = [];
@@ -121,8 +122,8 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
         grid,
         extent,
         contextKey: () => context.value,
-        onApplied: (commit, _result, before) => {
-            applied.push(commit);
+        onApplied: (change, before) => {
+            applied.push(change);
             befores.push(before);
             duringApplied.push(host!.layout.value);
             if (options.throwOnApplied === true) {
@@ -216,7 +217,11 @@ describe("useGridLayout 与渲染层的真实提交", () => {
 
         expect(harness.commits).toHaveLength(1);
         expect(harness.applied).toHaveLength(1);
-        expect(harness.applied[0]).toBe(harness.commits[0]);
+        // 手势落账：带这次的提交、`resizeBranches` 的结果，`collapsed` 就是结果里的那份（这次没翻任何标记）。
+        const applied = harness.applied[0]!;
+        expect(applied).toEqual({kind: "gesture", commit: harness.commits[0], result: expect.objectContaining({ok: true}), collapsed: {}});
+        expect(applied.kind === "gesture" && applied.commit).toBe(harness.commits[0]);
+        expect(applied.kind === "gesture" && applied.collapsed === applied.result.collapsed).toBe(true);
         const after = harness.host.layout.value;
         expect(after.sizes.left!.width - before.sizes.left!.width).toBeCloseTo(40, 6);
         expect(after.sizes.right!.width - before.sizes.right!.width).toBeCloseTo(-40, 6);

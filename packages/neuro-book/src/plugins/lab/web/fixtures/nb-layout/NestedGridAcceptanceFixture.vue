@@ -144,7 +144,10 @@ const host = useGridHost<string>({
     grid: gridRef,
     contextKey: gestureContextKey,
     disabled,
-    onApplied: (commit) => {
+    // 只数手势提交：夹具改树都经 `grid.*` 再 `invalidate()`，那不通知。
+    onApplied: (applied) => {
+        if (applied.kind !== "gesture") return;
+        const commit = applied.commit;
         for (const change of commit.changes) {
             syncRawRecordIntent(change.branchId, change.axis);
         }

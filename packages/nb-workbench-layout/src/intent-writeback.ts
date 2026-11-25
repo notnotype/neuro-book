@@ -23,7 +23,7 @@ const UNTOUCHED_TOLERANCE_PX = 0.5;
 export type IntentWritebackRejection = {readonly id: string; readonly failure: GridFailure<LayoutFailureCode>};
 
 /**
- * 手势落账后写回文档（输出 49）。`before` 是手势开始时呈现的布局（`useGridHost` 的 `onApplied` 第三个参数），`after` 是落账之后的。
+ * 手势落账后写回文档（输出 49）。`before` 是手势开始时呈现的布局（`useGridHost` 的 `onApplied` 第二个参数），`after` 是落账之后的。
  *
  * 先改收起状态再写回意图：这次收起的面板，呈现尺寸是标题行或零，不是意图（`rebaseIntents` 跳过收起的面板）。
  * 网格报的是呈现树的节点 id；区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11），对那个 id 记的话，只显示一节时会把这一节标成收成标题行。
