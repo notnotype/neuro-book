@@ -13,7 +13,7 @@ updated: 2026-11-25
 
 起因：开发者 2026-11-25 看 t18 合入后的停靠窄版，觉得头和下面两栏接得突兀、“≡”打开列表的设计怪，喜欢头像列，提议把它放到右边、像左侧边栏那样；要求整体优化一轮、“各种设计都可以尝试”。t18 评审板第 3 轮的接缝题（`dock-seam`）由本 Task 第 1 轮的 `strip-side` 取代。
 
-合同：[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 51（消息视图的版式）、[`ui/workbench-layout.md`](../../../../../docs/specs/ui/workbench-layout.md) 输出 20、47（面板头与区域入口条）；定稿后改。
+合同：提案 [侧栏的侧轨](../../../../../docs/proposals/workbench-side-rails.md)（已接受）；Spec（planned）：[`ui/workbench-layout.md`](../../../../../docs/specs/ui/workbench-layout.md) 输出 50、51，[`workbench/views.md`](../../../../../docs/specs/workbench/views.md) 输出 21、22，[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 57。
 
 ## 注意力排序（主 Agent 的假设，开发者有异议再改）
 
@@ -63,7 +63,7 @@ updated: 2026-11-25
 
 ## 下一步
 
-- 提案已接受（第三稿）。写 Spec（planned）：`ui/workbench-layout.md`、`workbench/views.md`、`agent/conversation.md`；再写 `plan.md` 并交设计审查。
+- Spec（planned）已提交 dabe9cb6a；计划 [`plan.md`](plan.md) 第 1 稿写好，要点先给开发者看，确认后交设计审查（前端 Sonnet，布局记录与投影 omp `@review`）。
 - 写底层提案（右栏入口条竖排成侧轨、视图段、展开、位置限制、浮动），要点先给开发者看，再交 omp `@review` 审一轮（开发者要求改底层要 gpt 审）；之后写 Spec（planned）与 `plan.md`，在 Work worktree 实现。左右整列对调另开 Task。
 - 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者；开发者 2026-11-25 同意按归纳的方向出稿。
 - 评审板第 3 轮（取代第 2 轮两题）：`rail-kind` 甲 工作台的侧轨（推荐）对 乙 头像列留在视图里贴右边、无竖线、底色深一档；`list-switcher` A 锚在按钮旁的浮层（推荐）对 B 顶部居中的 QuickPick；附左右对调整窗稿（对调另开 Task）。稿面修了：接缝按相连画、聊天区铺满、当前会话改描边只突出一层、底部图标换成机器人与搜索列表。原图在本地 `shots/r3/`。
