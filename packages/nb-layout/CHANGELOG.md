@@ -19,6 +19,7 @@
 - `restoreGrid(快照, 解析引用, 选项)` 与类型 `GridRestoredGrid`：从快照建一份新网格，失败时结果里没有 `grid`。原地的 `grid.restore` 照旧可用。
 - `GridSplitInput.ratio` 可以写 `"even"`：同向并入时新叶与这一排的兄弟平分（等于 `addLeaf` 不给意图），新建分支时等于 `0.5`。
 - 收起策略的 `locked: true` 锁住收起状态：拖动收不了也拉不开，分隔条上的 Enter 跳过它（作用于另一侧），`resizeBranches` 要翻它时整批失败，新失败码 `collapse-locked`（`params` 是 `id`、`branch`）；独立 `Splitter` 同样遵守。只有宿主经 `setCollapsed` 翻它；`setCollapsed` 多了第三个参数 `GridCollapseOptions`，`locked` 同时改锁、不给时锁不变，`changed` 是收起标记或锁有没有变。
+- 保留像素的节点可以标 `rigid: true`（叶与分支的建树输入、`GridRefResolution` 都能给）：沿父分支主轴的最小与最大都是它的意图（先夹进声明的最小与最大），拖动推过它时位移传给更远的兄弟、它不变；最小尺寸之和放不下时先按比例压别的，它最后才让，刚性的之和也放不下时只在它们之间按比例压，诊断照旧是 `min-total`。交叉轴不受影响；按比例分的节点标了不起作用；`setSize` 照样能改它；和 `sizing` 一样不进快照，恢复时解析结果优先、其次当前树。只认这个标记：最小等于最大、不标的节点行为不变。
 - `SplitterPanelConfig.overflow`：写 `"visible"` 时这块面板不裁切内容，内容可以伸到相邻面板上面（收起的栏里拉出的抽屉）；缺省 `"hidden"`，行为不变。
 - 开发模式的配置检查（`setLayoutDevChecks`）多了两条：`useGridHost` 没给 `onIssues`（诊断与被拒的提交会被丢掉）时建立时警告一次；`NestedGrid` 的 `dragging` 变真时布局过渡还在走（起拖时没调 `settleMotion()`）时警告一次。库仍不把诊断本身打到控制台。
 

@@ -86,19 +86,19 @@ export type Grid<T> = {
     setCollapsed(id: string, collapsed: boolean, options?: GridCollapseOptions): GridCollapseResult;
     /**
      * 把一块保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`（Spec 输出 154）：夹进它自己展开时的约束，兄弟不动，不读布局。
-     * 收起中的节点也一样只改意图，展开时回到它（输出 166）。改的是活树，规则同 `setCollapsed`。
+     * 收起中的节点也一样只改意图，展开时回到它（输出 166）；标了刚性的同样能设，它的范围跟着新意图走（输出 169）。改的是活树，规则同 `setCollapsed`。
      */
     setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
     /**
-     * 原地恢复：校验通过才换树，解析结果没给的约束、`sizing` 与收起策略回落到当前树里同 id 的节点（Spec 输出 148）。
+     * 原地恢复：校验通过才换树，解析结果没给的约束、`sizing`、刚性与收起策略回落到当前树里同 id 的节点（Spec 输出 148）。
      * 从存档建一份新网格用 `restoreGrid`：它不看结果就拿不到网格。
      */
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
     /** 当前位置下的呈现尺寸；不改变意图，可由宿主在视口变化时反复调用。 */
     layout(container: GridExtent): GridLayoutResult;
     /**
-     * 复制一份独立的网格（Spec 输出 164）：树、意图、约束、`sizing`、收起策略与状态，连同建网格时的选项（`sashSize`、`encodeRef`）。
+     * 复制一份独立的网格（Spec 输出 164）：树、意图、约束、`sizing`、刚性、收起策略与状态，连同建网格时的选项（`sashSize`、`encodeRef`）。
      * 两份互不影响；`ref` 是同一个宿主对象，不复制。用在“先在副本上照做一遍、看结果与布局，再决定做不做”。
      */
     clone(): Grid<T>;
@@ -119,9 +119,11 @@ function instantiate<T>(node: GridNodeInput<T>): GridNode<T> {
     const minimumSize = normExtent(node.minimumSize, ZERO_EXTENT);
     const maximumSize = normExtent(node.maximumSize, UNBOUNDED_EXTENT);
     const sizing: GridSizing = node.sizing === "fixed" ? "fixed" : "weight";
+    // 只有保留像素的节点记刚性：按比例分的标了不起作用，不进节点。
+    const rigid = sizing === "fixed" && node.rigid === true ? {rigid: true as const} : {};
     const collapse = normCollapse(node.collapse);
     if (node.kind === "leaf") {
-        return {kind: "leaf", id: node.id, ref: node.ref, size, minimumSize, maximumSize, sizing, ...(collapse === undefined ? {} : {collapse})};
+        return {kind: "leaf", id: node.id, ref: node.ref, size, minimumSize, maximumSize, sizing, ...rigid, ...(collapse === undefined ? {} : {collapse})};
     }
     return {
         kind: "branch",
@@ -131,6 +133,7 @@ function instantiate<T>(node: GridNodeInput<T>): GridNode<T> {
         minimumSize,
         maximumSize,
         sizing,
+        ...rigid,
         ...(collapse === undefined ? {} : {collapse}),
         children: node.children.map((child) => instantiate(child)),
     };
@@ -146,7 +149,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
 
 /**
  * 从快照建一份新网格（Spec 输出 165）：结果不成功就没有 `grid`，宿主不看结果拿不到网格。
- * 约束、`sizing` 与收起策略只来自 `resolveRef`（新网格没有当前树可回落）；要回落到当前树的，用原地的 `grid.restore`。
+ * 约束、`sizing`、刚性与收起策略只来自 `resolveRef`（新网格没有当前树可回落）；要回落到当前树的，用原地的 `grid.restore`。
  * @experimental
  */
 export function restoreGrid<T extends string>(snapshot: unknown, resolveRef: GridRefResolver<T>, options?: GridOptions<T>): GridRestoredGrid<T>;
@@ -502,7 +505,8 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
             return gridFailure("invalid-argument", `The size must not be negative: ${String(px)}`, {field: "px-negative", id});
         }
         const axis = axisOf(hit.parent.orientation);
-        // 夹进它自己的范围，同 `resizeBranches` 写保留像素的意图；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
+        // 夹进它自己的范围，同 `resizeBranches` 写保留像素的意图；按展开时的声明范围夹：收起时的刚性范围会把它夹成 `collapsedSize`，
+        // 标了刚性的范围就是它现在的意图，夹进去就改不了厚度。
         const bounds = constraintOnAxis(node, axis, sashSize);
         const size = clampAxis(px, bounds.low, bounds.high);
         const changed = node.size[axis] !== size;

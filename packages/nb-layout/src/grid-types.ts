@@ -92,6 +92,11 @@ export type GridLeaf<T> = {
     maximumSize: GridExtent;
     /** 主轴分配策略；缺省 `weight`。 */
     sizing: GridSizing;
+    /**
+     * 刚性：沿父分支主轴的最小与最大尺寸都是它的意图（先夹进声明的最小与最大），拖动的级联补偿不改它，最小尺寸之和放不下时它最后才让。
+     * 只有保留像素（`sizing: "fixed"`）的节点会带；交叉轴不受影响。和 `sizing` 一样是运行期约束，不进快照。
+     */
+    rigid?: true;
     /** 收起策略与状态；缺省不可收起。 */
     collapse?: SashCollapseState;
 };
@@ -108,6 +113,11 @@ export type GridBranch<T> = {
     maximumSize: GridExtent;
     /** 主轴分配策略；缺省 `weight`。 */
     sizing: GridSizing;
+    /**
+     * 刚性：沿父分支主轴的最小与最大尺寸都是它的意图（先夹进声明的最小与最大），拖动的级联补偿不改它，最小尺寸之和放不下时它最后才让。
+     * 只有保留像素（`sizing: "fixed"`）的节点会带；交叉轴不受影响。和 `sizing` 一样是运行期约束，不进快照。
+     */
+    rigid?: true;
     /** 收起策略与状态；缺省不可收起。 */
     collapse?: SashCollapseState;
     children: GridNode<T>[];
@@ -128,6 +138,8 @@ export type GridLeafInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    /** 刚性（见 `GridLeaf.rigid`）；只对 `sizing: "fixed"` 起作用，按比例分的节点标了不起作用。 */
+    rigid?: boolean;
     collapse?: SashCollapseState;
 };
 
@@ -143,6 +155,8 @@ export type GridBranchInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    /** 刚性（见 `GridLeaf.rigid`）；只对 `sizing: "fixed"` 起作用，按比例分的节点标了不起作用。 */
+    rigid?: boolean;
     collapse?: SashCollapseState;
     children: GridNodeInput<T>[];
 };
@@ -214,6 +228,8 @@ export type GridRefResolution<T> = {
     maximumSize?: GridExtent;
     /** 主轴分配策略（运行期）；缺省沿用当前树或 `weight`。 */
     sizing?: GridSizing;
+    /** 刚性（运行期，见 `GridLeaf.rigid`）；缺省沿用当前树或不刚性。只对最后得到的 `sizing` 是 `fixed` 的叶起作用。 */
+    rigid?: boolean;
     /** 收起策略与状态（运行期）；缺省沿用当前树或不可收起。 */
     collapse?: SashCollapseState;
 };

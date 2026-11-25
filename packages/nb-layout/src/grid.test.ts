@@ -1935,6 +1935,134 @@ describe("拆分树原语：锁住收起状态", () => {
     });
 });
 
+/** 刚性（Spec 输出 169）：保留像素的节点标 `rigid` 时沿父分支主轴钉在意图上，拖动的级联补偿不改它，最小尺寸之和放不下时最后才让。 */
+describe("拆分树原语：刚性的节点", () => {
+    const ROW: GridExtent = {width: 1008, height: 400};
+    const NARROW: GridExtent = {width: 608, height: 400};
+    const pinned = (id: string, intent: number, min = 0, max = UNBOUNDED, rigid = true): GridLeafInput<string> =>
+        ({...leaf(id, "width", intent, min, max), sizing: "fixed", ...(rigid ? {rigid: true} : {})});
+    const widths = (grid: ReturnType<typeof createGrid<string>>, ids: readonly string[], container: GridExtent = ROW): number[] =>
+        ids.map((id) => Math.round(extent(grid.layout(container).sizes, id).width * 100) / 100);
+    const dragSash = (grid: ReturnType<typeof createGrid<string>>, sashIndex: number, dx: number): void => {
+        const gesture = createGridGestureSession<string>({
+            contextKey: "test", revision: 1, root: grid.root(), extent: ROW, layout: grid.layout(ROW), sashSize: 4, sessionId: "s", source: "pointer",
+            sashes: [{branchId: "root", index: sashIndex, axis: "width"}],
+        });
+        gesture.update({x: dx, y: 0});
+        const finished = gesture.finish();
+        if (finished === null) throw new Error("手势没有产生提交");
+        const applied = grid.resizeBranches(finished.changes);
+        if (!applied.ok) throw new Error(applied.message);
+    };
+
+    it("拖动的级联补偿不改刚性的：推过它时位移传给更远的兄弟，意图不变；不标刚性的同一段拖动先把它压到最小", () => {
+        const build = (rigid: boolean) => createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("x", "width", 300, 100),
+            pinned("r", 200, 40, UNBOUNDED, rigid),
+            leaf("b", "width", 500, 100),
+        ]), {sashSize: 4});
+        const rigidGrid = build(true);
+        dragSash(rigidGrid, 0, 250);
+        expect(widths(rigidGrid, ["x", "r", "b"])).toEqual([550, 200, 250]);
+        expect(rigidGrid.find("r")?.size.width).toBe(200);
+
+        const free = build(false);
+        dragSash(free, 0, 250);
+        expect(widths(free, ["x", "r", "b"])).toEqual([550, 40, 410]);
+    });
+
+    it("最小尺寸之和放不下：先按比例压别的，刚性的最后才让；诊断照旧是 `min-total`，度量不变", () => {
+        const build = (middle: GridLeafInput<string>) => createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("a", "width", 1, 400),
+            middle,
+            leaf("b", "width", 1, 400),
+        ]), {sashSize: 4});
+        const result = build(pinned("r", 300)).layout(NARROW);
+        expect(["a", "r", "b"].map((id) => extent(result.sizes, id).width)).toEqual([150, 300, 150]);
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "min-total", id: "root", axis: "width", available: 600, required: 1100});
+        // 只认标记：最小等于最大、不标刚性的，和别的一起按最小值比例压。
+        const declaredOnly = build(pinned("r", 300, 300, 300, false));
+        expect(widths(declaredOnly, ["a", "r", "b"], NARROW)).toEqual([218.18, 163.64, 218.18]);
+        expect(facts(declaredOnly.layout(NARROW).issues)).toContainEqual({code: "over-constrained", cause: "min-total", id: "root", axis: "width", available: 600, required: 1100});
+    });
+
+    it("刚性的之和也放不下：只在刚性的之间按比例压，别的为 0", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            pinned("r1", 400),
+            leaf("a", "width", 1, 100),
+            pinned("r2", 200),
+        ]), {sashSize: 4});
+        const result = grid.layout(NARROW);
+        expect(["r1", "a", "r2"].map((id) => extent(result.sizes, id).width)).toEqual([400, 0, 200]);
+        expect(widths(grid, ["r1", "a", "r2"], {width: 458, height: 400})).toEqual([300, 0, 150]);
+    });
+
+    it("刚性的范围是夹进声明最小与最大的意图；`setSize` 照样能改它的厚度，夹进声明的范围，布局跟着新意图", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            pinned("r", 500, 100, 300),
+            leaf("b", "width", 1, 100),
+        ]), {sashSize: 4});
+        const before = grid.layout(ROW);
+        expect(before.constraints.r?.minimumSize.width).toBe(300);
+        expect(before.constraints.r?.maximumSize.width).toBe(300);
+        expect(widths(grid, ["r", "b"])).toEqual([300, 704]);
+
+        expect(grid.setSize("r", 260)).toMatchObject({ok: true, changed: true, size: 260});
+        expect(widths(grid, ["r", "b"])).toEqual([260, 744]);
+        expect(grid.setSize("r", 50)).toMatchObject({ok: true, changed: true, size: 100});
+        expect(widths(grid, ["r", "b"])).toEqual([100, 904]);
+    });
+
+    it("交叉轴不受影响；按比例分的节点标了不起作用", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            pinned("r", 200),
+            {...leaf("w", "width", 1), rigid: true},
+            leaf("b", "width", 1),
+        ]), {sashSize: 4});
+        const result = grid.layout(ROW);
+        expect(result.constraints.r?.minimumSize.height).toBe(0);
+        expect(result.constraints.r?.maximumSize.height).toBe(UNBOUNDED);
+        expect(extent(result.sizes, "r").height).toBe(400);
+        expect(grid.find("w")).not.toHaveProperty("rigid");
+        expect(widths(grid, ["r", "w", "b"])).toEqual([200, 400, 400]);
+        // 按比例分的跟着容器变宽，标的刚性不把它钉住。
+        expect(widths(grid, ["r", "w", "b"], {width: 1408, height: 400})).toEqual([200, 600, 600]);
+    });
+
+    it("刚性随建树与复制走、不进快照；恢复时解析结果优先（`false` 也算给了），其次当前树；分支只能从当前树取", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            pinned("r", 200),
+            pinned("s", 200, 0, UNBOUNDED, false),
+            {...branch("col", "width", "vertical", 200, [leaf("top", "height", 1), leaf("bottom", "height", 1)]), sizing: "fixed", rigid: true},
+            leaf("w", "width", 1),
+        ]), {sashSize: 4});
+        expect(grid.find("r")?.rigid).toBe(true);
+        expect(grid.find("s")).not.toHaveProperty("rigid");
+        expect(grid.clone().find("r")?.rigid).toBe(true);
+        expect(grid.clone().find("col")?.rigid).toBe(true);
+        expect(JSON.stringify(grid.serialize())).not.toContain("rigid");
+
+        const snapshot = grid.serialize();
+        const restored = grid.restore(snapshot, (ref) => ({ref, ...(ref === "s" || ref === "w" ? {rigid: true} : {})}));
+        expect(restored.ok).toBe(true);
+        expect(grid.find("r")?.rigid).toBe(true);
+        expect(grid.find("s")?.rigid).toBe(true);
+        expect(grid.find("col")?.rigid).toBe(true);
+        expect(grid.find("w")).not.toHaveProperty("rigid");
+
+        expect(grid.restore(snapshot, (ref) => ({ref, ...(ref === "r" ? {rigid: false} : {})})).ok).toBe(true);
+        expect(grid.find("r")).not.toHaveProperty("rigid");
+        expect(grid.find("s")?.rigid).toBe(true);
+
+        // 新网格没有当前树可回落：刚性只来自解析结果，且要解析成保留像素。
+        const fresh = restoreGrid(snapshot, (ref) => ({ref, ...(ref === "s" ? {sizing: "fixed" as const, rigid: true} : {rigid: true})}));
+        expect(fresh.ok).toBe(true);
+        if (!fresh.ok) return;
+        expect(fresh.grid.find("s")?.rigid).toBe(true);
+        expect(fresh.grid.find("r")).not.toHaveProperty("rigid");
+    });
+});
+
 describe("失败码与诊断码的写法（Spec ui/nested-grid 边界与兼容、输出 139）", () => {
     it("同 ui/i18n 的开放错误域：小写短横线，不含冒号、点与空白，不超过 64 个字符", () => {
         expect(everyCodeListed).toBe(true);

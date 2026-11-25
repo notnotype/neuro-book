@@ -399,6 +399,20 @@ describe("拖动求解：锁住收起状态（Spec ui/nested-grid 输出 168）"
     });
 });
 
+describe("拖动求解：级联遇到刚性的面板（Spec ui/nested-grid 输出 169）", () => {
+    it("近端是刚性的：它不让也不吃，位移传给更远的兄弟；去掉刚性时它先被压到最小", () => {
+        const bar: SashPanel = {...fixed("bar", 40), size: 200, rigid: true};
+        const panels = [weight("x", 100), bar, weight("b", 100)];
+        const result = drag(panels, [300, 200, 500], 0, [250]);
+        expect(result.sizesPx).toEqual([550, 200, 250]);
+        expect(result.active).not.toContain("bar");
+        expect(result.compensated).not.toContain("bar");
+
+        const plain = drag([weight("x", 100), {...bar, rigid: undefined}, weight("b", 100)], [300, 200, 500], 0, [250]);
+        expect(plain.sizesPx).toEqual([550, 40, 410]);
+    });
+});
+
 describe("拖动求解：两侧外栏的收起与恢复", () => {
     it("右侧外栏拖到零再拉回：展开到指针位置，余量兄弟吸收差额", () => {
         const panels = collapsibleSidePanels();

@@ -65,6 +65,7 @@ type GridBranch<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
     children: GridNode<T>[];
 };
@@ -215,6 +216,7 @@ type GridLeaf<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
 };
 

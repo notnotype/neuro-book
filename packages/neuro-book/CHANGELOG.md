@@ -10,6 +10,7 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ### 新增
 
+- 插件 SDK 的 `NestedGrid`：树里保留像素的节点可以标 `rigid: true`：沿排列方向钉在自己的尺寸上，拖动推过它时由更远的兄弟让位，窗口窄到放不下时它最后才让。
 - 插件 SDK 的 `NestedGrid`：树里节点的收起策略可以写 `locked: true`，锁住收起状态：拖动收不了也拉不开，分隔线上的 Enter 跳过它，只有插件自己改树时能翻；手势要翻它时提交被拒，码是 `collapse-locked`。
 - 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
 - 插件 SDK 的组件子路径加上 `DataTable`（带工具条与分页的数据表格：加载、空、出错时工具条与页脚不动，表头吸顶）；`Table` 多一个 `stickyHeader` 属性，表头吸顶。

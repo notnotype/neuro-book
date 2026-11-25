@@ -88,6 +88,7 @@ type GridBranch<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
     children: GridNode<T>[];
 };
@@ -111,6 +112,7 @@ type GridBranchInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    rigid?: boolean;
     collapse?: SashCollapseState;
     children: GridNodeInput<T>[];
 };
@@ -328,6 +330,7 @@ type GridLeaf<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
 };
 
@@ -341,6 +344,7 @@ type GridLeafInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    rigid?: boolean;
     collapse?: SashCollapseState;
 };
 
@@ -407,6 +411,7 @@ type GridRefResolution<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    rigid?: boolean;
     collapse?: SashCollapseState;
 };
 
@@ -637,6 +642,7 @@ type SashPanel = {
     minimum: number;
     maximum: number;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState & {
         readonly restoreSize?: number;
     };
