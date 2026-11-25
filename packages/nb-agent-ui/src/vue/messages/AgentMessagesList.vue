@@ -2,7 +2,7 @@
 /**
  * “消息”视图的列表（同名 .md）：bot、会话两个标签。bot 一页是联系人，会话一页是宿主经插槽给的会话面板。纯受控，只有搜索词是自己的。
  */
-import {computed, nextTick, ref} from "vue";
+import {computed, nextTick, ref, watch} from "vue";
 import {Badge, Button, Input} from "@notnotype/nb-ui/components";
 
 import {formatListTime} from "../../format";
@@ -44,6 +44,11 @@ const tabs = computed(() => [
     {value: "sessions" as const, label: t("messages.tabSessions"), count: 0, id: `${ids}-tab-sessions`, controls: `${ids}-page-sessions`},
 ]);
 const tablistRef = ref<HTMLElement | null>(null);
+/** 刚换到的那一页：只有它淡入一次。挂在常驻样式上的话，外框每次显示列表（开抽屉、展开列表栏）当前页都会再淡入。 */
+const entering = ref<"bot" | "sessions" | null>(null);
+watch(() => props.tab, (tab) => {
+    entering.value = tab;
+});
 
 /** 方向键、Home、End 换页并把焦点带过去（tablist 的约定：移到哪个就选中哪个）。 */
 function onTabKeydown(event: KeyboardEvent): void {
@@ -91,7 +96,7 @@ function markBroken(src: string): void {
             </div>
             <slot name="switch-end" />
         </div>
-        <div v-show="props.tab === 'bot'" :id="`${ids}-page-bot`" class="acv-messages-list__page" role="tabpanel" :aria-labelledby="`${ids}-tab-bot`" data-messages-page="bot">
+        <div v-show="props.tab === 'bot'" :id="`${ids}-page-bot`" class="acv-messages-list__page" :class="{'is-entering': entering === 'bot'}" role="tabpanel" :aria-labelledby="`${ids}-tab-bot`" data-messages-page="bot" @animationend.self="entering = null">
             <div class="acv-messages-list__search">
                 <Input v-model="query" size="sm" :placeholder="t('messages.search')" :aria-label="t('messages.search')" data-messages-search />
             </div>
@@ -133,7 +138,7 @@ function markBroken(src: string): void {
                 <p v-else-if="total > 0 && matched === 0" class="acv-messages-list__empty" data-messages-no-match>{{ t("messages.noMatch") }}</p>
             </div>
         </div>
-        <div v-show="props.tab === 'sessions'" :id="`${ids}-page-sessions`" class="acv-messages-list__page" role="tabpanel" :aria-labelledby="`${ids}-tab-sessions`" data-messages-page="sessions">
+        <div v-show="props.tab === 'sessions'" :id="`${ids}-page-sessions`" class="acv-messages-list__page" :class="{'is-entering': entering === 'sessions'}" role="tabpanel" :aria-labelledby="`${ids}-tab-sessions`" data-messages-page="sessions" @animationend.self="entering = null">
             <slot name="sessions" />
         </div>
     </div>
@@ -163,6 +168,9 @@ function markBroken(src: string): void {
     flex: 1;
     gap: 16px;
     min-width: 0;
+    /* 放不下时裁掉，不压到右端的按钮；留出焦点环的位置。 */
+    overflow: clip;
+    overflow-clip-margin: 4px;
 }
 
 .acv-messages-list__tab {
@@ -197,7 +205,10 @@ function markBroken(src: string): void {
     flex: 1;
     flex-direction: column;
     min-height: 0;
-    /* 换页（`v-show` 让它重新显示）时淡入；减少动效时时长令牌是 0。 */
+}
+
+/* 换页时新的一页淡入；减少动效时时长令牌是 0。 */
+.acv-messages-list__page.is-entering {
     animation: acv-messages-list-page-in var(--motion-base);
 }
 

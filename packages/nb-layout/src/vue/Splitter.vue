@@ -137,7 +137,11 @@ const localHost: SashGestureHost<SplitterGestureState, SplitterGestureChange> = 
                 if (state === null) {
                     if (localSnapshot !== null) {
                         localSizes.value = [...localSnapshot];
+                        // 预览回到了起点（拖出去又拖回来）：呈现变了，也发一次，宿主跟着预览画的东西（例如按收起状态换内容）才回得来。
+                        // 从没离开过起点时不发。
+                        if (lastState !== null) emit("gesture-update", {source: input.source, sash: label, active: [], compensated: [], sizesPx: [...localSnapshot], collapsed: {}});
                     }
+                    lastState = null;
                     return;
                 }
                 lastState = state;

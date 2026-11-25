@@ -75,7 +75,8 @@ const CHAT_MIN_WIDTH = 320;
 /** 拖到最小宽度以内再过这么多就收成头像列；收起后往外拖过这么多就展开。 */
 const COLLAPSE_THRESHOLD = 40;
 
-const listWidth = computed(() => Math.min(LIST_MAX_WIDTH, Math.max(LIST_MIN_WIDTH, props.listWidth)));
+/** 宿主给的宽度夹到范围里；视图窄、聊天区的下限再压它一道是分栏做的。 */
+const boundedListWidth = computed(() => Math.min(LIST_MAX_WIDTH, Math.max(LIST_MIN_WIDTH, props.listWidth)));
 /**
  * 用 computed 生成：`Splitter` 未受控时 `panels` 换了对象就按 `defaultSizePx` 重新分配，这里的值只随宽度、收起与版式变，重新分配是幂等的。
  * 收起状态取受控的 `listCollapsed`，不取拖动中的：拖动中改约束会让手势作废。
@@ -84,22 +85,25 @@ const panels = computed<SplitterPanelConfig[]>(() => [
     {
         id: LIST,
         label: t("messages.list"),
-        defaultSizePx: listWidth.value,
+        defaultSizePx: boundedListWidth.value,
         minSizePx: LIST_MIN_WIDTH,
         maxSizePx: LIST_MAX_WIDTH,
         sizing: "fixed",
         overflow: wide.value ? "hidden" : "visible",
-        collapse: {collapsedSize: STRIP_WIDTH, restoreSize: listWidth.value, collapseThreshold: COLLAPSE_THRESHOLD, expandThreshold: COLLAPSE_THRESHOLD, collapsed: !wide.value || props.listCollapsed},
+        collapse: {collapsedSize: STRIP_WIDTH, restoreSize: boundedListWidth.value, collapseThreshold: COLLAPSE_THRESHOLD, expandThreshold: COLLAPSE_THRESHOLD, collapsed: !wide.value || props.listCollapsed},
     },
     {id: CHAT, label: t("messages.chat"), minSizePx: wide.value ? CHAT_MIN_WIDTH : 0, sizing: "weight"},
 ]);
 
 function onGestureUpdate(state: SplitterGestureState): void {
-    // `collapsed` 只列与手势开始时不同的面板：拖过门槛又拖回来时没有这一项，回到受控的值。
+    // `collapsed` 只列与手势开始时不同的面板：拖过门槛又拖回来时没有这一项（回到按下的位置时分栏补发一次空的），回到受控的值。
     draggedCollapsed.value = state.collapsed[LIST] ?? props.listCollapsed;
 }
 
-/** 拖完（或键盘调完）：收起状态与宽度交回宿主，否则下一次重新分配回到原样。收着的时候不记宽度（那是头像列的宽度）。 */
+/**
+ * 拖完（或键盘调完）：收起状态与宽度交回宿主，否则下一次重新分配回到原样。收着的时候不记宽度（那是头像列的宽度）。
+ * 交回的是松手时显示的宽度：视图窄、宽度被聊天区的下限压着时拖一下，记着的宽度就换成压过的这个值（同名 .md 的“拖宽度”）。
+ */
 function onGestureEnd(state: SplitterGestureState): void {
     draggedCollapsed.value = null;
     const next = state.collapsed[LIST] ?? props.listCollapsed;
@@ -370,9 +374,13 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
     background: var(--bg-panel);
 }
 
-/* 宽版：列表栏，铺满分栏给的那块。 */
+/*
+ * 宽版：列表栏，铺满分栏给的那块，但不窄于列表栏的最小宽度：面板比它窄的时候（往收起的门槛拖、收起与展开的宽度过渡中）
+ * 列表被面板裁掉右边，不跟着挤成一条。数与 `LIST_MIN_WIDTH` 相同。
+ */
 .acv-messages--wide .acv-messages__list {
     width: 100%;
+    min-width: 200px;
     height: 100%;
 }
 

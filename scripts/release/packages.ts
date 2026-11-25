@@ -207,10 +207,11 @@ export function releasedBuiltNames(root: string, built: readonly BuiltPackage[] 
 }
 
 /**
- * `alsoReleased`：不在 `packages` 里、但同样发到 registry 的包名（只查源码包时的生成包，见 `releasedBuiltNames`）：
- * 源码包的发布依赖可以指向它们，同样要写 `workspace:^`。
+ * `alsoReleased`：不在 `packages` 里、但同样发到 registry 的包名：源码包的发布依赖可以指向它们，同样要写 `workspace:^`。
+ * 缺省取已首发的生成包（`releasedBuiltNames`）：`release:check` 与 `release:publish` 的闸门只载源码包，`release:smoke` 把生成包
+ * 一起载进 `packages`，三处得到同一个结论，不靠调用方各自记得传。
  */
-export function checkReleasePackages(root: string, packages: readonly ReleasePackage[], alsoReleased: ReadonlySet<string> = new Set()): Finding[] {
+export function checkReleasePackages(root: string, packages: readonly ReleasePackage[], alsoReleased: ReadonlySet<string> = releasedBuiltNames(root)): Finding[] {
     const findings: Finding[] = [];
     const rootLicense = readFileSync(join(root, "LICENSE"));
     // 首发之前的生成包不算发布的包：别的包的发布依赖不能指向它（它还不在 registry 上）。
@@ -415,7 +416,7 @@ if (import.meta.main) {
     try {
         const {root, dirs, json} = parseArguments(Bun.argv.slice(2));
         const packages = loadReleasePackages(root, dirs);
-        const findings = checkReleasePackages(root, packages, releasedBuiltNames(root));
+        const findings = checkReleasePackages(root, packages);
         const order = findings.some((finding) => finding.code === "dependency_cycle") ? [] : publishOrder(packages);
         if (json) {
             console.log(JSON.stringify({ok: findings.length === 0, findings, order: order.map((entry) => entry.manifest.name)}));

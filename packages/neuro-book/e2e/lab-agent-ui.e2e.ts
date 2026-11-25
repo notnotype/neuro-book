@@ -1025,6 +1025,42 @@ test.describe("消息视图的分栏", () => {
         expect(await widthOf(page, "[data-messages-list-panel]")).toBe(expanded + 10);
     });
 
+    test("宽版收着时：按住线往外拖过门槛再拖回门槛内，不松手时就回到头像列；焦点在线上按 Enter 展开、再按收起", async ({page}) => {
+        await openScene(page, "AgentMessages", "wide-collapsed", "900x560");
+        await expect(strip(page)).toBeVisible();
+        const box = (await separator(page).boundingBox())!;
+        const x = box.x + box.width / 2;
+        const y = box.y + box.height / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 180, y, {steps: 8});
+        await expect(listPanel(page)).toBeVisible();
+        await expect(strip(page)).toBeHidden();
+        // 拖回门槛内：面板回到头像列的宽度，画的也要换回头像列（列表不能挤在 52 像素里）。
+        await page.mouse.move(x + 10, y, {steps: 8});
+        await expect(strip(page)).toBeVisible();
+        await expect(listPanel(page)).toBeHidden();
+        await page.mouse.up();
+        await frames(page);
+        await expect(strip(page)).toBeVisible();
+
+        await separator(page).focus();
+        await page.keyboard.press("Enter");
+        await expect(listPanel(page)).toBeVisible();
+        await expect.poll(async () => widthOf(page, "[data-messages-list-panel]")).toBe(260);
+        await expect(separator(page)).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(strip(page)).toBeVisible();
+        await expect(listPanel(page)).toBeHidden();
+    });
+
+    test("宽版英文、列表栏最窄：切换行的标签不压到收起按钮", async ({page}) => {
+        await openScene(page, "AgentMessages", "wide-narrowest-english", "900x560");
+        const tab = (await stage(page).locator("[data-messages-tab='sessions']").boundingBox())!;
+        const collapse = (await stage(page).locator("[data-messages-collapse]").boundingBox())!;
+        expect(tab.x + tab.width).toBeLessThanOrEqual(collapse.x);
+    });
+
     test("窄版：抽屉从头像列伸出来压在聊天区上，行点得到；线拖不动", async ({page}) => {
         await openScene(page, "AgentMessages", "narrow-drawer", "900x560");
         await expect(listPanel(page)).toBeVisible();

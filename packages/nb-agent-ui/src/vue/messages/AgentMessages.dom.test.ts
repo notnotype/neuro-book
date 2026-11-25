@@ -219,6 +219,15 @@ describe("AgentMessagesList", () => {
         await nextTick();
         expect(tab.value).toBe("bot");
         expect(document.activeElement).toBe(bot.element);
+
+        await bot.trigger("keydown", {key: "End"});
+        await nextTick();
+        expect(tab.value).toBe("sessions");
+        expect(document.activeElement).toBe(sessions.element);
+        await sessions.trigger("keydown", {key: "Home"});
+        await nextTick();
+        expect(tab.value).toBe("bot");
+        expect(document.activeElement).toBe(bot.element);
         wrapper.unmount();
     });
 

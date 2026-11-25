@@ -543,6 +543,40 @@ describe("splitter 键盘手势与可访问性", () => {
         expect(panelSizes(wrapper)).toEqual([155, 343, 200]);
     });
 
+    it("拖过收起阈值又拖回按下的位置：补发一次开始时的预览，松手不提交", async () => {
+        const wrapper = mountSplitter(COLLAPSIBLE_PANELS);
+        await nextTick();
+        stubSashRects(wrapper);
+        const baseline = panelSizes(wrapper);
+
+        press(wrapper, 0);
+        move(wrapper, 0, -150);
+        await nextFrame();
+        expect(wrapper.emitted("gesture-update")?.at(-1)?.[0]).toMatchObject({collapsed: {outline: true}});
+
+        move(wrapper, 0, 0);
+        await nextFrame();
+        expect(wrapper.emitted("gesture-update")?.at(-1)?.[0]).toEqual({source: "pointer", sash: "outline~editor", active: [], compensated: [], sizesPx: baseline, collapsed: {}});
+        expect(panelSizes(wrapper)).toEqual(baseline);
+        const updates = wrapper.emitted("gesture-update")?.length;
+
+        // 停在起点再动一下还是起点：不重复发。
+        move(wrapper, 0, 0);
+        await nextFrame();
+        expect(wrapper.emitted("gesture-update")).toHaveLength(updates!);
+
+        release(wrapper, 0, 0);
+        await nextTick();
+        expect(wrapper.emitted("gesture-end")).toBeUndefined();
+        expect(wrapper.emitted("gesture-cancel")?.at(-1)?.[0]).toMatchObject({reason: "no-change"});
+    });
+
+    it("面板配置 overflow 为 visible 时那块面板带不裁切的标记，缺省与 hidden 不带", async () => {
+        const wrapper = mountSplitter([{id: "rail", defaultSizePx: 52, overflow: "visible"}, {id: "main", overflow: "hidden"}, {id: "aside"}]);
+        await nextTick();
+        expect(wrapper.findAll("[data-panel-id]").map((panel) => panel.attributes("data-overflow") ?? null)).toEqual(["visible", null, null]);
+    });
+
     it("离线中心 3px 按下，拖过收起阈值再拖回展开区（Spec ui/nested-grid 输出 19）：线与指针减去抓取偏移的误差不超过 1px", async () => {
         const wrapper = mountSplitter(COLLAPSIBLE_PANELS);
         await nextTick();
