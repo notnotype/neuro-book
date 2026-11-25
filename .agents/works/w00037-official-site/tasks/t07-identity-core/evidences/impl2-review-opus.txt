@@ -1,0 +1,73 @@
+# w00037 t07 第 4、5 片实现审查（Opus）
+
+审查对象：be3c0e5cc..02ce9d01b。实验在 /tmp/review-w00037-t07-impl2/lab-opus/，加载的源码是实现 worktree .worktree/w00037-t07-identity，HEAD 核对为 02ce9d01b（与被审提交相同）。
+
+### 1. 单个 IP 就能刷满“来源加用户名”计数器，把所有人的登录挡在 429 外
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：packages/nb-site-identity/src/rate-limit.ts:331-336（login）、122-129（takeAll）、72-76（键满后的溢出额度）
+- **现象**：login 同时判来源与“来源|用户名”两个键，takeAll 对没超限的键一律 commit。来源键早已超限（整体回 429）时，每次换一个用户名，“来源|用户名”这个新键照样过判并被写进表。所以一个来源在被 429 之后仍以请求速率往 login_source_user 里建条目；满 10 万后新键共用溢出额度（10×10=100 次），攻击者再顺手用完它，窗口剩下的时间里任何“这一窗里第一次出现的（来源,用户名）”都得 429。
+- **如何核实**：lab-opus/rl-dos-http.ts，经真实的子应用路由（createTestIdentity 的 fetch，真 SQLite 与 Better Auth）：一个地址 192.0.2.66 发 100100 个换用户名的登录，30 个 401、100070 个 429，进程内 10.1 秒；随后 alice 从从未出现过的地址 198.51.100.9 登录得 429、Retry-After 294。纯函数版 rl-dos.ts 同样结果（0.7 秒）。真实网络上需要约 334 次每秒持续 5 分钟，这些请求在限流处就返回，不算哈希、不读库，单机很容易做到；每个窗口重复一次即可持续。
+- **为什么是问题**：设计审查第 6 条加两层、溢出额度，正是为了“不让少数来源把没出现过的用户挡在登录之外”；/48 那层也特意“被它挡下的不再为 /64 建条目”。这里的组合键没有同样的保护，单个 IPv4 就绕过了来源的 30 次上限去消耗共享资源。Spec 的“在哪个键上被拒就不计入哪个键”说的是计数，不要求为一次已被拒的请求新建条目。
+- **建议改法**：来源键被拒时不为组合键建新条目（已有条目照 Spec 计入），即组合键只在来源过判时才允许“新建”；或者把组合键放在来源之后判（与 SourceRateLimitCounter 内部 /48 先于 /64 同一种写法），并在 Spec 输出 19 写明“来源被拒时不为来源加用户名新建计数”。补一条用例：来源超限后换 N 个用户名，login_source_user 的键数不增长。
+
+### 2. 失败下限从排队之前算起，有排队时补齐失效；用例的时钟是常量，起点放在哪里都测不出
+- **严重程度**：建议；**类别**：安全与性能 / 测试
+- **位置**：packages/nb-site-identity/src/login.ts:182（startFailureFloor 在 conn.read 与 hashLimiter.run 之前）；hash-limiter.ts:191-205；login.test.ts:129-164（failureFloor.now 恒为 0）
+- **现象**：起点包含了读库与哈希排队的时间。并发 2、队里有人时，排队等待一超过约 100 毫秒，floor.finish 就是空操作（注释自己也写了“过载时补齐几乎总是空操作”），回应耗时 = 排队 + 本次算法耗时，旧站 scrypt 与 argon2id 的差又露出来。攻击者可以自己并发发请求把队排起来（每个来源 30 次每 5 分钟，/48 是 480 次），再测目标用户名。按 README 的测量，两种算法 p50 只差 2 到 4 毫秒、p99 差约 20 毫秒，能用但要大量样本，所以只列建议。
+- **测试**：用例把 now 固定为 0，remaining 恒为 150，startFailureFloor 挪到 verify 之后、挪到“先等 2 秒”之前都照过（按代码推断，未跑变异）。挪到 2 秒之前时，失败满 20 次的用户名下限永远不起作用，正是 hash-limiter.ts:192 注释要防的情形，现在没有用例守着。
+- **建议改法**：把“补齐”的起点放到拿到哈希名额那一刻（在 hashLimiter.run 的 work 里开始计、放名额之后再睡），回应耗时 = 排队 + max(校验, 150)，和排队长短无关，也不占名额；Spec 输出 4 不用改。用例给 failureFloor.now 一个会走的时钟，断言睡眠时长等于“下限减去起点之后过去的时间”，并让 2 秒等待的睡眠推进这个时钟，挪动起点就会失败。
+
+### 3. create-admin 从管道读密码时不拒收控制字符与内嵌换行，能把已有管理员的密码重置成网页登录输不进去的值
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-identity/src/commands/read-password.ts:181-191（decodePipedPassword）、244-247（judge 只查长度）
+- **现象**：终端分支按设计审查第 8 条拒收控制字符（作废这一行），管道分支只去掉末尾一个换行就按长度判。实测（lab-opus/pipe-pw.ts，调实现 worktree 的 readPassword，管道形态的来源）："hunter2pw\n\n" 得到密码 "hunter2pw\n"；"line1pass\nline2pass\n" 得到 "line1pass\nline2pass"；"password\r" 得到 "password\r"；带 Tab、Esc 序列的也都收下。
+- **为什么是问题**：密码文件末尾多一个空行、Windows 上写出的只有 \r 的结尾，或误把两行喂进去，命令照样成功：已存在的账号走 upsertAdmin 的重置分支，旧密码作废、全部会话被删，而新密码里有浏览器密码框输不出的换行或回车，这个管理员就从网页上登不进来了，只能再跑一次命令。两种来源对同一个“密码”字段用两套规则，也与 Spec“密码 8 到 128 个字符”的字段直觉不一致。
+- **如何核实**：`bun /tmp/review-w00037-t07-impl2/lab-opus/pipe-pw.ts`（在实现 worktree 的包目录下跑）。
+- **建议改法**：管道解码后按终端分支同一条规则判：去掉末尾一个换行以后，仍含 U+0000 到 U+001F、U+007F、C1 控制字符的，以 invalid_argument（problem: invalid）失败；把规则抽成一个函数，两条分支共用，并补表驱动用例。
+
+### 4. /64 与 /48 被当成一个键判，与 Spec 输出 19“在哪个键上被拒就不计入哪个键”的字面意思不一致，Spec 没跟着改
+- **严重程度**：建议；**类别**：文档
+- **位置**：packages/nb-site-identity/src/rate-limit.ts:168-194（SourceRateLimitCounter.check）；rate-limit.test.ts:174“被 /64 自己的额度挡下的不计入 /48 的合计”；docs/specs/site/accounts.md 输出 19
+- **现象**：Spec 把“前 64 位”和“另按前 48 位合计”写成两个计数，又写“每次尝试都计入；在哪个键上被拒，那一次就不计入哪个键”。照字面，被 /64 挡下的尝试应计入 /48、被 /48 挡下的应计入 /64。实现两个方向都不计（README 第 4a 片“来源计数器把 /64 与 /48 当一个键”，主会话接受了），用例还专门锁住了“不计入 /48”。
+- **为什么是问题**：行为本身更保守（不让一个 /64 的超额尝试吃掉同一 /48 邻居的额度，也不为被 /48 挡下的建条目），没有安全后果；但合同测试或前端照 Spec 推算额度会对不上，下一个读 Spec 的人会把用例当成错的去改。
+- **建议改法**：在 accounts.md 输出 19 补一句：“IPv6 的 /64 与 /48 合起来当一个键判：被其中一个挡下时两个都不计入。”与 rate-limit.ts 的注释对齐。若接受第 1 条的改法，也一并写明“来源被拒时不为来源加用户名新建计数”。
+
+### 5. 库上下文里的 password.hash、verify 不经哈希限额，t08 一旦用到就绕开输出 20
+- **严重程度**：建议；**类别**：不变量
+- **位置**：packages/nb-site-identity/src/auth.ts（emailAndPassword.password 的 hash、verify 直接是 hashPassword、verifyPassword）；hash-limiter.ts:2-3 的注释“所有哈希与校验都经它”
+- **现象**：这一片把库的 emailAndPassword 打开并换上模块的哈希函数，注释写明理由是“t08 的关联要核对当前密码”时库会用它。可这两个函数是裸的，库在自己的路径上算哈希（关联时核对当前密码、admin 插件的 setUserPassword 一类）不占哈希名额、不排队、不会回 overloaded。现在 auth.handler 没挂，碰不到；t08 按白名单挂端点时，任何一条走库的密码路径都会让“同时在算的至多 N 个”失效，2 GB 机器上的内存上界也跟着失效。
+- **如何核实**：读 auth.ts 的 emailAndPassword 块与 module.ts:85 的 HashLimiter 装配，两者没有连接；auth.test.ts 新加的“库碰密码时用模块的哈希”只核对格式。
+- **建议改法**：把 HashLimiter 先建出来，传给 createIdentityAuth，库的 hash、verify 包成 hashLimiter.run(...)，过载时抛库认得的错误；或者至少把“库上下文的密码函数不经限额，t08 挂端点前要接上”写进 nb-site-identity/AGENTS.md 的升级与接缝清单与 t08 的记录。
+
+（第 2 条补充，已跑变异）在仓库外副本 lab-opus/mut/ 里把 login.ts 的 startFailureFloor 挪到“先等 2 秒”之前（import.meta.resolve 核对 login.ts 从副本加载、合同包从实现 worktree 加载），`bun test src/login.test.ts` 19 条全过：起点放错的变异活下来，第 2 条“测试”一段由推断改为实测。
+
+### 6. “缺不缺同意”的规则写了两份，GET me 每次查两遍同意表
+- **严重程度**：建议；**类别**：代码质量 / 安全与性能
+- **位置**：packages/nb-site-identity/src/me.ts:64-74（readMe 的 consentRequired）；session.ts:172-179（#consentRequired，同意门槛用它）
+- **现象**：同一条 SQL（取最新一条同意记录）和同一个判断（没有记录、版本不是当前、境外存放不是 1）在两个文件各写一遍。GET me 先经 requireSession 查一次（门槛），readMe 再查一次（响应字段），一次请求读两遍同一张表、两个读事务。
+- **为什么是问题**：输出 8 的 consentRequired 与输出 10 的门槛按 Spec 是同一个条件（“即输出 10 的门槛”）。以后改规则（比如条款版本改成“不早于某版本”、加一项同意）只改一处时，GET me 会回 consentRequired: false 而门槛照样挡，前端据此不再引导补交，用户卡死在 consent_required 上；这种分歧没有用例能抓到。
+- **建议改法**：在 session.ts 导出一个 `consentRequiredIn(tx, userId, termsVersion)`，两处共用；GET me 直接用 requireSession 返回的 session.consentRequired（同一请求里两次读之间的差异没有意义），readMe 只在 POST me/consent 的写事务里重算。
+
+### 7. 同一个账号的用户名与邮箱是两套限流键与失败计数，对一个账号的猜测额度翻倍
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：packages/nb-site-identity/src/login.ts:177-184（username = identifier.toLowerCase()）；rate-limit.ts:331-338
+- **现象**：键取规范化后的登录名，所以 alice 与 alice@example.com 各有一份“来源加用户名每 5 分钟 10 次”，失败计数也各算各的：同一来源每 5 分钟能对一个账号试 20 次，“失败满 20 次先等 2 秒”要失败 40 次才对这个账号全面生效（两种写法各 20）。查找本身是一致的（邮箱转小写、用户名先按 ASCII 判再转小写，开尔文符号的写法限流键落在 kelvin 上但找不到账号，不多给额度）。
+- **为什么是问题**：这是 Spec 输出 19 的字面口径（“是邮箱时就是那个邮箱”），实现没有错；但失败计数的目的是按账号减慢猜测，这个口径让它对每个有邮箱的账号只起一半作用。
+- **建议改法**：失败计数在找到账号之后改记到账号 id 上（找不到账号的仍按登录名记，免得泄露存在与否：两种都要记，等待时看两者中较大的那个），“来源加用户名”保持现状即可。这是改 Spec 的事，交开发者定；不改的话在 Spec 写明“用户名与邮箱分开计”。
+
+## 未发现问题的方面
+
+- 登录的先后与失败表一致（forbidden_origin、validation_failed、rate_limited、overloaded、invalid_credentials、account_banned）；字段不合格不计入限流；封禁在密码之后判。账号不存在、没有密码、密码错、未知格式、复核后对不上，五条回 invalid_credentials 的分支都经同一个 floor.finish(false)，都恰好算一次哈希、都计一次失败；过载时存在与不存在的账号都经限额，回应相同。
+- 发会话事务里的复核（封禁、哈希）与库的 BANNED_USER 认法只看 body.code；哈希变了时重进至多两轮；换格式用 tryAcquire 与带旧值的条件更新，不盖掉期间的改动或重置。改密码、补交同意、注册码发放与停用都在写事务里先复核会话或操作者，改密码只留当前会话，与登录并发时旧密码发不出能用的会话。
+- 哈希限额：容量检查与占位之间没有 await；放手时直接交给队首，tryAcquire 抢不到排着的人的名额；超时出队后计时器回调与放手不重复交付；关闭时排队的立即以 closed 失败、在算的等到放手或 waitMs。
+- 限流：对齐窗口、Retry-After 向上取整至少 1、IPv6 按解析值取 /64 与 /48、已过去窗口的键不占名额、单个计数器的键与溢出额度有上界（只有第 1 条说的组合键能被已被拒的来源撑满）。
+- 创建管理员：参数先于密码校验；终端分支的退格、Ctrl-U、Ctrl-C、空输入 Ctrl-D、坏 UTF-8、超长都按说明处理，finally 恢复终端模式；每次写库前看 signal；撞忙只认 errno 的主码 5；新建与已存在两条路径、占位邮箱的两步写法、审计都在同一个同步事务里；成功日志只带 userId、created、emailIgnored。
+- 注册：先后与 Spec 一致；预检在算哈希之前，没有可用注册码的请求碰不到哈希与占用；写事务里条件扣码（RETURNING）与重查占用，任何一步失败整个库事务回滚；码 80 位随机、按去首尾空白后的原文比对。
+- 分页：基准取 max(id) 且收 0，晚于当前最大 id 拒收；计数与取页在同一个读事务、参数绑定顺序与 SQL 文本一致；偏移量不小于 total 时不查，不会把超过安全整数的偏移交给 SQLite；查询键重复出现时拒收。
+- 没有按错误文案分支、没有静默吞错（rehash 失败记 warn）、没有跨包深导入；合同测试底座的 spawnWithOpenStdin 与 start、run 同一套收口。
+
+## 各级数量
+
+阻断 0；重要 1（第 1 条）；建议 6（第 2 到 7 条）。
+
+有效发现：1、2、3、4、5、6、7
