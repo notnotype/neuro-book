@@ -11,12 +11,12 @@ updated: 2026-11-25
 
 Profile 声明能按 id 引用可选装的扩展（第一个是模式扩展 nbook.agent.modes）；模式控件按会话装没装模式扩展显示，switch_mode 只决定 Agent 能不能主动切换；修掉插件 Profile 列了 switch_mode 却没装扩展时切换模式报 unknown-extension。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：改 agent.contributions、agent.modes、harness.extensions 与 harness.runtime 输出 57（见 plan.md 的“Spec 与文档改动”）。
 
 ## 当前状态
 
-2026-11-25 经 nbdev 新建，尚未开工。
+2026-11-25 计划第 1 稿写好（[plan.md](plan.md)），等开发者看要点；开发者已定：声明里按 id 引用扩展；模式控件跟着扩展走，switch_mode 只管 Agent 主动切。
 
 ## 下一步
 
-待补充。
+开发者看过要点后做计划审查（内核装配，Opus 加 omp @review），再按切片实施。
