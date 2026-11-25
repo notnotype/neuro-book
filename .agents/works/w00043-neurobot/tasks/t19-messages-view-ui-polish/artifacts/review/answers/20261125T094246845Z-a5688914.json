@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "answerId": "20261125T094246845Z-a5688914",
+    "artifactVersion": 3,
+    "contentHash": "5eeb336775e32a8bf545fd7d489b2ca27ab47786014ef09a540bb36f5f316dc6",
+    "submittedAt": "2026-11-25T09:42:45.469Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "rail-kind": "shell"
+    },
+    "comments": {},
+    "note": "点“会话历史”或“全部 bot”，用哪种浮层找？单独做一个弹窗比较好。\n---\n但是我发现一个问题：如果用户想找某一个 session 怎么办？只能通过这个 session 弹窗吗？\n---\n这个对话视图变成浮动后是什么样子的？"
+}
