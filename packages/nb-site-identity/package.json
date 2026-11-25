@@ -18,6 +18,7 @@
     },
     "dependencies": {
         "@better-auth/core": "1.7.27",
+        "@better-auth/oauth-provider": "1.7.27",
         "@notnotype/nb-site-identity-contract": "workspace:*",
         "better-auth": "1.7.27",
         "hono": "^4.12.30",

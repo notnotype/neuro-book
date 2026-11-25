@@ -29,7 +29,7 @@ afterEach(async () => {
 
 async function libraryOn(root: TestDbRoot) {
     const conn = new IdentityConnection(root.open(), {log: recordingLog()});
-    return (await createTestAuth(conn.libDatabase()).$context).internalAdapter;
+    return (await createTestAuth(conn).$context).internalAdapter;
 }
 
 function rawRows(root: TestDbRoot, table: "user" | "account"): unknown[] {
@@ -58,7 +58,7 @@ describe("模块的 SQL 与库写出同样的行", () => {
         expect(rawRows(viaModule, "user")).toEqual(rawRows(viaLibrary, "user"));
         expect(rawRows(viaModule, "account")).toEqual(rawRows(viaLibrary, "account"));
 
-        const readBack = await createTestAuth(moduleConn.libDatabase()).$context;
+        const readBack = await createTestAuth(moduleConn).$context;
         expect(await readBack.internalAdapter.findUserById(String(userId))).toEqual(await library.findUserById(user.id));
         expect(await readBack.internalAdapter.findAccounts(String(userId))).toEqual(await library.findAccounts(user.id));
     });

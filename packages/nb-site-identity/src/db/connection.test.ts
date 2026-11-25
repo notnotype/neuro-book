@@ -29,7 +29,7 @@ beforeEach(async () => {
     timers = new ManualTimers();
     log = recordingLog();
     conn = new IdentityConnection(root.open(), {log, timers});
-    lib = await createTestAuth(conn.libDatabase()).$context;
+    lib = await createTestAuth(conn).$context;
     adapter = lib.adapter;
 });
 

@@ -13,7 +13,7 @@
 
 ## Better Auth 的升级清单
 
-版本钉在 1.7.27（`better-auth` 与 `@better-auth/core`）。模块自己做登录、注册与管理，库只发会话、认 Cookie、清 Cookie，但仍依赖下表这些不受库承诺的接口与行为（[ADR 0063](../../docs/adr/0063-official-site-identity-own-routes-library-sessions.md)）。升级时先跑本包的 `bun test`，每一项对着一条用例；用例失败就按“失败说明什么”改代码，再改这张表。
+版本钉在 1.7.27（`better-auth`、`@better-auth/core` 与 `@better-auth/oauth-provider`）。模块自己做登录、注册与管理，库只发会话、认 Cookie、清 Cookie，但仍依赖下表这些不受库承诺的接口与行为（[ADR 0063](../../docs/adr/0063-official-site-identity-own-routes-library-sessions.md)）。升级时先跑本包的 `bun test`，每一项对着一条用例；用例失败就按“失败说明什么”改代码，再改这张表。
 
 | 类 | 依赖的东西 | 用例 | 失败说明什么 |
 |---|---|---|---|
@@ -23,7 +23,7 @@
 | 内部接口 | `deleteSessionCookie`（`better-auth/cookies`） | `app.test.ts` “只结束当前会话”；`session.test.ts` “按模块的时钟过了会话时长” | 登出与到期清不掉 Cookie |
 | 内部接口 | 库的事务与“当前适配器”的异步上下文（`runWithTransaction`、`getCurrentDBAdapterAsyncLocalStorage`）；库里不取当前事务的调用（已知 `reserveVerificationValue`） | `db/connection.test.ts` “库的事务跨 await 开着时”“用错了的立即失败” | 队列的重入判断或自锁检测失效（`db/connection.ts` 文件头） |
 | 内部接口 | `context.checkSchema` 存在，表不对时以 `code: "SCHEMA_MISMATCH"` 失败 | `auth.test.ts` “结构检查” | 表少了列时模块照样启动、第一个请求才失败 |
-| 存法 | 库导出的表结构 | `db/schema.test.ts` “库的表与基准文件” | 库要的表变了：写新的迁移，基准文件跟着换 |
+| 存法 | 库导出的表结构（含 `jwt`、`oauthProvider` 插件的八张表） | `db/schema.test.ts` “库的表与基准文件” | 库要的表变了：写新的迁移，基准文件跟着换 |
 | 存法 | 模块用自己的 SQL 写 `user`、`account` 的行与库写的逐列一样，库读回也一样；时间是 `toISOString()` 的文本，布尔是 0 与 1 | `db/library-rows.test.ts` 两条 | `library-rows.ts` 与 `session.ts` 里的 SQL 要跟着库的存法改 |
 | 库内行为 | 没有会话缓存（`cookieCache` 关着）：直接删会话行之后 `getSession` 立即读不到 | `auth.test.ts` “直接删掉会话行之后……立即读不到” | 封禁、登出、改密码后旧会话还能用一阵：核对库有没有给会话加缓存 |
 | 库内行为 | `deferSessionRefresh` 打开时以 GET 的方式调 `getSession` 不写库：按系统时间到期的会话只回空、不删行 | `session.test.ts` “账号库被别的连接占着写时照常回答” | 问身份在写锁下变成 503（`site.accounts` 输出 7） |
@@ -32,6 +32,11 @@
 | 库内行为 | admin 插件在建会话前拒绝被封禁的账号，抛 `APIError` 且 `body.code` 是 `"BANNED_USER"`（`login.ts` 的 `isBannedUserError`） | `login.test.ts` “库给被封禁账号建会话时抛的错误认得出” | 登录在发会话的事务里撞到封禁时回成 500，不是 `account_banned` |
 | 内部接口 | `emailAndPassword.password` 的 `hash`、`verify` 成为库上下文的 `password.hash`、`password.verify`（库的 admin 插件等处算哈希走它） | `auth.test.ts` “库碰密码时用模块的哈希” | 库在自己的路径上写出缺省的 `hexsalt:hexkey` 格式，或认不出模块写的哈希 |
 | 库内行为 | 库的 `signOut` 吞掉删行的失败、照样清 Cookie，所以登出不用它 | `app.test.ts` “账号库被别的连接占着写时回 503” | 只在有人把登出改回 `signOut` 时失败；升级时顺带看新版本的 `signOut` 是否还这样 |
+| 签名钥 | jwt 插件签名时只挑没过期的钥里 `createdAt` 最新的一把，按系统时间判过期；过期钥在 `jwks.gracePeriod`（缺省 30 天）里仍列在 `/jwks`；私钥用库上下文的 `secretConfig` 加密，存成 `symmetricEncrypt` 结果的 JSON 字符串；`createJwk` 只用端点上下文里的 `context`（`oauth/signing-key.ts`） | `oauth/signing-key.test.ts` “换了会话密钥后启动” | 换会话密钥后令牌端点 500，或换之前签的 id_token 验不过、客户端缓存的公钥对不上 |
+| 签名钥 | 找不到配置算法的钥时，库退回“最新的任意一把”签名（第六轮问 2），所以启动检查拒绝别的算法的钥 | `oauth/signing-key.test.ts` “表里有一把别的算法的钥匙时启动失败”“第一次启动后恰有一把 RS256 钥” | 表里混进别的算法时 id_token 不再是 RS256；或启动时没建钥、第一次签发时才建 |
+| 寿命 | `oauthProvider` 的 `codeExpiresIn`、`accessTokenExpiresIn` 缺省是 600 与 3600 秒（`auth.ts` 不写，`LIBRARY_CODE_SECONDS`、`LIBRARY_ACCESS_TOKEN_SECONDS` 记着）；授权码存在 `verification` 表里 | `oauth/provider.test.ts` “寿命” | 库改了缺省：在 `oauthProvider` 的选项里显式写回 Spec 的值 |
+| 客户端密钥 | `storeClientSecret: {hash}` 只给 `hash` 时，库登记客户端与换码时都调它，换码按“哈希相等”认密钥；`generateClientSecret` 发新密钥 | `oauth/provider.test.ts` “客户端密钥”两条 | 已登记客户端的密钥失效，或自家换密钥（计划 3.9）写的哈希库不认 |
+| 关掉的路径 | `disabledPaths` 让这些路径经 `handler` 一律 404，不分方法，不影响服务端经 `auth.api` 调（`auth.ts` 的 `DISABLED_LIBRARY_PATHS`） | `oauth/provider.test.ts` “关掉的库端点” | 合同不要的库端点从外部能调到，例如普通用户自己登记客户端；库给端点改了路径时也落到这里 |
 
 ## 完成门禁
 

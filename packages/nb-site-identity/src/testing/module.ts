@@ -16,9 +16,9 @@ import {insertCredentialRow, insertUserRow, libDate} from "../db/library-rows";
 import {assembleIdentity, type IdentityAssembly, type IdentityJob, type IdentityOverrides} from "../module";
 import {hashPassword} from "../password";
 import {createTestDbRoot, type TestDbRoot} from "./db";
-import {ManualClock, recordingLog, TEST_SECRET, TEST_SITE_URL} from "./library";
+import {ManualClock, recordingLog, TEST_SECRET, TEST_SITE_URL, TEST_TERMS_VERSION} from "./library";
 
-export const TEST_TERMS_VERSION = "2026-11-20";
+export {TEST_TERMS_VERSION};
 
 /** 会话 Cookie 的名字（`site.accounts` 输出 5；`auth.ts` 的 `cookiePrefix: "__Host-nbsite"` 下库给的）。 */
 export const SESSION_COOKIE = "__Host-nbsite.session_token";
@@ -70,6 +70,10 @@ export interface TestIdentityOptions {
     readonly timers?: IdentityTimers;
     /** 盖在本文件的缺省之上（见文件头）。 */
     readonly overrides?: IdentityOverrides;
+    /**
+     * 接着用前一个实例的数据目录（模拟重启）：不新建目录、不再迁移。前一个实例要先 `assembly.close()`；目录由最先建它的用例清理。
+     */
+    readonly root?: TestDbRoot;
 }
 
 /** 从一组 `Set-Cookie` 里取会话 Cookie 的 `名字=值`。 */
@@ -81,7 +85,7 @@ export function sessionCookieOf(setCookies: readonly string[]): string {
 
 /** 建一个测试用的模块；`cleanup` 由用例在 `afterEach` 里调 `root.cleanup()`。 */
 export async function createTestIdentity(name: string, options: TestIdentityOptions = {}): Promise<TestIdentity> {
-    const root = await createTestDbRoot(name);
+    const root = options.root ?? (await createTestDbRoot(name));
     const log = recordingLog();
     const conn = new IdentityConnection(root.open(), {log, ...(options.timers === undefined ? {} : {timers: options.timers})});
     const clock = new ManualClock(options.start ?? Date.now());

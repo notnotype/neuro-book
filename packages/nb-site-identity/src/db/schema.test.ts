@@ -1,6 +1,6 @@
 /**
- * 账号库第一条迁移的形状（`migrations/0001_init.sql`）：库的四张表与基准文件的关系、按迁移运行器的规则写得进去、id 不重用、
- * 审计只追加、码表的约束。清单与目录的对应在 `src/migrations.test.ts`。
+ * 账号库迁移的形状（`migrations/0001_init.sql`、`0002_oauth.sql`）：库的十二张表与基准文件的关系、按迁移运行器的规则写得进去、
+ * id 不重用、审计只追加、码表的约束。清单与目录的对应在 `src/migrations.test.ts`。
  */
 
 import {Database, SQLiteError} from "bun:sqlite";
@@ -17,7 +17,21 @@ import {IdentityConnection} from "./connection";
 
 const PACKAGE_DIR = join(import.meta.dir, "..", "..");
 const BASELINE_FILE = join(PACKAGE_DIR, "schema", "better-auth-baseline.sql");
-const LIB_TABLES: readonly ["user", "session", "account", "verification"] = ["user", "session", "account", "verification"];
+/** 库的表：前四张在 0001，后八张（对外 OAuth）在 0002。 */
+const LIB_TABLES = [
+    "user",
+    "session",
+    "account",
+    "verification",
+    "jwks",
+    "oauthClient",
+    "oauthResource",
+    "oauthClientResource",
+    "oauthRefreshToken",
+    "oauthAccessToken",
+    "oauthConsent",
+    "oauthClientAssertion",
+] as const;
 const LIB_ID = '"id" integer not null primary key';
 const MIGRATION_ID = '"id" integer primary key autoincrement';
 
@@ -35,14 +49,14 @@ async function currentLibraryExport(): Promise<string> {
     const db = new Database(":memory:", {strict: true});
     try {
         const conn = new IdentityConnection(db, {log: recordingLog()});
-        const auth = createTestAuth(conn.libDatabase());
+        const auth = createTestAuth(conn);
         return await (await getMigrations(auth.options)).compileMigrations();
     } finally {
         db.close();
     }
 }
 
-/** 库的四张表上的全部对象（表、索引、触发器）在 `sqlite_master` 里的名字与原文。 */
+/** 库的表上的全部对象（表、索引、触发器）在 `sqlite_master` 里的名字与原文。 */
 function libraryObjects(db: Database): {type: string; name: string; sql: string | null}[] {
     const placeholders = LIB_TABLES.map(() => "?").join(", ");
     return db.query<{type: string; name: string; sql: string | null}, string[]>(`SELECT type, name, sql FROM sqlite_master WHERE tbl_name IN (${placeholders}) ORDER BY type, name`).all(...LIB_TABLES);
@@ -63,11 +77,13 @@ afterEach(async () => {
 describe("库的表与基准文件", () => {
     it("库当前导出的结构等于基准文件；基准写明的版本就是依赖钉的版本", async () => {
         expect(`${await currentLibraryExport()}\n`).toBe(baselineBody());
-        const pinned = JSON.parse(readFileSync(join(PACKAGE_DIR, "package.json"), "utf8")).dependencies["better-auth"];
-        expect(readFileSync(BASELINE_FILE, "utf8").split("\n", 1)[0]).toContain(`better-auth ${pinned}，`);
+        const dependencies = JSON.parse(readFileSync(join(PACKAGE_DIR, "package.json"), "utf8")).dependencies;
+        const firstLine = readFileSync(BASELINE_FILE, "utf8").split("\n", 1)[0];
+        expect(firstLine).toContain(`better-auth ${dependencies["better-auth"]}，`);
+        expect(firstLine).toContain(`@better-auth/oauth-provider ${dependencies["@better-auth/oauth-provider"]}，`);
     });
 
-    it("迁移里库的四张表与基准只差每张表一处 AUTOINCREMENT 替换", () => {
+    it("迁移里库的十二张表与基准只差每张表一处 AUTOINCREMENT 替换", () => {
         const body = baselineBody();
         expect(body.split(LIB_ID).length - 1).toBe(LIB_TABLES.length);
         const expected = new Database(":memory:", {strict: true});
@@ -82,7 +98,7 @@ describe("库的表与基准文件", () => {
 
 describe("按迁移运行器的规则", () => {
     it("在守卫保存点里执行完、没有结束运行器的事务、外键检查通过（createTestDbRoot 按这些规则执行了清单）", () => {
-        expect(identityMigrations.map((migration) => migration.id)).toEqual(["0001_init"]);
+        expect(identityMigrations.map((migration) => migration.id)).toEqual(["0001_init", "0002_oauth"]);
         expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'identity_%' ORDER BY name").all()).toEqual(
             ["identity_audit", "identity_consent", "identity_invite_code", "identity_profile", "identity_registration_code"].map((name) => ({name})),
         );
@@ -100,18 +116,46 @@ function insertUser(id?: number): number {
     return Number(db.run(`INSERT INTO "user" (${columns}name, email, "emailVerified", "createdAt", "updatedAt") VALUES (${values}'n', ?, 0, ?, ?)`, [email, NOW, NOW]).lastInsertRowid);
 }
 
+/** 插入一行、回新行的 id。 */
+function insert(sql: string, params: (string | number | null)[]): number {
+    return Number(db.run(sql, params).lastInsertRowid);
+}
+
+/** 插入一个最小的 OAuth 客户端，回它的 clientId（别的 OAuth 表按 clientId 引用它）。 */
+function insertClient(): string {
+    const clientId = crypto.randomUUID();
+    insert(`INSERT INTO "oauthClient" ("clientId", "redirectUris") VALUES (?, '[]')`, [clientId]);
+    return clientId;
+}
+
 describe("id 不重用", () => {
     /** 每张库的表插入一行最小的合法数据，返回新行的 id。 */
     const inserters: Record<(typeof LIB_TABLES)[number], () => number> = {
         user: () => insertUser(),
-        session: () => Number(db.run(`INSERT INTO session ("expiresAt", token, "createdAt", "updatedAt", "userId") VALUES (?, ?, ?, ?, ?)`, [NOW, crypto.randomUUID(), NOW, NOW, userId]).lastInsertRowid),
-        account: () => Number(db.run(`INSERT INTO account ("accountId", "providerId", "userId", "createdAt", "updatedAt") VALUES ('a', 'credential', ?, ?, ?)`, [userId, NOW, NOW]).lastInsertRowid),
-        verification: () => Number(db.run(`INSERT INTO verification (identifier, value, "expiresAt", "createdAt", "updatedAt") VALUES ('i', 'v', ?, ?, ?)`, [NOW, NOW, NOW]).lastInsertRowid),
+        session: () => insert(`INSERT INTO session ("expiresAt", token, "createdAt", "updatedAt", "userId") VALUES (?, ?, ?, ?, ?)`, [NOW, crypto.randomUUID(), NOW, NOW, userId]),
+        account: () => insert(`INSERT INTO account ("accountId", "providerId", "userId", "createdAt", "updatedAt") VALUES ('a', 'credential', ?, ?, ?)`, [userId, NOW, NOW]),
+        verification: () => insert(`INSERT INTO verification (identifier, value, "expiresAt", "createdAt", "updatedAt") VALUES ('i', 'v', ?, ?, ?)`, [NOW, NOW, NOW]),
+        jwks: () => insert(`INSERT INTO "jwks" ("publicKey", "privateKey", "createdAt", "alg") VALUES ('{}', '""', ?, 'RS256')`, [NOW]),
+        oauthClient: () => Number(db.query<{id: number}, [string]>(`SELECT id FROM "oauthClient" WHERE "clientId" = ?`).get(insertClient())!.id),
+        oauthResource: () => insert(`INSERT INTO "oauthResource" (identifier, name) VALUES (?, 'r')`, [crypto.randomUUID()]),
+        oauthClientResource: () => {
+            const resource = crypto.randomUUID();
+            insert(`INSERT INTO "oauthResource" (identifier, name) VALUES (?, 'r')`, [resource]);
+            return insert(`INSERT INTO "oauthClientResource" ("clientId", "resourceId") VALUES (?, ?)`, [insertClient(), resource]);
+        },
+        oauthRefreshToken: () =>
+            insert(`INSERT INTO "oauthRefreshToken" (token, "clientId", "userId", "expiresAt", "createdAt", scopes) VALUES (?, ?, ?, ?, ?, 'openid')`, [crypto.randomUUID(), clientId, userId, NOW, NOW]),
+        oauthAccessToken: () =>
+            insert(`INSERT INTO "oauthAccessToken" (token, "clientId", "userId", "expiresAt", "createdAt", scopes) VALUES (?, ?, ?, ?, ?, 'openid')`, [crypto.randomUUID(), clientId, userId, NOW, NOW]),
+        oauthConsent: () => insert(`INSERT INTO "oauthConsent" ("clientId", "userId", scopes, "createdAt", "updatedAt") VALUES (?, ?, 'openid', ?, ?)`, [clientId, userId, NOW, NOW]),
+        oauthClientAssertion: () => insert(`INSERT INTO "oauthClientAssertion" ("expiresAt") VALUES (?)`, [NOW]),
     };
     let userId: number;
+    let clientId: string;
 
     it.each([...LIB_TABLES])("%s：删掉最大 id 的行之后，新插入的 id 更大", (table) => {
         userId = insertUser();
+        clientId = insertClient();
         const first = inserters[table]();
         const max = inserters[table]();
         expect(max).toBeGreaterThan(first);

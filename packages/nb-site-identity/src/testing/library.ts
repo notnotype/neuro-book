@@ -6,7 +6,7 @@
  */
 
 import {createIdentityAuth} from "../auth";
-import type {IdentityTimers, LibDatabaseConfig} from "../db/connection";
+import type {IdentityConnection, IdentityTimers} from "../db/connection";
 
 /** 测试用的密钥：库要求至少 32 个字符；不是任何环境里用的值。 */
 export const TEST_SECRET = "nb-site-identity-test-secret-0123456789abcdef";
@@ -14,9 +14,12 @@ export const TEST_SECRET = "nb-site-identity-test-secret-0123456789abcdef";
 /** 测试用的站点地址。 */
 export const TEST_SITE_URL = "https://site.test";
 
+/** 测试用的条款版本。 */
+export const TEST_TERMS_VERSION = "2026-11-20";
+
 /** 库的日志进 `log`（缺省丢进一个没人看的记录里）；时间取墙钟。 */
-export function createTestAuth(database: LibDatabaseConfig, log = recordingLog()) {
-    return createIdentityAuth({database, siteUrl: TEST_SITE_URL, secret: TEST_SECRET, sessionDays: 30, clock: {now: () => Date.now()}, log});
+export function createTestAuth(conn: IdentityConnection, log = recordingLog()) {
+    return createIdentityAuth({conn, siteUrl: TEST_SITE_URL, secret: TEST_SECRET, sessionDays: 30, termsVersion: TEST_TERMS_VERSION, clock: {now: () => Date.now()}, log});
 }
 
 /** 手动拨的时钟：从 `start` 起，只在用例调 `advance` 或 `set` 时走。 */

@@ -6,12 +6,13 @@
 import type {Context, Hono} from "hono";
 
 import {createIdentityApp} from "./app";
-import {createIdentityAuth, type IdentityAuth} from "./auth";
+import {createIdentityAuth, identityJwtOptions, type IdentityAuth} from "./auth";
 import type {IdentityConfig} from "./config";
 import type {IdentityConnection, IdentityTimers} from "./db/connection";
 import {HashLimiter, type FailureFloorTiming} from "./hash-limiter";
 import type {IdentityLog} from "./index";
 import {dummyPasswordHash} from "./login";
+import {prepareSigningKey} from "./oauth/signing-key";
 import {REAL_PASSWORD_FUNCTIONS, type PasswordFunctions} from "./password";
 import {createIdentityRateLimits} from "./rate-limit";
 import {Sessions} from "./session";
@@ -74,11 +75,13 @@ export interface IdentityAssembly {
  */
 export async function assembleIdentity(conn: IdentityConnection, options: IdentityAssemblyOptions, overrides: IdentityOverrides = {}): Promise<IdentityAssembly> {
     const {config, clock, log} = options;
-    const auth = createIdentityAuth({database: conn.libDatabase(), siteUrl: options.siteUrl, secret: config.sessionSecret, sessionDays: config.sessionDays, clock, log});
+    const auth = createIdentityAuth({conn, siteUrl: options.siteUrl, secret: config.sessionSecret, sessionDays: config.sessionDays, termsVersion: config.termsVersion, clock, log});
     const context = await auth.$context;
     // 1.7.27 对自定义的 Kysely 方言也登记了结构检查；没有它时不能确认表能收下库写的东西，不启动。
     if (context.checkSchema === undefined) throw new Error("the library registered no schema check for the identity database");
     await context.checkSchema();
+    // 签名钥在表结构确认之后备好：表里有别的算法的钥匙时启动失败；最新的活钥解不开时换一把（`oauth/signing-key.ts`）。
+    await prepareSigningKey({context, conn, jwtOptions: identityJwtOptions(options.siteUrl), log});
 
     const sessions = new Sessions({auth, conn, clock, sessionDays: config.sessionDays, termsVersion: config.termsVersion, log});
     const passwords = overrides.passwords ?? REAL_PASSWORD_FUNCTIONS;

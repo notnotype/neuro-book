@@ -1,0 +1,114 @@
+/**
+ * 库的对外 OAuth 装配（`auth.ts` 的 `jwt`、`oauthProvider`、`disabledPaths`）在包内的可观察结果：授权码、访问令牌与 id_token 的
+ * 寿命，客户端密钥按自家的存法认，令牌 id 不重用，关掉的库端点经 `handler` 是 404。经真实的库在进程内走授权与换码
+ * （`testing/oauth.ts`），挂载层（计划 3.6）还没有。
+ *
+ * 寿命不拨时钟：库按系统时间写这几行的创建与到期时刻，用例读行里两者之差（与令牌响应的 `expires_in`、id_token 的 `exp - iat`）。
+ */
+
+import {afterEach, beforeEach, describe, expect, it} from "bun:test";
+
+import {DISABLED_LIBRARY_PATHS, ID_TOKEN_SECONDS, LIBRARY_ACCESS_TOKEN_SECONDS, LIBRARY_CODE_SECONDS} from "../auth";
+import {libDateMs} from "../db/library-rows";
+import {createTestIdentity, type TestIdentity} from "../testing/module";
+import {authorize, CONSENTED, decodeJwt, exchange, grantTokens, libraryRequest, registerClient, type TestClient} from "../testing/oauth";
+import {clientSecretHash, generateClientSecret} from "./client-secret";
+
+let identity: TestIdentity;
+let client: TestClient;
+let cookie: string;
+
+beforeEach(async () => {
+    identity = await createTestIdentity("oauth-provider");
+    client = await registerClient(identity);
+    ({cookie} = await identity.issue(await identity.addUser("alice", CONSENTED)));
+});
+
+afterEach(async () => {
+    await identity.assembly.close();
+    await identity.root.cleanup();
+});
+
+/** 一行的到期与创建时刻之差，以秒计。 */
+function lifetimeSeconds(row: {readonly expiresAt: string; readonly createdAt: string}): number {
+    return (libDateMs(row.expiresAt) - libDateMs(row.createdAt)) / 1000;
+}
+
+function accessTokenIds(): Promise<number[]> {
+    return identity.conn.read((tx) => tx.query<{id: number}, []>(`SELECT "id" FROM "oauthAccessToken" ORDER BY "id"`).all().map((row) => row.id));
+}
+
+describe("寿命", () => {
+    it("授权码 10 分钟、访问令牌 1 小时（库的缺省），id_token 1 小时", async () => {
+        expect({code: LIBRARY_CODE_SECONDS, access: LIBRARY_ACCESS_TOKEN_SECONDS, idToken: ID_TOKEN_SECONDS}).toEqual({code: 600, access: 3600, idToken: 3600});
+        const grant = await authorize(identity, cookie, client);
+        // 授权码存在库的一次性凭据表里，换码时删掉；换码之前读。
+        const codes = await identity.conn.read((tx) => tx.query<{expiresAt: string; createdAt: string}, []>(`SELECT "expiresAt", "createdAt" FROM "verification"`).all());
+        expect(codes.map(lifetimeSeconds)).toEqual([LIBRARY_CODE_SECONDS]);
+
+        const response = await exchange(identity, client, grant);
+        expect(response.status).toBe(200);
+        const tokens = (await response.json()) as {expires_in: number; id_token: string};
+        expect(tokens.expires_in).toBe(LIBRARY_ACCESS_TOKEN_SECONDS);
+        const rows = await identity.conn.read((tx) => tx.query<{expiresAt: string; createdAt: string}, []>(`SELECT "expiresAt", "createdAt" FROM "oauthAccessToken"`).all());
+        expect(rows.map(lifetimeSeconds)).toEqual([LIBRARY_ACCESS_TOKEN_SECONDS]);
+        const {payload} = decodeJwt(tokens.id_token);
+        expect((payload.exp as number) - (payload.iat as number)).toBe(ID_TOKEN_SECONDS);
+    });
+});
+
+describe("客户端密钥", () => {
+    function storedSecret(): Promise<string | null> {
+        return identity.conn.read((tx) => tx.query<{clientSecret: string | null}, [string]>(`SELECT "clientSecret" FROM "oauthClient" WHERE "clientId" = ?`).get(client.clientId)?.clientSecret ?? null);
+    }
+
+    it("库登记时按自家的存法存哈希；换码只认对的密钥", async () => {
+        expect(await storedSecret()).toBe(clientSecretHash(client.clientSecret));
+        const wrong = await exchange(identity, {...client, clientSecret: generateClientSecret()}, await authorize(identity, cookie, client));
+        expect(wrong.status).toBe(401);
+        expect(await wrong.json()).toMatchObject({error: "invalid_client"});
+        expect((await exchange(identity, client, await authorize(identity, cookie, client))).status).toBe(200);
+    });
+
+    it("自家写进去的密钥哈希库能认，旧密钥随之失效（计划第 9 节 P7）", async () => {
+        const fresh = generateClientSecret();
+        await identity.conn.write((tx) => tx.query(`UPDATE "oauthClient" SET "clientSecret" = ? WHERE "clientId" = ?`).run(clientSecretHash(fresh), client.clientId));
+        expect((await exchange(identity, {...client, clientSecret: fresh}, await authorize(identity, cookie, client))).status).toBe(200);
+        const old = await exchange(identity, client, await authorize(identity, cookie, client));
+        expect(old.status).toBe(401);
+        expect(await old.json()).toMatchObject({error: "invalid_client"});
+    });
+});
+
+describe("令牌 id", () => {
+    it("删掉 id 最大的访问令牌之后，新授权的令牌 id 更大", async () => {
+        await grantTokens(identity, cookie, client);
+        await grantTokens(identity, cookie, client);
+        const ids = await accessTokenIds();
+        expect(ids.length).toBe(2);
+        const max = ids[1]!;
+        await identity.conn.write((tx) => tx.query(`DELETE FROM "oauthAccessToken" WHERE "id" = ?`).run(max));
+        await grantTokens(identity, cookie, client);
+        const after = await accessTokenIds();
+        expect(after.length).toBe(2);
+        expect(after[1]).toBeGreaterThan(max);
+    });
+});
+
+describe("关掉的库端点", () => {
+    it("经 handler 一律 404，带普通用户的会话也一样；普通用户经 HTTP 登记不了客户端", async () => {
+        for (const path of DISABLED_LIBRARY_PATHS) {
+            for (const method of ["GET", "POST"]) {
+                const init: RequestInit = method === "GET" ? {headers: {cookie}} : {method, headers: {cookie, "content-type": "application/json"}, body: "{}"};
+                expect({path, method, status: (await libraryRequest(identity, path, init)).status}).toEqual({path, method, status: 404});
+            }
+        }
+        const created = await libraryRequest(identity, "/oauth2/create-client", {
+            method: "POST",
+            headers: {cookie, "content-type": "application/json"},
+            body: JSON.stringify({client_name: "x", redirect_uris: ["https://evil.example/cb"]}),
+        });
+        expect(created.status).toBe(404);
+        expect(await identity.conn.read((tx) => tx.query<{n: number}, []>(`SELECT count(*) AS n FROM "oauthClient"`).get()!.n)).toBe(1);
+    });
+});
