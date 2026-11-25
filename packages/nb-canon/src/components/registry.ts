@@ -132,18 +132,21 @@ function declarationProblem(declaration: ComponentDeclaration): {path: string; m
 }
 
 /**
- * 预设字段（components.md 输出 24）：每个单独与固定字段放在一起看。作者可能只加其中一个，所以 id 不与固定字段、别的预设相同，
- * 上限只能指向固定字段，不能指向另一个预设。
+ * 预设字段（components.md 输出 24）：每个单独与固定字段放在一起看。作者可能只加其中一个，所以 id 与显示名都不与固定字段、别的
+ * 预设相同（显示名撞了的预设在哪个条目上都加不上），上限只能指向固定字段，不能指向另一个预设。
  */
 function presetsProblem(presets: readonly FieldDeclaration[], fields: readonly FieldDeclaration[], instanceFields: boolean): {path: string; message: string} | null {
     if (presets.length > 0 && !instanceFields) return {path: "presets", message: "presets need instanceFields"};
     const ids = new Set(fields.map((field) => field.id));
+    const labels = new Set(fields.map((field) => field.label));
     for (const [index, preset] of presets.entries()) {
         const path = `presets[${String(index)}]`;
         const problem = fieldShapeProblem(preset, path);
         if (problem !== null) return problem;
         if (ids.has(preset.id)) return {path: `${path}.id`, message: `duplicate field id "${preset.id}"`};
+        if (labels.has(preset.label)) return {path: `${path}.label`, message: `duplicate field label "${preset.label}"`};
         ids.add(preset.id);
+        labels.add(preset.label);
         if (typeof preset.max === "string" && !fields.some((field) => field.id === preset.max && field.kind === "number" && field.precision !== "semantic")) {
             return {path: `${path}.max`, message: `max "${preset.max}" is not an exact number field of this type`};
         }
@@ -235,11 +238,19 @@ export function retainedFields(type: ComponentType, declared: readonly InstanceF
     return instanceFields(type, declared, true);
 }
 
+/** 每个类型的固定字段 id（补丁、约束每处都要查实例声明是不是被盖住，按类型缓存一次）。 */
+const fixedIds = new WeakMap<ComponentType, ReadonlySet<string>>();
+
 function instanceFields(type: ComponentType, declared: readonly InstanceFieldDeclaration[] | undefined, withRemoved: boolean): readonly FieldDeclaration[] {
     if (!type.instanceFields || declared === undefined || declared.length === 0) return type.fields;
+    let fixed = fixedIds.get(type);
+    if (fixed === undefined) {
+        fixed = new Set(type.fields.map((field) => field.id));
+        fixedIds.set(type, fixed);
+    }
     let fields: FieldDeclaration[] | null = null;
     for (const field of declared) {
-        if ((field.removed === true && !withRemoved) || type.fields.some((fixed) => fixed.id === field.id)) continue;
+        if ((field.removed === true && !withRemoved) || fixed.has(field.id)) continue;
         fields ??= [...type.fields];
         fields.push(field);
     }

@@ -264,12 +264,19 @@ describe("canon.components 输出 24：建议值、适用的种类、预设字�
         expect(problemOf({...base, presets: [{id: "种族", label: "种族", kind: "text"}, {id: "种族", label: "血统", kind: "text"}]})).toEqual(["presets[1].id"]);
         expect(problemOf({...base, presets: [{id: "魔力上限", label: "魔力上限", kind: "number"}, {id: "魔力", label: "魔力", kind: "number", max: "魔力上限"}]})).toEqual(["presets[1].max"]);
         expect(problemOf({...base, presets: [{id: "种族", label: "种族", kind: "text", removed: true} as never]})).toEqual(["presets[0].removed"]);
+        // 显示名撞了固定字段或别的预设的：在哪个条目上都加不上。
+        expect(problemOf({...base, presets: [{id: "性别2", label: "性别", kind: "text"}]})).toEqual(["presets[0].label"]);
+        expect(problemOf({...base, presets: [{id: "种族", label: "种族", kind: "text"}, {id: "血统", label: "种族", kind: "text"}]})).toEqual(["presets[1].label"]);
+        // 上限只能指向固定的精确档数值字段。
+        expect(problemOf({...base, fields: [...base.fields!, {id: "气运", label: "气运", kind: "number", precision: "semantic"}], presets: [{id: "运势", label: "运势", kind: "number", max: "气运"}]})).toEqual(["presets[0].max"]);
     });
 
     test("只改这三样时摘要不变（不引起整本重算）；改字段的种类才变", () => {
         const digest = (declaration: ComponentDeclaration) => buildRegistry([declaration]).digest;
         expect(digest({...base, kinds: ["人物"], presets: [{id: "种族", label: "种族", kind: "text"}]})).toBe(digest(base));
         expect(digest({...base, fields: [base.fields![0]!, {...base.fields![1]!, suggestions: ["男", "女", "不明"]}]})).toBe(digest(base));
+        const bag: ComponentDeclaration = {...base, fields: [...base.fields!, {id: "行囊", label: "行囊", kind: "list", item: [{id: "颜色", label: "颜色", kind: "text"}]}]};
+        expect(digest({...bag, fields: [...base.fields!, {id: "行囊", label: "行囊", kind: "list", item: [{id: "颜色", label: "颜色", kind: "text", suggestions: ["红"]}]}]})).toBe(digest(bag));
         expect(digest({...base, fields: [base.fields![0]!, {...base.fields![1]!, precision: "semantic"}]})).not.toBe(digest(base));
     });
 });

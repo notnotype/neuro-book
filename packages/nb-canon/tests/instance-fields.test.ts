@@ -160,6 +160,33 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(refused(declare(hidden, {...LUCK, max: "幸运上限"}))).toEqual(["field-referenced:init.data.panel.declared[幸运].max"]);
     });
 
+    test("被固定字段盖住的那一条去掉了，拿这个 id 当上限的照旧指着生效的固定字段，不拒收", () => {
+        const start = ok(put(world(), (entry) => void declared(entry).push({id: "耐力", label: "耐力", kind: "number"}, {...LUCK, max: "耐力"}))).world;
+        const upgraded = start.withOptions(options([{...PANEL, fields: [...PANEL.fields!, {id: "耐力", label: "体力", kind: "number"}]}, PERSON]));
+        expect(refused(mark(upgraded, "耐力", true))).toEqual(["ok"]);
+    });
+
+    test("已有的声明（去掉了的也算）不改种类与精度：旧的剧情变更对它的补丁会整条套不上", () => {
+        const start = ok(put(world(), (entry) => {
+            declared(entry).push(LUCK);
+            entry.init.data.panel!.fields.幸运 = 7;
+        })).world;
+        const told = record(start, "ch44", [add("panel.幸运", 2)]);
+        const removed = ok(mark(told.world, "幸运", true)).world;
+        expect(refused(put(removed, (entry) => void (declared(entry)[0]!.kind = "text")))).toEqual(["field-redeclare-mismatch:init.data.panel.declared[幸运]"]);
+        expect(refused(put(start, (entry) => void (declared(entry)[0]!.precision = "semantic")))).toEqual(["field-redeclare-mismatch:init.data.panel.declared[幸运]"]);
+        // 显示名、单位这些不影响补丁，照改。
+        expect(refused(put(start, (entry) => void (declared(entry)[0]!.unit = "点")))).toEqual(["ok"]);
+    });
+
+    test("把一组数据改记成另一个类型或另一个版本时，原样留着的值也按新的声明核", () => {
+        const other: ComponentDeclaration = {...PANEL, id: "test.other-panel", fields: PANEL.fields!.map((field) => (field.id === "存款" ? {id: "存款", label: "存款", kind: "text" as const} : field))};
+        const swapped = world().withOptions(options([other, PERSON]));
+        expect(refused(put(swapped, (entry) => void (entry.init.data.panel!.type = other.id)))).toEqual(["type-mismatch:init.data.panel.fields.存款"]);
+        const upgraded = world().withOptions(options([{...other, id: PANEL.id, version: 2}, PERSON]));
+        expect(refused(put(upgraded, (entry) => void (entry.init.data.panel!.version = 2)))).toEqual(["type-mismatch:init.data.panel.fields.存款"]);
+    });
+
     test("类型不允许实例字段时新写声明被拒；固定字段与列表的子字段里不能写已去掉的标记", () => {
         expect(refused(put(world(), (entry) => void (entry.init.data.character!.declared = [{id: "种族", label: "种族", kind: "text"}])))).toEqual(["fields-not-declarable:init.data.character.declared"]);
         expect(buildRegistry([{...PERSON, fields: [{id: "性格", label: "性格", kind: "text", removed: true} as never]}]).diagnostics).toMatchObject([{code: "component-declaration-invalid", path: "fields[0].removed"}]);
@@ -223,10 +250,30 @@ describe("canon.revisions 输出 3：原样留着的补丁不因为不适用拒�
         expect(fields(done).存款).toBe(105);
     });
 
-    test("设定组去掉以后，旧变更还能改别的地方", () => {
+    test("设定组去掉、关掉以后，旧变更还能改别的地方", () => {
         const told = record(world(), "ch44", [add("panel.存款", 5)]);
         const removed = ok(put(told.world, (entry) => void (entry.init.data.panel!.removed = true))).world;
         expect(refused(retitle(removed, told.change))).toEqual(["ok"]);
+        const disabled = ok(put(told.world, (entry) => void (entry.init.data.panel!.enabled = false))).world;
+        expect(refused(retitle(disabled, told.change))).toEqual(["ok"]);
+    });
+
+    test("同一批里去掉字段、改它的旧变更：照收；从变更里拿掉“启用”那一处、让后面的补丁落空：拒收", () => {
+        const start = ok(put(world(), (copy) => {
+            declared(copy).push(LUCK);
+            copy.init.data.panel!.fields.幸运 = 7;
+        })).world;
+        const told = record(start, "ch44", [add("panel.幸运", 2)]);
+        const entry = structuredClone(told.world.data.entries.get("e1")!) as Entry;
+        declared(entry)[0]!.removed = true;
+        const change = structuredClone(told.world.data.changes.get(told.change)!) as StoryChange;
+        change.text = "换了一句话";
+        expect(refused(told.world.publish({requestId: id(), by: author, what: "edit", title: "一起改", baseVersion: told.world.version, puts: [{ref: {kind: "entry", id: "e1"}, after: entry}, {ref: {kind: "change", id: told.change}, after: change}]} as WriteRequest, "t"))).toEqual(["ok"]);
+
+        const off = ok(put(world(), (copy) => void (copy.init.data.panel!.enabled = false))).world;
+        const enabled = record(off, "ch44", [{op: "set", at: {entry: "e1", path: "panel.启用"}, value: true}, add("panel.存款", 5)]);
+        expect(fields(enabled.world).存款).toBe(105);
+        expect(refused(rewrite(enabled.world, enabled.change, (copy) => void copy.patches.shift()))).toEqual(["component-disabled:patches[0]"]);
     });
 
     test("新写的、多出来一份相同的、挪了安放的照旧拒收", () => {
@@ -236,13 +283,15 @@ describe("canon.revisions 输出 3：原样留着的补丁不因为不适用拒�
         expect(refused(rewrite(base, change, (copy) => void (copy.at = {kind: "chapter", chapter: "ch45", key: 10})))).toEqual(["unknown-field:patches[0]"]);
     });
 
-    test("待定转生效按新写的查：待定时写下的不适用补丁在转生效时拒收", () => {
+    test("待定转生效、计划改成已写按新写的查：之前写下的不适用补丁这时拒收", () => {
         const start = ok(mark(ok(declare(world(), LUCK)).world, "幸运", true)).world;
         const held = record(start, "ch44", [add("panel.幸运", 2)], {status: "held", held: {note: "等作者定", reason: "unsure"}});
         expect(refused(rewrite(held.world, held.change, (copy) => {
             copy.status = "active";
             delete copy.held;
         }))).toEqual(["unknown-field:patches[0]"]);
+        const plan = record(start, "ch44", [add("panel.幸运", 2)], {kind: "plan"});
+        expect(refused(rewrite(plan.world, plan.change, (copy) => void (copy.kind = "written")))).toEqual(["unknown-field:patches[0]"]);
     });
 
     test("带“由核对点推出”依据的数：字段去掉以后旧变更照样能改文字", () => {

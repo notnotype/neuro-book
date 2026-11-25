@@ -18,7 +18,7 @@ import {addExact, exactProblem, subtractExact} from "../core/decimal";
 import {chapterEnd, compareRanks, positionRank} from "../core/position";
 import {sameJson, stableStringify} from "../core/stable-json";
 import {valueAt, type ViewValue} from "../core/view-value";
-import {generateFieldId, type ComponentType} from "../components/registry";
+import {effectiveFields, generateFieldId, type ComponentType} from "../components/registry";
 import type {Actor, Address, Entry, EntryEdits, EntryOp, FieldDeclaration, FieldDraft, NamespaceData, NewEntry, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {LOCAL_ID_PREFIX} from "../core/ids";
 import {fieldOf} from "../engine/reference";
@@ -65,11 +65,15 @@ type Expect =
     | {readonly op: number; readonly at: Address; readonly story: boolean; readonly value: unknown}
     | {readonly op: number; readonly at: Address; readonly story: boolean; readonly has: string; readonly present: boolean};
 
-/** 一项操作写下的东西在候选对象里的位置：发布前的校验按对象与路径报问题，靠它对回是第几项（输出 25）。 */
+/**
+ * 一项操作写下的东西在候选对象里的位置：发布前的校验按对象与路径报问题，靠它对回是第几项（输出 25）。`under` 时这个位置下面的
+ * 路径也算（字段声明的问题报在 `declared[<id>].label`、`.max` 这些地方）；几项都对得上时取路径最长的。
+ */
 interface Target {
     readonly op: number;
     readonly ref: {readonly kind: "entry" | "change"; readonly id: string};
     readonly path: string;
+    readonly under?: true;
 }
 
 export interface EntryPlan {
@@ -291,6 +295,8 @@ class Draft {
     readonly created = new Set<string>();
     /** 这一批新加的设定组（`条目/命名空间`）、字段（`条目/命名空间.字段`）与元素（`条目/命名空间.字段[元素]`）：后面的项不能再改它们。 */
     readonly fresh = new Set<string>();
+    /** `patchedFieldIds` 按 `条目/命名空间` 算过的结果（这一批里写下的补丁不进世界，结果不会变）。 */
+    readonly patched = new Map<string, ReadonlySet<string>>();
 
     constructor(private readonly world: World) {}
 
@@ -390,37 +396,62 @@ function orderAfter(world: World, draft: Draft, parent: string | null, after: st
     return middle > before && middle < next ? middle : null;
 }
 
-/** 照登记的类型建一个设定组的数据：字段先都是未知，再填上给的；`declare` 是这个实例自己的字段声明（新建的实例没有用过的 id）。 */
-function namespaceData(world: World, type: string, fields: Readonly<Record<string, unknown>> | undefined, declare: readonly FieldDraft[] = []): {readonly namespace: string; readonly data: NamespaceData} | {readonly problem: FieldProblem} | null {
+/**
+ * 照登记的类型建一个设定组的数据：字段先都是未知，`declare` 是这个实例自己的字段声明（新建的实例没有用过的 id），再填上给的初值。
+ * 返回声明了的字段 id（按 `declare` 的顺序），给调用方对回是哪一项。
+ */
+function namespaceData(world: World, type: string, fields: Readonly<Record<string, unknown>> | undefined, declare: readonly FieldDraft[] = []): {readonly namespace: string; readonly data: NamespaceData; readonly declaredIds: readonly string[]} | {readonly problem: FieldProblem} | null {
     const declared = world.options.registry.types.find((candidate) => candidate.id === type);
     if (declared === undefined) return null;
     const data: NamespaceData = {type: declared.id, version: declared.version, enabled: true, fields: Object.fromEntries(declared.fields.map((field) => [field.id, null])), ...(declared.instanceFields ? {declared: []} : {})};
+    const declaredIds: string[] = [];
     for (const draft of declare) {
         const made = declareField(declared, data, draft, new Set());
         if (typeof made !== "string") return {problem: made};
         data.fields[made] = null;
+        declaredIds.push(made);
     }
-    Object.assign(data.fields, structuredClone(fields ?? {}));
-    return {namespace: declared.namespace, data};
+    const problem = assignFields(declared, data, fields);
+    return problem === null ? {namespace: declared.namespace, data, declaredIds} : {problem};
+}
+
+/**
+ * 把 `create`、`component` 给的初值填进一组数据：键要是这一组生效的字段（固定的与刚声明的）。写到别的键上的值读不到，多半是 id
+ * 对不上（例如以为新声明的字段叫这个 id），拒收而不是存成没人声明的值。
+ */
+function assignFields(type: ComponentType, data: NamespaceData, fields: Readonly<Record<string, unknown>> | undefined): FieldProblem | null {
+    if (fields === undefined) return null;
+    const ids = new Set(effectiveFields(type, data.declared).map((field) => field.id));
+    const unknown = Object.keys(fields).find((id) => !ids.has(id));
+    if (unknown !== undefined) return {code: "unknown-field", message: `"${unknown}" is not a field in effect in this component`};
+    Object.assign(data.fields, structuredClone(fields));
+    return null;
 }
 
 type FieldProblem = {readonly code: string; readonly message: string};
 
 /**
  * 在一个实例上加一条字段声明，返回它的 id（components.md 输出 4）。声明上的规则（类型允不允许、显示名、上限）由世界层一处判
- * （输出 23），这里只定 id：给了的先用，没给按显示名生成；已经占着的（任何声明用着，或 `used` 里的）换一个生成的，不拒收，
- * 所以预设带写死的 id、而作者先自己加过同 id 的一项时照样加得上。
+ * （输出 23），这里只定 id：给了的就用它，已经占着（任何声明用着、初值里留着键，或 `used` 里的）时拒收，免得调用方按自己给的
+ * id 接着写、写到别的字段上；没给时按显示名生成，避开占着的。
  */
 function declareField(type: ComponentType, data: NamespaceData, draft: FieldDraft, used: ReadonlySet<string>): string | FieldProblem {
     if ("removed" in draft) return {code: "type-mismatch", message: "a new field cannot be declared as removed"};
     const taken = new Set([...used, ...type.fields.map((field) => field.id), ...(data.declared ?? []).map((field) => field.id), ...Object.keys(data.fields)]);
-    const id = draft.id !== undefined && !taken.has(draft.id) ? draft.id : generateFieldId(draft.label, taken);
+    if (draft.id !== undefined && taken.has(draft.id)) return {code: "id-taken", message: `field id "${draft.id}" is already used in this component on this entry`};
+    const id = draft.id ?? generateFieldId(draft.label, taken);
     (data.declared ??= []).push({...structuredClone(draft), id});
     return id;
 }
 
-/** 一个实例上留着数据的字段 id：剧情变更的补丁指过的（初值里的键由 `declareField` 自己看）。生成新 id 时避开，同 `usedElementIds`。 */
-function patchedFieldIds(world: World, entryId: string, namespace: string): Set<string> {
+/**
+ * 一个实例上留着数据的字段 id：剧情变更的补丁指过的（初值里的键由 `declareField` 自己看）。生成新 id 时避开，同 `usedElementIds`。
+ * 一批里按条目与命名空间各扫一次（`Draft.patched`），同一组上加几项不重复扫全部补丁。
+ */
+function patchedFieldIds(world: World, draft: Draft, entryId: string, namespace: string): ReadonlySet<string> {
+    const key = `${entryId}/${namespace}`;
+    const cached = draft.patched.get(key);
+    if (cached !== undefined) return cached;
     const used = new Set<string>();
     for (const change of world.data.changes.values()) {
         for (const patch of change.patches) {
@@ -429,6 +460,7 @@ function patchedFieldIds(world: World, entryId: string, namespace: string): Set<
             if (parsed?.root === "namespace" && parsed.namespace === namespace) used.add(parsed.field);
         }
     }
+    draft.patched.set(key, used);
     return used;
 }
 
@@ -752,21 +784,33 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                     const declared = world.options.registry.types.find((candidate) => candidate.id === op.type);
                     if (declared === undefined) return problem(index, "component-unknown", `component type "${op.type}" is not registered`);
                     const existing = entry.init.data[declared.namespace];
+                    const base = `init.data.${declared.namespace}`;
                     if (op.action === "remove") {
+                        if (op.fields !== undefined || op.declare !== undefined) return problem(index, "type-mismatch", "fields and declare only go with add");
                         if (existing === undefined || existing.removed === true) return problem(index, "element-missing", "the component is not on this entry");
                         existing.removed = true;
                     } else if (existing !== undefined && existing.removed !== true) {
                         return problem(index, "id-taken", "the component is already on this entry");
                     } else if (existing !== undefined) {
-                        // 去掉过的加回来：数据还在，去掉标记（components.md 输出 7）。
+                        // 去掉过的加回来：数据还在，去掉标记（components.md 输出 7）；带的声明照 `fieldAdd` 加在留着的数据上（避开留着的 id）。
                         delete existing.removed;
-                        for (const [field, value] of Object.entries(op.fields ?? {})) existing.fields[field] = structuredClone(value);
+                        for (const field of op.declare ?? []) {
+                            const made = declareField(declared, existing, field, patchedFieldIds(world, draft, op.entry, declared.namespace));
+                            if (typeof made !== "string") return problem(index, made.code, made.message);
+                            existing.fields[made] = null;
+                            targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: `${base}.declared[${made}]`, under: true});
+                        }
+                        const assigned = assignFields(declared, existing, op.fields);
+                        if (assigned !== null) return problem(index, assigned.code, assigned.message);
                     } else {
-                        const built = namespaceData(world, op.type, op.fields, op.action === "add" ? op.declare : undefined)!;
+                        const built = namespaceData(world, op.type, op.fields, op.declare)!;
                         if ("problem" in built) return problem(index, built.problem.code, built.problem.message);
                         entry.init.data[built.namespace] = built.data;
                         draft.fresh.add(`${op.entry}/${built.namespace}`);
+                        for (const made of built.declaredIds) targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: `${base}.declared[${made}]`, under: true});
                     }
+                    // 这一组上的问题（类型不允许实例字段、初值不合声明）都对回这一项。
+                    targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: base, under: true});
                 }
                 routes.push({kind: "entry"});
                 break;
@@ -776,10 +820,13 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 if (entry === undefined) return problem(index, "not-found", "the entry does not exist");
                 const instance = instanceOf(world, entry, op.namespace);
                 if ("code" in instance) return problem(index, instance.code, instance.message);
-                const made = declareField(instance.type, instance.data, op.field, patchedFieldIds(world, op.entry, op.namespace));
+                const made = declareField(instance.type, instance.data, op.field, patchedFieldIds(world, draft, op.entry, op.namespace));
                 if (typeof made !== "string") return problem(index, made.code, made.message);
                 instance.data.fields[made] = op.value === undefined ? null : structuredClone(op.value);
                 draft.fresh.add(`${op.entry}/${op.namespace}.${made}`);
+                // 世界层对这一项的问题报在声明（显示名、上限）、初值与初值的依据上。
+                const ref = {kind: "entry" as const, id: op.entry};
+                targets.push({op: index, ref, path: `init.data.${op.namespace}.declared[${made}]`, under: true}, {op: index, ref, path: `init.data.${op.namespace}.fields.${made}`}, {op: index, ref, path: `initBasis["${op.namespace}.${made}"]`});
                 routes.push({kind: "entry"});
                 break;
             }
@@ -795,14 +842,19 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 if (instance.type.fields.some((field) => field.id === parsed.field)) return problem(index, "field-fixed", "this field belongs to the component type; only fields declared on the entry can be renamed or removed");
                 const found = instance.data.declared?.find((field) => field.id === parsed.field);
                 if (found === undefined) return problem(index, "field-missing", "this entry does not declare this field");
+                const ref = {kind: "entry" as const, id: op.at.entry};
+                const declaredAt = `init.data.${parsed.namespace}.declared`;
                 if (op.op === "fieldRename") found.label = op.label;
                 else if (op.op === "fieldRemove") {
                     if (found.removed === true) return problem(index, "field-missing", "this field is already removed");
                     found.removed = true;
+                    // 去掉时报的问题在拿它当上限的那一项上（`field-referenced`）。
+                    for (const holder of instance.data.declared ?? []) if (holder.max === found.id && holder.removed !== true) targets.push({op: index, ref, path: `${declaredAt}[${holder.id}].max`});
                 } else {
                     if (found.removed !== true) return problem(index, "field-missing", "this field is not removed");
                     delete found.removed;
                 }
+                targets.push({op: index, ref, path: `${declaredAt}[${found.id}]`, under: true});
                 routes.push({kind: "entry"});
                 break;
             }
@@ -913,8 +965,12 @@ export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult
         // 发布前的校验按候选对象与路径报问题：对得上某一项写下的位置时带上它的序号。
         const located = result.failure.problems.map((item) => {
             const ref = item.ref;
-            const found = ref === undefined ? undefined : plan.targets.find((candidate) => candidate.ref.kind === ref.kind && candidate.path === item.path
-                && (candidate.ref.id === ref.id || (candidate.ref.id === STORY_CHANGE_TMP && ref.kind === "change" && plan.isNewChange(ref.id))));
+            const path = item.path ?? "";
+            const covers = (candidate: Target) => candidate.path === path || (candidate.under === true && (path.startsWith(`${candidate.path}.`) || path.startsWith(`${candidate.path}[`)));
+            const found = ref === undefined ? undefined : plan.targets
+                .filter((candidate) => candidate.ref.kind === ref.kind && covers(candidate)
+                    && (candidate.ref.id === ref.id || (candidate.ref.id === STORY_CHANGE_TMP && ref.kind === "change" && plan.isNewChange(ref.id))))
+                .reduce<Target | undefined>((best, candidate) => (best === undefined || candidate.path.length > best.path.length ? candidate : best), undefined);
             return found === undefined ? item : {...item, op: found.op};
         });
         return {ok: false, failure: {...result.failure, problems: located}};

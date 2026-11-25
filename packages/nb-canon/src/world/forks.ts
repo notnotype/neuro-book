@@ -15,6 +15,7 @@ import {compareOrder, lineOf, lineTable, MAIN_LINE, type LineTable} from "../lin
 import type {ChapterOrder} from "../core/position";
 import {fieldsOf} from "./references";
 import type {Problem} from "./world";
+import {sameJson} from "../core/stable-json";
 
 export interface ForkCheckInput {
     readonly before: WorldData;
@@ -119,8 +120,8 @@ function forkRecordProblems(change: StoryChange & {fork: Fork}, input: ForkCheck
         if (end === undefined || lineOf(end.at) !== fork.line || table.point(fork.endAt) === null) fail("fork.endAt", "endAt must be a scheduled record on this line");
     }
     // 带过去的地址：在切口处存在的条目上声明过的字段或列表，不重复（输出 14）。原样留着的不重查“声明过”：带着的实例字段后来被
-    // 去掉时，这条分叉还要能改别的地方（canon/revisions.md 输出 3）。
-    const kept = new Set((previous?.carry ?? []).map((address) => addressKey(address)));
+    // 去掉时，这条分叉还要能改别的地方（canon/revisions.md 输出 3）。前提同补丁那一侧（`keptAsWritten`）。
+    const kept = new Set((keptAsWritten(input.before.changes.get(change.id), change) ? previous?.carry ?? [] : []).map((address) => addressKey(address)));
     const seen = new Set<string>();
     for (const [index, address] of (fork.carry ?? []).entries()) {
         const path = `fork.carry[${String(index)}]`;
@@ -145,6 +146,16 @@ function forkRecordProblems(change: StoryChange & {fork: Fork}, input: ForkCheck
  * 写入回溯分叉时没给 `carry` 的缺省（输出 7）：`who` 身上各命名空间里声明了 `carry: true` 的字段与列表，在切口处存在的才补；
  * 父线没有引擎可问时不补。别的种类、没有 `who` 时为空。
  */
+/**
+ * 写入前这条变更就是已写、生效的，安放（含所在的线）没变；分叉另要求切口与父线没变（revisions.md 输出 3、17）。只有这样，它身上
+ * 原样留着的补丁与 `carry` 才算“原样留着”：待定转生效、计划改成已写、挪了安放都按新写的查。
+ */
+export function keptAsWritten(previous: StoryChange | undefined, change: StoryChange): boolean {
+    if (previous === undefined || previous.kind !== "written" || previous.status !== "active" || !sameJson(previous.at, change.at)) return false;
+    if (change.fork === undefined) return true;
+    return previous.fork !== undefined && previous.fork.parent === change.fork.parent && sameJson(previous.fork.cut, change.fork.cut);
+}
+
 export function defaultCarry(fork: Fork, data: WorldData, registry: ComponentRegistry, slotAfter: ForkCheckInput["slotAfter"]): Address[] {
     if (fork.type !== "rollback" || fork.who === undefined) return [];
     const who = data.entries.get(fork.who);
