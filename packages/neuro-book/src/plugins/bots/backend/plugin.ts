@@ -14,7 +14,7 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
-import {agentKey, agentProfilePartsKey, PROFILES_POINT} from "nbook/plugins/agent/shared/contracts";
+import {agentKey, PROFILES_POINT} from "nbook/plugins/agent/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 import {entryInside} from "nbook/plugin-platform/backend/plugin-files";
@@ -44,7 +44,7 @@ export function createBotsBackendPlugin(locateBuiltin: () => string | null = loc
             id: "server",
             location: "server",
             activationEvents: ["onStartup", COMPANION.activationEvent],
-            dependencies: [{key: diagnosticsKey}, {key: stateRootKey}, {key: clockKey}, {key: storageKey}, {key: agentKey}, {key: agentProfilePartsKey}, {key: pluginPackagesKey, required: false}],
+            dependencies: [{key: diagnosticsKey}, {key: stateRootKey}, {key: clockKey}, {key: storageKey}, {key: agentKey}, {key: pluginPackagesKey, required: false}],
             remoteProvides: [botsContract],
             receives: [PRESETS_POINT],
             contributions: [COMPANION.contribution, {capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
@@ -90,7 +90,7 @@ export function createBotsBackendPlugin(locateBuiltin: () => string | null = loc
                 });
                 return {
                     contributions: {
-                        [PROFILES_POINT]: {[COMPANION.contribution.id]: companionProfile(context.services.require(agentProfilePartsKey))},
+                        [PROFILES_POINT]: {[COMPANION.contribution.id]: companionProfile()},
                         [HTTP_ROUTES_POINT]: {[descriptor.id]: createAvatarRoutes({root, known: (botId) => bots.has(botId)})},
                     },
                     receivers: {[PRESETS_POINT]: presets.receiver},

@@ -5,6 +5,7 @@
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
+import {Type} from "typebox";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {AnyProfile, LogEvent, SessionEnv} from "../api/index.js";
@@ -908,6 +909,30 @@ describe("插件宿主", () => {
         expect((await opened.value.snapshot()).readOnly).toBeNull();
         expect(await installed(opened.value)).toContain("lab.count");
         await second.close(opened.value.id);
+    });
+
+    test("extensions 的“按需扩展”：扩展从 Profile 自带改成按需贡献、Profile 改为按 id 引用，旧会话重开后扩展设置还在，写一次 code-updated", async () => {
+        const modes = defineExtension({id: "lab.modes", settings: Type.Object({mode: Type.String({default: "normal"})})});
+        let profile = defineProfile({id: "test.moved", version: "1", name: "m", description: "m", extensions: [modes]}) as AnyProfile;
+        const env = {...hostEnv(), profiles: {resolve: (key: string) => (key === profile.id ? profile : undefined)}};
+        const before = createAgentHost(env);
+        const created = await before.create({profile: profile.id});
+        if (!created.ok) throw new Error(created.code);
+        expect(await created.value.changeSettings({commandId: id(), patch: {"lab.modes": {mode: "plan"}}})).toMatchObject({ok: true});
+        await before.close(created.value.id);
+
+        profile = defineProfile({id: "test.moved", version: "2", name: "m", description: "m", referencedExtensions: ["lab.modes"]}) as AnyProfile;
+        const after = createAgentHost(env);
+        const handle = {id: modes.id, plugin: "lab", declaration: {install: "on-request" as const}, implementation: () => modes as never};
+        after.extensions.prepare(handle);
+        after.extensions.published(handle);
+        const opened = await after.open(created.value.id);
+        if (!opened.ok) throw new Error(opened.code);
+        const snapshot = await opened.value.snapshot();
+        expect(snapshot.readOnly).toBeNull();
+        expect(snapshot.extensionSettings["lab.modes"]).toEqual({mode: "plan"});
+        expect(dataOf<{reason: string}>((await opened.value.log({afterSeq: 0})).events, "profileChanged").map((change) => change.reason)).toEqual(["created", "code-updated"]);
+        await after.close(opened.value.id);
     });
 
     test("输出 57：revoke 交回的 Promise 在各会话摘下扩展、清理函数跑完之后完成；运行中的会话等这次运行结束", async () => {

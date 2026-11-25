@@ -137,6 +137,7 @@ export class ProfileBundles implements UserProfiles {
                 description: profile?.description ?? "",
                 tools: {required: profile?.tools?.required ?? [], optional: profile?.tools?.optional ?? []},
                 ...(profile?.modelNeeds === undefined ? {} : {modelNeeds: profile.modelNeeds}),
+                ...(profile?.referencedExtensions === undefined ? {} : {referencedExtensions: profile.referencedExtensions}),
                 usable: state.published !== null,
                 ...(state.problem === null ? {} : {problem: state.problem}),
             }];

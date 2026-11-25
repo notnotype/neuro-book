@@ -18,7 +18,8 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {IDLE_CLOSE_MS} from "@notnotype/nb-harness/kit/sessions";
 import {REVOKE_GRACE_MS} from "./backend/tools";
-import {agentKey} from "./shared/contracts";
+import {agentKey, MAIN_PROFILE} from "./shared/contracts";
+import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import type {AgentService} from "./shared/contracts";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
@@ -325,6 +326,24 @@ describe("贡献", () => {
         const plugin: PluginDefinition = {id: "test.starter", entries: [defineEntry({id: "server", location: "server", activationEvents: [writer.activationEvent], contributions: [writer.contribution], activate: () => ({contributions: {"agent.profiles": {"test.starter.writer": defineProfile({id: "test.starter.writer", version: "1", name: "开场", description: "测试用", system: "你写开场。", pluginExtensions: {exclude: ["session-meta"]}})}}})})]};
         const w = await world([plugin]);
         expect(w.service.profiles().find((profile) => profile.key === "test.starter.writer")).toMatchObject({status: "ok", starters});
+    });
+});
+
+describe("按需扩展的时序（contributions.md 的“按需扩展”）", () => {
+    test("启动时激活、一拿到 agentKey 就建主创会话（同伴聊 bot）：建得成，模式扩展已装上", async () => {
+        let started: Promise<Awaited<ReturnType<AgentService["create"]>>> | null = null;
+        const caller: PluginDefinition = {id: "test.eager", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
+            // 不等它：激活里等会话会与 `onAgentSession:open` 的激活成环。
+            started = context.services.require(agentKey).create({profile: MAIN_PROFILE});
+            return {};
+        }})]};
+        await world([caller]);
+        if (started === null) throw new Error("the caller was not activated");
+        const created = await started as Awaited<ReturnType<AgentService["create"]>>;
+        if (!created.ok) throw new Error(created.code);
+        const snapshot = await created.value.snapshot();
+        expect(snapshot.readOnly).toBeNull();
+        expect(snapshot.extensions.find((extension) => extension.id === AGENT_MODES_EXTENSION)?.status).toBe("active");
     });
 });
 

@@ -6,7 +6,7 @@ import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {AnyExtension, CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionHeader, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
+import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionHeader, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
 import type {SessionHold} from "@notnotype/nb-harness/kit/sessions";
 
 import type {AgentProfileDeclaration, AgentToolDeclaration} from "./points";
@@ -44,6 +44,8 @@ export const MAIN_PROFILE_TOOLS: NonNullable<AgentProfileDeclaration["tools"]> =
 export type ProfileProblem =
     | {readonly code: "tools-missing"; readonly tools: readonly string[]}
     | {readonly code: "key-taken"}
+    /** 引用的扩展没有插件声明（按清单算，不激活提供方）。 */
+    | {readonly code: "extensions-missing"; readonly extensions: readonly string[]}
     /** `module` 是导入了的包；运行时才算出模块名的没有。 */
     | {readonly code: "module-not-shared"; readonly module?: string}
     /** `expectedId`：导出了 Profile，但 id 不是这个文件该有的。 */
@@ -67,6 +69,8 @@ export interface ProfileEntry {
     /** 工具要求（contributions.md 输出 14）。用户级的来自上一次成功的包，从未成功时没有。 */
     readonly tools?: AgentProfileDeclaration["tools"];
     readonly defaultTools?: false;
+    /** 按 id 引用的扩展（contributions.md 输出 14）：插件 Profile 来自声明，用户级来自上一次成功的包。 */
+    readonly referencedExtensions?: readonly string[];
     /** 声明的缺省角色；用户级没有。 */
     readonly role?: string;
     readonly modelNeeds?: AgentProfileDeclaration["modelNeeds"];
@@ -226,15 +230,6 @@ export const sessionOwnersPoint: ContributionPointDefinition<Record<string, neve
     idPrefix: "plugin",
     validate: (descriptor) => (descriptor.location === "browser" ? null : `${SESSION_OWNERS_POINT} only accepts contributions from browser entries`),
 };
-
-/**
- * 主创的 Profile 里装的、别的插件的岗位 Profile 也可以装的扩展（bots.md 输出 3）。扩展的实现是运行时的值，跨插件只能经服务取，不进合同。
- * `modes`：Agent 模式与它的提示（modes.md），工具 `nbook.agent.switch-mode` 要它。
- */
-export interface AgentProfileParts {
-    readonly modes: readonly AnyExtension[];
-}
-export const agentProfilePartsKey: ServiceKey<AgentProfileParts> = defineServiceKey<AgentProfileParts>("nbook.agent/profile-parts");
 
 /**
  * 表情包页改包名时问 Agent：哪些 Profile 明确选了这个表情包（声明的白名单写了它的 id，或用户在 Profile 设置里加了它），改名之后它们要重新

@@ -12,7 +12,10 @@ import {failed} from "@notnotype/nb-harness/kit/files";
 
 import {AGENT_MODES_EXTENSION, MODE_SWITCH_KIND} from "../../shared/permissions";
 import type {AgentMode, ModeSwitchAnswer, ModeSwitchRequest} from "../../shared/permissions";
-import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
+import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
+
+import {EXTENSIONS_POINT} from "../../shared/points";
+import type {AgentExtensionDeclaration, AgentExtensionImplementation, AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 
 const AGENT_MODES: readonly AgentMode[] = ["normal", "discuss", "plan"];
 const APPROVAL_MODES: readonly ApprovalMode[] = ["ask", "allow-writes", "auto", "yolo"];
@@ -37,8 +40,10 @@ const SHORT: Readonly<Record<Exclude<AgentMode, "normal">, string>> = {
 };
 
 /** 值变了那轮一条完整的，之后每轮一句短的；回到 `normal` 时一句“已退出”，之后不写。放消息里：工具集与系统提示词不随模式变，缓存不受影响。 */
+export const MODE_REMINDER_EXTENSION = "nbook.agent.mode-reminder";
+
 const modeReminder = reminder({
-    id: "nbook.agent.mode-reminder",
+    id: MODE_REMINDER_EXTENSION,
     dependsOn: [modesContract],
     every: 1,
     watch: (view) => view.read(modesContract).mode,
@@ -49,7 +54,16 @@ const modeReminder = reminder({
     },
 });
 
-export const modesExtensions = [modesExtension, modeReminder];
+/**
+ * 模式与它的提醒是两条按需扩展（contributions.md 的“按需扩展”）：Profile 声明里引用 `nbook.agent.modes` 才装，提醒依赖它、同属
+ * `nbook.agent`，跟着装上。
+ */
+export const MODES_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentExtensionDeclaration>> = [
+    {capability: EXTENSIONS_POINT, id: AGENT_MODES_EXTENSION, declaration: {install: "on-request"}},
+    {capability: EXTENSIONS_POINT, id: MODE_REMINDER_EXTENSION, declaration: {install: "on-request", dependsOn: [AGENT_MODES_EXTENSION]}},
+];
+
+export const modesImplementations: Readonly<Record<string, AgentExtensionImplementation>> = {[AGENT_MODES_EXTENSION]: modesExtension, [MODE_REMINDER_EXTENSION]: modeReminder};
 
 export const switchModeDeclaration: AgentToolDeclaration = {
     description: "申请切换 Agent 模式（normal 正常干活，discuss 只讨论，plan 讨论并写计划），用户同意后生效。从 plan 切走时用户会看到 session://plan.md 的全文，写好计划再申请，不要和写计划放在同一条回复里。",
