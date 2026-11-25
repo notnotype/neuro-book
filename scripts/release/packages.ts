@@ -192,11 +192,29 @@ function runtimeDependencyNames(manifest: PackageManifest): string[] {
     return [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})];
 }
 
-export function checkReleasePackages(root: string, packages: readonly ReleasePackage[]): Finding[] {
+/**
+ * 版本独立的生成包里已经首发的（源码包的清单没有 `private`）的名字。只查源码包时（`release:check` 不生成任何东西）它们的生成
+ * 目录可能还没有，名字与首发与否从源码包的清单取；源码目录不在（测试用的夹具根）就当没有。
+ */
+export function releasedBuiltNames(root: string, built: readonly BuiltPackage[] = BUILT_PACKAGES): Set<string> {
+    const names = new Set<string>();
+    for (const entry of built) {
+        if (entry.version !== "own") continue;
+        const source = readOptional(join(root, "packages", entry.source, "package.json"));
+        if (source && (JSON.parse(source.toString("utf8")) as PackageManifest).private !== true) names.add(entry.name);
+    }
+    return names;
+}
+
+/**
+ * `alsoReleased`：不在 `packages` 里、但同样发到 registry 的包名（只查源码包时的生成包，见 `releasedBuiltNames`）：
+ * 源码包的发布依赖可以指向它们，同样要写 `workspace:^`。
+ */
+export function checkReleasePackages(root: string, packages: readonly ReleasePackage[], alsoReleased: ReadonlySet<string> = new Set()): Finding[] {
     const findings: Finding[] = [];
     const rootLicense = readFileSync(join(root, "LICENSE"));
     // 首发之前的生成包不算发布的包：别的包的发布依赖不能指向它（它还不在 registry 上）。
-    const releaseNames = new Set(packages.filter((entry) => !entry.held).map((entry) => entry.manifest.name));
+    const releaseNames = new Set([...packages.filter((entry) => !entry.held).map((entry) => entry.manifest.name), ...alsoReleased]);
     for (const entry of packages) {
         const report = (code: Finding["code"], message: string) => findings.push({package: entry.manifest.name, code, message});
         const {manifest} = entry;
@@ -397,7 +415,7 @@ if (import.meta.main) {
     try {
         const {root, dirs, json} = parseArguments(Bun.argv.slice(2));
         const packages = loadReleasePackages(root, dirs);
-        const findings = checkReleasePackages(root, packages);
+        const findings = checkReleasePackages(root, packages, releasedBuiltNames(root));
         const order = findings.some((finding) => finding.code === "dependency_cycle") ? [] : publishOrder(packages);
         if (json) {
             console.log(JSON.stringify({ok: findings.length === 0, findings, order: order.map((entry) => entry.manifest.name)}));
