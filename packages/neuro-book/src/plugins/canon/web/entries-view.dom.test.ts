@@ -64,7 +64,7 @@ async function publish(canon: CanonClient, entries: Entry[]): Promise<Record<str
     return result.value.ids;
 }
 
-async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: (visible?: Ref<boolean>) => ReturnType<typeof mount>}> {
+async function setup(kinds = () => mergeEntryKinds(BUILTIN_ENTRY_KINDS)): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: (visible?: Ref<boolean>) => ReturnType<typeof mount>}> {
     venue = await canonNodeWorld(tmp);
     const mine = await venue.window("mine");
     const other = await venue.window("other");
@@ -76,7 +76,7 @@ async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; stat
     const state = entriesViewState();
     const opened: string[] = [];
     const notices = createNotices();
-    const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id), create: {dialog: NewEntryDialog, call: client.call, notices, kinds: () => mergeEntryKinds(BUILTIN_ENTRY_KINDS)}});
+    const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id), create: {dialog: NewEntryDialog, call: client.call, notices, kinds}});
     return {
         world, other, state, opened, parents,
         // 给了 `visible` 时按工作台的做法给一份 `context`；不给时宿主按可见算。
@@ -231,5 +231,23 @@ describe("设定视图", () => {
         const entry = stored.value.object as Entry;
         expect(entry).toMatchObject({type: "人物", folder: "人物", init: {name: "星瑾"}});
         expect(Object.keys(entry.init.data)).toEqual(["character", "look"]);
+    });
+
+    it("“人物”这个种类没登记时，空状态里没有“新建人物”", async () => {
+        const {view} = await setup(() => mergeEntryKinds(BUILTIN_ENTRY_KINDS.filter((item) => item.declaration.kind !== "人物")));
+        const wrapper = view();
+        await waitUntil("空状态", () => wrapper.find("[data-entries-empty]").exists());
+        expect(wrapper.get("[data-entries-empty]").findAll("button").map((button) => button.text())).toEqual(["新建条目"]);
+    });
+
+    it("种类的候选：登记的种类排在作品里用过的词前面，同一个词只列一次", async () => {
+        const {other, state, view} = await setup();
+        await publish(other.canon, [person("魔杖", {type: "法器", folder: "法器"}), person("短剑", {type: "物品", folder: "物品"})]);
+        state.expanded.value = ["folder:法器", "folder:物品"];
+        const wrapper = view();
+        await waitUntil("条目出现", () => rowTexts(wrapper).includes("魔杖") && rowTexts(wrapper).includes("短剑"));
+        startNewEntry(state, null);
+        await waitUntil("对话框", () => document.body.querySelector("[data-new-entry-kinds]") !== null);
+        expect([...document.body.querySelectorAll("[data-new-entry-kinds] button")].map((button) => button.textContent?.trim())).toEqual(["人物", "组织", "地点", "物品", "法器"]);
     });
 });

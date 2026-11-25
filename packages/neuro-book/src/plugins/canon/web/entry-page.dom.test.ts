@@ -309,6 +309,28 @@ describe("条目页", () => {
         expect(tabs2()).toEqual(["文字", "人物", "面板", "情节0"]);
     });
 
+    it("人物条目有没提交的主文字稿时，打开页面选“文字”、直接在编辑里（输出 9、45）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕", {type: "人物"});
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const sourceArea = (wrapper: ReturnType<typeof mount>): HTMLTextAreaElement | null => (wrapper.element as Element).querySelector<HTMLTextAreaElement>("[data-text-source] textarea");
+        const first = await open(id);
+        first.state.tab = "text";
+        await waitUntil("“编辑”", () => first.wrapper.find("[data-text-edit]").exists());
+        await first.wrapper.get("[data-text-edit]").trigger("click");
+        await waitUntil("编辑视图", () => sourceArea(first.wrapper) !== null);
+        const area = sourceArea(first.wrapper)!;
+        area.value = "还没写完的一段";
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("有稿", () => first.wrapper.find("[data-text-discard]").exists());
+        first.wrapper.unmount();
+
+        // 新开一个标签（没选过分页）：人物分页排在文字前面，但有稿时先看文字。
+        const second = await open(id);
+        await waitUntil("选中文字、在编辑里", () => second.wrapper.find("[role='tab'][aria-selected='true']").exists() && second.wrapper.get("[role='tab'][aria-selected='true']").text() === "文字" && sourceArea(second.wrapper)?.value === "还没写完的一段");
+        expect(second.state.tab).toBe("text");
+    });
+
     it("别处发布以后原地更新，不出加载占位；找不到、已删除、未出场", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
@@ -1385,6 +1407,9 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("添加形象", () => second.wrapper.find("[data-portrait='absent']").exists());
         await second.wrapper.get("[data-portrait]").trigger("click");
         await waitUntil("加上了形象", () => second.wrapper.find("[data-portrait='no-image']").exists());
+        // 有形象、没有立绘：“添加立绘”也是切到形象分页。
+        await second.wrapper.get("[data-portrait]").trigger("click");
+        await waitUntil("切到形象分页", () => second.state.tab === "data:look");
     });
 
     it("形象分页：点某一套的“换上”，现在穿的的编辑里填好这一套、预选“剧情里变了”，保存以后在所选位置上换了，旁边写“第 2 章改过”", async () => {
@@ -1418,6 +1443,40 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         (document.body.querySelector("[data-preset='种族']") as HTMLElement).click();
         await waitUntil("加上了种族", () => wrapper.find("[data-fact='种族'] [data-more='种族']").exists());
         expect(document.body.querySelector("[data-preset='种族']")).toBeNull();
+    });
+
+    it("成段的文字：在编辑层里按下不收起；点编辑层外面放弃这次填写，值不变；保存在途时点外面不放弃（输出 51）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("性格", () => wrapper.find("[data-edit='character.性格']").exists());
+        const before = wrapper.get("[data-passage='性格']").text();
+        const editor = (): Element | null => document.body.querySelector("[data-field-editor='character.性格']");
+        const press = (target: Element): void => void target.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        const openAndType = async (value: string): Promise<HTMLTextAreaElement> => {
+            await wrapper.get("[data-edit='character.性格']").trigger("click");
+            await waitUntil("编辑层", () => editor()?.querySelector("textarea") != null);
+            const area = editor()!.querySelector("textarea")!;
+            area.value = value;
+            area.dispatchEvent(new Event("input", {bubbles: true}));
+            return area;
+        };
+        press(await openAndType("嘴硬心软"));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(state.edit?.path).toBe("character.性格");
+        press(wrapper.get("[data-passage='说话方式']").element);
+        await waitUntil("放弃了", () => state.edit === null && editor() === null);
+        expect(wrapper.get("[data-passage='性格']").text()).toBe(before);
+
+        // 保存的请求已经发出：这时点外面不放弃，保存回来写进去。
+        await openAndType("最怕被人看穿");
+        await waitUntil("预览", () => editor()?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        [...editor()!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+        press(document.body);
+        expect(state.edit?.path).toBe("character.性格");
+        await waitUntil("保存了", () => wrapper.get("[data-passage='性格']").text().includes("最怕被人看穿"));
     });
 
     it("现在的状态：点开是细节，点“改起点”时编辑层浮在它原处、细节收起，不出页面顶上的确认条", async () => {

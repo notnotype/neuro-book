@@ -36,6 +36,7 @@ describe("CanonImage", () => {
         const img = wrapper.get("img");
         expect(img.attributes("src")).toBe("/raw/%E6%8F%92%E5%9B%BE%2F%E6%98%9F%E7%91%95.png");
         expect(img.attributes("alt")).toBe("星瑕的立绘");
+        expect(img.attributes("loading")).toBe("lazy");
         expect(state(wrapper)).toBe("loading");
         await img.trigger("load");
         expect(state(wrapper)).toBe("loaded");
