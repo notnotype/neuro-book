@@ -1,0 +1,140 @@
+# w00032 t46 计划设计审查（Opus）
+
+### 1. “打开时依赖缺失、提供方晚到后解除只读”的路径实际会把会话解锁成占位 Profile
+- 严重程度：阻断
+- 类别：依赖的机制是否真的存在 / 失败路径
+- 位置：packages/nb-harness/src/kernel/session/session.ts:110-118（assembleOrPlaceholder）、:732-801（reassembleOnce，`let profile = current` 只在 pending.profile 或 profileLost 时重新解析）；计划“关键设计”规则 4 与切片 1“提供方晚到后解除只读”。
+- 现象：openSession 装配失败时 core.assembly 换成 placeholderProfile(id)（version "unknown"、没有 system、没有工具），readOnly 记 dependency-missing。之后插件 published 触发 reassembleOnce，pending.profile 为 false，profile 取的是 current，也就是占位对象；assemble(占位, 插件扩展) 成功，写 profileChanged{plugin-added, manifest 里 test.dependent version "unknown"}，settled() 把只读解除。会话从此可写，但跑的是空壳 Profile。
+- 如何核实：/tmp/review-t46-design/exp/open-missing.test.ts（在 nb-harness 包目录 `bun test <该文件>`）。建会话（依赖 lab.count 的 Profile，system="我是真 Profile"）→ 关 → 新宿主不发布 lab.count 就 open → readOnly dependency-missing → 发布 lab.count → readOnly null，日志第二条 profileChanged 的 manifest 是 `{"id":"test.dependent","version":"unknown"}`，随后 send 成功，发给模型的 system 只有“计数器在”，Profile 自己的系统提示词没了。现有 host.test.ts 761/830/933 三条只测“建好后撤回再补回”（那时 current 是真 Profile），没有覆盖“打开时就缺”。
+- 为什么是问题：计划把引用缺失归入现有 dependency-missing 语义，并断言“打开已有会话进只读、提供方晚到后重新装配即解除”。这条恢复路径在内核里是坏的；按需引用让主创、临时、伴聊三个最常用的 Profile 都依赖一个贡献是否已发布，打开时序稍有偏差（见第 2 条）就会触发，并把带 version "unknown" 的 profileChanged 永久写进日志。
+- 建议改法：切片 1 先修内核：打开时装配失败要记下“需要重新解析”（例如 state 里存解析到的真 Profile，或把这种只读当成 profileLost 处理，让 reassembleOnce 重新 resolve），并补“打开即缺、晚到后恢复、恢复后 system 与 manifest 是真 Profile”的用例；计划的验收映射把这条单列。
+
+### 2. 伴随规则绕过 `pluginExtensions` 的排除与 `"none"`，按需扩展也没法拒绝被伴随
+- 严重程度：重要
+- 类别：接口与合同 / 别扭与反常之处
+- 位置：计划“关键设计”规则 2、3 与“不做与风险”最后一条；packages/nb-harness/src/kernel/extension/assemble.ts:194-197（现有排除只作用于插件扩展）。
+- 现象：规则 2 说按需扩展“与 pluginExtensions 的排除无关（引用是显式的）”；规则 3 让“依赖里有一个已装上的按需扩展”的按需扩展自动装上。伴随不是显式引用，计划却没说它是否受标签排除与 `"none"` 约束。照字面实现：一个写 `pluginExtensions: "none"`、只引用 `nbook.agent.modes` 的精简 Profile，会被任何第三方插件“依赖模式扩展的按需扩展”塞进来，`"none"` 失效；按标签排除也挡不住。反过来，第三方作者想写一个“依赖模式、但只给点名的 Profile 用”的按需扩展，也做不到，它必然伴随到所有引用模式的 Profile。
+- 为什么是问题：`"none"` 与标签排除是 Profile 作者现有的唯一控制手段（extensions.md 装配一节、profile.ts:50-51），伴随在它们之外又开了一条装入路径。反向依赖自动拉入（被依赖者装上，依赖者跟着装）在同类插件系统里少见：VS Code 的 extensionDependencies、npm 的依赖都是正向拉入，“扩展别人的扩展”通常走显式贡献点。计划的理由（不必让每个 Profile 都改声明）只覆盖“提醒”这一个同插件的场景。
+- 如何核实：对照 assemble.ts:195 的筛选与计划规则 1–3 的文字；“伴随”一句没有任何关于排除或 `"none"` 的条件。
+- 建议改法：二选一并写进 Spec：(a) 伴随只在同一插件内生效（提醒与模式都属 nbook.agent），跨插件要显式引用；(b) 伴随项仍受 `pluginExtensions` 的标签排除与 `"none"` 约束，并允许声明 `install: "on-request"` 的扩展再声明不伴随。更简单的替代：模式扩展的声明带 `includes: ["nbook.agent.mode-reminder"]`（引用一个 id 带上一组），不引入反向依赖语义。验收映射补“`"none"` 的 Profile 引用模式时不带上别的插件的伴随项”。
+
+### 3. “有会话时按会话自己的扩展状态”在前端没有数据来源，计划漏了 nb-agent-ui 与刷新时机
+- 严重程度：重要
+- 类别：依赖的机制是否真的存在 / 遗漏
+- 位置：计划“web/session-host.ts 的 hasModes”一条；packages/nb-agent-ui/src/kernel-transcript.ts:106-118（KernelMeta 没有 extensions）、:960-975（applySnapshot 只取 extensionSettings 等）、:210（profileChanged 在 IGNORED 里）；packages/neuro-book/src/plugins/agent/web/session-host.ts:155-159（profileChanged 只触发重取模型）。
+- 现象：内核快照有 `extensions: ExtensionInfo[]`（含 active/revoked/failed，session.ts:365），但前端 transcript 的 meta 只保留 title、settings、extensionSettings、model、profile、readOnly，没有扩展列表；日志帧里的 profileChanged 被忽略，会话在开着时重新装配（插件增减、用户级 Profile 改了引用、只读解除）后前端不会知道扩展变了。运行中撤回只记在 core.revoked，不写日志，前端更看不到。
+- 为什么是问题：计划把“会话元数据里模式扩展是否 active”当成现成的判据，实际要新增 KernelMeta 字段、快照解析、以及在 profileChanged（帧里带 manifest）时更新或重取快照；不做的话，控件只在打开会话那一刻对，之后与真实装配脱节，正是 brief 关心的“Profile 代码改了、会话还没重新装配”及其反向情形。这些改动跨到 nb-agent-ui 包，计划的切片 3 与文件清单都没有。
+- 如何核实：grep `extensionSettings` 与 `KernelMeta` 于 packages/nb-agent-ui/src/kernel-transcript.ts；grep `profileChanged` 于 session-host.ts 只有 changesResolvedModel 一处。
+- 建议改法：切片 3 写明：KernelMeta 加 `extensions: {id, status}[]`，applySnapshot 读快照的 `extensions`，收到 profileChanged 帧时按 data.manifest 更新（或重取一次快照）；session-host.test.ts 补“开着的会话重新装配后控件随之出现或消失”。或者更简单：前端只用目录判据，后端 changeSettings 的 unknown-extension 映射成用户能懂的提示，不追会话状态。
+
+### 4. 新建会话时的草稿模式只对主创生效，计划漏了 session-host.ts:1261 与 2091 的“只有主创有模式”假设
+- 严重程度：重要
+- 类别：遗漏的调用方
+- 位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:1259-1261（`if (mode !== "normal" && profile === MAIN_PROFILE) await setMode(mode)`，注释“只有主 Profile 装了模式”）、:2091-2092（没有会话时控件一律显示，注释“还没有会话时要建的就是主创”）。
+- 现象：计划让临时、伴聊与第三方 Profile 也有模式，但没有会话时，用户在任意 Profile 的草稿里选 `plan`，建会话后草稿模式只在 MAIN_PROFILE 上提交，其它有模式的 Profile 静默丢掉（modes.md 输出 7“能先开 plan 再发第一条”对它们不成立）；反过来，没会话时控件按“有”显示，选中一个不引用模式的 Profile 时控件照样出现，用户选了 `plan` 也被静默忽略。计划说“没有会话时用目录”，但 2092 行的条件是 `meta !== null && meta !== undefined && !hasModes(profile)`，没有会话时 meta 为空，整个判据被短路，改 hasModes 本身不改变这一分支。
+- 为什么是问题：开发者定的“模式控件跟着扩展走”在新建流程里不成立；验收映射的两条 session-host 用例都在有会话之后，测不到这里。
+- 如何核实：读上述两处；grep `MAIN_PROFILE` 于 session-host.ts。
+- 建议改法：1261 改为按目录判据（要建的 Profile 引用了模式就提交草稿模式），2092 的短路去掉，没会话时也按目录判；补用例“伴聊或第三方 Profile 草稿选 plan、建会话后是 plan”“不引用模式的 Profile 草稿里没有控件”。
+
+### 5. 插件 Profile 的引用有两处来源（声明与实现取并集），目录只看声明，两边会对不上
+- 严重程度：重要
+- 类别：接口与合同 / 单一真相源
+- 位置：计划“backend/profiles.ts 的 resolve：声明的与实现自己写的取并集”与“目录详情：插件 Profile 取声明的”；packages/neuro-book/src/plugins/agent/backend/profiles.ts:72-88、128-140。
+- 现象：插件作者若只在实现里写 `referencedExtensions: ["nbook.agent.modes"]`（这正是用户级 Profile 的写法，SDK 用户自然会照抄），会话里有模式，目录详情却没有：没会话时控件不出现、草稿选不了模式、子代理判断（若按目录）也错；反过来声明写了、实现没写，两边一致。并集让“实现里写”成为一条能用但目录看不见的路。
+- 为什么是问题：contributions.md 输出 7、14 的原则是“插件 Profile 的目录来自声明，不激活提供方”；引用一旦能藏在实现里，界面判据与真实装配就有两种来源，正是 brief 第 4 点要防的不一致。开发者定的修法是“声明里按 id 引用”，实现里的写法没有被要求。
+- 如何核实：计划原文；profiles.ts:72-88 目录只读 descriptor.declaration。
+- 建议改法：插件 Profile 只认声明：resolve 用声明的 `extensions` 覆盖（不取并集），实现里另写了 `referencedExtensions` 且与声明不同时写诊断（或装配拒绝）；用户级 Profile 没有声明，只认包里的。Spec 输出 14 写明两种来源各自唯一。
+
+### 6. 规则 4 把“引用了一个自动扩展”算作满足，但没定义它装不装、会不会重复
+- 严重程度：建议
+- 类别：边界未处理
+- 位置：计划规则 2、4（“引用的 id 没有对应的按需或自动扩展：dependency-missing”）；assemble.ts:195、218-223（重名检查）。
+- 现象：引用一个自动扩展有三种情形，计划都没写：(1) 它已按缺省装上：照字面把“引用的”并进插件项会得 `duplicate-extension-id … installed twice`；(2) 它被 Profile 的标签排除或 `"none"` 挡掉：规则 2 的“引用无视排除”只对按需扩展说，自动扩展被引用后装不装不明；(3) 不装又不报，就是静默失效。另外引用 Profile 自带扩展（如主创的 rules）或 Profile 自己的 id，按规则 4 都报 dependency-missing，提示文字“depends on … which is not installed”对作者会误导。
+- 为什么是问题：内核装配所有会话都经过它，模糊处会被实现者各按各的理解写；这三种都能用真实输入构造出来。
+- 如何核实：读计划规则 1–4 的文字；assemble.ts:221 的重名消息。
+- 建议改法：Spec 写明：引用一律按 id 去重；被引用的自动扩展即使被排除也装上（与按需同一句话“引用是显式的”），或者只允许引用按需扩展、引用自动扩展给装配警告；引用缺失用单独的问题码（如 `referenced-extension-missing`，仍映射到 profile-invalid 与只读 dependency-missing），message 写“profile X references extension Y, which is not contributed”。内核单测补这三种。
+
+### 7. resolve 每次交一个新合并的对象，会让 profilesChanged 的同哈希重装每次都摘下再装回全部扩展
+- 严重程度：建议
+- 类别：隐含耦合 / 资源
+- 位置：计划“resolve：交给内核的对象是实现加上 referencedExtensions”；packages/neuro-book/src/plugins/agent/backend/profiles.ts:134（现在交回 handle.implementation() 本身）；packages/nb-harness/src/kernel/session/session.ts:786-799（`sameHash && profile === core.assembly.profile` 才短路，否则 unmountAll → reassemble → mountAll）。
+- 现象：若 resolve 里 `{...implementation, referencedExtensions}` 每次新建对象，内核每次 pending.profile 重新解析（插件 Profile 提供方发布或撤回、profileCatalog 的 changed）都看到“对象换了、哈希没变”，走完整的摘下与装回，扩展的 mount 清理和重建都跑一遍；子代理派发与目录也各拿到不同对象。
+- 为什么是问题：内核用对象相等判断“没变”，这条约定在计划里没提；平白多一轮 unmount/mount 对带外部资源的扩展（会话元数据、技能、贴纸）是可观察的副作用。
+- 如何核实：session.ts:788 的条件与 profiles.ts:134。
+- 建议改法：按平台句柄缓存合并结果（WeakMap<Handle, AnyProfile>），同一代句柄交同一个对象；声明没有 `extensions` 时直接交实现。
+
+### 8. 目录的可用性不看引用：引用了不存在的扩展的 Profile 仍显示 `ok`，选了才在建会话时 profile-invalid
+- 严重程度：建议
+- 类别：失败路径 / 界面
+- 位置：packages/neuro-book/src/plugins/agent/backend/profiles.ts:66-101（availability 只看 required 工具）；contributions.md 输出 8、15。
+- 现象：第三方插件 Profile 声明 `extensions: ["acme.x"]`，而 acme 插件没装或 id 拼错，目录里它仍是 `ok`，用户选中后建会话失败 `profile-invalid`，详情是内核的 problems 数组。工具缺失有结构化原因 `tools-missing`，引用缺失没有。
+- 为什么是问题：扩展的声明同样来自清单（`declarations.list(EXTENSIONS_POINT)`，不激活提供方），目录完全能算出“引用的 id 没有被任何插件声明为按需或自动扩展”；不算的话，用户与插件作者只能靠一次失败的新建才发现拼错。
+- 如何核实：profiles.ts:68-71 的 availability。
+- 建议改法：输出 8 加一种原因 `{code: "extensions-missing", extensions}`，按清单里的扩展声明算；Spec 输出 15 同步；profiles.test.ts 补一条。若嫌范围扩大，至少在计划“不做”里写明并说明用户看到的是什么。
+
+### 9. 引用把“自己的贡献晚一步发布”从无害变成硬失败，计划没有核对 nbook.agent 自己的发布时序（从代码推断，未验证）
+- 严重程度：建议
+- 类别：并发与时序
+- 位置：packages/nb-runtime/src/plugins/host.ts:1303-1317（先 `scope.open()` 接纳业务，再 `await #withReceiverLocks` 后才逐个调接收者的 published）；packages/neuro-book/src/plugins/agent/backend/agent.ts:290-299（beforeOpen 只触发 onAgentSession:open，对已在激活中的 nbook.agent 自己不等它的发布）。
+- 现象：今天 nbook.agent 自己的扩展（subagents、skills 等）都是自动扩展，若有会话在 scope.open 与 published 之间建或开，只是少装、随后 plugin-added 补上；改成按需引用后，同一窗口里新建主创会话得 profile-invalid，打开旧会话进只读 dependency-missing（再叠加第 1 条就是空壳 Profile）。接收者锁被别的插件的 prepare 占着时，这个窗口不止一个微任务。
+- 为什么是问题：主创、临时、伴聊三个 Profile 都依赖这一刻已发布；伴聊 bot 在 onStartup 激活、依赖 agentKey，是最可能踩进窗口的调用方。
+- 如何核实：读上述两处；可在 agent.test.ts 里让 bots 一类的插件在拿到 agentKey 后立即建伴聊会话，看是否偶发 profile-invalid。
+- 建议改法：切片 2 加一条用例钉住“nbook.agent 激活完成即可建引用模式的会话”；或在 agentKey 的门面里先等本插件对 agent.extensions 的交付完成（或会话表在首次建或开之前等一次自身发布）。
+
+### 10. 子代理派发的 modal 判断改读静态引用，与续用路径的快照判据不一致
+- 严重程度：建议
+- 类别：一致性
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:343（派发：读 `profile.extensions`，计划改读 `referencedExtensions`）、:200（续用 tighten：`snapshot.extensions` 里 modes 是否 active）、:366（建好后才写模式设置，失败时留下一个已建的子会话）。
+- 现象：派发看“声明了引用”，续用看“装配里 active”。两者在用户级 Profile 改了引用但包还没成功、或伴随等情形下可能不同；按引用判断为有模式而实际装配没有时，到 366 行 changeSettings 才失败（unknown-extension），子会话已经建好、留在列表里。
+- 为什么是问题：同一条 modes.md 输出 14 的闸门有两种判据；计划把“引用”这一更间接的判据又固化了一次。
+- 如何核实：读 tools.ts:200、343、366。
+- 建议改法：建好子会话后用它的快照调用同一个 `hasModes(snapshot)` 判断，模式不符再拒绝并关掉（或归档）子会话；或者至少在计划里说明为什么派发前只能静态判断（建前没有快照），并让判据函数集中一处。
+
+### 11. 同名 `extensions` 在声明里是 id 数组、在实现里是对象数组，用户级又叫 `referencedExtensions`
+- 严重程度：建议
+- 类别：接口与合同 / 易错
+- 位置：计划“shared/points.ts：ProfileDeclarationSchema 加 extensions: Optional(Array(String))”与“api/profile.ts：Profile 加 referencedExtensions”；packages/nb-harness/src/kernel/api/profile.ts:52-53（实现的 `extensions?: readonly AnyExtension[]`）。
+- 现象：插件作者在声明里写 `extensions: ["nbook.agent.modes"]`，在同一文件的 defineProfile 里 `extensions` 却必须是对象；用户级 Profile 要写 `referencedExtensions`。JavaScript 作者（Spec 明说装配期检查为他们而设）照声明的写法往 defineProfile 里写字符串，assemble.ts:198 会把字符串当扩展定义，得到 `bad-extension-id`（id 为 undefined），提示与真实错误无关。SDK 文档计划只写“要模式就写 extensions”。
+- 为什么是问题：一个概念三个写法，且与已有字段同名不同型，是可预见的作者错误来源。
+- 如何核实：对照计划两处命名与 profile.ts:53。
+- 建议改法：声明字段与实现字段用同一个名字（例如两处都叫 `useExtensions` 或 `referencedExtensions`），assemble 遇到 `extensions` 里的字符串给专门的问题与 hint（“按 id 引用请写在 …”）。
+
+### 12. 开发者报告的原场景修完后仍留着一个必失败的工具：绑定里加的 `switch_mode` 照样交给模型
+- 严重程度：建议
+- 类别：遗漏（开发者场景的余波）
+- 位置：contributions.md 输出 4（工具集 = 声明 + defaultForAll + 绑定 added）；modes.ts:80（没有模式时 `mode-unavailable`）；计划验收映射第 1 条。
+- 现象：开发者是在 Profile 面板（工具绑定）里给插件 Profile 加上能力的。修完后控件不出现，但绑定加进来的 `switch_mode` 仍在工具集里，工具说明告诉模型“申请切换 Agent 模式”，模型每次调用都得 `mode-unavailable`，白占一轮与工具说明的 token。计划把它当作正确结果写进验收，没讨论是否该在工具集或面板上处理。
+- 为什么是问题：用户以为配上了模式，界面却既没控件、也没解释；模型侧有一个永远失败的工具。
+- 如何核实：读输出 4 与 modes.ts:75-80。
+- 建议改法：最小做法是在 Profile 面板的工具列表里，对不引用模式的 Profile 给 `switch_mode` 标注“这个 Profile 没有模式”（属界面，可另开）；或在工具集计算里，会话装配里没有 `nbook.agent.modes` 时去掉 `nbook.agent.switch-mode`。至少在计划“不做与风险”里写明这一现状，交开发者知情。
+
+### 13. 验证一节的 e2e 选择办法会选中 16 个文件，超过仓库的 8 文件上限
+- 严重程度：建议
+- 类别：验收映射
+- 位置：计划“验证”的 `grep -ln "mode" packages/neuro-book/e2e`。
+- 现象：在 b93b9e81e 上这条命令命中 16 个文件（“mode”也匹配 model、darkMode 等），而 AGENTS.md 要求一次超过 8 个文件写明 NB_E2E_WIDE，否则 Playwright 配置直接拒绝；计划预计“一两个文件”。
+- 为什么是问题：照计划执行会被拒或白跑一轮大范围；真正覆盖模式控件的大概率只有 agent-conversation.e2e.ts。
+- 如何核实：`grep -ln "mode" -r packages/neuro-book/e2e | wc -l` 得 16。
+- 建议改法：计划里直接写文件名，或用 `grep -lnE "switch-mode|nbook.agent.modes|conversation.mode" -r packages/neuro-book/e2e` 之类精确的词定位，再人工确认。
+
+### 14. `complete()` 以空的插件扩展装配，带引用的无工具 Profile 会以 `unknown-profile` 失败
+- 严重程度：建议
+- 类别：遗漏的调用方
+- 位置：packages/nb-harness/src/kernel/session/complete.ts:26-27（`assemble(profile, [])`，失败一律报 `unknown-profile`）。
+- 现象：按规则 4，引用了任何 id 的 Profile 在空的 contributed 上装配必得 dependency-missing，`complete()` 把它报成 `unknown-profile`。今天三个引用模式的 Profile 都有工具，被 `profile-has-tools` 先挡掉，所以不触发；但第三方的无工具 Profile 一旦引用扩展就会以错误的码失败。
+- 为什么是问题：内核里第三个装配入口，计划只列了会话的建、开、重新装配。
+- 如何核实：读 complete.ts:22-27。
+- 建议改法：Spec 写明单次请求不装按需扩展、忽略引用（与它忽略插件扩展一致），assemble 加一个“不检查引用”的选项；或者报专门的码。内核单测补一条。
+
+## 未发现问题的方面
+- 拦截链（runtime.md 输出 20）：modes 扩展与提醒都没有 `intercept`，闸门在宿主的审批钩子里经 `read(modesContract)` 读（agent.ts:268），从 profile-extension 组移到插件组不改变拦截顺序；全仓只有这一个 `reminder()`，提醒写入顺序的变化不影响别的提醒。
+- 扩展 id 与前缀：`nbook.agent.modes`、`nbook.agent.mode-reminder` 都以所属插件 id 开头，过得了 contributedIdProblem 与 prepare。
+- 旧会话设置与片：扩展设置按扩展 id 存、提醒的片按扩展 id 归约，id 不变；fork 带最后一条 profileChanged 与全部 settingsChanged（session.ts:642-643），回退不切回，这几条在新装配下语义不变；哈希因所属插件变化而变、写 code-updated 是预期（开发者已同意）。
+- 续用子会话的模式收紧（tools.ts:200 起）已按快照判，不受这次改动影响。
+- 伴随的闭包本身：按“依赖都满足才加入”迭代到不动点，在依赖缺失时不加入、不报错；成环在 prepare 时已被 cycleWith 否决，装配里 topological 还有一层兜底。
+- 撤回与重新激活：会话建好之后提供方撤回再补回，现有 reassembleOnce 路径正常（host.test.ts 有覆盖）；问题只出在“打开时就缺”（第 1 条）。
+
+## 各级数量
+- 阻断：1（第 1 条）
+- 重要：4（第 2、3、4、5 条）
+- 建议：9（第 6–14 条）

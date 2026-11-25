@@ -76,12 +76,16 @@ async function openSearchPage(page: Page): Promise<void> {
     await expect(page.locator("[data-search-settings]")).toBeVisible();
 }
 
+const detail = (page: Page) => page.locator("[data-search-detail]");
+const userSettings = async (): Promise<Record<string, unknown>> => JSON.parse(await readFile(join(stateRoot, "settings.json"), "utf8")) as Record<string, unknown>;
+
 test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；已设置时框为空；回车换一把后检测用新的；清除后检测停用", async ({page}) => {
     await openSearchPage(page);
-    const deepseek = page.locator("[data-search-provider='deepseek']");
-    const key = deepseek.locator("[data-key-input]");
-    const check = deepseek.locator("[data-search-check]");
-    const result = deepseek.locator("[data-search-check-result]");
+    // 第一次显示时选中使用中的那家（缺省 DeepSeek）。
+    await expect(detail(page)).toHaveAttribute("data-search-detail", "deepseek");
+    const key = detail(page).locator("[data-key-input]");
+    const check = detail(page).locator("[data-search-check]");
+    const result = detail(page).locator("[data-search-check-result]");
     const keysFile = async (): Promise<unknown> => JSON.parse(await readFile(join(stateRoot, "web", "keys.json"), "utf8"));
     await expect(key).toHaveAttribute("placeholder", "还没有填写");
     await expect(check).toBeDisabled();
@@ -91,7 +95,7 @@ test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；�
     await check.click();
     await expect(result).toContainText("检测通过");
     expect(seen).toEqual([`Bearer ${FIRST}`]);
-    await expect(deepseek.locator("[data-key-clear]")).toBeVisible();
+    await expect(detail(page).locator("[data-key-clear]")).toBeVisible();
     await expect(key).toHaveValue("");
     await expect(key).toHaveAttribute("placeholder", "已设置");
     expect(await page.content()).not.toContain(FIRST);
@@ -102,38 +106,83 @@ test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；�
     await key.press("Enter");
     await expect(result).toHaveText("");
     await expect.poll(keysFile).toEqual({version: 1, keys: {deepseek: SECOND}});
+    // 结果写在预留的一行里：出现时不推动下面的“高级”（输出 8）。
+    const advanced = detail(page).locator("[data-search-advanced]");
+    const before = (await advanced.boundingBox())?.y;
+    expect(before).toBeDefined();
     await check.click();
     await expect.poll(() => seen.length).toBe(2);
     expect(seen.at(-1)).toBe(`Bearer ${SECOND}`);
     await expect(result).toContainText("检测通过");
+    expect((await advanced.boundingBox())?.y).toBe(before);
 
-    await deepseek.locator("[data-key-clear]").click();
+    await detail(page).locator("[data-key-clear]").click();
     await expect(key).toHaveAttribute("placeholder", "还没有填写");
     await expect(check).toBeDisabled();
     await expect(result).toHaveText("");
 });
 
-test("验收 3：选用改成 Tavily，设置文件用户层里是 tavily，关掉再开设置窗口仍选中；Tavily 一节填密钥、检测通过", async ({page}) => {
+test("验收 3、4：DeepSeek 有密钥在用时把 Tavily 设为使用中，先不切、焦点进它的密钥框；填好回车后切过去；关掉再开设置窗口仍选中 Tavily，检测走 Tavily", async ({page}) => {
     await openSearchPage(page);
-    const use = page.locator("[data-search-use]");
-    await expect(use.locator("[data-value='deepseek']")).toHaveAttribute("aria-checked", "true");
-    await use.locator("[data-value='tavily']").click();
-    await expect(page.locator("[data-search-use-no-key]")).toHaveText("Tavily 还没有密钥");
-    const userSettings = async (): Promise<unknown> => (JSON.parse(await readFile(join(stateRoot, "settings.json"), "utf8")) as Record<string, unknown>)["nbook.web/provider"];
-    await expect.poll(userSettings).toBe("tavily");
+    await detail(page).locator("[data-key-input]").fill(FIRST);
+    await detail(page).locator("[data-key-input]").press("Enter");
+    await expect(detail(page).locator("[data-key-clear]")).toBeVisible();
 
-    // 关掉设置窗口再打开：选用读的是设置，不是页面里的状态。
+    await page.locator("[data-search-rail-item='tavily']").click();
+    await expect(detail(page)).toHaveAttribute("data-search-detail", "tavily");
+    await detail(page).locator("[data-search-use-action]").click();
+    await expect(detail(page).locator("[data-key-notice]")).toHaveText("填写密钥后即可启用");
+    await expect(detail(page).locator("[data-key-input]")).toBeFocused();
+    expect((await userSettings())["nbook.web/provider"]).toBeUndefined();
+
+    await page.keyboard.type(TAVILY);
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await userSettings())["nbook.web/provider"]).toBe("tavily");
+    await expect(page.locator("[data-search-rail-item='tavily'] [data-search-in-use]")).toBeVisible();
+    await expect(page.locator("[data-search-rail-item='deepseek'] [data-search-in-use]")).toHaveCount(0);
+
+    // 关掉设置窗口再打开：选中的是使用中的 Tavily。
     await page.locator("[data-activity-item='nbook.settings']").click();
     await expect(page.locator("[data-search-settings]")).toHaveCount(0);
     await page.locator("[data-activity-item='nbook.settings']").click();
     await page.locator("[data-settings-nav='nbook.web.search']").click();
-    await expect(use.locator("[data-value='tavily']")).toHaveAttribute("aria-checked", "true");
-
-    const tavily = page.locator("[data-search-provider='tavily']");
-    await tavily.locator("[data-key-input]").fill(TAVILY);
-    await tavily.locator("[data-search-check]").click();
-    await expect(tavily.locator("[data-search-check-result]")).toContainText("检测通过");
+    await expect(detail(page)).toHaveAttribute("data-search-detail", "tavily");
+    await expect(detail(page).locator("[data-search-in-use]")).toBeVisible();
+    seen.length = 0;
+    paths.length = 0;
+    await detail(page).locator("[data-search-check]").click();
+    await expect(detail(page).locator("[data-search-check-result]")).toContainText("检测通过");
     expect(paths).toEqual(["/tavily/search"]);
     expect(seen).toEqual([`Bearer ${TAVILY}`]);
-    await expect(page.locator("[data-search-use-no-key]")).toHaveCount(0);
+});
+
+test("验收 5：改默认结果条数、加一个屏蔽网站、改 Tavily 的接口地址与搜索深度，设置文件用户层里是这几个值", async ({page}) => {
+    await openSearchPage(page);
+    await page.locator("[data-search-rail-item='rules']").click();
+    await expect(detail(page)).toHaveAttribute("data-search-detail", "rules");
+    const count = detail(page).locator("[data-search-count] input, input[data-search-count]").first();
+    await count.fill("7");
+    await expect.poll(async () => (await userSettings())["nbook.web/resultCount"]).toBe(7);
+    const blocked = detail(page).locator("[data-search-blocked] input, input[data-search-blocked]").first();
+    await blocked.fill("https://Blog.CSDN.net/a");
+    await blocked.press("Enter");
+    await expect.poll(async () => (await userSettings())["nbook.web/blockedSites"]).toEqual(["blog.csdn.net"]);
+    await expect(page.locator("[data-search-rail-item='rules']")).toContainText("1");
+    // 粘贴几行：单行输入框会去掉换行，页面在粘贴时按行拆开（输出 12）。
+    await blocked.evaluate((input) => {
+        const data = new DataTransfer();
+        data.setData("text/plain", "zhihu.com\nbaidu.com");
+        input.dispatchEvent(new ClipboardEvent("paste", {clipboardData: data, bubbles: true, cancelable: true}));
+    });
+    await expect.poll(async () => (await userSettings())["nbook.web/blockedSites"]).toEqual(["blog.csdn.net", "zhihu.com", "baidu.com"]);
+
+    await page.locator("[data-search-rail-item='tavily']").click();
+    // 这里的设置文件改过 Tavily 的接口地址（指向本机假端点）：它的“高级”默认展开（输出 13）。
+    await expect(detail(page).locator("[data-search-advanced]")).toHaveAttribute("aria-expanded", "true");
+    const url = detail(page).locator("[data-search-base-url] input, input[data-search-base-url]").first();
+    await url.fill(`${base}/tavily-relay`);
+    await url.press("Enter");
+    await expect.poll(async () => (await userSettings())["nbook.web/tavilyBaseUrl"]).toBe(`${base}/tavily-relay`);
+    await detail(page).locator("[data-search-depth] [data-value='advanced']").click();
+    await expect.poll(async () => (await userSettings())["nbook.web/tavilySearchDepth"]).toBe("advanced");
 });

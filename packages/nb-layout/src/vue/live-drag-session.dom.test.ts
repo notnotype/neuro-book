@@ -162,6 +162,8 @@ describe("合成的先后", () => {
         expect(handle!.session.state.value).not.toBeNull();
         expect(log).not.toContain("facts");
         expect(log).not.toContain("measure");
+        // 落点指示的判定也要量终点的矩形：起拖时照样把过渡送到终点。
+        expect(log).toContain("settleMotion");
     });
 
     it("减少动效（motionMs 为 0）、没有网格时不走实时布局，也不问 live", async () => {
@@ -220,6 +222,7 @@ describe("合成的先后", () => {
         await nextFrame();
         expect(asked).toBe(0);
         expect(handle!.live.state().active).toBe(false);
+        expect(log).toContain("settleMotion");
     });
 
     it("拖动中 dispose：经会话收场结束引擎，状态回到空闲", async () => {

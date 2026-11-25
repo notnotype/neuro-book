@@ -78,7 +78,13 @@ function persist(): void {
 }
 
 // contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 是拖完分隔线、提交落账之后：在这里存档。
-const host = useGridHost({grid, contextKey: "desktop", onApplied: persist});
+// onIssues 是诊断的唯一出口，示例只在控制台说出来。
+const host = useGridHost({
+    grid,
+    contextKey: "desktop",
+    onApplied: persist,
+    onIssues: (issues) => console.warn("nb-layout reported issues", issues),
+});
 const gridView = useTemplateRef<InstanceType<typeof NestedGrid>>("gridView");
 const box = useTemplateRef<HTMLElement>("box");
 

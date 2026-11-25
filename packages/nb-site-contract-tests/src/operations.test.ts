@@ -9,13 +9,13 @@
  * - 按主机名分派（输入一节）：在 `telemetry-ingest.test.ts` 的 C18，那里有写入口主机上的路由可以区分。
  * - 测试控制入口“跑一次任务看到效果”（输出 11、验收 5 之外）：两个真实模块都还没有定时任务；t06 起补。
  * - 创建管理员（输出 5）的“被封的被解封”：要先经管理接口封禁，在 `admin.test.ts` 的账号处置一组。验收 3 的
- *   “账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见 `adjacent-version.test.ts`。
- * - 第一次启动执行了迁移（输出 2 的 `migration.applied`）：两个模块都还没有迁移，t06、t07 加了迁移后“从空的数据目录启动”
- *   一组自然覆盖到。
+ *   “原始上报表是空的”在 `telemetry-ingest.test.ts` 的 C16；验收 2 见 `adjacent-version.test.ts`。
+ *
+ * 权限类的用例在 root 下跳过：root 不受权限位限制，造不出那种失败。
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
-import {copyFile, readdir} from "node:fs/promises";
+import {chmod, copyFile, mkdir, readdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -23,7 +23,7 @@ import {IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
 
 import {backupsDir, BACKUP_NAME, listBackups, quickCheck} from "./testing/backup";
 import {holdWriteLock} from "./testing/fault";
-import {cookieJar, IDENTITY_SITE_ENV, identityRequest, login} from "./testing/identity";
+import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login} from "./testing/identity";
 import {
     isListening,
     randomSecret,
@@ -44,6 +44,8 @@ const sandbox = useSiteSandbox("nb-site-contract-tests operations.test.ts");
 const SETUP_TIMEOUT_MS = 30_000;
 
 const MODULES = ["identity", "telemetry"];
+
+const IS_ROOT = process.getuid?.() === 0;
 
 function events(logs: readonly LogLine[]): unknown[] {
     return logs.map((line) => line.event);
@@ -78,6 +80,18 @@ describe("从空的数据目录启动（输出 2、3、4，验收 1，Smoke）",
 
     it("存活检查 200，响应体是 {status: live}", () => {
         expect({status: firstLive.status, body: firstLive.body}).toEqual({status: 200, body: {status: "live"}});
+    });
+
+    it("第一次启动对每个模块执行迁移：每执行一条一行 migration.applied，带模块名与迁移名", () => {
+        const applied = first.logs().filter((line) => line.event === "migration.applied");
+        // 迁移的名字与条数属于实现，这里只要求每个模块至少一条、每条带名字、同一条不记两次；下一条用例的“不重复执行”靠它才不空过。
+        for (const module of MODULES) {
+            const names = applied.filter((line) => line.module === module).map((line) => line.migration);
+            expect({module, applied: names.length > 0, named: names.every((name) => typeof name === "string" && name !== "")}).toEqual({module, applied: true, named: true});
+        }
+        expect(applied.every((line) => MODULES.includes(line.module as string))).toBe(true);
+        const pairs = applied.map((line) => `${String(line.module)}/${String(line.migration)}`);
+        expect(new Set(pairs).size).toBe(pairs.length);
     });
 
     it("同一个数据目录再次启动：照常就绪，不重复执行迁移", () => {
@@ -241,10 +255,21 @@ describe("日志与请求编号（输出 8）", () => {
         const line = await waitUntil("http.request line", () => site.logs().find((candidate) => candidate.event === "http.request" && candidate.requestId === requestId));
         expect(line).toMatchObject({level: "info", event: "http.request", requestId, method: "GET", path: "/health/live", status: 200});
         expect(line.time).toEqual(expect.any(String));
-        expect(line.module).toEqual(expect.any(String));
+        expect(line.module).toBe("site");
         expect(line.durationMs).toEqual(expect.any(Number));
         expect(site.stdout()).not.toContain(queryValue);
         expect(site.stdout()).not.toContain(inbound);
+    });
+
+    it("就绪检查与测试控制入口的请求不归哪个模块：日志里 module 是 site", async () => {
+        const ready = await requestJson(`${site.url}health/ready`);
+        const control = await testControlRequest(site.url, "clock", {advanceMs: 1_000}, site.testControlToken);
+        for (const [what, response] of [["ready", ready], ["test-control", control]] as const) {
+            expect({what, status: response.status}).toEqual({what, status: 200});
+            const requestId = response.headers.get("X-Request-Id");
+            const line = await waitUntil(`http.request line of ${what}`, () => site.logs().find((candidate) => candidate.event === "http.request" && candidate.requestId === requestId));
+            expect({what, module: line.module}).toEqual({what, module: "site"});
+        }
     });
 
     it("标准输出的每一行都是带 time、level、event 的 JSON 对象", () => {
@@ -294,11 +319,18 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
     let keepRuns: CommandResult[];
     let missingDir: string;
     let missing: CommandResult;
+    /** 备份之前建的账号；在副本起的服务上用它登录。 */
+    const KEEPER_PASSWORD = "keeper-PW-w6Gd13";
+    let keeperId: number;
+    let unreadableDir: string;
+    /** 库文件没有读权限时的备份；以 root 运行时不跑。 */
+    let unreadable: CommandResult | undefined;
 
     beforeAll(async () => {
         servingDir = await sandbox.dataDir();
         serving = await sandbox.start({dataDir: servingDir});
         await serving.ready();
+        keeperId = await createAdmin(sandbox, servingDir, ["keeper"], KEEPER_PASSWORD);
         backup = await sandbox.run("backup", {dataDir: servingDir});
 
         // 副本拷进一个新的数据目录，单独起一个服务。没有备份时不起：空目录起的服务同样会就绪，用例会空过。
@@ -306,7 +338,7 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
         if (name !== undefined) {
             const restoredDir = await sandbox.dataDir();
             for (const module of MODULES) await copyFile(join(backupsDir(servingDir), name, `${module}.db`), join(restoredDir, `${module}.db`));
-            restored = await sandbox.start({dataDir: restoredDir});
+            restored = await sandbox.start({dataDir: restoredDir, env: IDENTITY_SITE_ENV});
             await restored.ready();
         }
 
@@ -319,6 +351,14 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
 
         missingDir = await sandbox.dataDir();
         missing = await sandbox.run("backup", {dataDir: missingDir});
+
+        unreadableDir = await sandbox.dataDir();
+        if (!IS_ROOT) {
+            const prepared = await sandbox.run("migrate", {dataDir: unreadableDir});
+            if (prepared.exitCode !== 0) throw new Error(`migrate failed: ${prepared.stderr}`);
+            await chmod(join(unreadableDir, "identity.db"), 0o000);
+            unreadable = await sandbox.run("backup", {dataDir: unreadableDir});
+        }
     }, SETUP_TIMEOUT_MS);
 
     it("服务运行时备份以 0 退出，日志有一行 backup.done，backups/ 下多了一份以它命名的目录", () => {
@@ -341,6 +381,12 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
         expect((await requestJson(`${restored!.url}health/ready`)).body).toEqual({status: "ready", modules: {identity: "ready", telemetry: "ready"}});
     });
 
+    it("备份之前建的账号在副本起的服务上能登录（验收 3）", async () => {
+        expect(restored).toBeDefined();
+        const response = await login(restored!.url, "keeper", KEEPER_PASSWORD, {from: "203.0.113.7"});
+        expect({status: response.status, body: response.body}).toEqual({status: 200, body: {user: expect.objectContaining({id: keeperId, username: "keeper", role: "admin"})}});
+    });
+
     it("保留份数为 2 时连跑三次，只剩最新的两份", () => {
         for (const run of keepRuns) expect(run.exitCode).toBe(0);
         const names = keepRuns.map((run) => run.logs.find((line) => line.event === "backup.done")?.name);
@@ -353,6 +399,62 @@ describe("备份（输出 6、10，验收 3 的前半，失败码 backup_failed�
         expect(MODULES).toContain(missing.failure?.module as string);
         expect(`${missing.stdout}\n${missing.stderr}`).not.toContain(missingDir);
         expect(listBackups(missingDir)).toEqual([]);
+    });
+
+    it.skipIf(IS_ROOT)("库文件没有读权限时以 backup_failed 退出，reason 是 db_unreadable、带模块名，不留下备份（以 root 运行时跳过）", () => {
+        expect(unreadable?.exitCode).not.toBe(0);
+        expect(unreadable?.failure).toMatchObject({code: "backup_failed", reason: "db_unreadable", module: "identity"});
+        expect(`${unreadable?.stdout}\n${unreadable?.stderr}`).not.toContain(unreadableDir);
+        expect(listBackups(unreadableDir)).toEqual([]);
+    });
+});
+
+describe("库文件用不了（失败码 data_dir_unusable）", () => {
+    interface Case {
+        readonly dataDir: string;
+        readonly migrate: CommandResult;
+        readonly serve: CommandResult;
+    }
+    const cases = new Map<string, Case>();
+
+    async function runBoth(name: string, dataDir: string): Promise<void> {
+        // 被测程序把它当成能用的库而照常启动时，`run` 到上限后 SIGKILL 并抛错，这一组随之失败。
+        const migrate = await sandbox.run("migrate", {dataDir, timeoutMs: 5_000});
+        const serve = await sandbox.run("serve", {dataDir, timeoutMs: 5_000});
+        cases.set(name, {dataDir, migrate, serve});
+    }
+
+    beforeAll(async () => {
+        const directory = await sandbox.dataDir();
+        await mkdir(join(directory, "identity.db"));
+        await runBoth("directory", directory);
+        if (!IS_ROOT) {
+            // 先迁移出两个能用的库，再拿掉账号库的权限：部署的人改错了属主或权限的样子。
+            const noAccess = await sandbox.dataDir();
+            const prepared = await sandbox.run("migrate", {dataDir: noAccess});
+            if (prepared.exitCode !== 0) throw new Error(`migrate failed: ${prepared.stderr}`);
+            await chmod(join(noAccess, "identity.db"), 0o000);
+            await runBoth("no-access", noAccess);
+        }
+    }, SETUP_TIMEOUT_MS);
+
+    function expectUnusable(name: string): void {
+        const {dataDir, migrate, serve} = cases.get(name)!;
+        for (const [command, result] of [["migrate", migrate], ["serve", serve]] as const) {
+            expect({command, exitCode: result.exitCode === 0 ? 0 : "non-zero"}).toEqual({command, exitCode: "non-zero"});
+            expect({command, failure: result.failure}).toMatchObject({command, failure: {code: "data_dir_unusable", module: "identity"}});
+            expect({command, applied: result.logs.some((line) => line.event === "migration.applied" && line.module === "identity")}).toEqual({command, applied: false});
+            expect({command, listening: events(result.logs).includes("site.listening")}).toEqual({command, listening: false});
+            expect({command, leaked: `${result.stdout}\n${result.stderr}`.includes(dataDir)}).toEqual({command, leaked: false});
+        }
+    }
+
+    it("账号库的库文件是个目录：migrate 与 serve 都以 data_dir_unusable 退出，带模块名，不执行它的迁移、不监听、输出里没有路径", () => {
+        expectUnusable("directory");
+    });
+
+    it.skipIf(IS_ROOT)("账号库的库文件没有权限：同样以 data_dir_unusable 退出（以 root 运行时跳过）", () => {
+        expectUnusable("no-access");
     });
 });
 

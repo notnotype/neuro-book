@@ -28,7 +28,7 @@ updated: 2026-11-22
   - 建议：补同向跨分支重取、`resize` 没有能分摊的兄弟、`-Infinity`、结果里的 `collapse` 是副本、只改恢复尺寸也算 `changed` 五条用例；`setSize` 没变时不换 `size` 对象；新用例里的 `widths` 改名 `widthsOf`；`grid.md` 的拆分示例补复现条件、`resize` 一段补“兄弟可能被压到 0”；Spec 码表 `wrong-sizing` 一行的缩进。
   - 审查者没写成追加的报告文件（Write 与重定向没获批），完整报告在它的最终回复里。
 
-交开发者的问题（已知限制里）：`splitLeaf` 拆保留像素的叶要不要直接失败（`wrong-sizing`）。本 Task 只写进文档。
+交开发者的问题（已知限制里）：`splitLeaf` 拆保留像素的叶要不要直接失败（`wrong-sizing`）。本 Task 只写进文档。t58 定了：直接失败（[t58](../t58-grid-structure-trial/README.md)，`ui/nested-grid` 输出 162）。
 
 ## 下一步
 

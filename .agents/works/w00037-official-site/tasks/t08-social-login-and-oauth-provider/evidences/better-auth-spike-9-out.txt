@@ -1,0 +1,70 @@
+# 第九轮（t08 规划第三段补探）结果行。脚本 spike9.ts；库 1.7.27；bun 1.4.4；2026-11-25T12:55Z。P9.2 与 P9.4 的报错堆栈只留首行（实测的就是那条报错）。
+[P9.1] === postLogin 做站点同意门槛 ===
+[P9.1a missing site consent, skip_consent client] status=302 to=/consent paramKeys=response_type,redirect_uri,scope,state,client_id,code_challenge,code_challenge_method,nonce,exp,ba_iat,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,sig libSigOk=true shouldRedirect=user=2 need=true cont=false inLibTx=false
+[P9.1b same, prompt=none] to=https://client.example/cb error=interaction_required state=st-1 iss=https://site.test
+[P9.1c consent given, follow continue (consumer=consent)] continue=ok authorize=302 code=yes token=200 nonce=n-a shouldRedirect=user=2 need=true cont=false inLibTx=false|user=2 need=false cont=false inLibTx=false
+[P9.1d missing consent + prompt=login] first=/login afterLogin=/consent promptInConsentHop=null afterConsent=code
+[P9.1e max_age by module clock, then missing consent] first=/login maxAgeKeptAfterLogin=false afterLogin=/consent
+[P9.1f consent page params] to=/oauth/consent ba_pl=7 sessionId=7
+[P9.1f oauth2Consent by the same session] url=code shouldRedirect=user=3 need=true cont=false inLibTx=false|user=3 need=false cont=false inLibTx=false|user=4 need=true cont=false inLibTx=false|user=5 need=false cont=false inLibTx=false
+[P9.1f oauth2Consent by another session that lacks site consent] url=/consent?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&scope=openid+profile+email&state=…&client_id=NkRzZyXSQRoQoxdznejIUddYtcyFluvG&code_challenge=…&code_challenge_method=S256&exp=…&ba_iat=…&ba_param=ba_iat&ba_param=ba_param&ba_param=client_id&ba_param=code_challenge&ba_param=code_challenge_method&ba_param=exp&ba_param=redirect_uri&ba_param=response_type&ba_param=scope&ba_param=state&sig=… shouldRedirect=user=5 need=false cont=false inLibTx=false|user=6 need=true cont=false inLibTx=false
+[P9.1f same session lost site consent after the consent page] url=code shouldRedirect=user=5 need=false cont=false inLibTx=false
+[P9.1g prompt=consent + missing site consent] to=/consent
+[P9.1h prompt=none without session] error=login_required
+[P9.1i prompt=none, missing site consent AND never consented to the client] error=interaction_required
+[P9.2] === 换码在 withLibTransaction 里 ===
+[P9.2a inTx=false plain exchange] token=200 idToken=yes userinfo=200 ms=183.7 newLogs=[]
+[P9.2b inTx=false same code exchanged 4x concurrently] 200,400:invalid_grant,400:invalid_grant,400:invalid_grant
+[P9.2c inTx=false revokeForUser lands between consume and token insert] patchHit=1 revokeWaitedMs=0.5 revoked={"tokens":2,"codes":0} exchange=200 userinfoAfter=200
+SQLiteError: FOREIGN KEY constraint failed
+[P9.2d inTx=false ban (revoke + delete sessions) lands in the window] exchange=500 userinfoAfter=-
+IdentityQueueMisuseError: a database connection was requested from inside an identity transaction
+[P9.2a inTx=true plain exchange] token=500 idToken=undefined userinfo=401 ms=2.9 newLogs=[]
+IdentityQueueMisuseError: a database connection was requested from inside an identity transaction
+IdentityQueueMisuseError: a database connection was requested from inside an identity transaction
+IdentityQueueMisuseError: a database connection was requested from inside an identity transaction
+IdentityQueueMisuseError: a database connection was requested from inside an identity transaction
+[P9.2b inTx=true same code exchanged 4x concurrently] 500,500,500,500
+[P9.2c inTx=true] skipped: plain exchange did not succeed
+[P9.2e no-tx: consume -> response (upper bound of the consume..insert window), ms over 20 runs] min=1.9 p50=2.8 max=39.1
+[P9.3] === 社交：上游令牌与 emailVerified ===
+[P9.3a default google register] to=https://site.test/__social_new session=true emailVerified=0 account=[{"providerId":"google","at":1,"rt":0,"it":1,"ate":1,"scope":"https://www.googleapis.com/auth/userinfo.email,openid,https://www.googleapis.com/auth/userinfo.profile"}]
+[P9.3b default google login with the linked identity] to=https://site.test/__social_ok session=true emailVerified=1 account=[{"providerId":"google","at":1,"rt":0,"it":1,"ate":1,"scope":"https://www.googleapis.com/auth/userinfo.email,openid,https://www.googleapis.com/auth/userinfo.profile"}]
+[P9.3c default github link] to=https://site.test/__social_ok account=[{"providerId":"github","at":1,"rt":0,"it":0,"ate":0,"scope":"read:user,user:email"}] events=user.create.before intent=register;account.create.before intent=register provider=google;account.create.before intent=link provider=github
+[P9.3d default link the same identity again] status=302 to=https://site.test/__social_ok body= ownFailure=- accounts=1 createHookRan=false
+[P9.3e default password account links same-email google, then logs in with it] emailVerified=1
+[P9.3f default register intent with an identity already linked to alice] to=https://site.test/__social_ok session=true userCreateHookRan=false alice2=0
+[P9.3a fixed google register] to=https://site.test/__social_new session=true emailVerified=0 account=[{"providerId":"google","at":0,"rt":0,"it":0,"ate":0,"scope":"https://www.googleapis.com/auth/userinfo.email,openid,https://www.googleapis.com/auth/userinfo.profile"}]
+[P9.3b fixed google login with the linked identity] to=https://site.test/__social_ok session=true emailVerified=0 account=[{"providerId":"google","at":0,"rt":0,"it":0,"ate":0,"scope":"https://www.googleapis.com/auth/userinfo.email,openid,https://www.googleapis.com/auth/userinfo.profile"}]
+[P9.3c fixed github link] to=https://site.test/__social_ok account=[{"providerId":"github","at":0,"rt":0,"it":0,"ate":0,"scope":"read:user,user:email"}] events=user.create.before intent=register;account.create.before intent=register provider=google;account.create.before intent=link provider=github
+[P9.3d fixed link the same identity again] status=400 to=null body={"code":"identity_exists","message":"identity_exists"} ownFailure=identity_exists accounts=1 createHookRan=false
+[P9.3e fixed password account links same-email google, then logs in with it] emailVerified=0
+[P9.3f fixed register intent with an identity already linked to alice] to=https://site.test/__social_ok session=true userCreateHookRan=false alice2=0
+[P9.3g option b: session.create.before rejects register intent that created no user] first=https://site.test/__social_new session=true | second status=302 to=https://site.test/__social_error?error=identity_taken&error_description=identity_taken body= session=false ownFailure=identity_taken | login still works=https://site.test/__social_ok session=true codeUsed=1
+[P9.4] === 签名钥与换会话密钥 ===
+[P9.4a first id_token] token=200 kid=1 rows=[{"id":1,"alg":"RS256","expiresAt":null}]
+[P9.4b a newer key exists] kid=2 rows=[{"id":1,"createdAt":"2026-11-25T12:55:33.226Z","expiresAt":null},{"id":2,"createdAt":"2026-11-25T12:55:34.414Z","expiresAt":null}]
+[P9.4c newest marked expired] signKid=1 jwksKids=1,2
+[P9.4d expired beyond the 30-day grace] jwksKids=1
+BetterAuthError: Failed to decrypt private key. Make sure the secret currently in use is the same as the one used to encrypt the private key. If you are using a different secret, either clean up your JWKS or disable private key encryption.
+[P9.4e new session secret, old key only] token=500 body=Internal Server Error decryptErrorLogged=false
+[P9.4f startup check: old key fails to decrypt -> mark expired + createJwk] decryptOk=false token=200 newKid=3 jwksKids=1,3 oldIdTokenVerifiesWithJwks=true
+[P9.4g restart again with the same new secret] kid=3 sameAsBefore=true
+[P9.5] === 回调地址规则 ===
+[P9.5a register application_type=(unset)] https://app.example/cb=ok http://127.0.0.1:8123/cb=400:invalid_redirect_uri http://[::1]:8123/cb=400:invalid_redirect_uri http://localhost:8123/cb=400:invalid_redirect_uri http://127.0.0.2:8123/cb=400:invalid_redirect_uri https://localhost/cb=400:invalid_redirect_uri https://127.0.0.1/cb=400:invalid_redirect_uri http://app.example/cb=400:invalid_redirect_uri com.example.app:/cb=400:invalid_redirect_uri
+[P9.5a register application_type=web] https://app.example/cb=ok http://127.0.0.1:8123/cb=400:invalid_redirect_uri http://[::1]:8123/cb=400:invalid_redirect_uri http://localhost:8123/cb=400:invalid_redirect_uri http://127.0.0.2:8123/cb=400:invalid_redirect_uri https://localhost/cb=400:invalid_redirect_uri https://127.0.0.1/cb=400:invalid_redirect_uri http://app.example/cb=400:invalid_redirect_uri com.example.app:/cb=400:invalid_redirect_uri
+[P9.5a register application_type=native] https://app.example/cb=ok http://127.0.0.1:8123/cb=ok http://[::1]:8123/cb=ok http://localhost:8123/cb=ok http://127.0.0.2:8123/cb=400:invalid_redirect_uri https://localhost/cb=400:invalid_redirect_uri https://127.0.0.1/cb=400:invalid_redirect_uri http://app.example/cb=400:invalid_redirect_uri com.example.app:/cb=ok
+[P9.5a stored row of a native public client] {"applicationType":"native","tokenEndpointAuthMethod":"none"}
+[P9.5b native authorize redirect_uri=http://127.0.0.1:8123/cb] to=http://127.0.0.1:8123/cb?code=…&state=…&iss=https%3A%2F%2Fsite.test token=200
+[P9.5b native authorize redirect_uri=http://127.0.0.1:5555/cb] to=http://127.0.0.1:5555/cb?code=…&state=…&iss=https%3A%2F%2Fsite.test token=200
+[P9.5b native authorize redirect_uri=http://127.0.0.1/cb] to=http://127.0.0.1/cb?code=…&state=…&iss=https%3A%2F%2Fsite.test token=200
+[P9.5b native authorize redirect_uri=http://127.0.0.1:5555/other] to=https://site.test/api/identity/auth/error?error=invalid_redirect&error_description=invalid+redirect+uri token=-
+[P9.5b native authorize redirect_uri=http://localhost:5555/cb] to=https://site.test/api/identity/auth/error?error=invalid_redirect&error_description=invalid+redirect+uri token=-
+[P9.5c web client patched by SQL to an http loopback uri] to=https://site.test/api/identity/auth/error?error=invalid_request&error_description=Redirect+URI+must+use+HTTPS+%28HTTP+allowed+only+for+loopback+hosts%29
+[P9.5d redirectUris storage] {"redirectUris":"[\"http://127.0.0.1:8123/cb\"]"}
+[P9.6] === 确认期间客户端被改 ===
+[P9.6 redirect uri changed between GET and POST accept=true] url=https://site.test/api/identity/auth/error?error=invalid_redirect&error_description=invalid+redirect+uri
+[P9.6 client disabled between GET and POST accept=true] url=https://site.test/api/identity/auth/error?error=client_disabled&error_description=client+is+disabled
+[P9.6 redirect uri changed between GET and POST accept=false] url=https://site.test/api/identity/auth/error?error=access_denied&error_description=User+denied+access
+[P9.6 client disabled between GET and POST accept=false] url=https://site.test/api/identity/auth/error?error=access_denied&error_description=User+denied+access
+[P9.6 prompt=login request submitted to consent with an old session] url=/login?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&scope=openid+profile+email&state=…&client_id=fbaZmBvDenqrSFbwZzTKrKcsFWcNlnOg&prompt=login+consent&code_challenge=…&code_challenge_method=S256&exp=…&ba_iat=…&ba_param=ba_iat&ba_param=ba_param&ba_param=client_id&ba_param=code_challenge&ba_param=code_challenge_method&ba_param=exp&ba_param=prompt&ba_param=redirect_uri&ba_param=response_type&ba_param=scope&ba_param=state&sig=…

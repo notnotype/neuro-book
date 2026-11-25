@@ -34,7 +34,7 @@ owners:
 
 | 工具 id | 交给模型的名字 | 参数 |
 |---|---|---|
-| `nbook.web.search` | `web_search` | `queries`：string 数组，1 到 10 条，必填（取代版本 1 的 `query`）；`count`：整数，1 到 20，每条查询的结果条数，缺省取设置项 `nbook.web/resultCount`（planned，原为一条查询时缺省 8、几条时缺省 5）；几条查询时至多 10，给大了按 10；`sites`：string 数组，站点域名；`after`、`before`：`YYYY-MM-DD`；`sites`、`after`、`before` 对每条查询都生效 |
+| `nbook.web.search` | `web_search` | `queries`：string 数组，1 到 10 条，必填（取代版本 1 的 `query`）；`count`：整数，1 到 20，每条查询的结果条数，缺省取设置项 `nbook.web/resultCount`；几条查询时至多 10，给大了按 10；`sites`：string 数组，站点域名；`after`、`before`：`YYYY-MM-DD`；`sites`、`after`、`before` 对每条查询都生效 |
 | `nbook.web.fetch` | `web_fetch` | `url`：string，必填，http 或 https |
 
 插件 id、工具 id、配置项、远程合同与设置分区的 id 都以 `nbook.web` 开头（0.15.0 到 0.17.0 里是 `nbook.web-tools`，见“边界与兼容”）。
@@ -46,9 +46,9 @@ owners:
 | `nbook.web/provider` | `"deepseek"` 或 `"tavily"` | `"deepseek"` | 两个工具用哪家 |
 | `nbook.web/deepseekBaseUrl` | string | `https://api.deepseek.com` | DeepSeek 两个接口的地址前缀 |
 | `nbook.web/tavilyBaseUrl` | string | `https://api.tavily.com` | Tavily 两个接口的地址前缀 |
-| `nbook.web/resultCount`（planned） | 整数，1 到 10 | 5 | 调用没给 `count` 时每条查询的结果条数 |
-| `nbook.web/blockedSites`（planned） | string 数组，域名，至多 100 个 | `[]` | 搜索结果里不要这些网站（输出 3） |
-| `nbook.web/tavilySearchDepth`（planned） | `"basic"` 或 `"advanced"` | `"basic"` | Tavily 搜索的深度（advanced 每条扣 2 点额度） |
+| `nbook.web/resultCount` | 整数，1 到 10 | 5 | 调用没给 `count` 时每条查询的结果条数 |
+| `nbook.web/blockedSites` | string 数组，至多 100 个，每项一个域名或 IPv4 地址 | `[]` | 搜索结果里不要这些网站（输出 3）；读的时候逐项归一化（只留主机、转小写与 punycode、去掉末尾的点），写错的项只跳过这一项 |
+| `nbook.web/tavilySearchDepth` | `"basic"` 或 `"advanced"` | `"basic"` | Tavily 搜索的深度（advanced 每条扣 2 点额度） |
 
 远程合同 `nbook.web/settings`，版本 1，服务端提供，浏览器调用（`provider` 取 `"deepseek"` 或 `"tavily"`）：
 
@@ -65,9 +65,9 @@ owners:
 
 1. **请求**：每条查询一次请求，几条同时发，都带 `Authorization: Bearer <密钥>`。日期不是 `YYYY-MM-DD` 时得 `invalid-request`，不发请求；有一条查询不合要求时整次调用得 `invalid-request`，一条也不发。
    - DeepSeek：`POST <DeepSeek 地址前缀>/v1/tools/search`，请求体 `{query, count}`。`sites` 拼进查询写成 `site:a OR site:b`，`after`、`before` 写成 `after:<日期>`、`before:<日期>`；拼好的查询超过 128 个 Unicode 码点时不合要求。
-   - Tavily：`POST <Tavily 地址前缀>/search`，请求体 `{query, max_results: count, search_depth, include_published_date: true}`，`search_depth` 取设置项 `nbook.web/tavilySearchDepth`（planned，原为固定 `"basic"`），屏蔽网站不空时给 `exclude_domains`（planned）；查询去掉首尾空白后发，不拼操作符；`sites` 给 `include_domains`（空白的不算），`after`、`before` 给 `start_date`、`end_date`；查询为空、超过 1,500 个 Unicode 码点、站点多于 300 个时不合要求。
-2. **文字结果**：只有一条查询时，第一行写“来自 <服务名> 搜索，N 条结果”（服务名是 DeepSeek 或 Tavily）；之后每条一段：标题、网址、日期（有的话）、站点（有的话）、摘要（截到 600 字）。没有结果时写“没有结果”，状态成功。几条查询时，第一行写“来自 <服务名> 搜索，K 条查询”，之后按查询的顺序每条一组：组头写“查询 i：<查询>，N 条结果”（一条都没有时写“查询 i：<查询>，没有结果”），没搜成的写“查询 i：<查询>，没搜成：<原因>”（原因同输出 12），下面是这条的结果，摘要截到 300 字。这份 Spec 里的“字”按 UTF-16 码元计；截断与断行不切开一个非 BMP 字（要切在它中间时整个字留到后面），不留下半个字。
-3. **结果的整理**：网址不是 http 或 https 的条目丢掉；网址的主机是屏蔽网站之一或它的子域名（`csdn.net` 也挡 `blog.csdn.net`）的丢掉，两家都在本地再筛一遍（planned）；其余的取解析后的写法（WHATWG URL 的 `href`：空白、引号、尖括号等写成百分号形式）；标题缺失时用网址；不按分数筛。DeepSeek：摘要取 `summary`，没有取 `snippet`，都没有为空；分数取 `rerank_score`。Tavily：摘要取 `content`，日期取 `published_date`（原样），分数取 `score`，没有站点。
+   - Tavily：`POST <Tavily 地址前缀>/search`，请求体 `{query, max_results: count, search_depth, include_published_date: true}`，`search_depth` 取设置项 `nbook.web/tavilySearchDepth`，屏蔽网站不空时给 `exclude_domains`；查询去掉首尾空白后发，不拼操作符；`sites` 给 `include_domains`（空白的不算），`after`、`before` 给 `start_date`、`end_date`；查询为空、超过 1,500 个 Unicode 码点、站点多于 300 个时不合要求。
+2. **文字结果**：只有一条查询时，第一行写“来自 <服务名> 搜索，N 条结果”（服务名是 DeepSeek 或 Tavily）；之后每条一段：标题、网址、日期（有的话）、站点（有的话）、摘要（截到 600 字）。没有结果时写“没有结果”，状态成功。按屏蔽网站去掉了结果时，条数后面写“（另有 M 条来自屏蔽网站，已去掉）”，全被去掉时写“没有结果（M 条来自屏蔽网站，已去掉）”。几条查询时，第一行写“来自 <服务名> 搜索，K 条查询”，之后按查询的顺序每条一组：组头写“查询 i：<查询>，N 条结果”（一条都没有时写“查询 i：<查询>，没有结果”），没搜成的写“查询 i：<查询>，没搜成：<原因>”（原因同输出 12），下面是这条的结果，摘要截到 300 字。这份 Spec 里的“字”按 UTF-16 码元计；截断与断行不切开一个非 BMP 字（要切在它中间时整个字留到后面），不留下半个字。
+3. **结果的整理**：网址不是 http 或 https 的条目丢掉；网址的主机（去掉末尾的点）是屏蔽网站之一或它的子域名（`csdn.net` 也挡 `blog.csdn.net`）的丢掉，两家都在本地再筛一遍；单段的主机名（`localhost`）与 IPv6 地址挡不了；其余的取解析后的写法（WHATWG URL 的 `href`：空白、引号、尖括号等写成百分号形式）；标题缺失时用网址；不按分数筛。DeepSeek：摘要取 `summary`，没有取 `snippet`，都没有为空；分数取 `rerank_score`。Tavily：摘要取 `content`，日期取 `published_date`（原样），分数取 `score`，没有站点。
 4. **结构值**：只给嵌套调用（eval 里的调用），形状 `{provider, searches: [{query, results: [{title, url, summary, date?, site?, score?}]} 或 {query, error: {code, detail?}}]}`，`searches` 按查询的顺序（取代版本 1 的 `{provider, results}`）；`provider` 是这次用的服务 id；模型直接调时结果不带结构值。
 
 ### 读取
@@ -94,7 +94,7 @@ owners:
 16. **`status`**：每家有没有密钥。
 17. **`setKey`**：`key` 去掉首尾空白后写入；空串、以 `env:` 开头、不是 Bearer 令牌的写法（RFC 6750 的 b64token：字母、数字与 `-._~+/`，末尾可以有 `=`；中间有空白、换行、引号或非 ASCII 字符的都不是）、超过 512 个字符、`provider` 不是 `deepseek` 或 `tavily`（含空串）得 `invalid-value`，不写，原来的密钥留着。写文件失败得 `credentials-unavailable`。
 18. **`clearKey`**：从文件里删掉这家的密钥；写文件失败得 `credentials-unavailable`。
-19. **`check`**：用这家的密钥发一次结果条数为 1 的搜索（DeepSeek 的 `count`、Tavily 的 `max_results`；不看屏蔽网站，Tavily 用 `basic`，planned），不重试，截止 20 秒；不看选用的是哪家；成功为 `{ok: true}`，否则 `{ok: false, code, detail?}`，`code` 同工具的失败码（没有密钥为 `no-key`），`detail` 同输出 12。不返回界面文字。
+19. **`check`**：用这家的密钥发一次结果条数为 1 的搜索（DeepSeek 的 `count`、Tavily 的 `max_results`；不看屏蔽网站，Tavily 用 `basic`），不重试，截止 20 秒；不看选用的是哪家；成功为 `{ok: true}`，否则 `{ok: false, code, detail?}`，`code` 同工具的失败码（没有密钥为 `no-key`），`detail` 同输出 12。不返回界面文字。
 
 ### 插件与工具集
 
@@ -137,7 +137,7 @@ owners:
 
 ## 边界与兼容
 
-- 公开接口：两个工具的 id、交给模型的名字、参数与结构值形状；“输入与前置条件”里的三个配置项；远程合同 `nbook.web/settings` 版本 1；密钥文件格式版本 1。以后加服务时只加不改：新服务的 id、`provider` 的取值与 `status` 里的条目。
+- 公开接口：两个工具的 id、交给模型的名字、参数与结构值形状；“输入与前置条件”里的配置项；远程合同 `nbook.web/settings` 版本 1；密钥文件格式版本 1。以后加服务时只加不改：新服务的 id、`provider` 的取值与 `status` 里的条目。
 - 改名：插件 id 从 0.15.0 到 0.17.0 的 `nbook.web-tools` 改为 `nbook.web`，工具 id、配置项、远程合同与设置分区随之改名，旧名不再提供，不迁移（开发者 2026-11-25 定）：写着旧 id 的设置不再生效，包括权限规则按 `nbook.web-tools.fetch` 拒绝或询问的主机（照常放行）、Profile 工具绑定里去掉的这两个工具（会回来）、Profile 把旧 id 列为必需工具（报缺工具）、用户层的 `nbook.web-tools/deepseekBaseUrl`（回到缺省）；按给模型的名字 `web_fetch`、`web_search` 写的规则不受影响。密钥文件位置不变，照常读到。`web_search` 的版本从 1 升到 2：`query` 换成 `queries`，结构值的 `results` 换成 `searches`。
 - 信任边界：浏览器只拿到“有没有密钥”；密钥明文在状态根下，与模型服务的凭据库同一个信任级别。
 
@@ -155,7 +155,7 @@ Smoke：产品服务端加真实 WebSocket 调远程合同（`assembly.test.ts`�
 
 ## 实现合同
 
-- 公开入口：插件 `nbook.web`（目录 `plugins/web-tools/`：目录名不能叫 `web`，见 `packages/neuro-book/AGENTS.md`）；工具 id、远程合同 `webSettingsContract`、失败码表、服务表（`WEB_PROVIDERS`、`PROVIDER_LABELS`、`isWebProvider`）与 `SEARCH_SECTION` 从 `nbook/plugins/web-tools/shared/contracts` 取，设置项在同目录的 `settings.ts`。别的插件不依赖它。
+- 公开入口：插件 `nbook.web`（目录 `plugins/web-tools/`：目录名不能叫 `web`，见 `packages/neuro-book/AGENTS.md`）；工具 id、远程合同 `webSettingsContract`、失败码表、服务表（`WEB_PROVIDERS`、`PROVIDER_LABELS`、`isWebProvider`）与 `SEARCH_SECTION` 从 `nbook/plugins/web-tools/shared/contracts` 取，设置项在同目录的 `settings.ts`，屏蔽网站的归一化与匹配（`normalizeSite`、`normalizeSites`、`siteBlocked`）在同目录的 `sites.ts`，设置页与服务端共用。别的插件不依赖它。
 - owner 与依赖方向：`nbook.web` 依赖 Agent（经 Agent 合同的 `agentTool`、`TOOLS_POINT` 贡献工具）、设置、诊断、网络出口（`networkKey`）与宿主的状态根、时钟；每家服务一个客户端（`backend/providers/deepseek.ts`、`tavily.ts`），共用 `http.ts` 的 `postJson`，各家错误响应的不同之处写成 `ServiceDialect`；密钥文件的锁与原子替换经 `@notnotype/nb-file-lock` 的 `replaceLocked`（`mode: 0o600`）。
 - 不变量：
   1. 每次调用开始时读密钥文件，不缓存；入口激活时不碰它（`web.test.ts` 场景 1、3）。
@@ -164,10 +164,11 @@ Smoke：产品服务端加真实 WebSocket 调远程合同（`assembly.test.ts`�
   4. 交出去的文字先遮盖密钥再截短，遮盖按 8 字窗口；成功响应里有密钥原文时不交出（`deepseek.test.ts`、`web.test.ts`）。
   5. 截断与断行不切开代理对（`web.test.ts` 场景 2、`archive-lines.test.ts`）。
   6. 一次调用开头读一次选用的服务，几条查询先逐条校验、再同时发，共用一个截止（`web.test.ts` 的“两家服务”“一次几条查询”）。
+  7. 默认结果条数、屏蔽网站与 Tavily 的深度在调用开头读一次；屏蔽网站两家都在本地再筛一遍，不只靠 Tavily 的 `exclude_domains`；检测不看屏蔽网站、深度固定 `basic`（`web.test.ts` 的“搜索规则与 Tavily 的深度”，归一化与匹配见 `sites.test.ts`）。
 
 ## 证据
 
-- 批准依据：开发者在 [w00052 t01](../../../.agents/works/w00052-web-tools/tasks/t01-design/README.md) 的决定 1 到 6 与[实施计划](../../../.agents/works/w00052-web-tools/tasks/t01-design/plan.md)第 4 稿；[w00052 t02](../../../.agents/works/w00052-web-tools/tasks/t02-tavily-and-batch-search/README.md) 里开发者 2026-11-25 的决定（接入 Tavily、设置里选一家、一次几条查询、插件 id 改回 `nbook.web`）。
+- 批准依据：开发者在 [w00052 t01](../../../.agents/works/w00052-web-tools/tasks/t01-design/README.md) 的决定 1 到 6 与[实施计划](../../../.agents/works/w00052-web-tools/tasks/t01-design/plan.md)第 4 稿；[w00052 t02](../../../.agents/works/w00052-web-tools/tasks/t02-tavily-and-batch-search/README.md) 里开发者 2026-11-25 的决定（接入 Tavily、设置里选一家、一次几条查询、插件 id 改回 `nbook.web`）；[w00052 t03](../../../.agents/works/w00052-web-tools/tasks/t03-search-settings-redesign/README.md) 的决定 1（默认结果条数、屏蔽网站、Tavily 搜索深度、各家接口地址）。
 - 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/web-tools/backend/plugin.ts)
-- 合同测试：[`web.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/web.test.ts)、[`deepseek.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/deepseek.test.ts)、[`keys.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/keys.test.ts)、[`archive-lines.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/archive-lines.test.ts)、[`tavily.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/tavily.test.ts)
+- 合同测试：[`web.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/web.test.ts)、[`deepseek.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/deepseek.test.ts)、[`keys.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/keys.test.ts)、[`archive-lines.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/archive-lines.test.ts)、[`tavily.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/tavily.test.ts)、[`sites.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/sites.test.ts)
 - Smoke：[`assembly.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/assembly.test.ts)；真实 DeepSeek 与 Tavily：[`web.llm.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/web.llm.test.ts)；真实模型：[`agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/agent.llm.test.ts)

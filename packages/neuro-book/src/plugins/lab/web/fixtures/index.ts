@@ -87,6 +87,7 @@ import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDet
 import type ProviderHeader from "nbook/plugins/models/web/components/ProviderHeader.vue";
 import type ApiDetectResults from "nbook/plugins/models/web/components/ApiDetectResults.vue";
 import type ProviderIcon from "nbook/plugins/models/web/components/ProviderIcon.vue";
+import type ProviderLogo from "nbook/ui/provider-icons/ProviderLogo.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
 import type StatusLinePage from "nbook/plugins/agent/web/components/StatusLinePage.vue";
@@ -1639,10 +1640,13 @@ function shelfFixtures(): LabFixture[] {
                 {id: "readonly", label: "网页工具没有运行（只读）", input: {props: {writable: true}}},
                 {id: "unreadable", label: "密钥文件读不了", input: {props: {writable: true}}},
                 {id: "write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
-                {id: "use-tavily-no-key", label: "选用 Tavily、它还没有密钥（“使用”下面有提示）", input: {props: {writable: true}}},
-                {id: "use-tavily", label: "选用 Tavily、两家都有密钥", input: {props: {writable: true}}},
-                {id: "use-tavily-no-key-english", label: "英文界面：选用 Tavily、它还没有密钥", input: {props: {writable: true}}},
-                {id: "use-tavily-no-key-narrow", label: "390px 宽：选用 Tavily、它还没有密钥", input: {props: {writable: true}}},
+                {id: "use-tavily-no-key", label: "使用中的 Tavily 还没有密钥（左栏钥匙、密钥行写未填写）", input: {props: {writable: true}}},
+                {id: "use-tavily", label: "用 Tavily、两家都有密钥", input: {props: {writable: true}}},
+                {id: "rules", label: "搜索规则（屏蔽了两个网站）", input: {props: {writable: true}}},
+                {id: "advanced", label: "Tavily 改过接口地址与深度：高级默认展开", input: {props: {writable: true}}},
+                {id: "use-tavily-no-key-english", label: "英文界面：使用中的 Tavily 还没有密钥", input: {props: {writable: true}}},
+                {id: "use-tavily-no-key-narrow", label: "390px 宽：左栏换成下拉", input: {props: {writable: true}}},
+                {id: "rules-english", label: "英文界面：搜索规则", input: {props: {writable: true}}},
                 {id: "failed-english", label: "英文界面：检测没通过", input: {props: {writable: true}}},
                 {id: "failed-narrow", label: "390px 宽：检测没通过", input: {props: {writable: true}}},
             ],
@@ -1748,6 +1752,15 @@ function shelfFixtures(): LabFixture[] {
                 {id: "unknown", label: "图标表里没有的模板", input: {props: {icon: null, template: "blank-openai", name: "本地 Ollama", size: 28}}},
             ],
             load: async () => withModelsText(createSubjectFixture<typeof ProviderIcon>((await import("nbook/plugins/models/web/components/ProviderIcon.vue")).default, {class: "p-4"})),
+        }),
+        defineLabFixture<typeof ProviderLogo>({
+            component: "ProviderLogo",
+            scenes: [
+                {id: "image", label: "多色图（DeepSeek）", input: {props: {id: "deepseek", name: "DeepSeek", size: 28}}},
+                {id: "search", label: "搜索服务（Tavily）", input: {props: {id: "tavily", name: "Tavily", size: 28}}},
+                {id: "initial", label: "图标表里没有：首字母块", input: {props: {id: "nowhere", name: "博查", size: 28}}},
+            ],
+            load: async () => createSubjectFixture<typeof ProviderLogo>((await import("nbook/ui/provider-icons/ProviderLogo.vue")).default, {class: "p-4"}),
         }),
         defineLabFixture<typeof ProviderDetail>({
             component: "ProviderDetail",

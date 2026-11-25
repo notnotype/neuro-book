@@ -31,3 +31,15 @@ export function cloneNode<T>(node: GridNode<T>): GridNode<T> {
         ? {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}}
         : {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}, children: node.children.map(cloneNode)};
 }
+
+/**
+ * 复制一棵独立的树给 `Grid.clone`：同 `cloneNode`，另把 `collapse` 拷一份，只有宿主对象 `ref` 与原树共用。
+ * 不变量：节点上的策略字段都是纯数据（数、字符串、布尔，或这些组成的一层对象）；以后加了嵌套对象的字段，要在这里拷。
+ * `cloneNode` 不拷 `collapse`：手势预览每帧调它，副本上改收起状态的写法是整个替换 `collapse`。
+ */
+export function copyTree<T>(node: GridNode<T>): GridNode<T> {
+    const collapse = node.collapse === undefined ? {} : {collapse: {...node.collapse}};
+    return node.kind === "leaf"
+        ? {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}, ...collapse}
+        : {...node, size: {...node.size}, minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}, ...collapse, children: node.children.map((child) => copyTree(child))};
+}

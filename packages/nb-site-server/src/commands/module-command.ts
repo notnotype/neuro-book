@@ -16,7 +16,7 @@ import type {StopState} from "../lifecycle";
 import {lockModules, type ModuleLocks} from "../lock";
 import type {Logger} from "../log";
 import type {CommandFailure, SiteCommand, SiteModule} from "../module";
-import {closeAll, failed, lockFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
+import {closeAll, failed, lockFailure, moduleDbFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
 
 const SYSTEM_CLOCK = {now: () => Date.now()};
 
@@ -55,10 +55,17 @@ export async function runModuleCommand(
             // `shared` 只在迁移期间占着库：之后它可能停在等输入的地方很久，不能挡住服务启动（`site.operations` 的时序一节）。
             if (command.access === "shared") locks.release();
         } else {
-            dbs.set(module.name, openModuleDb(base.dataDir, module.name));
-            if (!migrationsApplied(dbs.get(module.name)!, module)) {
-                return failed({code: "not_ready", message: `module ${module.name} has migrations that are not applied yet`, fields: {module: module.name}});
+            let applied: boolean;
+            try {
+                const db = openModuleDb(base.dataDir, module.name);
+                dbs.set(module.name, db);
+                applied = migrationsApplied(db, module);
+            } catch (error) {
+                const failure = moduleDbFailure(module.name, error);
+                if (failure === undefined) throw error;
+                return failed(failure);
             }
+            if (!applied) return failed({code: "not_ready", message: `module ${module.name} has migrations that are not applied yet`, fields: {module: module.name}});
         }
         // 让排队的信号先跑：上面这些都是同步的。
         await yieldToEventLoop();

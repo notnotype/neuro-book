@@ -62,6 +62,7 @@ import WorkbenchViewFrame from "./WorkbenchViewFrame.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
 import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
 import {OPEN_COMMANDS_ID} from "../commands/open-commands";
+import type {WorkbenchGridIssue} from "../grid-diagnostics";
 
 defineOptions({name: "WorkbenchShell"});
 
@@ -88,6 +89,11 @@ const props = defineProps<{
     dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
+    /**
+     * 网格的诊断与被拒的提交（`grid-diagnostics.ts`）。必填：外壳只有插件入口一个挂载点，漏接时网格的诊断全部静默丢掉。
+     * 入口交出的属性不经类型检查核对，漏传只有开发构建里 Vue 的警告，由 workbench-shell 的 e2e 守着。
+     */
+    reportGridIssues: (issues: readonly WorkbenchGridIssue[]) => void;
 }>();
 
 const resolver = useText();
@@ -1036,6 +1042,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 @focus-panel="(panel) => layout.actions.focusPanel(panel)"
                 @raise-float="(panel) => layout.actions.raiseFloat(panel)"
                 @content-parked="onContentParked"
+                @issues="(issues) => reportGridIssues(issues)"
             >
                 <template #activitybar>
                     <WorkbenchToolStrip

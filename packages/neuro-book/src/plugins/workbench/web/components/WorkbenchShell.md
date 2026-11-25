@@ -64,6 +64,8 @@ type Props = {
     dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
+    /** 网格的诊断与被拒的提交（`grid-diagnostics.ts`，记成事件 `workbench.grid`）；必填，插件入口交 `recordGridIssues`。 */
+    reportGridIssues: (issues: readonly WorkbenchGridIssue[]) => void;
 };
 ```
 

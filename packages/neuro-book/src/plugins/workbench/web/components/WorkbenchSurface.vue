@@ -62,7 +62,7 @@ const emit = defineEmits<{
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账：`before` 是手势开始时呈现的尺寸，`after` 是落账之后的，`collapsed` 是这次手势改了收起状态的面板；宿主经 `applyGestureCommit` 写回文档（workbench-layout 输出 49）。 */
     (event: "gesture-commit", before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
-    /** 网格的诊断与被拒的提交（`ui/nested-grid` 输出 139）：`NestedGrid` 的 `issues` 与 `useGridLayout` 的 `onIssues` 两路合在这里。 */
+    /** 网格的诊断与被拒的提交（`ui/nested-grid` 输出 139）：`NestedGrid` 的 `issues` 与 `useGridLayout` 的 `onIssues` 两路合在这里；外壳交给 `reportGridIssues` 记进窗口的诊断。 */
     (event: "issues", issues: readonly GridHostIssue[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定（输出 16）。 */
     (event: "content-parked", key: string): void;

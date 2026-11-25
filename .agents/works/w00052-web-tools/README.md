@@ -2,7 +2,7 @@
 schema: nbook.work/v1
 workId: w00052-web-tools
 issueId: null
-status: active
+status: done
 updated: 2026-11-25
 ---
 
@@ -34,6 +34,7 @@ updated: 2026-11-25
 |---|---|---|
 | [t01](tasks/t01-design/README.md) | 设计与实现：`nbook.web-tools`（`web_search`、`web_fetch`、“搜索与网页”设置页），只接 DeepSeek | 完成：`4c0c25023` 合入 master，两份 Spec 晋升 |
 | [t02](tasks/t02-tavily-and-batch-search/README.md) | 接入 Tavily、设置页选一家、`web_search` 一次几条查询、插件 id 改回 `nbook.web` | 完成：`6824bf5dc`、`8a975d6fe` 合入 master，两份 Spec 晋升 |
+| [t03](tasks/t03-search-settings-redesign/README.md) | 设置页改左边列表、右边详情，加默认结果条数、屏蔽网站、各家接口地址与 Tavily 搜索深度，服务商带 logo | 完成：`da4b4ecf5`、`26afc5480` 合入 master，两份 Spec 晋升 |
 
 ## 后续
 

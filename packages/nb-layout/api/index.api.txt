@@ -72,6 +72,7 @@ type Grid<T> = {
     serialize(): GridSnapshot;
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
     layout(container: GridExtent): GridLayoutResult;
+    clone(): Grid<T>;
 };
 
 ### experimental type GridAxis
@@ -418,6 +419,16 @@ type GridRestoreResult = ({
     ok: true;
 } & GridRestoreReport) | (GridFailure<GridRestoreFailureCode> & GridRestoreReport);
 
+### experimental type GridRestoredGrid
+引用：Grid, GridRestoreResult
+type GridRestoredGrid<T> = (Extract<GridRestoreResult, {
+    ok: true;
+}> & {
+    readonly grid: Grid<T>;
+}) | Extract<GridRestoreResult, {
+    ok: false;
+}>;
+
 ### experimental type GridResult
 引用：GridFailure, GridFailureCode
 type GridResult = {
@@ -484,7 +495,7 @@ type GridSplitInput<T> = {
     orientation: GridOrientation;
     side: GridSplitSide;
     leaf: Omit<GridLeafInput<T>, "size">;
-    ratio?: number;
+    ratio?: number | "even";
 };
 
 ### experimental type GridSplitSide
@@ -748,6 +759,13 @@ declare function resolveListInsertion(input: {
     readonly members: readonly GridDropMember[];
     readonly edgeGap?: number;
 }): GridListInsertion | null;
+
+### experimental function restoreGrid
+引用：GridOptions, GridRefEncoder, GridRefResolver, GridRestoredGrid
+declare function restoreGrid<T extends string>(snapshot: unknown, resolveRef: GridRefResolver<T>, options?: GridOptions<T>): GridRestoredGrid<T>;
+declare function restoreGrid<T>(snapshot: unknown, resolveRef: GridRefResolver<T>, options: GridOptions<T> & {
+    encodeRef: GridRefEncoder<T>;
+}): GridRestoredGrid<T>;
 
 ### experimental function setLayoutDevChecks
 declare function setLayoutDevChecks(enabled: boolean): void;

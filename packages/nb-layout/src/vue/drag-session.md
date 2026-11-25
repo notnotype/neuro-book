@@ -30,9 +30,28 @@ const {state} = useDragSession(rootEl, (root) => ({
 | `keyboard?` | 键盘拖动；缺省只有指针。要给 `sourceAt`（焦点处的来源）、`regions`（Tab 依次走过的区域）、`stops`（区域里方向键停的点）、`start`（拿起时在哪个区域、哪一点）、`refocus`（结束后焦点还给谁） |
 | `config?` | 起拖门槛等 |
 
-自己画的拖动反馈（拖影、插入线）要带 `data-drag-feedback`：会话判定落点时跳过它们，不然它们会挡住指针下的目标。菜单、对话框挡在落点上时，落点不接收。
+自己画的拖动反馈（拖影、插入线）要带 `data-drag-feedback`：会话判定落点时跳过它们，不然它们会挡住指针下的目标。设了 `pointer-events: none` 的元素本来就不在浏览器的命中里，挡不住落点；`data-drag-feedback` 给要接指针、或设不了 `pointer-events: none` 的反馈。菜单、对话框挡在落点上时，落点不接收。
 
 `state` 是此刻的状态（来源、落点、动作），没有拖动时是 `null`；宿主据此画反馈。
+
+## 时序与先后
+
+**起拖门槛**：鼠标与笔按下后移动 6px 才起拖；触摸要按住 200ms、期间移动不超过 6px。缺省值是 `DRAG_GESTURE_DEFAULTS`，经 `config` 改。e2e 里按下之后要先移过门槛，`activate` 与 `resolve` 才会被调。
+
+**起拖时网格还在过渡**：会话的判定量的是此刻的矩形。网格的布局过渡还在走时起拖，量到的是过渡中间的位置，宿主要在 `activate` 里调网格的 `settleMotion()`，让过渡直接到终点。`createLiveDragSession` 自己会调。开发检查（`setLayoutDevChecks`）只在宿主把 `dragging` 交给 `NestedGrid` 时查得到漏调。
+
+**收场的先后**：
+
+1. 拆掉这一场的监听，释放根上的指针捕获；
+2. `state` 置为 `null`；
+3. `onActiveChange(false)`；
+4. `onEnd(end, last)`；
+5. 放下且有要做的动作时 `commit`：它在 `onEnd` 之后；
+6. 键盘拖动还焦点：提交了的在下一帧还（提交引起的重渲染已经完成），取消的当场还；焦点已经离开或会话被销毁时不还。
+
+**`actionKey` 为 null 的落点**：放下时这一场以 `no-action` 结束，不调 `commit`。宿主在拖动中做的跟手副作用（例如用 `placeFloat` 挪窗）要在 `onActiveChange(false)` 或 `onEnd` 里自己撤，否则窗停在拖到的地方。要在这种落点上照样提交，就交回非 null 的键，或者让 `commitsUnderPointer` 为真。
+
+**click**：指针拖动时根持有指针捕获，松手后浏览器把这次 click 发给根，不发给按下时的按钮。会话还在根的捕获阶段吞掉这次手势末尾的 click（`detail` 不为 0 的；键盘触发的 click 不吞）。两层各自都能让按钮收不到 click，所以测试只能断言“按钮的动作没发生”；只去掉其中一层，按钮照样收不到，这是预期。
 
 ## useDragSession：组件里的会话
 

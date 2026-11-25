@@ -116,7 +116,7 @@ export function parseSnapshot<T>(
             return null;
         }
         if (depth > GRID_MAX_DEPTH) {
-            failure = restoreFailure("limit-exceeded", `The snapshot is nested deeper than ${GRID_MAX_DEPTH}`, {limit: "depth", max: GRID_MAX_DEPTH});
+            failure = restoreFailure("limit-exceeded", `The snapshot is nested deeper than ${GRID_MAX_DEPTH} levels (the root is level 1)`, {limit: "depth", max: GRID_MAX_DEPTH});
             return null;
         }
         if (!node || typeof node !== "object") {
@@ -213,7 +213,8 @@ export function parseSnapshot<T>(
         return null;
     };
 
-    const tree = convert(envelope.root, 0, null);
+    // 根算第 1 层，与结构操作的规模守卫同一个计法。
+    const tree = convert(envelope.root, 1, null);
     if (failure) {
         return failed(failure);
     }
