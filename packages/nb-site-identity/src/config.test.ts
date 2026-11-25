@@ -80,6 +80,17 @@ describe("parseIdentityConfig", () => {
         expect(parseIdentityConfig({...REQUIRED, NB_SITE_IDENTITY_TERMS_VERSION: "2000-02-29"}).ok).toBe(true);
     });
 
+    it("进程环境里有以 BETTER_AUTH_ 开头的变量：每个报 not_allowed，按名字排序，不含取值；空串与没设一样", () => {
+        const problems = problemsOf({...REQUIRED, BETTER_AUTH_TELEMETRY: "true", BETTER_AUTH_SECRETS: `1:${SECRET}`, BETTER_AUTH_URL: ""});
+        expect(problems).toEqual([
+            {name: "BETTER_AUTH_SECRETS", problem: "not_allowed"},
+            {name: "BETTER_AUTH_TELEMETRY", problem: "not_allowed"},
+        ]);
+        expect(JSON.stringify(problems)).not.toContain(SECRET);
+        // 只认这个前缀：别的库、名字里只是含有它的变量不算。
+        expect(parseIdentityConfig({...REQUIRED, NOT_BETTER_AUTH_SECRET: "x", better_auth_secret: "x"}).ok).toBe(true);
+    });
+
     it("问题收齐了一起报，只有变量名与问题词，不含取值", () => {
         const problems = problemsOf({
             NB_SITE_SESSION_SECRET: "SECRET-VALUE",

@@ -1,17 +1,19 @@
 /**
  * 子应用的登出与出错出口（`app.ts`、`errors.ts`；`site.accounts` 输出 5、22，失败表）。来源头、请求体、未知路径这些对外形状
  * 由合同测试（`nb-site-contract-tests` 的 `accounts.test.ts`）在真实进程上验；这里验要会话或要撞写锁才看得到的部分：这一片
- * 还没有对外的登录，合同测试造不出会话。
+ * 还没有对外的登录，合同测试造不出会话。有参数的请求体（`readBody`）这一片还没有对外的路由用，这里把它挂到测试自己的 PATCH 上验。
  */
 
 import type {SQLiteError} from "bun:sqlite";
 import {afterEach, describe, expect, it} from "bun:test";
 
 import {APIError} from "better-auth/api";
-import {LoginRequest} from "@notnotype/nb-site-identity-contract";
+import {Hono} from "hono";
+import type {TSchema} from "typebox";
+import {LoginRequest, PatchMeRequest, PatchRegistrationCodeRequest} from "@notnotype/nb-site-identity-contract";
 
 import {IdentityQueueMisuseError} from "./db/connection";
-import {failureFor, invalidFields} from "./errors";
+import {failureFor, invalidFields, readBody, respondFailure} from "./errors";
 import {recordingLog, TEST_SITE_URL} from "./testing/library";
 import {createTestIdentity, SESSION_COOKIE, TEST_TERMS_VERSION, type TestIdentity} from "./testing/module";
 
@@ -116,6 +118,31 @@ describe("出错出口的归类", () => {
             const log = recordingLog();
             expect(failureFor(error, log)).toEqual({status: 500, body: {error: {code: "internal"}}, headers: {}});
             expect(log.lines.map((line) => [line.level, line.event])).toEqual([["error", event]]);
+        }
+    });
+});
+
+describe("有参数的请求体（readBody）", () => {
+    /** 把 `readBody` 按产品的写法挂到一条 PATCH 上：读到的体原样回给调用方，失败走同一个出错出口。 */
+    function patchApp(schema: TSchema): Hono {
+        const app = new Hono();
+        app.patch("/", async (c) => c.json({received: await readBody(c, schema)}));
+        app.onError((error, c) => respondFailure(c, failureFor(error, recordingLog())));
+        return app;
+    }
+
+    const patch = (app: Hono, body: string) => app.request("/", {method: "PATCH", headers: {"Content-Type": "application/json"}, body});
+
+    it("两个 PATCH 的空对象：validation_failed、fields 为空数组（错误不落在哪个键上也拒）；至少一项时照常读", async () => {
+        for (const [schema, valid] of [
+            [PatchMeRequest, {bio: null}],
+            [PatchRegistrationCodeRequest, {note: null}],
+        ] as const) {
+            const app = patchApp(schema);
+            const empty = await patch(app, "{}");
+            expect({status: empty.status, body: await empty.json()}).toEqual({status: 400, body: {error: {code: "validation_failed", fields: []}}});
+            const accepted = await patch(app, JSON.stringify(valid));
+            expect({status: accepted.status, body: await accepted.json()}).toEqual({status: 200, body: {received: valid}});
         }
     });
 });

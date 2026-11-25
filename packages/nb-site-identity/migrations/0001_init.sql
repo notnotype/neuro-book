@@ -109,6 +109,9 @@ CREATE INDEX identity_consent_user ON identity_consent (user_id, id);
 -- （user、registration_code，t08 加 oauth_client）。两者不在这里用 CHECK 列举：加动作要改表，取值由合同包的枚举与写入函数守。
 -- params 是动作的参数，一个 JSON 对象；不放密码、哈希、码与备注（site.admin 输出 8）。
 -- 不能改、不能删（site.admin 目标一节）：两个触发器拒绝 UPDATE 与 DELETE。RAISE 的说明是固定文字（迁移运行器的规则）。
+-- 第三个触发器拒绝插入已有的 id：`REPLACE`（`INSERT OR REPLACE`）删掉冲突的旧行时，删除触发器只在 `recursive_triggers` 打开时
+-- 才触发，业务连接没开它，同 id 的 REPLACE 就能盖掉一条历史记录（omp 实现审查第 3 条）。AUTOINCREMENT 不拦显式给的 id，所以在
+-- 插入前查。自动发号时 NEW.id 不是已有的 id，查不到，不受影响。
 CREATE TABLE identity_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
@@ -124,3 +127,4 @@ CREATE INDEX identity_audit_target ON identity_audit (target_type, target_id, id
 CREATE INDEX identity_audit_action ON identity_audit (action, id);
 CREATE TRIGGER identity_audit_no_update BEFORE UPDATE ON identity_audit BEGIN SELECT RAISE(ABORT, 'identity_audit is append-only'); END;
 CREATE TRIGGER identity_audit_no_delete BEFORE DELETE ON identity_audit BEGIN SELECT RAISE(ABORT, 'identity_audit is append-only'); END;
+CREATE TRIGGER identity_audit_no_replace BEFORE INSERT ON identity_audit WHEN EXISTS (SELECT 1 FROM identity_audit WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, 'identity_audit is append-only'); END;

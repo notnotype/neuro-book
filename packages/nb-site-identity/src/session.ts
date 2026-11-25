@@ -16,6 +16,8 @@
  *   记一行 warn、照常放行（设计审查第 3 条）：本来只读的请求不因此失败。
  */
 
+import {parseCookies} from "better-auth/cookies";
+
 import type {Role} from "@notnotype/nb-site-identity-contract";
 
 import type {IdentityAuth} from "./auth";
@@ -156,6 +158,17 @@ export class Sessions {
         };
     }
 
+    /**
+     * 请求带着会话 Cookie（不论值对不对）。要会话的接口读不出会话时据此清掉它：库按系统时间判到期时 `getSession` 只回 null，
+     * 模块到不了下面按自己的时钟删行、清 Cookie 的那一支，不清的话浏览器会一直带着这个没用的 Cookie（omp 实现审查第 5 条）。
+     * 行不在这里删：库没告诉是哪一行，留给清理任务。名字取库自己认 Cookie 用的那个，与 `getSession` 读的是同一个。
+     */
+    async #carriesSessionCookie(cookie: string | null): Promise<boolean> {
+        if (cookie === null || cookie === "") return false;
+        const {authCookies} = await this.#auth.$context;
+        return parseCookies(cookie).has(authCookies.sessionToken.name);
+    }
+
     #consentRequired(userId: number): Promise<boolean> {
         return this.#conn.read((tx) => {
             const row = tx
@@ -167,13 +180,13 @@ export class Sessions {
 
     /**
      * 读当前会话（计划 3.5 的四步）。`peek`：`whoami` 用，只做前三步，不写库、不查同意。`use`：要会话的接口用，到期的行当场删、
-     * 并带清除 Cookie，另查同意。延长与最后使用时间不在这里，见 `maintain`。
+     * 并带清除 Cookie，另查同意；带着会话 Cookie 却读不出会话时也带清除 Cookie。延长与最后使用时间不在这里，见 `maintain`。
      */
     async read(cookie: string | null, mode: "peek"): Promise<SessionRead<SessionIdentity>>;
     async read(cookie: string | null, mode: "use"): Promise<SessionRead>;
     async read(cookie: string | null, mode: "peek" | "use"): Promise<SessionRead<SessionIdentity>> {
         const found = await this.#find(cookie);
-        if (found === null) return {session: null, cookies: []};
+        if (found === null) return {session: null, cookies: mode === "use" && (await this.#carriesSessionCookie(cookie)) ? await this.clearCookie() : []};
         if (found.expiresAtMs <= this.#clock.now()) return {session: null, cookies: mode === "use" ? await this.#expire(found) : []};
         // 封禁时会话已删光（`endAllSessions`），这里是兜底：导入的数据里可能有封禁账号残留的会话。
         if (found.banned) return {session: null, cookies: []};
@@ -267,15 +280,17 @@ export class Sessions {
         return this.clearCookie();
     }
 
-    /** 定时任务 `purge`：删到期的会话。库不可用时记 warn，下一次再删。 */
+    /**
+     * 定时任务 `purge`：删到期的会话。库不可用时记一行 warn 说明这次没删，再照样抛出：这次运行以失败结束，经测试控制入口手动跑
+     * 时回 `job_failed`、不是 `done`（`site.operations` 输出 11；omp 实现审查第 9 条）。调度器照常排下一次，到时再删。
+     */
     async purge(): Promise<void> {
         let removed: number;
         try {
             removed = await this.#conn.write((tx) => purgeExpiredSessions(tx, this.#clock.now()));
         } catch (error) {
-            if (!isDbUnavailable(error)) throw error;
-            this.#log.warn("identity.purge_skipped", "identity database is not writable; expired sessions are left for the next run", {});
-            return;
+            if (isDbUnavailable(error)) this.#log.warn("identity.purge_skipped", "identity database is not writable; expired sessions are left for the next run", {});
+            throw error;
         }
         if (removed > 0) this.#log.info("identity.purged", "expired sessions were deleted", {sessions: removed});
     }

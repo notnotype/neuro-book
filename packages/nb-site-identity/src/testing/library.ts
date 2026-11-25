@@ -41,18 +41,23 @@ export class ManualClock {
     }
 }
 
-/** 手动触发的计时器：登记了几个、到点的回调由用例自己 `fireAll`。不按时间走，用来测等锁上限与 `close` 的时限。 */
+/**
+ * 手动拨的计时器：时间只在用例调 `advance` 时走，登记的回调按登记时给的延迟到期。用来测等锁上限与 `close` 的时限：用例能核对
+ * “差 1 毫秒时还在等、到点时才拒绝”，改了上限的缺省值用例就失败（omp 实现审查第 11 条）。
+ */
 export class ManualTimers implements IdentityTimers {
-    readonly #pending = new Map<number, () => void>();
+    readonly #pending = new Map<number, {readonly due: number; readonly callback: () => void}>();
+    #now = 0;
     #next = 0;
 
+    /** 登记着、还没到期也没被清掉的个数。 */
     get pending(): number {
         return this.#pending.size;
     }
 
-    setTimeout(callback: () => void, _ms: number): unknown {
+    setTimeout(callback: () => void, ms: number): unknown {
         const handle = ++this.#next;
-        this.#pending.set(handle, callback);
+        this.#pending.set(handle, {due: this.#now + ms, callback});
         return handle;
     }
 
@@ -60,11 +65,17 @@ export class ManualTimers implements IdentityTimers {
         this.#pending.delete(handle as number);
     }
 
-    /** 触发当前登记着的全部回调（触发期间新登记的不触发）。 */
-    fireAll(): void {
-        const due = [...this.#pending];
-        this.#pending.clear();
-        for (const [, callback] of due) callback();
+    /**
+     * 往前拨 `ms` 毫秒，触发到期的回调：按到期的先后，同时到期的按登记的先后。触发期间新登记的从拨完之后的时间算起，不在这一次里
+     * 触发；被前一个回调清掉的不再触发。
+     */
+    advance(ms: number): void {
+        this.#now += ms;
+        const due = [...this.#pending].filter(([, timer]) => timer.due <= this.#now).sort(([leftHandle, left], [rightHandle, right]) => left.due - right.due || leftHandle - rightHandle);
+        for (const [handle, timer] of due) {
+            if (!this.#pending.delete(handle)) continue;
+            timer.callback();
+        }
     }
 }
 

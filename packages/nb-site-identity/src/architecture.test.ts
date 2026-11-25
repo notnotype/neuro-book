@@ -61,7 +61,8 @@ const SESSION_DELETERS = ["session.ts"];
 
 function sessionDeletes(source: string): number {
     const code = withoutComments(source);
-    const sql = [...code.matchAll(/\bDELETE\s+FROM\s+(?:"session"|`session`|\[session\]|'session'|session)(?![\w.])/giu)].length;
+    // 引号前可以有反斜杠：写在双引号字符串里的 SQL 是 `"DELETE FROM \"session\""`。
+    const sql = [...code.matchAll(/\bDELETE\s+FROM\s+(?:\\?"session\\?"|`session`|\[session\]|\\?'session\\?'|session)(?![\w.])/giu)].length;
     const library = [...code.matchAll(/\.\s*deleteSessions?\s*\(/gu)].length;
     return sql + library;
 }
@@ -76,6 +77,7 @@ describe("删会话只经 session.ts 的一组函数", () => {
         expect(sessionDeletes('tx.query(`DELETE FROM "session" WHERE "id" = ?`).run(id);')).toBe(1);
         expect(sessionDeletes("tx.query('delete from session where id = ?')")).toBe(1);
         expect(sessionDeletes("DELETE\n  FROM `session`")).toBe(1);
+        expect(sessionDeletes('const sql = "DELETE FROM \\"session\\" WHERE id = ?";')).toBe(1);
         expect(sessionDeletes("await ctx.context.internalAdapter.deleteSession(token);")).toBe(1);
         expect(sessionDeletes("await adapter.deleteSessions(userId);")).toBe(1);
         expect(sessionDeletes('DELETE FROM "session_audit"')).toBe(0);

@@ -26,7 +26,7 @@ export interface IdentityConfig {
 /** 配置问题只带变量名与固定的问题词，不带取值（`site.operations` 输出 1）。 */
 export interface IdentityConfigProblem {
     readonly name: string;
-    readonly problem: "missing" | "too_short" | "bad_format" | "not_integer" | "out_of_range";
+    readonly problem: "missing" | "too_short" | "bad_format" | "not_integer" | "out_of_range" | "not_allowed";
 }
 
 export type IdentityConfigResult = {readonly ok: true; readonly config: IdentityConfig} | {readonly ok: false; readonly problems: readonly IdentityConfigProblem[]};
@@ -46,6 +46,13 @@ const HASH_CONCURRENCY: IntegerVariable = {name: "NB_SITE_IDENTITY_HASH_CONCURRE
 const HASH_QUEUE: IntegerVariable = {name: "NB_SITE_IDENTITY_HASH_QUEUE", min: 0, max: 10_000, fallback: 64};
 
 const TERMS_VERSION = /^(\d{4})-(\d{2})-(\d{2})$/u;
+
+/**
+ * Better Auth 自己从进程环境读的变量都以它开头。它们绕过本模块的配置改变库的行为：`BETTER_AUTH_SECRETS` 存在时库拿它签、验
+ * 会话 Cookie，盖过 `NB_SITE_SESSION_SECRET`；`BETTER_AUTH_TELEMETRY` 能打开显式关掉的库自带遥测（omp 实现审查第 7、8 条）。
+ * 库的选项挡不住这些读法，所以有一个就不启动（`site.accounts` 输入一节的配置），不逐个列：库升级加的新变量同样挡住。
+ */
+const LIBRARY_ENV_PREFIX = "BETTER_AUTH_";
 
 /** 形如 `YYYY-MM-DD` 且是公历里真实存在的一天（`2026-02-29` 不是）。 */
 function isCalendarDate(value: string): boolean {
@@ -99,6 +106,11 @@ export function parseIdentityConfig(env: Readonly<Record<string, string | undefi
     const sessionDays = readInteger(SESSION_DAYS);
     const hashConcurrency = readInteger(HASH_CONCURRENCY);
     const hashQueue = readInteger(HASH_QUEUE);
+
+    // 按名字排序，问题的先后不随进程环境的顺序变。
+    for (const name of Object.keys(env).sort()) {
+        if (name.startsWith(LIBRARY_ENV_PREFIX) && given(name) !== undefined) problems.push({name, problem: "not_allowed"});
+    }
 
     if (problems.length > 0) return {ok: false, problems};
     return {ok: true, config: {sessionSecret: sessionSecret!, termsVersion: termsVersion!, registrationOpen, sessionDays, hashConcurrency, hashQueue}};

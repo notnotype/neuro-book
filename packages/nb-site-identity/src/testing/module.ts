@@ -8,7 +8,7 @@ import {Hono} from "hono";
 import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
 
 import type {IdentityConfig} from "../config";
-import {IdentityConnection} from "../db/connection";
+import {IdentityConnection, type IdentityTimers} from "../db/connection";
 import {insertUserRow, libDate} from "../db/library-rows";
 import {assembleIdentity, type IdentityAssembly, type IdentityJob} from "../module";
 import {createTestDbRoot, type TestDbRoot} from "./db";
@@ -49,6 +49,8 @@ export interface TestIdentityOptions {
     readonly config?: Partial<IdentityConfig>;
     /** 时钟的起点；缺省是现在。 */
     readonly start?: number;
+    /** 队列等锁上限用的计时器；缺省是真的计时器。给 `ManualTimers` 时 `pending` 就是排队等锁的个数。 */
+    readonly timers?: IdentityTimers;
 }
 
 /** 从一组 `Set-Cookie` 里取会话 Cookie 的 `名字=值`。 */
@@ -62,7 +64,7 @@ export function sessionCookieOf(setCookies: readonly string[]): string {
 export async function createTestIdentity(name: string, options: TestIdentityOptions = {}): Promise<TestIdentity> {
     const root = await createTestDbRoot(name);
     const log = recordingLog();
-    const conn = new IdentityConnection(root.open(), {log});
+    const conn = new IdentityConnection(root.open(), {log, ...(options.timers === undefined ? {} : {timers: options.timers})});
     const clock = new ManualClock(options.start ?? Date.now());
     const jobs: IdentityJob[] = [];
     const assembly = await assembleIdentity(conn, {

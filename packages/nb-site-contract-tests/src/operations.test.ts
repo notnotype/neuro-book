@@ -99,6 +99,8 @@ describe("配置校验（输出 1、10，验收 4）", () => {
     const otherSecret = randomSecret();
     /** 特征明显、但太短的会话密钥：在整段输出里搜它。 */
     const shortSecret = "SHORT-SECRET-q7Zx";
+    /** 库自己从环境读的会话密钥表（`BETTER_AUTH_SECRETS`）里的值：在整段输出里搜它。 */
+    const librarySecret = randomSecret();
 
     async function runCase(name: string, env: Readonly<Record<string, string | undefined>>): Promise<void> {
         const dataDir = await sandbox.dataDir();
@@ -111,6 +113,7 @@ describe("配置校验（输出 1、10，验收 4）", () => {
         await Promise.all([
             ...REQUIRED.map((name) => runCase(name, {[name]: undefined, ...(name === "NB_SITE_SESSION_SECRET" ? {NB_SITE_TEST_CONTROL: otherSecret} : {})})),
             runCase("short-secret", {NB_SITE_SESSION_SECRET: shortSecret}),
+            runCase("library-env", {BETTER_AUTH_SECRETS: `1:${librarySecret}`, BETTER_AUTH_TELEMETRY: "true"}),
         ]);
     }, SETUP_TIMEOUT_MS);
 
@@ -139,6 +142,17 @@ describe("配置校验（输出 1、10，验收 4）", () => {
         expect(result.failure?.code).toBe("config_invalid");
         expect(result.failure?.problems).toContainEqual({name: "NB_SITE_SESSION_SECRET", problem: "too_short"});
         expect(`${result.stdout}\n${result.stderr}`).not.toContain(shortSecret);
+        expect(dataDirEntries).toEqual([]);
+    });
+
+    it("进程环境里有以 BETTER_AUTH_ 开头的变量：config_invalid，问题词 not_allowed 记在各自的变量名上，输出里没有取值，没改数据目录", () => {
+        const {result, dataDirEntries} = cases.get("library-env")!;
+        expect(result.exitCode).not.toBe(0);
+        expect(result.failure?.code).toBe("config_invalid");
+        expect(result.failure?.problems).toContainEqual({name: "BETTER_AUTH_SECRETS", problem: "not_allowed"});
+        expect(result.failure?.problems).toContainEqual({name: "BETTER_AUTH_TELEMETRY", problem: "not_allowed"});
+        expect(`${result.stdout}\n${result.stderr}`).not.toContain(librarySecret);
+        expect(events(result.logs)).not.toContain("site.listening");
         expect(dataDirEntries).toEqual([]);
     });
 });

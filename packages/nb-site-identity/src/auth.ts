@@ -108,8 +108,14 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
         secret: options.secret,
         database: options.database,
         advanced: {
-            // 库插入时不带 id，由表的 AUTOINCREMENT 发号；库把 id 读成字符串，模块对外一律转成整数。
-            database: {generateId: "serial"},
+            database: {
+                // 库插入时不带 id，由表的 AUTOINCREMENT 发号；库把 id 读成字符串，模块对外一律转成整数。
+                generateId: "serial",
+                // 库按令牌查会话时连带它的账号（`findSession` 的 `join: {user: true}`）。缺省关着时库分两次查、两次之间放开队列的锁，
+                // 改角色并结束会话的写事务能插在中间，问身份就拿旧会话回了新角色（omp 实现审查第 6 条）。打开后 Kysely 适配器用一条
+                // 带 LEFT JOIN 的查询，会话与账号出自同一个库状态。由 `session.test.ts` 的“改角色与问身份交错”用例核对。
+                joins: true,
+            },
             // 库的 Cookie 一律用 `__Host-` 前缀，会话 Cookie 因此叫 `__Host-nbsite.session_token`（`site.accounts` 输出 5）：浏览器
             // 只收 Secure、`Path=/`、不带 `Domain` 的 `__Host-` Cookie，同一上级域名下的别的子域塞不进同名的 Cookie（`__Secure-` 挡
             // 不住，实现审查第 3 条）。库 1.7.27 的名字是“`useSecureCookies` 给的 `__Secure-`（或空串）+ 前缀 + `.` + Cookie 名”，

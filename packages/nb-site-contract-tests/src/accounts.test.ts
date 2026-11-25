@@ -130,8 +130,8 @@ describe("不要会话的接口（输出 7、22）", () => {
         expect(failure(await logout("[]"))).toEqual(validationFailed);
     });
 
-    it("请求体不是 JSON、不是对象：validation_failed，fields 为空数组", async () => {
-        for (const body of ["not json", "{", "null", "1", `"text"`]) {
+    it("请求体不是 JSON、不是对象：validation_failed，fields 为空数组；只有 UTF-8 BOM 的体有字节、不是空体，同样被拒", async () => {
+        for (const body of ["not json", "{", "null", "1", `"text"`, "﻿"]) {
             expect(failure(await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), body}))).toEqual(validationFailed);
         }
     });
@@ -191,5 +191,17 @@ describe("不要会话的接口（输出 7、22）", () => {
 
     it("清理任务 purge 能经测试控制入口跑一次", async () => {
         expect(await site.runJob("identity", "purge")).toMatchObject({status: 200});
+    });
+
+    it("账号库被进程外占着写时手动跑 purge 得 500 job_failed；放锁后再跑成功", async () => {
+        const release = holdWriteLock(dataDir, "identity");
+        let locked: JsonResponse;
+        try {
+            locked = await site.runJob("identity", "purge");
+        } finally {
+            release();
+        }
+        expect(outcome(locked)).toEqual({status: 500, body: {code: "job_failed", module: "identity", job: "purge"}});
+        expect(outcome(await site.runJob("identity", "purge"))).toEqual({status: 200, body: {status: "done"}});
     });
 });

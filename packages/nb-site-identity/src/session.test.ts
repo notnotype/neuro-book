@@ -7,9 +7,13 @@
 import {SQLiteError} from "bun:sqlite";
 import {afterEach, describe, expect, it} from "bun:test";
 
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
+import {isDbUnavailable} from "./db/connection";
 import {libDate} from "./db/library-rows";
 import {authorize, CONSENT_EXEMPT_ROUTES, type RouteKey} from "./middleware";
-import {endSession} from "./session";
+import {endAllSessions, endSession} from "./session";
+import {ManualTimers} from "./testing/library";
 import {createTestIdentity, SESSION_COOKIE, TEST_TERMS_VERSION, type TestIdentity} from "./testing/module";
 
 const HOUR_MS = 3_600_000;
@@ -76,6 +80,22 @@ describe("读会话", () => {
         expect(await identity.sessionRow(sessionId)).toBeNull();
     });
 
+    it("按系统时间已到期（库只回空）：要会话的接口回 unauthenticated 并清 Cookie，行留给清理任务；签名不对的会话 Cookie 也清", async () => {
+        // 起点在 31 天前、时钟不拨：模块按自己的时钟认为会话还有效，库按系统时间认为它已到期，走不到模块删行的那一支。
+        const {identity, cookie, sessionId} = await setup("identity-session-lib-expired", {start: Date.now() - 31 * DAY_MS});
+        const sessions = identity.assembly.sessions;
+
+        const result = await authorize(sessions, cookie, "GET /me", "user");
+        expect(result).toMatchObject({ok: false, code: "unauthenticated"});
+        expect(sessionCookies(result.cookies).map(isClearing)).toEqual([true]);
+        expect(await identity.sessionRow(sessionId)).not.toBeNull();
+
+        const forged = await authorize(sessions, `${cookie.slice(0, -2)}xx`, "GET /me", "user");
+        expect(sessionCookies(forged.cookies).map(isClearing)).toEqual([true]);
+        // 没带会话 Cookie 的请求不发清除。
+        expect(await authorize(sessions, "other=1", "GET /me", "user")).toEqual({ok: false, code: "unauthenticated", cookies: []});
+    });
+
     it("被封禁的账号残留的会话读不出", async () => {
         const {identity, cookie, userId} = await setup("identity-session-banned");
         await identity.conn.write((tx) => tx.query(`UPDATE "user" SET "banned" = 1 WHERE "id" = ?`).run(userId));
@@ -139,6 +159,39 @@ describe("问身份不写库", () => {
         const response = await identity.assembly.sessions.whoami(new Request(`https://site.test/whoami`, {headers: {cookie}}));
         expect(response.status).toBe(503);
         expect(await response.json()).toEqual({error: {code: "unavailable"}});
+    });
+});
+
+describe("问身份与写事务交错", () => {
+    it("改角色并结束全部会话的写排在问身份的读之后时，问身份回旧的角色，之后是匿名；不会拿旧会话回新角色", async () => {
+        // 手动计时器只用来数排队等锁的个数（每个等锁的登记一个上限计时器），不拨它，没人等到超时。
+        const timers = new ManualTimers();
+        identity = await createTestIdentity("identity-session-whoami-interleave", {timers});
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        const {adapter} = await identity.assembly.auth.$context;
+
+        // 先让一个库的事务占住队列，问身份与改角色依次排在它后面：放开以后它们按排队的先后执行。
+        const started = Promise.withResolvers<void>();
+        const finish = Promise.withResolvers<void>();
+        const holder = identity.conn.withLibTransaction(adapter, async () => {
+            started.resolve();
+            await finish.promise;
+        });
+        await started.promise;
+        const crossing = whoami(identity, cookie);
+        await waitUntil("问身份的读在排队", () => timers.pending === 1);
+        const promote = identity.conn.write((tx) => {
+            tx.query(`UPDATE "user" SET "role" = 'admin' WHERE "id" = ?`).run(userId);
+            return endAllSessions(tx, userId);
+        });
+        await waitUntil("改角色的写排在它后面", () => timers.pending === 2);
+        finish.resolve();
+        await holder;
+
+        expect(await promote).toBe(1);
+        expect(await crossing).toEqual({status: 200, body: {state: "authenticated", user: {id: userId, username: "alice", role: "user"}}, setCookies: []});
+        expect((await whoami(identity, cookie)).body).toEqual({state: "anonymous"});
     });
 });
 
@@ -264,15 +317,17 @@ describe("清理任务", () => {
         expect(identity.log.lines).toContainEqual({level: "info", event: "identity.purged", fields: {sessions: 1}});
     });
 
-    it("库被占着写时记 warn、不抛，下一次再删", async () => {
+    it("库被占着写时记 warn、以库不可用的错误失败，下一次再删", async () => {
         const {identity, sessionId} = await setup("identity-session-purge-locked");
         identity.clock.advance(SESSION_MS);
         const release = holdWriteLock(identity);
+        let failed: unknown;
         try {
-            await identity.jobs[0]!.run();
+            failed = await Promise.resolve(identity.jobs[0]!.run()).then(() => undefined, (error: unknown) => error);
         } finally {
             release();
         }
+        expect(isDbUnavailable(failed)).toBe(true);
         expect(await identity.sessionRow(sessionId)).not.toBeNull();
         expect(identity.log.lines.map((line) => line.event)).toContain("identity.purge_skipped");
 

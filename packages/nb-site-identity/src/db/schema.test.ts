@@ -138,12 +138,24 @@ function errorCode(sql: string, params: (string | number | null)[] = []): string
 }
 
 describe("审计只追加", () => {
-    it("插入可以，改与删都被触发器拒绝；params 只收 JSON 对象", () => {
+    it("插入可以，改、删与同 id 的替换都被触发器拒绝；params 只收 JSON 对象", () => {
         const insert = (params: string) => errorCode(`INSERT INTO identity_audit (created_at, actor_id, action, target_type, target_id, params) VALUES (?, NULL, 'admin.cli_upsert', 'user', 1, ?)`, [NOW, params]);
         expect(insert('{"role":"admin"}')).toBeNull();
         expect(errorCode("UPDATE identity_audit SET action = 'user.ban'")).toBe("SQLITE_CONSTRAINT_TRIGGER");
         expect(errorCode("DELETE FROM identity_audit")).toBe("SQLITE_CONSTRAINT_TRIGGER");
-        expect(db.query("SELECT action FROM identity_audit").all()).toEqual([{action: "admin.cli_upsert"}]);
+        // REPLACE 删冲突旧行不经删除触发器（业务连接没开 recursive_triggers），由插入前的触发器拒绝。
+        expect(db.query("PRAGMA recursive_triggers").get()).toEqual({recursive_triggers: 0});
+        for (const verb of ["REPLACE", "INSERT OR REPLACE"]) {
+            const replaced = errorCode(`${verb} INTO identity_audit (id, created_at, actor_id, action, target_type, target_id) VALUES (1, ?, NULL, 'user.ban', 'user', 1)`, [NOW]);
+            expect({verb, code: replaced}).toEqual({verb, code: "SQLITE_CONSTRAINT_TRIGGER"});
+        }
+        expect(db.query("SELECT id, action FROM identity_audit").all()).toEqual([{id: 1, action: "admin.cli_upsert"}]);
+        // 显式给一个没用过的 id 照常插入。
+        expect(errorCode(`INSERT INTO identity_audit (id, created_at, actor_id, action, target_type, target_id) VALUES (5, ?, NULL, 'user.ban', 'user', 1)`, [NOW])).toBeNull();
+        expect(db.query("SELECT id, action FROM identity_audit ORDER BY id").all()).toEqual([
+            {id: 1, action: "admin.cli_upsert"},
+            {id: 5, action: "user.ban"},
+        ]);
         for (const params of ["[]", '"text"', "1", "not json"]) expect({params, code: insert(params)}).toEqual({params, code: "SQLITE_CONSTRAINT_CHECK"});
     });
 });

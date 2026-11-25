@@ -87,13 +87,17 @@ export function failureAsResponse(failure: FailureResponse): Response {
  */
 export const bodySizeLimit = bodyLimit({maxSize: MAX_BODY_BYTES, onError: (c) => respondFailure(c, failureResponse("validation_failed"))});
 
-/** 读请求体并按 JSON 解析成对象；不是 JSON 或不是对象（数组、`null`、数）时 `validation_failed`、`fields: []`。 */
+/**
+ * 读请求体并按 JSON 解析成对象；零字节时回 `undefined`。不是 JSON 或不是对象（数组、`null`、数）时 `validation_failed`、
+ * `fields: []`。有没有体按收到的字节判，不按解码后的文字：解码会去掉开头的 UTF-8 BOM，只有 BOM 的体解码后是空串，按文字判
+ * 就被当成了没有体（omp 实现审查第 10 条）。
+ */
 async function readJsonObject(c: Context): Promise<Record<string, unknown> | undefined> {
-    const text = await c.req.text();
-    if (text === "") return undefined;
+    const bytes = await c.req.arrayBuffer();
+    if (bytes.byteLength === 0) return undefined;
     let value: unknown;
     try {
-        value = JSON.parse(text);
+        value = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
         // 不是 JSON 是请求方的错，按合同回码即可，不记日志（日志不记请求体）。
         throw new IdentityFailure("validation_failed");
@@ -136,11 +140,12 @@ export function invalidFields(schema: TSchema, value: unknown): string[] {
 /**
  * 有参数的接口的请求体：必须是 JSON 对象（空体也不行），再按合同包的 schema 校验；不合格时 `validation_failed`，`fields` 是不合规则
  * 的键名。长度规则已写在合同的 `pattern` 里（按码点），schema 通过就不另数一遍（合同包 `AGENTS.md`）。
+ * 成败只看 schema 过没过，`fields` 只是给调用方看的投影：有的错误不落在哪个键上（两个 PATCH 的 `minProperties`：空对象），
+ * 这时 `fields` 是空数组，请求照样被拒（omp 实现审查第 1 条）。
  */
 export async function readBody<S extends TSchema>(c: Context, schema: S): Promise<Static<S>> {
     const body = await readJsonObject(c);
     if (body === undefined) throw new IdentityFailure("validation_failed");
-    const fields = invalidFields(schema, body);
-    if (fields.length > 0) throw new IdentityFailure("validation_failed", fields);
-    return body as Static<S>;
+    if (!Value.Check(schema, body)) throw new IdentityFailure("validation_failed", invalidFields(schema, body));
+    return body;
 }

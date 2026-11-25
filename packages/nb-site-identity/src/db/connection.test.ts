@@ -15,7 +15,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createTestDbRoot, type TestDbRoot} from "../testing/db";
 import {createTestAuth, ManualTimers, recordingLog} from "../testing/library";
-import {IdentityConnection, IdentityDbUnavailableError, IdentityQueueMisuseError, isDbUnavailable, isQueueMisuse, type IdentityTx} from "./connection";
+import {DEFAULT_LOCK_TIMEOUT_MS, IdentityConnection, IdentityDbUnavailableError, IdentityQueueMisuseError, isDbUnavailable, isQueueMisuse, type IdentityTx} from "./connection";
 
 let root: TestDbRoot;
 let timers: ManualTimers;
@@ -75,7 +75,7 @@ async function settle<T>(promise: Promise<T>): Promise<Outcome<T>> {
     );
     await waitUntil("落定或卡在等锁上", () => outcome !== undefined || timers.pending > 0);
     if (outcome === undefined) {
-        timers.fireAll();
+        timers.advance(DEFAULT_LOCK_TIMEOUT_MS);
         await waitUntil("让等锁上限到点之后落定", () => outcome !== undefined);
     }
     return outcome!;
@@ -313,7 +313,7 @@ describe("别的连接持着写锁时", () => {
 });
 
 describe("等锁上限与关闭", () => {
-    it("等锁超时以“库不可用”失败并记 identity.queue_timeout，排在后面的与持锁者不受影响", async () => {
+    it("等锁到 10 秒时以“库不可用”失败并记 identity.queue_timeout（差 1 毫秒时还在等），排在后面的与持锁者不受影响", async () => {
         const inside = gate();
         const finish = gate();
         const holder = conn.withLibTransaction(adapter, async () => {
@@ -322,11 +322,19 @@ describe("等锁上限与关闭", () => {
             await finish.promise;
         });
         await inside.promise;
-        const timedOut = conn.write(moduleInsert("timed-out"));
+        let timedOutOutcome: Outcome<unknown> | undefined;
+        conn.write(moduleInsert("timed-out")).then(
+            (value) => (timedOutOutcome = {ok: true, value}),
+            (error: unknown) => (timedOutOutcome = {ok: false, error}),
+        );
         await waitUntil("第一个在排队", () => timers.pending === 1);
-        timers.fireAll();
-        const outcome = await settle(timedOut);
-        const error = failure(outcome);
+        expect(DEFAULT_LOCK_TIMEOUT_MS).toBe(10_000);
+        timers.advance(9_999);
+        // 上限的回调到期时先被摘掉再执行，所以计时器还登记着就说明它没触发、拒绝没发生。
+        expect({outcome: timedOutOutcome, pending: timers.pending}).toEqual({outcome: undefined, pending: 1});
+        timers.advance(1);
+        await waitUntil("到点之后落定", () => timedOutOutcome !== undefined);
+        const error = failure(timedOutOutcome!);
         expect(error).toBeInstanceOf(IdentityDbUnavailableError);
         expect((error as IdentityDbUnavailableError).reason).toBe("queue_timeout");
         expect(isDbUnavailable(error)).toBe(true);
@@ -376,7 +384,7 @@ describe("等锁上限与关闭", () => {
         expect(committedIdentifiers()).toEqual(["holder", "holder-module"]);
     });
 
-    it("持锁者到时限还没放锁时 close 照样返回，记 identity.close_timeout", async () => {
+    it("持锁者到时限还没放锁时 close 照样返回（差 1 毫秒时还在等），记 identity.close_timeout", async () => {
         const inside = gate();
         const finish = gate();
         const holder = conn.withLibTransaction(adapter, async () => {
@@ -384,9 +392,12 @@ describe("等锁上限与关闭", () => {
             await finish.promise;
         });
         await inside.promise;
-        const closing = conn.close(2_000);
+        let closed = false;
+        const closing = conn.close(2_000).then(() => (closed = true));
         expect(timers.pending).toBe(1);
-        timers.fireAll();
+        timers.advance(1_999);
+        expect({closed, pending: timers.pending}).toEqual({closed: false, pending: 1});
+        timers.advance(1);
         await closing;
         expect(log.lines.filter((line) => line.event === "identity.close_timeout")).toHaveLength(1);
         finish.open();
