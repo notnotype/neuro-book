@@ -87,6 +87,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     // 账号不存在或没有密码时拿它校验（`login.ts` 第 5 步）。启动时算一次，不经哈希限额：这时还没有请求。
     const dummyHash = await dummyPasswordHash(passwords);
     const issue: Sessions["issue"] = (userId, userAgent) => sessions.issue(userId, userAgent);
+    const issueSession = overrides.wrapIssueSession?.(issue) ?? issue;
     const site = createIdentityApp({
         sessions,
         siteOrigin: new URL(options.siteUrl).origin,
@@ -96,7 +97,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
         login: {
             conn,
             adapter: context.adapter,
-            issueSession: overrides.wrapIssueSession?.(issue) ?? issue,
+            issueSession,
             hashLimiter,
             rateLimits,
             clientAddress: options.clientAddress,
@@ -107,8 +108,21 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             delay: overrides.loginDelay ?? ((ms) => Bun.sleep(ms)),
             failureFloor: overrides.failureFloor ?? {},
         },
+        register: {
+            conn,
+            adapter: context.adapter,
+            issueSession,
+            hashLimiter,
+            rateLimits,
+            clientAddress: options.clientAddress,
+            clock,
+            passwords,
+            termsVersion: config.termsVersion,
+            registrationOpen: config.registrationOpen,
+        },
         changePassword: {sessions, conn, hashLimiter, rateLimits, clock, log, passwords},
         me: {sessions, conn, clock, termsVersion: config.termsVersion},
+        registrationCodes: {sessions, conn, clock},
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。

@@ -149,3 +149,26 @@ export async function readBody<S extends TSchema>(c: Context, schema: S): Promis
     if (!Value.Check(schema, body)) throw new IdentityFailure("validation_failed", invalidFields(schema, body));
     return body;
 }
+
+/**
+ * 查询串：每个键至多出现一次，值是字符串，再按合同包的 schema 校验（合同包的查询 schema 都拒收多余的键）。同一个键给了两次时
+ * 那个键不合规则：取哪一个都是猜。不合格时 `validation_failed`，`fields` 是那几个键。
+ */
+export function readQuery<S extends TSchema>(c: Context, schema: S): Static<S> {
+    const query: Record<string, string> = {};
+    const repeated = new Set<string>();
+    for (const [key, value] of new URL(c.req.url).searchParams) {
+        if (Object.hasOwn(query, key)) repeated.add(key);
+        query[key] = value;
+    }
+    if (repeated.size > 0) throw new IdentityFailure("validation_failed", [...repeated]);
+    if (!Value.Check(schema, query)) throw new IdentityFailure("validation_failed", invalidFields(schema, query));
+    return query as Static<S>;
+}
+
+/** 路径参数（如 `:id`）按合同包的 schema 校验；不合格时 `validation_failed`，`fields` 是参数名（合同包 `IdParams`）。 */
+export function readParams<S extends TSchema>(c: Context, schema: S): Static<S> {
+    const params = c.req.param() as Record<string, string>;
+    if (!Value.Check(schema, params)) throw new IdentityFailure("validation_failed", invalidFields(schema, params));
+    return params as Static<S>;
+}

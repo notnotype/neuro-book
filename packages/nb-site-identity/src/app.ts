@@ -12,12 +12,14 @@ import {Hono} from "hono";
 
 import {IDENTITY_PATHS, type MetaResponse} from "@notnotype/nb-site-identity-contract";
 
+import {registerRegistrationCodeRoutes, type RegistrationCodeAdminOptions} from "./admin/registration-codes";
 import {registerChangePasswordRoute, type ChangePasswordOptions} from "./change-password";
 import {bodySizeLimit, failureFor, failureResponse, readEmptyBody, respondFailure} from "./errors";
 import type {IdentityLog} from "./index";
 import {loginRoute, type LoginOptions} from "./login";
 import {registerMeRoutes, type MeOptions} from "./me";
 import {appendCookies, requireSameOrigin} from "./middleware";
+import {registerRoute, type RegisterOptions} from "./register";
 import type {Sessions} from "./session";
 
 export interface IdentityAppOptions {
@@ -28,8 +30,10 @@ export interface IdentityAppOptions {
     readonly registrationOpen: boolean;
     readonly log: Pick<IdentityLog, "warn" | "error">;
     readonly login: LoginOptions;
+    readonly register: RegisterOptions;
     readonly changePassword: ChangePasswordOptions;
     readonly me: MeOptions;
+    readonly registrationCodes: RegistrationCodeAdminOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -63,9 +67,11 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
         return c.json({});
     });
 
+    app.post(IDENTITY_PATHS.register, registerRoute(options.register));
     app.post(IDENTITY_PATHS.login, loginRoute(options.login));
     registerMeRoutes(app, options.me);
     registerChangePasswordRoute(app, options.changePassword);
+    registerRegistrationCodeRoutes(app, options.registrationCodes);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));

@@ -125,6 +125,47 @@ describe("登录与改密码的限流（输出 19）", () => {
     });
 });
 
+describe("注册的限流（输出 19）", () => {
+    let site: SiteProcess;
+    let code: string;
+
+    beforeAll(async () => {
+        const dataDir = await sandbox.dataDir();
+        await createAdmin(sandbox, dataDir, ["issuer"], PASSWORD);
+        site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
+        const jar = cookieJar();
+        if ((await login(site.url, "issuer", PASSWORD, {from: "203.0.113.70", jar})).status !== 200) throw new Error("the admin could not sign in");
+        await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: "203.0.113.70", jar, body: {termsVersion: TERMS_VERSION, overseasStorage: true}});
+        const issued = await identityRequest(site.url, IDENTITY_PATHS.adminRegistrationCodes, {method: "POST", from: "203.0.113.70", jar, body: {maxUses: null}});
+        if (issued.status !== 200) throw new Error(`issuing a registration code answered ${String(issued.status)}`);
+        code = (issued.body as {code: string}).code;
+    }, SETUP_TIMEOUT_MS);
+
+    // 超出 200 毫秒的预算：拨过窗口之后的那次注册要算一次密码哈希。
+    it("同一来源一小时 5 次：第 6 次 rate_limited 带整数 Retry-After；字段不合格的不计入；别的来源不受影响；拨过 Retry-After 恢复", async () => {
+        await alignToWindow(site, HOUR_MS);
+        const register = (body: Record<string, unknown>, from: string) => identityRequest(site.url, IDENTITY_PATHS.register, {method: "POST", from, body});
+        const valid = (name: string, overrides: Record<string, unknown> = {}) => ({
+            username: name,
+            email: `${name}@example.com`,
+            password: PASSWORD,
+            registrationCode: code,
+            termsVersion: TERMS_VERSION,
+            overseasStorage: true,
+            ...overrides,
+        });
+        // 3 次字段不合格的、5 次过了校验却缺同意的：只有后 5 次计入。缺同意的被拒、不算哈希，用例不必等。
+        for (let index = 0; index < 3; index += 1) expect((await register(valid("ab"), "203.0.113.71")).status).toBe(400);
+        for (let index = 0; index < 5; index += 1) expect(failure(await register(valid(`counted${String(index)}`, {overseasStorage: false}), "203.0.113.71"))).toEqual({status: 403, body: {error: {code: "consent_required"}}});
+        const limited = await register(valid("limited"), "203.0.113.71");
+        expect(failure(limited)).toEqual(rateLimited);
+        const seconds = retryAfter(limited, HOUR_MS);
+        expect(failure(await register(valid("other", {overseasStorage: false}), "203.0.113.72"))).toEqual({status: 403, body: {error: {code: "consent_required"}}});
+        await site.advanceClock(seconds * 1000);
+        expect((await register(valid("limited"), "203.0.113.71")).status).toBe(200);
+    });
+});
+
 describe("过载（输出 20）", () => {
     let site: SiteProcess;
 
