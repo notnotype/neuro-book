@@ -20,6 +20,7 @@ import {MAIN_LINE} from "../shared/reads";
 import type {LineOption} from "../shared/reads";
 import {canonText} from "../shared/text";
 import {OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND} from "./commands";
+import type {EntryKind} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import {ComponentViewRegistry} from "./component-views";
 import type {TextAddress} from "./components/entry-text";
@@ -105,6 +106,8 @@ export interface EntryPageOptions {
     readonly drafts: TextDrafts;
     /** 源文字的输入框（编辑器插件的代码输入框）；窗口里没有编辑器插件时为 null。 */
     readonly sourceInput?: Component | null;
+    /** 登记的条目种类（`canon.entry-kinds`，已并好）：分页的顺序用（author-ui.md 输出 9）；不给时没有排在“文字”前面的分页。 */
+    readonly entryKinds?: () => readonly EntryKind[];
 }
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
@@ -132,6 +135,8 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                     const text = useCanonText();
                     /** 这一页交来的提交入口（它的宿主换了、卸载了就撤掉）。 */
                     let mine: {readonly id: string; readonly commit: () => Promise<void>} | null = null;
+                    // 种类的登记只在装插件时变，页面挂上时读一次。
+                    const kinds = options.entryKinds?.() ?? [];
                     const register = (id: string, commit: (() => Promise<void>) | null): void => {
                         if (mine !== null) withdraw(mine.id, mine.commit);
                         mine = commit === null ? null : {id, commit};
@@ -149,7 +154,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => register(id, commit)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => register(id, commit), entryKinds: kinds});
                     };
                 },
             });

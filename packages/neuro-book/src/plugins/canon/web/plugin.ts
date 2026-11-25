@@ -33,6 +33,8 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {descriptor} from "../plugin";
 import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/component-views";
 import {CANON_ENTRY_TABS_POINT, entryTabsPoint} from "../shared/entry-tabs";
+import {CANON_ENTRY_KINDS_POINT, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
+import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
 import {componentsPoint, PERSON_COMPONENT} from "../shared/components";
@@ -133,7 +135,7 @@ function componentView(load: () => Promise<{default: unknown}>, extra: Record<st
 export const canonBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 贡献点在每个有本插件的实例里都定义：内置类型是顶层声明，各实例都登记它们（plugin-manifest.md 输出 11）。
-    contributionPoints: [componentsPoint, componentViewsPoint, entryTabsPoint],
+    contributionPoints: [componentsPoint, componentViewsPoint, entryTabsPoint, entryKindsPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
@@ -212,6 +214,8 @@ export const canonBrowserPlugin: PluginDefinition = {
             const notifications = await context.services.resolve(notificationsKey);
             const execute = (id: string, args: unknown): void => void commands?.execute(id, args);
             const call: CanonClient["call"] = (method, input) => clientOf().call(method, input);
+            // 登记的条目种类（输入一节的 `canon.entry-kinds`）：顶层声明，现读；新建对话框与条目页的分页顺序用。
+            const entryKinds = () => mergeEntryKinds(context.declarations.list<EntryKindDeclaration>(CANON_ENTRY_KINDS_POINT));
             const views = new ComponentViewRegistry();
             const entryTabs = new ComponentViewRegistry<EntryTabDeclaration>();
             const notices = createNotices({
@@ -245,6 +249,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 shown: (entry) => {
                     state.selected.value = entry;
                 },
+                entryKinds,
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
             const files = await context.services.resolve(filesKey);
@@ -297,7 +302,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     world: worldOf(),
                     state,
                     open: (id) => execute(OPEN_ENTRY_COMMAND, {id}),
-                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices},
+                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices, kinds: entryKinds},
                 }),
             };
             return {

@@ -15,6 +15,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import type {EntryKind} from "../../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
@@ -89,6 +90,8 @@ const props = defineProps<{
     sourceInput: Component | null;
     /** 这一页挂着的时候把“提交主文字”交给宿主（标签的保存命令调它，输出 46）；卸载时交 null。 */
     onCommitReady: (commit: (() => Promise<void>) | null) => void;
+    /** 登记的条目种类（`canon.entry-kinds`）：这个条目种类的默认设定组的分页排在“文字”前面（输出 9）。 */
+    entryKinds?: readonly EntryKind[];
 }>();
 
 const text = useCanonText();
@@ -187,15 +190,22 @@ const extraTabs = computed(() => {
         .filter((item) => enabled.has(item.declaration.requires))
         .sort((a, b) => (a.declaration.order ?? 0) - (b.declaration.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 });
+/** 这个条目种类登记的默认设定组（类型 id）：它们的分页排在“文字”前面（输出 9），人物打开时先看人物。 */
+const leadingTypes = computed(() => {
+    const kind = entry.value?.kind?.trim();
+    return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
+});
 const tabs = computed(() => {
     const items: {value: string; label: string; count?: number}[] = [];
-    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
-    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
-    for (const namespace of namespaces.value) {
+    const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
-        items.push({value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)});
-    }
+        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)}};
+    });
+    for (const tab of data) if (tab.leading) items.push(tab.item);
+    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
+    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
+    for (const tab of data) if (!tab.leading) items.push(tab.item);
     // 声明经约定键补全过，`title` 总在。
     for (const item of extraTabs.value) items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!)});
     const total = plot.state.value?.data?.total;
@@ -393,13 +403,17 @@ const changeAliases = (change: {readonly add?: readonly string[]; readonly remov
 };
 const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
 
-// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。
+// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个条目种类的
+// （类型的 `kinds` 含它）排在前面，其余照登记的顺序接在后面（输出 38）。
 const addOpen = shallowRef(false);
 const addType = shallowRef("");
 const addableTypes = computed(() => {
     const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
     const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
-    return (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id)).map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
+    const kind = entry.value?.kind?.trim() ?? "";
+    const addable = (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id));
+    const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
+    return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
 const confirmAdd = async (): Promise<void> => {
     const type = addType.value;

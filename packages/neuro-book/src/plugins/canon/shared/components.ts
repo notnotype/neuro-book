@@ -9,6 +9,7 @@ import {buildRegistry} from "@notnotype/nb-canon/schema";
 import type {ComponentDeclaration} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_KINDS} from "./entry-kinds";
+import type {EntryKindDeclaration} from "./entry-kinds";
 
 export const CANON_COMPONENTS_POINT = "canon.components";
 /** 标注种类与诊断的贡献点（声明的校验在项目入口，`backend/points.ts`）；名字放在这里，插件的描述符引用它不带进后端代码。 */
@@ -90,4 +91,15 @@ export const BUILTIN_COMPONENTS: readonly ComponentDeclaration[] = [
         instanceFields: true,
         kinds: [ENTRY_KINDS.person],
     },
+];
+
+/**
+ * 内置的四个种类（`canon.entry-kinds`，author-ui.md 输入一节）：新建人物默认带人物与形象；组织、地点、物品现在没有默认的设定组
+ * （内置设定组清单的第三期补）。顶层声明，插件描述里登记。
+ */
+export const BUILTIN_ENTRY_KINDS: readonly {readonly id: string; readonly declaration: EntryKindDeclaration}[] = [
+    {id: "nbook.canon.person", declaration: {kind: ENTRY_KINDS.person, components: [PERSON_COMPONENT, LOOK_COMPONENT], order: 0}},
+    {id: "nbook.canon.organization", declaration: {kind: ENTRY_KINDS.organization, order: 1}},
+    {id: "nbook.canon.place", declaration: {kind: ENTRY_KINDS.place, order: 2}},
+    {id: "nbook.canon.item", declaration: {kind: ENTRY_KINDS.item, order: 3}},
 ];

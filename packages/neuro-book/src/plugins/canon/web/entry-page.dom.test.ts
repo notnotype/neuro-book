@@ -282,6 +282,32 @@ describe("条目页", () => {
         expect(wrapper.get("[data-card='panel.存款']").text()).toContain("900 元");
     });
 
+    it("人物条目：种类登记的默认设定组排在“文字”前面、打开时先看人物；“添加一组设定”里适用于人物的排在前面（输出 9、38）", async () => {
+        // 一个不写适用种类的类型，id 排在内置的前面：没有按种类排时它会是下拉里的第一项。
+        const badge: PluginDefinition = {id: "a.test", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "a.test.badge", declaration: {label: "徽章", namespace: "badge", version: 1, fields: [{id: "图案", label: "图案", kind: "text"}]}}]};
+        const {other, open} = await setup([badge]);
+        const star = person("星瑕", {type: "人物"});
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        const tabs = () => wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
+        await waitUntil("分页", () => tabs().includes("文字") && tabs().some((tab) => tab.startsWith("情节")));
+        expect(tabs()).toEqual(["人物", "文字", "面板", "情节0"]);
+        await waitUntil("先看人物", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "人物");
+
+        wrapper.findComponent(EntryPage).vm.$emit("add-component");
+        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
+        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "徽章"))!;
+        expect(groups.props("options").map((option) => option.label)).toEqual(["形象", "徽章"]);
+
+        // 种类不是人物的条目：分页照旧，文字在前。
+        const item = person("魔杖", {type: "物品"});
+        const itemId = (await publish(other.canon, [item]))[item.id]!;
+        const other2 = await open(itemId);
+        const tabs2 = () => other2.wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
+        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().some((tab) => tab.startsWith("情节")));
+        expect(tabs2()).toEqual(["文字", "人物", "面板", "情节0"]);
+    });
+
     it("别处发布以后原地更新，不出加载占位；找不到、已删除、未出场", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

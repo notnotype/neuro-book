@@ -22,6 +22,8 @@ import type {ProjectsService} from "nbook/shared/projects";
 import {descriptor} from "../plugin";
 import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
+import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
+import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
 import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
@@ -85,7 +87,7 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "version：canon_read 或 canon_lookup 第一行的版本，原样带回；读过之后世界变了会被拒（stale-read），重读再写。只建新条目时可以不给。",
         "intent：\"setting\"（缺省）是改设定，写回给出这个值的那条记录；\"story\" 是在 at 那一章记一条剧情变化（某章发生了什么）。",
         "entry 写条目 id、名字，或同一批里 create 的 \"$代号\"。field 写“设定组.字段”，列表元素写“设定组.字段[元素].子字段”；设定组、字段、元素写 id 或名字都行。名字、简介、别名用 op 本身或 field \"名字\"/\"简介\"。",
-        "op：create（name、kind、可选 key 代号、parent、folder、summary、aliases、components 设定组列表、fields 初值 {\"设定组.字段\": 值}、text 主文字）；",
+        "op：create（name、kind、可选 key 代号、parent、folder、summary、aliases、components 设定组列表（不写时用这个种类默认的设定组，例如人物带人物与形象；写 [] 是不要默认）、fields 初值 {\"设定组.字段\": 值}、text 主文字）；",
         "set（entry、field、value）；replace（entry、field、find、with，把恰好出现一次的 find 换成 with）；",
         "add（entry、field、delta，只在 story）；note（entry、field、text，语义档记一句，只在 story）；",
         "listAdd（entry、field 列表、value 元素 {子字段: 值}，以条目为键的列表另写 target 条目）；listRemove（entry、field 写到元素）；",
@@ -140,21 +142,22 @@ async function withWorld(projects: ProjectsService | null, remote: ActivationCon
     }
 }
 
-/** 一次调用里用到的世界信息：章表、登记的类型、读取位置。 */
+/** 一次调用里用到的世界信息：章表、登记的类型、读取位置，以及登记的条目种类（新建时套默认的设定组）。 */
 interface Context {
     readonly call: Call;
     readonly chapters: CanonOutputs["chapters"];
     readonly components: readonly ComponentType[];
     readonly position: ReadPosition;
+    readonly kinds: readonly EntryKind[];
 }
 
-async function contextOf(call: Call, at: unknown): Promise<Context | ToolResult> {
+async function contextOf(call: Call, at: unknown, kinds: readonly EntryKind[]): Promise<Context | ToolResult> {
     const [chapters, components] = await Promise.all([call("chapters", {}), call("components", {})]);
     if (!chapters.ok) return worldFailed(chapters.failure);
     if (!components.ok) return worldFailed(components.failure);
     const position = positionOf(at, chapters.value.items);
     if (typeof position === "string") return failed("bad-position", position);
-    return {call, chapters: chapters.value, components: components.value.items, position};
+    return {call, chapters: chapters.value, components: components.value.items, position, kinds};
 }
 
 function positionOf(at: unknown, chapters: readonly {readonly id: string; readonly index: number}[]): ReadPosition | string {
@@ -264,6 +267,8 @@ async function resolveValue(context: Context, declaration: FieldDeclaration | un
 export interface AgentToolServices {
     readonly projects: ProjectsService | null;
     readonly remote: ActivationContext["remote"];
+    /** 登记的条目种类（`canon.entry-kinds`），每次调用现读：装上插件以后会多。 */
+    readonly entryKinds: () => readonly EntryKind[];
 }
 type Services = AgentToolServices;
 
@@ -271,7 +276,7 @@ function lookupTool(services: Services): AgentToolImplementation {
     return {
         create: (session) => ({
             execute: async (args, ctx) => withWorld(services.projects, services.remote, session.project, ctx.signal, async (call) => {
-                const context = await contextOf(call, args.at);
+                const context = await contextOf(call, args.at, services.entryKinds());
                 if ("text" in context) return context;
                 const lines: string[] = [];
                 let version = 0;
@@ -304,7 +309,7 @@ function treeTool(services: Services): AgentToolImplementation {
     return {
         create: (session) => ({
             execute: async (args, ctx) => withWorld(services.projects, services.remote, session.project, ctx.signal, async (call) => {
-                const context = await contextOf(call, args.at);
+                const context = await contextOf(call, args.at, services.entryKinds());
                 if ("text" in context) return context;
                 let parent: string | null = null;
                 if (typeof args.parent === "string" && args.parent !== "") {
@@ -326,7 +331,7 @@ function readTool(services: Services): AgentToolImplementation {
     return {
         create: (session) => ({
             execute: async (args, ctx) => withWorld(services.projects, services.remote, session.project, ctx.signal, async (call) => {
-                const context = await contextOf(call, args.at);
+                const context = await contextOf(call, args.at, services.entryKinds());
                 if ("text" in context) return context;
                 const resolved = await resolveEntry(context, String(args.entry), new Map());
                 if ("problem" in resolved) return failed("not-found", resolved.problem);
@@ -388,11 +393,16 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             parent = resolved.id;
         }
         const components: {type: string; fields?: Record<string, unknown>; declare?: FieldDraft[]}[] = [];
-        for (const name of (Array.isArray(edit.components) ? edit.components : []) as string[]) {
-            const type = componentNamed(context.components, String(name));
-            if ("problem" in type) return at(type.problem);
-            if (components.some((component) => component.type === type.id)) return at(`设定组“${name}”列了两次。`);
-            components.push({type: type.id});
+        if (Array.isArray(edit.components)) {
+            for (const name of edit.components as string[]) {
+                const type = componentNamed(context.components, String(name));
+                if ("problem" in type) return at(type.problem);
+                if (components.some((component) => component.type === type.id)) return at(`设定组“${name}”列了两次。`);
+                components.push({type: type.id});
+            }
+        } else {
+            // 没写 components：用这个种类登记的默认设定组（agent-tools.md 输出 7）；写了空列表就是不要默认。
+            for (const type of defaultComponents(context.kinds, edit.kind, new Set(context.components.map((candidate) => candidate.id)))) components.push({type});
         }
         // `declare`：`{"设定组": [声明…]}`，新建时就在那组设定上声明这个条目自己的字段；没列在 `components` 里的一并启用。
         const declaring = new Map<string, readonly FieldDraft[]>();
@@ -580,7 +590,7 @@ function writeTool(services: Services): AgentToolImplementation {
     return {
         create: (session) => ({
             execute: async (args, ctx) => withWorld(services.projects, services.remote, session.project, ctx.signal, async (call): Promise<ToolResult> => {
-                const context = await contextOf(call, args.at);
+                const context = await contextOf(call, args.at, services.entryKinds());
                 if ("text" in context) return context;
                 const by = {kind: "agent" as const, session: session.sessionId};
                 const requestId = `agent:${session.sessionId}:${ctx.invocation}`;
@@ -641,6 +651,8 @@ export const CANON_AGENT_TOOL_CONTRIBUTIONS = [lookup.contribution, tree.contrib
  */
 export const canonServerPlugin: PluginDefinition = {
     id: descriptor.id,
+    // 种类的登记是顶层声明，服务端实例里也要定义贡献点才登记（plugin-manifest.md 输出 10、11）。
+    contributionPoints: [entryKindsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
@@ -649,7 +661,11 @@ export const canonServerPlugin: PluginDefinition = {
         contributions: [...CANON_AGENT_TOOL_CONTRIBUTIONS],
         activate: async (context) => {
             const projects = await context.services.resolve(projectsKey);
-            const services: Services = {projects: projects.status === "resolved" ? projects.instance : null, remote: context.remote};
+            const services: Services = {
+                projects: projects.status === "resolved" ? projects.instance : null,
+                remote: context.remote,
+                entryKinds: () => mergeEntryKinds(context.declarations.list<EntryKindDeclaration>(CANON_ENTRY_KINDS_POINT)),
+            };
             return {contributions: {[TOOLS_POINT]: canonAgentTools(services)}};
         },
     })],

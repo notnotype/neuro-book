@@ -19,6 +19,8 @@ import {projectsKey} from "nbook/shared/projects";
 import type {ProjectsService} from "nbook/shared/projects";
 
 import {AGENT_TOOL_IDS, CANON_AGENT_TOOL_CONTRIBUTIONS, canonAgentTools} from "./backend/agent-tools";
+import {BUILTIN_ENTRY_KINDS} from "./shared/components";
+import {mergeEntryKinds} from "./shared/entry-kinds";
 import {serverPlugins, until, windowOf} from "./testing/harness";
 
 let tmp = "";
@@ -66,7 +68,8 @@ async function scene(project: string | null = "book") {
         const read = await author.canon.call("chapters", {});
         return read.ok && read.value.items.length === 2;
     });
-    const tools = canonAgentTools({projects: held.projects, remote: held.remote!});
+    // 服务端实例里种类的登记就是插件描述里的内置四条（这个场地的服务端没装 canon 的服务端入口，直接给同一份）。
+    const tools = canonAgentTools({projects: held.projects, remote: held.remote!, entryKinds: () => mergeEntryKinds(BUILTIN_ENTRY_KINDS)});
     const session = {sessionId: "s1", profile: "p", ...(project === null ? {} : {project})} as ToolSessionContext;
     const built = new Map<string, ToolImplementation>();
     const run = async (tool: string, args: Readonly<Record<string, unknown>>, at: {readonly invocation?: string; readonly callId?: string} = {}): Promise<ToolResult> => {
@@ -126,6 +129,13 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
 
         const revisions = await author.canon.call("revisions", {filter: {entry: xia}});
         expect(revisions.ok && revisions.value.items[0]).toMatchObject({by: {kind: "agent", session: "s1"}, title: "改外观", what: "creative"});
+
+        // 没写 components：人物默认带人物与形象，fields 写到的面板并上（输出 7）；组织没有登记默认的设定组。
+        await run(AGENT_TOOL_IDS.write, {title: "建星瑾", edits: [{op: "create", name: "星瑾", kind: "人物", declare: {面板: [{label: "战绩"}]}, fields: {"面板.战绩": "三胜"}}]});
+        const jin = (await run(AGENT_TOOL_IDS.read, {entry: "星瑾"})).text;
+        expect([...jin.matchAll(/^【(.+?)】/gmu)].map((match) => match[1])).toEqual(["人物", "形象", "面板"]);
+        expect(jin).toContain("战绩 = 三胜");
+        expect((await run(AGENT_TOOL_IDS.read, {entry: "学院"})).text).not.toContain("【");
         await close();
     }, 60_000);
 
@@ -207,7 +217,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
 
     it("写错参数时回话给出能照着改的信息：选项、没有的名字、没有的设定组、累出来的数", async () => {
         const {run, close} = await scene();
-        await run(AGENT_TOOL_IDS.write, {title: "建", edits: [{op: "create", name: "星瑕", kind: "人物", components: ["人物"]}, {op: "create", name: "星瑾", kind: "人物"}]});
+        await run(AGENT_TOOL_IDS.write, {title: "建", edits: [{op: "create", name: "星瑕", kind: "人物", components: ["人物"]}, {op: "create", name: "星瑾", kind: "人物", components: []}]});
         const version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: "星瑕"}));
         const noSuch = await run(AGENT_TOOL_IDS.write, {title: "x", version, edits: [{op: "set", entry: "雾崎", field: "人物.性格", value: "x"}]});
         expect(noSuch.text).toContain("没有叫“雾崎”的条目");
