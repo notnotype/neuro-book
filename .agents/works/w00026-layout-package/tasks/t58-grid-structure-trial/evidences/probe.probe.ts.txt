@@ -1,0 +1,223 @@
+// t58 探针：只读，import 仓库源码，跑在 /tmp 下。输出用 console.log 记录，断言只用于确认读法。
+import {describe, expect, it} from "bun:test";
+import {
+    GRID_MAX_DEPTH,
+    GRID_SNAPSHOT_VERSION,
+    createGrid,
+    type GridNode,
+    type GridNodeInput,
+} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/grid";
+
+const shape = (node: GridNode<unknown> | null): unknown =>
+    node === null ? null : node.kind === "leaf" ? `${node.id}(${node.sizing}:${node.size.width}x${node.size.height})` : {[`${node.id}[${node.orientation[0]}]`]: node.children.map(shape)};
+const depthOf = (node: GridNode<unknown> | null): number => (node === null ? 0 : node.kind === "leaf" ? 1 : 1 + Math.max(0, ...node.children.map(depthOf)));
+const widths = (sizes: Record<string, {width: number; height: number}>, ids: string[]) => Object.fromEntries(ids.map((id) => [id, Math.round(sizes[id]!.width * 100) / 100]));
+const log = (label: string, value: unknown) => console.log(`## ${label}\n${JSON.stringify(value, null, 1)}`);
+
+describe("P1 同向 splitLeaf", () => {
+    it("横排里横着拆：造出嵌套分支；反复拆最后一块，几次到深度上限", () => {
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 1, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 1, height: 0}},
+        ]}, {sashSize: 4});
+        const r = grid.splitLeaf("b", {branchId: "s1", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "c", ref: "c"}});
+        log("P1a 一次同向拆分后的树", {result: r, tree: shape(grid.root())});
+        log("P1a 呈现（1204 宽）", widths(grid.layout({width: 1204, height: 600}).sizes, ["a", "s1", "b", "c"]));
+        let last = "c";
+        let n = 1;
+        for (;;) {
+            const next = `x${n}`;
+            const res = grid.splitLeaf(last, {branchId: `s${n + 1}`, orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: next, ref: next}});
+            if (!res.ok) {
+                log("P1b 连续同向拆最后一块：第几次被拒、拒绝内容、此时树深", {attempt: n + 1, res, depth: depthOf(grid.root())});
+                break;
+            }
+            last = next;
+            n += 1;
+        }
+    });
+});
+
+describe("P2 over-constrained 怎么报", () => {
+    it("拆到放不下：splitLeaf 成功，layout 的 issues 里报 over-constrained", () => {
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 1, height: 0}, minimumSize: {width: 160, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 1, height: 0}, minimumSize: {width: 160, height: 0}},
+        ]}, {sashSize: 4});
+        const extent = {width: 400, height: 300};
+        log("P2 拆前 issues", grid.layout(extent).issues);
+        const r = grid.splitLeaf("b", {branchId: "s", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "c", ref: "c", minimumSize: {width: 160, height: 0}}});
+        const after = grid.layout(extent);
+        log("P2 拆后：结果、issues、呈现", {r, issues: after.issues, widths: widths(after.sizes, ["a", "b", "c"])});
+    });
+});
+
+describe("P3 深度计法（第 20 条）", () => {
+    // 一条 n 层的链：根是第 1 层，叶在第 n 层。
+    const chain = (levels: number): GridNodeInput<string> => {
+        let node: GridNodeInput<string> = {kind: "leaf", id: "end", ref: "end", size: {width: 1, height: 1}};
+        for (let level = levels - 1; level >= 1; level -= 1) node = {kind: "branch", id: `l${level}`, orientation: level % 2 ? "horizontal" : "vertical", size: {width: 1, height: 1}, children: [node, {kind: "leaf", id: `side${level}`, ref: `side${level}`, size: {width: 1, height: 1}}]};
+        return node;
+    };
+    it("restore 允许几层、恢复后能不能拆；createGrid 建树查不查深度", () => {
+        for (const levels of [16, 17, 18]) {
+            const source = createGrid<string>(chain(levels));
+            const snapshot = source.serialize();
+            const grid = createGrid<string>(null);
+            const restored = grid.restore(JSON.parse(JSON.stringify(snapshot)), (ref) => ({ref}));
+            const addShallow = restored.ok ? grid.addLeaf("l1", 0, {kind: "leaf", id: "new", ref: "new"}) : null;
+            const removeShallow = restored.ok ? createGrid<string>(chain(levels)).removeLeaf("side1") : null;
+            log(`P3 ${levels} 层`, {
+                treeDepth: depthOf(source.root()),
+                restore: restored.ok ? "ok" : {code: restored.code, message: restored.message},
+                addLeafAtRootAfterRestore: addShallow,
+                createGridThenAddAtRoot: createGrid<string>(chain(levels)).addLeaf("l1", 0, {kind: "leaf", id: "new", ref: "new"}),
+                createGridThenRemove: removeShallow,
+            });
+        }
+        expect(GRID_MAX_DEPTH).toBe(16);
+    });
+});
+
+describe("P4 removeLeaf 展平与 P6 只剩一块保留像素的叶", () => {
+    it("根 [explorer fixed 240, group] 删 group：根被展平成 explorer，占满容器", () => {
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "explorer", ref: "explorer", size: {width: 240, height: 0}, sizing: "fixed", minimumSize: {width: 160, height: 0}},
+            {kind: "leaf", id: "group", ref: "group", size: {width: 1, height: 0}},
+        ]}, {sashSize: 4});
+        grid.removeLeaf("group");
+        const layout = grid.layout({width: 1200, height: 600});
+        log("P4a 删到只剩保留像素的叶", {tree: shape(grid.root()), explorer: layout.sizes.explorer, issues: layout.issues, findRoot: grid.find("root")});
+    });
+    it("对照：不展平（建树时就是只有一块保留像素的叶的分支）呈现什么", () => {
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "explorer", ref: "explorer", size: {width: 240, height: 0}, sizing: "fixed", minimumSize: {width: 160, height: 0}},
+        ]}, {sashSize: 4});
+        const layout = grid.layout({width: 1200, height: 600});
+        log("P6 根分支里只有一块保留像素的叶", {explorer: layout.sizes.explorer, issues: layout.issues});
+    });
+    it("中间分支展平：分支 id 消失、分支的约束与收起策略丢掉、size 被重新解释", () => {
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "branch", id: "col", orientation: "vertical", size: {width: 240, height: 0}, sizing: "fixed", minimumSize: {width: 200, height: 0},
+                collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+                children: [{kind: "leaf", id: "p", ref: "p", size: {width: 0, height: 1}}, {kind: "leaf", id: "q", ref: "q", size: {width: 0, height: 1}}]},
+            {kind: "leaf", id: "main", ref: "main", size: {width: 600, height: 0}},
+        ]}, {sashSize: 4});
+        const before = grid.layout({width: 1200, height: 600}).sizes;
+        grid.removeLeaf("q");
+        const after = grid.layout({width: 1200, height: 600}).sizes;
+        log("P4b 中间分支展平", {tree: shape(grid.root()), colFound: grid.find("col"), p: grid.find("p"), widthBefore: widths(before, ["col", "p", "main"]), widthAfter: widths(after, ["p", "main"])});
+    });
+});
+
+describe("P5 serialize/restore 带不带策略", () => {
+    it("快照里没有 sizing、约束、collapse；新网格恢复用解析结果，原地恢复回落到当前树", () => {
+        const input: GridNodeInput<string> = {kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "side", ref: "side", size: {width: 240, height: 0}, sizing: "fixed", minimumSize: {width: 160, height: 0},
+                collapse: {collapsed: true, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24}},
+            {kind: "leaf", id: "main", ref: "main", size: {width: 1, height: 0}},
+        ]};
+        const grid = createGrid<string>(input, {sashSize: 4});
+        const snapshot = grid.serialize();
+        log("P5a 快照", snapshot);
+        const fresh = createGrid<string>(null, {sashSize: 4});
+        fresh.restore(snapshot, (ref) => ({ref}));
+        log("P5b 新网格恢复（解析只给 ref）后的 side", fresh.find("side"));
+        const inPlace = createGrid<string>(input, {sashSize: 4});
+        inPlace.restore(snapshot, (ref) => ({ref}));
+        log("P5c 原地恢复（解析只给 ref）后的 side：回落到当前树", inPlace.find("side"));
+        const ignored = createGrid<string>(null, {sashSize: 4});
+        const bad = ignored.restore({version: GRID_SNAPSHOT_VERSION, root: {kind: "leaf", id: "x", ref: 5, size: {width: 0, height: 0}}}, (ref) => ({ref}));
+        log("P5d 恢复失败而宿主没看结果：树仍是 null", {ok: bad.ok, root: ignored.root()});
+        // sashSize 不在快照里：新网格不给 sashSize 时缝是 0。
+        const noSash = createGrid<string>(null);
+        noSash.restore(snapshot, (ref) => ({ref}));
+        log("P5e 新网格忘给 sashSize：sashSizes", noSash.layout({width: 1000, height: 600}).sashSizes);
+    });
+});
+
+describe("P7 同向拆分并入父分支：呈现与嵌套对比（手工建等价树）", () => {
+    const layoutOf = (input: GridNodeInput<string>, extent = {width: 1204, height: 600}) => createGrid<string>(input, {sashSize: 4}).layout(extent);
+    it("按比例分的目标：嵌套与并入呈现是否相同", () => {
+        const nested = layoutOf({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}},
+            {kind: "branch", id: "s", orientation: "horizontal", size: {width: 300, height: 0}, children: [
+                {kind: "leaf", id: "n", ref: "n", size: {width: 150, height: 0}},
+                {kind: "leaf", id: "t", ref: "t", size: {width: 150, height: 0}},
+            ]},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 300, height: 0}},
+        ]});
+        const merged = layoutOf({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}},
+            {kind: "leaf", id: "n", ref: "n", size: {width: 150, height: 0}},
+            {kind: "leaf", id: "t", ref: "t", size: {width: 150, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 300, height: 0}},
+        ]});
+        log("P7a 按比例分（1204 宽、缝 4）", {nested: widths(nested.sizes, ["a", "n", "t", "b"]), merged: widths(merged.sizes, ["a", "n", "t", "b"])});
+    });
+    it("全 0 意图（Lab live-panels 的建法）：嵌套是 1/4+1/4+1/2，并入按公式是 0.5/0.5/0", () => {
+        const nested = layoutOf({kind: "branch", id: "col", orientation: "vertical", children: [
+            {kind: "branch", id: "s", orientation: "vertical", size: {width: 0, height: 0}, children: [
+                {kind: "leaf", id: "c", ref: "c", size: {width: 0, height: 0.5}},
+                {kind: "leaf", id: "n", ref: "n", size: {width: 0, height: 0.5}},
+            ]},
+            {kind: "leaf", id: "d", ref: "d"},
+        ]});
+        const mergedFormula = layoutOf({kind: "branch", id: "col", orientation: "vertical", children: [
+            {kind: "leaf", id: "c", ref: "c", size: {width: 0, height: 0.5}},
+            {kind: "leaf", id: "n", ref: "n", size: {width: 0, height: 0.5}},
+            {kind: "leaf", id: "d", ref: "d"},
+        ]});
+        const mergedZero = layoutOf({kind: "branch", id: "col", orientation: "vertical", children: [
+            {kind: "leaf", id: "c", ref: "c"}, {kind: "leaf", id: "n", ref: "n"}, {kind: "leaf", id: "d", ref: "d"},
+        ]});
+        const h = (sizes: Record<string, {width: number; height: number}>) => Object.fromEntries(["c", "n", "d"].map((id) => [id, Math.round(sizes[id]!.height * 100) / 100]));
+        log("P7b 全 0 意图（600 高）", {nested: h(nested.sizes), mergedUnit1: h(mergedFormula.sizes), mergedZero: h(mergedZero.sizes)});
+    });
+    it("约束：嵌套分支的最小值是两孩子之和，并入后各算各的；窄容器下压缩是否不同", () => {
+        const kids = (prefix: string) => [
+            {kind: "leaf" as const, id: `${prefix}n`, ref: "n", size: {width: 150, height: 0}, minimumSize: {width: 120, height: 0}},
+            {kind: "leaf" as const, id: `${prefix}t`, ref: "t", size: {width: 150, height: 0}, minimumSize: {width: 120, height: 0}},
+        ];
+        const extent = {width: 420, height: 600};
+        const nested = layoutOf({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, minimumSize: {width: 120, height: 0}},
+            {kind: "branch", id: "s", orientation: "horizontal", size: {width: 300, height: 0}, children: kids("")},
+        ]}, extent);
+        const merged = layoutOf({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, minimumSize: {width: 120, height: 0}},
+            ...kids(""),
+        ]}, extent);
+        log("P7c 窄容器 420：嵌套与并入", {nested: {w: widths(nested.sizes, ["a", "n", "t"]), issues: nested.issues.map((i) => i.code)}, merged: {w: widths(merged.sizes, ["a", "n", "t"]), issues: merged.issues.map((i) => i.code)}});
+    });
+});
+
+describe("P8 桌面：平铺第二扇", () => {
+    it("现状 addLeaf 进横排是三等分；拆桌面叶并按比例 0.5 是 1/2、1/4、1/4", () => {
+        const base = (): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "vertical", children: [
+            {kind: "branch", id: "tile-1", orientation: "horizontal", size: {width: 0, height: 1}, children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 0.5, height: 0}, minimumSize: {width: 240, height: 160}},
+                {kind: "leaf", id: "desktop", ref: "desktop", size: {width: 0.5, height: 0}, minimumSize: {width: 240, height: 160}},
+            ]},
+            {kind: "leaf", id: "dock", ref: "dock", size: {width: 0, height: 56}, sizing: "fixed", minimumSize: {width: 0, height: 56}},
+        ]});
+        const viaAdd = createGrid<string>(base(), {sashSize: 4});
+        viaAdd.addLeaf("tile-1", 2, {kind: "leaf", id: "right", ref: "right", minimumSize: {width: 240, height: 160}});
+        const viaSplit = createGrid<string>(base(), {sashSize: 4});
+        viaSplit.splitLeaf("desktop", {branchId: "tile-2", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "right", ref: "right", minimumSize: {width: 240, height: 160}}});
+        const extent = {width: 1208, height: 700};
+        log("P8 第二扇", {
+            addLeaf: {tree: shape(viaAdd.root()), w: widths(viaAdd.layout(extent).sizes, ["left", "desktop", "right"])},
+            splitLeaf: {tree: shape(viaSplit.root()), w: widths(viaSplit.layout(extent).sizes, ["left", "desktop", "right"])},
+        });
+    });
+});
+
+describe("P9 moveLeaf 的深度守卫看整棵树", () => {
+    it("树已到 17 层（经 createGrid）：浅处的 moveLeaf 也被拒", () => {
+        let node: GridNodeInput<string> = {kind: "leaf", id: "end", ref: "end"};
+        for (let level = 16; level >= 1; level -= 1) node = {kind: "branch", id: `l${level}`, orientation: "horizontal", children: level === 1 ? [node, {kind: "leaf", id: "m", ref: "m"}, {kind: "branch", id: "box", orientation: "vertical", children: [{kind: "leaf", id: "k", ref: "k"}, {kind: "leaf", id: "k2", ref: "k2"}]}] : [node, {kind: "leaf", id: `s${level}`, ref: `s${level}`}]};
+        const grid = createGrid<string>(node);
+        log("P9", {depth: depthOf(grid.root()), move: grid.moveLeaf("m", "box", 0)});
+    });
+});

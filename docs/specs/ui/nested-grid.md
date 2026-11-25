@@ -245,6 +245,12 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 157. **内容层：拿起的内容：留住**：拿起的内容项这一轮不在 `contents` 里时（宿主的预览把来源摘掉了），网格留住它：实例不卸载，叶是拿起那一刻它所在的叶（之后的预览把它摆到别的叶上也不改），不活动，矩形照旧由 `placeLifted` 写；`lifted` 变成 null 之后按那时的 `contents` 处理，不在了就卸载。宿主要在摘掉它的那一次渲染里（或更早）给出 `lifted`：先摘掉、下一轮才给 `lifted` 的，网格没有可沿用的那一项，实例照常卸载。
 158. **开发模式：诊断没有出口**（planned）：开关同输出 151。`useGridHost` 没给 `onIssues` 的宿主在建立时警告一次：布局重算的诊断与被拒的提交会被丢掉。有意不收诊断的宿主给一个什么都不做的 `onIssues`。只看 `useGridHost` 的选项：直接用 `NestedGrid` 的宿主不在这一条里。库不把诊断本身打到控制台，开关开与关时 `onIssues` 收到的都一样。
 159. **开发模式：起拖时过渡还在走**（planned）：开关同输出 151。`NestedGrid` 的 `dragging` 从假变真的那一刻，布局过渡还在走时，警告一次：宿主的拖动会话起拖时没有调 `settleMotion()`，判定量到的是过渡中间的矩形。同一个 `NestedGrid` 只报一次。下面几种不算：宿主在 `dragging` 变真的同一次更新里改了布局、过渡是这次才开始的；系统减少动态效果（没有过渡）。实时布局的会话自己调 `settleMotion()`（[layout-drag](layout-drag.md) 输出 23）。
+160. **拆分：同向并入**：`splitLeaf` 的方向与目标叶的父分支相同时，新叶插进这个父分支、挨着目标（`before` 在前、`after` 在后），不新建分支；`branchId` 照样要合法、不重复，只是没用上。目标是根叶或方向不同时照旧新建分支（验收 7）。并入时新叶与目标分掉目标在父分支主轴上的意图：底数是目标的意图，为 0 时取这一支的平均一份（输出 153 的规则）；新叶得底数乘 `ratio`，目标留下其余；这一支的意图全是 0 时两块都取 0，和兄弟一起均分。兄弟的意图不动（输出 153）。并入不加深，只加一个节点（planned）。
+161. **拆分：平分**：`ratio` 可以是 `"even"`：并入时新叶取这一支的平均一份（同输出 153 的“按比例分的新叶”），目标的意图不动；新建分支时等于 0.5（planned）。
+162. **拆分：保留像素的目标**：目标叶保留像素时 `splitLeaf` 返回 `wrong-sizing`（`expected: "weight"`），树不变：它的意图是像素，新叶与目标都分不到有意义的份额（planned）。
+163. **根不展平成保留像素或可收起的节点**：增删或移动之后根分支只剩一个孩子、它保留像素或带收起策略时，根分支留着；布局照常（保留像素的照旧呈现，余下留白并给 `unabsorbed-space`）。其余只剩一个孩子的分支照旧换成这个孩子（planned）。
+164. **复制网格**：`grid.clone()` 交回一份独立的网格：树、意图、约束、`sizing`、收起策略与状态，连同建网格时的选项（`sashSize`、`encodeRef`）。之后改其中一份，另一份的树、快照与布局都不变；叶的 `ref` 是同一个宿主对象（planned）。
+165. **从快照建网格**：`restoreGrid(snapshot, resolveRef, options)` 按失败 7 校验快照，成功时交回 `{ok: true, grid, dropped, clamped}`，失败时是失败 7 的形状、没有 `grid`。约束、`sizing` 与收起策略只来自 `resolveRef`；原地的 `grid.restore` 照旧回落到当前树（输出 148）（planned）。
 
 ## 状态与转换
 
@@ -292,15 +298,15 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     | `not-found` | 节点、分支或父节点不在 | `id` |
     | `wrong-node-kind` | 要叶给了分支，或要分支给了叶 | `id`、`expected`（`leaf` 或 `branch`） |
     | `wrong-axis` | 不沿主轴调整 | `id`、`orientation`；调整的是节点时加父分支 `parent` |
-    | `not-finite` | 调整量、尺寸、比例、尺寸意图或设的尺寸不是有限数 | `field`，加 `value` 或 `id`（尺寸另加 `side`：`baseline` 或 `target`；设的尺寸是 `field: "px"` 加 `id`） |
+    | `not-finite` | 调整量、尺寸、尺寸意图或设的尺寸不是有限数；比例不是有限数也不是 `"even"`（planned） | `field`，加 `value` 或 `id`（尺寸另加 `side`：`baseline` 或 `target`；设的尺寸是 `field: "px"` 加 `id`） |
     | `invalid-argument` | 根节点没有可调整的父分支、手势尺寸没有覆盖全部直接子节点、尺寸为负、方向或插入侧不认识、比例不在 0 与 1 之间、保留像素的节点移到方向不同的分支、设的尺寸为负 | `field`（`root`、`sizes-cover`、`size-negative`、`orientation`、`side`、`ratio-range`、`fixed-cross-axis`、`px-negative`），加 `id`、`side` 或 `value`（后两种只加 `id`） |
-    | `limit-exceeded` | 超过 256 个节点或 16 层 | `limit`（`nodes` 或 `depth`）、`max` |
+    | `limit-exceeded` | 这次操作会让节点数超过 256，或让新加、移动的叶落到第 16 层之下（根算第 1 层，planned） | `limit`（`nodes` 或 `depth`）、`max` |
     | `duplicate-id` | id 已被占用 | `id`、`with`（`existing`：树里已有；`new-leaf`：新分支与新叶同 id） |
     | `into-own-subtree` | 把节点移进它自己的子树 | `id`、`parent` |
     | `not-conserved` | 手势目标的总量与基线不等 | `id`、`target`、`baseline` |
     | `stale-baseline` | 手势的基线已经失效 | `id` |
     | `not-collapsible` | 要收起的面板没有收起策略 | `id`、`branch` |
-    | `wrong-sizing` | 要保留像素的节点给了按比例分的 | `id`、`expected`（`fixed`） |
+    | `wrong-sizing` | 要保留像素的节点给了按比例分的；拆分的目标叶保留像素（planned） | `id`、`expected`（`fixed` 或 `weight`） |
 
     同一个子节点基线与目标都不合法时报基线那一侧。传进来的非法值在 `value` 里写成字符串（`NaN` 写作 `"NaN"`）。
 6. **提交的返回**：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。宿主自己写这个回调时可以用自己的码拒绝（写法见“边界与兼容”）。`useGridHost` 接提交时，落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
@@ -321,7 +327,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     | `unsupported-version` | 版本不支持（失败 2） | `version` |
     | `unresolved-root` | 格式没问题，但根的引用解析不了，整体恢复不出来；`dropped` 里有那条引用 | 无 |
     | `duplicate-id` | 节点身份重复（失败 4） | `id`、`with: "existing"` |
-    | `limit-exceeded` | 超过 256 个节点或 16 层 | `limit`、`max` |
+    | `limit-exceeded` | 超过 256 个节点或 16 层（根算第 1 层，planned） | `limit`、`max` |
 
     `unresolved-root` 与 `invalid-snapshot` 分开：前者是引用暂时缺（宿主保留原件，等引用回来），后者是原件坏了。
 
@@ -347,7 +353,7 @@ CSS 变量：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-la
 4. Given 鼠标、键盘连发、失焦与取消，When 完成或取消调整，Then 主动提交次数和字段符合合同，程序布局不产生提交。
 5. Given 畸形/高版本快照、未知引用、重复身份，When 恢复再保存合法修改，Then 无未捕获异常，当前布局不半更新。宿主保留原件与未涉及的未知部分（planned）。
 6. Given 同项目双标签订阅，When 一个窗口拖动而另一个保存，Then 当前手势不断开，冲突由宿主处理（planned）。
-7. Given 任一侧的叶，When 按方向拆分并调整新 sash，Then 新分支继承原外部分配、两个子叶按比例分掉原意图，外层另一侧尺寸不变；重复身份、非法比例与节点/深度上限被拒绝且树不变。
+7. Given 任一侧的叶，When 沿与父分支不同的方向拆分并调整新 sash，Then 新分支继承原外部分配、两个子叶按比例分掉原意图，外层另一侧尺寸不变；When 沿父分支的方向拆分，Then 新叶并进父分支、与目标按比例分掉目标的意图，兄弟不变、树不加深（planned）；重复身份、非法比例、保留像素的目标（planned）与节点、深度上限被拒绝且树不变。
 8. Given 叶里有输入框、滚动内容和实例编号，When 在它左边拆分、关闭兄弟、把它换到树的另一处，Then 实例编号不变，输入、滚动与焦点保留；拆分与关闭后 DOM 序仍等于树序；换位之后焦点在 grid 里时 Tab 与 `moveGridFocus` 按新的树序走，浏览器的无障碍树也按新的树序。
 9. Given 缝 1、4、7 px 与设备像素比 1、1.25、1.5，When 枚举容器宽度量三块等分的缝，Then 同一占用的缝宽度相同；Given 程序调整一块，When 过渡中量它的内容，Then 内容与外框同宽，结束时等于新矩形；Given 拆出新叶，When 过渡中量新叶的内容，Then 一开始就是最终尺寸，`ResizeObserver` 只报一次；拖分隔线与改窗口尺寸没有过渡。
 10. Given 三块叶、每块带内容项，When 内容项换到另一块叶，两块叶都不动，Then 内容从旧矩形滑到新矩形，实例不变，输入与滚动保留；结束后点它命中内容；Tab 与 `moveGridFocus` 按树序。Given 拆出新叶，When 过渡中量新叶的内容，Then 一开始就是最终尺寸，`ResizeObserver` 只报一次。Given 设备像素比 1、1.1、1.25、1.5、1.75、2，When 读内容顶与面板头底，Then 没有缝也不重叠。
@@ -366,7 +372,7 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
   - 手势只提交一次完整的原子意图，由宿主用 `resizeBranches` 一次落账；拒绝时回滚预览并给诊断（输出 7，“时序与寿命”的同步接纳）。
   - 内容项从建到销毁不换父元素，树的结构变化不重建还在的叶（输出 31、82）。
   - 快照 v2 只存结构、稳定引用与两轴意图，不存运行约束；v1、未知高版本、重复身份整体拒绝，宿主保留原件（失败 2 到 4）。
-  - 拆分叶只开放比例、不开放 `size`：新分支继承目标的外部分配意图，两个子叶按比例分掉目标在新轴上的意图（验收 7）。
+  - 拆分叶只开放比例、不开放 `size`：新分支继承目标的外部分配意图，两个子叶按比例分掉目标在新轴上的意图（验收 7）；同向时并进父分支（输出 160，planned）。
 
 ## 证据
 
