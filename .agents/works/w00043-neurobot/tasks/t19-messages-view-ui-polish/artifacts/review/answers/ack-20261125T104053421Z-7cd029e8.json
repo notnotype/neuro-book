@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "ackId": "20261125T104053421Z-7cd029e8",
+    "answers": [
+        "20261125T104003026Z-3dfa85e4"
+    ],
+    "through": "20261125T104003026Z-3dfa85e4",
+    "included": [
+        ".agents/works/w00043-neurobot/tasks/t19-messages-view-ui-polish/README.md"
+    ],
+    "ackedAt": "2026-11-25T10:40:53.421Z"
+}
