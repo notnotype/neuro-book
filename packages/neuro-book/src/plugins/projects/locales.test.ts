@@ -21,6 +21,10 @@ import {descriptor} from "./plugin";
 const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     "settings.library.title": {"zh-CN": "作品目录", "en-US": "Library Folder"},
     "settings.library.description": {"zh-CN": "新建作品时默认放在这里", "en-US": "New works are created here by default"},
+    "settings.startupOpen.title": {"zh-CN": "启动时打开", "en-US": "On Startup, Open"},
+    "settings.startupOpen.description": {"zh-CN": "打开 NeuroBook 时直接进入的页面", "en-US": "What NeuroBook shows when it starts"},
+    "settings.startupOpen.choices.last-work.title": {"zh-CN": "上次的作品", "en-US": "Last work"},
+    "settings.startupOpen.choices.shelf.title": {"zh-CN": "书架", "en-US": "Bookshelf"},
     "commands.nbook.project.open.title": {"zh-CN": "打开项目", "en-US": "Open Project"},
     "commands.nbook.project.open.category": {"zh-CN": "项目", "en-US": "Project"},
     "commands.nbook.project.back-to-shelf.title": {"zh-CN": "回到书架", "en-US": "Back to Bookshelf"},
@@ -205,6 +209,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "worksSettings.change": {"zh-CN": "更改…", "en-US": "Change…"},
     "worksSettings.defaultMark": {"zh-CN": "（缺省）", "en-US": " (default)"},
     "worksSettings.defaultUnknown": {"zh-CN": "取不到缺省目录", "en-US": "Could not read the default folder"},
+    "worksSettings.startupNotSavedTitle": {"zh-CN": "启动时打开没有记住", "en-US": "Startup choice not saved"},
+    "worksSettings.startupNotSaved": {"zh-CN": "启动时打开没有写进设置：{reason}", "en-US": "The startup choice was not written to settings: {reason}"},
 };
 
 /** 迁移前的登记失败标题模板（`MESSAGES.retryTitle`），`{reason}` 是按失败码取的原因。 */

@@ -3,6 +3,18 @@
         "library": {
             "title": "Library Folder",
             "description": "New works are created here by default"
+        },
+        "startupOpen": {
+            "title": "On Startup, Open",
+            "description": "What NeuroBook shows when it starts",
+            "choices": {
+                "last-work": {
+                    "title": "Last work"
+                },
+                "shelf": {
+                    "title": "Bookshelf"
+                }
+            }
         }
     },
     "commands": {
@@ -264,6 +276,8 @@
     "worksSettings": {
         "change": "Change…",
         "defaultMark": " (default)",
-        "defaultUnknown": "Could not read the default folder"
+        "defaultUnknown": "Could not read the default folder",
+        "startupNotSavedTitle": "Startup choice not saved",
+        "startupNotSaved": "The startup choice was not written to settings: {{reason}}"
     }
 }
