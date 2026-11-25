@@ -7,6 +7,11 @@
 ### 新增
 
 - `SplitterPanelConfig.overflow`：写 `"visible"` 时这块面板不裁切内容，内容可以伸到相邻面板上面（收起的栏里拉出的抽屉）；缺省 `"hidden"`，行为不变。
+- 开发模式的配置检查（`setLayoutDevChecks`）多了两条：`useGridHost` 没给 `onIssues`（诊断与被拒的提交会被丢掉）时建立时警告一次；`NestedGrid` 的 `dragging` 变真时布局过渡还在走（起拖时没调 `settleMotion()`）时警告一次。库仍不把诊断本身打到控制台。
+
+### 改动
+
+- `createLiveDragSession` 在键盘拖动、`live` 返回 null 的起拖时也把网格的过渡送到终点（`settleMotion`），不只在实时布局开始时：落点指示与键盘拖动的判定量到的是终点的矩形，代价是进行中的过渡会直接跳到终点。
 
 ### 修复
 

@@ -8,7 +8,7 @@ const host = useGridHost({
     contextKey: "editor-area",  // 可省，缺省空串；换了上下文，旧手势的提交不落账
     disabled: () => locked.value, // 可省；宿主自己的停用条件
     onApplied: (commit, result, before) => save(), // 可省；手势落账之后
-    onIssues: (issues) => report(issues),          // 可省；诊断的唯一出口
+    onIssues: (issues) => report(issues),          // 诊断的唯一出口；不给时开发检查警告一次
 });
 ```
 
@@ -44,6 +44,14 @@ const host = useGridHost({
 布局重算的诊断（例如放不下的 `over-constrained`）、`NestedGrid` 的 `issues` 事件（手势的诊断、被拒的提交），都交给选项里的 `onIssues`。
 
 只发新出现的：同一个码、同一个原因、同一根轴、同一个节点，这一次有、上一次重算没有的才发。要知道现在有哪些问题，读 `layout.value.issues`。
+
+没给 `onIssues` 时，库不把诊断本身打到控制台：诊断与被拒的提交都被丢掉。开发模式开关打开时，`useGridHost` 在建立时警告一次“没有出口”。有意不收诊断的宿主给一个什么都不做的 `onIssues`。这条只看 `useGridHost` 的选项：直接用 `NestedGrid`、不经 `useGridHost` 的宿主查不到。
+
+## 什么时候调 `invalidate()`
+
+原地改了树之后调：结构操作（`addLeaf`、`splitLeaf`、`removeLeaf`、`moveLeaf`）、`grid.setSize`、`grid.restore`、直接调 `grid.setCollapsed`。经 `host.setCollapsed` 收起与展开的不用调，它自己重发布局；换了一个网格实例（`grid` 选项的值变了）也不用调。经 `NestedGrid` 属性给的宿主状态（内容项、活动标签、最大化）不用调，属性变了组件自己重画。
+
+调一次版本就递增：进行中的分隔条手势被取消；拿版本作结构键的拖动会话（`structure` 返回它）整场取消。所以不要为了“保险”在每次渲染或每次拖动中调它。
 
 ## 提交与 `onApplied`
 

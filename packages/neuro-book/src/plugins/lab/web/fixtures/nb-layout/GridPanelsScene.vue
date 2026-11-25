@@ -96,6 +96,8 @@ const host = useGridHost({
     onApplied: (_commit, result, before) => {
         doc.value = applyGestureCommit(doc.value, projection.value, {before: before.sizes, after: host.layout.value.sizes, collapsed: result.collapsed}).doc;
     },
+    // 用 debug 不用 warn：lab-scenes 按手机宽度跑这个场景，放不下是正常结果，不是接线错误。
+    onIssues: (issues) => console.debug("[lab] nb-layout issues", issues),
 });
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8、49）。 */
