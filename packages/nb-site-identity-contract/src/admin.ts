@@ -57,6 +57,14 @@ export const RegistrationCodeListQuery = strictObject({
 
 export type RegistrationCodeListQuery = Static<typeof RegistrationCodeListQuery>;
 
+/**
+ * 只有分页参数、没有搜索与筛选的列表的查询串。`site.oauth-provider` 的客户端列表也用这一套（分页参数表前一句），
+ * 它的 `OAuthClientListQuery` 由此而来。
+ */
+export const PageQuery = strictObject(pageQueryProperties);
+
+export type PageQuery = Static<typeof PageQuery>;
+
 /** `GET admin/invite-codes`：没有筛选项。 */
 export const InviteCodeListQuery = strictObject(pageQueryProperties);
 
