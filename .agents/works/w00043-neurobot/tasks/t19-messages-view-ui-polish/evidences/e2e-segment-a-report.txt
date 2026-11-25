@@ -1,0 +1,107 @@
+w00043 t19 第 A 段报告
+提交：e268a97fb（分支 w00043-t19/e2e）
+新文件：packages/neuro-book/e2e/workbench-side-rail.e2e.ts、packages/neuro-book/e2e/support/side-rail.ts（新辅助，供 B、C 段复用）
+验证：vue-tsc --noEmit -p tsconfig.browser-test.json 通过（覆盖 e2e/）；bun run governance:check 无失败无警告。没跑 e2e（业务代码未落地）。
+
+========================================================
+一、盘点（只列不改）
+========================================================
+路径都在 packages/neuro-book/e2e/。图例：[条]=右栏 [data-region-strip=auxiliarybar] 横入口条；[头]=并进入口条的面板头；[入口]=条里的 [data-region-entry] / [data-region-indicator]；底部面板的 [data-region-strip="panel"] 保留，不在此列。
+
+1. workbench-containers.e2e.ts（受影响最大）
+ - 225–272 “右栏的入口条：卡片顶上一行，头并在这一行、入口图标对齐展开标记…”：227 取 [条]、230–232/263 取条里的 [头]、236–245 量 [data-shell-card="strip:auxiliarybar"] 与条里图标的对齐。整条用例的对象没了。改成：删掉，或改成“右栏没有横条”（`[data-region-strip="auxiliarybar"]` 为 0），对齐类断言改量 [data-rail="auxiliarybar"] 的入口与卡片。
+ - 274–297 “右栏隐藏的那段过渡里，并进条的头不换画法”：278、285、288 读条里的 [头]、条里按下的 [入口]。头不再并进条，用例的前提消失；视图自绘头的“过渡里不换画法”改在视图自己的头上量（消息视图的头现在不由工作台接管）。
+ - 298–344 “入口条里最大化、还原时焦点跟着头走；右栏拖到最窄时当前入口与‘更多’在外面”：302、316（leaf strip:auxiliarybar）、332–333。最大化部分：头不在条里了，最大化按钮改取分节自己的头；“拖到最窄时入口与更多”改为侧轨“高度不够时底段与当前入口总在、整条可滚”，按 [data-rail="auxiliarybar"] [data-rail-entries] [data-tool-entry]。
+ - 379–406 “右栏当前容器有几节：入口条只有入口，各节在自己的叶里画头…最后一节垫底，分隔线拖不动”：385、389（strip:auxiliarybar 的盒子）、402。条那一格没有了，量“几节垫底到卡片的底”时起点改为卡片顶；入口检查改取右轨。
+ - 1093–1170 “右栏切换容器：卡片与入口条不动，内容滚过去；按下的底色和内容同时走”：1096、1098 条里 [data-region-entry]，1101–1166 的 regionCard/sliceAt/regionIndicatorLeft/regionEntryLeft（辅助在 181–223：203 读 [条]，222 读 [data-region-indicator]，223 读 [data-region-entry]）。入口移到右轨竖排：横向取 left 改成纵向取 top；指示块改取 [data-rail="auxiliarybar"] 里 [data-tool-indicator]（活动栏已有，约定表没写右轨的，见“约定不足”第 3 条）；“并进来的头在点的那一刻换成新容器的”整段删。
+ - 1171–1252 底部面板切换：只用 panel 条，不受影响。
+ - 1254–1275 “侧栏还在滚时点右栏的入口”：1257 取 [条]、1267 点 [data-region-entry]。改成 railEntry(page, container) 即 [data-rail="auxiliarybar"] [data-rail-entries] [data-tool-entry="<id>"]。
+ - 1736–1766 “拖到一个入口上…”：1760 stripIds（取条里 [data-tool-entry]）、1764 stripEntry（辅助，被 1784–1990 多条用例共用）。辅助改成按右轨取。
+ - 1767–1782 “有面板最大化时，被盖住的右栏入口条不是落点”：1769 量 [data-shell-card="strip:auxiliarybar"] 当落点探测位置。改成量 [data-shell-card="rail:auxiliarybar"]，断言改为“最大化时右轨不被盖住，入口带仍是落点”（Spec 输出 50：最大化不盖侧轨）。语义变了，不只是改选择器。
+ - 1784–1830 “右栏的入口条上：拖到两个入口之间…放下多一个只含它的入口”：1794 取条里 [data-tool-view=…]。改取右轨入口带。
+ - 1831–1871 “拖含几个视图的入口到右栏入口条上”：1834 取条里最后一个入口；1850 量 strip:auxiliarybar 的 x 当“列的左缘”。后者改成量右栏分节卡片左缘。
+ - 1872–1892 “头并在入口条里的那一节：拖到它的头上…”：1877、1884 取条里的 [头]。头不再并进条：用例对象没了，改写成“拖到右栏某节自己的头上”或删。
+ - 1893–1914 “右栏当前容器唯一那一节拖走…入口条不在了”：1899 量 strip:auxiliarybar 盒子、1900 取条里标题、1906/1911 断言 [条] 数量为 0/1。右轨的语义是“右栏还有成员容器就在”，改成 [data-rail="auxiliarybar"] 数量；拖走后右栏里还剩别的容器时右轨应一直在。
+ - 1923、1965 两条用例（“当前容器只有一个视图、把它拖向右栏”“拖动中用命令打开另一个容器里的视图”）：把工具视图拖到对话那一节的后半（box(sectionOf(CONVERSATION)) 的 y*0.8）。位置限制（views 输出 22）后，别的视图进不了消息的容器，这里没有落点，用例会坏。改落点：落到样例丁那一节（不受限的区域）。
+ - 2040–2113 “有容器之前存的记录”：2052 把对话塞进 hidden 的 auxiliarybar；2090 `tab(page, CONVERSATION)`（取 [data-panel-tab="view:nbook.agent.conversation"]）。消息视图不再由工作台头接管标题，tab 定位点要改（见 agent-conversation 一节）；记录本身仍是合法的。
+
+2. workbench-shell.e2e.ts
+ - 285–331 “右栏拖空后还能打开”：291、328 `moveViaMenu(page, CONVERSATION, "新容器（侧栏）")`、315 `headOf(page, CONVERSATION).locator("[data-panel-tab]")`。违反位置限制（消息不能离开右栏，只能浮出）。改：把右栏拖空用“浮出”（命令 nbook.view.float），空右栏打开后“拖进去”的那一步用样例视图或浮出的消息窗 dock 回来；头上的 [data-panel-tab] 取不到，来源改取右轨入口。
+ - 602–636 “F6 也停在活动栏与右栏、底部面板的入口条上”：606 对 auxiliarybar 取 [data-region-strip]，626–627、633 比较 "strip:auxiliarybar" 这一站。改成：右栏这一半改取 "rail:auxiliarybar"（新用例已覆盖，见 workbench-side-rail.e2e.ts 的 F6 用例），保留底部面板条那一半。
+ - 94 `headOf`（含 [data-region-strip="panel"] 分支，只是 panel，不受影响）；670、733 取 sectionOf(CONVERSATION)，不受影响。
+
+3. workbench-views.e2e.ts
+ - 682–731 “键盘：焦点在活动栏入口上按菜单键…”：703、704、730 取 [data-region-strip="auxiliarybar"] [data-region-entry="view:…"]。改取 [data-rail="auxiliarybar"] [data-rail-entries] [data-tool-entry="view:…"]。同时 [data-region-entry] 与 [data-tool-entry] 的属性名要换（右栏条原用 data-region-entry，右轨按约定用 data-tool-entry）。
+ - 733–815 “入口菜单的‘移到’”：755（auxEntry 辅助）、781 同上。
+ - 1308–1309 底部面板条，不受影响。
+
+4. agent-conversation.e2e.ts（消息视图的版式）
+ - 95–140 宽版用例：99–113 [data-messages-layout] 的 wide/narrow 与 [data-messages-strip]、118 [data-messages-tab]、124–137 [data-messages-collapse]/[data-messages-toggle]。整套“宽窄两版、列表栏常驻、收起成头像列”去掉；对应的新内容是 B/C 段的“侧轨收着/展开”用例（data-messages-segment…）。
+ - 141–177 “对话写在面板头上：窄版时头的三列在面板头里；按标题开列表抽屉，Esc 关掉”：146、conversationHandle（90 行）[data-panel-tab="view:nbook.agent.conversation"] 里的 [data-header-title]。头标题接管去掉，整条改写（抽屉没了）。
+ - 178–350 “浮动窗里自绘头…”：207 量 [data-messages-host] 内的 strip-head、239–240、254、273、282、318–321 的 [data-messages-toggle]/[data-messages-list-panel]（抽屉）、339 [data-messages-layout]、346–347 [data-messages-tab]。浮动窗里改成“窗右边缘画视图段、顶格只放‘回到停靠’”（输出 51，C 段）。
+ - 872 `[data-messages-list-panel] [data-panel-row]`：“列表行点开”，展开侧轨后保留 data-messages-list-panel，不改选择器；前置要改成先展开侧轨（点 [data-messages-open="sessions"]）。
+ - 90、100 行的 CONVERSATION_VIEW / conversationHandle / panelHeadOf 辅助、float 按钮 [data-panel-action="nbook.view.float"]（189）：消息的头里还有“浮动”，但位置在聊天头里，不在面板头；选择器要改到视图自己的头。
+
+5. bots-chat.e2e.ts：59 [data-messages-chat]（聊天区）保留，不受影响；其余用例若点列表要先展开侧轨。
+
+6. lab-agent-ui.e2e.ts（Lab，C 段）
+ - 973–1090 “消息视图的分栏”整组：975–976 取 [data-messages-list-panel]、[data-messages-strip]；991–1083 拖线改列表栏宽、收起成头像列、窄版抽屉、[data-messages-toggle]/[data-messages-collapse]/[data-messages-tab]。整组按新组件（视图段加聊天区插槽）重写。
+
+7. lab-workbench-surface.e2e.ts：171 `[data-region-strip='auxiliarybar'] [data-panel-head=…]` 断言“A 的容器搬到右栏，头在条里”。改成取右栏分节自己的头，或取右轨入口；Lab 的外壳场景要先有右轨（片 3 的 Lab 登记）。
+
+8. 可能受影响但未逐条验证（涉及外壳几何、右栏卡片外观）：
+ - themes.e2e.ts 250（corner("auxiliarybar") 的 ::after）、642（[data-shell-card="auxiliarybar"] 量右栏卡片底色）：右栏卡片与右轨相连后圆角、投影变了，需要对照。
+ - workbench-titlebar.e2e.ts 224（右栏开关）：开关语义不变，但 “右栏隐藏、右轨留着”需要补断言；不属于必改。
+ - workbench-dnd/live-drag/float/views 排除了 nbook.agent（右栏只有样例丁）：右栏里有丁一个容器，右轨仍在，但这几个文件按 box/leaf 量右栏宽度（auxiliaryWidth、regionOf 用 g0 右沿）：右轨叶多占 48，auxiliaryWidth(page)＝窗口右沿到 g0 右沿，会把右轨算进右栏，数值变大；“右栏空了 auxiliaryWidth < 2”之类断言（dnd 约 949）要改成“右栏分节宽 < 2 且右轨不在”。这是最可能大面积变化的一处，片 3 先跑基线。
+ - 其余文件只出现 `auxiliarybar` 作为 panels 记录键或标题栏开关，不受影响。
+
+========================================================
+二、新用例清单（packages/neuro-book/e2e/workbench-side-rail.e2e.ts，全部在 describe“产品页：右轨”下）
+========================================================
+后端：test.sample-views + test.project-view，排除 editor、canon、plot（同 workbench-containers）；右栏是消息视图与样例丁两个容器；视口 1440x900；e2e 缺省减少动态效果，所以拖动走落点指示（data-drop-kind）。
+
+序  用例名（缩写）                                  Spec 条目                      依赖的标记
+1   右栏显示着：右轨在外侧、相连、入口两项按下恰一项   layout 50 在不在/三段/相连外观  nav[data-rail=auxiliarybar]、data-rail-state=collapsed、data-rail-joined、[data-rail-entries] [data-tool-entry]+aria-pressed、[data-shell-card="rail:auxiliarybar"]（宽 48、圆角量 computed）
+2   右栏隐藏（标题栏开关）：右轨留着、独立圆角卡片、入口不按下，再显示回到相连  layout 50 在不在/相连外观  同上 + 无 data-rail-joined
+3   右栏拖到零（边界按 Enter）：同 2                  layout 50 在不在                同上
+4   右栏的视图逐个浮出：还有成员时右轨在，最后一个浮出右轨收走  layout 50 在不在  [data-rail] 数量、data-tool-view
+5   显式打开的空右栏没有右轨                          layout 50 在不在、48            [data-rail] 数量为 0、[data-empty-region]
+6   入口带：每个容器一项，按下态跟当前容器走，点另一容器切换  layout 50 三段、22     [data-tool-entry]+aria-pressed、data-rail-joined
+7   点当前入口隐藏右栏、右轨留着、焦点留入口；再点显示  layout 50 三段、22            同上
+8   右栏隐藏或拖到零时点另一容器：同一次写入显示并切换、一次写入  layout 50 三段、22  同上
+9   拖工具视图到入口之间：新建容器并切换，预览零写入、放下一次写入  layout 50 落点、45  data-drop-kind=new-container、[data-rail-entries]
+10  拖工具视图到入口上：data-tool-merge 高亮，放下并入、右栏切到它  layout 50 落点、45  data-drop-kind=join-container、data-tool-merge
+11  拖到视图段（main）上松手是取消：无落点、不开窗、零写入（含入口带对照）  layout 50 落点  [data-rail-segment="main"]
+12  拖到底段（foot）上松手是取消                      layout 50 落点                  [data-rail-segment="foot"]
+13  F6 / Shift+F6 顺序：rail:sidebar < 消息分节 < rail:auxiliarybar，没有 strip:auxiliarybar  layout 50 焦点与读屏、18  data-rail（F6 站按最近的 [data-rail] 判）
+14  别的视图拖进消息的容器：入口上、分节前后半都无落点，零写入（样例丁入口上有落点作对照）  views 22  data-drop-kind、data-tool-merge
+15  消息视图拖到左侧栏、底部面板：活动栏入口之间、侧栏分节、面板入口条、面板分节都无落点  views 22  data-tool-band（现有）、[data-region-strip="panel"]（现有）、data-drop-kind；样例丁入口作对照
+16  往消息的浮动窗加标签：窗正文、窗顶无落点，零写入，窗里仍一个标签（别的浮动窗有落点作对照）  views 22  data-drop-kind；浮窗叶 [data-float]
+17  命令直传也拒绝：move-view 移消息到别区、别容器，移别的视图进消息的容器，布局记录不变  views 22  nbook.view.move-view（经 SAMPLE_VIEWS_RUN_EVENT）；前后读 workbench.layout 记录比对
+
+出入说明：
+ - “拖到视图段/底段”用 for 循环生成两条（11、12）。
+ - 16 里浮出用命令 nbook.view.float（经 SAMPLE_VIEWS_RUN_EVENT），不拖：窗落在哪不确定，拖会被遮挡；窗的点位用 elementFromPoint 断言没被别的窗盖住，被盖住时报明确原因而不是静默通过。
+ - 17 用“先排被拒的命令，再排一条合法命令（样例甲搬进新底部面板容器）”做屏障：合法命令的写入落盘时前面的都走完，写入数只多一次。
+ - 否定断言（11、12、14、15、16）都先有一次“同一个拖动在合法落点上有落点指示”的对照。
+
+========================================================
+三、约定表里不够用或有歧义的地方
+========================================================
+1. 右轨卡片的定位：用例按叶 id 推 [data-shell-card="rail:auxiliarybar"]（现有 strip:auxiliarybar、activitybar 都是这个写法），宽 48、四角圆角取它的 computed border-radius。约定表没写卡片标记，请确认或补一行。
+2. data-rail-joined 当布尔属性用：用例用 [data-rail="auxiliarybar"][data-rail-joined] 判存在，不读值；若实现写成 data-rail-joined="false" 就判错。请实现成“相连时有、不相连时没有”。
+3. 右轨的按下指示块：现有活动栏是 [data-tool-indicator]，右轨按“同组件”应一样，约定表没提；B/C 段写“按下的底块滑过去”要用到，请确认。
+4. 左轨根：F6 用例要 "rail:sidebar"（左轨根是 [data-rail="sidebar"]），约定表写“侧轨的根”，没明说左轨（活动栏）也带；若活动栏仍只有 data-leaf="activitybar"，用例第 13 条要改成按它判。
+5. 入口带的活动栏版：右轨入口带是 data-rail-entries；左轨入口带现在是 data-tool-band。用例里左轨仍用 [data-tool-band]（现有）。若左轨也改成 data-rail-entries，辅助 barEntry 要改。
+6. 容器入口属性名：右栏旧条用 data-region-entry，约定写右轨用 data-tool-entry。盘点里 workbench-views/containers 的 data-region-entry 都要改。
+7. 落到“视图段/底段”之外的轨上空白（入口带下面、视图段为空的位置）是不是也拒绝：Spec 只说视图段与底段；用例只测了 data-rail-segment 元素本身。若右轨当前容器没有视图段（样例丁），main/foot 元素在不在？第 11、12 条都在消息为当前容器时取，没覆盖这一支。
+8. “没有落点”后松手：用例按 Spec“取消，不开新窗”断言零写入、无浮动窗；若实现在非接收面板上松手仍按“没有落点就浮出”处理，views 22 的“零写入”会冲突，请开发者确认哪边为准（现有 dnd 里“隐藏的区域不是落点”用例对非接收位置的反馈是 data-drop-rejected 且不浮出，倾向取消）。
+9. 右栏分隔线的名称：用 /^调整 (?:center|g0) 与 \S+ 的宽度$/ 取右栏边界（右轨叶是 fixed、不应有分隔线）；若右轨与右栏之间也有名为“调整 … 与 rail:auxiliarybar …”的分隔线，上述正则按 center|g0 开头不会撞，但 B 段的轨宽手柄不要复用它。
+10. 键盘落点（“键盘拿起的候选只停入口带”）没写用例：键盘候选的可观察结果（落点指示文字序列）要看实现后才好断言，留给 B 段。
+
+========================================================
+四、风险与未验证
+========================================================
+ - 全部用例都没跑过；选择器与时序是按现有用例推的。第一次对着实现跑时，最可能要调的是：16 里浮动窗的位置与遮挡、15 里底部面板的入口条中点是否落在空白（对照用）、5 里“拖空后右栏自动隐藏”的时机。
+ - 4、5、16 用命令 nbook.view.float 浮出，依赖这条命令对 {tab:"view:<id>"} 不带 panelId 能执行（panel-commands.ts 看起来可以，未运行）。
+ - 用例没有改任何现有文件；盘点里列的现有用例现在对着现有界面仍通过。
