@@ -316,6 +316,7 @@ onMounted(() => {
         enabled: () => true,
         editorTabs: () => tabDrag.value,
         titleOnly: () => false,
+        ownHead: () => false,
         sectors: () => true,
         feel: () => "indicator",
         cardShrink: () => "strip",

@@ -20,7 +20,7 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
-import {VIEW_HEAD} from "../../shared/contracts";
+import {VIEW_HEAD, VIEW_OWN_HEAD} from "../../shared/contracts";
 import type {ViewImplementation} from "../contracts";
 import {regionContainers} from "../state/containers";
 import {defaultLayoutDoc} from "../state/default-tree";
@@ -71,6 +71,8 @@ interface ContributorControl {
     badge?: () => number | null;
     /** 实现申请标题区（输出 19）。 */
     head?: boolean;
+    /** 实现声明浮动窗里自绘头（同条的“自绘头”）。 */
+    ownHead?: {readonly band: number};
 }
 
 const Sample = defineComponent({name: "SampleView", render: () => null});
@@ -88,7 +90,7 @@ function contributor(id: string, views: ReadonlyArray<string>, control: Contribu
                 if (control.fail) throw new Error("样例入口按开关激活失败");
                 control.context = context;
                 const badge = control.badge;
-                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()}), ...(control.head === true ? {[VIEW_HEAD]: true as const} : {})};
+                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()}), ...(control.head === true ? {[VIEW_HEAD]: true as const} : {}), ...(control.ownHead === undefined ? {} : {[VIEW_OWN_HEAD]: control.ownHead})};
                 return {contributions: {[WORKBENCH_VIEWS_POINT]: Object.fromEntries(views.map((view) => [view, implementation]))}};
             },
             ...extra,
@@ -188,6 +190,12 @@ describe("视图注册表", () => {
         const {registry} = await start([contributor("test.heads", ["test.heads.on"], control({head: true})), contributor("test.plain", ["test.plain.view"], control())]);
         expect(await registry.load("test.heads.on")).toEqual({status: "loaded", component: Sample, head: true});
         expect(await registry.load("test.plain.view")).toEqual({status: "loaded", component: Sample});
+    });
+
+    it("实现还声明了自绘头时交回 ownHead；只声明自绘头、没申请标题区的不交回（输出 19 的“自绘头”）", async () => {
+        const {registry} = await start([contributor("test.own", ["test.own.on"], control({head: true, ownHead: {band: 40}})), contributor("test.bare", ["test.bare.view"], control({ownHead: {band: 40}}))]);
+        expect(await registry.load("test.own.on")).toEqual({status: "loaded", component: Sample, head: true, ownHead: {band: 40}});
+        expect(await registry.load("test.bare.view")).toEqual({status: "loaded", component: Sample});
     });
 
     it("加载失败报 failed，与撤回造成的作废分开", async () => {

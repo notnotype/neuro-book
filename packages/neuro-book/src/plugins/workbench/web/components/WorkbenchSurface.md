@@ -45,6 +45,11 @@ type Props = {
     maximized?: string | null;
     /** 头只写标题的面板：没有标签带，内容是以标题命名的 `region`，不是 `tabpanel`。默认空集。 */
     titleOnlyPanels?: ReadonlySet<string>;
+    /**
+     * 视图自绘头的面板 → 右端按钮让出的宽度（CSS px）。只认此刻画成浮动窗的：外框里不画头，内容从窗口顶上开始（同并成一行的 `headless`）、
+     * 四个角都裁圆，内容外层写 `data-own-head` 与 `--workbench-own-head-inset-end`；头由宿主画在 `own-head` 插槽里。默认空表。
+     */
+    ownHeads?: ReadonlyMap<string, number>;
     /** 拿起的内容项（实时布局）：预览把来源摘掉时由网格留住，内容不卸载（`NestedGrid` 的 `lifted`）。矩形不走属性，由 `placeLifted` 写。 */
     lifted?: {key: string} | null;
     /** 拖动进行中（外壳在拖动会话里）：转给 NestedGrid 的 `dragging`，离开的叶不留着缩回去。 */
@@ -97,6 +102,11 @@ type Slots = {
     overlay?(): unknown;
     /** 浮动窗的手柄。 */
     "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /**
+     * 自绘头的浮动窗盖在视图之上的那一条：画在内容里、视图之前，焦点、悬停与 F6 都算这块面板，飞行时跟着内容走。`actionsShown`：指针或焦点在这块窗上
+     * （同卡片的 `data-hover-actions-active`）；`idPrefix` 同 `head`。
+     */
+    "own-head"?(props: {panelId: string; idPrefix: string; actionsShown: boolean}): unknown;
 };
 
 type Expose = {

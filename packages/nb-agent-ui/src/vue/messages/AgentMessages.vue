@@ -29,7 +29,12 @@ const props = withDefaults(defineProps<{
     drawerAnchor?: HTMLElement | null;
     now: number;
     locale?: AgentLocale;
-}>(), {listWidth: 260, drawerAnchor: null, locale: undefined});
+    /**
+     * 宿主自绘窗口头（视图第一行就是窗口头）：列表的切换行与头像列顶上那一行是窗口的拖动区（`data-window-drag`），头像列顶上那一行高
+     * `--acv-head-height`，窄版的抽屉从这个高度下面拉出、不压住对话头。
+     */
+    windowDrag?: boolean;
+}>(), {listWidth: 260, drawerAnchor: null, locale: undefined, windowDrag: false});
 
 const emit = defineEmits<{
     "update:listCollapsed": [collapsed: boolean];
@@ -198,19 +203,21 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
 </script>
 
 <template>
-    <div ref="rootRef" class="acv-messages" :class="`acv-messages--${props.layout}`" :data-messages-layout="props.layout" @pointerdown.capture="onPointerDown">
+    <div ref="rootRef" class="acv-messages" :class="[`acv-messages--${props.layout}`, {'acv-messages--window-drag': props.windowDrag}]" :data-messages-layout="props.layout" @pointerdown.capture="onPointerDown">
         <Splitter :panels="panels" :disabled="!wide" @gesture-update="onGestureUpdate" @gesture-end="onGestureEnd" @gesture-cancel="draggedCollapsed = null">
             <template #panel-list>
                 <nav v-show="showStrip" class="acv-messages__strip" :aria-label="t('messages.strip')" data-messages-strip>
-                    <IconButton
-                        :icon-class="wide ? 'i-lucide-panel-left-open' : 'i-lucide-menu'"
-                        size="sm"
-                        :title="wide ? t('messages.expandList') : t('messages.openList')"
-                        :aria-label="wide ? t('messages.expandList') : t('messages.openList')"
-                        :aria-expanded="wide ? undefined : props.drawerOpen"
-                        data-messages-toggle
-                        @click="toggleFromStrip"
-                    />
+                    <div class="acv-messages__strip-head" :data-window-drag="props.windowDrag ? '' : undefined" data-messages-strip-head>
+                        <IconButton
+                            :icon-class="wide ? 'i-lucide-panel-left-open' : 'i-lucide-menu'"
+                            size="sm"
+                            :title="wide ? t('messages.expandList') : t('messages.openList')"
+                            :aria-label="wide ? t('messages.expandList') : t('messages.openList')"
+                            :aria-expanded="wide ? undefined : props.drawerOpen"
+                            data-messages-toggle
+                            @click="toggleFromStrip"
+                        />
+                    </div>
                     <button
                         v-for="contact in contacts"
                         :key="contact.key"
@@ -256,6 +263,7 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
                         :selected-contact="selectedContact"
                         :now="props.now"
                         :locale="props.locale"
+                        :window-drag="props.windowDrag"
                         @update:tab="emit('update:tab', $event)"
                         @open-contact="openContact"
                         @retry-contacts="emit('retry-contacts', $event)"
@@ -298,6 +306,25 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
     height: 100%;
     padding: 8px 0;
     overflow-y: auto;
+}
+
+.acv-messages__strip-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    user-select: none;
+}
+
+/* 自绘窗口头时头像列顶上那一行与对话头同高、顶到窗口顶，空白处能拖窗口。 */
+.acv-messages--window-drag .acv-messages__strip {
+    padding-top: 0;
+}
+
+.acv-messages--window-drag .acv-messages__strip-head {
+    height: var(--acv-head-height, 40px);
+    touch-action: none;
 }
 
 .acv-messages__strip-item {
@@ -394,6 +421,12 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
     width: min(300px, 85cqi);
     border-right: var(--border-w) solid var(--border-color);
     box-shadow: var(--elevation-raised);
+}
+
+/* 自绘窗口头时抽屉从头那一行下面拉出：不盖住对话头与宿主盖在右上角的按钮。 */
+.acv-messages--window-drag.acv-messages--narrow .acv-messages__list {
+    top: var(--acv-head-height, 40px);
+    border-top: var(--border-w) solid var(--border-color);
 }
 
 .acv-messages__chat {

@@ -53,6 +53,8 @@ describe("渲染层的样式 token", () => {
             sources,
             declaringTexts: ["theme.css", "tokens.css", "styles.css"].map((name) => stripStyleComments(readFileSync(join(nbUiSource, name), "utf8"))),
             declared: nbColorwayVarKeys,
+            // 宿主自绘窗口头时给的头高与右端让位（AgentConversationHead.md、AgentMessages.md），读的地方都带缺省值。
+            hostVars: new Set(["--acv-head-height", "--acv-head-inset-end"]),
             runtimePrefixes: ["--tw-"],
         })).toEqual([]);
     });

@@ -25,6 +25,7 @@
 - `titleOnly`（侧栏这一列，别的工具面板只有一个标签时；由外壳按已提交的文档算）时只有活动标签的标题：一个可聚焦的按钮，点了发 `activate`（面板收着时宿主展开），是这个视图的拖动源，名称是标题，`dragHint` 写在描述里。内容区的名称不指向这个按钮，指向一个带 `hidden` 的元素，写活动标签的标题（id 由 `panelTitleDomId` 算）。
 - `titleInEntry`（底部面板并成一行时，入口条的入口写着标题，Spec 输出 47）：不画标题按钮，头里只有视图动作与框架按钮；隐藏的标题元素照旧在。拖动、右键与“焦点落到标题”由宿主交给那个入口。
 - 接管标题区时有 `fold`：展开标记是左列最前面一个单独的按钮（`data-panel-fold`，名称是 `foldLabel`，带 `aria-expanded`），点了发 `toggle-fold`；它算进两侧等宽，标题照旧居中。标题按钮照旧是视图的弹层开关。
+- **自绘头**（`ownHead`，[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 19 的“自绘头”，只写标题时才起作用，优先于 `viewHead`）：头不占一行，画成盖在内容顶上、高 `ownHead.band` 的一条（`position: absolute`，宿主把它放在这块窗的内容里、视图之前，层级压在视图之上），本身不接指针，指针穿过它落到视图画的头上；只有右端的视图动作与框架按钮接指针，竖直居中在这一条里。没有标签带、展开标记，不交标题区的位置。标题按钮（id、`data-panel-tab`、拖动描述、点击与右键都不变，名称是视图标题）在左上角，平时透明、不接指针，键盘聚焦（`:focus-visible`）时淡入：程序把焦点还给它（点了“浮动”、关了“移动到”）时不冒出来压住视图的头；用透明度不用 `display:none`，F6 与“焦点落到标题”要落得上。这一条自己是悬停范围（`data-hover-actions-scope`），指针或焦点在这块窗的内容上时宿主给 `actionsShown`，写 `data-hover-actions-active`。右端按钮一组的宽度加上到右缘的内边距与一个间距经 `own-head-inset` 交给宿主（量 `useLayoutExtent`；动作透明时也占位，只在动作增减时变）。头上写 `data-own-head`。
 - 接管标题区时，标题按钮仍是这个组件画的：id、`data-panel-tab`、拖动描述、点击与右键都不变，名称是视图送进来的文字。`viewHead.popup` 不为 null 时按钮带 `aria-haspopup="dialog"` 与 `aria-expanded`。左列与右列视图的那一格带 `data-no-drag`，视图把可交互的东西放这里，不放进按钮。三个位置连同按钮经 `head-slots` 交出去；`viewHead.key` 变了（实例换代）就换一组新元素再交一次，不再接管或组件卸载时交 null。
 - 面板头的空白处不起拖：整块面板不能拖（输出 24）。
 
@@ -83,6 +84,10 @@ type Props = {
     fold?: {collapsed: boolean} | null;
     /** 接管标题区时单独的展开标记的名称（“展开 X”“收起 X”）；默认空。 */
     foldLabel?: string;
+    /** 视图自绘头：盖在内容顶上那一条的高度（CSS px）。默认 null。 */
+    ownHead?: {band: number} | null;
+    /** 自绘头时右端的按钮该不该显示（指针或焦点在这块窗的内容上，宿主算）。默认 false。 */
+    actionsShown?: boolean;
 };
 
 type PanelViewHead = {
@@ -105,6 +110,8 @@ type Emits = {
     (event: "head-slots", slots: PanelHeadSlots | null): void;
     /** 接管标题区时点了单独的展开标记。 */
     (event: "toggle-fold"): void;
+    /** 自绘头时右端按钮一组连同到右缘的留白占多宽（CSS px）。 */
+    (event: "own-head-inset", width: number): void;
 };
 
 type Slots = {

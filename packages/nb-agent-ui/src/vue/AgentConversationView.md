@@ -82,6 +82,8 @@ type AgentConversationViewProps = {
     newSession?: boolean;
     /** 把头的三列送到这几个元素里；`anchor` 是会话列表锚着的按钮。默认 null，画在内容顶上。 */
     headTargets?: {start: HTMLElement; title: HTMLElement; end: HTMLElement; anchor: HTMLElement} | null;
+    /** 头是宿主窗口的拖动区（宿主自绘窗口头时，交给 `AgentConversationHead` 的 `windowDrag`）；高度与右端让位经 `--acv-head-height`、`--acv-head-inset-end` 给。默认 false。 */
+    headWindowDrag?: boolean;
     /** 会话列表开着没有；可选受控，不传时视图自持。 */
     sessionsOpen?: boolean;
     /** 没选会话时头上的图标：新会话会用的 Profile。默认 null，不画图标。 */

@@ -18,6 +18,7 @@
 - 中列的图标：会话给了头像（`ctx.session.avatar`）时画成圆形头像图片（`data-header-avatar`），否则是 Profile 图标。
 - 中列：有 `sessions` 时是会话列表的入口。画在原处时中列是一个按钮，点了切换 `sessionsOpen`；送进标题区时中列只有文字与图标，按下由宿主转来（宿主改 `sessionsOpen`）。会话列表是 nb-ui 的 `Popover`，锚在中列的按钮上，送进标题区时锚在 `targets.anchor` 上；Escape 关掉后焦点回到锚点。悬停标题显示会话摘要。
 - 右列：`trailing` 插槽、常驻的顶栏动作（发 `header-action`）、“⋯”（选了发 `overflow`，值是菜单项 id）。没选会话时没有“⋯”。
+- 宿主自绘窗口头时（`windowDrag`，工作台浮动窗的“自绘头”）：根上写 `data-window-drag`，宿主把按住空白、标题文字与头像的拖动当成拖窗口（按钮照旧），拖动区 `touch-action: none`。高度读 `--acv-head-height`（缺省 40px，与消息列表的切换行一样；不作拖动区时缺省 32px），右内边距加 `--acv-head-inset-end`（缺省 0，宿主盖在右端的按钮的宽度），标题随之按剩下的宽度居中。头上的文字不能选（`user-select: none`），头像不能被浏览器拖走（`draggable="false"`，原生的图片拖动会取消指针手势）。
 
 ## 数据
 
@@ -40,6 +41,8 @@ type AgentConversationHeadProps = {
     overflowItems: ReadonlyArray<DropdownMenuItemData>;
     /** 右列最后画“关闭”（`data-header-close`），点了发 `close`。 */
     closable: boolean;
+    /** 头是宿主窗口的拖动区；默认 false。 */
+    windowDrag?: boolean;
 };
 
 type AgentConversationHeadEmits = {

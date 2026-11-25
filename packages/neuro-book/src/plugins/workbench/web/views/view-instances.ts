@@ -26,6 +26,8 @@ export interface ViewInstances {
     contextOf(viewId: string): ViewContext | null;
     /** 这一代的标题区（views.md 输出 19）：实现申请了、实例就绪时才有，随上下文一起换代。 */
     headOf(viewId: string): ViewHeadControl | null;
+    /** 这一代的实现声明的自绘头（同条的“自绘头”）：申请了标题区、声明了自绘、实例就绪时才有。 */
+    ownHeadOf(viewId: string): {readonly band: number} | null;
     readonly generations: ComputedRef<ReadonlyMap<string, number>>;
     reload(viewId: string): void;
     retryRender(viewId: string): void;
@@ -51,6 +53,8 @@ export function useViewInstances(options: {
     const heads = new Map<string, ViewHeadControl>();
     /** 这一代的实现申请了标题区没有：加载时记下，重试渲染时沿用。 */
     const wantsHead = new Map<string, boolean>();
+    /** 这一代的实现声明的自绘头：同 `wantsHead`。 */
+    const ownHeads = new Map<string, {readonly band: number}>();
     /** 实例删了再建也接着数。 */
     const generations = new Map<string, number>();
 
@@ -99,6 +103,8 @@ export function useViewInstances(options: {
         else if (result.status === "failed") Object.assign(current, {status: "load-failed", error: result.error instanceof Error ? result.error.message : String(result.error)});
         else {
             wantsHead.set(viewId, result.head === true);
+            if (result.ownHead === undefined) ownHeads.delete(viewId);
+            else ownHeads.set(viewId, result.ownHead);
             setContext(viewId, generation);
             Object.assign(current, {status: "ready", component: markRaw(result.component)});
         }
@@ -137,6 +143,7 @@ export function useViewInstances(options: {
         instances,
         contextOf: (viewId) => contexts.get(viewId) ?? null,
         headOf: (viewId) => (instances.get(viewId)?.status === "ready" ? heads.get(viewId) ?? null : null),
+        ownHeadOf: (viewId) => (instances.get(viewId)?.status === "ready" && heads.has(viewId) ? ownHeads.get(viewId) ?? null : null),
         generations: computed(() => new Map([...instances].map(([id, instance]) => [id, instance.generation]))),
         reload: (viewId) => {
             if (instances.get(viewId)?.status === "load-failed") void load(viewId);

@@ -27,6 +27,11 @@ const props = defineProps<{
     overflowItems: ReadonlyArray<DropdownMenuItemData>;
     /** 右列最后画“关闭”（宿主把对话放在可关的面板里时）。 */
     closable: boolean;
+    /**
+     * 头是窗口的拖动区（宿主自绘窗口头时）：根上写 `data-window-drag`，按住空白、标题文字、头像拖的是宿主的窗口，按钮照旧。
+     * 高度与右端让位由宿主经 `--acv-head-height`、`--acv-head-inset-end` 给。
+     */
+    windowDrag?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -65,7 +70,7 @@ const placed = computed(() => props.targets !== null);
 </script>
 
 <template>
-    <header v-show="!placed" class="acv-head" data-agent-head v-bind="$attrs">
+    <header v-show="!placed" class="acv-head" data-agent-head :data-window-drag="props.windowDrag === true ? '' : undefined" v-bind="$attrs">
         <div class="acv-head__start">
             <Teleport :to="props.targets?.start ?? null" :disabled="!placed">
                 <IconButton
@@ -99,7 +104,7 @@ const placed = computed(() => props.targets !== null);
             @click="emit('update:sessionsOpen', !props.sessionsOpen)"
         >
             <Teleport :to="props.targets?.title ?? null" :disabled="!placed">
-                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" data-header-avatar @error="brokenAvatar = avatar">
+                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" draggable="false" data-header-avatar @error="brokenAvatar = avatar">
                 <span v-else-if="icon !== null" :class="[icon, 'acv-head__icon']" aria-hidden="true" />
                 <span class="acv-head__name" :title="summary" data-header-title>{{ title }}</span>
                 <span class="i-lucide-chevron-down acv-head__chevron" aria-hidden="true" />
@@ -107,7 +112,7 @@ const placed = computed(() => props.targets !== null);
         </button>
         <div v-else class="acv-head__title">
             <Teleport :to="props.targets?.title ?? null" :disabled="!placed">
-                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" data-header-avatar @error="brokenAvatar = avatar">
+                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" draggable="false" data-header-avatar @error="brokenAvatar = avatar">
                 <span v-else-if="icon !== null" :class="[icon, 'acv-head__icon']" aria-hidden="true" />
                 <span class="acv-head__name" :title="summary" data-header-title>{{ title }}</span>
             </Teleport>
@@ -152,8 +157,16 @@ const placed = computed(() => props.targets !== null);
     grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
     align-items: center;
     gap: var(--space-1);
-    height: 32px;
-    padding: 0 12px;
+    /* 宿主自绘窗口头时给高度与右端让位（盖在右端的窗口按钮），缺省不让位。 */
+    height: var(--acv-head-height, 32px);
+    padding: 0 calc(12px + var(--acv-head-inset-end, 0px)) 0 12px;
+    user-select: none;
+}
+
+/* 作窗口拖动区时触摸按住就起拖，不滚动；高度缺省与消息列表的切换行一样是 40px（两栏第一行等高）。 */
+.acv-head[data-window-drag] {
+    height: var(--acv-head-height, 40px);
+    touch-action: none;
 }
 
 .acv-head__start,

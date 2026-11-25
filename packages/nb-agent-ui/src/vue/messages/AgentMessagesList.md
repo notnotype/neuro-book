@@ -32,6 +32,8 @@ type AgentMessagesListProps = {
     /** 时间列按它算，宿主定期更新。 */
     now: number;
     locale?: AgentLocale;
+    /** 切换这一行是宿主窗口的拖动区（写 `data-window-drag`，`touch-action: none`），宿主自绘窗口头时给；默认 false。 */
+    windowDrag?: boolean;
 };
 
 type AgentMessagesListEmits = {
