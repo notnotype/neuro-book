@@ -33,6 +33,7 @@ import type PendingView from "nbook/plugins/canon/web/components/PendingView.vue
 import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
 import type ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
 import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
+import type SuggestInput from "nbook/plugins/canon/web/components/SuggestInput.vue";
 import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
 import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
 import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
@@ -2216,6 +2217,15 @@ function canonEntryPageFixtures() {
                 {id: "number-english", label: "英文界面", input: {props: {label: "Savings", kind: "number" as const, unit: "", intents: ["creative" as const, "story" as const], preview: {route: "Changes the initial value", impact: ["Nothing else changes"]}}, model: {value: "800", intent: "creative" as const}}},
             ],
             load: async () => (await import("./ConfirmBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof SuggestInput>({
+            component: "SuggestInput",
+            scenes: [
+                {id: "empty", label: "空着：获得焦点时列出建议值", input: {props: {label: "性别", suggestions: ["男", "女", "不明"]}, model: {modelValue: ""}}},
+                {id: "typed", label: "写了建议值之外的字", input: {props: {label: "性别", suggestions: ["男", "女", "不明"]}, model: {modelValue: "双性"}}},
+                {id: "empty-english", label: "英文界面", input: {props: {label: "Gender", suggestions: ["Male", "Female", "Unknown"]}, model: {modelValue: ""}}},
+            ],
+            load: async () => (await import("./SuggestInputFixture.vue")).default,
         }),
         defineLabFixture<typeof RecordForm>({
             component: "RecordForm",

@@ -124,7 +124,11 @@
         "addComponentConfirm": "添加",
         "noMoreGroups": "登记的设定组这个条目都有了。",
         "removeComponentConfirm": "去掉",
-        "removeComponentDescription": "数据会保留，可以再加回来。"
+        "removeComponentDescription": "数据会保留，可以再加回来。",
+        "fieldAdded": "给{{name}}加了一项：{{label}}",
+        "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
+        "fieldRemoved": "去掉了{{name}}的“{{label}}”",
+        "fieldRestored": "恢复了{{name}}的“{{label}}”"
     },
     "position": {
         "initial": "初值",
@@ -662,5 +666,8 @@
         "previewUnavailable": "现在读不到预览",
         "wholeStory": "这个条目的文字里有随剧情变的段落，现在不能在这里改",
         "wholeTooMany": "这个条目的主文字有 {{count}} 块，超过一次能改的 {{max}} 块"
+    },
+    "detail": {
+        "editAnchor": "改起点"
     }
 }

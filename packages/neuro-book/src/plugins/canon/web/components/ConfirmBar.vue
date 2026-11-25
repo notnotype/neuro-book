@@ -2,7 +2,7 @@
 /**
  * 就地改的确认条（docs/specs/canon/author-ui.md 输出 16、29、30）：在改哪个字段、按字段的声明给的输入控件、意图、预览（写回
  * 哪里与带来的变化）、原因、保存与取消。受控：填的值、意图、预览与原因都由宿主给，交互时发出新值。挂上时焦点进输入控件；
- * Escape 等同取消。
+ * Escape 等同取消（输入法组字里的不算）。`inline` 时是专门界面里就地改的内容（输出 51）：没有标题与吸顶的外框，外框由宿主给。
  */
 import {computed, nextTick, onMounted, ref} from "vue";
 
@@ -38,7 +38,11 @@ const props = withDefaults(defineProps<{
     saving?: boolean;
     /** 保存不可用（例如累出来的数，输出 16）。“这个值刚刚变了”这类原因不锁：作者再点一次保存就行（输出 29）。 */
     locked?: boolean;
-}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false});
+    /** `bar`：页面顶上的确认条（缺省）；`inline`：放进就地改的浮层或编辑层。 */
+    variant?: "bar" | "inline";
+    /** 文字输入的行数（成段的文字从原文的行数起步）；缺省 2。 */
+    rows?: number;
+}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false, variant: "bar", rows: 2});
 
 const emit = defineEmits<{
     (event: "update:value", value: unknown): void;
@@ -59,7 +63,7 @@ onMounted(() => {
 });
 
 const onKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || event.isComposing) return;
     event.preventDefault();
     emit("cancel");
 };
@@ -68,13 +72,15 @@ const onKeydown = (event: KeyboardEvent): void => {
 <template>
     <section
         ref="root"
-        class="sticky top-0 z-[1] mb-3 rounded-[var(--radius-panel)] border border-[var(--accent-main)] bg-[var(--panel-surface)] p-3 text-[length:var(--text-sm)]"
+        class="text-[length:var(--text-sm)]"
+        :class="props.variant === 'bar' ? 'sticky top-0 z-[1] mb-3 rounded-[var(--radius-panel)] border border-[var(--accent-main)] bg-[var(--panel-surface)] p-3' : ''"
         :aria-label="text('edit.heading', {label: props.label})"
-        data-confirm-bar
+        :data-confirm-bar="props.variant === 'bar' ? '' : undefined"
+        :data-inline-editor="props.variant === 'inline' ? '' : undefined"
         @keydown="onKeydown"
     >
-        <h3 class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
-        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
+        <h3 v-if="props.variant === 'bar'" class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
+        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" :rows="props.rows" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
         <div v-if="props.intents.length > 1" class="mt-2 flex items-center gap-2">
             <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
             <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="props.intents.map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />

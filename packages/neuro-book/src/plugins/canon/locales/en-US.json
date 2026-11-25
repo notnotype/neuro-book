@@ -124,7 +124,11 @@
         "addComponentConfirm": "Add",
         "noMoreGroups": "This entry already has every registered group.",
         "removeComponentConfirm": "Remove",
-        "removeComponentDescription": "The data is kept; you can add the group back later."
+        "removeComponentDescription": "The data is kept; you can add the group back later.",
+        "fieldAdded": "Added {{label}} to {{name}}",
+        "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
+        "fieldRemoved": "Removed “{{label}}” from {{name}}",
+        "fieldRestored": "Restored “{{label}}” on {{name}}"
     },
     "position": {
         "initial": "Initial",
@@ -662,5 +666,8 @@
         "previewUnavailable": "Preview is unavailable right now",
         "wholeStory": "This entry's text has passages that change with the story, so it can't be edited here yet",
         "wholeTooMany": "This entry's main text has {{count}} blocks, more than the {{max}} that can be changed at once"
+    },
+    "detail": {
+        "editAnchor": "Edit the starting point"
     }
 }

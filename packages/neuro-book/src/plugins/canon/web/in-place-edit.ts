@@ -33,6 +33,8 @@ export interface EditDraft {
     intent: EditIntent;
     read: {value: unknown; version: number};
     requestId: string;
+    /** 在专门界面里就地改（输出 51）：挂着这条路径的 `FieldEditor` 时由它画，没有时照旧出确认条。 */
+    inline?: boolean;
 }
 
 /** 确认条要画的东西（`ConfirmBar` 的 props）。 */
@@ -77,9 +79,16 @@ export interface InPlaceEditOptions {
     readonly refocus: (path: string) => void;
 }
 
+/** 打开就地改时预先填的（换装：填好这一套的名字、预选“从这一章起”）。 */
+export interface EditOpenOptions {
+    readonly inline?: boolean;
+    readonly value?: unknown;
+    readonly intent?: EditIntent;
+}
+
 export interface InPlaceEdit {
     readonly bar: ComputedRef<ConfirmBarModel | null>;
-    open(path: string): void;
+    open(path: string, options?: EditOpenOptions): void;
     update(value: unknown): void;
     setIntent(intent: EditIntent): void;
     save(): void;
@@ -91,6 +100,7 @@ const PREVIEW_DELAY_MS = 300;
 
 export const kindOf = (declaration: FieldDeclaration | undefined): ConfirmBarKind => {
     const kind = declaration?.kind;
+    if (kind === "text" && declaration?.precision !== "semantic" && (declaration?.suggestions?.length ?? 0) > 0) return "suggest";
     return kind === "number" || kind === "enum" || kind === "boolean" || kind === "ref" || kind === "image" ? kind : "text";
 };
 
@@ -207,6 +217,10 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     };
 
     const applyFailure = (draft: EditDraft, failure: {readonly code: string; readonly [detail: string]: unknown}): void => {
+        // 结果回来时这次填写已经放弃或换了一个（取消、点了浮层外面、改了别的字段）：不写回。还在的就在它现在的样子上改，
+        // 不用发出请求那一刻的草稿（作者这期间可能又改了值）。
+        const current = options.draft();
+        if (current === null || current.requestId !== draft.requestId || current.path !== draft.path) return;
         const shown = failureText(failure);
         error.value = options.resolve(shown.text);
         recheck.value = shown.recheck;
@@ -214,8 +228,8 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             locked.value = true;
             options.accumulated(draft.path);
         }
-        if (failure.code === "value-conflict") options.setDraft({...draft, read: {value: failure.current, version: options.version()}, requestId: newRequestId()});
-        else if (!shown.recheck) options.setDraft({...draft, requestId: newRequestId()});
+        if (failure.code === "value-conflict") options.setDraft({...current, read: {value: failure.current, version: options.version()}, requestId: newRequestId()});
+        else if (!shown.recheck) options.setDraft({...current, requestId: newRequestId()});
     };
 
     // 填的值、意图变了：停一下再预览。
@@ -271,7 +285,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             return {
                 label: labelOf(draft.path),
                 kind: kindOf(declaration),
-                options: declaration?.options ?? [],
+                options: kindOf(declaration) === "suggest" ? declaration?.suggestions ?? [] : declaration?.options ?? [],
                 unit: declaration?.unit ?? "",
                 value: draft.value,
                 targets: declaration?.kind === "ref" ? declaration.targets ?? [] : [],
@@ -285,11 +299,19 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
                 locked: locked.value || blocked !== null,
             };
         }),
-        open: (path) => {
+        open: (path, given = {}) => {
             const state = options.field(path).state;
             const kind = kindOf(options.field(path).declaration);
+            const intents = intentsOf(path);
             resetFeedback();
-            options.setDraft({path, value: draftText(state, kind), intent: intentsOf(path)[0]!, read: {value: state?.value ?? null, version: options.version()}, requestId: newRequestId()});
+            options.setDraft({
+                path,
+                value: given.value === undefined ? draftText(state, kind) : given.value,
+                intent: given.intent !== undefined && intents.includes(given.intent) ? given.intent : intents[0]!,
+                read: {value: state?.value ?? null, version: options.version()},
+                requestId: newRequestId(),
+                ...(given.inline === true ? {inline: true} : {}),
+            });
         },
         update: (value) => {
             const draft = options.draft();

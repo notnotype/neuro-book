@@ -9,8 +9,8 @@ import {join} from "node:path";
 
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {reactive} from "vue";
-import type {Component} from "vue";
+import {defineComponent, h, reactive, ref} from "vue";
+import type {Component, PropType} from "vue";
 
 import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
 import {Select} from "@notnotype/nb-ui/components";
@@ -27,9 +27,10 @@ import {pageStandIn} from "../testing/page-stand-in";
 import {change, nextId, person, publish} from "../testing/world-fixtures";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
-import {CANON_COMPONENTS_POINT} from "../shared/contracts";
+import {CANON_COMPONENT_VIEWS_POINT, CANON_COMPONENTS_POINT} from "../shared/contracts";
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
+import type {ComponentViewContext} from "./component-views";
 import EntryPage from "./components/EntryPage.vue";
 import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
@@ -70,10 +71,10 @@ interface Opened {
     remount(): ReturnType<typeof mount>;
 }
 
-async function setup(project: readonly PluginDefinition[] = []): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
+async function setup(project: readonly PluginDefinition[] = [], browser: readonly PluginDefinition[] = []): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
     venue = await canonNodeWorld(tmp, {project});
     const editor = pageStandIn();
-    await venue.window("mine", [editor.plugin]);
+    await venue.window("mine", [editor.plugin, ...browser]);
     const other = await venue.window("other");
     const page = editor.page<EntryPageState>(ENTRY_PAGE);
     const component: Component = await page.load();
@@ -1189,5 +1190,115 @@ describe("世界只读（验收 8 的前一半）", () => {
         expect(wrapper.get("[data-edit='panel.存款']").attributes("disabled")).toBeDefined();
         // 按钮在没填的时候本来就不可用，看输入框：只读时连输入都不让填。
         expect(wrapper.findAll("[data-record-form] input").map((input) => input.attributes("disabled") !== undefined)).toEqual([true, true]);
+    });
+});
+
+describe("专门界面的接口（输出 51 与输入一节的 context）", () => {
+    /** 一种允许实例字段的类型“徽章”，与给它交的专门界面：每个字段一个值按钮，点了就地改；另把 context 的几项写在页上。 */
+    const BADGE = {label: "徽章", namespace: "badge", version: 1, instanceFields: true, fields: [{id: "图案", label: "图案", kind: "text", suggestions: ["龙", "虎"]}, {id: "介绍", label: "介绍", kind: "text"}]};
+    const project: PluginDefinition = {id: "test.badge", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "test.badge.card", declaration: BADGE}]};
+    /** 关掉 `editors` 时不挂 `FieldEditor`（退回确认条）；`twice` 时同一路径挂两份。 */
+    const editors = ref(true);
+    const twice = ref(false);
+    const BadgeView = defineComponent({
+        props: {context: {type: Object as PropType<ComponentViewContext>, required: true}},
+        setup(props) {
+            const anchors = ref<Record<string, HTMLElement | null>>({});
+            const result = ref("");
+            return () => {
+                const context = props.context;
+                const Editor = context.FieldEditor!;
+                return h("div", {"data-badge": ""}, [
+                    ...context.declarations.map((field) => h("div", {key: field.id, class: "relative"}, [
+                        h("button", {"data-edit": `badge.${field.id}`, ref: (element: unknown) => void (anchors.value[field.id] = element as HTMLElement | null), onClick: () => context.edit(field.id, {inline: true})}, String(context.fields[field.id]?.value ?? "填写")),
+                        editors.value ? h(Editor, {path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
+                        editors.value && twice.value ? h(Editor, {key: "second", path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
+                    ])),
+                    h("p", {"data-other": ""}, ["nbook.canon.panel", "nbook.canon.look", "nbook.canon.person"].map((type) => context.other!(type).status).join("|")),
+                    h("p", {"data-editing": ""}, String(context.editing ?? "")),
+                    h("p", {"data-result": ""}, result.value),
+                    h("button", {"data-add-look": "", onClick: async () => void (result.value = JSON.stringify(await context.addComponent!("nbook.canon.look")))}, "加形象"),
+                    h("button", {"data-add-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldAdd!({label: "种族", kind: "text"})))}, "加种族"),
+                    h("button", {"data-add-taken": "", onClick: async () => {
+                        const outcome = await context.fieldAdd!({label: "图案", kind: "text"});
+                        result.value = outcome.ok ? "ok" : "refused";
+                    }}, "加重名"),
+                    h("button", {"data-remove-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRemove!("种族")))}, "去掉种族"),
+                    h("p", {"data-removed": ""}, (context.removedFields ?? []).map((field) => field.label).join("|")),
+                ]);
+            };
+        },
+    });
+    const browser: PluginDefinition = {
+        id: "test.badge",
+        entries: [{
+            id: "browser", location: "browser", activationEvents: ["onStartup"],
+            contributions: [{capability: CANON_COMPONENT_VIEWS_POINT, id: "test.badge.card", declaration: {title: "徽章", uses: ["nbook.canon.panel", "nbook.canon.look"]}}],
+            activate: () => ({contributions: {[CANON_COMPONENT_VIEWS_POINT]: {"test.badge.card": {load: () => Promise.resolve(BadgeView)}}}}),
+        }],
+    };
+
+    async function badgePage() {
+        editors.value = true;
+        twice.value = false;
+        const {other, open} = await setup([project], [browser]);
+        const star = person("星瑕");
+        star.init.data.badge = {type: "test.badge.card", version: 1, enabled: true, fields: {图案: "龙", 介绍: null}, declared: []};
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const opened = await open(id);
+        opened.state.tab = "data:badge";
+        await waitUntil("徽章的界面", () => opened.wrapper.find("[data-badge]").exists());
+        return {...opened, other, id};
+    }
+    const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor="${path}"]`);
+    const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
+
+    it("就地改：挂着编辑器时不出确认条，在浮层里改、保存；Escape 放弃；没挂编辑器时退回确认条；同一路径挂两份卸一份照旧", async () => {
+        const {wrapper, state} = await badgePage();
+        await wrapper.get("[data-edit='badge.图案']").trigger("click");
+        await waitUntil("浮层里的编辑器", () => editorOf("badge.图案") !== null);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        expect(wrapper.get("[data-editing]").text()).toBe("图案");
+        // 有建议值的文字：输入框加候选，值就是输入框里的字。
+        const input = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
+        input.value = "凤";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        [...editorOf("badge.图案")!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+        await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.图案']").text() === "凤" && editorOf("badge.图案") === null);
+        expect(state.edit).toBeNull();
+
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.介绍") !== null);
+        editorOf("badge.介绍")!.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("放弃了", () => state.edit === null && editorOf("badge.介绍") === null);
+
+        editors.value = false;
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("确认条", () => wrapper.find("[data-confirm-bar]").exists());
+        await buttonByText(wrapper, "取消")!.trigger("click");
+
+        editors.value = true;
+        twice.value = true;
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("编辑器", () => document.body.querySelectorAll("[data-field-editor='badge.介绍']").length > 0);
+        twice.value = false;
+        await waitUntil("卸掉一份", () => document.body.querySelectorAll("[data-field-editor='badge.介绍']").length === 1);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+    });
+
+    it("context：别的组只认 uses 列了的，没加过、加上以后；加一项、重名被拒、去掉以后列在去掉过的里", async () => {
+        const {wrapper} = await badgePage();
+        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent");
+        await wrapper.get("[data-add-look]").trigger("click");
+        await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent");
+
+        await wrapper.get("[data-add-field]").trigger("click");
+        await waitUntil("加上种族", () => wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族"));
+        await wrapper.get("[data-add-taken]").trigger("click");
+        await waitUntil("重名被拒", () => wrapper.get("[data-result]").text() === "refused");
+        await wrapper.get("[data-remove-field]").trigger("click");
+        await waitUntil("去掉过的", () => wrapper.get("[data-removed]").text() === "种族");
+        expect(wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族")).toBe(false);
     });
 });
