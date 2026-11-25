@@ -31,14 +31,17 @@ export class JournalModeError extends Error {
 export function openModuleDb(dataDir: string, name: string): Database {
     const db = new Database(moduleDbPath(dataDir, name), {create: true, strict: true});
     try {
+        // `bun:sqlite` 是同步调用，等锁期间整个事件循环停着：每个撞上进程外写锁的请求都让全站停至多 250 毫秒，
+        // 几个这样的请求排在一起时累加。进程内的写入天然排成一队，会撞上的只有进程外的写者（创建管理员命令、
+        // 测试的故障注入、部署的人开着的 sqlite3），这些都是偶发的。进程外出现常规的写者时要重新考虑这个上限。
+        // 必须先于下面的 `journal_mode` 设：打开后的第一句要读库，几个进程同时打开同一个库时，正赶上另一个进程在恢复 WAL
+        // 或最后一个连接关闭时收拾 WAL，没设等锁就立即以 `SQLITE_BUSY` 失败（几个 `create-admin` 同时起来时实测约 3% 撞上，
+        // 迁移的那个报 `migration_failed`、只核对迁移记录的报 `internal`）。
+        db.exec("PRAGMA busy_timeout = 250");
         const mode = db.query<{journal_mode: string}, []>("PRAGMA journal_mode = WAL").get()?.journal_mode;
         if (mode !== "wal") throw new JournalModeError(`database journal mode is ${String(mode)}, expected wal`);
         db.exec("PRAGMA synchronous = NORMAL");
         db.exec("PRAGMA foreign_keys = ON");
-        // `bun:sqlite` 是同步调用，等锁期间整个事件循环停着：每个撞上进程外写锁的请求都让全站停至多 250 毫秒，
-        // 几个这样的请求排在一起时累加。进程内的写入天然排成一队，会撞上的只有进程外的写者（创建管理员命令、
-        // 测试的故障注入、部署的人开着的 sqlite3），这些都是偶发的。进程外出现常规的写者时要重新考虑这个上限。
-        db.exec("PRAGMA busy_timeout = 250");
     } catch (error) {
         db.close();
         throw error;

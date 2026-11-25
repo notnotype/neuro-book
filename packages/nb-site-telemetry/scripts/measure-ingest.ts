@@ -202,6 +202,7 @@ async function main(durationMs: number): Promise<void> {
         NB_SITE_URL: "https://site.measure.test",
         NB_SITE_TELEMETRY_URL: TELEMETRY_URL,
         NB_SITE_SESSION_SECRET: randomBytes(36).toString("base64url"),
+        NB_SITE_IDENTITY_TERMS_VERSION: "2026-11-20",
         NB_SITE_HOST: "127.0.0.1",
         NB_SITE_PORT: "0",
         NB_SITE_TELEMETRY_RATE_LIMIT: "1000000",

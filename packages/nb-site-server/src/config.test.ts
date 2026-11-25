@@ -36,6 +36,7 @@ function validEnv(): Record<string, string> {
         NB_SITE_TELEMETRY_URL: "https://ingest.example",
         NB_SITE_DATA_DIR: dataDir,
         NB_SITE_SESSION_SECRET: SECRET,
+        NB_SITE_IDENTITY_TERMS_VERSION: "2026-11-20",
     };
 }
 
@@ -59,7 +60,7 @@ describe("parseSiteConfig", () => {
             shutdownTimeoutMs: 10_000,
         });
         expect(base.trustedProxies.check("127.0.0.1", "ipv4")).toBe(false);
-        expect(result.config.modules.get("identity")).toEqual({sessionSecret: SECRET});
+        expect(result.config.modules.get("identity")).toEqual({sessionSecret: SECRET, termsVersion: "2026-11-20", registrationOpen: true, sessionDays: 30, hashConcurrency: 2, hashQueue: 64});
         // 停止时限的上界本身可以用。
         expect(parseSiteConfig({...validEnv(), NB_SITE_SHUTDOWN_TIMEOUT_MS: "2147483647"}, SITE_MODULES).ok).toBe(true);
     });
@@ -70,6 +71,7 @@ describe("parseSiteConfig", () => {
             {name: "NB_SITE_TELEMETRY_URL", problem: "missing"},
             {name: "NB_SITE_DATA_DIR", problem: "missing"},
             {name: "NB_SITE_SESSION_SECRET", problem: "missing"},
+            {name: "NB_SITE_IDENTITY_TERMS_VERSION", problem: "missing"},
         ]);
     });
 
@@ -177,11 +179,12 @@ describe("parseSiteConfig", () => {
             NB_SITE_BACKUP_KEEP: "SECRET-VALUE",
             NB_SITE_SHUTDOWN_TIMEOUT_MS: "SECRET-VALUE",
             NB_SITE_TEST_CONTROL: "SECRET-VALUE",
+            NB_SITE_IDENTITY_TERMS_VERSION: "SECRET-VALUE",
         };
         const failure = configFailure(problemsOf(env));
         const text = JSON.stringify(failure);
         expect(failure.code).toBe("config_invalid");
         expect(text).not.toContain("SECRET-VALUE");
-        expect((failure.fields?.problems as unknown[]).length).toBe(10);
+        expect((failure.fields?.problems as unknown[]).length).toBe(11);
     });
 });

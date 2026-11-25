@@ -45,6 +45,7 @@ function env(extra: Readonly<Record<string, string>> = {}): Record<string, strin
         NB_SITE_TELEMETRY_URL: "https://ingest.example",
         NB_SITE_DATA_DIR: dataDir,
         NB_SITE_PORT: "0",
+        NB_SITE_IDENTITY_TERMS_VERSION: "2026-11-20",
         NB_SITE_FIXTURE: "alpha",
         ...extra,
     };

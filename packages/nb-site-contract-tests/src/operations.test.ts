@@ -8,8 +8,8 @@
  * 本 Task 测不到、留给后面 Task 的：
  * - 按主机名分派（输入一节）：在 `telemetry-ingest.test.ts` 的 C18，那里有写入口主机上的路由可以区分。
  * - 测试控制入口“跑一次任务看到效果”（输出 11、验收 5 之外）：两个真实模块都还没有定时任务；t06 起补。
- * - 创建管理员（输出 5）在 t07；验收 3 的“账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见
- *   `adjacent-version.test.ts`。
+ * - 创建管理员（输出 5）的“被封的被解封”：要先经管理接口封禁，在 `admin.test.ts` 的账号处置一组。验收 3 的
+ *   “账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见 `adjacent-version.test.ts`。
  * - 第一次启动执行了迁移（输出 2 的 `migration.applied`）：两个模块都还没有迁移，t06、t07 加了迁移后“从空的数据目录启动”
  *   一组自然覆盖到。
  */
@@ -19,9 +19,11 @@ import {copyFile, readdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
 
 import {backupsDir, BACKUP_NAME, listBackups, quickCheck} from "./testing/backup";
 import {holdWriteLock} from "./testing/fault";
+import {cookieJar, IDENTITY_SITE_ENV, identityRequest, login} from "./testing/identity";
 import {
     isListening,
     randomSecret,
@@ -93,12 +95,14 @@ describe("配置校验（输出 1、10，验收 4）", () => {
         readonly dataDirEntries: readonly string[];
         readonly dataDir: string;
     }
-    const REQUIRED = ["NB_SITE_URL", "NB_SITE_TELEMETRY_URL", "NB_SITE_DATA_DIR", "NB_SITE_SESSION_SECRET"] as const;
+    const REQUIRED = ["NB_SITE_URL", "NB_SITE_TELEMETRY_URL", "NB_SITE_DATA_DIR", "NB_SITE_SESSION_SECRET", "NB_SITE_IDENTITY_TERMS_VERSION"] as const;
     const cases = new Map<string, Case>();
     /** 去掉会话密钥那一次另带的测试控制口令：验收 4 的“其它密钥的值”。 */
     const otherSecret = randomSecret();
     /** 特征明显、但太短的会话密钥：在整段输出里搜它。 */
     const shortSecret = "SHORT-SECRET-q7Zx";
+    /** 库自己从环境读的会话密钥表（`BETTER_AUTH_SECRETS`）里的值：在整段输出里搜它。 */
+    const librarySecret = randomSecret();
 
     async function runCase(name: string, env: Readonly<Record<string, string | undefined>>): Promise<void> {
         const dataDir = await sandbox.dataDir();
@@ -111,6 +115,7 @@ describe("配置校验（输出 1、10，验收 4）", () => {
         await Promise.all([
             ...REQUIRED.map((name) => runCase(name, {[name]: undefined, ...(name === "NB_SITE_SESSION_SECRET" ? {NB_SITE_TEST_CONTROL: otherSecret} : {})})),
             runCase("short-secret", {NB_SITE_SESSION_SECRET: shortSecret}),
+            runCase("library-env", {BETTER_AUTH_SECRETS: `1:${librarySecret}`, BETTER_AUTH_TELEMETRY: "true"}),
         ]);
     }, SETUP_TIMEOUT_MS);
 
@@ -139,6 +144,17 @@ describe("配置校验（输出 1、10，验收 4）", () => {
         expect(result.failure?.code).toBe("config_invalid");
         expect(result.failure?.problems).toContainEqual({name: "NB_SITE_SESSION_SECRET", problem: "too_short"});
         expect(`${result.stdout}\n${result.stderr}`).not.toContain(shortSecret);
+        expect(dataDirEntries).toEqual([]);
+    });
+
+    it("进程环境里有以 BETTER_AUTH_ 开头的变量：config_invalid，问题词 not_allowed 记在各自的变量名上，输出里没有取值，没改数据目录", () => {
+        const {result, dataDirEntries} = cases.get("library-env")!;
+        expect(result.exitCode).not.toBe(0);
+        expect(result.failure?.code).toBe("config_invalid");
+        expect(result.failure?.problems).toContainEqual({name: "BETTER_AUTH_SECRETS", problem: "not_allowed"});
+        expect(result.failure?.problems).toContainEqual({name: "BETTER_AUTH_TELEMETRY", problem: "not_allowed"});
+        expect(`${result.stdout}\n${result.stderr}`).not.toContain(librarySecret);
+        expect(events(result.logs)).not.toContain("site.listening");
         expect(dataDirEntries).toEqual([]);
     });
 });
@@ -413,5 +429,264 @@ describe("测试控制入口（输出 11，验收 5）", () => {
         expect(notLoopback.failure?.problems).toContainEqual({name: "NB_SITE_HOST", problem: "not_loopback"});
         expect(events(notLoopback.logs)).not.toContain("site.listening");
         expect(notLoopbackListening).toBe(false);
+    });
+});
+
+describe("创建管理员（输出 5，失败码 invalid_argument、email_taken、interrupted）", () => {
+    // 每个密码都带一段特征明显的文字，在全部输出里搜它们：密码不写进日志（输出 5）。
+    const PASSWORDS = {
+        first: "first-PW-q7Zx81",
+        reset: "reset-PW-b3Kw90",
+        running: "running-PW-m2Jd47",
+        runningReset: "running-reset-PW-h5Qa20",
+        carol: "carol-PW-t5Ns63",
+        interrupted: "sigterm-PW-v8Lc12",
+        interruptedReset: "sigterm-reset-PW-j7Wn36",
+        interruptedLocked: "sigterm-locked-PW-r4Hm05",
+    };
+    const runs: CommandResult[] = [];
+    const results = new Map<string, CommandResult>();
+    let alongsideService: {created: CommandResult; reset: CommandResult; readyAfter: number; stopCode: number};
+    /** 那个服务停下以后的整段输出：登录时收到的密码同样不能写进去。 */
+    let serviceOutput = "";
+    /** 服务在运行时建、重置、被打断的重置前后，经 HTTP 看到的结果（只记响应，断言在用例里）。 */
+    let signIns: {
+        readonly firstLogin: JsonResponse;
+        readonly oldCookieBeforeReset: JsonResponse;
+        readonly oldCookieAfterReset: JsonResponse;
+        readonly oldPasswordAfterReset: JsonResponse;
+        readonly newPasswordAfterReset: JsonResponse;
+        readonly interruptedReset: CommandResult;
+        readonly keptPasswordAfterInterrupt: JsonResponse;
+        readonly interruptedPasswordAfterInterrupt: JsonResponse;
+        readonly gatedBeforeConsent: JsonResponse;
+        readonly consent: JsonResponse;
+        readonly gatedAfterConsent: JsonResponse;
+    };
+    let interrupted: {readonly signal: NodeJS.Signals; readonly result: CommandResult; readonly retry: CommandResult}[];
+    let interruptedLocked: {readonly result: CommandResult; readonly retry: CommandResult};
+
+    async function createAdmin(name: string, dataDir: string, args: readonly string[], stdin: string): Promise<CommandResult> {
+        const result = await sandbox.run("create-admin", {dataDir, args, stdin});
+        runs.push(result);
+        results.set(name, result);
+        return result;
+    }
+
+    /** 停在等密码的地方时发 `signal`；之后用同一个用户名再建一次，看前一次有没有留下账号。 */
+    async function interruptAtPassword(dataDir: string, username: string, signal: NodeJS.Signals) {
+        const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
+        // 被测程序等密码时在标准错误写一行提示；Spec 没规定提示，这里只等“写了一行”，用它确认已经停在读标准输入的地方（迁移做完、
+        // 参数校验过了）。没有提示的实现会在这里超时。
+        await child.waitForStderr("the password prompt", (line) => line !== "");
+        // 写了密码、没关标准输入：命令还在等读到结尾。
+        await child.write(`${PASSWORDS.interrupted}\n`);
+        child.kill(signal);
+        const result = await child.result();
+        runs.push(result);
+        const retry = await createAdmin(`retry-${signal}`, dataDir, [username], `${PASSWORDS.interrupted}\n`);
+        return {signal, result, retry};
+    }
+
+    /**
+     * 账号库被别的进程占着写锁时给了密码（关掉标准输入），随即发 `SIGTERM`，发完才放锁；之后同名再建一次，看前一次有没有留下账号。
+     * 信号落在读密码、算哈希还是等写锁的哪一步不由这里控制：Spec 对这几步的要求相同，都不改账号、以 `interrupted` 结束。
+     * 落在等写锁时，等锁若是同步的（信号处理函数跑不了），锁一放开事务就提交（omp 实现审查第 2 条）。
+     */
+    async function interruptWhileLocked(dataDir: string, username: string) {
+        const release = holdWriteLock(dataDir, "identity");
+        let result: CommandResult;
+        try {
+            const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
+            await child.waitForStderr("the password prompt", (line) => line !== "");
+            await child.write(`${PASSWORDS.interruptedLocked}\n`);
+            await child.closeStdin();
+            child.kill("SIGTERM");
+            release();
+            result = await child.result();
+        } finally {
+            release();
+        }
+        runs.push(result);
+        const retry = await createAdmin("retry-locked", dataDir, [username], `${PASSWORDS.interruptedLocked}\n`);
+        return {result, retry};
+    }
+
+    beforeAll(async () => {
+        // 服务没在运行：空的数据目录，命令自己先执行迁移。
+        const dataDir = await sandbox.dataDir();
+        await createAdmin("created", dataDir, ["Root"], `${PASSWORDS.first}\n`);
+        await createAdmin("reset", dataDir, ["ROOT", "root@example.com"], `${PASSWORDS.reset}\n`);
+        await createAdmin("carol", dataDir, ["carol", "Carol@Example.com"], `${PASSWORDS.carol}\n`);
+        // 迁移做完以后几个命令可以同时跑：它们对库是排队写。
+        await Promise.all([
+            createAdmin("username-empty", dataDir, [""], `${PASSWORDS.first}\n`),
+            createAdmin("username-short", dataDir, ["ab"], `${PASSWORDS.first}\n`),
+            // 开尔文符号 U+212A 转小写后是 k：先判原始输入（`site.accounts` 字段规则）。
+            createAdmin("username-kelvin", dataDir, ["Kelvin"], `${PASSWORDS.first}\n`),
+            createAdmin("email-invalid", dataDir, ["dave", "not-an-email"], `${PASSWORDS.first}\n`),
+            createAdmin("email-placeholder", dataDir, ["dave", "dave@site.invalid"], `${PASSWORDS.first}\n`),
+            createAdmin("email-taken", dataDir, ["dave", "CAROL@example.com"], `${PASSWORDS.first}\n`),
+            createAdmin("password-empty", dataDir, ["dave"], ""),
+            createAdmin("password-short", dataDir, ["dave"], "short\n"),
+            createAdmin("password-long", dataDir, ["dave"], `${"a".repeat(129)}\n`),
+            // 管道里只去掉末尾一个换行，中间的换行与终端里一样不收；对已存在的账号也不重置成网页上输不进去的密码。
+            createAdmin("password-two-lines", dataDir, ["root"], "line1-PW-k4Rv58\nline2-PW-k4Rv58\n"),
+        ]);
+        // 已存在的账号给了别人占着的邮箱：邮箱被忽略，不报 email_taken。
+        await createAdmin("reset-taken-email", dataDir, ["root", "carol@example.com"], `${PASSWORDS.reset}\n`);
+        interrupted = [await interruptAtPassword(dataDir, "sigterm_user", "SIGTERM"), await interruptAtPassword(dataDir, "sigint_user", "SIGINT")];
+        interruptedLocked = await interruptWhileLocked(dataDir, "locked_user");
+
+        // 服务在运行：命令与服务同时开着同一个库。每个请求一个来源地址，限流互不影响。
+        const running = await sandbox.dataDir();
+        const site = await sandbox.start({dataDir: running, env: IDENTITY_SITE_ENV});
+        await site.ready();
+        let address = 0;
+        const from = () => `203.0.113.${String(++address)}`;
+        const whoami = (cookie: string) => identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}});
+        const created = await createAdmin("running-created", running, ["admin"], `${PASSWORDS.running}\n`);
+        const firstJar = cookieJar();
+        const firstLogin = await login(site.url, "admin", PASSWORDS.running, {from: from(), jar: firstJar});
+        const oldCookie = firstJar.header() ?? "";
+        const oldCookieBeforeReset = await whoami(oldCookie);
+        const reset = await createAdmin("running-reset", running, ["admin"], `${PASSWORDS.runningReset}\n`);
+        const oldCookieAfterReset = await whoami(oldCookie);
+        const oldPasswordAfterReset = await login(site.url, "admin", PASSWORDS.running, {from: from()});
+        const jar = cookieJar();
+        const newPasswordAfterReset = await login(site.url, "admin", PASSWORDS.runningReset, {from: from(), jar});
+
+        // 重置停在等密码的地方被 SIGTERM 打断：密码还是上一次重置的那个。
+        const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir: running, args: ["admin"]});
+        await child.waitForStderr("the password prompt", (line) => line !== "");
+        await child.write(`${PASSWORDS.interruptedReset}\n`);
+        child.kill("SIGTERM");
+        const interruptedReset = await child.result();
+        runs.push(interruptedReset);
+        const keptPasswordAfterInterrupt = await login(site.url, "admin", PASSWORDS.runningReset, {from: from()});
+        const interruptedPasswordAfterInterrupt = await login(site.url, "admin", PASSWORDS.interruptedReset, {from: from()});
+
+        // 新建的管理员没有同意记录：会话先被同意门槛挡住，补交之后放行（旧密码故意给错，放行后得 invalid_credentials，不改密码）。
+        const gated = () => identityRequest(site.url, IDENTITY_PATHS.mePassword, {method: "POST", from: from(), jar, body: {currentPassword: "wrong-PW-000000", newPassword: "unused-PW-c6Ty41"}});
+        const gatedBeforeConsent = await gated();
+        const consent = await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: from(), jar, body: {termsVersion: "2026-11-20", overseasStorage: true}});
+        const gatedAfterConsent = await gated();
+        signIns = {
+            firstLogin,
+            oldCookieBeforeReset,
+            oldCookieAfterReset,
+            oldPasswordAfterReset,
+            newPasswordAfterReset,
+            interruptedReset,
+            keptPasswordAfterInterrupt,
+            interruptedPasswordAfterInterrupt,
+            gatedBeforeConsent,
+            consent,
+            gatedAfterConsent,
+        };
+
+        const readyAfter = (await requestJson(`${site.url}health/ready`)).status;
+        alongsideService = {created, reset, readyAfter, stopCode: await site.stop()};
+        serviceOutput = `${site.stdout()}\n${site.stderr()}`;
+    }, SETUP_TIMEOUT_MS);
+
+    function upserted(result: CommandResult): LogLine[] {
+        return result.logs.filter((line) => line.event === "identity.admin_upserted");
+    }
+
+    it("用户名不存在时新建：0 退出，标准输出一行 identity.admin_upserted，带账号 id 与 created: true", () => {
+        const result = results.get("created")!;
+        expect(result.exitCode).toBe(0);
+        expect(upserted(result)).toHaveLength(1);
+        expect(upserted(result)[0]).toMatchObject({userId: expect.any(Number), created: true});
+    });
+
+    it("已存在时（用户名不分大小写）重置：同一个账号 id，created: false", () => {
+        const created = upserted(results.get("created")!)[0]!;
+        for (const name of ["reset", "reset-taken-email"]) {
+            const result = results.get(name)!;
+            expect({name, exitCode: result.exitCode, lines: upserted(result)}).toEqual({name, exitCode: 0, lines: [expect.objectContaining({userId: created.userId, created: false})]});
+        }
+    });
+
+    it("服务在运行时照样能建、能重置，服务照常就绪、以 0 停止", () => {
+        const {created, reset, readyAfter, stopCode} = alongsideService;
+        expect(created.exitCode).toBe(0);
+        expect(upserted(created)).toEqual([expect.objectContaining({userId: expect.any(Number), created: true})]);
+        expect(reset.exitCode).toBe(0);
+        expect(upserted(reset)).toEqual([expect.objectContaining({userId: upserted(created)[0]!.userId, created: false})]);
+        expect(readyAfter).toBe(200);
+        expect(stopCode).toBe(0);
+    });
+
+    const invalid: readonly [string, "username" | "email" | "password", "missing" | "invalid"][] = [
+        ["username-empty", "username", "missing"],
+        ["username-short", "username", "invalid"],
+        ["username-kelvin", "username", "invalid"],
+        ["email-invalid", "email", "invalid"],
+        ["email-placeholder", "email", "invalid"],
+        ["password-empty", "password", "missing"],
+        ["password-short", "password", "invalid"],
+        ["password-long", "password", "invalid"],
+        ["password-two-lines", "password", "invalid"],
+    ];
+    for (const [name, field, problem] of invalid) {
+        it(`不合规则（${name}）：非零退出，标准错误那一行是 invalid_argument，name 是 ${field}、problem 是 ${problem}`, () => {
+            const result = results.get(name)!;
+            expect(result.exitCode).not.toBe(0);
+            expect(result.failure).toMatchObject({code: "invalid_argument", name: field, problem});
+            expect(upserted(result)).toEqual([]);
+        });
+    }
+
+    it("新建时邮箱已被别的账号用（不分大小写）：email_taken，没有建", () => {
+        const result = results.get("email-taken")!;
+        expect(result.exitCode).not.toBe(0);
+        expect(result.failure?.code).toBe("email_taken");
+        expect(upserted(result)).toEqual([]);
+    });
+
+    it("停在等密码的地方收到 SIGTERM 或 SIGINT：非零退出、码是 interrupted，没有建账号（之后同名再建是新建）", () => {
+        expect(interrupted).toHaveLength(2);
+        for (const {signal, result, retry} of interrupted) {
+            expect({signal, exitCode: result.exitCode === 0 ? 0 : "non-zero", code: result.failure?.code, lines: upserted(result)}).toEqual({signal, exitCode: "non-zero", code: "interrupted", lines: []});
+            expect({signal, retry: upserted(retry)}).toEqual({signal, retry: [expect.objectContaining({created: true})]});
+        }
+    });
+
+    it("账号库被别的进程占着写锁时给了密码、随即收到 SIGTERM：非零退出、码是 interrupted，放锁后没有建账号（之后同名再建是新建）", () => {
+        const {result, retry} = interruptedLocked;
+        expect({exitCode: result.exitCode === 0 ? 0 : "non-zero", code: result.failure?.code, lines: upserted(result)}).toEqual({exitCode: "non-zero", code: "interrupted", lines: []});
+        expect(upserted(retry)).toEqual([expect.objectContaining({created: true})]);
+    });
+
+    it("新建的管理员能用它的密码登录，角色是 admin", () => {
+        const userId = upserted(alongsideService.created)[0]!.userId;
+        expect({status: signIns.firstLogin.status, body: signIns.firstLogin.body}).toEqual({status: 200, body: {user: expect.objectContaining({id: userId, username: "admin", role: "admin"})}});
+        expect(signIns.oldCookieBeforeReset.body).toEqual({state: "authenticated", user: {id: userId, username: "admin", role: "admin"}});
+    });
+
+    it("重置之后：重置前的 Cookie 失效，旧密码得 invalid_credentials，新密码能登录、角色是 admin", () => {
+        expect(signIns.oldCookieAfterReset.body).toEqual({state: "anonymous"});
+        expect({status: signIns.oldPasswordAfterReset.status, body: signIns.oldPasswordAfterReset.body}).toEqual({status: 401, body: {error: {code: "invalid_credentials"}}});
+        expect({status: signIns.newPasswordAfterReset.status, body: signIns.newPasswordAfterReset.body}).toEqual({status: 200, body: {user: expect.objectContaining({username: "admin", role: "admin"})}});
+    });
+
+    it("重置停在等密码的地方被 SIGTERM 打断：interrupted，密码没换，上一个密码照常登录", () => {
+        expect({exitCode: signIns.interruptedReset.exitCode === 0 ? 0 : "non-zero", code: signIns.interruptedReset.failure?.code, lines: upserted(signIns.interruptedReset)}).toEqual({exitCode: "non-zero", code: "interrupted", lines: []});
+        expect(signIns.keptPasswordAfterInterrupt.status).toBe(200);
+        expect({status: signIns.interruptedPasswordAfterInterrupt.status, body: signIns.interruptedPasswordAfterInterrupt.body}).toEqual({status: 401, body: {error: {code: "invalid_credentials"}}});
+    });
+
+    it("新建的管理员登录后先被同意门槛挡住（consent_required），补交同意后放行", () => {
+        expect({status: signIns.gatedBeforeConsent.status, body: signIns.gatedBeforeConsent.body}).toEqual({status: 403, body: {error: {code: "consent_required"}}});
+        expect(signIns.consent.status).toBe(200);
+        expect(signIns.consent.body).toMatchObject({username: "admin", consentRequired: false});
+        expect({status: signIns.gatedAfterConsent.status, body: signIns.gatedAfterConsent.body}).toEqual({status: 401, body: {error: {code: "invalid_credentials"}}});
+    });
+
+    it("密码不出现在任何一次的标准输出与标准错误里，也不在收到登录请求的服务的输出里", () => {
+        const output = [...runs.map((result) => `${result.stdout}\n${result.stderr}`), serviceOutput].join("\n");
+        for (const password of Object.values(PASSWORDS)) expect({password, found: output.includes(password)}).toEqual({password, found: false});
     });
 });
