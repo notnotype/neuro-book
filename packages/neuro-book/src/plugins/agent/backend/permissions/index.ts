@@ -19,7 +19,7 @@ import {filesFor} from "../resources";
 import {readProjectRules} from "./project-rules";
 
 /** 模式闸门拒绝时给模型的话（进日志）：说的是 NeuroBook 的 `switch_mode` 与 discuss、plan 两种模式。 */
-export const MODE_BLOCKED_TEXT = "This session is in a read-only mode (discuss or plan), so this call was not run. Call switch_mode to ask the user to change modes, or use a read-only approach.";
+export const MODE_BLOCKED_TEXT = "This session is in a read-only mode (discuss or plan), so this call was not run. Call switch_mode to ask the user to change modes (without that tool, ask the user in your reply), or use a read-only approach.";
 /** 项目规则读不了时的诊断消息（进日志）。 */
 const PROJECT_RULES_INVALID = "the project's .nbook/permissions.json could not be read or is not a valid list of rules";
 

@@ -933,6 +933,12 @@ describe("插件宿主", () => {
         expect(snapshot.extensionSettings["lab.modes"]).toEqual({mode: "plan"});
         expect(dataOf<{reason: string}>((await opened.value.log({afterSeq: 0})).events, "profileChanged").map((change) => change.reason)).toEqual(["created", "code-updated"]);
         await after.close(opened.value.id);
+        // 迁移只记一次：再重开，装配与上次记的相同，不再写 profileChanged。
+        const again = await after.open(created.value.id);
+        if (!again.ok) throw new Error(again.code);
+        expect(dataOf<{reason: string}>((await again.value.log({afterSeq: 0})).events, "profileChanged").map((change) => change.reason)).toEqual(["created", "code-updated"]);
+        expect((await again.value.snapshot()).extensionSettings["lab.modes"]).toEqual({mode: "plan"});
+        await after.close(again.value.id);
     });
 
     test("输出 57：revoke 交回的 Promise 在各会话摘下扩展、清理函数跑完之后完成；运行中的会话等这次运行结束", async () => {

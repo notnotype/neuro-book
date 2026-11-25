@@ -1640,12 +1640,21 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let draftMode: AgentMode = "normal";
     const modeOfCurrent = (target: Current | null): AgentMode => (target === null ? draftMode : ((target.transcript.meta()?.extensionSettings[AGENT_MODES_EXTENSION]?.mode ?? "normal") as AgentMode));
 
-    async function setMode(mode: AgentMode): Promise<void> {
+    /** 这个会话（没有会话时是隐式新建的主创）有没有 Agent 模式：按目录判，同模式控件。 */
+    const modesAvailable = (target: Current | null): boolean => hasModes(deps.profiles().find((entry) => entry.key === (target === null ? MAIN_PROFILE : target.transcript.meta()?.profile)));
+
+    /** 切模式；交回切成了没有。控件、`/plan`、`/mode` 都经这里：没有模式的会话不发请求，提示原因。 */
+    async function setMode(mode: AgentMode): Promise<boolean> {
         const target = current;
+        if (!modesAvailable(target)) {
+            notice = agentText("conversation.mode.unavailable");
+            bump();
+            return false;
+        }
         if (target === null) {
             draftMode = mode;
             bump();
-            return;
+            return true;
         }
         const result = await remote.changeSettings({sessionId: target.id, commandId: commandId(), patch: {[AGENT_MODES_EXTENSION]: {mode}}});
         if (!result.ok && current === target) {
@@ -1653,12 +1662,17 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             notice = result.code === "unknown-extension" ? agentText("conversation.mode.unavailable") : agentText("conversation.reject.other", {code: result.code});
             bump();
         }
+        return result.ok;
     }
 
-    /** `/plan [文字]`：切到 `plan`，已在 `plan` 不动；带文字时切完发出去。 */
+    /** `/plan [文字]`：切到 `plan`，已在 `plan` 不动；带文字时切完发出去。没切成就不发（那句话是要在计划模式下处理的），文字留在输入框。 */
     async function planCommand(argsText: string): Promise<void> {
-        if (modeOfCurrent(current) !== "plan") await setMode("plan");
-        if (argsText.trim() !== "") await submit(argsText.trim(), "prompt");
+        const text = argsText.trim();
+        if (modeOfCurrent(current) !== "plan" && !(await setMode("plan"))) {
+            if (text !== "") setDraft(`/plan ${text}`);
+            return;
+        }
+        if (text !== "") await submit(text, "prompt");
     }
 
     /** `/mode [名字]`：只管 Agent 模式，接 key 与显示名；没写切下一种。 */

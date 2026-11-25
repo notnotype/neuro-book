@@ -31,15 +31,17 @@ const modesExtension = implement(modesContract, {
 });
 
 const FULL: Readonly<Record<Exclude<AgentMode, "normal">, string>> = {
-    discuss: "现在是讨论模式：只讨论，不改作品。可以读文件、跑只读命令，中间产物写 tmp:// 或 session://。写作品与别的命令会被拒绝；要动手时用 switch_mode 申请切到 normal，用户同意后再做。",
-    plan: "现在是计划模式：先把要做的事想清楚，不改作品。可以读文件、跑只读命令。把计划写到 session://plan.md，写完单独调用 switch_mode 申请切到 normal，用户批准后再动手。",
+    discuss: "现在是讨论模式：只讨论，不改作品。可以读文件、跑只读命令，中间产物写 tmp:// 或 session://。写作品与别的命令会被拒绝；要动手时用 switch_mode 申请切到 normal（没有这个工具就在回复里请用户切换），用户同意后再做。",
+    plan: "现在是计划模式：先把要做的事想清楚，不改作品。可以读文件、跑只读命令。把计划写到 session://plan.md，写完单独调用 switch_mode 申请切到 normal（没有这个工具就在回复里交出计划、请用户切换），用户批准后再动手。",
 };
 const SHORT: Readonly<Record<Exclude<AgentMode, "normal">, string>> = {
     discuss: "（讨论模式：不改作品。）",
     plan: "（计划模式：不改作品，计划写在 session://plan.md。）",
 };
 
-/** 值变了那轮一条完整的，之后每轮一句短的；回到 `normal` 时一句“已退出”，之后不写。放消息里：工具集与系统提示词不随模式变，缓存不受影响。 */
+/**
+ * 提示里的 `switch_mode` 带一句“没有这个工具时”：引用了模式扩展、工具里没有它的 Profile，用户能切而 Agent 不能主动切（modes.md）。
+ * 值变了那轮一条完整的，之后每轮一句短的；回到 `normal` 时一句“已退出”，之后不写。放消息里：工具集与系统提示词不随模式变，缓存不受影响。 */
 export const MODE_REMINDER_EXTENSION = "nbook.agent.mode-reminder";
 
 const modeReminder = reminder({

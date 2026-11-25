@@ -1584,6 +1584,19 @@ describe("Agent 模式（agent/modes.md）", () => {
         expect(h.ctx().composer.mode).toBe("discuss");
     });
 
+    test("没有模式的会话：/plan 文字 不切也不发，字留在输入框并提示；/mode 同样不发请求", async () => {
+        const w = await world();
+        const h = await started(w);
+        await until("打开", () => h.ctx().session !== null && h.ctx().availability.status === "ready");
+        const before = endpoint.requests.length;
+        h.host.act({type: "command.run", name: "plan", argsText: "先想清楚再写"});
+        await until("字留着", () => h.ctx().composer.draft.text === "/plan 先想清楚再写");
+        expect(h.ctx().composer.notice).toMatchObject({key: "conversation.mode.unavailable"});
+        h.host.act({type: "command.run", name: "mode", argsText: "discuss"});
+        expect(endpoint.requests.length).toBe(before);
+        expect(assistants(h.ctx().messages)).toEqual([]);
+    });
+
     test("退出计划：向导带计划与当前审批模式；批准同时改审批模式，模式跟着变", async () => {
         const w = await world();
         const h = await harness(w, {});
