@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：条目页的页头、分页与保存提示</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.cand img + img { margin-top: 8px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.words { display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
+.words span { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td img { width: 100%; max-width: 420px; border: 1px solid var(--line); border-radius: 6px; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：条目页的页头、分页与保存提示</h1>
+
+<section data-nbdev-question="tab-layout" data-nbdev-type="single" data-nbdev-recommend="row" data-nbdev-required>
+  <h2>分页横排还是竖排？</h2>
+  <p class="rec"><strong>推荐 A：编辑区窄的时候（一边写章节一边看人物，约 500 到 900 像素）两种排法都只能横排，A 在宽窄下是同一个样子；工作台左边已经有侧栏，页面里不再套一条。</strong></p>
+  <div class="cands" style="--n: 2">
+    <div class="cand" data-nbdev-option="row" data-nbdev-label="A 横排，设定组与文字在前、经历与情节在后">
+      <h3>A 横排，设定组与文字在前、经历与情节在后</h3>
+      <img src="r1/tabs-filled.webp" alt="宽窗口：八个分页带图标和名字排在一行，经历前有一条分隔，行尾一个加号">
+      <img src="r1/tabs-filled-640.webp" alt="编辑区 640 宽：选中的人物带名字，其余只剩图标，行尾加号">
+      <p>放不下时选中的留名字、其余只剩图标（悬停给全名），再不够收进“更多”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="rail" data-nbdev-label="B 宽时在内容左边竖排，窄了换回横排">
+      <h3>B 宽时在内容左边竖排，窄了换回横排</h3>
+      <img src="r1/rail-filled.webp" alt="宽窗口：内容左边竖排导航，设定组、文字与添加一组设定一段，经历、情节一段">
+      <img src="r1/rail-filled-640.webp" alt="编辑区 640 宽：换回横排，和左边 A 的窄版一样">
+      <p>宽时名字都看得全；编辑区不到约 960 像素就换回横排。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="notice" data-nbdev-type="single" data-nbdev-recommend="auto">
+  <h2>保存后的提示要不要自己收起？</h2>
+  <p class="rec"><strong>推荐 A：撤销在改动记录里随时能做，提示浮在下方留久了只是挡住最后几行。</strong></p>
+  <div class="cands" style="--n: 2">
+    <div class="cand" data-nbdev-option="auto" data-nbdev-label="A 6 秒后自己收起，指着或焦点在里面时不收">
+      <h3>A 6 秒后自己收起，指着或焦点在里面时不收</h3>
+      <img src="r1/tabs-notice.webp" alt="页面下方浮着一条：加上形象这组设定、查看详情、撤销、关闭">
+      <p>连着保存时原地换字、重新计时；Agent 改了设定的那条不自己收。</p>
+    </div>
+    <div class="cand" data-nbdev-option="stay" data-nbdev-label="B 留到关掉或有新的一条">
+      <h3>B 留到关掉或有新的一条</h3>
+      <img src="r1/tabs-notice.webp" alt="同左图">
+      <p>和现在一样一直在，只是浮在下方、不推开页面。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="initial-word" data-nbdev-type="single" data-nbdev-recommend="story-start">
+  <h2>“初值”改叫什么？</h2>
+  <p class="rec"><strong>推荐 A：说的是一个时间点，和“第 3 章末尾”并排读得通，不用解释。</strong></p>
+  <div class="cands" style="--n: 2">
+    <div class="cand">
+      <img src="r1/tabs-position.webp" alt="时间点按钮展开：最上面一项，下面各章的开头与末尾，最下面算上计划中的情节">
+    </div>
+    <div class="cand">
+      <div class="words">
+        <div data-nbdev-option="story-start" data-nbdev-label="A 故事开始前">A 故事开始前 <span>来历里写“故事开始前 设为 17 岁”；改的时候写“改故事开始前的值”</span></div>
+        <div data-nbdev-option="before-story" data-nbdev-label="B 开篇前">B 开篇前</div>
+        <div data-nbdev-option="first-setting" data-nbdev-label="C 初始设定">C 初始设定</div>
+        <div data-nbdev-option="keep" data-nbdev-label="D 不改，仍叫初值">D 不改，仍叫初值</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>保存后的提示</td><td>浮在页面下方、盖在内容上，从下面滑上来，不推开任何东西；Agent 改了设定的提示同样浮着、叠在它上面。“看回执”改叫“查看详情”；提示里的“撤销”和确认框、回执页、改动记录里的“还原”统一叫“撤销”</td></tr>
+      <tr><td>页面里别的插行</td><td>同样不推开内容：页头写入失败的原因写在那个浮层里；“在某位置还没出场”变成时间点旁的一枚标记；“原来选的那一章已经不在了”走下方的提示</td></tr>
+      <tr><td>名字、简介<br><img src="r1/tabs-name-hover.webp" alt="指着名字时浅底与铅笔"></td><td>去掉“改”，点文字本身在原处出浮层改（和人物分页的短项同一种，现在是页顶的确认条）；指着时浅底加铅笔，不挪字；没有简介时写“一句话简介”</td></tr>
+      <tr><td>别名</td><td>“＋别名”改叫“添加别名”；打了字点别处就加上（现在点别处会丢掉）</td></tr>
+      <tr><td>时间点与“按计划”<br><img src="r1/tabs-plan.webp" alt="算上计划时，时间点按钮旁多一枚算上计划和叉"></td><td>合成一个“第 3 章末尾”按钮；空作品没有章时整个不出；作品里没有计划时，展开里不出“算上计划中的情节”；算上计划时按钮旁多一枚“算上计划 ×”，点 × 回到实际</td></tr>
+      <tr><td>分页</td><td>每页带图标和名字，设定组与文字在前、经历与情节在后，中间一条分隔；情节没有条数时不写 0；空作品还没有剧情时经历、情节不出</td></tr>
+      <tr><td>添加一组设定<br><img src="r1/tabs-new.webp" alt="空作品里刚新建：没有时间点按钮，三个分页加一个加号"></td><td>从“···”挪到分页条末尾的“＋”，点开直接列出能加的组（适用于这个种类的在前），点一项就加上并切过去；没有能加的时不出“＋”</td></tr>
+      <tr><td>去掉这组设定</td><td>留在“···”里，和“删除条目”之间加分隔；在分页上右键也有；确认时写“填的内容会保留，可以再加回来”</td></tr>
+      <tr><td>加立绘</td><td>人物页的“添加立绘”一次到位：没有形象就加上、切到形象页并打开选图（现在要点三次）</td></tr>
+      <tr><td>回车保存</td><td>短项填完立刻回车也能保存（现在落在 300 毫秒的预览等待里会被吞掉）</td></tr>
+      <tr><td>图标</td><td>设定组、附加分页、条目种类三处登记加图标；编辑器的页面标签显示图标（现在一律不画）；条目页按种类：人物、组织、地点、物品、知识点各一个，其余是书</td></tr>
+      <tr><td>内容列</td><td>页头与内容左边对齐；内容净宽 760（现在扣掉内边距只有 696，人物分页的短资料两列永远排不开）</td></tr>
+      <tr><td>人物分页在 390 宽<br><img src="r1/charactercard-phone.webp" alt="手机宽度下人物分页的值被挤成一个字宽"></td><td>值那一列被挤成一个字宽（t41 的缺陷）：窄了立绘在上、短资料一行一项</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>现状</h2>
+  <img src="r1/current.webp" alt="现状：提示把页面推下去，名字旁有改，右边初值下拉与按计划开关，九个文字分页" style="width: 100%; max-width: 860px; border: 1px solid var(--line); border-radius: 6px;">
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>每组设定各一个分页（t41 第 1 轮）</li>
+    <li>“添加一项资料”与“添加一组设定”分成两个入口（t41 第 1 轮）</li>
+    <li>改一项时就地展开，不用页顶的确认条（t41 第 1 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
