@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "answerId": "20261125T104003026Z-3dfa85e4",
+    "artifactVersion": 5,
+    "contentHash": "f71635d18e567c8f014e6dae1f17cdf7bf4a94af56e1ce954947cbbd902d7ec3",
+    "submittedAt": "2026-11-25T10:39:59.834Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "dir-view": "ok",
+        "dir-open": "ok",
+        "rail-expand": "widen",
+        "swap-scope": "ok"
+    },
+    "comments": {
+        "dir-view": "就是现在样式有点丑。需要重新设计",
+        "rail-expand": "我感觉展开后还挺好看的。如果展开了后比较好看。我感觉第一题可以不做成单独的对话目录。\n\n但是类似这种侧轨的展开应该通用，也就是左侧的 ActivityBar 也支持展开（可以不做，但是底层要支持）"
+    },
+    "note": "这个侧柜展开，还有浮动的时候和侧柜一起浮动。是一个新机制。需要审查一下现有底层是否支持。如果决定好了改底层设计，最后需要 gpt 来审查一轮才行。"
+}
