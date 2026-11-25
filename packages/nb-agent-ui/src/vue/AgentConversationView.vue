@@ -58,6 +58,8 @@ const props = withDefaults(defineProps<{
     newSession?: boolean;
     /** 把头的三列送到视图之外（工作台面板头的标题区，同名 .md 的“顶栏”）；不给时画在内容顶上。 */
     headTargets?: {readonly start: HTMLElement; readonly title: HTMLElement; readonly end: HTMLElement; readonly anchor: HTMLElement} | null;
+    /** 头是宿主窗口的拖动区（宿主自绘窗口头时，交给 `AgentConversationHead` 的 `windowDrag`）。 */
+    headWindowDrag?: boolean;
     /** 会话列表开着没有；可选受控，不传时视图自持。 */
     sessionsOpen?: boolean;
     /** 没选会话时头上的图标：新会话会用的 Profile。 */
@@ -79,6 +81,7 @@ const props = withDefaults(defineProps<{
     statusBar: false,
     newSession: false,
     headTargets: null,
+    headWindowDrag: false,
     sessionsOpen: undefined,
     draftProfile: null,
     welcome: null,
@@ -478,6 +481,7 @@ defineExpose({focusComposer, scrollToLatest});
             :pinned="pinnedHead"
             :overflow-items="overflowItems"
             :closable="props.closable"
+            :window-drag="props.headWindowDrag"
             @close="emit('close')"
             @select="selectSession"
             @create="emit('action', {type: 'session.create'})"

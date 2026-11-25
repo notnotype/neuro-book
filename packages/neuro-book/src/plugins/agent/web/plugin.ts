@@ -27,8 +27,8 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, quickPickKey, VIEW_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {ViewHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, VIEW_HEAD, VIEW_OWN_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewHeadOptIn, ViewOwnHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -770,7 +770,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
             };
 
-            const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
+            // 浮成只有它一个标签的窗时自绘整个头（workbench/views.md 输出 19 的“自绘头”）：那一条与列表的切换行同高，MessagesHost 的 `OWN_HEAD_BAND` 同值。
+            const view: ViewImplementation & ViewHeadOptIn & ViewOwnHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, [VIEW_OWN_HEAD]: {band: 40}, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
             // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。

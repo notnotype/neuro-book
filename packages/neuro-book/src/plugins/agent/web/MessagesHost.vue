@@ -6,6 +6,9 @@
  * 版式由视图根的大小定：宽不小于 600、高不小于 360 像素是宽版（列表栏常驻，对话的头画在聊天区上方，交还面板头的标题区），其余是窄版（头像列
  * 加抽屉，对话的头接管面板头，按标题开抽屉）。量到 null 或 0（还没挂上、区域拖到零）时保持上一次的版式。
  *
+ * 浮成只有它一个标签的窗时自绘整个头（docs/specs/workbench/views.md 输出 19 的“自绘头”，实现上声明了 `VIEW_OWN_HEAD`，见 `plugin.ts`）：
+ * 宽窄两版都没有面板头，列表的切换行、头像列顶上那一行与对话头是第一行、同高，也是窗口的拖动区；工作台此刻不看 `claim`，标题按钮不开抽屉。
+ *
  * 点联系人到聊天出现之间（没有模型、正在取主对话、取不到）由这里持有一个选择，在聊天区上面盖一层（`ContactCover`）；盖层与聊天区是
  * 兄弟元素，宿主的对话不卸载，盖着时设 `inert`，焦点与读屏只到盖层。
  */
@@ -65,6 +68,11 @@ watch(extent, (size) => {
 });
 
 const head = viewHeadOf(props.context);
+/** 自绘头那一条的高度：与 `plugin.ts` 里声明的 `VIEW_OWN_HEAD` 的 `band` 同值，也等于列表切换行的高度。 */
+const OWN_HEAD_BAND = 40;
+const ownHead = computed(() => head?.ownHead.value === true);
+/** 自绘头时给 nb-agent-ui 的头高与右端让位（工作台把盖在右端的按钮宽度写在内容上）。 */
+const ownHeadStyle = computed(() => (ownHead.value ? {"--acv-head-height": `${OWN_HEAD_BAND}px`, "--acv-head-inset-end": "var(--workbench-own-head-inset-end, 0px)"} : undefined));
 // 窄版接管面板头（对话的头在标题区里，按标题开抽屉）；宽版交还，头画在聊天区上方（t15 决定 6）。在 setup 里同步写初值，首帧不翻。
 if (head !== null) head.claim.value = layout.value === "narrow";
 watch(layout, (next) => {
@@ -80,9 +88,9 @@ watch(listWidth, (width) => {
     props.memory.listWidth = width;
 });
 const drawerOpen = ref(false);
-// 窄版的标题按钮开抽屉：写它的弹出状态；宽版标题区交还了，不写。版式变了也要重写（例如宽版挂上之后缩到窄版）。
-watch([drawerOpen, layout], ([open, current]) => {
-    if (head !== null) head.titlePopup.value = current === "narrow" ? {expanded: open} : null;
+// 窄版的标题按钮开抽屉：写它的弹出状态；宽版标题区交还了，自绘头时标题按钮不开抽屉，都不写。版式变了也要重写（例如宽版挂上之后缩到窄版）。
+watch([drawerOpen, layout, ownHead], ([open, current, own]) => {
+    if (head !== null) head.titlePopup.value = current === "narrow" && !own ? {expanded: open} : null;
 }, {immediate: true});
 onBeforeUnmount(() => {
     if (head !== null) head.titlePopup.value = null;
@@ -128,7 +136,7 @@ model.watchSeen(() => props.context.visible.value && focused.value);
 </script>
 
 <template>
-    <div ref="rootRef" class="h-full w-full" data-messages-host>
+    <div ref="rootRef" class="h-full w-full" :style="ownHeadStyle" data-messages-host>
         <AgentMessages
             ref="messagesRef"
             v-model:list-collapsed="listCollapsed"
@@ -140,6 +148,7 @@ model.watchSeen(() => props.context.visible.value && focused.value);
             :selected="selected"
             :recent-sessions="recentSessions"
             :drawer-anchor="drawerAnchor"
+            :window-drag="ownHead"
             :now="props.list.now.value"
             @open-contact="(key: string) => void model.openContact(key)"
             @retry-contacts="model.retryContacts"

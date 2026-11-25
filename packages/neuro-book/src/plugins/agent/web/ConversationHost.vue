@@ -149,6 +149,7 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         :draft-profile="props.draftProfile"
         :status-line="props.statusLine.setting"
         :head-targets="headTargets"
+        :head-window-drag="props.head?.ownHead.value === true"
         :sessions-open="sessionsOpen"
         :closable="typeof props.close === 'function'"
         @update:sessions-open="(open: boolean) => (sessionsOpen = open)"
