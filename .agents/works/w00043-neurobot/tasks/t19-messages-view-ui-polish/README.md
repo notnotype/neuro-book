@@ -49,6 +49,7 @@ updated: 2026-11-25
 - 顾问第 2 轮（gemini，[`evidences/advisor-omp-gemini-2.txt`](evidences/advisor-omp-gemini-2.txt)，说明 [`evidences/advisor-brief-2.md`](evidences/advisor-brief-2.md)）：完整列表做成单独的“对话目录”视图（新 id，默认主侧栏自己的容器、首次不显示），轨底两个按钮显示它并切页、聚焦搜索，选中在消息视图打开；轨不加显示名字的展开档；左右只做主次整列交换（呈现层重排，ActivityBar 留在树里），另开工作台 Task；浮动窗宽窄都用轨加目录，消息视图里不再内嵌完整列表。五项待拍板，已归纳给开发者。
 - 评审板第 5 轮：标注图说明轨、对话目录、消息视图各是哪一块；五题 `dir-view`（目录视图默认在左侧栏，另附与消息上下排的稿）、`dir-open`（选中总在消息视图打开）、`rail-expand`（A 展开并加宽右边这一列，编辑区让出 152，推荐；B 不展开）、`swap-scope`（只做整列交换、另开 Task）、`float-list`（浮动窗不再内嵌列表，推荐；对照现在的宽浮动窗）。原图在本地 `shots/r3/`。
 - 底层调研（Opus，[`evidences/foundation-research.txt`](evidences/foundation-research.txt)，说明 [`evidences/foundation-brief.md`](evidences/foundation-brief.md)）：右轨放在呈现层，做成 body 里和活动栏同形的呈现专属叶（不放进区域的包装分支：那样区域宽度意图每次回写多记一份轨宽，展开挤的是区域内容）；文档树、骨架判定、校验不动，活动栏留在树里；展开只改叶的厚度，编辑组吸收；锚与浮动窗记录加可选字段 `railExpanded?`，不进 `hiddenBars`；相连、圆角、最大化写死为左边一条轨，要改成按轨列表；中段收着是声明式条目，展开放完整列表由视图经 `VIEW_RAIL` 认领、Teleport 进工作台给的位置；浮动窗里轨是窗内外框部件、展开时窗变宽。四项产品取舍已问开发者。
+- 浮动与回到停靠的交互原型（开发者 2026-11-25 要看动画与状态）：草稿 worktree 的 `src/plugins/drafts/web/rail-prototype.ts`，经 `src/web/boot.ts` 导入，开发服务（草稿 worktree，端口 4317）上直接点。停靠时右边缘是复制活动栏画的入口条，中间是视图段的副本（会话、bot 点了转给原项）；点浮动时视图段的影子从入口条跟着窗飞到窗的右边缘，入口条只剩容器入口、不按下、右栏空了变成单独的圆角卡片；点回到停靠或点入口条的容器入口，影子飞回入口条。时长与曲线取 `--motion-layout`、`--ease-layout`，从第一帧起计时。没做：展开、底部两个按钮。
 
 ## 下一步
 
