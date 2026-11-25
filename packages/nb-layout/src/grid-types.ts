@@ -147,22 +147,29 @@ export type GridNodeInput<T> = GridLeafInput<T> | GridBranchInput<T>;
 export type GridSplitSide = "before" | "after";
 
 /**
- * 把一个叶拆成新分支的输入。
+ * 在一块叶旁边插入新叶的输入（`Grid.splitLeaf`）。
  *
- * 新分支继承目标叶的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图——
+ * 与目标的父分支同向时新叶并进父分支；否则新建分支，新分支继承目标叶的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图。
  * 只开放比例、不开放 `size`：否则初始意图会出现两个 authority，测得的 px 还会被当成权重。
  * @experimental
  */
 export type GridSplitInput<T> = {
-    /** 新分支的稳定 id；派生 id 会在重复拆分时冲突，身份由宿主保证。 */
+    /**
+     * 新分支的稳定 id；派生 id 会在重复拆分时冲突，身份由宿主保证。并入父分支时用不上，但照样要合法、不重复：
+     * 成败不取决于树此刻的形状，宿主不用先看父分支。
+     */
     branchId: string;
-    /** 新分支的分配方向，不必与目标叶原父分支同向。 */
+    /** 新叶与目标的排列方向：与目标的父分支同向时并入父分支，否则新建这个方向的分支。 */
     orientation: GridOrientation;
     side: GridSplitSide;
     /** 新叶输入；`size` 由 `ratio` 与目标叶当前意图决定。 */
     leaf: Omit<GridLeafInput<T>, "size">;
-    /** 新叶分得的意图比例；缺省 0.5，必须有限且严格介于 0 与 1。 */
-    ratio?: number;
+    /**
+     * 新叶分得的份额，缺省 0.5。是数时必须有限且严格介于 0 与 1：新叶得底数乘 `ratio`，目标留下其余；底数是目标的意图，
+     * 并入时目标的意图为 0 就取这一支的平均一份（这一支全是 0 时两块都是 0，与兄弟一起均分）。
+     * `"even"`：并入时新叶取这一支的平均一份、目标不让，与兄弟平分；新建分支时等于 0.5。
+     */
+    ratio?: number | "even";
 };
 
 /**

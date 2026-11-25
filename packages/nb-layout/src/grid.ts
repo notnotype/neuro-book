@@ -64,8 +64,9 @@ export type Grid<T> = {
     find(id: string): GridNode<T> | null;
     addLeaf(parentId: string, index: number, leaf: GridLeafInput<T>): GridResult;
     /**
-     * 把一个叶原位拆成新分支：新分支继承目标叶的外部分配意图，目标叶与新叶按 `ratio` 分掉目标
-     * 在新轴上的意图（新轴意图为 0 时两端取同一正权重，避免均分塌成 0）。失败不改树。
+     * 在一块叶旁边插入新叶（Spec 输出 160 到 162）。方向与目标的父分支相同时并进这个父分支、挨着目标，不新建分支；
+     * 目标是根叶或方向不同时原位拆成新分支：新分支继承目标叶的外部分配意图，目标叶与新叶按 `ratio` 分掉目标
+     * 在新轴上的意图（新轴意图为 0 时两端取同一正权重，避免均分塌成 0）。保留像素的目标拒绝拆分。失败不改树。
      */
     splitLeaf(targetId: string, split: GridSplitInput<T>): GridResult;
     removeLeaf(id: string): GridResult;
@@ -142,10 +143,17 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         return positive.length === 0 ? 0 : positive.reduce((sum, value) => sum + value, 0) / positive.length;
     }
 
-    /** 空分支塌陷 / 单子节点塌陷：用幸存者顶替分支自身，并继承外部分配以保持父分支总量。 */
+    /**
+     * 空分支塌陷 / 单子节点塌陷：用幸存者顶替分支自身，并继承外部分配以保持父分支总量。
+     * 例外是根（Spec 输出 163）：根总是占满容器，幸存者保留像素或带收起策略时，换成根之后它的像素意图与收起策略都没了着落，
+     * 所以根分支留着、只剩这一个孩子。中间分支照旧展平（已知限制见 grid.md）。
+     */
     function collapse(parent: GridBranch<T>, survivor: GridNode<T> | null): void {
         const holder = find(parent.id);
         if (!holder?.parent) {
+            if (survivor && (survivor.sizing === "fixed" || survivor.collapse !== undefined)) {
+                return;
+            }
             tree = survivor;
             return;
         }
@@ -158,24 +166,19 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         }
     }
 
-    /** 结构操作的规模守卫：与快照恢复同一份上限，避免造出无法保存/恢复的树。 */
-    function treeScale(node: GridNode<T> | null): {nodes: number; depth: number} {
+    /** 整棵树的节点数，给规模守卫用。 */
+    function countNodes(node: GridNode<T> | null): number {
         if (!node) {
-            return {nodes: 0, depth: 0};
+            return 0;
         }
-        if (node.kind === "leaf") {
-            return {nodes: 1, depth: 1};
-        }
-        let nodes = 1;
-        let depth = 1;
-        for (const child of node.children) {
-            const childScale = treeScale(child);
-            nodes += childScale.nodes;
-            depth = Math.max(depth, childScale.depth + 1);
-        }
-        return {nodes, depth};
+        return node.kind === "leaf" ? 1 : node.children.reduce((sum, child) => sum + countNodes(child), 1);
     }
 
+    /**
+     * 结构操作的规模守卫：与快照恢复同一份上限（根算第 1 层），避免造出无法保存、恢复的树。
+     * `depth` 只是这次操作新造出来的那一处的层数，不取整棵树的最大深度：`createGrid` 不查规模，
+     * 建进来的树已经超深时，浅处的增删移动照常成功，深处照旧被拒。节点数按整棵树加这次新增的个数。
+     */
     function scaleIssue(nodes: number, depth: number): GridResult | null {
         if (nodes > GRID_MAX_NODES) {
             return gridFailure("limit-exceeded", `Too many nodes: ${nodes} > ${GRID_MAX_NODES}`, {limit: "nodes", max: GRID_MAX_NODES});
@@ -479,8 +482,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             if (find(leaf.id)) {
                 return gridFailure("duplicate-id", `Node id already exists: ${leaf.id}`, {id: leaf.id, with: "existing"});
             }
-            const scale = treeScale(tree);
-            const guard = scaleIssue(scale.nodes + 1, Math.max(scale.depth, (depthOf(parentId) ?? 1) + 1));
+            const guard = scaleIssue(countNodes(tree) + 1, (depthOf(parentId) ?? 1) + 1);
             if (guard) {
                 return guard;
             }
@@ -504,6 +506,10 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             if (hit.node.kind !== "leaf") {
                 return gridFailure("wrong-node-kind", `Only leaves can be split: ${targetId}`, {id: targetId, expected: "leaf"});
             }
+            // 保留像素的意图是像素，新叶与目标都分不到有意义的份额（Spec 输出 162）。
+            if (hit.node.sizing === "fixed") {
+                return gridFailure("wrong-sizing", `${targetId} is fixed-size; only a leaf whose size is a share can be split`, {id: targetId, expected: "weight"});
+            }
             if (split.orientation !== "horizontal" && split.orientation !== "vertical") {
                 return gridFailure("invalid-argument", `Unknown branch orientation: ${String(split.orientation)}`, {field: "orientation", value: String(split.orientation)});
             }
@@ -519,24 +525,49 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 }
             }
             const ratio = split.ratio ?? 0.5;
-            if (!Number.isFinite(ratio)) {
-                return gridFailure("not-finite", `The split ratio is not finite: ${String(ratio)}`, {field: "ratio", value: String(ratio)});
+            // 运行期可能收到别的字符串：不是 "even" 的一律按数校验，字符串在这里报 not-finite。
+            if (ratio !== "even" && !Number.isFinite(ratio)) {
+                return gridFailure("not-finite", `The split ratio is neither a finite number nor "even": ${String(ratio)}`, {field: "ratio", value: String(ratio)});
             }
-            if (ratio <= 0 || ratio >= 1) {
+            if (ratio !== "even" && (ratio <= 0 || ratio >= 1)) {
                 return gridFailure("invalid-argument", `The split ratio must be strictly between 0 and 1: ${String(ratio)}`, {field: "ratio-range", value: String(ratio)});
             }
-            const scale = treeScale(tree);
-            const guard = scaleIssue(scale.nodes + 2, Math.max(scale.depth, (depthOf(targetId) ?? 1) + 1));
+            const leaf = hit.node;
+            const parent = hit.parent;
+            // 同向并入（Spec 输出 160）：只加一个节点、深度不变；否则新建分支，加两个节点、目标下沉一层。
+            const merging = parent !== null && parent.orientation === split.orientation;
+            const targetDepth = depthOf(targetId) ?? 1;
+            const guard = merging
+                ? scaleIssue(countNodes(tree) + 1, targetDepth)
+                : scaleIssue(countNodes(tree) + 2, targetDepth + 1);
             if (guard) {
                 return guard;
             }
 
-            const leaf = hit.node;
             const main = axisOf(split.orientation);
+            const at = parent ? parent.children.findIndex((child) => child.id === targetId) : -1;
+            if (merging) {
+                // 兄弟的意图都不动（输出 153）。"even" 时新叶取这一支的平均一份（插入之前算，含目标），目标不让；
+                // 是数时按 ratio 分掉目标的意图，目标为 0（此刻呈现为 0）时以平均一份作底数。这一支全是 0 时底数也是 0，
+                // 两块与兄弟一起均分，ratio 不生效：不能沿用新建分支的“为 0 取 1”，那样兄弟会被压成 0。
+                const created = instantiate({...split.leaf, size: extentOf(main, 0, 0)});
+                let kept: GridLeaf<T> = leaf;
+                if (ratio === "even") {
+                    created.size[main] = meanWeightShare(parent, main);
+                } else {
+                    const base = leaf.size[main] > 0 ? leaf.size[main] : meanWeightShare(parent, main);
+                    kept = {...leaf, size: {...leaf.size, [main]: base * (1 - ratio)}};
+                    created.size[main] = base * ratio;
+                }
+                parent.children.splice(at, 1, ...(split.side === "before" ? [created, kept] : [kept, created]));
+                return {ok: true};
+            }
+
+            const share = ratio === "even" ? 0.5 : ratio;
             // 目标在新轴没有分配时用 1 作统一单位：两端拿到同一量级的正权重，均分不塌成 0。
             const unit = leaf.size[main] > 0 ? leaf.size[main] : 1;
-            const kept: GridLeaf<T> = {...leaf, size: {...leaf.size, [main]: unit * (1 - ratio)}};
-            const created = instantiate({...split.leaf, size: extentOf(main, unit * ratio, 0)});
+            const kept: GridLeaf<T> = {...leaf, size: {...leaf.size, [main]: unit * (1 - share)}};
+            const created = instantiate({...split.leaf, size: extentOf(main, unit * share, 0)});
             const branch: GridBranch<T> = {
                 kind: "branch",
                 id: split.branchId,
@@ -548,10 +579,10 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 sizing: "weight",
                 children: split.side === "before" ? [created, kept] : [kept, created],
             };
-            if (!hit.parent) {
+            if (!parent) {
                 tree = branch;
             } else {
-                hit.parent.children.splice(hit.parent.children.findIndex((child) => child.id === targetId), 1, branch);
+                parent.children.splice(at, 1, branch);
             }
             return {ok: true};
         },
@@ -569,7 +600,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 return {ok: true};
             }
             const parent = hit.parent;
-            // 兄弟的意图不动（Spec 输出 153）；只剩一个孩子时照旧展平（已知限制见 grid.md）。
+            // 兄弟的意图不动（Spec 输出 153）；只剩一个孩子时照旧展平（已知限制见 grid.md），根的例外见 `collapse`。
             parent.children = parent.children.filter((child) => child.id !== id);
             if (parent.children.length === 0) {
                 collapse(parent, null);
@@ -619,8 +650,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             }
 
             // 节点数不变，深度按移进目标之后的叶算，公式同 addLeaf；按移动前的树判，来源塌陷后其实变浅的移动也会被拒（已知的保守，见 grid.md）。
-            const scale = treeScale(tree);
-            const guard = scaleIssue(scale.nodes, Math.max(scale.depth, (depthOf(parentId) ?? 1) + 1));
+            const guard = scaleIssue(countNodes(tree), (depthOf(parentId) ?? 1) + 1);
             if (guard) {
                 return guard;
             }

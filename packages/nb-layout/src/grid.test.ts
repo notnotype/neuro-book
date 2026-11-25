@@ -535,6 +535,24 @@ describe("拆分树原语：结构", () => {
         expect(grid.root()?.id).toBe("left");
     });
 
+    it("根只剩一块保留像素或可收起的节点时不展平：根分支留着，保留像素的照旧呈现，余下留白（Spec 输出 163）", () => {
+        const pinned = createGrid(branch("root", "width", "horizontal", 0, [{...leaf("explorer", "width", 240), sizing: "fixed"}, leaf("group", "width", 1)]));
+        expect(pinned.removeLeaf("group").ok).toBe(true);
+        expect(pinned.root()?.kind).toBe("branch");
+        expect(pinned.find("root")).not.toBeNull();
+        const layout = pinned.layout({width: 1200, height: 600});
+        expect(extent(layout.sizes, "explorer").width).toBe(240);
+        expect(facts(layout.issues)).toContainEqual(expect.objectContaining({code: "unabsorbed-space", id: "root", axis: "width"}));
+
+        const folding = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("side", "width", 300), collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed: false}},
+            leaf("group", "width", 700),
+        ]));
+        expect(folding.removeLeaf("group").ok).toBe(true);
+        expect(folding.find("root")?.kind).toBe("branch");
+        expect(folding.setCollapsed("side", true)).toMatchObject({ok: true, changed: true});
+    });
+
     it("空树合法：可以往空根加叶子，并按容器铺开", () => {
         const grid = createGrid<string>(null);
 
@@ -712,20 +730,22 @@ describe("拆分树原语：拆分叶", () => {
         expect(extent(sizes, "added").width).toBeCloseTo(500);
     });
 
-    it("side=before 把新叶放在前，两半按 ratio 分掉目标原本的分配", () => {
+    it("新建分支时 side=before 把新叶放在前，两半按 ratio 分掉目标原本的分配", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
-            leaf("left", "width", 300), leaf("editor", "width", 700),
+            leaf("left", "width", 300), {...leaf("editor", "width", 700), size: {width: 700, height: 400}},
         ]), {sashSize: SASH});
 
-        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "horizontal", side: "before", ratio: 0.25, leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
+        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "vertical", side: "before", ratio: 0.25, leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
         const pair = grid.find("pair");
         expect(pair?.kind === "branch" ? pair.children.map((child) => child.id) : []).toEqual(["added", "editor"]);
-        const sizes = grid.layout({width: 1001, height: 600}).sizes;
+        // 目标在新轴上的 400 按 ratio 分成 100 与 300；pair 继承目标在外层的 700。
+        expect([grid.find("added")?.size.height, grid.find("editor")?.size.height, pair?.size.width]).toEqual([100, 300, 700]);
+        const sizes = grid.layout({width: 1001, height: 401}).sizes;
 
         expect(extent(sizes, "left").width).toBe(300);
-        // pair 拿到 700，扣掉内层 1px sash 后按 175:525 权重分
-        expect(extent(sizes, "added").width).toBeCloseTo(174.75);
-        expect(extent(sizes, "editor").width).toBeCloseTo(524.25);
+        expect(extent(sizes, "added").height).toBe(100);
+        expect(extent(sizes, "editor").height).toBe(300);
+        expect(extent(sizes, "editor").width).toBe(700);
     });
 
     it("垂直拆分只分掉目标列的高度，外层另一列宽度不变", () => {
@@ -762,28 +782,35 @@ describe("拆分树原语：拆分叶", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
             leaf("left", "width", 300), leaf("editor", "width", 700),
         ]), {sashSize: SASH});
-        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
+        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "vertical", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
 
         const restored = createGrid<string>(null, {sashSize: SASH});
         expect(restored.restore(grid.serialize(), (ref) => ({ref})).ok).toBe(true);
-        expect(extent(restored.layout({width: 1001, height: 600}).sizes, "added").width).toBeCloseTo(349.5);
-        expect(resizeOne(restored, "pair", "width", {editor: 349.5, added: 349.5}, {editor: 300, added: 399}).ok).toBe(true);
-        expect(extent(restored.layout({width: 1001, height: 600}).sizes, "added").width).toBeCloseTo(399);
+        expect(extent(restored.layout({width: 1001, height: 601}).sizes, "added").height).toBe(300);
+        expect(resizeOne(restored, "pair", "height", {editor: 300, added: 300}, {editor: 250, added: 350}).ok).toBe(true);
+        expect(extent(restored.layout({width: 1001, height: 601}).sizes, "added").height).toBeCloseTo(350);
+        expect(extent(restored.layout({width: 1001, height: 601}).sizes, "left").width).toBe(300);
     });
 
     it("节点数与深度上限在结构操作阶段就拒绝", () => {
+        const nodesLimit = {ok: false, code: "limit-exceeded", params: {limit: "nodes", max: GRID_MAX_NODES}};
+        const added = (id: string) => ({kind: "leaf", id, ref: id}) as const;
+        // 255 个节点：新建分支加 2 个（257）被拒，并入加 1 个（256）成功，之后插入与并入都被拒。
         const many = createGrid(branch("root", "width", "horizontal", 0, Array.from({length: GRID_MAX_NODES - 2}, (_, index) => leaf(`n${index}`, "width", 1))));
-        expect(many.addLeaf("root", 0, leaf("extra", "width", 1)).ok).toBe(true);
-        expect(many.addLeaf("root", 0, leaf("extra2", "width", 1)).ok).toBe(false);
-        const crowded = many.splitLeaf("n0", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
-        expect(crowded).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "nodes", max: GRID_MAX_NODES}});
+        expect(many.splitLeaf("n0", {branchId: "pair", orientation: "vertical", side: "after", leaf: added("added")})).toMatchObject(nodesLimit);
+        expect(many.splitLeaf("n0", {branchId: "pair", orientation: "horizontal", side: "after", leaf: added("added")}).ok).toBe(true);
+        expect(many.addLeaf("root", 0, leaf("extra", "width", 1))).toMatchObject(nodesLimit);
+        expect(many.splitLeaf("n1", {branchId: "pair-2", orientation: "horizontal", side: "after", leaf: added("added-2")})).toMatchObject(nodesLimit);
 
+        // 第 16 层的叶：竖着拆要新建分支、新叶落到第 17 层，被拒；横着拆并进第 15 层的横向分支，层数不变，成功。
         let deep: GridNodeInput<string> = leaf("deep-end", "width", 1);
         for (let index = GRID_MAX_DEPTH - 1; index >= 1; index -= 1) {
             deep = branch(`d${index}`, "width", "horizontal", 0, [deep]);
         }
-        const nested = createGrid(deep).splitLeaf("deep-end", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
-        expect(nested).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
+        const nested = createGrid(deep);
+        expect(nested.splitLeaf("deep-end", {branchId: "pair", orientation: "vertical", side: "after", leaf: added("added")}))
+            .toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
+        expect(nested.splitLeaf("deep-end", {branchId: "pair", orientation: "horizontal", side: "after", leaf: added("added")}).ok).toBe(true);
 
         // 移动同样受深度限制：把叶移进第 16 层的空分支会得到 17 层，树不变。
         let chain: GridNodeInput<string> = branch(`c${GRID_MAX_DEPTH}`, "width", "horizontal", 0, []);
@@ -795,6 +822,104 @@ describe("拆分树原语：拆分叶", () => {
         expect(codeOf(moving.moveLeaf("mover", `c${GRID_MAX_DEPTH}`, 0))).toEqual({code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
         expect(moving.serialize()).toEqual(before);
         expect(moving.moveLeaf("mover", `c${GRID_MAX_DEPTH - 1}`, 0).ok).toBe(true);
+    });
+
+    it("经 createGrid 建的树已经超深：浅处的插入与移动照常成功，深处的拆分照旧被拒", () => {
+        // e1 到 e16 一层套一层，底下的叶在第 17 层；e1 里另有一块浅的叶。createGrid 不查规模。
+        let chain: GridNodeInput<string> = leaf("bottom", "width", 1);
+        for (let index = GRID_MAX_DEPTH; index >= 2; index -= 1) {
+            chain = branch(`e${index}`, "width", "horizontal", 0, [chain]);
+        }
+        const grid = createGrid(branch("e1", "width", "horizontal", 0, [leaf("shallow", "width", 1), chain]));
+        const depthLimit = {ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}};
+
+        expect(grid.addLeaf("e1", 0, leaf("x", "width", 1)).ok).toBe(true);
+        expect(grid.moveLeaf("x", "e2", 0).ok).toBe(true);
+        const before = grid.serialize();
+        expect(grid.splitLeaf("bottom", {branchId: "pair", orientation: "vertical", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}})).toMatchObject(depthLimit);
+        expect(grid.splitLeaf("bottom", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}})).toMatchObject(depthLimit);
+        expect(grid.serialize()).toEqual(before);
+    });
+});
+
+describe("拆分树原语：拆分叶的同向并入（Spec ui/nested-grid 输出 160、161、162）", () => {
+    const added = {kind: "leaf", id: "added", ref: "added"} as const;
+    const childIds = (grid: ReturnType<typeof createGrid<string>>, id = "root") => {
+        const node = grid.find(id);
+        return node?.kind === "branch" ? node.children.map((child) => child.id) : [];
+    };
+
+    it("横排里横着拆：新叶并进这一排、挨着目标，不新建分支；按 ratio 分掉目标的意图，兄弟不变", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("left", "width", 300), leaf("editor", "width", 700)]), {sashSize: SASH});
+
+        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "horizontal", side: "before", ratio: 0.25, leaf: added})).toEqual({ok: true});
+        expect(childIds(grid)).toEqual(["left", "added", "editor"]);
+        expect(grid.find("pair")).toBeNull();
+        expect(["left", "added", "editor"].map((id) => grid.find(id)?.size.width)).toEqual([300, 175, 525]);
+        const sizes = grid.layout({width: 1002, height: 600}).sizes;
+        expect(["left", "added", "editor"].map((id) => extent(sizes, id).width)).toEqual([300, 175, 525]);
+
+        expect(grid.splitLeaf("left", {branchId: "pair-2", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "next", ref: "next"}}).ok).toBe(true);
+        expect(childIds(grid)).toEqual(["left", "next", "added", "editor"]);
+    });
+
+    it("并入不加深：同向连拆 20 次都成功，树一直只有根这一层分支", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 1), leaf("b", "width", 1)]));
+        for (let index = 0; index < 20; index += 1) {
+            const target = index === 0 ? "b" : `n${index - 1}`;
+            expect(grid.splitLeaf(target, {branchId: `s${index}`, orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: `n${index}`, ref: `n${index}`}})).toEqual({ok: true});
+        }
+        const root = grid.root();
+        expect(root?.kind === "branch" ? root.children.every((child) => child.kind === "leaf") : false).toBe(true);
+        expect(childIds(grid)).toHaveLength(22);
+    });
+
+    it("并入时 branchId 照样查重：与已有节点同 id 报 duplicate-id，树不变", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("left", "width", 300), leaf("editor", "width", 700)]));
+        const before = grid.serialize();
+        expect(codeOf(grid.splitLeaf("editor", {branchId: "left", orientation: "horizontal", side: "after", leaf: added}))).toEqual({code: "duplicate-id", params: {id: "left", with: "existing"}});
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("底数：这一支全是 0 时两块都取 0、和兄弟一起均分；目标为 0 而兄弟为正时按平均一份拆", () => {
+        const zeros = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 0), leaf("b", "width", 0)]), {sashSize: SASH});
+        expect(zeros.splitLeaf("b", {branchId: "pair", orientation: "horizontal", side: "after", ratio: 0.25, leaf: added}).ok).toBe(true);
+        expect(["a", "b", "added"].map((id) => zeros.find(id)?.size.width)).toEqual([0, 0, 0]);
+        const even = zeros.layout({width: 1202, height: 600}).sizes;
+        expect(["a", "b", "added"].map((id) => extent(even, id).width)).toEqual([400, 400, 400]);
+
+        const empty = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 300), leaf("c", "width", 300), leaf("t", "width", 0)]), {sashSize: SASH});
+        expect(empty.splitLeaf("t", {branchId: "pair", orientation: "horizontal", side: "after", leaf: added}).ok).toBe(true);
+        expect(["a", "c", "t", "added"].map((id) => empty.find(id)?.size.width)).toEqual([300, 300, 150, 150]);
+        const shared = empty.layout({width: 903, height: 600}).sizes;
+        expect(["a", "c", "t", "added"].map((id) => extent(shared, id).width)).toEqual([300, 300, 150, 150]);
+    });
+
+    it("`ratio: \"even\"`：并入时新叶取这一支的平均一份、目标意图不变；新建分支时等于 0.5", () => {
+        const row = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 1), leaf("b", "width", 1)]), {sashSize: SASH});
+        expect(row.splitLeaf("b", {branchId: "pair", orientation: "horizontal", side: "after", ratio: "even", leaf: added}).ok).toBe(true);
+        expect(["a", "b", "added"].map((id) => row.find(id)?.size.width)).toEqual([1, 1, 1]);
+        const thirds = row.layout({width: 1202, height: 600}).sizes;
+        expect(["a", "b", "added"].map((id) => extent(thirds, id).width)).toEqual([400, 400, 400]);
+
+        const nest = (ratio: number | "even") => {
+            const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("left", "width", 300), leaf("editor", "width", 700)]), {sashSize: SASH});
+            expect(grid.splitLeaf("editor", {branchId: "stack", orientation: "vertical", side: "after", ratio, leaf: added}).ok).toBe(true);
+            return grid;
+        };
+        const halves = nest("even");
+        expect(halves.serialize()).toEqual(nest(0.5).serialize());
+        const sizes = halves.layout({width: 1001, height: 601}).sizes;
+        expect([extent(sizes, "editor").height, extent(sizes, "added").height]).toEqual([300, 300]);
+    });
+
+    it("保留像素的目标：同向与异向都报 wrong-sizing（expected: weight），树不变", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [{...leaf("nav", "width", 188), sizing: "fixed"}, leaf("main", "width", 600)]));
+        const before = grid.serialize();
+        for (const orientation of ["horizontal", "vertical"] as const) {
+            expect(codeOf(grid.splitLeaf("nav", {branchId: "pair", orientation, side: "after", leaf: added}))).toEqual({code: "wrong-sizing", params: {id: "nav", expected: "weight"}});
+        }
+        expect(grid.serialize()).toEqual(before);
     });
 });
 
@@ -845,15 +970,20 @@ describe("拆分树原语：快照", () => {
         expect(invalid({...root, children: [{kind: "branch", id: "b", orientation: "vertical", children: []}]})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "size", id: "b"}});
     });
 
-    it("深度超过上限整体拒绝", () => {
-        let nested: GridNodeInput<string> = leaf("deep", "width", 50, 10, 100);
-        for (let depth = 0; depth <= GRID_MAX_DEPTH; depth += 1) {
-            nested = branch(`level-${depth}`, "width", "vertical", 0, [nested]);
-        }
-        const grid = createGrid<string>(null);
-        const result = grid.restore({version: GRID_SNAPSHOT_VERSION, root: JSON.parse(JSON.stringify(nested))}, resolvable);
+    it("深度超过上限整体拒绝：根算第 1 层，16 层能恢复，17、18 层被拒", () => {
+        /** `levels` 层的快照：一串单孩子的分支，最底下一块叶，叶也算一层。 */
+        const snapshotOf = (levels: number) => {
+            let nested: GridNodeInput<string> = leaf("deep", "width", 50, 10, 100);
+            for (let depth = 1; depth < levels; depth += 1) {
+                nested = branch(`level-${depth}`, "width", "vertical", 0, [nested]);
+            }
+            return {version: GRID_SNAPSHOT_VERSION, root: JSON.parse(JSON.stringify(nested))};
+        };
+        const depthLimit = {ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}};
 
-        expect(result).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
+        expect(createGrid<string>(null).restore(snapshotOf(GRID_MAX_DEPTH), resolvable).ok).toBe(true);
+        expect(createGrid<string>(null).restore(snapshotOf(GRID_MAX_DEPTH + 1), resolvable)).toMatchObject(depthLimit);
+        expect(createGrid<string>(null).restore(snapshotOf(GRID_MAX_DEPTH + 2), resolvable)).toMatchObject(depthLimit);
     });
 
     it("节点数超过上限整体拒绝，且不进入超限子树解析引用", () => {
@@ -1736,6 +1866,7 @@ describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）",
         expect(codeOf(grid.splitLeaf("left", split({branchId: "top"})))).toEqual({code: "duplicate-id", params: {id: "top", with: "existing"}});
         expect(codeOf(grid.splitLeaf("left", split({ratio: Number.NaN})))).toEqual({code: "not-finite", params: {field: "ratio", value: "NaN"}});
         expect(codeOf(grid.splitLeaf("left", split({ratio: 1})))).toEqual({code: "invalid-argument", params: {field: "ratio-range", value: "1"}});
+        expect(codeOf(grid.splitLeaf("left", split({ratio: "half"})))).toEqual({code: "not-finite", params: {field: "ratio", value: "half"}});
 
         expect(codeOf(grid.removeLeaf("ghost"))).toEqual({code: "not-found", params: {id: "ghost"}});
 
@@ -1761,6 +1892,14 @@ describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）",
         expect(codeOf(grid.setSize("nav", Number.NEGATIVE_INFINITY))).toEqual({code: "not-finite", params: {field: "px", id: "nav"}});
         expect(codeOf(grid.setSize("nav", -1))).toEqual({code: "invalid-argument", params: {field: "px-negative", id: "nav"}});
         expect(codeOf(grid.moveLeaf("nav", "col", 0))).toEqual({code: "invalid-argument", params: {field: "fixed-cross-axis", id: "nav"}});
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("拆分保留像素的叶：wrong-sizing 先于方向、位置与身份的检查（Spec 失败 5）", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [{...leaf("nav", "width", 188), sizing: "fixed"}, leaf("main", "width", 600)]));
+        const before = grid.serialize();
+        expect(codeOf(grid.splitLeaf("nav", split()))).toEqual({code: "wrong-sizing", params: {id: "nav", expected: "weight"}});
+        expect(codeOf(grid.splitLeaf("nav", split({orientation: "diagonal", branchId: "main"})))).toEqual({code: "wrong-sizing", params: {id: "nav", expected: "weight"}});
         expect(grid.serialize()).toEqual(before);
     });
 

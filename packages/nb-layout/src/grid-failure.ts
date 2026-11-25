@@ -31,7 +31,7 @@ export type GridFailureParams = {
     "not-conserved": {id: string; target: number; baseline: number};
     "stale-baseline": {id: string};
     "not-collapsible": {id: string; branch: string};
-    "wrong-sizing": {id: string; expected: "fixed"};
+    "wrong-sizing": {id: string; expected: "fixed" | "weight"};
 };
 
 /** 快照恢复（Spec 失败 7）。 */

@@ -99,11 +99,11 @@ describe("标签编组的操作", () => {
             if (!loaded.ok) continue;
             const layout = loaded.layout;
             const before = JSON.stringify(layout.toSaved());
-            const result = layout.splitWithTab("b", "group-1", "right");
+            const result = layout.splitWithTab("b", "group-1", "bottom");
             if (result.ok) continue;
             expect(result.code).toBe("limit-exceeded");
             expect(JSON.stringify(layout.toSaved())).toBe(before);
-            const trial = layout.canSplit("b", "group-1", "right", WIDE);
+            const trial = layout.canSplit("b", "group-1", "bottom", WIDE);
             expect(trial.ok ? null : trial.message).toBe("Too deeply nested");
             checked = true;
         }
