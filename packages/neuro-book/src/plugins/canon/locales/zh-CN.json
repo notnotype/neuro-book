@@ -8,7 +8,7 @@
             "title": "新建条目"
         },
         "open-receipt": {
-            "title": "看回执"
+            "title": "查看改动详情"
         },
         "open-change": {
             "title": "打开情节"
@@ -250,7 +250,7 @@
         "saved": "记了一笔：{{text}}"
     },
     "notice": {
-        "receipt": "看回执",
+        "receipt": "查看详情",
         "close": "关闭",
         "label": "刚保存的改动",
         "undo": "撤销",
@@ -452,7 +452,7 @@
             "task": "任务",
             "system": "系统"
         },
-        "receipt": "看回执",
+        "receipt": "查看详情",
         "revert": "还原",
         "more": "再显示更多",
         "empty": "还没有改动",

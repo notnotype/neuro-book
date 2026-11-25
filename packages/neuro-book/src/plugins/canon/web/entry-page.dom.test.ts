@@ -893,8 +893,8 @@ describe("写入", () => {
         expect([wrapper.find("[data-block-actions]").exists(), wrapper.find("[data-story-add]").exists()]).toEqual([false, false]);
 
         await wrapper.get("[data-text-edit]").trigger("click");
-        await waitUntil("写明原因", () => wrapper.find("[data-entry-action-error]").exists());
-        expect([wrapper.get("[data-entry-action-error]").text(), wrapper.find("[data-text-editor]").exists(), wrapper.find("[data-entry-text]").exists()]).toEqual(["这个条目的文字里有随剧情变的段落，现在不能在这里改", false, true]);
+        await waitUntil("写明原因", () => wrapper.find("[data-page-error]").exists());
+        expect([wrapper.get("[data-page-error]").text(), wrapper.find("[data-text-editor]").exists(), wrapper.find("[data-entry-text]").exists()]).toEqual(["这个条目的文字里有随剧情变的段落，现在不能在这里改", false, true]);
     });
 
 
@@ -1068,8 +1068,8 @@ describe("写入", () => {
         await waitUntil("横幅", () => wrapper.text().includes("世界已断开"), {timeoutMs: 10_000});
         // 断开以后“编辑”点不了；这里是点下去的那一刻刚断开：阅读视图已经发出了“编辑”。
         wrapper.findComponent(EntryText).vm.$emit("edit");
-        await waitUntil("写明原因", () => wrapper.find("[data-entry-action-error]").exists());
-        expect([wrapper.get("[data-entry-action-error]").text(), wrapper.find("[data-text-editor]").exists()]).toEqual(["读不到最新的文字", false]);
+        await waitUntil("写明原因", () => wrapper.find("[data-page-error]").exists());
+        expect([wrapper.get("[data-page-error]").text(), wrapper.find("[data-text-editor]").exists()]).toEqual(["读不到最新的文字", false]);
     });
 
     it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {

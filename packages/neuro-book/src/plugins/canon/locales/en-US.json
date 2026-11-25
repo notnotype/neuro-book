@@ -8,7 +8,7 @@
             "title": "New entry"
         },
         "open-receipt": {
-            "title": "Open Receipt"
+            "title": "View Change Details"
         },
         "open-change": {
             "title": "Open Story Change"
@@ -250,7 +250,7 @@
         "saved": "Recorded: {{text}}"
     },
     "notice": {
-        "receipt": "View receipt",
+        "receipt": "View details",
         "close": "Close",
         "label": "Change just saved",
         "undo": "Undo",
@@ -452,7 +452,7 @@
             "task": "Task",
             "system": "System"
         },
-        "receipt": "View receipt",
+        "receipt": "View details",
         "revert": "Revert",
         "more": "Show more",
         "empty": "No changes yet",

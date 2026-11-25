@@ -24,8 +24,7 @@ import type PlainSourceInput from "nbook/plugins/canon/web/components/PlainSourc
 import type TextConflictDialog from "nbook/plugins/canon/web/components/TextConflictDialog.vue";
 import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
-import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
-import type AgentNotice from "nbook/plugins/canon/web/components/AgentNotice.vue";
+import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -2280,7 +2279,7 @@ function canonEntryPageFixtures() {
                 {id: "deleted", label: "已删除", input: {props: {status: "deleted" as const, name: "旧设定"}, model: {position: "", planned: false, tab: ""}}},
                 {id: "editable", label: "页头可编辑：改名字、简介、别名，更多里有移动与加去设定组", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], removableGroup: "人物"}, model: {...page.model, tab: "data:character"}}},
                 {id: "editable-blocked", label: "页头可编辑但按计划开着：入口禁用", input: {props: {...page.props, editable: true, editReason: "先关掉按计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
-                {id: "deleted-restorable", label: "已删除、可以恢复，恢复失败的原因", input: {props: {status: "deleted" as const, name: "旧设定", editable: true, actionError: "版本冲突：重读再试"}, model: {position: "", planned: false, tab: ""}}},
+                {id: "deleted-restorable", label: "已删除、可以恢复", input: {props: {status: "deleted" as const, name: "旧设定", editable: true}, model: {position: "", planned: false, tab: ""}}},
                 {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
                 {id: "sample-english", label: "英文界面", input: page},
             ],
@@ -2322,23 +2321,17 @@ function canonEntryPageFixtures() {
             ],
             load: async () => (await import("./RecordFormFixture.vue")).default,
         }),
-        defineLabFixture<typeof NoticeBar>({
-            component: "NoticeBar",
+        defineLabFixture<typeof PageNotices>({
+            component: "PageNotices",
             scenes: [
-                {id: "sample", label: "刚保存了一次就地改", input: {props: {title: "改外观"}}},
-                {id: "long", label: "很长的标题截断", input: {props: {title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}},
-                {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
+                {id: "sample", label: "刚保存了一次就地改", input: {props: {notice: {revision: "r1", title: "改外观"}}}},
+                {id: "with-agent", label: "Agent 也改了（之前还改过两次）", input: {props: {notice: {revision: "r1", title: "改外观"}, agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 2}}}},
+                {id: "agent-undone", label: "Agent 那一次已撤销", input: {props: {agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 0, undone: true}}}},
+                {id: "error", label: "页面自己的写入失败", input: {props: {error: "这个条目在你打开以后被别处改过，重读以后再试一次"}}},
+                {id: "long", label: "很长的标题截断", input: {props: {notice: {revision: "r1", title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}}},
+                {id: "sample-english", label: "英文界面", input: {props: {notice: {revision: "r1", title: "Edit appearance"}, agent: {revision: "r2", title: "Add alias", earlier: 1}}}},
             ],
-            load: async () => (await import("./NoticeBarFixture.vue")).default,
-        }),
-        defineLabFixture<typeof AgentNotice>({
-            component: "AgentNotice",
-            scenes: [
-                {id: "sample", label: "Agent 刚改了一次", input: {props: {title: "给星瑕加别名小瑕"}}},
-                {id: "earlier", label: "之前还改过两次、标题很长", input: {props: {title: "把星瑕的性格改成沉默，外观改成黑色短发，并把她移到学院下面", earlier: 2}}},
-                {id: "earlier-english", label: "英文界面", input: {props: {title: "Add alias", earlier: 1}}},
-            ],
-            load: async () => (await import("./AgentNoticeFixture.vue")).default,
+            load: async () => (await import("./PageNoticesFixture.vue")).default,
         }),
         defineLabFixture<typeof NewEntryDialog>({
             component: "NewEntryDialog",

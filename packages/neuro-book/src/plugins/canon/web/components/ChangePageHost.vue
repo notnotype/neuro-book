@@ -26,8 +26,7 @@ import type {CanonWorld} from "../world";
 import ChangePage from "./ChangePage.vue";
 import type {ChangePageStatus} from "./ChangePage.vue";
 import ConfirmBar from "./ConfirmBar.vue";
-import AgentNotice from "./AgentNotice.vue";
-import NoticeBar from "./NoticeBar.vue";
+import PageNotices from "./PageNotices.vue";
 
 const props = defineProps<{
     /** 剧情变更 id。 */
@@ -125,8 +124,6 @@ const openChapter = async (chapter: string): Promise<void> => {
 
 <template>
     <div class="min-h-full">
-        <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
-        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" :undone="props.notices.agent.value.undone === true" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
         <ChangePage
             :status="status"
             :model="model"
@@ -154,5 +151,15 @@ const openChapter = async (chapter: string): Promise<void> => {
                 />
             </template>
         </ChangePage>
+        <PageNotices
+            :notice="props.notices.current.value"
+            :agent="props.notices.agent.value"
+            :hold="pageNotice.hold"
+            @receipt="props.receipt"
+            @undo="pageNotice.undo"
+            @revisions="props.notices.openRevisions()"
+            @close="pageNotice.close()"
+            @close-agent="props.notices.dismissAgent()"
+        />
     </div>
 </template>

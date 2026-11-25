@@ -50,13 +50,11 @@ const props = withDefaults(defineProps<{
     aliases?: readonly string[];
     /** 当前是一个数据分页时，这组设定的名字：“更多”里多一项“去掉这组设定”。默认空。 */
     removableGroup?: string;
-    /** 页头写入失败的原因，写在页头下面。默认空。 */
-    actionError?: string;
     /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：这三个控件不可用、悬停提示是它。默认空（能换）。 */
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: "", actionError: ""});
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -185,7 +183,6 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
             <h1 class="text-[length:var(--text-xl)] font-semibold text-[var(--text-secondary)]">{{ props.name }}</h1>
             <p class="mt-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleted") }}</p>
             <Button v-if="props.editable" class="mt-3" size="sm" :disabled="blockedReason !== undefined" :title="blockedReason" data-entry-restore @click="emit('restore')">{{ text("entry.restore") }}</Button>
-            <p v-if="props.actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ props.actionError }}</p>
             <slot name="deleted" />
         </div>
         <template v-else>
@@ -232,7 +229,6 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                 <Tabs class="mx-auto mt-3" :class="column" size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
             </header>
             <div class="mx-auto px-8 py-5 max-[480px]:px-4" :class="column">
-                <p v-if="props.actionError !== ''" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-danger)]" data-entry-action-error>{{ props.actionError }}</p>
                 <slot name="bar" />
                 <p v-if="props.positionGone" role="status" class="mb-3 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.positionGone") }}</p>
                 <p v-if="props.notAppeared !== ''" class="mb-3 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.notAppeared", {position: props.notAppeared}) }}</p>

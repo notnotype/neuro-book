@@ -50,8 +50,7 @@ import type {InsertItem} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
 import FieldsDataView from "./FieldsDataView.vue";
-import AgentNotice from "./AgentNotice.vue";
-import NoticeBar from "./NoticeBar.vue";
+import PageNotices from "./PageNotices.vue";
 import MoveDialog from "./MoveDialog.vue";
 import ElementDialog from "./ElementDialog.vue";
 import type {ElementField} from "./element-dialog";
@@ -863,7 +862,8 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                             const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
                             requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
                         };
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
+                        // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]"}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     return h(Popover, {
@@ -1022,8 +1022,6 @@ const setPosition = (value: string): void => {
 
 <template>
     <div class="min-h-full">
-        <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
-        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" :undone="props.notices.agent.value.undone === true" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
@@ -1046,7 +1044,6 @@ const setPosition = (value: string): void => {
             :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
             :aliases="view?.aliases ?? []"
             :removable-group="removableGroup"
-            :action-error="actionError"
             :position-locked="textTab.editing.value ? text('textEdit.locked') : ''"
             :wide="previewing"
             @edit-name="edit.open('entry.name')"
@@ -1260,5 +1257,17 @@ const setPosition = (value: string): void => {
             <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleteDescription") }}</p>
             <p v-if="deleteError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ deleteError }}</p>
         </Dialog>
+        <PageNotices
+            :notice="props.notices.current.value"
+            :agent="props.notices.agent.value"
+            :error="actionError"
+            :hold="pageNotice.hold"
+            @receipt="props.receipt"
+            @undo="pageNotice.undo"
+            @revisions="props.notices.openRevisions()"
+            @close="pageNotice.close()"
+            @close-agent="props.notices.dismissAgent()"
+            @close-error="actionError = ''"
+        />
     </div>
 </template>

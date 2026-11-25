@@ -203,7 +203,7 @@ async function showRevisions(page: Page): Promise<Locator> {
     return rows;
 }
 
-test("验收 3：就地改一个只在初值设过的字段，预览写“改初值”；保存后有提示，看回执列出改前改后；撤销以后值回到原样、改动记录多了两条", async ({page}) => {
+test("验收 3：就地改一个只在初值设过的字段，预览写“改初值”；保存后有提示，指着它点撤销以后值回到原样；撤销的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
     const revisions = await (await showRevisions(page)).count();
@@ -216,21 +216,26 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改初
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("嘴硬心软");
 
+    // 提示 6 秒后自己收起，指着它时不收：先指着再点（author-ui 输出 18）。
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toBeVisible();
-    await notice.getByRole("button", {name: "看回执"}).click();
-    const receipt = page.locator("[data-receipt-page]");
-    await expect(receipt).toBeVisible();
-    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText("嘴硬心软");
-    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText(before);
-
-    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
-    await page.locator("[data-notice-bar]").getByRole("button", {name: "撤销"}).click();
+    await notice.hover();
+    await notice.getByRole("button", {name: "撤销"}).click();
     const dialog = page.locator("[data-revert-dialog]");
     await expect(dialog).toBeVisible();
     await page.getByRole("dialog").getByRole("button", {name: "还原", exact: true}).click();
     await expect(dialog).toHaveCount(0);
     await expect(fieldValue(page, "character.性格")).toHaveText(before);
+
+    // 撤销成功以后提示换成撤销的那一次；它的详情列出性格从“嘴硬心软”回到原来的样子。
+    await expect(notice).toContainText("还原");
+    await notice.hover();
+    await notice.getByRole("button", {name: "查看详情"}).click();
+    const receipt = page.locator("[data-receipt-page]");
+    await expect(receipt).toBeVisible();
+    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText("嘴硬心软");
+    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText(before);
+
     const rows = await showRevisions(page);
     await expect(rows).toHaveCount(revisions + 2);
     await expect(rows.first()).toContainText("还原");

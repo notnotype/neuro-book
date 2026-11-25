@@ -238,6 +238,8 @@ test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点�
     await expect(tabDot(page)).toHaveCount(0);
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toContainText("改星瑕的主文字");
+    // 提示 6 秒后自己收起，指着它时不收（author-ui 输出 18）。
+    await notice.hover();
     await notice.getByRole("button", {name: "撤销"}).click();
     await expect(page.locator("[data-revert-dialog]")).toBeVisible();
     await dialog(page).getByRole("button", {name: "还原", exact: true}).click();
