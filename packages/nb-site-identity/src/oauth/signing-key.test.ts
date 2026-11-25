@@ -9,7 +9,7 @@ import type {GenericEndpointContext} from "@better-auth/core";
 import {createJwk} from "better-auth/plugins";
 
 import {IdentityConnection} from "../db/connection";
-import {libDateMs} from "../db/library-rows";
+import {libDate, libDateMs} from "../db/library-rows";
 import {createTestIdentity, type TestIdentity} from "../testing/module";
 import {TEST_SITE_URL} from "../testing/library";
 import {CONSENTED, decodeJwt, grantTokens, publicKeys, registerClient, verifiesWith, type TestClient} from "../testing/oauth";
@@ -135,5 +135,18 @@ describe("启动时备好签名钥", () => {
         expect(await keyRows(again)).toEqual(rows);
         expect(decodeJwt(await idToken(again, client, userId)).header.kid).toBe(newKid);
         expect(again.log.lines.filter((line) => line.event === "identity.signing_key_rotated")).toEqual([]);
+    });
+
+    it("换下来的公钥在过期后 30 天内仍列在公钥地址里，过了 30 天不再列（输出 17）", async () => {
+        const rotated = await restart(await start(), {sessionSecret: OTHER_SECRET});
+        const [old, fresh] = (await keyRows(rotated)) as [KeyRow, KeyRow];
+        // 库按系统时间判宽限期，所以过期时刻按系统时间往回拨；29 天与 31 天离边界各一天，用例跑多久都分得开。
+        const expireAgo = (days: number) =>
+            rotated.conn.write((tx) => tx.query(`UPDATE "jwks" SET "expiresAt" = ? WHERE "id" = ?`).run(libDate(Date.now() - days * 86_400_000), old.id));
+        const listed = async () => (await publicKeys(rotated)).map((key) => key.kid).sort();
+        await expireAgo(29);
+        expect(await listed()).toEqual([String(old.id), String(fresh.id)].sort());
+        await expireAgo(31);
+        expect(await listed()).toEqual([String(fresh.id)]);
     });
 });

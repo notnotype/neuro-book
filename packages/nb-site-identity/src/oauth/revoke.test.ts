@@ -4,12 +4,13 @@
  * `testing/oauth.ts`）看此前的访问令牌调用户信息得几、没用掉的授权码换不换得出。
  *
  * 合同测试（第 7 片的 `oauth-invalidation.test.ts`）经 HTTP 覆盖同样的事件；这里另测合同造不出的：撤销与删会话同一个事务
- * （删会话的那一步失败时，令牌与码照旧有效，要在会话表上临时加拒绝删除的触发器），清理任务删过期的行（要读表），以及还没有
- * 接口的按授权、按客户端撤（第 4、7 片接上）。
+ * （删会话的那一步失败时，令牌与码照旧有效，要在会话表上临时加拒绝删除的触发器），`verification` 表里另有库别的行时撤销只删
+ * 授权码（要往表里放行），清理任务删过期的行（要读表），以及还没有接口的按授权、按客户端撤（第 4、7 片接上）。
  */
 
 import {afterEach, describe, expect, it} from "bun:test";
 
+import {libDate} from "../db/library-rows";
 import {TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, TEST_CONFIG, type TestIdentity} from "../testing/module";
 import {addOAuthUser, authorize, CONSENTED, exchange, grantTokens, registerClient, userinfo, type TestClient} from "../testing/oauth";
@@ -150,6 +151,79 @@ describe("撤销与删会话在同一个事务里", () => {
             expect([await observe(s.target, s.inS1), await observe(s.target, s.inS2)]).toEqual([UNTOUCHED, UNTOUCHED]);
         });
     }
+});
+
+/**
+ * 往 `verification` 表里放三行库别的一次性凭据，回它们的标识。撤销只按授权码删，碰到这几行既不能出错也不能删（`revoke.ts`
+ * 文件头；实现审查第 5 条）：
+ * - 社交登录的 state：照库 1.7.27 `generateGenericState` 的写法，标识是 `auth-state:` 加 state，`value` 是 JSON，关联意图时
+ *   `link.userId` 是账号 id 的字符串；到期是系统时间加 10 分钟。
+ * - `value` 不是 JSON 的一行：撤销的 SQL 少了 `json_valid` 的守护时，SQLite 对它报 malformed JSON，整个操作失败。
+ * - 顶层带这个账号的 `userId` 与这次会话的 `sessionId`、`type` 却不是授权码的 JSON 一行：库 1.7.27 不写这样的行，放进来让撤销
+ *   对 `type` 的判断有用例分辨。
+ */
+async function addUnrelatedVerifications(target: TestIdentity, userId: number, sessionId: number): Promise<string[]> {
+    const now = Date.now();
+    const rows = [
+        {
+            identifier: "auth-state:lab-state-0123456789abcdef0123456789abcd",
+            value: JSON.stringify({
+                callbackURL: `${TEST_SITE_URL}/__social_ok`,
+                codeVerifier: "verifier-0123456789abcdef0123456789abcdef0123",
+                errorURL: `${TEST_SITE_URL}/__social_error`,
+                link: {email: "alice@example.com", userId: String(userId)},
+                expiresAt: now + 600_000,
+                oauthState: "lab-state-0123456789abcdef0123456789abcd",
+            }),
+        },
+        {identifier: "unrelated-not-json", value: "not json"},
+        {identifier: "unrelated-other-type", value: JSON.stringify({type: "authorization_code_x", userId: String(userId), sessionId: String(sessionId)})},
+    ];
+    await target.conn.write((tx) => {
+        for (const row of rows) {
+            tx.query(`INSERT INTO "verification" ("identifier", "value", "expiresAt", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?)`).run(row.identifier, row.value, libDate(now + 600_000), libDate(now), libDate(now));
+        }
+    });
+    return rows.map((row) => row.identifier);
+}
+
+function remainingVerifications(target: TestIdentity, identifiers: readonly string[]): Promise<string[]> {
+    return target.conn.read((tx) =>
+        tx
+            .query<{identifier: string}, string[]>(`SELECT "identifier" FROM "verification" WHERE "identifier" IN (${identifiers.map(() => "?").join(", ")})`)
+            .all(...identifiers)
+            .map((row) => row.identifier),
+    );
+}
+
+describe("verification 表里另有库别的行：撤销照常成功，只删授权码", () => {
+    it("登出", async () => {
+        const {target, aliceId, s1, inS1, inS2} = await setup("identity-revoke-unrelated-logout");
+        const unrelated = await addUnrelatedVerifications(target, aliceId, s1.sessionId);
+        expect((await post(target, s1.cookie, "/logout")).status).toBe(200);
+        expect([await observe(target, inS1), await observe(target, inS2)]).toEqual([REVOKED, UNTOUCHED]);
+        expect((await remainingVerifications(target, unrelated)).sort()).toEqual([...unrelated].sort());
+    });
+
+    it("封禁", async () => {
+        const {target, operator, aliceId, s1, inS1, inS2, ofBob} = await setup("identity-revoke-unrelated-ban");
+        const unrelated = await addUnrelatedVerifications(target, aliceId, s1.sessionId);
+        expect((await post(target, operator.cookie, `/admin/users/${String(aliceId)}/ban`, {})).status).toBe(200);
+        expect([await observe(target, inS1), await observe(target, inS2), await observe(target, ofBob)]).toEqual([REVOKED, REVOKED, UNTOUCHED]);
+        expect((await remainingVerifications(target, unrelated)).sort()).toEqual([...unrelated].sort());
+    });
+
+    it("会话到期后的清理任务", async () => {
+        // 起点的拨法同“会话到期后清理任务跑完”：会话按模块的时钟到期时，这几行（系统时间加 10 分钟到期）按同一只钟还没过期，
+        // 清理删过期行的那一步碰不到它们，剩下的只看撤销删不删。
+        const start = Date.now() - SESSION_MS + 5 * 60_000;
+        const {target, aliceId, s1, inS1} = await setup("identity-revoke-unrelated-purge", {start});
+        const unrelated = await addUnrelatedVerifications(target, aliceId, s1.sessionId);
+        target.clock.set(start + SESSION_MS);
+        await target.jobs.find((job) => job.name === "purge")!.run();
+        expect(await observe(target, inS1)).toEqual(REVOKED);
+        expect((await remainingVerifications(target, unrelated)).sort()).toEqual([...unrelated].sort());
+    });
 });
 
 describe("清理任务删过期的授权码与访问令牌", () => {

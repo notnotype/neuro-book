@@ -72,8 +72,11 @@ export function revokeOAuthForExpiredSessions(tx: IdentityTx, nowMs: number): vo
 
 /**
  * 清理任务删过期的行（计划 3.11）：`verification` 里到期的（过期的授权码与库的别的一次性凭据，例如社交登录的 state）与过期的
- * 访问令牌。这几行的到期时刻是库按系统时间写的，这里按模块的时钟比：生产里两只钟相同；测试里模块的时钟只会更快，删得更早，
- * 与“以模块的时钟为准”一致。过期的行库自己也不认，删掉只是不让表一直长下去。
+ * 访问令牌。过期的行库自己也不认，删掉只是不让表一直长下去。
+ *
+ * 这几行的到期时刻是库按系统时间写的，库认不认它们也按系统时间判；这里按模块的时钟比。生产里两只钟相同。测试里模块的时钟可快
+ * 可慢，与系统时间差任意方向：快时（`advance` 过了 10 分钟）这里删掉库还认的授权码与社交 state，码与 state 提前消失；慢时（起点
+ * 拨到过去，或不拨、墙钟照走）库已不认的行留到模块的时钟追上。拨时钟的用例要按这两种情况推断清理之后表里剩什么。
  */
 export function purgeExpiredOAuthRows(tx: IdentityTx, nowMs: number): {readonly verifications: number; readonly accessTokens: number} {
     const at = libDate(nowMs);

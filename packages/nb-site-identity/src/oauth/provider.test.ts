@@ -8,8 +8,9 @@
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 
-import {DISABLED_LIBRARY_PATHS, ID_TOKEN_SECONDS, LIBRARY_ACCESS_TOKEN_SECONDS, LIBRARY_CODE_SECONDS} from "../auth";
+import {ID_TOKEN_SECONDS, LIBRARY_ACCESS_TOKEN_SECONDS, LIBRARY_CODE_SECONDS, LIBRARY_PUBLIC_ENDPOINTS} from "../auth";
 import {libDateMs} from "../db/library-rows";
+import {TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, type TestIdentity} from "../testing/module";
 import {authorize, CONSENTED, decodeJwt, exchange, grantTokens, libraryRequest, registerClient, type TestClient} from "../testing/oauth";
 import {clientSecretHash, generateClientSecret} from "./client-secret";
@@ -96,13 +97,33 @@ describe("令牌 id", () => {
 });
 
 describe("关掉的库端点", () => {
-    it("经 handler 一律 404，带普通用户的会话也一样；普通用户经 HTTP 登记不了客户端", async () => {
-        for (const path of DISABLED_LIBRARY_PATHS) {
-            for (const method of ["GET", "POST"]) {
-                const init: RequestInit = method === "GET" ? {headers: {cookie}} : {method, headers: {cookie, "content-type": "application/json"}, body: "{}"};
-                expect({path, method, status: (await libraryRequest(identity, path, init)).status}).toEqual({path, method, status: 404});
+    const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] as const;
+
+    /**
+     * 带参数、不只供服务端调用、又不对外的库端点：`disabledPaths` 逐字比路径挡不住它们（`auth.ts` 的 `disabledLibraryPaths`），
+     * 只靠挂载白名单（第 5 片）。库 1.7.27 只有这一条，读重置密码的一次性凭据后跳转、不写库；库新加这类端点时这里失败，要查它做
+     * 什么、白名单挡没挡住。
+     */
+    const PARAMETERIZED_REACHABLE = ["GET /reset-password/:token"];
+
+    it("库的全部端点乘六种方法经 handler，除对外要的路径外一律 404，带普通用户的会话也一样；普通用户经 HTTP 登记不了客户端", async () => {
+        // 端点表取真实装配的 `auth.api`，不经 `disabledLibraryPaths` 的取法。对外路径上别的方法由挂载层挡，这里不看。
+        const publicPaths = new Set<string>(LIBRARY_PUBLIC_ENDPOINTS.map((endpoint) => endpoint.path));
+        const paths = new Set(Object.values(identity.assembly.auth.api as Record<string, {readonly path?: string}>).flatMap((endpoint) => (endpoint.path === undefined ? [] : [endpoint.path])));
+        expect(paths.size).toBeGreaterThan(80);
+        const reachable: string[] = [];
+        for (const path of [...paths].filter((candidate) => !publicPaths.has(candidate))) {
+            const concrete = path.replaceAll(/:\w+/gu, "x");
+            for (const method of METHODS) {
+                const init: RequestInit =
+                    method === "GET" || method === "HEAD"
+                        ? {method, headers: {cookie}}
+                        : {method, headers: {cookie, origin: TEST_SITE_URL, "content-type": "application/json"}, body: "{}"};
+                if ((await libraryRequest(identity, concrete, init)).status !== 404) reachable.push(`${method} ${path}`);
             }
         }
+        expect(reachable).toEqual(PARAMETERIZED_REACHABLE);
+
         const created = await libraryRequest(identity, "/oauth2/create-client", {
             method: "POST",
             headers: {cookie, "content-type": "application/json"},

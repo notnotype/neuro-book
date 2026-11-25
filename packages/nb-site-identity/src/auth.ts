@@ -10,16 +10,17 @@
  * - `deferSessionRefresh` 打开时，以 GET 调 `getSession` 不写库：按系统时间到期的会话只回空、不删行（清单“库内行为”一行）。
  * - `onAPIError.throw` 打开时，经 `handler` 的非 `APIError` 从 `handler` 抛出，不被打印到标准错误（同上）。
  * - `emailAndPassword.password` 的哈希与校验成为库上下文的 `password`（清单“内部接口”一行）。
- * - t08：签名钥的挑法与宽限期、私钥用 `secretConfig` 加密、`jwks` 的算法回退（清单“签名钥”一行，`oauth/signing-key.ts`）；
+ * - t08：签名钥的挑法与宽限期、私钥用 `secretConfig` 加密、`jwks` 的算法回退（清单“签名钥”几行，`oauth/signing-key.ts`）；
  *   `codeExpiresIn`、`accessTokenExpiresIn` 的缺省（清单“寿命”一行）；`storeClientSecret: {hash}` 是库校验客户端密钥的唯一途径
- *   （清单“客户端密钥”一行）；`disabledPaths` 只挡 `handler`、不挡 `auth.api`（清单“关掉的路径”一行）。
+ *   （清单“客户端密钥”一行）；`getEndpoints` 给出与 `auth.api` 同一组端点，`disabledPaths` 逐字比路径、只挡 `handler`、不挡
+ *   `auth.api`（清单“关掉的路径”一行）。
  */
 
 import {Type, type Static, type TSchema} from "typebox";
 import {Value} from "typebox/value";
 
 import {betterAuth, type BetterAuthOptions, type StandardSchemaV1} from "better-auth";
-import {createAuthEndpoint} from "better-auth/api";
+import {createAuthEndpoint, getEndpoints} from "better-auth/api";
 import {deleteSessionCookie, setSessionCookie} from "better-auth/cookies";
 import {admin, jwt, username, type JwtOptions} from "better-auth/plugins";
 
@@ -54,6 +55,12 @@ export interface IdentityAuthOptions {
 }
 
 /**
+ * 换下来的签名钥的公钥还列在公钥地址里的时长（秒）：`site.oauth-provider` 输出 17，30 天。与库的缺省相同，仍显式写，库改缺省时
+ * 不跟着变（实现审查第 4 条）。
+ */
+export const JWKS_GRACE_SECONDS = 30 * DAY_SECONDS;
+
+/**
  * 库的 jwt 插件的选项；`oauth/signing-key.ts` 在启动时建钥也用这一份，新钥匙的算法与长度与库签发时期待的一致。
  * 签发者是站点地址的 origin、不带路径（`site.oauth-provider` 输出 2、11）。`disableSettingJwtHeader`：库不在会话响应上加
  * `set-auth-jwt` 头，那是给“会话换 JWT”用的，本站不提供。
@@ -62,43 +69,59 @@ export function identityJwtOptions(siteUrl: string) {
     return {
         disableSettingJwtHeader: true,
         jwt: {issuer: new URL(siteUrl).origin},
-        jwks: {keyPairConfig: {alg: "RS256", modulusLength: 2048}},
+        jwks: {keyPairConfig: {alg: "RS256", modulusLength: 2048}, gracePeriod: JWKS_GRACE_SECONDS},
     } satisfies JwtOptions;
 }
 
 /**
- * 关成 404 的库端点（经 `handler`；服务端经 `auth.api` 调用不受影响，第六轮问 6 实测）。这是第二道，第一道是挂载层的白名单
- * （计划 3.6）。分类照问 6 的表：
- * - 合同要、但只由自家路由在服务端调的（B）：确认、列出与删除授权、取客户端的公开信息。
- * - 合同不要、库没有开关的（D）：续接、内省、普通用户自管客户端、预登录取客户端、单条授权的读改、登出端点。
- * - 合同不要、库有开关且缺省关的（C）：动态登记、客户端换钥。缺省关时库自己回 403、400，也列进来，开关被误开时仍到不了。
- * - 库在基路径下的两份发现文档（站点根的由自家路由给，内容不同，问 1），jwt 插件的 `/token`（会话换 JWT）。
- * `POST /oauth2/authorize` 与 GET 同一路径，这里关不掉，由挂载层按方法挡。
+ * 库的端点里对外要的那几条（`site.oauth-provider` 输出 1，计划 3.6 的挂载白名单）：别的“方法加路径”经站点都是 404。路径是库端点
+ * 的写法（`auth.api` 里端点的 `path`，带参数的写成 `:name`），方法是对外放行的。第 5 片的挂载层照这张表登记；`disabledPaths`
+ * 由它反推（`disabledLibraryPaths`）。
  */
-export const DISABLED_LIBRARY_PATHS: readonly string[] = [
-    "/oauth2/consent",
-    "/oauth2/get-consents",
-    "/oauth2/delete-consent",
-    "/oauth2/public-client",
-    "/oauth2/continue",
-    "/oauth2/introspect",
-    "/oauth2/create-client",
-    "/oauth2/get-client",
-    "/oauth2/get-clients",
-    "/oauth2/update-client",
-    "/oauth2/client/rotate-secret",
-    "/oauth2/delete-client",
-    "/oauth2/public-client-prelogin",
-    "/oauth2/get-consent",
-    "/oauth2/update-consent",
-    "/oauth2/end-session",
-    "/oauth2/end-session/confirm",
-    "/oauth2/register",
-    "/oauth2/client/rotate-keys",
-    "/.well-known/openid-configuration",
-    "/.well-known/oauth-authorization-server",
-    "/token",
-];
+export const LIBRARY_PUBLIC_ENDPOINTS = [
+    {path: "/oauth2/authorize", methods: ["GET", "HEAD"]},
+    {path: "/oauth2/token", methods: ["POST"]},
+    {path: "/oauth2/userinfo", methods: ["GET", "POST"]},
+    {path: "/oauth2/revoke", methods: ["POST"]},
+    {path: "/jwks", methods: ["GET", "HEAD"]},
+    // 社交登录的回调（第 8 片）：挂载层只放开放了的上游，`:id` 是 `google` 或 `github`。
+    {path: "/callback/:id", methods: ["GET"]},
+] as const satisfies readonly {readonly path: string; readonly methods: readonly string[]}[];
+
+/** 库端点表里本模块读的两样：路径（`createAuthEndpoint.serverOnly` 建的没有路径），与是否只供服务端调用。 */
+interface LibraryEndpointShape {
+    readonly path?: string;
+    readonly options?: {readonly metadata?: {readonly SERVER_ONLY?: boolean}};
+}
+
+/**
+ * 交给库的 `disabledPaths`：库的全部端点路径，减去对外要的（`LIBRARY_PUBLIC_ENDPOINTS`）、只供服务端调用的与带参数的。经 `handler`
+ * 这些路径一律 404；服务端经 `auth.api` 调不受影响（第六轮问 6 实测）。这是第二道，第一道是挂载层的白名单（计划 3.6）：白名单
+ * 写宽了时，库删会话（`/sign-out`、`/revoke-sessions`、`/admin/ban-user` 等，不经 `oauth/revoke.ts` 的撤销）、改密码、改账号
+ * 的端点仍到不了（实现审查第 1 条）。不手写清单：库新加的端点自动落进关掉的一边。
+ *
+ * 取法：`better-auth/api` 导出的 `getEndpoints` 用同一份选项算出端点表。库 1.7.27 的 `betterAuth` 由它得出 `auth.api`、`handler`
+ * 每次请求也由它建路由，所以三者是同一组端点；它的端点只在被调用时才等上下文，这里给一个不会完成的 Promise，只读 `path` 与
+ * `options`。以上进升级清单“关掉的路径”一行。
+ *
+ * 不列的两类：
+ * - 只供服务端调用的（`metadata.SERVER_ONLY`）：经 `handler` 本来就是 404。列进来的话，`auth.test.ts` 守着这条库行为的用例就
+ *   分辨不出 404 是谁给的。
+ * - 带参数的（`/reset-password/:token`）：库拿请求路径（去掉基路径与末尾的斜杠）与 `disabledPaths` 逐字比，不认参数，写进去只挡
+ *   字面的 `:token`。它们只靠挂载白名单挡；`oauth/provider.test.ts` 列着现在经 `handler` 到得了的几条，库新加时那条用例失败。
+ * 逐字比也不分方法：对外路径上合同不要的方法（`POST /oauth2/authorize`）这里关不掉，由挂载层按方法挡。
+ */
+export function disabledLibraryPaths(options: BetterAuthOptions): string[] {
+    const publicPaths = new Set<string>(LIBRARY_PUBLIC_ENDPOINTS.map((endpoint) => endpoint.path));
+    const {api} = getEndpoints(new Promise<never>(() => undefined), options);
+    const paths = new Set<string>();
+    for (const endpoint of Object.values(api) as LibraryEndpointShape[]) {
+        const path = endpoint.path;
+        if (path === undefined || publicPaths.has(path) || path.includes(":") || endpoint.options?.metadata?.SERVER_ONLY === true) continue;
+        paths.add(path);
+    }
+    return [...paths].sort();
+}
 
 /** 授权码与访问令牌的寿命（秒）：用库的缺省，不在选项里写；库改了缺省时包内用例失败（升级清单“寿命”一行）。 */
 export const LIBRARY_CODE_SECONDS = 600;
@@ -170,12 +193,11 @@ function nbSession() {
 export function identityAuthOptions(options: IdentityAuthOptions) {
     const {clock, conn, log, termsVersion} = options;
     const sessionSeconds = options.sessionDays * DAY_SECONDS;
-    return {
+    const assembled = {
         baseURL: options.siteUrl,
         basePath: LIB_BASE_PATH,
         secret: options.secret,
         database: conn.libDatabase(),
-        disabledPaths: [...DISABLED_LIBRARY_PATHS],
         advanced: {
             database: {
                 // 库插入时不带 id，由表的 AUTOINCREMENT 发号；库把 id 读成字符串，模块对外一律转成整数。
@@ -297,6 +319,8 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
             }),
         ],
     } satisfies BetterAuthOptions;
+    // 关掉的路径要从装好插件的这一份选项算：端点表随插件变。
+    return {...assembled, disabledPaths: disabledLibraryPaths(assembled)} satisfies BetterAuthOptions;
 }
 
 /**
