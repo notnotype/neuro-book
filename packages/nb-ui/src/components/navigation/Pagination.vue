@@ -164,9 +164,13 @@ function go(page: number): void {
     transform: scale(0.93);
 }
 
-.nb-pagination-page.is-current {
-    background: var(--overlay-item-active);
-    color: var(--text-main);
+/*
+ * 当前页用主色的浅底，不用灰底：灰底与上面的悬停底深浅几乎一样，鼠标停在别的页码上时分不清哪个是当前页。
+ * 带 :not(:disabled) 是为了与悬停、按下同一优先级、写在后面压过它们：停在当前页上时它仍是当前页的样子。
+ */
+.nb-pagination-page.is-current:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-main) 14%, transparent);
+    color: color-mix(in srgb, var(--accent-main) 75%, var(--text-main));
     font-weight: var(--weight-strong);
 }
 
