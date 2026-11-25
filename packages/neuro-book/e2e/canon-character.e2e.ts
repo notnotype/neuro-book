@@ -83,7 +83,7 @@ async function openEntry(page: Page, name: string): Promise<void> {
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动；成段的按 Escape、短项点外面都不存；加一项资料；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -126,6 +126,19 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await passage.getByRole("textbox").press("Escape");
     await expect(passage).toHaveCount(0);
     await expect(valueOf(page, "character.性格")).toContainText("遇事怎么反应");
+
+    // 最后一段（背景）贴着窗口底边时打开：编辑层向下长，打开时整个滚进可见范围，保存按钮不在窗口外（输出 51）。
+    // 先把这一段滚到底边上再点（点击自己不会再滚）；看保存按钮的中心点上是不是它，不靠点击（点击会先把它滚出来）。
+    await valueOf(page, "character.背景").evaluate((element) => element.scrollIntoView({block: "end"}));
+    await valueOf(page, "character.背景").click();
+    const last = editorOf(page, "character.背景");
+    await expect(last.getByRole("textbox")).toBeFocused();
+    await expect.poll(() => last.getByRole("button", {name: "保存"}).evaluate((button) => {
+        const {x, y, width, height} = button.getBoundingClientRect();
+        return document.elementFromPoint(x + width / 2, y + height / 2)?.closest("button") === button;
+    })).toBe(true);
+    await last.getByRole("textbox").press("Escape");
+    await expect(last).toHaveCount(0);
 
     // 年龄：短项在浮层里；预览中（一行）与预览回来（写回哪里与变化两行）时保存按钮在同一个位置；点浮层外面放弃。
     await valueOf(page, "character.年龄").click();

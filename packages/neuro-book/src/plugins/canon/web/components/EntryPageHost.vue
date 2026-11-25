@@ -857,7 +857,13 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                 };
                 return () => {
                     if (inner.layout === "block") {
-                        return h(Transition, {name: "nb-ui-switch"}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
+                        // 编辑层向下长、盖在后面的内容上：打开时整个滚进可见范围（在页面下方打开时，保存不在窗口外）。等下一帧再滚：
+                        // 挂上以后确认条在微任务里给输入框焦点，`focus()` 会打断已经开始的平滑滚动。
+                        const reveal = (element: Element): void => {
+                            const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+                            requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
+                        };
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     return h(Popover, {
