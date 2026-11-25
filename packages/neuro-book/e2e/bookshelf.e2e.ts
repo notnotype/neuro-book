@@ -257,7 +257,7 @@ test("新建作品的对话框：没改过点遮罩关闭、改过不关；选�
     await expect(info).toHaveCount(0);
 });
 
-test("设置的“作品”分区：没设时显示缺省目录；书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 13）", async ({page}) => {
+test("设置的“作品”分区：没设时显示缺省目录；书架的齿轮打开设置；“更改…”的目录选择器叠在窗口上，Esc 只关选择器；选定的目录写进设置，恢复默认删掉（验收 13）；启动时打开写进设置、恢复默认删掉", async ({page}) => {
     await openShelf(page);
     const gear = page.locator("[data-shelf-settings]");
     await gear.click();
@@ -297,6 +297,14 @@ test("设置的“作品”分区：没设时显示缺省目录；书架的齿�
     // 恢复默认：键从设置里删掉，回到没设（后面的用例要缺省的作品目录）。
     await page.locator("[data-settings-row='nbook.projects/library'] [data-settings-row-reset]").click();
     await expect(library).toHaveText(fallback);
+    await expect.poll(async () => parseJsonc(await readFile(settingsFile, "utf8")) as unknown).toEqual({});
+
+    // 启动时打开（projects.md 输出 23）：缺省“上次的作品”；点“书架”写进设置，恢复默认删掉。
+    const startup = page.locator("[data-works-startup]");
+    await expect(startup.locator("button[role='radio'][data-value='last-work']")).toHaveAttribute("aria-checked", "true");
+    await startup.locator("button[role='radio'][data-value='shelf']").click();
+    await expect.poll(async () => parseJsonc(await readFile(settingsFile, "utf8")) as unknown).toEqual({"nbook.projects/startupOpen": "shelf"});
+    await page.locator("[data-settings-row='nbook.projects/startupOpen'] [data-settings-row-reset]").click();
     await expect.poll(async () => parseJsonc(await readFile(settingsFile, "utf8")) as unknown).toEqual({});
 });
 

@@ -173,10 +173,17 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         return null;
                     },
                     notifications,
-                    report: (message) => diagnostics.record({level: "warn", event: "projects.library-not-saved", message, source: {plugin: descriptor.id}}),
+                    report: (setting, message) => diagnostics.record({level: "warn", event: setting === "library" ? "projects.library-not-saved" : "projects.startup-open-not-saved", message, source: {plugin: descriptor.id}}),
                 }),
             };
             const project = context.services.require(windowProjectKey).project;
+            // 记成“上次的作品”，给启动时的 `resume` 路由用（docs/specs/runtime/projects.md 的“最近打开”）。不等它：没记上只少一个
+            // 启动时的提示，窗口照常。
+            if (project !== null) {
+                void remote.opened({id: project.id}).then((result) => {
+                    if (!result.ok) diagnostics.record({level: "warn", event: "projects.opened-not-recorded", message: "没记上上次的作品", data: {code: result.code}, source: {plugin: descriptor.id}});
+                });
+            }
             // 欢迎页的快捷入口与“新建章节”要文件服务；书架不要，没有装文件插件的窗口照样有书架。
             const files = await context.services.resolve(filesKey);
             const welcome: EditorPageImplementation = {

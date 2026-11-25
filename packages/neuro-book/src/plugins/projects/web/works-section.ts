@@ -36,18 +36,27 @@ export interface WorksPageOptions {
     /** 当前有效的作品目录（远程 `library()`）；取不到为 null，诊断由提供方记。没设时页面据此显示缺省目录。 */
     readonly library: () => Promise<LibraryInfo | null>;
     readonly notifications: Notifications;
-    /** 记诊断：作品目录没写进设置（用户已经看到通知）。 */
-    readonly report: (message: string) => void;
+    /** 记诊断：作品目录或启动时打开没写进设置（用户已经看到通知）；`setting` 说是哪一项。 */
+    readonly report: (setting: WorksWriteFailure["setting"], message: string) => void;
+}
+
+/** 页面里哪一项没写进设置。 */
+export interface WorksWriteFailure {
+    readonly setting: "library" | "startupOpen";
+    readonly code: SettingsFailure;
+    readonly detail: string;
 }
 
 export function createWorksPage(options: WorksPageOptions): Component {
-    const failed = (failure: {readonly code: SettingsFailure; readonly detail: string}): void => {
-        options.report(`作品目录没有写进设置：${failure.code}：${failure.detail}`);
+    const failed = (failure: WorksWriteFailure): void => {
+        const library = failure.setting === "library";
+        options.report(failure.setting, `${library ? "作品目录" : "启动时打开"}没有写进设置：${failure.code}：${failure.detail}`);
         // 与书架“作品目录没写进设置”同一种去处（bookshelf.md“失败与恢复”）：通知。交文字引用，视口显示时按当前语言翻。
+        const reason = `${failure.code}：${failure.detail}`;
         options.notifications.notify({
             tone: "warning",
-            title: projectsText("shelf.libraryNotSavedTitle"),
-            message: projectsText("shelf.libraryChangeNotSaved", {reason: `${failure.code}：${failure.detail}`}),
+            title: projectsText(library ? "shelf.libraryNotSavedTitle" : "worksSettings.startupNotSavedTitle"),
+            message: library ? projectsText("shelf.libraryChangeNotSaved", {reason}) : projectsText("worksSettings.startupNotSaved", {reason}),
         });
     };
     return defineComponent({
