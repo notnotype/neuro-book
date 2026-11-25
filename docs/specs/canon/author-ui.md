@@ -75,7 +75,7 @@ owners:
 interface ComponentViewDeclaration {
     /** 分页的名字。 */
     title?: Text;
-    /** 这个界面会用到的、同一条目上别的设定组（类型 id）。只是依赖的声明，不是权限：设定的读取对作者这一侧本来就全开。没登记的 id 写一条诊断（planned）。 */
+    /** 这个界面会用到的、同一条目上别的设定组（类型 id）。只是依赖的声明，不是权限：设定的读取对作者这一侧本来就全开（planned）。 */
     uses?: string[];
 }
 interface ComponentViewImplementation {
@@ -114,7 +114,7 @@ interface ComponentViewContext {
     listRemove?(path: string, element: string): void;
     /**
      * 以下都是 planned，并且都可以不给：条目页给全，别的宿主缺哪一项，界面就退到没有它时的做法。
-     * 同一条目上另一组设定此刻的情况；只对声明里 `uses` 列了的类型有意义，没列的一律是 `absent`、另写一条诊断。
+     * 同一条目上另一组设定此刻的情况；只对声明里 `uses` 列了的类型有意义，没列的一律是 `absent`（不报错，界面按“没有”画）。
      * 在渲染或计算属性里读；`peer` 只能读（命名空间、字段状态、字段声明、来历），改它的字段要到它自己的分页去。
      */
     other?(type: string):
