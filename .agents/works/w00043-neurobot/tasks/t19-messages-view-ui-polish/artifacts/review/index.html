@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1480px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .cands, .cands.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+figure { margin: 0; }
+figcaption { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开</h1>
+
+<section data-nbdev-question="strip-side" data-nbdev-type="single" data-nbdev-recommend="right-full">
+  <h2>头像列放在哪一边？</h2>
+  <p class="rec"><strong>推荐 C 右边缘、通到顶：和窗口左边的活动栏对称，头只盖聊天区，头与竖线不再相交；聊天区挨着编辑区。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="left" data-nbdev-label="A 左边（现在的位置）">
+      <h3>A 左边（现在的位置）</h3>
+      <figure><img src="r1/l-foot.webp" alt="头像列在左边"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="right" data-nbdev-label="B 右边缘，头横跨整行">
+      <h3>B 右边缘，头横跨整行</h3>
+      <figure><img src="r1/r1-foot.webp" alt="头像列在右边缘，头横跨整行"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="right-full" data-nbdev-label="C 右边缘，通到顶">
+      <h3>C 右边缘，通到顶</h3>
+      <figure><img src="r1/r2-foot.webp" alt="头像列在右边缘，通到顶"></figure>
+    </div>
+    <div class="cand">
+      <h3>现状</h3>
+      <figure><img src="r1/now.webp" alt="现状"></figure>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="list-entry" data-nbdev-type="single" data-nbdev-recommend="foot">
+  <h2>去掉“≡”以后，完整的 bot 列表和会话历史从哪里打开？</h2>
+  <p class="rec"><strong>推荐 A 底部两个按钮：位置固定，不随 bot 与会话的多少移动，和左边活动栏底部的设置按钮一样；按哪个就直接开哪一页，抽屉里不用再切换。</strong></p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="foot" data-nbdev-label="A 底部两个按钮">
+      <h3>A 底部两个按钮</h3>
+      <div class="pair">
+        <figure><figcaption>收着</figcaption><img src="r1/r2-foot.webp" alt="底部两个按钮"></figure>
+        <figure><figcaption>点“会话历史”</figcaption><img src="r1/r2-foot-open.webp" alt="点会话历史"></figure>
+      </div>
+    </div>
+    <div class="cand" data-nbdev-option="groups" data-nbdev-label="B 跟在各组末尾">
+      <h3>B 跟在各组末尾</h3>
+      <div class="pair">
+        <figure><figcaption>收着</figcaption><img src="r1/r2-groups.webp" alt="跟在各组末尾"></figure>
+        <figure><figcaption>点“会话历史”</figcaption><img src="r1/r2-groups-open.webp" alt="点会话历史"></figure>
+      </div>
+    </div>
+    <div class="cand" data-nbdev-option="expand" data-nbdev-label="C 底部一个展开按钮">
+      <h3>C 底部一个展开按钮</h3>
+      <div class="pair">
+        <figure><figcaption>收着</figcaption><img src="r1/r2-expand.webp" alt="底部一个展开按钮"></figure>
+        <figure><figcaption>点“展开列表”</figcaption><img src="r1/r2-expand-open.webp" alt="点展开列表"></figure>
+      </div>
+    </div>
+  </div>
+  <div class="pair" style="max-width: 360px; margin-top: 16px">
+    <figure><figcaption>现状</figcaption><img src="r1/now.webp" alt="现状"></figure>
+    <figure><figcaption>现状点“≡”</figcaption><img src="r1/now-open.webp" alt="现状点三横线"></figure>
+  </div>
+</section>
+
+<section>
+  <h2>不用答，直接画进稿里</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>最近会话</td><td>方块里写标题第一个字，bot 是圆头像，形状分开两类；当前会话的高亮跟着方块</td></tr>
+      <tr><td>新对话</td><td>从头左边的“+”挪到头像列最上面</td></tr>
+      <tr><td>抽屉</td><td>从头像列那一侧拉出；按“全部 bot”“会话历史”直接开那一页，没有切换行</td></tr>
+      <tr><td>下一轮</td><td>消息的样式：标签行、卡片、动作按钮与统计</td></tr>
+    </tbody>
+  </table>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,86 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "46826c695a1e7d9669d578d36efa03205a2ba49b950a621570ab2608c6e27afd",
+    "files": [
+        "index.html",
+        "r1/l-foot.webp",
+        "r1/now-open.webp",
+        "r1/now.webp",
+        "r1/r1-foot.webp",
+        "r1/r2-expand-open.webp",
+        "r1/r2-expand.webp",
+        "r1/r2-foot-open.webp",
+        "r1/r2-foot.webp",
+        "r1/r2-groups-open.webp",
+        "r1/r2-groups.webp"
+    ],
+    "questions": [
+        {
+            "id": "strip-side",
+            "type": "single",
+            "label": "头像列放在哪一边？",
+            "options": [
+                {
+                    "value": "left",
+                    "label": "A 左边（现在的位置）"
+                },
+                {
+                    "value": "right",
+                    "label": "B 右边缘，头横跨整行"
+                },
+                {
+                    "value": "right-full",
+                    "label": "C 右边缘，通到顶"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "right-full"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-entry",
+            "type": "single",
+            "label": "去掉“≡”以后，完整的 bot 列表和会话历史从哪里打开？",
+            "options": [
+                {
+                    "value": "foot",
+                    "label": "A 底部两个按钮"
+                },
+                {
+                    "value": "groups",
+                    "label": "B 跟在各组末尾"
+                },
+                {
+                    "value": "expand",
+                    "label": "C 底部一个展开按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "foot"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T07:56:41.207Z"
+}
