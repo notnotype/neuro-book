@@ -58,7 +58,7 @@ owners:
 | 密码 | 8 到 128 个字符；登录时只查上限，不查下限：旧站导入的密码可能更短 |
 | 头像与网站 | 只收 `http` 或 `https` 地址，至多 500 个字符；签名至多 200 个字符 |
 
-配置：当前条款版本 `NB_SITE_IDENTITY_TERMS_VERSION`（必填；形如 `2026-11-20` 的真实存在的日期，服务条款与隐私政策共用一个版本）、注册是否开放 `NB_SITE_IDENTITY_REGISTRATION_OPEN`（`true` 或 `false`，缺省 `true`）、会话时长 `NB_SITE_IDENTITY_SESSION_DAYS`（2 到 365 的整数，缺省 30）、同时算密码哈希的个数 `NB_SITE_IDENTITY_HASH_CONCURRENCY`（1 到 16 的整数，缺省 2）、排队等着算哈希的请求数上限 `NB_SITE_IDENTITY_HASH_QUEUE`（0 到 10000 的整数，缺省 64）、Google 与 GitHub 各自是否开放。不合格时的问题词见 [`site.operations`](operations.md)。进程环境里有以 `BETTER_AUTH_` 开头的变量时启动失败（`config_invalid`，问题词 `not_allowed`，记在那个变量名上）：这类变量会绕过上面的配置改变账号的行为（例如会话的签名密钥）。
+配置：当前条款版本 `NB_SITE_IDENTITY_TERMS_VERSION`（必填；形如 `2026-11-20` 的真实存在的日期，服务条款与隐私政策共用一个版本）、注册是否开放 `NB_SITE_IDENTITY_REGISTRATION_OPEN`（`true` 或 `false`，缺省 `true`）、会话时长 `NB_SITE_IDENTITY_SESSION_DAYS`（2 到 365 的整数，缺省 30）、同时算密码哈希的个数 `NB_SITE_IDENTITY_HASH_CONCURRENCY`（1 到 16 的整数，缺省 2）、排队等着算哈希的请求数上限 `NB_SITE_IDENTITY_HASH_QUEUE`（0 到 10000 的整数，缺省 64）、Google 与 GitHub 各自是否开放。不合格时的问题词见 [`site.operations`](operations.md)。进程环境里有以 `BETTER_AUTH_` 开头、取值不为空的变量时启动失败（`config_invalid`，问题词 `not_allowed`，记在那个变量名上）：这类变量会绕过上面的配置改变账号的行为（例如会话的签名密钥）。
 
 定时任务（名字给 [`site.operations`](operations.md) 输出 11 的测试控制入口用）：`purge` 每 10 分钟跑一次、服务启动后先跑一次，清掉已到期的会话与过去的限流时间窗。
 
@@ -68,7 +68,7 @@ owners:
 2. **注册的原子性。** 注册码的扣减、账号、同意记录要么都发生要么都不发生：因用户名或邮箱重复等原因没建成账号时，注册码不被扣。同一个只剩一次的注册码被并发使用时，至多一个请求成功。
 3. **注册的拒绝。** 注册关闭回 `registration_closed`；注册码不存在、停用、过期或用完回 `registration_code_invalid`；邀请码不存在、停用、过期或用完回 `invite_code_invalid`；条款版本不是当前版本、或没有同意境外存放回 `consent_required`；用户名、邮箱被占用分别回 `username_taken`、`email_taken`；字段不合规则回 `validation_failed` 并列出字段。
 4. **登录。** 请求带“用户名或邮箱”与密码；含 `@` 的按邮箱找，否则按用户名找；邮箱待补的账号不能用邮箱登录。凭据对、账号没被封禁时建立会话并回公开资料。凭据不对、账号不存在、账号没有密码都回同一个 `invalid_credentials`，响应时间不因账号是否存在而有可分辨的差别。被封禁的账号回 `account_banned`。
-5. **会话。** 会话由名为 `__Secure-nbsite.session_token` 的 HttpOnly、Secure、SameSite=Lax 的 Cookie 携带，作用域是站点地址；名字在版本之间不变（变了等于让所有人登出）。有效期为配置的会话时长，使用中会延长，每天至多延长一次。同一个账号可以同时有多个会话。登出只结束当前会话。
+5. **会话。** 会话由名为 `__Host-nbsite.session_token` 的 HttpOnly、Secure、SameSite=Lax、`Path=/`、不带 `Domain` 的 Cookie 携带，作用域是站点地址（同一上级域名下的其它子域写不了它）；名字在版本之间不变（变了等于让所有人登出）。有效期为配置的会话时长，使用中会延长，每天至多延长一次。同一个账号可以同时有多个会话。登出只结束当前会话。
 6. **会话失效。** 账号被封禁、角色被改、密码被改或被重置之后，这个账号在此之前建立的全部会话立即无效：带着它们的请求得到 `unauthenticated`。用户自己改密码时当前这一个会话保留。
 7. **问身份。** `whoami` 回三种之一：`{"state":"anonymous"}`；`{"state":"authenticated","user":{"id":数字,"username":…,"role":"user"|"admin"}}`；账号库不可读时回 503 与 `unavailable`。它不延长会话。
 8. **读改资料。** `me` 回公开资料加邮箱、是否有密码、邮箱是否待补、是否还缺同意（同意记录不是当前条款版本，或没有对境外存放的同意，即输出 10 的门槛）。`PATCH me` 可改显示名、邮箱、头像、网站、签名；邮箱改成别人的回 `email_taken`。
@@ -85,7 +85,7 @@ owners:
 19. **限流。** 登录按三个键计：来源地址（每 5 分钟 30 次）、来源地址加用户名（每 5 分钟 10 次）、同一个用户名的失败次数（每小时 20 次，超过后每次登录先等 2 秒，不锁死）。注册按来源地址每小时 5 次，改密码按账号每小时 5 次。超限回 `rate_limited` 与 `Retry-After`。来源地址只从可信代理的转发头取；取不到时请求回 `forbidden_origin`，不与别的请求合并计数。计数按对齐的时间窗算：窗从整点起按窗长切，所以跨过边界的一个窗长里可以到两倍。IPv6 来源按前 64 位算一个，另按前 48 位合计，额度是单个来源的 16 倍。每次尝试都计入；在哪个键上被限流拒绝，那一次就不计入哪个键。这里的“用户名”是规范化后的登录名：转成小写，是邮箱时就是那个邮箱。成功的登录不清零失败计数。每个计数的键超过 10 万个时，窗口内新出现的键共用一份溢出额度，为该计数上限的 10 倍；失败计数的键超过 10 万个时，新出现的用户名一律先等 2 秒。
 20. **过载。** 同时在算的密码哈希有上限，个数与排队的长度分别由 `NB_SITE_IDENTITY_HASH_CONCURRENCY` 与 `NB_SITE_IDENTITY_HASH_QUEUE` 定；排队的请求超过上限或等待超过 5 秒时回 `overloaded`，不无限排队。登录、注册、改密码与管理员重置密码（[`site.admin`](admin.md) 输出 4）都要算哈希，都可能回 `overloaded`。
 21. **旧密码格式。** 以旧站格式存着的密码能照常登录；登录成功后它被换成新格式，之后仍能用同一个密码登录。换格式不会覆盖在这次登录期间被改掉或重置的密码。
-22. **错误形状。** 失败的响应体是 `{"error":{"code":…,"fields":[…]?}}`，`code` 是下文失败表里的稳定值；`fields` 只在 `validation_failed` 时有，是不合规则的字段名的数组，字段名就是请求体里的键名；不带给人看的文字、堆栈与内部路径。请求体超过 16 KiB、不是 JSON 或不是对象时回 `validation_failed`，`fields` 为空数组。不需要参数的写接口（登出、结束会话、生成邀请码，以及 [`site.admin`](admin.md) 里的封禁、解封、结束全部会话、重置密码）请求体可以为空；给了请求体时必须是没有键的 JSON 对象，否则同样回 `validation_failed`、`fields` 为空数组。成功而没有内容可回的接口（登出、改密码、结束会话）回 `{}`。
+22. **错误形状。** 失败的响应体是 `{"error":{"code":…,"fields":[…]?}}`，`code` 是下文失败表里的稳定值；`fields` 只在 `validation_failed` 时有，是不合规则的字段名的数组，字段名就是请求体里的键名；不带给人看的文字、堆栈与内部路径。请求体超过 16 KiB、不是 JSON 或不是对象时回 `validation_failed`，`fields` 为空数组。不需要参数的写接口（登出、结束会话、生成邀请码，以及 [`site.admin`](admin.md) 里的封禁、解封、结束全部会话、重置密码）请求体可以为空；给了请求体时必须是没有键的 JSON 对象，否则同样回 `validation_failed`、`fields` 为空数组。成功而没有内容可回的接口（登出、改密码、结束会话）回 `{}`。账号的所有响应都带 `Cache-Control: no-store`：回答随会话变化，不能被代理或浏览器缓存。
 23. **社交流程的落点。** 上游回调处理完后，浏览器被带回站点的一个页面。登录或注册成功到 `/`，关联成功到 `/account`。没完成时带查询参数 `social_error=<码>`：登录意图回 `/login`，注册意图回 `/register`，关联意图回 `/account`；码是失败表里标“跳转参数”的三个，以及 `email_taken`、`identity_taken`、`identity_exists`、`account_banned`。由 [`site.oauth-provider`](oauth-provider.md) 输出 4 带到登录页的人，登录成功后回到那次授权请求，不到 `/`。
 24. **上游身份列表。** `me/identities` 的每项有 id、上游名、上游账号的名字与关联时间。上游账号的名字在注册或关联时记下，之后不随上游更新，只给本人看。
 
