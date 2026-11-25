@@ -87,25 +87,28 @@ export const LOGIN_IDENTIFIER = {minLength: 1, maxLength: 254, pattern: codePoin
 const WEB_URL_FORBIDDEN = "\\s\\u0000-\\u001F\\u007F-\\u009F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069";
 
 /**
- * 头像与网站：`http` 或 `https` 地址，至多 500 个码点，不含 `WEB_URL_FORBIDDEN` 里的字符。`pattern` 管长度、这些字符与协议开头；
- * 地址能不能解析用 `isWebUrl` 判，schema 表达不了。
+ * 头像与网站：以 `http://` 或 `https://` 开头（协议名不分大小写）的地址，至多 500 个码点，不含 `WEB_URL_FORBIDDEN` 里的字符。
+ * `pattern` 管长度、这些字符与开头；地址能不能解析、有没有主机用 `isWebUrl` 判，schema 表达不了。
+ * 开头要写出 `//`：`https:example.org`、`https:/example.org` 无基准时解析成 `https://example.org/`，页面上的链接与图片却按站点地址
+ * 解析成站内路径 `https://<站点>/example.org`，校验时的地址与页面实际去的不是一个（omp 实现审查第 6 到 8 片第 4 条）。
+ * `http:\\evil.example` 的反斜杠在 WHATWG 的解析里当斜杠用，但不是字面的 `//`，同样不收。
  */
 export const WEB_URL = {
     maxLength: 500,
     protocols: ["http:", "https:"],
-    pattern: `^(?=[^${WEB_URL_FORBIDDEN}]{1,500}$)[Hh][Tt][Tt][Pp][Ss]?:`,
+    pattern: `^(?=[^${WEB_URL_FORBIDDEN}]{1,500}$)[Hh][Tt][Tt][Pp][Ss]?://`,
 } as const;
 
 const WEB_URL_PREFIX = new RegExp(WEB_URL.pattern, "u");
 
 /**
- * 头像、网站的完整规则：合 `WEB_URL.pattern`，且平台的 `URL.parse` 解析得出 `http:` 或 `https:`。
+ * 头像、网站的完整规则：合 `WEB_URL.pattern`，且平台的 `URL.parse` 解析得出 `http:` 或 `https:` 与非空的主机。
  * 服务端在 schema 通过之后对这两个字段调它，不合格同样回 `validation_failed`；前端提交前用它判。
  */
 export function isWebUrl(value: string): boolean {
     if (!WEB_URL_PREFIX.test(value)) return false;
-    const protocol = URL.parse(value)?.protocol;
-    return protocol !== undefined && (WEB_URL.protocols as readonly string[]).includes(protocol);
+    const url = URL.parse(value);
+    return url !== null && (WEB_URL.protocols as readonly string[]).includes(url.protocol) && url.host !== "";
 }
 
 /** 签名：至多 200 个码点，可以为空串。 */

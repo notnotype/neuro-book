@@ -87,10 +87,33 @@ export function failureAsResponse(failure: FailureResponse): Response {
  */
 export const bodySizeLimit = bodyLimit({maxSize: MAX_BODY_BYTES, onError: (c) => respondFailure(c, failureResponse("validation_failed"))});
 
+/** `value` 里（含嵌套的数组与对象，键名也算）有没有不良构的字符串，即含孤立代理项的。 */
+function hasIllFormedText(value: unknown): boolean {
+    if (typeof value === "string") return !value.isWellFormed();
+    if (typeof value !== "object" || value === null) return false;
+    if (Array.isArray(value)) return value.some(hasIllFormedText);
+    return Object.entries(value).some(([key, item]) => !key.isWellFormed() || hasIllFormedText(item));
+}
+
+/**
+ * 体里含孤立代理项的顶层键名（`site.accounts` 字段规则的引言）。严格解码只保证字节是 UTF-8，`"\ud800"` 这样的转义仍会被
+ * `JSON.parse` 解成半个代理对：字段规则的 `pattern` 按码点匹配、照样放过它，写进 SQLite 时却被换成 U+FFFD，调用方拿到成功、
+ * 库里存的是别的文字（omp 实现审查第 6 到 8 片第 2 条）。合法的代理对与显式写出的 U+FFFD 是良构的，照收。
+ * 顶层键名本身不良构时不列它：把它原样放进 `fields` 也是一段不良构的文字。
+ */
+function illFormedFields(body: Record<string, unknown>): string[] {
+    const fields: string[] = [];
+    for (const [key, item] of Object.entries(body)) {
+        if (!key.isWellFormed()) continue;
+        if (hasIllFormedText(item)) fields.push(key);
+    }
+    return fields;
+}
+
 /**
  * 读请求体并按 JSON 解析成对象；零字节时回 `undefined`。不是 JSON 或不是对象（数组、`null`、数）时 `validation_failed`、
- * `fields: []`。有没有体按收到的字节判，不按解码后的文字：解码会去掉开头的 UTF-8 BOM，只有 BOM 的体解码后是空串，按文字判
- * 就被当成了没有体（omp 实现审查第 10 条）。
+ * `fields: []`；含孤立代理项时 `validation_failed`，`fields` 见 `illFormedFields`，先于 schema 判。有没有体按收到的字节判，
+ * 不按解码后的文字：解码会去掉开头的 UTF-8 BOM，只有 BOM 的体解码后是空串，按文字判就被当成了没有体（omp 实现审查第 10 条）。
  */
 async function readJsonObject(c: Context): Promise<Record<string, unknown> | undefined> {
     const bytes = await c.req.arrayBuffer();
@@ -105,7 +128,9 @@ async function readJsonObject(c: Context): Promise<Record<string, unknown> | und
         throw new IdentityFailure("validation_failed");
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) throw new IdentityFailure("validation_failed");
-    return value as Record<string, unknown>;
+    const body = value as Record<string, unknown>;
+    if (hasIllFormedText(body)) throw new IdentityFailure("validation_failed", illFormedFields(body));
+    return body;
 }
 
 /**
@@ -157,6 +182,8 @@ export async function readBody<S extends TSchema>(c: Context, schema: S): Promis
  * 那个键不合规则：取哪一个都是猜。不合格时 `validation_failed`，`fields` 是那几个键。
  * 收集用没有原型的对象：普通对象上给 `__proto__` 赋字符串会被原型的 setter 吞掉，这个键既不进重复检测、也不被 schema 当成多余的键
  * （omp 实现审查第 4 条）。
+ * 不像请求体那样查孤立代理项：查询串按 WHATWG 的规则百分号解码，`%ED%A0%80` 这类解不成 UTF-8 的字节变成 U+FFFD，产不出孤立
+ * 代理项（Bun 1.4.4 实测；路径参数同理，Hono 解不出时保留百分号原文）。
  */
 export function readQuery<S extends TSchema>(c: Context, schema: S): Static<S> {
     const query = Object.create(null) as Record<string, string>;

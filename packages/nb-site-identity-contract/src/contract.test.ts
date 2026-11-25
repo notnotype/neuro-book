@@ -332,6 +332,26 @@ describe("字段规则（字段规则表）", () => {
         expect(check(WebUrl, `${long}x`)).toBe(false);
     });
 
+    it("头像与网站：开头必须字面写出 http:// 或 https://，解析出非空的主机", () => {
+        // 无基准时这几种都解析成某个 http(s) 地址，按页面的基准却可能落到站内路径（字段规则：以 http:// 或 https:// 开头、带主机）。
+        const cases: readonly (readonly [url: string, schema: boolean, full: boolean])[] = [
+            ["https:example.org", false, false],
+            ["https:/example.org", false, false],
+            ["HTTPS:evil.example", false, false],
+            ["http:\\evil.example", false, false],
+            ["http:\\\\evil.example", false, false],
+            ["http:/\\evil.example", false, false],
+            // 开头对了、没有主机：schema 过，`isWebUrl` 拒收。
+            ["http://", true, false],
+            ["https:///", true, false],
+            ["http://@/", true, false],
+            // 协议名不分大小写，开头的 // 写对了就照收。
+            ["Https://e.example/a.png", true, true],
+            ["http://[::1]/", true, true],
+        ];
+        for (const [url, schema, full] of cases) expect({url, schema: check(WebUrl, url), full: isWebUrl(url)}).toEqual({url, schema, full});
+    });
+
     it("头像与网站：不收空白、C0 与 C1 控制字符、DEL 与双向控制符，schema 与 isWebUrl 同一条规则；别的非 ASCII 字符照收", () => {
         const rejectedChars: readonly (readonly [name: string, char: string])[] = [
             ["空格", " "],

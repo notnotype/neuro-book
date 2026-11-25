@@ -227,6 +227,11 @@ describe("PATCH me（输出 8）", () => {
             [{website: "https://alice.example/\u202Eexe.gpj"}, ["website"]],
             [{website: "https://alice.example/\u0085"}, ["website"]],
             [{avatarUrl: "https://cdn.example/a png", website: "https://alice.example/\u2066"}, ["avatarUrl", "website"]],
+            // \u5f00\u5934\u6ca1\u6709\u5b57\u9762\u7684 `//`\uff1a\u65e0\u57fa\u51c6\u4e0e\u6309\u9875\u9762\u7684\u57fa\u51c6\u89e3\u6790\u51fa\u7684\u5730\u5740\u4e0d\u540c\uff08\u5b57\u6bb5\u89c4\u5219\uff1a\u4ee5 http:// \u6216 https:// \u5f00\u5934\u3001\u5e26\u4e3b\u673a\uff09\u3002
+            [{website: "https:example.org"}, ["website"]],
+            [{avatarUrl: "HTTPS:/cdn.example/a.png"}, ["avatarUrl"]],
+            [{website: "http:\\\\evil.example"}, ["website"]],
+            [{avatarUrl: "http://"}, ["avatarUrl"]],
             [{email: "alice@placeholder.invalid"}, ["email"]],
             [{email: "not an email"}, ["email"]],
             [{displayName: ""}, ["displayName"]],
@@ -235,6 +240,34 @@ describe("PATCH me（输出 8）", () => {
             expect({request: body, ...(await outcome(await patchMe(identity, cookie, body)))}).toEqual({request: body, status: 400, body: {error: {code: "validation_failed", fields}}});
         }
         expect(await (await getMe(identity, cookie)).json()).toEqual(before);
+    });
+
+    it("文字里有孤立的代理项（JSON 转义写出的）：validation_failed，fields 是那个顶层键，什么都不改；合法的代理对与 U+FFFD 照收", async () => {
+        identity = await createTestIdentity("identity-me-patch-lone-surrogate");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        const before = await (await getMe(identity, cookie)).json();
+        // `JSON.stringify` 把孤立代理项写成 `\ud800` 这样的转义：请求体的字节是合法的 UTF-8，解析出的字符串却不良构。
+        const rejected: readonly (readonly [name: string, body: unknown, fields: readonly string[]])[] = [
+            ["高代理项", {displayName: "\ud800"}, ["displayName"]],
+            ["低代理项", {bio: "\udc00"}, ["bio"]],
+            ["夹在文字中间", {displayName: "a\ud800b"}, ["displayName"]],
+            ["顺序反了的一对", {displayName: "\udc00\ud800"}, ["displayName"]],
+            ["两个字段各一个，按出现的先后", {bio: "\udfff", displayName: "\ud83c"}, ["bio", "displayName"]],
+            ["只有一个字段不良构，别的合规则也不改", {displayName: "Alice", bio: "\ud800"}, ["bio"]],
+            ["嵌套的值", {displayName: ["\ud800"]}, ["displayName"]],
+            ["嵌套的键名", {bio: {"\ud800": 1}}, ["bio"]],
+            ["顶层键名本身不良构时不列它", {"\ud800": "x"}, []],
+        ];
+        for (const [name, body, fields] of rejected) {
+            expect({name, ...(await outcome(await patchMe(identity, cookie, body)))}).toEqual({name, status: 400, body: {error: {code: "validation_failed", fields}}});
+        }
+        expect(await (await getMe(identity, cookie)).json()).toEqual(before);
+        for (const displayName of ["🌸", "🌸", "�", "a�b"]) {
+            const response = await patchMe(identity, cookie, {displayName});
+            expect({displayName, status: response.status, stored: ((await response.json()) as {displayName: string}).displayName}).toEqual({displayName, status: 200, stored: displayName});
+            expect(((await (await getMe(identity, cookie)).json()) as {displayName: string}).displayName).toBe(displayName);
+        }
     });
 
     it("邮箱改成别人的（大小写不同也算）：email_taken，什么都不改；改成自己现在的邮箱照样成功", async () => {

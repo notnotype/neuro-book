@@ -292,6 +292,35 @@ describe("登录与改动并发（时序一节）", () => {
         expect(await sessionCount(identity, userId)).toBe(0);
     });
 
+    for (const [name, from, to] of [
+        ["升为管理员", "user", "admin"],
+        ["降为普通用户", "admin", "user"],
+    ] as const) {
+        it(`校验通过之后、发会话之前被${name}：登录回的角色就是新会话的角色（输出 4）`, async () => {
+            const passwords = countingPasswords();
+            identity = await createTestIdentity(`identity-login-role-race-${to}`, {overrides: {passwords}});
+            const target = identity;
+            const rootId = await target.addUser("root", {role: "admin", consent: CONSENTED});
+            const root = await target.issue(rootId);
+            const userId = await target.addUser("alice", {role: from, consent: CONSENTED, password: PASSWORD});
+            // 经真实的管理接口改角色：它与登录的发会话事务走同一条队列，排在哈希校验之后、发会话之前。
+            let changed: Response | undefined;
+            passwords.after = async () => {
+                changed = await target.fetch(`/admin/users/${String(userId)}/role`, {
+                    method: "POST",
+                    headers: {origin: TEST_SITE_URL, "content-type": "application/json", cookie: root.cookie},
+                    body: JSON.stringify({role: to}),
+                });
+            };
+            const response = await login(target, "alice", PASSWORD);
+            expect({changed: changed?.status, login: response.status}).toEqual({changed: 200, login: 200});
+            const body = (await response.json()) as {user: {role: string}};
+            const cookie = sessionCookieOf(response.headers.getSetCookie());
+            const whoami = await (await target.fetch("/whoami", {headers: {cookie}})).json();
+            expect({response: body.user.role, whoami}).toEqual({response: to, whoami: {state: "authenticated", user: {id: userId, username: "alice", role: to}}});
+        });
+    }
+
     it("封禁在发会话的事务开着时到达：排在事务之后，提交后删掉刚发的会话，之后的登录回 account_banned", async () => {
         // 手动计时器只用来数排队等锁的个数（每个等锁的登记一个上限计时器），不拨它。
         const timers = new ManualTimers();

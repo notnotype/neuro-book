@@ -81,6 +81,7 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
             createAdmin(sandbox, dataDir, ["devices", "devices@example.com"], PASSWORD),
             createAdmin(sandbox, dataDir, ["inviter", "inviter@example.com"], PASSWORD),
             createAdmin(sandbox, dataDir, ["gated", "gated@example.com"], PASSWORD),
+            createAdmin(sandbox, dataDir, ["surrogate", "surrogate@example.com"], PASSWORD),
         ]);
         site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
     }, SETUP_TIMEOUT_MS);
@@ -144,6 +145,7 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
             [{username: "renamed"}, ["username"]],
             [{avatarUrl: "ftp://cdn.example/a.png"}, ["avatarUrl"]],
             [{website: "https://"}, ["website"]],
+            [{website: "https:example.org"}, ["website"]],
             [{website: "https://\tgoogle.com@evil.example"}, ["website"]],
             [{email: "taken@placeholder.invalid"}, ["email"]],
         ];
@@ -152,6 +154,25 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
         expect((await getMe(jar)).body).toEqual(before);
         const same = await patchMe(jar, {email: "TAKEN@example.com"});
         expect({status: same.status, email: (same.body as MeResponse).email}).toEqual({status: 200, email: "taken@example.com"});
+    });
+
+    // 超出 200 毫秒的预算：登录算一次密码哈希。
+    it("文字里有孤立的代理项（JSON 转义写出的 \\ud800）：validation_failed、fields 列出字段，资料不变；表情符号与显式的 U+FFFD 照收（字段规则）", async () => {
+        const jar = await consented("surrogate");
+        const before = (await getMe(jar)).body;
+        // 请求体原样写出转义：字节全是 ASCII，是合法的 UTF-8，解析出的显示名却是半个代理对。请求体用普通的字符串字面量写，
+        // 不用 String.raw：Bun 1.4.4 转译时会把 String.raw 里的非 ASCII 字符与代理对转义改写成 `\u{…}`，体就不是 JSON 了。
+        expect(failure(await patchMe(jar, '{"displayName":"\\ud800"}'))).toEqual({status: 400, body: {error: {code: "validation_failed", fields: ["displayName"]}}});
+        expect((await getMe(jar)).body).toEqual(before);
+        for (const [request, displayName] of [
+            ['{"displayName":"\\ud83c\\udf38"}', "\u{1F338}"],
+            [JSON.stringify({displayName: "写作 \u{1F338}"}), "写作 \u{1F338}"],
+            ['{"displayName":"\\ufffd"}', "\uFFFD"],
+        ] as const) {
+            const response = await patchMe(jar, request);
+            expect({request, status: response.status, displayName: (response.body as MeResponse).displayName}).toEqual({request, status: 200, displayName});
+            expect((await getMe(jar)).body).toMatchObject({displayName});
+        }
     });
 
     // 超出 200 毫秒的预算：两次登录各算一次密码哈希。

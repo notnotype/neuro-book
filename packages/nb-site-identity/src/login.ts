@@ -10,10 +10,10 @@
  * 5. 找账号（只读），经哈希限额校验；失败下限从拿到名额的那一刻起算。账号不存在或没有密码时拿启动时生成的假哈希校验一次，结果当假，
  *    三种失败都算一次同样参数的 argon2id。
  * 6. 校验失败：失败计数加 1，等到下限再回 `invalid_credentials`。
- * 7. 发会话，一个库的事务（`withLibTransaction`）：复核封禁与“哈希仍是刚校验的那一份”，发会话，写最后登录时间。封禁与哈希都在
- *    这里判，不用第 5 步读出的快照（omp 设计审查第 7 条）：事务持着队列的锁，复核到提交之间别人写不进来。哈希变了（并发的登录刚换了
- *    格式，或密码被改、被重置）时退出事务，对新哈希再校验一次，对上了重进，至多再来两轮；对不上回 `invalid_credentials`
- *    （时序“改密码或重置密码与登录并发”，验收 7）。
+ * 7. 发会话，一个库的事务（`withLibTransaction`）：复核封禁与“哈希仍是刚校验的那一份”并读出要回的公开资料，发会话，写最后登录
+ *    时间。封禁、哈希与资料都在这里判、这里读，不用第 5 步读出的快照（omp 设计审查第 7 条；资料见 `recheck`）：事务持着队列的锁，
+ *    复核到提交之间别人写不进来。哈希变了（并发的登录刚换了格式，或密码被改、被重置）时退出事务，对新哈希再校验一次，对上了重进，
+ *    至多再来两轮；对不上回 `invalid_credentials`（时序“改密码或重置密码与登录并发”，验收 7）。
  * 8. 提交以后，旧格式的哈希换成新格式（输出 21）：忙时跳过；写回是条件更新，期间被改、被重置的密码不被覆盖。
  *
  * 封禁在校验之后才判：不知道密码的人试不出谁被封了（失败表）。
@@ -72,9 +72,12 @@ export interface LoginOptions {
     readonly failureFloor: FailureFloorTiming;
 }
 
-/** 找到的账号与它的密码登录方式。`accountRowId` 为 null 是没有 `credential` 那一行。 */
+/**
+ * 找到的账号与它的密码登录方式。`accountRowId` 为 null 是没有 `credential` 那一行。不带公开资料：这一读在哈希之前，到发会话时
+ * 角色可能已被改掉，回的资料取自发会话的事务（`Recheck` 的 `ok`）。
+ */
 interface LoginCandidate {
-    readonly profile: ProfileRow;
+    readonly userId: number;
     readonly banned: boolean;
     readonly accountRowId: number | null;
     readonly password: string | null;
@@ -99,8 +102,8 @@ function findCandidate(tx: IdentityTx, identifier: string): LoginCandidate | nul
         key = username;
     }
     const row = tx
-        .query<ProfileRow & {banned: number; account_row_id: number | null; password: string | null}, [string]>(
-            `SELECT ${PROFILE_COLUMNS}, u."banned" AS banned, a."id" AS account_row_id, a."password" AS password
+        .query<{id: number; banned: number; account_row_id: number | null; password: string | null}, [string]>(
+            `SELECT u."id" AS id, u."banned" AS banned, a."id" AS account_row_id, a."password" AS password
              FROM "user" u
              LEFT JOIN identity_profile p ON p.user_id = u."id"
              LEFT JOIN "account" a ON a."userId" = u."id" AND a."providerId" = 'credential'
@@ -108,25 +111,33 @@ function findCandidate(tx: IdentityTx, identifier: string): LoginCandidate | nul
         )
         .get(key);
     if (row === null) return null;
-    const {banned, account_row_id, password, ...profile} = row;
-    return {profile, banned: banned === 1, accountRowId: account_row_id, password};
+    return {userId: row.id, banned: row.banned === 1, accountRowId: row.account_row_id, password: row.password};
 }
 
-/** 事务里复核的结果。 */
-type Recheck = {readonly kind: "ok"} | {readonly kind: "banned"} | {readonly kind: "changed"; readonly password: string | null};
+/** 事务里复核的结果。`ok` 带着同一次读出的公开资料，登录回的 `user` 用它。 */
+type Recheck = {readonly kind: "ok"; readonly profile: ProfileRow} | {readonly kind: "banned"} | {readonly kind: "changed"; readonly password: string | null};
 
-/** 复核：没被封禁、密码登录方式那一行还在且哈希仍是 `verified`。行没了按“变成没有密码”处理。 */
+/**
+ * 复核：没被封禁、密码登录方式那一行还在且哈希仍是 `verified`。行没了按“变成没有密码”处理。
+ * 公开资料在这里一起读：这是发会话的事务里的第一个写，事务持着队列的锁直到提交，读到的角色就是新会话的角色。改角色会结束这个账号的
+ * 全部会话，所以在事务外另读（哈希之前或提交之后）都可能与新会话对不上（`site.accounts` 输出 4，omp 实现审查第 6 到 8 片第 3 条）。
+ */
 function recheck(tx: IdentityTx, userId: number, accountRowId: number, verified: string): Recheck {
     const row = tx
-        .query<{banned: number; password: string | null}, [number, number]>(
-            `SELECT u."banned" AS banned, a."password" AS password FROM "user" u LEFT JOIN "account" a ON a."id" = ? AND a."userId" = u."id" WHERE u."id" = ?`,
+        .query<ProfileRow & {banned: number; password: string | null}, [number, number]>(
+            `SELECT ${PROFILE_COLUMNS}, u."banned" AS banned, a."password" AS password
+             FROM "user" u
+             LEFT JOIN identity_profile p ON p.user_id = u."id"
+             LEFT JOIN "account" a ON a."id" = ? AND a."userId" = u."id"
+             WHERE u."id" = ?`,
         )
         .get(accountRowId, userId);
     // 账号在校验之后被删了：本 Task 没有删账号的路径，按“密码不再对得上”处理。
     if (row === null) return {kind: "changed", password: null};
-    if (row.banned === 1) return {kind: "banned"};
-    if (row.password !== verified) return {kind: "changed", password: row.password};
-    return {kind: "ok"};
+    const {banned, password, ...profile} = row;
+    if (banned === 1) return {kind: "banned"};
+    if (password !== verified) return {kind: "changed", password};
+    return {kind: "ok", profile};
 }
 
 /**
@@ -202,12 +213,12 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
             await check(options.dummyHash, "dummy");
             return reject();
         }
-        const userId = candidate.profile.id;
+        const userId = candidate.userId;
         const accountRowId = candidate.accountRowId;
         let verified = candidate.password;
         if (!(await check(verified, userId))) return reject();
 
-        let issued: {readonly cookies: readonly string[]} | undefined;
+        let issued: {readonly cookies: readonly string[]; readonly profile: ProfileRow} | undefined;
         for (let round = 0; issued === undefined; round += 1) {
             const outcome = await issueInTransaction(options, userId, accountRowId, verified, c.req.header("User-Agent") ?? null);
             if (outcome.kind === "issued") {
@@ -229,14 +240,17 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
         }
 
         appendCookies(c, issued.cookies);
-        const response: LoginResponse = {user: publicProfileOf(candidate.profile)};
+        const response: LoginResponse = {user: publicProfileOf(issued.profile)};
         return c.json(response);
     };
 }
 
-type IssueOutcome = {readonly kind: "issued"; readonly cookies: readonly string[]} | {readonly kind: "banned"} | {readonly kind: "changed"; readonly password: string | null};
+type IssueOutcome =
+    | {readonly kind: "issued"; readonly cookies: readonly string[]; readonly profile: ProfileRow}
+    | {readonly kind: "banned"}
+    | {readonly kind: "changed"; readonly password: string | null};
 
-/** 文件头的第 7 步：一个库的事务里复核、发会话、写最后登录时间。复核不成立时事务里什么也没写。 */
+/** 文件头的第 7 步：一个库的事务里复核、发会话、写最后登录时间。复核不成立时事务里什么也没写。成功时带着复核时读的公开资料。 */
 async function issueInTransaction(options: LoginOptions, userId: number, accountRowId: number, verified: string, userAgent: string | null): Promise<IssueOutcome> {
     const {conn} = options;
     try {
@@ -251,7 +265,7 @@ async function issueInTransaction(options: LoginOptions, userId: number, account
                     .query(`INSERT INTO identity_profile (user_id, last_login_at) VALUES (?, ?) ON CONFLICT (user_id) DO UPDATE SET last_login_at = excluded.last_login_at`)
                     .run(userId, now),
             );
-            return {kind: "issued", cookies};
+            return {kind: "issued", cookies, profile: checked.profile};
         });
     } catch (error) {
         if (isBannedUserError(error)) return {kind: "banned"};
