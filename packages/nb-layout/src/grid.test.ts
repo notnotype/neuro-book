@@ -1222,7 +1222,7 @@ describe("拆分树原语：批量原子调整与收起", () => {
         expect(extent(sizes, "editor").width).toBe(1479);
     });
 
-    it("同一次提交里收起保留像素的面板并拖另一个：收起记意图、被拖的两块按目标呈现、意图守恒", () => {
+    it("同一次提交里收起保留像素的面板并拖另一个：收起不改它的意图、被拖的两块按目标呈现、意图守恒（输出 166）", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
             {...leaf("a", "width", 300, 100), sizing: "fixed", collapse: {collapsed: false, collapsedSize: 0, restoreSize: 100, collapseThreshold: 24, expandThreshold: 24}},
             leaf("b", "width", 400, 100),
@@ -1240,9 +1240,9 @@ describe("拆分树原语：批量原子调整与收起", () => {
         expect(result.ok).toBe(true);
         if (!result.ok) throw new Error(result.message);
         expect(result.collapsed).toEqual({a: true});
-        // 保留像素的面板：意图仍是 300，也是记下的恢复尺寸，不被 0 或旧的 restoreSize 100 覆盖。
+        // 保留像素的面板：意图仍是 300，不被 0 覆盖；展开回到它。
         expect(extent(result.intents, "a").width).toBe(300);
-        expect(grid.find("a")?.collapse).toMatchObject({collapsed: true, restoreSize: 300});
+        expect(grid.find("a")?.collapse?.collapsed).toBe(true);
         const after = grid.layout(wide);
         expect(after.issues).toEqual([]);
         expect(extent(after.sizes, "a").width).toBe(0);
@@ -1354,7 +1354,7 @@ describe("拆分树原语：分支的收起", () => {
         expect(["top", "pair"].map((id) => extent(reopened.sizes, id).height)).toEqual(["top", "pair"].map((id) => extent(open, id).height));
     });
 
-    it("手势会话对“子节点是分支”的边界：指针拖过阈值收起、从零跟着指针拉回，Enter 收起与恢复到记忆宽度；提交里收起的是这个分支", () => {
+    it("手势会话对“子节点是分支”的边界：指针拖过阈值收起、从零跟着指针拉回，Enter 收起与展开回到意图；提交里收起的是这个分支", () => {
         const open = (collapsed: boolean, source: "pointer" | "keyboard"): GridGestureSession<string> => {
             const grid = createGrid(column(collapsed), {sashSize: SASH});
             return createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: CONTAINER, layout: grid.layout(CONTAINER), sashSize: SASH, sessionId: "branch-collapse", source, sashes: [{branchId: "root", index: 0, axis: "width"}]});
@@ -1381,8 +1381,9 @@ describe("拆分树原语：分支的收起", () => {
         expect(widthsIn(enterIn, enterIn.toggleCollapsed())).toEqual([0, 0, 0, 0, 999]);
         expect(enterIn.finish()?.changes[0]?.collapsed).toEqual({side: true});
 
+        // 展开回到这一列的意图 300（输出 166）。
         const enterOut = open(true, "keyboard");
-        expect(widthsIn(enterOut, enterOut.toggleCollapsed())[0]).toBe(POLICY.restoreSize);
+        expect(widthsIn(enterOut, enterOut.toggleCollapsed())[0]).toBe(300);
         expect(enterOut.finish()?.changes[0]).toMatchObject({target: {side: 300, editor: 699}, collapsed: {side: false}});
     });
 });
@@ -1411,14 +1412,15 @@ describe("拆分树原语：手势会话里被推开的兄弟", () => {
     });
 });
 
-/** 显式恢复回到哪：缺省是记忆的 `restoreSize`；`restoreToShare` 是按权重该得的那一份。 */
-describe("拆分树原语：手势会话里按比例分的叶的显式恢复", () => {
+/** 分隔条上的 Enter 翻标记后按意图重排：三块按比例分的兄弟按份额吸收与让出，和 `setCollapsed` 相同（Spec 输出 20、166、167）。 */
+describe("拆分树原语：手势会话里按比例分的叶的显式收起与展开", () => {
     const WIDE: GridExtent = {width: 1208, height: 400};
-    const row = (restoreToShare: boolean): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+    const row = (collapsed: boolean): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
         leaf("a", "width", 300, 80),
         leaf("b", "width", 300, 80),
-        {...leaf("c", "width", 300, 120), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, ...(restoreToShare ? {restoreToShare: true} : {})}},
+        {...leaf("c", "width", 300, 120), collapse: {collapsed, collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}},
     ]);
+    const intents = (grid: ReturnType<typeof createGrid<string>>): number[] => ["a", "b", "c"].map((id) => grid.find(id)?.size.width ?? Number.NaN);
     /** 在 b、c 之间的边界上按一次 Enter，提交落到 grid 上；返回落账后三块的宽度。 */
     const enter = (grid: ReturnType<typeof createGrid<string>>): number[] => {
         const session = createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: WIDE, layout: grid.layout(WIDE), sashSize: 4, sessionId: "enter", source: "keyboard", sashes: [{branchId: "root", index: 1, axis: "width"}]});
@@ -1431,34 +1433,28 @@ describe("拆分树原语：手势会话里按比例分的叶的显式恢复", (
         return ["a", "b", "c"].map((id) => Math.round(extent(sizes, id).width));
     };
 
-    it("缺省：收起时记下收起前的宽度，恢复回到它，连按几轮不漂（输出 20、148）", () => {
+    it("收起时 a、b 按份额吸收（不只是隔着分隔条的 b），展开回到份额；连按几轮不漂，意图逐值不变（输出 20、166、167）", () => {
         const grid = createGrid(row(false), {sashSize: 4});
         expect(["a", "b", "c"].map((id) => extent(grid.layout(WIDE).sizes, id).width)).toEqual([400, 400, 400]);
         for (let round = 0; round < 3; round += 1) {
-            expect(enter(grid)).toEqual([400, 800, 0]);
+            expect(enter(grid)).toEqual([600, 600, 0]);
+            expect(intents(grid)).toEqual([300, 300, 300]);
             expect(enter(grid)).toEqual([400, 400, 400]);
+            expect(intents(grid)).toEqual([300, 300, 300]);
         }
+        // 与 `setCollapsed` 翻同一个标记的布局相同。
+        const byEntry = createGrid(row(false), {sashSize: 4});
+        byEntry.setCollapsed("c", true);
+        expect(["a", "b", "c"].map((id) => Math.round(extent(byEntry.layout(WIDE).sizes, id).width))).toEqual([600, 600, 0]);
     });
 
-    it("缺省：从收起状态建树，恢复读宿主给的 `restoreSize`（输出 20）", () => {
-        const collapsedRow = branch("root", "width", "horizontal", 0, [
-            leaf("a", "width", 300, 80),
-            leaf("b", "width", 300, 80),
-            {...leaf("c", "width", 300, 120), collapse: {collapsed: true, collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}},
-        ]);
-        const grid = createGrid(collapsedRow, {sashSize: 4});
-        expect(enter(grid)[2]).toBe(200);
-    });
-
-    it("`restoreToShare`：恢复到按权重此刻该得的那一份，不读 `restoreSize`；让位的是挨着边界的兄弟", () => {
+    it("从收起状态建树：Enter 展开回到意图的份额，不读策略里的 `restoreSize`（输出 166）", () => {
         const grid = createGrid(row(true), {sashSize: 4});
-        expect(enter(grid)).toEqual([400, 800, 0]);
-        // `resizeBranches` 落账后三块的权重是 300、600、300：c 的份额是 1200 的四分之一。
-        expect(enter(grid)).toEqual([400, 500, 300]);
+        expect(enter(grid)).toEqual([400, 400, 400]);
     });
 });
 
-/** 收起与展开的入口、恢复尺寸谁记（Spec 输出 147、148）。容器取意图之和加分隔条，呈现与意图一一对应。 */
+/** 收起与展开的入口，展开回到意图（Spec 输出 147、166、167）。容器取意图之和加分隔条，呈现与意图一一对应。 */
 describe("拆分树原语：收起与展开的入口", () => {
     const POLICY = {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24};
     const collapsible = (restoreSize: number, collapsed = false) => ({collapse: {...POLICY, restoreSize, collapsed}});
@@ -1517,7 +1513,7 @@ describe("拆分树原语：收起与展开的入口", () => {
         expect(widths(capped, {width: 504, height: 400}, ["a", "b"])).toEqual([0, 200]);
     });
 
-    it("按比例分的面板：经 `setCollapsed` 展开按权重分，经 Enter 展开回到收起前记下的宽度，两者不同（输出 147 的不承诺）", () => {
+    it("按比例分的面板：拖到 600 再经 Enter 收起，经 `setCollapsed` 与经 Enter 展开都回到 600（输出 20、166）", () => {
         const ROW: GridExtent = {width: 1004, height: 400};
         const draggedThenCollapsed = (): ReturnType<typeof createGrid<string>> => {
             const grid = createGrid(branch("root", "width", "horizontal", 0, [
@@ -1536,7 +1532,7 @@ describe("拆分树原语：收起与展开的入口", () => {
         };
         const byEntry = draggedThenCollapsed();
         byEntry.setCollapsed("a", false);
-        expect(widths(byEntry, ROW, ["a", "b"])).toEqual([375, 625]);
+        expect(widths(byEntry, ROW, ["a", "b"])).toEqual([600, 400]);
 
         const byEnter = draggedThenCollapsed();
         const enter = session(byEnter, ROW, 0, "keyboard");
@@ -1545,44 +1541,115 @@ describe("拆分树原语：收起与展开的入口", () => {
         expect(widths(byEnter, ROW, ["a", "b"])).toEqual([600, 400]);
     });
 
-    it("恢复尺寸谁收起谁记：保留像素的面板记意图（被压缩时也是）；按比例分的面板拖动收起记收起前的宽度，经 `setCollapsed` 不改（输出 148）", () => {
-        // 窄窗口：a、c 保留 300，被压到 200；经 Enter 收起 a，记的是意图 300。
-        const squeezed = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("a", "width", 300, 100), ...fixed, ...collapsible(100)},
-            leaf("b", "width", 100, 100),
-            {...leaf("c", "width", 300, 100), ...fixed},
-        ]), {sashSize: 4});
-        const NARROW: GridExtent = {width: 508, height: 400};
-        expect(widths(squeezed, NARROW, ["a", "b", "c"])).toEqual([200, 100, 200]);
-        const enter = session(squeezed, NARROW, 0, "keyboard");
-        enter.toggleCollapsed();
-        commit(squeezed, enter);
-        expect(squeezed.find("a")?.collapse?.restoreSize).toBe(300);
-
-        // 按比例分的面板拖到零：记按下时的宽度 500。
+    it("保留像素的面板：策略里的 `restoreSize` 与意图不一致时，`setCollapsed(false)` 与 Enter 都回到意图，Enter 落账不改意图（输出 166）", () => {
+        // 意图 400、策略写 333、建树就收着：只有意图这一个来源。
+        const tree = (): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+            leaf("a", "width", 600),
+            {...leaf("c", "width", 400, 100), ...fixed, ...collapsible(333, true)},
+        ]);
         const ROW: GridExtent = {width: 1004, height: 400};
+        const byEntry = createGrid(tree(), {sashSize: 4});
+        byEntry.setCollapsed("c", false);
+        expect(widths(byEntry, ROW, ["a", "c"])).toEqual([600, 400]);
+
+        const byEnter = createGrid(tree(), {sashSize: 4});
+        const enter = session(byEnter, ROW, 0, "keyboard");
+        expect(enter.toggleCollapsed()?.changes[0]?.target).toMatchObject({a: 600, c: 400});
+        commit(byEnter, enter);
+        expect(widths(byEnter, ROW, ["a", "c"])).toEqual([600, 400]);
+        expect(byEnter.find("c")?.size.width).toBe(400);
+    });
+
+    it("收起不改意图：保留像素的经 Enter 收起意图不变；按比例分的拖到零，兄弟的意图也不变，展开回到收起前的份额（输出 166、167）", () => {
+        const ROW: GridExtent = {width: 1004, height: 400};
+        const pinned = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...fixed, ...collapsible(100)},
+            leaf("b", "width", 700, 100),
+        ]), {sashSize: 4});
+        const enter = session(pinned, ROW, 0, "keyboard");
+        enter.toggleCollapsed();
+        commit(pinned, enter);
+        expect(pinned.find("a")?.size.width).toBe(300);
+        expect(pinned.find("a")?.collapse).toMatchObject({collapsed: true, restoreSize: 100});
+
+        // 两块按比例分各 500，拖到把 b 收起：a 呈现 1000，意图仍是 500（目标就是翻标记后按意图分配的结果）。
         const dragged = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("a", "width", 500, 100), ...collapsible(123)},
-            leaf("b", "width", 500, 100),
+            leaf("a", "width", 500, 100),
+            {...leaf("b", "width", 500, 100), ...collapsible(123)},
         ]), {sashSize: 4});
         const drag = session(dragged, ROW, 0, "pointer");
-        drag.update({x: -600, y: 0});
+        drag.update({x: 600, y: 0});
         commit(dragged, drag);
-        expect(dragged.find("a")?.collapse).toMatchObject({collapsed: true, restoreSize: 500});
+        expect(widths(dragged, ROW, ["a", "b"])).toEqual([1000, 0]);
+        expect(["a", "b"].map((id) => dragged.find(id)?.size.width)).toEqual([500, 500]);
+        dragged.setCollapsed("b", false);
+        expect(widths(dragged, ROW, ["a", "b"])).toEqual([500, 500]);
 
-        // `setCollapsed`：保留像素的记意图，按比例分的不改（没有布局可读）。
-        const entry = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("a", "width", 250, 100), ...fixed, ...collapsible(100)},
-            {...leaf("b", "width", 500, 100), ...collapsible(123)},
-            leaf("c", "width", 500, 100),
-        ]), {sashSize: 4});
-        expect(entry.setCollapsed("a", true)).toMatchObject({ok: true, collapse: {collapsed: true, restoreSize: 250}});
-        expect(entry.setCollapsed("b", true)).toMatchObject({ok: true, collapse: {collapsed: true, restoreSize: 123}});
-
-        // 收起策略不写快照：恢复时解析结果不给 `collapse`，沿用当前树的，记下的值还在。
-        const restored = entry.restore(entry.serialize(), (ref) => ({ref}));
+        // 收起策略不写快照：恢复时解析结果不给 `collapse`，沿用当前树的收起状态。
+        const restored = pinned.restore(pinned.serialize(), (ref) => ({ref}));
         expect(restored.ok).toBe(true);
-        expect(entry.find("a")?.collapse).toMatchObject({collapsed: true, restoreSize: 250});
+        expect(pinned.find("a")?.collapse?.collapsed).toBe(true);
+        expect(pinned.find("a")?.size.width).toBe(300);
+    });
+
+    it("拖动收起后反解了兄弟的意图：展开着的按比例分的兄弟按同一倍数缩回原来的和，呈现不变，收起的那块展开拿回收起前的份额（输出 167）", () => {
+        // 三块意图各 300、呈现各 400，拖 b｜c 把 c 收起：反解给 a、b 的是 300、600，缩回和 600 是 200、400。
+        const WIDE: GridExtent = {width: 1208, height: 400};
+        const build = (): ReturnType<typeof createGrid<string>> => createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("a", "width", 300, 80),
+            leaf("b", "width", 300, 80),
+            {...leaf("c", "width", 300, 120), ...collapsible(200)},
+        ]), {sashSize: 4});
+        const dragCollapse = (grid: ReturnType<typeof createGrid<string>>): void => {
+            const drag = session(grid, WIDE, 1, "pointer");
+            drag.update({x: 500, y: 0});
+            commit(grid, drag);
+        };
+        const byEntry = build();
+        dragCollapse(byEntry);
+        expect(widths(byEntry, WIDE, ["a", "b", "c"])).toEqual([400, 800, 0]);
+        expect(["a", "b", "c"].map((id) => byEntry.find(id)?.size.width)).toEqual([200, 400, 300]);
+        byEntry.setCollapsed("c", false);
+        expect(widths(byEntry, WIDE, ["a", "b", "c"])).toEqual([266.67, 533.33, 400]);
+
+        const byEnter = build();
+        dragCollapse(byEnter);
+        const enter = session(byEnter, WIDE, 1, "keyboard");
+        enter.toggleCollapsed();
+        commit(byEnter, enter);
+        expect(widths(byEnter, WIDE, ["a", "b", "c"])).toEqual([266.67, 533.33, 400]);
+    });
+
+    it("窄窗口里 Enter 收起与展开：落账只翻标记，被压缩的保留像素兄弟的意图逐值不变，放宽后回到原宽（输出 20、167）", () => {
+        // a、c 保留 300，b 按比例分、最小 100；508 宽里三块只放得下 [200, 100, 200]。
+        const NARROW: GridExtent = {width: 508, height: 400};
+        const WIDE: GridExtent = {width: 1004, height: 400};
+        const tree = (collapsed: boolean): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...fixed, ...collapsible(300, collapsed)},
+            leaf("b", "width", 100, 100),
+            {...leaf("c", "width", 300, 100), ...fixed},
+        ]);
+        const intents = (grid: ReturnType<typeof createGrid<string>>): number[] => ["a", "b", "c"].map((id) => grid.find(id)?.size.width ?? Number.NaN);
+
+        // 收起 a：预览与 `setCollapsed` 翻标记后的布局相同（b 吸收，c 回到 300），落账后意图不变。
+        const folding = createGrid(tree(false), {sashSize: 4});
+        expect(widths(folding, NARROW, ["a", "b", "c"])).toEqual([200, 100, 200]);
+        const fold = session(folding, NARROW, 0, "keyboard");
+        const folded = fold.toggleCollapsed();
+        expect(["a", "b", "c"].map((id) => extent(folded?.layout.sizes ?? {}, id).width)).toEqual(widths(createGrid(tree(true), {sashSize: 4}), NARROW, ["a", "b", "c"]));
+        commit(folding, fold);
+        expect(widths(folding, NARROW, ["a", "b", "c"])).toEqual([0, 200, 300]);
+        expect(intents(folding)).toEqual([300, 100, 300]);
+        folding.setCollapsed("a", false);
+        expect(widths(folding, WIDE, ["a", "b", "c"])).toEqual([300, 396, 300]);
+
+        // 展开 a：翻了之后保留像素的兄弟被压（`fixed-overflow`），照常展开，和 `setCollapsed(false)` 相同；落账后意图不变。
+        const unfolding = createGrid(tree(true), {sashSize: 4});
+        const unfold = session(unfolding, NARROW, 0, "keyboard");
+        expect(unfold.toggleCollapsed()?.changes[0]?.target).toMatchObject({a: 200, b: 100, c: 200});
+        commit(unfolding, unfold);
+        expect(intents(unfolding)).toEqual([300, 100, 300]);
+        expect(widths(unfolding, WIDE, ["a", "b", "c"])).toEqual([300, 396, 300]);
     });
 
     it("结果里的 `collapse` 是副本：改它不改树（输出 147）", () => {
@@ -1592,8 +1659,8 @@ describe("拆分树原语：收起与展开的入口", () => {
         ]), {sashSize: 4});
         const result = grid.setCollapsed("a", true);
         if (!result.ok) throw new Error(result.message);
-        (result.collapse as {restoreSize: number}).restoreSize = 999;
-        expect(grid.find("a")?.collapse?.restoreSize).toBe(250);
+        (result.collapse as {collapsedSize: number}).collapsedSize = 999;
+        expect(grid.find("a")?.collapse?.collapsedSize).toBe(0);
         const unchanged = grid.setCollapsed("a", true);
         if (!unchanged.ok) throw new Error(unchanged.message);
         (unchanged.collapse as {collapsed: boolean}).collapsed = false;
@@ -1617,12 +1684,16 @@ describe("拆分树原语：收起与展开的入口", () => {
         expect(grid.find("a")?.collapse).toEqual(policy);
     });
 
-    it("竖直分支里保留像素的面板，记的是它的高度意图；收起策略不写快照（输出 148）", () => {
+    it("竖直分支里保留像素的面板：收起不改高度意图，展开回到它；收起策略不写快照（输出 147、166）", () => {
+        const COLUMN: GridExtent = {width: 400, height: 584};
         const grid = createGrid(branch("root", "height", "vertical", 0, [
             leaf("top", "height", 400, 100),
             {...leaf("bottom", "height", 180, 100), ...fixed, ...collapsible(50)},
         ]), {sashSize: 4});
-        expect(grid.setCollapsed("bottom", true)).toMatchObject({ok: true, collapse: {collapsed: true, restoreSize: 180}});
+        expect(grid.setCollapsed("bottom", true)).toMatchObject({ok: true, collapse: {collapsed: true}});
+        expect(grid.find("bottom")?.size.height).toBe(180);
+        grid.setCollapsed("bottom", false);
+        expect(extent(grid.layout(COLUMN).sizes, "bottom").height).toBe(180);
         const snapshot = JSON.stringify(grid.serialize());
         expect(snapshot).not.toContain("collapse");
         expect(snapshot).not.toContain("restoreSize");
@@ -1678,15 +1749,18 @@ describe("拆分树原语：收起与展开的入口", () => {
         expect(grid.find("nav")?.size.width).toBe(150);
     });
 
-    it("setSize 收起中的面板：意图与恢复尺寸一起改，`setCollapsed(false)` 与 Enter 都回到新宽度；小于 `collapsedSize` 时恢复尺寸取 `collapsedSize`", () => {
+    it("setSize 收起中的面板：只改意图，`changed` 只看意图；`setCollapsed(false)` 与 Enter 都回到新宽度（输出 154、166）", () => {
         const ROW: GridExtent = {width: 1204, height: 400};
         const tree = (): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
-            {...leaf("nav", "width", 188, 150, 300), ...fixed, ...collapsible(188, true)},
+            {...leaf("nav", "width", 188, 150, 300), ...fixed, ...collapsible(150, true)},
             leaf("main", "width", 600, 100),
         ]);
         const byEntry = createGrid(tree(), {sashSize: 4});
-        expect(byEntry.setSize("nav", 260)).toMatchObject({ok: true, changed: true, size: 260, collapse: {collapsed: true, restoreSize: 260}});
+        const policy = {...byEntry.find("nav")!.collapse!};
+        expect(byEntry.setSize("nav", 260)).toMatchObject({ok: true, changed: true, size: 260, collapse: policy});
+        expect(byEntry.find("nav")?.collapse).toEqual(policy);
         expect(widths(byEntry, ROW, ["nav", "main"])).toEqual([0, 1200]);
+        expect(byEntry.setSize("nav", 260)).toMatchObject({ok: true, changed: false, size: 260});
         byEntry.setCollapsed("nav", false);
         expect(widths(byEntry, ROW, ["nav", "main"])).toEqual([260, 940]);
 
@@ -1697,22 +1771,11 @@ describe("拆分树原语：收起与展开的入口", () => {
         commit(byEnter, enter);
         expect(widths(byEnter, ROW, ["nav", "main"])).toEqual([260, 940]);
 
-        const rail = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("nav", "width", 188), ...fixed, collapse: {...POLICY, collapsedSize: 44, restoreSize: 188, collapsed: true}},
-            leaf("main", "width", 600),
-        ]), {sashSize: 4});
-        expect(rail.setSize("nav", 20)).toMatchObject({ok: true, size: 20, collapse: {restoreSize: 44}});
-
-        // 意图没变、只有记忆的恢复尺寸变了也算 `changed`；结果里的 `collapse` 是副本，改它不动树。
-        const stale = createGrid(branch("root", "width", "horizontal", 0, [
-            {...leaf("nav", "width", 188, 150, 300), ...fixed, ...collapsible(150, true)},
-            leaf("main", "width", 600),
-        ]), {sashSize: 4});
-        const refreshed = stale.setSize("nav", 188);
-        expect(refreshed).toMatchObject({ok: true, changed: true, size: 188, collapse: {restoreSize: 188}});
-        if (!refreshed.ok || refreshed.collapse === undefined) throw new Error("应当带 collapse");
-        (refreshed.collapse as {restoreSize: number}).restoreSize = 999;
-        expect(stale.find("nav")?.collapse?.restoreSize).toBe(188);
+        // 结果里的 `collapse` 是副本，改它不动树。
+        const result = byEnter.setSize("nav", 200);
+        if (!result.ok || result.collapse === undefined) throw new Error("应当带 collapse");
+        (result.collapse as {collapsed: boolean}).collapsed = true;
+        expect(byEnter.find("nav")?.collapse?.collapsed).toBe(false);
     });
 
     it("setSize 也设保留像素的分支；没有收起策略时结果里没有 `collapse`", () => {

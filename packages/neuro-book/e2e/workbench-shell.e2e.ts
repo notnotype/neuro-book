@@ -442,21 +442,24 @@ test.describe("产品页", () => {
         await expect(toggle).toHaveText("隐藏面板");
     });
 
-    test("侧栏里分节之间的边界：Enter 把分节收成标题行、内容停放，再按一次恢复记忆的尺寸（输出 11、12）", async ({page}) => {
+    test("侧栏里分节之间的边界：Enter 把分节收成标题行、内容停放，再按一次回到意图；兄弟吸收让出的高度、展开后回到原高（输出 11、12）", async ({page}) => {
         await open(page);
         const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
         const [upper, lower] = (await box(page, explorer)).y < (await box(page, sessions)).y ? [explorer, sessions] : [sessions, explorer];
         // 收的是边界前面的那一块。
         const upperView = upper === sessions ? SESSIONS : EXPLORER;
         const expanded = (await box(page, upper)).height;
+        const lowerBefore = (await box(page, lower)).height;
         const between = page.getByRole("separator", {name: `调整 ${upper} 与 ${lower} 的高度`, exact: true});
         await between.focus();
         await page.keyboard.press("Enter");
         await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        await expect.poll(async () => (await box(page, lower)).height).toBeCloseTo(lowerBefore + expanded - 32, 0);
         await parked(page, `[data-content="view:${upperView}"]`);
         await expect.poll(async () => (await saved(page))?.doc.panels[upper]?.collapsed).toBe(true);
         await page.keyboard.press("Enter");
         await expect.poll(async () => (await box(page, upper)).height).toBe(expanded);
+        await expect.poll(async () => (await box(page, lower)).height).toBeCloseTo(lowerBefore, 0);
         await unparked(page, `[data-content="view:${upperView}"]`);
     });
 

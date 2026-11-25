@@ -35,8 +35,8 @@ export type GridExtent = {width: number; height: number};
 export type GridSizing = "weight" | "fixed";
 
 /**
- * 收起策略（运行时）：拖动越过 `collapseThreshold` 时吸附到 `collapsedSize`，
- * 反向越过后恢复到记忆的 `restoreSize`。`collapsed` 是当前状态。
+ * 收起策略（运行时）：拖动越过 `collapseThreshold` 时吸附到 `collapsedSize`，反向越过后恢复。网格的节点展开回到意图
+ * （Spec `ui/nested-grid` 输出 166）；独立 `Splitter` 没有意图，恢复到 `restoreSize`。`collapsed` 是当前状态。
  *
  * 不写快照：它是宿主按领域记录给出的运行期约束，恢复时以当前记录为准。
  * @experimental
@@ -45,8 +45,8 @@ export type SashCollapsePolicy = {
     /** 收起后的主轴占用（CSS px，允许 0）；必须小于展开最小尺寸。 */
     collapsedSize: number;
     /**
-     * 记忆的展开主轴尺寸（CSS px）；显式恢复时以它为目标，再按当前容量夹取。宿主给初值，之后由网格在收起的那一刻记下
-     * （Spec `ui/nested-grid` 输出 148：保留像素的面板记意图，按比例分的面板在 `resizeBranches` 里记收起前呈现的像素）。
+     * 独立 `Splitter` 显式恢复的展开主轴尺寸（CSS px），再按当前容量夹取。网格不读它：网格的节点展开回到意图（Spec
+     * `ui/nested-grid` 输出 166），收起时也不记它。
      */
     restoreSize: number;
     /** 从展开最小尺寸继续向内的收起阈值（CSS px）。 */
@@ -59,12 +59,7 @@ export type SashCollapsePolicy = {
      * `solveSashCollapse` 的调用方已经选定了对象，求解器不再过滤。
      */
     toggleable?: boolean;
-    /**
-     * true：显式恢复（按钮、Enter）不读 `restoreSize`，回到这块面板按 `size` 权重此刻该得的那一份，也就是把它翻成展开后重新分配给它的尺寸（缺省 false）。
-     * 给手里没有像素记忆的 `weight` 面板用：宿主的权重只记兄弟之间的比例时，`restoreSize` 给不出展开后的像素（工作台里一列工具面板就是这样）。
-     * 宿主要自己保证收起期间这块面板的份额不被兄弟的落账冲掉；`Grid.resizeBranches` 反解权重时不保，所以只用 grid 自己落账的宿主不要打开。
-     * 拖动展开不受影响，照旧跟随指针。
-     */
+    /** 网格与独立 `Splitter` 都不读它：网格的节点展开本来就回到按 `size` 该得的那一份（Spec `ui/nested-grid` 输出 166）。 */
     restoreToShare?: boolean;
 };
 
@@ -330,8 +325,8 @@ export type GridBranchesResizeResult =
     | GridFailure<GridFailureCode>;
 
 /**
- * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、148）：`changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的
- * 收起策略（含记下的 `restoreSize`），宿主要跨会话保存时从这里取，策略本身不写快照。
+ * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、166）：`changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的
+ * 收起策略，宿主要跨会话保存收起状态时从这里取 `collapsed`，策略本身不写快照。
  * @experimental
  */
 export type GridCollapseResult =
@@ -340,7 +335,7 @@ export type GridCollapseResult =
 
 /**
  * `Grid.setSize` 的结果（Spec `ui/nested-grid` 输出 154）：`size` 是存下的意图（夹进节点自己的约束之后），宿主拿它存偏好；
- * `changed` 是意图或记忆的恢复尺寸有没有变；节点有收起策略时另带调用之后的 `collapse`，同 `GridCollapseResult`。
+ * `changed` 是意图有没有变；节点有收起策略时另带调用之后的 `collapse`，同 `GridCollapseResult`。
  * @experimental
  */
 export type GridSetSizeResult =

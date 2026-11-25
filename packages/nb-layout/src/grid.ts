@@ -36,7 +36,6 @@ import type {
     GridSizing,
     GridSnapshot,
     GridSplitInput,
-    SashCollapseState,
 } from "./grid-types";
 import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, type GridSashResolver} from "./grid-geometry";
@@ -77,14 +76,14 @@ export type Grid<T> = {
      */
     resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
     /**
-     * 收起或展开一块面板（Spec 输出 147）：只翻它的收起标记，尺寸意图不动，下一次 `layout()` 按分配规则重排，
-     * 和宿主改了自己的记录、重新建树相同。和分隔条上的 Enter（邻居让位、恢复到 `restoreSize`）是两种结果。
+     * 收起或展开一块面板（Spec 输出 147、166）：只翻它的收起标记，尺寸意图不动，下一次 `layout()` 按分配规则重排，
+     * 和宿主改了自己的记录、重新建树相同；展开回到意图。分隔条上的 Enter 能翻时结果相同（输出 20）。
      * 改的是活树：用 `useGridHost` 时经它的 `setCollapsed`，直接调的宿主之后要自己 `invalidate()`。
      */
     setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
     /**
      * 把一块保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`（Spec 输出 154）：夹进它自己展开时的约束，兄弟不动，不读布局。
-     * 收起中的同时改记忆的恢复尺寸，展开与 Enter 回到同一个尺寸。改的是活树，规则同 `setCollapsed`。
+     * 收起中的节点也一样只改意图，展开时回到它（输出 166）。改的是活树，规则同 `setCollapsed`。
      */
     setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
@@ -256,8 +255,10 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
     /**
      * 单个分支的原子调整计划：先核对基线与目标，再把目标反解成新的尺寸意图。
      *
+     * 现有意图（翻过本场的收起标记之后）已经布局出目标时一个也不改（R1，Spec 输出 167）；否则反解：
      * `fixed` 子节点直接以目标 px 为新意图；`weight` 子节点沿用免费水位反解（自由节点定标，
-     * 触界节点保留仍与目标兼容的旧权重）。尺寸意图只出现在返回值里，由调用方在全部通过后落账；
+     * 触界节点保留仍与目标兼容的旧权重），之后还有收起着的按比例分的孩子时按同一倍数缩放回原来的和（R2，同一条输出）。
+     * 尺寸意图只出现在返回值里，由调用方在全部通过后落账；
      * 唯一的例外是 `change.collapsed` 的收起状态，直接写在 `branch` 的孩子上（后面的反解要看到收起之后的范围），
      * 所以 `resizeBranches` 传的是候选树里的副本。
      */
@@ -329,11 +330,21 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
         }
 
         const sizes: Record<string, number> = Object.create(null) as Record<string, number>;
-        if (children.every((child) => Math.abs(change.target[child.id]! - change.baseline[child.id]!) <= EPSILON)) {
+        const keepIntents = (): {ok: true; sizes: Record<string, number>; collapsed: Record<string, boolean>} => {
             children.forEach((child) => {
                 sizes[child.id] = child.size[axis];
             });
             return {ok: true, sizes, collapsed};
+        };
+        // R1：显式收起与展开的目标就是翻标记后按意图分配出来的（`reflowSashCollapse`），这里用同一份分配复核，只翻标记、不改意图，
+        // 窄窗口里被压缩的保留像素兄弟不会被写成压缩值。
+        const intended = allocateAxis(branch, axis, targetTotal, sashSize, []);
+        if (children.every((child, index) => Math.abs(intended[index]! - change.target[child.id]!) <= EPSILON)) {
+            return keepIntents();
+        }
+        // 目标等于基线却不是 R1：本场翻了标记、又拖回按下时的样子。没有真实位移，意图照旧不动。
+        if (children.every((child) => Math.abs(change.target[child.id]! - change.baseline[child.id]!) <= EPSILON)) {
+            return keepIntents();
         }
 
         const bounds = children.map((child) => constraintsOf(child, axis, sashSize));
@@ -363,6 +374,19 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
             const oldProjection = clampAxis(child.size[axis] / intentPerPixel, value.low, value.high);
             return Math.abs(oldProjection - change.target[child.id]!) <= EPSILON ? child.size[axis] : change.target[child.id]! * intentPerPixel;
         });
+        // R2：收起着的按比例分的孩子的份额是它的意图对展开着的那些的比。反解把展开着的那些换了单位（例如收起让出的空间被兄弟吸收），
+        // 不缩回原来的和，它展开时就拿不回收起前的份额。只在展开着的按比例分的孩子之间同比例缩放，分配结果不变，下面的复核照样通过。
+        if (children.some((child) => child.sizing !== "fixed" && child.collapse?.collapsed === true)) {
+            const before = weighted.reduce((sum, child) => sum + child.size[axis], 0);
+            const after = weighted.reduce((sum, child) => sum + assigned[children.indexOf(child)]!, 0);
+            if (before > EPSILON && after > EPSILON) {
+                const factor = before / after;
+                for (const child of weighted) {
+                    const index = children.indexOf(child);
+                    assigned[index] = assigned[index]! * factor;
+                }
+            }
+        }
         const candidate: GridBranch<T> = {
             ...branch,
             children: children.map((child, index) => ({...child, size: {...child.size, [axis]: assigned[index]!}})),
@@ -389,8 +413,7 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
         }
         const candidate = tree ? cloneNode(tree) : null;
         const plans: {axis: GridAxis; sizes: Record<string, number>}[] = [];
-        /** `presented` 是这次变化的基线：收起时按比例分的面板记它（输出 148）。 */
-        const collapseChanges: {axis: GridAxis; id: string; value: boolean; presented: number | undefined}[] = [];
+        const collapsed: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
         for (const change of changes) {
             const hit = find(change.branchId, candidate);
             if (!hit) {
@@ -410,9 +433,7 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
                     child.size[change.axis] = value;
                 }
             });
-            for (const [id, value] of Object.entries(planned.collapsed)) {
-                collapseChanges.push({axis: change.axis, id, value, presented: change.baseline[id]});
-            }
+            Object.assign(collapsed, planned.collapsed);
             plans.push({axis: change.axis, sizes: planned.sizes});
         }
         const intents: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
@@ -422,31 +443,9 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
                 intents[id] = {...base, [plan.axis]: value};
             }
         }
-        const collapsed: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-        for (const entry of collapseChanges) {
-            // 规划时候选分支已写上 `collapsed`；收起时再补记恢复尺寸，它读的意图要等全部尺寸写完（见 `collapsedRemembering`）。
-            const target = find(entry.id, candidate)?.node;
-            if (entry.value && target?.collapse) {
-                target.collapse = collapsedRemembering(target, entry.axis, entry.presented);
-            }
-            collapsed[entry.id] = entry.value;
-        }
         // 全部计划都在候选树上通过之后才换树（失败路径不会留下半批修改）。
         tree = candidate;
         return {ok: true, intents, collapsed};
-    }
-
-    /**
-     * 收起那一刻记下恢复尺寸（Spec 输出 148）。保留像素的面板记意图：它就是像素记忆，被压缩时也不变；收起的落账不写它的意图，
-     * 所以这时读到的还是收起前的。按比例分的面板意图是权重，只能记收起前呈现的像素（`presented`），没有时（`setCollapsed` 不读布局）不改。
-     */
-    function collapsedRemembering(node: GridNode<T>, axis: GridAxis, presented: number | undefined): SashCollapseState {
-        const collapse = node.collapse!;
-        const remembered = node.sizing === "fixed" ? node.size[axis] : presented;
-        if (remembered === undefined || !Number.isFinite(remembered)) {
-            return {...collapse, collapsed: true};
-        }
-        return {...collapse, collapsed: true, restoreSize: Math.max(collapse.collapsedSize, remembered)};
     }
 
     function setCollapsed(id: string, collapsed: boolean): GridCollapseResult {
@@ -464,8 +463,8 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
         if (node.collapse.collapsed === collapsed) {
             return {ok: true, changed: false, collapse: {...node.collapse}};
         }
-        // 只翻标记、不动意图：下一次布局按分配规则重排（输出 147），按比例分的兄弟吸收，保留像素的不变，总量自然守恒。
-        node.collapse = collapsed ? collapsedRemembering(node, axisOf(hit.parent.orientation), undefined) : {...node.collapse, collapsed: false};
+        // 只翻标记、不动意图：下一次布局按分配规则重排（输出 147），按比例分的兄弟吸收，保留像素的不变，总量自然守恒；展开回到意图（输出 166）。
+        node.collapse = {...node.collapse, collapsed};
         return {ok: true, changed: true, collapse: {...node.collapse}};
     }
 
@@ -488,19 +487,12 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
             return gridFailure("invalid-argument", `The size must not be negative: ${String(px)}`, {field: "px-negative", id});
         }
         const axis = axisOf(hit.parent.orientation);
-        // 夹进它自己的范围，同 `resizeBranches` 写保留像素的意图，越界的值不会经收起抄进 `restoreSize`；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
+        // 夹进它自己的范围，同 `resizeBranches` 写保留像素的意图；按展开时的范围夹，收起时的刚性范围会把它夹成 `collapsedSize`。
         const bounds = constraintOnAxis(node, axis, sashSize);
         const size = clampAxis(px, bounds.low, bounds.high);
-        let changed = node.size[axis] !== size;
+        const changed = node.size[axis] !== size;
         if (changed) {
             node.size[axis] = size;
-        }
-        if (node.collapse?.collapsed === true) {
-            const restoreSize = Math.max(node.collapse.collapsedSize, size);
-            if (node.collapse.restoreSize !== restoreSize) {
-                node.collapse = {...node.collapse, restoreSize};
-                changed = true;
-            }
         }
         return {ok: true, changed, size, ...(node.collapse === undefined ? {} : {collapse: {...node.collapse}})};
     }
