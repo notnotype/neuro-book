@@ -2,8 +2,8 @@
 schema: nbook.work/v1
 workId: w00052-web-tools
 issueId: null
-status: done
-updated: 2026-11-19
+status: active
+updated: 2026-11-25
 ---
 
 # 网页工具插件：web_search 与 web_fetch
