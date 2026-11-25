@@ -119,3 +119,9 @@ Opus 那轮的修正已提交（`d4ae39ae5`，7 个文件）：处理表第 1、
 - 实现者另改的：锁下抛错的子进程原来经 `handler` 调 `/update-user`，现在那条关成 404，改调授权端点（它写授权码，写锁下照样抛出、被认成库不可用）。
 - 给第 5 片的（实现者对库的 `handler` 实测）：库对 HEAD 一律回 404，挂载层要把 HEAD 当 GET 转给库；库也接受 `POST /callback/<id>` 与 `POST /oauth2/authorize`，挂载层按方法挡；`/callback/<任意 id>` 库都接，挂载层只放开放了的上游。可以直接用 `LIBRARY_PUBLIC_ENDPOINTS` 登记白名单。`//token`、`/TOKEN`、`/%74oken`、`/token;x` 等写法库都回 404，`/./token`、`/x/../token` 被规范成 `/token`。
 - 给第 8 片的：`revoke.test.ts` 照库 1.7.27 的写法造了一行社交 state，库改了 state 的形状时那三条用例要跟着改。
+
+第 4 片（管理员登记与管理 OAuth 客户端）已提交（`01f288d33`，8 个文件）：新建 `oauth/clients.ts`（`checkRedirectUri`，两套按种类的规则）、`admin/oauth-clients.ts`（登记经库的 `adminCreateOAuthClient`、开在 `withLibTransaction` 里与操作者复核和审计一起提交；列表、改动、换密钥用自家 SQL，经 `adminWrite`；停用时同一事务撤令牌与码）。账号、合同包与使用方的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，6 条变异都被抓到；主会话重跑通过。主会话另补一个提交（`568e98972`）：客户端列表项带数字 `id`，审计记录的对象 id 能对上列表里的客户端（实现者提出两者对不上）；`site.oauth-provider` 输出 16 跟着改。
+
+- 实现者定、主会话接受的：库的请求体 schema 拒收（`VALIDATION_ERROR`）也映射成 `redirect_uri_invalid` 并记 `identity.oauth_client_rule_drift`（交给库的属性里只有回调地址是外来的，名字已由合同包先判）；路由选项上有一个可选的 `checkRedirectUri`，缺省是真规则，只有包内测试换它来造“库拒收”（自家规则比库严，真实输入造不出）；改动的审计参数是 `{properties: "name,redirectUris,disabled"}`（审计参数只能是标量），写进 `site.admin` 输出 8；改或换密钥一个不存在的客户端回 `not_found`；停用只在由启用变停用时撤；回调地址规则比 Spec 字面多出的几处（协议名不分大小写、`localhost.` 与 `[::ffff:127.x]` 算回环、`app.localhost` 不算、`127.1` 不算回环）都与库一致，写进 `site.oauth-provider` 输入一节。
+- 没有单独用例的：登记时“认过身份之后、库的事务之前操作者被降级”（写法与 `adminWrite` 相同，在库的事务里先调 `requireLiveAdmin`）。`client_secret_post` 这条变异合同现在抓不到，换码端点第 5 片才挂。
+- 给第 5 片的：`checkRedirectUri` 只判写法，按登记值匹配（回环不比端口）另写，可复用 `clients.ts` 里取原始主机的写法；种类按 `tokenEndpointAuthMethod === "none"` 判；库的 `adminCreateOAuthClient` 按系统时间判会话过期，合同测试把模块时钟拨到会话过期之后再登记会落成 500。
