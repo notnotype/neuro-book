@@ -849,10 +849,11 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     if (inner.layout === "block") {
                         return h(Transition, {name: "nb-ui-switch"}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
                     }
+                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     return h(Popover, {
                         open: active.value && inner.anchor !== null,
                         anchor: inner.anchor as HTMLElement | null,
-                        side: "bottom",
+                        side: edit.bar.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {

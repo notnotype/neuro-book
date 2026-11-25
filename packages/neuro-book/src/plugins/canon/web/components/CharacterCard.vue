@@ -99,7 +99,7 @@ defineExpose({clearOwn: () => (own.value = "")});
                 </template>
             </button>
 
-            <div class="min-w-0 flex-1">
+            <div class="character-card__main min-w-0 flex-1">
                 <TransitionGroup tag="dl" name="character-card-row" class="character-card__facts">
                     <div v-for="fact in props.facts" :key="fact.id" class="character-card__fact" :data-fact="fact.id">
                         <dt>{{ fact.label }}</dt>
@@ -237,6 +237,10 @@ defineExpose({clearOwn: () => (own.value = "")});
 .character-card__portrait--empty:not(:disabled):hover {
     border-color: var(--accent-main);
     color: var(--accent-text);
+}
+/* 短资料排几列看右边这一栏有多宽（立绘占去一块以后），不看整张卡：条目页两侧栏都开着时这一栏只有三百多像素。 */
+.character-card__main {
+    container-type: inline-size;
 }
 .character-card__facts {
     display: grid;
@@ -397,7 +401,7 @@ defineExpose({clearOwn: () => (own.value = "")});
 .character-card-row-move {
     transition: transform var(--motion-move) var(--ease-layout);
 }
-/* 窄处立绘放到上面、缩小，资料改成一列。 */
+/* 窄处立绘放到上面、缩小。 */
 @container (max-width: 520px) {
     .character-card__top {
         flex-direction: column;
@@ -406,6 +410,9 @@ defineExpose({clearOwn: () => (own.value = "")});
     .character-card__portrait {
         width: 8rem;
     }
+}
+/* 资料这一栏放不下两列（每列要给值留出地方）时排成一列。 */
+@container (max-width: 34rem) {
     .character-card__facts {
         grid-template-columns: minmax(0, 1fr);
     }
