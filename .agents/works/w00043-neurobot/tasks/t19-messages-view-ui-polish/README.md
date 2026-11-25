@@ -45,6 +45,8 @@ updated: 2026-11-25
 
 11. 提案 [侧栏的侧轨](../../../../../docs/proposals/workbench-side-rails.md) 的要点与三个待定项都按推荐（开发者 2026-11-25 答“可以，都同意”）；另要求写出全部状态与动作交 gemini 做 UI 审查：[`rail-states.md`](rail-states.md)。
 
+12. 提案第 1 轮审查（gpt 29 条、Sonnet UI 约 50 条，处理见 [`evidences/design-review-rails-disposition.md`](evidences/design-review-rails-disposition.md)）后的三问（开发者 2026-11-25，都按推荐）：消息视图只停右栏与单独浮动；窄窗口先压编辑组、再压聊天区到最小，仍不够不展开并提示；别的面板最大化时先退出最大化。
+
 ## 当前状态
 
 - 草稿在草稿 worktree `.worktree/w00043-t19-drafts`（分支 `w00043-t19/drafts`，不合并）：直接在 `AgentMessages.vue` 里按 `globalThis.__msgDraft` 切变体，开发服务的真实页面上看（头、区域入口条与左边活动栏只在真实页面里有）；“头像列通到顶”的版本由截图脚本改入口条的样式摆出来。假模型端点造的三段对话。原图在本地 `shots/r1/`。
