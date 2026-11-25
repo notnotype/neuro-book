@@ -34,13 +34,13 @@ export interface ChangePasswordOptions {
     readonly passwords: PasswordFunctions;
 }
 
-/** 账号的密码登录方式：`rowId` 为 null 是没有那一行；`password` 为 null 是没有密码。 */
-interface Credential {
+/** 账号的密码登录方式：`rowId` 为 null 是没有那一行；`password` 为 null 是没有密码。社交关联的发起（`social/start.ts`）也用它。 */
+export interface Credential {
     readonly rowId: number | null;
     readonly password: string | null;
 }
 
-function readCredential(tx: IdentityTx, userId: number): Credential {
+export function readCredential(tx: IdentityTx, userId: number): Credential {
     const row = tx.query<{id: number; password: string | null}, [number]>(`SELECT "id", "password" FROM "account" WHERE "userId" = ? AND "providerId" = 'credential'`).get(userId);
     return row === null ? {rowId: null, password: null} : {rowId: row.id, password: row.password};
 }

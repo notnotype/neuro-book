@@ -13,7 +13,8 @@
         "./import-boundary": "./src/import-boundary.ts",
         "./style-tokens": "./src/style-tokens.ts",
         "./bun-sqlite": "./src/bun-sqlite.ts",
-        "./module-exports": "./src/module-exports.ts"
+        "./module-exports": "./src/module-exports.ts",
+        "./oauth-upstream": "./src/oauth-upstream.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit -p tsconfig.json",

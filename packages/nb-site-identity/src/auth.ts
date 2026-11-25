@@ -14,6 +14,8 @@
  *   `codeExpiresIn`、`accessTokenExpiresIn` 的缺省（清单“寿命”一行）；`storeClientSecret: {hash}` 是库校验客户端密钥的唯一途径
  *   （清单“客户端密钥”一行）；`getEndpoints` 给出与 `auth.api` 同一组端点，`disabledPaths` 逐字比路径、只挡 `handler`、不挡
  *   `auth.api`（清单“关掉的路径”一行）。
+ * - t08 第 8 片：社交上游（`genericOAuth`，`social/providers.ts`）、state Cookie 的寿命、已关联身份登录时不写回上游令牌
+ *   （`updateAccountOnSignIn`）、建会话前的钩子在社交回调里记下账号（清单“社交”几行）。
  */
 
 import {Type, type Static, type TSchema} from "typebox";
@@ -22,17 +24,20 @@ import {Value} from "typebox/value";
 import {betterAuth, type BetterAuthOptions, type StandardSchemaV1} from "better-auth";
 import {createAuthEndpoint, getEndpoints} from "better-auth/api";
 import {deleteSessionCookie, setSessionCookie} from "better-auth/cookies";
-import {admin, jwt, username, type JwtOptions} from "better-auth/plugins";
+import {admin, genericOAuth, jwt, username, type JwtOptions} from "better-auth/plugins";
 
 import {oauthProvider} from "@better-auth/oauth-provider";
 
 import {IDENTITY_AUTH_PREFIX, parseUsernameInput, USERNAME} from "@notnotype/nb-site-identity-contract";
 
+import type {SocialConfig} from "./config";
 import type {IdentityConnection} from "./db/connection";
 import type {IdentityLog} from "./index";
 import {clientSecretHash, generateClientSecret} from "./oauth/client-secret";
 import {hashPassword, verifyPassword} from "./password";
 import {consentRequiredIn} from "./session";
+import {currentFrame, SOCIAL_FLOW_MS} from "./social/flow";
+import {socialProviderConfigs} from "./social/providers";
 import {storedUserAgent} from "./user-agent";
 
 /**
@@ -55,6 +60,8 @@ export interface IdentityAuthOptions {
     readonly termsVersion: string;
     readonly clock: {now(): number};
     readonly log: Pick<IdentityLog, "warn" | "error">;
+    /** 开放了的社交上游（`config.ts`）；不给时都不开放。 */
+    readonly social?: SocialConfig;
 }
 
 /**
@@ -225,6 +232,9 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
             defaultCookieAttributes: {secure: true},
             // 会话表不存来源地址（`site.accounts` 副作用一节）。
             ipAddress: {disableIpTracking: true},
+            // 社交流程的 state Cookie（认发起的浏览器，`site.accounts` 时序一节）：库缺省 300 秒，Spec 要 10 分钟，与流程行、库的 state
+            // 行同寿（问 7.5d；升级清单“社交”的“state Cookie 的寿命”一行）。
+            cookies: {state: {attributes: {maxAge: SOCIAL_FLOW_MS / 1000}}},
         },
         // 限流自己做（计划 3.8）。
         rateLimit: {enabled: false},
@@ -240,9 +250,19 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
                 verify: ({hash, password}) => verifyPassword(password, hash, {accountId: "library", log}),
             },
         },
-        // 社交登录不按邮箱自动关联到已有账号（`site.accounts` 输出 12、14：认人只按上游身份，邮箱撞号时拒绝）。社交登录在 t08，
-        // 这个选项现在就关掉，库的缺省不会在 t08 接上上游之前起作用。
-        account: {accountLinking: {disableImplicitLinking: true}},
+        account: {
+            accountLinking: {
+                // 社交登录不按邮箱自动关联到已有账号（`site.accounts` 输出 12、14：认人只按上游身份，邮箱撞号时拒绝）。
+                disableImplicitLinking: true,
+                // 关联不要求上游的邮箱与账号的邮箱相同（输出 15）。
+                allowDifferentEmails: true,
+                // 不列时库对上游说邮箱没验证过的身份拒绝关联（`unable_to_link_account`）；关联认的是会话与当前密码，不看上游邮箱。
+                trustedProviders: ["google", "github"],
+            },
+            // 已关联的身份登录时库缺省把这次的上游令牌写回 `account` 行（问 11）；站点不存上游令牌（副作用一节），关掉。建行时的
+            // 令牌由建账号前的钩子置空（`social/hooks.ts`）。
+            updateAccountOnSignIn: false,
+        },
         session: {
             expiresIn: sessionSeconds,
             updateAge: DAY_SECONDS,
@@ -273,7 +293,10 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
                     // （`user-agent.ts`；`site.accounts` 副作用一节“只存概要”）。所有建会话的路（模块的 issueSession、t08 由库建的）
                     // 都经这个钩子，概要只在这一处算。`databaseHooks` 的 before 返回的 `data` 整个替换库要插入的行，是库 1.7.27 的
                     // 行为，由升级清单“内部接口”的“发会话”用例核对。
+                    // 社交回调里库自己建会话：把账号记进帧，回调据此写最近登录时间（`social/callback.ts`）。
                     before: async (session) => {
+                        const frame = currentFrame();
+                        if (frame !== undefined) frame.sessionUserId = Number(session.userId);
                         const now = clock.now();
                         return {
                             data: {
@@ -301,6 +324,9 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
             admin(),
             nbSession(),
             jwt(identityJwtOptions(options.siteUrl)),
+            // 社交上游（`social/providers.ts`）。没有开放的上游时也加，只是不带上游：插件本身不加端点与表（回调是库的
+            // `/callback/:id`），总在时 `auth.api` 的类型不随配置变。
+            genericOAuth({config: socialProviderConfigs(options.social ?? {})}),
             // 对外 OAuth 与 OIDC（`site.oauth-provider`）。只有授权码一种授权方式、必须带 openid；动态登记保持缺省关，客户端只经
             // 管理接口登记。登录页与确认页是站点前端的页面（库带人去这两处，挂载层再改写，计划 3.6、3.8）。
             // 寿命：授权码与访问令牌用库的缺省（`LIBRARY_CODE_SECONDS`、`LIBRARY_ACCESS_TOKEN_SECONDS`），id_token 显式写 1 小时。

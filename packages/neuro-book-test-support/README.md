@@ -8,5 +8,6 @@
 - `./llm`：真实模型测试（`*.llm.test.ts`）的开关与凭据读取；
 - `./import-boundary`：扫描包的导入边界，给依赖方向的机检用；
 - `./style-tokens`：扫描前端包的样式写法，规则共用，各包只写扫描目录与带理由的豁免。
+- `./oauth-upstream`：仿真的 Google 与 GitHub 登录上游（本机端口上的第三方替身），给官方站账号模块的社交登录用例用。
 
 许可证：AGPL-3.0-only，见仓库根的 [LICENSE](../../LICENSE)。

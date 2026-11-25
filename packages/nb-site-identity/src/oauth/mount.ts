@@ -27,6 +27,7 @@ import {isForeignKeyViolation, type IdentityConnection} from "../db/connection";
 import {failureFor, failureResponse, MAX_BODY_BYTES, respondFailure} from "../errors";
 import type {IdentityLog} from "../index";
 import type {Sessions} from "../session";
+import type {SocialCallback} from "../social/callback";
 import {authorizeErrorRedirect, libraryAuthorizeParams, rejectedAuthorizeParameter, requestedMaxAgeSeconds} from "./authorize-request";
 import {checkClientAndRedirect} from "./clients";
 import {errorPageLocation, rewriteLibraryLocation, singleParam, type LibraryLocationOptions} from "./library-location";
@@ -43,8 +44,11 @@ export interface OAuthMountOptions {
     /** 站点地址的 origin：认库的错误页与站内页面（`library-location.ts`），也是第 2 步跳回时带的 `iss`。 */
     readonly siteOrigin: string;
     readonly log: Pick<IdentityLog, "warn" | "error">;
-    /** 开放了的社交上游：只有它们的回调地址可达（`site.accounts` 的社交回调），没开放的落到兜底 404。 */
-    readonly socialProviders: readonly SocialProvider[];
+    /**
+     * 社交回调：只有开放了的上游的回调地址可达（`site.accounts` 的社交回调），没开放的与未知的 id 落到 404。`callback` 是
+     * `social/callback.ts` 的处理，由它交库。
+     */
+    readonly social: {readonly providers: readonly SocialProvider[]; readonly callback: SocialCallback};
 }
 
 type LibraryPath = (typeof LIBRARY_PUBLIC_ENDPOINTS)[number]["path"];
@@ -298,10 +302,13 @@ function jwksEndpoint(auth: IdentityAuth): Handler {
     };
 }
 
-/** 社交回调（第 8 片接上 `social/` 的处理）：只放开放了的上游，没开放的与未知的 id 都是 404。 */
-function callbackEndpoint(auth: IdentityAuth, providers: readonly SocialProvider[]): Handler {
-    const open = new Set<string>(providers);
-    return (c) => (open.has(c.req.param("id") ?? "") ? auth.handler(c.req.raw) : notFound(c));
+/** 社交回调：只放开放了的上游，没开放的与未知的 id 都是 404（库自己接任意 id）。 */
+function callbackEndpoint(social: OAuthMountOptions["social"]): Handler {
+    return (c) => {
+        const id = c.req.param("id");
+        const provider = social.providers.find((candidate) => candidate === id);
+        return provider === undefined ? notFound(c) : social.callback(c, provider);
+    };
 }
 
 export function createOAuthApp(options: OAuthMountOptions): Hono {
@@ -324,7 +331,7 @@ export function createOAuthApp(options: OAuthMountOptions): Hono {
         "/oauth2/userinfo": userInfoEndpoint(auth),
         "/oauth2/revoke": revokeEndpoint(auth),
         "/jwks": jwksEndpoint(auth),
-        "/callback/:id": callbackEndpoint(auth, options.socialProviders),
+        "/callback/:id": callbackEndpoint(options.social),
     } satisfies Record<LibraryPath, Handler>;
 
     for (const endpoint of LIBRARY_PUBLIC_ENDPOINTS) {

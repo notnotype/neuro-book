@@ -153,7 +153,8 @@ describe("白名单", () => {
     });
 
     it("社交回调只放开放了的上游、只收 GET", async () => {
-        // 产品的装配还没有开放任何上游（配置在计划 3.12）；这里另建一个开放了 Google 的挂载层，挂法与入口相同。
+        // 测试的装配没有开放任何上游；这里另建一个只开放 Google 的挂载层，挂法与入口相同。回调的处理换成回上游名的一个函数：
+        // 这条只看挂载层把哪些请求交给它，回调本身由 `social/callback.test.ts` 与合同用例测。
         const app = new Hono();
         app.route(IDENTITY_AUTH_PREFIX, createOAuthApp({
                 auth: identity.assembly.auth,
@@ -162,15 +163,15 @@ describe("白名单", () => {
                 clock: identity.clock,
                 siteOrigin: TEST_SITE_URL,
                 log: identity.log,
-                socialProviders: ["google"],
+                social: {providers: ["google"], callback: (_c, provider) => Promise.resolve(new Response(provider))},
             }));
         const send = (method: string, provider: string) => app.fetch(new Request(`${TEST_SITE_URL}${IDENTITY_AUTH_PREFIX}/callback/${provider}`, {method}));
-        // 开放了的上游交库：没有 state 时库把人带去它的错误页（这一步的改写在第 8 片）。
-        expect((await send("GET", "google")).status).toBe(302);
+        const reached = await send("GET", "google");
+        expect({status: reached.status, body: await reached.text()}).toEqual({status: 200, body: "google"});
         for (const [method, provider] of [["POST", "google"], ["HEAD", "google"], ["GET", "github"], ["GET", "x"]] as const) {
             expect({method, provider, ownNotFound: await isOwnNotFound(await send(method, provider), method)}).toEqual({method, provider, ownNotFound: true});
         }
-        // 产品的装配里谷歌的回调也是 404。
+        // 没开放上游的装配里谷歌的回调也是 404。
         expect(await isOwnNotFound(await identity.request(`${IDENTITY_AUTH_PREFIX}/callback/google`), "GET")).toBe(true);
     });
 });

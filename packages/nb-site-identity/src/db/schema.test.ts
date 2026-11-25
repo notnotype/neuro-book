@@ -1,5 +1,5 @@
 /**
- * 账号库迁移的形状（`migrations/0001_init.sql`、`0002_oauth.sql`）：库的十二张表与基准文件的关系、按迁移运行器的规则写得进去、
+ * 账号库迁移的形状（`migrations/0001_init.sql`、`0002_oauth.sql`、`0003_social.sql`）：库的十二张表与基准文件的关系、按迁移运行器的规则写得进去、
  * id 不重用、审计只追加、码表的约束。清单与目录的对应在 `src/migrations.test.ts`。
  */
 
@@ -98,9 +98,9 @@ describe("库的表与基准文件", () => {
 
 describe("按迁移运行器的规则", () => {
     it("在守卫保存点里执行完、没有结束运行器的事务、外键检查通过（createTestDbRoot 按这些规则执行了清单）", () => {
-        expect(identityMigrations.map((migration) => migration.id)).toEqual(["0001_init", "0002_oauth"]);
+        expect(identityMigrations.map((migration) => migration.id)).toEqual(["0001_init", "0002_oauth", "0003_social"]);
         expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'identity_%' ORDER BY name").all()).toEqual(
-            ["identity_audit", "identity_consent", "identity_invite_code", "identity_profile", "identity_registration_code"].map((name) => ({name})),
+            ["identity_audit", "identity_consent", "identity_invite_code", "identity_profile", "identity_registration_code", "identity_social_flow", "identity_upstream_name"].map((name) => ({name})),
         );
     });
 });
@@ -237,5 +237,35 @@ describe("码表的约束", () => {
         expect(consent("2026-11-20", 1)).toBeNull();
         expect(consent("2026-11-2", 1)).toBe("SQLITE_CONSTRAINT_CHECK");
         expect(consent("2026-11-20", 2)).toBe("SQLITE_CONSTRAINT_CHECK");
+    });
+});
+
+describe("社交两张表的约束（0003）", () => {
+    it("上游名字：一个上游身份一行、一个账号在一个上游一行，上游只收两个，账号要存在、删不掉", () => {
+        const user = insertUser();
+        const other = insertUser();
+        const name = (userId: number, provider: string, upstream: string) =>
+            errorCode("INSERT INTO identity_upstream_name (user_id, provider, upstream_account_id, name, linked_at) VALUES (?, ?, ?, 'n', ?)", [userId, provider, upstream, NOW]);
+        expect(name(user, "google", "g-1")).toBeNull();
+        expect(name(user, "github", "1")).toBeNull();
+        // 同一个上游的同一个 id 只能有一个主人；同一个账号在同一个上游只有一个身份。
+        expect(name(other, "google", "g-1")).toBe("SQLITE_CONSTRAINT_UNIQUE");
+        expect(name(user, "google", "g-2")).toBe("SQLITE_CONSTRAINT_UNIQUE");
+        // 两个上游的 id 空间各自独立。
+        expect(name(other, "github", "g-1")).toBeNull();
+        expect(name(other, "facebook", "f-1")).toBe("SQLITE_CONSTRAINT_CHECK");
+        expect(name(other + 100, "google", "g-3")).toBe("SQLITE_CONSTRAINT_FOREIGNKEY");
+        expect(errorCode(`DELETE FROM "user" WHERE id = ?`, [user])).toBe("SQLITE_CONSTRAINT_FOREIGNKEY");
+    });
+
+    it("社交流程：state 唯一，意图与上游只收规定的值，会话 id 不是外键", () => {
+        const flow = (state: string, intent: string, provider: string, sessionId: number | null) =>
+            errorCode("INSERT INTO identity_social_flow (state, intent, provider, payload, session_id, created_at) VALUES (?, ?, ?, '{}', ?, ?)", [state, intent, provider, sessionId, NOW]);
+        expect(flow("s1", "login", "google", null)).toBeNull();
+        expect(flow("s1", "link", "github", null)).toBe("SQLITE_CONSTRAINT_UNIQUE");
+        expect(flow("s2", "signup", "github", null)).toBe("SQLITE_CONSTRAINT_CHECK");
+        expect(flow("s3", "link", "facebook", null)).toBe("SQLITE_CONSTRAINT_CHECK");
+        // 关联发起的那个会话可能已经被删，流程行照样留到清理。
+        expect(flow("s4", "link", "github", 987_654)).toBeNull();
     });
 });

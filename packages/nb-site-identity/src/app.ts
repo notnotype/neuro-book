@@ -10,7 +10,7 @@
 
 import {Hono} from "hono";
 
-import {IDENTITY_PATHS, type MetaResponse} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_PATHS, type MetaResponse, type SocialProvider} from "@notnotype/nb-site-identity-contract";
 
 import {registerAuditListRoute, type AuditListOptions} from "./admin/audit-list";
 import {registerInviteCodeAdminRoutes, type InviteCodeAdminOptions} from "./admin/invite-codes";
@@ -29,6 +29,7 @@ import {registerOAuthConsentRoutes, type OAuthConsentOptions} from "./oauth/cons
 import {registerGrantRoutes, type GrantOptions} from "./oauth/grants";
 import {registerRoute, type RegisterOptions} from "./register";
 import type {Sessions} from "./session";
+import {registerSocialStartRoute, type SocialStartOptions} from "./social/start";
 
 export interface IdentityAppOptions {
     readonly sessions: Sessions;
@@ -36,6 +37,8 @@ export interface IdentityAppOptions {
     readonly siteOrigin: string;
     readonly termsVersion: string;
     readonly registrationOpen: boolean;
+    /** 开放了的社交上游（`meta` 的 `providers`）。 */
+    readonly socialProviders: readonly SocialProvider[];
     readonly log: Pick<IdentityLog, "warn" | "error">;
     readonly login: LoginOptions;
     readonly register: RegisterOptions;
@@ -50,6 +53,7 @@ export interface IdentityAppOptions {
     readonly adminOAuthClients: OAuthClientAdminOptions;
     readonly oauthConsent: OAuthConsentOptions;
     readonly grants: GrantOptions;
+    readonly socialStart: SocialStartOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -70,8 +74,8 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     app.get(IDENTITY_PATHS.whoami, (c) => sessions.whoami(c.req.raw));
 
     app.get(IDENTITY_PATHS.meta, (c) => {
-        // 上游的开关由 t08 接上配置；本 Task 两个都没开放。
-        const body: MetaResponse = {termsVersion: options.termsVersion, registrationOpen: options.registrationOpen, providers: {google: false, github: false}};
+        const open = new Set(options.socialProviders);
+        const body: MetaResponse = {termsVersion: options.termsVersion, registrationOpen: options.registrationOpen, providers: {google: open.has("google"), github: open.has("github")}};
         return c.json(body);
     });
 
@@ -96,6 +100,7 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     registerOAuthClientAdminRoutes(app, options.adminOAuthClients);
     registerOAuthConsentRoutes(app, options.oauthConsent);
     registerGrantRoutes(app, options.grants);
+    registerSocialStartRoute(app, options.socialStart);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));

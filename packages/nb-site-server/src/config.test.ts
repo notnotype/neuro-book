@@ -60,7 +60,7 @@ describe("parseSiteConfig", () => {
             shutdownTimeoutMs: 10_000,
         });
         expect(base.trustedProxies.check("127.0.0.1", "ipv4")).toBe(false);
-        expect(result.config.modules.get("identity")).toEqual({sessionSecret: SECRET, termsVersion: "2026-11-20", registrationOpen: true, sessionDays: 30, hashConcurrency: 2, hashQueue: 64});
+        expect(result.config.modules.get("identity")).toEqual({sessionSecret: SECRET, termsVersion: "2026-11-20", registrationOpen: true, sessionDays: 30, hashConcurrency: 2, hashQueue: 64, social: {}});
         // 停止时限的上界本身可以用。
         expect(parseSiteConfig({...validEnv(), NB_SITE_SHUTDOWN_TIMEOUT_MS: "2147483647"}, SITE_MODULES).ok).toBe(true);
     });

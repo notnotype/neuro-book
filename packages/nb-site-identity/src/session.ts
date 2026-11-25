@@ -26,6 +26,7 @@ import {libDate} from "./db/library-rows";
 import {failureAsResponse, failureFor} from "./errors";
 import type {IdentityLog} from "./index";
 import {purgeExpiredOAuthRows, revokeOAuthForExpiredSessions, revokeOAuthForSession, revokeOAuthForUser} from "./oauth/revoke";
+import {purgeExpiredFlows} from "./social/flow";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -319,17 +320,17 @@ export class Sessions {
 
     /**
      * 定时任务 `purge`（`site.accounts` 的定时任务一节，计划 3.11）：一个写事务里删到期的会话（连同撤掉在它们里面发出的令牌与
-     * 授权码），再删过期的授权码、库的别的一次性凭据与访问令牌。库不可用时记一行 warn 说明这次没删，再照样抛出：这次运行以失败
+     * 授权码），再删过期的授权码、库的别的一次性凭据（含社交流程的 state 行）与访问令牌，最后删发起超过 10 分钟的社交流程。库不可用时记一行 warn 说明这次没删，再照样抛出：这次运行以失败
      * 结束，经测试控制入口手动跑时回 `job_failed`、不是 `done`（`site.operations` 输出 11；omp 实现审查第 9 条）。调度器照常排
      * 下一次，到时再删。
      */
     async purge(): Promise<void> {
-        let removed: {readonly sessions: number; readonly verifications: number; readonly accessTokens: number};
+        let removed: {readonly sessions: number; readonly verifications: number; readonly accessTokens: number; readonly socialFlows: number};
         try {
             removed = await this.#conn.write((tx) => {
                 const now = this.#clock.now();
                 const sessions = purgeExpiredSessions(tx, now);
-                return {sessions, ...purgeExpiredOAuthRows(tx, now)};
+                return {sessions, ...purgeExpiredOAuthRows(tx, now), socialFlows: purgeExpiredFlows(tx, now)};
             });
         } catch (error) {
             if (isDbUnavailable(error)) this.#log.warn("identity.purge_skipped", "identity database is not writable; expired sessions are left for the next run", {});
@@ -339,5 +340,6 @@ export class Sessions {
         if (removed.verifications > 0 || removed.accessTokens > 0) {
             this.#log.info("identity.oauth_purged", "expired authorization codes, one-time values and access tokens were deleted", {verifications: removed.verifications, accessTokens: removed.accessTokens});
         }
+        if (removed.socialFlows > 0) this.#log.info("identity.social_flows_purged", "expired social sign-in flows were deleted", {socialFlows: removed.socialFlows});
     }
 }

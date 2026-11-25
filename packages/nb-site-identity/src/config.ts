@@ -21,12 +21,35 @@ export interface IdentityConfig {
     readonly hashConcurrency: number;
     /** `NB_SITE_IDENTITY_HASH_QUEUE`：排队等着算哈希的请求数上限；0 表示不排队，算满了就回 `overloaded`。 */
     readonly hashQueue: number;
+    /** 开放了的上游：客户端 id 与密钥两项都给了才有这一项（`site.accounts` 输入一节的配置）。 */
+    readonly social: SocialConfig;
+}
+
+export interface SocialConfig {
+    readonly google?: GoogleUpstreamConfig;
+    readonly github?: GitHubUpstreamConfig;
+}
+
+export interface GoogleUpstreamConfig {
+    readonly clientId: string;
+    readonly clientSecret: string;
+    /** `NB_SITE_IDENTITY_GOOGLE_ISSUER`：发现文档在它下面的 `/.well-known/openid-configuration`；不带结尾的 `/`。 */
+    readonly issuer: string;
+}
+
+export interface GitHubUpstreamConfig {
+    readonly clientId: string;
+    readonly clientSecret: string;
+    /** `NB_SITE_IDENTITY_GITHUB_URL`：授权与换令牌的地址在它下面的 `/login/oauth/…`；不带结尾的 `/`。 */
+    readonly url: string;
+    /** `NB_SITE_IDENTITY_GITHUB_API_URL`：用户与邮箱接口在它下面的 `/user`、`/user/emails`；不带结尾的 `/`。 */
+    readonly apiUrl: string;
 }
 
 /** 配置问题只带变量名与固定的问题词，不带取值（`site.operations` 输出 1）。 */
 export interface IdentityConfigProblem {
     readonly name: string;
-    readonly problem: "missing" | "too_short" | "bad_format" | "not_integer" | "out_of_range" | "not_allowed";
+    readonly problem: "missing" | "too_short" | "bad_format" | "not_integer" | "out_of_range" | "not_allowed" | "not_https";
 }
 
 export type IdentityConfigResult = {readonly ok: true; readonly config: IdentityConfig} | {readonly ok: false; readonly problems: readonly IdentityConfigProblem[]};
@@ -53,6 +76,16 @@ const TERMS_VERSION = /^(\d{4})-(\d{2})-(\d{2})$/u;
  * 库的选项挡不住这些读法，所以有一个就不启动（`site.accounts` 输入一节的配置），不逐个列：库升级加的新变量同样挡住。
  */
 const LIBRARY_ENV_PREFIX = "BETTER_AUTH_";
+
+/**
+ * 上游地址只许换成这几个主机的 `http:`：变量存在只是为了让测试接上本机的仿真上游（计划第 10 节第 1 条），生产里不设；
+ * 别的 `http:` 地址会把客户端密钥与上游令牌明文送出去，所以写错了就不启动，不会悄悄连到别处。
+ */
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1", "[::1]", "localhost"]);
+
+const GOOGLE_ISSUER = {name: "NB_SITE_IDENTITY_GOOGLE_ISSUER", fallback: "https://accounts.google.com"} as const;
+const GITHUB_URL = {name: "NB_SITE_IDENTITY_GITHUB_URL", fallback: "https://github.com"} as const;
+const GITHUB_API_URL = {name: "NB_SITE_IDENTITY_GITHUB_API_URL", fallback: "https://api.github.com"} as const;
 
 /** 形如 `YYYY-MM-DD` 且是公历里真实存在的一天（`2026-02-29` 不是）。 */
 function isCalendarDate(value: string): boolean {
@@ -107,11 +140,52 @@ export function parseIdentityConfig(env: Readonly<Record<string, string | undefi
     const hashConcurrency = readInteger(HASH_CONCURRENCY);
     const hashQueue = readInteger(HASH_QUEUE);
 
+    // 地址带路径是正常的（仿真上游把两个上游放在同一个端口的不同路径下）；带用户信息、查询串或片段时库拼出的地址会错，
+    // 报 bad_format。地址在上游没开放时也校验：写错的值不该等到开放的那天才暴露。
+    const readUpstreamUrl = (variable: {readonly name: string; readonly fallback: string}): string => {
+        const value = given(variable.name);
+        if (value === undefined) return variable.fallback;
+        let url: URL;
+        try {
+            url = new URL(value);
+        } catch {
+            problems.push({name: variable.name, problem: "bad_format"});
+            return variable.fallback;
+        }
+        if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || value.includes("?") || value.includes("#")) {
+            problems.push({name: variable.name, problem: "bad_format"});
+            return variable.fallback;
+        }
+        if (url.protocol === "http:" && !LOOPBACK_HOSTS.has(url.hostname)) {
+            problems.push({name: variable.name, problem: "not_https"});
+            return variable.fallback;
+        }
+        return url.href.replace(/\/+$/u, "");
+    };
+    // 两项都没给是“不开放”；只给一项多半是漏抄了一个，报在没给的那个变量上。
+    const readClient = (idName: string, secretName: string): {readonly clientId: string; readonly clientSecret: string} | undefined => {
+        const clientId = given(idName);
+        const clientSecret = given(secretName);
+        if (clientId === undefined && clientSecret === undefined) return undefined;
+        if (clientId === undefined) problems.push({name: idName, problem: "missing"});
+        if (clientSecret === undefined) problems.push({name: secretName, problem: "missing"});
+        return clientId === undefined || clientSecret === undefined ? undefined : {clientId, clientSecret};
+    };
+    const googleClient = readClient("NB_SITE_IDENTITY_GOOGLE_CLIENT_ID", "NB_SITE_IDENTITY_GOOGLE_CLIENT_SECRET");
+    const googleIssuer = readUpstreamUrl(GOOGLE_ISSUER);
+    const githubClient = readClient("NB_SITE_IDENTITY_GITHUB_CLIENT_ID", "NB_SITE_IDENTITY_GITHUB_CLIENT_SECRET");
+    const githubUrl = readUpstreamUrl(GITHUB_URL);
+    const githubApiUrl = readUpstreamUrl(GITHUB_API_URL);
+    const social: SocialConfig = {
+        ...(googleClient === undefined ? {} : {google: {...googleClient, issuer: googleIssuer}}),
+        ...(githubClient === undefined ? {} : {github: {...githubClient, url: githubUrl, apiUrl: githubApiUrl}}),
+    };
+
     // 按名字排序，问题的先后不随进程环境的顺序变。
     for (const name of Object.keys(env).sort()) {
         if (name.startsWith(LIBRARY_ENV_PREFIX) && given(name) !== undefined) problems.push({name, problem: "not_allowed"});
     }
 
     if (problems.length > 0) return {ok: false, problems};
-    return {ok: true, config: {sessionSecret: sessionSecret!, termsVersion: termsVersion!, registrationOpen, sessionDays, hashConcurrency, hashQueue}};
+    return {ok: true, config: {sessionSecret: sessionSecret!, termsVersion: termsVersion!, registrationOpen, sessionDays, hashConcurrency, hashQueue, social}};
 }

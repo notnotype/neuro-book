@@ -20,6 +20,8 @@ import {prepareSigningKey} from "./oauth/signing-key";
 import {REAL_PASSWORD_FUNCTIONS, type PasswordFunctions} from "./password";
 import {createIdentityRateLimits} from "./rate-limit";
 import {Sessions} from "./session";
+import {createSocialCallback} from "./social/callback";
+import {openProviders} from "./social/providers";
 
 /** 停止时等队列里当前持锁者的上限（`site.operations` 输出 9 的“每个模块至多 2 秒收尾”）。 */
 const CLOSE_WAIT_MS = 2_000;
@@ -86,7 +88,7 @@ export interface IdentityAssembly {
  */
 export async function assembleIdentity(conn: IdentityConnection, options: IdentityAssemblyOptions, overrides: IdentityOverrides = {}): Promise<IdentityAssembly> {
     const {config, clock, log} = options;
-    const auth = createIdentityAuth({conn, siteUrl: options.siteUrl, secret: config.sessionSecret, sessionDays: config.sessionDays, termsVersion: config.termsVersion, clock, log});
+    const auth = createIdentityAuth({conn, siteUrl: options.siteUrl, secret: config.sessionSecret, sessionDays: config.sessionDays, termsVersion: config.termsVersion, clock, log, social: config.social});
     const context = await auth.$context;
     // 1.7.27 对自定义的 Kysely 方言也登记了结构检查；没有它时不能确认表能收下库写的东西，不启动。
     if (context.checkSchema === undefined) throw new Error("the library registered no schema check for the identity database");
@@ -105,8 +107,9 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     };
 
     const sessions = new Sessions({auth, conn, clock, sessionDays: config.sessionDays, termsVersion: config.termsVersion, log});
-    // 社交上游的开关由配置给（计划 3.12），配置还没有这一项：都不开放，回调地址一律 404。
-    const oauth = createOAuthApp({auth, conn, sessions, clock, siteOrigin, log, socialProviders: []});
+    // 社交上游的开关由配置给（计划 3.12）：没开放的上游，发起回 `provider_disabled`、回调地址 404。
+    const socialProviders = openProviders(config.social);
+    const oauth = createOAuthApp({auth, conn, sessions, clock, siteOrigin, log, social: {providers: socialProviders, callback: createSocialCallback({auth, conn, clock, siteOrigin, log})}});
     const passwords = overrides.passwords ?? REAL_PASSWORD_FUNCTIONS;
     const hashLimiter = new HashLimiter({concurrency: config.hashConcurrency, queue: config.hashQueue, log, ...(overrides.hashTimers === undefined ? {} : {timers: overrides.hashTimers})});
     const rateLimits = createIdentityRateLimits({now: () => clock.now(), log});
@@ -119,6 +122,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
         siteOrigin,
         termsVersion: config.termsVersion,
         registrationOpen: config.registrationOpen,
+        socialProviders,
         log,
         login: {
             conn,
@@ -159,6 +163,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
         adminOAuthClients: {sessions, conn, clock, log, auth, adapter: context.adapter},
         oauthConsent: {sessions, conn, clock, log, siteOrigin, secret, decide: overrides.wrapOAuthConsent?.(decide) ?? decide},
         grants: {sessions, conn, clock},
+        socialStart: {auth, conn, sessions, clock, providers: socialProviders, siteOrigin, hashLimiter, rateLimits, passwords, resolveContinue: continueResolver, log},
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。

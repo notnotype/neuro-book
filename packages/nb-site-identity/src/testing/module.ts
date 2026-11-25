@@ -32,6 +32,7 @@ export const TEST_CONFIG: IdentityConfig = {
     sessionDays: 30,
     hashConcurrency: 2,
     hashQueue: 64,
+    social: {},
 };
 
 export interface TestIdentity {
