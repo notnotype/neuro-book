@@ -55,7 +55,10 @@ const props = withDefaults(defineProps<{
     onGestureCommit?: (commit: GridGestureCommit) => {readonly ok: true} | GridFailure;
     /** 内容层（docs/specs/ui/nested-grid.md 输出 80）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
-    /** 最大化（docs/specs/ui/nested-grid.md 输出 97）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
+    /**
+     * 最大化（docs/specs/ui/nested-grid.md 输出 97）：这块叶盖住除 `exclude` 以外全部叶的外接矩形，别的面板不动。只在内存，宿主决定。
+     * `exclude` 里的叶只有落在这个外接矩形之外才露出来，夹在别的叶中间的照样被盖住（同名 .md 的“最大化”）。
+     */
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
     /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形由 `placeLifted` 写。变成 null 时飞回它的叶。 */
     lifted?: {readonly key: string} | null;
@@ -63,7 +66,7 @@ const props = withDefaults(defineProps<{
     dragging?: boolean;
     /** 浮动窗（docs/specs/ui/nested-grid.md 输出 101）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
-    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
+    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id，孩子是分支时就是分支 id（同名 .md 的“分隔线的身份”）。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
     /**
      * 写在分隔线元素上的内联样式（多半是 CSS 变量），宿主据此在线所占的那一条里画东西，例如两张拼起来的卡片之间那一条的底色。
@@ -72,7 +75,8 @@ const props = withDefaults(defineProps<{
     sashStyle?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => Record<string, string> | undefined) | undefined;
     /**
      * 宿主让这条分隔线此刻不能拖（指针、键盘都不行，线照画）：例如一列分节全部收成标题行时（垫底的那一节在吸收余量，拖开时预览与结果对不上）。
-     * 不给就都能拖；交换里滑出去的、零长的线照旧不能拖。
+     * 不给就都能拖；交换里滑出去的、零长的线照旧不能拖。`before`、`after` 同 `sashKind`，可能是分支 id。
+     * 每次渲染分隔线时都调、不缓存：读响应式状态，结果才跟着它变。
      */
     sashDisabled?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => boolean) | undefined;
     /**
