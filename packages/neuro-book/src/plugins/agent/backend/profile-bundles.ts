@@ -137,6 +137,8 @@ export class ProfileBundles implements UserProfiles {
                 description: profile?.description ?? "",
                 tools: {required: profile?.tools?.required ?? [], optional: profile?.tools?.optional ?? []},
                 ...(profile?.modelNeeds === undefined ? {} : {modelNeeds: profile.modelNeeds}),
+                // 只收字符串数组：写错形状的交给装配报 bad-extension-id，不让整个目录在算可用性时抛错。
+                ...(Array.isArray(profile?.referencedExtensions) && profile.referencedExtensions.every((id) => typeof id === "string") ? {referencedExtensions: profile.referencedExtensions} : {}),
                 usable: state.published !== null,
                 ...(state.problem === null ? {} : {problem: state.problem}),
             }];

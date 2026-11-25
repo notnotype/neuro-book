@@ -230,6 +230,10 @@ function problemNotice(entry: ProfileEntry, problem: ProfileProblem, text: TextR
             const tools = problem.tools.join(text.t(agentText("profiles.problem.separator")));
             return {text: text.t(agentText("profiles.problem.toolsMissing", {tools})), lines: [text.t(agentText("profiles.problem.toolsMissingDetail", {tools}))], tone: "warning"};
         }
+        case "extensions-missing": {
+            const extensions = problem.extensions.join(text.t(agentText("profiles.problem.separator")));
+            return {text: text.t(agentText("profiles.problem.extensionsMissing", {extensions})), lines: [text.t(agentText("profiles.problem.extensionsMissingDetail", {extensions}))], tone: "warning"};
+        }
         case "key-taken":
             return {text: text.t(agentText("profiles.problem.keyTaken")), lines: [text.t(agentText("profiles.problem.keyTakenDetail", {key: entry.key}))], tone: "warning"};
         case "module-not-shared":
@@ -553,7 +557,7 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
                 ? null
                 : entry.status === "error"
                     ? {kind: "error", text: text.t(agentText("profiles.status.error")), tone: "error"}
-                    : {kind: "unavailable", text: text.t(agentText("profiles.status.unavailable")), tone: entry.problem?.code === "tools-missing" || entry.problem?.code === "key-taken" ? "warning" : "error"},
+                    : {kind: "unavailable", text: text.t(agentText("profiles.status.unavailable")), tone: entry.problem?.code === "tools-missing" || entry.problem?.code === "extensions-missing" || entry.problem?.code === "key-taken" ? "warning" : "error"},
             hidden: entry.hidden === true,
             user,
             notice: entry.problem === undefined ? null : problemNotice(entry, entry.problem, text),

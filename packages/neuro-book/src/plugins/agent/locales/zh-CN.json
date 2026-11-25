@@ -254,7 +254,8 @@
             "normal": "普通",
             "discuss": "讨论",
             "plan": "计划",
-            "unknown": "没有这个模式，可选：{{options}}"
+            "unknown": "没有这个模式，可选：{{options}}",
+            "unavailable": "这个会话没有 Agent 模式，切换不了"
         },
         "approval": {
             "ask": {
@@ -563,6 +564,8 @@
         "problem": {
             "toolsMissing": "不可用：缺少必需工具 {{tools}}",
             "toolsMissingDetail": "缺少必需工具 {{tools}}。装上提供它的插件后恢复。",
+            "extensionsMissing": "不可用：缺少引用的扩展 {{extensions}}",
+            "extensionsMissingDetail": "引用的扩展 {{extensions}} 没有插件提供。装上提供它的插件后恢复。",
             "keyTaken": "不可用：这个名字已被插件占用",
             "keyTakenDetail": "插件已经用了 {{key}}，改文件名后恢复。",
             "moduleNotShared": "不能导入 “{{module}}”",

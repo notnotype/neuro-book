@@ -86,10 +86,12 @@ const COMPACT_REJECT_KEYS = {
 const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model", "plan", "mode"] as const;
 /** 有归属的会话（bot 档）做的命令（agent/conversation.md 输出 53）：不换会话、不分叉；标题是归属插件给的身份，不改名。 */
 const OWNED_COMMANDS: readonly string[] = ["compact", "plan", "mode"];
-/** 切 Agent 模式的工具：Profile 的工具里有它才显示模式选择器（模式扩展跟着它装，modes.md）。 */
-const SWITCH_MODE_TOOL = "nbook.agent.switch-mode";
-/** 能切 Agent 模式的 Profile；目录里还没有它（还在加载）时按能算，免得选择器闪一下。 */
-const hasModes = (entry: ProfileEntry | undefined): boolean => entry === undefined || [...(entry.tools?.required ?? []), ...(entry.tools?.optional ?? [])].includes(SWITCH_MODE_TOOL);
+/**
+ * 能切 Agent 模式的 Profile：目录项按 id 引用了模式扩展（modes.md；`switch_mode` 工具只决定 Agent 能不能主动申请，不影响这里）。
+ * 目录里还没有它（还在加载）时按能算，免得选择器闪一下。只看目录、不追会话自己的装配：两边不一致只在用户级 Profile 改了引用、
+ * 会话还没重新装配时出现，那时切换得 `unknown-extension`，提示见 `setMode`。
+ */
+const hasModes = (entry: ProfileEntry | undefined): boolean => entry === undefined || (entry.referencedExtensions ?? []).includes(AGENT_MODES_EXTENSION);
 /** 宿主总是做了的触发字符；表情的 `:` 只在有表情选择器时做（`SessionHostDeps.triggers`）。 */
 const HOST_TRIGGERS: readonly string[] = ["@", "/", "$"];
 /** 打字时攒一下再写草稿。 */
@@ -1257,8 +1259,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         if (generation !== started) return null;
         const mode = draftMode;
         await openHere(created.value.sessionId, {keepDraft: sessionId.value === null});
-        // 只有主 Profile 装了模式。`open` 已经把草稿的模式清了，所以先取出来。
-        if (mode !== "normal" && profile === MAIN_PROFILE) await setMode(mode);
+        // 要建的 Profile 有模式才提交草稿的模式。`open` 已经把草稿的模式清了，所以先取出来。
+        if (mode !== "normal" && profileHasModes(profile)) await setMode(mode);
         return created.value.sessionId;
     }
 
@@ -1638,28 +1640,49 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let draftMode: AgentMode = "normal";
     const modeOfCurrent = (target: Current | null): AgentMode => (target === null ? draftMode : ((target.transcript.meta()?.extensionSettings[AGENT_MODES_EXTENSION]?.mode ?? "normal") as AgentMode));
 
-    async function setMode(mode: AgentMode): Promise<void> {
+    /** 这个 Profile 有没有 Agent 模式：按目录判。控件、`/plan`、`/mode`、新建时提交草稿模式都经这里。 */
+    const profileHasModes = (key: string | undefined): boolean => hasModes(key === undefined ? undefined : deps.profiles().find((entry) => entry.key === key));
+    /** 这个会话（没有会话时是隐式新建的主创）有没有 Agent 模式。 */
+    const modesAvailable = (target: Current | null): boolean => profileHasModes(target === null ? MAIN_PROFILE : (target.transcript.meta()?.profile ?? undefined));
+
+    /** 切模式；交回切成了没有。控件、`/plan`、`/mode` 都经这里：没有模式的会话不发请求，提示原因。 */
+    async function setMode(mode: AgentMode): Promise<boolean> {
         const target = current;
+        if (!modesAvailable(target)) {
+            notice = agentText("conversation.mode.unavailable");
+            bump();
+            return false;
+        }
         if (target === null) {
             draftMode = mode;
             bump();
-            return;
+            return true;
         }
         const result = await remote.changeSettings({sessionId: target.id, commandId: commandId(), patch: {[AGENT_MODES_EXTENSION]: {mode}}});
         if (!result.ok && current === target) {
-            notice = agentText("conversation.reject.other", {code: result.code});
+            // 目录说有模式、会话的装配里却没有（用户级 Profile 改了引用，会话还没重新装配）。
+            notice = result.code === "unknown-extension" ? agentText("conversation.mode.unavailable") : agentText("conversation.reject.other", {code: result.code});
             bump();
         }
+        return result.ok;
     }
 
-    /** `/plan [文字]`：切到 `plan`，已在 `plan` 不动；带文字时切完发出去。 */
+    /** `/plan [文字]`：切到 `plan`，已在 `plan` 不动；带文字时切完发出去。没切成就不发（那句话是要在计划模式下处理的），文字留在输入框。 */
     async function planCommand(argsText: string): Promise<void> {
-        if (modeOfCurrent(current) !== "plan") await setMode("plan");
-        if (argsText.trim() !== "") await submit(argsText.trim(), "prompt");
+        const target = current;
+        const text = argsText.trim();
+        if (modeOfCurrent(target) !== "plan" && !(await setMode("plan"))) return;
+        // 切的这段时间用户去了别的会话：那句话是给原来那个会话的，不发到新会话里。
+        if (text !== "" && current === target) await submit(text, "prompt");
     }
 
     /** `/mode [名字]`：只管 Agent 模式，接 key 与显示名；没写切下一种。 */
     async function modeCommand(argsText: string): Promise<void> {
+        // 先看有没有模式：没有模式的会话里报“没有 Agent 模式”，不报名字不对（modes.md 输出 12）。
+        if (!modesAvailable(current)) {
+            await setMode(modeOfCurrent(current));
+            return;
+        }
         const name = argsText.trim();
         const index = MODE_OPTIONS.findIndex((option) => option.key === modeOfCurrent(current));
         const found = name === "" ? MODE_OPTIONS[(index + 1) % MODE_OPTIONS.length] : MODE_OPTIONS.find((option) => option.key === name || modeLabel(option.key) === name);
@@ -2088,8 +2111,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(model?.ok === true && model.reasoning !== undefined ? {effort: effortViewFor(model.reasoning, model.effectiveEffort ?? null, model.effortSource ?? null, followOf(model, roles))} : {}),
                 groups: [...deps.groups()],
                 approval: {options: [...APPROVAL_OPTIONS], value: settings.approvalMode ?? "ask"},
-                // 模式扩展跟着切换模式的工具装（主创、bot 的岗位 Profile）；还没有会话时要建的就是主创。
-                modes: meta !== null && meta !== undefined && !hasModes(profile) ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),
+                // 按目录判 Profile 有没有模式；还没有会话时隐式新建的是主创。
+                modes: !modesAvailable(target ?? null) ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),
                 mode: modeOfCurrent(target ?? null),
                 resume: target?.transcript.interrupted() === true,
                 queued: target === null || target === undefined ? [] : [...target.transcript.queue().map((item) => queuedView(target, item)), ...noticeViews(target)],

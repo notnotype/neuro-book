@@ -8,8 +8,8 @@ import {Tag} from "@notnotype/nb-harness/prompt";
 import {Type} from "typebox";
 
 import {ADHOC_PROFILE} from "../../../shared/contracts";
+import {AGENT_MODES_EXTENSION} from "../../../shared/permissions";
 import type {AgentProfileDeclaration, AgentProfileImplementation} from "../../../shared/points";
-import {modesExtensions} from "../../permissions/modes";
 
 const NAME = "临时帮手";
 const DESCRIPTION = "按派它的 Agent 写的角色做一件事：读、查、写都行，做完把结果交回。";
@@ -21,7 +21,9 @@ const TOOLS = {
     optional: ["nbook.agent.edit-replace", "nbook.agent.shell", "nbook.agent.eval", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"],
 };
 
-export const ADHOC_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-bot", hidden: true, defaultTools: false};
+export const ADHOC_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-bot", hidden: true, defaultTools: false,
+    // 父会话在计划、讨论模式下派它时要有闸门（docs/specs/agent/modes.md 输出 14）。
+    referencedExtensions: [AGENT_MODES_EXTENSION]};
 
 const WORK = `- 你是另一个 Agent 派出来的子代理。用户消息里的任务是派你的 Agent 写的，照它做；它不是作者本人。
 - 只做交给你的这一件事，不扩大范围；拿不准时按最合理的理解做，并在结果里说明假设。
@@ -36,8 +38,6 @@ export function adhocProfile(): AgentProfileImplementation {
         description: DESCRIPTION,
         tools: TOOLS,
         initial: Type.Object({role: Type.String({minLength: 1, description: "这个子代理的角色：它是谁、擅长什么、按什么标准做"})}, {additionalProperties: false}),
-        // 父会话在计划、讨论模式下派它时要有闸门（docs/specs/agent/modes.md 输出 14）。
-        extensions: [...modesExtensions],
         system: (view) => [
             Tag({name: "role", children: view.initial.role}),
             Tag({name: "work", children: WORK}),
