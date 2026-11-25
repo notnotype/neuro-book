@@ -106,10 +106,15 @@ test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；�
     await key.press("Enter");
     await expect(result).toHaveText("");
     await expect.poll(keysFile).toEqual({version: 1, keys: {deepseek: SECOND}});
+    // 结果写在预留的一行里：出现时不推动下面的“高级”（输出 8）。
+    const advanced = detail(page).locator("[data-search-advanced]");
+    const before = (await advanced.boundingBox())?.y;
+    expect(before).toBeDefined();
     await check.click();
     await expect.poll(() => seen.length).toBe(2);
     expect(seen.at(-1)).toBe(`Bearer ${SECOND}`);
     await expect(result).toContainText("检测通过");
+    expect((await advanced.boundingBox())?.y).toBe(before);
 
     await detail(page).locator("[data-key-clear]").click();
     await expect(key).toHaveAttribute("placeholder", "还没有填写");

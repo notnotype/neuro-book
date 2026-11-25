@@ -64,11 +64,11 @@ function mountPage(store: SearchStore, settings: SettingsService, {writable = tr
 
 const ALL_SETTINGS = [S.provider, S.deepseekBaseUrl, S.tavilyBaseUrl, S.resultCount, S.blockedSites, S.tavilySearchDepth];
 
-function render(options: FakeWebRemoteOptions = {}, page: {writable?: boolean; locale?: DisplayLocale; values?: Record<string, unknown>; userUnreachable?: boolean} = {}) {
+function render(options: FakeWebRemoteOptions = {}, page: {writable?: boolean; locale?: DisplayLocale; values?: Record<string, unknown>} = {}) {
     const fake = createFakeWebRemote(options);
     const store = createSearchStore(fake.remote, () => Date.UTC(2026, 10, 19, 8, 30, 0));
     stores.push(store);
-    const host = createSettingsHost({settings: ALL_SETTINGS.map((definition) => ({plugin: "nbook.web", definition})), sections: [], user: {values: page.values ?? {}, unreachable: page.userUnreachable === true}, notify: () => undefined, report: () => undefined});
+    const host = createSettingsHost({settings: ALL_SETTINGS.map((definition) => ({plugin: "nbook.web", definition})), sections: [], user: {values: page.values ?? {}}, notify: () => undefined, report: () => undefined});
     stores.push(host);
     const settings = host.service("nbook.web");
     return {fake, store, host, settings, ...mountPage(store, settings, page)};
@@ -158,7 +158,7 @@ describe("SearchSettingsPage", () => {
         expect(english.failures).toEqual([{subject: "DeepSeek API key", reason: "The key file couldn't be read or written. Please enter it again.", uncertain: false}]);
     });
 
-    it("只读：网页工具没运行时写一句说明、控件停用；writable 为假时控件停用（输出 7）", async () => {
+    it("只读：网页工具没运行时写一句说明、控件停用；writable 为假时控件停用，“设为使用中”也是（输出 7、11）", async () => {
         const readonly = render({unavailable: true});
         await waitUntil("只读", () => readonly.wrapper.find("[data-search-readonly]").exists() || undefined, {timeoutMs: 10_000});
         expect(readonly.wrapper.get("[data-search-readonly]").text()).toBe("网页工具没有运行，这一页暂时不能修改。");
@@ -166,12 +166,17 @@ describe("SearchSettingsPage", () => {
         expect(readonly.checkButton().element.disabled).toBe(true);
         // 没取到状态：不说“未设置”（输出 2）；原因写在顶上。
         expect(readonly.input().attributes("placeholder")).toBe("读取中");
+        await readonly.show("tavily");
+        expect(readonly.wrapper.get<HTMLButtonElement>("[data-search-use-action]").element.disabled).toBe(true);
 
         const locked = render({hasKey: true}, {writable: false});
         await waitUntil("已设置", () => locked.input().attributes("placeholder") === "已设置" || undefined, {timeoutMs: 10_000});
         expect(locked.input().element.disabled).toBe(true);
         expect(locked.checkButton().element.disabled).toBe(true);
         expect(locked.wrapper.get<HTMLButtonElement>("[data-key-clear]").element.disabled).toBe(true);
+        // 用户层不可写时“设为使用中”也停用（输出 11）。
+        await locked.show("tavily");
+        expect(locked.wrapper.get<HTMLButtonElement>("[data-search-use-action]").element.disabled).toBe(true);
     });
 
     it("密钥文件读不了：顶上写一句，密钥框按未设置画、照常可写（输出 2、7）", async () => {
@@ -270,6 +275,7 @@ describe("SearchSettingsPage", () => {
         expect(page.railItem("deepseek").attributes("tabindex")).toBe("-1");
         // logo：两家都在图标表里，画的是图（不是首字母块）；地址表按需加载，等它到。
         await waitUntil("logo 到了", () => page.wrapper.findAll("[data-search-rail-item] img.provider-logo").length === 2 || undefined, {timeoutMs: 10_000});
+        expect(page.wrapper.find("[data-search-detail] header img.provider-logo").exists()).toBe(true);
         await page.railItem("tavily").trigger("keydown", {key: "ArrowUp"});
         await waitUntil("上移到 DeepSeek", () => page.wrapper.find('[data-search-detail="deepseek"]').exists() || undefined);
         await page.railItem("deepseek").trigger("keydown", {key: "Home"});
@@ -317,7 +323,7 @@ describe("SearchSettingsPage", () => {
         expect(page.settings.get(S.provider)).toBe("tavily");
     });
 
-    it("设为使用中：这家没有密钥而使用中的那家有时先不切，焦点进密钥框；填好后自动切过去；换选别的项或清除时作废（输出 11）", async () => {
+    it("设为使用中：这家没有密钥而使用中的那家有时先不切，焦点进密钥框；填好后自动切过去；换选别的项、离开这页或清除时作废（输出 11）", async () => {
         const page = render({hasKey: true});
         await loaded(page);
         await page.show("tavily");
@@ -341,6 +347,38 @@ describe("SearchSettingsPage", () => {
         expect(other.wrapper.find("[data-search-detail] [data-key-notice]").exists()).toBe(false);
         await type(other.input(), TAVILY_KEY);
         expect(other.settings.get(S.provider)).toBe("deepseek");
+
+        // 离开这页再回来：等待只在页面里，跟着页面没了。
+        const left = render({hasKey: true});
+        await loaded(left);
+        await left.show("tavily");
+        await left.wrapper.get("[data-search-use-action]").trigger("click");
+        await flushPromises();
+        left.wrapper.unmount();
+        mounted.splice(mounted.indexOf(left.wrapper), 1);
+        const back = mountPage(left.store, left.settings);
+        await loaded(back);
+        await back.show("tavily");
+        expect(back.wrapper.find("[data-search-detail] [data-key-notice]").exists()).toBe(false);
+        await type(back.input(), TAVILY_KEY);
+        expect(left.settings.get(S.provider)).toBe("deepseek");
+
+        // 清除这家的密钥：等待中写这家的密钥结果未知，重取状态发现其实写进去了（框里换成“清除”）；再清掉，等待作废、不切。
+        const cleared = render({hasKey: true});
+        await loaded(cleared);
+        await cleared.show("tavily");
+        await cleared.wrapper.get("[data-search-use-action]").trigger("click");
+        await flushPromises();
+        await cleared.fake.remote.setKey({provider: "tavily", key: TAVILY_KEY});
+        cleared.fake.failWrites("unknown-outcome");
+        await type(cleared.input(), TAVILY_KEY);
+        await waitUntil("重取状态后有了清除", () => cleared.clear().exists() || undefined);
+        expect(cleared.settings.get(S.provider)).toBe("deepseek");
+        cleared.fake.failWrites(null);
+        await cleared.clear().trigger("click");
+        await waitUntil("清掉了", () => !cleared.clear().exists() || undefined);
+        await type(cleared.input(), TAVILY_KEY);
+        expect(cleared.settings.get(S.provider)).toBe("deepseek");
     });
 
     it("设为使用中：使用中的那家也没有密钥时照常切（输出 11）", async () => {
@@ -352,9 +390,12 @@ describe("SearchSettingsPage", () => {
         expect(page.wrapper.get("[data-search-detail] [data-key-notice]").text()).toBe("未填写");
     });
 
-    it("搜索规则：默认结果条数写用户层，范围外原位提示、不写；屏蔽网站归一化后写，不像域名的不收；左栏写屏蔽了几个（输出 12）", async () => {
+    it("搜索规则：默认结果条数写用户层，范围外原位提示、不写；屏蔽网站归一化后写，不像域名的不收；左栏写屏蔽了几个、没有时空着；失焦也加；写失败交窗口通知（输出 12）", async () => {
         const page = render({hasKey: true});
         await loaded(page);
+        // 没有屏蔽时左栏这一行只有标题，也不挂读屏描述。
+        expect(page.railItem("rules").text()).toBe("搜索规则");
+        expect(page.railItem("rules").attributes("aria-describedby")).toBeUndefined();
         await page.show("rules");
         const count = () => page.wrapper.get<HTMLInputElement>("[data-search-count] input, input[data-search-count]");
         await count().setValue("7");
@@ -375,9 +416,26 @@ describe("SearchSettingsPage", () => {
         await flushPromises();
         expect(page.wrapper.text()).toContain("“不是域名”不是域名");
         expect(page.settings.get(S.blockedSites)).toEqual(["blog.csdn.net"]);
+        // 失焦也把输入加进去。
+        await blocked().setValue("zhihu.com");
+        await blocked().trigger("blur");
+        await waitUntil("失焦加了一项", () => page.settings.get(S.blockedSites).length === 2 || undefined);
+        expect(page.settings.get(S.blockedSites)).toEqual(["blog.csdn.net", "zhihu.com"]);
+
+        // 写失败交窗口通知，主语是这一项的标题。
+        page.host.user.failWrites("unknown-outcome");
+        await count().setValue("3");
+        await waitUntil("条数的通知", () => page.failures.length === 1 || undefined);
+        await blocked().setValue("baidu.com");
+        await blocked().trigger("keydown", {key: "Enter"});
+        await waitUntil("屏蔽网站的通知", () => page.failures.length === 2 || undefined);
+        expect(page.failures).toEqual([
+            {subject: "默认结果条数", reason: "可能没有保存，以设置文件为准", uncertain: true},
+            {subject: "屏蔽网站", reason: "可能没有保存，以设置文件为准", uncertain: true},
+        ]);
     });
 
-    it("高级：标题旁写有哪几项；接口地址回车写、不是 http(s) 的原位提示不写、清空回到缺省；Tavily 的搜索深度写设置；改过的默认展开（输出 13）", async () => {
+    it("高级：标题旁写有哪几项；接口地址回车或失焦写、不是 http(s) 的原位提示不写、清空时去掉用户层的值；Tavily 的搜索深度写设置；改过的默认展开（输出 13）", async () => {
         const page = render({hasKey: true, hasTavilyKey: true}, {values: {"nbook.web/tavilySearchDepth": "advanced"}});
         await loaded(page);
         expect(page.wrapper.get("[data-search-advanced]").text()).toContain("接口地址");
@@ -396,6 +454,12 @@ describe("SearchSettingsPage", () => {
         await url().setValue("");
         await url().trigger("keydown", {key: "Enter"});
         await waitUntil("回到缺省", () => page.settings.get(S.deepseekBaseUrl) === "https://api.deepseek.com" || undefined);
+        // 清空是去掉用户层的值，不是写一份缺省的地址。
+        expect(page.settings.inspect(S.deepseekBaseUrl).user).not.toMatchObject({value: expect.anything()});
+        // 失焦也写。
+        await url().setValue("https://relay.example/blur");
+        await url().trigger("focusout");
+        await waitUntil("失焦写了地址", () => page.settings.get(S.deepseekBaseUrl) === "https://relay.example/blur" || undefined);
 
         // Tavily 改过搜索深度：它的高级默认展开。
         await page.show("tavily");
@@ -427,13 +491,20 @@ describe("SearchSettingsPage", () => {
         expect(fresh.failures).toEqual([{subject: "Tavily 的 API 密钥", reason: "密钥文件读写失败；请重新输入", uncertain: false}]);
     });
 
-    it("说明：DeepSeek 的密钥旁有说明图标，Tavily 没有；详情里不写说明句（输出 9）", async () => {
+    it("说明：DeepSeek 的密钥旁有说明图标、提示两份密钥分开存，Tavily 没有；详情与高级里不写说明句（输出 9）", async () => {
         const page = render({hasKey: true});
         await loaded(page);
-        expect(page.wrapper.find("[data-search-detail] .api-key-field__label button").exists()).toBe(true);
+        const tip = page.wrapper.get("[data-search-detail] .api-key-field__label button");
+        await tip.trigger("focus");
+        await waitUntil("提示显示", () => document.body.textContent?.includes("与“服务商与模型”里的 DeepSeek 密钥分开保存，可以填同一把") || undefined);
         expect(page.wrapper.text()).not.toContain("这把密钥只给搜索与读网页用");
         await page.show("tavily");
         expect(page.wrapper.find("[data-search-detail] .api-key-field__label button").exists()).toBe(false);
+        expect(page.wrapper.text()).not.toContain("这把密钥只给搜索与读网页用");
+        // 高级里的设置行也不写说明（原来的“一般不用改”）。
+        await page.wrapper.get("[data-search-advanced]").trigger("click");
+        await waitUntil("展开", () => page.wrapper.find("[data-search-base-url]").exists() || undefined);
+        expect(page.wrapper.text()).not.toContain("一般不用改");
     });
 
     it("页面声明：铺满的版式；设置窗口里按 DeepSeek 或 Tavily 都搜得到这一页（“输入与前置条件”）", () => {
@@ -475,7 +546,7 @@ describe("SearchSettingsPage", () => {
         expect(count().element.value).toBe("5");
     });
 
-    it("草稿跟着外部变化作废：设置从别处改了（恢复默认、设置文件），框里的条数与接口地址换成新值、原位提示清掉（输出 12、13）", async () => {
+    it("草稿跟着外部变化作废：设置从别处改了（恢复默认、设置文件），框里的条数与接口地址换成新值，条数、屏蔽网站与接口地址的原位提示清掉（输出 12、13）", async () => {
         const page = render({hasKey: true}, {values: {"nbook.web/resultCount": 7, "nbook.web/deepseekBaseUrl": "https://relay.example/ds"}});
         await loaded(page);
         await page.show("rules");
@@ -486,6 +557,15 @@ describe("SearchSettingsPage", () => {
         expect(await page.settings.update(S.resultCount, undefined, {layer: "user"})).toMatchObject({ok: true});
         await waitUntil("跟着新值", () => count().element.value === "5" || undefined);
         expect(page.wrapper.text()).not.toContain("填 1 到 10 的整数");
+
+        const blocked = () => page.wrapper.get<HTMLInputElement>("[data-search-blocked] input, input[data-search-blocked]");
+        await blocked().setValue("不是域名");
+        await blocked().trigger("keydown", {key: "Enter"});
+        await flushPromises();
+        expect(page.wrapper.text()).toContain("“不是域名”不是域名");
+        expect(await page.settings.update(S.blockedSites, ["csdn.net"], {layer: "user"})).toMatchObject({ok: true});
+        await waitUntil("屏蔽的提示清掉", () => !page.wrapper.text().includes("“不是域名”不是域名") || undefined);
+        expect(page.wrapper.get("[data-search-blocked]").text()).toContain("csdn.net");
 
         await page.show("deepseek");
         const url = () => page.wrapper.get<HTMLInputElement>("input[data-search-base-url], [data-search-base-url] input");
@@ -498,6 +578,19 @@ describe("SearchSettingsPage", () => {
         expect(await page.settings.update(S.deepseekBaseUrl, undefined, {layer: "user"})).toMatchObject({ok: true});
         await waitUntil("草稿作废", () => !page.wrapper.text().includes("要以 http:// 或 https:// 开头") || undefined);
         expect(url().element.value).toBe("");
+    });
+
+    it("窄布局的下拉：选项是搜索规则与各家，使用中的那家写明，各家只写名称；选了右边换成它（输出 1、14）", async () => {
+        const page = render({hasKey: true});
+        await loaded(page);
+        await page.wrapper.get("[data-search-picker]").trigger("keydown", {key: "Enter"});
+        await waitUntil("下拉打开", () => document.querySelectorAll("[role='option']").length === 3 || undefined);
+        const options = [...document.querySelectorAll<HTMLElement>("[role='option']")];
+        // 选中的那项前面画对勾，别的项画自己的图标；各家没有 logo。
+        expect(options.map((option) => option.textContent?.trim())).toEqual(["搜索规则", "DeepSeek（使用中）", "Tavily"]);
+        expect(options.map((option) => option.querySelector("[class*='i-lucide-']:not(.i-lucide-check), img, .provider-logo") !== null)).toEqual([true, false, false]);
+        options[2]!.dispatchEvent(new PointerEvent("pointerup", {bubbles: true}));
+        await waitUntil("右边换成 Tavily", () => page.wrapper.find('[data-search-detail="tavily"]').exists() || undefined);
     });
 
     it("设为使用中写成后焦点回到左栏那一行；英文读屏描述用英文的分隔（输出 10、11）", async () => {

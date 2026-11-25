@@ -32,5 +32,8 @@ describe("siteBlocked", () => {
         expect(siteBlocked("https://notcsdn.net/a", sites)).toBe(false);
         expect(siteBlocked("https://csdn.net.evil.example/a", sites)).toBe(false);
         expect(siteBlocked("https://csdn.net/a", [])).toBe(false);
+        // IPv4 地址按整个主机比，不当成域名的后缀。
+        expect(siteBlocked("http://127.0.0.1/a", ["127.0.0.1"])).toBe(true);
+        expect(siteBlocked("http://127.0.0.10/a", ["127.0.0.1"])).toBe(false);
     });
 });

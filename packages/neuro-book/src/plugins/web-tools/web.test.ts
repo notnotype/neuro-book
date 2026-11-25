@@ -397,9 +397,12 @@ describe("两家服务（输出 1、3、5、12、13、19；验收 5）", () => {
     it("选用改成 Tavily 后，下一次搜索与读取发到 Tavily、带它的密钥，失败文字写 Tavily；改回 DeepSeek 后发到 DeepSeek", async () => {
         const w = await open();
         const {remote, settings} = await w.window("w");
-        // 选用哪家与两家的地址决定密钥发往哪里，都只有用户层（“输入与前置条件”）。
-        for (const setting of [webSettings.settings.provider, webSettings.settings.deepseekBaseUrl, webSettings.settings.tavilyBaseUrl]) expect(settings.declaration(setting)?.layers).toEqual(["user"]);
-        expect([settings.inspect(webSettings.settings.provider).default, settings.inspect(webSettings.settings.deepseekBaseUrl).default, settings.inspect(webSettings.settings.tavilyBaseUrl).default]).toEqual(["deepseek", "https://api.deepseek.com", "https://api.tavily.com"]);
+        // 配置项都只有用户层（“输入与前置条件”）。
+        const all = [webSettings.settings.provider, webSettings.settings.deepseekBaseUrl, webSettings.settings.tavilyBaseUrl, webSettings.settings.resultCount, webSettings.settings.blockedSites, webSettings.settings.tavilySearchDepth];
+        for (const setting of all) expect(settings.declaration(setting)?.layers).toEqual(["user"]);
+        const S = webSettings.settings;
+        const defaults: unknown[] = [S.provider, S.deepseekBaseUrl, S.tavilyBaseUrl, S.tavilySearchDepth].map((setting) => settings.inspect(setting).default);
+        expect([...defaults, settings.inspect(S.resultCount).default, settings.inspect(S.blockedSites).default]).toEqual(["deepseek", "https://api.deepseek.com", "https://api.tavily.com", "basic", 5, []]);
         await setKey(remote);
         const session = await w.open();
         expect(await settings.update(webSettings.settings.provider, "tavily", {layer: "user"})).toMatchObject({ok: true});
@@ -589,6 +592,9 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         expect(tavily.requests.at(-1)?.body).toMatchObject({query: "规则", max_results: 3, search_depth: "advanced", exclude_domains: ["blocked.example"]});
         expect(viaTavily.text.split("\n")[0]).toBe("来自 Tavily 搜索，1 条结果（另有 1 条来自屏蔽网站，已去掉）。");
         // 全被去掉：写“没有结果”并带条数；几条查询时写在组头。
+        tavily.script("/search", {json: {results: [{url: "https://blocked.example/x", title: "x", content: "x"}]}});
+        const none = await callTool(session, "web_search", {queries: ["全挡"]});
+        expect(none.text.split("\n")[0]).toBe("来自 Tavily 搜索，没有结果（1 条来自屏蔽网站，已去掉）。");
         tavily.script("/search", {json: {results: [{url: "https://blocked.example/x", title: "x", content: "x"}]}}, {json: {results: [{url: "https://ok.example/y", title: "y", content: "y"}]}});
         const batch = await callTool(session, "web_search", {queries: ["全挡", "不挡"]});
         expect(batch.text.split("\n")).toEqual(expect.arrayContaining(["查询 1：全挡，没有结果（1 条来自屏蔽网站，已去掉）", "查询 2：不挡，1 条结果"]));
