@@ -55,7 +55,7 @@ GET 的地址也收 HEAD。
 | `GET me/grants`、`DELETE me/grants/:id` | 用户 | 列出、撤销自己给过的授权 |
 | `GET admin/oauth-clients`、`POST admin/oauth-clients`、`PATCH admin/oauth-clients/:id`、`POST admin/oauth-clients/:id/rotate-secret` | 管理员 | 列出、登记、改动客户端，换密钥；`:id` 是客户端 id |
 
-客户端的属性：名字、回调地址（一到五个）、种类（机密或公开，登记后不能改）、是否免确认（只用于自家的应用）、是否停用。机密客户端的认证方式是 `client_secret_basic`，公开客户端是 `none`。
+客户端的属性：名字（1 到 100 个字符，按码点计）、回调地址（一到五个）、种类（机密或公开，登记后不能改）、是否免确认（只用于自家的应用）、是否停用。机密客户端的认证方式是 `client_secret_basic`，公开客户端是 `none`。
 
 回调地址都不含片段、用户信息、空白与控制字符，按种类再分：机密客户端只许 `https://`，主机不能是本机回环（`127.0.0.0/8`、`[::1]`、`localhost`）；公开客户端许同样的 `https://` 地址，另许 `http://` 且主机恰为 `127.0.0.1`、`[::1]` 或 `localhost`（端口任意），不许 `https://` 的回环地址与自定义协议。不合规则的回调地址登记不进（`redirect_uri_invalid`）。
 
@@ -84,7 +84,7 @@ GET 的地址也收 HEAD。
 11. **id_token。** 换令牌的响应带 id_token：RS256 签名，头里的 `kid` 能在公钥地址里找到；载荷有 `iss`（签发者）、`sub`（与用户信息的 `sub` 相同）、`aud`（客户端 id）、`iat`、`exp`（签发后 1 小时）、`auth_time`（授权时那次会话建立的时间）、`at_hash`、`acr`（恒为 `"0"`）；授权请求带了 `nonce` 时原样带回。不带资料字段（用户名、显示名、邮箱只从用户信息端点给）。id_token 发出后收不回：客户端只在登录时用它认人，之后要知道账号是否仍可用就调用户信息端点。
 12. **站点同意先于授权。** 资源所有者的会话不满足 [`site.accounts`](accounts.md) 输出 10 的同意门槛时，授权端点不发授权码、不显示确认页，把人带到 `/consent?continue=<续接令牌>`；补交同意的请求带上这个令牌且它合格时，响应给出继续地址，规则同输出 4（但不把这次补交当成重新登录）。请求带 `prompt=none` 时改为跳回客户端并带 `interaction_required`。
 13. **prompt 与 max_age。** `prompt=consent` 总显示确认页；`prompt=login`，或现有会话自建立以来经过的秒数超过 `max_age` 时，要求重新登录（输出 4）；`prompt=none` 时不显示任何页面：没有会话跳回 `login_required`，需要确认跳回 `consent_required`，缺站点同意跳回 `interaction_required`。`prompt` 的其它值，或 `none` 与别的值同时出现，跳回 `invalid_request`。
-14. **确认页的接口。** `GET oauth/authorization` 带确认页地址上的 `request`，回客户端名字、客户端回调地址的主机名、要的范围（`openid`、`profile`、`email` 的数组）。`POST oauth/authorization` 同意时回带授权码的跳回地址，拒绝时回带 `access_denied` 的跳回地址；页面把浏览器带去这个地址。`request` 被篡改或超过 10 分钟时两者都回 `authorization_expired`；这期间客户端被停用回 `client_not_found`，客户端的回调地址被改得不再匹配回 `redirect_uri_invalid`，同意与拒绝都这样，不给跳回地址。
+14. **确认页的接口。** `GET oauth/authorization` 带确认页地址上的 `request`，回客户端名字、客户端回调地址的主机名（带非缺省端口时连同端口）、要的范围（`openid`、`profile`、`email` 的数组）。`POST oauth/authorization` 同意时回带授权码的跳回地址，拒绝时回带 `access_denied` 的跳回地址；页面把浏览器带去这个地址。`request` 被篡改或超过 10 分钟时两者都回 `authorization_expired`；这期间客户端被停用回 `client_not_found`，客户端的回调地址被改得不再匹配回 `redirect_uri_invalid`，同意与拒绝都这样，不给跳回地址。
 15. **已给的授权。** `GET me/grants` 列出自己的授权，每项有 id、客户端名字、范围、给出的时间；免确认的客户端不在列表里。`DELETE me/grants/:id` 撤销一项，效果见输出 8；撤销之后这个客户端的下一次授权请求重新显示确认页。不是自己的或不存在的 id 回 `not_found`。
 16. **客户端列表与改动。** `GET admin/oauth-clients` 用 [`site.admin`](admin.md) 的分页参数与响应形状、列表稳定规则（输出 9、10），每项有客户端 id、名字、回调地址、种类、是否免确认、是否停用、登记时间；不含密钥。`PATCH admin/oauth-clients/:id` 可改名字、回调地址（规则同登记，按客户端的种类）、是否免确认、是否停用。对公开客户端换密钥回 `client_public`。
 17. **公钥。** 公钥地址列出验 id_token 要用的公钥；重启服务后签名用的钥不变，之前签发、没到期的 id_token 仍能用公钥地址里的钥验过。换了会话密钥（`NB_SITE_SESSION_SECRET`）再启动时改用一把新钥签名，旧钥的公钥仍列在公钥地址，之前签发、没到期的 id_token 照样验得过。

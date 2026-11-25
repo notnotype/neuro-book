@@ -88,3 +88,13 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 ## 下一步
 
 Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），主会话审过、写进 `site.oauth-provider` 与 `site.accounts`、`site.admin` 后，按高风险后端做设计审查（Opus 先审，omp 在后台）。
+
+## 实施进度
+
+实现在 worktree `.worktree/w00037-t08-social-oauth`（分支 `feat/w00037-t08-social-oauth`，从 Work 分支 `f8480b04e` 开）。计划与设计审查的处理见 [`plan.md`](plan.md)；omp 的设计审查在后台（`.worktree/w00037-t08-review`），回来后另行处理。
+
+第 1 片（合同包）已提交（`bf3d6f5aa`，10 个文件，新建 `oauth.ts`、`social.ts`）：合同包与它的使用方类型检查与测试都过，`governance:check` 过，3 条变异都被抓到。
+
+- 与计划不同、接受的：落点码按 `site.accounts` 输出 23 是 12 个（计划写 9 个）；`continue` 与确认页的 `request` 在 schema 里只要求是字符串、不限长度（不合格要照常登录，schema 一拒就成了 `validation_failed`；长度由服务端判，请求体另有 16 KiB 上限）；另导出了计划没列的几样（`IDENTITY_AUTH_PREFIX`、`PageQuery`、`USERINFO_CLAIMS`、`ID_TOKEN_CLAIMS`、`oauthAuthorization` 路径等）；包的 `AGENTS.md` 的“t08 往哪里追加”换成现在的放法。
+- 实现者定、写进 Spec 的：客户端名字 1 到 100 个码点（`site.oauth-provider` 输入一节）；确认页回的主机名带非缺省端口；社交发起只有登录与注册可带 `continue`、关联不带（`site.accounts` 输出 11）。
+- 给后面几片的：`SocialStartRequest` 是联合类型，服务端先按 `intent` 分支再用那一支的 schema 判，`fields` 才有意义；`:provider` 不是两个上游之一时回 `not_found` 还是 `provider_disabled` 合同没定，第 8 片定；`oauth_client.*` 审计的对象 id 用 `oauthClient` 表的数字 id；`createdAt` 用 `toISOString()` 的写法。给 t10：`SOCIAL_ERROR_CODES` 多了五个码，文案目录要补。

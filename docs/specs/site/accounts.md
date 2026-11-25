@@ -74,7 +74,7 @@ owners:
 8. **读改资料。** `me` 回公开资料加邮箱、是否有密码、邮箱是否待补、是否还缺同意（同意记录不是当前条款版本，或没有对境外存放的同意，即输出 10 的门槛）。`PATCH me` 可改显示名、邮箱、头像、网站、签名；邮箱改成别人的回 `email_taken`。
 9. **改密码。** 有密码的账号要带对的旧密码：旧密码不对回 `invalid_credentials`，没带回 `validation_failed`；没有密码的账号可以直接设。成功后按输出 6 失效其它会话。
 10. **同意门槛。** 同意记录不是当前条款版本、或没有对境外存放的同意时，这个账号的会话只能调 `whoami`、`GET me`、`me/consent`、`logout`，账号模块的其它接口（含 [`site.admin`](admin.md) 与 [`site.oauth-provider`](oauth-provider.md) 的）回 `consent_required`；别的模块的接口不在此列。`me/consent` 交齐之后恢复；它带的条款版本不是当前版本、或没有对境外存放的同意时回 `consent_required`。
-11. **社交登录的发起。**（planned） `social/:provider/start` 带意图：登录、注册、关联，可带 `continue`（输出 4）。响应是要跳转去的上游地址。上游没开放回 `provider_disabled`。带的 `continue` 不合格或过期时照常发起，只是成功后不回到授权请求。
+11. **社交登录的发起。**（planned） `social/:provider/start` 带意图：登录、注册、关联；登录与注册可带 `continue`（输出 4），关联不带。响应是要跳转去的上游地址。上游没开放回 `provider_disabled`。带的 `continue` 不合格或过期时照常发起，只是成功后不回到授权请求。
 12. **社交登录。**（planned） 意图为登录、上游身份已关联某个账号时，回调后建立会话并跳回站点；上游身份没有关联任何账号时不建账号，跳回站点并带 `social_not_registered`。认人只按上游身份，不按邮箱。
 13. **社交注册。**（planned） 意图为注册时，发起请求要先带齐注册所需的全部内容（用户名、可选的显示名、注册码、可选邀请码、两项同意），在跳去上游之前按输出 3 校验；不合格就不跳转。回调后邮箱取上游给的、上游标明已验证的地址（Google 要 `email_verified` 为真，GitHub 取已验证的主邮箱）；上游没给邮箱、或给的邮箱没验证过时，不建账号、不扣码，跳回站点并带 `social_email_missing`。注册的原子性同输出 2：发起时校验过的注册码、邀请码在回调时已不可用，或用户名、邮箱在这期间被占用时，不建账号、不扣码，跳回站点并带 `registration_code_invalid`、`invite_code_invalid`、`username_taken` 或 `email_taken`。这个上游身份已关联到某个账号时，不建账号、不建会话、不扣码，跳回站点并带 `identity_taken`（用它去登录页登录）。建成的账号没有密码，站点也不把这个邮箱算作已验证，之后用这个上游身份登录也不改变（[`site.oauth-provider`](oauth-provider.md) 输出 7 的 `email_verified` 恒为 `false`）。
 14. **邮箱撞号。**（planned） 社交注册时上游给的邮箱已被别的账号占用：不建账号、不关联，跳回站点并带 `email_taken`。
