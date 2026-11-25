@@ -105,11 +105,21 @@ export function safeDetail(text: string, secret: string): string {
 
 const REQUEST_ID = /request_id:\s*([\w-]+)/u;
 
-/** 错误响应只取 `error.message`（输出 12）；不是这个形状就不给详情，不转抄原始响应体。 */
-function errorInfo(body: string, secret: string): {readonly detail?: string; readonly requestId?: string} {
+/**
+ * 各家错误响应的不同之处（输出 12 与“失败与恢复”）：说明在响应体的哪里，以及通用表之外的状态码。
+ */
+export interface ServiceDialect {
+    /** 错误响应体（已解析的 JSON）里给人看的那句说明；不是字符串就不给详情。 */
+    readonly errorMessage: (body: unknown) => unknown;
+    /** 补在通用表上的状态码，例如 Tavily 的 432、433 是额度用完。 */
+    readonly statusCodes?: Readonly<Record<number, ProviderFailureCode>>;
+}
+
+/** 错误响应只取服务给的那句说明（输出 12）；不是这个形状就不给详情，不转抄原始响应体。 */
+function errorInfo(body: string, secret: string, dialect: ServiceDialect): {readonly detail?: string; readonly requestId?: string} {
     let message: unknown;
     try {
-        message = (JSON.parse(body) as {error?: {message?: unknown}} | null)?.error?.message;
+        message = dialect.errorMessage(JSON.parse(body));
     } catch {
         return {};
     }
@@ -139,7 +149,7 @@ export type JsonOutcome = {readonly ok: true; readonly json: unknown} | Provider
  * POST 一个 JSON 请求、读 JSON 响应。只有 429 重试一次，等完会超过总截止就不重试；其它失败都不重发：服务可能已经执行并计费
  * （输出 10）。不跟随重定向：跟随会把同一个带密钥的请求在新地址再发一次，绕过上面的重发规则；3xx 按失败交回。
  */
-export async function postJson(url: string, body: unknown, key: string, scope: CallScope, options: HttpOptions): Promise<JsonOutcome> {
+export async function postJson(url: string, body: unknown, key: string, scope: CallScope, options: HttpOptions, dialect: ServiceDialect): Promise<JsonOutcome> {
     for (let attempt = 0; ; attempt += 1) {
         if (scope.signal.aborted) return {ok: false, code: "timeout"};
         let response: Response;
@@ -178,6 +188,6 @@ export async function postJson(url: string, body: unknown, key: string, scope: C
                 continue;
             }
         }
-        return {ok: false, code: STATUS_CODES[response.status] ?? "failed", status: response.status, ...errorInfo(read.text, key)};
+        return {ok: false, code: dialect.statusCodes?.[response.status] ?? STATUS_CODES[response.status] ?? "failed", status: response.status, ...errorInfo(read.text, key, dialect)};
     }
 }

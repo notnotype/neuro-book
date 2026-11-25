@@ -1,5 +1,5 @@
 /**
- * 设置页的数据模块（`web/search-store.ts`）接真实的服务端：场地里起 `nbook.web-tools`，窗口经真实的远程合同调用，检测打到本机的
+ * 设置页的数据模块（`web/search-store.ts`）接真实的服务端：场地里起 `nbook.web`，窗口经真实的远程合同调用，检测打到本机的
  * 假 DeepSeek 接口（docs/specs/web/settings-page.md 输出 2、6、7、8 与“状态与转换”）。这里的密钥是假的，只发往本机。链路中断、
  * 入口停用这类取决于运行时码与时机的结局用远程合同替身造，在第二组。
  */
@@ -62,14 +62,14 @@ describe("数据模块接真实服务端", () => {
         const store = await storeOf();
         expect(store.status.value).toBeNull();
         await store.start();
-        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: false}}});
+        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: false}, tavily: {hasKey: false}}});
         const writing = store.setKey("deepseek", KEY);
         expect(store.writing.has("deepseek")).toBe(true);
         expect(await writing).toEqual({ok: true});
         expect(store.writing.has("deepseek")).toBe(false);
-        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: true}}});
+        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: true}, tavily: {hasKey: false}}});
         expect(await store.clearKey("deepseek")).toEqual({ok: true});
-        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: false}}});
+        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: false}, tavily: {hasKey: false}}});
     });
 
     it("填完直接检测：检测等这一家在途的写入结束再发，用到刚填的密钥（输出 8）", async () => {
@@ -149,14 +149,14 @@ describe("数据模块接真实服务端", () => {
         expect(store.statusFailure.value?.code).toBe("credentials-unavailable");
         expect(store.available.value).toBe(true);
         expect(await store.setKey("deepseek", KEY)).toEqual({ok: true});
-        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: true}}});
+        expect(store.status.value).toEqual({providers: {deepseek: {hasKey: true}, tavily: {hasKey: false}}});
         expect(store.statusFailure.value).toBeNull();
     });
 });
 
 describe("链路的结局（远程合同替身）", () => {
     type Failure = {readonly ok: false; readonly code: string};
-    const KEYED = {ok: true as const, value: {providers: {deepseek: {hasKey: true}}}};
+    const KEYED = {ok: true as const, value: {providers: {deepseek: {hasKey: true}, tavily: {hasKey: false}}}};
 
     /** 这几条要造链路中断、入口停用的结局：它们取决于运行时的码与时机，与服务端无关。`calls` 依次记下被调用的方法。 */
     function scriptedRemote(script: {

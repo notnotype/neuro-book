@@ -100,6 +100,19 @@ describe.skipIf(config === null)("网页工具接真实模型", () => {
         expect(searches.length).toBeGreaterThan(0);
         expect(toolCalls(afterSearch, "toolResult").some((result) => result.tool === SEARCH_TOOL && result.status === "ok")).toBe(true);
 
+        // 查一串互不相关的名字：工具说明让模型一次写几条查询，不再一个名字一次（w00052 t02 的来源：46 次串行搜索）。
+        const names = ["Stellafolio", "Lumifolio", "Astrascribe", "Starquill"];
+        const batchTurn = await session.send({commandId: "llm-web-names", input: {text: `帮我查一下这几个名字有没有被别的软件或网站用过：${names.join("、")}。每个名字各给一句结论。`}});
+        if (!batchTurn.ok || batchTurn.value.runId === null) throw new Error(`send failed: ${JSON.stringify(batchTurn)}`);
+        await session.waitRun(batchTurn.value.runId);
+        // 判据是模型往返的次数：一次搜完再作答是 2 次；一个名字一次要 5 次以上。批量的方式可以是 `queries` 写几条，也可以是 eval 里调。
+        const namesPath = (await session.path()).slice(afterSearch.length);
+        const started = namesPath.filter((event) => event.type === "toolStarted").map((event) => event.data as {tool?: string; args?: {queries?: unknown; code?: unknown}});
+        const batched = started.some((call) => (call.tool === SEARCH_TOOL && Array.isArray(call.args?.queries) && call.args.queries.length >= names.length - 1)
+            || (call.tool === "nbook.agent.eval" && typeof call.args?.code === "string" && call.args.code.includes("web_search")));
+        expect(batched).toBe(true);
+        expect(namesPath.filter((event) => event.type === "modelStarted").length).toBeLessThanOrEqual(3);
+
         const second = await session.send({commandId: "llm-web-2", input: {text: [
             "用 eval 写一段代码，一次做完，不要逐个调工具：",
             `在代码里用 tool.web_fetch 依次读这三个网址：${URLS.join("、")}；`,

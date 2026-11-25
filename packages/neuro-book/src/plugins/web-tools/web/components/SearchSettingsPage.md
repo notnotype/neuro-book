@@ -5,16 +5,17 @@
 
 # SearchSettingsPage
 
-设置窗口 AI 分组下的“搜索与网页”页（[`web/settings-page.md`](../../../../../../../docs/specs/web/settings-page.md)）：`nbook.web-tools` 贡献的 column 页面，只在“用户”标签下可用，填网页工具（`web_search`、`web_fetch`）用的搜索服务密钥并检测。它是页面，不是宿主：数据与写入全在数据模块（`web/search-store.ts`），组件只读它的状态、调它的方法，写失败交给窗口通知（`reportWriteFailure`）。设置窗口给的页面上下文由 `web/pages.ts` 拆成 `writable` 与 `reportWriteFailure`。改了就写，没有“未保存”状态。
+设置窗口 AI 分组下的“搜索与网页”页（[`web/settings-page.md`](../../../../../../../docs/specs/web/settings-page.md)）：`nbook.web` 贡献的 column 页面，只在“用户”标签下可用，选网页工具（`web_search`、`web_fetch`）用哪家搜索服务，填各家的密钥并检测。它是页面，不是宿主：密钥与检测全在数据模块（`web/search-store.ts`），组件只读它的状态、调它的方法；“使用”哪家是设置项 `nbook.web/provider`，经传入的配置服务读写（同“网络”页）。写失败交给窗口通知（`reportWriteFailure`）。设置窗口给的页面上下文由 `web/pages.ts` 拆成 `writable` 与 `reportWriteFailure`，配置服务由浏览器入口给。改了就写，没有“未保存”状态。
 
 ## 布局
 
-单列，内容列由设置窗口封顶。每家服务一节（第一版只有 DeepSeek）：节标题、[`ApiKeyField`](ApiKeyField.md)、“检测”按钮与它旁边的计费说明、检测结果、一段说明。顶上可能有一句只读或密钥文件读不了的提示。以后加服务是多一节，版式不变。390 宽时检测按钮与说明换行。
+单列，内容列由设置窗口封顶。顶上可能有一句只读或密钥文件读不了的提示；接着是“使用”一行（设置行 `SettingsRow` 里一个分段单选：DeepSeek、Tavily），选中的那家没有密钥时行下面写一句“<服务名> 还没有密钥”（经 `Collapsible` 出现与消失）。下面每家服务一节，依次 DeepSeek、Tavily：节标题、[`ApiKeyField`](ApiKeyField.md)、“检测”按钮与它旁边的计费说明、检测结果、一段说明。以后加服务是单选多一项、页面多一节，版式不变。390 宽时检测按钮与说明换行。
 
 ## 交互
 
 - 第一次挂载时让数据模块取状态（`start()`）；拿到之前密钥框是“读取中”。
-- 密钥框交出新值时经数据模块写入；“清除”直接写。写失败经 `reportWriteFailure(“DeepSeek 的 API 密钥”, {reason, uncertain})` 交给窗口通知，原因后面写“请重新输入”（整句在目录里，英文另有标点），`unknown-outcome` 时 `uncertain` 为真（数据模块随后重取状态）。
+- “使用”：点另一家直接经配置服务写用户层；没写成时交窗口通知（主语是“使用”，原因写设置服务的失败码），单选仍显示设置里的值，也就回到写前那家。网页工具没运行或 `writable` 为假时停用，设置行自己也按用户层能不能写停用。
+- 密钥框交出新值时经数据模块写入；“清除”直接写。写失败经 `reportWriteFailure(“<服务名> 的 API 密钥”, {reason, uncertain})` 交给窗口通知，原因后面写“请重新输入”（整句在目录里，英文另有标点），`unknown-outcome` 时 `uncertain` 为真（数据模块随后重取状态）。
 - “检测”：没有密钥、框里也没有待交出的输入时停用；进行中显示“检测中”并停用。第一次填写时框里一有输入按钮就可点：按下时框先失焦写入，这次写入在途时按钮仍可点（框已经清空），点击发出的检测由数据模块排在写入后面，所以填完直接点也用到刚填的密钥。结果写在按钮下面（`role="status"`）：通过带检测时间，失败按码写原因（可以再点），没检成写远程调用失败的原因；结果未知时写“连接断了，不确定检测有没有发出去”，不借写入的说法。写入、清除成功后结果清掉；检测已经发出后写入成功，那次检测作废。离开页面再回来，结果与进行中的检测还在（在数据模块里）。
 - 按钮的可访问名称带服务名（“检测 DeepSeek 的密钥”“清除 DeepSeek 的密钥”）；节里的说明经 `aria-describedby` 关联到密钥框；检测进行中，结果区里有一段只给读屏的“检测中”（按钮停用后读屏读不到它的新文字）。
 
@@ -23,6 +24,7 @@
 ```ts
 defineProps<{
     store: SearchStore;                                             // 浏览器入口建的数据模块
+    settings: SettingsService;                                      // 本插件的配置服务：读写“使用”哪家
     writable: boolean;                                              // 当前标签那一层能不能写（页面上下文的 writable）
     reportWriteFailure: SettingsPageContext["reportWriteFailure"];  // 写失败交给窗口通知
 }>();
@@ -40,7 +42,7 @@ defineProps<{
 ## 不支持
 
 - 本作品标签下编辑（只有用户层）。
-- 显示已存的密钥；环境变量引用；改 DeepSeek 的地址（只能改设置文件）。
+- 显示已存的密钥；环境变量引用；改两家的地址（只能改设置文件）。
 - 从别处按 `focus` 定位到某家的密钥框。
 
 ## 隐藏通道理由
@@ -48,4 +50,4 @@ defineProps<{
 - `state:local`：密钥框里有没有待交出的输入（`ApiKeyField` 的 `pending`），决定第一次填写时“检测”能不能点；卸载即丢，草稿本身不在页面上。
 - `state:inject`：文字经宿主注入的翻译端口取。
 
-数据模块、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身摆出来（场景见 `SearchSettingsPageFixture.vue`）。
+数据模块、配置服务、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身摆出来（场景见 `SearchSettingsPageFixture.vue`）。

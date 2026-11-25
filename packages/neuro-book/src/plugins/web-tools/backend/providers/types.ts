@@ -1,6 +1,6 @@
 /**
- * 搜索与读取服务的接口（docs/specs/web/tools.md 输出 1 到 12）。第一版只有 DeepSeek 一个实现；以后加服务时各加一个文件，
- * 工具与设置页不改。客户端从不抛错：失败都在结果里，按分类给码，详情已经遮盖过密钥。
+ * 搜索与读取服务的接口（docs/specs/web/tools.md 输出 1 到 12）。每家一个实现文件（`deepseek.ts`、`tavily.ts`），加服务时多一个
+ * 文件、在服务端入口的服务表里多一项，工具不改。客户端从不抛错：失败都在结果里，按分类给码，详情已经遮盖过密钥。
  */
 
 import type {ProviderFailureCode, WebProviderId} from "../../shared/contracts";
@@ -52,6 +52,11 @@ export interface WebProvider {
     readonly id: WebProviderId;
     /** 写在文字结果第一行，例如“DeepSeek”。 */
     readonly label: string;
+    /**
+     * 这家服务收不收这条查询（日期格式、连同过滤的长度），不收时交回一句哪里不对的说明。工具在发出任何一条查询之前先逐条问它，
+     * 有一条不收就一条也不发（输出 1）；`search` 自己也会再查一遍。
+     */
+    validateSearch(request: SearchRequest): string | null;
     search(request: SearchRequest, key: string, scope: CallScope): Promise<Outcome<readonly SearchHit[]>>;
     fetch(url: string, key: string, scope: CallScope): Promise<Outcome<Page>>;
 }

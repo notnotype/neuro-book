@@ -8,6 +8,12 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 - 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
 - 插件 SDK 的组件子路径加上 `DataTable`（带工具条与分页的数据表格：加载、空、出错时工具条与页脚不动，表头吸顶）；`Table` 多一个 `stickyHeader` 属性，表头吸顶。
+- 网页工具可以用 Tavily 搜索与读网页：设置窗口“搜索与网页”页多一节 Tavily 的密钥，顶上选这两个工具用 DeepSeek 还是 Tavily。
+- `web_search` 一次可以搜几条查询（最多 10 条，同时搜、按条分组交回）：查一串候选名字这类事不再一个名字一次、来回几十次。
+
+### 改动
+
+- 网页工具的插件 id 改为 `nbook.web`（0.17.0 里是 `nbook.web-tools`），工具 id 随之改为 `nbook.web.search`、`nbook.web.fetch`。0.17.0 里改过的 DeepSeek 地址设置、Profile 工具绑定里写的旧工具 id 不再生效，要重新设置；已填的密钥照常可用。
 
 ## [0.17.0] - 2026-11-24
 

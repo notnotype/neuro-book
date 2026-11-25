@@ -1640,6 +1640,8 @@ function shelfFixtures(): LabFixture[] {
                 {id: "readonly", label: "网页工具没有运行（只读）", input: {props: {writable: true}}},
                 {id: "unreadable", label: "密钥文件读不了", input: {props: {writable: true}}},
                 {id: "write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
+                {id: "use-tavily-no-key", label: "选用 Tavily、它还没有密钥（“使用”下面有提示）", input: {props: {writable: true}}},
+                {id: "use-tavily", label: "选用 Tavily、两家都有密钥", input: {props: {writable: true}}},
                 {id: "failed-english", label: "英文界面：检测没通过", input: {props: {writable: true}}},
                 {id: "failed-narrow", label: "390px 宽：检测没通过", input: {props: {writable: true}}},
             ],

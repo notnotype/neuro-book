@@ -4,19 +4,20 @@
  */
 
 import {postJson} from "./http";
-import type {HttpOptions} from "./http";
+import type {HttpOptions, ServiceDialect} from "./http";
 import type {Outcome, Page, SearchHit, SearchRequest, WebProvider} from "./types";
+import {dateProblem, finite, httpHref, text} from "./values";
 
 /** 接口的查询上限，按 Unicode 码点数，拼上过滤条件之后算（输出 1）。 */
 export const MAX_QUERY_CODE_POINTS = 128;
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/u;
+/** 错误响应是 `{error: {message}}`；状态码用通用表。 */
+const DIALECT: ServiceDialect = {errorMessage: (body) => (body as {error?: {message?: unknown}} | null)?.error?.message};
 
 /** 把站点与日期写进查询（DeepSeek 的过滤只有查询里的操作符，按它自己的语义尽力而为）。 */
 export function composeQuery(request: SearchRequest): {readonly ok: true; readonly query: string} | {readonly ok: false; readonly detail: string} {
-    for (const [name, value] of [["after", request.after], ["before", request.before]] as const) {
-        if (value !== undefined && !DATE.test(value)) return {ok: false, detail: `${name} must be a date written YYYY-MM-DD`};
-    }
+    const dates = dateProblem(request);
+    if (dates !== null) return {ok: false, detail: dates};
     const parts = [request.query.trim()];
     const sites = (request.sites ?? []).map((site) => site.trim()).filter((site) => site !== "");
     if (sites.length > 0) parts.push(sites.map((site) => `site:${site}`).join(" OR "));
@@ -28,19 +29,6 @@ export function composeQuery(request: SearchRequest): {readonly ok: true; readon
     return {ok: true, query};
 }
 
-/** 交出解析后的网址（`href`）而不是原串：空白、尖括号等在这里转成百分号写法，之后显示、存档与判定主机用的都是同一个。 */
-const httpUrl = (value: unknown): string | null => {
-    if (typeof value !== "string") return null;
-    try {
-        const url = new URL(value);
-        return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
-    } catch {
-        return null;
-    }
-};
-
-const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
-
 /** 结果的整理（输出 3）：网址不是 http 或 https 的丢掉；标题缺失用网址；摘要取 `summary`，没有取 `snippet`；不按分数筛。 */
 function normalizeHits(json: unknown): readonly SearchHit[] | null {
     const results = (json as {results?: unknown} | null)?.results;
@@ -49,11 +37,11 @@ function normalizeHits(json: unknown): readonly SearchHit[] | null {
     for (const item of results as unknown[]) {
         if (typeof item !== "object" || item === null) continue;
         const raw = item as Record<string, unknown>;
-        const url = httpUrl(raw.url);
+        const url = httpHref(raw.url);
         if (url === null) continue;
         const date = text(raw.date);
         const site = text(raw.site_name);
-        const score = typeof raw.rerank_score === "number" && Number.isFinite(raw.rerank_score) ? raw.rerank_score : undefined;
+        const score = finite(raw.rerank_score);
         hits.push({
             title: text(raw.title) ?? url,
             url,
@@ -71,16 +59,20 @@ export function createDeepSeekProvider(baseUrl: () => string, options: HttpOptio
     return {
         id: "deepseek",
         label: "DeepSeek",
+        validateSearch: (request) => {
+            const composed = composeQuery(request);
+            return composed.ok ? null : composed.detail;
+        },
         search: async (request, key, scope): Promise<Outcome<readonly SearchHit[]>> => {
             const composed = composeQuery(request);
             if (!composed.ok) return {ok: false, code: "invalid-request", detail: composed.detail};
-            const response = await postJson(endpoint("/v1/tools/search"), {query: composed.query, count: request.count}, key, scope, options);
+            const response = await postJson(endpoint("/v1/tools/search"), {query: composed.query, count: request.count}, key, scope, options, DIALECT);
             if (!response.ok) return response;
             const hits = normalizeHits(response.json);
             return hits === null ? {ok: false, code: "bad-response"} : {ok: true, value: hits};
         },
         fetch: async (url, key, scope): Promise<Outcome<Page>> => {
-            const response = await postJson(endpoint("/v1/tools/fetch"), {url}, key, scope, options);
+            const response = await postJson(endpoint("/v1/tools/fetch"), {url}, key, scope, options, DIALECT);
             if (!response.ok) return response;
             const body = response.json as {title?: unknown; content?: unknown} | null;
             if (typeof body !== "object" || body === null || (body.content !== undefined && typeof body.content !== "string")) return {ok: false, code: "bad-response"};

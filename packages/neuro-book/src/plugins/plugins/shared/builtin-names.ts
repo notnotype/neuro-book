@@ -30,7 +30,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.storage",
     "nbook.tasks",
     "nbook.theme-study",
-    "nbook.web-tools",
+    "nbook.web",
     "nbook.workbench",
     "runtime.diagnostics",
 ] as const;
