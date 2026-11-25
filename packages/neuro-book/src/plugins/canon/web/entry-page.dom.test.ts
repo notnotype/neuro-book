@@ -1273,6 +1273,19 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         editorOf("badge.介绍")!.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
         await waitUntil("放弃了", () => state.edit === null && editorOf("badge.介绍") === null);
 
+        // 输入法组字中按 Escape 不算放弃。
+        await wrapper.get("[data-edit='badge.图案']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.图案") !== null);
+        const composing = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
+        composing.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        composing.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, isComposing: true}));
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, isComposing: true}));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(state.edit?.path).toBe("badge.图案");
+        composing.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true}));
+        composing.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("组字结束后 Escape 放弃", () => state.edit === null);
+
         editors.value = false;
         await wrapper.get("[data-edit='badge.介绍']").trigger("click");
         await waitUntil("确认条", () => wrapper.find("[data-confirm-bar]").exists());
