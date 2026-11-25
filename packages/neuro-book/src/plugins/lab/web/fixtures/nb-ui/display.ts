@@ -1,13 +1,16 @@
 /** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, CodeBlock, DiffView, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, CodeBlock, DiffView, EmptyState, Kbd, Pagination, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
 
+import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
+import {SAMPLE_COLUMNS, SAMPLE_LAST_PAGE, SAMPLE_PAGE_SIZE, SAMPLE_TOTAL, samplePage} from "./data-table-sample";
+import type {SampleDataTable} from "./data-table-sample";
 
 const CHAPTER_ROWS = [
     {title: "第一章 灯塔", words: 3182, status: "已定稿", updated: "10-02"},
@@ -143,6 +146,22 @@ export const displayFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Table"),
     }),
+    // 夹具扮演使用方：翻页、重试时模拟一次取数，控制区切到各个状态；场景是各状态的起点。
+    defineLabFixture<SampleDataTable>({
+        component: "DataTable",
+        scenes: [
+            {id: "page", label: "正常一页", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(1), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 1}}},
+            {id: "last-page", label: "最后一页 6 行", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(SAMPLE_LAST_PAGE), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: SAMPLE_LAST_PAGE}}},
+            {id: "empty", label: "空", input: {props: {columns: SAMPLE_COLUMNS, rows: [], rowKey: "id", total: 0, pageSize: SAMPLE_PAGE_SIZE, emptyText: "没有符合筛选的章节"}, model: {page: 1}}},
+            {id: "initial-loading", label: "首次加载", input: {props: {columns: SAMPLE_COLUMNS, rows: [], rowKey: "id", total: null, pageSize: SAMPLE_PAGE_SIZE, loading: true}, model: {page: 1}}},
+            {id: "page-loading", label: "翻页加载", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, loading: true}, model: {page: 8}}},
+            {id: "error", label: "出错", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, error: "章节列表没有取回来，请稍后重试"}, model: {page: 7}}},
+            {id: "page-in-row", label: "放进 flex 行", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(1), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 1}}},
+            {id: "error-short", label: "出错（矮容器）", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, error: "章节列表没有取回来，请稍后重试"}, model: {page: 7}}},
+            {id: "page-english", label: "英文界面", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 7}}},
+        ],
+        load: async () => (await import("./DataTableFixture.vue")).default,
+    }),
     defineSubjectFixture<typeof Breadcrumb>({
         component: "Breadcrumb",
         events: ["click"],
@@ -151,6 +170,18 @@ export const displayFixtures: LabFixture[] = [
             {id: "long", label: "很多级", input: {props: {items: ["manuscript", "第二卷", "上部", "雪线", "草稿", "第十七章 雪线（修订三）"].map((label, index, all) => ({label, current: index === all.length - 1}))}}},
         ],
         subject: nbUiSubject("Breadcrumb"),
+    }),
+    defineSubjectFixture<typeof Pagination>({
+        component: "Pagination",
+        scenes: [
+            {id: "few", label: "5 页", input: {props: {pageCount: 5}, model: {modelValue: 2}}},
+            {id: "many-first", label: "100 页的第 1 页", input: {props: {pageCount: 100}, model: {modelValue: 1}}},
+            {id: "many-middle", label: "100 页的第 50 页", input: {props: {pageCount: 100}, model: {modelValue: 50}}},
+            {id: "many-last", label: "100 页的第 100 页", input: {props: {pageCount: 100}, model: {modelValue: 100}}},
+            {id: "single", label: "只有 1 页", input: {props: {pageCount: 1}, model: {modelValue: 1}}},
+            {id: "disabled", label: "整条不可用", input: {props: {pageCount: 65, disabled: true}, model: {modelValue: 1}}},
+        ],
+        subject: nbUiSubject("Pagination"),
     }),
     defineSubjectFixture<typeof Tree>({
         component: "Tree",

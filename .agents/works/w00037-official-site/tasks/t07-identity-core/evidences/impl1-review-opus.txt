@@ -1,0 +1,97 @@
+# w00037 t07 第 1 到 3 片实现审查（Opus）
+
+审查对象：提交范围 29f2c05f1..2f0d79144。实验加载的版本：实现 worktree `.worktree/w00037-t07-identity`，HEAD 2f0d79144（与被审提交相同）；实验脚本在 /tmp/review-w00037-t07-impl1/lab-opus/。
+条目按发现的先后编号，严重程度写在每条里；最后有按影响排序的汇总。
+
+### 1. `write`/`read` 的回调写成 async 时：await 之后的语句照样落库（不经队列），回调的 rejection 无人接住、会让整个服务按 process.fatal 停机
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：packages/nb-site-identity/src/db/connection.ts:343-352（`#transact`），文件头约束 2 的最后一句（:32），`IdentityQueueMisuseError` 的文档（:62-65）
+- **现象**：`#transact` 发现 `fn` 返回 thenable 时在事务里抛 `IdentityQueueMisuseError`，同步部分随之回滚；但 thenable 本身被丢掉了。真实的 async 回调在第一个 `await` 之后继续执行，手里拿的是原始的 `Database`：这时事务已回滚、锁已放，它的语句以自动提交执行（或落进那一刻别人正开着的库事务里，正是 p3 的问题）；它若之后抛错，返回的 Promise reject 且没有任何 handler。
+- **如何核实**：`bun run /tmp/review-w00037-t07-impl1/lab-opus/async-callback.ts`（直接用被审的 connection.ts，内存库）。输出：`write rejected with: IdentityQueueMisuseError`、`unhandledRejection: async body failed after await`、`rows: [{"v":"after-await"}]`。即 await 之前的那行回滚了，await 之后的那行提交了；并且触发了一次 unhandledRejection。入口 `lifecycle.ts:74` 把 unhandledRejection 当 `process.fatal`，会发起停机；没有 handler 时 Bun 1.4.4 直接以退出码 1 退出（同目录 unhandled.ts 实测）。
+- **为什么是问题**：文件头与错误类型的文档都写“抛出它时没有写入”“回滚并抛同一个错误”，对 async 回调不成立；这道检查本来就是为了守住“别人的写不落进库的事务”，现在只拦住了 await 之前的那一半。另一个后果是一个写错的回调能把服务停掉（不是 500）。现有用例只用了一个永不 settle 的假 thenable（connection.test.ts:200），测不到这两点。
+- **建议改法**：发现 thenable 时先给它挂一个吞掉 rejection 的 handler（`Promise.resolve(result).catch(() => {})` 或 `result.then(undefined, () => {})`，并记一行 `identity.queue_misuse`），再抛错；文档改成“await 之前的语句已回滚；await 之后的语句无法撤回，只能靠这个错误在测试里暴露”。用例换成真正的 `async (tx) => { await null; tx.run(...) }`，断言调用方拿到 misuse 且没有 unhandledRejection。更彻底的做法是 `read`/`write` 交给回调的不是裸 `Database`，而是一个在事务结束后失效的包装（`query`/`run` 在 `#transact` 返回后抛错），这样 await 之后的写也会失败而不是落库。
+
+### 2. 库自己开的事务里，模块代码一律被拒：与 ADR 0063 写给 t08 的“模块扣码的代码要跑在库的事务里”相冲突；两道拒绝本身也没有用例，删掉任何一道 84 个包内用例全过
+
+- **严重程度**：重要；**类别**：不变量 / 测试
+- **位置**：packages/nb-site-identity/src/db/connection.ts:286-288（`withLibTransaction` 发现库的事务标记就抛）、:331-333（`#run` 同样抛）；docs/adr/0063 后果第 3 条（:41）
+- **现象**：库经自己的 `runWithTransaction` 开的事务（t08 的社交注册会这样建账号）里，模块调 `write`/`read` 立即抛 `IdentityQueueMisuseError`，调 `withLibTransaction` 也抛。文件头把这种情况定性为“没经 withLibTransaction，取锁会等自己放锁、死锁……都不执行”。可 ADR 0063 后果一节写着“t08 的社交注册由库在它自己开的事务里建账号，模块扣码与建账号的代码要跑在库的事务里”，设计审查（plan“设计审查的处理”第 10 节第 1 条那段）也说“模块的代码迟早要跑在库开的事务里”。照现在的队列，t08 没有任何合法入口加入库开的事务（库的事务也不会带模块的 `lib` 帧，因为序号帧只由 `withLibTransaction` 放）。
+- **如何核实**：在仓库外的副本里（/tmp/review-w00037-t07-impl1/lab-opus/mut/，源码照抄、node_modules 软链，加载的是 2f0d79144）加一条用例 `src/db/lab-lib-own-tx.test.ts`：`runWithTransaction(lib.adapter, () => conn.write(...))` 立即得到 misuse，原版通过。再做两个变异：删掉 :331-333，包内 `bun test src` 84 条只有我加的那条失败（不删时这种调用会挂在自己持着的锁上，10 秒后以 `queue_timeout` 回 503，而不是 500 的程序错误）；删掉 :286-288，84 条全过（这时 `withLibTransaction` 会顺着 `runWithTransaction` 的“已在事务里就直接跑”加入库开的事务、拿到当前序号，反而正是 t08 要的行为）。
+- **为什么是问题**：一是这两道守卫守的是“库的事务里模块代码会死锁或静默落进别人的事务”这类最难查的问题，却没有一条用例，升级库或重构时被删掉不会有人发现；二是它们把 ADR 写给 t08 的接缝封死了，t08 开工时要回头改这片最难的代码，而那时这里的审查结论已经不适用。
+- **建议改法**：补两条用例（库开的事务里调 `write` 与 `withLibTransaction`，断言当场 misuse、不登记等锁计时器）。同时现在就定 t08 的入口：例如让 `withLibTransaction` 在“库说在事务里、且方言的当前事务确实开着（`#activeTx !== null && db.inTransaction`）”时加入它、给回调放上 `lib` 帧，而 `#run` 仍拒绝裸调用；或者在 ADR 0063 与 t08 的记录里改写那条后果，写明 t08 的扣码只能在库的钩子之外、靠模块自己开的 `withLibTransaction` 做。二者选一，别让 ADR 与代码各说各的。
+
+### 3. 会话 Cookie 用 `__Secure-` 前缀，挡不住同一上级域名下别的子域“塞 Cookie”；名字刚写进 Spec、发布前是改成 `__Host-` 唯一不用让所有人登出的时机
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：packages/nb-site-identity/src/auth.ts:113-115（`cookiePrefix: "nbsite"`、`useSecureCookies: true`）；docs/specs/site/accounts.md 输出 5（master 上 873f54317 刚写进名字 `__Secure-nbsite.session_token`，并写“名字在版本之间不变”）
+- **现象**：`__Secure-` 只要求 Secure，不禁止 `Domain`。同一上级域名下任何一个子域（例如部署在 `docs.<域名>`、预览站、用户内容子域；官方站本身就要求站点与统计写入口是两个不同主机名）都能写一个 `Domain=<上级域名>; Path=/api/identity; Secure` 的同名 Cookie。浏览器把路径更长的排在前面，站点收到两个同名的值；攻击者塞进去的是他自己账号的合法签名令牌时，就是登录 CSRF / 会话固定（受害者在攻击者的账号里操作、补交同意、绑定上游身份）。`__Host-` 前缀要求 Secure、`Path=/`、不带 `Domain`，浏览器拒收子域塞来的同名 Cookie。
+- **如何核实**：读 better-auth 1.7.27 的 `dist/cookies/index.mjs:20-46`：名字是 `${secureCookiePrefix}${name}`，`secureCookiePrefix` 只会是 `__Secure-` 或空串；属性缺省就是 `Path=/`、无 `Domain`，已满足 `__Host-` 的要求。所以可以用 `useSecureCookies: false` 加 `advanced.cookies.session_token.name: "__Host-nbsite.session_token"` 与 `defaultCookieAttributes: {secure: true}` 得到 `__Host-` 名字（推断，未实测；改的话 `auth.test.ts` 的 Cookie 用例会直接验名字与属性）。库读 Cookie 用的也是同一个名字，认 Cookie 不受影响。
+- **为什么是问题**：Spec 刚把名字定成合同、写明“变了等于让所有人登出”；上线后再换前缀就要付出全员登出的代价。现在改没有任何用户成本。
+- **建议改法**：交开发者定：要么改成 `__Host-nbsite.session_token`（Spec 输出 5、合同测试与包内的 `SESSION_COOKIE` 常量一起改），要么在 Spec 或 ADR 里写明“站点所在的上级域名下不部署不受信的子域”这条部署前提。
+
+### 4. `whoami` 白查一次同意记录：每次已登录的问身份多开一个延迟事务、多取一次队列的锁，结果被丢掉
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：packages/nb-site-identity/src/session.ts:169-177（`read` 不分 `peek`/`use` 都调 `#consentRequired`）、:228-236（`whoami` 只用 `userId`、`username`、`role`）
+- **现象**：`read(cookie, "peek")` 在会话有效时总会 `await this.#consentRequired(userId)`，那是一次 `conn.read`（一次取锁、一个 `BEGIN DEFERRED … COMMIT`）；`whoami` 不看 `consentRequired`（同意门槛放行它）。
+- **如何核实**：`bun run /tmp/review-w00037-t07-impl1/lab-opus/count-queries.ts`（在 `Database.prototype.query` 与 `transaction` 上计数，加载 2f0d79144）。一次已登录的 `GET whoami` 执行 3 条语句：库查 `session`、库查 `user`（各一次取锁）、模块查 `identity_consent`（第三次取锁，另开一个模块事务）。去掉第三条，回答不变。
+- **为什么是问题**：`whoami` 是统计模块（t11）在进程内调的入口，可能每个统计请求问一次；它也是“账号库被写锁占着时照常回答”的那条路径，多一次事务就多一次排队与出错的机会（同意表读不出时整次 `whoami` 变 503，而它本来用不到这一项）。计划 3.5 写的 `whoami` 只做“第 1 到 3 步里的读”，第 4 步的同意不在其中。
+- **建议改法**：`consentRequired` 只在 `use` 模式下算（例如 `peek` 时返回不含它的类型，或者把它挪进 `authorize`）；补一条用例：同意表不可读时 `whoami` 仍回 `authenticated`（或按计数断言 `whoami` 不碰 `identity_consent`）。
+
+### 5. 账号接口的响应都没有 `Cache-Control: no-store`：随 Cookie 变化的身份回答（`whoami`，以后的 `me`、会话列表）可能被中间层或浏览器缓存
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：packages/nb-site-identity/src/app.ts:37（`whoami`）、session.ts:231-232（`Response.json` 不带头）；入口与统计模块里也没有搜到 `Cache-Control`（`grep -rni cache-control packages/nb-site-server/src packages/nb-site-telemetry/src` 为空）
+- **现象**：库自己的 `get-session` 端点会设 `cache-control: no-store` 与 `pragma: no-cache`（better-auth `dist/api/routes/session.mjs:34-35`），模块改用自家的 `whoami` 之后这两个头没了，也没有 `Vary: Cookie`。同一个 URL 的回答随 Cookie 是匿名或某个具体账号（id、用户名、角色）。
+- **为什么是问题**：部署在反向代理或 CDN 后面时，一条配置得宽一点的缓存规则就能把某个管理员的 `whoami`（以后是 `me` 的邮箱）发给别人；浏览器的回退/前进缓存也可能在登出后显示旧的身份。对身份类接口一律 `no-store` 是常规做法，成本是一行中间件。Spec 没写这一条，属于“从代码推断”的风险，没有实测具体代理。
+- **建议改法**：在子应用的第一个中间件里给所有响应设 `Cache-Control: no-store`（成功与出错都带）；`whoami` 作为函数被统计模块调用时也带上。合同测试的 `whoami` 用例顺带断言这个头。是否写进 `site.accounts`，交主会话定。
+
+### 6. “问身份”的转接放在模块级的可变变量里：进程内第二个实例、建失败或已停止的实例都会被统计模块问到
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/nb-site-server/src/modules.ts:13-24（`let identityWhoami`、`askIdentity`），:42（`create` 里赋值，`close` 里不清）
+- **现象**：`identityWhoami` 是 `SITE_MODULES` 所在模块的顶层状态，与某一次 `serve` 无关。同一进程里先后建两次（包内或将来的进程内测试、一次 `create` 成功后别的模块 `start_failed` 再重来），后建的覆盖先建的；实例 `close()` 之后变量仍指向它，`askIdentity` 会调进一个已关闭的队列（得 503，而不是“账号模块还没建成”）。计划 3.11 说的是“记在适配器的一个变量里”，没要求它跨实例存在。
+- **为什么是问题**：现在没有调用方（t11 才接），所以不出错；但它是隐含的共享状态，t11 接上后进程内的用例（例如 `serve.test.ts` 若改成进程内起多个实例）会互相串，而且出错时的表现（503 或问到旧实例）难以从统计模块那边看出原因。
+- **建议改法**：把转接挂在一次装配的作用域里：例如入口给 `create` 的 `context` 带一个按本次 `serve` 建的“模块之间的转接表”，或者让 `SITE_MODULES` 由一个工厂函数按次生成；至少在 `close` 里把变量清回 `undefined`。
+
+### 7. “删会话只经结束会话的一组函数”没有机检，只靠注释；t08 的令牌撤销要挂在这组函数上
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-identity/src/session.ts:62-88（注释写“删会话的地方……都调这里”）；src/architecture.test.ts 只守 `.db` 属性
+- **现象**：现在产品源码里写 `DELETE FROM "session"` 的只有 session.ts（`grep -rn 'FROM "session"' src --include` 排除测试后只剩它与 `isSessionLive` 的 SELECT），符合计划。但没有任何用例或源码守卫拦“在别的文件里直接删会话行”或“调库的 `internalAdapter.deleteSession`/`deleteSessions`”。omp 设计审查第 16 条的处理把这组函数定为 t08 撤销 OAuth 令牌与授权码的唯一挂点：以后第 4 到 7 片（改密码、封禁、改角色、重置、结束会话）各自写删除时，只要有一处绕开，t08 的撤销就漏一处，而且没有测试会失败。
+- **为什么是问题**：这条约束的失败方式是安全问题（被封禁的账号的对外令牌仍有效），却只靠审查者记得。仓库已经有同类的源码守卫（同一个 architecture.test.ts 守 `ModuleContext.db`），成本很低。
+- **建议改法**：在 architecture.test.ts 加一条：产品源码里出现 `DELETE FROM "session"`（不分大小写、允许引号与空白的变体）以及库的 `deleteSession`、`deleteSessions`、`revokeSession` 调用的，只许 session.ts；带反例。
+
+### 8. 两处与依据不一致、没有记下来的小出入
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：packages/nb-site-contract-tests/src/accounts.test.ts:30（`SESSION_COOKIE` 的注释）；packages/nb-site-identity/src/db/connection.ts:81-86（`UNAVAILABLE_PRIMARY_CODES`）
+- **现象与为什么是问题**：
+  1. 合同测试的注释写“名字本身是实现选的，这里只用它找清除的那一条”。master 上 873f54317 已把 `__Secure-nbsite.session_token` 写进 `site.accounts` 输出 5，名字现在是合同；注释会让后来的人以为可以随实现改名。合同测试也只在清除 Cookie 上看名字，第 4 片有了登录后应在发出的会话 Cookie 上断言名字与属性（这一条随第 4 片补即可）。
+  2. 计划 3.3“错误”一段把 `SQLITE_LOCKED` 列为“库不可用”（503），实现把它排除了（注释给了理由：单连接上只会是本模块的程序错误，回 500）。理由本身成立，但 Task README“与计划不同、主会话接受的”一段没有这一条，计划也没改；下一个按计划核对的人会把它当成漏项。
+- **如何核实**：对照 `docs/specs/site/accounts.md` 输出 5 与 `.agents/works/w00037-official-site/tasks/t07-identity-core/plan.md` 3.3 节“错误”一段。
+- **建议改法**：改掉那句注释；在 README 的“与计划不同”里补一句 LOCKED 的处理（或把计划 3.3 那一段改成与实现一致）。
+
+## 汇总
+
+按影响排序：1、2（正确性与不变量，重要）；3、5（安全，建议）；4（性能，建议）；7（测试，建议）；6（代码质量，建议）；8（文档，建议）。
+
+## 未发现问题的方面
+
+仔细检查后没有发现问题的（附核实方式）：
+- 队列本身：先来先得、放锁直接交给队首；等锁计时器与交锁之间没有竞态（交锁时清计时器，计时器回调先查自己还在不在队里）；`close` 拒收排队者、清掉它们的计时器、等持锁者、超时照样返回；放锁函数只生效一次。
+- Kysely 的 `supportsMultipleConnections` 在 0.29.9 里只用于 `RuntimeDriver` 要不要套 `ConnectionMutex`（`dist/driver/runtime-driver.js:22-24`，全库只有这一处与两个适配器的声明），事务内的查询仍由 Kysely 的单连接提供者串行，没有别的路径因此并发用同一条连接。
+- 重入判断：序号帧加 `inTransaction`；漏出事务的活儿在事务结束后或另一个事务开着时都被拒（包内两条用例）；事务里经基础适配器取连接当场抛错（`reserveVerificationValue` 用例）。`withLibTransaction` 里调 `issueSession`（含 admin 插件的封禁检查）与模块的 `write` 都能走通，第 4 片要的“复核加发会话同一事务”在这条队列上可行（lab-opus/issue-in-libtx.ts）。
+- 错误分类：沿 `cause` 链、按主结果码、有环停下；misuse 先于“库不可用”判；库的 `getSession` 把非 `APIError` 包成 `APIError` 并保留 `cause`（session.mjs:229-233），出口能认出 503。
+- 会话的到期缝：库按系统时间、模块按 `clock`，测试控制只能往前拨（test-control.ts:76），模块的判断总不晚于库；模块 `<=`、库 `<`，在相等的那一毫秒模块更严。`auth.api.getSession` 缺省方法是 GET（better-call context.mjs:26），配了 `deferSessionRefresh` 时到期行不删、也不延长（session.mjs:163、190）。延长的 0 行不发 Cookie、重发的 `Max-Age` 等于会话时长。
+- 出错出口与中间件：失败时之前记下的 `Set-Cookie` 照样随 401 发出（lab-opus/cookies-on-failure.ts，按入口的 `app.route` 挂法）；`bodyLimit` 定长按头、分块边读边数，超限回 400 `validation_failed`；空体规则、`__proto__` 键会被拒；来源头先于请求体与 404；兜底路由覆盖前缀本身与任意方法（合同用例逐个断言）。
+- `nbSession` 三个端点经 `handler` 是 404，且本 Task 根本没挂 `handler`；库的日志只取 message，没有搜到会把秘密拼进 message 的路径。
+- 第一条迁移：库的四张表与基准只差 AUTOINCREMENT；本模块五张表 STRICT、约束与为导入留的列与计划第 16 条、omp 第 11 条的处理一致；审计两条触发器；`date` 声明类型的 NUMERIC 亲和性下 ISO 文本与绑定的文本参数比较仍是按文字比（不会被转成数）。设计审查处理表里说“改”的、落在第 1 到 3 片的条目（Opus 第 1、2、3、9、10、13、14、16、17 条，omp 第 6、8、10、16 条）在代码里都做到了，例外见第 1 条（thenable 只拦了一半）。
+- 合同测试只经 HTTP、命令行与允许的故障注入辅助；`typebox` 只用于 `Value.Check`。包内 83 条用例在实现 worktree 上重跑全过。
+
+## 各级数量
+
+阻断 0；重要 2（第 1、2 条）；建议 6（第 3 到 8 条）。
+
+有效发现：1、2、3、4、5、6、7、8

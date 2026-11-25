@@ -40,8 +40,10 @@ export const agentMessagesScenes: FrameScene[] = [
     {id: "narrow", label: "窄版（右栏默认宽度）：头像列加聊天区，未读点与等你处理的黄点", input: {props: {...frame, layout: "narrow"}, model: {drawerOpen: false, listCollapsed: false, tab: "bot"}}},
     {id: "narrow-drawer", label: "窄版拉出抽屉：bot 一页", input: {props: {...frame, layout: "narrow"}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
     {id: "narrow-sessions", label: "窄版抽屉的会话一页", input: {props: {...frame, layout: "narrow", selected: {kind: "session", id: "s1"}}, model: {drawerOpen: true, listCollapsed: false, tab: "sessions"}}},
-    {id: "wide", label: "宽版：列表栏常驻", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: false, tab: "bot"}}},
-    {id: "wide-collapsed", label: "宽版收起列表栏：左边换成头像列", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: true, tab: "bot"}}},
+    {id: "wide", label: "宽版：列表栏常驻，拖右边的线改宽度、拖窄了收成头像列", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: false, listWidth: 260, tab: "bot"}}},
+    {id: "wide-collapsed", label: "宽版收起列表栏：左边换成头像列，往外拖线展开", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: true, listWidth: 260, tab: "bot"}}},
+    {id: "wide-resized", label: "宽版：列表栏拖宽到 340", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: false, listWidth: 340, tab: "bot"}}},
+    {id: "wide-narrowest-english", label: "宽版英文、列表栏拖到最窄 200、未读三位数：切换行不压到收起按钮", input: {props: {...frame, sections: [{...SECTIONS_EN[0]!, contacts: SECTIONS_EN[0]!.contacts.map((contact, index) => (index === 0 ? {...contact, unread: 128} : contact))}], layout: "wide", locale: "en-US"}, model: {drawerOpen: false, listCollapsed: false, listWidth: 200, tab: "bot"}}},
     {id: "phone-drawer", label: "390 宽：抽屉", input: {props: {...frame, layout: "narrow"}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
     {id: "narrow-english", label: "英文界面：长名字与长摘要截断，未读两位数", input: {props: {...frame, sections: SECTIONS_EN, layout: "narrow", locale: "en-US"}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
 ];

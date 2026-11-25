@@ -1,0 +1,154 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t18-messages-float-window-im",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "消息视图浮成窗口：窗口头与切换控件",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "0deacdd044cbf2245fea59836711d9b99c0081dd92ccc934d2c843d589906594",
+    "files": [
+        "index.html",
+        "r1/col-segmented-sessions.webp",
+        "r1/col-segmented.webp",
+        "r1/col-tabs-sessions.webp",
+        "r1/col-tabs.webp",
+        "r1/col-title-sessions.webp",
+        "r1/col-title.webp",
+        "r1/win-now.webp",
+        "r1/win-self-collapsed.webp",
+        "r1/win-self-sessions.webp",
+        "r1/win-self.webp"
+    ],
+    "questions": [
+        {
+            "id": "float-head",
+            "type": "single",
+            "label": "浮动窗的头画成哪样？",
+            "options": [
+                {
+                    "value": "workbench",
+                    "label": "A 现状"
+                },
+                {
+                    "value": "self",
+                    "label": "B 自绘头"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "self"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-switch",
+            "type": "single",
+            "label": "bot 与会话用哪种切换？",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "A 现状的下划线标签"
+                },
+                {
+                    "value": "title",
+                    "label": "B 标题式"
+                },
+                {
+                    "value": "segmented",
+                    "label": "C 分段控件"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "title"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "loading-head",
+            "type": "single",
+            "label": "消息视图还在加载、或者出错时，浮动窗要不要先画“消息”那一行？",
+            "options": [
+                {
+                    "value": "ready",
+                    "label": "A 就绪才自绘"
+                },
+                {
+                    "value": "never",
+                    "label": "B 一直不画"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "never"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "narrow-enter",
+            "type": "single",
+            "label": "窄版浮动窗里，键盘聚焦到左上角的标题按钮按 Enter，要不要开列表抽屉？",
+            "options": [
+                {
+                    "value": "noop",
+                    "label": "A 不开，抽屉只由头像列按钮开"
+                },
+                {
+                    "value": "drawer",
+                    "label": "B 照旧开抽屉"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "noop"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "second-tab",
+            "type": "single",
+            "label": "往这个浮动窗里再放一个视图（出现标签条）时，内容往下让出头的位置，要不要做过渡？",
+            "options": [
+                {
+                    "value": "instant",
+                    "label": "A 直接换"
+                },
+                {
+                    "value": "animate",
+                    "label": "B 过渡（改 nb-layout）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "instant"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T04:47:23.916Z"
+}

@@ -86,4 +86,9 @@ export interface SplitterPanelConfig {
     collapse?: SashCollapseState;
     /** 分隔线读屏名称里这块面板的显示名（宿主翻译好的）；缺省用面板 id。 */
     label?: string;
+    /**
+     * `visible`：这块面板不裁切内容，内容可以伸到相邻面板上面（收起的栏里拉出的抽屉）；伸出去的部分压不压得住相邻面板，由内容自己的层级定。
+     * 缺省 `hidden`。只在 `Splitter` 里起作用，Grid 的叶不读它。
+     */
+    overflow?: "hidden" | "visible";
 }

@@ -57,6 +57,8 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 
 **e2e 用例写的文件用完就删，不往共用的文件里打字。** 一份 e2e 文件里每个用例往作品的同一个目录写自己的文件时，在 `afterEach` 里删掉这一例写的文件（经辅助打开的与直接写盘的都算）：资源树是虚拟列表，文件越积越多，靠后的用例要打开的那一行排到渲染范围外面，找不到行直到超时（w00025 t17：`markdown-editing` 跑到“拆分后”一例时，`notes/` 里它前面排着 37 个文件）。往前面用例也在用的共用文件里打字同样会串：缺省的失焦时自动保存会把打的字写进磁盘，后面读这个文件的用例拿到的不是初始内容（同一 Task：“离开页面”一例读到前面一例打进 `b.md` 的字）。要编辑就写自己的文件。
 
+**e2e 判断“没被裁掉”不靠 `click`。** 要证明一块伸出去的内容（抽屉、压在相邻面板上的层）没被祖先的 `overflow: hidden` 裁掉时，`click()` 成功、`boundingBox`、`toBeVisible` 都不算数：被裁切时三样照过，`click` 会先把目标滚进那个裁切的容器（`overflow: hidden` 的盒子可以被程序滚动）再点。在页面里取目标的矩形，断言 `document.elementFromPoint(中心)` 是目标或它的后代，再点；写完做变异检查（w00043 t18：把 nb-layout 的“面板不裁切”改回裁切，窄版抽屉的用例照样通过，在开发服务上截图才看到抽屉整块不见）。
+
 **e2e 默认减少动态效果。** 应用的 `playwright.config.ts` 设了 `reducedMotion: "reduce"`：约 113 个用例在程序开关后马上量几何，470ms 的外框过渡会让它们量到中间值。测动画，或测动画窗口里的竞态（退场中点击、关闭动画结束后的焦点）的用例，开头写 `page.emulateMedia({reducedMotion: "no-preference"})` 开回来，否则时长令牌是 0，用例还是绿的，但不再覆盖要防的东西。
 
 **e2e 测失去指针捕获要先让捕获生效。** `setPointerCapture` 与 `releasePointerCapture` 都在下一个指针事件时才生效：过了起拖门槛不再动就释放，捕获根本没到位，浏览器不派发 `lostpointercapture`；用例只靠 Chrome 在布局变化后补发的移动碰巧通过，负载高时才失败。先移动一下再释放，释放之后再移动一下让事件派发出来。
@@ -106,6 +108,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | 类别 | 内容 | 包脚本 | 什么时候跑 |
 | --- | --- | --- | --- |
 | 快速 | 同进程测试与几十毫秒级的子进程测试；可以用真文件、真端口 | `test` | 每次改动，按受影响范围 |
+| 服务进程 | 每个测试文件起被测的服务进程，只经 HTTP 与命令行；真端口、真 SQLite 文件（官方站的 `nb-site-contract-tests`） | `test` | 同快速类，按受影响范围；CI 的 `check` 作业经依赖图选中，`site-image` 作业对着打好的产物再跑一遍 |
 | 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收，本地跑（CI 不跑） |
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量 |
 | 全量 | 以上全部 | — | 手动；CI 手动触发时跑全部包的快速类 |
@@ -124,6 +127,17 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - 旧应用不参加；准备退役的 `llmlint` 选中了也不跑，在跳过里写明理由。
 
 包内再缩小到文件时，在包目录把测试文件路径传给 `bun run test <路径>`。在命令行给 `bun test` 传 `--path-ignore-patterns` 会盖掉 bunfig 里的同名设置（例如排除 DOM 测试的那条）；只想缩小范围时直接传测试路径。
+
+### 服务进程测试
+
+起被测服务进程、只经 HTTP 与命令行断言的测试（官方站的合同测试，底座是 `packages/nb-site-contract-tests/src/testing/site.ts`）：
+
+- 起进程、跑命令放在 `beforeAll` 里，用例本身只发请求、读结果：Bun 的 junit 报告不把钩子的耗时算进用例，单个用例仍守 200 毫秒的预算。用例里非起进程不可、或要等被测程序自己的时限（例如就绪结果的复用窗口）的，在用例旁写明原因。
+- 每个测试文件一个 `createTestTmpRoot`，各用例在根下建自己的数据目录；文件结束时先停进程再删根。
+- 端口给 0，从被测程序的监听日志读实际地址，不先探一个空端口再交给子进程；就绪按 `/health/ready` 等到 200（`waitUntil`）。例外是断言“始终没监听”的负向用例（配置不合格的几条）：它们先让系统挑一个空闲端口再放掉、交给子进程，退出后核对那个端口连不上。局限：放掉之后到子进程启动之间别的进程可能占去这个端口，概率很小；子进程短暂监听又关掉也查不出来，要证明“从没监听过”得跟踪系统调用。
+- 停止发 `SIGTERM` 并核对退出码；用例里起、没停的进程在 `afterEach` 里停掉，`beforeAll` 里起的在 `afterAll` 里停掉，`process.on("exit")` 对还活着的 `SIGKILL` 兜底；测试进程被 `SIGTERM`、`SIGINT` 取消时，底座先 `SIGKILL` 还活着的子进程，再按原信号结束自己。测试进程自己被 `SIGKILL` 时子进程会留下，按进程号结束。
+- 子进程的环境只给明确列出的变量（`PATH`、`HOME` 与 `TMPDIR` 指向临时根下的空目录，加被测程序的配置），不继承测试进程的环境；工作目录是临时根。Bun 进程带 `--no-env-file`，否则它会读工作目录的 `.env`。
+- 被测程序经路径启动，`--files` 选不到它：改了入口或模块后去掉 `--files` 再跑一次（见上面 `--files` 一条）。
 
 ## 真实模型测试
 
@@ -159,7 +173,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
    子目录，并且必须在 `finally` 中清理。
 6. **验收/沙盒脚本**默认输出到 `<系统Temp>/neuro-book/acceptance/` 或 task/run 专用子目录，
    禁止把用户公共目录写为默认值；需要仓库外路径时通过参数显式传入，并打印实际路径。
-7. **公开环境键由测试支持包拥有**：
+7. **公开环境键由测试支持包拥有**；被测程序的命令这类只属于某个测试包的键由那个包拥有，Owner 一列写明：
 
    | 环境键 | Owner 与约束 |
    | --- | --- |
@@ -167,6 +181,9 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
    | `NBOOK_AGENT_TEMP_ROOT` | Agent 测试、fixture、cache、scratch 与 acceptance 的共同父根；必须是宿主 Temp 内的绝对真实路径 |
    | `NBOOK_AGENT_WORKTREE_ROOT` | governance/worktree 工具的 repo-relative locator；默认 `.worktree`，不得指向包源码或运行数据根 |
    | `NBOOK_TEST_TMPDIR` | Vitest global setup 为单次 run 写入；必须包含在 `NBOOK_AGENT_TEMP_ROOT` 内，普通测试不得长期覆盖 |
+   | `NB_SITE_SERVER_COMMAND` | `nb-site-contract-tests`：被测的官方站程序，JSON 数组形式的 argv（例如 `["bun","--no-env-file","/abs/server.js"]`）；没设时用本仓库 `nb-site-server` 的源码入口，设错时测试报错、不退回缺省 |
+   | `NB_SITE_PREVIOUS_SERVER_COMMAND` | `nb-site-contract-tests`：上一个发布版本的程序，形式同上；只给相邻版本测试用，没设时那一组跳过并在组名里写明 |
+   | `NB_SITE_PREVIOUS_WITHOUT_INGEST`、`NB_SITE_PREVIOUS_WITHOUT_TELEMETRY_JOBS` | `nb-site-contract-tests`：上一个版本还没有统计的写入口、还没有统计的两个定时任务；`1` 时相邻版本测试跳过那一项并在用例名里写明，没设、空或 `0` 时照测，别的值报错。由 `nb-site-server` 的 `build:previous` 按基准提交的源码给出 |
 
 ## 测试文件组织
 

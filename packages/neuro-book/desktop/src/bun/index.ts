@@ -22,7 +22,7 @@
  *   之后读它的状态；`before-quit` 在取桌面锁之前放行（`DesktopShell.acceptsQuit`），换上要经它结束进程。
  */
 
-import Electrobun, {BrowserWindow, PATHS, Screen, Tray, Updater, Utils} from "electrobun/main";
+import Electrobun, {ApplicationMenu, BrowserWindow, PATHS, Screen, Tray, Updater, Utils} from "electrobun/main";
 import type {Pointer} from "bun:ffi";
 import {spawnSync} from "node:child_process";
 import {appendFileSync, mkdirSync} from "node:fs";
@@ -44,8 +44,8 @@ import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/window
 import {backdropFor} from "../../../src/desktop/backdrop";
 import {centeredFrame, MIN_PAGE_SIZE, minimumFrame} from "../../../src/desktop/window-size";
 import type {Size} from "../../../src/desktop/window-size";
-import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
-import type {CloseReason, DesktopSettingValues, InstallFacts, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
+import {DESKTOP_EVENT, DESKTOP_FRAME_NATIVE_CONTROLS, DESKTOP_FRAME_PAGE_CONTROLS, parsePageMessage} from "../../../src/shared/desktop-bridge";
+import type {CloseReason, DesktopFrameKind, DesktopSettingValues, InstallFacts, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
@@ -76,6 +76,12 @@ const minSizeSource = join(PATHS.RESOURCES_FOLDER, "app", "min-size.c");
  * 更旧的运行时里拖动区域不生效，窗口退回系统标题栏（输出 10）。
  */
 const CUSTOM_FRAME_MIN_WEBVIEW2 = 123;
+/**
+ * macOS 的红绿灯（`hiddenInset` 保留它们）相对系统缺省位置的偏移，单位 pt：缺省位置是 28pt 高的标题栏里垂直居中，我们的标题栏
+ * 是 36px 高，向下 4 把它们移到正中；向右 8 让左缘离窗口边 15 左右。页面给它们留的宽度 `--nb-window-controls-start`（`src/web/styles.css`）
+ * 按这个位置定，改这里时一起改。
+ */
+const TRAFFIC_LIGHT_OFFSET = {x: 8, y: 4};
 
 let logFile: string | null = null;
 function log(event: string, error?: unknown): void {
@@ -217,8 +223,13 @@ async function main(): Promise<void> {
         logFile = join(dir, "shell.log");
     }
     // webview2Args：环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 有没有传到壳（冒烟靠它打开调试端口；只记有没有，不记值）。
-    const customFrame = process.platform === "win32" && webView2.major !== null && webView2.major >= CUSTOM_FRAME_MIN_WEBVIEW2;
-    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2.major)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
+    // 窗口没有系统标题栏时的外框种类：Windows 页面自己画窗口按钮；macOS 保留系统的红绿灯，页面只画标题栏（Spec 输出 10）。
+    const frameKind: DesktopFrameKind | null = process.platform === "darwin"
+        ? DESKTOP_FRAME_NATIVE_CONTROLS
+        : process.platform === "win32" && webView2.major !== null && webView2.major >= CUSTOM_FRAME_MIN_WEBVIEW2 ? DESKTOP_FRAME_PAGE_CONTROLS : null;
+    const customFrame = frameKind !== null;
+    const pageControls = frameKind === DESKTOP_FRAME_PAGE_CONTROLS;
+    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2.major)} customFrame=${String(frameKind)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
     // 桌面专属设置（输出“桌面专属设置”）：值由页面交来，壳只缓存最后收到的值，下次启动时在页面交来之前先用它。
     const settingsCache = root.ok ? join(root.stateRoot, "logs", "desktop", "settings-cache.json") : null;
@@ -293,7 +304,7 @@ async function main(): Promise<void> {
     const sentMaximized = new Map<WindowId, boolean>();
     const pushWindowState = (id: WindowId, always: boolean): void => {
         const managed = windows.get(id);
-        if (managed === undefined || !customFrame) return;
+        if (managed === undefined || !pageControls) return;
         const maximized = managed.win.isMaximized();
         if (!always && sentMaximized.get(id) === maximized) return;
         sentMaximized.set(id, maximized);
@@ -310,11 +321,11 @@ async function main(): Promise<void> {
         if (target.kind === "page") serverOrigin = new URL(target.url).origin;
         // 启动页窗口之后会换成产品页，打开时就按产品窗口的下限摆。
         // 窗口背景（输出 32）：按建这个窗口时的设置值定；启动页窗口也一样，它之后会换成产品页，`transparent` 创建后改不了。
-        const backdrop = backdropFor(desktopValues.windowBackdrop, {platform: process.platform, release: release(), customFrame});
-        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame, backdrop), titleBarStyle: customFrame ? "hiddenInset" : "default", transparent: backdrop !== null, navigationRules: JSON.stringify(navigationRules())});
+        const backdrop = backdropFor(desktopValues.windowBackdrop, {platform: process.platform, release: release(), customFrame: pageControls});
+        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(frameKind, backdrop), titleBarStyle: customFrame ? "hiddenInset" : "default", ...(frameKind === DESKTOP_FRAME_NATIVE_CONTROLS ? {trafficLightOffset: TRAFFIC_LIGHT_OFFSET} : {}), transparent: backdrop !== null, navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
         windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell", backdrop});
-        adoptWindow(win, id, customFrame);
+        adoptWindow(win, id, pageControls);
         if (target.kind === "page") adoptPageWindow(win, id);
         if (backdrop !== null) {
             const problems = applyBackdrop(win.ptr as Pointer | null, backdrop, null);
@@ -560,7 +571,14 @@ async function main(): Promise<void> {
     /** 托盘图标；null 是没有显示（不需要，或没建出来）。 */
     let tray: Tray | null = null;
     let trayTooltip = "";
+    /** macOS 没有托盘图标：留在后台就是应用留在 Dock 里（没有窗口、点 Dock 图标回来），这里记它此刻该不该这样。 */
+    let dockResident = false;
     const setTray = (next: TrayView): void => {
+        if (process.platform === "darwin") {
+            if (dockResident !== next.visible) log(next.visible ? "desktop.dock.resident" : "desktop.dock.resident-ended");
+            dockResident = next.visible;
+            return;
+        }
         if (!next.visible) {
             if (tray === null) return;
             tray.remove();
@@ -613,7 +631,7 @@ async function main(): Promise<void> {
         },
         openPath: (path) => void Utils.openPath(path),
         setTray,
-        trayShown: () => tray !== null,
+        trayShown: () => (process.platform === "darwin" ? dockResident : tray !== null),
         focusWindow(id) {
             const managed = windows.get(id);
             if (managed === undefined) return;
@@ -639,6 +657,11 @@ async function main(): Promise<void> {
         },
     };
 
+    // macOS 点 Dock 图标：应用在后台、没有窗口时开回一个（托盘“打开”同一条路）。有窗口时系统自己把它带到前台。
+    Electrobun.events.on("reopen", () => {
+        if (windows.size === 0) setImmediate(() => shell.trayOpen());
+    });
+
     Electrobun.events.on("before-quit", (event: {response?: {allow: boolean}}) => {
         // 取桌面锁之前放行：那时没有服务端与页面，启动时换上要经这里结束进程（desktop-update 输出 8）。
         if (quitAllowed || shell.acceptsQuit) return;
@@ -646,6 +669,8 @@ async function main(): Promise<void> {
         // SDK 只在这个同步段里看应答；发起关闭（询问页面、关启动页）放到下一轮事件循环，不在它的退出流程里操作窗口。
         setImmediate(() => shell.windows.quitRequested());
     });
+
+    if (process.platform === "darwin") ApplicationMenu.setApplicationMenu(macApplicationMenu());
 
     const env = {...process.env};
     const updates = await desktopUpdates();
@@ -676,6 +701,20 @@ async function main(): Promise<void> {
     function navigationRules(): string[] {
         return serverOrigin === null ? ["^*", "views://*"] : ["^*", "views://*", `${serverOrigin}/*`];
     }
+}
+
+/**
+ * macOS 的应用菜单（输出 35）：没有它，WKWebView 里的复制、粘贴、全选等系统快捷键不生效，Cmd+Q、Cmd+W、Cmd+H 也没有着落。
+ * 条目都是系统的角色（`role`），标签由系统按语言给；只有“编辑”“窗口”两个分组名没有角色可借，写中文（壳没有页面的文字目录）。
+ * 撤销与重做也在：页面里的编辑器自己处理 Cmd+Z 的按键，页面不处理时才落到系统的撤销。退出走系统的 terminate，经
+ * `before-quit` 回到关闭流程；关闭窗口（Cmd+W）经 `will-close` 回到关闭前询问。
+ */
+function macApplicationMenu(): Parameters<typeof ApplicationMenu.setApplicationMenu>[0] {
+    return [
+        {label: "NeuroBook", submenu: [{role: "hide"}, {role: "hideOthers"}, {role: "showAll"}, {type: "separator"}, {role: "quit"}]},
+        {label: "编辑", submenu: [{role: "undo"}, {role: "redo"}, {type: "separator"}, {role: "cut"}, {role: "copy"}, {role: "paste"}, {role: "pasteAndMatchStyle"}, {role: "delete"}, {role: "selectAll"}]},
+        {label: "窗口", submenu: [{role: "minimize"}, {role: "zoom"}, {role: "toggleFullScreen"}, {type: "separator"}, {role: "close"}]},
+    ];
 }
 
 /** 在主显示器的工作区里居中（输出 10）；`minimum` 是外框的下限，只有产品窗口与启动页传。规则在核心的 `centeredFrame`。 */

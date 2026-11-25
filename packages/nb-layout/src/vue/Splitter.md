@@ -8,7 +8,7 @@
 
 ## 布局
 
-根容器铺满父级并裁切溢出。`direction="horizontal"` 时面板沿宽度排列、分隔线为竖向；`vertical` 时沿高度排列、分隔线为横向。每块面板占满交叉轴并裁切自身溢出，内容由对应 `panel-<id>` 插槽提供。无面板时只呈现默认插槽。分隔线占用独立 sash 尺寸；静止可见接缝为 1 CSS px，一侧收到零时不画（那一侧没有东西，线只会贴在窗口边或条上；命中与悬停线照旧）（颜色取 `--nb-layout-splitter-seam`，缺省 `--nb-layout-divider`，宿主可在祖先上改，例如设成透明；沿长轴两端的缩进取 `--nb-layout-splitter-seam-inset`，缺省 0，设了就是两端不碰到头的开放式分割线），交互装饰线不参与布局。静止接缝的近端边对齐设备像素，让 1px 线是实的；装饰线按设备像素对齐只改装饰层，不移动 separator 的命中盒，也不改面板布局。装饰带最厚 3px，居中叠在 sash 上，按相邻面板与 sash 的可用空间夹紧：收起边界上相邻面板是 0px，装饰带贴边向内移，不会被祖先的裁切变细。窄屏不自动堆叠，宿主应提供适合方向与尺寸的承载空间。
+根容器铺满父级并裁切溢出。`direction="horizontal"` 时面板沿宽度排列、分隔线为竖向；`vertical` 时沿高度排列、分隔线为横向。每块面板占满交叉轴并裁切自身溢出，内容由对应 `panel-<id>` 插槽提供；面板配置写 `overflow: "visible"` 时不裁切，内容可以伸到相邻面板上面（例如收起的栏里拉出的抽屉），面板自己不建层叠上下文，伸出去的部分要压住相邻面板与分隔线时由内容自己给层级（分隔线的层级是 1），根容器仍然裁切。这块面板收起成窄条或 0 宽时内容同样不裁切，会画到相邻面板上；不要它露出来的时候把选项写回 `hidden`。这个选项只在 `Splitter` 里起作用，`NestedGrid` 的叶不读它。无面板时只呈现默认插槽。分隔线占用独立 sash 尺寸；静止可见接缝为 1 CSS px，一侧收到零时不画（那一侧没有东西，线只会贴在窗口边或条上；命中与悬停线照旧）（颜色取 `--nb-layout-splitter-seam`，缺省 `--nb-layout-divider`，宿主可在祖先上改，例如设成透明；沿长轴两端的缩进取 `--nb-layout-splitter-seam-inset`，缺省 0，设了就是两端不碰到头的开放式分割线），交互装饰线不参与布局。静止接缝的近端边对齐设备像素，让 1px 线是实的；装饰线按设备像素对齐只改装饰层，不移动 separator 的命中盒，也不改面板布局。装饰带最厚 3px，居中叠在 sash 上，按相邻面板与 sash 的可用空间夹紧：收起边界上相邻面板是 0px，装饰带贴边向内移，不会被祖先的裁切变细。窄屏不自动堆叠，宿主应提供适合方向与尺寸的承载空间。
 
 ## 交互
 
@@ -37,6 +37,8 @@ type SplitterPanelConfig = {
     collapse?: SashCollapseState;
     /** 分隔线读屏名称里这块面板的显示名（宿主翻译好的）；省略或空串时用面板 id。 */
     label?: string;
+    /** `visible` 时这块面板不裁切内容；默认 `hidden`。 */
+    overflow?: "hidden" | "visible";
 };
 
 type SplitterProps = {
@@ -57,7 +59,7 @@ type SplitterEmits = {
     (event: "layout", sizesPx: readonly number[]): void;
     /** 一次指针或键盘会话开始时发出。 */
     (event: "gesture-start", state: SplitterGestureState): void;
-    /** 手势预览尺寸变化时发出。 */
+    /** 手势预览尺寸变化时发出；预览回到手势开始时的样子（拖出去又拖回来、取消）时也发一次，这一次 `sizesPx` 是开始时的尺寸、`active` 与 `collapsed` 为空。 */
     (event: "gesture-update", state: SplitterGestureState): void;
     /** 有真实变化的会话提交时发出最终尺寸；无变化不发。 */
     (event: "gesture-end", state: SplitterGestureState): void;

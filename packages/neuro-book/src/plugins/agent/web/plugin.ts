@@ -415,7 +415,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 return null;
             };
             /** 消息视图的版式与列表栏收起：插件作用域一份，视图换代时接着用（只在内存，重开窗口回到缺省）。 */
-            const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false});
+            const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false, listWidth: 260});
 
             /** 对话位置（右栏的消息视图、编辑区页面、书房的面板）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
             const hostDeps = (position: ConversationPosition): SessionHostDeps => ({

@@ -27,6 +27,12 @@ export default {
         copied: "已复制",
         failed: "复制失败，请手动选择文字",
     },
+    dataTable: {
+        count: "第 {{from, number}} 到 {{to, number}} 条，共 {{total, number}} 条",
+        countTotal: "共 {{total, number}} 条",
+        countUnknown: "—",
+        retry: "重试",
+    },
     detailDialog: {
         copy: "复制原文",
         close: "关闭",
@@ -95,6 +101,12 @@ export default {
     numberInput: {
         increase: "增加",
         decrease: "减少",
+    },
+    pagination: {
+        prev: "上一页",
+        next: "下一页",
+        nav: "分页",
+        page: "第 {{page}} 页",
     },
     searchSelect: {
         empty: "没有匹配的选项",

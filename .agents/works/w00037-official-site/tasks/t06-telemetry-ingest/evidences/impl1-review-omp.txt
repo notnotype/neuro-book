@@ -1,0 +1,96 @@
+### 1. 已接收的每日上报跨 ISO 周重发会在查去重前被拒收
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/ingest.ts:124-128,138-140`；`packages/nb-site-telemetry/src/validate.ts:219-230,276-277`；`docs/specs/telemetry/protocol.md:47,77,96`。
+- **现象**：首次服务端时间为 `2026-11-29 18:00 UTC`（周日），`installWeek: "2026-W35"` 在允许范围最早一周，写入回 200。约 12 小时后（周一），用同一个 `reportId` 和完全相同的正文重发，回 `400 {"code":"invalid_report","field":"installWeek"}`。同场 `older` 对照回 200、`duplicate:true`、`serverDay:"2026-11-29"`；换一个新编号带 W35 则仍应拒收。
+- **为什么是问题**：先按当前周校验，全部通过后才查编号。协议保证已接收的编号在 48 小时内能以重发确认；首次成功回应丢失时，发送方却会按 400 丢弃并拿不到首次服务端日。这里没有重复写入；坏的是重发确认。
+- **如何核实**：`python3 /tmp/review-w00037-t06-impl1/lab-omp/retry-week-http.py /tmp/review-w00037-t06-impl1/lab-omp/mutation.g8yFJ7/packages/nb-site-server/src/main.ts`；真实 Bun 服务、SQLite 与 HTTP，日志见 `/tmp/review-w00037-t06-impl1/lab-omp/retry-week-http.log`。
+- **建议改法**：保留协议规定的准入、解析和结构校验；在同一个同步事务里查已记入的编号，让同一份重发按首次日而不是当前日判 `installWeek`，新编号仍按实际记入日判。给 C2 加跨 ISO 周边界及新编号对照。
+
+### 2. 重复的 Content-Type 在首项带参数时被收下
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/ingest.ts:58-62`；`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts:250-265`；`docs/specs/telemetry/protocol.md:32,87-88`。
+- **现象**：只检查第一个分号前的字符串。真实 HTTP 中，首个 `Content-Type` 为 `application/json; charset=utf-8`、第二个为 `text/plain` 时，合格正文回 200；用单头 `application/json; charset=utf-8, text/plain` 发送也回 200。去掉首项参数则回 400。
+- **为什么是问题**：`Content-Type` 是单值字段；这两个值没有一个可精确比较的媒体类型。按协议应在取来源、计入额度前回 `400 {"code":"invalid_report","field":null}`，当前却走到写入。这里没有证据表明浏览器能绕过预检，不按跨域安全问题定级。
+- **如何核实**：`python3 /tmp/review-w00037-t06-impl1/lab-omp/ingest-http.py normal /tmp/review-w00037-t06-impl1/lab-omp/mutation.g8yFJ7/packages/nb-site-server/src/main.ts`。真实 `nb-site serve` 和原始 HTTP，结果见同次日志目录 `/tmp/review-w00037-t06-impl1/lab-omp/http-x42z5iz8/`。已有 C12 只覆盖单值，不会失败。
+- **建议改法**：按单个媒体类型解析，拒绝参数引号外的逗号分隔值；仍接受合法的带引号参数。给 C12 补重复头、合并多值及合法带引号参数三种真实 HTTP 请求，并断言拒绝的请求不占额度。
+
+### 3. Bun 的请求体硬上限在模块前返回空体 413
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/ingest.ts:84-103`；`packages/nb-site-server/src/commands/serve.ts:139-141`（入口依赖）；`docs/specs/telemetry/protocol.md:85-88`。
+- **现象**：真实进程直连，声明 `Content-Length: 16385` 时，JSON 类型回 413 与 `{"code":"payload_too_large"}`，`text/plain` 先回 400。只把声明改成 `134217729`（Bun 默认上限 128 MiB 加 1），两个类型都在发送正文前收到空体 413；两次均没有应用层请求日志。合法分块正文的对照回 200。
+- **为什么是问题**：传输层按预期拒绝请求，16 KiB 的应用层上限没有被突破。偏差在于协议未说明前置拒绝不保证输出 12 的 JSON 错误体或输出 13 的检查顺序。未验证部署代理会给出哪种回应。
+- **如何核实**：`/tmp/review-w00037-t06-impl1/lab-omp/contract-edge-http.py`，输出见同目录 `contract-edge-http.log`，请求日志见 `http-a_s_bnz8/stdout.log`。只发送请求头，不上传大正文。
+- **建议改法**：保留进程的传输层硬上限；明确输出 12、13 适用于进入应用处理的请求，单列传输层拒绝边界；部署代理的 413 按其单独合同验收。不要为强求 JSON 而放大传输层接收上限。
+
+### 4. 非 `invalid_report` 的失败响应 schema 仍接收 `field`
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry-contract/src/ingest.ts:44-51`、`src/ingest.test.ts:26-31`；`docs/specs/telemetry/protocol.md:87`。
+- **现象**：`IngestError` 已按 `code` 分支，能拒绝缺少 `field` 的 `invalid_report`；但 `Type.Object` 默认允许额外属性，所以 `{code:"unavailable",field:"channel"}`、`{code:"rate_limited",field:null}`、`{code:"payload_too_large",field:null}` 的 `Value.Check` 都返回 `true`。现有服务的 413、429、503 HTTP 响应体仍只有 `code`。
+- **为什么是问题**：公开机器合同与协议及 schema 自己的说明不一致。拿该 schema 校验替代实现的回应时，多发 `field` 的回归会通过。
+- **如何核实**：在 `packages/nb-site-telemetry-contract` 运行 `bun --no-env-file -e 'import {Value} from "typebox/value"; import {IngestError} from "@notnotype/nb-site-telemetry-contract"; console.log(Value.Check(IngestError, {code:"unavailable",field:"channel"}))'`，打印 `true`。基线 C10、C11、C13、C14 的真实 HTTP 断言通过。
+- **建议改法**：给失败体两个对象分支都设 `additionalProperties: false`，给每个只允许 `code` 的分支加 `field` 多余时拒绝的断言。
+
+### 5. 不带使用段的发送方 schema 漏验已知的 `manifest.usage`
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry-contract/src/manifest/reports.ts:68-85`、`src/manifest/envelope.ts:39-53`；`packages/nb-site-telemetry/src/validate.ts:252-260`；`docs/specs/telemetry/protocol.md:38,88`。
+- **现象**：`dailyReportSchema(anonymous, null)` 只在 `manifest` 里声明 `anonymous`。因为对象接受额外属性，`manifest.usage: 0` 或 `manifest.usage: "1"` 都通过 `Value.Check`；把同一正文发给真实服务，两者都回 400 `invalid_report`、`field:"manifest.usage"`。省略该字段或给整数 `1` 的对照都回 200。
+- **为什么是问题**：`manifest.usage` 可省，但一旦给出就应是合格的声明，不是协议允许丢弃的未知字段。公开发送方 schema 将一份服务端必拒且客户端应丢弃的正文判成合格。
+- **如何核实**：`/tmp/review-w00037-t06-impl1/lab-omp/contract-edge-http.py` 对同一 JSON 先调用公开 schema，再发给真实 `nb-site serve`；同目录 `contract-edge-http.log` 前四条样本。
+- **建议改法**：无使用段分支也从 `REPORT_ENVELOPE.daily.manifest.fields.usage` 取可省版本字段的 schema；继续放行真正未知的字段。补四个对照值的合同包用例。
+
+### 6. C1 不区分读完正文记账与读正文前记账
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts:89-96`；`packages/nb-site-telemetry/src/ingest.ts:115-128`；`docs/specs/site/telemetry-ingest.md:41`。
+- **现象**：C1 的拨钟发生在两次请求之间。只把 `clock.now()` 从 `await c.req.text()` 之后移到之前，20 条写入口合同用例仍全部通过。真实 HTTP 对照中，确认请求已占额度、正文未传完时把时钟从 11 月 25 日拨过 UTC 午夜，再传完正文：原版回 `serverDay: "2026-11-26"`，变体回 `"2026-11-25"`。
+- **为什么是问题**：实现目前正确，但 C1 标为覆盖站点输出 2，实际护不住慢请求跨日的记账规则。取时点退化会把每日份数与去重回应归到前一天。
+- **如何核实**：在 `/tmp/review-w00037-t06-impl1/lab-omp` 令 `src="$PWD/variant-pre-body-clock"`，用 `NB_SITE_SERVER_COMMAND=$(jq -nc --arg entry "$src/packages/nb-site-server/src/main.ts" '["bun","--no-env-file",$entry]') bun run --cwd "$src/packages/nb-site-contract-tests" test src/telemetry-ingest.test.ts`；输出在 `variant-pre-body-clock.test.log`。HTTP 对照用 `ingest-http.py timing`，原版与变体日志分别在 `http-iapti4gi`、`http-621n_ts7`。
+- **建议改法**：以 HTTP 可观察到的额度消耗确认首段已进入处理，保持正文未完成，再经测试控制入口拨过 UTC 午夜；补完后验的是新日期，不用固定睡眠。
+
+### 7. 心跳上限用例跟着实现常量移动，没固定第 65 个版本
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-telemetry/src/store.test.ts:192-206`；`packages/nb-site-telemetry/src/store.ts:20-24,133-136`；`docs/specs/site/telemetry-ingest.md:50`。
+- **现象**：用例用 `APP_VERSIONS_PER_PERIOD` 决定先插多少个版本，也用它算期望行数。只把实现里的 64 改成 65，名为“第 65 个”的测试仍通过。对原版和变体各发同一心跳段内的 65 份不同版本上报，全部回 204、都得到 65 行；原版第 65 份计入 `other`，变体却留下 `1.0.64` 自己的一行。
+- **为什么是问题**：行数相同不代表遵守上限；上限是 Spec 的 64，不是服务端导出的当前值。测试挡不住无意扩大长期聚合的版本基数。
+- **如何核实**：运行 `bun run --cwd /tmp/review-w00037-t06-impl1/lab-omp/variant-heartbeat-cap/packages/nb-site-telemetry test src/store.test.ts -t '第 65 个'`，结果 1 通过。原版与变体的真实进程对照见同目录 `heartbeat-cap-http.py`、`heartbeat-cap-http.log`。
+- **建议改法**：用测试侧独立的 64 构造前 64 份，再验第 65 份增加的是字面值 `other` 对应的计数，不把预期值从实现导入。
+
+## 验证记录
+
+- 审查提交：`8565561bb`、`e5de7dd59`、`29f2c05f1`。基线是分离 HEAD `29f2c05f1`；审查 worktree 未改动。
+- Bun `1.4.4 (38afee6c8)`；按下列包运行 `bun run --cwd packages/<包> test` 和 `bun run --cwd packages/<包> typecheck`，均以 0 退出：
+
+| 包 | 测试 | 类型检查 |
+|---|---:|---|
+| `nb-site-telemetry-contract` | 29 通过 | 通过 |
+| `nb-site-telemetry` | 145 通过 | 通过 |
+| `nb-site-server` | 145 通过 | 通过 |
+| `nb-site-contract-tests` | 51 通过、2 跳过 | 通过 |
+
+- 4 处独立变异均在 `/tmp/review-w00037-t06-impl1/lab-omp/`。拒绝带参数的 `application/json` 时，C12 确因收到 400 而失败；提前取时钟、心跳版本上限改成 65 时，写入口合同用例各 20 条通过，后者的上限包内用例也通过；站点入口经解构别名调用地址解析器时，结构守卫 2 条和写入口合同用例 20 条均通过。最后一项是已审定接受的静态守卫局限，不作为生产地址泄露或新发现。
+- 真实 Bun 服务探针均已停止；未跑 e2e、Docker、吞吐测量或相邻版本验证。第 4、5 片的聚合、删除、定时扫除与备份行为未验收。
+
+## 未发现问题的方面
+
+- 除上述跨周重发外，三路由的信封、已知字段先后、可省字段、未知字段丢弃、版本回退与 `dependent`/`uniqueBy` 行为未发现偏差；ISO 周计算与跨年、第 53 周边界未见算法错误。
+- 迁移的聚合维度、按日索引、游标与 `AUTOINCREMENT` 已对照后续设计；使用段和生效版本同在同不在有约束。两种上报编号独立去重，重启后保留；当前实现同段心跳确实只累加，锁忙不等待，业务连接设 `secure_delete = ON`，写入事务不跨 `await`。
+- 对齐窗口的 `Retry-After`、IPv4 映射规范化、IPv6 的 `/64` 与 `/48` 合计顺序、来源数与两张表的内存上界未见偏差。生产写入口没有读取 Cookie 或 `Authorization`；核对过的成功、拒收、限流、过大与缺失来源路径未留来源地址或凭据；两类告警符合已审定的节流规则。
+- 三个 POST 的挂载、站点与写入口主机分派、非 POST 与预检的 404、合同测试与入口的包依赖方向未见偏差。已审定的断流日志、`SQLITE_LOCKED` 分类、源码守卫、说明文字及测量脚本路径不重复计数。
+
+## 回写建议（未改 Spec）
+
+| 类别 | 依据 | 建议 | 目标位置 |
+|---|---|---|---|
+| 规范缺陷 | 第 3 条：HTTP 运行时拒绝发生在模块有机会按合同回复之前 | 明确应用层错误体和校验顺序只约束进入写入口处理的请求；传输层提前拒绝另行约定 | `docs/specs/telemetry/protocol.md` 的“失败与恢复” |
+
+## 各级数量
+
+阻断 0，重要 1，建议 6。
+
+有效发现编号：1、2、3、4、5、6、7。

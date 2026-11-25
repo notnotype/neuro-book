@@ -8,17 +8,18 @@
  * 运行时机是文档刚创建（WebView2 的 `AddScriptToExecuteOnDocumentCreated`），那时还没有 `document.documentElement`，
  * 所以标题的观察器挂在 `document` 本身上，挂好就先报一次当前标题。
  *
- * 没有系统标题栏的窗口（输出 10）另做两件事：在页面脚本之前定义只读的能力标记 `__nbookDesktopFrame`（页面据此自己画窗口
- * 按钮），`<html>` 一出现就设 `data-desktop-frame`（静态加载页据此把整页当拖动区域，那时页面脚本还没运行）。
+ * 没有系统标题栏的窗口（输出 10）另做两件事：在页面脚本之前定义只读的能力标记 `__nbookDesktopFrame`（页面据此自己画标题栏，值说明窗口按钮
+ * 归谁），`<html>` 一出现就设 `data-desktop-frame`（静态加载页据此把整页当拖动区域，那时页面脚本还没运行）。
  *
  * 作为字符串注入，所以不能有导入；`preloadScript()` 的结果由壳的主进程交给 `BrowserWindow` 的 `preload` 选项。
  */
 
-import {DESKTOP_FRAME_MARKER} from "../../../src/shared/desktop-bridge";
+import {DESKTOP_FRAME_MARKER, DESKTOP_FRAME_NATIVE_CONTROLS} from "../../../src/shared/desktop-bridge";
+import type {DesktopFrameKind} from "../../../src/shared/desktop-bridge";
 
-/** 产品窗口与启动页窗口的预加载脚本；`customFrame` 是这个窗口没有系统标题栏。 */
-export function preloadScript(customFrame: boolean, backdrop: "mica" | "acrylic" | null = null): string {
-    return customFrame ? `${FRAME}\n${backdrop === null ? "" : `${backdropScript(backdrop)}\n`}${BRIDGE}` : BRIDGE;
+/** 产品窗口与启动页窗口的预加载脚本；`frame` 是这个窗口没有系统标题栏时窗口按钮归谁（null 是有系统标题栏）。 */
+export function preloadScript(frame: DesktopFrameKind | null, backdrop: "mica" | "acrylic" | null = null): string {
+    return frame === null ? BRIDGE : `${frameScript(frame)}\n${backdrop === null ? "" : `${backdropScript(backdrop)}\n`}${BRIDGE}`;
 }
 
 /**
@@ -39,11 +40,17 @@ function backdropScript(backdrop: "mica" | "acrylic"): string {
 })();`;
 }
 
-const FRAME = `(() => {
-  Object.defineProperty(window, ${JSON.stringify(DESKTOP_FRAME_MARKER)}, {value: 1, writable: false, configurable: false, enumerable: false});
+/**
+ * 能力标记的值就是外框的种类；`<html>` 上 `data-desktop-frame` 的值只在 macOS 的窗口里写 `native-controls`（样式据此给红绿灯留位、
+ * 不画窗口按钮），Windows 的窗口里是空值，与没有种类之分时的写法相同。
+ */
+function frameScript(frame: DesktopFrameKind): string {
+    const attribute = frame === DESKTOP_FRAME_NATIVE_CONTROLS ? "native-controls" : "";
+    return `(() => {
+  Object.defineProperty(window, ${JSON.stringify(DESKTOP_FRAME_MARKER)}, {value: ${String(frame)}, writable: false, configurable: false, enumerable: false});
   const mark = () => {
     if (document.documentElement === null) return false;
-    document.documentElement.setAttribute("data-desktop-frame", "");
+    document.documentElement.setAttribute("data-desktop-frame", ${JSON.stringify(attribute)});
     return true;
   };
   if (!mark()) {
@@ -51,6 +58,7 @@ const FRAME = `(() => {
     observer.observe(document, {childList: true});
   }
 })();`;
+}
 
 const BRIDGE = `(() => {
   const send = (message) => {

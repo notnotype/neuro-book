@@ -5,7 +5,7 @@
 
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
-import {defineComponent, h, onMounted, ref} from "vue";
+import {defineComponent, h, nextTick, onMounted, ref} from "vue";
 
 import type {MessagesContactSection} from "../../types";
 import AgentMessages from "./AgentMessages.vue";
@@ -189,6 +189,54 @@ describe("AgentMessagesList", () => {
         const sessions = list(SECTIONS, "sessions");
         expect(shown(sessions.get<HTMLElement>("[data-messages-page='sessions']").element)).toBe(true);
         expect(sessions.get("[data-probe-sessions]").text()).toBe("会话面板");
+    });
+
+    it("两个标签是一组 tablist：当前页是 Tab 停靠点，方向键换页并把焦点带过去，到头回绕", async () => {
+        const tab = ref<"bot" | "sessions">("bot");
+        const wrapper = mount({render: () => h(AgentMessagesList, {
+            tab: tab.value,
+            sections: SECTIONS,
+            selectedContact: null,
+            now: NOW,
+            locale: "zh-CN",
+            "onUpdate:tab": (next: "bot" | "sessions") => {
+                tab.value = next;
+            },
+        })}, {attachTo: document.body});
+        const bot = wrapper.get<HTMLElement>("[data-messages-tab='bot']");
+        const sessions = wrapper.get<HTMLElement>("[data-messages-tab='sessions']");
+        expect(wrapper.get("[role='tablist']").attributes("aria-label")).toBe("消息列表");
+        expect([bot.attributes("aria-selected"), bot.attributes("tabindex"), sessions.attributes("aria-selected"), sessions.attributes("tabindex")]).toEqual(["true", "0", "false", "-1"]);
+
+        bot.element.focus();
+        await bot.trigger("keydown", {key: "ArrowRight"});
+        await nextTick();
+        expect(tab.value).toBe("sessions");
+        expect(document.activeElement).toBe(sessions.element);
+        expect([sessions.attributes("aria-selected"), sessions.attributes("tabindex"), bot.attributes("tabindex")]).toEqual(["true", "0", "-1"]);
+
+        await sessions.trigger("keydown", {key: "ArrowRight"});
+        await nextTick();
+        expect(tab.value).toBe("bot");
+        expect(document.activeElement).toBe(bot.element);
+
+        await bot.trigger("keydown", {key: "End"});
+        await nextTick();
+        expect(tab.value).toBe("sessions");
+        expect(document.activeElement).toBe(sessions.element);
+        await sessions.trigger("keydown", {key: "Home"});
+        await nextTick();
+        expect(tab.value).toBe("bot");
+        expect(document.activeElement).toBe(bot.element);
+        wrapper.unmount();
+    });
+
+    it("切换行的右端是插槽：外框在宽版把收起按钮放进去", () => {
+        const wrapper = mount(AgentMessagesList, {
+            props: {tab: "bot", sections: SECTIONS, selectedContact: null, now: NOW, locale: "zh-CN"},
+            slots: {sessions: () => null, "switch-end": () => h("button", {"data-probe-end": ""}, "收起")},
+        });
+        expect(wrapper.get("[data-messages-switch]").find("[data-probe-end]").exists()).toBe(true);
     });
 
     it("bot 行：第二行在跑写“正在回复…”、等你写“等你处理”、平时写最后一句话、没有写还没有消息；未读数；选中的行", () => {

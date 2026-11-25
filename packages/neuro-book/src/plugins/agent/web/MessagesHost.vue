@@ -29,10 +29,12 @@ import SessionPanelHost from "./SessionPanelHost.vue";
 import {useAgentPageText} from "./text";
 import {useWindowFocus} from "./window-focus";
 
-/** 版式与列表栏收起的记忆：插件作用域一份，视图换代、重新挂上时接着用（首帧就按它定接管与否，不翻）。 */
+/** 版式、列表栏的收起与宽度的记忆：插件作用域一份，视图换代、重新挂上时接着用（首帧就按它定接管与否，不翻）。 */
 export interface MessagesMemory {
     layout: "wide" | "narrow";
     listCollapsed: boolean;
+    /** 宽版列表栏的宽度（CSS px）。 */
+    listWidth: number;
 }
 
 const props = defineProps<{
@@ -72,6 +74,10 @@ watch(layout, (next) => {
 const listCollapsed = ref(props.memory.listCollapsed);
 watch(listCollapsed, (collapsed) => {
     props.memory.listCollapsed = collapsed;
+});
+const listWidth = ref(props.memory.listWidth);
+watch(listWidth, (width) => {
+    props.memory.listWidth = width;
 });
 const drawerOpen = ref(false);
 // 窄版的标题按钮开抽屉：写它的弹出状态；宽版标题区交还了，不写。版式变了也要重写（例如宽版挂上之后缩到窄版）。
@@ -126,6 +132,7 @@ model.watchSeen(() => props.context.visible.value && focused.value);
         <AgentMessages
             ref="messagesRef"
             v-model:list-collapsed="listCollapsed"
+            v-model:list-width="listWidth"
             v-model:drawer-open="drawerOpen"
             v-model:tab="tab"
             :layout="layout"

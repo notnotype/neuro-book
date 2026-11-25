@@ -120,12 +120,22 @@ test("宽版（conversation.md 输出 1–3、44）：右栏拖到 600 像素以
     await expect(rows.first()).toBeVisible();
     await rows.first().click();
     await expect(page.locator("[data-messages-chat] [data-agent-head]")).toBeVisible();
-    // 收起列表栏：左边换成头像列，按它的按钮展开。
+    // 拖列表栏右边的线：列表栏变宽。
+    const listWidth = () => page.locator("[data-messages-list-panel]").evaluate((element) => (element as HTMLElement).offsetWidth);
+    expect(await listWidth()).toBe(260);
+    const line = (await root.getByRole("separator").boundingBox())!;
+    await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(line.x + line.width / 2 + 40, line.y + line.height / 2, {steps: 6});
+    await page.mouse.up();
+    expect(Math.abs(await listWidth() - 300)).toBeLessThanOrEqual(1);
+    // 收起列表栏：左边换成头像列，按它的按钮展开；展开后还是拖出来的宽度（宿主记着）。
     await page.locator("[data-messages-collapse]").click();
     await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
     await expect(page.locator("[data-messages-strip]")).toBeVisible();
     await page.locator("[data-messages-toggle]").click();
     await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
+    await expect.poll(async () => Math.abs(await listWidth() - 300)).toBeLessThanOrEqual(1);
 });
 
 test("对话写在面板头上（conversation.md 输出 44）：窄版时头的三列在面板头里；按标题开列表抽屉，Esc 关掉回到标题；浮动窗里成了标签条时头回到内容里，对话不重建；回到只有一个标签时头又回到面板头", async ({page}) => {

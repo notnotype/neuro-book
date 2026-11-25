@@ -23,6 +23,12 @@ export default {
         copied: "Copied",
         failed: "Copy failed; select manually",
     },
+    dataTable: {
+        count: "{{from, number}}–{{to, number}} of {{total, number}}",
+        countTotal: "Total: {{total, number}}",
+        countUnknown: "—",
+        retry: "Retry",
+    },
     detailDialog: {
         copy: "Copy output",
         close: "Close",
@@ -91,6 +97,12 @@ export default {
     numberInput: {
         increase: "Increase",
         decrease: "Decrease",
+    },
+    pagination: {
+        prev: "Previous page",
+        next: "Next page",
+        nav: "Pagination",
+        page: "Page {{page}}",
     },
     searchSelect: {
         empty: "No matching options",
