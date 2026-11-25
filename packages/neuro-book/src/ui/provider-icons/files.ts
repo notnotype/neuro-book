@@ -1,5 +1,5 @@
 /**
- * 服务商图标的登记表（纯数据）：服务商 id（目录 id 或模板 id）→ `@lobehub/icons-static-svg`（MIT）的文件与画法。
+ * 服务商图标的登记表（纯数据）：服务商 id（模型目录或模板的 id，以及网页工具的搜索服务 id）→ `@lobehub/icons-static-svg`（MIT）的文件与画法。
  * `kind` 显式登记，不按文件名推：`mask` 是单色图、用文字色着色；`image` 是多色图、原样显示。`image` 的文件不能含 `currentColor`
  * 与黑色填充，作 `<img>` 加载时它们解析成黑色、暗色下看不见（`provider-icons.test.ts` 逐个检查，不合格的改选同名单色文件用 `mask`）。
  * 没有登记的服务商（含全部自定义的）画首字母块。品牌标志的商标归各厂商，只用于标识服务商。
@@ -61,6 +61,7 @@ export const PROVIDER_ICON_FILES: Readonly<Record<string, ProviderIconEntry>> = 
     "siliconflow": {file: "siliconcloud-color.svg", kind: "image"},
     "snowflake": {file: "snowflake-color.svg", kind: "image"},
     "stepfun": {file: "stepfun-color.svg", kind: "image"},
+    "tavily": {file: "tavily-color.svg", kind: "image"},
     "together": {file: "together-color.svg", kind: "image"},
     "venice": {file: "venice-color.svg", kind: "image"},
     "vercel-ai-gateway": {file: "vercel.svg", kind: "mask"},

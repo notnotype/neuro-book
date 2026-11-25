@@ -2,7 +2,6 @@
     "settings": {
         "provider": {
             "title": "Search service",
-            "description": "Which service agents use to search and read web pages.",
             "choices": {
                 "deepseek": {
                     "title": "DeepSeek"
@@ -13,12 +12,27 @@
             }
         },
         "deepseekBaseUrl": {
-            "title": "DeepSeek API Address",
-            "description": "Address prefix of the DeepSeek API used to search and read web pages. Usually left as is."
+            "title": "DeepSeek API Address"
         },
         "tavilyBaseUrl": {
-            "title": "Tavily API Address",
-            "description": "Address prefix of the Tavily API used to search and read web pages. Usually left as is."
+            "title": "Tavily API Address"
+        },
+        "resultCount": {
+            "title": "Default number of results"
+        },
+        "blockedSites": {
+            "title": "Blocked sites"
+        },
+        "tavilySearchDepth": {
+            "title": "Search depth",
+            "choices": {
+                "basic": {
+                    "title": "Standard · 1 credit"
+                },
+                "advanced": {
+                    "title": "Advanced · 2 credits"
+                }
+            }
         }
     },
     "settingsPages": {
@@ -37,15 +51,6 @@
     "readOnly": "Web tools are not running, so this page can't be changed right now.",
     "keysUnreadable": "The key file can't be read. Entering a key below replaces it.",
     "writeFailed": "{{reason}}. Please enter it again.",
-    "deepseek": {
-        "note": "This key is only used to search and read web pages, and is stored apart from the DeepSeek key in model settings. You can enter the same key here again."
-    },
-    "tavily": {
-        "note": "This key is only used to search and read web pages."
-    },
-    "provider": {
-        "noKey": "{{provider}} has no key yet"
-    },
     "key": {
         "label": "API key",
         "loading": "Loading",
@@ -53,13 +58,16 @@
         "empty": "Not entered yet",
         "clear": "Clear",
         "clearFor": "Clear the {{provider}} key",
-        "envUnsupported": "Environment variable references aren't supported here. Enter the key itself."
+        "envUnsupported": "Environment variable references aren't supported here. Enter the key itself.",
+        "missing": "Not entered",
+        "pendingUse": "Enter a key to start using it",
+        "deepseekTip": "Saved apart from the DeepSeek key in Providers and Models; you can enter the same key"
     },
     "check": {
         "action": "Check",
         "actionFor": "Check the {{provider}} key",
         "running": "Checking",
-        "cost": "Sends one search, billed per request.",
+        "cost": "Sends one search, may be billed",
         "passed": "Check passed ({{time}})",
         "failed": "Check failed: {{reason}}",
         "notRun": "Couldn't check: {{reason}}",
@@ -86,5 +94,31 @@
         "unavailable": "Web tools are not running",
         "unknown-outcome": "May not have been saved; the page shows the actual state",
         "other": "Failed ({{code}})"
+    },
+    "rules": {
+        "title": "Search rules",
+        "countInvalid": "Enter a whole number from {{min}} to {{max}}",
+        "blockedPlaceholder": "Type a domain and press Enter",
+        "blockedInvalid": "“{{value}}” isn't a domain"
+    },
+    "rail": {
+        "label": "Search services"
+    },
+    "use": {
+        "badge": "In use",
+        "action": "Use this",
+        "inUse": "{{name}} (in use)"
+    },
+    "status": {
+        "checkFailed": "Check failed",
+        "noKey": "No key yet"
+    },
+    "advanced": {
+        "title": "Advanced",
+        "summary": {
+            "deepseek": "API address",
+            "tavily": "API address, search depth"
+        },
+        "urlInvalid": "Must start with http:// or https://"
     }
 }

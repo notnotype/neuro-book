@@ -9,7 +9,6 @@ import {Type} from "typebox";
 import {defineSettings} from "nbook/shared/settings";
 
 import type {WebProviderId} from "./providers";
-import {webText} from "./text";
 
 /** “搜索与网页”页的分区 id（页面在浏览器入口交付）。 */
 export const SEARCH_SECTION = "nbook.web.search";
@@ -17,13 +16,22 @@ export const SEARCH_SECTION = "nbook.web.search";
 export const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const DEFAULT_TAVILY_BASE_URL = "https://api.tavily.com";
 
+/** 默认结果条数的范围（“输入与前置条件”的配置项表）。 */
+export const RESULT_COUNT_MIN = 1;
+export const RESULT_COUNT_MAX = 10;
+export const MAX_BLOCKED_SITES = 100;
+/**
+ * 屏蔽网站一项的写法：小写的域名（ASCII，国际化域名写成 punycode），至少两段，不带协议、端口与路径。设置页把输入归一化成这样
+ * 再写；设置文件里写错的项不合 schema，整项按无效处理（configuration.md 的校验）。
+ */
+export const SITE_PATTERN = "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$";
+
 export const webSettings = defineSettings("nbook.web", {
     provider: {
         // 带 `choices` 的项要字面量联合的 schema（从数组映射出来的联合推不出字面量），所以照 `WEB_PROVIDERS` 逐个写出；加服务时这里的
         // schema 与 choices 一起加。
         schema: Type.Union([Type.Literal("deepseek"), Type.Literal("tavily")]),
         default: "deepseek",
-        description: webText("settings.provider.description"),
         layers: ["user"],
         section: SEARCH_SECTION,
         choices: [{value: "deepseek"}, {value: "tavily"}] satisfies ReadonlyArray<{readonly value: WebProviderId}>,
@@ -31,15 +39,32 @@ export const webSettings = defineSettings("nbook.web", {
     deepseekBaseUrl: {
         schema: Type.String({minLength: 1}),
         default: DEFAULT_DEEPSEEK_BASE_URL,
-        description: webText("settings.deepseekBaseUrl.description"),
         layers: ["user"],
         section: SEARCH_SECTION,
     },
     tavilyBaseUrl: {
         schema: Type.String({minLength: 1}),
         default: DEFAULT_TAVILY_BASE_URL,
-        description: webText("settings.tavilyBaseUrl.description"),
         layers: ["user"],
         section: SEARCH_SECTION,
+    },
+    resultCount: {
+        schema: Type.Integer({minimum: RESULT_COUNT_MIN, maximum: RESULT_COUNT_MAX}),
+        default: 5,
+        layers: ["user"],
+        section: SEARCH_SECTION,
+    },
+    blockedSites: {
+        schema: Type.Array(Type.String({pattern: SITE_PATTERN}), {maxItems: MAX_BLOCKED_SITES}),
+        default: [],
+        layers: ["user"],
+        section: SEARCH_SECTION,
+    },
+    tavilySearchDepth: {
+        schema: Type.Union([Type.Literal("basic"), Type.Literal("advanced")]),
+        default: "basic",
+        layers: ["user"],
+        section: SEARCH_SECTION,
+        choices: [{value: "basic"}, {value: "advanced"}],
     },
 });

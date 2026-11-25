@@ -100,9 +100,10 @@ export function createTavilyProvider(baseUrl: () => string, options: HttpOptions
             const body = {
                 query: request.query.trim(),
                 max_results: request.count,
-                search_depth: "basic",
+                search_depth: request.depth ?? "basic",
                 include_published_date: true,
                 ...(sites.length === 0 ? {} : {include_domains: sites}),
+                ...(request.excludeSites === undefined || request.excludeSites.length === 0 ? {} : {exclude_domains: request.excludeSites}),
                 ...(request.after === undefined ? {} : {start_date: request.after}),
                 ...(request.before === undefined ? {} : {end_date: request.before}),
             };

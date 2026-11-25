@@ -20,7 +20,7 @@ const keywords = [webText("keywords.online"), webText("keywords.web"), webText("
 
 // 标题省略：登记处补成约定键 `settingsPages.<本地 id>.title`（本地 id 是去掉插件 id 前缀的 `search`）。
 // order 22：模型的两页（10、20）之后，Profile（25）之前。
-const SEARCH_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-globe", category: "ai", order: 22, layout: "column", layers: ["user"], description: webText("settingsPages.search.description"), keywords};
+const SEARCH_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-globe", category: "ai", order: 22, layout: "fill", layers: ["user"], description: webText("settingsPages.search.description"), keywords};
 
 export const webBrowserPlugin: PluginDefinition = {
     id: descriptor.id,

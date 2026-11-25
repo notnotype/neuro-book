@@ -17,7 +17,7 @@ import type {FakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 
 import type {KeyStoreFactory} from "./backend/plugin";
 import {MAX_KEY_LENGTH} from "./backend/settings-remote";
-import {ARCHIVE_LINE_LIMIT, BATCH_DEFAULT_COUNT, BATCH_MAX_COUNT, BATCH_SUMMARY_LIMIT, FETCH_DEADLINE_MS, FETCH_TEXT_LIMIT, HINT, MAX_COUNT, MAX_QUERIES, SEARCH_DEADLINE_MS, STRUCTURED_MARKDOWN_LIMIT, SUMMARY_LIMIT} from "./backend/tools";
+import {ARCHIVE_LINE_LIMIT, BATCH_MAX_COUNT, BATCH_SUMMARY_LIMIT, FETCH_DEADLINE_MS, FETCH_TEXT_LIMIT, HINT, MAX_COUNT, MAX_QUERIES, SEARCH_DEADLINE_MS, STRUCTURED_MARKDOWN_LIMIT, SUMMARY_LIMIT} from "./backend/tools";
 import {webSettings} from "./shared/settings";
 import {fakeDeepSeek, sampleHit} from "./testing/fake-deepseek";
 import {fakeTavily, TAVILY_UNAUTHORIZED} from "./testing/fake-tavily";
@@ -28,6 +28,8 @@ import {webWorld} from "./testing/world";
 import type {WebSettingsClient, WebWorld} from "./testing/world";
 
 const KEY = "sk-web-world-not-real-0123456789";
+/** 设置项 `nbook.web/resultCount` 的缺省值。 */
+const DEFAULT_RESULT_COUNT = 5;
 const TAVILY_KEY = "tvly-web-world-not-real-0123456789";
 
 let tmp = "";
@@ -201,9 +203,9 @@ describe("工具（输出 1 到 14）", () => {
         expect(deepseek.requests.at(-1)).toMatchObject({authorization: `Bearer ${KEY}`, body: {query: "黄金三章", count: 3}});
         // 日期与站点写在每条里（输出 2）。
         expect(found.text).toContain("日期：2026-08-02T16:00:00+00:00；站点：示例站");
-        // 不给条数时发 8（输入）。
+        // 不给条数时取设置项“默认结果条数”，缺省 5（输入）。
         await callTool(session, "web_search", {queries: ["缺省条数"]});
-        expect(deepseek.requests.at(-1)?.body).toEqual({query: "缺省条数", count: 8});
+        expect(deepseek.requests.at(-1)?.body).toEqual({query: "缺省条数", count: DEFAULT_RESULT_COUNT});
 
         ok(await client.clearKey({provider: "deepseek"}));
         expect(await callTool(session, "web_search", {queries: ["黄金三章"]})).toMatchObject({status: "error", code: "no-key"});
@@ -471,7 +473,7 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         expect(lines).toContain("查询 2：乙，没搜成：DeepSeek 不认这把密钥：检查设置窗口“搜索与网页”页的密钥。详情：bad key");
         expect(lines).toContain("查询 3：丙，3 条结果");
         expect(lines.indexOf("查询 3：丙，3 条结果")).toBeGreaterThan(lines.indexOf("查询 2：乙，没搜成：DeepSeek 不认这把密钥：检查设置窗口“搜索与网页”页的密钥。详情：bad key"));
-        expect(deepseek.requests.map((request) => request.body)).toEqual(expect.arrayContaining([{query: "甲", count: BATCH_DEFAULT_COUNT}, {query: "乙", count: BATCH_DEFAULT_COUNT}, {query: "丙", count: BATCH_DEFAULT_COUNT}]));
+        expect(deepseek.requests.map((request) => request.body)).toEqual(expect.arrayContaining([{query: "甲", count: DEFAULT_RESULT_COUNT}, {query: "乙", count: DEFAULT_RESULT_COUNT}, {query: "丙", count: DEFAULT_RESULT_COUNT}]));
         expect(deepseek.requests).toHaveLength(3);
         // 每条没搜成的查询记一条诊断（输出 14 的 web.provider-failed）。
         const failures = w.agent.settings.diagnostics("hub").query({}).records.filter((record) => record.event === "web.provider-failed");
@@ -564,5 +566,28 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         expect(read).toMatchObject({status: "error", code: "invalid-request"});
         expect(read.text).not.toContain(KEY);
         expect(deepseek.requests).toHaveLength(0);
+    });
+
+    it("搜索规则与 Tavily 的深度：默认结果条数、屏蔽网站（Tavily 给 exclude_domains，两家都在本地再筛）、搜索深度都按设置发（输入、输出 1、3）", async () => {
+        const w = await open({"nbook.web/resultCount": 3, "nbook.web/blockedSites": ["blocked.example"], "nbook.web/tavilySearchDepth": "advanced"});
+        const {remote, settings} = await w.window("w");
+        await setKey(remote);
+        ok(await remote.setKey({provider: "tavily", key: TAVILY_KEY}));
+        const session = await w.open();
+        deepseek.script("/v1/tools/search", {json: {results: [{...sampleHit(0), url: "https://blocked.example/a"}, {...sampleHit(1), url: "https://news.blocked.example/b"}, {...sampleHit(2), url: "https://notblocked.example/c"}]}});
+        const found = await callTool(session, "web_search", {queries: ["规则"]});
+        expect(deepseek.requests.at(-1)?.body).toEqual({query: "规则", count: 3});
+        expect(found.text.split("\n")[0]).toBe("来自 DeepSeek 搜索，1 条结果。");
+        expect(found.text).toContain("https://notblocked.example/c");
+        expect(found.text).not.toContain("blocked.example/a");
+
+        expect(await settings.update(webSettings.settings.provider, "tavily", {layer: "user"})).toMatchObject({ok: true});
+        tavily.script("/search", {json: {results: [{url: "https://blocked.example/x", title: "x", content: "x"}, {url: "https://ok.example/y", title: "y", content: "y"}]}});
+        const viaTavily = await callTool(session, "web_search", {queries: ["规则"]});
+        expect(tavily.requests.at(-1)?.body).toMatchObject({query: "规则", max_results: 3, search_depth: "advanced", exclude_domains: ["blocked.example"]});
+        expect(viaTavily.text.split("\n")[0]).toBe("来自 Tavily 搜索，1 条结果。");
+        // 检测不看屏蔽网站与深度（输出 19）。
+        ok(await remote.check({provider: "tavily"}));
+        expect(tavily.requests.at(-1)?.body).toEqual({query: "DeepSeek", max_results: 1, search_depth: "basic", include_published_date: true});
     });
 });

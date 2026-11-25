@@ -63,6 +63,9 @@ export function createWebBackendPlugin(keyStore: KeyStoreFactory): PluginDefinit
                     keys,
                     providers,
                     selected: () => settings.get(webSettings.settings.provider),
+                    resultCount: () => settings.get(webSettings.settings.resultCount),
+                    blockedSites: () => settings.get(webSettings.settings.blockedSites),
+                    searchDepth: () => settings.get(webSettings.settings.tavilySearchDepth),
                     clock,
                     record: (event: string, message: string, data: Readonly<Record<string, unknown>>) => record("warn", event, message, data),
                 });
