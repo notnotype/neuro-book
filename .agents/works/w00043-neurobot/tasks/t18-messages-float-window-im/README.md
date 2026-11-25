@@ -38,7 +38,16 @@ updated: 2026-11-25
   - Spec（planned）：`22101b06b`，[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 消息视图一段。
 - 第 3 条（浮动窗自绘头）：计划草稿 1 开发者已确认（决定 3）；设计审查（Sonnet）13 条，阻断 2、重要 8、建议 3，[报告](evidences/design-review-1.txt)、[处理](evidences/design-review-1-disposition.md)。按审查改成草稿 2（[`plan.md`](plan.md)），按钮画到窗口零件层、内容上移、拖动区由视图声明，三处取舍经评审板第 2 轮定了（决定 4），计划按它定稿。
 
+- **第 3 条已合入 master（`9036f72d7`）**（分支提交 `21915a5c7`、`8f77e3d99`、`955335994`、`8b0081bf1`，审查修正 `e6a75201a`、`74f09b38c`、`a74fefe06`，两次并 master `ae5697f74`、`f44a5b153`）：
+  - 工作台：视图声明 `VIEW_OWN_HEAD {band}`（与 `VIEW_HEAD` 一起读，不进 SDK）；只有一个标签的浮动窗、视图实例就绪时自绘：表面不画面板头、内容顶到窗口顶、圆上角，工作台在内容里盖一条高 band 的头（框架按钮在右上，悬停这块窗才显示；标题按钮透明，只在键盘聚焦时显示），经 `--workbench-own-head-inset-end` 告诉视图右边留多少。视图用 `data-window-drag` 标拖动区：按在区里、中间没有可交互元素时拖整个窗，右键空白开“移动到”。
+  - 消息视图：浮动时对话头、头像列顶行、列表的切换行同高 40（`MESSAGES_HEAD_BAND` 一处定义；nb-agent-ui 在 `windowDrag` 时缺省也是 40），都是拖动区；窄版抽屉从头下面开。
+  - 偏离计划：头不放窗口零件层，放在内容里（审查第 1 条：零件层里焦点、F6、当前面板都认不出它）；没有加 `WorkbenchSurface` 的 Lab 场景，改由产品 e2e 走真实外壳；浮出与停靠的飞行不跳在 e2e 里量不了（减弱动效），留给真实页面走查。顺带修了第 2 条的字号：标题式标签用的 `--text-base` 不存在，改成 `--text-sm`（13px，就是开发者此前看到的大小）。
+  - 实现审查：Sonnet 8 条（重要 3、建议 5），[报告](evidences/impl-review-2.txt)、[处理](evidences/impl-review-2-disposition.md)；接受取舍 1 条：窄版抽屉开着时浮出，Esc 后焦点到 body。
+  - 变异检查：拖动区的可交互判定、右边留位变量、单标签判据、圆上角、标题按钮只在键盘聚焦时显示，都有用例失败。最后一条第一版空过（鼠标浮出后焦点其实在 body），改成鼠标操作后由程序聚焦再断言。
+  - 验证：e2e `agent-conversation`、`workbench-float`、`workbench-views`、`bots-chat` 83 条全过（最后一处修正后 `agent-conversation` 26 条、`lab-agent-ui` 的“消息视图的分栏”5 条再跑全过）；`lab-agent-ui` 的 714、735 两条单独过，572（角色模型选择器）在 master `94907df91` 的对照 worktree 上同样失败，归原有。
+  - `lab-scenes`（临时滤掉 ThemeEditor 的原有 404 才跑得到版面比对）与同一 master 的对照逐条比：新场景多出“头像列顶上按钮的聚焦光晕被裁”（Lab 不给头高、按缺省 32 时按钮离列顶 2px），改成 `windowDrag` 时缺省 40 后消失；其余与 master 相同（切换行的光晕被裁是所有消息场景原有的）。
+  - 开发服务上的真实页面（不减弱动效，`--sample`）：浮出与回到停靠的飞行逐帧单调（13、20 帧，没有回跳），按对话头空白拖窗挪了 (-60, +30)，回到停靠后自绘头与拖动标记都去掉，控制台没有报错与警告。
+
 ## 下一步
 
-- 第 3 条：按定稿的计划实施（开工前已并 master，`bed74d514`）。
-- 第 3 条做完后一起核对 Spec 的 planned 标记并晋升。
+- 核对第 3 条 Spec 的 planned 标记并晋升（要开发者批准）。

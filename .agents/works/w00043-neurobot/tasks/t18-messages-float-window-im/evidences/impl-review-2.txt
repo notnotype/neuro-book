@@ -1,0 +1,110 @@
+# w00043 t18 第 3 条（浮动窗里内置视图自绘头）实现审查，提交范围 bed74d514..ae5697f74（只读，Sonnet）
+# 以下编号从 1 开始；上面是别的审查留下的旧内容，与本次无关。证据口径：「从代码推断」= 没在浏览器里复现；没跑 e2e。
+################################################################################
+
+## 发现 1 [重要] 正确性（焦点与面板归属）：自绘头的标题按钮与“回到停靠”在窗口零件层里，不属于任何焦点站，焦点落上去时表面记成“不在任何面板”
+
+位置：
+- packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue 第 513-518 行 `leafOf`，第 559-564 行（`@pointerover`、`@focusin`）
+- packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue `float-chrome` 里新加的 `WorkbenchPanelHead`
+- packages/nb-layout/src/vue/grid-focus.ts 第 40 行 `stopHolds`、第 84-88 行 `noteFocus`、第 94 行起 `moveGridFocus`
+
+现象：自绘头把标题按钮（`data-panel-tab`，F6、“焦点落到标题”、空格拿起的落点）和框架按钮画进 `.nb-grid-float-chrome`。这个元素是网格根的直接子元素，上面没有 `data-leaf` 或 `data-content-leaf`，所以 `leafOf(event.target)` 对它返回 null：
+1. `onFocusIn` 写 `focusedLeaf = null`，`focusedPanel` 变 null，表面发 `focus-panel(null)`；store 的 `focusPanel(null)` 只写 `focusedPanel`，不更新 `currentPanel`。结果：Tab 或 F6 到这块窗的标题按钮后，“当前面板”还是上一块面板，`panel-commands.ts:85、117、132` 里缺省取 `currentPanel` 的命令（没带 panelId 的快捷键与命令面板入口）会作用在错的面板上；`public-state.ts` 对外报的当前面板也是旧的。
+2. 外壳 `watch(doc …)`（WorkbenchShell.vue 约第 801 行）靠 `state.focusedPanel` 判断“焦点所在的面板消失了要恢复焦点”：焦点在标题按钮上时它是 null，这块窗被“移动到”收走、停靠回去时不触发恢复，焦点落到 body。
+3. nb-layout 的焦点站只含外框与内容，`moveGridFocus`（F6 在窗格间走）从标题按钮出发时 `findIndex` 得 -1，当成“从头开始”：从这块窗按 F6 不是走到下一块，而是回到第一块；`noteFocus` 也不记它，按 F6 回到这块窗时落不回标题按钮。
+4. 指针移到“回到停靠”上时 `pointerLeaf` 也成 null，`data-hover-actions-active` 被摘掉；靠 `:hover` 与 `:focus-within` 才没闪，属于碰巧。
+
+为什么是问题：旧画法里头在 `data-leaf` 外框里，上面几条都成立；移到零件层后这些“按元素找叶”的地方没有跟着改。计划的风险一节写了“落点几何、F6、焦点回到标题几处按 data-panel-head 找头”，核对到了 `data-panel-head`，漏了按 `data-leaf` 找叶的这一组。e2e 只测了聚焦后的 opacity 与空格拿起、菜单键，没有断言“当前面板”。
+
+如何核实：读代码即可；复现：浮出消息视图后 Tab 到标题按钮，读 `nbook` 公开状态里的当前面板，或先点别的面板再 F6 过来。
+
+建议改法：`leafOf` 与指针处理对 `[data-float-chrome]` 回退到 `data-float-chrome` 的值（`raiseIfFloat` 已经这么做）；nb-layout 的 `noteFocus`/`stopHolds` 要不要认零件层是单独的问题，至少工作台自己的“当前面板”要对。补一条断言：标题按钮聚焦后 `currentPanel` 是这块窗。
+
+## 发现 2 [重要] UI（鼠标操作后标题按钮会冒出来盖住头像列顶上的按钮）：标题按钮用 `:focus` 显示，而不是 `:focus-visible`
+
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue 约第 612-617 行 `.workbench-panel-head__own-handle:focus { opacity: 1; pointer-events: auto; }`；焦点被程序放上去的两条路：WorkbenchShell.vue `onHeadMounted`（约第 772 行）与 `closeMoveMenu`（约第 495-501 行）。
+
+现象（从代码推断，没在浏览器里复现）：开发者的决定是“键盘用的标题按钮聚焦才显示”，但它在两条鼠标路径上也会被程序聚焦：
+1. 用鼠标点停靠头上的“浮动”按钮：点击聚焦了那个按钮；浮出后停靠头被拆掉（`headless` 加入它），焦点回到 body，`onHeadMounted` 在自绘头挂上时找“同一个命令的按钮”找不到（自绘头里只有“回到停靠”），回退到 `titleIn(head)`，也就是标题按钮，`focus()` 放上去。
+2. 在自绘头空白处右键开“移动到”，按 Esc 或选完：`closeMoveMenu` 把焦点放回 `[data-panel-tab]`，同样是标题按钮。
+
+这时按钮 `opacity: 1; pointer-events: auto`，画在左上角 `top: 4px; left: 4px`、高 28px、宽 = 标签文字加 16px 内边距。窄版头像列只有 52px 宽，顶上那一行的切换按钮（居中、28px）整个被它盖住，而且它接指针：用户点切换按钮实际点到的是标题按钮（点它只是 activate，什么也不发生），要先点别处移走焦点。宽版则盖住列表切换行左边的“Bot/会话”标签。
+同一应用里的兄弟做法对照：nb-layout 的键盘移动把手 `.nb-float-move` 就是用 `:focus-visible` 显示（FloatWindowHandles.vue 第 235 行）。
+
+e2e 为什么没看到：agent-conversation.e2e.ts 在浮出后、点 `[data-messages-toggle]` 之前先 `document.activeElement.blur()`（为了测按钮淡出），恰好把这个焦点清掉；右键后 Esc 之后只断言菜单消失，没断言标题按钮的 opacity。
+
+建议改法：显示条件改 `:focus-visible`（Chrome 对鼠标点击之后的程序聚焦不匹配 `:focus-visible`，键盘 Tab、F6、空格拿起、菜单键之后匹配）；`pointer-events: auto` 同条件。补用例：鼠标点“浮动”之后标题按钮 opacity 为 0，切换按钮 `elementFromPoint` 取到的是自己。
+
+## 发现 3 [重要] 测试：计划验收映射里一半的用例没写，工作台自己的新逻辑只经过“消息视图”这一条产品 e2e；顺带删掉了两处现有断言
+
+位置：提交范围里的测试文件。新增的只有 packages/neuro-book/e2e/agent-conversation.e2e.ts 一条大用例、WorkbenchPanelHead.dom.test.ts 两条、view-instances.test.ts、registry.test.ts 各一条。
+
+对照 plan.md 的“验收映射”与“切片”，没有对应用例的：
+1. 浮出与停靠回去的飞行里内容不跳（逐帧 top 单调，`film`）：计划写了 `workbench-float.e2e.ts`，没写。这条恰是实现里“头的有无在提交时换”的核心承诺（`headless` 在提交那一帧同时变，内容 insetTop 在 0 与 32 之间跳），实现没有像并成一行那样在 `lastPresented.headless` 里记它，只能靠这条用例证明不跳。
+2. “回到停靠”点了真回到停靠（只测了 `elementFromPoint` 取得到，没点）；Tab 到“回到停靠”时显示；按“⋯”与收起按钮拖不动窗（只测了头像列切换按钮与“会话”标签）；按头像拖窗（只测了标题文字）。
+3. 窄版标题按钮 Enter 不开抽屉（决定 4 的第二条）：只测了空格与菜单键。
+4. 加载中、渲染出错时照常画面板头：只有实例层 `ownHeadOf` 的单测，外壳的 `ownHeadBands`、`setOwnHead`、`headOfPanel` 互斥一条也没有（计划写了 WorkbenchShell dom 测试）。
+5. `layout-present` 的 `headless` 单测、Lab 里 WorkbenchSurface 的自绘头浮动窗场景（计划切片 2）都没有；`windowDragRegion` 这个纯函数没有单测，可交互元素清单的每一类（label、summary、role、contenteditable、tabindex）都没覆盖。
+6. 所有 workbench-*.e2e 都排除 nbook.agent（NBOOK_EXCLUDE_PLUGINS），测试插件里没有声明 VIEW_OWN_HEAD 的视图，工作台的通用行为（发现 1、2 的路径）没有脱离消息视图的用例。
+
+被删的现有断言（agent-conversation.e2e.ts 原“对话写在面板头上”一条）：“浮动窗里成了标签条时头回到内容里，头像列顶上的按钮照样开列表抽屉”（`sessions` 可见、Esc 关）。头像列顶上那一行这次多包了一层 div（AgentMessages.vue `acv-messages__strip-head`），非自绘模式下它开抽屉是否照旧，现在没有任何用例看着。
+
+建议：补 1、2、3、4 的用例，把第 3 条里被删的“多标签窗里切换按钮开抽屉”放回新用例；给 test.sample-views 加一个声明 VIEW_OWN_HEAD 的视图，把工作台通用行为放在 workbench-float.e2e.ts 里测。
+
+## 发现 4 [建议] 结构：头高 40 写在三处互相独立的地方，Lab 场景用的又是缺省 32，看不出两栏是否等高
+
+位置：
+- packages/neuro-book/src/plugins/agent/web/plugin.ts 第 774 行 `[VIEW_OWN_HEAD]: {band: 40}`（工作台用它定盖层高度 `--own-head-band` 与落点那一条）
+- packages/neuro-book/src/plugins/agent/web/MessagesHost.vue `OWN_HEAD_BAND = 40`（给 nb-agent-ui 的 `--acv-head-height`）
+- packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue `.acv-messages-list__switch { height: 40px }`
+- packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/messages.scenes.ts 新增的三个 own-head 场景：注释写“头高是宿主经 CSS 变量给的，这里按缺省的 32”
+
+现象与问题：三处 40 靠注释约定相等（前两处的注释互相指，第三处没有人指）。任何一处改了，工作台盖层的高度、落点那一条、对话头、头像列顶行、列表切换行就不再对齐，而且没有测试会失败（e2e 只在 40 这个值上断言）。Lab 场景没有设 `--acv-head-height: 40px`，所以头像列顶行是 32 而列表切换行是 40，Lab 画面与真实宿主不一样，截图看不出“两栏第一行等高”这条决定。
+带来的第二个小问题：`ViewHead.ownHead` 只给布尔，视图拿不到工作台声明的 band，只能自己再写一个常量。
+
+建议改法：让 `ViewHead.ownHead` 带 band（例如 `Ref<{band: number} | null>`），MessagesHost 只读它；nb-agent-ui 的切换行高度改读 `--acv-head-height`（缺省 40）；Lab 场景的 frame 上显式写 `--acv-head-height: 40px`。改不动的话至少在 plugin.ts 与 AgentMessagesList.vue 的 40 旁边互相写明。
+
+## 发现 5 [建议] 前端规范：标题按钮的阴影用了不存在的 `--shadow-sm`，设计语言只有三档 `--elevation-*`
+
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue 约第 606 行 `box-shadow: var(--shadow-sm, none);`
+
+现象：nb-ui 的 tokens.css、theme.css 没有声明 `--shadow-sm`（只有 `--elevation-flat/raised/popover/menu/dialog`），design-language.md“阴影只有三档”也不认它。在没有 Tailwind 输出这个变量的页面上它解析为 none：聚焦时显示的标题按钮是 `--panel-surface` 底、无阴影，盖在同样是面板底色的内容上，只剩聚焦环区分；Tailwind 输出了就是另一个不受主题控制的值，亮暗两态、主题换肤下表现不同。
+建议：用 `--elevation-raised`（键帽、小标记那一档）或 `--elevation-popover` 里更合适的一档，并在亮暗两态下看一眼它盖在列表栏与聊天区上的样子。
+
+## 发现 6 [建议] 范围：`--text-base` 改 `--text-md` 同时改变了停靠与普通浮动窗里的标签字号，计划没写
+
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue 第 194 行；对照同文件第 155 行 `.acv-messages-list { font-size: var(--text-sm) }`，nb-ui/src/theme.css 第 22-23 行（sm 13px，md 14px）。
+
+现象：`--text-base` 确实不存在，旧规则是无效声明，标题式标签实际继承 `.acv-messages-list` 的 13px；改成 `--text-md` 之后所有模式（右栏、侧栏、非自绘的浮动窗）的“Bot/会话”标签都变成 14px，未读数、收起按钮所在行的拥挤程度也变了。这是对非自绘行为的改动，却混在“第 3 条自绘头”的提交里，plan.md 与任务记录都没有提到（grep text-base、text-md、字号均无）。
+建议：确认 14px 是想要的；是的话在提交说明与 AgentMessagesList.md 里写一句并看一眼 390 宽英文（“Sessions”加两位数未读）有没有挤到收起按钮；不是的话改成 `--text-sm` 保持现状。
+
+## 发现 7 [建议] 边界：窄版抽屉开着时头换成自绘（或换回），抽屉的“开启者”变成已拆掉的元素，Esc 关抽屉后焦点丢到 body
+
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessages.vue 第 133-136 行 `closeDrawer`（`opener ?? props.drawerAnchor ?? toggleEl()`）、第 156-160 行（打开时 `opener = props.drawerAnchor`）；packages/neuro-book/src/plugins/agent/web/MessagesHost.vue `drawerAnchor`、`titlePopup` 的 watch。
+
+现象（从代码推断）：停靠在右栏的窄版消息视图，点面板头标题开抽屉，`opener` 记成面板头的标题按钮；抽屉里焦点在搜索框。这时点面板头上的“浮动”（视图外的点击不关抽屉，`onPointerDown` 注释写明）：窗浮出、`ownHead` 变 true，面板头被拆掉，`drawerAnchor` 变 null，`titlePopup` 写成 null，但 `drawerOpen` 仍是 true、`opener` 仍指向已拆掉的按钮。之后：抽屉没有任何“标题”可以再开关它；Esc 只在焦点在抽屉里或开启者上时生效，焦点此时在 body；点击视图内抽屉外才会关，且 `closeDrawer(false)` 之外的关法都是 `opener.focus()` 对一个脱离文档的元素调用，没有回落到 `toggleEl()`。
+自绘到非自绘（浮动窗里拿走或放入第二个标签）方向同理：抽屉由头像列按钮开着时无事，由标题开着时才出问题。
+为什么只是建议：要先开抽屉、再点浮动，窗口里几乎碰不到；但计划与简报都点名问了“drawerAnchor 为 null 后焦点回到哪里”，答案是“回不到任何地方”。
+建议改法：`ownHead` 变化时若 `drawerOpen` 为 true 就关抽屉（MessagesHost 里 watch ownHead），或 `closeDrawer` 里判断 `opener.isConnected` 再回落到 `toggleEl()`。
+
+## 发现 8 [建议] 注释：layout-drag.ts 文件头的“拖动源”清单没有加上新的一类
+
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts 第 4 行（文件头注释的“拖动源”段）。
+
+现象：文件头逐类列了拖动源（标签、活动栏入口、浮动窗的头）与 `data-no-drag` 规则；本次新增的“视图自绘头里标 `data-window-drag` 的元素拖整个窗”只在 `fromElement` 与 `windowDragRegion` 处写了注释，文件头没提，读文件头的人会以为浮动窗整窗拖动只有面板头这一种来源。AGENTS.md“注释”一节要求把调用方要遵守的约束写在读者会先看到的地方。
+建议：文件头加一句，并写明 `data-window-drag` 与 `data-no-drag` 的先后（`sourceAt` 先看 `data-no-drag`，所以拖动区里套 `data-no-drag` 的元素不起拖）。
+
+## 未发现问题的方面（仔细检查后）
+
+1. 外壳 `ownHeadBands`（按已提交的 doc）与表面 `ownHeadFloats`（按画出来的 floats）的口径差：读完 `layout-doc-store.ts`（`renderedFloats` 来自 `livePreview ?? doc`）与 `layout-drag.ts` 的 `activate`，整窗拖动（source.kind === "panel"）明写“不走实时布局”，键盘拿起的是 tab 但按“键盘一律落点指示”也不预览；自绘头窗口唯一的标签没有别的途径变成预览里的停靠。所以浮出、停靠回去、拖动预览、撕下标签这几个过程里，我没找到两边不一致（外框和零件层都画了头，或都没画）的路径；撕下标签、往窗里加标签的预览按已提交文档判，同决定 4。这个结论依赖“整窗拖动不走实时布局”这一前提，将来改了要回头看。
+2. `headless` 里加 `ownHeadFloats` 对 `lastPresented.headless` 无副作用：后者只在 `merged.has(id)` 时写，自绘头的窗不写它；`!floatingPanels.has(id)` 的豁免保证离开、最大化过渡里不会把它当成“离开前并着”。
+3. `fromElement` 新分支：`[data-no-drag]` 在 `sourceAt` 里先判；`data-content-leaf` 与 `data-float` 在同一个内容元素上（NestedGrid.vue 第 610、614 行）；`windowDragRegion` 只在拖动区里往上查；标题按钮的 `data-float-chrome` 回退不会把多标签窗的标签误判成整窗（`tab !== undefined` 时仍要求 tabs.length === 1）；`geometryOf` 里 `[data-panel-head]` 同一面板同一时刻只有一份。
+4. `onOwnHeadContextMenu`：冒泡阶段、`defaultPrevented` 先判，视图自己的右键与 Teleport 出去的菜单不经过它；`openMoveMenu` 与标题按钮右键同一函数同一 movable 判断。
+5. `TitleActions` 渲染出的可点元素都是 `IconButton`（button）与 DropdownMenu 的触发按钮，`pointer-events` 规则没有漏掉不是 button 的可点元素。
+6. nb-agent-ui：非自绘时 `.acv-messages__strip-head` 只是多一层 flex 居中的包装，高度随内容；`--acv-head-height`、`--acv-head-inset-end` 都带缺省，`hostVars` 豁免与 nb-ui、test-support 里已有用法一致；窄版抽屉 `top` 只在 `--window-drag` 时变。
+7. `MessagesHost` 的 `titlePopup` watch 把 `ownHead` 列进依赖，写法正确；`claim` 与 `ownHead` 同一刻变时，外壳 `headOfPanel` 先看 `ownHeadBands`，面板头不会按旧 `claim` 画一帧接管。
+
+## 统计
+阻断 0，重要 3（1、2、3），建议 5（4、5、6、7、8）。未跑 e2e、未跑开发服务；实现 worktree HEAD 核对为 ae5697f74；WorkbenchPanelHead.dom.test.ts 12 条通过。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8
