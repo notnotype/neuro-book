@@ -54,12 +54,30 @@ const DB_UNAVAILABLE_LOG_INTERVAL_MS = 60_000;
  * 内容类型是 `application/json`（媒体类型本身精确比较，不分大小写，可带参数），且没有 `Content-Encoding` 或它是 `identity`
  * （协议的输入一节）。`text/plain;application/json` 的媒体类型是 `text/plain`，不收。不收压缩：Bun 不替请求体解压，
  * 收下来也读不成 JSON。
+ *
+ * `Content-Type` 只能有一个媒体类型：值里在引号之外出现逗号的不收。请求带了两个 `Content-Type` 头时，运行时把它们
+ * 合并成一个逗号分隔的值交上来，所以这一条同时挡住“重复的头”；只看第一个分号之前时，
+ * `application/json; charset=utf-8, text/plain` 会被收下。带引号的参数值里可以有逗号。
  */
 function acceptsReportBody(c: Context): boolean {
     const type = c.req.header("content-type");
-    if (type === undefined || type.split(";", 1)[0]!.trim().toLowerCase() !== "application/json") return false;
+    if (type === undefined || hasUnquotedComma(type) || type.split(";", 1)[0]!.trim().toLowerCase() !== "application/json") return false;
     const encoding = c.req.header("content-encoding");
     return encoding === undefined || encoding.trim().toLowerCase() === "identity";
+}
+
+/** 头的值里有没有在带引号的字符串之外的逗号。引号里的 `\` 转义下一个字符（RFC 9110 的 quoted-string）。 */
+function hasUnquotedComma(value: string): boolean {
+    let quoted = false;
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index];
+        if (quoted) {
+            if (char === "\\") index += 1;
+            else if (char === '"') quoted = false;
+        } else if (char === '"') quoted = true;
+        else if (char === ",") return true;
+    }
+    return false;
 }
 
 /**
@@ -149,6 +167,8 @@ export function createIngestApp(options: IngestOptions): Hono {
                 // 读不成 JSON 是请求方的错，按协议回 `field: null`；错误对象里是请求体的片段，不记不传。
                 return invalidReport(c, null);
             }
+            // 在读完请求体之后取时间：跨午夜的慢请求按读完的那一刻记入（协议输出 1，`site.telemetry-ingest` 输出 2）。
+            // 合同用例 C1 只在两次请求之间拨钟，护不住这一点，挪到读请求体之前用例照过。
             const nowMs = clock.now();
             const validated = validate(kind, body, serverDayAt(nowMs));
             if (!validated.ok) return invalidReport(c, validated.field);

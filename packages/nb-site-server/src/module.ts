@@ -55,8 +55,9 @@ export interface JobDefinition {
 }
 
 /**
- * 模块的定时任务都经这里登记，不自己 `setInterval`：入口在 `start()` 之后才开始调度，停止时在 `close()` 之前停掉并等
- * 正在跑的那一次（至多 2 秒，见 `ModuleInstance.close`）。只能在 `create()` 与 `start()` 里登记，调度开始之后再登记抛错。
+ * 模块的定时任务都经这里登记，不自己 `setInterval`：入口在 `start()` 之后才开始调度；停止时先不再开始新的运行，
+ * 调过 `close()` 之后再停掉计时并等正在跑的那一次（至多 2 秒，见 `ModuleInstance.close`）。只能在 `create()` 与 `start()`
+ * 里登记，调度开始之后再登记抛错。
  */
 export interface JobRegistry {
     register(job: JobDefinition): void;
@@ -109,9 +110,11 @@ export interface ModuleInstance {
     /** 开始监听、写出 `site.listening` 之后调用一次。抛错按 `start_failed` 收口。 */
     start?(): void;
     /**
-     * 停止时在 HTTP 排空、定时任务停下之后、关库之前调用；任何退出路径上，凡 `create()` 成功的实例都按创建的相反顺序
-     * 调用一次。每个模块的 `close()` 另有至多 2 秒（`site.operations` 输出 9），不占排空用的停止时限；超时或停止期间
-     * 又来一次信号时只记一行 `warn` 不再等，随后入口照样关库。
+     * 停止时在 HTTP 排空、入口不再开始新的任务运行之后调用；任何退出路径上，凡 `create()` 成功的实例都按创建的相反顺序
+     * 调用一次。调用时本模块的定时任务可能还有一次正在跑：入口在全部 `close()` 之后才停计时、等它（同样至多 2 秒），
+     * 再关库。所以要让长任务收手的模块在这里通知它、等它 settle（统计模块置“正在关闭”，任务在下一批之前停下）；
+     * 先等任务再 `close()` 的话，积压多的任务会跑满那 2 秒。每个模块的 `close()` 另有至多 2 秒（`site.operations` 输出 9），
+     * 不占排空用的停止时限；超时或停止期间又来一次信号时只记一行 `warn` 不再等，随后入口照样关库。
      */
     close?(): Promise<void>;
 }

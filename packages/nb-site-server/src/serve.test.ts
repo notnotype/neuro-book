@@ -288,7 +288,7 @@ describe("按主机分派与请求日志", () => {
 });
 
 describe("模块的生命周期", () => {
-    it("start() 与定时任务在监听之后才开始，停止时定时任务先停、再 close()、最后 site.stopped", async () => {
+    it("start() 与定时任务在监听之后才开始，停止时不再开始新的任务运行、再 close()、最后 site.stopped", async () => {
         const {site} = await startServing({root, env: env({NB_SITE_ALPHA_JOB_MS: "20"})});
         await site.waitForLog("job ran", (line) => line.event === "fixture.job_ran");
         site.signal("SIGTERM");
@@ -432,6 +432,18 @@ describe("停止", () => {
         expect(await site.waitForExit()).toBe(0);
         expect(site.logs().find((line) => line.event === "module.close_timeout")).toMatchObject({module: "alpha", forced: true});
         expect(events(site).at(-1)).toBe("site.stopped");
+    });
+
+    it("积压很多的任务正在跑时停止：先 close()，任务在下一批之前收手，不记 job.stop_timeout", async () => {
+        const {site} = await startServing({root, env: env({NB_SITE_ALPHA_BACKLOG: "1"})});
+        await site.waitForLog("backlog job started", (line) => line.event === "fixture.backlog_started");
+        site.signal("SIGTERM");
+        expect(await site.waitForExit()).toBe(0);
+        const order = events(site);
+        // 先等任务再 close() 时，这个任务要等到 close() 才停，等任务的 2 秒先用完、记一行 job.stop_timeout。
+        expect(order).not.toContain("job.stop_timeout");
+        expect(order.indexOf("fixture.closed")).toBeLessThan(order.indexOf("fixture.backlog_stopped"));
+        expect(order.indexOf("fixture.backlog_stopped")).toBeLessThan(order.indexOf("site.stopped"));
     });
 });
 

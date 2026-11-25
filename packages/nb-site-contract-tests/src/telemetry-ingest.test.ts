@@ -31,7 +31,7 @@ import {backupsDir, listBackups} from "./testing/backup";
 import {holdWriteLock} from "./testing/fault";
 import {dataFilesContaining} from "./testing/files";
 import {requestJson, useSiteSandbox, type LogLine, type SiteProcess} from "./testing/site";
-import {dailyReport, errorOwners, eventReport, heartbeatReport, newReportId, sendReport, SITE_HOST, TELEMETRY_HOST, usageSegment, type IngestResponse, type Report} from "./testing/telemetry";
+import {dailyReport, errorOwners, eventReport, heartbeatReport, newReportId, sendRawReport, sendReport, SITE_HOST, TELEMETRY_HOST, usageSegment, type IngestResponse, type Report} from "./testing/telemetry";
 
 const sandbox = useSiteSandbox("nb-site-contract-tests telemetry-ingest.test.ts");
 
@@ -47,6 +47,19 @@ const WINDOW_MS = 600_000;
 /** `ms` 那一刻的 UTC 日期，`YYYY-MM-DD`（协议输出 1 的 `serverDay`）。 */
 function utcDate(ms: number): string {
     return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** 第 `day` 天（UTC 1970-01-01 起的天数）是周几，周一记 0。1970-01-01 是周四。 */
+function weekdayOf(day: number): number {
+    return (day + 3) % 7;
+}
+
+/** 以第 `monday` 天开始的 ISO 周写成 `YYYY-Www`（协议的 `installWeek`）：按这一周的周四所在的年份算第几周。 */
+function isoWeekStarting(monday: number): string {
+    const thursday = new Date((monday + 3) * DAY_MS);
+    const year = thursday.getUTCFullYear();
+    const week = Math.floor((monday + 3 - Date.UTC(year, 0, 1) / DAY_MS) / 7) + 1;
+    return `${String(year)}-W${String(week).padStart(2, "0")}`;
 }
 
 /** 进程看到的当前时间：拨 1 毫秒，取它返回的 `now`。 */
@@ -113,6 +126,30 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         expect(outcome(again)).toEqual({status: 200, body: {serverDay: utcDate(now), duplicate: true, dropped: []}});
         // 重发的内容与第一次不同也按重发处理（输出 2）。
         expect(outcome(nextDay)).toEqual({status: 200, body: {serverDay: utcDate(now), duplicate: true, dropped: []}});
+    });
+
+    it("C2 跨 ISO 周的重发：周日记入一份带着下限那一周的上报，周一重发仍是重发、serverDay 是周日；周三新编号带同一周拒收（输出 2，字段表的 installWeek）", async () => {
+        // 拨到下一个周日的 18:00（UTC）。拨过的时间只往前走，所以从进程的当前时间往后找。
+        const now = await serverNow(site);
+        let sunday = Math.floor(now / DAY_MS);
+        while (weekdayOf(sunday) !== 6 || sunday * DAY_MS + 18 * 3_600_000 <= now) sunday += 1;
+        await site.advanceClock(sunday * DAY_MS + 18 * 3_600_000 - now);
+        // 周日往前两天是同一周的周五，下限是这一周往前 13 周。
+        const earliest = isoWeekStarting(sunday - 6 - 13 * 7);
+        const report = {...dailyReport(), installWeek: earliest};
+        const first = await sendReport(site.url, "daily", report);
+
+        // 12 小时后是周一，已经是新的一周；往前两天仍在上一周，下限不变。
+        await site.advanceClock(12 * 3_600_000);
+        const retried = await sendReport(site.url, "daily", report);
+
+        // 再过两天是周三，往前两天是周一：下限按新的一周算，这一周已不在范围里。
+        await site.advanceClock(2 * DAY_MS);
+        const fresh = await sendReport(site.url, "daily", {...report, reportId: newReportId()});
+
+        expect(outcome(first)).toEqual({status: 200, body: {serverDay: utcDate(sunday * DAY_MS), duplicate: false, dropped: []}});
+        expect(outcome(retried)).toEqual({status: 200, body: {serverDay: utcDate(sunday * DAY_MS), duplicate: true, dropped: []}});
+        expect(outcome(fresh)).toEqual(invalid("installWeek"));
     });
 
     it("C3 顶层与嵌套的不认识字段：200，dropped 写点分路径、数组里的不带下标且不重复（输出 3，验收 2）", async () => {
@@ -264,17 +301,38 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         expect(outcome(await sendReport(site.url, "daily", undefined, {body: over, headers: {"Content-Type": "text/plain"}}))).toEqual(invalid(null));
     });
 
-    it("C12 内容类型不是 application/json、或带压缩：400，field 为 null；带参数与大小写不同的 application/json、identity 编码照收（输入一节，输出 12）", async () => {
+    it("C12 内容类型不是 application/json、不止一个媒体类型、或带压缩：400，field 为 null；带参数（含带引号的）与大小写不同的 application/json、identity 编码照收（输入一节，输出 12）", async () => {
         const rejected = await Promise.all(
-            ([{"Content-Type": "text/plain"}, {"Content-Type": "text/plain;application/json"}, {"Content-Type": null}, {"Content-Encoding": "gzip"}] as Headers_[]).map(async (headers) => ({
+            (
+                [
+                    {"Content-Type": "text/plain"},
+                    {"Content-Type": "text/plain;application/json"},
+                    {"Content-Type": null},
+                    {"Content-Encoding": "gzip"},
+                    // 一个值里用逗号拼了两个类型，第一个带参数：只看第一个分号之前的话会被收下。
+                    {"Content-Type": "application/json; charset=utf-8, text/plain"},
+                ] as Headers_[]
+            ).map(async (headers) => ({
                 headers,
                 got: outcome(await sendReport(site.url, "daily", dailyReport(), {headers})),
             })),
         );
         for (const {headers, got} of rejected) expect({headers, got}).toEqual({headers, got: invalid(null)});
+        // 请求里有两个 Content-Type 头，第一个带参数。
+        const twoHeaders = await sendRawReport(site.url, "daily", dailyReport(), ["Content-Type: application/json; charset=utf-8", "Content-Type: text/plain"]);
+        expect(twoHeaders).toEqual(invalid(null));
 
         const accepted = await Promise.all(
-            ([{"Content-Type": "application/json; charset=utf-8"}, {"Content-Type": "Application/JSON"}, {"Content-Encoding": "identity"}] as Headers_[]).map(async (headers) => ({
+            (
+                [
+                    {"Content-Type": "application/json; charset=utf-8"},
+                    {"Content-Type": "Application/JSON"},
+                    {"Content-Encoding": "identity"},
+                    {"Content-Type": 'application/json; charset="utf-8"'},
+                    // 引号里的逗号是参数值的一部分，不是第二个媒体类型。
+                    {"Content-Type": 'application/json; note="a,b"'},
+                ] as Headers_[]
+            ).map(async (headers) => ({
                 headers,
                 status: (await sendReport(site.url, "daily", dailyReport(), {headers})).status,
             })),
@@ -345,17 +403,20 @@ describe("限流（协议输出 10，site.telemetry-ingest 输出 9）", () => {
         expect(limited.status).toBe(429);
     });
 
-    it("C12 内容类型或编码不对的请求不占额度：先发十个，额度照样是完整的", async () => {
+    it("C12 内容类型或编码不对的请求不占额度：先发十二个（含不止一个媒体类型的两种），额度照样是完整的", async () => {
         await toNextWindow(site);
+        const wrongRequests: (() => Promise<{readonly status: number}>)[] = [
+            () => sendReport(site.url, "daily", dailyReport(), {headers: {"Content-Type": "text/plain"}}),
+            () => sendReport(site.url, "daily", dailyReport(), {headers: {"Content-Encoding": "gzip"}}),
+            () => sendReport(site.url, "daily", dailyReport(), {headers: {"Content-Type": "application/json; charset=utf-8, text/plain"}}),
+            () => sendRawReport(site.url, "daily", dailyReport(), ["Content-Type: application/json; charset=utf-8", "Content-Type: text/plain"]),
+        ];
         const wrong: number[] = [];
-        for (let index = 0; index < 2 * LIMIT; index += 1) {
-            const headers: Headers_ = index % 2 === 0 ? {"Content-Type": "text/plain"} : {"Content-Encoding": "gzip"};
-            wrong.push((await sendReport(site.url, "daily", dailyReport(), {headers})).status);
-        }
+        for (let index = 0; index < 3 * wrongRequests.length; index += 1) wrong.push((await wrongRequests[index % wrongRequests.length]!()).status);
         const statuses: number[] = [];
         for (let index = 0; index < LIMIT; index += 1) statuses.push((await sendReport(site.url, ...oneOfEach(index))).status);
         const limited = await sendReport(site.url, "daily", dailyReport());
-        expect(wrong).toEqual(new Array<number>(2 * LIMIT).fill(400));
+        expect(wrong).toEqual(new Array<number>(3 * wrongRequests.length).fill(400));
         expect(statuses).toEqual([200, 204, 202, 200, 204]);
         expect(limited.status).toBe(429);
     });

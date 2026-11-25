@@ -43,11 +43,12 @@ export type EventResponse = DailyResponse;
 
 /**
  * 失败的响应体（协议输出 12）：`invalid_report` 总带 `field`，是出问题的字段（嵌套的写点分路径），请求体读不成 JSON 对象、
- * 或内容类型与编码不对时为 null；别的码只有 `code`。
+ * 或内容类型与编码不对时为 null；别的码只有 `code`。两个分支都不收多余的键：这是服务端回应的形状，
+ * 拿它核对替代实现时，多发一个 `field` 也要判成不合格。
  */
 export const IngestError = Type.Union([
-    Type.Object({code: Type.Literal("invalid_report"), field: Type.Union([Type.String(), Type.Null()])}),
-    Type.Object({code: Type.Union(INGEST_ERROR_CODES.filter((code) => code !== "invalid_report").map((code) => Type.Literal(code)))}),
+    Type.Object({code: Type.Literal("invalid_report"), field: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
+    Type.Object({code: Type.Union(INGEST_ERROR_CODES.filter((code) => code !== "invalid_report").map((code) => Type.Literal(code)))}, {additionalProperties: false}),
 ]);
 
 export type IngestError = Static<typeof IngestError>;

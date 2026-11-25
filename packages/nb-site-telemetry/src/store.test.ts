@@ -8,7 +8,7 @@ import {Database, SQLiteError} from "bun:sqlite";
 import {join} from "node:path";
 
 import {DAY_MS, formatIsoWeek, retentionCutoffDay, serverDayAt} from "./days";
-import {APP_VERSIONS_PER_PERIOD, createTelemetryStore, isDbUnavailable, OVERFLOW_APP_VERSION} from "./store";
+import {createTelemetryStore, isDbUnavailable} from "./store";
 import {createTestDbRoot, type TestDbRoot} from "./testing/db";
 import {validateReport, type DailyRecord, type EventRecord, type HeartbeatRecord} from "./validate";
 
@@ -192,13 +192,17 @@ describe("心跳（输出 4、11）", () => {
     it("一段里第 65 个不同的应用版本记成 other，已经在的版本照记自己", () => {
         const db = root.open();
         const store = createTelemetryStore(db);
-        for (let i = 0; i < APP_VERSIONS_PER_PERIOD; i += 1) store.recordHeartbeat(heartbeatRecord(`1.0.${i}`), NOW);
+        // 上限 64 照 `site.telemetry-ingest` 写字面值，不从实现导入：实现的常量改了，这条要失败。
+        for (let i = 0; i < 64; i += 1) store.recordHeartbeat(heartbeatRecord(`1.0.${i}`), NOW);
+        const beatsOf = (version: string) => db.query<{beats: number}, [string]>("SELECT beats FROM telemetry_heartbeat WHERE app_version = ?").get(version)?.beats ?? 0;
+        expect(beatsOf("other")).toBe(0);
         store.recordHeartbeat(heartbeatRecord("2.0.0"), NOW);
+        expect(beatsOf("other")).toBe(1);
         store.recordHeartbeat(heartbeatRecord("2.0.1"), NOW);
         store.recordHeartbeat(heartbeatRecord("1.0.7"), NOW);
         const rows = db.query<{app_version: string; beats: number}, []>("SELECT app_version, beats FROM telemetry_heartbeat").all();
-        expect(rows.length).toBe(APP_VERSIONS_PER_PERIOD + 1);
-        expect(rows.find((row) => row.app_version === OVERFLOW_APP_VERSION)?.beats).toBe(2);
+        expect(rows.length).toBe(65);
+        expect(beatsOf("other")).toBe(2);
         expect(rows.find((row) => row.app_version === "1.0.7")?.beats).toBe(2);
         expect(rows.some((row) => row.app_version.startsWith("2.0."))).toBe(false);
         // 下一段重新数。

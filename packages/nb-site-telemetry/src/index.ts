@@ -55,9 +55,8 @@ export interface TelemetryModule {
     /** 写入口主机上的子应用：三个写入口，入口把它挂在 `TELEMETRY_INGEST_PREFIX` 下。 */
     readonly ingest: Hono;
     /**
-     * 停止时由入口在定时任务停下之后、关库之前调用（`ModuleInstance.close`）：置“正在关闭”标志，正在跑的任务在下一批之前
-     * 收手，等它们 settle。入口先等调度器停下（至多 2 秒）才调这里，积压很多时任务会一直跑到那 2 秒用完，
-     * 入口记一行超时的 warn，再到这里收手。
+     * 停止时由入口在不再开始新的任务运行之后、等调度器停下之前调用（`ModuleInstance.close`）：置“正在关闭”标志，正在跑的
+     * 任务在下一批之前收手，等它们 settle。积压很多时任务也只再做完手上这一批，入口随后等调度器时它已经停了。
      */
     close(): Promise<void>;
 }
