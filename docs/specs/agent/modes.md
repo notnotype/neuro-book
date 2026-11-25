@@ -23,7 +23,8 @@ owners:
 
 - **闸门**：`discuss`、`plan` 下拦截写调用的那一步，位置见 [`agent/permissions.md`](permissions.md) 输出 1。
 - **草稿**：当前会话目录（`session://`）与临时目录（`tmp://`）。写它们不算写。
-- 主 Profile 装模式扩展 `nbook.agent.modes`；没装的 Profile 没有模式，界面不显示，闸门不起作用。
+- 模式扩展 `nbook.agent.modes` 是按需扩展（[`agent/contributions.md`](contributions.md) 输出 26）：Profile 声明里按 id 引用它才有模式，它的提醒 `nbook.agent.mode-reminder` 跟着装上。主创、临时子代理与伴聊 bot 的岗位 Profile 都引用它；没引用的 Profile 没有模式，界面不显示，闸门不起作用。
+- 有模式与 Agent 能不能主动切是两件事：引用了模式扩展、工具里没有 `switch_mode` 的 Profile，用户照样能切模式，只是 Agent 不能主动申请。
 
 ## 输入与前置条件
 
@@ -65,7 +66,7 @@ owners:
 12. `/plan`：切到 `plan`，已在 `plan` 不动；带文字时切完把文字发出去。`/mode <名>`：只管 Agent 模式，接 key 与显示名，不接审批模式；没参数切下一种；名字不对提示可选项。
 13. 状态栏不另标模式：非 `normal` 只看工具栏的模式控件（输出 11）。
 
-14. 子会话的模式：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许装了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
+14. 子会话的模式：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许引用了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；引用了、建好的子会话装配里却没有它时（提供方此刻不在），关掉（归档）这个子会话，同样得 `mode-unsupported`；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
 
 ## 状态与转换
 
@@ -89,7 +90,7 @@ owners:
 
 ## 边界与兼容
 
-没装模式扩展的 Profile 不受影响。`modes` 为空时视图不显示模式控件。
+没装模式扩展的 Profile 不受影响。`modes` 为空时视图不显示模式控件：界面按 Profile 目录里的 `referencedExtensions` 判断有没有模式（不看工具里有没有 `switch_mode`）；还没有会话时按要建的 Profile 判（隐式新建的是主创），草稿里选的模式在建好后提交，要建的 Profile 没有模式时丢掉。目录说有、会话的装配里却没有时（用户级 Profile 改了引用，会话还没重新装配），切换得 `unknown-extension`，输入框下写“这个会话没有 Agent 模式，切换不了”。
 
 ## 验收与 Smoke
 
