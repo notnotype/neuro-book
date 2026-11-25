@@ -4,6 +4,7 @@
  * 路由也还没有，读会话经 `authorize`（中间件里不碰 Hono 的那一半）。
  */
 
+import {SQLiteError} from "bun:sqlite";
 import {afterEach, describe, expect, it} from "bun:test";
 
 import {libDate} from "./db/library-rows";
@@ -120,6 +121,16 @@ describe("问身份不写库", () => {
             release();
         }
         expect(await identity.sessionRow(expired.sessionId)).not.toBeNull();
+    });
+
+    it("不查同意记录：同意表读不出时，已登录的 whoami 照常回答（要会话的接口这时读不了会话）", async () => {
+        const {identity, userId, cookie} = await setup("identity-session-whoami-no-consent");
+        // 在另一条连接上把同意表改名：之后按原名查它的语句都失败，库自己的表不受影响。
+        const other = identity.root.openOther();
+        other.exec("ALTER TABLE identity_consent RENAME TO identity_consent_unreadable");
+        expect(await whoami(identity, cookie)).toEqual({status: 200, body: {state: "authenticated", user: {id: userId, username: "alice", role: "user"}}, setCookies: []});
+        // 对照：查同意的那条路径确实读不了，上面的回答不是因为同意表照样能读。
+        await expect(authorize(identity.assembly.sessions, cookie, "GET /me", "user")).rejects.toBeInstanceOf(SQLiteError);
     });
 
     it("账号库不可读时回 503 unavailable 的 ErrorBody（库把读错包成 APIError，原错误在 cause 里）", async () => {

@@ -8,13 +8,14 @@
 
 import type {Database} from "bun:sqlite";
 import {SQLiteError} from "bun:sqlite";
+import {runWithTransaction} from "@better-auth/core/context";
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createTestDbRoot, type TestDbRoot} from "../testing/db";
 import {createTestAuth, ManualTimers, recordingLog} from "../testing/library";
-import {IdentityConnection, IdentityDbUnavailableError, IdentityQueueMisuseError, isDbUnavailable, isQueueMisuse} from "./connection";
+import {IdentityConnection, IdentityDbUnavailableError, IdentityQueueMisuseError, isDbUnavailable, isQueueMisuse, type IdentityTx} from "./connection";
 
 let root: TestDbRoot;
 let timers: ManualTimers;
@@ -47,8 +48,8 @@ const libWrite = (identifier: string) =>
     lib.internalAdapter.createVerificationValue({identifier, value: "v", expiresAt: new Date(Date.UTC(2100, 0, 1))});
 
 /** 模块自己的一句写，写进同一张表，用来看它落在哪个事务里。 */
-const moduleInsert = (identifier: string) => (db: Database) =>
-    db.run(`INSERT INTO verification (identifier, value, "expiresAt", "createdAt", "updatedAt") VALUES (?, 'v', '2100-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`, [identifier]);
+const moduleInsert = (identifier: string) => (tx: IdentityTx) =>
+    tx.query(`INSERT INTO verification (identifier, value, "expiresAt", "createdAt", "updatedAt") VALUES (?, 'v', '2100-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run(identifier);
 
 /** 另开一条连接直接读，不经队列：看提交了的结果。 */
 function committedIdentifiers(): string[] {
@@ -140,7 +141,7 @@ describe("用错了的立即失败，不挂起、不写入", () => {
         });
         const outcome = await settle(tx);
         expect(isQueueMisuse(failure(outcome))).toBe(true);
-        expect(await conn.read((db) => db.query("SELECT count(*) AS n FROM verification").get())).toEqual({n: 0});
+        expect(await conn.read((tx) => tx.query("SELECT count(*) AS n FROM verification").get())).toEqual({n: 0});
     });
 
     it("事务里用 setTimeout 派生的 write 在事务结束之后执行时抛错、不写入", async () => {
@@ -188,16 +189,89 @@ describe("用错了的立即失败，不挂起、不写入", () => {
         expect(committedIdentifiers()).toEqual(["second"]);
     });
 
-    it("read、write 的回调返回 thenable 时回滚并抛程序错误", async () => {
+    it("回调写成 async：await 之前的写回滚，之后的写抛错、不落库；它的 reject 被接住记一行，进程里没有未处理的 reject", async () => {
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on("unhandledRejection", onUnhandled);
+        try {
+            let lateError: unknown;
+            const outcome = await settle(
+                conn.write(async (tx) => {
+                    moduleInsert("before-await")(tx);
+                    await null;
+                    try {
+                        moduleInsert("after-await")(tx);
+                    } catch (error) {
+                        lateError = error;
+                        throw error;
+                    }
+                }),
+            );
+            expect(failure(outcome)).toBeInstanceOf(IdentityQueueMisuseError);
+            expect(isDbUnavailable(failure(outcome))).toBe(false);
+            await waitUntil("await 之后的那句写执行过", () => lateError !== undefined);
+            expect(lateError).toBeInstanceOf(IdentityQueueMisuseError);
+            await waitUntil("回调的 reject 被接住并记下", () => log.lines.some((line) => line.event === "identity.async_callback_rejected"));
+            expect(log.lines.filter((line) => line.event === "identity.async_callback_rejected")).toEqual([
+                {level: "error", event: "identity.async_callback_rejected", fields: {errorType: "IdentityQueueMisuseError"}},
+            ]);
+            expect(committedIdentifiers()).toEqual([]);
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off("unhandledRejection", onUnhandled);
+        }
+    });
+
+    it("回调里取出的语句在事务结束之后再用也抛程序错误", async () => {
+        let leaked!: ReturnType<IdentityTx["query"]>;
+        await conn.write((tx) => {
+            leaked = tx.query(`INSERT INTO verification (identifier, value, "expiresAt", "createdAt", "updatedAt") VALUES ('leaked', 'v', '2100-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`);
+        });
+        expect(() => leaked.run()).toThrow(IdentityQueueMisuseError);
+        expect(committedIdentifiers()).toEqual([]);
+    });
+
+    // 判 thenable 按有没有 `then` 方法，不按是不是 Promise：不是 Promise 的 thenable 也一样拒绝。这里的 `then` 永不调回调，
+    // 所以这种 thenable 不会 reject，也就没有要接的。
+    it("回调返回不是 Promise 的 thenable 时同样回滚并抛程序错误", async () => {
         const outcome = await settle(
-            conn.write((db) => {
-                moduleInsert("async")(db);
-                return Promise.resolve("written");
+            conn.read((tx) => {
+                tx.query("SELECT 1").get();
+                return {then: () => undefined};
             }),
         );
         expect(failure(outcome)).toBeInstanceOf(IdentityQueueMisuseError);
-        expect(isDbUnavailable(failure(outcome))).toBe(false);
-        expect(failure(await settle(conn.read(() => ({then: () => undefined}))))).toBeInstanceOf(IdentityQueueMisuseError);
+        expect(log.lines.filter((line) => line.event === "identity.async_callback_rejected")).toEqual([]);
+    });
+
+    it("库自己开的事务里（不经 withLibTransaction）调 read、write 当场得到程序错误，库的事务随之回滚", async () => {
+        for (const call of [() => conn.read((tx) => tx.query("SELECT 1").get()), () => conn.write(moduleInsert("module"))]) {
+            const outcome = await settle(
+                runWithTransaction(adapter, async () => {
+                    await libWrite("lib");
+                    return call();
+                }),
+            );
+            expect(isQueueMisuse(failure(outcome))).toBe(true);
+        }
+        expect(timers.pending).toBe(0);
+        expect(committedIdentifiers()).toEqual([]);
+    });
+
+    it("库自己开的事务里调 withLibTransaction 当场得到程序错误，不加入那个事务", async () => {
+        let callbackRan = false;
+        const outcome = await settle(
+            runWithTransaction(adapter, async () => {
+                await libWrite("lib");
+                return conn.withLibTransaction(adapter, async () => {
+                    callbackRan = true;
+                    await conn.write(moduleInsert("module"));
+                });
+            }),
+        );
+        expect(isQueueMisuse(failure(outcome))).toBe(true);
+        expect(callbackRan).toBe(false);
+        expect(timers.pending).toBe(0);
         expect(committedIdentifiers()).toEqual([]);
     });
 });
@@ -208,13 +282,13 @@ describe("别的连接持着写锁时", () => {
         const other = root.openOther();
         other.exec("BEGIN IMMEDIATE");
         try {
-            expect(await conn.read((db) => db.query("SELECT count(*) AS n FROM verification").get())).toEqual({n: 1});
+            expect(await conn.read((tx) => tx.query("SELECT count(*) AS n FROM verification").get())).toEqual({n: 1});
 
             let writeRan = false;
             const write = await settle(
-                conn.write((db) => {
+                conn.write((tx) => {
                     writeRan = true;
-                    moduleInsert("blocked")(db);
+                    moduleInsert("blocked")(tx);
                 }),
             );
             expect(isDbUnavailable(failure(write))).toBe(true);

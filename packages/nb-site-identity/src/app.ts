@@ -2,7 +2,7 @@
  * 账号的子应用：挂在 `IDENTITY_API_PREFIX` 下的自家路由（w00037 t07 计划 3.6；ADR 0063）。全部接口都是自家路由，库的
  * `auth.handler` 不挂在这里。
  *
- * 登记的先后就是请求经过的先后：来源头 → 请求体大小 → 各路由 → 最后一条兜底路由。兜底路由覆盖前缀本身与前缀下的任何路径与
+ * 登记的先后就是请求经过的先后：不缓存 → 来源头 → 请求体大小 → 各路由 → 最后一条兜底路由。兜底路由覆盖前缀本身与前缀下的任何路径与
  * 方法，回 404 `not_found` 的 `ErrorBody`：子应用经 `app.route` 挂进入口应用时它自己的 `notFound` 不跟着走，没有兜底时未知的路径
  * 会落到入口的 404（`{"code":…}` 的形状，与账号的错误形状不同；omp 设计审查第 8 条）。兜底之后再登记的路由会被它挡住，所以它
  * 必须最后登记。
@@ -30,6 +30,13 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     const {sessions, log} = options;
     const app = new Hono();
 
+    // 账号接口的回答随 Cookie 变（是谁、有哪些会话），一律不许缓存：反向代理或 CDN 的一条宽松规则就能把一个人的回答发给别人，
+    // 浏览器的前进后退缓存也会在登出后显示旧的身份（实现审查第 5 条）。放在第一个、在 `next()` 之后设：后面的中间件与路由抛出的
+    // 错误已由子应用的出错出口在各自那一层换成响应，这里拿到的 `c.res` 包括出错出口、请求体上限与兜底 404 回的响应。
+    app.use("*", async (c, next) => {
+        await next();
+        c.res.headers.set("Cache-Control", "no-store");
+    });
     app.use("*", requireSameOrigin(options.siteOrigin));
     app.use("*", bodySizeLimit);
 

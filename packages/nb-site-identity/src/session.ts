@@ -10,17 +10,16 @@
  *
  * 谁写库：
  * - `whoami`（`peek`）只读：不延长、不更新最后使用时间、遇到到期的行也不删（交给下一次正常请求或清理任务），所以账号库被
- *   进程外占着写时它照常回答（`site.accounts` 输出 7）。
+ *   进程外占着写时它照常回答（`site.accounts` 输出 7）。它也不查同意记录：同意门槛放行它，回答里用不到这一项（计划 3.5 的
+ *   `whoami` 只做第 1 到 3 步）；多查一次就多一次排队、多一个让它失败的地方（实现审查第 4 条）。
  * - 要会话的接口（`use`）：到期的行当场删；没到期时每天至多延长一次、每小时至多更新一次最后使用时间。这两样遇到库不可用时
  *   记一行 warn、照常放行（设计审查第 3 条）：本来只读的请求不因此失败。
  */
 
-import type {Database} from "bun:sqlite";
-
 import type {Role} from "@notnotype/nb-site-identity-contract";
 
 import type {IdentityAuth} from "./auth";
-import {isDbUnavailable, type IdentityConnection} from "./db/connection";
+import {isDbUnavailable, type IdentityConnection, type IdentityTx} from "./db/connection";
 import {libDate} from "./db/library-rows";
 import {failureAsResponse, failureFor} from "./errors";
 import type {IdentityLog} from "./index";
@@ -28,8 +27,8 @@ import type {IdentityLog} from "./index";
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-/** 读出的一个有效会话。id 都是整数（库读成字符串，这里转）。 */
-export interface CurrentSession {
+/** 读出的一个有效会话，不含同意（`peek` 的结果）。id 都是整数（库读成字符串，这里转）。 */
+export interface SessionIdentity {
     readonly sessionId: number;
     readonly token: string;
     readonly userId: number;
@@ -37,6 +36,10 @@ export interface CurrentSession {
     readonly role: Role;
     readonly expiresAtMs: number;
     readonly updatedAtMs: number;
+}
+
+/** 要会话的接口读出的有效会话（`use` 的结果）：另带同意门槛要的一项。 */
+export interface CurrentSession extends SessionIdentity {
     /** 同意记录不是当前条款版本，或没有对境外存放的同意（`site.accounts` 输出 10 的门槛）。 */
     readonly consentRequired: boolean;
 }
@@ -54,8 +57,8 @@ interface FoundSession {
 }
 
 /** 读会话的结果：`cookies` 是要随响应发出的 `Set-Cookie`（延长时的新 Cookie、到期时的清除）。 */
-export interface SessionRead {
-    readonly session: CurrentSession | null;
+export interface SessionRead<S extends SessionIdentity = CurrentSession> {
+    readonly session: S | null;
     readonly cookies: readonly string[];
 }
 
@@ -65,17 +68,17 @@ export interface SessionRead {
 // 返回删掉的行数。
 
 /** 结束一个会话。 */
-export function endSession(tx: Database, sessionId: number): number {
+export function endSession(tx: IdentityTx, sessionId: number): number {
     return tx.query(`DELETE FROM "session" WHERE "id" = ?`).run(sessionId).changes;
 }
 
 /** 结束一个账号除 `keepSessionId` 以外的全部会话（自己改密码时保留当前会话，`site.accounts` 输出 6）。 */
-export function endOtherSessions(tx: Database, userId: number, keepSessionId: number): number {
+export function endOtherSessions(tx: IdentityTx, userId: number, keepSessionId: number): number {
     return tx.query(`DELETE FROM "session" WHERE "userId" = ? AND "id" <> ?`).run(userId, keepSessionId).changes;
 }
 
 /** 结束一个账号的全部会话（封禁、改角色、管理员重置密码、结束全部会话）。 */
-export function endAllSessions(tx: Database, userId: number): number {
+export function endAllSessions(tx: IdentityTx, userId: number): number {
     return tx.query(`DELETE FROM "session" WHERE "userId" = ?`).run(userId).changes;
 }
 
@@ -83,7 +86,7 @@ export function endAllSessions(tx: Database, userId: number): number {
  * 清理到期的会话：`expiresAt` 不晚于 `nowMs`（与 `readSession` 的到期判断同一个边界）。时间列是库的 ISO 文本，长度与写法固定，
  * 按文字比较就是按时间比较。
  */
-export function purgeExpiredSessions(tx: Database, nowMs: number): number {
+export function purgeExpiredSessions(tx: IdentityTx, nowMs: number): number {
     return tx.query(`DELETE FROM "session" WHERE "expiresAt" <= ?`).run(libDate(nowMs)).changes;
 }
 
@@ -91,7 +94,7 @@ export function purgeExpiredSessions(tx: Database, nowMs: number): number {
  * 在写事务里复核一个会话还有效：行还在、令牌对得上、没到期。中间件读会话在写事务之前，排队期间它可能已被别的请求结束；
  * 普通用户的写接口在自己的写事务里先调它，不成立时按 `unauthenticated` 处理（设计审查第 5 条）。
  */
-export function isSessionLive(tx: Database, session: Pick<CurrentSession, "sessionId" | "token">, nowMs: number): boolean {
+export function isSessionLive(tx: IdentityTx, session: Pick<CurrentSession, "sessionId" | "token">, nowMs: number): boolean {
     const row = tx.query<{expiresAt: string}, [number, string]>(`SELECT "expiresAt" FROM "session" WHERE "id" = ? AND "token" = ?`).get(session.sessionId, session.token);
     return row !== null && row.expiresAt > libDate(nowMs);
 }
@@ -163,17 +166,21 @@ export class Sessions {
     }
 
     /**
-     * 读当前会话（计划 3.5 的四步）。`peek`：`whoami` 用，不写库。`use`：要会话的接口用，到期的行当场删、并带清除 Cookie。
-     * 延长与最后使用时间不在这里，见 `maintain`。
+     * 读当前会话（计划 3.5 的四步）。`peek`：`whoami` 用，只做前三步，不写库、不查同意。`use`：要会话的接口用，到期的行当场删、
+     * 并带清除 Cookie，另查同意。延长与最后使用时间不在这里，见 `maintain`。
      */
-    async read(cookie: string | null, mode: "peek" | "use"): Promise<SessionRead> {
+    async read(cookie: string | null, mode: "peek"): Promise<SessionRead<SessionIdentity>>;
+    async read(cookie: string | null, mode: "use"): Promise<SessionRead>;
+    async read(cookie: string | null, mode: "peek" | "use"): Promise<SessionRead<SessionIdentity>> {
         const found = await this.#find(cookie);
         if (found === null) return {session: null, cookies: []};
         if (found.expiresAtMs <= this.#clock.now()) return {session: null, cookies: mode === "use" ? await this.#expire(found) : []};
         // 封禁时会话已删光（`endAllSessions`），这里是兜底：导入的数据里可能有封禁账号残留的会话。
         if (found.banned) return {session: null, cookies: []};
-        const {banned: _banned, ...rest} = found;
-        return {session: {...rest, consentRequired: await this.#consentRequired(found.userId)}, cookies: []};
+        const {banned: _banned, ...identity} = found;
+        if (mode === "peek") return {session: identity, cookies: []};
+        const session: CurrentSession = {...identity, consentRequired: await this.#consentRequired(found.userId)};
+        return {session, cookies: []};
     }
 
     /** 到期的会话：删行（库不可用时留给清理任务），并清 Cookie。 */

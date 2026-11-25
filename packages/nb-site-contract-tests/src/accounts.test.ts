@@ -1,6 +1,7 @@
 /**
  * 账号接口的黑盒合同（docs/specs/site/accounts.md 输出 5、7、22，输入一节的来源头，失败表）：起真实的 `nb-site` 进程，只经 HTTP
- * 看它。响应的形状用合同包的 schema 核对（`Value.Check`）。
+ * 看它。响应的形状用合同包的 schema 核对（`Value.Check`）。另核对账号接口的响应都带 `Cache-Control: no-store`（w00037 t07
+ * 实现审查第 5 条）。
  *
  * 本文件测不到、在别处的（w00037 t07 第 3 片还没有对外的登录，造不出会话）：
  * - 已登录的 `whoami`、登出只结束当前会话、写锁下登出得 503 且会话仍可用：第 4 片有了登录后补进本文件；在那之前由账号包的
@@ -27,8 +28,11 @@ const SITE_HOST = new URL(SANDBOX_SITE_URL).host;
 /** 请求体的上限（`site.accounts` 输出 22）。 */
 const MAX_BODY_BYTES = 16 * 1024;
 
-/** 会话 Cookie 的名字：`__Secure-` 前缀是 Secure Cookie 的浏览器规则；名字本身是实现选的，这里只用它找清除的那一条。 */
-const SESSION_COOKIE = "__Secure-nbsite.session_token";
+/**
+ * 会话 Cookie 的名字是合同（`site.accounts` 输出 5）：版本之间不变，变了等于让所有人登出。`__Host-` 前缀是浏览器的规则：只收
+ * Secure、`Path=/`、不带 `Domain` 的，同一上级域名下的别的子域写不进同名的 Cookie。
+ */
+const SESSION_COOKIE = "__Host-nbsite.session_token";
 
 const validationFailed = {status: 400, body: {error: {code: "validation_failed", fields: []}}};
 
@@ -73,7 +77,7 @@ describe("不要会话的接口（输出 7、22）", () => {
         expect(response.body).toMatchObject({termsVersion: "2026-11-20", providers: {google: false, github: false}});
     });
 
-    it("没有会话时 logout 也成功：回 {}，并清会话 Cookie（HttpOnly、Secure、SameSite=Lax）", async () => {
+    it("没有会话时 logout 也成功：回 {}，并清会话 Cookie（HttpOnly、Secure、SameSite=Lax、Path=/、不带 Domain）", async () => {
         const jar = cookieJar();
         const response = await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), jar});
         expect(outcome(response)).toEqual({status: 200, body: {}});
@@ -84,7 +88,30 @@ describe("不要会话的接口（输出 7、22）", () => {
         expect(cleared?.attributes.has("httponly")).toBe(true);
         expect(cleared?.attributes.has("secure")).toBe(true);
         expect(cleared?.attributes.get("samesite")?.toLowerCase()).toBe("lax");
+        expect(cleared?.attributes.get("path")).toBe("/");
+        expect(cleared?.attributes.has("domain")).toBe(false);
         expect(jar.names()).toEqual([]);
+    });
+
+    it("响应都带 Cache-Control: no-store：成功、出错出口、请求体上限与兜底 404 都是", async () => {
+        const cases = [
+            ["GET whoami", await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from()})],
+            ["GET meta", await identityRequest(site.url, IDENTITY_PATHS.meta, {from: from()})],
+            ["POST logout", await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from()})],
+            ["validation_failed", await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), body: `{"a":1}`})],
+            ["body too large", await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), body: `{${" ".repeat(MAX_BODY_BYTES)}}`})],
+            ["forbidden_origin", await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), headers: {Origin: null}})],
+            ["not_found", await identityRequest(site.url, "/no-such-path", {from: from()})],
+        ] as const;
+        expect(cases.map(([name, response]) => ({name, status: response.status, cacheControl: response.headers.get("cache-control")}))).toEqual([
+            {name: "GET whoami", status: 200, cacheControl: "no-store"},
+            {name: "GET meta", status: 200, cacheControl: "no-store"},
+            {name: "POST logout", status: 200, cacheControl: "no-store"},
+            {name: "validation_failed", status: 400, cacheControl: "no-store"},
+            {name: "body too large", status: 400, cacheControl: "no-store"},
+            {name: "forbidden_origin", status: 403, cacheControl: "no-store"},
+            {name: "not_found", status: 404, cacheControl: "no-store"},
+        ]);
     });
 
     it("改状态的请求不带来源头、或来源头不是站点地址：forbidden_origin；只读的 GET 不要来源头", async () => {

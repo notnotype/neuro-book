@@ -11,7 +11,9 @@
  *   `SQLITE_BUSY`），回调里的查询都走这一个已取到的连接、不再取锁，`COMMIT` 或 `ROLLBACK` 之后 Kysely 才 `releaseConnection`。
  *   回调里的 `await` 期间锁一直被这个事务占着。
  * - 模块自己的读写只经 `read(fn)`（延迟事务）与 `write(fn)`（`BEGIN IMMEDIATE`）。`fn` 是同步函数：取锁、在一个事务里一次做完、
- *   提交、放锁，中间没有 `await`，别人插不进来。
+ *   提交、放锁，中间没有 `await`，别人插不进来。`fn` 拿到的是 `IdentityTx` 句柄，不是 `Database`：句柄只在这一次事务里有效，
+ *   事务结束（提交、回滚、抛错）之后再用就抛 `IdentityQueueMisuseError`，所以从回调里漏出去的活儿写不进别人的事务、也不会以
+ *   自动提交落库（实现审查第 1 条）。
  * - 排队的先来先得。等锁至多 `lockTimeoutMs`（缺省 10 秒）：超了这次访问以 `IdentityDbUnavailableError`（`queue_timeout`）失败并记
  *   一行 `identity.queue_timeout`，后面排着的不受影响。
  * - `close(waitMs)` 之后新的取锁一律以 `IdentityDbUnavailableError`（`closed`）失败，已在排队的也立即这样失败；当前持锁者照常做完，
@@ -29,7 +31,9 @@
  *    `queue_timeout` 失败（“等锁超时”的用例），不会死锁、不会把别人的写收进来。
  * 2. 不在事务的异步上下文里派生活儿（`setTimeout`、不等待的 Promise）：它们继承异步上下文。派生的活儿在事务结束之后、或在另一个
  *    事务开着时调 `read`、`write`，序号对不上，抛 `IdentityQueueMisuseError`、不写入（“事务里派生的 write”两条用例）；它经库
- *    访问时同样抛这个错误（下一条）。`read`、`write` 的 `fn` 返回 thenable 时（写成了 async）回滚并抛同一个错误。
+ *    访问时同样抛这个错误（下一条）。`read`、`write` 的 `fn` 返回 thenable 时（写成了 async）回滚并抛同一个错误：`await` 之前的
+ *    语句随事务回滚；`await` 之后的语句用的句柄已经失效，抛错、不执行。那个 thenable 之后多半 reject，这里给它接上处理、记一行
+ *    `identity.async_callback_rejected`，不让它成为没人接的 reject（入口把那当成致命错误停机）。
  * 3. 模块的其它代码不直接用 `ModuleContext.db`，只经本文件：`src/architecture.test.ts` 扫源码，只许本文件与模块入口出现它。
  * 另外，在自己的事务里又经方言来取连接（库里不取当前事务、直接用基础适配器的调用，已知 `internalAdapter.reserveVerificationValue`）
  * 必然等自己放锁、永远等不到。这种取法立即抛 `IdentityQueueMisuseError`，不挂起（“事务里经基础适配器取连接”的用例）。
@@ -37,7 +41,7 @@
  * 错误分类见 `isDbUnavailable`。
  */
 
-import {SQLiteError, type Database} from "bun:sqlite";
+import {SQLiteError, type Changes, type Database, type SQLQueryBindings, type Statement} from "bun:sqlite";
 import {AsyncLocalStorage} from "node:async_hooks";
 
 import type {BetterAuthOptions} from "@better-auth/core";
@@ -60,8 +64,9 @@ import type {IdentityLog} from "../index";
 export const DEFAULT_LOCK_TIMEOUT_MS = 10_000;
 
 /**
- * 这条连接被用错了：违反了文件头的约束 2，或在自己的事务里又来取连接。是程序错误，出口按 500 `internal` 处理；不是“库不可用”。
- * 抛出它时没有写入（`read`、`write` 的事务已回滚，取连接还没执行任何语句）。
+ * 这条连接被用错了：违反了文件头的约束 2，在自己的事务里又来取连接，或在事务结束之后还用 `IdentityTx` 句柄。是程序错误，出口按
+ * 500 `internal` 处理；不是“库不可用”。抛出它时这次调用没有写入（`read`、`write` 的事务已回滚，取连接还没执行任何语句，失效的
+ * 句柄不执行语句）。
  */
 export class IdentityQueueMisuseError extends Error {
     override readonly name = "IdentityQueueMisuseError";
@@ -122,8 +127,58 @@ const REAL_TIMERS: IdentityTimers = {
     clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+/** `IdentityTx.query` 给的语句；形状是 `bun:sqlite` 的 `Statement` 里本模块用到的三个方法，同样只在那一次事务里有效。 */
+export interface IdentityStatement<R, P extends SQLQueryBindings[]> {
+    get(...params: P): R | null;
+    all(...params: P): R[];
+    run(...params: P): Changes;
+}
+
+/**
+ * `read`、`write` 交给回调的句柄，代替原始的 `Database`。只在这一次事务里有效：事务结束之后，句柄与从它取出的语句一用就抛
+ * `IdentityQueueMisuseError`，不执行语句（文件头约束 2）。
+ */
+export interface IdentityTx {
+    query<R = unknown, P extends SQLQueryBindings[] = SQLQueryBindings[]>(sql: string): IdentityStatement<R, P>;
+}
+
+/** 一次事务的句柄；`#transact` 在事务结束时调 `end()`。 */
+class TxHandle implements IdentityTx {
+    #live = true;
+
+    constructor(private readonly db: Database) {}
+
+    end(): void {
+        this.#live = false;
+    }
+
+    query<R = unknown, P extends SQLQueryBindings[] = SQLQueryBindings[]>(sql: string): IdentityStatement<R, P> {
+        this.#check();
+        // `P` 已限定为数组，`query` 返回类型里的 `P extends any[] ? P : [P]` 就是 `P`；泛型里 TypeScript 化简不了这个条件类型。
+        const statement = this.db.query<R, P>(sql) as Statement<R, P>;
+        return {
+            get: (...params) => {
+                this.#check();
+                return statement.get(...params);
+            },
+            all: (...params) => {
+                this.#check();
+                return statement.all(...params);
+            },
+            run: (...params) => {
+                this.#check();
+                return statement.run(...params);
+            },
+        };
+    }
+
+    #check(): void {
+        if (!this.#live) throw new IdentityQueueMisuseError("a read or write handle was used after its transaction ended");
+    }
+}
+
 export interface IdentityConnectionOptions {
-    readonly log: Pick<IdentityLog, "warn">;
+    readonly log: Pick<IdentityLog, "warn" | "error">;
     /** 等锁的上限，毫秒；缺省 `DEFAULT_LOCK_TIMEOUT_MS`。 */
     readonly lockTimeoutMs?: number;
     readonly timers?: IdentityTimers;
@@ -240,7 +295,7 @@ class QueuedSqliteAdapter extends SqliteAdapter {
     }
 }
 
-const isThenable = (value: unknown): boolean =>
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
     (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as {then?: unknown}).then === "function";
 
 /**
@@ -248,6 +303,7 @@ const isThenable = (value: unknown): boolean =>
  */
 export class IdentityConnection {
     readonly #db: Database;
+    readonly #log: Pick<IdentityLog, "error">;
     readonly #queue: Queue;
     readonly #frames = new AsyncLocalStorage<Frame>();
     /** 方言开过的事务个数；`#activeTx` 是正开着的那一个的序号，没有时为 null。 */
@@ -257,6 +313,7 @@ export class IdentityConnection {
 
     constructor(db: Database, options: IdentityConnectionOptions) {
         this.#db = db;
+        this.#log = options.log;
         this.#queue = new Queue(options.timers ?? REAL_TIMERS, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS, options.log);
     }
 
@@ -264,12 +321,12 @@ export class IdentityConnection {
      * 只读：在一个延迟事务里执行 `fn`。延迟事务开始时不拿写锁，所以别的进程持着写锁时照常能读（设计审查第 3 条）；
      * `fn` 里若写了，写到那一句才去拿写锁，那时可能以 `SQLITE_BUSY` 失败，所以要写的用 `write`。
      */
-    read<T>(fn: (db: Database) => T): Promise<T> {
+    read<T>(fn: (tx: IdentityTx) => T): Promise<T> {
         return this.#run("read", fn);
     }
 
     /** 读写：在一个 `BEGIN IMMEDIATE` 事务里执行 `fn`；别的进程持着写锁时在开头以 `SQLITE_BUSY` 失败，`fn` 不执行。 */
-    write<T>(fn: (db: Database) => T): Promise<T> {
+    write<T>(fn: (tx: IdentityTx) => T): Promise<T> {
         return this.#run("write", fn);
     }
 
@@ -319,7 +376,7 @@ export class IdentityConnection {
         return frame.kind === "lib" && frame.seq === this.#activeTx && this.#db.inTransaction;
     }
 
-    async #run<T>(mode: "read" | "write", fn: (db: Database) => T): Promise<T> {
+    async #run<T>(mode: "read" | "write", fn: (tx: IdentityTx) => T): Promise<T> {
         // 先同步地判断：这之后的第一个 await 会让出，事务的状态可能就变了。
         const frame = this.#frames.getStore();
         if (frame !== undefined) {
@@ -339,16 +396,39 @@ export class IdentityConnection {
         }
     }
 
-    /** `nested`：已在库的事务里，`bun:sqlite` 用保存点。thenable 在事务里抛出，事务（或保存点）随之回滚。 */
-    #transact<T>(fn: (db: Database) => T, mode: "read" | "write" | "nested"): T {
+    /**
+     * `nested`：已在库的事务里，`bun:sqlite` 用保存点。thenable 在事务里抛出，事务（或保存点）随之回滚。句柄在 `finally` 里失效：
+     * 不论提交、回滚还是抛错，`fn` 返回之后它都不能再用。
+     */
+    #transact<T>(fn: (tx: IdentityTx) => T, mode: "read" | "write" | "nested"): T {
+        const handle = new TxHandle(this.#db);
         const transaction = this.#db.transaction(() => {
-            const result = fn(this.#db);
-            if (isThenable(result)) throw new IdentityQueueMisuseError("read and write callbacks must be synchronous; the callback returned a thenable");
+            const result = fn(handle);
+            if (isThenable(result)) {
+                this.#absorbLateRejection(result);
+                throw new IdentityQueueMisuseError("read and write callbacks must be synchronous; the callback returned a thenable");
+            }
             return result;
         });
-        if (mode === "write") return transaction.immediate();
-        if (mode === "read") return transaction.deferred();
-        return transaction();
+        try {
+            if (mode === "write") return transaction.immediate();
+            if (mode === "read") return transaction.deferred();
+            return transaction();
+        } finally {
+            handle.end();
+        }
+    }
+
+    /**
+     * 写成 async 的回调在 `await` 之后多半因句柄失效而 reject（也可能因为别的错误）。调用方拿到的是 `IdentityQueueMisuseError`，
+     * 不会再去等这个 thenable，所以由这里接住它、记一行程序错误，免得它成为没人接的 reject。resolve 时没有要做的。
+     */
+    #absorbLateRejection(thenable: PromiseLike<unknown>): void {
+        thenable.then(undefined, (error: unknown) => {
+            this.#log.error("identity.async_callback_rejected", "a read or write callback written as async rejected after its transaction ended", {
+                errorType: error instanceof Error ? error.name : typeof error,
+            });
+        });
     }
 
     #driver(): Driver {

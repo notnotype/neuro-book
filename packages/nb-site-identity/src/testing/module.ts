@@ -16,8 +16,8 @@ import {ManualClock, recordingLog, TEST_SECRET, TEST_SITE_URL} from "./library";
 
 export const TEST_TERMS_VERSION = "2026-11-20";
 
-/** 会话 Cookie 的名字（`useSecureCookies` 与 `cookiePrefix: "nbsite"` 下库给的）。 */
-export const SESSION_COOKIE = "__Secure-nbsite.session_token";
+/** 会话 Cookie 的名字（`site.accounts` 输出 5；`auth.ts` 的 `cookiePrefix: "__Host-nbsite"` 下库给的）。 */
+export const SESSION_COOKIE = "__Host-nbsite.session_token";
 
 export const TEST_CONFIG: IdentityConfig = {
     sessionSecret: TEST_SECRET,

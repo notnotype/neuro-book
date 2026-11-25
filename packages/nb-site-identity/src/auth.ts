@@ -110,9 +110,15 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
         advanced: {
             // 库插入时不带 id，由表的 AUTOINCREMENT 发号；库把 id 读成字符串，模块对外一律转成整数。
             database: {generateId: "serial"},
-            cookiePrefix: "nbsite",
-            // 恒为 Secure，与站点地址的协议无关（`site.accounts` 输出 5）。
-            useSecureCookies: true,
+            // 库的 Cookie 一律用 `__Host-` 前缀，会话 Cookie 因此叫 `__Host-nbsite.session_token`（`site.accounts` 输出 5）：浏览器
+            // 只收 Secure、`Path=/`、不带 `Domain` 的 `__Host-` Cookie，同一上级域名下的别的子域塞不进同名的 Cookie（`__Secure-` 挡
+            // 不住，实现审查第 3 条）。库 1.7.27 的名字是“`useSecureCookies` 给的 `__Secure-`（或空串）+ 前缀 + `.` + Cookie 名”，
+            // 没有给 `__Host-` 的开关，所以关掉 `useSecureCookies`、把 `__Host-` 写进前缀；Secure 改由 `defaultCookieAttributes`
+            // 给，恒为 Secure、与站点地址的协议无关。库给的属性缺省就是 `Path=/`、不带 `Domain`（没开 `crossSubDomainCookies`），
+            // better-call 写 `__Host-` 名字的 Cookie 时也会强制成这样。名字与属性由 `auth.test.ts` 的“发会话”用例核对。
+            cookiePrefix: "__Host-nbsite",
+            useSecureCookies: false,
+            defaultCookieAttributes: {secure: true},
             // 会话表不存来源地址（`site.accounts` 副作用一节）。
             ipAddress: {disableIpTracking: true},
         },

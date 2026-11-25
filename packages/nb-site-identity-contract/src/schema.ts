@@ -18,7 +18,13 @@ export function strictObject<Properties extends TProperties>(properties: Propert
     return Type.Object(properties, {...options, additionalProperties: false});
 }
 
-/** 取值是一组字符串之一。由运行时数组生成，免得枚举与它的常量各写一份。 */
-export function literalUnion<const Values extends readonly string[]>(values: Values): TUnion<TLiteral<Values[number]>[]> {
-    return Type.Union(values.map((value) => Type.Literal(value))) as TUnion<TLiteral<Values[number]>[]>;
+/** 一组字符串逐个换成字面量 schema，元组的长度与先后不变。 */
+type LiteralTuple<Values extends readonly string[]> = {-readonly [Index in keyof Values]: TLiteral<Values[Index]>};
+
+/**
+ * 取值是一组字符串之一。由运行时数组生成，免得枚举与它的常量各写一份。`values` 要是元组（`as const` 的常量）：TypeBox 按元组
+ * 逐项推 `Static`，交给它普通数组类型时推出 `never`（w00037 t07 第 3 片实现时发现，`contract.test.ts` 的类型断言兜底）。
+ */
+export function literalUnion<const Values extends readonly string[]>(values: Values): TUnion<LiteralTuple<Values>> {
+    return Type.Union(values.map((value) => Type.Literal(value))) as TUnion<LiteralTuple<Values>>;
 }

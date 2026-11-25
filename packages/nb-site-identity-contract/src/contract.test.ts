@@ -4,7 +4,7 @@
  */
 
 import {describe, expect, it} from "bun:test";
-import type {TSchema} from "typebox";
+import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
 
 import {
@@ -31,6 +31,7 @@ import {
     IDENTITY_FAILURE_CODES,
     IDENTITY_FAILURE_STATUS,
     IDENTITY_PATHS,
+    type IdentityFailureCode,
     IdentityItem,
     identityPath,
     IdParams,
@@ -60,10 +61,14 @@ import {
     RegisterRequest,
     RegisterResponse,
     ResetPasswordResponse,
+    type Role,
     RoleRequest,
+    RoleSchema,
     SessionItem,
     SessionListResponse,
     SOCIAL_ERROR_CODES,
+    type SocialProvider,
+    SocialProviderSchema,
     TermsVersion,
     USER_FILTERS,
     UserListQuery,
@@ -502,3 +507,28 @@ describe("路径（两份 Spec 输入与前置条件的接口表）", () => {
         for (const id of ["0", "01", "-1", "abc", "1.0"]) expect(check(IdParams, {id})).toBe(false);
     });
 });
+
+/** 两个类型完全相同时为 true（不把 `never`、`any` 当成相同）。 */
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+/**
+ * 用 `literalUnion` 写的枚举，`Static` 推出的正是那组字面量（编译期；`bun run typecheck` 检查，不在运行时执行）。交给 `literalUnion`
+ * 的不是元组时这里推出 `never`，下面的 `true` 赋不上去，类型检查失败（w00037 t07 第 3 片实现时发现的 `ErrorBody` 一支是 `never`）。
+ */
+export function staticTypeChecks(): void {
+    type FailureBody = Static<typeof ErrorBody>;
+    const checks: true[] = [
+        true satisfies Equal<FailureBody["error"]["code"], IdentityFailureCode>,
+        true satisfies Equal<Extract<FailureBody["error"], {code: "validation_failed"}>, {code: "validation_failed"; fields: string[]}>,
+        true satisfies Equal<Exclude<FailureBody["error"], {code: "validation_failed"}>, {code: Exclude<IdentityFailureCode, "validation_failed">}>,
+        true satisfies Equal<Static<typeof RoleSchema>, Role>,
+        true satisfies Equal<Static<typeof SocialProviderSchema>, SocialProvider>,
+        true satisfies Equal<NonNullable<UserListQuery["filter"]>, (typeof USER_FILTERS)[number]>,
+        true satisfies Equal<NonNullable<RegistrationCodeListQuery["filter"]>, (typeof REGISTRATION_CODE_FILTERS)[number]>,
+        true satisfies Equal<NonNullable<AuditListQuery["targetType"]>, (typeof AUDIT_TARGET_TYPES)[number]>,
+        true satisfies Equal<NonNullable<AuditListQuery["action"]>, (typeof AUDIT_ACTIONS)[number]>,
+        true satisfies Equal<AuditItem["action"], (typeof AUDIT_ACTIONS)[number]>,
+        true satisfies Equal<AuditItem["target"]["type"], (typeof AUDIT_TARGET_TYPES)[number]>,
+    ];
+    void checks;
+}

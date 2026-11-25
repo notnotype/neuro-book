@@ -9,13 +9,8 @@ import type {Static} from "typebox";
 
 import {literalUnion, strictObject} from "./schema";
 
-/**
- * 失败表里有 HTTP 状态的全部码：`site.accounts` 的加上 `site.admin` 另有的 `forbidden`、`self_forbidden`。
- * 社交与关联的几个（`provider_disabled`、`identity_taken`、`identity_exists`、`last_login_method`）由 t08 实现，
- * 现在就列着：前端的文案目录要遍历全部码。运行时数组：服务端、合同测试与前端按它穷尽。
- */
-export const IDENTITY_FAILURE_CODES = [
-    "validation_failed",
+/** 失败码里除 `validation_failed` 以外的（错误体里不带 `fields` 的那些），先后与 `IDENTITY_FAILURE_CODES` 相同。 */
+const CODES_WITHOUT_FIELDS = [
     "unauthenticated",
     "invalid_credentials",
     "account_banned",
@@ -39,6 +34,14 @@ export const IDENTITY_FAILURE_CODES = [
     "forbidden",
     "self_forbidden",
 ] as const;
+
+/**
+ * 失败表里有 HTTP 状态的全部码：`site.accounts` 的加上 `site.admin` 另有的 `forbidden`、`self_forbidden`。
+ * 社交与关联的几个（`provider_disabled`、`identity_taken`、`identity_exists`、`last_login_method`）由 t08 实现，
+ * 现在就列着：前端的文案目录要遍历全部码。运行时数组：服务端、合同测试与前端按它穷尽。拼成元组而不是从全集里
+ * `filter` 出不带 `fields` 的那些：`literalUnion` 要元组才推得出 `ErrorBody` 的静态类型。
+ */
+export const IDENTITY_FAILURE_CODES = ["validation_failed", ...CODES_WITHOUT_FIELDS] as const;
 
 export type IdentityFailureCode = (typeof IDENTITY_FAILURE_CODES)[number];
 
@@ -90,10 +93,6 @@ export type SocialErrorCode = (typeof SOCIAL_ERROR_CODES)[number];
 
 /** 落点页上带码的查询参数名（输出 23）。 */
 export const SOCIAL_ERROR_PARAM = "social_error";
-
-type CodeWithoutFields = Exclude<IdentityFailureCode, "validation_failed">;
-
-const CODES_WITHOUT_FIELDS = IDENTITY_FAILURE_CODES.filter((code): code is CodeWithoutFields => code !== "validation_failed");
 
 /**
  * 失败的响应体（`site.accounts` 输出 22）：只有 `error.code`；`validation_failed` 另带 `fields`，是不合规则的字段名，

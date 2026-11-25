@@ -17,7 +17,7 @@ import type {Static, TSchema} from "typebox";
 import type {Context} from "hono";
 import {bodyLimit} from "hono/body-limit";
 
-import {IDENTITY_FAILURE_STATUS, type IdentityFailureCode} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_FAILURE_STATUS, type ErrorBody, type IdentityFailureCode} from "@notnotype/nb-site-identity-contract";
 
 import {isDbUnavailable, isQueueMisuse} from "./db/connection";
 import type {IdentityLog} from "./index";
@@ -38,16 +38,10 @@ export class IdentityFailure extends Error {
     }
 }
 
-/**
- * 失败的响应体（形状是合同包的 `ErrorBody`）。不用 `Static<typeof ErrorBody>`：合同包里 `literalUnion` 收的是 `filter` 出来的数组、
- * 不是元组，推出的不带 `fields` 那一支的 `code` 是 `never`。运行时的 schema 不受影响，合同测试照样用它核对形状。
- */
-type FailureBody = {readonly error: {readonly code: "validation_failed"; readonly fields: string[]}} | {readonly error: {readonly code: Exclude<IdentityFailureCode, "validation_failed">}};
-
 /** 一个失败的状态、响应体与额外的响应头。 */
 export interface FailureResponse {
     readonly status: number;
-    readonly body: FailureBody;
+    readonly body: ErrorBody;
     readonly headers: Readonly<Record<string, string>>;
 }
 
@@ -56,7 +50,7 @@ function errorType(error: unknown): string {
 }
 
 export function failureResponse(code: IdentityFailureCode, fields: readonly string[] = [], retryAfterSeconds?: number): FailureResponse {
-    const body: FailureBody = code === "validation_failed" ? {error: {code, fields: [...fields]}} : {error: {code}};
+    const body: ErrorBody = code === "validation_failed" ? {error: {code, fields: [...fields]}} : {error: {code}};
     const headers: Record<string, string> = code === "rate_limited" && retryAfterSeconds !== undefined ? {"Retry-After": String(retryAfterSeconds)} : {};
     return {status: IDENTITY_FAILURE_STATUS[code], body, headers};
 }

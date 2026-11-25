@@ -4,10 +4,10 @@
  * 逐列一样，库读回来才不会出错：`library-rows.test.ts` 的存法契约用例（包说明 `AGENTS.md` 升级清单“存法”一行）把同一份账号
  * 分别经库与经这里写入，逐列比原始行，再经库读回。
  *
- * 这里的函数都在调用方的写事务里执行（`IdentityConnection.write` 的回调），参数 `tx` 就是那个回调拿到的连接。
+ * 这里的函数都在调用方的写事务里执行（`IdentityConnection.write` 的回调），参数 `tx` 就是那个回调拿到的句柄。
  */
 
-import type {Database} from "bun:sqlite";
+import type {IdentityTx} from "./connection";
 
 /** 库存时间的写法。 */
 export function libDate(ms: number): string {
@@ -38,7 +38,7 @@ export interface NewUserRow {
  * 插入一个账号，回它的 id。库的列照库建账号时写的：`emailVerified` 0、`image` 空、`banned` 0、`banReason` 与 `banExpires` 空
  * （`admin` 插件建账号时把 `banned` 写成 0、`role` 写成 `user`）。
  */
-export function insertUserRow(tx: Database, row: NewUserRow): number {
+export function insertUserRow(tx: IdentityTx, row: NewUserRow): number {
     const at = libDate(row.now);
     const result = tx
         .query(
@@ -52,7 +52,7 @@ export function insertUserRow(tx: Database, row: NewUserRow): number {
 /**
  * 插入账号的密码登录方式：库的写法是 `providerId = 'credential'`、`accountId` 是账号 id 的文字、`password` 是哈希，令牌列都空。
  */
-export function insertCredentialRow(tx: Database, row: {readonly userId: number; readonly passwordHash: string; readonly now: number}): number {
+export function insertCredentialRow(tx: IdentityTx, row: {readonly userId: number; readonly passwordHash: string; readonly now: number}): number {
     const at = libDate(row.now);
     const result = tx
         .query(
