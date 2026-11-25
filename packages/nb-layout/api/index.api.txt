@@ -58,7 +58,7 @@ declare const GRID_SNAPSHOT_VERSION = 2;
 declare const GRID_UNBOUNDED: number;
 
 ### experimental type Grid
-引用：GridBranchResize, GridBranchesResizeResult, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
+引用：GridBranchResize, GridBranchesResizeResult, GridCollapseOptions, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
 type Grid<T> = {
     root(): GridNode<T> | null;
     find(id: string): GridNode<T> | null;
@@ -67,7 +67,7 @@ type Grid<T> = {
     removeLeaf(id: string): GridResult;
     moveLeaf(id: string, parentId: string, index: number): GridResult;
     resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
-    setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
+    setCollapsed(id: string, collapsed: boolean, options?: GridCollapseOptions): GridCollapseResult;
     setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
@@ -132,6 +132,11 @@ type GridBranchesResizeResult = {
     readonly intents: Record<string, GridExtent>;
     readonly collapsed: Record<string, boolean>;
 } | GridFailure<GridFailureCode>;
+
+### experimental type GridCollapseOptions
+type GridCollapseOptions = {
+    readonly locked?: boolean;
+};
 
 ### experimental type GridCollapseResult
 引用：GridFailure, GridFailureCode, SashCollapseState
@@ -204,7 +209,7 @@ interface GridFailure<C extends string = string> extends GridIssue<C> {
 }
 
 ### experimental type GridFailureCode
-type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "wrong-sizing";
+type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "collapse-locked" | "wrong-sizing";
 
 ### experimental interface GridFloatInput
 引用：GridRect
@@ -579,6 +584,7 @@ type SashCollapsePolicy = {
     collapseThreshold: number;
     expandThreshold: number;
     toggleable?: boolean;
+    locked?: boolean;
 };
 
 ### experimental type SashCollapseState

@@ -18,6 +18,7 @@ import type {
     GridBranch,
     GridBranchResize,
     GridBranchesResizeResult,
+    GridCollapseOptions,
     GridCollapseResult,
     GridExtent,
     GridFailure,
@@ -36,6 +37,7 @@ import type {
     GridSizing,
     GridSnapshot,
     GridSplitInput,
+    SashCollapseState,
 } from "./grid-types";
 import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, type GridSashResolver} from "./grid-geometry";
@@ -77,10 +79,11 @@ export type Grid<T> = {
     resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
     /**
      * 收起或展开一块面板（Spec 输出 147、166）：只翻它的收起标记，尺寸意图不动，下一次 `layout()` 按分配规则重排，
-     * 和宿主改了自己的记录、重新建树相同；展开回到意图。分隔条上的 Enter 能翻时结果相同（输出 20）。
+     * 和宿主改了自己的记录、重新建树相同；展开回到意图。分隔条上的 Enter 能翻时结果相同（输出 20）。锁住的照常翻，
+     * `options.locked` 同时改锁，不给时锁不变（输出 168）。
      * 改的是活树：用 `useGridHost` 时经它的 `setCollapsed`，直接调的宿主之后要自己 `invalidate()`。
      */
-    setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
+    setCollapsed(id: string, collapsed: boolean, options?: GridCollapseOptions): GridCollapseResult;
     /**
      * 把一块保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`（Spec 输出 154）：夹进它自己展开时的约束，兄弟不动，不读布局。
      * 收起中的节点也一样只改意图，展开时回到它（输出 166）。改的是活树，规则同 `setCollapsed`。
@@ -324,6 +327,10 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
                 return gridFailure("not-collapsible", `${id} in branch ${branchId} has no collapse policy`, {id, branch: branchId});
             }
             if (child.collapse.collapsed !== value) {
+                // 锁住的只有宿主能翻（输出 168）：手势要翻它时整批不落账。没真要翻（标记已经是目标）的照常通过。
+                if (child.collapse.locked === true) {
+                    return gridFailure("collapse-locked", `${id} in branch ${branchId} is locked; only the host can collapse or expand it`, {id, branch: branchId});
+                }
                 child.collapse = {...child.collapse, collapsed: value};
                 collapsed[id] = value;
             }
@@ -448,7 +455,7 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
         return {ok: true, intents, collapsed};
     }
 
-    function setCollapsed(id: string, collapsed: boolean): GridCollapseResult {
+    function setCollapsed(id: string, collapsed: boolean, options: GridCollapseOptions = {}): GridCollapseResult {
         const hit = find(id);
         if (!hit) {
             return gridFailure("not-found", `Unknown node id: ${id}`, {id});
@@ -460,11 +467,19 @@ function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Gri
         if (node.collapse === undefined) {
             return gridFailure("not-collapsible", `${id} in branch ${hit.parent.id} has no collapse policy`, {id, branch: hit.parent.id});
         }
-        if (node.collapse.collapsed === collapsed) {
+        const locked = options.locked ?? node.collapse.locked === true;
+        if (node.collapse.collapsed === collapsed && (node.collapse.locked === true) === locked) {
             return {ok: true, changed: false, collapse: {...node.collapse}};
         }
         // 只翻标记、不动意图：下一次布局按分配规则重排（输出 147），按比例分的兄弟吸收，保留像素的不变，总量自然守恒；展开回到意图（输出 166）。
-        node.collapse = {...node.collapse, collapsed};
+        // 锁只存 `locked: true`，解锁时去掉这个键，和 `normCollapse` 归一的形状一致。
+        const next: SashCollapseState = {...node.collapse, collapsed};
+        if (locked) {
+            next.locked = true;
+        } else {
+            delete next.locked;
+        }
+        node.collapse = next;
         return {ok: true, changed: true, collapse: {...node.collapse}};
     }
 

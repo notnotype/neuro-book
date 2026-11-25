@@ -1798,7 +1798,7 @@ function codeOf(result: {ok: boolean; code?: string; message?: string; params?: 
 
 /** 三层失败码的全集：新增码不列进来时下面的类型检查不过。 */
 const FAILURE_CODES = [
-    "not-found", "wrong-node-kind", "wrong-axis", "not-finite", "invalid-argument", "limit-exceeded", "duplicate-id", "into-own-subtree", "not-conserved", "stale-baseline", "not-collapsible", "wrong-sizing",
+    "not-found", "wrong-node-kind", "wrong-axis", "not-finite", "invalid-argument", "limit-exceeded", "duplicate-id", "into-own-subtree", "not-conserved", "stale-baseline", "not-collapsible", "collapse-locked", "wrong-sizing",
     "invalid-snapshot", "unsupported-version", "unresolved-root",
     "not-ready", "stale-context", "stale-revision", "stale-size", "handler-missing", "handler-threw",
 ] as const satisfies readonly (GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode)[];
@@ -1815,6 +1815,125 @@ const everyIssueCodeListed: [UnlistedIssueCode] extends [never] ? true : Unliste
 /** 诊断码与失败码不相交：同一个码不会一会儿是“已回滚的失败”、一会儿是“已降级的诊断”。 */
 type SharedCode = Extract<GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode, GridIssueCode | GridHostIssueCode>;
 const codesDisjoint: [SharedCode] extends [never] ? true : SharedCode = true;
+
+/** 锁住收起状态（Spec 输出 168、失败 5）：手势收不了、拉不开、Enter 跳过、按分支调整要翻它时整批失败；只有宿主经 `setCollapsed` 翻。 */
+describe("拆分树原语：锁住收起状态", () => {
+    const ROW: GridExtent = {width: 1004, height: 400};
+    const policy = (collapsed: boolean, locked = true) => ({collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed, ...(locked ? {locked: true} : {})}});
+    const widths = (grid: ReturnType<typeof createGrid<string>>, ids: readonly string[], container: GridExtent = ROW): number[] =>
+        ids.map((id) => Math.round(extent(grid.layout(container).sizes, id).width * 100) / 100);
+    const session = (grid: ReturnType<typeof createGrid<string>>, sashIndex: number, source: "keyboard" | "pointer", container: GridExtent = ROW): GridGestureSession<string> =>
+        createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: container, layout: grid.layout(container), sashSize: 4, sessionId: "s", source, sashes: [{branchId: "root", index: sashIndex, axis: "width"}]});
+    const commit = (grid: ReturnType<typeof createGrid<string>>, gesture: GridGestureSession<string>): void => {
+        const finished = gesture.finish();
+        if (finished === null) throw new Error("手势没有产生提交");
+        const applied = grid.resizeBranches(finished.changes);
+        if (!applied.ok) throw new Error(applied.message);
+    };
+
+    it("拖动不越过阈值收起锁住的：拖到最小尺寸就停，提交后仍展开；不锁的同一段拖动会收起", () => {
+        const build = (locked: boolean) => createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...policy(false, locked)},
+            leaf("b", "width", 700, 100),
+        ]), {sashSize: 4});
+        const lockedGrid = build(true);
+        const drag = session(lockedGrid, 0, "pointer");
+        drag.update({x: -290, y: 0});
+        commit(lockedGrid, drag);
+        expect(widths(lockedGrid, ["a", "b"])).toEqual([100, 900]);
+        expect(lockedGrid.find("a")?.collapse).toMatchObject({collapsed: false, locked: true});
+
+        const free = build(false);
+        const freeDrag = session(free, 0, "pointer");
+        freeDrag.update({x: -290, y: 0});
+        commit(free, freeDrag);
+        expect(free.find("a")?.collapse?.collapsed).toBe(true);
+    });
+
+    it("拉不开收着的锁住的：它照旧是收起尺寸，位移照级联规则传给同侧的兄弟", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("x", "width", 300, 100),
+            {...leaf("a", "width", 300, 100), ...policy(true)},
+            leaf("b", "width", 400, 100),
+        ]), {sashSize: 4});
+        const before = widths(grid, ["x", "a", "b"], {width: 1008, height: 400});
+        const drag = session(grid, 1, "pointer", {width: 1008, height: 400});
+        drag.update({x: 200, y: 0});
+        commit(grid, drag);
+        const after = widths(grid, ["x", "a", "b"], {width: 1008, height: 400});
+        expect(after[1]).toBe(0);
+        expect(grid.find("a")?.collapse).toMatchObject({collapsed: true, locked: true});
+        expect(after[0]).toBeCloseTo(before[0]! + 200, 5);
+        expect(after[2]).toBeCloseTo(before[2]! - 200, 5);
+    });
+
+    it("分隔条上的 Enter 跳过锁住的：作用于另一侧可收起的；两侧都只有锁住的时什么也不做", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...policy(false)},
+            {...leaf("b", "width", 700, 100), ...policy(false, false)},
+        ]), {sashSize: 4});
+        const enter = session(grid, 0, "keyboard");
+        enter.toggleCollapsed();
+        commit(grid, enter);
+        expect(widths(grid, ["a", "b"])).toEqual([1000, 0]);
+        expect(grid.find("a")?.collapse?.collapsed).toBe(false);
+
+        const only = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...policy(false)},
+            leaf("b", "width", 700, 100),
+        ]), {sashSize: 4});
+        const skipped = session(only, 0, "keyboard");
+        expect(skipped.toggleCollapsed()).toBeNull();
+        expect(skipped.finish()).toBeNull();
+    });
+
+    it("`resizeBranches` 要翻锁住的标记时整批失败，给 `collapse-locked`，树不变；标记本来就是目标时照常通过", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...policy(false)},
+            leaf("b", "width", 700, 100),
+        ]), {sashSize: 4});
+        const before = grid.serialize();
+        const flipped = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {a: 300, b: 700}, target: {a: 0, b: 1000}, collapsed: {a: true}}]);
+        expect(flipped.ok ? null : {code: flipped.code, params: flipped.params}).toEqual({code: "collapse-locked", params: {id: "a", branch: "root"}});
+        expect(grid.serialize()).toEqual(before);
+        expect(grid.find("a")?.collapse?.collapsed).toBe(false);
+
+        const same = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {a: 300, b: 700}, target: {a: 400, b: 600}, collapsed: {a: false}}]);
+        expect(same.ok).toBe(true);
+        expect(widths(grid, ["a", "b"])).toEqual([400, 600]);
+    });
+
+    it("宿主经 `setCollapsed` 照常翻锁住的；`options.locked` 同时改锁，不给时锁不变；`changed` 是标记或锁有没有变", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...policy(false, false)},
+            leaf("b", "width", 700, 100),
+        ]), {sashSize: 4});
+        expect(grid.setCollapsed("a", false, {locked: true})).toMatchObject({ok: true, changed: true, collapse: {collapsed: false, locked: true}});
+        expect(grid.setCollapsed("a", false, {locked: true})).toMatchObject({ok: true, changed: false});
+        expect(grid.setCollapsed("a", true)).toMatchObject({ok: true, changed: true, collapse: {collapsed: true, locked: true}});
+        expect(widths(grid, ["a", "b"])).toEqual([0, 1000]);
+        const unlocked = grid.setCollapsed("a", true, {locked: false});
+        expect(unlocked).toMatchObject({ok: true, changed: true});
+        expect(unlocked.ok && unlocked.collapse).toEqual({collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: true});
+        expect(grid.setCollapsed("a", true, {locked: false})).toMatchObject({ok: true, changed: false});
+    });
+
+    it("锁随建树、复制与恢复的策略走：`locked: false` 不写进节点，恢复时以解析结果为准", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...policy(true)},
+            {...leaf("b", "width", 700, 100), collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: false, locked: false}},
+        ]), {sashSize: 4});
+        expect(grid.find("a")?.collapse?.locked).toBe(true);
+        expect(grid.find("b")?.collapse).not.toHaveProperty("locked");
+        expect(grid.clone().find("a")?.collapse?.locked).toBe(true);
+        expect(JSON.stringify(grid.serialize())).not.toContain("locked");
+
+        const restored = grid.restore(grid.serialize(), (ref) => ({ref, ...(ref === "b" ? policy(false) : {})}));
+        expect(restored.ok).toBe(true);
+        expect(grid.find("b")?.collapse?.locked).toBe(true);
+        expect(grid.find("a")?.collapse?.locked).toBe(true);
+    });
+});
 
 describe("失败码与诊断码的写法（Spec ui/nested-grid 边界与兼容、输出 139）", () => {
     it("同 ui/i18n 的开放错误域：小写短横线，不含冒号、点与空白，不超过 64 个字符", () => {

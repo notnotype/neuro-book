@@ -18,6 +18,7 @@
 - `grid.clone()`：复制一份独立的网格，连同约束、`sizing`、收起策略与状态，以及建网格时的 `sashSize`、`encodeRef`；叶的 `ref` 是同一个对象。用来先在副本上试做一次结构操作、读结果与布局。
 - `restoreGrid(快照, 解析引用, 选项)` 与类型 `GridRestoredGrid`：从快照建一份新网格，失败时结果里没有 `grid`。原地的 `grid.restore` 照旧可用。
 - `GridSplitInput.ratio` 可以写 `"even"`：同向并入时新叶与这一排的兄弟平分（等于 `addLeaf` 不给意图），新建分支时等于 `0.5`。
+- 收起策略的 `locked: true` 锁住收起状态：拖动收不了也拉不开，分隔条上的 Enter 跳过它（作用于另一侧），`resizeBranches` 要翻它时整批失败，新失败码 `collapse-locked`（`params` 是 `id`、`branch`）；独立 `Splitter` 同样遵守。只有宿主经 `setCollapsed` 翻它；`setCollapsed` 多了第三个参数 `GridCollapseOptions`，`locked` 同时改锁、不给时锁不变，`changed` 是收起标记或锁有没有变。
 - `SplitterPanelConfig.overflow`：写 `"visible"` 时这块面板不裁切内容，内容可以伸到相邻面板上面（收起的栏里拉出的抽屉）；缺省 `"hidden"`，行为不变。
 - 开发模式的配置检查（`setLayoutDevChecks`）多了两条：`useGridHost` 没给 `onIssues`（诊断与被拒的提交会被丢掉）时建立时警告一次；`NestedGrid` 的 `dragging` 变真时布局过渡还在走（起拖时没调 `settleMotion()`）时警告一次。库仍不把诊断本身打到控制台。
 

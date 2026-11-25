@@ -54,10 +54,25 @@ export type SashCollapsePolicy = {
      * `solveSashCollapse` 的调用方已经选定了对象，求解器不再过滤。
      */
     toggleable?: boolean;
+    /**
+     * true：锁住收起状态（Spec `ui/nested-grid` 输出 168，缺省 false）。拖动不越过阈值收起它，也拉不开收着的它；分隔条上的
+     * Enter 跳过它（同 `toggleable: false`）；`Grid.resizeBranches` 要翻它的标记时整批失败（`collapse-locked`）。只有宿主能翻：
+     * `setCollapsed` 照常翻它，锁经 `setCollapsed` 的 `options.locked` 改，或建树、恢复时在策略里给。
+     */
+    locked?: boolean;
 };
 
 /** @experimental */
 export type SashCollapseState = SashCollapsePolicy & {collapsed: boolean};
+
+/**
+ * `Grid.setCollapsed` 的选项。
+ * @experimental
+ */
+export type GridCollapseOptions = {
+    /** 同时改锁（Spec `ui/nested-grid` 输出 168）；不给时锁不变。 */
+    readonly locked?: boolean;
+};
 
 /**
  * 独立 `Splitter` 面板的收起策略与状态：`Splitter` 的面板没有意图，尺寸就是宿主给的呈现像素，所以显式恢复（Enter、命令）
@@ -272,6 +287,7 @@ export type GridFailureCode =
     | "not-conserved"
     | "stale-baseline"
     | "not-collapsible"
+    | "collapse-locked"
     | "wrong-sizing";
 
 /**
@@ -325,7 +341,7 @@ export type GridBranchesResizeResult =
     | GridFailure<GridFailureCode>;
 
 /**
- * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、166）：`changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的
+ * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、166、168）：`changed` 是收起标记或锁有没有变；`collapse` 是调用之后这个节点的
  * 收起策略，宿主要跨会话保存收起状态时从这里取 `collapsed`，策略本身不写快照。
  * @experimental
  */

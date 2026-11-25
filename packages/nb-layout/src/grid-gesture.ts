@@ -294,11 +294,11 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
         return {applied: true, issues: result.issues};
     }
 
-    /** 该轴上下一个可显式折叠的面板：优先分隔条前侧，其次后侧；`toggleable: false` 的只经拖动收起。 */
+    /** 该轴上下一个可显式折叠的面板：优先分隔条前侧，其次后侧；`toggleable: false` 的只经拖动收起，锁住的（输出 168）只由宿主翻。 */
     function collapsibleIndex(owner: Owner): number | null {
         for (const index of [owner.sash.index, owner.sash.index + 1]) {
             const panel = owner.panels[index];
-            if (panel?.collapse && panel.collapse.toggleable !== false) {
+            if (panel?.collapse && panel.collapse.toggleable !== false && panel.collapse.locked !== true) {
                 return index;
             }
         }

@@ -87,6 +87,15 @@ describe("张数变了（setCardCount，输出 66）", () => {
         expect(widthsNow()).toMatchObject({drawer: 400, drawer2: 400});
     });
 
+    it("第二张锁住收起状态：手势要翻它时整批不落账，宿主随张数照常翻、锁不变", () => {
+        const {grid, widthsNow, setCards} = build(2);
+        const locked = grid.resizeBranches([{branchId: "details", axis: "width", baseline: {drawer: 400, drawer2: 400}, target: {drawer: 800, drawer2: 0}, collapsed: {drawer2: true}}]);
+        expect(locked.ok ? null : {code: locked.code, params: locked.params}).toEqual({code: "collapse-locked", params: {id: "drawer2", branch: "details"}});
+        expect(widthsNow()).toMatchObject({drawer: 400, drawer2: 400});
+        setCards(1);
+        expect(grid.find("drawer2")?.collapse).toMatchObject({collapsed: true, locked: true});
+    });
+
     it("整块收起再展开：两张都回来，不等宽也还在", () => {
         const {grid, widthsNow} = build(2);
         grid.resizeBranches([{branchId: "details", axis: "width", baseline: {drawer: 400, drawer2: 400}, target: {drawer: 520, drawer2: 280}}]);

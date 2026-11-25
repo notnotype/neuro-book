@@ -1526,6 +1526,24 @@ describe("Splitter 会话的显式折叠与提交", () => {
         expect(session.finish()?.changes[0]).toMatchObject({target: {a: 170, b: 230}, collapsed: {}});
     });
 
+    it("Enter 跳过锁住收起状态的面板（ui/nested-grid 输出 168）：作用于另一侧可收起的；两侧都只有锁住的时不切换、不提交", () => {
+        const session = pairSession(
+            {id: "a", defaultSizePx: 250, minSizePx: 50, collapse: {...POLICY, collapsed: false, locked: true}},
+            {id: "b", defaultSizePx: 250, minSizePx: 50, collapse: {...POLICY, collapsed: false}},
+            [250, 250],
+        );
+        expect(session.toggleCollapsed()).toMatchObject({sizesPx: [500, 0]});
+        expect(session.finish()?.changes[0]).toMatchObject({collapsed: {b: true}});
+
+        const only = pairSession(
+            {id: "a", defaultSizePx: 250, minSizePx: 50, collapse: {...POLICY, collapsed: false, locked: true}},
+            {id: "b", defaultSizePx: 250, minSizePx: 50},
+            [250, 250],
+        );
+        expect(only.toggleCollapsed()).toBeNull();
+        expect(only.finish()).toBeNull();
+    });
+
     it("取消之后会话不再接受输入，也不提交", () => {
         const session = collapsibleSession();
         session.update({x: -150, y: 0});

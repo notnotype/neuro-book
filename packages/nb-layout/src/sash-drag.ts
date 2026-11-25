@@ -345,13 +345,16 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
         // 吸收边界（面板从零拉出、同一帧把编辑器拖到零），所以两遍判定重复到不再变化：每个面板一帧里只会朝一个方向变一次，
         // 最多两轮就稳定，结果不取决于这一位移是一帧到达还是分几帧到达。
         // 两遍判定与稳定后的诊断共用这两条判据：诊断说“想变却变不了”，指的就是它们为真而 pass 里没改成。
+        // 锁住的面板（Spec `ui/nested-grid` 输出 168）两种都不想：展开着的拖到最小尺寸就停，收着的照旧是刚性的收起尺寸、拉不开，
+        // 位移照级联规则传给同侧的兄弟；也就没有“想变却变不了”的诊断。
         const wantsCollapse = (index: number): boolean => {
             const policy = panels[index]!.collapse;
-            return policy !== undefined && !isCollapsed(index) && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON;
+            return policy !== undefined && policy.locked !== true && !isCollapsed(index)
+                && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON;
         };
         const wantsExpand = (index: number): boolean => {
             const policy = panels[index]!.collapse;
-            if (policy === undefined || !isCollapsed(index)) {
+            if (policy === undefined || policy.locked === true || !isCollapsed(index)) {
                 return false;
             }
             const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));

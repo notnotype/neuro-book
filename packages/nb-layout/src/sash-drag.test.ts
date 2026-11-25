@@ -378,6 +378,27 @@ function sideShape(side: "left" | "right"): {sashIndex: number; index: number; m
         : {sashIndex: 1, index: 2, memory: RIGHT_MEMORY, outward: -1};
 }
 
+describe("拖动求解：锁住收起状态（Spec ui/nested-grid 输出 168）", () => {
+    const locked = (collapsed: boolean): SashPanel["collapse"] => ({...sashCollapsePolicy({collapsedSize: 0, collapsed})!, locked: true});
+
+    it("锁住、展开着的：拖过阈值也停在最小尺寸，不收起、不报诊断；不锁的同一段会收起", () => {
+        const panels = (policy: SashPanel["collapse"]): SashPanel[] => [{...fixed("a", 100), size: 300, collapse: policy}, weight("b", 100)];
+        const held = drag(panels(locked(false)), [300, 700], 0, [-100, -250, -290]);
+        expect(held.sizesPx).toEqual([100, 900]);
+        expect(held.collapsed).toEqual({});
+        expect(held.issues).toEqual([]);
+        const free = drag(panels(sashCollapsePolicy({collapsedSize: 0})), [300, 700], 0, [-100, -250, -290]);
+        expect(free.collapsed).toEqual({a: true});
+    });
+
+    it("锁住、收着的：照旧是收起尺寸、拉不开，位移传给同侧的兄弟；不报诊断", () => {
+        const result = drag([weight("x", 100), {...fixed("a", 100), size: 300, collapse: locked(true)}, weight("b", 100)], [400, 0, 600], 1, [50, 200]);
+        expect(result.sizesPx).toEqual([600, 0, 400]);
+        expect(result.collapsed).toEqual({});
+        expect(result.issues).toEqual([]);
+    });
+});
+
 describe("拖动求解：两侧外栏的收起与恢复", () => {
     it("右侧外栏拖到零再拉回：展开到指针位置，余量兄弟吸收差额", () => {
         const panels = collapsibleSidePanels();

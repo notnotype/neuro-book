@@ -98,11 +98,11 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
         }));
     }
 
-    /** 该轴上下一个可显式折叠的面板：优先分隔条前侧，其次后侧；`toggleable: false` 的只经拖动收起。 */
+    /** 该轴上下一个可显式折叠的面板：优先分隔条前侧，其次后侧；`toggleable: false` 的只经拖动收起，锁住的只由宿主翻。 */
     function collapsibleIndex(): number | null {
         for (const index of [input.sashIndex, input.sashIndex + 1]) {
             const collapse = input.panels[index]?.collapse;
-            if (collapse && collapse.toggleable !== false) {
+            if (collapse && collapse.toggleable !== false && collapse.locked !== true) {
                 return index;
             }
         }
