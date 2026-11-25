@@ -46,7 +46,7 @@ updated: 2026-11-25
 - 评审板第 4 轮：`list-dialog` 居中的会话与 bot 弹窗（Bot、会话两页，搜索与筛选照会话面板）；`float-rail` 浮动窗窄版在右边缘画同一组条目、顶格让给“回到停靠”，宽版照旧左列表右聊天；页上列了找某个会话的几条路。待提案里定：停靠宽版有常驻列表栏时轨上不再放头像与会话（只留容器入口），免得两处重复；会话搜索只查标题与说明，按消息内容搜要另做（已在会话里问开发者）。
 - 顾问第 2 轮（gemini，[`evidences/advisor-omp-gemini-2.txt`](evidences/advisor-omp-gemini-2.txt)，说明 [`evidences/advisor-brief-2.md`](evidences/advisor-brief-2.md)）：完整列表做成单独的“对话目录”视图（新 id，默认主侧栏自己的容器、首次不显示），轨底两个按钮显示它并切页、聚焦搜索，选中在消息视图打开；轨不加显示名字的展开档；左右只做主次整列交换（呈现层重排，ActivityBar 留在树里），另开工作台 Task；浮动窗宽窄都用轨加目录，消息视图里不再内嵌完整列表。五项待拍板，已归纳给开发者。
 - 评审板第 5 轮：标注图说明轨、对话目录、消息视图各是哪一块；五题 `dir-view`（目录视图默认在左侧栏，另附与消息上下排的稿）、`dir-open`（选中总在消息视图打开）、`rail-expand`（A 展开并加宽右边这一列，编辑区让出 152，推荐；B 不展开）、`swap-scope`（只做整列交换、另开 Task）、`float-list`（浮动窗不再内嵌列表，推荐；对照现在的宽浮动窗）。原图在本地 `shots/r3/`。
-- 底层调研（Opus 子代理，说明 `/tmp/review-t19-rail/foundation-brief.md`，报告写到同目录 `foundation.txt`）：侧轨、展开（含左轨的底层支持）、对调不被挡住、浮动带轨、展开的轨当完整列表。回来后归纳给开发者，写底层设计提案，定了改底层再交 omp `@review` 审一轮。
+- 底层调研（Opus，[`evidences/foundation-research.txt`](evidences/foundation-research.txt)，说明 [`evidences/foundation-brief.md`](evidences/foundation-brief.md)）：右轨放在呈现层，做成 body 里和活动栏同形的呈现专属叶（不放进区域的包装分支：那样区域宽度意图每次回写多记一份轨宽，展开挤的是区域内容）；文档树、骨架判定、校验不动，活动栏留在树里；展开只改叶的厚度，编辑组吸收；锚与浮动窗记录加可选字段 `railExpanded?`，不进 `hiddenBars`；相连、圆角、最大化写死为左边一条轨，要改成按轨列表；中段收着是声明式条目，展开放完整列表由视图经 `VIEW_RAIL` 认领、Teleport 进工作台给的位置；浮动窗里轨是窗内外框部件、展开时窗变宽。四项产品取舍已问开发者。
 
 ## 下一步
 
