@@ -291,6 +291,12 @@ describe("SearchSettingsPage", () => {
         await page.checkButton().trigger("click");
         await waitUntil("检测没通过", () => page.railItem("tavily").find('[data-search-flag="danger"]').exists() || undefined);
         expect(page.wrapper.find("[data-search-detail] [data-key-notice]").exists()).toBe(false);
+
+        // 两家都没有密钥：只有使用中的 DeepSeek 挂钥匙，没在用的 Tavily 不标。
+        const bare = render();
+        await loaded(bare);
+        expect(bare.railItem("deepseek").get("[data-search-flag]").attributes("data-search-flag")).toBe("warning");
+        expect(bare.railItem("tavily").find("[data-search-flag]").exists()).toBe(false);
     });
 
     it("设为使用中：这家有密钥时直接写设置；写失败交窗口通知，主语是“使用”（输出 11）", async () => {
