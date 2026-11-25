@@ -25,16 +25,18 @@ updated: 2026-11-25
 ## 当前状态
 
 - 2026-11-25 经 nbdev 新建。评审板第 1 轮（[`artifacts/review/index.html`](artifacts/review/index.html)）两题已答，见决定 2。草稿在草稿 worktree `.worktree/w00043-t18-drafts`（分支 `w00043-t18/drafts`，不合并），Lab 组件 `MessagesWindow`。
-- 第 1 条（列表栏拖宽）已在 Work 分支上实现，待审查与合入：
-  - `f637471ae`：`AgentMessages` 的列表栏与聊天区改成 nb-layout `Splitter` 的两块面板；列表栏 200 到 420 像素、聊天区至少 320 像素，拖到 200 以内再过 40 像素收成头像列；宽度由宿主记在内存里（同收起状态，重开窗口回到 260）。
-  - nb-layout 的缺口：`Splitter` 的面板一律裁切溢出，窄版的列表抽屉要从 52 像素的头像列那块面板里伸出去。用 `Teleport` 挪列表会丢焦点与滚动位置，所以给 `SplitterPanelConfig` 加了可选的 `overflow: "visible"`（只加不改；API 报告、`CHANGELOG.md`、应用的 SDK 快照跟着更新）。
-  - `eaf3d66ea`：nb-agent-ui 新增对 nb-layout 的发布依赖后，只查源码包的 `release:check` 把 nb-layout 当成不发布的包；改成认已首发的生成包。正式发布路径本来就把两类包一起检查。下次发版时 nb-layout 要与 nb-agent-ui 一起提版本（nb-agent-ui 用到了新的 `overflow`）。
-  - `628e0884b`：e2e 三条（`lab-agent-ui.e2e.ts` 的“消息视图的分栏”）。变异检查：去掉宽度回写、收起回写、面板不裁切，各有用例失败。第一版的窄版用例没看住“不裁切”（`click` 会先把行滚进被裁切的面板再点），改成按行中心 `elementFromPoint` 判断。
-- 第 2 条（切换控件）已实现，待审查与合入：`55579e680`，`AgentMessagesList` 的 nb-ui `Tabs` 换成标题式的 `tablist`，收起按钮经插槽 `switch-end` 进这一行；中文标签写“Bot”。
-- Spec（planned）：`22101b06b`，[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 消息视图一段。
+- **第 1、2 条已合入 master（`c37a64baa`）**：
+  - 第 1 条 `f637471ae`：`AgentMessages` 的列表栏与聊天区改成 nb-layout `Splitter` 的两块面板；列表栏 200 到 420 像素、聊天区至少 320 像素，拖到 200 以内再过 40 像素收成头像列；宽度由宿主记在内存里（同收起状态，重开窗口回到 260）。
+  - nb-layout 的两处改动：`SplitterPanelConfig` 加可选的 `overflow: "visible"`（面板一律裁切溢出，窄版的列表抽屉要从 52 像素的头像列那块面板里伸出去；用 `Teleport` 挪列表会丢焦点与滚动位置）；预览回到手势开始时的样子时补发一次 `gesture-update`（审查第 1 条）。API 报告、`CHANGELOG.md`、应用的 SDK 快照跟着更新。
+  - 发布脚本 `eaf3d66ea`、`c88a69f5b`：nb-agent-ui 新增对 nb-layout 的发布依赖，只载源码包的 `release:check` 与 `release:publish` 的闸门原先把 nb-layout 当成不发布的包；`checkReleasePackages` 缺省认已首发的生成包。**下次发版时 nb-layout 要与 nb-agent-ui 一起提版本**（nb-agent-ui 用到了新的 `overflow`）。
+  - 第 2 条 `55579e680`：`AgentMessagesList` 的 nb-ui `Tabs` 换成标题式的 `tablist`，收起按钮经插槽 `switch-end` 进这一行；中文标签写“Bot”。
+  - 实现审查：Sonnet 9 条（阻断 1、重要 1、建议 7），[处理](evidences/impl-review-1-disposition.md)，修正 `c88a69f5b`。接受取舍、交开发者知悉的两条：头像列与列表在收起那一刻直接换、不随 280ms 的宽度过渡；视图窄、宽度被压着时拖一下，记着的宽度换成压过的值。
+  - 验证：nb-layout bun 670 条、vitest 358 条；nb-agent-ui bun 301 条、vitest 225 条；应用 agent、bots、Lab 的 vitest 125 条、agent 与 SDK 的 bun 80 条；发布脚本 vitest 120 条、`packages.test.ts` 13 条；类型检查三个包；`api:check`。e2e：`lab-agent-ui` 的“消息视图的分栏”6 条，`agent-conversation`、`bots-chat` 32 条里 31 条一次过、“按状态换场景”一条（测试自己的请求被对端断开）单独重跑通过。合入前那一轮与两条归为原有或负载的失败见处理表末尾。
+  - 变异检查：宽度回写、收起回写、面板不裁切、发布检查的缺省、补发预览（组件测试与 e2e 各一条），都有用例失败。第一版的窄版用例没看住“不裁切”（`click` 会先把行滚进被裁切的面板再点），改成按行中心 `elementFromPoint` 判断。
+  - Spec（planned）：`22101b06b`，[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 消息视图一段。
 - 第 3 条（浮动窗自绘头）：计划 [`plan.md`](plan.md)（草稿 1），等开发者确认；三处待确认见计划末尾。
 
 ## 下一步
 
-- 第 1、2 片：前端实现审查（Sonnet）处理完、合入前 e2e（`agent-conversation`、`bots-chat`、`lab-scenes`、`lab-agent-ui`）通过后合入 master。
-- 第 3 条：开发者确认计划后做设计审查，再实施。
+- 第 3 条：开发者确认计划后做设计审查（Sonnet），再实施。
+- 第 3 条做完后一起核对 Spec 的 planned 标记并晋升。
