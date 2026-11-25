@@ -206,7 +206,13 @@ function pluginExtensionsFor(profile: AnyProfile, contributed: readonly Contribu
     const chosen = new Set<ContributedExtension>(automatic);
     const chosenId = (id: string): ContributedExtension | undefined => [...chosen].find((item) => idOf(item) === id);
     if (references === "ignore") return contributed.filter((item) => chosen.has(item));
-    for (const id of profile.referencedExtensions ?? []) {
+    const referenced: unknown = profile.referencedExtensions ?? [];
+    // 类型挡得住，这里给 JavaScript 作者与用户级 Profile 再查一次：写成字符串时不按字符逐个当成 id。
+    if (!Array.isArray(referenced) || !referenced.every((id) => typeof id === "string")) {
+        problems.push({code: "bad-extension-id", extension: profile.id, message: `referencedExtensions of profile ${profile.id} must be an array of extension ids`, hint: "write referencedExtensions: [\"<plugin id>.<name>\"]"});
+        return contributed.filter((item) => chosen.has(item));
+    }
+    for (const id of referenced as readonly string[]) {
         const found = contributed.find((item) => idOf(item) === id);
         if (found === undefined) problems.push({code: "referenced-extension-missing", extension: profile.id, dependency: id, message: `profile ${profile.id} references extension ${id}, which is not contributed`, hint: `install the plugin that contributes ${id}, or remove it from referencedExtensions`});
         else chosen.add(found);

@@ -760,8 +760,9 @@ async function reassembleOnce(state: Internals, env: SessionEnv, pending: Pendin
             state.readOnly = "unknown-profile";
             core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: key, reason: "unknown-profile"}, message: `profile ${key} is no longer available; the session is read-only until it comes back`}, core.head);
         }
-        // 解析不到：留着当前装配（只读，不会再跑），这批撤回的扩展照样摘下，撤回的 Promise 才能在清理之后完成。
-        if (!pluginsChanged) {
+        // 解析不到：留着当前装配（只读，不会再跑），这批撤回的扩展照样摘下，撤回的 Promise 才能在清理之后完成。装着占位时
+        // 没装任何插件扩展，没有要摘的；也不能往下拿占位装配，那会把占位写进日志。
+        if (!pluginsChanged || fromPlaceholder) {
             core.revoked.clear();
             return;
         }
@@ -802,8 +803,8 @@ async function reassembleOnce(state: Internals, env: SessionEnv, pending: Pendin
             return;
         }
         if (!sameHash) {
-            // Profile 自己的版本变了就是代码更新，否则按插件的增减。从占位换上真的按打开时的写法记 `code-updated`。
-            const reason = fromPlaceholder ? "code-updated" : profile !== current && profile.version !== current.version ? "code-updated" : pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : pending.removed.size > 0 ? "plugin-removed" : "code-updated";
+            // Profile 自己的版本变了就是代码更新，否则按插件的增减。从占位换上真的也落在前一种：占位的版本是 `unknown`。
+            const reason = profile !== current && profile.version !== current.version ? "code-updated" : pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : pending.removed.size > 0 ? "plugin-removed" : "code-updated";
             await writeAndReact(core, [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from: logged, reason, manifest: next.manifest as unknown as JsonValue}}], state.react);
         }
         await state.mounts.unmountAll();

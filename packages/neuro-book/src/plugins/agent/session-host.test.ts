@@ -1584,17 +1584,68 @@ describe("Agent 模式（agent/modes.md）", () => {
         expect(h.ctx().composer.mode).toBe("discuss");
     });
 
-    test("没有模式的会话：/plan 文字 不切也不发，字留在输入框并提示；/mode 同样不发请求", async () => {
+    /** 数 `changeSettings` 的调用：判据要做到“没有模式就不发请求”，只看结果分不出（服务端也会拒）。 */
+    async function counting(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}): Promise<{readonly h: Harness; readonly calls: () => number}> {
+        let count = 0;
+        const {client} = await w.window(`sh-count-${String((windows += 1))}`);
+        const remote = new Proxy(client, {get: (target, key, receiver) => {
+            const value = Reflect.get(target, key, receiver) as unknown;
+            if (key !== "changeSettings" || typeof value !== "function") return value;
+            return (...args: unknown[]) => {
+                count += 1;
+                return (value as (...a: unknown[]) => unknown).apply(target, args);
+            };
+        }});
+        return {h: await harness(w, {remote, ...overrides}), calls: () => count};
+    }
+
+    test("没有模式的会话：/plan 文字、/mode 与模式控件都不发请求、不发消息，提示没有 Agent 模式", async () => {
         const w = await world();
-        const h = await started(w);
+        const {h, calls} = await counting(w);
+        expect(await h.host.create(PROFILE)).not.toBeNull();
         await until("打开", () => h.ctx().session !== null && h.ctx().availability.status === "ready");
         const before = endpoint.requests.length;
         h.host.act({type: "command.run", name: "plan", argsText: "先想清楚再写"});
-        await until("字留着", () => h.ctx().composer.draft.text === "/plan 先想清楚再写");
+        await until("提示", () => h.ctx().composer.notice !== undefined);
         expect(h.ctx().composer.notice).toMatchObject({key: "conversation.mode.unavailable"});
-        h.host.act({type: "command.run", name: "mode", argsText: "discuss"});
+        h.host.act({type: "command.run", name: "mode", argsText: "没有这种"});
+        h.host.act({type: "mode.set", mode: "discuss"});
+        await until("还是这个提示", () => (h.ctx().composer.notice as {readonly key?: string} | undefined)?.key === "conversation.mode.unavailable");
+        expect(calls()).toBe(0);
         expect(endpoint.requests.length).toBe(before);
         expect(assistants(h.ctx().messages)).toEqual([]);
+    });
+
+    test("草稿里选了模式、新建的 Profile 没有模式：建好后不提交，也不提示", async () => {
+        const w = await world();
+        const {h, calls} = await counting(w);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("记下", () => h.ctx().composer.mode === "plan");
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        await until("打开", () => h.ctx().session !== null && h.ctx().availability.status === "ready");
+        expect(calls()).toBe(0);
+        expect(h.ctx().composer.modes).toEqual([]);
+    });
+
+    test("目录说有模式、会话的装配里没有：切换发出去被拒，提示没有 Agent 模式", async () => {
+        const w = await world();
+        const entry = {key: PROFILE, name: "测试", description: "", source: "test", status: "ok" as const, referencedExtensions: [AGENT_MODES_EXTENSION]};
+        const {h, calls} = await counting(w, {profiles: () => [entry]});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        await until("有模式控件", () => h.ctx().session !== null && h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("提示", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.notice).toMatchObject({key: "conversation.mode.unavailable"});
+        expect(calls()).toBe(1);
+    });
+
+    test("还没有会话时按主创判：目录里的主创引用了模式才有控件", async () => {
+        const w = await world();
+        const main = {key: MAIN_PROFILE, name: "主创", description: "", source: "nbook.agent", status: "ok" as const};
+        const without = await harness(w, {profiles: () => [main]});
+        expect(without.ctx().composer.modes).toEqual([]);
+        const withModes = await harness(w, {profiles: () => [{...main, referencedExtensions: [AGENT_MODES_EXTENSION]}]});
+        expect(withModes.ctx().composer.modes).toHaveLength(3);
     });
 
     test("退出计划：向导带计划与当前审批模式；批准同时改审批模式，模式跟着变", async () => {

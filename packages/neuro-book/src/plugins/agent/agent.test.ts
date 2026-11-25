@@ -347,6 +347,23 @@ describe("按需扩展的时序（contributions.md 的“按需扩展”）", ()
     });
 });
 
+describe("插件 Profile 的引用只认声明（contributions.md 输出 26）", () => {
+    test("实现里另写了不同的引用：按声明装（有模式），写诊断 profile-references-mismatch", async () => {
+        const KEY = "test.refs.writer";
+        const declared = agentProfile(KEY, {name: "引用", description: "测试用", tools: {required: [], optional: []}, referencedExtensions: [AGENT_MODES_EXTENSION]});
+        const plugin: PluginDefinition = {id: "test.refs", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup", declared.activationEvent], contributions: [declared.contribution], activate: () => ({contributions: {
+            "agent.profiles": {[KEY]: defineProfile({id: KEY, version: "1", name: KEY, description: "测试用", system: "测试。", referencedExtensions: ["test.not-declared"]})},
+        }})})]};
+        const w = await world([plugin]);
+        const created = await w.service.create({profile: KEY});
+        if (!created.ok) throw new Error(created.code);
+        const snapshot = await created.value.snapshot();
+        expect(snapshot.readOnly).toBeNull();
+        expect(snapshot.extensions.find((extension) => extension.id === AGENT_MODES_EXTENSION)?.status).toBe("active");
+        expect(w.settings.diagnostics("hub").query({}).records.some((record) => record.event === "agent.profile-references-mismatch")).toBe(true);
+    });
+});
+
 describe("会话", () => {
     /** 会话锁还被持有吗：另开一个存储去打开它。 */
     async function locked(w: AgentWorld, id: string): Promise<boolean> {

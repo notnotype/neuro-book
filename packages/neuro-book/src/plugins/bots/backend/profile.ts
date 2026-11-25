@@ -6,9 +6,8 @@
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import {Tag} from "@notnotype/nb-harness/prompt";
 
-import {ADHOC_PROFILE, agentProfile, MAIN_PROFILE_TOOLS} from "nbook/plugins/agent/shared/contracts";
+import {ADHOC_PROFILE, AGENT_MODES_EXTENSION, agentProfile, MAIN_PROFILE_TOOLS} from "nbook/plugins/agent/shared/contracts";
 import type {AgentProfileImplementation} from "nbook/plugins/agent/shared/contracts";
-import {AGENT_MODES_EXTENSION} from "nbook/plugins/agent/shared/permissions";
 
 import {COMPANION_PROFILE} from "../shared/contracts";
 

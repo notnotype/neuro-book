@@ -841,6 +841,49 @@ describe("插件宿主", () => {
         await host.close(session.id);
     });
 
+    test("输出 57：打开时缺依赖、之后 Profile 也解析不到，再来插件发布不把占位写进日志；Profile 换了版本回来后写一条 code-updated", async () => {
+        const model = createTestModel();
+        let real: AnyProfile | undefined = defineProfile({id: "test.flaky", version: "1", name: "f", description: "f", system: "第一版", dependsOn: [counter]}) as AnyProfile;
+        const env = {...hostEnv(model), profiles: {resolve: (key: string) => (key === "test.flaky" ? real : undefined)}};
+        const before = createAgentHost(env);
+        const handle = handleOf(counter);
+        before.extensions.prepare(handle);
+        before.extensions.published(handle);
+        const created = await before.create({profile: "test.flaky"});
+        if (!created.ok) throw new Error(created.code);
+        await waitIdleWrites(created.value);
+        await before.close(created.value.id);
+
+        const after = createAgentHost(env);
+        const opened = await after.open(created.value.id);
+        if (!opened.ok) throw new Error(opened.code);
+        const session = opened.value;
+        expect((await session.snapshot()).readOnly).toEqual({code: "dependency-missing"});
+        // Profile 不见了、同时提供方来了：留在只读，日志不写占位。
+        real = undefined;
+        after.profilesChanged(["test.flaky"]);
+        const late = handleOf(counter);
+        after.extensions.prepare(late);
+        after.extensions.published(late);
+        await waitIdleWrites(session);
+        const changes = async () => dataOf<{reason: string; manifest: readonly {version: string}[]}>((await session.log({afterSeq: 0})).events, "profileChanged");
+        expect((await session.snapshot()).readOnly).not.toBeNull();
+        expect((await changes()).flatMap((change) => change.manifest).some((item) => item.version === "unknown")).toBe(false);
+        expect(await changes()).toHaveLength(1);
+        // 回来的是新版本：哈希与日志里记的不同，写一条 code-updated，解除只读，跑新版本。
+        real = defineProfile({id: "test.flaky", version: "2", name: "f", description: "f", system: "第二版", dependsOn: [counter]}) as AnyProfile;
+        await after.profilesChanged(["test.flaky"]);
+        await waitIdleWrites(session);
+        expect((await session.snapshot()).readOnly).toBeNull();
+        expect((await changes()).map((change) => change.reason)).toEqual(["created", "code-updated"]);
+        model.script("答");
+        const sent = await session.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await session.waitRun(sent.value.runId);
+        expect(JSON.stringify(model.requests.at(-1)?.system)).toContain("第二版");
+        await after.close(session.id);
+    });
+
     test("输出 57：打开时就缺依赖进只读；提供方晚到后解除，跑的是真的 Profile（系统提示词还在、日志不记占位）", async () => {
         const model = createTestModel();
         const real = defineProfile({id: "test.dependent-real", version: "1", name: "d", description: "d", system: "我是真的 Profile", dependsOn: [counter]}) as AnyProfile;

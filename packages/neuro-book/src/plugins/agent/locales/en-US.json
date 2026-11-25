@@ -255,7 +255,7 @@
             "discuss": "Discuss",
             "plan": "Plan",
             "unknown": "No such mode. Options: {{options}}",
-            "unavailable": "This session has no agent modes, so it cannot switch"
+            "unavailable": "This session has no Agent modes, so it cannot switch"
         },
         "approval": {
             "ask": {

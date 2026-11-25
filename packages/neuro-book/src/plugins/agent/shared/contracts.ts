@@ -13,6 +13,8 @@ import type {AgentProfileDeclaration, AgentToolDeclaration} from "./points";
 
 /** 别的内置插件贡献 Profile 用（跨插件的运行时导入只能指向合同，contributions.md 输出 7）：声明的助手与贡献点 id。 */
 export {agentProfile, PROFILES_POINT} from "./points";
+/** 模式扩展的 id：别的插件的 Profile 在声明里按它引用（contributions.md 输出 26）。 */
+export {AGENT_MODES_EXTENSION} from "./permissions";
 export type {AgentProfileImplementation} from "./points";
 
 /** 别的内置插件贡献工具（`agent.tools`）用的助手与类型（docs/specs/agent/contributions.md）；第三方插件经 SDK 的 `/agent` 取同一份。 */
