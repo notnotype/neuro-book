@@ -151,9 +151,11 @@ describe("登录失败（输出 4、失败表）", () => {
                 settled = true;
                 return response;
             });
-            const sleep = await waitUntil(`${name}：补齐下限的睡眠`, () => sleeps[index]);
-            expect({name, ms: sleep.ms, settled}).toEqual({name, ms: FAILURE_FLOOR_MS, settled: false});
-            sleep.done.resolve();
+            // 回应先到了（没补下限）也停下等：那时 `sleeps[index]` 是 undefined，下一句断言失败，而不是等到超时。
+            await waitUntil(`${name}：补齐下限的睡眠或回应`, () => sleeps[index] !== undefined || settled);
+            const sleep = sleeps[index];
+            expect({name, ms: sleep?.ms, settled}).toEqual({name, ms: FAILURE_FLOOR_MS, settled: false});
+            sleep!.done.resolve();
             expect({name, ...(await outcome(await pending))}).toEqual({name, ...invalidCredentials});
         }
         const before = sleeps.length;
