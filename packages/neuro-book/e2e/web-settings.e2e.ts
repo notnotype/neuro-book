@@ -1,6 +1,6 @@
 /**
- * “搜索与网页”设置页（docs/specs/web/settings-page.md 的“验收与 Smoke”）：生产构建的服务端、真实浏览器、本机的假 DeepSeek 接口
- * （`nbook.web-tools/deepseekBaseUrl` 指向它）。这里的密钥是假的，只发往本机。
+ * “搜索与网页”设置页（docs/specs/web/settings-page.md 的“验收与 Smoke”）：生产构建的服务端、真实浏览器、本机的假接口（
+ * `nbook.web/deepseekBaseUrl` 指向它，`nbook.web/tavilyBaseUrl` 指向它的 `/tavily` 下面）。这里的密钥是假的，只发往本机。
  */
 
 import {randomUUID} from "node:crypto";
@@ -18,13 +18,16 @@ import type {ProductServer} from "./fixtures";
 
 const FIRST = "sk-e2e-web-not-real-0001";
 const SECOND = "sk-e2e-web-not-real-0002";
+const TAVILY = "tvly-e2e-web-not-real-0003";
 
-/** 本机假 DeepSeek 接口：搜索回一条结果，记下每次请求带的密钥。 */
+/** 本机假接口：两家的搜索都回一条结果（字段两家都认得出网址与标题），记下每次请求的路径与带的密钥。 */
 const seen: string[] = [];
+const paths: string[] = [];
 const endpoint = createServer((request, response) => {
     request.resume();
     request.on("end", () => {
         seen.push(request.headers.authorization ?? "");
+        paths.push(request.url ?? "");
         response.writeHead(200, {"content-type": "application/json"});
         response.end(JSON.stringify({results: [{rerank_score: 1.8, title: "示例", url: "https://example.com/a", snippet: "片段", summary: "摘要", content: "", site_name: null, site_icon: null, date: null, authority: 3}]}));
     });
@@ -43,6 +46,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async () => {
     seen.length = 0;
+    paths.length = 0;
     const root = join(tmp, randomUUID());
     stateRoot = join(root, "state");
     const projectDir = join(root, "Book");
@@ -51,7 +55,7 @@ test.beforeEach(async () => {
     await mkdir(stateRoot, {recursive: true});
     await writeFile(join(projectDir, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
-    await writeFile(join(stateRoot, "settings.json"), `${JSON.stringify({"nbook.web-tools/deepseekBaseUrl": base})}\n`);
+    await writeFile(join(stateRoot, "settings.json"), `${JSON.stringify({"nbook.web/deepseekBaseUrl": base, "nbook.web/tavilyBaseUrl": `${base}/tavily`})}\n`);
     server = await startProductServer(stateRoot);
 });
 
@@ -68,15 +72,16 @@ async function openSearchPage(page: Page): Promise<void> {
     await page.goto(new URL("/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
     await page.locator("[data-activity-item='nbook.settings']").click();
-    await page.locator("[data-settings-nav='nbook.web-tools.search']").click();
+    await page.locator("[data-settings-nav='nbook.web.search']").click();
     await expect(page.locator("[data-search-settings]")).toBeVisible();
 }
 
 test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；已设置时框为空；回车换一把后检测用新的；清除后检测停用", async ({page}) => {
     await openSearchPage(page);
-    const key = page.locator("[data-search-settings] [data-key-input]");
-    const check = page.locator("[data-search-check]");
-    const result = page.locator("[data-search-check-result]");
+    const deepseek = page.locator("[data-search-provider='deepseek']");
+    const key = deepseek.locator("[data-key-input]");
+    const check = deepseek.locator("[data-search-check]");
+    const result = deepseek.locator("[data-search-check-result]");
     const keysFile = async (): Promise<unknown> => JSON.parse(await readFile(join(stateRoot, "web", "keys.json"), "utf8"));
     await expect(key).toHaveAttribute("placeholder", "还没有填写");
     await expect(check).toBeDisabled();
@@ -86,7 +91,7 @@ test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；�
     await check.click();
     await expect(result).toContainText("检测通过");
     expect(seen).toEqual([`Bearer ${FIRST}`]);
-    await expect(page.locator("[data-search-settings] [data-key-clear]")).toBeVisible();
+    await expect(deepseek.locator("[data-key-clear]")).toBeVisible();
     await expect(key).toHaveValue("");
     await expect(key).toHaveAttribute("placeholder", "已设置");
     expect(await page.content()).not.toContain(FIRST);
@@ -102,8 +107,33 @@ test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；�
     expect(seen.at(-1)).toBe(`Bearer ${SECOND}`);
     await expect(result).toContainText("检测通过");
 
-    await page.locator("[data-search-settings] [data-key-clear]").click();
+    await deepseek.locator("[data-key-clear]").click();
     await expect(key).toHaveAttribute("placeholder", "还没有填写");
     await expect(check).toBeDisabled();
     await expect(result).toHaveText("");
+});
+
+test("验收 3：选用改成 Tavily，设置文件用户层里是 tavily，关掉再开设置窗口仍选中；Tavily 一节填密钥、检测通过", async ({page}) => {
+    await openSearchPage(page);
+    const use = page.locator("[data-search-use]");
+    await expect(use.locator("[data-value='deepseek']")).toHaveAttribute("aria-checked", "true");
+    await use.locator("[data-value='tavily']").click();
+    await expect(page.locator("[data-search-use-no-key]")).toHaveText("Tavily 还没有密钥");
+    const userSettings = async (): Promise<unknown> => (JSON.parse(await readFile(join(stateRoot, "settings.json"), "utf8")) as Record<string, unknown>)["nbook.web/provider"];
+    await expect.poll(userSettings).toBe("tavily");
+
+    // 关掉设置窗口再打开：选用读的是设置，不是页面里的状态。
+    await page.locator("[data-activity-item='nbook.settings']").click();
+    await expect(page.locator("[data-search-settings]")).toHaveCount(0);
+    await page.locator("[data-activity-item='nbook.settings']").click();
+    await page.locator("[data-settings-nav='nbook.web.search']").click();
+    await expect(use.locator("[data-value='tavily']")).toHaveAttribute("aria-checked", "true");
+
+    const tavily = page.locator("[data-search-provider='tavily']");
+    await tavily.locator("[data-key-input]").fill(TAVILY);
+    await tavily.locator("[data-search-check]").click();
+    await expect(tavily.locator("[data-search-check-result]")).toContainText("检测通过");
+    expect(paths).toEqual(["/tavily/search"]);
+    expect(seen).toEqual([`Bearer ${TAVILY}`]);
+    await expect(page.locator("[data-search-use-no-key]")).toHaveCount(0);
 });

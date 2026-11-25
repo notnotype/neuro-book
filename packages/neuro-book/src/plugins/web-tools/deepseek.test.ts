@@ -129,8 +129,15 @@ describe("失败的归类与详情（输出 10、12）", () => {
         expect(redact(`x ${long.slice(100, 120)} y ${long} z ${short}`, long)).toBe(`x *** y *** z ${short}`);
     });
 
-    it("成功响应里带着密钥原文：bad-response，不交出结果（输出 14）", async () => {
-        fake.script("/v1/tools/search", {json: {results: [{...sampleHit(0), title: `echo Bearer ${KEY}`}]}});
+    it("成功响应里带着密钥原文：bad-response，不交出结果；JSON 把其中一个字写成转义、或密钥出现在键名里也一样（输出 14）", async () => {
+        fake.script("/v1/tools/search",
+            {json: {results: [{...sampleHit(0), title: `echo Bearer ${KEY}`}]}},
+            // 原文里没有整把密钥，解码后才有：`\u0073` 是 `s`。
+            {response: () => new Response(`{"results":[{"url":"https://example.com/x","title":"a","summary":"\\u0073${KEY.slice(1)}"}]}`, {status: 200, headers: {"content-type": "application/json"}})},
+            {response: () => new Response(`{"results":[{"url":"https://example.com/x","title":"a","\\u0073${KEY.slice(1)}":1}]}`, {status: 200, headers: {"content-type": "application/json"}})},
+        );
+        expect(await search("小说")).toEqual({ok: false, code: "bad-response", status: 200});
+        expect(await search("小说")).toEqual({ok: false, code: "bad-response", status: 200});
         expect(await search("小说")).toEqual({ok: false, code: "bad-response", status: 200});
     });
 

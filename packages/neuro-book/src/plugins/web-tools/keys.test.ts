@@ -35,13 +35,13 @@ describe("密钥文件（输出 15）", () => {
     it("文件不存在时没有密钥，读不建文件", async () => {
         const {path, keys} = store();
         expect(await keys.read("deepseek")).toEqual({ok: true, key: null});
-        expect(await keys.status()).toEqual({ok: true, status: {providers: {deepseek: {hasKey: false}}}});
+        expect(await keys.status()).toEqual({ok: true, status: {providers: {deepseek: {hasKey: false}, tavily: {hasKey: false}}}});
         expect(await stat(path).catch(() => null)).toBeNull();
     });
 
     it("写入后文件只有本用户可读写，换一个读者照样读到；清除后文件里没有这把密钥", async () => {
         const {path, keys} = store();
-        expect(await keys.set("deepseek", "sk-first-not-real")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: true}}}});
+        expect(await keys.set("deepseek", "sk-first-not-real")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: true}, tavily: {hasKey: false}}}});
         expect((await stat(path)).mode & 0o777).toBe(0o600);
         expect(await createKeyStore(path, () => undefined).read("deepseek")).toEqual({ok: true, key: "sk-first-not-real"});
 
@@ -51,7 +51,7 @@ describe("密钥文件（输出 15）", () => {
         expect((await stat(path)).mode & 0o777).toBe(0o600);
         expect(await keys.read("deepseek")).toEqual({ok: true, key: "sk-second-not-real"});
 
-        expect(await keys.clear("deepseek")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: false}}}});
+        expect(await keys.clear("deepseek")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: false}, tavily: {hasKey: false}}}});
         const text = await readFile(path, "utf8");
         expect(text).not.toContain("sk-first-not-real");
         expect(text).not.toContain("sk-second-not-real");
@@ -66,7 +66,7 @@ describe("密钥文件（输出 15）", () => {
         expect(await keys.status()).toMatchObject({ok: false});
         expect(events).toContain("web.keys-file-unreadable");
 
-        expect(await keys.set("deepseek", "sk-new-not-real")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: true}}}});
+        expect(await keys.set("deepseek", "sk-new-not-real")).toEqual({ok: true, status: {providers: {deepseek: {hasKey: true}, tavily: {hasKey: false}}}});
         expect(events).toContain("web.keys-file-replaced");
         expect(await keys.read("deepseek")).toEqual({ok: true, key: "sk-new-not-real"});
     });

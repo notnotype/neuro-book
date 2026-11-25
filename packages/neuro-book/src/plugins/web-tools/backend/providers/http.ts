@@ -98,6 +98,31 @@ export function redact(text: string, secret: string): string {
     return parts.join("");
 }
 
+/** 这段文字里有没有整把密钥；太短的密钥可能与正常文字撞上，不查（输出 14）。 */
+export const containsSecret = (text: string, secret: string): boolean => secret.length >= SECRET_FRAGMENT && text.includes(secret);
+
+/**
+ * 解析后的 JSON 里有没有整把密钥（字符串值与对象键）。JSON 可以把任何字符写成 `\uXXXX`，只在原文里找会漏掉这种写法。用显式的栈，
+ * 嵌套很深的响应不会撑爆调用栈。
+ */
+function jsonCarriesSecret(json: unknown, secret: string): boolean {
+    const pending: unknown[] = [json];
+    while (pending.length > 0) {
+        const value = pending.pop();
+        if (typeof value === "string") {
+            if (value.includes(secret)) return true;
+        } else if (Array.isArray(value)) {
+            pending.push(...(value as unknown[]));
+        } else if (typeof value === "object" && value !== null) {
+            for (const [name, item] of Object.entries(value)) {
+                if (name.includes(secret)) return true;
+                pending.push(item);
+            }
+        }
+    }
+    return false;
+}
+
 /** 先遮盖再截短（截短后再遮盖会漏掉被切开的片段）。 */
 export function safeDetail(text: string, secret: string): string {
     return clip(redact(text, secret), DETAIL_LIMIT);
@@ -105,11 +130,21 @@ export function safeDetail(text: string, secret: string): string {
 
 const REQUEST_ID = /request_id:\s*([\w-]+)/u;
 
-/** 错误响应只取 `error.message`（输出 12）；不是这个形状就不给详情，不转抄原始响应体。 */
-function errorInfo(body: string, secret: string): {readonly detail?: string; readonly requestId?: string} {
+/**
+ * 各家错误响应的不同之处（输出 12 与“失败与恢复”）：说明在响应体的哪里，以及通用表之外的状态码。
+ */
+export interface ServiceDialect {
+    /** 错误响应体（已解析的 JSON）里给人看的那句说明；不是字符串就不给详情。 */
+    readonly errorMessage: (body: unknown) => unknown;
+    /** 补在通用表上的状态码，例如 Tavily 的 432、433 是额度用完。 */
+    readonly statusCodes?: Readonly<Record<number, ProviderFailureCode>>;
+}
+
+/** 错误响应只取服务给的那句说明（输出 12）；不是这个形状就不给详情，不转抄原始响应体。 */
+function errorInfo(body: string, secret: string, dialect: ServiceDialect): {readonly detail?: string; readonly requestId?: string} {
     let message: unknown;
     try {
-        message = (JSON.parse(body) as {error?: {message?: unknown}} | null)?.error?.message;
+        message = dialect.errorMessage(JSON.parse(body));
     } catch {
         return {};
     }
@@ -139,7 +174,7 @@ export type JsonOutcome = {readonly ok: true; readonly json: unknown} | Provider
  * POST 一个 JSON 请求、读 JSON 响应。只有 429 重试一次，等完会超过总截止就不重试；其它失败都不重发：服务可能已经执行并计费
  * （输出 10）。不跟随重定向：跟随会把同一个带密钥的请求在新地址再发一次，绕过上面的重发规则；3xx 按失败交回。
  */
-export async function postJson(url: string, body: unknown, key: string, scope: CallScope, options: HttpOptions): Promise<JsonOutcome> {
+export async function postJson(url: string, body: unknown, key: string, scope: CallScope, options: HttpOptions, dialect: ServiceDialect): Promise<JsonOutcome> {
     for (let attempt = 0; ; attempt += 1) {
         if (scope.signal.aborted) return {ok: false, code: "timeout"};
         let response: Response;
@@ -160,14 +195,17 @@ export async function postJson(url: string, body: unknown, key: string, scope: C
         if (response.ok) {
             const read = await readBounded(response, SUCCESS_BODY_LIMIT, scope.signal);
             if (!read.ok) return {ok: false, code: read.code, status: response.status};
-            // 服务把密钥原样带了回来（例如回显请求头）：这份响应不交出去，它会进工具结果与会话（输出 14）。太短的密钥可能与
-            // 正常文字撞上，不查。
-            if (key.length >= SECRET_FRAGMENT && read.text.includes(key)) return {ok: false, code: "bad-response", status: response.status};
+            // 服务把密钥原样带了回来（例如回显请求头）：这份响应不交出去，它会进工具结果与会话（输出 14）。原文与解析后的值都查：
+            // 原文里找得到的不用解析就拒收，转义写法的要解析后才看得出来。
+            if (containsSecret(read.text, key)) return {ok: false, code: "bad-response", status: response.status};
+            let json: unknown;
             try {
-                return {ok: true, json: JSON.parse(read.text)};
+                json = JSON.parse(read.text);
             } catch {
                 return {ok: false, code: "bad-response", status: response.status};
             }
+            if (key.length >= SECRET_FRAGMENT && jsonCarriesSecret(json, key)) return {ok: false, code: "bad-response", status: response.status};
+            return {ok: true, json};
         }
         const read = await readBounded(response, ERROR_BODY_LIMIT, scope.signal);
         if (!read.ok) return {ok: false, code: read.code, status: response.status};
@@ -178,6 +216,6 @@ export async function postJson(url: string, body: unknown, key: string, scope: C
                 continue;
             }
         }
-        return {ok: false, code: STATUS_CODES[response.status] ?? "failed", status: response.status, ...errorInfo(read.text, key)};
+        return {ok: false, code: dialect.statusCodes?.[response.status] ?? STATUS_CODES[response.status] ?? "failed", status: response.status, ...errorInfo(read.text, key, dialect)};
     }
 }

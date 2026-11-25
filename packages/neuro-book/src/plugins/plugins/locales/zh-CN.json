@@ -248,9 +248,9 @@
             "name": "书房主题",
             "description": "白天窗边、夜里台灯的一套外观。"
         },
-        "nbook-web-tools": {
+        "nbook-web": {
             "name": "网页工具",
-            "description": "给写作助手的网页搜索与读取，经 DeepSeek 的搜索接口。"
+            "description": "给写作助手的网页搜索与读取，经 DeepSeek 或 Tavily 的搜索接口。"
         }
     }
 }

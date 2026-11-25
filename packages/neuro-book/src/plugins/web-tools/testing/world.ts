@@ -1,6 +1,6 @@
 /**
- * `nbook.web-tools` 的测试场地：在 Agent 的场地（真实服务端、设置文件、会话与 eval 子进程，`agent/testing/world.ts`）上按产品宿主的
- * 装法装本插件，DeepSeek 的地址指向测试给的本机假接口；另给一个窗口经真实远程合同调设置页的方法。只由测试使用。
+ * `nbook.web` 的测试场地：在 Agent 的场地（真实服务端、设置文件、会话与 eval 子进程，`agent/testing/world.ts`）上按产品宿主的
+ * 装法装本插件，DeepSeek 与 Tavily 的地址指向测试给的本机假接口；另给一个窗口经真实远程合同调设置页的方法。只由测试使用。
  */
 
 import {join} from "node:path";
@@ -11,6 +11,8 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {definitionAt} from "nbook/manifest";
+import {settingsKey} from "nbook/plugins/settings/shared/contracts";
+import type {SettingsService} from "nbook/shared/settings";
 import {agentProfile} from "nbook/plugins/agent/shared/points";
 import {localModelSettings} from "nbook/plugins/agent/testing/endpoint";
 import {agentWorld} from "nbook/plugins/agent/testing/world";
@@ -32,8 +34,10 @@ export interface WebWorld {
     readonly keysPath: string;
     /** 新建一个用测试 Profile 的会话。 */
     open(): Promise<SessionApi>;
-    /** 起一个窗口，交回它的 `nbook.web-tools/settings` 客户端。 */
+    /** 起一个窗口，交回它的 `nbook.web/settings` 客户端。 */
     settings(id: string): Promise<WebSettingsClient>;
+    /** 起一个窗口，交回远程合同的客户端与窗口的设置服务（设置页经它写“使用”哪家）。 */
+    window(id: string): Promise<{readonly remote: WebSettingsClient; readonly settings: SettingsService}>;
     close(): Promise<void>;
 }
 
@@ -50,6 +54,8 @@ function profilePlugin(): PluginDefinition {
 
 export async function webWorld(root: string, options: {
     readonly deepseekBaseUrl: string;
+    /** 缺省指向一个不会有人监听的本机地址：只测 DeepSeek 的用例不该发到 Tavily。 */
+    readonly tavilyBaseUrl?: string;
     readonly modelBaseUrl: string;
     readonly userSettings?: Readonly<Record<string, unknown>>;
     /** 换掉密钥文件（例如让读密钥停在测试控制的地方）；缺省用产品的插件定义。 */
@@ -60,12 +66,24 @@ export async function webWorld(root: string, options: {
         plugins: [definitionAt("server", descriptor, plugin), profilePlugin()],
         userSettings: {
             ...localModelSettings(options.modelBaseUrl),
-            "nbook.web-tools/deepseekBaseUrl": options.deepseekBaseUrl,
+            "nbook.web/deepseekBaseUrl": options.deepseekBaseUrl,
+            "nbook.web/tavilyBaseUrl": options.tavilyBaseUrl ?? "http://127.0.0.1:9/",
             "nbook.agent/profileSettings": {[WEB_TEST_PROFILE]: {approvalMode: "yolo"}},
             ...options.userSettings,
         },
     });
-    let windows = 0;
+    const window = async (id: string): Promise<{readonly remote: WebSettingsClient; readonly settings: SettingsService}> => {
+        let captured: ActivationContext | null = null;
+        // 用本插件的 id 与描述：设置服务只让插件写自己声明的项，产品里写“使用”的是本插件的浏览器入口（设置页）。
+        const page: PluginDefinition = {id: descriptor.id, entries: [defineEntry({id: "browser", location: "browser", dependencies: [{key: settingsKey}], activationEvents: ["onStartup"], activate: (context) => {
+            captured = context;
+            return {};
+        }})]};
+        await agent.settings.window(id, [definitionAt("browser", descriptor, page)], {bound: false});
+        if (captured === null) throw new Error("the test page did not activate");
+        const context: ActivationContext = captured;
+        return {remote: useSettings(context), settings: context.services.require(settingsKey)};
+    };
     return {
         agent,
         keysPath: join(agent.stateRoot, "web", "keys.json"),
@@ -74,17 +92,8 @@ export async function webWorld(root: string, options: {
             if (!created.ok) throw new Error(`session not created: ${created.code}`);
             return created.value;
         },
-        settings: async (id) => {
-            windows += 1;
-            let captured: ActivationContext | null = null;
-            const page: PluginDefinition = {id: `test.web-page-${String(windows)}`, entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
-                captured = context;
-                return {};
-            }})]};
-            await agent.settings.window(id, [page], {bound: false});
-            if (captured === null) throw new Error("the test page did not activate");
-            return useSettings(captured);
-        },
+        settings: async (id) => (await window(id)).remote,
+        window,
         close: () => agent.close(),
     };
 }

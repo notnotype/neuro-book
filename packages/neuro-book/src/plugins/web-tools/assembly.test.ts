@@ -1,6 +1,6 @@
 /**
  * 产品装配（docs/specs/web/tools.md 输出 20、21）：按产品清单起真实服务端（`manifestServerPlugins`），本进程里的浏览器内核
- * 实例经真实 WebSocket 连上 RPC 端口，调 `nbook.web-tools/settings`。只往测试插件里注入定义，证明不了产品进程装上了本插件。
+ * 实例经真实 WebSocket 连上 RPC 端口，调 `nbook.web/settings`。只往测试插件里注入定义，证明不了产品进程装上了本插件。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 describe("产品装配", () => {
-    it("产品服务端装上了 nbook.web-tools：窗口经真实 RPC 端口调到 status", async () => {
+    it("产品服务端装上了 nbook.web：窗口经真实 RPC 端口调到 status", async () => {
         const socket = new WebSocket(backend.rpcUrl);
         const link = createSocketLink({send: (text) => socket.send(text), close: () => socket.close()});
         const closed = Promise.withResolvers<void>();
@@ -83,7 +83,7 @@ describe("产品装配", () => {
             expect(await app.startup).toMatchObject({status: "available", failures: []});
             if (captured === null) throw new Error("the probe did not activate");
             const client = (captured as ActivationContext).remote.use(webSettingsContract);
-            expect(await client.status({})).toEqual({ok: true, value: {providers: {deepseek: {hasKey: false}}}});
+            expect(await client.status({})).toEqual({ok: true, value: {providers: {deepseek: {hasKey: false}, tavily: {hasKey: false}}}});
         } finally {
             await app.stop();
             socket.close();

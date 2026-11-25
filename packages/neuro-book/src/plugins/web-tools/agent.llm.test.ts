@@ -75,6 +75,30 @@ function batchedFetches(path: readonly LogEvent[], urls: readonly string[]): Rea
     return null;
 }
 
+/** 这一段日志里成功的搜索查过哪些候选名：模型直接调的，与成功的 eval 里调的（嵌套调用记在 `nestedToolResult`）。 */
+function searchedNames(path: readonly LogEvent[], names: readonly string[]): ReadonlySet<string> {
+    const results = new Map(path.filter((event) => event.type === "toolResult").map((event) => {
+        const data = event.data as {callId: string; status: string};
+        return [data.callId, data.status] as const;
+    }));
+    const queriesOf = (args: {queries?: unknown} | undefined): string[] => (Array.isArray(args?.queries) ? args.queries.filter((query): query is string => typeof query === "string") : []);
+    const searched: string[] = [];
+    const okEvals = new Set<string>();
+    for (const event of path) {
+        if (event.type !== "toolStarted") continue;
+        const started = event.data as {callId: string; tool: string; invocation: string; args?: {queries?: unknown}};
+        if (results.get(started.callId) !== "ok") continue;
+        if (started.tool === SEARCH_TOOL) searched.push(...queriesOf(started.args));
+        if (started.tool === "nbook.agent.eval") okEvals.add(started.invocation);
+    }
+    for (const event of path) {
+        if (event.type !== "nestedToolResult") continue;
+        const nested = event.data as {within: {invocation: string}; tool: string; args?: {queries?: unknown}; status: string};
+        if (nested.tool === SEARCH_TOOL && nested.status === "ok" && okEvals.has(nested.within.invocation)) searched.push(...queriesOf(nested.args));
+    }
+    return new Set(names.filter((name) => searched.some((query) => query.toLowerCase().includes(name.toLowerCase()))));
+}
+
 describe.skipIf(config === null)("网页工具接真实模型", () => {
     test("模型自己用 web_search 查；再在一次 eval 里批量 web_fetch 三个网址，拿到结构值", async () => {
         const {provider, model} = splitReference(config!.model)!;
@@ -99,6 +123,18 @@ describe.skipIf(config === null)("网页工具接真实模型", () => {
         const searches = afterSearch.filter((event) => event.type === "toolStarted" && (event.data as {tool?: string}).tool === SEARCH_TOOL);
         expect(searches.length).toBeGreaterThan(0);
         expect(toolCalls(afterSearch, "toolResult").some((result) => result.tool === SEARCH_TOOL && result.status === "ok")).toBe(true);
+
+        // 查一串互不相关的名字：工具说明让模型一次写几条查询，不再一个名字一次（w00052 t02 的来源：46 次串行搜索）。
+        const names = ["Stellafolio", "Lumifolio", "Astrascribe", "Starquill"];
+        const batchTurn = await session.send({commandId: "llm-web-names", input: {text: `帮我查一下这几个名字有没有被别的软件或网站用过：${names.join("、")}。每个名字各给一句结论。`}});
+        if (!batchTurn.ok || batchTurn.value.runId === null) throw new Error(`send failed: ${JSON.stringify(batchTurn)}`);
+        await session.waitRun(batchTurn.value.runId);
+        // 判据：这一轮成功的搜索（直接调或在成功的 eval 里调）覆盖了几乎全部候选名，且模型往返不超过 3 次（一次搜完再作答是 2 次；
+        // 一个名字一次要 5 次以上）。
+        const namesPath = (await session.path()).slice(afterSearch.length);
+        const covered = searchedNames(namesPath, names);
+        expect(covered.size).toBeGreaterThanOrEqual(names.length - 1);
+        expect(namesPath.filter((event) => event.type === "modelStarted").length).toBeLessThanOrEqual(3);
 
         const second = await session.send({commandId: "llm-web-2", input: {text: [
             "用 eval 写一段代码，一次做完，不要逐个调工具：",
