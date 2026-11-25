@@ -397,6 +397,7 @@ describe("两家服务（输出 1、3、5、12、13、19；验收 5）", () => {
         const {remote, settings} = await w.window("w");
         // 选用哪家与两家的地址决定密钥发往哪里，都只有用户层（“输入与前置条件”）。
         for (const setting of [webSettings.settings.provider, webSettings.settings.deepseekBaseUrl, webSettings.settings.tavilyBaseUrl]) expect(settings.declaration(setting)?.layers).toEqual(["user"]);
+        expect([settings.inspect(webSettings.settings.provider).default, settings.inspect(webSettings.settings.deepseekBaseUrl).default, settings.inspect(webSettings.settings.tavilyBaseUrl).default]).toEqual(["deepseek", "https://api.deepseek.com", "https://api.tavily.com"]);
         await setKey(remote);
         const session = await w.open();
         expect(await settings.update(webSettings.settings.provider, "tavily", {layer: "user"})).toMatchObject({ok: true});
@@ -508,6 +509,9 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         expect(invalid.text).toContain("详情：query 2: the query with its filters is longer than 128 characters");
         expect(await callTool(session, "web_search", {queries: ["好", "坏"], after: "2026/01/01"})).toMatchObject({status: "error", code: "invalid-request"});
         expect((await callTool(session, "web_search", {queries: Array.from({length: MAX_QUERIES + 1}, (_, index) => `q${String(index)}`)})).status).toBe("error");
+        // 版本 2 取代了单条的 `query`：旧写法与空数组都不收（“边界与兼容”）。
+        expect((await callTool(session, "web_search", {query: "旧参数"})).status).toBe("error");
+        expect((await callTool(session, "web_search", {queries: []})).status).toBe("error");
         expect(deepseek.requests).toHaveLength(0);
 
         deepseek.route("/v1/tools/search", (body) => (queryOf(body) === "长" ? {json: {results: [{...sampleHit(0), summary: "长".repeat(SUMMARY_LIMIT)}]}} : {json: {results: []}}));
