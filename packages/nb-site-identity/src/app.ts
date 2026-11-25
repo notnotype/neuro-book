@@ -26,6 +26,7 @@ import {registerMeRoutes, type MeOptions} from "./me";
 import {appendCookies, requireSameOrigin} from "./middleware";
 import {registerMySessionRoutes, type MySessionsOptions} from "./my-sessions";
 import {registerOAuthConsentRoutes, type OAuthConsentOptions} from "./oauth/consent-api";
+import {registerGrantRoutes, type GrantOptions} from "./oauth/grants";
 import {registerRoute, type RegisterOptions} from "./register";
 import type {Sessions} from "./session";
 
@@ -48,6 +49,7 @@ export interface IdentityAppOptions {
     readonly audit: AuditListOptions;
     readonly adminOAuthClients: OAuthClientAdminOptions;
     readonly oauthConsent: OAuthConsentOptions;
+    readonly grants: GrantOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -93,6 +95,7 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     registerAuditListRoute(app, options.audit);
     registerOAuthClientAdminRoutes(app, options.adminOAuthClients);
     registerOAuthConsentRoutes(app, options.oauthConsent);
+    registerGrantRoutes(app, options.grants);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));
