@@ -142,10 +142,10 @@ describe("改动记录视图", () => {
         expect((await stored(other.canon, id)).deleted ?? false).toBe(false);
         await waitUntil("列表顶上是这次还原", () => titles(view)[0] === "还原“删除星瑕”");
 
-        // 编辑区里没有条目页、回执页、变更详情页挂着：提示交给工作台通知，动作是“看回执”。
+        // 编辑区里没有条目页、回执页、变更详情页挂着：提示交给工作台通知，动作是“查看详情”。
         const [entry] = notifications.center.entries.value;
         expect(entry === undefined ? "" : `${port.t(entry.title ?? "")} ${port.t(entry.message)}`).toContain("还原“删除星瑕”");
-        expect(entry?.action === undefined ? "" : port.t(entry.action.label)).toBe("看回执");
+        expect(entry?.action === undefined ? "" : port.t(entry.action.label)).toBe("查看详情");
     });
 
     it("被拒收（验收 12）：世界日志的锁被别的进程占着时，确认以后对话框不关、写出原因；锁放开以后再确认就还原了", async () => {

@@ -49,10 +49,12 @@ const SIDEBAR_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-git-branch"
 /** 无参数的页面，刷新后恢复；标题由约定键补（`editorPages.<本地 id>.title`）。 */
 const TABLE_PAGE: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-table-2", restore: true};
 
-/** 专门界面的标题由约定键补（`componentViews.<本地 id>.title`）。 */
-const COMPONENT_VIEW: ComponentViewDeclaration = {};
-/** 条目启用了 canon 的人物类型才出“经历”。 */
-const EXPERIENCE_DECLARATION: EntryTabDeclaration = {requires: PERSON_COMPONENT};
+/** 专门界面的标题由约定键补（`componentViews.<本地 id>.title`）；图标各一个。 */
+const KNOWING_VIEW: ComponentViewDeclaration = {icon: "i-lucide-key-round"};
+const ATTITUDE_VIEW: ComponentViewDeclaration = {icon: "i-lucide-target"};
+const POINT_VIEW: ComponentViewDeclaration = {icon: "i-lucide-eye"};
+/** 条目启用了 canon 的人物类型才出“经历”；它全是从剧情里算出来的，作品里还没有剧情变更时不出。 */
+const EXPERIENCE_DECLARATION: EntryTabDeclaration = {requires: PERSON_COMPONENT, icon: "i-lucide-footprints", needsChanges: true};
 
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
 /** 都只改这个窗口的布局（打开页面、显示视图），不改作品；Agent 读剧情走 `nbook.plot/world`。 */
@@ -108,9 +110,9 @@ export const plotBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: SECRETS_PAGE, declaration: TABLE_PAGE},
             {capability: EDITOR_PAGES_POINT, id: LEDGER_PAGE, declaration: TABLE_PAGE},
             {capability: EDITOR_PAGES_POINT, id: GOALS_PAGE, declaration: TABLE_PAGE},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: COMPONENT_IDS.knowing, declaration: COMPONENT_VIEW},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: COMPONENT_IDS.attitude, declaration: COMPONENT_VIEW},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: COMPONENT_IDS.point, declaration: COMPONENT_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: COMPONENT_IDS.knowing, declaration: KNOWING_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: COMPONENT_IDS.attitude, declaration: ATTITUDE_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: COMPONENT_IDS.point, declaration: POINT_VIEW},
             {capability: CANON_ENTRY_TABS_POINT, id: EXPERIENCE_TAB, declaration: EXPERIENCE_DECLARATION},
             ...Object.entries(COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],

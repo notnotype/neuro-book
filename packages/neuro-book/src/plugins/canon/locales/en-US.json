@@ -8,7 +8,7 @@
             "title": "New entry"
         },
         "open-receipt": {
-            "title": "Open Receipt"
+            "title": "View Change Details"
         },
         "open-change": {
             "title": "Open Story Change"
@@ -87,11 +87,11 @@
     "entry": {
         "missing": "This entry was not found",
         "deleted": "This entry has been deleted",
-        "notAppeared": "Not yet on stage at {{position}}",
+        "notAppeared": "Not on stage yet",
         "positionGone": "The chapter you picked is gone",
         "sameAs": "Really: ",
-        "position": "Position",
-        "planned": "Include plans",
+        "position": "Point in the story",
+        "planned": "Include planned events",
         "tabs": {
             "label": "Entry tabs",
             "text": "Text",
@@ -105,16 +105,15 @@
         "deleteConfirm": "Delete",
         "deleteSaved": "Deleted “{{name}}”",
         "moveTo": "Move to…",
-        "addComponent": "Add a settings group…",
         "removeComponent": "Remove the “{{name}}” group",
         "restore": "Restore this entry",
         "editName": "Rename",
         "editSummary": "Edit summary",
-        "addSummary": "Add summary",
+        "addSummary": "One-line summary",
         "aliases": "Aliases",
         "removeAlias": "Remove alias {{alias}}",
-        "newAlias": "New alias, press Enter",
-        "addAlias": "+ Alias",
+        "newAlias": "New alias",
+        "addAlias": "Add alias",
         "nameLabel": "Name",
         "summaryLabel": "Summary",
         "aliasAdded": "Add alias {{alias}} to {{name}}",
@@ -123,18 +122,20 @@
         "restoreGroup": "Restore “{{name}}”",
         "groupAdded": "Add the “{{name}}” group",
         "groupRemoved": "Remove the “{{name}}” group",
-        "addComponentTitle": "Add a settings group",
-        "addComponentConfirm": "Add",
-        "noMoreGroups": "This entry already has every registered group.",
         "removeComponentConfirm": "Remove",
         "removeComponentDescription": "The data is kept; you can add the group back later.",
         "fieldAdded": "Added {{label}} to {{name}}",
         "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
-        "fieldRestored": "Restored “{{label}}” on {{name}}"
+        "fieldRestored": "Restored “{{label}}” on {{name}}",
+        "plannedMark": "Planned events included",
+        "leavePlans": "Leave out planned events",
+        "addComponentShort": "Add a settings group",
+        "groupAlreadyAdded": "This settings group is already on the entry",
+        "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
     },
     "position": {
-        "initial": "Initial",
+        "initial": "Before the story",
         "start": "Start of chapter {{index}}",
         "end": "End of chapter {{index}}",
         "startTitled": "Start of chapter {{index}}: {{title}}",
@@ -163,7 +164,7 @@
     "origin": {
         "caption": "How {{label}} came to be",
         "more": "Show earlier ({{count}} steps left)",
-        "initial": "Initial value",
+        "initial": "Before the story",
         "check": "Check: the text says {{written}}",
         "checkOk": "matches",
         "checkMismatch": "does not match",
@@ -202,7 +203,7 @@
         "unknown": "Unsure what reached the world; writing is paused",
         "busy": "{{holder}} is writing; edits resume when it finishes",
         "disconnected": "The world is disconnected",
-        "planned": "Turn off Include plans first",
+        "planned": "Leave out planned events first",
         "initial": "Pick a chapter first"
     },
     "failure": {
@@ -229,7 +230,7 @@
         "cancel": "Cancel",
         "changedElsewhere": "This entry was changed elsewhere after the dialog opened. Close and reopen it to see the change, or save again to keep what you entered here.",
         "previewing": "Previewing…",
-        "routeInit": "Changes the initial value",
+        "routeInit": "Changes the value before the story",
         "routePatch": "Changes the step “{{text}}” in {{place}}",
         "routeChange": "Records a new change at {{position}}",
         "routeEntry": "Changes the entry itself",
@@ -250,11 +251,11 @@
         "saved": "Recorded: {{text}}"
     },
     "notice": {
-        "receipt": "View receipt",
+        "receipt": "View details",
         "close": "Close",
         "label": "Change just saved",
-        "undo": "Undo",
-        "undone": "Undone",
+        "undo": "Revert",
+        "undone": "Reverted",
         "agentLabel": "The agent changed settings",
         "agentChanged": "The agent changed settings: {{title}}",
         "agentEarlier": " ({{count}} earlier changes)",
@@ -342,7 +343,7 @@
             "sameAs": "Another identity of",
             "appears": "First appears",
             "deleted": "Deleted",
-            "initBasis": "Basis of initial values",
+            "initBasis": "Basis for values before the story",
             "fieldAdded": "Added a field",
             "fieldRemoved": "Removed a field",
             "fieldRestored": "Restored a field",
@@ -452,7 +453,7 @@
             "task": "Task",
             "system": "System"
         },
-        "receipt": "View receipt",
+        "receipt": "View details",
         "revert": "Revert",
         "more": "Show more",
         "empty": "No changes yet",
@@ -538,7 +539,7 @@
             "written": "In the text",
             "suspects": "Possibly one of these",
             "estimate": "Estimate",
-            "initial": "Initial value",
+            "initial": "Before the story",
             "reason": "Reason",
             "root": "The change that broke it",
             "followers": "Also failing",
@@ -708,7 +709,6 @@
     "character": {
         "portraitOpen": "Look",
         "addPortrait": "Add a portrait",
-        "addLook": "Add a look",
         "restoreLook": "Restore look",
         "lookFrom": "Has a look from {{from}}",
         "hint": {

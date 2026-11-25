@@ -9,11 +9,10 @@ import {join} from "node:path";
 
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {defineComponent, h, reactive, ref} from "vue";
+import {defineComponent, h, nextTick, reactive, ref} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
-import {Select} from "@notnotype/nb-ui/components";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -35,7 +34,7 @@ import EntryPage from "./components/EntryPage.vue";
 import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
-import {createEntryPage, originsFetcher} from "./entry-page";
+import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
 import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";
@@ -105,6 +104,20 @@ const cells = (element: Element): string => [...element.children].map((child) =>
 const originRows = (wrapper: ReturnType<typeof mount>): string[] => wrapper.findAll("[data-origin-row]").map((row) => cells(row.element));
 
 describe("条目页", () => {
+    it("标签的图标按条目的种类（workbench/editor 输出 53）：人物是人像，种类没登记图标的是书签；还没读到条目时不给（交给编辑器记着的）", async () => {
+        const {other, page, open} = await setup();
+        const star = person("星瑕", {type: "人物"});
+        const odd = person("钥匙", {type: "法器"});
+        const ids = await publish(other.canon, [star, odd]);
+        expect(page.icon!(ids[star.id]!)).toBeNull();
+        const starPage = await open(ids[star.id]!);
+        await waitUntil("人物的页头", () => starPage.wrapper.find("h1").exists() && starPage.wrapper.find("h1").text() === "星瑕");
+        expect(page.icon!(ids[star.id]!)).toBe("i-lucide-user-round");
+        const oddPage = await open(ids[odd.id]!);
+        await waitUntil("法器的页头", () => oddPage.wrapper.find("h1").exists() && oddPage.wrapper.find("h1").text() === "钥匙");
+        expect(page.icon!(ids[odd.id]!)).toBe(ENTRY_PAGE_ICON);
+    });
+
     it("页头、标签标题与面包屑；缺省位置是最新一章末尾；换位置后文字里的值跟着变", async () => {
         const {other, page, open} = await setup();
         const star = person("星瑕");
@@ -146,7 +159,7 @@ describe("条目页", () => {
         expect(originRows(wrapper)).toEqual([
             "第 2 章 买了书 估计：书大概三百 −300 900 元 改这一笔",
             "第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔",
-            "初值 1,000 元",
+            "故事开始前 1,000 元",
         ]);
         expect(wrapper.find("[data-origin-row] .text-\\[var\\(--status-warning\\)\\]").text()).toBe("估计：书大概三百");
         await wrapper.get("[data-value]").trigger("click");
@@ -173,7 +186,7 @@ describe("条目页", () => {
         cleanups.push(() => observer.disconnect());
         state.position = "1:end";
         await waitUntil("值与来历都换成第 1 章末尾的", () => valueText(wrapper) === "1,200" && originRows(wrapper).length === 2);
-        expect(originRows(wrapper)).toEqual(["第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔", "初值 1,000 元"]);
+        expect(originRows(wrapper)).toEqual(["第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔", "故事开始前 1,000 元"]);
         expect(seen.some((shown) => shown.includes("读取中"))).toBe(false);
     });
 
@@ -202,7 +215,7 @@ describe("条目页", () => {
         await waitUntil("文字里的值", () => wrapper.find("[data-value]").exists());
         await wrapper.get("[data-value]").trigger("click");
         await waitUntil("第一页", () => originRows(wrapper).length === 21);
-        expect(originRows(wrapper).at(-1)).toBe("初值 1,000 元");
+        expect(originRows(wrapper).at(-1)).toBe("故事开始前 1,000 元");
         expect(wrapper.text()).toContain("再显示更早的（还有 5 步）");
         const more = wrapper.findAll("button").find((button) => button.text().startsWith("再显示更早的"))!;
         await more.trigger("click");
@@ -291,22 +304,23 @@ describe("条目页", () => {
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper, state} = await open(id);
         const tabs = () => wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
-        await waitUntil("分页", () => tabs().includes("文字") && tabs().some((tab) => tab.startsWith("情节")));
-        expect(tabs()).toEqual(["人物", "文字", "面板", "情节0"]);
+        // 作品里还没有剧情变更：没有“情节”（输出 9）。
+        await waitUntil("分页", () => tabs().includes("文字") && tabs().includes("面板"));
+        expect(tabs()).toEqual(["人物", "文字", "面板"]);
         await waitUntil("先看人物", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "人物");
 
-        wrapper.findComponent(EntryPage).vm.$emit("add-component");
-        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
-        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "徽章"))!;
-        expect(groups.props("options").map((option) => option.label)).toEqual(["形象", "徽章"]);
+        // “＋”里能加的：适用于人物的（形象）在前，其余（徽章）接在后面。
+        const addable = () => (wrapper.findComponent(EntryPage).props("addable") as readonly {label: string}[]).map((item) => item.label);
+        await waitUntil("能加的组", () => addable().includes("徽章"));
+        expect(addable()).toEqual(["形象", "徽章"]);
 
         // 种类不是人物的条目：分页照旧，文字在前。
         const item = person("魔杖", {type: "物品"});
         const itemId = (await publish(other.canon, [item]))[item.id]!;
         const other2 = await open(itemId);
         const tabs2 = () => other2.wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
-        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().some((tab) => tab.startsWith("情节")));
-        expect(tabs2()).toEqual(["文字", "人物", "面板", "情节0"]);
+        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().includes("面板"));
+        expect(tabs2()).toEqual(["文字", "人物", "面板"]);
     });
 
     it("人物条目有没提交的主文字稿时，打开页面选“文字”、直接在编辑里（输出 9、45）", async () => {
@@ -362,7 +376,7 @@ describe("条目页", () => {
         const unappeared = await open(ids[late.id]!);
         unappeared.state.position = "1:end";
         // 章标题来自章节文件名（活页夹约定），这里没有章节文件，所以只有序号。
-        await waitUntil("未出场", () => unappeared.wrapper.text().includes("在第 1 章末尾还没出场"));
+        await waitUntil("未出场", () => unappeared.wrapper.text().includes("这时还没出场"));
     });
 
     it("项目实例停止：页面顶上有“世界已断开”，内容留着", async () => {
@@ -425,8 +439,9 @@ describe("读取次数", () => {
         await publish(other.canon, [change(id, "2", "买了书", -300)]);
         await waitUntil("条目页更新", () => valueText(entry) === "700");
         const reads = counted.calls.slice(before).map((call) => call.method).sort();
-        // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页，加上读取层自己的 status：每个一次，不多读。
-        expect(reads).toEqual(["changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
+        // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页、作品里有没有计划（时间点的勾选项，输出 7）、有没有剧情变更
+        // （“情节”出不出，输出 9），加上读取层自己的 status：每个一次，不多读。
+        expect(reads).toEqual(["changes", "changes", "changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
     });
 
     it("换过的读取不再占着：换到读过的位置、离开文字分页以后，一次发布只重读在用的", async () => {
@@ -450,12 +465,14 @@ describe("读取次数", () => {
         await waitUntil("第 1 章开头读到", () => counted.calls.some((call) => call.method === "entry" && JSON.stringify(call.input).includes('"edge":"start"')));
         await waitUntil("第 1 章开头显示出来", () => entry.find("[data-value]").exists());
         state.position = null;
-        state.tab = "plot";
-        await waitUntil("情节分页", () => entry.find("[data-plot-list]").exists());
+        state.tab = "data:panel";
+        // 这里没有登记专门界面：面板分页是通用字段表。
+        const money = (): string => entry.find("[role='tabpanel']").text();
+        await waitUntil("面板分页", () => entry.find("[data-edit='panel.存款']").exists() && money().includes("1,000"));
 
         const before = counted.calls.length;
         await publish(other.canon, [change(id, "2", "买了书", -300)]);
-        await waitUntil("情节更新", () => entry.findAll("[data-change]").length === 1);
+        await waitUntil("值更新", () => money().includes("700"));
         const reads = counted.calls.slice(before).filter((call) => call.method === "entry" || call.method === "render");
         expect(reads.map((call) => call.method)).toEqual(["entry"]);
         expect(JSON.stringify(reads[0]!.input)).toContain('"edge":"end"');
@@ -474,7 +491,7 @@ describe("写入", () => {
     };
     const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
 
-    it("改一个只在初值设过的字段：预览写“改初值”，保存后值变了、顶上有提示、焦点回到“改”；按计划时“改”不可用", async () => {
+    it("改一个只在初值设过的字段：预览写“改故事开始前的值”，保存后值变了、顶上有提示、焦点回到“改”；按计划时“改”不可用", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -485,7 +502,7 @@ describe("写入", () => {
         const bar = await startEdit(wrapper, "character.性格");
         expect(document.activeElement?.tagName).toBe("TEXTAREA");
         await bar.get("textarea").setValue("银发");
-        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
         await waitUntil("值变了", () => wrapper.get("[data-edit='character.性格']").text().includes("银发"));
         await waitUntil("编辑收起", () => !wrapper.find(EDITOR).exists());
@@ -502,25 +519,39 @@ describe("写入", () => {
 
         state.planned = true;
         await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.性格']").attributes("disabled") !== undefined);
-        expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先关掉按计划");
+        expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先不算计划");
     });
 
-    it("页头改名、改简介：确认条在页头之下，文字分页上也能改；保存后页头换了名字、顶上有提示", async () => {
+    it("页头改名、改简介：点名字本身在原处出浮层（与短项同一种），不出确认条；保存后页头换了名字、有提示，焦点回到名字", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper} = await open(id);
-        const bar = await startEdit(wrapper, "entry.name");
-        await bar.get("textarea").setValue("夜王");
-        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
-        await buttonByText(wrapper, "保存")!.trigger("click");
+        const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor="${path}"]`);
+        const fill = (path: string, value: string): void => {
+            const field = editorOf(path)!.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea")!;
+            field.value = value;
+            field.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        const save = (path: string): void => [...editorOf(path)!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+
+        await waitUntil("名字按钮", () => wrapper.find("[data-edit='entry.name']").exists());
+        await wrapper.get("[data-edit='entry.name']").trigger("click");
+        await waitUntil("浮层里的编辑器", () => editorOf("entry.name") !== null);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        fill("entry.name", "夜王");
+        await waitUntil("预览", () => editorOf("entry.name")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        save("entry.name");
         await waitUntil("名字变了", () => wrapper.get("h1").text() === "夜王");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改名字");
-        const summary = await startEdit(wrapper, "entry.summary");
-        await summary.get("textarea").setValue("第三魔法学院一年级");
-        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
-        await buttonByText(wrapper, "保存")!.trigger("click");
-        await waitUntil("简介", () => wrapper.text().includes("第三魔法学院一年级"));
+        await waitUntil("焦点回到名字", () => document.activeElement?.getAttribute("data-edit") === "entry.name");
+
+        await wrapper.get("[data-edit='entry.summary']").trigger("click");
+        await waitUntil("简介的编辑器", () => editorOf("entry.summary") !== null);
+        fill("entry.summary", "第三魔法学院一年级");
+        await waitUntil("预览", () => editorOf("entry.summary")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        save("entry.summary");
+        await waitUntil("简介", () => wrapper.get("[data-edit='entry.summary']").text() === "第三魔法学院一年级");
     });
 
     it("页头的别名、加去一组设定、删除后恢复：都是一次改几处，结果在页上看得到", async () => {
@@ -529,7 +560,7 @@ describe("写入", () => {
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper, state} = await open(id);
         await waitUntil("别名一行", () => wrapper.find("[data-entry-aliases]").exists());
-        await buttonByText(wrapper, "＋别名")!.trigger("click");
+        await buttonByText(wrapper, "添加别名")!.trigger("click");
         const input = wrapper.get("[data-entry-aliases] input");
         await input.setValue("小瑕");
         await input.trigger("keydown", {key: "Enter"});
@@ -545,14 +576,14 @@ describe("写入", () => {
         await waitUntil("确认对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("数据会保留") === true);
         [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "去掉")!.click();
         await waitUntil("人物分页没了", () => !wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
-        wrapper.findComponent(EntryPage).vm.$emit("add-component");
-        // 可以加的不止一组（还有形象），缺省选中的是第一组：下拉里选“恢复‘人物’”。下拉是弹出层，这里直接发它选中后的事件。
-        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
-        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "恢复“人物”"))!;
-        groups.vm.$emit("update:modelValue", "nbook.canon.person");
-        await waitUntil("选中要恢复的那一组", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("恢复“人物”") === true);
-        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "添加")!.click();
-        await waitUntil("人物分页回来", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
+        // 分页条末尾的“＋”列出能加的组，去掉过的写“恢复”；点一项就加上（输出 38）。菜单是弹出层，这里看交给它的项、直接发它
+        // 选中后的事件。加上以后等分页出现再切过去。
+        const addable = () => wrapper.findComponent(EntryPage).props("addable") as readonly {value: string; label: string}[];
+        await waitUntil("能恢复人物", () => addable().some((item) => item.label === "恢复“人物”"));
+        wrapper.findComponent(EntryPage).vm.$emit("add-open");
+        wrapper.findComponent(EntryPage).vm.$emit("add-component", "nbook.canon.person");
+        await waitUntil("人物分页回来、切过去了", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物") && tab.attributes("aria-selected") === "true"));
+        expect(document.body.querySelector("[role='dialog']")).toBeNull();
 
         // 删除以后的页面有“恢复”。
         wrapper.findComponent(EntryPage).vm.$emit("delete");
@@ -609,7 +640,7 @@ describe("写入", () => {
         await input.trigger("input");
         await waitUntil("高亮雾崎", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("雾崎") === true);
         await input.trigger("keydown", {key: "Enter"});
-        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
         await waitUntil("写进去了", async () => {
             const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
@@ -620,7 +651,7 @@ describe("写入", () => {
         const [path, caption] = image.findAll("[data-image-input] input");
         await path!.setValue("图片/雾崎.png");
         await caption!.setValue("黑衣");
-        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
         await waitUntil("图片写进去了", async () => {
             const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
@@ -893,8 +924,8 @@ describe("写入", () => {
         expect([wrapper.find("[data-block-actions]").exists(), wrapper.find("[data-story-add]").exists()]).toEqual([false, false]);
 
         await wrapper.get("[data-text-edit]").trigger("click");
-        await waitUntil("写明原因", () => wrapper.find("[data-entry-action-error]").exists());
-        expect([wrapper.get("[data-entry-action-error]").text(), wrapper.find("[data-text-editor]").exists(), wrapper.find("[data-entry-text]").exists()]).toEqual(["这个条目的文字里有随剧情变的段落，现在不能在这里改", false, true]);
+        await waitUntil("写明原因", () => wrapper.find("[data-page-error]").exists());
+        expect([wrapper.get("[data-page-error]").text(), wrapper.find("[data-text-editor]").exists(), wrapper.find("[data-entry-text]").exists()]).toEqual(["这个条目的文字里有随剧情变的段落，现在不能在这里改", false, true]);
     });
 
 
@@ -1068,8 +1099,8 @@ describe("写入", () => {
         await waitUntil("横幅", () => wrapper.text().includes("世界已断开"), {timeoutMs: 10_000});
         // 断开以后“编辑”点不了；这里是点下去的那一刻刚断开：阅读视图已经发出了“编辑”。
         wrapper.findComponent(EntryText).vm.$emit("edit");
-        await waitUntil("写明原因", () => wrapper.find("[data-entry-action-error]").exists());
-        expect([wrapper.get("[data-entry-action-error]").text(), wrapper.find("[data-text-editor]").exists()]).toEqual(["读不到最新的文字", false]);
+        await waitUntil("写明原因", () => wrapper.find("[data-page-error]").exists());
+        expect([wrapper.get("[data-page-error]").text(), wrapper.find("[data-text-editor]").exists()]).toEqual(["读不到最新的文字", false]);
     });
 
     it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {
@@ -1128,7 +1159,7 @@ describe("写入", () => {
         first.state.tab = "data:character";
         const bar = await startEdit(first.wrapper, "character.性格");
         await bar.get("textarea").setValue("银发");
-        await waitUntil("预览", () => first.wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await waitUntil("预览", () => first.wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
 
         first.wrapper.unmount();
         const again = first.remount();
@@ -1293,7 +1324,7 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         const input = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
         input.value = "凤";
         input.dispatchEvent(new Event("input", {bubbles: true}));
-        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
         [...editorOf("badge.图案")!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
         await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.图案']").text() === "凤" && editorOf("badge.图案") === null);
         expect(state.edit).toBeNull();
@@ -1343,7 +1374,7 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         const input = editorOf("badge.介绍")!.querySelector("input")!;
         input.value = "一枚旧徽章";
         input.dispatchEvent(new Event("input", {bubbles: true}));
-        await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
         const buttons = () => [...editorOf("badge.介绍")!.querySelectorAll("button")];
         buttons().find((button) => button.textContent?.trim() === "保存")!.click();
         // 保存的请求已经发出（`saving` 在点下去的同一刻就是真）：这时的 Escape 与“取消”都不放弃。
@@ -1405,7 +1436,72 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         现在穿的: "便装",
     }};
 
-    it("立绘读自形象：有图时点了切到形象分页；没有形象这一组时“添加形象”，点了加上以后是“添加立绘”", async () => {
+    it("短项填完立刻回车：预览还没回来也保存进去，不吞掉这一下（输出 51）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("身份", () => wrapper.find("[data-edit='character.身份']").exists());
+        await wrapper.get("[data-edit='character.身份']").trigger("click");
+        const editor = (): Element | null => document.body.querySelector("[data-field-editor='character.身份']");
+        await waitUntil("浮层", () => editor()?.querySelector("input") !== null && editor()?.querySelector("input") !== undefined);
+        const input = editor()!.querySelector<HTMLInputElement>("input")!;
+        input.value = "学生";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        // 回车是下一个键盘事件（真实输入里不会和这次输入在同一段同步代码里）；离 300 毫秒的预览停顿还远。
+        await nextTick();
+        expect(editor()!.textContent).not.toContain("改故事开始前的值");
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("存进去、浮层收起", () => wrapper.get("[data-edit='character.身份']").text().includes("学生") && editor() === null);
+        expect(state.edit).toBeNull();
+    });
+
+    it("短项回车：预览说有别的变化（多了一条待处理）时不存，停在预览上，再按一次才存；回车以后又打字，回车作废（输出 51）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const character = star.init.data.character!;
+        star.init.data.character = {...character, fields: {...character.fields, 身高: 160}, declared: [{id: "身高", label: "身高", kind: "number", unit: "厘米"}]};
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        // 第 2 章正文写身高 160：现在对得上，改成别的数就多一条“核对点不符”。
+        const checkId = `tmp:${nextId()}`;
+        await publish(other.canon, [{ref: {kind: "check", id: checkId}, after: {id: checkId, at: {entry: id, path: "character.身高"}, value: 160, told: {source: "note", quote: "身高 160"}, place: {kind: "chapter", chapter: "2", key: 1}}}]);
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor='${path}']`);
+        const type = async (path: string, value: string): Promise<HTMLInputElement> => {
+            await waitUntil(path, () => wrapper.find(`[data-edit='${path}']`).exists());
+            if (editorOf(path) === null) await wrapper.get(`[data-edit='${path}']`).trigger("click");
+            await waitUntil("浮层", () => editorOf(path)?.querySelector("input") != null);
+            const input = editorOf(path)!.querySelector<HTMLInputElement>("input")!;
+            input.value = value;
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+            await nextTick();
+            return input;
+        };
+        const enter = (input: HTMLInputElement): void => void input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+
+        const height = await type("character.身高", "170");
+        enter(height);
+        await waitUntil("预览写出多了的待处理", () => editorOf("character.身高")?.textContent?.includes("多了 1 条待处理") === true);
+        expect(wrapper.get("[data-edit='character.身高']").text()).toContain("160");
+        expect(state.edit).not.toBeNull();
+        // 作者看过了，再按一次回车才存。
+        enter(height);
+        await waitUntil("存进去、浮层收起", () => wrapper.get("[data-edit='character.身高']").text().includes("170") && editorOf("character.身高") === null);
+
+        // 回车以后、预览回来之前又改了字：那一下回车作废，新的预览回来也不存。
+        const identity = await type("character.身份", "学生");
+        enter(identity);
+        await type("character.身份", "学生会长");
+        await waitUntil("新的预览", () => editorOf("character.身份")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        // 预览回来的同一刻要是发出了保存，“保存”就已经不可用（保存在途）；它可用，说明没有替作者存。
+        const save = [...editorOf("character.身份")!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "保存")!;
+        expect(save.disabled).toBe(false);
+        expect(wrapper.get("[data-edit='character.身份']").text()).not.toContain("学生");
+    });
+
+    it("立绘读自形象：有图时点了切到形象分页；没有形象这一组时点一下就加上形象、切到形象分页并打开立绘的选图（输出 49）", async () => {
         const {other, open} = await setup();
         const withLook = person("星瑕");
         withLook.init.data.look = structuredClone(LOOK);
@@ -1419,12 +1515,11 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
 
         const second = await open(ids[without.id]!);
         second.state.tab = "data:character";
-        await waitUntil("添加形象", () => second.wrapper.find("[data-portrait='absent']").exists());
+        await waitUntil("没有形象：添加立绘", () => second.wrapper.find("[data-portrait='absent']").exists());
         await second.wrapper.get("[data-portrait]").trigger("click");
-        await waitUntil("加上了形象", () => second.wrapper.find("[data-portrait='no-image']").exists());
-        // 有形象、没有立绘：“添加立绘”也是切到形象分页。
-        await second.wrapper.get("[data-portrait]").trigger("click");
-        await waitUntil("切到形象分页", () => second.state.tab === "data:look");
+        // 一次到位：加上形象、等它的分页出现后切过去，立绘的选图（锚在立绘上的就地改浮层）已经开着。
+        await waitUntil("切到形象分页、选图开着", () => second.state.tab === "data:look" && document.body.querySelector("[data-field-editor='look.立绘']") !== null);
+        expect(second.state.edit?.path).toBe("look.立绘");
     });
 
     it("形象分页：点某一套的“换上”，现在穿的的编辑里填好这一套、预选“剧情里变了”，保存以后在所选位置上换了，旁边写“第 2 章改过”", async () => {

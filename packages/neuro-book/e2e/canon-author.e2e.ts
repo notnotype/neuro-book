@@ -1,7 +1,7 @@
 /**
  * 作者界面（设定侧）在真实 Chrome 与生产构建上的验收（docs/specs/canon/author-ui.md 验收 1、2、3、5、11、14 与 10 的“在改动记录里还原”）：
  * `scripts/canon-sample.ts` 生成星瑕样本作品（经产品的世界宿主逐次发布），登记成项目 `book`；世界服务、存储与项目子进程都是真的。
- * 用例共用一部作品、按顺序跑：前面的用例只读、改了又撤销或只改文字字段，验收 5 最后才把那一笔改对（它要状态栏有“待处理 1”）。
+ * 用例共用一部作品、按顺序跑：前面的用例只读、改了又还原或只改文字字段，验收 5 最后才把那一笔改对（它要状态栏有“待处理 1”）。
  * 等页面上可观察的变化，不按时长等。
  */
 
@@ -71,7 +71,10 @@ const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-
 const inlineEditor = (page: Page, path: string) => page.locator(`[data-field-editor="${path}"]`);
 /** 切到文字分页：人物的条目打开时先看人物分页（输出 9）。 */
 const textTab = (page: Page) => entryPage(page).getByRole("tab", {name: "文字"}).click();
-const positionSelect = (page: Page) => entryPage(page).getByRole("combobox", {name: "位置"});
+/** 时间点的按钮（author-ui 输出 7）：写当前位置，点开是各位置的单选。 */
+/** 条目页各分页的名字：只剩图标时取可访问名（`aria-label`），条数不算。 */
+const tabNames = (page: Page): Promise<string[]> => entryPage(page).getByRole("tab").evaluateAll((tabs) => tabs.map((tab) => (tab.getAttribute("aria-label") ?? tab.textContent ?? "").replace(/\s*\d+$/u, "").trim()));
+const positionSelect = (page: Page) => entryPage(page).locator("[data-position-trigger]");
 const statusBar = (page: Page) => page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']");
 /** 状态栏的“待处理 N”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
 const pendingItem = (page: Page) => statusBar(page).getByRole("button").filter({hasText: /^待处理 \d+$/u});
@@ -96,7 +99,7 @@ async function openEntry(page: Page, name: string, parents: readonly string[] = 
 
 async function choosePosition(page: Page, label: RegExp): Promise<void> {
     await positionSelect(page).click();
-    await page.getByRole("option", {name: label}).click();
+    await page.getByRole("menuitemradio", {name: label}).click();
     await expect(positionSelect(page)).toHaveText(label);
 }
 
@@ -120,7 +123,8 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await expect(activeTabLabel(page)).toHaveText("星瑕");
     // 人物的条目先看人物分页，形象跟在后面、文字在它们之后（输出 9）。
     await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
-    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^面板/u, /^经历/u, /^情节/u]);
+    // 编辑区窄时没选中的分页只剩图标（author-ui 输出 9），名字在可访问名里。
+    await expect.poll(() => tabNames(page)).toEqual(["人物", "形象", "文字", "面板", "经历", "情节"]);
     await textTab(page);
 
     const latest = await value(page, "panel.存款").innerText();
@@ -135,7 +139,7 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await value(page, "panel.存款").click();
     const origins = entryPage(page).locator("[data-origin-list]");
     await expect(origins).toBeVisible();
-    await expect(origins.locator("[data-origin-row]").last()).toContainText("初值");
+    await expect(origins.locator("[data-origin-row]").last()).toContainText("故事开始前");
     // 估计的那笔：依据写“估计”，用警告色。
     const estimate = origins.locator("[data-origin-row]", {hasText: "草莓蛋糕"}).getByText(/^估计/u);
     await expect(estimate).toBeVisible();
@@ -203,7 +207,7 @@ async function showRevisions(page: Page): Promise<Locator> {
     return rows;
 }
 
-test("验收 3：就地改一个只在初值设过的字段，预览写“改初值”；保存后有提示，看回执列出改前改后；撤销以后值回到原样、改动记录多了两条", async ({page}) => {
+test("验收 3：就地改一个只在初值设过的字段，预览写“改故事开始前的值”；保存后有提示，指着它点还原以后值回到原样；还原的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
     const revisions = await (await showRevisions(page)).count();
@@ -212,25 +216,32 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改初
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = inlineEditor(page, "character.性格");
     await bar.getByRole("textbox").fill("嘴硬心软");
-    await expect(bar.locator("[data-confirm-preview]")).toContainText("改初值");
+    await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    const topBefore = (await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y;
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("嘴硬心软");
 
+    // 提示浮在页面下方，出现时内容不动；6 秒后自己收起，指着它时不收：先指着再点（author-ui 输出 18）。
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toBeVisible();
-    await notice.getByRole("button", {name: "看回执"}).click();
-    const receipt = page.locator("[data-receipt-page]");
-    await expect(receipt).toBeVisible();
-    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText("嘴硬心软");
-    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText(before);
-
-    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
-    await page.locator("[data-notice-bar]").getByRole("button", {name: "撤销"}).click();
+    expect((await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y).toBe(topBefore);
+    await notice.hover();
+    await notice.getByRole("button", {name: "还原"}).click();
     const dialog = page.locator("[data-revert-dialog]");
     await expect(dialog).toBeVisible();
     await page.getByRole("dialog").getByRole("button", {name: "还原", exact: true}).click();
     await expect(dialog).toHaveCount(0);
     await expect(fieldValue(page, "character.性格")).toHaveText(before);
+
+    // 还原成功以后提示换成还原的那一次；它的详情列出性格从“嘴硬心软”回到原来的样子。
+    await expect(notice).toContainText("还原");
+    await notice.hover();
+    await notice.getByRole("button", {name: "查看详情"}).click();
+    const receipt = page.locator("[data-receipt-page]");
+    await expect(receipt).toBeVisible();
+    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText("嘴硬心软");
+    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText(before);
+
     const rows = await showRevisions(page);
     await expect(rows).toHaveCount(revisions + 2);
     await expect(rows.first()).toContainText("还原");
@@ -311,6 +322,30 @@ async function horizontalScrolls(root: Locator): Promise<string[]> {
 }
 
 // 设定视图不在这里量：390 宽时工作台把侧栏让给编辑区，点活动栏也不出来。
+test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左边竖排、不横向滚动，窄了换回页头下面的横排；两种排法选中同一页，焦点在分页上的跟过去；名字一行写得下时不折行；标签带人物图标", async ({page}) => {
+    await page.setViewportSize({width: 1920, height: 1000});
+    await open(page);
+    await openEntry(page, "星瑕");
+    const nav = entryPage(page).locator("[data-entry-page-nav]");
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole("tab")).not.toHaveCount(0);
+    await nav.getByRole("tab", {name: /^面板/u}).click();
+    await expect(nav.getByRole("tab", {name: /^面板/u})).toHaveAttribute("aria-selected", "true");
+    expect(await horizontalScrolls(entryPage(page))).toEqual([]);
+    // 页头的名字（按钮带负外边距的浅底）一行写得下就是一行（workbench/editor 输出 53 的标签图标也在这一页上看）。
+    const nameHeight = async () => (await entryPage(page).locator("[data-edit='entry.name']").boundingBox())!.height;
+    expect(await nameHeight()).toBeLessThan(40);
+    await expect(page.locator("[data-editor-tab-icon].i-lucide-user-round")).toBeVisible();
+
+    await nav.getByRole("tab", {name: /^面板/u}).focus();
+    await page.setViewportSize({width: 1440, height: 900});
+    await expect(nav).toHaveCount(0);
+    const panelTab = entryPage(page).getByRole("tab", {name: /^面板/u});
+    await expect(panelTab).toHaveAttribute("aria-selected", "true");
+    await expect(panelTab).toBeFocused();
+    expect(await nameHeight()).toBeLessThan(40);
+});
+
 test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动", async ({page}) => {
     await open(page);
     const narrow = async (root: Locator): Promise<void> => {

@@ -32,7 +32,10 @@ export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
         ghost: (tabId) => {
             const tab = tabOf(tabId)?.tab;
             if (tab === undefined) return null;
-            return {label: tabLabel(deps.area(), tab, deps.text, deps.pages()), fileIcon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null};
+            const page = pageIdOf(tab.address) !== null;
+            // 拖影写被拖标签的图标与名字（输出 55）：文件是文件图标，页面是它的 lucide 图标（输出 53）。
+            const icon = page && tab.kind === "page" ? deps.pages()?.icon(tab) ?? null : null;
+            return {label: tabLabel(deps.area(), tab, deps.text, deps.pages()), fileIcon: page ? null : fileIconForName(nameOf(tab.address)), ...(icon === null ? {} : {icon})};
         },
         dropOutcome: (tabId, action) => deps.area().moveOutcome(tabId, action.kind === "strip" || action.kind === "center" ? action.panel : null),
         drop: (tabId, action, part, keyboard) => dropTab(deps.area(), tabId, action, part, keyboard),

@@ -3,7 +3,7 @@
  * 人物分页（同名 .md，docs/specs/canon/author-ui.md 输出 49、51、52）：把 `context` 折成 `CharacterCard` 的属性，把它的事件翻成
  * 就地改、看来历、加一项这些写入。立绘读自同一条目上的形象这一组（`context.other`）。
  */
-import {computed, shallowRef, watch} from "vue";
+import {computed, inject, onBeforeUnmount, shallowRef, watch} from "vue";
 
 import type {FieldDraft} from "@notnotype/nb-canon";
 import {Button, Dialog, Input, Popover} from "@notnotype/nb-ui/components";
@@ -11,6 +11,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import {LOOK_COMPONENT} from "../../shared/components";
 import type {ComponentViewContext} from "../component-views";
+import {LOOK_PICK_KEY} from "../look-handoff";
 import {fieldRows} from "../rows";
 import {useCanonText} from "../text";
 import CharacterCard from "./CharacterCard.vue";
@@ -84,20 +85,38 @@ watch(() => context.editing, (editing) => {
     if (editing === CONDITION && context.detail === CONDITION) context.showDetail?.(null);
 });
 
-/** 立绘那一格加上（恢复）形象：在途时不可用，被拒的原因写在立绘下面。 */
+/**
+ * 立绘那一格（输出 49）：有图时切到形象分页；没有图时一次到位——没有形象就先加上（恢复），再切到形象分页并打开立绘的选图
+ * （经 `LOOK_PICK_KEY` 交给形象分页）。加上在途时不可用，被拒的原因写在立绘下面、留在人物分页。
+ */
+const lookPick = inject(LOOK_PICK_KEY, null);
 const portraitBusy = shallowRef(false);
 const portraitError = shallowRef("");
+let alive = true;
+onBeforeUnmount(() => {
+    alive = false;
+});
 const onPortrait = async (): Promise<void> => {
     const status = portrait.value.status;
-    if (status === "image" || status === "no-image") context.showTab?.(LOOK_COMPONENT);
-    else if ((status === "absent" || status === "removed") && !portraitBusy.value) {
+    if (status === "image") context.showTab?.(LOOK_COMPONENT);
+    else if (status === "no-image") {
+        if (lookPick !== null) lookPick.value = true;
+        context.showTab?.(LOOK_COMPONENT);
+    } else if ((status === "absent" || status === "removed") && !portraitBusy.value) {
         const pending = context.addComponent?.(LOOK_COMPONENT);
         if (pending === undefined) return;
         portraitBusy.value = true;
         portraitError.value = "";
         const result = await pending;
+        // 写入在途时作者已经切走（这一页卸载了）：组照样加上，不再把人拉到形象分页。
+        if (!alive) return;
         portraitBusy.value = false;
-        if (!result.ok) portraitError.value = port.t(result.reason);
+        if (!result.ok) {
+            portraitError.value = port.t(result.reason);
+            return;
+        }
+        if (lookPick !== null) lookPick.value = true;
+        context.showTab?.(LOOK_COMPONENT);
     }
 };
 

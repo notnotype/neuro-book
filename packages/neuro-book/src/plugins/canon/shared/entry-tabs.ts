@@ -22,6 +22,10 @@ export const EntryTabDeclarationSchema = Type.Object({
     requires: Type.String({minLength: 1}),
     /** 几个附加分页之间的先后，小的在前；一样时按贡献 id。 */
     order: Type.Optional(Type.Number()),
+    /** 分页的图标：lucide 的类名（例如 `i-lucide-user-round`）；不写时条目页用缺省的（author-ui.md 输出 9）。 */
+    icon: Type.Optional(Type.String({minLength: 1, pattern: "^i-lucide-[a-z0-9-]+$"})),
+    /** 作品里还没有任何剧情变更时不出这个分页（它全是从剧情里算出来的，空着没用）。 */
+    needsChanges: Type.Optional(Type.Literal(true)),
 }, {additionalProperties: false});
 
 export type EntryTabDeclaration = Static<typeof EntryTabDeclarationSchema>;

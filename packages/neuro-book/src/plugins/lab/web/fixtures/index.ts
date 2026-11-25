@@ -24,8 +24,9 @@ import type PlainSourceInput from "nbook/plugins/canon/web/components/PlainSourc
 import type TextConflictDialog from "nbook/plugins/canon/web/components/TextConflictDialog.vue";
 import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
-import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
-import type AgentNotice from "nbook/plugins/canon/web/components/AgentNotice.vue";
+import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
+import type PositionPicker from "nbook/plugins/canon/web/components/PositionPicker.vue";
+import type EntryPageNav from "nbook/plugins/canon/web/components/EntryPageNav.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -2021,7 +2022,12 @@ function canonEntryPageFixtures() {
         {id: "c1", where: "第 1 章", text: "交了学费", flags: ["undone" as const], patches: ["存款 −800", "状态 → 入学"]},
     ];
     const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
-    const tabs = [{value: "text", label: "文字"}, {value: "data:character", label: "人物"}, {value: "data:panel", label: "面板"}, {value: "plot", label: "情节", count: 4}];
+    const tabs = [
+        {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
+        {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
+        {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
+        {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 4},
+    ];
     const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
     /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
     const IDLE = {kind: "idle"} as const;
@@ -2094,7 +2100,7 @@ function canonEntryPageFixtures() {
                     {id: "add-field", label: "添加一项资料", input: {props: filled, model: {addOpen: true}}},
                     {id: "add-refused", label: "自己写的名字被拒", input: {props: {...filled, addError: "这一组里已经有叫“喜好”的一项"}, model: {addOpen: true}}},
                     {id: "condition-open", label: "现在的状态展开着", input: {props: {...filled, conditionOpen: true}, model: {addOpen: false}}},
-                    {id: "blocked", label: "写不了：值按钮不可用", input: {props: {...filled, editReason: "先关掉按计划"}, model: {addOpen: false}}},
+                    {id: "blocked", label: "写不了：值按钮不可用", input: {props: {...filled, editReason: "先不算计划"}, model: {addOpen: false}}},
                     {id: "filled-english", label: "英文界面", input: {props: filled, model: {addOpen: false}}},
                 ];
             })(),
@@ -2117,7 +2123,7 @@ function canonEntryPageFixtures() {
                 return [
                     {id: "filled", label: "填好的形象", input: {props: filled}},
                     {id: "empty", label: "刚加上、还空着", input: {props: empty}},
-                    {id: "blocked", label: "写不了", input: {props: {...filled, editReason: "先关掉按计划"}}},
+                    {id: "blocked", label: "写不了", input: {props: {...filled, editReason: "先不算计划"}}},
                     {id: "filled-english", label: "英文界面", input: {props: filled}},
                 ];
             })(),
@@ -2194,7 +2200,7 @@ function canonEntryPageFixtures() {
                 {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
                 {id: "editable", label: "能改：右上“编辑”", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
                 {id: "empty", label: "还没有主文字：开始写", input: {props: {blocks: [], self: "xingxia", editable: true}}},
-                {id: "blocked", label: "写不了：入口不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先关掉按计划"}}},
+                {id: "blocked", label: "写不了：入口不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先不算计划"}}},
                 {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
             ],
             load: async () => (await import("./EntryTextFixture.vue")).default,
@@ -2284,7 +2290,7 @@ function canonEntryPageFixtures() {
             component: "EntryPage",
             scenes: [
                 {id: "sample", label: "页头与分页", input: page},
-                {id: "same-as", label: "马甲、还没出场、选过的章不在了", input: {props: {...page.props, name: "哥哥", summary: "星瑕扮成的男生", sameAs: {id: "xingxia", name: "星瑕"}, notAppeared: "第 1 章末尾", positionGone: true}, model: {...page.model, position: "1:end"}}},
+                {id: "same-as", label: "马甲、还没出场、选过的章不在了", input: {props: {...page.props, name: "哥哥", summary: "星瑕扮成的男生", sameAs: {id: "xingxia", name: "星瑕"}, notAppeared: true, positionGone: true}, model: {...page.model, position: "1:end"}}},
                 {id: "disconnected", label: "世界已断开", input: {props: {...page.props, disconnected: true}, model: page.model}},
                 {id: "read-only", label: "世界只读", input: {props: {...page.props, readOnly: "不确定世界里写进去了什么，先不能写"}, model: page.model}},
                 {id: "loading", label: "读取中", input: {props: {status: "loading" as const}, model: {position: "", planned: false, tab: ""}}},
@@ -2292,8 +2298,8 @@ function canonEntryPageFixtures() {
                 {id: "missing", label: "找不到", input: {props: {status: "missing" as const}, model: {position: "", planned: false, tab: ""}}},
                 {id: "deleted", label: "已删除", input: {props: {status: "deleted" as const, name: "旧设定"}, model: {position: "", planned: false, tab: ""}}},
                 {id: "editable", label: "页头可编辑：改名字、简介、别名，更多里有移动与加去设定组", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], removableGroup: "人物"}, model: {...page.model, tab: "data:character"}}},
-                {id: "editable-blocked", label: "页头可编辑但按计划开着：入口禁用", input: {props: {...page.props, editable: true, editReason: "先关掉按计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
-                {id: "deleted-restorable", label: "已删除、可以恢复，恢复失败的原因", input: {props: {status: "deleted" as const, name: "旧设定", editable: true, actionError: "版本冲突：重读再试"}, model: {position: "", planned: false, tab: ""}}},
+                {id: "editable-blocked", label: "页头可编辑但算着计划：入口禁用", input: {props: {...page.props, editable: true, editReason: "先不算计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
+                {id: "deleted-restorable", label: "已删除、可以恢复", input: {props: {status: "deleted" as const, name: "旧设定", editable: true}, model: {position: "", planned: false, tab: ""}}},
                 {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
                 {id: "sample-english", label: "英文界面", input: page},
             ],
@@ -2335,23 +2341,58 @@ function canonEntryPageFixtures() {
             ],
             load: async () => (await import("./RecordFormFixture.vue")).default,
         }),
-        defineLabFixture<typeof NoticeBar>({
-            component: "NoticeBar",
-            scenes: [
-                {id: "sample", label: "刚保存了一次就地改", input: {props: {title: "改外观"}}},
-                {id: "long", label: "很长的标题截断", input: {props: {title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}},
-                {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
-            ],
-            load: async () => (await import("./NoticeBarFixture.vue")).default,
+        defineLabFixture<typeof EntryPageNav>({
+            component: "EntryPageNav",
+            scenes: (() => {
+                const items = [
+                    {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
+                    {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const, removable: true},
+                    {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
+                    {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
+                    {value: "data:knowing", label: "知道什么", iconClass: "i-lucide-key-round", segment: "own" as const, removable: true},
+                    {value: "data:attitude", label: "目标与态度", iconClass: "i-lucide-target", segment: "own" as const, removable: true},
+                    {value: "extra:experience", label: "经历", iconClass: "i-lucide-footprints", segment: "view" as const},
+                    {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 12},
+                ];
+                const addable = [{value: "a.test.badge", label: "徽章"}, {value: "nbook.canon.skills", label: "技能"}];
+                return [
+                    {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "blocked", label: "写不了：添加不可用", input: {props: {items, addable, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], addable, panelId: "lab-panel"}, model: {modelValue: "text"}}},
+                ];
+            })(),
+            load: async () => (await import("./EntryPageNavFixture.vue")).default,
         }),
-        defineLabFixture<typeof AgentNotice>({
-            component: "AgentNotice",
+        defineLabFixture<typeof PositionPicker>({
+            component: "PositionPicker",
+            scenes: (() => {
+                const positions = [{value: "initial", label: "故事开始前"}, ...[1, 2, 3].flatMap((n) => [{value: `${String(n)}:start`, label: `第 ${String(n)} 章开头`}, {value: `${String(n)}:end`, label: `第 ${String(n)} 章末尾`}])];
+                return [
+                    {id: "sample", label: "第 3 章末尾，作品里有计划", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: false}}},
+                    {id: "no-plans", label: "作品里没有计划：没有勾选项", input: {props: {positions}, model: {position: "3:end", planned: false}}},
+                    {id: "planned", label: "算上计划：旁边一枚“算上计划 ×”", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: true}}},
+                    {id: "not-appeared", label: "到这里还没出场", input: {props: {positions, notAppeared: true}, model: {position: "1:end", planned: false}}},
+                    {id: "gone", label: "原来选的那一章不在了", input: {props: {positions, positionGone: true}, model: {position: "3:end", planned: false}}},
+                    {id: "locked", label: "有没提交的主文字：锁着", input: {props: {positions, canPlan: true, locked: "先提交或放弃正在写的主文字"}, model: {position: "3:end", planned: true}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
+                    // 位置带长章标题、英文：标记截断，390 宽不撑出横向滚动。
+                    {id: "long-title-english", label: "英文、长章标题、还没出场", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "12:end", label: "End of chapter 12: The Long Road Home Begins"}], notAppeared: true}, model: {position: "12:end", planned: false}}},
+                ];
+            })(),
+            load: async () => (await import("./PositionPickerFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PageNotices>({
+            component: "PageNotices",
             scenes: [
-                {id: "sample", label: "Agent 刚改了一次", input: {props: {title: "给星瑕加别名小瑕"}}},
-                {id: "earlier", label: "之前还改过两次、标题很长", input: {props: {title: "把星瑕的性格改成沉默，外观改成黑色短发，并把她移到学院下面", earlier: 2}}},
-                {id: "earlier-english", label: "英文界面", input: {props: {title: "Add alias", earlier: 1}}},
+                {id: "sample", label: "刚保存了一次就地改", input: {props: {notice: {revision: "r1", title: "改外观"}}}},
+                {id: "with-agent", label: "Agent 也改了（之前还改过两次）", input: {props: {notice: {revision: "r1", title: "改外观"}, agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 2}}}},
+                {id: "agent-undone", label: "Agent 那一次已还原", input: {props: {agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 0, undone: true}}}},
+                {id: "error", label: "页面自己的写入失败", input: {props: {error: "这个条目在你打开以后被别处改过，重读以后再试一次"}}},
+                {id: "long", label: "很长的标题截断", input: {props: {notice: {revision: "r1", title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}}},
+                {id: "sample-english", label: "英文界面", input: {props: {notice: {revision: "r1", title: "Edit appearance"}, agent: {revision: "r2", title: "Add alias", earlier: 1}}}},
             ],
-            load: async () => (await import("./AgentNoticeFixture.vue")).default,
+            load: async () => (await import("./PageNoticesFixture.vue")).default,
         }),
         defineLabFixture<typeof NewEntryDialog>({
             component: "NewEntryDialog",

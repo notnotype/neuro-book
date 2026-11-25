@@ -1,7 +1,7 @@
 /**
  * 作者与 Agent 都能改设定（w00039 t37、t28）在真实 Chrome 与生产构建上的验收：从一部空作品起步，作者经设定视图的空状态新建人物、
  * 就地改字段、按块写主文字（暂存、刷新后还在、提交、冲突时逐条选）与加别名（docs/specs/canon/author-ui.md，验收 16）；Agent 经
- * `canon_write` 建条目（docs/specs/canon/agent-tools.md 输出 6、10），条目页上出 Agent 提示，作者从提示撤销。模型是 Bun 子进程里的
+ * `canon_write` 建条目（docs/specs/canon/agent-tools.md 输出 6、10），条目页上出 Agent 提示，作者从提示还原。模型是 Bun 子进程里的
  * 本机端点，按脚本回工具调用；世界服务、存储与项目子进程都是真的。
  * 用例共用一部作品、按顺序跑：后面的用前面建的星瑕。等页面上可观察的变化，不按时长等。
  */
@@ -126,12 +126,13 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(page.locator("[data-notice-bar]")).toContainText("新建“星瑕”");
 
     // 新建人物带人物与形象两组，先看人物分页（author-ui 输出 4、9、37）；性格未知，点它在原处就地改（输出 51）。
-    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^经历/u, /^情节/u]);
+    // 空作品里还没有剧情变更：经历与情节不出（author-ui 输出 9）。
+    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u]);
     await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = page.locator("[data-field-editor=\"character.性格\"]");
     await bar.getByRole("textbox").fill("银白长发");
-    await expect(bar.locator("[data-confirm-preview]")).toContainText("改初值");
+    await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("银白长发");
 
@@ -202,20 +203,20 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(tabDot(page)).toHaveCount(0);
     await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(1);
 
-    await entryPage(page).getByRole("button", {name: "＋别名"}).click();
+    await entryPage(page).getByRole("button", {name: "添加别名"}).click();
     await entryPage(page).locator("[data-entry-aliases] input").fill("小瑕");
     await page.keyboard.press("Enter");
     await expect(entryPage(page).locator("[data-entry-aliases]")).toContainText("小瑕");
 });
 
-test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点、直接在编辑里、改的字还在；提交成一条修订、主文字是一块，从提示撤销", async ({page}) => {
+test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点、直接在编辑里、改的字还在；提交成一条修订、主文字是一块，从提示还原", async ({page}) => {
     await open(page);
     await openEntry(page, "人物", "星瑕");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await expect(textSource(page)).toHaveCount(1);
-    // 编辑期间位置锁在开始编辑的地方。
-    await expect(entryPage(page).locator("[data-position-locked]")).toHaveCount(1);
+    // 空作品没有章、也没有计划：时间点不出，编辑期间也就没有要锁的（有章时锁住由 entry-page 的 dom 测试守着，输出 46）。
+    await expect(entryPage(page).locator("[data-position-picker]")).toHaveCount(0);
     await focusSource(page);
     await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
@@ -238,7 +239,9 @@ test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点�
     await expect(tabDot(page)).toHaveCount(0);
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toContainText("改星瑕的主文字");
-    await notice.getByRole("button", {name: "撤销"}).click();
+    // 提示 6 秒后自己收起，指着它时不收（author-ui 输出 18）。
+    await notice.hover();
+    await notice.getByRole("button", {name: "还原"}).click();
     await expect(page.locator("[data-revert-dialog]")).toBeVisible();
     await dialog(page).getByRole("button", {name: "还原", exact: true}).click();
     await expect(page.locator("[data-revert-dialog]")).toHaveCount(0);
@@ -351,7 +354,7 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     errors = errors.filter((message) => !message.includes("Failed to load resource") && !message.includes("Failed to fetch dynamically imported module"));
 });
 
-test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值；条目页开着时 Agent 又改了，页上出 Agent 提示，从提示撤销", async ({page}) => {
+test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值；条目页开着时 Agent 又改了，页上出 Agent 提示，从提示还原", async ({page}) => {
     await open(page);
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("打开对话");
@@ -388,7 +391,7 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("一身黑衣");
 
-    // 雾崎的页开着：Agent 再建一个条目，页上另出一行 Agent 提示；从提示撤销，那个条目没了。
+    // 雾崎的页开着：Agent 再建一个条目，页上另出一行 Agent 提示；从提示还原，那个条目没了。
     await script({tool: "canon_write", args: {title: "建校长", edits: [{op: "create", name: "校长", kind: "人物", parent: "第三魔法学院"}]}}, "又建了一个");
     await input.click();
     await page.keyboard.type("再建一个校长");
@@ -398,15 +401,15 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     const notice = page.locator("[data-agent-notice]");
     await expect(notice).toContainText("建校长");
     await expect(row(page, "校长")).toBeVisible();
-    await notice.getByRole("button", {name: "撤销"}).click();
+    await notice.getByRole("button", {name: "还原"}).click();
     await expect(page.locator("[data-revert-dialog]")).toBeVisible();
     await dialog(page).getByRole("button", {name: "还原", exact: true}).click();
     await expect(page.locator("[data-revert-dialog]")).toHaveCount(0);
     await expect(row(page, "校长")).toHaveCount(0);
     await expect(row(page, "雾崎")).toBeVisible();
-    // 撤销过的那一次不能再撤销（再点会进“连同依赖一起还原”，等于把 Agent 的改动重做回来）；焦点回到同一个按钮上。
+    // 还原过的那一次不能再还原（再点会进“连同依赖一起还原”，等于把 Agent 的改动重做回来）；焦点回到同一个按钮上。
     const undo = notice.locator("[data-agent-undo]");
-    await expect(undo).toHaveText("已撤销");
+    await expect(undo).toHaveText("已还原");
     await expect(undo).toHaveAttribute("aria-disabled", "true");
     await expect(undo).toBeFocused();
 });
@@ -418,7 +421,7 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"><chapter id="1" title="入学"/></binder>');
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    const position = entryPage(page).locator('[aria-label="位置"]');
+    const position = entryPage(page).locator("[data-position-trigger]");
     await expect(position).toContainText("第 1 章末尾");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
@@ -427,9 +430,9 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await page.keyboard.type("（第 1 章里改的）");
     await expect(entryPage(page).locator('[data-text-saved="saved"]')).toBeVisible();
 
-    // 活页夹里拿掉这一章；等世界看到（位置的选项里没有它了）再刷新。
+    // 活页夹里拿掉这一章；等世界看到（没有章了，只剩故事开始前一个位置，时间点不再出）再刷新。
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"></binder>');
-    await expect(position).not.toContainText("第 1 章");
+    await expect(position).toHaveCount(0);
     await open(page);
     await expect(tabDot(page)).toHaveCount(1);
     await expect(entryPage(page).locator("h1")).toHaveText("星瑕");

@@ -27,7 +27,7 @@ afterEach(() => {
 const rowOf = (wrapper: ReturnType<typeof mount>, id: string) => wrapper.get(`[data-row='${id}']`);
 
 describe("RevisionsView", () => {
-    it("一行写标题、谁、什么时候与摘要；“看回执”“还原”发出修订 id；章序调整不能还原、写原因；有依赖的写一句、照样能点", async () => {
+    it("一行写标题、谁、什么时候与摘要；“查看详情”“还原”发出修订 id；章序调整不能还原、写原因；有依赖的写一句、照样能点", async () => {
         const wrapper = mount(RevisionsView, {props: {status: "normal", rows, ...filters}, global});
         expect(wrapper.findAll("[data-revision-title]").map((title) => title.text())).toEqual(["调整章序", "改存款", "新建“星瑕”"]);
         expect(rowOf(wrapper, "r2").get("[data-revision-meta]").text()).toBe("Agent · 2026-11-13 14:03 · 1 处值变了，少了 1 条待处理");

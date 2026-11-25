@@ -111,7 +111,7 @@ describe("回执页", () => {
         expect(missing.find("button").exists()).toBe(false);
     });
 
-    it("还原这次修订：对话框写带来的变化，确认后值回到原样、页顶有提示；提示里的“撤销”再还原回去；还原的回执写还原的是哪一次", async () => {
+    it("还原这次修订：对话框写带来的变化，确认后值回到原样、页顶有提示；提示里的“还原”再还原回去；还原的回执写还原的是哪一次", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -129,9 +129,9 @@ describe("回执页", () => {
         await waitUntil("页顶的提示", () => wrapper.find("[data-notice-bar]").exists());
         expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改外观”");
 
-        // “撤销”打开对话框，提示先留着（焦点回得去）；还原成功后换成还原的那一条。
-        await buttonByText(wrapper, "撤销")!.trigger("click");
-        await waitUntil("撤销的预览", () => dialog()?.dataset.phase === "ready");
+        // 提示里的“还原”打开对话框，提示先留着（焦点回得去）；还原成功后换成还原的那一条。
+        await wrapper.get("[data-notice-bar]").findAll("button").find((button) => button.text() === "还原")!.trigger("click");
+        await waitUntil("还原的预览", () => dialog()?.dataset.phase === "ready");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改外观”");
         dialogButton("还原")!.click();
         await waitUntil("对话框关了", () => dialog() === null);

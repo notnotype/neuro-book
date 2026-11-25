@@ -52,7 +52,7 @@ import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import {ENTRY_LANGUAGE, ENTRY_LANGUAGE_DECLARATION, entryLanguageDefinition} from "./entry-language";
-import {createEntryPage, originsFetcher} from "./entry-page";
+import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
 import {createTextDrafts} from "./text-drafts";
 import {createNotices} from "./notices";
 import {createPendingCount} from "./pending-count";
@@ -112,15 +112,17 @@ function lineItemText(line: WindowLine) {
 }
 
 /** 条目页：每个条目一个标签，刷新后恢复（author-ui.md 的“输入与前置条件”）。标题由约定键补（`editorPages.entry.title`）。 */
-const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", instances: true, restore: true};
+const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: ENTRY_PAGE_ICON, instances: true, restore: true};
 /** 回执页：每次修订一个标签，刷新后恢复。标题由约定键补（`editorPages.receipt.title`）。 */
 const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-receipt-text", instances: true, restore: true};
 /** 变更详情页：每条剧情变更一个标签，刷新后恢复。标题由约定键补（`editorPages.change.title`）。 */
 const CHANGE_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-milestone", instances: true, restore: true};
 
-/** canon 自己的内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
+/** canon 自己的内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`），图标各一个（author-ui.md 输出 9）。 */
 const PANEL_TYPE = "nbook.canon.panel";
-const BUILTIN_VIEW: ComponentViewDeclaration = {};
+const PERSON_VIEW: ComponentViewDeclaration = {uses: [LOOK_COMPONENT], icon: "i-lucide-user-round"};
+const LOOK_VIEW: ComponentViewDeclaration = {icon: "i-lucide-shirt"};
+const PANEL_VIEW: ComponentViewDeclaration = {icon: "i-lucide-gauge"};
 
 /** 把一个收 `{context}` 的组件交成数据分页的界面；`extra` 是固定给它的别的属性。 */
 function componentView(load: () => Promise<{default: unknown}>, extra: Record<string, unknown> = {}): ComponentViewImplementation {
@@ -166,9 +168,9 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_LANGUAGES_POINT, id: ENTRY_LANGUAGE, declaration: ENTRY_LANGUAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
             // 人物的立绘读自同一条目上的形象这一组（author-ui.md 输出 49）。
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: {uses: [LOOK_COMPONENT]}},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: BUILTIN_VIEW},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: PERSON_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: LOOK_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: PANEL_VIEW},
             ...Object.entries(CANON_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],
         activate: async (context) => {
@@ -235,6 +237,17 @@ export const canonBrowserPlugin: PluginDefinition = {
             });
             context.signal.addEventListener("abort", () => stopAgentNotices?.(), {once: true});
             const revert = createRevertRequests();
+            // 还原的确认框开着时，作者的提示不自己收起（author-ui.md 输出 18）：对话框与提示都是窗口里一份，暂停接在这一级，
+            // 不在各页的宿主里接（几个页面同时挂着会各接一次）。
+            let releaseNotice: (() => void) | null = null;
+            const stopRevertHold = watch(() => revert.target.value !== null, (open) => {
+                if (open && releaseNotice === null) releaseNotice = notices.hold();
+                if (!open && releaseNotice !== null) {
+                    releaseNotice();
+                    releaseNotice = null;
+                }
+            });
+            context.signal.addEventListener("abort", () => stopRevertHold(), {once: true});
             const state = entriesViewState();
             const storage = await context.services.resolve(storageKey);
             const editorComponents = await context.services.resolve(editorComponentsKey);

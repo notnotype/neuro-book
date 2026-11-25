@@ -21,10 +21,10 @@ const blank = computed(() => props.scene === "empty");
 const hasLook = computed(() => props.scene !== "no-look");
 const tab = ref(props.view);
 const tabs = computed(() => [
-    {value: "character", label: "人物"},
-    ...(hasLook.value ? [{value: "look", label: "形象"}] : []),
-    {value: "text", label: "文字"},
-    ...(blank.value ? [] : [{value: "history", label: "经历"}, {value: "plot", label: "情节"}]),
+    {value: "character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const},
+    ...(hasLook.value ? [{value: "look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const}] : []),
+    {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
+    ...(blank.value ? [] : [{value: "history", label: "经历", iconClass: "i-lucide-footprints", segment: "view" as const}, {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const}]),
 ]);
 </script>
 

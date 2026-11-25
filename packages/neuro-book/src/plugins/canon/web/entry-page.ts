@@ -63,7 +63,12 @@ export interface EntryHead {
     readonly name: string;
     readonly folder: string;
     readonly ancestors: readonly EntryName[];
+    /** 条目的种类（`type`）：标签的图标按它取（workbench/editor.md 输出 53）。 */
+    readonly kind: string;
 }
+
+/** 条目页标签的缺省图标：种类没登记图标、或还没读到条目时；与欢迎页的书分开。 */
+export const ENTRY_PAGE_ICON = "i-lucide-bookmark";
 
 /** 页面要的那部分窗口的线：读哪条、可选哪些、改它。 */
 export interface PageLine {
@@ -163,6 +168,12 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
             });
         },
         title: (arg) => (arg === undefined ? null : heads.get(arg)?.name ?? null),
+        // 标签的图标按条目的种类（输出 53）：人物、组织、地点、物品各一个，没登记图标的种类用缺省的；还没读到条目时交给记着的。
+        icon: (arg) => {
+            const head = arg === undefined ? undefined : heads.get(arg);
+            if (head === undefined) return null;
+            return (options.entryKinds?.() ?? []).find((item) => item.kind === head.kind.trim())?.icon ?? ENTRY_PAGE_ICON;
+        },
         initialState: () => entryPageState(),
         // 有没提交的主文字时标签带未保存的圆点，Ctrl+S 提交它（workbench/editor.md 输出 68）。
         uncommitted: (arg) => arg !== undefined && options.drafts.uncommitted(arg),

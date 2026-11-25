@@ -32,8 +32,8 @@ function card(props: Record<string, unknown> = {}): VueWrapper {
 }
 
 describe("CharacterCard", () => {
-    it("立绘那一格：有图、添加立绘、添加形象、恢复形象、第 N 章起有形象（不可点）；类型不可用时不画；点了发 portrait", async () => {
-        const cases: Array<[CardPortrait, string]> = [[{status: "no-image"}, "添加立绘"], [{status: "absent"}, "添加形象"], [{status: "removed"}, "恢复形象"], [{status: "later", from: "第 3 章"}, "第 3 章起有形象"]];
+    it("立绘那一格：有图、添加立绘（有形象没图与没有形象两种都是）、恢复形象、第 N 章起有形象（不可点）；类型不可用时不画；点了发 portrait", async () => {
+        const cases: Array<[CardPortrait, string]> = [[{status: "no-image"}, "添加立绘"], [{status: "absent"}, "添加立绘"], [{status: "removed"}, "恢复形象"], [{status: "later", from: "第 3 章"}, "第 3 章起有形象"]];
         for (const [portrait, label] of cases) {
             const wrapper = card({portrait});
             expect(wrapper.get("[data-portrait]").text()).toContain(label);
@@ -58,9 +58,9 @@ describe("CharacterCard", () => {
         expect(value.attributes("aria-label")).toBe("性别：女");
         expect(wrapper.get("[data-edit='character.年龄']").attributes("aria-label")).toBe("年龄：填写");
         expect(value.attributes("title")).toBe("女");
-        await wrapper.setProps({editReason: "先关掉按计划"});
+        await wrapper.setProps({editReason: "先不算计划"});
         expect(wrapper.get("[data-edit='character.性别']").attributes("disabled")).toBeDefined();
-        expect(wrapper.get("[data-edit='character.性别']").attributes("title")).toBe("先关掉按计划");
+        expect(wrapper.get("[data-edit='character.性别']").attributes("title")).toBe("先不算计划");
     });
 
     it("成段的文字与现在的状态的“第 N 章改过”是按钮：段落的发 origins，现在的状态的展开它的细节；未知时没有", async () => {

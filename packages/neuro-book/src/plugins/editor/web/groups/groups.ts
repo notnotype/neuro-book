@@ -55,6 +55,8 @@ export interface PageTab {
     readonly restore?: true;
     /** 记着的标题：最近一次从页面得到的标题，页面给不出标题时显示它。 */
     readonly title?: string;
+    /** 记着的图标（lucide 类名）：同标题，刷新后页面还没给出图标时显示它（输出 53）。 */
+    readonly icon?: string;
 }
 
 export type EditorTab = FileTab | PageTab;
@@ -118,6 +120,7 @@ export interface SavedPageTab {
     readonly id: string;
     readonly arg?: string;
     readonly title?: string;
+    readonly icon?: string;
 }
 
 /** 存进记录的形状（`editor.tabs`）：`tabId` → 属性。 */
@@ -149,6 +152,8 @@ export interface EditorGroups {
     openPage(address: string, options?: {readonly restore?: boolean}): PageTab;
     /** 记下页面标签最近一次得到的标题（输出 33）；标签不在或不是页面标签时什么也不做。 */
     rememberPageTitle(tabId: string, title: string): void;
+    /** 记下页面此刻给的图标（同 `rememberPageTitle`）。 */
+    rememberPageIcon(tabId: string, icon: string): void;
     /** preview 转为 permanent。 */
     keep(tabId: string): void;
     /** 固定或取消固定（输出 50）：固定时转正、排到固定区末尾；取消时排到普通区开头。页面标签不能固定。 */
@@ -338,6 +343,11 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
             if (found === null || found.tab.kind !== "page" || found.tab.title === title) return;
             setTab({...found.tab, title});
         },
+        rememberPageIcon: (tabId, icon) => {
+            const found = locate(tabId);
+            if (found === null || found.tab.kind !== "page" || found.tab.icon === icon) return;
+            setTab({...found.tab, icon});
+        },
         keep: (tabId) => {
             const found = locate(tabId);
             if (found === null || !found.tab.preview) return;
@@ -481,7 +491,7 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
                     const page = tab.restore === true ? pageIdOf(tab.address) : null;
                     if (page === null) return [[id, {page: true}]];
                     const arg = pageArgOf(tab.address);
-                    return [[id, {page: true, id: page, ...(arg === undefined ? {} : {arg}), ...(tab.title === undefined ? {} : {title: tab.title})}]];
+                    return [[id, {page: true, id: page, ...(arg === undefined ? {} : {arg}), ...(tab.title === undefined ? {} : {title: tab.title}), ...(tab.icon === undefined ? {} : {icon: tab.icon})}]];
                 }
                 return [[id, {address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.pinned === true ? {pinned: true as const} : {}), ...(tab.cursor === undefined ? {} : {cursor: tab.cursor}), ...(tab.language === undefined ? {} : {language: tab.language})}]];
             })),
@@ -501,7 +511,7 @@ function restoreTabs(panels: EditorPanels, initial: TabsSnapshot | null, cursorK
             if (saved === undefined) attributes.set(id, {kind: "page", id, address: LOST_TAB_ADDRESS, preview: false});
             else if ("page" in saved) {
                 // 要恢复的页面标签带着页面 id；只有记号的不恢复，从文档里拿掉。
-                if ("id" in saved) attributes.set(id, {kind: "page", id, address: pageAddress(saved.id, saved.arg), preview: false, restore: true, ...(saved.title === undefined ? {} : {title: saved.title})});
+                if ("id" in saved) attributes.set(id, {kind: "page", id, address: pageAddress(saved.id, saved.arg), preview: false, restore: true, ...(saved.title === undefined ? {} : {title: saved.title}), ...(saved.icon === undefined ? {} : {icon: saved.icon})});
                 else panels.tabs.remove(id);
             }
             else attributes.set(id, restoredFile(id, saved, cursorKind));
