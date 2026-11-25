@@ -77,10 +77,14 @@ export function revokeOAuthForExpiredSessions(tx: IdentityTx, nowMs: number): vo
  * 这几行的到期时刻是库按系统时间写的，库认不认它们也按系统时间判；这里按模块的时钟比。生产里两只钟相同。测试里模块的时钟可快
  * 可慢，与系统时间差任意方向：快时（`advance` 过了 10 分钟）这里删掉库还认的授权码与社交 state，码与 state 提前消失；慢时（起点
  * 拨到过去，或不拨、墙钟照走）库已不认的行留到模块的时钟追上。拨时钟的用例要按这两种情况推断清理之后表里剩什么。
+ *
+ * 另删 `sessionId` 为空的访问令牌，不论到没到期：本模块只发授权码流程的令牌，每个都带会话，自家删会话前先撤令牌，所以这种行
+ * 只来自别的写方删了会话（外键 `ON DELETE SET NULL`），例如换回上一个版本期间那个版本的登出（`site.oauth-provider` 时序一节）。
+ * 库对这种令牌不再查会话，不删就一直可用到过期。
  */
 export function purgeExpiredOAuthRows(tx: IdentityTx, nowMs: number): {readonly verifications: number; readonly accessTokens: number} {
     const at = libDate(nowMs);
     const verifications = tx.query(`DELETE FROM "verification" WHERE "expiresAt" <= ?`).run(at).changes;
-    const accessTokens = tx.query(`DELETE FROM "oauthAccessToken" WHERE "expiresAt" <= ?`).run(at).changes;
+    const accessTokens = tx.query(`DELETE FROM "oauthAccessToken" WHERE "expiresAt" <= ? OR "sessionId" IS NULL`).run(at).changes;
     return {verifications, accessTokens};
 }

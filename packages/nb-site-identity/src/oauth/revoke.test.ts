@@ -241,6 +241,17 @@ describe("清理任务删过期的授权码与访问令牌", () => {
         expect(await counts()).toEqual({verifications: 0, accessTokens: 0});
         expect(target.log.lines).toContainEqual({level: "info", event: "identity.oauth_purged", fields: {verifications: 3, accessTokens: 3}});
     });
+
+    it("别的写方删掉的会话（令牌的 sessionId 被置空）：清理任务跑完后它名下的令牌失效，别的照用（时序一节，换回上一个版本）", async () => {
+        const {target, s1, inS1, inS2, ofBob} = await setup("identity-revoke-purge-orphaned");
+        // 上一个版本的登出只删会话行、不撤令牌；外键把令牌的 sessionId 置空。直接删行，就是它在库里留下的样子。
+        target.root.openOther().query(`DELETE FROM "session" WHERE "id" = ?`).run(s1.sessionId);
+        expect((await userinfo(target, inS1.accessToken)).status).toBe(200);
+        await target.jobs.find((job) => job.name === "purge")!.run();
+        expect((await userinfo(target, inS1.accessToken)).status).toBe(401);
+        expect((await userinfo(target, inS2.accessToken)).status).toBe(200);
+        expect((await userinfo(target, ofBob.accessToken)).status).toBe(200);
+    });
 });
 
 describe("按授权、按客户端撤（撤销授权与停用客户端用）", () => {
