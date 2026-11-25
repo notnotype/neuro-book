@@ -29,7 +29,7 @@ import {libDate, libDateMs} from "../db/library-rows";
 import {IdentityFailure, readBody, readParams, readQuery} from "../errors";
 import {requireSession} from "../middleware";
 import type {Sessions} from "../session";
-import {requireLiveAdmin} from "./operator";
+import {adminWrite} from "./operator";
 import {readPage, sql, type PageSpec, type Sql} from "./pagination";
 
 export interface RegistrationCodeAdminOptions {
@@ -136,9 +136,7 @@ export function registerRegistrationCodeRoutes(app: Hono, options: RegistrationC
         const body = await readBody(c, CreateRegistrationCodeRequest);
         const expiresAt = expiresAtOf(body.expiresAt);
         const code = generateCode();
-        const item = await conn.write((tx) => {
-            const nowMs = clock.now();
-            requireLiveAdmin(tx, session, nowMs);
+        const item = await adminWrite(conn, clock, session, (tx, nowMs) => {
             const now = libDate(nowMs);
             const {id} = tx
                 .query<{id: number}, SQLQueryBindings[]>(`INSERT INTO identity_registration_code (code, max_uses, expires_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`)
@@ -154,9 +152,7 @@ export function registerRegistrationCodeRoutes(app: Hono, options: RegistrationC
         const session = await requireSession(c, sessions, `PATCH ${itemPath}`, "admin");
         const id = Number(readParams(c, IdParams).id);
         const body = await readBody(c, PatchRegistrationCodeRequest);
-        const item = await conn.write((tx) => {
-            const nowMs = clock.now();
-            requireLiveAdmin(tx, session, nowMs);
+        const item = await adminWrite(conn, clock, session, (tx, nowMs) => {
             const now = libDate(nowMs);
             if (tx.query<{id: number}, [number]>(`SELECT id FROM identity_registration_code WHERE id = ?`).get(id) === null) throw new IdentityFailure("not_found");
             if (body.note !== undefined) tx.query(`UPDATE identity_registration_code SET note = ? WHERE id = ?`).run(body.note, id);

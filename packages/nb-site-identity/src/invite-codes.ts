@@ -23,7 +23,7 @@ export interface InviteCodeOptions {
     readonly clock: {now(): number};
 }
 
-interface InviteCodeRow {
+export interface InviteCodeRow {
     readonly id: number;
     readonly code: string;
     readonly created_at: string;
@@ -33,10 +33,10 @@ interface InviteCodeRow {
     readonly usable: number;
 }
 
-/** 一条邀请码要的列；`usable` 的条件里有一个 `?`，绑定现在的时间。 */
-const CODE_COLUMNS = `c.id AS id, c.code AS code, c.created_at AS created_at, c.used_count AS used_count, c.max_uses AS max_uses, c.expires_at AS expires_at, (${usableCodeSql("c")}) AS usable`;
+/** 一条邀请码要的列（表的别名是 `c`）；`usable` 的条件里有一个 `?`，绑定现在的时间。管理端的全站列表（`admin/invite-codes.ts`）用同一份。 */
+export const INVITE_CODE_COLUMNS = `c.id AS id, c.code AS code, c.created_at AS created_at, c.used_count AS used_count, c.max_uses AS max_uses, c.expires_at AS expires_at, (${usableCodeSql("c")}) AS usable`;
 
-function itemOf(row: InviteCodeRow): InviteCodeItem {
+export function inviteCodeItemOf(row: InviteCodeRow): InviteCodeItem {
     return {
         id: row.id,
         code: row.code,
@@ -51,8 +51,8 @@ function itemOf(row: InviteCodeRow): InviteCodeItem {
 
 /** 读自己的一个码；不是自己的或不存在时为 null。 */
 function readOwnItem(tx: IdentityTx, userId: number, id: number, now: string): InviteCodeItem | null {
-    const row = tx.query<InviteCodeRow, [string, number, number]>(`SELECT ${CODE_COLUMNS} FROM identity_invite_code c WHERE c.id = ? AND c.owner_id = ?`).get(now, id, userId);
-    return row === null ? null : itemOf(row);
+    const row = tx.query<InviteCodeRow, [string, number, number]>(`SELECT ${INVITE_CODE_COLUMNS} FROM identity_invite_code c WHERE c.id = ? AND c.owner_id = ?`).get(now, id, userId);
+    return row === null ? null : inviteCodeItemOf(row);
 }
 
 export function registerInviteCodeRoutes(app: Hono, options: InviteCodeOptions): void {
@@ -64,9 +64,9 @@ export function registerInviteCodeRoutes(app: Hono, options: InviteCodeOptions):
         const session = await requireSession(c, sessions, `GET ${IDENTITY_PATHS.meInviteCodes}`);
         const items = await conn.read((tx) =>
             tx
-                .query<InviteCodeRow, [string, number]>(`SELECT ${CODE_COLUMNS} FROM identity_invite_code c WHERE c.owner_id = ? ORDER BY c.created_at DESC, c.id DESC`)
+                .query<InviteCodeRow, [string, number]>(`SELECT ${INVITE_CODE_COLUMNS} FROM identity_invite_code c WHERE c.owner_id = ? ORDER BY c.created_at DESC, c.id DESC`)
                 .all(libDate(clock.now()), session.userId)
-                .map(itemOf),
+                .map(inviteCodeItemOf),
         );
         const response: InviteCodeListResponse = {items};
         return c.json(response);

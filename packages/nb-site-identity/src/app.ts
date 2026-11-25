@@ -12,7 +12,10 @@ import {Hono} from "hono";
 
 import {IDENTITY_PATHS, type MetaResponse} from "@notnotype/nb-site-identity-contract";
 
+import {registerAuditListRoute, type AuditListOptions} from "./admin/audit-list";
+import {registerInviteCodeAdminRoutes, type InviteCodeAdminOptions} from "./admin/invite-codes";
 import {registerRegistrationCodeRoutes, type RegistrationCodeAdminOptions} from "./admin/registration-codes";
+import {registerUserAdminRoutes, type UserAdminOptions} from "./admin/users";
 import {registerChangePasswordRoute, type ChangePasswordOptions} from "./change-password";
 import {bodySizeLimit, failureFor, failureResponse, readEmptyBody, respondFailure} from "./errors";
 import type {IdentityLog} from "./index";
@@ -38,6 +41,9 @@ export interface IdentityAppOptions {
     readonly mySessions: MySessionsOptions;
     readonly inviteCodes: InviteCodeOptions;
     readonly registrationCodes: RegistrationCodeAdminOptions;
+    readonly adminUsers: UserAdminOptions;
+    readonly adminInviteCodes: InviteCodeAdminOptions;
+    readonly audit: AuditListOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -78,6 +84,9 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     registerInviteCodeRoutes(app, options.inviteCodes);
     registerChangePasswordRoute(app, options.changePassword);
     registerRegistrationCodeRoutes(app, options.registrationCodes);
+    registerUserAdminRoutes(app, options.adminUsers);
+    registerInviteCodeAdminRoutes(app, options.adminInviteCodes);
+    registerAuditListRoute(app, options.audit);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));
