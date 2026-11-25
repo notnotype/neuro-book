@@ -17,7 +17,8 @@ import type {SettingsService} from "nbook/shared/settings";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {webSettings} from "../../shared/settings";
-import {WEB_TEXT_NAMESPACE} from "../../shared/text";
+import {WEB_TEXT_NAMESPACE, webText} from "../../shared/text";
+import {webBrowserPlugin} from "../plugin";
 import {createSearchStore} from "../search-store";
 import type {SearchStore} from "../search-store";
 import {webCatalogs} from "../text";
@@ -53,11 +54,11 @@ function mountPage(store: SearchStore, settings: SettingsService, {writable = tr
     return {wrapper, failures, input, checkButton, result, clear};
 }
 
-function render(options: FakeWebRemoteOptions = {}, page: {writable?: boolean; locale?: DisplayLocale; provider?: "deepseek" | "tavily"; values?: Record<string, unknown>} = {}) {
+function render(options: FakeWebRemoteOptions = {}, page: {writable?: boolean; locale?: DisplayLocale; provider?: "deepseek" | "tavily"; values?: Record<string, unknown>; userUnreachable?: boolean} = {}) {
     const fake = createFakeWebRemote(options);
     const store = createSearchStore(fake.remote, () => Date.UTC(2026, 10, 19, 8, 30, 0));
     stores.push(store);
-    const host = createSettingsHost({settings: [{plugin: "nbook.web", definition: providerSetting}], sections: [], user: {values: page.values ?? {}}, notify: () => undefined, report: () => undefined});
+    const host = createSettingsHost({settings: [{plugin: "nbook.web", definition: providerSetting}], sections: [], user: {values: page.values ?? {}, unreachable: page.userUnreachable === true}, notify: () => undefined, report: () => undefined});
     stores.push(host);
     const settings = host.service("nbook.web");
     return {fake, store, host, settings, ...mountPage(store, settings, page)};
@@ -321,6 +322,13 @@ describe("SearchSettingsPage", () => {
         const locked = render({hasKey: true}, {writable: false});
         await flushPromises();
         expect(locked.wrapper.get("[data-search-use]").attributes("aria-disabled")).toBe("true");
+        // 用户层不可写（例如设置服务连不上）：设置行自己停用。
+        const unreachable = render({hasKey: true}, {userUnreachable: true});
+        await waitUntil("已设置", () => unreachable.wrapper.find('[data-search-provider="deepseek"] [data-key-clear]').exists() || undefined, {timeoutMs: 10_000});
+        expect(unreachable.wrapper.get("[data-search-use]").attributes("aria-disabled")).toBe("true");
+        const usable = render({hasKey: true});
+        await waitUntil("已设置", () => usable.wrapper.find('[data-search-provider="deepseek"] [data-key-clear]').exists() || undefined, {timeoutMs: 10_000});
+        expect(usable.wrapper.get("[data-search-use]").attributes("aria-disabled")).toBeUndefined();
     });
 
     it("Tavily 一节：写的、清的、检测的都是 tavily；名称与失败原因带 Tavily（输出 3、5、8、9、10）", async () => {
@@ -368,5 +376,10 @@ describe("SearchSettingsPage", () => {
         await waitUntil("状态到了", () => failing.input().attributes("placeholder") === "还没有填写" || undefined, {timeoutMs: 10_000});
         await type(failing.input(), "tvly-dom-test-not-real-123456");
         expect(failing.failures).toEqual([{subject: "Tavily 的 API 密钥", reason: "密钥文件读写失败；请重新输入", uncertain: false}]);
+    });
+
+    it("页面声明：设置窗口里按 DeepSeek 或 Tavily 都搜得到这一页（“输入与前置条件”）", () => {
+        const declaration = webBrowserPlugin.entries[0]!.contributions?.[0]?.declaration as {keywords?: unknown[]} | undefined;
+        expect(declaration?.keywords).toEqual(expect.arrayContaining([webText("keywords.deepseek"), webText("keywords.tavily")]));
     });
 });
