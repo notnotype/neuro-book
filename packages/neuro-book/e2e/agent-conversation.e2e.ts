@@ -210,8 +210,11 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     expect(Math.abs(geo.strip!.top - geo.card.top)).toBeLessThan(1);
     expect(Math.round(geo.head!.height)).toBe(40);
     expect(Math.round(geo.strip!.height)).toBe(40);
-    // 上面两个角是窗口的圆角：角上那一点不是头像列。
-    expect(await hitIn(page, {x: geo.card.left + 1, y: geo.card.top + 1}, "[data-messages-host]")).toBe(false);
+    // 上面两个角是窗口的圆角：角上那一点的各层里没有消息视图（最上面是窗口的缩放手柄，所以看全部各层，不只看最上面的）。
+    const inCorner = (x: number, y: number) => page.evaluate(({x, y}) => document.elementsFromPoint(x, y).some((element) => element.closest("[data-messages-host]") !== null), {x, y});
+    expect(await inCorner(geo.card.left + 1, geo.card.top + 1)).toBe(false);
+    expect(await inCorner(geo.card.right - 1, geo.card.top + 1)).toBe(false);
+    expect(await inCorner(geo.card.left + 20, geo.card.top + 20)).toBe(true);
 
     // “回到停靠”盖在右上角：悬停这块窗时看得见、点得到，对话头在右端让出了它的宽度。
     await page.mouse.move(geo.card.left + 100, geo.card.top + 150);
