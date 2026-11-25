@@ -45,6 +45,10 @@
 | 存法 | `verification`、`oauthAccessToken` 的 `expiresAt` 是库的 ISO 文本；清理任务按模块的时钟删过期的行（`revoke.ts` 的 `purgeExpiredOAuthRows`），库不认过期的行 | `oauth/revoke.test.ts` “清理任务删过期的授权码与访问令牌” | 过期的行删不掉、表一直长，或时间写法变了，按文字比较不再是按时间比较 |
 | 撤销 | 库自带的 `session.delete` 前后钩子存在但本模块不依赖：模块不调库删会话（不调 `deleteSession`、`deleteSessions`，库删会话的端点经 `handler` 是 404）。库若开始在模块用到的别的路径上删会话，撤销会变成提交之后在后台做、且不删授权码（实现审查第 5 条实测 `/sign-out`、`/revoke-sessions` 时是这样） | `architecture.test.ts` “删会话只经 session.ts 的一组函数”；`oauth/provider.test.ts` “关掉的库端点” | 有删会话的路不经 `session.ts`，对外令牌晚一步失效、授权码照样换得出：核对库新版本里哪些调用会删会话 |
 | 关掉的路径 | `better-auth/api` 的 `getEndpoints` 用同一份选项给出的端点与 `auth.api`、`handler` 的路由是同一组（库的 `betterAuth` 与路由都由它得出），端点带 `path` 与 `options.metadata.SERVER_ONLY`，算端点表不等上下文；`disabledPaths` 拿去掉基路径与末尾斜杠的请求路径逐字比，不分方法、不认参数，不影响服务端经 `auth.api` 调（`auth.ts` 的 `disabledLibraryPaths`，由 `LIBRARY_PUBLIC_ENDPOINTS` 反推） | `oauth/provider.test.ts` “关掉的库端点”（遍历 `auth.api` 的全部端点乘六种方法，带普通用户的会话） | 合同不要的库端点从外部能调到，例如普通用户登出别的会话、自己登记客户端；库新加了带参数的端点时，用例列出它，要查挂载白名单挡没挡住 |
+| 对外端点的方法 | 库经 `handler` 对任何端点的 HEAD 都回 404，所以挂载层把公钥的 HEAD 换成 GET 交库；库自己也接 `POST /oauth2/authorize`、`POST /callback/<id>` 与任意 id 的回调，方法与上游由挂载层挡（`auth.ts` 的 `LIBRARY_PUBLIC_ENDPOINTS`、`oauth/mount.ts`） | `oauth/mount.test.ts` “白名单”各条、“HEAD”两条 | 公钥的 HEAD 不再与 GET 同头，或库开始在别的方法上做事：核对挂载层的换法与白名单 |
+| 令牌端点撞会话外键 | 换码先删授权码、再插访问令牌，整段不在一个事务里；两步之间会话被删时插入因外键失败，库把 `SQLiteError`（`code` 为 `SQLITE_CONSTRAINT_FOREIGNKEY`）原样从 `handler` 抛出，挂载层按码认它回 `invalid_grant`（计划问 10） | `oauth/mount.test.ts` “换码时会话被删” | 库把这个错误包成别的形状（换码撞上结束会话时回成 500），或改成在事务里做（这条可以去掉） |
+| 允许的访问令牌都有 `oauthAccessToken` 行 | 换码带 `resource` 且它是库认得的资源（用户信息端点的地址）时，库发 JWT 访问令牌、不写 `oauthAccessToken` 行，自家撤销够不到；挂载层交库前从表单里去掉 `resource`，库只会发有行的不透明令牌 | `oauth/mount.test.ts` “带 resource 换码” | 去参数的那一步没生效、或库换了让它发 JWT 的参数：结束会话、改密码之后有令牌照用 |
+| 发现文档 | 库的 `getOpenIdConfig()` 给 `issuer` 与五个端点地址（类型里用户信息、公钥、撤销三项可以没有，缺了启动失败）；能力字段不取库的（`oauth/discovery.ts`） | `oauth/mount.test.ts` “发现文档”；合同 `oauth-provider.test.ts` 逐字段 | 库改了端点地址或字段名：发现文档里的地址不可达，或启动失败 |
 
 ## 完成门禁
 

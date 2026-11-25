@@ -16,7 +16,7 @@ import {IsoTimestamp} from "./time";
 /** 标准端点与社交回调所在的前缀（输出 1：这个前缀下只有列出的地址可达）。 */
 export const IDENTITY_AUTH_PREFIX = "/api/identity/auth";
 
-/** 标准端点（输入与前置条件的端点表）。一经对外公布不再改（边界与兼容）。方法见那张表：授权只收 GET。 */
+/** 标准端点（输入与前置条件的端点表）。一经对外公布不再改（边界与兼容）。方法见那张表：授权收 GET 与 POST（表单）。 */
 export const OAUTH_ENDPOINT_PATHS = {
     authorize: `${IDENTITY_AUTH_PREFIX}/oauth2/authorize`,
     token: `${IDENTITY_AUTH_PREFIX}/oauth2/token`,
@@ -234,6 +234,12 @@ function exactSet<const Values extends readonly string[]>(values: Values) {
 const CLAIMS_SUPPORTED = [...new Set<string>([...USERINFO_CLAIMS, ...ID_TOKEN_CLAIMS])];
 
 /**
+ * `claims_supported`：恰好是两组字段的并集（`sub` 两边都有，只列一次）。并集不是元组，交给 `exactSet` 推出的静态类型是 `never[]`，
+ * 实现方写不出合格的值；所以每项取两组字面量之一，个数按并集的大小限定，校验的含义与 `exactSet` 相同。
+ */
+const ClaimsSupported = Type.Array(Type.Union([literalUnion(USERINFO_CLAIMS), literalUnion(ID_TOKEN_CLAIMS)]), {uniqueItems: true, minItems: CLAIMS_SUPPORTED.length, maxItems: CLAIMS_SUPPORTED.length});
+
+/**
  * 发现文档（输出 2）。端点地址随签发者变，只要求是字符串，“列出的都可达”由合同测试逐个请求；能力字段写死成 Spec 列的值。
  * 拒收多余的键：多出内省、动态注册、登出端点或 DPoP、`claims_parameter_supported` 的字段就不合。
  */
@@ -253,7 +259,8 @@ export const DiscoveryDocument = strictObject({
     subject_types_supported: exactSet(["public"]),
     id_token_signing_alg_values_supported: exactSet(["RS256"]),
     prompt_values_supported: exactSet(["none", "login", "consent"]),
-    claims_supported: exactSet(CLAIMS_SUPPORTED),
+    response_modes_supported: exactSet(["query"]),
+    claims_supported: ClaimsSupported,
     authorization_response_iss_parameter_supported: Type.Literal(true),
     request_parameter_supported: Type.Literal(false),
     request_uri_parameter_supported: Type.Literal(false),

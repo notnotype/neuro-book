@@ -12,6 +12,8 @@ import type {IdentityConnection, IdentityTimers} from "./db/connection";
 import {HashLimiter, type FailureFloorTiming} from "./hash-limiter";
 import type {IdentityLog} from "./index";
 import {dummyPasswordHash} from "./login";
+import {buildDiscoveryDocument, createWellKnownApp} from "./oauth/discovery";
+import {createOAuthApp} from "./oauth/mount";
 import {prepareSigningKey} from "./oauth/signing-key";
 import {REAL_PASSWORD_FUNCTIONS, type PasswordFunctions} from "./password";
 import {createIdentityRateLimits} from "./rate-limit";
@@ -65,7 +67,12 @@ export interface IdentityOverrides {
 export interface IdentityAssembly {
     readonly auth: IdentityAuth;
     readonly sessions: Sessions;
+    /** 站点 API 前缀下的自家路由（`app.ts`）。 */
     readonly site: Hono;
+    /** 库的对外端点（`oauth/mount.ts`），挂在 `LIB_BASE_PATH` 下。 */
+    readonly oauth: Hono;
+    /** 两份发现文档（`oauth/discovery.ts`），挂在 `WELL_KNOWN_PREFIX` 下。 */
+    readonly wellKnown: Hono;
     close(): Promise<void>;
 }
 
@@ -82,6 +89,10 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     await context.checkSchema();
     // 签名钥在表结构确认之后备好：表里有别的算法的钥匙时启动失败；最新的活钥解不开时换一把（`oauth/signing-key.ts`）。
     await prepareSigningKey({context, conn, jwtOptions: identityJwtOptions(options.siteUrl), log});
+    // 发现文档里的签名算法以上一步的检查为前提，所以在它之后生成。
+    const wellKnown = createWellKnownApp(await buildDiscoveryDocument(auth), log);
+    // 社交上游的开关由配置给（计划 3.12），配置还没有这一项：都不开放，回调地址一律 404。
+    const oauth = createOAuthApp({auth, log, socialProviders: []});
 
     const sessions = new Sessions({auth, conn, clock, sessionDays: config.sessionDays, termsVersion: config.termsVersion, log});
     const passwords = overrides.passwords ?? REAL_PASSWORD_FUNCTIONS;
@@ -148,5 +159,5 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     });
     // 哈希限额与连接的队列一起收：都拒收新的、等在算的与持锁的做完，各自至多 2 秒，同时等（`site.operations` 输出 9 的“每个模块至多
     // 2 秒收尾”）。
-    return {auth, sessions, site, close: async () => void (await Promise.all([hashLimiter.close(CLOSE_WAIT_MS), conn.close(CLOSE_WAIT_MS)]))};
+    return {auth, sessions, site, oauth, wellKnown, close: async () => void (await Promise.all([hashLimiter.close(CLOSE_WAIT_MS), conn.close(CLOSE_WAIT_MS)]))};
 }

@@ -3,14 +3,16 @@
  * 照 `commands/serve.ts` 的做法建实例，读日志器最终写出的那一行 JSON。
  *
  * 模块包自己的测试只看得到模块交给日志器的参数；入口写成一行时用固定字段盖掉同名的键（`event` 等），字段名撞上时
- * 只有这里看得出来。
+ * 只有这里看得出来。账号模块交给入口的几个 mount 也在这里看：前缀由适配器写，模块包的测试看不到。
  */
 
 import type {Database} from "bun:sqlite";
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
+import {Hono} from "hono";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {IDENTITY_API_PREFIX, IDENTITY_AUTH_PREFIX, IDENTITY_PATHS, OAUTH_ENDPOINT_PATHS, OIDC_DISCOVERY_PATHS} from "@notnotype/nb-site-identity-contract";
 
 import {runMigrations} from "./db/migrate";
 import {openModuleDb} from "./db/open";
@@ -92,5 +94,39 @@ describe("统计模块的日志", () => {
 
         const written = lines.map((line) => JSON.parse(line) as Record<string, unknown>).filter((line) => line.event === "telemetry.purge_unaggregated");
         expect(written).toEqual([expect.objectContaining({level: "error", event: "telemetry.purge_unaggregated", module: "telemetry", dailyRows: 0, eventRows: 1, dbCode: "SQLITE_CONSTRAINT_TRIGGER"})]);
+    });
+});
+
+describe("账号模块的挂载", () => {
+    it("站点入口上三个互不重叠的前缀：自家接口、库的对外端点、发现文档；各自的地址经同样的挂法可达", async () => {
+        const identity = moduleNamed("identity");
+        const opened = openModuleDb(root, identity.name);
+        db = opened;
+        expect(await runMigrations(opened, identity, {report: () => undefined})).toEqual({ok: true, stopped: false});
+        const config = identity.parseConfig({NB_SITE_SESSION_SECRET: "s".repeat(32), NB_SITE_IDENTITY_TERMS_VERSION: "2026-11-20"});
+        if (!config.ok) throw new Error(`identity config is invalid: ${JSON.stringify(config.problems)}`);
+        const instance = await identity.create({
+            db: opened,
+            config: config.config,
+            site: {siteUrl: "https://site.test", telemetryUrl: "https://telemetry.test"},
+            log: createLogger(() => undefined).child({module: identity.name}),
+            clock: {now: () => Date.now()},
+            jobs: {register: () => undefined},
+            clientAddress: () => "192.0.2.1",
+        });
+        closeInstance = instance.close;
+        expect(instance.mounts.map((mount) => ({surface: mount.surface, prefix: mount.prefix}))).toEqual([
+            {surface: "site", prefix: IDENTITY_API_PREFIX},
+            {surface: "site", prefix: IDENTITY_AUTH_PREFIX},
+            {surface: "site", prefix: "/.well-known"},
+        ]);
+        // 入口按 `app.route(prefix, app)` 挂（`site.ts`）；库按完整路径认端点，所以请求用站点的完整地址。
+        const app = new Hono();
+        for (const mount of instance.mounts) app.route(mount.prefix, mount.app);
+        const statuses = [];
+        for (const path of [`${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`, OAUTH_ENDPOINT_PATHS.jwks, ...OIDC_DISCOVERY_PATHS]) {
+            statuses.push({path, status: (await app.request(`https://site.test${path}`)).status});
+        }
+        expect(statuses.filter((entry) => entry.status !== 200)).toEqual([]);
     });
 });

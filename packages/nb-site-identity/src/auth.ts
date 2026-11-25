@@ -26,7 +26,7 @@ import {admin, jwt, username, type JwtOptions} from "better-auth/plugins";
 
 import {oauthProvider} from "@better-auth/oauth-provider";
 
-import {parseUsernameInput, USERNAME} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_AUTH_PREFIX, parseUsernameInput, USERNAME} from "@notnotype/nb-site-identity-contract";
 
 import type {IdentityConnection} from "./db/connection";
 import type {IdentityLog} from "./index";
@@ -35,8 +35,11 @@ import {hashPassword, verifyPassword} from "./password";
 import {consentRequiredIn} from "./session";
 import {storedUserAgent} from "./user-agent";
 
-/** 库的路由前缀。本 Task 不把 `auth.handler` 挂上去；t08 在这个前缀下按白名单挂标准 OAuth 端点（ADR 0060 决策 3）。 */
-export const LIB_BASE_PATH = "/api/identity/auth";
+/**
+ * 库的路由前缀，就是合同的 `IDENTITY_AUTH_PREFIX`：库按完整路径认端点、发现文档里的地址也由它拼，入口挂挂载层（`oauth/mount.ts`）用的是
+ * 合同的那个，两者必须相同（ADR 0060 决策 3）。
+ */
+export const LIB_BASE_PATH = IDENTITY_AUTH_PREFIX;
 
 const DAY_SECONDS = 86_400;
 
@@ -75,11 +78,15 @@ export function identityJwtOptions(siteUrl: string) {
 
 /**
  * 库的端点里对外要的那几条（`site.oauth-provider` 输出 1，计划 3.6 的挂载白名单）：别的“方法加路径”经站点都是 404。路径是库端点
- * 的写法（`auth.api` 里端点的 `path`，带参数的写成 `:name`），方法是对外放行的。第 5 片的挂载层照这张表登记；`disabledPaths`
- * 由它反推（`disabledLibraryPaths`）。
+ * 的写法（`auth.api` 里端点的 `path`，带参数的写成 `:name`），方法是对外放行的。挂载层（`oauth/mount.ts`）照这张表登记；
+ * `disabledPaths` 由它反推（`disabledLibraryPaths`）。
+ *
+ * 只有公钥列着 HEAD（`site.oauth-provider` 输入表下那句）：挂载层把它当 GET 交库再去掉正文，因为库对 HEAD 一律 404（升级清单
+ * “对外端点的方法”一行）。授权端点不收 HEAD：收了就有发码的副作用。
  */
 export const LIBRARY_PUBLIC_ENDPOINTS = [
-    {path: "/oauth2/authorize", methods: ["GET", "HEAD"]},
+    // POST 只收表单（OIDC Core 3.1.2.1 要求同时支持 GET 与 POST；计划 omp 设计审查第 3 条）。
+    {path: "/oauth2/authorize", methods: ["GET", "POST"]},
     {path: "/oauth2/token", methods: ["POST"]},
     {path: "/oauth2/userinfo", methods: ["GET", "POST"]},
     {path: "/oauth2/revoke", methods: ["POST"]},
@@ -109,7 +116,7 @@ interface LibraryEndpointShape {
  *   分辨不出 404 是谁给的。
  * - 带参数的（`/reset-password/:token`）：库拿请求路径（去掉基路径与末尾的斜杠）与 `disabledPaths` 逐字比，不认参数，写进去只挡
  *   字面的 `:token`。它们只靠挂载白名单挡；`oauth/provider.test.ts` 列着现在经 `handler` 到得了的几条，库新加时那条用例失败。
- * 逐字比也不分方法：对外路径上合同不要的方法（`POST /oauth2/authorize`）这里关不掉，由挂载层按方法挡。
+ * 逐字比也不分方法：对外路径上合同不要的方法（`PUT /oauth2/authorize`、`GET /oauth2/token`）这里关不掉，由挂载层按方法挡。
  */
 export function disabledLibraryPaths(options: BetterAuthOptions): string[] {
     const publicPaths = new Set<string>(LIBRARY_PUBLIC_ENDPOINTS.map((endpoint) => endpoint.path));

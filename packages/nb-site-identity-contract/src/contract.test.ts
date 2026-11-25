@@ -263,6 +263,7 @@ const discovery = {
     subject_types_supported: ["public"],
     id_token_signing_alg_values_supported: ["RS256"],
     prompt_values_supported: ["none", "login", "consent"],
+    response_modes_supported: ["query"],
     // 输出 7 的用户信息字段与输出 11 的 id_token 字段（含 acr 与带了才有的 nonce）。
     claims_supported: ["sub", "preferred_username", "name", "email_pending", "email", "email_verified", "iss", "aud", "iat", "exp", "auth_time", "at_hash", "acr", "nonce"],
     authorization_response_iss_parameter_supported: true,
@@ -790,6 +791,7 @@ describe("对外 OAuth（site.oauth-provider）", () => {
             ["范围重复", {...discovery, scopes_supported: ["openid", "openid", "email"]}],
             ["签名算法是 EdDSA", {...discovery, id_token_signing_alg_values_supported: ["EdDSA"]}],
             ["prompt 多了 create", {...discovery, prompt_values_supported: ["none", "login", "consent", "create"]}],
+            ["跳回方式多了 fragment", {...discovery, response_modes_supported: ["query", "fragment"]}],
             ["字段里多了 picture", {...discovery, claims_supported: [...discovery.claims_supported, "picture"]}],
             ["字段里少了 acr", {...discovery, claims_supported: discovery.claims_supported.filter((claim) => claim !== "acr")}],
             ["说支持 request 参数", {...discovery, request_parameter_supported: true}],

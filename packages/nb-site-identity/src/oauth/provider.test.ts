@@ -1,7 +1,7 @@
 /**
  * 库的对外 OAuth 装配（`auth.ts` 的 `jwt`、`oauthProvider`、`disabledPaths`）在包内的可观察结果：授权码、访问令牌与 id_token 的
  * 寿命，客户端密钥按自家的存法认，令牌 id 不重用，关掉的库端点经 `handler` 是 404。经真实的库在进程内走授权与换码
- * （`testing/oauth.ts`），挂载层（计划 3.6）还没有。
+ * （`testing/oauth.ts`），不经挂载层：这里看的是库本身的装配，挂载层的白名单在 `mount.test.ts`。
  *
  * 寿命不拨时钟：库按系统时间写这几行的创建与到期时刻，用例读行里两者之差（与令牌响应的 `expires_in`、id_token 的 `exp - iat`）。
  */

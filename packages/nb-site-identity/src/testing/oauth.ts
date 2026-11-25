@@ -1,6 +1,7 @@
 /**
  * 包内测试在进程内走对外 OAuth 的流程：经管理员身份调库的 `adminCreateOAuthClient` 登记客户端，经库的 `auth.handler` 授权、换码、
- * 调用户信息、取公钥，用 `node:crypto` 验 id_token。挂载层（计划 3.6）还没有，请求直接发到库的基路径下，不经站点的白名单与改写。不含断言。
+ * 调用户信息、取公钥，用 `node:crypto` 验 id_token。请求直接发到库的 `handler`，不经挂载层（`oauth/mount.ts`）的白名单与改写：
+ * 看库本身行为的用例（`oauth/provider.test.ts` 的关掉的路径）要的就是这样；经挂载层的用 `TestIdentity.request`。不含断言。
  *
  * 用户要有当前条款的同意记录，否则库在登录后把人带去站点的同意页（`auth.ts` 的 `postLogin`），拿不到码。客户端缺省
  * `skip_consent`，不经确认页。

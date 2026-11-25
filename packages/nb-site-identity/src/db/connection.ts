@@ -110,6 +110,12 @@ export function isDbUnavailable(error: unknown): boolean {
     return false;
 }
 
+/** 错误（或它 `cause` 链上的某一层）是不是 SQLite 的外键约束失败：按扩展结果码的名字认，不看文字。 */
+export function isForeignKeyViolation(error: unknown): boolean {
+    for (const layer of causeChain(error)) if (layer instanceof SQLiteError && layer.code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+    return false;
+}
+
 /** 错误（或它 `cause` 链上的某一层）是不是 `IdentityQueueMisuseError`：库在自己的调用里抛出时可能包一层。 */
 export function isQueueMisuse(error: unknown): boolean {
     for (const layer of causeChain(error)) if (layer instanceof IdentityQueueMisuseError) return true;
