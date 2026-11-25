@@ -318,6 +318,7 @@ watch(() => props.disabled, (disabled) => {
                     class="nb-grid-panel"
                     :data-animating="scope.active.size === 0 && collapseMotion.has(index) ? 'true' : undefined"
                     :data-panel-id="panelIds[index]"
+                    :data-overflow="panel.overflow === 'visible' ? 'visible' : undefined"
                     :data-state="renderedCollapsed(index) ? 'collapsed' : 'expanded'"
                     :style="panelStyle(index)"
                 >
@@ -371,6 +372,10 @@ watch(() => props.disabled, (disabled) => {
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+.nb-grid-panel[data-overflow="visible"] {
+    overflow: visible;
 }
 
 /* 收起/展开是控件形变，走 --nb-layout-motion-move；拖动中关闭，避免跟手延迟。 */

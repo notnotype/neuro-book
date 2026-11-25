@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `SplitterPanelConfig.overflow`：写 `"visible"` 时这块面板不裁切内容，内容可以伸到相邻面板上面（收起的栏里拉出的抽屉）；缺省 `"hidden"`，行为不变。
+
 ## [0.2.0] - 2026-11-23
 
 ### 不兼容的改动
