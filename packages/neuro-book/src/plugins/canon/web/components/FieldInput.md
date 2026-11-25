@@ -21,7 +21,7 @@ type FieldInputProps = {
     unit?: string;
     refResults?: EntryResults;
     refName?: string;
-    /** 文字的行数；缺省 2。 */
+    /** 文字的行数；缺省 2。1 时是单行的输入框（就地改的浮层里的短文字，回车由外面的确认条当保存）。 */
     rows?: number;
 };
 

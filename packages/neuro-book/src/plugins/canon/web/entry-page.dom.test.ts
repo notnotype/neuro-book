@@ -1118,7 +1118,8 @@ describe("写入", () => {
         const entry = stored.value.object as Entry;
         await publish(other.canon, [{...entry, init: {...entry.init, data: {...entry.init.data, character: {...entry.init.data.character!, fields: {...entry.init.data.character!.fields, 性格: "红发"}}}}}]);
         await waitUntil("这个值刚刚变了", () => again.find("[data-inline-editor] [role='alert']").exists() && again.get("[data-inline-editor] [role='alert']").text().includes("这个值刚刚变了"));
-        await waitUntil("重新预览", () => again.get("[data-confirm-preview]").text().includes("改初值") && buttonByText(again, "保存")!.attributes("disabled") === undefined);
+        // 就地改的那两行这时只写原因；保存在新的预览回来以后才可用。
+        await waitUntil("重新预览", () => buttonByText(again, "保存")!.attributes("disabled") === undefined);
         await buttonByText(again, "保存")!.trigger("click");
         await waitUntil("写进去了", () => again.get("[data-edit='character.性格']").text().includes("银发"));
     });
@@ -1273,8 +1274,14 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
 
         await wrapper.get("[data-edit='badge.介绍']").trigger("click");
         await waitUntil("编辑器", () => editorOf("badge.介绍") !== null);
-        editorOf("badge.介绍")!.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        editorOf("badge.介绍")!.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
         await waitUntil("放弃了", () => state.edit === null && editorOf("badge.介绍") === null);
+
+        // 焦点不在输入框里时，落到页面上的 Escape（浮层自己的监听）也是放弃：下面组字那一段的否定断言靠它才有意义。
+        await wrapper.get("[data-edit='badge.图案']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.图案") !== null);
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("页面上的 Escape 放弃了", () => state.edit === null && editorOf("badge.图案") === null);
 
         // 输入法组字中按 Escape 不算放弃。
         await wrapper.get("[data-edit='badge.图案']").trigger("click");
@@ -1303,22 +1310,29 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
     });
 
-    it("就地改：保存在途时 Escape 与“取消”都不算放弃，保存完照常收起；草稿所在的字段被去掉时草稿清掉，不退回确认条", async () => {
+    it("就地改：保存在途时 Escape 与“取消”都不算放弃；这时点了另一个值，保存回来以后那一份留着；草稿所在的字段被去掉时草稿清掉，不退回确认条", async () => {
         const {wrapper, state} = await badgePage();
         await wrapper.get("[data-edit='badge.介绍']").trigger("click");
         await waitUntil("编辑器", () => editorOf("badge.介绍") !== null);
-        const textarea = editorOf("badge.介绍")!.querySelector("textarea")!;
-        textarea.value = "一枚旧徽章";
-        textarea.dispatchEvent(new Event("input", {bubbles: true}));
+        const input = editorOf("badge.介绍")!.querySelector("input")!;
+        input.value = "一枚旧徽章";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
         await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
         const buttons = () => [...editorOf("badge.介绍")!.querySelectorAll("button")];
         buttons().find((button) => button.textContent?.trim() === "保存")!.click();
         // 保存的请求已经发出（`saving` 在点下去的同一刻就是真）：这时的 Escape 与“取消”都不放弃。
-        textarea.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
         buttons().find((button) => button.textContent?.trim() === "取消")!.click();
         expect(state.edit?.path).toBe("badge.介绍");
-        await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.介绍']").text() === "一枚旧徽章" && editorOf("badge.介绍") === null);
-        expect(state.edit).toBeNull();
+        // 还在保存时点了“图案”：保存回来只收起“介绍”那一份，“图案”的编辑留着。
+        (wrapper.get("[data-edit='badge.图案']").element as HTMLButtonElement).click();
+        expect(state.edit?.path).toBe("badge.图案");
+        await waitUntil("保存了", () => wrapper.get("[data-edit='badge.介绍']").text() === "一枚旧徽章");
+        await waitUntil("“介绍”的编辑器收起", () => editorOf("badge.介绍") === null);
+        expect(state.edit?.path).toBe("badge.图案");
+        expect(editorOf("badge.图案")).not.toBeNull();
+        editorOf("badge.图案")!.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("放弃了“图案”", () => state.edit === null);
 
         await wrapper.get("[data-add-field]").trigger("click");
         await waitUntil("加上种族", () => wrapper.find("[data-edit='badge.种族']").exists());
@@ -1404,5 +1418,32 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         (document.body.querySelector("[data-preset='种族']") as HTMLElement).click();
         await waitUntil("加上了种族", () => wrapper.find("[data-fact='种族'] [data-more='种族']").exists());
         expect(document.body.querySelector("[data-preset='种族']")).toBeNull();
+    });
+
+    it("现在的状态：点开是细节，点“改起点”时编辑层浮在它原处、细节收起，不出页面顶上的确认条", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("现在的状态", () => wrapper.find("[data-condition='现在的状态']").exists());
+        await wrapper.get("[data-condition='现在的状态']").trigger("click");
+        await waitUntil("细节", () => wrapper.find("[data-condition-detail] [data-edit='character.现在的状态']").exists());
+        await wrapper.get("[data-condition-detail] [data-edit='character.现在的状态']").trigger("click");
+        await waitUntil("编辑层", () => document.body.querySelector("[data-field-editor='character.现在的状态'] textarea") !== null);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        await waitUntil("细节收起", () => !wrapper.find("[data-condition-detail]").exists());
+    });
+
+    it("自己加的列表（Agent 能加别的种类）卡片画不了：在人物分页下面的通用字段表里，不从这一页消失", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const character = star.init.data.character!;
+        star.init.data.character = {...character, declared: [{id: "随身物", label: "随身物", kind: "list", item: [{id: "说明", label: "说明", kind: "text"}]}], fields: {...character.fields, 随身物: [{id: "e1", label: "怀表", 说明: "旧的"}]}};
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("通用字段表", () => wrapper.find("[data-character-view] [data-field-table]").exists() && wrapper.get("[data-character-view] [data-field-table]").text().includes("怀表"));
+        expect(wrapper.find("[data-fact='随身物']").exists()).toBe(false);
     });
 });

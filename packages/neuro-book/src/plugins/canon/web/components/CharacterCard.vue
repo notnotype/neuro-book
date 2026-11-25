@@ -31,7 +31,11 @@ const props = withDefaults(defineProps<{
     adding?: boolean;
     /** “添加一项资料”的浮层开着。 */
     addOpen?: boolean;
-}>(), {condition: null, passages: () => [], editReason: "", namespace: "", conditionOpen: false, canAdd: false, presets: () => [], removed: () => [], addError: "", adding: false, addOpen: false});
+    /** 立绘那一格加上（恢复）形象的写入在途：这一格不可用。 */
+    portraitBusy?: boolean;
+    /** 加上形象被拒的原因，写在立绘下面。 */
+    portraitError?: string;
+}>(), {condition: null, passages: () => [], editReason: "", namespace: "", conditionOpen: false, canAdd: false, presets: () => [], removed: () => [], addError: "", adding: false, addOpen: false, portraitBusy: false, portraitError: ""});
 
 const emit = defineEmits<{
     /** 点了一个值：就地改它；`anchor` 是值按钮（浮层贴着它）。 */
@@ -52,7 +56,7 @@ const emit = defineEmits<{
 defineSlots<{
     /** 每个值旁边：就地改的编辑器（浮层，锚在 `anchor`）。 */
     editor?(props: {id: string; anchor: HTMLElement | null}): unknown;
-    /** 每段文字的位置上：浮在原处的编辑层（这个位置是 `relative` 的）。 */
+    /** 每段文字与现在的状态的位置上：浮在原处的编辑层（这个位置是 `relative` 的）。 */
     "passage-editor"?(props: {id: string}): unknown;
     /** 现在的状态展开时下面的细节。 */
     "condition-detail"?(props: {id: string}): unknown;
@@ -69,6 +73,8 @@ const own = ref("");
 const blocked = (): boolean => props.editReason !== "";
 const editKey = (id: string): string => (props.namespace === "" ? id : `${props.namespace}.${id}`);
 const pick = (event: MouseEvent, id: string): void => emit("edit", id, event.currentTarget as HTMLElement);
+/** 值按钮的读屏名带上是哪一项：一个刚建的人物有六七个“填写”。 */
+const valueLabel = (label: string, shown: string | null): string => text("card.valueLabel", {label, value: shown ?? text("card.fill")});
 const submitOwn = (): void => {
     const label = own.value.trim();
     if (label === "") return;
@@ -80,24 +86,26 @@ defineExpose({clearOwn: () => (own.value = "")});
 <template>
     <div class="character-card" data-character-card>
         <div class="character-card__top">
-            <button
-                v-if="props.portrait.status !== 'unavailable'"
-                type="button"
-                class="character-card__portrait nb-ui-focus-ring"
-                :class="{'character-card__portrait--empty': props.portrait.status !== 'image'}"
-                :disabled="props.portrait.status === 'later' || (props.portrait.status !== 'image' && props.portrait.status !== 'no-image' && blocked())"
-                :data-portrait="props.portrait.status"
-                @click="emit('portrait')"
-            >
-                <template v-if="props.portrait.status === 'image'">
-                    <CanonImage :path="props.portrait.path" :alt="props.portrait.alt" />
-                    <span class="character-card__portrait-action">{{ text("character.portraitOpen") }}<span class="i-lucide-arrow-up-right size-3.5" aria-hidden="true" /></span>
-                </template>
-                <template v-else>
-                    <span :class="props.portrait.status === 'no-image' ? 'i-lucide-image-plus' : props.portrait.status === 'removed' ? 'i-lucide-rotate-ccw' : 'i-lucide-shirt'" class="size-6" aria-hidden="true" />
-                    <span>{{ props.portrait.status === "no-image" ? text("character.addPortrait") : props.portrait.status === "absent" ? text("character.addLook") : props.portrait.status === "removed" ? text("character.restoreLook") : text("character.lookFrom", {from: props.portrait.from}) }}</span>
-                </template>
-            </button>
+            <div v-if="props.portrait.status !== 'unavailable'" class="character-card__portrait-slot">
+                <button
+                    type="button"
+                    class="character-card__portrait nb-ui-focus-ring"
+                    :class="{'character-card__portrait--empty': props.portrait.status !== 'image'}"
+                    :disabled="props.portrait.status === 'later' || (props.portrait.status !== 'image' && props.portrait.status !== 'no-image' && (blocked() || props.portraitBusy))"
+                    :data-portrait="props.portrait.status"
+                    @click="emit('portrait')"
+                >
+                    <template v-if="props.portrait.status === 'image'">
+                        <CanonImage :path="props.portrait.path" :alt="props.portrait.alt" />
+                        <span class="character-card__portrait-action">{{ text("character.portraitOpen") }}<span class="i-lucide-arrow-up-right size-3.5" aria-hidden="true" /></span>
+                    </template>
+                    <template v-else>
+                        <span :class="props.portrait.status === 'no-image' ? 'i-lucide-image-plus' : props.portrait.status === 'removed' ? 'i-lucide-rotate-ccw' : 'i-lucide-shirt'" class="size-6" aria-hidden="true" />
+                        <span>{{ props.portrait.status === "no-image" ? text("character.addPortrait") : props.portrait.status === "absent" ? text("character.addLook") : props.portrait.status === "removed" ? text("character.restoreLook") : text("character.lookFrom", {from: props.portrait.from}) }}</span>
+                    </template>
+                </button>
+                <p v-if="props.portraitError !== ''" role="alert" class="character-card__portrait-error">{{ props.portraitError }}</p>
+            </div>
 
             <div class="character-card__main min-w-0 flex-1">
                 <TransitionGroup tag="dl" name="character-card-row" class="character-card__facts">
@@ -110,7 +118,8 @@ defineExpose({clearOwn: () => (own.value = "")});
                                 class="character-card__value nb-ui-focus-ring"
                                 :class="{'character-card__value--link': fact.link === true && fact.text !== null, 'character-card__value--empty': fact.text === null}"
                                 :disabled="blocked()"
-                                :title="props.editReason || undefined"
+                                :title="props.editReason || fact.text || undefined"
+                                :aria-label="valueLabel(fact.label, fact.text)"
                                 :data-edit="editKey(fact.id)"
                                 @click="pick($event, fact.id)"
                             >
@@ -149,8 +158,14 @@ defineExpose({clearOwn: () => (own.value = "")});
 
                 <div v-if="props.condition !== null" class="character-card__condition">
                     <span class="character-card__label">{{ props.condition.label }}</span>
-                    <button type="button" class="character-card__value character-card__value--wrap nb-ui-focus-ring" :class="{'character-card__value--empty': props.condition.text === null}" :aria-expanded="props.conditionOpen" :data-condition="props.condition.id" @click="emit('toggle-condition')">{{ props.condition.text ?? props.condition.hint }}</button>
-                    <span v-if="props.condition.mark !== undefined && props.condition.text !== null" class="character-card__mark">{{ props.condition.mark }}</span>
+                    <div class="relative min-w-0">
+                        <button type="button" class="character-card__value character-card__value--wrap nb-ui-focus-ring" :class="{'character-card__value--empty': props.condition.text === null}" :aria-expanded="props.conditionOpen" :aria-label="valueLabel(props.condition.label, props.condition.text)" :data-condition="props.condition.id" @click="emit('toggle-condition')">
+                            <Transition name="nb-ui-switch" mode="out-in"><span :key="props.condition.text ?? ''">{{ props.condition.text ?? props.condition.hint }}</span></Transition>
+                        </button>
+                        <slot name="passage-editor" :id="props.condition.id" />
+                    </div>
+                    <!-- 语义档的来历就在它的细节里（起点与之后记下的各句）：“第 N 章改过”展开细节。 -->
+                    <button v-if="props.condition.mark !== undefined && props.condition.text !== null" type="button" class="character-card__mark character-card__mark--button nb-ui-focus-ring" :aria-expanded="props.conditionOpen" :data-origins="props.condition.id" @click="emit('toggle-condition')">{{ props.condition.mark }}</button>
                     <Transition name="character-card-lift">
                         <div v-if="props.conditionOpen" class="character-card__detail" data-condition-detail>
                             <slot name="condition-detail" :id="props.condition.id" />
@@ -161,7 +176,10 @@ defineExpose({clearOwn: () => (own.value = "")});
         </div>
 
         <section v-for="passage in props.passages" :key="passage.id" class="character-card__section" :data-passage="passage.id">
-            <header><h3>{{ passage.label }}</h3><span v-if="passage.mark !== undefined && passage.text !== null" class="character-card__mark">{{ passage.mark }}</span></header>
+            <header>
+                <h3>{{ passage.label }}</h3>
+                <button v-if="passage.mark !== undefined && passage.text !== null" type="button" class="character-card__mark character-card__mark--button nb-ui-focus-ring" :data-origins="passage.id" @click="emit('origins', passage.id, $event.currentTarget as HTMLElement)">{{ passage.mark }}</button>
+            </header>
             <div class="relative">
                 <button
                     type="button"
@@ -169,9 +187,12 @@ defineExpose({clearOwn: () => (own.value = "")});
                     :class="{'character-card__passage--empty': passage.text === null}"
                     :disabled="blocked()"
                     :title="props.editReason || undefined"
+                    :aria-label="valueLabel(passage.label, passage.text)"
                     :data-edit="editKey(passage.id)"
                     @click="pick($event, passage.id)"
-                >{{ passage.text ?? passage.hint }}</button>
+                >
+                    <Transition name="nb-ui-switch" mode="out-in"><span :key="passage.text ?? ''">{{ passage.text ?? passage.hint }}</span></Transition>
+                </button>
                 <slot name="passage-editor" :id="passage.id" />
             </div>
         </section>
@@ -292,6 +313,17 @@ defineExpose({clearOwn: () => (own.value = "")});
 }
 .character-card__value--empty {
     color: var(--text-muted);
+}
+.character-card__portrait-slot {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+.character-card__portrait-error {
+    max-width: 11rem;
+    font-size: var(--text-xs);
+    color: var(--status-danger);
 }
 .character-card__mark {
     flex-shrink: 0;

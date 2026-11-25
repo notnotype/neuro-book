@@ -2,7 +2,7 @@
 /**
  * 按字段的种类画一个输入控件（同名 .md）：确认条与列表元素对话框共用。受控。
  */
-import {NumberInput, Select, Switch, Textarea} from "@notnotype/nb-ui/components";
+import {Input, NumberInput, Select, Switch, Textarea} from "@notnotype/nb-ui/components";
 
 import type {ConfirmBarKind} from "./confirm-bar";
 import EntryPicker from "./EntryPicker.vue";
@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
     unit?: string;
     refResults?: EntryResults;
     refName?: string;
+    /** 文字的行数；1 是单行输入框（就地改的浮层里的短文字）。 */
     rows?: number;
 }>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, rows: 2});
 
@@ -36,6 +37,7 @@ const emit = defineEmits<{
         <Switch v-else-if="props.kind === 'boolean'" size="sm" :aria-label="props.label" :model-value="props.value === true" @update:model-value="(value: boolean) => emit('update:value', value)" />
         <EntryPicker v-else-if="props.kind === 'ref'" class="w-72 max-w-full" :aria-label="props.label" :model-value="typeof props.value === 'string' ? props.value : null" :selected-name="props.refName" :results="props.refResults" @search="(query: string) => emit('search-ref', query)" @update:model-value="(value: string | null) => emit('update:value', value)" />
         <ImageInput v-else-if="props.kind === 'image'" class="w-full" :model-value="(props.value as ImageValue | null) ?? null" @update:model-value="(value: ImageValue | null) => emit('update:value', value)" />
+        <Input v-else-if="props.rows === 1" class="w-full" size="sm" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
         <Textarea v-else class="w-full" :rows="props.rows" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
         <span v-if="props.unit !== '' && props.kind === 'number'" class="text-[var(--text-muted)]">{{ props.unit }}</span>
     </div>

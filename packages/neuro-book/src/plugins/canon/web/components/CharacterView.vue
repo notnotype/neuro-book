@@ -40,7 +40,7 @@ const markOf = (id: string): {mark?: string} => {
 };
 
 const facts = computed<CardFact[]>(() => {
-    // 自己加的各项排在固定的后面，按声明的顺序。
+    // 自己加的各项排在固定的后面，按声明的顺序；列表画不成一行，在下面的通用字段表里（`others`）。
     const own = context.declarations.filter((item) => !FIXED.has(item.id) && item.kind !== "list").map((item) => item.id);
     return [...SHORT.filter((id) => declarationOf(id) !== undefined), ...own].map((id) => ({
         id,
@@ -51,6 +51,8 @@ const facts = computed<CardFact[]>(() => {
         ...(FIXED.has(id) ? {} : {own: true}),
     }));
 });
+/** 自己加的、卡片画不了的项（列表；作者界面只加文字，Agent 可以加别的种类）：嵌一节通用字段表，不让它从这一页消失。 */
+const others = computed(() => context.declarations.filter((item) => !FIXED.has(item.id) && item.kind === "list").map((item) => item.id));
 const passageOf = (id: string, hint: string): CardPassage => ({id, label: declarationOf(id)?.label ?? id, text: shownText(id), hint, ...markOf(id)});
 const condition = computed(() => (declarationOf(CONDITION) === undefined ? null : passageOf(CONDITION, port.t(text("character.hint.condition")))));
 const passages = computed(() => Object.entries(PASSAGES).filter(([id]) => declarationOf(id) !== undefined).map(([id, hint]) => passageOf(id, port.t(text(`character.hint.${hint}`)))));
@@ -77,11 +79,26 @@ const showOrigins = (id: string, anchor: HTMLElement): void => {
     context.showDetail?.(id);
 };
 const toggleCondition = (): void => context.showDetail?.(context.detail === CONDITION ? null : CONDITION);
+// 细节里点了“改起点”：编辑层浮在现在的状态原处，细节收起来，不叠在它下面。
+watch(() => context.editing, (editing) => {
+    if (editing === CONDITION && context.detail === CONDITION) context.showDetail?.(null);
+});
 
-const onPortrait = (): void => {
+/** 立绘那一格加上（恢复）形象：在途时不可用，被拒的原因写在立绘下面。 */
+const portraitBusy = shallowRef(false);
+const portraitError = shallowRef("");
+const onPortrait = async (): Promise<void> => {
     const status = portrait.value.status;
     if (status === "image" || status === "no-image") context.showTab?.(LOOK_COMPONENT);
-    else if (status === "absent" || status === "removed") void context.addComponent?.(LOOK_COMPONENT);
+    else if ((status === "absent" || status === "removed") && !portraitBusy.value) {
+        const pending = context.addComponent?.(LOOK_COMPONENT);
+        if (pending === undefined) return;
+        portraitBusy.value = true;
+        portraitError.value = "";
+        const result = await pending;
+        portraitBusy.value = false;
+        if (!result.ok) portraitError.value = port.t(result.reason);
+    }
 };
 
 /* ---------- 添加一项资料、改名、去掉（输出 52） ---------- */
@@ -93,7 +110,6 @@ const card = shallowRef<{clearOwn(): void} | null>(null);
 watch(addOpen, () => {
     addError.value = "";
 });
-const taken = computed(() => new Set([...context.declarations.map((item) => item.id), ...(context.removedFields ?? []).map((item) => item.id)]));
 const presets = computed(() => (context.presets ?? []).filter((preset) => !context.declarations.some((item) => item.id === preset.id || item.label === preset.label) && !(context.removedFields ?? []).some((item) => item.id === preset.id)).map((preset) => ({id: preset.id, label: preset.label})));
 const run = async (write: () => Promise<{readonly ok: boolean; readonly reason?: unknown}> | undefined): Promise<boolean> => {
     const pending = write();
@@ -111,11 +127,9 @@ const addField = async (field: FieldDraft): Promise<void> => {
     }
 };
 const addPreset = (id: string): void => {
+    // 列出来的预设已经滤掉了 id 在这个条目上占着的（`presets`），给的 id 照用。
     const preset = context.presets?.find((item) => item.id === id);
-    if (preset === undefined) return;
-    // 预设的 id 在这个条目上已经占着（去掉过、改过名的同 id 一项）时不给 id，按显示名生成（给的 id 占着会被拒）。
-    const {id: presetId, ...rest} = preset;
-    void addField(taken.value.has(presetId) ? rest : preset);
+    if (preset !== undefined) void addField(preset);
 };
 const restore = async (id: string): Promise<void> => {
     if (await run(() => context.fieldRestore?.(id))) addOpen.value = false;
@@ -126,6 +140,11 @@ const newName = shallowRef("");
 const removing = shallowRef<{id: string; label: string} | null>(null);
 const dialogError = shallowRef("");
 const busy = shallowRef(false);
+/** 改名的确认按钮与输入框回车用同一个判据。 */
+const canRename = computed(() => !busy.value && renaming.value !== null && newName.value.trim() !== "" && newName.value.trim() !== renaming.value.label);
+const submitRename = (): void => {
+    if (canRename.value) void confirm(() => context.fieldRename?.(renaming.value!.id, newName.value.trim()), () => (renaming.value = null));
+};
 const openRename = (id: string): void => {
     renaming.value = {id, label: declarationOf(id)?.label ?? id};
     newName.value = renaming.value.label;
@@ -163,6 +182,8 @@ const confirm = async (write: () => Promise<{readonly ok: boolean; readonly reas
             :add-error="addError"
             :adding="adding"
             :add-open="addOpen"
+            :portrait-busy="portraitBusy"
+            :portrait-error="portraitError"
             @update:add-open="(value: boolean) => (addOpen = value)"
             @edit="edit"
             @origins="showOrigins"
@@ -184,17 +205,18 @@ const confirm = async (write: () => Promise<{readonly ok: boolean; readonly reas
                 <component :is="context.FieldDetail" v-if="context.FieldDetail !== undefined" :path="id" />
             </template>
         </CharacterCard>
+        <component :is="context.FieldTable" v-if="others.length > 0" class="mt-6" :fields="others" />
         <Popover :open="originsOpen" :anchor="detailAnchor" side="bottom" align="start" content-class="w-[34rem] max-w-[calc(100vw-32px)] select-text" @update:open="(open: boolean) => { if (!open) context.showDetail?.(null); }">
             <component :is="context.FieldDetail" v-if="originsOpen && context.FieldDetail !== undefined" :path="context.detail!" />
         </Popover>
         <Dialog :open="renaming !== null" size="sm" :title="text('card.renameTitle', {label: renaming?.label ?? ''})" show-cancel :busy="busy" @update:open="(open: boolean) => { if (!open) renaming = null; }">
-            <form class="flex flex-col gap-2" @submit.prevent="confirm(() => context.fieldRename?.(renaming!.id, newName.trim()), () => (renaming = null))">
+            <form class="flex flex-col gap-2" @submit.prevent="submitRename">
                 <Input v-model="newName" size="sm" :aria-label="text('card.newName')" autofocus />
                 <p v-if="dialogError !== ''" role="alert" class="text-[length:var(--text-xs)] text-[var(--status-danger)]">{{ dialogError }}</p>
             </form>
             <template #footer="{cancel}">
                 <Button variant="ghost" :disabled="busy" @click="cancel()">{{ text("edit.cancel") }}</Button>
-                <Button :disabled="busy || newName.trim() === '' || newName.trim() === renaming?.label" @click="confirm(() => context.fieldRename?.(renaming!.id, newName.trim()), () => (renaming = null))">{{ text("card.rename") }}</Button>
+                <Button :disabled="!canRename" @click="submitRename">{{ text("card.rename") }}</Button>
             </template>
         </Dialog>
         <Dialog :open="removing !== null" size="sm" :title="text('card.removeTitle', {label: removing?.label ?? ''})" show-cancel :busy="busy" @update:open="(open: boolean) => { if (!open) removing = null; }">

@@ -59,19 +59,19 @@ const root = ref<HTMLElement | null>(null);
 const canSave = computed(() => props.preview !== null && !props.previewing && !props.saving && !props.locked);
 
 /**
- * `inline` 时预览与原因共用一块固定两行高的位置（输出 51）：预览回来、原因出现时保存与取消不移动，浮层不变高。先原因、再写回
- * 哪里、再第一条变化，放不下的变化收进“还有 N 项”（整句在悬停提示里）；只有一行时它可以折成两行。
+ * `inline` 时预览与原因共用一块固定两行高的位置（输出 51）：预览回来、原因出现时保存与取消不移动，浮层不变高。有原因时只写原因、
+ * 可以折成两行（它是这时最要紧的，预览让位）；没有时写哪里、再第一条变化，放不下的变化收进“还有 N 项”（整句在悬停提示里）。
  */
 const inlineLines = computed(() => {
+    if (props.error !== "") return [{key: "error", text: props.error, tone: "danger" as const, title: props.error}];
     const lines: {key: string; text: string; tone: "danger" | "main" | "secondary"; title: string}[] = [];
-    if (props.error !== "") lines.push({key: "error", text: props.error, tone: "danger", title: props.error});
     if (props.previewing) lines.push({key: "previewing", text: text("edit.previewing"), tone: "secondary", title: ""});
     else if (props.preview !== null) {
         const {route, impact} = props.preview;
         lines.push({key: "route", text: route, tone: "main", title: route});
         if (impact.length > 0) lines.push({key: "impact", text: impact.length === 1 ? impact[0]! : text("edit.moreImpact", {first: impact[0]!, count: impact.length - 1}), tone: "secondary", title: impact.join("\n")});
     }
-    return lines.slice(0, 2);
+    return lines;
 });
 const TONE = {danger: "text-[var(--status-danger)]", main: "text-[var(--text-main)]", secondary: "text-[var(--text-secondary)]"} as const;
 
@@ -79,10 +79,21 @@ onMounted(() => {
     void nextTick(() => root.value?.querySelector<HTMLElement>("input, textarea, [role='combobox'], [role='switch']")?.focus());
 });
 
+/** 回车就是保存的几种：`inline` 时它们是单行的输入框（短文字、有建议值的文字、数）。 */
+const ENTER_SAVES: ReadonlySet<ConfirmBarKind> = new Set(["text", "suggest", "number"]);
+
 const onKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape" || event.isComposing) return;
-    event.preventDefault();
-    emit("cancel");
+    if (event.isComposing) return;
+    if (event.key === "Escape") {
+        event.preventDefault();
+        emit("cancel");
+        return;
+    }
+    // 只认单行的输入框（成段的文字回车照常换行）；建议值的列表接走了这一下（选中高亮的那条）时不保存。
+    if (event.key === "Enter" && props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) && !event.defaultPrevented && (event.target as Element | null)?.tagName === "INPUT" && canSave.value) {
+        event.preventDefault();
+        emit("save");
+    }
 };
 </script>
 

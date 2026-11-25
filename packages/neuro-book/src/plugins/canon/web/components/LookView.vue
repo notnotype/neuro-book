@@ -42,6 +42,9 @@ const imageOf = (value: unknown): {readonly path: string; readonly alt: string} 
 };
 
 const portrait = computed(() => imageOf(context.fields[PORTRAIT]?.value));
+/** 自己加的项（形象允许实例字段）卡片不画：嵌一节通用字段表，不让它从这一页消失。 */
+const FIXED = new Set([PORTRAIT, APPEARANCE, OUTFITS, WEARING]);
+const others = computed(() => context.declarations.filter((item) => !FIXED.has(item.id)).map((item) => item.id));
 const appearance = computed<CardPassage | null>(() => (declarationOf(APPEARANCE) === undefined ? null : {id: APPEARANCE, label: declarationOf(APPEARANCE)!.label, text: shownText(APPEARANCE), hint: port.t(text("look.hint.appearance")), ...markOf(APPEARANCE)}));
 const wearing = computed<CardFact | null>(() => (declarationOf(WEARING) === undefined ? null : {id: WEARING, label: declarationOf(WEARING)!.label, text: shownText(WEARING), ...markOf(WEARING)}));
 const outfits = computed<CardOutfit[]>(() => {
@@ -83,6 +86,7 @@ const showOrigins = (id: string, anchor: HTMLElement): void => {
     <div class="min-w-0" data-look-view>
         <LookCard
             :portrait="portrait"
+            :portrait-mark="markOf(PORTRAIT).mark"
             :appearance="appearance"
             :wearing="wearing"
             :outfits="outfits"
@@ -108,6 +112,7 @@ const showOrigins = (id: string, anchor: HTMLElement): void => {
                 <component :is="context.FieldEditor" v-if="context.FieldEditor !== undefined" :path="id" layout="block" />
             </template>
         </LookCard>
+        <component :is="context.FieldTable" v-if="others.length > 0" class="mt-6" :fields="others" />
         <Popover :open="originsOpen" :anchor="detailAnchor" side="bottom" align="start" content-class="w-[34rem] max-w-[calc(100vw-32px)] select-text" @update:open="(open: boolean) => { if (!open) context.showDetail?.(null); }">
             <component :is="context.FieldDetail" v-if="originsOpen && context.FieldDetail !== undefined" :path="context.detail!" />
         </Popover>

@@ -691,6 +691,7 @@
     },
     "card": {
         "fill": "填写",
+        "valueLabel": "{{label}}：{{value}}",
         "addField": "添加一项资料",
         "ownPlaceholder": "别的，写它的名字",
         "ownLabel": "新的一项的名字",
@@ -718,6 +719,7 @@
         }
     },
     "look": {
+        "portrait": "立绘",
         "changePortrait": "换一张",
         "addPortrait": "添加立绘",
         "wardrobe": "衣柜",

@@ -29,6 +29,7 @@ export function provideSamplePicking(mode: "ready" | "uploading" | "empty" = "re
         candidates,
         uploading: mode === "uploading",
         reason: "",
+        notice: "",
         url: (path: string) => SAMPLE_IMAGES[path] ?? null,
         browse: () => undefined,
         upload: async (file: File) => {

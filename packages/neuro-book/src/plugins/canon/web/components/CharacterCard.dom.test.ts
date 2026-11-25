@@ -1,7 +1,8 @@
 /**
  * CharacterCard 与 LookCard（同名 .md，docs/specs/canon/author-ui.md 输出 49、50、52）：立绘那一格的几种样子与点了发的事件；值是
- * 按钮，点了带着按钮发 edit，未知时写“填写”，写不了时不可用；“第 N 章改过”发 origins；添加一项资料发 add-preset、restore、
- * add-own；衣柜的“换上”带着套名与按钮发 put-on，穿着的那一套写“穿着”。
+ * 按钮，点了带着按钮发 edit，未知时写“填写”，读屏名带上是哪一项，写不了时不可用；短资料、成段的文字与外貌、立绘的“第 N 章改过”
+ * 是按钮、发 origins，现在的状态的那个展开细节；添加一项资料发 add-preset、restore、add-own；衣柜的“换上”带着套名与按钮发
+ * put-on，穿着的那一套写“穿着”。
  */
 
 import {mount, type VueWrapper} from "@vue/test-utils";
@@ -53,9 +54,35 @@ describe("CharacterCard", () => {
         await wrapper.get("[data-origins='现在在哪']").trigger("click");
         expect(wrapper.emitted("origins")?.[0]?.[0]).toBe("现在在哪");
         expect(wrapper.find("[data-origins='年龄']").exists()).toBe(false);
+        // 读屏名带上是哪一项；悬停看得到截断前的整个值。
+        expect(value.attributes("aria-label")).toBe("性别：女");
+        expect(wrapper.get("[data-edit='character.年龄']").attributes("aria-label")).toBe("年龄：填写");
+        expect(value.attributes("title")).toBe("女");
         await wrapper.setProps({editReason: "先关掉按计划"});
         expect(wrapper.get("[data-edit='character.性别']").attributes("disabled")).toBeDefined();
         expect(wrapper.get("[data-edit='character.性别']").attributes("title")).toBe("先关掉按计划");
+    });
+
+    it("成段的文字与现在的状态的“第 N 章改过”是按钮：段落的发 origins，现在的状态的展开它的细节；未知时没有", async () => {
+        const wrapper = card({
+            condition: {id: "现在的状态", label: "现在的状态", text: "左臂带伤", hint: "此刻的处境", mark: "第 3 章改过"},
+            passages: [{id: "性格", label: "性格", text: "嘴硬心软", hint: "", mark: "第 2 章改过"}, {id: "背景", label: "背景", text: null, hint: "从哪里来", mark: "第 2 章改过"}],
+        });
+        const temper = wrapper.get("[data-origins='性格']");
+        await temper.trigger("click");
+        expect(wrapper.emitted("origins")).toEqual([["性格", temper.element]]);
+        expect(wrapper.find("[data-origins='背景']").exists()).toBe(false);
+        await wrapper.get("[data-origins='现在的状态']").trigger("click");
+        expect(wrapper.emitted("toggle-condition")).toHaveLength(1);
+        expect(wrapper.get("[data-edit='character.性格']").attributes("aria-label")).toBe("性格：嘴硬心软");
+    });
+
+    it("加上形象被拒：原因写在立绘下面；在途时那一格不可用", async () => {
+        const wrapper = card({portrait: {status: "absent"}, portraitBusy: true});
+        expect(wrapper.get("[data-portrait]").attributes("disabled")).toBeDefined();
+        await wrapper.setProps({portraitBusy: false, portraitError: "这部作品此刻只读"});
+        expect(wrapper.get("[data-portrait]").attributes("disabled")).toBeUndefined();
+        expect(wrapper.get("[role='alert']").text()).toBe("这部作品此刻只读");
     });
 
     it("添加一项资料：点预设发 add-preset，点去掉过的发 restore，自己写名字发 add-own；被拒的原因写在下面", async () => {
@@ -92,5 +119,17 @@ describe("LookCard", () => {
         await wrapper.setProps({outfits: []});
         await waitUntil("衣柜空了", () => wrapper.findAll("[data-outfit]").length === 0);
         expect(wrapper.find("[data-outfit-add]").exists()).toBe(true);
+    });
+
+    it("立绘与外貌的“第 N 章改过”是按钮、发 origins；没有立绘时立绘的不出", async () => {
+        const appearance = {id: "外貌", label: "外貌", text: "银发", hint: "", mark: "第 2 章改过"};
+        const wrapper = mount(LookCard, {props: {portrait: {path: "插图/星瑕.png", alt: ""}, portraitMark: "第 4 章改过", appearance}, global: {provide: provideText(port)}, attachTo: document.body});
+        mounted.push(wrapper);
+        await wrapper.get("[data-origins='立绘']").trigger("click");
+        await wrapper.get("[data-origins='外貌']").trigger("click");
+        expect(wrapper.emitted("origins")?.map(([id]) => id)).toEqual(["立绘", "外貌"]);
+        expect(wrapper.get("[data-edit='外貌']").attributes("aria-label")).toBe("外貌：银发");
+        await wrapper.setProps({portrait: null});
+        expect(wrapper.find("[data-origins='立绘']").exists()).toBe(false);
     });
 });

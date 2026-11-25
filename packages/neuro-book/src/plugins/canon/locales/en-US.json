@@ -691,6 +691,7 @@
     },
     "card": {
         "fill": "Fill in",
+        "valueLabel": "{{label}}: {{value}}",
         "addField": "Add a detail",
         "ownPlaceholder": "Something else—name it",
         "ownLabel": "Name of the new detail",
@@ -718,6 +719,7 @@
         }
     },
     "look": {
+        "portrait": "Portrait",
         "changePortrait": "Change",
         "addPortrait": "Add a portrait",
         "wardrobe": "Wardrobe",

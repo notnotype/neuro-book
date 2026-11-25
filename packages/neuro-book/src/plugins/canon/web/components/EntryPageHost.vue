@@ -825,13 +825,18 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     if (composing.value || edit.bar.value?.saving === true || imagePicking?.uploading === true) return;
                     edit.cancel();
                 };
+                // 浮层关上以后还要淡出一会（Popover 的退场动画）：这期间照最后那一份画，不让它先塌成一块空的表面。
+                const shown = shallowRef<NonNullable<typeof edit.bar.value> | null>(null);
+                watch([active, edit.bar], ([on, bar]) => {
+                    if (on && bar !== null) shown.value = bar;
+                }, {immediate: true});
                 const content = () => {
                     // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
-                    const given = edit.bar.value!;
+                    const given = shown.value!;
                     const suggested = inner.suggestions !== undefined && inner.suggestions.length > 0 && (given.kind === "text" || given.kind === "suggest");
                     const bar = suggested ? {...given, kind: "suggest" as const, options: inner.suggestions!} : given;
-                    // 成段的文字从原文的行数起步。
-                    const rows = bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
+                    // 浮层里的短项是单行输入（回车保存）；成段的文字从原文的行数起步。
+                    const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
                         "data-field-editor": full(),
                         onCompositionstart: () => (composing.value = true),
@@ -858,13 +863,13 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     return h(Popover, {
                         open: active.value && inner.anchor !== null,
                         anchor: inner.anchor as HTMLElement | null,
-                        side: edit.bar.value?.kind === "image" ? "right" : "bottom",
+                        side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {
                             if (!open) dismiss();
                         },
-                    }, {default: () => (active.value ? content() : null)});
+                    }, {default: () => (shown.value !== null ? content() : null)});
                 };
             },
         });

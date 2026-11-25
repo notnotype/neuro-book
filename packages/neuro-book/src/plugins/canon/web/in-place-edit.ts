@@ -267,9 +267,13 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         saving.value = false;
         if (result.ok) {
             const label = labelOf(draft.path);
+            options.saved(result.value as Published, String(input.title ?? text("edit.heading", {label})));
+            // 保存在途时作者开了别的字段（点了另一个值）：那一份草稿、它的预览与焦点都留着。只比路径：这次写入发布的新版本
+            // 可能先于结果到达，版本的 watch 已经给同一份草稿换了 requestId。
+            const current = options.draft();
+            if (current !== null && current.path !== draft.path) return;
             options.setDraft(null);
             resetFeedback();
-            options.saved(result.value as Published, String(input.title ?? text("edit.heading", {label})));
             options.refocus(draft.path);
             return;
         }

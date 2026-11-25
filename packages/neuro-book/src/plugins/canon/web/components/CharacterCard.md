@@ -11,13 +11,14 @@
 
 - 左边立绘（`CanonImage`，竖长 3:4、宽度固定，宽窗口里不随窗口变大），右边短资料两列、一项一行（行高固定：换成“填写”、多出“第 N 章改过”或行尾按钮都不改变行高），末尾“添加一项资料”；下面是现在的状态（一行，可换行），再下面成段的文字各一节。容器窄于 520 像素时立绘在上、缩小；右边资料那一栏窄于 34rem（放不下两列）时资料排成一列。
 - 立绘那一格按 `portrait`：`image` 是图（悬停显出“形象”），`no-image` 是“添加立绘”，`absent` 是“添加形象”，`removed` 是“恢复形象”，`later` 写“第 N 章起有形象”（不可点），`unavailable` 时这一格不画。点了发 `portrait`。
-- 值本身是按钮：点了发 `edit(id, 按钮)`；值是 null 时写“填写”。引用的值用链接色。写不了时（`editReason` 非空）按钮不可用、悬停写原因。值换了淡入换上。
+- 值本身是按钮：点了发 `edit(id, 按钮)`；值是 null 时写“填写”。引用的值用链接色。读屏名是“显示名：值”（一个刚建的人物有六七个“填写”）；一行放不下截断时悬停看整个值。写不了时（`editReason` 非空）按钮不可用、悬停写原因。值换了淡入换上。
 - 有 `mark` 时值旁有“第 N 章改过”按钮，点了发 `origins(id, 按钮)`。
 - 自己加的项（`own`）行尾常显“更多”（低对比度，指到这一行变清楚）：菜单“改名”“去掉”，发 `rename`、`remove`。
 - “添加一项资料”（`canAdd` 时）：浮层（受控 `addOpen`）里列 `presets`（点了发 `add-preset`）与 `removed`（“恢复‘某某’”，发 `restore`），下面一栏自己写名字（回车或“添加”发 `add-own`），被拒的原因 `addError` 写在下面。`adding` 时按钮不可用。宿主加好以后调 `clearOwn()` 清掉那一栏。
-- 现在的状态：值是按钮，点了发 `toggle-condition`；`conditionOpen` 时下面浮出细节（`condition-detail` 插槽），不推动后面的内容。
-- 每段文字：值是按钮（空着写 `hint`），点了发 `edit`；`passage-editor` 插槽放在这一段的位置上（`relative`），编辑层由插槽内容浮在上面。
-- 过渡：资料行加去、细节出现消失按设计语言的动效；减弱动效时不动。
+- 现在的状态：值是按钮，点了发 `toggle-condition`；`conditionOpen` 时下面浮出细节（`condition-detail` 插槽），不推动后面的内容。它的“第 N 章改过”也是按钮、同样展开细节（语义档的来历就是细节里的起点与各句）。值的位置上也有 `passage-editor` 插槽（细节里的“改起点”）。
+- 每段文字：值是按钮（空着写 `hint`），点了发 `edit`；`passage-editor` 插槽放在这一段的位置上（`relative`），编辑层由插槽内容浮在上面。有 `mark` 时标题旁“第 N 章改过”按钮发 `origins(id, 按钮)`。
+- 立绘那一格加上形象在途（`portraitBusy`）时不可用，被拒的原因（`portraitError`）写在立绘下面。
+- 过渡：资料行加去、细节出现消失、值（短资料、现在的状态、成段的文字）换了按设计语言的动效；减弱动效时不动。
 
 ## 数据
 
@@ -37,6 +38,10 @@ type CharacterCardProps = {
     addError?: string;
     adding?: boolean;
     addOpen?: boolean;
+    /** 立绘那一格加上（恢复）形象在途：不可用。 */
+    portraitBusy?: boolean;
+    /** 加上形象被拒的原因，写在立绘下面。 */
+    portraitError?: string;
 };
 // CardFact、CardPassage、CardPortrait、CardAddable 见 character-card.ts。
 

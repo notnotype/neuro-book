@@ -41,9 +41,8 @@ function update(next: {readonly 图片: string; readonly 说明: string}): void 
     emit("update:modelValue", next["图片"] === "" && next["说明"] === "" ? null : next);
 }
 
-onMounted(() => {
-    if (picking.value !== null && picking.value.candidates === null) picking.value.browse();
-});
+// 每处选图片的地方挂上时重列：别处可能加了图，上一处的原因也不带过来。
+onMounted(() => picking.value?.browse());
 
 const onFile = async (event: Event): Promise<void> => {
     const input = event.target as HTMLInputElement;
@@ -68,8 +67,15 @@ const onKeydown = (event: KeyboardEvent): void => {
         <template v-if="picking !== null">
             <div class="flex items-center justify-between gap-2">
                 <span class="text-[length:var(--text-xs)] text-[var(--text-secondary)]">{{ text("imageInput.candidates") }}</span>
-                <Button v-if="picking.uploading" size="sm" variant="ghost" data-image-cancel @click="picking.cancel()">{{ text("imageInput.cancelUpload") }}</Button>
-                <Button v-else size="sm" variant="secondary" :disabled="props.disabled" data-image-upload @click="fileInput?.click()">{{ text("imageInput.upload") }}</Button>
+                <!-- 上传与取消上传是同一个按钮、只换文字：换成两个按钮时焦点会随旧的那个掉到页面上，Escape 就到不了这里。 -->
+                <Button
+                    size="sm"
+                    :variant="picking.uploading ? 'ghost' : 'secondary'"
+                    :disabled="props.disabled && !picking.uploading"
+                    :data-image-cancel="picking.uploading ? '' : undefined"
+                    :data-image-upload="picking.uploading ? undefined : ''"
+                    @click="picking.uploading ? picking.cancel() : fileInput?.click()"
+                >{{ picking.uploading ? text("imageInput.cancelUpload") : text("imageInput.upload") }}</Button>
                 <input ref="fileInput" class="hidden" type="file" :accept="IMAGE_ACCEPT" data-image-file @change="onFile">
             </div>
             <!-- 固定大小的方格：候选多少不改变外框的高度。 -->
@@ -108,5 +114,6 @@ const onKeydown = (event: KeyboardEvent): void => {
             @update:model-value="(value: string) => update({图片: path, 说明: value})"
         />
         <p v-if="reason !== undefined" class="text-[length:var(--text-xs)] text-[var(--status-danger)]" role="alert" data-image-problem>{{ reason }}</p>
+        <p v-else-if="picking !== null && picking.notice !== ''" class="text-[length:var(--text-xs)] text-[var(--text-secondary)]" role="status" data-image-notice>{{ picking.notice }}</p>
     </div>
 </template>

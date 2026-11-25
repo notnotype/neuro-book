@@ -3,7 +3,8 @@
  * 的候选、上传。读写都经文件插件的服务（`filesKey`），类型、大小的规则与失败码都是它的；存放的目录是作品设置里的图片文件夹
  * （编辑器插件的 `imageFolder`，经 `normalizeImageFolder` 收成合规的目录），条目不是作品里的文件，没有“所在目录”。
  *
- * “最近的”按名字倒序取（同章节插图的候选，`markdown/web/media.ts`）：目录列表里没有修改时间，粘贴、上传的名字里带着日期。
+ * 候选按名字倒序取前几张（同章节插图的候选，`markdown/web/media.ts`）：目录列表里没有修改时间。章节里粘贴的图名字带日期，倒序
+ * 大致是新的在前；这里上传的图保留原来的文件名，不一定排在前面，所以本页刚传的另外插在最前。
  */
 
 import {inject, provide, reactive} from "vue";
@@ -30,8 +31,8 @@ export interface ImageCandidate {
     readonly url: string | null;
 }
 
-/** 上传失败的三种（输出 53）：类型或大小不合；网络失败或结果不明（图可能已经写进作品）；别的。 */
-export type UploadFailure = {readonly kind: "rejected" | "unknown" | "other"; readonly reason: Text};
+/** 上传没成的四种（输出 53）：类型或大小不合；网络失败或结果不明（图可能已经写进作品）；作者自己取消了（同样可能已经写进去）；别的。 */
+export type UploadFailure = {readonly kind: "rejected" | "unknown" | "cancelled" | "other"; readonly reason: Text};
 
 export interface CanonImages {
     /** 窗口里有文件服务、绑定了作品：有候选与上传。没有时只剩手填路径。 */
@@ -69,7 +70,8 @@ export function createCanonImages(files: FilesService | null, folder: () => stri
             const result = await files.upload(addressOf(`${directory()}/${file.name}`), file, {exists: "rename", ...(signal === undefined ? {} : {signal})});
             if (result.ok) return {ok: true, path: result.address.slice("project://".length)};
             if (result.code === "too-large" || result.code === "unsupported-type" || result.code === "extension-mismatch") return {ok: false, kind: "rejected", reason: canonText("images.rejected")};
-            if (result.code === "network" || result.code === "unknown-outcome" || result.code === "cancelled") return {ok: false, kind: "unknown", reason: canonText(result.code === "cancelled" ? "images.cancelled" : "images.unknown")};
+            if (result.code === "cancelled") return {ok: false, kind: "cancelled", reason: canonText("images.cancelled")};
+            if (result.code === "network" || result.code === "unknown-outcome") return {ok: false, kind: "unknown", reason: canonText("images.unknown")};
             return {ok: false, kind: "other", reason: canonText("images.failed", {detail: result.detail})};
         },
     };
@@ -87,7 +89,10 @@ export interface ImagePicking {
     readonly uploading: boolean;
     /** 列候选或上传失败的原因；没有时为空。 */
     readonly reason: string;
+    /** 不算失败的一句（作者取消了上传、图可能已经写进作品）；没有时为空。 */
+    readonly notice: string;
     url(path: string): string | null;
+    /** 一处选图片的地方开始用（挂上时）：清掉上一次的原因，重列候选（别处可能加了图）。 */
     browse(): void;
     /** 上传一个文件；成功时给出存下的作品内路径（重名时是实际的名字）。 */
     upload(file: File): Promise<string | null>;
@@ -99,24 +104,32 @@ export interface ImagePicking {
 export function createImagePicking(images: CanonImages, resolve: (text: Text) => string): ImagePicking {
     let uploadRun: AbortController | null = null;
     let listRun: AbortController | null = null;
+    /** 重列候选；原因留着（上传结果不明以后重列，那句“看一下图片文件夹”还要在）。 */
+    const list = (): void => {
+        listRun?.abort();
+        const run = new AbortController();
+        listRun = run;
+        void images.recent(run.signal).then((listed) => {
+            if (listRun !== run) return;
+            listRun = null;
+            if (listed.ok) state.candidates = mergeRecent(listed.images);
+            else state.reason = resolve(listed.reason);
+        });
+    };
+    /** 本页刚传的排在最前：它们保留原来的文件名，按名字倒序不一定在前面。 */
+    const uploaded: ImageCandidate[] = [];
+    const mergeRecent = (listed: readonly ImageCandidate[]): readonly ImageCandidate[] => [...uploaded, ...listed.filter((item) => !uploaded.some((mine) => mine.path === item.path))].slice(0, IMAGE_CANDIDATES);
     const picking: ImagePicking = reactive({
         available: images.available,
         candidates: null as readonly ImageCandidate[] | null,
         uploading: false,
         reason: "",
+        notice: "",
         url: (path: string) => images.url(path),
         browse: () => {
-            listRun?.abort();
-            const run = new AbortController();
-            listRun = run;
-            void images.recent(run.signal).then((listed) => {
-                if (listRun !== run) return;
-                listRun = null;
-                if (listed.ok) {
-                    state.candidates = listed.images;
-                    state.reason = "";
-                } else state.reason = resolve(listed.reason);
-            });
+            state.reason = "";
+            state.notice = "";
+            list();
         },
         upload: async (file: File) => {
             uploadRun?.abort();
@@ -124,16 +137,21 @@ export function createImagePicking(images: CanonImages, resolve: (text: Text) =>
             uploadRun = run;
             state.uploading = true;
             state.reason = "";
+            state.notice = "";
             const result = await images.upload(file, run.signal);
             if (uploadRun !== run) return null;
             uploadRun = null;
             state.uploading = false;
             if (!result.ok) {
-                state.reason = resolve(result.reason);
+                if (result.kind === "cancelled") state.notice = resolve(result.reason);
+                else state.reason = resolve(result.reason);
+                // 图可能已经写进作品：重列一次，写进去了的话它会出现在候选里。
+                if (result.kind === "cancelled" || result.kind === "unknown") list();
                 return null;
             }
-            // 新传的排在候选最前面。
-            state.candidates = [{path: result.path, name: result.path.slice(result.path.lastIndexOf("/") + 1), url: images.url(result.path)}, ...(state.candidates ?? []).filter((item) => item.path !== result.path)].slice(0, IMAGE_CANDIDATES);
+            const candidate = {path: result.path, name: result.path.slice(result.path.lastIndexOf("/") + 1), url: images.url(result.path)};
+            uploaded.splice(0, uploaded.length, ...[candidate, ...uploaded.filter((item) => item.path !== result.path)].slice(0, IMAGE_CANDIDATES));
+            state.candidates = mergeRecent(state.candidates ?? []);
             return result.path;
         },
         cancel: () => {

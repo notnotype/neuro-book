@@ -14,6 +14,8 @@ import type {CardFact, CardOutfit, CardPassage} from "./character-card";
 const props = withDefaults(defineProps<{
     /** 立绘的作品内路径与说明；没有时为 null（写“添加立绘”）。 */
     portrait: {readonly path: string; readonly alt: string} | null;
+    /** 立绘在所选位置之前被剧情改过时的“第 N 章改过”。 */
+    portraitMark?: string;
     appearance?: CardPassage | null;
     wearing?: CardFact | null;
     outfits?: readonly CardOutfit[];
@@ -21,7 +23,7 @@ const props = withDefaults(defineProps<{
     editReason?: string;
     /** 值按钮的 `data-edit` 写完整路径（`<命名空间>.<字段>`），宿主保存或放弃以后按它把焦点还回来；缺省只写字段名。 */
     namespace?: string;
-}>(), {appearance: null, wearing: null, outfits: () => [], editReason: "", namespace: ""});
+}>(), {portraitMark: undefined, appearance: null, wearing: null, outfits: () => [], editReason: "", namespace: ""});
 
 const emit = defineEmits<{
     /** 点了一个值（立绘、外貌、现在穿的）：就地改它；`anchor` 是那个按钮。 */
@@ -51,6 +53,8 @@ const keep = (id: string) => (element: unknown) => {
 const blocked = (): boolean => props.editReason !== "";
 const editKey = (id: string): string => (props.namespace === "" ? id : `${props.namespace}.${id}`);
 const pick = (event: MouseEvent, id: string): void => emit("edit", id, event.currentTarget as HTMLElement);
+/** 值按钮的读屏名带上是哪一项。 */
+const valueLabel = (label: string, shown: string | null): string => text("card.valueLabel", {label, value: shown ?? text("card.fill")});
 </script>
 
 <template>
@@ -64,6 +68,7 @@ const pick = (event: MouseEvent, id: string): void => emit("edit", id, event.cur
                     :class="{'look-card__portrait--empty': props.portrait === null}"
                     :disabled="blocked()"
                     :title="props.editReason || undefined"
+                    :aria-label="valueLabel(text('look.portrait'), props.portrait === null ? null : props.portrait.alt || props.portrait.path)"
                     :data-edit="editKey('立绘')"
                     @click="pick($event, '立绘')"
                 >
@@ -77,20 +82,26 @@ const pick = (event: MouseEvent, id: string): void => emit("edit", id, event.cur
                     </template>
                 </button>
                 <slot name="editor" id="立绘" :anchor="anchors['立绘'] ?? null" />
+                <button v-if="props.portraitMark !== undefined && props.portrait !== null" type="button" class="look-card__mark look-card__mark--button nb-ui-focus-ring mt-1.5" data-origins="立绘" @click="emit('origins', '立绘', $event.currentTarget as HTMLElement)">{{ props.portraitMark }}</button>
             </div>
 
             <div class="min-w-0 flex-1">
                 <section v-if="props.appearance !== null" class="look-card__block" data-passage="外貌">
-                    <header><h3>{{ props.appearance.label }}</h3><span v-if="props.appearance.mark !== undefined && props.appearance.text !== null" class="look-card__mark">{{ props.appearance.mark }}</span></header>
+                    <header>
+                        <h3>{{ props.appearance.label }}</h3>
+                        <button v-if="props.appearance.mark !== undefined && props.appearance.text !== null" type="button" class="look-card__mark look-card__mark--button nb-ui-focus-ring" :data-origins="props.appearance.id" @click="emit('origins', props.appearance.id, $event.currentTarget as HTMLElement)">{{ props.appearance.mark }}</button>
+                    </header>
                     <div class="relative">
-                        <button type="button" class="look-card__passage nb-ui-focus-ring" :class="{'look-card__passage--empty': props.appearance.text === null}" :disabled="blocked()" :title="props.editReason || undefined" :data-edit="editKey(props.appearance.id)" @click="pick($event, props.appearance.id)">{{ props.appearance.text ?? props.appearance.hint }}</button>
+                        <button type="button" class="look-card__passage nb-ui-focus-ring" :class="{'look-card__passage--empty': props.appearance.text === null}" :disabled="blocked()" :title="props.editReason || undefined" :aria-label="valueLabel(props.appearance.label, props.appearance.text)" :data-edit="editKey(props.appearance.id)" @click="pick($event, props.appearance.id)">
+                            <Transition name="nb-ui-switch" mode="out-in"><span :key="props.appearance.text ?? ''">{{ props.appearance.text ?? props.appearance.hint }}</span></Transition>
+                        </button>
                         <slot name="passage-editor" :id="props.appearance.id" />
                     </div>
                 </section>
                 <section v-if="props.wearing !== null" class="look-card__block look-card__block--line" :data-fact="props.wearing.id">
                     <header><h3>{{ props.wearing.label }}</h3></header>
                     <div class="flex min-w-0 items-center gap-2">
-                        <button :ref="keep(props.wearing.id)" type="button" class="look-card__value nb-ui-focus-ring" :class="{'look-card__value--empty': props.wearing.text === null}" :disabled="blocked()" :title="props.editReason || undefined" :data-edit="editKey(props.wearing.id)" @click="pick($event, props.wearing.id)">
+                        <button :ref="keep(props.wearing.id)" type="button" class="look-card__value nb-ui-focus-ring" :class="{'look-card__value--empty': props.wearing.text === null}" :disabled="blocked()" :title="props.editReason || props.wearing.text || undefined" :aria-label="valueLabel(props.wearing.label, props.wearing.text)" :data-edit="editKey(props.wearing.id)" @click="pick($event, props.wearing.id)">
                             <Transition name="nb-ui-switch" mode="out-in"><span :key="props.wearing.text ?? ''">{{ props.wearing.text ?? text("card.fill") }}</span></Transition>
                         </button>
                         <button v-if="props.wearing.mark !== undefined && props.wearing.text !== null" type="button" class="look-card__mark look-card__mark--button nb-ui-focus-ring" :data-origins="props.wearing.id" @click="emit('origins', props.wearing.id, $event.currentTarget as HTMLElement)">{{ props.wearing.mark }}</button>
@@ -109,14 +120,14 @@ const pick = (event: MouseEvent, id: string): void => emit("edit", id, event.cur
                             <CanonImage v-if="outfit.image !== null" :path="outfit.image" />
                             <span v-else class="i-lucide-shirt size-6" aria-hidden="true" />
                         </span>
-                        <span class="look-card__outfit-name">{{ outfit.name }}</span>
+                        <span class="look-card__outfit-name" :title="outfit.name">{{ outfit.name }}</span>
                         <span class="look-card__outfit-look">{{ outfit.look }}</span>
                     </button>
                     <div class="look-card__outfit-foot">
                         <Badge v-if="outfit.wearing" tone="accent" variant="soft" size="sm">{{ text("look.wearing") }}</Badge>
                         <Button v-else size="sm" variant="ghost" :disabled="blocked()" :data-put-on="outfit.id" @click="emit('put-on', outfit.name, $event.currentTarget as HTMLElement)">{{ text("look.putOn") }}</Button>
                         <DropdownMenu
-                            :items="[{id: 'edit', label: text('card.rename')}, {id: 'remove', label: text('card.remove'), tone: 'danger'}]"
+                            :items="[{id: 'edit', label: text('edit.button')}, {id: 'remove', label: text('card.remove'), tone: 'danger'}]"
                             :disabled="blocked()"
                             root-class="look-card__more"
                             @select="(action: string) => (action === 'edit' ? emit('outfit-edit', outfit.id) : emit('outfit-remove', outfit.id))"
