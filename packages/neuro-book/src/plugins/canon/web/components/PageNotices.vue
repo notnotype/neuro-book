@@ -65,7 +65,7 @@ onBeforeUnmount(() => {
                         <span class="page-notice__text">{{ text("notice.agentChanged", {title: props.agent.title}) }}<template v-if="props.agent.earlier > 0">{{ text("notice.agentEarlier", {count: props.agent.earlier}) }}</template></span>
                         <span class="page-notice__actions">
                             <Button size="sm" variant="ghost" @click="emit('receipt', props.agent.revision)">{{ text("notice.receipt") }}</Button>
-                            <!-- 撤销以后同一个按钮写“已撤销”、不再响应：还原对话框关闭时焦点回到它，换成别的元素或停用（disabled）焦点都会掉到页面外。 -->
+                            <!-- 还原以后同一个按钮写“已还原”、不再响应：还原对话框关闭时焦点回到它，换成别的元素或停用（disabled）焦点都会掉到页面外。 -->
                             <Button size="sm" variant="ghost" :aria-disabled="props.agent.undone === true ? 'true' : undefined" data-agent-undo @click="props.agent.undone === true || emit('undo', props.agent)">{{ text(props.agent.undone === true ? "notice.undone" : "notice.undo") }}</Button>
                             <Button size="sm" variant="ghost" @click="emit('revisions')">{{ text("notice.revisions") }}</Button>
                             <IconButton size="sm" icon-class="i-lucide-x" :aria-label="text('notice.close')" :title="text('notice.close')" @click="emit('close-agent')" />

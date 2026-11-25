@@ -1,7 +1,7 @@
 /**
  * 作者界面（设定侧）在真实 Chrome 与生产构建上的验收（docs/specs/canon/author-ui.md 验收 1、2、3、5、11、14 与 10 的“在改动记录里还原”）：
  * `scripts/canon-sample.ts` 生成星瑕样本作品（经产品的世界宿主逐次发布），登记成项目 `book`；世界服务、存储与项目子进程都是真的。
- * 用例共用一部作品、按顺序跑：前面的用例只读、改了又撤销或只改文字字段，验收 5 最后才把那一笔改对（它要状态栏有“待处理 1”）。
+ * 用例共用一部作品、按顺序跑：前面的用例只读、改了又还原或只改文字字段，验收 5 最后才把那一笔改对（它要状态栏有“待处理 1”）。
  * 等页面上可观察的变化，不按时长等。
  */
 
@@ -139,7 +139,7 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await value(page, "panel.存款").click();
     const origins = entryPage(page).locator("[data-origin-list]");
     await expect(origins).toBeVisible();
-    await expect(origins.locator("[data-origin-row]").last()).toContainText("初值");
+    await expect(origins.locator("[data-origin-row]").last()).toContainText("故事开始前");
     // 估计的那笔：依据写“估计”，用警告色。
     const estimate = origins.locator("[data-origin-row]", {hasText: "草莓蛋糕"}).getByText(/^估计/u);
     await expect(estimate).toBeVisible();
@@ -207,7 +207,7 @@ async function showRevisions(page: Page): Promise<Locator> {
     return rows;
 }
 
-test("验收 3：就地改一个只在初值设过的字段，预览写“改初值”；保存后有提示，指着它点撤销以后值回到原样；撤销的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
+test("验收 3：就地改一个只在初值设过的字段，预览写“改故事开始前的值”；保存后有提示，指着它点还原以后值回到原样；还原的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
     const revisions = await (await showRevisions(page)).count();
@@ -216,7 +216,7 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改初
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = inlineEditor(page, "character.性格");
     await bar.getByRole("textbox").fill("嘴硬心软");
-    await expect(bar.locator("[data-confirm-preview]")).toContainText("改初值");
+    await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("嘴硬心软");
 
@@ -224,14 +224,14 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改初
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toBeVisible();
     await notice.hover();
-    await notice.getByRole("button", {name: "撤销"}).click();
+    await notice.getByRole("button", {name: "还原"}).click();
     const dialog = page.locator("[data-revert-dialog]");
     await expect(dialog).toBeVisible();
     await page.getByRole("dialog").getByRole("button", {name: "还原", exact: true}).click();
     await expect(dialog).toHaveCount(0);
     await expect(fieldValue(page, "character.性格")).toHaveText(before);
 
-    // 撤销成功以后提示换成撤销的那一次；它的详情列出性格从“嘴硬心软”回到原来的样子。
+    // 还原成功以后提示换成还原的那一次；它的详情列出性格从“嘴硬心软”回到原来的样子。
     await expect(notice).toContainText("还原");
     await notice.hover();
     await notice.getByRole("button", {name: "查看详情"}).click();

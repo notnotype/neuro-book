@@ -25,7 +25,7 @@ const base = {
     name: "哥哥",
     summary: "星瑕的另一个身份",
     sameAs: {id: "e1", name: "星瑕"},
-    positions: [{value: "initial", label: "初值"}, {value: "1:end", label: "第 1 章末尾"}],
+    positions: [{value: "initial", label: "故事开始前"}, {value: "1:end", label: "第 1 章末尾"}],
     position: "1:end",
     tabs: [{value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 2}],
     tab: "text",

@@ -4,7 +4,7 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowReactive, shallowRef, Transition, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, provide, shallowReactive, shallowRef, Transition, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
@@ -51,6 +51,7 @@ import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
+import {LOOK_PICK_KEY} from "../look-handoff";
 import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
 import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
@@ -80,7 +81,7 @@ const props = defineProps<{
     entryTabs: ComponentViewRegistry<EntryTabDeclaration>;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
-    /** 本窗口的还原对话框（提示里的“撤销”）。 */
+    /** 本窗口的还原对话框（提示里的“还原”）。 */
     revert: RevertRequests;
     /** 打开条目页、变更详情页。 */
     open: (ref: {readonly kind: "entry" | "change"; readonly id: string}) => void;
@@ -488,6 +489,12 @@ watch([pendingTab, namespaces], ([pending, present]) => {
         pendingTab.value = null;
     }
 });
+// 作者自己换了分页：等着切过去的那一组不再切（它也许一直不出现，不能等到以后别处加上时突然跳过去）。
+watch(() => state.tab, () => {
+    pendingTab.value = null;
+});
+// 人物分页的“添加立绘”交给形象分页的一次性标记（输出 49，`look-handoff.ts`）。
+provide(LOOK_PICK_KEY, shallowRef(false));
 const addComponent = async (type: string): Promise<void> => {
     const namespace = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
     // 菜单开着的时候别处已经加上了这一组：内核按这一处的 `id-taken` 拒收，写成作者看得懂的一句。
@@ -978,9 +985,11 @@ const contextFor = (namespace: string): ComponentViewContext => {
             open: props.open,
             other: (type) => otherFor(namespace, type),
             addComponent: (type) => viewWrite([{op: "component", entry: props.id, type, action: "add"}], text("entry.groupAdded", {name: typeLabel(type)})),
+            // 刚加上的那一组可能还没出现在读取结果里（写入的结果先回来）：记下它的命名空间，出现了再切过去（同“＋”）。
             showTab: (type) => {
                 const target = Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === type)?.[0];
                 if (target !== undefined) state.tab = `${DATA}${target}`;
+                else pendingTab.value = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
             },
             fieldAdd: (field: FieldDraft) => viewWrite([{op: "fieldAdd", entry: props.id, namespace, field}], text("entry.fieldAdded", {name: view.value?.name ?? "", label: field.label})),
             fieldRename: async (path, label) => {

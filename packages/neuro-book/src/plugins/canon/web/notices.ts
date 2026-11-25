@@ -3,15 +3,15 @@
  *
  * 窗口里一份。条目页、回执页、变更详情页挂着时（页面标签只在前台时挂载，所以“挂着”就是“在前台”），提示浮在页面下方，切到
  * 另一个这样的页面时它跟过去（各页读的是同一份）。没有这样的页面挂着时（例如在改动记录里还原，编辑区开着章节正文），提示是一条
- * 工作台通知，动作是“查看详情”：工作台通知只有一个动作，“撤销”从回执页做（与 Spec 的出入记在 t31 的待确认清单里）；它按工作台
+ * 工作台通知，动作是“查看详情”：工作台通知只有一个动作，“还原”从回执页做（与 Spec 的出入记在 t31 的待确认清单里）；它按工作台
  * 通知自己的限时收起。窗口里没有工作台通知时，提示照样留给页面那一份。
  *
  * 页面那一份自己收起的计时也在这里，不在各页的宿主里：拆分以后两个页面同时挂着，各自计时会互相清掉对方正指着的提示，
- * 宿主卸载再挂上也会让已经收起的提示带着新的计时回来。暂停的来源（哪个页面上指针停着、焦点在提示里、撤销的确认框开着）
+ * 宿主卸载再挂上也会让已经收起的提示带着新的计时回来。暂停的来源（哪个页面上指针停着、焦点在提示里、还原的确认框开着）
  * 各自 `hold()`，都放开以后再计。
  *
  * Agent 改了设定（读取层的 `onRevision` 交来写入者是 Agent 的修订）另占一格 `agent`：不顶掉作者自己的提示，也不发工作台通知。
- * 它记最近一次的修订与这之后又改了几次；“查看详情”“撤销”指最近一次。关掉之前再来的 Agent 修订接着计数。
+ * 它记最近一次的修订与这之后又改了几次；“查看详情”“还原”指最近一次。关掉之前再来的 Agent 修订接着计数。
  */
 
 import {onScopeDispose, shallowRef} from "vue";
@@ -23,7 +23,7 @@ import {canonText} from "../shared/text";
 import type {RevertRequests} from "./revert";
 
 export interface CanonNotice {
-    /** 这次修订的 id：“查看详情”打开它的回执页，“撤销”还原它。 */
+    /** 这次修订的 id：“查看详情”打开它的回执页，“还原”打开还原它的对话框。 */
     readonly revision: string;
     readonly title: string;
 }
@@ -31,7 +31,7 @@ export interface CanonNotice {
 /** Agent 的提示：最近一次修订，与它之前、这条提示还没关时 Agent 又改了几次（不算最近这次）。 */
 export interface AgentNotice extends CanonNotice {
     readonly earlier: number;
-    /** 这次修订已经被还原：“撤销”不再能点（再点会进“连同依赖一起还原”，等于把 Agent 的改动重做回来）。 */
+    /** 这次修订已经被还原：“还原”不再能点（再点会进“连同依赖一起还原”，等于把 Agent 的改动重做回来）。 */
     readonly undone?: true;
 }
 
@@ -42,7 +42,7 @@ export interface CanonNotices {
     /** 记一次 Agent 的修订（读取层的 `onRevision` 里调用）。 */
     agentRevised(notice: CanonNotice): void;
     dismissAgent(): void;
-    /** 一次修订被还原了（还原对话框成功时调用）：它是 Agent 提示的那一次时，提示标成已撤销。 */
+    /** 一次修订被还原了（还原对话框成功时调用）：它是 Agent 提示的那一次时，提示标成已还原。 */
     reverted(revision: string): void;
     /** 打开改动记录视图（Agent 提示的“看改动记录”）。 */
     openRevisions(): void;
@@ -168,9 +168,9 @@ export function createNotices(routes: NoticeRoutes = {workbench: null, receipt: 
 
 /**
  * 三种页面的宿主在 setup 里调用：挂着就算这个页面在前台（向提示登记，作用域结束时撤掉）。返回浮动提示要的三样：
- * “撤销”打开窗口里那一个还原对话框，关闭收起提示，`hold` 交给 `PageNotices` 在指针停着、焦点在里面时暂停收起。
+ * “还原”打开窗口里那一个还原对话框，关闭收起提示，`hold` 交给 `PageNotices` 在指针停着、焦点在里面时暂停收起。
  *
- * 点“撤销”时提示先留着：还原成功后换成还原的那一条，取消则还在。这样焦点有地方回：对话框关闭时把焦点还给“撤销”按钮，
+ * 点“还原”时提示先留着：还原成功后换成还原的那一条，取消则还在。这样焦点有地方回：对话框关闭时把焦点还给“还原”按钮，
  * 按钮还在（成功时是同一条提示条换了标题）；先收起提示，键盘用户的焦点会掉到页面外。
  */
 export function usePageNotice(notices: CanonNotices, revert: RevertRequests): {undo(notice: CanonNotice): void; close(): void; hold(): () => void} {

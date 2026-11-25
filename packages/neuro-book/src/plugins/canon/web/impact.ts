@@ -18,6 +18,12 @@ export interface ImpactOptions {
     readonly values: "follows" | "change";
 }
 
+/** 除了 `skip` 掉的值，这次修订没有带来别的变化（`impactLines` 只会写那一句“别的都不变”）。 */
+export function impactIsQuiet(impact: Impact, skip?: ImpactOptions["skip"]): boolean {
+    return impact.pendingAdded.length === 0 && impact.pendingResolved.length === 0 && impact.broken.length + (impact.brokenOn?.length ?? 0) === 0
+        && impact.values.every((value) => skip?.(value.at) === true);
+}
+
 export function impactLines(impact: Impact, options: ImpactOptions, text: CanonBoundText): string[] {
     const lines: string[] = [];
     if (impact.pendingAdded.length > 0) lines.push(text("edit.pendingAdded", {count: impact.pendingAdded.length}));

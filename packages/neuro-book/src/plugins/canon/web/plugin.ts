@@ -237,7 +237,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             });
             context.signal.addEventListener("abort", () => stopAgentNotices?.(), {once: true});
             const revert = createRevertRequests();
-            // 还原（撤销）的确认框开着时，作者的提示不自己收起（author-ui.md 输出 18）：对话框与提示都是窗口里一份，暂停接在这一级，
+            // 还原的确认框开着时，作者的提示不自己收起（author-ui.md 输出 18）：对话框与提示都是窗口里一份，暂停接在这一级，
             // 不在各页的宿主里接（几个页面同时挂着会各接一次）。
             let releaseNotice: (() => void) | null = null;
             const stopRevertHold = watch(() => revert.target.value !== null, (open) => {

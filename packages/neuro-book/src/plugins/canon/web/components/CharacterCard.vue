@@ -100,8 +100,8 @@ defineExpose({clearOwn: () => (own.value = "")});
                         <span class="character-card__portrait-action">{{ text("character.portraitOpen") }}<span class="i-lucide-arrow-up-right size-3.5" aria-hidden="true" /></span>
                     </template>
                     <template v-else>
-                        <span :class="props.portrait.status === 'no-image' ? 'i-lucide-image-plus' : props.portrait.status === 'removed' ? 'i-lucide-rotate-ccw' : 'i-lucide-shirt'" class="size-6" aria-hidden="true" />
-                        <span>{{ props.portrait.status === "no-image" ? text("character.addPortrait") : props.portrait.status === "absent" ? text("character.addLook") : props.portrait.status === "removed" ? text("character.restoreLook") : text("character.lookFrom", {from: props.portrait.from}) }}</span>
+                        <span :class="props.portrait.status === 'no-image' || props.portrait.status === 'absent' ? 'i-lucide-image-plus' : props.portrait.status === 'removed' ? 'i-lucide-rotate-ccw' : 'i-lucide-shirt'" class="size-6" aria-hidden="true" />
+                        <span>{{ props.portrait.status === "no-image" || props.portrait.status === "absent" ? text("character.addPortrait") : props.portrait.status === "removed" ? text("character.restoreLook") : text("character.lookFrom", {from: props.portrait.from}) }}</span>
                     </template>
                 </button>
                 <p v-if="props.portraitError !== ''" role="alert" class="character-card__portrait-error">{{ props.portraitError }}</p>
@@ -433,10 +433,11 @@ defineExpose({clearOwn: () => (own.value = "")});
 .character-card-row-move {
     transition: transform var(--motion-move) var(--ease-layout);
 }
-/* 窄处立绘放到上面、缩小。 */
+/* 窄处立绘放到上面、缩小。资料这一栏要撑满整行：竖排时它按内容定宽，而它是尺寸容器、内容宽度算作 0，会被挤成一字宽。 */
 @container (max-width: 520px) {
     .character-card__top {
         flex-direction: column;
+        align-items: stretch;
         gap: 1rem;
     }
     .character-card__portrait {

@@ -19,7 +19,7 @@ import type {CanonClient, CanonOutputs, Published} from "../shared/contracts";
 import type {ConfirmBarKind, EditIntent} from "./components/confirm-bar";
 import {namespaceField} from "./entry-heads";
 import {failureText} from "./failures";
-import {impactLines} from "./impact";
+import {impactIsQuiet, impactLines} from "./impact";
 import {parseDecimal} from "./numbers";
 import type {CanonBoundText} from "./positions";
 import type {CanonWorld} from "./world";
@@ -132,6 +132,11 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     const recheck = shallowRef(false);
     const saving = shallowRef(false);
     const locked = shallowRef(false);
+    /**
+     * 预览还没回来时按了保存（短项的回车，输出 51）：先把预览立刻发出去，回来以后除了这个值本身没有别的变化（`impactIsQuiet`）就保存；
+     * 有的话把预览显示出来，作者看过、再按一次才保存，不让人没看见带来的变化就写进去。预览失败或换了一份填写时不保存。
+     */
+    let saveWhenPreviewed = false;
     // 每次预览一个号，晚到的作废。
     let previewRun = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -155,7 +160,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     };
 
     /** 预览给作者看的两句：写回哪里、带来的变化。 */
-    const describe = async (result: CanonOutputs["previewEdit"]): Promise<{route: string; impact: string[]}> => {
+    const describe = async (result: CanonOutputs["previewEdit"]): Promise<{route: string; impact: string[]; quiet: boolean}> => {
         const route = result.route;
         let routeText: string;
         if (route.kind === "init") routeText = text("edit.routeInit");
@@ -167,12 +172,13 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         // 就地改不会给出这一种（它改的是一个字段）；路由是会再加种类的联合，不认识的也要有一句话。
         else routeText = text("edit.routeEntry");
         const draft = options.draft();
+        const skip = (at: {readonly entry: string; readonly path: string}): boolean => at.entry === options.entry && at.path === draft?.path;
         const impact = impactLines(result.revision.impact, {
             values: "follows",
-            skip: (at) => at.entry === options.entry && at.path === draft?.path,
+            skip,
             address: (at) => (at.entry === options.entry ? labelOf(at.path) : namespaceField(at.path).field),
         }, text);
-        return {route: routeText, impact};
+        return {route: routeText, impact, quiet: impactIsQuiet(result.revision.impact, skip)};
     };
 
     const inputOf = (draft: EditDraft): Record<string, unknown> | null => {
@@ -198,16 +204,22 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         if (result.ok) {
             const described = await describe(result.value as CanonOutputs["previewEdit"]);
             if (mine !== previewRun) return;
-            preview.value = described;
+            preview.value = {route: described.route, impact: described.impact};
             locked.value = false;
+            const waiting = saveWhenPreviewed;
+            saveWhenPreviewed = false;
+            if (waiting && described.quiet) void submit();
             return;
         }
+        saveWhenPreviewed = false;
         preview.value = null;
         applyFailure(draft, result.failure);
     };
 
     const schedulePreview = (): void => {
         if (timer !== null) clearTimeout(timer);
+        // 值又变了：先前按下的保存针对的是旧值，不再算数。
+        saveWhenPreviewed = false;
         previewRun += 1;
         previewing.value = options.draft() !== null;
         timer = setTimeout(() => {
@@ -327,7 +339,19 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             const draft = options.draft();
             if (draft !== null) options.setDraft({...draft, intent});
         },
-        save: () => void submit(),
+        save: () => {
+            if (!previewing.value) {
+                if (preview.value !== null) void submit();
+                return;
+            }
+            // 预览还在等（停顿计时没到，或请求在途）：计时没到的立刻发出去，回来以后照上面的规矩决定存不存。
+            saveWhenPreviewed = true;
+            if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+                void runPreview();
+            }
+        },
         recheck: () => void submit(),
         cancel: () => {
             const draft = options.draft();

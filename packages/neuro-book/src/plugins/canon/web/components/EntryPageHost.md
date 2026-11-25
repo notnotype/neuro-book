@@ -19,7 +19,7 @@
 - 主文字没有按块的入口：阅读视图没有每一块的剧情菜单与文末的“在剧情里加一块”，也没有对应的对话框；改主文字只有整篇编辑一条路。
 - 数据分页：类型有交付的专门界面就用它（加载期间写“读取中…”），没有、撤回或加载失败时用 `FieldsDataView`，加载失败另在上面写原因。
 - 标签标题与面包屑只在读的是缺省位置、实际模式时报上去（`onHead`），换位置看到别的名字时标题不变。
-- 页面顶上是窗口里那一份保存后的提示（`NoticeBar`）：挂着时向它登记（`usePageNotice`），所以提示显示在这里而不是工作台通知；“撤销”打开窗口里那一个还原对话框。世界只读时页头上面有一条横幅写原因。
+- 页面顶上是窗口里那一份保存后的提示（`PageNotices`）：挂着时向它登记（`usePageNotice`），所以提示显示在这里而不是工作台通知；“还原”打开窗口里那一个还原对话框。世界只读时页头上面有一条横幅写原因。
 
 ## 状态
 
@@ -41,7 +41,7 @@ type EntryPageHostProps = {
     client: Pick<CanonClient, "call">;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
-    /** 本窗口的还原对话框（提示里的“撤销”）。 */
+    /** 本窗口的还原对话框（提示里的“还原”）。 */
     revert: RevertRequests;
     views: ComponentViewRegistry;
     open: (ref: {readonly kind: "entry" | "change"; readonly id: string}) => void;
@@ -66,5 +66,5 @@ type EntryPageHostProps = {
 - `io:read`：读取随标签的状态变（换位置、换分页、展开一个值），只读当前分页要的；预览的读取随输入框里的整篇变；这些状态在页面里，宿主（编辑器）不知道条目页要读什么。只在真实界面里验证（`entry-page.dom.test.ts`），Lab 里看 `EntryPage` 与各分页的组件。
 - `env:global`：监听文档的 `visibilitychange`（页面转入后台时把主文字的稿写进暂存），卸载时解除。
 - `io:mutate`：就地改、记一笔、删除条目、提交主文字要按页面里的状态（在改哪个值、所选位置、读到的值与版本）拼写入，写完由读取层重读；宿主不知道这些。
-- `state:shared-write`：保存成功后往窗口里那一份保存后的提示放一条；挂着时向它登记；点“撤销”时往还原对话框里放要还原的那一次。
+- `state:shared-write`：保存成功后往窗口里那一份保存后的提示放一条；挂着时向它登记；点“还原”时往还原对话框里放要还原的那一次。
 - `state:inject`：经 `useCanonText()`、`useText()` 取翻译端口。

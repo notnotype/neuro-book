@@ -90,7 +90,8 @@ const onKeydown = (event: KeyboardEvent): void => {
         return;
     }
     // 只认单行的输入框（成段的文字回车照常换行）；建议值的列表接走了这一下（选中高亮的那条）时不保存。
-    if (event.key === "Enter" && props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) && !event.defaultPrevented && (event.target as Element | null)?.tagName === "INPUT" && canSave.value) {
+    // 预览还在等（刚填完就按回车）也发出：宿主先等预览回来，没有别的变化才保存（输出 51），不把这一下吞掉。
+    if (event.key === "Enter" && props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) && !event.defaultPrevented && (event.target as Element | null)?.tagName === "INPUT" && (canSave.value || (props.previewing && !props.saving && !props.locked))) {
         event.preventDefault();
         emit("save");
     }

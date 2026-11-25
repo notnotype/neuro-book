@@ -32,8 +32,8 @@ function card(props: Record<string, unknown> = {}): VueWrapper {
 }
 
 describe("CharacterCard", () => {
-    it("立绘那一格：有图、添加立绘、添加形象、恢复形象、第 N 章起有形象（不可点）；类型不可用时不画；点了发 portrait", async () => {
-        const cases: Array<[CardPortrait, string]> = [[{status: "no-image"}, "添加立绘"], [{status: "absent"}, "添加形象"], [{status: "removed"}, "恢复形象"], [{status: "later", from: "第 3 章"}, "第 3 章起有形象"]];
+    it("立绘那一格：有图、添加立绘（有形象没图与没有形象两种都是）、恢复形象、第 N 章起有形象（不可点）；类型不可用时不画；点了发 portrait", async () => {
+        const cases: Array<[CardPortrait, string]> = [[{status: "no-image"}, "添加立绘"], [{status: "absent"}, "添加立绘"], [{status: "removed"}, "恢复形象"], [{status: "later", from: "第 3 章"}, "第 3 章起有形象"]];
         for (const [portrait, label] of cases) {
             const wrapper = card({portrait});
             expect(wrapper.get("[data-portrait]").text()).toContain(label);

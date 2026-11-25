@@ -91,7 +91,7 @@ describe("Agent 改了设定的提示（author-ui.md 的 Agent 提示）", () =>
         expect(notices.agent.value).toEqual({revision: "r5", title: "Agent 再改", earlier: 0});
         notices.openRevisions();
         expect(revisions).toBe(1);
-        // 还原的是提示里那一次时标成已撤销（别的修订不算）；Agent 再写一次就是新的一条。
+        // 还原的是提示里那一次时标成已还原（别的修订不算）；Agent 再写一次就是新的一条。
         notices.reverted("r4");
         expect(notices.agent.value?.undone).toBeUndefined();
         notices.reverted("r5");
@@ -170,7 +170,7 @@ describe("页面那一份自己收起（输出 18）", () => {
         const {clock, notices} = setup();
         notices.show({revision: "r1", title: "改外观"});
         const release = notices.hold();
-        notices.show({revision: "r2", title: "撤销“改外观”"});
+        notices.show({revision: "r2", title: "还原“改外观”"});
         clock.advance(60_000);
         release();
         clock.advance(NOTICE_CLOSE_MS - 1);

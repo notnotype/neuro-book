@@ -24,24 +24,24 @@ const mountNotices = (props: Record<string, unknown>) => {
 const button = (root: ReturnType<typeof mountNotices>, scope: string, name: string) => root.get(scope).findAll("button").find((item) => item.text() === name || item.attributes("aria-label") === name)!;
 
 describe("PageNotices", () => {
-    it("没有提示时读屏的 status 也在；作者那一行写标题，查看详情、撤销、关闭各发各的", async () => {
+    it("没有提示时读屏的 status 也在；作者那一行写标题，查看详情、还原、关闭各发各的", async () => {
         const wrapper = mountNotices({});
         expect(wrapper.find("[role='status']").exists()).toBe(true);
         expect(wrapper.find("[data-notice-bar]").exists()).toBe(false);
         await wrapper.setProps({notice: {revision: "r1", title: "改外观"}});
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改外观");
         await button(wrapper, "[data-notice-bar]", "查看详情").trigger("click");
-        await button(wrapper, "[data-notice-bar]", "撤销").trigger("click");
+        await button(wrapper, "[data-notice-bar]", "还原").trigger("click");
         await button(wrapper, "[data-notice-bar]", "关闭").trigger("click");
         expect(wrapper.emitted("receipt")).toEqual([["r1"]]);
         expect(wrapper.emitted("undo")).toEqual([[{revision: "r1", title: "改外观"}]]);
         expect(wrapper.emitted("close")).toHaveLength(1);
     });
 
-    it("Agent 那一行写最近一次的标题与之前的次数；查看详情、撤销、看改动记录、关闭各发各的", async () => {
+    it("Agent 那一行写最近一次的标题与之前的次数；查看详情、还原、看改动记录、关闭各发各的", async () => {
         const wrapper = mountNotices({agent: {revision: "r2", title: "给星瑕加别名", earlier: 2}});
         expect(wrapper.get("[data-agent-notice]").text()).toContain("Agent 改了设定：给星瑕加别名（之前还改了 2 次）");
-        for (const name of ["查看详情", "撤销", "看改动记录", "关闭"]) await button(wrapper, "[data-agent-notice]", name).trigger("click");
+        for (const name of ["查看详情", "还原", "看改动记录", "关闭"]) await button(wrapper, "[data-agent-notice]", name).trigger("click");
         expect(wrapper.emitted("receipt")).toEqual([["r2"]]);
         expect(wrapper.emitted("undo")).toHaveLength(1);
         expect(wrapper.emitted("revisions")).toHaveLength(1);
@@ -50,13 +50,13 @@ describe("PageNotices", () => {
         expect(wrapper.get("[data-agent-notice]").text()).not.toContain("之前还改了");
     });
 
-    it("Agent 那一次已撤销：同一个按钮写“已撤销”、标成不可用，点了不再发出撤销", async () => {
+    it("Agent 那一次已还原：同一个按钮写“已还原”、标成不可用，点了不再发出还原", async () => {
         const wrapper = mountNotices({agent: {revision: "r2", title: "建校长", earlier: 0}});
         const undo = wrapper.get("[data-agent-undo]");
         await wrapper.setProps({agent: {revision: "r2", title: "建校长", earlier: 0, undone: true}});
         // 还是那一个元素：还原对话框关闭时焦点回到它。
         expect(wrapper.get("[data-agent-undo]").element).toBe(undo.element);
-        expect(undo.text()).toBe("已撤销");
+        expect(undo.text()).toBe("已还原");
         expect(undo.attributes("aria-disabled")).toBe("true");
         await undo.trigger("click");
         expect(wrapper.emitted("undo")).toBeUndefined();

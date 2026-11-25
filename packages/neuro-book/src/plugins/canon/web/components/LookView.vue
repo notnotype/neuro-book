@@ -3,12 +3,13 @@
  * 形象分页（同名 .md，docs/specs/canon/author-ui.md 输出 50、51）：把 `context` 折成 `LookCard` 的属性，把它的事件翻成就地改、换装、
  * 衣柜的加改去这些写入。现在穿的的建议值是衣柜里各套的名字；“换上”打开它的编辑，锚在点的那个按钮上，预选“从这一章起”。
  */
-import {computed, shallowRef, watch} from "vue";
+import {computed, inject, onMounted, shallowRef, watch} from "vue";
 
 import {Popover} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {ComponentViewContext} from "../component-views";
+import {LOOK_PICK_KEY} from "../look-handoff";
 import {fieldRows} from "../rows";
 import {useCanonText} from "../text";
 import LookCard from "./LookCard.vue";
@@ -74,6 +75,13 @@ const putOn = (name: string, anchor: HTMLElement): void => {
     wearAnchor.value = anchor;
     context.edit(WEARING, {inline: true, value: name, intent: "story"});
 };
+// 人物分页的“添加立绘”切过来时（输出 49）：挂上就打开立绘的选图，标记用一次就放倒。
+const lookPick = inject(LOOK_PICK_KEY, null);
+onMounted(() => {
+    if (lookPick?.value !== true) return;
+    lookPick.value = false;
+    if (context.blocked === null) edit(PORTRAIT);
+});
 const detailAnchor = shallowRef<HTMLElement | null>(null);
 const originsOpen = computed(() => context.detail !== undefined && context.detail !== null && detailAnchor.value !== null);
 const showOrigins = (id: string, anchor: HTMLElement): void => {
