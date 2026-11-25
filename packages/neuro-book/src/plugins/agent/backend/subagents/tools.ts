@@ -362,18 +362,21 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
             const titled = await view.setGeneratedMeta({commandId: `${call.invocation}-title`, title});
             if (!titled.ok) deps.report("subagent-title-failed", `could not title sub-agent session ${child}: ${titled.code}`, {session: child, code: titled.code});
 
-            // 引用了模式扩展、装配里却没有它（例如提供方此刻不在）：派出去会绕过模式。关掉这个子会话，与续用时同一个判据。
-            if (mode !== "normal" && !hasModes(await view.snapshot())) {
+            // 建好之后以子会话实际的装配为准（建之前的判断是按解析结果静态做的，两次解析之间 Profile 可能变了）：要不要写模式
+            // 设置看它，父会话不在普通模式而它没有模式时派出去会绕过模式，关掉这个子会话。与续用时同一个判据。
+            const childHasModes = hasModes(await view.snapshot());
+            if (mode !== "normal" && !childHasModes) {
                 const archived = await view.archive({commandId: `${call.invocation}-archive`, archived: true});
-                if (!archived.ok) deps.report("subagent-archive-failed", `could not archive sub-agent session ${child}: ${archived.code}`, {session: child, code: archived.code});
-                return refuse(failure("mode-unsupported", `你在 ${mode} 模式，${key} 的子会话没装上 Agent 模式，派出去会绕过模式；已经关掉它。等用户切回普通模式再派。`));
+                if (archived.ok) return refuse(failure("mode-unsupported", `你在 ${mode} 模式，${key} 的子会话没装上 Agent 模式，派出去会绕过模式；已经关掉它。等用户切回普通模式再派。`));
+                deps.report("subagent-archive-failed", `could not archive sub-agent session ${child}: ${archived.code}`, {session: child, code: archived.code});
+                return refuse(failure("mode-unsupported", `你在 ${mode} 模式，${key} 的子会话没装上 Agent 模式，没有收到任务；关掉它也失败了（${archived.code}），子会话 ${child} 还在。等用户切回普通模式再派。`, child));
             }
             // 审批模式、只读与 Agent 模式抄父会话此刻的（输出 3），与 `model`、`effort` 一次写进去。
             const {readOnly, approvalMode} = (await deps.table.view(parent).snapshot()).settings;
             const core: Record<string, JsonValue> = {approvalMode, readOnly};
             if (typeof args.model === "string") core.model = args.model;
             if (typeof args.effort === "string") core.effort = args.effort;
-            const changed = await view.changeSettings({commandId: `${call.invocation}-settings`, patch: {core, ...(modal ? {[AGENT_MODES_EXTENSION]: {mode}} : {})}});
+            const changed = await view.changeSettings({commandId: `${call.invocation}-settings`, patch: {core, ...(childHasModes ? {[AGENT_MODES_EXTENSION]: {mode}} : {})}});
             if (!changed.ok) return refuse(passthrough(changed, `子会话 ${child} 已建好，设置没写进去，没有收到任务`, child));
 
             const sent = await lanes.run(child, () => view.send({commandId: `${call.invocation}-prompt`, input: {text: prompt}}));

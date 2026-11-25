@@ -111,6 +111,19 @@ describe("按需扩展（extensions.md 的“按需扩展”）", () => {
         expect(installed({id: "test.twice", version: "1", name: "p", description: "p", referencedExtensions: ["lab.auto", "other.mode-addon", "lab.modes"]})).toEqual(["lab.auto", "lab.mode-reminder", "lab.modes", "other.mode-addon", "test.twice"]);
     });
 
+    test("伴随项的其余硬依赖可以由 Profile 自带的扩展满足；没有那个自带扩展就不伴随", () => {
+        const own = defineExtension({id: "test.own"});
+        const addon = defineExtension({id: "lab.addon", dependsOn: [modes, own]});
+        const extended = [...contributed, {extension: addon, plugin: "lab", onRequest: true}];
+        const ids = (profile: object) => {
+            const assembled = assemble(defineProfile(profile as never) as never, extended);
+            if (!assembled.ok) throw new Error(JSON.stringify(assembled.problems));
+            return assembled.assembly.manifest.map((item) => item.id).sort();
+        };
+        expect(ids({id: "test.with-own", version: "1", name: "p", description: "p", extensions: [own], referencedExtensions: ["lab.modes"]})).toContain("lab.addon");
+        expect(ids({id: "test.without-own", version: "1", name: "p", description: "p", referencedExtensions: ["lab.modes"]})).not.toContain("lab.addon");
+    });
+
     test("引用的 id 没有插件贡献：referenced-extension-missing；单次请求忽略引用；id 误写进 extensions 给出说得清的问题", () => {
         const missing = assemble(defineProfile({id: "test.missing", version: "1", name: "p", description: "p", referencedExtensions: ["lab.gone"]}) as never, contributed);
         expect(missing).toMatchObject({ok: false, problems: [{code: "referenced-extension-missing", extension: "test.missing", dependency: "lab.gone"}]});
