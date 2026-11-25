@@ -4,11 +4,13 @@
  * 属性，`DesktopFrame.vue` 只按状态画（与 `close-ui.ts`、`CloseLayer.vue` 同形）。不依赖 Vue 之外的东西，DOM 由装配方给。
  *
  * 判断“窗口没有系统标题栏”只看预加载脚本定义的能力标记（`DESKTOP_FRAME_MARKER`），不看是不是桌面：标记只在壳决定自己画外框的
- * 窗口里有。普通浏览器里没有标记，这里什么都不做。
+ * 窗口里有。普通浏览器里没有标记，这里什么都不做。标记的值说明窗口按钮归谁：1 页面自己画（Windows），2 系统的红绿灯留着
+ * （macOS），页面只画标题栏、不画按钮（`controls` 为 false）。
  *
  * `<html>` 上的属性是样式与壳之间的约定，样式只认属性（`styles.css`），变量的值写在样式里：
  *
- * - `data-desktop-frame`：外框开着。预加载在页面脚本之前就设了（静态加载页要用），这里再设一次，e2e 与真实路径一致。
+ * - `data-desktop-frame`：外框开着。预加载在页面脚本之前就设了（静态加载页要用），这里再设一次，e2e 与真实路径一致。系统的红绿灯留着时
+ *   值是 `native-controls`（样式据此给红绿灯留位、窗口按钮的位置让出来），否则是空值。
  * - `data-desktop-frame-bar`：页面没有自己的标题栏，宿主画后备标题栏，页面整体下移 36px。
  *
  * 页面有没有自己的标题栏，看 `#app` 子树里有没有 `[data-desktop-titlebar]`。观察整个子树要经得起编辑器、对话流这类持续改 DOM
@@ -20,7 +22,7 @@ import type {ShallowRef} from "vue";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
-import {DESKTOP_FRAME_MARKER} from "nbook/shared/desktop-bridge";
+import {DESKTOP_FRAME_MARKER, DESKTOP_FRAME_NATIVE_CONTROLS, DESKTOP_FRAME_PAGE_CONTROLS} from "nbook/shared/desktop-bridge";
 import type {DesktopBridge, WindowControl} from "nbook/shared/desktop-bridge";
 
 export interface DesktopFrameState {
@@ -35,6 +37,8 @@ export interface DesktopFrameState {
 export interface DesktopFrame {
     /** 窗口没有系统标题栏、要画外框。为 false 时 `state` 不变，`control` 什么都不做。 */
     readonly enabled: boolean;
+    /** 窗口按钮由页面自己画；系统的红绿灯留着（macOS）时为 false，只画标题栏。 */
+    readonly controls: boolean;
     readonly state: Readonly<ShallowRef<DesktopFrameState>>;
     /** 按钮被按下：交给壳；发不出去时写诊断。 */
     control(action: WindowControl): void;
@@ -43,7 +47,7 @@ export interface DesktopFrame {
 
 /** 页面全局对象里用到的部分。 */
 export interface DesktopFrameGlobal {
-    /** 预加载脚本定义的能力标记（`DESKTOP_FRAME_MARKER`），值为 1 表示窗口没有系统标题栏。 */
+    /** 预加载脚本定义的能力标记（`DESKTOP_FRAME_MARKER`）：1 窗口没有系统标题栏、按钮页面画，2 没有系统标题栏、红绿灯留着。 */
     readonly __nbookDesktopFrame?: unknown;
     requestAnimationFrame(callback: () => void): number;
     cancelAnimationFrame(handle: number): void;
@@ -62,12 +66,14 @@ export const DESKTOP_TITLEBAR_SELECTOR = "[data-desktop-titlebar]";
 export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
     const {document} = options;
     const state = shallowRef<DesktopFrameState>({maximized: false, pageTitlebar: false, title: document.title});
-    if (options.global[DESKTOP_FRAME_MARKER] !== 1) {
-        return {enabled: false, state, control() {}, dispose() {}};
+    const marker = options.global[DESKTOP_FRAME_MARKER];
+    if (marker !== DESKTOP_FRAME_PAGE_CONTROLS && marker !== DESKTOP_FRAME_NATIVE_CONTROLS) {
+        return {enabled: false, controls: false, state, control() {}, dispose() {}};
     }
+    const controls = marker === DESKTOP_FRAME_PAGE_CONTROLS;
 
     const html = document.documentElement;
-    html.setAttribute("data-desktop-frame", "");
+    html.setAttribute("data-desktop-frame", controls ? "" : "native-controls");
     const update = (patch: Partial<DesktopFrameState>): void => {
         const next = {...state.value, ...patch};
         html.toggleAttribute("data-desktop-frame-bar", !next.pageTitlebar);
@@ -111,11 +117,12 @@ export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
 
     update({});
     findTitlebar();
-    // 整页导航之后，壳下一次推送要等到页面报就绪；先问一次，按钮的字形从一开始就对。
-    send({type: "window-state-query"});
+    // 整页导航之后，壳下一次推送要等到页面报就绪；先问一次，按钮的字形从一开始就对。红绿灯是系统画的，没有字形要对。
+    if (controls) send({type: "window-state-query"});
 
     return {
         enabled: true,
+        controls,
         state,
         control: (action) => send({type: "window-control", action}),
         dispose() {

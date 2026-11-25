@@ -45,9 +45,14 @@ export const WindowControlSchema = Type.Union([Type.Literal("minimize"), Type.Li
 export type WindowControl = Static<typeof WindowControlSchema>;
 
 /**
- * 预加载脚本在没有系统标题栏的窗口里定义的能力标记（只读，值为 1）：页面据此自己画窗口按钮。它只是渲染信号，不是安全边界。
+ * 预加载脚本在没有系统标题栏的窗口里定义的能力标记（只读）：页面据此自己画标题栏。它只是渲染信号，不是安全边界。
+ * 值说明窗口按钮归谁：`DESKTOP_FRAME_PAGE_CONTROLS`（1，Windows）页面自己画最小化、最大化、关闭；
+ * `DESKTOP_FRAME_NATIVE_CONTROLS`（2，macOS）系统的红绿灯留在窗口左上角，页面不画按钮、只给红绿灯留位。
  */
 export const DESKTOP_FRAME_MARKER = "__nbookDesktopFrame";
+export const DESKTOP_FRAME_PAGE_CONTROLS = 1;
+export const DESKTOP_FRAME_NATIVE_CONTROLS = 2;
+export type DesktopFrameKind = typeof DESKTOP_FRAME_PAGE_CONTROLS | typeof DESKTOP_FRAME_NATIVE_CONTROLS;
 
 /**
  * 桌面专属设置的有效值（desktop-shell 的“桌面专属设置”）：`nbook.desktop` 的页面入口从配置服务读出、经 `windowDesktopKey` 交给壳。
