@@ -1,0 +1,48 @@
+## w00037 t08 第 2、3 片实现审查（OMP）
+
+### OMP-1 建议：回退版本删除会话后，首次 purge 未清理 sessionId 为空的访问令牌
+
+- 严重度：建议
+- 类别：正确性、升级兼容
+- 位置：`packages/nb-site-identity/src/oauth/revoke.ts:67-70,81-85`，`packages/nb-site-identity/migrations/0002_oauth.sql:34`
+- 现象：OAuth 外键对会话采用 `ON DELETE SET NULL`。回退到不撤 OAuth 的旧版本期间，旧版删除会话会把令牌行的 `sessionId` 置空；换回新版本后，`revokeOAuthForExpiredSessions` 只按仍存在且到期的 session 找令牌，`purgeExpiredOAuthRows` 只按令牌自身的过期时间删除，均未覆盖“sessionId 为空但令牌尚未到期”的行。库的 opaque token introspection 在 `sessionId` 为 null 时跳过会话检查。
+- 影响：这类旧令牌继续通过 userinfo，最久到自身一小时过期。与已接受的回退再升级约定不符：Spec 输出 8 时序明确约定旧版期间结束的会话，回到本版本后最迟第一次 purge 结束即失效；Task 计划实现审查处理第 2 条也明确要求 purge 同事务删 `sessionId IS NULL` 的访问令牌。
+- 核实：用临时脚本 `/tmp/review-w00037-t08-impl1/lab-omp/rollback-purge.ts` 在真实模块与库上发放令牌，删除关联 session（模拟已验证的旧迁移 `ON DELETE SET NULL`），关闭并重启后执行真实注册的 `purge` job；行在 purge 前后都保持 `sessionId:null, revoked:null`，同一有效访问令牌调用 userinfo 为 200。`import.meta.resolve` 指向本审查 worktree 的 `src/session.ts`。这不是单独的伪造调用：脚本使用真实 DB 外键、认证库签发、模块 purge 与 userinfo。
+- 建议：在 purge 写事务中把 `sessionId IS NULL` 的 OAuth access token 也撤销或删除；保留当前版本正常自家撤销先撤再删 session 的保证。增加回退—升级真实模块用例，确认第一次 purge 后令牌返回 401。
+
+### OMP-2 建议：公开 OAuth 授权端点声明的方法集合与合同冲突
+
+- 严重度：建议
+- 类别：正确性、合同一致性
+- 位置：`packages/nb-site-identity/src/auth.ts:81-83`，`LIBRARY_PUBLIC_ENDPOINTS`
+- 现象：白名单表把 `/oauth2/authorize` 标为 `GET、HEAD`，遗漏合同要求的 POST。真实库在当前装配下实际上接受 POST；本片还没有挂载层，暂时不是已上线的 HTTP 回归，但该导出表已作为授权端点方法的白名单依据交给后续挂载。
+- 影响：按此表实现的挂载会拒绝有效的表单 POST；这与公开合同不符。HEAD 同样不应由授权端点公开。
+- 核实：`site.oauth-provider` 输出 1 与方法表规定 GET、POST，明确说授权不收 HEAD。临时脚本 `/tmp/review-w00037-t08-impl1/lab-omp/public-methods.ts` 在当前实现上调用 `auth.handler`：表项为 `GET,HEAD`，GET 与 POST 均得到 302（无 client_id 时库跳到错误页），HEAD 得 404。测试证实当前库端点可以处理 POST；尚无产品挂载可证明上线回归。
+- 建议：将授权端点方法改为 `GET、POST`，将挂载层方法契约测试对齐 Spec。避免将 HEAD 放入授权白名单。
+
+### OMP-3 建议：活跃签名钥可解密但不是 JSON 时，模块启动不报错、后续换码失败
+
+- 严重度：建议
+- 类别：正确性、启动期数据完整性检查
+- 位置：`packages/nb-site-identity/src/oauth/signing-key.ts:83-102`
+- 现象：启动检查只对私钥运行 `symmetricDecrypt`，不检查解密结果能否解析成 JWK 或能否由库导入。对于一个仍标为活跃、密文可正常解开的私钥行，启动因此不报警、不重建钥。库实际签名时才依次执行 JSON.parse 与 `importJWK`，该异常在令牌端点产生。
+- 影响：有非空活钥但 JWK 内容损坏时进程仍就绪，OAuth 换码签发 id_token 持续失败；未发现启动期 `start_failed` 或 `identity.signing_key_rotated` 提示，运行期才暴露。
+- 核实：临时脚本 `/tmp/review-w00037-t08-impl1/lab-omp/signing-key-malformed.ts` 在真实 Better Auth 装配中用库的 `symmetricEncrypt` 生成可解密密文，将活钥明文替换为 `not a JSON JWK`，关闭并重新以相同数据目录装配模块。活钥仍 `expiresAt:null`、没有轮换警告；随后真实换码抛出 `SyntaxError: JSON Parse error: Unexpected identifier "not"`。这证明模块启动流程未验证该明文；未验证正式服务就绪接口或其他格式损坏形态。
+- 建议：启动时把活跃密钥按库的实际导入路径验证，至少验证 JSON 与 JWK 可导入；损坏时按现有失效密钥轮换策略处理并告警，或明确失败启动，避免进程就绪后才让 OAuth 端点失败。
+
+## 未发现问题的方面
+
+- 会话删除与 OAuth 撤销：所查会话删除路径先在同一事务撤销；真库测试覆盖跨会话隔离与失败回滚。改密码按账号撤销并保留当前会话。
+- 授权码撤销筛选：`json_valid` 保护及 type、JSON 字段匹配符合 Better Auth 1.7.27 数据形状；测试覆盖社交 state、非 JSON 与相似 type。
+- 客户端密钥与环境配置：客户端密钥以域分隔摘要存储；非空 `BETTER_AUTH_` 环境变量被拒绝，错误不泄露值。
+- 换码事务边界：已接受的并发撤销窗口与库事务队列误用记于 spike-7 和 Spec，本轮未重复报告。
+- 签名钥正常生命周期与 `0002` 迁移：正常轮换、JWKS 宽限期、算法检查及迁移结构有测试覆盖；OMP-3 限于可解密但明文损坏的边界。
+- 清理时钟：模块时钟与库时钟分离已被实现设计与测试识别；本轮没有证据证明实际时钟偏差导致用户可观察的令牌有效期错误，不列为发现。
+- 端点第二道防线：端点遍历测试确认已登记的参数路径例外；插件级入口的覆盖边界未证明存在当前未授权路径，不列为发现。
+- 令牌期限：真实签发行与响应时长已有独立测量，未确认原草稿所称的测试缺口。
+
+## 各级数量
+
+阻断 0；重要 0；建议 3（OMP-1、OMP-2、OMP-3）。
+
+有效发现：OMP-1、OMP-2、OMP-3。

@@ -543,3 +543,13 @@ Spec 随本节改了 `site.oauth-provider`（输入表与 HEAD 一句、输出 1
 | 12 | 库经 `redirectOnError` 抛出的跳转怎样进 `rewriteLibraryLocation` 没写 | 说明没写清。`onAPIError.throw` 只让非 `APIError` 从 `handler` 抛出，库以 `APIError` 做的跳转由 `handler` 变成普通的 302 响应，同样交 `rewriteLibraryLocation`；第 5 片补用例：可信回调上的错误跳回客户端，坏客户端、坏回调落到 `/oauth/consent?error=`，库的 `/error` 地址不外露（GET 导航与 `fetch` 各一次） | 第 5 片 |
 | 13 | 社交流程没写明怎样认发起的浏览器 | 改，写清：认浏览器靠库的 state Cookie，写进 `site.accounts` 时序；补验收 13（两份 Cookie） | 第 8 片 |
 | 15 | 计划说去掉 `claims` 再交库，但 P6 写成“先探库会不会按它放资料再定”，执行者可能把它当有效输入 | 改。去掉 `claims` 是定死的要求；P6 收窄为“去掉之后库看不到这个参数”。合同：带 essential `acr` 的 `claims` 与不带时结果相同 | 第 6 片（3.8 第 2 步） |
+
+## 实现审查（第 2、3 片，omp）的处理（2026-11-25）
+
+范围 `bf3d6f5aa..d4ae39ae5`（含 Opus 那轮的修正），omp（`@review`）在自己的 worktree 里审，跑完没被截停；报告 [`evidences/impl1-review-omp.txt`](evidences/impl1-review-omp.txt)。3 条，都是建议。
+
+| 条 | 发现 | 处理 |
+|---|---|---|
+| OMP-1 | 换回上一个版本期间删掉的会话，令牌的 `sessionId` 被置空，`purge` 不清这种行，换回后令牌仍可用到过期 | 成立，就是设计审查（omp）第 2 条，按那里的处理做：`purge` 同一事务删 `sessionId IS NULL` 的访问令牌；包内用例照审查者的做法（真实外键删会话、重启、跑 `purge`、用户信息 401）。5b 在同一个 worktree 里跑，等它交回后单独一个提交 |
+| OMP-2 | `LIBRARY_PUBLIC_ENDPOINTS` 的授权端点是 GET、HEAD，与合同的 GET、POST 不符 | 已在第 5a 片（`51c7f962e`）改成 GET、POST，HEAD 不再给授权端点 |
+| OMP-3 | 活钥的密文能解开、明文却不是 JWK 时启动不报错，换码时才失败 | 不改：私钥用库的 `symmetricEncrypt`（XChaCha20-Poly1305，带认证），能解开的密文只能由持有会话密钥的人写出，库表被这样改过不在要防的范围 |
