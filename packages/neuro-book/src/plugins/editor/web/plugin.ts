@@ -209,6 +209,8 @@ export const editorBrowserPlugin: PluginDefinition = {
                 for (const tab of pageTabs.value) {
                     const title = tab.restore === true ? pageSource.liveTitle(tab, text) : null;
                     if (title !== null && title !== tab.title) session.area.value?.rememberPageTitle(tab.id, title);
+                    const icon = tab.restore === true ? pageSource.liveIcon(tab) : null;
+                    if (icon !== null && icon !== tab.icon) session.area.value?.rememberPageIcon(tab.id, icon);
                 }
             });
             context.signal.addEventListener("abort", () => stopPageTabs(), {once: true});

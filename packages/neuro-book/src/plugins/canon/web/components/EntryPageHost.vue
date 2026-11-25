@@ -172,7 +172,7 @@ const headSource = computed(() => {
 watch(headSource, (read) => {
     const shown = read?.view;
     if (shown === undefined || shown === null) return;
-    props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? []});
+    props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? [], kind: read!.kind ?? ""});
 }, {immediate: true});
 
 const namespaces = computed(() => Object.keys(view.value?.namespaces ?? {}));

@@ -52,7 +52,7 @@ import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import {ENTRY_LANGUAGE, ENTRY_LANGUAGE_DECLARATION, entryLanguageDefinition} from "./entry-language";
-import {createEntryPage, originsFetcher} from "./entry-page";
+import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
 import {createTextDrafts} from "./text-drafts";
 import {createNotices} from "./notices";
 import {createPendingCount} from "./pending-count";
@@ -112,7 +112,7 @@ function lineItemText(line: WindowLine) {
 }
 
 /** 条目页：每个条目一个标签，刷新后恢复（author-ui.md 的“输入与前置条件”）。标题由约定键补（`editorPages.entry.title`）。 */
-const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", instances: true, restore: true};
+const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: ENTRY_PAGE_ICON, instances: true, restore: true};
 /** 回执页：每次修订一个标签，刷新后恢复。标题由约定键补（`editorPages.receipt.title`）。 */
 const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-receipt-text", instances: true, restore: true};
 /** 变更详情页：每条剧情变更一个标签，刷新后恢复。标题由约定键补（`editorPages.change.title`）。 */

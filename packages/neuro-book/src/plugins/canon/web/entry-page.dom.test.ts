@@ -34,7 +34,7 @@ import EntryPage from "./components/EntryPage.vue";
 import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
-import {createEntryPage, originsFetcher} from "./entry-page";
+import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
 import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";
@@ -104,6 +104,20 @@ const cells = (element: Element): string => [...element.children].map((child) =>
 const originRows = (wrapper: ReturnType<typeof mount>): string[] => wrapper.findAll("[data-origin-row]").map((row) => cells(row.element));
 
 describe("条目页", () => {
+    it("标签的图标按条目的种类（workbench/editor 输出 53）：人物是人像，种类没登记图标的是书签；还没读到条目时不给（交给编辑器记着的）", async () => {
+        const {other, page, open} = await setup();
+        const star = person("星瑕", {type: "人物"});
+        const odd = person("钥匙", {type: "法器"});
+        const ids = await publish(other.canon, [star, odd]);
+        expect(page.icon!(ids[star.id]!)).toBeNull();
+        const starPage = await open(ids[star.id]!);
+        await waitUntil("人物的页头", () => starPage.wrapper.find("h1").exists() && starPage.wrapper.find("h1").text() === "星瑕");
+        expect(page.icon!(ids[star.id]!)).toBe("i-lucide-user-round");
+        const oddPage = await open(ids[odd.id]!);
+        await waitUntil("法器的页头", () => oddPage.wrapper.find("h1").exists() && oddPage.wrapper.find("h1").text() === "钥匙");
+        expect(page.icon!(ids[odd.id]!)).toBe(ENTRY_PAGE_ICON);
+    });
+
     it("页头、标签标题与面包屑；缺省位置是最新一章末尾；换位置后文字里的值跟着变", async () => {
         const {other, page, open} = await setup();
         const star = person("星瑕");

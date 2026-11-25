@@ -36,6 +36,12 @@ describe("EditorTabBar", () => {
         expect(wrapper.get("[data-editor-tab-close=\"t1\"]").attributes("aria-label")).toBe("关闭 a.md");
     });
 
+    it("页面标签画它的 lucide 图标（输出 53），文件标签画文件图标；两者不同时出现", () => {
+        const wrapper = bar([item("t1", "a.md"), item("p1", "星瑕", {icon: null, iconClass: "i-lucide-user-round", active: true})]);
+        expect(tab(wrapper, "p1").get("[data-editor-tab-icon]").classes()).toContain("i-lucide-user-round");
+        expect(tab(wrapper, "t1").find("[data-editor-tab-icon]").exists()).toBe(false);
+    });
+
     it("单击激活、双击转正、点关闭按钮与中键关闭", async () => {
         const wrapper = bar();
         await tab(wrapper, "t1").trigger("click");

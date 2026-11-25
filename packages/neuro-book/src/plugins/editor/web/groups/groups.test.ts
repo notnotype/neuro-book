@@ -404,17 +404,22 @@ describe("标签记录（docs/specs/ui/workbench-layout.md 输出 33、34）", (
         groups.rememberPageTitle(entry.id, "星瑕");
         expect(groups.find(entry.id)!.tab).toBe(remembered);
         groups.rememberPageTitle("没有这个标签", "x");
+        // 图标同标题（输出 53）：记在标签上，没变时不换标签对象。
+        groups.rememberPageIcon(entry.id, "i-lucide-user-round");
+        const withIcon = groups.find(entry.id)!.tab;
+        groups.rememberPageIcon(entry.id, "i-lucide-user-round");
+        expect(groups.find(entry.id)!.tab).toBe(withIcon);
         groups.activate(entry.id);
 
         const snapshot = groups.snapshot();
-        expect(snapshot.tabs[entry.id]).toEqual({page: true, id: "nbook.test.entry", arg: "e1?#/", title: "星瑕"});
+        expect(snapshot.tabs[entry.id]).toEqual({page: true, id: "nbook.test.entry", arg: "e1?#/", title: "星瑕", icon: "i-lucide-user-round"});
         expect(snapshot.tabs[other.id]).toEqual({page: true, id: "nbook.test.entry", arg: "e2"});
         expect(snapshot.tabs[welcome.id]).toEqual({page: true});
 
         const restored = reopen(groups);
         expect(tabsOf(restored)).toEqual(["a.md", "page://nbook.test.entry?e1%3F%23%2F", "page://nbook.test.entry?e2"]);
         expect(active(restored)).toBe("page://nbook.test.entry?e1%3F%23%2F");
-        expect(restored.find(entry.id)?.tab).toEqual({kind: "page", id: entry.id, address: "page://nbook.test.entry?e1%3F%23%2F", preview: false, restore: true, title: "星瑕"});
+        expect(restored.find(entry.id)?.tab).toEqual({kind: "page", id: entry.id, address: "page://nbook.test.entry?e1%3F%23%2F", preview: false, restore: true, title: "星瑕", icon: "i-lucide-user-round"});
         // 恢复出来的再存一次，记录不变：没有任何一步去问页面的声明。
         expect(restored.snapshot().tabs[entry.id]).toEqual(snapshot.tabs[entry.id]);
         expect(restored.snapshot().tabs[other.id]).toEqual(snapshot.tabs[other.id]);

@@ -26,6 +26,8 @@ const TabsSchema = Type.Object({
             id: Type.String({pattern: "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"}),
             arg: Type.Optional(Type.String({minLength: 1, maxLength: PAGE_ARG_MAX_LENGTH})),
             title: Type.Optional(Type.String({maxLength: 500})),
+            // 记着的图标（输出 53）：lucide 的类名。
+            icon: Type.Optional(Type.String({pattern: "^i-lucide-[a-z0-9-]+$", maxLength: 100})),
         }, {additionalProperties: false}),
         Type.Object({
             address: Type.String({pattern: ADDRESS_PATTERN}),

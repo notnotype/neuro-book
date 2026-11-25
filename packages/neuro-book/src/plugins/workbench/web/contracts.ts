@@ -100,7 +100,7 @@ export interface EditorTabDrag {
      */
     dropOutcome(tabId: string, action: LayoutDropAction): EditorTabDropOutcome;
     /** 拖影。 */
-    ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
+    ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null; readonly icon?: string} | null;
     /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。结果说做成了没有；拒绝的提示由编辑器给。 */
     drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): Promise<boolean>;
     /** 整个浮动的编辑组停靠：逐个标签走同样的结算、合并与分区，中途被拒绝就停，剩下的留在窗里。 */
