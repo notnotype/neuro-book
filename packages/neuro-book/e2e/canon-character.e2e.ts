@@ -117,12 +117,18 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(gender).toHaveCount(0);
 
     // 性格：编辑层浮在原处、盖住后面，后一段（说话方式）不动；写一段、按 Escape 放弃，不存。
+    // 量它在卡片里的位置：编辑层伸出窗口底边时页面会滚几像素把它整个露出来（下一步），窗口坐标跟着变。
     const speech = card.locator("[data-passage='说话方式']");
-    const speechBefore = await speech.boundingBox();
+    const inCard = () => speech.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const origin = element.closest("[data-character-card]")!.getBoundingClientRect();
+        return {x: box.x - origin.x, y: box.y - origin.y, width: box.width, height: box.height};
+    });
+    const speechBefore = await inCard();
     await valueOf(page, "character.性格").click();
     const passage = editorOf(page, "character.性格");
     await passage.getByRole("textbox").fill("嘴硬心软，最怕被人看穿。");
-    expect(await speech.boundingBox()).toEqual(speechBefore);
+    expect(await inCard()).toEqual(speechBefore);
     await passage.getByRole("textbox").press("Escape");
     await expect(passage).toHaveCount(0);
     await expect(valueOf(page, "character.性格")).toContainText("遇事怎么反应");
