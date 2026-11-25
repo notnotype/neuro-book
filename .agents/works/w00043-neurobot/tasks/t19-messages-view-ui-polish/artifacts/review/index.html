@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开</title>
+<title>第 2 轮：两个侧栏共用侧轨</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
@@ -25,64 +25,39 @@ img { display: block; width: 100%; height: auto; border: 1px solid var(--line); 
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
+.full { display: grid; gap: 16px; }
+.cands.two { grid-template-columns: repeat(2, minmax(0, 360px)); }
 </style>
 </head>
 <body>
 <main>
-<h1>第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开</h1>
+<h1>第 2 轮：两个侧栏共用侧轨</h1>
 
-<section data-nbdev-question="strip-side" data-nbdev-type="single" data-nbdev-recommend="right-full">
-  <h2>头像列放在哪一边？</h2>
-  <p class="rec"><strong>推荐 C 右边缘、通到顶：和窗口左边的活动栏对称，头只盖聊天区，头与竖线不再相交；聊天区挨着编辑区。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="left" data-nbdev-label="A 左边（现在的位置）">
-      <h3>A 左边（现在的位置）</h3>
-      <figure><img src="r1/l-foot.webp" alt="头像列在左边"></figure>
-    </div>
-    <div class="cand" data-nbdev-option="right" data-nbdev-label="B 右边缘，头横跨整行">
-      <h3>B 右边缘，头横跨整行</h3>
-      <figure><img src="r1/r1-foot.webp" alt="头像列在右边缘，头横跨整行"></figure>
-    </div>
-    <div class="cand" data-nbdev-option="right-full" data-nbdev-label="C 右边缘，通到顶">
-      <h3>C 右边缘，通到顶</h3>
-      <figure><img src="r1/r2-foot.webp" alt="头像列在右边缘，通到顶"></figure>
-    </div>
-    <div class="cand">
-      <h3>现状</h3>
-      <figure><img src="r1/now.webp" alt="现状"></figure>
-    </div>
+<section data-nbdev-question="rail-look" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>侧轨这个样子，可以照着写提案吗？</h2>
+  <p class="rec"><strong>推荐可以：右边的轨和左边活动栏是同一套画法，接缝、宽度、圆角一致；对调后两边一起换，轨总在窗口外缘。</strong></p>
+  <div class="full">
+    <figure><figcaption>侧栏在左（默认）</figcaption><img src="r2/rail-default.webp" alt="侧栏在左，右栏有侧轨"></figure>
+    <figure><figcaption>两边对调</figcaption><img src="r2/rail-swapped.webp" alt="两边对调"></figure>
+  </div>
+  <div class="cands" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="ok" data-nbdev-label="可以，写提案"><h3>可以，写提案</h3></div>
+    <div class="cand" data-nbdev-option="adjust" data-nbdev-label="还要调"><h3>还要调</h3></div>
   </div>
 </section>
 
-<section data-nbdev-question="list-entry" data-nbdev-type="single" data-nbdev-recommend="foot">
-  <h2>去掉“≡”以后，完整的 bot 列表和会话历史从哪里打开？</h2>
-  <p class="rec"><strong>推荐 A 底部两个按钮：位置固定，不随 bot 与会话的多少移动，和左边活动栏底部的设置按钮一样；按哪个就直接开哪一页，抽屉里不用再切换。</strong></p>
-  <div class="cands three">
-    <div class="cand" data-nbdev-option="foot" data-nbdev-label="A 底部两个按钮">
-      <h3>A 底部两个按钮</h3>
-      <div class="pair">
-        <figure><figcaption>收着</figcaption><img src="r1/r2-foot.webp" alt="底部两个按钮"></figure>
-        <figure><figcaption>点“会话历史”</figcaption><img src="r1/r2-foot-open.webp" alt="点会话历史"></figure>
-      </div>
+<section data-nbdev-question="list-open" data-nbdev-type="single" data-nbdev-recommend="page">
+  <h2>窄版里点“会话历史”或“全部 bot”，列表怎么出来？</h2>
+  <p class="rec"><strong>推荐 B 整页切换：和左边活动栏一样，点入口就整块换内容，再点一次或选中一项换回聊天；抽屉盖掉聊天区大半，剩下的一条看不了也用不上。</strong></p>
+  <div class="cands two">
+    <div class="cand" data-nbdev-option="drawer" data-nbdev-label="A 抽屉">
+      <h3>A 抽屉</h3>
+      <figure><img src="r2/rail-history-drawer.webp" alt="抽屉"></figure>
     </div>
-    <div class="cand" data-nbdev-option="groups" data-nbdev-label="B 跟在各组末尾">
-      <h3>B 跟在各组末尾</h3>
-      <div class="pair">
-        <figure><figcaption>收着</figcaption><img src="r1/r2-groups.webp" alt="跟在各组末尾"></figure>
-        <figure><figcaption>点“会话历史”</figcaption><img src="r1/r2-groups-open.webp" alt="点会话历史"></figure>
-      </div>
+    <div class="cand" data-nbdev-option="page" data-nbdev-label="B 整页切换">
+      <h3>B 整页切换</h3>
+      <figure><img src="r2/rail-history-page.webp" alt="整页切换"></figure>
     </div>
-    <div class="cand" data-nbdev-option="expand" data-nbdev-label="C 底部一个展开按钮">
-      <h3>C 底部一个展开按钮</h3>
-      <div class="pair">
-        <figure><figcaption>收着</figcaption><img src="r1/r2-expand.webp" alt="底部一个展开按钮"></figure>
-        <figure><figcaption>点“展开列表”</figcaption><img src="r1/r2-expand-open.webp" alt="点展开列表"></figure>
-      </div>
-    </div>
-  </div>
-  <div class="pair" style="max-width: 360px; margin-top: 16px">
-    <figure><figcaption>现状</figcaption><img src="r1/now.webp" alt="现状"></figure>
-    <figure><figcaption>现状点“≡”</figcaption><img src="r1/now-open.webp" alt="现状点三横线"></figure>
   </div>
 </section>
 
@@ -91,12 +66,20 @@ th { color: var(--muted); font-weight: 600; }
   <table>
     <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
     <tbody>
-      <tr><td>最近会话</td><td>方块里写标题第一个字，bot 是圆头像，形状分开两类；当前会话的高亮跟着方块</td></tr>
-      <tr><td>新对话</td><td>从头左边的“+”挪到头像列最上面</td></tr>
-      <tr><td>抽屉</td><td>从头像列那一侧拉出；按“全部 bot”“会话历史”直接开那一页，没有切换行</td></tr>
-      <tr><td>下一轮</td><td>消息的样式：标签行、卡片、动作按钮与统计</td></tr>
+      <tr><td>一条轨从上到下</td><td>这个区域的容器入口；一条短线；当前视图自己的项（消息视图：新对话、bot、最近会话）；底部是视图的固定按钮，主侧那条再加账号与设置</td></tr>
+      <tr><td>右栏的头</td><td>原来横在头左边的容器入口搬进轨里，头只写标题与动作</td></tr>
+      <tr><td>宽度</td><td>两条轨都是活动栏的 48 像素</td></tr>
+      <tr><td>对调</td><td>标题栏右上角三个开关跟着对调（稿里没画）</td></tr>
     </tbody>
   </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided" style="margin:0;padding-left:1.4em;color:var(--muted)">
+    <li>头像列在右边缘、通到顶；做成两个侧栏共用的侧轨，左右能对调（第 1 轮，2026-11-25）</li>
+    <li>完整列表从轨底部两个按钮打开（第 1 轮，2026-11-25）</li>
+  </ol>
 </section>
 </main>
 </body>
