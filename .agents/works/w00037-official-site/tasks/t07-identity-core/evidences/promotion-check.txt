@@ -1,0 +1,392 @@
+# w00037 t07 晋升前逐条核对：site.accounts 与 site.admin
+核对对象：worktree .worktree/w00037-t07-identity，分支 feat/w00037-t07-identity-core，HEAD 4d6c3f1fa（开始时核过）。Spec 读主工作区 master 的 docs/specs/site/accounts.md、admin.md。
+路径简写：ID = packages/nb-site-identity/src，CT = packages/nb-site-contract-tests/src，CP = packages/nb-site-identity-contract/src。
+结论词：对上 / 没实现 / 不一致 / 没有测试 / t08、t10、t12（不在本范围）。
+
+### site.accounts 输入一节：接口路径、JSON、来源头
+代码：CP/paths.ts:265-280（路径）；ID/app.ts:56-92（挂载顺序：no-store → requireSameOrigin → bodySizeLimit → 路由 → 兜底 404）；ID/middleware.ts:158-163（GET/HEAD 以外的方法 Origin 必须等于站点 origin）。
+测试：CT/accounts.test.ts:120“改状态的请求不带来源头……forbidden_origin；只读的 GET 不要来源头”（缺 Origin、Origin 不同、未知路径的 POST 三种都断言 403 forbidden_origin，GET whoami 无 Origin 为 200）。
+逐句：
+- 接口都在 /api/identity/v1/ 下：对上（IDENTITY_API_PREFIX，合同测试经它拼地址）。
+- 改状态的请求要带与站点地址相同的来源头，否则 forbidden_origin：对上，有测试。
+- 接口表：me/identities、social/:provider/start 两行未实现，属 t08；Spec 接口表这两行没有标“（planned）”。GET meta 的“各上游是否开放”恒为 false（ID/app.ts:68），开关由 t08 接，Spec 也没标。
+
+### site.accounts 输入一节：字段规则（表与引言）
+代码：CP/fields.ts（USERNAME、DISPLAY_NAME、EMAIL、PASSWORD、LOGIN_IDENTIFIER、WEB_URL 与 isWebUrl、BIO；长度写进 pattern、按码点）；CP/account.ts:48-133（各请求 schema）；ID/errors.ts:90-134（孤立代理项检查、严格 UTF-8）；ID/register.ts:125-141（用户名先判 ASCII 再转小写、邮箱转小写、两个码 trim）；ID/me.ts:86（PATCH 邮箱转小写）、132（isWebUrl）。
+测试：CP/contract.test.ts:267-400（长度上下限逐个边界、组合字符按码点、登录与旧密码只查上限、用户名 ASCII 后转小写、邮箱 254 与 .invalid、头像网站的开头、主机、空白与控制符与双向控制符）；CT/accounts-register.test.ts:175（ab、短密码、.invalid、.INVALID、开尔文符号、多余与缺的键）、149（邮箱大小写不同也算占用）、143（用户名大写也算占用）；CT/accounts-me.test.ts:140、160（孤立代理项、表情与 U+FFFD 照收）；ID/me.test.ts:201（50 个、200 个表情照收）、245；ID/login.test.ts:221（比 8 个码点短的旧密码照常校验）。
+逐句：
+- 长度按码点：对上，有测试。
+- 孤立代理项的字段不合规则：对上，有测试（PATCH me 的合同与包内用例；注册、登录走同一个 readJsonObject，没有单独用例，可接受）。
+- 用户名 3 到 30、只收 ASCII、大写按小写、全站唯一：对上，有测试。
+- 显示名 1 到 50：对上，有测试。
+- 邮箱合法、至多 254、按小写比较、全站唯一、不收 .invalid：对上，有测试。
+- 密码 8 到 128，登录只查上限：对上，有测试。
+- 头像与网站、签名：对上，有测试。
+- “输入不去首尾空白（注册码与邀请码除外）”：实现对上（只有 codeInput 做 trim）；没有测试：没有用例断言显示名、密码、签名带首尾空白时原样保存或原样参与校验；“邀请码去首尾空白”也只测了空串（ID/register.test.ts:250），没测带空白的邀请码能匹配。
+
+### site.accounts 输入一节：配置项
+代码：ID/config.ts:44-117；会话时长经 ID/auth.ts:108、153 与 ID/session.ts:157 用上；哈希两项经 ID/module.ts:202；注册开关 ID/register.ts:122 与 ID/app.ts:68。
+测试：ID/config.test.ts:21-104（缺省值、每项边界、missing、bad_format 含 2026-02-29 与 1900-02-29、out_of_range、not_integer、BETTER_AUTH_ 前缀 not_allowed、问题不含取值）；CT/operations.test.ts:150（进程级：BETTER_AUTH_SECRETS 与 BETTER_AUTH_TELEMETRY 让启动以 config_invalid 失败、问题词 not_allowed、输出里没有取值）；CT/accounts-register.test.ts:268（REGISTRATION_OPEN=false 时 meta 与注册）；CT/accounts-limits.test.ts:201（HASH_CONCURRENCY=1、HASH_QUEUE=0）。
+逐句：
+- 条款版本必填、真实日期：对上，有测试。
+- 注册开关 true/false、缺省 true：对上，有测试。
+- 会话时长 2 到 365、缺省 30：解析对上、有测试；“非缺省值真的改变会话寿命”没有用例（合同与包内都只跑缺省 30 天或测试装配的值），属于接线，低风险。
+- 哈希并发 1 到 16 缺省 2、排队 0 到 10000 缺省 64：对上，有测试。
+- Google 与 GitHub 各自是否开放：没实现（没有这两个变量），属 t08；Spec 这半句没有标“（planned）”。
+- BETTER_AUTH_ 开头、取值不为空即启动失败：对上，有测试（包内与进程级都有，空串不算也测了）。
+
+### site.accounts 定时任务 purge
+代码：ID/module.ts:253-261（name purge、intervalMs 600000、initialDelayMs 0、先 rateLimits.sweep 再 sessions.purge）；ID/session.ts:310-319、103-105。
+测试：ID/session.test.ts:307（登记的名字、间隔、initialDelayMs 0；删到期的、留没到期的）、320（库被占着写时以库不可用失败、下一次再删）；CT/accounts.test.ts:195、199（经测试控制入口跑；持锁得 500 job_failed，放锁后 done）、471（不经控制入口，启动后自己跑过一次）。
+逐句：
+- 每 10 分钟一次、启动后先跑一次：对上，有测试。
+- 清掉已到期的会话：对上，有测试。
+- 清掉过去的限流时间窗：实现对上（purge 调 rateLimits.sweep，ID/rate-limit.ts:353-360）；没有测试：ID/login.test.ts:499 的用例名写“顺带清限流的窗口”，断言只数会话行；计数器层的 sweep 有 ID/rate-limit.test.ts:85，但没有用例证明 purge 调了它。外部不可观察（只影响内存），可接受或把用例名改准。
+
+### site.accounts 输出 1（密码注册）
+代码：ID/register.ts:116-164（读体、限流、同意、预检、哈希、withLibTransaction 里 createAccount 与 issueSession）；createAccount 在 92-114（扣码、扣邀请码、建账号与密码行、identity_profile 记注册码、邀请码与邀请人、identity_consent 一行）。
+测试：CT/accounts-register.test.ts:93（Smoke：公开资料、Cookie 属性、随即 me 与 whoami、注册码 usedCount 1、新密码能登录）、121（给了显示名）；ID/register.test.ts:85（库里记下 registration_code_id、consent 行）、238（邀请码用了 1 次、记下邀请码与邀请人）；ID/invite-codes.test.ts:233；CT/admin.test.ts:608（详情里的邀请人与注册码）。
+逐句：
+- 请求字段（可选显示名、可选邀请码、两项同意）：对上，有测试。
+- 创建账号、记同意、扣注册码一次、记邀请归属、当场建立会话、响应是公开资料：对上，有测试。
+- “显示名省略时取用户名”：不一致（措辞层面）。实现取请求里原样的用户名（register.ts:136，NewMember 注册后 username 为 newmember、displayName 为 NewMember，合同用例 CT/accounts-register.test.ts:100 就这样断言），而 Spec 术语里“用户名”是小写的登录名。判断：Spec 写得不够准，按实现改成“省略时取请求里原样的用户名”（README 第 5 片已接受这一取法，与 create-admin 一致）。
+- “已登录时注册照样进行：浏览器换成新账号的会话，原来的会话不结束”：实现对上（注册不读也不删已有会话）；没有测试：合同与包内都没有“带着会话 Cookie 注册，得到新账号的 Cookie，旧 Cookie 仍有效”的用例。
+
+### site.accounts 输出 2（注册的原子性）
+代码：ID/register.ts:92-114、154-159（扣码是带“还能用”条件的 UPDATE … RETURNING；后续任何一步抛出整个库事务回滚）。
+测试：ID/register.test.ts:137（扣码后建账号失败：码没被扣、没有账号）、150（发会话失败：账号、同意、扣码一起回滚）、173（预检后用户名或邮箱被占：码没被扣）；CT/accounts-register.test.ts:139（验收 2）、129（验收 1：8 个并发恰好 1 个成功、usedCount 1）。
+逐句：
+- 三者要么都发生要么都不发生，没建成账号时码不被扣：对上，有测试。
+- 只剩一次的码并发至多一个成功：对上，有测试。
+
+### site.accounts 输出 3（注册的拒绝）与失败先后“注册”一行
+代码：ID/register.ts:120-144（先后：取不到来源地址 forbidden_origin → registration_closed → readBody → rate_limited → consent_required → precheck 的四个码）；precheck 在 75-85，写事务里同顺序再判（92-106）。
+测试：CT/accounts-register.test.ts:268（registration_closed 排在字段校验之前）、175（validation_failed 列字段）、171-172（条款版本旧、不同意境外存放）、156、241（注册码不存在、大小写不同、用完、停用、过期）、163（邀请码不存在）、143、153（username_taken、email_taken）、209（先后：validation_failed、rate_limited、consent_required、registration_code_invalid、invite_code_invalid、username_taken、email_taken 逐个“带上它和它之后的毛病”）；ID/register.test.ts:259（邀请码停用、过期、用完）、279、300（预检后失效）。
+逐句：
+- 每个码的触发条件：对上，有测试。
+- 先后：validation_failed 起的七项与 registration_closed 先于 validation_failed 都有测试，对上。forbidden_origin 两种来源（来源头不对、取不到来源地址）排第一：实现对上；“取不到来源地址时注册回 forbidden_origin”没有测试（只有登录有，CT/accounts.test.ts:306），来源头不对的那一种由通用的 CT/accounts.test.ts:120 覆盖。
+- “码在占用之前查”：对上，先后用例守着。
+- 小处（不算缺口）：请求里 termsVersion 写法不是日期（如 "v2"）时回 validation_failed 而不是 consent_required，CP/time.ts:274-279 的注释写明了这一取法；Spec 输出 3 只说“条款版本不是当前版本回 consent_required”，可补半句“写法不对是字段不合规则”。
+
+### site.accounts 输出 4（登录）与失败先后“登录”一行
+代码：ID/login.ts:185-245（取不到来源地址 → readBody → rateLimits.login → 失败满 20 次先等 → 找账号 → 经哈希限额校验 → 发会话事务里复核封禁、哈希并读资料）；findCandidate 91-115（含 @ 按邮箱、排除 email_pending；否则先判 ASCII 再转小写）；三种失败都对假哈希或真哈希校验一次再补到下限（199-215，ID/hash-limiter.ts 的 startFailureFloor）。
+测试：CT/accounts.test.ts:262（Smoke）、284（邮箱大小写）、290（密码错、账号不存在、邮箱不存在同一个 invalid_credentials 且没有 Set-Cookie）、301、306；CT/admin.test.ts:356（封禁后对的密码 account_banned、错的 invalid_credentials）；ID/login.test.ts:83、104（含“没有密码”，三种都恰好校验一次）、129（三种失败都补到 150 毫秒下限、成功不补）、166（下限从拿到名额起算）、210（邮箱待补不能用邮箱登录；开尔文符号找不到 kelvin）、231、299（改角色与登录并发：响应的角色等于新会话的角色）、468（一个在校验时另一个“nobody”得 overloaded：overloaded 先于 invalid_credentials）。
+逐句：
+- 含 @ 按邮箱找、否则按用户名：对上，有测试。
+- 邮箱待补的账号不能用邮箱登录：对上，有测试（包内）。
+- 凭据对、没封禁时建立会话并回公开资料；与改角色并发时角色就是新会话的角色：对上，有测试。
+- 三种情况同一个 invalid_credentials：对上，有测试（“没有密码”只在包内，合同造不出，文件头已说明）。
+- 响应时间不可分辨：对上，靠失败下限；测试用注入的睡眠核对补齐与起点，不量真实时间（可接受）。旧站格式账号密码错的分支（scrypt 更快）没有单独进下限用例，但走同一个 reject，下限对所有分支生效。
+- 被封禁回 account_banned：对上，有测试。
+- 先后 forbidden_origin、validation_failed、rate_limited、overloaded、invalid_credentials、account_banned：对上；逐对都有用例（字段不合格不计入限流见 ID/login.test.ts:412、过载先于凭据见 468、封禁在密码之后见 231）。
+
+### site.accounts 输出 5（会话）
+代码：ID/auth.ts:123-131（cookiePrefix "__Host-nbsite"、useSecureCookies false、defaultCookieAttributes secure）、152-160（expiresIn、关库的延长、cookieCache 关）、182-194（建会话时取模块时钟）；ID/session.ts:235-261（满一天延长一次并重发同一令牌的 Cookie）、300-304（登出只删当前一行）。
+测试：ID/auth.test.ts:59（名字、HttpOnly、Secure、SameSite=Lax、Path=/、Max-Age=30 天、无 Domain）；CT/accounts.test.ts:262、83（登录与登出的 Cookie 属性）；ID/session.test.ts:199（差 1 毫秒不延长、满一天延长并重发同一令牌、同一天里不再延长）；CT/accounts.test.ts:430（拨一天多后 me 延长、到原到期时间之后仍有效）、445（拨过时长失效）、311（两个会话并存、登出只结束当前）。
+逐句：
+- Cookie 名与五个属性：对上，有测试。名字“版本之间不变”由合同测试里写死的常量守着。
+- “作用域是站点地址（同一上级域名下的其它子域写不了它）”：由 __Host- 前缀加 Path=/、无 Domain 保证，属浏览器规则；断言了属性，对上。
+- 有效期为配置的时长、使用中延长、每天至多一次：对上，有测试。
+- 同一账号多个会话、登出只结束当前：对上，有测试。
+
+### site.accounts 输出 6（会话失效）
+代码：ID/session.ts:73-88（endSession、endOtherSessions、endAllSessions）；调用处：ID/admin/users.ts:263（封禁）、294（改角色，仅角色真的变了）、337（重置）；ID/change-password.ts:248（保留当前会话）；ID/commands/create-admin.ts:154。
+测试：CT/admin.test.ts:356（封禁后原 Cookie 调 me 得 unauthenticated）、371（改角色后旧会话失效）、383（重置后原 Cookie 失效）；CT/accounts.test.ts:381（改密码：另一个会话失效、当前保留）；ID/change-password.test.ts:46。
+逐句：
+- 封禁、改角色、改密码、重置之后此前的全部会话立即无效、请求得 unauthenticated：对上，四种都有合同用例。
+- 自己改密码时当前会话保留：对上，有测试。
+- 小处：改角色改成原来的角色时不结束会话（CT/admin.test.ts:371 断言了这一点），与 Spec“角色被改”的字面一致；site.admin 输出 3 也是“角色改变后”。对上。
+
+### site.accounts 输出 7（问身份）
+代码：ID/session.ts:267-275（peek：不延长、不写库、不查同意；出错收口成 ErrorBody）；ID/app.ts:64。
+测试：CT/accounts.test.ts:64（anonymous，Smoke）、71（签名不对也是 anonymous）、262（authenticated 的形状合 WhoamiResponse、不带 Set-Cookie）、430（拨一天多不延长、不带 Set-Cookie）、185（进程外持写锁时照常回答）；ID/session.test.ts:108（拨两天也不延长、不更新最后使用时间）、156（库不可读时 503 unavailable 的 ErrorBody）。
+逐句：
+- 三种回答：对上，有测试（503 那一种只在包内，合同底座造不出“库不可读”，文件头已说明）。
+- 不延长会话：对上，有测试。
+
+### site.accounts 输出 8（读改资料）
+代码：ID/me.ts:58-77（readMe：公开资料加 email（待补时 null）、emailPending、hasPassword、consentRequired）、85-107（updateProfile：五个字段、邮箱转小写后查占用、给了邮箱清 email_pending）、119-144（GET、PATCH 路由，PATCH 先 isWebUrl、写事务里复核会话）。
+测试：CT/accounts.test.ts:345（me 的四项、待补邮箱为 null）；CT/accounts-me.test.ts:120（Smoke：每个字段单独改、邮箱转小写、null 清空）、140（空对象 fields 为空、多余的键含用户名、非 http(s) 地址、.invalid、email_taken、改成自己现在的邮箱照样成功）、179（补上邮箱后 emailPending 清掉、能用邮箱登录）；ID/me.test.ts:40-90、164-314。
+逐句：
+- me 回公开资料加邮箱、是否有密码、邮箱是否待补、是否还缺同意（与输出 10 同一门槛条件）：对上，有测试；“同一条件”由 ID/session.ts:121 的 consentRequiredIn 一份规则与 ID/me.test.ts:75 的三种缺同意情形守着。
+- PATCH me 可改显示名、邮箱、头像、网站、签名：对上，有测试。
+- 邮箱改成别人的回 email_taken：对上，有测试（含大小写不同）。
+
+### site.accounts 输出 9（改密码）
+代码：ID/change-password.ts:220-252。
+测试：CT/accounts.test.ts:381（旧密码错 invalid_credentials；对了回 {}、另一个会话失效、当前保留、只有新密码能登录）、399（不带旧密码 validation_failed 点名 currentPassword）；ID/change-password.test.ts:58、140（没有密码的账号直接设、之后再改要旧密码）、83、154（并发改动不被覆盖）、111。
+逐句：
+- 有密码的账号要带对的旧密码，否则 invalid_credentials：带了但不对 → invalid_credentials，对上、有测试；没带 → validation_failed（fields ["currentPassword"]），与字面“否则回 invalid_credentials”不一致。判断：Spec 写得不全，实现更合理（缺字段是请求形状问题，合同包 CP/account.ts:118-121 已写明），把 Spec 改成“没带旧密码是 validation_failed，带错了是 invalid_credentials”。
+- 没有密码的账号可以直接设：对上，有测试（包内；合同造不出没有密码的账号，t08 补）。
+- 成功后按输出 6 失效其它会话：对上，有测试。
+
+### site.accounts 输出 10（同意门槛）
+代码：ID/middleware.ts:117（放行表 GET me、POST me/consent、POST logout）、130-137（authorize：同意门槛先于角色门槛）；whoami 不经 requireSession；ID/me.ts:147-160（me/consent：版本不是当前或不同意境外存放 → consent_required，否则追加一行）。
+测试：ID/session.test.ts:273（放行表正好三项）、277（三种缺同意情形下放行表通过、其余含 GET /admin/users 得 consent_required，先于 forbidden）；CT/accounts.test.ts:361（me/password 被挡、whoami 照常、补交旧版本与不同意被拒、补交当前版本后放行）；CT/accounts-me.test.ts:269（六个接口都得 consent_required、me 照常读）、306（验收 6）；ID/me.test.ts:97-129。
+逐句：
+- 只放行 whoami、GET me、me/consent、logout，账号模块其它接口（含 admin）回 consent_required：对上，有测试。管理接口的这一半只在包内经 authorize 判（用路由键 "GET /admin/users"），没有经 HTTP 打真实的管理路由；各管理路由都以正确的路由键调 requireSession（读码核过），风险低。oauth-provider 的接口属 t08。
+- 别的模块的接口不在此列：对上（门槛只装在账号子应用里，结构保证），没有专门用例，可接受。
+- me/consent 交齐后恢复；版本不对或不同意回 consent_required：对上，有测试。
+
+### site.accounts 输出 11 到 16、23、24（社交登录、关联、解绑、落点、上游身份列表）
+t08，不在本范围。代码里只有为它备好的合同常量：CP/errors.ts:82-95（SOCIAL_ERROR_CODES）、CP/account.ts:165-170（IdentityItem）、CP/errors.ts 码表里的 provider_disabled、identity_taken、identity_exists、last_login_method；ID/auth.ts:151（关掉隐式关联）。
+Spec 标注：输出 11 到 16、23、24 的条目标题都没有标“（planned）”；失败表里 provider_disabled、identity_taken、identity_exists、last_login_method、三个 social_* 码也没有标。晋升为 implemented 时它们要么整条标“（planned）”，要么等 t08 一起晋升（见汇总）。
+
+### site.accounts 输出 17（会话列表）
+代码：ID/my-sessions.ts:39-82；ID/user-agent.ts:65-98（只存与只回规则表里的浏览器名、系统名）；最后使用时间由 ID/session.ts:252-259 每小时至多更新一次。
+测试：CT/accounts-me.test.ts:187（形状合 schema；回答里没有 Mozilla、curl；Chrome/Windows 标 current、Firefox/Linux、认不出的两个 null；结束别的会话后它的 Cookie 得 unauthenticated；结束当前会话清 Cookie）、222（别人的与不存在的 not_found）；ID/my-sessions.test.ts:50（按建立时间倒序、同刻按 id 倒序）、75（到期的不在列表）、84（一小时内再用不变、过一小时更新）、96（列里存的不是概要时回两个 null 并记诊断）。
+逐句：
+- 建立时间、最后使用时间（精确到一小时以内）、浏览器名与系统名（认不出为空、不给原始标识）、是否当前会话：对上，有测试。
+- 可以结束其中任意一个：对上，有测试（含当前会话）。
+
+### site.accounts 输出 18（邀请码）
+代码：ID/invite-codes.ts:152-199；上限 CP/fields.ts:228；“还能用”的条件 ID/codes.ts:211-213。
+测试：CT/accounts-me.test.ts:232（第 11 个 invite_code_limit、停用一个后能再生成、新码 maxUses 与 expiresAt 为 null、用它注册后 usedCount 加 1、停用的码注册得 invite_code_invalid、别人的码 not_found）；CT/accounts-limits.test.ts:129（每小时 10 次、停用再生成也算）；ID/invite-codes.test.ts:68、93（停用、过期、用完与别人的不占名额）、140（并发不越过上限）、191（再停用照样成功、停用时间保留第一次）。
+逐句：
+- 同时有效至多 10 个、满了回 invite_code_limit、可以停用：对上，有测试。
+- 生成每小时至多 10 次、停用再生成也算：对上，有测试。
+- 新码不限次数、不过期：对上，有测试。
+- 旧站导入的码保留原来的可用次数与过期时间：t12（导入不在本 Task）；列表能显示非空的 maxUses、expiresAt（ID/invite-codes.ts:128-139），包内用例 ID/invite-codes.test.ts:93 用过这类码。Spec 这半句没有标 planned。
+- 列表每项五样与“是否还能用”：对上，有测试（schema 校验加逐项比对）。
+- /register?invite=<码> 预填：t10，Spec 没有标 planned。
+
+### site.accounts 输出 19（限流）
+代码：ID/rate-limit.ts（RateLimitCounter 对齐窗口、溢出额度；SourceRateLimitCounter 的 /64 与 /48 当一个来源判；FailureCounter；createIdentityRateLimits 的六个计数器与数）；调用处 ID/login.ts:191-194、ID/register.ts:127-128、ID/change-password.ts:226-227、ID/invite-codes.ts:167-168；来源地址取自入口（nb-site-server 的可信代理规则），取不到时 login.ts:187、register.ts:121 回 forbidden_origin。
+测试：CT/accounts-limits.test.ts:71（来源加用户名 10 次，Retry-After 整数，别的来源不受影响，拨过恢复）、83（来源 30 次）、93（IPv6 /64）、101（失败 20 次后先等至少 2 秒再成功）、113、129、168（改密码 5 次、邀请码 10 次、注册 5 次，字段不合格的不计入）、237（重启后清零）；CT/accounts.test.ts:306（不给转发头 → forbidden_origin，登录）；ID/rate-limit.test.ts:52-320（对齐窗口与两倍、/48 合计 16 倍、/64 被拒不计入 /48、被来源加用户名挡下照样计入来源、被来源挡下不计入来源加用户名也不建条目、成功不清零、10 万个键与溢出 10 倍、失败计数满了一律先等、用户名不分大小写）；ID/login.test.ts:429（先等时不占哈希名额、不持队列的锁）。
+逐句：
+- 三个登录键的数与窗口、注册、改密码、生成邀请码的数：对上，有测试。
+- 超限回 rate_limited 与 Retry-After：对上，有测试。
+- 来源地址只从可信代理的转发头取、取不到回 forbidden_origin：对上；只有登录有用例，注册的这一支没有测试（见输出 3 一节）。
+- 对齐窗口、IPv6 前 64 位与前 48 位 16 倍、当一个来源判：对上，有测试（/48 只在包内，合同只测了 /64）。
+- 每次尝试都计入、在哪个键上被拒就不计入哪个键、被来源拒绝的不计入来源加用户名：对上，有测试。
+- “用户名”是规范化后的登录名：对上，有测试。
+- 成功不清零失败计数：对上，有测试。
+- 键超过 10 万时的溢出额度与失败计数一律先等：对上，有测试（包内）。
+- 重启后计数清零（时序一节）：对上，有测试。
+
+### site.accounts 输出 20（过载）
+代码：ID/hash-limiter.ts:62-125（并发上限、排队上限、排队 5 秒超时、关闭）；各调用处把 HashOverloadedError 换成 overloaded：ID/login.ts:157-167、ID/register.ts:147-152、ID/change-password.ts:211-218、ID/admin/users.ts:326-332。
+测试：CT/accounts-limits.test.ts:201（并发 1、不排队，8 个登录有 200、其余 503 overloaded）；ID/hash-limiter.test.ts:44-181（排队满 queue_full、队长 0、4999 毫秒仍在等、5 秒 queue_timeout、关闭）；ID/login.test.ts:468；ID/register.test.ts:206；ID/admin/users.test.ts:171（重置密码过载）。
+逐句：
+- 个数与排队长度由两项配置定、排队超限或等待超过 5 秒回 overloaded、不无限排队：对上，有测试。
+- 登录、注册、改密码、管理员重置都可能回 overloaded：登录、注册、重置有测试；改密码对上（同一个 limited 包装），没有测试：没有“改密码在哈希过载时回 503 overloaded”的用例。
+
+### site.accounts 输出 21（旧密码格式）
+代码：ID/password.ts:104-208（scrypt:<盐>:<hex> 的校验、needsRehash）；ID/login.ts:170-183、234-240（提交后经 tryAcquire 换格式，条件更新 WHERE password = 刚校验的那份）。
+测试：ID/login.test.ts:364（旧格式能登录、之后存的是 argon2id、同一密码照常登录）、373（8 个并发只换一次）、384（换格式期间被重置不覆盖）、270（并发换了格式时再校验一次照常登录）；ID/password.test.ts。
+逐句：
+- 旧站格式能照常登录、成功后换成新格式、之后仍能用同一个密码：对上，有测试。
+- 换格式不覆盖这次登录期间被改掉或重置的密码：对上，有测试。
+- 说明：旧格式的写法没有对照旧站源码或真实样本（ID/password.ts:104-106 自己写明），由 t12 核；本条的合同行为本身已被测试锁住。
+
+### site.accounts 输出 22（错误形状）与失败表前的“同时有几处不合格”一段
+代码：ID/errors.ts:52-88（failureResponse 只在 validation_failed 带 fields；bodySizeLimit 16 KiB 超了回 400 fields []）、118-143（不是 JSON、不是对象、只有 BOM、严格 UTF-8 → fields []；readEmptyBody）、153-178（fields 取请求体的键名）；ID/app.ts:56-59（全部响应 no-store）、91（兜底 404）；CP/errors.ts:102-105（ErrorBody 两层 strictObject）。
+测试：CT/accounts.test.ts 的 failure() 在每个失败用例上 Value.Check(ErrorBody)（多出键即不合，“不带给人看的文字、堆栈、路径”由此锁住）；CT/accounts.test.ts:128（logout 空体与 {} 过，有键的对象与数组被拒）、136、142（定长与分块超 16 KiB、正好 16 KiB 照读）、99（no-store：成功、出错、超限、兜底 404 都有）、160；CT/accounts-register.test.ts:175（fields 是请求体键名，含多余与缺的键）、192；ID/my-sessions.test.ts:152、ID/invite-codes.test.ts:84（结束会话、生成邀请码的空体规则）；成功回 {}：CT/accounts.test.ts:311、381，CT/accounts-me.test.ts:208。
+逐句：
+- 失败体形状、code 取失败表的值、fields 只在 validation_failed 有且是请求体键名：对上，有测试。
+- 超 16 KiB、不是 JSON、不是对象 → validation_failed 与 fields []：对上，有测试。
+- 不需要参数的写接口空体或无键对象：登出、结束会话、生成邀请码有测试；site.admin 的封禁、解封、结束全部会话、重置密码四个对上（都调 readEmptyBody，ID/admin/users.ts:258、274、306、324），没有测试：没有用例给这四个接口发 {"a":1} 或数组看 400。
+- 登出、改密码、结束会话回 {}：对上，有测试。
+- 全部响应 no-store：对上，有测试。
+- “字段不合格的请求不计入限流”：对上，有测试（输出 19 一节的几条）。
+- “请求体超过 16 KiB 的请求在来源头之后、别的检查之前就回 validation_failed”：实现对上（中间件顺序 ID/app.ts:60-61）；先后没有测试：没有“超限且来源头不对得 forbidden_origin”“超限且注册关闭得 validation_failed”的用例。低风险，中间件顺序一眼可见。
+
+### site.accounts 状态与转换、时序与寿命
+代码：封禁 ID/admin/users.ts:255-282；会话失效一律删行（ID/session.ts:73-105）；登出 ID/session.ts:300-304 与 ID/app.ts:74-78；登录事务里复核 ID/login.ts:125-141、254-274；限流只在内存（ID/rate-limit.ts 文件头）。
+测试与逐句：
+- 账号 active ⇄ banned、会话有效 → 失效（登出、被结束、到期、输出 6 的四种）：对上，各路径都有用例（输出 5、6、17 与 site.admin 输出 2 的各节）。
+- 注册成功的响应返回时会话已可用：对上，CT/accounts-register.test.ts:93 拿响应的 Cookie 立即调 me、whoami。
+- 登出回 200 时会话已失效：对上，CT/accounts.test.ts:311（登出后同一 Cookie 的 whoami 为 anonymous）。账号库不可用时登出回 503、不清 Cookie、会话仍有效：对上，CT/accounts.test.ts:327、ID/app.test.ts:62。
+- 社交流程的跳转地址 10 分钟内有效、只能用一次、social_state_invalid：t08，Spec 没有标 planned。
+- 封禁与登录并发：封禁完成之后到达的登录被拒、之前建立的会话失效：对上，ID/login.test.ts:282（校验后、发会话前被封 → account_banned、没有会话）、324（封禁在发会话事务开着时到达 → 排在之后、提交后删掉刚发的会话、之后登录 account_banned）。README 里“封禁与登录并发没跑”的旧说明已被这两条用例取代。
+- 改密码或重置与登录并发：改动完成之后才建成的会话无效、这次登录回 invalid_credentials：对上，ID/login.test.ts:255（校验后、发会话前换哈希并结束全部会话 → invalid_credentials、0 个会话）。用例用直写 SQL 模拟改动，没有经真实的 reset-password 或 me/password 路由；用户自己改密码那一支与重置走同一个“哈希仍是刚校验的那份”复核，风险低。
+- 重启不影响已有会话、限流计数重启后清零：对上，CT/accounts-limits.test.ts:232、237。
+
+### site.accounts 副作用与数据
+代码：迁移 packages/nb-site-identity/migrations/0001_init.sql（全部表 AUTOINCREMENT；码存原文；会话的 ipAddress 恒空、userAgent 存概要）；ID/auth.ts:133、182-194；ID/password.ts（只存哈希）。
+测试：ID/auth.test.ts:59（ipAddress 与空标识存成 null）、85（原始标识不落库、存概要）；ID/db/schema.test.ts:113（四张库表删掉最大 id 后新 id 更大）、122（显式写入大 id 后新账号接着往上）；ID/login.test.ts:364（存的是 argon2id 串）；ID/register.test.ts:85（库里记下注册码与同意）；码原文可见由 CT/admin.test.ts:111、628 的列表断言。
+逐句：
+- 各类数据落在账号模块的库里：对上（“连同上游账号的名字”的上游身份属 t08）。
+- 密码只存哈希：对上；没有专门断言“库里找不到明文密码”的用例，但每条存储路径都经 hashPassword，存的串由 argon2id 前缀断言锁住（登录换格式、注册后登录），可接受。
+- 注册码与邀请码存原文：对上，有测试。
+- 会话不存来源地址、浏览器标识只存概要：对上，有测试。
+- 账号数字 id 不变、不重用：对上，有测试。
+
+### site.accounts 失败与恢复（码表与“生成邀请码”的先后）
+代码：CP/errors.ts:13-76（码与状态，模块出口与合同测试共用）；ID/errors.ts:59-71（库不可用 503 unavailable、其余 500 internal）。
+测试：CP/contract.test.ts:176-193（码表正好是两张失败表里有 HTTP 状态的码、状态逐个对上、跳转参数码不在码表里）；逐码的端到端用例：validation_failed、forbidden_origin、not_found（CT/accounts.test.ts 多处）、unauthenticated、invalid_credentials、consent_required、registration_closed、registration_code_invalid、invite_code_invalid、username_taken、email_taken、invite_code_limit、rate_limited、overloaded、unavailable（各输出一节已列）、account_banned（CT/admin.test.ts:356）、internal（ID/register.test.ts:137、ID/app.test.ts:112）。
+逐句：
+- 有 HTTP 状态的每个码的状态：对上，有测试。
+- provider_disabled、identity_taken、identity_exists、last_login_method 与三个跳转参数码：t08（码已在合同包里，行为未实现）；Spec 失败表没有标 planned。
+- not_found 的三种含义（没有这个接口、会话或邀请码不是自己的、不存在）：对上，有测试（CT/accounts.test.ts:160、CT/accounts-me.test.ts:222、232）。
+- 生成邀请码的先后 validation_failed、rate_limited、invite_code_limit：validation_failed 先于 rate_limited 有测试（ID/invite-codes.test.ts:122 的“请求体不合格的不计入”、CT/accounts-limits.test.ts:129）；rate_limited 先于 invite_code_limit 实现对上（ID/invite-codes.ts:167 在写事务之前判），没有测试：没有“已有 10 个有效码且这一小时已生成 10 次时得 rate_limited”的用例。
+- 不一致（Spec 编辑错误）：失败先后的“生成邀请码”那一行末尾接着写了“封禁在密码之后查，不知道密码的人试不出谁被封了”，这句说的是登录（登录行的 invalid_credentials 在 account_banned 之前），与生成邀请码无关。判断：Spec 写错了位置，挪到“登录”那一行之后；实现与测试（ID/login.test.ts:231）都按登录理解。
+
+### site.accounts 边界与兼容
+- 公开接口只追加：属维护约定，无可测内容；码表由 CP/contract.test.ts:176 锁住。
+- 身份库自带的其它端点从外部不可到达：对上，ID/auth.ts 不挂 handler；CT/accounts.test.ts:178（库前缀下 get-session、ok、nb-session/clear 都是 404）、ID/auth.test.ts:40（SERVER_ONLY 端点经 handler 是 404）。“标准 OAuth 端点、上游回调”属 t08。
+- 信任边界：请求体与来源头的校验对上（输入一节、输出 22 一节）；“随社交流程带回的内容”属 t08。
+
+### site.accounts 验收 1 到 7 与 Smoke
+- 验收 1：CT/accounts-register.test.ts:129，对上（8 个并发恰好 1 个 200、其余 registration_code_invalid、码 usedCount 1）。
+- 验收 2：CT/accounts-register.test.ts:139，对上（大写的重复用户名 username_taken、码 usedCount 仍 0、随后另一个用户名成功）。
+- 验收 3：CT/admin.test.ts:356，对上（原 Cookie 调 me 得 unauthenticated、再登录得 account_banned）。
+- 验收 4、5：t08，没有用例；Spec 验收里没有标 planned。
+- 验收 6：CT/accounts-me.test.ts:306，对上（旧会话调 me/invite-codes 得 consent_required，补交新版本后恢复、码还在）。
+- 验收 7：ID/login.test.ts:255，对上（校验后、发会话前密码被换并结束会话 → invalid_credentials、没有会话）。没有经真实的 POST admin/users/:id/reset-password 触发，而是直写 SQL；在合同层插不进这个时序，包内用例是可接受的位置。
+- Smoke“合同测试包里账号的注册、登录、问身份用例”：CT/accounts-register.test.ts:93、CT/accounts.test.ts:262、64 都标了“（Smoke）”，对上。另有 CT/accounts-me.test.ts:120“改资料（Smoke）”多标了一个（README 第 8 片已记），晋升时二选一：Spec 的 Smoke 句加上改资料，或去掉用例名里的“（Smoke）”。
+
+### 更正（site.accounts 输出 22 一节）
+上文说 site.admin 四个无参数写接口的空体规则“没有测试”，读到 CT/admin.test.ts:458 后更正：封禁带 {"reason":"spam"} 得 validation_failed、fields []，封禁这一个有测试。解封、结束全部会话、重置密码三个仍没有带键对象的用例（实现同为 readEmptyBody）。
+
+### site.admin 输入与前置条件：接口、前提、搜索与筛选、注册码字段
+代码：ID/admin/users.ts:219-252（列表与详情）、144-153（搜索：三列前缀 LIKE，转义 % _ 反斜杠，邮箱待补不按邮箱匹配）、127-132（四个筛选项）；ID/admin/registration-codes.ts:92-99（四个筛选项是一个划分）、101-107（过期时间要真实存在的时刻）；ID/admin/invite-codes.ts；ID/admin/audit-list.ts:283-293（actorId 数字或 cli、只给 targetType 列这一类、只给 targetId 回 validation_failed）；前提由 requireSession(…, "admin") 与 requireSameOrigin 给。
+测试：CT/admin.test.ts:530（用户名、显示名、邮箱前缀；q=ESC 命中小写用户名；% _ 反斜杠按字面；占位邮箱前缀搜不到）、553（筛选与 counts、取到的都符合）、164（注册码四个筛选项之和等于 all、各自符合）、608（详情：登录方式、会话数、注册码、邀请人、not_found、id 写法）、628（全站邀请码带主人与已用次数）、647、678（审计按操作者、对象、动作筛；只给 targetId、坏 actorId、不认识的动作被拒；只给 targetType 列这一类）、121、126（备注 201 个字符被拒、maxUses 0 被拒）；ID/admin/registration-codes.test.ts:117（过期时间合写法却不存在）。
+逐句：
+- 各接口与“要求管理员会话、同意门槛、来源头”：对上，有测试（门槛见 site.accounts 输出 10 一节）。
+- 搜索：用户名不分大小写，对上、有测试。“邮箱不分大小写”与“显示名只有 ASCII 字母不分大小写”实现对上（SQLite LIKE 只对 ASCII 不分大小写，存的用户名与邮箱是小写），没有测试：没有用大写邮箱前缀、ASCII 大小写不同的显示名前缀、非 ASCII 显示名大小写不同（应搜不到）去搜的用例。邮箱待补不按邮箱匹配：对上，有测试。
+- 账号列表一个 filter、注册码列表四个 filter 及其含义：对上，有测试。
+- 详情的五样：对上，有测试（“登录方式”里的上游列表本 Task 恒为空，providers 的真实取值属 t08）。
+- 审计筛选的四种参数与“只给 targetId 回 validation_failed”：对上，有测试。
+- 注册码：可用次数正整数或不限、可选过期时间、备注至多 200：对上，有测试。
+
+### site.admin 输入与前置条件：分页参数与响应、账号列表的一条
+代码：CP/admin.ts:19-28、108-130（page、pageSize、anchor 的写法；PageResponse 与 FilteredPageResponse）；ID/admin/pagination.ts:104-141（缺省 page 1、pageSize 20；基准是那一刻的最大 id；total 与 counts 只数 id 不大于基准的；越界不查）；账号一条 ID/admin/users.ts:87-120（email 待补时 null 且标明、lastLoginAt 取 identity_profile.last_login_at）。
+测试：ID/admin/registration-codes.test.ts:275-279（空表：page 1、pageSize 20、anchor rc0）；CT/admin.test.ts:192、587（page=0、pageSize=101、超过安全整数、1.5、别的列表的 anchor、晚于当前的 anchor 被拒）、579-585、179-190、640-642、689-693（四个列表都带着 anchor 翻页）、554-568（counts 的键与条数）、543（账号一条：邮箱、角色、封禁、注册时间；登录过有 lastLoginAt、只注册没登录为 null）；各列表响应都过 Value.Check（合同包的 strictObject 锁住字段集合，含“没有筛选项的列表不带 counts”）。
+逐句：
+- page 从 1 起缺省 1、pageSize 1 到 100 缺省 20、anchor 取自上一个响应：对上，有测试。
+- 响应带 items、total、page、pageSize、anchor；带筛选项的另带 counts（每个筛选项在当前搜索下的条数）：对上，有测试（CT/admin.test.ts:540 核了带搜索时 total 等于 counts.all）。
+- 账号列表一条的八项：对上，有测试。注意“最近一次登录成功的时间”只在登录成功时写（ID/login.ts:263-267），注册当场建会话不算一次登录（合同用例 548 就这样断言）；Spec 没说注册算不算，可在 Spec 写明“注册不算登录”。
+
+### site.admin 输出 1（权限）
+代码：ID/middleware.ts:135（角色不是 admin → forbidden，在同意门槛之后）、132（没有会话 → unauthenticated）；每个管理路由以 "admin" 调 requireSession（ID/admin/*.ts）。
+测试：CT/admin.test.ts:336（普通用户调账号列表、详情、五种处置、全站邀请码、审计都得 forbidden，审计 total 不变；没有会话得 unauthenticated）、103（注册码三个接口）。
+逐句：对上，有测试。
+
+### site.admin 输出 2（封禁）
+代码：ID/admin/users.ts:255-282（封禁：banned=1、endAllSessions、审计；解封：banned=0、审计，不碰会话）；登录在发会话事务里复核 banned（ID/login.ts:138）。
+测试：CT/admin.test.ts:356（Smoke：原 Cookie 调 me 得 unauthenticated、对的密码 account_banned、错的 invalid_credentials；解封后旧 Cookie 仍无效、能重新登录）。
+逐句：
+- 封禁后不能登录、已有会话全部失效：对上，有测试。
+- 名下已发出的 OAuth 令牌全部失效：t08（令牌撤销加在 endAllSessions 里，ID/session.ts:68-69 注释已留接缝）；Spec 这半句没有标 planned。
+- 解封后可以重新登录、不恢复旧会话：对上，有测试；“不恢复旧令牌”属 t08。
+
+### site.admin 输出 3（改角色）
+代码：ID/admin/users.ts:285-300（角色真的变了才 endAllSessions；审计记 from、to）。
+测试：CT/admin.test.ts:371（改成原来的角色不结束会话；改成 admin 后旧会话 unauthenticated、新会话是新角色并能进管理接口）；ID/login.test.ts:299（与登录并发）。
+逐句：对上，有测试。
+
+### site.admin 输出 4（重置密码）
+代码：ID/admin/users.ts:321-343（新密码 20 个字符、事务外经哈希限额算哈希、写密码行、endAllSessions、审计 params {}；新密码只在响应里）。
+测试：CT/admin.test.ts:383（Smoke：响应给新密码、旧密码失败新密码成功、原 Cookie 失效、审计一条参数为空且不含新密码、进程标准输出与标准错误里找不到它）；ID/admin/users.test.ts:205（字母表与长度、每次不同）、213（模块日志与审计表里都找不到它）、171（过载）。
+逐句：
+- 响应里给出新密码、只出现这一次：对上，有测试（“只出现这一次”由“别处都找不到”的断言体现）。
+- 旧密码不能再登录、已有会话失效：对上，有测试。
+- 已发出的 OAuth 令牌失效：t08，Spec 没有标 planned。
+- 新密码不进审计记录与日志：对上，有测试。
+- 小处：先算哈希再查目标，所以“对不存在的账号重置”在过载时回 overloaded 而不是 not_found（ID/admin/users.ts:325-334）。Spec 没定先后，不算不一致。
+
+### site.admin 输出 5（不能处置自己）与输出 6（最后一个管理员）
+代码：ID/admin/users.ts:210-212（forbidSelf，只在 ban 与 role 里调）、315、340（结束自己的会话、重置自己的密码时清 Cookie）；ID/admin/operator.ts:16-32（每个处置的写事务第一步复核操作者：会话行在、未到期、角色 admin、未封禁，否则 unauthenticated）。
+测试：CT/admin.test.ts:410（对自己封禁、改角色（含改成原角色）得 self_forbidden、审计不变）、420（结束自己的全部会话、重置自己的密码不受限，当前会话一起结束、响应清 Cookie）、710（验收 3：只有一个管理员时降级或封禁自己被拒、之后仍是未封禁的管理员）、759、761（两对管理员同时互相封禁、互相降级：一个 200 一个 401、输的没有审计、赢的仍是未封禁的管理员）；ID/admin/users.test.ts:94（中间件认过身份之后操作者被降级、封禁、结束会话：处置得 unauthenticated、什么都没变）。
+逐句：
+- 封禁、改角色自己 → self_forbidden；结束会话、重置密码不受此限：对上，有测试。
+- “处置在生效的那一刻仍要求操作者是未封禁的管理员”：对上，有测试（包内复核用例与合同的互相处置）。注意失败码是 unauthenticated（操作者的会话已被结束或角色已变），Spec 输出 6 写“仍要求操作者是未封禁的管理员（输出 1）”，没写这时回哪个码；输出 1 只说不是管理员回 forbidden。实际上操作者被降级或封禁时会话已被结束，中间件或复核都回 unauthenticated。判断：Spec 可补一句“生效时操作者已不是未封禁的管理员时回 unauthenticated”，属措辞补全，不是缺陷。
+- 改角色与封禁不会让站里没有未封禁的管理员：对上，有测试。
+
+### site.admin 输出 7（注册码）
+代码：ID/codes.ts:181-197（16 个字符 Crockford base32、80 位随机）、211-213（还能用的条件）；ID/admin/registration-codes.ts:134-166（发放、改备注或停用，停用只设一次停用时间）。
+测试：CT/admin.test.ts:111（16 个字符、两次不同、条目有可用次数、过期时间、备注、发放人、还能用）、131（停用后注册得 registration_code_invalid、已用它注册的账号照常登录、列表里 usedCount 与 usable）；CT/accounts-register.test.ts:241；ID/admin/registration-codes.test.ts:90（Crockford 字母表）、137。
+逐句：
+- 发放时生成不可猜的码：对上；测试只核长度、字母表与两次不同，“不可猜”由 randomBytes(10) 保证，可接受。
+- 停用后不能再用于注册、已注册的账号不受影响：对上，有测试。
+- 列表里有已用次数、是否还能用：对上，有测试。
+
+### site.admin 输出 8（审计）
+代码：ID/audit.ts:170-175（只在调用方的写事务里追加）；各处置 ID/admin/users.ts:264、278、296、312、338，ID/admin/registration-codes.ts:145、161，ID/commands/create-admin.ts:157、172；迁移 0001_init.sql:115-130（改、删、同 id 的 REPLACE 都被触发器拒绝）。
+测试：CT/admin.test.ts:434（七次处置各一条、操作者对象动作参数逐条比对，封已封、改成原角色照样写；not_found、validation_failed 的失败不写）、647（命令行两条 actor null、发放与停用各一条、只改备注不写、码与备注不进审计）、473（create-admin 重置已有账号写 created: false）、464（两个管理员同时封各一条）；ID/admin/users.test.ts:138、ID/admin/registration-codes.test.ts:127、157（写审计失败时操作不生效）；ID/db/schema.test.ts:141（只追加）。
+逐句：
+- 列出的操作每成功一次写一条、失败不写：对上，有测试。“登记与改动 OAuth 客户端”与三个 oauth_client.* 动作属 t08（合同包已列动作名），Spec 没有标 planned。
+- 只改备注不写：对上，有测试。
+- 没有变化的处置照样成功、照样写：对上，有测试（停用已停用的码见 ID/admin/registration-codes.test.ts:137）。
+- 八个动作名：对上，有测试。
+- 参数：改角色记新旧角色、结束会话记条数（只数未到期的，ID/admin/users.test.ts:150）、发放注册码记可用次数与过期时间、不记码与备注：对上，有测试。
+- 与字面不全一致（Spec 写少了）：admin.cli_upsert 的参数是 {created: true|false}（新建还是重置已有账号），Spec 的参数列表没有提它。判断：实现合理，Spec 补“命令行记是否新建”。
+- 审计与操作同时生效：对上，有测试。
+
+### site.admin 输出 9（列表稳定）与输出 10（页码越界）
+代码：ID/admin/pagination.ts:104-141（一个读事务里取最大 id、计数、取页；ORDER BY 建立时间倒序、id 倒序；越界不查；parseAnchor 拒前缀不对、大于当前最大 id 的）。
+测试：CT/admin.test.ts:575（验收 4，账号）、179（注册码）、628（全站邀请码）、678（审计）：带 anchor 时之后新增的不进 items、total、counts，不带时新的排最前、total 多 1；553、164、674-675（排序）；192、587（越界 items 为空、total 照给；page、pageSize、anchor 写法与晚于当前的被拒）；CT/admin.test.ts:227（空列表的 anchor 带回来照样翻页、之后新增的不进来）。
+逐句：
+- 按创建时间倒序再按 id 倒序：对上，有测试（四个列表里账号、注册码、审计核了，全站邀请码只核了最新的排第一）。
+- 带 anchor 只看基准那一刻已存在的条目、不计入 total 与 counts：对上，有测试。
+- 不带 anchor 以当时为基准并放进响应：对上，有测试。
+- 状态在翻页期间变了的后果：是对调用方的说明，没有要验的行为；实现按新状态算（筛选条件每次请求重算），对上。
+- 越界、参数不合规则、anchor 写法不对或晚于当前时刻：对上，有测试。说明：实现里的“当前时刻”是“当前最大 id”（基准不是时间），Spec 写“晚于当前时刻”是对调用方不透明的说法，语义一致；若要更准可改成“晚于现在的基准”。
+- 空列表给出的 anchor 可以带回来：对上，有测试。
+
+### site.admin 状态与转换、副作用与数据、边界与兼容
+- 无自己的状态：对上。
+- 封禁、改角色、重置的响应返回时失效已生效：对上，CT/admin.test.ts:356、371、383 在响应之后立即用旧 Cookie 调 me 得 unauthenticated。
+- 两个管理员同时处置同一个账号：各自生效、各有审计：对上，CT/admin.test.ts:464（两个都封）。“最终状态是后完成的那次”：实现对上（写事务在一条队列上串行）；没有测试：用例两边做的是同一个处置，区分不出谁后完成；要测得发一个封禁一个解封并比对审计 id 的先后与最终状态。低风险。
+- 审计落在账号库、长期保留，含操作者 id（命令行为空）、对象 id、动作、时间、参数，不含密码：对上，有测试（输出 8 一节；表的只追加 ID/db/schema.test.ts:141）。
+- 公开接口只追加：维护约定。重置留有审计：对上，有测试。
+
+### site.admin 失败表与验收 1 到 4、Smoke
+- forbidden 403、not_found 404、self_forbidden 409、validation_failed 400：对上，CP/contract.test.ts:176 核状态，CT/admin.test.ts:336、455、410、457 端到端各有用例。not_found 的“没有这个账号或码”两种都有（455、161）。
+- 验收 1：CT/admin.test.ts:336，对上（全部账号、邀请码、审计管理接口与五种处置都 forbidden，审计 total 不变；注册码三个接口在 103，那一条没比对审计条数，但它们被挡在写事务之前）。
+- 验收 2：CT/admin.test.ts:383，对上。
+- 验收 3：CT/admin.test.ts:710，对上。
+- 验收 4：CT/admin.test.ts:575，对上（第 2 页第一条不是第 1 页最后一条、total 相同；不带 anchor 新账号排最前、total 多 1）。
+- Smoke“合同测试包里的封禁与重置密码用例”：CT/admin.test.ts:356、383 用例名都标了“Smoke”，对上。
+
+### 汇总 1：三类计数与不一致逐条
+没实现：本范围内 0 条。t08、t10、t12 的句子见汇总 3，不算缺口。
+与字面不一致：8 条，都判为 Spec 写错或漏写，代码不是缺陷。
+1. accounts 输出 1：Spec 写省略 displayName 时取用户名。实际取请求里原样的用户名（例如 NewMember），不是转成小写后的。判 Spec：显示名本来就保留大小写。
+2. accounts 输出 9（改密码）：Spec 写当前密码不对或缺失时得 invalid_credentials。实际缺少 currentPassword 时得 validation_failed（字段校验在先）。判 Spec：应把这两种情况分开写。
+3. 失败先后表的“生成邀请码”一行带了“封禁在密码之后查，不知道密码的人试不出谁被封了”。这句讲的是登录，放错了行。判 Spec：挪到“登录”一行。
+4. admin 输出 8：admin.cli_upsert 审计带参数 {created}，Spec 的参数表没有列。判 Spec：补上。
+5. admin 输出 6 及各处置：提交时如果操作者已不是未封禁的管理员，得 unauthenticated。Spec 没写这种情况得哪个码。判 Spec：补一句。
+6. 次要。accounts 输出 3：termsVersion 格式不对时得 validation_failed，Spec 没写。
+7. 次要。admin 用户列表的 lastLoginAt：注册不算一次登录，Spec 没说明。
+8. 次要。分页锚点写的是“晚于当前时刻”，实际是“当前最大 id 之后”。判 Spec：措辞贴实现。
+另：CT/accounts-me.test.ts:120 的用例名带“（Smoke）”，Spec 的 Smoke 一节没有列改资料。二选一：去掉标签，或补进 Spec。
+
+### 汇总 2：没有测试（实现都在，缺的是判定这句的断言），13 条
+1. “输入不去首尾空白”：除两种码以外的字段没有测；邀请码带首尾空白仍能匹配也没有测。
+2. NB_SITE_IDENTITY_SESSION_DAYS 取非默认值时，会话寿命真的随之改变。
+3. purge 调用 rateLimits.sweep：用例名提到了，断言没有验。
+4. 已登录时注册：发新会话、旧会话保留。
+5. 注册时缺少客户端地址得 forbidden_origin。
+6. 改密码得 overloaded。
+7. 解封、撤销会话、重置密码三个接口拒收非空请求体（只有封禁测了）。
+8. 超过 16 KiB 的检查排在来源检查之后、其余检查之前。
+9. 生成邀请码时 rate_limited 先于 invite_code_limit。
+10. 管理员搜索：邮箱不分大小写；显示名只在 ASCII 范围内不分大小写。
+11. 并发处置时“最终状态是后完成的那次”。
+12. 偏轻。管理员路由的同意门只在包测试里经 authorize 测过，没有经 HTTP 测。
+13. 偏轻。登录竞态的几条用例（含 accounts 验收 7）用直接写 SQL 模拟，没有走真实的重置密码或改密码路由。
+
+### 汇总 3：分三张清单
+必须在晋升前修：代码方面没有。建议晋升前至少补上没有测试第 3 条（purge 的 sweep）和第 7 条（三个接口拒收非空请求体）：这两处的用例名或 Spec 已经声称覆盖了。
+可以把 Spec 改成贴实现：不一致的 1 到 8 条，以及 accounts-me:120 的 Smoke 标签。
+可以留给别的 Task（Spec 里目前都没有标“（planned）”）：
+- t08：accounts 输出 11 到 16、23、24；接口表里的 me/identities 与 social/:provider/start 两行；Google、GitHub 两项配置；社交登录 state 的时效；失败码 provider_disabled、identity_taken、identity_exists、last_login_method 与 social_*；accounts 验收 4、5；admin 输出 2、4 里撤销 OAuth 令牌的那半句；oauth_client.* 审计动作。
+- t10：/register?invite= 预填。
+- t12：导入的邀请码保留原有的 maxUses 与过期时间。
+二选一：把这些句子标成“（planned）”再晋升，或者两份 Spec 等 t08 合入后再一起晋升。
+
+### 汇总 4：实现合同草稿与证据链接
+公开入口：@notnotype/nb-site-identity 的 createIdentityModule、identityMigrations、parseIdentityConfig、createAdminCommand（从 packages/nb-site-identity/src/index.ts 导出）；合同类型在 @notnotype/nb-site-identity-contract。
+所有者与依赖：nb-site-identity 所有。依赖 Better Auth 1.7.27（只用于发放与识别会话，handler 不挂载）、Hono、bun:sqlite 和合同包。由 nb-site-server/src/modules.ts 装配。
+不变式：
+1. 会话只经 session.ts 的函数组删除，并且在调用方的写事务里删。
+2. 所有数据库访问都走 db/connection.ts 的单连接队列。
+3. 每次管理员处置都在同一个写事务里重查操作者，并在其中完成改动与写审计行。
+4. 登录在库事务里发会话，同一事务里重查是否封禁、重查已验证的哈希。
+5. 所有 id 都是 AUTOINCREMENT；库表与基线的差别只有这一点。
+证据：
+- 实现入口：packages/nb-site-identity/src/index.ts
+- 合同测试：accounts 用 packages/nb-site-contract-tests/src/accounts.test.ts（及 accounts-register、accounts-me、accounts-limits）；admin 用 admin.test.ts
+- Smoke：accounts 用 accounts-register.test.ts:93、accounts.test.ts:262、accounts.test.ts:64；admin 用 admin.test.ts:356、:383
