@@ -46,6 +46,11 @@ export interface Clock {
 export interface JobDefinition {
     readonly name: string;
     readonly intervalMs: number;
+    /**
+     * 开始调度之后第一次等多久（非负整数毫秒），缺省等于 `intervalMs`。之后每次照旧从上一次按间隔排的运行结束起等
+     * `intervalMs`。给 0 时开始调度后立即跑一次：服务重启比间隔频繁时，第一次只等间隔的任务永远轮不到。
+     */
+    readonly initialDelayMs?: number;
     run(): void | Promise<void>;
 }
 

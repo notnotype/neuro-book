@@ -1,6 +1,6 @@
 /**
- * 统计的三个写入口的黑盒合同（docs/specs/telemetry/protocol.md；docs/specs/site/telemetry-ingest.md 输出 1、2、4、8、9、10、
- * 时序与失败表；docs/specs/site/operations.md 的来源地址与按主机名分派）：起真实的 `nb-site` 进程，只经 HTTP 与数据目录的
+ * 统计的三个写入口的黑盒合同（docs/specs/telemetry/protocol.md；docs/specs/site/telemetry-ingest.md 输出 1 到 4、8、9、10、
+ * 时序与失败表；docs/specs/site/operations.md 的来源地址、按主机名分派与输出 6 的备份）：起真实的 `nb-site` 进程，只经 HTTP 与数据目录的
  * 文件看它。断言只用 Spec 写明的状态码、码、字段与响应头；日志只看 Spec 写明的 `http.request` 那一行与它的 `durationMs`。
  *
  * 所有请求都来自 127.0.0.1，同一个进程上的用例共用一份限流额度，所以除限流的几组外都给很大的额度。
@@ -10,18 +10,24 @@
  * 时间预算：起进程放在各组的 `beforeAll` 里；用例只发请求。超出 200 毫秒的用例在旁边写明原因。
  *
  * 本文件测不到、在别处的：
- * - 聚合、原始上报到期删除、备份里没有原始上报（输出 3、5、6、7，验收 1）：任务与备份在 w00037 t06 的下一片；聚合的数
- *   第一版没有读的接口，在统计包的包内测试里，t11 的看板接口再补黑盒。
+ * - 聚合的数（输出 5、6、7、11，验收 1 的“那一天的聚合数不变”）：第一版没有读聚合的接口，在统计包的 `aggregate.test.ts`、
+ *   `purge.test.ts`，t11 的看板接口再补黑盒。这里只从文件看两条弱的：到期删除之后数据目录里找不到上报编号（C15），
+ *   备份的副本里有聚合进去的应用版本、没有上报编号（C16）。
+ * - 删除前先聚合、聚合出错时这一轮删不删、截断检查点做不完、批间让出与 `close()` 收手：要造库的状态，在统计包的
+ *   `purge.test.ts`、`index.test.ts`。
  * - 心跳“库里没有 3 条可分辨的记录”（验收 2）、IPv6 按前 64 位与前 48 位计、来源数的上限：合同测试只能从 127.0.0.1 发请求、
  *   不读库的表，在统计包的 `store.test.ts`、`rate-limit.test.ts`。
  * - 验收 4 的“同时账号的登录接口正常”：账号模块还没有登录接口，t07 加进“库被占着写”那一组。
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
+import {copyFile} from "node:fs/promises";
+import {join} from "node:path";
 
 import {INGEST_MAX_BODY_BYTES, LATEST_ANONYMOUS_MANIFEST, LATEST_USAGE_MANIFEST, TELEMETRY_API_PREFIX, type IngestKind} from "@notnotype/nb-site-telemetry-contract";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {backupsDir, listBackups} from "./testing/backup";
 import {holdWriteLock} from "./testing/fault";
 import {dataFilesContaining} from "./testing/files";
 import {requestJson, useSiteSandbox, type LogLine, type SiteProcess} from "./testing/site";
@@ -62,7 +68,7 @@ async function requestLine(site: SiteProcess, response: {readonly headers: Heade
 }
 
 /** 比较用：状态码与响应体。 */
-function outcome(response: IngestResponse): {readonly status: number; readonly body: unknown} {
+function outcome(response: {readonly status: number; readonly body: unknown}): {readonly status: number; readonly body: unknown} {
     return {status: response.status, body: response.body};
 }
 
@@ -462,5 +468,76 @@ describe("重启之后（site.telemetry-ingest 的时序：重启不丢、去重
         expect(first.status).toBe(200);
         const {serverDay} = first.body as {readonly serverDay: string};
         expect(outcome(afterRestart)).toEqual({status: 200, body: {serverDay, duplicate: true, dropped: []}});
+    });
+});
+
+describe("原始上报到期删除（site.telemetry-ingest 输出 3，验收 1）", () => {
+    let site: SiteProcess;
+    let dataDir: string;
+
+    beforeAll(async () => {
+        dataDir = await sandbox.dataDir();
+        site = await sandbox.start({dataDir, env: LARGE_LIMIT});
+    }, SETUP_TIMEOUT_MS);
+
+    /** 把进程的时钟拨到第 `day` 个服务端日的开头之后一分钟：落在一天的开头，用例跑多久都不会跨到下一天。 */
+    async function toDay(day: number): Promise<void> {
+        await site.advanceClock(day * DAY_MS + 60_000 - (await serverNow(site)));
+    }
+
+    it("C15 保留 7 天：拨到第 7 天跑 purge，数据目录里还找得到上报编号、重发是重发；拨到第 8 天跑 purge，找不到、重发不是重发", async () => {
+        const report = {...dailyReport(), reportId: newReportId()};
+        const recorded = await sendReport(site.url, "daily", report);
+        expect(recorded.status).toBe(200);
+        const day = Math.floor(Date.parse(`${(recorded.body as {readonly serverDay: string}).serverDay}T00:00:00Z`) / DAY_MS);
+
+        await toDay(day + 7);
+        expect(outcome(await site.runJob("telemetry", "purge"))).toEqual({status: 200, body: {status: "done"}});
+        const keptIn = dataFilesContaining(dataDir, report.reportId as string);
+        const resent = await sendReport(site.url, "daily", report);
+
+        await toDay(day + 8);
+        expect(outcome(await site.runJob("telemetry", "purge"))).toEqual({status: 200, body: {status: "done"}});
+        const leftIn = dataFilesContaining(dataDir, report.reportId as string);
+        const afterPurge = await sendReport(site.url, "daily", report);
+
+        expect(keptIn).not.toEqual([]);
+        expect(outcome(resent)).toMatchObject({status: 200, body: {duplicate: true}});
+        expect(leftIn).toEqual([]);
+        expect(outcome(afterPurge)).toMatchObject({status: 200, body: {duplicate: false}});
+    });
+});
+
+describe("备份里没有原始上报（site.operations 输出 6、验收 3 的后半；site.telemetry-ingest 的副作用一节）", () => {
+    /** 特征明显、合乎版本号写法的应用版本：只会经聚合进副本。 */
+    const appVersion = "77.66.55-c16marker";
+    let report: Report;
+    let recorded: IngestResponse;
+    let backupDir: string | undefined;
+    let restored: SiteProcess | undefined;
+
+    beforeAll(async () => {
+        const dataDir = await sandbox.dataDir();
+        const site = await sandbox.start({dataDir, env: LARGE_LIMIT});
+        report = {...dailyReport(), reportId: newReportId(), appVersion};
+        recorded = await sendReport(site.url, "daily", report);
+        const backup = await sandbox.run("backup", {dataDir});
+        if (backup.exitCode !== 0) throw new Error(`backup failed: ${backup.stderr}`);
+        const [name] = listBackups(dataDir);
+        if (name === undefined) return;
+        backupDir = join(backupsDir(dataDir), name);
+        // 副本拷进一个新的数据目录，单独起一个服务。
+        const restoredDir = await sandbox.dataDir();
+        for (const module of ["identity", "telemetry"]) await copyFile(join(backupDir, `${module}.db`), join(restoredDir, `${module}.db`));
+        restored = await sandbox.start({dataDir: restoredDir, env: LARGE_LIMIT});
+        await restored.ready();
+    }, SETUP_TIMEOUT_MS);
+
+    it("C16 记入一份之后备份：副本里找不到它的上报编号，找得到它的应用版本（进了聚合）；用副本起的服务就绪", async () => {
+        expect(recorded.status).toBe(200);
+        expect(backupDir).toBeDefined();
+        expect(dataFilesContaining(backupDir!, report.reportId as string)).toEqual([]);
+        expect(dataFilesContaining(backupDir!, appVersion)).toEqual(["telemetry.db"]);
+        expect((await requestJson(`${restored!.url}health/ready`)).status).toBe(200);
     });
 });

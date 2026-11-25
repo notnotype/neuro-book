@@ -5,7 +5,7 @@
 
 import {createIdentityModule, identityMigrations, parseIdentityConfig, type IdentityConfig} from "@notnotype/nb-site-identity";
 import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
-import {createTelemetryModule, parseTelemetryConfig, TELEMETRY_INGEST_PREFIX, telemetryMigrations, type TelemetryConfig} from "@notnotype/nb-site-telemetry";
+import {createTelemetryModule, parseTelemetryConfig, prepareTelemetryBackupCopy, TELEMETRY_INGEST_PREFIX, telemetryMigrations, type TelemetryConfig} from "@notnotype/nb-site-telemetry";
 import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
 
 import type {SiteModule} from "./module";
@@ -23,7 +23,8 @@ const identity = {
 
 /**
  * 统计模块在两个入口上各有一个 mount：站点地址上的接口（`TELEMETRY_API_PREFIX`），写入口主机上的三个写入口
- * （`TELEMETRY_INGEST_PREFIX`）。声明了写入口（`ingest`），所以进程要求 `NB_SITE_TELEMETRY_URL`。
+ * （`TELEMETRY_INGEST_PREFIX`）。声明了写入口（`ingest`），所以进程要求 `NB_SITE_TELEMETRY_URL`。备份时在副本上清掉原始上报
+ * （`prepareTelemetryBackupCopy`，`site.operations` 输出 6）。
  */
 const telemetry = {
     name: "telemetry",
@@ -44,8 +45,10 @@ const telemetry = {
                 {surface: "site", prefix: TELEMETRY_API_PREFIX, app: module.site},
                 {surface: "ingest", prefix: TELEMETRY_INGEST_PREFIX, app: module.ingest},
             ],
+            close: () => module.close(),
         };
     },
+    prepareBackupCopy: prepareTelemetryBackupCopy,
 } satisfies SiteModule<TelemetryConfig>;
 
 export const SITE_MODULES: readonly SiteModule[] = [identity, telemetry];
