@@ -161,3 +161,11 @@ Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、
 
 - 实现者判得比处理表宽、主会话接受的：撤销端点照库 1.7.27 的 `normalizeClientAuthenticationParameters` 整套判法先判（另含 `client_assertion` 重复、任何认证头加表单凭据、密钥与断言并存），只判 Basic 时 `Bearer` 加表单密钥会留下同一类问题；多出来的几种没有单独的用例。Spec 输出 10 补了这句。
 - 没改、接受的：发现文档的编码写法（`/.well-known/%6Fpenid-configuration`）照样回发现文档。回的是模块自己的文档、不经库，没有绕过什么。
+
+第 8 片（社交登录与关联）已提交，两个提交：`16ab11785`（最小链路：上游配置、`0003`、仿真上游、登录意图的发起与回调，23 个文件）、`bda38f0e9`（关联与其余用例：`social/hooks.ts`、`social/upstream-name.ts`、关联钩子复核会话、上游令牌不落库，14 个文件）。五个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程；主会话重跑通过。7 条变异 6 条被抓到；“`mapSocialError` 信地址里的自家码”是等价变异：按 omp 第 9b 条，地址里带 `error` 时在 `callback.ts` 就判完、走不到 `mapSocialError`，自家码也不在它的表里（`OWN_CODES` 那一行留着，防库以后出同名的码）。
+
+- 实现者定、主会话接受的：`genericOAuth` 插件总是装上，只给开放的上游加配置；仿真上游用 `node:http`，扣住令牌请求是每个上游一个先进先出队列；关联复用改密码的限流计数；`:provider` 不是两个上游之一回 `not_found`；地址里带 `error` 时仍交库（让库认出另一个浏览器的回调、删掉 state 行与 Cookie），结论只看地址；注册意图在第 9 片接上之前发起时是程序错误（500）。
+- 实测出、Spec 跟着改的：库插 `account` 失败留下的孤行会在 1 分钟内挡住同一账号或同一身份的关联（计划 3.10 的设计），`site.accounts` 输出 15 改成“至多挡住之后 1 分钟”。
+- 重放：登录意图第一次回调成功时库删掉自己的 state 行，第二次在库那里就落到 `social_state_invalid`；本站的认领是第二道，只有“另一个浏览器先用掉”那条用例分得出两道。
+- 没做的：回调查询串的长度上限（计划 3.6：超过时落点页带 `social_state_invalid`），交给第 9 片。
+- 给第 9 片的：注册要接 `start.ts` 的 `register` 分支、`FlowPayload` 的注册内容、`callback.ts` 的 `succeed` 对 `newUser` 的落点、`hooks.ts` 里 `inLibraryTransaction()` 为真的分支（改成 `joinLibTransaction`，加 `user.create.before`、`session.create.before` 的注册检查）；`providers.ts` 记进帧里的 `upstream.emailVerified` 给注册钩子拒未验证的邮箱；`link.test` 的“会话晚结束”与两条并发用例按库的两步排队卡时序，注册路径若改变库的步数要回头核。
