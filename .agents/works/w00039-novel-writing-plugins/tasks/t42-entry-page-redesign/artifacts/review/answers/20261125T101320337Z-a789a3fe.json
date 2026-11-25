@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "answerId": "20261125T101320337Z-a789a3fe",
+    "artifactVersion": 3,
+    "contentHash": "43cd481aa2b16edf0bdfe5cbccaf2a899a35fc1d400fa0c895d67bca747a78c4",
+    "submittedAt": "2026-11-25T10:13:18.770Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "tab-layout": "rail",
+        "notice": "auto",
+        "initial-word": "story-start"
+    },
+    "comments": {
+        "tab-layout": "横排。宽时都好看。"
+    },
+    "note": null
+}
