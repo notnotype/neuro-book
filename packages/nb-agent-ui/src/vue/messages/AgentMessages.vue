@@ -323,7 +323,7 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
 }
 
 .acv-messages--window-drag .acv-messages__strip-head {
-    height: var(--acv-head-height, 32px);
+    height: var(--acv-head-height, 40px);
     touch-action: none;
 }
 
@@ -425,7 +425,7 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
 
 /* 自绘窗口头时抽屉从头那一行下面拉出：不盖住对话头与宿主盖在右上角的按钮。 */
 .acv-messages--window-drag.acv-messages--narrow .acv-messages__list {
-    top: var(--acv-head-height, 32px);
+    top: var(--acv-head-height, 40px);
     border-top: var(--border-w) solid var(--border-color);
 }
 

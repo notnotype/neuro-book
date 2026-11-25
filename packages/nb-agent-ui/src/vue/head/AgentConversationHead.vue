@@ -157,14 +157,15 @@ const placed = computed(() => props.targets !== null);
     grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
     align-items: center;
     gap: var(--space-1);
-    /* 宿主自绘窗口头时给高度与右端让位（盖在右端的窗口按钮），缺省是 32px、不让位。 */
+    /* 宿主自绘窗口头时给高度与右端让位（盖在右端的窗口按钮），缺省不让位。 */
     height: var(--acv-head-height, 32px);
     padding: 0 calc(12px + var(--acv-head-inset-end, 0px)) 0 12px;
     user-select: none;
 }
 
-/* 作窗口拖动区时触摸按住就起拖，不滚动。 */
+/* 作窗口拖动区时触摸按住就起拖，不滚动；高度缺省与消息列表的切换行一样是 40px（两栏第一行等高）。 */
 .acv-head[data-window-drag] {
+    height: var(--acv-head-height, 40px);
     touch-action: none;
 }
 
