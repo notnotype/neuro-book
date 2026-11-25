@@ -1,0 +1,47 @@
+bun test v1.4.4 (38afee6c8)
+
+probe.test.ts:
+[probe] P1 setCollapsed(false): [600,400]
+[probe] P1 Enter preview c: {"width":333,"height":400}
+[probe] P1 Enter committed: {"ok":true,"widths":[667,333],"intentC":333}
+[probe] P2 setCollapsed(true).collapse: {"collapsedSize":0,"restoreSize":400,"collapseThreshold":24,"expandThreshold":24,"collapsed":true}
+[probe] P2 Enter collapse -> collapse: {"collapsedSize":0,"restoreSize":400,"collapseThreshold":24,"expandThreshold":24,"collapsed":true}
+[probe] P2 setSize while collapsed: {"ok":true,"changed":true,"size":250,"collapse":{"collapsedSize":0,"restoreSize":250,"collapseThreshold":24,"expandThreshold":24,"collapsed":true}}
+[probe] P3 pinned=false before: [28,260,828,240,28]
+[probe] P3 pinned=false after: {"ok":true,"after":[28,260,1096,0,0],"rightCollapsed":true}
+[probe] P3 pinned=true before: [28,260,828,240,28]
+[probe] P3 pinned=true after: {"ok":true,"after":[28,260,1068,0,28],"rightCollapsed":true}
+[probe] P4 widths@600: [24.19,138.22,259.17,138.22,24.19]
+[probe] P4 issues: [["over-constrained","min-total"],["over-constrained","leaf-min"],["over-constrained","leaf-min"],["over-constrained","leaf-min"],["over-constrained","leaf-min"],["over-constrained","leaf-min"]]
+[probe] P5: {"ok":true,"changed":true,"revisionBefore":1,"revisionAfter":2,"applied":0}
+[probe] P6 resolver=number: {"sashes":[4,4,4,4],"center":1328}
+[probe] P6 resolver=function: {"sashes":[0,4,4,0],"center":1336}
+[probe] P7 Enter collapse (default): [400,800,0]
+[probe] P7 intents after Enter collapse: [300,600,300]
+[probe] P7 Enter expand (default, restoreSize): [400,400,400]
+[probe] P7 Enter collapse then setCollapsed(false): [300,600,300]
+[probe] P7 restoreToShare Enter collapse: [400,800,0]
+[probe] P7 restoreToShare Enter expand: [400,500,300]
+[probe] P7 setCollapsed(true): [600,600,0]
+[probe] P7 setCollapsed(false): [400,400,400]
+[probe] P7 drag-collapse b: {"ok":true,"widths":[1000,0],"intents":[1000,500],"collapse":{"collapsedSize":0,"restoreSize":500,"collapseThreshold":24,"expandThreshold":24,"collapsed":true}}
+[probe] P7 drag-collapse then setCollapsed(false): [666.67,333.33]
+[probe] P8 baseline/target: {"baseline":{"a":200,"b":100,"c":200},"target":{"a":0,"b":200,"c":300}}
+[probe] P8 resizeBranches: {"ok":true,"intents":[300,200,300]}
+[probe] P8 today Enter preview: [0,300,200]
+[probe] P8 today Enter commit: {"ok":true,"intents":[300,300,200]}
+[probe] P8 then widen to 1004 after expand: [300,496,200]
+[probe] P9 two: presentation unchanged by R2: {"beforeRescale":[1000,0],"after":[1000,0],"intents":[500,500]}
+[probe] P9 two: expand by share: [500,500]
+[probe] P9 three: drag-collapse c: {"ok":true,"beforeRescale":[400,800,0],"intentsBefore":[300,600,300],"afterRescale":[400,800,0],"intents":[200,400,300]}
+[probe] P9 three: expand c by share: [266.67,533.33,400]
+[probe] P10 flipped layout (= what setCollapsed(false) shows): {"sizes":[200,100,200],"issues":[["over-constrained","fixed-overflow"]]}
+[probe] P10 today resizeBranches of that commit: {"ok":true,"intents":[200,50,200]}
+[probe] P10 widen to 1004 after: [200,596,200]
+[probe] P10 today Enter expand preview: [300,100,100]
+[probe] P10 today Enter expand commit: {"ok":true,"intents":[300,50,100],"wide":[300,596,100]}
+
+ 16 pass
+ 0 fail
+ 10 expect() calls
+Ran 16 tests across 1 file. [92.00ms]
