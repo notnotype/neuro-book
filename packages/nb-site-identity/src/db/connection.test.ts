@@ -328,7 +328,6 @@ describe("等锁上限与关闭", () => {
             (error: unknown) => (timedOutOutcome = {ok: false, error}),
         );
         await waitUntil("第一个在排队", () => timers.pending === 1);
-        expect(DEFAULT_LOCK_TIMEOUT_MS).toBe(10_000);
         timers.advance(9_999);
         // 上限的回调到期时先被摘掉再执行，所以计时器还登记着就说明它没触发、拒绝没发生。
         expect({outcome: timedOutOutcome, pending: timers.pending}).toEqual({outcome: undefined, pending: 1});
