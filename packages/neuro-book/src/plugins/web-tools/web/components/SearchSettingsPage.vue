@@ -283,6 +283,10 @@ watch(() => props.settings.get(resultCount), () => {
     countDraft.value = null;
     countProblem.value = "";
 });
+// 屏蔽网站没写成的输入在标签输入自己手里，跟着新值的是标签；这里只清原位提示。拼成串比较：取值可能每次是新数组。
+watch(() => props.settings.get(blockedSites).join("\n"), () => {
+    blockedProblem.value = "";
+});
 watch(() => WEB_PROVIDERS.map((provider) => props.settings.get(BASE_URLS[provider])).join("\n"), () => {
     for (const provider of WEB_PROVIDERS) {
         urlDrafts[provider] = null;
@@ -310,7 +314,7 @@ watch(() => WEB_PROVIDERS.map((provider) => props.settings.get(BASE_URLS[provide
                     <!-- 这一行不会有“使用中”：名称占掉那一格，行尾的计数仍与各家的状态格同列。 -->
                     <span class="search-settings__item-name">{{ text("rules.title") }}</span>
                     <span class="search-settings__item-end search-settings__count" aria-hidden="true">{{ blocked.length > 0 ? blocked.length : "" }}</span>
-                    <span :id="`${id}-rules-row`" hidden>{{ text("rules.blockedCount", {count: blocked.length}) }}</span>
+                    <span v-if="blocked.length > 0" :id="`${id}-rules-row`" hidden>{{ text("rules.blockedCount", {count: blocked.length}) }}</span>
                 </button>
                 <div class="search-settings__divider" />
                 <button

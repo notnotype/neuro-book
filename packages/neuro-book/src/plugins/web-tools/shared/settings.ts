@@ -1,7 +1,7 @@
 /**
- * `nbook.web` 的设置项（docs/specs/web/tools.md“输入与前置条件”）。三项都只允许用户层：选用哪家与服务的地址都关系到密钥发往
- * 哪里，不让项目层改。分区指向本插件自己的设置页：两个地址那一页不画，只能改设置文件（docs/specs/web/settings-page.md 的
- * “不承诺”）；选用哪家由那一页经设置服务写。
+ * `nbook.web` 的设置项（docs/specs/web/tools.md“输入与前置条件”）。各项都只允许用户层；选用哪家与服务的地址关系到密钥发往
+ * 哪里，不让项目层改。分区指向本插件自己的设置页，页面在“搜索规则”与各家的“高级”里画全部设置项，经设置服务写
+ * （docs/specs/web/settings-page.md）。
  */
 
 import {Type} from "typebox";

@@ -27,7 +27,7 @@ export const webBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        // 页面经它写“使用”哪家（`nbook.web/provider`）：插件只能写自己声明的项，所以由本插件的入口拿着交给页面。
+        // 页面经它读写 `nbook.web` 的各设置项：插件只能写自己声明的项，所以由本插件的入口拿着交给页面。
         dependencies: [{key: settingsKey}],
         activationEvents: [settingsPageEvent(SEARCH_SECTION)],
         contributions: [{capability: SETTINGS_PAGES_POINT, id: SEARCH_SECTION, declaration: SEARCH_PAGE}],
