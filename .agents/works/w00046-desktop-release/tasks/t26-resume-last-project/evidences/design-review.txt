@@ -1,0 +1,101 @@
+# w00046 t26 设计审查报告（计划副本 plan.md，主工作区 master b93b9e81e，只读）
+
+### 1. `serverUrl + RESUME_PATH` 会拼出 `//api/...`，请求落到静态回退页，静默进书架（阻断）
+类别：与现有合同不符 / 验收会假通过
+位置：计划“桌面壳”与“命令行”两节；`src/desktop/windows.test.ts:71,275`、`src/cli/cli.test.ts:175`；`packages/nb-host/src/http/dispatch.ts` 的 `API_PATH_PATTERN`、`isApiPath`
+现象：壳拿到的 `serverUrl` 与 `nbook start` 的 `instance.url` 都来自 `Bun.serve().url.href`，以斜杠结尾（测试里也写 `http://127.0.0.1:4217/`、`http://127.0.0.1:1/`）。计划写的是 `serverUrl + RESUME_PATH`、`instance.url + RESUME_PATH`，而 `RESUME_PATH = "/api/nbook.projects/resume"` 以斜杠开头，结果路径是 `//api/nbook.projects/resume`。
+为什么是问题：我核实了两点。一，`new URL("http://127.0.0.1:4217/" + "/api/nbook.projects/resume").pathname` 是 `//api/nbook.projects/resume`；用 curl `--path-as-is` 打一个 Bun.serve，服务端 `request.url` 原样保留双斜杠（不会被规整）。二，分发器的 `^\/api\/([^/]+)(\/.*)?$` 匹配不上，`isApiPath` 也判不为 API 路径（不以 `/api/` 开头），于是交给 `staticFiles.serve`：无扩展名路径回退到 `index.html`，200。页面在地址 `//api/nbook.projects/resume` 下启动，`location.search` 为空、不绑定项目，直接显示书架，没有任何报错。也就是整个功能在真实入口上完全不生效，却没有失败信号。计划里的壳单测与 `cli.test.ts` 若也用同样的拼接来写期望值（很自然），会一起通过。
+如何核实：`bun -e 'console.log(new URL("http://127.0.0.1:4217/"+"/api/x").pathname)'`；读 `dispatch.ts` 的 `createDispatcher`。
+建议改法：用 `new URL(RESUME_PATH, serverUrl).href` 拼，两处共用同一个函数；测试断言写死完整字符串（`http://127.0.0.1:4217/api/nbook.projects/resume`），并加一条“尾斜杠的 url 不出现 `//`”的断言；合同测试用真实服务端 `fetch(new URL(RESUME_PATH, url))`，`redirect: "manual"` 看 302 与 Location。
+
+### 2. 发布冒烟与 e2e 都碰不到真实的 resume 路径，上一条这类错误发布前发现不了（重要）
+类别：验收映射缺口
+位置：计划“验证”“验收映射”；`desktop/scripts/smoke-windows.ts:61`（`runAgentCommand` 的 `page.goto("/?project=...")`）、`e2e/desktop-first-run.e2e.ts`、`e2e/support/desktop-shell.ts`、`scripts/release/pack-smoke.ts:535-567`
+现象：核对了所有“打开后是书架”的依赖。
+- e2e（`desktop-*.e2e.ts`、`projects.e2e.ts`、`bookshelf*.e2e.ts`、`app-package.e2e.ts`）都是 `page.goto(server.url)` 或 `--no-open`，用模拟壳 `installFakeShell`，既不经桌面壳也不经 `nbook start` 的 open，所以不受影响，也验证不到新路径。没有发现需要改的 e2e。
+- `pack-smoke.ts` 用 `--no-open`/输出的地址直接 goto，新状态根没有记录，同样不受影响。
+- `smoke-windows.ts`：第一次启动没有记录，必然是书架；之后立刻 `goto /?project=`，绕过了壳的开窗路径。关窗后没有再启动一次的步骤。所以真实 Electrobun/WebView2 加载 302、导航规则 `${serverOrigin}/*` 放行重定向、`serverReady` 后 `load` 带路由，这几件事在冒烟里一次都不会执行。
+- 计划里“按‘向导在不在、页面是不是书架’改成不依赖起点页”只说了怎样不被破坏，没有加一条证明新功能在真实壳里生效的判据。
+建议改法：在 smoke-windows 的 `launchUseClose` 之后再启动一次（同一状态根），断言页面最终地址是 `/?project=<seeded.projectName>`、工作台出现，且壳日志里这次开的窗口加载的是 resume 地址；这条一并覆盖第 1 条的拼接错误。冒烟里再加“设置改成书架后重启进书架”可选。cli 侧 `cli.test.ts` 现有 127、135 行的 `includes(url)` 断言要改成 resume 地址，计划已提到，但要写明新增“已有实例再开”的用例也走同一地址。
+
+### 3. 路由在任何失败时都会把一页 JSON 错误放进窗口，没有出路，托盘重开还会再来一次（重要）
+类别：失败路径
+位置：计划“路由”一节；`nb-host/src/http/dispatch.ts`（`errorResponse`、`plugin-unavailable`、准入 503）、`src/web/FailurePage.vue`
+现象：壳与浏览器把这条路由当作整页导航的目标。路由处理器若抛错（`projectsKey.list` 抛、设置读取抛）、`nbook.projects` 服务端入口此刻不可用（503 `plugin-unavailable`，或 404 `not-found`）、或准入在排空中（503），响应是 `{"error":{...}}` 的 JSON，浏览器/WebView 直接显示这段文字。它不是 SPA，没有 `FailurePage` 的“重试”“不打开项目”，窗口里没有任何可点的东西。用户关窗再从托盘“打开”，没有窗口时仍走 resume，原样再来一次。对比：同一时刻打开 `/` 至少得到应用自己的页面与失败呈现（browser-host 的失败呈现）。
+为什么是问题：“上次的作品打不开时停在出错页”这个已定决定依赖应用页面在，而 resume 路由本身的失败不在这个决定里。计划只写了“只读，不打开项目”和三种正常结果，没写 registry 损坏（`list` 返回 `registry-invalid`）、记录读不出（`corrupt`、`unsupported-version`、`error`）、设置读失败时怎么办。
+建议改法：路由里整个 try/catch，任何内部失败都 302 到 `/` 并记诊断（`projects.resume-failed`，带原因），让应用页面去呈现 `registry-invalid` 之类；正常的三种结果之外不返回非 3xx 状态。Spec 里把这条写成“resume 路由总是 302”。入口不可用（404/503）的情形壳与命令行无法分辨，可以接受，但至少在 Spec 的失败与恢复里写明。合同测试加：记录损坏、登记表损坏各一例，断言仍是 302 到 `/`。
+
+### 4. 设置页是手写的页面，计划没有写要改 `WorksSettingsPage.vue` 及其配套（重要）
+类别：遗漏
+位置：计划“设置”一条（“放设置窗口‘作品’分区（`nbook.works`，同 `librarySetting`）”）；`src/plugins/projects/web/components/WorksSettingsPage.vue`、`WorksSettingsPage.md`、`WorksSettingsPage.dom.test.ts`、`web/works-section.ts`、`src/plugins/projects/plugin.ts`、`locales/zh-CN.json`、`locales/en-US.json`
+现象：“作品”分区是 page 分区（`settings.pages`，`layout: "column"`），页面内容是手写的 Vue 组件：模板里只有一个 `SettingsRow`（绑 `librarySetting`），没有按 `section: "nbook.works"` 自动列出配置项的机制。`defineSetting({section: "nbook.works"})` 只是登记配置项属于哪个分区，不会让它出现在这个页面上。计划的“`同 librarySetting`”只覆盖了 `defineSetting` 的写法。
+缺的东西：1) 在 `WorksSettingsPage.vue` 加第二个 `SettingsRow` 与选择控件（两个选项，当前 `SettingsRow` 的 slot 里怎么画选项要看 `SettingsRow.md`，仓库规则要求先读并列同名 `.md`）；2) 同步更新 `WorksSettingsPage.md` 与 dom 测试；3) 该配置项的 `contribution` 要加进 `src/plugins/projects/plugin.ts` 的 `descriptor.contributions`（`librarySetting.contribution` 就是这么登记的），否则设置服务不认；4) 文案（标题“启动时打开”、选项“上次的作品”“书架”）进两个语言的 `locales`，并过 `locales.test`；5) 仍只在用户层（`layers: ["user"]`），“本作品”标签下该行与分区一起停用；6) Spec bookshelf.md 输出 21 现在写“页面一行‘作品目录’”，要改成两行并补验收；Lab 里若有该页场景要一并更新。
+为什么是问题：切片 1 的清单漏了这一块，实际工作量与“设置项出现在作品分区”的验收映射都对不上；“补一条分区渲染测试”没有可补之处。
+建议改法：切片 1 把上面六项写进范围；验收写成 dom 测试断言两行都在、切换后 `settings.update(startupOpenSetting, ..., {layer: "user"})` 被调用。
+
+### 5. “此刻没有任何页面窗口时的第一个”在协调器里没有定义清楚，至少三种时序算不清（重要）
+类别：时序与边界
+位置：计划“`windows.ts` 的 `openWindow`”一条；`src/desktop/windows.ts` 的 `openWindow`、`serverReady`、`openFromTray`、`openWindowRequested`、`closeRequested`、`closed`
+现象与依据（都读过实现）：
+a) `run()` 无条件先 `openWindow()`（服务端未就绪，`kind: "startup"`）。启动期间第二次启动转交（`open-window`，经 `openWindowRequested`）会再开一个 startup 窗口。`serverReady` 把所有未关闭的 startup 窗口一并 `load`。计划写“在 `serverReady(url)` 时按同一规则算”，没说哪个窗口拿 resume：应是按 `#windows` 插入顺序的第一个未关闭的 startup 窗口，其余走根地址（符合“已有窗口时再开是书架”）。不定义会实现成“都 resume”（两个窗口同一部作品）或“都书架”。
+b) “任何页面窗口”要不要算正在关闭的（`closing: true`，等 `closed` 事件）：用户关掉最后一个窗口（设置为托盘）到 `closed` 之间若转交或托盘“打开”到达，`openFromTray` 已按“不在关闭中”过滤；`openWindow()` 里同样要把 closing 的排除，否则这个窗口会走书架而用户期望的是 resume。反过来，在 `closed` 之前就开的新窗口不应该被“旧窗口里正显示的作品”影响。要写明判据是“不在关闭中的窗口数为 0”，并配测试：关闭中再开 → resume；startup 窗口被用户在就绪前关掉后再开 → resume。
+c) `openWindow()` 同时服务于 `run()` 的启动页窗口、托盘、转交，三者的 `OpenTarget` 都是 `{kind:"page", url}`；规则要落在这一个函数里，不能在 `openFromTray`、`openWindowRequested` 各写一份。当前 `openWindow()` 没有参数，建议内部算，而不是让调用方传标记。
+d) `pageWindowRequested`（页面请求的新窗口，如书架“在新窗口打开”）计划写“不变”，正确：它自带 URL。
+壳里其它拼服务端根地址开窗的地方：在 `src/desktop`、`desktop/src/bun/index.ts` 里搜过，`openManaged` 只吃协调器给的 `target.url`，`#serverUrl`（shell.ts:154）只用于 `runningWork`，没有别处开窗。服务端意外退出后重启（`#serverExited`）复用 `#lastPorts`，URL 不变，协调器的 `#serverUrl` 不需要更新（这是现状，不是新问题）。macOS Dock “reopen”走 `shell.trayOpen()` 同一条，已覆盖。
+建议改法：在计划与 Spec 里写成一条规则：“窗口开出时若没有不在关闭中的页面窗口、也没有排在前面的 startup 窗口，则加载 resume 地址”；`serverReady` 内按插入顺序只给第一个 startup 窗口 resume；单测覆盖 a、b 与托盘后台重开。
+
+### 6. `opened` 与记录的写法没和 `projects.stats` 的做法对齐，四处空缺（重要）
+类别：合同与失败路径
+位置：计划“记最近打开”一条；`src/shared/storage.ts`（`update`、`reset`）、`src/plugins/projects/shared/stats-record.ts`、`src/plugins/projects/backend/plugin.ts`、`shared/contracts.ts` 的 `projectsRemoteContract`
+1) 坏记录永久失效：`handle.update` 在记录是 `corrupt` 或 `unsupported-version` 时不改写并失败；计划写“失败只写诊断”，于是一旦记录坏掉（或将来升级换了 `version`），之后每次 `opened` 都失败，resume 永远落书架，没有自愈。`projects.stats` 的约定是“可重算缓存，坏记录由写入方条件 `reset`”（stats-record.ts 头注释）。这里同样应在 `update` 返回 `corrupt`/`unsupported-version` 时用带 `expect: revision` 的 `reset` 覆盖；resume 读到坏记录按没有记录处理并记诊断。
+2) 不校验 id：`opened({id})` 没有写“id 不在登记表里怎么办”。服务端方法拿不到调用方的绑定信息（`RemoteMethodContext` 只有 `signal`、`ok`、`fail`），id 完全由调用方给；合同 `callers: ["browser","tui"]`，任何浏览器插件或 tui 都能写。建议在服务端先 `projects.resolve(id)`，未登记回合同错误 `unknown-project`（与 `update`、`unregister` 的错误码一致），并在 `input` 里用 `Type.String({minLength: 1})`。
+3) `at` 字段没有用途：resume 只读 `id`，“后打开的覆盖先打开的”靠写入先后，不靠 `at`。计划的“不写推测的后续计划”与注释规则下，不需要 `at`；要保留则写明用来做什么（例如丢弃比现有记录更旧的写入）。
+4) “最近打开”其实是“最近一次页面加载并绑定”：浏览器入口在窗口启动时调一次，刷新、`reloadDocument` 都会再调。场景：窗口 A 是作品甲，窗口 B 开作品乙后关掉，甲页面刷新一次，记录变回甲。这与“只恢复最近打开的一部”一致，无需改，但 Spec 要把术语写成“最近一次窗口绑定”，别让读者以为按使用时长。重连（`session` 重连、`rebind`）不会再触发浏览器入口激活，所以不会重复写；项目代次结束（`project-gone`）发生在绑定之后，记录仍是它，resume 时 `resolve` 成功、打开时再失败，属于已定的“停在出错页”。
+另：调用要在浏览器入口 `activate` 里 fire-and-forget（不 await，不拖慢激活），失败只记 `warn`；写成 `void remote.opened(...).then(...)` 要有 catch，避免未处理的拒绝。
+可选的更简单做法（未验证可行性）：不由浏览器报，而在服务端绑定处记（`manager.ts:366` 一带），但那里是宿主层，还要写插件的用户记录，且重连重绑会重复写；不推荐，只作为备选记下。
+
+### 7. 查询串原样带过去是没有用途的预留，还会和 `project` 参数撞名（建议）
+类别：别扭之处
+位置：计划“路由”一条最后一句（“查询串里别的参数原样带过去（留给以后，例如桌面壳带的标记）”）
+现象：Location 目标是 `/?project=<短名>`，若请求自带 `?project=x`（手写地址或脚本），原样转发会得到 `/?project=a&project=x`，页面 `URLSearchParams.get("project")` 取第一个，结果依赖拼接顺序；设置为书架时目标是 `/?project=x` 也会把它透出去，等于路由给了个“打开任意项目”的后门，和“设置为书架就进书架”矛盾。目标只允许 `/` 与 `/?project=`（计划“不变量”）也与“原样带过去”冲突。
+为什么是问题：没有现在的使用者；注释规范不写推测的后续计划。
+建议改法：不带任何查询参数，全部丢弃；以后需要时再按具体参数加。
+
+### 8. `RESUME_PATH` 放进 `src/shared/projects.ts` 会让壳与命令行多依赖一个带运行时导入的文件（建议）
+类别：依赖方向
+位置：计划“路径常量”一条；`src/shared/projects.ts`（顶部 `import {defineServiceKey} from "@notnotype/nb-runtime/services"`）、`src/desktop/*.ts`、`src/cli/start.ts`
+现象：`src/desktop` 与 `src/cli` 现在都不导入 `nbook/shared/projects`（grep 过），壳的 bun 进程与命令行为一个常量会拉入 `nb-runtime/services`。常量本身又是“挂载前缀 `/api/<插件 id>/` + 路由本地路径 `/resume`”的拼接结果，这个前缀由 `nb-host` 的分发规则决定，不是 projects 的数据。
+建议改法：放在一个无导入的小文件（例如与 `shared/desktop.ts` 同层的 `shared/resume.ts`，或 `plugins/projects/shared/` 下纯常量文件，视包导出规则），封面路径 `projectCoverUrl`（`shared/cover.ts`）是现成的同类做法，照它的写法；合同测试里用真实服务端请求该路径，保证常量与挂载一致（第 1 条的测试已经覆盖）。
+
+### 9. Spec 与文档清单漏了几处必须同步改的句子（建议）
+类别：遗漏
+位置：计划“Spec 与文档改动”
+依据（读过的 Spec 原句）：
+- `runtime/desktop-shell.md` 输出 9：“开窗转交开一个新窗口，加载服务端的首页（不带任何查询参数）”，与新规则直接矛盾，只写“开窗一节”不够；输出 30 的“打开”条（托盘：“没有时开一个新窗口，与开窗转交同一条路、同样的规则”）、输出 2 对 `open-window` 的描述（“服务端已就绪时是产品窗口，还在启动时是显示‘正在启动’的窗口，就绪后转为产品窗口”）都要补“第一个窗口加载 resume”。验收场景 17（托盘）与 19（首次向导，“新状态根第一次打开：书架上出现向导”）要确认判据：新状态根没有记录，所以场景 19 不变，写一句即可。
+- `runtime/cli.md` 输出 9“用系统的默认浏览器打开地址”、场景 1（“再运行 `nbook --json`……浏览器再打开一次”）、场景 8（“页面打开书架”）：`--json` 的 `url` 与打印的地址仍是根地址，而被打开的是 resume 地址，这个差别要写进输出 9，否则读者会认为实现与 Spec 不符。
+- `workbench/bookshelf.md` 输出 9“打开：整页导航到 `/?project=<短名>`”、输出 19 的“回到书架”（导航 `/`，不经 resume）要补一句“不经 resume 路由”，这是已定决定里“回到书架仍是书架”的落点。
+- `runtime/projects.md` 输出 18 写“`nbook.projects/projects` 现为 `version: 3`”，而 `shared/contracts.ts` 已是 `version: 4`：新增 `opened` 时顺便校正，不然这条描述与代码已经不一致（既有偏差，不是本计划引入）。是否要为新增方法升版本：窗口与服务端靠引导里的修订号保持版本一致（`browser-bootstrap.ts`），不需要升，Spec 里说明即可。
+- 验收场景只列了一条合并场景；设置为书架、记录坏掉、登记表坏掉、路由 302 总是成功（第 3 条）、窗口在“关闭中”再开，各自应是可测的条目。
+
+### 10. smoke-update 不还原插件存储里的 resume 记录；同一作业里前一个冒烟留下的记录会让更新冒烟的启动页变成作品页（建议）
+类别：测试环境耦合
+位置：`desktop/scripts/smoke-update.ts` 里的 `backups` 备份与 `cleanUp` 还原（只备份 `projects.json`、`settings.json`）；`smoke/app.ts:74-92` `seedState`；`src/plugins/storage/backend/plugin.ts:75`（用户记录在 `<状态根>/storage/user.sqlite`）
+现象：计划已写到“升级后重启会经路由进上次的作品”，但没有展开两点。
+1) 更新冒烟用缺省状态根，并往登记表里追加作品、不删前一个冒烟留下的条目（smoke-update 注释自己写了“同一个作业里安装版冒烟已经用过缺省状态根”）。前一个冒烟的 `launchUseClose` 打开过作品，所以 `user.sqlite` 里有 `projects.last-opened` 指向那部作品；更新冒烟的首次启动因此直接进作品页，而不是书架。更新提示在页面根上、不依赖书架，多半仍能出现，但这是未验证的假设，应实测一次，不能只靠“核对判据”。
+2) 在开发机上用测试标识跑更新冒烟（缺省状态根是真实用户的）：冒烟结束后 `projects.json` 被还原，而 `user.sqlite` 里的记录被覆盖为冒烟作品的 id，开发者真实的“上次的作品”丢了，之后 resume 因 id 不在登记表而落书架。first-run 记录早已有同样的泄漏（先例），所以只算建议。
+建议改法：冒烟脚本在首次启动前备份并结束时还原 `storage/user.sqlite`（应用关闭后复制即可）；或让冒烟在启动前把设置里 `startupOpen` 写成 `shelf`（`seedState` 写 `settings.json` 的现成位置），这样更新冒烟的页面与现在一致，也不依赖记录，同时 smoke-windows 里单独保留“上次的作品”那一次重启（第 2 条）。
+
+### 11. 目标地址应复用现成的 `projectUrl`，并写明 resume 与 `/?project=` 的关系（建议）
+类别：重复实现
+位置：计划“路由”“不变量”；`src/plugins/projects/shared/project-url.ts`（`projectUrl(name)` 返回 `/?project=${encodeURIComponent(name)}`，浏览器里的“打开项目”、书架、开发模式样例作品都经它）
+现象：计划另写一遍“302 到 `/?project=<短名>`，短名经 `encodeURIComponent`”。后端路由可以直接 import 同一个 `projectUrl`（它在 `shared`，两端共用，无 DOM 依赖），省掉第二份编码规则；不变量“302 目标只会是同源的 `/` 或 `/?project=`”也就由同一函数保证。另外 `projectsKey.resolve(reference)` 先按 id 再按短名匹配（`registry.ts` 的 `resolve`），记录里存的是 id，所以 `resolve(id)` 命中的 `record.name` 就是当前短名，“改过短名也对”无需额外处理，合同测试里的“改短名”用例要造的是“登记表里同一 id 的 name 变了”这一情形，需要有办法改登记表里的 name（登记表没有改名接口，测试只能直接写 `projects.json` 或重新登记同目录）；若造不出来，这条用例可以删。
+
+### 未发现问题的方面
+- 路由挂载与来源核对：`GET` 经 `dispatch.ts` 只核对 `Host`（回环名）与准入，不核对 `Origin`、也没有凭据；`http.routes` 的前缀 `/api/nbook.projects/`、转交后的路径 `/resume`、只许一个贡献 id 的规则与计划一致。桌面壳的导航规则 `["^*","views://*","${serverOrigin}/*"]` 放行同源跳转，同源的 302 不需要额外凭据；客户端身份存在页面自己 origin 的 localStorage，打开 resume 地址前没有要先带的东西。302 默认不被浏览器缓存。注意：这只是读代码，真实 WebView2/WKWebView 对重定向的行为没有跑过，靠第 2 条的冒烟覆盖。
+- 多窗口、刷新、重连：重连不会重新激活浏览器入口，不会重复写记录（见第 6 条第 4 点）；项目代次结束不影响记录的一致性。
+- 壳里没有别处拼服务端根地址开窗（见第 5 条）。
+- 新状态根与升级用户：没有记录时一律书架，首次启动向导的条件与记录无关，和计划“不变量”一致。
+- 现有 e2e 没有依赖“壳或 nbook 打开后是书架”的（见第 2 条）；受影响的只有 `windows.test.ts`（默认开窗与 `serverReady` 加载的期望）、`cli.test.ts` 的 `openedUrls` 断言、`smoke-update.ts`。
+
+### 数量
+阻断 1（第 1 条），重要 5（第 2 至 6 条），建议 5（第 7 至 11 条）。
