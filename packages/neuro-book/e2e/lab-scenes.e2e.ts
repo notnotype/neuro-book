@@ -67,10 +67,12 @@ test("每个登记场景都能在手机画布上挂上舞台，没有加载失�
     const first = await openPage(() => "索引");
     await first.page.goto(`${dev.pageUrl}lab`);
     await expect.poll(() => first.page.evaluate(() => typeof (window as {__nbLab?: unknown}).__nbLab)).toBe("object");
-    const scenes = await first.page.evaluate(() => {
+    const {scenes, drafts} = await first.page.evaluate(() => {
         const api = (window as unknown as {__nbLab: LabDebugApi}).__nbLab;
-        return api.components().flatMap((component) => api.scenes(component).map((scene) => ({component, scene: scene.id})));
+        return {scenes: api.components().flatMap((component) => api.scenes(component).map((scene) => ({component, scene: scene.id}))), drafts: api.drafts()};
     });
+    /** 草稿区的静态稿照样要挂得上，但版面不进门禁：它们是给开发者看的稿子，不是要交付的组件（component-lab 的“草稿区”）。 */
+    const draftNames = new Set(drafts);
     await first.close();
     // nb-ui 进 Lab 之后有几百个场景；少于这个数说明组件索引或 nb-ui 来源断了，遍历就失去意义。
     expect(scenes.length).toBeGreaterThan(200);
@@ -128,7 +130,7 @@ test("每个登记场景都能在手机画布上挂上舞台，没有加载失�
                 }
                 return last;
             });
-            if (measure !== null) {
+            if (measure !== null && !draftNames.has(component)) {
                 const found: Array<{readonly key: string; readonly detail: string}> = [
                     ...(measure.overflowX > 0 ? [{key: "舞台横向溢出", detail: `舞台横向溢出 ${String(measure.overflowX)}px`}] : []),
                     ...measure.offenders.map((offender) => ({key: `越界 ${offender.componentName}`, detail: `越界 ${String(offender.overflow)}px ${offender.selector}`})),

@@ -5,7 +5,7 @@ import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
 
-import {defineLabFixture} from "../index";
+import {defineLabFixture} from "../define";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
