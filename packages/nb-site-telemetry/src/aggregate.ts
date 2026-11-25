@@ -202,9 +202,21 @@ export function yieldToEventLoop(): Promise<void> {
     return new Promise((resolve) => setImmediate(resolve));
 }
 
-/** 定时任务 `aggregate` 的一轮：两张原始表各自追平为止，批间让出，没有批数上限；`closing()` 为真时在下一批之前收手。 */
+/**
+ * 定时任务 `aggregate` 的一轮：两张原始表各自追平为止，批间让出，没有批数上限；`closing()` 为真时在下一批之前收手。
+ *
+ * 两张表各自出错、互不阻挡（与 `purge.ts` 的“先聚合”同一种写法）：一张表的某一批一直出错时（那一行要到期才被删掉），
+ * 另一张表照常进聚合。两张都试过之后，把先出的那个错误抛给调度器，这一轮以失败结束（入口记 `job.failed`）。
+ */
 export async function aggregateUntilCaughtUp(aggregator: Aggregator, closing: () => boolean): Promise<void> {
+    const failures = new Map<AggregateSource, unknown>();
     for (const source of AGGREGATE_SOURCES) {
-        while (!closing() && aggregator.aggregateBatch(source) > 0) await yieldToEventLoop();
+        try {
+            while (!closing() && aggregator.aggregateBatch(source) > 0) await yieldToEventLoop();
+        } catch (error) {
+            failures.set(source, error);
+        }
     }
+    const [failure] = failures.values();
+    if (failures.size > 0) throw failure;
 }

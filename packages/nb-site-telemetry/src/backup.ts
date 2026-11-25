@@ -17,6 +17,10 @@ import type {Database} from "bun:sqlite";
 import {aggregateAllNow, createAggregator} from "./aggregate";
 
 export function prepareTelemetryBackupCopy(copy: Database): undefined {
+    // 副本是备份命令新开的连接，`secure_delete` 是 SQLite 的缺省（关）。不开时下面的 DELETE 只是逻辑删除，被删的单元格与
+    // 索引项原样留在页里；入口在副本准备失败时不再 `VACUUM`，`.partial` 里的库文件就带着全部原始上报（w00037 t06 第 4、5 片
+    // 审查第 1 条）。开了之后删掉的内容当场被抹掉，不依赖入口之后做什么。
+    copy.exec("PRAGMA secure_delete = ON");
     try {
         aggregateAllNow(createAggregator(copy));
     } finally {

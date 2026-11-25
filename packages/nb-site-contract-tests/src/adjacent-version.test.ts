@@ -25,9 +25,11 @@ import {
     PREVIOUS_WITHOUT_TELEMETRY_JOBS_ENV,
     useSiteSandbox,
     type CommandResult,
+    type JsonResponse,
     type ProcessOptions,
     type SiteProcess,
 } from "./testing/site";
+import {aggregatedDailyReports} from "./testing/aggregate";
 import {dailyReport, sendReport, type IngestResponse, type Report} from "./testing/telemetry";
 
 const sandbox = useSiteSandbox("nb-site-contract-tests adjacent-version.test.ts");
@@ -51,6 +53,9 @@ function firstManifestReport(): Report {
     return dailyReport({anonymous: FIRST_MANIFEST});
 }
 
+/** 第一组两个版本各记入一份的应用版本：特征明显，只有这两份带着它，聚合里它的份数就是两个版本各自算进去的加起来。 */
+const HANDOVER_APP_VERSION = "88.77.66-handover";
+
 /** 断言里只比状态码与响应体；响应头里有每次不同的请求编号。 */
 function outcome(response: {readonly status: number; readonly body: unknown}): {readonly status: number; readonly body: unknown} {
     return {status: response.status, body: response.body};
@@ -73,27 +78,55 @@ describe.skipIf(previous === undefined)(title, () => {
     describe("本版本迁移并写过的数据目录交给上一个版本", () => {
         let migrated: CommandResult;
         let recorded: IngestResponse;
+        let aggregatedByCurrent: JsonResponse;
+        let countByCurrent: number;
         let report: Report;
         let site: SiteProcess;
         let ready: unknown;
+        let recordedByPrevious: IngestResponse | undefined;
+        let aggregatedByPrevious: JsonResponse | undefined;
+        let countAfterPrevious: number | undefined;
 
         beforeAll(async () => {
             const dataDir = await sandbox.dataDir();
             migrated = await sandbox.run("migrate", {dataDir});
             if (migrated.exitCode !== 0) throw new Error(`migrate with this version failed:\n${migrated.stderr}`);
             const current = await startReady({dataDir});
-            report = firstManifestReport();
+            report = {...firstManifestReport(), appVersion: HANDOVER_APP_VERSION};
             recorded = await sendReport(current.url, "daily", report);
+            // 交出去的数据目录里要有本版本写过的聚合与推过的游标，上一个版本才走到“在已有的行上累加、从非 0 的游标往后取”。
+            aggregatedByCurrent = await current.runJob("telemetry", "aggregate");
+            countByCurrent = aggregatedDailyReports(dataDir, HANDOVER_APP_VERSION);
             await stopCleanly(current, "this version");
             site = await sandbox.start({dataDir, command: previous!});
             ready = await site.ready();
+            if (!withoutIngest && !withoutJobs) {
+                recordedByPrevious = await sendReport(site.url, "daily", {...firstManifestReport(), appVersion: HANDOVER_APP_VERSION});
+                aggregatedByPrevious = await site.runJob("telemetry", "aggregate");
+                countAfterPrevious = aggregatedDailyReports(dataDir, HANDOVER_APP_VERSION);
+            }
         }, SETUP_TIMEOUT_MS);
 
         it("上一个版本的程序能启动并通过就绪检查", () => {
             expect(migrated.exitCode).toBe(0);
             expect(recorded.status).toBe(200);
+            expect(outcome(aggregatedByCurrent)).toEqual({status: 200, body: {status: "done"}});
             expect(ready).toMatchObject({status: "ready"});
             expect(site.exitCode).toBeNull();
+        });
+
+        it.skipIf(withoutIngest || withoutJobs)(`上一个版本在本版本写过的聚合上接着加：交出去时算进了 1 份，上一个版本记入一份、跑 aggregate 之后是 2 份${noJobs}`, () => {
+            expect({
+                countByCurrent,
+                recordedByPrevious: recordedByPrevious === undefined ? undefined : outcome(recordedByPrevious),
+                aggregatedByPrevious: aggregatedByPrevious === undefined ? undefined : outcome(aggregatedByPrevious),
+                countAfterPrevious,
+            }).toEqual({
+                countByCurrent: 1,
+                recordedByPrevious: {status: 200, body: expect.objectContaining({duplicate: false})},
+                aggregatedByPrevious: {status: 200, body: {status: "done"}},
+                countAfterPrevious: 2,
+            });
         });
 
         it.skipIf(withoutIngest)(`每日上报可用：重发本版本记入的那一份是重发，新的一份照常记入${noIngest}`, async () => {

@@ -14,6 +14,7 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `bun:test`、`node:` 内置模块 | 任何文件 | 测试运行器与平台 |
 | `@notnotype/neuro-book-test-support/tmp`、`/wait` | 任何文件 | 临时目录与等待工具，与被测系统无关 |
 | `bun:sqlite` | 只在 `src/testing/fault.ts` 与备份核对的辅助文件 `src/testing/backup.ts` | 按 Spec 写明的数据目录布局直接碰库文件：持写锁做故障注入、只读打开备份副本核对；不读写被测模块的表 |
+| `bun:sqlite` | 只在 `src/testing/aggregate.ts` | 例外：只读打开统计的库、读每日上报按应用版本的聚合份数，给相邻版本测试核“上一个版本在本版本写过的聚合上接着加”。第一版没有读聚合的接口，份数从文件字节看不出来；有了看板接口（t11）后改经接口读，删掉这一行 |
 | `@notnotype/neuro-book-test-support/import-boundary` | 只在 `src/boundary.test.ts` | 做这项检查的工具 |
 
 相对导入只许落在本包的 `src/` 里。清单的运行时依赖只有两个合同包；devDependencies 里的工作区包只有 `nb-site-server`（只用来找到被测程序的启动命令，并让 `test:affected` 改了入口、模块或合同时选中本包）与测试支持包。这些都由 `src/boundary.test.ts` 检查；要放开一项，先改这张表并写明理由，再改检查。
@@ -38,6 +39,7 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `sendReport(url, kind, report, request)`（`telemetry.ts`） | 往写入口发一份上报，带沙箱遥测地址的 `Host` 与 JSON 内容类型；`request` 可换请求体、方法与头（值为 null 的去掉）。`dailyReport`、`heartbeatReport`、`eventReport`、`usageSegment` 按合同包最新的清单造合格的样例 |
 | `dataFilesContaining(dataDir, needle)`（`files.ts`） | 数据目录下字节里含有某个串的文件，给“某样东西不进库”的断言用 |
 | `listBackups`、`quickCheck`（`backup.ts`） | 列出名字是备份时间的目录；只读打开副本跑 `quick_check` |
+| `aggregatedDailyReports(dataDir, appVersion)`（`aggregate.ts`） | 统计的库里某个应用版本的每日上报算进聚合的份数；只给相邻版本测试用，见上面允许清单的例外 |
 | `reservePort`、`isListening`、`rawHttp`、`requestJson`、`testControlRequest` | 预留端口与检查有没有人监听；原始套接字请求（测读不出主机名）；按 JSON 读响应。都带截止时刻（缺省 10 秒），到点中断连接并报错 |
 
 子进程的环境只有 `PATH`、指向临时根下空目录的 `HOME` 与 `TMPDIR`，加一套合格的 `NB_SITE_*`；工作目录是临时根。不继承测试进程的环境。

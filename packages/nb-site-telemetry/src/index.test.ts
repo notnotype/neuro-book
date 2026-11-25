@@ -80,4 +80,61 @@ describe("close()", () => {
         await test.run("purge");
         expect(rawRows(db).daily).toBe(3000);
     });
+
+    it("purge 在“先聚合”那一步收手：游标没追到到期行，一行没删", async () => {
+        const db = root.open();
+        fill(db, TODAY - 10, 3000);
+        const test = createTestModule(db);
+        const aggregator = createAggregator(db);
+
+        // 第一批聚合在 run() 里同步做完，之后让出。
+        const running = test.run("purge");
+        await test.module.close();
+        await running;
+        expect(aggregator.cursor("daily")).toBeLessThan(3000);
+        expect(rawRows(db)).toEqual({daily: 3000, event: 600});
+    });
+
+    it("purge 在删除那一步收手：到期的都算过了，置“正在关闭”之后一行没删", async () => {
+        const db = root.open();
+        fill(db, TODAY - 10, 3000);
+        const test = createTestModule(db);
+        await test.run("aggregate");
+
+        const running = test.run("purge");
+        await test.module.close();
+        await running;
+        expect(rawRows(db)).toEqual({daily: 3000, event: 600});
+    });
+
+    it("强制停止的先后（置“正在关闭”、不等就关库）：正在跑的 purge 不再碰库，照常 resolve", async () => {
+        const db = root.open();
+        fill(db, TODAY - 10, 3000);
+        const test = createTestModule(db);
+
+        const running = test.run("purge");
+        const closed = test.module.close();
+        db.close();
+        expect(await Promise.allSettled([running, closed])).toEqual([
+            {status: "fulfilled", value: undefined},
+            {status: "fulfilled", value: undefined},
+        ]);
+    });
+});
+
+describe("aggregate 出错时", () => {
+    it("每日上报那一批一直出错时，立即事件照样进聚合，这一轮以失败结束", async () => {
+        const db = root.open();
+        const test = createTestModule(db);
+        const store = createTelemetryStore(db);
+        store.recordDaily(dailyRecord({reportId: reportId("x", 1)}), dayAt(TODAY));
+        store.recordEvent(eventRecord({reportId: reportId("y", 1)}), dayAt(TODAY));
+        // 每日上报的聚合写不进去（约束类错误）；临时触发器只在模块这条连接上。
+        db.exec("CREATE TEMP TRIGGER fail_daily BEFORE INSERT ON main.telemetry_daily_count BEGIN SELECT RAISE(ABORT, 'injected'); END");
+
+        const outcome = await Promise.allSettled([test.run("aggregate")]);
+        expect(outcome.map((result) => result.status)).toEqual(["rejected"]);
+        expect(db.query("SELECT events FROM telemetry_event_count").all()).toEqual([{events: 1}]);
+        expect(db.query("SELECT count(*) AS rows FROM telemetry_daily_count").get()).toEqual({rows: 0});
+    });
 });

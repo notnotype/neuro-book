@@ -69,12 +69,17 @@ export function createPurge(options: PurgeOptions): () => Promise<void> {
         log.warn("telemetry.purge_deferred", "telemetry database is not writable; expired raw reports are kept until the next purge", {dbCode: dbCodeOf(error)});
     };
 
-    /** 第 3 步；返回 false 表示正在关闭、收手了。库忙时抛出；别的错误记进 `failures`，接着做下一张表。 */
+    /**
+     * 第 3 步；返回 false 表示正在关闭、收手了。库忙时抛出；别的错误记进 `failures`，接着做下一张表。
+     *
+     * “正在关闭”在每次读库之前查（换表时读到期行之前、让出回来后读游标之前）：强制停止时入口不等 `close()` 就关库，
+     * 让出回来再读库会抛 `Database has closed`，在 `site.stopped` 之后多记一行 `job.failed`。
+     */
     const aggregateExpired = async (cutoff: number, failures: Map<AggregateSource, unknown>): Promise<boolean> => {
         for (const source of AGGREGATE_SOURCES) {
+            if (closing()) return false;
             const last = bySource[source].lastExpired.get({$cutoff: cutoff})?.last ?? null;
             while (last !== null && aggregator.cursor(source) < last) {
-                if (closing()) return false;
                 try {
                     aggregator.aggregateBatch(source);
                 } catch (error) {
@@ -86,6 +91,7 @@ export function createPurge(options: PurgeOptions): () => Promise<void> {
                     break;
                 }
                 await yieldToEventLoop();
+                if (closing()) return false;
             }
         }
         return true;

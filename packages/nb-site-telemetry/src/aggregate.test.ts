@@ -8,7 +8,7 @@ import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 import type {Database} from "bun:sqlite";
 
 import {aggregateAllNow, createAggregator} from "./aggregate";
-import {APP_VERSIONS_PER_PERIOD, createTelemetryStore, OVERFLOW_APP_VERSION} from "./store";
+import {createTelemetryStore, OVERFLOW_APP_VERSION} from "./store";
 import {createTestDbRoot, type TestDbRoot} from "./testing/db";
 import {aggregateTables, dailyRecord, dayAt, eventRecord, NOW, reportId, TODAY, withUsage} from "./testing/reports";
 
@@ -230,9 +230,9 @@ describe("每个服务端日至多 64 个应用版本", () => {
     }
 
     const extra = 6;
-    const fresh = Array.from({length: APP_VERSIONS_PER_PERIOD + extra}, (_, i) => `1.${String(i)}.0`);
+    const fresh = Array.from({length: 64 + extra}, (_, i) => `1.${String(i)}.0`);
     // 前 64 个先到；之后再来的旧版本照算，新版本记 other。
-    const versions = [...fresh, "1.3.0", `1.${String(APP_VERSIONS_PER_PERIOD + 1)}.0`];
+    const versions = [...fresh, "1.3.0", "1.65.0"];
 
     it("先到的 64 个照记，之后新出现的记 other；旧版本再来照记；每日上报、使用档与立即事件一致", () => {
         const db = root.open();
@@ -240,7 +240,7 @@ describe("每个服务端日至多 64 个应用版本", () => {
         aggregateAllNow(createAggregator(db));
 
         const real = dailyCounts(db).filter((row) => row.dimension === "app_version" && row.value !== OVERFLOW_APP_VERSION);
-        expect(real.map((row) => row.value).sort()).toEqual(fresh.slice(0, APP_VERSIONS_PER_PERIOD).sort());
+        expect(real.map((row) => row.value).sort()).toEqual(fresh.slice(0, 64).sort());
         expect(countOf(db, "app_version", "1.3.0")).toBe(2);
         expect(countOf(db, "app_version", OVERFLOW_APP_VERSION)).toBe(extra + 1);
 
@@ -249,7 +249,7 @@ describe("每个服务端日至多 64 个应用版本", () => {
         const eventVersions = db.query<{versions: number; other: number}, []>(
             `SELECT count(DISTINCT app_version) - 1 AS versions, sum(CASE app_version WHEN '${OVERFLOW_APP_VERSION}' THEN events END) AS other FROM telemetry_event_count`,
         ).get();
-        expect({usageOther, errorOther, eventVersions}).toEqual({usageOther: {reports: extra + 1}, errorOther: {reports: extra + 1}, eventVersions: {versions: APP_VERSIONS_PER_PERIOD, other: extra + 1}});
+        expect({usageOther, errorOther, eventVersions}).toEqual({usageOther: {reports: extra + 1}, errorOther: {reports: extra + 1}, eventVersions: {versions: 64, other: extra + 1}});
     });
 
     it("每一天各数各的", () => {
@@ -259,6 +259,32 @@ describe("每个服务端日至多 64 个应用版本", () => {
         aggregateAllNow(createAggregator(db));
         expect(countOf(db, "app_version", "9.9.9", TODAY + 1)).toBe(1);
     });
+
+    // 两张表先算哪张都要成立：合起来数时，后算的那张的名额被先算的占掉。
+    for (const first of ["daily", "event"] as const) {
+        it(`每日上报与立即事件各数各的：两边各用不同的 64 个版本，各自第 65 个才记 other（先算 ${first}）`, () => {
+            const db = (first === "daily" ? root : other).open();
+            const store = createTelemetryStore(db);
+            const dailyVersions = Array.from({length: 65}, (_, i) => `2.${String(i)}.0`);
+            const eventVersions = Array.from({length: 65}, (_, i) => `3.${String(i)}.0`);
+            dailyVersions.forEach((appVersion, i) => store.recordDaily(dailyRecord({reportId: reportId("sd", i), appVersion}), NOW));
+            eventVersions.forEach((appVersion, i) => store.recordEvent(eventRecord({reportId: reportId("se", i), appVersion}), NOW));
+
+            const aggregator = createAggregator(db);
+            for (const source of first === "daily" ? (["daily", "event"] as const) : (["event", "daily"] as const)) while (aggregator.aggregateBatch(source) > 0);
+
+            const daily = dailyCounts(db)
+                .filter((row) => row.dimension === "app_version")
+                .map((row) => row.value)
+                .sort();
+            const events = db
+                .query<{version: string}, []>("SELECT app_version AS version FROM telemetry_event_count")
+                .all()
+                .map((row) => row.version)
+                .sort();
+            expect({daily, events}).toEqual({daily: [...dailyVersions.slice(0, 64), OVERFLOW_APP_VERSION].sort(), events: [...eventVersions.slice(0, 64), OVERFLOW_APP_VERSION].sort()});
+        });
+    }
 
     it("分几批、分几次跑，结果与一次算完相同", () => {
         const once = root.open();

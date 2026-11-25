@@ -8,11 +8,11 @@
  * 用法：`bun run build:previous --base <提交> --out <目录> --command-out <文件>`。成功时往 `--command-out` **追加**三行
  * `键=值`（CI 直接把 `$GITHUB_OUTPUT` 交给它）：
  * - `command=<JSON 数组>`：上一个版本的 argv，交给合同测试的 `NB_SITE_PREVIOUS_SERVER_COMMAND`；
- * - `without_ingest=0|1`：基准提交的树里没有统计的写入口（`packages/nb-site-telemetry/src/ingest.ts`）时为 1，交给
+ * - `without_ingest=0|1`：基准提交不包含引入统计写入口的提交（`INGEST_COMMIT`）时为 1，交给
  *   `NB_SITE_PREVIOUS_WITHOUT_INGEST`；
- * - `without_telemetry_jobs=0|1`：树里没有统计的两个定时任务（`aggregate.ts`、`purge.ts`）时为 1，交给
+ * - `without_telemetry_jobs=0|1`：基准提交不包含引入统计两个定时任务的提交（`TELEMETRY_JOBS_COMMIT`）时为 1，交给
  *   `NB_SITE_PREVIOUS_WITHOUT_TELEMETRY_JOBS`。
- * 上一个版本有没有某个接口由这里看源码树定，不由测试看运行结果猜：上一个版本把接口弄丢了时测试照样失败。
+ * 上一个版本有没有某个接口由这里按提交历史定，不由测试看运行结果猜：上一个版本把接口弄丢了时测试照样失败。
  *
  * 没有上一个版本时（`--base` 为空或全是 0、不是本仓库的提交、不是 HEAD 的祖先、那棵树里还没有 `image/build.ts`）只在标准错误
  * 写一行原因、以 0 退出、不写 `--command-out`；CI 看 `command` 为空就跳过相邻版本那一步。解析出的基准提交同样写到标准错误。
@@ -26,8 +26,14 @@ import {parseArgs} from "node:util";
 const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 /** 基准提交的树里有它，才能照那个提交自己的写法打产物（t05 第 7 片之前没有）。 */
 const BUILD_SCRIPT = "packages/nb-site-server/image/build.ts";
-const INGEST_SOURCE = "packages/nb-site-telemetry/src/ingest.ts";
-const JOB_SOURCES = ["packages/nb-site-telemetry/src/aggregate.ts", "packages/nb-site-telemetry/src/purge.ts"] as const;
+/*
+ * 引入统计写入口、引入两个定时任务的提交（w00037 t06 第 3、4 片）。基准提交是它们的后代就算上一个版本有这两样。
+ * 按提交判断、不按文件路径：文件以后改名或挪目录时，按路径判会把那之后的每一个基准都当成“没有”，相邻版本里的这几项
+ * 从此以“跳过”通过、没有任何信号。这两个提交随 Work 分支的合并（merge 提交，不是 squash 或变基）进入 master，哈希不变；
+ * 改写了它们所在的历史时，这里跟着改。
+ */
+const INGEST_COMMIT = "29f2c05f14eafbec59c1239193ba15789c939b62";
+const TELEMETRY_JOBS_COMMIT = "1cfe664784ab6ec14c5b328cee1aa0990553ad18";
 
 const {values} = parseArgs({
     args: process.argv.slice(2),
@@ -81,6 +87,15 @@ async function treeHas(repo: string, commit: string, path: string): Promise<bool
     return (await capture(["git", "cat-file", "-e", `${commit}:${path}`], repo)).exitCode === 0;
 }
 
+/** `ancestor` 是不是 `commit` 的祖先（含自己）。`--is-ancestor` 不是祖先时退出码 1，别的非零退出码是 git 自己出错，这时以 1 退出。 */
+async function isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean> {
+    const run = await capture(["git", "merge-base", "--is-ancestor", ancestor, commit], repo);
+    if (run.exitCode === 0) return true;
+    if (run.exitCode === 1) return false;
+    console.error(`build-previous: git merge-base --is-ancestor ${ancestor} ${commit} failed: ${run.stderr}`);
+    process.exit(1);
+}
+
 const repoRun = await capture(["git", "rev-parse", "--show-toplevel"], PACKAGE_ROOT);
 if (repoRun.exitCode !== 0) {
     console.error(`build-previous: not inside a git checkout: ${repoRun.stderr}`);
@@ -98,17 +113,11 @@ const commit = resolved.stdout;
 const subject = (await capture(["git", "log", "-1", "--format=%s", commit], repo)).stdout;
 console.error(`build-previous: base ${base} resolves to ${commit} ${subject}`);
 
-const ancestor = await capture(["git", "merge-base", "--is-ancestor", commit, "HEAD"], repo);
-// `--is-ancestor` 不是祖先时退出码 1，别的退出码是 git 自己出错。
-if (ancestor.exitCode === 1) noPrevious(`base ${commit} is not an ancestor of HEAD`);
-if (ancestor.exitCode !== 0) {
-    console.error(`build-previous: git merge-base --is-ancestor failed: ${ancestor.stderr}`);
-    process.exit(1);
-}
+if (!(await isAncestor(repo, commit, "HEAD"))) noPrevious(`base ${commit} is not an ancestor of HEAD`);
 if (!(await treeHas(repo, commit, BUILD_SCRIPT))) noPrevious(`base ${commit} has no ${BUILD_SCRIPT}`);
 
-const withoutIngest = !(await treeHas(repo, commit, INGEST_SOURCE));
-const withoutJobs = !(await Promise.all(JOB_SOURCES.map((path) => treeHas(repo, commit, path)))).every(Boolean);
+const withoutIngest = !(await isAncestor(repo, INGEST_COMMIT, commit));
+const withoutJobs = !(await isAncestor(repo, TELEMETRY_JOBS_COMMIT, commit));
 console.error(`build-previous: previous version has ingest: ${withoutIngest ? "no" : "yes"}; telemetry jobs: ${withoutJobs ? "no" : "yes"}`);
 
 const tree = join(outDir, "tree");
