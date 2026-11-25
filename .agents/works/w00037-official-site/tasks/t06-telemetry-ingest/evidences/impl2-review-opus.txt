@@ -1,0 +1,77 @@
+# w00037 t06 第 4、5 片实现审查（Opus）
+
+被审提交 a783c96bf；实验加载的是实现 worktree（HEAD 同为 a783c96bf）的源码。实验脚本在 /tmp/review-w00037-t06-impl2/lab-opus/。
+
+### 1. 备份钩子出错时的“照样清空”在字节层面不成立：副本连接没开 secure_delete，DELETE 之后原始上报的字节全在副本文件里
+- **严重程度**：建议；**类别**：正确性 / 文档
+- **位置**：packages/nb-site-telemetry/src/backup.ts:148-150、161-168；packages/nb-site-server/src/commands/backup.ts:116-139（prepare_failed 时不 VACUUM）
+- **现象**：注释说“聚合出错时照样清空……失败的副本也可能在 `.partial` 里留一阵，里面不能有原始上报”。但副本由备份命令新开连接，`PRAGMA secure_delete` 是 0（bun 内置 SQLite 缺省关），副本是 rollback（delete）日志模式；`finally` 里的两条 DELETE 只是逻辑删除，被删的单元格与索引项原样留在页里。prepare 抛错后入口按 `prepare_failed` 返回，不做 `VACUUM`，于是 `.partial` 里的库文件仍含全部原始上报（含上报编号）。
+- **为什么是问题**：这段 finally 存在的唯一理由就是“失败的副本里不能有原始上报”，现在只对 SQL 查询成立，对文件字节不成立；Spec 的已知限制只写了“被强行结束时”半成品带原始上报，这里是正常的失败路径，`removePartial` 再删不掉（只记 warn）时会留到下一次备份。
+- **如何核实**：lab-opus/exp2/run.ts：真模块的库记入 2000 份 → 只读连接 `VACUUM INTO` → 副本上加临时触发器让聚合抛错 → `prepareTelemetryBackupCopy`（抛 x）→ 不 VACUUM 直接关。输出 `copy journal delete, secure_delete 0`，副本文件里 `bkmark-` 出现 4135 次（数据页加 report_id 索引）。同样流程不加触发器、加 VACUUM（run-ok.ts）时为 0。
+- **建议改法**：`prepareTelemetryBackupCopy` 开头对副本 `PRAGMA secure_delete = ON`（与业务连接一致），finally 里的 DELETE 才真的抹掉内容；或在入口的 prepare_failed 分支也先 VACUUM 再报失败。前者一行，且不依赖入口。backup.test.ts 的“聚合出错时照样清空”可顺带断言副本文件里找不到编号。
+
+### 2. purge 的“先聚合”循环先碰库、后查“正在关闭”：强制停止时关库之后还读库，抛 `Database has closed`，在 site.stopped 之后多出一行 job.failed
+- **严重程度**：建议；**类别**：不变量
+- **位置**：packages/nb-site-telemetry/src/purge.ts:74-77（`lastExpired.get` 与 `aggregator.cursor(source) < last` 都在 `if (closing())` 之前）；对照 aggregate.ts:208 是先查 `closing()`
+- **现象**：`aggregateExpired` 每次让出回来后，先执行 while 条件里的 `aggregator.cursor(source)`（一条 SELECT），再查 `closing()`；换到第二张表时也先执行 `lastExpired.get`。正常停止时库还开着，只是多读一次；但第二次信号（forced）时 serve 收口不等 `close()`、不等调度器，紧接着 `closeAll(dbs)` 与 `site.stopped`，而 purge 挂在 `setImmediate` 上，回来时库已关，`cursor()` 抛 `Database has closed`，这一轮以 reject 结束，调度器记 `job.failed`（排在 `site.stopped` 之后）。
+- **为什么是问题**：`close()` 的约定（index.ts 59-62 与 module.ts 的注释）是“置位之后任务在下一批之前收手”，两个任务里只有 aggregate 守住了“置位后不再碰库”；关库之后再用连接是 serve 收口想排除的情况（注释“关库之前等正在跑的任务 settle”）。影响只是一行误导的 error 日志与一次被记成失败的运行，不坏数据。
+- **如何核实**：lab-opus/exp3/run.ts（进程内，模拟 forced 收口的先后：开始 purge → `module.close()` 不等 → `db.close()`）：输出 `purge rejected: Database has closed`。没在真实进程里用两次信号复现，严重程度按从代码推断定。
+- **建议改法**：把 `closing()` 检查放到读库之前：`for (source) { if (closing()) return false; const last = …; while (!closing() && last !== null && aggregator.cursor(source) < last) {…} if (closing()) return false; }`，与 `aggregateUntilCaughtUp` 一致。index.test 的 close() 用例可以补“close 之后关库、正在跑的 purge 照样 resolve”。
+
+### 3. purge 对 close() 的响应没有用例：删掉 purge 里两处“正在关闭就收手”都不让任何用例失败
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-telemetry/src/purge.ts:77、98；packages/nb-site-telemetry/src/index.test.ts:65-82
+- **现象**：index.test 的 close() 用例只让 aggregate 在半路收手，之后再跑一次 purge 断言“原始行还是 3000”。在仓库外的副本（lab-opus/mut/，源码照抄、node_modules 软链，基于 a783c96bf）里做了两条变异：(a) 删掉 `aggregateExpired` 循环里的 `if (closing()) return false;`（purge.ts:77）；(b) 删掉 `deleteExpired` 里的同一行（purge.ts:98）。两条都是 171 pass、0 fail。(a) 下 close 之后的 purge 会把积压的到期行全部算完（只因 deleteExpired 还有检查，原始行才没删，用例照过）；(b) 下正在删的 purge 收到 close 后会删到底。
+- **为什么是问题**：765e304c0 把停止改成“先 close()、再等任务”，理由正是积压多的任务要在下一批之前收手；purge 在到期行积压时（停机几天后启动、或聚合失败之后）是两个任务里最可能跑长的一个，它的收手只靠这两行，而它们没有任何用例守着。变异 (a) 在真实停止时会让 close() 跑满 2 秒、记 module.close_timeout，再接着记 job.stop_timeout。
+- **如何核实**：`cd /tmp/review-w00037-t06-impl2/lab-opus/mut/nb-site-telemetry && sed -i '77{/if (closing()) return false;/d}' src/purge.ts && NBOOK_HOST_SYSTEM_TEMP_ROOT=… NBOOK_AGENT_TEMP_ROOT=… bun test`（跑完已恢复原文件）。
+- **建议改法**：index.test 补两条：到期行是一批的好几倍时开始 purge、随即 `close()`，断言 purge settle 后游标小于到期行里最大的编号（守 77 行）；先把到期行都算完、再开始 purge 并在删除阶段 `close()`，断言还剩到期行（守 98 行）。
+
+### 4. “每日上报与立即事件各数各的 64 个”没有用例守着：把立即事件的“已有版本”改成两边合起来数，171 条照过
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-telemetry/src/aggregate.ts:112-115（KNOWN_VERSIONS）；packages/nb-site-telemetry/src/aggregate.test.ts:222-281
+- **现象**：64 个版本的三条用例都用 `writeVersions` 造数，每日上报与立即事件总是同一组版本、同一个先后，所以“各数各的”与“合在一起数”算出的结果一模一样。变异（副本里）：把 `KNOWN_VERSIONS.event` 改成 `telemetry_daily_count` 的 app_version 维度 UNION `telemetry_event_count`，即立即事件按两张表合起来的已有版本占名额，`bun test` 171 pass、0 fail。
+- **为什么是问题**：“各算各的”是主会话 2026-11-25 定、写进 Spec 输出 11 的口径，理由是合起来数时重算结果取决于两边的批怎样交错（输出 5 的“重复计算结果相同”）。这条口径现在只靠代码本身，改回合起来数不会有任何用例报错。
+- **如何核实**：lab-opus/mut/nb-site-telemetry 里用 python 把 aggregate.ts 的 `event:` 一行换成上面的 UNION 写法后跑 `bun test`（跑完已恢复）。
+- **建议改法**：加一条：同一天先写 64 个只出现在每日上报里的版本，再写一个只出现在立即事件里的新版本 X（以及反过来），断言 X 在 `telemetry_event_count` 里照记、不记 other；顺带把用例里的 64 写成字面数（omp 前一轮第 7 条对心跳做过同样的处理，这三条仍从 store 导入 `APP_VERSIONS_PER_PERIOD`）。
+
+### 5. 两个开关按固定文件路径判：以后把 ingest.ts、aggregate.ts、purge.ts 改名或挪目录，相邻版本测试会永久、静默地跳过写入口与两个任务
+- **严重程度**：建议；**类别**：测试 / 代码质量
+- **位置**：packages/nb-site-server/image/build-previous.ts:29-30、110-111
+- **现象**：`without_ingest`、`without_telemetry_jobs` 取决于基准树里有没有 `packages/nb-site-telemetry/src/ingest.ts`、`aggregate.ts`、`purge.ts` 这三个路径。现有的四个基准判得都对（532302c0a、master 现在：没有写入口与任务；29f2c05f1：有写入口、没任务；1cfe66478：都有，已用 `git cat-file -e` 核对）。但开关的用途只是“t06 合入之前的那几个基准”，判据却是永久的文件名：哪天重构把文件挪到 `src/jobs/aggregate.ts` 或改名，从那次合入之后的每一个基准都判成“没有任务”，C19 的那一项从此以“跳过”通过，CI 是绿的。
+- **为什么是问题**：脚本的注释说开关“不由测试看运行结果猜：上一个版本把接口弄丢了时测试照样失败”，防的是少测；按文件名判在重构这个方向上同样会少测，而且没有任何信号。Spec 的边界一节要求从第一个部署的版本起都带着两个任务、以后不能去掉，正需要这项测试一直开着。
+- **如何核实**：读代码；`git cat-file -e <提交>:<路径>` 的四组结果见上。
+- **建议改法**：把“有没有”锚定在一个不会被重构改掉的事实上：例如记下 t06 合入 master 的那个提交 F，基准是 F 的后代（`git merge-base --is-ancestor F base`）就一律当作都有；F 之前的才看文件。或者开关只在基准早于 F 时允许为 1，否则脚本报错退出。
+
+### 6. C19 第一组交给上一个版本的数据目录里没有本版本写过的聚合与游标：本版本只记了一份原始上报
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-contract-tests/src/adjacent-version.test.ts:80-90、105-114
+- **现象**：本版本起服务时 aggregate 以 `initialDelayMs: 0` 在就绪之前就跑完了（没有行），之后记入一份每日上报就停，停止时不再跑任务。所以交给上一个版本的目录里聚合表为空、两个游标都是 0、purge 没删过东西；“本版本写过的数据”只有原始表里的一行与它的上报编号。上一个版本随后从游标 0 开始聚合，它从未在“本版本推过游标、写过聚合行”的库上做 ON CONFLICT 累加。（从代码推断：scheduler.start() 在 site.listening 之后、计时 0 毫秒，`startReady` 等到就绪才发上报；没有在进程里打点确认。）
+- **为什么是问题**：聚合是长期保留的数据，换回去之后上一个版本要在本版本写过的聚合上接着加、从本版本推到的游标往后取。结构性的不兼容（主键变了）在建聚合器准备语句时就会让上一个版本起不来、被就绪检查抓到；但本版本对聚合表加的约束、游标表的新行与新写法、已有行上的累加，这组用例都碰不到。brief 第 5 点问的“接管本版本迁移过、写过的数据目录”目前只对原始表与去重成立。
+- **如何核实**：读 adjacent-version.test.ts 第一组的 beforeAll 与 index.ts 的两个 `initialDelayMs: 0`；可在 beforeAll 停本版本之前读一次数据目录里的 telemetry.db 的 `telemetry_aggregate_cursor` 确认是 0。
+- **建议改法**：第一组在本版本上记入之后先 `runJob("telemetry", "aggregate")`（必要时再记一份同一天、同版本的），再停、交给上一个版本；上一个版本那边再记一份同一天的上报、跑 aggregate，断言回 done。这样上一个版本走到“在本版本写过的行上累加、从非 0 游标往后取”。
+
+### 7. aggregate 任务里每日上报的一批持续出错时，立即事件也一起停算，要等 7 到 8 天后被 purge 的“先聚合”捎带
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-telemetry/src/aggregate.ts:206-210（`aggregateUntilCaughtUp` 先 daily 后 event，daily 抛错就整轮 reject）；对照 purge.ts:73-91 是按表各自 break
+- **现象**：`aggregateUntilCaughtUp` 对两张表顺序 while，daily 的某一批抛出非“库一时用不了”的错误（约束类、程序错误）时，整轮直接 reject，event 那一段不跑。只要那一行还在（它要到期才被 purge 删掉），之后每一轮都在同一处失败，立即事件也就一直进不了聚合；purge 只在行到期时才按表分别聚合，所以立即事件要等 7 到 8 天才出现在聚合里。反过来 daily 正常、event 出错时不受影响，只是 daily 那一段已经跑完。
+- **为什么是问题**：Spec 时序一节“一份上报被记入之后，在下一次聚合任务跑完时出现在聚合里”对没出错的那张表也失守；两张表的编号、游标、版本名额都是各自独立的（文件头与第 11 条输出自己就这么写），失败却被串在一起。purge 已经按表隔离失败，两处写法不一致。前提是有一批会持续出错（多半是校验与聚合约束之间的程序错误），所以只列建议。
+- **如何核实**：读代码；可照 purge.test 141 行的做法在 `telemetry_daily_count` 上挂 `RAISE(ABORT)` 的临时触发器，记入一份每日上报与一份立即事件后跑 aggregate，`telemetry_event_count` 为空。
+- **建议改法**：`aggregateUntilCaughtUp` 对每张表各自 try，出错的那张记下、接着做另一张，两张都试过之后再把第一个错误抛给调度器（记 job.failed）；与 purge 的 `failures` 同一种写法。
+- **补充（第 7 条已实测）**：lab-opus/exp4/run.ts：真模块，记入每日上报与立即事件各一份，daily_count 上挂 RAISE(ABORT) 的临时触发器，连跑三次 aggregate 都失败，`telemetry_event_count` 0 行。
+
+## 未发现问题的方面
+
+- 聚合一批的取法：游标读、`id > 游标 ORDER BY id LIMIT n` 取到实际最后一行、写各表、推游标都在同一个同步事务里；空号（重发消耗编号）、跨服务端日的一批、两任务交错都核过，包内用例与 index.test 的交错用例覆盖。版本溢出集合从当天已有聚合里数、按首次出现的编号先到先占，分批与一次算完相同（已有用例；另试过 `ORDER BY min(id)` 去掉、`dimension = 'app_version'` 去掉两条变异都被抓到，从代码推断）。
+- secure_delete 加截断检查点：lab-opus/exp1（真模块，2 万份到期的每日上报加 5000 份立即事件、5000 份未到期的，上报编号随机，经自动检查点与索引页的分裂合并）purge 之后库文件、WAL、shm 里被删的编号 0 处，未到期的照在，空闲页 904 页也是清的。有读者时截断做不完、下一轮再做，有用例。
+- 备份成功路径：副本是 rollback 日志模式，DELETE 之后 VACUUM，副本里 0 处编号（lab-opus/exp2/run-ok.ts）；游标与 sqlite_sequence 留在副本里，恢复后新编号大于游标。
+- 停止的先后：收口里 stopAccepting → close()（统计模块置位、等正在跑的那一轮）→ scheduler.stop() → 关库，serve.test 新用例能抓到顺序改回；aggregate 的收手在读库之前（purge 的问题见第 2 条）。
+- build-previous.ts 与 ci.yml：基准为空、全 0、不是提交、非祖先、没有 build.ts 都走“没有上一个版本”；git 自己出错与克隆、装依赖、打包失败都非零退出；`$GITHUB_OUTPUT` 只经 `--command-out` 追加三行固定格式，子进程输出走标准错误与继承的标准输出，不混入；事件取值经 env 传给 shell，没有 `${{ }}` 拼进脚本；装依赖与打包都在基准树里用基准自己的 lockfile 与 build.ts。
+- 包内 171 条在实现 worktree（a783c96bf）上全过。
+
+## 各级数量
+
+阻断 0；重要 0；建议 7。
+
+有效发现：1、2、3、4、5、6、7
+
+更正（上面“未发现问题的方面”第一条）：那两条变异写成“从代码推断”不准确，随后已实际在 lab-opus/mut 里跑过：去掉 `ORDER BY min(id)` 时 169 pass、2 fail；去掉每日上报“已有版本”里的 `dimension = 'app_version'` 时 170 pass、1 fail。两条都被抓到，副本已恢复原文件。
