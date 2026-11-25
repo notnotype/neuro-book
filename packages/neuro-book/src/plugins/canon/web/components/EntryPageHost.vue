@@ -825,20 +825,6 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     if (composing.value || edit.bar.value?.saving === true || imagePicking?.uploading === true) return;
                     edit.cancel();
                 };
-                // 成段的编辑层不是 Popover，点外面放弃要自己接：按下落在编辑层以外、也不在别的浮层里（编辑层里弹出的候选挂在 body 下）。
-                // 打开它的那一次按下早于挂上，不会被当成点外面。
-                const blockRoot = shallowRef<HTMLElement | null>(null);
-                const onPointerDownOutside = (event: PointerEvent): void => {
-                    const target = event.target;
-                    if (!(target instanceof Element) || blockRoot.value?.contains(target) === true) return;
-                    if (target.closest("[data-dismissable-layer], [data-reka-popper-content-wrapper]") !== null) return;
-                    dismiss();
-                };
-                watch(() => inner.layout === "block" && active.value, (on, _was, onCleanup) => {
-                    if (!on) return;
-                    document.addEventListener("pointerdown", onPointerDownOutside, true);
-                    onCleanup(() => document.removeEventListener("pointerdown", onPointerDownOutside, true));
-                }, {immediate: true});
                 // 浮层关上以后还要淡出一会（Popover 的退场动画）：这期间照最后那一份画，不让它先塌成一块空的表面。
                 const shown = shallowRef<NonNullable<typeof edit.bar.value> | null>(null);
                 watch([active, edit.bar], ([on, bar]) => {
@@ -877,7 +863,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                             const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
                             requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
                         };
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {ref: blockRoot, class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     return h(Popover, {
