@@ -319,7 +319,8 @@ watch(rail, async () => {
                             </li>
                         </ul>
                     </div>
-                    <div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
+                    <!-- 宽时靠右与名字同一行；窄到换行时（480 以下）靠左，不在标题下面右飘、左边空一大片。 -->
+                    <div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 max-[480px]:justify-start">
                         <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" :disabled="props.positionLocked !== ''" @update:line="(value: string) => emit('update:line', value)" />
                         <!-- 只有一个位置（空作品）又没有计划时，时间点没得选，不出（设计语言“此刻没用的，就不出现”）。 -->
                         <PositionPicker
