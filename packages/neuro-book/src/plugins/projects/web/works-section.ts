@@ -36,8 +36,8 @@ export interface WorksPageOptions {
     /** 当前有效的作品目录（远程 `library()`）；取不到为 null，诊断由提供方记。没设时页面据此显示缺省目录。 */
     readonly library: () => Promise<LibraryInfo | null>;
     readonly notifications: Notifications;
-    /** 记诊断：作品目录或启动时打开没写进设置（用户已经看到通知）。 */
-    readonly report: (message: string) => void;
+    /** 记诊断：作品目录或启动时打开没写进设置（用户已经看到通知）；`setting` 说是哪一项。 */
+    readonly report: (setting: WorksWriteFailure["setting"], message: string) => void;
 }
 
 /** 页面里哪一项没写进设置。 */
@@ -50,7 +50,7 @@ export interface WorksWriteFailure {
 export function createWorksPage(options: WorksPageOptions): Component {
     const failed = (failure: WorksWriteFailure): void => {
         const library = failure.setting === "library";
-        options.report(`${library ? "作品目录" : "启动时打开"}没有写进设置：${failure.code}：${failure.detail}`);
+        options.report(failure.setting, `${library ? "作品目录" : "启动时打开"}没有写进设置：${failure.code}：${failure.detail}`);
         // 与书架“作品目录没写进设置”同一种去处（bookshelf.md“失败与恢复”）：通知。交文字引用，视口显示时按当前语言翻。
         const reason = `${failure.code}：${failure.detail}`;
         options.notifications.notify({

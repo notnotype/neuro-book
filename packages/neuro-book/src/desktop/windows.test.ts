@@ -288,7 +288,7 @@ describe("启动时打开（desktop-shell.md 输出 9）", () => {
     const ROOT = "http://127.0.0.1:4217/";
     const opened = (calls: Call[]) => calls.filter((call) => call[0] === "open").map((call) => call[2]);
 
-    it("没有窗口时开的第一个经路由进上次的作品；已有窗口时再开的是书架；托盘与开窗转交同一条规则", () => {
+    it("没有窗口时开的第一个经路由进上次的作品；已有窗口时开窗转交开的是书架；有窗口时托盘置前、不开新的", () => {
         const {coordinator, calls} = harness();
         const first = coordinator.openWindow();
         expect(coordinator.openWindowRequested()).toEqual({ok: true});

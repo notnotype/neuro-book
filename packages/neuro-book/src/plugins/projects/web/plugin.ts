@@ -173,7 +173,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         return null;
                     },
                     notifications,
-                    report: (message) => diagnostics.record({level: "warn", event: "projects.library-not-saved", message, source: {plugin: descriptor.id}}),
+                    report: (setting, message) => diagnostics.record({level: "warn", event: setting === "library" ? "projects.library-not-saved" : "projects.startup-open-not-saved", message, source: {plugin: descriptor.id}}),
                 }),
             };
             const project = context.services.require(windowProjectKey).project;

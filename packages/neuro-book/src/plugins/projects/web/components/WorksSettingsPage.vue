@@ -64,9 +64,17 @@ watch(() => shown(props.settings.get(librarySetting)) === "", (unset) => {
 
 const startupOptions = computed(() => (["last-work", "shelf"] as const).map((value) => ({value, label: text(`settings.startupOpen.choices.${value}.title`)})));
 
+/** “启动时打开”的写入进行中：控件停用，不并发写第二次；结算后控件显示层里的值（写不进去就回到原来的）。 */
+const writingStartup = ref(false);
+
 async function chooseStartup(value: "last-work" | "shelf"): Promise<void> {
-    const result = await props.settings.update(startupOpenSetting, value, {layer: "user"});
-    if (!result.ok) emit("write-failed", {setting: "startupOpen", code: result.code, detail: result.detail});
+    writingStartup.value = true;
+    try {
+        const result = await props.settings.update(startupOpenSetting, value, {layer: "user"});
+        if (!result.ok) emit("write-failed", {setting: "startupOpen", code: result.code, detail: result.detail});
+    } finally {
+        writingStartup.value = false;
+    }
 }
 
 async function pick(path: string): Promise<void> {
@@ -124,7 +132,7 @@ async function pick(path: string): Promise<void> {
                 :options="startupOptions"
                 size="sm"
                 :aria-label="row.label"
-                :disabled="row.disabled"
+                :disabled="row.disabled || writingStartup"
                 data-works-startup
                 @update:model-value="(value) => chooseStartup(value as 'last-work' | 'shelf')"
             />

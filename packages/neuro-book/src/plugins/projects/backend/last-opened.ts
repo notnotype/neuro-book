@@ -31,29 +31,24 @@ export type OpenedResult =
     | {readonly ok: true}
     | {readonly ok: false; readonly code: "unknown-project" | "registry-invalid" | "write-failed"; readonly detail: string};
 
-/** 同时有几个窗口在写时，条件写入冲突就重读再写，几次之内总能写上（最后写的赢）。 */
-const WRITE_ATTEMPTS = 3;
-
 export async function recordOpened(sources: LastOpenedSources, id: string): Promise<OpenedResult> {
     const listed = await sources.projects.list();
     if (!listed.ok) return {ok: false, code: "registry-invalid", detail: listed.detail};
     if (!listed.value.some((project) => project.id === id)) return {ok: false, code: "unknown-project", detail: `没有登记 id 为 ${id} 的作品`};
     const opened = await sources.storage.open(LAST_OPENED_RECORD);
     if (!opened.ok) return {ok: false, code: "write-failed", detail: `${opened.code}: ${opened.detail}`};
-    let last = "";
-    for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
-        const current = await opened.handle.read();
-        if (current.status === "error") return {ok: false, code: "write-failed", detail: `${current.code}: ${current.detail}`};
-        // 坏记录只是一个丢了的提示：条件 reset 覆盖它（原件进原件区），不让它永久挡住之后的写入。
-        const damaged = current.status === "corrupt" || current.status === "unsupported-version";
-        if (damaged) sources.record({level: "warn", event: "projects.last-opened.record-damaged", message: "上次的作品的记录坏了，以条件 reset 覆盖", data: {status: current.status, detail: current.detail}});
-        const value = {id};
-        const written = damaged ? await opened.handle.reset(value, {expect: current.revision}) : await opened.handle.save(value, {expect: current.revision});
-        if (written.ok) return {ok: true};
-        last = `${written.code}: ${written.detail}`;
-        if (written.code !== "conflict") break;
+    const value = {id};
+    // 最后写的赢：`update` 在冲突时重读再写。
+    const updated = await opened.handle.update(() => value);
+    if (updated.ok) return {ok: true};
+    // 坏记录只是一个丢了的提示：条件 reset 覆盖它（原件进原件区），不让它永久挡住之后的写入。
+    if ("revision" in updated) {
+        sources.record({level: "warn", event: "projects.last-opened.record-damaged", message: "上次的作品的记录坏了，以条件 reset 覆盖", data: {status: updated.code, detail: updated.detail}});
+        const reset = await opened.handle.reset(value, {expect: updated.revision});
+        if (reset.ok) return {ok: true};
+        return {ok: false, code: "write-failed", detail: `${reset.code}: ${reset.detail}`};
     }
-    return {ok: false, code: "write-failed", detail: last};
+    return {ok: false, code: "write-failed", detail: `${updated.code}: ${updated.detail}`};
 }
 
 /** 启动时该进的地址：`projectUrl(短名)` 或 `/`。短名取登记表当前的，改过短名也对。 */

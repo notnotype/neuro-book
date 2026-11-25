@@ -52,6 +52,7 @@ import {windowNavigationKey} from "nbook/shared/host";
 import {textOf} from "nbook/shared/localized-text";
 import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 import {windowProjectKey} from "nbook/shared/projects";
+import type {WindowProject} from "nbook/shared/projects";
 import {RESUME_PATH} from "nbook/shared/resume-path";
 import {browserHostPlugins, browserPluginDefinitions} from "nbook/web/plugins";
 
@@ -141,11 +142,11 @@ function commandReader(onService: (service: CommandService) => void): PluginDefi
  * 装着产品 `nbook.commands` 与 `nbook.projects` 浏览器入口的窗口实例，连到 `h` 的路由。工作台的选择服务要挂上
  * 命令面板（DOM）才有宿主，这里用同一个真实的面板宿主顶替它；整页导航记在宿主能力上（产品里是 `location.assign`）。
  */
-async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: string[]): Promise<{readonly commands: CommandService; readonly app: Application}> {
+async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: string[], project: WindowProject["project"] = null): Promise<{readonly commands: CommandService; readonly app: Application}> {
     let commands: CommandService | null = null;
     const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "browser-2"}});
     const node = createRemoteNode({instance: {id: "browser-2", kind: "browser", role: "client", project: null, client: "profile-2"}});
-    const settings = standaloneSettings("browser", tmp);
+    const settings = standaloneSettings("browser", tmp, {windowProject: false});
     const app = createApplication(
         {identity: {location: "browser", instanceId: "browser-2"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
@@ -154,6 +155,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
                 // 书架页把失败通知交给工作台的通知服务；这里没有工作台插件，用真实的通知队列顶替。
                 {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}), projectsTextIn("zh-CN"))},
+                {id: "window.project", key: windowProjectKey, create: () => ({project})},
                 ...settings.capabilities,
             ],
             plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
@@ -573,6 +575,18 @@ describe("Spec projects 最近打开与启动时打开：opened 与 resume 路�
         expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/?project=second"});
         expect(await projects.unregister({id: second!.id})).toMatchObject({ok: true});
         expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+    });
+
+    it("窗口绑定了作品：浏览器入口记下它，之后经路由进它；没绑定的窗口不记", async () => {
+        const {h, get} = await setup();
+        const navigations: string[] = [];
+        const palette = () => createPaletteHost({commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
+            throw error;
+        }})});
+        await commandWindow(h, palette(), navigations);
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+        await commandWindow(h, palette(), navigations, {id: h.project.id, name: h.project.name, title: h.project.name, generation: 1});
+        expect(await waitUntil("记下了上次的作品", async () => ((await get(RESUME_PATH)).headers.get("location") === `/?project=${encodeURIComponent(h.project.name)}` ? true : undefined))).toBe(true);
     });
 
     it("设置为书架：有记录也进书架", async () => {

@@ -7,7 +7,7 @@
 import {Button} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref} from "vue";
 
-import {librarySetting} from "nbook/plugins/projects/shared/contracts";
+import {librarySetting, startupOpenSetting} from "nbook/plugins/projects/shared/contracts";
 import WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
 import type {LibraryInfo} from "nbook/plugins/projects/web/shelf-page";
 
@@ -35,7 +35,7 @@ const USER: Readonly<Record<string, HostLayer>> = {
 };
 
 const host = createSettingsHost({
-    settings: [{plugin: "nbook.projects", definition: librarySetting}],
+    settings: [{plugin: "nbook.projects", definition: librarySetting}, {plugin: "nbook.projects", definition: startupOpenSetting}],
     sections: [],
     user: USER[props.scene] ?? {},
     notify: (input) => record("notify", input),

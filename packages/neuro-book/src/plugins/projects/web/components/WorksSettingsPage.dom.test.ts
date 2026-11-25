@@ -199,6 +199,8 @@ describe("WorksSettingsPage", () => {
         one<HTMLButtonElement>("[data-works-startup] button[role='radio'][data-value='shelf']").click();
         await flushPromises();
         expect(host.user.values()).toEqual({});
+        // 控件回到层里的值（缺省的“上次的作品”），不停在点过的那一段。
+        expect(one("[data-works-startup] button[role='radio'][data-value='last-work']").getAttribute("aria-checked")).toBe("true");
         expect(notices).toHaveLength(1);
         expect(text.port.t(notices[0]?.title ?? "")).toBe("启动时打开没有记住");
         expect(text.port.t(notices[0]?.message ?? "")).toContain("启动时打开没有写进设置：write-failed");
