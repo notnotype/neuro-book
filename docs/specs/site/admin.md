@@ -30,7 +30,7 @@ owners:
 
 | 接口 | 作用 |
 |---|---|
-| `GET users` | 分页列出账号，可按用户名、邮箱、显示名的前缀搜索（参数 `q`），可按一个筛选项筛（参数 `filter`，取值 `all`、`admin`、`banned`、`email_pending`：全部、管理员、已封禁、邮箱待补） |
+| `GET users` | 分页列出账号，可按用户名、邮箱、显示名的前缀搜索（参数 `q`，不分大小写；邮箱待补的账号不按邮箱匹配），可按一个筛选项筛（参数 `filter`，取值 `all`、`admin`、`banned`、`email_pending`：全部、管理员、已封禁、邮箱待补） |
 | `GET users/:id` | 一个账号的资料、登录方式、会话数、注册时用的码与邀请人 |
 | `POST users/:id/ban`、`POST users/:id/unban` | 封禁、解封 |
 | `POST users/:id/role` | 改角色 |
@@ -38,7 +38,7 @@ owners:
 | `POST users/:id/reset-password` | 重置密码 |
 | `GET registration-codes`、`POST registration-codes`、`PATCH registration-codes/:id` | 分页列出（列表里有码本身；可按一个筛选项筛，参数 `filter`，取值 `all`、`usable`、`exhausted_or_expired`、`disabled`：全部、可用、用完或过期、已停用）、发放、改备注或停用注册码 |
 | `GET invite-codes` | 分页列出全站的邀请码与使用次数 |
-| `GET audit` | 分页列出审计记录，可按操作者（参数 `actorId`，数字，或 `cli` 表示命令行）、对象（参数 `targetType` 加 `targetId`）、动作（参数 `action`）筛 |
+| `GET audit` | 分页列出审计记录，可按操作者（参数 `actorId`，数字，或 `cli` 表示命令行）、对象（参数 `targetType` 加 `targetId`；只给 `targetType` 时列出这一类对象的记录，只给 `targetId` 回 `validation_failed`：各类对象的 id 各自编号）、动作（参数 `action`）筛 |
 
 注册码：可用次数（正整数或不限）、可选的过期时间、备注（至多 200 个字符）。
 

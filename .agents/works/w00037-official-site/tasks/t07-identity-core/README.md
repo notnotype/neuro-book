@@ -103,3 +103,11 @@ ADR 0063 还没写：ADR 只收开发者接受过的决定，等开发者对“�
 
 - 实现者自己定、主会话接受的：会话文件叫 `my-sessions.ts`（与 `session.ts` 区分）、浏览器概要在 `user-agent.ts`；登录与注册把原始 `User-Agent` 作为请求头交给库的 `createSession`，建会话前的钩子换成概要再存，t08 库自己建的会话走同一个钩子；结束自己已到期而还没被清理的会话照样回 `{}`；列里存的不是概要时列表给两个 null 并记一行 `identity.session_agent_unreadable`（只记条数）；邀请码列表不分页；会话列表这次请求本身算一次使用。
 - 留给第 7 片的：输出 1 邀请人那半句的合同用例（现在只在包内断言 `inviter_id`）；管理端邀请码列表复用 `invite-codes.ts` 的列与 `itemOf`；管理端读会话的浏览器经 `readStoredUserAgent`。
+
+第 7 片（账号列表与详情、封禁、解封、改角色、结束会话、重置密码、全站邀请码列表、审计列表）已提交（`98a572d44`，15 个文件）：四个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，8 条变异都被抓到（“处置不复核操作者”只有包内用例抓得到：合同里两个管理员互相处置时，后到的请求在中间件读会话那一步就已经 401，到不了写事务里的复核）。主会话重跑账号包测试与类型检查通过。
+
+- 所有处置经 `admin/operator.ts` 的 `adminWrite` 复核操作者（注册码的发放与停用也改用它）；检查的先后是复核操作者、`not_found`、`self_forbidden`。“最后一个管理员”的不变式由两组合同用例守着：只有一个管理员时处置自己得 `self_forbidden`；两对管理员同时互相封禁、互相降级，每对一个 200、一个 401，赢的仍是未封禁的管理员，输的没有审计。
+- 实现者自己定、主会话接受的：撤销用已有的 `endAllSessions`（计划里叫 `revokeUserCredentials`，t08 在它里面加令牌撤销）；结束自己的全部会话、重置自己的密码时响应清 Cookie；解封自己照收、写审计；封禁只写 `banned`，`banReason`、`banExpires` 恒为空（库 1.7.27 的 admin 插件在 `banExpires` 过期时会自动解封，核过源码）；`page`、`pageSize` 的写法规则已拒掉超过安全整数的值。
+- Spec 的歧义按实现定，已写进 `site.admin`：搜索不分大小写、邮箱待补的账号不按邮箱匹配；审计只给 `targetType` 时列这一类，只给 `targetId` 回 `validation_failed`。
+- 给 t08：令牌撤销加在 `endAllSessions` 里；详情的 `providers` 按 `SOCIAL_PROVIDERS` 过滤 `account.providerId`，接入上游登录时核对写法。给 t10、t11：管理员结束自己的会话或重置自己的密码后当前会话也没了，页面按已登出处理；重置密码的响应只有 `{password}`。
+- 没有用例的：重置密码在哈希过载时回 `overloaded`；注册的同一条分支也没有。
