@@ -1,0 +1,114 @@
+# t42 plan.md 设计审查报告（只读；每条已读代码核实）
+
+[F1] 重要 / 遗漏 / plan.md「编辑器标签的图标」一节
+现象：只提 EditorGroupHead.vue 把页面的 icon 从 null 改掉；但标签拖影有第二处同样写死：tab-drag.ts:35 `ghost` 对页面返回 `fileIcon: null`，其类型 workbench/web/contracts.ts:103 只有 `{label, fileIcon}`，没有 `icon`（WorkbenchShell.vue:882 ghostOf 与 :1110 浮动卡片头、WorkbenchDragFeedback.vue:18 其实已支持 `icon?: string`）。Lab 夹具 lab/web/fixtures/index.ts:1096 的 tab 构造器也按 `icon: fileIconForName(...)` 写。
+为什么是问题：只改 EditorGroupHead，页面标签有图标、拖起来的影子和浮动卡片头没有，同一件事处处不一样（设计语言“同一件事处处一样”）；类型 TabItem.icon 改成联合后，Lab 夹具要跟着改，否则类型检查报错或场景缺图标。
+核实：grep -n "fileIcon" plugins/editor/web/tab-drag.ts plugins/workbench/web/contracts.ts；读 WorkbenchShell.vue:882-891、1109-1112。
+建议：计划里列出 tab-drag.ts、contracts.ts 的 ghost 返回类型（加 `icon?: string`，页面图标走它）、Lab 夹具；验收映射加“拖起页面标签时影子带同一图标”。
+
+[F2] 重要 / 机制不存在 / plan.md「名字、简介」一节（“in-place-edit.ts 的锚定浮层”）
+现象：计划说名字、简介“改用人物分页同一套就地改（in-place-edit.ts 的锚定浮层、ConfirmBar variant=inline）”。读代码：in-place-edit.ts 只是草稿与写入的状态（open/update/save/cancel），没有任何浮层；锚定浮层是 EntryPageHost.vue:802-880 里 `fieldEditorOf(namespace)` 用 defineComponent 现场造的组件，路径写死成 `${namespace}.${inner.path}`（:812 `full()`），挂着时靠 `holdInline(full())` 登记（:374-391），`editHere` 对 HEAD_FIELDS 恒为真（:396）。头上的 `entry.name` 没有命名空间，造不进这个闭包。
+为什么是问题：“同一套”要先把那 80 行闭包抽成与命名空间无关的组件，计划没写这一步；不抽就会在页头再抄一份（同一件事写两份，靠 `inlineHere` 碰巧不互相抢）。另外 `fieldAt` 里名字、简介已经走 `editInPlace`（entry-edits.ts:161 `writeInit` 认得 entry.name/summary），所以“名字简介是 runEntries 的 head 写入”的前提也不成立：它们现在就是就地改，只是浮层换位置，工作量与风险在抽取而不在写入。
+如何核实：grep -n "holdInline\|fieldEditorOf\|HEAD_FIELDS" EntryPageHost.vue；读 in-place-edit.ts 全文无 Popover。
+建议改法：计划里明写“把 CanonFieldEditor 抽成 HeadEditor/FieldEditor 通用组件，路径整串传入”；页头按钮保留 `data-edit="entry.name"`（in-place-edit 的 refocus 靠它，EntryPageHost.vue:303 `[data-edit=...]`），否则保存后焦点丢到 body。
+
+[F3] 重要 / 并发与共享状态 / plan.md「PageNotices 自己收起」与 notices.ts
+现象：6 秒计时、指着暂停放在 PageNotices 组件里（“三处宿主共用”），但提示的数据是窗口级一份（notices.ts `current`/`agent`，注释写明“切到另一个这样的页面时它跟过去”）。编辑区拆成两组、各开一个条目页时两个宿主同时挂着（`attach()` 计数就是为这个，notices.ts:96-105），各有一份 PageNotices、各有一个计时器：A 页的计时到点调 `notices.dismiss()` 会清掉窗口级的 `current`，B 页正被指着/焦点在里面也一起消失，暂停形同虚设。反过来切到别的标签时组件卸载、计时随之取消，`current` 还留着：回到条目页（哪怕一小时后）旧提示重新出现并重新计 6 秒。计划“notices.ts”整份没出现在改动清单里。
+为什么是问题：违背“指着或焦点在里面时不收”（输出 18 新写法）与“同一时间只有一条”；陈旧提示复活；复本各自播报 role=status。
+如何核实：读 notices.ts `show/dismiss/attach`；在 Lab 或 dom 测试里挂两个宿主、一个 hover、另一个到点。
+建议改法：计时与暂停状态放进 createNotices（按 notice 的单调序号计时，暂停用窗口级计数，宿主只上报 hover/focus），到点时只收起“与当时序号相同”的那条；没有页面挂着时不计时。验收映射加“两个宿主同时挂着，一个被指着，另一个到点不收”“卸载再挂上不复活”。
+
+[F4] 重要 / 可访问性与焦点 / plan.md「PageNotices」
+现象：浮在滚动区下方、6 秒收起，里面有“查看详情”“撤销”按钮。键盘用户保存后焦点留在输入处（refocus 回到原值按钮），要 Tab 到浮层需要穿过整个页面（它在 DOM 里排在内容后面或前面均如此），6 秒内几乎不可能；“焦点在里面时不收”只对已经到达的人有用。`role="status"` 现在是 v-if 出现时才插入的元素（NoticeBar.vue:23），读屏对“新插入且带内容的 live region”常常不播报；计划说“外框不动原地换字”，没说外框常驻。撤销确认框关闭后焦点要回“撤销”按钮（notices.ts 注释 usePageNotice），若计时在对话框开着时只“暂停”、对话框取消后恢复计时但没有聚焦，按钮可能在焦点回来前被收掉。
+为什么是问题：设计语言第 6 条“不打断人手上的事”要求不抢焦点，但必须给键盘一条不靠 6 秒的路；WCAG 2.2.1（可调时限）。撤销的另一条路是改动记录视图，但那是“多步”。
+如何核实：读 NoticeBar.vue、notices.ts 末段 usePageNotice 的注释；真实页面上用键盘保存一次。
+建议改法：外框（role=status 的容器）常驻、只换里面的文字；给一个命令/快捷键“撤销上一次保存”或让 Alt+某键聚焦提示，并在 Spec 输出 18 写明；对话框开着的判据用 RevertRequests.target（revert.ts 已有，可观察）而不是新造状态；确认框关闭回到按钮后再重新计时。
+
+[F5] 重要 / 技术前提错误 / plan.md「不与风险：浮动提示挡住最后几行」
+现象：计划用“滚动区的 scroll-padding”，“只在提示出现时加，不改版面”。scroll-padding 只影响 scrollIntoView/吸附的目标位置，不扩大可滚动范围；底部最后几行仍被浮层盖住、滚不上来。要让它们露出来只能在内容尾部加 padding-bottom/占位，而这正是“出现时改变滚动高度”。此外滚动区属于编辑组的页面容器（EntryPage.vue:128-170 的 scrollParent 注释：“本组件只量它、不改它”），canon 组件从自己的模板里设不了它的 scroll-padding。Agent 的提示又不自己收，会一直盖在每个条目页最下面；Spec 51 的“成段编辑层打开时整个滚进可见范围”（EntryPageHost.vue:872 `scrollIntoView({block:'nearest'})`）与它的“保存与取消”按钮会落在浮层下面。
+如何核实：CSS 规范；读 EntryPage.vue 的 scrollParent 与 EntryPageHost.vue reveal。
+建议改法：浮层作为 sticky 零高容器放在根的末尾，同时在根的末尾放一个与浮层同高的占位（在 PageNotices 内用 ResizeObserver 量，出现时过渡 height，不用 scroll-padding）；reveal 的 scrollIntoView 用 scroll-margin-bottom 让开浮层高度；计划里写明谁拥有滚动区。
+
+[F6] 重要 / 缺口 / plan.md「其他状态」「positionGone 与 actionError 不再插行，分别走浮动提示与对应的浮层」
+现象：(a) `positionGone` 是标签状态（state.positionGone，“留到作者再选一个位置为止”，EntryPageHost.vue:125-131），不是一次修订；PageNotices 吃的是 CanonNotice `{revision,title}`，按钮是“查看详情/撤销”，没有“无修订的文字提示”这种数据形状；而且 6 秒后收起与“留到再选位置”矛盾。(b) `actionError` 有四个来源（EntryPageHost.vue:408、484/488、695/699 以及 runEntries head）：别名写入失败、恢复失败（deleted 分支也用它，EntryPage.vue:178）、移动前读取失败、文字分页“开始写”失败。除名字简介（已有确认框里的 error）外，其余三个没有“对应的浮层”可去。Spec 43 还明说“页头下面只写页头自己的写入（别名、恢复）与打开对话框前读不到条目的原因”。
+为什么是问题：计划把页内插行的两处“搬走”但没给去处，实施时会再变成临时方案；失败原因走 6 秒自动收的提示会让人没读完就消失。
+建议改法：定义 PageNotices 的第二种条目“只读文字、无按钮、可带 tone”，错误不自动收（role=alert），positionGone 作为标签状态的常驻小标记（时间点旁，同“还没出场”），并在 Spec 43 与 38 改写。
+
+[F7] 重要 / 范围漏项 / plan.md「canon 的贡献点声明」
+现象：计划写“三个声明各加可选 icon”，只点名 shared/components.ts、shared/entry-tabs.ts、shared/entry-kinds.ts。但设定组的声明类型来自 nb-canon：`ComponentDeclarationSchema`（packages/nb-canon/src/core/schema.ts:90-104）是 `additionalProperties:false`，`ComponentType`（registry.ts:30-44）与 `buildRegistry` 的字段搬运（registry.ts:90-105）都要加 icon，再经 `components` 读取（`componentsRead.value.data.items`，EntryPageHost.vue:158）交到浏览器，读取输出的 TypeBox 形状、components.md 输出 1 与 24、digest 的“只含影响计算的部分”（registry.ts:119）都要改（digest 不能含 icon，否则换图标引起整本重算）。entry-tabs 的 `EntryTabDeclarationSchema`（entry-tabs.ts:20-28）同样 additionalProperties:false，要加 icon 与 needsChanges。UI 展示属性进内核包 nb-canon 本身也是一个设计问题（领域内核是否该认识 lucide 类名）。
+如何核实：读上述三个位置；grep -n "kinds" packages/nb-canon/src/components/registry.ts 看“只是提示”字段的先例（kinds 就是这么走的）。
+建议改法：计划列出 nb-canon 的 schema/registry/读取合同/Spec 改动，并说明 icon 与 kinds 同属“只是提示、不参与计算”；或把图标放到浏览器侧 `canon.component-views`（已经有 title）而不碰内核。
+
+[F8] 重要 / 与既有约定冲突 / plan.md「分页条的图标」
+现象：计划称“没声明图标的设定组用 i-lucide-layers；窄了只剩图标时，没有专属图标的保留截短的名字”。nb-ui Tabs 的 adapt 规则（Tabs.md「布局」）是逐级让位：第 2 档“选中的保留标题、其余**有图标的**只显示图标”，由 tabs-adapt.ts 按“有没有 iconClass”决定，没有按项豁免的口子（Tabs.md「不支持」、无 slot）。给没声明图标的组塞 layers 就是“有图标”，窄了几个第三方设定组都变成同一个 layers 图标，名字没了、分不出谁是谁；不塞图标才会保留名字，与计划写的默认值矛盾。
+如何核实：读 Tabs.md 布局一段与 tabs-adapt.ts。
+建议改法：横排时没有专属图标的项不传 iconClass（竖排与横排各自决定回退图标），或在 nb-ui Tabs 加“强制保留标题”的项属性（要改 Tabs.md）；计划写明采用哪个。
+
+[F9] 重要 / 遗漏 / plan.md「分页」与竖排导航 EntryPageNav
+现象：新组件 EntryPageNav 没有写：ARIA（Tabs 是 role=tablist/tab、roving tabindex、方向键自动激活；竖排要 aria-orientation=vertical 与上下键）、`aria-controls`/`tabpanel` 关联（EntryPage.vue 现在把 PANEL_ID 与 tabId 传给 Tabs）、Lab 场景（计划验证节只登记 EntryPage、PageNotices、PositionPicker）、`.md` 文档（docs/standards/code/components.md「新建组件必须有同名 .md」，PageNotices、PositionPicker、EntryPageNav 三个都要，EntryPage.md、NoticeBar.md、AgentNotice.md、EntryPageHost.md 也要同步）。竖排还要决定吸顶：页头吸顶（EntryPage.vue 的 `--entry-page-sticky-top` 是页头含分页条的高度，主文字预览栏据它吸在下面），横排时分页条在页头里，竖排时不在，换排法会让页头高度突变、预览栏跳动；竖排导航自己吸不吸顶、吸在哪也没写。
+建议改法：补这几项；换排法时的页头高度变化用 `--entry-page-sticky-top` 的过渡或固定页头高度（“同一组件几种状态外框尽量不变”，ui-development-spec 第 3 节第 4 条）。
+
+[F10] 重要 / 与既有约定冲突 / plan.md「分页：竖排与横排按容器宽度切换」与 `wide`
+现象：EntryPage.vue 已有 `wide`（主文字开预览时内容列放宽到 1560）和 `WIDE_MIN = 880 + 64`（EntryPage.vue:188-190，注释：放宽了但编辑视图还是上下排会让页头白白变宽一次）。竖排导航占内容左边约一栏（计划没给宽度），内容与页头的有效宽度被它吃掉，WIDE_MIN 仍按滚动区宽度判断：竖排开着时内容列只剩约 (滚动区 − 64 − 导航)，达不到 EntryTextEditor 要的 880 仍会放宽、仍上下排。另外阈值本身不自洽：内容净宽 760 + 导航（假设 168）+ 间距 + 内边距 64 > 960，则“约 960 以上竖排”时内容列在 960 到约 1010 之间小于 760；“多留 16 像素”是单阈值加余量，不是滞回，来回切时一个纵向滚动条的出现与消失（两种排法页头高度不同、内容高度不同）会让滚动区 clientWidth 变 15 像素，正好跨阈值，抖动。
+如何核实：读 EntryPage.vue 的 `measure`、WIDE_MIN、column；估算宽度。
+建议改法：竖排时 WIDE_MIN 加导航宽度；阈值按“内容 760 + 导航 + 间距 + 内边距 + 余量”算出；用 JS 滞回（已有 ResizeObserver）而不是纯容器查询，或滚动区设 scrollbar-gutter: stable。
+[F7 更正] 上一条里“经 components 读取交到浏览器、读取合同要改”需放轻：service.ts:1003 直接返回 `registry.types`，ComponentType 加 icon 即随读取流出，读取输出不需另改；nb-canon 的 schema/registry/components.md 仍要改，结论不变。
+
+[F11] 重要 / 并发与合同 / plan.md「添加一组设定」“原来的对话框删掉，保留版本冲突的处理（输出 43）”
+现象：输出 43 的版本冲突处理是“对话框打开时记 `dialogBase`、保存带它”（EntryPageHost.vue:419-433）。去掉对话框就没有“打开时”：(a) 若新入口沿用 `runEntries(..., from 缺省 "dialog")`，`dialogBase` 是模块级变量（:416），只在 openDialog() 里赋值、冲突时清空，别的对话框（元素、移动、删除）留下的旧版本会被直接加组用上，得到“这个条目在对话框打开以后被别处改过”，错误写进 `dialogError`，而此时没有任何对话框显示它，用户看到的是“点了没反应”；(b) 若走 `"head"`，base 取点击时的 version()，永远不会冲突，输出 43 的语义（别处改过就拒收）实际取消，且失败原因进 `actionError`（见 F6 无去处）。(c) 菜单是按打开那一刻的世界列的：期间 Agent 加了同一组，写入返回 `id-taken`（entry-edits.ts:784-790 “the component is already on this entry”），文案对作者不通。
+如何核实：读 EntryPageHost.vue:410-445；entry-edits.ts:786。
+建议改法：计划明说新入口的 baseVersion 取“菜单打开时”的版本（DropdownMenu 的 open 事件里记）并改写 Spec 输出 43 去掉“加一组设定”；失败原因的去处（F6）；`id-taken` 对加组映射成“这一组已经加上了”并刷新菜单。
+
+[F12] 重要 / 范围漏项 / plan.md「加立绘一次到位」`context.showTab(type, {then:"pick-portrait"})`
+现象：(a) `showTab` 是公开的专门界面合同（docs/specs/canon/author-ui.md:129、web/component-views.ts:106，第三方设定组界面也能用），计划加参数却没列 Spec、SDK 文档与类型的改动；`then` 值只对形象有意义，却放进通用合同。(b) 时序：宿主的 `showTab` 靠 `view.value.namespaces` 找命名空间（EntryPageHost.vue:937-940），而 `addComponent` 写成功返回时条目读取未必已带新命名空间（现有 `confirmAdd` 就改用组件登记表里的 namespace 来避开，:459-462），找不到时合同规定“什么也不做”，于是“加上以后切过去”静默失败。(c) “让形象分页打开立绘选图”需要形象分页挂载后、立绘值的 FieldEditor 锚点挂上后才能 `edit.open`；计划只说“LookView 接住”，没有说交接放在哪（标签状态？）、读不到值/世界只读时怎么办、取消后再切回来会不会再弹。
+建议改法：先写清交接状态（`state.views[namespace].pending`，用后清除），showTab 用登记表解析命名空间并等该命名空间出现再切，Spec 合同与 `component-views.ts` 同步；用例覆盖“加上形象的同一次点击里选图浮层开着”与“只读时不弹”。
+
+[F13] 重要 / 上游选择 / plan.md「PageNotices.vue（新）」
+现象：计划自造一个“浮在页面下方、6 秒收起、指着暂停、滑入淡出”的提示，但 nb-ui 已有 `NotificationStack`/`Notification`（feedback/NotificationStack.md）：底部居中、自动消失、指针进入暂停且离开后至少留 800ms、动作按钮、关闭、`role=status`、进出场 8px 位移，并且工作台通知服务（workbench/web/notifications.ts）已经用它，notices.ts 在没有页面挂着时本来就走它。页面里那一路存在的原因只是“一条通知只有一个动作”（notices.ts 注释）。计划没有评估“给通知加第二个动作（或把‘撤销’做成主动作、‘查看详情’放详情里）”，直接把计时、暂停、动效、a11y 再写一遍，并让同一次保存的提示因有没有页面挂着出现两套寿命：页面上 6 秒收起；没有页面时走 workbench 通知，而该服务规定“带动作的通知不自动消失”（notifications.ts 头注释），且进通知中心。同一件事处处不一样（设计语言第 4 条）。
+如何核实：读 NotificationStack.md「交互」与 workbench/web/notifications.ts 头注释。
+建议改法：开发者已定“浮在下方、6 秒、指着不收”的体验，不质疑；但应把“改上游”（NotificationQueue 支持两个动作与页内挂载点）作为候选写进计划并比较代价；至少在 Spec 输出 18 写清没有页面挂着时的寿命与页内一致。
+
+[F14] 建议 / 违反组件规范 / plan.md「时间点：PositionPicker（Popover 加触发按钮）」
+现象：ui-development-spec 4.5：“应用要弹列表时用上面六个组件（DropdownMenu、Select、Menubar、ContextMenu、QuickPick、SuggestionMenu）”，新弹出列表不在应用里手搭。计划用 Popover 手搭一个含“故事开始前＋每章开头末尾（长篇可达几百项）＋开关”的列表，会丢掉共用的行高、截断滚动、方向键漫游、关闭后焦点归还（4.4）。DropdownMenu 已支持 radio、checkbox、分隔线与滚动，足够表达“位置单选＋算上计划勾选”。
+另：页头多出的“算上计划 ×”标记与“还没出场”标记是条件出现的零件，会让 flex-wrap 的页头换行、高度变化（`--entry-page-sticky-top` 随之变，主文字预览栏吸顶位置跟着动），违反第 3 节第 4 条“只在某状态出现的零件放进预留的位置”；计划没有预留。
+如何核实：读 ui-development-spec 4.5、第 3 节第 4 条与 EntryPage.vue 的 measure。
+建议改法：PositionPicker 用 DropdownMenu（radio+checkbox）；标记放进固定宽度的槽位（透明度切换）。
+
+[F15] 重要 / 验收映射与定位点 / plan.md「切片」与「验收映射」
+现象：(1) 定位点清单不全：计划只列“初值 3 个文件 10 处、看回执 2 处、还原”。e2e 里还有：位置选择 `getByRole("combobox",{name:"位置"})`（canon-author.e2e.ts:74、canon-character.e2e.ts:76）与 `[aria-label="位置"]`（canon-write.e2e.ts:421），换成 PositionPicker 后角色与名字都变；“＋别名”（canon-write.e2e.ts:205 `name: "＋别名"`）改成“添加别名”；分页 `getByRole("tab")` 的整表比对 `toHaveText([/^人物/,/^形象/,/^文字/,/^经历/,/^情节/])`（canon-write:129、canon-character:100、canon-author:123）在新规则“作品没有剧情变更时经历、情节不出”下，对没有变更的新作品直接不成立，且“＋”与分隔线若放进 tablist 会混进 getByRole("tab") 的结果；`[data-notice-bar]`、`[data-agent-notice]`、`data-agent-undo` 须保留。(2) “初值”还在 plot 插件 locales/zh-CN.json:229（来历的“初值”行）、Agent 工具文字（canon/backend/agent-text.ts:25、agent-tools.ts:35）、Lab 夹具（lab/web/fixtures/index.ts:1984、2012、2296…）与 en-US 对应项，计划的“locales 5 处”只数了 canon 的。Agent 对作者转述时仍说“初值”，同一概念两个词。(3) 运行时“还原”：revert.ts 的 `revertTitle`（“还原“{{title}}””，locales:302-303）是存进世界的修订标题（数据），改成“撤销”后新旧历史混用两种写法，e2e canon-author:236 断言行里含“还原”；计划称“只改界面说法”未区分。(4) “看回执”还在改动记录视图（locales:455 另一个 key）与命令标题（locales:11），只改提示里的会出现两个词指同一动作（设计语言第 4 条）；Spec 输出 24 也没列。(5) 验收映射里“输出 18”的测试只覆盖不推开内容与计时，没有多宿主与卸载重挂（F3）、没有键盘到达（F4）。Spec 输出 15（“分页名后写总条数”）与计划“零条不写数”冲突，却不在要改的输出清单里（6、7、9、16、18、32、36、38、50、51）。
+如何核实：grep -n 上述位置。
+建议改法：补全清单；用例按 F3、F4 增补；输出 15 与 24 加入改动。
+
+[F16] 建议 / 隐含耦合 / plan.md「别名失焦时非空就加上」
+现象：EntryPage.vue 的别名输入同时有 `@keydown.escape.prevent="adding = false"`、`@keydown.enter` 与 `@blur="adding = false"`。改成“失焦时非空就加上”后：(a) Escape 先把 adding 置假、输入被卸载，Chromium 在卸载聚焦元素时会派发 blur（需在真实浏览器核实），blur 里非空就加，于是“按 Escape 放弃”反而加上了；(b) Enter 的 commitAlias 与随后的 blur 各发一次写入，第二次被 `acting` 吞掉不报错但看着正常，换成快速点击时会错位；(c) 输入里有字时点另一个别名的“×”：mousedown 先触发 blur→提交写入（`acting` 置真），随后 click 的移除 `runEntries` 因 `acting` 直接返回 false（EntryPageHost.vue:421），移除被静默丢掉。
+建议改法：用一个“已提交/已放弃”标志，Escape 先清空草稿再收起；blur 提交走与 Enter 同一个函数并去重；写入在途时排队而不是丢弃，至少给出反馈。
+
+[F17] 建议 / 动效与可发现性 / plan.md「页头：名字与简介本身是按钮」
+现象：“悬停浅底与铅笔”在触摸与键盘上没有等价：390 宽（计划也要在 390 宽截图）没有 hover，名字与简介看不出能点（设计语言第 8 条“能点的看得出能点”）；焦点态也要有铅笔。按钮内只有名字，读屏名称丢了原来的“改名字”提示（现在 aria-label 是 `entry.editName`），要用 aria-label 或 aria-description 保留。名字很长时铅笔占位挤换行也要处理（“不挪字”）。名字、简介的浮层出现/消失与保存后文字原地换字的过渡（第 7 节动效）计划没写，只写了提示的动效。
+建议改法：@media (hover:none) 与 :focus-visible 下铅笔常显（低透明度）；为浮层与换字写 Transition 与令牌。
+
+[F18] 建议 / 违反约定 / plan.md「去掉这组设定在分页右键菜单里」与“＋”菜单
+现象：(1) nb-ui Tabs 的右键要在根上监听并按 `data-tab-value` 找项（Tabs.md：不暴露单个标签的事件，只有 `attrs`）；收进“更多”的项没有右键；竖排自写组件要自己做。右键菜单里只有一项破坏性的“去掉这组设定”，而触屏与键盘靠“···”里那一项，这一点没问题，但把破坏性操作放在每个分页标签的右键首项上，违反“会丢东西的难误碰”（设计语言第 7 条）的程度比放进“···”深一层更高；菜单打开时焦点落第一项，误按回车即进入确认框（有确认，可接受）。(2) “＋”菜单只有一个可加的组时仍弹出只有一项的菜单，违反第 1 条“只有一个选项的选择控件不出现”；应直接加。(3) 设计语言第 5 条“按下去有回应”：直加后没有进行中状态与失败反馈位置（F6、F11）。
+建议改法：(2) 一项时直接加并切过去；(1) 右键菜单可保留但不放在首项/加分隔与确认；写明键盘与触屏路径。
+[F19] 重要 / 数据格式与既有约定 / plan.md「编辑器标签的图标」
+现象：(1) `TabItem.icon` 现在是 `CatppuccinIcon | null`（EditorTabBar.vue:20，字面量联合，如 "markdown"），计划“扩成文件图标或 lucide 类名两种”没说怎么区分；靠 `i-lucide-` 前缀判断是脆的，应改成带判别的 `{kind:"file", icon}` / `{kind:"class", name}`，Lab 夹具（fixtures/index.ts:1096）与 dom 测试同步。lucide 图标是 `<span class="i-lucide-…">`，要显式 `size-4` 才与 FileIcon（h-4 w-4）同宽，计划说“宽度同文件图标”但没写做法；颜色随文字（非活动标签次级色），文件图标自带色，两种并排时观感不同。(2) 页面标签的标题靠“挂着的页面写入、不在前台用编辑器记着的标题”（entry-page.ts 头注释、editor.md:356 的 `{page,id,arg?,title?}`）；图标要按条目种类就得同样记着：计划的 `icon(arg)` 在刷新后、未激活的标签上读不到种类，恢复出来的标签先全是“书”，激活时才变成人物/地点图标，标签一个个跳变；要不扩 `editor.tabs` 记录格式（数据格式，需写 Spec 与迁移说明），要不接受跳变并写进 Spec。(3) 欢迎页声明的图标就是 `i-lucide-book-open`（projects/web/plugin.ts:82），与条目页声明（canon/web/plugin.ts:115）及计划的“没读到时用书”相同：开了欢迎页与未读到种类的条目页，标签上是同一个图标。(4) 拖影：见 F1。
+建议改法：判别联合；记着的标签带 icon（或写明不带及跳变）；条目页的默认图标换一个与欢迎页不同的；列入 editor-area e2e 与 EditorTabBar.dom.test.ts 的用例：页面图标、长标题、同名提示不受影响。
+
+[F20] 建议 / 动效漏项 / plan.md「动效」仅写了提示
+现象：开发者要求列入重点的“状态变化有过渡”。计划只给 PageNotices 写了动效；下面这些状态变化没有写过渡或预留位置：竖排与横排切换（整块换位）、经历/情节在作品出现第一条变更后出现、“＋”按条件出现、“算上计划 ×”与“还没出场”标记出现/消失、名字简介浮层与保存后原地换字、`PositionPicker` 内“算上计划中的情节”条件出现。ui-development-spec 第 8 节自检要求 Lab 每个场景之间的切换逐个点一遍，并在开发服务的真实页面上点 Transition（计划“验证”里只写“看过渡是否卡住”）。
+建议改法：列一张“状态变化 → 过渡/预留位置”的表放进 plan；竖排/横排切换用淡入淡出而不是 v-if 硬切，且不在切换时改变内容列左边界。
+
+[F21] 建议 / 回车保存 / plan.md「回车不被吞」
+现象：“预览等 300 毫秒时按回车，立刻发预览，回来没被拒就保存”。Spec 51 与 ConfirmBar.md 现在明写“按回车就是保存（预览回来以后）”，预览是作者保存前看到“写回哪里、带来什么变化”的一步；新做法让作者没看到变化就保存了（story 意图下影响条数可能是“还有 N 项”）。计划要改 Spec 51 是对的，但没有说明“没被拒”是否包含“有影响提示”，也没有处理：回车后立即预览期间世界版本又变了（in-place-edit.ts 的版本 watch 会换 `read` 与 requestId），以及回车触发后用户又改了值。
+建议改法：写明保存的是回车那一刻的值，发保存前核对预览所基于的值与版本没变；影响多于一条时仍等预览显示。
+
+---- 未发现问题的方面 ----
+- 界面文案：新文案里没有解释系统内部处理的句子；唯一边缘是“填的内容会保留，可以再加回来”（去掉设定组的确认），它说的是这个操作的后果，不是内部实现，保留合理。
+- “初值”→“故事开始前”在 canon 的 zh-CN 里确为 5 处，与计划数一致（其余遗漏见 F15）。
+- 名字、简介能走 `editInPlace`：nb-canon/src/world/entry-edits.ts:161 的 writeInit 认得 `entry.name`、`entry.summary`，story 意图在名字上世界层成立；“改设定／剧情里变了”的改名本来就推到文案那一轮，不是问题。
+- 作品里有没有计划：`changes` 的 `filter.kind:"plan"`、页带 `total` 在 nb-canon/src/service/reads.ts 里存在；不按条目筛时会全表扫描后排序（reads.ts:418），每次发布重读一次，上万条时是毫秒级，不构成问题；但“作品有没有剧情变更”（隐藏情节/经历）计划没写读什么、读取未回来之前显示什么（初始是显示再消失还是隐藏再出现，都会让分页条跳），建议并入 F20。
+- 回执页、变更详情页换用 PageNotices：两页根与条目页一样是 `min-h-full` 的块，没有发现额外结构冲突。
+
+---- 数量 ----
+阻断 0；重要 15（F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F15 F19）；建议 6（F14 F16 F17 F18 F20 F21）。合计 21 条。
+最严重的几条：F3（窗口级提示与多宿主计时共享状态）、F6（positionGone/actionError 无去处）、F11（直加去掉对话框后版本基线与错误无去处）、F7（icon 要改 nb-canon 内核与 Tabs 回退图标冲突 F8）、F5（scroll-padding 不能解决遮挡）、F13（自造提示未评估复用 NotificationStack）、F2（“同一套就地改浮层”其实是 EntryPageHost 里的闭包）。
