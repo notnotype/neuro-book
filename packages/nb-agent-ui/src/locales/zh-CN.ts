@@ -432,7 +432,7 @@ export default {
         submit: "发送",
     },
     messages: {
-        tabBot: "bot",
+        tabBot: "Bot",
         tabSessions: "会话",
         search: "搜索 bot",
         running: "正在回复…",

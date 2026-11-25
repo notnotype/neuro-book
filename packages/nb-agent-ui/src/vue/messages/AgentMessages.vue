@@ -257,8 +257,10 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
                         @retry-contacts="emit('retry-contacts', $event)"
                     >
                         <template #sessions><slot name="sessions" /></template>
+                        <template v-if="wide" #switch-end>
+                            <IconButton icon-class="i-lucide-panel-left-close" size="sm" :title="t('messages.collapseList')" :aria-label="t('messages.collapseList')" data-messages-collapse @click="collapseList" />
+                        </template>
                     </AgentMessagesList>
-                    <IconButton v-if="wide" icon-class="i-lucide-panel-left-close" size="sm" class="acv-messages__collapse" :title="t('messages.collapseList')" :aria-label="t('messages.collapseList')" data-messages-collapse @click="collapseList" />
                 </section>
             </template>
             <template #panel-chat>
@@ -384,12 +386,6 @@ const contactLabel = (name: string, unread: number | null): string => (unread !=
     width: min(300px, 85cqi);
     border-right: var(--border-w) solid var(--border-color);
     box-shadow: var(--elevation-raised);
-}
-
-.acv-messages__collapse {
-    position: absolute;
-    top: 6px;
-    right: 6px;
 }
 
 .acv-messages__chat {
