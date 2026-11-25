@@ -103,8 +103,11 @@ test.beforeAll(async () => {
         await mkdir(dirname(join(projectDir, path)), {recursive: true});
         await writeFile(join(projectDir, path), text);
     }
-    await mkdir(join(stateRoot, "user"), {recursive: true});
+    await mkdir(join(stateRoot, "user", "bots", "lyra"), {recursive: true});
+    await mkdir(join(stateRoot, "user", "profiles"), {recursive: true});
     await writeFile(join(stateRoot, "user", "notes.md"), "U");
+    await writeFile(join(stateRoot, "user", "bots", "lyra", "persona.md"), "P");
+    await writeFile(join(stateRoot, "user", "bots", "lyra", "avatar.webp"), "A");
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     server = await startProductServer(stateRoot);
 });
@@ -148,6 +151,46 @@ async function open(page: Page, bound = true): Promise<void> {
     }
 }
 
+/** 逐帧量可见的子树与下一行，包含仍在播放离场动画的节点。 */
+async function sampleFolderMotion(page: Page, folder: string, following: string) {
+    return page.evaluateHandle(({folder, following}) => {
+        const row = (id: string) => document.querySelector<HTMLElement>(`[data-explorer-row="${CSS.escape(id)}"]`)!;
+        const parent = row(folder);
+        const next = row(following);
+        const samples: Array<{nextTop: number; overlap: boolean; fading: boolean}> = [];
+        let request: number;
+        function sample(): void {
+            const upper = parent.getBoundingClientRect().bottom;
+            const nextTop = next.getBoundingClientRect().top;
+            let overlap = false;
+            let fading = false;
+            for (const child of document.querySelectorAll<HTMLElement>(`[data-explorer-row^="${CSS.escape(folder + "/")}"]`)) {
+                const style = getComputedStyle(child);
+                const opacity = Number(style.opacity);
+                if (opacity === 0 || style.visibility === "hidden") continue;
+                const box = child.getBoundingClientRect();
+                const [insetTop = 0, , insetBottom = insetTop] = style.clipPath.startsWith("inset(")
+                    ? style.clipPath.slice(6, -1).split(" ").map(Number.parseFloat)
+                    : [];
+                const top = box.top + Math.max(0, insetTop);
+                const bottom = box.bottom - Math.max(0, insetBottom);
+                if (top >= bottom) continue;
+                overlap ||= top < upper - 0.5 || bottom > nextTop + 0.5;
+                fading ||= opacity < 1;
+            }
+            samples.push({nextTop, overlap, fading});
+            request = requestAnimationFrame(sample);
+        }
+        request = requestAnimationFrame(sample);
+        return {
+            stop: () => {
+                cancelAnimationFrame(request);
+                return samples;
+            },
+        };
+    }, {folder, following});
+}
+
 test("项目根是作品名、标题行五个动作；展开时新行滑下淡入、动画后撤掉标记；鼠标点行不画焦点线、方向键之后画 1.5px 内嵌线；减少动态时不动画（验收 18、19）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page);
@@ -186,6 +229,30 @@ test("项目根是作品名、标题行五个动作；展开时新行滑下淡�
     await expect.poll(active).toMatch(/0px 0px 0px 1\.5px inset$/u);
     await item(page, "project://ops").click();
     await expect(item(page, "project://ops/keep.md")).toHaveCount(0);
+
+    const folder = "user://bots";
+    const following = "user://profiles";
+    await item(page, "user://").click();
+    await item(page, folder).click();
+    await item(page, folder + "/lyra").click();
+    await expect(item(page, folder + "/lyra/persona.md")).toBeVisible();
+    await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-motion");
+    for (const opening of [false, true]) {
+        const frames = await sampleFolderMotion(page, folder, following);
+        await item(page, folder).locator("[data-explorer-twisty]").click();
+        await expect(item(page, folder)).toHaveAttribute("aria-expanded", String(opening));
+        if (opening) await expect(item(page, folder + "/lyra/persona.md")).toBeVisible();
+        else await expect(item(page, folder + "/lyra/persona.md")).toHaveCount(0);
+        await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-motion");
+        const samples = await frames.evaluate(({stop}) => stop());
+        await frames.dispose();
+        const start = samples[0]!.nextTop;
+        const end = samples.at(-1)!.nextTop;
+        expect(Math.abs(start - end)).toBeGreaterThan(1);
+        const during = samples.filter(({nextTop}) => nextTop > Math.min(start, end) + 1 && nextTop < Math.max(start, end) - 1);
+        expect(during.some(({fading}) => fading), `${opening ? "展开" : "折叠"}的帧：${JSON.stringify(samples)}`).toBe(true);
+        expect(samples.filter(({overlap}) => overlap)).toEqual([]);
+    }
 
     await page.emulateMedia({reducedMotion: "reduce"});
     await record();
