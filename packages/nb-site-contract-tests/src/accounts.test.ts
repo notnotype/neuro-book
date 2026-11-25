@@ -12,10 +12,11 @@
  * 时间预算：起进程、跑命令放在 `beforeAll` 里；用例只发请求。超出 200 毫秒的用例在旁边写明原因。
  */
 
-import {beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
 import {EmptyResponse, ErrorBody, IDENTITY_PATHS, LoginResponse, MeResponse, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {holdWriteLock} from "./testing/fault";
 import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login, type CookieJar} from "./testing/identity";
@@ -446,5 +447,35 @@ describe("会话的时长与延长（输出 5、7）", () => {
         await site.advanceClock(SESSION_MS + 60_000);
         expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}})).body).toEqual({state: "anonymous"});
         expect(failure(await identityRequest(site.url, IDENTITY_PATHS.me, {from: from(), headers: {Cookie: cookie}}))).toEqual({status: 401, body: {error: {code: "unauthenticated"}}});
+    });
+});
+
+describe("清理任务在服务启动后先跑一次（定时任务一节）", () => {
+    let site: SiteProcess;
+    let release: (() => void) | undefined;
+
+    // 合同里造不出启动时已经到期的会话：测试控制入口只能往前拨，进程重启后时间回到墙钟，上一个进程发的会话都还没到期；任务成功时
+    // 也不一定写日志（没删到会话时不写）。所以让它在启动时就撞上进程外的写锁：自己跑起来的那一次以失败结束，日志里有一行
+    // `job.failed`（`site.operations` 失败表的 `job_failed` 一行），而用例从头到尾不经测试控制入口触发它。
+    beforeAll(async () => {
+        const dataDir = await sandbox.dataDir();
+        // 先建好库（持锁要库文件已经在）；迁移都跑过了，启动只核对迁移记录、不写账号的库。
+        const migrated = await sandbox.run("migrate", {dataDir});
+        if (migrated.exitCode !== 0) throw new Error(`migrate exited ${String(migrated.exitCode)}\nstderr:\n${migrated.stderr}`);
+        release = holdWriteLock(dataDir, "identity");
+        site = await sandbox.start({dataDir});
+    }, SETUP_TIMEOUT_MS);
+
+    afterAll(() => release?.());
+
+    it("不经测试控制入口，purge 自己跑过一次：启动时账号库被占着写，日志里有这个任务失败的一行；放锁后服务照常", async () => {
+        try {
+            // 等不到就是没跑：没有“启动后先跑一次”时第一次要等 10 分钟。
+            await waitUntil("identity purge 的 job.failed 一行", () => site.logs().find((line) => line.event === "job.failed" && line.module === "identity" && line.job === "purge"));
+        } finally {
+            release?.();
+        }
+        expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: "192.0.2.1"})).status).toBe(200);
+        expect(site.exitCode).toBeNull();
     });
 });

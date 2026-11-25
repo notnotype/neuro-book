@@ -23,8 +23,8 @@ const CLOSE_WAIT_MS = 2_000;
 const PURGE_INTERVAL_MS = 600_000;
 
 /**
- * 一个定时任务；适配器把入口的 `context.jobs` 传进来。`initialDelayMs` 是第一次运行前的等待：清理任务要“服务启动后先跑一次”，
- * 写 0。入口的任务调度认这个字段之前（它在统计的分支上加），第一次运行在一个间隔之后。
+ * 一个定时任务；适配器把入口的 `context.jobs` 传进来，形状与入口的 `JobDefinition` 相同。`initialDelayMs` 是开始调度之后第一次
+ * 运行前的等待，缺省等一个间隔。
  */
 export interface IdentityJob {
     readonly name: string;
@@ -131,6 +131,8 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。
+    // 第一次不等间隔（`initialDelayMs: 0`，Spec：服务启动后先跑一次），与统计的两个任务同一个理由：重启比 10 分钟频繁时（部署、
+    // 崩溃后重启），只等间隔的第一次永远轮不到，到期的会话就一直不删。
     options.jobs.register({
         name: "purge",
         intervalMs: PURGE_INTERVAL_MS,

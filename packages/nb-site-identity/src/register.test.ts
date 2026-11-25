@@ -7,6 +7,8 @@
  *   抛错。
  * - 预检之后、写事务之前用户名被别人占了：要在两步之间插入动作，经哈希函数的包装（包装调真的哈希）。
  * - 邀请码：停用、过期、用完与没有主人的码经接口造不出，这里用 SQL 直接放进表里。用接口生成的码注册见 `invite-codes.test.ts`。
+ * - 哈希过载回 `overloaded`：要一个注册确定地停在算哈希那一步、占着名额，经哈希函数的包装。合同只能同时发一批请求，不能保证它们重叠
+ *   （登录的过载用例是这样做的）。
  */
 
 import {afterEach, describe, expect, it} from "bun:test";
@@ -197,6 +199,38 @@ describe("注册的原子性（输出 2）", () => {
             await target.root.cleanup();
             identity = undefined;
         }
+    });
+});
+
+describe("哈希过载（site.accounts 输出 20）", () => {
+    it("并发 1、不排队：一个注册在算哈希时，另一个回 503 overloaded，没有建账号、码没被扣；前一个照常成功", async () => {
+        // 包一层真的哈希：放行之前停在算哈希这一步、占着唯一的名额。装配时也要算一次哈希（假校验用的那条），所以建好之后才拦。
+        let hold: {readonly entered: PromiseWithResolvers<void>; readonly gate: PromiseWithResolvers<void>} | undefined;
+        const passwords: PasswordFunctions = {
+            verify: REAL_PASSWORD_FUNCTIONS.verify,
+            hash: async (password) => {
+                const current = hold;
+                hold = undefined;
+                if (current !== undefined) {
+                    current.entered.resolve();
+                    await current.gate.promise;
+                }
+                return REAL_PASSWORD_FUNCTIONS.hash(password);
+            },
+        };
+        identity = await createTestIdentity("identity-register-overloaded", {config: {hashConcurrency: 1, hashQueue: 0}, overrides: {passwords}});
+        const codeId = await addCode(identity, "identity_registration_code", "REG-CODE", {maxUses: 2});
+        const held = {entered: Promise.withResolvers<void>(), gate: Promise.withResolvers<void>()};
+        hold = held;
+        const first = register(identity, registerBody());
+        await held.entered.promise;
+
+        expect(await outcome(await register(identity, registerBody({username: "bob", email: "bob@example.com"})))).toEqual({status: 503, body: {error: {code: "overloaded"}}});
+        expect({used: await usedCount(identity, "identity_registration_code", codeId), users: await userCount(identity)}).toEqual({used: 0, users: 0});
+
+        held.gate.resolve();
+        expect((await first).status).toBe(200);
+        expect({used: await usedCount(identity, "identity_registration_code", codeId), users: await userCount(identity)}).toEqual({used: 1, users: 1});
     });
 });
 

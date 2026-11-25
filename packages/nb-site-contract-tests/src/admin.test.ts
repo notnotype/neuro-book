@@ -352,8 +352,8 @@ describe("账号的处置（输出 1 到 5、8；site.accounts 验收 3、输出
         expect(failure(await act(undefined, plain.id, "ban"))).toEqual(unauthenticated);
     });
 
-    // 超出 200 毫秒的预算：注册与几次登录各算一次密码哈希。
-    it("封禁（输出 2，site.accounts 验收 3、输出 4 与 6）：原 Cookie 调 me 得 unauthenticated，对的密码登录得 account_banned、错的得 invalid_credentials；解封后能登录，旧 Cookie 仍无效", async () => {
+    // 超出 200 毫秒的预算：注册与几次登录各算一次密码哈希。Smoke（site.admin 验收与 Smoke 一节）。
+    it("封禁（输出 2，site.accounts 验收 3、输出 4 与 6，Smoke）：原 Cookie 调 me 得 unauthenticated，对的密码登录得 account_banned、错的得 invalid_credentials；解封后能登录，旧 Cookie 仍无效", async () => {
         const target = await member("banned");
         expect((await me(target.jar)).status).toBe(200);
         expect(item(await act(root, target.id, "ban"))).toMatchObject({id: target.id, username: target.username, banned: true});

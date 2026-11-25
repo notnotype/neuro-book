@@ -7,10 +7,12 @@
  *   （与 `registration-codes.test.ts` 同一种做法）。
  * - 审计与操作同时生效：要让写审计那一步失败，在审计表上临时加一个拒绝插入的触发器。
  * - 重置的新密码取自计划定的字母表、长度 20：合同只说“给出一个新密码”，字母表是实现的选择。
+ * - 重置在哈希过载时回 `overloaded`（`site.accounts` 输出 20）：要另一个哈希确定地占着名额，经哈希函数的包装。
  */
 
 import {afterEach, describe, expect, it} from "bun:test";
 
+import {REAL_PASSWORD_FUNCTIONS, type PasswordFunctions} from "../password";
 import {endAllSessions} from "../session";
 import {TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, TEST_TERMS_VERSION, type TestIdentity} from "../testing/module";
@@ -141,6 +143,40 @@ describe("审计与操作同时生效（输出 8）", () => {
             expect(await snapshot(identity)).toEqual(before);
         });
     }
+});
+
+describe("重置密码时哈希过载（输出 4；site.accounts 输出 20）", () => {
+    it("并发 1、不排队：另一个重置在算哈希时，这一个回 503 overloaded，账号、会话、密码与审计都没变；前一个照常成功", async () => {
+        // 包一层真的哈希：放行之前停在算哈希这一步、占着唯一的名额。装配时也要算一次哈希（假校验用的那条），所以建好之后才拦。
+        let hold: {readonly entered: PromiseWithResolvers<void>; readonly gate: PromiseWithResolvers<void>} | undefined;
+        const passwords: PasswordFunctions = {
+            verify: REAL_PASSWORD_FUNCTIONS.verify,
+            hash: async (password) => {
+                const current = hold;
+                hold = undefined;
+                if (current !== undefined) {
+                    current.entered.resolve();
+                    await current.gate.promise;
+                }
+                return REAL_PASSWORD_FUNCTIONS.hash(password);
+            },
+        };
+        identity = await createTestIdentity("identity-admin-users-reset-overloaded", {config: {hashConcurrency: 1, hashQueue: 0}, overrides: {passwords}});
+        const {admin, memberId} = await setup(identity);
+        const otherId = await identity.addUser("other", {consent: CONSENTED, password: "other-PW-5678"});
+        const held = {entered: Promise.withResolvers<void>(), gate: Promise.withResolvers<void>()};
+        hold = held;
+        const first = post(identity, admin.cookie, `/admin/users/${String(otherId)}/reset-password`);
+        await held.entered.promise;
+        // 前一个还停在哈希上、什么都没写：此刻的状态就是“这一个没生效”要对照的样子。
+        const before = await snapshot(identity);
+
+        expect(await outcome(await post(identity, admin.cookie, `/admin/users/${String(memberId)}/reset-password`))).toEqual({status: 503, body: {error: {code: "overloaded"}}});
+        expect(await snapshot(identity)).toEqual(before);
+
+        held.gate.resolve();
+        expect((await first).status).toBe(200);
+    });
 });
 
 describe("重置密码的新密码（输出 4）", () => {
