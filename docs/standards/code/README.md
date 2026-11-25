@@ -13,6 +13,7 @@
 | `.github/**`、`patches/**`、仓库级 CI 配置 | [`common.md`](common.md)；按文件类型追加 [`data-formats.md`](data-formats.md) 或 shell 规范 |
 | `scripts/**/*.ts`、`scripts/**/*.mjs` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`scripts/typescript.md`](scripts/typescript.md) |
 | `scripts/**/*.ps1`、`scripts/**/*.cmd` | [`common.md`](common.md)、[`scripts/powershell.md`](scripts/powershell.md) |
+| `packages/nb-site-server/image/Dockerfile` | [`common.md`](common.md) |
 | `scripts/**/*.sh`、容器 shell 入口 | [`common.md`](common.md)、[`scripts/bash.md`](scripts/bash.md) |
 | `.agents/works/w00005-novel-understanding-spike/tasks/t02-novel-memory-model-design/schema-v6.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md) |
 | `.agents/works/w00005-novel-understanding-spike/tasks/t02-novel-memory-model-design/viewer-v6.template.html` | [`common.md`](common.md)、[`frontend.md`](frontend.md) |

@@ -1,0 +1,196 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t41-character-component",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 2 轮：人物与形象两个分页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "c65f88b054204bbbca2b7ffbf5e787b867382fb4d4cf8578196f4588caf48c33",
+    "files": [
+        "index.html",
+        "r1/add-component.webp",
+        "r1/add-field.webp",
+        "r1/editing-short.webp",
+        "r1/editing-text.webp",
+        "r1/empty.webp",
+        "r1/filled-phone.webp",
+        "r1/filled.webp",
+        "r1/full.webp",
+        "r1/now-character.webp",
+        "r1/now-edit.webp",
+        "r2/add-field.webp",
+        "r2/edit-ref.webp",
+        "r2/edit-suggest.webp",
+        "r2/edit-text.webp",
+        "r2/look-empty.webp",
+        "r2/look-filled.webp",
+        "r2/look-phone.webp",
+        "r2/look-pick-image.webp",
+        "r2/look-wearing.webp",
+        "r2/new-entry.webp",
+        "r2/origins.webp",
+        "r2/person-empty.webp",
+        "r2/person-filled.webp",
+        "r2/person-no-look.webp",
+        "r2/person-phone.webp",
+        "r2/semantic.webp"
+    ],
+    "questions": [
+        {
+            "id": "card-layout",
+            "type": "confirm",
+            "label": "角色卡照这个样子做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "edit-inline",
+            "type": "single",
+            "label": "改一项时就地展开，还是沿用页面顶上的确认条？",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "A 就地展开"
+                },
+                {
+                    "value": "bar",
+                    "label": "B 页面顶上的确认条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "inline"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "add-entries",
+            "type": "confirm",
+            "label": "添加分成两个入口：添加一项资料、添加一组设定",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "many-groups",
+            "type": "single",
+            "label": "设定组加多了以后：都排在“资料”这一页，还是每组各一个分页？",
+            "options": [
+                {
+                    "value": "one-page",
+                    "label": "A 都排在资料这一页"
+                },
+                {
+                    "value": "tabs",
+                    "label": "B 每组各一个分页"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one-page"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "person-tab",
+            "type": "confirm",
+            "label": "人物分页照这个样子做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "edit-flow",
+            "type": "confirm",
+            "label": "改一项照这个方式做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "look-tab",
+            "type": "confirm",
+            "label": "形象分页照这个样子做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "add-and-new",
+            "type": "confirm",
+            "label": "添加一项资料与新建条目照这个样子做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "tab-order",
+            "type": "single",
+            "label": "人物的条目打开时先看哪个分页？",
+            "options": [
+                {
+                    "value": "person-first",
+                    "label": "A 人物在前"
+                },
+                {
+                    "value": "text-first",
+                    "label": "B 文字在前"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "person-first"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-24T17:34:54.560Z"
+}

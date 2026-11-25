@@ -1,0 +1,28 @@
+# w00037 t05 第 4 到 7 片实现审查（Opus）：18fdeb9cf..57eaf72b5
+
+### 1. 停止信号落在最后一个模块写副本期间时，备份照常改名、清理旧备份并以 0 退出，不报 interrupted
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-site-server/src/commands/backup.ts:183-200
+- **现象**：停止检查只在每个模块“开始之前”做（`await yieldToEventLoop(); if (stop.requested)`）。最后一个模块的 `VACUUM INTO`、`prepareBackupCopy`、`VACUUM`、`quick_check` 都是同步的，期间到的信号排在宏任务里；循环结束后直接 `renameSync`、`prune`、写 `backup.done`、返回成功，中间不再让出，信号处理函数一直没跑（连 `process.signal` 那一行日志都没有）。
+- **为什么是问题**：Spec 输出 6“还没写完就收到 SIGTERM 或 SIGINT 时以 interrupted 结束，写到一半的那一份不算备份”。产品里模块顺序是 identity、telemetry，统计库（原始上报所在、最大的那个）排在最后，绝大部分备份时间都花在它身上，所以多数情况下停止信号被忽略：进程不但不停，还继续删旧备份并报成功。现有用例只在 alpha（第一个模块）里停住，正好落在检查点前面，所以没暴露。
+- **如何核实**：/tmp/review-w00037-t05-impl2/lab-opus/last-module-signal.ts（对审查 worktree 的 fixture-main 起真进程，`NB_SITE_FIXTURE=beta,alpha`、`NB_SITE_ALPHA_WAIT=backup`，等到 `fixture.waiting_stdin` 后先发 SIGTERM 再放行）。实测：退出码 0，标准输出有 `backup.done`，标准错误为空，`backups/` 里多了一份完整备份，没有 `process.signal` 行。把夹具顺序换回 `alpha,beta` 则得 `interrupted`。
+- **建议改法**：循环结束后、改名之前再 `await yieldToEventLoop(); if (stop.requested) return interrupted`（与循环里同一段，抽成一个小函数）。用例：在现有“写到一半收到 SIGTERM”的用例旁加一条 `NB_SITE_FIXTURE=beta,alpha` 的同样步骤（或把夹具顺序参数化），断言 `interrupted` 且没有完整备份。改名之后到 prune 结束之间收到的信号可以不管（那一份已写好），在注释里写明检查点只到改名为止。
+
+### 2. `prepareBackupCopy` 的类型挡不住异步实现：写成 async 时副本里照样留着要删的数据，备份以 0 退出、没有任何错误
+
+- **严重程度**：重要；**类别**：不变量 / 安全与性能
+- **位置**：packages/nb-site-server/src/module.ts:181（`prepareBackupCopy?(copy: Database): void`）；packages/nb-site-server/src/commands/backup.ts:115-131
+- **现象**：返回类型写的是 `void`，TypeScript 允许把返回 Promise 的函数赋给它。入口同步调用、不看返回值，紧接着 `VACUUM`、关连接、`quick_check`、改名。模块作者若写成 `async (copy) => { await …; copy.query("DELETE …").run(); }`，删除那一步在副本关掉之后（或进程退出之后）才轮到，副本里保留全部原始数据。
+- **为什么是问题**：Spec 输出 6、验收 3 的“统计模块的原始上报不在副本里”完全靠这个钩子。t06 要写的正是统计模块的实现；按 Bun 里常见的异步写法（或在里面 `await` 一次日志、配置）就会悄悄失效，而且失败是静默的：没有 `prepare_failed`，没有 `process.fatal`，退出码 0。注释里写了“同步调用”，但只是文字约定。
+- **如何核实**：在仓库外的副本（/tmp/review-w00037-t05-impl2/lab-opus/copy）里把夹具 alpha 的 `prepareBackupCopy` 改成 `async`，删除前 `await` 5 毫秒；`tsc --noEmit` 通过。/tmp/review-w00037-t05-impl2/lab-opus/async-prepare.ts 起真进程：模块顺序 `alpha,beta` 与 `beta,alpha` 两种都是退出码 0、标准错误为空、`backup.done`，副本 `alpha.db` 里 `label` 仍有 `raw`。把返回类型改成 `undefined` 后，同一处 async 实现得到 TS2322（`Promise<void>` 不能赋给 `undefined`），原来同步的夹具照常通过类型检查。
+- **建议改法**：返回类型改成 `undefined`（TS 5.1 起无 return 的同步函数可赋给它）；入口另加一道运行期检查：返回值不是 undefined 时按 `prepare_failed` 失败（防 `as any` 与别的实现），并在这一份上不改名。用例：夹具加一个返回 Promise 的变体，断言 `backup_failed`、`reason: prepare_failed`、没有完整备份——这条同时补上实现者自报“`prepare_failed` 没有用例”的缺口，而且不需要伪造文件系统故障。
+
+### 3. `prepareBackupCopy` 开了事务没提交时，失败被报成 `copy_failed`，原因词指错了地方
+
+- **严重程度**：建议；**类别**：正确性 / 代码质量
+- **位置**：packages/nb-site-server/src/commands/backup.ts:117-127
+- **现象**：钩子返回后入口直接 `copy.exec("VACUUM")`。钩子里 `BEGIN` 了却没 `COMMIT`（或中途 return 漏了提交）时，`VACUUM` 抛 `SQLITE_ERROR: cannot VACUUM from within a transaction`，落进 `copy_failed` 分支；随后 `copy.close()` 回滚掉钩子的删除。结果是安全的（失败、不改名），但 `reason` 说的是“写副本失败（库文件损坏、磁盘满）”，部署的人会去查磁盘。
+- **为什么是问题**：Spec 的 `backup_failed` 词表里 `copy_failed` 与 `prepare_failed` 含义不同；这是模块的程序错误，应当是 `prepare_failed`。
+- **如何核实**：/tmp/review-w00037-t05-impl2/lab-opus/open-txn.ts：在 bun:sqlite 上 `BEGIN; DELETE …;` 后 `VACUUM`，得 `SQLiteError`、`code` 为 `SQLITE_ERROR`；关连接后删除被回滚。
+- **建议改法**：钩子返回后先查 `copy.inTransaction`，为 true 时按 `prepare_failed` 失败（并写明“钩子留下了未提交的事务”）。夹具 alpha 加一个开事务不提交的变体，就有了 `prepare_failed` 的第二条用例，不必造文件系统故障。
