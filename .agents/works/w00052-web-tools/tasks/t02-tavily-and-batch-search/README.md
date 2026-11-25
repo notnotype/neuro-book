@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-tavily-and-batch-search
-status: active
+status: done
 updated: 2026-11-25
 ---
 
