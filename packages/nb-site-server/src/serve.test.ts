@@ -512,6 +512,15 @@ describe("测试控制入口（输出 11）", () => {
         expect((second.body as {now: number}).now).toBeGreaterThanOrEqual(firstNow + 1_000);
     });
 
+    it("拨时间不触发定时任务：拨过几个间隔之后，按间隔跑的任务一次也没跑", async () => {
+        const {url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
+        // `count` 的间隔是一小时（`testing/modules.ts`），用例期间按真实时间跑不到；拨过三个间隔，按模块的时间算早该跑了。
+        expect((await control(url, "clock", {advanceMs: 3 * 3_600_000})).status).toBe(200);
+        // 跑一次走同一条任务队列、结果看得见的 `count`：拨动要是排了任务，这时已经跑过、计数大于 1。
+        expect(await control(url, "jobs/run", {module: "alpha", job: "count"})).toEqual({status: 200, body: {status: "done"}});
+        expect((await getJson(`${url}api/alpha/job-count`)).body).toEqual({count: 1});
+    });
+
     it("请求体不合格时回 400 bad_request，时间不动", async () => {
         const {url} = await startServing({root, env: env({NB_SITE_TEST_CONTROL: token})});
         const clockBodies: unknown[] = [{advanceMs: 0}, {advanceMs: -5}, {advanceMs: 1.5}, {advanceMs: "10"}, {}, {advanceMs: 1, extra: true}, [1], "not json", {advanceMs: Number.MAX_SAFE_INTEGER + 1}];

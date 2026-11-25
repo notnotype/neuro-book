@@ -45,7 +45,23 @@ export function migrationFailure(outcome: MigrationFailure): CommandFailure {
     };
 }
 
-export type MigrateAllOutcome = {readonly kind: "done"} | {readonly kind: "stopped"} | {readonly kind: "failed"; readonly failure: CommandFailure};
+/**
+ * 打开模块的库、读它的迁移账本时抛出的异常对应的失败行；不是这两种预料之中的异常时返回 undefined，调用方照常抛出（程序错误）。
+ * 持锁迁移与 `shared` 命令只核对迁移记录两条路径共用它：同一个坏库不论走哪条路径都报同一个码（`site.operations` 失败表）。
+ *
+ * - 文件系统不支持 WAL（`JournalModeError`）、库文件打不开（`SQLITE_CANTOPEN`：是目录、没有权限）是数据目录的问题，报
+ *   `data_dir_unusable`。SQLite 只给自己的码、不给系统的 errno，所以这一行不带 `errorCode`。
+ * - 其余 SQLite 错误归迁移失败（`sql_error`，不在某一条迁移上，`migration` 为 null）：文件是普通文件、权限也对，只是内容不是
+ *   SQLite 库（`SQLITE_NOTADB`），或读的时候出错、撞锁。SQLite 的说明不含路径。
+ */
+export function moduleDbFailure(module: string, error: unknown): CommandFailure | undefined {
+    if (error instanceof JournalModeError) return unusableFailure(module);
+    if (!(error instanceof SQLiteError)) return undefined;
+    if (error.code === "SQLITE_CANTOPEN") return unusableFailure(module);
+    return migrationFailure({ok: false, code: "migration_failed", reason: "sql_error", module, migration: null, dbCode: error.code ?? "SQLITE_ERROR", dbMessage: error.message});
+}
+
+export type MigrateAllOutcome ={readonly kind: "done"} | {readonly kind: "stopped"} | {readonly kind: "failed"; readonly failure: CommandFailure};
 
 /**
  * 按模块顺序打开库并执行迁移，打开的连接放进 `opened`（不论成败，由调用方关）。某个模块失败时后面的模块不再执行；
@@ -60,10 +76,9 @@ export async function openAndMigrate(dataDir: string, modules: readonly SiteModu
         try {
             db = openModuleDb(dataDir, module.name);
         } catch (error) {
-            if (error instanceof JournalModeError) return {kind: "failed", failure: unusableFailure(module.name)};
-            // 文件不是 SQLite 库、打不开：归为这个模块的迁移失败，说明里不带路径（SQLite 的说明不含路径）。
-            if (!(error instanceof SQLiteError)) throw error;
-            return {kind: "failed", failure: migrationFailure({ok: false, code: "migration_failed", reason: "sql_error", module: module.name, migration: null, dbCode: error.code ?? "SQLITE_ERROR", dbMessage: error.message})};
+            const failure = moduleDbFailure(module.name, error);
+            if (failure === undefined) throw error;
+            return {kind: "failed", failure};
         }
         opened.set(module.name, db);
         const outcome = await runMigrations(db, module, {

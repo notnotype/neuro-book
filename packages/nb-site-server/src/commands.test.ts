@@ -7,13 +7,14 @@
 
 import {Database} from "bun:sqlite";
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
-import {mkdir, rm} from "node:fs/promises";
+import {randomBytes} from "node:crypto";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {tryLock, type FileLock} from "@notnotype/nb-flock";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {startServing, startSite, stopAllSiteProcesses, type LogLine, type SiteProcess} from "./testing/process";
+import {MAIN_SCRIPT, startServing, startSite, stopAllSiteProcesses, type LogLine, type SiteProcess} from "./testing/process";
 
 let root: string;
 let dataDir: string;
@@ -91,6 +92,17 @@ describe("migrate", () => {
         // beta 只声明站点入口（拆成两个进程后只装账号模块的那个进程就是这样）。
         const {code} = await run(["migrate"], {NB_SITE_FIXTURE: "beta", NB_SITE_TELEMETRY_URL: ""});
         expect(code).toBe(0);
+    });
+
+    it("迁移开始之前收到的 SIGTERM：一条迁移也不执行，以 0 退出、标准错误为空", async () => {
+        const site = await startSite({root, args: ["migrate"], env: env({NB_SITE_ALPHA_WAIT: "parse"})});
+        await site.waitForLog("blocked in parseConfig", (line) => line.event === "fixture.waiting_stdin");
+        site.signal("SIGTERM");
+        site.writeStdin("go\n");
+        expect(await site.waitForExit()).toBe(0);
+        expect(site.logs().map((line) => line.event)).toContain("process.signal");
+        expect(applied(site)).toEqual([]);
+        expect(site.stderr).toEqual([]);
     });
 
     it("配置不合格时以 config_invalid 退出", async () => {
@@ -196,5 +208,30 @@ describe("模块命令被停止信号打断", () => {
         expect(await site.waitForExit()).toBe(1);
         expect(failureLine(site)).toMatchObject({code: "interrupted", command: "alpha-shared"});
         expect(site.logs().map((line) => line.event)).not.toContain("fixture.command_ran");
+    });
+});
+
+describe("产品入口的 create-admin：账号库不是 SQLite 库", () => {
+    // 两条路径打开库的方式不同：没人拿锁时先迁移，别人拿着锁时只核对迁移记录（`SiteCommand` 的 shared）。部署的人看到的码不该取决于
+    // 这时服务在不在跑。
+    it("别人拿着账号模块的锁时与没人拿锁时报同一个码：migration_failed、sql_error，migration 为 null，不带路径", async () => {
+        await writeFile(join(dataDir, "identity.db"), randomBytes(4096));
+        const mainEnv = env({NB_SITE_SESSION_SECRET: "SESSION-SECRET-7f3a-0123456789abcdef0123456789", NB_SITE_IDENTITY_TERMS_VERSION: "2026-11-20"});
+        const unlocked = await startSite({root, script: MAIN_SCRIPT, args: ["create-admin", "root"], env: mainEnv});
+        expect(await unlocked.waitForExit()).toBe(1);
+
+        const lock = tryLock(join(dataDir, "identity.lock"));
+        if (lock === null) throw new Error("identity.lock is already held");
+        held.push(lock);
+        const locked = await startSite({root, script: MAIN_SCRIPT, args: ["create-admin", "root"], env: mainEnv});
+        expect(await locked.waitForExit()).toBe(1);
+
+        for (const [path, site] of [["unlocked", unlocked], ["locked", locked]] as const) {
+            expect({path, failure: failureLine(site)}).toMatchObject({
+                path,
+                failure: {code: "migration_failed", module: "identity", migration: null, reason: "sql_error", dbCode: "SQLITE_NOTADB"},
+            });
+            expect({path, leaked: [...site.stdout, ...site.stderr].join("\n").includes(dataDir)}).toEqual({path, leaked: false});
+        }
     });
 });
