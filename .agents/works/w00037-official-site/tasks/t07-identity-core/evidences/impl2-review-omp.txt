@@ -1,0 +1,81 @@
+# w00037 t07 第 4、5 片只读实现审查
+
+对象：`be3c0e5cc..02ce9d01b`；依据为主工作区的 Spec、ADR 0060/0063、Task 记录与计划文末审查处理。下文源码行号对应 `02ce9d01b`。
+
+### 1. 登录排队会用光为不同密码格式预留的失败补时
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-site-identity/src/login.ts:145–151,180–197`；`packages/nb-site-identity/src/hash-limiter.ts:81–101,196–205`
+- **现象**：开始查账号之前就计入 150 毫秒。等库或等哈希名额累计超过 150 毫秒时，哪怕校验还没开始，这次失败也不会再补时。不存在或没有密码走 argon2id，旧格式走 scrypt，未知格式不做任何一轮密码计算；排队损耗不能抵掉这三条分支不同的校验耗时。
+- **为什么是问题**：`site.accounts` 输出 4 要求失败耗时不因账号是否存在而可区分。这里不必等单次校验慢到 150 毫秒；正常的并发排队本身就会使保护失效。不要把「所有 401 都经过 `finish(false)`」当成保护覆盖所有负载。
+- **如何核实**：静态跟踪 `startFailureFloor` → `conn.read` → `hashLimiter.run` → `finish`：`remaining = 150 - 查库耗时 - 排队耗时 - 校验耗时`。主工作区 Task README 第 4b 片记录的 32 个并发登录 p50 为 423 毫秒；第 4a 片的 150 毫秒依据是并发 2 的**单次**校验 p99（argon2id 71–79、scrypt 55–57 毫秒），不包含请求排队。现有下限用例把 `now` 固定为 0，无法检验排队超过下限的情况。未测生产上能区分到什么程度。
+- **建议改法**：至少按拿到名额、实际开始校验的时点补齐密码依赖段，而非从等待前扣掉补时；补一个显式推进排队时间、仍要求失败补齐的用例。若要承诺机器过载时也不可区分，另外给旧／未知格式定义等量工作或明确可维护的时间预算，不宣称单一固定下限足以保证。
+
+### 2. `create-admin` 在 SQLite 等写锁时收到停止信号仍提交
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review2/packages/nb-site-identity/src/commands/create-admin.ts:159–171`，同工作树 `packages/nb-site-server/src/db/open.ts:38–41`、`packages/nb-site-server/src/lifecycle.ts:10,62–65`。
+- **现象与影响**：`signal` 只在调用 `conn.write` 前检查。同步 `BEGIN IMMEDIATE` 忙等时 JS 收不到回调；如果这轮重试里的锁随后可用，就会写账号和审计，再以 0 退出。违背 `site.operations` 输出 5 的停止合同；重置已有账号时同样可提交密码变更与旧会话撤销。
+- **如何核实**：隔离库用另一个连接持写锁；真实 CLI 进入读密码提示后给输入，等 `/proc/<pid>/wchan` 可见 `hrtimer_nanosleep`，发 `SIGTERM` 后放锁。观测退出码 `0`，只有 `identity.admin_upserted`，账号和审计各新增 1 条。证据 `lab-omp/probe-cli-signal.log`。
+- **建议改法**：为该命令关闭 SQLite 同步忙等，用已有的可取消异步重试。以拿到写锁后再次检查取消、开始写入前为取消边界；在合同中区分等待锁与已经开始的同步事务。
+
+### 3. 请求体大小检查改变了登录、注册的失败优先级
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review2/packages/nb-site-identity/src/app.ts:50–51`；同工作树 `packages/nb-site-identity/src/login.ts:171–175`、`packages/nb-site-identity/src/register.ts:119–123`。
+- **现象与影响**：子应用先检查体大小，进路由后才查来源地址及注册开关。体超过 16 KiB 时，来源不可取的登录、注册或已关闭的注册都回 `400 validation_failed`，不是 `site.accounts` 失败表给出的优先结果 `403 forbidden_origin` 或 `403 registration_closed`。调用方拿到的是参数错误，而不是应显示的来源或注册状态。
+- **如何核实**：对真实进程用合法 `Origin`、可信的回环对端，有无 `X-Forwarded-For` 分别发送 `{}` 与同一个 16,396 字节 JSON；注册关闭。小体得到预期的两个 403，大体都得到 `400`、`fields: []`。不带 `Origin` 仍先得到 `forbidden_origin`。证据 `lab-omp/probe-http.log`。
+- **建议改法**：继续在读体前设上限，但让登录、注册的来源地址和开关门槛在上限之前执行；把另两类拒绝与超限一起写成失败顺序的合同用例。
+
+### 4. 注册码列表把特殊名字的查询键当成没传
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review2/packages/nb-site-identity/src/errors.ts:157–166`；同工作树 `packages/nb-site-identity/src/admin/registration-codes.ts:113–115`。
+- **现象与影响**：`readQuery` 向普通对象赋字符串，`__proto__` 被原型上的 setter 忽略，不会成为自有键。因此未知参数不会被严格 schema 拒绝，重复该键也不被检测，违反合同包拒收多余参数及第 5 片已定的重复键规则；未观察到原型变化或权限变化。
+- **如何核实**：对真实进程用已同意的管理员会话请求注册码列表。普通未知键回 `400 validation_failed`，特殊键出现一次或两次都回 `200`。证据 `lab-omp/probe-http.log`。
+- **建议改法**：用无原型对象收集查询参数，让每个键都进入重复检测与 schema 校验；合同用例核对未知键与重复键的 `fields`。
+
+### 5. `create-admin` 会静默丢掉密码里的 U+FEFF，终端确认漏报不一致
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review2/packages/nb-site-identity/src/commands/read-password.ts:63,138–150,181–190,347–354`。
+- **现象与影响**：`TextDecoder` 默认去掉解码开头的 U+FEFF。终端逐码点调用解码，密码中间的 U+FEFF 也丢掉；管道整段解码则丢掉开头的 U+FEFF。CLI 既没拒绝，也没使用实际输入的密码。终端两次输入不同本应按 `site.operations` 输出 5 回 `mismatch`，这里却提交了账号；脚本与网页登录使用同一原密码也会失败。这不同于本轮已处理的管道控制字符问题：字符在校验前已丢，后加校验也看不到。
+- **如何核实**：真实伪终端，两次输入只相差密码中间的 U+FEFF，实际退出 `0`，新增账号 1 个；普通差一个字母的对照回 `invalid_argument/mismatch`。管道输入带前导 U+FEFF 的合成密码，HTTP 用原密码回 `401`、去掉该码点回 `200`。证据 `lab-omp/probe-tty.log`、`lab-omp/probe-http.log`。
+- **建议改法**：两个解码器都设 `ignoreBOM: true`，让输入完整经过校验；如果规则要拒绝这个字符，显式拒绝，不静默删。测试密码开头与中间的 U+FEFF，并断言真实终端不同输入不提交。
+
+> 第 1 条（撤回，不计入有效发现）：主工作区 `plan.md`「实现审查（第 4、5 片）的处理」第 2 项已收录并给出处理，不再重复报告。被审提交仍是 `02ce9d01b`；未用该处理后的源码冒充被审结果。
+
+### 6. 有有效会话仍能调用访客专用的密码注册
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review2/packages/nb-site-identity/src/register.ts:39–51,119–129,154–163`。
+- **现象与影响**：`site.accounts` 输入表区分访客和用户，`POST register` 只开放给访客（没有会话的请求方）。实现不读请求里的会话；合法注册码与资料齐全时，已经登录的浏览器也会建号、消耗注册码，并收到新账号的同名会话 Cookie，替换浏览器里的登录身份。不是管理员授权绕过，仍要注册码。
+- **如何核实**：真实进程用一个已补交同意的管理员会话发放一次性注册码，再带同一个有效 Cookie 提交一份合格的注册请求。实测 `200` 且发新会话；带新 Cookie 查询 `whoami` 得新账号。证据 `lab-omp/probe-register-contract.log`。
+- **建议改法**：若访客限制是合同，注册在扣码前拒绝有效会话，并补拒绝码及优先级；若产品允许注册时切换身份，改输入表明确允许用户调用与 Cookie 的行为。
+
+### 7. 注册把无效的 UTF-8 当作修正后的 JSON 写进库
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review2/packages/nb-site-identity/src/errors.ts:95–105`；同工作树 `packages/nb-site-identity/src/register.ts:123,131–157`。
+- **现象与影响**：请求体用非严格的 `TextDecoder` 解码。无效 UTF-8 出现在 JSON 字符串里时，会变成 U+FFFD，随后通过字段校验；本片接入的注册会建成一个输入中没有的名字，并消耗注册码。`site.accounts` 输出 22 要求非 JSON 为 `400 validation_failed`、`fields: []`。这不是前一轮已修的只有 BOM 被当成空体的问题。
+- **如何核实**：真实进程上，以可用的一次性注册码和其他合法字段请求注册，显示名只含一个不是合法 UTF-8 的字节；实测 `200`、返回显示名为 U+FFFD，码的使用次数 `1`。直接以合法 JSON 传 U+FFFD 的对照也是 `200`，应保留。证据 `lab-omp/probe-register-contract.log`。
+- **建议改法**：请求体严格按 UTF-8 解码，失败与 JSON 语法错误进入同一个 `validation_failed` 出口；对照合法的 U+FFFD，断言无效字节不建号、不扣码。
+
+## 未发现问题的方面
+
+- 登录按用户名或邮箱查找、排除占位邮箱；发会话时复核封禁和密码哈希。旧格式升级用非排队名额和带旧值的条件更新，不覆盖并发的改密或重置。旧站原始数据的兼容性仍按 Task 留给 t12。
+- 对齐时间窗、整数 `Retry-After`、可信代理来源判定、IPv6 `/64` 与 `/48` 合计、容量与溢出计数均已核对。哈希名额的交接、超时出队、关闭时拒绝排队者与释放已占名额，未发现新增问题。已由前轮处理的组合键计数不重复列入。
+- 改密成功后保留当前会话、撤销其它会话；补交同意与管理写入在写事务内复核会话或操作者。`create-admin` 成功路径的账号、凭据、会话撤销和审计同事务提交；`spawnWithOpenStdin` 沿用合同底座的子进程收口。
+- 注册在哈希前检查码及占用，事务内带条件扣码并建号、写同意、发会话；失败回滚。同一单次码的并发使用、停用与过期均核过。注册码列表以锚点限定记录集，页结果与计数取同一读事务；排序和空页、偏移边界未发现问题。
+
+## 验证范围
+
+- Bun `1.4.4 (38afee6c8)`，在实现工作区的合同包运行 `bun test src/accounts-limits.test.ts src/accounts-register.test.ts src/accounts.test.ts src/admin.test.ts src/operations.test.ts`（未设 `NB_SITE_SERVER_COMMAND`、`NB_SITE_PREVIOUS_SERVER_COMMAND`）：104 通过、0 失败、749 个断言，81.97 秒。`nb-site-identity`、`nb-site-server`、`nb-site-contract-tests` 的 `bun run --no-env-file typecheck` 均通过。该阶段加载 `02ce9d01b93c845998bf8a826ee008273183e634`，结果见 `lab-omp/contract-02ce9d01b.txt`、`lab-omp/typecheck-*.log`。
+- 实现工作区出现并发未提交改动后，补充注册验证从同一提交的归档副本起真实进程。`import.meta.resolve` 确认六个工作区包从归档副本加载，第三方依赖来自已安装目录，Better Auth 为 `1.7.27`。解析与探针日志根为 `/tmp/review-w00037-t07-impl2/lab-omp/`。
+- 未跑 e2e、全量测试、相邻版本兼容矩阵或生产计时。未修改实现源码、依赖或 Git 状态。
+
+## 各级数量
+
+阻断 0；重要 2（第 2、5 条）；建议 4（第 3、4、6、7 条）。
+
+有效发现：2、3、4、5、6、7

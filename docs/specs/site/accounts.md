@@ -36,7 +36,7 @@ owners:
 
 | 接口 | 谁能调 | 作用 |
 |---|---|---|
-| `POST register` | 访客 | 密码注册 |
+| `POST register` | 访客、用户 | 密码注册 |
 | `POST login`、`POST logout` | 访客、用户 | 登录、结束当前会话 |
 | `GET whoami` | 任何人 | 问身份 |
 | `GET me`、`PATCH me` | 用户 | 读、改自己的资料 |
@@ -64,7 +64,7 @@ owners:
 
 ## 输出与可观察行为
 
-1. **密码注册。** 请求带用户名、可选的显示名（省略时取用户名）、邮箱、密码、注册码、可选的邀请码、同意的条款版本、对境外存放的同意。全部合格时创建账号、记下同意记录、扣注册码一次、记邀请归属，并当场建立会话；响应是账号的公开资料。
+1. **密码注册。** 请求带用户名、可选的显示名（省略时取用户名）、邮箱、密码、注册码、可选的邀请码、同意的条款版本、对境外存放的同意。全部合格时创建账号、记下同意记录、扣注册码一次、记邀请归属，并当场建立会话；响应是账号的公开资料。已登录时注册照样进行：浏览器换成新账号的会话，原来的会话不结束（与登录一样）。
 2. **注册的原子性。** 注册码的扣减、账号、同意记录要么都发生要么都不发生：因用户名或邮箱重复等原因没建成账号时，注册码不被扣。同一个只剩一次的注册码被并发使用时，至多一个请求成功。
 3. **注册的拒绝。** 注册关闭回 `registration_closed`；注册码不存在、停用、过期或用完回 `registration_code_invalid`；邀请码不存在、停用、过期或用完回 `invite_code_invalid`；条款版本不是当前版本、或没有同意境外存放回 `consent_required`；用户名、邮箱被占用分别回 `username_taken`、`email_taken`；字段不合规则回 `validation_failed` 并列出字段。
 4. **登录。** 请求带“用户名或邮箱”与密码；含 `@` 的按邮箱找，否则按用户名找；邮箱待补的账号不能用邮箱登录。凭据对、账号没被封禁时建立会话并回公开资料。凭据不对、账号不存在、账号没有密码都回同一个 `invalid_credentials`，响应时间不因账号是否存在而有可分辨的差别。被封禁的账号回 `account_banned`。
@@ -129,7 +129,7 @@ owners:
 | `not_found` | 404 | 没有这个接口，或会话、邀请码不是自己的、不存在 | 无 |
 | `internal` | 500 | 程序自身的错误 | 稍后重试，仍失败就报告缺陷 |
 
-同时有几处不合格时，回下面先后里的第一个。字段不合格的请求不计入限流。
+同时有几处不合格时，回下面先后里的第一个。字段不合格的请求不计入限流。请求体超过 16 KiB 的请求在来源头之后、下面别的检查之前就回 `validation_failed`（读体之前就要拦下）。
 
 - 注册：`forbidden_origin`、`registration_closed`、`validation_failed`、`rate_limited`、`consent_required`、`registration_code_invalid`、`invite_code_invalid`、`username_taken`、`email_taken`。码在占用之前查，没有可用注册码的人试不出哪些用户名与邮箱已被注册。
 - 登录：`forbidden_origin`、`validation_failed`、`rate_limited`、`overloaded`、`invalid_credentials`、`account_banned`。封禁在密码之后查，不知道密码的人试不出谁被封了。
