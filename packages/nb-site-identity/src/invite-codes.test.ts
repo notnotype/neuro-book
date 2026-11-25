@@ -8,10 +8,11 @@
 import {afterEach, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {InviteCodeItem, InviteCodeListResponse, type RegisterResponse} from "@notnotype/nb-site-identity-contract";
 
 import {libDate} from "./db/library-rows";
-import {TEST_SITE_URL} from "./testing/library";
+import {ManualTimers, TEST_SITE_URL} from "./testing/library";
 import {createTestIdentity, TEST_CLIENT_ADDRESS_HEADER, TEST_TERMS_VERSION, type TestIdentity} from "./testing/module";
 
 let identity: TestIdentity | undefined;
@@ -115,13 +116,40 @@ describe("生成与列表（输出 18）", () => {
         expect(await outcome(await generate(identity, cookie))).toEqual({status: 409, body: {error: {code: "invite_code_limit"}}});
     });
 
-    it("并发的生成不越过上限：同时发 12 个，10 个成功、2 个 invite_code_limit，表里正好 10 个", async () => {
-        identity = await createTestIdentity("identity-invite-concurrent");
+    it("并发的生成不越过上限：差一个满额时两个生成交错着排队，一个成功、一个 invite_code_limit，表里正好 10 个", async () => {
+        // 手动计时器只用来数排队等锁的个数，不拨它。
+        const timers = new ManualTimers();
+        identity = await createTestIdentity("identity-invite-concurrent", {timers});
         const alice = await identity.addUser("alice", {consent: CONSENTED});
+        for (let index = 0; index < 9; index += 1) await addInviteCode(identity, `OLD-${String(index)}`, alice);
         const {cookie} = await identity.issue(alice);
-        const responses = await Promise.all(Array.from({length: 12}, () => generate(identity!, cookie)));
-        const statuses = responses.map((response) => response.status).sort();
-        expect(statuses).toEqual([...Array.from({length: 10}, () => 200), 409, 409]);
+        const {adapter} = await identity.assembly.auth.$context;
+        const hold = () => {
+            const started = Promise.withResolvers<void>();
+            const finish = Promise.withResolvers<void>();
+            const done = identity!.conn.withLibTransaction(adapter, async () => {
+                started.resolve();
+                await finish.promise;
+            });
+            return {started: started.promise, release: async () => (finish.resolve(), await done)};
+        };
+
+        // 库的查询是同步的，不占住队列时两个请求一个跑完再跑下一个，什么写法都不越过上限。这里让两个请求的每一步都排在一起：
+        // 先占住队列，等两个中间件读会话都排上；再在它们后面排第二个占位，放开第一个；两个请求读完会话后各自的下一步（数与插入）
+        // 都排在第二个占位后面，放开它，两个的下一步紧挨着跑。数与插入分在两个事务里时，两个都数到 9、都插入。
+        const first = hold();
+        await first.started;
+        const requests = [generate(identity, cookie), generate(identity, cookie)];
+        await waitUntil("两个中间件读会话都在排队", () => timers.pending === 2);
+        const second = hold();
+        await waitUntil("第二个占位排在它们后面", () => timers.pending === 3);
+        await first.release();
+        await second.started;
+        await waitUntil("两个请求的下一步都排在第二个占位后面", () => timers.pending === 2);
+        await second.release();
+        const responses = await Promise.all(requests);
+
+        expect(await Promise.all(responses.map(outcome)).then((results) => results.map((result) => result.status).sort())).toEqual([200, 409]);
         expect(await identity.conn.read((tx) => tx.query<{n: number}, [number]>(`SELECT count(*) AS n FROM identity_invite_code WHERE owner_id = ?`).get(alice)!.n)).toBe(10);
     });
 
