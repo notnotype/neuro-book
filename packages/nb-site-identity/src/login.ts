@@ -209,7 +209,7 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
 
         let issued: {readonly cookies: readonly string[]} | undefined;
         for (let round = 0; issued === undefined; round += 1) {
-            const outcome = await issueInTransaction(options, userId, accountRowId, verified);
+            const outcome = await issueInTransaction(options, userId, accountRowId, verified, c.req.header("User-Agent") ?? null);
             if (outcome.kind === "issued") {
                 issued = outcome;
                 break;
@@ -237,14 +237,14 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
 type IssueOutcome = {readonly kind: "issued"; readonly cookies: readonly string[]} | {readonly kind: "banned"} | {readonly kind: "changed"; readonly password: string | null};
 
 /** 文件头的第 7 步：一个库的事务里复核、发会话、写最后登录时间。复核不成立时事务里什么也没写。 */
-async function issueInTransaction(options: LoginOptions, userId: number, accountRowId: number, verified: string): Promise<IssueOutcome> {
+async function issueInTransaction(options: LoginOptions, userId: number, accountRowId: number, verified: string, userAgent: string | null): Promise<IssueOutcome> {
     const {conn} = options;
     try {
         return await conn.withLibTransaction(options.adapter, async () => {
             const checked = await conn.write((tx) => recheck(tx, userId, accountRowId, verified));
             if (checked.kind !== "ok") return checked;
-            // 浏览器标识的概要（输出 17）由第 6 片的规则表给，在那之前存 null。
-            const {cookies} = await options.issueSession(userId, null);
+            // 原样交出 `User-Agent`：换成概要在建会话的钩子里（`auth.ts`），不在这里。
+            const {cookies} = await options.issueSession(userId, userAgent);
             const now = libDate(options.clock.now());
             await conn.write((tx) =>
                 tx

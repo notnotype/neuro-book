@@ -18,7 +18,7 @@
 | 类 | 依赖的东西 | 用例 | 失败说明什么 |
 |---|---|---|---|
 | 内部接口 | 插件端点的 `metadata.SERVER_ONLY`：经 `auth.handler` 是 404，只能经 `auth.api` 调 | `auth.test.ts` “只供服务端调用的端点” | 模块自己的发会话、发 Cookie、清 Cookie 端点能从外部调到 |
-| 内部接口 | `internalAdapter.findUserById`、`createSession`，`setSessionCookie`（`better-auth/cookies`）；建会话前的 `databaseHooks.session.create.before` 改写的时间与列如实落库 | `auth.test.ts` “发会话”两条 | 会话的 Cookie 名字或属性、时间取哪只时钟、来源地址与浏览器标识的存法变了 |
+| 内部接口 | `internalAdapter.findUserById`、`createSession`，`setSessionCookie`（`better-auth/cookies`）；`createSession` 从这次调用的请求头取 `User-Agent` 填进 `userAgent`；建会话前的 `databaseHooks.session.create.before` 改写的时间与列（`userAgent` 换成浏览器概要，`user-agent.ts`）如实落库 | `auth.test.ts` “发会话”两条 | 会话的 Cookie 名字或属性、时间取哪只时钟、来源地址与浏览器标识的存法变了；原始的浏览器标识落库，或会话列表里浏览器与系统全是空 |
 | 内部接口 | `internalAdapter.findSession` 加 `setSessionCookie` 重发同一个令牌的 Cookie | `session.test.ts` “满一天后延长一次并重发同一个令牌的 Cookie” | 延长后浏览器拿不到新的 `Max-Age` |
 | 内部接口 | `deleteSessionCookie`（`better-auth/cookies`） | `app.test.ts` “只结束当前会话”；`session.test.ts` “按模块的时钟过了会话时长” | 登出与到期清不掉 Cookie |
 | 内部接口 | 库的事务与“当前适配器”的异步上下文（`runWithTransaction`、`getCurrentDBAdapterAsyncLocalStorage`）；库里不取当前事务的调用（已知 `reserveVerificationValue`） | `db/connection.test.ts` “库的事务跨 await 开着时”“用错了的立即失败” | 队列的重入判断或自锁检测失效（`db/connection.ts` 文件头） |

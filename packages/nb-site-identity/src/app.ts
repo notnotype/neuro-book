@@ -16,9 +16,11 @@ import {registerRegistrationCodeRoutes, type RegistrationCodeAdminOptions} from 
 import {registerChangePasswordRoute, type ChangePasswordOptions} from "./change-password";
 import {bodySizeLimit, failureFor, failureResponse, readEmptyBody, respondFailure} from "./errors";
 import type {IdentityLog} from "./index";
+import {registerInviteCodeRoutes, type InviteCodeOptions} from "./invite-codes";
 import {loginRoute, type LoginOptions} from "./login";
 import {registerMeRoutes, type MeOptions} from "./me";
 import {appendCookies, requireSameOrigin} from "./middleware";
+import {registerMySessionRoutes, type MySessionsOptions} from "./my-sessions";
 import {registerRoute, type RegisterOptions} from "./register";
 import type {Sessions} from "./session";
 
@@ -33,6 +35,8 @@ export interface IdentityAppOptions {
     readonly register: RegisterOptions;
     readonly changePassword: ChangePasswordOptions;
     readonly me: MeOptions;
+    readonly mySessions: MySessionsOptions;
+    readonly inviteCodes: InviteCodeOptions;
     readonly registrationCodes: RegistrationCodeAdminOptions;
 }
 
@@ -70,6 +74,8 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     app.post(IDENTITY_PATHS.register, registerRoute(options.register));
     app.post(IDENTITY_PATHS.login, loginRoute(options.login));
     registerMeRoutes(app, options.me);
+    registerMySessionRoutes(app, options.mySessions);
+    registerInviteCodeRoutes(app, options.inviteCodes);
     registerChangePasswordRoute(app, options.changePassword);
     registerRegistrationCodeRoutes(app, options.registrationCodes);
 

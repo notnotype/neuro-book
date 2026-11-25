@@ -262,10 +262,14 @@ export class Sessions {
         }
     }
 
-    /** 给一个账号发会话，回会话 id 与要发出的 `Set-Cookie`。`userAgent` 是已换成概要的写法或 null。 */
+    /**
+     * 给一个账号发会话，回会话 id 与要发出的 `Set-Cookie`。`userAgent` 是请求原样的 `User-Agent` 头，没有时为 null：它只作为这次
+     * 调用的请求头交给库，建会话前的钩子把它换成概要再落库（`auth.ts`）。
+     */
     async issue(userId: number, userAgent: string | null): Promise<{readonly sessionId: number; readonly cookies: string[]}> {
-        const {headers, response} = await this.#auth.api.issueSession({body: {userId, userAgent}, returnHeaders: true});
-        return {sessionId: response.sessionId, cookies: headers.getSetCookie()};
+        const headers = new Headers(userAgent === null ? {} : {"user-agent": userAgent});
+        const {headers: responseHeaders, response} = await this.#auth.api.issueSession({body: {userId}, headers, returnHeaders: true});
+        return {sessionId: response.sessionId, cookies: responseHeaders.getSetCookie()};
     }
 
     /** 清除会话 Cookie 的 `Set-Cookie`。 */

@@ -41,7 +41,7 @@ describe("只供服务端调用的端点", () => {
         identity = await createTestIdentity("identity-auth-server-only");
         const userId = await identity.addUser("alice");
         for (const [path, body] of [
-            ["/nb-session/issue", {userId, userAgent: null}],
+            ["/nb-session/issue", {userId}],
             ["/nb-session/cookie", {token: "x"}],
             ["/nb-session/clear", {}],
         ] as const) {
@@ -82,12 +82,14 @@ describe("发会话", () => {
         });
     });
 
-    it("给了浏览器标识的概要时原样存", async () => {
+    it("请求带的浏览器标识经建会话前的钩子换成概要再存，原始标识不落库；认不出的存成空", async () => {
         identity = await createTestIdentity("identity-auth-issue-agent");
         const userId = await identity.addUser("alice");
-        const summary = JSON.stringify({browser: "Firefox", os: "Linux"});
-        const {sessionId} = await identity.issue(userId, summary);
-        expect(await identity.sessionRow(sessionId)).toMatchObject({userAgent: summary});
+        const firefox = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
+        const known = await identity.issue(userId, firefox);
+        expect(await identity.sessionRow(known.sessionId)).toMatchObject({userAgent: JSON.stringify({browser: "Firefox", os: "Linux"})});
+        const unknown = await identity.issue(userId, "curl/8.10.1");
+        expect(await identity.sessionRow(unknown.sessionId)).toMatchObject({userAgent: null});
     });
 });
 

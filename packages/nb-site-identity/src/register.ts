@@ -153,8 +153,8 @@ export function registerRoute(options: RegisterOptions): (c: Context) => Promise
 
         const {profile, cookies} = await conn.withLibTransaction(options.adapter, async () => {
             const created = await conn.write((tx) => createAccount(tx, candidate, passwordHash, options.termsVersion, options.clock.now()));
-            // 浏览器标识的概要（输出 17）由第 6 片的规则表给，在那之前存 null，与登录一样。
-            const issued = await options.issueSession(created.id, null);
+            // 原样交出 `User-Agent`：换成概要在建会话的钩子里（`auth.ts`），与登录一样。
+            const issued = await options.issueSession(created.id, c.req.header("User-Agent") ?? null);
             return {profile: created, cookies: issued.cookies};
         });
 

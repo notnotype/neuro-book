@@ -1,8 +1,8 @@
 /**
- * 自己的资料与补交同意（`me.ts`；`site.accounts` 输出 8、10，同意门槛的放行表）。
+ * 自己的资料、改资料与补交同意（`me.ts`；`site.accounts` 输出 8、10，同意门槛的放行表）。
  *
- * 合同测试覆盖“建管理员、登录、补交同意”的主路径；这里补字段的各种取值（邮箱待补、没有密码、条款版本过期、不同意境外存放）与
- * 补交同意的写事务复核会话（中间件读会话与写事务之间会话被结束，经队列的先后插入）。
+ * 合同测试覆盖“建管理员、登录、补交同意、改资料”的主路径；这里补字段的各种取值（邮箱待补、没有密码、条款版本过期、不同意境外存放、
+ * 改资料的每个字段与拒收），以及补交同意与改资料的写事务复核会话（中间件读会话与写事务之间会话被结束，经队列的先后插入）。
  */
 
 import {afterEach, describe, expect, it} from "bun:test";
@@ -153,5 +153,149 @@ describe("POST me/consent（输出 10）", () => {
         expect(await outcome(await request)).toEqual({status: 401, body: {error: {code: "unauthenticated"}}});
         const count = await identity.conn.read((tx) => tx.query<{n: number}, [number]>(`SELECT COUNT(*) AS n FROM identity_consent WHERE user_id = ?`).get(userId)!.n);
         expect(count).toBe(0);
+    });
+});
+
+function patchMe(target: TestIdentity, cookie: string, body: unknown): Promise<Response> {
+    return target.fetch("/me", {method: "PATCH", headers: {origin: TEST_SITE_URL, "content-type": "application/json", cookie}, body: JSON.stringify(body)});
+}
+
+describe("PATCH me（输出 8）", () => {
+    it("每个字段单独改：回更新后的资料，GET me 读到同样的；邮箱转小写", async () => {
+        identity = await createTestIdentity("identity-me-patch-fields");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        const cases = [
+            [{displayName: "爱丽丝 🌸"}, {displayName: "爱丽丝 🌸"}],
+            [{avatarUrl: "https://cdn.example/alice.png"}, {avatarUrl: "https://cdn.example/alice.png"}],
+            [{website: "http://alice.example/blog"}, {website: "http://alice.example/blog"}],
+            [{bio: "写长篇的人"}, {bio: "写长篇的人"}],
+            [{email: "Alice.New@Example.COM"}, {email: "alice.new@example.com"}],
+        ] as const;
+        for (const [body, expected] of cases) {
+            const response = await patchMe(identity, cookie, body);
+            const answer = await response.json();
+            expect({body, status: response.status, shape: Value.Check(MeResponse, answer)}).toEqual({body, status: 200, shape: true});
+            expect(answer).toMatchObject(expected);
+            expect(await (await getMe(identity, cookie)).json()).toEqual(answer);
+        }
+        expect(await (await getMe(identity, cookie)).json()).toMatchObject({
+            username: "alice",
+            displayName: "爱丽丝 🌸",
+            avatarUrl: "https://cdn.example/alice.png",
+            website: "http://alice.example/blog",
+            bio: "写长篇的人",
+            email: "alice.new@example.com",
+        });
+    });
+
+    it("头像、网站、签名给 null 清空；签名可以是空串", async () => {
+        identity = await createTestIdentity("identity-me-patch-clear");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        await patchMe(identity, cookie, {avatarUrl: "https://cdn.example/a.png", website: "https://alice.example", bio: "hello"});
+        expect(await (await patchMe(identity, cookie, {avatarUrl: null, website: null, bio: null})).json()).toMatchObject({avatarUrl: null, website: null, bio: null});
+        expect(await (await patchMe(identity, cookie, {bio: ""})).json()).toMatchObject({bio: ""});
+    });
+
+    it("长度按码点数：显示名 50 个、签名 200 个表情符号照收，再多一个是 validation_failed", async () => {
+        identity = await createTestIdentity("identity-me-patch-length");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        expect((await patchMe(identity, cookie, {displayName: "🌸".repeat(50), bio: "🌸".repeat(200)})).status).toBe(200);
+        expect(await outcome(await patchMe(identity, cookie, {displayName: "🌸".repeat(51)}))).toEqual({status: 400, body: {error: {code: "validation_failed", fields: ["displayName"]}}});
+        expect(await outcome(await patchMe(identity, cookie, {bio: "🌸".repeat(201)}))).toEqual({status: 400, body: {error: {code: "validation_failed", fields: ["bio"]}}});
+    });
+
+    it("空对象、多余的键（含用户名）、不合规则的地址与邮箱：validation_failed，什么都不改", async () => {
+        identity = await createTestIdentity("identity-me-patch-invalid");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        const before = await (await getMe(identity, cookie)).json();
+        const cases: readonly (readonly [body: unknown, fields: readonly string[]])[] = [
+            [{}, []],
+            [{username: "mallory"}, ["username"]],
+            [{displayName: "Alice", role: "admin"}, ["role"]],
+            [{avatarUrl: "javascript:alert(1)"}, ["avatarUrl"]],
+            // 协议开头对、解析不出来：schema 过了，`isWebUrl` 拒收。
+            [{website: "https://"}, ["website"]],
+            [{displayName: "Alice", avatarUrl: "https://"}, ["avatarUrl"]],
+            [{email: "alice@placeholder.invalid"}, ["email"]],
+            [{email: "not an email"}, ["email"]],
+            [{displayName: ""}, ["displayName"]],
+        ];
+        for (const [body, fields] of cases) {
+            expect({request: body, ...(await outcome(await patchMe(identity, cookie, body)))}).toEqual({request: body, status: 400, body: {error: {code: "validation_failed", fields}}});
+        }
+        expect(await (await getMe(identity, cookie)).json()).toEqual(before);
+    });
+
+    it("邮箱改成别人的（大小写不同也算）：email_taken，什么都不改；改成自己现在的邮箱照样成功", async () => {
+        identity = await createTestIdentity("identity-me-patch-email-taken");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        await identity.addUser("bob");
+        const {cookie} = await identity.issue(userId);
+        expect(await outcome(await patchMe(identity, cookie, {displayName: "Changed", email: "BOB@example.com"}))).toEqual({status: 409, body: {error: {code: "email_taken"}}});
+        expect(await (await getMe(identity, cookie)).json()).toMatchObject({displayName: "alice", email: "alice@example.com"});
+        const same = await patchMe(identity, cookie, {email: "ALICE@example.com"});
+        expect({status: same.status, email: ((await same.json()) as {email: string}).email}).toEqual({status: 200, email: "alice@example.com"});
+    });
+
+    it("邮箱待补的账号补上邮箱：邮箱待补清掉，之后能用这个邮箱登录", async () => {
+        identity = await createTestIdentity("identity-me-patch-email-pending");
+        const userId = await identity.addUser("pending", {consent: CONSENTED, password: "correct horse battery"});
+        await identity.conn.write((tx) => {
+            tx.query(`UPDATE "user" SET "email" = 'pending.pending@placeholder.invalid' WHERE "id" = ?`).run(userId);
+            tx.query(`INSERT INTO identity_profile (user_id, email_pending) VALUES (?, 1)`).run(userId);
+        });
+        const login = (identifier: string) =>
+            identity!.fetch("/login", {method: "POST", headers: {origin: TEST_SITE_URL, "content-type": "application/json"}, body: JSON.stringify({identifier, password: "correct horse battery"})});
+        expect((await login("pending@example.org")).status).toBe(401);
+        const {cookie} = await identity.issue(userId);
+        expect(await (await patchMe(identity, cookie, {email: "pending@example.org"})).json()).toMatchObject({email: "pending@example.org", emailPending: false});
+        expect((await login("pending@example.org")).status).toBe(200);
+    });
+
+    it("补充资料那一行还没有的账号（命令行建的）也能改网站与签名", async () => {
+        identity = await createTestIdentity("identity-me-patch-no-profile");
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie} = await identity.issue(userId);
+        expect(await (await patchMe(identity, cookie, {website: "https://alice.example", bio: "hi"})).json()).toMatchObject({website: "https://alice.example", bio: "hi"});
+    });
+
+    it("在同意门槛之内：缺同意时 consent_required，不改", async () => {
+        identity = await createTestIdentity("identity-me-patch-consent");
+        const userId = await identity.addUser("alice", {consent: {termsVersion: "2020-01-01", overseasStorage: true}});
+        const {cookie} = await identity.issue(userId);
+        expect(await outcome(await patchMe(identity, cookie, {displayName: "Changed"}))).toEqual({status: 403, body: {error: {code: "consent_required"}}});
+        expect(await (await getMe(identity, cookie)).json()).toMatchObject({displayName: "alice"});
+    });
+
+    it("中间件读过会话之后、写事务之前会话被结束：unauthenticated，不改", async () => {
+        // 手动计时器只用来数排队等锁的个数，不拨它。
+        const timers = new ManualTimers();
+        identity = await createTestIdentity("identity-me-patch-session-ended", {timers});
+        const userId = await identity.addUser("alice", {consent: CONSENTED});
+        const {cookie, sessionId} = await identity.issue(userId);
+        const {adapter} = await identity.assembly.auth.$context;
+
+        // 与补交同意的那条一样排队：中间件读会话排第一，结束会话的写排第二，改资料的写在中间件之后才发起、排在最后。
+        const started = Promise.withResolvers<void>();
+        const finish = Promise.withResolvers<void>();
+        const holder = identity.conn.withLibTransaction(adapter, async () => {
+            started.resolve();
+            await finish.promise;
+        });
+        await started.promise;
+        const request = patchMe(identity, cookie, {displayName: "Changed"});
+        await waitUntil("中间件读会话在排队", () => timers.pending === 1);
+        const end = identity.conn.write((tx) => endSession(tx, sessionId));
+        await waitUntil("结束会话的写排在它后面", () => timers.pending === 2);
+        finish.resolve();
+        await holder;
+
+        expect(await end).toBe(1);
+        expect(await outcome(await request)).toEqual({status: 401, body: {error: {code: "unauthenticated"}}});
+        expect(await identity.conn.read((tx) => tx.query<{name: string}, [number]>(`SELECT "name" FROM "user" WHERE "id" = ?`).get(userId))).toEqual({name: "alice"});
     });
 });

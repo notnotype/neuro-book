@@ -25,6 +25,7 @@ import {parseUsernameInput, USERNAME} from "@notnotype/nb-site-identity-contract
 import type {LibDatabaseConfig} from "./db/connection";
 import type {IdentityLog} from "./index";
 import {hashPassword, verifyPassword} from "./password";
+import {storedUserAgent} from "./user-agent";
 
 /** 库的路由前缀。本 Task 不把 `auth.handler` 挂上去；t08 在这个前缀下按白名单挂标准 OAuth 端点（ADR 0060 决策 3）。 */
 export const LIB_BASE_PATH = "/api/identity/auth";
@@ -56,7 +57,7 @@ function bodySchema<S extends TSchema>(schema: S): StandardSchemaV1<Static<S>> {
     };
 }
 
-const IssueSessionBody = Type.Object({userId: Type.Integer({minimum: 1}), userAgent: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false});
+const IssueSessionBody = Type.Object({userId: Type.Integer({minimum: 1})}, {additionalProperties: false});
 const SessionCookieBody = Type.Object({token: Type.String()}, {additionalProperties: false});
 
 /**
@@ -68,14 +69,15 @@ function nbSession() {
         id: "nb-session",
         endpoints: {
             /**
-             * 给一个已存在的账号发会话。`userAgent` 是已换成概要的写法或 null（原始的浏览器标识不落库，`site.accounts` 副作用一节）。
+             * 给一个已存在的账号发会话。浏览器标识随调用的 `headers`（`user-agent`）进来，库的 `createSession` 从这次调用的请求头
+             * 里取它，与 t08 由库自己建会话时是同一条路；原始写法在建会话前的钩子里换成概要，不落库（见 `databaseHooks`）。
              * 账号被封禁时 `admin` 插件在建会话前拒绝（`APIError`，`BANNED_USER`），调用方换成 `account_banned`。
              */
             issueSession: createAuthEndpoint("/nb-session/issue", {method: "POST", body: bodySchema(IssueSessionBody), metadata: {SERVER_ONLY: true}}, async (ctx) => {
-                const {userId, userAgent} = ctx.body;
+                const {userId} = ctx.body;
                 const user = await ctx.context.internalAdapter.findUserById(String(userId));
                 if (user === null) throw new TypeError("issueSession: the account does not exist");
-                const session = await ctx.context.internalAdapter.createSession(String(userId), false, {userAgent});
+                const session = await ctx.context.internalAdapter.createSession(String(userId), false);
                 await setSessionCookie(ctx, {session, user}, false);
                 return ctx.json({sessionId: Number(session.id)});
             }),
@@ -172,8 +174,11 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
         databaseHooks: {
             session: {
                 create: {
-                    // 库建会话时取系统时间；改成模块的时钟（计划 3.14：合同测试拨的是模块的时钟）。来源地址恒为空；
-                    // 浏览器标识由 issueSession 给（概要或 null），没给时库填的空串也存成 null。
+                    // 库建会话时取系统时间；改成模块的时钟（计划 3.14：合同测试拨的是模块的时钟）。来源地址恒为空。
+                    // 浏览器标识：库按这次调用的请求头填进原始的 `User-Agent`（没有时是空串），这里换成概要的 JSON 或 null
+                    // （`user-agent.ts`；`site.accounts` 副作用一节“只存概要”）。所有建会话的路（模块的 issueSession、t08 由库建的）
+                    // 都经这个钩子，概要只在这一处算。`databaseHooks` 的 before 返回的 `data` 整个替换库要插入的行，是库 1.7.27 的
+                    // 行为，由升级清单“内部接口”的“发会话”用例核对。
                     before: async (session) => {
                         const now = clock.now();
                         return {
@@ -183,7 +188,7 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
                                 updatedAt: new Date(now),
                                 expiresAt: new Date(now + sessionSeconds * 1000),
                                 ipAddress: null,
-                                userAgent: session.userAgent === "" || session.userAgent === undefined ? null : session.userAgent,
+                                userAgent: storedUserAgent(session.userAgent),
                             },
                         };
                     },

@@ -46,7 +46,7 @@ export interface TestIdentity {
      * 原样存（旧站格式的样本）。两个都没给的账号没有密码。
      */
     addUser(username: string, options?: TestUserOptions): Promise<number>;
-    /** 给账号发会话，回 `Cookie` 请求头的值与会话 id。 */
+    /** 给账号发会话，回 `Cookie` 请求头的值与会话 id。`userAgent` 是原始的浏览器标识，与请求里的 `User-Agent` 一样经建会话的钩子换成概要。 */
     issue(userId: number, userAgent?: string | null): Promise<{readonly cookie: string; readonly sessionId: number; readonly setCookies: string[]}>;
     /** 会话表里的原始行；没有时为 null。 */
     sessionRow(sessionId: number): Promise<Readonly<Record<string, unknown>> | null>;
