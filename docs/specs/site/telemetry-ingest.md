@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.telemetry-ingest
 owners:
   - nb-site-telemetry
@@ -90,6 +90,17 @@ owners:
 
 Smoke：合同测试包里三个写入口各记入一份（C1、C7、C8）与备份不带原始上报（C16）的用例；“记入后在聚合里看到”的黑盒用例等看板有读聚合的接口（planned）。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-site-telemetry` 的 `createTelemetryModule`（三个写入口、`aggregate` 与 `purge` 两个任务、关闭）、`parseTelemetryConfig`、`telemetryMigrations`、`prepareTelemetryBackupCopy`、`TELEMETRY_INGEST_PREFIX`；字段表、分档表与报文的 schema 在 `@notnotype/nb-site-telemetry-contract`。
+- owner 是 `nb-site-telemetry`；它只依赖统计的合同包与 TypeBox，由进程入口 `nb-site-server` 经适配器装配，不反向依赖入口（包的架构用例守着）。
+- 读完请求体之后只取一次时间，校验用的服务端日与记入的时刻出自这一次；写入是同步事务、不跨 `await`，库忙时不等锁。
+- 聚合一批与推进游标在同一个事务里，一批取游标之后的行、到实际取到的最后一行为止；删除之前的聚合以到期行的最大编号为上界，聚合出错照删，库写不进时整轮不删。
+- 业务连接开着 `secure_delete`，删除之后在事务外做截断检查点（这一轮删过就做，后面出错也做）；备份副本同样开着 `secure_delete`，先聚合再清空两张原始表。
+
 ## 证据
 
 - 批准依据：[本机统计、遥测与反馈](../../proposals/telemetry-stats-feedback.md)、[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0062](../../adr/0062-telemetry-tiers-by-identifiability.md)
+- 实现入口：[`packages/nb-site-telemetry/src/index.ts`](../../../packages/nb-site-telemetry/src/index.ts)
+- 合同测试：[`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts`](../../../packages/nb-site-contract-tests/src/telemetry-ingest.test.ts)、[`packages/nb-site-contract-tests/src/adjacent-version.test.ts`](../../../packages/nb-site-contract-tests/src/adjacent-version.test.ts)
+- Smoke：[`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts`](../../../packages/nb-site-contract-tests/src/telemetry-ingest.test.ts)

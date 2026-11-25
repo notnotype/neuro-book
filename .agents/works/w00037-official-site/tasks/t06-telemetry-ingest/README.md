@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t06-telemetry-ingest
-status: active
-updated: 2026-11-24
+status: done
+updated: 2026-11-25
 ---
 
 # 统计模块：三个写入口、原始上报留 7 天、聚合
@@ -65,6 +65,10 @@ omp 对第 4、5 片的审查（10 条，重要 5、建议 5）已处理并提�
 - 第 10 条（删除任务找到期行的上界）改走日索引后，80 万行、每份 27 项错误的库上：没有到期行时冷缓存约 1 毫秒（原写法 15 到 23 秒）；有到期行时与到期行数成正比，10 万行冷 35 到 38 毫秒、20 万行 81 毫秒、40 万行 162 到 228 毫秒；第一批 500 行删除冷 42 到 48 毫秒。按已知限制处理：平时每轮只到期刚过期的那一天，停机很久、积压多天后的第一轮可能超过 100 毫秒，只有那一轮。结论写在查询旁的注释里，并有守着查询计划的用例。
 - 与处理表不同、接受的：检查点失败另记一行 `telemetry.checkpoint_failed`；看最终日志行的用例放在入口包（只有入口的日志器会盖掉同名的键）；那条用例要真的迁移建库，单跑约 263 毫秒，超出单条用例的预算，不改。
 
+晋升前的逐条核对（Opus 子代理）：没有没实现的条目，也没有代码缺陷；5 条与字面不一致改 Spec 贴实现（内容类型不分大小写、有旧快照读者时删除的期限、来源地址至迟在下一次删除任务时清掉、“登录照常”与“记入后在聚合里看到”两处标 planned），6 处没有测试的补了用例（`d80c9771b`，每条都做了变异）。报告 [`evidences/promotion-check.txt`](evidences/promotion-check.txt)。
+
+合入 master（2026-11-25，合并提交 `f3209d730`）：合并前在 Work 分支上跑官方站六个包的 `test:affected` 加类型检查、`governance:check`、`docs:check`、`actionlint`；入口有一条读日志的用例因“回应先于日志行到达管道”偶发失败，单独重跑 5 遍都过，改成等日志行出现（同文件里 t05 记过的同类那条一并改了，`3b6ca0907`）。`site.telemetry-ingest` 已晋升 `implemented`，补了实现合同与证据。`telemetry.protocol` 仍是 `planned`：发送方（应用侧的遥测插件，w00053）还没做。
+
 ## 下一步
 
-对 `site.telemetry-ingest` 与 `telemetry.protocol` 做晋升前的逐条核对（Opus 子代理），按结果补实现与测试或改 Spec，写实现合同与证据；然后 Work 分支合入 master，Spec 晋升 `implemented`。
+本 Task 的范围做完了。留给别处的：CI 的 `site-image` 作业与相邻版本两步第一次在 CI 上跑的结果（t13 看）；合同测试临时读聚合表的例外（t11 改走接口）；`telemetry.protocol` 随 w00053 的发送方晋升。
