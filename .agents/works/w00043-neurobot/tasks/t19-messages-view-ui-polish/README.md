@@ -36,5 +36,6 @@ updated: 2026-11-25
 
 ## 下一步
 
-- 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者，等定方向。
+- 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者；开发者 2026-11-25 同意按归纳的方向出稿。
+- 评审板第 3 轮（取代第 2 轮两题）：`rail-kind` 甲 工作台的侧轨（推荐）对 乙 头像列留在视图里贴右边、无竖线、底色深一档；`list-switcher` A 锚在按钮旁的浮层（推荐）对 B 顶部居中的 QuickPick；附左右对调整窗稿（对调另开 Task）。稿面修了：接缝按相连画、聊天区铺满、当前会话改描边只突出一层、底部图标换成机器人与搜索列表。原图在本地 `shots/r3/`。
 - 第 2 轮答复后：侧轨涉及工作台骨架（ADR 0044、`ui/workbench-layout.md` 输出 1、22、47），先写提案；窄版列表交互出稿比较；消息样式随后一轮。
