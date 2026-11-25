@@ -87,7 +87,7 @@ GET 的地址也收 HEAD。
 14. **确认页的接口。** `GET oauth/authorization` 带确认页地址上的 `request`，回客户端名字、客户端回调地址的主机名（带非缺省端口时连同端口）、要的范围（`openid`、`profile`、`email` 的数组）。`POST oauth/authorization` 同意时回带授权码的跳回地址，拒绝时回带 `access_denied` 的跳回地址；页面把浏览器带去这个地址。`request` 被篡改或超过 10 分钟时两者都回 `authorization_expired`；这期间客户端被停用回 `client_not_found`，客户端的回调地址被改得不再匹配回 `redirect_uri_invalid`，同意与拒绝都这样，不给跳回地址。
 15. **已给的授权。** `GET me/grants` 列出自己的授权，每项有 id、客户端名字、范围、给出的时间；免确认的客户端不在列表里。`DELETE me/grants/:id` 撤销一项，效果见输出 8；撤销之后这个客户端的下一次授权请求重新显示确认页。不是自己的或不存在的 id 回 `not_found`。
 16. **客户端列表与改动。** `GET admin/oauth-clients` 用 [`site.admin`](admin.md) 的分页参数与响应形状、列表稳定规则（输出 9、10），每项有客户端 id、名字、回调地址、种类、是否免确认、是否停用、登记时间；不含密钥。`PATCH admin/oauth-clients/:id` 可改名字、回调地址（规则同登记，按客户端的种类）、是否免确认、是否停用。对公开客户端换密钥回 `client_public`。
-17. **公钥。** 公钥地址列出验 id_token 要用的公钥；重启服务后签名用的钥不变，之前签发、没到期的 id_token 仍能用公钥地址里的钥验过。换了会话密钥（`NB_SITE_SESSION_SECRET`）再启动时改用一把新钥签名，旧钥的公钥仍列在公钥地址，之前签发、没到期的 id_token 照样验得过。
+17. **公钥。** 公钥地址列出验 id_token 要用的公钥；重启服务后签名用的钥不变，之前签发、没到期的 id_token 仍能用公钥地址里的钥验过。换了会话密钥（`NB_SITE_SESSION_SECRET`）再启动时改用一把新钥签名，旧钥的公钥仍列在公钥地址 30 天，之前签发、没到期的 id_token 照样验得过。第一次启动时账号模块要在库里建签名钥：这时库被进程外占着写超过等锁上限，启动以 `start_failed` 失败，放开后重启即可。
 
 ## 状态与转换
 

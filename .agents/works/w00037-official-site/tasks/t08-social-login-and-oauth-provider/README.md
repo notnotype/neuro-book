@@ -98,3 +98,9 @@ Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），
 - 与计划不同、接受的：落点码按 `site.accounts` 输出 23 是 12 个（计划写 9 个）；`continue` 与确认页的 `request` 在 schema 里只要求是字符串、不限长度（不合格要照常登录，schema 一拒就成了 `validation_failed`；长度由服务端判，请求体另有 16 KiB 上限）；另导出了计划没列的几样（`IDENTITY_AUTH_PREFIX`、`PageQuery`、`USERINFO_CLAIMS`、`ID_TOKEN_CLAIMS`、`oauthAuthorization` 路径等）；包的 `AGENTS.md` 的“t08 往哪里追加”换成现在的放法。
 - 实现者定、写进 Spec 的：客户端名字 1 到 100 个码点（`site.oauth-provider` 输入一节）；确认页回的主机名带非缺省端口；社交发起只有登录与注册可带 `continue`、关联不带（`site.accounts` 输出 11）。
 - 给后面几片的：`SocialStartRequest` 是联合类型，服务端先按 `intent` 分支再用那一支的 schema 判，`fields` 才有意义；`:provider` 不是两个上游之一时回 `not_found` 还是 `provider_disabled` 合同没定，第 8 片定；`oauth_client.*` 审计的对象 id 用 `oauthClient` 表的数字 id；`createdAt` 用 `toISOString()` 的写法。给 t10：`SOCIAL_ERROR_CODES` 多了五个码，文案目录要补。
+
+第 2 片（`0002` 迁移、库的装配、签名钥启动检查、客户端密钥哈希）已提交（`f82c645a3`，19 个文件）：账号与使用方的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，5 条变异都被抓到；相邻版本在干净克隆里跑过（上一个版本取 `bf3d6f5aa`，在跑过 `0002`、建好签名钥的数据目录上能启动并就绪）。主会话没有另跑。
+
+- 首次启动要写账号库（没有活钥时建一把）：合同测试“清理任务在服务启动后先跑一次”原来先迁移、再在进程外占着写锁启动，现在会以 `start_failed` 失败；实现者把准备步骤改成先起一次再停，断言不变。主会话接受：只在全新数据目录又被进程外占着写超过等锁上限时出现，重启即可；已写进 `site.oauth-provider` 输出 17，同一句写明旧公钥列 30 天（库的宽限期）。
+- 实现者定、主会话接受的：库的装配改收 `conn`（`postLogin.shouldRedirect` 与 `customUserInfoClaims` 要经队列读库）；`testing/oauth.ts` 提前到本片建了最小版本；客户端密钥存成“固定前缀加密钥”的 SHA-256、base64url（库改缺省时已登记的客户端不受影响，变异也分得出）；`disabledPaths` 另关了缺省就关着的两条；签名钥是否过期按系统时间判（库挑钥按系统时间）；`alg` 为空的钥也当作不是 RS256 拒绝；寿命不拨系统时钟，读行里的到期减创建（P11 不做）。
+- 没验证的：`postLogin` 与 `customUserInfoClaims` 的行为（第 6 片）；`customUserInfoClaims` 若在库自己开的事务里被调会被队列拒绝，第 6 片核对；上一个版本在这个数据目录上做账号读写（登录）没有用例（`site.operations` 验收 2 的登录已标 planned）。
