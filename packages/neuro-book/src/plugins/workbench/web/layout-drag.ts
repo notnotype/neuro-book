@@ -102,6 +102,8 @@ export interface LayoutDragOptions {
     editorTabs(): EditorTabDrag | null;
     /** 这块面板的头只写标题，没有插入位（输出 20）。 */
     titleOnly(panel: string): boolean;
+    /** 这块浮动窗的视图自绘头（docs/specs/workbench/views.md 输出 19 的“自绘头”）：头在内容里，视图标出的可拖元素拖的是整个窗。 */
+    ownHead(panel: string): boolean;
     /** 要不要算落点分区（设置 `nbook.workbench/dropSectors`）。 */
     sectors(): boolean;
     /** 手感（设置 `nbook.workbench/dragFeel`）；键盘、减少动效、最大化时一律落点指示。 */
@@ -153,6 +155,26 @@ const rectOf = (element: Element | null | undefined): GridDropRect | null => {
     return right > left && bottom > top ? {left, top, right, bottom} : null;
 };
 const escape = (value: string): string => CSS.escape(value);
+
+/**
+ * 视图自绘头里不起拖的元素（docs/specs/workbench/views.md 输出 19 的“自绘头”）：点了有自己的事做的，按住拖它不该挪窗口。漏判的后果只是拖它会挪窗口
+ * （起拖有门槛，单击照常），所以按常见的可交互元素与角色列，不求穷尽。
+ */
+const INTERACTIVE = [
+    "button", "a[href]", "input", "textarea", "select", "label", "summary", "[contenteditable]:not([contenteditable='false'])",
+    "[role='button']", "[role='tab']", "[role='link']", "[role='menuitem']", "[role='checkbox']", "[role='switch']", "[role='option']",
+    "[tabindex]:not([tabindex='-1'])",
+].join(", ");
+
+/** 按下的元素所在的拖动区（视图写的 `data-window-drag`）；从它往上到拖动区之间有可交互的元素时不算，是 null。只在拖动区里面查，外面的祖先不管。 */
+export function windowDragRegion(element: Element): Element | null {
+    const region = element.closest("[data-window-drag]");
+    if (region === null) return null;
+    for (let current: Element | null = element; current !== null && current !== region; current = current.parentElement) {
+        if (current.matches(INTERACTIVE)) return null;
+    }
+    return region;
+}
 
 /** 键盘的“浮动”区域：没有指针，无落点要明确选。 */
 const FLOAT_REGION = "float";
@@ -785,8 +807,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 只含一个视图的入口拖的是那个视图（输出 46）；含几个视图的拖的是容器。
         if (entry !== null) return entry.dataset.toolView === undefined ? {kind: "container", container: entry.dataset.toolEntry ?? ""} : {kind: "tab", tab: viewKey(entry.dataset.toolView)};
         const tab = element.closest<HTMLElement>("[data-panel-tab]")?.dataset.panelTab;
-        // 浮动窗的头：标签条空白，或它唯一的标签，拖的是整个窗；多标签时拖标签是撕下（输出 39）。
-        const floating = element.closest<HTMLElement>("[data-leaf][data-float]")?.dataset.leaf;
+        // 视图自绘头的窗：头在内容层里，按在视图标出的拖动区上（中间没有可交互的元素）拖的是整个窗。
+        const content = element.closest<HTMLElement>("[data-content-leaf][data-float]")?.dataset.contentLeaf;
+        if (content !== undefined && options.ownHead(content) && windowDragRegion(element) !== null) return {kind: "panel", panel: content};
+        // 浮动窗的头：标签条空白，或它唯一的标签，拖的是整个窗；多标签时拖标签是撕下（输出 39）。自绘头时标题按钮在窗口零件层（`data-float-chrome`）。
+        const floating = element.closest<HTMLElement>("[data-leaf][data-float]")?.dataset.leaf ?? element.closest<HTMLElement>("[data-float-chrome]")?.dataset.floatChrome;
         if (floating !== undefined && options.doc().panels[floating] !== undefined) {
             const onHead = element.closest("[data-panel-strip], [data-panel-head]") !== null;
             if (tab === undefined ? onHead : options.doc().panels[floating]?.tabs.length === 1) return {kind: "panel", panel: floating};

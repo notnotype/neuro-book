@@ -17,17 +17,19 @@ export interface PanelHeadSlots extends ViewHeadSlots {
     readonly handle: HTMLElement;
 }
 
-/** 外壳持有的一端：面板头画出或拆掉位置时写 `slots`，按下标题时 `press`。 */
+/** 外壳持有的一端：面板头画出或拆掉位置时写 `slots`，按下标题时 `press`，自绘头开始、结束时 `setOwnHead`。 */
 export interface ViewHeadControl {
     readonly head: ViewHead;
     setSlots(slots: PanelHeadSlots | null): void;
     press(): void;
+    setOwnHead(own: boolean): void;
 }
 
 /** 每一代上下文一份：实例换代时外壳拿到新的一份；旧的那份的位置被清成 null，之后不再收到位置与按下。 */
 export function createViewHead(context: ViewContext): ViewHeadControl {
     const slots = shallowRef<PanelHeadSlots | null>(null);
     const listeners = new Set<() => void>();
+    const ownHead = ref(false);
     const head: ViewHead = {
         slots,
         onTitlePress(listener) {
@@ -38,6 +40,7 @@ export function createViewHead(context: ViewContext): ViewHeadControl {
         },
         titlePopup: ref<{readonly expanded: boolean} | null>(null),
         claim: ref(true),
+        ownHead,
     };
     attachViewHead(context, head);
     return {
@@ -47,6 +50,9 @@ export function createViewHead(context: ViewContext): ViewHeadControl {
         },
         press: () => {
             for (const listener of [...listeners]) listener();
+        },
+        setOwnHead: (own) => {
+            ownHead.value = own;
         },
     };
 }

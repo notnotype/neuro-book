@@ -468,7 +468,7 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof WorkbenchPanelHead>({
         component: "WorkbenchPanelHead",
-        events: ["activate", "action", "context-menu", "toggle-fold"],
+        events: ["activate", "action", "context-menu", "toggle-fold", "own-head-inset"],
         writeBack: {activate: {layer: "props", key: "active"}},
         class: "w-full",
         scenes: (() => {
@@ -494,6 +494,8 @@ export const labFixtures: LabFixture[] = [
                 {id: "fold-long", label: "分节：英文长标题被截断，标记不被挤掉", input: {props: {...section, tabs: [tab("files", "Workspace Explorer With A Rather Long Title", "i-lucide-files")], fold: {collapsed: false}}}},
                 {id: "fold-maximized", label: "分节：最大化着，没有标记，还原按钮按下、一直显示", input: {props: {...section, frameActions: [named[0]!, {...named[1]!, label: "还原", pressed: true}]}}},
                 {id: "fold-view-head", label: "分节：视图接管标题区，展开标记是左列最前面单独的按钮", input: {props: {...section, viewHead: {key: "c:1", popup: {expanded: false}}, fold: {collapsed: false}, foldLabel: "收起 资源管理器"}}},
+                // 视图自绘头（workbench/views.md 输出 19 的“自绘头”）：盖在内容顶上的一条，只有右端按钮；标题按钮按 Tab 聚焦才在左上角出现。
+                {id: "own-head", label: "浮动窗视图自绘头：右端只有按钮，标题聚焦才出现", input: {props: {...section, panelId: "p-float", ownHead: {band: 40}, actionsShown: true, frameActions: [{id: "dock", label: "回到停靠", icon: "i-lucide-panel-right-close", disabled: false}]}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue"),

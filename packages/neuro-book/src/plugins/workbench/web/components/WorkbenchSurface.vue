@@ -31,6 +31,12 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
     titleOnlyPanels?: ReadonlySet<string>;
+    /**
+     * 视图自绘头的浮动窗（docs/specs/workbench/views.md 输出 19 的“自绘头”）：外框里不画头，内容从窗口顶上开始、四个角都裁圆；
+     * 头的按钮由宿主画在 `float-chrome` 里。只认此刻画成浮动窗的面板。值是按钮一组在右端占的宽度（CSS px），写成内容上的
+     * `--workbench-own-head-inset-end`，视图在它的头右端让出来。
+     */
+    ownHeads?: ReadonlyMap<string, number>;
     /** 实时布局预览里的空位：这块什么都不画，露出窗体底（输出 38）。 */
     slotPanel?: string | null;
     /** 拿起的内容项（实时布局）：预览把来源摘掉时网格自己留住它（`NestedGrid` 的 `lifted`）。矩形由 `placeLifted` 写。 */
@@ -44,7 +50,7 @@ const props = withDefaults(defineProps<{
      * 内容裁在这一列的卡片里，滑走的与换上来的之间隔一条缝。
      */
     swap?: Omit<GridSwap, "gap" | "window"> | null;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), ownHeads: () => new Map<string, number>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -80,8 +86,8 @@ defineSlots<{
     "lifted-head"?(): unknown;
     /** 盖在分隔线之上、拿起的内容之下，不接指针。 */
     overlay?(): unknown;
-    /** 浮动窗的手柄。 */
-    "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /** 浮动窗的手柄与自绘头的按钮。`actionsShown`：视图动作与框架按钮此刻该不该显示（指针在这块窗上或焦点在里面）；`idPrefix` 同 `head`。 */
+    "float-chrome"?(props: {id: string; rect: GridRect; actionsShown: boolean; idPrefix: string}): unknown;
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -205,6 +211,8 @@ const stripPlacements = computed(() => new Map(props.projection.strips.map((stri
  */
 const restoring = shallowRef<string | null>(null);
 const floatingPanels = computed<ReadonlySet<string>>(() => new Set(props.floats.map((float) => float.id)));
+/** 此刻画成浮动窗、视图自绘头的面板。 */
+const ownHeadFloats = computed<ReadonlySet<string>>(() => new Set([...props.ownHeads.keys()].filter((id) => floatingPanels.value.has(id))));
 watch(() => props.maximized, (next, previous) => {
     if (previous === null || next === previous) return;
     restoring.value = previous;
@@ -237,6 +245,7 @@ const headless = computed<ReadonlySet<string>>(() => {
     }
     // 浮起来的那一节画在浮动窗里，窗有自己的头：从入口条下面飞出去的那一刻起内容就让出头。
     for (const id of lastPresented.headless) if (drawnAsBefore(id) && id !== props.maximized && !floatingPanels.value.has(id)) panels.add(id);
+    for (const id of ownHeadFloats.value) panels.add(id);
     return panels;
 });
 /** 叶代表哪块面板：入口条叶是并进来的那一节，没有并时不代表面板（和活动栏一样）。 */
@@ -610,6 +619,8 @@ defineExpose({
                     <div
                         :id="roleOf(leaf) === 'tool' ? panelTabpanelDomId(idPrefix, contentKey) : undefined"
                         class="workbench-surface__content-clip"
+                        :data-own-head="ownHeadFloats.has(leaf) ? '' : undefined"
+                        :style="ownHeadFloats.has(leaf) ? {'--workbench-own-head-inset-end': `${ownHeads.get(leaf) ?? 0}px`} : undefined"
                         :role="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? 'region' : 'tabpanel') : undefined"
                         :aria-labelledby="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? panelTitleDomId(idPrefix, contentKey) : panelTabDomId(idPrefix, contentKey)) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
@@ -625,7 +636,7 @@ defineExpose({
                 <slot name="overlay"></slot>
             </template>
             <template #float-chrome="{id, rect}">
-                <slot name="float-chrome" :id="id" :rect="rect"></slot>
+                <slot name="float-chrome" :id="id" :rect="rect" :actions-shown="actionsShownOn(id)" :id-prefix="idPrefix"></slot>
             </template>
         </NestedGrid>
     </div>
@@ -851,6 +862,12 @@ defineExpose({
     overflow: hidden;
     border-end-start-radius: var(--shell-corner-bl, var(--shell-card-radius, 0px));
     border-end-end-radius: var(--shell-corner-br, var(--shell-card-radius, 0px));
+}
+
+/* 视图自绘头的浮动窗没有头，内容顶到窗口的上边，上面两个角也是卡片的角：列表栏的底色不从圆角外露出来。 */
+.workbench-surface__content-clip[data-own-head] {
+    border-start-start-radius: var(--shell-corner-tl, var(--shell-card-radius, 0px));
+    border-start-end-radius: var(--shell-corner-tr, var(--shell-card-radius, 0px));
 }
 
 /* 飞行中压在别的面板上面（输出 15）：内容平时透明，露出卡片的底与场景图；飞的时候离开了卡片，要自己带底，不和下面的字叠在一起。 */

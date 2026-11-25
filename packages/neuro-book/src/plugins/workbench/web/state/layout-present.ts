@@ -21,7 +21,8 @@ const NO_PANELS: ReadonlySet<string> = new Set();
 /**
  * 内容项：一个标签一项，`key` 就是标签键，所以标签换面板时内容跟着走，实例不重建。
  * 头都在外框里，内容从头下面开始。工具面板的头是固定高度；编辑组的头一到三行（标签折行、提示条），是实测的，没有头时是 0。
- * `headless` 是此刻画成并成一行的分节（头在区域的入口条里，输出 47）：叶里没有头，内容从叶的上边开始。由表面给，它决定离开、最大化过渡里画成什么。
+ * `headless` 是此刻叶里不画头的工具面板，内容从叶的上边开始：画成并成一行的分节（头在区域的入口条里，输出 47），以及视图自绘头的浮动窗
+ * （docs/specs/workbench/views.md 输出 19 的“自绘头”，头是视图画在内容顶上的）。由表面给，它决定离开、最大化过渡里画成什么。
  */
 export function layoutContents(doc: LayoutDoc, editorHeadHeight: (panel: string) => number = () => 0, headless: ReadonlySet<string> = NO_PANELS): GridContentInput[] {
     return Object.entries(doc.panels).flatMap(([id, panel]): GridContentInput[] => {
