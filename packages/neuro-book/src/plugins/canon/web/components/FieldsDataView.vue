@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 数据分页的字段表界面（docs/specs/canon/author-ui.md 输出 12、13）：通用字段表，以及 canon 给人物交的界面（多列语义档的各句）。
+ * 数据分页的字段表界面（docs/specs/canon/author-ui.md 输出 12、13）：通用字段表。
  * 经 `context` 读字段与来历；展开着哪个字段记在 `context.state.open`，切走再回来还在。来历与记一笔是 `useFieldDetail`（与专门
  * 界面的 `FieldDetail` 同一份）。
  */
@@ -8,7 +8,7 @@ import {computed} from "vue";
 
 import type {ComponentViewContext} from "../component-views";
 import {useFieldDetail} from "../field-detail";
-import {fieldRows, isSemantic, originRows, semanticNotes} from "../rows";
+import {fieldRows, isSemantic, originRows} from "../rows";
 import {useCanonText} from "../text";
 import FieldTable from "./FieldTable.vue";
 import OriginList from "./OriginList.vue";
@@ -16,11 +16,9 @@ import RecordForm from "./RecordForm.vue";
 
 const props = withDefaults(defineProps<{
     context: ComponentViewContext;
-    /** 语义档的字段在值下面列出起点与之后记下的每一句（人物的界面）。 */
-    semanticNotes?: boolean;
     /** 只列这几个字段（字段名）；不给时列全部（专门界面经 `context.FieldTable` 嵌一节时用）。 */
     only?: readonly string[];
-}>(), {semanticNotes: false, only: undefined});
+}>(), {only: undefined});
 
 const text = useCanonText();
 const context = props.context;
@@ -36,16 +34,11 @@ const open = computed<string | null>({
 });
 
 const shown = (path: string): boolean => props.only === undefined || props.only.includes(fieldOf(path));
-const semanticPaths = computed(() => (props.semanticNotes ? context.declarations.filter(isSemantic).map((declaration) => `${prefix}${declaration.id}`).filter((path) => fieldOf(path) in context.fields && shown(path)) : []));
-const keys = computed(() => [...new Set([...(open.value === null ? [] : [open.value]), ...semanticPaths.value])]);
+const keys = computed(() => (open.value === null ? [] : [open.value]));
 const detail = useFieldDetail(context, () => keys.value);
 const {pages, editReason, recordReason, recordErrors, savingPath} = detail;
 
-const rows = computed(() => fieldRows(context.namespace, context.fields, context.declarations, context.place, text).filter((row) => shown(row.path)).map((row) => {
-    const notes = semanticPaths.value.includes(row.path) ? pages.value.get(row.path)?.state.value : undefined;
-    // 只列最近的一页；更早的写一句还有几步（第一批不给语义档的各句分页）。
-    return notes === undefined ? row : {...row, notes: semanticNotes(notes, context.place, text), ...(notes.remaining > 0 ? {notesEarlier: notes.remaining} : {})};
-}));
+const rows = computed(() => fieldRows(context.namespace, context.fields, context.declarations, context.place, text).filter((row) => shown(row.path)));
 
 const openPages = computed(() => (open.value === null ? undefined : pages.value.get(open.value)));
 

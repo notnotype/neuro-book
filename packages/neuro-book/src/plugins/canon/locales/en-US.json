@@ -79,6 +79,9 @@
         },
         "panel": {
             "title": "Panel"
+        },
+        "look": {
+            "title": "Look"
         }
     },
     "entry": {
@@ -684,5 +687,46 @@
         "cancelled": "Upload cancelled; the image may already be in the project",
         "failed": "Upload failed: {{detail}}",
         "missing": "Image not found"
+    },
+    "card": {
+        "fill": "Fill in",
+        "addField": "Add a detail",
+        "ownPlaceholder": "Something else—name it",
+        "ownLabel": "Name of the new detail",
+        "add": "Add",
+        "restore": "Restore “{{name}}”",
+        "more": "{{label}}: rename, remove",
+        "rename": "Rename",
+        "remove": "Remove",
+        "renameTitle": "Rename “{{label}}”",
+        "removeTitle": "Remove “{{label}}”",
+        "removeDescription": "The data is kept and can be restored.",
+        "newName": "New name"
+    },
+    "character": {
+        "portraitOpen": "Look",
+        "addPortrait": "Add a portrait",
+        "addLook": "Add a look",
+        "restoreLook": "Restore look",
+        "lookFrom": "Has a look from {{from}}",
+        "hint": {
+            "temper": "How they react, what they care about most",
+            "speech": "Catchphrases, tone, how they address people",
+            "background": "Where they come from, what they went through",
+            "condition": "Injured, wanted, just moved… their situation now"
+        }
+    },
+    "look": {
+        "changePortrait": "Change",
+        "addPortrait": "Add a portrait",
+        "wardrobe": "Wardrobe",
+        "addOutfit": "Add an outfit",
+        "putOn": "Wear",
+        "wearing": "Wearing",
+        "editOutfit": "Edit “{{name}}”",
+        "outfitMore": "{{name}}: edit, remove",
+        "hint": {
+            "appearance": "Hair, eyes, build—what makes them recognizable"
+        }
     }
 }

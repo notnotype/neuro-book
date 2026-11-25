@@ -79,6 +79,9 @@
         },
         "panel": {
             "title": "面板"
+        },
+        "look": {
+            "title": "形象"
         }
     },
     "entry": {
@@ -684,5 +687,46 @@
         "cancelled": "上传取消了，图可能已经写进作品",
         "failed": "上传没有成功：{{detail}}",
         "missing": "图片找不到"
+    },
+    "card": {
+        "fill": "填写",
+        "addField": "添加一项资料",
+        "ownPlaceholder": "别的，写它的名字",
+        "ownLabel": "新的一项的名字",
+        "add": "添加",
+        "restore": "恢复“{{name}}”",
+        "more": "{{label}}：改名、去掉",
+        "rename": "改名",
+        "remove": "去掉",
+        "renameTitle": "给“{{label}}”改名",
+        "removeTitle": "去掉“{{label}}”",
+        "removeDescription": "数据会保留，可以恢复。",
+        "newName": "新的名字"
+    },
+    "character": {
+        "portraitOpen": "形象",
+        "addPortrait": "添加立绘",
+        "addLook": "添加形象",
+        "restoreLook": "恢复形象",
+        "lookFrom": "{{from}}起有形象",
+        "hint": {
+            "temper": "遇事怎么反应，最在意什么",
+            "speech": "口头禅、语气、对不同的人怎么称呼",
+            "background": "从哪里来，经历过什么",
+            "condition": "受伤、被通缉、刚搬家……此刻的处境"
+        }
+    },
+    "look": {
+        "changePortrait": "换一张",
+        "addPortrait": "添加立绘",
+        "wardrobe": "衣柜",
+        "addOutfit": "添加一套",
+        "putOn": "换上",
+        "wearing": "穿着",
+        "editOutfit": "改“{{name}}”",
+        "outfitMore": "{{name}}：改、去掉",
+        "hint": {
+            "appearance": "发色、眼睛、体型，一眼认得出来的地方"
+        }
     }
 }

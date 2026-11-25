@@ -802,6 +802,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
             props: {
                 path: {type: String, required: true},
                 layout: {type: String as PropType<"popover" | "block">, default: "popover"},
+                suggestions: {type: Array as PropType<readonly string[]>, default: undefined},
                 anchor: {type: Object as PropType<object | null>, default: null},
             },
             setup(inner) {
@@ -820,7 +821,10 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     edit.cancel();
                 };
                 const content = () => {
-                    const bar = edit.bar.value!;
+                    // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
+                    const given = edit.bar.value!;
+                    const suggested = inner.suggestions !== undefined && inner.suggestions.length > 0 && (given.kind === "text" || given.kind === "suggest");
+                    const bar = suggested ? {...given, kind: "suggest" as const, options: inner.suggestions!} : given;
                     // 成段的文字从原文的行数起步。
                     const rows = bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
@@ -931,6 +935,10 @@ const contextFor = (namespace: string): ComponentViewContext => {
             },
             fieldRestore: (path) => viewWrite([{op: "fieldRestore", at: {entry: props.id, path: `${namespace}.${path}`}}], text("entry.fieldRestored", {name: view.value?.name ?? "", label: fieldLabel(namespace, path)})),
             get removedFields() { return entry.value?.removedFields?.[namespace] ?? []; },
+            get presets() {
+                const type = view.value?.namespaces[namespace]?.type;
+                return componentsRead.value?.data?.items.find((item) => item.id === type)?.presets ?? [];
+            },
             get FieldEditor() { return fieldEditorOf(namespace); },
             get FieldDetail() { return fieldDetailOf(namespace); },
             get editing() {

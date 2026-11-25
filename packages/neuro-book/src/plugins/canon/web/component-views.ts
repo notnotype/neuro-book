@@ -48,6 +48,8 @@ export interface FieldEditorProps {
     readonly path: string;
     /** `popover`（缺省）：锚在 `anchor` 上的浮层，短项用；`block`：浮在原处、向下长，成段的文字用，放在一个 `relative` 的容器里。 */
     readonly layout?: "popover" | "block";
+    /** 文字字段这一处的建议值（例如现在穿的：衣柜里各套的名字）；给了就用输入框加候选。 */
+    readonly suggestions?: readonly string[];
     /** 浮层贴着的元素（值按钮）。写成 `object`：这个文件也在服务端的类型检查里，那里没有 DOM 的类型。 */
     readonly anchor?: object | null;
 }
@@ -109,6 +111,8 @@ export interface ComponentViewContext {
     fieldRestore?(path: string): Promise<ViewWriteResult>;
     /** 这一组上去掉过的字段，给“恢复”用。 */
     readonly removedFields?: readonly {readonly id: string; readonly label: string}[];
+    /** 这个类型的预设字段（canon.components 输出 24），“添加一项资料”里列。 */
+    readonly presets?: readonly FieldDeclaration[];
     /** 就地改的编辑器与一个值的细节（来历、语义档的各句、记一句）；`path` 是字段名。 */
     readonly FieldEditor?: Component<FieldEditorProps>;
     readonly FieldDetail?: Component<{readonly path: string}>;

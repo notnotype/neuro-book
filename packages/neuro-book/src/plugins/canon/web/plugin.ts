@@ -40,7 +40,7 @@ import {createCanonImages} from "./images";
 import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
-import {componentsPoint, PERSON_COMPONENT} from "../shared/components";
+import {componentsPoint, LOOK_COMPONENT, PERSON_COMPONENT} from "../shared/components";
 import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {canonText} from "../shared/text";
@@ -118,7 +118,7 @@ const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i
 /** 变更详情页：每条剧情变更一个标签，刷新后恢复。标题由约定键补（`editorPages.change.title`）。 */
 const CHANGE_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-milestone", instances: true, restore: true};
 
-/** canon 自己的两个内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
+/** canon 自己的内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
 const PANEL_TYPE = "nbook.canon.panel";
 const BUILTIN_VIEW: ComponentViewDeclaration = {};
 
@@ -165,7 +165,9 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
             {capability: EDITOR_LANGUAGES_POINT, id: ENTRY_LANGUAGE, declaration: ENTRY_LANGUAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: BUILTIN_VIEW},
+            // 人物的立绘读自同一条目上的形象这一组（author-ui.md 输出 49）。
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: {uses: [LOOK_COMPONENT]}},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: BUILTIN_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
             ...Object.entries(CANON_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],
@@ -328,7 +330,8 @@ export const canonBrowserPlugin: PluginDefinition = {
                     [EDITOR_LANGUAGES_POINT]: {[ENTRY_LANGUAGE]: {load: () => Promise.resolve(entryLanguageDefinition)}},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
-                        [PERSON_COMPONENT]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
+                        [PERSON_COMPONENT]: componentView(() => import("./components/CharacterView.vue")),
+                        [LOOK_COMPONENT]: componentView(() => import("./components/LookView.vue")),
                         [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
                     },
                     [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState), pickLine}),
