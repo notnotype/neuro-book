@@ -1,14 +1,14 @@
 /**
  * 账号接口的请求底座（w00037 t07 计划 3.16）：补齐站点地址的 `Host`、`Origin`、`Content-Type` 与每个用例自己的 `X-Forwarded-For`，
- * 再加一个存与回送 `Set-Cookie` 的 Cookie 罐。只经 HTTP 说话，不碰库。
+ * 再加一个存与回送 `Set-Cookie` 的 Cookie 罐。只经 HTTP 与命令行说话，不碰库：造登录态用 `create-admin` 命令建账号。
  *
  * 来源地址：账号的进程起时设 `NB_SITE_TRUSTED_PROXIES=127.0.0.1/32`（`IDENTITY_SITE_ENV`），每个用例给自己的一个文档地址
  * （`203.0.113.<n>`）：限流按来源计（`site.accounts` 输出 19），同一个进程上的用例互不吃额度。
  */
 
-import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
 
-import {requestJson, SANDBOX_SITE_URL, type JsonResponse} from "./site";
+import {requestJson, SANDBOX_SITE_URL, type JsonResponse, type SiteSandbox} from "./site";
 
 /** 站点地址的 origin 与主机名：改状态的请求要带等于它的 `Origin`（`site.accounts` 输入一节），按主机名分派到站点入口。 */
 export const SITE_ORIGIN = new URL(SANDBOX_SITE_URL).origin;
@@ -96,4 +96,20 @@ export async function identityRequest(url: string, path: string, init: IdentityR
     const response = await requestJson(new URL(`${IDENTITY_API_PREFIX.slice(1)}${path}`, url).href, {method: init.method ?? "GET", headers, ...(body === undefined ? {} : {body})});
     init.jar?.store(response);
     return response;
+}
+
+/** 登录（`POST login`）；给了 `jar` 时存下会话 Cookie。 */
+export function login(url: string, identifier: string, password: string, init: {readonly from: string; readonly jar?: CookieJar; readonly headers?: Readonly<Record<string, string | null>>}): Promise<JsonResponse> {
+    return identityRequest(url, IDENTITY_PATHS.login, {method: "POST", body: {identifier, password}, ...init});
+}
+
+/**
+ * 用 `create-admin` 建（或重置）一个管理员，返回账号 id（标准输出那一行 `identity.admin_upserted` 的 `userId`）；非零退出时抛错，
+ * 错误里带标准错误。给 `beforeAll` 造登录态用：合同里能造出账号的只有这个命令（注册在后面的片）。
+ */
+export async function createAdmin(sandbox: Pick<SiteSandbox, "run">, dataDir: string, args: readonly string[], password: string): Promise<number> {
+    const result = await sandbox.run("create-admin", {dataDir, args, stdin: `${password}\n`});
+    const userId = result.logs.find((line) => line.event === "identity.admin_upserted")?.userId;
+    if (result.exitCode !== 0 || typeof userId !== "number") throw new Error(`create-admin ${args.join(" ")} exited ${String(result.exitCode)}\n${result.stderr}`);
+    return userId;
 }

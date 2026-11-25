@@ -8,9 +8,8 @@
  * 本 Task 测不到、留给后面 Task 的：
  * - 按主机名分派（输入一节）：在 `telemetry-ingest.test.ts` 的 C18，那里有写入口主机上的路由可以区分。
  * - 测试控制入口“跑一次任务看到效果”（输出 11、验收 5 之外）：两个真实模块都还没有定时任务；t06 起补。
- * - 创建管理员（输出 5）里要登录才看得到的部分（新密码能登录、重置后旧会话失效、角色与解封、被打断的重置没换密码）在 t07 第 4b 片
- *   有了登录以后加进“创建管理员”一组；验收 3 的“账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见
- *   `adjacent-version.test.ts`。
+ * - 创建管理员（输出 5）的“被封的被解封”：合同里还没有封禁的接口，t07 第 7 片有了管理接口后加进“创建管理员”一组。验收 3 的
+ *   “账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见 `adjacent-version.test.ts`。
  * - 第一次启动执行了迁移（输出 2 的 `migration.applied`）：两个模块都还没有迁移，t06、t07 加了迁移后“从空的数据目录启动”
  *   一组自然覆盖到。
  */
@@ -20,9 +19,11 @@ import {copyFile, readdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
 
 import {backupsDir, BACKUP_NAME, listBackups, quickCheck} from "./testing/backup";
 import {holdWriteLock} from "./testing/fault";
+import {cookieJar, IDENTITY_SITE_ENV, identityRequest, login} from "./testing/identity";
 import {
     isListening,
     randomSecret,
@@ -433,10 +434,34 @@ describe("测试控制入口（输出 11，验收 5）", () => {
 
 describe("创建管理员（输出 5，失败码 invalid_argument、email_taken、interrupted）", () => {
     // 每个密码都带一段特征明显的文字，在全部输出里搜它们：密码不写进日志（输出 5）。
-    const PASSWORDS = {first: "first-PW-q7Zx81", reset: "reset-PW-b3Kw90", running: "running-PW-m2Jd47", carol: "carol-PW-t5Ns63", interrupted: "sigterm-PW-v8Lc12"};
+    const PASSWORDS = {
+        first: "first-PW-q7Zx81",
+        reset: "reset-PW-b3Kw90",
+        running: "running-PW-m2Jd47",
+        runningReset: "running-reset-PW-h5Qa20",
+        carol: "carol-PW-t5Ns63",
+        interrupted: "sigterm-PW-v8Lc12",
+        interruptedReset: "sigterm-reset-PW-j7Wn36",
+    };
     const runs: CommandResult[] = [];
     const results = new Map<string, CommandResult>();
     let alongsideService: {created: CommandResult; reset: CommandResult; readyAfter: number; stopCode: number};
+    /** 那个服务停下以后的整段输出：登录时收到的密码同样不能写进去。 */
+    let serviceOutput = "";
+    /** 服务在运行时建、重置、被打断的重置前后，经 HTTP 看到的结果（只记响应，断言在用例里）。 */
+    let signIns: {
+        readonly firstLogin: JsonResponse;
+        readonly oldCookieBeforeReset: JsonResponse;
+        readonly oldCookieAfterReset: JsonResponse;
+        readonly oldPasswordAfterReset: JsonResponse;
+        readonly newPasswordAfterReset: JsonResponse;
+        readonly interruptedReset: CommandResult;
+        readonly keptPasswordAfterInterrupt: JsonResponse;
+        readonly interruptedPasswordAfterInterrupt: JsonResponse;
+        readonly gatedBeforeConsent: JsonResponse;
+        readonly consent: JsonResponse;
+        readonly gatedAfterConsent: JsonResponse;
+    };
     let interrupted: {readonly signal: NodeJS.Signals; readonly result: CommandResult; readonly retry: CommandResult}[];
 
     async function createAdmin(name: string, dataDir: string, args: readonly string[], stdin: string): Promise<CommandResult> {
@@ -484,14 +509,56 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         await createAdmin("reset-taken-email", dataDir, ["root", "carol@example.com"], `${PASSWORDS.reset}\n`);
         interrupted = [await interruptAtPassword(dataDir, "sigterm_user", "SIGTERM"), await interruptAtPassword(dataDir, "sigint_user", "SIGINT")];
 
-        // 服务在运行：命令与服务同时开着同一个库。
+        // 服务在运行：命令与服务同时开着同一个库。每个请求一个来源地址，限流互不影响。
         const running = await sandbox.dataDir();
-        const site = await sandbox.start({dataDir: running});
+        const site = await sandbox.start({dataDir: running, env: IDENTITY_SITE_ENV});
         await site.ready();
+        let address = 0;
+        const from = () => `203.0.113.${String(++address)}`;
+        const whoami = (cookie: string) => identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}});
         const created = await createAdmin("running-created", running, ["admin"], `${PASSWORDS.running}\n`);
-        const reset = await createAdmin("running-reset", running, ["admin"], `${PASSWORDS.running}\n`);
+        const firstJar = cookieJar();
+        const firstLogin = await login(site.url, "admin", PASSWORDS.running, {from: from(), jar: firstJar});
+        const oldCookie = firstJar.header() ?? "";
+        const oldCookieBeforeReset = await whoami(oldCookie);
+        const reset = await createAdmin("running-reset", running, ["admin"], `${PASSWORDS.runningReset}\n`);
+        const oldCookieAfterReset = await whoami(oldCookie);
+        const oldPasswordAfterReset = await login(site.url, "admin", PASSWORDS.running, {from: from()});
+        const jar = cookieJar();
+        const newPasswordAfterReset = await login(site.url, "admin", PASSWORDS.runningReset, {from: from(), jar});
+
+        // 重置停在等密码的地方被 SIGTERM 打断：密码还是上一次重置的那个。
+        const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir: running, args: ["admin"]});
+        await child.waitForStderr("the password prompt", (line) => line !== "");
+        await child.write(`${PASSWORDS.interruptedReset}\n`);
+        child.kill("SIGTERM");
+        const interruptedReset = await child.result();
+        runs.push(interruptedReset);
+        const keptPasswordAfterInterrupt = await login(site.url, "admin", PASSWORDS.runningReset, {from: from()});
+        const interruptedPasswordAfterInterrupt = await login(site.url, "admin", PASSWORDS.interruptedReset, {from: from()});
+
+        // 新建的管理员没有同意记录：会话先被同意门槛挡住，补交之后放行（旧密码故意给错，放行后得 invalid_credentials，不改密码）。
+        const gated = () => identityRequest(site.url, IDENTITY_PATHS.mePassword, {method: "POST", from: from(), jar, body: {currentPassword: "wrong-PW-000000", newPassword: "unused-PW-c6Ty41"}});
+        const gatedBeforeConsent = await gated();
+        const consent = await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: from(), jar, body: {termsVersion: "2026-11-20", overseasStorage: true}});
+        const gatedAfterConsent = await gated();
+        signIns = {
+            firstLogin,
+            oldCookieBeforeReset,
+            oldCookieAfterReset,
+            oldPasswordAfterReset,
+            newPasswordAfterReset,
+            interruptedReset,
+            keptPasswordAfterInterrupt,
+            interruptedPasswordAfterInterrupt,
+            gatedBeforeConsent,
+            consent,
+            gatedAfterConsent,
+        };
+
         const readyAfter = (await requestJson(`${site.url}health/ready`)).status;
         alongsideService = {created, reset, readyAfter, stopCode: await site.stop()};
+        serviceOutput = `${site.stdout()}\n${site.stderr()}`;
     }, SETUP_TIMEOUT_MS);
 
     function upserted(result: CommandResult): LogLine[] {
@@ -557,8 +624,33 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         }
     });
 
-    it("密码不出现在任何一次的标准输出与标准错误里", () => {
-        const output = runs.map((result) => `${result.stdout}\n${result.stderr}`).join("\n");
+    it("新建的管理员能用它的密码登录，角色是 admin", () => {
+        const userId = upserted(alongsideService.created)[0]!.userId;
+        expect({status: signIns.firstLogin.status, body: signIns.firstLogin.body}).toEqual({status: 200, body: {user: expect.objectContaining({id: userId, username: "admin", role: "admin"})}});
+        expect(signIns.oldCookieBeforeReset.body).toEqual({state: "authenticated", user: {id: userId, username: "admin", role: "admin"}});
+    });
+
+    it("重置之后：重置前的 Cookie 失效，旧密码得 invalid_credentials，新密码能登录、角色是 admin", () => {
+        expect(signIns.oldCookieAfterReset.body).toEqual({state: "anonymous"});
+        expect({status: signIns.oldPasswordAfterReset.status, body: signIns.oldPasswordAfterReset.body}).toEqual({status: 401, body: {error: {code: "invalid_credentials"}}});
+        expect({status: signIns.newPasswordAfterReset.status, body: signIns.newPasswordAfterReset.body}).toEqual({status: 200, body: {user: expect.objectContaining({username: "admin", role: "admin"})}});
+    });
+
+    it("重置停在等密码的地方被 SIGTERM 打断：interrupted，密码没换，上一个密码照常登录", () => {
+        expect({exitCode: signIns.interruptedReset.exitCode === 0 ? 0 : "non-zero", code: signIns.interruptedReset.failure?.code, lines: upserted(signIns.interruptedReset)}).toEqual({exitCode: "non-zero", code: "interrupted", lines: []});
+        expect(signIns.keptPasswordAfterInterrupt.status).toBe(200);
+        expect({status: signIns.interruptedPasswordAfterInterrupt.status, body: signIns.interruptedPasswordAfterInterrupt.body}).toEqual({status: 401, body: {error: {code: "invalid_credentials"}}});
+    });
+
+    it("新建的管理员登录后先被同意门槛挡住（consent_required），补交同意后放行", () => {
+        expect({status: signIns.gatedBeforeConsent.status, body: signIns.gatedBeforeConsent.body}).toEqual({status: 403, body: {error: {code: "consent_required"}}});
+        expect(signIns.consent.status).toBe(200);
+        expect(signIns.consent.body).toMatchObject({username: "admin", consentRequired: false});
+        expect({status: signIns.gatedAfterConsent.status, body: signIns.gatedAfterConsent.body}).toEqual({status: 401, body: {error: {code: "invalid_credentials"}}});
+    });
+
+    it("密码不出现在任何一次的标准输出与标准错误里，也不在收到登录请求的服务的输出里", () => {
+        const output = [...runs.map((result) => `${result.stdout}\n${result.stderr}`), serviceOutput].join("\n");
         for (const password of Object.values(PASSWORDS)) expect({password, found: output.includes(password)}).toEqual({password, found: false});
     });
 });

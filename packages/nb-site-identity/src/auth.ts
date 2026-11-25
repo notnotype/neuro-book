@@ -9,6 +9,7 @@
  * - 建会话前的钩子改写的时间与列如实落库（清单“存法”一行）。
  * - `deferSessionRefresh` 打开时，以 GET 调 `getSession` 不写库：按系统时间到期的会话只回空、不删行（清单“库内行为”一行）。
  * - `onAPIError.throw` 打开时，经 `handler` 的非 `APIError` 从 `handler` 抛出，不被打印到标准错误（同上）。
+ * - `emailAndPassword.password` 的哈希与校验成为库上下文的 `password`（清单“内部接口”一行）。
  */
 
 import {Type, type Static, type TSchema} from "typebox";
@@ -23,6 +24,7 @@ import {parseUsernameInput, USERNAME} from "@notnotype/nb-site-identity-contract
 
 import type {LibDatabaseConfig} from "./db/connection";
 import type {IdentityLog} from "./index";
+import {hashPassword, verifyPassword} from "./password";
 
 /** 库的路由前缀。本 Task 不把 `auth.handler` 挂上去；t08 在这个前缀下按白名单挂标准 OAuth 端点（ADR 0060 决策 3）。 */
 export const LIB_BASE_PATH = "/api/identity/auth";
@@ -130,6 +132,21 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
         },
         // 限流自己做（计划 3.8）。
         rateLimit: {enabled: false},
+        // 密码登录、注册、改密码都是模块自己的路由（`login.ts` 等），库的这几个端点不对外（`auth.handler` 没挂）。仍然打开并换上
+        // 模块的哈希与校验：库自己在别的路径上碰密码时（t08 的关联要核对当前密码）用的是同一种存法，不会写出库缺省的
+        // `hexsalt:hexkey` 格式（计划 3.7 的“密码格式”）。关掉库的注册：账号只经模块的注册与命令行建。
+        emailAndPassword: {
+            enabled: true,
+            disableSignUp: true,
+            password: {
+                hash: hashPassword,
+                // 库不给账号 id，日志里记 "library"：只有未知格式那一行用得到。
+                verify: ({hash, password}) => verifyPassword(password, hash, {accountId: "library", log}),
+            },
+        },
+        // 社交登录不按邮箱自动关联到已有账号（`site.accounts` 输出 12、14：认人只按上游身份，邮箱撞号时拒绝）。社交登录在 t08，
+        // 这个选项现在就关掉，库的缺省不会在 t08 接上上游之前起作用。
+        account: {accountLinking: {disableImplicitLinking: true}},
         session: {
             expiresIn: sessionSeconds,
             updateAge: DAY_SECONDS,

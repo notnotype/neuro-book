@@ -29,6 +29,8 @@
 | 库内行为 | `deferSessionRefresh` 打开时以 GET 的方式调 `getSession` 不写库：按系统时间到期的会话只回空、不删行 | `session.test.ts` “账号库被别的连接占着写时照常回答” | 问身份在写锁下变成 503（`site.accounts` 输出 7） |
 | 库内行为 | `getSession` 把数据库错误包成 `APIError`，原错误在 `cause` 里 | `session.test.ts` “账号库不可读时回 503 unavailable” | 出错出口认不出“库不可用”，回成 500 |
 | 库内行为 | `onAPIError.throw` 打开时，经 `handler` 的非 `APIError` 从 `handler` 抛出，不打印到标准错误 | `auth.test.ts` “撞写锁的数据库错误从 handler 抛出” | 错误的堆栈与路径进了进程的标准错误（t08 挂上 `handler` 之后才对外可见） |
+| 库内行为 | admin 插件在建会话前拒绝被封禁的账号，抛 `APIError` 且 `body.code` 是 `"BANNED_USER"`（`login.ts` 的 `isBannedUserError`） | `login.test.ts` “库给被封禁账号建会话时抛的错误认得出” | 登录在发会话的事务里撞到封禁时回成 500，不是 `account_banned` |
+| 内部接口 | `emailAndPassword.password` 的 `hash`、`verify` 成为库上下文的 `password.hash`、`password.verify`（库的 admin 插件等处算哈希走它） | `auth.test.ts` “库碰密码时用模块的哈希” | 库在自己的路径上写出缺省的 `hexsalt:hexkey` 格式，或认不出模块写的哈希 |
 | 库内行为 | 库的 `signOut` 吞掉删行的失败、照样清 Cookie，所以登出不用它 | `app.test.ts` “账号库被别的连接占着写时回 503” | 只在有人把登出改回 `signOut` 时失败；升级时顺带看新版本的 `signOut` 是否还这样 |
 
 ## 完成门禁

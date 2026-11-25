@@ -108,3 +108,14 @@ export function needsRehash(stored: string): boolean {
             return false;
     }
 }
+
+/**
+ * 哈希与校验两个函数。路由经它调用：产品用本文件的 `hashPassword`、`verifyPassword`（`REAL_PASSWORD_FUNCTIONS`）；包内测试包一层，
+ * 数调用次数，或在“校验完、发会话之前”插入一个动作（计划第 6 节“只能注入校验函数的包装”）。
+ */
+export interface PasswordFunctions {
+    hash(password: string): Promise<string>;
+    verify(password: string, stored: string, context: VerifyPasswordContext): Promise<boolean>;
+}
+
+export const REAL_PASSWORD_FUNCTIONS: PasswordFunctions = {hash: hashPassword, verify: verifyPassword};

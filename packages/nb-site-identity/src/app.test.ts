@@ -1,7 +1,8 @@
 /**
  * 子应用的登出与出错出口（`app.ts`、`errors.ts`；`site.accounts` 输出 5、22，失败表）。来源头、请求体、未知路径这些对外形状
- * 由合同测试（`nb-site-contract-tests` 的 `accounts.test.ts`）在真实进程上验；这里验要会话或要撞写锁才看得到的部分：这一片
- * 还没有对外的登录，合同测试造不出会话。有参数的请求体（`readBody`）这一片还没有对外的路由用，这里把它挂到测试自己的 PATCH 上验。
+ * 由合同测试（`nb-site-contract-tests` 的 `accounts.test.ts`）在真实进程上验；这里验要会话或要撞写锁的部分，会话经
+ * `sessions.issue` 直接发（第 4b 片起合同测试也经登录验登出与写锁下的登出）。有参数的请求体（`readBody`）挂到测试自己的 PATCH
+ * 上验，不跟着哪个真实路由的字段变。
  */
 
 import type {SQLiteError} from "bun:sqlite";

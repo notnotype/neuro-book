@@ -1,7 +1,7 @@
 /**
- * 哈希限额与失败的下限（`hash-limiter.ts`；`site.accounts` 输出 4、20）。合同测试能看到“并发 1、队长 0 时同时两个登录有一个
- * `overloaded`”（第 4b 片），排队 5 秒、队满、先来先得、关闭这些要控制时间与先后，只能在这里测：排队的时限用手动计时器，下限用
- * 注入的时钟与睡眠函数。
+ * 哈希限额与失败的下限（`hash-limiter.ts`；`site.accounts` 输出 4、20）。合同测试能看到“并发 1、队长 0 时同时几个登录里有
+ * `overloaded`”（`nb-site-contract-tests` 的 `accounts-limits.test.ts`），排队 5 秒、队满、先来先得、关闭这些要控制时间与先后，
+ * 只能在这里测：排队的时限用手动计时器，下限用注入的时钟与睡眠函数。
  */
 
 import {describe, expect, it} from "bun:test";

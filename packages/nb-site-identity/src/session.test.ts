@@ -1,7 +1,7 @@
 /**
  * 会话的读、到期、延长、最后使用时间、问身份、登出与清理（`session.ts`；`site.accounts` 输出 5、7、17，时序与寿命一节）。
- * 真实的 Better Auth 与 bun:sqlite；时间只经模块的手动时钟走。这一片还没有对外的登录，会话经 `sessions.issue` 发；要会话的
- * 路由也还没有，读会话经 `authorize`（中间件里不碰 Hono 的那一半）。
+ * 真实的 Better Auth 与 bun:sqlite；时间只经模块的手动时钟走。这里只测会话本身：会话经 `sessions.issue` 直接发，读会话经
+ * `authorize`（中间件里不碰 Hono 的那一半），不经登录与具体的路由。
  */
 
 import {SQLiteError} from "bun:sqlite";

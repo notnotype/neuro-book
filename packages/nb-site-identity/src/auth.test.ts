@@ -8,6 +8,7 @@ import {join} from "node:path";
 
 import {LIB_BASE_PATH} from "./auth";
 import {createIdentityModule} from "./index";
+import {hashPassword, verifyPassword} from "./password";
 import {createTestDbRoot, type TestDbRoot} from "./testing/db";
 import {recordingLog, TEST_SITE_URL} from "./testing/library";
 import {createTestIdentity, SESSION_COOKIE, TEST_CONFIG, type TestIdentity} from "./testing/module";
@@ -131,5 +132,17 @@ describe("结构检查", () => {
             clientAddress: () => null,
         });
         await expect(created).rejects.toMatchObject({code: "SCHEMA_MISMATCH"});
+    });
+});
+
+describe("库碰密码时用模块的哈希", () => {
+    it("库上下文里的哈希写出模块的格式，校验认得模块写的哈希", async () => {
+        identity = await createTestIdentity("identity-auth-password");
+        const {password} = await identity.assembly.auth.$context;
+        const written = await password.hash("library-PW-123456");
+        expect(written).toStartWith("$argon2id$");
+        expect(await verifyPassword("library-PW-123456", written, {accountId: 0, log: identity.log})).toBe(true);
+        expect(await password.verify({hash: await hashPassword("module-PW-123456"), password: "module-PW-123456"})).toBe(true);
+        expect(await password.verify({hash: written, password: "other-PW-123456"})).toBe(false);
     });
 });

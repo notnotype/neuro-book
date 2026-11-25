@@ -36,7 +36,7 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `sandbox.run(command, {dataDir, env, command, args, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行；`args` 接在子命令之后（`create-admin` 的用户名与邮箱） |
 | `sandbox.spawnWithOpenStdin(command, {dataDir, env, command, args})` | 起一个标准输入开着的命令，立即返回 `OpenStdinProcess`：`write(text)`、`closeStdin()`、`kill(signal)`、`waitForStderr(what, match)`（等标准错误里出现某一行，进程先退出或超时都抛错）、`result()`（等退出，结果同 `run`）。收口与 `start`、`run` 同一套；收口时只要求它在 SIGTERM 后停下，不要求以 0 退出（被打断的命令本来就报 `interrupted`） |
 | `SiteProcess` | `url`、`pid`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
-| `identityRequest(url, path, init)`、`cookieJar()`（`identity.ts`） | 请求一个账号接口：补站点的 `Host`、`Origin`、`X-Forwarded-For`，有请求体时补 `Content-Type`；Cookie 罐存与回送 `Set-Cookie`、按名字覆盖，`last(name)` 取最近一条给断言属性用。账号的进程用 `IDENTITY_SITE_ENV` 起（信任回环上的代理），每个用例给自己的来源地址 |
+| `identityRequest(url, path, init)`、`cookieJar()`、`login(url, 登录名, 密码, init)`、`createAdmin(sandbox, dataDir, args, 密码)`（`identity.ts`） | 请求一个账号接口：补站点的 `Host`、`Origin`、`X-Forwarded-For`，有请求体时补 `Content-Type`；Cookie 罐存与回送 `Set-Cookie`、按名字覆盖，`last(name)` 取最近一条给断言属性用。账号的进程用 `IDENTITY_SITE_ENV` 起（信任回环上的代理），每个用例给自己的来源地址。`createAdmin` 在 `beforeAll` 里跑 `create-admin` 造登录态，返回账号 id，非零退出时抛错 |
 | `holdWriteLock(dataDir, module)`（`fault.ts`） | 从进程外占住一个模块的库的写锁，返回放锁的函数 |
 | `sendReport(url, kind, report, request)`（`telemetry.ts`） | 往写入口发一份上报，带沙箱遥测地址的 `Host` 与 JSON 内容类型；`request` 可换请求体、方法与头（值为 null 的去掉）。`dailyReport`、`heartbeatReport`、`eventReport`、`usageSegment` 按合同包最新的清单造合格的样例 |
 | `dataFilesContaining(dataDir, needle)`（`files.ts`） | 数据目录下字节里含有某个串的文件，给“某样东西不进库”的断言用 |

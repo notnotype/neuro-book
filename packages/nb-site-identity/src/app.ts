@@ -12,8 +12,11 @@ import {Hono} from "hono";
 
 import {IDENTITY_PATHS, type MetaResponse} from "@notnotype/nb-site-identity-contract";
 
+import {registerChangePasswordRoute, type ChangePasswordOptions} from "./change-password";
 import {bodySizeLimit, failureFor, failureResponse, readEmptyBody, respondFailure} from "./errors";
 import type {IdentityLog} from "./index";
+import {loginRoute, type LoginOptions} from "./login";
+import {registerMeRoutes, type MeOptions} from "./me";
 import {appendCookies, requireSameOrigin} from "./middleware";
 import type {Sessions} from "./session";
 
@@ -24,6 +27,9 @@ export interface IdentityAppOptions {
     readonly termsVersion: string;
     readonly registrationOpen: boolean;
     readonly log: Pick<IdentityLog, "warn" | "error">;
+    readonly login: LoginOptions;
+    readonly changePassword: ChangePasswordOptions;
+    readonly me: MeOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -56,6 +62,10 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
         appendCookies(c, await sessions.logout(c.req.header("Cookie") ?? null));
         return c.json({});
     });
+
+    app.post(IDENTITY_PATHS.login, loginRoute(options.login));
+    registerMeRoutes(app, options.me);
+    registerChangePasswordRoute(app, options.changePassword);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));

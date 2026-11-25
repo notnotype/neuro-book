@@ -1,22 +1,24 @@
 /**
- * 账号接口的黑盒合同（docs/specs/site/accounts.md 输出 5、7、22，输入一节的来源头，失败表）：起真实的 `nb-site` 进程，只经 HTTP
- * 看它。响应的形状用合同包的 schema 核对（`Value.Check`）。另核对账号接口的响应都带 `Cache-Control: no-store`（w00037 t07
- * 实现审查第 5 条）。
+ * 账号接口的黑盒合同（docs/specs/site/accounts.md 输出 4 到 10、22，输入一节的来源头，失败表）：起真实的 `nb-site` 进程，只经
+ * HTTP 与命令行看它。登录态用 `create-admin` 建的账号造（注册在后面的片）。响应的形状用合同包的 schema 核对（`Value.Check`）。另
+ * 核对账号接口的响应都带 `Cache-Control: no-store`（w00037 t07 实现审查第 5 条）。限流、过载与重启在 `accounts-limits.test.ts`。
  *
- * 本文件测不到、在别处的（w00037 t07 第 3 片还没有对外的登录，造不出会话）：
- * - 已登录的 `whoami`、登出只结束当前会话、写锁下登出得 503 且会话仍可用：第 4 片有了登录后补进本文件；在那之前由账号包的
- *   包内测试（`nb-site-identity` 的 `app.test.ts`、`session.test.ts`）覆盖。
+ * 本文件测不到、在别处的：
+ * - `whoami` 的 503：合同底座只能持写锁，`whoami` 只读、不受写锁影响，造不出“库不可读”；在账号包的 `session.test.ts`。
+ * - 没有密码的账号（输出 4 的第三种 `invalid_credentials`、输出 9 的直接设密码）：只有导入与社交注册造得出，在账号包的
+ *   `login.test.ts`、`change-password.test.ts`；t08 补合同用例。
+ * - 三种失败的响应时间不可分辨：量响应时间在共享的机器上不稳，在账号包里数校验的调用、用注入的睡眠核对下限。
  *
- * 时间预算：起进程放在 `beforeAll` 里；用例只发请求。
+ * 时间预算：起进程、跑命令放在 `beforeAll` 里；用例只发请求。超出 200 毫秒的用例在旁边写明原因。
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
-import {EmptyResponse, ErrorBody, IDENTITY_PATHS, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {EmptyResponse, ErrorBody, IDENTITY_PATHS, LoginResponse, MeResponse, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
 
 import {holdWriteLock} from "./testing/fault";
-import {cookieJar, IDENTITY_SITE_ENV, identityRequest} from "./testing/identity";
+import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login, type CookieJar} from "./testing/identity";
 import {requestJson, SANDBOX_SITE_URL, useSiteSandbox, type JsonResponse, type SiteProcess} from "./testing/site";
 
 const sandbox = useSiteSandbox("nb-site-contract-tests accounts.test.ts");
@@ -203,5 +205,246 @@ describe("不要会话的接口（输出 7、22）", () => {
         }
         expect(outcome(locked)).toEqual({status: 500, body: {code: "job_failed", module: "identity", job: "purge"}});
         expect(outcome(await site.runJob("identity", "purge"))).toEqual({status: 200, body: {status: "done"}});
+    });
+});
+
+const DAY_MS = 86_400_000;
+/** 会话时长的缺省值（`NB_SITE_IDENTITY_SESSION_DAYS`）。 */
+const SESSION_MS = 30 * DAY_MS;
+const TERMS_VERSION = "2026-11-20";
+
+const invalidCredentials = {status: 401, body: {error: {code: "invalid_credentials"}}};
+const consentRequired = {status: 403, body: {error: {code: "consent_required"}}};
+const unavailable = {status: 503, body: {error: {code: "unavailable"}}};
+
+/** 罐里会话 Cookie 的 `名字=值`，登出、失效之后仍拿它去问（罐会把清掉的删了）。 */
+function sessionHeader(jar: CookieJar): string {
+    const cookie = jar.last(SESSION_COOKIE);
+    if (cookie === undefined || cookie.value === "") throw new Error("no session cookie in the jar");
+    return `${SESSION_COOKIE}=${cookie.value}`;
+}
+
+describe("登录、会话、me 与同意（输出 4、5、6、7、8、9、10）", () => {
+    const PASSWORD = "root-PW-x4Hq27";
+    const NEW_PASSWORD = "changed-PW-p9Rt35";
+    let site: SiteProcess;
+    let dataDir: string;
+    let rootId: number;
+    let address = 0;
+    const from = () => `198.51.100.${String(++address)}`;
+
+    beforeAll(async () => {
+        dataDir = await sandbox.dataDir();
+        // 第一个命令在空的数据目录上先执行迁移；之后的可以同时跑。
+        rootId = await createAdmin(sandbox, dataDir, ["root", "root@example.com"], PASSWORD);
+        await Promise.all([
+            createAdmin(sandbox, dataDir, ["nomail"], PASSWORD),
+            createAdmin(sandbox, dataDir, ["gated", "gated@example.com"], PASSWORD),
+            createAdmin(sandbox, dataDir, ["changer", "changer@example.com"], PASSWORD),
+        ]);
+        site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
+    }, SETUP_TIMEOUT_MS);
+
+    async function whoami(cookie: string): Promise<JsonResponse> {
+        return identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}});
+    }
+
+    /** 登录并补交同意，返回装着会话的罐。 */
+    async function consented(username: string, password: string): Promise<CookieJar> {
+        const jar = cookieJar();
+        const source = from();
+        expect((await login(site.url, username, password, {from: source, jar})).status).toBe(200);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: source, jar, body: {termsVersion: TERMS_VERSION, overseasStorage: true}})).status).toBe(200);
+        return jar;
+    }
+
+    it("用户名登录（Smoke）：回公开资料与会话 Cookie（名字、HttpOnly、Secure、SameSite=Lax、Path=/、不带 Domain），已登录的 whoami 回账号与角色、不带 Set-Cookie", async () => {
+        const jar = cookieJar();
+        const response = await login(site.url, "root", PASSWORD, {from: from(), jar});
+        expect(response.status).toBe(200);
+        expect(Value.Check(LoginResponse, response.body)).toBe(true);
+        expect(response.body).toMatchObject({user: {id: rootId, username: "root", role: "admin"}});
+        const cookie = jar.last(SESSION_COOKIE);
+        expect(cookie?.value).not.toBe("");
+        expect({
+            httpOnly: cookie?.attributes.has("httponly"),
+            secure: cookie?.attributes.has("secure"),
+            sameSite: cookie?.attributes.get("samesite")?.toLowerCase(),
+            path: cookie?.attributes.get("path"),
+            domain: cookie?.attributes.has("domain"),
+        }).toEqual({httpOnly: true, secure: true, sameSite: "lax", path: "/", domain: false});
+
+        const asked = await whoami(sessionHeader(jar));
+        expect(outcome(asked)).toEqual({status: 200, body: {state: "authenticated", user: {id: rootId, username: "root", role: "admin"}}});
+        expect(Value.Check(WhoamiResponse, asked.body)).toBe(true);
+        expect(asked.headers.getSetCookie()).toEqual([]);
+    });
+
+    it("邮箱登录，大小写不同也认", async () => {
+        const response = await login(site.url, "ROOT@Example.COM", PASSWORD, {from: from()});
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({user: {id: rootId}});
+    });
+
+    it("密码错、账号不存在：同一个 invalid_credentials，不带 Set-Cookie", async () => {
+        for (const [name, identifier, password] of [
+            ["密码错", "root", "wrong-PW-000000"],
+            ["账号不存在", "nobody", PASSWORD],
+            ["邮箱不存在", "nobody@example.com", PASSWORD],
+        ] as const) {
+            const response = await login(site.url, identifier, password, {from: from()});
+            expect({name, ...failure(response), setCookies: response.headers.getSetCookie()}).toEqual({name, ...invalidCredentials, setCookies: []});
+        }
+    });
+
+    it("字段不合格：validation_failed 列出字段", async () => {
+        const response = await identityRequest(site.url, IDENTITY_PATHS.login, {method: "POST", from: from(), body: {identifier: "", password: "x".repeat(129)}});
+        expect(failure(response)).toEqual({status: 400, body: {error: {code: "validation_failed", fields: expect.arrayContaining(["identifier", "password"])}}});
+    });
+
+    it("可信代理不给转发头：登录得 forbidden_origin", async () => {
+        const response = await login(site.url, "root", PASSWORD, {from: from(), headers: {"X-Forwarded-For": null}});
+        expect(failure(response)).toEqual({status: 403, body: {error: {code: "forbidden_origin"}}});
+    });
+
+    it("同一个账号两个会话并存；登出回 {} 并清 Cookie，只结束当前这个", async () => {
+        const first = cookieJar();
+        const second = cookieJar();
+        expect((await login(site.url, "root", PASSWORD, {from: from(), jar: first})).status).toBe(200);
+        expect((await login(site.url, "root", PASSWORD, {from: from(), jar: second})).status).toBe(200);
+        const firstCookie = sessionHeader(first);
+        expect(sessionHeader(second)).not.toBe(firstCookie);
+
+        const out = await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), jar: first});
+        expect(outcome(out)).toEqual({status: 200, body: {}});
+        expect(first.names()).toEqual([]);
+        expect((await whoami(firstCookie)).body).toEqual({state: "anonymous"});
+        expect((await whoami(sessionHeader(second))).body).toMatchObject({state: "authenticated"});
+    });
+
+    // 超出 200 毫秒的预算：服务撞写锁时等满连接的 busy_timeout（250 毫秒）才报忙。
+    it("账号库被进程外占着写时：登出得 503 unavailable、不清 Cookie，放锁后会话仍可用；登录得 503 unavailable", async () => {
+        const jar = cookieJar();
+        expect((await login(site.url, "root", PASSWORD, {from: from(), jar})).status).toBe(200);
+        const cookie = sessionHeader(jar);
+        const release = holdWriteLock(dataDir, "identity");
+        let out: JsonResponse;
+        let locked: JsonResponse;
+        try {
+            out = await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), headers: {Cookie: cookie}});
+            locked = await login(site.url, "root", PASSWORD, {from: from()});
+        } finally {
+            release();
+        }
+        expect({...failure(out), setCookies: out.headers.getSetCookie()}).toEqual({...unavailable, setCookies: []});
+        expect((await whoami(cookie)).body).toMatchObject({state: "authenticated"});
+        expect({...failure(locked), setCookies: locked.headers.getSetCookie()}).toEqual({...unavailable, setCookies: []});
+    });
+
+    it("me 回公开资料加邮箱、有没有密码、邮箱待补、缺不缺同意；没给邮箱建的管理员邮箱待补、email 为 null", async () => {
+        const jar = cookieJar();
+        const source = from();
+        expect((await login(site.url, "root", PASSWORD, {from: source, jar})).status).toBe(200);
+        const me = await identityRequest(site.url, IDENTITY_PATHS.me, {from: source, jar});
+        expect(me.status).toBe(200);
+        expect(Value.Check(MeResponse, me.body)).toBe(true);
+        expect(me.body).toMatchObject({id: rootId, username: "root", role: "admin", email: "root@example.com", emailPending: false, hasPassword: true});
+
+        const pending = cookieJar();
+        expect((await login(site.url, "nomail", PASSWORD, {from: source, jar: pending})).status).toBe(200);
+        const pendingMe = await identityRequest(site.url, IDENTITY_PATHS.me, {from: source, jar: pending});
+        expect(Value.Check(MeResponse, pendingMe.body)).toBe(true);
+        expect(pendingMe.body).toMatchObject({username: "nomail", email: null, emailPending: true, hasPassword: true});
+    });
+
+    it("同意门槛：新建的管理员登录后 consentRequired 为真，me/password 得 consent_required；补交旧版本或不同意境外存放仍被拒；补交当前版本后放行", async () => {
+        const jar = cookieJar();
+        const source = from();
+        expect((await login(site.url, "gated", PASSWORD, {from: source, jar})).status).toBe(200);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.me, {from: source, jar})).body).toMatchObject({consentRequired: true});
+        const tryChange = () => identityRequest(site.url, IDENTITY_PATHS.mePassword, {method: "POST", from: source, jar, body: {currentPassword: "wrong-PW-000000", newPassword: NEW_PASSWORD}});
+        expect(failure(await tryChange())).toEqual(consentRequired);
+        expect((await whoami(sessionHeader(jar))).body).toMatchObject({state: "authenticated"});
+
+        const submit = (body: unknown) => identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: source, jar, body});
+        expect(failure(await submit({termsVersion: "2020-01-01", overseasStorage: true}))).toEqual(consentRequired);
+        expect(failure(await submit({termsVersion: TERMS_VERSION, overseasStorage: false}))).toEqual(consentRequired);
+        const accepted = await submit({termsVersion: TERMS_VERSION, overseasStorage: true});
+        expect(accepted.status).toBe(200);
+        expect(Value.Check(MeResponse, accepted.body)).toBe(true);
+        expect(accepted.body).toMatchObject({username: "gated", consentRequired: false});
+        // 过了门槛：轮到核对旧密码，旧密码错得 invalid_credentials。
+        expect(failure(await tryChange())).toEqual(invalidCredentials);
+    });
+
+    it("改密码：旧密码错得 invalid_credentials；对了回 {}，另一个会话失效、当前的保留，之后只有新密码能登录", async () => {
+        const current = await consented("changer", PASSWORD);
+        const other = cookieJar();
+        expect((await login(site.url, "changer", PASSWORD, {from: from(), jar: other})).status).toBe(200);
+        const change = (currentPassword: string) => identityRequest(site.url, IDENTITY_PATHS.mePassword, {method: "POST", from: from(), jar: current, body: {currentPassword, newPassword: NEW_PASSWORD}});
+
+        expect(failure(await change("wrong-PW-000000"))).toEqual(invalidCredentials);
+        expect((await whoami(sessionHeader(other))).body).toMatchObject({state: "authenticated"});
+
+        const changed = await change(PASSWORD);
+        expect(outcome(changed)).toEqual({status: 200, body: {}});
+        expect(Value.Check(EmptyResponse, changed.body)).toBe(true);
+        expect((await whoami(sessionHeader(current))).body).toMatchObject({state: "authenticated"});
+        expect((await whoami(sessionHeader(other))).body).toEqual({state: "anonymous"});
+        expect(failure(await login(site.url, "changer", PASSWORD, {from: from()}))).toEqual(invalidCredentials);
+        expect((await login(site.url, "changer", NEW_PASSWORD, {from: from()})).status).toBe(200);
+    });
+
+    it("有密码的账号改密码不带旧密码：validation_failed 点名 currentPassword", async () => {
+        const jar = await consented("root", PASSWORD);
+        const response = await identityRequest(site.url, IDENTITY_PATHS.mePassword, {method: "POST", from: from(), jar, body: {newPassword: NEW_PASSWORD}});
+        expect(failure(response)).toEqual({status: 400, body: {error: {code: "validation_failed", fields: ["currentPassword"]}}});
+    });
+
+    it("没有会话：me 与改密码得 unauthenticated", async () => {
+        const unauthenticated = {status: 401, body: {error: {code: "unauthenticated"}}};
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.me, {from: from()}))).toEqual(unauthenticated);
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.mePassword, {method: "POST", from: from(), body: {newPassword: NEW_PASSWORD}}))).toEqual(unauthenticated);
+    });
+});
+
+describe("会话的时长与延长（输出 5、7）", () => {
+    const PASSWORD = "clock-PW-k3Vb68";
+    let site: SiteProcess;
+    let address = 0;
+    const from = () => `192.0.2.${String(++address)}`;
+
+    beforeAll(async () => {
+        const dataDir = await sandbox.dataDir();
+        await createAdmin(sandbox, dataDir, ["clock"], PASSWORD);
+        site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
+    }, SETUP_TIMEOUT_MS);
+
+    async function signedIn(): Promise<string> {
+        const jar = cookieJar();
+        expect((await login(site.url, "clock", PASSWORD, {from: from(), jar})).status).toBe(200);
+        return sessionHeader(jar);
+    }
+
+    it("拨一天多：whoami 不延长、不带 Set-Cookie；me 延长并带回同一个令牌的 Cookie；到原到期时间之后仍有效", async () => {
+        const cookie = await signedIn();
+        await site.advanceClock(DAY_MS + 60_000);
+        const asked = await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}});
+        expect({body: asked.body, setCookies: asked.headers.getSetCookie()}).toEqual({body: expect.objectContaining({state: "authenticated"}), setCookies: []});
+
+        const jar = cookieJar();
+        const me = await identityRequest(site.url, IDENTITY_PATHS.me, {from: from(), headers: {Cookie: cookie}, jar});
+        expect(me.status).toBe(200);
+        expect(sessionHeader(jar)).toBe(cookie);
+
+        await site.advanceClock(SESSION_MS - DAY_MS);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}})).body).toMatchObject({state: "authenticated"});
+    });
+
+    it("拨过会话时长：会话失效，whoami 回 anonymous、me 得 unauthenticated", async () => {
+        const cookie = await signedIn();
+        await site.advanceClock(SESSION_MS + 60_000);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}})).body).toEqual({state: "anonymous"});
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.me, {from: from(), headers: {Cookie: cookie}}))).toEqual({status: 401, body: {error: {code: "unauthenticated"}}});
     });
 });
