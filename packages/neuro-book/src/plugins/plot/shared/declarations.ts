@@ -29,6 +29,7 @@ export const PLOT_COMPONENTS: readonly ComponentDeclaration[] = [
         id: COMPONENT_IDS.point,
         label: "知识点",
         namespace: "point",
+        kinds: [ENTRY_TYPES.point],
         version: 1,
         fields: [
             {id: "保密", label: "保密", kind: "enum", options: [...SECRECY]},
@@ -42,6 +43,7 @@ export const PLOT_COMPONENTS: readonly ComponentDeclaration[] = [
         id: COMPONENT_IDS.knowing,
         label: "知情",
         namespace: "know",
+        kinds: [ENTRY_TYPES.person, ENTRY_TYPES.organization],
         version: 1,
         fields: [
             {
@@ -61,6 +63,7 @@ export const PLOT_COMPONENTS: readonly ComponentDeclaration[] = [
         id: COMPONENT_IDS.foreshadow,
         label: "伏笔",
         namespace: "fs",
+        kinds: [ENTRY_TYPES.foreshadow],
         version: 1,
         fields: [
             {id: "种类", label: "种类", kind: "enum", options: ["setupPayoff", "mystery", "prophecy", "motif"]},
@@ -75,6 +78,7 @@ export const PLOT_COMPONENTS: readonly ComponentDeclaration[] = [
         id: COMPONENT_IDS.goal,
         label: "目标",
         namespace: "goal",
+        kinds: [ENTRY_TYPES.goal],
         version: 1,
         fields: [
             {id: "状态", label: "状态", kind: "enum", options: ["active", "blocked", "achieved", "abandoned"]},
@@ -91,6 +95,7 @@ export const PLOT_COMPONENTS: readonly ComponentDeclaration[] = [
         id: COMPONENT_IDS.attitude,
         label: "态度",
         namespace: "att",
+        kinds: [ENTRY_TYPES.person],
         version: 1,
         fields: [
             {

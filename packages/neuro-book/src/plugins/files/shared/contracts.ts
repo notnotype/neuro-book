@@ -16,6 +16,8 @@ import type {Static, TSchema} from "typebox";
 
 import {FILES_FAILURES} from "./failures";
 import type {UploadExists, UploadResult} from "./upload";
+// 写入图片的规则（四种类型、32 MiB）：别的插件在发请求前先拦一遍时用。
+export {UPLOAD_EXTENSIONS, UPLOAD_MAX_BYTES} from "./upload";
 import type {FilesFailureCode} from "./failures";
 import {parseResource} from "./resource";
 import type {Scheme} from "./resource";

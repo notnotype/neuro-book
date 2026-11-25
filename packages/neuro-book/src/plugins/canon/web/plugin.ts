@@ -19,6 +19,8 @@ import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/c
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {editorComponentsKey, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
+import {IMAGE_FOLDER_DEFAULT, imageFolderSetting} from "nbook/plugins/editor/shared/contracts";
+import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -33,9 +35,12 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {descriptor} from "../plugin";
 import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/component-views";
 import {CANON_ENTRY_TABS_POINT, entryTabsPoint} from "../shared/entry-tabs";
+import {CANON_ENTRY_KINDS_POINT, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
+import {createCanonImages} from "./images";
+import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
-import {componentsPoint, PERSON_COMPONENT} from "../shared/components";
+import {componentsPoint, LOOK_COMPONENT, PERSON_COMPONENT} from "../shared/components";
 import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {canonText} from "../shared/text";
@@ -113,7 +118,7 @@ const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i
 /** 变更详情页：每条剧情变更一个标签，刷新后恢复。标题由约定键补（`editorPages.change.title`）。 */
 const CHANGE_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-milestone", instances: true, restore: true};
 
-/** canon 自己的两个内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
+/** canon 自己的内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
 const PANEL_TYPE = "nbook.canon.panel";
 const BUILTIN_VIEW: ComponentViewDeclaration = {};
 
@@ -133,7 +138,7 @@ function componentView(load: () => Promise<{default: unknown}>, extra: Record<st
 export const canonBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 贡献点在每个有本插件的实例里都定义：内置类型是顶层声明，各实例都登记它们（plugin-manifest.md 输出 11）。
-    contributionPoints: [componentsPoint, componentViewsPoint, entryTabsPoint],
+    contributionPoints: [componentsPoint, componentViewsPoint, entryTabsPoint, entryKindsPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
@@ -143,7 +148,8 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
         // 选线可选：没有工作台的窗口里没有快速选择，选线命令得到 `unavailable`。
         // Storage 可选：没有时主文字的稿只在内存里（author-ui.md 输出 45）。编辑器的组件可选：没有时整篇编辑用普通文本框。
-        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}, {key: storageKey, required: false}, {key: editorComponentsKey, required: false}],
+        // 设置可选：没有时设定里的图片存进缺省的图片文件夹（输出 53）。
+        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}, {key: storageKey, required: false}, {key: editorComponentsKey, required: false}, {key: settingsKey, required: false}],
         provides: [canonClientKey, canonReadsKey],
         receives: [CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT],
         remoteDelegates: [canonWorldContract],
@@ -159,7 +165,9 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
             {capability: EDITOR_LANGUAGES_POINT, id: ENTRY_LANGUAGE, declaration: ENTRY_LANGUAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: BUILTIN_VIEW},
+            // 人物的立绘读自同一条目上的形象这一组（author-ui.md 输出 49）。
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: {uses: [LOOK_COMPONENT]}},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: BUILTIN_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
             ...Object.entries(CANON_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],
@@ -212,6 +220,8 @@ export const canonBrowserPlugin: PluginDefinition = {
             const notifications = await context.services.resolve(notificationsKey);
             const execute = (id: string, args: unknown): void => void commands?.execute(id, args);
             const call: CanonClient["call"] = (method, input) => clientOf().call(method, input);
+            // 登记的条目种类（输入一节的 `canon.entry-kinds`）：顶层声明，现读；新建对话框与条目页的分页顺序用。
+            const entryKinds = () => mergeEntryKinds(context.declarations.list<EntryKindDeclaration>(CANON_ENTRY_KINDS_POINT));
             const views = new ComponentViewRegistry();
             const entryTabs = new ComponentViewRegistry<EntryTabDeclaration>();
             const notices = createNotices({
@@ -229,6 +239,10 @@ export const canonBrowserPlugin: PluginDefinition = {
             const storage = await context.services.resolve(storageKey);
             const editorComponents = await context.services.resolve(editorComponentsKey);
             const drafts = createTextDrafts({storage: storage.status === "resolved" ? storage.instance : null, world: worldOf, call});
+            const files = await context.services.resolve(filesKey);
+            // 设定里的图片（输出 53）：存进作品设置里的图片文件夹；没有设置服务时用缺省的文件夹。
+            const settings = await context.services.resolve(settingsKey);
+            const images = createCanonImages(files.status === "resolved" ? files.instance : null, () => (settings.status === "resolved" ? settings.instance.get(imageFolderSetting) : IMAGE_FOLDER_DEFAULT));
             const page = createEntryPage({
                 drafts,
                 sourceInput: editorComponents.status === "resolved" ? editorComponents.instance.components.CodeInput : null,
@@ -245,9 +259,10 @@ export const canonBrowserPlugin: PluginDefinition = {
                 shown: (entry) => {
                     state.selected.value = entry;
                 },
+                entryKinds,
+                images,
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
-            const files = await context.services.resolve(filesKey);
             // “打开这一章”：章节文件名里带标题，按编号在活页夹目录里找（与项目实例读正文认同一个文件）。
             const openChapter = async (chapter: string): Promise<boolean> => {
                 if (files.status !== "resolved") return false;
@@ -297,7 +312,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     world: worldOf(),
                     state,
                     open: (id) => execute(OPEN_ENTRY_COMMAND, {id}),
-                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices},
+                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices, kinds: entryKinds},
                 }),
             };
             return {
@@ -315,7 +330,8 @@ export const canonBrowserPlugin: PluginDefinition = {
                     [EDITOR_LANGUAGES_POINT]: {[ENTRY_LANGUAGE]: {load: () => Promise.resolve(entryLanguageDefinition)}},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
-                        [PERSON_COMPONENT]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
+                        [PERSON_COMPONENT]: componentView(() => import("./components/CharacterView.vue")),
+                        [LOOK_COMPONENT]: componentView(() => import("./components/LookView.vue")),
                         [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
                     },
                     [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState), pickLine}),

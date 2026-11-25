@@ -4,21 +4,24 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowRef, Transition, watch} from "vue";
 import type {Component, PropType} from "vue";
 
-import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
+import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
-import {Dialog, SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {Dialog, Popover, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import type {EntryKind} from "../../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
-import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
+import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
+import {createImagePicking, provideCanonImageUrl, provideImagePicking} from "../images";
+import type {CanonImages} from "../images";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
@@ -45,6 +48,7 @@ import TextConflictDialog from "./TextConflictDialog.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
 import type {InsertItem} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
+import FieldDetailView from "./FieldDetail.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import AgentNotice from "./AgentNotice.vue";
 import NoticeBar from "./NoticeBar.vue";
@@ -89,12 +93,21 @@ const props = defineProps<{
     sourceInput: Component | null;
     /** 这一页挂着的时候把“提交主文字”交给宿主（标签的保存命令调它，输出 46）；卸载时交 null。 */
     onCommitReady: (commit: (() => Promise<void>) | null) => void;
+    /** 登记的条目种类（`canon.entry-kinds`）：这个条目种类的默认设定组的分页排在“文字”前面（输出 9）。 */
+    entryKinds?: readonly EntryKind[];
+    /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
+    images?: CanonImages | null;
 }>();
 
 const text = useCanonText();
 const port = useText();
 const state = props.state;
 const world = props.world;
+// 图片（输出 53）：取图地址注入给这一页里的 `CanonImage`；选图片的地方（确认条、元素对话框、就地改）共用一份候选与上传，同一时间
+// 只有一处在填。
+provideCanonImageUrl((path) => props.images?.url(path) ?? null);
+const imagePicking = props.images === undefined || props.images === null ? null : createImagePicking(props.images, (given) => port.t(given));
+if (imagePicking !== null) provideImagePicking(imagePicking);
 // 挂着就是在前台：保存后的提示显示在本页顶上（输出 18）。
 const pageNotice = usePageNotice(props.notices, props.revert);
 
@@ -187,15 +200,22 @@ const extraTabs = computed(() => {
         .filter((item) => enabled.has(item.declaration.requires))
         .sort((a, b) => (a.declaration.order ?? 0) - (b.declaration.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 });
+/** 这个条目种类登记的默认设定组（类型 id）：它们的分页排在“文字”前面（输出 9），人物打开时先看人物。 */
+const leadingTypes = computed(() => {
+    const kind = entry.value?.kind?.trim();
+    return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
+});
 const tabs = computed(() => {
     const items: {value: string; label: string; count?: number}[] = [];
-    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
-    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
-    for (const namespace of namespaces.value) {
+    const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
-        items.push({value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)});
-    }
+        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)}};
+    });
+    for (const tab of data) if (tab.leading) items.push(tab.item);
+    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
+    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
+    for (const tab of data) if (!tab.leading) items.push(tab.item);
     // 声明经约定键补全过，`title` 总在。
     for (const item of extraTabs.value) items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!)});
     const total = plot.state.value?.data?.total;
@@ -204,6 +224,11 @@ const tabs = computed(() => {
 });
 // 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
 const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0]! : tabs.value[0]!).value);
+// 有没提交的主文字稿时先看文字（直接进编辑，输出 45），排在它前面的人物分页这时不当缺省（输出 9）。稿是读完存储才知道的：读到时
+// 作者还没自己点过分页，就把分页定在文字上（记进标签状态），提交、放弃以后不跳回人物分页。
+watch(() => props.draft.state.draft !== null, (editing) => {
+    if (editing && state.tab === null) state.tab = "text";
+}, {immediate: true});
 const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : firstTab.value));
 const dataNamespace = computed(() => (tab.value.startsWith(DATA) ? tab.value.slice(DATA.length) : null));
 const extraTab = computed(() => (tab.value.startsWith(EXTRA) ? tab.value.slice(EXTRA.length) : null));
@@ -284,12 +309,13 @@ const edit = useInPlaceEdit({
         void nextTick(() => document.querySelector<HTMLElement>(`[data-edit="${CSS.escape(path)}"]`)?.focus());
     },
     accumulated: (path) => {
-        // 累出来的数：展开它的来历（字段表展开那一行，面板选中那张卡）。
+        // 累出来的数：展开它的来历（字段表展开那一行，面板选中那张卡，专门界面看它的细节）。
         const namespace = path.slice(0, path.indexOf("."));
         const bag = state.views[namespace];
         if (bag !== undefined) {
             bag.open = path;
             bag.selected = path;
+            bag.detail = path.slice(namespace.length + 1);
         }
     },
 });
@@ -341,9 +367,31 @@ const confirmDelete = async (): Promise<void> => {
     props.notices.show({revision: result.value.revision, title});
 };
 
+/**
+ * 专门界面里挂着的就地改编辑器（`context.FieldEditor`，输出 51），按路径计数：同一条路径挂两份时卸一份不影响另一份，换分页时新的
+ * 先挂、旧的后卸也不出错。草稿标了就地、并且此刻有编辑器挂着这条路径时由它画，不出确认条。
+ */
+const inlineEditors = shallowRef<ReadonlyMap<string, number>>(new Map());
+const holdInline = (path: string): (() => void) => {
+    const add = (step: number): void => {
+        const next = new Map(inlineEditors.value);
+        const count = (next.get(path) ?? 0) + step;
+        if (count > 0) next.set(path, count);
+        else next.delete(path);
+        inlineEditors.value = next;
+    };
+    add(1);
+    let held = true;
+    return () => {
+        if (!held) return;
+        held = false;
+        add(-1);
+    };
+};
+const inlineHere = computed(() => state.edit?.inline === true && (inlineEditors.value.get(state.edit.path) ?? 0) > 0);
 const editHere = computed(() => {
     const draft = state.edit;
-    if (draft === null) return false;
+    if (draft === null || inlineHere.value) return false;
     // 名字、简介的确认条在哪个分页都显示；字段的只在它那个数据分页显示（切走再回来还在，输出 7）。
     if (HEAD_FIELDS[draft.path] !== undefined) return true;
     return dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
@@ -393,13 +441,17 @@ const changeAliases = (change: {readonly add?: readonly string[]; readonly remov
 };
 const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
 
-// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。
+// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个条目种类的
+// （类型的 `kinds` 含它）排在前面，其余照登记的顺序接在后面（输出 38）。
 const addOpen = shallowRef(false);
 const addType = shallowRef("");
 const addableTypes = computed(() => {
     const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
     const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
-    return (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id)).map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
+    const kind = entry.value?.kind?.trim() ?? "";
+    const addable = (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id));
+    const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
+    return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
 const confirmAdd = async (): Promise<void> => {
     const type = addType.value;
@@ -490,7 +542,12 @@ const intentsHere = (): EditIntent[] => (position.value.kind === "initial" ? ["c
 const elementFields = computed<ElementField[]>(() => {
     const draft = elementDraft.value;
     const declaration = draft === null ? undefined : listDeclaration(draft.namespace, draft.field);
-    return (declaration?.item ?? []).map((sub) => ({id: sub.id, label: sub.label, kind: kindOf(sub), ...(sub.options === undefined ? {} : {options: sub.options}), ...(sub.unit === undefined ? {} : {unit: sub.unit}), ...(sub.precision === "semantic" ? {semantic: true} : {})}));
+    return (declaration?.item ?? []).map((sub) => {
+        const kind = kindOf(sub);
+        // 有建议值的文字：候选是它的建议值（输入框里照样能写别的）。
+        const options = kind === "suggest" ? sub.suggestions : sub.options;
+        return {id: sub.id, label: sub.label, kind, ...(options === undefined ? {} : {options}), ...(sub.unit === undefined ? {} : {unit: sub.unit}), ...(sub.precision === "semantic" ? {semantic: true} : {})};
+    });
 });
 // 以条目为键的列表选“指向的条目”、引用子字段选条目：各按自己的 `targets` 查。
 const keyFind = useEntryFind(() => finderFor(elementDraft.value === null ? [] : listDeclaration(elementDraft.value.namespace, elementDraft.value.field)?.targets ?? []));
@@ -696,6 +753,149 @@ const contexts = new Map<string, ComponentViewContext>();
 watch(namespaces, (list) => {
     for (const namespace of list) state.views[namespace] ??= {};
 }, {immediate: true});
+/**
+ * 专门界面的写入（`context.fieldAdd` 这些、`addComponent`）：原因交回界面自己写，不写到页头或对话框里。草稿所在的字段被去掉或
+ * 改名时清掉草稿（输出 51）。
+ */
+const viewWrite = async (ops: EntryOp[], title: Text): Promise<ViewWriteResult> => {
+    if (editBlocked.value !== null) return {ok: false, reason: editBlocked.value};
+    const titleText = port.t(title);
+    const result = await world.write("editEntries", {input: {requestId: `view-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion: version(), title: titleText, intent: "creative", position: position.value, ops}});
+    if (!result.ok) return {ok: false, reason: failureText(result.failure).text};
+    props.notices.show({revision: result.value.revision, title: titleText});
+    return {ok: true};
+};
+const fieldLabel = (namespace: string, field: string): string => entry.value?.declarations?.[namespace]?.find((item) => item.id === field)?.label ?? entry.value?.removedFields?.[namespace]?.find((item) => item.id === field)?.label ?? field;
+const dropDraftOn = (namespace: string, field: string): void => {
+    if (state.edit?.path === `${namespace}.${field}`) state.edit = null;
+};
+/** 同一条目上别的组的只读视图（`context.other` 的 `present`），每个命名空间一个。 */
+const peers = new Map<string, ComponentPeer>();
+const peerFor = (namespace: string): ComponentPeer => {
+    let found = peers.get(namespace);
+    if (found === undefined) {
+        found = {
+            namespace,
+            get fields() { return view.value?.namespaces[namespace]?.fields ?? {}; },
+            get declarations() { return entry.value?.declarations?.[namespace] ?? []; },
+        };
+        peers.set(namespace, found);
+    }
+    return found;
+};
+/** `context.other`：只认这个界面的声明里 `uses` 列了的类型（输入一节）。 */
+const otherFor = (namespace: string, type: string): OtherComponent => {
+    const own = view.value?.namespaces[namespace]?.type;
+    const uses = props.views.entries().find((item) => item.id === own)?.declaration.uses ?? [];
+    if (!uses.includes(type)) return {status: "absent"};
+    const present = Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === type)?.[0];
+    if (present !== undefined) return {status: "present", peer: peerFor(present)};
+    const registered = componentsRead.value?.data?.items.find((item) => item.id === type);
+    const later = registered === undefined ? undefined : view.value?.upcoming.find((item) => item.namespace === registered.namespace);
+    if (later !== undefined) return {status: "later", from: place(later.from)};
+    if ((view.value?.removedComponents ?? []).some((item) => item.type === type)) return {status: "removed"};
+    if (componentsRead.value?.data !== undefined && registered === undefined) return {status: "unavailable"};
+    return {status: "absent"};
+};
+/** 就地改的编辑器（`context.FieldEditor`）与值的细节（`context.FieldDetail`），每个命名空间各一个组件定义。 */
+const fieldEditors = new Map<string, Component<FieldEditorProps>>();
+const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
+    let found = fieldEditors.get(namespace);
+    if (found === undefined) {
+        found = defineComponent({
+            name: "CanonFieldEditor",
+            props: {
+                path: {type: String, required: true},
+                layout: {type: String as PropType<"popover" | "block">, default: "popover"},
+                suggestions: {type: Array as PropType<readonly string[]>, default: undefined},
+                anchor: {type: Object as PropType<object | null>, default: null},
+            },
+            setup(inner) {
+                const full = (): string => `${namespace}.${inner.path}`;
+                let release = holdInline(full());
+                watch(() => inner.path, () => {
+                    release();
+                    release = holdInline(full());
+                });
+                onBeforeUnmount(() => release());
+                // 输入法组字中、保存或上传在途时，点外面、Escape 与“取消”都不算放弃（输出 51）：三条路都经 `dismiss`。
+                const composing = shallowRef(false);
+                const active = computed(() => state.edit?.inline === true && state.edit.path === full() && edit.bar.value !== null);
+                const dismiss = (): void => {
+                    if (composing.value || edit.bar.value?.saving === true || imagePicking?.uploading === true) return;
+                    edit.cancel();
+                };
+                // 浮层关上以后还要淡出一会（Popover 的退场动画）：这期间照最后那一份画，不让它先塌成一块空的表面。
+                const shown = shallowRef<NonNullable<typeof edit.bar.value> | null>(null);
+                watch([active, edit.bar], ([on, bar]) => {
+                    if (on && bar !== null) shown.value = bar;
+                }, {immediate: true});
+                const content = () => {
+                    // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
+                    const given = shown.value!;
+                    const suggested = inner.suggestions !== undefined && inner.suggestions.length > 0 && (given.kind === "text" || given.kind === "suggest");
+                    const bar = suggested ? {...given, kind: "suggest" as const, options: inner.suggestions!} : given;
+                    // 浮层里的短项是单行输入（回车保存）；成段的文字从原文的行数起步。
+                    const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
+                    return h("div", {
+                        "data-field-editor": full(),
+                        onCompositionstart: () => (composing.value = true),
+                        onCompositionend: () => (composing.value = false),
+                    }, [h(ConfirmBar, {
+                        ...bar,
+                        variant: "inline",
+                        rows,
+                        refResults: refFind.results.value,
+                        refName: refName.value,
+                        onSearchRef: refFind.search,
+                        "onUpdate:value": edit.update,
+                        "onUpdate:intent": edit.setIntent,
+                        onSave: () => edit.save(),
+                        onRecheck: () => edit.recheck(),
+                        onCancel: dismiss,
+                    })]);
+                };
+                return () => {
+                    if (inner.layout === "block") {
+                        // 编辑层向下长、盖在后面的内容上：打开时整个滚进可见范围（在页面下方打开时，保存不在窗口外）。等下一帧再滚：
+                        // 挂上以后确认条在微任务里给输入框焦点，`focus()` 会打断已经开始的平滑滚动。
+                        const reveal = (element: Element): void => {
+                            const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+                            requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
+                        };
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3"}, [content()]) : null));
+                    }
+                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
+                    return h(Popover, {
+                        open: active.value && inner.anchor !== null,
+                        anchor: inner.anchor as HTMLElement | null,
+                        side: shown.value?.kind === "image" ? "right" : "bottom",
+                        align: "start",
+                        contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
+                        "onUpdate:open": (open: boolean) => {
+                            if (!open) dismiss();
+                        },
+                    }, {default: () => (shown.value !== null ? content() : null)});
+                };
+            },
+        });
+        fieldEditors.set(namespace, found);
+    }
+    return found;
+};
+const fieldDetails = new Map<string, Component<{readonly path: string}>>();
+const fieldDetailOf = (namespace: string): Component<{readonly path: string}> => {
+    let found = fieldDetails.get(namespace);
+    if (found === undefined) {
+        found = defineComponent({
+            name: "CanonFieldDetail",
+            props: {path: {type: String, required: true}},
+            setup: (inner) => () => h(FieldDetailView, {context: contextFor(namespace), path: inner.path}),
+        });
+        fieldDetails.set(namespace, found);
+    }
+    return found;
+};
 /** 专门界面嵌的通用字段表（`context.FieldTable`），每个命名空间一个，绑在那一页的 context 上。 */
 const fieldTables = new Map<string, Component<{readonly fields?: readonly string[]}>>();
 const fieldTableOf = (namespace: string): Component<{readonly fields?: readonly string[]}> => {
@@ -726,12 +926,50 @@ const contextFor = (namespace: string): ComponentViewContext => {
             get blocked() { return editBlocked.value; },
             place,
             origins: (path, cursor) => props.fetchOrigins({entry: props.id, path: `${namespace}.${path}`}, position.value, mode.value, cursor),
-            edit: (path) => edit.open(`${namespace}.${path}`),
+            edit: (path, options) => edit.open(`${namespace}.${path}`, options),
             record: (path, input) => record(`${namespace}.${path}`, input),
             listAdd: (path) => openElement(namespace, path),
             listEdit: (path, element) => openElement(namespace, path, element),
             listRemove: (path, element) => openRemoveElement(namespace, path, element),
             open: props.open,
+            other: (type) => otherFor(namespace, type),
+            addComponent: (type) => viewWrite([{op: "component", entry: props.id, type, action: "add"}], text("entry.groupAdded", {name: typeLabel(type)})),
+            showTab: (type) => {
+                const target = Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === type)?.[0];
+                if (target !== undefined) state.tab = `${DATA}${target}`;
+            },
+            fieldAdd: (field: FieldDraft) => viewWrite([{op: "fieldAdd", entry: props.id, namespace, field}], text("entry.fieldAdded", {name: view.value?.name ?? "", label: field.label})),
+            fieldRename: async (path, label) => {
+                const from = fieldLabel(namespace, path);
+                const result = await viewWrite([{op: "fieldRename", at: {entry: props.id, path: `${namespace}.${path}`}, label}], text("entry.fieldRenamed", {name: view.value?.name ?? "", from, label}));
+                if (result.ok) dropDraftOn(namespace, path);
+                return result;
+            },
+            fieldRemove: async (path) => {
+                const result = await viewWrite([{op: "fieldRemove", at: {entry: props.id, path: `${namespace}.${path}`}}], text("entry.fieldRemoved", {name: view.value?.name ?? "", label: fieldLabel(namespace, path)}));
+                if (result.ok) dropDraftOn(namespace, path);
+                return result;
+            },
+            fieldRestore: (path) => viewWrite([{op: "fieldRestore", at: {entry: props.id, path: `${namespace}.${path}`}}], text("entry.fieldRestored", {name: view.value?.name ?? "", label: fieldLabel(namespace, path)})),
+            get removedFields() { return entry.value?.removedFields?.[namespace] ?? []; },
+            get presets() {
+                const type = view.value?.namespaces[namespace]?.type;
+                return componentsRead.value?.data?.items.find((item) => item.id === type)?.presets ?? [];
+            },
+            get FieldEditor() { return fieldEditorOf(namespace); },
+            get FieldDetail() { return fieldDetailOf(namespace); },
+            get editing() {
+                const draft = state.edit;
+                return draft?.inline === true && draft.path.startsWith(`${namespace}.`) ? draft.path.slice(namespace.length + 1) : null;
+            },
+            get detail() {
+                const value = state.views[namespace]?.detail;
+                return typeof value === "string" ? value : null;
+            },
+            showDetail: (path) => {
+                const bag = (state.views[namespace] ??= {});
+                bag.detail = path;
+            },
         };
         contexts.set(namespace, found);
     }

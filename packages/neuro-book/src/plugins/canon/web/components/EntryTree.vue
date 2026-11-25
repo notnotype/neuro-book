@@ -7,7 +7,7 @@ import type {GenericTreeNode} from "@notnotype/nb-ui/components";
 import {useCanonText} from "../text";
 import type {EntryTreeItem, EntryTreeLayer} from "./entry-tree";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     layers: Readonly<Record<string, EntryTreeLayer>>;
     expanded: readonly string[];
     selected?: string;
@@ -16,7 +16,9 @@ const props = defineProps<{
     creatable?: boolean;
     /** 现在不能写：空状态的按钮禁用，悬停提示是它。 */
     blockedReason?: string;
-}>();
+    /** 空状态里有“新建人物”（“人物”这个种类登记了）；默认 true。 */
+    createPerson?: boolean;
+}>(), {createPerson: true});
 
 const emit = defineEmits<{
     (event: "open", id: string): void;
@@ -140,8 +142,8 @@ const menuItems = computed(() => [{label: text("entries.createUnder"), iconClass
         >
             <template #action>
                 <div class="flex flex-wrap justify-center gap-[var(--space-2)]">
-                    <Button variant="primary" :disabled="props.blockedReason !== undefined && props.blockedReason !== ''" :title="props.blockedReason || undefined" @click="emit('create-person')">{{ text("entries.createPerson") }}</Button>
-                    <Button variant="secondary" :disabled="props.blockedReason !== undefined && props.blockedReason !== ''" :title="props.blockedReason || undefined" @click="emit('create', null)">{{ text("entries.createEntry") }}</Button>
+                    <Button v-if="props.createPerson" variant="primary" :disabled="props.blockedReason !== undefined && props.blockedReason !== ''" :title="props.blockedReason || undefined" @click="emit('create-person')">{{ text("entries.createPerson") }}</Button>
+                    <Button :variant="props.createPerson ? 'secondary' : 'primary'" :disabled="props.blockedReason !== undefined && props.blockedReason !== ''" :title="props.blockedReason || undefined" @click="emit('create', null)">{{ text("entries.createEntry") }}</Button>
                 </div>
             </template>
         </EmptyState>

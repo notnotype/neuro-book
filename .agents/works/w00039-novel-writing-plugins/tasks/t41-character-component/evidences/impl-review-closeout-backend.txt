@@ -1,0 +1,142 @@
+w00039 t41 后端实现审查报告（S3 提交 92b6ba55d、S4 提交 c6e86901d 的后端部分）
+范围外：前端界面、nb-canon 内核（只在它影响 Agent 回话时提到）。
+实验都在 /tmp/review-w00039-t41-closeout/lab/ 里，用真实项目子进程与真实世界服务（照 agent-tools.test.ts 的场地），产品文件没改。
+
+### 1. addField 不给 value 时，number 与 ref 类字段被 Agent 层拒收；给了数值又被内核拒收，数字字段加不上
+严重程度：重要
+类别：合同违反 / 异常输入
+位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts 的 `case "addField"`（约 468-475 行）与 `resolveValue`（约 243-262 行）
+现象：`addField` 无条件调用 `resolveValue(context, {...draft, id}, edit.value, keys)`。`edit.value` 为 undefined 时，number 分支走到“precision 不是 semantic 且 typeof value !== number”，ref 分支走到“typeof value !== string”，都返回 problem。实测：
+- {op:"addField", component:"面板", label:"力量", kind:"number"} 回 `第 1 项（addField）：“力量”是数。`
+- {op:"addField", ..., label:"师父", kind:"ref", targets:["人物"]} 回 `“师父”是引用，值写条目名字或 id。`
+- text、enum、list 不给 value 能成（resolveValue 对它们直接放行）。
+给数值时 {kind:"number", value:5} 内核回 `validation-failed：第 1 项 number-without-basis（every number needs a basis (quote, derived, author, or estimate)）`：这个码没有中文提示（PROBLEM_HINTS 里没有），`canon_write` 也没有任何传依据的参数，模型无从改对。所以通过 `addField` 加数字字段在任何写法下都不成功。
+为什么是问题：Spec agent-tools.md 输出 6 与计划设计八都写“可选 `value`”；工具说明给 `addField` 列了 `min`、`max`，暗示可以加数字字段。而 `create` 的 `declare` 路径不调 `resolveValue`，同样的数字声明能成（现有测试用的就是它），两条路径不一致。
+如何核实：lab/probe3.test.ts 的 “addField number no value / ref no value”；lab/probe2.test.ts 的 “addField number value”。
+建议改法：`edit.value === undefined` 时跳过 `resolveValue`（只在给了 value 时预检）；`number-without-basis` 补一句中文提示（说明 Agent 写数要走作者给的依据，或先建字段不填值，由作者填）；`agent-tools.test.ts` 补一条 addField number/ref 不给初值的用例（现在只测了 text）。
+
+### 2. 声明项写错时（kind 写“数字”、min 写成字符串等），回话是 JSON Schema 的原始报错，模型改不对；工具说明也没列 kind 的合法取值
+严重程度：重要
+类别：异常输入 / 回话可操作性
+位置：backend/agent-tools.ts 的 `fieldDraftOf`（注释“形状对不对由内核判”）与工具说明（约 94 行）；回话出口在 backend/agent-text.ts 的 `failureText` 默认分支
+现象：实测 {op:"addField", component:"面板", label:"x", kind:"数字"} 回
+`invalid-input：/input/ops/0：must have required properties id；/input/ops/0：must not have additional properties；/input/ops/0/op：must be equal to constant；/input/ops/0/entry：must be object；/input/ops/0：must have required properties at, value`
+这是内核 EntryOp 联合类型的全部分支一起报的，看不出是 kind 的取值不对。工具说明只写“kind 缺省 text”，没有列合法的 number、text、enum、boolean、list、image、ref。中文模型写“数字”“文本”“选项”是很自然的。min、max、options 等写错类型也走同一条路。
+为什么是问题：计划设计八要求“回话能让模型改对”；这里模型拿到的是互相矛盾的一串英文，只能猜。字段声明的 `kind` 是这一批功能里模型最容易写错的参数。
+如何核实：lab/probe2.test.ts 的 “addField kind 数字”。
+建议改法：二选一或并用：(a) 工具说明里列出 kind 的合法值与各自要的参数（enum 要 options，list 要 item，ref 可带 targets）；(b) `fieldDraftOf` 里先按 FieldKindSchema 的取值预检 kind，错了回“kind 只能是：…”，min、max 要是数、options 要是文字列表同理，不全交给内核。
+
+### 3. create 的 declare 里，显示名不是合法标识符时，同一项 fields 给初值必失败（以为 id 等于显示名）
+严重程度：重要
+类别：没写出来的假设
+位置：backend/agent-tools.ts 的 create 分支，`declaredHere`（约 421-425 行，注释“没写 id 的，内核按显示名生成，这里按同样的名字认”）
+现象：代码把没写 id 的声明的 id 当作等于 label（`id: draft.id ?? draft.label`），再用它去找 `fields` 里的键并写 `target.fields[field.id]`。内核的 `generateFieldId`（nb-canon components/registry.ts:214）只在 label 是合法标识符、没被占用时才等于 label；含空格、括号、点或以数字开头的显示名会生成别的 id（例如 `身高 (cm)` 会变成类似 `身高cm2`、`Max HP` 变成 `MaxHP2`）。实测：
+- create + declare {面板:[{label:"身高 (cm)", kind:"number"}]} + fields {"面板.身高 (cm)":170} 回 `validation-failed：第 1 项 unknown-field（没有这个字段）`
+- create + declare {面板:[{label:"Max HP"}]} + fields {"面板.Max HP":"x"} 同样回 unknown-field。
+模型刚声明了这个字段，却被告知“没有这个字段”，回话里也没有生成出来的 id。同一个假设还影响 declare 里的 `max`：`max` 写的是另一个字段的 id，模型按显示名写，在显示名不是标识符时同样对不上（此时回话是 type-mismatch“值的类型不对”，更看不出原因）。
+为什么是问题：假设只对“战绩”“魔力上限”这类单个中文词的显示名成立，而这套功能的卖点就是作者与 Agent 自由命名字段；换成带空格、带单位的名字就不成。agent-tools.test.ts 里用的恰好都是纯中文词。
+如何核实：lab/probe1.test.ts 的 “create declare w/ non-identifier label …” 两项。
+建议改法：Agent 层在 declare 里自己生成并写下 `id`（需要用到的话取内核同一个函数，或让内核导出 `generateFieldId` 的结果预览），而不是猜；或者 label 不是标识符时直接要求写 `id` 并在回话里这样说；`max` 同理按显示名在本批声明里解析成 id。测试补一条显示名带空格的用例。
+
+### 4. create 的 components、declare 写成不认得的形状时被静默忽略；S4 之后 components 写错形状会悄悄套上默认
+严重程度：重要
+类别：异常输入 / 违反“写了就照写”的合同
+位置：backend/agent-tools.ts create 分支：`Array.isArray(edit.components)` 的 else（约 396-404 行）、`typeof edit.declare === "object"`（约 410 行）、`fieldDraftOf` 的 `DECLARATION_KEYS` 过滤、`target.declare = [...drafts]`
+现象（都实测，lab/probe1、probe5）：
+- `components: "面板"`（字符串）或 `null`：`Array.isArray` 为假，走“没写 components”的分支，套种类默认。kind 人物时得到人物与形象，没有面板，回话是成功的“已写入”。S4 之前这种写法是“什么设定组都不带”，现在变成“悄悄带默认”，模型想要的组没有、不想要的有，且回话里没有任何提示。Spec/计划的规则是“写了（空数组也算）就照写的”，没写才用默认；“写了但写错形状”这个情况两处都没覆盖。
+- `declare: "战绩"`（字符串）：`typeof edit.declare === "object"` 为假，当作没写，成功。`declare` 写成数组时则被当成键 "0"，回话是 `declare 的“0”：没有设定组“0”`，看不出是形状错了。
+- `declare` 里同一个设定组用两个名字写（“面板”与“panel”）：后一个整组覆盖前一个，前一个的声明静默丢失（实测只剩“乙项”）。
+- 声明里写了 `value`（模型常顺手写初值）或别的不认得的键：被 `DECLARATION_KEYS` 静默丢弃，成功，值没有写进去（实测 declare 里 {label:"战绩", value:"三胜"} 读出来是“未知”）。
+- 成功回话只列“新建：第 1 项 → e1”，不说带上了哪几组设定，所以模型无从发现默认被套上或没套上。
+为什么是问题：这些都是模型乱写参数时“成功但不是它要的”，比报错更糟，因为模型会继续按以为已写入的状态往下做。
+建议改法：`components`、`declare` 在已给出（不为 undefined）却形状不对时直接 bad-edit 并说明；`declare` 同一设定组重复时拒收；声明里不认得的键（含 value）回一句“declare 里不能写 X，初值写在 fields 里”；写入成功回话在新建项后补一句“带了设定组：人物、形象”。
+
+### 5. PROBLEM_HINTS 里新加的 id-taken 提示盖掉了内核对“设定组已经在条目上”的原文，回话把模型引向错误的改法
+严重程度：重要
+类别：回话误导 / 被破坏的既有约定
+位置：backend/agent-text.ts PROBLEM_HINTS 的 `"id-taken"`（S3 新增，最后一行）；内核 world/entry-edits.ts:575、781、793 也用 id-taken
+现象：`failureText` 对 validation-failed 的每个问题用 `PROBLEM_HINTS[code] ?? problem.message`。S3 之前 id-taken 没有提示，会显示内核的 message（“the component is already on this entry”）；现在固定显示“这个 id 已经用过，不写 id、让系统按名字生成”。内核里还有两处同码：addComponent 加一个已经在条目上的设定组（781、793 行）、同一批 create 同一个临时 id（575 行）。实测：先 create 一个人物（S4 之后默认就带人物与形象），再 addComponent 人物，回 `validation-failed：第 1 项 id-taken（这个 id 已经用过，不写 id、让系统按名字生成）`。模型根本没写 id，却被告知“不写 id”，不知道问题是设定组已经在条目上。S4 之后默认设定组让这种重复更容易发生（模型沿用“新建后补加人物”的习惯）。
+如何核实：lab/probe1.test.ts 的 “addComponent 人物 again”。
+建议改法：按操作区分：addComponent 在 translate 里已经读得到条目的设定组时，先预检并回“这个条目已经有设定组 X”；或把 id-taken 的提示改成不绑死“id”（“已经有了：同名的字段 id、条目上已有的设定组”），并在 addField 分支里单独把 id-taken 翻成“id 已占用，不写 id”。
+
+### 6. 空的或只有空白的显示名被接受，写进一个没有名字的字段
+严重程度：建议（内核放行是根因，Agent 层也没有拦）
+类别：没处理的边界
+位置：backend/agent-tools.ts `fieldDraftOf`（只检查 `typeof label === "string"`）；根因在 nb-canon core/schema.ts 的 `label: Text`
+现象：addField label "" 与 "   " 都成功，生成 id `f2`、显示名为空；之后 canon_read 与“设定组 panel 里没有字段…；有：魔力上限、、战果”里出现空名字，作者界面上是一个没有名字的资料项，也没法按名字再引用（只能写 f2）。create 的 declare 同样；renameField 也不拦空显示名。
+为什么是问题：显示名是 Agent 与作者认字段的唯一方式，空名破坏“按名字解析”的约定（Spec 输出 7）。
+如何核实：lab/probe2.test.ts 的 “addField label empty”、lab/probe3.test.ts 的 “label ws only”。
+建议改法：Agent 层 `label.trim() === ""` 直接回“字段声明要写 label（显示名）”，并让内核对 label 要求去掉首尾空白后非空（内核另议，本次范围外）。
+
+### 7. 显示名里带点的字段，改名、去掉、恢复都因按“.”切分而用不了，回话还说了错话
+严重程度：建议
+类别：没处理的边界
+位置：backend/agent-tools.ts `restoreField`（`edit.field.split(".")`）与 resolveField（agent-names.ts）对 field 的解析
+现象：addField label “第1.5章” 成功（id 生成为 `第15章2`），但 renameField field “面板.第1.5章” 回 `field 写“设定组.字段”或“设定组.字段[元素].子字段”，不是“面板.第1.5章”`；模型要自己猜出改写 id “面板.第15章2”，回话没有告诉它字段 id 是什么（读出来才有）。restoreField 用 `split(".")` 取前两段，同样取不到。
+为什么是问题：模型可以带点地命名字段（序号、版本号、小数很常见），之后它自己的字段不能用名字操作。优先级低，因为 id 总是认得，但回话应该指向“写 id”。
+建议改法：回话里加“字段名里有点时写 id（canon_read 里字段名后括号里的）”；或加字段时在回话里回出生成的 id（现在 writtenReply 不回字段 id）。
+
+### 8. restoreField 对本批新建条目给出“条目 tmp:k 不存在或已删除”，泄漏内部临时 id
+严重程度：建议
+类别：回话可操作性
+位置：backend/agent-tools.ts `case "restoreField"`（先调 `entryOf(context, id)`，没有 addField 与 renameField 那样的 `tmp:` 守卫）
+现象：同一批 create 了 $k 再 restoreField $k，回 `条目 tmp:k 不存在或已删除。`；addField、renameField 在同样情形给“这一批新建的条目…”的说明。
+如何核实：lab/probe6.test.ts。
+建议改法：restoreField 在 `entryOf` 之前先判 `id.startsWith("tmp:")`，回与另外三个字段操作一致的话。
+
+### 9. 一次修订里改了两个字段的名字，回执只写“一项改名：改了几处”，两个名字都丢了
+严重程度：建议
+类别：回执写法与 Spec 不一致
+位置：packages/neuro-book/src/plugins/canon/web/receipt.ts `declaredField` 的 `.label` 分支与 `merged`
+现象（从代码推断，没有跑 e2e）：改名那一行没有 `joins: true`，`merged` 对同显示名（“一项改名”）的两行落到“合成一行改了几处”的分支，改前改后的名字都不显示；而添加、去掉、恢复三种会把名字连起来。Agent 一批里给几个字段改名是常见写法。Spec author-ui.md 输出 20 写的是“某某 改名为 某某”，实现的行是“一项改名：A → B”，两者措辞也不一致。测试只有一个改名，没覆盖两个。
+建议改法：改名行也按名字对连起来（“A → B；C → D”），或每个改名自己成一行不参与合并（label 里带旧名字）。
+
+### 10. 默认设定组按“贡献 id 的字典序”并起来，别的插件给“人物”追加默认组时，可能排到内置的人物与形象前面
+严重程度：建议
+类别：没写出来的假设（与计划“按登记的先后”的措辞有出入）
+位置：shared/entry-kinds.ts `mergeEntryKinds`（注释说明按 `declarations.list` 的顺序）；nb-runtime plugins/host.ts 的 `declarations.list` 按贡献 id 字符串排序（`accepted.sort((left, right) => left.id < right.id ...)`）
+现象：内置四条的贡献 id 是 `nbook.canon.person` 等；别的插件的贡献 id 以它自己的插件 id 开头。字典序小于 "nbook.canon" 的插件（例如 `acme.magic.wand`）给人物追加 `acme.wand` 时，合并出的默认顺序是 [acme.wand, nbook.canon.person, nbook.canon.look]。计划写“人物在前”（条目页分页顺序、新建勾选顺序都用这份顺序），这时第三方的组排到了人物前面，而且换一个插件 id 顺序就变。我用服务端实例的真实 `declarations.list` 核对了内置四条能被读到且顺序正确（lab/probe4.test.ts），但没有对第三方插件的排序做实验，这条按代码推断。
+为什么是问题：顺序由插件 id 的拼写决定，不是任何一方能控制的，也和“内置在前”的设计意图（评审板第 2 轮“人物在前”）冲突。
+建议改法：内置的先、别的插件按 id 排；或让声明可写 `order`/优先级给默认组排序；至少把“按贡献 id 排”写进 Spec 与注释，并在 entry-kinds 测试里用真实排序（现在测试用数组展开顺序，等于假设了内置在前）。
+
+### 11. 测试没有覆盖几个关键判据
+严重程度：建议
+类别：测试质量
+位置：agent-tools.test.ts、entry-kinds.dom.test.ts
+现象：
+- 服务端实例的种类登记：agent-tools.test.ts 的场地直接给 `entryKinds: () => mergeEntryKinds(BUILTIN_ENTRY_KINDS)`，没走 `canonServerPlugin` 里 `context.declarations.list` 那条真实路径（场地注释自己写了“没装 canon 的服务端入口”）。我手工用 settingsWorld 装上 `definitionAt("server", descriptor, canonServerPlugin)` 核对过，三个实例的登记是有效的（见“未发现问题的方面”），但没有任何测试守着；若有人删掉 `contributionPoints: [entryKindsPoint]`，Agent 的默认会整个悄悄消失而全部测试仍通过。
+- “只写一次”的去重键没有被测到：entry-kinds.dom.test.ts 的用例等第一条诊断出现就立刻比较，之后没有再触发登记变化，去掉 `reported` 去重用例也会通过（从代码推断：世界打开后只有一次核对，去重键只在同一轮重复出现同一个键时才起作用，而合并后的列表里没有重复键）。
+- Agent 默认与 `[]`：默认用例（人物带人物与形象、fields 写到的面板并上）与组织无默认是直接断言；`[]` 是靠“error 用例里星瑾 components: []，之后 set 回先 addComponent”间接覆盖，没有一个以 `[]` 为判据的用例。
+- addField 只测了 text 且带 value；number、ref 不给 value 的路径（发现 1）没有用例；declare 的显示名只用了纯中文词（发现 3）。
+- 默认里写到没登记类型时 `defaultComponents` 的“当作没写”只有 mergeEntryKinds 单元用例的一次 available 过滤，没有 Agent 工具侧的用例。
+建议改法：补一个用真实 `canonServerPlugin` 的服务端登记用例；诊断用例在首次出现后再触发一次登记变化（再发布一个组件）再断言仍是一条；补发现 1、3 的用例。
+
+### 12. 种类声明在运行中变化时不会重新核对默认设定组的诊断
+严重程度：建议
+类别：时序 / 行为与注释不符
+位置：backend/plugin.ts 的 `checkEntryKinds`，只在 `update()`（组件登记变）与世界打开后触发
+现象：注释写“之后登记每变一次核一次”，实际只有组件登记变化才核；插件装上后只新增了一条指向未登记类型的 `canon.entry-kinds` 声明，不会触发核对，诊断要等到下次组件登记变化或重启才出现。另外 `void host.ready().then(...)` 不区分结果：`ready()` 解析成 `{code:"world-locked"}`（世界打不开）时也把 `worldOpened` 置真并核一次，诊断“世界打开以后核”的前提不成立；`ready()` 若抛错，`.then` 派生的 promise 没有 rejection 处理，与之前裸 `void host.ready()` 一样是未处理拒绝（不是新增的问题）。
+为什么是问题：影响很小（只是一条警告的时机），列出来是因为它与注释和计划“世界打开以后核”的说法有出入；组件登记全是顶层声明（componentsPoint.implementation === "none"），启动时就齐，没有“晚到”的假警告。
+建议改法：注释改成“组件登记变化时核”；或订阅声明变化；`then` 里判断结果是世界服务再置 `worldOpened`。
+
+### 13. nb-canon 里 FieldDraftSchema 的注释与新行为相反（范围外，顺带）
+严重程度：建议
+类别：注释过期
+位置：packages/nb-canon/src/core/schema.ts:112：“给了的 id 已经占着时也换一个生成的”；而 world/entry-edits.ts:441 的 declareField 现在对已占的 id 返回 id-taken 拒收
+现象：两处矛盾；Agent 层的提示（“不写 id、让系统按名字生成”）与 declareField 一致，过期的是 schema 注释。
+建议改法：改成“给了的 id 已经占着时拒收（id-taken）”。
+
+## 未发现问题的方面
+- 三个实例的顶层种类登记：用 settingsWorld 装 `definitionAt("server", descriptor, canonServerPlugin)`，服务端实例里 `declarations.list("canon.entry-kinds")` 合并后是人物（人物、形象，order 0）、组织、地点、物品；项目与浏览器入口各自定义了 `entryKindsPoint`。（lab/probe4.test.ts）
+- `defaultComponents` 按去掉首尾空白比，且内核 `buildEntry` 对 kind 同样 `trim()`，create 存下的种类与取默认用的词一致（实测 kind " 人物 " 套上了默认）。
+- `mergeEntryKinds` 的 `order` 缺省取无穷大：`Infinity - Infinity` 得 NaN 时回落到按词比较，排序稳定；同一个词的几条登记并起来、去重、取最小 order 都对。
+- `create` 里 fields 与 declare 写到的设定组并上、不写 components 套默认、写 `[]` 不套：行为符合 agent-tools.md 输出 6、7（含组织无默认）。
+- 回执的“新加一项没填的值不另列一行”（`before === undefined && after === null`）：只吞“没有这个键到未知”，语义上等于没改；带初值的新加一项（absent 到 7）仍列值那一行，已有用例覆盖；没有看到会吞掉真实值改动的路径。
+- 四个字段操作的拒收原因提示：label-taken、field-fixed、field-missing、field-referenced、fields-not-declarable 在实测里都给出了可照着改的中文提示。
+- 本机 `bun run typecheck` 还在后台跑，开始时没有报错；工作区 README 记的是 S3、S4 各自通过（我没有等到它跑完，不作结论）。
+
+## 数量与有效发现编号
+阻断：0
+重要：5（1、2、3、4、5）
+建议：8（6、7、8、9、10、11、12、13）
+全部都是我核实过的有效发现；其中 9、10、12 按代码推断没有实跑，其余都有实验输出（lab/probe*.test.ts）。

@@ -15,7 +15,7 @@
 - 单击“再显示”行：发 `more`，参数是那一层的父条目（根是 `null`）。
 - 方向键、Home、End 与按字母跳转由 `Tree` 处理。
 - `creatable` 时有右键菜单（nb-ui `ContextMenu`）“在它下面新建”：右键一行，或焦点在一行上按菜单键、Shift+F10；选了发 `create`，参数是那一行的条目（分组、“再显示”“读取中”与空白处是 `null`，即根这一层）。
-- 根这一层正在读、还一项都没有时，只显示一行“读取中…”；读到了但一项也没有时：`creatable` 时是空状态（nb-ui `EmptyState`）：标题“还没有设定”，说明“人物、地点、物品、规矩，都可以建成设定”，主按钮“新建人物”（发 `create-person`）与按钮“新建条目”（发 `create`，`null`）；侧栏窄时两个按钮纵排。给了 `blockedReason` 时两个按钮禁用、悬停提示是它。不 `creatable` 时只写一行“还没有条目”。
+- 根这一层正在读、还一项都没有时，只显示一行“读取中…”；读到了但一项也没有时：`creatable` 时是空状态（nb-ui `EmptyState`）：标题“还没有设定”，说明“人物、地点、物品、规矩，都可以建成设定”，主按钮“新建人物”（发 `create-person`）与按钮“新建条目”（发 `create`，`null`）；`createPerson` 为 false 时没有“新建人物”，“新建条目”成为主按钮；侧栏窄时两个按钮纵排。给了 `blockedReason` 时两个按钮禁用、悬停提示是它。不 `creatable` 时只写一行“还没有条目”。
 
 宽度 390 像素时结构不变，名字截断，“未出场”这类说明保留。
 
@@ -56,6 +56,8 @@ type EntryTreeProps = {
     creatable?: boolean;
     /** 现在不能写（世界只读、别人独占、断开）：空状态的按钮禁用，悬停提示是它。默认空。 */
     blockedReason?: string;
+    /** 空状态里有“新建人物”（宿主按“人物”这个种类登记了没有给）。默认 true。 */
+    createPerson?: boolean;
 };
 
 type EntryTreeEmits = {

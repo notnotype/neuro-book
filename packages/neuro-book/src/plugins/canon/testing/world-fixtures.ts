@@ -29,14 +29,14 @@ export async function publish(canon: CanonClient, given: ReadonlyArray<Entry | W
     return (await publishWith(canon, given)).ids;
 }
 
-/** 一个人物条目：外观“黑发”、存款 `money` 元（面板上条目自己声明的字段），主文字引用存款。 */
+/** 一个人物条目：性格“黑发”、存款 `money` 元（面板上条目自己声明的字段），主文字引用存款。 */
 export function person(name: string, extra: Partial<Entry> = {}, money = 1000): Entry {
     return {
         id: `tmp:${nextId()}`, type: "nbook.canon.person", parent: null, folder: "人物", order: sequence,
         init: {
             name, aliases: [], summary: `${name}的简介`, text: [{id: "b1", source: "她有 {panel.存款} 元。"}],
             data: {
-                character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {外观: "黑发", 状态: null, 态度: null}},
+                character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {性格: "黑发", 身份: null, 现在的状态: null}},
                 panel: {type: "nbook.canon.panel", version: 1, enabled: true, fields: {存款: money}, declared: [{id: "存款", label: "存款", kind: "number", unit: "元"}]},
             },
         },

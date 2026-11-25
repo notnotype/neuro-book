@@ -79,6 +79,9 @@
         },
         "panel": {
             "title": "面板"
+        },
+        "look": {
+            "title": "形象"
         }
     },
     "entry": {
@@ -124,7 +127,11 @@
         "addComponentConfirm": "添加",
         "noMoreGroups": "登记的设定组这个条目都有了。",
         "removeComponentConfirm": "去掉",
-        "removeComponentDescription": "数据会保留，可以再加回来。"
+        "removeComponentDescription": "数据会保留，可以再加回来。",
+        "fieldAdded": "给{{name}}加了一项：{{label}}",
+        "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
+        "fieldRemoved": "去掉了{{name}}的“{{label}}”",
+        "fieldRestored": "恢复了{{name}}的“{{label}}”"
     },
     "position": {
         "initial": "初值",
@@ -230,6 +237,7 @@
         "pendingResolved": "少了 {{count}} 条待处理",
         "valueFollows": "{{label}}跟着变成 {{value}}",
         "noImpact": "别的都不变",
+        "moreImpact": "{{first}}，还有 {{count}} 项",
         "unsupported": "这种字段还不能在这里改"
     },
     "record": {
@@ -335,6 +343,10 @@
             "appears": "出场",
             "deleted": "已删除",
             "initBasis": "初值的依据",
+            "fieldAdded": "添加了一项",
+            "fieldRemoved": "去掉了一项",
+            "fieldRestored": "恢复了一项",
+            "fieldRenamed": "一项改名",
             "other": "别的设置",
             "changeText": "文字",
             "at": "安放",
@@ -564,7 +576,13 @@
         "pathPlaceholder": "作品里的路径，例如 图片/星瑕.png",
         "caption": "说明",
         "badPath": "路径要写作品里的相对路径：不带协议、不以 / 开头、没有 ..、不在 .nbook 下",
-        "needPath": "填了说明还要填图片的路径"
+        "needPath": "填了说明还要填图片的路径",
+        "upload": "上传",
+        "uploading": "正在上传…",
+        "cancelUpload": "取消上传",
+        "candidates": "作品里的图片",
+        "noCandidates": "图片文件夹里还没有图片",
+        "manual": "或者填作品里的路径"
     },
     "move": {
         "title": "移动“{{name}}”",
@@ -658,5 +676,60 @@
         "previewUnavailable": "现在读不到预览",
         "wholeStory": "这个条目的文字里有随剧情变的段落，现在不能在这里改",
         "wholeTooMany": "这个条目的主文字有 {{count}} 块，超过一次能改的 {{max}} 块"
+    },
+    "detail": {
+        "editAnchor": "改起点"
+    },
+    "images": {
+        "listFailed": "图片文件夹没有读出来",
+        "unavailable": "这个窗口里不能上传图片",
+        "rejected": "只收 PNG、JPEG、GIF、WebP，不超过 32 MiB",
+        "unknown": "上传没有确定的结果，图可能已经写进作品，看一下图片文件夹",
+        "cancelled": "上传取消了，图可能已经写进作品",
+        "failed": "上传没有成功：{{detail}}",
+        "missing": "图片找不到"
+    },
+    "card": {
+        "fill": "填写",
+        "valueLabel": "{{label}}：{{value}}",
+        "addField": "添加一项资料",
+        "ownPlaceholder": "别的，写它的名字",
+        "ownLabel": "新的一项的名字",
+        "add": "添加",
+        "restore": "恢复“{{name}}”",
+        "more": "{{label}}：改名、去掉",
+        "rename": "改名",
+        "remove": "去掉",
+        "renameTitle": "给“{{label}}”改名",
+        "removeTitle": "去掉“{{label}}”",
+        "removeDescription": "数据会保留，可以恢复。",
+        "newName": "新的名字"
+    },
+    "character": {
+        "portraitOpen": "形象",
+        "addPortrait": "添加立绘",
+        "addLook": "添加形象",
+        "restoreLook": "恢复形象",
+        "lookFrom": "{{from}}起有形象",
+        "hint": {
+            "temper": "遇事怎么反应，最在意什么",
+            "speech": "口头禅、语气、对不同的人怎么称呼",
+            "background": "从哪里来，经历过什么",
+            "condition": "受伤、被通缉、刚搬家……此刻的处境"
+        }
+    },
+    "look": {
+        "portrait": "立绘",
+        "changePortrait": "换一张",
+        "addPortrait": "添加立绘",
+        "wardrobe": "衣柜",
+        "addOutfit": "添加一套",
+        "putOn": "换上",
+        "wearing": "穿着",
+        "editOutfit": "改“{{name}}”",
+        "outfitMore": "{{name}}：改、去掉",
+        "hint": {
+            "appearance": "发色、眼睛、体型，一眼认得出来的地方"
+        }
     }
 }
