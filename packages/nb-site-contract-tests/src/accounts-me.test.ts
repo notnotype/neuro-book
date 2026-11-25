@@ -35,6 +35,7 @@ import {useSiteSandbox, type JsonResponse, type SiteProcess} from "./testing/sit
 const sandbox = useSiteSandbox("nb-site-contract-tests accounts-me.test.ts");
 
 const SETUP_TIMEOUT_MS = 30_000;
+const HOUR_MS = 3_600_000;
 const TERMS_VERSION = "2026-11-20";
 const PASSWORD = "owner-PW-w6Lm93";
 /** 会话 Cookie 的名字（`site.accounts` 输出 5）。 */
@@ -143,6 +144,7 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
             [{username: "renamed"}, ["username"]],
             [{avatarUrl: "ftp://cdn.example/a.png"}, ["avatarUrl"]],
             [{website: "https://"}, ["website"]],
+            [{website: "https://\tgoogle.com@evil.example"}, ["website"]],
             [{email: "taken@placeholder.invalid"}, ["email"]],
         ];
         for (const [body, fields] of cases) expect({request: body, ...failure(await patchMe(jar, body))}).toEqual({request: body, status: 400, body: {error: {code: "validation_failed", fields}}});
@@ -211,6 +213,8 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
         const first = await generated(jar);
         expect(first).toMatchObject({usedCount: 0, maxUses: null, expiresAt: null, usable: true});
         for (let index = 1; index < 10; index += 1) await generated(jar);
+        // 生成按账号每小时 10 次（输出 19），第 11 次在同一个小时里是 rate_limited：拨过一小时再看上限（限流本身在 `accounts-limits.test.ts`）。
+        await site.advanceClock(HOUR_MS);
         expect(failure(await generate(jar))).toEqual(rejected("invite_code_limit", 409));
         const second = (await codes(jar)).find((item) => item.id !== first.id)!;
         const disabled = await disable(jar, second.id);

@@ -220,6 +220,13 @@ describe("PATCH me（输出 8）", () => {
             // 协议开头对、解析不出来：schema 过了，`isWebUrl` 拒收。
             [{website: "https://"}, ["website"]],
             [{displayName: "Alice", avatarUrl: "https://"}, ["avatarUrl"]],
+            // 解析时会被删掉或编码的字符：空白、控制字符、双向控制符（字段规则）。
+            [{avatarUrl: "https://cdn.example/\n<b>x</b>"}, ["avatarUrl"]],
+            [{avatarUrl: "https://cdn.example/a.png\u0000"}, ["avatarUrl"]],
+            [{website: "https://\tgoogle.com@evil.example"}, ["website"]],
+            [{website: "https://alice.example/\u202Eexe.gpj"}, ["website"]],
+            [{website: "https://alice.example/\u0085"}, ["website"]],
+            [{avatarUrl: "https://cdn.example/a png", website: "https://alice.example/\u2066"}, ["avatarUrl", "website"]],
             [{email: "alice@placeholder.invalid"}, ["email"]],
             [{email: "not an email"}, ["email"]],
             [{displayName: ""}, ["displayName"]],

@@ -123,7 +123,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
         changePassword: {sessions, conn, hashLimiter, rateLimits, clock, log, passwords},
         me: {sessions, conn, clock, termsVersion: config.termsVersion},
         mySessions: {sessions, conn, clock, log},
-        inviteCodes: {sessions, conn, clock},
+        inviteCodes: {sessions, conn, clock, rateLimits},
         registrationCodes: {sessions, conn, clock},
         adminUsers: {sessions, conn, clock, hashLimiter, passwords},
         adminInviteCodes: {sessions, conn, clock},

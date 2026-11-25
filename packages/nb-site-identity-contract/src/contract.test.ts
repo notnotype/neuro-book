@@ -332,6 +332,39 @@ describe("字段规则（字段规则表）", () => {
         expect(check(WebUrl, `${long}x`)).toBe(false);
     });
 
+    it("头像与网站：不收空白、C0 与 C1 控制字符、DEL 与双向控制符，schema 与 isWebUrl 同一条规则；别的非 ASCII 字符照收", () => {
+        const rejectedChars: readonly (readonly [name: string, char: string])[] = [
+            ["空格", " "],
+            ["制表", "\t"],
+            ["换行", "\n"],
+            ["回车", "\r"],
+            ["不换行空格", "\u00A0"],
+            ["行分隔符", "\u2028"],
+            ["NUL", "\u0000"],
+            ["C0 的最后一个", "\u001F"],
+            ["DEL", "\u007F"],
+            ["C1 的第一个", "\u0080"],
+            ["C1 的 NEL", "\u0085"],
+            ["C1 的最后一个", "\u009F"],
+            ["阿拉伯字母标记", "\u061C"],
+            ["从左至右标记", "\u200E"],
+            ["从右至左标记", "\u200F"],
+            ["从左至右嵌入", "\u202A"],
+            ["从右至左覆盖", "\u202E"],
+            ["从左至右隔离", "\u2066"],
+            ["隔离结束", "\u2069"],
+        ];
+        for (const [name, char] of rejectedChars) {
+            for (const url of [`https://e.example/${char}a.png`, `https://${char}e.example/`, `https://e.example/a.png${char}`]) {
+                expect({name, url, schema: check(WebUrl, url), full: isWebUrl(url)}).toEqual({name, url, schema: false, full: false});
+            }
+        }
+        // 紧挨着被拒范围的字符、别的文字与四字节字符不在其中。
+        for (const url of ["https://e.example/~", "https://e.example/\u00A1", "https://e.example/\u200D", "https://e.example/\u2070", "https://例子.example/写作", "https://e.example/🌸"]) {
+            expect({url, schema: check(WebUrl, url), full: isWebUrl(url)}).toEqual({url, schema: true, full: true});
+        }
+    });
+
     it("邀请码同时有效的上限是 10 个（输出 18）", () => {
         expect(INVITE_CODE_ACTIVE_LIMIT).toBe(10);
     });

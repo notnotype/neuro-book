@@ -5,7 +5,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {readStoredUserAgent, storedUserAgent, summarizeUserAgent} from "./user-agent";
+import {readStoredUserAgent, storedUserAgent, summarizeUserAgent, USER_AGENT_SCAN_LENGTH} from "./user-agent";
 
 const SAMPLES: readonly (readonly [raw: string, browser: string | null, os: string | null])[] = [
     ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", "Chrome", "Windows"],
@@ -29,6 +29,21 @@ const SAMPLES: readonly (readonly [raw: string, browser: string | null, os: stri
 describe("认浏览器与系统（输出 17）", () => {
     it("带着别家记号的标识按规则表的先后认成它自己", () => {
         for (const [raw, browser, os] of SAMPLES) expect({raw, ...summarizeUserAgent(raw)}).toEqual({raw, browser, os});
+    });
+
+    it("只看前 512 个字符：记号在里面的照样认出，在后面的认不出；请求头上限那么长的病态标识也回这个结果", () => {
+        const safari = SAMPLES[4]![0];
+        const pad = (head: string, length: number) => `${head}${" x".repeat(Math.ceil(length / 2))}`.slice(0, length);
+        const cases: readonly (readonly [name: string, raw: string, browser: string | null, os: string | null])[] = [
+            ["真实标识后面拖着 16 KB", pad(safari, 16_000), "Safari", "macOS"],
+            ["第 512 个字符正好是记号的结尾", `${" ".repeat(USER_AGENT_SCAN_LENGTH - "Firefox/".length)}Firefox/133.0 Windows`, "Firefox", null],
+            ["记号的结尾在第 513 个字符", `${" ".repeat(USER_AGENT_SCAN_LENGTH - "Firefox/".length + 1)}Firefox/133.0 Windows`, null, null],
+            // 原来的 Safari 规则（`Version/…` 后跟 `.*` 再找 `Safari/`）对这种串是平方级的。
+            ["16 KB 的 Version/1，没有 Safari/", "Version/1 ".repeat(1600), null, null],
+            ["16 KB 的 Version/1，Safari/ 在最后", `${"Version/1 ".repeat(1600)}Safari/1`, null, null],
+            ["Version/ 与 Safari/ 都在前 512 个字符里，后面 16 KB 的 Version/1", `Version/1 Safari/1 ${"Version/1 ".repeat(1600)}`, "Safari", null],
+        ];
+        for (const [name, raw, browser, os] of cases) expect({name, ...summarizeUserAgent(raw)}).toEqual({name, browser, os});
     });
 });
 

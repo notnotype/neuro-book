@@ -78,13 +78,22 @@ export const PASSWORD = {
 export const LOGIN_IDENTIFIER = {minLength: 1, maxLength: 254, pattern: codePointPattern(1, 254)} as const;
 
 /**
- * 头像与网站：`http` 或 `https` 地址，至多 500 个码点。`pattern` 只管长度与协议开头；地址能不能解析
- * 用 `isWebUrl` 判，schema 表达不了。
+ * 头像与网站里不收的字符（`site.accounts` 字段规则）：空白（含制表、换行与 Unicode 的各种空格）、C0 与 C1 控制字符、DEL，
+ * 以及双向控制符（U+061C、U+200E、U+200F、U+202A 到 U+202E、U+2066 到 U+2069）。地址照原样存、原样给出，而 `URL.parse`
+ * 会删掉其中一些、编码另一些：留着它们，页面上显示的文字与点开去的地方就可能不一样（例如 `https://\tgoogle.com@evil.example`
+ * 解析出的主机是 `evil.example`，右至左覆盖符能把 `exe.gpj` 显示成 `jpg.exe`），换行与 NUL 还会进库与 JSON（实现审查第 6 到 8 片
+ * 第 5 条）。正则字符类的写法，在 `u` 标志下按码点判。
+ */
+const WEB_URL_FORBIDDEN = "\\s\\u0000-\\u001F\\u007F-\\u009F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069";
+
+/**
+ * 头像与网站：`http` 或 `https` 地址，至多 500 个码点，不含 `WEB_URL_FORBIDDEN` 里的字符。`pattern` 管长度、这些字符与协议开头；
+ * 地址能不能解析用 `isWebUrl` 判，schema 表达不了。
  */
 export const WEB_URL = {
     maxLength: 500,
     protocols: ["http:", "https:"],
-    pattern: `^(?=${codePoints(1, 500)}$)[Hh][Tt][Tt][Pp][Ss]?:`,
+    pattern: `^(?=[^${WEB_URL_FORBIDDEN}]{1,500}$)[Hh][Tt][Tt][Pp][Ss]?:`,
 } as const;
 
 const WEB_URL_PREFIX = new RegExp(WEB_URL.pattern, "u");

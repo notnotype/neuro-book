@@ -41,7 +41,7 @@ import {IdentityFailure, readBody, readEmptyBody, readParams, readQuery} from ".
 import {HashOverloadedError, type HashLimiter} from "../hash-limiter";
 import {appendCookies, requireSession, type RouteKey} from "../middleware";
 import type {PasswordFunctions} from "../password";
-import {endAllSessions, type CurrentSession, type Sessions} from "../session";
+import {countLiveSessions, endAllSessions, type CurrentSession, type Sessions} from "../session";
 import {adminWrite} from "./operator";
 import {readPage, sql, type PageSpec, type Sql} from "./pagination";
 
@@ -137,8 +137,9 @@ function likeLiteral(text: string): string {
 }
 
 /**
- * 搜索 `q`：用户名、显示名、邮箱的前缀（计划 3.10）。SQLite 的 `LIKE` 对 ASCII 不分大小写，用户名与邮箱存的是小写，所以输入的大小写
- * 不影响。邮箱待补的账号不按邮箱匹配：存的是占位邮箱，不是这个人的（`u12@placeholder.invalid` 搜 `u12@` 不该搜到它）。
+ * 搜索 `q`：用户名、显示名、邮箱的前缀（计划 3.10）。SQLite 的 `LIKE` 只对 ASCII 字母不分大小写：用户名与邮箱只有 ASCII、存的是
+ * 小写，输入的大小写不影响；显示名里的非 ASCII 字母区分大小写（`site.admin` 输入与前置条件这样写；另存一列转小写的显示名要动库的
+ * 表，只为管理搜索里少数显示名，实现审查第 6 到 8 片第 2 条）。邮箱待补的账号不按邮箱匹配：存的是占位邮箱，不是这个人的（`u12@placeholder.invalid` 搜 `u12@` 不该搜到它）。
  */
 function searchCondition(q: string | undefined): Sql | undefined {
     if (q === undefined || q === "") return undefined;
@@ -163,24 +164,22 @@ function readDetail(tx: IdentityTx, id: number, nowMs: number): AdminUserDetail 
                 website: string | null;
                 bio: string | null;
                 has_password: number;
-                session_count: number;
                 code_id: number | null;
                 code: string | null;
                 inviter_id: number | null;
                 inviter_username: string | null;
             },
-            [string, number]
+            [number]
         >(
             `SELECT ${USER_COLUMNS}, u."image" AS image, p.website AS website, p.bio AS bio,
                     EXISTS (SELECT 1 FROM "account" a WHERE a."userId" = u."id" AND a."providerId" = 'credential' AND a."password" IS NOT NULL) AS has_password,
-                    (SELECT count(*) FROM "session" s WHERE s."userId" = u."id" AND s."expiresAt" > ?) AS session_count,
                     rc.id AS code_id, rc.code AS code, inviter."id" AS inviter_id, inviter."username" AS inviter_username
              FROM ${USER_FROM}
                   LEFT JOIN identity_registration_code rc ON rc.id = p.registration_code_id
                   LEFT JOIN "user" inviter ON inviter."id" = p.inviter_id
              WHERE u."id" = ?`,
         )
-        .get(libDate(nowMs), id);
+        .get(id);
     if (row === null) return null;
     const providerIds = tx.query<{providerId: string}, [number]>(`SELECT DISTINCT "providerId" FROM "account" WHERE "userId" = ? AND "providerId" <> 'credential' ORDER BY "providerId"`).all(id);
     // 只列合同里有的上游：别的写法（库的数据被别处写过）不发出去，合同的枚举容不下它。
@@ -192,7 +191,7 @@ function readDetail(tx: IdentityTx, id: number, nowMs: number): AdminUserDetail 
         bio: row.bio,
         hasPassword: row.has_password === 1,
         providers,
-        sessionCount: row.session_count,
+        sessionCount: countLiveSessions(tx, id, nowMs),
         registrationCode: row.code_id === null || row.code === null ? null : {id: row.code_id, code: row.code},
         inviter: row.inviter_id === null || row.inviter_username === null ? null : {id: row.inviter_id, username: row.inviter_username},
     };
@@ -307,7 +306,9 @@ export function registerUserAdminRoutes(app: Hono, options: UserAdminOptions): v
         await readEmptyBody(c);
         const item = await adminWrite(conn, clock, session, (tx, nowMs) => {
             requireTarget(tx, id);
-            const count = endAllSessions(tx, id);
+            // 条数只数没到期的，与详情的 `sessionCount` 同一个口径；到期的行照样删（`countLiveSessions`）。
+            const count = countLiveSessions(tx, id, nowMs);
+            endAllSessions(tx, id);
             appendAudit(tx, {actorId: session.userId, action: "user.revoke_sessions", targetType: "user", targetId: id, params: {count}, now: nowMs});
             return readItem(tx, id)!;
         });

@@ -6,6 +6,7 @@
  * - 处置的写事务复核操作者：要在“中间件认过身份”与“写事务”之间降级、封禁操作者或结束他的会话，时机靠一个慢慢到的请求体
  *   （与 `registration-codes.test.ts` 同一种做法）。
  * - 审计与操作同时生效：要让写审计那一步失败，在审计表上临时加一个拒绝插入的触发器。
+ * - 结束全部会话的条数不算已到期、还没被清理的会话：要一个会话到期而那一行还在，靠拨模块的时钟、清理任务不跑，并直接数表里的行。
  * - 重置的新密码取自计划定的字母表、长度 20：合同只说“给出一个新密码”，字母表是实现的选择。
  * - 重置在哈希过载时回 `overloaded`（`site.accounts` 输出 20）：要另一个哈希确定地占着名额，经哈希函数的包装。
  */
@@ -143,6 +144,27 @@ describe("审计与操作同时生效（输出 8）", () => {
             expect(await snapshot(identity)).toEqual(before);
         });
     }
+});
+
+describe("结束全部会话的条数（输出 8）", () => {
+    it("已到期、清理任务还没删的会话不算：审计记 1、与之前详情的会话数一样；之后详情是 0，到期的那行也删了", async () => {
+        identity = await createTestIdentity("identity-admin-users-revoke-count");
+        const adminId = await identity.addUser("root", {role: "admin", consent: CONSENTED});
+        const memberId = await identity.addUser("member", {consent: CONSENTED});
+        await identity.issue(memberId);
+        // 会话时长 30 天（测试配置），拨过以后第一个会话到期；清理任务没跑，那一行还在。
+        identity.clock.advance(31 * 86_400_000);
+        await identity.issue(memberId);
+        const admin = await identity.issue(adminId);
+        const detail = async () => ((await identity!.fetch(`/admin/users/${String(memberId)}`, {headers: {cookie: admin.cookie}})).json() as Promise<{sessionCount: number}>);
+        const memberRows = () => identity!.conn.read((tx) => tx.query<{n: number}, [number]>(`SELECT count(*) AS n FROM "session" WHERE "userId" = ?`).get(memberId)!.n);
+        expect({sessionCount: (await detail()).sessionCount, rows: await memberRows()}).toEqual({sessionCount: 1, rows: 2});
+
+        expect((await post(identity, admin.cookie, `/admin/users/${String(memberId)}/revoke-sessions`)).status).toBe(200);
+        const audit = await identity.conn.read((tx) => tx.query<{params: string}, []>(`SELECT params FROM identity_audit WHERE action = 'user.revoke_sessions'`).all());
+        expect(audit.map((row) => JSON.parse(row.params) as unknown)).toEqual([{count: 1}]);
+        expect({sessionCount: (await detail()).sessionCount, rows: await memberRows()}).toEqual({sessionCount: 0, rows: 0});
+    });
 });
 
 describe("重置密码时哈希过载（输出 4；site.accounts 输出 20）", () => {

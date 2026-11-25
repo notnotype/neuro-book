@@ -79,9 +79,21 @@ export function endOtherSessions(tx: IdentityTx, userId: number, keepSessionId: 
     return tx.query(`DELETE FROM "session" WHERE "userId" = ? AND "id" <> ?`).run(userId, keepSessionId).changes;
 }
 
-/** 结束一个账号的全部会话（封禁、改角色、管理员重置密码、结束全部会话）。 */
+/**
+ * 结束一个账号的全部会话（封禁、改角色、管理员重置密码、结束全部会话）。已到期、清理任务还没删的行一起删；返回的行数含它们，
+ * 要“结束了几个会话”的地方另用 `countLiveSessions` 在删之前数。
+ */
 export function endAllSessions(tx: IdentityTx, userId: number): number {
     return tx.query(`DELETE FROM "session" WHERE "userId" = ?`).run(userId).changes;
+}
+
+/**
+ * 一个账号还有效（没到期）的会话数，到期的边界与 `isSessionLive`、`purgeExpiredSessions` 相同。管理详情的 `sessionCount` 与
+ * “结束全部会话”审计里的条数（`site.admin` 输出 8）都经它：到期的会话在 `site.accounts` 的状态里已经失效，结束它不算结束了一个
+ * 会话，两处要对得上（实现审查第 6 到 8 片第 1 条）。
+ */
+export function countLiveSessions(tx: IdentityTx, userId: number, nowMs: number): number {
+    return tx.query<{n: number}, [number, string]>(`SELECT count(*) AS n FROM "session" WHERE "userId" = ? AND "expiresAt" > ?`).get(userId, libDate(nowMs))!.n;
 }
 
 /**

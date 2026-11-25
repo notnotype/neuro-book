@@ -24,6 +24,7 @@ afterEach(async () => {
 
 const CONSENTED = {termsVersion: TEST_TERMS_VERSION, overseasStorage: true} as const;
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 function generate(target: TestIdentity, cookie: string, body?: string): Promise<Response> {
     return target.fetch("/me/invite-codes", {method: "POST", headers: {origin: TEST_SITE_URL, cookie, ...(body === undefined ? {} : {"content-type": "application/json"})}, ...(body === undefined ? {} : {body})});
@@ -111,9 +112,29 @@ describe("生成与列表（输出 18）", () => {
         expect(items.find((item) => item.id === imported)).toMatchObject({code: "OLD-LIVE", maxUses: 3, usedCount: 1, expiresAt: new Date(now + DAY_MS).toISOString(), usable: true});
         expect(items.filter((item) => item.code.startsWith("OLD-") && !item.usable).map((item) => item.code).sort()).toEqual(["OLD-DISABLED", "OLD-EXHAUSTED", "OLD-EXPIRED"]);
 
+        // 这一小时已试了 10 次（回 invite_code_limit 的那次也算，输出 19），再试就是 rate_limited：拨到下一个小时再接着看上限。
+        identity.clock.advance(HOUR_MS);
         expect((await disable(identity, cookie, imported)).status).toBe(200);
         await generated(identity, cookie);
         expect(await outcome(await generate(identity, cookie))).toEqual({status: 409, body: {error: {code: "invite_code_limit"}}});
+    });
+
+    it("生成按账号每小时 10 次（输出 19）：停用了再生成也算，第 11 次 rate_limited 带 Retry-After、不生成；请求体不合格的不计入；别的账号不受影响；拨过 Retry-After 恢复", async () => {
+        identity = await createTestIdentity("identity-invite-rate-limit");
+        const alice = await identity.addUser("alice", {consent: CONSENTED});
+        const bob = await identity.addUser("bob", {consent: CONSENTED});
+        const {cookie} = await identity.issue(alice);
+        for (let index = 0; index < 3; index += 1) expect((await generate(identity, cookie, JSON.stringify({maxUses: 5}))).status).toBe(400);
+        // 每生成一个就停用：同时有效的始终是 0 个，挡住第 11 次的只有限流。
+        for (let index = 0; index < 10; index += 1) expect((await disable(identity, cookie, (await generated(identity, cookie)).id)).status).toBe(200);
+        const limited = await generate(identity, cookie);
+        const retryAfter = limited.headers.get("retry-after") ?? "";
+        expect({...(await outcome(limited)), retryAfter: /^[1-9]\d*$/u.test(retryAfter) && Number(retryAfter) <= HOUR_MS / 1000}).toEqual({status: 429, body: {error: {code: "rate_limited"}}, retryAfter: true});
+        expect((await listed(identity, cookie)).items).toHaveLength(10);
+        await generated(identity, (await identity.issue(bob)).cookie);
+
+        identity.clock.advance(Number(retryAfter) * 1000);
+        await generated(identity, cookie);
     });
 
     it("并发的生成不越过上限：差一个满额时两个生成交错着排队，一个成功、一个 invite_code_limit，表里正好 10 个", async () => {

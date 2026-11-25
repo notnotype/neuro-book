@@ -4,6 +4,10 @@
  * 码的生成与“还能用”的条件与注册码共用 `codes.ts`。生成在一个写事务里先数自己还能用的码、再插入：数与插入之间没有别的写入
  * 插得进来，并发的两个生成不会一起越过上限（写事务排在模块的单一连接上，`db/connection.ts`）。停用只设停用时间，已停用的再停用
  * 照样成功，停用时间保留第一次的。邀请码的操作不写审计：`site.admin` 输出 8 的动作表里没有它们。
+ *
+ * 生成的先后：要会话（含同意门槛）→ 请求体只能为空 → 按账号限流（输出 19，字段不合格的不计入）→ 写事务里复核会话、数上限、插入。
+ * 限流在上限之前判、每次过了限流的尝试都计入，所以因已有 10 个有效码而回 `invite_code_limit` 的那次也算一次；停用了再生成同样计，
+ * 只数“同时有效”挡不住生成、停用的循环（实现审查第 6 到 8 片第 4 条）。
  */
 
 import type {Context, Hono} from "hono";
@@ -15,12 +19,14 @@ import type {IdentityConnection, IdentityTx} from "./db/connection";
 import {libDate, libDateMs} from "./db/library-rows";
 import {IdentityFailure, readBody, readEmptyBody, readParams} from "./errors";
 import {requireSession} from "./middleware";
+import type {IdentityRateLimits} from "./rate-limit";
 import {isSessionLive, type Sessions} from "./session";
 
 export interface InviteCodeOptions {
     readonly sessions: Sessions;
     readonly conn: IdentityConnection;
     readonly clock: {now(): number};
+    readonly rateLimits: Pick<IdentityRateLimits, "generateInviteCode">;
 }
 
 export interface InviteCodeRow {
@@ -56,10 +62,10 @@ function readOwnItem(tx: IdentityTx, userId: number, id: number, now: string): I
 }
 
 export function registerInviteCodeRoutes(app: Hono, options: InviteCodeOptions): void {
-    const {sessions, conn, clock} = options;
+    const {sessions, conn, clock, rateLimits} = options;
     const itemPath = `${IDENTITY_PATHS.meInviteCodes}/:id` as const;
 
-    // 列表是自己的全部码，含停用、过期与用完的（输出 18 没有分页，一个人的码不多：可用的至多 10 个，其余是自己停用或用完的）。
+    // 列表是自己的全部码，含停用、过期与用完的。输出 18 没有分页：生成按账号每小时至多 10 次（输出 19），一个人的码增长有上限。
     app.get(IDENTITY_PATHS.meInviteCodes, async (c: Context) => {
         const session = await requireSession(c, sessions, `GET ${IDENTITY_PATHS.meInviteCodes}`);
         const items = await conn.read((tx) =>
@@ -75,6 +81,8 @@ export function registerInviteCodeRoutes(app: Hono, options: InviteCodeOptions):
     app.post(IDENTITY_PATHS.meInviteCodes, async (c: Context) => {
         const session = await requireSession(c, sessions, `POST ${IDENTITY_PATHS.meInviteCodes}`);
         await readEmptyBody(c);
+        const decision = rateLimits.generateInviteCode(session.userId);
+        if (!decision.ok) throw new IdentityFailure("rate_limited", [], decision.retryAfterSeconds);
         const code = generateCode();
         const item = await conn.write((tx) => {
             const nowMs = clock.now();

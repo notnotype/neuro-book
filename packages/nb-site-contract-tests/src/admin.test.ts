@@ -527,7 +527,7 @@ describe("账号列表与详情、全站邀请码、审计列表（输出 8 到 
         await register("bsl2", {displayName: "backslash"});
     }, SETUP_TIMEOUT_MS);
 
-    it("搜索（输入与前置条件）：用户名、显示名、邮箱的前缀，不分大小写；% 、_ 与反斜杠按字面匹配；邮箱待补的账号不按占位邮箱匹配", async () => {
+    it("搜索（输入与前置条件）：用户名、显示名、邮箱的前缀，ASCII 字母不分大小写；% 、_ 与反斜杠按字面匹配；邮箱待补的账号不按占位邮箱匹配", async () => {
         expect(names(await users("?q=esc_"))).toEqual(["esc_one"]);
         expect(names(await users("?q=ESC"))).toEqual(["escxone", "esc_one"]);
         expect(names(await users(`?q=${encodeURIComponent("100%")}`))).toEqual(["pct1"]);

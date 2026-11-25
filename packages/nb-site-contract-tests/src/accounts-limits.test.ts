@@ -14,7 +14,7 @@
 import {beforeAll, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
-import {ErrorBody, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
+import {ErrorBody, IDENTITY_PATHS, identityPath} from "@notnotype/nb-site-identity-contract";
 
 import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login} from "./testing/identity";
 import {useSiteSandbox, type JsonResponse, type SiteProcess} from "./testing/site";
@@ -52,7 +52,7 @@ async function alignToWindow(site: SiteProcess, windowMs: number): Promise<void>
     await site.advanceClock(windowMs - (now % windowMs) + 1000);
 }
 
-describe("登录与改密码的限流（输出 19）", () => {
+describe("登录、改密码与生成邀请码的限流（输出 19）", () => {
     let site: SiteProcess;
 
     beforeAll(async () => {
@@ -62,6 +62,7 @@ describe("登录与改密码的限流（输出 19）", () => {
             createAdmin(sandbox, dataDir, ["sixfour"], PASSWORD),
             createAdmin(sandbox, dataDir, ["slow"], PASSWORD),
             createAdmin(sandbox, dataDir, ["changer"], PASSWORD),
+            createAdmin(sandbox, dataDir, ["minter"], PASSWORD),
         ]);
         site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
     }, SETUP_TIMEOUT_MS);
@@ -122,6 +123,28 @@ describe("登录与改密码的限流（输出 19）", () => {
         const seconds = retryAfter(limited, HOUR_MS);
         await site.advanceClock(seconds * 1000);
         expect((await change({currentPassword: PASSWORD, newPassword: "changed-PW-r2Lm84"})).status).toBe(200);
+    });
+
+    // 超出 200 毫秒的预算：登录算一次密码哈希，另生成、停用各十个码。
+    it("生成邀请码按账号一小时 10 次：停用了再生成也算，第 11 次 rate_limited 带整数 Retry-After，请求体不合格的不计入；拨过 Retry-After 恢复", async () => {
+        await alignToWindow(site, HOUR_MS);
+        const jar = cookieJar();
+        expect((await login(site.url, "minter", PASSWORD, {from: "203.0.113.50", jar})).status).toBe(200);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: "203.0.113.50", jar, body: {termsVersion: TERMS_VERSION, overseasStorage: true}})).status).toBe(200);
+        const generate = (body?: unknown) => identityRequest(site.url, IDENTITY_PATHS.meInviteCodes, {method: "POST", from: "203.0.113.50", jar, ...(body === undefined ? {} : {body})});
+        for (let index = 0; index < 3; index += 1) expect((await generate({maxUses: 5})).status).toBe(400);
+        // 每生成一个就停用：同时有效的始终是 0 个，挡住第 11 次的只有限流。
+        for (let index = 0; index < 10; index += 1) {
+            const generated = await generate();
+            expect(generated.status).toBe(200);
+            const id = (generated.body as {id: number}).id;
+            expect((await identityRequest(site.url, identityPath.meInviteCode(id), {method: "PATCH", from: "203.0.113.50", jar, body: {disabled: true}})).status).toBe(200);
+        }
+        const limited = await generate();
+        expect(failure(limited)).toEqual(rateLimited);
+        const seconds = retryAfter(limited, HOUR_MS);
+        await site.advanceClock(seconds * 1000);
+        expect((await generate()).status).toBe(200);
     });
 });
 

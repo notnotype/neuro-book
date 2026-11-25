@@ -240,7 +240,7 @@ describe("失败计数", () => {
     });
 });
 
-describe("账号模块的五个计数器（输出 19 的数）", () => {
+describe("账号模块的六个计数器（输出 19 的数）", () => {
     function limits() {
         const clock = clockAt();
         return {clock, limits: createIdentityRateLimits({now: clock.now, log: recordingLog()})};
@@ -294,17 +294,20 @@ describe("账号模块的五个计数器（输出 19 的数）", () => {
         expect(l.loginNeedsDelay("alice")).toBe(false);
     });
 
-    it("注册按来源每小时 5 次；改密码按账号每小时 5 次", () => {
+    it("注册按来源每小时 5 次；改密码按账号每小时 5 次；生成邀请码按账号每小时 10 次", () => {
         const {limits: l, clock} = limits();
         expect(Array.from({length: 6}, () => l.register("198.51.100.7").ok)).toEqual([true, true, true, true, true, false]);
         expect(l.register("198.51.100.8")).toEqual(OK);
         expect(Array.from({length: 6}, () => l.changePassword(7).ok)).toEqual([true, true, true, true, true, false]);
         expect(l.changePassword("8")).toEqual(OK);
+        expect(Array.from({length: 11}, () => l.generateInviteCode(7).ok)).toEqual([...new Array<boolean>(10).fill(true), false]);
+        expect(l.generateInviteCode("8")).toEqual(OK);
         clock.set(WINDOW_START + HOUR - 1);
         expect(l.register("198.51.100.7")).toEqual({ok: false, retryAfterSeconds: 1});
         clock.set(WINDOW_START + HOUR);
         expect(l.register("198.51.100.7")).toEqual(OK);
         expect(l.changePassword(7)).toEqual(OK);
+        expect(l.generateInviteCode(7)).toEqual(OK);
     });
 
     it("注册的 IPv6 /48 合计是 5 的 16 倍", () => {

@@ -1,7 +1,7 @@
 /**
  * 账号模块的限流（`site.accounts` 输出 19；w00037 t07 计划 3.8，以及设计审查第 6 条、omp 设计审查第 3、19 条）。
  *
- * 照统计模块的限流器（`nb-site-telemetry/src/rate-limit.ts`）的做法另写一份，不共用：两个模块包互不依赖，口径也不全一样（这里五个
+ * 照统计模块的限流器（`nb-site-telemetry/src/rate-limit.ts`）的做法另写一份，不共用：两个模块包互不依赖，口径也不全一样（这里六个
  * 计数器、两种窗长、多了失败计数与多键一起判，键满了以后共用溢出额度而不是一律拒绝）。计划 3.8 的“各做一份还是共用”。
  *
  * 状态只在本进程的内存里，重启清零（`site.accounts` 时序一节）。来源地址与用户名的摘要只作为表的键存在，不写日志、不进库；窗口一过
@@ -293,6 +293,7 @@ const LOGIN_SOURCE_USER_LIMIT = 10;
 const LOGIN_FAILURE_THRESHOLD = 20;
 const REGISTER_LIMIT = 5;
 const CHANGE_PASSWORD_LIMIT = 5;
+const INVITE_CODE_LIMIT = 10;
 
 export interface IdentityRateLimitsOptions {
     readonly now: () => number;
@@ -302,8 +303,8 @@ export interface IdentityRateLimitsOptions {
 }
 
 /**
- * 账号模块的五个计数器（计划 3.8 的表）。`address` 是 `clientAddress(c)` 的返回值：取不到时调用方先回 `forbidden_origin`，不调这里
- * （输出 19“不与别的请求合并计数”）。
+ * 账号模块的六个计数器（计划 3.8 的表，另加生成邀请码的一个，`site.accounts` 输出 18、19）。`address` 是 `clientAddress(c)` 的
+ * 返回值：取不到时调用方先回 `forbidden_origin`，不调这里（输出 19“不与别的请求合并计数”）。
  */
 export interface IdentityRateLimits {
     /**
@@ -319,6 +320,8 @@ export interface IdentityRateLimits {
     register(address: string): RateLimitDecision;
     /** 改密码：账号每小时 5 次。 */
     changePassword(accountId: string | number): RateLimitDecision;
+    /** 生成邀请码：账号每小时 10 次。停用了再生成也计：只数“同时有效”的上限挡不住生成、停用的循环。 */
+    generateInviteCode(accountId: string | number): RateLimitDecision;
     /** 清掉已过去的窗口；清理任务调用。 */
     sweep(): void;
 }
@@ -330,6 +333,7 @@ export function createIdentityRateLimits(options: IdentityRateLimitsOptions): Id
     const loginFailures = new FailureCounter({...base, name: "login_failures", threshold: LOGIN_FAILURE_THRESHOLD, windowMs: HOUR_MS});
     const register = new SourceRateLimitCounter({...base, name: "register_source", limit: REGISTER_LIMIT, windowMs: HOUR_MS});
     const changePassword = new RateLimitCounter({...base, name: "change_password", limit: CHANGE_PASSWORD_LIMIT, windowMs: HOUR_MS});
+    const generateInviteCode = new RateLimitCounter({...base, name: "invite_code", limit: INVITE_CODE_LIMIT, windowMs: HOUR_MS});
     return {
         login: (address, username) => {
             const sourceCheck = loginSource.check(address);
@@ -345,12 +349,14 @@ export function createIdentityRateLimits(options: IdentityRateLimitsOptions): Id
         recordLoginFailure: (username) => loginFailures.add(usernameKey(username)),
         register: (address) => register.take(address),
         changePassword: (accountId) => changePassword.take(String(accountId)),
+        generateInviteCode: (accountId) => generateInviteCode.take(String(accountId)),
         sweep: () => {
             loginSource.sweep();
             loginSourceUser.sweep();
             loginFailures.sweep();
             register.sweep();
             changePassword.sweep();
+            generateInviteCode.sweep();
         },
     };
 }
