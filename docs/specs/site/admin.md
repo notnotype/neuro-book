@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.admin
 owners:
   - nb-site-identity
@@ -105,6 +105,16 @@ owners:
 
 Smoke：合同测试包里的封禁与重置密码用例。
 
+## 实现合同
+
+- 公开入口：账号子应用 `admin/` 下的路由，随 `@notnotype/nb-site-identity` 的 `createIdentityModule` 装配；schema、筛选项与审计动作名在 `@notnotype/nb-site-identity-contract`。
+- owner 是 `nb-site-identity`，与 [`site.accounts`](accounts.md) 同一个模块、同一个库。
+- 每个处置经同一个写入函数：第一步复核操作者（会话还在、是管理员、没被封），再查对象与“不能处置自己”，改字段、经结束全部会话的那一个函数删会话、写审计，全在一个写事务里。
+- 分页列表的基准（`anchor` 是当时最大的 id）、`total`、`counts` 与这一页在同一个读事务里读；四个列表共用同一套分页。
+
 ## 证据
 
-- 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)
+- 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)、[ADR 0063](../../adr/0063-official-site-identity-own-routes-library-sessions.md)
+- 实现入口：[`packages/nb-site-identity/src/admin/users.ts`](../../../packages/nb-site-identity/src/admin/users.ts)
+- 合同测试：[`admin.test.ts`](../../../packages/nb-site-contract-tests/src/admin.test.ts)
+- Smoke：[`admin.test.ts`](../../../packages/nb-site-contract-tests/src/admin.test.ts)

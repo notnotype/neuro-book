@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.accounts
 owners:
   - nb-site-identity
@@ -60,7 +60,7 @@ owners:
 
 配置：当前条款版本 `NB_SITE_IDENTITY_TERMS_VERSION`（必填；形如 `2026-11-20` 的真实存在的日期，服务条款与隐私政策共用一个版本）、注册是否开放 `NB_SITE_IDENTITY_REGISTRATION_OPEN`（`true` 或 `false`，缺省 `true`）、会话时长 `NB_SITE_IDENTITY_SESSION_DAYS`（2 到 365 的整数，缺省 30）、同时算密码哈希的个数 `NB_SITE_IDENTITY_HASH_CONCURRENCY`（1 到 16 的整数，缺省 2）、排队等着算哈希的请求数上限 `NB_SITE_IDENTITY_HASH_QUEUE`（0 到 10000 的整数，缺省 64）、Google 与 GitHub 各自是否开放（planned）。不合格时的问题词见 [`site.operations`](operations.md)。进程环境里有以 `BETTER_AUTH_` 开头、取值不为空的变量时启动失败（`config_invalid`，问题词 `not_allowed`，记在那个变量名上）：这类变量会绕过上面的配置改变账号的行为（例如会话的签名密钥）。
 
-定时任务（名字给 [`site.operations`](operations.md) 输出 11 的测试控制入口用）：`purge` 每 10 分钟跑一次、服务启动后先跑一次，清掉已到期的会话与过去的限流时间窗。
+定时任务（名字给 [`site.operations`](operations.md) 输出 11 的测试控制入口用）：`purge` 每 10 分钟跑一次、服务启动后先跑一次，清掉已到期的会话。
 
 ## 输出与可观察行为
 
@@ -153,6 +153,17 @@ owners:
 
 Smoke：合同测试包里账号的注册、登录、问身份用例。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-site-identity` 的 `createIdentityModule`（账号子应用、`whoami`、`purge` 任务、关闭）、`parseIdentityConfig`、`identityMigrations`、`createAdminCommand`；请求与响应的 schema、失败码、字段规则与路径在 `@notnotype/nb-site-identity-contract`。
+- owner 是 `nb-site-identity`；依赖 Better Auth（只发会话、认 Cookie，不挂它的路由，[ADR 0063](../../adr/0063-official-site-identity-own-routes-library-sessions.md)）、Hono、`bun:sqlite` 与合同包，由进程入口 `nb-site-server` 装配，不反向依赖入口。
+- 账号库的所有读写都经一条连接上的队列（`read`、`write`、`withLibTransaction`）；会话只经会话模块的那组函数删，删在调用方的写事务里。
+- 登录在发会话的库事务里复核封禁与刚校验过的哈希，并在同一事务里读出回给调用方的资料；失败的回应从拿到哈希名额起补到下限。
+- 每个写接口在写事务的第一步复核会话还在（管理处置另复核操作者仍是未封禁的管理员），改动与审计在同一事务里提交。
+
 ## 证据
 
-- 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)
+- 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)、[ADR 0063](../../adr/0063-official-site-identity-own-routes-library-sessions.md)
+- 实现入口：[`packages/nb-site-identity/src/index.ts`](../../../packages/nb-site-identity/src/index.ts)
+- 合同测试：[`accounts.test.ts`](../../../packages/nb-site-contract-tests/src/accounts.test.ts)、[`accounts-register.test.ts`](../../../packages/nb-site-contract-tests/src/accounts-register.test.ts)、[`accounts-me.test.ts`](../../../packages/nb-site-contract-tests/src/accounts-me.test.ts)、[`accounts-limits.test.ts`](../../../packages/nb-site-contract-tests/src/accounts-limits.test.ts)
+- Smoke：[`accounts-register.test.ts`](../../../packages/nb-site-contract-tests/src/accounts-register.test.ts)、[`accounts.test.ts`](../../../packages/nb-site-contract-tests/src/accounts.test.ts)
