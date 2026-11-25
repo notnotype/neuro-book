@@ -125,7 +125,7 @@ owners:
 | `internal` | 程序自身的错误 | 看日志里同一时刻的 `process.fatal` 行，按缺陷报告 |
 | `bad_request` | HTTP 400：请求里读不出主机名；测试控制入口的请求体不合格 | 请求方改请求 |
 | `not_found` | HTTP 404：测试控制入口里没有这个模块或任务 | 测试改模块名或任务名 |
-| `job_failed` | HTTP 500：经测试控制入口跑的定时任务出错；这一行另带 `module` 与 `job` | 看日志里同一时刻的 `job.failed` 行 |
+| `job_failed` | HTTP 500：经测试控制入口跑的定时任务出错；这一行另带 `module` 与 `job` | 看日志里同一时刻的 `job.failed` 行：定时任务不论按间隔跑还是经测试控制入口跑，出错都记这一行，带 `module` 与 `job` |
 | `invalid_argument` | 创建管理员的用户名、邮箱或密码不合规则；这一行另带 `name`（`username`、`email`、`password` 之一）与 `problem`：`missing`（没给）、`invalid`（不合字段规则）、`mismatch`（两次输入的密码不一致） | 按说明改参数或重新输入密码 |
 | `email_taken` | 创建管理员时给的邮箱已被别的账号占用 | 换一个邮箱 |
 | `unavailable` | 创建管理员时账号模块的库一直被别的进程占着写锁，等了一阵仍写不进 | 稍后重新执行 |

@@ -110,4 +110,15 @@ ADR 0063 还没写：ADR 只收开发者接受过的决定，等开发者对“�
 - 实现者自己定、主会话接受的：撤销用已有的 `endAllSessions`（计划里叫 `revokeUserCredentials`，t08 在它里面加令牌撤销）；结束自己的全部会话、重置自己的密码时响应清 Cookie；解封自己照收、写审计；封禁只写 `banned`，`banReason`、`banExpires` 恒为空（库 1.7.27 的 admin 插件在 `banExpires` 过期时会自动解封，核过源码）；`page`、`pageSize` 的写法规则已拒掉超过安全整数的值。
 - Spec 的歧义按实现定，已写进 `site.admin`：搜索不分大小写、邮箱待补的账号不按邮箱匹配；审计只给 `targetType` 时列这一类，只给 `targetId` 回 `validation_failed`。
 - 给 t08：令牌撤销加在 `endAllSessions` 里；详情的 `providers` 按 `SOCIAL_PROVIDERS` 过滤 `account.providerId`，接入上游登录时核对写法。给 t10、t11：管理员结束自己的会话或重置自己的密码后当前会话也没了，页面按已登出处理；重置密码的响应只有 `{password}`。
-- 没有用例的：重置密码在哈希过载时回 `overloaded`；注册的同一条分支也没有。
+- 没有用例的：重置密码在哈希过载时回 `overloaded`；注册的同一条分支也没有（第 8 片已补）。
+
+主会话把 Work 分支合进账号分支（`385e4ca86`，带进统计 t06 的收尾与调度器的 `initialDelayMs`；冲突只有合同测试的 `boundary.test.ts`，两边的放开项都留下；`measure-ingest.ts` 自动合上），合并后六个站点包的测试与类型检查全过。
+
+第 8 片（收口）已提交（`f8eb66f1e`，6 个文件）：五个包的测试与类型检查、`governance:check`、`docs:check` 都过，合同测试连跑 3 遍都过、没有留下进程，4 条变异都被抓到。
+
+- 统计库持写锁期间账号登录照常成功（C14 加的一步；另持账号库的锁时这一步失败，确认它在验登录）。
+- `purge` 第 3 片就设了 `initialDelayMs: 0`，合进调度器后生效；“启动后先跑一次”的合同用例让任务在启动时撞上进程外的写锁、看它自己记的 `job.failed`（合同里造不出启动时已到期的会话，任务成功时没删到东西也不记日志）。`job.failed` 带 `module` 与 `job` 已写进 `site.operations` 失败表。
+- 注册与重置密码在哈希过载时回 `overloaded` 补了包内用例（合同里保证不了两个请求重叠）。`site.accounts` 的三条 Smoke 早已标好，本片给 `site.admin` 的封禁补标；`accounts-me.test.ts` 的“改资料”多标了一个 Smoke，晋升时一起看。
+- 合入 master 时要改的：`site.telemetry-ingest` 输出 10 里“‘登录照常’那一半等账号有了登录接口再验（planned）”去掉。计划第 7 节的手工主路径（起 `serve`、走注册、登录、`whoami`、登出）主会话在晋升前做。
+
+第 6 到 8 片与上两个修正的实现审查已开（2026-11-25，范围 `02ce9d01b..f8eb66f1e`，账号这一侧的提交）：Opus 先审，omp（`@review`）在后台；审查用的 worktree 是 `.worktree/w00037-t07-review3`。
