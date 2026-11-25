@@ -87,11 +87,11 @@
     "entry": {
         "missing": "找不到这个条目",
         "deleted": "这个条目已删除",
-        "notAppeared": "在{{position}}还没出场",
+        "notAppeared": "到{{position}}还没出场",
         "positionGone": "原来选的那一章已经不在了",
         "sameAs": "是谁：",
-        "position": "位置",
-        "planned": "按计划",
+        "position": "看哪个时间点",
+        "planned": "算上计划中的情节",
         "tabs": {
             "label": "条目的分页",
             "text": "文字",
@@ -110,11 +110,11 @@
         "restore": "恢复这个条目",
         "editName": "改名字",
         "editSummary": "改简介",
-        "addSummary": "写简介",
+        "addSummary": "一句话简介",
         "aliases": "别名",
         "removeAlias": "去掉别名 {{alias}}",
-        "newAlias": "新别名，回车加上",
-        "addAlias": "＋别名",
+        "newAlias": "新别名",
+        "addAlias": "添加别名",
         "nameLabel": "名字",
         "summaryLabel": "简介",
         "aliasAdded": "给{{name}}加别名 {{alias}}",
@@ -131,7 +131,9 @@
         "fieldAdded": "给{{name}}加了一项：{{label}}",
         "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
-        "fieldRestored": "恢复了{{name}}的“{{label}}”"
+        "fieldRestored": "恢复了{{name}}的“{{label}}”",
+        "plannedMark": "算上计划",
+        "leavePlans": "不算计划"
     },
     "position": {
         "initial": "初值",

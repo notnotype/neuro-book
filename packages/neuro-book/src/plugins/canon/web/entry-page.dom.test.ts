@@ -362,7 +362,7 @@ describe("条目页", () => {
         const unappeared = await open(ids[late.id]!);
         unappeared.state.position = "1:end";
         // 章标题来自章节文件名（活页夹约定），这里没有章节文件，所以只有序号。
-        await waitUntil("未出场", () => unappeared.wrapper.text().includes("在第 1 章末尾还没出场"));
+        await waitUntil("未出场", () => unappeared.wrapper.text().includes("到第 1 章末尾还没出场"));
     });
 
     it("项目实例停止：页面顶上有“世界已断开”，内容留着", async () => {
@@ -425,8 +425,9 @@ describe("读取次数", () => {
         await publish(other.canon, [change(id, "2", "买了书", -300)]);
         await waitUntil("条目页更新", () => valueText(entry) === "700");
         const reads = counted.calls.slice(before).map((call) => call.method).sort();
-        // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页，加上读取层自己的 status：每个一次，不多读。
-        expect(reads).toEqual(["changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
+        // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页、作品里有没有计划（时间点的勾选项，输出 7），加上读取层自己的
+        // status：每个一次，不多读。
+        expect(reads).toEqual(["changes", "changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
     });
 
     it("换过的读取不再占着：换到读过的位置、离开文字分页以后，一次发布只重读在用的", async () => {
@@ -505,22 +506,36 @@ describe("写入", () => {
         expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先关掉按计划");
     });
 
-    it("页头改名、改简介：确认条在页头之下，文字分页上也能改；保存后页头换了名字、顶上有提示", async () => {
+    it("页头改名、改简介：点名字本身在原处出浮层（与短项同一种），不出确认条；保存后页头换了名字、有提示，焦点回到名字", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper} = await open(id);
-        const bar = await startEdit(wrapper, "entry.name");
-        await bar.get("textarea").setValue("夜王");
-        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
-        await buttonByText(wrapper, "保存")!.trigger("click");
+        const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor="${path}"]`);
+        const fill = (path: string, value: string): void => {
+            const field = editorOf(path)!.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea")!;
+            field.value = value;
+            field.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        const save = (path: string): void => [...editorOf(path)!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+
+        await waitUntil("名字按钮", () => wrapper.find("[data-edit='entry.name']").exists());
+        await wrapper.get("[data-edit='entry.name']").trigger("click");
+        await waitUntil("浮层里的编辑器", () => editorOf("entry.name") !== null);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        fill("entry.name", "夜王");
+        await waitUntil("预览", () => editorOf("entry.name")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        save("entry.name");
         await waitUntil("名字变了", () => wrapper.get("h1").text() === "夜王");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改名字");
-        const summary = await startEdit(wrapper, "entry.summary");
-        await summary.get("textarea").setValue("第三魔法学院一年级");
-        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
-        await buttonByText(wrapper, "保存")!.trigger("click");
-        await waitUntil("简介", () => wrapper.text().includes("第三魔法学院一年级"));
+        await waitUntil("焦点回到名字", () => document.activeElement?.getAttribute("data-edit") === "entry.name");
+
+        await wrapper.get("[data-edit='entry.summary']").trigger("click");
+        await waitUntil("简介的编辑器", () => editorOf("entry.summary") !== null);
+        fill("entry.summary", "第三魔法学院一年级");
+        await waitUntil("预览", () => editorOf("entry.summary")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        save("entry.summary");
+        await waitUntil("简介", () => wrapper.get("[data-edit='entry.summary']").text() === "第三魔法学院一年级");
     });
 
     it("页头的别名、加去一组设定、删除后恢复：都是一次改几处，结果在页上看得到", async () => {
@@ -529,7 +544,7 @@ describe("写入", () => {
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper, state} = await open(id);
         await waitUntil("别名一行", () => wrapper.find("[data-entry-aliases]").exists());
-        await buttonByText(wrapper, "＋别名")!.trigger("click");
+        await buttonByText(wrapper, "添加别名")!.trigger("click");
         const input = wrapper.get("[data-entry-aliases] input");
         await input.setValue("小瑕");
         await input.trigger("keydown", {key: "Enter"});

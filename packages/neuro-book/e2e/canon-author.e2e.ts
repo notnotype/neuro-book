@@ -71,7 +71,8 @@ const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-
 const inlineEditor = (page: Page, path: string) => page.locator(`[data-field-editor="${path}"]`);
 /** 切到文字分页：人物的条目打开时先看人物分页（输出 9）。 */
 const textTab = (page: Page) => entryPage(page).getByRole("tab", {name: "文字"}).click();
-const positionSelect = (page: Page) => entryPage(page).getByRole("combobox", {name: "位置"});
+/** 时间点的按钮（author-ui 输出 7）：写当前位置，点开是各位置的单选。 */
+const positionSelect = (page: Page) => entryPage(page).locator("[data-position-trigger]");
 const statusBar = (page: Page) => page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']");
 /** 状态栏的“待处理 N”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
 const pendingItem = (page: Page) => statusBar(page).getByRole("button").filter({hasText: /^待处理 \d+$/u});
@@ -96,7 +97,7 @@ async function openEntry(page: Page, name: string, parents: readonly string[] = 
 
 async function choosePosition(page: Page, label: RegExp): Promise<void> {
     await positionSelect(page).click();
-    await page.getByRole("option", {name: label}).click();
+    await page.getByRole("menuitemradio", {name: label}).click();
     await expect(positionSelect(page)).toHaveText(label);
 }
 

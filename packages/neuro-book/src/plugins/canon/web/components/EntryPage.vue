@@ -5,12 +5,13 @@
  */
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
-import {Button, DropdownMenu, IconButton, Input, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu, IconButton, Input, Tabs} from "@notnotype/nb-ui/components";
 import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
 
 import type {LineOption} from "../../shared/reads";
 import {useCanonText} from "../text";
 import LineSelect from "./LineSelect.vue";
+import PositionPicker from "./PositionPicker.vue";
 import WorldBanners from "./WorldBanners.vue";
 
 export type EntryPageStatus = "loading" | "failed" | "missing" | "deleted" | "normal";
@@ -25,6 +26,10 @@ const props = withDefaults(defineProps<{
     /** 位置选择的值（`positions.ts` 的 `positionValue`）。 */
     position?: string;
     planned?: boolean;
+    /** 作品里有计划中的情节：时间点里才出“算上计划中的情节”，没有章时也要出时间点（输出 7）。默认 false。 */
+    canPlan?: boolean;
+    /** 页头的写入在途：别名的加与去暂不可用（不吞掉点击）。默认 false。 */
+    busy?: boolean;
     /** 在所选位置上还没出场时，所选位置的文字（输出 8）。 */
     notAppeared?: string;
     /** 选过的那一章被删掉了，位置已经回到缺省（输出 7）。 */
@@ -54,7 +59,7 @@ const props = withDefaults(defineProps<{
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -65,9 +70,9 @@ const emit = defineEmits<{
     (event: "retry"): void;
     /** 选了“更多”里的“删除条目”。 */
     (event: "delete"): void;
-    /** 名字、简介旁的“改”：宿主打开确认条。 */
-    (event: "edit-name"): void;
-    (event: "edit-summary"): void;
+    /** 点了名字、简介：宿主在这个元素上打开就地改的浮层（输出 38）。 */
+    (event: "edit-name", anchor: HTMLElement): void;
+    (event: "edit-summary", anchor: HTMLElement): void;
     /** 加一个别名（输入框里回车）或去掉一个（标签上的 ×）。 */
     (event: "aliases", change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void;
     /** “更多”里的“移动到……”“添加一组设定……”“去掉这组设定”。 */
@@ -94,6 +99,7 @@ const menuItems = computed(() => [
               {id: "move", label: text("entry.moveTo"), iconClass: "i-lucide-folder-input", disabled: blockedReason.value !== undefined},
               {id: "add-component", label: text("entry.addComponent"), iconClass: "i-lucide-plus", disabled: blockedReason.value !== undefined},
               ...(props.removableGroup === "" ? [] : [{id: "remove-component", label: text("entry.removeComponent", {name: props.removableGroup}), iconClass: "i-lucide-minus", disabled: blockedReason.value !== undefined}]),
+              {id: "sep-delete", label: "", separator: true},
           ]
         : []),
     {id: "delete", label: text("entry.delete"), iconClass: "i-lucide-trash-2", tone: "danger" as const, disabled: !props.deletable},
@@ -105,7 +111,8 @@ const onMenu = (id: string): void => {
     else if (id === "remove-component") emit("remove-component");
 };
 
-// 加别名：点“＋”出一个输入框，回车加上，Escape 或失焦收起。
+// 加别名：点“添加别名”出一个输入框，回车或失焦时非空就加上（已有的不再加），Escape 放弃。收起先于发出：回车以后输入框卸载
+// 引起的失焦不再加一次。
 const adding = ref(false);
 const aliasDraft = ref("");
 const aliasBox = ref<HTMLElement | null>(null);
@@ -116,9 +123,13 @@ const startAlias = async (): Promise<void> => {
     aliasBox.value?.querySelector("input")?.focus();
 };
 const commitAlias = (): void => {
+    if (!adding.value) return;
     const alias = aliasDraft.value.trim();
     adding.value = false;
     if (alias !== "" && !props.aliases.includes(alias)) emit("aliases", {add: [alias]});
+};
+const cancelAlias = (): void => {
+    adding.value = false;
 };
 
 /**
@@ -187,51 +198,82 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
         </div>
         <template v-else>
             <!-- 窄屏上页头换成几行，吸顶会占掉大半个视口，只在宽屏吸顶。 -->
-            <header ref="header" class="z-[1] border-b border-[var(--divider)] bg-[var(--panel-surface)] px-8 pt-5 min-[481px]:sticky min-[481px]:top-0 max-[480px]:px-4">
+            <header ref="header" class="z-[1] border-b border-[var(--divider)] bg-[var(--panel-surface)] pt-5 min-[481px]:sticky min-[481px]:top-0">
                 <div class="mx-auto flex flex-wrap items-start gap-x-4 gap-y-2" :class="column">
                     <div class="min-w-0 flex-1 basis-64">
                         <div class="flex flex-wrap items-baseline gap-x-2">
-                            <h1 class="text-[length:var(--text-xl)] font-semibold text-[var(--text-main)]">{{ props.name }}</h1>
-                            <Button v-if="props.editable" size="sm" variant="ghost" :disabled="blockedReason !== undefined" :title="blockedReason" :aria-label="text('entry.editName')" data-edit="entry.name" @click="emit('edit-name')">{{ text("edit.button") }}</Button>
+                            <!-- 名字、简介本身就是按钮：点了在原处出浮层改（输出 38）。浅底用负外边距，悬停与聚焦不挪字；铅笔一直占位、只换透明度。 -->
+                            <h1 class="m-0 min-w-0 text-[length:var(--text-xl)] font-semibold text-[var(--text-main)]">
+                                <button
+                                    v-if="props.editable"
+                                    type="button"
+                                    class="entry-editable -mx-1.5 inline-flex max-w-full items-center gap-1.5 px-1.5 text-left"
+                                    :disabled="blockedReason !== undefined"
+                                    :title="blockedReason"
+                                    :aria-label="`${text('entry.editName')}：${props.name}`"
+                                    data-edit="entry.name"
+                                    @click="(event: MouseEvent) => emit('edit-name', event.currentTarget as HTMLElement)"
+                                >
+                                    <span class="min-w-0 break-words">{{ props.name }}</span><span class="entry-editable__pencil i-lucide-pencil size-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                                </button>
+                                <template v-else>{{ props.name }}</template>
+                            </h1>
                             <span v-if="props.sameAs !== null" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">
                                 {{ text("entry.sameAs") }}<button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open-entry', props.sameAs.id)">{{ props.sameAs.name }}</button>
                             </span>
                         </div>
-                        <div v-if="props.summary !== '' || props.editable" class="mt-1 flex flex-wrap items-baseline gap-x-2">
-                            <p v-if="props.summary !== ''" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ props.summary }}</p>
-                            <Button v-if="props.editable" size="sm" variant="ghost" :disabled="blockedReason !== undefined" :title="blockedReason" :aria-label="text('entry.editSummary')" data-edit="entry.summary" @click="emit('edit-summary')">{{ props.summary === "" ? text("entry.addSummary") : text("edit.button") }}</Button>
-                        </div>
-                        <ul v-if="props.aliases.length > 0 || props.editable" class="mt-1 flex flex-wrap items-center gap-1.5" :aria-label="text('entry.aliases')" data-entry-aliases>
-                            <li v-for="alias in props.aliases" :key="alias" class="flex items-center gap-0.5 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
+                        <button
+                            v-if="props.editable"
+                            type="button"
+                            class="entry-editable -mx-1.5 mt-1 flex max-w-full items-center gap-1.5 px-1.5 text-left text-[length:var(--text-sm)]"
+                            :class="props.summary === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'"
+                            :disabled="blockedReason !== undefined"
+                            :title="blockedReason"
+                            :aria-label="props.summary === '' ? text('entry.addSummary') : `${text('entry.editSummary')}：${props.summary}`"
+                            data-edit="entry.summary"
+                            @click="(event: MouseEvent) => emit('edit-summary', event.currentTarget as HTMLElement)"
+                        >
+                            <span class="min-w-0">{{ props.summary === "" ? text("entry.addSummary") : props.summary }}</span><span class="entry-editable__pencil i-lucide-pencil size-3 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                        </button>
+                        <p v-else-if="props.summary !== ''" class="mt-1 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ props.summary }}</p>
+                        <ul v-if="props.aliases.length > 0 || props.editable" class="mt-2 flex flex-wrap items-center gap-1.5" :aria-label="text('entry.aliases')" data-entry-aliases>
+                            <li v-for="alias in props.aliases" :key="alias" class="flex h-6 items-center gap-0.5 rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] pl-2.5 pr-1 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
                                 {{ alias }}
-                                <IconButton v-if="props.editable" size="xs" icon-class="i-lucide-x" :disabled="blockedReason !== undefined" :aria-label="text('entry.removeAlias', {alias})" :title="blockedReason ?? text('entry.removeAlias', {alias})" @click="emit('aliases', {remove: [alias]})" />
+                                <IconButton v-if="props.editable" size="xs" icon-class="i-lucide-x" :disabled="blockedReason !== undefined || props.busy" :aria-label="text('entry.removeAlias', {alias})" :title="blockedReason ?? text('entry.removeAlias', {alias})" @click="emit('aliases', {remove: [alias]})" />
                             </li>
                             <li v-if="props.editable" ref="aliasBox">
-                                <Input v-if="adding" v-model="aliasDraft" size="sm" class="w-32" :aria-label="text('entry.newAlias')" :placeholder="text('entry.newAlias')" @keydown.enter.prevent="commitAlias()" @keydown.escape.prevent="adding = false" @blur="adding = false" />
-                                <Button v-else size="sm" variant="ghost" :disabled="blockedReason !== undefined" :title="blockedReason" @click="startAlias()">{{ text("entry.addAlias") }}</Button>
+                                <Input v-if="adding" v-model="aliasDraft" size="sm" class="w-32" :aria-label="text('entry.newAlias')" :placeholder="text('entry.newAlias')" @keydown.enter.prevent="commitAlias()" @keydown.escape.prevent="cancelAlias()" @blur="commitAlias()" />
+                                <Button v-else size="sm" variant="ghost" :disabled="blockedReason !== undefined || props.busy" :title="blockedReason" @click="startAlias()"><span class="i-lucide-plus size-3.5" aria-hidden="true" />{{ text("entry.addAlias") }}</Button>
                             </li>
                         </ul>
                     </div>
-                    <div class="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                        <div class="contents" :title="props.positionLocked !== '' ? props.positionLocked : undefined" :data-position-locked="props.positionLocked !== '' ? '' : undefined">
-                            <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" :disabled="props.positionLocked !== ''" @update:line="(value: string) => emit('update:line', value)" />
-                            <Select class="w-52 max-w-full" size="sm" :aria-label="text('entry.position')" :options="[...props.positions]" :model-value="props.position" :disabled="props.positionLocked !== ''" @update:model-value="(value: string) => emit('update:position', value)" />
-                            <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
-                                <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" :disabled="props.positionLocked !== ''" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}
-                            </label>
-                        </div>
+                    <div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
+                        <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" :disabled="props.positionLocked !== ''" @update:line="(value: string) => emit('update:line', value)" />
+                        <!-- 只有一个位置（空作品）又没有计划时，时间点没得选，不出（设计语言“此刻没用的，就不出现”）。 -->
+                        <PositionPicker
+                            v-if="props.positions.length > 1 || props.canPlan"
+                            :positions="props.positions"
+                            :position="props.position"
+                            :planned="props.planned"
+                            :can-plan="props.canPlan"
+                            :locked="props.positionLocked"
+                            :not-appeared="props.notAppeared"
+                            :position-gone="props.positionGone"
+                            @update:position="(value: string) => emit('update:position', value)"
+                            @update:planned="(value: boolean) => emit('update:planned', value)"
+                        />
                         <DropdownMenu align="end" :items="menuItems" @select="onMenu">
                             <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('entry.more')" :title="text('entry.more')" />
                         </DropdownMenu>
                     </div>
                 </div>
                 <!-- 一组设定一个分页，分页会比一行多：放不下时逐级让位、收进“更多”，分页条自己不横向滚动（author-ui 输出 9、32）。 -->
-                <Tabs class="mx-auto mt-3" :class="column" size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                <div class="mx-auto mt-3" :class="column">
+                    <Tabs size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                </div>
             </header>
-            <div class="mx-auto px-8 py-5 max-[480px]:px-4" :class="column">
+            <div class="mx-auto py-5" :class="column">
                 <slot name="bar" />
-                <p v-if="props.positionGone" role="status" class="mb-3 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.positionGone") }}</p>
-                <p v-if="props.notAppeared !== ''" class="mb-3 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.notAppeared", {position: props.notAppeared}) }}</p>
                 <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)">
                     <slot />
                 </div>
@@ -242,13 +284,36 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
 
 <style scoped>
 /*
- * 页头、分页条与内容列同一个上限，放宽时一起变（主文字左右分屏，输出 48）。放宽后内容列去掉内边距是 1496 像素，两栏各约
- * 736，不超过一栏时的 760。上限的变化不加过渡：过渡的中途内容列会越过左右分屏的分界，版式在动画中间跳一下。
+ * 页头、分页条与内容列同一个上限，放宽时一起变（主文字左右分屏，输出 48）。放宽后内容列净宽 1496 像素，两栏各约 736，不超过
+ * 一栏时的 760。上限的变化不加过渡：过渡的中途内容列会越过左右分屏的分界，版式在动画中间跳一下。
  */
+/* 内边距放在列里面：页头、分页与内容左边对齐，内容净宽 760（人物分页的短资料两列排得开）。 */
 .entry-page__column {
-    max-width: 760px;
+    max-width: calc(760px + 64px);
+    padding-inline: 32px;
 }
 .entry-page__column--wide {
-    max-width: 1560px;
+    max-width: calc(1496px + 64px);
+}
+@media (max-width: 480px) {
+    .entry-page__column {
+        padding-inline: 16px;
+    }
+}
+.entry-editable {
+    border-radius: var(--radius-control);
+    transition: background-color var(--motion-fast) var(--ease-layout);
+}
+.entry-editable:hover:not(:disabled),
+.entry-editable:focus-visible {
+    background: var(--bg-hover);
+}
+.entry-editable__pencil {
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+.entry-editable:hover:not(:disabled) .entry-editable__pencil,
+.entry-editable:focus-visible .entry-editable__pencil {
+    opacity: 1;
 }
 </style>

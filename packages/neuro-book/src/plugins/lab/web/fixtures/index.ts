@@ -25,6 +25,7 @@ import type TextConflictDialog from "nbook/plugins/canon/web/components/TextConf
 import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
+import type PositionPicker from "nbook/plugins/canon/web/components/PositionPicker.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -2320,6 +2321,22 @@ function canonEntryPageFixtures() {
                 {id: "exact-english", label: "英文界面", input: {props: {}, model: {text: "", delta: ""}}},
             ],
             load: async () => (await import("./RecordFormFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PositionPicker>({
+            component: "PositionPicker",
+            scenes: (() => {
+                const positions = [{value: "initial", label: "故事开始前"}, ...[1, 2, 3].flatMap((n) => [{value: `${String(n)}:start`, label: `第 ${String(n)} 章开头`}, {value: `${String(n)}:end`, label: `第 ${String(n)} 章末尾`}])];
+                return [
+                    {id: "sample", label: "第 3 章末尾，作品里有计划", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: false}}},
+                    {id: "no-plans", label: "作品里没有计划：没有勾选项", input: {props: {positions}, model: {position: "3:end", planned: false}}},
+                    {id: "planned", label: "算上计划：旁边一枚“算上计划 ×”", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: true}}},
+                    {id: "not-appeared", label: "到这里还没出场", input: {props: {positions, notAppeared: "第 1 章末尾"}, model: {position: "1:end", planned: false}}},
+                    {id: "gone", label: "原来选的那一章不在了", input: {props: {positions, positionGone: true}, model: {position: "3:end", planned: false}}},
+                    {id: "locked", label: "有没提交的主文字：锁着", input: {props: {positions, canPlan: true, locked: "先提交或放弃正在写的主文字"}, model: {position: "3:end", planned: true}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
+                ];
+            })(),
+            load: async () => (await import("./PositionPickerFixture.vue")).default,
         }),
         defineLabFixture<typeof PageNotices>({
             component: "PageNotices",

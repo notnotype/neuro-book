@@ -92,7 +92,7 @@ async function openEntry(page: Page, name: string, parents: readonly string[]): 
     }
     await row(name).click();
     await expect(activeTabLabel(page)).toHaveText(name);
-    await expect(entryPage(page).getByRole("combobox", {name: "位置"})).toBeVisible();
+    await expect(entryPage(page).locator("[data-position-trigger]")).toBeVisible();
 }
 
 const entryTab = (page: Page, name: string) => entryPage(page).getByRole("tab", {name: new RegExp(`^${name}`, "u")});
@@ -149,8 +149,8 @@ test("验收 3：星瑾的条目页有知道什么、目标与态度、经历；
     await expect(knowing.locator("[data-knowing-row]", {hasText: "星瑕做过魔法少女"})).toContainText("忘了");
     await expect(knowing.getByRole("button", {name: /^改/u}).first()).toBeVisible();
 
-    await entryPage(page).getByRole("combobox", {name: "位置"}).click();
-    await page.getByRole("option", {name: /第 1 章末尾/u}).click();
+    await entryPage(page).locator("[data-position-trigger]").click();
+    await page.getByRole("menuitemradio", {name: /第 1 章末尾/u}).click();
     await entryTab(page, "经历").click();
     const experience = entryPage(page).locator("[data-experience]");
     await expect(experience.locator("[data-experience-item]").first()).toBeVisible();

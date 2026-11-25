@@ -90,8 +90,8 @@
         "notAppeared": "Not yet on stage at {{position}}",
         "positionGone": "The chapter you picked is gone",
         "sameAs": "Really: ",
-        "position": "Position",
-        "planned": "Include plans",
+        "position": "Point in the story",
+        "planned": "Include planned events",
         "tabs": {
             "label": "Entry tabs",
             "text": "Text",
@@ -110,11 +110,11 @@
         "restore": "Restore this entry",
         "editName": "Rename",
         "editSummary": "Edit summary",
-        "addSummary": "Add summary",
+        "addSummary": "One-line summary",
         "aliases": "Aliases",
         "removeAlias": "Remove alias {{alias}}",
-        "newAlias": "New alias, press Enter",
-        "addAlias": "+ Alias",
+        "newAlias": "New alias",
+        "addAlias": "Add alias",
         "nameLabel": "Name",
         "summaryLabel": "Summary",
         "aliasAdded": "Add alias {{alias}} to {{name}}",
@@ -131,7 +131,9 @@
         "fieldAdded": "Added {{label}} to {{name}}",
         "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
-        "fieldRestored": "Restored “{{label}}” on {{name}}"
+        "fieldRestored": "Restored “{{label}}” on {{name}}",
+        "plannedMark": "Planned events included",
+        "leavePlans": "Leave out planned events"
     },
     "position": {
         "initial": "Initial",

@@ -202,7 +202,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(tabDot(page)).toHaveCount(0);
     await expect(entryPage(page).locator("[data-entry-text] [data-block]")).toHaveCount(1);
 
-    await entryPage(page).getByRole("button", {name: "＋别名"}).click();
+    await entryPage(page).getByRole("button", {name: "添加别名"}).click();
     await entryPage(page).locator("[data-entry-aliases] input").fill("小瑕");
     await page.keyboard.press("Enter");
     await expect(entryPage(page).locator("[data-entry-aliases]")).toContainText("小瑕");
@@ -214,8 +214,8 @@ test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点�
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await expect(textSource(page)).toHaveCount(1);
-    // 编辑期间位置锁在开始编辑的地方。
-    await expect(entryPage(page).locator("[data-position-locked]")).toHaveCount(1);
+    // 空作品没有章、也没有计划：时间点不出，编辑期间也就没有要锁的（有章时锁住由 entry-page 的 dom 测试守着，输出 46）。
+    await expect(entryPage(page).locator("[data-position-picker]")).toHaveCount(0);
     await focusSource(page);
     await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
@@ -420,7 +420,7 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"><chapter id="1" title="入学"/></binder>');
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    const position = entryPage(page).locator('[aria-label="位置"]');
+    const position = entryPage(page).locator("[data-position-trigger]");
     await expect(position).toContainText("第 1 章末尾");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
@@ -429,9 +429,9 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await page.keyboard.type("（第 1 章里改的）");
     await expect(entryPage(page).locator('[data-text-saved="saved"]')).toBeVisible();
 
-    // 活页夹里拿掉这一章；等世界看到（位置的选项里没有它了）再刷新。
+    // 活页夹里拿掉这一章；等世界看到（没有章了，只剩故事开始前一个位置，时间点不再出）再刷新。
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"></binder>');
-    await expect(position).not.toContainText("第 1 章");
+    await expect(position).toHaveCount(0);
     await open(page);
     await expect(tabDot(page)).toHaveCount(1);
     await expect(entryPage(page).locator("h1")).toHaveText("星瑕");

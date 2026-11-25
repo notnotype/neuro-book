@@ -4,7 +4,7 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowRef, Transition, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowReactive, shallowRef, Transition, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
@@ -175,6 +175,9 @@ watch(headSource, (read) => {
 
 const namespaces = computed(() => Object.keys(view.value?.namespaces ?? {}));
 const componentsRead = useWorldRead(world, "components", () => ({}));
+/** 作品里有没有计划中的情节：没有时时间点里不出“算上计划中的情节”（输出 7）。只要总数，读一条。 */
+const plans = useWorldList(world, "changes", () => ({filter: {kind: "plan" as const}}), 1);
+const canPlan = computed(() => (plans.state.value?.data?.total ?? 0) > 0 || state.planned);
 const typeLabel = (type: string): string => componentsRead.value?.data?.items.find((item) => item.id === type)?.label ?? type;
 
 /* ---------- 情节分页 ---------- */
@@ -883,6 +886,16 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
     }
     return found;
 };
+/**
+ * 名字、简介的就地改（输出 38）：页头的按钮交来锚点，编辑器是命名空间 `entry` 那一个（路径 `entry.name`、`entry.summary`，见
+ * `HEAD_FIELDS`），与人物分页的短项同一套浮层。两个编辑器一直挂着，就地改的草稿才认得它们（`inlineHere`），不出页顶的确认条。
+ */
+const headEditor = fieldEditorOf("entry");
+const headAnchors = shallowReactive<{name: HTMLElement | null; summary: HTMLElement | null}>({name: null, summary: null});
+const openHead = (field: "name" | "summary", anchor: HTMLElement): void => {
+    headAnchors[field] = anchor;
+    edit.open(`entry.${field}`, {inline: true});
+};
 const fieldDetails = new Map<string, Component<{readonly path: string}>>();
 const fieldDetailOf = (namespace: string): Component<{readonly path: string}> => {
     let found = fieldDetails.get(namespace);
@@ -1046,8 +1059,10 @@ const setPosition = (value: string): void => {
             :removable-group="removableGroup"
             :position-locked="textTab.editing.value ? text('textEdit.locked') : ''"
             :wide="previewing"
-            @edit-name="edit.open('entry.name')"
-            @edit-summary="edit.open('entry.summary')"
+            :can-plan="canPlan"
+            :busy="acting"
+            @edit-name="(anchor: HTMLElement) => openHead('name', anchor)"
+            @edit-summary="(anchor: HTMLElement) => openHead('summary', anchor)"
             @aliases="changeAliases"
             @restore="restore()"
             @add-component="addType = addableTypes[0]?.value ?? ''; openDialog(); addOpen = true"
@@ -1257,6 +1272,9 @@ const setPosition = (value: string): void => {
             <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleteDescription") }}</p>
             <p v-if="deleteError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ deleteError }}</p>
         </Dialog>
+        <!-- 名字、简介的就地改：锚在页头的按钮上，同人物分页的短项（输出 38、51）。 -->
+        <component :is="headEditor" path="name" :anchor="headAnchors.name" />
+        <component :is="headEditor" path="summary" :anchor="headAnchors.summary" />
         <PageNotices
             :notice="props.notices.current.value"
             :agent="props.notices.agent.value"

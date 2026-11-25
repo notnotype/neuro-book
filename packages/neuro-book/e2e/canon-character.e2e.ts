@@ -73,7 +73,8 @@ const tab = (page: Page, name: string) => entryPage(page).getByRole("tab", {name
 const valueOf = (page: Page, path: string) => entryPage(page).locator(`[data-edit="${path}"]`);
 /** 就地改的编辑器（输出 51）：短项在浮层里（传送到页面根上），成段的文字浮在原处。 */
 const editorOf = (page: Page, path: string) => page.locator(`[data-field-editor="${path}"]`);
-const positionSelect = (page: Page) => entryPage(page).getByRole("combobox", {name: "位置"});
+/** 时间点的按钮（author-ui 输出 7）：写当前位置。 */
+const positionSelect = (page: Page) => entryPage(page).locator("[data-position-trigger]");
 
 async function openEntry(page: Page, name: string): Promise<void> {
     if (!(await row(page, "人物").isVisible())) await tree(page).click();
