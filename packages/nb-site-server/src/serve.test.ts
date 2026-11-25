@@ -153,7 +153,9 @@ describe("健康检查", () => {
             return result.status === 503 ? result : undefined;
         });
         expect(notReady.body).toEqual({status: "not_ready", code: "not_ready", modules: {alpha: "not_ready", beta: "ready"}});
-        expect(site.logs().find((line) => line.event === "health.not_ready")).toMatchObject({module: "alpha", reason: "module_not_ready"});
+        // 回应先于子进程那一行日志到达管道，等日志行出现再比。
+        const notReadyLine = await waitUntil("not_ready log line", () => site.logs().find((line) => line.event === "health.not_ready"));
+        expect(notReadyLine).toMatchObject({module: "alpha", reason: "module_not_ready"});
     });
 
     it("模块在业务连接上开着事务时，就绪检查 200 且不动那个事务", async () => {
@@ -549,6 +551,8 @@ describe("测试控制入口（输出 11）", () => {
         await waitUntil("second hold started", () => holdEvents().length >= 3);
         site.writeStdin("finish\n");
         expect(await second).toEqual({status: 200, body: {status: "done"}});
+        // 回应先于子进程那一行日志到达管道，等日志行出现再比。
+        await waitUntil("second hold finished", () => holdEvents().length >= 4);
         expect(holdEvents()).toEqual(["fixture.hold_started", "fixture.hold_finished", "fixture.hold_started", "fixture.hold_finished"]);
     });
 

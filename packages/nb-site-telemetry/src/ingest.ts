@@ -172,7 +172,8 @@ export function createIngestApp(options: IngestOptions): Hono {
                 return invalidReport(c, null);
             }
             // 在读完请求体之后取时间：跨午夜的慢请求按读完的那一刻记入（协议输出 1，`site.telemetry-ingest` 输出 2）。
-            // 合同用例 C1 只在两次请求之间拨钟，护不住这一点，挪到读请求体之前用例照过。
+            // 守着它的是 ingest.test.ts 里“请求体读到一半时跨过 UTC 午夜”那两条：不带 Content-Length 的请求体在进处理函数之前
+            // 就被 bodyLimit 读完，所以挪到处理函数开头时只有带 Content-Length 的那条会失败。
             const nowMs = clock.now();
             const validated = validate(kind, body, serverDayAt(nowMs));
             if (!validated.ok) return invalidReport(c, validated.field);
