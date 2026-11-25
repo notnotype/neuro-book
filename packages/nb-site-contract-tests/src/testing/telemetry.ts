@@ -7,9 +7,9 @@
 
 import {randomBytes} from "node:crypto";
 
-import {INGEST_PATHS, LATEST_ANONYMOUS_MANIFEST, LATEST_USAGE_MANIFEST, type IngestKind} from "@notnotype/nb-site-telemetry-contract";
+import {INGEST_PATHS, LATEST_ANONYMOUS_MANIFEST, LATEST_USAGE_MANIFEST, type AnonymousManifest, type IngestKind} from "@notnotype/nb-site-telemetry-contract";
 
-import {SANDBOX_SITE_URL, SANDBOX_TELEMETRY_URL} from "./site";
+import {rawHttp, SANDBOX_SITE_URL, SANDBOX_TELEMETRY_URL} from "./site";
 
 export const TELEMETRY_HOST = new URL(SANDBOX_TELEMETRY_URL).host;
 export const SITE_HOST = new URL(SANDBOX_SITE_URL).host;
@@ -31,7 +31,6 @@ function firstValue(table: Readonly<Record<string, unknown>> | undefined, field:
     return value;
 }
 
-const anonymous = LATEST_ANONYMOUS_MANIFEST.daily;
 const usageFields = LATEST_USAGE_MANIFEST.usage.fields;
 
 /** 使用档里错误项 `owner` 的取值表（按清单的顺序）；`usage.errors` 的项按 `owner` 与 `code` 不许重复，造两项时要两个 `owner`。 */
@@ -60,11 +59,15 @@ export function usageSegment(): Report {
 /**
  * 一份合格的每日上报，不带使用段；`withUsage` 为真时带上使用档的版本与一段使用统计。`installWeek` 发 `older`：
  * 它不随服务端日变（具体的周只收服务端日前后的一段），拨过时钟的进程上照样合格。
+ *
+ * `anonymous` 缺省是服务端认识的最新匿名档；相邻版本测试给第 1 版，上一个版本只认识它发布时的清单。
  */
-export function dailyReport(options: {readonly withUsage?: boolean} = {}): Report {
+export function dailyReport(options: {readonly withUsage?: boolean; readonly anonymous?: AnonymousManifest} = {}): Report {
     const withUsage = options.withUsage === true;
+    const manifest = options.anonymous ?? LATEST_ANONYMOUS_MANIFEST;
+    const anonymous = manifest.daily;
     return {
-        manifest: withUsage ? {anonymous: LATEST_ANONYMOUS_MANIFEST.version, usage: LATEST_USAGE_MANIFEST.version} : {anonymous: LATEST_ANONYMOUS_MANIFEST.version},
+        manifest: withUsage ? {anonymous: manifest.version, usage: LATEST_USAGE_MANIFEST.version} : {anonymous: manifest.version},
         reportId: newReportId(),
         appVersion: "0.17.0",
         channel: firstValue(anonymous.channel?.values, "channel"),
@@ -125,6 +128,22 @@ function parseBody(text: string): unknown {
         // 不是 JSON 也是一种回应，原文在 `text` 里给断言看。
         return undefined;
     }
+}
+
+/**
+ * 经原始套接字发一份上报，请求头照 `headerLines` 逐行原样写出（另加 `Host`、`Content-Length` 与 `Connection: close`）。
+ * `fetch` 的 `Headers` 会把同名头合并成一行，测“请求里有两个同名头”只能这样发。回的是状态码与按 JSON 解析的响应体。
+ */
+export async function sendRawReport(url: string, kind: IngestKind, report: Report, headerLines: readonly string[]): Promise<{readonly status: number; readonly body: unknown}> {
+    const body = JSON.stringify(report);
+    const request = [`POST ${INGEST_PATHS[kind]} HTTP/1.1`, `Host: ${TELEMETRY_HOST}`, ...headerLines, `Content-Length: ${String(Buffer.byteLength(body))}`, "Connection: close", "", body].join("\r\n");
+    const response = await rawHttp(url, request, REQUEST_TIMEOUT_MS);
+    const split = response.indexOf("\r\n\r\n");
+    const head = response.slice(0, split);
+    // 写入口的响应体都是定长的 JSON；回了分块编码时这里的解析不成立，直接报错，不猜。
+    if (/^transfer-encoding:/imu.test(head)) throw new Error("raw ingest response uses Transfer-Encoding; sendRawReport only reads fixed-length bodies");
+    const status = Number(/^HTTP\/1\.1 (\d{3})/u.exec(head)?.[1]);
+    return {status, body: parseBody(response.slice(split + 4))};
 }
 
 /** 往 `url` 上的进程的某个写入口发一份上报（或 `request.body` 的原文）。 */

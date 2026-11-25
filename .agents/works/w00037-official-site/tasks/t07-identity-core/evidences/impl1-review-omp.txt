@@ -1,0 +1,103 @@
+# w00037 t07 第 1 到 3 片：只读实现审查
+
+审查提交 `29f2c05f1..2f0d79144`；计划、Spec 与 ADR 取主工作区。行为证据与尚未接入公开路径的预防性发现分别标明。
+
+### 1. 请求体校验把没有字段名的 schema 错误当作通过
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-identity/src/errors.ts:128–151`；`packages/nb-site-identity-contract/src/account.ts:109`、`admin.ts:228`。
+- **现象**：`readBody` 用提取到的字段名数量判定成败，而不是用 schema 的错误数量。TypeBox 对两个 PATCH schema 的 `{}` 各给一条 `minProperties` 错误，路径为空、参数只有 `limit: 1`；转成字段名后是 `[]`，`readBody` 把 `{}` 作为合法数据返回。
+- **为什么是问题**：前后端共用的 schema 拒收空修改，但共用的服务端入口放行；无法按计划回 400 `validation_failed`、`fields: []`。切片 3 自带的登出用另一条解析路径，尚未对外挂这两个 PATCH；不是在现有公共 PATCH 上复现。
+- **如何核实**：在 `2f0d79144` 上用真实 TypeBox、Hono，把两个 schema 经生产 `readBody` 挂到独立的 PATCH 请求。两次 `Value.Check(schema, {})` 都是 `false`，两次请求都回 200 `{"received":{}}`。现有 `app.test.ts:123–130` 只测字段名非空的错误。
+- **建议改法**：一次取得 schema 错误；只要有错误就拒绝，字段名投影可以是空数组。沿将要使用此入口的 PATCH 合同补空对象用例。
+
+### 2. 字符串枚举的公开类型不可用，不只影响 `ErrorBody`
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-identity-contract/src/schema.ts:22–24`；`account.ts:39,80,165`、`admin.ts:44,177,248`、`errors.ts:103–107`；`packages/nb-site-identity/src/errors.ts:41–45`。
+- **现象**：`literalUnion` 把所有成员标成 `TUnion<TLiteral<Values[number]>[]>`。TypeBox 的静态推导按元组递归，普通数组的分支推成 `never`。不仅已知的 `ErrorBody` 无法表达 `unavailable` 等码，`RoleRequest.role`、`PublicProfile.role`、`IdentityItem.provider`、`AuditItem.action` 和 `AuditItem.target.type` 也无法填入合法的值，`UserListQuery.filter` 只剩 `undefined`。
+- **为什么是问题**：前后端要共用同一份请求和响应类型；运行时接受的合法值，在 TypeScript 消费端却无法构造或按这些枚举处理。账号包的本地 `FailureBody` 只让失败出口编过，不能修复其他消费者。
+- **如何核实**：在 `2f0d79144` 用合同包自己的 TypeScript 6.0.3 编译 `lab-omp/contract-consumer.ts`，七处 `TS2322`；赋值样例与 `contract.test.ts:216–239,413–436` 的运行时合法样例相同。不是单个 `ErrorBody` 声明的问题。
+- **建议改法**：不把闭合枚举拓宽成普通数组；用 TypeBox 能保留字面量联合的构造，包含动态筛选的无 `fields` 码表。删除本地替代类型，补经公开入口赋值的编译期合同用例。
+
+### 3. 首条迁移挡住普通删除，没挡住替换已有审计行
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-site-identity/migrations/0001_init.sql:111–126`；`packages/nb-site-server/src/db/open.ts:31–41`；`packages/nb-site-identity/src/db/schema.test.ts:132–143`。
+- **现象**：审计的 `BEFORE DELETE` 触发器不拦 SQLite `REPLACE` 的隐式删除，实际业务连接的 `PRAGMA recursive_triggers` 是 `0`。`AUTOINCREMENT` 也不禁止显式填入已有 id。
+- **为什么是问题**：迁移声称在库里保证审计只追加，实际一次写表就能覆盖同 id 的历史记录。此提交没有发现外部接口提供这种写法；这是数据库约束自身的缺口，影响后续管理、导入或修复脚本。
+- **如何核实**：在 `2f0d79144` 用入口 `openModuleDb` 和真实 `runMigrations` 建库，插入 id=1 的 `admin.cli_upsert`；普通 `DELETE` 报 `SQLITE_CONSTRAINT_TRIGGER`，以同 id `REPLACE` 却成功，余下一行的动作变为 `user.ban`。现有测试只走普通 `UPDATE`、`DELETE`。
+- **建议改法**：在表上拒绝插入时复用已存在的主键，不把只追加依赖于每个写库连接的 PRAGMA；补同 id 替换原记录失败的用例。未发布可修首迁移，已发布则追加迁移。
+
+### 4. 同步事务回调误写成 `async` 时，回滚挡不住后续写入或未处理的拒绝
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-site-identity/src/db/connection.ts:267–273,321–351`；`connection.test.ts:191–202`。
+- **现象**：`read`、`write` 的签名接受 `async` 函数；事务先把真实 `Database` 交给回调，取得返回值后才发现它是 thenable。只回滚到第一个 `await` 前已执行的语句，后续仍握有原始连接；返回的 Promise 若 reject 也没人接住。
+- **为什么是问题**：违反 `IdentityQueueMisuseError` 声明的无写入保证。调用方已经收到并处理错误，回调还能越过队列提交；拒绝的回调在 Bun 默认设置下能令进程以 1 退出。当前切片的 HTTP 路由没有可触发的异步 SQL 回调；问题在模块已有的基础 API。
+- **如何核实**：在 `2f0d79144` 用真实模块装配与 SQLite，误写的 `write(async (tx) => …)` 在一处 `await` 前后各插一行。调用方见 `IdentityQueueMisuseError`，前一行回滚，后一行仍提交。另一个进程中，回调内 `throw`，调用方捕获 `IdentityQueueMisuseError` 后仍出现未处理的 `callback rejection marker` 并退出 1。现有用例只返回已解决的 Promise，没有后续 SQL 或拒绝。
+- **建议改法**：在类型层拒绝返回 Promise 的回调；运行时仍须观察错误 Promise 的拒绝。如果还承诺误用也不会写入，用随回调结束失效的事务能力替代可逃逸的裸连接（含语句句柄）；否则不能把当前检查文档化为硬保证。
+
+### 5. 会话在真实时间到期时，模块漏掉请求触发的清理
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-identity/src/session.ts:137–141,169–189,257–260`；`auth.ts:118–123`；`session.test.ts:69–79,109–128`。
+- **现象**：库按系统时间判到期时，GET `getSession` 回 `null`，只准备清理 Cookie、不删行。`#find` 没取库的响应头，也没区分“令牌不存在”和“签名有效但行已到期”；`use` 与登出因此到不了模块的删行分支。只拨模块时钟时，库仍返回行，两个分支却都如计划工作。
+- **为什么是问题**：正常过期通常同时被两只钟看到，而不是只被模块看到。要会话的路由虽回 401，却没有按计划当场删行和清 Cookie；登出回 200、清 Cookie，但也留下到期的行，要等 `purge`。没有发现已经到期的会话因此被 `whoami` 认可。
+- **如何核实**：在 `2f0d79144` 用真实 Better Auth 发出的 Cookie、SQLite 与 Hono，对比库时间已过期和仅模块时间已过期。经 `requireSession` 两次都回 401；前者 0 条 `Set-Cookie` 且行仍在，后者 3 条且删行。真实 `/logout` 两次都回 200 并清 Cookie，前者仍留行，后者删除。
+- **建议改法**：让受信的会话读取接缝能区分“签名有效、行已到期”和“没有行”；由模块决定删行、清 Cookie，`peek` 保持只读。正常请求和登出各补一条系统时间确已到期的用例，不只拨模块钟。
+
+### 6. `whoami` 能用已被撤销的会话返回刚授予的管理员角色
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-site-identity/src/auth.ts:105–125`；`session.ts:137–151,228–234`；Better Auth 1.7.27 的 `dist/db/internal-adapter.mjs:375–384` 与 `@better-auth/core` 的 `dist/db/adapter/factory.mjs:190–203,567–599`。
+- **现象**：`findSession` 要求关联 `user`，但默认关闭 SQL join。库先查会话、放队列锁，再取锁查用户；变更角色并撤销会话的事务可以夹在两条查询之间。结果来自两个不同的数据库状态。
+- **为什么是问题**：从前一状态拿仍有效的会话，从后一状态拿新角色，回答这个会话从未拥有的管理员身份。已经挂出的 `whoami` 会给出这个结果；按计划接入统计看板时，拿它判管理员会传递错误授权。此切片没有公开的改角色接口，未声称能从外部触发处置或已访问看板。
+- **如何核实**：`2f0d79144` 下运行 `lab-omp/session-probes.ts`。真实 Better Auth 发 Cookie，真实挂载的 Hono 接收 `whoami`。用队列的计时器注册同步确定先排会话查询、再排一次 `write`；同一写事务改角色并经生产 `endAllSessions` 删 1 行。先前请求回 `user`，跨事务的请求回 `authenticated/admin`，随后请求回 `anonymous`。只控制排队顺序，不替换库或数据库。
+- **建议改法**：让会话与用户在同一次数据库读取中决定，例如启用并验证当前 Kysely 方言的 SQL join；不要在已得到混合快照之后才复核。补“改角色与撤销同时提交时，旧会话的身份不能返回新角色”的并发用例。
+
+### 7. 未声明的库环境变量能覆盖站点的会话密钥
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-identity/src/auth.ts:103–111`；`config.ts:80–84`；Better Auth 1.7.27 的 `dist/context/create-context.mjs:70–86` 与 `dist/cookies/index.mjs:169–176`。
+- **现象**：模块只传 `secret: config.sessionSecret`。库仍从进程环境读取 `BETTER_AUTH_SECRETS`；它一旦存在，库用列表第一项作签发、校验会话 Cookie 的密钥，而不是已经校验的 `NB_SITE_SESSION_SECRET`。旧密钥传进 `secretConfig` 不会让会话 Cookie 用它验签。
+- **为什么是问题**：`site.operations` 的配置合同只有站点密钥。宿主遗留的同名变量可以让站点密钥校验、甚至轮换都不作用在会话签名上；合法的短库密钥仅得到警告。若它的取值变了，站点配置没变也会让全部旧 Cookie 失效；解析失败还会在迁移后变成 `start_failed`，不走配置失败出口。
+- **如何核实**：`2f0d79144` 下用 `lab-omp/session-probes.ts` 在同一个真实数据库上重建模块，两次给相同的站点配置，只在第二次设置合成的 `BETTER_AUTH_SECRETS`。同一 Cookie 的 `whoami` 从 `200 authenticated` 变为 `200 anonymous`；另一次库上下文检查确认实际选了环境变量的值，未打印密钥。
+- **建议改法**：库所用密钥只从站点的已验证配置派生。可以显式传单项版本化密钥表来覆盖库的环境回退；核对现有 Cookie 在同一站点密钥下仍有效，并用进程级测试固定优先级。
+
+### 8. 库的环境开关仍能启用已显式关闭的 Better Auth 遥测
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-identity/src/auth.ts:131–132`；`@better-auth/telemetry` 的 `dist/node.mjs:430–473`（1.7.27 依赖）。
+- **现象**：`enabled: false` 不覆盖环境变量；库用 `环境开关 || 选项` 判启用，配置了库的遥测目的地址时，创建身份模块会发送初始化事件。
+- **为什么是问题**：计划 3.4 明确关闭的是身份库自带的遥测，不是本站的统计模块。当前装配没有做到；宿主继承库的两个环境项就能使它在启动时发送运行和配置元数据。未发现它在这次初始化事件里发送账号、会话或密钥；默认无目的地址时不会发。
+- **如何核实**：`2f0d79144`，用 `NODE_ENV=production bun --no-env-file lab-omp/telemetry-probe.ts` 建真实模块。目的地址只指向实验自己的回环接收器、没有外发；模块选项显示 `false`，仍接到一个 `init` 事件。
+- **建议改法**：靠能覆盖库环境读取的边界兜住关闭约束，例如在账号运行进程的启动环境隔离这组变量，或采用明确以显式 `false` 为准的上游版本；用回环接收器固定行为，不只查 options 的值。
+
+### 9. 手动清理碰上库锁，HTTP 仍报告任务已完成
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-identity/src/session.ts:264–274`；`packages/nb-site-server/src/jobs.ts:133–141`、`test-control.ts:84–94`。
+- **现象**：`purge` 捕获库不可写，记 `identity.purge_skipped` 后正常返回；调度器只用回调是否抛错区分 `done` 与 `failed`，所以强制运行这次清理时虽然没有执行，仍回 `200 {"status":"done"}`。
+- **为什么是问题**：`site.operations` 输出 11 约定成功表示这次已经跑完、任务出错回 500 `job_failed`。调用方无法从合同判断是否需要重试；依靠手动任务验证过期数据清理时，成功码可能是假证据。定时清理继续排下一次不要求吞掉本次错误。
+- **如何核实**：`2f0d79144` 下运行 `lab-omp/http-and-job-probes.test.ts`。起真实 CLI 进程，只从外部持 SQLite 写锁，调用 `POST /test-control/jobs/run`。观察响应为 200 `done`，同次日志为 `identity.purge_skipped`；无需读取被测库的实现表。
+- **建议改法**：保留库不可写时的诊断，让本次回调以失败结束；现有调度器仍会为周期任务安排下一次。补锁内手动运行得 `job_failed`、解锁后重新跑成功的合同用例。
+
+### 10. 仅含 UTF-8 BOM 的非空请求体被当作空体，登出成功
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-identity/src/errors.ts:96–109,116–119`，`app.ts:47–50`。
+- **现象**：先用 `c.req.text()` 解码，再用 `text === ""` 判断有没有体。解码会去掉开头的 BOM；只有 BOM 的 3 字节请求变成空字符串，从而跳过 JSON 解析。
+- **为什么是问题**：`site.accounts` 输出 22 允许零字节或无键的 JSON 对象。这里实际有字节、没有 JSON 对象，应该拒绝；如果附上有效 Cookie，错误请求会结束当前会话。
+- **如何核实**：`2f0d79144` 的真实 CLI 进程，`lab-omp/http-and-job-probes.test.ts` 对比空体、单个 BOM、一个空格、`{}`：分别回 200、200、400、200。另经生产 Hono 模块带真实会话 Cookie 调同一 `/logout`，仅 BOM 时 200 且删行，一个空格时 400 且留行。
+- **建议改法**：用收到的字节判空；有字节就按 JSON 对象验证，即使解码后为空也拒绝。补仅 BOM 的 HTTP 合同用例。
+
+### 11. 等锁用例抓不到缺省上限从 10 秒变成 60 秒
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-identity/src/db/connection.ts:59–60,258–261`；`src/testing/library.ts:44–67`；`src/db/connection.test.ts:241–268`。
+- **现象**：`ManualTimers` 把传入的毫秒数丢掉，`fireAll()` 直接让全部计时器到期。用例验证了到期后的拒绝与交锁，但没有验证在承诺的期限内拒绝。
+- **为什么是问题**：10 秒是计划用来兜住持锁者长时间不释放的界限；改成 60 秒后调用方多等 50 秒，现有验收仍全过。缺口在测试，不是说当前缺省值写错。
+- **如何核实**：在 `lab-omp/mut-lock-timeout/` 从 `2f0d79144` 导出的副本只把 `DEFAULT_LOCK_TIMEOUT_MS` 从 `10_000` 改为 `60_000`，使用实现 worktree 的依赖。`bun --no-env-file test` 跑副本的 `src/db/connection.test.ts`，仍是 11 通过、0 失败。
+- **建议改法**：让注入的计时器按登记延迟执行；持锁不放，推进到 9,999 ms 时仍等待，推进到 10,000 ms 时拒绝。旧用例里的持锁者与后一请求不受影响判据保留。
+

@@ -1,0 +1,77 @@
+# w00037 t06 第 1 到 3 片实现审查（Opus，只读）
+
+审查对象：8565561bb、e5de7dd59、29f2c05f1（worktree .worktree/w00037-t06-review1）。实验在 /tmp/review-w00037-t06-impl1/lab-opus/（exp/ 是一次性脚本，mut/ 是变异用的源码副本，run-contract.sh 用副本的入口跑原 worktree 的合同用例）。
+
+### 1. 发送方在上传途中断开时，写入口记一行 error 级的 http.unhandled_error，请求日志记 500
+
+- **严重程度**：建议；**类别**：代码质量 / 安全与性能
+- **位置**：packages/nb-site-telemetry/src/ingest.ts:116（`await c.req.text()` 没有接读请求体的失败）；落到 nb-site-server/src/site.ts:73 的 `onError`
+- **现象**：起真实的 `nb-site serve`，用原始套接字发 `Content-Length` 比实际请求体多 50 字节的每日上报，1.5 秒后断开。进程写出 `{"level":"error","event":"http.unhandled_error","module":"telemetry","errorType":"AbortError",…}`，同一请求的 `http.request` 行是 `"status":500,"durationMs":1500`。分块传输的请求体读到一半断开走的是 `hono/body-limit` 里的 `rawReader.read()`，同样抛到 `onError`。
+- **为什么是问题**：桌面应用在关机、断网、休眠时中途断开是常态，不是程序错误；这里却按“处理函数抛错”记成 error 级日志与 500。被刷的时候每个半截请求一行 error（它们都计入限流额度，但来源多时没有上限），会淹没真正的程序错误，也让按 500 比例报警的监控误报。`telemetry.db_unavailable` 已经做了节流，这一类没有。日志里没有地址与正文，不涉及“不留来源地址”。
+- **如何核实**：`bun /tmp/review-w00037-t06-impl1/lab-opus/exp/http.ts`，看输出里的 “CL bigger than body” 一项与末尾的 500 行。
+- **建议改法**：在 `handler` 里把读请求体包起来：请求的 `signal` 已经 aborted（或错误是 `AbortError`）时直接返回（响应已没人收，状态码无所谓，可回 400 `invalid_report`/`field: null`），不抛给入口；必要时记一行节流的 info。body-limit 那条路径同理，可在 `admit` 的 `await next()` 外接住 AbortError。补一条包内用例：请求体流中途出错时不产生 error 行。
+
+### 2. 合同用例只看回应、不看“其余字段被记入”：版本比服务端新的上报不写库，C5 与全部包内用例照样通过
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-contract-tests/src/telemetry-ingest.test.ts:175-185（C5）、112-129（C3）；packages/nb-site-telemetry/src/ingest.test.ts（只测取不到地址与库忙两条）
+- **现象**：协议验收 2 与 4 的判据是“其余字段被记入”“匿名档字段被记入”，C3、C5 只断言 200 与 `dropped`，没有任何一步能看出这一份进了库。变异：在副本的 `ingest.ts` 里让 `record.anonymous.declared !== record.anonymous.effective` 时不调 `store.recordDaily`、直接回 `{serverDay: 今天, duplicate: false}`，合同用例 20 条全过（`run-contract.sh`）；包内的 `ingest.test.ts` 不走这条路径，`store.test.ts`、`validate.test.ts` 直接调内部函数，也抓不到“写入口没把校验结果交给存储”。
+- **为什么是问题**：输出 5 的“按服务端认识的最新版本记入”是这两条验收要防的回归（例如以后有人把“版本比服务端新”当成只回应不记入的分支），现在没有一条用例会失败。黑盒上有现成的判据：同一个 `reportId` 再发一次应得到 `duplicate: true` 与第一次的 `serverDay`（C2、C8、C17 已经这样用）。
+- **如何核实**：在 /tmp/review-w00037-t06-impl1/lab-opus/mut 的 `packages/nb-site-telemetry/src/ingest.ts` 里按上面改 `writers.daily`，跑 `/tmp/review-w00037-t06-impl1/lab-opus/run-contract.sh`，结果 `20 pass 0 fail`。
+- **建议改法**：C3 与 C5 的每一份（匿名档更新、使用档更新、带不认识的字段）各补一次同编号重发，断言 `duplicate: true`、`serverDay` 不变。另：分块传输且不超过 16 KiB 的合格请求体只在我的实验里验过能 200（`exp/http.ts` 的 “chunked small valid”“chunked exactly 16384”），C11 只测了超限的分块请求；`hono/body-limit` 在这条路径上会把读完的块重新包成 `Request`，这一步坏了时没有用例会失败，可在 C11 加一份合格的分块请求。
+
+### 3. `isDbUnavailable` 把 SQLITE_LOCKED 算作“库一时用不了”，而在本进程里它只会是同一连接上的程序错误
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-site-telemetry/src/store.ts:151-158
+- **现象**：主结果码 6（SQLITE_LOCKED）在表里。SQLite 只在两种情况下回它：同一连接内的冲突（例如有语句正在读一张表时对它 DROP、改结构），或开了共享缓存的另一连接。入口不开共享缓存，别的进程占着写时回的是 SQLITE_BUSY（5），实验里 `BEGIN IMMEDIATE` 撞进程外写锁得到 `errno 5 SQLITE_BUSY`；同一连接上读着时 DROP 得到 `errno 6 SQLITE_LOCKED "database table is locked"`。
+- **为什么是问题**：设计审查第 11 条要的是“约束类等程序错误照常抛（500）”，`isDbUnavailable` 的注释也说只收“别的进程占着写”这类。LOCKED 在这里恰好是程序错误（第 4 片的任务若在一批之间留着打开的迭代器、或在业务连接上做结构操作就会撞上），却会被写入口当成 503 回给发送方、只记一行节流的 warn，发送方按协议退避重发 48 小时，问题被藏起来。
+- **如何核实**：`bun /tmp/review-w00037-t06-impl1/lab-opus/exp/errno.ts`（输出 `busy-begin-immediate true 5 SQLITE_BUSY`、`same-conn-drop-while-reading true 6 SQLITE_LOCKED`）。
+- **建议改法**：从集合里去掉 6，或在注释里写明保留它的理由（目前看不到）；store.test.ts 的“别的错误不算”加一条 LOCKED。CANTOPEN、IOERR、FULL、READONLY、BUSY 的分类我认为合适。
+
+### 4. 来源地址的源码守卫只认 `clientAddress(` 这一种写法，别名、`.call`、取到之后写日志都拦不住；同一行里有 `//` 的字符串会把调用藏掉
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-site-telemetry/src/architecture.test.ts:130-133
+- **现象**：用守卫里同一段正则逐个试（实验在命令行里跑，见“如何核实”），下面几种都数成 0 次调用：`const where = options.clientAddress; where(c)`、`const {clientAddress: ip} = options; ip(c)`、`options.clientAddress.call(undefined, c)`、`options["clientAddress"](c)`；绕过入口直接读 `c.req.header("x-forwarded-for")`、`c.env.server.requestIP(c.req.raw)` 也不在它的视野里。另外去注释用的是 `/\/\/.*$/gmu`，`const s = "http://x//"; options.clientAddress(c);` 这一行的调用被当成注释删掉，ingest.ts 里若出现这种行，守卫的 `{"ingest.ts": 1}` 会变成 0 而报错（误报方向），在别的文件里则漏报。守卫也不看 ingest.ts 内部取到地址之后去了哪（例如 `log.warn(…, {source})`）。
+- **为什么是问题**：计划 3.4 把它当作“不留来源地址”的两道防线之一；它现在只能挡住最直接的一种写法。行为上的保证主要靠合同用例 C13（从外面找地址的各种写法），那一道是有效的，所以这里只是建议。
+- **如何核实**：`bun -e` 里照抄 `clientAddressCalls` 的两条正则，对上面几行求值，全是 0。
+- **建议改法**：要么把守卫收窄为它真正能保证的事并在文件头写明（“只数直接调用”），要么改成按标识符找：产品源码里除 `index.ts` 的选项声明与 ingest.ts 外不许出现 `clientAddress` 这个词、也不许出现 `x-forwarded-for` 与 `requestIP`；ingest.ts 里取到的值只许交给 `limiter.take`（可以检查 `source` 这个名字只出现在那几行）。去注释时先去掉字符串字面量，或直接用 TypeScript 的扫描器。
+
+### 5. 清单里给用户看的说明有两处不合本包的说明规则：`installWeek` 写了服务端的拒收规则，`nbook.state` 中英文不是一个意思
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：packages/nb-site-telemetry-contract/src/manifest/anonymous.ts（`installWeek` 的 description）；src/manifest/usage.ts（`OWNERS_V1` 的 `nbook.state`、`nbook.bots`）
+- **现象**：`installWeek` 的中文说明最后一句是“服务端只收它的日期所在周往前 13 周到往后 1 周之间的周，之外的整份不收”（英文同义）。这是服务端校验的规则，不是“这个字段是什么、为什么收”；“它的日期”指代不清（读起来像是安装周自己的日期）。`nbook.state` 中文“公开状态”、英文 “Shared state”，一个是“公开”一个是“共享”；`nbook.bots` 中文只写了小写的 “bot”。
+- **为什么是问题**：本包 AGENTS.md 的“收集清单”一节写明说明文字给用户看、不写实现细节、中英文意思一致；应用的收集项说明与官网的“我们收集什么”都由它生成。而且第 1 版发布后连说明也不改（改说明要出新版本），现在不改以后要多出一个版本。
+- **如何核实**：读上面两个文件的对应几行。
+- **建议改法**：`installWeek` 的说明去掉最后一句（范围规则已在协议字段表与 validate.ts 里）；`nbook.state` 两种语言取同一个意思，并换成用户看得懂的说法（它对用户来说是什么，例如“插件之间共享的状态”）；`nbook.bots` 写全，例如“Bot”或“机器人”。这几处都在第 1 版发布之前，改了不用提版本。
+
+### 6. 测量脚本按兄弟目录的固定路径起入口，绕开了入口清单的 `bin` 与合同测试已有的“被测命令”约定
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/nb-site-telemetry/scripts/measure-ingest.ts:20
+- **现象**：`SERVER_ENTRY = join(import.meta.dir, "../../nb-site-server/src/main.ts")`。脚本没有 import 入口包，所以不违反 ADR 0059 的依赖方向，`nb-site-server/src/architecture.test.ts` 的依赖白名单也看不到它；但它把“入口在兄弟目录、入口文件叫 src/main.ts”写死了。合同测试取被测程序的做法是读入口清单的 `bin.nb-site`，或从 `NB_SITE_SERVER_COMMAND` 取一个命令数组（contract-tests/src/testing/site.ts 的 `defaultCommand`、`commandFromEnv`）。
+- **为什么是问题**：入口换文件名、`bin` 改指向，或想拿镜像里打好的程序量数时，这个脚本静默地量错对象或直接起不来；它是手动跑、数字进 Task 记录的，出错不容易被发现。
+- **如何核实**：读脚本第 7、20、158 行与 site.ts 第 61-79 行对照。
+- **建议改法**：与合同测试一致：先看 `NB_SITE_SERVER_COMMAND`，没有时读 `../../nb-site-server/package.json` 的 `bin.nb-site`（读文件不是依赖），并在启动时打印实际起的命令。不改也可以，至少在文件头写明“量的是同一个检出里的源码入口”。
+
+## 未发现问题的方面
+
+逐项查过、带实验或变异的写在括号里：
+
+- 校验的先后与协议输出 13 逐字一致，三种路由各自都对：每日上报的 manifest、使用段的两条、逐个字段；立即事件缺 `manifest.usage` 报 `manifest.usage`，使用档更新时按服务端最新版本判 `kind`、`code`；心跳的 `manifest.usage` 按不认识的字段丢弃。`dependent` 字段的取值表、决定它的字段不合格时报那个字段、`list` 的 `maxItems` 与 `uniqueBy`（重复报后一项）、可省字段先看在不在，都对。
+- 30 万份随机改坏的 JSON（含 `__proto__`、`constructor`、数组当对象、`1e300`、`-0`、空对象等）没有一次让校验抛错，校验通过的 15.9 万份写库没有一次约束错误（exp/fuzz.ts、fuzz2.ts）。`1e400`、`2^53+1`、7000 层嵌套、BOM 在真实进程上都按预期回 400 或 200（exp/http.ts）。
+- `installWeek` 的范围：用另一种 ISO 周算法核对 1990 到 2099 年每一天的周写法、每个年周的周一（含不存在的 W53），以及 2020 到 2030 年每一天前后 16 周的收与不收，0 处不一致（exp/isoweek.ts，84378 次判定）。
+- 存储：每次写是一个 `BEGIN IMMEDIATE` 的同步事务，前面唯一的 await 在读请求体；校验的服务端日与记入的服务端日出自同一次 `clock.now()`，取在读完请求体之后；重发回第一次的服务端日、两种编号各自去重；心跳每段 64 个版本的上限在单线程同步事务里不会被并发绕过；`busy_timeout = 0` 与 `secure_delete = ON` 设在交进来的业务连接上（变异去掉 busy_timeout 后 C14 失败）。
+- 迁移的表、列、约束与索引够输出 5 的各个维度、第 4 片的聚合游标、按日删除与备份清空；使用段与生效版本同在同不在由 CHECK 守住。
+- 写入口：内容类型按媒体类型精确比较，重复的 Content-Type、重复的 Content-Encoding、`application/json-seq`、`text/plain;application/json` 都 400，带空白与参数的照收；内容类型不对不计额度；413 在有 Content-Length 时不读请求体、分块时边读边数；Content-Length 与分块同时出现时 Bun 直接 400；非 POST、HEAD、预检、尾斜杠、大小写不同的路径都 404 且不带跨域头。变异：内容类型改成 `includes`、重发回当天、内容类型挪到限流之后，各自被 C12、C2、限流组的 C12 抓到。
+- 来源地址：只在 `admit` 里取、只交给 `limiter.take`，日志、错误、响应、库都没有；Cookie 与 Authorization 不读。两条 warn 的节流（每个限流窗口一行；每种库错误码每分钟一行）符合计划。
+- 限流：对齐窗口、`Retry-After` 向上取整至少 1；IPv6 前缀按解析出的 8 组取（入口已把映射地址转成 IPv4、IPv6 写成 URL 的规范写法，`take` 的 TypeError 在真实运行时到不了）；/48 先判、被挡下的不建 /64 条目；来源数满了只拒新来源；内存上界是两张至多 10 万项的表。
+- 合同包：字段、取值、分档、码表、`owner` 名单与协议和 `productPlugins`（26 个加 `other`）逐项一致；`IngestError` 按码分支、`invalid_report` 的 `field` 必有；适配器的挂载位置与前缀对，没有新的反向依赖或深导入。四个包的类型检查通过，包内 145 条、合同包 29 条、合同用例 20 条通过。
+
+## 各级数量
+
+阻断 0，重要 0，建议 6。
+
+有效发现：1、2、3、4、5、6

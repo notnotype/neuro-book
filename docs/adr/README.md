@@ -59,6 +59,7 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0057](0057-models-ux-sources-identity-egress.md) | 服务商只有一种模板化实例；模型清单由设置、来源缓存与 OMP 元数据合成，发现与缓存自己做；发送前核对实例身份（`origin` 写进日志）；网络出口只选路、不做中继与重定向；角色的默认思考档是一次解析的属性；其中发送前核对的“比源”、部署身份不含凭据与中性身份的名字已被 0058 取代 |
 | [0058](0058-models-wire-identity-full-url-and-uid.md) | 发送前核对比完整线地址（路径与查询按协议列白名单），部署身份认实例永不复用的 `uid`，签名型协议另带凭据的 HMAC 身份，中性身份叫 `generic-endpoint`（部分取代 0057 决策 4） |
 | [0059](0059-official-site-one-process-split-ready-modules.md) | 官方站第一版一个进程，账号与统计两个模块按能拆成服务的边界写：模块包的依赖白名单、各写各的库、HTTP 合同、“问身份”是 HTTP 端点、黑盒合同测试单独成包 |
-| [0060](0060-official-site-identity-on-better-auth.md) | 官方站的账号建在 Better Auth 上；对外合同只有自家路由、标准 OAuth 端点与社交回调，库的端点用精确白名单、私有协议不进合同；账号要邮箱；收紧库的四处默认行为 |
+| [0060](0060-official-site-identity-on-better-auth.md) | 官方站的账号建在 Better Auth 上；对外合同只有自家路由、标准 OAuth 端点与社交回调，库的端点用精确白名单、私有协议不进合同；账号要邮箱；收紧库的四处默认行为（其中决策 5 第二条已被 0063 取代，决策 1、4 的做法由 0063 细化） |
 | [0061](0061-official-site-sqlite-file-per-module.md) | 官方站每个模块一个 SQLite 文件，迁移向后兼容一个版本，合同测试不起数据库容器；需要多副本同时写的模块再单独换 |
 | [0062](0062-telemetry-tiers-by-identifiability.md) | 遥测按能不能认出人分五档、不带持久标识、每天一份汇总，开发期原始上报留 7 天；埋点接口由不联网的本机统计插件提供，遥测只读；告知与向导分开，收集清单按档分版本 |
+| [0063](0063-official-site-identity-own-routes-library-sessions.md) | 账号的登录、注册、改密码、资料与管理操作由账号模块自己做，Better Auth 只管发会话、认 Cookie 与 t08 的协议部分；自己改密码保留当前会话；库的版本钉死（细化 0060 决策 1、4，部分取代决策 5 第二条） |

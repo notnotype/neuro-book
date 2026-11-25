@@ -1,6 +1,6 @@
 # NeuroBook 桌面壳（Electrobun）
 
-Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/desktop-shell`](../../../docs/specs/runtime/desktop-shell.md) 与 [`runtime/desktop-update`](../../../docs/specs/runtime/desktop-update.md)；流程与规则都在核心 [`src/desktop/`](../src/desktop/)（不依赖 Electrobun，`bun test src/desktop` 在 Linux 上用真实进程测），这里只把核心要的端口接到 Electrobun 2.0.6 上。
+桌面版的主进程与壳自己的页面（Windows 完整支持；macOS 是预览，见 Spec 的输出 35）。行为合同是 [`runtime/desktop-shell`](../../../docs/specs/runtime/desktop-shell.md) 与 [`runtime/desktop-update`](../../../docs/specs/runtime/desktop-update.md)；流程与规则都在核心 [`src/desktop/`](../src/desktop/)（不依赖 Electrobun，`bun test src/desktop` 在 Linux 上用真实进程测），这里只把核心要的端口接到 Electrobun 2.0.6 上。
 
 | 文件 | 作用 |
 |---|---|
@@ -14,6 +14,7 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 | `scripts/build.ts` | 在仓库里把主进程打成 `bundle/main.js`，按发布清单组装载荷到 `payload/` |
 | `scripts/build-variant.ts` | Windows 上把这个工程复制一份、放进做好的 `bundle/` 与 `payload/`、用 Hutch 构建一个变体（发布流水线与本机验证共用） |
 | `scripts/portable.ts` | 从完整包 `stable-win-x64-NeuroBook.tar.zst` 打便携 zip |
+| `scripts/smoke-macos.ts` | macOS 的取证（不是判据）：runner 上从 DMG 拷出应用、启动、截整屏图、带上壳日志，作业产物 `desktop-macos-evidence` |
 | `scripts/smoke-windows.ts`、`scripts/smoke-update.ts`、`scripts/smoke/` | Windows 上安装版、便携版与自动更新的冒烟（在登录的桌面会话里跑） |
 
 `bundle/` 是我们预打包的主进程，`build/` 与 `artifacts/` 是 Electrobun 自己的输出目录；分开放，免得 Electrobun 构建时清掉或覆盖预打包的文件。

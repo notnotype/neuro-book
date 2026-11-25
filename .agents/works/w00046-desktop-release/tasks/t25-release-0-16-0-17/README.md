@@ -57,6 +57,7 @@ updated: 2026-11-24
 ## 下一步
 
 - v0.17.0 的 macOS：原作业排队 15 分钟被放弃，重跑失败的作业后又被放弃（Apple Silicon 的 runner 容量紧张）；改用手动触发 `desktop-macos.yml`（[运行](https://github.com/notnotype/neuro-book/actions/runs/45417993579)，约 10 分钟排上并构建完），macOS 的 DMG、更新清单与 `SHA256SUMS-macos` 已补传到 Release（没有 macOS 补丁文件，手册允许）。原流水线那一轮的 macOS 作业保持“已取消”。macOS 仍没有真机验证。
+- 2026-11-25 试复现 S10：直接起两个打包产物跑 15 轮，机器负载 24（别的会话在跑），15 轮都通过，没复现；仍等现场证据。
 - S10、shell 输出 21 再出现时读证据：S10 看 `second-stderr`，shell 看错误信息里的“结果末尾”。再出现两次仍无头绪，就给 S10 的探测加日志、给 shell 用例分段计时。
 - 9 个源码包有改动但没提版本（flock、runtime、ui、harness、markdown、agent-ui、story、plugin-sdk 等），要发布时再提；nb-layout 0.2.0 已在 npm 上，再发新版前 2 天内配置 trusted publishing。
 - Release 说明的 omp 式本机整理步骤仍未做；“magpie”的链接没拿到。

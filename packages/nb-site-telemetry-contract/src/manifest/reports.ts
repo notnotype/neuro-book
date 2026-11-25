@@ -67,14 +67,22 @@ function anonymousFields(fields: Readonly<Record<string, ValueField>>): Record<s
 
 const REPORT_ID = REPORT_ENVELOPE.daily.reportId.schema;
 
+/** 每日上报的 `manifest.usage`：可省，给了就要是版本号的写法（服务端照样判它，协议输出 13）。 */
+const DAILY_USAGE_VERSION: TSchema = (() => {
+    const field = REPORT_ENVELOPE.daily.manifest.fields.usage;
+    if (field?.kind !== "value") throw new Error("daily manifest.usage must be a value field");
+    return optionalUnless(field.required, field.schema);
+})();
+
 /**
  * 按匿名档 `anonymous` 与使用档 `usage` 组装的每日上报；`usage` 为 `null` 时是不带使用档的一份。
- * 带使用档时 `usageEnabled` 只能是 `true`、`manifest.usage` 必填（协议输出 6 与 13）；不带时不许出现 `usage`。
+ * 带使用档时 `usageEnabled` 只能是 `true`、`manifest.usage` 必填（协议输出 6 与 13）；不带时不许出现 `usage`，
+ * `manifest.usage` 可省、给了就要合格。
  */
 export function dailyReportSchema(anonymous: AnonymousManifest, usage: UsageManifest | null): TSchema {
     const fields = anonymousFields(anonymous.daily);
     if (usage === null) {
-        return Type.Object({manifest: Type.Object({anonymous: Type.Literal(anonymous.version)}), reportId: REPORT_ID, ...fields, usage: Type.Optional(Type.Never())});
+        return Type.Object({manifest: Type.Object({anonymous: Type.Literal(anonymous.version), usage: DAILY_USAGE_VERSION}), reportId: REPORT_ID, ...fields, usage: Type.Optional(Type.Never())});
     }
     return Type.Object({
         manifest: Type.Object({anonymous: Type.Literal(anonymous.version), usage: Type.Literal(usage.version)}),

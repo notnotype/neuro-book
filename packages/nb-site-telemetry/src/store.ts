@@ -145,12 +145,15 @@ export function createTelemetryStore(db: Database): TelemetryStore {
 
 /**
  * SQLite 的主结果码（`SQLiteError.errno` 是扩展结果码，低 8 位就是主结果码，见 sqlite.org/rescode.html）里算作
- * “库一时用不了”的几类：别的进程占着写（BUSY、LOCKED）、库或它的日志文件不可写（READONLY、CANTOPEN）、读写错误（IOERR）、
+ * “库一时用不了”的几类：别的进程占着写（BUSY）、库或它的日志文件不可写（READONLY、CANTOPEN）、读写错误（IOERR）、
  * 磁盘满（FULL）。按主结果码分，扩展码（例如 `SQLITE_IOERR_WRITE`、`SQLITE_BUSY_SNAPSHOT`）都归到各自的类里。
+ *
+ * 不收 LOCKED（6）：SQLite 只在同一条连接内的冲突（例如有语句正读着一张表时对它改结构）或共享缓存的另一条连接上回它；
+ * 入口不开共享缓存，别的进程占着写回的是 BUSY。所以在这里它只会是本模块自己的程序错误，照常抛（500），
+ * 不能当成 503 让发送方退避重发、把问题藏起来。
  */
 const UNAVAILABLE_PRIMARY_CODES: ReadonlySet<number> = new Set([
     5, // SQLITE_BUSY
-    6, // SQLITE_LOCKED
     8, // SQLITE_READONLY
     10, // SQLITE_IOERR
     13, // SQLITE_FULL

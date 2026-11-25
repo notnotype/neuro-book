@@ -111,6 +111,8 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 | [t06](tasks/t06-main-conversation/README.md) | `nbook.bots` 与主对话、等用户（内核与服务端） | t14 |
 | [t15](tasks/t15-messages-view/README.md) | “消息”视图、固定会话的对话宿主、未读与书房入口（含原 t07） | t06、t03 |
 | [t16](tasks/t16-kernel-narrow-window-defects/README.md) | 内核四个窄窗口缺陷（t06 设计与实现审查引出，不阻塞第一版） | t06 |
+| [t17](tasks/t17-kernel-review-followups/README.md) | t16 审查挖出的内核原有缺陷（未开工，不阻塞第一版） | t16 |
+| [t18](tasks/t18-messages-float-window-im/README.md) | 消息视图浮成窗口时像 IM：列表栏可拖宽、切换控件、浮动窗里视图自绘头 | t15 |
 | **第二步：有记忆** | | |
 | [t09](tasks/t09-bot-memory/README.md) | bot 的记忆 | t06、t13 |
 | **第三步：能办事** | | |
@@ -139,3 +141,5 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 - [t14 Agent 内核的输入缓冲区：每条带状态](tasks/t14-input-buffer-states/README.md)
 - [t15 “消息”视图：bot 与会话两个标签、固定会话的对话宿主、未读与书房入口](tasks/t15-messages-view/README.md)
 - [t16 内核四个窄窗口缺陷](tasks/t16-kernel-narrow-window-defects/README.md)
+- [t17 t16 审查挖出的内核原有缺陷](tasks/t17-kernel-review-followups/README.md)
+- [t18 消息视图浮成窗口时像 IM](tasks/t18-messages-float-window-im/README.md)

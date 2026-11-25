@@ -7,7 +7,7 @@
  * 2. 取来源地址，取不到回 503；
  * 3. 限流：从这里起每个请求都计入，包括后面被判 400、413 的；
  * 4. 请求体上限（`hono/body-limit`）；
- * 5. 读请求体、解析 JSON；
+ * 5. 读请求体、解析 JSON（第 4、5 步读到一半发送方断开时同样按读不成回 400，见 `uploadAbandoned`）；
  * 6. 取一次时间，按它的服务端日校验（`validate.ts`）；
  * 7. 用同一个时间写库（`store.ts`），回应。
  * 只有 `POST` 有路由：别的方法与跨域预检落到入口的 404，也就不回跨域头（协议：写入口不给网页用）。
@@ -54,12 +54,43 @@ const DB_UNAVAILABLE_LOG_INTERVAL_MS = 60_000;
  * 内容类型是 `application/json`（媒体类型本身精确比较，不分大小写，可带参数），且没有 `Content-Encoding` 或它是 `identity`
  * （协议的输入一节）。`text/plain;application/json` 的媒体类型是 `text/plain`，不收。不收压缩：Bun 不替请求体解压，
  * 收下来也读不成 JSON。
+ *
+ * `Content-Type` 只能有一个媒体类型：值里在引号之外出现逗号的不收。请求带了两个 `Content-Type` 头时，运行时把它们
+ * 合并成一个逗号分隔的值交上来，所以这一条同时挡住“重复的头”；只看第一个分号之前时，
+ * `application/json; charset=utf-8, text/plain` 会被收下。带引号的参数值里可以有逗号；引号到末尾都没闭合的不收：
+ * 第一个头的参数里引号没闭合时，合并进来的逗号与第二个类型都落在“引号里”。
  */
 function acceptsReportBody(c: Context): boolean {
     const type = c.req.header("content-type");
-    if (type === undefined || type.split(";", 1)[0]!.trim().toLowerCase() !== "application/json") return false;
+    if (type === undefined || !isSingleValue(type) || type.split(";", 1)[0]!.trim().toLowerCase() !== "application/json") return false;
     const encoding = c.req.header("content-encoding");
     return encoding === undefined || encoding.trim().toLowerCase() === "identity";
+}
+
+/**
+ * 头的值是不是只有一个值：带引号的字符串之外没有逗号，引号都闭合了。引号里的 `\` 转义下一个字符（RFC 9110 的
+ * quoted-string）。
+ */
+function isSingleValue(value: string): boolean {
+    let quoted = false;
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index];
+        if (quoted) {
+            if (char === "\\") index += 1;
+            else if (char === '"') quoted = false;
+        } else if (char === '"') quoted = true;
+        else if (char === ",") return false;
+    }
+    return !quoted;
+}
+
+/**
+ * 读请求体失败时，是不是发送方没发完就断开了：这时 Bun 已经 abort 了请求的 `signal`（读的 reject 是 `AbortError`）。
+ * 桌面应用关机、断网、休眠时中途断开是常态，不是程序错误，所以按“请求体读不成”回 400 `invalid_report`、`field` 为 null
+ * （响应已经没人收），不抛给入口的 `onError` 记成 error 行与 500。`signal` 没 abort 的读失败照常抛。
+ */
+function uploadAbandoned(c: Context): boolean {
+    return c.req.raw.signal.aborted;
 }
 
 function failure(c: Context, code: Exclude<IngestErrorCode, "invalid_report">): Response {
@@ -100,7 +131,20 @@ export function createIngestApp(options: IngestOptions): Hono {
         await next();
     };
 
-    const sizeLimit = bodyLimit({maxSize: INGEST_MAX_BODY_BYTES, onError: (c) => failure(c, "payload_too_large")});
+    const limitBody = bodyLimit({maxSize: INGEST_MAX_BODY_BYTES, onError: (c) => failure(c, "payload_too_large")});
+    // 分块传输的请求体由 `bodyLimit` 边读边数，发送方在这时断开，读的 reject 从它这里出来；`next()` 之后的错误不归这里管。
+    const sizeLimit: MiddlewareHandler = async (c, next) => {
+        let passed = false;
+        try {
+            return await limitBody(c, async () => {
+                passed = true;
+                await next();
+            });
+        } catch (error) {
+            if (passed || !uploadAbandoned(c)) throw error;
+            return invalidReport(c, null);
+        }
+    };
 
     const logDbUnavailable = (code: string, nowMs: number): void => {
         const last = dbUnavailableLoggedAt.get(code);
@@ -113,7 +157,13 @@ export function createIngestApp(options: IngestOptions): Hono {
     const handler =
         <K extends IngestKind>(kind: K, write: Writer<K>) =>
         async (c: Context): Promise<Response> => {
-            const text = await c.req.text();
+            let text: string;
+            try {
+                text = await c.req.text();
+            } catch (error) {
+                if (!uploadAbandoned(c)) throw error;
+                return invalidReport(c, null);
+            }
             let body: unknown;
             try {
                 body = JSON.parse(text);
@@ -121,6 +171,9 @@ export function createIngestApp(options: IngestOptions): Hono {
                 // 读不成 JSON 是请求方的错，按协议回 `field: null`；错误对象里是请求体的片段，不记不传。
                 return invalidReport(c, null);
             }
+            // 在读完请求体之后取时间：跨午夜的慢请求按读完的那一刻记入（协议输出 1，`site.telemetry-ingest` 输出 2）。
+            // 守着它的是 ingest.test.ts 里“请求体读到一半时跨过 UTC 午夜”那两条：不带 Content-Length 的请求体在进处理函数之前
+            // 就被 bodyLimit 读完，所以挪到处理函数开头时只有带 Content-Length 的那条会失败。
             const nowMs = clock.now();
             const validated = validate(kind, body, serverDayAt(nowMs));
             if (!validated.ok) return invalidReport(c, validated.field);

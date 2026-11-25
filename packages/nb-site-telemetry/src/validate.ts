@@ -216,17 +216,20 @@ function latestOf<M extends {readonly version: number}>(versions: ReadonlyMap<nu
 const reject = (field: string | null): {readonly ok: false; readonly field: string | null} => ({ok: false, field});
 
 /**
- * 每日上报的 `installWeek` 只收服务端日所在周往前 13 周到往后 1 周（含两端）之间的周，另收 `older`（协议字段表）。
+ * 每日上报的 `installWeek` 只收“服务端日往前两天那一天”所在周往前 13 周、到服务端日所在周往后 1 周（含两端）之间的周，
+ * 另收 `older`（协议字段表）。下限往前挪两天，是因为校验排在查编号之前：48 小时内的重发（协议输出 2）跨了周仍要
+ * 走到查编号、回 `duplicate`，不能先按新的一周被拒。
  * 写法由清单的 schema 先判过；写法对、这一年却没有这一周（例如没有第 53 周的年份写了 W53）同样不合格。
  */
 function installWeekInRange(serverDay: number): (value: unknown) => boolean {
-    const current = isoWeekMondayOf(serverDay);
+    const earliest = isoWeekMondayOf(serverDay - 2) - 13 * 7;
+    const latest = isoWeekMondayOf(serverDay) + 7;
     return (value) => {
         if (value === "older") return true;
         const match = typeof value === "string" ? /^(\d{4})-W(\d{2})$/u.exec(value) : null;
         if (match === null) return false;
         const monday = isoWeekMonday(Number(match[1]), Number(match[2]));
-        return monday !== null && monday >= current - 13 * 7 && monday <= current + 7;
+        return monday !== null && monday >= earliest && monday <= latest;
     };
 }
 

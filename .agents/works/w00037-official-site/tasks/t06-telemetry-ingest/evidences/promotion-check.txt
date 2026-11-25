@@ -1,0 +1,280 @@
+# w00037 t06 晋升前逐条核对：site.telemetry-ingest 与 telemetry.protocol
+
+实现：worktree .worktree/w00037-official-site（feat/w00037-official-site，HEAD 850e1a072）；Spec 读主工作区 master 的副本。
+下文路径相对 worktree：T = packages/nb-site-telemetry/src，K = packages/nb-site-telemetry-contract/src，
+CT = packages/nb-site-contract-tests/src/telemetry-ingest.test.ts（黑盒，起真实 nb-site 进程）。
+运行证据（2026-11-25 本机）：nb-site-telemetry 181 pass；nb-site-telemetry-contract 31 pass；
+CT 与 adjacent-version.test.ts 23 pass、8 skip（8 条全是 adjacent-version，没设 NB_SITE_PREVIOUS_SERVER_COMMAND 时整组跳过）。
+实验在 /tmp/w00037-t06-plan/promote/（probe-wal.ts）。未做源码变异；“断言锁不住”的几条是按 grep 测试文件得出的，标了“从代码推断”。
+
+### telemetry.protocol 输入一节（请求体、内容类型、预检）
+代码：T/ingest.ts:63-85（acceptsReportBody、isSingleValue）、:116（admit 第一步）、:134（bodyLimit 16384）、:204-211（只有 POST 路由）；K/ingest.ts:10-16。
+测试：CT:304 C12、CT:275 C11、CT:346 C18、K/ingest.test.ts:7。
+- “请求体是 JSON，至多 16 KiB” 对上（C11 恰好 16384 收、16385 拒）。
+- “不需要也不接受登录凭据” 对上（见输出 9）。
+- “Content-Type 是 application/json（按媒体类型本身精确比较，可带参数）” 与字面不一致（轻）：实现不分大小写（Application/JSON 照收，C12 断言它收）。媒体类型按 RFC 9110 本就不分大小写，判断：Spec 写得不全，改成“按媒体类型本身比较、不分大小写，可带参数”。另外实现还拒收“不止一个媒体类型”“引号不闭合”的值，Spec 没写，但可归入“否则拒收”，不算冲突。
+- “不带 Content-Encoding（或为 identity）否则 invalid_report” 对上（C12 gzip 拒、identity 收）。
+- “写入口不回应跨域预检” 对上（C18：OPTIONS 404、无 Access-Control-Allow-Origin）。
+
+### telemetry.protocol 字段表（POST /v1/daily、usage、次数分档、匿名档取值表、heartbeat、event）
+代码：K/manifest/envelope.ts（manifest、reportId）、K/manifest/anonymous.ts（匿名档 1）、K/manifest/usage.ts（使用档 1）、T/validate.ts:224-234（installWeek 范围）、:252-358（三种上报）。
+测试：K/manifest.test.ts:182-294（逐项与协议一致：每个枚举的取值、daysSinceLast 1..28、appVersion 语义化至多 32、installWeek 写法、usage 字段、errors 至多 50 且按 owner+code 唯一、分档名、upgrade、kind、owner 名单与 code 表、reportId 22..64、版本正整数）；T/validate.test.ts:133-226（每字段缺了拒、不收的值拒、列出的每个值都收；installWeek 范围四例含跨年与 W53）；CT:131（跨周重发）、CT:176 C4。
+- 各字段与取值逐句对上。
+- installWeek “下限按往前两天算，48 小时内的重发不会因跨周被拒” 对上（CT:131 周日记入、周一重发 duplicate、周三新编号拒）。
+- event：“编号各自去重”对上（CT:254 C8 末段）；“manifest.usage 必填，缺了报 manifest.usage”对上（C4 eventCases、validate.test:383）；“使用档版本比服务端新时照最新版本处理，不丢弃整条”对上（validate.test:265，declared 4 → effective 3），只在包内测，黑盒没有（可接受）。
+- “owner 是应用自带插件的 id（名单随使用档版本发布）” 对上清单常量；名单与 packages/neuro-book 的 productPlugins 是否一致没有机检（manifest.test 拿 OWNERS_V1 自比）。属发送方/清单维护，不算本范围缺口。
+- “清单里没有的码由发送方记成 other” 发送方，不在本范围。
+
+### telemetry.protocol 输出 1（每日上报的回应）
+代码：T/ingest.ts:190-193、T/days.ts:26-28（formatServerDay）、T/store.ts:90-115。
+测试：CT:108 C1（200、serverDay 为进程时钟 UTC 日期、duplicate false、dropped []；拨 1 天后跟着走）；K/ingest.test.ts:18（响应体形状）。
+- 逐句对上。
+
+### telemetry.protocol 输出 2（重发去重）
+代码：T/store.ts:56、:83-88（ON CONFLICT DO NOTHING，回第一次的 server_day）；保留天数下限 2 撑 48 小时（T/config.ts RETENTION_DAYS）。
+测试：CT:118 C2（第二次 duplicate、隔 1 天且内容不同仍 duplicate、serverDay 是第一次）；T/store.test.ts:63、:76（库里留第一次的内容）、:84 与 T/purge.test.ts:75（保留 2 天时 48 小时内的重发仍是重发）；CT:554 C15（第 7 天、即 48 小时之后删除之前，重发仍是 duplicate）。
+- “48 小时内不重复记入、duplicate 为真、serverDay 是第一次”对上。
+- “内容不同仍按重发，记入的是第一次”对上（store.test:76 读库确认留的是第一次）。
+- “48 小时之后、删除之前也可能被当作重发”对上（C15 前半）。
+- “备份恢复的例外”见 site.telemetry-ingest 副作用一节。
+
+### telemetry.protocol 输出 3（不认识的字段）
+代码：T/validate.ts:134-147（checkObject：表外的键进 dropped，dropPath 不带下标、Set 去重）。
+测试：CT:155 C3（extra、manifest.x、usage.x、usage.errors.x 不带下标不重复；重发 duplicate 证明其余照常记入）；T/validate.test.ts:389、:406（__proto__）、:411、:416。
+- 逐句对上。“其余字段照常记入”在 C3 只用“再发是 duplicate”间接证明记入了，没证明“其余字段的值”被记下；包内 T/validate.test.ts:422 核对归一后的记录只留字段表里的字段，合起来够。
+
+### telemetry.protocol 输出 4（不合格的值）
+代码：T/validate.ts:149-183（checkField）、T/ingest.ts:178。
+测试：CT:176 C4（清单第 1 版每个匿名档字段缺了、取表外值各自 400 并指向该字段；osVersion、locale、daysSinceLast 0/29、appVersion 写法与长度、installWeek 写法、reportId、manifest.anonymous、usage.errors.0.code/count/owner、usage.crashes；event 的 kind、code、manifest.usage）；T/validate.test.ts:145-166（按清单生成的逐字段用例）。
+- 逐句对上。
+
+### telemetry.protocol 输出 5（清单版本）
+代码：T/validate.ts:202-207（resolveVersion）、:247-250（匿名档比服务端新用最新版）、:262-277（使用档比服务端新时字段表里不放 usage，整段进 dropped）；记入按生效版本（T/store.ts:95-98）。
+测试：CT:220 C5（匿名档 +1：200、dropped []；使用档 +1：200、dropped ["usage"]，两份重发都 duplicate 证明记入）；T/validate.test.ts:250（新字段进 dropped、effective 1）、:256（多版本表：各按自己的版本、中间空号与更旧版本拒收）、:279。
+- “各按自己的字段表与分档表校验与记入”对上（validate.test:256 用自造的 V3 表）。
+- “匿名档比服务端新按最新版本处理，多出来的按输出 3”对上。
+- “使用档整段丢弃并列在 dropped”对上。
+
+### telemetry.protocol 输出 6（使用档的出现）
+代码：T/validate.ts:266-267。
+测试：CT:238 C6（usageEnabled false 带 usage → 400 field usage）；T/validate.test.ts:289（false、缺、"true"、1 都拒）、:372（使用档版本更新时同样拒）。
+- “usage 只在 usageEnabled 为真时被接受”与“为假却带了 usage 的被拒”对上。
+
+### telemetry.protocol 输出 7（心跳的回应）
+代码：T/ingest.ts:194-197。测试：CT:243 C7（204、响应体为空串）。
+- 对上。
+
+### telemetry.protocol 输出 8（立即事件的回应）
+代码：T/ingest.ts:198-201、T/store.ts:117-131。
+测试：CT:254 C8（202、与每日上报同形、重发 duplicate；同编号的每日上报不是重发）；T/store.test.ts:95（隔天重发回第一次的服务端日）。
+- 对上。
+
+### telemetry.protocol 输出 9（凭据被忽略）
+代码：T/ingest.ts 不读 Cookie、Authorization；nb-site-server/src/site.ts:118-126 的 http.request 行只有 requestId、module、method、path、status、durationMs。
+测试：CT:266 C9（带两种头照常 200；stdout、stderr、数据目录文件里都找不到两个值）。
+- “照常处理”“不被记录”对上；“不被读取”靠代码阅读，黑盒只能测到“不被记录”，可接受。
+
+### telemetry.protocol 输出 10（限流）
+代码：T/rate-limit.ts:98-112、T/ingest.ts:126-130。
+测试：CT:375 C10（三个入口合计到额度后 429 + rate_limited + 整数秒 Retry-After，1..600；被限流那份之后照常记入、不是重发）。
+- 逐句对上。
+
+### telemetry.protocol 输出 11（过大）
+代码：T/ingest.ts:134-147（bodyLimit；分块传输边读边数）。
+测试：CT:275 C11（16384 收、16385 413、分块 20000 字节 413、分块 16384 收）。
+- 对上。
+
+### telemetry.protocol 输出 12（失败的响应体）
+代码：T/ingest.ts:96-102；T/validate.ts:149-183（嵌套路径、重复项报后出现的 itemPath、dependent 字段在决定它的字段不合格时报那个字段 :158）；K/ingest.ts:44-54（IngestError 不收多余键）。
+测试：K/ingest.test.ts:26、:34；CT C4（嵌套路径 usage.errors.0.code 等）、C12（内容类型与编码不对 field null）、C10（Retry-After 整数）；T/validate.test.ts:230（不是 JSON 对象 null）、:297（重复时 usage.errors.2）、:347-358（code 按 owner/kind 取表）。
+- “{code}；invalid_report 另带 field；点分路径；JSON 读不成、内容类型与编码不对为 null；重复指向后出现的那一项；Retry-After 整数秒”对上。
+- “取值随另一个字段而定的字段，决定它的字段不合格时指向决定它的字段”：实现对上（validate.ts:158），但第 1 版字段表里决定字段（owner、kind）总排在 code 前面，按表序先判出的就是它，validate.ts:158 那一支在现有清单下走不到；测试（C4 的 usage.errors.0.owner、validate.test:357）只证明了结果，没覆盖那一支。按句子算对上，不算缺口。
+- JSON 读不成的 null 在黑盒只测了状态码（CT:398 只看 400），field null 在包内 validate.test:230 与 ingest.test:127 测到，合起来对上。
+
+### telemetry.protocol 输出 13（校验的先后）
+代码：T/ingest.ts:115-132（内容类型 → 来源地址 503 → 限流）、:134-147（大小）、:160-173（读与解析）、T/validate.ts:252-280（manifest → usage 与 usageEnabled/manifest.usage → 按表逐字段）。路由的中间件顺序 ingest.ts:206 决定前四步。
+测试与逐对结论：
+- 内容类型 先于 413：对上（CT:301）。
+- 内容类型 先于 取不到来源地址（503）：没有测试（CT 的 C13 组 wrongType 带着地址；noForwarded 内容类型是对的）。
+- 取不到来源地址 先于 限流：结构上必然（没有地址就无从计数），不需测试。
+- 限流 先于 413：没有测试（CT:395 只证明 413 被计入，没证明额度用完后一份过大的请求回 429 而不是 413）。
+- 413 先于 “不是 JSON 对象”：没有测试（结构上 bodyLimit 在读之前，可接受）。
+- “不是 JSON 对象 → manifest → usage 相关 → 逐字段”：对上（T/validate.test.ts:230、:236、:363、:376、:383）。
+- “使用档版本更新时整段丢弃不看内容，但前一项照判”：对上（validate.test:372、:279）。
+判断：实现无误，缺的是两对相邻步骤的断言（内容类型/503、429/413）。补在 CT 已有的组里各一句即可，属测试缺口，不是代码缺陷。
+
+### telemetry.protocol 状态与转换、副作用、失败表、边界
+- 状态与转换“无会话、每个请求独立”对上（无状态，只有限流计数）。三条时序（收到 200 之前不能认为已记入、拿 serverDay 算 daysSinceLast、同一天至多一份由发送方保证）都是发送方，不在本范围。
+- 副作用：链接 site.telemetry-ingest，见那边。
+- 失败表四行的码与状态：对上（K/ingest.ts:21-28，K/ingest.test.ts:13；CT C4/C11/C10/C13/C14 各自断言码与状态）。“发送方怎么办”一列是发送方，不在本范围。
+- 失败表下段“声明的请求体远超上限时可能在进入写入口之前被拒、得到不带响应体的 413”：是“可能”句。入口 nb-site-server/src/commands/serve.ts:142 没设 maxRequestBodySize，用 Bun 的缺省上限；不需测试，对上。
+- 边界：收集清单带中英文说明（K/manifest.test.ts:115-147 对上）；“应用里的收集项说明与官网的‘我们收集什么’由它生成”是应用侧与官网页面（w00053 / t11 之后），不在本范围；变更分三种、改分档要提版本是清单维护规则，K/manifest.test.ts:95-112（版本从 1 连续、冻住）只守住一部分，其余是流程约定，不是可判定的服务端行为；“匿名档比服务端新按最新版本记入、新名字整份拒收、旧名字记进旧序列”对上（逐字段按最新表判，新取值不在表内即按输出 4 拒收；没有一条用例专门造“新版本带新名字”，但它就是输出 4 与输出 5 的组合，不另算缺口）；路径带 v1 对上（K/ingest.test.ts:7）；“每个字段都当不可信输入”对上（validate.ts 用 Object.hasOwn，validate.test:304、:406）。
+
+### telemetry.protocol 验收 1 到 4 与 Smoke
+- 验收 1（发两次都 200、第二次 duplicate、聚合里只算一份）：前半 CT:118 C2；“聚合里只算一份”在 T/aggregate.test.ts:117（每日上报与立即事件各重发 3 次，total 与 events 都是 1）。黑盒看不到聚合（第一版没有读聚合的接口，留给 t11 看板）。对上。
+- 验收 2：CT:155 C3。对上。
+- 验收 3：CT:238 C6。对上。
+- 验收 4：CT:220 C5。对上。
+- Smoke“对三个写入口各发一份合格上报的用例”：CT:108 C1、:243 C7、:254 C8 标了 Smoke，是三条用例而不是一条；可以照现状写进证据行，对上。
+
+### site.telemetry-ingest 输入与前置条件
+代码：T/config.ts（三个变量的范围与缺省，问题词 not_integer、out_of_range）、T/index.ts:94-95（aggregate 按配置间隔、purge 用 PURGE_INTERVAL_MS 600000，两个都是 initialDelayMs 0）、nb-site-server/src/jobs.ts:115-123（第一次等 initialDelayMs，之后在上一次结束后排下一次）。
+测试：T/config.test.ts:8-34（缺省 7/600/600；两端都收；越界与非整数）；T/index.test.ts:38（两个任务的间隔与 initialDelayMs 0）；nb-site-server/src/jobs.test.ts:58（initialDelayMs 0 时立即跑、之后每次等一个间隔）；CT:554 用任务名 telemetry/purge 经测试控制入口跑。
+- 三个配置变量、任务名、间隔、“启动后立即先跑一次”对上。
+- “部署前置：反向代理不记访问日志……”由部署负责，见 site.operations，不是本模块可测的行为，不在本次核对范围。
+
+### site.telemetry-ingest 输出 1（按协议回应）
+代码与测试同 telemetry.protocol 输出 1 到 11。对上（缺口见协议输出 13 的两对先后）。
+
+### site.telemetry-ingest 输出 2（记入的日期）
+代码：T/ingest.ts:174-180（读完请求体之后取一次 clock.now()，同一个值交给校验与存储）、T/store.ts:140-142（serverDayAt、heartbeatSegmentAt）、T/days.ts:16-23。
+测试：CT:108 C1（拨 1 天后 serverDay 跟着走）；T/days.test.ts:8、:15（UTC 日界与 15 分钟段边界）；T/store.test.ts:183（同段 3 次一行、下一段另起一行）。
+- “按记入那一刻的服务端日记入”“心跳按那一刻所在的段记入”对上。
+- “那一刻 = 读完请求体、写进库的时候”：没有测试。代码注释 ingest.ts:175 自己写明“C1 只在两次请求之间拨钟，护不住这一点，挪到读请求体之前用例照过”。判断：实现正确，缺断言；要锁住得造一个跨日界的慢请求体（例如 T/ingest.test.ts 里用流式请求体，在流 pull 时拨 now 跨过午夜，断言 serverDay 是新的一天），包内能做，成本低。
+- “请求体里没有、也不接受发送方声明的日期”：字段表里没有日期字段，带了按输出 3 丢弃；对上，不另需测试。
+
+### site.telemetry-ingest 输出 3（原始上报的寿命）
+代码：T/days.ts:34-36（cutoff = 今天 - 保留天数）、T/purge.ts:100-124（先聚合到到期行的最大编号，批上界同此；库忙抛出不删，别的错记进 failures 照删）、:130-155（按批删）、:157-165（截断检查点）、:167-195；T/index.ts:72-73（secure_delete ON）。
+测试：CT:554 C15（第 7 天还在、第 8 天数据目录里找不到编号）；T/purge.test.ts:56（D+7 在、D+8 删、聚合不变）、:90（没跑过聚合时先算再删、与只聚合的结果相同）、:117（磁盘满不删、失败、一行 warn）、:138（别的连接占着写不删、失败）、:155（约束类错误照删、一行只带行数的 error、失败）、:174（游标行被删照删）、:190（截止日之后的行出错不连累到期行）、:207（删后库文件与 WAL 里都找不到编号）、:225（后一张表删除出错仍截断）、:245（读者拿着旧快照时 warn、下一轮再做）；T/index.test.ts:38（每 10 分钟一次，满足“每天至少一次”）。
+- “记入日早于今天减保留天数的查不到”“每天至少一次”“删除之前先算进聚合”“聚合出错仍按期删、记一行错误、任务以失败结束”“库写不进时这一轮不删、下一轮再来”逐句对上。三种写不进里“只读”没有专门的 purge 用例（READONLY 在 T/store.test.ts:237 证明归为 isDbUnavailable，走同一支），可接受。
+- “删除之后，它们的内容（包括上报编号）不留在库文件里”：与字面不一致（窄）。有读者拿着旧快照（例如备份的 VACUUM INTO 正读着）时截断检查点做不完，插入时的 WAL 帧留到下一轮 purge。实测（/tmp/w00037-t06-plan/promote/probe-wal.ts，secure_delete ON、WAL）：读者开着时 TRUNCATE 回 busy 1，标记串仍在 t.db-wal；读者放开后再做一次，文件里找不到。purge.test:245 只断言了 warn，没断言这时内容还在、下一轮消失。判断：Spec 写得过满，改成“删除之后至迟在下一次删除任务结束时，它们的内容不留在库的文件里（库文件与 WAL）”；代码不用改。
+
+### site.telemetry-ingest 输出 4（心跳只累加）
+代码：T/store.ts:73-80、:133-137（ON CONFLICT DO UPDATE beats + 1）；表 migrations/0001_init.sql:154-161 没有单条记录。
+测试：T/store.test.ts:183（同段 3 次只有一行、计数 3；下一段另起一行）。
+- 对上。键里还有 manifest_anonymous（清单版本），与输出 6 一致，不冲突。
+
+### site.telemetry-ingest 输出 5（聚合）
+代码：T/aggregate.ts:59-114（单维度 10 个、activity、cohort 封顶 8、usage_count、usage_error、event_count）、:191-201（一批一个事务，游标与写同事务）。
+测试：T/aggregate.test.ts:35（每个维度、activity 的 first/12/more、cohort 里 12 与 more 合成 8、使用档只算带使用段的、错误按 owner/code/分档、事件按版本/形态/种类/码）、:142（300 份时每个维度合计等于总数）、:127（再跑不变、新行只算新的）、:206（中途出错整批回滚、重跑只算一份）、:289（分几批几次跑与一次算完相同）；T/index.test.ts:49（两个任务交错与只聚合结果相同）。
+- 维度、活跃与新增、安装周交叉及超过 7 天合成一档、使用档的份数与分档分布、立即事件的条数逐句对上。
+- “同一天的聚合可以重复计算，结果相同”：实现是带游标的增量，不是整天重算；对外可观察的含义（重跑、出错重来、分批不改结果）对上，测试见上。
+
+### site.telemetry-ingest 输出 6（聚合带版本）
+代码：每日上报的三张表按 manifest_anonymous 分（migrations/0001_init.sql:85-113），usage_count、usage_error、event_count 按 manifest_usage 分（:117-151），心跳按 manifest_anonymous（:154）。存的是生效版本（T/store.ts:96-98）。
+测试：T/aggregate.test.ts:176（匿名档 1 与 2 的 total 分开存）。
+- 匿名档：对上。
+- 使用档（usage_count、usage_error、event_count 按使用档版本分开）：没有测试。目前只有使用档 1，用例要像 :176 那样直接造一条生效版本为 2 的记录。判断：测试缺口，代码无误；成本低。
+- 立即事件的聚合只按使用档版本分、不按匿名档版本分：它的 appVersion、form 没有分档表，与“分档表不同的两个版本不合并”不冲突，对上。
+
+### site.telemetry-ingest 输出 7（聚合的寿命）
+代码：没有任何删聚合的语句（T/purge.ts 只删两张 *_raw 表）。
+测试：T/purge.test.ts:56（删原始上报前后 aggregateTables 相同）；CT:602 C16（备份副本里有聚合进去的应用版本）。
+- “聚合长期保留”“原始上报被删除之后那一天的聚合不再变化”对上（后者以时钟不回拨为前提，见边界一节）。黑盒看不到聚合，留给 t11 看板。
+
+### site.telemetry-ingest 输出 8（不留来源地址）
+代码：T/ingest.ts:115-132（地址只交给 limiter.take，取不到时 warn 行不带地址）；T/architecture.test.ts 守“clientAddress 只在 ingest.ts 被调用”；T/rate-limit.ts:81-95（两张 Map，换窗口整表清空）；T/purge.ts:168（每轮先 limiter.sweep()）；nb-site-server/src/site.ts:118-126（http.request 只记路径）。
+测试：CT:469 C13（记入、拒收、过大、限流、换写法之后，stdout、stderr、数据目录里找不到地址的任何写法，含 IPv6 与映射写法）；T/ingest.test.ts:98；T/architecture.test.ts:32；T/rate-limit.test.ts:108（sweep 换窗口后清空）。
+- “日志、原始上报、聚合、错误信息里没有来源地址与转发头”对上。
+- “限流用的来源地址只在内存里”对上。
+- “随时间窗过期（之后没有新请求时也一样）”：与字面不一致（轻）。没有新请求时，地址要等下一次 purge 调 sweep 才清；purge 每 10 分钟一次、从启动起算，与对齐的窗口不同步，所以窗口结束后还可能留到将近 10 分钟（从最后一次请求算至多约 20 分钟）。判断：Spec 写得比实现紧；改 Spec 为“窗口结束后至迟在下一次删除任务时离开内存”，或改代码在窗口边界排一次 sweep。倾向改 Spec（只在内存里，差几分钟不改变隐私承诺）。
+- 同一句另缺测试：“purge 会调 sweep”这条接线没有任何测试（grep：sweep 只在 rate-limit.test.ts 里被直接调用；T/testing/module.ts 拿不到限流器）。删掉 purge.ts:168 时所有测试照过（从代码推断，未变异）。补法：让 createTestModule 暴露限流器的 sources()，或在 index.test 里经写入口发一份、跨窗口后跑 purge，看 sources() 归零。
+
+### site.telemetry-ingest 输出 9（限流）
+代码：T/rate-limit.ts（窗口 600000、对齐；/64 与 /48、因子 16；来源上限 100000）、T/ingest.ts:115-132（内容类型在计数之前、地址取不到回 503 不计数）、T/config.ts（额度 1..1000000，缺省 600）。
+测试：CT:375、:395、:409（合计、429 不记入、400/413 计入、内容类型与编码不对不占额度）；CT:460（同一地址几种写法算一个来源）；CT:465 C13（地址取不到 503）；T/rate-limit.test.ts:32-117（额度、Retry-After、对齐窗口、/64、/48 合计、来源数上限、sweep）；T/config.test.ts:8（缺省 600）。
+- 每 10 分钟 600 个、三入口合计、可配、429 不记入、内容类型与编码不对不占额度、400/413 计入、对齐的时间窗、IPv6 按 /64、取不到地址回 503 且不共用额度：对上。
+- “跨两个窗口的 10 分钟里至多可以到两倍”：是对齐窗口的推论，对上，不另需测试。
+- “IPv6 另按前 48 位合计，额度是单个来源的 16 倍”：行为有测试（rate-limit.test:80），但用例从实现导入 PREFIX48_LIMIT_FACTOR 来定循环次数，把常量改成 8 用例照过，“16”这个数没有被锁住（从代码推断）。没有测试的是“16 倍”这个数。
+- “来源超过 10 万个时新来源一律 429”：用例用 maxSources: 2 测机制（rate-limit.test:95），缺省值 RATE_LIMIT_MAX_SOURCES = 100000 没有任何断言。没有测试的是“10 万”这个数。
+判断：两处都是测试缺口，补法是在测试里写字面值（store.test.ts:195 的 64 就是这样写的），不是代码缺陷。
+
+### site.telemetry-ingest 输出 10（与登录隔离的降级）
+代码：T/index.ts:71（busy_timeout 0）、T/store.ts:155-170（BUSY、READONLY、IOERR、FULL、CANTOPEN 算用不了）、T/ingest.ts:179-186（回 503 unavailable，一分钟至多一行 warn）。
+测试：CT:485 C14（别的进程占着写：三入口 503、服务端记的处理时长 < 200 ms、存活检查 200、站点主机照常回应、放锁后照常写、进程没重启）；T/ingest.test.ts:145（< 250 ms、日志只带 dbCode）；T/store.test.ts:224、:237、:249（BUSY、只读、磁盘满都算用不了）、:261（约束类与同连接 LOCKED 不算）。
+- “库不可写时三个写入口回 503”“被别的进程占着写时立即回 503、不等锁”对上。
+- “账号模块的接口不受影响”：没有测试的那一半。账号模块还没有登录接口（CT:484 注释写明留给 t07），C14 只看了存活检查与站点主机的 404。判断：这一句现在没有可测的对象，标“（planned）”或在晋升时保留这一句的 planned，等 t07 加登录接口后补进 C14。
+
+### site.telemetry-ingest 输出 11（聚合的取值个数有上限）
+代码：T/store.ts:20-24、:133-137（心跳每段 64 个，other 不占名额）；T/aggregate.ts:116-120、:173-189（每日上报与立即事件各数各的，按编号先到先占）。
+测试：T/aggregate.test.ts:237（先到的 64 个照记、之后新出现的记 other、旧版本再来照记，每日上报、使用档、立即事件一致）、:255（每天各数各的）、:265（两张表各数各的，先算哪张都成立）、:289（分批与一次算完相同）；T/store.test.ts:192（心跳第 65 个记 other，用字面值 64）。
+- 逐句对上。“不保证当天的真实版本都排在前面”是不承诺，不需测试。
+
+### site.telemetry-ingest 状态与转换（时序与寿命）
+- “记入 → 保留期内（参与聚合）→ 删除”：对上（见输出 3、5）。
+- “记入之后，在下一次聚合任务跑完时出现在聚合里”：对上（T/aggregate.ts 每轮追平为止，T/index.ts:94；T/index.test.ts:49 经任务 run() 看到全部行进了聚合）。
+- “两次聚合的开始相隔一个聚合间隔加上一次的用时；重启之后同样成立”：实现对上（nb-site-server/src/jobs.ts:115-123 在上一次 settle 之后才排下一次；启动后 initialDelayMs 0 立即跑）。jobs.test.ts:58 断言了每次等一个间隔，但 run 是同步的，“从上一次结束算起”这半句没有测试（换成从开始算起照过，从代码推断）。轻，属 site.operations 调度器的共用行为。
+- “聚合任务与写入并发时，写入不被阻塞超过 1 秒”：没有测试。依据是 T/aggregate.ts:25-31、T/purge.ts:30-35 记的测量（scripts/measure-ingest.ts，一批最长约 233 ms）与批间 setImmediate 让出；测试里只有 index.test 证明会在批间让出（close() 能在批间收手）。判断：这是性能判据，单元测试里不宜计时；可接受的做法是把 measure-ingest.ts 记作这一句的证据，或把句子改成可判定的结构性承诺（“聚合按批进行，批与批之间处理请求”）。不是代码缺陷。
+- “重启服务不丢已记入的原始上报、聚合与心跳计数；去重在重启后仍然有效”：去重对上（CT:531 C17、T/store.test.ts:69）。“聚合与心跳计数不丢”没有专门断言，但两者都在同一个 SQLite 文件里、写在提交了的事务里，C16（备份副本里有聚合）与 store.test:69 的重开库已覆盖同类情况；轻，可不补。
+
+### site.telemetry-ingest 副作用与数据
+代码：T/store.ts、T/aggregate.ts（都写模块自己的库）；T/backup.ts（副本上 secure_delete ON、先聚合再清空两张原始表，聚合出错照样清空再抛）；nb-site-server/src/commands/backup.ts（.partial 的清理，属 site.operations 输出 6）。
+测试：CT:602 C16（副本里找不到上报编号、找得到聚合进去的应用版本；用副本起的服务就绪）；T/backup.test.ts:56（副本原始表为空、聚合与原库算完相同、游标留着）、:70（用副本恢复后新行编号接着往上、照常进聚合）、:82（聚合出错仍清空、文件里找不到编号）；nb-site-server/src/backup.test.ts:190（强行结束留下的 .partial 下一次开始时清掉）。
+- “原始上报、聚合、心跳计数、上报编号都落在统计模块的库里；原始上报与上报编号不进备份”对上。
+- “强行结束时没写完的那一份里可能带着原始上报，下一次备份开始时清掉”对上（由 site.operations 的用例守）。
+- “用备份恢复之后库里没有上报编号：恢复之前记入过的上报再重发，会被当作新的一份”：没有测试。backup.test:70 只记入了一份新编号的上报；C16 用副本起了服务却没有重发原来那一份。判断：测试缺口，行为是清空原始表的直接结果；在 C16 里对 restored 重发 report、断言 duplicate 为 false 即可，一行。
+- “库里不存来源地址、Cookie、请求头”对上（CT C9、C13 搜数据目录全部文件）。
+
+### site.telemetry-ingest 失败与恢复（unavailable）
+代码：T/ingest.ts:118-125（取不到地址）、:179-186（库用不了）；K/ingest.ts:28（503）。
+测试：CT:465 C13、CT:485 C14、T/ingest.test.ts:85、:145。
+- 两种原因都回 503 unavailable，对上。“发送方怎么办”一列是发送方，不在本范围。
+
+### site.telemetry-ingest 边界与兼容
+- “对外只有三个写入口；聚合的存放形状不是公开合同”：对上（CT:346 C18；T/index.ts:98 站点子应用为空）。
+- “保留天数只能在 2 到 7 之间”：对上（T/config.test.ts:14、:25）。“改小之后超出的原始上报在下一次删除时清掉”：实现对上（每轮按当前配置算截止日，T/purge.ts:169），没有专门用例（同一个库先 7 天后 2 天各跑一次 purge）；轻，是“截止日按配置算”的推论，可不补。
+- “能换回去的版本都带着删除任务与备份时的清空”：这是发布约束。删除任务在上一个版本上能跑由 packages/nb-site-contract-tests/src/adjacent-version.test.ts:161 守（CI 用 build:previous 给出上一个版本，.github/workflows/ci.yml:142；本机没设时跳过，这次本机 8 条跳过）；“上一个版本的备份也清空原始上报”没有相邻版本的用例。判断：在第一个部署的版本之前，上一个版本就是本版本自身之前的提交，暂时没有可测的“换回去”；可以在晋升时把这句改成约束性的写法并注明由相邻版本测试守删除任务，备份那半句留作已知缺口或补进 adjacent-version（让上一个版本跑一次 backup，搜副本里的编号）。
+- “服务端日取自主机的时钟；回拨一天以上时保证不成立”：前提声明，不需测试。
+
+### site.telemetry-ingest 目标与非目标、术语
+- 不识别安装、不挡伪造、7 天以前不可重算、不存来源地址、少量上报不隐藏：都是不承诺或由别处的条目兑现（来源地址见输出 8）。“看板把少于 5 的格子合并显示”是看板（t11），不在本范围。
+- 术语“心跳段 = UTC 15 分钟一段”对上（T/days.ts:13、:21，T/days.test.ts:15）。
+
+### site.telemetry-ingest 验收 1 到 4 与 Smoke
+- 验收 1（记入一份，拨到 8 天后触发删除：原始上报查不到，那一天的聚合数不变）：前半 CT:554 C15（黑盒，数据目录里找不到编号、重发不是重发）；后半 T/purge.test.ts:56（包内，aggregateTables 前后相同）。黑盒看不到聚合，留给 t11 看板补黑盒。对上（分两处）。
+- 验收 2（同一段 3 次心跳计数 3、库里没有 3 条可分辨的记录）：T/store.test.ts:183。对上。
+- 验收 3（限流、过大、不合格之后进程输出里没有来源地址）：CT:469 C13。对上。
+- 验收 4（库不可写时写入口 503，同时账号的登录接口正常）：前半 CT:485 C14 对上；后半没有测试（账号模块还没有登录接口，留给 t07）。
+- Smoke“合同测试包里‘记入后在聚合里看到’的用例”：与字面不一致。合同测试包里没有这条用例：CT 文件头写明第一版没有读聚合的接口，最接近的是 C16（备份副本里找得到聚合进去的应用版本）。判断：Spec 写多了（指向一条不存在的用例）。晋升时要么把 Smoke 改指 C1/C7/C8（与协议的 Smoke 一样）或 C16，要么给 Smoke 行标“（planned）”等 t11 的看板接口出来后补这条黑盒用例。
+
+### 晋升的文书前提（不属三类，顺带记下）
+两份 Spec 现在都只有“批准依据”一行，没有“实现合同”短节与“实现入口 / 合同测试 / Smoke”三行证据（docs/specs/README.md 的“实现合同与证据”）。指向分支代码的链接要等代码合入 master 后再提交（writing-specs 第 6 步）。
+
+## 汇总
+
+没实现：0 条。
+
+与字面不一致：5 条
+1. protocol 输入一节：Content-Type “精确比较”，实现不分大小写（C12 断言 Application/JSON 照收）。Spec 写得不全。
+2. ingest 输出 3：“删除之后内容不留在库文件里”，有读者拿着旧快照时插入帧留在 WAL 里到下一轮 purge（probe-wal.ts 实测）。Spec 写得过满。
+3. ingest 输出 8：“来源地址随时间窗过期（没有新请求时也一样）”，实际要等下一次 purge 的 sweep，窗口结束后可能再留将近 10 分钟。Spec 比实现紧。
+4. ingest Smoke：指向“合同测试包里‘记入后在聚合里看到’的用例”，这条用例不存在。Spec 写多了。
+5. ingest 边界“能换回去的版本都带着删除任务与备份时的清空”：备份那半句在相邻版本上没有用例（删除任务那半句由 adjacent-version 守，CI 跑、本机跳过）。介于“不一致”与“没测试”之间，归这里是因为它是发布约束、现在没有第一个部署版本可换回。
+
+没有测试：11 条（缺的句子）
+1. protocol 输出 13：内容类型不对先于“取不到来源地址（503）”。
+2. protocol 输出 13：限流（429）先于过大（413）。
+3. ingest 输出 2：“记入那一刻 = 读完请求体之后”（代码注释自认 C1 护不住）。
+4. ingest 输出 6：使用档版本不同的使用档聚合与立即事件聚合分开存。
+5. ingest 输出 8：purge 调 limiter.sweep() 的接线（删掉 purge.ts:168 用例照过，从代码推断）。
+6. ingest 输出 9：“16 倍”这个数（用例从实现导入常量）。
+7. ingest 输出 9：“10 万个来源”这个数（缺省常量无断言）。
+8. ingest 输出 10 与验收 4：账号接口不受影响（还没有登录接口）。
+9. ingest 时序：“写入不被阻塞超过 1 秒”（只有测量脚本，没有测试）。
+10. ingest 副作用：用备份恢复后，原来那一份重发被当作新的一份。
+11. ingest 时序：“两次聚合开始相隔一个间隔加上一次的用时”里“从上一次结束算起”（调度器共用行为）。
+轻、可不补（已在各节写明理由）：protocol 输出 13 的 413 先于非 JSON；ingest 输出 3 的“只读”分支；重启不丢聚合与心跳计数；改小保留天数后下一次清掉；protocol 边界“新版本带新名字整份拒收”。
+
+## 建议的处理
+
+必须在晋升前修的（都是补测试，没有发现代码缺陷）：
+- ingest 输出 8 的 sweep 接线（没有测试 5）：隐私承诺的一部分，删掉不报错，补一条模块级用例。
+- ingest 输出 2 的“读完请求体之后取时间”（没有测试 3）：包内用流式请求体在 pull 时拨钟跨日界即可。
+- ingest 副作用的“恢复后重发算新的一份”（没有测试 10）：C16 加一句重发断言。
+- protocol 输出 13 的两对先后（没有测试 1、2）：CT 已有组里各加一句。
+- ingest 输出 9 的 16 倍与 10 万（没有测试 6、7）、输出 6 的使用档版本（没有测试 4）：测试里写字面值或造一条版本 2 的记录。
+（以上若嫌多，至少前三条；其余几条同样成本低，按 README“去掉标记要这一句有测试的断言守着”的口径都算缺断言。）
+
+可以把 Spec 改成贴实现的：
+- protocol 输入：Content-Type 写“不分大小写”。
+- ingest 输出 3：“至迟在下一次删除任务结束时，内容不留在库文件与 WAL 里”。
+- ingest 输出 8：“窗口结束后至迟在下一次删除任务时离开内存”（或改代码在窗口边界 sweep，二选一，倾向改 Spec）。
+- ingest Smoke：改指 C1/C7/C8 或 C16。
+- ingest 时序“写入不被阻塞超过 1 秒”：改成结构性承诺（按批进行、批间处理请求），或把 measure-ingest.ts 记作证据。
+
+可以标“（planned）”留给别的 Task 的：
+- ingest 输出 10 与验收 4 的“账号接口（登录）不受影响”：t07。
+- ingest 验收 1 后半与输出 5、7 的黑盒（读聚合）：t11 看板；包内已有测试，晋升不必等。
+- ingest Smoke 若想保留“记入后在聚合里看到”的原意：标 planned 等 t11。
+- ingest 边界的“上一个版本也带备份清空”：补进 adjacent-version，或在第一个部署版本之前记为已知缺口。
+发送方句子（protocol 的三条时序、失败表“发送方怎么办”、码表外记 other、应用与官网由清单生成说明）按派发说明不算缺口。

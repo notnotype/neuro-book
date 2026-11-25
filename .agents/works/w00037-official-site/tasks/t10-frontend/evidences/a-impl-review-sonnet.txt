@@ -1,0 +1,117 @@
+# w00037 t10 段 A 前端实现审查（Sonnet）：c096ecf36..3c556e48b
+实验在 /tmp/review-w00037-t10-a/lab/（run.mjs 用真实 Chrome 跑 vite 构建出的 Pagination 与 DataTable；mut/ 是仓库外副本，做变异检查；admin-users-draft.vue 是接入草稿）。
+
+### 1. 键盘点“下一页/上一页”走到端点时，焦点掉回 body；整条变 disabled 时同样，Pagination.md 写的“不让焦点掉回 body”不成立
+- **严重程度**：重要；**类别**：正确性（键盘与读屏）
+- **位置**：packages/nb-ui/src/components/navigation/Pagination.vue:60-71（两个 watch）、Pagination.md“交互”的“焦点”一段
+- **现象**：真实 Chrome 里，焦点在“下一页”上连按 Enter：第 5 页到第 6 页焦点还在；到第 7 页（末页）下一页变 disabled，`document.activeElement` 变成 body（等 300ms 后仍是 body）。焦点在“第 3 页”按钮上、使用方把整条置 disabled（DataTable 在 total 为 null 时就这样传），也落到 body。键盘用户连按“下一页”翻到末页就失去位置，要从页面顶重新 Tab。
+- **为什么是问题**：两个 watch 只在 `[current, lastPage]` 变时触发，而且只判“焦点是否还在 nav 里”（`nav.contains(document.activeElement)`）。Chrome 里变 disabled 的按钮在这一刻仍是 activeElement（仍在 nav 里），所以不补焦点，之后浏览器再把它丢回 body。.md 的承诺（焦点原先在条里、现在落到条外就移到当前页）因此只覆盖“按钮被移除”，没覆盖“按钮被禁用”。Pagination.test.ts 的焦点用例只测了“51 被移走”（页数突降），没测最常见的“箭头点到端点”。
+- **如何核实**：/tmp/review-w00037-t10-a/lab/run.mjs 的 `focus` 实验（`cd /tmp/review-w00037-t10-a/lab && bun run.mjs focus`）：afterEnter6 = 下一页，afterEnter7 = BODY，afterDisabled = BODY；点页码 5（当前 4，同一个按钮被 Vue 移动）焦点保留，说明移动没问题。
+- **建议改法**：post 的判据改成“焦点在条外，或 activeElement 是 `:disabled` 的按钮”就落到当前页按钮；触发要把 `props.disabled` 也加进 watch 的源（或在 `go()` 里记下 `focusWasInside` 之后用 nextTick 补）。端点时焦点落到当前页（末页）按钮，比落到上一页箭头更稳。补一条用例：焦点在下一页、连点到末页，activeElement 是当前页按钮。
+
+### 2. 页码越界且这一页没有行时：表格区写“暂无数据”，页脚却写“第 61 到 65 条，共 65 条”，分页条高亮第 4 页
+- **严重程度**：重要；**类别**：正确性（不变量：两处读数互相矛盾）
+- **位置**：packages/nb-ui/src/components/display/DataTable.vue:88-96（`shownPage`、`range`）、:104-110（`bodyState`）；DataTable.md“状态”末段
+- **现象**：官方站管理页的典型路径：在最后一页删掉唯一一行，使用方重新取数，得到 `rows=[]`、`total=65`、`page` 仍是 5（pageSize 20）。实测（`bun run.mjs oob`，page=9、rows=[]、total=65）：页脚文字 `第 61 到 65 条，共 65 条`，分页条当前页 4，表格区正文 `暂无数据`。
+- **为什么是问题**：计划 3.4 与 .md 的“只夹边显示、不回写”是为了不替使用方改页码，但夹出来的页脚区间声称“第 61 到 65 条”正显示着，而表格里一行也没有。读屏与用户看到的是两个相反的事实。`count` 插槽拿到的 from/to 也是夹过的值。
+- **如何核实**：`cd /tmp/review-w00037-t10-a/lab && bun run.mjs oob`。
+- **建议改法**：区间按“这一页实际拿到的行”算：`rows.length === 0`（且不在加载）时条数改写“共 N 条”（`dataTable.countTotal`），有行时 `to = from + rows.length - 1`。这样不论使用方有没有回退页码，两处读数一致，也不依赖 pageSize 与行数恰好对得上。.md 的“越界”一段补“这一页没有行时条数只写总数”。接入草稿里（admin-users-draft.vue）使用方仍要自己在 total>0 且 rows 空时回退页码，.md 应明说这是使用方的活。
+
+### 3. 出错层“重试”点后焦点落到 body（实现者自报，已在真实 Chrome 复现），.md 未写，也没给处理
+- **严重程度**：重要；**类别**：正确性（键盘与读屏）
+- **位置**：packages/nb-ui/src/components/display/DataTable.vue:158-166（出错层）；DataTable.md“交互”
+- **现象**：`bun run.mjs retryfocus`：焦点在“重试”上按 Enter，使用方清掉 `error` 后出错层卸载，`document.activeElement` 为 BODY；`retried` 为 1（事件发出正常）。
+- **为什么是问题**：键盘用户点重试后，下一次 Tab 从页面最前面开始；读屏也不知道现在去哪了。ui-development-spec 4.1 要求“重试入口保留可访问名称”，没说焦点，但 spec 第 5 条（浮层关闭焦点回到触发器）的精神同样适用。另外，加载遮罩只挡指针：200ms 内与加载期间键盘仍能 Tab 到被遮罩盖住的行内按钮（例如“删除”）并触发，aria-busy 不禁用交互。
+- **如何核实**：`bun run.mjs retryfocus`。
+- **建议改法**：错误层卸载时，若焦点在层内，就把焦点移到表格区容器（`tabindex="-1"`，用 `focus({preventScroll: true})`，ui-development-spec 易错清单第 257 行）；或者重试点击后先不卸层，等 loading 真起来再换。遮罩期间给表格区 `inert`（happy-dom 里 inert 不生效，用属性断言），不要只靠 pointer-events。至少在 DataTable.md 的“注意事项”写明现状与使用方的责任。
+
+### 4. 容器矮时，居中的状态层比表格区高，溢出去盖住页脚，“重试”按钮落在页脚上
+- **严重程度**：重要；**类别**：不变量（状态变化不推动周围内容、三块位置不变）
+- **位置**：DataTable.vue:253-268（`.nb-data-table-body`、`.nb-data-table-layer`，表格区没有 overflow 约束）
+- **现象**：出错层内容（EmptyState：图标 48px + 标题 + 按钮，py-10）实际高 229px。真实 Chrome，bar 60 + foot 48 的 DataTable 放在不同高度里（`bun run.mjs short`）：容器 400 高时表格区 272，层居中正常；容器 260 高时表格区 132px，层 70→299，“重试”按钮 231→259，而页脚在 202→250，按钮与页脚的条数文字重叠，层还盖住了表头；容器 160 高时表格区只有 32px，层同样 70→299。截图 /tmp/review-w00037-t10-a/lab/short-260.png。
+- **为什么是问题**：计划重点 1 列了“容器很矮”。官方站管理面板在笔记本小窗口、浏览器缩放 150% 时，页面内容区给的高度可以低于 330px，出错或空态时按钮与页脚叠在一起，重试点不准。
+- **如何核实**：`cd /tmp/review-w00037-t10-a/lab && bun run.mjs short`，输出里 `h260.retry` 与 `h260.foot` 的区间相交。
+- **建议改法**：状态层 `overflow: auto`（或 `.nb-data-table-body` 设 `overflow: hidden` 并让层内部可滚动），层内用 `margin: auto` 代替 grid 居中，这样内容比表格区高时从顶部排起、可滚动，而不是越过页脚。`.md` 的“布局”写一个能保证状态层放得下的最小高度（约 330px 含工具条与页脚）。补 Lab 的矮画布场景（例如 vp=1100x300 的出错）并断言按钮区间在 body 区间内。
+
+### 5. 根节点用了 `container-type: inline-size`：放进 flex 行或自动宽度的上下文，宽度塌成 0；.md 只提了高度要求
+- **严重程度**：重要；**类别**：正确性（使用方接入）
+- **位置**：DataTable.vue:222（`container-type: inline-size`）；DataTable.md“布局”
+- **现象**：`inline-size` 容器的内部尺寸不参与自身宽度计算。在真实 Chrome 里写一个 `display:flex` 的父元素、子元素 `container-type:inline-size` 带一段文字，子元素宽度量出 0（probe1.mjs：`flexItemWidth: 0`）。DataTable 根 `.nb-data-table` 就是这个子元素：放在 flex 行里（例如管理页“侧边筛选 + 表格”）且没写 `flex: 1` / `width`，放在 `inline-block`、`w-fit`、grid 的 auto 列里同样塌成 0。`position: fixed` 的后代没有被包含（同一实验量到 fixedTop 仍是 5），这点没问题。
+- **为什么是问题**：容器查询只是为了页脚的条数在窄于 480px 时换写法，却让整个组件对宽度的上下文有了隐含要求，而 .md 只写了“要放进有确定高度的容器”。使用方遇到的是一个看不见的 0 宽，不是报错。
+- **如何核实**：/tmp/review-w00037-t10-a/lab/probe1.mjs。
+- **建议改法**：把 `container-type: inline-size` 从根挪到页脚 `.nb-data-table-foot`（它在竖排 flex 里 stretch，宽度由父级定，不会塌），`@container` 查询的对象本来也是页脚里的 count，不需要整个组件做容器。如果仍留在根上，.md 的“布局”必须加“宽度也要由容器给定”。
+
+### 6. 窄容器页脚把条数截成“共 1,28…”：截断一个数字比不显示更糟，推荐窄时页脚折成两行
+- **严重程度**：重要；**类别**：正确性（重点 4 的第一处）
+- **位置**：DataTable.vue:305-326（`.nb-data-table-count` 的 `overflow: hidden; text-overflow: ellipsis`、`@container (width < 480px)`）
+- **现象**：390 宽下（/tmp/w00037-t10-plan/shots-a/sheets/w390-dt-nowrap-light.png）页脚是“共 1,28…”，英文是“Total: 1…”。原因是分页条 7 格加两个箭头约 308px，页脚内边距两侧各 28px 之后只剩约 40px 给条数；短写法“共 1,286 条”需要约 80px，容器查询把长句换成短句也救不了。
+- **为什么是问题**：一个被省略号截断的总数读起来像 128 条，误导；计划说“窄于 480px 时条数只写‘共 N 条’”，实现了，却没验证短句放得下（实现者自己把它记成已知问题，但 .md 写的是“只写共 N 条”，没写它仍会被截）。
+- **推荐**：窄时页脚允许换行，条数一行、分页条一行（`flex-wrap: wrap`，高度随宽度变、不随状态变，和工具条同一个办法），而不是收紧间距（收到极限也只省约 20px，凑不到 80px）或窄时隐藏条数（丢信息）。具体：页脚 `min-height: 48px; flex-wrap: wrap; row-gap`，条数 `flex: 1 1 auto; white-space: nowrap`，去掉 ellipsis；容器查询里短句保留，作为“一行能放下 N 条”的兜底。管理面板只做桌面宽，所以这一条只影响别的使用方，成本小的做法是：保留现状但把 `text-overflow: ellipsis` 去掉，窄到放不下整句时整句 `display: none`（用 `container` 下 `@container (width < 420px)`），并在 .md 的“已知限制”写明；二选一都比留着省略号强。Lab 补一个 390 宽英文场景（现有 page-english 只在桌面宽截图）并断言条数文字没被截断：`scrollWidth <= clientWidth`。
+
+### 7. `:deep(td) { white-space: nowrap }` 会作用到使用方放进单元格的一切（含嵌套表格），又无法逐列关掉；推荐做成 Table 的属性加列级例外
+- **严重程度**：重要；**类别**：代码质量 / 使用方影响（重点 4 的第二处）
+- **位置**：DataTable.vue:243-249；Table.vue 的 td
+- **现象**：选择器 `.nb-data-table-body[data-v] td`（特异性 0,2,1）作用于表格区里所有 `td`：Table 自己的单元格，加上 `cell-<key>` 插槽里使用方放进来的子表格或带 td 的结构。使用方给长文本列（官方站审计页的“详情”、用户页的邮箱、UA 字符串）想换行时没有任何开关：scoped 样式不在 layer 里，压过 utilities 层，列上写 `whitespace-normal` 无效（要在单元格内容外自己包一层元素再设）。变异检查：把这条规则的选择器改掉后 DataTable 的全部 dom 测试仍通过（mut 实验 M6），也就是它没有任何测试守着。
+- **为什么是问题**：对长文本列的后果是一行内容把表格撑到几千像素，整张表横向滚动，而页脚与工具条定在可视区里。四个官方站列表页里至少审计页有这类列；注册码、邀请码页也会有“备注”。
+- **推荐**：做成属性，不用 :deep。Table 加 `nowrap?: boolean`（默认 false，缺省行为不变），为真时每个 td 加 `whitespace-nowrap`；`TableColumn` 加可选 `wrap?: boolean`，列级例外（DataTable 里列默认不换行，使用方给长文本列写 `wrap: true`，并建议同时给 `width` 或 `max-width`）。DataTable 传 `nowrap`。这样不用穿透样式，嵌套表格不受影响，类名可被 Table 的 dom 测试守住。若不想动 Table 的类型，最低限度是：选择器收窄成 `> div > table > tbody > tr > td`（只管直接单元格），并在 DataTable.md 写“长文本列要自己在 cell 插槽里包一层 `white-space: normal` 的元素”。
+
+### 8. 测试：加载延时与“不闪一下”、卸载清定时器、翻页回顶、不换行都没有用例守着；“位置不变”只验了元素同一，几何测量脚本没入库
+- **严重程度**：重要；**类别**：测试
+- **位置**：DataTable.test.ts“DataTable 的加载”；lab-nb-ui.e2e.ts 新增的那一条
+- **现象**：在仓库外副本（/tmp/review-w00037-t10-a/lab/mut，同一份源码）做变异，DataTable.test.ts 11 条：
+  - M1 把 `LOADING_DELAY` 改成 0：全过。两条加载用例都是“刚变真时没有”（同步断言，0ms 的 setTimeout 也没到）再 `vi.waitFor` 等到出现，改成 0 或任何小于 1 秒的值都过。
+  - M2 `watch` 里去掉 `clearLoadingTimer()`：全过。这就是 .md 承诺的“加载很快结束时什么都不显示，不闪一下”：loading 在 200ms 内变回 false，旧定时器不清会在 200ms 后把 `loadingVisible` 设回 true（loading 为假时 layer 不出遮罩，但下一次 loading 立刻出遮罩、不等延时）；没有用例（需要假计时器：`vi.useFakeTimers()` 加 `advanceTimersByTime(199/200)`）。
+  - M3 去掉 `onBeforeUnmount(clearLoadingTimer)`：全过；`env:timer` 标签声明了“卸载时清掉”，没有断言。
+  - M4 去掉翻页回顶的 `scroller.scrollTop = 0`：全过。
+  - M6 去掉 `:deep(td)` 不换行规则：全过（happy-dom 不算样式，见第 7 条）。
+  - M5 去掉 error 优先：两条失败，被守住。
+- “状态下工具条与页脚位置不变”是本组件的核心承诺，dom 测试只验元素同一与 innerHTML 不变，happy-dom 无法发现“元素同一但高度变了”；实现者的 measure.mjs（/tmp/w00037-t10-plan/lab-a/）量了 100 页宽度恒定、五种状态的 bar/foot 的 y 与高度，但只在 /tmp，仓库里的 e2e 只新增了“吸顶与最后一页页脚贴底”一条。Pagination 的“翻页宽度与箭头位置不变”也没有入库的几何断言。
+- **建议改法**：dom 里加假计时器用例（199ms 没有、200ms 出现；100ms 内变回 false 后不出现且再次 loading 仍要等满；卸载后 `vi.getTimerCount()` 为 0）；e2e 的 lab-nb-ui 加两条：Pagination 100 页场景连点“下一页”量宽度与两个箭头 x，DataTable 六个场景量 bar、foot 的 top 与 height 相同。另一处隐患：新加的 e2e 把“最后一页”那次打开改成了 `vp=1100x800`，并断言 `lastRow` 下面留白 > 100，只依赖场景里 6 行的高度；若以后 compact 行高变了，留白判据先失效，建议改用 `body.height - 6 * rowHeight > 100` 这样跟着行高走，不是大问题。
+
+### 9. 分页格悬停色：规范上可以用 color-mix，但取 8% 与邻居不一致，“nb-ui 里没有这个变量”的说法不对
+- **严重程度**：建议；**类别**：代码质量（重点 5）
+- **位置**：Pagination.vue:128-131（`.nb-pagination-page:not(:disabled):hover`）；提交说明与计划里的自报
+- **现象**：nb-ui 里有 `--bg-hover`（colorway-contract.ts 的角色，Table.vue:105 的行悬停与 CollapsibleRow、CollapsibleCard 都用它，`--overlay-item-active` 的缺省值就是它）。自报的“草稿用的变量 nb-ui 里没有”不准确。同时 nb-ui 控件的悬停色惯例确实是 `color-mix(in srgb, var(--text-main) N%, transparent)`：Button ghost 10%、IconButton 默认 15%、secondary 18%。所以写 color-mix 合规，但取 8% 比同一条里相邻的两个箭头（IconButton 默认悬停 15%）淡得多：鼠标从箭头移到页码，悬停强度不一致。另外 IconButton 有 `active:` 与 `:active` 缩放，页码格没有按下态（ui-development-spec 4.1 要求 active/selected）。
+- **建议改法**：悬停取 15% 与箭头一致（或两者都走一个类）；加按下态 `active:` 24%；当前页用 `--overlay-item-active`（已用）没问题，注意它在个别主题里与悬停 15% 的混合色接近，实现者四组合截图看过，不再展开。把 Pagination.md“悬停时加一层淡底”写成具体的取值来源。
+
+### 10. 工具条的 48px 依赖宿主的 `box-sizing: border-box`：没有 reset 的宿主里是 60px
+- **严重程度**：建议；**类别**：不变量 / 通用性
+- **位置**：DataTable.vue:231-236（`.nb-data-table-bar` 的 `min-height: 48px` 加 `padding-block`，没有 `box-sizing`）
+- **现象**：根与分页格都写了 `box-sizing: border-box`，唯独 `.nb-data-table-bar` 没写。我的实验页没有 reset（nb-ui 的 tailwind.css 明说不带 preflight，reset 由宿主决定）：工具条 60px（48 内容 + 上下各 6 的 padding），页脚是 48，和 .md 与计划写的“至少 48px”不符；应用里有 the-new-css-reset 的 border-box，所以实现者的四组合实测都是 48，没有暴露。官方站是 nb-ui 的另一个宿主，是否带同一份 reset 要核实。nb-ui 的 Button、IconButton 等都显式写 `box-border`。
+- **如何核实**：`cd /tmp/review-w00037-t10-a/lab && bun run.mjs short` 输出里 `h400.bar` 是 [10, 70]。
+- **建议改法**：`.nb-data-table-bar` 加 `box-sizing: border-box`。
+
+### 11. 使用方传给 DataTable 的尺寸类被组件的 scoped 样式压住：`class="h-[200px]"` 无效
+- **严重程度**：建议；**类别**：代码质量 / 使用方
+- **位置**：DataTable.vue:219-224（`.nb-data-table { height: 100%; ... }` 在 scoped style 里，不在 layer）；DataTable.md“没有 expose。未声明的 attribute 与 class、style 落在根节点上”
+- **现象**：真实 Chrome 里把 `class="h-[200px]"` 传给 DataTable，容器 500 高：根量到 480px（500 减 padding），类名在 DOM 上，但没生效（`bun run.mjs cls`）。nb-ui 的 tailwind.css 头注释说“调用方给组件传的原子类在 utilities 层，因此天然压过 components 层的语义类”，但 SFC 的 scoped 样式是不分层的，层外的样式压过层内的原子类，所以这句保证对 DataTable 的 `height`、`border-radius`、`background` 不成立。.md 说 class 落在根上，使用方会自然去传 `h-96`、`rounded-none`。
+- **建议改法**：.md 写明“尺寸由父容器给，传给根的 `height`、`background`、`border-radius` 类不能覆盖组件的缺省，要改用 `style`”；或把这几条缺省放进 `@layer components`（nb-ui 其它组件的做法需要先看一眼，不是每个都分层，所以这条只作提醒）。
+
+### 12. 翻页回顶只在 `page` 变化时发生，换筛选或搜索（页码不变）时表格区不回顶
+- **严重程度**：建议；**类别**：正确性（从代码推断，未在浏览器里验证）
+- **位置**：DataTable.vue:136-140（`watch(page, ...)`）
+- **现象**：用户在第 1 页滚到第 15 行，在工具条改筛选或搜索（页码本来就是 1，不变），新结果替换旧行，表格区保持原滚动位置，可能落在新结果的中间甚至越过末尾（新结果很短时浏览器会夹回，但长结果会停在半截）。.md 只承诺“翻页时表格区回到顶部”，没承诺换筛选；从使用方看（四个管理页都有搜索），换筛选后回顶才是预期。
+- **建议改法**：不要把“什么触发回顶”绑在 `page` 上，改为 `rows` 的引用变了（取回新一批行）就回顶；刷新同一页（引用也变）会回顶，需要权衡；也可以只在 `page` 变或 `rows` 从非空变成另一批并且 `loading` 刚结束时回顶。若觉得过度，记为“换筛选时使用方把 page 重置为 1，且 DataTable 不回顶”写进 .md，让使用方知道。
+
+### 13. 站在官方站管理页的接入草稿：使用方要自己记住的约定偏多，.md 只零散提到
+- **严重程度**：建议；**类别**：文档 / 使用方体验
+- **位置**：DataTable.md“状态”“注意事项”；实验文件 /tmp/review-w00037-t10-a/lab/admin-users-draft.vue
+- **现象**：写用户列表页的接入草稿，要由使用方自己做、而 .md 没有集中写的事：①页码进路由 query；②取数序号，丢弃后到的旧请求（.md 的“组件不管请求先后”只提了一句）；③换筛选时要不要把 `total` 清成 null（清了页脚变“—”、分页条 disabled，不清则页脚留着旧数）；④删到最后一页没有行时自己回退页码（见第 2 条）；⑤重试点击时自己清 `error` 并置 `loading`（组件发了 retry 就不管了，见第 3 条的焦点）；⑥`error` 只收字符串，要把异常映射成给用户看的文案。核心概念七八个，其中 ③④⑤是易踩的，且是四个官方站列表页都要写的同一段。缺少的东西：长文本列的列级换行开关（第 7 条）。没有发现缺少排序或选择的刚需（四个页的需求里没有，.md“不支持”已声明）。
+- **建议改法**：DataTable.md 加一节“使用方的取数约定”，把上面六点和一个 20 行的示例（草稿里的 load 函数）放进去；官方站若四页都要，可以由 nb-site-web 写一个 `useListQuery` 的组合函数收口这六点，nb-ui 不收，避免把取数带进展示组件。
+
+## 未发现问题的方面
+- **Table.stickyHeader 默认不变**：不传时根类 `w-full overflow-x-auto`、表头行 `border-b border-[var(--border-color)]`、th 的类与改动前相同，Table.test.ts 的默认用例守住了；吸顶底色取 `--bg-panel`，z-[1] 在 Table 根这个滚动容器内，在 Dialog 等浮层里不会越出自己的堆叠上下文；与 loading、density、hoverable 组合时只影响根与 th，未见冲突。表头底色固定为面板色，放在别的底色上会形成色块，Table.md 已写明。
+- **Pagination 的格数算法**：8 页、100 页的各边界页（1、4、5、96、97、100）都是 7 格且对，pageCount 小于 1 或非有限数夹到 1，modelValue 越界夹到边界、不回写，Tab 顺序（上一页、各页码、下一页）与 aria-current、省略号 aria-hidden 实测符合；点页码 5（当前 4，按钮被 Vue 移动）焦点保留。
+- **定时器**：`loading` 反复切换时每次先 `clearTimeout` 再设新的；卸载清理在；100ms 内变回 false 实测不出层（`bun run.mjs timer` 的 flash100 为 false）；`total` 为 null 且加载中时页脚是“— | 1”且分页条全部 disabled，符合计划。过渡只用 `--motion-base`、`--motion-fast` 与缓动令牌，没有 `transition-all`；两个令牌在 `prefers-reduced-motion` 下归零（tokens.css 与 tokens.test.ts 有对应断言）。
+- **通用性与文字**：组件里没有官方站业务词；所有文字进了 nb-ui 目录，中英两份齐全，locales.test.ts 登记；英文 desktop 宽下不截断（仅 390 宽截断，见第 6 条）。颜色、间距、圆角、字号都取令牌，唯一例外是第 9 条的 color-mix（合规）。
+- **范围外配套**：`packages/neuro-book/src/sdk/components.ts` 加 `DataTable`、`Pagination` 是 `sdk.test.ts` 把 SDK 名单与 nb-ui 入口逐个对照所要求的，必要且正确；它让两个组件进入“共享入口即兼容承诺”，这是该文件头注释规定的代价，如果开发者希望官方站落地前还能改它们的 props，需要知道这点（接入草稿暴露的第 7 条会动 props）。CHANGELOG 在 Unreleased 下加两条“新增”，与现有格式一致。
+- **界面文字与动效（ui-development 第 5、6 条）**：没有解释内部处理的说明文字；状态层有淡入淡出，页码格有底色过渡；条数是读数、不做过渡，.md 写了理由。
+- 运行：`bunx vitest run` 跑 Pagination、DataTable、Table、locales 四个测试文件，33 条全过（负载 1.8）。未跑 typecheck 与 e2e（e2e 由主会话跑）。
+
+## 对“重点 4”两处的判断
+1. 页脚截断：见第 6 条。推荐窄时页脚折成两行（条数一行、分页条一行，高度随宽度变、不随状态变），否则至少去掉省略号、放不下时整句隐藏；不推荐靠收紧间距（只能省出十几二十像素，短句要约 80px）。
+2. `:deep(td)` 不换行：见第 7 条。推荐 Table 加 `nowrap` 属性与列级 `wrap` 例外，DataTable 传 `nowrap`；`:deep` 会穿透到嵌套表格与使用方的插槽内容，压过 utilities 层，使用方无法逐列关掉，且没有测试守着。
+
+## 汇总
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+阻断 0；重要 8（第 1 至 8 条）；建议 5（第 9 至 13 条）。

@@ -9,7 +9,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
-import {createDesktopBridge, DESKTOP_EVENT, DESKTOP_FRAME_MARKER} from "nbook/shared/desktop-bridge";
+import {createDesktopBridge, DESKTOP_EVENT, DESKTOP_FRAME_MARKER, DESKTOP_FRAME_NATIVE_CONTROLS} from "nbook/shared/desktop-bridge";
 import type {BridgeGlobal, ShellMessage} from "nbook/shared/desktop-bridge";
 
 import DesktopFrame from "./DesktopFrame.vue";
@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 /** 一个页面：带不带能力标记，壳那边能不能收消息。 */
-function setup(options: {marker: boolean; shellReceives?: boolean}) {
+function setup(options: {marker: boolean | typeof DESKTOP_FRAME_NATIVE_CONTROLS; shellReceives?: boolean}) {
     const sent: unknown[] = [];
     const reports: unknown[] = [];
     const target = new EventTarget();
@@ -48,7 +48,7 @@ function setup(options: {marker: boolean; shellReceives?: boolean}) {
     const global = {
         requestAnimationFrame: (callback: () => void) => window.requestAnimationFrame(callback),
         cancelAnimationFrame: (handle: number) => window.cancelAnimationFrame(handle),
-        ...(options.marker ? {[DESKTOP_FRAME_MARKER]: 1} : {}),
+        ...(options.marker === false ? {} : {[DESKTOP_FRAME_MARKER]: options.marker === true ? 1 : options.marker}),
     };
     const frame = createDesktopFrame({global, bridge: createDesktopBridge(bridgeGlobal), document, report: (input) => reports.push(input)});
     frames.push(frame);
@@ -86,6 +86,19 @@ describe("窗口外框", () => {
         expect(controls.attributes("aria-label")).toBe("窗口");
         expect(controls.findAll("button").map((button) => button.attributes("aria-label"))).toEqual(["最小化", "最大化", "关闭"]);
         expect(controls.findAll("button").every((button) => button.attributes("tabindex") === "-1")).toBe(true);
+        view.unmount();
+    });
+
+    it("系统的红绿灯留着（标记为 2，macOS）：不画窗口按钮、不问窗口状态，属性值写 native-controls，后备标题栏照画", () => {
+        const {frame, sent} = setup({marker: DESKTOP_FRAME_NATIVE_CONTROLS});
+        const view = mountFrame(frame);
+        expect(frame.enabled).toBe(true);
+        expect(frame.controls).toBe(false);
+        expect(html.getAttribute("data-desktop-frame")).toBe("native-controls");
+        expect(html.hasAttribute("data-desktop-frame-bar")).toBe(true);
+        expect(view.find("[data-desktop-controls]").exists()).toBe(false);
+        expect(view.get("[data-desktop-fallback-bar]").text()).toContain("书架");
+        expect(sent).toEqual([]);
         view.unmount();
     });
 

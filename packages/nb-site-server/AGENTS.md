@@ -64,6 +64,28 @@
 - **停止宽限**：按上面的公式，缺省时限 10 秒时容器的停止宽限至少 17 秒（`docker stop -t 17`、Compose 的 `stop_grace_period: 17s`）。bun 是容器的 1 号进程，自己处理 `SIGTERM`，不需要 `--init`；`smoke:image` 核对 `docker stop` 之后退出码 0、日志里有 `site.stopped`。
 - **不设测试控制口令**：镜像与生产环境都不设 `NB_SITE_TEST_CONTROL`。容器监听 0.0.0.0，设了它进程会以 `config_invalid`（`NB_SITE_HOST` 的 `not_loopback`）拒绝启动；`smoke:image` 核对这一条。
 
+### 相邻版本
+
+`site.operations` 输出 7 与验收 2：本版本迁移过、写过的数据目录，上一个版本的程序仍能启动、就绪并正常读写。CI 的 `site-image` 作业拿基准提交（PR 的 base、推送前的 master）当上一个版本：`bun run build:previous`（`image/build-previous.ts`）把基准提交克隆到 `--out` 下一棵独立的树里、装依赖、照那个提交自己的 `build:image --no-docker` 打出 `server.js`，再把命令与“上一个版本缺哪些接口”写进 `--command-out`（追加 `command=`、`without_ingest=`、`without_telemetry_jobs=` 三行）；合同测试的 `src/adjacent-version.test.ts` 用它们跑。没有基准（发布流水线调用、手动触发、基准不是祖先、基准早于 `image/build.ts`）时脚本只在标准错误写原因，不写命令，那一步跳过。
+
+本机跑同一条：打包相关的验证在主工作区或干净克隆里跑（`docs/testing/README.md` 的验证门禁），不在 `.worktree/` 里。`--out` 放系统临时目录下，用完删掉；`bun install` 直连慢时在 `build:previous` 前加 `prox`。
+
+```bash
+base=$(git merge-base master HEAD)        # 或任一个带 image/build.ts 的祖先提交
+out=$(mktemp -d)/nb-site-previous
+bun run --cwd packages/nb-site-server build:previous --base "$base" --out "$out" --command-out "$out.env"
+bun run --cwd packages/nb-site-server build:image --no-docker
+cat "$out.env"                            # command=…、without_ingest=0|1、without_telemetry_jobs=0|1
+NB_SITE_SERVER_COMMAND="[\"bun\",\"--no-env-file\",\"$PWD/packages/nb-site-server/dist/image/server.js\"]" \
+NB_SITE_PREVIOUS_SERVER_COMMAND="$(sed -n 's/^command=//p' "$out.env")" \
+NB_SITE_PREVIOUS_WITHOUT_INGEST="$(sed -n 's/^without_ingest=//p' "$out.env")" \
+NB_SITE_PREVIOUS_WITHOUT_TELEMETRY_JOBS="$(sed -n 's/^without_telemetry_jobs=//p' "$out.env")" \
+bun run --cwd packages/nb-site-contract-tests test src/adjacent-version.test.ts
+rm -r "$(dirname "$out")"
+```
+
+上一个版本缺哪些接口由脚本按提交历史定：基准提交包含引入写入口的提交就算有写入口，包含引入两个定时任务的提交就算有任务（`git merge-base --is-ancestor`，两个提交号是脚本里的常量）；不看文件路径，文件改名或挪目录时不会把之后的基准都判成“没有”。用例不按上一个版本回的 404 自己判断。以后加了上一个版本可能还没有的接口、又要在相邻版本里测它时，照这个办法在脚本里加一项、在用例里加一个开关；t06 合入 master 之后，每个基准都有写入口与两个任务。
+
 ## 完成门禁
 
 ```text

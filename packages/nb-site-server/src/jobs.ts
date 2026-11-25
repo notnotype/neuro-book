@@ -1,14 +1,15 @@
 /**
  * 模块定时任务的调度（`ModuleContext.jobs`）。生命周期：`create()` 与 `start()` 里登记 → 全部 `start()` 之后 `start()`
- * 开始调度 → 第一次停止信号到达时 `stopAccepting()`，不再开始新的运行 → HTTP 排空之后 `stop()` 停掉计时并等正在跑的那一次，
- * 然后才轮到模块的 `close()`。
+ * 开始调度 → 第一次停止信号到达时 `stopAccepting()`，不再开始新的运行 → HTTP 排空、模块的 `close()` 让正在跑的任务收手之后
+ * `stop()` 停掉计时并等正在跑的那一次，然后入口关库。
  *
  * 不再开始与停计时分成两步：排空期间还连着的请求（测试控制入口的“立即跑一次”）不能再起新的后台工作，它会用到随后就被
  * `close()`、关库的资源（`site.operations` 输出 11：服务正在停止时回 503）；而停计时、等正在跑的那一次要放在排空之后，
  * 那一次的收尾时限（`serve.ts` 的 `MODULE_CLEANUP_MS`）才不被排空占掉。
  *
  * 每个任务的每一次运行（按间隔排的，与测试控制入口要的“立即跑一次”）都排进这个任务自己的队列，一次 settle 之后才开始
- * 下一次，所以同一个任务不会叠着跑；间隔从上一次按间隔排的运行结束算起。轮到某一次时调度已经停了，它就不跑。
+ * 下一次，所以同一个任务不会叠着跑；间隔从上一次按间隔排的运行结束算起，第一次从开始调度算起、等 `initialDelayMs`。
+ * 轮到某一次时调度已经停了，它就不跑。
  */
 
 import type {JobDefinition, JobRegistry} from "./module";
@@ -69,6 +70,9 @@ export class JobScheduler {
             register: (job) => {
                 if (this.#state !== "registering") throw new Error(`job ${JSON.stringify(job.name)} registered after scheduling started`);
                 if (!Number.isInteger(job.intervalMs) || job.intervalMs <= 0) throw new Error(`job ${JSON.stringify(job.name)} needs a positive integer interval`);
+                if (job.initialDelayMs !== undefined && (!Number.isInteger(job.initialDelayMs) || job.initialDelayMs < 0)) {
+                    throw new Error(`job ${JSON.stringify(job.name)} needs a non-negative integer initial delay`);
+                }
                 // 测试控制入口按模块名与任务名找任务，同名的分不出来。
                 if (this.#find(module, job.name) !== undefined) throw new Error(`job ${JSON.stringify(job.name)} of module ${module} is registered twice`);
                 this.#entries.push({module, job, log, timer: undefined, queue: Promise.resolve()});
@@ -79,7 +83,7 @@ export class JobScheduler {
     start(): void {
         if (this.#state !== "registering" || !this.#accepting) return;
         this.#state = "running";
-        for (const entry of this.#entries) this.#schedule(entry);
+        for (const entry of this.#entries) this.#schedule(entry, entry.job.initialDelayMs ?? entry.job.intervalMs);
     }
 
     /**
@@ -108,13 +112,14 @@ export class JobScheduler {
         return this.#entries.find((entry) => entry.module === module && entry.job.name === name);
     }
 
-    #schedule(entry: Entry): void {
+    /** 排下一次按间隔的运行：第一次等 `initialDelayMs`，之后都等 `intervalMs`。 */
+    #schedule(entry: Entry, delayMs: number): void {
         entry.timer = this.#timers.set(() => {
             entry.timer = undefined;
             void this.#enqueue(entry).then(() => {
-                if (this.#runnable()) this.#schedule(entry);
+                if (this.#runnable()) this.#schedule(entry, entry.job.intervalMs);
             });
-        }, entry.job.intervalMs);
+        }, delayMs);
     }
 
     #runnable(): boolean {

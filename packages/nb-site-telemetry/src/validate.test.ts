@@ -202,12 +202,17 @@ describe("协议写明的边界", () => {
     });
 });
 
-describe("installWeek 的范围：服务端日所在周往前 13 周到往后 1 周，含两端（协议字段表）", () => {
+describe("installWeek 的范围：服务端日往前两天那一天所在周往前 13 周到服务端日所在周往后 1 周，含两端（协议字段表）", () => {
     const installWeek = (day: string, week: string) => validateReport("daily", withValue(daily(), ["installWeek"], week), serverDayAt(Date.parse(`${day}T12:00:00Z`)));
 
-    it("2026-11-24 在 2026-W48：收 W35 到 W49 与 older", () => {
-        for (const week of ["2026-W35", "2026-W48", "2026-W49", "older"]) expect({week, ok: installWeek("2026-11-24", week).ok}).toEqual({week, ok: true});
-        for (const week of ["2026-W34", "2026-W50", "2027-W48", "2025-W48"]) expect({week, result: installWeek("2026-11-24", week)}).toEqual({week, result: rejectedAt("installWeek")});
+    it("2026-11-25（周三）在 2026-W48，往前两天是同一周的周一：收 W35 到 W49 与 older", () => {
+        for (const week of ["2026-W35", "2026-W48", "2026-W49", "older"]) expect({week, ok: installWeek("2026-11-25", week).ok}).toEqual({week, ok: true});
+        for (const week of ["2026-W34", "2026-W50", "2027-W48", "2025-W48"]) expect({week, result: installWeek("2026-11-25", week)}).toEqual({week, result: rejectedAt("installWeek")});
+    });
+
+    it("每周开头两天下限仍按上一周算：2026-11-23（周一）往前两天是 W47 的周六，收 W47 的下限 W34；上限仍是 W49", () => {
+        for (const week of ["2026-W34", "2026-W49"]) expect({week, ok: installWeek("2026-11-23", week).ok}).toEqual({week, ok: true});
+        for (const week of ["2026-W33", "2026-W50"]) expect({week, result: installWeek("2026-11-23", week)}).toEqual({week, result: rejectedAt("installWeek")});
     });
 
     it("跨年与第 53 周：2027-01-01 在 2026-W53，收 2026-W40 到 2027-W01", () => {

@@ -1,0 +1,124 @@
+### 1. 同 id 的完全相同副本会逃过声明校验
+严重程度：重要；类别：正确性
+位置：`packages/nb-canon/src/world/world.ts:1282-1284`
+现象：`before` 按 id 建 `Map`，再逐项用 `before.get(id)` 判是否重写；若把原声明原样复制一份，两个副本都会与同一条旧声明相等，`rewritten` 为空，重复 id 不进入后面的 `id-taken` 检查。有效字段于是出现两条同 id 声明，世界层仍发布成功。
+为什么是问题：输出 23 要求新写声明的 id 不与命名空间内任何声明重复。重复副本是新增声明，不能因与旧声明内容相同被当成原样保留；读取/补丁按 id 查找时只取一条，声明视图却可重复展示，写入合同不一致。现有“同 id 写两条”测试把错误码数组转成 `Set`，还掩盖了重复报错次数，且未覆盖一条原样旧声明加一条完全相同副本。
+如何核实：在 `/tmp/review-w00039-t41-impl/lab/omp/repro-duplicate-id.ts` 以真实 `World.publish` 将已有声明复制一份，输出 `{"ok":true,...}`；该探针用绝对路径导入本 worktree 源码。
+建议改法：比较声明多重集而非只按 id 映射单项，或先按 id 检查新旧出现次数：旧计数到顶之前可匹配原样声明，超出的每项必须视为新写并报 `id-taken`。测试断言精确的错误数量与路径，不用 `Set` 去重。
+### 2. 固定字段新增后，旧实例字段值可绕过重验并被当成固定字段读取
+严重程度：高；类别：数据正确性
+位置：`packages/nb-canon/src/world/world.ts:1282-1303,1403-1412`；`packages/nb-canon/src/components/registry.ts:201-207`
+现象：条目原有实例字段 `x:text` 且值为字符串；类型登记后来新增同 id 的固定字段 `x:number`。在新登记下只修改同组另一字段，世界层仍发布成功，`x` 以固定字段标签读出旧字符串值。实例声明因未变不在 `rewritten` 中，值也因与旧值相同而跳过校验；固定字段虽在 `effectiveFields` 中胜出，却复用了同一个 `fields.x` 槽位。
+为什么是问题：读取合同把字段标成数值，实际值仍是字符串，后续类型敏感操作与渲染得到不一致状态。计划第 289 行已将此列为待处理风险，当前实现未拒绝或隔离冲突。
+如何核实：真实 `World.publish` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-fixed-collision-write.ts`：新登记含固定 `x:number` 后，`editEntries` 修改 `panel.存款` 返回成功；读回 `x` 的 label 为“固定X”，value 为“旧自定义值”。
+建议改法：在新登记遇到历史实例字段 id 冲突时明确拒绝写入或隔离旧值，不能让固定字段静默接管旧槽位；为冲突数据补覆盖测试。
+### 3. 新建条目上实例字段 id 撞固定字段时，字段值与声明 id 被静默拆开
+严重程度：高；类别：正确性
+位置：`packages/nb-canon/src/world/entry-edits.ts:393-404,414-419`
+现象：`declareField` 在 id 被固定字段占用时生成替代 id；但随后 `namespaceData` 用调用方原始 `fields` 做 `Object.assign`。`create` 可同时声明 `{id:"外观", label:"新外观", kind:"text"}` 并提供 `fields: {外观:"本应是实例字段"}`，最终声明 id 为“新外观”，实例字段值为 null，而原字段 id“外观”的值落入固定字段槽位。
+为什么是问题：这条可由公开批量创建入口触发，成功响应丢弃了新声明的初值，却把同一初值写进语义不同的固定字段；用户无法从成功结果判断输入被改写。
+如何核实：真实 `editEntries` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-declare-id-remap-value.ts` 返回成功，输出 `declared:[{id:"新外观",...}]`，同时 `fields.外观` 保存“本应是实例字段”，`fields.新外观` 为 null。
+建议改法：声明 id 被替换时同步重映射 `fields` 键，或在 `declare` 与 `fields` 的 id 不一致时拒收并给出明确错误；覆盖固定字段冲突和自动生成 id 两种路径。
+### 4. 同一批新增字段后再 set，失败码偏离批处理合同
+严重程度：中；类别：合同与错误语义
+位置：`packages/nb-canon/src/world/entry-edits.ts:520-535,774-783`
+现象：批内 `fieldAdd` 只把字段写入草稿并记录 `Draft.fresh`；后续 `set` 的 fresh 检查发生在读取当前值前，但只认字段组、字段地址既有匹配项未覆盖实际新增字段 id。原世界视图也没有该字段，因此最终得到 `field-unavailable`，而非计划要求的 `created-in-batch`。
+为什么是问题：验收计划明确规定对刚加字段再 `set` 应报 `created-in-batch`，与“初值只能在声明它的操作中给”合同不一致；调用方因此收到泛化的不可用错误，无法识别操作顺序问题。
+如何核实：计划 `plan.md` 第 86、254 行已写明行为；审查时对照 `Draft.fresh` 与 `currentAt` 路径确认缺口。尚未用独立探针验证该批次，故运行时错误码为静态推断，不列为运行时已验证发现。
+建议改法：把本条降为未核实疑点，先补真实 `editEntries` 探针确认；若复现，登记新增字段的实际 id 并在读取前识别其创建操作，返回 `created-in-batch`。
+对编号 4 的定性更正：该批内 `fieldAdd` 后再 `set` 的现象没有运行时探针，属于静态推断；应视为“未核实的疑点”，不计入有效发现或严重程度数量。
+### 5. 声明数组重排时，新增的重复副本可能逃过按 id 计数的校验
+严重程度：高；类别：正确性
+位置：`packages/nb-canon/src/world/world.ts:1282-1303`
+现象：声明校验以旧列表的 `id -> 声明` Map 判定每条新声明是否变化；一个原样旧声明加一份完全相同副本时，两份都能匹配同一旧项，`rewritten` 为空，因此重复 id 未报错、写入发布成功。
+为什么是问题：有效声明 id 必须唯一；读取、补丁与字段查找按 id 选择单项，而声明数组会保留两项，造成持久数据与读取语义分歧。已有测试将错误码列表先转 `Set`，还会隐藏重复错误数量。
+如何核实：真实 `World.publish` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-duplicate-id.ts` 复制既有声明后得到 `ok:true`；对应测试 `instance-fields.test.ts` 第 138-140 行未覆盖完全相同副本。
+建议改法：用多重集逐份消费旧声明匹配次数，超额副本作为新声明并拒收；测试精确断言错误数量与路径，不去重。
+### 6. Agent 不能给新建数值字段提供非空初值
+严重程度：中；类别：可用性与写入合同
+位置：`packages/nb-canon/src/core/schema.ts:411`；`packages/nb-canon/src/world/entry-edits.ts:774-783`；`packages/nb-canon/src/world/world.ts:1415-1417`
+现象：`fieldAdd` 接受可选 `value`，但操作没有 `initBasis`/依据字段；Agent 写入非空精确数值会被世界层以 `number-without-basis` 拒收。操作省略值可以成功，作者写数值也不受严格依据约束。
+为什么是问题：计划要求 Agent 有 `addField` 且可带初值；数值字段的非空初值又受 Agent 严格依据合同约束。当前新操作既不提供依据输入，也没有给新字段数值提供依据的路由，Agent 无法在声明字段时写入这类初值。
+如何核实：真实 `editEntries` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-agent-new-field-number.ts`：Agent 的 `fieldAdd` 无值成功，值为 `0` 返回 `number-without-basis`，值为 `null` 成功。另对照 schema：`fieldAdd` 仅有 `field` 与 `value`，不含依据。
+建议改法：为该操作提供与初值合同一致的依据输入/写入路径，或明确禁止数值初值并调整公开合同；补 Agent 数值字段添加的端到端行为测试。
+### 7. 恢复组件时传入 declare 会静默丢弃字段声明
+严重程度：低；类别：错误语义
+位置：`packages/nb-canon/src/world/entry-edits.ts:760-768`
+现象：当组件已存在但 `removed:true` 时，`component add` 分支只清除组件 removed 标记并合并 `fields`，不消费 `op.declare`。新组件分支才把 `declare` 传给 `namespaceData`。
+为什么是问题：同一公开操作接受 `declare`，但恢复分支静默忽略它；若调用方期待恢复时顺便声明字段，成功结果与输入不一致。不过计划描述的是“新加设定组的字段写在该操作里”，恢复是旧组件复用数据，这种输入是否应被支持尚无明确合同。
+如何核实：真实 `editEntries` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-entry-edit-edges.ts` 对已移除组件执行 `component add` 并附 `declare`，返回成功但声明列表未变化；`fieldAdd` 后续因旧 id 仍占用而生成替代 id。
+建议改法：未核实的疑点：确认公开合同是否允许恢复时同时 `declare`；若允许，恢复分支需合并声明并遵循字段校验；若不允许，应拒绝带 `declare` 的请求而非静默忽略。
+### 8. 改名已移除字段会成功但不改变任何可见字段
+严重程度：低；类别：错误语义
+位置：`packages/nb-canon/src/world/entry-edits.ts:786-806`
+现象：`fieldRename` 只检查实例声明是否存在，不要求字段未移除；对已移除字段改名会更新被隐藏声明，返回成功，`removed:true` 仍保留。
+为什么是问题：作者可在隐藏字段上完成不可见改名，条目读取只公开 removed 字段的 id 与 label，是否应允许改名没有明确写入合同。它不破坏数据，但可能造成无效操作或误导性成功。
+如何核实：真实入口探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-entry-edit-edges.ts` 通过 `editEntries` 改名 removed 字段，结果成功且声明仍为 `removed:true`、label 已变化。
+建议改法：未核实的疑点：确认产品是否允许管理已移除声明的名字；若不允许，将其视为 `field-missing`；若允许，确保读取接口/恢复界面会显示改后的名称。
+### 9. 换用新 kind 重新声明时，旧剧情补丁保留但整条记录变成不完整
+严重程度：高；类别：兼容与数据完整性
+位置：`packages/nb-canon/src/world/world.ts:1403-1412`；`packages/nb-canon/src/model/apply.ts:301-319`
+现象：字段 `x:text` 有值和一条 `set` 补丁；去掉声明后，把同一 id 重新声明为 `boolean`，并把初值改成 boolean。世界层允许发布，旧补丁继续指向 `x`，回放时因补丁值仍为 string 而整条剧情变更 `type-mismatch`、字段被标记不完整。
+为什么是问题：重新声明同 id 的合同要求校验留存值，但实例字段操作设计选择“去掉后 id 保留、恢复是取消 removed”，不应把已去掉字段变成另一种 kind。当前世界层把 kind 变更视为普通修改，值校验只看新初值；不会检查旧补丁形状，故计划承诺避免的旧补丁失效仍可由直接世界写入触发。公开 `fieldRestore` 本身只取消 removed，不会改 kind，因此影响限于可写入条目初值的直接写入者。
+如何核实：真实 `World.publish` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-restored-kind-bypass.ts`：先发布旧 `set`，去掉字段，再以 `boolean` 重新声明并修改初值；发布成功，`engine.detail("c1")` 返回 `applied:false, reason:"type-mismatch"`，读回值 incomplete。
+建议改法：对既有实例声明禁止改变 `kind`（包括 removed 项），仅允许 `fieldRestore` 恢复原种类；若确需改 kind，须作为迁移处理并验证所有存量补丁。
+### 10. 测试没有覆盖重声明 kind 改变后存量补丁的回放结果
+严重程度：中；类别：测试缺口（对应第 9 条）
+位置：`packages/nb-canon/tests/instance-fields.test.ts:199-203`；`packages/nb-canon/tests/entry-edits.test.ts:283-300`
+现象：现有值重验测试覆盖登记类型变化与“重新声明值不符合新声明”的错误，但未覆盖去掉后用不同 kind 重新声明、同步改初值使声明校验通过、旧补丁仍按旧值形状回放的组合。
+为什么是问题：这种情况下 publish 成功但历史剧情变更变为不完整，属于可观察状态回归；仅断言写入值类型不能发现。
+如何核实：第 9 条探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-restored-kind-bypass.ts` 已经真实复现；此处记录相应测试缺口，不另计为独立实现发现。
+建议改法：补覆盖 removed 字段 kind 不可变以及存量补丁回放仍有效的行为测试；回归测试必须观察 `detail` 和字段 incomplete 状态。
+### 11. 字段值形状失败路径丢失对应的批次操作序号
+严重程度：低；类别：错误定位
+位置：`packages/nb-canon/src/world/entry-edits.ts:68-73,774-783,910-920`
+现象：`fieldAdd` 没把新声明路径登记到 `EntryPlan.targets`；当该操作提供与声明 kind 不符的初值时，世界层按 `init.data.<namespace>.fields.<id>` 报错，`checkPlan` 因找不到目标路径无法补上 `op` 序号。
+为什么是问题：`revisions.md` 输出 25 要求校验细项的 `path` 写 `ops[N]`；Agent 工具也依赖项序号将失败定位到输入编辑。当前错误仅指向合成条目字段。
+如何核实：真实 `editEntries` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-field-add-error-location.ts` 新增 text 字段并给 number 值，返回 `type-mismatch` 路径 `init.data.panel.fields.备注`，没有 `op`。
+建议改法：在 `fieldAdd` 规划时记录候选声明字段值对应的 `Target`，并让世界层路径映射回该操作；加一项类型错误场景断言 `op` 与错误路径。
+### 12. 未启用命名空间的已移除字段不在 removedFields 中
+严重程度：低；类别：读取合同
+位置：`packages/nb-canon/src/service/service.ts:456-463`；`packages/nb-canon/src/engine/views.ts:70-76`
+现象：`WorldService.entry` 只遍历 `view.namespaces` 构造 `removedFields`；未启用、尚未启用或整个组件已去掉时，命名空间先从视图中省略。存着的 removed 实例字段也不会出现在 `removedFields`，虽然初值里的声明仍在。
+为什么是问题：计划把 `removedFields` 定为命名空间到去掉过的各项，并称它与 `removedComponents` 类似；如果它是条目级恢复清单，受读取位置启用状态筛选会让界面无法发现可恢复项。若展示只需服务已可见组，则当前行为可能是预期；尚无动态界面证据确认影响。
+如何核实：真实 `WorldService` 探针 `/tmp/review-w00039-t41-impl/lab/omp/repro-removed-fields-disabled.ts` 发布 `enabled:false` 且有 `removed:true` 声明的面板，`entry` 返回 `namespaces:{}`、`declarations:{}`，没有 `removedFields`。
+建议改法：未核实的疑点：先定 `removedFields` 是否应独立于当前剧情位置；若是，从存储条目的登记命名空间构造列表，并测试启用前、去掉整组与版本不符。
+
+## 编号校订
+
+- **第 4 条撤回，不是待验证缺陷。** `entry-edits.test.ts:338` 就是 `fieldAdd` 后紧接 `set`，精确断言 `created-in-batch`，已在上一轮通过。`repro-edit-contracts.ts` 经真实入口测试相邻的“新增后紧接改名”，也得到 `created-in-batch`。前文将设计初稿的缺口误当作当前实现行为。
+- **第 5 条与第 1 条是同一发现。** 探针只在已有一条声明时复制相同副本，没有证明单纯重排会触发问题。只计第 1 条。
+- **第 10 条并入第 9 条**，只作回归测试建议，不另计。第 9 条只确认直接 `World.publish` 同时取消标记、换 `kind` 和改初值时会破坏旧补丁回放；正常 `fieldRestore` 不接受新 `kind`。
+- **第 2、3 条的证据边界。** 第 2 条确认在同版本登记升级后的读取结果与其他字段写入结果，不断言基线的读视图此前没有这一冲突。处理冲突时不应重新锁死同组的无关字段。第 3 条确认 `fields` 仍写到原 id；输入同时可能是在写固定字段，不能一概自动搬值，应先明确映射合同或拒绝歧义。
+
+## 未核实的疑点
+
+- **第 7 条：** 恢复组件时 `declare` 被忽略已复现；计划只明确了新加组应携带声明，恢复分支是否应拒绝或接受 `declare` 未定。
+- **第 8 条：** 已移除声明的名称确实改变，移除标记没变；没有合同禁止改隐藏声明的名字，也没有核实恢复界面的后果。不把它说成无效写入。
+- **第 12 条：** 未启用组不报 `removedFields` 已复现；未确定恢复清单是否应该跨读取位置，也未跑应用界面确认入口。
+- `repro-restored-invalid-shape.ts` 的空显示名被接受；声明形状使用 `Text`，没有核实显示名非空是内核合同，不报校验缺陷。`repro-schema-shape.ts`、`repro-shape-removed.ts` 只证明原始 schema 宽于语义校验，不证明真实发布或登记放行。
+- 旧分叉在去掉 carry 字段后仍在记录中，初值修改发布成功且主线隐藏该字段（`repro-field-remove-cross-line.ts`）。子线读回探针没取到有效线 id，未核实旧分叉读取、只改文字与恢复字段后的 carry；不能用发布成功替代子线证据。
+- 字段目录在套补丁、出视图、遍历引用等路径重复合成；只核对了代码路径，没测开销，不报性能回退。未实跑的变异不作已杀死的变异计。
+
+## 未发现问题的方面
+
+以下只覆盖已跑的场景，不外推到未测组合：
+
+- 普通实例字段的增、改名、去掉与恢复：既有测试覆盖稳定 id、保留初值、恢复后读回、同批冲突与 `created-in-batch`。经 `World.publish` 去掉一个仍被生效声明用作 `max` 的字段，探针被 `field-referenced` 拒收。非冲突的新建加声明及独立 `fieldAdd` 换用新 id 后的值写入也符合预期。
+- 原样补丁容忍：既有测试覆盖去掉字段、去掉组以及旧派生依据跳过；新补丁、超过旧计数的副本、重新安放、待定转生效仍拒收。另两份探针对新写的未声明字段分别得到 `unknown-field:patches[0]` 与 `unknown-field:patches[1]`，错误下标对应输入位置。未实跑变异，不把这些验收结果等同于变异覆盖。
+- 声明形状与引用：既有真实入口测试覆盖非法字段 id、固定字段与列表子字段上的移除标记，以及实例引用字段的移除与恢复。直接给新分叉加已移除字段的 carry 地址得到 `invalid-fork`；既有分叉的子线读回仍属上面的未核实范围。
+
+上一轮实跑：在 `packages/nb-canon` 内执行 `bun test tests/instance-fields.test.ts tests/entry-edits.test.ts tests/entry-edits-service.test.ts tests/worldlines.test.ts`，`101 pass, 0 fail, 427 expect() calls`。本轮仅写报告，没有重跑测试、变异或探针；没有全量测试与类型检查结果。
+
+## 有效发现：按影响排序
+
+| 顺序 | 编号 | 严重程度 | 影响 |
+|---|---|---|---|
+| 1 | 3 | 高 | 携带声明新建时，实例字段初值可能落进固定字段 |
+| 2 | 9 | 高 | 直接发布时改种类并取消移除标记，可让旧剧情变更整条套不上 |
+| 3 | 2 | 高 | 同版本的固定字段与实例字段撞 id 时，固定声明读到旧种类的值 |
+| 4 | 1 | 重要 | 世界层收下已有声明的相同副本，破坏 id 唯一性 |
+| 5 | 6 | 中 | Agent 的 `fieldAdd` 无法为非空精确数值提供必需依据 |
+| 6 | 11 | 低 | 字段初值校验失败未对回操作序号 |
+
+各级数量：高 3，重要 1（沿用第 1 条原评级），中 1，低 1。有效发现共 6 条，编号 **1、2、3、6、9、11**。第 7、8、12 条是行为已复现但合同未核实的疑点；第 4 条撤回，第 5、10 条合并，不重复计数。

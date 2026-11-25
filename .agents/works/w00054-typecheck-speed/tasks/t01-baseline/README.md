@@ -24,3 +24,7 @@ updated: 2026-11-24
 ## 下一步
 
 开工时先看 `packages/*/package.json` 的 `typecheck` 脚本与各 `tsconfig`，写 `plan.md`，再量。结果写进 `evidences/baseline.txt`。起因与 TypeScript 7.0 的背景见 Work README。
+
+## 顺手量到的一次（2026-11-25，w00046 t23 的 worktree）
+
+`packages/neuro-book` 的 `bun run typecheck`（tsc、vue-tsc 两个 web 配置）墙钟 7 分 18 秒，用户态 430 秒；当时机器负载约 10（别的会话在跑），所以只能当上界参考，t01 要在空闲时重量。

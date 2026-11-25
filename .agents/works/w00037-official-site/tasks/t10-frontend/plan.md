@@ -103,7 +103,7 @@ Spec 与 Task 记录的改动（第 4 节）由主会话在主工作区 master �
 | 账号 `/account` | `GET me`、`PATCH me`、`POST me/password`、`GET me/sessions`、`DELETE me/sessions/:id`、`GET me/identities`、`DELETE me/identities/:id`、`POST social/:provider/start`（意图 `link`，带当前密码）、`GET`/`POST`/`PATCH me/invite-codes`、`GET`/`DELETE me/grants`（依赖 t08 改写） | 每一节自己的状态行：资料一节 `email_taken`、`validation_failed` 标字段；密码一节 `invalid_credentials` 标旧密码、`rate_limited` 倒计时；关联 `last_login_method`、`identity_taken`、`identity_exists`；邀请码 `invite_code_limit`。“退出其它所有设备”逐个 `DELETE`，有失败时状态行写“结束了 N 个，M 个没结束”，列表重取 |
 | 授权确认 `/oauth/consent` | `GET oauth/authorization`、`POST oauth/authorization`（依赖 t08 改写） | `authorization_expired`：卡片换成“这次授权请求已过期，回到应用重新发起”；其它失败写状态行 |
 | 看板 `/admin` | 六个查询接口（t11） | 每块面板自己的出错状态，在面板的固定高度里（3.5） |
-| 四个列表页 | `site.admin` 与 `site.oauth-provider` 的列表与操作 | 取列表失败：数据表格的出错状态；操作失败：操作对话框的 `status`（`self_forbidden`、`last_admin`、`not_found`、`validation_failed`）；`forbidden`：走统一处理 |
+| 四个列表页 | `site.admin` 与 `site.oauth-provider` 的列表与操作 | 取列表失败：数据表格的出错状态；操作失败：操作对话框的 `status`（`self_forbidden`、`not_found`、`validation_failed`）；`forbidden`：走统一处理 |
 
 各页的 `unauthenticated`、`consent_required` 都走 3.2 的统一处理，不在页面上显示。
 
@@ -134,7 +134,7 @@ Spec 与 Task 记录的改动（第 4 节）由主会话在主工作区 master �
 
 给 t07（`nb-site-identity-contract`，账号与管理）：
 
-1. 失败码：`IDENTITY_FAILURE_CODES`（`site.accounts` 失败表里有 HTTP 状态的全部码，加 `site.admin` 的 `forbidden`、`not_found`、`self_forbidden`、`last_admin`）与类型 `IdentityFailureCode`；`SOCIAL_ERROR_CODES`（输出 23 能出现在 `social_error` 里的七个码）。要是运行时的常量数组，不只是类型：目录覆盖测试要遍历它。
+1. 失败码：`IDENTITY_FAILURE_CODES`（`site.accounts` 失败表里有 HTTP 状态的全部码，加 `site.admin` 的 `forbidden`、`not_found`、`self_forbidden`）与类型 `IdentityFailureCode`；`SOCIAL_ERROR_CODES`（输出 23 能出现在 `social_error` 里的七个码）。要是运行时的常量数组，不只是类型：目录覆盖测试要遍历它。
 2. 错误体 `ErrorBody`：`{error: {code, fields?: string[]}}`，`fields` 的元素是请求体的键名（S9）。
 3. 字段规则常量：用户名的长度上下限与字符集、显示名、邮箱、密码、网址、签名的长度；前端拿来做输入上限与“提交按钮不可用”。从 TypeBox schema 的 `minLength` 读也行，但单独导出的常量更好读。
 4. 请求与响应的 schema：`RegisterRequest`（含显示名、可选邀请码、条款版本、境外存放的同意）、`LoginRequest`（加 t08 的继续令牌，S1）、`LoginResponse`（公开资料，加继续地址，S1）、`PublicProfile`、`WhoamiResponse`（三种状态）、`MeResponse`（公开资料加邮箱、是否有密码、邮箱是否待补、是否还缺同意）、`PatchMeRequest`、`ChangePasswordRequest`、`ConsentRequest`、`SessionItem`（含“浏览器标识的概要”的确定形状，S6）、`IdentityItem`（id、上游名、上游账号的名字、关联时间）、`InviteCodeItem`（码、建立时间、已用次数、可用次数或空、过期时间或空、是否还能用）、`MetaResponse`（条款版本，S5；注册是否开放；各上游是否开放）。
@@ -534,7 +534,7 @@ A2 之后派前端审查（Sonnet），审查处理完合入 master。官方站�
 | 输出 24 | 已关联账号一行显示上游名与上游账号的名字 | 账号页 dom 测试 |
 | `site.admin` 输出 1 | 普通用户进 `/admin/*` 去 `/account`；接口回 `forbidden` 时重取身份再分派 | 守卫 `bun test`；B10 |
 | 输出 4 | 新密码只在对话框里显示一次 | 用户页 dom 测试 |
-| 输出 5、6 | `self_forbidden`、`last_admin` 写在对话框的状态行 | 用户页 dom 测试 |
+| 输出 5 | `self_forbidden` 写在对话框的状态行 | 用户页 dom 测试 |
 | 输出 9 | 同一次翻页沿用 `anchor`，换筛选、换搜索、刷新时重来 | 列表查询状态 `bun test` |
 | 输出 10 | 页码越界时改到最后一页 | 列表查询状态 `bun test` |
 | `site.oauth-provider` 输出 4、5 | 续接后回到授权请求；确认页的同意与拒绝；过期时的整卡片状态 | 授权确认页 dom 测试；B10 若 t08 的仿真客户端可用（依赖 t08 改写） |
@@ -700,3 +700,25 @@ Spec 改动清单的处理：
 给 t07、t08、t11 的合同包要求（3.2）已分别记进各自的 README；统计的合同包里前端要的只有看板那部分，归 t11。
 
 开工顺序：段 A（nb-ui 的“分页”与“数据表格”）现在就做，在分支 `feat/w00037-t10-nb-ui` 上，前端审查之后先合入 master。B1 等 t05 的前端骨架合入官方站分支后开；B5 在 B1 之后。其余各片等对应的合同。
+
+## 段 A 实现审查的处理（2026-11-24）
+
+段 A（nb-ui 的 `Pagination`、`DataTable`、`Table.stickyHeader`）做完后提交在分支 `feat/w00037-t10-nb-ui`（`0c4f222e8`、`8d89ae100`、`3c556e48b`）。审查者：一个 Sonnet 子代理，只读，在仓库外用真实 Chrome 跑了实验与变异；报告 [`evidences/a-impl-review-sonnet.txt`](evidences/a-impl-review-sonnet.txt)，13 条（重要 8、建议 5，没有阻断）。**与前文 3.4 冲突的地方以本节为准。**
+
+| 条 | 发现 | 处理 |
+|---|---|---|
+| 1 | 键盘连按“下一页”到末页时箭头变成不可用，焦点掉回 body；整条变不可用时同样 | 改。焦点原先在条里、现在落在条外或落在不可用的按钮上时，移到当前页的格子；整条不可用时没有可聚焦的格子，焦点留给使用方（写进 `.md`）。补用例：焦点在“下一页”、连点到末页 |
+| 2 | 页码越界且这一页没有行时，表格区写“暂无数据”，页脚却写“第 61 到 65 条” | 改。条数的区间按这一页实际拿到的行算：没有行（且不在加载）时只写“共 N 条”，有行时终点是起点加行数减一。“删到最后一页没有行时回退页码”是使用方的事，写进 `.md` |
+| 3 | 点“重试”后焦点掉回 body；翻页加载的遮罩只挡指针，键盘还能走到被盖住的行内按钮 | 改。出错层消失时焦点若在层里，移到表格区（`tabindex="-1"`，不滚动）；遮罩期间表格区的行加 `inert` |
+| 4 | 容器矮时居中的状态层比表格区高，溢出去盖住页脚，“重试”落在页脚上 | 改。状态层自己可滚动，内容比表格区高时从顶部排起；`.md` 写明放得下状态层的最小高度；Lab 加一个矮画布的出错场景并断言按钮在表格区之内 |
+| 5 | 根上的 `container-type: inline-size` 让组件在 flex 行、自动宽度的上下文里宽度塌成 0 | 改。容器挪到页脚那一条上 |
+| 6 | 390 宽时页脚的条数被截成“共 1,28…” | 改。窄时页脚折成两行（条数一行、分页条一行），不要省略号；高度随宽度变、不随状态变。桌面宽的样子（开发者在评审板上同意的）不变。Lab 的英文场景加 390 宽并断言条数没被截断 |
+| 7 | `:deep(td)` 的不换行会作用到使用方放进单元格的一切，也没法逐列关掉 | 改。`Table` 加 `nowrap`（缺省假，现有行为不变），列的定义加 `wrap`（这一列例外）；`DataTable` 传 `nowrap`，去掉 `:deep`。两个组件都还没合入，现在改属性不算破坏 |
+| 8 | 加载延时、清定时器、翻页回顶、不换行都没有用例守着；“位置不变”的几何测量只在仓库外的脚本里 | 部分改。入库两条浏览器用例：分页 100 页连点“下一页”时整条的宽度与两个箭头的位置不变；`DataTable` 六个场景的工具条与页脚的位置、高度相同。回顶与不换行随第 12、7 条各补一条 dom 用例。加载延时的三条（延时改成 0、不清定时器、卸载不清）不补：要测“没出现”只能用假计时器或固定时长的等待，仓库的测试规则两样都不许；它们由实现者在开发服务上点过的那一遍与 Lab 的两个加载场景覆盖，记为接受的缺口 |
+| 9 | 分页格的悬停比相邻的箭头淡得多，没有按下态 | 改。悬停与箭头一致，加按下态 |
+| 10 | 工具条的高度依赖宿主的 `box-sizing` | 改。显式写 `border-box`（官方站是另一个宿主，不带应用的那份重置） |
+| 11 | 传给根的高度、底色、圆角的类被组件的样式压住 | 只改 `.md`：尺寸由父容器给，这几样不能用类覆盖 |
+| 12 | 换筛选或搜索（页码不变）时表格区不回到顶部 | 改。回顶的时机从“页码变了”换成“行换了一批”（`rows` 的引用变了）：新行到了才回顶，翻页加载期间旧行不会先跳一下 |
+| 13 | 使用方要自己记住的取数约定有六点，`.md` 只零散提到 | 改 `.md`：集中写一节“使用方的取数约定”，带一个短的例子。官方站四个列表页共用的那一段由 `nb-site-web` 自己写一个组合函数收口（段 B 做管理面板时），nb-ui 不收 |
+
+实现者自报的两处（窄宽条数被截、重试后焦点丢失）就是第 6、3 条。修正在同一个分支上单独提交；核对后合入 master。

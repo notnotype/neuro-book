@@ -90,7 +90,7 @@
 
 `planEntries` 里的做法（改的是条目初值的工作副本，路由是 `entry`）：
 
-- `fieldAdd`：写了 id 就先用它，没写就按显示名生成；这个 id 已经占着（任何声明用着，或照 `usedElementIds` 的先例，初值里留着这个键、任何剧情变更的补丁指过它）时换一个生成的，不拒收（预设带写死的 id，作者先自己加过同 id 的一项时照样加得上）。数据里还没有 `declared` 时先补空数组；`value` 不写是未知。
+- `fieldAdd`：写了 id 就用它，这个 id 已经占着（任何声明用着，或照 `usedElementIds` 的先例，初值里留着这个键、任何剧情变更的补丁指过它）时拒收 `id-taken`；没写就按显示名生成、避开占着的。（原稿是占着时换一个生成的、不拒收；实现审查指出调用方按自己给的 id 接着写会写到别的字段上，2026-11-25 改。）数据里还没有 `declared` 时先补空数组；`value` 不写是未知。
 - `fieldRename`、`fieldRemove`、`fieldRestore`：只能动实例声明的；指到类型固定的字段：`field-fixed`；没有这个声明、去掉已经去掉的、恢复没去掉的：`field-missing`。
 - 同一批里：两项 `fieldAdd` 可以并存；`Draft.fresh` 另记这一批新加的字段，对它再 `set` 在取当前值之前就得到 `created-in-batch`（现在的 `fresh` 只认设定组与列表元素）；同一个字段既改名又去掉、或既 `set` 又去掉得到 `duplicate-address`（后三个操作的地址就是字段地址，`fieldAdd` 用 `$declared.<命名空间>[+序号]`）。
 - 只在创作修改里有意义：`intent` 是 `story` 的一批里照样按改初值处理，同 `component`、`place`。
@@ -124,7 +124,7 @@
 
 - **`digest` 只含影响计算的部分**：`kinds`、`presets` 不进；算 `digest` 时把字段声明里的 `suggestions` 去掉（子字段的也去掉）。`digest` 是“要不要整本重算、丢掉已建的子线视图”的判据，这三样都只是提示。登记变了的通知不靠它（服务比的是整份类型，`service.ts` 的 `setRegistries`），界面照样会重读。Agent 的读取戳只含类型 id 与版本，同一版本里改了这三样不会让它读到的戳失效，接受。
 - `fieldsProblem` 补一条：`suggestions` 只用于 `text`（子字段同样查）。
-- **预设是加的时候用的模板，不是持续的约束**：加上以后就是这个条目自己的声明，类型以后改了、撤了某个预设都不影响已经加的。点预设时把它的 id 交给 `fieldAdd` 作首选，占着就换一个生成的（设计一）。界面上，预设的 id 在这个条目上已经有生效的声明时不列；去掉过的列在“恢复”。
+- **预设是加的时候用的模板，不是持续的约束**：加上以后就是这个条目自己的声明，类型以后改了、撤了某个预设都不影响已经加的。点预设时，它的 id 在这个条目上没被占（不在生效与去掉过的声明里）就把 id 交给 `fieldAdd`，占着就不给 id、按显示名生成（设计一：给的 id 占着时拒收）。界面上，预设的 id 在这个条目上已经有生效的声明时不列；去掉过的列在“恢复”。
 
 ### 三、内置类型与样本（`packages/neuro-book/src/plugins/canon/shared/components.ts`、`scripts/canon-sample.ts`）
 
@@ -163,6 +163,7 @@ interface EntryKindDeclaration {
   - 空状态的“新建人物”改走这张表，不再写死人物的类型 id；表里没有“人物”时这个按钮不出现，只剩“新建条目”。
   - 条目页的“添加一组设定”：还是一个下拉，适用于这个条目种类的排在前面，其余接在后面，不另加一层收起（审查指出登记的类型一共只有几个、nb-ui 的下拉也没有分组；与开发者确认过的“其余收进全部”有出入，记进待确认清单）。
   - Agent 的 `create`：见下一条。
+  - 条目页的分页顺序（评审板第 2 轮答复“人物在前”）：条目种类的默认设定组的数据分页排到“文字”前面，次序同命名空间的顺序；其余数据分页、附加分页、“情节”照旧。宿主的分页表按条目的种类查这张表，种类改了分页跟着重排，选着的分页不变。
 
 ### 五、展示组件的接口（`canon/shared/component-views.ts`、`canon/web/component-views.ts`、`components/EntryPageHost.vue`）
 
@@ -271,7 +272,7 @@ readonly removedFields?: readonly {id: string; label: string}[];
 | S1b | 内核四个写入操作、`declare`、id 的生成、`removedFields` | 一 | `nb-canon` 的 `entry-edits`、`revisions`、`author-reads` 几份测试，类型检查 |
 | S2 | 声明的三个属性；内置类型重整、形象、样本；迁移应用侧写死旧字段的测试 | 二、三 | `nb-canon` 的 `components`；应用的 `canon`、`plot` 插件测试与样本测试 |
 | S3 | 回执与 Agent 工具 | 八 | `agent-tools.test.ts`、`receipt-page.dom.test.ts` |
-| S4 | 种类的登记、新建对话框、添加一组设定 | 四 | `entries-view`、`NewEntryDialog`、`entry-page` 的 dom 测试 |
+| S4 | 种类的登记、新建对话框、添加一组设定、分页顺序 | 四 | `entries-view`、`NewEntryDialog`、`entry-page` 的 dom 测试 |
 | S5 | 展示接口、就地改的编辑器、`SuggestInput`、抽出 `useFieldDetail`、假的 context | 五 | `component-views`、`entry-page`、`ConfirmBar`、`FieldsDataView` 的 dom 测试 |
 | S6 | 图片端口、`CanonImage`、`ImageInput` | 七 | 各自的 dom 测试，Lab 场景 |
 | S7 | 人物、形象两个界面：展示层与绑定层（评审板第 2 轮答复以后） | 六 | 展示层的 dom 测试与 Lab 场景（含 390 宽与英文），绑定层在 `entry-page.dom.test.ts` |

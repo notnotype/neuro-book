@@ -1,0 +1,82 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t18-messages-float-window-im",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "消息视图浮成窗口：窗口头与切换控件",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "04caeb2be86c1ff900a320db750c4e9e02e2a4903535f3986ea5795cc8cacbb3",
+    "files": [
+        "index.html",
+        "r1/col-segmented-sessions.webp",
+        "r1/col-segmented.webp",
+        "r1/col-tabs-sessions.webp",
+        "r1/col-tabs.webp",
+        "r1/col-title-sessions.webp",
+        "r1/col-title.webp",
+        "r1/win-now.webp",
+        "r1/win-self-collapsed.webp",
+        "r1/win-self-sessions.webp",
+        "r1/win-self.webp"
+    ],
+    "questions": [
+        {
+            "id": "float-head",
+            "type": "single",
+            "label": "浮动窗的头画成哪样？",
+            "options": [
+                {
+                    "value": "workbench",
+                    "label": "A 现状"
+                },
+                {
+                    "value": "self",
+                    "label": "B 自绘头"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "self"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-switch",
+            "type": "single",
+            "label": "bot 与会话用哪种切换？",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "A 现状的下划线标签"
+                },
+                {
+                    "value": "title",
+                    "label": "B 标题式"
+                },
+                {
+                    "value": "segmented",
+                    "label": "C 分段控件"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "title"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T02:32:13.738Z"
+}

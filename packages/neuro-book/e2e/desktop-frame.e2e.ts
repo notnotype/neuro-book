@@ -50,11 +50,11 @@ test.afterAll(async () => {
 });
 
 /** 像桌面壳的预加载脚本那样：只读的能力标记、`<html>` 上的属性；再装一个记录消息的假发送函数。 */
-async function installFrame(page: Page): Promise<void> {
-    await page.addInitScript(() => {
-        Object.defineProperty(window, "__nbookDesktopFrame", {value: 1, writable: false, configurable: false, enumerable: false});
+async function installFrame(page: Page, kind: 1 | 2 = 1): Promise<void> {
+    await page.addInitScript((frameKind) => {
+        Object.defineProperty(window, "__nbookDesktopFrame", {value: frameKind, writable: false, configurable: false, enumerable: false});
         // 与预加载脚本一样：初始化脚本运行时 `<html>` 可能还没有，出现后再设。
-        const mark = (): boolean => document.documentElement !== null && (document.documentElement.setAttribute("data-desktop-frame", ""), true);
+        const mark = (): boolean => document.documentElement !== null && (document.documentElement.setAttribute("data-desktop-frame", frameKind === 2 ? "native-controls" : ""), true);
         if (!mark()) {
             const observer = new MutationObserver(() => void (mark() && observer.disconnect()));
             observer.observe(document, {childList: true});
@@ -62,7 +62,7 @@ async function installFrame(page: Page): Promise<void> {
         const messages: unknown[] = [];
         (window as unknown as {__shellSent: unknown[]}).__shellSent = messages;
         (window as unknown as {__electrobunSendToHost: (message: unknown) => void}).__electrobunSendToHost = (message) => void messages.push(message);
-    });
+    }, kind);
 }
 
 const sent = async (page: Page, type: string): Promise<unknown[]> => (await page.evaluate(() => (window as unknown as {__shellSent: unknown[]}).__shellSent)).filter((message) => (message as {type: string}).type === type);
@@ -125,6 +125,40 @@ test("工作台：窗口按钮贴住窗口右上角，右栏不压在它下面�
             expect(Math.abs(search.x + search.width / 2 - width / 2)).toBeLessThanOrEqual(1);
         }
     }
+});
+
+test("红绿灯留着（macOS，标记为 2）：不画窗口按钮，标题栏左端给红绿灯留 80px，搜索仍在窗口正中，空白处仍是拖动区域", async ({page}) => {
+    await installFrame(page, 2);
+    await page.setViewportSize({width: 1600, height: 800});
+    await openWorkbench(page);
+    await expect(page.locator("html")).toHaveAttribute("data-desktop-frame", "native-controls");
+    await expect(controls(page)).toHaveCount(0);
+    expect(await sent(page, "window-state-query")).toHaveLength(0);
+    expect(await region(page, "[data-workbench-titlebar]")).toEqual(["drag"]);
+    expect(new Set(await region(page, INTERACTIVE))).toEqual(new Set(["no-drag"]));
+    // 左栏里最靠左的部件不压在红绿灯的位置（0 到 80px）上；右栏没有给窗口按钮留位，最右的部件贴着标题栏的右内边距。
+    const firstStart = await page.$$eval("[data-workbench-titlebar] .workbench-titlebar__start > *", (elements) => Math.min(...elements.map((element) => element.getBoundingClientRect().left)));
+    expect(firstStart).toBeGreaterThanOrEqual(80);
+    const lastEnd = await page.$$eval("[data-workbench-titlebar] .workbench-titlebar__end > *", (elements) => Math.max(...elements.map((element) => element.getBoundingClientRect().right)));
+    expect(lastEnd).toBeGreaterThan(1600 - 40);
+    const search = await page.locator("[data-titlebar-search]").boundingBox();
+    if (search === null) throw new Error("没有搜索按钮");
+    expect(Math.abs(search.x + search.width / 2 - 800)).toBeLessThanOrEqual(1);
+    // 窄到标题栏要逐级让位：让位把红绿灯的留位算进去，左栏仍不压到红绿灯。
+    await page.setViewportSize({width: 700, height: 800});
+    await expect(titlebar(page)).toHaveAttribute("data-titlebar-level", /[1-5]/u);
+    expect(await page.$$eval("[data-workbench-titlebar] .workbench-titlebar__start > *", (elements) => Math.min(...elements.map((element) => element.getBoundingClientRect().left)))).toBeGreaterThanOrEqual(80);
+});
+
+test("红绿灯留着：“页面不存在”的后备标题栏，标志与标题让开左上角的红绿灯", async ({page}) => {
+    await installFrame(page, 2);
+    await page.setViewportSize({width: 1280, height: 800});
+    await page.goto(new URL("/nope", server.url).href);
+    await expect(page.locator("[data-page-not-found]")).toBeVisible();
+    await expect(fallbackBar(page)).toBeVisible();
+    await expect(controls(page)).toHaveCount(0);
+    const mark = await page.locator(".desktop-frame__mark").boundingBox();
+    expect(mark?.x).toBeGreaterThanOrEqual(80);
 });
 
 test("窗口按钮的命中区 34×36、关闭按钮到窗口右上角，按钮组宽等于留位；指针在命中区边角也点亮芯", async ({page}) => {

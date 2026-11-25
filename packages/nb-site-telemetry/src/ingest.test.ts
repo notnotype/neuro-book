@@ -102,6 +102,65 @@ describe("取不到来源地址（site.telemetry-ingest 输出 9 的前提，sit
     });
 });
 
+describe("发送方没发完请求体就断开", () => {
+    /**
+     * 照 Bun 在对端断开时的做法造请求：先 abort 请求的 signal，请求体的流再以 `AbortError` 出错（真实进程上的复现见
+     * w00037 t06 的 Task 记录）。`contentLength` 为真时带 `Content-Length`，读的是 `c.req.text()`；否则是分块传输，
+     * 由 `bodyLimit` 边读边数。
+     */
+    function abandoned(contentLength: boolean): Request {
+        const controller = new AbortController();
+        const half = new TextEncoder().encode(JSON.stringify(dailyBody()).slice(0, 40));
+        const body = new ReadableStream<Uint8Array>({
+            start(stream) {
+                stream.enqueue(half);
+            },
+            pull(stream) {
+                controller.abort();
+                stream.error(new DOMException("The connection was closed.", "AbortError"));
+            },
+        });
+        const headers: Record<string, string> = {"Content-Type": "application/json", ...(contentLength ? {"Content-Length": "400"} : {})};
+        return new Request(`http://telemetry.test${INGEST_PATHS.daily.slice(TELEMETRY_INGEST_PREFIX.length)}`, {method: "POST", headers, body, signal: controller.signal, duplex: "half"} as RequestInit);
+    }
+
+    it("按读不成请求体回 400 invalid_report、field 为 null，不抛给入口（入口会记成 error 行与 500）", async () => {
+        for (const contentLength of [true, false]) {
+            const response = await module.ingest.request(abandoned(contentLength));
+            expect({contentLength, status: response.status, body: await response.json()}).toEqual({contentLength, status: 400, body: {code: "invalid_report", field: null}});
+        }
+        expect(lines).toEqual([]);
+    });
+});
+
+describe("跨午夜的慢请求体（site.telemetry-ingest 输出 2：按读完请求体、写进库的那一刻记入）", () => {
+    /**
+     * 请求体分两块：第一块在午夜之前交出，第二块交出时时钟才跨过午夜。带 `Content-Length` 时由处理函数自己读请求体；
+     * 不带（分块传输）时由 `bodyLimit` 在进入处理函数之前读完，所以两种都要测：取时间挪到哪一步之前都该有一种失败。
+     */
+    it.each([true, false])("请求体读到一半时时钟跨过 UTC 午夜，回应的 serverDay 是新的一天（带 Content-Length：%p）", async (contentLength) => {
+        const midnight = Date.parse("2026-11-25T00:00:00Z");
+        now = midnight - 1000;
+        const encoder = new TextEncoder();
+        const text = JSON.stringify(dailyBody());
+        const halves = [encoder.encode(text.slice(0, 40)), encoder.encode(text.slice(40))];
+        let pulls = 0;
+        const body = new ReadableStream<Uint8Array>({
+            pull(stream) {
+                if (pulls === halves.length - 1) now = midnight + 1000;
+                stream.enqueue(halves[pulls]!);
+                pulls += 1;
+                if (pulls === halves.length) stream.close();
+            },
+        });
+        const headers: Record<string, string> = {"Content-Type": "application/json", ...(contentLength ? {"Content-Length": String(encoder.encode(text).length)} : {})};
+        const request = new Request(`http://telemetry.test${INGEST_PATHS.daily.slice(TELEMETRY_INGEST_PREFIX.length)}`, {method: "POST", headers, body, duplex: "half"} as RequestInit);
+        const response = await module.ingest.request(request);
+        expect({status: response.status, body: await response.json()}).toEqual({status: 200, body: {serverDay: "2026-11-25", duplicate: false, dropped: []}});
+        expect(pulls).toBe(halves.length);
+    });
+});
+
 describe("库被别的连接占着写（site.telemetry-ingest 输出 10）", () => {
     let release: () => void;
 

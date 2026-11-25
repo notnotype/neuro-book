@@ -1,9 +1,10 @@
 /**
  * `nb-site serve`（`site.operations` 输出 1 到 4、8、9 与状态表）。步骤按顺序写在 `serve()` 里，每步旁边写明它在收口的
- * `try` 之内还是之外、在开始受理请求之前还是之后。收口（`finally`）对每条退出路径都一样：断开 HTTP → 停定时任务 →
- * 按创建的相反顺序 `close()` 已建成的实例 → 关探测连接与库 → 放锁 → `site.stopped`。
+ * `try` 之内还是之外、在开始受理请求之前还是之后。收口（`finally`）对每条退出路径都一样：断开 HTTP → 不再开始新的任务运行 →
+ * 按创建的相反顺序 `close()` 已建成的实例（模块据此让正在跑的任务收手）→ 停定时任务、等正在跑的那一次 → 关探测连接与库 →
+ * 放锁 → `site.stopped`。
  *
- * 时限：排空在途请求用停止时限（从收到停止请求算起）；之后停定时任务、每个模块的 `close()` 各另有至多
+ * 时限：排空在途请求用停止时限（从收到停止请求算起）；之后每个模块的 `close()`、停定时任务各另有至多
  * `MODULE_CLEANUP_MS`，不与排空共用，排空用满时限时模块照样有时间收尾。停止期间再来一次信号时这几步都不再等。
  * 截止时刻都按单调时钟（`performance.now()`）算，墙钟回拨不会把它推后。
  */
@@ -169,9 +170,10 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
         // 收口：每条退出路径都走这里（受理之后的路径已不再受理）。
         // 断开还连着的：失败路径上没排空过；排空赢了时这一步什么都不做。
         if (server !== undefined) await server.stop(true);
-        if (!(await settlesBefore(scheduler.stop(), performance.now() + MODULE_CLEANUP_MS, stop.whenForced))) {
-            log.warn("job.stop_timeout", "scheduled jobs did not finish in time", {forced: stop.forced});
-        }
+        // 先 `close()`、后等定时任务：`close()` 是模块让自己正在跑的任务收手的唯一时机（统计模块在下一批之前停下），
+        // 反过来先等任务时，积压多的任务会跑满等任务的时限才轮到 `close()`。不再开始新的运行在停止请求一到时已经做了，
+        // 这里再做一次，盖住不经停止请求走到收口的路径：`close()` 之后不能再起新的运行。
+        scheduler.stopAccepting();
         for (const {module, instance, log: moduleLog} of created.reverse()) {
             if (instance.close === undefined) continue;
             // 强制之后也调用：每个建成的实例都要收到一次 close()；只是不再等它。
@@ -185,6 +187,10 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
             if (!(await settlesBefore(closing, performance.now() + MODULE_CLEANUP_MS, stop.whenForced))) {
                 log.warn("module.close_timeout", "module close() did not finish in time", {module, forced: stop.forced});
             }
+        }
+        // 关库之前等正在跑的任务 settle：`close()` 没管住、或不理会 `close()` 的任务还在用库。
+        if (!(await settlesBefore(scheduler.stop(), performance.now() + MODULE_CLEANUP_MS, stop.whenForced))) {
+            log.warn("job.stop_timeout", "scheduled jobs did not finish in time", {forced: stop.forced});
         }
         closeAll(probes);
         closeAll(dbs);

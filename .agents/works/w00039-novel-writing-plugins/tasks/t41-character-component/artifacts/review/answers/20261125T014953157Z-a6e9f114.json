@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t41-character-component",
+    "artifactId": "review",
+    "answerId": "20261125T014953157Z-a6e9f114",
+    "artifactVersion": 2,
+    "contentHash": "c65f88b054204bbbca2b7ffbf5e787b867382fb4d4cf8578196f4588caf48c33",
+    "submittedAt": "2026-11-25T01:49:52.220Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "person-tab": true,
+        "edit-flow": true,
+        "look-tab": true,
+        "add-and-new": true,
+        "tab-order": "person-first"
+    },
+    "comments": {},
+    "note": null
+}
