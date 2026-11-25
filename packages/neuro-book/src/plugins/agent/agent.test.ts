@@ -364,6 +364,37 @@ describe("插件 Profile 的引用只认声明（contributions.md 输出 26）",
     });
 });
 
+describe("目录随扩展的增减变化（contributions.md 输出 8、16）", () => {
+    test("引用的扩展的提供方激活、交出扩展后目录变可用并发目录事件；停掉后目录发事件", async () => {
+        const KEY = "test.needs.writer";
+        const declared = agentProfile(KEY, {name: "要扩展", description: "测试用", tools: {required: [], optional: []}, referencedExtensions: ["test.addon.ext"]});
+        const profiles: PluginDefinition = {id: "test.needs", entries: [defineEntry({id: "server", location: "server", activationEvents: [declared.activationEvent], contributions: [declared.contribution], activate: () => ({contributions: {
+            "agent.profiles": {[KEY]: defineProfile({id: KEY, version: "1", name: KEY, description: "测试用", system: "测试。"})},
+        }})})]};
+        const addon = agentExtension("test.addon.ext", {install: "on-request"});
+        const provider: PluginDefinition = {id: "test.addon", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup", addon.activationEvent], contributions: [addon.contribution], activate: () => ({contributions: {"agent.extensions": {"test.addon.ext": defineExtension({id: "test.addon.ext"})}}})})]};
+        const w = await world([profiles]);
+        const {client} = await w.window("catalog");
+        let events = 0;
+        const subscription = await client.events.profileCatalogChanged.subscribe({}, () => {
+            events += 1;
+        });
+        if (!subscription.ok) throw new Error(subscription.code);
+        const entry = () => w.service.profiles().find((profile) => profile.key === KEY);
+        expect(entry()).toMatchObject({status: "unavailable", problem: {code: "extensions-missing", extensions: ["test.addon.ext"]}});
+        const registered = await w.register(provider);
+        expect(registered.result.status).toBe("accepted");
+        // 后登记的提供方在下一次建会话时激活（输出 2），这时交出扩展。
+        const before = events;
+        expect((await w.service.create({profile: MAIN_PROFILE})).ok).toBe(true);
+        await waitUntil("目录发了事件", () => (events > before ? true : undefined));
+        expect(entry()).toMatchObject({status: "ok"});
+        const ready = events;
+        await registered.stop();
+        await waitUntil("停掉后又发了事件", () => (events > ready ? true : undefined));
+    });
+});
+
 describe("会话", () => {
     /** 会话锁还被持有吗：另开一个存储去打开它。 */
     async function locked(w: AgentWorld, id: string): Promise<boolean> {

@@ -5,6 +5,7 @@
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
+import {join} from "node:path";
 import {Type} from "typebox";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -17,6 +18,7 @@ import {heldCompaction} from "../testing/compaction.js";
 import {createTestSession, type TestSession} from "../testing/test-session.js";
 import {ABORT_GRACE_MS} from "../run/tools.js";
 import {createMemoryStore} from "../log/memory-store.js";
+import {createJsonlStore} from "../log/jsonl-store.js";
 import {createAgentHost, ExtensionRejected} from "./agent-host.js";
 import {complete} from "./complete.js";
 import {closeSession} from "./session.js";
@@ -839,6 +841,54 @@ describe("插件宿主", () => {
         expect(host.list().map((item) => item.id)).toEqual(["lab.count"]);
         expect((await session.snapshot()).readOnly).toBeNull();
         await host.close(session.id);
+    });
+
+    test("输出 57：开着的会话换上的新版 Profile 引用了还没提供的扩展：只读；提供方晚到后装上新版（不拿旧版解除只读）", async () => {
+        const model = createTestModel();
+        const onRequest = () => ({id: counter.id, plugin: "lab", declaration: {install: "on-request" as const}, implementation: () => counter as never});
+        let profile = defineProfile({id: "test.growing", version: "1", name: "g", description: "g", system: "旧版"}) as AnyProfile;
+        const host = createAgentHost({...hostEnv(model), profiles: {resolve: (key: string) => (key === profile.id ? profile : undefined)}});
+        const created = await host.create({profile: profile.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        profile = defineProfile({id: "test.growing", version: "2", name: "g", description: "g", system: "新版", referencedExtensions: ["lab.count"]}) as AnyProfile;
+        await host.profilesChanged([profile.id]);
+        await waitIdleWrites(session);
+        expect((await session.snapshot()).readOnly).toEqual({code: "dependency-missing"});
+        const late = onRequest();
+        host.extensions.prepare(late);
+        host.extensions.published(late);
+        await waitIdleWrites(session);
+        const snapshot = await session.snapshot();
+        expect(snapshot.readOnly).toBeNull();
+        expect(snapshot.extensions.map((item) => item.id)).toContain("lab.count");
+        model.script("答");
+        const sent = await session.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await session.waitRun(sent.value.runId);
+        expect(JSON.stringify(model.requests.at(-1)?.system)).toContain("新版");
+        await host.close(session.id);
+    });
+
+    test("输出 57：冷打开时宿主解析 Profile 抛错：打开失败、放掉会话锁，修好后能重开", async () => {
+        const store = createJsonlStore({root: join(root, `throwing-${String((commands += 1))}`)});
+        let broken = false;
+        const profile = defineProfile({id: "test.sometimes", version: "1", name: "s", description: "s"}) as AnyProfile;
+        const env = {...hostEnv(), store, profiles: {resolve: (key: string) => {
+            if (broken) throw new Error("profile code threw");
+            return key === profile.id ? profile : undefined;
+        }}};
+        const first = createAgentHost(env);
+        const created = await first.create({profile: profile.id});
+        if (!created.ok) throw new Error(created.code);
+        await first.close(created.value.id);
+        broken = true;
+        const second = createAgentHost(env);
+        await expect(second.open(created.value.id)).rejects.toThrow("profile code threw");
+        broken = false;
+        const reopened = await second.open(created.value.id);
+        expect(reopened.ok).toBe(true);
+        if (reopened.ok) await second.close(reopened.value.id);
     });
 
     test("输出 57：打开时缺依赖、之后 Profile 也解析不到，再来插件发布不把占位写进日志；Profile 换了版本回来后写一条 code-updated", async () => {

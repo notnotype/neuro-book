@@ -218,6 +218,8 @@ function pluginExtensionsFor(profile: AnyProfile, contributed: readonly Contribu
         else chosen.add(found);
     }
     const companions = contributed.filter((item) => item.onRequest === true && item.plugin !== null);
+    // 伴随项其余的硬依赖可以由 Profile 自带的扩展满足：与后面装配校验看的是同一个集合。
+    const own = new Set((profile.extensions ?? []).filter((extension) => typeof extension !== "string").map((extension) => (extension as ExtensionDefinition).id));
     for (let added = true; added;) {
         added = false;
         for (const item of companions) {
@@ -227,7 +229,7 @@ function pluginExtensionsFor(profile: AnyProfile, contributed: readonly Contribu
                 const dependency = chosenId(id);
                 return dependency?.onRequest === true && dependency.plugin === item.plugin;
             });
-            if (follows && dependencies.every((id) => chosenId(id) !== undefined)) {
+            if (follows && dependencies.every((id) => chosenId(id) !== undefined || own.has(id))) {
                 chosen.add(item);
                 added = true;
             }

@@ -41,7 +41,7 @@ export interface ProfileCatalogOptions {
 
 export class ProfileCatalog {
     readonly #published = new Map<string, Handle>();
-    readonly #merged = new WeakMap<Handle, AnyProfile>();
+    readonly #merged = new WeakMap<Handle, {readonly base: AnyProfile; readonly profile: AnyProfile}>();
     #user: UserProfiles | null = null;
 
     constructor(private readonly options: ProfileCatalogOptions) {}
@@ -59,6 +59,11 @@ export class ProfileCatalog {
             this.options.catalogChanged();
         },
     };
+
+    /** 扩展的发布或撤回：引用了它的 Profile 的可用性可能变了。 */
+    extensionsChanged(): void {
+        this.options.catalogChanged();
+    }
 
     attachUser(user: UserProfiles): void {
         this.#user = user;
@@ -136,16 +141,17 @@ export class ProfileCatalog {
      * 记下：内核按对象相等判断 Profile 没变，每次交一个新对象会让每次 `profilesChanged` 都把扩展摘下再装回。
      */
     #withDeclaredReferences(handle: Handle): AnyProfile {
-        const cached = this.#merged.get(handle);
-        if (cached !== undefined) return cached;
+        // 先经句柄取实现：入口停止中、撤回还没送达时它抛错（算解析不到），缓存不能绕过这一步。
         const implementation = handle.implementation();
+        const cached = this.#merged.get(handle);
+        if (cached !== undefined && cached.base === implementation) return cached.profile;
         const declared = handle.declaration.referencedExtensions;
         const own = implementation.referencedExtensions;
         if (own !== undefined && JSON.stringify([...own].sort()) !== JSON.stringify([...(declared ?? [])].sort())) {
             this.options.report("profile-references-mismatch", `profile ${handle.id} lists referencedExtensions in its implementation that differ from its declaration; the declaration is used`, {profile: handle.id, declared: declared ?? [], implementation: [...own]});
         }
         const merged = declared === undefined && own === undefined ? implementation : {...implementation, referencedExtensions: declared ?? []} as AnyProfile;
-        this.#merged.set(handle, merged);
+        this.#merged.set(handle, {base: implementation, profile: merged});
         return merged;
     }
 

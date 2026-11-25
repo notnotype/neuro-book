@@ -326,6 +326,10 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 能照着改的例子是 SDK 包里的 `examples/plugins/skill-pack`。
 
+### 给插件的 Profile 加上 Agent 模式
+
+插件用 `/agent` 的 `agentProfile(key, 声明)` 交 Profile 时，在声明里写 `referencedExtensions: ["nbook.agent.modes"]`，这个 Profile 的对话就有普通、讨论、计划三种模式（[Agent 模式](../../../docs/specs/agent/modes.md)）：输入框旁有模式控件，用户能切。工具里再列 `nbook.agent.switch-mode`，Agent 才能主动申请切换；只列这个工具、不写引用的，没有模式，也不显示控件。引用只认声明里写的，`defineProfile` 的实现里不用另写；引用的扩展没有插件提供时，这个 Profile 在选择列表里标“不可用”。规则见 [贡献点的“按需扩展”](../../../docs/specs/agent/contributions.md#输出与可观察行为)。
+
 ### 给 Agent 的代码一个全局对象
 
 Agent 有一个 eval 工具（[代码执行](../../../docs/specs/agent/eval.md)）：模型写一段 JS，在代码里调工具、批量做事。插件可以给这段代码一个全局对象，例如 `stats.count({text})`。能照着改的例子是 SDK 包里的 `examples/plugins/word-stats`。
