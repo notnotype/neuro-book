@@ -105,6 +105,38 @@
 - 真实页面：开发服务上不减弱动效走一遍浮动、归位、展开、拖宽、切容器，逐帧记录首中末帧；性能采样（长章、多编辑组、长会话列表），和现版比较；没有浏览器采样前不下帧率结论。
 - 未验证边界：Windows 桌面壳里的动效与读屏、触屏。
 
+## 测试分工
+
+大型任务，按用户级规则“测试与业务并行”分：主会话写业务代码与纯逻辑单测（预算算法、`rail` 字段的读入与往返、位置限制的提交出口），审子代理的 diff，跑合入前的大范围 e2e 与变异检查；Sonnet 子代理在 worktree `.worktree/w00043-t19-e2e`（分支 `w00043-t19/e2e`，从 Work 分支开）按 Spec 验收与 [`rail-states.md`](rail-states.md) 写黑盒 e2e、迁移辅助函数、登记 Lab 场景，跑用例并归类失败。
+
+| 段 | 派的时机 | 内容 |
+|---|---|---|
+| A | 计划审查期间（第 0 片之后） | 盘点受影响的 e2e 与辅助函数（右栏横入口条、并进入口条的头、消息视图的头像列与抽屉、宽窄版式）；迁移辅助函数；写停靠右轨的用例：在不在、入口带与按下、拒绝区松手取消、F6 顺序、位置限制的落点 |
+| B | 第 3–5 片提交后 | 跑 A 的用例并修；写展开、预算（验收 36）、轨宽手柄、切换容器、焦点交接、意图不漂移（验收 35）的用例 |
+| C | 第 6–7 片提交后 | 跑并修；写浮动（顶格、矩形不漂移、靠右夹取、浮动窗轨宽、验收 37）与消息视图（收着与展开、徽标、Esc、打开后焦点、最近会话不受筛选）的用例；登记 Lab 场景 |
+
+**元素标记约定**（主会话照它实现，子代理照它写用例）：
+
+| 标记 | 在哪 | 含义 |
+|---|---|---|
+| `data-rail="sidebar"` / `data-rail="auxiliarybar"` | 侧轨的根（`nav`） | 哪个区域的侧轨；右轨不在时没有这个元素 |
+| `data-rail-state="collapsed"` / `"expanded"` | 侧轨的根 | 此刻生效的展开状态（被预算拒绝时是 `collapsed`） |
+| `data-rail-joined` | 侧轨的根 | 和区域卡片相连 |
+| `data-tool-entry="<容器 id>"` + `aria-pressed` | 入口（沿用活动栏的） | 入口与按下 |
+| `data-rail-entries` | 入口带 | 唯一的落点带 |
+| `data-rail-segment="main"` / `"foot"` | 视图段的两个位置 | 工作台给视图的元素；视图段与底段的松手是取消 |
+| `data-rail-expand` + `aria-expanded` | 展开按钮 | 有“窗口太窄”时另有 `data-rail-too-narrow` |
+| `data-rail-handle` + `role=separator`、`aria-valuenow/min/max` | 轨宽手柄 | 只在展开时存在 |
+| `data-float-rail` | 浮动窗里视图画的视图段 | 顶格里有 `[data-panel-action="nbook.view.dock"]` |
+| `data-messages-segment` + `data-messages-segment-state="collapsed"` / `"expanded"` | 消息视图的视图段根 | 收着或展开的画法 |
+| `data-strip-contact="<key>"`、`data-strip-session="<id>"` + `aria-current` | bot 头像、会话方块（沿用现名） | 当前项 |
+| `data-messages-new-session` | 新对话 | |
+| `data-messages-open="bot"` / `"sessions"` | 底段两个按钮 | |
+| `data-messages-summary` | “全部 bot”的汇总徽标 | 有等你处理时另有 `data-messages-summary-waiting` |
+| `data-messages-list-panel`、`data-messages-switch` | 展开后的列表与切换行（沿用现名） | |
+
+去掉的旧标记：右栏的 `[data-region-strip=auxiliarybar]` 横入口条（底部面板的 `panel` 保留）、消息视图的 `data-messages-toggle`、`data-messages-strip`、`data-messages-layout` 的 `wide`/`narrow`。
+
 ## 不做与风险
 
 - 不做：左右对调（另开 Task）、左轨展开的入口、底部面板、插件 SDK、按消息内容搜索、普通会话的未读、拖会话出去浮动、悬停预览展开、新的快捷命令（只加“搜索会话”）。
