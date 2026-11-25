@@ -33,7 +33,7 @@ updated: 2026-11-25
 | Task | 内容 | 状态 |
 |---|---|---|
 | [t01](tasks/t01-design/README.md) | 设计与实现：`nbook.web-tools`（`web_search`、`web_fetch`、“搜索与网页”设置页），只接 DeepSeek | 完成：`4c0c25023` 合入 master，两份 Spec 晋升 |
-| [t02](tasks/t02-tavily-and-batch-search/README.md) | 接入 Tavily、设置页选一家、`web_search` 一次几条查询、插件 id 改回 `nbook.web` | `6824bf5dc` 合入 master；Spec 待晋升 |
+| [t02](tasks/t02-tavily-and-batch-search/README.md) | 接入 Tavily、设置页选一家、`web_search` 一次几条查询、插件 id 改回 `nbook.web` | 完成：`6824bf5dc`、`8a975d6fe` 合入 master，两份 Spec 晋升 |
 
 ## 后续
 

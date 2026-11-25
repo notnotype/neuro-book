@@ -1,0 +1,200 @@
+# w00052 t02 Spec 晋升前逐句核对（Opus，只读）
+
+对象：docs/specs/web/tools.md、docs/specs/web/settings-page.md 里的 planned 标记；实现范围 4879d03ab..6824bf5dc。
+路径缩写：web-tools/ 指 packages/neuro-book/src/plugins/web-tools/。
+本机运行：`bun test` tavily.test.ts、web.test.ts、search-store.test.ts、deepseek.test.ts 共 71 过 0 败；`bunx vitest run` SearchSettingsPage.dom.test.ts 17 过。
+e2e 与 *.llm.test.ts 没有运行，相关断言标“从代码判断”。
+类别：A 对得上（可去 planned）、B 没实现、C 与字面不一致、D 没有断言、E 实现合同与证据要改的写法。
+
+## A1 对得上：tools.md 26、27、46（服务 id `tavily`、选用的服务、配置项 `nbook.web/provider`）
+- 代码：web-tools/shared/providers.ts:6 `WEB_PROVIDERS = ["deepseek","tavily"]`；web-tools/shared/settings.ts:21-30 provider 的 schema 是两值联合、default "deepseek"、layers ["user"]；web-tools/backend/plugin.ts:65 `selected: () => settings.get(webSettings.settings.provider)`；web-tools/backend/tools.ts:197、260 每次调用取 `providers[selected()]`。
+- 断言：web.test.ts:399 三个配置项的 layers 都是 ["user"]；:402-404 改成 tavily 后 no-key 文字写 Tavily；:408、:412 搜索发到假 Tavily 且带 Tavily 密钥；:424-427 改回 deepseek 后发到假 DeepSeek，两边请求数各自对上；SearchSettingsPage.dom.test.ts:275 没写时选中 DeepSeek（缺省值）。
+- 结论：三处 planned 可以去掉。
+
+## A2 对得上：tools.md 50、54-57 与输出 17（远程合同的 `provider` 取 `tavily`）
+- 代码：web-tools/shared/contracts.ts:31-33 status 每家一条（deepseek、tavily，additionalProperties false）；web-tools/backend/settings-remote.ts:41、49、54 三个写方法先 `isWebProvider`，不认的得 invalid-value；:61 check 用请求里点名的那家。
+- 断言：web.test.ts:115 status 的形状含 tavily；:118-119 "exa" 与空串得 invalid-value；:406 setKey tavily 后 status 两家都有；:444-452 Tavily 的 check（no-key、ok、401 得 auth 带说明）与 clearKey，且 :453 没有请求发到 DeepSeek。
+- 结论：输入表那句与输出 17 的“planned：tavily”可以去掉。
+
+## A3 对得上（主体）：tools.md 37（`queries` 1 到 10 条；一条时缺省 8；几条时缺省 5、至多 10、给大了按 10）
+- 代码：web-tools/backend/tools.ts:82 `queries` 的 schema minItems 1、maxItems 10，:88 required；:83 count 1 到 20；:263 `queries.length === 1 ? (asked ?? 8) : Math.min(asked ?? 5, 10)`。
+- 断言：web.test.ts:206 一条、不给 count 时发 count 8；:473 三条时每条 count 5；:547 两条、count 20 时每条都发 10；:510 十一条得 error 且 :511 一个请求也没发。
+- 结论：缺省与上限都有能区分的断言。空数组、不给 `queries` 与旧参数 `query` 被拒没有断言，见 D1。
+
+## A4 对得上：tools.md 63（每条查询一次请求、几条同时发；有一条不合要求时整次 invalid-request、一条也不发）
+- 代码：web-tools/backend/tools.ts:269-272 发请求之前逐条调 `validateSearch`，有一条不收就返回 invalid-request（几条时详情前缀 `query i:`）；:280 `Promise.all` 同时发。
+- 断言：web.test.ts:464 `deepseek.holdUntil(3)`，三个请求都到了假端点才放行：一条一条发的话第一条一直挂着，用例会超时，所以能区分“同时发”与“串行发”；:506-508 第 2 条超过 128 码点时整次得 invalid-request，详情是 `query 2: …`；:509 两条查询加上错的日期也得 invalid-request；:511 这几次调用一共 0 个请求。
+- 结论：两处 planned 都可以去掉。
+
+## A5 对得上：tools.md 65（Tavily 搜索的请求）
+- 代码：web-tools/backend/providers/tavily.ts:100-108 请求体 `{query, max_results: count, search_depth: "basic", include_published_date: true}`，有站点时加 `include_domains`，after、before 写成 `start_date`、`end_date`；:109 发到 `<地址前缀>/search`；:15 `MAX_QUERY_CODE_POINTS = 1500`，:43 按码点数（`[...query].length`）比较；Bearer 头在 web-tools/backend/providers/http.ts:184。
+- 断言：tavily.test.ts:36-38 请求体与 Authorization 整体相等（含原生站点与日期参数、不拼 `site:`）；:40 不带过滤时没有这三个字段；:44-45 1,501 个非 BMP 字不发，:49-50 正好 1,500 个照发（按码点数，不是按码元）；web.test.ts:412 工具层同样的请求体。
+- 结论：可以去掉 planned。查询去首尾空白、查询为空与站点多于 300 个也会被拒，Spec 没写，见 C2。
+
+## A6 对得上（主体）：tools.md 66（几条查询时的文字结果）
+- 代码：web-tools/backend/tools.ts:235-246 `batchText`：第一行“来自 <服务名> 搜索，K 条查询。”，接着一行固定提示，每条一组，组头“查询 i：<查询>，N 条结果”或“查询 i：<查询>，没搜成：<原因>”（原因用输出 12 的 `failureText`）；:28 `BATCH_SUMMARY_LIMIT = 300`，:243 几条时用它截摘要。
+- 断言：web.test.ts:469 前三行逐字相等；:470-472 第 2 条的组头逐字写出原因，且排在第 3 条之前；:515-516 几条时摘要截到 300 字加省略号、不含第 301 个字。
+- 结论：可以去掉 planned。零个结果时组头写成“没有结果”，与“N 条结果”的字面不同，见 C1。
+
+## A7 对得上：tools.md 67（Tavily 结果的整理：摘要取 content，日期取 published_date 原样，分数取 score，没有站点）
+- 代码：web-tools/backend/providers/tavily.ts:49-69 `normalizeHits`：:56 网址不是 http 或 https 的丢掉（`httpHref`），:61 标题缺失用网址，:63 摘要取 `content`，:58 日期原样取 `published_date`，:59 分数取 `score`，没有 site 字段。
+- 断言：tavily.test.ts:70-73 整体相等：javascript: 网址被丢，空标题换成网址，日期是原样的 RFC 1123 串，分数 0.01 也保留（不按分数筛），结果里没有 `site`；web.test.ts:410 工具文字里日期原样、没有“站点：”。
+- 结论：可以去掉 planned。
+
+## A8 对得上：tools.md 68（结构值 `{provider, searches}`，`searches` 按查询的顺序，没搜成的是 `{query, error: {code, detail?}}`）
+- 代码：web-tools/backend/tools.ts:297 顶层调用只给文字；:298-299 结构值按 `searched` 的顺序（与 `requests` 同序），失败项是 `{query, error: {code, detail?}}`；:96 工具声明的 returns 同形状。
+- 断言：web.test.ts:481-485 eval 里三条查询（第 2 条回 401），结构值整体相等：provider 是 deepseek，顺序是甲、乙、丙，乙是 `{code: "auth", detail: "bad key"}`；:276 一条查询时 `searches[0].results[0]` 的字段整体相等；:199 顶层调用的 details 是 undefined。
+- 结论：可以去掉 planned。
+
+## A9 对得上：tools.md 74（Tavily 读取：/extract 的请求体、正文与标题、failed_results 得 not-found）
+- 代码：web-tools/backend/providers/tavily.ts:115 请求体 `{urls: [url], format: "markdown", extract_depth: "basic"}`、发到 `/extract`；:72-88 `pageOf`：正文取 `results[0].raw_content`，标题取它的 `title`，缺失时用网址；`results` 为空时在 `failed_results` 里按网址找这条，有就以它的 `error` 作详情（先遮盖、再截短）得 not-found；正文为空同样得 not-found。
+- 断言：tavily.test.ts:111-112 请求体与正文、标题整体相等；:114 标题缺失用网址；:127 只认这个网址自己的失败记录（列表里另一个网址的原因没被拿来），详情里的密钥片段被遮盖；:129-130 没有失败记录、正文只有空白都得 not-found；:131-132 形状不对得 bad-response；web.test.ts:415-417 工具层发到 Tavily，网址按解析后的写法发出（`a%20b`）。
+- 结论：可以去掉 planned。
+
+## A10 对得上（断言区分力有限）：tools.md 81（一次搜几条查询时共用一个截止）
+- 代码：web-tools/backend/tools.ts:273-282 只有一个 `withDeadline(context.signal, SEARCH_DEADLINE_MS, …)`，读密钥与 `Promise.all` 的几条请求都在同一个 scope 里；429 重试判断截止用的是同一个 `scope.deadline`（web-tools/backend/providers/http.ts:214）。
+- 断言：web.test.ts:524-528 三条都挂着，宿主时钟推 20 秒后整次得 timeout（都没搜成时码取第一条的，所以是 timeout）；:533-547 每条各自在 429 后重试一次。
+- 说明：几条请求同一时刻发出，“共用一个截止”与“每条各自从发出时计 20 秒”在这个用例里看不出差别；能区分两者的是“读密钥也在截止里”，这一点由一条查询的截止用例（web.test.ts:299-318）在同一条代码路径上守着。代码结构上只有一个截止，判为对得上，可以去掉 planned。
+
+## A11 对得上：tools.md 84（几条查询里有的没搜成时整次成功；全都没搜成时状态 error、码取第一条、文字逐条写原因）
+- 代码：web-tools/backend/tools.ts:285-290 每条失败记一条 `web.provider-failed` 诊断；:291-294 全都失败时，一条查询走原来的 `failed`，几条走 :249-253 `allFailed`（第一行“K 条查询都没搜成”，之后逐条写原因，码取 `failures[0]`）；否则 :296 交文字结果，不带 status（即成功）。
+- 断言：web.test.ts:467 三条里一条 401 时状态是成功；:470 那条的组头写原因；:477 只记了一条诊断，字段逐个相等；:494 两条分别回 403、401 时码是第一条的 rejected（不是第二条的 auth）；:495-499 文字逐行相等。
+- 结论：可以去掉 planned。
+
+## A12 对得上：tools.md 84 的 Tavily 详情，与失败表 122、124、125（422 得 invalid-request，432、433 得 quota，434 得 rate-limited、不重试）
+- 代码：web-tools/backend/providers/tavily.ts:24-34 `DIALECT`：`detail` 是对象时取 `detail.error`；是数组时取第一项的 `loc`（去掉 "body"）与 `msg`，不取 `input`；状态码补表 `{422: invalid-request, 432: quota, 433: quota, 434: rate-limited}`。web-tools/backend/providers/http.ts:212 只有 429 进重试，:219 先查补表再查通用表；详情先遮盖再截短（:153-155）。
+- 断言：tavily.test.ts:84-99 六个排好的回复按顺序各用一次：401 得 auth 带 `detail.error`；422 得 invalid-request，详情逐字是 "query: Input should be a valid string"（不含回显的 "回显的值"）；432、433 得 quota；434 得 rate-limited；:99 一共 6 个请求，若 434 重试会多发一次并吃掉 500 的回复，用例会失败，所以“不重试”也有区分；:102-105 说明里的密钥被遮盖；web.test.ts:420-421 工具层 432 的码与整句文字。
+- 结论：四处 planned 都可以去掉。另：“位置”实际写成去掉 "body" 的 `query`，不是 `body.query`；Spec 可以照写“位置（去掉 body）”，不算问题。
+
+## A13 对得上：tools.md 85（每次调用开始时读一次选用的服务与它的密钥，途中改了选用这次照旧）
+- 代码：web-tools/backend/tools.ts:259-260 `execute` 一开始同步取 `providerOf(current)`，之后读密钥（:274 `keyFor`）与发请求都用这个 provider；fetch 同样在 :324-325。
+- 断言：web.test.ts:430-440 读密钥的那一步被挡住，期间把设置改成 tavily，放开后这次结果第一行仍是“来自 DeepSeek 搜索”，且 Tavily 收到 0 个请求。若实现在读完密钥后才取选用，会发到 Tavily，用例能区分。
+- 结论：可以去掉 planned。
+
+## A14 对得上（主体）：tools.md 40、138（插件 id 与各 id 改为 nbook.web；旧名不再提供，不迁移）
+- 代码：web-tools/plugin.ts:11 `id: "nbook.web"`；web-tools/shared/contracts.ts:14-15 工具 id `nbook.web.search`、`nbook.web.fetch`，:47 远程合同 `nbook.web/settings`；web-tools/shared/settings.ts:15 `SEARCH_SECTION = "nbook.web.search"`，:20 `defineSettings("nbook.web", …)`；src/server/plugins.ts:75。在 packages/neuro-book 的 src 与 e2e 里搜 `nbook.web-tools`，只有 CHANGELOG.md:16 的说明，没有别名或迁移代码。
+- 断言：src/server/server.test.ts:153-154 已发布插件的完整列表逐项相等，含 nbook.web、不含 nbook.web-tools；web.test.ts:244 权限规则按字面 `nbook.web.fetch` 拒绝主机生效；:477 诊断里工具 id 是字面 `nbook.web.search`；SearchSettingsPage.dom.test.ts:81 用字面 `nbook.web/provider`；e2e/web-settings.e2e.ts:58 用字面 `nbook.web/deepseekBaseUrl`、`nbook.web/tavilyBaseUrl`，:75 用分区 `nbook.web.search`（从代码判断）。
+- 结论：改名本身可以去掉 planned（第 40 行的括注可以改成“0.15.0 到 0.17.0 里是 nbook.web-tools”这样的历史说明，或删掉）。改名的几条后果与 `web_search` 版本号没有直接断言，见 D1、D2。
+
+## A15 对得上：tools.md 验收 5、6、7
+- 验收 5：web.test.ts:395-427。选用改成 Tavily 后（:402 经设置服务写用户层），同一会话下一次 web_search（:407-412）、web_fetch（:414-417）都发到假 Tavily、带 Tavily 的密钥，第一行写 Tavily；改回 DeepSeek 后（:424-426）发到假 DeepSeek，两边请求数分别是 1 与 3。
+- 验收 6：web.test.ts:459-486。:464 holdUntil(3) 守“三个请求同时在途”；第 2 条回 401，整次成功、两条有结果、那条组头写原因（:467-472）；eval 里 `searches` 按查询的顺序（:481-485）。
+- 验收 7：web.llm.test.ts:61 起的 “真实 Tavily 接口” 一组：搜索与站点过滤、读取与读不了的网址得 not-found、错的密钥得 auth（从代码判断，没有运行）。
+- 结论：三条验收的 planned 都可以去掉。
+
+## A16 对得上：settings-page.md 14、35（DeepSeek 与 Tavily 两节；“使用”一行里的单选）
+- 代码：web-tools/web/components/SearchSettingsPage.vue:110-132 `SettingsRow` 包着 `SegmentedControl`（选项来自 `WEB_PROVIDERS`，:52）；:133-170 `v-for="provider in WEB_PROVIDERS"` 每家一节，节内有 ApiKeyField、检测按钮与说明。
+- 断言：SearchSettingsPage.dom.test.ts:273 单选组 role 是 radiogroup，:275 缺省选中 deepseek，:277 两节依次是 deepseek、tavily；:326-354 Tavily 一节写入、清除、检测的都是 tavily（`fake.calls` 逐项相等）。
+- 结论：两处 planned 可以去掉。“使用”一行排在各节之前（“顶上”）没有断言，见 D4。
+
+## A17 对得上：settings-page.md 43（Tavily 节内的说明）
+- 代码：web-tools/locales/zh-CN.json:44 `tavily.note` = “这把密钥只给搜索与读网页用。”；SearchSettingsPage.vue:75 每家的说明键，:168 写在节内并带 id，:146 经 `described-by` 交给密钥框。
+- 断言：SearchSettingsPage.dom.test.ts:345-347 Tavily 密钥框的 aria-describedby 指向的元素里有这句原文。
+- 结论：可以去掉 planned。
+
+## A18 对得上（主体）：settings-page.md 44 的 planned 句（单选组的组名“使用”；没有密钥的提示经 aria-describedby 关联，另在只给读屏的 role="status" 里念）
+- 代码：SearchSettingsPage.vue:116 `aria-label` 取设置行的标题（locales zh-CN.json:4 “使用”）；:117 aria-describedby 是行的 describedby 加上（选中的那家没有密钥时）提示的 id；:125 提示段带这个 id；:130 另有一段 `sr-only` 的 `role="status"`，内容随提示出现与清空。
+- 断言：SearchSettingsPage.dom.test.ts:274 组名逐字是“使用”；:289 提示出现后组的 aria-describedby 含提示的 id；:290 播报区念“Tavily 还没有密钥”；:294-295 改选有密钥的那家后提示收起、播报区清空。
+- 结论：可以去掉 planned。“行的说明”关联到单选组没有断言，见 D4。
+
+（更正 A18：“改选有密钥的那家后提示收起、播报区清空”在 SearchSettingsPage.dom.test.ts:293-294，不是 :294-295。）
+
+## A19 对得上（主体）：settings-page.md 45 输出 11“选用”
+- 代码：SearchSettingsPage.vue:51 单选显示 `settings.get(nbook.web/provider)` 的有效值；:66-71 点另一家直接 `settings.update(…, {layer: "user"})`，不确认；没写成时不改本地状态，单选仍读设置里的值；:54 只有取到状态之后、选中的那家没有密钥才出提示；:62-64 写失败经 `reportWriteFailure`，主语是“使用”，原因用 `settingsFailureText`，unknown-outcome 时标不确定；:110 设置行自己的恢复默认失败走同一个函数；:118 停用条件是 `row.disabled || disabled`（disabled 是远程不可用或 writable 为假，:40）。之后开始的工具调用用新选的那家：服务端每次调用读设置（见 A13）。
+- 断言：SearchSettingsPage.dom.test.ts:281-285 点 Tavily 后用户层是 tavily，没有密钥照样能选；:286-287 提示逐字“Tavily 还没有密钥”；:84、:88 读取中与密钥文件读不了时不出提示；:300-305 写失败通知主语“使用”、原因以“写不进设置文件”开头、单选仍是 tavily；:308-310 结果未知时标不确定；:312-314 恢复默认失败同样通知；:320、:323 远程不可用与 writable 为假时停用；e2e/web-settings.e2e.ts:138 填了 Tavily 密钥后提示消失（随状态消失，从代码判断）；web.test.ts:402-425 改了设置后下一次工具调用用新那家。
+- 结论：可以去掉 planned。“用户层不可写时也停用”没有断言，见 D5。
+
+（撤回上面对 A18 的更正：重新按行号核对，提示收起与播报区清空就在 SearchSettingsPage.dom.test.ts:294-295，A18 原文对。另更正 A19：“密钥文件读不了时不出提示”在 :87，不是 :88；“点 Tavily 后用户层是 tavily”在 :282-284。）
+
+## A20 对得上：settings-page.md 验收 3（选用改成 Tavily：重开设置窗口仍选中、设置文件用户层是 "tavily"、Tavily 一节填密钥检测通过）
+- 断言（从代码判断，没有运行 e2e）：e2e/web-settings.e2e.ts:116-139。:120 点 Tavily；:122-123 轮询读状态根的 settings.json，`nbook.web/provider` 为 "tavily"；:126-130 关掉设置窗口、确认页面已卸载（:127 计数为 0）再打开，Tavily 仍是 aria-checked；:133-135 在 Tavily 一节填密钥直接点检测，结果“检测通过”；:136-137 假端点只收到一次 `/tavily/search`、带 Tavily 的密钥（地址前缀由 :58 的 `nbook.web/tavilyBaseUrl` 指过去）。
+- 结论：可以去掉 planned。验收与 Smoke 那一节的 Smoke 句还只写“本机假 DeepSeek 端点”，见 E3。
+
+## C1 与字面不一致：tools.md 66，几条查询时某条零个结果的组头
+- Spec 字面：几条查询时“组头写‘查询 i：<查询>，N 条结果’”，没有说零个结果怎么写；按字面 N 为 0 时是“查询 i：<查询>，0 条结果”。
+- 实际行为：web-tools/backend/tools.ts:243 零个结果时组头写“查询 i：<查询>，没有结果”（与一条查询时的“没有结果”一致）。web.test.ts:517 断言的就是“查询 2：空，没有结果”。
+- 建议：改 Spec，在组头那句后补“没有结果的写‘查询 i：<查询>，没有结果’”。实现与测试不用动。影响很小。
+
+## C2 与字面不一致：tools.md 65，Tavily 的“查询原样不拼”与“不合要求”的条件
+- Spec 字面：Tavily 的“查询原样不拼；查询超过 1,500 个 Unicode 码点时不合要求”。
+- 实际行为：web-tools/backend/providers/tavily.ts:101 发出的是 `request.query.trim()`（去掉首尾空白）；:41-42 去空白后为空的查询不合要求（"query is empty"）；:44 站点（去空白、去空串后）多于 300 个不合要求（`MAX_SITES`，:17，来自官方 include_domains 上限）；:36 站点也去首尾空白、丢掉空串。tavily.test.ts:34-40（查询去首尾空白、空白站点被丢）、:47（空查询不发）、:53-58（301 个站点不发、300 个照发）断言的就是这些行为。
+- 判断：“原样”的本意是“不拼 site: 等操作符”，去首尾空白不改语义；但“不合要求”的条件 Spec 只写了 1,500 码点一条，空查询与站点上限都会让整次调用得 invalid-request、一条也不发（输出 1），是调用方能观察到的拒绝条件。
+- 建议：改 Spec 为“查询去掉首尾空白、不拼操作符；查询为空、超过 1,500 个 Unicode 码点或站点多于 300 个时不合要求”。DeepSeek 一行同理可补“拼好的查询为空时不合要求”（deepseek.ts 的 composeQuery 早就这样，不是本次引入）。
+
+## D1 没有断言：tools.md 37 与 138 里 `web_search` 参数的边界与版本
+- 句子：“`queries`……1 到 10 条，必填（planned，取代 `query`）”；“`web_search` 的版本从 1 升到 2：`query` 换成 `queries`”。
+- 代码：web-tools/backend/tools.ts:82 minItems 1、maxItems 10；:88 required ["queries"]、:89 additionalProperties false（旧参数 `query` 因此被严格校验拒绝）；:92 `version: "2"`。
+- 断言情况：只有“多于 10 条被拒”有断言（web.test.ts:510-511）。空数组、不给 `queries`、只给旧参数 `{query: "…"}` 被拒都没有用例；版本号 "2" 没有任何测试读它（packages/neuro-book 的测试里搜不到对工具 version 的断言）。
+- 严重程度：低。拒绝靠工具参数的严格校验（tools.md 33 的现行行为），实现没有另写分支；但“取代 query”是这次的兼容性变化，建议在 web.test.ts 的“一次几条查询”组里加一句：`{query: "x"}` 与 `{queries: []}` 都得参数错误、假端点 0 个请求。版本号是否值得断言由主会话定。
+
+## D2 没有断言：tools.md 138 改名的后果
+- 句子：写着旧 id 的设置不再生效——权限规则按 `nbook.web-tools.fetch` 拒绝或询问的主机照常放行、Profile 工具绑定里去掉的两个工具会回来、Profile 把旧 id 列为必需工具时报缺工具、用户层的 `nbook.web-tools/deepseekBaseUrl` 回到缺省；按给模型的名字 `web_fetch`、`web_search` 写的规则不受影响；密钥文件位置不变。
+- 代码：没有别名、没有迁移（见 A14 的搜索结果）；密钥路径 web-tools/backend/plugin.ts:54 仍是 `<状态根>/web/keys.json`。
+- 断言情况：没有用例写旧 id 的规则、绑定或设置去看它们失效；web.test.ts:244 的规则是按新 id 写的，没有按模型名字 `web_fetch` 写规则的用例；密钥位置有 web.test.ts:127 读 `w.keysPath`，但 keysPath 由测试场地按同一规则拼出，不是独立的字面路径。
+- 严重程度：低。这几句描述的是“不迁移”的推论，旧 id 在代码里不存在就自然成立；按模型名字写规则不受影响属于权限模块的现行行为（docs/specs/agent/permissions.md），可以在那边找证据。主会话可以决定只给“按模型名字写的规则照常生效”补一条，其余接受为推论。
+
+（更正 D2：“密钥文件位置不变”是有断言的。测试场地 web-tools/testing/world.ts:89 用字面的 `join(stateRoot, "web", "keys.json")`，web.test.ts:127 读这个路径拿到写入的密钥，e2e/web-settings.e2e.ts:85、:98 同样（从代码判断）。D2 只剩旧 id 的四条后果与“按模型名字写的规则不受影响”没有断言。）
+
+## D3 没有断言：tools.md 48 `nbook.web/tavilyBaseUrl` 的缺省值 `https://api.tavily.com`
+- 代码：web-tools/shared/settings.ts:18 `DEFAULT_TAVILY_BASE_URL = "https://api.tavily.com"`，:38-44 作为这一项的 default。
+- 断言情况：项本身被读（所有 Tavily 用例经场地把它指向假端点，web.test.ts:62）、只有用户层（web.test.ts:399）都有断言；缺省值没有测试写出字面值，web.llm.test.ts 用的是同一个常量（从代码判断）。DeepSeek 那一项的缺省值情况相同，不是本次引入。
+- 严重程度：很低。常量与 Spec 一致，属于“写错一个字母测试也照过”的那类，主会话可以接受。
+
+## D4 没有断言：settings-page.md 30、35、44 里几处小句
+- 30 的关键词“Tavily”（planned）：web-tools/web/plugin.ts:19 把 `keywords.tavily` 放进页面声明，locales zh-CN.json:35 是“Tavily”。在 web-tools 的测试、src/plugins/settings 的测试与 packages/neuro-book/e2e 里都没有用例检查这一页的关键词（settings 的 window.test.ts、sections.test.ts 只测通用的关键词机制）。
+- 35 的“顶上‘使用’一行”：SearchSettingsPage.vue:110 设置行写在各节（:133）之前；测试只断言了两节的先后（dom.test.ts:277），没断言“使用”一行在最前。
+- 44 的“行的说明……经 aria-describedby 关联到它”：SearchSettingsPage.vue:117 把设置行的 `row.describedby`（含 provider 的说明“Agent 搜索与读取网页时用哪家服务。”）拼进去；dom.test.ts:289 只查了没有密钥的提示的 id，没查行说明的 id。
+- 严重程度：低。三处代码都在，属于“改坏了测试照过”。建议在 dom.test.ts 的“使用”用例里补两句：组的 aria-describedby 指向的元素里有行说明原文；“使用”一行在第一节之前。关键词可以在 web 浏览器入口的声明上直接断言，或接受为没有断言。
+
+## D5 没有断言：settings-page.md 45 末句“用户层不可写时也停用”
+- 代码：SearchSettingsPage.vue:118 `:disabled="row.disabled || disabled"`；`row.disabled` 是 src/ui/settings/SettingsRow.vue:98 的 `blocked`，由 `settingsRowState` 按这一层的可写性算出。
+- 断言情况：SearchSettingsPage.dom.test.ts:317-324 只测了远程合同不可用（:320）与 writable 为假（:323）两种停用；用户层不可写（设置宿主的用户层被锁、只读）时单选停用没有用例。若把 `row.disabled ||` 删掉，这一页的测试全部照过。
+- 严重程度：低到中。这是本次新增的停用条件之一，单独靠 SettingsRow 的通用逻辑成立；建议在同一用例里用设置场景宿主把用户层设成不可写，断言 `[data-search-use]` 的 aria-disabled 为 true（宿主是否有现成开关要主会话看 createSettingsHost；没有就接受为没有断言）。
+
+## E1 tools.md“实现合同”（155-162）要改成合入后的现状
+- 155 现文：“公开入口：插件 `nbook.web-tools`；工具 id、远程合同 `webSettingsContract`、失败码表与 `SEARCH_SECTION` 从 `nbook/plugins/web-tools/shared/contracts` 取，设置项在同目录的 `settings.ts`。”
+  建议：“公开入口：插件 `nbook.web`；工具 id、远程合同 `webSettingsContract`、失败码表、`SEARCH_SECTION` 与服务表（`WEB_PROVIDERS`、`PROVIDER_LABELS`、`isWebProvider`，定义在同目录的 `providers.ts`）从 `nbook/plugins/web-tools/shared/contracts` 取，设置项在同目录的 `settings.ts`。”目录仍是 `plugins/web-tools/`，导入路径与链接不用改，只改 id。
+- 156 现文：“`nbook.web-tools` 依赖 Agent……设置、诊断与宿主的状态根、时钟”。建议：“`nbook.web` 的服务端入口依赖 Agent（`agentTool`、`TOOLS_POINT`）、设置（读选用哪家与两家的地址）、诊断、网络出口（`networkKey`，docs/specs/network/egress.md）与宿主的状态根、时钟；浏览器入口依赖设置服务（写 `nbook.web/provider`）。”依据：web-tools/backend/plugin.ts:43 的依赖里有 `networkKey`，:56 经它取 fetch；web-tools/web/plugin.ts:31 依赖 `settingsKey`。网络出口这一条在本次之前就漏了。
+- 157-162 不变量：仍成立。可补两条，并写上守着它的用例：“几条查询先全部校验再同时发，有一条不合要求就一条也不发（web.test.ts 的‘一次几条查询’组）”；“每次调用开始时读一次选用的服务，途中改选不影响这次（web.test.ts 的‘调用开始时读一次选用’）”。不变量 3、4 的证据可以加上 `tavily.test.ts`（Tavily 的 434 不重试、说明里的密钥遮盖）。
+- “别的插件不依赖它”：src/plugins/lab/web/fixtures 下的 Lab 场景引用了 web-tools 的组件与文字，这在本次之前就有，属于开发用的 Lab；主会话可以决定是否写成“除 Lab 场景外”。
+
+## E2 tools.md“证据”（168-169）与验收节的 Smoke 句（151）
+- 本次新增的测试文件只有一个：web-tools/tavily.test.ts（git diff --name-status 4879d03ab..6824bf5dc 里 A 开头的测试文件；另外新增的 testing/fake-service.ts、testing/fake-tavily.ts 是替身，不是测试）。
+- 168 合同测试建议写成：`web.test.ts`、`deepseek.test.ts`、`tavily.test.ts`、`keys.test.ts`、`archive-lines.test.ts`（链接同现有写法，`tavily.test.ts` 指向 ../../../packages/neuro-book/src/plugins/web-tools/tavily.test.ts）。
+- 169 现文“真实 DeepSeek：web.llm.test.ts”。web.llm.test.ts 现在有“真实 DeepSeek 接口”与“真实 Tavily 接口”两组（:61 起是 Tavily），建议改成“真实 DeepSeek 与 Tavily：web.llm.test.ts；接真实模型：agent.llm.test.ts”。agent.llm.test.ts 在本次之前就有、这次加了“一次查几个名字”的判据，Spec 里一直没列。
+- 151 现文“验收 4 是 `web.llm.test.ts`”，建议改成“验收 4、7 是 `web.llm.test.ts`”。
+
+## E3 settings-page.md“实现合同”（87-88）、Smoke 句（83）与“证据”
+- 87 现文：“公开入口：`nbook.web-tools` 浏览器入口贡献的 page 分区 `nbook.web-tools.search`（`SEARCH_SECTION`；planned：改名为 `nbook.web` 与 `nbook.web.search`）”。改名已实现（web-tools/web/plugin.ts:54 用 `SEARCH_SECTION`，值见 shared/settings.ts:15；e2e/web-settings.e2e.ts:75 按 `nbook.web.search` 打开，从代码判断）。建议：“公开入口：`nbook.web` 浏览器入口贡献的 page 分区 `nbook.web.search`（`SEARCH_SECTION`）；组件 `SearchSettingsPage`、`ApiKeyField` 只在本插件内用。”
+- 88 现文：“`nbook.web-tools` 的浏览器入口依赖设置窗口的 `settings.pages` 贡献点与自己服务端的远程合同”。建议：“`nbook.web` 的浏览器入口依赖设置窗口的 `settings.pages` 贡献点、设置服务（`settingsKey`，写 `nbook.web/provider`）与自己服务端的远程合同（web/tools.md 输出 16 到 19）。”依据 web-tools/web/plugin.ts:31、:56。
+- 不变量可补一条：“‘使用’的值只读设置服务，写失败不改本地状态，单选自己回到设置里的值（DOM 测试）”。
+- 83 Smoke 现文“本机假 DeepSeek 端点”；e2e 现在也把 `nbook.web/tavilyBaseUrl` 指向同一个本机端点的 `/tavily`（e2e/web-settings.e2e.ts:58），验收 3 用它。建议改成“本机假 DeepSeek 与 Tavily 端点”。
+- 证据的合同测试（search-store.test.ts、SearchSettingsPage.dom.test.ts）与 Smoke（web-settings.e2e.ts）文件齐全，本次没有新增这一页的测试文件，不用加。
+
+（更正 E3：分区贡献在 web-tools/web/plugin.ts:33（不是 :54），取设置服务在 :35（不是 :56）；依赖声明 :31 不变。）
+
+## E4 docs/specs/network/egress.md 里的旧插件 id
+- 只有一处：egress.md:103“owner 与依赖方向：`nbook.network` 的服务端入口依赖设置与启动环境，`nbook.models`、`nbook.web-tools` 的服务端入口依赖 `networkKey`……”。建议把 `nbook.web-tools` 改成 `nbook.web`。
+- 顺带：同文件“证据”的合同测试（:110）没有列 web-tools/web.test.ts，而它有一组“网络出口（docs/specs/network/egress.md；输出 10）”的用例（web.test.ts:153 起，验收 3 说的“网页工具都报代理的原因”就由它守）。要不要补由主会话定。
+- 在 docs/specs、docs/modules、docs/adr 与 packages/neuro-book/AGENTS.md 里另搜 `nbook.web-tools`、`web-tools.search`、`web-tools.fetch`，除 web/ 下这两份与 egress.md:103 外没有搜到。
+
+## A21 对得上：两份 Spec 第 14 行的总述 planned
+- tools.md:14“（planned：Tavily、选用哪家、一次几条查询）”：三件事分别由 A1、A5、A7、A9、A12（Tavily），A1、A13（选用），A3、A4、A6、A8、A10、A11（几条查询）核对过，都对得上，括注可以删掉。
+- settings-page.md:14“（planned：Tavily 一节与选用）”：由 A16、A17、A19 核对过，括注可以删掉。
+
+## 汇总
+- A 对得上、可以去掉 planned：21 条（A1 到 A21）。其中 A3、A14、A16、A18、A19 是“主体对得上”，各自剩下的小句另列在 D 类。
+- B 没实现：0 条。
+- C 与字面不一致：2 条（C1 几条查询零结果的组头写“没有结果”；C2 Tavily 查询去首尾空白、空查询与站点多于 300 个也不合要求，Spec 没写）。两条都建议改 Spec，不改实现。
+- D 没有断言：5 条（D1 `queries` 空数组、缺省、旧参数 `query` 被拒与版本 2；D2 改名的后果；D3 tavilyBaseUrl 缺省值；D4 设置页关键词、“使用”一行在最前、行说明的关联；D5 用户层不可写时“使用”停用）。最值得补的是 D1 的旧参数被拒与 D5。
+- E 实现合同与证据要改：4 条（E1 tools.md 实现合同的插件 id、公开入口与依赖方向，漏了网络出口；E2 tools.md 证据缺 tavily.test.ts，真实服务与 Smoke 句没写 Tavily 与验收 7；E3 settings-page.md 实现合同的旧 id 与依赖，Smoke 句没写假 Tavily 端点；E4 egress.md:103 的旧 id）。
+- 报告中途有三处行号更正（A18 的更正已撤回，A19、D2、E3 各有一处更正），以紧跟的更正为准。
+
+## 收尾核对与更正（以本节为准）
+- D5 的实现已核：src/ui/settings/row-state.ts:38 `blocked = here.status !== "ok"`（:32 注释：这一层无效、不可达或本窗口没有它时停用），`SettingsRow` 把它作为插槽的 `disabled` 交给单选（SettingsRow.vue:98、:175）。所以“用户层不可写时停用”已实现，仍归 D（没有断言），B 仍是 0 条。D5 里“删掉 `row.disabled ||` 测试全部照过”没有做变异，是从代码推断。
+- D1、D2 的搜索范围：在 packages/neuro-book 的 src 与 e2e 下、排除 web-tools 目录，搜 `web_search`、`web_fetch`、`nbook.web.search`、`nbook.web.fetch` 与工具 version 的断言，只搜到 Lab 场景的回放样例数据（src/plugins/lab/web/fixtures/nb-agent-ui/ 里 `web_search` 的 `args: {query: …}`，是界面展示用的样例，不调用工具），没有相关断言。D1、D2 的结论不变。
+- E1 的“网络出口这一条在本次之前就漏了”已核：基线 4879d03ab 的 backend/plugin.ts:42 已依赖 `networkKey`，同一基线的 tools.md:156 已没写它。
+- 行号更正：A2 的“没有请求发到 DeepSeek”在 web.test.ts:452；A8 的“顶层调用 details 是 undefined”在 web.test.ts:200；A14 里 DOM 测试用字面 `nbook.web/provider` 在 SearchSettingsPage.dom.test.ts:82。
+- A10 的判据偏弱：几条查询同时发出，用例区分不出“共用一个截止”与“每条各自计 20 秒”；我判为 A 是因为代码只有一个截止、读密钥在截止里由一条查询的用例守着。主会话若按“断言要能区分”的判据严格执行，可以改判为 D（补法：几条查询时让读密钥挡住 15 秒，再推 5 秒，断言整次得 timeout）。
+- tools.md:48（tavilyBaseUrl）与 settings-page.md:30（关键词 Tavily）只出现在 D3、D4：两处都已实现、缺断言，planned 可以去掉，是否补断言由主会话定。
+- 备注（与 C2 同类，不计数）：查询、站点或网址里带着正在用的密钥时，工具不发请求、得 invalid-request（web-tools/backend/tools.ts:277、:333；web.test.ts:550 起有断言）。这条在 tools.md 的输出 14 与失败表里都没写成拒绝条件，可以在 C2 改 Spec 时一并补上。
