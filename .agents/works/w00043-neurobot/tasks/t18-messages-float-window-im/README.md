@@ -25,7 +25,7 @@ updated: 2026-11-25
 ## 当前状态
 
 - 2026-11-25 经 nbdev 新建。评审板第 1 轮（[`artifacts/review/index.html`](artifacts/review/index.html)）两题已答，见决定 2。草稿在草稿 worktree `.worktree/w00043-t18-drafts`（分支 `w00043-t18/drafts`，不合并），Lab 组件 `MessagesWindow`。
-- **第 1、2 条已合入 master（`c37a64baa`）**：
+- **第 1、2 条已合入 master（`4606b9c95`）**：
   - 第 1 条 `f637471ae`：`AgentMessages` 的列表栏与聊天区改成 nb-layout `Splitter` 的两块面板；列表栏 200 到 420 像素、聊天区至少 320 像素，拖到 200 以内再过 40 像素收成头像列；宽度由宿主记在内存里（同收起状态，重开窗口回到 260）。
   - nb-layout 的两处改动：`SplitterPanelConfig` 加可选的 `overflow: "visible"`（面板一律裁切溢出，窄版的列表抽屉要从 52 像素的头像列那块面板里伸出去；用 `Teleport` 挪列表会丢焦点与滚动位置）；预览回到手势开始时的样子时补发一次 `gesture-update`（审查第 1 条）。API 报告、`CHANGELOG.md`、应用的 SDK 快照跟着更新。
   - 发布脚本 `eaf3d66ea`、`c88a69f5b`：nb-agent-ui 新增对 nb-layout 的发布依赖，只载源码包的 `release:check` 与 `release:publish` 的闸门原先把 nb-layout 当成不发布的包；`checkReleasePackages` 缺省认已首发的生成包。**下次发版时 nb-layout 要与 nb-agent-ui 一起提版本**（nb-agent-ui 用到了新的 `overflow`）。
