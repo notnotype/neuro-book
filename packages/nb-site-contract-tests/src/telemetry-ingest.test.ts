@@ -17,7 +17,6 @@
  *   `purge.test.ts`、`index.test.ts`。
  * - 心跳“库里没有 3 条可分辨的记录”（验收 2）、IPv6 按前 64 位与前 48 位计、来源数的上限：合同测试只能从 127.0.0.1 发请求、
  *   不读库的表，在统计包的 `store.test.ts`、`rate-limit.test.ts`。
- * - 验收 4 的“同时账号的登录接口正常”：账号模块还没有登录接口，t07 加进“库被占着写”那一组。
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
@@ -30,6 +29,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {backupsDir, listBackups} from "./testing/backup";
 import {holdWriteLock} from "./testing/fault";
 import {dataFilesContaining} from "./testing/files";
+import {cookieJar, createAdmin, login} from "./testing/identity";
 import {requestJson, useSiteSandbox, type LogLine, type SiteProcess} from "./testing/site";
 import {dailyReport, errorOwners, eventReport, heartbeatReport, newReportId, sendRawReport, sendReport, SITE_HOST, TELEMETRY_HOST, usageSegment, type IngestResponse, type Report} from "./testing/telemetry";
 
@@ -487,19 +487,26 @@ describe("不留来源地址（site.telemetry-ingest 输出 8、9，验收 3）"
 describe("库被别的进程占着写（site.telemetry-ingest 输出 10，验收 4）", () => {
     let site: SiteProcess;
     let dataDir: string;
+    const PASSWORD = "isolation-PW-r7Kd42";
+    /** 会话 Cookie 的名字（`site.accounts` 输出 5）。 */
+    const SESSION_COOKIE = "__Host-nbsite.session_token";
 
     beforeAll(async () => {
         dataDir = await sandbox.dataDir();
+        // 登录要一个账号：在持锁之前建好，用例里持锁期间只发登录这一个请求。
+        await createAdmin(sandbox, dataDir, ["root"], PASSWORD);
         site = await sandbox.start({dataDir, env: LARGE_LIMIT});
         await site.ready();
     }, SETUP_TIMEOUT_MS);
 
-    // 验收 4 的“同时账号的登录接口正常”：账号模块还没有登录接口，t07 加进这个用例。
-    it("C14 三个写入口立即回 503 unavailable，不等锁；存活检查与站点主机照常回应；放锁后照常写入，进程没重启", async () => {
+    // 登录要算一次密码哈希，超出 200 毫秒的预算。没设可信代理，来源地址是对端的 127.0.0.1，`X-Forwarded-For` 不起作用。
+    it("C14 三个写入口立即回 503 unavailable，不等锁；存活检查、站点主机与账号的登录照常回应；放锁后照常写入，进程没重启", async () => {
         const release = holdWriteLock(dataDir, "telemetry");
         let locked: IngestResponse[];
         let live: {readonly status: number};
         let siteHost: {readonly status: number};
+        const jar = cookieJar();
+        let signedIn: {readonly status: number; readonly body: unknown};
         try {
             locked = [
                 await sendReport(site.url, "daily", dailyReport()),
@@ -509,6 +516,8 @@ describe("库被别的进程占着写（site.telemetry-ingest 输出 10，验收
             ];
             live = await requestJson(`${site.url}health/live`);
             siteHost = await requestJson(new URL(`${TELEMETRY_API_PREFIX.slice(1)}/anything`, site.url).href, {headers: {Host: SITE_HOST}});
+            // 验收 4 的“同时账号的登录接口正常”：登录要写账号自己的库（发会话），统计的库被占着不影响它。
+            signedIn = await login(site.url, "root", PASSWORD, {from: "203.0.113.1", jar});
         } finally {
             release();
         }
@@ -520,6 +529,8 @@ describe("库被别的进程占着写（site.telemetry-ingest 输出 10，验收
         for (const duration of durations) expect(duration).toBeLessThan(200);
         expect(live.status).toBe(200);
         expect(siteHost.status).toBe(404);
+        expect({status: signedIn.status, body: signedIn.body}).toMatchObject({status: 200, body: {user: {username: "root"}}});
+        expect(jar.last(SESSION_COOKIE)?.value).toBeTruthy();
         expect(after.status).toBe(200);
         expect(site.exitCode).toBeNull();
         expect(site.logs().filter((line) => line.event === "site.listening")).toHaveLength(1);

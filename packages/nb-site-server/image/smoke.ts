@@ -108,7 +108,7 @@ function containerName(label: string): string {
 }
 
 /** 合格的站点配置；会话密钥只写名字，值从环境来。 */
-const SITE_ENV = ["-e", "NB_SITE_URL=https://site.test", "-e", "NB_SITE_TELEMETRY_URL=https://telemetry.test", "-e", "NB_SITE_SESSION_SECRET"];
+const SITE_ENV = ["-e", "NB_SITE_URL=https://site.test", "-e", "NB_SITE_TELEMETRY_URL=https://telemetry.test", "-e", "NB_SITE_SESSION_SECRET", "-e", "NB_SITE_IDENTITY_TERMS_VERSION=2026-11-20"];
 
 /** 标准错误里最后一行 JSON 失败行。 */
 function failureLine(stderr: string): {code?: unknown; problems?: unknown} | null {

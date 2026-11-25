@@ -59,7 +59,7 @@
 
 `bun run build:image` 在构建机上把 `src/main.ts` 打成单个 `dist/image/server.js`（迁移的 SQL 已内联），连同 `image/Dockerfile` 以 `dist/image/` 为构建上下文打成 `nb-site:local`（`--tag` 改名，`--no-docker` 只出产物）；镜像里不装依赖。`bun run smoke:image` 对这个镜像起真容器核对下面几条，CI 的 `site-image` 作业每次都跑它，并对着产物再跑一遍合同测试。不推送镜像；按摘要固定基础镜像、推送与 Compose 在部署的 Task（t13）做。
 
-- **环境变量的缺省**：镜像设了 `NB_SITE_HOST=0.0.0.0`（容器里只有监听 0.0.0.0 端口映射才通）、`NB_SITE_PORT=8080`、`NB_SITE_DATA_DIR=/data`；部署时只需给 `NB_SITE_URL`、`NB_SITE_TELEMETRY_URL`、`NB_SITE_SESSION_SECRET`。对外只开放给本机还是反向代理，由端口映射与 Compose 决定。
+- **环境变量的缺省**：镜像设了 `NB_SITE_HOST=0.0.0.0`（容器里只有监听 0.0.0.0 端口映射才通）、`NB_SITE_PORT=8080`、`NB_SITE_DATA_DIR=/data`；部署时只需给 `NB_SITE_URL`、`NB_SITE_TELEMETRY_URL`、`NB_SITE_SESSION_SECRET`、`NB_SITE_IDENTITY_TERMS_VERSION`。对外只开放给本机还是反向代理，由端口映射与 Compose 决定。
 - **数据卷的属主**：进程以镜像里的 `bun` 用户（uid 1000、gid 1000）运行，`/data` 属于它。挂新的命名卷时 Docker 按这个属主初始化卷，直接能写；挂宿主目录时要让目录对 uid 1000 可写，或用 `--user <uid>:<gid>` 以目录属主的身份跑。数据目录不可写时启动以 `config_invalid`（`not_writable`）退出。
 - **停止宽限**：按上面的公式，缺省时限 10 秒时容器的停止宽限至少 17 秒（`docker stop -t 17`、Compose 的 `stop_grace_period: 17s`）。bun 是容器的 1 号进程，自己处理 `SIGTERM`，不需要 `--init`；`smoke:image` 核对 `docker stop` 之后退出码 0、日志里有 `site.stopped`。
 - **不设测试控制口令**：镜像与生产环境都不设 `NB_SITE_TEST_CONTROL`。容器监听 0.0.0.0，设了它进程会以 `config_invalid`（`NB_SITE_HOST` 的 `not_loopback`）拒绝启动；`smoke:image` 核对这一条。
