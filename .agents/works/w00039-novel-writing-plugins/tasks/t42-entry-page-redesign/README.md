@@ -47,4 +47,4 @@ updated: 2026-11-25
 
 ## 下一步
 
-[计划](plan.md)写好，Sonnet 设计审查 21 条（阻断 0、重要 15、建议 6）逐条核实后改进了计划（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)）。等开发者确认计划后开分支实施。
+[计划](plan.md)写好，Sonnet 设计审查 21 条（阻断 0、重要 15、建议 6）逐条核实后改进了计划（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)）。开发者 2026-11-25 确认计划（“可以”），开分支 `feat/w00039-t42-entry-page` 按切片实施。
