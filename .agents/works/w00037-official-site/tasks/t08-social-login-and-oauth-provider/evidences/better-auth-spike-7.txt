@@ -151,3 +151,95 @@ loginPage=/login、consentPage=/oauth/consent、idToken 1 小时）、genericOAu
 - accounts 的“10 分钟内有效、只能用一次”可测、可兑现，条件是 state Cookie 设成 600 秒；在合同里不用提 Cookie。
 - 计划：自家流程表加模块时钟的到期与原子认领；auth.ts 加 state Cookie 的 maxAge；过期清理顺带删库的 auth-state 行；
   测试控制时钟只管自家记录，库的兜底到期不写用例。
+
+======================================================================
+第三段补探（2026-11-25，按 Opus 设计审查补跑）
+======================================================================
+脚本 /tmp/nbsite-spike/spike9.ts，结果行 out9.txt（方括号是行名）。装配同第七轮：makeEnv（master 6140e74fa 的 t07 代码加 jwt、oauthProvider、
+genericOAuth），只在其上换选项；授权端点用原型 mount9（模块读会话、按模块时钟判 max_age，没有会话或 max_age 不满足时去 Cookie 交库，
+库的 Location 按 /login?、/consent?、/oauth/consent? 三类改写）。证据标记同上。
+
+## 问 9 库的 postLogin 能否替代“去掉 Cookie 让库跳登录页”做站点同意门槛（审查第 2 条）
+配置 oauthProvider({postLogin: {page: "/consent", consentReferenceId: () => undefined, shouldRedirect: 读 consentRequiredIn}})。全部实测。
+- 能替代。缺站点同意、免确认客户端：库带去 /consent?<库签名的参数>，验签过（[P9.1a]）；prompt=none 时库自己跳回 interaction_required，
+  带 state 与 iss（[P9.1b]），不用改写码；补交同意后按 consumer=consent 续接回授权端点，shouldRedirect 再判一次为假，发码、换到令牌、
+  nonce 原样（[P9.1c]）。
+- 先后：库先判登录（没有会话、prompt=login、max_age），再判 postLogin，再判确认。prompt=login 加缺同意：先到 /login，登录续接后到
+  /consent，补交后得码（[P9.1d]）；max_age 仍由挂载层按模块时钟判、去 Cookie，重新登录后缺同意再到 /consent（[P9.1e]）；
+  prompt=consent 加缺同意先到 /consent（[P9.1g]）；prompt=none 没有会话仍是 login_required（[P9.1h]），既缺站点同意又没同意过客户端
+  是 interaction_required（[P9.1i]，回答计划第 11 节第 5 条）。
+- shouldRedirect 不在库的事务里被调（inLibTx=false），在里面用模块的 read 可行（[P9.1a] 起各行）。
+- 确认页：配了 postLogin 时库在确认页参数里加 ba_pl=会话 id（[P9.1f]），确认端点重跑授权时，提交的会话就是这个会话则不再问 postLogin。
+  所以同一会话在打开确认页之后丢了站点同意，库照样发码（[P9.1f same session lost…]）；别的会话提交、且缺同意时，库回 /consent?<签名参数>
+  （[P9.1f another session…]）。自家确认接口的同意门槛（requireSession）是这里唯一的一道，不能去掉。
+- 签名参数里还有 ba_param（被签名的参数名列表，每个名一项，从源码读到 version-DE6Gj6U9.mjs:4、30）。续接地址要连它一起去掉，
+  签名字段名是五个：sig、exp、ba_iat、ba_pl、ba_param。
+对计划的影响：3.8 第 3 步只为“没有会话”“max_age 不满足（模块时钟）”去 Cookie；缺站点同意交 postLogin；第 4 步不再把 login_required 改成
+interaction_required；P3 改为本问的用例；升级清单加 postLogin 的先后、prompt=none 的码、ba_pl 跳过、ba_param。
+
+## 问 10 换码能否包进 withLibTransaction（审查第 7 条）
+- 不能（实测）：挂载层用 conn.withLibTransaction(ctx.adapter, () => auth.handler(req)) 包住令牌端点，换码一律 500，原因是库的 getClient 用的是
+  基础适配器 ctx.context.adapter.findOne（resource-challenge-Bln17mt0.mjs:520），不取当前事务，t07 的连接当场抛 IdentityQueueMisuseError
+  （[P9.2a inTx=true]、[P9.2b inTx=true] 四个都 500）。要包住就得改 t07 连接“事务里经基础适配器取连接即拒绝”的约束，或给库打补丁，不做。
+- 不包时窗口确实存在（实测）：在“认领授权码”之后、“插入访问令牌”之前插进一次 revokeForUser，撤销只碰到已有的两条令牌，随后插入的新令牌
+  调用户信息 200（[P9.2c inTx=false]）；插进的是封禁（撤销加删会话），插入撞会话外键，SQLiteError FOREIGN KEY，令牌端点 500
+  （[P9.2d inTx=false]）。没有插队时的对照：并发四次换同一个码恰好一次 200（[P9.2b inTx=false]）。
+- 窗口大小：认领到响应（含签 id_token）中位 2.8 毫秒、负载 12 时 20 次里最长 39 毫秒（[P9.2e]）。认领之后、插入之前只有插入令牌这一次
+  取锁（从源码读到 authorize-DXnMh0ha.mjs:2398 起与 createUserTokens 2115 起：访问令牌在签 id_token 之前插入），所以上界是这一次等锁的上限
+  lockTimeoutMs（10 秒）；等满时这次换码以 queue_timeout 失败、不发令牌。
+对计划的影响：成立但接受取舍。改写稿时序一节写明窗口与它的上界；令牌端点把“插入撞外键”（SQLiteError 的 code 为
+SQLITE_CONSTRAINT_FOREIGNKEY，按错误码判）映射成 400 invalid_grant；升级清单加“换码不在事务里”。
+
+## 问 11 上游令牌、emailVerified、重复关联、注册意图碰上已关联身份（审查第 8、9、11、13 条）
+仿真上游同第七轮。default 是第七轮的装配，fixed 另加：account.updateAccountOnSignIn=false；account.create.before 在原钩子之后把
+accessToken、refreshToken、idToken 与两个过期时间置 null；account.update.before 同样置 null，关联意图时抛 identity_exists；
+user.update.before 遇到 emailVerified 时改成 false。全部实测。
+- 上游令牌：库没有“不存”的选项，只有 encryptOAuthTokens（加密存，从源码读到 oauth2/utils.mjs:21 与 init-options.d.mts 的说明）。
+  default 下社交注册存了 Google 的访问令牌、id_token 与过期时间，关联存了 GitHub 的访问令牌（[P9.3a default]、[P9.3c default]）；
+  fixed 下这几列全为空，再登录也不写回（[P9.3a fixed]、[P9.3b fixed]、[P9.3c fixed]）。scope 列照存（只是范围名）。
+- emailVerified：default 下社交注册的账号第二次用同一上游登录就变成 1（[P9.3b default]）；密码账号关联同邮箱的上游身份再用它登录也变成 1
+  （[P9.3e default]）。fixed 下都保持 0。库在这套装配下改 emailVerified 的路径只有 link-account.mjs:277（已关联身份登录）；224 那支是隐式
+  关联，被 disableImplicitLinking 挡住；287 那支要 overrideUserInfo，缺省关；magic-link、email-otp 的 revokeUnprovenAccountAccess 与
+  verify-email 端点不在装配里或被白名单挡住（从源码读到）。
+- 重复关联同一个身份：同一账号再关联同一个 GitHub 身份时，库找到已有的 account 行走 updateAccount（link-account.mjs:73 到 87），不调建账号前
+  钩子，default 下落到成功哨兵、Spec 的 identity_exists 判不到（[P9.3d default]）；fixed 下 update.before 抛出，库回 400 JSON、帧里是
+  identity_exists（[P9.3d fixed]）。这是审查第 11 条同一组合里的另一格。
+- 注册意图碰上已关联的上游身份：库直接走已关联的登录分支，不调建用户钩子，发会话，落到 callbackURL（不是 newUserCallbackURL），
+  用户名与注册码都没用上（[P9.3f]）。两个哨兵分开就分得出“建了账号”与“登录了已有账号”。若要拒绝（审查第 13 条的 b）：
+  session.create.before 在“注册意图且这次没建用户”时抛 identity_taken，库跳到失败哨兵、不发会话、注册码不扣，同一身份照常能登录
+  （[P9.3g]）。
+对计划的影响：3.4 加 updateAccountOnSignIn=false；3.10 钩子加 account.update.before 与 user.update.before，account.create.before 置空令牌；
+挂载层对用户信息的 email_verified 恒写 false；注册意图碰上已关联身份交开发者定（待确认第 5 条）。
+
+## 问 12 签名钥：库怎样挑、标成过期的旧钥是否还在 /jwks、换会话密钥后（待确认第 3 条）
+- 挑钥（从源码读到 better-auth/dist/plugins/jwt/sign.mjs、adapter.mjs；实测）：按算法取没过期的钥里 createdAt 最新的一把；有一把更新的就用它签
+  （[P9.4b]）；最新的被标成过期（expiresAt 早于现在）就不用它，回到较早的活钥（[P9.4c]）；一把活钥都没有时现场 createJwk。
+- /jwks 列出没过期的钥与过期不满宽限期（jwks.gracePeriod，缺省 30 天）的钥（[P9.4c] 两把都在），过了宽限期的不列（[P9.4d]）。
+- 换会话密钥后（同一个库、新的 secret 重建实例）：签发时解不开私钥，令牌端点 500（[P9.4e]，库抛 BetterAuthError “Failed to decrypt
+  private key”）。库的 secretConfig 支持按版本的多份密钥（options.secrets，crypto/index.mjs 的信封格式，从源码读到），但 t07 只用单个 secret，
+  不在本 Task 改。
+- 候选 a 的做法可行（实测）：启动时取最新的活 RS256 钥，用 better-auth/crypto 的 symmetricDecrypt 与 ctx.secretConfig 试解；解不开就把它的
+  expiresAt 设成刚过去，再 createJwk。之后签发用新钥（kid 3），/jwks 同时列旧钥与新钥，重启前签发的 id_token 用 /jwks 里的旧公钥验得过；
+  同一新密钥再重启，签名钥不变（[P9.4f]、[P9.4g]）。
+对计划的影响：待确认第 3 条定 a，前提都成立：只在最新的活钥解不开时新建，记一行 warn；旧公钥按 30 天宽限期留着，远长于 id_token 的 1 小时。
+
+## 问 13 回调地址：库的两套规则、回环端口、自家 SQL 改出库不收的地址（审查第 3、15 条）
+- 登记（adminCreateOAuthClient，实测 [P9.5a]）：不写 application_type 时按 web。web 只收 https 且主机不是回环：http 的 127.0.0.1、[::1]、
+  localhost，https 的 localhost、127.0.0.1 都回 400 invalid_redirect_uri。native 收 https 非回环、http 恰为 127.0.0.1、[::1]、localhost
+  （127.0.0.2 不收）、自定义协议（com.example.app:/cb）；不收 https 回环与非回环的 http。库把种类存进 applicationType 列（native 公开客户端
+  存成 native、none）。
+- 授权（实测 [P9.5b]）：native 客户端登记 http://127.0.0.1:8123/cb 后，请求带 :5555 或不带端口都发码、换得到令牌；路径不同、或主机换成
+  localhost 都到库的错误页 invalid_redirect。即回环只放宽端口，别的逐字比。
+- 自家 SQL 把 web 客户端的回调改成 http 回环之后，授权时库带去它的错误页，error=invalid_request（不安全的回调，[P9.5c]）。
+- redirectUris 存成 JSON 数组文本（[P9.5d]）。
+对计划的影响：登记时按种类显式给 application_type（公开 native、机密 web）；自家规则照库写成两套、比库多拒自定义协议；PATCH 与登记共用
+同一个判断；授权端点第 1 步的匹配照库的做法（native 回环不看端口）；库的 invalid_redirect_uri 映射成 redirect_uri_invalid。
+
+## 问 14 确认接口：库在确认里重跑授权时给出什么地址（审查第 6 条）
+全部实测（[P9.6]）：GET 确认之后、POST 之前
+- 改掉客户端的回调地址：同意时库回它的错误页 error=invalid_redirect；拒绝时回错误页 error=access_denied（回调不再可信，不跳回客户端）。
+- 停用客户端：同意时错误页 error=client_disabled；拒绝时错误页 error=access_denied。
+- 请求带 prompt=login、提交的会话不新于签名参数：库回 /login?<签名参数>。别的会话提交且缺站点同意：库回 /consent?<签名参数>（问 9）。
+对计划的影响：授权端点与确认接口共用一个“库给的地址怎么归类”的函数；确认接口拿到库的错误页时，按签名参数里的 client_id 与 redirect_uri
+用第 1 步的同一个判断给 client_not_found 或 redirect_uri_invalid（拒绝时错误页的码是 access_denied，看不出原因），拿到登录页、站点同意页时
+回包好的 /login?continue=、/consent?continue=。
