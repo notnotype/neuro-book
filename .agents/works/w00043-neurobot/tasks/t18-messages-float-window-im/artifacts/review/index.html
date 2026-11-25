@@ -3,156 +3,50 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 2 轮：浮动窗自绘头的三处取舍</title>
+<title>第 3 轮：消息视图停靠时，头和下面两栏怎么接</title>
 <style>
-:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; --head: #e9e5dc; --list: #f1eee7; --chat: #ffffff; --chrome: #0b63c5; }
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
-main { max-width: 1320px; margin: 0 auto; padding: 32px 24px 64px; }
+main { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }
 h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
 h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
 section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
 .rec { margin: 0 0 16px; color: var(--rec); }
-.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3 { margin: 0 0 8px; font-size: 16px; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
-.frames { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.frame figcaption { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
-figure { margin: 0; }
-.win { position: relative; height: 150px; overflow: hidden; border: 1px solid #b9b2a4; border-radius: 10px; background: var(--chat); font-size: 12px; }
-.win .phead { height: 26px; padding: 0 8px; border-bottom: 1px solid var(--line); background: var(--head); line-height: 26px; font-weight: 600; }
-.win .tabs { height: 22px; padding: 0 6px; border-bottom: 1px solid var(--line); background: var(--head); line-height: 22px; }
-.win .tabs span { display: inline-block; margin-right: 8px; padding: 0 4px; }
-.win .tabs span.on { border-bottom: 2px solid var(--accent); }
-.win .body { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 34% 1fr; }
-.win .list { background: var(--list); border-right: 1px solid var(--line); }
-.win .row { height: 26px; padding: 0 8px; border-bottom: 1px solid var(--line); line-height: 26px; }
-.win .list .row { font-weight: 600; }
-.win .loading { position: absolute; left: 0; right: 0; bottom: 0; display: grid; place-items: center; color: var(--muted); }
-.win .dock { position: absolute; top: 4px; right: 6px; width: 18px; height: 18px; border-radius: 4px; background: var(--chrome); }
-.win .jump { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 0 6px; border-radius: 4px; background: var(--mark); color: #fff; font-size: 11px; line-height: 18px; }
-.win .drawer { position: absolute; left: 22px; bottom: 0; width: 55%; border-right: 1px solid var(--line); background: var(--list); box-shadow: 2px 0 6px rgba(0,0,0,.08); }
-.win .strip { position: absolute; left: 0; top: 0; bottom: 0; width: 22px; border-right: 1px solid var(--line); background: var(--list); }
-.win .strip i { display: block; width: 14px; height: 14px; margin: 6px auto 0; border-radius: 3px; background: #8c8578; }
-.win .strip i.btn { background: var(--accent); }
-.win .narrow-chat { position: absolute; left: 22px; right: 0; top: 0; }
-.win .kbd { position: absolute; top: 4px; left: 4px; padding: 0 5px; border: 2px solid var(--accent); border-radius: 4px; background: #fff; line-height: 16px; font-size: 11px; }
-.layers { display: grid; gap: 6px; max-width: 560px; }
-.layer { padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
-.layer strong { margin-right: 8px; }
-table { width: 100%; border-collapse: collapse; font-size: 15px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-th { color: var(--muted); font-weight: 600; }
+figure { margin: 0 0 10px; }
+figcaption { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
-<h1>第 2 轮：浮动窗自绘头的三处取舍</h1>
+<h1>第 3 轮：消息视图停靠时，头和下面两栏怎么接</h1>
 
-<section data-nbdev-question="loading-head" data-nbdev-type="single" data-nbdev-recommend="never">
-  <h2>消息视图还在加载、或者出错时，浮动窗要不要先画“消息”那一行？</h2>
-  <p class="rec"><strong>推荐 B 一直不画：头的有无只看“浮着、只有它一个标签”，打开和重新加载时内容不跳。</strong></p>
+<section data-nbdev-question="dock-seam" data-nbdev-type="single" data-nbdev-recommend="line">
+  <h2>停靠时，头下面要不要画一条横线，把头和下面的两栏隔开？</h2>
+  <p class="rec"><strong>推荐 A 头下画线：竖线和气泡边框都收在这条线上，不再像被头切断；宽窄两版一样，只加在消息视图停靠时。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="ready" data-nbdev-label="A 就绪才自绘">
-      <h3>A 就绪才自绘（草稿 1）</h3>
-      <div class="frames">
-        <figure class="frame"><figcaption>加载中</figcaption>
-          <div class="win"><div class="phead">消息</div><div class="loading" style="top:27px">加载中…</div></div>
-        </figure>
-        <figure class="frame"><figcaption>就绪</figcaption>
-          <div class="win"><div class="body" style="top:0"><div class="list"><div class="row">Bot</div></div><div><div class="row">星璃</div></div></div><span class="jump">整体上跳 32px</span><span class="dock"></span></div>
-        </figure>
-      </div>
+    <div class="cand" data-nbdev-option="keep" data-nbdev-label="现状">
+      <h3>现状</h3>
+      <figure><figcaption>窄版</figcaption><img src="r3/narrow-now.webp" alt="窄版现状"></figure>
+      <figure><figcaption>宽版</figcaption><img src="r3/wide-now.webp" alt="宽版现状"></figure>
     </div>
-    <div class="cand" data-nbdev-option="never" data-nbdev-label="B 一直不画">
-      <h3>B 一直不画</h3>
-      <div class="frames">
-        <figure class="frame"><figcaption>加载中</figcaption>
-          <div class="win"><div class="loading" style="top:0">加载中…</div><span class="dock"></span></div>
-        </figure>
-        <figure class="frame"><figcaption>就绪</figcaption>
-          <div class="win"><div class="body" style="top:0"><div class="list"><div class="row">Bot</div></div><div><div class="row">星璃</div></div></div><span class="dock"></span></div>
-        </figure>
-      </div>
-      <p>出错时错误卡片同样从窗口顶上开始，右上角的“回到停靠”照样在。</p>
+    <div class="cand" data-nbdev-option="line" data-nbdev-label="A 头下画线">
+      <h3>A 头下画线</h3>
+      <figure><figcaption>窄版</figcaption><img src="r3/narrow-a.webp" alt="窄版 A"></figure>
+      <figure><figcaption>宽版</figcaption><img src="r3/wide-a.webp" alt="宽版 A"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="inset" data-nbdev-label="B 竖线不碰头">
+      <h3>B 竖线不碰头</h3>
+      <figure><figcaption>窄版</figcaption><img src="r3/narrow-b.webp" alt="窄版 B"></figure>
     </div>
   </div>
-</section>
-
-<section data-nbdev-question="narrow-enter" data-nbdev-type="single" data-nbdev-recommend="noop">
-  <h2>窄版浮动窗里，键盘聚焦到左上角的标题按钮按 Enter，要不要开列表抽屉？</h2>
-  <p class="rec"><strong>推荐 A 不开：这个按钮平时看不见，只当键盘拿起窗口的入口；抽屉由头像列顶上的按钮开。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="noop" data-nbdev-label="A 不开，抽屉只由头像列按钮开">
-      <h3>A 不开</h3>
-      <div class="frames">
-        <figure class="frame"><figcaption>聚焦标题按钮，按 Enter</figcaption>
-          <div class="win"><div class="strip"><i class="btn"></i><i></i><i></i></div><div class="narrow-chat"><div class="row">星璃</div></div><span class="kbd">消息</span><span class="dock"></span></div>
-        </figure>
-        <figure class="frame"><figcaption>点头像列顶上的按钮</figcaption>
-          <div class="win"><div class="strip"><i class="btn"></i><i></i><i></i></div><div class="narrow-chat"><div class="row">星璃</div></div><div class="drawer" style="top:27px"><div class="row">Bot</div></div><span class="dock"></span></div>
-        </figure>
-      </div>
-      <p>和普通浮动窗的标题一样：空格拿起、菜单键开“移动到”。</p>
-    </div>
-    <div class="cand" data-nbdev-option="drawer" data-nbdev-label="B 照旧开抽屉">
-      <h3>B 照旧开抽屉</h3>
-      <div class="frames">
-        <figure class="frame"><figcaption>聚焦标题按钮，按 Enter</figcaption>
-          <div class="win"><div class="strip"><i class="btn"></i><i></i><i></i></div><div class="narrow-chat"><div class="row">星璃</div></div><div class="drawer" style="top:27px"><div class="row">Bot</div></div><span class="kbd">消息</span><span class="dock"></span></div>
-        </figure>
-        <figure class="frame"><figcaption>停靠时（不变）</figcaption>
-          <div class="win"><div class="phead">消息 ▾</div><div class="strip" style="top:27px"><i class="btn"></i><i></i></div></div>
-        </figure>
-      </div>
-      <p>与停靠时的窄版一致，但打开后焦点要回到一个平时看不见的按钮上。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="second-tab" data-nbdev-type="single" data-nbdev-recommend="instant">
-  <h2>往这个浮动窗里再放一个视图（出现标签条）时，内容往下让出头的位置，要不要做过渡？</h2>
-  <p class="rec"><strong>推荐 A 直接换：这一刻标签条本来就同时出现，要过渡得改 nb-layout 的内容过渡规则。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="instant" data-nbdev-label="A 直接换">
-      <h3>A 直接换</h3>
-      <div class="frames">
-        <figure class="frame"><figcaption>只有消息视图</figcaption>
-          <div class="win"><div class="body" style="top:0"><div class="list"><div class="row">Bot</div></div><div><div class="row">星璃</div></div></div><span class="dock"></span></div>
-        </figure>
-        <figure class="frame"><figcaption>放进第二个视图，下一帧</figcaption>
-          <div class="win"><div class="tabs"><span class="on">消息</span><span>大纲</span></div><div class="body" style="top:23px"><div class="list"><div class="row">Bot</div></div><div><div class="row">星璃</div></div></div></div>
-        </figure>
-      </div>
-    </div>
-    <div class="cand" data-nbdev-option="animate" data-nbdev-label="B 过渡（改 nb-layout）">
-      <h3>B 过渡</h3>
-      <p>内容在约 280ms 里从顶上滑到标签条下面。nb-layout 现在把“只有上边距变了”当作不是布局变化、不做过渡，要改它的规则与测试，范围多出 nb-layout 一个包。</p>
-    </div>
-  </div>
-</section>
-
-<section>
-  <h2>按审查改的，直接做</h2>
-  <div class="layers">
-    <div class="layer"><strong>最上层</strong>缩放手柄、键盘移动把手；<b>自绘头的按钮改画在这一层</b>（“回到停靠”、视图动作、聚焦才显示的标题按钮），这一层本身不接点击</div>
-    <div class="layer"><strong>中间层</strong>视图的内容：自绘时从窗口顶上开始，四个角都裁圆</div>
-    <div class="layer"><strong>最底层</strong>窗口外框与卡片；普通的面板头在这里，自绘时不画</div>
-  </div>
-  <table style="margin-top:16px">
-    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
-    <tbody>
-      <tr><td>哪里能拖窗口</td><td>视图标出可拖的区域：列表切换行、头像列顶行、对话头。区域里的按钮、标签、输入框拖不动窗口；头像能拖</td></tr>
-      <tr><td>右键</td><td>可拖区域的空白处右键出“移动到”；文字上右键留给浏览器复制</td></tr>
-      <tr><td>右上角按钮的位置</td><td>工作台把按钮占的宽度写成 CSS 变量，对话头在右端让出来；按钮悬停或焦点在窗里才显示</td></tr>
-      <tr><td>别的视图拖进来</td><td>拖到窗口顶上那一条照旧是“加成标签”</td></tr>
-      <tr><td>窄版抽屉</td><td>顶边在对话头下面，不盖住“回到停靠”</td></tr>
-      <tr><td>不做</td><td>双击头（浮动窗没有最大化）；可拖区域不改光标</td></tr>
-    </tbody>
-  </table>
 </section>
 
 <section>
@@ -161,6 +55,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>浮动窗里内置视图可以自绘整个头，停靠不变（2026-11-25）</li>
     <li>浮动窗的头用 B 自绘头；bot 与会话的切换用 B 标题式（第 1 轮，2026-11-25）</li>
     <li>框架按钮悬停才显示；键盘用的标题按钮聚焦才显示、在左上角；窄版也自绘（2026-11-25）</li>
+    <li>加载中或出错时照常画面板头、就绪才自绘；窄版标题按钮按 Enter 不开抽屉；加第二个标签时直接换、不过渡（第 2 轮，2026-11-25）</li>
   </ol>
 </section>
 </main>
