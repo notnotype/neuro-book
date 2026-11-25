@@ -3,7 +3,7 @@
   壳自己的页面（docs/specs/runtime/desktop-shell.md 的“启动页”“对话框”）：启动页与几种对话框共用一页，按地址参数 mode 区分。
   壳经 executeJavascript 调 window.__nbookShell.render(state) 交来要显示的内容，按钮经 Electrobun 的事件桥交回壳。
   没有系统标题栏的窗口（预加载定义了 __nbookDesktopFrame，只有启动页所在的窗口；对话框有系统标题栏）顶上画一条 36px 的拖动条
-  与窗口按钮（输出 10）：拖动、双击最大化由 WebView2 按 app-region 交给系统；按钮发 window-control，壳推来 window-state 时换图标。
+  与窗口按钮（输出 10；macOS 的窗口保留系统的红绿灯，只有这条拖动条）：拖动、双击最大化由 WebView2 按 app-region 交给系统；按钮发 window-control，壳推来 window-state 时换图标。
   按钮的样子与产品页的窗口按钮相同（src/web/DesktopFrame.vue）：内联的 lucide 图形、26px 的芯。
 -->
 <html lang="zh-CN">
@@ -118,6 +118,12 @@
       toggle.querySelector('[data-icon="restore"]').hidden = !message.maximized;
       toggle.setAttribute("aria-label", message.maximized ? "还原" : "最大化");
     });
+  }
+  else if (window.__nbookDesktopFrame === 2) {
+    // 红绿灯留着的窗口（macOS）：没有按钮要画，只留顶上这条拖动条，红绿灯浮在它的左端。
+    const frame = document.querySelector(".frame");
+    frame.replaceChildren();
+    frame.hidden = false;
   }
   send({type: "shell-ready"});
 })();

@@ -1,0 +1,126 @@
+# w00037 t06 第 4、5 片只读实现审查
+
+审查对象：`29f2c05f1..a783c96bf`。依据为主工作区的 Spec 与计划文末决定。除另行标明外，运行探针用实现 worktree 的 `a783c96bf5087ad876467c82512099771bae1b24`；已核对入口及其工作区包解析到该 worktree。实验数据库、脚本与日志仅在 `/tmp/review-w00037-t06-impl2/lab-omp/`。
+
+### 1. 聚合游标读失败时，库可写却不会删除到期上报
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/purge.ts:73-88,127-137`；`packages/nb-site-telemetry/src/aggregate.ts:151-155`；`docs/specs/site/telemetry-ingest.md:42`。
+- **现象**：真实服务先经 HTTP 记入一份每日上报。在隔离库的另一条连接上删除 `daily` 游标行（模拟聚合状态损坏；`quick_check` 仍为 `ok`），拨钟 8 天再经测试控制入口跑 `purge`。返回 500 `job_failed`，原始表仍有 1 行，同编号重发仍回 `duplicate: true`。只有通用 `job.failed`，没有 `telemetry.purge_unaggregated`。
+- **为什么是问题**：`aggregator.cursor()` 在保护聚合的 `try` 之外；即便只移进 `try`，删除前统计未聚合份数时还会重复读同一个坏游标。影响持续到游标被修复；不是合同允许延期的库不可写，而是单个派生状态损坏阻止两个原始表兑现保留期。
+- **如何核实**：实现 worktree 根运行 `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/review-w00037-t06-impl2/lab-omp/runtime.py cursor_missing "$PWD/packages/nb-site-server/src/main.ts"`；本轮日志 `cursor_missing-iwr34d0c/data-serve.jsonl`。
+- **建议改法**：把游标读和聚合批归入同一失败分类；统计损失用失败前最后确认的游标，读不到时明确记“未知”，不再次依赖坏状态而阻止删除。补一条游标缺失且库可写的真实库用例。
+
+### 2. 某张原始表删除失败后，已删的另一张表跳过 WAL 清理
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-site-telemetry/src/purge.ts:94-109,136-140`；主工作区计划“主会话的审定”（截断检查点每轮都做）。
+- **现象**：真实服务各记入 1 份每日上报与立即事件，跑聚合和被动检查点，主库能检出每日上报编号 2 次（表和索引）。让 SQLite 只在删除立即事件时产生约束错误，拨钟 8 天。第一次 `purge` 回 500；新连接读两张原始表分别是 0、1 行，但每日上报编号仍在主库出现 2 次。再次 `purge` 回 500，残留不变。撤掉故障后下一次 `purge` 回 200，两种编号都清掉。本实验没有读者持有旧快照。
+- **为什么是问题**：前面的批已提交，后面的删除抛错却跳过 `truncateWal()`；每一轮都可以因同一个后续错误重返这条路径。已经查不到的上报仍留在库文件，不是已接受的“旧读者释放后下一轮重试”。
+- **如何核实**：实现 worktree 根运行 `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/review-w00037-t06-impl2/lab-omp/runtime.py delete_then_error "$PWD/packages/nb-site-server/src/main.ts"`。
+- **建议改法**：保证已提交删除批之后，即使后续批失败，也在事务外尝试截断检查点；两个步骤都失败时分别诊断，保留导致这轮失败的原错误。补“前表删除成功、后表失败、旧编号已清”的用例。
+
+### 3. 删除前聚合把截止日之后的上报带进同一批，后者出错会丢掉本可聚合的到期数据
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/purge.ts:74-88`；`packages/nb-site-telemetry/src/aggregate.ts:140-144,176-184`。
+- **现象**：确认首次聚合结束后，经 HTTP 写一份 `7.3.4`，拨钟 8 天，再写一份未到期的 `9.1.2`。用真实 SQLite 触发器只在聚合 `9.1.2` 时触发约束失败。`purge` 回 500：到期的 `7.3.4` 已被删、从未入聚合；未到期的 `9.1.2` 还在。撤掉故障再跑 `aggregate` 只得到 `9.1.2`。
+- **为什么是问题**：删除逻辑已经取到到期行的最大编号，但没有把它交给批查询；一批不足 500 行时会继续读后来的行。隐私优先的“聚合出错照删”不可避免会丢掉出错的到期数据，不应让删除范围之外的新数据把原本健康的到期数据一起带进失败事务。
+- **如何核实**：实现 worktree 根运行 `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/review-w00037-t06-impl2/lab-omp/runtime.py cross_cutoff "$PWD/packages/nb-site-server/src/main.ts"`。故障只作用于新版本的聚合键，入口、调度、写入、删除都走原版真实进程。
+- **建议改法**：`purge` 用已算出的最大到期编号给聚合批加上界，普通定时聚合和备份不受这个界限；补“截止前可聚合、截止后故障”的跨日用例。
+
+### 4. 跨周修正仍不能保证最早允许周的上报可在 48 小时内重发
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/validate.ts:219-233,279-280`；`packages/nb-site-telemetry/src/ingest.ts:170-179`；`docs/specs/telemetry/protocol.md:47,77,96`。
+- **现象**：真实进程在 `2026-11-30` 周一 18:00 UTC 接受 `installWeek: "2026-W35"`，回 200、`duplicate:false`。到周三 `2026-12-02` 00:01 UTC，仅 30 小时 1 分后，用完全相同的正文和编号重发，回 400 `invalid_report`、`field:"installWeek"`；同编号只把安装周换成 `older`，回 200、`duplicate:true`、`serverDay:"2026-11-30"`。
+- **为什么是问题**：`765e304c0` 的两天宽限让周一和周二第一次发送的人也能使用更早一周，但这批已经合法记入的上报同样享有完整的 48 小时确认窗口。把下限再往前挪，只会移动反例；发送方按 400 丢弃，无法确认首次写入。这个反例不是上一轮已测过的周日到周一。
+- **如何核实**：实现 worktree 根运行 `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/review-w00037-t06-impl2/lab-omp/edge_runtime.py retry_week "$PWD/packages/nb-site-server/src/main.ts"`。
+- **建议改法**：首次提交仍按当日验证；已知编号的时效性条件按首次记入日验证，或在校验结构后先区分重发与新记录，使重发不再被随当前日移动的首次准入下限挡住。补周一首次、周三重发及同周三新编号拒绝的对照。
+
+### 5. 立即事件的聚合损失条数被日志的保留字段覆盖
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/purge.ts:131-133`；`packages/nb-site-server/src/log.ts:30-33`；主工作区计划 3.6。
+- **现象**：经真实 HTTP 写入 1 条立即事件；只让立即事件聚合触发约束错误，拨钟 8 天跑 `purge`。任务回 500、原始立即事件已清、聚合没增加这条。`telemetry.purge_unaggregated` 日志有 `daily:0` 与 `dbCode:"SQLITE_CONSTRAINT_TRIGGER"`，但没有丢掉的 1 条立即事件的数。
+- **为什么是问题**：模块将损失数放在同名的 `event` 字段，宿主按约定用稳定的日志事件名覆盖它。`purge.test.ts` 断言的是模块桩收进的 `fields.event`，因此测不到真实日志丢字段；部署者不能从日志量化立即事件少了多少。
+- **如何核实**：实现 worktree 根运行 `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/review-w00037-t06-impl2/lab-omp/edge_runtime.py event_log "$PWD/packages/nb-site-server/src/main.ts"`。
+- **建议改法**：使用 `dailyRows`、`eventRows`，或一个不与日志保留名冲突的嵌套对象；断言最终的结构化日志，而不是只看模块交给日志器的参数。
+
+### 6. C19 只看旧版 aggregate 回 200，任务空转也能通过
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-contract-tests/src/adjacent-version.test.ts:105-114`；`packages/nb-site-telemetry/src/purge.ts:73-88`。
+- **现象**：在仓库外的 `variant-no-aggregate`（`1cfe66478`）只把 `aggregate` 的注册回调换成立即完成的空函数，保留原任务名与 `purge`。让 `a783c96bf` 的 C19 接管这个真实旧进程，两个能力开关均为 `0`：5 过、0 败，与未变异的同组结果一致。
+- **为什么是问题**：200 `done` 只说明回调没抛；随后的 `purge` 会自己补聚合，最终重发只证明原始表删了。旧版定时聚合失效时，依赖新数据的看板要等到原始上报到期才有计数，但 CI 看不出。与 Opus 第 6 条不同：即便本版本预先写过聚合，计数若在 `purge` 后才读，这个变异仍能活下来。
+- **如何核实**：报告末尾实验目录下以 `baseline-snapshot` 的 `bun --no-env-file test ./src/adjacent-version.test.ts` 运行，`NB_SITE_SERVER_COMMAND` 指向其入口，`NB_SITE_PREVIOUS_SERVER_COMMAND` 指向 `variant-no-aggregate` 的入口；均为 `["bun","--no-env-file",入口]`。
+- **建议改法**：在旧版写入后、`purge` 前确认 `aggregate` 已把计数从 1 加到 2；随后再验 `purge` 清掉原始数据、聚合不变。这样同一条用例也能区分新版既有聚合能否被旧版更新。
+
+### 7. 未闭合的 Content-Type 参数引号仍能吞掉第二个媒体类型
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-site-telemetry/src/ingest.ts:63-80`；`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts:305-343`；`docs/specs/telemetry/protocol.md:32,87-88`。
+- **现象**：真实 Bun HTTP 进程收到两个 `Content-Type` 行，第一行是 `application/json; foo="unclosed`，第二行是 `text/plain`；正文为合法每日上报，返回 200。第一行改为闭合的 `foo="ok"`、保留第二行时回 400；单个合法 `foo="ok,comma"` 回 200。
+- **为什么是问题**：合并后的逗号落在未闭合的引号内；扫描器到末尾没有检查引号是否已经闭合，放行了不合法的参数与重复媒体类型。是前三片修正的边界，不影响合法带逗号参数。
+- **如何核实**：实现 worktree 根运行 `PYTHONDONTWRITEBYTECODE=1 python3 /tmp/review-w00037-t06-impl2/lab-omp/edge_runtime.py content_type "$PWD/packages/nb-site-server/src/main.ts"`。
+- **建议改法**：扫描结束仍在引号内时也判内容类型不合格；在现有 C12 加一条原始 HTTP 重复头用例，保留合法参数内逗号的正例。
+
+### 8. C19 两条用例共用会被删除的上报，换个顺序就失败
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-contract-tests/src/adjacent-version.test.ts:80-89,99-114`。
+- **现象**：对未变异的新版 `a783c96bf` 和旧版 `1cfe66478` 打包产物运行 C19，正常顺序 5 过。加 `--randomize --seed=2` 后，4 过、1 败：原本期待首次记入日 `2026-11-25`，实际返回拨钟后的 `2026-12-03`，仍是 `duplicate:true`。
+- **为什么是问题**：任务用例把共享进程拨到 D+8、删除编号并用同编号重发。紧随其后的“每日上报可用”用例看到的已不是本版本记入的那一份。测试要独立验证接管，不能依赖另一个用例还没改变这个前置条件。
+- **如何核实**：`baseline-snapshot/packages/nb-site-contract-tests` 下两个能力开关设 `0`，新版命令指向 `baseline-snapshot/packages/nb-site-server/dist/image/server.js`、旧版用 `jobs-image.env` 里的 `command`，运行 `bun --no-env-file test --randomize --seed=2 ./src/adjacent-version.test.ts`。
+- **建议改法**：把“重发仍是本版本的数据、旧版写新数据、旧版聚合与删除”写成一条场景里的有序步骤；若保留两条用例，则分别建目录、起进程并写各自的上报。
+
+### 9. C15 单份上报的 WAL 布局让错误的检查点也能过
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts:549-568`；`packages/nb-site-telemetry/src/purge.test.ts:161-197`。
+- **现象**：在仓库外把 `purge` 的 `wal_checkpoint(TRUNCATE)` 改成 `PASSIVE`。C15 仍通过；包内两条相关用例均失败（一条测出编号还在 WAL，一条没有收到检查点忙日志）。真实进程另跑两份 HTTP 上报，在两份之间做被动检查点、到期前聚合。删除后两张原始表是空的：原版主库、WAL 均找不到第一份编号，变异版 WAL 仍有 2 处。
+- **为什么是问题**：C15 只要求删除之前在任意文件里能找到编号，没保证旧编号跨过了随后被覆盖的 WAL 帧；合约里“库文件不留原始内容”在真实打包产物上仍缺有判别力的前置条件。包内层已兜住，属于覆盖强度，不是原版的正常删除出错。
+- **如何核实**：设置 `NB_SITE_SERVER_COMMAND` 指向 `variant-fast-delete` 的入口，对 `telemetry-ingest.test.ts` 跑 `-t 'C15|C16'`，C15 通过、C16 因独立的备份变异失败；同副本对 `purge.test.ts` 跑 `-t '删掉的内容不留在文件里'`；`late_raw.py physical <入口>` 在原版产物和该副本上给上述对照。
+- **建议改法**：让 C15 的前置状态能确认旧编号已同时出现在主库与不会被下一批完全覆盖的 WAL 中，再断言两处都清；若合同测试不应依赖这层存储细节，明确由包内测试负责 WAL 字节判据，C15 只守期限和重发状态。
+
+### 已核实条目的补充证据
+
+- 第 2 条的同一物理清理窗口也可由强制退出到达。`abrupt_purge.py` 在被审的打包程序里观察到删除批已提交后发 `SIGKILL`：退出码 −9，首条到期记录 SQL 查不到，主库仍能找到该编号 2 处。下次启动的自动 `purge` 删除余下的行、清掉这两处。它证明分批提交与检查点不是原子的；与第 2 条“服务持续运行，下一轮仍因后续表失败而不清”分开看。
+- 第 4 条的输入是服务端明确允许、已返回 200 的下限值；按发送方规则在满 12 周就使用 `older` 的正常本机时钟不触发这个具体例子。
+- 实现 worktree 在审查期间前进到 `8418d313c`。后续运行用 `git archive` 导出的被审提交或由对应基准独立构建的程序，不借用前进后的工作区源码。对照提交差异，第 6 条已有针对性改动：在旧版 `purge` 前读实际聚合份数；没有对 `8418d313c` 重跑变异。本报告编号与分级仍只针对 `a783c96bf`。
+- 第 3 条的建议只要把批上界收紧到已知的 `lastExpired`，就能消除上述尾部越界。若考虑时钟小幅回拨后两种日期的行在编号上交错，不要在批内仅按日期跳过未到期行却推进同一个全局游标；否则那些被跳过的行以后也不会再算。
+- 第 6 条另用变异旧进程实际写两日的上报，手动 `aggregate` 两次均回 200，但每日上报和立即事件的聚合都是 0；与未变异进程分别得到 505、66 的计数相对照。
+
+### 10. 没有到期行时，purge 仍同步扫原始表，冷库写入等了 15 秒
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-site-telemetry/src/purge.ts:56-63,73-79`；`packages/nb-site-telemetry/migrations/0001_init.sql:52,70`；主工作区计划 3.6（无到期行只查一次索引）。
+- **现象**：用计划上档规模造 800,001 条**未到期**的每日上报（每份 27 项错误、库约 1.14 GB），记好游标，跑被审提交的打包进程。空闲时心跳 8.8 毫秒。经测试控制入口跑 `purge` 并在进程记录开始后发心跳：热缓存时 `purge` 293.2 毫秒、心跳 291.4 毫秒；对隔离库文件请求丢弃页缓存后分别是 15,087.4 和 15,084.1 毫秒，最终均成功。这不是锁等待，且没有一行到期需要聚合或删除。
+- **为什么是问题**：Bun 内置 SQLite 3.53.4 对 `SELECT max(id) … WHERE server_day < ?` 用 `SEARCH telemetry_daily_raw`，不走日索引；从最高行号往前找，找不到时同步反扫全表。500 行一批和批间让出都在它后面，保护不了同一事件循环上的请求。启动立即触发，热缓存也不免除扫描。1 秒的合同条目字面写的是聚合并发；这里确认的是同一个写入口还存在未受批大小限制的独立阻塞路径，不把这组数当作普通 `aggregate` 的延迟。
+- **如何核实**：仓库外 `purge_scan.py <被审产物入口> 800001` 造出状态；第二次复用同一隔离库测得上述数字。用原 SQL 的 `EXPLAIN QUERY PLAN`，对照 `SELECT 1 FROM telemetry_daily_raw WHERE server_day < ? LIMIT 1`，后者走 `COVERING INDEX telemetry_daily_raw_server_day`。冷库数字是本机实测，不是 VPS 容量估计。
+- **建议改法**：至少让无到期行走日索引的有界存在性检查；有到期行时也要避免在事件循环上扫描整个保留窗口，测量大批到期与冷库的最慢停顿，而不只量 500 行聚合事务。
+- 第 10 条复现命令（`lab` 为本报告开头的实验目录）：`export NBOOK_HOST_SYSTEM_TEMP_ROOT="$lab/host-purge-scan" NBOOK_AGENT_TEMP_ROOT="$lab/host-purge-scan/neuro-book" PYTHONDONTWRITEBYTECODE=1; mkdir -p "$NBOOK_AGENT_TEMP_ROOT"; entry="$lab/baseline-snapshot/packages/nb-site-server/dist/image/server.js"; python3 -u "$lab/purge_scan.py" "$entry" 800001 --seed-only`。再执行 `python3 -u "$lab/purge_scan_timing.py" "$lab/scan-ko80_guf/data" "$entry"`；重新造库时把数据库目录换成第一条命令打印的 `fixture`。首次在负载 26.58 下的合并造数与测量命令到 70 秒截停，未把未完成的测量算进结果。
+- 第 10 条对照：`variant-index-lookup` 只给同一条 `max(id)` 查询加 `INDEXED BY telemetry_${source}_raw_server_day`，仍走真实 HTTP 与 SQLite。用 `purge_scan_timing.py` 复用同一隔离库，冷缓存 `purge` 为 2.2 毫秒、并发心跳为 1.4 毫秒。这个变异仅验证无到期行时的根因；有大量到期行时，仍需验证查询的单次停顿。
+
+## 未发现问题的方面
+
+- **聚合正常路径**：真实 HTTP 跨两个服务端日、跨 500 行边界，每日上报与立即事件分别每日至多 64 个真实版本，再加 `other`；各表两天的总数分别为 505、66。包内用例覆盖编号空洞、批间交错和重跑。将游标更新挪出事务时，回滚用例测出本应为 0 的份数变成 5；将版本上限改成 65 时，上限用例测出多出来的 `1.64.0`。
+- **正常到期删除与旧快照**：真实服务每表 700 条到期、73 条未到期。旧读者持有快照时仍读到 773 条，新读者读到 73 条；进程记 `telemetry.checkpoint_busy`。旧读者释放后下一轮的主库、WAL、共享内存里均未检出这些到期编号；空闲页 53 页，两个 `sqlite_sequence` 都为 773。另用真实外部写锁验证 `purge` 回 500、两表各保留 1 条，放锁后任务回 200、两份各聚合 1 次并删除。库满分支有包内用例；未模拟宿主真实磁盘写满。
+- **成功备份与恢复**：真实 `backup` 产出 `identity.db`、`telemetry.db`，统计副本两张原始表均空、无原始编号、无 WAL、空闲页 0，两游标及序列值均为 17。分别用 `a783c96bf`、`1cfe66478` 接管副本：两个入口首次重发作为新记录、再次重发为重发，聚合份数与游标均从 17 到 18，序列到 19。移除备份前补聚合的变异使 C16 在版本标记断言失败。失败副本的 `secure_delete` 缺口已归在同范围 Opus 报告第 1 条，不重复计数。
+- **启动与正常停止**：被审产物重启后，不经手动跑任务，就把两张原始表各 1 条到期记录聚合并删掉；首次自动任务在监听后、迁移完成后运行。另在 60,001 条每日上报的启动积压上，观察到游标 1,000 时发 `SIGTERM`，17.4 毫秒退出，游标停在 1,500；再启动追平到 60,001，计数也是 60,001。没有 `job.stop_timeout`、`module.close_timeout` 或 `job.failed`。聚合与写入同跑的 `bun --no-env-file ./packages/nb-site-telemetry/scripts/measure-ingest.ts 1800`，100 并发、每份 27 项错误，1,475 次写入均成功，p99 255.5 毫秒、最大 336.5 毫秒；不是到期扫描的测量。双信号关闭时先读已关闭库的路径已归在 Opus 报告第 2 条。
+- **相邻版本构建与接管**：`bun run --cwd packages/nb-site-server build:previous --base … --out … --command-out …` 对空、全零、未知提交、非祖先及没有打包脚本的旧树均明确跳过，不写输出文件。实际克隆 `532302c0a`、`29f2c05f1`、`1cfe66478`，各用自己的依赖与 `build:image --no-docker`；开关值依次为 `1/1`、`0/1`、`0/0`，已有输出行不受影响。`bun --no-env-file test ./src/adjacent-version.test.ts` 配这三份程序正常顺序分别为 1 过 5 跳过、4 过 1 跳过、5 过 0 跳过。最后一个基准的新旧两端均用打包产物；范围内没有改变迁移文件，验证的是同一迁移账本上的接管，不代表未来迁移已经经过验证。
+
+## 验证范围
+
+- 在实现 worktree 仍解析到 `a783c96bf` 时，`bun --no-env-file test` 运行 `nb-site-telemetry` 的 `aggregate.test.ts`、`purge.test.ts`、`backup.test.ts`、`index.test.ts`，`nb-site-server` 的 `jobs.test.ts`、`serve.test.ts`，以及合同包的 `telemetry-ingest.test.ts`：89 过、0 败、427 个断言；日志在实验目录 `baseline.log`。`actionlint .github/workflows/ci.yml` 退出 0。
+- 未运行全量测试、类型检查、e2e、开发服务、Docker 镜像或远端 CI；未测实际部署硬件和断电。不修改任何被审版本的文件，所有变异都在仓库外。测试实际读取的 `@notnotype` 统计与合同包指向各自的快照，而不是实现 worktree。
+
+## 审查流程建议
+
+- **规范缺陷**：审查 Skill 的“源码照抄、`node_modules` 软链”若整体链接 `node_modules`，`import.meta.resolve("@notnotype/nb-site-telemetry")` 实测回到原 worktree，变异不会生效。建议把该条改成“仓库外复制源码，可复用第三方依赖；工作区包链接指向实验副本，跑测试前核对被变异包的实际解析路径”。本次只读，未改 Skill。
+
+## 各级数量
+
+阻断 0，重要 5，建议 5。影响优先顺序：2、1、10、3、4、5、6、8、9、7。第 6 条以被审提交为准计数，后续提交已有对应改动，见补充证据。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10。

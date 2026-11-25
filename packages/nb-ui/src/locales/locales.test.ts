@@ -33,6 +33,10 @@ const LEGACY: readonly Legacy[] = [
     {key: "copyButton.copy", zh: "复制"}, // controls/CopyButton.vue 的按钮文字（w00028 t04 新增）
     {key: "copyButton.copied", zh: "已复制"}, // 同上，复制成功的回执（新增）
     {key: "copyButton.failed", zh: "复制失败，请手动选择文字"}, // 同上，两条复制路径都失败（新增）
+    {key: "dataTable.count", params: {from: 41, to: 60, total: 1284}, zh: "第 41 到 60 条，共 1,284 条"}, // display/DataTable.vue 页脚的条数（w00037 t10 新增）
+    {key: "dataTable.countTotal", params: {total: 0}, zh: "共 0 条"}, // 同上，没有数据与窄于 480px 时的条数（新增）
+    {key: "dataTable.countUnknown", zh: "—"}, // 同上，还不知道总数时的条数（新增）
+    {key: "dataTable.retry", zh: "重试"}, // 同上，retryLabel 缺省（新增）
     {key: "detailDialog.copy", zh: "复制原文"}, // feedback/DetailDialog.vue 页脚的复制按钮（w00028 t04 新增）
     {key: "detailDialog.close", zh: "关闭"}, // 同上，页脚按钮（新增）
     {key: "detailDialog.truncated", zh: "原文过长，已截断"}, // 同上，原文被截断时块底的说明（新增）
@@ -74,6 +78,10 @@ const LEGACY: readonly Legacy[] = [
     {key: "notification.collapse", zh: "收起"}, // 同上，展开后的折叠小条（新增）
     {key: "numberInput.increase", zh: "增加"}, // form/NumberInput.vue 的 incrementLabel 缺省
     {key: "numberInput.decrease", zh: "减少"}, // 同上，decrementLabel 缺省
+    {key: "pagination.prev", zh: "上一页"}, // navigation/Pagination.vue 的 prevLabel 缺省（w00037 t10 新增）
+    {key: "pagination.next", zh: "下一页"}, // 同上，nextLabel 缺省（新增）
+    {key: "pagination.nav", zh: "分页"}, // 同上，navLabel 缺省（新增）
+    {key: "pagination.page", params: {page: 7}, zh: "第 7 页"}, // 同上，页码按钮的读屏名（新增）
     {key: "searchSelect.empty", zh: "没有匹配的选项"}, // form/SearchSelect.vue 的 emptyText 缺省
     {key: "searchSelect.clear", zh: "清除选择"}, // 同上，清空按钮的 aria-label（w00039 t37 新增）
     {key: "slider.thumb", params: {index: 2}, zh: "滑块 2"}, // form/Slider.vue 的 `滑块 ${index}`

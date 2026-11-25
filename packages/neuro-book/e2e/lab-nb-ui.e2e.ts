@@ -435,3 +435,150 @@ test("通知的“详情”：开对话框，“复制原文”写进剪贴板�
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SAVE_FAILED_DETAIL);
     await insecure.close();
 });
+
+test("数据表格：表格区滚动后表头留在原处，最后一页不满时表格区照样占满、页脚贴在组件底边（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=DataTable&s=page");
+    const table = stage(page).locator(".nb-data-table");
+    // Table 的根就是表格区的滚动容器（stickyHeader），表格区的第一个子元素。
+    const scroller = table.locator(".nb-data-table-body > :first-child");
+    const head = table.locator("thead th").first();
+    // 先确认这一页在表格区里放不下：不能滚动时“表头不动”会空过。
+    const overflow = await scroller.evaluate((element) => element.scrollHeight - element.clientHeight);
+    expect(overflow).toBeGreaterThan(120);
+
+    const headBefore = (await head.boundingBox())!;
+    const firstRowBefore = (await table.locator("tbody tr").first().boundingBox())!;
+    await scroller.evaluate((element) => {
+        element.scrollTop = 120;
+    });
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(120);
+    const headAfter = (await head.boundingBox())!;
+    const firstRowAfter = (await table.locator("tbody tr").first().boundingBox())!;
+    expect(firstRowAfter.y).toBeCloseTo(firstRowBefore.y - 120, 0);
+    expect(headAfter.y).toBeCloseTo(headBefore.y, 1);
+
+    // 缺省的手机画布只有 352px 高，6 行正好放满；换成高一些的画布，最后一页才留得出空白。
+    await openScene(page, "c=DataTable&s=last-page&vp=1100x800");
+    await expect(table.locator("tbody tr")).toHaveCount(6);
+    const box = (await table.boundingBox())!;
+    const body = (await table.locator(".nb-data-table-body").boundingBox())!;
+    const foot = (await table.locator(".nb-data-table-foot").boundingBox())!;
+    const lastRow = (await table.locator("tbody tr").last().boundingBox())!;
+    // 行没有占满：最后一行下面留着空白，页脚仍在底部、紧接着表格区。
+    expect(lastRow.y + lastRow.height).toBeLessThan(body.y + body.height - 100);
+    expect(foot.y + foot.height).toBeCloseTo(box.y + box.height, 1);
+    expect(foot.y).toBeCloseTo(body.y + body.height, 1);
+});
+
+/** 元素在页面里的外接框；量的是 getBoundingClientRect，不经 Playwright 的 boundingBox（它会等元素出现）。 */
+const rectOf = (locator: ReturnType<Page["locator"]>) => locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return {x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, bottom: box.bottom};
+});
+
+test("分页条：100 页从第 1 页连点“下一页”到第 100 页，整条的宽度与两个箭头的位置不变（nb-ui 的 Pagination.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=Pagination&s=many-first&vp=free");
+    const nav = stage(page).locator("nav.nb-pagination");
+    const prev = nav.getByRole("button", {name: "上一页"});
+    const next = nav.getByRole("button", {name: "下一页"});
+    const current = nav.locator("[aria-current='page']");
+    const first = {nav: await rectOf(nav), prev: await rectOf(prev), next: await rectOf(next)};
+    for (let target = 2; target <= 100; target += 1) {
+        await next.click();
+        await expect(current).toHaveText(String(target));
+        const [navBox, prevBox, nextBox] = await Promise.all([rectOf(nav), rectOf(prev), rectOf(next)]);
+        expect({page: target, width: navBox.width, prevX: prevBox.x, nextX: nextBox.x}).toEqual({page: target, width: first.nav.width, prevX: first.prev.x, nextX: first.next.x});
+    }
+});
+
+test("分页条：焦点在“下一页”上连按 Enter 到末页，箭头变成不可用时焦点落到末页的格子上（nb-ui 的 Pagination.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=Pagination&s=few");
+    const nav = stage(page).locator("nav.nb-pagination");
+    const next = nav.getByRole("button", {name: "下一页"});
+    await next.focus();
+    for (const target of ["3", "4"]) {
+        await page.keyboard.press("Enter");
+        await expect(nav.locator("[aria-current='page']")).toHaveText(target);
+        await expect(next).toBeFocused();
+    }
+    await page.keyboard.press("Enter");
+    await expect(nav.locator("[aria-current='page']")).toHaveText("5");
+    await expect(next).toBeDisabled();
+    await expect(nav.getByRole("button", {name: "第 5 页"})).toBeFocused();
+});
+
+test("数据表格：六个场景里工具条与页脚相对组件的位置、高度都相同（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    const frames: Record<string, unknown> = {};
+    for (const scene of ["page", "last-page", "empty", "initial-loading", "page-loading", "error"]) {
+        await openScene(page, `c=DataTable&s=${scene}&vp=1100x800`);
+        const table = stage(page).locator(".nb-data-table");
+        // 两个加载场景等延时过后转圈或遮罩出现，量的是状态画出来以后的样子。
+        if (scene.endsWith("loading")) await expect(table.locator(".nb-data-table-body [role=status]")).toBeAttached();
+        const [root, bar, foot] = await Promise.all([rectOf(table), rectOf(table.locator(".nb-data-table-bar")), rectOf(table.locator(".nb-data-table-foot"))]);
+        frames[scene] = {barTop: bar.y - root.y, barHeight: bar.height, footTop: foot.y - root.y, footHeight: foot.height};
+    }
+    const expected = frames["page"];
+    expect(expected).toEqual(expect.objectContaining({barHeight: 48, footHeight: 48}));
+    for (const [scene, frame] of Object.entries(frames)) expect({scene, ...(frame as object)}).toEqual({scene, ...(expected as object)});
+});
+
+test("数据表格：焦点在“重试”上按 Enter，出错层离场后焦点接到表格区，不掉回 body（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=DataTable&s=error&vp=1100x800");
+    const table = stage(page).locator(".nb-data-table");
+    const retry = table.getByRole("alert").getByRole("button");
+    await retry.focus();
+    await page.keyboard.press("Enter");
+    await expect(table.getByRole("alert")).toHaveCount(0);
+    await expect(table.locator(".nb-data-table-body")).toBeFocused();
+});
+
+test("数据表格：容器矮时出错的内容在表格区里滚动，“重试”不越过表格区、不压在页脚上（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=DataTable&s=error-short&vp=1100x800");
+    const table = stage(page).locator(".nb-data-table");
+    const state = table.getByRole("alert");
+    // 先确认出错的内容确实比表格区高：放得下时“不越过”会空过。
+    const overflow = await state.evaluate((element) => element.scrollHeight - element.clientHeight);
+    expect(overflow).toBeGreaterThan(20);
+    const retry = state.getByRole("button");
+    await retry.scrollIntoViewIfNeeded();
+    const [body, foot, button, alert] = await Promise.all([rectOf(table.locator(".nb-data-table-body")), rectOf(table.locator(".nb-data-table-foot")), rectOf(retry), rectOf(state)]);
+    expect(alert.y).toBeGreaterThanOrEqual(body.y - 0.5);
+    expect(alert.bottom).toBeLessThanOrEqual(body.bottom + 0.5);
+    expect(button.y).toBeGreaterThanOrEqual(body.y - 0.5);
+    expect(button.bottom).toBeLessThanOrEqual(foot.y + 0.5);
+});
+
+test("数据表格：页脚桌面宽一行、390 宽的英文界面折成两行且条数不截断（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=DataTable&s=page-english&vp=1100x800");
+    const table = stage(page).locator(".nb-data-table");
+    const foot = table.locator(".nb-data-table-foot");
+    const count = foot.locator(".nb-data-table-count");
+    const pager = foot.locator("nav");
+    let [footBox, countBox, pagerBox] = await Promise.all([rectOf(foot), rectOf(count), rectOf(pager)]);
+    expect(footBox.height).toBe(48);
+    expect(countBox.y + countBox.height / 2).toBeCloseTo(pagerBox.y + pagerBox.height / 2, 0);
+
+    await openScene(page, "c=DataTable&s=page-english&vp=phone");
+    [footBox, countBox, pagerBox] = await Promise.all([rectOf(foot), rectOf(count), rectOf(pager)]);
+    expect(await count.innerText()).toBe("Total: 1,286");
+    expect(await count.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
+    expect(pagerBox.y).toBeGreaterThanOrEqual(countBox.bottom);
+    expect(pagerBox.right).toBeCloseTo(countBox.right, 0);
+    expect(footBox.bottom).toBeGreaterThanOrEqual(pagerBox.bottom);
+});
+
+test("数据表格：放进 flex 行、不给宽度时按内容撑开，不塌成 0 宽（nb-ui 的 DataTable.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=DataTable&s=page-in-row&vp=1100x800");
+    const table = stage(page).locator(".nb-data-table");
+    const inner = await table.locator("table").evaluate((element) => element.getBoundingClientRect().width);
+    expect(inner).toBeGreaterThan(300);
+    expect((await rectOf(table)).width).toBeGreaterThanOrEqual(inner);
+});

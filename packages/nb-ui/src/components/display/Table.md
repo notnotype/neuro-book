@@ -12,6 +12,10 @@
 
 `loading` 为真时，正文只显示居中的 `Spinner`，不显示行或空态；否则 `rows` 为空时显示 `empty` 插槽，未提供时以 `emptyText` 作为 `EmptyState` 标题；有行时显示数据。表头在上述状态中都保留。组件没有 disabled、只读或错误状态。
 
+`stickyHeader` 为真时表头吸顶：根改为两个方向都可滚动，并占满父容器的高度（`height: 100%`、`min-height: 0`），所以父容器要有确定的高度；表头单元格贴在根的顶边，底色取面板色（`--bg-panel`），下边一条边框色的线。吸顶只能贴在最近的滚动容器上，根本来就横向滚动，外面再包一层竖向滚动时表头不会吸顶，所以竖向滚动也交给根。表格放在别的底色上时表头仍是面板色。默认 false，根只横向滚动、高度随内容。
+
+`nowrap` 为真时单元格不换行：每行一样高，列宽按内容算，放不下时表格在根里横向滚动，而不是把列挤窄、让长文字一字一行。只作用于 `Table` 自己画的单元格，不改插槽里放进来的内容（例如单元格里的子表格）。长文本列（备注、详情）在列定义上写 `wrap: true`，这一列照常换行，同时建议给它一个 `width`，否则列宽仍由表格按内容分配。列的 `wrap` 只在 `nowrap` 为真时有意义：`nowrap` 为假时所有单元格本来就换行。表头单元格总是不换行。默认 false，单元格照常换行。
+
 ## 数据
 
 ```ts
@@ -24,6 +28,8 @@ type TableColumn<Row extends object> = {
     width?: string;
     /** 单元格与表头对齐方式；可选，默认 "left" */
     align?: "left" | "center" | "right";
+    /** 表格设了 nowrap 时这一列仍换行；可选，默认 false；nowrap 为假时没有作用 */
+    wrap?: boolean;
 };
 type TableDensity = "default" | "compact";
 
@@ -42,6 +48,10 @@ interface TableProps<Row extends object> {
     hoverable?: boolean;
     /** 单元格密度；可选，默认 "default" */
     density?: TableDensity;
+    /** 表头吸顶，根承担两个方向的滚动并占满父容器的高度；可选，默认 false */
+    stickyHeader?: boolean;
+    /** 单元格不换行，列可以用 wrap 例外；可选，默认 false */
+    nowrap?: boolean;
 }
 
 interface TableEmits<Row extends object> {
