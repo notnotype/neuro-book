@@ -30,7 +30,7 @@ owners:
 
 | 接口 | 作用 |
 |---|---|
-| `GET users` | 分页列出账号，可按用户名、邮箱、显示名的前缀搜索（参数 `q`，不分大小写；邮箱待补的账号不按邮箱匹配），可按一个筛选项筛（参数 `filter`，取值 `all`、`admin`、`banned`、`email_pending`：全部、管理员、已封禁、邮箱待补） |
+| `GET users` | 分页列出账号，可按用户名、邮箱、显示名的前缀搜索（参数 `q`；用户名与邮箱不分大小写，显示名只有 ASCII 字母不分大小写；邮箱待补的账号不按邮箱匹配），可按一个筛选项筛（参数 `filter`，取值 `all`、`admin`、`banned`、`email_pending`：全部、管理员、已封禁、邮箱待补） |
 | `GET users/:id` | 一个账号的资料、登录方式、会话数、注册时用的码与邀请人 |
 | `POST users/:id/ban`、`POST users/:id/unban` | 封禁、解封 |
 | `POST users/:id/role` | 改角色 |

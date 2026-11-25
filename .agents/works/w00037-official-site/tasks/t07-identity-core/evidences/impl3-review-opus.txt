@@ -1,0 +1,64 @@
+# w00037 t07 第 6 到 8 片与两个修正的实现审查（Opus）
+
+审查对象：`02ce9d01b..f8eb66f1e`（first-parent：1cfb90886、e8d35f54a、97a536726、a90055457、98a572d44、385e4ca86 的接缝、f8eb66f1e）。
+实验在实现 worktree `.worktree/w00037-t07-identity` 上跑，它的 HEAD 核对过是 `f8eb66f1e`（与被审提交相同），实验脚本都在 `/tmp/review-w00037-t07-impl3/lab-opus/`，从仓库外按绝对路径导入源码。
+
+### 1. 结束全部会话的审计条数把“已到期、还没被清理”的行也算进去，与详情的会话数对不上
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-site-identity/src/admin/users.ts:310`（`endAllSessions(tx, id)` 的返回值直接写进 `params.count`）；`src/session.ts:83-85`；对照 `users.ts:176`（详情的 `session_count` 只数 `expiresAt > now`）
+- **现象**：`endAllSessions` 是 `DELETE FROM "session" WHERE "userId" = ?`，删掉的行里含已到期、清理任务还没删的行；这个数原样记进 `user.revoke_sessions` 的 `count`。同一时刻 `GET admin/users/:id` 的 `sessionCount`、`GET me/sessions` 都不算这些行。
+- **为什么是问题**：`site.admin` 输出 8“结束会话记结束的条数”。到期的会话在 `site.accounts` 的状态里已经是“失效”，结束它不算“结束了一个会话”。管理员先看详情是 0 个会话、点“结束全部会话”后审计写 1 条，审计记录与页面不一致；清理任务失败（库被进程外占着写，有用例造这种状态）时差得更多。
+- **如何核实**：`bun test /tmp/review-w00037-t07-impl3/lab-opus/revoke-count.test.ts`（真实模块、真实 SQLite 与库，经 `createTestIdentity` 的 HTTP 入口）：给普通用户发一个会话，拨钟 31 天，管理员读详情得 `sessionCount 0`，再结束全部会话，审计里是 `{"count":1}`。
+- **建议改法**：审计的条数只数未到期的：在同一事务里先 `SELECT count(*) … AND "expiresAt" > ?` 再删，或让 `endAllSessions` 返回未到期的条数（删仍删全部）。合同用例“结束全部会话”里加一个拨过时长的旧会话核对 `count`。
+
+### 2. 账号搜索的“不分大小写”只对 ASCII 成立，非 ASCII 的显示名按大小写区分
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-site-identity/src/admin/users.ts:139-152`（`searchCondition`，注释写“SQLite 的 `LIKE` 对 ASCII 不分大小写……所以输入的大小写不影响”）
+- **现象**：用户名与邮箱只收 ASCII，确实不受影响；显示名可以是任意字符，`LIKE` 在没有 ICU 的 SQLite 里对非 ASCII 区分大小写。显示名 `Élodie` 用 `q=élo` 搜不到；德文、法文、西里尔、希腊字母的显示名同样。
+- **为什么是问题**：`site.admin` 输入表（本范围新写进 Spec 的一句）：“按用户名、邮箱、显示名的前缀搜索（参数 `q`，不分大小写……）”，没有限定 ASCII。注释的结论只对两个字段成立，读者会以为三个字段都满足合同。
+- **如何核实**：`bun -e 'import {Database} from "bun:sqlite"; …'`（`/tmp/review-w00037-t07-impl3/lab-opus` 下跑过）：`'Élodie' LIKE 'élo%' ESCAPE '\'` 为 0，`'Alice' LIKE 'ali%'` 为 1。合同用例 `admin.test.ts:530` 只用 ASCII 的名字。
+- **建议改法**：二选一：(a) Spec 写明“用户名与邮箱不分大小写；显示名只对 ASCII 字母不分”（最便宜，已知限制）；(b) 显示名另存一列 `name_folded`（`toLowerCase()` 或 NFKC 后小写）在模块表里，搜索用它。几千个账号的量级下 (a) 足够，但注释与 Spec 至少要一致。
+
+### 3. 浏览器概要的 Safari 规则对长标识是平方级的，在库的事务里、主线程上同步跑
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/nb-site-identity/src/user-agent.ts:21`（`/\bVersion\/[\d.]+.*\bSafari\//u`），调用点 `src/auth.ts:191`（建会话前的钩子，在 `withLibTransaction` 里、持着账号库唯一连接的队列锁）
+- **现象**：标识里有很多个 `Version/1` 而没有 `Safari/` 时，每个起点都让 `.*` 吃到末尾再逐字回退找 `\bSafari\/`，耗时随长度平方涨。Bun 缺省收的请求头上限约 16 KiB（实测 16000 字节的 `User-Agent` 回 200，16300 回 431）。
+- **数字**（本机，负载约 6 到 8）：只跑规则表，8000 字节 15 ms、16000 字节 69 ms、64000 字节 1061 ms；调真实的 `storedUserAgent`，16000 字节 48 ms；经真实的登录路由（`createTestIdentity`，真实库与 SQLite），正常标识的登录 54 ms、16000 字节的 92 ms，多出约 40 ms。
+- **为什么是问题**：这 40 到 70 ms 是同步的：整个进程（账号与统计两个模块、存活检查）的事件循环停住，账号库的队列锁也一直持着，期间所有账号请求（含 `whoami`）都排着。哈希限额管住了密码哈希的 CPU，这一段不在限额里。要有一个能登录的账号，每次成功登录（或注册）触发一次；限流按来源每 5 分钟 30 次、IPv6 按 /48 合计 16 倍，一个 /48 每 5 分钟约 480 次、合计停住约 20 秒，十几个 /48 就能让站点大部分时间停着。代价不大但没有必要。
+- **如何核实**：`bun /tmp/review-w00037-t07-impl3/lab-opus/ua-redos.ts`；`bun /tmp/review-w00037-t07-impl3/lab-opus/ua-real.ts <实现 worktree>/packages/nb-site-identity/src/user-agent.ts`；`bun test /tmp/review-w00037-t07-impl3/lab-opus/ua-login.test.ts`。
+- **建议改法**：先截断再识别（只看前 512 个字符，真实标识都在 300 以内）；并把 Safari 规则拆成两个线性的测试（`/\bVersion\/[\d.]+/` 与 `/\bSafari\//` 各判一次，顺序要求用 `indexOf` 比位置）。规则表的单元测试加一条 16 KiB 的病态输入、断言耗时上界或只断言结果（截断后结果仍对）。
+
+### 4. 邀请码只限“同时有效 10 个”，生成与停用没有总量上限与限流，自己的列表又不分页
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/nb-site-identity/src/invite-codes.ts:62-73`（列表注释“一个人的码不多：可用的至多 10 个，其余是自己停用或用完的”）、`:75-92`（生成）、`:95-108`（停用）
+- **现象**：上限只数还能用的码，停用一个就能再生成一个；两个接口都没有限流。任何一个已同意条款的用户可以循环“生成、停用”，每轮插入一行，`GET me/invite-codes` 不分页地把全部行回出来，全站邀请码列表也跟着长。
+- **数字**：经真实模块（`createTestIdentity`）一个会话循环 2000 轮用 4.3 秒（每轮 2.1 ms），列表响应 275 KB。照这个速度一小时约 170 万行、约 230 MB 的列表响应；账号库的备份与 WAL 一起涨。
+- **为什么是问题**：列表不分页的前提（“一个人的码不多”）是代码里写着的假设，接口本身不保证它；注册码由管理员发、量小，而邀请码每个用户都能造。账号库是单写者，这样的写入也占着队列。
+- **如何核实**：`bun test /tmp/review-w00037-t07-impl3/lab-opus/invite-growth.test.ts`（从实现 worktree 的包目录下跑，导入源码的测试底座）。
+- **建议改法**：最便宜的是给“生成邀请码”加一个按账号的限流（与改密码同一种计数器，例如每小时 10 个），并在 `site.accounts` 输出 19 写上；或者限总数（含停用的，例如 100 个），超过回 `invite_code_limit`。要保留不分页，就把注释里的前提换成这个上限。
+
+### 5. 头像与网站存的是原始输入，不是解析后的地址：控制字符、换行、双向控制符原样落库并对外给出
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/nb-site-identity/src/me.ts:131-133`、`:92`、`:99`（`isWebUrl` 只用来判，写进 `image`、`website` 的是 `body[key]` 原文）；`packages/nb-site-identity-contract/src/fields.ts:84-100`
+- **现象**：`URL.parse` 会去掉首尾的 C0 控制字符与空格、删掉中间的 Tab 与换行、把别的字符百分号编码，所以下面这些都过 `isWebUrl`，原样存下、在公开资料里原样给出：`"https://a.example/\n<b>x</b>"`、`"https://a.example/\u0000"`、`"https://a.example/‮exe.gpj"`（右至左覆盖符，页面上显示成 `jpg.exe` 一类）、`"https://\tgoogle.com@evil.example"`（解析后是 `https://google.com@evil.example/`，主机是 `evil.example`）、`"http:\\\\evil.example"`。
+- **为什么是问题**：`site.accounts` 字段规则“只收 `http` 或 `https` 地址”。协议这一点守住了（浏览器与 Bun 的解析一致，不会变成 `javascript:`），但存进去的不是“一个地址”，是一段解析时会被改写的文字：前端若把它当文字显示（网站链接的文字、管理详情），用户看到的与点开去的地方不一致；NUL 与换行进了库与 JSON，t10 的每个显示点都要自己防。
+- **如何核实**：`bun /tmp/review-w00037-t07-impl3/lab-opus/url.ts <实现 worktree>/packages/nb-site-identity-contract/src/fields.ts`，逐个打印 `isWebUrl` 与 `URL.parse(v).href`，上面几项都是 `true`。
+- **建议改法**：服务端写入 `URL.parse(value).href`（规范化后的地址，协议、主机小写，控制字符已处理），长度按规范化后的再判一次；或者在合同的 `WEB_URL.pattern` 里拒收 C0、DEL、C1 与双向控制符（U+202A 到 U+202E、U+2066 到 U+2069），让前端与服务端同一份规则。两者都便宜，前者更稳。
+
+## 未发现问题的方面
+
+- 管理处置（`admin/users.ts`、`admin/operator.ts`）：五种处置与注册码的发放、停用都经 `adminWrite`，同一个写事务里依次复核操作者（会话行在、令牌对、没到期、角色是管理员、没被封）、`not_found`、`self_forbidden`、改字段、`endAllSessions`、写审计；任何一步抛出整段回滚（包内“写审计失败不生效”五条用例在真实 SQLite 上覆盖）。“站里始终至少留一个未封禁的管理员”在并发下成立：两个管理员的处置在单连接的写队列里排成先后，先提交的那次删掉对方全部会话或改掉对方角色，后到的那次在自己事务里复核失败回 `unauthenticated`、不写审计；能改 `role`、`banned` 的只有封禁、改角色（都禁对自己）、解封与命令行（只会升成管理员并解封），没有别的路径能让最后一个未封禁的管理员失去资格。没有变化的处置照样写审计；改成同一角色不删会话。重置密码的新密码只出现在响应体里（审计参数 `{}`、日志行、标准输出与错误输出都查过，包内与合同各一条用例）；结束自己的全部会话、重置自己的密码在事务里删掉当前会话后再追加清除 Cookie，追加在延长的 `Set-Cookie` 之后，浏览器取后者。
+- 分页（`admin/pagination.ts`）：基准、计数与这一页在同一个延迟事务、同一条连接上读，WAL 下是同一个快照；`?` 的绑定顺序（筛选项的参数、基准、搜索的参数、当前筛选、页长、偏移）与 SQL 文本一致；`LIKE … ESCAPE '\'` 先转义反斜杠再转义两个通配符；占位邮箱用 `coalesce(p.email_pending, 0) = 0` 排除；`page` 至多 15 位、`pageSize` 至多 100，偏移量不小于 `total` 时不查，不会把不精确的大数交给 SQLite；审计只给 `targetId` 回 `validation_failed`；四个列表的连接都是一对一或多对一，计数不会被放大。
+- 会话与浏览器概要：登录与注册把原始 `User-Agent` 只作为这次 `auth.api.issueSession` 调用的请求头交给库；库 1.7.27 的 `createSession` 从调用的请求头取它，`createWithHooks` 把钩子回的 `data` 合并进要插入的行（读过 `db/with-hooks.mjs`、`db/internal-adapter.mjs`），所以落库的只有概要或 null；后面的钩子拿到的是合并后的值。本模块源码与入口里没有别的地方读或记 `User-Agent`；库的日志只取 `message`。列表只认规则表里的名字，库里若有别的写法也不会发出去。结束别人的会话与不存在的会话同回 `not_found`；结束当前会话清 Cookie；最后使用时间由 `maintain` 每小时至多写一次。
+- 改资料与邀请码：改邮箱在写事务里先复核会话、查占用（排除自己）再写并清 `email_pending`；`.invalid` 后缀由合同的邮箱规则拒收，改不成占位邮箱；邀请码的“同时有效 10 个”在一个写事务里数与插入，单连接队列上并发的两个生成不会一起越过上限；注册时邀请归属取码的 `owner_id`（旧码没有主人时为空）。
+- 上一轮的两个修正：创建管理员的连接设 `busy_timeout = 0`，撞忙立即回来，由看停止信号的异步睡眠重试（360 次、每次 50 ms，约 18 秒），睡眠能被 abort 打断、监听在睡完时摘掉；这条连接是命令进程自己打开的、命令返回后由入口关闭，不影响服务的连接。`openModuleDb` 把 `busy_timeout` 挪到 `journal_mode` 之前只让第一句也能等锁，对统计模块与入口的迁移只有好处；探测连接不经它、仍是 0。查询串用无原型对象收集、请求体严格 UTF-8、读密码 `ignoreBOM`、管道密码拒收控制字符，都按处理表做到了。
+- 收口与接缝：`385e4ca86` 对 `boundary.test.ts` 的冲突解决同时保留了两边（`typebox` 的放开与 `testing/aggregate.ts` 的 `bun:sqlite` 例外），与本包 `AGENTS.md` 的允许清单一致；账号适配器把 `context.jobs` 原样交给模块，`initialDelayMs: 0` 经调度器的校验生效。统计 C14 里的登录在持锁期间发出，断言 200、用户名与会话 Cookie，登录要写账号库，确实在验“账号的登录照常”；“启动后先跑一次”的合同用例在启动前持住账号库写锁，靠自己跑出的 `job.failed` 判定，去掉 `initialDelayMs` 时第一次要等 10 分钟、用例会超时失败。Smoke 标记覆盖 `site.accounts` 的注册、登录、问身份与 `site.admin` 的封禁、重置。
+- 测试写法：新增与改动的包内、合同用例没有 mock、spy、假计时器与固定等待；操作者复核的用例用慢请求体卡住时机，在真实的模块与库上跑。
+
+说明：第 1 条的实验脚本一度被一条写错的命令复制进实现 worktree 的 `packages/nb-site-identity/src/` 又在同一条命令里删除（未跟踪、未被执行），之后核对 `git status` 干净；所有实验实际都从 `/tmp/review-w00037-t07-impl3/lab-opus/` 按绝对路径导入源码运行。
+
+## 各级数量
+
+阻断 0、重要 0、建议 5。
+
+有效发现：1、2、3、4、5
