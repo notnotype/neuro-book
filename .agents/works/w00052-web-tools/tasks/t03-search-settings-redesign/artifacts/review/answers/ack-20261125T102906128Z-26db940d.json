@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00052-web-tools",
+    "taskId": "t03-search-settings-redesign",
+    "artifactId": "review",
+    "ackId": "20261125T102906128Z-26db940d",
+    "answers": [
+        "20261125T102824649Z-d7cb9ee4"
+    ],
+    "through": "20261125T102824649Z-d7cb9ee4",
+    "included": [
+        ".agents/works/w00052-web-tools/tasks/t03-search-settings-redesign/README.md"
+    ],
+    "ackedAt": "2026-11-25T10:29:06.128Z"
+}
