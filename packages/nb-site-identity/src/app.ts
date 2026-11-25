@@ -14,6 +14,7 @@ import {IDENTITY_PATHS, type MetaResponse} from "@notnotype/nb-site-identity-con
 
 import {registerAuditListRoute, type AuditListOptions} from "./admin/audit-list";
 import {registerInviteCodeAdminRoutes, type InviteCodeAdminOptions} from "./admin/invite-codes";
+import {registerOAuthClientAdminRoutes, type OAuthClientAdminOptions} from "./admin/oauth-clients";
 import {registerRegistrationCodeRoutes, type RegistrationCodeAdminOptions} from "./admin/registration-codes";
 import {registerUserAdminRoutes, type UserAdminOptions} from "./admin/users";
 import {registerChangePasswordRoute, type ChangePasswordOptions} from "./change-password";
@@ -44,6 +45,7 @@ export interface IdentityAppOptions {
     readonly adminUsers: UserAdminOptions;
     readonly adminInviteCodes: InviteCodeAdminOptions;
     readonly audit: AuditListOptions;
+    readonly adminOAuthClients: OAuthClientAdminOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -87,6 +89,7 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     registerUserAdminRoutes(app, options.adminUsers);
     registerInviteCodeAdminRoutes(app, options.adminInviteCodes);
     registerAuditListRoute(app, options.audit);
+    registerOAuthClientAdminRoutes(app, options.adminOAuthClients);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));
