@@ -62,15 +62,15 @@ export async function registerClient(identity: TestIdentity, name = "admin", opt
     return {clientId: created.client_id, clientSecret: created.client_secret};
 }
 
-/** 带 PKCE 的授权：回授权码与它的 `code_verifier`。库没有跳回客户端（例如跳去了登录页）时抛错。 */
-export async function authorize(identity: TestIdentity, cookie: string, client: TestClient): Promise<{readonly code: string; readonly verifier: string}> {
+/** 带 PKCE 的授权：回授权码与它的 `code_verifier`。`scope` 缺省是三个都要。库没有跳回客户端（例如跳去了登录页）时抛错。 */
+export async function authorize(identity: TestIdentity, cookie: string, client: TestClient, scope = "openid profile email"): Promise<{readonly code: string; readonly verifier: string}> {
     const verifier = randomBytes(32).toString("base64url");
     const query = new URLSearchParams({
         response_type: "code",
         client_id: client.clientId,
         redirect_uri: TEST_REDIRECT_URI,
         state: "test-state",
-        scope: "openid profile email",
+        scope,
         code_challenge: createHash("sha256").update(verifier).digest("base64url"),
         code_challenge_method: "S256",
     });
@@ -101,9 +101,9 @@ export interface TokenResponse {
     readonly token_type: string;
 }
 
-/** 授权并换码，回令牌响应的内容。换码不是 200 时抛错。 */
-export async function grantTokens(identity: TestIdentity, cookie: string, client: TestClient): Promise<TokenResponse> {
-    const response = await exchange(identity, client, await authorize(identity, cookie, client));
+/** 授权并换码，回令牌响应的内容；`scope` 同 `authorize`。换码不是 200 时抛错。 */
+export async function grantTokens(identity: TestIdentity, cookie: string, client: TestClient, scope?: string): Promise<TokenResponse> {
+    const response = await exchange(identity, client, await authorize(identity, cookie, client, scope));
     if (response.status !== 200) throw new Error(`the token endpoint answered ${response.status}`);
     return (await response.json()) as TokenResponse;
 }

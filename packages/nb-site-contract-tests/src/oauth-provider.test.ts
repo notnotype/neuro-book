@@ -1,14 +1,17 @@
 /**
  * 对外 OAuth 服务的黑盒合同（docs/specs/site/oauth-provider.md）：起真实的 `nb-site` 进程，扮演接入的第三方应用（`testing/oauth-client.ts`），
  * 只经 HTTP 看它。本文件现在覆盖输入表与输出 1 的可达端点、HEAD、输出 2 的发现文档；输出 3 的授权请求（客户端与回调地址、错误页、
- * 去掉 `resource` 与 `claims`、POST 发起、公开客户端的回环地址）、4 的登录续接、5 的确认、6 的令牌端点（`resource`、请求体上限）、
- * 11 的 id_token、13 的 `prompt=login` 与 `prompt=consent`、14 的确认页接口；输出 8、9 里停用客户端与换密钥在授权与换码上看得到的
- * 那一面；验收 1、2 的后一半、4、6、13、20 的前半。
+ * 去掉 `resource` 与 `claims`、POST 发起、公开客户端的回环地址、`request` 与 `request_uri`、`response_mode`、`response_type`、
+ * 4096 个字符的上限）、4 的登录续接（含改走注册）、5 的确认、6 的令牌端点（`resource`、请求体上限、`DPoP`）、7 的用户信息、
+ * 10 的撤销、11 的 id_token、12 的站点同意、13 的每个 `prompt` 值、14 的确认页接口；输出 8、9 里停用客户端与换密钥在授权与换码上
+ * 看得到的那一面；验收 1、2 的后一半（前一半在 `oauth-admin.test.ts`）、4、6、7、8、11、12、13、15、20 的前半、21、22 的
+ * `response_mode` 那半。
  *
  * 本文件测不到、在账号包里的：白名单对库的全部端点逐个挡住（`oauth/mount.test.ts` 遍历库的端点表）；换码撞会话外键回
  * `invalid_grant`（要在库的两步之间删会话）；带 `resource` 换码时库那边有一行访问令牌（读库）；续接令牌与确认标识 10 分钟的
  * 毫秒边界（库按系统时间签名，合同只拨得动模块的时钟，`oauth/continue.test.ts`）；确认页接口判完、库还没判之间改客户端
- * （`oauth/consent-api.test.ts`）。
+ * （`oauth/consent-api.test.ts`）；用户信息在邮箱待补时与库的邮箱已验证列为真时的字段（合同里还造不出这两种账号，
+ * `oauth/mount.test.ts`）；按模块时钟判 `max_age`（`oauth/authorize-request.test.ts`）。
  *
  * 时间预算：起进程、建账号、登记共用的客户端放在 `beforeAll` 里；用例只发请求。超出 200 毫秒的用例在旁边写明原因：多数要登录，
  * 登录要算一次密码哈希。拨模块时钟的用例各在自己的进程里：拨过的时钟让之后签出的续接令牌一出来就过期。
@@ -20,6 +23,7 @@ import {Value} from "typebox/value";
 import {createHash} from "node:crypto";
 
 import {
+    ConsentResponse,
     CONTINUE_PARAM,
     DiscoveryDocument,
     IDENTITY_AUTH_PREFIX,
@@ -32,12 +36,28 @@ import {
     OAuthAuthorizationResponse,
     OAuthDecisionResponse,
     OIDC_DISCOVERY_PATHS,
+    RegisterResponse,
+    RegistrationCodeItem,
     RotateSecretResponse,
+    UserInfoResponse,
     type CreateOAuthClientRequest,
 } from "@notnotype/nb-site-identity-contract";
 
 import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login, SITE_ORIGIN, type CookieJar} from "./testing/identity";
-import {authorizationRequest, exchangeCode, fetchUserInfo, registerOAuthClient, siteFetch, step, verifyIdToken, type AuthorizationRequest, type RegisteredClient, type SiteResponse, type Step} from "./testing/oauth-client";
+import {
+    authorizationRequest,
+    exchangeCode,
+    fetchUserInfo,
+    registerOAuthClient,
+    revokeToken,
+    siteFetch,
+    step,
+    verifyIdToken,
+    type AuthorizationRequest,
+    type RegisteredClient,
+    type SiteResponse,
+    type Step,
+} from "./testing/oauth-client";
 import {useSiteSandbox, type SiteProcess} from "./testing/site";
 
 const sandbox = useSiteSandbox("nb-site-contract-tests oauth-provider.test.ts");
@@ -248,6 +268,25 @@ function paramOf(answer: Step, name: string): string {
 /** 授权端点的地址加上 `params`（表单 POST 用它作目标）。 */
 const AUTHORIZE_URL = `${SITE_ORIGIN}${OAUTH_ENDPOINT_PATHS.authorize}`;
 
+/**
+ * 把授权地址的查询串用 `state` 加长到恰好 `length` 个字符（验收 21），回加长后的参数与 `state`。参数按
+ * `application/x-www-form-urlencoded` 写出，GET 的查询串与 POST 的表单体都是这个长度。
+ */
+function paddedQuery(request: AuthorizationRequest, length: number): {readonly query: URLSearchParams; readonly state: string} {
+    const query = new URL(request.url).searchParams;
+    query.set("state", "");
+    const state = "s".repeat(length - query.toString().length);
+    query.set("state", state);
+    if (query.toString().length !== length) throw new Error(`could not pad the authorization request to ${String(length)} characters`);
+    return {query, state};
+}
+
+/** 跳回客户端时看得到的几项：错误码与码在查询串里，片段该是空的。 */
+function backAt(answer: Step): {readonly kind: string; readonly error: string | null; readonly state: string | null; readonly iss: string | null; readonly code: boolean; readonly fragment: string} {
+    const {searchParams, hash} = answer.location;
+    return {kind: answer.kind, error: searchParams.get("error"), state: searchParams.get("state"), iss: searchParams.get("iss"), code: searchParams.has("code"), fragment: hash};
+}
+
 /** `access_token` 的 `at_hash`（OpenID Connect Core 3.1.3.6）：SHA-256 的左半，base64url。 */
 function atHash(accessToken: string): string {
     return createHash("sha256").update(accessToken).digest().subarray(0, 16).toString("base64url");
@@ -256,6 +295,8 @@ function atHash(accessToken: string): string {
 /** 一个站点进程与在它上面已登录、已同意条款的管理员；`from` 每次给一个新的来源地址。 */
 interface FlowSite {
     readonly site: SiteProcess;
+    /** 进程的数据目录：重启时用它起新进程。 */
+    readonly dataDir: string;
     readonly from: () => string;
     /** 以 `jar` 登录并同意当前条款；不成功时抛错。 */
     readonly signIn: (jar: CookieJar, username: string) => Promise<void>;
@@ -272,7 +313,7 @@ async function startFlowSite(admins: readonly string[]): Promise<FlowSite> {
         const consented = await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", jar, from: from(), body: {termsVersion: TERMS_VERSION, overseasStorage: true}});
         if (consented.status !== 200) throw new Error(`${username} could not consent`);
     };
-    return {site, from, signIn};
+    return {site, dataDir, from, signIn};
 }
 
 describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、20 的前半）", () => {
@@ -554,6 +595,284 @@ describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、
         expect((JSON.parse((await exchangeCode(site.url, client, firstCode, first.verifier)).text) as {error?: unknown}).error).toBe("invalid_client");
         const second = authorizationRequest(client);
         expect((await exchangeCode(site.url, renewed, paramOf(await step(site.url, root, second.url, client), "code"), second.verifier)).status).toBe(200);
+    });
+
+    /** 带续接令牌以 `username` 登录，回响应给的继续地址；不是 200 或没有继续地址时抛错。 */
+    async function loginToContinue(jar: CookieJar, toLogin: Step, username = "root"): Promise<string> {
+        const signedIn = await login(site.url, username, PASSWORD, {from: flow.from(), jar, continue: paramOf(toLogin, CONTINUE_PARAM)});
+        const continueUrl = signedIn.status === 200 ? (signedIn.body as LoginResponse).continueUrl : undefined;
+        if (continueUrl === undefined) throw new Error(`signing in with the continue token answered ${String(signedIn.status)} without a continueUrl`);
+        return continueUrl;
+    }
+
+    /** 免确认的客户端以 `jar` 拿码并换出访问令牌。 */
+    async function accessTokenOf(jar: CookieJar, client: RegisteredClient, scope = "openid profile email"): Promise<string> {
+        const request = authorizationRequest(client, {scope});
+        const exchanged = await exchangeCode(site.url, client, paramOf(await step(site.url, jar, request.url, client), "code"), request.verifier);
+        if (exchanged.status !== 200) throw new Error(`exchanging the code answered ${String(exchanged.status)}`);
+        return (JSON.parse(exchanged.text) as {access_token: string}).access_token;
+    }
+
+    it("交库前要拒的参数跳回客户端，错误码在查询串里、带 state 与 iss，GET 与表单 POST 相同（输出 3、13，验收 22 的后半）", async () => {
+        const client = await register({skipConsent: true});
+        const cases: ReadonlyArray<readonly [label: string, extra: Readonly<Record<string, string>>, error: string]> = [
+            ["request", {request: "eyJhbGciOiJub25lIn0.e30."}, "request_not_supported"],
+            ["request_uri", {request_uri: "https://client.example/request.jwt"}, "request_uri_not_supported"],
+            ["response_mode=fragment", {response_mode: "fragment"}, "invalid_request"],
+            ["response_mode=form_post", {response_mode: "form_post"}, "invalid_request"],
+            ["response_type=token", {response_type: "token"}, "unsupported_response_type"],
+            ["prompt=none consent", {prompt: "none consent"}, "invalid_request"],
+            ["prompt=none login", {prompt: "none login"}, "invalid_request"],
+            ["prompt=create", {prompt: "create"}, "invalid_request"],
+            ["prompt=select_account", {prompt: "select_account"}, "invalid_request"],
+            ["prompt 是不认得的值", {prompt: "bogus"}, "invalid_request"],
+        ];
+        for (const [label, extra, error] of cases) {
+            const request = authorizationRequest(client, extra);
+            for (const [via, answer] of [
+                ["GET", await step(site.url, root, request.url, client)],
+                ["POST", await step(site.url, root, AUTHORIZE_URL, client, new URL(request.url).searchParams)],
+            ] as const) {
+                expect({label, via, ...backAt(answer)}).toEqual({label, via, kind: "redirect-back", error, state: request.state, iss: SITE_ORIGIN, code: false, fragment: ""});
+            }
+        }
+    });
+
+    it("prompt 的合格值：none 时有会话的免确认客户端拿到码、没有会话跳回 login_required、没同意过的客户端跳回 consent_required；login 去登录页；consent 去确认页；login consent 先去登录页（输出 13，验收 8）", async () => {
+        const trusted = await register({skipConsent: true});
+        const asking = await register();
+        const outcome = async (jar: CookieJar, client: RegisteredClient, prompt: string) => {
+            const answer = await step(site.url, jar, authorizationRequest(client, {prompt}).url, client);
+            return {prompt, kind: answer.kind, error: answer.location.searchParams.get("error"), code: answer.location.searchParams.has("code")};
+        };
+        expect(await outcome(root, trusted, "none")).toEqual({prompt: "none", kind: "redirect-back", error: null, code: true});
+        expect(await outcome(cookieJar(), trusted, "none")).toEqual({prompt: "none", kind: "redirect-back", error: "login_required", code: false});
+        expect(await outcome(root, asking, "none")).toEqual({prompt: "none", kind: "redirect-back", error: "consent_required", code: false});
+        expect(await outcome(root, trusted, "login")).toEqual({prompt: "login", kind: "login", error: null, code: false});
+        expect(await outcome(root, trusted, "consent")).toEqual({prompt: "consent", kind: "consent", error: null, code: false});
+        expect(await outcome(root, trusted, "login consent")).toEqual({prompt: "login consent", kind: "login", error: null, code: false});
+    });
+
+    it("带 essential acr 的 claims 与不带时结果相同：没有会话都去登录页，有会话的免确认客户端都拿到码（输出 3）", async () => {
+        const client = await register({skipConsent: true});
+        const claims = JSON.stringify({id_token: {acr: {essential: true, value: "1"}}});
+        for (const [label, jar, expected] of [
+            ["没有会话", cookieJar(), "login"],
+            ["有会话", root, "redirect-back"],
+        ] as const) {
+            const results = [];
+            for (const extra of [{}, {claims}] as ReadonlyArray<Readonly<Record<string, string>>>) {
+                const answer = await step(site.url, jar, authorizationRequest(client, extra).url, client);
+                results.push({kind: answer.kind, code: answer.location.searchParams.has("code")});
+            }
+            expect({label, plain: results[0]?.kind}).toEqual({label, plain: expected});
+            expect({label, withClaims: results[1]}).toEqual({label, withClaims: results[0]});
+        }
+    });
+
+    // 超出预算：登录算两次密码哈希。
+    it("查询串正好 4096 个字符：经匿名登录（GET 与跨站的表单 POST）、经确认都拿到授权码；4097 个字符跳回 invalid_request（验收 21；补交同意那条在“站点同意门槛”）", async () => {
+        const trusted = await register({skipConsent: true});
+        const asking = await register();
+        for (const via of ["GET", "POST"] as const) {
+            const request = authorizationRequest(trusted);
+            const {query, state} = paddedQuery(request, 4096);
+            const browser = cookieJar();
+            const toLogin = via === "GET" ? await step(site.url, browser, `${AUTHORIZE_URL}?${query}`, trusted) : await step(site.url, browser, AUTHORIZE_URL, trusted, query);
+            expect({via, kind: toLogin.kind}).toEqual({via, kind: "login"});
+            const back = await step(site.url, browser, await loginToContinue(browser, toLogin), trusted);
+            expect({via, ...backAt(back)}).toEqual({via, kind: "redirect-back", error: null, state, iss: SITE_ORIGIN, code: true, fragment: ""});
+            expect((await exchangeCode(site.url, trusted, paramOf(back, "code"), request.verifier)).status).toBe(200);
+        }
+
+        const request = authorizationRequest(asking);
+        const {query, state} = paddedQuery(request, 4096);
+        const toConsent = await step(site.url, root, `${AUTHORIZE_URL}?${query}`, asking);
+        expect(toConsent.kind).toBe("consent");
+        const decided = await decidedRedirect(root, paramOf(toConsent, OAUTH_REQUEST_PARAM), true);
+        expect(decided.searchParams.get("state")).toBe(state);
+        expect((await exchangeCode(site.url, asking, decided.searchParams.get("code") ?? "", request.verifier)).status).toBe(200);
+
+        for (const via of ["GET", "POST"] as const) {
+            const over = paddedQuery(authorizationRequest(trusted), 4097);
+            const answer = via === "GET" ? await step(site.url, root, `${AUTHORIZE_URL}?${over.query}`, trusted) : await step(site.url, root, AUTHORIZE_URL, trusted, over.query);
+            expect({via, ...backAt(answer)}).toEqual({via, kind: "redirect-back", error: "invalid_request", state: over.state, iss: SITE_ORIGIN, code: false, fragment: ""});
+        }
+    });
+
+    // 超出预算：注册算一次密码哈希。
+    it("从 /login?continue= 改走注册：注册响应给继续地址，去那里拿到新账号的授权码（site.accounts 输出 4）", async () => {
+        const client = await register({skipConsent: true});
+        const issued = await identityRequest(site.url, IDENTITY_PATHS.adminRegistrationCodes, {method: "POST", jar: root, from: flow.from(), body: {maxUses: 1}});
+        if (issued.status !== 200 || !Value.Check(RegistrationCodeItem, issued.body)) throw new Error(`issuing a registration code answered ${String(issued.status)}`);
+        const browser = cookieJar();
+        const request = authorizationRequest(client);
+        const toLogin = await step(site.url, browser, request.url, client);
+        const registered = await identityRequest(site.url, IDENTITY_PATHS.register, {
+            method: "POST",
+            jar: browser,
+            from: flow.from(),
+            body: {username: "joiner", email: "joiner@example.com", password: PASSWORD, registrationCode: issued.body.code, termsVersion: TERMS_VERSION, overseasStorage: true, continue: paramOf(toLogin, CONTINUE_PARAM)},
+        });
+        expect({status: registered.status, shape: Value.Check(RegisterResponse, registered.body)}).toEqual({status: 200, shape: true});
+        const continueUrl = (registered.body as RegisterResponse).continueUrl;
+        if (continueUrl === undefined) throw new Error("the register answer has no continueUrl");
+        const back = await step(site.url, browser, continueUrl, client);
+        expect(backAt(back)).toEqual({kind: "redirect-back", error: null, state: request.state, iss: SITE_ORIGIN, code: true, fragment: ""});
+        const tokens = JSON.parse((await exchangeCode(site.url, client, paramOf(back, "code"), request.verifier)).text) as {access_token: string};
+        expect((JSON.parse((await fetchUserInfo(site.url, tokens.access_token)).text) as {preferred_username?: unknown}).preferred_username).toBe("joiner");
+    });
+
+    it("用户信息：设了头像也没有 picture，email_verified 为 false，形状合 UserInfoResponse，GET 与 POST 相同；按范围给字段（输出 7）", async () => {
+        const client = await register({skipConsent: true});
+        const patched = await identityRequest(site.url, IDENTITY_PATHS.me, {method: "PATCH", jar: other, from: flow.from(), body: {avatarUrl: "https://img.example/other.png"}});
+        expect(patched.status).toBe(200);
+        const full = await accessTokenOf(other, client);
+        const answers = [];
+        for (const method of ["GET", "POST"] as const) {
+            const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.userinfo, {method, headers: {Authorization: `Bearer ${full}`}});
+            answers.push({method, status: response.status, cacheControl: response.headers.get("cache-control"), body: JSON.parse(response.text) as Record<string, unknown>});
+        }
+        const sub = answers[0]?.body.sub;
+        const profile = {preferred_username: "other", name: "other"};
+        const email = {email_pending: false, email: "other@example.com", email_verified: false};
+        expect(answers).toEqual((["GET", "POST"] as const).map((method) => ({method, status: 200, cacheControl: "no-store", body: {sub, ...profile, ...email}})));
+        expect(Value.Check(UserInfoResponse, answers[0]?.body)).toBe(true);
+
+        for (const [scope, expected] of [
+            ["openid", {sub}],
+            ["openid profile", {sub, ...profile}],
+            ["openid email", {sub, ...email}],
+        ] as const) {
+            const info = await fetchUserInfo(site.url, await accessTokenOf(other, client, scope));
+            expect({scope, body: JSON.parse(info.text) as unknown}).toEqual({scope, body: expected});
+        }
+    });
+
+    it("带 DPoP 头换令牌回 invalid_request、不发令牌；同一个码不带它照常换出（输出 6，验收 12）", async () => {
+        const client = await register({skipConsent: true});
+        const request = authorizationRequest(client);
+        const code = paramOf(await step(site.url, root, request.url, client), "code");
+        const form = new URLSearchParams({grant_type: "authorization_code", code, redirect_uri: client.redirectUri, code_verifier: request.verifier});
+        const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.token, {
+            method: "POST",
+            headers: {"Content-Type": FORM, Authorization: `Basic ${Buffer.from(`${client.clientId}:${client.clientSecret ?? ""}`).toString("base64")}`, DPoP: "eyJ0eXAiOiJkcG9wK2p3dCJ9.e30.c2ln"},
+            body: form.toString(),
+        });
+        expect({status: response.status, body: JSON.parse(response.text) as unknown}).toEqual({status: 400, body: {error: "invalid_request"}});
+        expect((await exchangeCode(site.url, client, code, request.verifier)).status).toBe(200);
+    });
+
+    it("撤销：公开客户端撤销自己的令牌后它得 401；已撤销的、不存在的、别的客户端的令牌都回 200，后者不起作用；不带 token 回 invalid_request（输出 10，验收 11）", async () => {
+        const publicClient = await register({type: "public", redirectUris: ["http://127.0.0.1:8123/cb"], skipConsent: true});
+        const confidential = await register({skipConsent: true});
+        const mine = await accessTokenOf(root, publicClient);
+        const theirs = await accessTokenOf(root, confidential);
+        const revoked = async (token: string) => {
+            const response = await revokeToken(site.url, publicClient, token);
+            return {token: token === mine ? "mine" : token === theirs ? "theirs" : token, status: response.status, cacheControl: response.headers.get("cache-control")};
+        };
+        const ok = (token: string) => ({token, status: 200, cacheControl: "no-store"});
+        expect(await revoked(theirs)).toEqual(ok("theirs"));
+        expect((await fetchUserInfo(site.url, theirs)).status).toBe(200);
+        expect(await revoked(mine)).toEqual(ok("mine"));
+        expect((await fetchUserInfo(site.url, mine)).status).toBe(401);
+        expect(await revoked(mine)).toEqual(ok("mine"));
+        expect(await revoked("no-such-token")).toEqual(ok("no-such-token"));
+        const missing = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.revoke, {method: "POST", headers: {"Content-Type": FORM}, body: new URLSearchParams({client_id: publicClient.clientId}).toString()});
+        expect({status: missing.status, error: (JSON.parse(missing.text) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_request"});
+    });
+});
+
+describe("站点同意门槛（输出 12、13，验收 21 的补交同意那条）", () => {
+    let flow: FlowSite;
+    let client: RegisteredClient;
+    /** 登录了、没同意当前条款的会话。 */
+    let late: CookieJar;
+
+    beforeAll(async () => {
+        flow = await startFlowSite(["root", "late"]);
+        const root = cookieJar();
+        await flow.signIn(root, "root");
+        client = await registerOAuthClient(flow.site.url, root, flow.from(), clientBody({skipConsent: true}));
+        late = cookieJar();
+        if ((await login(flow.site.url, "late", PASSWORD, {from: flow.from(), jar: late})).status !== 200) throw new Error("late could not sign in");
+    }, SETUP_TIMEOUT_MS);
+
+    it("缺同意时 prompt=none 跳回 interaction_required，prompt=login 先去登录页；查询串正好 4096 个字符时去 /consent?continue=，补交同意后去继续地址拿到授权码", async () => {
+        const {site} = flow;
+        const outcome = async (extra: Readonly<Record<string, string>>) => {
+            const answer = await step(site.url, late, authorizationRequest(client, extra).url, client);
+            return {kind: answer.kind, error: answer.location.searchParams.get("error")};
+        };
+        expect(await outcome({prompt: "none"})).toEqual({kind: "redirect-back", error: "interaction_required"});
+        expect(await outcome({prompt: "login"})).toEqual({kind: "login", error: null});
+
+        const request = authorizationRequest(client);
+        const {query, state} = paddedQuery(request, 4096);
+        const toConsent = await step(site.url, late, `${AUTHORIZE_URL}?${query}`, client);
+        expect(toConsent.kind).toBe("site-consent");
+        const consented = await identityRequest(site.url, IDENTITY_PATHS.meConsent, {
+            method: "POST",
+            jar: late,
+            from: flow.from(),
+            body: {termsVersion: TERMS_VERSION, overseasStorage: true, continue: paramOf(toConsent, CONTINUE_PARAM)},
+        });
+        expect({status: consented.status, shape: Value.Check(ConsentResponse, consented.body)}).toEqual({status: 200, shape: true});
+        const continueUrl = (consented.body as ConsentResponse).continueUrl;
+        if (continueUrl === undefined) throw new Error("the consent answer has no continueUrl");
+        const back = await step(site.url, late, continueUrl, client);
+        expect(backAt(back)).toEqual({kind: "redirect-back", error: null, state, iss: SITE_ORIGIN, code: true, fragment: ""});
+        expect((await exchangeCode(site.url, client, paramOf(back, "code"), request.verifier)).status).toBe(200);
+    });
+});
+
+describe("条款版本提高之后（验收 15，输出 12、14）", () => {
+    const NEW_TERMS_VERSION = "2026-12-01";
+    let restarted: SiteProcess;
+    let root: CookieJar;
+    let trusted: RegisteredClient;
+    let asking: RegisteredClient;
+    /** 重启前打开的确认页的确认标识。 */
+    let pending: string;
+    let address = 0;
+    const from = () => `192.0.2.${String(++address % 250)}`;
+
+    beforeAll(async () => {
+        const flow = await startFlowSite(["root"]);
+        root = cookieJar();
+        await flow.signIn(root, "root");
+        trusted = await registerOAuthClient(flow.site.url, root, flow.from(), clientBody({skipConsent: true}));
+        asking = await registerOAuthClient(flow.site.url, root, flow.from(), clientBody());
+        const toConsent = await step(flow.site.url, root, authorizationRequest(asking).url, asking);
+        if (toConsent.kind !== "consent") throw new Error(`authorization ended at ${toConsent.kind}, not at the consent page`);
+        pending = paramOf(toConsent, OAUTH_REQUEST_PARAM);
+        await flow.site.stop();
+        restarted = await sandbox.start({dataDir: flow.dataDir, env: {...IDENTITY_SITE_ENV, NB_SITE_IDENTITY_TERMS_VERSION: NEW_TERMS_VERSION}});
+    }, SETUP_TIMEOUT_MS);
+
+    it("旧会话打开过的确认页：GET 与同意都得 consent_required，不发码；发起授权被带到 /consent?continue=，补交新版本的同意后去继续地址拿到授权码", async () => {
+        const consentRequired = {status: 403, body: {error: {code: "consent_required"}}};
+        const shown = await identityRequest(restarted.url, `${IDENTITY_PATHS.oauthAuthorization}?${new URLSearchParams({[OAUTH_REQUEST_PARAM]: pending})}`, {jar: root, from: from()});
+        expect({status: shown.status, body: shown.body}).toEqual(consentRequired);
+        const decided = await identityRequest(restarted.url, IDENTITY_PATHS.oauthAuthorization, {method: "POST", jar: root, from: from(), body: {request: pending, accept: true}});
+        expect({status: decided.status, body: decided.body}).toEqual(consentRequired);
+
+        const request = authorizationRequest(trusted);
+        const toConsent = await step(restarted.url, root, request.url, trusted);
+        expect(toConsent.kind).toBe("site-consent");
+        const consented = await identityRequest(restarted.url, IDENTITY_PATHS.meConsent, {
+            method: "POST",
+            jar: root,
+            from: from(),
+            body: {termsVersion: NEW_TERMS_VERSION, overseasStorage: true, continue: paramOf(toConsent, CONTINUE_PARAM)},
+        });
+        expect({status: consented.status, shape: Value.Check(ConsentResponse, consented.body)}).toEqual({status: 200, shape: true});
+        const continueUrl = (consented.body as ConsentResponse).continueUrl;
+        if (continueUrl === undefined) throw new Error("the consent answer has no continueUrl");
+        const back = await step(restarted.url, root, continueUrl, trusted);
+        expect(backAt(back)).toMatchObject({kind: "redirect-back", error: null, state: request.state, code: true});
+        expect((await exchangeCode(restarted.url, trusted, paramOf(back, "code"), request.verifier)).status).toBe(200);
     });
 });
 

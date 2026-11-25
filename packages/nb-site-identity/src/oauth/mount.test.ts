@@ -2,7 +2,7 @@
  * 挂载层（`oauth/mount.ts`）与发现文档（`oauth/discovery.ts`）经入口同样的挂法（`TestIdentity.request`）的可观察结果：只有
  * `site.oauth-provider` 输入表里的“方法加路径”可达，其余是本模块的 404；HEAD 只给公钥与发现文档；请求体上限；授权端点的第 1 步、
  * 去掉 `resource` 与 `claims`、POST 与 GET 同一套、库的跳转改写（库的错误页不外露）；令牌端点只收表单、去掉 `resource`、撞会话外键
- * 回 `invalid_grant`。
+ * 回 `invalid_grant`、拒 `DPoP`；用户信息的字段过滤；撤销端点的改写。授权端点的第 2、3 步与站点同意在 `authorize-request.test.ts`。
  *
  * 期望的可达清单照 Spec 的输入表写成字面量，不从 `LIBRARY_PUBLIC_ENDPOINTS` 取：守卫防的就是那张表被放宽。
  */
@@ -20,12 +20,13 @@ import {
     OAUTH_ENDPOINT_PATHS,
     OAUTH_PAGES,
     OIDC_DISCOVERY_PATHS,
+    UserInfoResponse,
 } from "@notnotype/nb-site-identity-contract";
 
 
 import {TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, type TestIdentity} from "../testing/module";
-import {addOAuthUser, authorize, CONSENTED, decodeJwt, registerClient, TEST_REDIRECT_URI, type TestClient} from "../testing/oauth";
+import {addOAuthUser, authorize, CONSENTED, decodeJwt, grantTokens, registerClient, TEST_REDIRECT_URI, type TestClient} from "../testing/oauth";
 import {createOAuthApp} from "./mount";
 
 const NOT_FOUND = {error: {code: "not_found"}};
@@ -34,11 +35,13 @@ const FORM = "application/x-www-form-urlencoded";
 let identity: TestIdentity;
 let client: TestClient;
 let cookie: string;
+let aliceId: number;
 
 beforeEach(async () => {
     identity = await createTestIdentity("oauth-mount");
     client = await registerClient(identity);
-    ({cookie} = await identity.issue(await addOAuthUser(identity, "alice", CONSENTED)));
+    aliceId = await addOAuthUser(identity, "alice", CONSENTED);
+    ({cookie} = await identity.issue(aliceId));
 });
 
 afterEach(async () => {
@@ -125,7 +128,15 @@ describe("白名单", () => {
     it("社交回调只放开放了的上游、只收 GET", async () => {
         // 产品的装配还没有开放任何上游（配置在计划 3.12）；这里另建一个开放了 Google 的挂载层，挂法与入口相同。
         const app = new Hono();
-        app.route(IDENTITY_AUTH_PREFIX, createOAuthApp({auth: identity.assembly.auth, conn: identity.conn, siteOrigin: TEST_SITE_URL, log: identity.log, socialProviders: ["google"]}));
+        app.route(IDENTITY_AUTH_PREFIX, createOAuthApp({
+                auth: identity.assembly.auth,
+                conn: identity.conn,
+                sessions: identity.assembly.sessions,
+                clock: identity.clock,
+                siteOrigin: TEST_SITE_URL,
+                log: identity.log,
+                socialProviders: ["google"],
+            }));
         const send = (method: string, provider: string) => app.fetch(new Request(`${TEST_SITE_URL}${IDENTITY_AUTH_PREFIX}/callback/${provider}`, {method}));
         // 开放了的上游交库：没有 state 时库把人带去它的错误页（这一步的改写在第 8 片）。
         expect((await send("GET", "google")).status).toBe(302);
@@ -379,6 +390,103 @@ describe("令牌端点", () => {
         }
         // 两次都没交库：码还在，照常换得出。
         expect((await exchangeViaMount(grant)).status).toBe(200);
+    });
+
+    it("带 DPoP 头回 400 invalid_request、不发令牌，码没被用掉（输出 6）", async () => {
+        const grant = await authorize(identity, cookie, client);
+        const body = new URLSearchParams({grant_type: "authorization_code", code: grant.code, redirect_uri: TEST_REDIRECT_URI, code_verifier: grant.verifier}).toString();
+        const response = await identity.request(OAUTH_ENDPOINT_PATHS.token, {method: "POST", headers: {"content-type": FORM, authorization: basicAuth(client), dpop: "a.b.c"}, body});
+        expect({status: response.status, cacheControl: response.headers.get("cache-control"), body: await response.json()}).toEqual({status: 400, cacheControl: "no-store", body: {error: "invalid_request"}});
+        expect((await exchangeViaMount(grant)).status).toBe(200);
+    });
+});
+
+describe("用户信息端点", () => {
+    async function infoOf(accessToken: string, method: "GET" | "POST" = "GET"): Promise<{readonly status: number; readonly cacheControl: string | null; readonly body: unknown}> {
+        const response = await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {method, headers: {authorization: `Bearer ${accessToken}`}});
+        return {status: response.status, cacheControl: response.headers.get("cache-control"), body: await response.json()};
+    }
+
+    it("设了头像、库的邮箱已验证列为真时：没有 picture，email_verified 为 false，合合同的形状；GET 与 POST 相同（输出 7）", async () => {
+        // 库按 `user.image` 给 `picture`、按 `user.emailVerified` 给 `email_verified`（升级清单“用户信息的字段”一行）。
+        await identity.conn.write((tx) => tx.query(`UPDATE "user" SET "image" = 'https://img.example/a.png', "emailVerified" = 1 WHERE "id" = ?`).run(aliceId));
+        const {access_token} = await grantTokens(identity, cookie, client);
+        const expected = {status: 200, cacheControl: "no-store", body: {sub: String(aliceId), preferred_username: "alice", name: "alice", email_pending: false, email: "alice@example.com", email_verified: false}};
+        for (const method of ["GET", "POST"] as const) {
+            const info = await infoOf(access_token, method);
+            expect({method, ...info}).toEqual({method, ...expected});
+            expect(Value.Check(UserInfoResponse, info.body)).toBe(true);
+        }
+    });
+
+    it("按范围给字段：只有 openid 时只有 sub；有 profile 没有 email 时没有邮箱的几项", async () => {
+        const openidOnly = await grantTokens(identity, cookie, client, "openid");
+        expect((await infoOf(openidOnly.access_token)).body).toEqual({sub: String(aliceId)});
+        const profile = await grantTokens(identity, cookie, client, "openid profile");
+        expect((await infoOf(profile.access_token)).body).toEqual({sub: String(aliceId), preferred_username: "alice", name: "alice"});
+    });
+
+    it("邮箱待补时只有 email_pending: true，没有 email 与 email_verified", async () => {
+        await identity.conn.write((tx) => tx.query(`UPDATE identity_profile SET email_pending = 1 WHERE user_id = ?`).run(aliceId));
+        const {access_token} = await grantTokens(identity, cookie, client);
+        const info = await infoOf(access_token);
+        expect(info.body).toEqual({sub: String(aliceId), preferred_username: "alice", name: "alice", email_pending: true});
+        expect(Value.Check(UserInfoResponse, info.body)).toBe(true);
+    });
+
+    it("没有令牌与令牌不对都是 401，带 WWW-Authenticate、不许缓存", async () => {
+        const missing = await identity.request(OAUTH_ENDPOINT_PATHS.userinfo);
+        const wrong = await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: "Bearer not-a-token"}});
+        for (const [name, response] of [["missing", missing], ["wrong", wrong]] as const) {
+            expect({name, status: response.status, cacheControl: response.headers.get("cache-control"), bearer: /^Bearer\b/u.test(response.headers.get("www-authenticate") ?? "")}).toEqual({
+                name,
+                status: 401,
+                cacheControl: "no-store",
+                bearer: true,
+            });
+        }
+    });
+});
+
+describe("撤销端点", () => {
+    function revoke(target: TestClient, form: Readonly<Record<string, string>> | string): Promise<Response> {
+        const body = typeof form === "string" ? form : new URLSearchParams(form).toString();
+        return identity.request(OAUTH_ENDPOINT_PATHS.revoke, {method: "POST", headers: {"content-type": FORM, authorization: basicAuth(target)}, body});
+    }
+
+    async function outcome(response: Response): Promise<{readonly status: number; readonly cacheControl: string | null; readonly body: string}> {
+        return {status: response.status, cacheControl: response.headers.get("cache-control"), body: await response.text()};
+    }
+
+    it("撤销自己的令牌回 200，之后用户信息得 401；再撤一次、撤不存在的令牌也回 200（输出 10）", async () => {
+        const {access_token} = await grantTokens(identity, cookie, client);
+        expect(await outcome(await revoke(client, {token: access_token}))).toMatchObject({status: 200, cacheControl: "no-store"});
+        expect((await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: `Bearer ${access_token}`}})).status).toBe(401);
+        // 库对这两种回 400 invalid_request（升级清单“撤销的回应”一行），模块改成 200。
+        expect(await outcome(await revoke(client, {token: access_token}))).toEqual({status: 200, cacheControl: "no-store", body: ""});
+        expect(await outcome(await revoke(client, {token: "no-such-token", token_type_hint: "access_token"}))).toEqual({status: 200, cacheControl: "no-store", body: ""});
+    });
+
+    it("别的客户端的令牌回 200、不起作用", async () => {
+        const other = await registerClient(identity, "admin2");
+        const {access_token} = await grantTokens(identity, cookie, client);
+        expect(await outcome(await revoke(other, {token: access_token}))).toMatchObject({status: 200, cacheControl: "no-store"});
+        expect((await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: `Bearer ${access_token}`}})).status).toBe(200);
+    });
+
+    it("不带 token、token 为空、带两个 token 都回 400 invalid_request（输出 10）", async () => {
+        const {access_token} = await grantTokens(identity, cookie, client);
+        for (const form of ["", "token=", "token=a&token=b"]) {
+            const response = await revoke(client, form);
+            expect({form, status: response.status, cacheControl: response.headers.get("cache-control"), error: ((await response.json()) as {error: string}).error}).toEqual({form, status: 400, cacheControl: "no-store", error: "invalid_request"});
+        }
+        // 都没撤掉什么。
+        expect((await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: `Bearer ${access_token}`}})).status).toBe(200);
+    });
+
+    it("客户端认证不过回 401 invalid_client，不改写成 200", async () => {
+        const response = await revoke({clientId: client.clientId, clientSecret: "wrong"}, {token: "no-such-token"});
+        expect({status: response.status, error: ((await response.json()) as {error: string}).error}).toEqual({status: 401, error: "invalid_client"});
     });
 });
 

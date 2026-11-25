@@ -96,8 +96,6 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     // 发现文档里的签名算法以上一步的检查为前提，所以在它之后生成。
     const wellKnown = createWellKnownApp(await buildDiscoveryDocument(auth), log);
     const siteOrigin = new URL(options.siteUrl).origin;
-    // 社交上游的开关由配置给（计划 3.12），配置还没有这一项：都不开放，回调地址一律 404。
-    const oauth = createOAuthApp({auth, conn, siteOrigin, log, socialProviders: []});
     // 续接令牌与确认标识是库签名的参数，验签用库上下文的 `secret`（`oauth/continue.ts`）；10 分钟按模块时钟。
     const {secret} = context;
     const continueResolver: ContinueResolver = (token, consumer) => resolveContinue(token, clock.now(), consumer, secret);
@@ -107,6 +105,8 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     };
 
     const sessions = new Sessions({auth, conn, clock, sessionDays: config.sessionDays, termsVersion: config.termsVersion, log});
+    // 社交上游的开关由配置给（计划 3.12），配置还没有这一项：都不开放，回调地址一律 404。
+    const oauth = createOAuthApp({auth, conn, sessions, clock, siteOrigin, log, socialProviders: []});
     const passwords = overrides.passwords ?? REAL_PASSWORD_FUNCTIONS;
     const hashLimiter = new HashLimiter({concurrency: config.hashConcurrency, queue: config.hashQueue, log, ...(overrides.hashTimers === undefined ? {} : {timers: overrides.hashTimers})});
     const rateLimits = createIdentityRateLimits({now: () => clock.now(), log});
@@ -146,9 +146,10 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             passwords,
             termsVersion: config.termsVersion,
             registrationOpen: config.registrationOpen,
+            resolveContinue: continueResolver,
         },
         changePassword: {sessions, conn, hashLimiter, rateLimits, clock, log, passwords},
-        me: {sessions, conn, clock, termsVersion: config.termsVersion},
+        me: {sessions, conn, clock, termsVersion: config.termsVersion, resolveContinue: continueResolver},
         mySessions: {sessions, conn, clock, log},
         inviteCodes: {sessions, conn, clock, rateLimits},
         registrationCodes: {sessions, conn, clock},

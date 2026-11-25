@@ -18,8 +18,10 @@ import {OAUTH_ENDPOINT_PATHS} from "@notnotype/nb-site-identity-contract";
 export const CONTINUE_LIFETIME_MS = 600_000;
 
 /**
- * 令牌长度的上限（字符）。入口的查询串上限是 4096 个字符（第 6 片），编码后约 5462，加上签名字段仍在这之内（计划 omp 设计审查
- * 第 5 条）。超过的不解：解码与验签的开销随长度长。
+ * 令牌长度的上限（字符）。授权端点收的查询串至多 4096 个字符、只把认得的十来个参数交库（`authorize-request.ts`），库签名时再加
+ * 签名字段，做 base64url 后至多六千个字符上下：第 6 片实测，交库的参数全带上、`state` 填满到 4096 个字符时最长 5942（`state`
+ * 用重新编码后变长的字符也一样，入口按重新编码后的长度判）。上限留出余量，入口的上限改大时要跟着算（计划 omp 设计审查第 5 条）。
+ * 超过的不解：解码与验签的开销随长度长。
  */
 export const MAX_CONTINUE_TOKEN_LENGTH = 8192;
 

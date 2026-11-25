@@ -17,7 +17,8 @@
  *    后写有漏洞）。写账号、密码、补充资料
  *    （注册码、邀请码与邀请人）、同意记录，发会话。任何一步失败整个事务回滚，码不被扣（输出 2）；同一个只剩一次的码被并发使用时，
  *    事务在队列里排成先后，后到的条件更新影响 0 行。
- * 9. 回公开资料与会话的 `Set-Cookie`：事务已提交，响应返回时会话可用。
+ * 9. 回公开资料与会话的 `Set-Cookie`：事务已提交，响应返回时会话可用。请求带了续接令牌时解它（注册也建立了新会话，按登录算），
+ *    合格时响应带继续地址（`site.accounts` 输出 4；`oauth/continue.ts`）。
  */
 
 import type {Context} from "hono";
@@ -32,6 +33,7 @@ import {HashOverloadedError, type HashLimiter} from "./hash-limiter";
 import type {LibAdapter} from "./login";
 import {publicProfileOf, PROFILE_COLUMNS, type ProfileRow} from "./me";
 import {appendCookies} from "./middleware";
+import type {ContinueResolver} from "./oauth/continue";
 import type {PasswordFunctions} from "./password";
 import type {IdentityRateLimits} from "./rate-limit";
 import type {Sessions} from "./session";
@@ -48,6 +50,8 @@ export interface RegisterOptions {
     readonly passwords: Pick<PasswordFunctions, "hash">;
     readonly termsVersion: string;
     readonly registrationOpen: boolean;
+    /** 解请求带的续接令牌（`oauth/continue.ts`）；与登录同一个。 */
+    readonly resolveContinue: ContinueResolver;
 }
 
 /** 过了字段校验的注册请求，码已去掉首尾空白、用户名与邮箱已转小写。 */
@@ -159,7 +163,9 @@ export function registerRoute(options: RegisterOptions): (c: Context) => Promise
         });
 
         appendCookies(c, cookies);
-        const response: RegisterResponse = {user: publicProfileOf(profile)};
+        // 注册成功之后才解：失败的注册不碰它。
+        const continueUrl = body.continue === undefined ? null : await options.resolveContinue(body.continue, "login");
+        const response: RegisterResponse = {user: publicProfileOf(profile), ...(continueUrl === null ? {} : {continueUrl})};
         return c.json(response);
     };
 }

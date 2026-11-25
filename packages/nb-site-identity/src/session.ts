@@ -39,6 +39,8 @@ export interface SessionIdentity {
     readonly role: Role;
     readonly expiresAtMs: number;
     readonly updatedAtMs: number;
+    /** 会话建立的时刻（模块的时钟，建会话前的钩子写进库）：授权端点按它判 `max_age`（`oauth/mount.ts`）。 */
+    readonly createdAtMs: number;
 }
 
 /** 要会话的接口读出的有效会话（`use` 的结果）：另带同意门槛要的一项。 */
@@ -57,6 +59,7 @@ interface FoundSession {
     readonly banned: boolean;
     readonly expiresAtMs: number;
     readonly updatedAtMs: number;
+    readonly createdAtMs: number;
 }
 
 /** 读会话的结果：`cookies` 是要随响应发出的 `Set-Cookie`（延长时的新 Cookie、到期时的清除）。 */
@@ -189,6 +192,7 @@ export class Sessions {
             banned: user.banned === true,
             expiresAtMs: session.expiresAt.getTime(),
             updatedAtMs: session.updatedAt.getTime(),
+            createdAtMs: session.createdAt.getTime(),
         };
     }
 

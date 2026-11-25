@@ -16,12 +16,14 @@
 import {Hono, type Context, type Handler} from "hono";
 import {bodyLimit} from "hono/body-limit";
 
-import type {SocialProvider} from "@notnotype/nb-site-identity-contract";
+import {USERINFO_CLAIMS, type SocialProvider} from "@notnotype/nb-site-identity-contract";
 
 import {LIBRARY_PUBLIC_ENDPOINTS, type IdentityAuth} from "../auth";
 import {isForeignKeyViolation, type IdentityConnection} from "../db/connection";
 import {failureFor, failureResponse, MAX_BODY_BYTES, respondFailure} from "../errors";
 import type {IdentityLog} from "../index";
+import type {Sessions} from "../session";
+import {authorizeErrorRedirect, libraryAuthorizeParams, rejectedAuthorizeParameter, requestedMaxAgeSeconds} from "./authorize-request";
 import {checkClientAndRedirect} from "./clients";
 import {errorPageLocation, rewriteLibraryLocation, singleParam, type LibraryLocationOptions} from "./library-location";
 
@@ -31,7 +33,10 @@ export interface OAuthMountOptions {
     readonly auth: IdentityAuth;
     /** 授权端点的第 1 步读客户端（`checkClientAndRedirect`）。 */
     readonly conn: IdentityConnection;
-    /** 站点地址的 origin：认库的错误页与站内页面（`library-location.ts`）。 */
+    /** 授权端点的第 3 步按模块的时钟读会话、判 `max_age`。 */
+    readonly sessions: Sessions;
+    readonly clock: {now(): number};
+    /** 站点地址的 origin：认库的错误页与站内页面（`library-location.ts`），也是第 2 步跳回时带的 `iss`。 */
     readonly siteOrigin: string;
     readonly log: Pick<IdentityLog, "warn" | "error">;
     /** 开放了的社交上游：只有它们的回调地址可达（`site.accounts` 的社交回调），没开放的落到兜底 404。 */
@@ -65,9 +70,6 @@ function notFound(c: Context): Response {
     return respondFailure(c, failureResponse("not_found"));
 }
 
-/** 交给库的授权请求不带的参数（`authorizeEndpoint` 的第 2 点）。 */
-const DROPPED_AUTHORIZE_PARAMS = ["resource", "claims"] as const;
-
 /** 改成 GET 交库时去掉的头：体已经读成参数，不再有体。 */
 const BODY_HEADERS = ["content-type", "content-length", "transfer-encoding"] as const;
 
@@ -86,39 +88,60 @@ async function libraryRedirectTarget(response: Response): Promise<string | null>
 }
 
 /**
- * 授权端点（计划 3.8 的第 1、4 步；`site.oauth-provider` 输出 3 到 5）。先后：
+ * 授权端点（计划 3.8；`site.oauth-provider` 输出 3 到 5、12、13）。先后：
  *
  * 1. 参数：GET 取查询串；POST 只收表单（输出 3），别的类型与白名单外的方法一样回 404，表单体读成参数（POST 时地址上的查询串
  *    不算，与库对 POST 只读体一致）。之后两种走同一套。
- * 2. 去掉 `resource` 与 `claims`（输出 3，计划 omp 设计审查第 7、15 条）：带了 `resource` 库会按它发 JWT 访问令牌、不写
- *    `oauthAccessToken` 行，自家撤销够不到（升级清单“允许的访问令牌都有 `oauthAccessToken` 行”）；`claims` 会让库按它拒绝或改
- *    id_token。RFC 6749 让不认识的参数被忽略，去掉与库不认识它等价。
- * 3. 客户端与回调地址（`checkClientAndRedirect`）：不合格时不交库、不跳回客户端，带去本站错误页。
- * 4. 以同样参数的 GET 交库。POST 也改成 GET：库对带会话 Cookie 的 POST 做来源检查，没有 `Origin` 回 403，GET 不查（授权端点的 GET
- *    本来就允许别的站点发起）；同一组参数换了方法结果不该不同（升级清单“授权的 POST”一行）。
- * 5. 库的跳转交 `rewriteLibraryLocation`，一律回 302。库以 `APIError` 做的跳转（`redirectOnError`）经 `handler` 已是普通响应，
+ * 2. 客户端与回调地址（`checkClientAndRedirect`）：不合格时不交库、不跳回客户端，带去本站错误页。
+ * 3. 合同要拒、不能交库判的参数（`authorize-request.ts` 的 `rejectedAuthorizeParameter`）：回调地址已核对，自己拼地址跳回客户端。
+ * 4. 会话（模块的时钟）：读不出有效会话，或带了 `max_age` 而会话建立以来已超过它时，去掉请求的 `Cookie` 头再交库，让库当作没有
+ *    会话、带人去登录页。库自己也判这两样，但按系统时间：合同测试拨的是模块的时钟，库判不出模块里已到期的会话与超时的
+ *    `max_age`（升级清单“max_age 按系统时间”一行）。读会话时到期要清的 Cookie 随回答发出。缺站点同意不在这里判，交库的
+ *    `postLogin`（`auth.ts`）。
+ * 5. 只把认得的参数交库（`libraryAuthorizeParams`；`resource` 与 `claims` 不在其中）：带了 `resource` 库会按它发 JWT 访问令牌、
+ *    不写 `oauthAccessToken` 行，自家撤销够不到（升级清单“允许的访问令牌都有 `oauthAccessToken` 行”）；`claims` 会让库按它拒绝
+ *    或改 id_token（计划 omp 设计审查第 7、15 条）。以同样参数的 GET 交库。POST 也改成 GET：库对带会话 Cookie 的 POST 做来源检查，
+ *    没有 `Origin` 回 403，GET 不查（授权端点的 GET 本来就允许别的站点发起）；同一组参数换了方法结果不该不同（升级清单“授权的
+ *    POST”一行）。
+ * 6. 库的跳转交 `rewriteLibraryLocation`，一律回 302。库以 `APIError` 做的跳转（`redirectOnError`）经 `handler` 已是普通响应，
  *    走同一条（omp 设计审查第 12 条）。库没给跳转的响应原样回。
  */
 function authorizeEndpoint(options: OAuthMountOptions): Handler {
-    const {auth, conn} = options;
-    const locations: LibraryLocationOptions = {conn, log: options.log, siteOrigin: options.siteOrigin};
+    const {auth, conn, sessions, clock, siteOrigin} = options;
+    const locations: LibraryLocationOptions = {conn, log: options.log, siteOrigin};
     return async (c) => {
         let params: URLSearchParams;
+        let rawLength: number;
         if (c.req.method === "POST") {
             if (mediaTypeOf(c.req.raw) !== FORM_MEDIA_TYPE) return notFound(c);
-            params = new URLSearchParams(await c.req.raw.text());
+            const body = await c.req.raw.text();
+            rawLength = body.length;
+            params = new URLSearchParams(body);
         } else {
-            params = new URL(c.req.raw.url).searchParams;
+            const {search, searchParams} = new URL(c.req.raw.url);
+            // `search` 带开头的 `?`，没有查询串时是空串。
+            rawLength = Math.max(0, search.length - 1);
+            params = searchParams;
         }
-        for (const name of DROPPED_AUTHORIZE_PARAMS) params.delete(name);
 
-        const check = await conn.read((tx) => checkClientAndRedirect(tx, singleParam(params, "client_id"), singleParam(params, "redirect_uri")));
+        const redirectUri = singleParam(params, "redirect_uri");
+        const check = await conn.read((tx) => checkClientAndRedirect(tx, singleParam(params, "client_id"), redirectUri));
         if (!check.ok) return c.redirect(errorPageLocation(check.code), 302);
+        // 第 1 步合格时回调地址一定恰好一个。
+        if (redirectUri === null) throw new Error("a matched authorization request has no redirect_uri");
 
-        const url = new URL(c.req.raw.url);
-        url.search = params.toString();
+        const rejection = rejectedAuthorizeParameter(rawLength, params);
+        if (rejection !== null) return c.redirect(authorizeErrorRedirect(redirectUri, rejection, singleParam(params, "state"), siteOrigin), 302);
+
         const headers = new Headers(c.req.raw.headers);
         for (const name of BODY_HEADERS) headers.delete(name);
+        const {session, cookies} = await sessions.read(headers.get("cookie"), "use");
+        const maxAge = requestedMaxAgeSeconds(params);
+        if (session === null || (maxAge !== null && clock.now() - session.createdAtMs > maxAge * 1000)) headers.delete("cookie");
+
+        const kept = libraryAuthorizeParams(params);
+        const url = new URL(c.req.raw.url);
+        url.search = kept.toString();
         const response = await auth.handler(new Request(url.href, {method: "GET", headers}));
 
         const target = await libraryRedirectTarget(response);
@@ -126,7 +149,8 @@ function authorizeEndpoint(options: OAuthMountOptions): Handler {
         const answer = new Headers(response.headers);
         // 库的 302 也带着 JSON 的类型头；改写后的回答没有体。
         for (const name of BODY_HEADERS) answer.delete(name);
-        answer.set("Location", await rewriteLibraryLocation(locations, target, params));
+        answer.set("Location", await rewriteLibraryLocation(locations, target, kept));
+        for (const cookie of cookies) answer.append("Set-Cookie", cookie);
         return new Response(null, {status: 302, headers: answer});
     };
 }
@@ -139,12 +163,16 @@ function authorizeEndpoint(options: OAuthMountOptions): Handler {
  * `oauthAccessToken` 行，自家撤销够不到（升级清单“允许的访问令牌都有 `oauthAccessToken` 行”）。RFC 6749 让不认识的参数被忽略，
  * 去掉它与库不认识它等价。
  *
+ * 带 `DPoP` 头回 `invalid_request`、不交库（输出 6）：站点不支持 DPoP（发现文档不列它），库却有自己的 DPoP 处理，交库后结果由库
+ * 定，不在合同里。在判表单类型之后：不是表单的请求不论带不带这个头都是同一个回答。
+ *
  * 撞会话外键：库换码时先删码、再插令牌，整段不在一个事务里；两步之间会话被删时插入因外键失败，库把 `SQLiteError` 原样抛出
  * （计划问 10）。这时码已用掉、会话已不在，按“码无效”回 `invalid_grant`（升级清单“令牌端点撞会话外键”一行）。
  */
 function tokenEndpoint(auth: IdentityAuth, log: OAuthMountOptions["log"]): Handler {
     return async (c) => {
         if (mediaTypeOf(c.req.raw) !== FORM_MEDIA_TYPE) return oauthError(c, "invalid_request");
+        if (c.req.raw.headers.has("dpop")) return oauthError(c, "invalid_request");
         const form = new URLSearchParams(await c.req.raw.text());
         form.delete("resource");
         const headers = new Headers(c.req.raw.headers);
@@ -162,9 +190,71 @@ function tokenEndpoint(auth: IdentityAuth, log: OAuthMountOptions["log"]): Handl
     };
 }
 
-/** 用户信息与撤销：交库、不许缓存（回答里有令牌换来的资料，或针对某个令牌）。 */
-function passThroughNoStore(auth: IdentityAuth): Handler {
-    return async (c) => noStore(await auth.handler(c.req.raw));
+const USERINFO_FIELDS: ReadonlySet<string> = new Set(USERINFO_CLAIMS);
+
+/**
+ * 库给的用户信息按输出 7 滤一遍：只留合同的字段（库另给 `picture`、`given_name` 之类，升级清单“用户信息的字段”一行）；
+ * `email_verified` 恒为 `false`，不取库的 `emailVerified` 列（站点不验证邮箱，社交登录时库会把上游的验证结果写进那一列，计划问 11）；
+ * `email_pending` 为真时去掉 `email` 与 `email_verified`。
+ */
+function filterUserInfo(claims: Readonly<Record<string, unknown>>): Record<string, unknown> {
+    const kept: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(claims)) if (USERINFO_FIELDS.has(name)) kept[name] = value;
+    if ("email_verified" in kept) kept.email_verified = false;
+    if (kept.email_pending === true) {
+        delete kept.email;
+        delete kept.email_verified;
+    }
+    return kept;
+}
+
+/**
+ * 用户信息端点：交库，200 的 JSON 按 `filterUserInfo` 滤过再回；401 没有 `WWW-Authenticate` 时补上 `Bearer`（失败与恢复一节的
+ * RFC 6750；库 1.7.27 都带着，补的一步防库改了这一处）。都不许缓存：回答里有令牌换来的资料。
+ */
+function userInfoEndpoint(auth: IdentityAuth): Handler {
+    return async (c) => {
+        const response = await auth.handler(c.req.raw);
+        if (response.status === 200) {
+            if (mediaTypeOf(response) !== "application/json") throw new Error("the library's userinfo answer is not JSON");
+            const body: unknown = await response.json();
+            if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error("the library's userinfo answer is not a JSON object");
+            const headers = new Headers(response.headers);
+            headers.delete("content-length");
+            headers.set("Cache-Control", "no-store");
+            return new Response(JSON.stringify(filterUserInfo(body as Record<string, unknown>)), {status: 200, headers});
+        }
+        const answer = noStore(response);
+        if (response.status === 401 && !answer.headers.has("www-authenticate")) answer.headers.set("WWW-Authenticate", "Bearer");
+        return answer;
+    };
+}
+
+/**
+ * 撤销端点：交库、不许缓存。请求带了恰好一个非空的 `token`、库回 400 且 `error` 是 `invalid_request` 时改成 200 空体：库对查不到
+ * 的令牌（不存在、已撤销）这样回，输出 10 与 RFC 7009 要 200（计划问 3 实测；只按码认，不看说明文字；升级清单“撤销的回应”
+ * 一行）。别的客户端的令牌库本来就回 200、不撤。不带 `token`（或它是空串）库也回 `invalid_request`，这一种原样回（输出 10）。
+ *
+ * 读 `token` 用请求的副本，交库的仍是原请求；不是表单的请求不读，原样交库。
+ */
+function revokeEndpoint(auth: IdentityAuth): Handler {
+    return async (c) => {
+        const tokens = mediaTypeOf(c.req.raw) === FORM_MEDIA_TYPE ? new URLSearchParams(await c.req.raw.clone().text()).getAll("token") : [];
+        const response = await auth.handler(c.req.raw);
+        if (tokens.length === 1 && tokens[0] !== "" && response.status === 400 && (await libraryErrorCode(response)) === "invalid_request") {
+            return new Response(null, {status: 200, headers: {"Cache-Control": "no-store"}});
+        }
+        return noStore(response);
+    };
+}
+
+/** 库的 OAuth 错误体里的 `error`；不是 JSON 或没有这一项时为 null。读的是副本，原响应还能原样回。 */
+async function libraryErrorCode(response: Response): Promise<string | null> {
+    if (mediaTypeOf(response) !== "application/json") return null;
+    const body: unknown = await response.clone().json();
+    if (typeof body !== "object" || body === null) return null;
+    const {error} = body as {readonly error?: unknown};
+    return typeof error === "string" ? error : null;
 }
 
 /**
@@ -198,8 +288,8 @@ export function createOAuthApp(options: OAuthMountOptions): Hono {
     const handlers = {
         "/oauth2/authorize": authorizeEndpoint(options),
         "/oauth2/token": tokenEndpoint(auth, log),
-        "/oauth2/userinfo": passThroughNoStore(auth),
-        "/oauth2/revoke": passThroughNoStore(auth),
+        "/oauth2/userinfo": userInfoEndpoint(auth),
+        "/oauth2/revoke": revokeEndpoint(auth),
         "/jwks": jwksEndpoint(auth),
         "/callback/:id": callbackEndpoint(auth, options.socialProviders),
     } satisfies Record<LibraryPath, Handler>;
