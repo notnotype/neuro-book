@@ -13,14 +13,18 @@ import type {ToolContext, ToolImplementation, ToolResult, ToolSessionContext} fr
 import {replaceLocked} from "@notnotype/nb-file-lock";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {definitionAt} from "nbook/manifest";
+import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectsService} from "nbook/shared/projects";
 
-import {AGENT_TOOL_IDS, CANON_AGENT_TOOL_CONTRIBUTIONS, canonAgentTools} from "./backend/agent-tools";
+import {AGENT_TOOL_IDS, CANON_AGENT_TOOL_CONTRIBUTIONS, canonAgentTools, canonServerPlugin} from "./backend/agent-tools";
+import {descriptor} from "./plugin";
 import {BUILTIN_ENTRY_KINDS} from "./shared/components";
-import {mergeEntryKinds} from "./shared/entry-kinds";
+import {CANON_ENTRY_KINDS_POINT, mergeEntryKinds} from "./shared/entry-kinds";
+import type {EntryKindDeclaration} from "./shared/entry-kinds";
 import {serverPlugins, until, windowOf} from "./testing/harness";
 
 let tmp = "";
@@ -91,6 +95,22 @@ async function scene(project: string | null = "book") {
 const versionIn = (result: ToolResult): string => /版本：(\S+)/u.exec(result.text)?.[1] ?? "";
 
 describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
+    it("服务端实例：canon 的服务端入口定义了种类的贡献点，读得到内置的四条（Agent 新建时的默认靠它，上面的场地直接给了同一份）", async () => {
+        const root = await createTestTmpRoot("neuro-book-canon", "agent-kinds");
+        const held: {list: () => readonly unknown[]} = {list: () => []};
+        const probe: PluginDefinition = {id: "test.kinds", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], activate: (context) => {
+            held.list = () => mergeEntryKinds(context.declarations.list<EntryKindDeclaration>(CANON_ENTRY_KINDS_POINT));
+            return {};
+        }})]};
+        const world = await settingsWorld(root, [definitionAt("server", descriptor, canonServerPlugin), probe]);
+        try {
+            expect(held.list()).toEqual(mergeEntryKinds(BUILTIN_ENTRY_KINDS));
+        } finally {
+            await world.close();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
     it("声明：四个工具都给所有会话，查、读、看树是读，写是写；名字加 canon_ 前缀", () => {
         expect(CANON_AGENT_TOOL_CONTRIBUTIONS.map((item) => [item.id, item.declaration.providerName, item.declaration.effect, item.declaration.defaultForAll])).toEqual([
             [AGENT_TOOL_IDS.lookup, "canon_lookup", "read", true],
@@ -178,6 +198,44 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         const missing = await run(AGENT_TOOL_IDS.write, {title: "恢复没有的", version: versionIn(back), edits: [{op: "restoreField", entry: "星瑕", field: "人物.身高"}]});
         expect(missing.status).toBe("error");
         expect(missing.text).toContain("没有去掉过的字段“身高”");
+        await close();
+    }, 60_000);
+
+    it("字段操作的边界：数与引用不给初值也加得上；显示名带空格时同一项的初值认得到；写错形状、空的显示名、已有的设定组都回话说清，不悄悄照写；回话写出新条目带了哪几组", async () => {
+        const {run, close} = await scene();
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [
+            {op: "create", key: "xia", name: "星瑕", kind: "人物", declare: {面板: [{label: "身高 (cm)"}]}, fields: {"面板.身高 (cm)": "一米七"}},
+            {op: "create", key: "jin", name: "星瑾", kind: "人物", components: []},
+        ]});
+        expect(created.status).not.toBe("error");
+        // 没写 components 套的是种类的默认，加上 declare 写到的面板；写了 [] 就是一组也不要。
+        expect(created.text).toContain("xia → ");
+        expect(created.text).toContain("（设定组：人物、形象、面板）");
+        expect(created.text).toContain("（没有设定组）");
+        const read = await run(AGENT_TOOL_IDS.read, {entry: "星瑕"});
+        // 生成的 id 不等于显示名（括号里的），初值照样写进了这一项。
+        expect(read.text).toContain("身高 (cm)（身高cm2） = 一米七");
+
+        const version = versionIn(read);
+        const write = (edits: readonly Record<string, unknown>[]) => run(AGENT_TOOL_IDS.write, {title: "改", version, edits});
+        const numberAndRef = await write([{op: "addField", entry: "星瑕", component: "面板", label: "力量", kind: "number"}, {op: "addField", entry: "星瑕", component: "面板", label: "师父", kind: "ref", targets: ["人物"]}]);
+        expect(numberAndRef.status).not.toBe("error");
+        const refused: Array<[readonly Record<string, unknown>[], string]> = [
+            [[{op: "addField", entry: "星瑕", component: "面板", label: "魔力", kind: "数字"}], "kind 只能是"],
+            [[{op: "addField", entry: "星瑕", component: "面板", label: "  "}], "不能是空的"],
+            [[{op: "addField", entry: "星瑕", component: "面板", label: "魔力", default: 3}], "不认识“default”"],
+            [[{op: "renameField", entry: "星瑕", field: "面板.身高 (cm)", label: ""}], "不能是空的"],
+            [[{op: "addComponent", entry: "星瑕", component: "人物"}], "已经有设定组“人物”"],
+            [[{op: "create", name: "星璃", kind: "人物", components: "人物"}], "components 是设定组名字的列表"],
+            [[{op: "create", name: "星璃", kind: "人物", declare: {面板: [{label: "战绩", value: "三胜"}]}}], "声明里不写初值"],
+            [[{op: "create", name: "星璃", kind: "人物", declare: {面板: [{label: "甲"}], panel: [{label: "乙"}]}}], "写了两次"],
+            [[{op: "create", key: "li", name: "星璃", kind: "人物"}, {op: "restoreField", entry: "$li", field: "人物.种族"}], "这一批新建的条目没有去掉过的字段"],
+        ];
+        for (const [edits, says] of refused) {
+            const result = await write(edits);
+            expect(result.status).toBe("error");
+            expect(result.text).toContain(says);
+        }
         await close();
     }, 60_000);
 

@@ -184,5 +184,6 @@ const PROBLEM_HINTS: Readonly<Record<string, string>> = {
     "field-fixed": "这是设定组固定的字段，不能改名、去掉",
     "field-missing": "条目上没有这个自己加的字段，或它已经是这个状态（去掉过的再去掉、没去掉的再恢复）",
     "field-referenced": "还有别的字段拿它当上限，或上限指向的字段不在；先改那个字段",
-    "id-taken": "这个 id 已经用过，不写 id、让系统按名字生成",
+    "id-taken": "已经有了：字段的 id 已经用过（不写 id，让系统按名字生成），或这个条目已经有这组设定",
+    "number-without-basis": "数要写依据，初值这一路给不了：先不写初值（字段是未知），由作者填；剧情里的变化用 intent: \"story\" 记一笔",
 };

@@ -33,11 +33,12 @@ afterEach(async () => {
 });
 
 describe("条目种类的登记", () => {
-    it("同一个词的几条登记：默认组按先后并起来、去重，先后取最小的；没登记的种类没有默认", () => {
+    it("同一个词的几条登记：默认组内置的在前（别的插件的贡献 id 排在内置前面时也是）、并起来去重，先后取最小的；没登记的种类没有默认", () => {
+        // `declarations.list` 按贡献 id 排：“acme.” 的排在 “nbook.canon.” 前面。
         const kinds = mergeEntryKinds([
+            {id: "acme.magic.wand", declaration: {kind: "人物", components: ["nbook.canon.look", "x.magic"], order: 9}},
+            {id: "acme.magic.kind", declaration: {kind: "法器", components: ["x.magic"], order: -1}},
             ...BUILTIN_ENTRY_KINDS,
-            {declaration: {kind: "人物", components: ["nbook.canon.look", "x.magic"], order: 9}},
-            {declaration: {kind: "法器", components: ["x.magic"], order: -1}},
         ]);
         expect(kinds.map((kind) => kind.kind)).toEqual(["法器", "人物", "组织", "地点", "物品"]);
         expect(kinds.find((kind) => kind.kind === "人物")).toEqual({kind: "人物", components: ["nbook.canon.person", "nbook.canon.look", "x.magic"], order: 0});

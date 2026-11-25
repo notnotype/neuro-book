@@ -66,7 +66,8 @@ export const canonProjectPlugin: PluginDefinition = {
             const declared = new Map<ContributionHandle<ComponentContribution>, ComponentDeclaration>();
             // 种类的默认设定组写到没登记的类型（author-ui.md 输入一节）：用到时当作没写；这里核一次，同一处只写一条诊断。
             // 世界打开以后才核：启动时登记一条一条地到，中途核会把还没到的内置类型也报出来（内置类型在打开世界之前都已登记）。
-            // 之后登记每变一次核一次，放到微任务里合并。种类的声明每次现读：装上插件以后会多。
+            // 之后 Component 类型的登记每变一次核一次，放到微任务里合并；种类的声明在核的时候现读（只多了一条种类声明、类型
+            // 登记没变时，要等下一次类型登记变了才核：这只是一条提示的早晚，不另订阅）。世界打不开（被占用、在停）时不核。
             const reported = new Set<string>();
             let checkQueued = false;
             let worldOpened = false;
@@ -175,7 +176,8 @@ export const canonProjectPlugin: PluginDefinition = {
                 },
             );
             context.scope.register({kind: "canon-world", label: `${descriptor.id} world`, value: host, release: (value) => value.stop()});
-            void host.ready().then(() => {
+            void host.ready().then((service) => {
+                if ("code" in service) return;
                 worldOpened = true;
                 checkEntryKinds();
             });

@@ -239,7 +239,7 @@ describe("回执页", () => {
         const at = {entry: id, path: "panel.幸运"};
         const added = await edit([{op: "fieldAdd", entry: id, namespace: "panel", field: {label: "幸运", kind: "number"}, value: 7}, {op: "fieldAdd", entry: id, namespace: "panel", field: {label: "声望", kind: "text"}}]);
         expect(await rows(added)).toEqual(["添加了一项：幸运、声望", "幸运：（没有） → 7"]);
-        expect(await rows(await edit([{op: "fieldRename", at, label: "运气"}]))).toEqual(["一项改名：幸运 → 运气"]);
+        expect(await rows(await edit([{op: "fieldRename", at, label: "运气"}, {op: "fieldRename", at: {entry: id, path: "panel.声望"}, label: "名望"}]))).toEqual(["一项改名：幸运 → 运气、声望 → 名望"]);
         expect(await rows(await edit([{op: "fieldRemove", at}]))).toEqual(["去掉了一项：幸运"]);
         expect(await rows(await edit([{op: "fieldRestore", at}]))).toEqual(["恢复了一项：运气"]);
     });

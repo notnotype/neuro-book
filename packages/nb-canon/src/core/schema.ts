@@ -109,7 +109,7 @@ export const ComponentDeclarationSchema = Type.Object({
  */
 export const InstanceFieldDeclarationSchema = Type.Object({...FieldDeclarationCore, item: Type.Optional(Type.Array(Type.Object(FieldDeclarationCore))), removed: Type.Optional(Type.Literal(true))});
 
-/** 新增实例字段时给的声明（components.md 输出 4）：`id` 可以不写，由内核按显示名生成；给了的 id 已经占着时也换一个生成的。 */
+/** 新增实例字段时给的声明（components.md 输出 4）：`id` 可以不写，由内核按显示名生成；给了的 id 已经占着时拒收（`id-taken`）。 */
 export const FieldDraftSchema = Type.Object({...FieldDeclarationCore, id: Type.Optional(Id), item: Type.Optional(Type.Array(Type.Object(FieldDeclarationCore)))});
 
 export const NamespaceDataSchema = Type.Object({

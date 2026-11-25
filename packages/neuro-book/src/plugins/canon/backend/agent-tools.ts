@@ -14,7 +14,8 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {agentTool, TOOLS_POINT} from "@notnotype/nb-plugin-sdk/agent";
 import type {AgentToolImplementation} from "@notnotype/nb-plugin-sdk/agent";
 import type {JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-import type {ComponentType, EntryEdits, EntryOp, EntryView, FieldDeclaration, FieldDraft, ReadPosition} from "@notnotype/nb-canon/schema";
+import {generateFieldId} from "@notnotype/nb-canon";
+import type {ComponentType, EntryEdits, EntryOp, EntryView, FieldDeclaration, FieldDraft, FieldKind, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectsService} from "nbook/shared/projects";
@@ -93,7 +94,7 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "listAdd（entry、field 列表、value 元素 {子字段: 值}，以条目为键的列表另写 target 条目）；listRemove（entry、field 写到元素）；",
         "aliases（entry、add、remove）；addBlock（entry、text、after 块 id：放在它后面，null 放在最前，不写放在最后）；removeBlock（entry、block）；",
         "addComponent、removeComponent（entry、component 设定组）；move（entry、parent 上级或 null、after 兄弟或 null、folder、kind）；delete、restore（entry）。",
-        "有的设定组（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 设定组、label 显示名、kind 缺省 text，可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"设定组\": [声明…]}，addComponent 写 [声明…]。",
+        "有的设定组（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 设定组、label 显示名、kind 缺省 text（还有 number、enum、boolean、list、image、ref），可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"设定组\": [声明…]}，addComponent 写 [声明…]。",
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
         "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
@@ -218,13 +219,23 @@ async function entryOf(context: Context, id: string): Promise<{readonly view: En
     return {view: read.value.view, declarations: read.value.declarations ?? {}, removedFields: read.value.removedFields ?? {}};
 }
 
-/** 模型写的字段声明里照搬的几项；别的键（`op`、`entry`、`value` 之类）不属于声明。 */
-const DECLARATION_KEYS = ["id", "label", "kind", "precision", "unit", "min", "max", "options", "suggestions", "retold", "targets", "keyedBy", "carry", "item"] as const;
+/** 模型写的字段声明里照搬的几项。 */
+const DECLARATION_KEYS: readonly string[] = ["id", "label", "kind", "precision", "unit", "min", "max", "options", "suggestions", "retold", "targets", "keyedBy", "carry", "item"];
+/** 字段的种类（`FieldKindSchema`）：写错时回话列出来，不交给内核报一串互相矛盾的形状错误。 */
+const FIELD_KINDS: readonly FieldKind[] = ["text", "number", "enum", "boolean", "list", "image", "ref"];
 
-/** 模型写的一条字段声明换成内核的写法：要有 `label`，`kind` 不写是文字；形状对不对由内核判。 */
-function fieldDraftOf(given: unknown): FieldDraft | {readonly problem: string} {
-    if (typeof given !== "object" || given === null || typeof (given as {label?: unknown}).label !== "string") return {problem: "字段声明要写 label（显示名）。"};
+/**
+ * 模型写的一条字段声明换成内核的写法：要有非空的 `label`，`kind` 不写是文字、写了要是几种之一；`extra` 是这一项里另外允许的
+ * 键（`addField` 的 op、entry、component、value），别的键回话指出来，不悄悄丢掉（模型常顺手把初值写进声明）。其余形状由内核判。
+ */
+function fieldDraftOf(given: unknown, extra: readonly string[] = []): FieldDraft | {readonly problem: string} {
+    if (typeof given !== "object" || given === null || Array.isArray(given)) return {problem: "字段声明是一个对象，要写 label（显示名）。"};
     const record = given as Record<string, unknown>;
+    if (typeof record.label !== "string" || record.label.trim() === "") return {problem: "字段声明要写 label（显示名，不能是空的）。"};
+    if (record.kind !== undefined && !FIELD_KINDS.includes(record.kind as FieldKind)) return {problem: `kind 只能是：${FIELD_KINDS.join("、")}（缺省 text）；enum 要写 options，list 要写 item，ref 可以写 targets。`};
+    const unknown = Object.keys(record).find((key) => !DECLARATION_KEYS.includes(key) && !extra.includes(key));
+    if (unknown === "value") return {problem: "声明里不写初值：create 的初值写在 fields 里（\"设定组.字段\": 值）。"};
+    if (unknown !== undefined) return {problem: `字段声明里不认识“${unknown}”；能写的有：${DECLARATION_KEYS.join("、")}。`};
     return {kind: "text", ...Object.fromEntries(DECLARATION_KEYS.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]))} as FieldDraft;
 }
 
@@ -237,6 +248,26 @@ function fieldDrafts(given: unknown): readonly FieldDraft[] | {readonly problem:
         drafts.push(draft);
     }
     return drafts;
+}
+
+/**
+ * 新建条目时一组声明的 id：没写的按内核同一个函数（`generateFieldId`）在这里先定好，同一项的 `fields` 初值与 `max` 才认得到它（显示名
+ * 带空格、括号时生成的 id 不等于显示名）。`max` 按显示名写的换成这一组里那个字段的 id。
+ */
+function withFieldIds(type: ComponentType, drafts: readonly FieldDraft[]): readonly FieldDraft[] {
+    const taken = new Set<string>([...type.fields.map((field) => field.id), ...drafts.flatMap((draft) => (draft.id === undefined ? [] : [draft.id]))]);
+    const named = drafts.map((draft) => {
+        if (draft.id !== undefined) return draft;
+        const id = generateFieldId(draft.label, taken);
+        taken.add(id);
+        return {...draft, id};
+    });
+    const all = [...type.fields, ...named];
+    return named.map((draft) => {
+        if (typeof draft.max !== "string" || all.some((field) => field.id === draft.max)) return draft;
+        const byLabel = all.find((field) => field.label === draft.max);
+        return byLabel === undefined ? draft : {...draft, max: byLabel.id};
+    });
 }
 
 /** 值按声明预检，并把引用的名字换成 `{ref: id}`；只为回话好懂，内核的校验才是最终的。 */
@@ -393,6 +424,10 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             parent = resolved.id;
         }
         const components: {type: string; fields?: Record<string, unknown>; declare?: FieldDraft[]}[] = [];
+        // 写了却不是列表（一个名字、null）：回话指出来，不当成没写去套默认。
+        if (edit.components !== undefined && !Array.isArray(edit.components)) return at("components 是设定组名字的列表，例如 [\"人物\"]；一组也不要就写 []，不写就用这个种类的默认。");
+        if (edit.declare !== undefined && (typeof edit.declare !== "object" || edit.declare === null || Array.isArray(edit.declare))) return at("declare 写 {\"设定组\": [声明…]}。");
+        if (edit.fields !== undefined && (typeof edit.fields !== "object" || edit.fields === null || Array.isArray(edit.fields))) return at("fields 写 {\"设定组.字段\": 值}。");
         if (Array.isArray(edit.components)) {
             for (const name of edit.components as string[]) {
                 const type = componentNamed(context.components, String(name));
@@ -406,26 +441,28 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         }
         // `declare`：`{"设定组": [声明…]}`，新建时就在那组设定上声明这个条目自己的字段；没列在 `components` 里的一并启用。
         const declaring = new Map<string, readonly FieldDraft[]>();
-        for (const [group, given] of Object.entries(typeof edit.declare === "object" && edit.declare !== null ? (edit.declare as Record<string, unknown>) : {})) {
+        for (const [group, given] of Object.entries((edit.declare ?? {}) as Record<string, unknown>)) {
             const type = componentNamed(context.components, group);
             if ("problem" in type) return at(`declare 的“${group}”：${type.problem}`);
+            if (declaring.has(type.id)) return at(`declare 里设定组“${type.label}”写了两次（用了两个名字），合成一组写。`);
             const drafts = fieldDrafts(given);
             if ("problem" in drafts) return at(`declare 的“${group}”：${drafts.problem}`);
+            const named = withFieldIds(type, drafts);
             let target = components.find((component) => component.type === type.id);
             if (target === undefined) {
                 target = {type: type.id};
                 components.push(target);
             }
-            target.declare = [...drafts];
-            declaring.set(type.id, drafts);
+            target.declare = [...named];
+            declaring.set(type.id, named);
         }
         // `fields` 写到的设定组没列在 `components` 里时一并启用（agent-tools.md 输出 6）。
         for (const [path, value] of Object.entries((edit.fields ?? {}) as Record<string, unknown>)) {
             const [group = "", name = ""] = path.split(".");
             const type = componentNamed(context.components, group);
             if ("problem" in type) return at(`初值的字段“${path}”：${type.problem}`);
-            // 这一项里刚声明的字段也能给初值：没写 id 的，内核按显示名生成，这里按同样的名字认。
-            const declaredHere = (declaring.get(type.id) ?? []).map((draft) => ({...draft, id: draft.id ?? draft.label}) as FieldDeclaration);
+            // 这一项里刚声明的字段也能给初值（它们的 id 在上面已经定好）。
+            const declaredHere = (declaring.get(type.id) ?? []) as readonly FieldDeclaration[];
             const field = uniqueNamed([...type.fields, ...declaredHere], name, (candidate) => candidate.id, (candidate) => candidate.label);
             if ("problem" in field) return at(`初值的字段“${path}”：${field.problem === "none" ? `设定组 ${type.namespace} 里没有字段“${name}”；有：${[...type.fields, ...declaredHere].map((candidate) => candidate.label).join("、")}。` : `“${name}”对应几个字段：${field.candidates.join("、")}，写字段 id。`}`);
             const checked = await resolveValue(context, field, value, keys);
@@ -459,6 +496,12 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         case "removeComponent": {
             const type = context.components.find((candidate) => candidate.id === edit.component || candidate.label === edit.component || candidate.namespace === edit.component);
             if (type === undefined) return at(`没有设定组“${String(edit.component)}”；有：${context.components.map((candidate) => candidate.label).join("、")}。`);
+            // 已经在条目上的一组再加：内核报的 id-taken 说不清是哪件事，这里先说明白（这一批新建的条目还读不到）。
+            if (edit.op === "addComponent" && !id.startsWith("tmp:")) {
+                const read = await entryOf(context, id);
+                if ("problem" in read) return at(read.problem);
+                if (Object.values(read.view.namespaces).some((data) => data.type === type.id)) return at(`这个条目已经有设定组“${type.label}”：改值用 set，加字段用 addField。`);
+            }
             if (edit.op === "removeComponent" || edit.declare === undefined) return {op: {op: "component", entry: id, type: type.id, action: edit.op === "addComponent" ? "add" : "remove"}};
             const drafts = fieldDrafts(edit.declare);
             if ("problem" in drafts) return at(drafts.problem);
@@ -468,15 +511,18 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             if (id.startsWith("tmp:")) return at("这一批新建的条目，字段声明写在 create 的 declare 里。");
             const type = componentNamed(context.components, String(edit.component));
             if ("problem" in type) return at(type.problem);
-            const draft = fieldDraftOf(edit);
+            const draft = fieldDraftOf(edit, ["op", "entry", "component", "value"]);
             if ("problem" in draft) return at(draft.problem);
+            // 不给初值的新字段是未知，不预检（数与引用的预检会把“没有值”当成写错）。
+            if (edit.value === undefined) return {op: {op: "fieldAdd", entry: id, namespace: type.namespace, field: draft}};
             const checked = await resolveValue(context, {...draft, id: draft.id ?? draft.label} as FieldDeclaration, edit.value, keys);
             if ("problem" in checked) return at(checked.problem);
-            return {op: {op: "fieldAdd", entry: id, namespace: type.namespace, field: draft, ...(edit.value === undefined ? {} : {value: checked.value})}};
+            return {op: {op: "fieldAdd", entry: id, namespace: type.namespace, field: draft, value: checked.value}};
         }
         case "restoreField": {
             // 去掉过的字段不在生效的声明里，按条目读取另列的那一份找。
             if (typeof edit.field !== "string") return at("要写 field。");
+            if (id.startsWith("tmp:")) return at("这一批新建的条目没有去掉过的字段。");
             const read = await entryOf(context, id);
             if ("problem" in read) return at(read.problem);
             const [group = "", name = ""] = edit.field.split(".");
@@ -514,7 +560,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
     const target = {entry: id, path: address.path};
     switch (edit.op) {
         case "renameField":
-            if (typeof edit.label !== "string") return at("renameField 要写 label（新的显示名）。");
+            if (typeof edit.label !== "string" || edit.label.trim() === "") return at("renameField 要写 label（新的显示名，不能是空的）。");
             return {op: {op: "fieldRename", at: target, label: edit.label}};
         case "removeField":
             return {op: {op: "fieldRemove", at: target}};
@@ -568,13 +614,16 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
  * 写入成功的回话（输出 11）。新建条目的代号到 id 取自修订的 `idMap`：临时 id 是“tmp:代号”，没写代号的是“#第几项”。
  * 重发同一次调用时没有“后面还有几条记录”（那是写入那一刻算的）。
  */
-async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number}): Promise<ToolResult> {
+async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number; readonly groups?: ReadonlyMap<string, readonly string[]>}): Promise<ToolResult> {
     const read = await call("revision", {id: written.revision});
     const revision = read.ok ? read.value.revision : null;
     const ids = revision?.idMap ?? {};
+    // 新建的条目带了哪几组设定：没写 components 时套的是种类的默认，模型要看得到套上了什么。
     const created = Object.entries(ids).map(([tmp, id]) => {
         const key = tmp.startsWith("tmp:") ? tmp.slice("tmp:".length) : tmp;
-        return `${key.startsWith("#") ? `第 ${key.slice(1)} 项` : key} → ${id}`;
+        const groups = written.groups?.get(tmp);
+        const carried = groups === undefined ? "" : groups.length === 0 ? "（没有设定组）" : `（设定组：${groups.join("、")}）`;
+        return `${key.startsWith("#") ? `第 ${key.slice(1)} 项` : key} → ${id}${carried}`;
     });
     const impact = revision === null ? "" : impactText(revision.impact, (entry) => entry);
     const text = [
@@ -631,7 +680,8 @@ function writeTool(services: Services): AgentToolImplementation {
                 };
                 const written = await call("editEntries", {input});
                 if (!written.ok) return worldFailed(written.failure);
-                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length})});
+                const groups = new Map(ops.flatMap((op) => (op.op === "create" ? [[op.id, (op.entry.components ?? []).map((component) => context.components.find((type) => type.id === component.type)?.label ?? component.type)] as const] : [])));
+                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, groups, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length})});
             }),
         }),
     };

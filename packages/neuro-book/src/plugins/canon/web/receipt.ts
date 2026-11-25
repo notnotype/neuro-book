@@ -164,7 +164,8 @@ function declaredField(match: RegExpExecArray, entry: string, before: unknown, a
     // 旧条目的数据里原来没有声明的列表：第一次加的时候整个列表是一处改动。
     if (id === undefined) return joined(names(after) !== "" || before === undefined ? "fieldAdded" : "fieldRemoved", names(after) !== "" ? names(after) : names(before));
     const known = lookups.label(`${namespace!}.${id}`, entry);
-    if (leaf === ".label") return {label: text("receipt.fields.fieldRenamed"), before: plain(before, text), after: plain(after, text)};
+    // 改名也连起来：一次改了几项的名字时每一对都写出来，不合成“改了几处”。
+    if (leaf === ".label") return {label: text("receipt.fields.fieldRenamed"), before: "", after: `${plain(before, text)} → ${plain(after, text)}`, joins: true};
     if (leaf === ".removed") return joined(after === true ? "fieldRemoved" : "fieldRestored", known);
     return after === undefined ? joined("fieldRemoved", labelOf(before) ?? known) : before === undefined ? joined("fieldAdded", labelOf(after) ?? known) : unshown(text("receipt.fields.other"), text);
 }

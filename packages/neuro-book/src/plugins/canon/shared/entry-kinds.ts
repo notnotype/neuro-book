@@ -37,18 +37,23 @@ export const entryKindsPoint: ContributionPointDefinition<EntryKindDeclaration> 
 /** 一个种类并起来的登记。 */
 export interface EntryKind {
     readonly kind: string;
-    /** 默认带的设定组（类型 id），按登记的先后、去重；还没核对是否登记了。 */
+    /** 默认带的设定组（类型 id），内置的在前、去重；还没核对是否登记了。 */
     readonly components: readonly string[];
     readonly order: number;
 }
 
+/** 内置登记的贡献 id 前缀（设定插件自己的，`plugin.ts` 的插件 id）。 */
+const BUILTIN_PREFIX = "nbook.canon.";
+
 /**
- * 同一个词的几条登记并成一条（别的插件可以给“人物”追加默认的设定组）：默认组按登记的先后（贡献 id 的顺序，即
- * `declarations.list` 给的顺序）并起来、去重，`order` 取最小的，没写算最后。结果按 `order`、再按词排。
+ * 同一个词的几条登记并成一条（别的插件可以给“人物”追加默认的设定组）：默认组先是内置的、再是别的插件的（按贡献 id，即
+ * `declarations.list` 给的顺序：它按 id 排，第三方的 id 可能排在内置的前面，人物的默认不能因此跑到后面），并起来、去重；
+ * `order` 取最小的，没写算最后。结果按 `order`、再按词排。
  */
-export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "declaration">[]): readonly EntryKind[] {
+export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[]): readonly EntryKind[] {
     const merged = new Map<string, {components: string[]; order: number}>();
-    for (const {declaration} of descriptors) {
+    const builtinFirst = [...descriptors].sort((a, b) => Number(!a.id.startsWith(BUILTIN_PREFIX)) - Number(!b.id.startsWith(BUILTIN_PREFIX)));
+    for (const {declaration} of builtinFirst) {
         const kind = declaration.kind.trim();
         const order = declaration.order ?? Number.POSITIVE_INFINITY;
         const held = merged.get(kind);
