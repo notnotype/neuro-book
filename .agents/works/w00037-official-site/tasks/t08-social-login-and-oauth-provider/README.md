@@ -91,7 +91,7 @@ Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），
 
 ## 实施进度
 
-实现在 worktree `.worktree/w00037-t08-social-oauth`（分支 `feat/w00037-t08-social-oauth`，从 Work 分支 `f8480b04e` 开）。计划与设计审查的处理见 [`plan.md`](plan.md)；omp 的设计审查在后台（`.worktree/w00037-t08-review`），回来后另行处理。
+实现在 worktree `.worktree/w00037-t08-social-oauth`（分支 `feat/w00037-t08-social-oauth`，从 Work 分支 `f8480b04e` 开）。计划与设计审查的处理见 [`plan.md`](plan.md)；omp 的设计审查已回（有效 14 条），处理见计划文末“设计审查（omp）的处理”：多数落在第 5 到 9 片，`purge` 删 `sessionId` 为空的令牌一条与第 2、3 片 omp 实现审查的修正同一个提交。
 
 第 1 片（合同包）已提交（`bf3d6f5aa`，10 个文件，新建 `oauth.ts`、`social.ts`）：合同包与它的使用方类型检查与测试都过，`governance:check` 过，3 条变异都被抓到。
 

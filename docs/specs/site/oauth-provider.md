@@ -37,14 +37,14 @@ owners:
 
 | 端点 | 方法 | 地址 |
 |---|---|---|
-| 授权 | GET | `/api/identity/auth/oauth2/authorize` |
+| 授权 | GET、POST（表单） | `/api/identity/auth/oauth2/authorize` |
 | 令牌 | POST | `/api/identity/auth/oauth2/token` |
 | 用户信息 | GET、POST | `/api/identity/auth/oauth2/userinfo` |
 | 撤销 | POST | `/api/identity/auth/oauth2/revoke` |
 | 公钥（JWKS） | GET | `/api/identity/auth/jwks` |
 | 发现文档 | GET | `/.well-known/openid-configuration`、`/.well-known/oauth-authorization-server` |
 
-GET 的地址也收 HEAD。
+发现文档与公钥地址也收 HEAD：状态与头同 GET，不带正文；别的端点不收 HEAD。
 
 自家接口，都在 `/api/identity/v1/` 下：
 
@@ -65,12 +65,12 @@ GET 的地址也收 HEAD。
 
 ## 输出与可观察行为
 
-1. **只有列出的端点可达。** `/api/identity/auth/` 下只有上表的标准端点（每个只在它规定的方法上）与 [`site.accounts`](accounts.md) 的 Google、GitHub 回调可达，`/.well-known/` 下只有两份发现文档；这两个前缀下的其它地址、其它方法一律回 404（授权端点只收 GET）。
-2. **发现文档。** 两份发现文档内容相同。`issuer` 等于签发者；列出的每个端点地址都可达；只列本 Spec 支持的能力：`response_types_supported` 为 `["code"]`，`grant_types_supported` 为 `["authorization_code"]`，`code_challenge_methods_supported` 为 `["S256"]`，`token_endpoint_auth_methods_supported` 与 `revocation_endpoint_auth_methods_supported` 都为 `["client_secret_basic","none"]`，`scopes_supported` 为 `["openid","profile","email"]`，`subject_types_supported` 为 `["public"]`，`id_token_signing_alg_values_supported` 为 `["RS256"]`，`prompt_values_supported` 为 `["none","login","consent"]`，`claims_supported` 是输出 7 与输出 11 出现的字段，`authorization_response_iss_parameter_supported` 为 `true`，`request_parameter_supported` 与 `request_uri_parameter_supported` 为 `false`。不出现内省、动态注册、登出端点，也不出现 DPoP 与 `claims_parameter_supported` 的字段。
-3. **授权请求。** 请求必须带已登记且没停用的客户端、与某个登记值相等的回调地址（逐字相等；公开客户端的 `http` 回环地址不比端口，主机与路径仍逐字比，`localhost` 与 `127.0.0.1` 不算相等）、`response_type=code`、`S256` 的 PKCE（机密客户端也要）、含 `openid` 且在允许之内的范围；可带 `state`、`nonce`、`prompt`、`max_age`，`claims` 参数被忽略。客户端没登记或已停用、回调地址与登记的不等时不跳回客户端，浏览器被带到 `/oauth/consent?error=<码>`，码分别是 `client_not_found`、`redirect_uri_invalid`。其它不合格的跳回客户端并带标准的错误码：不带 `openid` 是 `invalid_scope`，带 `request` 或 `request_uri` 分别是 `request_not_supported`、`request_uri_not_supported`，查询串超过 8192 个字符是 `invalid_request`。
-4. **先登录。** 资源所有者没有会话（或输出 13 要求重新登录）时，授权端点把人带到 `/login?continue=<续接令牌>`。登录请求带上这个令牌、且它合格时，登录响应给出一个站内的继续地址，浏览器去那里就回到这次授权请求，请求的参数不变（`prompt=login` 与 `max_age` 已由这次登录满足，不再要求登录）。令牌被篡改或超过 10 分钟时照常登录，响应不带继续地址。从这样的登录页改走注册或社交登录时续接不丢，见 [`site.accounts`](accounts.md) 输出 4、11、23。
+1. **只有列出的端点可达。** `/api/identity/auth/` 下只有上表的标准端点（每个只在它规定的方法上）与 [`site.accounts`](accounts.md) 的 Google、GitHub 回调可达，`/.well-known/` 下只有两份发现文档；这两个前缀下的其它地址、其它方法一律回 404（授权端点收 GET 与 POST，不收 HEAD）。
+2. **发现文档。** 两份发现文档内容相同。`issuer` 等于签发者；列出的每个端点地址都可达；只列本 Spec 支持的能力：`response_types_supported` 为 `["code"]`，`grant_types_supported` 为 `["authorization_code"]`，`code_challenge_methods_supported` 为 `["S256"]`，`token_endpoint_auth_methods_supported` 与 `revocation_endpoint_auth_methods_supported` 都为 `["client_secret_basic","none"]`，`scopes_supported` 为 `["openid","profile","email"]`，`subject_types_supported` 为 `["public"]`，`id_token_signing_alg_values_supported` 为 `["RS256"]`，`prompt_values_supported` 为 `["none","login","consent"]`，`response_modes_supported` 为 `["query"]`，`claims_supported` 是输出 7 与输出 11 出现的字段，`authorization_response_iss_parameter_supported` 为 `true`，`request_parameter_supported` 与 `request_uri_parameter_supported` 为 `false`。不出现内省、动态注册、登出端点，也不出现 DPoP 与 `claims_parameter_supported` 的字段。
+3. **授权请求。** 请求必须带已登记且没停用的客户端、与某个登记值相等的回调地址（逐字相等；公开客户端的 `http` 回环地址不比端口，主机与路径仍逐字比，`localhost` 与 `127.0.0.1` 不算相等）、`response_type=code`、`S256` 的 PKCE（机密客户端也要）、含 `openid` 且在允许之内的范围；可带 `state`、`nonce`、`prompt`、`max_age`、`response_mode=query`；`claims` 与 `resource` 参数被忽略，带不带结果相同（`resource` 不改变发出的访问令牌）。POST 发起时参数在 `application/x-www-form-urlencoded` 的请求体里，规则与 GET 相同；客户端从别的站点以 POST 发起时浏览器不带站点的会话 Cookie，按没有会话处理（输出 4）。客户端没登记或已停用、回调地址与登记的不等时不跳回客户端，浏览器被带到 `/oauth/consent?error=<码>`，码分别是 `client_not_found`、`redirect_uri_invalid`。其它不合格的跳回客户端并带标准的错误码：不带 `openid` 是 `invalid_scope`，带 `request` 或 `request_uri` 分别是 `request_not_supported`、`request_uri_not_supported`，`response_mode` 不是 `query` 是 `invalid_request`，查询串（POST 时是请求体）超过 4096 个字符是 `invalid_request`。
+4. **先登录。** 资源所有者没有会话（或输出 13 要求重新登录）时，授权端点把人带到 `/login?continue=<续接令牌>`。登录请求带上这个令牌、且它合格时，登录响应给出一个站内的继续地址，浏览器去那里就回到这次授权请求，请求的参数不变（`prompt=login` 与 `max_age` 已由这次登录满足，不再要求登录）。输出 3 收下的授权请求，参数再长，续接令牌也不因长度不合格。令牌被篡改或超过 10 分钟时照常登录，响应不带继续地址。从这样的登录页改走注册或社交登录时续接不丢，见 [`site.accounts`](accounts.md) 输出 4、11、23。
 5. **确认。** 客户端不免确认、且这个用户没有对它给过覆盖本次范围的授权时（或请求带 `prompt=consent` 时），授权端点把人带到 `/oauth/consent?request=<标识>`；同意后带授权码跳回客户端，拒绝时带 `access_denied` 跳回。跳回的地址里带 `state`（原样）与 `iss`。同意过的范围之外多要了范围时重新确认。
-6. **换令牌。** 机密客户端用 `client_secret_basic` 认证，公开客户端不带密钥、在请求里带 `client_id`；都要带与授权请求对应的 PKCE 校验值。成功时回一个不透明的访问令牌（`token_type` 为 `Bearer`）、它的有效期（1 小时）与 id_token（输出 11）。授权码 10 分钟内有效，只能换一次；重复使用、过期、PKCE 不对都回 `invalid_grant`。请求带 `DPoP` 头时回 `invalid_request`，不发令牌。
+6. **换令牌。** 机密客户端用 `client_secret_basic` 认证，公开客户端不带密钥、在请求里带 `client_id`；都要带与授权请求对应的 PKCE 校验值。成功时回一个不透明的访问令牌（`token_type` 为 `Bearer`）、它的有效期（1 小时）与 id_token（输出 11）。授权码 10 分钟内有效，只能换一次；重复使用、过期、PKCE 不对都回 `invalid_grant`。请求带 `DPoP` 头时回 `invalid_request`，不发令牌。请求里的 `resource` 参数被忽略。
 7. **用户信息。** 带有效访问令牌（GET 或 POST，`Authorization: Bearer`）调用户信息端点，回 `sub`（账号的数字 id 的字符串形式）；有 `profile` 范围时另有 `preferred_username`（登录用的小写用户名）与 `name`（显示名）；有 `email` 范围时另有 `email_pending`（邮箱是否待补），它为 `false` 时另有 `email` 与 `email_verified`（站点不验证邮箱，恒为 `false`，用社交登录或关联过上游身份也不变），为 `true` 时不出现这两项。不出现别的字段（账号设了头像也不出现 `picture`）。
 8. **令牌随账号失效。** 下面任一件事之后，此前发出的、受它影响的访问令牌调用户信息端点得 401，没用掉的授权码换不出令牌（`invalid_grant`）：
    - 账号被封禁、角色被改、密码被重置、管理员结束了它的全部会话：这个账号名下的全部；
@@ -84,7 +84,7 @@ GET 的地址也收 HEAD。
 11. **id_token。** 换令牌的响应带 id_token：RS256 签名，头里的 `kid` 能在公钥地址里找到；载荷有 `iss`（签发者）、`sub`（与用户信息的 `sub` 相同）、`aud`（客户端 id）、`iat`、`exp`（签发后 1 小时）、`auth_time`（授权时那次会话建立的时间）、`at_hash`、`acr`（恒为 `"0"`）；授权请求带了 `nonce` 时原样带回。不带资料字段（用户名、显示名、邮箱只从用户信息端点给）。id_token 发出后收不回：客户端只在登录时用它认人，之后要知道账号是否仍可用就调用户信息端点。
 12. **站点同意先于授权。** 资源所有者的会话不满足 [`site.accounts`](accounts.md) 输出 10 的同意门槛时，授权端点不发授权码、不显示确认页，把人带到 `/consent?continue=<续接令牌>`；补交同意的请求带上这个令牌且它合格时，响应给出继续地址，规则同输出 4（但不把这次补交当成重新登录）。请求带 `prompt=none` 时改为跳回客户端并带 `interaction_required`。
 13. **prompt 与 max_age。** `prompt=consent` 总显示确认页；`prompt=login`，或现有会话自建立以来经过的秒数超过 `max_age` 时，要求重新登录（输出 4）；`prompt=none` 时不显示任何页面：没有会话跳回 `login_required`，需要确认跳回 `consent_required`，缺站点同意跳回 `interaction_required`。`prompt` 的其它值，或 `none` 与别的值同时出现，跳回 `invalid_request`。
-14. **确认页的接口。** `GET oauth/authorization` 带确认页地址上的 `request`，回客户端名字、客户端回调地址的主机名（带非缺省端口时连同端口）、要的范围（`openid`、`profile`、`email` 的数组）。`POST oauth/authorization` 同意时回带授权码的跳回地址，拒绝时回带 `access_denied` 的跳回地址；页面把浏览器带去这个地址。`request` 被篡改或超过 10 分钟时两者都回 `authorization_expired`；这期间客户端被停用回 `client_not_found`，客户端的回调地址被改得不再匹配回 `redirect_uri_invalid`，同意与拒绝都这样，不给跳回地址。
+14. **确认页的接口。** `GET oauth/authorization` 带确认页地址上的 `request`，回客户端名字、客户端回调地址的主机名（带非缺省端口时连同端口）、要的范围（`openid`、`profile`、`email` 的数组）。`POST oauth/authorization` 同意时回带授权码的跳回地址，拒绝时回带 `access_denied` 的跳回地址；页面把浏览器带去这个地址。`request` 被篡改或超过 10 分钟时两者都回 `authorization_expired`；这期间客户端被停用回 `client_not_found`，客户端的回调地址被改得不再匹配回 `redirect_uri_invalid`，同意与拒绝都这样，不给跳回地址。确认标识只代表这次授权请求，不绑定会话：同意或拒绝按提交时的会话算，有效期内可以再次提交（再次同意时再发一个授权码）。
 15. **已给的授权。** `GET me/grants` 列出自己的授权，每项有 id、客户端名字、范围、给出的时间；免确认的客户端不在列表里。`DELETE me/grants/:id` 撤销一项，效果见输出 8；撤销之后这个客户端的下一次授权请求重新显示确认页。不是自己的或不存在的 id 回 `not_found`。
 16. **客户端列表与改动。** `GET admin/oauth-clients` 用 [`site.admin`](admin.md) 的分页参数与响应形状、列表稳定规则（输出 9、10），每项有客户端 id、名字、回调地址、种类、是否免确认、是否停用、登记时间；不含密钥。`PATCH admin/oauth-clients/:id` 可改名字、回调地址（规则同登记，按客户端的种类）、是否免确认、是否停用。对公开客户端换密钥回 `client_public`。
 17. **公钥。** 公钥地址列出验 id_token 要用的公钥；重启服务后签名用的钥不变，之前签发、没到期的 id_token 仍能用公钥地址里的钥验过。换了会话密钥（`NB_SITE_SESSION_SECRET`）再启动时改用一把新钥签名，旧钥的公钥仍列在公钥地址 30 天，之前签发、没到期的 id_token 照样验得过。第一次启动时账号模块要在库里建签名钥：这时库被进程外占着写超过等锁上限，启动以 `start_failed` 失败，放开后重启即可。
@@ -100,6 +100,7 @@ GET 的地址也收 HEAD。
 - 同一个授权码被并发换多次时至多一次成功。
 - 输出 8 的变更在它的响应返回时已经生效：之后到达的用户信息请求得 401、之后开始的换码被拒。与变更同时进行、已经认领了授权码的一次换码可能在变更之后仍发出一个有效的访问令牌，它至多活到自己的 1 小时有效期，或下一次撤到它的变更；这个窗口不超过 10 秒。会话到期没有响应，在它里面发出的令牌与授权码至迟在下一次 `purge` 任务（[`site.accounts`](accounts.md) 的定时任务）跑完后失效。
 - 会话被结束之后才建立的会话，不让之前那次会话名下没用掉的授权码重新可用。
+- 换回上一个版本（[`site.operations`](operations.md) 输出 7）期间结束的会话：那个版本不撤 OAuth 令牌，换回本版本后，它名下的访问令牌至迟在本版本的第一次 `purge` 任务（启动后先跑一次）跑完后失效。那个版本里自己改密码时，当前会话名下的访问令牌不被撤，至多活到自己的 1 小时有效期。
 - 重启服务不影响已发出的令牌、待用的授权码与签名用的钥。
 
 ## 副作用与数据
@@ -134,7 +135,7 @@ GET 的地址也收 HEAD。
 ## 验收与 Smoke
 
 1. 测试客户端走完整流程：授权 → 登录 → 确认 → 换令牌 → 取用户信息；同一个授权码再换一次被拒。
-2. 普通用户调登记客户端的接口被拒；对 `/api/identity/auth/` 与 `/.well-known/` 下不在清单里的地址逐个请求都得 404，其中包括 `POST` 授权端点、内省、登出、自助登记客户端。
+2. 普通用户调登记客户端的接口被拒；对 `/api/identity/auth/` 与 `/.well-known/` 下不在清单里的地址逐个请求都得 404，其中包括 `HEAD` 与 `PUT` 授权端点、内省、登出、自助登记客户端。
 3. 拿到令牌后封禁该账号：用户信息端点得 401。
 4. 改掉授权请求里的回调地址再继续：不跳回客户端，浏览器到 `/oauth/consent?error=redirect_uri_invalid`。
 5. 拿到令牌后管理员重置该账号的密码：用户信息端点得 401。
@@ -152,6 +153,9 @@ GET 的地址也收 HEAD。
 17. 同一账号两个会话各拿一个令牌，结束其中一个会话：它的令牌得 401，另一个照用。
 18. 客户端多于一页：带第 1 页的 `anchor` 取第 2 页，期间新登记的客户端不出现。
 19. 重启服务后，重启前签发、没到期的 id_token 仍能验过。
+20. 测试客户端以表单 POST 发起授权，走完验收 1 的流程；跨站 POST 不带会话 Cookie 时先被带去登录，登录后经继续地址拿到授权码。
+21. 查询串正好 4096 个字符的授权请求，分别经匿名登录、补交同意、确认三条路径都拿到授权码；4097 个字符的跳回 `invalid_request`。
+22. 带 `resource` 的授权请求与换码请求：拿到的访问令牌与不带时同形（不透明），自己改密码后它得 401；id_token 照常签发。带 `response_mode=fragment` 的授权请求跳回 `invalid_request`，码在查询串里。
 
 Smoke：合同测试包里的完整授权流程用例（含 id_token 的验证）。
 
