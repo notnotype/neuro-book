@@ -64,7 +64,7 @@ owners:
 6. **start：已有实例在运行。** 实例已就绪时报告它（`started: false`，`pid` 是那个实例的），打开浏览器，以 0 退出；给了 `--port` 或 `--rpc-port` 时提示“已有实例，忽略这两个选项”；给了 `--safe-mode` 而那个实例不是以安全模式运行时，提示先停掉它再以安全模式启动。
 7. **start：已有实例在启动或停止。** 提示一行“正在启动，等它就绪”或“正在停止，等它停完”，然后等：启动中的就绪后按第 6 条报告；停止中的停完后按第 5 条自己启动。60 秒内没有变化时以 1 退出，码 `instance-busy`。几个 `nbook start` 同时运行时恰好一个启动，其余报告它。
 8. **start：已有实例不能用。** 以 1 退出，不碰那个实例：开发服务占着（码 `development-instance`）；版本与本命令不同（码 `version-mismatch`，结果对象带 `running` 与 `installed`，提示先停掉运行中的服务）；连上了但没有应答（码 `instance-unresponsive`）。状态根不可写（码 `state-root-unwritable`）、认领的其它失败（码 `claim-failed`）同样以 1 退出；服务端配置不合法（例如端口加 1 越界）以 2 退出，码 `config-<服务端的码>`。自己运行的服务端启动失败（例如 Web 产物不存在、端口被占）时以 1 退出，码 `startup-failed`，结果对象带 `causes`（每个失败入口的 `source`、`reason`、`message`），说明里写第一条原因；服务端的致命诊断照样写标准错误。启动中按 Ctrl-C 不算启动失败。
-9. **打开浏览器。** 用系统的默认浏览器打开地址。`--no-open` 时不打开。SSH 会话（有 `SSH_CONNECTION` 或 `SSH_TTY`）里不打开，提示用 `ssh -L <端口>:127.0.0.1:<端口>` 转发；Linux 上没有图形会话（`DISPLAY` 与 `WAYLAND_DISPLAY` 都没有）时不打开并提示。打不开时只提示，不算失败。地址总是打印出来。
+9. **打开浏览器。** 用系统的默认浏览器打开“启动时打开”的路由（地址加 `api/nbook.projects/resume`，[`runtime.projects`](projects.md) 输出 23：进上次的作品或书架）；打印出来的仍是根地址。`--no-open` 时不打开。SSH 会话（有 `SSH_CONNECTION` 或 `SSH_TTY`）里不打开，提示用 `ssh -L <端口>:127.0.0.1:<端口>` 转发；Linux 上没有图形会话（`DISPLAY` 与 `WAYLAND_DISPLAY` 都没有）时不打开并提示。打不开时只提示，不算失败。地址总是打印出来。
 10. **plugin 子命令的离线语义。** 不经服务端，直接用插件管理读写状态根的插件登记表（与插件页同一套操作与失败码，[`runtime.plugin-install`](plugin-install.md)）；服务端运行时同时写安全（登记表的写入锁）。结果只说目标状态，并写明“重启服务后生效”。有运行中的实例时，以它 `hello` 应答里的本次启动集合计算待生效的变化，与插件页的列表一致；没有实例时按重启后的目标状态列出。
 11. **plugin list。** 列出内置与第三方插件：id、版本、来源、启用与否、待生效的变化、没有登记的原因（清单无效、入口文件缺失、不兼容、安全模式；离线就能算出）。服务端运行时的入口失败只有服务端知道，列表末尾给出日志目录。`--json` 时结果对象是 `{ok: true, safeMode, running, plugins: [...]}`，`running` 是运行中实例的 pid 与地址或 null。
 12. **plugin install。** 参数是本地目录（相对路径按当前目录）。先预览：打印“插件完全信任”的说明、与已装版本的关系（新装、升级、降级）、重启后会受阻的插件与没核对的插件。降级或有插件会受阻时要 `--yes`，没有就以 2 退出、码 `confirmation-required`，说明要加的参数；其余情形执行命令本身就算确认。成功后说明写入了哪个状态根、“重启服务后生效”；`--json` 时结果对象是 `{ok: true, preview, plugin, stateRoot, restartRequired: true}`，`preview` 是预览（`id`、`version`、`installed`、`relation`、`blocked`、`unchecked`），`plugin` 是这个插件的目标状态；`confirmation-required` 的失败对象也带 `preview`。失败码原样给出；`manifest-invalid` 逐条列出出错的字段（失败对象带 `problems`）；路径不存在或不是目录时提示确认路径、传 `nbooke build` 构建出的 `dist` 目录；`already-installed` 提示开发中用 `nbooke build --dev` 出新的开发版本号。
@@ -117,14 +117,14 @@ owners:
 
 ## 验收与 Smoke
 
-1. **启动与再启动。** 在临时状态根上 `nbook start --json`：结果对象写出时 health 为 200、首页可取，浏览器被打开；再运行 `nbook --json`（不给子命令）得到同一个 pid、`started: false`，浏览器再打开一次；对第一个发 SIGHUP，以 0 退出，状态根上不再有实例。
+1. **启动与再启动。** 在临时状态根上 `nbook start --json`：结果对象写出时 health 为 200、首页可取，“启动时打开”的路由 302 到书架（新状态根上没有上次的作品），浏览器打开的是这条路由；再运行 `nbook --json`（不给子命令）得到同一个 pid、`started: false`，浏览器再打开一次；对第一个发 SIGHUP，以 0 退出，状态根上不再有实例。
 2. **不打开浏览器。** `--no-open` 与 SSH 会话里都不打开，SSH 时提示端口转发；SIGINT 以 0 退出。
 3. **缺省状态根。** 不给 `--state-root` 与 `NBOOK_STATE_ROOT` 时，状态根是主目录下的平台数据目录，结果对象里的 `stateRoot` 就是它。
 4. **等已有实例。** 状态根上的实例还在启动：`start` 提示后等，实例就绪后报告它；实例正在停止：`start` 等它停完后自己启动。
 5. **不能用的实例。** 版本不同、开发服务占着：以 1 退出，码分别是 `version-mismatch`、`development-instance`。
 6. **用法。** 拼错的命令、不认识的选项、越界的端口、空的 `--state-root` 以 2 退出、码 `usage`；`--version`、`--help`、`help <命令>` 以 0 退出。服务端启动失败时结果对象是 `startup-failed`、以 1 退出。
 7. **插件。** 服务端运行时 `nbook plugin install` 一个用 `nbooke build` 构建的插件、`list --json` 列出待生效的安装，重启服务后插件页列出它；降级不带 `--yes` 以 2 退出。
-8. **托管入口。** 从 tarball 装好的应用包里，以 `--stop-stdin` 运行 `server/main.js`：认领应答就绪后 `nbook start --json` 报告它（`started: false`、同一个 pid），页面打开书架；标准输入写 `stop` 或关闭标准输入都以 0 退出；同一状态根上再起一个以 1 退出、致命诊断是 `runtime.state-root.busy`。
+8. **托管入口。** 从 tarball 装好的应用包里，以 `--stop-stdin` 运行 `server/main.js`：认领应答就绪后 `nbook start --json` 报告它（`started: false`、同一个 pid），页面打开书架（新状态根，经“启动时打开”的路由落到书架）；标准输入写 `stop` 或关闭标准输入都以 0 退出；同一状态根上再起一个以 1 退出、致命诊断是 `runtime.state-root.busy`。
 
 Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。`bun run release:smoke`（仓库根）用发布前打好的 tarball，在仓库外的临时 `BUN_INSTALL` 下装上应用，跑场景 1 的启动与打开书架、场景 8 的托管入口（装好的包与组装出的桌面载荷各一次），再用 `bunx -p` 装 SDK 生成插件，跑场景 7 的安装与重启生效；发布后 `--from registry` 对 registry 上的版本再跑一遍。
 
