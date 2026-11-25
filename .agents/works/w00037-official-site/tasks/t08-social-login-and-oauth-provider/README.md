@@ -112,3 +112,10 @@ Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），
 - 给后面几片的：停用客户端调 `revokeOAuthForClient`，撤销授权调 `revokeOAuthForGrant`，都在自己的写事务里；清理会删按模块时钟到期的 `verification` 行（含库的社交 state 行），拨模块时钟的用例要留意。
 
 第 2、3 片的实现审查已开（2026-11-25，范围 `bf3d6f5aa..3bb82cf7d`）：Opus 先审；omp 等设计审查那一份跑完再开。
+
+Opus 那轮的修正已提交（`d4ae39ae5`，7 个文件）：处理表第 1、3、4、5 条落地（[`plan.md`](plan.md) 文末“实现审查（第 2、3 片）的处理”）。账号与使用方的测试与类型检查、`governance:check` 都过，主会话重跑通过；4 条变异里 3 条被抓到，“去掉 `gracePeriod`”照过（库的缺省也是 30 天，行为不变；改成 7 天、60 天时用例失败）。审查者的实验对当前代码重跑：经 `handler` 到得了的“方法加路径”从 56 个降到 10 个，9 个是对外的，`/sign-out`、`/revoke-sessions` 等都是 404。
+
+- `disabledPaths` 由库导出的 `getEndpoints` 按同一份选项算出端点表，减去对外要的（`auth.ts` 的 `LIBRARY_PUBLIC_ENDPOINTS`）、只供服务端调用的与带参数的。带参数的关不掉（库逐字比路径），现在只有 `GET /reset-password/:token` 经 `handler` 到得了，只靠挂载白名单挡；主会话接受：它读一次性凭据后跳转、不写库，用例钉着这份名单，库新加这类端点时失败。实现者提的“改用 `onRequest` 钩子按方法加路径判 404”不做（多一套机制，收益只有这一条）。
+- 实现者另改的：锁下抛错的子进程原来经 `handler` 调 `/update-user`，现在那条关成 404，改调授权端点（它写授权码，写锁下照样抛出、被认成库不可用）。
+- 给第 5 片的（实现者对库的 `handler` 实测）：库对 HEAD 一律回 404，挂载层要把 HEAD 当 GET 转给库；库也接受 `POST /callback/<id>` 与 `POST /oauth2/authorize`，挂载层按方法挡；`/callback/<任意 id>` 库都接，挂载层只放开放了的上游。可以直接用 `LIBRARY_PUBLIC_ENDPOINTS` 登记白名单。`//token`、`/TOKEN`、`/%74oken`、`/token;x` 等写法库都回 404，`/./token`、`/x/../token` 被规范成 `/token`。
+- 给第 8 片的：`revoke.test.ts` 照库 1.7.27 的写法造了一行社交 state，库改了 state 的形状时那三条用例要跟着改。

@@ -518,3 +518,5 @@ resolveContinue(token: string, nowMs: number, consumer: "login" | "consent"): st
 | 3 | `revoke.ts` 清理函数的注释说“测试里模块的时钟只会更快”，实际不拨时比墙钟慢 | 改注释：写明清理按模块时钟删、库按系统时间判寿命，两者在测试里可能差任意方向；拨时钟的用例照此写 |
 | 4 | “旧公钥列 30 天”靠库缺省的 `jwks.gracePeriod`，代码没写、没有用例 | 改。`identityJwtOptions` 显式写 30 天，补用例（读出的配置或钥匙行的过期时刻），升级清单加一行 |
 | 5 | 撤销“不多删别的 `verification` 行”与 `json_valid` 守护没有用例；“库自带的 `session.delete` 钩子”没进升级清单 | 改。补用例：表里有社交 state 行与一行非 JSON 时登出、封禁、清理都成功，且只删该删的；升级清单补那一行 |
+
+修正提交 `d4ae39ae5`。第 1 条与表里写法的差别：带参数的端点 `disabledPaths` 关不掉，`GET /reset-password/:token` 只靠挂载白名单挡，接受（理由见 Task 记录“实施进度”）。
