@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest";
 import {createGrid, type Grid, type GridNode} from "../grid";
 import {sashPanelBounds} from "../grid-geometry";
 import {buildGridBranchPanels, sashPanelsOfConfig} from "./grid-splitter";
-import type {SashCollapseState} from "../grid-types";
+import type {SashCollapseState, SplitterCollapseState} from "../grid-types";
 import type {SplitterPanelConfig} from "./grid-splitter";
 
 /** 该 grid 根分支的直接子节点：投影的输入顺序必须与呈现一致。 */
@@ -81,7 +81,7 @@ describe("grid 与 Splitter 的几何映射（px）", () => {
     });
 
     it("收起策略原样交给渲染层，收起面板按 collapsedSize 占位", () => {
-        const collapse: SashCollapseState = {collapsedSize: 0, restoreSize: 280, collapseThreshold: 24, expandThreshold: 24, collapsed: true};
+        const collapse: SashCollapseState = {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: true};
         const grid = createGrid<string>({
             kind: "branch",
             id: "root",
@@ -106,7 +106,7 @@ describe("grid 与 Splitter 的几何映射（px）", () => {
 
 describe("Splitter 配置到会话面板", () => {
     it("缺省 sizing 为 weight、缺省 max 无界、收起面板的有效范围退化为 collapsedSize", () => {
-        const collapse: SashCollapseState = {collapsedSize: 32, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24, collapsed: true};
+        const collapse: SplitterCollapseState = {collapsedSize: 32, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24, collapsed: true};
         const config: SplitterPanelConfig[] = [
             {id: "sidebar", defaultSizePx: 260, minSizePx: 200, sizing: "fixed"},
             {id: "editor", defaultSizePx: 120},

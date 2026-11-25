@@ -393,14 +393,14 @@ slots:
   Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
 
 ### experimental interface SplitterPanelConfig
-引用：SashCollapseState
+引用：SplitterCollapseState
 interface SplitterPanelConfig {
     id?: string;
     defaultSizePx?: number;
     minSizePx?: number;
     maxSizePx?: number;
     sizing?: "fixed" | "weight";
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     label?: string;
     overflow?: "hidden" | "visible";
 }

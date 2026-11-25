@@ -78,7 +78,7 @@ function zoneLeaf(zone: Zone, collapsed: boolean): GridLeafInput<string> {
         minimumSize: along(spec.minimum),
         sizing: "fixed",
         // 阈值 24：拖过最小尺寸再往里 24 像素就收起，从收起处往外拉 24 像素就展开。
-        collapse: {collapsed, collapsedSize: 0, restoreSize: spec.size, collapseThreshold: 24, expandThreshold: 24},
+        collapse: {collapsed, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
     };
 }
 

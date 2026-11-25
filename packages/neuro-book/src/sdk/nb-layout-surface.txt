@@ -344,11 +344,9 @@ exposed:
 ### experimental type SashCollapsePolicy
 type SashCollapsePolicy = {
     collapsedSize: number;
-    restoreSize: number;
     collapseThreshold: number;
     expandThreshold: number;
     toggleable?: boolean;
-    restoreToShare?: boolean;
 };
 
 ### experimental type SashCollapseState
@@ -410,6 +408,12 @@ events:
 slots:
   Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
 
+### experimental type SplitterCollapseState
+引用：SashCollapseState
+type SplitterCollapseState = SashCollapseState & {
+    restoreSize: number;
+};
+
 ### experimental interface SplitterGestureCancellation
 引用：SashGestureCancelReason, SashGestureSource
 interface SplitterGestureCancellation {
@@ -430,14 +434,14 @@ interface SplitterGestureState {
 }
 
 ### experimental interface SplitterPanelConfig
-引用：SashCollapseState
+引用：SplitterCollapseState
 interface SplitterPanelConfig {
     id?: string;
     defaultSizePx?: number;
     minSizePx?: number;
     maxSizePx?: number;
     sizing?: "fixed" | "weight";
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     label?: string;
     overflow?: "hidden" | "visible";
 }

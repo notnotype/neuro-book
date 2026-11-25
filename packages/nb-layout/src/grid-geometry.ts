@@ -106,8 +106,11 @@ export type SashPanel = {
     minimum: number;
     maximum: number;
     sizing: GridSizing;
-    /** 收起策略与状态；`collapsed` 为真时沿主轴的有效范围是刚性的 collapsedSize。 */
-    collapse?: SashCollapseState;
+    /**
+     * 收起策略与状态；`collapsed` 为真时沿主轴的有效范围是刚性的 collapsedSize。`restoreSize` 只有独立 `Splitter` 那条路带
+     * （`SplitterCollapseState`），网格的面板没有。
+     */
+    collapse?: SashCollapseState & {readonly restoreSize?: number};
 };
 
 /** 面板沿主轴的**有效**范围：收起时是刚性 collapsedSize，否则是声明的 [min, max]（max 不低于 min）。 */
@@ -280,21 +283,21 @@ function collapsedToZero(collapse: SashCollapseState | undefined): boolean {
     return collapse?.collapsed === true && collapsedSizeOf(collapse) === 0;
 }
 
-/** 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。 */
+/**
+ * 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。只拷认得的字段：输入里多出的
+ * （例如以前的 `restoreSize`、`restoreToShare`）不报错，也不进节点。
+ */
 export function normCollapse(value: SashCollapseState | undefined): SashCollapseState | undefined {
     if (!value || typeof value !== "object") {
         return undefined;
     }
     const collapsedSize = Math.max(0, finite(value.collapsedSize, 0));
-    const restoreSize = Math.max(0, finite(value.restoreSize, collapsedSize));
     return {
         collapsedSize,
-        restoreSize: Math.max(restoreSize, collapsedSize),
         collapseThreshold: Math.max(0, finite(value.collapseThreshold, 0)),
         expandThreshold: Math.max(0, finite(value.expandThreshold, 0)),
         collapsed: value.collapsed === true,
         ...(value.toggleable === false ? {toggleable: false} : {}),
-        ...(value.restoreToShare === true ? {restoreToShare: true} : {}),
     };
 }
 

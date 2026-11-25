@@ -330,7 +330,7 @@ describe("useGridHost", () => {
             id: "root",
             orientation: "horizontal",
             children: [
-                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24}},
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24}},
                 // 右列最宽 800：左列收起后它吸收不完，布局给 `unabsorbed-space`，用来看诊断走的是哪个出口。
                 {kind: "leaf", id: "right", ref: "right", size: {width: 500, height: 0}, maximumSize: {width: 800, height: 100_000}},
             ],

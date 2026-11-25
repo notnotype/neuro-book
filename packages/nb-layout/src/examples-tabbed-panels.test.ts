@@ -91,7 +91,7 @@ describe("标签编组的操作", () => {
                 node = {kind: "branch", id: `split-${level}`, orientation: level % 2 === 0 ? "horizontal" : "vertical", size: {width: 1, height: 1}, children: [{kind: "leaf", id: `group-${level}`, ref: `group-${level}`, size: {width: 1, height: 1}}, node]};
             }
             const root = {kind: "branch", id: "root", orientation: "horizontal", size: {width: 1, height: 1}, children: [{kind: "leaf", id: "explorer", ref: "explorer", size: {width: 240, height: 1}}, node]};
-            return TabbedLayout.fromSaved({version: 1, grid: {version: SNAPSHOT_VERSION, root}, groups, explorer: {collapsed: false, restoreSize: 240}});
+            return TabbedLayout.fromSaved({version: 1, grid: {version: SNAPSHOT_VERSION, root}, groups, explorer: {collapsed: false}});
         };
         let checked = false;
         for (let levels = 8; levels <= 24 && !checked; levels += 1) {
@@ -140,7 +140,7 @@ describe("标签编组的操作", () => {
 });
 
 describe("存档与读档", () => {
-    it("存了再读：编组、树、侧栏的收起与收起前的宽度都还原；读回来之后新 id 不撞", () => {
+    it("存了再读：编组、树、侧栏的收起都还原；读回来之后新 id 不撞", () => {
         const layout = TabbedLayout.createDefault();
         layout.splitWithTab("model.ts", "group-3", "right");
         layout.grid.setCollapsed("explorer", true);
@@ -149,9 +149,21 @@ describe("存档与读档", () => {
         const {layout: loaded, notice} = loadLayout(storage);
         expect(notice).toBeNull();
         expect(loaded.toSaved()).toEqual(layout.toSaved());
-        expect(loaded.explorerState()).toEqual({collapsed: true, restoreSize: 240});
+        expect(loaded.explorerState()).toEqual({collapsed: true});
         expect(loaded.splitWithTab("App.vue", "group-4", "bottom").ok).toBe(true);
         expect(loaded.groups.has("group-5")).toBe(true);
+    });
+
+    it("以前的存档里侧栏还带着收起前的宽度 `restoreSize`：照样读，不看它；展开回到快照里的宽度，新存档不再写它", () => {
+        const layout = TabbedLayout.createDefault();
+        layout.grid.setCollapsed("explorer", true);
+        const old = {...layout.toSaved(), explorer: {collapsed: true, restoreSize: 9999}};
+        const {layout: loaded, notice} = loadLayout(memoryStorage({[STORAGE_KEY]: JSON.stringify(old)}));
+        expect(notice).toBeNull();
+        expect(loaded.explorerState()).toEqual({collapsed: true});
+        expect(loaded.toSaved().explorer).toEqual({collapsed: true});
+        loaded.grid.setCollapsed("explorer", false);
+        expect(loaded.grid.find("explorer")?.size.width).toBe(240);
     });
 
     const saved = () => JSON.parse(JSON.stringify(TabbedLayout.createDefault().toSaved())) as Record<string, any>;
@@ -167,7 +179,6 @@ describe("存档与读档", () => {
         ["编组没有标签", () => { const value = saved(); value.groups["group-2"] = {tabs: [], active: ""}; return JSON.stringify(value); }],
         ["没有侧栏", () => { const value = saved(); value.grid.root.children = value.grid.root.children.filter((child: {id: string}) => child.id !== "explorer"); return JSON.stringify(value); }],
         ["侧栏不在最外层那一排", () => { const value = saved(); const [explorer, ...groups] = value.grid.root.children; value.grid.root.children = [{kind: "branch", id: "split-1", orientation: "vertical", size: {width: 1, height: 1}, children: [explorer, groups[0]]}, ...groups.slice(1)]; return JSON.stringify(value); }],
-        ["收起前的宽度不合理", () => JSON.stringify({...saved(), explorer: {collapsed: false, restoreSize: -5}})],
     ];
     it.each(broken)("存档坏（%s）：用缺省布局、说明原因、原件原样搬到备份键", (_name, make) => {
         const raw = make();

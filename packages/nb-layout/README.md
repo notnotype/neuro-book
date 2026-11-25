@@ -51,7 +51,7 @@ const grid = shallowRef(createGrid<string>({
             size: {width: 240, height: 0},
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
         {kind: "leaf", id: "editor", ref: "editor", size: {width: 600, height: 0}},
     ],
@@ -107,7 +107,7 @@ function toggleFiles(): void {
 </template>
 ```
 
-左栏的 `collapse` 是它的收起策略：拖过最小尺寸后再往里 `collapseThreshold` 像素就收起到 `collapsedSize`（这里是 0）；从收起处往外拉过 `expandThreshold` 就展开；分隔条上按 Enter 或调 `setCollapsed` 也能收起、展开，Enter 恢复到 `restoreSize`（网格在收起的那一刻记下）。`collapsed` 是当前状态。
+左栏的 `collapse` 是它的收起策略：拖过最小尺寸后再往里 `collapseThreshold` 像素就收起到 `collapsedSize`（这里是 0）；从收起处往外拉过 `expandThreshold` 就展开；分隔条上按 Enter 或调 `setCollapsed` 也能收起、展开，展开回到意图。`collapsed` 是当前状态。
 
 它做了五件事，每件对应一处：
 
@@ -165,7 +165,7 @@ function toggleFiles(): void {
   ```ts
   // 宿主按引用记着的运行期策略；没列在这里的（例如拆分出来的 preview）按比例分、没有收起策略。
   const policies: Record<string, Omit<GridRefResolution<string>, "ref">> = {
-      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24}},
+      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24}},
   };
   const known = new Set(["files", "editor", "preview"]); // 宿主此刻还有的内容
   // 宿主已经没有的内容返回 null；恢复也要给 sashSize：它不在快照里

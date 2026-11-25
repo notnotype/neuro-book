@@ -39,7 +39,7 @@ const COLUMN: GridNodeInput<string> = {kind: "branch", id: "col", orientation: "
 ]};
 const grid = computed(() => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [...cards.value.filter((card) => !hidden.value.has(card.id)).map((card): GridNodeInput<string> => ({
     kind: "leaf", id: card.id, ref: card.id, size: {width: 250, height: 0}, sizing: card.id === "z" ? "weight" : "fixed",
-    collapse: {collapsedSize: 0, restoreSize: 250, collapseThreshold: 24, expandThreshold: 24, collapsed: collapsed.value.has(card.id)},
+    collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: collapsed.value.has(card.id)},
 })), ...(column.value ? [COLUMN] : [])]}, {sashSize: 1}));
 const layout = computed(() => grid.value.layout({width: width.value, height: 600}));
 const retainFlag = (): {leave?: "retain"} => (props.retain ? {leave: "retain"} : {});

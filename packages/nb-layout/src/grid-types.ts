@@ -36,7 +36,7 @@ export type GridSizing = "weight" | "fixed";
 
 /**
  * 收起策略（运行时）：拖动越过 `collapseThreshold` 时吸附到 `collapsedSize`，反向越过后恢复。网格的节点展开回到意图
- * （Spec `ui/nested-grid` 输出 166）；独立 `Splitter` 没有意图，恢复到 `restoreSize`。`collapsed` 是当前状态。
+ * （Spec `ui/nested-grid` 输出 166），策略里没有恢复尺寸；独立 `Splitter` 没有意图，恢复尺寸见 `SplitterCollapseState`。
  *
  * 不写快照：它是宿主按领域记录给出的运行期约束，恢复时以当前记录为准。
  * @experimental
@@ -44,11 +44,6 @@ export type GridSizing = "weight" | "fixed";
 export type SashCollapsePolicy = {
     /** 收起后的主轴占用（CSS px，允许 0）；必须小于展开最小尺寸。 */
     collapsedSize: number;
-    /**
-     * 独立 `Splitter` 显式恢复的展开主轴尺寸（CSS px），再按当前容量夹取。网格不读它：网格的节点展开回到意图（Spec
-     * `ui/nested-grid` 输出 166），收起时也不记它。
-     */
-    restoreSize: number;
     /** 从展开最小尺寸继续向内的收起阈值（CSS px）。 */
     collapseThreshold: number;
     /** 从收起锚点向外的恢复阈值（CSS px）。 */
@@ -59,12 +54,17 @@ export type SashCollapsePolicy = {
      * `solveSashCollapse` 的调用方已经选定了对象，求解器不再过滤。
      */
     toggleable?: boolean;
-    /** 网格与独立 `Splitter` 都不读它：网格的节点展开本来就回到按 `size` 该得的那一份（Spec `ui/nested-grid` 输出 166）。 */
-    restoreToShare?: boolean;
 };
 
 /** @experimental */
 export type SashCollapseState = SashCollapsePolicy & {collapsed: boolean};
+
+/**
+ * 独立 `Splitter` 面板的收起策略与状态：`Splitter` 的面板没有意图，尺寸就是宿主给的呈现像素，所以显式恢复（Enter、命令）
+ * 要一个 `restoreSize`（CSS px）做目标，再按当前容量夹取。网格的节点不用它，展开回到意图。
+ * @experimental
+ */
+export type SplitterCollapseState = SashCollapseState & {restoreSize: number};
 
 /** @experimental */
 export type GridLeaf<T> = {

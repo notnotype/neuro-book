@@ -25,7 +25,7 @@ const createInitial = (): Grid<string> => createGrid<string>({
             ref: "c",
             size: {width: 300, height: 0},
             minimumSize: {width: 120, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
     ],
 }, {sashSize: 4});

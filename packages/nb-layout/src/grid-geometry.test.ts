@@ -17,14 +17,14 @@ function panel(
     return {id, size, minimum, maximum, sizing};
 }
 
-function collapsed(id: string, collapsedSize: number, restoreSize: number, minimum: number, size = minimum): SashPanel {
+function collapsed(id: string, collapsedSize: number, minimum: number, size = minimum): SashPanel {
     return {
         id,
         size,
         minimum,
         maximum: UNBOUNDED,
         sizing: "fixed",
-        collapse: {collapsedSize, restoreSize, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
+        collapse: {collapsedSize, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
     };
 }
 
@@ -91,12 +91,12 @@ describe("唯一空间分配：fixed 与 weight", () => {
 
 describe("收起面板的刚性范围", () => {
     it("收起面板沿主轴是 [collapsedSize, collapsedSize]，不受展开最小值约束", () => {
-        expect(sashPanelBounds(collapsed("left", 0, 340, 280))).toEqual({low: 0, high: 0});
+        expect(sashPanelBounds(collapsed("left", 0, 280))).toEqual({low: 0, high: 0});
     });
 
     it("收起的 0 占用不会把兄弟的最小尺寸撑开", () => {
         const sizes = allocateSashPanels([
-            collapsed("left", 0, 340, 280),
+            collapsed("left", 0, 280),
             panel("editor", 1, 120),
         ], 400);
         expect(sizes).toEqual([0, 400]);
@@ -104,7 +104,7 @@ describe("收起面板的刚性范围", () => {
 
     it("Section 式的 32px 收起保留标题行占用", () => {
         const sizes = allocateSashPanels([
-            collapsed("outline", 32, 220, 96),
+            collapsed("outline", 32, 96),
             panel("files", 1, 96),
         ], 600);
         expect(sizes).toEqual([32, 568]);

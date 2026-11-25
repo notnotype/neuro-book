@@ -10,6 +10,7 @@
 - 拆分保留像素（`sizing: "fixed"`）的叶返回 `wrong-sizing`（`expected: "weight"`），树不变；以前会把像素当份额拆，画出来不对。
 - 快照恢复的层数改成根算第 1 层，与结构操作相同：17 层的快照以前能恢复，现在 `limit-exceeded`。
 - 删到或移到根分支只剩一块保留像素或带收起策略的节点时，根分支留着，不再展平成这一块：保留像素的照旧是它的宽度，余下留白并报 `unabsorbed-space`；以前这块会占满容器、收起策略也用不了。
+- 网格节点的收起策略（`SashCollapsePolicy`、`SashCollapseState`）去掉 `restoreSize` 与 `restoreToShare`：没有类型检查的宿主照写也不报错，建树、恢复与 `clone` 时不进节点。独立 `Splitter` 的面板配置照旧要 `restoreSize`，`SplitterPanelConfig.collapse` 的类型改成新导出的 `SplitterCollapseState`（`SashCollapseState` 加 `restoreSize`）。
 - 网格的节点展开回到意图：`setCollapsed(id, false)`、分隔条上的 Enter 与区段按钮都不再读收起策略的 `restoreSize`、`restoreToShare`，收起时网格也不再改写 `restoreSize`。分隔条上的 Enter 能翻时结果和 `setCollapsed` 相同：按比例分的兄弟按份额吸收与让出，不再由隔着分隔条的邻居独自让位；翻了之后放不下时不展开（`no-room-to-restore`），让出的空间没人吸收时不收起（`no-room-to-collapse`）。`setSize` 改收起中的节点也只改意图，`changed` 只看意图。
 
 ### 新增

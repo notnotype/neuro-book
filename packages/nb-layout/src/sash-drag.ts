@@ -221,7 +221,8 @@ export function solveSashCollapse(input: {
         issues.push(noRoomToRestore(panel.id, capacity, targetBounds.low));
         return {sizesPx: [...sizes], collapsed: {}, issues};
     }
-    const restored = clampAxis(panel.collapse.restoreSize, targetBounds.low, Math.min(targetBounds.high, capacity));
+    // 独立 `Splitter` 的配置类型要求给 `restoreSize`；网格的面板不带它，也不走这里。没给时按能展开的最小尺寸。
+    const restored = clampAxis(panel.collapse.restoreSize ?? targetBounds.low, targetBounds.low, Math.min(targetBounds.high, capacity));
     const next = relocate({sizes, total, sashIndex: input.sashIndex, index: input.index, target: restored, boundsOf});
     return {sizesPx: next, collapsed: {[panel.id]: false}, issues};
 }

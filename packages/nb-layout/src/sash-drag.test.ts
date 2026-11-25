@@ -8,17 +8,17 @@ const UNBOUNDED = Number.MAX_SAFE_INTEGER;
 /** 默认收起阈值：吸附与恢复各 24px。 */
 const SASH_COLLAPSE_THRESHOLD = 24;
 
-/** 便捷构造：给出展开尺寸与记忆尺寸，得到一份完整的收起策略。 */
+/** 便捷构造：得到一份完整的收起策略；`restoreSize` 只有独立 `Splitter` 的显式恢复读，网格那条路不给。 */
 function sashCollapsePolicy(input: {
     collapsedSize: number;
-    restoreSize: number;
+    restoreSize?: number;
     collapsed?: boolean;
     collapseThreshold?: number;
     expandThreshold?: number;
 }): SashPanel["collapse"] {
     return {
         collapsedSize: Math.max(0, finite(input.collapsedSize, 0)),
-        restoreSize: Math.max(0, finite(input.restoreSize, 0)),
+        ...(input.restoreSize === undefined ? {} : {restoreSize: Math.max(0, finite(input.restoreSize, 0))}),
         collapseThreshold: Math.max(0, finite(input.collapseThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
         expandThreshold: Math.max(0, finite(input.expandThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
         collapsed: input.collapsed === true,
@@ -343,7 +343,6 @@ function projectedSidePanels(
             ? {
                 collapse: {
                     collapsedSize: 0,
-                    restoreSize: size,
                     collapseThreshold: 24,
                     expandThreshold: 24,
                     collapsed: id === collapsedSide,
@@ -445,10 +444,15 @@ describe("拖动求解：两侧外栏的收起与恢复", () => {
         expect(outcomes[1]!.split(",").reverse().join(",")).toBe(outcomes[0]);
     });
 
-    it("显式恢复（Enter / Section 按钮）用记忆尺寸，与拖动的指针位置分工不同", () => {
+    /** 独立 `Splitter` 那条路：宿主给的 `restoreSize` 就是记忆尺寸，这里取面板的展开意图。网格的面板没有它。 */
+    const withRestoreSize = (panels: readonly SashPanel[]): SashPanel[] =>
+        panels.map((panel) => (panel.collapse === undefined ? panel : {...panel, collapse: {...panel.collapse, restoreSize: panel.size}}));
+
+    it("独立 `Splitter` 的显式恢复（Enter、命令）用宿主给的 `restoreSize`，与拖动的指针位置分工不同", () => {
         const outcomes = (["left", "right"] as const).map((side) => {
             const {sashIndex, index, memory} = sideShape(side);
-            const {panels, baseline} = projectedSidePanels(side);
+            const {panels: projected, baseline} = projectedSidePanels(side);
+            const panels = withRestoreSize(projected);
             const result = solveSashCollapse({panels, sizesPx: baseline, sashIndex, index, collapsed: false});
             expect(result?.collapsed, side).toEqual({[side]: false});
             expect(result?.sizesPx[index], side).toBe(memory);
@@ -459,8 +463,9 @@ describe("拖动求解：两侧外栏的收起与恢复", () => {
         expect(outcomes[0]).toBe(outcomes[1]);
     });
 
-    it("显式恢复的记忆尺寸超过自身上限时按上限恢复，不吃掉兄弟", () => {
-        const {panels, baseline} = projectedSidePanels("right", {right: SIDE_MAX + 55});
+    it("独立 `Splitter` 的 `restoreSize` 超过自身上限时按上限恢复，不吃掉兄弟", () => {
+        const {panels: projected, baseline} = projectedSidePanels("right", {right: SIDE_MAX + 55});
+        const panels = withRestoreSize(projected);
         const result = solveSashCollapse({panels, sizesPx: baseline, sashIndex: 1, index: 2, collapsed: false});
         expect(result?.sizesPx[2]).toBe(SIDE_MAX);
         expect(result?.sizesPx[0]).toBe(LEFT_MEMORY);
@@ -469,9 +474,9 @@ describe("拖动求解：两侧外栏的收起与恢复", () => {
 });
 
 describe("显式收起与展开：网格的翻标记重排（Spec ui/nested-grid 输出 20、166）", () => {
-    const policy = (collapsed: boolean): SashPanel["collapse"] => sashCollapsePolicy({collapsedSize: 0, restoreSize: 0, collapsed});
+    const policy = (collapsed: boolean): SashPanel["collapse"] => sashCollapsePolicy({collapsedSize: 0, collapsed});
 
-    it("翻了标记后按意图重新分配这一支此刻的总量：按比例分的兄弟按份额吸收与让出，保留像素的不变；`restoreSize` 不读", () => {
+    it("翻了标记后按意图重新分配这一支此刻的总量：按比例分的兄弟按份额吸收与让出，保留像素的不变", () => {
         // 意图 300、300、300，c 收起：总量 900 按 300:300 分给 a、b；展开时 c 拿回自己的份额。
         const panels = (collapsed: boolean): SashPanel[] => [
             {...weight("a", 80), size: 300},

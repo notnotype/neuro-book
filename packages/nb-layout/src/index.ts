@@ -63,6 +63,7 @@ export type {
     GridSplitSide,
     SashCollapsePolicy,
     SashCollapseState,
+    SplitterCollapseState,
 } from "./grid-types";
 
 /* 开发模式的配置检查（Spec `ui/nested-grid` 输出 151） */

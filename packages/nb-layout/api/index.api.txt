@@ -576,11 +576,9 @@ declare const SORTABLE_STICKY_PX = 12;
 ### experimental type SashCollapsePolicy
 type SashCollapsePolicy = {
     collapsedSize: number;
-    restoreSize: number;
     collapseThreshold: number;
     expandThreshold: number;
     toggleable?: boolean;
-    restoreToShare?: boolean;
 };
 
 ### experimental type SashCollapseState
@@ -633,7 +631,9 @@ type SashPanel = {
     minimum: number;
     maximum: number;
     sizing: GridSizing;
-    collapse?: SashCollapseState;
+    collapse?: SashCollapseState & {
+        readonly restoreSize?: number;
+    };
 };
 
 ### experimental type SortableAxis
@@ -677,6 +677,12 @@ interface SortableSwitch {
     readonly to: SortableSlot;
     readonly at: number;
 }
+
+### experimental type SplitterCollapseState
+引用：SashCollapseState
+type SplitterCollapseState = SashCollapseState & {
+    restoreSize: number;
+};
 
 ### experimental interface SplitterGestureCancellation
 引用：SashGestureCancelReason, SashGestureSource

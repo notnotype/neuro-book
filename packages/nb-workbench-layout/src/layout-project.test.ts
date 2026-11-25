@@ -298,7 +298,7 @@ describe("带容器的区域", () => {
         expect(zero.layout.issues).toEqual([]);
 
         const side = childOf(open.projection.input, "side");
-        expect(side?.collapse).toMatchObject({collapsed: false, collapsedSize: 0, restoreSize: sizeOf(regions().tree.root, "side").width});
+        expect(side?.collapse).toEqual({collapsed: false, collapsedSize: 0, collapseThreshold: OPTIONS.collapseThreshold, expandThreshold: OPTIONS.collapseThreshold});
         expect(childOf(open.projection.input, "s1")?.collapse).toMatchObject({collapsed: false, collapsedSize: OPTIONS.headHeight});
 
         const titleRow = solve(regions({s1: {container: "A", collapsed: true}}), EXTENT);
