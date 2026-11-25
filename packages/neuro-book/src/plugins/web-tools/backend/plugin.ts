@@ -20,6 +20,7 @@ import {clockKey, stateRootKey} from "nbook/shared/host";
 import {descriptor} from "../plugin";
 import {FETCH_TOOL, SEARCH_TOOL, webSettingsContract} from "../shared/contracts";
 import {webSettings} from "../shared/settings";
+import {normalizeSites} from "../shared/sites";
 import {createKeyStore} from "./keys";
 import type {KeyStore, KeyStoreRecord} from "./keys";
 import {createDeepSeekProvider} from "./providers/deepseek";
@@ -64,7 +65,8 @@ export function createWebBackendPlugin(keyStore: KeyStoreFactory): PluginDefinit
                     providers,
                     selected: () => settings.get(webSettings.settings.provider),
                     resultCount: () => settings.get(webSettings.settings.resultCount),
-                    blockedSites: () => settings.get(webSettings.settings.blockedSites),
+                    // 设置文件里手写错的项只跳过这一项（shared/sites.ts）。
+                    blockedSites: () => normalizeSites(settings.get(webSettings.settings.blockedSites)),
                     searchDepth: () => settings.get(webSettings.settings.tavilySearchDepth),
                     clock,
                     record: (event: string, message: string, data: Readonly<Record<string, unknown>>) => record("warn", event, message, data),

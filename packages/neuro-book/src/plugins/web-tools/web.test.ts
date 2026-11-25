@@ -569,15 +569,17 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
     });
 
     it("搜索规则与 Tavily 的深度：默认结果条数、屏蔽网站（Tavily 给 exclude_domains，两家都在本地再筛）、搜索深度都按设置发（输入、输出 1、3）", async () => {
-        const w = await open({"nbook.web/resultCount": 3, "nbook.web/blockedSites": ["blocked.example"], "nbook.web/tavilySearchDepth": "advanced"});
+        // 名单里手写错的一项只跳过它，不让整份名单失效（输出 3）。
+        const w = await open({"nbook.web/resultCount": 3, "nbook.web/blockedSites": ["Bad Item", "blocked.example"], "nbook.web/tavilySearchDepth": "advanced"});
         const {remote, settings} = await w.window("w");
         await setKey(remote);
         ok(await remote.setKey({provider: "tavily", key: TAVILY_KEY}));
         const session = await w.open();
-        deepseek.script("/v1/tools/search", {json: {results: [{...sampleHit(0), url: "https://blocked.example/a"}, {...sampleHit(1), url: "https://news.blocked.example/b"}, {...sampleHit(2), url: "https://notblocked.example/c"}]}});
+        deepseek.script("/v1/tools/search", {json: {results: [{...sampleHit(0), url: "https://blocked.example./a"}, {...sampleHit(1), url: "https://news.blocked.example/b"}, {...sampleHit(2), url: "https://notblocked.example/c"}]}});
         const found = await callTool(session, "web_search", {queries: ["规则"]});
         expect(deepseek.requests.at(-1)?.body).toEqual({query: "规则", count: 3});
-        expect(found.text.split("\n")[0]).toBe("来自 DeepSeek 搜索，1 条结果。");
+        // 去掉的条数写在第一行，免得模型把“被屏蔽”当成“网上没有”（输出 2）。
+        expect(found.text.split("\n")[0]).toBe("来自 DeepSeek 搜索，1 条结果（另有 2 条来自屏蔽网站，已去掉）。");
         expect(found.text).toContain("https://notblocked.example/c");
         expect(found.text).not.toContain("blocked.example/a");
 
@@ -585,7 +587,11 @@ describe("一次几条查询（输出 1、2、4、12；验收 6）", () => {
         tavily.script("/search", {json: {results: [{url: "https://blocked.example/x", title: "x", content: "x"}, {url: "https://ok.example/y", title: "y", content: "y"}]}});
         const viaTavily = await callTool(session, "web_search", {queries: ["规则"]});
         expect(tavily.requests.at(-1)?.body).toMatchObject({query: "规则", max_results: 3, search_depth: "advanced", exclude_domains: ["blocked.example"]});
-        expect(viaTavily.text.split("\n")[0]).toBe("来自 Tavily 搜索，1 条结果。");
+        expect(viaTavily.text.split("\n")[0]).toBe("来自 Tavily 搜索，1 条结果（另有 1 条来自屏蔽网站，已去掉）。");
+        // 全被去掉：写“没有结果”并带条数；几条查询时写在组头。
+        tavily.script("/search", {json: {results: [{url: "https://blocked.example/x", title: "x", content: "x"}]}}, {json: {results: [{url: "https://ok.example/y", title: "y", content: "y"}]}});
+        const batch = await callTool(session, "web_search", {queries: ["全挡", "不挡"]});
+        expect(batch.text.split("\n")).toEqual(expect.arrayContaining(["查询 1：全挡，没有结果（1 条来自屏蔽网站，已去掉）", "查询 2：不挡，1 条结果"]));
         // 检测不看屏蔽网站与深度（输出 19）。
         ok(await remote.check({provider: "tavily"}));
         expect(tavily.requests.at(-1)?.body).toEqual({query: "DeepSeek", max_results: 1, search_depth: "basic", include_published_date: true});

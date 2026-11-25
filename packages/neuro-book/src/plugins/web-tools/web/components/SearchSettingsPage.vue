@@ -11,7 +11,8 @@ import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {PROVIDER_LABELS, WEB_PROVIDERS} from "../../shared/contracts";
 import type {WebProviderId} from "../../shared/contracts";
-import {RESULT_COUNT_MAX, RESULT_COUNT_MIN, SITE_PATTERN, webSettings} from "../../shared/settings";
+import {MAX_BLOCKED_SITES, RESULT_COUNT_MAX, RESULT_COUNT_MIN, webSettings} from "../../shared/settings";
+import {normalizeSite} from "../../shared/sites";
 import type {SearchStore, WebFailure} from "../search-store";
 import {failureReason, useWebText} from "../text";
 import ApiKeyField from "./ApiKeyField.vue";
@@ -38,7 +39,6 @@ const port = useText();
 const id = useId();
 const {provider: providerSetting, resultCount, blockedSites, tavilySearchDepth, deepseekBaseUrl, tavilyBaseUrl} = webSettings.settings;
 const BASE_URLS: Readonly<Record<WebProviderId, SettingDefinition<string>>> = {deepseek: deepseekBaseUrl, tavily: tavilyBaseUrl};
-const SITE = new RegExp(SITE_PATTERN, "u");
 
 type Item = "rules" | WebProviderId;
 
@@ -76,7 +76,7 @@ function flag(provider: WebProviderId): {readonly icon: string; readonly tone: "
     return null;
 }
 /** 这一行的读屏描述：使用中与状态图标都只是画出来的，另写成文字。 */
-const rowDescription = (provider: WebProviderId): string => [provider === using.value ? text("use.badge") : null, flag(provider)?.text ?? null].filter((part) => part !== null).join("，");
+const rowDescription = (provider: WebProviderId): string => [provider === using.value ? text("use.badge") : null, flag(provider)?.text ?? null].filter((part) => part !== null).join(text("status.joiner"));
 
 const rail = ref<HTMLElement | null>(null);
 function onRailKeydown(event: KeyboardEvent): void {
@@ -120,7 +120,11 @@ async function makeUsing(provider: WebProviderId): Promise<void> {
         return;
     }
     pending.value = null;
-    await write(providerSetting, text("settings.provider.title"), provider);
+    // 写成后按钮换成徽标、焦点会丢：放回左栏这一行（读屏念出“使用中”）。
+    if (await write(providerSetting, text("settings.provider.title"), provider)) {
+        await nextTick();
+        rail.value?.querySelector<HTMLElement>(`[data-search-rail-item="${provider}"]`)?.focus();
+    }
 }
 
 // ---- 每家的密钥与检测 ----
@@ -179,6 +183,17 @@ const advancedOpen = reactive<Record<WebProviderId, boolean>>({
     tavily: ADVANCED.tavily.some(changedInUser),
 });
 
+/** 接口地址要能解析成 http 或 https 网址、带主机、不含空白（输出 13）。 */
+function isHttpUrl(value: string): boolean {
+    if (/\s/u.test(value)) return false;
+    try {
+        const url = new URL(value);
+        return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "";
+    } catch {
+        return false;
+    }
+}
+
 /** 接口地址框里的草稿：改过、还没交出去时不被设置的变化打断；失焦或回车时交出。 */
 const urlDrafts = reactive<Record<WebProviderId, string | null>>({deepseek: null, tavily: null});
 const urlProblems = reactive<Record<WebProviderId, string>>({deepseek: "", tavily: ""});
@@ -187,7 +202,7 @@ function commitUrl(provider: WebProviderId): void {
     const draft = urlDrafts[provider];
     if (draft === null) return;
     const value = draft.trim();
-    if (value !== "" && !/^https?:\/\/[^\s/]+/iu.test(value)) {
+    if (value !== "" && !isHttpUrl(value)) {
         urlProblems[provider] = text("advanced.urlInvalid");
         return;
     }
@@ -220,20 +235,13 @@ function editCount(value: string): void {
 
 const blockedProblem = ref("");
 const blocked = computed(() => props.settings.get(blockedSites));
-/** 屏蔽网站一项的写法：粘贴的网址只留主机，国际化域名经 URL 转成 punycode，统一小写；归一化后不像域名的不收。 */
-function normalizeSite(input: string): string | null {
-    const trimmed = input.trim().toLowerCase();
-    let host = trimmed;
-    try {
-        host = new URL(/^[a-z][a-z0-9+.-]*:\/\//u.test(trimmed) ? trimmed : `http://${trimmed}`).hostname;
-    } catch {
-        return null;
-    }
-    return SITE.test(host) ? host : null;
-}
+/**
+ * 标签输入交来的整串：一项里有空白（粘贴了几行或几个空格隔开的域名）时先拆开，再逐项归一化（shared/sites.ts）。有一项不像域名、
+ * 或多于上限时原位提示、整串不写（输出 12）。
+ */
 function editBlocked(values: readonly string[]): void {
     const next: string[] = [];
-    for (const value of values) {
+    for (const value of values.flatMap((item) => item.split(/\s+/u)).filter((item) => item !== "")) {
         const site = normalizeSite(value);
         if (site === null) {
             blockedProblem.value = text("rules.blockedInvalid", {value});
@@ -241,12 +249,41 @@ function editBlocked(values: readonly string[]): void {
         }
         if (!next.includes(site)) next.push(site);
     }
+    if (next.length > MAX_BLOCKED_SITES) {
+        blockedProblem.value = text("rules.blockedTooMany", {max: MAX_BLOCKED_SITES});
+        return;
+    }
     blockedProblem.value = "";
     void write(blockedSites, settingTitle(blockedSites), next);
 }
 
-// 选中的服务商换了：草稿与原位提示不跨服务商留。
+/**
+ * 粘贴几行：单行输入框会把换行直接去掉（`a.com⏎b.com` 变成 `a.comb.com`），所以在粘贴时先拿剪贴板原文按空白拆开，自己加进去；
+ * 不含空白的照常交给标签输入（它按逗号、顿号拆）。
+ */
+function pasteBlocked(event: ClipboardEvent): void {
+    const pasted = event.clipboardData?.getData("text/plain") ?? "";
+    if (!/\s/u.test(pasted.trim())) return;
+    event.preventDefault();
+    editBlocked([...blocked.value, ...pasted.split(/[\s,，、]+/u)]);
+}
+
+// 换了选中项：草稿与原位提示不跨项留。
 watch(current, () => {
+    for (const provider of WEB_PROVIDERS) {
+        urlDrafts[provider] = null;
+        urlProblems[provider] = "";
+    }
+    countDraft.value = null;
+    countProblem.value = "";
+    blockedProblem.value = "";
+});
+// 设置的值从别处变了（设置行的“恢复默认”、设置文件、另一个窗口）：框里的草稿与原位提示作废，跟着新值。
+watch(() => props.settings.get(resultCount), () => {
+    countDraft.value = null;
+    countProblem.value = "";
+});
+watch(() => WEB_PROVIDERS.map((provider) => props.settings.get(BASE_URLS[provider])).join("\n"), () => {
     for (const provider of WEB_PROVIDERS) {
         urlDrafts[provider] = null;
         urlProblems[provider] = "";
@@ -264,6 +301,7 @@ watch(current, () => {
                     type="button"
                     class="search-settings__item nb-ui-focus-ring-inset"
                     :aria-current="current === 'rules' ? 'page' : undefined"
+                    :aria-describedby="blocked.length > 0 ? `${id}-rules-row` : undefined"
                     :tabindex="current === 'rules' ? 0 : -1"
                     data-search-rail-item="rules"
                     @click="select('rules')"
@@ -271,7 +309,8 @@ watch(current, () => {
                     <span class="i-lucide-sliders-horizontal search-settings__item-icon" aria-hidden="true" />
                     <!-- 这一行不会有“使用中”：名称占掉那一格，行尾的计数仍与各家的状态格同列。 -->
                     <span class="search-settings__item-name">{{ text("rules.title") }}</span>
-                    <span class="search-settings__item-end search-settings__count">{{ blocked.length > 0 ? blocked.length : "" }}</span>
+                    <span class="search-settings__item-end search-settings__count" aria-hidden="true">{{ blocked.length > 0 ? blocked.length : "" }}</span>
+                    <span :id="`${id}-rules-row`" hidden>{{ text("rules.blockedCount", {count: blocked.length}) }}</span>
                 </button>
                 <div class="search-settings__divider" />
                 <button
@@ -334,16 +373,18 @@ watch(current, () => {
                             </SettingsRow>
                             <SettingsRow :settings="settings" :setting="blockedSites" layer="user" wide>
                                 <template #default="row">
-                                    <TagInput
-                                        :id="row.id"
-                                        :model-value="[...blocked]"
-                                        :placeholder="text('rules.blockedPlaceholder')"
-                                        :invalid="blockedProblem !== ''"
-                                        :disabled="row.disabled || disabled"
-                                        :aria-describedby="row.describedby"
-                                        data-search-blocked
-                                        @update:model-value="editBlocked"
-                                    />
+                                    <div class="search-settings__blocked" @paste.capture="pasteBlocked">
+                                        <TagInput
+                                            :id="row.id"
+                                            :model-value="[...blocked]"
+                                            :placeholder="text('rules.blockedPlaceholder')"
+                                            :invalid="blockedProblem !== ''"
+                                            :disabled="row.disabled || disabled"
+                                            :aria-describedby="row.describedby"
+                                            data-search-blocked
+                                            @update:model-value="editBlocked"
+                                        />
+                                    </div>
                                 </template>
                                 <template #below>
                                     <p v-if="blockedProblem !== ''" class="search-settings__problem" role="alert">{{ blockedProblem }}</p>
@@ -383,14 +424,13 @@ watch(current, () => {
                                     @click="store.check(current)"
                                 >{{ checking(current) ? text("check.running") : text("check.action") }}</Button>
                                 <span class="search-settings__muted">{{ text("check.cost") }}</span>
-                                <span
-                                    class="search-settings__result"
-                                    :class="{'search-settings__result--error': checkFailed(current)}"
-                                    :title="checkLine(current)"
-                                    role="status"
-                                    data-search-check-result
-                                >{{ checkLine(current) }}<span v-if="checking(current)" class="sr-only">{{ text("check.running") }}</span></span>
                             </div>
+                            <p
+                                class="search-settings__result"
+                                :class="{'search-settings__result--error': checkFailed(current)}"
+                                role="status"
+                                data-search-check-result
+                            >{{ checkLine(current) }}<span v-if="checking(current)" class="sr-only">{{ text("check.running") }}</span></p>
                             <Collapsible :open="advancedOpen[current]">
                                 <template #trigger>
                                     <button
@@ -625,6 +665,10 @@ watch(current, () => {
     gap: var(--space-4);
 }
 
+.search-settings__blocked {
+    width: 100%;
+}
+
 .search-settings__number {
     width: 120px;
 }
@@ -642,18 +686,15 @@ watch(current, () => {
     color: var(--text-muted);
 }
 
-/* 检测结果在按钮同一行的固定位置：出现与消失不推动下面的“高级”（输出 8）。 */
+/* 检测结果在按钮下面预留的一行：没有结果时这一行照样空着，出现与消失不推动下面的“高级”；原因长时折行，全文看得到（输出 8）。 */
 .search-settings__result {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
+    min-height: calc(var(--text-xs) * var(--leading-ui));
+    margin: calc(-1 * var(--space-3)) 0 0;
     /* 检测失败的原因要能复制（nb-ui 规范的“文字能否选中”）。 */
     user-select: text;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     color: var(--text-secondary);
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
 .search-settings__result--error {

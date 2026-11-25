@@ -99,7 +99,9 @@
         "title": "Search rules",
         "countInvalid": "Enter a whole number from {{min}} to {{max}}",
         "blockedPlaceholder": "Type a domain and press Enter",
-        "blockedInvalid": "“{{value}}” isn't a domain"
+        "blockedInvalid": "“{{value}}” isn't a domain",
+        "blockedTooMany": "Block at most {{max}} sites",
+        "blockedCount": "{{count}} sites blocked"
     },
     "rail": {
         "label": "Search services"
@@ -111,7 +113,8 @@
     },
     "status": {
         "checkFailed": "Check failed",
-        "noKey": "No key yet"
+        "noKey": "No key yet",
+        "joiner": ", "
     },
     "advanced": {
         "title": "Advanced",

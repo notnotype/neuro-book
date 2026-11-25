@@ -25,18 +25,6 @@ export const httpHref = (value: unknown): string | null => {
     }
 };
 
-/** 网址的主机是不是屏蔽网站之一或它的子域名（输出 3）：`csdn.net` 也挡 `blog.csdn.net`，不挡 `notcsdn.net`。 */
-export function siteBlocked(href: string, sites: readonly string[]): boolean {
-    if (sites.length === 0) return false;
-    let host: string;
-    try {
-        host = new URL(href).hostname.toLowerCase();
-    } catch {
-        return false;
-    }
-    return sites.some((site) => host === site || host.endsWith(`.${site}`));
-}
-
 /** 非空字符串，否则 `undefined`。 */
 export const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 

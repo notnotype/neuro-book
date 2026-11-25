@@ -441,4 +441,75 @@ describe("SearchSettingsPage", () => {
         expect(declaration?.layout).toBe("fill");
         expect(declaration?.keywords).toEqual(expect.arrayContaining([webText("keywords.deepseek"), webText("keywords.tavily")]));
     });
+
+    it("屏蔽网站：粘贴几行时拆成几项；多于 100 个原位提示、不写；条数与屏蔽的原位提示换项后清掉（输出 12）", async () => {
+        const page = render({hasKey: true});
+        await loaded(page);
+        await page.show("rules");
+        const blocked = () => page.wrapper.get<HTMLInputElement>("[data-search-blocked] input, input[data-search-blocked]");
+        const paste = async (text: string): Promise<void> => {
+            const data = new DataTransfer();
+            data.setData("text/plain", text);
+            blocked().element.dispatchEvent(new ClipboardEvent("paste", {clipboardData: data, bubbles: true, cancelable: true}));
+            await flushPromises();
+        };
+        await paste("csdn.net\nbaidu.com zhihu.com");
+        await waitUntil("写了三项", () => page.settings.get(S.blockedSites).length === 3 || undefined);
+        expect(page.settings.get(S.blockedSites)).toEqual(["csdn.net", "baidu.com", "zhihu.com"]);
+        // 读屏念左栏这一行时带上屏蔽了几个。
+        const rulesRow = page.railItem("rules").attributes("aria-describedby") ?? "";
+        expect(page.wrapper.element.querySelector(`[id="${rulesRow}"]`)?.textContent).toBe("屏蔽了 3 个网站");
+
+        await paste(Array.from({length: 98}, (_, index) => `site${String(index)}.example`).join("\n"));
+        expect(page.wrapper.text()).toContain("至多屏蔽 100 个网站");
+        expect(page.settings.get(S.blockedSites)).toHaveLength(3);
+
+        const count = () => page.wrapper.get<HTMLInputElement>("[data-search-count] input, input[data-search-count]");
+        await count().setValue("0");
+        await flushPromises();
+        expect(page.wrapper.text()).toContain("填 1 到 10 的整数");
+        await page.show("deepseek");
+        await page.show("rules");
+        expect(page.wrapper.text()).not.toContain("填 1 到 10 的整数");
+        expect(page.wrapper.text()).not.toContain("至多屏蔽 100 个网站");
+        expect(count().element.value).toBe("5");
+    });
+
+    it("草稿跟着外部变化作废：设置从别处改了（恢复默认、设置文件），框里的条数与接口地址换成新值、原位提示清掉（输出 12、13）", async () => {
+        const page = render({hasKey: true}, {values: {"nbook.web/resultCount": 7, "nbook.web/deepseekBaseUrl": "https://relay.example/ds"}});
+        await loaded(page);
+        await page.show("rules");
+        const count = () => page.wrapper.get<HTMLInputElement>("[data-search-count] input, input[data-search-count]");
+        await count().setValue("11");
+        await flushPromises();
+        expect(page.wrapper.text()).toContain("填 1 到 10 的整数");
+        expect(await page.settings.update(S.resultCount, undefined, {layer: "user"})).toMatchObject({ok: true});
+        await waitUntil("跟着新值", () => count().element.value === "5" || undefined);
+        expect(page.wrapper.text()).not.toContain("填 1 到 10 的整数");
+
+        await page.show("deepseek");
+        const url = () => page.wrapper.get<HTMLInputElement>("input[data-search-base-url], [data-search-base-url] input");
+        await url().setValue("http://a b c");
+        await url().trigger("keydown", {key: "Enter"});
+        await flushPromises();
+        // 带空白的不是网址（输出 13）。
+        expect(page.wrapper.text()).toContain("要以 http:// 或 https:// 开头");
+        expect(page.settings.get(S.deepseekBaseUrl)).toBe("https://relay.example/ds");
+        expect(await page.settings.update(S.deepseekBaseUrl, undefined, {layer: "user"})).toMatchObject({ok: true});
+        await waitUntil("草稿作废", () => !page.wrapper.text().includes("要以 http:// 或 https:// 开头") || undefined);
+        expect(url().element.value).toBe("");
+    });
+
+    it("设为使用中写成后焦点回到左栏那一行；英文读屏描述用英文的分隔（输出 10、11）", async () => {
+        const page = render({hasKey: true, hasTavilyKey: true});
+        await loaded(page);
+        await page.show("tavily");
+        await page.wrapper.get("[data-search-use-action]").trigger("click");
+        await waitUntil("焦点回到左栏", () => document.activeElement === page.railItem("tavily").element || undefined);
+
+        const english = render({}, {locale: "en-US"});
+        await loaded(english);
+        const describedBy = english.railItem("deepseek").attributes("aria-describedby") ?? "";
+        expect(english.wrapper.element.querySelector(`[id="${describedBy}"]`)?.textContent).toBe("In use, No key yet");
+    });
 });

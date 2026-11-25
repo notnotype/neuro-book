@@ -19,12 +19,8 @@ export const DEFAULT_TAVILY_BASE_URL = "https://api.tavily.com";
 /** 默认结果条数的范围（“输入与前置条件”的配置项表）。 */
 export const RESULT_COUNT_MIN = 1;
 export const RESULT_COUNT_MAX = 10;
+/** 屏蔽网站的上限；每项的写法与归一化在 `sites.ts`（schema 只要字符串：写错的项由读的一方跳过，不让整份名单失效）。 */
 export const MAX_BLOCKED_SITES = 100;
-/**
- * 屏蔽网站一项的写法：小写的域名（ASCII，国际化域名写成 punycode），至少两段，不带协议、端口与路径。设置页把输入归一化成这样
- * 再写；设置文件里写错的项不合 schema，整项按无效处理（configuration.md 的校验）。
- */
-export const SITE_PATTERN = "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$";
 
 export const webSettings = defineSettings("nbook.web", {
     provider: {
@@ -55,7 +51,7 @@ export const webSettings = defineSettings("nbook.web", {
         section: SEARCH_SECTION,
     },
     blockedSites: {
-        schema: Type.Array(Type.String({pattern: SITE_PATTERN}), {maxItems: MAX_BLOCKED_SITES}),
+        schema: Type.Array(Type.String({minLength: 1, maxLength: 2048}), {maxItems: MAX_BLOCKED_SITES}),
         default: [],
         layers: ["user"],
         section: SEARCH_SECTION,

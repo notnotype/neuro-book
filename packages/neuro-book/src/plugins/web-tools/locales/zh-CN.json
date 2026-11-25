@@ -99,7 +99,9 @@
         "title": "搜索规则",
         "countInvalid": "填 {{min}} 到 {{max}} 的整数",
         "blockedPlaceholder": "输入域名后回车",
-        "blockedInvalid": "“{{value}}”不是域名"
+        "blockedInvalid": "“{{value}}”不是域名",
+        "blockedTooMany": "至多屏蔽 {{max}} 个网站",
+        "blockedCount": "屏蔽了 {{count}} 个网站"
     },
     "rail": {
         "label": "搜索服务"
@@ -111,7 +113,8 @@
     },
     "status": {
         "checkFailed": "检测没通过",
-        "noKey": "还没有密钥"
+        "noKey": "还没有密钥",
+        "joiner": "，"
     },
     "advanced": {
         "title": "高级",

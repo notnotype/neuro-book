@@ -163,6 +163,13 @@ test("验收 5：改默认结果条数、加一个屏蔽网站、改 Tavily 的�
     await blocked.press("Enter");
     await expect.poll(async () => (await userSettings())["nbook.web/blockedSites"]).toEqual(["blog.csdn.net"]);
     await expect(page.locator("[data-search-rail-item='rules']")).toContainText("1");
+    // 粘贴几行：单行输入框会去掉换行，页面在粘贴时按行拆开（输出 12）。
+    await blocked.evaluate((input) => {
+        const data = new DataTransfer();
+        data.setData("text/plain", "zhihu.com\nbaidu.com");
+        input.dispatchEvent(new ClipboardEvent("paste", {clipboardData: data, bubbles: true, cancelable: true}));
+    });
+    await expect.poll(async () => (await userSettings())["nbook.web/blockedSites"]).toEqual(["blog.csdn.net", "zhihu.com", "baidu.com"]);
 
     await page.locator("[data-search-rail-item='tavily']").click();
     // 这里的设置文件改过 Tavily 的接口地址（指向本机假端点）：它的“高级”默认展开（输出 13）。
