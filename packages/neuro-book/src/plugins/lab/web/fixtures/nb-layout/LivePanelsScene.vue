@@ -52,11 +52,9 @@ let judged: LiveDrop | null = null;
 /** 来源拿起时所在的那块（视口坐标）：回到这里是原位。 */
 let homeRect: GridDropRect | null = null;
 
-/** 已提交的树复制一份，在上面做预览的结构操作，不碰已提交的。 */
+/** 已提交的树复制一份（连同约束与分隔线宽度），在上面做预览的结构操作，不碰已提交的。 */
 function copyOf(): Grid<string> {
-    const copy = createGrid<string>(null, {sashSize: SASH});
-    copy.restore(grid.value.serialize(), (key) => ({ref: key}));
-    return copy;
+    return grid.value.clone();
 }
 function removed(source: string): Grid<string> | null {
     const copy = copyOf();

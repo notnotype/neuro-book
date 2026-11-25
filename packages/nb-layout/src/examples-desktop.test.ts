@@ -149,7 +149,7 @@ describe("平铺的树操作", () => {
         expect(treeLeaves(other)).toEqual([DESKTOP, "notes", "dock"]);
     });
 
-    it("桌面叶的父已经是横向分支：加到分支的头或尾，三块平分", () => {
+    it("第二扇在桌面叶另一侧，三块平分", () => {
         const layout = DesktopLayout.createDefault();
         layout.tile("notes", "left", WIDE);
         expect(layout.tile("calc", "right", WIDE).ok).toBe(true);
