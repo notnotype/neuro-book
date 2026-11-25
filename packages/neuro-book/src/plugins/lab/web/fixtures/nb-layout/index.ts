@@ -8,7 +8,8 @@ import {h} from "vue";
 import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter} from "@notnotype/nb-layout/vue";
 import type {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 
-import {defineLabFixture, type LabFixture} from "../index";
+import {defineLabFixture} from "../define";
+import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 
 function nbLayoutSubject(name: "DropIndicatorLabel" | "DropSectorsOverlay" | "FloatWindowHandles" | "Splitter"): () => Promise<{default: Component}> {

@@ -59,6 +59,8 @@ export type LabDebugApi = {
     components: () => string[];
     /** 某个组件（缺省为当前组件）登记的场景。 */
     scenes: (component?: string) => Array<{id: string; label: string}>;
+    /** 草稿区（`drafts/…`）的组件名：界面评审的静态稿，版面门禁不量它们（docs/specs/ui/component-lab.md 的“草稿区”）。 */
+    drafts: () => string[];
     /** 没有舞台（组件不可挂载或还在加载）时为 null。 */
     measure: () => LabStageMeasure | null;
 };

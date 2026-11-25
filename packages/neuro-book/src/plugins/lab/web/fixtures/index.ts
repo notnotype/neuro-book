@@ -160,7 +160,9 @@ import type HighlightBox from "../components/HighlightBox.vue";
 import type MarkdownView from "../components/MarkdownView.vue";
 import type SurfaceTierDemo from "../components/SurfaceTierDemo.vue";
 import type ViewportCanvas from "../components/ViewportCanvas.vue";
-import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
+import type {LabInputOf, LabJsonPropOf, LabSlotOf} from "../lab-subject";
+import {draftFixtures} from "../drafts";
+import {defineLabFixture} from "./define";
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
@@ -287,13 +289,7 @@ export type LabFixtureDefinition<C> = {
     } : never)
 );
 
-/** 唯一的类型化 fixture 登记入口；运行时只返回登记对象，不加载组件或推导签名。 */
-export function defineLabFixture<C = never>(
-    definition: [C] extends [never] ? never : [LabSubjectProps<C>] extends [never] ? never : LabFixtureDefinition<C>,
-): LabFixture {
-    // 类型检查发生在入口参数；消费方需要的宽化 registry 类型在此处擦除一次。
-    return definition as unknown as LabFixture;
-}
+export {defineLabFixture} from "./define";
 
 /**
  * fixture 在被检视的那个零件上加 `data-lab-subject`，Lab 据此画常亮描边。
@@ -305,6 +301,8 @@ export function defineLabFixture<C = never>(
 // Lab 场景在选择时才加载：避免一次导入所有产品组件和纯内存 fixture。
 
 export const labFixtures: LabFixture[] = [
+    // 草稿区：每个 Task 一个目录，各自登记（见 ../drafts/index.ts）。
+    ...draftFixtures,
     defineLabFixture<typeof CollapsibleSidePanel>({
         component: "CollapsibleSidePanel", slots: ["default", "actions"],
         scenes: [

@@ -76,7 +76,8 @@ const isDevelopmentPlugin = (path: string): boolean => path.startsWith("plugins/
 const isPluginContracts = (target: string): boolean => /^(?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+\/shared\/contracts(?:\.ts)?$/u.test(target);
 /** 路径段含 `testing`：本包的测试支持目录，或内核的 `@notnotype/nb-runtime/<机制>/testing` 入口。 */
 const importsTesting = (use: ImportUse, target: string | null): boolean => use.specifier.split("/").includes("testing") || (target !== null && has(target, "testing"));
-const labSceneMayImport = (file: string, target: string): boolean => file.startsWith("plugins/lab/web/fixtures/") && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
+/** Lab 的场景与草稿区（界面评审的静态稿）可以引别的插件的界面与共用代码：它们只在开发版里有。 */
+const labSceneMayImport = (file: string, target: string): boolean => (file.startsWith("plugins/lab/web/fixtures/") || file.startsWith("plugins/lab/web/drafts/")) && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 /**
  * nb-canon 的主入口带着渲染链（MDX 解析与它的依赖），`node` 子路径要 `node:fs`：浏览器代码在运行时只能引 `schema` 子路径，
  * 别的只引类型。主入口在 Vite 开发模式下加载不了（依赖里的 CommonJS 包没有缺省导出），引了它整个窗口起不来（t31 S5 时踩到）。
