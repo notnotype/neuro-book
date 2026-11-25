@@ -75,7 +75,7 @@ type Emits = {
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账。`collapsed` 只含这次手势改了收起状态的面板。 */
     (event: "gesture-commit", before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
-    /** 网格两路诊断的并集（`ui/nested-grid` 输出 139、140）：带 `ok` 的是被拒的提交。只发新出现的。 */
+    /** 网格两路诊断的并集（`ui/nested-grid` 输出 139、140）：带 `ok` 的是被拒的提交。只发新出现的。外壳把它交给 `reportGridIssues`，记进窗口的诊断（事件 `workbench.grid`）。 */
     (event: "issues", issues: readonly (GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure)[]): void;
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。 */
@@ -145,7 +145,7 @@ attrs 落在根元素上。
 
 一列分节全部收成标题行时（投影的 `fillers`，最后一节垫底、外框拉到了底，[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 11）：这一列的分隔线经 `NestedGrid` 的 `sashDisabled` 不能拖；垫底的那一节内容项不活动（不显示、不可交互）；收起的分节卡片上不写悬停范围（头自己写），指针停在垫底的空白里不显示它的按钮。
 
-切换容器滚动的那几百毫秒里（`swap`），换上来的分节外框在半路、已经可以交互。实时布局起拖前宿主先 `settleMotion`，量到的是终点；落点指示（设置关掉了实时布局，或用键盘拿起）这时起拖量到的是半路的几何，到下一次重量之前落点错位（已知限制）。
+切换容器滚动的那几百毫秒里（`swap`），换上来的分节外框在半路、已经可以交互。这时起拖（实时布局、落点指示、键盘拿起都一样），拖动会话先把过渡送到终点（`settleMotion`），量到的是终点的几何；代价是进行中的滚动直接跳到终点。
 
 ## 入口条与并成一行
 

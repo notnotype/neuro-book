@@ -658,7 +658,12 @@ test.describe("产品页", () => {
         expect((await sectionBox(page, EXPLORER)).width).toBe(350);
     });
 
-    test("放不下时只改呈现：窄到最小值时先压工具面板，再按右栏、面板、侧栏的顺序收走并给诊断，最后才压编辑组；文档不变，放大后回到原样（输出 6、10；验收 6）", async ({page}) => {
+    test("放不下时只改呈现：窄到最小值时先压工具面板，再按右栏、面板、侧栏的顺序收走并给诊断，最后才压编辑组；文档不变，放大后回到原样（输出 6、10；验收 6、34）", async ({page}) => {
+        // 网格的诊断经窗口的诊断写到控制台（验收 34）：浏览器出口的文字是“时间 [级别] 事件: 消息”，消息以码开头。
+        const grid: Array<{type: string; text: string}> = [];
+        page.on("console", (entry) => {
+            if (entry.text().includes("workbench.grid:")) grid.push({type: entry.type(), text: entry.text()});
+        });
         await open(page);
         // 底部面板默认隐藏：先放一个视图进去，三个区域才都有分节可收。
         const panel = await sessionsToPanel(page);
@@ -686,6 +691,7 @@ test.describe("产品页", () => {
         await expect.poll(() => diagnostics.getAttribute("data-layout-diagnostics")).toContain(`收走 ${aux}`);
         expect((await box(page, "g0")).width).toBeGreaterThanOrEqual(220);
         await parked(page, '[data-content="view:nbook.agent.conversation"]');
+        await expect.poll(() => grid.some((entry) => entry.type === "debug" && entry.text.includes("over-constrained"))).toBe(true);
 
         // 高度放不下：面板在侧栏之前收走，编辑组留在可用的高度里。
         await page.setViewportSize({width: 590, height: 230});
@@ -700,6 +706,8 @@ test.describe("产品页", () => {
         await expect(diagnostics).toHaveAttribute("data-layout-diagnostics", "");
         await unparked(page, '[data-content="view:nbook.agent.conversation"]');
         await expect.poll(fullyVisible).toBe(true);
+        // 放不下是可以预期的降级：整个过程没有网格的警告与错误。
+        expect(grid.filter((entry) => entry.type === "warning" || entry.type === "error")).toEqual([]);
     });
 
     test("窄的时候收起一个分节：被压缩的宽度不写进布局，放大后回到原样（输出 8；验收 6）", async ({page}) => {
