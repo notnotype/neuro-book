@@ -1028,12 +1028,19 @@ test.describe("消息视图的分栏", () => {
     test("窄版：抽屉从头像列伸出来压在聊天区上，行点得到；线拖不动", async ({page}) => {
         await openScene(page, "AgentMessages", "narrow-drawer", "900x560");
         await expect(listPanel(page)).toBeVisible();
-        // 抽屉整块在头像列右边：被 52 像素的那块面板裁掉的话，行不在可点的位置上，click 过不了命中检查。
         const drawer = (await listPanel(page).boundingBox())!;
         const rail = (await strip(page).boundingBox())!;
         expect(drawer.x).toBeGreaterThanOrEqual(rail.x + rail.width - TOLERANCE_PX);
         expect(drawer.width).toBeGreaterThan(200);
-        await stage(page).locator("[data-messages-contact='nbook.bots/vega']").click();
+        // 抽屉真的画在聊天区上面：行中心最上面的元素就是这一行。不靠 click 判断：抽屉被 52 像素的那块面板裁掉时，
+        // click 会先把行滚进那块面板再点，照样点得到。
+        const row = stage(page).locator("[data-messages-contact='nbook.bots/vega']");
+        expect(await row.evaluate((element) => {
+            const box = element.getBoundingClientRect();
+            const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+            return top !== null && element.contains(top);
+        })).toBe(true);
+        await row.click();
         await expect(page.locator('[data-lab-panel="events"] .nb-lab-event-chip', {hasText: "open-contact"})).toHaveCount(1);
 
         await dragSeparator(page, 80);
