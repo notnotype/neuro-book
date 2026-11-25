@@ -129,7 +129,7 @@ function toggleFiles(): void {
 |---|---|---|
 | 建树、拆分、关闭、移动叶 | `createGrid`，`grid.splitLeaf`、`grid.removeLeaf`、`grid.moveLeaf`、`grid.addLeaf` | 根 |
 | 把网格画出来、接手势 | `NestedGrid` 加 `useGridHost` | `./vue` |
-| 关掉一块，内容跟着缩回去再卸载 | `NestedGrid` 的内容层，内容项标 `leave: "retain"`（[说明](src/vue/NestedGrid.md)；只用 leaf 插槽时删叶没有缩回去的过渡） | `./vue` |
+| 关掉一块，内容跟着缩回去再卸载 | `NestedGrid` 的内容层，内容项标 `leave: "retain"`（[说明](src/vue/NestedGrid.md)；只用 leaf 插槽时删叶没有缩回去的过渡；留着的这段时间宿主的数据已经删了，面板头与正文都别按 key 查数据，写法见说明的“过渡”） | `./vue` |
 | 收起与展开一块面板 | `host.setCollapsed`（直接调 `grid.setCollapsed` 的，之后要调 `host.invalidate()`；示例见 ide） | `./vue`、根 |
 | 把一块保留像素的设成已知宽度（偏好、菜单） | `grid.setSize`，之后调 `host.invalidate()` | 根 |
 | 保存与恢复 | `grid.serialize()`、`grid.restore(快照, 解析引用)` | 根 |
