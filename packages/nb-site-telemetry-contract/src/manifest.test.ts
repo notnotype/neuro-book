@@ -332,6 +332,14 @@ describe("三种上报的 schema", () => {
         expect(Value.Check(immediate, eventWithoutCode)).toBe(true);
     });
 
+    it("不带使用档的每日上报：manifest.usage 可省，给了就要是版本号（服务端照样判它）", () => {
+        const withVersion = (usage: unknown) => ({...dailyWithoutUsage, manifest: {anonymous: 1, usage}});
+        expect(Value.Check(dailyAnonymousOnly, dailyWithoutUsage)).toBe(true);
+        expect(Value.Check(dailyAnonymousOnly, withVersion(1))).toBe(true);
+        expect(Value.Check(dailyAnonymousOnly, withVersion(0))).toBe(false);
+        expect(Value.Check(dailyAnonymousOnly, withVersion("1"))).toBe(false);
+    });
+
     it("多出来的字段照样放行（协议输出 3：丢弃，不拒收）", () => {
         expect(Value.Check(beat, {...heartbeat, extra: 1, manifest: {anonymous: 1, x: 2}})).toBe(true);
     });

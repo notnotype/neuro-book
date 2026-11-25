@@ -3,7 +3,7 @@
  * 与它们带进来的第三方依赖；测试运行器、平台内置模块、测试支持包的临时目录与等待工具不在其内。允许清单与理由在
  * 本包的 `AGENTS.md`，这里照清单检查：
  * - 所有源文件（连同测试文件）只导入两个合同包、`bun:test`、`node:` 内置模块、测试支持包的 `/tmp` 与 `/wait`；
- * - `bun:sqlite` 只许出现在故障注入与备份核对的辅助文件里：它们按 Spec 写明的数据目录布局直接碰库文件；
+ * - `bun:sqlite` 只许出现在故障注入、备份核对与读聚合计数的辅助文件里：它们按 Spec 写明的数据目录布局直接碰库文件；
  * - 本文件另许测试支持包的 `/import-boundary`，它就是做这项检查的工具；
  * - 相对导入落在本包的 `src/` 里；
  * - 清单：运行时依赖只有两个合同包；devDependencies 里的工作区包只有 `nb-site-server`（只为找到被测程序的启动命令与
@@ -29,7 +29,7 @@ const DEV_WORKSPACE = ["@notnotype/nb-site-server", "@notnotype/neuro-book-test-
 
 const BASE_PACKAGES = [/^@notnotype\/nb-site-(?:identity|telemetry)-contract$/u, /^bun:test$/u, /^node:[a-z_/]+$/u, /^@notnotype\/neuro-book-test-support\/(?:tmp|wait)$/u];
 /** 相对 `src/` 的路径；可以直接打开库文件的辅助文件。 */
-const SQLITE_FILES = new Set(["testing/fault.ts", "testing/backup.ts"]);
+const SQLITE_FILES = new Set(["testing/fault.ts", "testing/backup.ts", "testing/aggregate.ts"]);
 const SELF = "boundary.test.ts";
 
 function ruleFor(file: string): ImportRule {

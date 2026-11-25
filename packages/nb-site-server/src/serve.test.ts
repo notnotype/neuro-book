@@ -153,7 +153,9 @@ describe("健康检查", () => {
             return result.status === 503 ? result : undefined;
         });
         expect(notReady.body).toEqual({status: "not_ready", code: "not_ready", modules: {alpha: "not_ready", beta: "ready"}});
-        expect(site.logs().find((line) => line.event === "health.not_ready")).toMatchObject({module: "alpha", reason: "module_not_ready"});
+        // 回应先于子进程那一行日志到达管道，等日志行出现再比。
+        const notReadyLine = await waitUntil("not_ready log line", () => site.logs().find((line) => line.event === "health.not_ready"));
+        expect(notReadyLine).toMatchObject({module: "alpha", reason: "module_not_ready"});
     });
 
     it("模块在业务连接上开着事务时，就绪检查 200 且不动那个事务", async () => {
@@ -288,7 +290,7 @@ describe("按主机分派与请求日志", () => {
 });
 
 describe("模块的生命周期", () => {
-    it("start() 与定时任务在监听之后才开始，停止时定时任务先停、再 close()、最后 site.stopped", async () => {
+    it("start() 与定时任务在监听之后才开始，停止时不再开始新的任务运行、再 close()、最后 site.stopped", async () => {
         const {site} = await startServing({root, env: env({NB_SITE_ALPHA_JOB_MS: "20"})});
         await site.waitForLog("job ran", (line) => line.event === "fixture.job_ran");
         site.signal("SIGTERM");
@@ -433,6 +435,18 @@ describe("停止", () => {
         expect(site.logs().find((line) => line.event === "module.close_timeout")).toMatchObject({module: "alpha", forced: true});
         expect(events(site).at(-1)).toBe("site.stopped");
     });
+
+    it("积压很多的任务正在跑时停止：先 close()，任务在下一批之前收手，不记 job.stop_timeout", async () => {
+        const {site} = await startServing({root, env: env({NB_SITE_ALPHA_BACKLOG: "1"})});
+        await site.waitForLog("backlog job started", (line) => line.event === "fixture.backlog_started");
+        site.signal("SIGTERM");
+        expect(await site.waitForExit()).toBe(0);
+        const order = events(site);
+        // 先等任务再 close() 时，这个任务要等到 close() 才停，等任务的 2 秒先用完、记一行 job.stop_timeout。
+        expect(order).not.toContain("job.stop_timeout");
+        expect(order.indexOf("fixture.closed")).toBeLessThan(order.indexOf("fixture.backlog_stopped"));
+        expect(order.indexOf("fixture.backlog_stopped")).toBeLessThan(order.indexOf("site.stopped"));
+    });
 });
 
 describe("测试控制入口（输出 11）", () => {
@@ -537,6 +551,8 @@ describe("测试控制入口（输出 11）", () => {
         await waitUntil("second hold started", () => holdEvents().length >= 3);
         site.writeStdin("finish\n");
         expect(await second).toEqual({status: 200, body: {status: "done"}});
+        // 回应先于子进程那一行日志到达管道，等日志行出现再比。
+        await waitUntil("second hold finished", () => holdEvents().length >= 4);
         expect(holdEvents()).toEqual(["fixture.hold_started", "fixture.hold_finished", "fixture.hold_started", "fixture.hold_finished"]);
     });
 

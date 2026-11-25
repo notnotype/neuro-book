@@ -30,4 +30,10 @@ describe("写入口的合同（docs/specs/telemetry/protocol.md）", () => {
         for (const code of ["payload_too_large", "rate_limited", "unavailable"]) expect(Value.Check(IngestError, {code})).toBe(true);
         expect(Value.Check(IngestError, {code: "internal"})).toBe(false);
     });
+
+    it("失败体不收多余的键：别的码带了 field、invalid_report 多带别的键都不合格", () => {
+        for (const body of [{code: "unavailable", field: "channel"}, {code: "rate_limited", field: null}, {code: "payload_too_large", field: null}, {code: "invalid_report", field: null, detail: "x"}]) {
+            expect({body, ok: Value.Check(IngestError, body)}).toEqual({body, ok: false});
+        }
+    });
 });

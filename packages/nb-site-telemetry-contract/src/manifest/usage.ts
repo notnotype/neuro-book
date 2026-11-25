@@ -38,7 +38,7 @@ const COUNT_VALUES_V1: ValueTable = {
 const OWNERS_V1: ValueTable = {
     "runtime.diagnostics": {"zh-CN": "诊断与日志", "en-US": "Diagnostics and logs"},
     "nbook.http": {"zh-CN": "本机的网络服务", "en-US": "The app's local web server"},
-    "nbook.state": {"zh-CN": "公开状态", "en-US": "Shared state"},
+    "nbook.state": {"zh-CN": "插件之间共享的状态", "en-US": "State shared between plugins"},
     "nbook.settings": {"zh-CN": "设置", "en-US": "Settings"},
     "nbook.commands": {"zh-CN": "命令", "en-US": "Commands"},
     "nbook.storage": {"zh-CN": "插件数据的存储", "en-US": "Storage for plugin data"},
@@ -47,7 +47,7 @@ const OWNERS_V1: ValueTable = {
     "nbook.tasks": {"zh-CN": "后台任务", "en-US": "Background tasks"},
     "nbook.agent": {"zh-CN": "Agent 对话", "en-US": "Agent conversations"},
     "nbook.stickers": {"zh-CN": "表情包", "en-US": "Stickers"},
-    "nbook.bots": {"zh-CN": "bot", "en-US": "Bots"},
+    "nbook.bots": {"zh-CN": "聊天角色（Bot）", "en-US": "Chat characters (bots)"},
     "nbook.web-tools": {"zh-CN": "网页搜索与读取", "en-US": "Web search and fetch"},
     "nbook.plugins": {"zh-CN": "插件管理", "en-US": "Plugin management"},
     "nbook.workbench": {"zh-CN": "工作台", "en-US": "Workbench"},

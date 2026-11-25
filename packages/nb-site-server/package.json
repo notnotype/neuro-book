@@ -18,6 +18,7 @@
         "test": "bun test",
         "typecheck": "tsc --noEmit",
         "build:image": "bun image/build.ts",
+        "build:previous": "bun image/build-previous.ts",
         "smoke:image": "bun image/smoke.ts"
     },
     "dependencies": {

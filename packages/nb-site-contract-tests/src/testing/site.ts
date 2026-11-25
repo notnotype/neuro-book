@@ -31,6 +31,17 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 export const SERVER_COMMAND_ENV = "NB_SITE_SERVER_COMMAND";
 /** 上一个发布版本的程序，形式同上；只有相邻版本测试用它，没设时那组用例跳过。 */
 export const PREVIOUS_SERVER_COMMAND_ENV = "NB_SITE_PREVIOUS_SERVER_COMMAND";
+/**
+ * 上一个版本还没有统计的写入口、还没有统计的两个定时任务：设成 `1` 时相邻版本测试不测那一项（`site.operations` 验收 2 的
+ * “上一个版本还没有的接口不在此列”）。由给出上一个版本的一方按它的源码定（`nb-site-server` 的 `build:previous`），
+ * 测试不按运行结果自己猜。
+ */
+export const PREVIOUS_WITHOUT_INGEST_ENV = "NB_SITE_PREVIOUS_WITHOUT_INGEST";
+export const PREVIOUS_WITHOUT_TELEMETRY_JOBS_ENV = "NB_SITE_PREVIOUS_WITHOUT_TELEMETRY_JOBS";
+
+/** 沙箱给被测进程的站点地址与遥测写入口地址（`baseEnv()`）；发到写入口的请求带后者的主机名作 `Host`。 */
+export const SANDBOX_SITE_URL = "https://site.test";
+export const SANDBOX_TELEMETRY_URL = "https://telemetry.test";
 
 export type LogLine = Readonly<Record<string, unknown>>;
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -52,6 +63,17 @@ export function commandFromEnv(name: string): readonly string[] | undefined {
         throw new Error(`${name} must be a non-empty JSON array of non-empty strings`);
     }
     return value;
+}
+
+/**
+ * 读一个开关环境变量：`1` 为真；没设、空串或 `0` 为假；别的值抛错。没设时按“有”测，是严的一边：忘了设只会让测试失败，
+ * 不会悄悄少测一项。
+ */
+export function flagFromEnv(name: string): boolean {
+    const raw = process.env[name];
+    if (raw === undefined || raw === "" || raw === "0") return false;
+    if (raw === "1") return true;
+    throw new Error(`${name} must be 1, 0 or unset`);
 }
 
 /**
@@ -386,8 +408,8 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         PATH: process.env.PATH ?? "",
         HOME: home,
         TMPDIR: tmp,
-        NB_SITE_URL: "https://site.test",
-        NB_SITE_TELEMETRY_URL: "https://telemetry.test",
+        NB_SITE_URL: SANDBOX_SITE_URL,
+        NB_SITE_TELEMETRY_URL: SANDBOX_TELEMETRY_URL,
         NB_SITE_SESSION_SECRET: sessionSecret,
         NB_SITE_HOST: "127.0.0.1",
         NB_SITE_PORT: "0",

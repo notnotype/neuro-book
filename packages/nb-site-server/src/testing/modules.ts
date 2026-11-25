@@ -2,7 +2,7 @@
  * 只给 `serve.test.ts`、`commands.test.ts` 与 `backup.test.ts` 用的夹具模块；产品代码不引用本目录（`docs/testing/README.md` 的测试文件组织）。
  * `fixture-main.ts` 按环境变量 `NB_SITE_FIXTURE`（逗号分隔）挑出这里的模块交给同一个 `runCli`：
  *
- * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务（含给测试控制入口跑的 `count`、`fail`、`hold`）、命令与
+ * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务（含给测试控制入口跑的 `count`、`fail`、`hold`，与停止时要 `close()` 叫停的 `backlog`）、命令与
  *   一组可操纵的路由（含回显 `clock.now()` 的 `/now`）；备份时在副本里删掉 `label` 为 `raw` 的行（`prepareBackupCopy`，
  *   代表统计模块清空原始上报表），`NB_SITE_ALPHA_PREPARE` 让这一步写错（见 `prepareAlphaCopy`）；
  * - `alpha-failing`：`alpha`，第二条迁移是坏 SQL；
@@ -32,6 +32,8 @@ interface AlphaConfig {
     readonly jobMs: number | undefined;
     /** `NB_SITE_ALPHA_WAIT=create`：`create()` 开头停住（`blockOnStdinLine`）。 */
     readonly waitInCreate: boolean;
+    /** `NB_SITE_ALPHA_BACKLOG=1`：登记 `backlog` 任务，见 `createAlpha`。 */
+    readonly backlog: boolean;
 }
 
 const fixtureLog = createLogger(writeStdout);
@@ -119,6 +121,30 @@ function createAlpha(context: ModuleContext<AlphaConfig>): ModuleInstance {
         },
     });
 
+    // 积压多到停止时做不完的任务，照统计模块的聚合与删除的写法：一批一批做、批间让出，`close()` 置“正在关闭”之后在
+    // 下一批之前收手，`close()` 等它 settle。没有 `close()` 叫停时它一直跑。
+    let closing = false;
+    let backlogRun: Promise<void> | undefined;
+    if (config.backlog) {
+        context.jobs.register({
+            name: "backlog",
+            intervalMs: HOUR_MS,
+            initialDelayMs: 0,
+            run: () => {
+                backlogRun = (async () => {
+                    log.info("fixture.backlog_started", "fixture backlog job started");
+                    let batches = 0;
+                    while (!closing) {
+                        batches += 1;
+                        await new Promise((resolve) => setImmediate(resolve));
+                    }
+                    log.info("fixture.backlog_stopped", "fixture backlog job stopped before its next batch", {batches});
+                })();
+                return backlogRun;
+            },
+        });
+    }
+
     const site = new Hono();
     site.get("/where", (c) => c.json({surface: "site"}));
     site.get("/now", (c) => c.json({now: context.clock.now()}));
@@ -167,9 +193,11 @@ function createAlpha(context: ModuleContext<AlphaConfig>): ModuleInstance {
             if (config.fail === "start") throw new TypeError("fixture start failure");
             log.info("fixture.started", "fixture started");
         },
-        close: () => {
+        close: async () => {
             log.info("fixture.closed", "fixture closed");
-            return config.fail === "close-hang" ? new Promise<void>(() => {}) : Promise.resolve();
+            if (config.fail === "close-hang") return new Promise<void>(() => {});
+            closing = true;
+            await backlogRun;
         },
     };
 }
@@ -207,7 +235,10 @@ function alpha(migrations: readonly Migration[]): SiteModule<AlphaConfig> {
         parseConfig: (env) => {
             if (env.NB_SITE_ALPHA_WAIT === "parse") blockOnStdinLine("parse");
             const jobMs = env.NB_SITE_ALPHA_JOB_MS;
-            return {ok: true, config: {fail: env.NB_SITE_ALPHA_FAIL, jobMs: jobMs === undefined ? undefined : Number(jobMs), waitInCreate: env.NB_SITE_ALPHA_WAIT === "create"}};
+            return {
+                ok: true,
+                config: {fail: env.NB_SITE_ALPHA_FAIL, jobMs: jobMs === undefined ? undefined : Number(jobMs), waitInCreate: env.NB_SITE_ALPHA_WAIT === "create", backlog: env.NB_SITE_ALPHA_BACKLOG === "1"},
+            };
         },
         create: (context) => {
             if (context.config.waitInCreate) blockOnStdinLine("create");
