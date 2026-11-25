@@ -8,7 +8,7 @@
 import type {Database} from "bun:sqlite";
 import type {Hono} from "hono";
 
-import {CREATE_ADMIN_COMMAND, runCreateAdmin, type CreateAdminFailure} from "./commands/create-admin";
+import {CREATE_ADMIN_COMMAND, createAdminConnection, runCreateAdmin, type CreateAdminFailure} from "./commands/create-admin";
 import {processPasswordSource} from "./commands/read-password";
 import {IdentityConnection} from "./db/connection";
 import {assembleIdentity, type IdentityAssemblyOptions} from "./module";
@@ -86,7 +86,7 @@ export const createAdminCommand: IdentityCommand = {
     ],
     run: (context) =>
         runCreateAdmin({
-            conn: new IdentityConnection(context.db, {log: context.log}),
+            conn: createAdminConnection(context.db, context.log),
             log: context.log,
             clock: context.clock,
             args: context.args,

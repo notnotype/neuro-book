@@ -442,6 +442,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         carol: "carol-PW-t5Ns63",
         interrupted: "sigterm-PW-v8Lc12",
         interruptedReset: "sigterm-reset-PW-j7Wn36",
+        interruptedLocked: "sigterm-locked-PW-r4Hm05",
     };
     const runs: CommandResult[] = [];
     const results = new Map<string, CommandResult>();
@@ -463,6 +464,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         readonly gatedAfterConsent: JsonResponse;
     };
     let interrupted: {readonly signal: NodeJS.Signals; readonly result: CommandResult; readonly retry: CommandResult}[];
+    let interruptedLocked: {readonly result: CommandResult; readonly retry: CommandResult};
 
     async function createAdmin(name: string, dataDir: string, args: readonly string[], stdin: string): Promise<CommandResult> {
         const result = await sandbox.run("create-admin", {dataDir, args, stdin});
@@ -484,6 +486,30 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         runs.push(result);
         const retry = await createAdmin(`retry-${signal}`, dataDir, [username], `${PASSWORDS.interrupted}\n`);
         return {signal, result, retry};
+    }
+
+    /**
+     * 账号库被别的进程占着写锁时给了密码（关掉标准输入），随即发 `SIGTERM`，发完才放锁；之后同名再建一次，看前一次有没有留下账号。
+     * 信号落在读密码、算哈希还是等写锁的哪一步不由这里控制：Spec 对这几步的要求相同，都不改账号、以 `interrupted` 结束。
+     * 落在等写锁时，等锁若是同步的（信号处理函数跑不了），锁一放开事务就提交（omp 实现审查第 2 条）。
+     */
+    async function interruptWhileLocked(dataDir: string, username: string) {
+        const release = holdWriteLock(dataDir, "identity");
+        let result: CommandResult;
+        try {
+            const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
+            await child.waitForStderr("the password prompt", (line) => line !== "");
+            await child.write(`${PASSWORDS.interruptedLocked}\n`);
+            await child.closeStdin();
+            child.kill("SIGTERM");
+            release();
+            result = await child.result();
+        } finally {
+            release();
+        }
+        runs.push(result);
+        const retry = await createAdmin("retry-locked", dataDir, [username], `${PASSWORDS.interruptedLocked}\n`);
+        return {result, retry};
     }
 
     beforeAll(async () => {
@@ -510,6 +536,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         // 已存在的账号给了别人占着的邮箱：邮箱被忽略，不报 email_taken。
         await createAdmin("reset-taken-email", dataDir, ["root", "carol@example.com"], `${PASSWORDS.reset}\n`);
         interrupted = [await interruptAtPassword(dataDir, "sigterm_user", "SIGTERM"), await interruptAtPassword(dataDir, "sigint_user", "SIGINT")];
+        interruptedLocked = await interruptWhileLocked(dataDir, "locked_user");
 
         // 服务在运行：命令与服务同时开着同一个库。每个请求一个来源地址，限流互不影响。
         const running = await sandbox.dataDir();
@@ -625,6 +652,12 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
             expect({signal, exitCode: result.exitCode === 0 ? 0 : "non-zero", code: result.failure?.code, lines: upserted(result)}).toEqual({signal, exitCode: "non-zero", code: "interrupted", lines: []});
             expect({signal, retry: upserted(retry)}).toEqual({signal, retry: [expect.objectContaining({created: true})]});
         }
+    });
+
+    it("账号库被别的进程占着写锁时给了密码、随即收到 SIGTERM：非零退出、码是 interrupted，放锁后没有建账号（之后同名再建是新建）", () => {
+        const {result, retry} = interruptedLocked;
+        expect({exitCode: result.exitCode === 0 ? 0 : "non-zero", code: result.failure?.code, lines: upserted(result)}).toEqual({exitCode: "non-zero", code: "interrupted", lines: []});
+        expect(upserted(retry)).toEqual([expect.objectContaining({created: true})]);
     });
 
     it("新建的管理员能用它的密码登录，角色是 admin", () => {

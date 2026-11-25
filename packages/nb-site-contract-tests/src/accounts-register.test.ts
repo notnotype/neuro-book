@@ -188,6 +188,24 @@ describe("注册（输出 1 到 3，验收 1、2）", () => {
         expect(await codeById(code.id)).toMatchObject({usedCount: 0});
     });
 
+    // 超出 200 毫秒的预算：合法的那一次算一次密码哈希。
+    it("请求体不是合法的 UTF-8（显示名里一个无效字节）：validation_failed、fields 为空数组，不建号、不扣码；JSON 里的 U+FFFD 照收（输出 22）", async () => {
+        const code = await issueCode({maxUses: 1});
+        const fields = body(code.code, {displayName: "x�y"});
+        // 把 JSON 文字里的 U+FFFD 换成一个不能出现在 UTF-8 里的字节 0xFF，其余字节不变。
+        const text = new TextEncoder().encode(JSON.stringify(fields));
+        const replacement = [0xef, 0xbf, 0xbd];
+        const at = text.findIndex((_, index) => replacement.every((byte, offset) => text[index + offset] === byte));
+        const invalid = new Uint8Array([...text.subarray(0, at), 0xff, ...text.subarray(at + replacement.length)]);
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.register, {method: "POST", from: from(), body: invalid}))).toEqual({status: 400, body: {error: {code: "validation_failed", fields: []}}});
+        expect(await codeById(code.id)).toMatchObject({usedCount: 0, usable: true});
+
+        // 同一个用户名、同一个只能用一次的码：前一次没建号、没扣码，这一次才成功。
+        const accepted = await register(fields);
+        expect({status: accepted.status, displayName: (accepted.body as RegisterResponse).user.displayName}).toEqual({status: 200, displayName: "x�y"});
+        expect(await codeById(code.id)).toMatchObject({usedCount: 1, usable: false});
+    });
+
     it("先后（失败表“注册”一行）：同时缺几样时回排在最前的那个码", async () => {
         const used = await issueCode({maxUses: 1});
         const owner = fresh("owner");

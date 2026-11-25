@@ -69,7 +69,7 @@ export function cookieJar(): CookieJar {
 
 export interface IdentityRequestInit {
     readonly method?: string;
-    /** 请求体：对象按 JSON 发；字符串与流原样发。缺省不带请求体。 */
+    /** 请求体：对象按 JSON 发；字符串、字节（`Uint8Array`）与流原样发。缺省不带请求体。 */
     readonly body?: unknown;
     /** 盖在缺省头上；值为 null 的去掉（例如去掉 `Origin`）。 */
     readonly headers?: Readonly<Record<string, string | null>>;
@@ -92,7 +92,8 @@ export async function identityRequest(url: string, path: string, init: IdentityR
         if (value === null) headers.delete(name);
         else headers.set(name, value);
     }
-    const body = init.body === undefined ? undefined : typeof init.body === "string" || init.body instanceof ReadableStream ? init.body : JSON.stringify(init.body);
+    const body =
+        init.body === undefined ? undefined : typeof init.body === "string" || init.body instanceof Uint8Array || init.body instanceof ReadableStream ? init.body : JSON.stringify(init.body);
     const response = await requestJson(new URL(`${IDENTITY_API_PREFIX.slice(1)}${path}`, url).href, {method: init.method ?? "GET", headers, ...(body === undefined ? {} : {body})});
     init.jar?.store(response);
     return response;
@@ -103,13 +104,20 @@ export function login(url: string, identifier: string, password: string, init: {
     return identityRequest(url, IDENTITY_PATHS.login, {method: "POST", body: {identifier, password}, ...init});
 }
 
+/** 失败时带上的标准输出行数：够看到 `process.fatal` 与它前面几行，不把迁移的整段日志都塞进报错。 */
+const STDOUT_TAIL_LINES = 10;
+
 /**
  * 用 `create-admin` 建（或重置）一个管理员，返回账号 id（标准输出那一行 `identity.admin_upserted` 的 `userId`）；非零退出时抛错，
- * 错误里带标准错误。给 `beforeAll` 造登录态用：合同里能造出账号的只有这个命令（注册在后面的片）。
+ * 错误里带标准错误与标准输出的末尾：码是 `internal` 时原因只在标准输出的 `process.fatal` 那一行（`site.operations` 失败表）。
+ * 给 `beforeAll` 造登录态用：合同里能造出账号的只有这个命令（注册在后面的片）。
  */
 export async function createAdmin(sandbox: Pick<SiteSandbox, "run">, dataDir: string, args: readonly string[], password: string): Promise<number> {
     const result = await sandbox.run("create-admin", {dataDir, args, stdin: `${password}\n`});
     const userId = result.logs.find((line) => line.event === "identity.admin_upserted")?.userId;
-    if (result.exitCode !== 0 || typeof userId !== "number") throw new Error(`create-admin ${args.join(" ")} exited ${String(result.exitCode)}\n${result.stderr}`);
+    if (result.exitCode !== 0 || typeof userId !== "number") {
+        const stdoutTail = result.stdout.split("\n").filter((line) => line !== "").slice(-STDOUT_TAIL_LINES);
+        throw new Error(`create-admin ${args.join(" ")} exited ${String(result.exitCode)}\nstderr:\n${result.stderr}\nstdout (last ${String(STDOUT_TAIL_LINES)} lines):\n${stdoutTail.join("\n")}`);
+    }
     return userId;
 }

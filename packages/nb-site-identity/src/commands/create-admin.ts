@@ -4,21 +4,26 @@
  * 它是另一个进程，用入口交来的自己那条连接写账号库，与正在运行的服务靠 SQLite 的写锁排队：
  * - 哈希用与服务相同的参数（`hashPassword`），不经服务的哈希限额。
  * - 写库是一个同步的 `BEGIN IMMEDIATE` 事务（`IdentityConnection.write`）：查账号、改或建、结束会话、写审计一次做完，中间没有
- *   `await`，停止信号插不进来，要么全部生效、要么都不生效。服务正在写时 `BEGIN IMMEDIATE` 等满连接的 `busy_timeout`（250 毫秒）
- *   后以 `SQLITE_BUSY` 失败，这里隔 100 毫秒重试，至多 50 次，用完以 `unavailable` 失败。服务那一侧的事务都很短，实际不会等满。
- * - 停止信号（`signal`）：读密码时、算完哈希后、每次尝试写库前都看；已 abort 就不写，reject 为 `signal.reason`，入口报
- *   `interrupted`（`SiteCommand` 的约定）。用户在终端里按 Ctrl-C、空输入时按 Ctrl-D 是取消，那时 `signal` 没有 abort，所以以
- *   `interrupted` 的失败 resolve，不 reject（reject 会被入口当成没预料到的错误）。
+ *   `await`，停止信号插不进来，要么全部生效、要么都不生效。
+ * - 等写锁不能是同步的：`bun:sqlite` 在 `busy_timeout` 里同步睡，这期间信号处理函数跑不了；锁在这段里放开时事务照样提交，
+ *   随后才看到早已到达的 `SIGTERM`（omp 实现审查第 2 条，实测账号与审计各多一行、以 0 退出）。所以命令自己那条连接设
+ *   `busy_timeout = 0`（`createAdminConnection`；入口给服务的连接不动），撞忙立即以 `SQLITE_BUSY` 回来，由 `writeWithRetry`
+ *   用看 `signal` 的异步睡眠隔一阵再试。总的等待与改之前相当：原来每次同步等 250 毫秒、再隔 100 毫秒，51 次约 17.8 秒；现在每次
+ *   隔 50 毫秒，至多再试 360 次，约 18 秒，用完以 `unavailable` 失败。服务那一侧的事务都很短，实际不会等满。
+ * - 停止信号（`signal`）：读密码时、算完哈希后、每次尝试写库前都看，重试之间的睡眠也会被它打断；已 abort 就不写，reject 为
+ *   `signal.reason`，入口报 `interrupted`（`SiteCommand` 的约定）。拿到写锁之后到提交是同步的一小段，这时到的信号要等它提交
+ *   之后才被处理：事务已经开始，算做完了，不再中止。用户在终端里按 Ctrl-C、空输入时按 Ctrl-D 是取消，那时 `signal` 没有 abort，
+ *   所以以 `interrupted` 的失败 resolve，不 reject（reject 会被入口当成没预料到的错误）。
  *
  * 服务没有账号的内存缓存（会话缓存关着），命令提交以后服务立即按新状态判断：旧会话已被删掉、新密码可以登录。
  */
 
-import {SQLiteError} from "bun:sqlite";
+import {SQLiteError, type Database} from "bun:sqlite";
 
 import {EMAIL, parseUsernameInput} from "@notnotype/nb-site-identity-contract";
 
 import {appendAudit} from "../audit";
-import type {IdentityConnection, IdentityTx} from "../db/connection";
+import {IdentityConnection, type IdentityTx} from "../db/connection";
 import {insertCredentialRow, insertUserRow, libDate} from "../db/library-rows";
 import type {IdentityLog} from "../index";
 import {hashPassword} from "../password";
@@ -44,7 +49,7 @@ export interface BusyRetry {
 }
 
 export interface CreateAdminOptions {
-    /** 命令自己那条连接上的队列（`index.ts` 用 `CommandContext.db` 建）。 */
+    /** 命令自己那条连接上的队列（`index.ts` 用 `CommandContext.db` 经 `createAdminConnection` 建）。 */
     readonly conn: IdentityConnection;
     readonly log: Pick<IdentityLog, "info">;
     readonly clock: {now(): number};
@@ -76,7 +81,19 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
     });
 }
 
-const DEFAULT_BUSY_RETRY: BusyRetry = {retries: 50, delayMs: 100, sleep: abortableSleep};
+/**
+ * 产品用的重试。次数与间隔的由来见文件头：撞忙立即回来（`busy_timeout = 0`），总共约等 18 秒。导出给包内测试借它的睡眠函数
+ * （停止信号要能打断它）。
+ */
+export const DEFAULT_BUSY_RETRY: BusyRetry = {retries: 360, delayMs: 50, sleep: abortableSleep};
+
+/**
+ * 命令在入口交来的那条连接上建的队列。`busy_timeout = 0`：等写锁交给 `writeWithRetry` 的异步重试，不在 SQLite 里同步睡（文件头）。
+ * 入口在命令返回后关这条连接，不会再拿它给服务用，所以改它的设置不影响别人。
+ */
+export function createAdminConnection(db: Database, log: IdentityLog): IdentityConnection {
+    return new IdentityConnection(db, {log, busyTimeoutMs: 0});
+}
 
 /** SQLite 的主结果码 `SQLITE_BUSY`（5）：别的连接持着写锁。只有它值得重试；只读、I/O 这类错误重试也不会好，照常抛出。 */
 function isBusy(error: unknown): boolean {
@@ -156,7 +173,11 @@ function upsertAdmin(tx: IdentityTx, input: Upsert): UpsertResult {
     return {kind: "done", userId, created: true};
 }
 
-/** 写库，撞忙时按 `retry` 重试；每次尝试之前看一次 `signal`。用完仍忙回 null。 */
+/**
+ * 写库，撞忙时按 `retry` 重试；每次尝试之前看一次 `signal`，睡眠也在 abort 时立即 reject。用完仍忙回 null。
+ * 尝试之前的检查到 `BEGIN IMMEDIATE` 之间只隔着命令自己那条连接上的队列：没有别人排队，只过几轮微任务，信号处理函数（宏任务）
+ * 落不进去，所以事务里不再看一次。
+ */
 async function writeWithRetry<T>(options: CreateAdminOptions, fn: (tx: IdentityTx) => T): Promise<T | null> {
     const retry = options.busyRetry ?? DEFAULT_BUSY_RETRY;
     for (let attempt = 0; ; attempt += 1) {

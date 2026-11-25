@@ -182,6 +182,17 @@ describe("注册码（输出 1、7、9、10）", () => {
         const beyond = Number(all.anchor.slice(2)) + 1;
         for (const anchor of ["u1", `rc${String(beyond)}`, "rc-1", "RC1"]) expect({anchor, ...failure(await list(`?anchor=${anchor}`))}).toEqual({anchor, ...validationFailed(["anchor"])});
     });
+
+    it("查询串里多余的键、给了两次的键：validation_failed，fields 是那个键；__proto__ 这个名字也一样", async () => {
+        const list = (query: string) => identityRequest(site.url, `${CODES}${query}`, {from: from(), jar: admin});
+        const cases: readonly (readonly [string, string])[] = [
+            ["?q=a", "q"],
+            ["?page=1&page=2", "page"],
+            ["?__proto__=a", "__proto__"],
+            ["?__proto__=a&__proto__=b", "__proto__"],
+        ];
+        for (const [query, field] of cases) expect({query, ...failure(await list(query))}).toEqual({query, ...validationFailed([field])});
+    });
 });
 
 describe("空列表的 anchor（输出 10）", () => {

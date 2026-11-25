@@ -63,7 +63,9 @@ function isControlCharacter(codePoint: number): boolean {
  * 控制字节都小于 0x80，不会出现在合法的多字节序列里，所以先按字节判控制字符、再把 0x80 以上的字节拼成码点。
  */
 export class TerminalLineDecoder {
-    readonly #utf8 = new TextDecoder("utf-8", {fatal: true});
+    // `ignoreBOM`：缺省的解码去掉每次解码开头的 U+FEFF，逐码点解码时密码里任何位置的它都会丢，两次只差一个 U+FEFF 的输入被当成
+    // 一致（omp 实现审查第 5 条）。原样留下，交给后面的校验。
+    readonly #utf8 = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true});
     #codePoints: string[] = [];
     #tainted = false;
     /** 还没拼完的多字节序列。 */
@@ -186,7 +188,8 @@ export const PIPED_PASSWORD_MAX_BYTES = PASSWORD.maxLength * 4 + 2;
 export function decodePipedPassword(bytes: Uint8Array): string | null {
     let text: string;
     try {
-        text = new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+        // `ignoreBOM`：开头的 U+FEFF 是密码的一部分，缺省会被去掉，存进去的就不是输入的密码（omp 实现审查第 5 条）。
+        text = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(bytes);
     } catch {
         return null;
     }

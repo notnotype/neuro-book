@@ -97,9 +97,11 @@ async function readJsonObject(c: Context): Promise<Record<string, unknown> | und
     if (bytes.byteLength === 0) return undefined;
     let value: unknown;
     try {
-        value = JSON.parse(new TextDecoder().decode(bytes));
+        // 严格解码：缺省的解码把无效的字节换成 U+FFFD，字段校验照过，注册会建出输入里没有的名字（omp 实现审查第 7 条）。
+        // 解不出的体与不是 JSON 的一样，都是请求方给的体不合格。
+        value = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
     } catch {
-        // 不是 JSON 是请求方的错，按合同回码即可，不记日志（日志不记请求体）。
+        // 不是 UTF-8 或不是 JSON 是请求方的错，按合同回码即可，不记日志（日志不记请求体）。
         throw new IdentityFailure("validation_failed");
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) throw new IdentityFailure("validation_failed");
@@ -153,9 +155,11 @@ export async function readBody<S extends TSchema>(c: Context, schema: S): Promis
 /**
  * 查询串：每个键至多出现一次，值是字符串，再按合同包的 schema 校验（合同包的查询 schema 都拒收多余的键）。同一个键给了两次时
  * 那个键不合规则：取哪一个都是猜。不合格时 `validation_failed`，`fields` 是那几个键。
+ * 收集用没有原型的对象：普通对象上给 `__proto__` 赋字符串会被原型的 setter 吞掉，这个键既不进重复检测、也不被 schema 当成多余的键
+ * （omp 实现审查第 4 条）。
  */
 export function readQuery<S extends TSchema>(c: Context, schema: S): Static<S> {
-    const query: Record<string, string> = {};
+    const query = Object.create(null) as Record<string, string>;
     const repeated = new Set<string>();
     for (const [key, value] of new URL(c.req.url).searchParams) {
         if (Object.hasOwn(query, key)) repeated.add(key);

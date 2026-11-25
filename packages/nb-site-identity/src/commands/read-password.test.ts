@@ -29,6 +29,9 @@ async function read(isTerminal: boolean, chunks: readonly Chunk[], end = !isTerm
 const utf8 = (text: string): number[] => [...new TextEncoder().encode(text)];
 
 const SECRET_CJK = "密码密码密码密码";
+/** U+FEFF（零宽不换行空格，也是 UTF-8 的 BOM）。 */
+const BOM = "\uFEFF";
+const WITH_BOM_INSIDE = `correct${BOM} horse`;
 
 describe("终端：输两次", () => {
     const cases: readonly {readonly name: string; readonly chunks: readonly Chunk[]; readonly end?: boolean; readonly expected: PasswordOutcome}[] = [
@@ -61,6 +64,11 @@ describe("终端：输两次", () => {
         {name: "超长编码不收", chunks: [[0xe0, 0x80, 0xaf, ...utf8(`${GOOD}\r`)]], expected: invalid("invalid")},
         {name: "两次不一致", chunks: [`${GOOD}\r`, `${GOOD}!\r`], expected: invalid("mismatch")},
         {name: "第二次含不收的输入算不一致", chunks: [`${GOOD}\r`, `${GOOD}\t\r`], expected: invalid("mismatch")},
+        // U+FEFF 不是控制字符，原样进密码；解码不能把它当 BOM 去掉（omp 实现审查第 5 条）。
+        {name: "开头的 U+FEFF 原样留下", chunks: [`${BOM}${GOOD}\r`, `${BOM}${GOOD}\r`], expected: ok(`${BOM}${GOOD}`)},
+        {name: "中间的 U+FEFF 原样留下", chunks: [`${WITH_BOM_INSIDE}\r`, `${WITH_BOM_INSIDE}\r`], expected: ok(WITH_BOM_INSIDE)},
+        {name: "两次只差中间一个 U+FEFF 算不一致", chunks: [`${GOOD}\r`, `${WITH_BOM_INSIDE}\r`], expected: invalid("mismatch")},
+        {name: "两次只差开头一个 U+FEFF 算不一致", chunks: [`${BOM}${GOOD}\r`, `${GOOD}\r`], expected: invalid("mismatch")},
     ];
     for (const testCase of cases) {
         it(testCase.name, async () => {
@@ -102,6 +110,8 @@ describe("管道：读到结尾", () => {
         {name: "正好 128 个字符", chunks: [`${"a".repeat(128)}\n`], expected: ok("a".repeat(128))},
         {name: "超过 128 个字符", chunks: [`${"a".repeat(129)}\n`], expected: invalid("invalid")},
         {name: "坏的 UTF-8", chunks: [[...utf8(GOOD), 0xff]], expected: invalid("invalid")},
+        {name: "开头的 U+FEFF 原样留下", chunks: [`${BOM}${GOOD}\n`], expected: ok(`${BOM}${GOOD}`)},
+        {name: "中间的 U+FEFF 原样留下", chunks: [`${WITH_BOM_INSIDE}\n`], expected: ok(WITH_BOM_INSIDE)},
     ];
     for (const testCase of cases) {
         it(testCase.name, async () => {

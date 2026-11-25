@@ -299,6 +299,9 @@ describe("列表（输出 9、10）", () => {
             ["?filter=expired", ["filter"]],
             ["?page=1&page=2", ["page"]],
             ["?q=a", ["q"]],
+            // 普通对象上 `__proto__` 会被原型的 setter 吞掉（omp 实现审查第 4 条）。
+            ["?__proto__=a", ["__proto__"]],
+            ["?__proto__=a&__proto__=b", ["__proto__"]],
         ] as const;
         for (const [query, fields] of cases) {
             expect({query, ...(await outcome(await list(identity, root.cookie, query)))}).toEqual({query, ...invalid([...fields])});

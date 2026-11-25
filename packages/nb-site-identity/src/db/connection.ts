@@ -182,6 +182,11 @@ export interface IdentityConnectionOptions {
     /** 等锁的上限，毫秒；缺省 `DEFAULT_LOCK_TIMEOUT_MS`。 */
     readonly lockTimeoutMs?: number;
     readonly timers?: IdentityTimers;
+    /**
+     * 给了就在这条连接上设 `PRAGMA busy_timeout`，盖掉入口打开连接时设的值。模块实例不给，沿用入口的设置（`nb-site-server` 的
+     * `db/open.ts`）；创建管理员的命令给 0，撞上别的进程的写锁时立即回来，由它自己看停止信号的异步重试去等（`commands/create-admin.ts`）。
+     */
+    readonly busyTimeoutMs?: number;
 }
 
 /** 交给 `betterAuth({database})` 的配置：库经它的 Kysely 方言走本队列。 */
@@ -313,6 +318,10 @@ export class IdentityConnection {
 
     constructor(db: Database, options: IdentityConnectionOptions) {
         this.#db = db;
+        if (options.busyTimeoutMs !== undefined) {
+            if (!Number.isInteger(options.busyTimeoutMs) || options.busyTimeoutMs < 0) throw new RangeError(`busyTimeoutMs must be a non-negative integer, got ${String(options.busyTimeoutMs)}`);
+            db.exec(`PRAGMA busy_timeout = ${String(options.busyTimeoutMs)}`);
+        }
         this.#log = options.log;
         this.#queue = new Queue(options.timers ?? REAL_TIMERS, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS, options.log);
     }

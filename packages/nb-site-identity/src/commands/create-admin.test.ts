@@ -9,13 +9,12 @@
 
 import {afterEach, describe, expect, it} from "bun:test";
 
-import {IdentityConnection} from "../db/connection";
 import {libDate} from "../db/library-rows";
 import {hashPassword, verifyPassword} from "../password";
 import {recordingLog} from "../testing/library";
 import {createTestIdentity, type TestIdentity} from "../testing/module";
 import {TestPasswordSource} from "../testing/password-source";
-import {runCreateAdmin, type BusyRetry, type CreateAdminOptions} from "./create-admin";
+import {createAdminConnection, DEFAULT_BUSY_RETRY, runCreateAdmin, type BusyRetry, type CreateAdminOptions} from "./create-admin";
 
 const PASSWORD = "correct horse battery";
 const START = Date.parse("2026-11-25T10:00:00.000Z");
@@ -38,13 +37,13 @@ interface Run {
     readonly source: TestPasswordSource;
 }
 
-/** 在另一条连接上跑命令；密码缺省从管道送 `PASSWORD`。 */
+/** 在另一条连接上跑命令，连接照产品的建法（`createAdminConnection`）；密码缺省从管道送 `PASSWORD`。 */
 function runCommand(target: TestIdentity, args: Readonly<Record<string, string | undefined>>, overrides: Partial<CreateAdminOptions> & {readonly source?: TestPasswordSource} = {}): Run {
     const log = recordingLog();
     const source = overrides.source ?? new TestPasswordSource(false).send(`${PASSWORD}\n`).end();
     const commandDb = target.root.openOther();
     const result = runCreateAdmin({
-        conn: new IdentityConnection(commandDb, {log}),
+        conn: createAdminConnection(commandDb, log),
         log,
         clock: target.clock,
         args,
@@ -267,7 +266,7 @@ describe("停止信号", () => {
 
     it("撞忙等着重试时收到：reject，不再试", async () => {
         const target = await setup("create-admin-abort-busy");
-        const lock = holdWriteLockFast(target);
+        const release = holdWriteLock(target);
         const controller = new AbortController();
         const reason = new DOMException("stop", "AbortError");
         const retry: BusyRetry = {
@@ -277,37 +276,62 @@ describe("停止信号", () => {
                 controller.abort(reason);
             },
         };
-        const run = runCommand(target, {username: "root"}, {signal: controller.signal, busyRetry: retry, conn: lock.commandConn});
+        const run = runCommand(target, {username: "root"}, {signal: controller.signal, busyRetry: retry});
         expect(await run.result.then(() => "resolved", (error: unknown) => error)).toBe(reason);
-        lock.release();
+        release();
         await expectNothingWritten(target, 0);
+    });
+
+    it("另一条连接持着写锁、命令在等锁时收到：立即 reject，放锁后已有账号的角色、会话与审计都没变（omp 实现审查第 2 条）", async () => {
+        const target = await setup("create-admin-abort-waiting-lock");
+        const userId = await target.addUser("alice");
+        const session = await target.issue(userId);
+        const release = holdWriteLock(target);
+        const controller = new AbortController();
+        const reason = new DOMException("stop", "AbortError");
+        const sleeping = Promise.withResolvers<void>();
+        // 产品的睡眠函数，间隔放长到用例的时限之外：只有停止信号能让它提前结束，不看信号时用例超时失败。
+        const retry: BusyRetry = {
+            retries: 3,
+            delayMs: 60_000,
+            sleep: (ms, signal) => {
+                sleeping.resolve();
+                return DEFAULT_BUSY_RETRY.sleep(ms, signal);
+            },
+        };
+        const run = runCommand(target, {username: "alice"}, {signal: controller.signal, busyRetry: retry});
+        try {
+            await sleeping.promise;
+            controller.abort(reason);
+            expect(await run.result.then(() => "resolved", (error: unknown) => error)).toBe(reason);
+        } finally {
+            release();
+        }
+        expect(await users(target)).toMatchObject([{id: userId, role: "user"}]);
+        expect(await audits(target)).toEqual([]);
+        expect(await whoamiState(target, session.cookie)).toBe("authenticated");
     });
 });
 
 /**
- * 另一条连接持住写锁（像正在写的服务）。命令那条连接的 `busy_timeout` 改成 0：撞忙立即以 `SQLITE_BUSY` 失败，不在每次尝试上
- * 等满入口给的 250 毫秒；这里测的是重试，等多久由 SQLite 管。
+ * 另一条连接持住写锁（像正在写的服务），返回放锁的函数（可以重复调用）。命令的连接撞上它立即以 `SQLITE_BUSY` 回来
+ * （`createAdminConnection` 设了 `busy_timeout = 0`），等多久由命令的重试管。
  */
-function holdWriteLockFast(target: TestIdentity): {readonly commandConn: IdentityConnection; release(): void} {
+function holdWriteLock(target: TestIdentity): () => void {
     const holder = target.root.openOther();
     holder.exec("BEGIN IMMEDIATE");
-    const commandDb = target.root.openOther();
-    commandDb.exec("PRAGMA busy_timeout = 0");
     let held = true;
-    return {
-        commandConn: new IdentityConnection(commandDb, {log: target.log}),
-        release: () => {
-            if (!held) return;
-            held = false;
-            holder.exec("ROLLBACK");
-        },
+    return () => {
+        if (!held) return;
+        held = false;
+        holder.exec("ROLLBACK");
     };
 }
 
 describe("与服务排队", () => {
     it("服务持着写锁时隔一阵重试，锁放开后照常写成", async () => {
         const target = await setup("create-admin-busy-retry");
-        const lock = holdWriteLockFast(target);
+        const release = holdWriteLock(target);
         const sleeps: number[] = [];
         const retry: BusyRetry = {
             retries: 3,
@@ -315,10 +339,10 @@ describe("与服务排队", () => {
             sleep: async (ms) => {
                 sleeps.push(ms);
                 // 第二次睡的时候服务写完了。
-                if (sleeps.length === 2) lock.release();
+                if (sleeps.length === 2) release();
             },
         };
-        expect(await runCommand(target, {username: "root"}, {busyRetry: retry, conn: lock.commandConn}).result).toBeUndefined();
+        expect(await runCommand(target, {username: "root"}, {busyRetry: retry}).result).toBeUndefined();
         expect(sleeps).toEqual([100, 100]);
         expect(await users(target)).toHaveLength(1);
         expect(await audits(target)).toHaveLength(1);
@@ -326,7 +350,7 @@ describe("与服务排队", () => {
 
     it("重试用完仍忙：unavailable，什么也没写", async () => {
         const target = await setup("create-admin-busy-exhausted");
-        const lock = holdWriteLockFast(target);
+        const release = holdWriteLock(target);
         let sleeps = 0;
         const retry: BusyRetry = {
             retries: 2,
@@ -335,10 +359,10 @@ describe("与服务排队", () => {
                 sleeps += 1;
             },
         };
-        const run = runCommand(target, {username: "root"}, {busyRetry: retry, conn: lock.commandConn});
+        const run = runCommand(target, {username: "root"}, {busyRetry: retry});
         expect(await run.result).toEqual({code: "unavailable", message: expect.any(String), fields: {module: "identity"}});
         expect(sleeps).toBe(2);
-        lock.release();
+        release();
         await expectNothingWritten(target, 0);
     });
 });

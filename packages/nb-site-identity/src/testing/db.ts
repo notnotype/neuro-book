@@ -20,10 +20,10 @@ import {identityMigrations, type IdentityMigration} from "../migrations";
 /** 与 `openModuleDb` 相同的连接参数，不迁移。 */
 export function openIdentityDbFile(path: string): Database {
     const db = new Database(path, {create: true, strict: true});
+    db.exec("PRAGMA busy_timeout = 250");
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
     db.exec("PRAGMA foreign_keys = ON");
-    db.exec("PRAGMA busy_timeout = 250");
     return db;
 }
 
