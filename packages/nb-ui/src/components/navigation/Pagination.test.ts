@@ -185,6 +185,21 @@ describe("Pagination 的焦点", () => {
         await vi.waitFor(() => expect(document.activeElement).toBe(currentButton()));
     });
 
+    it("焦点在“下一页”上连点到末页，箭头变成不可用时焦点落到当前页（末页）", async () => {
+        const {wrapper} = mountHost({page: 5, pageCount: 7});
+        const nextButton = wrapper.get("button[aria-label='下一页']");
+        (nextButton.element as HTMLButtonElement).focus();
+
+        await nextButton.trigger("click");
+        await vi.waitFor(() => expect(currentButton()?.textContent?.trim()).toBe("6"));
+        expect(document.activeElement).toBe(nextButton.element);
+
+        await nextButton.trigger("click");
+        await vi.waitFor(() => expect(currentButton()?.textContent?.trim()).toBe("7"));
+        expect(nextButton.attributes("disabled")).toBeDefined();
+        await vi.waitFor(() => expect(document.activeElement).toBe(currentButton()));
+    });
+
     it("焦点不在分页条里时，使用方改页码不抢焦点", async () => {
         const {page, outside} = mountHost({page: 50, pageCount: 100});
         outside.focus();

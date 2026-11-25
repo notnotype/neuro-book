@@ -54,18 +54,24 @@ const cells = computed<Cell[]>(() => {
 
 /*
  * 格子按页码作 key：点了“5”以后它多半就是新的当前页，同一个按钮留着、焦点也跟着留着。
- * 页码换了位置时 Vue 会移动或删掉按钮节点，浏览器随之把焦点丢回 body；下面两个 watch 把它接住。
- * pre 在重排之前记下焦点在不在条里，post 在重排之后看它还在不在，不在就落到当前页上。
- * 焦点原本不在条里（使用方从别处改了页码）时不动焦点。
+ * 焦点会在两种情况下没地方落：页码换了位置，Vue 移走了焦点所在的按钮；或者焦点所在的按钮变成不可用
+ * （箭头点到了端点，或整条不可用）。Chrome 里变成不可用的按钮这一刻仍是 activeElement，稍后才丢回 body，
+ * 所以只看“焦点还在不在条里”接不住第二种。
+ * pre 在重排之前记下焦点在不在条里，post 在重排之后看它还有没有地方落，没有就落到当前页上。
+ * 焦点原本不在条里（使用方从别处改了页码）时不动焦点；整条不可用时当前页也不可用，没有能落的格子，交给使用方。
  */
 let focusWasInside = false;
-watch([current, lastPage], () => {
+watch([current, lastPage, () => props.disabled], () => {
     focusWasInside = navRef.value?.contains(document.activeElement) ?? false;
 }, {flush: "pre"});
-watch([current, lastPage], () => {
+watch([current, lastPage, () => props.disabled], () => {
     const nav = navRef.value;
-    if (!focusWasInside || !nav || nav.contains(document.activeElement)) return;
-    nav.querySelector<HTMLButtonElement>("button[aria-current='page']")?.focus();
+    if (!focusWasInside || !nav) return;
+    const active = document.activeElement;
+    const stillUsable = nav.contains(active) && !(active instanceof HTMLButtonElement && active.disabled);
+    if (stillUsable) return;
+    const target = nav.querySelector<HTMLButtonElement>("button[aria-current='page']");
+    if (target && !target.disabled) target.focus();
 }, {flush: "post"});
 
 function go(page: number): void {
@@ -142,14 +148,20 @@ function go(page: number): void {
     color: var(--text-secondary);
     font-family: inherit;
     cursor: pointer;
-    transition-property: background-color, color;
+    transition-property: background-color, color, transform;
     transition-duration: var(--motion-fast);
     transition-timing-function: var(--ease-layout);
 }
 
+/* 悬停与按下取同一条里两个箭头（IconButton 的缺省档）的取值，鼠标从箭头移到页码时深浅一致。 */
 .nb-pagination-page:not(:disabled):hover {
-    background: color-mix(in srgb, var(--text-main) 8%, transparent);
+    background: color-mix(in srgb, var(--text-main) 15%, transparent);
     color: var(--text-main);
+}
+
+.nb-pagination-page:not(:disabled):active {
+    background: color-mix(in srgb, var(--text-main) 24%, transparent);
+    transform: scale(0.93);
 }
 
 .nb-pagination-page.is-current {

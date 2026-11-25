@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="Row extends object">
 import {computed} from "vue";
+import type {HTMLAttributes} from "vue";
 
 import {useUiText} from "../../text-port";
 import Spinner from "../display/Spinner.vue";
@@ -13,6 +14,8 @@ export type TableColumn<R> = {
     /** CSS 宽度，如 "120px" / "20%"；缺省自动分配 */
     width?: string;
     align?: "left" | "center" | "right";
+    /** 表格设了 nowrap 时这一列仍换行（长文本列）；nowrap 为假时没有作用 */
+    wrap?: boolean;
 };
 export type TableDensity = "default" | "compact";
 
@@ -28,11 +31,14 @@ const props = withDefaults(defineProps<{
     density?: TableDensity;
     /** 表头吸顶：根承担两个方向的滚动并占满父容器的高度（Table.md 的“布局与状态”） */
     stickyHeader?: boolean;
-}>(), {
+    /** 单元格不换行，列宽按内容算、放不下时横向滚动；列可以用 wrap 例外（Table.md 的“布局与状态”） */
+    nowrap?: boolean;
+} & /* @vue-ignore */ HTMLAttributes>(), {
     loading: false,
     hoverable: true,
     density: "default",
     stickyHeader: false,
+    nowrap: false,
 });
 
 const emit = defineEmits<{
@@ -76,6 +82,11 @@ const STICKY_HEAD_CELL = "sticky top-0 z-[1] bg-[var(--bg-panel)] shadow-[inset_
 function cellPaddingClass(): string {
     return props.density === "compact" ? "px-3 py-1.5" : "px-3 py-2.5";
 }
+
+/* 不换行写在 Table 自己的单元格上，不由外层用穿透选择器加：那样会连插槽里使用方放的子表格一起改，也没法逐列关掉。 */
+function wrapClass(column: TableColumn<Row>): string {
+    return props.nowrap && !column.wrap ? "whitespace-nowrap" : "";
+}
 </script>
 
 <template>
@@ -118,7 +129,7 @@ function cellPaddingClass(): string {
                     :class="props.hoverable ? 'hover:bg-[var(--bg-hover)]' : ''"
                     @click="emit('row-click', row, rowIndex)"
                 >
-                    <td v-for="column in props.columns" :key="column.key" class="text-[var(--text-secondary)]" :class="[alignClass(column), cellPaddingClass()]">
+                    <td v-for="column in props.columns" :key="column.key" class="text-[var(--text-secondary)]" :class="[alignClass(column), cellPaddingClass(), wrapClass(column)]">
                         <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]" :index="rowIndex">{{ row[column.key] }}</slot>
                     </td>
                 </tr>

@@ -156,6 +156,8 @@ export const displayFixtures: LabFixture[] = [
             {id: "initial-loading", label: "首次加载", input: {props: {columns: SAMPLE_COLUMNS, rows: [], rowKey: "id", total: null, pageSize: SAMPLE_PAGE_SIZE, loading: true}, model: {page: 1}}},
             {id: "page-loading", label: "翻页加载", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, loading: true}, model: {page: 8}}},
             {id: "error", label: "出错", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, error: "章节列表没有取回来，请稍后重试"}, model: {page: 7}}},
+            {id: "page-in-row", label: "放进 flex 行", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(1), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 1}}},
+            {id: "error-short", label: "出错（矮容器）", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE, error: "章节列表没有取回来，请稍后重试"}, model: {page: 7}}},
             {id: "page-english", label: "英文界面", input: {props: {columns: SAMPLE_COLUMNS, rows: samplePage(7), rowKey: "id", total: SAMPLE_TOTAL, pageSize: SAMPLE_PAGE_SIZE}, model: {page: 7}}},
         ],
         load: async () => (await import("./DataTableFixture.vue")).default,

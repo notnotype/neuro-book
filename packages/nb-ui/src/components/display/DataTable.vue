@@ -74,12 +74,17 @@ watch(() => props.loading, (loading) => {
 onBeforeUnmount(clearLoadingTimer);
 
 const pageCount = computed(() => (props.total === null || props.total <= 0 ? 1 : Math.ceil(props.total / props.pageSize)));
-/** 分页条自己会把越界的页码夹到边界显示，条数按同一个夹过的值算，两边对得上。 */
+/** 分页条自己会把越界的页码夹到边界显示，条数的起点按同一个夹过的值算，两边对得上。 */
 const shownPage = computed(() => Math.min(Math.max(Math.round(page.value) || 1, 1), pageCount.value));
+/*
+ * 区间按这一页实际拿到的行算，不按页码乘每页条数：页码越界、这一页没有行时（例如删掉了最后一页的唯一一行），
+ * 按页码算会写出“第 61 到 65 条”，表格区却是空的。没有行时 from、to 都是 0，页脚只写总数。
+ */
 const range = computed(() => {
     const total = props.total;
-    if (total === null || total <= 0) return {from: 0, to: 0, total};
-    return {from: (shownPage.value - 1) * props.pageSize + 1, to: Math.min(total, shownPage.value * props.pageSize), total};
+    if (total === null || total <= 0 || props.rows.length === 0) return {from: 0, to: 0, total};
+    const from = (shownPage.value - 1) * props.pageSize + 1;
+    return {from, to: Math.min(total, from + props.rows.length - 1), total};
 });
 
 /*
@@ -110,11 +115,41 @@ const tableRows = computed(() => (bodyState.value === "rows" ? props.rows : []))
 const paginationDisabled = computed(() => props.total === null || props.total <= 0);
 const loadingText = computed(() => text("spinner.loading"));
 
+/** 翻页加载时旧行被遮罩盖着，这时行不可交互：键盘也走不到被盖住的行内按钮。 */
+const rowsInert = computed(() => layer.value === "mask");
+
 const bodyRef = ref<HTMLElement | null>(null);
-// 翻页时表格区回到顶部：Table 的根是滚动容器，也是表格区的第一个子元素。
-watch(page, () => {
+/*
+ * 新的一批行到了就回到顶部：Table 的根是滚动容器，也是表格区的第一个子元素。按 rows 的引用判断，不按页码：
+ * 换筛选时页码不变也要回顶；翻页加载期间旧行留着、引用没变，不会先跳一下。
+ */
+watch(() => props.rows, () => {
     const scroller = bodyRef.value?.firstElementChild;
     if (scroller instanceof HTMLElement) scroller.scrollTop = 0;
+}, {flush: "post"});
+
+/*
+ * 焦点在表格区里、表格区换了内容以后没地方落时，接到表格区自己身上（tabindex="-1"），不让它掉回 body：
+ * 点了“重试”，出错层随之离场；遮罩盖上来，行变成 inert；行换了一批，焦点所在的行内按钮被移走。
+ * 离场的层在过渡期间还在文档里、焦点也还在里面，所以层换了就算没地方落，不等它被移除。
+ * pre 在换内容之前记下焦点在哪，post 在换完之后判断。焦点原本不在表格区里时不动焦点。
+ */
+let focusBefore: {element: Element; inLayer: boolean} | null = null;
+watch([layer, tableRows], () => {
+    const body = bodyRef.value;
+    const active = document.activeElement;
+    focusBefore = body && active && active !== body && body.contains(active)
+        ? {element: active, inLayer: active.closest(".nb-data-table-layer") !== null}
+        : null;
+}, {flush: "pre"});
+watch([layer, tableRows], ([nextLayer], [previousLayer]) => {
+    const before = focusBefore;
+    focusBefore = null;
+    if (!before) return;
+    const lost = document.activeElement !== before.element
+        || before.element.closest("[inert]") !== null
+        || (before.inLayer && nextLayer !== previousLayer);
+    if (lost) bodyRef.value?.focus({preventScroll: true});
 }, {flush: "post"});
 </script>
 
@@ -124,9 +159,11 @@ watch(page, () => {
             <div class="nb-data-table-bar-start"><slot name="filters" /></div>
             <div class="nb-data-table-bar-end"><slot name="actions" /></div>
         </div>
-        <div ref="bodyRef" class="nb-data-table-body" :aria-busy="props.loading ? 'true' : undefined">
+        <div ref="bodyRef" class="nb-data-table-body" tabindex="-1" :aria-busy="props.loading ? 'true' : undefined">
             <Table
                 sticky-header
+                nowrap
+                :inert="rowsInert || undefined"
                 :columns="props.columns"
                 :rows="tableRows"
                 :row-key="props.rowKey"
@@ -160,14 +197,14 @@ watch(page, () => {
             <span class="nb-data-table-count">
                 <slot name="count" v-bind="range">
                     <template v-if="range.total === null">{{ text("dataTable.countUnknown") }}</template>
-                    <template v-else-if="range.total === 0">{{ text("dataTable.countTotal", {total: 0}) }}</template>
+                    <template v-else-if="range.from === 0">{{ text("dataTable.countTotal", {total: range.total}) }}</template>
                     <template v-else>
                         <span class="nb-data-table-count-full">{{ text("dataTable.count", {from: range.from, to: range.to, total: range.total}) }}</span>
                         <span class="nb-data-table-count-short">{{ text("dataTable.countTotal", {total: range.total}) }}</span>
                     </template>
                 </slot>
             </span>
-            <Pagination v-model="page" :page-count="pageCount" :disabled="paginationDisabled" />
+            <Pagination v-model="page" class="nb-data-table-pager" :page-count="pageCount" :disabled="paginationDisabled" />
         </div>
     </div>
 </template>
@@ -175,7 +212,8 @@ watch(page, () => {
 <style scoped>
 /*
  * 三块的高度在各种状态下都不变：工具条与页脚 flex: none，表格区 flex: 1 占满剩下的高度，
- * 状态只换表格区里面的内容（DataTable.md 的“布局”“状态”）。容器查询按组件自己的宽度切条数的写法。
+ * 状态只换表格区里面的内容（DataTable.md 的“布局”“状态”）。
+ * 根上的高度、底色与圆角是 scoped 样式，不在层里，使用方传的原子类压不过它们（DataTable.md 的“注意事项”）。
  */
 .nb-data-table {
     display: flex;
@@ -186,23 +224,22 @@ watch(page, () => {
     min-height: 0;
     border-radius: var(--radius-panel);
     background: var(--bg-panel);
-    container-type: inline-size;
 }
 
+/*
+ * 工具条与页脚都至少一行 48px，放不下时换行，高度随宽度变，不随状态变。
+ * 显式 border-box：nb-ui 不带 reset，宿主没有全局 border-box 时，最小高度加上内边距会多出一截。
+ */
 .nb-data-table-bar,
 .nb-data-table-foot {
     display: flex;
     flex: none;
-    align-items: center;
-    gap: var(--space-5);
-    padding: 0 calc(var(--space-5) + var(--space-1));
-}
-
-/* 至少一行 48px；放不下时换行，高度随宽度变，不随状态变。 */
-.nb-data-table-bar {
     flex-wrap: wrap;
+    align-items: center;
+    box-sizing: border-box;
+    gap: var(--space-5);
     min-height: 48px;
-    padding-block: var(--space-3);
+    padding: var(--space-3) calc(var(--space-5) + var(--space-1));
 }
 
 .nb-data-table-bar-start,
@@ -218,34 +255,42 @@ watch(page, () => {
     margin-left: auto;
 }
 
+/*
+ * 页脚一行放得下条数与分页条时就是一行；放不下时条数一行、分页条一行（靠右），不截断条数。
+ * 是否折行只看页脚自己拿到的宽度（flex 换行），容器查询也设在页脚上而不是根上：
+ * 根设了 inline-size 容器，放进 flex 行或按内容定宽的上下文时宽度会塌成 0。
+ */
 .nb-data-table-foot {
-    height: 48px;
+    row-gap: var(--space-2);
+    container-type: inline-size;
     user-select: none;
 }
 
+.nb-data-table-pager {
+    margin-left: auto;
+}
+
+/* 程序接住焦点用的容器（tabindex="-1"），不是可操作的控件，不画焦点环。 */
 .nb-data-table-body {
     position: relative;
     flex: 1;
     min-height: 0;
     padding: 0 var(--space-4);
-}
-
-/*
- * Table 默认让单元格换行，窄容器里会把列挤到一字一行。数据表格要每行一样高、放不下时横向滚动（DataTable.md 的“布局”），
- * 所以在这里关掉换行；Table 自己的默认不变。
- */
-.nb-data-table-body :deep(td) {
-    white-space: nowrap;
+    outline: none;
 }
 
 .nb-data-table-layer {
     position: absolute;
     inset: 0;
-    display: grid;
-    place-items: center;
+    display: flex;
 }
 
-/* 居中的状态不挡住表头与滚动条，只有里面的按钮可点；遮罩整块挡住，加载期间点不到旧行。 */
+/* 用自动外边距居中而不是 grid 居中：内容比表格区高时自动外边距归零，从顶部排起，而不是两头都溢出去。 */
+.nb-data-table-layer > * {
+    margin: auto;
+}
+
+/* 居中的状态不挡住表头与滚动条，只有里面的内容可点；遮罩整块挡住，加载期间点不到旧行。 */
 .nb-data-table-layer:not(.is-mask) {
     pointer-events: none;
 }
@@ -258,8 +303,13 @@ watch(page, () => {
     background: color-mix(in srgb, var(--bg-panel) 55%, transparent);
 }
 
+/* 容器矮、状态比表格区高时在自己里面滚动，不越过表格区盖住页脚。 */
 .nb-data-table-state {
+    box-sizing: border-box;
+    min-width: 0;
     max-width: 100%;
+    max-height: 100%;
+    overflow: auto;
 }
 
 .nb-data-table-layer-enter-active {
@@ -275,15 +325,17 @@ watch(page, () => {
     opacity: 0;
 }
 
-/* 条数是读数，翻页时整段换掉、不做过渡；等宽数字让位数相同的页之间宽度不跳。 */
+/*
+ * 条数是读数，翻页时整段换掉、不做过渡；等宽数字让位数相同的页之间宽度不跳。
+ * 不加省略号：截断的总数读起来像另一个数。放不下时由页脚折行，不由它收窄。
+ */
 .nb-data-table-count {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     color: var(--text-muted);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 

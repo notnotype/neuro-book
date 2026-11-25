@@ -14,6 +14,10 @@ import type {SampleDataTable} from "./data-table-sample";
 const props = defineProps<LabFixtureProps>();
 // 页脚的条数是定高一行里的文字，英文常比中文长：场景 id 以 `-english` 结尾的注入英文端口，看截断与窄宽时的写法。
 if (props.scene.endsWith("-english")) provideHostText(createHostTextEngine({locale: "en-US"}).port);
+// 场景 id 以 `-short` 结尾的放进矮容器：表格区比出错的内容矮，看状态层在表格区里滚动、不盖住页脚。
+const short = props.scene.endsWith("-short");
+// 以 `-in-row` 结尾的放进 flex 行、不给宽度（例如旁边还有一栏筛选的页面），看组件按内容撑开、不塌成 0 宽。
+const inRow = props.scene.endsWith("-in-row");
 // 夹具扮演使用方：受控的页码、行、总数、加载与出错都写回场景输入，翻页时模拟一次取数。
 const subject = useLabSubject<SampleDataTable>(() => props.input, ["retry", "row-click"]);
 
@@ -104,7 +108,7 @@ const query = ref("");
 </script>
 
 <template>
-    <div class="lab-data-table-frame">
+    <div class="lab-data-table-frame" :class="{'is-short': short, 'is-row': inRow}">
         <DataTable v-bind="bindings" data-lab-subject>
             <template #filters>
                 <SegmentedControl v-model="filter" size="sm" :options="FILTERS" />
@@ -132,6 +136,14 @@ const query = ref("");
 .lab-data-table-frame {
     width: min(960px, 100%);
     height: min(640px, 100%);
+}
+
+.lab-data-table-frame.is-short {
+    height: min(260px, 100%);
+}
+
+.lab-data-table-frame.is-row {
+    display: flex;
 }
 
 .lab-data-table-search {
