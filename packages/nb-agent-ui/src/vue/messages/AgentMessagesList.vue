@@ -161,7 +161,8 @@ function markBroken(src: string): void {
     flex-shrink: 0;
     align-items: center;
     gap: 4px;
-    height: 40px;
+    /* 宿主自绘窗口头时与对话头同高（`--acv-head-height`），缺省 40。 */
+    height: var(--acv-head-height, 40px);
     padding: 0 8px 0 14px;
     user-select: none;
 }
@@ -191,7 +192,7 @@ function markBroken(src: string): void {
     background: none;
     color: var(--text-muted);
     font: inherit;
-    font-size: var(--text-md);
+    font-size: var(--text-sm);
     font-weight: 500;
     line-height: 28px;
     cursor: pointer;

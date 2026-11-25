@@ -1123,21 +1123,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle"></div>
                     </template>
                 </template>
-                <template #float-chrome="{id, rect, actionsShown, idPrefix}">
-                    <!-- 视图自绘头时头画在窗口零件层：压在内容之上，按钮点得到；排在手柄之前，上边的缩放带与移动把手仍在最上。 -->
-                    <WorkbenchPanelHead
-                        v-if="ownHeadBands.has(id)"
-                        v-bind="toolHeadProps(id, idPrefix)"
-                        :own-head="{band: ownHeadBands.get(id)!}"
-                        :actions-shown="actionsShown"
-                        v-on="toolHeadEvents(id)"
-                        @own-head-inset="(width: number) => ownHeadInsets.set(id, width)"
-                        @vue:mounted="onHeadMounted(id)"
-                    >
-                        <template v-if="headActions.has(id)" #actions>
-                            <TitleActions :model="headActions.get(id)!.model" :identity="viewIdentity(headActions.get(id)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(id)!.viewId, key)" />
-                        </template>
-                    </WorkbenchPanelHead>
+                <template #float-chrome="{id, rect}">
                     <FloatWindowHandles
                         :rect="rect"
                         :min="layout.actions.floatBounds(id).min"
@@ -1147,6 +1133,21 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @commit="(next) => layout.actions.setFloatRect(id, next)"
                         @move="(position) => layout.actions.moveFloat(id, position)"
                     />
+                </template>
+                <template #own-head="{panelId: id, idPrefix, actionsShown}">
+                    <!-- 视图自绘头（views.md 输出 19 的“自绘头”）：盖在视图之上的一条，在内容里，焦点与 F6 算这块面板；窗口零件层的缩放带仍在它上面。 -->
+                    <WorkbenchPanelHead
+                        v-bind="toolHeadProps(id, idPrefix)"
+                        :own-head="{band: ownHeadBands.get(id) ?? 0}"
+                        :actions-shown="actionsShown"
+                        v-on="toolHeadEvents(id)"
+                        @own-head-inset="(width: number) => ownHeadInsets.set(id, width)"
+                        @vue:mounted="onHeadMounted(id)"
+                    >
+                        <template v-if="headActions.has(id)" #actions>
+                            <TitleActions :model="headActions.get(id)!.model" :identity="viewIdentity(headActions.get(id)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(id)!.viewId, key)" />
+                        </template>
+                    </WorkbenchPanelHead>
                 </template>
                 <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">

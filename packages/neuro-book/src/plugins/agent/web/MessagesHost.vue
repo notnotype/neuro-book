@@ -25,6 +25,7 @@ import type {ActivityItem} from "../shared/remote";
 import ContactCover from "./components/ContactCover.vue";
 import type {ContactCoverState} from "./components/ContactCover.vue";
 import ConversationHost from "./ConversationHost.vue";
+import {MESSAGES_HEAD_BAND} from "./messages-head";
 import {createMessagesModel} from "./messages-model";
 import type {SessionHost} from "./session-host";
 import type {SessionListStore} from "./session-list";
@@ -68,11 +69,9 @@ watch(extent, (size) => {
 });
 
 const head = viewHeadOf(props.context);
-/** 自绘头那一条的高度：与 `plugin.ts` 里声明的 `VIEW_OWN_HEAD` 的 `band` 同值，也等于列表切换行的高度。 */
-const OWN_HEAD_BAND = 40;
 const ownHead = computed(() => head?.ownHead.value === true);
 /** 自绘头时给 nb-agent-ui 的头高与右端让位（工作台把盖在右端的按钮宽度写在内容上）。 */
-const ownHeadStyle = computed(() => (ownHead.value ? {"--acv-head-height": `${OWN_HEAD_BAND}px`, "--acv-head-inset-end": "var(--workbench-own-head-inset-end, 0px)"} : undefined));
+const ownHeadStyle = computed(() => (ownHead.value ? {"--acv-head-height": `${MESSAGES_HEAD_BAND}px`, "--acv-head-inset-end": "var(--workbench-own-head-inset-end, 0px)"} : undefined));
 // 窄版接管面板头（对话的头在标题区里，按标题开抽屉）；宽版交还，头画在聊天区上方（t15 决定 6）。在 setup 里同步写初值，首帧不翻。
 if (head !== null) head.claim.value = layout.value === "narrow";
 watch(layout, (next) => {

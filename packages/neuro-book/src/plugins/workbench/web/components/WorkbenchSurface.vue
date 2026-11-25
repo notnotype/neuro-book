@@ -33,7 +33,7 @@ const props = withDefaults(defineProps<{
     titleOnlyPanels?: ReadonlySet<string>;
     /**
      * 视图自绘头的浮动窗（docs/specs/workbench/views.md 输出 19 的“自绘头”）：外框里不画头，内容从窗口顶上开始、四个角都裁圆；
-     * 头的按钮由宿主画在 `float-chrome` 里。只认此刻画成浮动窗的面板。值是按钮一组在右端占的宽度（CSS px），写成内容上的
+     * 头由宿主画在 `own-head` 插槽里（内容里、视图之上）。只认此刻画成浮动窗的面板。值是按钮一组在右端占的宽度（CSS px），写成内容上的
      * `--workbench-own-head-inset-end`，视图在它的头右端让出来。
      */
     ownHeads?: ReadonlyMap<string, number>;
@@ -87,7 +87,12 @@ defineSlots<{
     /** 盖在分隔线之上、拿起的内容之下，不接指针。 */
     overlay?(): unknown;
     /** 浮动窗的手柄与自绘头的按钮。`actionsShown`：视图动作与框架按钮此刻该不该显示（指针在这块窗上或焦点在里面）；`idPrefix` 同 `head`。 */
-    "float-chrome"?(props: {id: string; rect: GridRect; actionsShown: boolean; idPrefix: string}): unknown;
+    "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /**
+     * 视图自绘头的浮动窗盖在视图之上的那一条（`ownHeads`）：画在内容里，焦点、悬停与 F6 都算这块面板，飞行时跟着内容走。
+     * `actionsShown`：指针或焦点在这块窗上（同卡片的 `data-hover-actions-active`）；`idPrefix` 同 `head`。
+     */
+    "own-head"?(props: {panelId: string; idPrefix: string; actionsShown: boolean}): unknown;
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -625,6 +630,7 @@ defineExpose({
                         :aria-labelledby="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? panelTitleDomId(idPrefix, contentKey) : panelTabDomId(idPrefix, contentKey)) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
                     >
+                        <slot v-if="ownHeadFloats.has(leaf) && active" name="own-head" :panel-id="leaf" :id-prefix="idPrefix" :actions-shown="actionsShownOn(leaf)"></slot>
                         <slot name="content" :content-key="contentKey" :panel-id="leaf" :active="active"></slot>
                     </div>
                 </div>
@@ -636,7 +642,7 @@ defineExpose({
                 <slot name="overlay"></slot>
             </template>
             <template #float-chrome="{id, rect}">
-                <slot name="float-chrome" :id="id" :rect="rect" :actions-shown="actionsShownOn(id)" :id-prefix="idPrefix"></slot>
+                <slot name="float-chrome" :id="id" :rect="rect"></slot>
             </template>
         </NestedGrid>
     </div>
@@ -864,8 +870,9 @@ defineExpose({
     border-end-end-radius: var(--shell-corner-br, var(--shell-card-radius, 0px));
 }
 
-/* 视图自绘头的浮动窗没有头，内容顶到窗口的上边，上面两个角也是卡片的角：列表栏的底色不从圆角外露出来。 */
+/* 视图自绘头的浮动窗没有头，内容顶到窗口的上边，上面两个角也是卡片的角：列表栏的底色不从圆角外露出来。盖在视图之上的那一条相对它定位。 */
 .workbench-surface__content-clip[data-own-head] {
+    position: relative;
     border-start-start-radius: var(--shell-corner-tl, var(--shell-card-radius, 0px));
     border-start-end-radius: var(--shell-corner-tr, var(--shell-card-radius, 0px));
 }

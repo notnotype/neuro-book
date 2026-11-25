@@ -1,7 +1,7 @@
 /**
  * 一棵树的拖放（docs/specs/ui/workbench-layout.md 输出 24 到 32）：手势是 nb-layout 的拖动会话，落点规则是 `resolveLayoutDrop`，这里读 DOM 给它矩形，把结果换成反馈要画的东西。
  *
- * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，分节的标题也是）、活动栏的入口（`data-tool-entry`；只含一个视图的另有 `data-tool-view`，拖的是那个视图；含几个视图的拖的是容器，只能在入口条里换序，输出 46）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
+ * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，分节的标题也是）、活动栏的入口（`data-tool-entry`；只含一个视图的另有 `data-tool-view`，拖的是那个视图；含几个视图的拖的是容器，只能在入口条里换序，输出 46）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）、视图自绘头的浮动窗里视图标出的拖动区（`data-window-drag`，中间隔着可交互元素的不算，`windowDragRegion`；整窗移动，docs/specs/workbench/views.md 输出 19 的“自绘头”）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
  * `data-no-drag-start` 只是不起拖（标签上的关闭按钮：拖动经过时它还在标签条里），被菜单、对话框挡住的不接收。编辑组的标签条写 `data-panel-strip`，它的多行、固定分区由编辑器量（`editorTabs`）。
  *
  * 入口条（输出 45、47）：活动栏上段（`data-tool-band`）是侧栏的，右栏、底部面板的在各自卡片顶上（`data-region-strip`）。入口之间新建容器、换序或整个容器搬过来，入口上并入；
@@ -810,8 +810,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 视图自绘头的窗：头在内容层里，按在视图标出的拖动区上（中间没有可交互的元素）拖的是整个窗。
         const content = element.closest<HTMLElement>("[data-content-leaf][data-float]")?.dataset.contentLeaf;
         if (content !== undefined && options.ownHead(content) && windowDragRegion(element) !== null) return {kind: "panel", panel: content};
-        // 浮动窗的头：标签条空白，或它唯一的标签，拖的是整个窗；多标签时拖标签是撕下（输出 39）。自绘头时标题按钮在窗口零件层（`data-float-chrome`）。
-        const floating = element.closest<HTMLElement>("[data-leaf][data-float]")?.dataset.leaf ?? element.closest<HTMLElement>("[data-float-chrome]")?.dataset.floatChrome;
+        // 浮动窗的头：标签条空白，或它唯一的标签，拖的是整个窗；多标签时拖标签是撕下（输出 39）。自绘头时标题按钮画在内容里（`content`）。
+        const floating = element.closest<HTMLElement>("[data-leaf][data-float]")?.dataset.leaf ?? content;
         if (floating !== undefined && options.doc().panels[floating] !== undefined) {
             const onHead = element.closest("[data-panel-strip], [data-panel-head]") !== null;
             if (tab === undefined ? onHead : options.doc().panels[floating]?.tabs.length === 1) return {kind: "panel", panel: floating};

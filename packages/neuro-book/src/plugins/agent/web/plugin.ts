@@ -54,6 +54,7 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
 import {STATUS_ITEMS_POINT, statusItemsPoint} from "../shared/status-item-point";
 import type {SettingWriteResult} from "nbook/shared/settings";
+import {MESSAGES_HEAD_BAND} from "./messages-head";
 import {createStatusItems} from "./status-items";
 import {createStatusLineWriter} from "./status-line-writes";
 import {statusLinePage, statusCatalog} from "./status-line-page";
@@ -770,8 +771,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
             };
 
-            // 浮成只有它一个标签的窗时自绘整个头（workbench/views.md 输出 19 的“自绘头”）：那一条与列表的切换行同高，MessagesHost 的 `OWN_HEAD_BAND` 同值。
-            const view: ViewImplementation & ViewHeadOptIn & ViewOwnHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, [VIEW_OWN_HEAD]: {band: 40}, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
+            // 浮成只有它一个标签的窗时自绘整个头（workbench/views.md 输出 19 的“自绘头”）。
+            const view: ViewImplementation & ViewHeadOptIn & ViewOwnHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, [VIEW_OWN_HEAD]: {band: MESSAGES_HEAD_BAND}, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
             // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。

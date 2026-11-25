@@ -192,6 +192,9 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await expect(agentHead).toBeVisible();
     await expect(agentHead).toHaveAttribute("data-window-drag", "");
     await expect(page.locator(`[data-leaf="${target}"] [data-panel-head]`)).toHaveCount(0);
+    // 用鼠标浮出来：焦点就算被还到标题按钮上，它也不冒出来压住视图的头（只有键盘聚焦才显示）。
+    const title = ownHead.locator("[data-panel-tab]");
+    await expect(title).toHaveCSS("opacity", "0");
 
     /** 窗口卡片、内容与第一行的几何。 */
     const rows = () => page.evaluate(({target, key}) => {
@@ -260,13 +263,22 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await page.locator("[data-agent-head] [data-header-title]").click({button: "right"});
     await expect(page.getByRole("menu")).toHaveCount(0);
 
-    // 标题按钮平时不接指针；聚焦时显示在左上角、点得到；它仍是拿起这个窗的入口。
-    const title = ownHead.locator("[data-panel-tab]");
+    // 键盘：从视图里往回 Tab，先到“回到停靠”（焦点进了这一条，按钮显示），再到标题按钮：标题按钮平时不接指针，键盘聚焦时显示在左上角、点得到；
+    // 它仍是拿起这个窗的入口，Enter 只激活、窄版也不开抽屉。
     const titleCenter = await centerOf(page, `[data-panel-head="${target}"] [data-panel-tab]`);
     expect(await hitIn(page, titleCenter, `[data-panel-head="${target}"] [data-panel-tab]`)).toBe(false);
-    await title.focus();
+    const focusedIs = (locator: typeof title) => locator.evaluate((element) => element === document.activeElement);
+    await page.locator("[data-messages-toggle]").focus();
+    for (let step = 0; step < 8 && !(await focusedIs(dock)); step += 1) await page.keyboard.press("Shift+Tab");
+    await expect(dock).toBeFocused();
+    await expect(frameActions).toHaveCSS("opacity", "1");
+    for (let step = 0; step < 8 && !(await focusedIs(title)); step += 1) await page.keyboard.press("Shift+Tab");
+    await expect(title).toBeFocused();
     await expect(title).toHaveCSS("opacity", "1");
     expect(await hitIn(page, titleCenter, `[data-panel-head="${target}"] [data-panel-tab]`)).toBe(true);
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
+    await expect(title).toBeFocused();
     // 空格拿起（出拖影），Esc 放下；菜单键开“移动到”。
     await page.keyboard.press("Space");
     await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
@@ -300,6 +312,11 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     expect(Math.round(geo.content.top - geo.card.top)).toBe(32);
     await expect(input(page)).toContainText("头搬家前写的字");
     expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
+    // 头在内容里时列表照样开：头像列顶上的按钮开抽屉。
+    await page.locator("[data-messages-toggle]").click();
+    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
 
     // 把资源管理器拖走，窗里又只剩消息视图：又自绘头。
     const to = (await page.locator("[data-workbench-shell]").boundingBox())!;
@@ -330,6 +347,17 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     expect(await windowAt()).toEqual(wideBefore);
     await dragBy(page, {x: sessionsTab.x + sessionsTab.width + 12, y: tabs.y + tabs.height / 2}, 40, 20);
     await expect.poll(async () => Math.round((await windowAt()).x - wideBefore.x)).toBe(40);
+    await expect(input(page)).toContainText("头搬家前写的字");
+
+    // 点“回到停靠”：窗没了，视图回到停靠位，面板头照常画、对话头不再是拖动区。
+    geo = await rows();
+    await page.mouse.move(geo.card.left + 200, geo.card.top + 200);
+    const dockAt = await centerOf(page, `[data-panel-head="${target}"] [data-panel-action="nbook.view.dock"]`);
+    expect(await hitIn(page, dockAt, "[data-panel-action=\"nbook.view.dock\"]")).toBe(true);
+    await page.mouse.click(dockAt.x, dockAt.y);
+    await expect(page.locator(`[data-float-chrome="${target}"]`)).toHaveCount(0);
+    await expect(page.locator("[data-own-head]")).toHaveCount(0);
+    await expect(agentHead).not.toHaveAttribute("data-window-drag", "");
     await expect(input(page)).toContainText("头搬家前写的字");
 });
 

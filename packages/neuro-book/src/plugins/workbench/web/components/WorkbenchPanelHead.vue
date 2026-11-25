@@ -68,7 +68,7 @@ const props = withDefaults(defineProps<{
     foldLabel?: string;
     /**
      * 视图自绘整个头（docs/specs/workbench/views.md 输出 19 的“自绘头”，只写标题时才起作用）：头不占一行，画成盖在内容顶上、高 `band` 的一条，
-     * 本身不接指针；视图动作与框架按钮在右端，标题按钮在左上角、聚焦时才看得见。宿主把它放在浮动窗的窗口零件层，压在内容之上。
+     * 本身不接指针；视图动作与框架按钮在右端，标题按钮在左上角、键盘聚焦时才看得见。宿主把它放在这块窗的内容里、视图之前。
      */
     ownHead?: {readonly band: number} | null;
     /** 自绘头时视图动作与框架按钮该不该显示：指针或焦点在这块窗的内容上（宿主算，同卡片的 `data-hover-actions-active`）。 */
@@ -180,7 +180,8 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     >
         <!-- 只写标题时内容 region 的名称指向它（docs/specs/ui/workbench-layout.md 输出 20），不指向标题按钮：视图接管标题区时按钮写的是视图的内容。 -->
         <span v-if="activeTab !== null" :id="panelTitleDomId(idPrefix, activeTab.id)" hidden>{{ activeTab.label }}</span>
-        <!-- 自绘头的标题按钮：拖动源、F6 与“焦点落到标题”的落点都还是它，平时透明、不接指针，聚焦时显示在左上角（不用 display:none，否则落不上焦点）。 -->
+        <!-- 自绘头的标题按钮：拖动源、F6 与“焦点落到标题”的落点都还是它，平时透明、不接指针，键盘聚焦（`:focus-visible`）时显示在左上角：
+             点了“浮动”、关了“移动到”后焦点由程序还到它上面时不冒出来压住视图的头。不用 display:none，否则落不上焦点。 -->
         <h2 v-if="ownHeadShown" class="workbench-panel-head__own-title">
             <button
                 :id="panelTabDomId(idPrefix, activeTab!.id)"
@@ -582,6 +583,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     justify-content: flex-end;
     height: var(--own-head-band);
     padding-inline: var(--space-1) 8px;
+    z-index: 10;
     pointer-events: none;
 }
 
@@ -604,7 +606,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     padding-inline: var(--space-2);
     border-radius: var(--radius-control);
     background: var(--panel-surface);
-    box-shadow: var(--shadow-sm, none);
+    box-shadow: var(--elevation-raised);
     color: var(--text-main);
     font-size: var(--text-xs);
     font-weight: 600;
@@ -615,7 +617,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     transition: opacity var(--motion-reveal-in, var(--motion-fast)) linear;
 }
 
-.workbench-panel-head__own-handle:focus {
+.workbench-panel-head__own-handle:focus-visible {
     opacity: 1;
     pointer-events: auto;
 }
