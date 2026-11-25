@@ -36,5 +36,5 @@ updated: 2026-11-25
 
 ## 下一步
 
-- 顾问（omp gemini-4-neon-xhigh，说明与报告在仓库外的 `/tmp/review-t19-rail/`，会话在本地 `reports/omp-advisor/`）与拉远看（Sonnet）在跑；回来后归纳给开发者，再按定下的方向修稿。
+- 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者，等定方向。
 - 第 2 轮答复后：侧轨涉及工作台骨架（ADR 0044、`ui/workbench-layout.md` 输出 1、22、47），先写提案；窄版列表交互出稿比较；消息样式随后一轮。
