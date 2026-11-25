@@ -5,7 +5,7 @@
 # 否则整轮启动即失败（startup_failure，2026-11-20 第一次演练）。构建作业不需要写权限。
 #
 # 应用包与 Windows 版是同一份（同一个版本号对应同一份服务端，提案 4.1）；载荷在 ubuntu 上按 darwin-arm64 组装，壳与安装包
-# 在 macOS runner 上用 Hutch 构建。不签名、不公证，不跑冒烟（还没有 macOS 的冒烟脚本，由开发者在真机上试）。
+# 在 macOS runner 上用 Hutch 构建。不签名、不公证，没有通过或失败的冒烟；只有一步“取证”（启动、截图、壳日志，产物 `desktop-macos-evidence`），真机上的验收由开发者做。
 #
 # 产物 `desktop-macos-assets`：安装包 `NeuroBook-macos-arm64.dmg`（不带版本号，releases/latest/download/<名> 是固定链接）；
 # 更新用的 `stable-macos-arm64-*` 由 Electrobun 定，与 Windows 的 `stable-win-x64-*` 互不相干；校验和另写 `SHA256SUMS-macos`。
@@ -134,6 +134,21 @@ jobs:
           (cd "$assets" && shasum -a 256 * | grep -v ' SHA256SUMS' > SHA256SUMS-macos)
           ls -l "$assets"
           cat "$assets/SHA256SUMS-macos"
+      # 取证，不是判据（w00046 t23）：没有真机，用 runner 把装出来的应用启动、截一张整屏图并带上壳日志，红绿灯与标题栏的位置
+      # 在图上量。失败只警告，不挡发布；脚本最多跑 5 分钟，之后作业结束时系统收掉应用与服务端。
+      - name: 取证（启动与截图）
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos-evidence"
+          bun desktop/scripts/smoke-macos.ts --dmg "$RUNNER_TEMP/release-assets/NeuroBook-macos-arm64.dmg" --evidence "$RUNNER_TEMP/macos-evidence" --work "$RUNNER_TEMP/macos-smoke"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-macos-evidence
+          path: ${{ runner.temp }}/macos-evidence/
+          retention-days: 14
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-assets
