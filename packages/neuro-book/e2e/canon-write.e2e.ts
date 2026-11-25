@@ -81,7 +81,8 @@ const tree = (page: Page) => page.locator("[data-tool-view=\"nbook.canon.entries
 const row = (page: Page, name: string): Locator => page.locator("[data-tree-id]").filter({hasText: new RegExp(`^${name}`, "u")}).first();
 const entryPage = (page: Page) => page.locator("[data-entry-page]");
 const activeTabLabel = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]");
-const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-field="${path}"] .canon-value`);
+/** 人物分页里一项的值（author-ui 输出 49：值本身是按钮）。 */
+const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-edit="${path}"]`);
 const dialog = (page: Page) => page.getByRole("dialog");
 
 /** 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。 */
@@ -124,10 +125,11 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(activeTabLabel(page)).toHaveText("星瑕");
     await expect(page.locator("[data-notice-bar]")).toContainText("新建“星瑕”");
 
-    // 没有主文字时缺省先看人物这组设定；性格未知，按钮写“填写”或“改”都是同一个入口。
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    // 新建人物带人物与形象两组，先看人物分页（author-ui 输出 4、9、37）；性格未知，点它在原处就地改（输出 51）。
+    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^经历/u, /^情节/u]);
+    await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
-    const bar = entryPage(page).locator("[data-confirm-bar]");
+    const bar = page.locator("[data-field-editor=\"character.性格\"]");
     await bar.getByRole("textbox").fill("银白长发");
     await expect(bar.locator("[data-confirm-preview]")).toContainText("改初值");
     await bar.getByRole("button", {name: "保存"}).click();
@@ -380,6 +382,8 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await expect(row(page, "雾崎")).toBeVisible();
     await row(page, "雾崎").click();
     await expect(activeTabLabel(page)).toHaveText("雾崎");
+    // 人物的条目先看人物分页（author-ui 输出 9），主文字在“文字”里。
+    await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("星瑕的对头");
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("一身黑衣");

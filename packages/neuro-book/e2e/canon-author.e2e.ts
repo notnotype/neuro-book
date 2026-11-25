@@ -65,8 +65,12 @@ const crumbs = (page: Page) => page.locator("[data-editor-page-breadcrumbs] [dat
 const activeTabLabel = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]");
 /** 文字分页里带值写法的一个值（按地址）。 */
 const value = (page: Page, path: string) => entryPage(page).locator(`[data-value$="|${path}"]`).first();
-/** 数据分页（字段表）里一个字段的值。 */
-const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-field="${path}"] .canon-value`);
+/** 人物、形象分页里一项的值（输出 49、50：值本身是按钮）。 */
+const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-edit="${path}"]`);
+/** 专门界面里就地改的编辑器（输出 51）：短项在浮层里（传送到页面根上），成段的文字浮在原处。 */
+const inlineEditor = (page: Page, path: string) => page.locator(`[data-field-editor="${path}"]`);
+/** 切到文字分页：人物的条目打开时先看人物分页（输出 9）。 */
+const textTab = (page: Page) => entryPage(page).getByRole("tab", {name: "文字"}).click();
 const positionSelect = (page: Page) => entryPage(page).getByRole("combobox", {name: "位置"});
 const statusBar = (page: Page) => page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']");
 /** 状态栏的“待处理 N”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
@@ -114,6 +118,10 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await expect(crumbs(page)).toHaveText(["设定", "人物", "星瑕", "哥哥"]);
     await crumbs(page).filter({hasText: "星瑕"}).click();
     await expect(activeTabLabel(page)).toHaveText("星瑕");
+    // 人物的条目先看人物分页，形象跟在后面、文字在它们之后（输出 9）。
+    await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
+    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^面板/u, /^经历/u, /^情节/u]);
+    await textTab(page);
 
     const latest = await value(page, "panel.存款").innerText();
     await choosePosition(page, /第 1 章末尾/u);
@@ -145,6 +153,7 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
 test("验收 2：两个条目页各有各的位置、展开的来历与填了一半的就地改；刷新后两个标签都在、标题是名字、位置回到缺省", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
+    await textTab(page);
     await choosePosition(page, /第 1 章末尾/u);
     await value(page, "panel.存款").click();
     await expect(entryPage(page).locator("[data-origin-list]")).toBeVisible();
@@ -162,16 +171,15 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
     await expect(row(page, "星瑕")).not.toHaveAttribute("aria-selected", "true");
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
 
-    // 填了一半的就地改：切走再回来，确认条与填的字还在。
+    // 填了一半的就地改：切走再回来，编辑与填的字还在（成段的文字浮在原处，输出 51）。
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
-    const bar = entryPage(page).locator("[data-confirm-bar]");
-    await bar.getByRole("textbox").fill("还没想好");
+    await inlineEditor(page, "character.性格").getByRole("textbox").fill("还没想好");
     await page.locator("[data-editor-tab]", {hasText: "星瑾"}).click();
     await expect(activeTabLabel(page)).toHaveText("星瑾");
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
-    await expect(entryPage(page).locator("[data-confirm-bar]").getByRole("textbox")).toHaveValue("还没想好");
-    await entryPage(page).locator("[data-confirm-bar]").getByRole("button", {name: "取消"}).click();
+    await expect(inlineEditor(page, "character.性格").getByRole("textbox")).toHaveValue("还没想好");
+    await inlineEditor(page, "character.性格").getByRole("button", {name: "取消"}).click();
 
     await page.reload();
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
@@ -202,7 +210,7 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改初
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
     const before = await fieldValue(page, "character.性格").innerText();
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
-    const bar = entryPage(page).locator("[data-confirm-bar]");
+    const bar = inlineEditor(page, "character.性格");
     await bar.getByRole("textbox").fill("嘴硬心软");
     await expect(bar.locator("[data-confirm-preview]")).toContainText("改初值");
     await bar.getByRole("button", {name: "保存"}).click();
@@ -235,7 +243,7 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
     const field = fieldValue(page, "character.身份");
     const before = await field.innerText();
     await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
-    const bar = entryPage(page).locator("[data-confirm-bar]");
+    const bar = inlineEditor(page, "character.身份");
     await bar.getByRole("textbox").fill("在打工");
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(field).toHaveText("在打工");
@@ -253,22 +261,21 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
     await expect(field).toHaveText(before);
 });
 
-test("验收 11：只用键盘改一个值：Tab 走到“改”、Enter、填、Tab 到“保存”、Enter，焦点回到“改”；再 Enter、Escape，确认条收起、焦点还在“改”", async ({page}) => {
+test("验收 11：只用键盘改一个值：走到值、Enter、填、Tab 到“保存”、Enter，焦点回到值；再 Enter、Escape，编辑收起、焦点还在值上", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
     await entryPage(page).getByRole("tab", {name: "形象"}).click();
-    const edit = entryPage(page).locator("[data-edit=\"look.外貌\"]");
-    const before = await fieldValue(page, "look.外貌").innerText();
-    // 值按钮与“改”各一个 Tab 停靠，值在前。
-    await fieldValue(page, "look.外貌").focus();
-    await page.keyboard.press("Tab");
+    // 形象分页里值本身就是“改”（输出 51）：一个 Tab 停靠，Enter 打开浮在原处的编辑。
+    const edit = fieldValue(page, "look.外貌");
+    const before = await edit.innerText();
+    await edit.focus();
     await expect(edit).toBeFocused();
     await page.keyboard.press("Enter");
-    const box = entryPage(page).locator("[data-confirm-bar]").getByRole("textbox");
+    const box = inlineEditor(page, "look.外貌").getByRole("textbox");
     await expect(box).toBeFocused();
     await page.keyboard.press("Control+A");
     await page.keyboard.type("银白长发");
-    const save = entryPage(page).locator("[data-confirm-bar]").getByRole("button", {name: "保存"});
+    const save = inlineEditor(page, "look.外貌").getByRole("button", {name: "保存"});
     await expect(save).toBeEnabled();
     for (let presses = 0; presses < 4 && !(await save.evaluate((element) => element === document.activeElement)); presses += 1) await page.keyboard.press("Tab");
     await expect(save).toBeFocused();
@@ -279,7 +286,7 @@ test("验收 11：只用键盘改一个值：Tab 走到“改”、Enter、填�
     await page.keyboard.press("Enter");
     await expect(box).toBeFocused();
     await page.keyboard.press("Escape");
-    await expect(entryPage(page).locator("[data-confirm-bar]")).toHaveCount(0);
+    await expect(inlineEditor(page, "look.外貌")).toHaveCount(0);
     await expect(edit).toBeFocused();
     expect(before).not.toBe("银白长发");
 });

@@ -224,6 +224,11 @@ const tabs = computed(() => {
 });
 // 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
 const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0]! : tabs.value[0]!).value);
+// 有没提交的主文字稿时先看文字（直接进编辑，输出 45），排在它前面的人物分页这时不当缺省（输出 9）。稿是读完存储才知道的：读到时
+// 作者还没自己点过分页，就把分页定在文字上（记进标签状态），提交、放弃以后不跳回人物分页。
+watch(() => props.draft.state.draft !== null, (editing) => {
+    if (editing && state.tab === null) state.tab = "text";
+}, {immediate: true});
 const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : firstTab.value));
 const dataNamespace = computed(() => (tab.value.startsWith(DATA) ? tab.value.slice(DATA.length) : null));
 const extraTab = computed(() => (tab.value.startsWith(EXTRA) ? tab.value.slice(EXTRA.length) : null));
