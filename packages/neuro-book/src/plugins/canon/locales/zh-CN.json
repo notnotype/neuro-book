@@ -572,7 +572,13 @@
         "pathPlaceholder": "作品里的路径，例如 图片/星瑕.png",
         "caption": "说明",
         "badPath": "路径要写作品里的相对路径：不带协议、不以 / 开头、没有 ..、不在 .nbook 下",
-        "needPath": "填了说明还要填图片的路径"
+        "needPath": "填了说明还要填图片的路径",
+        "upload": "上传",
+        "uploading": "正在上传…",
+        "cancelUpload": "取消上传",
+        "candidates": "作品里的图片",
+        "noCandidates": "图片文件夹里还没有图片",
+        "manual": "或者填作品里的路径"
     },
     "move": {
         "title": "移动“{{name}}”",
@@ -669,5 +675,14 @@
     },
     "detail": {
         "editAnchor": "改起点"
+    },
+    "images": {
+        "listFailed": "图片文件夹没有读出来",
+        "unavailable": "这个窗口里不能上传图片",
+        "rejected": "只收 PNG、JPEG、GIF、WebP，不超过 32 MiB",
+        "unknown": "上传没有确定的结果，图可能已经写进作品，看一下图片文件夹",
+        "cancelled": "上传取消了，图可能已经写进作品",
+        "failed": "上传没有成功：{{detail}}",
+        "missing": "图片找不到"
     }
 }

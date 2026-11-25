@@ -572,7 +572,13 @@
         "pathPlaceholder": "Path inside the project, e.g. images/star.png",
         "caption": "Caption",
         "badPath": "Use a path relative to the project: no scheme, no leading /, no .., not under .nbook",
-        "needPath": "A caption needs an image path too"
+        "needPath": "A caption needs an image path too",
+        "upload": "Upload",
+        "uploading": "Uploading…",
+        "cancelUpload": "Cancel upload",
+        "candidates": "Images in this project",
+        "noCandidates": "No images in the image folder yet",
+        "manual": "Or type a path in the project"
     },
     "move": {
         "title": "Move “{{name}}”",
@@ -669,5 +675,14 @@
     },
     "detail": {
         "editAnchor": "Edit the starting point"
+    },
+    "images": {
+        "listFailed": "Could not read the image folder",
+        "unavailable": "Images cannot be uploaded in this window",
+        "rejected": "Only PNG, JPEG, GIF and WebP up to 32 MiB",
+        "unknown": "The upload has no definite result; the image may already be in the project—check the image folder",
+        "cancelled": "Upload cancelled; the image may already be in the project",
+        "failed": "Upload failed: {{detail}}",
+        "missing": "Image not found"
     }
 }

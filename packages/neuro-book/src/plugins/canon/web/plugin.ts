@@ -19,6 +19,8 @@ import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/c
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {editorComponentsKey, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
+import {IMAGE_FOLDER_DEFAULT, imageFolderSetting} from "nbook/plugins/editor/shared/contracts";
+import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -34,6 +36,7 @@ import {descriptor} from "../plugin";
 import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/component-views";
 import {CANON_ENTRY_TABS_POINT, entryTabsPoint} from "../shared/entry-tabs";
 import {CANON_ENTRY_KINDS_POINT, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
+import {createCanonImages} from "./images";
 import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
@@ -145,7 +148,8 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
         // 选线可选：没有工作台的窗口里没有快速选择，选线命令得到 `unavailable`。
         // Storage 可选：没有时主文字的稿只在内存里（author-ui.md 输出 45）。编辑器的组件可选：没有时整篇编辑用普通文本框。
-        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}, {key: storageKey, required: false}, {key: editorComponentsKey, required: false}],
+        // 设置可选：没有时设定里的图片存进缺省的图片文件夹（输出 53）。
+        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}, {key: storageKey, required: false}, {key: editorComponentsKey, required: false}, {key: settingsKey, required: false}],
         provides: [canonClientKey, canonReadsKey],
         receives: [CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT],
         remoteDelegates: [canonWorldContract],
@@ -233,6 +237,10 @@ export const canonBrowserPlugin: PluginDefinition = {
             const storage = await context.services.resolve(storageKey);
             const editorComponents = await context.services.resolve(editorComponentsKey);
             const drafts = createTextDrafts({storage: storage.status === "resolved" ? storage.instance : null, world: worldOf, call});
+            const files = await context.services.resolve(filesKey);
+            // 设定里的图片（输出 53）：存进作品设置里的图片文件夹；没有设置服务时用缺省的文件夹。
+            const settings = await context.services.resolve(settingsKey);
+            const images = createCanonImages(files.status === "resolved" ? files.instance : null, () => (settings.status === "resolved" ? settings.instance.get(imageFolderSetting) : IMAGE_FOLDER_DEFAULT));
             const page = createEntryPage({
                 drafts,
                 sourceInput: editorComponents.status === "resolved" ? editorComponents.instance.components.CodeInput : null,
@@ -250,9 +258,9 @@ export const canonBrowserPlugin: PluginDefinition = {
                     state.selected.value = entry;
                 },
                 entryKinds,
+                images,
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
-            const files = await context.services.resolve(filesKey);
             // “打开这一章”：章节文件名里带标题，按编号在活页夹目录里找（与项目实例读正文认同一个文件）。
             const openChapter = async (chapter: string): Promise<boolean> => {
                 if (files.status !== "resolved") return false;

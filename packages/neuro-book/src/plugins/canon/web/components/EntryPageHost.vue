@@ -20,6 +20,8 @@ import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
+import {createImagePicking, provideCanonImageUrl, provideImagePicking} from "../images";
+import type {CanonImages} from "../images";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
@@ -93,12 +95,19 @@ const props = defineProps<{
     onCommitReady: (commit: (() => Promise<void>) | null) => void;
     /** 登记的条目种类（`canon.entry-kinds`）：这个条目种类的默认设定组的分页排在“文字”前面（输出 9）。 */
     entryKinds?: readonly EntryKind[];
+    /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
+    images?: CanonImages | null;
 }>();
 
 const text = useCanonText();
 const port = useText();
 const state = props.state;
 const world = props.world;
+// 图片（输出 53）：取图地址注入给这一页里的 `CanonImage`；选图片的地方（确认条、元素对话框、就地改）共用一份候选与上传，同一时间
+// 只有一处在填。
+provideCanonImageUrl((path) => props.images?.url(path) ?? null);
+const imagePicking = props.images === undefined || props.images === null ? null : createImagePicking(props.images, (given) => port.t(given));
+if (imagePicking !== null) provideImagePicking(imagePicking);
 // 挂着就是在前台：保存后的提示显示在本页顶上（输出 18）。
 const pageNotice = usePageNotice(props.notices, props.revert);
 
@@ -807,7 +816,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                 const composing = shallowRef(false);
                 const active = computed(() => state.edit?.inline === true && state.edit.path === full() && edit.bar.value !== null);
                 const dismiss = (): void => {
-                    if (composing.value || edit.bar.value?.saving === true) return;
+                    if (composing.value || edit.bar.value?.saving === true || imagePicking?.uploading === true) return;
                     edit.cancel();
                 };
                 const content = () => {

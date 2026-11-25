@@ -34,6 +34,7 @@ import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
 import type ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
 import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
 import type SuggestInput from "nbook/plugins/canon/web/components/SuggestInput.vue";
+import type CanonImage from "nbook/plugins/canon/web/components/CanonImage.vue";
 import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
 import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
 import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
@@ -2036,8 +2037,21 @@ function canonEntryPageFixtures() {
                 {id: "bad-path", label: "路径不合规则", input: {props: {}, model: {modelValue: {图片: "../外面/星瑕.png", 说明: ""}}}},
                 {id: "problem", label: "服务退回的原因", input: {props: {problem: "这个作品里没有这个文件"}, model: {modelValue: {图片: "图片/没有.png", 说明: ""}}}},
                 {id: "bad-path-english", label: "英文界面", input: {props: {}, model: {modelValue: {图片: "/abs/star.png", 说明: "silver hair"}}}},
+                {id: "picking", label: "作品里的图片：选了一张", input: {props: {}, model: {modelValue: {图片: "插图/星瑕-立绘.png", 说明: "银白长发"}}}},
+                {id: "picking-uploading", label: "正在上传", input: {props: {}, model: {modelValue: null}}},
+                {id: "picking-no-images", label: "图片文件夹还是空的", input: {props: {}, model: {modelValue: null}}},
+                {id: "picking-english", label: "英文界面：作品里的图片", input: {props: {}, model: {modelValue: null}}},
             ],
             load: async () => (await import("./ImageInputFixture.vue")).default,
+        }),
+        defineLabFixture<typeof CanonImage>({
+            component: "CanonImage",
+            scenes: [
+                {id: "found", label: "读到了", input: {props: {path: "插图/星瑕-立绘.png", alt: "星瑕的立绘"}}},
+                {id: "missing", label: "图片找不到", input: {props: {path: "插图/没有这张.png"}}},
+                {id: "missing-english", label: "英文界面", input: {props: {path: "插图/没有这张.png"}}},
+            ],
+            load: async () => (await import("./CanonImageFixture.vue")).default,
         }),
         defineLabFixture<typeof MoveDialog>({
             component: "MoveDialog",
