@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 3 轮：侧轨两种做法、完整列表怎么打开</title>
+<title>第 4 轮：会话与 bot 的弹窗、浮动窗</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
@@ -31,54 +31,40 @@ th { color: var(--muted); font-weight: 600; }
 </head>
 <body>
 <main>
-<h1>第 3 轮：侧轨两种做法、完整列表怎么打开</h1>
+<h1>第 4 轮：会话与 bot 的弹窗、浮动窗</h1>
 
-<section data-nbdev-question="rail-kind" data-nbdev-type="single" data-nbdev-recommend="shell">
-  <h2>头像列做成工作台的侧轨，还是留在视图里贴右边？</h2>
-  <p class="rec"><strong>推荐甲 工作台的侧轨：和左边活动栏同一套画法、同一处接缝，左右对调时跟着走；视图只交出条目（图标或头像、未读、选中、命令），由工作台画。乙改动小，但只是消息视图自己的样子，对调和别的视图都用不上。</strong></p>
-  <div class="cands two">
-    <div class="cand" data-nbdev-option="shell" data-nbdev-label="甲 工作台的侧轨">
-      <h3>甲 工作台的侧轨</h3>
-      <figure><img src="r3/jia-right.webp" alt="甲 工作台的侧轨"></figure>
-    </div>
-    <div class="cand" data-nbdev-option="view" data-nbdev-label="乙 留在视图里贴右边">
-      <h3>乙 留在视图里贴右边</h3>
-      <figure><img src="r3/yi-right.webp" alt="乙 留在视图里，不画竖线，底色深一档"></figure>
-    </div>
+<section data-nbdev-question="list-dialog" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>点“会话历史”或“全部 bot”，开这样一个居中的弹窗，可以吗？</h2>
+  <p class="rec"><strong>推荐可以：弹窗够宽，标题不截断；顶上 Bot、会话两页，按哪个按钮就先开哪一页；搜索、作品范围、筛选、新建照会话面板；选中一项就关，Esc 关。</strong></p>
+  <figure><img src="r4/dialog.webp" alt="会话与 bot 的弹窗"></figure>
+  <div class="cands two" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="ok" data-nbdev-label="可以"><h3>可以</h3></div>
+    <div class="cand" data-nbdev-option="adjust" data-nbdev-label="还要调"><h3>还要调</h3></div>
   </div>
-  <figure style="margin-top: 16px"><figcaption>甲 整窗</figcaption><img src="r3/jia.webp" alt="甲 整窗"></figure>
 </section>
 
-<section data-nbdev-question="list-switcher" data-nbdev-type="single" data-nbdev-recommend="anchored">
-  <h2>点“会话历史”或“全部 bot”，用哪种浮层找？</h2>
-  <p class="rec"><strong>推荐 A 锚在按钮旁：出现在点的地方，搜索框自动聚焦，按内容高，不盖满聊天区；带着“当前作品”筛选。改名、归档这些管理操作放到编辑区里的宽版列表。</strong></p>
+<section data-nbdev-question="float-rail" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>浮动窗这样画，可以吗？</h2>
+  <p class="rec"><strong>推荐可以：窄的浮动窗没有工作台的轨，视图在窗的右边缘画同一组条目，顶格让给“回到停靠”；宽的浮动窗照旧左边列表、右边聊天。</strong></p>
   <div class="cands two">
-    <div class="cand" data-nbdev-option="anchored" data-nbdev-label="A 锚在按钮旁">
-      <h3>A 锚在按钮旁</h3>
-      <figure><img src="r3/popover.webp" alt="锚在按钮旁的浮层"></figure>
-    </div>
-    <div class="cand" data-nbdev-option="quickpick" data-nbdev-label="B 顶部居中的快速选择">
-      <h3>B 顶部居中的快速选择</h3>
-      <figure><img src="r3/quickpick.webp" alt="顶部居中的快速选择"></figure>
-    </div>
+    <div class="cand"><h3>窄</h3><figure><img src="r4/float-narrow.webp" alt="窄的浮动窗"></figure></div>
+    <div class="cand"><h3>宽</h3><figure><img src="r4/float-wide.webp" alt="宽的浮动窗"></figure></div>
+  </div>
+  <div class="cands two" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="ok" data-nbdev-label="可以"><h3>可以</h3></div>
+    <div class="cand" data-nbdev-option="adjust" data-nbdev-label="还要调"><h3>还要调</h3></div>
   </div>
 </section>
 
 <section>
-  <h2>两边对调后的样子（另开 Task 做）</h2>
-  <figure><img src="r3/swapped.webp" alt="两边对调"></figure>
-</section>
-
-<section>
-  <h2>不用答，直接画进稿里</h2>
+  <h2>找某一个会话的几条路</h2>
   <table>
-    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <thead><tr><th>路</th><th>找得到什么</th></tr></thead>
     <tbody>
-      <tr><td>选中只突出一层</td><td>轨顶上的容器入口用底块；当前会话改成一圈描边</td></tr>
-      <tr><td>底部两个按钮</td><td>“全部 bot”用机器人图标，“会话历史”用搜索列表图标；悬停与读屏都是这两个名字</td></tr>
-      <tr><td>接缝与圆角</td><td>轨和右栏卡片相连，接缝处不圆、不留缝，短线上下各缩一截，和左边一样</td></tr>
-      <tr><td>聊天区</td><td>头像列搬走后铺满整个宽度</td></tr>
-      <tr><td>对调</td><td>欢迎页不写“左边的资源管理器”；标题栏的三个开关样子不变，左右两个管的区域互换</td></tr>
+      <tr><td>轨上的头像与方块</td><td>各 bot 的对话、最近 5 个会话</td></tr>
+      <tr><td>会话与 bot 的弹窗</td><td>全部会话：按标题与说明搜，按作品、Profile、已归档筛</td></tr>
+      <tr><td>命令面板“切到 Agent 会话”</td><td>同上，键盘直达</td></tr>
+      <tr><td>宽版（浮动窗拉宽、在编辑区打开对话）</td><td>左边常驻的列表</td></tr>
     </tbody>
   </table>
 </section>
@@ -86,8 +72,9 @@ th { color: var(--muted); font-weight: 600; }
 <section>
   <h2>已定</h2>
   <ol class="decided" style="margin:0;padding-left:1.4em;color:var(--muted)">
-    <li>头像列在右边缘、通到顶；两个侧栏共用一种做法，左右能对调（第 1 轮，2026-11-25）</li>
-    <li>完整列表从轨底部两个按钮打开；抽屉、整页切换都不要（第 1、2 轮，2026-11-25）</li>
+    <li>头像列在右边缘、通到顶；两个侧栏共用一种做法，左右能对调（第 1 轮）</li>
+    <li>完整列表从轨底部两个按钮打开；不用抽屉、不整页切换（第 1、2 轮）</li>
+    <li>头像列做成工作台的侧轨（第 3 轮）；列表用单独的弹窗（第 3 轮附言）</li>
   </ol>
 </section>
 </main>
