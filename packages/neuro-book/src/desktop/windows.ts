@@ -24,6 +24,7 @@
  */
 
 import type {CloseLastWindow, CloseReason, UpdateHint} from "../shared/desktop-bridge";
+import {RESUME_PATH} from "../shared/resume-path";
 
 import {at} from "./deadline";
 import type {DeadlineClock} from "./deadline";
@@ -90,11 +91,16 @@ interface WindowState {
     ready: boolean;
     /** 最近一次获得焦点的序号，0 是还没获得过。 */
     focusedAt: number;
+    /** 开它时没有别的窗口：加载“启动时打开”的路由，进上次的作品或书架（desktop-shell.md 输出 9）。 */
+    resume: boolean;
 }
 
-function newWindowState(kind: WindowState["kind"]): WindowState {
-    return {kind, closing: false, ask: null, dialogOpen: false, ready: false, focusedAt: 0};
+function newWindowState(kind: WindowState["kind"], resume = false): WindowState {
+    return {kind, closing: false, ask: null, dialogOpen: false, ready: false, focusedAt: 0, resume};
 }
+
+/** 窗口要加载的地址。服务端地址以斜杠结尾（`Bun.serve().url.href`），路由用 `new URL` 拼，字符串相加会成 `//api/…`。 */
+const pageUrl = (serverUrl: string, resume: boolean): string => (resume ? new URL(RESUME_PATH, serverUrl).href : serverUrl);
 
 export class WindowCoordinator {
     readonly #options: WindowCoordinatorOptions;
@@ -122,10 +128,14 @@ export class WindowCoordinator {
         this.#options = options;
     }
 
-    /** 开第一个窗口（或开窗转交时再开一个）：服务端就绪了加载页面，否则显示启动页。 */
+    /**
+     * 开第一个窗口（或开窗转交、托盘与 Dock 再开一个）：服务端就绪了加载页面，否则显示启动页。此刻没有别的（不在关闭中的）窗口时，
+     * 它加载“启动时打开”的路由，进上次的作品；已有窗口时再开的是书架。启动、托盘、Dock 与第二次启动都经这里，规则只写这一处。
+     */
     openWindow(): WindowId {
-        const id = this.#options.port.open(this.#serverUrl === null ? {kind: "startup"} : {kind: "page", url: this.#serverUrl});
-        this.#windows.set(id, newWindowState(this.#serverUrl === null ? "startup" : "page"));
+        const resume = ![...this.#windows.values()].some((state) => !state.closing);
+        const id = this.#options.port.open(this.#serverUrl === null ? {kind: "startup"} : {kind: "page", url: pageUrl(this.#serverUrl, resume)});
+        this.#windows.set(id, newWindowState(this.#serverUrl === null ? "startup" : "page", resume));
         this.#options.onWindowsChanged(this.#windows.size);
         return id;
     }
@@ -154,7 +164,8 @@ export class WindowCoordinator {
         for (const [id, state] of this.#windows) {
             if (state.kind === "startup" && !state.closing) {
                 state.kind = "page";
-                this.#options.port.load(id, url);
+                // 启动期间转交来的再开的启动页不 resume：只有开它时没有别的窗口的那一个进上次的作品。
+                this.#options.port.load(id, pageUrl(url, state.resume));
             }
         }
     }

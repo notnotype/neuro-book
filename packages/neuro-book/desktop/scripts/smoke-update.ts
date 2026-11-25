@@ -167,8 +167,9 @@ async function smoke(options: Options): Promise<void> {
         const appDir = installed.appDir;
         const from = await installedVersion(appDir);
         if (Bun.semver.order(target, from) !== 1) throw new SmokeFailure(`${newLabel}（${target}）要高于装上的${oldLabel}（${from}）`);
-        // 模型设置只作数据基线里可认出的值；这个冒烟不调模型。
-        const seeded = await seedState(stateRoot, options.work, localModelSettings("http://127.0.0.1:9"));
+        // 模型设置只作数据基线里可认出的值；这个冒烟不调模型。“启动时打开”写成书架：同一个作业里前面的冒烟用缺省状态根打开过
+        // 作品，不写的话这里一启动就进了那部作品（projects.md 的“启动时打开”）。上一版不认识这个键：没声明的键留在文件里、不报错。
+        const seeded = await seedState(stateRoot, options.work, {...localModelSettings("http://127.0.0.1:9"), "nbook.projects/startupOpen": "shelf"});
 
         // 场景 1：旧版本运行中发现新版本，下载（有补丁就取补丁），关掉。
         route.offerNew();

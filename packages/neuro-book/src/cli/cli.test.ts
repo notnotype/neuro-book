@@ -124,7 +124,12 @@ describe("nbook start（真实进程）", () => {
         const url = started.url as string;
         expect((await fetch(`${url}api/runtime/health`)).status).toBe(200);
         expect(await (await fetch(url)).text()).toContain("nbook test");
-        expect(await waitUntil("打开了浏览器", async () => ((await openedUrls()).includes(url) ? true : undefined))).toBe(true);
+        // 打开的是启动时打开的路由（cli.md 输出 9），不是根地址；地址以斜杠结尾，拼出来没有双斜杠。
+        const resume = `${url}api/nbook.projects/resume`;
+        // 真实服务端一就绪路由就在（作品插件的服务端入口启动时激活）：新状态根没有上次的作品，302 到书架。
+        const redirected = await fetch(resume, {redirect: "manual"});
+        expect({status: redirected.status, location: redirected.headers.get("location")}).toEqual({status: 302, location: "/"});
+        expect(await waitUntil("打开了浏览器", async () => ((await openedUrls()).includes(resume) ? true : undefined))).toBe(true);
 
         // 不给子命令等于 start；选项写在前面也行。
         const second = run(["--state-root", root, "--json", "--port", "4999", "--safe-mode"]);
@@ -132,7 +137,7 @@ describe("nbook start（真实进程）", () => {
         expect(await second.exit).toBe(0);
         expect(second.stderr()).toContain("忽略 --port");
         expect(second.stderr()).toContain("没有以安全模式启动");
-        expect(await waitUntil("又打开了一次", async () => ((await openedUrls()).filter((opened) => opened === url).length === 2 ? true : undefined))).toBe(true);
+        expect(await waitUntil("又打开了一次", async () => ((await openedUrls()).filter((opened) => opened === resume).length === 2 ? true : undefined))).toBe(true);
 
         first.signal("SIGHUP");
         expect(await first.exit).toBe(0);
