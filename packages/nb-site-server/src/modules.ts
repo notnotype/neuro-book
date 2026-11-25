@@ -3,7 +3,7 @@
  * `satisfies` 让类型检查核对模块包的形状与 `SiteModule` 对得上；对不上时在这里报错，而不是在运行时。
  */
 
-import {createIdentityModule, identityMigrations, parseIdentityConfig, type IdentityConfig} from "@notnotype/nb-site-identity";
+import {createAdminCommand, createIdentityModule, identityMigrations, parseIdentityConfig, type IdentityConfig} from "@notnotype/nb-site-identity";
 import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
 import {createTelemetryModule, parseTelemetryConfig, TELEMETRY_INGEST_PREFIX, telemetryMigrations, type TelemetryConfig} from "@notnotype/nb-site-telemetry";
 import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
@@ -30,6 +30,7 @@ const identity = {
         // 第 6 条）。拆成两个进程时，同一个形状就是对 `whoami` 端点的 `fetch`。
         return {mounts: [{surface: "site", prefix: IDENTITY_API_PREFIX, app: module.site}], close: () => module.close()};
     },
+    commands: [createAdminCommand],
 } satisfies SiteModule<IdentityConfig>;
 
 /**

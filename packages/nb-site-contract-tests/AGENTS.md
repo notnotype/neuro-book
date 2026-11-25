@@ -33,7 +33,8 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `useSiteSandbox(purpose)` | 登记 `beforeAll`（建临时根）、`afterEach`（停掉本用例起的、还没停的进程）、`afterAll`（停掉其余的，再删根）；返回沙箱 |
 | `sandbox.dataDir()` | 临时根下一个新的空数据目录 |
 | `sandbox.start({dataDir, env, command, timeoutMs})` | 起 `serve`，等到 `site.listening`；进程先退出或超时都立即失败，错误里带已收到的输出。缺省带一个随机的测试控制口令，`env: {NB_SITE_TEST_CONTROL: undefined}` 去掉它 |
-| `sandbox.run(command, {dataDir, env, command, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行 |
+| `sandbox.run(command, {dataDir, env, command, args, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行；`args` 接在子命令之后（`create-admin` 的用户名与邮箱） |
+| `sandbox.spawnWithOpenStdin(command, {dataDir, env, command, args})` | 起一个标准输入开着的命令，立即返回 `OpenStdinProcess`：`write(text)`、`closeStdin()`、`kill(signal)`、`waitForStderr(what, match)`（等标准错误里出现某一行，进程先退出或超时都抛错）、`result()`（等退出，结果同 `run`）。收口与 `start`、`run` 同一套；收口时只要求它在 SIGTERM 后停下，不要求以 0 退出（被打断的命令本来就报 `interrupted`） |
 | `SiteProcess` | `url`、`pid`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
 | `identityRequest(url, path, init)`、`cookieJar()`（`identity.ts`） | 请求一个账号接口：补站点的 `Host`、`Origin`、`X-Forwarded-For`，有请求体时补 `Content-Type`；Cookie 罐存与回送 `Set-Cookie`、按名字覆盖，`last(name)` 取最近一条给断言属性用。账号的进程用 `IDENTITY_SITE_ENV` 起（信任回环上的代理），每个用例给自己的来源地址 |
 | `holdWriteLock(dataDir, module)`（`fault.ts`） | 从进程外占住一个模块的库的写锁，返回放锁的函数 |

@@ -8,9 +8,12 @@
 import type {Database} from "bun:sqlite";
 import type {Hono} from "hono";
 
+import {CREATE_ADMIN_COMMAND, runCreateAdmin, type CreateAdminFailure} from "./commands/create-admin";
+import {processPasswordSource} from "./commands/read-password";
 import {IdentityConnection} from "./db/connection";
 import {assembleIdentity, type IdentityAssemblyOptions} from "./module";
 
+export type {CreateAdminFailure} from "./commands/create-admin";
 export {parseIdentityConfig, type IdentityConfig, type IdentityConfigProblem, type IdentityConfigResult} from "./config";
 export {identityMigrations, type IdentityMigration} from "./migrations";
 export type {IdentityJob} from "./module";
@@ -48,3 +51,46 @@ export async function createIdentityModule(options: IdentityModuleOptions): Prom
     const assembly = await assembleIdentity(conn, options);
     return {site: assembly.site, whoami: (request) => assembly.sessions.whoami(request), close: assembly.close};
 }
+
+/** 入口交给模块命令的东西里本模块用到的部分；形状是入口 `CommandContext` 的子集，适配器原样转交。 */
+export interface IdentityCommandContext {
+    /** 命令自己的库连接，迁移已全部执行；命令返回后由入口关掉。这里交给 `IdentityConnection`，与模块实例同一条规则。 */
+    readonly db: Database;
+    readonly log: IdentityLog;
+    readonly clock: {now(): number};
+    readonly args: Readonly<Record<string, string | undefined>>;
+    /** 进程第一次收到 `SIGTERM` 或 `SIGINT` 时 abort。 */
+    readonly signal: AbortSignal;
+}
+
+/** 本模块的子命令；形状对得上入口的 `SiteCommand`，由 `nb-site-server/src/modules.ts` 登记。 */
+export interface IdentityCommand {
+    readonly name: string;
+    readonly description: string;
+    readonly access: "exclusive" | "shared";
+    readonly arguments: readonly {readonly name: string; readonly required: boolean}[];
+    run(context: IdentityCommandContext): Promise<CreateAdminFailure | undefined>;
+}
+
+/**
+ * `create-admin <username> [email]`（`site.operations` 输出 5）。`shared`：等密码输入时不挡服务启动，服务在跑时也能执行
+ * （`site.operations` 的时序一节）。密码从进程的标准输入读。
+ */
+export const createAdminCommand: IdentityCommand = {
+    name: CREATE_ADMIN_COMMAND,
+    description: "create an administrator account, or reset an existing account's password and make it an unbanned administrator; the password is read from standard input",
+    access: "shared",
+    arguments: [
+        {name: "username", required: true},
+        {name: "email", required: false},
+    ],
+    run: (context) =>
+        runCreateAdmin({
+            conn: new IdentityConnection(context.db, {log: context.log}),
+            log: context.log,
+            clock: context.clock,
+            args: context.args,
+            signal: context.signal,
+            input: processPasswordSource(),
+        }),
+};

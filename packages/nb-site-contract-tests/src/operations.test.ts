@@ -8,7 +8,8 @@
  * 本 Task 测不到、留给后面 Task 的：
  * - 按主机名分派（输入一节）：在 `telemetry-ingest.test.ts` 的 C18，那里有写入口主机上的路由可以区分。
  * - 测试控制入口“跑一次任务看到效果”（输出 11、验收 5 之外）：两个真实模块都还没有定时任务；t06 起补。
- * - 创建管理员（输出 5）在 t07；验收 3 的“账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见
+ * - 创建管理员（输出 5）里要登录才看得到的部分（新密码能登录、重置后旧会话失效、角色与解封、被打断的重置没换密码）在 t07 第 4b 片
+ *   有了登录以后加进“创建管理员”一组；验收 3 的“账号能登录”在 t07、“原始上报表是空的”在 t06，加进备份那一组；验收 2 见
  *   `adjacent-version.test.ts`。
  * - 第一次启动执行了迁移（输出 2 的 `migration.applied`）：两个模块都还没有迁移，t06、t07 加了迁移后“从空的数据目录启动”
  *   一组自然覆盖到。
@@ -427,5 +428,137 @@ describe("测试控制入口（输出 11，验收 5）", () => {
         expect(notLoopback.failure?.problems).toContainEqual({name: "NB_SITE_HOST", problem: "not_loopback"});
         expect(events(notLoopback.logs)).not.toContain("site.listening");
         expect(notLoopbackListening).toBe(false);
+    });
+});
+
+describe("创建管理员（输出 5，失败码 invalid_argument、email_taken、interrupted）", () => {
+    // 每个密码都带一段特征明显的文字，在全部输出里搜它们：密码不写进日志（输出 5）。
+    const PASSWORDS = {first: "first-PW-q7Zx81", reset: "reset-PW-b3Kw90", running: "running-PW-m2Jd47", carol: "carol-PW-t5Ns63", interrupted: "sigterm-PW-v8Lc12"};
+    const runs: CommandResult[] = [];
+    const results = new Map<string, CommandResult>();
+    let alongsideService: {created: CommandResult; reset: CommandResult; readyAfter: number; stopCode: number};
+    let interrupted: {readonly signal: NodeJS.Signals; readonly result: CommandResult; readonly retry: CommandResult}[];
+
+    async function createAdmin(name: string, dataDir: string, args: readonly string[], stdin: string): Promise<CommandResult> {
+        const result = await sandbox.run("create-admin", {dataDir, args, stdin});
+        runs.push(result);
+        results.set(name, result);
+        return result;
+    }
+
+    /** 停在等密码的地方时发 `signal`；之后用同一个用户名再建一次，看前一次有没有留下账号。 */
+    async function interruptAtPassword(dataDir: string, username: string, signal: NodeJS.Signals) {
+        const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
+        // 被测程序等密码时在标准错误写一行提示；Spec 没规定提示，这里只等“写了一行”，用它确认已经停在读标准输入的地方（迁移做完、
+        // 参数校验过了）。没有提示的实现会在这里超时。
+        await child.waitForStderr("the password prompt", (line) => line !== "");
+        // 写了密码、没关标准输入：命令还在等读到结尾。
+        await child.write(`${PASSWORDS.interrupted}\n`);
+        child.kill(signal);
+        const result = await child.result();
+        runs.push(result);
+        const retry = await createAdmin(`retry-${signal}`, dataDir, [username], `${PASSWORDS.interrupted}\n`);
+        return {signal, result, retry};
+    }
+
+    beforeAll(async () => {
+        // 服务没在运行：空的数据目录，命令自己先执行迁移。
+        const dataDir = await sandbox.dataDir();
+        await createAdmin("created", dataDir, ["Root"], `${PASSWORDS.first}\n`);
+        await createAdmin("reset", dataDir, ["ROOT", "root@example.com"], `${PASSWORDS.reset}\n`);
+        await createAdmin("carol", dataDir, ["carol", "Carol@Example.com"], `${PASSWORDS.carol}\n`);
+        // 迁移做完以后几个命令可以同时跑：它们对库是排队写。
+        await Promise.all([
+            createAdmin("username-empty", dataDir, [""], `${PASSWORDS.first}\n`),
+            createAdmin("username-short", dataDir, ["ab"], `${PASSWORDS.first}\n`),
+            // 开尔文符号 U+212A 转小写后是 k：先判原始输入（`site.accounts` 字段规则）。
+            createAdmin("username-kelvin", dataDir, ["Kelvin"], `${PASSWORDS.first}\n`),
+            createAdmin("email-invalid", dataDir, ["dave", "not-an-email"], `${PASSWORDS.first}\n`),
+            createAdmin("email-placeholder", dataDir, ["dave", "dave@site.invalid"], `${PASSWORDS.first}\n`),
+            createAdmin("email-taken", dataDir, ["dave", "CAROL@example.com"], `${PASSWORDS.first}\n`),
+            createAdmin("password-empty", dataDir, ["dave"], ""),
+            createAdmin("password-short", dataDir, ["dave"], "short\n"),
+            createAdmin("password-long", dataDir, ["dave"], `${"a".repeat(129)}\n`),
+        ]);
+        // 已存在的账号给了别人占着的邮箱：邮箱被忽略，不报 email_taken。
+        await createAdmin("reset-taken-email", dataDir, ["root", "carol@example.com"], `${PASSWORDS.reset}\n`);
+        interrupted = [await interruptAtPassword(dataDir, "sigterm_user", "SIGTERM"), await interruptAtPassword(dataDir, "sigint_user", "SIGINT")];
+
+        // 服务在运行：命令与服务同时开着同一个库。
+        const running = await sandbox.dataDir();
+        const site = await sandbox.start({dataDir: running});
+        await site.ready();
+        const created = await createAdmin("running-created", running, ["admin"], `${PASSWORDS.running}\n`);
+        const reset = await createAdmin("running-reset", running, ["admin"], `${PASSWORDS.running}\n`);
+        const readyAfter = (await requestJson(`${site.url}health/ready`)).status;
+        alongsideService = {created, reset, readyAfter, stopCode: await site.stop()};
+    }, SETUP_TIMEOUT_MS);
+
+    function upserted(result: CommandResult): LogLine[] {
+        return result.logs.filter((line) => line.event === "identity.admin_upserted");
+    }
+
+    it("用户名不存在时新建：0 退出，标准输出一行 identity.admin_upserted，带账号 id 与 created: true", () => {
+        const result = results.get("created")!;
+        expect(result.exitCode).toBe(0);
+        expect(upserted(result)).toHaveLength(1);
+        expect(upserted(result)[0]).toMatchObject({userId: expect.any(Number), created: true});
+    });
+
+    it("已存在时（用户名不分大小写）重置：同一个账号 id，created: false", () => {
+        const created = upserted(results.get("created")!)[0]!;
+        for (const name of ["reset", "reset-taken-email"]) {
+            const result = results.get(name)!;
+            expect({name, exitCode: result.exitCode, lines: upserted(result)}).toEqual({name, exitCode: 0, lines: [expect.objectContaining({userId: created.userId, created: false})]});
+        }
+    });
+
+    it("服务在运行时照样能建、能重置，服务照常就绪、以 0 停止", () => {
+        const {created, reset, readyAfter, stopCode} = alongsideService;
+        expect(created.exitCode).toBe(0);
+        expect(upserted(created)).toEqual([expect.objectContaining({userId: expect.any(Number), created: true})]);
+        expect(reset.exitCode).toBe(0);
+        expect(upserted(reset)).toEqual([expect.objectContaining({userId: upserted(created)[0]!.userId, created: false})]);
+        expect(readyAfter).toBe(200);
+        expect(stopCode).toBe(0);
+    });
+
+    const invalid: readonly [string, "username" | "email" | "password", "missing" | "invalid"][] = [
+        ["username-empty", "username", "missing"],
+        ["username-short", "username", "invalid"],
+        ["username-kelvin", "username", "invalid"],
+        ["email-invalid", "email", "invalid"],
+        ["email-placeholder", "email", "invalid"],
+        ["password-empty", "password", "missing"],
+        ["password-short", "password", "invalid"],
+        ["password-long", "password", "invalid"],
+    ];
+    for (const [name, field, problem] of invalid) {
+        it(`不合规则（${name}）：非零退出，标准错误那一行是 invalid_argument，name 是 ${field}、problem 是 ${problem}`, () => {
+            const result = results.get(name)!;
+            expect(result.exitCode).not.toBe(0);
+            expect(result.failure).toMatchObject({code: "invalid_argument", name: field, problem});
+            expect(upserted(result)).toEqual([]);
+        });
+    }
+
+    it("新建时邮箱已被别的账号用（不分大小写）：email_taken，没有建", () => {
+        const result = results.get("email-taken")!;
+        expect(result.exitCode).not.toBe(0);
+        expect(result.failure?.code).toBe("email_taken");
+        expect(upserted(result)).toEqual([]);
+    });
+
+    it("停在等密码的地方收到 SIGTERM 或 SIGINT：非零退出、码是 interrupted，没有建账号（之后同名再建是新建）", () => {
+        expect(interrupted).toHaveLength(2);
+        for (const {signal, result, retry} of interrupted) {
+            expect({signal, exitCode: result.exitCode === 0 ? 0 : "non-zero", code: result.failure?.code, lines: upserted(result)}).toEqual({signal, exitCode: "non-zero", code: "interrupted", lines: []});
+            expect({signal, retry: upserted(retry)}).toEqual({signal, retry: [expect.objectContaining({created: true})]});
+        }
+    });
+
+    it("密码不出现在任何一次的标准输出与标准错误里", () => {
+        const output = runs.map((result) => `${result.stdout}\n${result.stderr}`).join("\n");
+        for (const password of Object.values(PASSWORDS)) expect({password, found: output.includes(password)}).toEqual({password, found: false});
     });
 });

@@ -8,8 +8,8 @@
  *   `NB_SITE_*`、代理变量都混不进来；
  * - `serve` 缺省另带一个每次随机生成的测试控制口令（`site.operations` 输出 11），用例要测“没设口令”时用 `env` 把它设成 undefined。
  *
- * 收口：每个起过的进程都登记在这里。用例里起的，在这个用例的 `afterEach` 里停掉；`beforeAll` 里起的属于整个文件（几个用例共用），
- * 在 `afterAll` 里停掉，之后再删临时根（删目录不等于关了里面的文件）。测试进程退出时（正常结束或未捕获异常）`process.on("exit")`
+ * 收口：每个起过的进程（`start`、`run`、`spawnWithOpenStdin`）都登记在这里。用例里起的，在这个用例的 `afterEach` 里停掉；
+ * `beforeAll` 里起的属于整个文件（几个用例共用），在 `afterAll` 里停掉，之后再删临时根（删目录不等于关了里面的文件）。测试进程退出时（正常结束或未捕获异常）`process.on("exit")`
  * 对还活着的 SIGKILL；测试进程被 `SIGTERM`、`SIGINT` 取消时也先 SIGKILL 它们，再按原信号结束自己（`installExitHook`）。
  * 测试进程自己被 SIGKILL 时子进程会留下，是已知限制（w00037 t05 计划第 8 节）。
  *
@@ -89,7 +89,12 @@ export interface ProcessOptions {
     readonly timeoutMs?: number;
 }
 
-export interface RunOptions extends ProcessOptions {
+export interface CommandOptions extends ProcessOptions {
+    /** 子命令之后的参数，例如 `create-admin` 的用户名与邮箱。 */
+    readonly args?: readonly string[];
+}
+
+export interface RunOptions extends CommandOptions {
     /** 写进标准输入后关闭；不给时标准输入是空的。 */
     readonly stdin?: string;
 }
@@ -138,6 +143,28 @@ export interface SiteProcess {
     runJob(module: string, job: string): Promise<JsonResponse>;
 }
 
+/**
+ * 标准输入开着的命令（`spawnWithOpenStdin`）：用例边看它的输出边写标准输入、发信号，例如停在等密码的地方时发 `SIGTERM`。
+ */
+export interface OpenStdinProcess {
+    readonly pid: number;
+    /** 退出码；还在运行时为 null。 */
+    readonly exitCode: number | null;
+    /** 到目前为止的整段标准输出与标准错误。 */
+    stdout(): string;
+    stderr(): string;
+    /** 写进标准输入，不关。 */
+    write(text: string): Promise<void>;
+    /** 关掉标准输入：命令读到结尾。 */
+    closeStdin(): Promise<void>;
+    /** 发一个信号，不等退出。 */
+    kill(signal: NodeJS.Signals): void;
+    /** 等到标准错误里出现 `match` 认的一行，返回那一行；进程先退出、或 `timeoutMs`（缺省 10 秒）内没等到都抛错，错误里带输出。 */
+    waitForStderr(what: string, match: (line: string) => boolean, timeoutMs?: number): Promise<string>;
+    /** 等它退出，返回与 `run` 相同的结果；`timeoutMs`（缺省 10 秒）内没退出就 SIGKILL 并抛错。 */
+    result(timeoutMs?: number): Promise<CommandResult>;
+}
+
 export interface SiteSandbox {
     /** 本文件的临时根；只在 `beforeAll` 之后可用。 */
     readonly root: string;
@@ -147,18 +174,33 @@ export interface SiteSandbox {
     start(options?: ProcessOptions): Promise<SiteProcess>;
     /** 跑一个会自己退出的命令（`migrate`、`backup`，或预期失败的 `serve`），等它退出；超时后 SIGKILL 并抛错。 */
     run(command: string, options?: RunOptions): Promise<CommandResult>;
+    /**
+     * 起一个命令，标准输入保持打开，立即返回，不等它退出。与 `start`、`run` 同一套收口：用例结束时还活着的由 `afterEach`
+     * （`beforeAll` 里起的由 `afterAll`）SIGTERM 停掉。
+     */
+    spawnWithOpenStdin(command: string, options?: CommandOptions): OpenStdinProcess;
 }
 
 /** 一个起过的子进程。`exitCode` 在两路输出都读完之后才设：断言最后几行时它们一定已经收齐。 */
 interface Child {
     readonly subprocess: Bun.Subprocess;
+    /** 标准输入开着时（`spawnWithOpenStdin`）的写端。 */
+    readonly stdin: Bun.FileSink | undefined;
     readonly stdout: string[];
     readonly stderr: string[];
     exitCode: number | null;
     readonly exited: Promise<number>;
     /** `test`：用例里起的，这个用例结束时停掉；`file`：`beforeAll` 里起的，文件结束时停掉。 */
     readonly scope: "test" | "file";
+    /**
+     * 收口时 SIGTERM 之后要不要以 0 退出才算干净。服务与 `run` 的命令要；标准输入开着的命令不要：做一件事的命令被停止信号打断时
+     * 本来就以 `interrupted`（非零码）结束（`site.operations` 输出 5、6），收口只管它停没停下。
+     */
+    readonly zeroOnStop: boolean;
 }
+
+/** 子进程的标准输入：不给、一次给完一段文字后关闭、保持打开由用例写。 */
+type StdinMode = {readonly kind: "ignore"} | {readonly kind: "text"; readonly text: string} | {readonly kind: "open"};
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** 底座发的一次请求（含读完响应体）的缺省上限：合同里没有哪个请求要等这么久，到点说明被测程序挂住了。 */
@@ -403,11 +445,11 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         return Object.fromEntries(Object.entries(merged).filter((entry): entry is [string, string] => entry[1] !== undefined));
     };
 
-    const spawn = (args: readonly string[], env: Record<string, string>, command: readonly string[], stdin: string | undefined): Child => {
+    const spawn = (args: readonly string[], env: Record<string, string>, command: readonly string[], stdin: StdinMode): Child => {
         const subprocess = Bun.spawn([...command, ...args], {
             cwd: rootOrThrow(),
             env,
-            stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
+            stdin: stdin.kind === "ignore" ? "ignore" : stdin.kind === "text" ? new Blob([stdin.text]) : "pipe",
             stdout: "pipe",
             stderr: "pipe",
         });
@@ -417,10 +459,12 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         let settle!: (code: number) => void;
         const child: Child = {
             subprocess,
+            stdin: stdin.kind === "open" ? (subprocess.stdin as Bun.FileSink) : undefined,
             stdout,
             stderr,
             exitCode: null,
             scope: inTest ? "test" : "file",
+            zeroOnStop: stdin.kind !== "open",
             exited: new Promise<number>((resolve) => (settle = resolve)),
         };
         alive.add(child);
@@ -440,10 +484,10 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         return child;
     };
 
-    /** 收口一批进程：都先 SIGTERM，等它们退出；有动用 SIGKILL 或退出码不是 0 的，全部收完之后抛错。 */
+    /** 收口一批进程：都先 SIGTERM，等它们退出；有动用 SIGKILL 或该以 0 退出却没有的（`zeroOnStop`），全部收完之后抛错。 */
     const cleanUp = async (children: readonly Child[]): Promise<void> => {
         const outcomes = await Promise.all(children.map(async (child) => ({child, ...(await terminate(child, CLEANUP_TIMEOUT_MS))})));
-        const bad = outcomes.filter((outcome) => outcome.killed || outcome.code !== 0);
+        const bad = outcomes.filter((outcome) => outcome.killed || (outcome.child.zeroOnStop && outcome.code !== 0));
         if (bad.length > 0) {
             throw new Error(
                 `site processes left running did not stop cleanly on SIGTERM:\n${bad.map(({child, code, killed}) => `${killed ? "killed after timeout" : `exit ${String(code)}`}\n${describeOutput(child)}`).join("\n---\n")}`,
@@ -472,6 +516,24 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
             if (root !== undefined) await rm(root, {recursive: true, force: true});
         }
     });
+
+    /** 等命令退出，整理它的输出；`timeoutMs` 内没退出就 SIGKILL、等它退出再抛错。 */
+    const commandResult = async (child: Child, command: string, timeoutMs: number): Promise<CommandResult> => {
+        const exitCode = await waitForExit(child, timeoutMs);
+        if (exitCode === null) {
+            child.subprocess.kill("SIGKILL");
+            await child.exited;
+            throw new Error(`${command} did not exit within ${String(timeoutMs)}ms\n${describeOutput(child)}`);
+        }
+        const lastStderr = child.stderr.filter((line) => line !== "").at(-1);
+        return {
+            exitCode,
+            stdout: child.stdout.join("\n"),
+            stderr: child.stderr.join("\n"),
+            logs: parseLines(child.stdout),
+            failure: lastStderr === undefined ? undefined : parseLine(lastStderr),
+        };
+    };
 
     /** 这个进程的一次请求：到截止时刻中断，错误里附上它到这时为止的输出（挂住的原因多半在里面）。 */
     const childRequest = async <T>(child: Child, what: string, send: (signal: AbortSignal) => Promise<T>, deadline = performance.now() + REQUEST_TIMEOUT_MS): Promise<T> => {
@@ -539,7 +601,7 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
         start: async (options = {}) => {
             const env = buildEnv(options, {NB_SITE_TEST_CONTROL: randomSecret()});
             const token = env.NB_SITE_TEST_CONTROL ?? null;
-            const child = spawn(["serve"], env, options.command ?? serverCommand(), undefined);
+            const child = spawn(["serve"], env, options.command ?? serverCommand(), {kind: "ignore"});
             const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
             let listening: LogLine;
             try {
@@ -564,21 +626,47 @@ export function useSiteSandbox(purpose: string): SiteSandbox {
             return toProcess(child, listening.url, options, token);
         },
         run: async (command, options = {}) => {
-            const child = spawn([command], buildEnv(options, {}), options.command ?? serverCommand(), options.stdin);
-            const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-            const exitCode = await waitForExit(child, timeoutMs);
-            if (exitCode === null) {
-                child.subprocess.kill("SIGKILL");
-                await child.exited;
-                throw new Error(`${command} did not exit within ${String(timeoutMs)}ms\n${describeOutput(child)}`);
-            }
-            const lastStderr = child.stderr.filter((line) => line !== "").at(-1);
+            const child = spawn([command, ...(options.args ?? [])], buildEnv(options, {}), options.command ?? serverCommand(), options.stdin === undefined ? {kind: "ignore"} : {kind: "text", text: options.stdin});
+            return commandResult(child, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        },
+        spawnWithOpenStdin: (command, options = {}) => {
+            const child = spawn([command, ...(options.args ?? [])], buildEnv(options, {}), options.command ?? serverCommand(), {kind: "open"});
+            const sink = child.stdin!;
             return {
-                exitCode,
-                stdout: child.stdout.join("\n"),
-                stderr: child.stderr.join("\n"),
-                logs: parseLines(child.stdout),
-                failure: lastStderr === undefined ? undefined : parseLine(lastStderr),
+                pid: child.subprocess.pid,
+                get exitCode() {
+                    return child.exitCode;
+                },
+                stdout: () => child.stdout.join("\n"),
+                stderr: () => child.stderr.join("\n"),
+                write: async (text) => {
+                    sink.write(text);
+                    await sink.flush();
+                },
+                closeStdin: async () => {
+                    await sink.end();
+                },
+                kill: (signal) => {
+                    child.subprocess.kill(signal);
+                },
+                waitForStderr: async (what, match, timeoutMs = DEFAULT_TIMEOUT_MS) => {
+                    try {
+                        return await waitUntil(
+                            what,
+                            () => {
+                                const line = child.stderr.find(match);
+                                if (line !== undefined) return line;
+                                if (child.exitCode !== null) throw new Error(`${command} exited with ${String(child.exitCode)} before ${what}\n${describeOutput(child)}`);
+                                return undefined;
+                            },
+                            {timeoutMs},
+                        );
+                    } catch (error) {
+                        if (child.exitCode !== null) throw error;
+                        throw new Error(`${command} did not reach ${what} within ${String(timeoutMs)}ms\n${describeOutput(child)}`, {cause: error});
+                    }
+                },
+                result: (timeoutMs = DEFAULT_TIMEOUT_MS) => commandResult(child, command, timeoutMs),
             };
         },
     };
