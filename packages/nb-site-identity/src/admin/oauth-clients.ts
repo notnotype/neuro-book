@@ -100,6 +100,7 @@ function redirectUrisOf(text: string): string[] {
 function itemOf(row: ClientRow): OAuthClientItem {
     if (row.name === null) throw new Error("an OAuth client registered by the module has no name");
     return {
+        id: row.id,
         clientId: row.clientId,
         name: row.name,
         redirectUris: redirectUrisOf(row.redirectUris),

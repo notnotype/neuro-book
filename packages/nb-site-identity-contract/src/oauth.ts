@@ -139,8 +139,12 @@ export const RedirectUri = Type.String({pattern: codePointPattern(1, REDIRECT_UR
 
 const RedirectUris = Type.Array(RedirectUri, {minItems: REDIRECT_URI.minCount, maxItems: REDIRECT_URI.maxCount});
 
-/** 客户端列表的一项（输出 16）：不含密钥。登记的时间是登记时记下的。 */
+/**
+ * 客户端列表的一项（输出 16）：不含密钥。登记的时间是登记时记下的。`id` 是客户端在库里的数字 id，审计记录的对象 id 就是它
+ * （`site.admin` 的审计按对象筛）；接口地址里的 `:id` 用 `clientId`。
+ */
 export const OAuthClientItem = strictObject({
+    id: Id,
     clientId: ClientId,
     name: OAuthClientName,
     redirectUris: RedirectUris,

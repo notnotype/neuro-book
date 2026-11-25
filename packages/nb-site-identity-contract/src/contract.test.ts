@@ -234,6 +234,7 @@ const socialRegister = {
 const CLIENT_ID = "qWeRtYuIoPaSdFgHjKlZxCvBnMqWeRtY";
 
 const oauthClient = {
+    id: 3,
     clientId: CLIENT_ID,
     name: "书架",
     redirectUris: ["https://shelf.example/callback"],
@@ -825,6 +826,8 @@ describe("对外 OAuth（site.oauth-provider）", () => {
         expect(check(OAuthClientItem, {...oauthClient, type: "public", redirectUris: ["http://127.0.0.1/cb", "http://[::1]/cb"], skipConsent: true, disabled: true})).toBe(true);
         expect(check(OAuthClientItem, {...oauthClient, clientSecret: "s3cret"})).toBe(false);
         expect(check(OAuthClientItem, {...oauthClient, type: "native"})).toBe(false);
+        // 审计记录的对象 id 是这个数字 id（`site.admin` 的审计按对象筛），列表要给出它。
+        expect(check(OAuthClientItem, {...oauthClient, id: undefined})).toBe(false);
         expect(check(OAuthClientListResponse, {items: [oauthClient], total: 1, page: 1, pageSize: 20, anchor: "oc1"})).toBe(true);
         expect(check(OAuthClientListResponse, {items: [oauthClient], total: 1, page: 1, pageSize: 20, anchor: "oc1", counts: {}})).toBe(false);
         expect(check(OAuthClientListQuery, {filter: "all"})).toBe(false);
@@ -968,7 +971,7 @@ export function staticTypeChecks(): void {
     void checks;
 
     // 经公开入口给 OAuthClientItem 赋值：同名的类型与 schema 推出的是同一个形状，前端按它写字面量。
-    const item: OAuthClientItem = {clientId: "abc", name: "书架", redirectUris: ["https://shelf.example/cb"], type: "public", skipConsent: false, disabled: false, createdAt: NOW};
+    const item: OAuthClientItem = {id: 3, clientId: "abc", name: "书架", redirectUris: ["https://shelf.example/cb"], type: "public", skipConsent: false, disabled: false, createdAt: NOW};
     // @ts-expect-error 列表项没有密钥。
     const leaked: OAuthClientItem = {...item, clientSecret: "s3cret"};
     // @ts-expect-error 种类只有两种。

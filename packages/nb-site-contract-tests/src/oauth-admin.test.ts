@@ -146,7 +146,7 @@ describe("客户端的登记与管理（输入一节、输出 9、16、失败表
         const response = await create({name: "机密 2", redirectUris: ["https://a.example/cb", "https://b.example/cb"], type: "confidential", skipConsent: true});
         expect({status: response.status, valid: Value.Check(CreateOAuthClientResponse, response.body)}).toEqual({status: 200, valid: true});
         const {client, clientSecret} = response.body as CreateOAuthClientResponse;
-        expect(client).toEqual({clientId: client.clientId, name: "机密 2", redirectUris: ["https://a.example/cb", "https://b.example/cb"], type: "confidential", skipConsent: true, disabled: false, createdAt: client.createdAt});
+        expect(client).toEqual({id: client.id, clientId: client.clientId, name: "机密 2", redirectUris: ["https://a.example/cb", "https://b.example/cb"], type: "confidential", skipConsent: true, disabled: false, createdAt: client.createdAt});
         expect(typeof clientSecret).toBe("string");
     });
 
@@ -243,7 +243,7 @@ describe("客户端的登记与管理（输入一节、输出 9、16、失败表
         expect(update).toMatchObject({action: "oauth_client.update", params: {properties: "name,redirectUris,disabled"}});
         expect(rotation).toMatchObject({action: "oauth_client.rotate_secret", params: {}});
         expect([creation, update, rotation].map((item) => ({target: item!.target, actor: item!.actor?.username}))).toEqual(
-            Array.from({length: 3}, () => ({target: {type: "oauth_client", id: creation!.target.id}, actor: "root"})),
+            Array.from({length: 3}, () => ({target: {type: "oauth_client", id: created.client.id}, actor: "root"})),
         );
         const recorded = JSON.stringify([creation, update, rotation]);
         for (const leaked of [created.clientSecret!, rotated.clientSecret, uri, created.client.clientId]) expect(recorded).not.toContain(leaked);
