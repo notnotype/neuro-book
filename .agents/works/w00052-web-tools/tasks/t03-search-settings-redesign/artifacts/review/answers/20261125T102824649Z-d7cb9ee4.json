@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00052-web-tools",
+    "taskId": "t03-search-settings-redesign",
+    "artifactId": "review",
+    "answerId": "20261125T102824649Z-d7cb9ee4",
+    "artifactVersion": 1,
+    "contentHash": "f3f828a4c5374289da5f52cec4446d9cce2b8fa6f930babae65100f8f9909a5d",
+    "submittedAt": "2026-11-25T10:28:21.925Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "layout": "rail",
+        "no-key-use": "key-first"
+    },
+    "comments": {},
+    "note": null
+}
