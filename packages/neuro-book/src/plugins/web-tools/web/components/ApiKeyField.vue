@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Input} from "@notnotype/nb-ui/components";
+import {InfoTip, Input} from "@notnotype/nb-ui/components";
 import {computed, ref, useId, watch} from "vue";
 
 import {useWebText} from "../text";
@@ -11,7 +11,11 @@ const props = withDefaults(defineProps<{
     service: string;
     disabled?: boolean;
     describedBy?: string;
-}>(), {disabled: false, describedBy: undefined});
+    /** 标签旁说明图标的提示；缺省没有图标。 */
+    tip?: string;
+    /** 没有密钥时标签行右边（有密钥时是“清除”的位置）写的一句状态，警告色；缺省不写。 */
+    notice?: string;
+}>(), {disabled: false, describedBy: undefined, tip: undefined, notice: undefined});
 
 const emit = defineEmits<{
     (e: "set", value: string): void;
@@ -23,6 +27,9 @@ const emit = defineEmits<{
 const text = useWebText();
 const id = useId();
 const draft = ref("");
+const root = ref<HTMLElement | null>(null);
+/** 页面在“等着启用”时把焦点放进这家的密钥框（settings-page.md 输出 11）；nb-ui 的 Input 不暴露方法，从根元素里找。 */
+defineExpose({focus: () => root.value?.querySelector<HTMLInputElement>("input")?.focus()});
 
 const off = computed(() => props.disabled || props.state === "loading");
 const envProblem = computed(() => draft.value.trim().startsWith("env:"));
@@ -47,9 +54,9 @@ function commit(): void {
 </script>
 
 <template>
-    <div class="api-key-field">
+    <div ref="root" class="api-key-field">
         <div class="api-key-field__head">
-            <label :for="`${id}-input`">{{ text("key.label") }}</label>
+            <span class="api-key-field__label"><label :for="`${id}-input`">{{ text("key.label") }}</label><InfoTip v-if="tip !== undefined" :text="tip" /></span>
             <button
                 v-if="state === 'set'"
                 type="button"
@@ -59,6 +66,7 @@ function commit(): void {
                 data-key-clear
                 @click="emit('clear')"
             >{{ text("key.clear") }}</button>
+            <span v-else-if="notice !== undefined" class="api-key-field__notice" data-key-notice>{{ notice }}</span>
         </div>
         <Input
             :id="`${id}-input`"
@@ -92,6 +100,19 @@ function commit(): void {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
     color: var(--text-secondary);
+}
+
+.api-key-field__label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+/* 状态字与“清除”同一格：有没有密钥时互换，标签行高不变。 */
+.api-key-field__notice {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-normal);
+    color: var(--status-warning);
 }
 
 .api-key-field__clear {

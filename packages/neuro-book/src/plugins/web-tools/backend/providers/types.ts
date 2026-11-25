@@ -11,6 +11,10 @@ export interface SearchRequest {
     readonly sites?: readonly string[];
     readonly after?: string;
     readonly before?: string;
+    /** Tavily 的搜索深度（设置项 `nbook.web/tavilySearchDepth`）；别家不认，缺省 `basic`。 */
+    readonly depth?: "basic" | "advanced";
+    /** 屏蔽网站（设置项 `nbook.web/blockedSites`）：服务有原生参数的交给它，结果由工具再在本地筛一遍（输出 3）。 */
+    readonly excludeSites?: readonly string[];
 }
 
 export interface SearchHit {

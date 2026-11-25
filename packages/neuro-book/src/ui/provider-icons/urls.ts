@@ -57,6 +57,7 @@ import icon51 from "@lobehub/icons-static-svg/icons/xai.svg?url";
 import icon52 from "@lobehub/icons-static-svg/icons/xiaomimimo.svg?url";
 import icon53 from "@lobehub/icons-static-svg/icons/zenmux.svg?url";
 import icon54 from "@lobehub/icons-static-svg/icons/zhipu-color.svg?url";
+import icon55 from "@lobehub/icons-static-svg/icons/tavily-color.svg?url";
 
 export const ICON_URLS: Readonly<Record<string, string>> = {
     "aimlapi.svg": icon0,
@@ -102,6 +103,7 @@ export const ICON_URLS: Readonly<Record<string, string>> = {
     "siliconcloud-color.svg": icon40,
     "snowflake-color.svg": icon41,
     "stepfun-color.svg": icon42,
+    "tavily-color.svg": icon55,
     "together-color.svg": icon43,
     "venice-color.svg": icon44,
     "vercel.svg": icon45,

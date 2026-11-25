@@ -8,11 +8,12 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 - 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
 - 插件 SDK 的组件子路径加上 `DataTable`（带工具条与分页的数据表格：加载、空、出错时工具条与页脚不动，表头吸顶）；`Table` 多一个 `stickyHeader` 属性，表头吸顶。
-- 网页工具可以用 Tavily 搜索与读网页：设置窗口“搜索与网页”页多一节 Tavily 的密钥，顶上选这两个工具用 DeepSeek 还是 Tavily。
+- 网页工具可以用 Tavily 搜索与读网页。设置窗口的“搜索与网页”页改成左边列表、右边详情（同“服务商与模型”页），各家带 logo：在详情里“设为使用中”（还没填密钥的那家先填密钥、填好后自动切过去）；左栏顶上的“搜索规则”设默认结果条数与屏蔽网站；各家的“高级”里能改接口地址，Tavily 还能选搜索深度。
 - `web_search` 一次可以搜几条查询（最多 10 条，同时搜、按条分组交回）：查一串候选名字这类事不再一个名字一次、来回几十次。
 
 ### 改动
 
+- `web_search` 没给条数时每条查询回 5 条（原先一条查询 8 条），在“搜索规则”里改。
 - 网页工具的插件 id 改为 `nbook.web`（0.15.0 到 0.17.0 里是 `nbook.web-tools`），工具 id 随之改为 `nbook.web.search`、`nbook.web.fetch`，旧 id 不再认。写着旧 id 的设置不再生效：权限规则里按 `nbook.web-tools.fetch` 拒绝或询问的主机会照常放行，Profile 工具绑定里去掉的这两个工具会回来，自己写的 Profile 把旧 id 列为必需工具时用它的会话发一次就报缺工具、之后只读（改 Profile 后重开恢复），改过的 DeepSeek 地址回到缺省。权限规则请改用给模型的名字 `web_fetch`、`web_search` 来写（以后改 id 也不受影响）；`web_search` 的参数 `query` 换成了 `queries`，按参数 `query` 写的规则要改。已填的密钥照常可用。
 
 ## [0.17.0] - 2026-11-24

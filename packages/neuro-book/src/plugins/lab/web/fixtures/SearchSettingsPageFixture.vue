@@ -26,18 +26,22 @@ const record = useLabEventSink();
 const scene = props.scene.replace(/-(?:english|narrow)$/u, "");
 
 const fake = createFakeWebRemote({
-    hasKey: ["set", "checking", "passed", "failed", "not-run", "write-failed", "use-tavily"].includes(scene),
-    hasTavilyKey: scene === "use-tavily",
+    hasKey: ["set", "checking", "passed", "failed", "not-run", "write-failed", "use-tavily", "rules", "advanced"].includes(scene),
+    hasTavilyKey: scene === "use-tavily" || scene === "advanced",
     unavailable: scene === "readonly",
     unreadable: scene === "unreadable",
     neverLoads: scene === "loading",
     check: scene === "checking" ? "hang" : scene === "not-run" ? "unknown" : scene === "failed" ? {ok: false, code: "auth", detail: "Authentication Fails, Your api key: ****0000 is invalid"} : {ok: true},
 });
-const {provider} = webSettings.settings;
+const S = webSettings.settings;
+const values: Record<string, unknown> = {};
+if (scene.startsWith("use-tavily") || scene === "advanced") values[S.provider.key] = "tavily";
+if (scene === "advanced") Object.assign(values, {[S.tavilyBaseUrl.key]: "https://relay.example/tavily", [S.tavilySearchDepth.key]: "advanced"});
+if (scene === "rules") Object.assign(values, {[S.blockedSites.key]: ["csdn.net", "baidu.com"], [S.resultCount.key]: 8});
 const host = createSettingsHost({
-    settings: [{plugin: "nbook.web", definition: provider}],
+    settings: [S.provider, S.deepseekBaseUrl, S.tavilyBaseUrl, S.resultCount, S.blockedSites, S.tavilySearchDepth].map((definition) => ({plugin: "nbook.web", definition})),
     sections: [],
-    user: {values: scene.startsWith("use-tavily") ? {[provider.key]: "tavily"} : {}},
+    user: {values},
     notify: (input) => record("notify", input),
     report: (message) => record("report", message),
 });
@@ -52,6 +56,8 @@ applyFailing();
 const store = createSearchStore(fake.remote, () => Date.UTC(2026, 10, 19, 8, 30, 0));
 onBeforeUnmount(() => store.dispose());
 onMounted(async () => {
+    // 页面第一次显示时选中使用中的那家；看“搜索规则”的场景在左栏点一下。
+    if (scene === "rules") document.querySelector<HTMLElement>('[data-search-rail-item="rules"]')?.click();
     if (["checking", "passed", "failed", "not-run"].includes(scene)) {
         await store.start();
         void store.check("deepseek");
@@ -78,9 +84,11 @@ const reportWriteFailure: SettingsPageContext["reportWriteFailure"] = (subject, 
 </template>
 
 <style scoped>
+/* 页面是铺满的版式（左栏、右边各自滚动），台子给一个设置窗口内容区那样的高度。 */
 .search-settings-fixture {
     width: 100%;
     max-width: 720px;
+    height: 480px;
     padding: var(--space-5);
 }
 

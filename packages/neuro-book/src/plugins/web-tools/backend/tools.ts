@@ -16,6 +16,7 @@ import {FETCH_TOOL, SEARCH_TOOL} from "../shared/contracts";
 import type {WebFailureCode, WebProviderId} from "../shared/contracts";
 import {clip, safeEnd} from "./clip";
 import {containsSecret} from "./providers/http";
+import {siteBlocked} from "../shared/sites";
 import type {KeyStore} from "./keys";
 import type {CallScope, Outcome, ProviderFailure, SearchHit, SearchRequest, WebProvider} from "./providers/types";
 
@@ -30,11 +31,9 @@ export const STRUCTURED_MARKDOWN_LIMIT = 200_000;
 /** 存档里一行的上限：`read` 一行至多给 2,000 字，长行的后半截读不回来（输出 6）。 */
 export const ARCHIVE_LINE_LIMIT = 1_800;
 /**
- * 每条查询的结果条数（“输入与前置条件”）：一条查询时缺省 8、至多 20；几条时缺省 5、至多 10，给大了按 10，一次调用的文字结果
- * 封在约 10 条乘 10 个结果。
+ * 每条查询的结果条数（“输入与前置条件”）：没给时取设置项 `nbook.web/resultCount`；给了时一条查询至多 20，几条时至多 10、给大了
+ * 按 10，一次调用的文字结果封在约 10 条乘 10 个结果。
  */
-export const DEFAULT_COUNT = 8;
-export const BATCH_DEFAULT_COUNT = 5;
 export const MAX_COUNT = 20;
 export const BATCH_MAX_COUNT = 10;
 export const MAX_QUERIES = 10;
@@ -49,6 +48,10 @@ interface ToolDeps {
     readonly providers: Readonly<Record<WebProviderId, WebProvider>>;
     /** 设置里选用的那家（`nbook.web/provider`），每次调用开始时读一次（输出 13）。 */
     readonly selected: () => WebProviderId;
+    /** 搜索规则与 Tavily 的深度（三个设置项），每次调用开始时读一次。 */
+    readonly resultCount: () => number;
+    readonly blockedSites: () => readonly string[];
+    readonly searchDepth: () => "basic" | "advanced";
     readonly clock: RuntimeClock;
     readonly record: ToolRecord;
 }
@@ -80,7 +83,7 @@ export const searchTool = agentTool(SEARCH_TOOL, {
         type: "object",
         properties: {
             queries: {type: "array", items: {type: "string"}, minItems: 1, maxItems: MAX_QUERIES, description: `要找的内容，一条一件事，1 到 ${String(MAX_QUERIES)} 条`},
-            count: {type: "integer", minimum: 1, maximum: MAX_COUNT, description: `每条查询的结果条数：只有一条查询时缺省 ${String(DEFAULT_COUNT)}；几条时缺省 ${String(BATCH_DEFAULT_COUNT)}、至多 ${String(BATCH_MAX_COUNT)}`},
+            count: {type: "integer", minimum: 1, maximum: MAX_COUNT, description: `每条查询的结果条数，缺省用设置里的默认结果条数；几条查询时至多 ${String(BATCH_MAX_COUNT)}`},
             sites: {type: "array", items: {type: "string"}, description: "只要这些站点的结果，写域名"},
             after: {type: "string", description: "只要这天之后的，YYYY-MM-DD"},
             before: {type: "string", description: "只要这天之前的，YYYY-MM-DD"},
@@ -211,7 +214,11 @@ const strings = (value: unknown): readonly string[] | undefined => (Array.isArra
 const optionalString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
 /** 一条查询的结果，按查询的顺序排。 */
-type Searched = {readonly query: string; readonly outcome: Outcome<readonly SearchHit[]>};
+/** 一条查询的结果，按查询的顺序排；`blocked` 是在本地按屏蔽网站去掉的条数。 */
+type Searched = {readonly query: string; readonly outcome: Outcome<readonly SearchHit[]>; readonly blocked: number};
+
+/** 去掉了屏蔽网站的结果时补一句：只说条数，免得模型把“被屏蔽”当成“网上没有”（输出 2、3）。 */
+const blockedNote = (blocked: number, none: boolean): string => (blocked === 0 ? "" : none ? `（${String(blocked)} 条来自屏蔽网站，已去掉）` : `（另有 ${String(blocked)} 条来自屏蔽网站，已去掉）`);
 
 /** 一条查询的结果列表（输出 2、8）：每条一段，网址另起一行写在它的标记之前。 */
 function hitLines(hits: readonly SearchHit[], summaryLimit: number): string[] {
@@ -226,21 +233,22 @@ function hitLines(hits: readonly SearchHit[], summaryLimit: number): string[] {
 }
 
 /** 只有一条查询时的文字结果（输出 2），与多条查询之前的写法相同。 */
-function singleText(label: string, hits: readonly SearchHit[]): string {
-    if (hits.length === 0) return `来自 ${label} 搜索，没有结果。`;
-    return [`来自 ${label} 搜索，${String(hits.length)} 条结果。`, HINT, ...hitLines(hits, SUMMARY_LIMIT)].join("\n");
+function singleText(label: string, hits: readonly SearchHit[], blocked: number): string {
+    if (hits.length === 0) return `来自 ${label} 搜索，没有结果${blockedNote(blocked, true)}。`;
+    return [`来自 ${label} 搜索，${String(hits.length)} 条结果${blockedNote(blocked, false)}。`, HINT, ...hitLines(hits, SUMMARY_LIMIT)].join("\n");
 }
 
 /** 几条查询时的文字结果（输出 2）：按查询的顺序每条一组，组头写结果条数或没搜成的原因。 */
 function batchText(label: string, searched: readonly Searched[]): string {
     const lines = [`来自 ${label} 搜索，${String(searched.length)} 条查询。`, HINT];
-    searched.forEach(({query, outcome}, index) => {
+    searched.forEach(({query, outcome, blocked}, index) => {
         const head = `查询 ${String(index + 1)}：${query}`;
         if (!outcome.ok) {
             lines.push(`${head}，没搜成：${failureText(outcome.code, label, outcome.detail, outcome.status)}`);
             return;
         }
-        lines.push(outcome.value.length === 0 ? `${head}，没有结果` : `${head}，${String(outcome.value.length)} 条结果`, ...hitLines(outcome.value, BATCH_SUMMARY_LIMIT));
+        const none = outcome.value.length === 0;
+        lines.push(`${head}，${none ? "没有结果" : `${String(outcome.value.length)} 条结果`}${blockedNote(blocked, none)}`, ...hitLines(outcome.value, BATCH_SUMMARY_LIMIT));
     });
     return lines.join("\n");
 }
@@ -259,12 +267,22 @@ export function searchImplementation(deps: () => ToolDeps): AgentToolImplementat
                 const current = deps();
                 const provider = providerOf(current);
                 const queries = strings(args.queries) ?? [];
-                const asked = typeof args.count === "number" ? args.count : undefined;
-                const count = queries.length === 1 ? (asked ?? DEFAULT_COUNT) : Math.min(asked ?? BATCH_DEFAULT_COUNT, BATCH_MAX_COUNT);
+                const asked = typeof args.count === "number" ? args.count : current.resultCount();
+                const count = queries.length === 1 ? asked : Math.min(asked, BATCH_MAX_COUNT);
                 const sites = strings(args.sites);
                 const after = optionalString(args.after);
                 const before = optionalString(args.before);
-                const requests: readonly SearchRequest[] = queries.map((query) => ({query, count, ...(sites === undefined ? {} : {sites}), ...(after === undefined ? {} : {after}), ...(before === undefined ? {} : {before})}));
+                const blocked = current.blockedSites();
+                const depth = current.searchDepth();
+                const requests: readonly SearchRequest[] = queries.map((query) => ({
+                    query,
+                    count,
+                    depth,
+                    ...(sites === undefined ? {} : {sites}),
+                    ...(after === undefined ? {} : {after}),
+                    ...(before === undefined ? {} : {before}),
+                    ...(blocked.length === 0 ? {} : {excludeSites: blocked}),
+                }));
                 // 有一条不合要求就一条也不发（输出 1）：几条同时发出之后再拒绝，已经发出的那几条照样计费。
                 for (const [index, request] of requests.entries()) {
                     const problem = provider.validateSearch(request);
@@ -277,8 +295,14 @@ export function searchImplementation(deps: () => ToolDeps): AgentToolImplementat
                     if (requests.some((request) => containsSecret(request.query, key.key) || (request.sites ?? []).some((site) => containsSecret(site, key.key)))) {
                         return {ok: false as const, result: failed("invalid-request", provider.label, "a query contains the API key, so nothing was sent")};
                     }
+                    // 屏蔽网站在本地再筛一遍：DeepSeek 没有原生参数，Tavily 的参数也只按尽力而为（输出 3）。
                     const outcomes = await Promise.all(requests.map((request) => provider.search(request, key.key, scope)));
-                    return {ok: true as const, searched: requests.map((request, index): Searched => ({query: request.query, outcome: outcomes[index]!}))};
+                    return {ok: true as const, searched: requests.map((request, index): Searched => {
+                        const one = outcomes[index]!;
+                        if (!one.ok || blocked.length === 0) return {query: request.query, outcome: one, blocked: 0};
+                        const kept = one.value.filter((hit) => !siteBlocked(hit.url, blocked));
+                        return {query: request.query, outcome: {ok: true, value: kept}, blocked: one.value.length - kept.length};
+                    })};
                 });
                 if (!outcome.ok) return outcome.result;
                 const {searched} = outcome;
@@ -293,7 +317,7 @@ export function searchImplementation(deps: () => ToolDeps): AgentToolImplementat
                     return searched.length === 1 ? failed(first.code, provider.label, first.detail, first.status) : allFailed(provider.label, failures);
                 }
                 const only = searched.length === 1 ? searched[0]!.outcome : null;
-                const text = only !== null && only.ok ? singleText(provider.label, only.value) : batchText(provider.label, searched);
+                const text = only !== null && only.ok ? singleText(provider.label, only.value, searched[0]!.blocked) : batchText(provider.label, searched);
                 if (context.within === undefined) return {text};
                 const structured = searched.map(({query, outcome: one}) => (one.ok ? {query, results: one.value} : {query, error: {code: one.code, ...(one.detail === undefined ? {} : {detail: one.detail})}}));
                 return {text, details: {provider: provider.id, searches: structured} as unknown as JsonValue};
