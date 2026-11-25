@@ -19,11 +19,11 @@ const props = withDefaults(defineProps<{
     canPlan?: boolean;
     /** 位置与“算上计划”现在不能换的原因（有没提交的主文字，输出 46）；默认空（能换）。 */
     locked?: string;
-    /** 在所选位置上还没出场时，所选位置的文字（输出 8）；默认空。 */
-    notAppeared?: string;
+    /** 在所选位置上还没出场（输出 8）；默认 false。位置就写在旁边的按钮上，标记里不再重复。 */
+    notAppeared?: boolean;
     /** 选过的那一章被删掉了，位置已经回到缺省（输出 7）。 */
     positionGone?: boolean;
-}>(), {planned: false, canPlan: false, locked: "", notAppeared: "", positionGone: false});
+}>(), {planned: false, canPlan: false, locked: "", notAppeared: false, positionGone: false});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -42,7 +42,7 @@ const onSelect = (id: string): void => {
     else if (id.startsWith("position:")) emit("update:position", id.slice("position:".length));
 };
 /** 标记一格里此刻写什么：算上计划优先（它决定了能不能改），其次是没出场与那一章不在了。 */
-const mark = computed<"planned" | "gone" | "absent" | null>(() => (props.planned ? "planned" : props.positionGone ? "gone" : props.notAppeared !== "" ? "absent" : null));
+const mark = computed<"planned" | "gone" | "absent" | null>(() => (props.planned ? "planned" : props.positionGone ? "gone" : props.notAppeared ? "absent" : null));
 </script>
 
 <template>
@@ -59,13 +59,13 @@ const mark = computed<"planned" | "gone" | "absent" | null>(() => (props.planned
                 data-planned-mark
                 @click="emit('update:planned', false)"
             >
-                {{ text("entry.plannedMark") }}<span class="i-lucide-x size-3.5 opacity-70" aria-hidden="true" />
+                <span class="truncate">{{ text("entry.plannedMark") }}</span><span class="i-lucide-x size-3.5 shrink-0 opacity-70" aria-hidden="true" />
             </button>
-            <span v-else-if="mark === 'gone'" key="gone" class="position-mark" role="status">{{ text("entry.positionGone") }}</span>
-            <span v-else-if="mark === 'absent'" key="absent" class="position-mark" data-not-appeared>{{ text("entry.notAppeared", {position: props.notAppeared}) }}</span>
+            <span v-else-if="mark === 'gone'" key="gone" class="position-mark" role="status" :title="text('entry.positionGone')"><span class="truncate">{{ text("entry.positionGone") }}</span></span>
+            <span v-else-if="mark === 'absent'" key="absent" class="position-mark" :title="text('entry.notAppeared')" data-not-appeared><span class="truncate">{{ text("entry.notAppeared") }}</span></span>
         </Transition>
-        <DropdownMenu align="end" :items="items" :disabled="props.locked !== ''" @select="onSelect">
-            <Button size="sm" variant="ghost" :disabled="props.locked !== ''" :title="props.locked !== '' ? props.locked : undefined" :aria-label="`${text('entry.position')}：${label}`" data-position-trigger>
+        <DropdownMenu align="end" root-class="min-w-0" :items="items" :disabled="props.locked !== ''" @select="onSelect">
+            <Button class="min-w-0 max-w-full" size="sm" variant="ghost" :disabled="props.locked !== ''" :title="props.locked !== '' ? props.locked : undefined" :aria-label="`${text('entry.position')}：${label}`" data-position-trigger>
                 <span class="i-lucide-clock-3 size-4 shrink-0" aria-hidden="true" />
                 <span class="truncate">{{ label }}</span>
                 <span class="i-lucide-chevron-down size-3.5 shrink-0 opacity-60" aria-hidden="true" />
@@ -75,8 +75,10 @@ const mark = computed<"planned" | "gone" | "absent" | null>(() => (props.planned
 </template>
 
 <style scoped>
+/* 标记可以收窄、文字截断（整句在悬停提示里）：位置带章标题时整句很长，390 宽不能撑出横向滚动。 */
 .position-mark {
     display: inline-flex;
+    min-width: 0;
     align-items: center;
     gap: 4px;
     height: 1.75rem;

@@ -12,7 +12,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 
-import {EDITOR_PAGES_POINT} from "../shared/contracts";
+import {EDITOR_PAGES_POINT, PAGE_ICON_PATTERN} from "../shared/contracts";
 import type {EditorPageDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {pageAddress, pageArgOf, pageIdOf} from "./page-address";
@@ -195,7 +195,12 @@ export class EditorPageRegistry {
             const given = implementationOf(tab.address)?.title?.(pageArgOf(tab.address)) ?? null;
             return given === null ? null : text.t(given);
         };
-        const liveIcon = (tab: PageTabRef): string | null => implementationOf(tab.address)?.icon?.(pageArgOf(tab.address)) ?? null;
+        // 页面给的图标不是 lucide 类名时不认：它会随标签记录存盘，格式不对会让整条记录写不进去（`tabs-record.ts` 的校验）。
+        const iconPattern = new RegExp(PAGE_ICON_PATTERN, "u");
+        const liveIcon = (tab: PageTabRef): string | null => {
+            const given = implementationOf(tab.address)?.icon?.(pageArgOf(tab.address)) ?? null;
+            return given !== null && iconPattern.test(given) && given.length <= 100 ? given : null;
+        };
         return {
             liveTitle,
             liveIcon,

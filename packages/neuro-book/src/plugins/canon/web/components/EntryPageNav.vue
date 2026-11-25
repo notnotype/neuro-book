@@ -33,8 +33,11 @@ const emit = defineEmits<{
 }>();
 
 const text = useCanonText();
-const own = computed(() => props.items.filter((item) => item.segment === "own"));
-const views = computed(() => props.items.filter((item) => item.segment === "view"));
+/** 看法一段的第一页，前面有设定组或文字时在它上面画分隔（不另放元素：列表里只有分页，增减的过渡按分页算）。 */
+const segmentStart = computed(() => {
+    const at = props.items.findIndex((item) => item.segment === "view");
+    return at > 0 ? props.items[at]!.value : null;
+});
 const addItems = computed<DropdownMenuItemData[]>(() => props.addable.map((item) => ({id: item.value, label: item.label})));
 
 // 方向键在全部分页之间移动并选中（与横排的 Tabs 相同：自动激活、两端绕回）。
@@ -48,6 +51,14 @@ const move = async (step: number | "first" | "last"): Promise<void> => {
     await nextTick();
     list.value?.querySelector<HTMLElement>(`[data-tab-value="${CSS.escape(all[next]!.value)}"]`)?.focus();
 };
+// 去掉的一页脱离排布、钉在原处淡出，后面的行才有位移可补（`entry-page-nav-row-move`）。
+const pinLeaving = (element: Element): void => {
+    const row = element as HTMLElement;
+    row.style.top = `${String(row.offsetTop)}px`;
+    row.style.left = `${String(row.offsetLeft)}px`;
+    row.style.width = `${String(row.offsetWidth)}px`;
+    row.style.position = "absolute";
+};
 const onKey = (event: KeyboardEvent): void => {
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : null;
     if (step === null) return;
@@ -59,15 +70,15 @@ const onKey = (event: KeyboardEvent): void => {
 <template>
     <nav class="entry-page-nav" data-entry-page-nav>
         <div ref="list" role="tablist" aria-orientation="vertical" :aria-label="text('entry.tabs.label')" @keydown="onKey">
-            <template v-for="(group, index) in [own, views]" :key="index">
-                <div v-if="index === 1 && group.length > 0" class="entry-page-nav__divider" role="presentation" />
+            <TransitionGroup name="entry-page-nav-row" @before-leave="pinLeaving">
                 <button
-                    v-for="item in group"
+                    v-for="item in props.items"
                     :id="props.tabId(item.value)"
                     :key="item.value"
                     type="button"
                     role="tab"
                     class="entry-page-nav__item"
+                    :data-segment-start="item.value === segmentStart ? '' : undefined"
                     :aria-selected="item.value === props.modelValue ? 'true' : 'false'"
                     :aria-controls="props.panelId"
                     :tabindex="item.value === props.modelValue ? 0 : -1"
@@ -79,7 +90,7 @@ const onKey = (event: KeyboardEvent): void => {
                     <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
                     <span v-if="item.count !== undefined" class="entry-page-nav__count">{{ item.count }}</span>
                 </button>
-            </template>
+            </TransitionGroup>
         </div>
         <DropdownMenu v-if="addItems.length > 0" align="start" :items="addItems" :disabled="props.addReason !== ''" @select="(id: string) => emit('add-component', id)" @update:open="(open: boolean) => open && emit('add-open')">
             <button type="button" class="entry-page-nav__item entry-page-nav__add" :disabled="props.addReason !== ''" :title="props.addReason !== '' ? props.addReason : undefined" data-add-component>
@@ -97,6 +108,7 @@ const onKey = (event: KeyboardEvent): void => {
     gap: 2px;
 }
 .entry-page-nav [role="tablist"] {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -142,9 +154,37 @@ const onKey = (event: KeyboardEvent): void => {
 .entry-page-nav__add {
     color: var(--text-muted);
 }
-.entry-page-nav__divider {
+/* 两段之间的分隔画在看法的第一页上面。 */
+.entry-page-nav__item[data-segment-start] {
+    position: relative;
+    margin-top: 17px;
+}
+.entry-page-nav__item[data-segment-start]::before {
+    content: "";
+    position: absolute;
+    top: -10px;
+    right: 2px;
+    left: 2px;
     height: 1px;
-    margin: 8px 2px;
     background: var(--divider);
+}
+/* 分页增减：新的一页淡入，去掉的淡出，其余的滑到新位置。 */
+.entry-page-nav-row-enter-active,
+.entry-page-nav-row-leave-active {
+    transition: opacity var(--motion-base) var(--ease-layout);
+}
+.entry-page-nav-row-enter-from,
+.entry-page-nav-row-leave-to {
+    opacity: 0;
+}
+.entry-page-nav-row-move {
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+@media (prefers-reduced-motion: reduce) {
+    .entry-page-nav-row-enter-active,
+    .entry-page-nav-row-leave-active,
+    .entry-page-nav-row-move {
+        transition: none;
+    }
 }
 </style>

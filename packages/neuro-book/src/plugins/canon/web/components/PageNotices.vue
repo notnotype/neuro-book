@@ -3,7 +3,7 @@
  * 条目页、回执页、变更详情页共用的浮动提示（docs/specs/canon/author-ui.md 输出 18、42；同名 .md）：浮在页面下方，盖在内容上、
  * 不占文档流。受控：显示哪几条、什么时候收起由宿主（窗口里的 `notices.ts`）定，这里只画、只把点了什么发出去。
  */
-import {onBeforeUnmount} from "vue";
+import {onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch} from "vue";
 
 import {Button, IconButton} from "@notnotype/nb-ui/components";
 
@@ -48,18 +48,48 @@ const onFocusOut = (event: FocusEvent): void => {
     const next = event.relatedTarget;
     if (!(next instanceof Node) || !(event.currentTarget as HTMLElement).contains(next)) holdBy("focus", false);
 };
-onBeforeUnmount(() => {
+const releaseAll = (): void => {
     for (const release of releases.values()) release();
     releases.clear();
+};
+// 作者那一行没了（关掉、自己收起）时一并放开：摘掉的节点收不到 pointerleave，焦点在它里面时也不一定有 focusout，不放开的话
+// 窗口里的计时一直停着，之后的提示都不再自己收起。
+watch(() => props.notice === null, (gone) => {
+    if (gone) releaseAll();
 });
+onBeforeUnmount(releaseAll);
+
+// 离场的那一行脱离排布、钉在原处，上面的行才有位移可补（`page-notice-move`）：栏贴着底边往上叠，所以按到底边的距离钉住。
+const pinLeaving = (element: Element): void => {
+    const row = element as HTMLElement;
+    const stack = row.parentElement;
+    if (stack === null) return;
+    row.style.left = `${String(row.offsetLeft)}px`;
+    row.style.width = `${String(row.offsetWidth)}px`;
+    row.style.bottom = `${String(stack.clientHeight - row.offsetTop - row.offsetHeight)}px`;
+    row.style.position = "absolute";
+};
+
+// 末尾的留白跟着栏的实际高度：Agent 的提示常驻时会同时有两三行，窄了动作还会折到第二行；只留一行高时最后几行滚不出来。
+const stack = useTemplateRef<HTMLElement>("stack");
+const stackHeight = shallowRef(0);
+let observer: ResizeObserver | null = null;
+onMounted(() => {
+    if (stack.value === null || typeof ResizeObserver === "undefined") return;
+    observer = new ResizeObserver(() => {
+        stackHeight.value = stack.value?.offsetHeight ?? 0;
+    });
+    observer.observe(stack.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
 </script>
 
 <template>
     <!-- 末尾的留白常在：提示出没时页面什么都不动，最后几行也滚得到盖不住。 -->
-    <div class="page-notices">
+    <div class="page-notices" :style="{'--page-notices-stack': `${String(stackHeight)}px`}">
         <div class="page-notices__anchor">
-            <div class="page-notices__stack" role="status" :aria-label="text('notice.label')">
-                <TransitionGroup name="page-notice">
+            <div ref="stack" class="page-notices__stack" role="status" :aria-label="text('notice.label')">
+                <TransitionGroup name="page-notice" @before-leave="pinLeaving">
                     <div v-if="props.agent !== null" key="agent" class="page-notice" data-agent-notice>
                         <span class="i-lucide-bot size-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
                         <span class="page-notice__text">{{ text("notice.agentChanged", {title: props.agent.title}) }}<template v-if="props.agent.earlier > 0">{{ text("notice.agentEarlier", {count: props.agent.earlier}) }}</template></span>
@@ -106,9 +136,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* 留白与一条提示同高，页面最后几行能滚到提示上方。 */
+/* 留白至少与一条提示同高，栏更高时跟着栏（加上锚点离底边的 16 像素与 8 像素间隙），页面最后几行能滚到提示上方。 */
 .page-notices {
-    height: calc(var(--control-h-md, 2.25rem) + 24px);
+    height: max(calc(var(--control-h-md, 2.25rem) + 24px), calc(var(--page-notices-stack, 0px) + 24px));
 }
 /* 零高、贴着页面滚动区的底边：提示从它往上叠，滚动时一直在视口下方。 */
 .page-notices__anchor {

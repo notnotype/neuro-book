@@ -58,9 +58,9 @@ describe("CharacterCard", () => {
         expect(value.attributes("aria-label")).toBe("性别：女");
         expect(wrapper.get("[data-edit='character.年龄']").attributes("aria-label")).toBe("年龄：填写");
         expect(value.attributes("title")).toBe("女");
-        await wrapper.setProps({editReason: "先关掉按计划"});
+        await wrapper.setProps({editReason: "先不算计划"});
         expect(wrapper.get("[data-edit='character.性别']").attributes("disabled")).toBeDefined();
-        expect(wrapper.get("[data-edit='character.性别']").attributes("title")).toBe("先关掉按计划");
+        expect(wrapper.get("[data-edit='character.性别']").attributes("title")).toBe("先不算计划");
     });
 
     it("成段的文字与现在的状态的“第 N 章改过”是按钮：段落的发 origins，现在的状态的展开它的细节；未知时没有", async () => {

@@ -48,7 +48,7 @@ describe("PositionPicker", () => {
     });
 
     it("标记一格只写一样：算上计划优先，点 × 回到实际；其次是那一章不在了、还没出场", async () => {
-        const wrapper = picker({canPlan: true, planned: true, positionGone: true, notAppeared: "第 1 章末尾"});
+        const wrapper = picker({canPlan: true, planned: true, positionGone: true, notAppeared: true});
         expect(wrapper.text()).toContain("算上计划");
         expect(wrapper.text()).not.toContain("不在了");
         await wrapper.get("[data-planned-mark]").trigger("click");
@@ -56,7 +56,7 @@ describe("PositionPicker", () => {
         await wrapper.setProps({planned: false});
         expect(wrapper.text()).toContain("原来选的那一章已经不在了");
         await wrapper.setProps({positionGone: false});
-        expect(wrapper.get("[data-not-appeared]").text()).toBe("到第 1 章末尾还没出场");
+        expect(wrapper.get("[data-not-appeared]").text()).toBe("这时还没出场");
     });
 
     it("不能换时（有没提交的主文字）按钮、菜单与标记都不可用，悬停写原因", () => {

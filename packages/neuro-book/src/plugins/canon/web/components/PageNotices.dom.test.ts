@@ -70,6 +70,28 @@ describe("PageNotices", () => {
         expect(wrapper.emitted("close-error")).toHaveLength(1);
     });
 
+    it("作者那一行没了（关掉、自己收起）时放开它上面的暂停：摘掉的行收不到指针离开，不放开的话之后的提示都不再自己收起", async () => {
+        const events: string[] = [];
+        let next = 0;
+        const hold = () => {
+            const id = ++next;
+            events.push(`hold ${String(id)}`);
+            return () => void events.push(`release ${String(id)}`);
+        };
+        const wrapper = mountNotices({notice: {revision: "r1", title: "改外观"}, hold});
+        const row = wrapper.get("[data-notice-bar]");
+        await row.trigger("pointerenter");
+        (row.findAll("button")[0]!.element as HTMLButtonElement).focus();
+        await wrapper.setProps({notice: null});
+        expect(events).toEqual(["hold 1", "hold 2", "release 1", "release 2"]);
+        // 下一条照常：指着时暂停，卸载时放开。
+        await wrapper.setProps({notice: {revision: "r2", title: "改年龄"}});
+        await wrapper.get("[data-notice-bar]").trigger("pointerenter");
+        wrapper.unmount();
+        mounted.splice(0);
+        expect(events).toEqual(["hold 1", "hold 2", "release 1", "release 2", "hold 3", "release 3"]);
+    });
+
     it("指针停着、焦点在作者那一行里各暂停一次；两样都离开才全部放开，卸载时放开还没放开的", async () => {
         const events: string[] = [];
         let next = 0;

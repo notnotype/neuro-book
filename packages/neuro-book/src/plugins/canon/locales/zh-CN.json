@@ -87,7 +87,7 @@
     "entry": {
         "missing": "找不到这个条目",
         "deleted": "这个条目已删除",
-        "notAppeared": "到{{position}}还没出场",
+        "notAppeared": "这时还没出场",
         "positionGone": "原来选的那一章已经不在了",
         "sameAs": "是谁：",
         "position": "看哪个时间点",
@@ -131,7 +131,8 @@
         "plannedMark": "算上计划",
         "leavePlans": "不算计划",
         "addComponentShort": "添加一组设定",
-        "groupAlreadyAdded": "这组设定已经加上了"
+        "groupAlreadyAdded": "这组设定已经加上了",
+        "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次"
     },
     "position": {
         "initial": "故事开始前",
@@ -202,7 +203,7 @@
         "unknown": "不确定世界里写进去了什么，先不能写",
         "busy": "{{holder}}正在写，写完以后才能改",
         "disconnected": "世界已断开",
-        "planned": "先关掉按计划",
+        "planned": "先不算计划",
         "initial": "先选一章"
     },
     "failure": {

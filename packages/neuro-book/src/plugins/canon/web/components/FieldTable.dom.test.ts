@@ -68,8 +68,8 @@ describe("FieldTable", () => {
         expect(wrapper.get("[data-edit='p.存款']").attributes("aria-label")).toBe("改存款");
         await wrapper.get("[data-edit='p.存款']").trigger("click");
         expect(wrapper.emitted("edit")).toEqual([["p.存款"]]);
-        await wrapper.setProps({editReason: "先关掉按计划"});
+        await wrapper.setProps({editReason: "先不算计划"});
         expect(wrapper.get("[data-edit='p.存款']").attributes("disabled")).toBeDefined();
-        expect(wrapper.get("[data-edit='p.存款']").attributes("title")).toBe("先关掉按计划");
+        expect(wrapper.get("[data-edit='p.存款']").attributes("title")).toBe("先不算计划");
     });
 });

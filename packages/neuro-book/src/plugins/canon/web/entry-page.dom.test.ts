@@ -376,7 +376,7 @@ describe("条目页", () => {
         const unappeared = await open(ids[late.id]!);
         unappeared.state.position = "1:end";
         // 章标题来自章节文件名（活页夹约定），这里没有章节文件，所以只有序号。
-        await waitUntil("未出场", () => unappeared.wrapper.text().includes("到第 1 章末尾还没出场"));
+        await waitUntil("未出场", () => unappeared.wrapper.text().includes("这时还没出场"));
     });
 
     it("项目实例停止：页面顶上有“世界已断开”，内容留着", async () => {
@@ -519,7 +519,7 @@ describe("写入", () => {
 
         state.planned = true;
         await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.性格']").attributes("disabled") !== undefined);
-        expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先关掉按计划");
+        expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先不算计划");
     });
 
     it("页头改名、改简介：点名字本身在原处出浮层（与短项同一种），不出确认条；保存后页头换了名字、有提示，焦点回到名字", async () => {
@@ -1455,6 +1455,50 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
         await waitUntil("存进去、浮层收起", () => wrapper.get("[data-edit='character.身份']").text().includes("学生") && editor() === null);
         expect(state.edit).toBeNull();
+    });
+
+    it("短项回车：预览说有别的变化（多了一条待处理）时不存，停在预览上，再按一次才存；回车以后又打字，回车作废（输出 51）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const character = star.init.data.character!;
+        star.init.data.character = {...character, fields: {...character.fields, 身高: 160}, declared: [{id: "身高", label: "身高", kind: "number", unit: "厘米"}]};
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        // 第 2 章正文写身高 160：现在对得上，改成别的数就多一条“核对点不符”。
+        const checkId = `tmp:${nextId()}`;
+        await publish(other.canon, [{ref: {kind: "check", id: checkId}, after: {id: checkId, at: {entry: id, path: "character.身高"}, value: 160, told: {source: "note", quote: "身高 160"}, place: {kind: "chapter", chapter: "2", key: 1}}}]);
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor='${path}']`);
+        const type = async (path: string, value: string): Promise<HTMLInputElement> => {
+            await waitUntil(path, () => wrapper.find(`[data-edit='${path}']`).exists());
+            if (editorOf(path) === null) await wrapper.get(`[data-edit='${path}']`).trigger("click");
+            await waitUntil("浮层", () => editorOf(path)?.querySelector("input") != null);
+            const input = editorOf(path)!.querySelector<HTMLInputElement>("input")!;
+            input.value = value;
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+            await nextTick();
+            return input;
+        };
+        const enter = (input: HTMLInputElement): void => void input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+
+        const height = await type("character.身高", "170");
+        enter(height);
+        await waitUntil("预览写出多了的待处理", () => editorOf("character.身高")?.textContent?.includes("多了 1 条待处理") === true);
+        expect(wrapper.get("[data-edit='character.身高']").text()).toContain("160");
+        expect(state.edit).not.toBeNull();
+        // 作者看过了，再按一次回车才存。
+        enter(height);
+        await waitUntil("存进去、浮层收起", () => wrapper.get("[data-edit='character.身高']").text().includes("170") && editorOf("character.身高") === null);
+
+        // 回车以后、预览回来之前又改了字：那一下回车作废，新的预览回来也不存。
+        const identity = await type("character.身份", "学生");
+        enter(identity);
+        await type("character.身份", "学生会长");
+        await waitUntil("新的预览", () => editorOf("character.身份")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        // 预览回来的同一刻要是发出了保存，“保存”就已经不可用（保存在途）；它可用，说明没有替作者存。
+        const save = [...editorOf("character.身份")!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "保存")!;
+        expect(save.disabled).toBe(false);
+        expect(wrapper.get("[data-edit='character.身份']").text()).not.toContain("学生");
     });
 
     it("立绘读自形象：有图时点了切到形象分页；没有形象这一组时点一下就加上形象、切到形象分页并打开立绘的选图（输出 49）", async () => {

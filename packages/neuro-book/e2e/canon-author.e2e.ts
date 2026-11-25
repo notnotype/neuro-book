@@ -217,12 +217,14 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改故
     const bar = inlineEditor(page, "character.性格");
     await bar.getByRole("textbox").fill("嘴硬心软");
     await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    const topBefore = (await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y;
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("嘴硬心软");
 
-    // 提示 6 秒后自己收起，指着它时不收：先指着再点（author-ui 输出 18）。
+    // 提示浮在页面下方，出现时内容不动；6 秒后自己收起，指着它时不收：先指着再点（author-ui 输出 18）。
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toBeVisible();
+    expect((await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y).toBe(topBefore);
     await notice.hover();
     await notice.getByRole("button", {name: "还原"}).click();
     const dialog = page.locator("[data-revert-dialog]");
@@ -320,7 +322,7 @@ async function horizontalScrolls(root: Locator): Promise<string[]> {
 }
 
 // 设定视图不在这里量：390 宽时工作台把侧栏让给编辑区，点活动栏也不出来。
-test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左边竖排、不横向滚动，窄了换回页头下面的横排；两种排法选中同一页", async ({page}) => {
+test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左边竖排、不横向滚动，窄了换回页头下面的横排；两种排法选中同一页，焦点在分页上的跟过去；名字一行写得下时不折行；标签带人物图标", async ({page}) => {
     await page.setViewportSize({width: 1920, height: 1000});
     await open(page);
     await openEntry(page, "星瑕");
@@ -330,10 +332,18 @@ test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左�
     await nav.getByRole("tab", {name: /^面板/u}).click();
     await expect(nav.getByRole("tab", {name: /^面板/u})).toHaveAttribute("aria-selected", "true");
     expect(await horizontalScrolls(entryPage(page))).toEqual([]);
+    // 页头的名字（按钮带负外边距的浅底）一行写得下就是一行（workbench/editor 输出 53 的标签图标也在这一页上看）。
+    const nameHeight = async () => (await entryPage(page).locator("[data-edit='entry.name']").boundingBox())!.height;
+    expect(await nameHeight()).toBeLessThan(40);
+    await expect(page.locator("[data-editor-tab-icon].i-lucide-user-round")).toBeVisible();
 
+    await nav.getByRole("tab", {name: /^面板/u}).focus();
     await page.setViewportSize({width: 1440, height: 900});
     await expect(nav).toHaveCount(0);
-    await expect(entryPage(page).getByRole("tab", {name: /^面板/u})).toHaveAttribute("aria-selected", "true");
+    const panelTab = entryPage(page).getByRole("tab", {name: /^面板/u});
+    await expect(panelTab).toHaveAttribute("aria-selected", "true");
+    await expect(panelTab).toBeFocused();
+    expect(await nameHeight()).toBeLessThan(40);
 });
 
 test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动", async ({page}) => {

@@ -3,7 +3,7 @@
  * 人物分页（同名 .md，docs/specs/canon/author-ui.md 输出 49、51、52）：把 `context` 折成 `CharacterCard` 的属性，把它的事件翻成
  * 就地改、看来历、加一项这些写入。立绘读自同一条目上的形象这一组（`context.other`）。
  */
-import {computed, inject, shallowRef, watch} from "vue";
+import {computed, inject, onBeforeUnmount, shallowRef, watch} from "vue";
 
 import type {FieldDraft} from "@notnotype/nb-canon";
 import {Button, Dialog, Input, Popover} from "@notnotype/nb-ui/components";
@@ -92,6 +92,10 @@ watch(() => context.editing, (editing) => {
 const lookPick = inject(LOOK_PICK_KEY, null);
 const portraitBusy = shallowRef(false);
 const portraitError = shallowRef("");
+let alive = true;
+onBeforeUnmount(() => {
+    alive = false;
+});
 const onPortrait = async (): Promise<void> => {
     const status = portrait.value.status;
     if (status === "image") context.showTab?.(LOOK_COMPONENT);
@@ -104,6 +108,8 @@ const onPortrait = async (): Promise<void> => {
         portraitBusy.value = true;
         portraitError.value = "";
         const result = await pending;
+        // 写入在途时作者已经切走（这一页卸载了）：组照样加上，不再把人拉到形象分页。
+        if (!alive) return;
         portraitBusy.value = false;
         if (!result.ok) {
             portraitError.value = port.t(result.reason);

@@ -32,8 +32,8 @@ const props = withDefaults(defineProps<{
     canPlan?: boolean;
     /** 页头的写入在途：别名的加与去暂不可用（不吞掉点击）。默认 false。 */
     busy?: boolean;
-    /** 在所选位置上还没出场时，所选位置的文字（输出 8）。 */
-    notAppeared?: string;
+    /** 在所选位置上还没出场（输出 8）。 */
+    notAppeared?: boolean;
     /** 选过的那一章被删掉了，位置已经回到缺省（输出 7）。 */
     positionGone?: boolean;
     disconnected?: boolean;
@@ -64,7 +64,7 @@ const props = withDefaults(defineProps<{
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -141,6 +141,8 @@ const openContext = (value: string, at: {readonly x: number; readonly y: number}
     if (!props.editable) return;
     emit("update:tab", value);
     context.value = {value, ...at};
+    // 右键菜单里也有“添加一组设定”：同“＋”，打开时让宿主记下条目的版本。
+    if (canAdd.value) emit("add-open");
 };
 const onStripContext = (event: MouseEvent): void => {
     const value = (event.target as Element | null)?.closest<HTMLElement>("[data-tab-value]")?.dataset.tabValue;
@@ -244,6 +246,13 @@ const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
 const PANEL_ID = `canon-entry-panel-${useId()}`;
 const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
+// 两种排法是两套元素：焦点在分页上时直接换会落到 body，换完把焦点放到新那套的选中项上（同一页，按 id 找）。
+watch(rail, async () => {
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLElement) || root.value?.contains(focused) !== true || focused.closest("[role='tablist']") === null) return;
+    await nextTick();
+    document.getElementById(tabId(props.tab))?.focus();
+}, {flush: "pre"});
 </script>
 
 <template>
@@ -264,12 +273,13 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                 <div class="mx-auto flex flex-wrap items-start gap-x-4 gap-y-2" :class="column">
                     <div class="min-w-0 flex-1 basis-64">
                         <div class="flex flex-wrap items-baseline gap-x-2">
-                            <!-- 名字、简介本身就是按钮：点了在原处出浮层改（输出 38）。浅底用负外边距，悬停与聚焦不挪字；铅笔一直占位、只换透明度。 -->
+                            <!-- 名字、简介本身就是按钮：点了在原处出浮层改（输出 38）。浅底用负外边距，悬停与聚焦不挪字；铅笔一直占位、只换透明度。
+                                 最大宽度要补上负外边距吃掉的 12 像素：h1 按按钮的外边距盒定宽，只写 max-w-full 时按钮比自己的内容窄 12 像素，名字一字一行。 -->
                             <h1 class="m-0 min-w-0 text-[length:var(--text-xl)] font-semibold text-[var(--text-main)]">
                                 <button
                                     v-if="props.editable"
                                     type="button"
-                                    class="entry-editable -mx-1.5 inline-flex max-w-full items-center gap-1.5 px-1.5 text-left"
+                                    class="entry-editable -mx-1.5 inline-flex max-w-[calc(100%_+_0.75rem)] items-center gap-1.5 px-1.5 text-left"
                                     :disabled="blockedReason !== undefined"
                                     :title="blockedReason"
                                     :aria-label="`${text('entry.editName')}：${props.name}`"
@@ -287,7 +297,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         <button
                             v-if="props.editable"
                             type="button"
-                            class="entry-editable -mx-1.5 mt-1 flex max-w-full items-center gap-1.5 px-1.5 text-left text-[length:var(--text-sm)]"
+                            class="entry-editable -mx-1.5 mt-1 flex max-w-[calc(100%_+_0.75rem)] items-center gap-1.5 px-1.5 text-left text-[length:var(--text-sm)]"
                             :class="props.summary === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'"
                             :disabled="blockedReason !== undefined"
                             :title="blockedReason"

@@ -135,8 +135,8 @@ describe("页面标签的内容", () => {
 describe("Spec workbench.editor 输出 33：带参数与可恢复的页面", () => {
     const tab = (id: string, arg: string, title?: string) => ({id, address: pageAddress(PAGE_ID, arg), ...(title === undefined ? {} : {title})});
 
-    it("图标（输出 53）：页面此刻给的跟着它读的数据变；页面给 null 时用标签上记着的，再没有用声明的", async () => {
-        const kinds = ref<Record<string, string | null>>({a: "i-lucide-user-round", b: null});
+    it("图标（输出 53）：页面此刻给的跟着它读的数据变；页面给 null 或不是 lucide 类名时用标签上记着的，再没有用声明的", async () => {
+        const kinds = ref<Record<string, string | null>>({a: "i-lucide-user-round", b: null, c: "fa-solid fa-user"});
         const registry = await start(() => Promise.resolve(Page), {declaration: {instances: true, restore: true}, implementation: {icon: (arg) => kinds.value[arg ?? ""] ?? null}});
         const source = registry.source({recent: []});
         const icon = computed(() => source.icon(tab("t1", "a")));
@@ -147,6 +147,9 @@ describe("Spec workbench.editor 输出 33：带参数与可恢复的页面", () 
         expect(source.liveIcon(tab("t2", "b"))).toBeNull();
         expect(source.icon({...tab("t2", "b"), icon: "i-lucide-map-pin"})).toBe("i-lucide-map-pin");
         expect(source.icon(tab("t2", "b"))).toBe("i-lucide-file");
+        // 格式不对的不认：它会随标签记录存盘，存不下会让整条记录写不进去。
+        expect(source.liveIcon(tab("t3", "c"))).toBeNull();
+        expect(source.icon(tab("t3", "c"))).toBe("i-lucide-file");
     });
 
     it("标题：页面此刻给的跟着它读的数据变；页面给 null 时用标签上记着的，再没有用声明的；贡献方停了以后回到记着的", async () => {

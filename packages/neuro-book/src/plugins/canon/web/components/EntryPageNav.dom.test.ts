@@ -4,6 +4,7 @@
  */
 
 import {mount} from "@vue/test-utils";
+import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {DropdownMenu} from "@notnotype/nb-ui/components";
@@ -40,9 +41,8 @@ describe("EntryPageNav", () => {
         expect(tabs.map((tab) => tab.find("[aria-hidden='true']").classes()[0])).toEqual(["i-lucide-user-round", "i-lucide-file-text", "i-lucide-footprints", "i-lucide-git-commit-horizontal"]);
         expect(tabs.map((tab) => [tab.attributes("aria-selected"), tab.attributes("tabindex")])).toEqual([["true", "0"], ["false", "-1"], ["false", "-1"], ["false", "-1"]]);
         expect(tabs[0]!.attributes("aria-controls")).toBe("panel");
-        // 分隔在文字与经历之间。
-        const order = [...list.element.children].map((child) => (child.getAttribute("role") === "presentation" ? "|" : child.textContent?.trim()));
-        expect(order).toEqual(["人物", "文字", "|", "经历", "情节12"]);
+        // 分隔在文字与经历之间：画在看法一段的第一页上。
+        expect(tabs.map((tab) => tab.attributes("data-segment-start") !== undefined)).toEqual([false, false, true, false]);
     });
 
     it("点一页、上下方向键、Home 与 End 都发出新的选中，两端绕回", async () => {
@@ -51,6 +51,9 @@ describe("EntryPageNav", () => {
         const list = wrapper.get("[role='tablist']");
         await list.trigger("keydown", {key: "ArrowUp"});
         await list.trigger("keydown", {key: "End"});
+        // 焦点跟到新选中的那一页（同横排的 Tabs）：下一次按键落在它上面。
+        await nextTick();
+        expect((document.activeElement as HTMLElement | null)?.dataset.tabValue).toBe("plot");
         await list.trigger("keydown", {key: "ArrowDown"});
         expect(wrapper.emitted("update:modelValue")).toEqual([["extra:experience"], ["plot"], ["plot"], ["text"]]);
     });

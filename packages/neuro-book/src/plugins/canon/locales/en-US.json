@@ -87,7 +87,7 @@
     "entry": {
         "missing": "This entry was not found",
         "deleted": "This entry has been deleted",
-        "notAppeared": "Not yet on stage at {{position}}",
+        "notAppeared": "Not on stage yet",
         "positionGone": "The chapter you picked is gone",
         "sameAs": "Really: ",
         "position": "Point in the story",
@@ -131,7 +131,8 @@
         "plannedMark": "Planned events included",
         "leavePlans": "Leave out planned events",
         "addComponentShort": "Add a settings group",
-        "groupAlreadyAdded": "This settings group is already on the entry"
+        "groupAlreadyAdded": "This settings group is already on the entry",
+        "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
     },
     "position": {
         "initial": "Before the story",
@@ -202,7 +203,7 @@
         "unknown": "Unsure what reached the world; writing is paused",
         "busy": "{{holder}} is writing; edits resume when it finishes",
         "disconnected": "The world is disconnected",
-        "planned": "Turn off Include plans first",
+        "planned": "Leave out planned events first",
         "initial": "Pick a chapter first"
     },
     "failure": {

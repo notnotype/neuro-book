@@ -121,7 +121,7 @@ describe("EntryPage", () => {
         expect(page({editable: true}).find("[data-add-component]").exists()).toBe(false);
     });
 
-    it("右键一页先选中它，菜单里有“添加一组设定”（下一级是能加的组）；是一组设定时另有“去掉这组设定”", async () => {
+    it("右键一页先选中它，菜单里有“添加一组设定”（下一级是能加的组，打开时同“＋”发 add-open）；是一组设定时另有“去掉这组设定”", async () => {
         const wrapper = page({
             editable: true,
             tabs: [
@@ -136,6 +136,7 @@ describe("EntryPage", () => {
         await tabOf("data:character").trigger("contextmenu", {clientX: 5, clientY: 6});
         expect(wrapper.emitted("update:tab")).toEqual([["data:character"]]);
         expect(menu().props("open")).toBe(true);
+        expect(wrapper.emitted("add-open")).toHaveLength(1);
         type Item = {label?: string; separator?: boolean; children?: {label: string; action: () => void}[]; action?: () => void};
         const items = menu().props("items") as Item[];
         expect(items.map((item) => (item.separator === true ? "|" : item.label))).toEqual(["添加一组设定", "|", "去掉“人物”这组设定"]);
@@ -158,7 +159,7 @@ describe("EntryPage", () => {
     });
 
     it("未出场、选过的章不在了写在时间点旁的标记里，不另起一行；断开的“重试”发 retry", async () => {
-        expect(page({notAppeared: "第 1 章末尾"}).get("[data-position-picker]").text()).toContain("到第 1 章末尾还没出场");
+        expect(page({notAppeared: true}).get("[data-position-picker]").text()).toContain("这时还没出场");
         expect(page({positionGone: true}).get("[data-position-picker]").text()).toContain("原来选的那一章已经不在了");
         const wrapper = page({disconnected: true});
         expect(wrapper.get("[role='status']").text()).toContain("世界已断开");

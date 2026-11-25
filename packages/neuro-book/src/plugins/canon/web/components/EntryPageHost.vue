@@ -13,6 +13,7 @@ import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
+import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
 import type {EntryKind} from "../../shared/entry-kinds";
@@ -26,7 +27,7 @@ import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionLabel, positionOptions, positionValue} from "../positions";
+import {chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionOptions, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -458,7 +459,7 @@ const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "c
     if (!result.ok) {
         const changed = from !== "head" && result.failure.code === "version-conflict";
         if (changed && from === "dialog") dialogBase = null;
-        error.value = port.t(changed ? text("edit.changedElsewhere") : explain?.(result.failure) ?? failureText(result.failure).text);
+        error.value = port.t(changed ? text(from === "menu" ? "entry.menuChangedElsewhere" : "edit.changedElsewhere") : explain?.(result.failure) ?? failureText(result.failure).text);
         return false;
     }
     props.notices.show({revision: result.value.revision, title});
@@ -489,12 +490,16 @@ watch([pendingTab, namespaces], ([pending, present]) => {
         pendingTab.value = null;
     }
 });
-// 作者自己换了分页：等着切过去的那一组不再切（它也许一直不出现，不能等到以后别处加上时突然跳过去）。
-watch(() => state.tab, () => {
-    pendingTab.value = null;
-});
 // 人物分页的“添加立绘”交给形象分页的一次性标记（输出 49，`look-handoff.ts`）。
-provide(LOOK_PICK_KEY, shallowRef(false));
+const lookPick = shallowRef(false);
+provide(LOOK_PICK_KEY, lookPick);
+// 作者自己换了分页：等着切过去的那一组不再切（它也许一直不出现，不能等到以后别处加上时突然跳过去）；换到的不是形象分页时，
+// 交接标记也放倒，否则以后作者自己点形象分页会莫名打开选图。
+watch(() => state.tab, (tab) => {
+    pendingTab.value = null;
+    const namespace = tab?.startsWith(DATA) === true ? tab.slice(DATA.length) : null;
+    if (namespace === null || view.value?.namespaces[namespace]?.type !== LOOK_COMPONENT) lookPick.value = false;
+});
 const addComponent = async (type: string): Promise<void> => {
     const namespace = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
     // 菜单开着的时候别处已经加上了这一组：内核按这一处的 `id-taken` 拒收，写成作者看得懂的一句。
@@ -1067,7 +1072,7 @@ const dataView = computed<{readonly component: Component | null; readonly loadin
 /* ---------- 页头 ---------- */
 
 const options = computed(() => positionOptions(chapters.value, text));
-const notAppeared = computed(() => (view.value !== null && !view.value.appeared ? positionLabel(position.value, chapters.value, text) : ""));
+const notAppeared = computed(() => view.value !== null && !view.value.appeared);
 const setPosition = (value: string): void => {
     state.position = positionFromValue(value) === null ? null : value;
 };
