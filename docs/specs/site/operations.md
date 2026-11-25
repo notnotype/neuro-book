@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.operations
 owners:
   - nb-site-server
@@ -153,6 +153,17 @@ owners:
 
 Smoke：合同测试包里起真实进程的启动与健康检查用例。
 
+## 实现合同
+
+- 公开入口：程序 `nb-site`（`@notnotype/nb-site-server` 的 bin，以 `bun --no-env-file` 启动；镜像的入口同一个程序），子命令 `serve`、`migrate`、`backup` 与模块登记的命令（`create-admin`）。包不导出代码；模块接进入口的形状是包内的 `SiteModule`。
+- owner 是 `nb-site-server`；它依赖两个模块包、两个合同包与 `nb-flock`。模块包只依赖自己的合同包，不反向依赖入口；合同测试包运行时只依赖两个合同包（入口与合同测试包各自的架构用例守着）。
+- 就绪检查只在每个库另开的一条不等锁的探测连接上开事务；入口在模块建好之后不在模块的业务连接上执行任何语句。
+- 每条迁移在自己的 `BEGIN IMMEDIATE` 里先重读迁移记录再执行；停止时先不再开始新的任务运行，排空后按创建的相反顺序让模块收尾，再等正在跑的任务，最后关库、放锁。
+- 备份先写进 `<名字>.partial/`，全部模块写好并校验过才改名；失败行与日志的字段只来自变量名、码、原因词与错误类型，不带取值、路径与说明文字。
+
 ## 证据
 
 - 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0059](../../adr/0059-official-site-one-process-split-ready-modules.md)、[ADR 0061](../../adr/0061-official-site-sqlite-file-per-module.md)
+- 实现入口：[`packages/nb-site-server/src/main.ts`](../../../packages/nb-site-server/src/main.ts)
+- 合同测试：[`operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)、[`adjacent-version.test.ts`](../../../packages/nb-site-contract-tests/src/adjacent-version.test.ts)
+- Smoke：[`operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)、[`image/smoke.ts`](../../../packages/nb-site-server/image/smoke.ts)

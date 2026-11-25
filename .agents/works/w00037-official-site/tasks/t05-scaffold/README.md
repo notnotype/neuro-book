@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-scaffold
-status: active
-updated: 2026-11-24
+status: done
+updated: 2026-11-25
 ---
 
 # 脚手架：包、进程入口、迁移、合同测试底座、镜像
@@ -63,3 +63,8 @@ updated: 2026-11-24
 ## 下一步
 
 代码都已在 master。剩下一件：`site.operations` 晋升为 `implemented`。晋升前派一个 Opus 子代理逐条核对（每个输出条目、失败码、验收场景各对到实现它的代码与碰到它的测试），对不上的修代码或改 Spec，再补实现合同与证据。CI 的 `site-image` 作业还没实际跑过（没有 push），留给 t13 看第一次的结果。
+
+晋升（2026-11-25）：Opus 子代理逐条核对（原文 [`evidences/promotion-check.txt`](evidences/promotion-check.txt)）：没实现 0 条；两处代码缺陷（库文件是目录或没有权限时报成 `migration_failed`，应为 `data_dir_unusable`；不持迁移锁、只核对迁移记录的那条路径把 SQLite 错误报成 `internal`，t07 留下的那条）；缺测试的有验收 1 的“迁移执行”、验收 3 的“账号能登录”、日志的 `module` 只断言了类型。5 处措辞改成贴实现（停止时第一次信号就不再开始新的任务运行、就绪看的是业务连接在不在事务里、删掉外面观察不到的“定时任务还没开始调度”、状态表的停止中补模块收尾、不是 SQLite 库的文件在备份里归 `copy_failed`），部署侧几句（只让本机回环访问健康检查、反向代理不记访问日志、CI 取基准提交、上一个版本接管后登录可用）与 OAuth 的签发者标 planned。
+
+- 修正 `f8480b04e`（Work 分支，6 个文件）：打开库的错误按一个函数映射（`SQLITE_CANTOPEN` 与日志方式不对是 `data_dir_unusable`，其余 SQLite 错误是 `migration_failed`、`sql_error`；不是 SQLite 库的文件归后者），持锁与不持锁两条路径共用；补了上面几条与 `db_unreadable`、迁移中途被停止、拨时间不触发任务的用例。实现者跑时负载 10 到 20，合同包“创建管理员”一组的准备撞上超时；主会话等负载降到 8 以下自己连跑 3 遍合同测试，每遍 192 条都过（后两遍负载升到 12、16），前后没有残留进程。4 条变异都被抓到。“第一次启动对每个模块执行迁移”只断言每个模块至少一行、迁移名非空，不写死名字与条数（迁移名属于实现）。
+- 合入 master（`c8aa8c02d`），`site.operations` 晋升 implemented：加实现合同与三行证据，注册表挪到“已实现规范”。CI 的 `site-image` 作业仍没实际跑过，留给 t13。
