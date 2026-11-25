@@ -517,6 +517,15 @@ watch(() => [props.node, props.layout, props.disabled, props.onGestureCommit] as
     if (onlyZeroWidthBoundaries(node, layout)) warnDev("sash-size-zero", `has 0px sashes on every boundary that could be dragged, so nothing can be dragged. createGrid's sashSize defaults to 0; pass a positive sashSize.`);
 }, {immediate: true});
 
+/**
+ * 起拖时过渡还在走（Spec 输出 159）：宿主的拖动会话没在起拖时调 `settleMotion()`，判定量到的是过渡中间的矩形。
+ * 必须是 sync：属性一赋值就跑，早于同一次更新里 `layers` 的 pre 侦听开始的新过渡，读到的是这次更新之前的过渡状态。宿主在起拖的
+ * 同一次更新里改了布局、过渡是这次才开始的，不算漏调；写成 pre 会排在那个侦听之后、把它误报出来。
+ */
+watch(() => props.dragging, (now, before) => {
+    if (now && !before && layoutDevChecksEnabled() && motion.moving.value) warnDev("drag-during-motion", `got dragging=true while a layout transition was still running, so the drag measured mid-transition rects. Call settleMotion() when the drag activates (createLiveDragSession does this itself).`);
+}, {flush: "sync"});
+
 onBeforeUnmount(() => {
     // 手势在 `useSashGesture` 自己的卸载钩子里先收尾（它在这条之前注册）：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
     // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
