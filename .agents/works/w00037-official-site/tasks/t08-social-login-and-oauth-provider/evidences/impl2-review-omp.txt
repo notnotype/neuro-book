@@ -1,0 +1,43 @@
+# w00037 t08 第 4 到 7 片实现审查（OMP）
+
+范围 `d4ae39ae5..40a02a627`；实测经本审查 worktree 的 `createTestIdentity` 真实挂载。以下第 1、2 条与计划中 Opus 审查处理表第 1、2 条重合；第 3 条与 Opus 第 5 条重合。被审提交仍含这些问题，按当前代码记录。
+
+### 1. 编码路径别名绕过精确端点白名单
+- 严重程度：建议
+- 类别：安全边界 / 合同
+- 位置：`packages/nb-site-identity/src/oauth/mount.ts:280-310`；`mount.test.ts:121-126`
+- 现象：Hono 路由按 `decodeURI` 后的路径匹配，子应用把原始路径交给 `auth.handler`。真实挂载请求 `GET /api/identity/auth/oauth2/%61uthorize?client_id=absent&redirect_uri=…` 返回 `302 Location: /oauth/consent?error=client_not_found`；正确写法的授权路径进入同一处理器。合同只开放精确列出的路径，其他路径应为本模块 404。编码的 token、userinfo、revoke 别名也会匹配自家处理器，之后才因库收到编码路径而回库的 404。
+- 影响：挂载层的精确白名单与库按原始 URL 路由不一致；非登记路径已能触发自家授权校验与站内跳转，且未来上游路径解码规则变化时别名可到达库端点。当前未证明绕过客户端、回调或授权校验。
+- 核实：经 `TestIdentity.request` 实测编码 authorize 别名对不存在客户端返回 302，而不是合同 404；有效客户端与合格参数的别名返回库 404，标准路径则发出授权码跳转。故当前影响是路径合同与边界不一致，不主张授权绕过。
+- 建议：在子应用最前面比较原始 pathname 与 Hono 匹配路径，不一致时由模块 404；在路径写法测试覆盖各标准端点的百分号编码。
+
+### 2. 撤销响应把客户端认证错误改写成成功
+- 严重程度：建议
+- 类别：正确性 / 认证错误语义
+- 位置：`packages/nb-site-identity/src/oauth/mount.ts:240-247`；`mount.test.ts:477-489`
+- 现象：包装器只看恰有一个非空 `token` 与库的 `400 invalid_request`，没有区分撤销未知令牌与客户端认证参数非法。真实挂载复现：无凭据的 `token=x&client_id=a&client_id=b`、重复 `client_secret` 都回 `200` 空体；已登记机密客户端发有效 Basic、同时在表单发 `client_secret` 并撤有效令牌，也回 `200`，而该令牌之后 UserInfo 仍为 `200`。
+- 影响：违反 Spec 输出 10 对重复认证参数、认证头与表单凭据并存要回 `invalid_request`、不能当撤销成功的约定。客户端收到成功会误以为令牌已撤销，实际仍可用；重复认证格式的错误也被掩盖。没有证据表明该分支能未认证地撤掉令牌。
+- 核实：上述响应与令牌状态均由真实 `TestIdentity.request` 及真实 UserInfo 请求观测；库在认证归一化阶段会对重复字段或多种认证方式抛 `invalid_request`，该包装条件随即吞掉错误。
+- 建议：改写响应前验证表单认证字段基数及与 Authorization 的互斥性；认证形状非法时原样保留 `invalid_request`。增加无凭据重复 `client_id`、重复 `client_secret`、Basic 加表单密钥与成功撤销三类行为覆盖。
+
+### 3. 合同没有锁定授权列表的倒序
+- 严重程度：建议
+- 类别：测试缺口
+- 位置：`packages/nb-site-contract-tests/src/oauth-invalidation.test.ts:329-347`；`packages/nb-site-identity/src/oauth/grants.ts:70-75`
+- 现象：实现按 `g.id DESC` 排序；合同用例先按客户端名字对 `items` 排序后比较，并只断言 `createdAt` 先后，因而未验证列表顺序。Spec 输出 15 要求列表按给出的先后倒序。
+- 影响：若排序被改成升序或移除，现有合同测试不会发现，消费者可观察顺序与合同不符。
+- 核实：检查合同用例断言及实现查询；没有运行源码变异，结论限于测试未断言该行为。
+- 建议：在合同用例断言两个依次同意的客户端以“后同意者在前”返回，不先排序列表。
+
+## 未发现问题的方面
+
+- 授权查询串／表单参数长度、GET/POST 的参数处理、重复 `state` 错误回跳、`response_mode` 与 `prompt` 规则：已读实现与真实挂载测试；重复 `state` 实测回 `invalid_request`，未发现模块与库的取值分歧。
+- 回调地址先核对、坏客户端／坏回调不跳客户端、确认接口重判客户端与回调、签名续接与确认标识的 10 分钟校验：读码及既有真实挂载测试相符。大写 `HTTPS://` 的登记和确认经真实流程完成，没有复现其导致失败的候选问题。
+- `resource` 去除、DPoP 拒绝、不透明访问令牌、userinfo 字段过滤、会话／账号／客户端撤销事务与 purge 的空 session 清理：实现与既有包内及合同覆盖一致；本轮未发现新问题。
+- 客户端列表数字 id、管理操作、客户端停用与授权失效及 grant 删除：实现与合同数据形状、事务边界相符；除上述顺序测试缺口外未发现问题。
+
+## 各级数量
+
+阻断 0；重要 0；建议 3（第 1 到 3 条）。
+
+有效发现：1、2、3。

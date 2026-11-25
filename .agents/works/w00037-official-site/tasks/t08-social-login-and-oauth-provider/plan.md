@@ -565,3 +565,5 @@ Spec 随本节改了 `site.oauth-provider`（输入表与 HEAD 一句、输出 1
 | 3 | 会话到期后、`purge` 之前换它名下的码回 `invalid_request`（库在用掉码之前判会话），不是 `invalid_grant` | 不改，写进 `site.oauth-provider` 时序：只有会话到期前 10 分钟内发出的码碰得上，结果同样是换不出令牌、码不被用掉；`purge` 跑过之后是 `invalid_grant` |
 | 4 | 授权端点的表单 POST 超过 16 KiB 回 400 JSON，不跳回、不去错误页 | 不改，写进 Spec 输出 3：请求体超过上限时读不到客户端与回调地址，跳不回去；正常客户端碰不到（入口上限 4096） |
 | 5 | 输出 15 的“列表按给出的先后倒序”没有用例 | 改。合同补一条：两个客户端先后同意，列表顺序是后给的在前 |
+
+omp 那份（同一份说明，在同一个审查 worktree 里，跑完没被截停；[`evidences/impl2-review-omp.txt`](evidences/impl2-review-omp.txt)）：3 条，都是建议，与 Opus 第 1、2、5 条重合（编码路径、撤销改写吞掉认证错误、授权列表顺序没有用例），都已由 `0f942f893` 修掉。它另给了一个例子：已登记的机密客户端用有效 Basic、同时在表单里带 `client_secret` 撤有效令牌，回 200 而令牌仍可用；修正后这种写法回 400 `invalid_request`，在 `mount.test.ts` 的三种不合格写法里。没有新的处理项。
