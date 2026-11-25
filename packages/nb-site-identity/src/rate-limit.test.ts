@@ -271,6 +271,18 @@ describe("账号模块的五个计数器（输出 19 的数）", () => {
         expect(l.login("198.51.100.7", "carol")).toEqual({ok: false, retryAfterSeconds: 300});
     });
 
+    it("被来源挡下的登录不计入来源加用户名、也不为它建条目：超限的来源换着用户名刷多少次，别的地址照常登录", () => {
+        // 每个计数器只留 30 个键：这个来源过判的 30 次正好占满来源加用户名的表。之后被来源挡下的若也算进来，每个新用户名都落进溢出额度
+        // （10 的 10 倍，100 次），用完以后别的地址第一次出现的组合也得 429。
+        const clock = clockAt();
+        const l = createIdentityRateLimits({now: clock.now, log: recordingLog(), maxKeys: 30});
+        expect(Array.from({length: 30}, (_, index) => l.login("192.0.2.66", `probe${String(index)}`).ok).every(Boolean)).toBe(true);
+        const rejected = Array.from({length: 200}, (_, index) => l.login("192.0.2.66", `probe${String(index + 30)}`));
+        expect(rejected.filter((decision) => decision.ok)).toEqual([]);
+        expect(l.login("198.51.100.9", "alice")).toEqual(OK);
+        expect(l.login("198.51.100.10", "bob")).toEqual(OK);
+    });
+
     it("登录·失败每小时 20 次以后先等；成功不清零", () => {
         const {limits: l, clock} = limits();
         for (let attempt = 0; attempt < 19; attempt += 1) l.recordLoginFailure("Alice");

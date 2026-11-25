@@ -101,6 +101,18 @@ export function isSessionLive(tx: IdentityTx, session: Pick<CurrentSession, "ses
     return row !== null && row.expiresAt > libDate(nowMs);
 }
 
+/**
+ * 这个账号缺不缺同意（`site.accounts` 输出 10 的门槛，输出 8 的 `consentRequired` 是同一个条件）：最新一条同意记录不是 `termsVersion`，
+ * 或没有对境外存放的同意，或根本没有记录。门槛（`Sessions.read` 的 `use`）与 `me` 的回答都经它，规则只有这一份（实现审查第 4、5 片
+ * 第 6 条）。
+ */
+export function consentRequiredIn(tx: IdentityTx, userId: number, termsVersion: string): boolean {
+    const row = tx
+        .query<{terms_version: string; overseas_storage: number}, [number]>(`SELECT terms_version, overseas_storage FROM identity_consent WHERE user_id = ? ORDER BY id DESC LIMIT 1`)
+        .get(userId);
+    return row === null || row.terms_version !== termsVersion || row.overseas_storage !== 1;
+}
+
 // ---- 读会话 ----
 
 export interface SessionsOptions {
@@ -170,12 +182,7 @@ export class Sessions {
     }
 
     #consentRequired(userId: number): Promise<boolean> {
-        return this.#conn.read((tx) => {
-            const row = tx
-                .query<{terms_version: string; overseas_storage: number}, [number]>(`SELECT terms_version, overseas_storage FROM identity_consent WHERE user_id = ? ORDER BY id DESC LIMIT 1`)
-                .get(userId);
-            return row === null || row.terms_version !== this.#termsVersion || row.overseas_storage !== 1;
-        });
+        return this.#conn.read((tx) => consentRequiredIn(tx, userId, this.#termsVersion));
     }
 
     /**

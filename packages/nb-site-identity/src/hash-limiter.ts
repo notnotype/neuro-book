@@ -7,7 +7,7 @@
  *
  * 排队的 5 秒是真实时间，不走模块时钟：它度量的是机器忙不忙，合同测试拨模块时钟不该让排队的请求超时。包内测试注入计时器。
  *
- * 失败的下限（`startFailureFloor`）也在这里：回 `invalid_credentials` 的登录从进入限额算起至少要到下限才回应，见它的注释。
+ * 失败的下限（`startFailureFloor`）也在这里：回 `invalid_credentials` 的登录从拿到名额算起至少要到下限才回应，见它的注释。
  */
 
 import type {IdentityTimers} from "./db/connection";
@@ -189,9 +189,10 @@ export interface FailureFloor {
 }
 
 /**
- * 在进入哈希限额的那一刻调用（排队的时间算在里面，所以过载时补齐几乎总是空操作）。不在同一个用户名失败多次后“先等 2 秒”之前调用：
- * 那 2 秒不占哈希的名额（计划“主会话的审定”另加的第 2 点），也不该算进这个起点。一次登录里账号不存在、没有密码、密码错、哈希
- * 格式未知、发会话前复核没对上，所有回 `invalid_credentials` 的分支都用同一个起点 `finish(false)`。
+ * 在拿到哈希名额、开始校验的那一刻调用（实现审查第 4、5 片第 2 条）。读库、排队与失败多次后“先等 2 秒”都不算进起点：起点在排队
+ * 之前时，排队一超过下限补齐就成了空操作，回应耗时又只剩“排队加这次算法的耗时”，两种算法的差露出来；有了这个起点，失败的回应是
+ * “排队加至少下限”，与排队长短无关，补齐的睡眠在放手名额之后，不占名额。一次登录里账号不存在、没有密码、密码错、哈希格式未知、
+ * 发会话前复核没对上，所有回 `invalid_credentials` 的分支都用第一次校验定下的同一个起点 `finish(false)`。
  */
 export function startFailureFloor(timing: FailureFloorTiming = {}): FailureFloor {
     const now = timing.now ?? (() => performance.now());

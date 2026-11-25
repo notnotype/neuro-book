@@ -306,7 +306,10 @@ export interface IdentityRateLimitsOptions {
  * （输出 19“不与别的请求合并计数”）。
  */
 export interface IdentityRateLimits {
-    /** 登录的两个键一起判：来源（每 5 分钟 30 次）、来源加用户名（每 5 分钟 10 次）；每次尝试都调。 */
+    /**
+     * 登录的两个键：来源（每 5 分钟 30 次）、来源加用户名（每 5 分钟 10 次）；每次尝试都调。来源过了时两个一起判；来源被拒时只回来源的
+     * 结果，来源加用户名不判也不计。
+     */
     login(address: string, username: string): RateLimitDecision;
     /** 这个用户名这一小时里失败到 20 次了没有：到了，这次登录先等 2 秒。 */
     loginNeedsDelay(username: string): boolean;
@@ -330,6 +333,10 @@ export function createIdentityRateLimits(options: IdentityRateLimitsOptions): Id
     return {
         login: (address, username) => {
             const sourceCheck = loginSource.check(address);
+            // 来源被拒时不再判来源加用户名，也就不计入、不新建它的条目（输出 19；实现审查第 4、5 片第 1 条）：不然一个已被 429 的来源
+            // 每换一个用户名就往这张表里添一个键，以请求速率把它占满、再用完溢出额度，这一窗里所有第一次出现的组合都得 429。
+            // 两个计数器窗长相同、都按 `now` 对齐，只看来源的 `Retry-After` 不会比两个一起判时早。
+            if (!sourceCheck.ok) return sourceCheck;
             // 来源加用户名的键里，来源取与来源计数器相同的写法（IPv6 的 /64），所以换着 /64 里的地址也落在同一个键上。
             const userCheck = loginSourceUser.check(`${sourceKeysOf(address).source}|${usernameKey(username)}`);
             return takeAll([sourceCheck, userCheck]);

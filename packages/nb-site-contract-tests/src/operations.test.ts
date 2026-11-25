@@ -504,6 +504,8 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
             createAdmin("password-empty", dataDir, ["dave"], ""),
             createAdmin("password-short", dataDir, ["dave"], "short\n"),
             createAdmin("password-long", dataDir, ["dave"], `${"a".repeat(129)}\n`),
+            // 管道里只去掉末尾一个换行，中间的换行与终端里一样不收；对已存在的账号也不重置成网页上输不进去的密码。
+            createAdmin("password-two-lines", dataDir, ["root"], "line1-PW-k4Rv58\nline2-PW-k4Rv58\n"),
         ]);
         // 已存在的账号给了别人占着的邮箱：邮箱被忽略，不报 email_taken。
         await createAdmin("reset-taken-email", dataDir, ["root", "carol@example.com"], `${PASSWORDS.reset}\n`);
@@ -599,6 +601,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         ["password-empty", "password", "missing"],
         ["password-short", "password", "invalid"],
         ["password-long", "password", "invalid"],
+        ["password-two-lines", "password", "invalid"],
     ];
     for (const [name, field, problem] of invalid) {
         it(`不合规则（${name}）：非零退出，标准错误那一行是 invalid_argument，name 是 ${field}、problem 是 ${problem}`, () => {

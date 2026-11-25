@@ -14,7 +14,7 @@ import type {IdentityConnection, IdentityTx} from "./db/connection";
 import {libDate, libDateMs} from "./db/library-rows";
 import {IdentityFailure, readBody} from "./errors";
 import {requireSession} from "./middleware";
-import {isSessionLive, type Sessions} from "./session";
+import {consentRequiredIn, isSessionLive, type Sessions} from "./session";
 
 /**
  * 公开资料要的列。表的别名约定：`u` 是 `"user"`，`p` 是 `identity_profile`（左连接：命令行或导入建的账号可能还没有那一行）。
@@ -50,8 +50,11 @@ export function publicProfileOf(row: ProfileRow): PublicProfile {
     };
 }
 
-/** 读 `MeResponse`；账号不在时为 null。`hasPassword` 是有密码登录方式那一行且存着哈希。 */
-export function readMe(tx: IdentityTx, userId: number, termsVersion: string): MeResponse | null {
+/**
+ * 读 `MeResponse`；账号不在时为 null。`hasPassword` 是有密码登录方式那一行且存着哈希。`consentRequired` 由调用方给：`GET me` 用门槛
+ * 已经判过的那个值，`POST me/consent` 在自己的写事务里用 `consentRequiredIn` 重判。
+ */
+export function readMe(tx: IdentityTx, userId: number, consentRequired: boolean): MeResponse | null {
     const row = tx
         .query<ProfileRow & {email: string; email_pending: number | null; has_password: number}, [number]>(
             `SELECT ${PROFILE_COLUMNS}, u."email" AS email, p.email_pending AS email_pending,
@@ -61,9 +64,6 @@ export function readMe(tx: IdentityTx, userId: number, termsVersion: string): Me
         )
         .get(userId);
     if (row === null) return null;
-    const consent = tx
-        .query<{terms_version: string; overseas_storage: number}, [number]>(`SELECT terms_version, overseas_storage FROM identity_consent WHERE user_id = ? ORDER BY id DESC LIMIT 1`)
-        .get(userId);
     const emailPending = row.email_pending === 1;
     return {
         ...publicProfileOf(row),
@@ -71,7 +71,7 @@ export function readMe(tx: IdentityTx, userId: number, termsVersion: string): Me
         email: emailPending ? null : row.email,
         emailPending,
         hasPassword: row.has_password === 1,
-        consentRequired: consent === null || consent.terms_version !== termsVersion || consent.overseas_storage !== 1,
+        consentRequired,
     };
 }
 
@@ -87,7 +87,8 @@ export function registerMeRoutes(app: Hono, options: MeOptions): void {
 
     app.get(IDENTITY_PATHS.me, async (c: Context) => {
         const session = await requireSession(c, sessions, `GET ${IDENTITY_PATHS.me}`);
-        const me = await conn.read((tx) => readMe(tx, session.userId, termsVersion));
+        // 缺不缺同意取门槛读会话时查到的那个值，不再查一遍：同一个请求里两次读之间的差别没有意义，回答与门槛也就不会不一致。
+        const me = await conn.read((tx) => readMe(tx, session.userId, session.consentRequired));
         if (me === null) throw new IdentityFailure("unauthenticated");
         return c.json(me);
     });
@@ -102,7 +103,7 @@ export function registerMeRoutes(app: Hono, options: MeOptions): void {
             const now = options.clock.now();
             if (!isSessionLive(tx, session, now)) throw new IdentityFailure("unauthenticated");
             tx.query(`INSERT INTO identity_consent (user_id, terms_version, overseas_storage, created_at) VALUES (?, ?, 1, ?)`).run(session.userId, termsVersion, libDate(now));
-            return readMe(tx, session.userId, termsVersion);
+            return readMe(tx, session.userId, consentRequiredIn(tx, session.userId, termsVersion));
         });
         if (me === null) throw new IdentityFailure("unauthenticated");
         return c.json(me);

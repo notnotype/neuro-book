@@ -163,6 +163,50 @@ describe("登录失败（输出 4、失败表）", () => {
         expect(sleeps.length).toBe(before);
     });
 
+    it("下限从拿到哈希名额起算：排队的时间不算进去，排得比下限还久，失败的回应照样补到下限", async () => {
+        // 下限的时钟只由用例推：第二个登录排队时推 1000 毫秒（远超下限），它的校验本身推 40 毫秒。起点在拿到名额时，剩下的是下限减 40；
+        // 起点在排队之前时，剩下的是负数、不睡。
+        let floorNow = 0;
+        const sleeps: number[] = [];
+        const failureFloor = {
+            now: () => floorNow,
+            sleep: (ms: number) => {
+                sleeps.push(ms);
+                return Promise.resolve();
+            },
+        };
+        const gate = Promise.withResolvers<void>();
+        const entered = Promise.withResolvers<void>();
+        let holdFirst = true;
+        const passwords: PasswordFunctions = {
+            hash: REAL_PASSWORD_FUNCTIONS.hash,
+            verify: async (password, stored, context) => {
+                if (holdFirst) {
+                    holdFirst = false;
+                    entered.resolve();
+                    await gate.promise;
+                } else {
+                    floorNow += 40;
+                }
+                return REAL_PASSWORD_FUNCTIONS.verify(password, stored, context);
+            },
+        };
+        // 手动计时器只用来数排队的个数（每个排队的登记一个 5 秒的上限计时器），不拨它。
+        const hashTimers = new ManualTimers();
+        identity = await createTestIdentity("identity-login-floor-queue", {config: {hashConcurrency: 1, hashQueue: 4}, overrides: {passwords, failureFloor, hashTimers}});
+        const target = identity;
+        await target.addUser("alice", {consent: CONSENTED, password: PASSWORD});
+        const first = login(target, "alice", PASSWORD, "192.0.2.1");
+        await entered.promise;
+        const queued = login(target, "nobody", PASSWORD, "192.0.2.2");
+        await waitUntil("第二个登录排进哈希的队", () => hashTimers.pending === 1);
+        floorNow += 1_000;
+        gate.resolve();
+        expect((await first).status).toBe(200);
+        expect(await outcome(await queued)).toEqual(invalidCredentials);
+        expect(sleeps).toEqual([FAILURE_FLOOR_MS - 40]);
+    });
+
     it("邮箱待补的账号不能用邮箱登录，用户名照常；开尔文符号的用户名找不到 kelvin", async () => {
         identity = await createTestIdentity("identity-login-lookup");
         const pendingId = await identity.addUser("pending", {consent: CONSENTED, password: PASSWORD});

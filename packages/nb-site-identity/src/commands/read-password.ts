@@ -4,7 +4,7 @@
  * 两种来源：
  * - 标准输入是终端：原始模式下逐字节读，不回显（计划探针 p8）。原始模式里终端不再替我们处理退格、Ctrl-C 这些键，它们都作为
  *   字节送来，所以由 `TerminalLineDecoder` 自己解释；Ctrl-C 是一个 `\u0003` 字节、进程收不到 `SIGINT`（p8）。密码输两次并比对。
- * - 标准输入是管道：读到结尾整体解码，去掉末尾的一个换行，只读一次。
+ * - 标准输入是管道：读到结尾整体解码，去掉末尾的一个换行，只读一次；其余的控制字符与终端里一样不收（`decodePipedPassword`）。
  *
  * 结果的分工：输错的（空、不合长度、两次不一致、含控制字符）回 `invalid`，用户按 Ctrl-C 或空输入时按 Ctrl-D 回 `cancelled`，
  * 都是 resolve；只有 `signal` abort（进程收到停止信号）才 reject，reject 为 `signal.reason`，入口据此报 `interrupted`
@@ -42,9 +42,12 @@ function sequenceLength(lead: number): number {
     return 0;
 }
 
-/** C1 控制字符（U+0080 到 U+009F）：键盘上打不出来，出现了多半是终端发来的控制序列。 */
-function isC1Control(codePoint: number): boolean {
-    return codePoint >= 0x80 && codePoint <= 0x9f;
+/**
+ * 不收进密码的控制字符：C0（U+0000 到 U+001F）、U+007F、C1（U+0080 到 U+009F）。终端与管道两种来源用同一条规则（实现审查第 4、5 片
+ * 第 3 条）：浏览器的密码框输不出它们，收下了，这个管理员就只能在命令行里登录。C1 在键盘上也打不出来，出现了多半是终端发来的控制序列。
+ */
+function isControlCharacter(codePoint: number): boolean {
+    return codePoint <= 0x1f || codePoint === 0x7f || (codePoint >= 0x80 && codePoint <= 0x9f);
 }
 
 /**
@@ -109,7 +112,7 @@ export class TerminalLineDecoder {
                 this.#reset();
                 return undefined;
             default:
-                if (byte < 0x20) this.#tainted = true;
+                if (isControlCharacter(byte)) this.#tainted = true;
                 else this.#append(String.fromCharCode(byte));
                 return undefined;
         }
@@ -145,7 +148,7 @@ export class TerminalLineDecoder {
             this.#tainted = true;
             return;
         }
-        if (isC1Control(char.codePointAt(0)!)) this.#tainted = true;
+        if (isControlCharacter(char.codePointAt(0)!)) this.#tainted = true;
         else this.#append(char);
     }
 
@@ -176,7 +179,9 @@ export class TerminalLineDecoder {
 export const PIPED_PASSWORD_MAX_BYTES = PASSWORD.maxLength * 4 + 2;
 
 /**
- * 管道读到结尾的字节整体解码：坏的 UTF-8 回 null；去掉末尾的一个换行（`\n` 或 `\r\n`，`echo` 与 Windows 的写法），别的原样保留。
+ * 管道读到结尾的字节整体解码，去掉末尾的一个换行（`\n` 或 `\r\n`，`echo` 与 Windows 的写法）。坏的 UTF-8、去掉那个换行以后仍含
+ * 控制字符（中间的换行、多出来的空行、只有 `\r` 的结尾、Tab、Esc）时回 null，与终端里一样不收。管道里的退格（U+007F）不当按键
+ * 解释，同样作为控制字符不收。
  */
 export function decodePipedPassword(bytes: Uint8Array): string | null {
     let text: string;
@@ -185,8 +190,9 @@ export function decodePipedPassword(bytes: Uint8Array): string | null {
     } catch {
         return null;
     }
-    if (text.endsWith("\r\n")) return text.slice(0, -2);
-    if (text.endsWith("\n")) return text.slice(0, -1);
+    if (text.endsWith("\r\n")) text = text.slice(0, -2);
+    else if (text.endsWith("\n")) text = text.slice(0, -1);
+    for (const char of text) if (isControlCharacter(char.codePointAt(0)!)) return null;
     return text;
 }
 

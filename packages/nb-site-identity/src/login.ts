@@ -4,10 +4,10 @@
  * 先后，与每一步为什么在那里：
  * 1. 来源头由子应用的中间件先查；取不到来源地址回 `forbidden_origin`（输出 19：不与别的请求合并计数）。
  * 2. 校验请求体。字段不合格的请求不计入限流（失败表的“字段不合格的请求不计入限流”）。
- * 3. 限流：来源、来源加用户名两个键一起判，没超限的键都计入（`rateLimits.login`）。
+ * 3. 限流：来源、来源加用户名两个键一起判，没超限的键都计入；来源被拒时来源加用户名不判不计（`rateLimits.login`）。
  * 4. 这个用户名这一小时里失败满 20 次时先等 2 秒（成功的登录也等）。等的时候不持队列的锁、不占哈希名额：这一步在取名额与读库
  *    之前，一个被刷失败次数的用户名只让自己的登录变慢，不挡别人（计划“主会话的审定”另加的第 2 点）。
- * 5. 失败下限的起点，然后进哈希限额：找账号（只读）、校验。账号不存在或没有密码时拿启动时生成的假哈希校验一次，结果当假，
+ * 5. 找账号（只读），经哈希限额校验；失败下限从拿到名额的那一刻起算。账号不存在或没有密码时拿启动时生成的假哈希校验一次，结果当假，
  *    三种失败都算一次同样参数的 argon2id。
  * 6. 校验失败：失败计数加 1，等到下限再回 `invalid_credentials`。
  * 7. 发会话，一个库的事务（`withLibTransaction`）：复核封禁与“哈希仍是刚校验的那一份”，发会话，写最后登录时间。封禁与哈希都在
@@ -29,7 +29,7 @@ import type {IdentityAuth} from "./auth";
 import type {IdentityConnection, IdentityTx} from "./db/connection";
 import {libDate} from "./db/library-rows";
 import {IdentityFailure, readBody} from "./errors";
-import {HashOverloadedError, startFailureFloor, type FailureFloorTiming, type HashLimiter} from "./hash-limiter";
+import {HashOverloadedError, startFailureFloor, type FailureFloor, type FailureFloorTiming, type HashLimiter} from "./hash-limiter";
 import type {IdentityLog} from "./index";
 import {appendCookies} from "./middleware";
 import {publicProfileOf, PROFILE_COLUMNS, type ProfileRow} from "./me";
@@ -142,10 +142,13 @@ export function isBannedUserError(error: unknown): boolean {
 export function loginRoute(options: LoginOptions): (c: Context) => Promise<Response> {
     const {conn, hashLimiter, rateLimits, passwords, log} = options;
 
-    /** 经哈希限额校验一次；过载换成 `overloaded`。 */
-    const verify = async (password: string, stored: string, accountId: number | string): Promise<boolean> => {
+    /** 经哈希限额校验一次；过载换成 `overloaded`。`started` 在拿到名额、开始校验的那一刻调用。 */
+    const verify = async (password: string, stored: string, accountId: number | string, started: () => void): Promise<boolean> => {
         try {
-            return await hashLimiter.run(() => passwords.verify(password, stored, {accountId, log}));
+            return await hashLimiter.run(() => {
+                started();
+                return passwords.verify(password, stored, {accountId, log});
+            });
         } catch (error) {
             if (error instanceof HashOverloadedError) throw new IdentityFailure("overloaded");
             throw error;
@@ -179,22 +182,30 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
         if (!decision.ok) throw new IdentityFailure("rate_limited", [], decision.retryAfterSeconds);
         if (rateLimits.loginNeedsDelay(username)) await options.delay(LOGIN_DELAY_MS);
 
-        const floor = startFailureFloor(options.failureFloor);
+        // 失败下限从第一次拿到哈希名额的那一刻起算（`startFailureFloor` 的注释）：读库与排队的时间不算在里面，排队再长，失败的回应
+        // 也是“排队加至少下限”，补齐不因过载失效（实现审查第 4、5 片第 2 条）。复核后再校验的那几轮不重新起算。
+        let floor: FailureFloor | undefined;
+        const startFloor = (): void => {
+            floor ??= startFailureFloor(options.failureFloor);
+        };
+        const check = (stored: string, accountId: number | string): Promise<boolean> => verify(body.password, stored, accountId, startFloor);
         const reject = async (): Promise<never> => {
             rateLimits.recordLoginFailure(username);
+            // 回 `invalid_credentials` 的分支都在至少一次校验之后，走到这里还没有起点是本文件的程序错误。
+            if (floor === undefined) throw new Error("a login was rejected before any password check started the failure floor");
             await floor.finish(false);
             throw new IdentityFailure("invalid_credentials");
         };
 
         const candidate = await conn.read((tx) => findCandidate(tx, body.identifier));
         if (candidate === null || candidate.accountRowId === null || candidate.password === null) {
-            await verify(body.password, options.dummyHash, "dummy");
+            await check(options.dummyHash, "dummy");
             return reject();
         }
         const userId = candidate.profile.id;
         const accountRowId = candidate.accountRowId;
         let verified = candidate.password;
-        if (!(await verify(body.password, verified, userId))) return reject();
+        if (!(await check(verified, userId))) return reject();
 
         let issued: {readonly cookies: readonly string[]} | undefined;
         for (let round = 0; issued === undefined; round += 1) {
@@ -206,7 +217,7 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
             if (outcome.kind === "banned") throw new IdentityFailure("account_banned");
             if (outcome.password === null || round >= RECHECK_ROUNDS) return reject();
             verified = outcome.password;
-            if (!(await verify(body.password, verified, userId))) return reject();
+            if (!(await check(verified, userId))) return reject();
         }
 
         if (needsRehash(verified)) {
