@@ -1,0 +1,153 @@
+Better Auth 第七轮探针：t08 写计划前的八问
+======================================================================
+库：better-auth、@better-auth/oauth-provider、@better-auth/core 1.7.27（/tmp/nbsite-spike 已装，未升级）。bun 1.4.4、bun:sqlite，外键开着（PRAGMA foreign_keys=1）。
+装配：master（6140e74fa）的 nb-site-identity 与合同包经 git archive 放进 /tmp/nbsite-spike/vendor/，直接导入它的 identityAuthOptions、Sessions、
+endAllSessions 等函数与 0001_init.sql；只在其上加 jwt（RS256、issuer=站点）、oauthProvider（openid profile email、只留授权码、requireOpenId、
+loginPage=/login、consentPage=/oauth/consent、idToken 1 小时）、genericOAuth（Google 用发现文档、GitHub 显式地址）。0002 由库现场导出缺的 8 张表，
+主键照 0001 换成 AUTOINCREMENT。连接用 master 的 db/connection.ts 的副本 /tmp/nbsite-spike/spike7-connection.ts，只多一个原型方法 joinLibTransaction（问 4）。
+挂载层原型 spike7-mount.ts：方法加路径白名单、授权端点改写库的登录与确认跳转、撤销端点改写、社交回调包一层。脚本 spike7.ts、spike7-env.ts；结果行 out7.txt。
+证据标记：“实测”= 跑出来的；“从源码读到”= 只读了 node_modules；“没有核实”= 都没有。方括号是 out7.txt 的行名。
+
+======================================================================
+问 1：授权中途登录后回到授权请求
+======================================================================
+结论
+- 库的后钩子按“这次响应的 Set-Cookie 里有会话 Cookie”匹配，任何端点都算（实测）：加了 oauthProvider 后 t07 的 issueSession 照常（[Q1.1a] 发会话、
+  没有多出授权码），因为没有 oauth_query 时库的请求状态为空、钩子直接返回。issueSession 的请求体 schema 不收 oauth_query（[Q1.1b] VALIDATION_ERROR）。
+  另写一个只供服务端调用、按令牌重发会话 Cookie 且收 oauth_query 的端点，库的前钩子验签、后钩子跑授权，回 {redirect,url}，url 已是带码的客户端地址（[Q1.1c]）。
+- 推荐不靠这条钩子（候选 B，实测可用）：挂载层把库的登录跳转 /login?<库签名的参数> 改写成 /login?continue=<base64url(那串参数)>（[Q1.0]）；
+  登录接口收到 continue 时用库导出的 verifyOAuthQueryParams 验签与库的到期，再按模块时钟看签名参数里的 ba_iat（签发的毫秒）不早于 10 分钟前，
+  合格就回站内继续地址 = 授权端点加原参数，去掉 sig、exp、ba_iat、ba_pl、prompt 里的 login 与 max_age（[Q1.2]）。浏览器带新会话进去：
+  免确认的客户端直接带码跳回，id_token 的 nonce 原样、auth_time 是新会话的建立时间（[Q1.2]）；要确认的落到 /oauth/consent?request=<同样包法>（[Q1.2b]）。
+  prompt=login、max_age=0 不再打转（[Q1.3]）；prompt="login consent" 去掉 login 后去确认页。篡改参数、模块时钟过 10 分钟、库按系统时间到期都被拒（[Q1.4]）。
+- 确认页的自家接口原型可用（实测）：GET 用 getOAuthClientPublic 取客户端名字（要会话），回调地址的主机与范围从签名参数读；POST 由服务端调
+  oauth2Consent（同意得码、拒绝得 access_denied，[Q1.2c] [Q1.2d]）。request 令牌不绑人：换另一个用户的会话提交，码发给提交的人（[Q1.2e]），
+  与标准一致（确认认提交时的会话）。
+- 缺口：缺当前同意（site.accounts 输出 10）的会话直接进授权端点，库照样发码（[Q1.5]）。
+对合同与计划的影响
+- site.accounts 输出 4 加 continue 的写法；site.oauth-provider 输出 4 写明带去 /login?continue=…、继续地址是站内的授权端点地址。
+- 授权端点在挂载层先查同意门槛：缺同意时带去同意页并带上续接（新加条目，见改写稿输出 4、5）。
+- 计划：续接只用 verifyOAuthQueryParams 与签名参数的字段名（sig、exp、ba_iat、ba_pl），四个都列进升级清单；不新加库的端点。
+
+======================================================================
+问 2：删会话与令牌（t07 的那组函数，外键开着）
+======================================================================
+结论
+- t07 的 endSession、endAllSessions、purgeExpiredSessions、endOtherSessions 直接删会话行，不经库的钩子：外键把令牌的 sessionId 置空，令牌行 revoked
+  仍为空，四种情况下此前的访问令牌调用户信息全是 200（实测 [Q2 endSession…] 到 [Q2 endOtherSessions…]，tokenRows 的 sessionId 变 null）。
+  库只在 sessionId 不为空时查会话（从源码读到 validateOpaqueAccessToken）。所以 t07 的现状下封禁、重置、改角色之后对外令牌照用，是必须修的缺口。
+- 没用掉的授权码随会话被删而失效：换码回 400 invalid_request（码记的会话查不到；会话 id 已不复用，见问 6）。
+- 修法（实测）：在同一个写事务里、删会话之前撤：
+  · 按会话：UPDATE "oauthAccessToken" SET "revoked" = ? WHERE "sessionId" = ? AND "revoked" IS NULL；
+    DELETE FROM "verification" WHERE <value 是 JSON 且 $.type = 'authorization_code'> AND CAST($.sessionId AS INTEGER) = ?
+  · 按账号：同上换成 "userId" = ? 与 CAST($.userId AS INTEGER) = ?；按授权（撤销对某个客户端的授权）另加 "clientId" = ? 与 $.query.client_id = ?。
+  码的 value 里 userId、sessionId 是字符串（"2"），令牌表的两列是整数（[Q2.0]）；value 先判 json_valid（verification 表里还有库别的行）。
+  撤了以后：令牌 401、码 400 invalid_grant（[Q2 revokeFor…]）。清理任务先按到期的会话撤再删（[Q2 revoke expired…]）。
+  改密码保留当前会话时按账号撤：当前会话里发的令牌与码也失效（[Q2 revokeForUser + endOtherSessions]），满足 oauth-provider 输出 8。
+- 同一事务里后一步抛错时，撤销与删会话一起回滚，令牌与码都还能用（[Q2.rollback]）。
+对合同与计划的影响
+- 合同：oauth-provider 输出 8 不用改；加一句结束单个会话（登出、结束某个会话、到期清理）时，在那个会话里得到的令牌与码一并失效（库的缺省语义，改写稿输出 8）。
+- 计划：t07 的四个函数各加撤销，签名不变；“先撤后删”的先后写进 session.ts 的注释并有用例；架构用例里加一条“删 session 行的 SQL 只在这组函数里”已有，
+  另加“改 oauthAccessToken 的 revoked 只在这组函数与撤销授权里”。
+
+======================================================================
+问 3：撤销授权时废掉没用掉的授权码；撤销端点对不存在的令牌回 400 的改写
+======================================================================
+结论
+- 撤销授权（DELETE me/grants/:id 的原型，实测）：一个模块写事务里 DELETE FROM "oauthConsent" WHERE "id" = ? AND "userId" = ? RETURNING "clientId"，
+  再按账号加客户端撤令牌、删码（问 2 的 SQL）。之后旧令牌 401、别的客户端的令牌仍 200、没用掉的码 400 invalid_grant、下次授权重新显示确认页（[Q3.2]）。
+  不调库的 delete-consent（它不撤令牌，第六轮问 4）。
+- me/grants 的原型：同意记录连客户端表，得 id、客户端名字、范围（库存成 JSON 数组的文本）、建立时间（[Q3.1]）。免确认的客户端不写同意记录，
+  所以不出现在列表里、也撤不了（实测：免确认客户端走完授权后 oauthConsent 只有不免确认的那一行）。同意记录的时间是库按系统时间写的（从源码读到）。
+- 撤销端点（实测）：库对不存在的令牌回 400 invalid_request（[Q3.3 library itself]）。挂载层的改写只看码与请求本身：请求带了非空的 token、
+  库回 400 且 error 是 invalid_request 时改回 200 空体；空 token 仍 400（RFC 7009 的“缺参数”）、密钥不对仍 401。改写后：不存在的令牌 200、
+  带 token_type_hint 也 200、撤自己的令牌 200 且随即 401（库是删行）、重复撤 200（[Q3.3 mounted…]）。
+- 别的客户端撤这个客户端的令牌：200 但令牌照用（库按客户端判归属，[Q3.3 another client…]），符合 RFC 7009。
+- 公开客户端（没有密钥）在表单里带 client_id 就能撤自己的令牌，200 且随即 401；不存在的令牌也 200（[Q3.4]）。第六轮“没有核实”的这一条有了结论。
+对合同与计划的影响
+- oauth-provider：撤销授权一条写明同时撤令牌与码；me/grants 写明只列不免确认的客户端；撤销端点“不存在的令牌回成功”保留，并加公开客户端可撤、
+  不能撤别的客户端的令牌两句。发现文档的 revocation_endpoint_auth_methods_supported 应是 client_secret_basic 与 none。
+- 计划：改写放在挂载层，按 error 码不按文字；升级清单加“撤销不存在的令牌库回 400 invalid_request”一条用例。
+
+## 问 8 仿真上游走社交登录、注册、关联，回调错误怎样变成 social_error
+探针 spike7.ts q8（Bun.serve 起的仿真 Google 与 GitHub：Google 有发现文档、JWKS、RS256 签的 id_token；GitHub 有 /user、/user/emails，
+令牌端点出错回 200 加 error 字段的真实形状）。结果 out7.txt 的 [Q8.*] 行。全部实测，除非另标。
+- 正常路径：Google 注册建出账号（没有密码）、资料、同意、上游名字，扣码 1，回调的 Cookie 即登录（[Q8.1]）；同一身份再登录不再建账号（[Q8.2]）。
+- 库给的错误码与映射（自家码在后）：没关联的身份登录 signup_disabled → social_not_registered；没关联但邮箱等于已有账号 account_not_linked → 同上，
+  不按邮箱认人（[Q8.3、3b]）；注册时上游邮箱已被占 account_not_linked → email_taken（库在建账号钩子之前按邮箱找到人）；上游没给邮箱
+  email_not_found → social_email_missing；上游取消 access_denied（库原样转交上游的 error）；令牌端点出错 GitHub 得 unable_to_get_user_info、
+  Google 得 invalid_code；关联到别人的身份 account_already_linked_to_different_user → identity_taken；发起后会话结束 unable_to_link_account
+  （[Q8.8d]，库的 isLinkSessionLive）；被封账号 BANNED_USER → account_banned 且不发 Cookie（[Q8.9]）。
+- signup_disabled 与 account_not_linked 是库把内部错误文字的空格换成下划线得来的（从源码读到 callback.mjs 169 行），升级时可能变。
+- 两处陷阱：一，关联路径上钩子抛的 APIError 不经库的跳转，库直接回 400 JSON（[Q8.8b] lib_status=400），挂载层要读响应体的 code；
+  二，库把回调地址里的 error 参数原样放进跳转（[Q8.7b]：伪造 error=username_taken 被原样转出）。所以自家码只信钩子记在请求上下文里的，
+  地址里出现自家码当作不可信，原型改后得 untrusted:username_taken。
+- 库自带一个账号在同一上游关联多个身份（从源码读到 link-account.mjs），identity_exists 要在建账号钩子里自己判（[Q8.8b] 判住了）。
+- 续接（S2）：库的 oauth_query 带进 /sign-in/social 不跨上游往返，回调后落到 /（[Q8.10b]）；继续地址记在自家流程记录里可行，回调后跳回
+  授权端点拿到码、换到令牌（[Q8.10a]）。
+对合同与计划的影响
+- accounts 输出 23 的码表要补：注册意图的 registration_code_invalid、invite_code_invalid、username_taken（发起到回调之间失效）；
+  上游取消与上游失败各要一个码（候选 social_cancelled、social_failed，列进 questions.md）。
+- 计划：映射只按库的码与自家上下文，升级清单加四条（文字派生的两个码、关联路径不跳转、error 参数透传、同上游多身份）。
+
+## 问 4 社交注册在库自己的事务里，扣码要同一个事务
+探针 spike7.ts q4，原型 spike7-connection.ts 的 joinLibTransaction（只在库开的事务里、且这个事务正是同一连接上开着的那个时，
+让钩子的 write 进到这个事务里执行）。钩子：user.create.before 扣码、查用户名与邮箱，account.create.before 写资料、同意、上游名字。全部实测。
+- 对照：钩子里直接 conn.write，t07 的连接拒绝（库的事务里不许模块写），库吞成 unable_to_create_user、只记日志（[Q4.1]）。
+  这正是“库的事务里不能调模块函数”的守卫起了作用；但库会把错误改写掉，计划里钩子要自己记失败原因。
+- 加入入口：成功时用户、资料、扣码同一个事务提交（[Q4.2]）；写完扣码、用户、资料、同意、上游名字之后注入失败，全部回滚、码不扣、不发 Cookie（[Q4.3]）。
+- 并发：同一个只剩一次的码，两个社交注册的回调交错（上游往返并行），三轮都是恰好一个成功，另一个 registration_code_invalid，没有孤立的 account（[Q4.4]）；
+  社交注册与密码注册并发抢同一个码也只成一个（[Q4.4b]）。事务在单连接队列上串行，条件 UPDATE … RETURNING 判剩余次数。
+- 发起与回调之间码被停用 → registration_code_invalid、不建账号（[Q4.5]）；用户名被占 → username_taken、扣码回滚（[Q4.6]）。
+- 守卫：库的事务结束后漏出来的调用、或根本不在库的事务里调 joinLibTransaction，都抛 IdentityQueueMisuseError（[Q4.7]）。
+- 没有核实：库在 createUser 之后、createAccount 之前的别的写入（例如 updateUser）是否也在同一事务里——本探针只看到两次钩子都在。
+对合同与计划的影响
+- accounts 输出 13 的“原子性同输出 2”能兑现；补一句发起到回调之间注册条件变了的结果（码失效、用户名被占时不建账号、不扣码）。
+- 计划：t08 给 IdentityConnection 加 joinLibTransaction（名字可再定），只供两个 create.before 钩子用；create.after 不能用（库排到提交之后，
+  第六轮问 3）。钩子失败用请求上下文记码（问 8 的第二个陷阱）。
+
+## 问 5 reserveVerificationValue 在 t07 的队列上
+探针 spike7.ts q5，结果 [Q5.*]。
+- 结论先行：t07 的 generateId 是 "serial"，库的“一次性”保留在这个设置下不成立。四个并发 reserve 同一个标识全部返回 true、写进四行，
+  id 是 1 到 4（[Q5.1] 实测）；先后两次也都是 true（[Q5.2]）。库启动时自己打了警告：“SAML 断言 id、DPoP 证明、private_key_jwt 断言的
+  一次性检查要字符串 id，serial 下不执行”（实测，日志原文）。原因是确定性主键被自增 id 替换（从源码读到 get-id-field.mjs）。
+- 谁会用它：t08 的路径里，DPoP 证明（core 的 dpop.mjs）与 private_key_jwt 断言（oauthClientAssertion，同样的确定性主键）会用；
+  社交登录的 state 与授权码不用，它们走 consumeVerificationValue（从源码读到）。
+- 实际后果（实测）：令牌端点收 DPoP 证明，同一份证明用两次都 200、token_type 都是 DPoP（[Q5.6]），重放没被挡住；
+  库的管理员接口能建出 private_key_jwt 客户端（[Q5.7]）。
+- 在库的事务里调 reserve：t07 的连接拒绝（IdentityQueueMisuseError，[Q5.3]），因为它用的是库的根适配器、不是事务里的那个。
+  t08 的路径没有这样调用的地方（从源码读到）。
+- consume 是好的：一个授权码并发换四次令牌，恰好一次 200、三次 400 invalid_grant（[Q5.4]）。
+对合同与计划的影响
+- oauth-provider：令牌端点的客户端认证只收 client_secret_basic（机密客户端）与 none（公开客户端，必须 PKCE）；不提供 DPoP，
+  带 DPoP 头的令牌请求按不支持拒绝；发现文档不列 dpop_signing_alg_values_supported。站点自己的管理接口只允许建这两种认证方式的客户端。
+- 计划：挂载层拒 DPoP 头（加用例：同一份证明两次都被拒）；升级清单加“serial 下一次性检查不执行”的警告文字作为观察项。
+  把 generateId 换成字符串 id 是上游选择，代价大（t07 的整数 id 合同），列进 questions.md 作为候选，推荐不换。
+
+## 问 6 会话 id 复用的修法
+探针 spike7.ts q6，结果 [Q6.*]。全部实测。
+- t07 的 0001 给库的四张表加了 AUTOINCREMENT；本探针的 0002 把库生成的 OAuth 表（oauthClient、oauthAccessToken、oauthRefreshToken、
+  oauthConsent、jwks 等）也改成自增，九张表的建表语句都带 AUTOINCREMENT（[Q6.1]）。
+- 删掉 id 最大的会话（id 2）后下一次登录拿到 3，不是 2；被删会话名下未用的授权码换令牌得 400 invalid_request，没有“复活”到新会话上（[Q6.2]）。
+  sqlite_sequence 记着最大值，再登录得 4（[Q6.3]）。
+- 第六轮担心的场景（码里存的是会话 id 字符串、id 被复用后码挂到别人的会话上）因此不会发生；问 2 的“删会话之前先撤码”又多一层。
+- 没有核实：库自己生成的 OAuth 表在 getMigrations 输出里是“integer not null primary key”，0002 要像 t07 那样手工改成 AUTOINCREMENT，
+  本探针用文本替换做到，正式迁移要逐表写死。
+对合同与计划的影响
+- 合同不变（内部 id 不对外）；计划写明 0002 的 OAuth 表全部 AUTOINCREMENT，并加一条用例“删最大 id 的会话后新会话 id 更大”。
+
+## 问 7 社交流程 10 分钟到期怎么测（库按系统时间）
+探针 spike7.ts q7，自家流程记录（spike_social_flow，state 唯一、created_at 用模块时钟、回调先一条条件 UPDATE … RETURNING 认领），
+结果 [Q7.*]。全部实测，除非另标。
+- 自家记录按模块时钟：+10 分钟 -1 毫秒能登录，+10 分钟 +1 毫秒得 social_state_invalid（[Q7.1、7.2]），测试只要推测试时钟。
+  成功的回调再来一次得 social_state_invalid（[Q7.3]）；同一个 state 三个回调并发只有一个建会话（[Q7.4]），补上了库的“先查后删”不是原子的问题
+  （库的 parseGenericState 先 findVerificationValue 再删，从源码读到）。
+- 库自己的到期：判的是 state 行 value 里的 expiresAt（系统时间加 600000 毫秒），不看行的 expiresAt 列（[Q7.5a、5b]）；所以库的到期只是兜底，
+  测试推不动它。
+- 新发现：库给 state Cookie 写的是 Max-Age=300（[Q7.5c]），真实浏览器 5 分钟后就不带它，回调得 state_mismatch（没 Cookie 的回调就是这样，[Q7.7]）。
+  合同写的 10 分钟在默认设置下实际只有 5 分钟。advanced.cookies.state.attributes.maxAge=600 能改成 600（[Q7.5d]）。
+- 被模块时钟判过期的流程，库的 state 行留着（[Q7.2] libStateRowLeft=1），要靠清理。
+对合同与计划的影响
+- accounts 的“10 分钟内有效、只能用一次”可测、可兑现，条件是 state Cookie 设成 600 秒；在合同里不用提 Cookie。
+- 计划：自家流程表加模块时钟的到期与原子认领；auth.ts 加 state Cookie 的 maxAge；过期清理顺带删库的 auth-state 行；
+  测试控制时钟只管自家记录，库的兜底到期不写用例。
