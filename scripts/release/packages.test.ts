@@ -235,7 +235,7 @@ console.log(JSON.stringify(checkReleasePackages(root, loadReleasePackages(root, 
 
     it("本仓库：只载源码包、不另传名字时，nb-agent-ui 对 nb-layout 的发布依赖通过（release:publish 的闸门这样调用）", () => {
         const code = `import {checkReleasePackages, loadReleasePackages} from ${JSON.stringify(SCRIPT)};
-const root = ${JSON.stringify(join(import.meta.dir, "..", ".."))};
+const root = ${JSON.stringify(REPOSITORY)};
 console.log(JSON.stringify(checkReleasePackages(root, loadReleasePackages(root))));`;
         const result = spawnSync("bun", ["-e", code], {encoding: "utf8"});
         expect(result.status).toBe(0);
