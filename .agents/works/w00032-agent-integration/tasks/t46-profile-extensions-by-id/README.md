@@ -30,6 +30,12 @@ omp（`@review`，审的是第 1 稿）14 条，按当前计划与代码逐条�
 - 插件扩展可以硬依赖 Profile 自带的扩展，装配序按组排、跨组的依赖顺序与环不检查（第 9 条，从代码推断）。
 - 贡献句柄的 id 与扩展对象的 id 不一致时没有一处核对（第 11 条，从代码推断）。
 
+## 实现与实现审查（2026-11-25）
+
+切片：`d2bbce5cd`（内核占位修正）、`7574c8419`（内核按需扩展）、`5a13f34a2`（agent 插件与 bot）、`2deac611a`（界面）、`7421ab8c5`（omp 设计审查 4、10、14）；Spec 在 master 上（`b59a4b646`、`c1503ad6d`）。
+
+快速审查：Claude Opus（后端）5 条、Claude Sonnet（前端）7 条，全部成立，已修：占位修正漏的一条路径（打开时缺依赖、之后 Profile 解析不到、再来插件发布会把占位写进日志）补了判断与用例（变异检查通过）；从占位换上真 Profile 时的 `fromPlaceholder ? "code-updated"` 是多余分支（占位的版本是 `unknown`，原有判断就给出 `code-updated`），删掉；`referencedExtensions` 写成非数组时内核报 `bad-extension-id`、目录不再整个抛错；声明与实现引用不一致的诊断补了用例；伴聊 bot 改从 `agent/shared/contracts` 取模式扩展的 id（架构测试拦下跨插件深导入）；前端判据收成一个函数，测试改成数 `changeSettings` 调用并补草稿模式丢弃、`unknown-extension` 提示、没会话时按主创判三条（变异检查：去掉 `setMode` 的判据，用例失败）；`/plan` 切换期间换了会话不再把文字发到新会话、切不成不改输入框；`/mode` 先判有没有模式。没补用例的两处：子代理建好后再核模式的分支只在两次解析拿到不同 Profile 的竞态里到得了；按句柄缓存的效果在插件 Profile 上观察不到（同一代句柄只在建、开会话时解析），保留缓存与注释。omp 的实现审查在后台，回来后单独处理。报告：[evidences/impl-review-opus.txt](evidences/impl-review-opus.txt)、[evidences/impl-review-sonnet-frontend.txt](evidences/impl-review-sonnet-frontend.txt)。
+
 ## 下一步
 
 按切片实施，执行位置 `.worktree/w00032-t46-profile-ext-refs`（分支 `feat/w00032-t46-profile-ext-refs`）；e2e 基线：起点上 `agent-conversation.e2e.ts` 26 条全过。omp 报告回来后单独处理。

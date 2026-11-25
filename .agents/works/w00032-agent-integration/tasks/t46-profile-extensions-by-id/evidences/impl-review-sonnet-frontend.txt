@@ -1,0 +1,81 @@
+# w00032 t46 前端实现审查（范围：b93b9e81e..7421ab8c5 里的 web/session-host.ts、web/profile-view.ts、两份 locales、session-host.test.ts）
+审查者：Sonnet 5.5；worktree HEAD 核对为 7421ab8c5；变异检查与实验都在仓库外副本 /tmp/review-t46-impl/sonnet-copy（reflink 拷贝），被审 worktree 未动。
+基线：副本里 `bun test src/plugins/agent/session-host.test.ts` 106 通过。
+
+### 1. 新用例没有测到 setMode 的前置判据，五处变异存活
+严重程度：重要　类别：测试
+位置：packages/neuro-book/src/plugins/agent/session-host.test.ts 新增的“没有模式的会话：/plan 文字 不切也不发……”（约 1587 行）与“第三方插件的 Profile……”（约 1530 行）；被测代码 web/session-host.ts:1644-1650、1263、2109
+现象：在副本里逐个改回去，`bun test session-host.test.ts -t "Agent 模式|模式选择器"` 10 条仍全部通过（改完立即从原件恢复）：
+- M1 删掉 `setMode` 开头的 `if (!modesAvailable(target)) {notice…; return false}` 整段：通过。
+- M2 把 `unknown-extension` 的专门提示改回一律 `conversation.reject.other`：通过（这条提示在整个测试文件里没有用例走到）。
+- M3 把 `createSession` 里提交草稿模式的 `hasModes(...)` 判据去掉、只留 `mode !== "normal"`：通过。
+- M6 把没有会话时控件按“主创的目录项”判改成按 `undefined` 判：通过。
+- M7 把 `modesAvailable(null)` 里的 `MAIN_PROFILE` 改成 `undefined`：通过。
+为什么是问题：
+(a) 新用例的“不发请求”断言数的是 `endpoint.requests`，那是模型端点收到的请求，不是 `changeSettings` 的 RPC。没有模式的会话里即使把前置判据整段删掉，`/plan 文字` 照样发一次 `changeSettings`、服务端回 `unknown-extension`、`setMode` 返回 false、字留在输入框，测试看不出区别；`/mode discuss` 那半条更是只断言了“模型没被请求”，对 `setMode` 的判据没有约束。用例名与 Spec（modes.md 输出 12：“都不发请求”）的承诺都是“不发请求”，实际没测。
+(b) 草稿模式在要建的 Profile 没有模式时丢掉（modes.md“边界与兼容”）没有用例：副本里 M3 之后行为变成“建会话后再打一次必然失败的 changeSettings”，加上 `modesAvailable` 的提示，用户会在没碰任何东西的情况下看到“这个会话没有 Agent 模式”。没有用例断言“建了没有模式的 Profile、草稿是 plan”时模式为 normal 且没有提示。
+(c) 没有会话时按主创判（计划第 4 条的新增行为）没有用例：要让它被测到，需要一个目录里主创没有引用的场景，现有用例里的目录都带着真实主创。
+(d) `unknown-extension` 提示没有用例（目录说有、会话装配里没有）。
+如何核实：见上。副本里改完用 `bun test src/plugins/agent/session-host.test.ts -t "Agent 模式|模式选择器"` 逐个跑，M1、M2、M3、M6、M7 都是 10 pass 0 fail；每次改完都用 /tmp/review-t46-impl/session-host.orig.ts 恢复。
+建议改法：
+- 在“没有模式的会话”用例里包一层 `remote`（用例文件里已有 `flaky` 的写法）数 `changeSettings` 调用，断言 `/plan 文字`、`/mode discuss`、`mode.set` 三条入口调用数都是 0。
+- 补一条：目录里给 `test.sh.main`（没有模式）、草稿选了 plan，`create(PROFILE)` 之后 `composer.mode` 是 normal、没有 notice、`extensionSettings` 里没有模式。
+- 补一条：目录项引用了模式、真实 Profile 没有，`mode.set` 得到 `conversation.mode.unavailable`（用例 4 里的 `profiles` 覆盖就是这个场景，现成）。
+- 没有会话时的判据：`profiles` 覆盖成主创不引用模式，断言 `composer.modes` 为空。
+
+### 2. `/plan 文字` 在等切换结果期间换了会话：文字落进别的会话的草稿（已在真实运行时复现）
+严重程度：建议（偏重要）　类别：正确性、竞态
+位置：web/session-host.ts:1668-1676（`planCommand`）
+现象：`planCommand` 在 `await setMode("plan")` 之后无条件 `setDraft("/plan " + text)`，没有核对当前会话还是发起时那一个。`setMode` 对有会话的情形要等一次 `changeSettings` RPC；这期间用户切到别的会话，失败的结果会把文字写进新会话的草稿。对比同文件的 `compactCommand`（1585-1600）、`renameCommand`、`forkCommand`：被拒后放回文字之前都先判 `current !== target`。
+复现（真实内核、真实 changeSettings，副本里临时加的用例，已不在被审 worktree）：目录项引用了模式扩展、真实 Profile 没有（得 `unknown-extension`）；`act(command.run plan "先想清楚再写")` 后立刻 `open(另一个会话)`，等稳定后另一个会话的 `composer.draft.text` 是 `"/plan 先想清楚再写"`，notice 为空（提示被 `open` 清了，用户不知道发生了什么）。
+附带：用户在等待期间继续在输入框里打的字也会被这次 `setDraft` 整个覆盖。成功路径同理：`await setMode` 之后 `submit(text, "prompt")` 取的是 `current`，切走后文字会以普通模式发到新会话，而模式切在旧会话上。这条成功路径是原有行为，这次没有改坏，但这次新增了失败路径，是同一个洞。
+为什么是问题：用户的话进了另一个会话（草稿或消息），且无提示。窗口只有一次 RPC 的时间，所以不算阻断。
+建议改法：`planCommand` 取 `const target = current`；`setMode` 之后若 `current !== target` 直接 return（模式已切在 target 上，文字不在新会话里处理）；失败放回文字时只在 `current === target` 且 `draftText` 仍是发起时的内容时才 `setDraft`，否则不动用户已改的输入（与 `compactCommand` 一致）。
+
+### 3. `/mode 名字不对` 在没有模式的会话里报“没有这个模式，可选：normal、discuss、plan”，先于“没有 Agent 模式”
+严重程度：建议　类别：正确性（提示的顺序）
+位置：web/session-host.ts:1679-1690（`modeCommand`）
+现象：`modeCommand` 先在固定的 `MODE_OPTIONS` 里找名字，找不到就写 `conversation.mode.unknown`（列出三个可选项）并把 `/mode 名` 塞回草稿；`setMode` 里的 `modesAvailable` 判断在后面。所以在没有模式的会话里输入 `/mode foo`，用户读到的是“可选 normal、discuss、plan”，一个根本不存在的选项表；只有名字写对时才看到“这个会话没有 Agent 模式”。`/mode`（无参）与名字写对的那条走到判据，提示是对的。
+为什么是问题：与 Spec 输出 12“没有模式的会话里 `/plan`、`/mode` 都提示‘这个会话没有 Agent 模式，切换不了’”不一致，且误导。
+如何核实：从代码读出；没有用例（新用例的 `/mode` 只用了合法名字 `discuss`）。
+建议改法：`modeCommand` 开头先判 `modesAvailable(current)`，没有就提示并返回；`setMode` 里的判据保留给控件与 `/plan`。顺手把 `modesAvailable` 抽成 `setMode` 与 `modeCommand` 共用的一处，现在控件（2109 行）、`modesAvailable`、`createSession` 各写一遍“按哪个目录项判”。
+
+### 4. 成功的 `/plan`、`/mode`（无文字）不清输入框，输入框里留着 `/plan`（从代码推断，原有行为）
+严重程度：建议　类别：正确性（与相邻命令不一致；非这次引入）
+位置：web/session-host.ts:1668-1690（`planCommand`、`modeCommand`）对照 1584-1600（`compactCommand` 先 `setDraft("")`）
+现象：输入框发 `command.run` 时不清自己的文字（AgentConversationComposer.vue:314 只 emit；“发送后不清空：宿主受理后给出新版本的空草稿”）。`compact`、`new`、`fork`、`rename` 受理后都自己 `setDraft("")`；`plan`、`mode` 成功后没有，只有带文字走 `submit` 时才被清。副本里用真实宿主确认：`composer.draftChanged "/plan"` + `command.run plan` 之后 `composer.draft.version` 仍是 0（宿主没给新版本的草稿，输入框本地文字不会被换掉）。Lab 夹具的 `runCommand` 用 `acceptSubmission` 清掉了草稿，说明视图一侧的合同是“受理后清空”。
+与这次的关系：这次新增的失败路径 `setDraft("/plan 文字")` 是“切不成，文字留着”，与上面这条一起看，用户无法从输入框区分“切成了”和“没切成”（只有模式控件与 notice 不同）。`/plan 文字` 失败时 `setDraft` 本身几乎是空操作（输入框里本来就还是这句话），只在用户等待期间改过输入时才有可见效果，而那种情形它是覆盖用户新输入（见第 2 条）。
+没有在真实 DOM 里验证：只验证了宿主侧不产生新草稿版本；组件是否另有清空没有读到。
+建议改法：成功受理（`/plan`、`/mode` 切成了，或已在目标模式）时 `setDraft("")`；失败时不要 `setDraft`，让文字原样留着（改动更少，也消掉第 2 条的覆盖）。若开发者认为这是有意（命令留在输入框方便再改），则在 Spec 输出 12 写一句。
+
+### 5. 子代理（临时帮手）会话现在也显示模式控件，计划与 Spec 没有写这个界面变化
+严重程度：建议　类别：不变量（相邻行为变化）
+位置：backend/builtin/profiles/adhoc.ts:26（声明加了 `referencedExtensions: [AGENT_MODES_EXTENSION]`）→ web/session-host.ts:94、2109
+现象：原来 `hasModes` 看工具里有没有 `switch_mode`，临时帮手的工具里没有，所以打开子会话时不显示控件，虽然它的实现里一直装着模式扩展。现在按目录的 `referencedExtensions` 判，临时帮手在目录里（`hidden` 的项也在 `profiles()` 里），打开它的子会话会出现模式控件，`/plan`、`/mode` 在子会话里也生效，用户可以在子会话里把父会话收紧过的模式放开。
+为什么是问题：Spec modes.md 输出 14 写“之后两边各改各的”，所以不算违约，但 plan.md 的界面一节只讲主创与第三方 Profile，没有说子会话的界面会变；这是目录判据换了以后的副作用，不是明确的决定。
+如何核实：从代码读出；没有用例（用例用的是 `test.sh.*` 的 Profile）。
+建议改法：如果是要的，在 plan 的“界面”一节与 Spec 输出 11 或 14 补一句“子会话里也显示”；如果不要，`hasModes` 或控件另判子会话（`ancestors.length > 0`）。我倾向补一句：用户确实可能想在子会话里放开模式。
+
+### 6. `extensions-missing` 的两处界面输出没有用例
+严重程度：建议　类别：测试
+位置：web/profile-view.ts:233-236（提示文字）、560（`tone: "warning"`）
+现象：`grep extensions-missing` 在 profile-view.test.ts、profile-page.dom.test.ts 里没有命中；backend 的 profiles.test.ts:163 只测目录里的 `problem`。`tools-missing` 两处都有用例。删掉 560 行里的 `|| ... "extensions-missing"`（tone 变成 error）或把提示文字写错，没有测试会失败（未实际变异，类型检查会挡掉整个 case 被删的情形，挡不住 tone 与文字）。
+建议改法：在 profile-view.test.ts 里 `tools-missing` 用例旁加一条：`extensions-missing` 的 `status.tone === "warning"`，`notice.text` 带上扩展 id、`lines` 有一行。
+
+### 7. 小项：重复的判据写法、`createSession` 里的会话漂移、英文文案
+严重程度：建议　类别：代码质量
+位置：web/session-host.ts:1263、2109、1644；locales/en-US.json:258
+- 控件（2109）、`modesAvailable`（1644）、`createSession`（1263）各写一遍“按哪个目录项判”，控件一处在“会话头还没读到”时按主创判、`modesAvailable` 同样情形按 `undefined` 判（都得 true，目前结果相同，改动其一就会分叉）。控件直接用 `modesAvailable(target ?? null)` 即可，判据只剩一处。
+- `createSession` 里 `await openHere(...)` 之后调 `setMode(mode)`，`setMode` 用的是此刻的 `current`，不是刚建好的会话；等待期间用户切走时，草稿模式会提交到别的会话（原有行为）。这次在 `setMode` 前面加了 `modesAvailable(current)`，同一情形下还会在别的会话上冒出“这个会话没有 Agent 模式”的提示。可在 `createSession` 里判 `current?.id === created.value.sessionId` 再提交。
+- en-US “This session has no agent modes, so it cannot switch”：同文件别处写 “Agent session”“Agent activity”，大小写不一致；中文“这个会话没有 Agent 模式，切换不了”能懂，不解释内部处理，符合“界面不写说明”的规则。`extensionsMissing` 两句直接显示扩展 id（与 `toolsMissing` 显示工具 id 一致），可以接受；若要更友好，说明里加一句“检查 Profile 里引用的 id 有没有写错”（插件作者拼错 id 时“装上提供它的插件”指错了方向）。
+
+## 未发现问题的方面
+- 四条入口（控件、`/plan`、`/mode`、草稿模式提交）的判据：都经 `hasModes(目录项)`，没有会话时按主创，显式新建别的 Profile 时 `createSession` 按要建的 Profile 判，逻辑上一致；前提是目录项已加载（`undefined` 按“有”算，原有的“免得闪”规则，同时覆盖了被撤回的 Profile，那时服务端回 `unknown-extension` 再给提示，行为合理）。
+- `/plan 文字` 切不成时文字留在输入框、不发送：与发送后清空草稿的逻辑不冲突：`composer.submit` 路径才 `setDraft("")`，`command.run` 路径输入框本地文字本来就不清，失败路径没有调 `submit`，所以不会“先清空再放回”。冲突只出现在等待期间切会话或改输入（第 2 条）。
+- `setMode` 交回布尔值的所有调用点（`mode.set`、`modeCommand`、`planCommand`、`createSession`）都核对过，没有漏掉按旧签名使用的地方。
+- 类型：副本里 `vue-tsc --noEmit -p tsconfig.web.json` 通过；`bun test session-host.test.ts` 全文件 106 通过。
+- 新文案不解释内部处理，没有 `§`、`¶` 之类符号；`profile-view.ts` 的 `problemNotice` 新 case 与 `toolsMissing` 同形，tone 同为 warning。
+
+## 统计
+阻断 0；重要 1（第 1 条）；建议 6（第 2、3、4、5、6、7 条；第 2 条偏重要，已用真实内核复现）。
+变异检查：M1、M2、M3、M6、M7 五处存活（第 1 条）。副本在 /tmp/review-t46-impl/sonnet-copy，里面的实验用例（EXPERIMENT、EXPERIMENT2）只在副本里，被审 worktree 没动。

@@ -21,6 +21,12 @@ updated: 2026-11-25
 
 Claude Sonnet 一份，11 条（阻断 1、重要 5、建议 5），全部成立，已改进 [plan.md](plan.md)：拼地址用 `new URL`（字符串相加会成 `//api/…`、静默进书架，阻断）；路由任何失败都 302 到 `/`；“作品”分区是手写页面，要改 `WorksSettingsPage`；开窗规则只落在 `windows.ts`、关闭中的窗口不算、启动期间只第一个启动窗口 resume；记录照 `projects.stats` 自愈、先核对登记表、不存时间；查询串丢弃；路径常量放无导入的小文件；Spec 补齐要同步改的原句；`smoke-windows` 加一次重启覆盖真实壳的 302，`smoke-update` 在它备份的 `settings.json` 里设 `startupOpen: shelf`；目标地址用 `projectUrl`。报告：[evidences/design-review.txt](evidences/design-review.txt)。
 
+## 实现与实现审查（2026-11-25）
+
+切片 1 `cb19db2e2`（作品插件：记录、设置、路由；服务端入口改为启动时激活：不改的话桌面版一启动请求路由就是 404，合同测试先撞到）、切片 2 `1869eb47f`（桌面壳开窗规则、`nbook` 打开的地址、两份发布冒烟），Spec 在 master 上（`79a3245b2`）。
+
+实现审查（Claude Sonnet）7 条：重要 2、建议 5，全部成立，已修（`143c7c928`）：Lab 场景登记新设置；浏览器入口调 `opened` 的那段补了经真实浏览器入口的测试（变异检查：去掉调用，用例失败）；书架 e2e 查到这一行；写入改用 `update`、坏记录才 `reset`；写入中停用控件、失败回到层里的值；诊断事件按设置分开；开窗规则用例改名对上断言。“关闭中的窗口不算”这条判据在现有流程里到不了（最后一个窗口在关时托盘与转交都不开窗），保留写法、不另造用例。报告：[evidences/impl-review.txt](evidences/impl-review.txt)。
+
 ## 下一步
 
 按切片实施，执行位置 `.worktree/w00046-t26-resume-last`（分支 `feat/w00046-t26-resume-last`）。e2e 基线：起点上 `bookshelf.e2e.ts` 7 条全过。

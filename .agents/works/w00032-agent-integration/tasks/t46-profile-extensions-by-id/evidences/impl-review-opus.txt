@@ -1,0 +1,65 @@
+# w00032 t46 实现审查（Opus，提交范围 b93b9e81e..7421ab8c5）
+
+### 1. 占位会话在 Profile 丢失期间遇到插件变化，仍拿占位装配并把版本 unknown 的 manifest 写进日志、还装上扩展
+- 严重程度：重要
+- 类别：正确性 / 日志数据
+- 位置：packages/nb-harness/src/kernel/session/session.ts:747-768、786-814（reassembleOnce 的 lost 分支与之后的装配）
+- 现象：会话打开时依赖缺失（装占位、只读 dependency-missing），之后 profilesChanged 让 Profile 解析不到（进 unknown-profile、profileLost.before = dependency-missing），再来一次插件发布。lost 且 pluginsChanged 时代码不 return，`profile` 仍是 `current`（占位），于是 `assemble(占位, 全部插件)` 成功，`fromPlaceholder` 让它跟日志里最后的哈希比、不同，写 `profileChanged{reason: "code-updated", manifest: [..., {id: "test.real", version: "unknown"}]}`，再 `core.reassemble` 并 mountAll 装上插件扩展（会话仍只读 unknown-profile）。之后 Profile 回来又写第二条 code-updated。
+- 为什么是问题：本次修正的目的正是“不会写版本为 unknown 的占位”（host.test.ts 新用例的注释与断言、runtime.md 输出 57 末句“不会拿占位……”）。这条路径漏掉了：占位的 manifest 与哈希进了日志（数据格式层面的污染，kernel.profile.hash 变成占位哈希），reason 也是错的（实际是插件增减）；同时在只读会话上 mount 插件扩展，扩展的 mount 副作用照跑。“保留当前装配、这批扩展增减照样处理”对真 Profile 成立，对占位没有意义——占位本来就没装插件扩展，没有要摘的。
+- 如何核实：仓库外副本 /tmp/review-t46-impl/copy/packages/nb-harness/src/kernel/session/exp-placeholder.test.ts，用真实 createAgentHost + 内存存储：建会话（依赖 lab.count）→ 新宿主打开（只读 dependency-missing）→ profilesChanged 且解析不到 → 发布 lab.other。日志的 profileChanged 依次是 `created[lab.count@0,test.real@1]`、`code-updated[lab.other@0,test.real@unknown]`、`code-updated[lab.count@0,lab.other@0,test.real@1]`；中间快照 extensions 为 lab.other active、readOnly 仍 unknown-profile。
+- 建议改法：lost 分支里 `fromPlaceholder` 时一律 `core.revoked.clear(); return`（占位没有插件扩展可摘），只在解析成功后才装配；并把这个场景补进输出 57 的那条用例（断言日志里没有 version unknown）。
+
+### 2. 从占位换上真 Profile、哈希不同时写 code-updated 这条判据没有测试守住（变异存活）
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/nb-harness/src/kernel/session/session.ts:805（`const reason = fromPlaceholder ? "code-updated" : ...`）；packages/nb-harness/src/kernel/session/host.test.ts:844-913
+- 现象：runtime.md 输出 57 末句写“跟日志里最后记的哈希比，相同不写日志、不同写 code-updated”。新增的两条晚到用例都是“相同”分支（打开前后装配一样），迁移用例走的是 openSession 的 code-updated，不经过 reassembleOnce。
+- 为什么是问题：把这行改回旧表达式（去掉 `fromPlaceholder ?` 分支，晚到时会记成 plugin-added），host.test.ts 全部 45 条照过。另外两处变异（去掉 resolve 条件里的 `|| fromPlaceholder`、把 `logged` 改回 `core.assembly.hash`）都被杀掉，说明只缺“不同”这一支。
+- 如何核实：在 /tmp/review-t46-impl/copy 里对 session.ts 做上述替换，`bun test src/kernel/session/host.test.ts` 得 45 pass 0 fail。
+- 建议改法：在“打开即缺、晚到后解除”那条里让提供方晚到的版本与建会话时不同（例如 version 换一个），断言 profileChanged 第二条是 `code-updated`、`from` 等于第一条的 hash。
+
+### 3. 计划验收映射里 agent 侧的三项没有对应测试：声明覆盖实现与按句柄缓存、子代理建好后再核模式、真实模式扩展的旧会话迁移
+- 严重程度：重要
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/agent/backend/profiles.ts:139-150（`#withDeclaredReferences`）；packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:365-370；plan.md“验收映射”的“子代理建好后模式不符被拒并关掉 → subagents 的测试”“旧会话保留模式 → modes.test.ts”
+- 现象：在 worktree 的全部 `*.test.ts` 里搜 `profile-references-mismatch`、`subagent-archive-failed`、`mode-unsupported`、`没装上 Agent 模式`，零命中；diff 没有改 modes.test.ts、subagents.test.ts。旧会话迁移只有内核 host.test.ts 一条，用的是自造的只有设置的 `lab.modes`，没有提醒扩展、没有闸门、不经过 agent 插件的目录合并。
+- 为什么是问题：
+  1. contributions.md 输出 26 的三句（以声明为准、写 `profile-references-mismatch`、同一代句柄每次交回同一个对象）没有一条被测到。缓存去掉后行为会变：每次 profilesChanged 都换新对象，按 runtime.md 输出 57 要摘下扩展再装回（mount 清理函数跑一遍），这正是注释里说要防的，却没有用例会因此失败。
+  2. 子代理建好后的复核与归档是本次新加的分支，失败处理（归档失败只写诊断）也没有覆盖。
+  3. 计划自己写的判据是“在旧装配下切到 plan，换新装配后重开，模式仍是 plan、闸门照拦”。真实迁移里还多了提醒扩展的片（`nbook.agent.mode-reminder` 的 previous 值）与装配序变化（模式扩展从 Profile 自带组挪到插件组，排到 `rules` 之前），这些只有真实插件能测到。
+- 如何核实：`grep -rn "profile-references-mismatch\|subagent-archive-failed\|mode-unsupported" packages --include='*.test.ts'` 无输出；`git diff --stat b93b9e81e..7421ab8c5` 里没有 modes.test.ts、subagents.test.ts。
+- 建议改法：profiles.test.ts 或 agent.test.ts 加一条测试插件 Profile（实现里写不同的 referencedExtensions），断言解析结果按声明、诊断写一次、两次 resolve 返回同一对象（或 profilesChanged 后扩展没有重新 mount）；subagents.test.ts 用父会话 plan 模式派一个解析结果引用了模式、但会话里没装上的 Profile（可让测试提供方此刻撤回模式扩展），断言 `mode-unsupported` 且子会话已归档；modes.test.ts 按计划补迁移用例（旧日志里模式是 Profile 自带的写法，可用 fork 前的日志夹具或在测试里先以旧写法的 Profile 建会话）。
+
+### 4. 用户级 Profile 把 referencedExtensions 写成字符串时，整个 Profile 目录 list() 抛错
+- 严重程度：建议
+- 类别：正确性 / 异常输入
+- 位置：packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:140；packages/neuro-book/src/plugins/agent/backend/profiles.ts:70-75、103；packages/nb-harness/src/kernel/extension/assemble.ts:209
+- 现象：用户级 Profile 的包只校验“是 defineProfile 的结果、id 对”，`referencedExtensions` 原样进目录。写成 `referencedExtensions: "nbook.agent.modes"`（JS 文件，或 TS 打包不做类型检查）时，`availability()` 里 `referenced.filter` 抛 TypeError，`ProfileCatalog.list()` 整个失败：所有 Profile 的目录、界面的选择器、子代理派发（`deps.catalog()`）一起坏，不只是这一个 Profile。内核侧 `for (const id of "nbook.agent.modes")` 按字符迭代，报十几条 `referenced-extension-missing`（dependency 为 "n"、"b"……），错误说不清。
+- 为什么是问题：一个用户文件的写错扩散成整个目录不可用；contributions.md 输出 12、15 的意图是坏的用户 Profile 只标自己的错误。`tools.required` 写成字符串在起点上就有同样的问题（不是这次引入的），但这次新加的字段又照样漏了一处。
+- 如何核实：/tmp/review-t46-impl/exp/catalog.test.ts 直接用 worktree 的 ProfileCatalog，attachUser 交一项 `referencedExtensions: "nbook.agent.modes"`，`catalog.list()` 抛 `TypeError: referenced.filter is not a function`（从代码推断 ProfileBundles 会原样交出这个值，没有跑完整打包）。
+- 建议改法：在 profile-bundles 求值成功后校验 `referencedExtensions`（是字符串数组，否则按 invalid-export 标这个 Profile），顺手把 tools 一起校验；内核 assemble 对非数组给一条 `bad-extension-id` 式的说明，不按字符迭代。
+
+### 5. modes.ts 里提醒的说明注释挂到了 MODE_REMINDER_EXTENSION 常量上
+- 严重程度：建议
+- 类别：代码质量 / 注释
+- 位置：packages/neuro-book/src/plugins/agent/backend/permissions/modes.ts:43-48
+- 现象：原来写在 `const modeReminder = reminder({...})` 上的 JSDoc（“值变了那轮一条完整的，之后每轮一句短的……”）现在在 `export const MODE_REMINDER_EXTENSION = "nbook.agent.mode-reminder";` 之前，编辑器悬停与生成的文档把提醒行为的说明归给了一个 id 字符串；新加的那句“提示里的 switch_mode 带一句没有这个工具时”也随之错位。结尾的 `*/` 还贴在正文行尾，与周围写法不一致。
+- 为什么是问题：注释规则要求说明紧贴它解释的代码；读的人在 `modeReminder` 处看不到为什么文字放消息里、为什么不会打破缓存。
+- 如何核实：`sed -n 43,58p` 该文件。
+- 建议改法：常量单独一行放到上面（或并到 `shared/permissions.ts` 与 `AGENT_MODES_EXTENSION` 放一起，前端也可能要它），JSDoc 移回 `const modeReminder` 之上。
+
+### 补充（对第 3 条建议改法的更正）
+子代理“建好后再核模式”的分支在常规时序下到不了：Profile 引用了模式扩展而提供方不在时，内核新建就得 `profile-invalid`（extensions.md 输出 33），走不到复核。能到的是竞态：派发里 `resolveProfile` 拿到的 Profile 与 `service.create` 里内核再解析到的不是同一份（例如用户级 Profile 在两次解析之间改掉了引用）。所以这条的测试要靠一个前后两次解析交回不同 Profile 的解析端（或用户级 Profile 在两次解析之间改文件）来造，而不是撤回提供方。第 3 条其余部分不变。
+
+## 未发现问题的方面
+- `pluginExtensionsFor` 的规则 1–3 与 Spec 输出 32、33 一致：按对象记入选、引用不受 `"none"` 与标签排除影响、同 id 只入一次（宿主 prepare 已拒重名，contributed 里不会有同 id 两份）、伴随只看同插件按需扩展的硬依赖、可选依赖不触发；保持贡献原序，之后的拓扑序按 id 排，哈希不受引用写法先后影响；重名、依赖缺失、成环检查都在挑选之后照常进行。
+- `complete()` 传 `references: "ignore"`，只影响单次请求；`extensions` 里写字符串的 `bad-extension-id` 不会再变成 id 为 undefined 的扩展。
+- 占位修正的主路径：`placeholders` 用 WeakSet 按对象认，打开即 unknown-profile 的会话仍在入口 return；从占位换上真 Profile 时先重新解析、跟日志里最后记的哈希比，相同不写、mount 后才解除只读；`changeProfile` 交错时按 id 不同重排、同 id 时陈旧的 `fromPlaceholder` 只影响一次哈希比较，结果仍正确；关闭中途 `state.closed` 检查与 `closeNow` 等进行中的重新装配都在。去掉 `|| fromPlaceholder` 或把 `logged` 改回 `core.assembly.hash` 的变异都被现有用例杀掉。
+- `#withDeclaredReferences`：平台撤回时先置 withdrawn 再同步调接收者的 revoke（nb-runtime plugins/host.ts:1597-1603），接收者同步删掉 `#published`，缓存不会把已撤回句柄的 Profile 交出去；对象展开会带上 defineProfile 的符号标记。
+- `agentProfilePartsKey`、`AgentProfileParts`、`modesExtensions` 在代码、SDK 转出（src/sdk/agent.ts）、Spec 与 bots 里没有残留使用方，只剩历史 Task 记录。
+- 子代理派发与续用都以快照里 `nbook.agent.modes` 为 active 作判据，一致；静态判据 `profile.referencedExtensions` 取自目录合并后的解析结果，与内核拿到的是同一个对象。
+- 旧会话迁移：扩展设置与提醒的片都按扩展 id 存，id 未变；fork 复制最后一条 profileChanged 与全部 settingsChanged，打开时按新装配写一次 code-updated；子会话继承模式走 changeSettings 补丁，不依赖装配来源。
+- 已跑：worktree 内 `bun test src/kernel/extension/extension.test.ts src/kernel/session/host.test.ts` 76 pass（HEAD 7421ab8c5）。负载 30 以上，没有跑 neuro-book 包的大测试。
+
+## 各级数量
+阻断 0、重要 2（第 1、3 条）、建议 3（第 2、4、5 条）。

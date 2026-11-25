@@ -23,7 +23,7 @@ owners:
 
 - **闸门**：`discuss`、`plan` 下拦截写调用的那一步，位置见 [`agent/permissions.md`](permissions.md) 输出 1。
 - **草稿**：当前会话目录（`session://`）与临时目录（`tmp://`）。写它们不算写。
-- 模式扩展 `nbook.agent.modes` 是按需扩展（[`agent/contributions.md`](contributions.md) 输出 26）：Profile 声明里按 id 引用它才有模式，它的提醒 `nbook.agent.mode-reminder` 跟着装上。主创、临时子代理与伴聊 bot 的岗位 Profile 都引用它；没引用的 Profile 没有模式，界面不显示，闸门不起作用。
+- 模式扩展 `nbook.agent.modes` 是按需扩展（[`agent/contributions.md`](contributions.md) 输出 26）：Profile 声明里按 id 引用它才有模式，它的提醒 `nbook.agent.mode-reminder` 跟着装上。主创、临时子代理与伴聊 bot 的岗位 Profile 都引用它（所以临时子代理的会话里也有模式控件，用户能单独改它，输出 14 的“各改各的”）；没引用的 Profile 没有模式，界面不显示，闸门不起作用。
 - 有模式与 Agent 能不能主动切是两件事：引用了模式扩展、工具里没有 `switch_mode` 的 Profile，用户照样能切模式，只是 Agent 不能主动申请。
 
 ## 输入与前置条件
