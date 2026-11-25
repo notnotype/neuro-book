@@ -35,9 +35,9 @@ updated: 2026-11-25
   - 验证：nb-layout bun 670 条、vitest 358 条；nb-agent-ui bun 301 条、vitest 225 条；应用 agent、bots、Lab 的 vitest 125 条、agent 与 SDK 的 bun 80 条；发布脚本 vitest 120 条、`packages.test.ts` 13 条；类型检查三个包；`api:check`。e2e：`lab-agent-ui` 的“消息视图的分栏”6 条，`agent-conversation`、`bots-chat` 32 条里 31 条一次过、“按状态换场景”一条（测试自己的请求被对端断开）单独重跑通过。合入前那一轮与两条归为原有或负载的失败见处理表末尾。
   - 变异检查：宽度回写、收起回写、面板不裁切、发布检查的缺省、补发预览（组件测试与 e2e 各一条），都有用例失败。第一版的窄版用例没看住“不裁切”（`click` 会先把行滚进被裁切的面板再点），改成按行中心 `elementFromPoint` 判断。
   - Spec（planned）：`22101b06b`，[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 消息视图一段。
-- 第 3 条（浮动窗自绘头）：计划 [`plan.md`](plan.md) 开发者已确认（决定 3），下一步做设计审查（Sonnet）。
+- 第 3 条（浮动窗自绘头）：计划草稿 1 开发者已确认（决定 3）；设计审查（Sonnet）13 条，阻断 2、重要 8、建议 3，[报告](evidences/design-review-1.txt)、[处理](evidences/design-review-1-disposition.md)。按审查改成草稿 2（[`plan.md`](plan.md)），按钮画到窗口零件层、内容上移、拖动区由视图声明，三处新的待确认等开发者答复。
 
 ## 下一步
 
-- 第 3 条：设计审查（Sonnet）处理完后实施；开工前把 master 并进分支。
+- 第 3 条：开发者确认草稿 2 后实施（开工前已并 master，`bed74d514`）。
 - 第 3 条做完后一起核对 Spec 的 planned 标记并晋升。

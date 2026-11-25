@@ -1,0 +1,137 @@
+## 发现 1
+- 严重程度：阻断；类别：正确性
+- 位置：计划“关键设计 / WorkbenchPanelHead.vue”（视图动作、框架按钮、标题按钮盖在内容顶上那一条）
+- 现象：计划把框架按钮、视图动作、聚焦才显示的标题按钮都放在 WorkbenchPanelHead 里，让它们“盖在这一条的右端 / 左上角”。但面板头在外框层，内容在另一层，内容层压在外框层上面。
+- 为什么是问题：NestedGrid.vue:598（外框 `floatLayer(id,0)`）、:622（内容 `floatLayer(leaf,1)`）、:631（手柄层 `floatLayer(id,2)`）；`.nb-grid-content{z-index:1}`（:672-676）。现在内容从头下面开始，两层不重叠；自绘头让内容从窗口顶上开始（见发现 2），内容层整个盖住面板头。结果：“回到停靠”和视图动作被内容盖住，点不到、悬停命中不到；聚焦的标题按钮和它的焦点环画在内容下面，看不见（等于键盘用户聚焦了一个看不见的东西）。计划说“做法同 FloatWindowHandles 的移动把手”，但移动把手之所以能显示，正是因为它在 float-chrome 层（z+2），不是在面板头里；计划没有提层级。
+- 如何核实：读 NestedGrid.vue 上面三处和 `.nb-grid-content` 样式；在 Lab 里把头画进外框后用 `document.elementFromPoint` 取按钮中心，会得到内容层的元素。
+- 建议改法：自绘时这一条的叠层要画在 float-chrome 层（WorkbenchShell 已有 `#float-chrome` 插槽，FloatWindowHandles 在里面），容器 `pointer-events:none`，只有按钮、标题按钮本身 `pointer-events:auto`（标题按钮平时 `pointer-events:none`）。或者让面板头只留下 region 名称与 `data-panel-tab` 的语义，按钮另画。计划要先决定画在哪一层，再写 `own-head-inset` 的量法。验收里要加“`elementFromPoint` 在回到停靠按钮中心取到的就是按钮”。
+
+## 发现 2
+- 严重程度：阻断；类别：正确性 / 不变量
+- 位置：计划“Context / 现状”第 1 条（“nb-layout 不用改”）、“关键设计 / WorkbenchPanelHead”（“这一行不占高度……内容从窗口顶上开始”）、“切片”第 2 条
+- 现象：计划只让 WorkbenchPanelHead 画成 0 高，没有写内容层怎么上移。内容顶边不是量头得来的，是宿主按常量给的：`layout-present.ts:28` 的 `layoutContents` 里 `insetTop = editor ? 实测 : headless.has(id) ? 0 : PANEL_HEAD_HEIGHT(32)`，WorkbenchSurface.vue:186 调用，NestedGrid 的内容矩形（grid-rects.ts:244）和过渡里的 `byLeafClip`（useContentLayer.ts:138、158 的 `inset(${insetTop}px ...)` 与 `--nb-layout-grid-inset`）都吃这个数。
+- 为什么是问题：
+  1. 头改成 0 高，内容仍从 32px 下开始：窗口顶上空出 32px，和 B 方案“列表栏通到顶”不符；或者头 0 高、内容 32px 下，视图动作又盖不到。
+  2. 要改的不止“面板头、外壳、拖动来源三处”：`layoutContents`（要给“自绘头面板集合”，参照 `headless` 但头仍要渲染——WorkbenchSurface.vue:598 的 `!headless.has(...)` 会整个不画头，不能直接复用）、`hasRoom`（layout-present.ts:56）、浮动窗最小高度（layout-constraints.ts:118 `headHeight`）都读 `PANEL_HEAD_HEIGHT`。
+  3. 浮出与停靠回去的过渡：内容 inset 在提交那一刻 32↔0 跳变，而外框飞 470ms。`placementMoved`（grid-motion.ts:30-45）把“只有上边 inset 变了”当成不是布局变化，不会过渡，所以内容会在飞行第一帧或最后一帧突然下跳或上跳 32px。现有 workbench-float.e2e.ts:532-549 的 `expectHeadKept` 正是在守“飞行中头一直在”，自绘头面板会与它冲突，计划的验收没有覆盖飞行。`headless` 的注释（WorkbenchSurface.vue:239）说的“从入口条飞出去那一刻起内容就让出头”是现成的先例，要照它想清楚 inset 何时变。
+  4. 内容 clip 只圆下面两个角（WorkbenchSurface.vue:846-854 `.workbench-surface__content-clip`，注释写明“内容在头下面，只有下面两个角是卡片的角”）。inset 为 0 后上面两个角是方的，浮动窗圆角 10px 处，列表栏背景（AgentMessages.vue 的 `.acv-messages__list{background:var(--bg-panel)}`）会从圆角外戳出来。
+- 如何核实：读上面几处；在 Lab 的 WorkbenchPanelHead 场景之外，用真实工作台浮出一个自绘头的视图，量 `[data-leaf-content]` 的 top 与内容元素 top 的差；录飞行帧看内容 y。
+- 建议改法：计划补一小节“内容层”：`layoutContents` 新参数（自绘头面板集合）给 insetTop 0；content-clip 对自绘头的浮动窗补上两个上角圆角；飞行里 inset 的变化时机写明并加 e2e（`film` 同 workbench-float.e2e.ts:478-549）；把“nb-layout 不用改、改动集中三处”改成实际清单（面板头、外壳、Surface/layout-present、layout-drag、layout-constraints）。
+
+## 发现 3
+- 严重程度：重要；类别：正确性
+- 位置：计划“关键设计 / layout-drag.ts”（`fromElement` 加“头”分支）
+- 现象：计划写“按下点在内容顶上 band 高度以内”才算整窗拖动，并在 `fromElement` 里判。但 `fromElement(element)` 只有元素没有坐标：会话的 `sourceAt(target: Element)`（nb-layout/src/vue/drag-session.ts:28、290，live-drag-session 同）不传事件坐标，layout-drag.ts:806 的 `sourceAt` 也只收 target。另外计划自相矛盾：前文说 `data-own-head` 写在“内容区根上”，这里却说“叶带 `data-own-head`”；而现有判定用 `element.closest("[data-leaf][data-float]")`（layout-drag.ts:788），内容层元素带的是 `data-content-leaf` 不是 `data-leaf`（外框与内容是兄弟，NestedGrid.vue:589、615），从内容里按下时根本找不到叶。
+- 为什么是问题：按计划字面实现，指针按在内容顶上永远得不到来源；要加坐标就得改 nb-layout 的会话接口（与“nb-layout 不用改”冲突），或在 `fromElement` 里另读 `event`，要改 `sourceAt` 签名。
+- 如何核实：读 drag-session.ts:28、290 和 layout-drag.ts:783-812。
+- 建议改法：改成视图声明哪些元素是“窗口拖动区”，宽松判不如保守判：视图给头的空白根元素写 `data-window-drag`（nb-agent-ui 的 `.acv-head`、列表切换行、头像列顶部那行），`fromElement` 用 `closest("[data-content-leaf][data-float]")` 找叶（仅 `data-own-head`），再看 `target.closest("[data-window-drag]")` 且到它之间没有可交互元素。这样不要坐标、不要 `band` 数、不要 `--workbench-own-head-band`，漏判的方向是“拖不动”而不是“点不动”。`band` 因此可以从合同里去掉（见发现 11）。若坚持几何判，就必须明说要改 nb-layout 会话的 `sourceAt(target, event)`，并更新 nb-layout 的 `.md`。
+
+## 发现 4
+- 严重程度：重要；类别：正确性
+- 位置：计划“关键设计 / WorkbenchPanelHead”（头 0 高）与验收映射第 5 行（“往这个窗里再放一个视图”）
+- 现象：浮动窗的落点几何从面板头元素量：layout-drag.ts:423 `tabHeadOf` 取 `[data-panel-head=...]`，`geometryOf`（:428-452）用 `rectOf(head)` 当 `strip`，`rectOf` 对零面积返回 null（:150-154）。头 0 高时 `strip=null`，整张卡片都算 body。
+- 为什么是问题：Spec 现行规则“浮动窗只写标题的头没有插入位，拖到头上是添加到最后”（workbench-layout.md 输出 20）靠这个 strip；自绘头面板里这个落点消失，用户把别的视图拖到窗口顶上的头区不再是“加到最后”，而是落到 body 的各个扇区（可能变成分栏或被拒）。计划的验收第 5 行用了“再放一个视图”，但没写怎么放、也没有说头区还是不是落点。drop-feedback（WorkbenchDragFeedback）画落点指示也读 strip。
+- 如何核实：读 layout-drag.ts:423-452 与 layout-drop.ts:90、135-140（`strip` 为 null 时不走 strip 分支）；单测 `geometryOf` 在 0 高头上的返回值。
+- 建议改法：计划要决定：自绘头面板的 strip 取“内容顶上 band 那一条”的矩形（由外壳写在内容根上，或由 `data-window-drag` 元素的并集量出），并在 Spec（workbench-layout 输出 20 末句）里写明“自绘头时头区是视图画的那一条”；或明确放弃这个落点（要告诉开发者）。验收加：把一个视图拖到自绘头窗口顶上，成了标签条。键盘候选 `stripStopsOf` 也要对一遍。
+
+## 发现 5
+- 严重程度：重要；类别：正确性
+- 位置：计划“layout-drag.ts”的可交互元素清单与“不做与风险”第 1 条
+- 现象：清单是 `button、a、input、textarea、select、[role="tab"]、[contenteditable]、[tabindex]≠-1`。对照消息视图真实的头，漏项与误项：
+  1. `<img>`：对话头的头像 `img.acv-head__avatar`（AgentConversationHead.vue:102、110，没有 `draggable=false`）。Chromium 在 img 上按住拖动会触发原生 `dragstart`，指针事件随后 `pointercancel`，窗口拖动中途被取消。点头像就是最自然的抓取点。清单没写，也没要求 `draggable=false` 或 `-webkit-user-drag:none`。
+  2. `role="tablist"` 的空白、`[role=button]`、`[role=menuitem]`、`label`、`summary`、`video/audio`：清单按元素类型写，视图里用 `div @click` 的东西不可能被识别；`tabindex` 的 `closest` 会匹配祖先，视图里任一祖先带 tabindex=0（Popover 内容、`section role=dialog` 等）整条头永远不起拖，需限定在拖动区内查。
+  3. nb-layout Splitter 的分隔线（SashHandle.vue:299）：宽版 tabindex=0 被排除，窄版（disabled）tabindex=-1 不在清单里，按在分隔线上会拖动窗口；这是不是预期要写明。
+  4. 文字选择：`.acv-head` 与列表切换行没有 `user-select:none`；按在标题文字上拖，会同时选中文字并拖窗口。面板头自己有 `user-select:none`（WorkbenchPanelHead.vue 样式），自绘头把它丢了。
+  5. 触摸：标签、标题头有 `touch-action:none`（WorkbenchPanelHead.vue 的 `[data-panel-tab]` 规则），自绘头在 nb-agent-ui 里，不知道这件事；没有它触摸一拖就滚动并 `pointercancel`。计划把触摸写成“未验证边界”，但要的 CSS 是设计的一部分。
+  6. “按钮点不了”的风险描述不准：起拖要过门槛，漏判的元素单击照常工作，后果是拖它会移动窗口、文字被选中，不是点不了。
+- 如何核实：真实浏览器里按住头像拖；在头上拖选文字；读 drag-session.ts 的 `press`/门槛。
+- 建议改法：见发现 3 的“视图声明拖动区”（fail-closed），nb-agent-ui 在这些区域写 `user-select:none; touch-action:none`，头像 `draggable=false`；清单若保留，改成函数、`closest` 限定在拖动区根内。验收加“按在头像上拖，窗口跟着走”。
+
+## 发现 6
+- 严重程度：重要；类别：正确性
+- 位置：计划“layout-drag.ts”末句（“这一条的空白处右键开视图的‘移动到’”）
+- 现象：现有右键“移动到”挂在标题按钮上（WorkbenchPanelHead.vue 的 `onTitleContextMenu`，标签带在 TabStrip 里）。自绘头里标题按钮平时看不见、没有指针（见发现 1、7），空白处在内容层，计划没有说谁来监听这个 `contextmenu`、坐标怎么给、与哪些东西协调。
+- 为什么是问题：监听装在内容根上就会吞掉视图自己的右键：对话头文字上的浏览器原生复制菜单、头像、列表切换行、视图里将来加的右键菜单。`fromElement` 的判定只回答“要不要起拖”，不回答“要不要抢右键”，两者不能共用同一个“非可交互元素”判定（文字上右键本就该给浏览器）。键盘菜单键（`contextmenu` 无坐标）落在隐藏标题按钮上，走 `onTitleContextMenu` 现有分支，这条是对的，空白处不会有菜单键。
+- 如何核实：真实浏览器在头像、标题文字上右键；看视图里是否有 `@contextmenu` 处理（nb-agent-ui 头里没有，但视图是会加的）。
+- 建议改法：只在 `data-window-drag` 拖动区元素自身（`event.target === 区根`，不含子孙）上、且 `!event.defaultPrevented` 时开“移动到”；文字、头像上保持浏览器默认。计划写明监听的位置（外壳或表面，冒泡阶段，放在视图之后）与坐标来源。验收加“在对话头标题文字上右键不出现移动到菜单”。
+
+## 发现 7
+- 严重程度：重要；类别：可访问性 / 不变量
+- 位置：计划“WorkbenchPanelHead”第 2 条（标题按钮平时看不见、聚焦时显示在左上角）与验收映射第 4 行
+- 现象与问题（逐点）：
+  1. 与已有的键盘移动把手并存：FloatWindowHandles 的 `.nb-float-move`（FloatWindowHandles.vue:226-245）在窗口顶部居中（`left:50%; top:2px`，36×16），聚焦才显示，也在 Tab 序里。计划的标题按钮在“左上角”，两个“只给键盘”的东西在同一条边上，一个用空格拿起、一个用方向键移动，用户 Tab 两下看到两个不同的东西且都压在视图的头上。计划写“做法同移动把手”，但位置不同、行为不同，没有解释为何不复用移动把手、或者只留一个。
+  2. 左上角正是列表切换行（宽版）和头像列首个按钮（窄版、收起），聚焦的标题按钮会压住它们（简报点名的问题属实）；叠层关系见发现 1。标题按钮聚焦时的尺寸（“消息”二字加焦点环）没有定，也没有规定聚焦移到别处时的淡出过渡（“状态变化要过渡”）。
+  3. 隐藏方式必须写：`display:none`、`visibility:hidden`、`inert` 都会让 F6（`focusLandings` 的 `tab` 落点，layout-present.ts:165-180）和 `refocus`（layout-drag.ts:`root.querySelector([data-panel-tab=...])`）失效；要用透明度或 clip，并且 `pointer-events:none`，否则它在左上角吃掉点击。
+  4. 窄版原来按标题开抽屉：`MessagesHost.vue:85` 把 `titlePopup` 写成 `{expanded: open}`，标题按钮的 Enter 经 `control.press()` 调 `titleAction` 开抽屉（ConversationHost.vue:99）。自绘头时 `claim=false`，`activateTab`（WorkbenchShell.vue:`headOfPanel(...)?.control` 为 null）不再 `press()`，标题按钮的 Enter 只是“激活”，什么都不发生；`aria-haspopup` 也不写（不给 `viewHead`）。计划没写窄版自绘头时抽屉靠什么开（头像列首个按钮可以，但键盘用户聚焦标题按钮按 Enter 无反应），`titlePopup` 要在自绘头时写 null，`drawerAnchor` 为空（`head.slots` 为 null）关抽屉后焦点回哪里也要写。
+  5. 读屏：region 名称仍指向隐藏 span，没问题；但标题按钮的可访问描述“按空格拿起并拖动”保留，而它的名字在视觉上与视图头里的会话标题并存，建议名字仍是视图标题（“消息”），别取会话标题。
+- 如何核实：F6 到窗口、Tab 看两个把手、窄版按 Enter；读 FloatWindowHandles.vue、MessagesHost.vue:67-95、ConversationHost.vue:99-103。
+- 建议改法：把“聚焦才显示的标题按钮”与“移动把手”合并成一个入口，或明确分工并避开位置；写明隐藏方式与过渡；窄版写明抽屉入口与 `titlePopup` 去向；dom 测试加“聚焦后在 elementFromPoint 取到它、移开后淡出”。
+
+## 发现 8
+- 严重程度：重要；类别：正确性（时序）
+- 位置：计划“ownHead 合同”不变量、“外壳按已提交的文档算 available”、MessagesHost 小节
+- 现象与问题：
+  1. 加载中、渲染出错、交付撤回时 `available=false`，头是 32px 的面板头；就绪的那一帧头缩成 0、内容整体上移 32px。浮动窗里打开消息视图（首次加载、重新交付换代，`view-instances.ts:139` 只在 `status === "ready"` 返回 head）每次都会有一次 32px 的跳动，没有过渡，而且正是用户盯着看窗口的时刻。计划写“同一帧面板头回来”，只考虑了头回来，没考虑内容跳。出错时 inset 从 0 变 32，内容同样下跳。
+  2. MessagesHost 的版式阈值依赖内容高度：`layout = width>=600 && height>=360`（MessagesHost.vue:62-64）。自绘头使内容比有头时高 32px，窗口高度 360 到 391 之间，自绘头时是宽版、有头（加载中、第二个标签）时是窄版；`available` 一翻，版式跟着翻，`claim` 与列表栏形态一起变，且 `useLayoutExtent` 是 ResizeObserver，晚一帧，翻转的那一帧里 `--acv-head-height`（立即）和 `layout`（滞后一帧）不一致。不会死循环（available 不依赖版式），但窗口在阈值附近缩放时会看到版式突变。计划的版式阈值与 40px 头的关系没写。
+  3. `available` 由外壳 `setOwnHeadAvailable` 写，MessagesHost 在 setup 里读它决定 `claim`：靠外壳的 pre-flush 副作用先于视图 setup。`claim` 默认 true、`band` 默认 null，面板头先画一遍接管版再翻（现有宽版也是这样，同一次刷新里完成，不画出来）。计划写“首帧不翻”要有证据：dom 测试里数 `head-slots` 事件与面板头渲染次数。换代时（新的 `createViewHead`，三个 ref 重置为初值）同样要验。
+  4. 面板里多出第二个标签（拖进来、撕下）的瞬间 `titleOnlyPanels` 按已提交的文档算，实时布局预览里拖着标签进来时头不变，松手提交才变；提交是一次文档变更，头回来、内容下移 32px 与别的布局变化同时发生，是否被 `placementMoved` 当作布局变化（上边 inset 变了不算，见发现 2）要看，计划没写。
+- 如何核实：dom 测试里挂 MessagesHost 与外壳，记录 `claim`、`available` 的写入序列；Lab 里把浮动窗窗口高度调到 360 到 391 来回切 available。
+- 建议改法：加载中也按“视图声明了自绘头”算 `available`（头 0 高，右端按钮照画，内容区显示加载骨架或错误），就绪与否不动头的高度；出错时错误卡片放在 0 高头的窗里同样成立，标题按钮仍在（隐藏）。这样头高度只随“浮动、单标签”变，不随实例状态变，也省掉一半的时序用例。若仍要“就绪才自绘”，要接受并写明加载时有 32px 的头再跳。版式阈值改成与自绘头无关的量（例如用窗口外框高度，或把 360 改成按有无头各一个值）。
+
+## 发现 9
+- 严重程度：重要；类别：正确性 / 接口
+- 位置：计划“insetEnd”合同、WorkbenchPanelHead 的 `own-head-inset` 事件、MessagesHost “--acv-head-inset-end”、“AgentConversationHead”
+- 现象与问题：
+  1. 量法本身可行（沿用 `useLayoutExtent` 量 `.workbench-panel-head__end` 的写法，同面板头里 `startExtent/endExtent`，卸载时 ResizeObserver 由它释放；按钮透明时占位，hover-actions.css 用 opacity，这条与计划“占位”一致）。问题在路径过长：外壳写 `insetEnd` ref → 视图读 → 视图在根上写 CSS 变量 → 对话头读变量，缩放窗口时每一步都晚一帧，窗口宽度连续变化时“⋯”与“回到停靠”之间的空隙会抖。计划已经要在内容根上写 `--workbench-own-head-band`，同理可以由外壳直接把 `--workbench-own-head-inset-end` 写在内容根上，视图和 nb-agent-ui 只读 CSS 变量（`padding-inline-end: var(--workbench-own-head-inset-end, 0px)`），去掉 `insetEnd` ref、`setOwnHeadInset`、`own-head-inset` 事件三样。nb-agent-ui 不应该出现“workbench”前缀的变量，所以 MessagesHost 根上做一次 `--acv-head-inset-end: var(--workbench-own-head-inset-end)` 的映射就够了，仍不用 JS。这与 Electron Window Controls Overlay 的做法一致（系统给 `env(titlebar-area-*)`，应用只用 CSS），也是计划“技术选型”自己引的参照。
+  2. 合同里 `band` 是视图写的数，但工作台自己并不需要它（内容 inset 取 0，见发现 2；拖动区用视图标记，见发现 3）。留着它是为了几何判定，那个判定本身无法实现。两边（工作台与视图）都能算的数让视图写，容易出现不一致（40 写在 MessagesHost，`--acv-head-height` 又是 40）。建议合同只留 `available` 与一个“视图自绘”的声明；高度是视图自己的事。
+  3. 宽窄版对不对：宽版聊天区在窗口右侧，对话头右缘就是窗口右缘；窄版同样（头像列在左），两种版式右端都对，这点没问题。但对话头标题是 `grid-template-columns: minmax(max-content,1fr) minmax(0,auto) minmax(max-content,1fr)` 居中，右内边距加 inset 后标题会向左偏 inset/2（约 17px），与“居中在聊天区上方”（t15 决定 6）有偏差；390px 窗口（窄版，聊天区 338px）：两侧列各自 max-content 不能缩，右端再扣约 34px，标题可用宽度约 338-24-34-两侧列。按头像列 52px、起始列 24px、末端列（订阅、固定动作、⋯ 约 72px）估约 110px，从代码推断，要在 390px 英文场景实测。
+  4. 窄版抽屉 `.acv-messages--narrow .acv-messages__list{top:0; z-index:4; left:100%; width:min(300px,85cqi)}` 自绘头后从窗口顶开始，压在对话头与“回到停靠”下方；“回到停靠”在 float-chrome 层（若按发现 1 改）会漂在抽屉右上角之上。窗口宽度小于约 52+300+34=386px 时，抽屉右缘越过按钮位置。消息视图的最小宽度计划没写。
+- 如何核实：真实窗口 390px 宽，开抽屉，`elementFromPoint` 取按钮中心；调英文语言看对话头标题宽度。
+- 建议改法：外壳写 CSS 变量取代 ref；合同去掉 `band`；窄版抽屉在自绘头时顶边让出头高（抽屉 `top: var(--acv-head-height)`），或写明抽屉盖着头的规则；给消息视图声明最小宽度并与 390px 对一遍。
+
+## 发现 10
+- 严重程度：建议；类别：测试
+- 位置：计划“验收映射”与“验证”
+- 现象：
+  1. 只有“⋯”用了 `elementFromPoint`。“回到停靠”可点、标题按钮聚焦可见、悬停显示，这些在发现 1 的叠层问题下 Playwright 的 `click()` 都可能成功（它会先滚进裁切容器、点到可点处），按项目规则（e2e 判断没被盖住不靠 click）每个按钮、聚焦后的标题按钮都要用 `elementFromPoint` 取中心。
+  2. 缺：（a）头区放视图落点（发现 4）；（b）飞行中内容 inset（发现 2）；（c）头像按下拖（发现 5.1）；（d）文字上右键不开菜单（发现 6）；（e）窄版 Enter/抽屉（发现 7.4）；（f）第二个标签进出，头与对话头回来、内容高度回 32px 后（计划有）再加“版式不翻”；（g）加载中、出错的头高度（发现 8.1）；（h）390px、英文、明暗、减弱动效、系统减少动效；（i）内容区上面两个角在圆角窗里不戳出（发现 2.4）；（j）窗口最小高度。
+  3. “面板头高度为 0”这一判据不够：头元素 0 高，但内容 top 也要等于外框 top（`[data-leaf-content]` 与内容的差），否则发现 2 的空洞过得了验收。
+  4. 变异检查三项（去掉可交互判定、去掉 insetEnd、available 恒 true）合理，但变成 CSS 变量路径后 `insetEnd` 的变异要改成“变量不写”；`available` 恒 true 的用例要选“加载中与第二个标签”两条才会失败。
+  5. “Lab 场景（WorkbenchPanelHead 加自绘的场景）”：自绘头依赖 chrome 层与内容层，只摆 WorkbenchPanelHead 一个组件看不到发现 1、2 的问题；应在 WorkbenchSurface 的 Lab 场景里放一个自绘头的浮动窗。
+- 建议改法：按上面补验收行与用例；Lab 场景改在 Surface 层。
+
+## 发现 11
+- 严重程度：重要；类别：正确性（与发现 1 的连锁）
+- 位置：计划“框架按钮与视图动作盖在这一条的右端……悬停才显示的规则不变”
+- 现象：悬停显示靠 hover-actions.css:14 的后代选择器 `[data-hover-actions-scope]:not(:hover)... [data-hover-actions]`。范围元素是 WorkbenchSurface.vue:588 的 `.workbench-surface__card`（外框层）。若按发现 1 把按钮挪进 float-chrome 层，按钮就不是这张卡片的后代，规则不再匹配（按钮永远显示），或要另给范围；指针在内容层上时靠宿主写的 `data-hover-actions-active`（WorkbenchSurface.vue:589、`actionsShownOn`）这条补丁路径。若按钮留在面板头里（外框层），则被内容盖住（发现 1）。两条路都要计划写明：chrome 层的容器要带自己的 `data-hover-actions-scope` 与 `data-hover-actions-active`（同一个 `actionsShownOn(panel)` 判定），以及 `:focus-within` 对键盘的覆盖（Tab 到标题按钮、“回到停靠”时要显示）。
+- 如何核实：读 hover-actions.css、WorkbenchSurface.vue:586-590、onFocusIn 的 `raiseIfFloat`。
+- 建议改法：把“悬停范围”写进设计，验收加“指针在内容层上、不在头区时动作按钮出现；指针离开窗口后消失；Tab 聚焦到‘回到停靠’时出现”。
+
+## 发现 12
+- 严重程度：建议；类别：代码质量（可简化）
+- 位置：计划“ViewHead.claim”与 MessagesHost 小节
+- 现象：计划让视图在 `available` 为 true 时写 `claim=false`，为 false 时恢复现有逻辑，等于视图根据外壳的 `available` 反写 `claim`，两个 ref 双向。外壳的 `headOfPanel`（WorkbenchShell.vue:325-331，也是 `head-slots` 分发的依据）只看 `claim`；计划写“自绘与接管互斥”，却把互斥交给视图守约。
+- 为什么是问题：外壳先改 `available`、视图的 watch 再改 `claim` 之间有一轮刷新窗口，期间 `headOfPanel` 仍为真，面板头会先画一次接管版（发现 8.3）；另一个以后也想自绘的视图忘了写 `claim=false` 就两套头同时出现。
+- 建议改法：互斥由外壳保证：`headOfPanel` 在自绘头生效（`available && band 已声明`）时返回 null；视图不碰 `claim`，MessagesHost 里的 `claim = layout==='narrow'` 逻辑原样保留，`available` 变 false 时自然回到现有画法，不必再算一次，也就不需要“窄版自绘头时 claim 为 false”这个状态，发现 7.4 的 `titlePopup` 也只剩“自绘时不写”一处。
+
+## 发现 13
+- 严重程度：建议；类别：对照参照
+- 位置：计划“技术选型”（Electron `titleBarOverlay`、Window Controls Overlay）
+- 对照：
+  1. 一致处：应用声明标题带高度，系统把按钮盖在一端并告知宽度（本计划的 `band`/`insetEnd`）；空白处可拖。
+  2. 不一致处：Electron/WCO、VS Code、Slack、Telegram 的拖动区都是声明式（`-webkit-app-region: drag`，交互元素 `no-drag`，没声明的不拖），本计划是“除了可交互元素都拖”的反向判定，要靠一份会漏的清单（发现 5）。WCO 的宽度是 CSS 环境变量（`env(titlebar-area-width)`），应用只用 CSS（发现 9.1）。
+  3. 参照有、计划没写：（a）双击标题带：VS Code、Slack 是最大化/还原，这里浮动窗没有最大化，要写明“不做”，别让用户双击没有反应而不知道（建议顺手定为双击“回到停靠”或明确无）；（b）拖动区禁选文字、`touch-action`（发现 5）；（c）拖动区的光标：桌面应用拖动区不改光标，不用做，但要写一句；（d）右键标题带出系统菜单（VS Code/Windows 的“移动、大小、关闭”），本计划对应“移动到”，只覆盖空白（发现 6）；（e）窗口失焦/不活动时标题带的样式；（f）标题带过窄时的退让：窗口窄到 `insetEnd` + 起始列放不下对话头时怎么办。
+  4. 对于“消息”这类 IM：Telegram 桌面版的分栏头是整个窗口顶一行同高，用户拖动区在头的空白处，与 B 方案一致；没有发现需要改设计的反例。
+
+## 未发现问题的方面
+- “现状”各条与代码相符：`fromElement` 的判定（layout-drag.ts:783-796，单标签按标签、否则按 `[data-panel-strip], [data-panel-head]` 空白）；`titleOnlyPanels` 按已提交文档、`role==="tool" && tabs.length<=1`，拖动中不跟着变（layout-present.ts:150-152）；悬停显示规则与占位（hover-actions.css）；FloatWindowHandles 上边 3px 在 chrome 层、压在内容与头之上；`claim` 现有用法（MessagesHost.vue:67-72、WorkbenchShell.vue:325-331）。
+- 键盘拿起的来源（layout-drag.ts:912 只认 `[data-panel-tab], [data-tool-entry]`）不受自绘头影响。
+- 三条已定决定逐条覆盖：浮动窗内置视图自绘头、停靠不变；列表栏通到顶、“回到停靠”右上角排在“⋯”之后、两栏第一行等高；悬停才显示、聚焦显示、窄版同样自绘。没有悄悄改变已定项。
+- 宽版与窄版的对话头右缘都是窗口右缘，`insetEnd` 压在对话头上的位置在两种版式下都对。
+- `insetEnd` 的占位量法与 ResizeObserver 释放沿用 `useLayoutExtent`，没有资源泄漏。
+- 合同不经 SDK 导出（`VIEW_HEAD` 同款）、第三方不受影响，这一条成立。
+
+## 汇总
+- 阻断 2（发现 1、2），重要 8（发现 3、4、5、6、7、8、9、11），建议 3（发现 10、12、13），共 13 条。
+- 最严重的是前两条：头在外框层、内容层压在它上面，自绘头里的按钮与聚焦的标题按钮被盖住；内容顶边是常量 `PANEL_HEAD_HEIGHT` 经 `layoutContents` 给的，计划没写内容怎么上移，也没写飞行过渡、方角与落点几何。
+- 有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13
