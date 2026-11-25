@@ -45,6 +45,12 @@ updated: 2026-11-25
 
 另：开发者截图里的人物“b”身上有“谁知道”（知识点这一组，登记的适用种类只有知识点），不知道是怎么加上的，实施时查新建人物默认带哪些组。
 
+实施进展（分支 `feat/w00039-t42-entry-page`，worktree `.worktree/w00039-novel-writing-plugins`）：
+
+- S1 浮动提示（`78bba1e9c`）：`PageNotices` 替掉 `NoticeBar`、`AgentNotice`，三个页面共用；计时与暂停在 `notices.ts`（窗口一份），撤销的确认框开着时在 `plugin.ts` 这一级暂停；工作台那一路 `sticky: false`；页头写入失败进失败行；“看回执”改“查看详情”（提示、改动记录、命令标题）。验证：canon 网页侧 vitest 210 条、`notices.test.ts` 10 条、Lab 覆盖门禁；e2e canon-author、canon-write 14 条通过（验收 3 改成先指着提示点撤销、再看撤销那一次的详情：6 秒自己收起以后，原来“先去回执页再回来撤销”的走法等不到提示）。
+  - 与计划不同：提示的外观没有复用 nb-ui 的 `Notification`。它只有一个动作（插槽换的是那一个按钮的内容），这里要“查看详情”“撤销”两个；用的是评审板上开发者看过的单行浮条，取浮层材质的令牌。
+- S2 页头与时间点（进行中）：名字、简介没有另抽 `InPlaceEditor`。现有的就地改编辑器按命名空间 `entry` 就能接上页头（路径 `entry.name`、`entry.summary` 本来就在 `HEAD_FIELDS` 里），宿主挂两个、锚在页头按钮上，部件比计划少一个；设计审查 F2 说“头上的路径没有命名空间”，按 `entry` 前缀其实成立。
+
 ## 下一步
 
 [计划](plan.md)写好，Sonnet 设计审查 21 条（阻断 0、重要 15、建议 6）逐条核实后改进了计划（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)）。开发者 2026-11-25 确认计划（“可以”），开分支 `feat/w00039-t42-entry-page` 按切片实施。
