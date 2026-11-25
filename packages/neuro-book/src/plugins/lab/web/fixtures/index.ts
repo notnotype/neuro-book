@@ -26,6 +26,7 @@ import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
 import type PositionPicker from "nbook/plugins/canon/web/components/PositionPicker.vue";
+import type EntryPageNav from "nbook/plugins/canon/web/components/EntryPageNav.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -2008,7 +2009,12 @@ function canonEntryPageFixtures() {
         {id: "c1", where: "第 1 章", text: "交了学费", flags: ["undone" as const], patches: ["存款 −800", "状态 → 入学"]},
     ];
     const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
-    const tabs = [{value: "text", label: "文字"}, {value: "data:character", label: "人物"}, {value: "data:panel", label: "面板"}, {value: "plot", label: "情节", count: 4}];
+    const tabs = [
+        {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
+        {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
+        {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
+        {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 4},
+    ];
     const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
     /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
     const IDLE = {kind: "idle"} as const;
@@ -2321,6 +2327,29 @@ function canonEntryPageFixtures() {
                 {id: "exact-english", label: "英文界面", input: {props: {}, model: {text: "", delta: ""}}},
             ],
             load: async () => (await import("./RecordFormFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryPageNav>({
+            component: "EntryPageNav",
+            scenes: (() => {
+                const items = [
+                    {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
+                    {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const, removable: true},
+                    {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
+                    {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
+                    {value: "data:knowing", label: "知道什么", iconClass: "i-lucide-key-round", segment: "own" as const, removable: true},
+                    {value: "data:attitude", label: "目标与态度", iconClass: "i-lucide-target", segment: "own" as const, removable: true},
+                    {value: "extra:experience", label: "经历", iconClass: "i-lucide-footprints", segment: "view" as const},
+                    {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 12},
+                ];
+                const addable = [{value: "a.test.badge", label: "徽章"}, {value: "nbook.canon.skills", label: "技能"}];
+                return [
+                    {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "blocked", label: "写不了：添加不可用", input: {props: {items, addable, addReason: "先关掉算上计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], addable, panelId: "lab-panel"}, model: {modelValue: "text"}}},
+                ];
+            })(),
+            load: async () => (await import("./EntryPageNavFixture.vue")).default,
         }),
         defineLabFixture<typeof PositionPicker>({
             component: "PositionPicker",

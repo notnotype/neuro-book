@@ -9,6 +9,8 @@ import {afterEach, describe, expect, it} from "vitest";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {canonCatalogs} from "../text";
+import {ContextMenu, DropdownMenu} from "@notnotype/nb-ui/components";
+
 import EntryPage from "./EntryPage.vue";
 
 const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
@@ -25,7 +27,7 @@ const base = {
     sameAs: {id: "e1", name: "星瑕"},
     positions: [{value: "initial", label: "初值"}, {value: "1:end", label: "第 1 章末尾"}],
     position: "1:end",
-    tabs: [{value: "text", label: "文字"}, {value: "plot", label: "情节", count: 2}],
+    tabs: [{value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 2}],
     tab: "text",
 };
 
@@ -91,6 +93,59 @@ describe("EntryPage", () => {
         await wrapper.get("[data-entry-aliases] input").setValue("小瑕");
         await wrapper.get("[data-entry-aliases] input").trigger("keydown", {key: "Enter"});
         expect(wrapper.emitted("aliases")).toEqual([[{add: ["夜王"]}], [{add: ["哥哥大人"]}]]);
+    });
+
+    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的组时行尾有“＋”，选一项发 add-component、打开时发 add-open；更多里没有“添加一组设定”", async () => {
+        const wrapper = page({
+            editable: true,
+            tabs: [
+                {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own", removable: true},
+                {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own"},
+                {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view", count: 3},
+            ],
+            tab: "text",
+            addable: [{value: "nbook.canon.look", label: "形象"}],
+        });
+        const tabs = wrapper.findAll("[role='tablist'] [role='tab']").filter((tab) => tab.attributes("data-tab-value") !== undefined);
+        const segments = new Map(tabs.map((tab) => [tab.attributes("data-tab-value"), tab.attributes("data-segment-start") !== undefined]));
+        expect(Object.fromEntries(segments)).toEqual({"data:character": false, text: false, plot: true});
+        expect(wrapper.find("[role='tablist'] .i-lucide-user-round").exists()).toBe(true);
+        const add = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "nbook.canon.look"))!;
+        add.vm.$emit("update:open", true);
+        add.vm.$emit("select", "nbook.canon.look");
+        expect(wrapper.emitted("add-open")).toHaveLength(1);
+        expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
+        const more = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "delete"))!;
+        expect((more.props("items") as {id: string}[]).map((item) => item.id)).not.toContain("add-component");
+        // 没有能加的组时不出“＋”。
+        expect(page({editable: true}).find("[data-add-component]").exists()).toBe(false);
+    });
+
+    it("右键一页先选中它，菜单里有“添加一组设定”（下一级是能加的组）；是一组设定时另有“去掉这组设定”", async () => {
+        const wrapper = page({
+            editable: true,
+            tabs: [
+                {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own", removable: true},
+                {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own"},
+            ],
+            tab: "text",
+            addable: [{value: "nbook.canon.look", label: "形象"}],
+        });
+        const menu = () => wrapper.findComponent(ContextMenu);
+        const tabOf = (value: string) => wrapper.findAll(`[role='tab'][data-tab-value='${value}']`)[0]!;
+        await tabOf("data:character").trigger("contextmenu", {clientX: 5, clientY: 6});
+        expect(wrapper.emitted("update:tab")).toEqual([["data:character"]]);
+        expect(menu().props("open")).toBe(true);
+        type Item = {label?: string; separator?: boolean; children?: {label: string; action: () => void}[]; action?: () => void};
+        const items = menu().props("items") as Item[];
+        expect(items.map((item) => (item.separator === true ? "|" : item.label))).toEqual(["添加一组设定", "|", "去掉“人物”这组设定"]);
+        items[0]!.children![0]!.action();
+        items[2]!.action!();
+        expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
+        expect(wrapper.emitted("remove-component")).toHaveLength(1);
+        // 文字分页不是一组设定：没有“去掉”。
+        await tabOf("text").trigger("contextmenu", {clientX: 5, clientY: 6});
+        expect((menu().props("items") as Item[]).map((item) => item.label)).toEqual(["添加一组设定"]);
     });
 
     it("读取中、读取失败、找不到、已删除各只有一句，没有页头控件与分页", () => {

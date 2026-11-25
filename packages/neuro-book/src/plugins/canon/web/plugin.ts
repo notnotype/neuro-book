@@ -118,9 +118,11 @@ const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i
 /** 变更详情页：每条剧情变更一个标签，刷新后恢复。标题由约定键补（`editorPages.change.title`）。 */
 const CHANGE_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-milestone", instances: true, restore: true};
 
-/** canon 自己的内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
+/** canon 自己的内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`），图标各一个（author-ui.md 输出 9）。 */
 const PANEL_TYPE = "nbook.canon.panel";
-const BUILTIN_VIEW: ComponentViewDeclaration = {};
+const PERSON_VIEW: ComponentViewDeclaration = {uses: [LOOK_COMPONENT], icon: "i-lucide-user-round"};
+const LOOK_VIEW: ComponentViewDeclaration = {icon: "i-lucide-shirt"};
+const PANEL_VIEW: ComponentViewDeclaration = {icon: "i-lucide-gauge"};
 
 /** 把一个收 `{context}` 的组件交成数据分页的界面；`extra` 是固定给它的别的属性。 */
 function componentView(load: () => Promise<{default: unknown}>, extra: Record<string, unknown> = {}): ComponentViewImplementation {
@@ -166,9 +168,9 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_LANGUAGES_POINT, id: ENTRY_LANGUAGE, declaration: ENTRY_LANGUAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
             // 人物的立绘读自同一条目上的形象这一组（author-ui.md 输出 49）。
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: {uses: [LOOK_COMPONENT]}},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: BUILTIN_VIEW},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: PERSON_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: LOOK_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: PANEL_VIEW},
             ...Object.entries(CANON_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],
         activate: async (context) => {

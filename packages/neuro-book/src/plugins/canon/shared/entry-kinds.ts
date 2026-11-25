@@ -22,6 +22,8 @@ export const EntryKindDeclarationSchema = Type.Object({
     components: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     /** 新建对话框里的先后，小的在前。 */
     order: Type.Optional(Type.Number()),
+    /** 这个种类的条目页标签的图标：lucide 的类名；几条登记都写了时取内置的那一条（workbench/editor.md 输出 53）。 */
+    icon: Type.Optional(Type.String({minLength: 1, pattern: "^i-lucide-[a-z0-9-]+$"})),
 }, {additionalProperties: false});
 
 export type EntryKindDeclaration = Static<typeof EntryKindDeclarationSchema>;
@@ -40,6 +42,7 @@ export interface EntryKind {
     /** 默认带的设定组（类型 id），内置的在前、去重；还没核对是否登记了。 */
     readonly components: readonly string[];
     readonly order: number;
+    readonly icon?: string;
 }
 
 /** 内置登记的贡献 id 前缀（设定插件自己的，`plugin.ts` 的插件 id）。 */
@@ -51,20 +54,21 @@ const BUILTIN_PREFIX = "nbook.canon.";
  * `order` 取最小的，没写算最后。结果按 `order`、再按词排。
  */
 export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[]): readonly EntryKind[] {
-    const merged = new Map<string, {components: string[]; order: number}>();
+    const merged = new Map<string, {components: string[]; order: number; icon?: string}>();
     const builtinFirst = [...descriptors].sort((a, b) => Number(!a.id.startsWith(BUILTIN_PREFIX)) - Number(!b.id.startsWith(BUILTIN_PREFIX)));
     for (const {declaration} of builtinFirst) {
         const kind = declaration.kind.trim();
         const order = declaration.order ?? Number.POSITIVE_INFINITY;
         const held = merged.get(kind);
         if (held === undefined) {
-            merged.set(kind, {components: [...new Set(declaration.components ?? [])], order});
+            merged.set(kind, {components: [...new Set(declaration.components ?? [])], order, ...(declaration.icon === undefined ? {} : {icon: declaration.icon})});
             continue;
         }
         for (const type of declaration.components ?? []) if (!held.components.includes(type)) held.components.push(type);
         held.order = Math.min(held.order, order);
+        held.icon ??= declaration.icon;
     }
-    return [...merged].map(([kind, held]) => ({kind, components: held.components, order: held.order}))
+    return [...merged].map(([kind, held]) => ({kind, components: held.components, order: held.order, ...(held.icon === undefined ? {} : {icon: held.icon})}))
         .sort((a, b) => a.order - b.order || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
 }
 

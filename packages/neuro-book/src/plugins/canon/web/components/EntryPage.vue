@@ -5,13 +5,15 @@
  */
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
-import {Button, DropdownMenu, IconButton, Input, Tabs} from "@notnotype/nb-ui/components";
-import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
+import {Button, ContextMenu, DropdownMenu, IconButton, Input, Tabs} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem, DropdownMenuItemData, SelectOption, TabsItem} from "@notnotype/nb-ui/components";
 
 import type {LineOption} from "../../shared/reads";
 import {useCanonText} from "../text";
 import LineSelect from "./LineSelect.vue";
 import PositionPicker from "./PositionPicker.vue";
+import EntryPageNav from "./EntryPageNav.vue";
+import type {EntryTab} from "./entry-tabs";
 import WorldBanners from "./WorldBanners.vue";
 
 export type EntryPageStatus = "loading" | "failed" | "missing" | "deleted" | "normal";
@@ -37,7 +39,10 @@ const props = withDefaults(defineProps<{
     disconnected?: boolean;
     /** 世界只读的原因（输出 28）；可以写时为空。 */
     readOnly?: string;
-    tabs?: readonly TabsItem[];
+    /** 分页：设定组与文字一段、看法一段（输出 9）。 */
+    tabs?: readonly EntryTab[];
+    /** 能加的设定组（适用的在前，去掉过的写“恢复”）；空时不出“＋”。默认空。 */
+    addable?: readonly {readonly value: string; readonly label: string}[];
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
     deletable?: boolean;
@@ -59,7 +64,7 @@ const props = withDefaults(defineProps<{
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -77,7 +82,10 @@ const emit = defineEmits<{
     (event: "aliases", change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void;
     /** “更多”里的“移动到……”“添加一组设定……”“去掉这组设定”。 */
     (event: "move"): void;
-    (event: "add-component"): void;
+    /** 选了“＋”或右键菜单里的一组设定：宿主直接加上（输出 38）。 */
+    (event: "add-component", type: string): void;
+    /** “＋”的菜单打开了：宿主记下这时条目的版本，加的时候带它（输出 43）。 */
+    (event: "add-open"): void;
     (event: "remove-component"): void;
     /** 已删除页上的“恢复”。 */
     (event: "restore"): void;
@@ -97,7 +105,6 @@ const menuItems = computed(() => [
     ...(props.editable
         ? [
               {id: "move", label: text("entry.moveTo"), iconClass: "i-lucide-folder-input", disabled: blockedReason.value !== undefined},
-              {id: "add-component", label: text("entry.addComponent"), iconClass: "i-lucide-plus", disabled: blockedReason.value !== undefined},
               ...(props.removableGroup === "" ? [] : [{id: "remove-component", label: text("entry.removeComponent", {name: props.removableGroup}), iconClass: "i-lucide-minus", disabled: blockedReason.value !== undefined}]),
               {id: "sep-delete", label: "", separator: true},
           ]
@@ -107,9 +114,48 @@ const menuItems = computed(() => [
 const onMenu = (id: string): void => {
     if (id === "delete") emit("delete");
     else if (id === "move") emit("move");
-    else if (id === "add-component") emit("add-component");
     else if (id === "remove-component") emit("remove-component");
 };
+
+/* ---------- 分页：横排或竖排、“＋”、右键菜单（输出 9、38） ---------- */
+
+/** 横排的项：第一个看法前画一条分隔（`data-segment-start`）。 */
+const tabItems = computed<TabsItem[]>(() => {
+    const firstView = props.tabs.findIndex((item) => item.segment === "view");
+    return props.tabs.map((item, index) => ({
+        value: item.value,
+        label: item.label,
+        iconClass: item.iconClass,
+        id: tabId(item.value),
+        controls: PANEL_ID,
+        ...(item.count === undefined ? {} : {count: item.count}),
+        ...(index === firstView && index > 0 ? {attrs: {"data-segment-start": ""}} : {}),
+    }));
+});
+const addItems = computed<DropdownMenuItemData[]>(() => props.addable.map((item) => ({id: item.value, label: item.label})));
+const canAdd = computed(() => props.editable && props.addable.length > 0);
+
+// 右键一页：先选中它，菜单里是“添加一组设定”（下一级列出能加的）与这一页是设定组时的“去掉这组设定”。
+const context = shallowRef<{readonly value: string; readonly x: number; readonly y: number} | null>(null);
+const openContext = (value: string, at: {readonly x: number; readonly y: number}): void => {
+    if (!props.editable) return;
+    emit("update:tab", value);
+    context.value = {value, ...at};
+};
+const onStripContext = (event: MouseEvent): void => {
+    const value = (event.target as Element | null)?.closest<HTMLElement>("[data-tab-value]")?.dataset.tabValue;
+    if (value === undefined || !props.editable) return;
+    event.preventDefault();
+    openContext(value, {x: event.clientX, y: event.clientY});
+};
+const contextItems = computed<ContextMenuItem[]>(() => {
+    const target = props.tabs.find((item) => item.value === context.value?.value);
+    const disabled = blockedReason.value !== undefined;
+    return [
+        ...(canAdd.value ? [{label: text("entry.addComponentShort"), iconClass: "i-lucide-plus", disabled, ...(disabled ? {title: blockedReason.value} : {}), children: props.addable.map((item) => ({label: item.label, action: () => emit("add-component", item.value)}))}] : []),
+        ...(target?.removable === true ? [{separator: true}, {label: text("entry.removeComponent", {name: target.label}), iconClass: "i-lucide-minus", disabled, ...(disabled ? {title: blockedReason.value} : {}), action: () => emit("remove-component")}] : []),
+    ];
+});
 
 // 加别名：点“添加别名”出一个输入框，回车或失焦时非空就加上（已有的不再加），Escape 放弃。收起先于发出：回车以后输入框卸载
 // 引起的失焦不再加一次。
@@ -134,7 +180,7 @@ const cancelAlias = (): void => {
 
 /**
  * 量三个尺寸：页头吸顶时的高度、滚动区看得到的高度与宽度。前两个写成根上的 CSS 变量，给分页里要吸在页头下面的东西（主文字
- * 的预览栏，输出 48）用；页头不吸顶（窄屏）时高度是 0。宽度决定 `wide` 生不生效。滚动区是最近的会纵向滚动的上级（编辑区的
+ * 的预览栏，输出 48；竖排的分页）用；页头不吸顶（窄屏）时高度是 0。宽度决定分页竖排还是横排、`wide` 生不生效。滚动区是最近的会纵向滚动的上级（编辑区的
  * 页面容器），本组件只量它、不改它。
  */
 const root = ref<HTMLElement | null>(null);
@@ -161,6 +207,8 @@ onMounted(() => {
     scroller = scrollParent(root.value);
     sizes = new ResizeObserver(measure);
     if (scroller !== null) sizes.observe(scroller);
+    // 先量一次：分页竖排还是横排在第一次画之前就定，不先画横排再跳成竖排。
+    measure();
     if (header.value !== null) sizes.observe(header.value);
 });
 // 页头只在读到条目以后才有：出现、换掉时改量新的那个。
@@ -172,11 +220,25 @@ watch(header, (now, before) => {
 onBeforeUnmount(() => sizes?.disconnect());
 const stickyStyle = computed(() => ({"--entry-page-sticky-top": `${String(sticky.value.top)}px`, ...(sticky.value.viewport > 0 ? {"--entry-page-viewport": `${String(sticky.value.viewport)}px`} : {})}));
 /**
- * 滚动区不窄于这个宽度才放宽：内容列左右各 32 像素的内边距，里面的编辑视图要 880 像素才左右分屏（`EntryTextEditor` 的容器
- * 查询）。窄于它时放宽了也还是上下排，页头与内容白白变一次宽度。
+ * 分页竖排（输出 9）：滚动区不窄于 1040 时换成内容左边的竖排，窄于 1024 时换回页头下面的横排，两个阈值之间保持原样，宽度在
+ * 临界处抖动时不来回切。竖排时导航与间距（200 像素）算进列宽：页头跨整列，内容在导航右边，净宽仍是 760。
  */
-const WIDE_MIN = 880 + 64;
-const column = computed(() => (props.wide && sticky.value.width >= WIDE_MIN ? "entry-page__column entry-page__column--wide" : "entry-page__column"));
+const RAIL_ENTER = 1040;
+const RAIL_LEAVE = 1024;
+const RAIL_WIDTH = 200;
+const railOn = ref(false);
+watch(() => sticky.value.width, (width) => {
+    if (width >= RAIL_ENTER) railOn.value = true;
+    else if (width < RAIL_LEAVE) railOn.value = false;
+}, {immediate: true});
+/** 主文字要两栏（`wide`）而宽度放不下导航加两栏时，先让出导航：编辑时左右分屏比竖排的分页要紧。 */
+const rail = computed(() => railOn.value && props.tabs.length > 0 && !(props.wide && sticky.value.width < 880 + 64 + RAIL_WIDTH));
+/**
+ * 滚动区不窄于这个宽度才放宽：内容列左右各 32 像素的内边距，里面的编辑视图要 880 像素才左右分屏（`EntryTextEditor` 的容器
+ * 查询）；竖排时再加上导航。窄于它时放宽了也还是上下排，页头与内容白白变一次宽度。
+ */
+const wideMin = computed(() => 880 + 64 + (rail.value ? RAIL_WIDTH : 0));
+const column = computed(() => ["entry-page__column", ...(rail.value ? ["entry-page__column--rail"] : []), ...(props.wide && sticky.value.width >= wideMin.value ? ["entry-page__column--wide"] : [])]);
 
 const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
@@ -267,18 +329,39 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         </DropdownMenu>
                     </div>
                 </div>
-                <!-- 一组设定一个分页，分页会比一行多：放不下时逐级让位、收进“更多”，分页条自己不横向滚动（author-ui 输出 9、32）。 -->
-                <div class="mx-auto mt-3" :class="column">
-                    <Tabs size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                <!-- 一组设定一个分页，分页会比一行多：放不下时逐级让位、收进“更多”，分页条自己不横向滚动（author-ui 输出 9、32）。宽时换成内容左边的竖排。 -->
+                <div v-if="!rail" class="mx-auto mt-3 flex items-end gap-1" :class="column" @contextmenu="onStripContext">
+                    <Tabs class="entry-page__tabs min-w-0 flex-[1_1_auto]" size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                    <DropdownMenu v-if="canAdd" align="end" :items="addItems" :disabled="blockedReason !== undefined" @select="(id: string) => emit('add-component', id)" @update:open="(open: boolean) => open && emit('add-open')">
+                        <IconButton class="mb-1 shrink-0" size="sm" icon-class="i-lucide-plus" :disabled="blockedReason !== undefined" :aria-label="text('entry.addComponentShort')" :title="blockedReason ?? text('entry.addComponentShort')" data-add-component />
+                    </DropdownMenu>
                 </div>
+                <div v-else class="h-4" />
             </header>
-            <div class="mx-auto py-5" :class="column">
-                <slot name="bar" />
-                <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)">
-                    <slot />
+            <div class="mx-auto py-5" :class="[column, rail ? 'entry-page__body--rail' : '']">
+                <EntryPageNav
+                    v-if="rail"
+                    class="entry-page__nav"
+                    :items="props.tabs"
+                    :model-value="props.tab"
+                    :addable="canAdd ? props.addable : []"
+                    :add-reason="blockedReason ?? ''"
+                    :tab-id="tabId"
+                    :panel-id="PANEL_ID"
+                    @update:model-value="(value: string) => emit('update:tab', value)"
+                    @add-component="(type: string) => emit('add-component', type)"
+                    @add-open="emit('add-open')"
+                    @context="openContext"
+                />
+                <div class="min-w-0">
+                    <slot name="bar" />
+                    <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)">
+                        <slot />
+                    </div>
                 </div>
             </div>
         </template>
+        <ContextMenu :open="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @update:open="(open: boolean) => open || (context = null)" />
     </article>
 </template>
 
@@ -287,13 +370,42 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
  * 页头、分页条与内容列同一个上限，放宽时一起变（主文字左右分屏，输出 48）。放宽后内容列净宽 1496 像素，两栏各约 736，不超过
  * 一栏时的 760。上限的变化不加过渡：过渡的中途内容列会越过左右分屏的分界，版式在动画中间跳一下。
  */
-/* 内边距放在列里面：页头、分页与内容左边对齐，内容净宽 760（人物分页的短资料两列排得开）。 */
+/* 内边距放在列里面：页头、分页与内容左边对齐，内容净宽 760（人物分页的短资料两列排得开）。竖排时加上导航与间距。 */
 .entry-page__column {
-    max-width: calc(760px + 64px);
+    --entry-page-rail: 0px;
+    max-width: calc(760px + 64px + var(--entry-page-rail));
     padding-inline: 32px;
 }
+.entry-page__column--rail {
+    --entry-page-rail: 200px;
+}
 .entry-page__column--wide {
-    max-width: calc(1496px + 64px);
+    max-width: calc(1496px + 64px + var(--entry-page-rail));
+}
+.entry-page__body--rail {
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr);
+    column-gap: 32px;
+}
+/* 竖排的分页吸在页头下面，内容往下滚时它还在。 */
+.entry-page__nav {
+    position: sticky;
+    top: calc(var(--entry-page-sticky-top, 0px) + 20px);
+    align-self: start;
+}
+/* 横排的两段之间一条竖线，画在第一个看法的左边。 */
+.entry-page__tabs :deep([data-segment-start]) {
+    margin-left: 17px;
+    position: relative;
+}
+.entry-page__tabs :deep([data-segment-start])::before {
+    content: "";
+    position: absolute;
+    left: -9px;
+    top: 30%;
+    bottom: 30%;
+    width: 1px;
+    background: var(--divider);
 }
 @media (max-width: 480px) {
     .entry-page__column {

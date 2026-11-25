@@ -9,12 +9,12 @@ import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
-import {Dialog, Popover, SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
-import type {CanonClient, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
 import type {EntryKind} from "../../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
@@ -51,6 +51,8 @@ import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
+import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
+import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
 import ElementDialog from "./ElementDialog.vue";
 import type {ElementField} from "./element-dialog";
@@ -177,6 +179,9 @@ const namespaces = computed(() => Object.keys(view.value?.namespaces ?? {}));
 const componentsRead = useWorldRead(world, "components", () => ({}));
 /** 作品里有没有计划中的情节：没有时时间点里不出“算上计划中的情节”（输出 7）。只要总数，读一条。 */
 const plans = useWorldList(world, "changes", () => ({filter: {kind: "plan" as const}}), 1);
+/** 作品里有没有剧情变更：没有时“情节”与声明了 `needsChanges` 的附加分页不出（输出 9）。 */
+const anyChanges = useWorldList(world, "changes", () => ({}), 1);
+const storyStarted = computed(() => (anyChanges.state.value?.data?.total ?? 0) > 0);
 const canPlan = computed(() => (plans.state.value?.data?.total ?? 0) > 0 || state.planned);
 const typeLabel = (type: string): string => componentsRead.value?.data?.items.find((item) => item.id === type)?.label ?? type;
 
@@ -207,25 +212,34 @@ const leadingTypes = computed(() => {
     const kind = entry.value?.kind?.trim();
     return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
 });
-const tabs = computed(() => {
-    const items: {value: string; label: string; count?: number}[] = [];
+/**
+ * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
+ * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。
+ */
+const tabs = computed<EntryTab[]>(() => {
+    const items: EntryTab[] = [];
+    const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
     const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
-        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)}};
+        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title), iconClass: iconOf(type), segment: "own" as const, removable: true}};
     });
     for (const tab of data) if (tab.leading) items.push(tab.item);
     // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
-    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
+    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text"), iconClass: TEXT_ICON, segment: "own"});
     for (const tab of data) if (!tab.leading) items.push(tab.item);
     // 声明经约定键补全过，`title` 总在。
-    for (const item of extraTabs.value) items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!)});
+    for (const item of extraTabs.value) {
+        if (item.declaration.needsChanges === true && !storyStarted.value) continue;
+        items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!), iconClass: item.declaration.icon ?? EXTRA_ICON, segment: "view"});
+    }
     const total = plot.state.value?.data?.total;
-    items.push({value: "plot", label: text("entry.tabs.plot"), ...(total === undefined ? {} : {count: total})});
+    if (storyStarted.value || (total ?? 0) > 0) items.push({value: "plot", label: text("entry.tabs.plot"), iconClass: PLOT_ICON, segment: "view", ...(total === undefined || total === 0 ? {} : {count: total})});
     return items;
 });
 // 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
-const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0]! : tabs.value[0]!).value);
+// 条目还没读到、作品里也没有剧情时分页是空的（“情节”不出），这时先按文字。
+const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0] : tabs.value[0])?.value ?? "text");
 // 有没提交的主文字稿时先看文字（直接进编辑，输出 45），排在它前面的人物分页这时不当缺省（输出 9）。稿是读完存储才知道的：读到时
 // 作者还没自己点过分页，就把分页定在文字上（记进标签状态），提交、放弃以后不跳回人物分页。
 watch(() => props.draft.state.draft !== null, (editing) => {
@@ -418,19 +432,32 @@ const openDialog = (): void => {
     dialogError.value = "";
     dialogBase = version();
 };
-/** 发一批操作；成功给保存后的提示。对话框里的写入带打开时的版本，失败写在对话框里；页头的写入（`head`）失败写在页头下面。 */
-const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative", from: "dialog" | "head" = "dialog"): Promise<boolean> => {
+/**
+ * “＋”与右键菜单里的“添加一组设定”打开时条目的版本（输出 43，同对话框）：点一项加上时带它；菜单开着的时候别处改了这个条目就
+ * 得到冲突。用过一次就清掉。
+ */
+let menuBase: number | null = null;
+const openAddMenu = (): void => {
+    menuBase = version();
+};
+/**
+ * 发一批操作；成功给保存后的提示。对话框里的写入带打开时的版本，失败写在对话框里；页头的写入（`head`）与菜单里的写入（`menu`，
+ * 带菜单打开时的版本）失败写进浮动提示的失败那一行。
+ */
+const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative", from: "dialog" | "head" | "menu" = "dialog", explain?: (failure: CanonFailure) => Text | null): Promise<boolean> => {
     if (acting.value) return false;
     acting.value = true;
     const error = from === "dialog" ? dialogError : actionError;
     error.value = "";
-    const baseVersion = from === "dialog" && dialogBase !== null ? dialogBase : version();
+    const base = from === "dialog" ? dialogBase : from === "menu" ? menuBase : null;
+    if (from === "menu") menuBase = null;
+    const baseVersion = base ?? version();
     const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion, title, intent, position: position.value, ops}});
     acting.value = false;
     if (!result.ok) {
-        const changed = from === "dialog" && result.failure.code === "version-conflict";
-        if (changed) dialogBase = null;
-        error.value = port.t(changed ? text("edit.changedElsewhere") : failureText(result.failure).text);
+        const changed = from !== "head" && result.failure.code === "version-conflict";
+        if (changed && from === "dialog") dialogBase = null;
+        error.value = port.t(changed ? text("edit.changedElsewhere") : explain?.(result.failure) ?? failureText(result.failure).text);
         return false;
     }
     props.notices.show({revision: result.value.revision, title});
@@ -443,10 +470,8 @@ const changeAliases = (change: {readonly add?: readonly string[]; readonly remov
 };
 const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
 
-// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个条目种类的
-// （类型的 `kinds` 含它）排在前面，其余照登记的顺序接在后面（输出 38）。
-const addOpen = shallowRef(false);
-const addType = shallowRef("");
+// 加一组设定（输出 38）：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个
+// 条目种类的（类型的 `kinds` 含它）排在前面，其余照登记的顺序接在后面。分页条末尾的“＋”与右键菜单里点一项就加上。
 const addableTypes = computed(() => {
     const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
     const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
@@ -455,13 +480,19 @@ const addableTypes = computed(() => {
     const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
     return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
-const confirmAdd = async (): Promise<void> => {
-    const type = addType.value;
-    if (type === "") return;
-    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})))) {
-        addOpen.value = false;
-        state.tab = `${DATA}${componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? ""}`;
+/** 刚加上、等它出现在读取结果里再切过去的那一组的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
+const pendingTab = shallowRef<string | null>(null);
+watch([pendingTab, namespaces], ([pending, present]) => {
+    if (pending !== null && present.includes(pending)) {
+        state.tab = `${DATA}${pending}`;
+        pendingTab.value = null;
     }
+});
+const addComponent = async (type: string): Promise<void> => {
+    const namespace = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
+    // 菜单开着的时候别处已经加上了这一组：内核按这一处的 `id-taken` 拒收，写成作者看得懂的一句。
+    const alreadyAdded = (failure: CanonFailure): Text | null => (failure.code === "validation-failed" && Array.isArray(failure.problems) && (failure.problems[0] as {code?: unknown} | undefined)?.code === "id-taken" ? text("entry.groupAlreadyAdded") : null);
+    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})), "creative", "menu", alreadyAdded)) pendingTab.value = namespace;
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
 /** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
@@ -1065,7 +1096,9 @@ const setPosition = (value: string): void => {
             @edit-summary="(anchor: HTMLElement) => openHead('summary', anchor)"
             @aliases="changeAliases"
             @restore="restore()"
-            @add-component="addType = addableTypes[0]?.value ?? ''; openDialog(); addOpen = true"
+            :addable="addableTypes"
+            @add-open="openAddMenu()"
+            @add-component="addComponent"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
@@ -1161,21 +1194,6 @@ const setPosition = (value: string): void => {
                 <component :is="extraView.component" v-else-if="extraView.component !== null" :key="extraTab" :context="tabContextFor(extraTab)" />
             </template>
         </EntryPage>
-        <Dialog
-            :open="addOpen"
-            size="sm"
-            :title="text('entry.addComponentTitle')"
-            show-cancel
-            :confirm-label="text('entry.addComponentConfirm')"
-            :busy="acting"
-            :close-on-request="!acting"
-            @update:open="(value: boolean) => (addOpen = value)"
-            @confirm="confirmAdd()"
-        >
-            <p v-if="addableTypes.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.noMoreGroups") }}</p>
-            <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
-            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
-        </Dialog>
         <ElementDialog
             v-if="elementDraft !== null"
             :open="elementOpen"

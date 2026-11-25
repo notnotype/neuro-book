@@ -23,7 +23,7 @@ import {CANON_ENTRY_TABS_POINT, validateEntryTabContribution} from "../shared/en
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWorld} from "../testing/node-world";
 import {pageStandIn} from "../testing/page-stand-in";
-import {person, publish} from "../testing/world-fixtures";
+import {change, person, publish} from "../testing/world-fixtures";
 import {ENTRY_PAGE} from "./commands";
 import type {EntryTabContext} from "./component-views";
 import type {EntryPageState} from "./entry-page";
@@ -59,8 +59,11 @@ const tabsPlugin: PluginDefinition = {
     id: "test.tabs",
     entries: [{
         id: "browser", location: "browser", activationEvents: ["onStartup"],
-        contributions: [{capability: CANON_ENTRY_TABS_POINT, id: "test.tabs.story", declaration: {title: "经历", requires: "nbook.canon.person"}}],
-        activate: () => ({contributions: {[CANON_ENTRY_TABS_POINT]: {"test.tabs.story": {load: async () => StoryTab}}}}),
+        contributions: [
+            {capability: CANON_ENTRY_TABS_POINT, id: "test.tabs.story", declaration: {title: "经历", requires: "nbook.canon.person"}},
+            {capability: CANON_ENTRY_TABS_POINT, id: "test.tabs.trail", declaration: {title: "足迹", requires: "nbook.canon.person", needsChanges: true}},
+        ],
+        activate: () => ({contributions: {[CANON_ENTRY_TABS_POINT]: {"test.tabs.story": {load: async () => StoryTab}, "test.tabs.trail": {load: async () => StoryTab}}}}),
     }],
 };
 
@@ -88,9 +91,14 @@ describe("条目页的附加分页", () => {
         };
 
         const starPage = open(ids[star.id]!);
-        await waitUntil("分页出来", () => tabNames(starPage).some((name) => name.startsWith("情节")));
+        // 作品里还没有剧情变更：“情节”与声明了 needsChanges 的“足迹”不出，“经历”照出（输出 9、36）。
+        await waitUntil("经历出来", () => tabNames(starPage).includes("经历"));
+        expect(tabNames(starPage).some((name) => name.startsWith("情节") || name === "足迹")).toBe(false);
+        await publish(other.canon, [change(ids[star.id]!, "1", "买了书", -100)]);
+        await waitUntil("有了剧情变更以后出来", () => tabNames(starPage).some((name) => name.startsWith("情节")) && tabNames(starPage).includes("足迹"));
         const names = tabNames(starPage);
-        expect(names.indexOf("经历")).toBe(names.findIndex((name) => name.startsWith("情节")) - 1);
+        expect(names.indexOf("足迹")).toBe(names.findIndex((name) => name.startsWith("情节")) - 1);
+        expect(names.indexOf("经历")).toBe(names.indexOf("足迹") - 1);
         expect(names.indexOf("经历")).toBeGreaterThan(names.indexOf("面板"));
 
         await starPage.findAll('[role="tab"]').find((tab) => tab.text().trim() === "经历")!.trigger("click");

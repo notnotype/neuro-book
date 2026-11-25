@@ -126,7 +126,8 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(page.locator("[data-notice-bar]")).toContainText("新建“星瑕”");
 
     // 新建人物带人物与形象两组，先看人物分页（author-ui 输出 4、9、37）；性格未知，点它在原处就地改（输出 51）。
-    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^经历/u, /^情节/u]);
+    // 空作品里还没有剧情变更：经历与情节不出（author-ui 输出 9）。
+    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u]);
     await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = page.locator("[data-field-editor=\"character.性格\"]");

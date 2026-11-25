@@ -72,6 +72,8 @@ const inlineEditor = (page: Page, path: string) => page.locator(`[data-field-edi
 /** 切到文字分页：人物的条目打开时先看人物分页（输出 9）。 */
 const textTab = (page: Page) => entryPage(page).getByRole("tab", {name: "文字"}).click();
 /** 时间点的按钮（author-ui 输出 7）：写当前位置，点开是各位置的单选。 */
+/** 条目页各分页的名字：只剩图标时取可访问名（`aria-label`），条数不算。 */
+const tabNames = (page: Page): Promise<string[]> => entryPage(page).getByRole("tab").evaluateAll((tabs) => tabs.map((tab) => (tab.getAttribute("aria-label") ?? tab.textContent ?? "").replace(/\s*\d+$/u, "").trim()));
 const positionSelect = (page: Page) => entryPage(page).locator("[data-position-trigger]");
 const statusBar = (page: Page) => page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']");
 /** 状态栏的“待处理 N”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
@@ -121,7 +123,8 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await expect(activeTabLabel(page)).toHaveText("星瑕");
     // 人物的条目先看人物分页，形象跟在后面、文字在它们之后（输出 9）。
     await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
-    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^面板/u, /^经历/u, /^情节/u]);
+    // 编辑区窄时没选中的分页只剩图标（author-ui 输出 9），名字在可访问名里。
+    await expect.poll(() => tabNames(page)).toEqual(["人物", "形象", "文字", "面板", "经历", "情节"]);
     await textTab(page);
 
     const latest = await value(page, "panel.存款").innerText();
@@ -317,6 +320,22 @@ async function horizontalScrolls(root: Locator): Promise<string[]> {
 }
 
 // 设定视图不在这里量：390 宽时工作台把侧栏让给编辑区，点活动栏也不出来。
+test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左边竖排、不横向滚动，窄了换回页头下面的横排；两种排法选中同一页", async ({page}) => {
+    await page.setViewportSize({width: 1920, height: 1000});
+    await open(page);
+    await openEntry(page, "星瑕");
+    const nav = entryPage(page).locator("[data-entry-page-nav]");
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole("tab")).not.toHaveCount(0);
+    await nav.getByRole("tab", {name: /^面板/u}).click();
+    await expect(nav.getByRole("tab", {name: /^面板/u})).toHaveAttribute("aria-selected", "true");
+    expect(await horizontalScrolls(entryPage(page))).toEqual([]);
+
+    await page.setViewportSize({width: 1440, height: 900});
+    await expect(nav).toHaveCount(0);
+    await expect(entryPage(page).getByRole("tab", {name: /^面板/u})).toHaveAttribute("aria-selected", "true");
+});
+
 test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动", async ({page}) => {
     await open(page);
     const narrow = async (root: Locator): Promise<void> => {

@@ -98,7 +98,8 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await page.locator("[data-new-entry] input").first().fill("星瑾");
     await dialog.getByRole("button", {name: "新建", exact: true}).click();
     await expect(tab(page, "人物")).toHaveAttribute("aria-selected", "true");
-    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^经历/u, /^情节/u]);
+    // 空作品里还没有剧情变更：经历与情节不出（author-ui 输出 9）。
+    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u]);
     const card = entryPage(page).locator("[data-character-card]");
     await expect(card.locator("[data-fact='性别']")).toContainText("填写");
     await expect(card.locator("[data-portrait]")).toHaveAttribute("data-portrait", "no-image");

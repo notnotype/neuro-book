@@ -98,8 +98,8 @@ export const BUILTIN_COMPONENTS: readonly ComponentDeclaration[] = [
  * （内置设定组清单的第三期补）。顶层声明，插件描述里登记。
  */
 export const BUILTIN_ENTRY_KINDS: readonly {readonly id: string; readonly declaration: EntryKindDeclaration}[] = [
-    {id: "nbook.canon.person", declaration: {kind: ENTRY_KINDS.person, components: [PERSON_COMPONENT, LOOK_COMPONENT], order: 0}},
-    {id: "nbook.canon.organization", declaration: {kind: ENTRY_KINDS.organization, order: 1}},
-    {id: "nbook.canon.place", declaration: {kind: ENTRY_KINDS.place, order: 2}},
-    {id: "nbook.canon.item", declaration: {kind: ENTRY_KINDS.item, order: 3}},
+    {id: "nbook.canon.person", declaration: {kind: ENTRY_KINDS.person, components: [PERSON_COMPONENT, LOOK_COMPONENT], order: 0, icon: "i-lucide-user-round"}},
+    {id: "nbook.canon.organization", declaration: {kind: ENTRY_KINDS.organization, order: 1, icon: "i-lucide-building-2"}},
+    {id: "nbook.canon.place", declaration: {kind: ENTRY_KINDS.place, order: 2, icon: "i-lucide-map-pin"}},
+    {id: "nbook.canon.item", declaration: {kind: ENTRY_KINDS.item, order: 3, icon: "i-lucide-package"}},
 ];

@@ -13,7 +13,6 @@ import {defineComponent, h, reactive, ref} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
-import {Select} from "@notnotype/nb-ui/components";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -291,22 +290,23 @@ describe("条目页", () => {
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper, state} = await open(id);
         const tabs = () => wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
-        await waitUntil("分页", () => tabs().includes("文字") && tabs().some((tab) => tab.startsWith("情节")));
-        expect(tabs()).toEqual(["人物", "文字", "面板", "情节0"]);
+        // 作品里还没有剧情变更：没有“情节”（输出 9）。
+        await waitUntil("分页", () => tabs().includes("文字") && tabs().includes("面板"));
+        expect(tabs()).toEqual(["人物", "文字", "面板"]);
         await waitUntil("先看人物", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "人物");
 
-        wrapper.findComponent(EntryPage).vm.$emit("add-component");
-        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
-        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "徽章"))!;
-        expect(groups.props("options").map((option) => option.label)).toEqual(["形象", "徽章"]);
+        // “＋”里能加的：适用于人物的（形象）在前，其余（徽章）接在后面。
+        const addable = () => (wrapper.findComponent(EntryPage).props("addable") as readonly {label: string}[]).map((item) => item.label);
+        await waitUntil("能加的组", () => addable().includes("徽章"));
+        expect(addable()).toEqual(["形象", "徽章"]);
 
         // 种类不是人物的条目：分页照旧，文字在前。
         const item = person("魔杖", {type: "物品"});
         const itemId = (await publish(other.canon, [item]))[item.id]!;
         const other2 = await open(itemId);
         const tabs2 = () => other2.wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
-        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().some((tab) => tab.startsWith("情节")));
-        expect(tabs2()).toEqual(["文字", "人物", "面板", "情节0"]);
+        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().includes("面板"));
+        expect(tabs2()).toEqual(["文字", "人物", "面板"]);
     });
 
     it("人物条目有没提交的主文字稿时，打开页面选“文字”、直接在编辑里（输出 9、45）", async () => {
@@ -425,9 +425,9 @@ describe("读取次数", () => {
         await publish(other.canon, [change(id, "2", "买了书", -300)]);
         await waitUntil("条目页更新", () => valueText(entry) === "700");
         const reads = counted.calls.slice(before).map((call) => call.method).sort();
-        // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页、作品里有没有计划（时间点的勾选项，输出 7），加上读取层自己的
-        // status：每个一次，不多读。
-        expect(reads).toEqual(["changes", "changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
+        // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页、作品里有没有计划（时间点的勾选项，输出 7）、有没有剧情变更
+        // （“情节”出不出，输出 9），加上读取层自己的 status：每个一次，不多读。
+        expect(reads).toEqual(["changes", "changes", "changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
     });
 
     it("换过的读取不再占着：换到读过的位置、离开文字分页以后，一次发布只重读在用的", async () => {
@@ -451,12 +451,14 @@ describe("读取次数", () => {
         await waitUntil("第 1 章开头读到", () => counted.calls.some((call) => call.method === "entry" && JSON.stringify(call.input).includes('"edge":"start"')));
         await waitUntil("第 1 章开头显示出来", () => entry.find("[data-value]").exists());
         state.position = null;
-        state.tab = "plot";
-        await waitUntil("情节分页", () => entry.find("[data-plot-list]").exists());
+        state.tab = "data:panel";
+        // 这里没有登记专门界面：面板分页是通用字段表。
+        const money = (): string => entry.find("[role='tabpanel']").text();
+        await waitUntil("面板分页", () => entry.find("[data-edit='panel.存款']").exists() && money().includes("1,000"));
 
         const before = counted.calls.length;
         await publish(other.canon, [change(id, "2", "买了书", -300)]);
-        await waitUntil("情节更新", () => entry.findAll("[data-change]").length === 1);
+        await waitUntil("值更新", () => money().includes("700"));
         const reads = counted.calls.slice(before).filter((call) => call.method === "entry" || call.method === "render");
         expect(reads.map((call) => call.method)).toEqual(["entry"]);
         expect(JSON.stringify(reads[0]!.input)).toContain('"edge":"end"');
@@ -560,14 +562,14 @@ describe("写入", () => {
         await waitUntil("确认对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("数据会保留") === true);
         [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "去掉")!.click();
         await waitUntil("人物分页没了", () => !wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
-        wrapper.findComponent(EntryPage).vm.$emit("add-component");
-        // 可以加的不止一组（还有形象），缺省选中的是第一组：下拉里选“恢复‘人物’”。下拉是弹出层，这里直接发它选中后的事件。
-        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
-        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "恢复“人物”"))!;
-        groups.vm.$emit("update:modelValue", "nbook.canon.person");
-        await waitUntil("选中要恢复的那一组", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("恢复“人物”") === true);
-        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "添加")!.click();
-        await waitUntil("人物分页回来", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
+        // 分页条末尾的“＋”列出能加的组，去掉过的写“恢复”；点一项就加上（输出 38）。菜单是弹出层，这里看交给它的项、直接发它
+        // 选中后的事件。加上以后等分页出现再切过去。
+        const addable = () => wrapper.findComponent(EntryPage).props("addable") as readonly {value: string; label: string}[];
+        await waitUntil("能恢复人物", () => addable().some((item) => item.label === "恢复“人物”"));
+        wrapper.findComponent(EntryPage).vm.$emit("add-open");
+        wrapper.findComponent(EntryPage).vm.$emit("add-component", "nbook.canon.person");
+        await waitUntil("人物分页回来、切过去了", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物") && tab.attributes("aria-selected") === "true"));
+        expect(document.body.querySelector("[role='dialog']")).toBeNull();
 
         // 删除以后的页面有“恢复”。
         wrapper.findComponent(EntryPage).vm.$emit("delete");
