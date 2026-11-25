@@ -5,9 +5,11 @@
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
+import {betterAuth} from "better-auth";
 
+import {identityAuthOptions} from "../auth";
 import {createTestDbRoot, type TestDbRoot} from "../testing/db";
-import {createTestAuth, recordingLog} from "../testing/library";
+import {createTestAuth, recordingLog, TEST_SECRET, TEST_SITE_URL, TEST_TERMS_VERSION} from "../testing/library";
 import {IdentityConnection} from "./connection";
 import {insertCredentialRow, insertUserRow, libDate, libDateMs} from "./library-rows";
 
@@ -27,9 +29,15 @@ afterEach(async () => {
     await viaModule.cleanup();
 });
 
+/**
+ * 产品装配的库，只去掉建账号前的社交钩子：它只许库在社交回调里建 `account` 行（`social/hooks.ts`），这里是直接调库的内部接口量
+ * 存法。别的钩子照旧，那个钩子也不改密码登录方式的行（它只把令牌列置空，这一行本来就是空的）。
+ */
 async function libraryOn(root: TestDbRoot) {
     const conn = new IdentityConnection(root.open(), {log: recordingLog()});
-    return (await createTestAuth(conn).$context).internalAdapter;
+    const options = identityAuthOptions({conn, siteUrl: TEST_SITE_URL, secret: TEST_SECRET, sessionDays: 30, termsVersion: TEST_TERMS_VERSION, clock: {now: () => Date.now()}, log: recordingLog()});
+    const {create: _socialOnly, ...accountHooks} = options.databaseHooks.account;
+    return (await betterAuth({...options, databaseHooks: {...options.databaseHooks, account: accountHooks}}).$context).internalAdapter;
 }
 
 function rawRows(root: TestDbRoot, table: "user" | "account"): unknown[] {

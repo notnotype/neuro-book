@@ -3,7 +3,7 @@
  * 与它们带进来的第三方依赖；测试运行器、平台内置模块、测试支持包的临时目录与等待工具不在其内。允许清单与理由在
  * 本包的 `AGENTS.md`，这里照清单检查：
  * - 所有源文件（连同测试文件）只导入两个合同包、`typebox`（合同包的 schema 本身就是 TypeBox，用它核对响应的形状）、`bun:test`、
- *   `node:` 内置模块、测试支持包的 `/tmp` 与 `/wait`；
+ *   `node:` 内置模块、测试支持包的 `/tmp`、`/wait` 与 `/oauth-upstream`（仿真的社交上游：它替的是第三方，不是被测系统）；
  * - `bun:sqlite` 只许出现在故障注入、备份核对与读聚合计数的辅助文件里：它们按 Spec 写明的数据目录布局直接碰库文件；
  * - 本文件另许测试支持包的 `/import-boundary`，它就是做这项检查的工具；
  * - 相对导入落在本包的 `src/` 里；
@@ -30,7 +30,7 @@ const CONTRACTS = ["@notnotype/nb-site-identity-contract", "@notnotype/nb-site-t
 const RUNTIME_EXTRA = ["typebox"];
 const DEV_WORKSPACE = ["@notnotype/nb-site-server", "@notnotype/neuro-book-test-support"];
 
-const BASE_PACKAGES = [/^@notnotype\/nb-site-(?:identity|telemetry)-contract$/u, /^typebox(?:\/value)?$/u, /^bun:test$/u, /^node:[a-z_/]+$/u, /^@notnotype\/neuro-book-test-support\/(?:tmp|wait)$/u];
+const BASE_PACKAGES = [/^@notnotype\/nb-site-(?:identity|telemetry)-contract$/u, /^typebox(?:\/value)?$/u, /^bun:test$/u, /^node:[a-z_/]+$/u, /^@notnotype\/neuro-book-test-support\/(?:tmp|wait|oauth-upstream)$/u];
 /** 相对 `src/` 的路径；可以直接打开库文件的辅助文件。 */
 const SQLITE_FILES = new Set(["testing/fault.ts", "testing/backup.ts", "testing/aggregate.ts"]);
 const SELF = "boundary.test.ts";
@@ -86,6 +86,8 @@ describe("合同测试的导入边界", () => {
         expect(offendingSpecifiers(helper, importStatement("bun:sqlite"), ruleFor(helper))).toEqual(["bun:sqlite"]);
         expect(offendingSpecifiers(helper, importStatement("typebox/compile"), ruleFor(helper))).toEqual(["typebox/compile"]);
         expect(offendingSpecifiers(helper, importStatement("typebox/value"), ruleFor(helper))).toEqual([]);
+        expect(offendingSpecifiers(helper, importStatement("@notnotype/neuro-book-test-support/oauth-upstream"), ruleFor(helper))).toEqual([]);
+        expect(offendingSpecifiers(helper, importStatement("@notnotype/neuro-book-test-support/bun-sqlite"), ruleFor(helper))).toEqual(["@notnotype/neuro-book-test-support/bun-sqlite"]);
         expect(offendingSpecifiers(helper, importStatement("../../../nb-site-server/src/main"), ruleFor(helper))).toEqual(["../../../nb-site-server/src/main"]);
         const fault = join(SOURCE_ROOT, "testing", "fault.ts");
         expect(offendingSpecifiers(fault, importStatement("bun:sqlite"), ruleFor(fault))).toEqual([]);

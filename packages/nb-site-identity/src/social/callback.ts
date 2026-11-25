@@ -49,9 +49,9 @@ const LANDING: Readonly<Record<SocialIntent, {readonly ok: string; readonly fail
 const STATE_CODES: ReadonlySet<string> = new Set(["state_mismatch", "state_not_found", "state_invalid", "state_security_mismatch", "invalid_callback_request"]);
 
 /**
- * 库的码按意图换成本站的码（升级清单“社交”的“错误码表”一行）。`signup_disabled`、`account_not_linked`、`unable_to_link_account`
- * 是库把内部文字的空格换成下划线得来的（`callback.mjs` 的 `result.error.split(" ").join("_")`，计划问 8），库改了那句文字码就变：
- * 升级清单里那一行守着。
+ * 库的码按意图换成本站的码（升级清单“社交”的“错误码表”一行）。登录路径上的 `signup_disabled`、`account_not_linked` 是库把内部
+ * 文字的空格换成下划线得来的（`callback.mjs` 的 `result.error.split(" ").join("_")`，计划问 8），库改了那句文字码就变：升级清单
+ * 里那一行守着。别的是库的错误码常量（`OAUTH_CALLBACK_ERROR_CODES`）。
  */
 const INTENT_CODES: Readonly<Record<SocialIntent, Readonly<Record<string, SocialErrorCode>>>> = {
     login: {signup_disabled: "social_not_registered", account_not_linked: "social_not_registered", BANNED_USER: "account_banned"},

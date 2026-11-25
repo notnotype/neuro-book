@@ -306,6 +306,15 @@ class QueuedSqliteAdapter extends SqliteAdapter {
     }
 }
 
+/**
+ * 库是不是说这次调用在它的事务里（库的异步上下文）。给库调到的钩子判断走哪条（w00037 t08 计划 3.3）：社交注册时库在自己的事务里调
+ * 建账号前钩子，钩子要加入那个事务；社交关联时库不在事务里调它，钩子用普通的 `write`。只信库的上下文判“是不是”，加入时另有本模块
+ * 的序号核对：库的上下文会漏到事务之外（文件头的“重入”）。
+ */
+export async function inLibraryTransaction(): Promise<boolean> {
+    return (await getCurrentDBAdapterAsyncLocalStorage()).getStore()?.isTransactionActive === true;
+}
+
 const isThenable = (value: unknown): value is PromiseLike<unknown> =>
     (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as {then?: unknown}).then === "function";
 

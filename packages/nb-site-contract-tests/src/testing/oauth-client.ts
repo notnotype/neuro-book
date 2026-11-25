@@ -1,6 +1,7 @@
 /**
  * 对外 OAuth 的测试客户端（w00037 t08 计划 3.14）：扮演一个接入站点的第三方应用，只经 HTTP 说话。经管理接口登记客户端；造带 PKCE
- * 的授权地址；`step` 一次只发一个请求、不跟随跳转，把跳转归成五类；换码、调用户信息、撤销；按公钥地址验 id_token。不含断言。
+ * 的授权地址；`step` 一次只发一个请求、不跟随跳转，把跳转归成五类；换码、调用户信息、撤销；按公钥地址验 id_token。另有浏览器走
+ * 社交流程的几步（`followSocial`：经仿真上游的授权地址拿回调地址，带 state Cookie 请求回调，回落点）。不含断言。
  *
  * 地址：发现文档与跳转里的地址是站点地址（`https://site.test/...`），进程只在回环上监听。`siteFetch` 把站点地址换成进程的地址、
  * 补站点的 `Host`，路径与查询串原样带过去。
@@ -199,4 +200,48 @@ export async function verifyIdToken(processUrl: string, idToken: string, jwksUri
         throw new Error("the id_token signature does not verify with the listed key");
     }
     return {header: decodedHeader, payload: decodeSegment(payload)};
+}
+
+/** 社交流程跳回站点的落点（`site.accounts` 输出 23）。 */
+export interface SocialLanding {
+    readonly status: number;
+    /** 跳转的目标，按站点地址解析过。 */
+    readonly location: URL;
+    /** 落点的 `social_error`；成功时为 null。 */
+    readonly socialError: string | null;
+    readonly response: SiteResponse;
+}
+
+/**
+ * 以浏览器的身份请求发起接口给的上游地址（仿真上游自动同意、302 回站点的回调），回那个回调的站点地址。上游没跳回站点时抛错。
+ * 上游不是被测系统，直接请求它，不经 `siteFetch`。
+ */
+export async function upstreamCallback(upstreamUrl: string): Promise<string> {
+    const response = await fetch(upstreamUrl, {redirect: "manual", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)});
+    await response.arrayBuffer();
+    const location = response.headers.get("location");
+    if (response.status !== 302 || location === null) throw new Error(`the upstream answered ${String(response.status)} without a redirect`);
+    if (new URL(location).origin !== new URL(SANDBOX_SITE_URL).origin) throw new Error(`the upstream redirected off the site: ${new URL(location).origin}`);
+    return location;
+}
+
+/** 以 `jar`（带着它的 state Cookie 与会话 Cookie）打开站点的回调地址，回落点；站点没跳转时抛错。 */
+export async function openSocialCallback(processUrl: string, jar: CookieJar, callbackUrl: string): Promise<SocialLanding> {
+    const response = await siteFetch(processUrl, callbackUrl, {jar});
+    const target = response.headers.get("location");
+    if (response.status < 300 || response.status >= 400 || target === null) throw new Error(`the social callback answered ${String(response.status)} without a redirect`);
+    const location = new URL(target, SANDBOX_SITE_URL);
+    return {status: response.status, location, socialError: location.searchParams.get("social_error"), response};
+}
+
+/** 发起接口的成功响应里的上游地址；不是 200 时抛错，带上响应体。 */
+export function socialStartUrl(start: {readonly status: number; readonly body: unknown}): string {
+    const url = (start.body as {readonly url?: unknown} | null)?.url;
+    if (start.status !== 200 || typeof url !== "string") throw new Error(`social start answered ${String(start.status)}: ${JSON.stringify(start.body)}`);
+    return url;
+}
+
+/** 一个浏览器走完一次社交流程：发起的响应（state Cookie 已存进 `jar`）→ 上游 → 回调，回落点。 */
+export async function followSocial(processUrl: string, jar: CookieJar, start: {readonly status: number; readonly body: unknown}): Promise<SocialLanding> {
+    return openSocialCallback(processUrl, jar, await upstreamCallback(socialStartUrl(start)));
 }

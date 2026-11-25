@@ -15,7 +15,8 @@
  *   （清单“客户端密钥”一行）；`getEndpoints` 给出与 `auth.api` 同一组端点，`disabledPaths` 逐字比路径、只挡 `handler`、不挡
  *   `auth.api`（清单“关掉的路径”一行）。
  * - t08 第 8 片：社交上游（`genericOAuth`，`social/providers.ts`）、state Cookie 的寿命、已关联身份登录时不写回上游令牌
- *   （`updateAccountOnSignIn`）、建会话前的钩子在社交回调里记下账号（清单“社交”几行）。
+ *   （`updateAccountOnSignIn`）、建会话前的钩子在社交回调里记下账号、库改 `emailVerified` 与重复关联走改账号的路径
+ *   （`social/hooks.ts`；清单“社交”几行）。
  */
 
 import {Type, type Static, type TSchema} from "typebox";
@@ -37,6 +38,7 @@ import {clientSecretHash, generateClientSecret} from "./oauth/client-secret";
 import {hashPassword, verifyPassword} from "./password";
 import {consentRequiredIn} from "./session";
 import {currentFrame, SOCIAL_FLOW_MS} from "./social/flow";
+import {socialDatabaseHooks} from "./social/hooks";
 import {socialProviderConfigs} from "./social/providers";
 import {storedUserAgent} from "./user-agent";
 
@@ -286,6 +288,8 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
             },
         },
         databaseHooks: {
+            // 社交流程里的改账号列、建与改上游身份的行（`social/hooks.ts`）。
+            ...socialDatabaseHooks({conn, clock}),
             session: {
                 create: {
                     // 库建会话时取系统时间；改成模块的时钟（计划 3.14：合同测试拨的是模块的时钟）。来源地址恒为空。

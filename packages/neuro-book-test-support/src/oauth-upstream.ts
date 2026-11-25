@@ -50,7 +50,9 @@ export interface FakeUpstream {
     failToken(provider: FakeProvider): void;
     /** 下一次授权回 `error=access_denied`，只影响一次。 */
     cancelNext(provider: FakeProvider): void;
-    /** 挡住下一次换令牌，给要在“上游已返回之前”插入别的操作的用例造时序。 */
+    /**
+     * 挡住之后的一次换令牌，给要在“上游已返回之前”插入别的操作的用例造时序。连调几次挡住接下来的几次，按到达的先后对上调用的先后。
+     */
     holdToken(provider: FakeProvider): HeldRequest;
     close(): Promise<void>;
 }
@@ -93,7 +95,8 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
     const tokens = new Map<string, {readonly provider: FakeProvider; readonly user: FakeGoogleUser | FakeGitHubUser}>();
     const failNext = new Set<FakeProvider>();
     const cancel = new Set<FakeProvider>();
-    const holds = new Map<FakeProvider, {readonly arrive: () => void; readonly released: Promise<void>}>();
+    const holds: Record<FakeProvider, {readonly arrive: () => void; readonly released: Promise<void>}[]> = {google: [], github: []};
+    const releases: (() => void)[] = [];
     let base = "";
 
     const server = createServer((request, response) => {
@@ -186,9 +189,8 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
     }
 
     async function token(request: IncomingMessage, response: ServerResponse, provider: FakeProvider, body: string): Promise<void> {
-        const hold = holds.get(provider);
+        const hold = holds[provider].shift();
         if (hold !== undefined) {
-            holds.delete(provider);
             hold.arrive();
             await hold.released;
         }
@@ -263,13 +265,14 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
             let release!: () => void;
             const arrived = new Promise<void>((resolve) => (arrive = resolve));
             const released = new Promise<void>((resolve) => (release = resolve));
-            holds.set(provider, {arrive, released});
+            holds[provider].push({arrive, released});
+            releases.push(release);
             return {arrived, release};
         },
         close() {
-            // 先放掉挡着的请求，免得 close 等一个永远不回答的连接。
-            for (const hold of holds.values()) hold.arrive();
-            holds.clear();
+            // 先放掉挡着的请求（到了的与还没到的），免得 close 等一个永远不回答的连接、用例等一个永远不 resolve 的 `arrived`。
+            for (const queue of Object.values(holds)) for (const hold of queue.splice(0)) hold.arrive();
+            for (const release of releases.splice(0)) release();
             return new Promise<void>((resolve, reject) => {
                 server.close((error) => (error === undefined ? resolve() : reject(error)));
                 server.closeAllConnections();

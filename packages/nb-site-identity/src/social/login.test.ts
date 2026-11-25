@@ -79,6 +79,18 @@ describe("社交登录", () => {
         expect(await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "user"`).get()!.n)).toBe(0);
     });
 
+    it("上游给的已验证邮箱与一个没关联的账号相同：仍是 social_not_registered，不按邮箱关联、不发会话（输出 12）", async () => {
+        const target = await socialIdentity("social-login-same-email");
+        const userId = await target.addUser("alice", CONSENTED);
+        // 库这时判出的是 `account_not_linked`，码由库的内部文字换来（升级清单“社交”的“错误码表”一行守着它）。
+        upstream.setUser("google", {...ALICE, email: "alice@example.com"});
+
+        const response = await followSocial(target, await startSocial(target, "google", {intent: "login"}));
+        expect(landing(response)).toEqual({status: 302, path: "/login", socialError: "social_not_registered"});
+        expect(hasSessionCookie(response)).toBe(false);
+        expect(await target.conn.read((tx) => tx.query<{n: number}, [number]>(`SELECT COUNT(*) AS n FROM "account" WHERE "userId" = ? AND "providerId" = 'google'`).get(userId)!.n)).toBe(0);
+    });
+
     it("上游取消：social_cancelled；上游换令牌出错：social_failed", async () => {
         const target = await socialIdentity("social-login-upstream-errors");
         const userId = await target.addUser("alice", CONSENTED);
@@ -173,6 +185,15 @@ describe("社交登录", () => {
         expect(((await meta.json()) as {providers: unknown}).providers).toEqual({google: false, github: true});
         // 没开放的上游连回调也不放（挂载层）。
         expect((await identity.request(`${LIB_BASE_PATH}/callback/google?state=x&code=y`)).status).toBe(404);
+    });
+
+    it("发起发的 state Cookie 活 10 分钟，与流程的时限一样长", async () => {
+        const target = await socialIdentity("social-login-state-cookie");
+        const response = await startSocial(target, "google", {intent: "login"});
+        expect(response.status).toBe(200);
+        // 比流程短时，浏览器在时限之内回来却已丢了 Cookie，落到 social_state_invalid（升级清单“社交”）。
+        const state = response.headers.getSetCookie().find((cookie) => cookie.startsWith("__Host-nbsite.state="));
+        expect(state?.split(";").map((part) => part.trim().toLowerCase())).toContain(`max-age=${String(SOCIAL_FLOW_MS / 1000)}`);
     });
 
     it("请求体的意图不认识：validation_failed，只报 intent", async () => {
