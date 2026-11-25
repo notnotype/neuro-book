@@ -68,7 +68,7 @@ owners:
 13. **Profile 设置。** 声明的 `role` 是这个 Profile 的缺省角色，设置里的 `role`、`model` 优先。`model`、`role` 作为这个 Profile 的模型缺省交给模型服务（[`models/service.md`](../models/service.md) 输出 10）；`approvalMode` 是新会话的初值。界面见 [`profile-settings.md`](profile-settings.md)。
 14. **目录的详情。** 每项带 `tools`、`defaultTools?`、`referencedExtensions?`、`role?`、`modelNeeds?`，让界面不用激活提供方就能算工具集、能力缺口与有没有 Agent 模式。插件 Profile 来自声明；用户级来自上一次成功的包，从未成功时不带这几项，用户级没有 `role`。
 15. **原因是结构化的。** 输出 7、8、12 的原因是判别式 `problem`：`{code: "tools-missing", tools}`、`{code: "extensions-missing", extensions}`、`{code: "key-taken"}`、`{code: "module-not-shared", module?}`、`{code: "invalid-export", expectedId?}`、`{code: "build-failed" | "load-failed", file, line?, message}`。`file` 是相对 `user/profiles/` 的名字，`message` 不带状态根与缓存的绝对路径，原文只进诊断。
-16. **目录变化的通知。** 目录变了（新建、打包失败、成功后又失败、恢复，哈希没变也算；删除；工具或 Profile 的发布与撤回）发 `profileCatalogChanged`。它和输出 11 的重新解析是两回事：打包失败时会话继续用上一版，不重新解析。
+16. **目录变化的通知。** 目录变了（新建、打包失败、成功后又失败、恢复，哈希没变也算；删除；工具、扩展或 Profile 的发布与撤回）发 `profileCatalogChanged`：扩展增减会改引用了它的 Profile 的可用性（输出 8）。它和输出 11 的重新解析是两回事：打包失败时会话继续用上一版，不重新解析。
 17. **工具目录。** `toolCatalog` 列出已接受的工具声明：`{id, description, providerName, effect, plugin, defaultForAll?}`，`providerName` 是换算后交给模型的名字，`effect` 是声明里的固定值。
 18. **用户级 Profile 的新建与删除。** `createUserProfile({name, description, system})` 把骨架一次写成 `user/profiles/<名>.profile.tsx`（后两项是骨架里的文字，由窗口按界面语言给），名字只能用小写字母、数字、连字符（不合规则 `invalid-name`），已有同名 `exists`，不覆盖；交回 `{key, address}` 时目录里已经有它。`deleteUserProfile({key})` 删入口文件，不是用户级或文件已不在的 `not-found`。
 
@@ -79,7 +79,7 @@ owners:
 23. Profile 声明可用的表情包：`agent.profiles` 的声明加 `stickers?: {allowed: string[] | "all"}`，值是表情包 id；不声明就是空白名单。白名单的合成与用途见 [`stickers.md`](stickers.md)。
 24. 工具声明的代码调用字段：`agent.tools` 的声明加 `invokes?: true`（执行时能经 `ctx.invoke` 调别的工具）、`codeCallable?: false`（不能被代码调用）、`global?: {object: string, method: string}`（是某个全局对象的方法，只能从代码里调）、`returns?: <JSON Schema>`（代码调用时交回的结构化值的形状），含义见 [`harness/runtime.md`](../harness/runtime.md) 输出 90 到 99 与 [`eval.md`](eval.md)。`global.object` 必须是同一个插件登记的 `agent.evalObjects` 的 `name`，否则这个工具不进工具表，诊断 `eval-object-missing`。
 25. 全局对象：`agent.evalObjects` 登记一个代码里可用的对象，它的方法是带 `global` 的工具（输出 24）。对象名与内核给的名字（`tool`、`display`、`console`、`require`）或 JS 运行时的全局（`Math`、`process`、`Bun` 等）冲突时这个对象不登记，诊断 `eval-object-conflict`；两个插件登记同名对象时双方都不登记，诊断 `eval-object-conflict` 写明两个来源。对象与方法的用法、文档见 [`eval.md`](eval.md)。
-26. **按需扩展。** `agent.extensions` 的声明写 `install: "on-request"` 的扩展不自动装到所有 Profile，Profile 按 id 引用（`referencedExtensions`）才装；装配规则在内核（[`harness/extensions.md`](../harness/extensions.md) 输出 32、33）。插件 Profile 的引用只认 `agent.profiles` 声明里的 `referencedExtensions`：交给内核的 Profile 是实现加上声明的引用；实现里另写了不同的引用时以声明为准，写诊断 `profile-references-mismatch`。用户级 Profile 在 `defineProfile` 里写 `referencedExtensions`。同一代插件 Profile 的句柄每次解析交回同一个对象。内置的按需扩展是 Agent 模式 `nbook.agent.modes` 与它的提醒 `nbook.agent.mode-reminder`（[`agent/modes.md`](modes.md)）。
+26. **按需扩展。** `agent.extensions` 的声明写 `install: "on-request"` 的扩展不自动装到所有 Profile，Profile 按 id 引用（`referencedExtensions`）才装；装配规则在内核（[`harness/extensions.md`](../harness/extensions.md) 输出 32、33）。插件 Profile 的引用只认 `agent.profiles` 声明里的 `referencedExtensions`：交给内核的 Profile 是实现加上声明的引用；实现里另写了不同的引用时以声明为准，写诊断 `profile-references-mismatch`。用户级 Profile 在 `defineProfile` 里写 `referencedExtensions`。同一代插件 Profile 的句柄每次解析交回同一个对象；入口停止中、撤回还没送达时解析不到（同没有这个 Profile），缓存不绕过这一步。内置的按需扩展是 Agent 模式 `nbook.agent.modes` 与它的提醒 `nbook.agent.mode-reminder`（[`agent/modes.md`](modes.md)）。
 
 ## 状态与转换
 

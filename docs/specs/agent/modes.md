@@ -66,7 +66,7 @@ owners:
 12. `/plan`：切到 `plan`，已在 `plan` 不动；带文字时切完把文字发出去，没切成（会话没有模式、切换被拒）就不发，文字留在输入框。没有模式的会话里 `/plan`、`/mode` 与模式控件都不发请求，提示“这个会话没有 Agent 模式，切换不了”。`/mode <名>`：只管 Agent 模式，接 key 与显示名，不接审批模式；没参数切下一种；名字不对提示可选项。
 13. 状态栏不另标模式：非 `normal` 只看工具栏的模式控件（输出 11）。
 
-14. 子会话的模式：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许引用了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；引用了、建好的子会话装配里却没有它时（提供方此刻不在），关掉（归档）这个子会话，同样得 `mode-unsupported`；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
+14. 子会话的模式：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许引用了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；引用了、建好的子会话装配里却没有它时（提供方此刻不在），关掉（归档）这个子会话，同样得 `mode-unsupported`（归档失败时结果写明失败码与子会话 id，不说已经关掉）；父会话在 `normal` 时，要不要给子会话写模式设置也按建好后的装配判；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
 
 ## 状态与转换
 
