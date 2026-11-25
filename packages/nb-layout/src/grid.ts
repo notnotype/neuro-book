@@ -91,7 +91,7 @@ export type Grid<T> = {
     setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
     /**
-     * 原地恢复：校验通过才换树，解析结果没给的约束、`sizing`、刚性与收起策略回落到当前树里同 id 的节点（Spec 输出 148）。
+     * 原地恢复：校验通过才换树，解析结果没给的约束、`sizing`、刚性与收起策略回落到当前树里同 id 的节点（Spec 输出 165）。
      * 从存档建一份新网格用 `restoreGrid`：它不看结果就拿不到网格。
      */
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;

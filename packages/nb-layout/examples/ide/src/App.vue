@@ -62,12 +62,9 @@ function persist(): void {
     if (failed !== null) status.value = failed;
 }
 
-/**
- * 分隔线的手势落账之后：网格只管尺寸，区被拖开时里面显示什么要宿主补（见 model.ts 的 reconcile）。
- * 收回了某个区，网格要重算。这里改的是模型，不是手势的提交，所以不会引起第二次 onApplied。
- */
+/** 分隔线的手势落账之后：网格只管尺寸，区被拖开时里面显示什么要宿主补（见 model.ts 的 reconcile）。 */
 function afterApplied(): void {
-    if (layout.value.reconcile()) host.invalidate();
+    layout.value.reconcile();
     triggerRef(layout);
     persist();
 }

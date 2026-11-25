@@ -51,7 +51,7 @@ function persist(): void {
     if (failed !== null) status.value = failed;
 }
 
-// contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 是拖完分隔线、提交落账之后：在这里存档。
+// contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 在拖完分隔线落账之后、经 host 收起或展开之后都会调：在这里存档。
 // onIssues 是诊断的唯一出口，示例只在控制台说出来。
 const host = useGridHost({
     grid,

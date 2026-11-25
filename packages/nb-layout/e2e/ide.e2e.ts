@@ -3,25 +3,25 @@
  * 右区与下区收着；左条有 Project、Structure、Bookmarks，右条有 Outline，下条有 Terminal、Problems。
  *
  * 分隔线的 id：`main:0` 左条与左区、`main:1` 左区与编辑区那一列、`main:2` 那一列与右区、`main:3` 右区与右条，
- * `center:0` 编辑区与下区，`root:0` 主区与下条。
+ * `center:0` 编辑区与下区，`root:0` 主区与下条。条旁的三条（`main:0`、`main:3`、`root:0`）宽 0：库画成不可交互的接缝。
  *
  * 变异检查（各改坏示例里的一处、重新构建、只跑对应用例，都要失败；恢复后重新构建再跑全部）：
  * - 没有按钮的区的分隔线可以拖（`sashLocked` 里去掉按区判断的那一句）：“没有按钮的区”用例失败，它的分隔线没有 `aria-disabled`。
- * - 条旁的分隔线可以拖（去掉按条判断的那一句）：“条旁的分隔线拖不动”用例失败，条旁的分隔线没有 `aria-disabled`。
+ * - 条旁的分隔线给了宽度（`sashSize` 里条旁那几条也给 `SASH_SIZE`）：“条旁的分隔线”用例失败，条旁的分隔线没有 `data-disabled`。
  * - 最大化期间点按钮不先退出（`toggleTool` 里去掉 `maximized = false`）：“最大化”用例失败，点完按钮标题条上仍是 Restore。
  * - 区展开而 `shown` 为空时不补第一个（`reconcile` 里去掉补的那一句）：“恢复宽度”用例失败，拖开的右区标题是空的。
- * - 读档不放回尺寸意图（`fromSaved` 里去掉 `setSize`）：“存取”用例失败，收着存下的左区展开后是 260 不是 320。
+ * - 读档不按存下的尺寸建树（`fromSaved` 里区的 `size` 换成缺省尺寸）：“存取”用例失败，收着存下的左区展开后是 260 不是 320。
  * - 原位算落点（`resolveDrop` 里去掉 `isOwnPosition` 那一句）：“同一条里换位置”用例失败，拖回自己前面时 `data-drop`
  *   是 `move:bottom:terminal` 而不是 `none`；模型层的落点单元测试也失败。
  * - 隐藏按钮在区收着时也画（`v-if` 读 `shown` 而不是 `open`）：“读档时就收着的区”用例失败，收着的区面板头里有隐藏按钮。
  * - 状态行只显示一次性的话（去掉一直在的那句）：“备份也写不进去”用例失败，成功的操作之后状态行是空的。
  *
- * 两项“拖不动”的变异：去掉停用，并且临时注释掉用例里 `aria-disabled` 的断言，看“拖不动”的尺寸断言自己能不能失败：
- * - 条旁的分隔线：用例仍然通过。条在主轴上的最小与最大尺寸都等于厚度，条自己就拖不动，停用只是不画拖动光标、读屏读成
- *   不可用，所以这条用例里能证明“停用生效”的只有 `aria-disabled` 那一句，尺寸断言证明的是“条钉得住”。
- * - 没有按钮的区的分隔线：前面的尺寸断言也通过：手势把区拖开之后，`reconcile` 马上把它收回去，下区仍是 0、编辑区不变。
- *   用例是失败在最后一步：拖开那一下把意图记成了 150，之后拖一个按钮回去展开时下区是 150 而不是 200。所以它靠的是
- *   “兜底留下了痕迹”，不是“拖不动”本身；“拖不动”靠 `aria-disabled` 那一句，兜底由模型测试守。
+ * 两项“拖不动”的变异：去掉停用，并且临时注释掉用例里 `aria-disabled`、`data-disabled` 的断言，看“拖不动”的尺寸断言
+ * 自己能不能失败：
+ * - 条旁的分隔线：用例仍然通过。它不去拖条旁的线，尺寸断言证明的是拖别的线时条钉得住（条是刚性的）；能证明“接缝生效”
+ *   的只有 `data-disabled` 那几句。
+ * - 没有按钮的区的分隔线：用例同样通过。区锁着，库的手势展不开它，Enter 也跳过它；“拖不动”靠 `aria-disabled` 那一句，
+ *   锁本身由库与模型的单元测试守。
  *
  * “拖动后回到自己身上松手”用例：库在拖动会话里把指针捕获到承载盒上，松手后的 click 因此落在承载盒而不是按钮，按钮的
  * 点击处理本来就收不到它；单独关掉库里的吞 click（`takeClick` 恒为否），用例仍通过，实测过。单独去掉指针捕获（吞 click 仍在）
@@ -160,9 +160,7 @@ test("恢复宽度：拖宽后收起再展开、重新载入后按 Enter 收起�
     await button(page, "project").click();
     await expectSize(page, "left", 320);
 
-    // 重新载入后用 Enter 收起与展开：分隔线上的 Enter 展开读库记着的恢复尺寸，按钮展开读尺寸意图；库在每次收起的那一刻把
-    // 恢复尺寸记成当时的意图，所以两条路在这里给同一个结果，这一段是在验证它们一致。读档该放回的是意图，由前面的
-    // expectSize(left, 320) 守着。
+    // 重新载入后用 Enter 收起与展开：分隔线上的 Enter 与按钮一样回到尺寸意图，这一段验证读档放回的意图两条路都认。
     await page.reload();
     await expectSize(page, "left", 320);
     await sash(page, "main:1").focus();
@@ -323,7 +321,7 @@ test("存档坏而备份也写不进去：状态行一直写着这一页不再�
     expect(await page.evaluate((key) => localStorage.getItem(key), BACKUP)).toBeNull();
 });
 
-test("条旁的分隔线拖不动：拖得动的那一条拖了，条旁的三条拖了不变", async ({page}) => {
+test("条旁的分隔线是接缝：拖得动的那一条拖了，条旁的三条宽 0、不可交互，条的厚度不变", async ({page}) => {
     await dragSash(page, "main:1", {x: 40, y: 0});
     await expectSize(page, "left", 300);
 
@@ -336,11 +334,14 @@ test("条旁的分隔线拖不动：拖得动的那一条拖了，条旁的三�
         rightStripe: await boxOf(frame(page, "right-stripe")),
         bottomStripe: await boxOf(frame(page, "bottom-stripe")),
     };
-    for (const id of ["main:0", "main:3", "root:0"]) await expect(sash(page, id)).toHaveAttribute("aria-disabled", "true");
-    await dragSash(page, "main:0", {x: 40, y: 0});
-    await dragSash(page, "main:3", {x: -40, y: 0});
-    await dragSash(page, "root:0", {x: 0, y: -40});
-    await expectSize(page, "left", 300);
+    // 宽 0 的分隔线库画成接缝（`data-disabled`），没有命中带可按，不再去拖它。
+    for (const id of ["main:0", "main:3", "root:0"]) {
+        await expect(sash(page, id)).toHaveAttribute("data-disabled", "true");
+        await expect(sash(page, id)).toHaveAttribute("aria-disabled", "true");
+    }
+    // 再拖一次拖得动的那一条：条的厚度不变（推到条上的情形由模型测试的级联一条守）。
+    await dragSash(page, "main:1", {x: -40, y: 0});
+    await expectSize(page, "left", 260);
     await expectSize(page, "right", 240);
     await expectSize(page, "bottom", 200);
     expect(await boxOf(frame(page, "left-stripe"))).toEqual(before.leftStripe);
