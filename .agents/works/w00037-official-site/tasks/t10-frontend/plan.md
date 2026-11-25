@@ -103,7 +103,7 @@ Spec 与 Task 记录的改动（第 4 节）由主会话在主工作区 master �
 | 账号 `/account` | `GET me`、`PATCH me`、`POST me/password`、`GET me/sessions`、`DELETE me/sessions/:id`、`GET me/identities`、`DELETE me/identities/:id`、`POST social/:provider/start`（意图 `link`，带当前密码）、`GET`/`POST`/`PATCH me/invite-codes`、`GET`/`DELETE me/grants`（依赖 t08 改写） | 每一节自己的状态行：资料一节 `email_taken`、`validation_failed` 标字段；密码一节 `invalid_credentials` 标旧密码、`rate_limited` 倒计时；关联 `last_login_method`、`identity_taken`、`identity_exists`；邀请码 `invite_code_limit`。“退出其它所有设备”逐个 `DELETE`，有失败时状态行写“结束了 N 个，M 个没结束”，列表重取 |
 | 授权确认 `/oauth/consent` | `GET oauth/authorization`、`POST oauth/authorization`（依赖 t08 改写） | `authorization_expired`：卡片换成“这次授权请求已过期，回到应用重新发起”；其它失败写状态行 |
 | 看板 `/admin` | 六个查询接口（t11） | 每块面板自己的出错状态，在面板的固定高度里（3.5） |
-| 四个列表页 | `site.admin` 与 `site.oauth-provider` 的列表与操作 | 取列表失败：数据表格的出错状态；操作失败：操作对话框的 `status`（`self_forbidden`、`last_admin`、`not_found`、`validation_failed`）；`forbidden`：走统一处理 |
+| 四个列表页 | `site.admin` 与 `site.oauth-provider` 的列表与操作 | 取列表失败：数据表格的出错状态；操作失败：操作对话框的 `status`（`self_forbidden`、`not_found`、`validation_failed`）；`forbidden`：走统一处理 |
 
 各页的 `unauthenticated`、`consent_required` 都走 3.2 的统一处理，不在页面上显示。
 
@@ -134,7 +134,7 @@ Spec 与 Task 记录的改动（第 4 节）由主会话在主工作区 master �
 
 给 t07（`nb-site-identity-contract`，账号与管理）：
 
-1. 失败码：`IDENTITY_FAILURE_CODES`（`site.accounts` 失败表里有 HTTP 状态的全部码，加 `site.admin` 的 `forbidden`、`not_found`、`self_forbidden`、`last_admin`）与类型 `IdentityFailureCode`；`SOCIAL_ERROR_CODES`（输出 23 能出现在 `social_error` 里的七个码）。要是运行时的常量数组，不只是类型：目录覆盖测试要遍历它。
+1. 失败码：`IDENTITY_FAILURE_CODES`（`site.accounts` 失败表里有 HTTP 状态的全部码，加 `site.admin` 的 `forbidden`、`not_found`、`self_forbidden`）与类型 `IdentityFailureCode`；`SOCIAL_ERROR_CODES`（输出 23 能出现在 `social_error` 里的七个码）。要是运行时的常量数组，不只是类型：目录覆盖测试要遍历它。
 2. 错误体 `ErrorBody`：`{error: {code, fields?: string[]}}`，`fields` 的元素是请求体的键名（S9）。
 3. 字段规则常量：用户名的长度上下限与字符集、显示名、邮箱、密码、网址、签名的长度；前端拿来做输入上限与“提交按钮不可用”。从 TypeBox schema 的 `minLength` 读也行，但单独导出的常量更好读。
 4. 请求与响应的 schema：`RegisterRequest`（含显示名、可选邀请码、条款版本、境外存放的同意）、`LoginRequest`（加 t08 的继续令牌，S1）、`LoginResponse`（公开资料，加继续地址，S1）、`PublicProfile`、`WhoamiResponse`（三种状态）、`MeResponse`（公开资料加邮箱、是否有密码、邮箱是否待补、是否还缺同意）、`PatchMeRequest`、`ChangePasswordRequest`、`ConsentRequest`、`SessionItem`（含“浏览器标识的概要”的确定形状，S6）、`IdentityItem`（id、上游名、上游账号的名字、关联时间）、`InviteCodeItem`（码、建立时间、已用次数、可用次数或空、过期时间或空、是否还能用）、`MetaResponse`（条款版本，S5；注册是否开放；各上游是否开放）。
@@ -534,7 +534,7 @@ A2 之后派前端审查（Sonnet），审查处理完合入 master。官方站�
 | 输出 24 | 已关联账号一行显示上游名与上游账号的名字 | 账号页 dom 测试 |
 | `site.admin` 输出 1 | 普通用户进 `/admin/*` 去 `/account`；接口回 `forbidden` 时重取身份再分派 | 守卫 `bun test`；B10 |
 | 输出 4 | 新密码只在对话框里显示一次 | 用户页 dom 测试 |
-| 输出 5、6 | `self_forbidden`、`last_admin` 写在对话框的状态行 | 用户页 dom 测试 |
+| 输出 5 | `self_forbidden` 写在对话框的状态行 | 用户页 dom 测试 |
 | 输出 9 | 同一次翻页沿用 `anchor`，换筛选、换搜索、刷新时重来 | 列表查询状态 `bun test` |
 | 输出 10 | 页码越界时改到最后一页 | 列表查询状态 `bun test` |
 | `site.oauth-provider` 输出 4、5 | 续接后回到授权请求；确认页的同意与拒绝；过期时的整卡片状态 | 授权确认页 dom 测试；B10 若 t08 的仿真客户端可用（依赖 t08 改写） |

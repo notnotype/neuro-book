@@ -58,7 +58,7 @@ owners:
 | 密码 | 8 到 128 个字符；登录时只查上限，不查下限：旧站导入的密码可能更短 |
 | 头像与网站 | 只收 `http` 或 `https` 地址，至多 500 个字符；签名至多 200 个字符 |
 
-配置：当前条款版本 `NB_SITE_IDENTITY_TERMS_VERSION`（必填；形如 `2026-11-20` 的真实存在的日期，服务条款与隐私政策共用一个版本）、注册是否开放 `NB_SITE_IDENTITY_REGISTRATION_OPEN`（`true` 或 `false`，缺省 `true`）、会话时长 `NB_SITE_IDENTITY_SESSION_DAYS`（1 到 365 的整数，缺省 30）、同时算密码哈希的个数 `NB_SITE_IDENTITY_HASH_CONCURRENCY`（1 到 16 的整数，缺省 2）、排队等着算哈希的请求数上限 `NB_SITE_IDENTITY_HASH_QUEUE`（0 到 10000 的整数，缺省 64）、Google 与 GitHub 各自是否开放。不合格时的问题词见 [`site.operations`](operations.md)。
+配置：当前条款版本 `NB_SITE_IDENTITY_TERMS_VERSION`（必填；形如 `2026-11-20` 的真实存在的日期，服务条款与隐私政策共用一个版本）、注册是否开放 `NB_SITE_IDENTITY_REGISTRATION_OPEN`（`true` 或 `false`，缺省 `true`）、会话时长 `NB_SITE_IDENTITY_SESSION_DAYS`（2 到 365 的整数，缺省 30）、同时算密码哈希的个数 `NB_SITE_IDENTITY_HASH_CONCURRENCY`（1 到 16 的整数，缺省 2）、排队等着算哈希的请求数上限 `NB_SITE_IDENTITY_HASH_QUEUE`（0 到 10000 的整数，缺省 64）、Google 与 GitHub 各自是否开放。不合格时的问题词见 [`site.operations`](operations.md)。
 
 定时任务（名字给 [`site.operations`](operations.md) 输出 11 的测试控制入口用）：`purge` 每 10 分钟跑一次、服务启动后先跑一次，清掉已到期的会话与过去的限流时间窗。
 
