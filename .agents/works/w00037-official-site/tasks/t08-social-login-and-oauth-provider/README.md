@@ -104,3 +104,11 @@ Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），
 - 首次启动要写账号库（没有活钥时建一把）：合同测试“清理任务在服务启动后先跑一次”原来先迁移、再在进程外占着写锁启动，现在会以 `start_failed` 失败；实现者把准备步骤改成先起一次再停，断言不变。主会话接受：只在全新数据目录又被进程外占着写超过等锁上限时出现，重启即可；已写进 `site.oauth-provider` 输出 17，同一句写明旧公钥列 30 天（库的宽限期）。
 - 实现者定、主会话接受的：库的装配改收 `conn`（`postLogin.shouldRedirect` 与 `customUserInfoClaims` 要经队列读库）；`testing/oauth.ts` 提前到本片建了最小版本；客户端密钥存成“固定前缀加密钥”的 SHA-256、base64url（库改缺省时已登记的客户端不受影响，变异也分得出）；`disabledPaths` 另关了缺省就关着的两条；签名钥是否过期按系统时间判（库挑钥按系统时间）；`alg` 为空的钥也当作不是 RS256 拒绝；寿命不拨系统时钟，读行里的到期减创建（P11 不做）。
 - 没验证的：`postLogin` 与 `customUserInfoClaims` 的行为（第 6 片）；`customUserInfoClaims` 若在库自己开的事务里被调会被队列拒绝，第 6 片核对；上一个版本在这个数据目录上做账号读写（登录）没有用例（`site.operations` 验收 2 的登录已标 planned）。
+
+第 3 片（撤销接缝与清理）已提交（`3bb82cf7d`，16 个文件）：新建 `oauth/revoke.ts`（按会话、按账号、按账号加客户端、按客户端、按到期会话五个撤销函数，与清理用的删过期行），删会话的那组函数先撤后删，改密码按账号撤（函数改名 `endOtherSessionsRevokingAllOAuth`），清理任务在一个写事务里撤到期会话的、删到期会话、删过期的码与令牌。账号与使用方的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，4 条变异都被抓到；主会话重跑账号包测试与类型检查通过。
+
+- 实现者定、主会话接受的：源码守卫比计划宽，凡改 `oauthAccessToken` 或删 `verification` 的 SQL 只许在 `revoke.ts`（清理删过期行的函数也因此放在那里）；包内要调用户信息的账号用 `addOAuthUser`（`customUserInfoClaims` 要资料行）。
+- 没有单独用例的：`create-admin` 与“请求里发现会话到期当场删”两条路，都经同一个 `endAllSessions`、`endSession` 撤。
+- 给后面几片的：停用客户端调 `revokeOAuthForClient`，撤销授权调 `revokeOAuthForGrant`，都在自己的写事务里；清理会删按模块时钟到期的 `verification` 行（含库的社交 state 行），拨模块时钟的用例要留意。
+
+第 2、3 片的实现审查已开（2026-11-25，范围 `bf3d6f5aa..3bb82cf7d`）：Opus 先审；omp 等设计审查那一份跑完再开。
