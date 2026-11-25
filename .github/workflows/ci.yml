@@ -99,6 +99,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # 相邻版本那两步要在本地检出基准提交。
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build:image
@@ -109,5 +112,35 @@ jobs:
         working-directory: packages/nb-site-contract-tests
         env:
           NB_SITE_SERVER_COMMAND: '["bun","--no-env-file","${{ github.workspace }}/packages/nb-site-server/dist/image/server.js"]'
+      # 相邻版本（site.operations 输出 7、验收 2）：“上一个版本”是基准提交的程序，与 check 作业选包用的基准相同。
+      # 被发布流水线调用（inputs.all）、手动触发时没有基准，脚本不写 command，下一步跳过；发布时拿哪个版本比由 t13 定。
+      # 脚本把 command 与上一个版本缺哪些接口写进 $GITHUB_OUTPUT，子进程的输出走日志，不混进去。
+      - name: 上一个版本的程序（基准提交）
+        id: previous
+        shell: bash
+        working-directory: packages/nb-site-server
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          ALL: ${{ inputs.all }}
+        run: |
+          base=""
+          if [ "$ALL" != "true" ]; then
+            case "$EVENT" in
+              pull_request) base="$PR_BASE" ;;
+              push) base="$BEFORE" ;;
+            esac
+          fi
+          bun run build:previous --base "$base" --out "$RUNNER_TEMP/previous" --command-out "$GITHUB_OUTPUT"
+      - name: 上一个版本接管本版本迁移过、写过的数据目录
+        if: steps.previous.outputs.command != ''
+        run: bun test src/adjacent-version.test.ts
+        working-directory: packages/nb-site-contract-tests
+        env:
+          NB_SITE_SERVER_COMMAND: '["bun","--no-env-file","${{ github.workspace }}/packages/nb-site-server/dist/image/server.js"]'
+          NB_SITE_PREVIOUS_SERVER_COMMAND: ${{ steps.previous.outputs.command }}
+          NB_SITE_PREVIOUS_WITHOUT_INGEST: ${{ steps.previous.outputs.without_ingest }}
+          NB_SITE_PREVIOUS_WITHOUT_TELEMETRY_JOBS: ${{ steps.previous.outputs.without_telemetry_jobs }}
       - run: bun run smoke:image
         working-directory: packages/nb-site-server

@@ -181,6 +181,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
    | `NBOOK_TEST_TMPDIR` | Vitest global setup 为单次 run 写入；必须包含在 `NBOOK_AGENT_TEMP_ROOT` 内，普通测试不得长期覆盖 |
    | `NB_SITE_SERVER_COMMAND` | `nb-site-contract-tests`：被测的官方站程序，JSON 数组形式的 argv（例如 `["bun","--no-env-file","/abs/server.js"]`）；没设时用本仓库 `nb-site-server` 的源码入口，设错时测试报错、不退回缺省 |
    | `NB_SITE_PREVIOUS_SERVER_COMMAND` | `nb-site-contract-tests`：上一个发布版本的程序，形式同上；只给相邻版本测试用，没设时那一组跳过并在组名里写明 |
+   | `NB_SITE_PREVIOUS_WITHOUT_INGEST`、`NB_SITE_PREVIOUS_WITHOUT_TELEMETRY_JOBS` | `nb-site-contract-tests`：上一个版本还没有统计的写入口、还没有统计的两个定时任务；`1` 时相邻版本测试跳过那一项并在用例名里写明，没设、空或 `0` 时照测，别的值报错。由 `nb-site-server` 的 `build:previous` 按基准提交的源码给出 |
 
 ## 测试文件组织
 

@@ -7,7 +7,7 @@
 
 import {randomBytes} from "node:crypto";
 
-import {INGEST_PATHS, LATEST_ANONYMOUS_MANIFEST, LATEST_USAGE_MANIFEST, type IngestKind} from "@notnotype/nb-site-telemetry-contract";
+import {INGEST_PATHS, LATEST_ANONYMOUS_MANIFEST, LATEST_USAGE_MANIFEST, type AnonymousManifest, type IngestKind} from "@notnotype/nb-site-telemetry-contract";
 
 import {rawHttp, SANDBOX_SITE_URL, SANDBOX_TELEMETRY_URL} from "./site";
 
@@ -31,7 +31,6 @@ function firstValue(table: Readonly<Record<string, unknown>> | undefined, field:
     return value;
 }
 
-const anonymous = LATEST_ANONYMOUS_MANIFEST.daily;
 const usageFields = LATEST_USAGE_MANIFEST.usage.fields;
 
 /** 使用档里错误项 `owner` 的取值表（按清单的顺序）；`usage.errors` 的项按 `owner` 与 `code` 不许重复，造两项时要两个 `owner`。 */
@@ -60,11 +59,15 @@ export function usageSegment(): Report {
 /**
  * 一份合格的每日上报，不带使用段；`withUsage` 为真时带上使用档的版本与一段使用统计。`installWeek` 发 `older`：
  * 它不随服务端日变（具体的周只收服务端日前后的一段），拨过时钟的进程上照样合格。
+ *
+ * `anonymous` 缺省是服务端认识的最新匿名档；相邻版本测试给第 1 版，上一个版本只认识它发布时的清单。
  */
-export function dailyReport(options: {readonly withUsage?: boolean} = {}): Report {
+export function dailyReport(options: {readonly withUsage?: boolean; readonly anonymous?: AnonymousManifest} = {}): Report {
     const withUsage = options.withUsage === true;
+    const manifest = options.anonymous ?? LATEST_ANONYMOUS_MANIFEST;
+    const anonymous = manifest.daily;
     return {
-        manifest: withUsage ? {anonymous: LATEST_ANONYMOUS_MANIFEST.version, usage: LATEST_USAGE_MANIFEST.version} : {anonymous: LATEST_ANONYMOUS_MANIFEST.version},
+        manifest: withUsage ? {anonymous: manifest.version, usage: LATEST_USAGE_MANIFEST.version} : {anonymous: manifest.version},
         reportId: newReportId(),
         appVersion: "0.17.0",
         channel: firstValue(anonymous.channel?.values, "channel"),
