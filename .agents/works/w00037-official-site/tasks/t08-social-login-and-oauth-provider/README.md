@@ -125,3 +125,8 @@ Opus 那轮的修正已提交（`d4ae39ae5`，7 个文件）：处理表第 1、
 - 实现者定、主会话接受的：库的请求体 schema 拒收（`VALIDATION_ERROR`）也映射成 `redirect_uri_invalid` 并记 `identity.oauth_client_rule_drift`（交给库的属性里只有回调地址是外来的，名字已由合同包先判）；路由选项上有一个可选的 `checkRedirectUri`，缺省是真规则，只有包内测试换它来造“库拒收”（自家规则比库严，真实输入造不出）；改动的审计参数是 `{properties: "name,redirectUris,disabled"}`（审计参数只能是标量），写进 `site.admin` 输出 8；改或换密钥一个不存在的客户端回 `not_found`；停用只在由启用变停用时撤；回调地址规则比 Spec 字面多出的几处（协议名不分大小写、`localhost.` 与 `[::ffff:127.x]` 算回环、`app.localhost` 不算、`127.1` 不算回环）都与库一致，写进 `site.oauth-provider` 输入一节。
 - 没有单独用例的：登记时“认过身份之后、库的事务之前操作者被降级”（写法与 `adminWrite` 相同，在库的事务里先调 `requireLiveAdmin`）。`client_secret_post` 这条变异合同现在抓不到，换码端点第 5 片才挂。
 - 给第 5 片的：`checkRedirectUri` 只判写法，按登记值匹配（回环不比端口）另写，可复用 `clients.ts` 里取原始主机的写法；种类按 `tokenEndpointAuthMethod === "none"` 判；库的 `adminCreateOAuthClient` 按系统时间判会话过期，合同测试把模块时钟拨到会话过期之后再登记会落成 500。
+
+第 5 片按计划拆成两段。5a（挂载层、发现文档、公钥、令牌端点、入口挂载、合同的测试客户端）已提交（`51c7f962e`，19 个文件）：账号、合同包、入口与合同测试的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程；主会话重跑通过。5 条变异 4 条被抓到，“公钥的 HEAD 带了正文”写不出能看到的改坏（Hono 与 `Bun.serve` 都丢掉 HEAD 的正文），断言留着；另做的两条替代变异（HEAD 原样交库、去掉显式的 `Content-Length`）都被抓到。
+
+- 实现者定、主会话接受的：POST 授权端点不是表单类型回 404；令牌端点不是表单类型回 400 `invalid_request`（库自己回 415 且不是 RFC 6749 的形状，也免得换个编码绕过去掉 `resource` 那一步），去掉 `resource` 后重新编码表单（值不变，字面编码可能变）；请求体上限在白名单之前，白名单外的超大请求回 400；发现文档的签名算法用常量（启动检查保证表里只有这一种）；`LIB_BASE_PATH` 取合同包的 `IDENTITY_AUTH_PREFIX`；合同包 `claims_supported` 的静态类型原来推成 `never[]`，改成两组字面量的并集；发现文档缺用户信息、公钥、撤销地址时启动失败；HEAD 与 GET 比头时不算 `Date`、`X-Request-Id`；验收 2 合同只断言 404，“是本模块的 404”放包内。
+- 给 5b 的：授权端点的改写替掉 `mount.ts` 里 `authorizeEndpoint` 的那一行交库。库对带会话 Cookie 的授权 POST 做来源检查（没有 Origin 回 403），主会话定：POST 读成 `URLSearchParams` 后改成同样参数的 GET 请求交库（授权端点的 GET 本来就允许跨站，POST 不该多一道）。
