@@ -34,7 +34,7 @@ owners:
 
 | 工具 id | 交给模型的名字 | 参数 |
 |---|---|---|
-| `nbook.web.search` | `web_search` | `queries`：string 数组，1 到 10 条，必填（planned，取代 `query`）；`count`：整数，1 到 20，每条查询的结果条数，只有一条查询时缺省 8，几条时缺省 5（planned：几条时的缺省）；`sites`：string 数组，站点域名；`after`、`before`：`YYYY-MM-DD`；`sites`、`after`、`before` 对每条查询都生效 |
+| `nbook.web.search` | `web_search` | `queries`：string 数组，1 到 10 条，必填（planned，取代 `query`）；`count`：整数，1 到 20，每条查询的结果条数，只有一条查询时缺省 8；几条时缺省 5、至多 10，给大了按 10（planned：几条时的缺省与上限）；`sites`：string 数组，站点域名；`after`、`before`：`YYYY-MM-DD`；`sites`、`after`、`before` 对每条查询都生效 |
 | `nbook.web.fetch` | `web_fetch` | `url`：string，必填，http 或 https |
 
 插件 id、工具 id、配置项、远程合同与设置分区的 id 都以 `nbook.web` 开头（planned：v0.17.0 里是 `nbook.web-tools`，见“边界与兼容”）。
@@ -81,7 +81,7 @@ owners:
 9. **截止**：从调用开始算一个总截止，搜索 20 秒、读取 45 秒，覆盖读密钥、发请求、读响应、等待重试与第二次请求；一次搜几条查询时它们共用这一个截止（planned）；到截止得 `timeout`。调用被中止或到了截止之后不再发请求（读密钥时被中止的也不发），不再开始存档。计时用宿主的时钟。
 10. **重试**：每个请求各自算：只有服务回 429 时重试一次，等 `Retry-After` 给的时间：非负整数秒，或 HTTP 日期（IMF-fixdate，已过的不等）；没有或认不出时等 1 秒；等完会超过截止就不重试。其它失败都不重发（第一次可能已经执行并计费）。不跟随重定向：3xx 按服务的其它错误得 `failed`，带 HTTP 状态。
 11. **读取上限**：响应体按实际读到的字节计，成功响应至多 4 MiB、错误响应至多 16 KiB，超过就停止读取、得 `too-large`，不重试、不存档。
-12. **失败**：结果状态 `error`，带码（见“失败与恢复”），文字一句话写原因与怎么办，带这次用的服务名，例如 `no-key` 写“到设置窗口的‘搜索与网页’页填 Tavily 的 API 密钥，或改选别家”。几条查询里有的没搜成时（planned），结果状态成功，没搜成的那条在组头写原因（输出 2）；全都没搜成时状态 `error`，码取第一条查询的码，文字逐条写原因。码之外的详情只取服务错误响应里的说明（DeepSeek 的 `error.message`；Tavily 的 `detail.error`，planned）（本地校验失败时是一句哪里不对的说明，不含密钥），先把密钥及其中任何不短于 8 个字符的片段换成 `***`，再截到 500 字；服务给的请求 id 从遮盖过的文字里取。工具不抛错。
+12. **失败**：结果状态 `error`，带码（见“失败与恢复”），文字一句话写原因与怎么办，带这次用的服务名，例如 `no-key` 写“到设置窗口的‘搜索与网页’页填 Tavily 的 API 密钥，或改选别家”。几条查询里有的没搜成时（planned），结果状态成功，没搜成的那条在组头写原因（输出 2）；全都没搜成时状态 `error`，码取第一条查询的码，文字逐条写原因。码之外的详情只取服务错误响应里的说明（DeepSeek 的 `error.message`；Tavily 的 `detail.error`，参数校验失败的 422 取 `detail` 数组第一项的位置与 `msg`、不取回显的 `input`，planned）（本地校验失败时是一句哪里不对的说明，不含密钥），先把密钥及其中任何不短于 8 个字符的片段换成 `***`，再截到 500 字；服务给的请求 id 从遮盖过的文字里取。工具不抛错。
 13. **密钥的读取**：每次调用开始时读一次选用的服务（planned）与它的密钥，用到这次调用结束；调用途中改了选用或密钥，这次调用照旧。没有这家的密钥得 `no-key`；文件读不了或解析不了得 `credentials-unavailable`。
 14. **密钥不外露**：工具的文字结果、结构值、诊断与远程合同的任何响应里都没有密钥。诊断 `web.provider-failed` 只记工具、服务、码、HTTP 状态与服务给的请求 id；密钥文件的诊断记文件路径与哪一类坏。服务的成功响应里出现密钥原文（密钥不短于 8 个字符时查）时，这份响应不交出，得 `bad-response`。密钥文件坏了时，详情与诊断只写哪一类坏，不带文件里的值。
 
@@ -122,7 +122,7 @@ owners:
 | `invalid-request` | 参数不对（查询超长、日期格式、网址不是 http 或 https）或服务回 400；Tavily 回 422（planned） | 改参数 |
 | `auth` | 服务回 401 | 检查密钥 |
 | `quota` | 服务回 402；Tavily 回 432、433（planned） | 充值或等额度恢复 |
-| `rate-limited` | 服务回 429（重试一次后仍然） | 稍后再试 |
+| `rate-limited` | 服务回 429（重试一次后仍然）；Tavily 回 434（planned，不重试） | 稍后再试 |
 | `rejected` | 服务回 403 | 换个网址或查询；原因看详情 |
 | `not-found` | 服务回 404，或读到的正文为空 | 换个网址 |
 | `unreachable` | 连不上服务；网络出口选不出路（代理不支持、地址无效、系统设置读不到）时请求没有发出，详情写原因 | 检查网络或“网络”页的代理设置 |
@@ -135,7 +135,7 @@ owners:
 ## 边界与兼容
 
 - 公开接口：两个工具的 id、交给模型的名字、参数与结构值形状；“输入与前置条件”里的三个配置项；远程合同 `nbook.web/settings` 版本 1；密钥文件格式版本 1。以后加服务时只加不改：新服务的 id、`provider` 的取值与 `status` 里的条目。
-- 改名（planned）：插件 id 从 v0.17.0 的 `nbook.web-tools` 改为 `nbook.web`，工具 id、配置项、远程合同与设置分区随之改名，旧名不再提供，不迁移：v0.17.0 用户层里 `nbook.web-tools/deepseekBaseUrl` 的值、Profile 工具绑定里的旧工具 id 不再生效；密钥文件位置不变，照常读到。`web_search` 的版本从 1 升到 2：`query` 换成 `queries`，结构值的 `results` 换成 `searches`。
+- 改名（planned）：插件 id 从 0.15.0 到 0.17.0 的 `nbook.web-tools` 改为 `nbook.web`，工具 id、配置项、远程合同与设置分区随之改名，旧名不再提供，不迁移（开发者 2026-11-25 定）：写着旧 id 的设置不再生效，包括权限规则按 `nbook.web-tools.fetch` 拒绝或询问的主机（照常放行）、Profile 工具绑定里去掉的这两个工具（会回来）、Profile 把旧 id 列为必需工具（报缺工具）、用户层的 `nbook.web-tools/deepseekBaseUrl`（回到缺省）；按给模型的名字 `web_fetch`、`web_search` 写的规则不受影响。密钥文件位置不变，照常读到。`web_search` 的版本从 1 升到 2：`query` 换成 `queries`，结构值的 `results` 换成 `searches`。
 - 信任边界：浏览器只拿到“有没有密钥”；密钥明文在状态根下，与模型服务的凭据库同一个信任级别。
 
 ## 验收与 Smoke
