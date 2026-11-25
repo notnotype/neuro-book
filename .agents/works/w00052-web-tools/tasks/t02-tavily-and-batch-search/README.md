@@ -33,11 +33,12 @@ updated: 2026-11-25
 
 实施者定的（低风险、可改）：
 
-- 改名不做迁移：v0.17.0 已经带着 `nbook.web-tools` 发出，用户层里 `nbook.web-tools/deepseekBaseUrl` 的值与 Profile 工具绑定里的旧工具 id 不再生效；密钥文件位置不变。官方站用量统计的插件名单新旧两个 id 都留着。
+- 改名不做迁移：v0.17.0 已经带着 `nbook.web-tools` 发出，用户层里 `nbook.web-tools/deepseekBaseUrl` 的值与 Profile 工具绑定里的旧工具 id 不再生效；密钥文件位置不变。官方站用量统计合同（`nb-site-telemetry-contract`）的使用档第 1 版按 2026-11-24 的 master 列着 `nbook.web-tools`，版本发布后不改；应用这边还没发用量统计，现在没有影响，w00053 出第 2 版时名单写 `nbook.web`（记进 Work 的后续）。
 - 选用的服务存成设置项 `nbook.web/provider`（只有用户层，缺省 `deepseek`），设置页像“网络”页一样经设置服务写；Tavily 的地址前缀是设置项 `nbook.web/tavilyBaseUrl`，只能改设置文件（测试指向本机假端点）。
 - Tavily 搜索 `search_depth: "basic"`、`include_published_date: true`，不要它的 `include_answer`（Agent 只拿原始结果）；`sites`、`after`、`before` 给原生参数；查询上限 1,500 字（Tavily 的建议值）。读取用 `/extract` 的 `format: "markdown"`。
 - 几条查询时每条摘要截到 300 字（10 条乘 5 个结果约 3.5 万字）；有的没搜成时整次仍算成功、组头写原因，全都没搜成时报第一条的码；有一条查询不合要求时一条也不发。
 - 带日期过滤搜出 0 条时去掉日期重搜（omp 的做法）先不做，记为候选。
+- “使用”下面不在每个选项旁写“未设置密钥”，改成选中的那家没有密钥时在单选下面写一句（Spec 输出 11 随之改）：要提醒的只是选中的那家。
 - Tavily 密钥存在仓库根 `.env` 的 `TAVILY_API_KEY`（Git 忽略），只给真实服务测试用；开发服务经设置页的远程合同写入。
 
 ## 实施步骤

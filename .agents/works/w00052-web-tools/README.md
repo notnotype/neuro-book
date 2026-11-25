@@ -39,6 +39,8 @@ updated: 2026-11-25
 
 - 密钥框：`ApiKeyField`（本插件）与模型页 `ProviderDetail.vue` 的 `draftField` 合并，并与 `forms.md` 输出 31 的 `SecretInput` 对齐（t01 设计审查 Sonnet 第 5 条）。
 - 更多服务：Exa 等（t01 决定 3；Tavily 在 t02 做）。
+- 官方站用量统计：使用档第 1 版的插件名单里是 `nbook.web-tools`（发布后不改），w00053 出第 2 版时写 `nbook.web`（t02 改名）。
+- 带日期过滤搜出 0 条时去掉日期再搜一次（omp 对 Tavily 的做法），t02 记为候选。
 - 测试缺口：存档失败的文字、在途时改密钥、设置页分区声明与核对报告里“无测试的边角”（t01 当前状态末两条）。
 - 另记（t01 设计审查 omp 第 16 条，Agent 插件原有）：同一个交给模型的名字有两个工具时，eval 与内核选中的不是同一个。
 - 另记（omp 第 7 条，影响 `nbook.models`）：OMP 凭据库的清除在锁竞争下报成功、重启后旧密钥回来，清除只是软删除。
