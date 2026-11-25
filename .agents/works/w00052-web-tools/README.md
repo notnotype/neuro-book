@@ -2,7 +2,7 @@
 schema: nbook.work/v1
 workId: w00052-web-tools
 issueId: null
-status: active
+status: done
 updated: 2026-11-25
 ---
 
