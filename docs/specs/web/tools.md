@@ -47,7 +47,7 @@ owners:
 | `nbook.web/deepseekBaseUrl` | string | `https://api.deepseek.com` | DeepSeek 两个接口的地址前缀 |
 | `nbook.web/tavilyBaseUrl` | string | `https://api.tavily.com` | Tavily 两个接口的地址前缀 |
 | `nbook.web/resultCount`（planned） | 整数，1 到 10 | 5 | 调用没给 `count` 时每条查询的结果条数 |
-| `nbook.web/blockedSites`（planned） | string 数组，域名，至多 100 个 | `[]` | 搜索结果里不要这些网站（输出 3） |
+| `nbook.web/blockedSites`（planned） | string 数组，至多 100 个，每项一个域名或 IPv4 地址 | `[]` | 搜索结果里不要这些网站（输出 3）；读的时候逐项归一化（只留主机、转小写与 punycode、去掉末尾的点），写错的项只跳过这一项 |
 | `nbook.web/tavilySearchDepth`（planned） | `"basic"` 或 `"advanced"` | `"basic"` | Tavily 搜索的深度（advanced 每条扣 2 点额度） |
 
 远程合同 `nbook.web/settings`，版本 1，服务端提供，浏览器调用（`provider` 取 `"deepseek"` 或 `"tavily"`）：
@@ -66,8 +66,8 @@ owners:
 1. **请求**：每条查询一次请求，几条同时发，都带 `Authorization: Bearer <密钥>`。日期不是 `YYYY-MM-DD` 时得 `invalid-request`，不发请求；有一条查询不合要求时整次调用得 `invalid-request`，一条也不发。
    - DeepSeek：`POST <DeepSeek 地址前缀>/v1/tools/search`，请求体 `{query, count}`。`sites` 拼进查询写成 `site:a OR site:b`，`after`、`before` 写成 `after:<日期>`、`before:<日期>`；拼好的查询超过 128 个 Unicode 码点时不合要求。
    - Tavily：`POST <Tavily 地址前缀>/search`，请求体 `{query, max_results: count, search_depth, include_published_date: true}`，`search_depth` 取设置项 `nbook.web/tavilySearchDepth`（planned，原为固定 `"basic"`），屏蔽网站不空时给 `exclude_domains`（planned）；查询去掉首尾空白后发，不拼操作符；`sites` 给 `include_domains`（空白的不算），`after`、`before` 给 `start_date`、`end_date`；查询为空、超过 1,500 个 Unicode 码点、站点多于 300 个时不合要求。
-2. **文字结果**：只有一条查询时，第一行写“来自 <服务名> 搜索，N 条结果”（服务名是 DeepSeek 或 Tavily）；之后每条一段：标题、网址、日期（有的话）、站点（有的话）、摘要（截到 600 字）。没有结果时写“没有结果”，状态成功。几条查询时，第一行写“来自 <服务名> 搜索，K 条查询”，之后按查询的顺序每条一组：组头写“查询 i：<查询>，N 条结果”（一条都没有时写“查询 i：<查询>，没有结果”），没搜成的写“查询 i：<查询>，没搜成：<原因>”（原因同输出 12），下面是这条的结果，摘要截到 300 字。这份 Spec 里的“字”按 UTF-16 码元计；截断与断行不切开一个非 BMP 字（要切在它中间时整个字留到后面），不留下半个字。
-3. **结果的整理**：网址不是 http 或 https 的条目丢掉；网址的主机是屏蔽网站之一或它的子域名（`csdn.net` 也挡 `blog.csdn.net`）的丢掉，两家都在本地再筛一遍（planned）；其余的取解析后的写法（WHATWG URL 的 `href`：空白、引号、尖括号等写成百分号形式）；标题缺失时用网址；不按分数筛。DeepSeek：摘要取 `summary`，没有取 `snippet`，都没有为空；分数取 `rerank_score`。Tavily：摘要取 `content`，日期取 `published_date`（原样），分数取 `score`，没有站点。
+2. **文字结果**：只有一条查询时，第一行写“来自 <服务名> 搜索，N 条结果”（服务名是 DeepSeek 或 Tavily）；之后每条一段：标题、网址、日期（有的话）、站点（有的话）、摘要（截到 600 字）。没有结果时写“没有结果”，状态成功。按屏蔽网站去掉了结果时，条数后面写“（另有 M 条来自屏蔽网站，已去掉）”，全被去掉时写“没有结果（M 条来自屏蔽网站，已去掉）”（planned）。几条查询时，第一行写“来自 <服务名> 搜索，K 条查询”，之后按查询的顺序每条一组：组头写“查询 i：<查询>，N 条结果”（一条都没有时写“查询 i：<查询>，没有结果”），没搜成的写“查询 i：<查询>，没搜成：<原因>”（原因同输出 12），下面是这条的结果，摘要截到 300 字。这份 Spec 里的“字”按 UTF-16 码元计；截断与断行不切开一个非 BMP 字（要切在它中间时整个字留到后面），不留下半个字。
+3. **结果的整理**：网址不是 http 或 https 的条目丢掉；网址的主机（去掉末尾的点）是屏蔽网站之一或它的子域名（`csdn.net` 也挡 `blog.csdn.net`）的丢掉，两家都在本地再筛一遍；单段的主机名（`localhost`）与 IPv6 地址挡不了（planned）；其余的取解析后的写法（WHATWG URL 的 `href`：空白、引号、尖括号等写成百分号形式）；标题缺失时用网址；不按分数筛。DeepSeek：摘要取 `summary`，没有取 `snippet`，都没有为空；分数取 `rerank_score`。Tavily：摘要取 `content`，日期取 `published_date`（原样），分数取 `score`，没有站点。
 4. **结构值**：只给嵌套调用（eval 里的调用），形状 `{provider, searches: [{query, results: [{title, url, summary, date?, site?, score?}]} 或 {query, error: {code, detail?}}]}`，`searches` 按查询的顺序（取代版本 1 的 `{provider, results}`）；`provider` 是这次用的服务 id；模型直接调时结果不带结构值。
 
 ### 读取
