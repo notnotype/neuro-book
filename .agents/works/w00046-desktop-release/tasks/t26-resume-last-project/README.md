@@ -29,4 +29,4 @@ Claude Sonnet 一份，11 条（阻断 1、重要 5、建议 5），全部成立
 
 ## 下一步
 
-按切片实施，执行位置 `.worktree/w00046-t26-resume-last`（分支 `feat/w00046-t26-resume-last`）。e2e 基线：起点上 `bookshelf.e2e.ts` 7 条全过。
+已合入 master（f792fce89）。剩下：推 master 后用 `bun run release rehearse` 演练一次，看安装版冒烟的“再启动直接进上次的作品”与更新冒烟在 Windows runner 上过不过（开发者已同意为此推 master）；macOS 的 Dock 重开在 t23 的真机验收里一起看。演练过了改 `done`。
