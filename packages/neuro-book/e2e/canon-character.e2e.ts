@@ -83,7 +83,7 @@ async function openEntry(page: Page, name: string): Promise<void> {
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容不动；成段的按 Escape、短项点外面都不存；加一项资料；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动；成段的按 Escape、短项点外面都不存；加一项资料；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -116,18 +116,34 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(valueOf(page, "character.性别")).toHaveText("女");
     await expect(gender).toHaveCount(0);
 
-    // 背景：编辑层浮在原处；写一段、按 Escape 放弃，不存。
-    await valueOf(page, "character.背景").click();
-    const passage = editorOf(page, "character.背景");
-    await passage.getByRole("textbox").fill("六岁那年失去了父母。");
+    // 性格：编辑层浮在原处、盖住后面，后一段（说话方式）不动；写一段、按 Escape 放弃，不存。
+    const speech = card.locator("[data-passage='说话方式']");
+    const speechBefore = await speech.boundingBox();
+    await valueOf(page, "character.性格").click();
+    const passage = editorOf(page, "character.性格");
+    await passage.getByRole("textbox").fill("嘴硬心软，最怕被人看穿。");
+    expect(await speech.boundingBox()).toEqual(speechBefore);
     await passage.getByRole("textbox").press("Escape");
     await expect(passage).toHaveCount(0);
-    await expect(valueOf(page, "character.背景")).toContainText("从哪里来");
+    await expect(valueOf(page, "character.性格")).toContainText("遇事怎么反应");
 
-    // 年龄：短项在浮层里，点浮层外面放弃。
+    // 年龄：短项在浮层里；预览中（一行）与预览回来（写回哪里与变化两行）时保存按钮在同一个位置；点浮层外面放弃。
     await valueOf(page, "character.年龄").click();
     const age = editorOf(page, "character.年龄");
+    await expect(age.locator("[data-confirm-preview]")).toContainText("改初值");
     await age.getByRole("textbox").fill("十七");
+    // 预览中只有停顿的那 300 毫秒加一次往返：状态与位置在页面里同一刻读，不分两次。
+    const saveAt = (previewing: boolean) => {
+        const editor = document.querySelector("[data-field-editor='character.年龄']");
+        const save = editor === null ? undefined : [...editor.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存");
+        const shown = editor?.querySelector("[data-confirm-preview]")?.textContent ?? "";
+        if (save === undefined || shown.includes("正在预览") !== previewing || (!previewing && !shown.includes("改初值"))) return null;
+        const {x, y} = save.getBoundingClientRect();
+        return {x, y};
+    };
+    const during = await (await page.waitForFunction(saveAt, true)).jsonValue();
+    const after = await (await page.waitForFunction(saveAt, false)).jsonValue();
+    expect(after).toEqual(during);
     await entryPage(page).locator("h1").click();
     await expect(age).toHaveCount(0);
     await expect(valueOf(page, "character.年龄")).toHaveText("填写");

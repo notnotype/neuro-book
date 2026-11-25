@@ -1303,6 +1303,33 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
     });
 
+    it("就地改：保存在途时 Escape 与“取消”都不算放弃，保存完照常收起；草稿所在的字段被去掉时草稿清掉，不退回确认条", async () => {
+        const {wrapper, state} = await badgePage();
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.介绍") !== null);
+        const textarea = editorOf("badge.介绍")!.querySelector("textarea")!;
+        textarea.value = "一枚旧徽章";
+        textarea.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        const buttons = () => [...editorOf("badge.介绍")!.querySelectorAll("button")];
+        buttons().find((button) => button.textContent?.trim() === "保存")!.click();
+        // 保存的请求已经发出（`saving` 在点下去的同一刻就是真）：这时的 Escape 与“取消”都不放弃。
+        textarea.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        buttons().find((button) => button.textContent?.trim() === "取消")!.click();
+        expect(state.edit?.path).toBe("badge.介绍");
+        await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.介绍']").text() === "一枚旧徽章" && editorOf("badge.介绍") === null);
+        expect(state.edit).toBeNull();
+
+        await wrapper.get("[data-add-field]").trigger("click");
+        await waitUntil("加上种族", () => wrapper.find("[data-edit='badge.种族']").exists());
+        await wrapper.get("[data-edit='badge.种族']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.种族") !== null);
+        await wrapper.get("[data-remove-field]").trigger("click");
+        await waitUntil("去掉了", () => wrapper.get("[data-removed]").text() === "种族");
+        expect(state.edit).toBeNull();
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+    });
+
     it("context：别的组只认 uses 列了的，没加过、加上以后；加一项、重名被拒、去掉以后列在去掉过的里", async () => {
         const {wrapper} = await badgePage();
         await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent");

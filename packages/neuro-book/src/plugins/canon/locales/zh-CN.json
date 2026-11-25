@@ -237,6 +237,7 @@
         "pendingResolved": "少了 {{count}} 条待处理",
         "valueFollows": "{{label}}跟着变成 {{value}}",
         "noImpact": "别的都不变",
+        "moreImpact": "{{first}}，还有 {{count}} 项",
         "unsupported": "这种字段还不能在这里改"
     },
     "record": {

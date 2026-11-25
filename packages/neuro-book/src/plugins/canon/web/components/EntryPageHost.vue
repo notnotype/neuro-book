@@ -818,7 +818,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     release = holdInline(full());
                 });
                 onBeforeUnmount(() => release());
-                // 输入法组字中按 Escape、保存在途时，点外面或 Escape 都不算放弃（输出 51）。
+                // 输入法组字中、保存或上传在途时，点外面、Escape 与“取消”都不算放弃（输出 51）：三条路都经 `dismiss`。
                 const composing = shallowRef(false);
                 const active = computed(() => state.edit?.inline === true && state.edit.path === full() && edit.bar.value !== null);
                 const dismiss = (): void => {
@@ -847,7 +847,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                         "onUpdate:intent": edit.setIntent,
                         onSave: () => edit.save(),
                         onRecheck: () => edit.recheck(),
-                        onCancel: () => edit.cancel(),
+                        onCancel: dismiss,
                     })]);
                 };
                 return () => {

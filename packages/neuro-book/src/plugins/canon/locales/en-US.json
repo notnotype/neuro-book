@@ -237,6 +237,7 @@
         "pendingResolved": "{{count}} fewer pending",
         "valueFollows": "{{label}} becomes {{value}}",
         "noImpact": "Nothing else changes",
+        "moreImpact": "{{first}}, and {{count}} more",
         "unsupported": "This kind of field cannot be edited here yet"
     },
     "record": {
