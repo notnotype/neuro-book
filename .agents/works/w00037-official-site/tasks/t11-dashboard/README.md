@@ -38,6 +38,8 @@ updated: 2026-11-24
 
 “问身份”的形状已定（2026-11-24，[t07 的计划](../t07-identity-core/plan.md) 3.11）：账号模块导出 `whoami(request: Request): Promise<Response>`，与对外的问身份端点是同一个函数；统计模块自己声明它要的这个函数形状、自己解析回答里的三样（状态、账号 id、角色）与 503，进程入口的适配器转接。ADR 0059 不用改；上面“写计划时要定的一处”按第一种做法。
 
+从 t06 接过来的（2026-11-25）：合同测试的相邻版本用例（C19）为了核对“上一个版本在本版本写过的聚合上接着累加”，临时直接读统计库的 `telemetry_daily_count`（`nb-site-contract-tests/src/testing/aggregate.ts`，包的 `AGENTS.md` 与 `boundary.test.ts` 的白名单各记了一行例外）。本 Task 有了读聚合的接口后，让它改走接口，删掉这个文件与两处例外。
+
 ## 下一步
 
 开工时写实施计划。

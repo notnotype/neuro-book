@@ -130,7 +130,7 @@ owners:
 | `email_taken` | 创建管理员时给的邮箱已被别的账号占用 | 换一个邮箱 |
 | `unavailable` | 创建管理员时账号模块的库一直被别的进程占着写锁，等了一阵仍写不进 | 稍后重新执行 |
 
-`config_invalid` 的问题词：`missing`（没给）、`not_https`、`has_path`（地址带了路径、查询串或片段）、`same_host`（两个地址的主机名相同）、`not_absolute`、`not_directory`、`not_writable`、`too_short`、`not_integer`、`out_of_range`、`bad_subnet`、`not_ip`（监听地址不是 IP 字面量）、`not_loopback`（设了测试控制口令而监听地址不是本机回环，记在监听地址上）、`bad_format`（测试控制口令过长或含不许出现的字符；取值不是规定的写法，例如条款版本不是日期、开关不是 `true` 或 `false`）。只追加，不改含义。
+`config_invalid` 的问题词：`missing`（没给）、`not_https`、`has_path`（地址带了路径、查询串或片段）、`same_host`（两个地址的主机名相同）、`not_absolute`、`not_directory`、`not_writable`、`too_short`、`not_integer`、`out_of_range`、`bad_subnet`、`not_ip`（监听地址不是 IP 字面量）、`not_loopback`（设了测试控制口令而监听地址不是本机回环，记在监听地址上）、`bad_format`（测试控制口令过长或含不许出现的字符；取值不是规定的写法，例如条款版本不是日期、开关不是 `true` 或 `false`）、`not_allowed`（不许出现的环境变量，见 [`site.accounts`](accounts.md) 的配置）。只追加，不改含义。
 
 `migration_failed` 的 `reason`：`invalid_list`（程序带的迁移清单本身不合规则）、`checksum_mismatch`（已执行的迁移被改过）、`out_of_order`（库里的记录与清单对不上：有缺口、乱序或改了编号）、`transaction_ended`（迁移自己结束了事务）、`foreign_key_violation`（迁移做完后留下悬空的外键引用）、`sql_error`（其余的数据库错误）。只追加，不改含义。
 

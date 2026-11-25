@@ -1,0 +1,149 @@
+# w00039 t41 内核三片实现审查（Opus，提交范围 4118f51d1..320289927，只看 packages/nb-canon）
+
+### 1. `create` 与 `component add` 的 `declare` 换了 id 以后，`fields` 里按原 id 给的初值悄悄写到别的字段上
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/nb-canon/src/world/entry-edits.ts:394-404（`namespaceData`）、:414-420（`declareField`）
+- 现象：`declare` 与 `fields` 是两份独立的输入，靠 id 对上。`declareField` 在 id 占着时换一个生成的 id，但 `fields` 仍按调用方写的键原样 `Object.assign`。探针（经真实 `editEntries`）：
+  - `create` 给面板 `declare: [{id: "存款", label: "私房钱", kind: "number"}]`、`fields: {存款: 5}`：照收；声明变成 `私房钱`（值 null），5 写进了类型固定的 `存款`。
+  - 同一组 `declare` 两条都写 `id: "幸运"`：照收；第二条悄悄变成 `运气`，`fields.幸运` 只落在第一条上。
+  - `fields` 写一个任何声明都没有的键（`运气: "abc"`）：照收，存进数据成为没人声明的孤值（这一点 base 上就如此，但有了 `declare` 换 id 以后它从“写错键”变成“照规则也会发生”）。
+- 为什么是问题：作者或 Agent 以为给新字段填了初值，结果改了固定字段的值、或者值落到没人声明的键上，回执与读回核对都不会指出（`checkPlan` 对 `create`/`component` 不加 expects）。“给的 id 占着就换一个”的理由（预设写死的 id 撞上作者先加的同 id 一项）只对已有实例的 `fieldAdd` 成立；新建的一组里只可能撞固定字段或同一批 `declare` 里的另一条，都是调用方自己写错，换 id 只会让 `fields` 对不上。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p1-declare-fields.ts`（cwd 为 worktree 的 packages/nb-canon）。
+- 建议改法：二选一。(a) 在 `namespaceData` 里 `declare` 的 id 占着时拒收（`id-taken`，带 op 序号），不换；`fields` 里出现不在生效字段里的键时拒收（`unknown-field`）。(b) 把初值挪进每条 draft（与 `fieldAdd` 的 `value` 同形），`fields` 只给固定字段。无论哪种都在 entry-edits 测试里补“撞固定字段 id”“同批两条同 id”两例。
+
+### 2. 去掉过的设定组加回来时 `declare` 被悄悄丢掉，`fields` 里给新字段的初值成了没人声明的孤值；`remove` 带 `declare` 也照收
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/nb-canon/src/world/entry-edits.ts:758-761（`component` 的“去掉过的加回来”分支），:763（只在新建分支把 `op.declare` 交给 `namespaceData`）；schema 注释 src/core/schema.ts:414 写“只在 `add` 时有意义”
+- 现象：探针经 `editEntries`：先 `component remove` 面板，再 `component add` 面板带 `declare: [{label: "幸运", kind: "number"}]`、`fields: {幸运: 3}`：整批 `ok`；结果 `declared` 仍是 `[]`，`fields` 里多了 `幸运: 3`，读取读不到“幸运”。`action: "remove"` 带 `declare` 同样 `ok`，声明被忽略。
+- 为什么是问题：调用方（界面的“添加一组设定”、Agent）无法知道这一组是“新加”还是“去掉过的恢复”，同一个请求在两种情况下结果不同，而且第二种情况既不报错也不生效，只留下一个孤值（后来真去 `fieldAdd` 同名一项时，`declareField` 会因为 `Object.keys(data.fields)` 占着而改叫“幸运2”）。revisions.md 输出 25 的 `component` 一行写“加的时候可以带这个实例自己的字段声明”，没有说恢复时不算。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p2-readd-declare.ts`。
+- 建议改法：恢复分支里对 `op.declare` 逐条走 `declareField(type, existing, draft, patchedFieldIds(...))`（与 `fieldAdd` 同一套，id 冲突按已有实例的规则处理），或者明确拒收（`type-mismatch`/新码“恢复时不能带声明”）。`action: "remove"` 带 `declare` 或 `fields` 时拒收。两种都补测试，并在 Spec 的 `component` 一行写清恢复时的行为。
+
+### 3. 字段声明的四个操作、`create`/`component` 的 `declare` 被世界层拒收时问题不带 `op` 序号，路径里还是调用方没写过的生成 id
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/nb-canon/src/world/entry-edits.ts:500-509（`targets` 只给补丁、剧情变化与主文字块）与 :772-807（四个操作都不推 `targets`）；src/world/entry-edits.ts:910-920（`checkPlan` 靠 `targets` 补 `op`）
+- 现象：作者的选择是 `label-taken`、`field-referenced`、`fields-not-declarable`、`id-taken` 只在 `validate` 判。它们回来时是 `{code, ref, path: "init.data.panel.declared[存款2].label"}`，没有 `op`；测试里的 `codes()` 注释也承认“世界层报的没有序号”。一批里加了三项、其中一项撞名时，调用方只能拿路径里的 id 去猜，而那个 id（`存款2`）是内核生成的，请求里从没出现过。
+- 为什么是问题：revisions.md 输出 25 “失败带序号”要求校验细项能对回某一项；界面要把原因“写在输入下面”、Agent 要知道改哪一项，都需要它。只靠单项批次时碰巧能用。
+- 如何核实：`entry-edits.test.ts` 末尾“拒收”一组的 `codes(attempt({op: "fieldAdd", … label: "存款"}))` 得到 `label-taken:init.data.panel.declared[存款2].label`，结果里没有 `op`。
+- 建议改法：`fieldAdd`/`fieldRename`/`fieldRestore`/`fieldRemove` 各自推 `targets`：`{op, ref: entry, path: init.data.<ns>.declared[<id>].label}`、`.max`、`.id`，`fieldRemove` 另推指着它的持有者路径不现实时至少推 `init.data.<ns>.declared`（`fields-not-declarable` 的路径）；`checkPlan` 现在按路径全等匹配，够用。
+
+### 4. 把一组数据改记成另一个类型或另一个版本时，值与声明都不再核：“原样留着”是相对旧类型说的，换了类型后不成立
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：packages/nb-canon/src/world/world.ts:1398（`old` 只按命名空间取）、:1408（`declarationProblems` 拿 `old.declared` 当“写入前”）、:1413（值相同就跳过）
+- 现象：探针经真实 `World.publish` 整份写回条目：
+  - A：命名空间 `panel` 的登记换成另一个类型 `other.panel`（`存款` 是文字）。写回时只把 `init.data.panel.type` 改成 `other.panel`、值不动：`ok`，数字 100 留在文字字段里。
+  - B：登记的面板升到版本 2（`存款` 改成文字），写回时只把数据的 `version` 改成 2：`ok`，同样不核。
+  base（4118f51d1）上这一组只要和旧的不全等，就对每个生效字段重核值，A、B 都会得到 `type-mismatch`（从代码推断：base 的循环没有“值没变就跳过”）。
+- 为什么是问题：components.md 输出 23 的“只核这次值变了或声明变了的字段”说的是同一个类型、同一份声明下没动过的值；类型或版本换了，等于每一条声明都变了。现在等于开了一条不经升级函数、不核值的“手动升级”路径，与输出 11“第一版没有升级函数、写入拒收”相反；声明这边也一样：`rewritten` 是空的，新类型不允许实例字段、或者新类型的固定字段盖住了实例声明，都不报。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p3-type-swap.ts`（A、B 两行 `ok`）。
+- 建议改法：在 `validate` 里，`old !== undefined && (old.type !== nsData.type || old.version !== nsData.version)` 时把 `old` 当成 `undefined`（整组按新写的查：声明全部算新写、值全部重核）。补一条测试：改 `type` 或 `version` 后值不合新声明被拒。探针 C（去掉的一组在同版本下类型改了字段后再加回来、值不核）与计划里“类型改过字段、原样留着的值不挡”一致，不算问题。
+
+### 5. `field-referenced` 的“去掉”一侧只认“删掉或标去掉”：把上限目标原地改成文字或语义档照收；被固定字段盖住的目标标去掉反而误拒
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/nb-canon/src/world/world.ts:1319-1323（`dropped` 与 `holder` 的查找）
+- 现象：探针（真实 `World.publish` 整份写回）：实例字段“值”的 `max` 指着实例字段“上限”。
+  - 把“上限”原地改成 `kind: "text"`（或 `precision: "semantic"`）、值也改成文字：`ok`。“值”的 `max` 从此指着一个非精确数字段，这是这次写入造成的、Spec 要求新写时不允许的组合。
+  - 类型后来加了同 id 的固定字段“上限”（盖住实例那条）；把实例那条标 `removed`：拒收 `field-referenced:…declared[值].max`，可“值”的上限此时仍指向生效的固定字段，不该拒。
+- 为什么是问题：components.md 输出 23 的意思是这次写入不能造出“上限指着不生效的精确数字段”；现在的判据是“目标的声明不见了或刚标去掉”，与“目标在生效字段里还是不是精确数”不等价，两边各漏一种。两种都只能经整份写回造出来（`editEntries` 没有改种类的操作，`fieldRemove` 对被盖住的报 `field-fixed`），所以只记建议。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p4-decl-edges.ts` 前三行。
+- 建议改法：用写入前后两份生效字段直接比：`prevExact = exactIds(effectiveFields(type, previous))`、`nowExact = exactIds(active)`；对 `prevExact` 里有、`nowExact` 里没有的每个 id，查生效的持有者。这样 `dropped` 不必再单独拼，三种情况一处判。
+
+### 6. “原样留着的补丁不拒收”也放过了这次写入自己造成的不适用：从同一条变更里删掉 `启用` 补丁，留下的数据补丁变成死补丁、照收
+- 严重程度：建议（实现符合 revisions.md 输出 3 的字面，问题在判据本身）
+- 类别：正确性 / 不变量
+- 位置：packages/nb-canon/src/world/world.ts:1332-1350（`toleratedPatches`）
+- 现象：探针经真实 `World.publish`：面板初值不启用，第 44 章一条变更 `[set panel.启用 true, add panel.存款 +5]`。整份写回这条变更、只删掉第一处 `启用` 补丁：`ok`；之后这条变更 `detail` 是 `{applied: true, patches: [{notApplicable: "disabled"}]}`，面板读不到，+5 悄悄失效。base 上同一请求拒收 `component-disabled`（从代码推断：base 对 `detail.patches` 里每处不适用都报）。
+- 为什么是问题：四条判据都看“这处补丁本身”有没有变，不看“不适用是不是这次写入造成的”。计划里只排除了“挪安放”这一种自造原因；同一条变更里拿掉启用、拿掉 `component` 里的 `fieldAdd` 前置这类，同样是这次写入造成的，components.md 输出 5“对没启用的命名空间打补丁，写入时拒收”在这里失效。作者在界面上删错一处补丁时得不到任何提示。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p5-enable-removed.ts`。
+- 建议改法：多加一条判据“写入前这处补丁就已经不适用，或者让它不适用的是这次请求写到的条目初值（`declared`、`removed`、`enabled` 变了）”。前一半用写入前那条线的引擎取 `detail(id).patches[匹配到的旧下标]`；后一半看 `changed.entries` 里目标条目对应命名空间是否与旧的不同。若接受现状，在 revisions.md 输出 3 的“不承诺”里写明这一种。
+
+### 7. `fieldAdd` 给的 id 被悄悄换掉，结果里又不告诉调用方分到了哪个 id：之后按自己给的 id 改，改到的是另一项
+- 严重程度：重要
+- 类别：正确性（质疑作者的选择“给的 id 占着时换一个、不拒收”）
+- 位置：packages/nb-canon/src/world/entry-edits.ts:414-420（`declareField`）、:772-783（`fieldAdd` 只推 `{kind: "entry"}` 路由）；`EntryEditResult` 的 `ids` 只映射临时 id
+- 现象：探针经 `editEntries`：先加“幸运”，改名为“好运”（id 仍是 `幸运`）。再 `fieldAdd {id: "幸运", label: "幸运", value: 50}`：`ok`，新字段的 id 变成 `幸运2`；返回值 `ids: {}`、`routes: [{kind: "entry"}]`，没有任何地方给出 `幸运2`。下一批 `set panel.幸运 = 60`：`ok`，60 写进了“好运”，新字段仍是 50。
+- 为什么是问题：显式给 id 的主要是 Agent（预设由界面给，界面会重读）。Agent 拿自己给的 id 当地址继续写是自然用法，换 id 以后它写到别的字段上，回执也看不出来。换 id 的理由（预设写死的 id 撞上作者先加的同 id 一项）只在作者改过名时有用：没改名时显示名也相同，照样 `label-taken`，换了 id 也加不上。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p6-fieldadd-id.ts`。
+- 建议改法：(a) 结果里带上分配的字段 id（例如 `fieldIds: [{op, entry, namespace, id}]`，`create`/`component` 的 `declare` 同样），回执与 Agent 工具据此展示；(b) 把“首选 id”与“必须用这个 id”分开：`FieldDraft` 的 `id` 视为必须，占着就拒收 `id-taken`；预设走另一个可选键（如 `preferredId`），或者由界面在请求前自己避开占用的 id。至少做 (a)。
+
+### 8. （base 上已有，不算回归）Agent 经 `editEntries` 给数字初值永远拿到 `number-without-basis`，新的 `fieldAdd` 带数字 `value` 也一样
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/nb-canon/src/world/world.ts:1420-1422（`strictBasis` 下初值的数要 `initBasis`）；src/world/entry-edits.ts 全文没有写 `initBasis` 的地方，`EntryOpSchema` 的 `set`、`create`、`component`、`fieldAdd` 都没有依据字段
+- 现象：探针 `by: {kind: "agent"}`：`fieldAdd {kind: number, value: 7}` → `number-without-basis:initBasis["panel.幸运"]`；同样的 `set panel.存款 = 7`（初值路由）与 `create` 带数字 `fields` 在 base 的写法下也都被拒。文字值照收。
+- 为什么是问题：计划验收映射里有“Agent 的四个操作”，而 Agent 加一项数字资料并填初值没有任何可行的一批写法（同一批里不能再 `set`，分两批 `set` 也同样缺依据）。剧情变化那一路给补丁自动带 `basis: author`（:587、:871-872），初值这一路没有对应做法。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p7-agent-number.ts`。
+- 建议改法：在 `EntryOpSchema` 的 `set`/`fieldAdd`（以及 `create`/`component` 的初值）上加可选 `basis`，`planEntries` 写进 `entry.initBasis[<ns>.<id>]`；或者初值路由与剧情变化一样默认记 `{kind: "author"}`（要先确认 Agent 的数是否允许算“作者给的”，这是产品取舍，交开发者）。不在本 Task 修也应在 Agent 工具的说明里写明。
+
+### 9. 测试缺口：几条判据只有组合用例，单独删掉实现不会让任何用例失败
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/nb-canon/tests/instance-fields.test.ts、tests/entry-edits.test.ts 末尾一组、tests/components.test.ts 末尾一组
+- 现象与依据（逐条从测试代码读出，探针核实了实现本身是对的）：
+  1. `toleratedPatches` 的三种原因里 `disabled` 没有用例（只有字段去掉 `undeclared` 与设定组去掉 `removed`；instance-fields 全文没有 `enabled: false`）。把 :1349 的 `|| result.notApplicable === "disabled"` 删掉，现有用例全过（从代码推断）。
+  2. `toleratedPatches` 的“写入前已是已写”只测了 `status`（待定转生效），没测 `kind`（计划改成已写）；README 记的“不比旧状态”变异只覆盖前者。
+  3. “补丁指过的 id 不分给新加的一项”的用例（entry-edits“初值里留着键、剧情变更的补丁指过的 id…”）删声明时初值键 `幸运` 还在，`declareField` 单靠 `Object.keys(data.fields)` 就避开了；`patchedFieldIds` 整个换成 `new Set()` 也能过。探针 p8 把初值键一起删掉、只留补丁，实现得到 `幸运2`，说明行为对、只是没被测到。
+  4. `withoutSuggestions` 去掉子字段 `suggestions` 的那一半没有用例（摘要测试只改顶层字段的 `suggestions`）。
+  5. `references.ts` 的 `patchReferences` 改用 `retainedFields`（:208）没有用例：只测了初值里的引用（“去掉的字段里的引用照旧算”）。
+  6. `service.ts` 的 `removedFields` 排除“被固定字段盖住的”那一条没有用例。
+  7. 预设的 `max` 指向固定但语义档的数字段（`presetsProblem` 的 `precision !== "semantic"`）没有用例。
+- 如何核实：`grep -n "enabled" tests/instance-fields.test.ts`（只有夹具两行）；p8 探针：`bun /tmp/review-w00039-t41-impl/lab/opus/p8-patched-ids.ts`。
+- 建议改法：1、3 是计划验收映射里明写的判据，补用例并各做一次变异（删掉 `disabled`；`patchedFieldIds` 返回空集）；2、5 各补一条；4、6、7 可以并进现有用例多一行断言。
+
+### 10. 分叉 `carry` 的“原样留着不重查”不看变更的旧状态：待定转生效、计划改成已写时，指着去掉的字段的 `carry` 照收
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：packages/nb-canon/src/world/forks.ts:123（`kept` 只取 `previous?.carry`，`previous` 是写入前这条变更的 `fork`，不论旧的 `kind`/`status`/`at`）、:136
+- 现象：探针经真实 `World.publish`：一条带 `carry: [panel.幸运]` 的回溯分叉先以待定（`held`）或计划（`kind: "plan"`）写下；之后把“幸运”标去掉；再把这条分叉改成生效的已写分叉：两种都 `ok`。对照：同一时刻新写一条带同样 `carry` 的已写分叉，拒收 `invalid-fork:fork.carry[0]`。
+- 为什么是问题：revisions.md 输出 17 要求待定转生效“按新写的生效变更完整校验”，计划里补丁那一侧也明确“待定转生效、计划改成已写、撤销后恢复都算新写”，`toleratedPatches` 照此检查了 `previous.kind/status` 与 `at`；`carry` 这一侧漏了同样的前提，两处判据不一致。结果是一条刚生效的分叉带着一个读不到的字段，子线上这处带过去的值按不完整处理，作者不会在写入时得到提示。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p9-fork-carry-held.ts`。
+- 建议改法：`kept` 只在旧变更是已写、生效，且 `at`（含线）与 `fork.cut`/`fork.parent` 都没变时才取旧 `carry`；条件与 `toleratedPatches` 的前两条抽成同一个函数（例如 `keptAsIs(previous, change)`），两处共用。worldlines 测试补“待定转生效”“计划改成已写”两例。
+
+### 11. 去掉的声明可以被整份写回原地改种类、不做任何核对，之后 `fieldRestore` 照收，旧剧情变更整条套不上：原则一“恢复时种类不可能变”只在 `editEntries` 这一路成立
+- 严重程度：建议
+- 类别：正确性 / 不变量
+- 位置：packages/nb-canon/src/world/world.ts:1300-1318（`rewritten` 循环：形状过了以后 `!isActive(field)` 直接 `continue`）、:1409-1413（值只按生效字段核）
+- 现象：探针：`fieldAdd` 数字“幸运”（初值未知）→ 第 50 章剧情变化 `set 幸运 = 5` → `fieldRemove` → 整份写回条目把这条已去掉的声明改成 `kind: "text"`：`ok`（不核值、不报码）。再 `editEntries` 的 `fieldRestore`：`ok`；那条旧变更的 `detail` 变成 `{applied: false, reason: "type-mismatch"}`，整条套不上（作为“对后面的影响”不拒收）。
+- 为什么是问题：计划的原则一与 components.md 输出 4（“恢复是去掉标记，种类不变”）把“去掉不删声明”的理由写成“恢复时种类不可能变”，正是为了避免审查复现过的“第 45 章那条整条套不上”。现在这条保证依赖调用方不走整份写回；生效中的声明原地改种类也同样不拦（base 上就如此，只在值不合时被拒）。四个操作里没有一个需要改种类，整份写回改已有声明的 `kind` 没有正当用途。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p11-kind-change.ts`。
+- 建议改法：`declarationProblems` 里对 `old !== undefined && old.kind !== field.kind`（以及 `item` 子字段的种类、`keyedBy`、`precision` 这些决定补丁能不能套的属性）的改写报 `field-redeclare-mismatch`（或新码），不论生效与否；要换种类就加一个新字段。Spec 输出 23 的列表补一行。
+
+### 12. 预设的显示名与固定字段相同也能登记，可这样的预设在任何条目上都加不上（`label-taken`）
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/nb-canon/src/components/registry.ts:138-152（`presetsProblem` 只比 id 与 `max`）
+- 现象：探针：面板加一个预设 `{id: "钱", label: "存款", kind: "number"}`（固定字段里已有显示名“存款”）：登记没有诊断；把这个预设原样交给 `fieldAdd`：拒收 `label-taken:init.data.panel.declared[钱].label`。两个预设同显示名时同理，只能加上其中一个。
+- 为什么是问题：components.md 输出 24 说每个预设“单独与固定字段放在一起”校验，目的就是“作者可能只加其中一个”时它也成立；显示名唯一是实例声明的规则（输出 23），预设一旦违反它就是一个永远用不了的模板，界面会照样把它列在“添加一项”里，点了只得到错误。插件作者写错时最好在登记时就知道。
+- 如何核实：`bun /tmp/review-w00039-t41-impl/lab/opus/p13-preset-label.ts`。
+- 建议改法：`presetsProblem` 里同样拿预设的 `label` 与固定字段的显示名比，撞了按 `component-declaration-invalid` 报 `presets[i].label`；预设之间同名的是否也拒，看是否允许“两个预设二选一”，倾向一起拒。Spec 输出 24 的括号里补“显示名不与固定字段相同”。
+
+### 13. 热路径上的两处多余扫描：`effectiveFields` 每次对每条实例声明线性查固定字段；`fieldAdd` 每一项都把全部剧情变更的补丁扫一遍
+- 严重程度：建议
+- 类别：安全与性能
+- 位置：packages/nb-canon/src/components/registry.ts:238-247（`instanceFields` 里 `type.fields.some(...)`）；packages/nb-canon/src/world/entry-edits.ts:423-433（`patchedFieldIds`）
+- 现象：`effectiveFields` 经 `namespaceFields` 在 `applyPatch` 里每处补丁调一次、`constraintViolation` 每个碰到的命名空间调一次，整本重算时次数是“补丁数”量级；现在每次都做 `固定字段数 × 实例声明数` 次比较，外加和原来一样的一次数组分配（有实例声明时）。`patchedFieldIds` 每个 `fieldAdd` 遍历 `world.data.changes` 的全部补丁并逐个 `parsePath`，一批 50 项就是 50 遍。
+- 为什么是问题：前者在 base 上是 O(固定 + 实例) 的一次拼接，现在退成乘积；人物这类十个固定字段、作者再加十来项的实例，整本重算时多出两个数量级的比较。都不影响正确性。
+- 如何核实：读代码；未做计时。
+- 建议改法：`buildRegistry` 时给 `ComponentType` 预算一个固定字段 id 的 `Set`（或在模块里用 `WeakMap<ComponentType, Set<string>>` 缓存），`instanceFields` 用 `has`；进一步可以按 `declared` 数组用 `WeakMap` 缓存结果（前提是写入后的数据不再原地改，需先确认 `deepFreeze` 覆盖到 `declared`）。`patchedFieldIds` 在 `planEntries` 里按 `entry/namespace` 懒算一次并缓存在 `Draft` 上。
+
+## 未发现问题的方面
+- `toleratedPatches` 的下标对齐：`applyChange` 先按“启用在前”排序执行，但 `results[index]` 按原下标写回，`detail.patches[i]` 总是对应 `change.patches[i]`；`detail.applied` 为假时不放宽、照报失败原因；没有引擎（线不可建）时 `detail` 为空、不放宽。`detail` 改成只对已写且生效的变更取，与后面 `if (change.kind !== "written" || change.status !== "active") continue` 等价，没有丢掉 base 上的检查。
+- 计数判据：同一补丁多写一份、内容改了、挪安放、待定转生效都照旧拒收（测试与代码一致）；跳过依据检查的范围与 Spec 输出 3 一样，只限放宽的那几处。
+- `declarationProblems` 的 `id-taken`：按条数比，已修的“原样再写一份”不再漏；还原留下两条同 id 时不误报。`label-taken` 与 `field-referenced` 的路径与 Spec 输出 23 一致（`declared[<id>].label`/`.max`）；去掉过的不计入显示名，恢复时重查显示名与上限。
+- 值的核对在同一类型、同一版本下的跳过规则：新建命名空间（`old` 为空）全核；`declare` 带进来的、`fieldAdd` 的初值、恢复的字段都在 `rewritten` 里会重核；`number-without-basis` 只对值变了的数报。
+- `constraintViolation` 只认生效的上限目标；`references.ts` 对去掉的字段照旧遍历，恢复时不算新写的引用；`effectiveFields` 的固定字段优先与原数组身份（`isActive` 用 `includes`）一致。
+- `created-in-batch`（新加的字段、刚加的一组上再 `fieldAdd`、刚建的条目上 `fieldAdd`）、`duplicate-address`（同字段改名加去掉、`set` 加去掉、删条目加 `fieldAdd`）在探针里都按计划拒收；同一批两项 `fieldAdd` 与上限指向前一项照收。
+- `withoutSuggestions` 的判断式对“没有子字段”“子字段都没有建议值”两种都原样返回；登记变了的通知按整份类型比，只改 `kinds` 照样通知。
+- 应用包 `packages/neuro-book` 里没有直接调用 `effectiveFields`、`fieldsProblem`、`fieldShapeProblem`、`retainedFields` 的地方（只经 nb-canon 的读取结果），也没有直接读 `init.data.*.declared` 的地方；没有跨包深导入、按错误文案分支或静默吞错。
+
+## 各级数量
+- 阻断：0
+- 重要：5（1、2、4、7、10）
+- 建议：8（3、5、6、8、9、11、12、13；其中 8 是 base 上已有的问题）
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13

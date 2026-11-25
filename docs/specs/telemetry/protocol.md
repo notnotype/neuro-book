@@ -29,7 +29,7 @@ owners:
 
 ## 输入与前置条件
 
-三个写入口在遥测写入口地址下，请求体是 JSON，至多 16 KiB；不需要也不接受登录凭据。请求的 `Content-Type` 是 `application/json`（按媒体类型本身精确比较，可带参数），不带 `Content-Encoding`（或为 `identity`），否则按 `invalid_report` 拒收。写入口不回应跨域预检：它不给网页用。
+三个写入口在遥测写入口地址下，请求体是 JSON，至多 16 KiB；不需要也不接受登录凭据。请求的 `Content-Type` 是 `application/json`（媒体类型本身按不分大小写的精确比较，可带参数），不带 `Content-Encoding`（或为 `identity`），否则按 `invalid_report` 拒收。写入口不回应跨域预检：它不给网页用。
 
 `POST /v1/daily`：
 

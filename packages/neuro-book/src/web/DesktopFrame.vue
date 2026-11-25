@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 桌面窗口的外框（docs/specs/runtime/browser-host.md 的“窗口外框”）：右上角的窗口按钮，页面没有自己的标题栏时再画一条后备标题栏。
+ * 桌面窗口的外框（docs/specs/runtime/browser-host.md 的“窗口外框”）：右上角的窗口按钮（系统的红绿灯留着时不画），页面没有自己的标题栏时再画一条后备标题栏。
  * 状态与 `<html>` 上的属性在 `host/desktop-frame.ts`；这里只按状态画。拖动区域由 CSS `app-region` 标出，拖动、双击最大化、
  * 贴边分屏都由 WebView2 交给系统，组件不处理。
  */
@@ -33,7 +33,7 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
             图标是内联 SVG（图形取自 lucide，与标题栏其它按钮的图标同形同粗）：图标类是遮罩加背景色，高对比度模式下背景色被强制成
             Canvas，按钮会整个消失；描边用 currentColor，颜色由系统给。
         -->
-        <div class="desktop-frame__controls" :style="layer" role="group" :aria-label="t(hostText('desktopFrame.controls'))" data-desktop-controls>
+        <div v-if="frame.controls" class="desktop-frame__controls" :style="layer" role="group" :aria-label="t(hostText('desktopFrame.controls'))" data-desktop-controls>
             <span class="desktop-frame__divider" aria-hidden="true"></span>
             <button type="button" tabindex="-1" class="desktop-frame__button" :aria-label="t(hostText('desktopFrame.minimize'))" data-desktop-control="minimize" @mousedown.prevent @click="frame.control('minimize')">
                 <span class="desktop-frame__chip"><svg class="desktop-frame__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></span>
@@ -64,7 +64,8 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
     display: flex;
     align-items: center;
     gap: 8px;
-    padding-inline: 10px calc(var(--nb-window-controls-width) + 10px);
+    /* 右边让窗口按钮，左边让红绿灯（macOS）；两个变量在另一个平台上是 0。 */
+    padding-inline: calc(var(--nb-window-controls-start, 0px) + 10px) calc(var(--nb-window-controls-width) + 10px);
     background: var(--shell-chrome-surface, var(--bg-panel, var(--host-loading-background, Canvas)));
     border-bottom: 1px solid var(--shell-chrome-line, var(--divider, transparent));
     color: var(--text-muted, var(--host-loading-muted, GrayText));

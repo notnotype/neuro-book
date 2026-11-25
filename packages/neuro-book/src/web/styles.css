@@ -148,6 +148,17 @@ html[data-desktop-frame] {
     scrollbar-gutter: auto;
 }
 
+/*
+ * 系统的红绿灯留着（macOS，`data-desktop-frame="native-controls"`）：窗口按钮不画，右上角没有东西要让；红绿灯在左上角，
+ * 标题栏的左端与后备标题栏让出它们的宽度（`--nb-window-controls-start`）。这个宽度与壳里红绿灯的偏移（`desktop/src/bun/index.ts`
+ * 的 `TRAFFIC_LIGHT_OFFSET`）一起定：红绿灯左缘 15px，三个圆加间距到 69px 左右，再留 11px 的呼吸。
+ */
+html[data-desktop-frame="native-controls"] {
+    --nb-window-controls-lead: 0px;
+    --nb-window-controls-width: 0px;
+    --nb-window-controls-start: 80px;
+}
+
 html[data-desktop-frame-bar] {
     --nb-window-frame-offset: var(--nb-window-frame-height);
 }

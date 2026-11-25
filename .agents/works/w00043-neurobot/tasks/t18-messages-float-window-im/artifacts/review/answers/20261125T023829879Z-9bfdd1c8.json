@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t18-messages-float-window-im",
+    "artifactId": "review",
+    "answerId": "20261125T023829879Z-9bfdd1c8",
+    "artifactVersion": 1,
+    "contentHash": "04caeb2be86c1ff900a320db750c4e9e02e2a4903535f3986ea5795cc8cacbb3",
+    "submittedAt": "2026-11-25T02:38:28.706Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "float-head": "self",
+        "list-switch": "title"
+    },
+    "comments": {},
+    "note": null
+}
