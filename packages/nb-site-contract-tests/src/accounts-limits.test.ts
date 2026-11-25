@@ -63,6 +63,7 @@ describe("登录、改密码与生成邀请码的限流（输出 19）", () => {
             createAdmin(sandbox, dataDir, ["slow"], PASSWORD),
             createAdmin(sandbox, dataDir, ["changer"], PASSWORD),
             createAdmin(sandbox, dataDir, ["minter"], PASSWORD),
+            createAdmin(sandbox, dataDir, ["hoarder"], PASSWORD),
         ]);
         site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
     }, SETUP_TIMEOUT_MS);
@@ -145,6 +146,20 @@ describe("登录、改密码与生成邀请码的限流（输出 19）", () => {
         const seconds = retryAfter(limited, HOUR_MS);
         await site.advanceClock(seconds * 1000);
         expect((await generate()).status).toBe(200);
+    });
+
+    // 超出 200 毫秒的预算：登录算一次密码哈希，另生成十个码。
+    it("生成邀请码的先后（失败表）：已有 10 个有效的码、这一小时也已生成 10 次时，第 11 次回 rate_limited，不是 invite_code_limit", async () => {
+        await alignToWindow(site, HOUR_MS);
+        const jar = cookieJar();
+        expect((await login(site.url, "hoarder", PASSWORD, {from: "203.0.113.55", jar})).status).toBe(200);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: "203.0.113.55", jar, body: {termsVersion: TERMS_VERSION, overseasStorage: true}})).status).toBe(200);
+        const generate = () => identityRequest(site.url, IDENTITY_PATHS.meInviteCodes, {method: "POST", from: "203.0.113.55", jar});
+        // 不停用：10 个码都还有效，两道限制同时满了，回答只看谁排在前面。
+        for (let index = 0; index < 10; index += 1) expect((await generate()).status).toBe(200);
+        const blocked = await generate();
+        expect(failure(blocked)).toEqual(rateLimited);
+        retryAfter(blocked, HOUR_MS);
     });
 });
 

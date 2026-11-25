@@ -178,6 +178,41 @@ describe("没有密码的账号（输出 9）", () => {
     });
 });
 
+describe("哈希过载（输出 20）", () => {
+    // 合同测试里要让改密码正好撞上别人占着唯一的哈希名额，只能靠并发碰运气；这里经校验的包装把一个登录停在校验这一步，占着名额。
+    it("并发 1、不排队：一个登录在校验时，改密码回 503 overloaded，密码不改、其它会话不动；那个登录照常成功", async () => {
+        // 只拦第一次校验（那个登录的）；之后的照常，免得改密码万一拿到了名额也停在这里、用例等到超时才失败。
+        let hold: {readonly entered: PromiseWithResolvers<void>; readonly gate: PromiseWithResolvers<void>} | undefined;
+        const passwords: PasswordFunctions = {
+            hash: REAL_PASSWORD_FUNCTIONS.hash,
+            verify: async (password, stored, context) => {
+                const current = hold;
+                hold = undefined;
+                if (current !== undefined) {
+                    current.entered.resolve();
+                    await current.gate.promise;
+                }
+                return REAL_PASSWORD_FUNCTIONS.verify(password, stored, context);
+            },
+        };
+        identity = await createTestIdentity("identity-change-password-overloaded", {config: {hashConcurrency: 1, hashQueue: 0}, overrides: {passwords}});
+        const aliceId = await identity.addUser("alice", {consent: CONSENTED, password: PASSWORD});
+        await identity.addUser("bob", {consent: CONSENTED, password: PASSWORD});
+        const current = await identity.issue(aliceId);
+        const other = await identity.issue(aliceId);
+        const held = {entered: Promise.withResolvers<void>(), gate: Promise.withResolvers<void>()};
+        hold = held;
+        const bob = login(identity, "bob", PASSWORD);
+        await held.entered.promise;
+
+        expect(await outcome(await changePassword(identity, current.cookie, {currentPassword: PASSWORD, newPassword: NEW_PASSWORD}))).toEqual({status: 503, body: {error: {code: "overloaded"}}});
+        held.gate.resolve();
+        expect((await bob).status).toBe(200);
+        expect(await whoamiState(identity, other.cookie)).toBe("authenticated");
+        expect((await login(identity, "alice", PASSWORD)).status).toBe(200);
+    });
+});
+
 describe("门槛", () => {
     it("没登录回 unauthenticated；缺同意回 consent_required", async () => {
         identity = await createTestIdentity("identity-change-password-gate");

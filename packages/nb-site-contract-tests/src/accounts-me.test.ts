@@ -82,6 +82,7 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
             createAdmin(sandbox, dataDir, ["inviter", "inviter@example.com"], PASSWORD),
             createAdmin(sandbox, dataDir, ["gated", "gated@example.com"], PASSWORD),
             createAdmin(sandbox, dataDir, ["surrogate", "surrogate@example.com"], PASSWORD),
+            createAdmin(sandbox, dataDir, ["padded", "padded@example.com"], PASSWORD),
         ]);
         site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
     }, SETUP_TIMEOUT_MS);
@@ -117,7 +118,7 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
     }
 
     // 超出 200 毫秒的预算：登录算一次密码哈希。
-    it("改资料（Smoke）：每个字段单独改，回更新后的资料、me 读到同样的；邮箱转小写；头像、网站、签名给 null 清空", async () => {
+    it("改资料：每个字段单独改，回更新后的资料、me 读到同样的；邮箱转小写；头像、网站、签名给 null 清空", async () => {
         const jar = await consented("profile");
         const cases = [
             [{displayName: "Profile Shown"}, {displayName: "Profile Shown"}],
@@ -173,6 +174,15 @@ describe("改资料、自己的会话与邀请码（输出 1、8、17、18）", 
             expect({request, status: response.status, displayName: (response.body as MeResponse).displayName}).toEqual({request, status: 200, displayName});
             expect((await getMe(jar)).body).toMatchObject({displayName});
         }
+    });
+
+    // 超出 200 毫秒的预算：登录算一次密码哈希。
+    it("输入不去首尾空白（字段规则）：显示名与签名带着首尾的空格、制表符照原样保存，me 读到同样的", async () => {
+        const jar = await consented("padded");
+        const response = await patchMe(jar, {displayName: "  Padded  ", bio: "\t 写长篇的人 \n"});
+        expect({status: response.status, shape: Value.Check(MeResponse, response.body)}).toEqual({status: 200, shape: true});
+        expect(response.body).toMatchObject({displayName: "  Padded  ", bio: "\t 写长篇的人 \n"});
+        expect((await getMe(jar)).body).toEqual(response.body);
     });
 
     // 超出 200 毫秒的预算：两次登录各算一次密码哈希。

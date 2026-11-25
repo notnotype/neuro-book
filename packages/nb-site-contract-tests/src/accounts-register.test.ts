@@ -4,7 +4,7 @@
  * 注册的限流在 `accounts-limits.test.ts`。
  *
  * 本文件测不到、在别处的：
- * - 邀请码的那半句（扣邀请码的次数、停用的邀请码）：要先经邀请码接口生成，在 `accounts-me.test.ts`；这里只测“不存在的邀请码”。
+ * - 邀请码的那半句（扣邀请码的次数、停用的邀请码）：要先经邀请码接口生成，在 `accounts-me.test.ts`；这里只测“不存在的邀请码”与“邀请码的首尾空白不算”。
  *   经管理详情看记下的邀请人在 `admin.test.ts` 的账号详情用例；库里那一列在账号包的 `invite-codes.test.ts`、`register.test.ts`。
  * - 扣码之后建账号失败时码不被扣、预检之后被别人占用：要让事务中途失败、在两步之间插入动作，在账号包的 `register.test.ts`。
  *
@@ -14,7 +14,18 @@
 import {beforeAll, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
-import {ErrorBody, IDENTITY_PATHS, identityPath, MeResponse, MetaResponse, RegisterResponse, RegistrationCodeItem, RegistrationCodeListResponse} from "@notnotype/nb-site-identity-contract";
+import {
+    ErrorBody,
+    IDENTITY_PATHS,
+    identityPath,
+    InviteCodeItem,
+    InviteCodeListResponse,
+    MeResponse,
+    MetaResponse,
+    RegisterResponse,
+    RegistrationCodeItem,
+    RegistrationCodeListResponse,
+} from "@notnotype/nb-site-identity-contract";
 
 import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login, type CookieJar} from "./testing/identity";
 import {useSiteSandbox, type JsonResponse, type SiteProcess} from "./testing/site";
@@ -41,6 +52,13 @@ function failure(response: JsonResponse): {readonly status: number; readonly bod
 
 const rejected = (code: string, status: number) => ({status, body: {error: {code}}});
 const codeInvalid = rejected("registration_code_invalid", 422);
+
+/** 罐里会话 Cookie 的 `名字=值`：罐换成别的会话之后仍拿它去问。 */
+function sessionCookieHeader(jar: CookieJar): string {
+    const cookie = jar.last(SESSION_COOKIE);
+    if (cookie === undefined || cookie.value === "") throw new Error("no session cookie in the jar");
+    return `${SESSION_COOKIE}=${cookie.value}`;
+}
 
 describe("注册（输出 1 到 3，验收 1、2）", () => {
     let site: SiteProcess;
@@ -160,6 +178,51 @@ describe("注册（输出 1 到 3，验收 1、2）", () => {
         expect((await register(body(` ${code.code}\t`))).status).toBe(200);
     });
 
+    // 超出 200 毫秒的预算：注册与三次登录各算一次密码哈希。
+    it("输入不去首尾空白（字段规则）：显示名与密码原样保存，去掉空白的密码登录不了；登录名带空白找不到账号；邀请码的首尾空白不算", async () => {
+        const code = await issueCode();
+        const generated = await identityRequest(site.url, IDENTITY_PATHS.meInviteCodes, {method: "POST", from: from(), jar: admin});
+        expect({status: generated.status, shape: Value.Check(InviteCodeItem, generated.body)}).toEqual({status: 200, shape: true});
+        const invite = generated.body as InviteCodeItem;
+        const member = fresh("padded");
+        const password = `  ${PASSWORD}\t`;
+        const response = await register(body(code.code, {...member, displayName: "  Padded Name  ", password, inviteCode: ` ${invite.code}\t`}));
+        expect(response.status).toBe(200);
+        expect((response.body as RegisterResponse).user.displayName).toBe("  Padded Name  ");
+
+        expect((await login(site.url, member.username, password, {from: from()})).status).toBe(200);
+        expect(failure(await login(site.url, member.username, PASSWORD, {from: from()}))).toEqual(rejected("invalid_credentials", 401));
+        expect(failure(await login(site.url, ` ${member.username}`, password, {from: from()}))).toEqual(rejected("invalid_credentials", 401));
+
+        const listed = await identityRequest(site.url, IDENTITY_PATHS.meInviteCodes, {from: from(), jar: admin});
+        expect(Value.Check(InviteCodeListResponse, listed.body)).toBe(true);
+        expect((listed.body as InviteCodeListResponse).items.find((item) => item.id === invite.id)).toMatchObject({usedCount: 1});
+    });
+
+    // 超出 200 毫秒的预算：两次注册各算一次密码哈希。
+    it("已登录时注册（输出 1）：浏览器换成新账号的会话，原来的会话照常有效", async () => {
+        const jar = cookieJar();
+        const first = await register(body((await issueCode()).code), {jar});
+        expect(first.status).toBe(200);
+        const firstId = (first.body as RegisterResponse).user.id;
+        const firstCookie = sessionCookieHeader(jar);
+
+        const second = await register(body((await issueCode()).code), {jar});
+        expect(second.status).toBe(200);
+        const secondUser = (second.body as RegisterResponse).user;
+        expect(secondUser.id).not.toBe(firstId);
+        expect(sessionCookieHeader(jar)).not.toBe(firstCookie);
+        expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), jar})).body).toMatchObject({state: "authenticated", user: {id: secondUser.id}});
+        expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: firstCookie}})).body).toMatchObject({state: "authenticated", user: {id: firstId}});
+    });
+
+    it("可信代理不给转发头、取不到来源地址：注册得 forbidden_origin，码没被扣（失败的先后“注册”一行的第一个）", async () => {
+        const code = await issueCode({maxUses: 1});
+        const response = await identityRequest(site.url, IDENTITY_PATHS.register, {method: "POST", from: from(), headers: {"X-Forwarded-For": null}, body: body(code.code)});
+        expect(failure(response)).toEqual(rejected("forbidden_origin", 403));
+        expect(await codeById(code.id)).toMatchObject({usedCount: 0, usable: true});
+    });
+
     it("邀请码不存在：invite_code_invalid", async () => {
         const code = await issueCode();
         expect(failure(await register(body(code.code, {inviteCode: "NO-SUCH-INVITE"})))).toEqual(rejected("invite_code_invalid", 422));
@@ -183,6 +246,8 @@ describe("注册（输出 1 到 3，验收 1、2）", () => {
         expect(fields(await register(body(code.code, {email: "someone@example.invalid"})))).toEqual(["email"]);
         expect(fields(await register(body(code.code, {email: "someone@Example.INVALID"})))).toEqual(["email"]);
         expect(fields(await register(body(code.code, {username: "KKelvin"})))).toEqual(["username"]);
+        // 条款版本写成不是日期的样子：字段不合规则，不是 consent_required（输出 3）。
+        expect(fields(await register(body(code.code, {termsVersion: "v1"})))).toEqual(["termsVersion"]);
         const {termsVersion: _omitted, ...missing} = body(code.code);
         expect(fields(await register({...missing, extra: 1}))).toEqual(["extra", "termsVersion"]);
         expect(await codeById(code.id)).toMatchObject({usedCount: 0});
@@ -280,5 +345,19 @@ describe("注册关闭（输出 3，配置 NB_SITE_IDENTITY_REGISTRATION_OPEN）
                 }),
             ),
         ).toEqual(closed);
+    });
+
+    it("请求体超过 16 KiB：注册关闭时也先回 validation_failed、fields 为空数组，定长与分块传输都是（失败与恢复的先后，读体之前就拦下）", async () => {
+        // 用空白把一个空对象撑过 16 KiB（输出 22 的上限）：被拒只可能是因为大小。
+        const over = `{${" ".repeat(16 * 1024 - 1)}}`;
+        const expected = {status: 400, body: {error: {code: "validation_failed", fields: []}}};
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.register, {method: "POST", from: "198.51.100.203", body: over}))).toEqual(expected);
+        const chunked = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode(over));
+                controller.close();
+            },
+        });
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.register, {method: "POST", from: "198.51.100.204", body: chunked}))).toEqual(expected);
     });
 });

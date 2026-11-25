@@ -157,6 +157,13 @@ describe("不要会话的接口（输出 7、22）", () => {
         expect(failure(await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), body: chunked}))).toEqual(validationFailed);
     });
 
+    it("请求体超过 16 KiB 又不带来源头、或来源头不对：forbidden_origin，来源头排在请求体的上限之前（失败与恢复的先后）", async () => {
+        const over = `{${" ".repeat(MAX_BODY_BYTES - 1)}}`;
+        const forbidden = {status: 403, body: {error: {code: "forbidden_origin"}}};
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), headers: {Origin: null}, body: over}))).toEqual(forbidden);
+        expect(failure(await identityRequest(site.url, IDENTITY_PATHS.logout, {method: "POST", from: from(), headers: {Origin: "https://evil.test"}, body: over}))).toEqual(forbidden);
+    });
+
     it("前缀下没有的路径与方法：404 not_found 的 ErrorBody，含前缀本身", async () => {
         const notFound = {status: 404, body: {error: {code: "not_found"}}};
         for (const [method, path] of [
@@ -402,6 +409,15 @@ describe("登录、会话、me 与同意（输出 4、5、6、7、8、9、10）"
         expect(failure(response)).toEqual({status: 400, body: {error: {code: "validation_failed", fields: ["currentPassword"]}}});
     });
 
+    // 超出 200 毫秒的预算：登录算一次密码哈希。
+    it("补交同意时条款版本不是日期的写法（v1）：validation_failed，fields 是 termsVersion（输出 3、10）", async () => {
+        const jar = cookieJar();
+        const source = from();
+        expect((await login(site.url, "root", PASSWORD, {from: source, jar})).status).toBe(200);
+        const response = await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", from: source, jar, body: {termsVersion: "v1", overseasStorage: true}});
+        expect(failure(response)).toEqual({status: 400, body: {error: {code: "validation_failed", fields: ["termsVersion"]}}});
+    });
+
     it("没有会话：me 与改密码得 unauthenticated", async () => {
         const unauthenticated = {status: 401, body: {error: {code: "unauthenticated"}}};
         expect(failure(await identityRequest(site.url, IDENTITY_PATHS.me, {from: from()}))).toEqual(unauthenticated);
@@ -447,6 +463,53 @@ describe("会话的时长与延长（输出 5、7）", () => {
         await site.advanceClock(SESSION_MS + 60_000);
         expect((await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}})).body).toEqual({state: "anonymous"});
         expect(failure(await identityRequest(site.url, IDENTITY_PATHS.me, {from: from(), headers: {Cookie: cookie}}))).toEqual({status: 401, body: {error: {code: "unauthenticated"}}});
+    });
+});
+
+describe("会话时长取配置的值（输入一节的 NB_SITE_IDENTITY_SESSION_DAYS，输出 5）", () => {
+    const PASSWORD = "days-PW-m4Rt82";
+    /** 不是缺省的 30 天：缺省值上看不出配置有没有接上。 */
+    const SESSION_DAYS = 2;
+    let site: SiteProcess;
+    let address = 0;
+    const from = () => `192.0.2.${String(100 + ++address)}`;
+
+    beforeAll(async () => {
+        const dataDir = await sandbox.dataDir();
+        await createAdmin(sandbox, dataDir, ["days"], PASSWORD);
+        site = await sandbox.start({dataDir, env: {...IDENTITY_SITE_ENV, NB_SITE_IDENTITY_SESSION_DAYS: String(SESSION_DAYS)}});
+    }, SETUP_TIMEOUT_MS);
+
+    // 超出 200 毫秒的预算：登录算一次密码哈希。
+    it("设成 2 天：登录的 Cookie 的 Max-Age 是 2 天；拨到 2 天之前一分钟仍有效，拨过 2 天会话失效", async () => {
+        const jar = cookieJar();
+        expect((await login(site.url, "days", PASSWORD, {from: from(), jar})).status).toBe(200);
+        expect(jar.last(SESSION_COOKIE)?.attributes.get("max-age")).toBe(String((SESSION_DAYS * DAY_MS) / 1000));
+        const cookie = sessionHeader(jar);
+        // 只用 whoami 问：它不延长会话（输出 7），到期时间始终是登录时定的那一刻。
+        const ask = async () => (await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}})).body;
+        await site.advanceClock(SESSION_DAYS * DAY_MS - 60_000);
+        expect(await ask()).toMatchObject({state: "authenticated"});
+        await site.advanceClock(120_000);
+        expect(await ask()).toEqual({state: "anonymous"});
+    });
+
+    // 上一条只经 whoami，碰不到延长；延长另按会话时长算新的到期时间，配置没接到那里时上一条照样通过（变异看到过）。
+    it("延长也按 2 天：用了一天多以后 me 延长、Cookie 的 Max-Age 仍是 2 天；登录时定的到期时刻过后仍有效，从延长那一刻起过 2 天失效", async () => {
+        const jar = cookieJar();
+        expect((await login(site.url, "days", PASSWORD, {from: from(), jar})).status).toBe(200);
+        const cookie = sessionHeader(jar);
+        const ask = async () => (await identityRequest(site.url, IDENTITY_PATHS.whoami, {from: from(), headers: {Cookie: cookie}})).body;
+
+        await site.advanceClock(DAY_MS + 60_000);
+        const extended = cookieJar();
+        expect((await identityRequest(site.url, IDENTITY_PATHS.me, {from: from(), headers: {Cookie: cookie}, jar: extended})).status).toBe(200);
+        expect(extended.last(SESSION_COOKIE)?.attributes.get("max-age")).toBe(String((SESSION_DAYS * DAY_MS) / 1000));
+
+        await site.advanceClock(DAY_MS);
+        expect(await ask()).toMatchObject({state: "authenticated"});
+        await site.advanceClock(DAY_MS + 60_000);
+        expect(await ask()).toEqual({state: "anonymous"});
     });
 });
 

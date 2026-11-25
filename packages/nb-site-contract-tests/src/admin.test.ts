@@ -325,6 +325,8 @@ describe("账号的处置（输出 1 到 5、8；site.accounts 验收 3、输出
         rootId = await createAdmin(sandbox, dataDir, ["root", "root@example.com"], PASSWORD);
         deputyId = await createAdmin(sandbox, dataDir, ["deputy", "deputy@example.com"], PASSWORD);
         await createAdmin(sandbox, dataDir, ["selfish", "selfish@example.com"], PASSWORD);
+        // 只登录、不补交同意：缺同意的管理员（site.accounts 输出 10）。
+        await createAdmin(sandbox, dataDir, ["unconsented", "unconsented@example.com"], PASSWORD);
         site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
         root = await consented("root", PASSWORD);
         deputy = await consented("deputy", PASSWORD);
@@ -350,6 +352,25 @@ describe("账号的处置（输出 1 到 5、8；site.accounts 验收 3、输出
             expect({path, ...failure(await request(path))}).toEqual({path, ...unauthenticated});
         }
         expect(failure(await act(undefined, plain.id, "ban"))).toEqual(unauthenticated);
+    });
+
+    // 超出 200 毫秒的预算：注册与登录各算一次密码哈希。
+    it("缺同意的管理员调管理接口（site.accounts 输出 10）：列表、详情、处置、注册码与审计都得 consent_required，处置不生效、审计没有新记录", async () => {
+        const target = await member("gated");
+        const gated = await signIn("unconsented", PASSWORD);
+        const before = (await auditPage(root)).total;
+        const cases = [
+            ["GET users", await request(IDENTITY_PATHS.adminUsers, {jar: gated})],
+            ["GET users/:id", await request(identityPath.adminUser(target.id), {jar: gated})],
+            ["POST users/:id/ban", await act(gated, target.id, "ban")],
+            ["GET registration-codes", await request(CODES, {jar: gated})],
+            ["POST registration-codes", await request(CODES, {method: "POST", jar: gated, body: {maxUses: 1}})],
+            ["GET invite-codes", await request(IDENTITY_PATHS.adminInviteCodes, {jar: gated})],
+            ["GET audit", await request(IDENTITY_PATHS.adminAudit, {jar: gated})],
+        ] as const;
+        for (const [name, response] of cases) expect({name, ...failure(response)}).toEqual({name, status: 403, body: {error: {code: "consent_required"}}});
+        expect(await detail(target.id)).toMatchObject({banned: false});
+        expect((await auditPage(root)).total).toBe(before);
     });
 
     // 超出 200 毫秒的预算：注册与几次登录各算一次密码哈希。Smoke（site.admin 验收与 Smoke 一节）。
@@ -405,6 +426,19 @@ describe("账号的处置（输出 1 到 5、8；site.accounts 验收 3、输出
         expect(failure(await me(second))).toEqual(unauthenticated);
         expect((await auditOf(target.id)).map((record) => record.params)).toEqual([{count: 2}]);
         expect((await me(await signIn(target.username, target.password))).status).toBe(200);
+    });
+
+    // 超出 200 毫秒的预算：注册与登录各算一次密码哈希。
+    it("解封、结束全部会话、重置密码给了有键的对象或数组（site.accounts 输出 22）：validation_failed、fields 为空数组；处置不生效，审计没有新记录", async () => {
+        const target = await member("bodied");
+        const before = (await auditPage(root)).total;
+        for (const action of ["unban", "revoke-sessions", "reset-password"] as const) {
+            for (const sent of [{reason: "spam"}, []]) expect({action, sent, ...failure(await act(root, target.id, action, sent))}).toEqual({action, sent, ...validationFailed([])});
+        }
+        expect((await auditPage(root)).total).toBe(before);
+        // 没结束会话、没换密码。
+        expect((await me(target.jar)).status).toBe(200);
+        expect((await login(site.url, target.username, target.password, {from: client.from()})).status).toBe(200);
     });
 
     it("不能处置自己（输出 5）：对自己封禁、改角色（改成原来的角色也一样）得 self_forbidden，自己照常可用，审计没有新记录", async () => {
@@ -469,6 +503,19 @@ describe("账号的处置（输出 1 到 5、8；site.accounts 验收 3、输出
         expect(actors).toEqual([`user.ban ${String(deputyId)}`, `user.ban ${String(rootId)}`].sort());
     });
 
+    // 超出 200 毫秒的预算：注册算一次密码哈希。
+    // 谁先完成由服务端的写队列定，用例不控制先后，也不需要控制：两次处置各在自己的写事务里改状态、写审计，账号库只有一条写队列，
+    // 所以审计 id 的先后就是完成的先后。不论哪个先完成，“最终状态是审计里 id 更大的那条的结果”都必须成立。
+    it("两个管理员同时一个封禁、一个解封同一个人（时序一节）：两次都成功、各有一条审计；最终状态是后完成的那次", async () => {
+        const target = await member("raced");
+        const [banned, unbanned] = await Promise.all([act(root, target.id, "ban"), act(deputy, target.id, "unban")]);
+        expect([item(banned).banned, item(unbanned).banned]).toEqual([true, false]);
+        const records = await auditOf(target.id);
+        expect(records.map((record) => record.action).sort()).toEqual(["user.ban", "user.unban"]);
+        const later = records.reduce((latest, record) => (record.id > latest.id ? record : latest));
+        expect({later: later.action, banned: (await detail(target.id)).banned}).toEqual({later: later.action, banned: later.action === "user.ban"});
+    });
+
     // 超出 200 毫秒的预算：在用例里跑一次 create-admin（它要在封禁之后跑），另有注册与登录。
     it("create-admin 对被封的已有账号：解封并改成管理员（site.operations 输出 5），新密码能登录，审计里有一条操作者为命令行的记录", async () => {
         const target = await member("lifted");
@@ -493,7 +540,7 @@ describe("账号列表与详情、全站邀请码、审计列表（输出 8 到 
     const client = siteClient(() => site);
     const {request, consented, auditPage} = client;
 
-    async function register(username: string, extra: {readonly displayName?: string; readonly inviteCode?: string} = {}): Promise<number> {
+    async function register(username: string, extra: {readonly displayName?: string; readonly inviteCode?: string; readonly email?: string} = {}): Promise<number> {
         const response = await request(IDENTITY_PATHS.register, {
             method: "POST",
             body: {username, email: `${username}@example.com`, password: MEMBER_PASSWORD, registrationCode: registrationCode.code, termsVersion: TERMS_VERSION, overseasStorage: true, ...extra},
@@ -525,6 +572,10 @@ describe("账号列表与详情、全站邀请码、审计列表（输出 8 到 
         await register("pct2", {displayName: "100xoff"});
         await register("bsl1", {displayName: "back\\slash"});
         await register("bsl2", {displayName: "backslash"});
+        // 大小写：邮箱与用户名不同开头，按邮箱前缀搜到的只能是邮箱匹配；显示名一个只有 ASCII 字母、一个以非 ASCII 字母开头。
+        await register("mailcase", {email: "Inbox.Case@Example.com"});
+        await register("dnascii", {displayName: "Zebra Mixed"});
+        await register("dnumlaut", {displayName: "Ärger"});
     }, SETUP_TIMEOUT_MS);
 
     it("搜索（输入与前置条件）：用户名、显示名、邮箱的前缀，ASCII 字母不分大小写；% 、_ 与反斜杠按字面匹配；邮箱待补的账号不按占位邮箱匹配", async () => {
@@ -538,6 +589,13 @@ describe("账号列表与详情、全站邀请码、审计列表（输出 8 到 
         expect((await users("?q=pending")).items).toEqual([expect.objectContaining({id: pendingId, email: null, emailPending: true, role: "admin", banned: false})]);
         const searched = await users("?q=esc");
         expect({total: searched.total, all: searched.counts.all}).toEqual({total: 2, all: 2});
+    });
+
+    it("搜索的大小写（输入与前置条件）：邮箱前缀不分大小写；显示名只在 ASCII 字母上不分大小写，非 ASCII 字母大小写不同搜不到", async () => {
+        expect(names(await users(`?q=${encodeURIComponent("INBOX.c")}`))).toEqual(["mailcase"]);
+        expect(names(await users(`?q=${encodeURIComponent("zEBRA m")}`))).toEqual(["dnascii"]);
+        expect(names(await users(`?q=${encodeURIComponent("Är")}`))).toEqual(["dnumlaut"]);
+        expect(names(await users(`?q=${encodeURIComponent("är")}`))).toEqual([]);
     });
 
     it("账号的一条（输入与前置条件最后一段）：邮箱、角色、封禁、注册时间；登录过的有最近一次登录的时间，没登录过的为空", async () => {
