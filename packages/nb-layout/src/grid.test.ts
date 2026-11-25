@@ -4,6 +4,7 @@ import {
     GRID_MAX_NODES,
     GRID_SNAPSHOT_VERSION,
     createGrid,
+    restoreGrid,
     type GridAxis,
     type GridBranchInput,
     type GridCommitFailureCode,
@@ -1929,6 +1930,92 @@ describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）",
         for (const [code, result] of Object.entries(failures)) {
             expect(result.ok ? null : (result.code as string), code).toBe(code);
             expect([Array.isArray(result.dropped), Array.isArray(result.clamped)], code).toEqual([true, true]);
+        }
+    });
+});
+
+describe("拆分树原语：复制网格与从快照建网格（Spec ui/nested-grid 输出 164、165）", () => {
+    const folding = {collapse: {collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24, collapsed: false}};
+    /** 带保留像素、最小尺寸与收起策略的一排，sash 1px：复制要把这些都带过去。 */
+    const policyRow = () => createGrid(branch("root", "width", "horizontal", 0, [
+        {...leaf("side", "width", 240, 160, 400), sizing: "fixed", ...folding},
+        leaf("editor", "width", 700, 200),
+        branch("col", "width", "vertical", 300, [leaf("top", "height", 1, 50), leaf("bottom", "height", 1, 50)]),
+    ]), {sashSize: SASH});
+    const ROW: GridExtent = {width: 1242, height: 600};
+
+    it("clone：树、快照与布局（含 sash 宽度）都与原来相等；叶的 ref 是同一个对象", () => {
+        const grid = policyRow();
+        const copy = grid.clone();
+        expect(copy.root()).toEqual(grid.root());
+        expect(copy.serialize()).toEqual(grid.serialize());
+        expect(copy.layout(ROW)).toEqual(grid.layout(ROW));
+        expect(copy.layout(ROW).sashSizes["root"]).toEqual([SASH, SASH]);
+
+        type Ref = {key: string};
+        const refs: Ref[] = [{key: "a"}, {key: "b"}];
+        const objects = createGrid<Ref>({kind: "branch", id: "root", orientation: "horizontal", children: refs.map((ref) => ({kind: "leaf" as const, id: ref.key, ref}))}, {encodeRef: (ref) => ref.key});
+        const objectCopy = objects.clone();
+        expect(objectCopy.serialize()).toEqual(objects.serialize());
+        const leafRef = (target: typeof objects, id: string) => {
+            const node = target.find(id);
+            return node?.kind === "leaf" ? node.ref : null;
+        };
+        expect(leafRef(objectCopy, "a")).toBe(refs[0]!);
+        expect(leafRef(objectCopy, "b")).toBe(refs[1]!);
+    });
+
+    it("clone：改副本不改原来，改原来也不改副本（结构、意图、收起状态）", () => {
+        const grid = policyRow();
+        const original = structuredClone(grid.root());
+        const copy = grid.clone();
+        const copied = structuredClone(copy.root());
+
+        expect(copy.splitLeaf("editor", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
+        expect(copy.setCollapsed("side", true)).toMatchObject({ok: true, changed: true});
+        expect(copy.setSize("side", 300)).toMatchObject({ok: true, changed: true});
+        expect(copy.removeLeaf("bottom").ok).toBe(true);
+        expect(grid.root()).toEqual(original);
+
+        const second = grid.clone();
+        expect(grid.setSize("side", 180).ok).toBe(true);
+        expect(grid.addLeaf("col", 0, leaf("extra", "height", 1)).ok).toBe(true);
+        expect(grid.setCollapsed("side", true).ok).toBe(true);
+        expect(second.root()).toEqual(copied);
+    });
+
+    it("restoreGrid 成功：交回带 sash 宽度的新网格与 dropped、clamped；约束只来自解析结果", () => {
+        const saved = policyRow().serialize();
+        const restored = restoreGrid<string>(saved, (ref) => (ref === "bottom" ? null : {ref, ...(ref === "side" ? {sizing: "fixed" as const, minimumSize: {width: 160, height: 0}} : {})}), {sashSize: SASH});
+        expect(restored.ok).toBe(true);
+        if (!restored.ok) return;
+        expect(restored.dropped).toEqual([{ref: "bottom", code: "unknown-ref"}]);
+        expect(restored.clamped).toEqual([]);
+        expect(restored.grid.find("side")).toMatchObject({sizing: "fixed", minimumSize: {width: 160, height: 0}});
+        // 只给了 {ref} 的叶：按比例分、没有最小尺寸，新网格没有当前树可回落。
+        expect(restored.grid.find("editor")).toMatchObject({sizing: "weight", minimumSize: {width: 0, height: 0}});
+        expect(restored.grid.layout(ROW).sashSizes["root"]).toEqual([SASH, SASH]);
+
+        // 对照：原地的 restore 回落到当前树，editor 的最小尺寸还在。
+        const inPlace = policyRow();
+        expect(inPlace.restore(saved, (ref) => ({ref})).ok).toBe(true);
+        expect(inPlace.find("editor")?.minimumSize.width).toBe(200);
+    });
+
+    it("restoreGrid 失败：没有 grid，带 dropped 与 clamped；失败分支读不到 grid（类型）", () => {
+        const failures = [
+            restoreGrid<string>(null, (ref) => ({ref})),
+            restoreGrid<string>({version: 99, root: {}}, (ref) => ({ref})),
+            restoreGrid<string>({version: GRID_SNAPSHOT_VERSION, root: {kind: "leaf", id: "a", ref: "ghost", size: {width: 1, height: 1}}}, () => null),
+        ];
+        expect(failures.map((result) => (result.ok ? null : result.code))).toEqual(["invalid-snapshot", "unsupported-version", "unresolved-root"]);
+        for (const result of failures) {
+            expect("grid" in result).toBe(false);
+            expect([Array.isArray(result.dropped), Array.isArray(result.clamped)]).toEqual([true, true]);
+            if (!result.ok) {
+                // @ts-expect-error 失败的结果没有 grid：宿主不看结果就拿不到网格。
+                expect(result.grid).toBeUndefined();
+            }
         }
     });
 });

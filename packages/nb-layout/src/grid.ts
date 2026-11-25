@@ -42,7 +42,7 @@ import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintOnAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, type GridSashResolver} from "./grid-geometry";
 import {gridFailure} from "./grid-failure";
 import {parseSnapshot, serializeTree} from "./grid-snapshot";
-import {cloneNode, findInTree, type GridHit} from "./grid-tree";
+import {cloneNode, copyTree, findInTree, type GridHit} from "./grid-tree";
 
 export * from "./grid-types";
 /** 分支主轴与交叉轴的取轴规则只此一处；宿主按父分支方向取轴时用它，别自己写 if。 */
@@ -88,43 +88,84 @@ export type Grid<T> = {
      */
     setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
+    /**
+     * 原地恢复：校验通过才换树，解析结果没给的约束、`sizing` 与收起策略回落到当前树里同 id 的节点（Spec 输出 148）。
+     * 从存档建一份新网格用 `restoreGrid`：它不看结果就拿不到网格。
+     */
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
     /** 当前位置下的呈现尺寸；不改变意图，可由宿主在视口变化时反复调用。 */
     layout(container: GridExtent): GridLayoutResult;
+    /**
+     * 复制一份独立的网格（Spec 输出 164）：树、意图、约束、`sizing`、收起策略与状态，连同建网格时的选项（`sashSize`、`encodeRef`）。
+     * 两份互不影响；`ref` 是同一个宿主对象，不复制。用在“先在副本上照做一遍、看结果与布局，再决定做不做”。
+     */
+    clone(): Grid<T>;
 };
+
+/**
+ * `restoreGrid` 的结果：成功时带新网格，失败时是恢复失败的形状（同 `GridRestoreResult` 的失败）、没有 `grid`；两种都带 `dropped` 与 `clamped`。
+ * 写在这里而不在 `grid-types.ts`：它要引用 `Grid`。
+ * @experimental
+ */
+export type GridRestoredGrid<T> =
+    | (Extract<GridRestoreResult, {ok: true}> & {readonly grid: Grid<T>})
+    | Extract<GridRestoreResult, {ok: false}>;
+
+/** 把建树输入规范成节点：缺的意图与约束补缺省值，输入对象不被网格持有。 */
+function instantiate<T>(node: GridNodeInput<T>): GridNode<T> {
+    const size = normExtent(node.size, ZERO_EXTENT);
+    const minimumSize = normExtent(node.minimumSize, ZERO_EXTENT);
+    const maximumSize = normExtent(node.maximumSize, UNBOUNDED_EXTENT);
+    const sizing: GridSizing = node.sizing === "fixed" ? "fixed" : "weight";
+    const collapse = normCollapse(node.collapse);
+    if (node.kind === "leaf") {
+        return {kind: "leaf", id: node.id, ref: node.ref, size, minimumSize, maximumSize, sizing, ...(collapse === undefined ? {} : {collapse})};
+    }
+    return {
+        kind: "branch",
+        id: node.id,
+        orientation: node.orientation,
+        size,
+        minimumSize,
+        maximumSize,
+        sizing,
+        ...(collapse === undefined ? {} : {collapse}),
+        children: node.children.map((child) => instantiate(child)),
+    };
+}
 
 /** @experimental */
 export function createGrid<T extends string>(root: GridNodeInput<T> | null, options?: GridOptions<T>): Grid<T>;
 /** @experimental */
 export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOptions<T> & {encodeRef: GridRefEncoder<T>}): Grid<T>;
 export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOptions<T> = {}): Grid<T> {
+    return buildGrid(root ? instantiate(root) : null, options);
+}
+
+/**
+ * 从快照建一份新网格（Spec 输出 165）：结果不成功就没有 `grid`，宿主不看结果拿不到网格。
+ * 约束、`sizing` 与收起策略只来自 `resolveRef`（新网格没有当前树可回落）；要回落到当前树的，用原地的 `grid.restore`。
+ * @experimental
+ */
+export function restoreGrid<T extends string>(snapshot: unknown, resolveRef: GridRefResolver<T>, options?: GridOptions<T>): GridRestoredGrid<T>;
+/** @experimental */
+export function restoreGrid<T>(snapshot: unknown, resolveRef: GridRefResolver<T>, options: GridOptions<T> & {encodeRef: GridRefEncoder<T>}): GridRestoredGrid<T>;
+export function restoreGrid<T>(snapshot: unknown, resolveRef: GridRefResolver<T>, options: GridOptions<T> = {}): GridRestoredGrid<T> {
+    const grid = buildGrid<T>(null, options);
+    const result = grid.restore(snapshot, resolveRef);
+    return result.ok ? {...result, grid} : result;
+}
+
+/**
+ * 网格的本体：`initial` 已经是规范过的节点，网格从此独占它。`options` 原样留着给 `clone`，
+ * 所以以后给 `GridOptions` 加的项副本自动带上。
+ */
+function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Grid<T> {
     const sashSize: number | GridSashResolver = typeof options.sashSize === "function"
         ? options.sashSize
         : Math.max(0, finite(options.sashSize ?? 0, 0));
     const encodeRef = options.encodeRef;
-    let tree: GridNode<T> | null = root ? instantiate(root) : null;
-
-    function instantiate(node: GridNodeInput<T>): GridNode<T> {
-        const size = normExtent(node.size, ZERO_EXTENT);
-        const minimumSize = normExtent(node.minimumSize, ZERO_EXTENT);
-        const maximumSize = normExtent(node.maximumSize, UNBOUNDED_EXTENT);
-        const sizing: GridSizing = node.sizing === "fixed" ? "fixed" : "weight";
-        const collapse = normCollapse(node.collapse);
-        if (node.kind === "leaf") {
-            return {kind: "leaf", id: node.id, ref: node.ref, size, minimumSize, maximumSize, sizing, ...(collapse === undefined ? {} : {collapse})};
-        }
-        return {
-            kind: "branch",
-            id: node.id,
-            orientation: node.orientation,
-            size,
-            minimumSize,
-            maximumSize,
-            sizing,
-            ...(collapse === undefined ? {} : {collapse}),
-            children: node.children.map(instantiate),
-        };
-    }
+    let tree: GridNode<T> | null = initial;
 
     function find(id: string, node: GridNode<T> | null = tree, parent: GridBranch<T> | null = null): GridHit<T> | null {
         return node ? findInTree(id, node, parent) : null;
@@ -698,6 +739,10 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
 
         layout(container) {
             return layoutOf(tree, container, sashSize);
+        },
+
+        clone() {
+            return buildGrid(tree ? copyTree(tree) : null, options);
         },
     };
 }
