@@ -89,9 +89,9 @@ function measuredWidths(): TitlebarWidths | null {
     const gap = Number.parseFloat(startStyle.columnGap) || 0;
     const search = bar.querySelector("[data-titlebar-search]");
     const end = bar.querySelector(".workbench-titlebar__end");
-    // 桌面窗口里右栏末尾给窗口按钮留的位（`--nb-window-controls-width`）。它在页面脚本之前由 `<html>` 的属性决定、之后不变，
-    // 所以不另外 watch。
-    const controls = end === null ? 0 : Number.parseFloat(getComputedStyle(end).paddingRight) || 0;
+    // 桌面窗口里右栏末尾给窗口按钮留的位（`--nb-window-controls-width`），左栏开头给红绿灯留的位（`--nb-window-controls-start`，
+    // macOS）。它们在页面脚本之前由 `<html>` 的属性决定、之后不变，所以不另外 watch。
+    const controls = (end === null ? 0 : Number.parseFloat(getComputedStyle(end).paddingRight) || 0) + (Number.parseFloat(startStyle.paddingLeft) || 0);
     const shortcut = props.searchShortcut === null ? 0 : part("shortcut") + (search === null ? 0 : Number.parseFloat(getComputedStyle(search).columnGap) || 0);
     return {
         lockup: part("lockup"),
@@ -466,6 +466,11 @@ onBeforeUnmount(() => {
 .workbench-titlebar__end {
     justify-content: flex-end;
     padding-inline-end: var(--nb-window-controls-width, 0px);
+}
+
+/* macOS 的红绿灯在窗口左上角，左栏开头给它们留位（变量由宿主在 `<html>` 上给，其它平台是 0）；同样留在栏里，搜索仍在窗口正中。 */
+.workbench-titlebar__start {
+    padding-inline-start: var(--nb-window-controls-start, 0px);
 }
 
 .workbench-titlebar__center {
