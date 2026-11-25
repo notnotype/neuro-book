@@ -10,14 +10,36 @@ import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
 
 import type {SiteModule} from "./module";
 
+/**
+ * 账号模块的“问身份”（`site.accounts` 输出 7；t07 计划 3.11）：账号的 `create` 把实例的 `whoami` 记在这里，统计模块（t11）拿到的是
+ * `askIdentity`，调用时才取，两个模块谁先 `create` 都不影响（所有 `create` 都在监听之前做完）。账号模块还没建成或建失败时
+ * 抛错，调用方按 `unavailable` 处理。拆成两个进程时，同一个形状就是对 `whoami` 端点的 `fetch`。
+ */
+let identityWhoami: ((request: Request) => Promise<Response>) | undefined;
+
+/** 交给统计模块的“问身份”。t11 接上之前没有调用方。 */
+export function askIdentity(request: Request): Promise<Response> {
+    if (identityWhoami === undefined) return Promise.reject(new Error("the identity module has not been created"));
+    return identityWhoami(request);
+}
+
 const identity = {
     name: "identity",
     surfaces: ["site"],
     migrations: identityMigrations,
     parseConfig: parseIdentityConfig,
-    create: (context) => {
-        const module = createIdentityModule({db: context.db, config: context.config, log: context.log});
-        return {mounts: [{surface: "site", prefix: IDENTITY_API_PREFIX, app: module.site}]};
+    create: async (context) => {
+        const module = await createIdentityModule({
+            db: context.db,
+            config: context.config,
+            siteUrl: context.site.siteUrl,
+            log: context.log,
+            clock: context.clock,
+            jobs: context.jobs,
+            clientAddress: (c) => context.clientAddress(c),
+        });
+        identityWhoami = (request) => module.whoami(request);
+        return {mounts: [{surface: "site", prefix: IDENTITY_API_PREFIX, app: module.site}], close: () => module.close()};
     },
 } satisfies SiteModule<IdentityConfig>;
 

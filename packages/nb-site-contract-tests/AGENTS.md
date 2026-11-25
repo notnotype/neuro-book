@@ -11,12 +11,13 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | 导入 | 在哪里 | 理由 |
 |---|---|---|
 | `@notnotype/nb-site-identity-contract`、`@notnotype/nb-site-telemetry-contract` | 任何文件 | 合同本身 |
+| `typebox`、`typebox/value` | 任何文件 | 合同包的 schema 本身就是 TypeBox 的值；用 `Value.Check(合同包的 schema, 响应体)` 核对响应形状，比逐字段手写断言少漏字段。它不是被测系统的实现：被测程序换语言重写，合同包与这里的检查都不变 |
 | `bun:test`、`node:` 内置模块 | 任何文件 | 测试运行器与平台 |
 | `@notnotype/neuro-book-test-support/tmp`、`/wait` | 任何文件 | 临时目录与等待工具，与被测系统无关 |
 | `bun:sqlite` | 只在 `src/testing/fault.ts` 与备份核对的辅助文件 `src/testing/backup.ts` | 按 Spec 写明的数据目录布局直接碰库文件：持写锁做故障注入、只读打开备份副本核对；不读写被测模块的表 |
 | `@notnotype/neuro-book-test-support/import-boundary` | 只在 `src/boundary.test.ts` | 做这项检查的工具 |
 
-相对导入只许落在本包的 `src/` 里。清单的运行时依赖只有两个合同包；devDependencies 里的工作区包只有 `nb-site-server`（只用来找到被测程序的启动命令，并让 `test:affected` 改了入口、模块或合同时选中本包）与测试支持包。这些都由 `src/boundary.test.ts` 检查；要放开一项，先改这张表并写明理由，再改检查。
+相对导入只许落在本包的 `src/` 里。清单的运行时依赖只有两个合同包与 `typebox`；devDependencies 里的工作区包只有 `nb-site-server`（只用来找到被测程序的启动命令，并让 `test:affected` 改了入口、模块或合同时选中本包）与测试支持包。这些都由 `src/boundary.test.ts` 检查；要放开一项，先改这张表并写明理由，再改检查。
 
 ## 写法
 
@@ -34,6 +35,7 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `sandbox.start({dataDir, env, command, timeoutMs})` | 起 `serve`，等到 `site.listening`；进程先退出或超时都立即失败，错误里带已收到的输出。缺省带一个随机的测试控制口令，`env: {NB_SITE_TEST_CONTROL: undefined}` 去掉它 |
 | `sandbox.run(command, {dataDir, env, command, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行 |
 | `SiteProcess` | `url`、`pid`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
+| `identityRequest(url, path, init)`、`cookieJar()`（`identity.ts`） | 请求一个账号接口：补站点的 `Host`、`Origin`、`X-Forwarded-For`，有请求体时补 `Content-Type`；Cookie 罐存与回送 `Set-Cookie`、按名字覆盖，`last(name)` 取最近一条给断言属性用。账号的进程用 `IDENTITY_SITE_ENV` 起（信任回环上的代理），每个用例给自己的来源地址 |
 | `holdWriteLock(dataDir, module)`（`fault.ts`） | 从进程外占住一个模块的库的写锁，返回放锁的函数 |
 | `sendReport(url, kind, report, request)`（`telemetry.ts`） | 往写入口发一份上报，带沙箱遥测地址的 `Host` 与 JSON 内容类型；`request` 可换请求体、方法与头（值为 null 的去掉）。`dailyReport`、`heartbeatReport`、`eventReport`、`usageSegment` 按合同包最新的清单造合格的样例 |
 | `dataFilesContaining(dataDir, needle)`（`files.ts`） | 数据目录下字节里含有某个串的文件，给“某样东西不进库”的断言用 |

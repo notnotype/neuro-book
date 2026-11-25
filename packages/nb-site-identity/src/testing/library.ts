@@ -1,29 +1,44 @@
 /**
- * 包内测试用的库实例与计时器。不含断言。
+ * 包内测试用的库实例、时钟与计时器。不含断言。
  *
- * `createTestAuth` 与产品装配（第 3 片的 `auth.ts`）用同样的插件与 id 写法：库导出的表结构只取决于这两样，`schema.test.ts` 拿它
- * 现场导出结构与基准比对。产品装配加的别的选项（会话、钩子、Cookie）不影响表结构。
+ * `createTestAuth` 直接用产品的装配（`auth.ts` 的 `createIdentityAuth`），不另写一份选项：库导出的表结构取决于插件与 id 写法，
+ * `schema.test.ts` 拿它现场导出结构与基准比对。
  */
 
-import {betterAuth} from "better-auth";
-import {admin, username} from "better-auth/plugins";
-
+import {createIdentityAuth} from "../auth";
 import type {IdentityTimers, LibDatabaseConfig} from "../db/connection";
 
 /** 测试用的密钥：库要求至少 32 个字符；不是任何环境里用的值。 */
-const TEST_SECRET = "nb-site-identity-test-secret-0123456789abcdef";
+export const TEST_SECRET = "nb-site-identity-test-secret-0123456789abcdef";
 
-export function createTestAuth(database: LibDatabaseConfig) {
-    return betterAuth({
-        baseURL: "https://site.test",
-        secret: TEST_SECRET,
-        database,
-        advanced: {database: {generateId: "serial"}},
-        emailAndPassword: {enabled: true},
-        plugins: [username(), admin()],
-        logger: {disabled: true},
-        telemetry: {enabled: false},
-    });
+/** 测试用的站点地址。 */
+export const TEST_SITE_URL = "https://site.test";
+
+/** 库的日志进 `log`（缺省丢进一个没人看的记录里）；时间取墙钟。 */
+export function createTestAuth(database: LibDatabaseConfig, log = recordingLog()) {
+    return createIdentityAuth({database, siteUrl: TEST_SITE_URL, secret: TEST_SECRET, sessionDays: 30, clock: {now: () => Date.now()}, log});
+}
+
+/** 手动拨的时钟：从 `start` 起，只在用例调 `advance` 或 `set` 时走。 */
+export class ManualClock {
+    #now: number;
+
+    constructor(start: number) {
+        this.#now = start;
+    }
+
+    now(): number {
+        return this.#now;
+    }
+
+    advance(ms: number): number {
+        this.#now += ms;
+        return this.#now;
+    }
+
+    set(ms: number): void {
+        this.#now = ms;
+    }
 }
 
 /** 手动触发的计时器：登记了几个、到点的回调由用例自己 `fireAll`。不按时间走，用来测等锁上限与 `close` 的时限。 */

@@ -17,7 +17,8 @@
     },
     "dependencies": {
         "@notnotype/nb-site-identity-contract": "workspace:*",
-        "@notnotype/nb-site-telemetry-contract": "workspace:*"
+        "@notnotype/nb-site-telemetry-contract": "workspace:*",
+        "typebox": "^1.3.6"
     },
     "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",
