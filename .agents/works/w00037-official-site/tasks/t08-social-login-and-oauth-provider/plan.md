@@ -553,3 +553,15 @@ Spec 随本节改了 `site.oauth-provider`（输入表与 HEAD 一句、输出 1
 | OMP-1 | 换回上一个版本期间删掉的会话，令牌的 `sessionId` 被置空，`purge` 不清这种行，换回后令牌仍可用到过期 | 成立，就是设计审查（omp）第 2 条，按那里的处理做：`purge` 同一事务删 `sessionId IS NULL` 的访问令牌；包内用例照审查者的做法（真实外键删会话、重启、跑 `purge`、用户信息 401）。5b 在同一个 worktree 里跑，等它交回后单独一个提交 |
 | OMP-2 | `LIBRARY_PUBLIC_ENDPOINTS` 的授权端点是 GET、HEAD，与合同的 GET、POST 不符 | 已在第 5a 片（`51c7f962e`）改成 GET、POST，HEAD 不再给授权端点 |
 | OMP-3 | 活钥的密文能解开、明文却不是 JWK 时启动不报错，换码时才失败 | 不改：私钥用库的 `symmetricEncrypt`（XChaCha20-Poly1305，带认证），能解开的密文只能由持有会话密钥的人写出，库表被这样改过不在要防的范围 |
+
+## 实现审查（第 4 到 7 片）的处理（2026-11-25）
+
+范围 `d4ae39ae5..40a02a627`，在审查用的 worktree 里审。Opus 子代理先审：5 条，都是建议；报告 [`evidences/impl2-review-opus.txt`](evidences/impl2-review-opus.txt)。它核过重复参数时模块与库取值一致、第 1 步的回调地址匹配与库逐行一致、续接令牌的签名覆盖与长度上界、补交同意期间的 `max_age`、`wrapOAuthConsent` 产品路径碰不到、`purge` 不误删本版本的令牌（库换码时恒写会话 id）、停用与撤销授权同事务、`VALIDATION_ERROR` 的映射不误报名字、用户信息严格是输出 7 的字段，没有发现问题。omp 同时在后台审，回来后另行处理。一个修正提交：
+
+| 条 | 发现 | 处理 |
+|---|---|---|
+| 1 | 百分号编码的路径绕过白名单：Hono 按 `decodeURI` 之后的路径匹配，交库的是原样的编码路径（`/oauth2/%61uthorize` 进了授权端点、`/oauth2/%74oken` 进了令牌端点） | 改。子应用最前面：原样的 pathname 与 Hono 解码后的路径不相等时回本模块的 404，不交库。`mount.test.ts` 的“路径的写法不同”加编码写法（各对外端点一条，加前缀里编码一段） |
+| 2 | 撤销端点的 400 改 200 吞掉客户端认证阶段的 `invalid_request`（重复的 `client_id`、`client_secret`，或 Basic 与表单密钥并存时，没认证的请求也得 200） | 改。交库之前自己判：`client_id`、`client_secret` 出现多次，或带 Basic 又在表单里带 `client_secret`，回 400 `invalid_request`、不交库、不改写；改写只对通过这一步的请求。补用例三种各一条 |
+| 3 | 会话到期后、`purge` 之前换它名下的码回 `invalid_request`（库在用掉码之前判会话），不是 `invalid_grant` | 不改，写进 `site.oauth-provider` 时序：只有会话到期前 10 分钟内发出的码碰得上，结果同样是换不出令牌、码不被用掉；`purge` 跑过之后是 `invalid_grant` |
+| 4 | 授权端点的表单 POST 超过 16 KiB 回 400 JSON，不跳回、不去错误页 | 不改，写进 Spec 输出 3：请求体超过上限时读不到客户端与回调地址，跳不回去；正常客户端碰不到（入口上限 4096） |
+| 5 | 输出 15 的“列表按给出的先后倒序”没有用例 | 改。合同补一条：两个客户端先后同意，列表顺序是后给的在前 |

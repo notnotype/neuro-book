@@ -1,0 +1,71 @@
+# w00037 t08 第 4 到 7 片实现审查（Opus）
+
+### 1. 百分号编码的路径绕过“白名单之外不交库”：Hono 按解码后的路径匹配，交给库的是原样的编码路径
+- 严重程度：建议
+- 类别：正确性 / 安全（挂载层边界）
+- 位置：packages/nb-site-identity/src/oauth/mount.ts:297-310（`app.on(routed, endpoint.path, …)` 后各处理把 `c.req.raw` 或 `c.req.raw.url` 原样交库）
+- 现象：实测（lab-opus/e1.test.ts，经 `createTestIdentity` 的入口同款挂法）：
+  - `GET /api/identity/auth/oauth2/%61uthorize?<合格参数>` 回 404 且正文为空——这是库的 404，不是本模块的 `{"error":{"code":"not_found"}}`；
+  - `GET /api/identity/%61uth/oauth2/authorize?…` 同样是库的空正文 404；
+  - `oauth2%2Fauthorize`、末尾斜杠、双斜杠才是本模块的 404。
+  Hono 的 `getPath` 对含 `%` 的路径做 `decodeURI`，所以 `/oauth2/%61uthorize` 命中了授权端点的路由；处理函数把原始 URL（仍是 `%61`）交给库，库的路由不解码、回自己的 404。由此推出（同一处理函数，未单独跑）：`/oauth2/%61uthorize?client_id=不存在` 走第 1 步，回 302 到 `/oauth/consent?error=client_not_found`，不是 Spec 输出 1 要的 404；令牌、撤销、用户信息端点的编码写法同样被交库。
+- 为什么是问题：文件头与 mount.test.ts 的守卫都写“白名单之外一律 404，兜底不交库”，`isOwnNotFound` 用正文区分“有没有交库”，但守卫只试了大小写、斜杠，没试编码写法。现在之所以没有越权，靠的是库 1.7.27 的路由碰巧不解码；库哪天对路径做了解码（或别的上游改了），编码写法就与白名单写法同义，而 Hono 侧看到的“方法加路径”与库看到的是两条不同的解析，正是挂载层要消除的那种不一致。
+- 如何核实：跑 lab-opus/e1.test.ts 的 “encoded path”。
+- 建议改法：在子应用最前面加一道：`new URL(c.req.raw.url).pathname` 与 `c.req.path`（Hono 解码后的）不相等、或原始路径含 `%` 时直接回本模块 404；或在交库前用 Hono 匹配到的规范路径重建请求 URL（只换 pathname），让两边看到同一条路径。并在 mount.test.ts 的“路径的写法不同”一条里加编码写法。
+
+### 2. 撤销端点的 400→200 改写吞掉客户端认证阶段的 `invalid_request`：没认证过的请求也得 200
+- 严重程度：建议
+- 类别：正确性（合同的错误码）/ 安全（认证失败被掩盖）
+- 位置：packages/nb-site-identity/src/oauth/mount.ts:240-249（`revokeEndpoint`）
+- 现象：实测（lab-opus/e2.test.ts “revoke rewrite”）：对机密客户端发 `token=abc&client_id=<id>&client_id=<id>`、不带任何密钥，回 200 空体；同样不带凭据只发 `token=abc` 回 401 `invalid_client`。原因：库在认证客户端之前先做 `normalizeClientAuthenticationParameters`（resource-challenge-Bln17mt0.mjs:686-716），`client_id`/`client_secret`/`client_assertion` 重复、或 Basic 头与表单里的 `client_secret` 并存时抛 400 `invalid_request`；改写条件“恰好一个非空 `token`、库回 400 且 `error` 是 `invalid_request`”同样成立，于是被改成 200。
+- 为什么是问题：注释与计划问 3 的理由是“库对查不到的令牌这样回”，但库的 `invalid_request` 不只这一种来源；被改写的这几种是请求本身不合法、客户端根本没认证，RFC 7009 第 2.1 节要求先认证客户端，认证不过应是 `invalid_client`（或保留 `invalid_request`）。Spec 输出 10 的 200 只对“已认证的客户端撤不存在、已撤、别人的令牌”。没有越权（库在这些分支里不撤任何东西），但对外的回答把“你没认证”说成了“撤销成功”，调试接入的客户端会被误导；“只按码认、不看说明文字”的写法也正是这条误判的来源。
+- 如何核实：跑 lab-opus/e2.test.ts；或在 mount.test.ts 的撤销一组里加“重复 `client_id` 不带密钥”“Basic 加表单 `client_secret`”两条。
+- 建议改法：改写前自己判请求的客户端认证形状，不合法时不改写：`client_id`、`client_secret`、`client_assertion*` 任何一个出现多次，或 Basic 与表单密钥并存时原样回库的 400。更稳的做法是把“查不到令牌”从“改写库的 400”换成“库回 400 时自己按 `token` 查 `oauthAccessToken`（摘要）不存在或已撤、且客户端已通过认证”才回 200——但认证结果拿不到，前一种更现实。
+
+### 3. 会话到期后（清理任务之前）换它名下的码回 `invalid_request`，不是 Spec 的 `invalid_grant`
+- 严重程度：建议
+- 类别：正确性（合同的错误码）
+- 位置：packages/nb-site-identity/src/oauth/mount.ts:172-191（`tokenEndpoint` 原样转发库的 400）；库 authorize-DXnMh0ha.mjs:2378-2388（换码时 `session.expiresAt < new Date()` 抛 `invalid_request` “session no longer exists”）
+- 现象：实测（lab-opus/e2.test.ts 第二条）：拿到码后把该会话的 `expiresAt` 写到过去（生产里两只钟相同，就是会话到期、`purge` 还没跑的状态），经挂载层换码得 400 `{"error":"invalid_request","error_description":"session no longer exists"}`；码也没被用掉（库在 consume 之前判会话）。
+- 为什么是问题：Spec 输出 6 “重复使用、过期、PKCE 不对都回 `invalid_grant`”，输出 8 “会话结束（含到期）……没用掉的授权码换不出令牌（`invalid_grant`）”。时序一节只说到期后“至迟在下一次 purge 后失效”，没有允许失效前换出别的码；RFC 6749 第 5.2 节里授权码“已失效、被撤销”也是 `invalid_grant`。会话时长 30 天，码 10 分钟，只有在到期前 10 分钟内发出的码会撞上，概率低，但客户端拿到 `invalid_request` 会以为自己的请求写错了。同一条错误路径在“换回上一个版本期间结束的会话”（会话行已被旧版本删掉、码还在）也会出现。
+- 如何核实：跑 lab-opus/e2.test.ts “expired session code exchange …”。
+- 建议改法：令牌端点已经为撞外键做了一次“按码无效”映射，这里同理：库回 400 且 `error` 为 `invalid_request`、`grant_type=authorization_code` 时，再判一次码对应的会话（或直接按 `error_description` 以外的结构判断不了时，按“码所在的会话不存在或已到期”自己查 `verification` 与 `session`）后改成 `invalid_grant`；或者在第 3 步之前不做，记为已知限制写进 Spec 时序一节。
+
+### 4. 授权端点的表单 POST 超过 16 KiB 时回 400 JSON，不跳回客户端、也不去本站错误页
+- 严重程度：建议
+- 类别：正确性（合同）/ 用户可见的失败形状
+- 位置：packages/nb-site-identity/src/oauth/mount.ts:285（`bodyLimit` 在白名单之前、对整个子应用生效，`onError` 一律 `oauthError`）
+- 现象：实测（lab-opus/e2.test.ts 第三条）：对授权端点发 17 000 多字节的表单（客户端与回调地址都合格），回 400、正文 `{"error":"invalid_request"}`、没有 `Location`。4097 到 16 384 字节之间的同样请求按第 2 步跳回客户端带 `invalid_request`。
+- 为什么是问题：授权端点是浏览器导航的目标（客户端页面里的表单提交），Spec 输出 3 把“请求体超过 4096 个字符”归在“其它不合格的跳回客户端并带标准的错误码”里，没有上界之外的第二种形状；现在用户在浏览器里看到一页裸 JSON，客户端也收不到回调。令牌、撤销这类机器调用的端点回 400 JSON 是对的，授权端点不是。计划 3.6 只写了“请求体上限在白名单之前”，没有讨论授权端点该回什么；README 5a 的“白名单外的超大请求回 400”也只是对白名单外的说法。
+- 如何核实：lab-opus/e2.test.ts “authorize POST with oversized body”。
+- 建议改法：保留上限（防无界读体），但授权端点的 `onError` 换一种：上限对授权端点改由处理函数自己读体时判（读到第 16 KiB 就停），超了按第 1 步判不出客户端处理——去本站错误页（`/oauth/consent?error=…`，没有合格的客户端与回调地址就不能跳回），或在 Spec 里写明“请求体超过 16 KiB 时回 400、不跳转”作为已知限制。二者择一，现在是两边都没写。
+
+（第 1 条补充核实，lab-opus/e6.test.ts：`GET /api/identity/auth/oauth2/%61uthorize?client_id=nope&redirect_uri=…` 实回 302 到 `/oauth/consent?error=client_not_found`；`POST /api/identity/auth/oauth2/%74oken` 带 `DPoP` 头回 400 `invalid_request`。即编码写法确实进了本模块的处理函数，对外回答不是输出 1 要的 404。）
+
+### 5. “授权列表按给出的先后倒序”（输出 15）没有任何用例测到
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/nb-site-identity/src/oauth/grants.ts:73（`ORDER BY g."id" DESC`）；packages/nb-site-contract-tests/src/oauth-invalidation.test.ts:329-354；packages/nb-site-identity/src/oauth/grants.test.ts:67-93
+- 现象：合同用例“列出自己的授权”拿到两项后先 `.sort((x, y) => x.clientName.localeCompare(y.clientName))` 再比较，只断言了 `createdAt` 的先后（`>=`，同一秒内两项也成立），没断言列表顺序；另两条合同用例与包内两条每次列表里只有一项。把 `DESC` 改成 `ASC`（或去掉 `ORDER BY`）时，按读到的断言没有一条会失败（从测试读出，未跑变异）。
+- 为什么是问题：这一句是第 7 片写进 Spec 输出 15 的，README 第 7 片记了 4 条被抓到的变异，不含它；前端（t10）会照这个顺序直接渲染。
+- 如何核实：在仓库外的副本里把 grants.ts 的 `DESC` 改成 `ASC`，跑 `oauth/grants.test.ts` 与合同的 `oauth-invalidation.test.ts`。
+- 建议改法：在合同的第一条里直接断言 `items.map((item) => item.clientName)` 等于 `["第二个应用", "第一个应用"]`（第二个后同意），不先排序。
+
+## 未发现问题的方面
+
+- 白名单的方法与 HEAD：表外方法（含 OPTIONS、`GET /oauth2/token`）、末尾斜杠、双斜杠、大小写、`%2F` 都是本模块的 404；`./`、`../` 在构造 `Request` 时已被规范化，两边看到同一条路径；授权端点的 HEAD 是 404、公钥的 HEAD 换成 GET 交库。只有第 1 条的单字符编码写法例外。
+- 重复参数：实测（lab-opus/e1.test.ts）`scope`、`state`、`nonce`、`code_challenge`、`code_challenge_method`、`max_age`、`prompt`、`response_mode` 重复时，第 2 步或库都跳回 `invalid_request`，模块与库取值不会分歧；第 1 步对重复的 `client_id`、`redirect_uri` 按不合格算，与库一致。令牌端点重新编码表单保留重复与顺序，库的 `normalizeClientAuthenticationParameters` 照样能拒重复；Basic 与表单 `client_id` 并存时库按 Basic 认，注册的认证方式不符回 `invalid_client`（`validateClientCredentials`），所以 `client_secret_post` 走不通。
+- 第 1 步与库的回调地址匹配逐行对照了 `findRegisteredRedirectUri`/`stripLoopbackRedirectPort`：`localhost.` 等写法两边判法不同，但登记值的原始主机只许三个写法，比较结果一致；`applicationType` 为 `web` 才不放宽端口。
+- `rewriteLibraryLocation` 的“other”原样放行：库只会跳去已核对过的回调地址或站内页面；错误页先按 `query` 重判第 1 步再查表，确认接口另有 `^https?://` 兜底。续接的继续地址恒为 `OAUTH_ENDPOINT_PATHS.authorize` 加签名参数，不可能是别的站点。
+- 续接令牌：验签覆盖整段查询串（canonicalize 全部参数），客户端塞进去的 `exp`、`sig`、`ba_*` 在 `AUTHORIZE_PARAMS` 那一步就被丢掉；长度上界的论证成立（交库参数是全部参数的子集、编码同为 `URLSearchParams`，库加的签名字段至多几百字符，base64 后约 6300 < 8192）。补交同意的继续地址里 `max_age` 已被库在签名前去掉，实测补交花 60 秒、`max_age=100`、会话已 50 秒时仍拿到码（lab-opus/e3.test.ts）。
+- `wrapOAuthConsent` 只在 `IdentityOverrides` 里，`createIdentityModule` 不传 overrides，入口与 `index.ts` 都不导出 `assembleIdentity`，产品路径碰不到。
+- 失效覆盖：停用、撤销授权与各自的撤销同一写事务；换密钥 Spec 不要求撤令牌。`purge` 删 `sessionId` 为空的令牌不会误删本版本的令牌：库换码时 `createUserTokens` 恒传 `session.id`，会话在两步之间被删时插入撞外键、不留行；本版本删会话前先撤，置空的都是已撤的。用户信息对被撤令牌回 401 `invalid_token`；撤销端点对已撤令牌（库照样找到行并删掉）回 200。
+- 管理客户端：`VALIDATION_ERROR` 映射成 `redirect_uri_invalid` 的担心不成立——实测纯空白、制表符、换行的名字库的管理端点都收下（lab-opus/e5.test.ts），名字不会被误报成回调地址错误。
+- 用户信息过滤：字段集严格是 `USERINFO_CLAIMS`，`email_verified` 恒为 `false`，`email_pending` 为真时去掉两项；DPoP 在令牌端点判类型之后、读体之前判。
+- 新测试没有 mock、spy、假计时器或固定等待；与 Spec 的验收逐条对过，除第 5 条外都有用例。
+
+## 各级数量
+
+阻断 0；重要 0；建议 5（第 1 到 5 条）。
+
+有效发现：1、2、3、4、5
