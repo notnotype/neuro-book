@@ -2274,6 +2274,15 @@ describe("拆分树原语：复制网格与从快照建网格（Spec ui/nested-g
         };
         expect(leafRef(objectCopy, "a")).toBe(refs[0]!);
         expect(leafRef(objectCopy, "b")).toBe(refs[1]!);
+
+        // 建完网格后调用方改了自己的选项对象：副本仍照建网格时的选项，与原网格一致。
+        const options: {sashSize: number; encodeRef: (ref: Ref) => string} = {sashSize: SASH, encodeRef: (ref) => `old:${ref.key}`};
+        const kept = createGrid<Ref>({kind: "branch", id: "root", orientation: "horizontal", children: refs.map((ref) => ({kind: "leaf" as const, id: ref.key, ref}))}, options);
+        options.sashSize = 12;
+        options.encodeRef = (ref) => `new:${ref.key}`;
+        const keptCopy = kept.clone();
+        expect(keptCopy.layout(ROW).sashSizes["root"]).toEqual([SASH]);
+        expect(keptCopy.serialize()).toEqual(kept.serialize());
     });
 
     it("clone：改副本不改原来，改原来也不改副本（结构、意图、收起状态）", () => {

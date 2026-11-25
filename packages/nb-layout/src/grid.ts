@@ -162,10 +162,11 @@ export function restoreGrid<T>(snapshot: unknown, resolveRef: GridRefResolver<T>
 }
 
 /**
- * 网格的本体：`initial` 已经是规范过的节点，网格从此独占它。`options` 原样留着给 `clone`，
- * 所以以后给 `GridOptions` 加的项副本自动带上。
+ * 网格的本体：`initial` 已经是规范过的节点，网格从此独占它。选项在这里浅拷一份留给 `clone`：以后给 `GridOptions` 加的项副本自动带上，
+ * 调用方建完网格再改自己那个选项对象，原网格与副本都不受影响（原网格的 `sashSize`、`encodeRef` 本来就在下面取定了）。
  */
-function buildGrid<T>(initial: GridNode<T> | null, options: GridOptions<T>): Grid<T> {
+function buildGrid<T>(initial: GridNode<T> | null, given: GridOptions<T>): Grid<T> {
+    const options: GridOptions<T> = {...given};
     const sashSize: number | GridSashResolver = typeof options.sashSize === "function"
         ? options.sashSize
         : Math.max(0, finite(options.sashSize ?? 0, 0));
