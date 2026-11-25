@@ -587,6 +587,8 @@ export type Complete = (env: Pick<SessionEnv, "models" | "resources" | "clock" |
 export interface ExtensionDeclaration {
     tags?: string[];
     dependsOn?: string[];
+    /** `on-request`：不自动装，Profile 按 id 引用（`referencedExtensions`）才装（extensions.md 的“按需扩展”）。 */
+    install?: "on-request";
 }
 /** 平台 `ContributionHandle` 的对应：`implementation()` 在撤回后抛错，宿主不缓存它。 */
 export interface ExtensionHandle {

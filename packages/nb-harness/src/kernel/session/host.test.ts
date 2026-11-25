@@ -876,6 +876,40 @@ describe("插件宿主", () => {
         await after.close(session.id);
     });
 
+    test("输出 57、extensions 的“按需扩展”：声明 install: on-request 的贡献只装到引用它的 Profile；引用缺失时新建 profile-invalid、打开只读，晚到后装上", async () => {
+        const model = createTestModel();
+        const plain = defineProfile({id: "test.plain", version: "1", name: "p", description: "p"}) as AnyProfile;
+        const modal = defineProfile({id: "test.modal", version: "1", name: "m", description: "m", referencedExtensions: ["lab.count"]}) as AnyProfile;
+        const env = {...hostEnv(model), profiles: {resolve: (key: string) => [plain, modal].find((profile) => profile.id === key)}};
+        const onRequest = () => ({id: counter.id, plugin: "lab", declaration: {install: "on-request" as const}, implementation: () => counter as never});
+        const installed = async (session: import("../api/index.js").SessionApi) => (await session.snapshot()).extensions.map((item) => item.id);
+
+        const first = createAgentHost(env);
+        expect(await first.create({profile: modal.id})).toMatchObject({ok: false, code: "profile-invalid", detail: {problems: [{code: "referenced-extension-missing", dependency: "lab.count"}]}});
+        const handle = onRequest();
+        first.extensions.prepare(handle);
+        first.extensions.published(handle);
+        const without = await first.create({profile: plain.id});
+        const withIt = await first.create({profile: modal.id});
+        if (!without.ok || !withIt.ok) throw new Error("create failed");
+        expect(await installed(without.value)).not.toContain("lab.count");
+        expect(await installed(withIt.value)).toContain("lab.count");
+        await first.close(without.value.id);
+        await first.close(withIt.value.id);
+
+        const second = createAgentHost(env);
+        const opened = await second.open(withIt.value.id);
+        if (!opened.ok) throw new Error(opened.code);
+        expect((await opened.value.snapshot()).readOnly).toEqual({code: "dependency-missing"});
+        const late = onRequest();
+        second.extensions.prepare(late);
+        second.extensions.published(late);
+        await waitIdleWrites(opened.value);
+        expect((await opened.value.snapshot()).readOnly).toBeNull();
+        expect(await installed(opened.value)).toContain("lab.count");
+        await second.close(opened.value.id);
+    });
+
     test("输出 57：revoke 交回的 Promise 在各会话摘下扩展、清理函数跑完之后完成；运行中的会话等这次运行结束", async () => {
         const log: string[] = [];
         const watcher = defineExtension({id: "lab.watcher", mount: () => () => void log.push("cleanup")});
