@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "answerId": "20261125T081322410Z-d884dc04",
+    "artifactVersion": 1,
+    "contentHash": "46826c695a1e7d9669d578d36efa03205a2ba49b950a621570ab2608c6e27afd",
+    "submittedAt": "2026-11-25T08:13:21.430Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "strip-side": "right-full",
+        "list-entry": "foot"
+    },
+    "comments": {
+        "strip-side": "就是你这个竖线太生硬了。我推荐可以和左侧边栏共用一个做法，设置左侧边栏和右侧边栏还可以直接交换为止。是否要为这种模式提供支持而不是给左侧边栏（ActivityBar）和这个消息视图特例呢？这里你觉得提供什么 API 比较好？"
+    },
+    "note": "我感觉竖屏下对话条的展开不是一种更好的交互？有没有更好的交互方法？列出目前 IM 的做法有哪些？"
+}
