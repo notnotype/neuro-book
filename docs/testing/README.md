@@ -195,7 +195,9 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
   该作用域内全部测试文件。
 - Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
   （如 zod）的 CJS/ESM interop 与 node 不同，过滤单文件可能误报
-  `zod does not provide an export named 'z'`；以 node 运行时为准。
+  `zod does not provide an export named 'z'`；以 node 运行时为准。Vitest 的用例（含 `scripts/` 的测试）跑在 Node 上，
+  不用 Bun 专有的 `import.meta.dir`、`Bun.file` 这类接口，路径用 `fileURLToPath(import.meta.url)` 求：在 Node 下
+  `import.meta.dir` 是 undefined，用例本机用 `bun` 跑得过、CI 上挂（w00043 t18 的发布包用例，2026-11-25 演练）。
 - 测试含宿主专有模块的入口时，在对应宿主的真实子进程中验证行为；不要直接导入另一宿主的测试运行器，以免模块加载失败替代业务回归。
 - 新增测试目录（如新 `scripts/<area>/`）必须同步加入对应配置的 `include`，否则测试
   永远不运行——「写了但从不跑」比没有测试更危险。
