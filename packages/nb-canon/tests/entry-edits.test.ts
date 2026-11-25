@@ -383,6 +383,7 @@ describe("canon.components 输出 4、canon.revisions 输出 25：实例字段�
         const back = ok(editEntries(gone, batch([{op: "component", entry: "e1", type: PANEL.id, action: "add", declare: [{label: "运气", kind: "number"}], fields: {运气: 3}}], {baseVersion: 4}), "t")).world;
         expect(back.data.entries.get("e1")!.init.data.panel).toMatchObject({declared: [{id: "幸运"}, {id: "运气"}], fields: {运气: 3}});
         expect(problemCode(editEntries(told, batch([{op: "component", entry: "e1", type: PANEL.id, action: "remove", declare: [{label: "x", kind: "text"}]}], {baseVersion: 3}), "t"))).toBe("type-mismatch");
+        expect(problemCode(editEntries(told, batch([{op: "component", entry: "e1", type: PANEL.id, action: "remove", fields: {存款: 1}}], {baseVersion: 3}), "t"))).toBe("type-mismatch");
     });
 
     test("还原：加一项、去掉各还原一次；旧条目的数据里没有声明的列表时，第一次加的那一项要连同之后的一起还原", () => {

@@ -83,7 +83,7 @@ async function openEntry(page: Page, name: string): Promise<void> {
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在浮层里改、别的内容与保存按钮不动；成段的编辑层盖在后面、后一段不动，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -171,6 +171,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await card.locator("[data-add-field]").click();
     await page.locator("[data-add-field-panel] [data-preset='种族']").click();
     await expect(card.locator("[data-fact='种族']")).toBeVisible();
+    await expect(card.locator("[data-fact]").last()).toHaveAttribute("data-fact", "种族");
 
     // 形象分页：立绘的浮层里上传一张图，存进作品的图片文件夹，保存以后人物分页的立绘是这张图（输出 53）。
     await tab(page, "形象").click();

@@ -164,6 +164,13 @@ describe("实例字段的操作经世界服务（components.md 输出 4）", () 
             await edit([{op: "fieldRestore", at: {entry: xia, path: "panel.幸运"}}]);
             expect(reading().labels).toContain("幸运");
             expect(reading().removed).toBeUndefined();
+
+            // 去掉以后类型加了一个同 id 的固定字段：生效的是固定的那一条，去掉过的这一条不再列出来给“恢复”。
+            await edit([{op: "fieldRemove", at: {entry: xia, path: "panel.幸运"}}]);
+            expect(reading().removed).toEqual({panel: [{id: "幸运", label: "幸运"}]});
+            await world.setRegistries({registry: buildRegistry([{...PANEL, fields: [...PANEL.fields!, {id: "幸运", label: "气运", kind: "number"}]}, PERSON])});
+            expect(reading()).toMatchObject({removed: undefined});
+            expect(reading().labels).toContain("气运");
         } finally {
             await world.stop();
         }

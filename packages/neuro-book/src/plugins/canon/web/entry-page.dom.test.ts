@@ -309,6 +309,28 @@ describe("条目页", () => {
         expect(tabs2()).toEqual(["文字", "人物", "面板", "情节0"]);
     });
 
+    it("人物条目有没提交的主文字稿时，打开页面选“文字”、直接在编辑里（输出 9、45）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕", {type: "人物"});
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const sourceArea = (wrapper: ReturnType<typeof mount>): HTMLTextAreaElement | null => (wrapper.element as Element).querySelector<HTMLTextAreaElement>("[data-text-source] textarea");
+        const first = await open(id);
+        first.state.tab = "text";
+        await waitUntil("“编辑”", () => first.wrapper.find("[data-text-edit]").exists());
+        await first.wrapper.get("[data-text-edit]").trigger("click");
+        await waitUntil("编辑视图", () => sourceArea(first.wrapper) !== null);
+        const area = sourceArea(first.wrapper)!;
+        area.value = "还没写完的一段";
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("有稿", () => first.wrapper.find("[data-text-discard]").exists());
+        first.wrapper.unmount();
+
+        // 新开一个标签（没选过分页）：人物分页排在文字前面，但有稿时先看文字。
+        const second = await open(id);
+        await waitUntil("选中文字、在编辑里", () => second.wrapper.find("[role='tab'][aria-selected='true']").exists() && second.wrapper.get("[role='tab'][aria-selected='true']").text() === "文字" && sourceArea(second.wrapper)?.value === "还没写完的一段");
+        expect(second.state.tab).toBe("text");
+    });
+
     it("别处发布以后原地更新，不出加载占位；找不到、已删除、未出场", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
@@ -1218,7 +1240,8 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
                         editors.value ? h(Editor, {path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
                         editors.value && twice.value ? h(Editor, {key: "second", path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
                     ])),
-                    h("p", {"data-other": ""}, ["nbook.canon.panel", "nbook.canon.look", "nbook.canon.person"].map((type) => context.other!(type).status).join("|")),
+                    h("p", {"data-other": ""}, ["nbook.canon.panel", "nbook.canon.look", "nbook.canon.person", "x.missing"].map((type) => context.other!(type).status).join("|")),
+                    h("p", {"data-labels": ""}, context.declarations.map((field) => field.label).join("|")),
                     h("p", {"data-editing": ""}, String(context.editing ?? "")),
                     h("p", {"data-result": ""}, result.value),
                     h("button", {"data-add-look": "", onClick: async () => void (result.value = JSON.stringify(await context.addComponent!("nbook.canon.look")))}, "加形象"),
@@ -1228,6 +1251,9 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
                         result.value = outcome.ok ? "ok" : "refused";
                     }}, "加重名"),
                     h("button", {"data-remove-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRemove!("种族")))}, "去掉种族"),
+                    h("button", {"data-rename-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRename!("种族", "血统")))}, "种族改名"),
+                    h("button", {"data-restore-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRestore!("种族")))}, "恢复种族"),
+                    h("button", {"data-show-missing": "", onClick: () => context.showTab!("x.missing")}, "切到没有的分页"),
                     h("p", {"data-removed": ""}, (context.removedFields ?? []).map((field) => field.label).join("|")),
                 ]);
             };
@@ -1237,7 +1263,7 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         id: "test.badge",
         entries: [{
             id: "browser", location: "browser", activationEvents: ["onStartup"],
-            contributions: [{capability: CANON_COMPONENT_VIEWS_POINT, id: "test.badge.card", declaration: {title: "徽章", uses: ["nbook.canon.panel", "nbook.canon.look"]}}],
+            contributions: [{capability: CANON_COMPONENT_VIEWS_POINT, id: "test.badge.card", declaration: {title: "徽章", uses: ["nbook.canon.panel", "nbook.canon.look", "x.missing"]}}],
             activate: () => ({contributions: {[CANON_COMPONENT_VIEWS_POINT]: {"test.badge.card": {load: () => Promise.resolve(BadgeView)}}}}),
         }],
     };
@@ -1344,19 +1370,30 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
     });
 
-    it("context：别的组只认 uses 列了的，没加过、加上以后；加一项、重名被拒、去掉以后列在去掉过的里", async () => {
-        const {wrapper} = await badgePage();
-        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent");
+    it("context：别的组只认 uses 列了的，没加过、加上以后、去掉以后，没登记的；加一项、重名被拒、改名、去掉以后列在去掉过的里、恢复；切到没有的分页什么也不做", async () => {
+        const {wrapper, state, other, id} = await badgePage();
+        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent|unavailable");
         await wrapper.get("[data-add-look]").trigger("click");
-        await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent");
+        await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent|unavailable");
+        const status = await other.canon.call("status", {});
+        if (!status.ok) throw new Error("读不到");
+        const removed = await other.canon.call("editEntries", {input: {requestId: "remove-look", by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "去掉形象", ops: [{op: "component", entry: id, type: "nbook.canon.look", action: "remove"}]}} as never);
+        expect(removed.ok).toBe(true);
+        await waitUntil("去掉过形象", () => wrapper.get("[data-other]").text() === "present|removed|absent|unavailable");
+        await wrapper.get("[data-show-missing]").trigger("click");
+        expect(state.tab).toBe("data:badge");
 
         await wrapper.get("[data-add-field]").trigger("click");
         await waitUntil("加上种族", () => wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族"));
         await wrapper.get("[data-add-taken]").trigger("click");
         await waitUntil("重名被拒", () => wrapper.get("[data-result]").text() === "refused");
+        await wrapper.get("[data-rename-field]").trigger("click");
+        await waitUntil("改了名", () => wrapper.get("[data-labels]").text() === "图案|介绍|血统");
         await wrapper.get("[data-remove-field]").trigger("click");
-        await waitUntil("去掉过的", () => wrapper.get("[data-removed]").text() === "种族");
+        await waitUntil("去掉过的", () => wrapper.get("[data-removed]").text() === "血统");
         expect(wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族")).toBe(false);
+        await wrapper.get("[data-restore-field]").trigger("click");
+        await waitUntil("恢复了", () => wrapper.get("[data-labels]").text() === "图案|介绍|血统" && wrapper.get("[data-removed]").text() === "");
     });
 });
 
@@ -1385,6 +1422,9 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("添加形象", () => second.wrapper.find("[data-portrait='absent']").exists());
         await second.wrapper.get("[data-portrait]").trigger("click");
         await waitUntil("加上了形象", () => second.wrapper.find("[data-portrait='no-image']").exists());
+        // 有形象、没有立绘：“添加立绘”也是切到形象分页。
+        await second.wrapper.get("[data-portrait]").trigger("click");
+        await waitUntil("切到形象分页", () => second.state.tab === "data:look");
     });
 
     it("形象分页：点某一套的“换上”，现在穿的的编辑里填好这一套、预选“剧情里变了”，保存以后在所选位置上换了，旁边写“第 2 章改过”", async () => {
@@ -1404,6 +1444,15 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("预览", () => editor()?.querySelector("[data-confirm-preview]")?.textContent?.includes("记一条变更") === true);
         [...editor()!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
         await waitUntil("换上了", () => wrapper.get("[data-outfit='i2']").text().includes("穿着") && wrapper.get("[data-fact='现在穿的']").text().includes("第 2 章改过"));
+
+        // 现在穿的的建议值是衣柜里各套的名字：清空输入框、聚焦时全列出来。
+        await wrapper.get("[data-edit='look.现在穿的']").trigger("click");
+        await waitUntil("现在穿的的编辑", () => editor()?.querySelector("[data-suggest-input] input") != null);
+        const field = editor()!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
+        field.value = "";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        await waitUntil("建议值", () => [...document.body.querySelectorAll("[role='option']")].map((option) => option.textContent?.trim()).join("|") === "便装|学院制服");
     });
 
     it("添加一项资料：点预设“种族”加上一项，是自己加的（行尾有“更多”），预设里不再列它", async () => {
@@ -1418,6 +1467,30 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         (document.body.querySelector("[data-preset='种族']") as HTMLElement).click();
         await waitUntil("加上了种族", () => wrapper.find("[data-fact='种族'] [data-more='种族']").exists());
         expect(document.body.querySelector("[data-preset='种族']")).toBeNull();
+    });
+
+    it("成段的文字：点编辑层外面不收起，填的字还在（切走再回来也在，输出 7、51）；按 Escape 放弃，值不变", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("性格", () => wrapper.find("[data-edit='character.性格']").exists());
+        const before = wrapper.get("[data-passage='性格']").text();
+        const editor = (): Element | null => document.body.querySelector("[data-field-editor='character.性格']");
+        await wrapper.get("[data-edit='character.性格']").trigger("click");
+        await waitUntil("编辑层", () => editor()?.querySelector("textarea") != null);
+        const area = editor()!.querySelector("textarea")!;
+        area.value = "嘴硬心软";
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+        // 成段的编辑层不是浮层：点别处（后一段、页面）不放弃，作者切到别的标签再回来时它还在。
+        for (const target of [wrapper.get("[data-passage='说话方式']").element, document.body]) target.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(state.edit?.path).toBe("character.性格");
+        expect(editor()?.querySelector("textarea")?.value).toBe("嘴硬心软");
+        editor()!.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("放弃了", () => state.edit === null && editor() === null);
+        expect(wrapper.get("[data-passage='性格']").text()).toBe(before);
     });
 
     it("现在的状态：点开是细节，点“改起点”时编辑层浮在它原处、细节收起，不出页面顶上的确认条", async () => {

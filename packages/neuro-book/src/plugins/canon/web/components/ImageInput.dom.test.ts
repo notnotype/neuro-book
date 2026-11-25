@@ -42,6 +42,15 @@ describe("ImageInput", () => {
         expect(wrapper.emitted("update:modelValue")!.at(-1)).toEqual([null]);
     });
 
+    it("窗口里没有文件服务（没注入，或注入的不可用）时没有候选与上传，只剩手填路径与说明", () => {
+        const none = image({});
+        const unavailable = mount(ImageInput, {props: {modelValue: null}, global: {provide: {...provideText(port), [CANON_IMAGE_PICKING as symbol]: reactive({available: false, candidates: [], uploading: false, reason: "", notice: "", url: () => null, browse: () => undefined, upload: async () => null, cancel: () => undefined})}}});
+        for (const wrapper of [none, unavailable]) {
+            expect([wrapper.find("[data-image-upload]").exists(), wrapper.find("[data-image-candidates]").exists(), inputs(wrapper).filter((input) => input.attributes("type") !== "file").length]).toEqual([false, false, 2]);
+        }
+        unavailable.unmount();
+    });
+
     it("路径不合规则、只填了说明没填路径时写原因；服务退回的原因优先；合规时不写", async () => {
         const wrapper = image({modelValue: {图片: "../外面.png", 说明: ""}});
         expect(wrapper.get("[data-image-problem]").text()).toContain("相对路径");
