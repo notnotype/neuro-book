@@ -264,6 +264,16 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await title.focus();
     await expect(title).toHaveCSS("opacity", "1");
     expect(await hitIn(page, titleCenter, `[data-panel-head="${target}"] [data-panel-tab]`)).toBe(true);
+    // 空格拿起（出拖影），Esc 放下；菜单键开“移动到”。
+    await page.keyboard.press("Space");
+    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+    await title.focus();
+    await title.press("ContextMenu");
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
     await input(page).click();
     await expect(title).toHaveCSS("opacity", "0");
 
