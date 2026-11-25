@@ -343,6 +343,13 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
         await removeMarkedTmpRoot(dir, join(dir, TMP_MARKER_FILE));
     });
 
+    test("条目读取带上种类：是条目的 type，不是它所在的文件夹", async () => {
+        const ids = await publish([entry("tmp:sect", "青云门", {type: "组织", folder: "势力"})]);
+        const read = service.entry(ids["tmp:sect"]!, {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
+        if (typeof read === "string") throw new Error(read);
+        expect(read).toMatchObject({kind: "组织", folder: "势力"});
+    });
+
     /** 星瑕与一条回溯线：第 2 章“回溯”把次数用掉（c3），线从 c1 之后重来。 */
     const withLine = async () => {
         const xia = (await publish([entry("tmp:xia", "星瑕", {}, {

@@ -264,6 +264,7 @@ describe("canon.components 输出 24：建议值、适用的种类、预设字�
         expect(problemOf({...base, presets: [{id: "种族", label: "种族", kind: "text"}, {id: "种族", label: "血统", kind: "text"}]})).toEqual(["presets[1].id"]);
         expect(problemOf({...base, presets: [{id: "魔力上限", label: "魔力上限", kind: "number"}, {id: "魔力", label: "魔力", kind: "number", max: "魔力上限"}]})).toEqual(["presets[1].max"]);
         expect(problemOf({...base, presets: [{id: "种族", label: "种族", kind: "text", removed: true} as never]})).toEqual(["presets[0].removed"]);
+        expect(problemOf({...base, presets: [{label: "种族", kind: "text"} as never]})).toEqual(["presets[0]"]);
         // 显示名撞了固定字段或别的预设的：在哪个条目上都加不上。
         expect(problemOf({...base, presets: [{id: "性别2", label: "性别", kind: "text"}]})).toEqual(["presets[0].label"]);
         expect(problemOf({...base, presets: [{id: "种族", label: "种族", kind: "text"}, {id: "血统", label: "种族", kind: "text"}]})).toEqual(["presets[1].label"]);

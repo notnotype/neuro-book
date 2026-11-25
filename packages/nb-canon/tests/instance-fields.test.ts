@@ -114,6 +114,19 @@ describe("canon.components 输出 4、22：去掉是打标记，生效的字段"
         expect(refused(put(upgraded, (entry) => void (entry.init.data.panel!.fields.种族 = 3)))).toEqual(["type-mismatch:init.data.panel.fields.种族"]);
     });
 
+    test("同一个 id 两边都有时按固定字段的声明读写：值的种类、引用指向的条目种类都按固定的那一条核", () => {
+        const start = ok(put(world(), (entry) => {
+            declared(entry).push({id: "种族", label: "种族", kind: "text"}, {id: "师门", label: "师门", kind: "ref", targets: ["人物"]});
+            entry.init.data.panel!.fields.种族 = "精灵";
+        })).world;
+        // 两边的种类不同（文字对枚举、指人物对指组织），实例那一条若生效，下面两条的结果都会反过来。
+        const upgraded = start.withOptions(options([{...PANEL, fields: [...PANEL.fields!, {id: "种族", label: "血统", kind: "enum", options: ["精灵", "人"]}, {id: "师门", label: "门派", kind: "ref", targets: ["组织"]}]}, PERSON]));
+        expect(fields(upgraded).种族).toBe("精灵");
+        expect(refused(put(upgraded, (entry) => void (entry.init.data.panel!.fields.种族 = "矮人")))).toEqual(["type-mismatch:init.data.panel.fields.种族"]);
+        expect(refused(put(upgraded, (entry) => void (entry.init.data.panel!.fields.师门 = {ref: "e1"})))).toEqual(["ref-invalid:init.data.panel.fields.师门.ref"]);
+        expect(refused(put(upgraded, (entry) => void (entry.init.data.panel!.fields.师门 = {ref: "e2"})))).toEqual(["ok"]);
+    });
+
     test("去掉的字段里的引用照旧算：指着的条目在这期间被删了，恢复照收", () => {
         const start = ok(put(world(), (entry) => {
             declared(entry).push({id: "师门", label: "师门", kind: "ref"});
@@ -158,6 +171,11 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(refused(mark(capped, "幸运上限", true))).toEqual(["field-referenced:init.data.panel.declared[幸运].max"]);
         const hidden = ok(mark(start, "幸运上限", true)).world;
         expect(refused(declare(hidden, {...LUCK, max: "幸运上限"}))).toEqual(["field-referenced:init.data.panel.declared[幸运].max"]);
+        // 指向的字段在，但不是精确档的数：文字、语义档的数都不行。
+        expect(refused(declare(start, {id: "名号", label: "名号", kind: "text"}, {...LUCK, max: "名号"}))).toEqual(["field-referenced:init.data.panel.declared[幸运].max"]);
+        expect(refused(declare(start, {id: "气", label: "气", kind: "number", precision: "semantic"}, {...LUCK, max: "气"}))).toEqual(["field-referenced:init.data.panel.declared[幸运].max"]);
+        // 直接删掉还被当作上限的那条声明，与去掉它同样被拒。
+        expect(refused(put(capped, (entry) => void declared(entry).splice(0, 1)))).toEqual(["field-referenced:init.data.panel.declared[幸运].max"]);
     });
 
     test("被固定字段盖住的那一条去掉了，拿这个 id 当上限的照旧指着生效的固定字段，不拒收", () => {
@@ -177,6 +195,18 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(refused(put(start, (entry) => void (declared(entry)[0]!.precision = "semantic")))).toEqual(["field-redeclare-mismatch:init.data.panel.declared[幸运]"]);
         // 显示名、单位这些不影响补丁，照改。
         expect(refused(put(start, (entry) => void (declared(entry)[0]!.unit = "点")))).toEqual(["ok"]);
+    });
+
+    test("列表的键与子字段也不改：增删子字段、改子字段的种类与精度都拒收，子字段的显示名照改", () => {
+        const start = ok(declare(world(), {id: "行囊", label: "行囊", kind: "list", item: [{id: "颜色", label: "颜色", kind: "text"}]})).world;
+        const bag = (entry: Entry) => declared(entry)[0]! as {keyedBy?: "ref"; item: {id: string; label: string; kind: "text" | "number"; precision?: "semantic"}[]};
+        const mismatch = ["field-redeclare-mismatch:init.data.panel.declared[行囊]"];
+        expect(refused(put(start, (entry) => void (bag(entry).keyedBy = "ref")))).toEqual(mismatch);
+        expect(refused(put(start, (entry) => void (bag(entry).item[0]!.kind = "number")))).toEqual(mismatch);
+        expect(refused(put(start, (entry) => void (bag(entry).item[0]!.precision = "semantic")))).toEqual(mismatch);
+        expect(refused(put(start, (entry) => void bag(entry).item.push({id: "重量", label: "重量", kind: "number"})))).toEqual(mismatch);
+        expect(refused(put(start, (entry) => void bag(entry).item.splice(0, 1)))).toEqual(mismatch);
+        expect(refused(put(start, (entry) => void (bag(entry).item[0]!.label = "色")))).toEqual(["ok"]);
     });
 
     test("把一组数据改记成另一个类型或另一个版本时，原样留着的值也按新的声明核", () => {
@@ -220,7 +250,11 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
 
     test("类型后来不再允许实例字段：原样留着的声明不挡别的修改，再写新的才拒收", () => {
         const allowing = world([PANEL, {...PERSON, instanceFields: true}]);
-        const start = ok(put(allowing, (entry) => void (entry.init.data.character!.declared = [{id: "种族", label: "种族", kind: "text"}]))).world.withOptions(options());
+        const declaredBefore = ok(put(allowing, (entry) => void (entry.init.data.character!.declared = [{id: "种族", label: "种族", kind: "text"}]))).world;
+        expect("种族" in fields(declaredBefore, "character")).toBe(true);
+        const start = declaredBefore.withOptions(options());
+        // 类型此刻不允许实例字段：留着的声明不生效，读不到这一项（components.md 输出 22）。
+        expect("种族" in fields(start, "character")).toBe(false);
         expect(refused(put(start, (entry) => void (entry.init.data.character!.fields.状态 = "受伤")))).toEqual(["ok"]);
         expect(refused(put(start, (entry) => void declared(entry, "character").push({id: "生日", label: "生日", kind: "text"})))).toEqual(["fields-not-declarable:init.data.character.declared"]);
     });
@@ -229,6 +263,40 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         const start = world().withOptions(options([PANEL, {...PERSON, fields: PERSON.fields!.map((field) => (field.id === "外观" ? {...field, kind: "number" as const} : field))}]));
         expect(refused(put(start, (entry) => void (entry.init.data.character!.fields.状态 = "受伤")))).toEqual(["ok"]);
         expect(refused(put(start, (entry) => void (entry.init.data.character!.fields.外观 = "黑色")))).toEqual(["type-mismatch:init.data.character.fields.外观"]);
+    });
+
+    test("声明改了的字段，值没动也按改后的声明核", () => {
+        const start = ok(put(world(), (entry) => {
+            declared(entry).push({id: "阵营", label: "阵营", kind: "enum", options: ["正", "邪"]});
+            entry.init.data.panel!.fields.阵营 = "正";
+        })).world;
+        expect(refused(put(start, (entry) => void (declared(entry)[0]!.options = ["邪"])))).toEqual(["type-mismatch:init.data.panel.fields.阵营"]);
+        expect(refused(put(start, (entry) => void (declared(entry)[0]!.options = ["正", "邪", "中立"])))).toEqual(["ok"]);
+    });
+});
+
+describe("canon.components 输出 24：建议值、适用的种类与预设只是提示", () => {
+    const PRESET: InstanceFieldDeclaration = {id: "种族", label: "种族", kind: "text"};
+    const HINTED: ComponentDeclaration = {...PANEL, kinds: ["人物"], fields: [...PANEL.fields!, {id: "性别", label: "性别", kind: "text", suggestions: ["男", "女"]}], presets: [PRESET]};
+
+    test("内核不据此拒收写入：建议外的值、加在别的种类的条目上、与预设不同的声明都照收", () => {
+        const base = world([HINTED, PERSON]);
+        expect(refused(put(base, (entry) => void (entry.init.data.panel!.fields.性别 = "不明")))).toEqual(["ok"]);
+        // 青云门是组织，这一组只登记了适用于人物。
+        expect(refused(put(base, (entry) => void (entry.init.data.panel = {type: PANEL.id, version: 1, enabled: true, fields: {存款: 0, 魔力上限: null, 魔力: null, 物品: [], 性别: null}, declared: []}), "e2"))).toEqual(["ok"]);
+        expect(refused(declare(base, {...PRESET, kind: "number"}))).toEqual(["ok"]);
+    });
+
+    test("从预设加上的项是这个实例自己的声明：类型之后改了或撤了预设，读写照旧按实例上的那一条", () => {
+        const start = ok(put(world([HINTED, PERSON]), (entry) => {
+            declared(entry).push({...PRESET});
+            entry.init.data.panel!.fields.种族 = "精灵";
+        })).world;
+        for (const presets of [[{...PRESET, kind: "number" as const}], []]) {
+            const changed = start.withOptions(options([{...HINTED, presets}, PERSON]));
+            expect(fields(changed).种族).toBe("精灵");
+            expect(refused(put(changed, (entry) => void (entry.init.data.panel!.fields.种族 = "人类")))).toEqual(["ok"]);
+        }
     });
 });
 
@@ -281,6 +349,12 @@ describe("canon.revisions 输出 3：原样留着的补丁不因为不适用拒�
         expect(refused(rewrite(base, change, (copy) => void copy.patches.push(add("panel.幸运", 3))))).toEqual(["unknown-field:patches[2]"]);
         expect(refused(rewrite(base, change, (copy) => void copy.patches.push(add("panel.幸运", 2))))).toEqual(["unknown-field:patches[2]"]);
         expect(refused(rewrite(base, change, (copy) => void (copy.at = {kind: "chapter", chapter: "ch45", key: 10})))).toEqual(["unknown-field:patches[0]"]);
+    });
+
+    test("只放过那三种不适用：设定组的类型没登记了（贡献它的插件停用）时，改旧变更照新写的查", () => {
+        const told = record(world(), "ch44", [add("panel.存款", 5)]);
+        const unregistered = told.world.withOptions(options([PERSON]));
+        expect(refused(retitle(unregistered, told.change))).toEqual(["component-unknown:patches[0]"]);
     });
 
     test("待定转生效、计划改成已写按新写的查：之前写下的不适用补丁这时拒收", () => {
