@@ -840,6 +840,42 @@ describe("插件宿主", () => {
         await host.close(session.id);
     });
 
+    test("输出 57：打开时就缺依赖进只读；提供方晚到后解除，跑的是真的 Profile（系统提示词还在、日志不记占位）", async () => {
+        const model = createTestModel();
+        const real = defineProfile({id: "test.dependent-real", version: "1", name: "d", description: "d", system: "我是真的 Profile", dependsOn: [counter]}) as AnyProfile;
+        const env = {...hostEnv(model), profiles: {resolve: (key: string) => (key === real.id ? real : undefined)}};
+        const before = createAgentHost(env);
+        const handle = handleOf(counter);
+        before.extensions.prepare(handle);
+        before.extensions.published(handle);
+        const created = await before.create({profile: real.id});
+        if (!created.ok) throw new Error(created.code);
+        await waitIdleWrites(created.value);
+        await before.close(created.value.id);
+
+        // 换一个宿主（例如重启后）打开：这时提供方还没交出扩展。
+        const after = createAgentHost(env);
+        const opened = await after.open(created.value.id);
+        if (!opened.ok) throw new Error(opened.code);
+        const session = opened.value;
+        expect((await session.snapshot()).readOnly).toEqual({code: "dependency-missing"});
+        const late = handleOf(counter);
+        after.extensions.prepare(late);
+        after.extensions.published(late);
+        await waitIdleWrites(session);
+        expect((await session.snapshot()).readOnly).toBeNull();
+        // 装配与打开前那次相同：不写 profileChanged，更不会写版本为 unknown 的占位。
+        const changes = dataOf<{manifest: readonly {id: string; version: string}[]}>((await session.log({afterSeq: 0})).events, "profileChanged");
+        expect(changes).toHaveLength(1);
+        expect(changes.flatMap((change) => change.manifest).some((item) => item.version === "unknown")).toBe(false);
+        model.script("答");
+        const sent = await session.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await session.waitRun(sent.value.runId);
+        expect(JSON.stringify(model.requests.at(-1)?.system)).toContain("我是真的 Profile");
+        await after.close(session.id);
+    });
+
     test("输出 57：revoke 交回的 Promise 在各会话摘下扩展、清理函数跑完之后完成；运行中的会话等这次运行结束", async () => {
         const log: string[] = [];
         const watcher = defineExtension({id: "lab.watcher", mount: () => () => void log.push("cleanup")});
