@@ -18,6 +18,8 @@ export const CANON_COMPONENT_VIEWS_POINT = "canon.component-views";
 export const ComponentViewDeclarationSchema = Type.Object({
     /** 分页的名字；不写时补约定键 `componentViews.<本地 id>.title`。 */
     title: Type.Optional(TextSchema),
+    /** 这个界面会读到的、同一条目上别的设定组（类型 id）：只是依赖的声明，不是权限（`context.other` 只认这里列了的）。 */
+    uses: Type.Optional(Type.Array(Type.String({minLength: 1}))),
 }, {additionalProperties: false});
 
 export type ComponentViewDeclaration = Static<typeof ComponentViewDeclarationSchema>;

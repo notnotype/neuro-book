@@ -59,4 +59,38 @@ describe("ConfirmBar", () => {
         await button(wrapper, "再查一次").trigger("click");
         expect(wrapper.emitted("recheck")).toHaveLength(1);
     });
+
+    it("就地改（inline）：预览与原因共用两行，有原因时只写原因；变化多于一条时收成“还有 N 项”，整句在悬停提示里；“再查一次”在按钮那一行", async () => {
+        const lines = (wrapper: ReturnType<typeof bar>) => wrapper.get("[data-confirm-preview]").findAll("p").map((line) => line.text());
+        const impact = ["少了 1 条待处理", "魔力跟着变成 3,000", "等级跟着变成 4"];
+        const more = bar({variant: "inline", preview: {route: "改第 2 章那一笔", impact}});
+        expect(more.find("[data-confirm-bar]").exists()).toBe(false);
+        expect(lines(more)).toEqual(["改第 2 章那一笔", "少了 1 条待处理，还有 2 项"]);
+        expect(more.get("[data-confirm-preview]").findAll("p")[1]!.attributes("title")).toBe(impact.join("\n"));
+
+        const conflict = bar({variant: "inline", preview: {route: "改初值", impact: ["别的都不变"]}, error: "这个值刚刚变了"});
+        expect(lines(conflict)).toEqual(["这个值刚刚变了"]);
+        expect(conflict.get("[role='alert']").text()).toBe("这个值刚刚变了");
+        expect(button(conflict, "保存").attributes("disabled")).toBeUndefined();
+
+        const unknown = bar({variant: "inline", error: "不确定这次改动有没有写进去", recheck: true});
+        expect(lines(unknown)).toEqual(["不确定这次改动有没有写进去"]);
+        expect(unknown.get("[data-confirm-preview]").find("button").exists()).toBe(false);
+        await button(unknown, "再查一次").trigger("click");
+        expect(unknown.emitted("recheck")).toHaveLength(1);
+    });
+
+    it("就地改的单行输入：回车就是保存（预览没回来时不保存）；多行的文字回车不保存", async () => {
+        const single = bar({variant: "inline", rows: 1, kind: "text", value: "十七", preview: {route: "改初值", impact: []}});
+        expect(single.find("textarea").exists()).toBe(false);
+        await single.get("input").trigger("keydown", {key: "Enter"});
+        expect(single.emitted("save")).toHaveLength(1);
+        await single.setProps({previewing: true});
+        await single.get("input").trigger("keydown", {key: "Enter"});
+        expect(single.emitted("save")).toHaveLength(1);
+
+        const passage = bar({variant: "inline", kind: "text", value: "嘴硬心软", preview: {route: "改初值", impact: []}});
+        await passage.get("textarea").trigger("keydown", {key: "Enter"});
+        expect(passage.emitted("save")).toBeUndefined();
+    });
 });

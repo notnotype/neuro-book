@@ -28,7 +28,8 @@ export interface PrototypeState {
     readonly aliases: readonly string[];
     readonly summary: string;
     readonly text: ReadonlyArray<{readonly id: string; readonly source: string}>;
-    readonly data: Readonly<Record<string, {readonly enabled: boolean; readonly fields: Readonly<Record<string, unknown>>}>>;
+    /** `declared` 原型里没有：调用方把样本换成别的类型时，可以给某个条目的某一组带上它自己的字段声明。 */
+    readonly data: Readonly<Record<string, {readonly enabled: boolean; readonly fields: Readonly<Record<string, unknown>>; readonly declared?: readonly FieldDeclaration[]}>>;
 }
 
 interface Draft {
@@ -141,7 +142,8 @@ function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<strin
             if (type === null) continue;
             // 两个原型命名空间换到同一个类型时（应用的样本把身份并进人物）字段合起来。
             const previous = data[type.namespace] as {fields: Record<string, unknown>} | undefined;
-            data[type.namespace] = {type: type.type, version: type.version, enabled: block.enabled, fields: {...previous?.fields, ...block.fields}, ...(type.declared === undefined ? {} : {declared: type.declared})};
+            const declared = block.declared ?? type.declared;
+            data[type.namespace] = {type: type.type, version: type.version, enabled: block.enabled, fields: {...previous?.fields, ...block.fields}, ...(declared === undefined ? {} : {declared})};
         }
         return {...rest, init: {...init, data}, ...(initTold === undefined ? {} : {retold: initTold})};
     }

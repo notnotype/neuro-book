@@ -33,7 +33,7 @@ export interface VenueObservations {
 let sequence = 0;
 function person(name: string, baseVersion: number): WriteRequest {
     const id = `tmp:venue-${String(++sequence)}`;
-    const entry: Entry = {id, type: "nbook.canon.person", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: null}}}}};
+    const entry: Entry = {id, type: "nbook.canon.person", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {性格: null, 身份: null, 现在的状态: null}}}}};
     return {requestId: `venue-${String(sequence)}`, by: {kind: "author"}, what: "edit", title: name, baseVersion, puts: [{ref: {kind: "entry", id}, after: entry}]};
 }
 

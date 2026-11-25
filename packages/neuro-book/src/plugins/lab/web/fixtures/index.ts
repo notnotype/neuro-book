@@ -33,6 +33,10 @@ import type PendingView from "nbook/plugins/canon/web/components/PendingView.vue
 import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
 import type ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
 import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
+import type SuggestInput from "nbook/plugins/canon/web/components/SuggestInput.vue";
+import type CanonImage from "nbook/plugins/canon/web/components/CanonImage.vue";
+import type CharacterCard from "nbook/plugins/canon/web/components/CharacterCard.vue";
+import type LookCard from "nbook/plugins/canon/web/components/LookCard.vue";
 import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
 import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
 import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
@@ -2035,8 +2039,81 @@ function canonEntryPageFixtures() {
                 {id: "bad-path", label: "路径不合规则", input: {props: {}, model: {modelValue: {图片: "../外面/星瑕.png", 说明: ""}}}},
                 {id: "problem", label: "服务退回的原因", input: {props: {problem: "这个作品里没有这个文件"}, model: {modelValue: {图片: "图片/没有.png", 说明: ""}}}},
                 {id: "bad-path-english", label: "英文界面", input: {props: {}, model: {modelValue: {图片: "/abs/star.png", 说明: "silver hair"}}}},
+                {id: "picking", label: "作品里的图片：选了一张", input: {props: {}, model: {modelValue: {图片: "插图/星瑕-立绘.png", 说明: "银白长发"}}}},
+                {id: "picking-uploading", label: "正在上传", input: {props: {}, model: {modelValue: null}}},
+                {id: "picking-no-images", label: "图片文件夹还是空的", input: {props: {}, model: {modelValue: null}}},
+                {id: "picking-english", label: "英文界面：作品里的图片", input: {props: {}, model: {modelValue: null}}},
             ],
             load: async () => (await import("./ImageInputFixture.vue")).default,
+        }),
+        defineLabFixture<typeof CharacterCard>({
+            component: "CharacterCard",
+            scenes: (() => {
+                const facts = [
+                    {id: "性别", label: "性别", text: "女"},
+                    {id: "年龄", label: "年龄", text: "17 岁"},
+                    {id: "身份", label: "身份", text: "隐退的魔法少女"},
+                    {id: "所属", label: "所属", text: "对策委员会魔法少女部", link: true},
+                    {id: "现在在哪", label: "现在在哪", text: "星家老宅", link: true, mark: "第 2 章改过"},
+                    {id: "生死", label: "生死", text: "活着"},
+                    {id: "种族", label: "种族", text: "人类", own: true},
+                    {id: "喜好", label: "喜好", text: "甜食，尤其是妹妹做的布丁", own: true},
+                ];
+                const blank = facts.slice(0, 6).map(({mark: _mark, ...fact}) => ({...fact, text: null}));
+                const condition = {id: "现在的状态", label: "现在的状态", text: "以哥哥的样子和妹妹同住，魔力还没恢复到能变身的程度", hint: "受伤、被通缉、刚搬家……此刻的处境", mark: "第 2 章改过"};
+                const passages = [
+                    {id: "性格", label: "性格", text: "迟钝，情商不高，做事认真。想对妹妹好，常常用错方法，过后才知道搞砸了。", hint: "遇事怎么反应，最在意什么"},
+                    {id: "说话方式", label: "说话方式", text: null, hint: "口头禅、语气、对不同的人怎么称呼"},
+                    {id: "背景", label: "背景", text: "六岁那年的城市大灾难里失去了父母。之后觉醒了时间系的天赋，被对策委员会带进魔法少女部，几年里成了蓝星最强；灾难平息后，官方给她安了罪名，她顺势隐退。", hint: "从哪里来，经历过什么"},
+                ];
+                const filled = {facts, condition, passages, portrait: {status: "image" as const, path: "插图/星瑕-立绘.png", alt: "星瑕的立绘"}, canAdd: true, presets: [{id: "生日", label: "生日"}, {id: "弱点", label: "弱点"}, {id: "动机", label: "动机"}, {id: "初次登场", label: "初次登场"}], removed: [{id: "身高", label: "身高"}]};
+                const empty = {...filled, facts: blank, condition: {...condition, text: null}, passages: passages.map((passage) => ({...passage, text: null})), portrait: {status: "no-image" as const}, removed: []};
+                return [
+                    {id: "filled", label: "填好的人物", input: {props: filled, model: {addOpen: false}}},
+                    {id: "empty", label: "刚新建的人物", input: {props: empty, model: {addOpen: false}}},
+                    {id: "no-look", label: "条目上没有形象这一组", input: {props: {...filled, portrait: {status: "absent" as const}}, model: {addOpen: false}}},
+                    {id: "removed-look", label: "形象去掉过", input: {props: {...filled, portrait: {status: "removed" as const}}, model: {addOpen: false}}},
+                    {id: "later-look", label: "所选位置上形象还没启用", input: {props: {...filled, portrait: {status: "later" as const, from: "第 3 章"}}, model: {addOpen: false}}},
+                    {id: "add-field", label: "添加一项资料", input: {props: filled, model: {addOpen: true}}},
+                    {id: "add-refused", label: "自己写的名字被拒", input: {props: {...filled, addError: "这一组里已经有叫“喜好”的一项"}, model: {addOpen: true}}},
+                    {id: "condition-open", label: "现在的状态展开着", input: {props: {...filled, conditionOpen: true}, model: {addOpen: false}}},
+                    {id: "blocked", label: "写不了：值按钮不可用", input: {props: {...filled, editReason: "先关掉按计划"}, model: {addOpen: false}}},
+                    {id: "filled-english", label: "英文界面", input: {props: filled, model: {addOpen: false}}},
+                ];
+            })(),
+            load: async () => (await import("./CharacterCardFixture.vue")).default,
+        }),
+        defineLabFixture<typeof LookCard>({
+            component: "LookCard",
+            scenes: (() => {
+                const filled = {
+                    portrait: {path: "插图/星瑕-立绘.png", alt: "淡金长发的少女侧身回头"},
+                    appearance: {id: "外貌", label: "外貌", text: "淡金色长发及腰，浅灰蓝的眼睛，个子娇小。左手腕内侧有一道回溯留下的细痕。", hint: "发色、眼睛、体型，一眼认得出来的地方"},
+                    wearing: {id: "现在穿的", label: "现在穿的", text: "哥哥的便装", mark: "第 2 章改过"},
+                    outfits: [
+                        {id: "i1", name: "哥哥的便装", look: "深灰连帽衫、牛仔裤，认知滤镜下看上去是个高个子男生", image: "插图/星瑕-便服.png", wearing: true},
+                        {id: "i2", name: "学院制服", look: "第三魔法学院的冬季制服，藏青外套配格子裙", image: "插图/星瑕-学院制服.png", wearing: false},
+                        {id: "i3", name: "睡衣", look: "妹妹挑的兔子睡衣，袖子长了一截", image: null, wearing: false},
+                    ],
+                };
+                const empty = {portrait: null, appearance: {...filled.appearance, text: null}, wearing: {id: "现在穿的", label: "现在穿的", text: null}, outfits: []};
+                return [
+                    {id: "filled", label: "填好的形象", input: {props: filled}},
+                    {id: "empty", label: "刚加上、还空着", input: {props: empty}},
+                    {id: "blocked", label: "写不了", input: {props: {...filled, editReason: "先关掉按计划"}}},
+                    {id: "filled-english", label: "英文界面", input: {props: filled}},
+                ];
+            })(),
+            load: async () => (await import("./LookCardFixture.vue")).default,
+        }),
+        defineLabFixture<typeof CanonImage>({
+            component: "CanonImage",
+            scenes: [
+                {id: "found", label: "读到了", input: {props: {path: "插图/星瑕-立绘.png", alt: "星瑕的立绘"}}},
+                {id: "missing", label: "图片找不到", input: {props: {path: "插图/没有这张.png"}}},
+                {id: "missing-english", label: "英文界面", input: {props: {path: "插图/没有这张.png"}}},
+            ],
+            load: async () => (await import("./CanonImageFixture.vue")).default,
         }),
         defineLabFixture<typeof MoveDialog>({
             component: "MoveDialog",
@@ -2214,8 +2291,21 @@ function canonEntryPageFixtures() {
                 {id: "conflict", label: "这个值刚刚变了", input: {props: {label: "状态", kind: "enum" as const, options: ["入学", "休学", "毕业"], intents: ["creative" as const, "story" as const], preview: {route: "在第 3 章记一条变更", impact: ["别的都不变"]}, error: "这个值刚刚变了"}, model: {value: "休学", intent: "story" as const}}},
                 {id: "unknown", label: "不确定有没有写进去", input: {props: {label: "存款", kind: "number" as const, intents: ["creative" as const], preview: {route: "改初值", impact: []}, error: "不确定这次改动有没有写进去", recheck: true}, model: {value: "800", intent: "creative" as const}}},
                 {id: "number-english", label: "英文界面", input: {props: {label: "Savings", kind: "number" as const, unit: "", intents: ["creative" as const, "story" as const], preview: {route: "Changes the initial value", impact: ["Nothing else changes"]}}, model: {value: "800", intent: "creative" as const}}},
+                {id: "inline-impact", label: "就地改：变化多于一条时收成“还有 N 项”", input: {props: {label: "存款", kind: "number" as const, unit: "元", intents: ["creative" as const, "story" as const], preview: {route: "改第 2 章“领了打工的工资”那一笔", impact: ["少了 1 条待处理", "魔力跟着变成 3,000", "等级跟着变成 4"]}, variant: "inline" as const}, model: {value: "2,800", intent: "creative" as const}}},
+                {id: "inline-conflict", label: "就地改：这个值刚刚变了，有原因时只写原因", input: {props: {label: "现在穿的", kind: "suggest" as const, options: ["学院制服", "便服"], intents: ["creative" as const, "story" as const], preview: {route: "在第 3 章记一条变更", impact: ["别的都不变"]}, error: "这个值刚刚变了", variant: "inline" as const}, model: {value: "便服", intent: "story" as const}}},
+                {id: "inline-unknown", label: "就地改：不确定有没有写进去，“再查一次”在按钮那一行", input: {props: {label: "性别", kind: "suggest" as const, options: ["男", "女", "不明"], intents: ["creative" as const], error: "不确定这次改动有没有写进去", recheck: true, variant: "inline" as const}, model: {value: "女", intent: "creative" as const}}},
+                {id: "inline-english", label: "就地改（英文界面）", input: {props: {label: "Savings", kind: "number" as const, unit: "", intents: ["creative" as const, "story" as const], preview: {route: "Changes the step “Got paid for the part-time job” in Chapter 2", impact: ["1 fewer pending", "Mana becomes 3,000", "Level becomes 4"]}, error: "This value just changed", variant: "inline" as const}, model: {value: "2,800", intent: "creative" as const}}},
             ],
             load: async () => (await import("./ConfirmBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof SuggestInput>({
+            component: "SuggestInput",
+            scenes: [
+                {id: "empty", label: "空着：获得焦点时列出建议值", input: {props: {label: "性别", suggestions: ["男", "女", "不明"]}, model: {modelValue: ""}}},
+                {id: "typed", label: "写了建议值之外的字", input: {props: {label: "性别", suggestions: ["男", "女", "不明"]}, model: {modelValue: "双性"}}},
+                {id: "empty-english", label: "英文界面", input: {props: {label: "Gender", suggestions: ["Male", "Female", "Unknown"]}, model: {modelValue: ""}}},
+            ],
+            load: async () => (await import("./SuggestInputFixture.vue")).default,
         }),
         defineLabFixture<typeof RecordForm>({
             component: "RecordForm",
@@ -2249,11 +2339,13 @@ function canonEntryPageFixtures() {
         defineLabFixture<typeof NewEntryDialog>({
             component: "NewEntryDialog",
             scenes: (() => {
-                const draft = {name: "", kind: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], sameAs: null as string | null, appears: null as string | null};
-                const options = {kinds: ["人物", "地点", "组织"], entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], types: [{id: "nbook.canon.person", label: "人物"}, {id: "nbook.canon.panel", label: "面板"}], chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
+                const draft = {name: "", kind: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], typesTouched: false, sameAs: null as string | null, appears: null as string | null};
+                // 种类的候选：登记的人物、组织、地点、物品在前，用过的“魔法”接在后面；点“人物”勾上人物与形象。
+                const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], types: [{id: "nbook.canon.person", label: "人物"}, {id: "nbook.canon.look", label: "形象"}, {id: "nbook.canon.panel", label: "面板"}], chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
                 return [
                     {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
                     {id: "filled", label: "在星瑕下面建一个物品，启用面板", input: {props: options, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品", parent: "xingxia", types: ["nbook.canon.panel"]}}}},
+                    {id: "person", label: "新建人物：勾上人物与形象", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"]}}}},
                     {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品"}}}},
                     {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},
                 ];

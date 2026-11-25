@@ -81,7 +81,8 @@ const tree = (page: Page) => page.locator("[data-tool-view=\"nbook.canon.entries
 const row = (page: Page, name: string): Locator => page.locator("[data-tree-id]").filter({hasText: new RegExp(`^${name}`, "u")}).first();
 const entryPage = (page: Page) => page.locator("[data-entry-page]");
 const activeTabLabel = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]");
-const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-field="${path}"] .canon-value`);
+/** 人物分页里一项的值（author-ui 输出 49：值本身是按钮）。 */
+const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-edit="${path}"]`);
 const dialog = (page: Page) => page.getByRole("dialog");
 
 /** 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。 */
@@ -113,7 +114,7 @@ const sourceToken = (page: Page, text: string) => textSource(page).locator(".vie
 const dirtyLabel = (page: Page) => entryPage(page).locator("[data-text-dirty]");
 const tabDot = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]");
 
-test("作者从空作品起步：空状态里新建人物，条目页上改外观、开始写主文字并用 Ctrl+S 提交、加别名", async ({page}) => {
+test("作者从空作品起步：空状态里新建人物，条目页上改性格、开始写主文字并用 Ctrl+S 提交、加别名", async ({page}) => {
     await open(page);
     const empty = page.locator("[data-entries-empty]");
     await showTree(page, empty);
@@ -124,14 +125,15 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await expect(activeTabLabel(page)).toHaveText("星瑕");
     await expect(page.locator("[data-notice-bar]")).toContainText("新建“星瑕”");
 
-    // 没有主文字时缺省先看人物这组设定；外观未知，按钮写“填写”或“改”都是同一个入口。
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
-    await entryPage(page).locator("[data-edit=\"character.外观\"]").click();
-    const bar = entryPage(page).locator("[data-confirm-bar]");
+    // 新建人物带人物与形象两组，先看人物分页（author-ui 输出 4、9、37）；性格未知，点它在原处就地改（输出 51）。
+    await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u, /^经历/u, /^情节/u]);
+    await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
+    await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
+    const bar = page.locator("[data-field-editor=\"character.性格\"]");
     await bar.getByRole("textbox").fill("银白长发");
     await expect(bar.locator("[data-confirm-preview]")).toContainText("改初值");
     await bar.getByRole("button", {name: "保存"}).click();
-    await expect(fieldValue(page, "character.外观")).toHaveText("银白长发");
+    await expect(fieldValue(page, "character.性格")).toHaveText("银白长发");
 
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await expect(entryPage(page).locator("[data-text-empty]")).toHaveText("还没有主文字");
@@ -145,11 +147,11 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await expect(tabDot(page)).toHaveCount(1);
     // “插入”把字段的写法放在光标处，焦点回到输入框、光标在写法后面：接着打的字跟在它后面。
     await entryPage(page).locator("[data-text-insert]").click();
-    await page.getByRole("menuitem", {name: "人物 · 外观"}).click();
-    await expect(sourceText(page)).toContainText("一年级学生。{character.外观}");
+    await page.getByRole("menuitem", {name: "人物 · 性格"}).click();
+    await expect(sourceText(page)).toContainText("一年级学生。{character.性格}");
     await page.keyboard.type("是她的样子。");
-    await expect(sourceText(page)).toContainText("{character.外观}是她的样子。");
-    // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成外观当时的值；预览里的值不是按钮。
+    await expect(sourceText(page)).toContainText("{character.性格}是她的样子。");
+    // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成性格当时的值；预览里的值不是按钮。
     const preview = entryPage(page).locator("[data-text-preview]");
     await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
     // 打字时不弹补全，回车总是换行（workbench/editor 输出 69）：新一行打“是”，文档里有以它开头的词（“是她的样子。”），弹了补全的话
@@ -179,7 +181,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     const sourceBox = (await boxes()).source;
     // 源文字按条目的写法着色：花括号里的字段名（含中文）有自己的颜色（没着色的记号是 `mtk1`）。
     await expect(sourceToken(page, "character")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
-    await expect(sourceToken(page, "外观")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
+    await expect(sourceToken(page, "性格")).toHaveClass(/\bmtk(?!1\b)\d+\b/u);
     // “预览”是开关：关掉以后没有预览栏，输入框占满；再打开又有。
     await entryPage(page).locator("[data-text-preview-toggle]").click();
     await expect(preview).toHaveCount(0);
@@ -194,7 +196,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改外�
     await focusSource(page);
     // 焦点在代码输入框里按 Ctrl+S：经“保存”命令提交这一页，只提交一次。
     await page.keyboard.press("Control+s");
-    // 提交以后在阅读视图里看结果：插入的写法显示成外观当时的值。
+    // 提交以后在阅读视图里看结果：插入的写法显示成性格当时的值。
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("一年级学生。银白长发是她的样子。");
     await expect(page.locator("[data-notice-bar]")).toContainText("改星瑕的主文字");
     await expect(tabDot(page)).toHaveCount(0);
@@ -339,8 +341,8 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     await expect(dirtyLabel(page)).toHaveText("有未提交的修改");
     // 退回的文本框里“插入”同样落在光标处。
     await entryPage(page).locator("[data-text-insert]").click();
-    await page.getByRole("menuitem", {name: "人物 · 外观"}).click();
-    await expect(fallback).toHaveValue(/（文本框里改的）\{character\.外观\}$/u);
+    await page.getByRole("menuitem", {name: "人物 · 性格"}).click();
+    await expect(fallback).toHaveValue(/（文本框里改的）\{character\.性格\}$/u);
     await expect(fallback).toBeFocused();
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
@@ -361,10 +363,10 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await page.keyboard.press("Enter");
     await expect(page.locator("[data-agent-welcome]")).toBeVisible();
 
-    // 一次写入建学院与挂在它下面的雾崎（`$代号` 引用同一批里新建的），带外观初值与一段主文字。
+    // 一次写入建学院与挂在它下面的雾崎（`$代号` 引用同一批里新建的），带性格初值与一段主文字。
     await script({tool: "canon_write", args: {title: "建学院与雾崎", edits: [
         {op: "create", key: "school", name: "第三魔法学院", kind: "组织"},
-        {op: "create", name: "雾崎", kind: "人物", parent: "$school", components: ["人物"], fields: {"人物.外观": "一身黑衣"}, text: "雾崎是星瑕的对头。"},
+        {op: "create", name: "雾崎", kind: "人物", parent: "$school", components: ["人物"], fields: {"人物.性格": "一身黑衣"}, text: "雾崎是星瑕的对头。"},
     ]}}, "建好了");
     await input.click();
     await page.keyboard.type("建学院和雾崎");
@@ -380,9 +382,11 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await expect(row(page, "雾崎")).toBeVisible();
     await row(page, "雾崎").click();
     await expect(activeTabLabel(page)).toHaveText("雾崎");
+    // 人物的条目先看人物分页（author-ui 输出 9），主文字在“文字”里。
+    await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("星瑕的对头");
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
-    await expect(fieldValue(page, "character.外观")).toHaveText("一身黑衣");
+    await expect(fieldValue(page, "character.性格")).toHaveText("一身黑衣");
 
     // 雾崎的页开着：Agent 再建一个条目，页上另出一行 Agent 提示；从提示撤销，那个条目没了。
     await script({tool: "canon_write", args: {title: "建校长", edits: [{op: "create", name: "校长", kind: "人物", parent: "第三魔法学院"}]}}, "又建了一个");

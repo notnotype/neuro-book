@@ -16,11 +16,12 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import type {CanonClient} from "../shared/contracts";
 import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
 import {failureText} from "./failures";
-import {emptyDraft, newEntryOp} from "./new-entry";
+import {emptyDraft, newEntryOp, withKind} from "./new-entry";
 import type {NewEntryDraft} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
-import {PERSON_COMPONENT} from "../shared/components";
+import {defaultComponents, ENTRY_KINDS} from "../shared/entry-kinds";
+import type {EntryKind} from "../shared/entry-kinds";
 import {useCanonText} from "./text";
 import {writeBlocked} from "./writable";
 import {useWorldRead} from "./use-reads";
@@ -55,6 +56,8 @@ export interface EntriesViewHostOptions {
         readonly dialog: Component;
         readonly call: CanonClient["call"];
         readonly notices: CanonNotices;
+        /** 登记的条目种类（`canon.entry-kinds`，已并好、排好）；视图挂上时读一次。 */
+        readonly kinds: () => readonly EntryKind[];
     };
 }
 
@@ -63,9 +66,9 @@ export function startNewEntry(state: EntriesViewState, parent: string | null): v
     state.creating.value = emptyDraft(parent);
 }
 
-/** 空状态的“新建人物”：种类预填“人物”、分组跟着种类、勾上人物设定组（author-ui.md 的空状态）。 */
-export function startNewPerson(state: EntriesViewState, person: string): void {
-    state.creating.value = {...emptyDraft(null), kind: "人物", folder: "人物", types: [person]};
+/** 空状态的“新建人物”（author-ui.md 输出 37）：种类预填“人物”、分组跟着种类、勾上这个种类的默认设定组。 */
+export function startNewPerson(state: EntriesViewState, defaults: Readonly<Record<string, readonly string[]>>): void {
+    state.creating.value = withKind(emptyDraft(null), ENTRY_KINDS.person, defaults);
 }
 
 export function createEntriesViewHost(tree: Component, options: EntriesViewHostOptions): Component {
@@ -138,6 +141,21 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 }
             }, {immediate: true});
             onBeforeUnmount(() => componentsRead?.release());
+            // 种类的候选与默认设定组：登记的种类挂上时读一次（只在装插件时变）；默认组只留读到了的类型（输入一节：没登记、不可用的当作没写）。
+            const registered = create?.kinds() ?? [];
+            const kindDefaults = computed<Record<string, readonly string[]>>(() => {
+                const available = new Set(components.value.map((type) => type.id));
+                return Object.fromEntries(registered.map((kind) => [kind.kind, defaultComponents(registered, kind.kind, available)]));
+            });
+            // 登记的类型是对话框开了才读的：“新建人物”预填时可能还没读到，读到以后把还跟着默认的勾选补上（作者动过的不动）。
+            watch(kindDefaults, (next, previous) => {
+                const draft = state.creating.value;
+                if (draft === null || draft.typesTouched) return;
+                const kind = draft.kind.trim();
+                if (draft.types.join("\u0000") !== (previous?.[kind] ?? []).join("\u0000")) return;
+                const types = next[kind] ?? [];
+                if (types.join("\u0000") !== draft.types.join("\u0000")) state.creating.value = {...draft, types: [...types]};
+            });
             const saving = shallowRef(false);
             const error = shallowRef("");
             /** 已读到的条目：放在谁下面、另一个身份的候选，以及用过的种类。 */
@@ -189,13 +207,16 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                             return blocked === null ? "" : port.t(blocked);
                         })(),
                         onCreate: (parent: string | null) => startNewEntry(state, parent),
-                        onCreatePerson: () => startNewPerson(state, PERSON_COMPONENT),
+                        // 空状态的“新建人物”只在“人物”这个种类登记了时有（输出 37）。
+                        createPerson: registered.some((kind) => kind.kind === ENTRY_KINDS.person),
+                        onCreatePerson: () => startNewPerson(state, kindDefaults.value),
                     }),
                 }),
                 create === undefined || state.creating.value === null ? null : h(create.dialog, {
                     open: true,
                     draft: state.creating.value,
-                    kinds: [...new Set(known.value.map((item) => item.type).filter((kind) => kind !== ""))],
+                    kinds: [...new Set([...registered.map((kind) => kind.kind), ...known.value.map((item) => item.type).filter((kind) => kind !== "")])],
+                    kindDefaults: kindDefaults.value,
                     entries: known.value.map((item) => ({id: item.id, name: item.nameAt ?? item.name})),
                     types: components.value.map((type) => ({id: type.id, label: type.label})),
                     chapters: chapters.value?.data?.items ?? [],

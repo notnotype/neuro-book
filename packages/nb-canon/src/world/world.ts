@@ -12,8 +12,8 @@ import {validateStatements, type Statement} from "@notnotype/nb-time";
 
 import {EMPTY_DIAGNOSTIC_REGISTRY, stableKeyProblem, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markProblem, type MarkRegistry} from "../components/marks";
-import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
-import {namespaceFields} from "../model/apply";
+import {effectiveFields, fieldShapeProblem, type ComponentRegistry, type ComponentType} from "../components/registry";
+import {namespaceFields, type ChangeResult} from "../model/apply";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
@@ -41,6 +41,8 @@ import {
     type ObjectRef,
     type Op,
     type Patch,
+    type FieldDeclaration,
+    type InstanceFieldDeclaration,
     type ReadPosition,
     type Revision,
     type StoryChange,
@@ -56,7 +58,7 @@ import {affectedLines, touchedOf} from "../lines/affected";
 import {revisionLines} from "./revision-lines";
 import {blastRadius, type Blast} from "./blast";
 import {effectiveLine, lineOf, lineTable, MAIN_LINE} from "../lines/table";
-import {defaultCarry, forkProblems} from "./forks";
+import {defaultCarry, forkProblems, keptAsWritten} from "./forks";
 import {lineRuleProblems} from "./line-rules";
 import {linePending, type LinePendingItem} from "../lines/pending";
 import {blockProblem} from "../render/syntax";
@@ -1272,7 +1274,105 @@ function tellingProblem(telling: Telling, chapterText: (chapter: string) => stri
     return null;
 }
 
-/** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16）。 */
+/**
+ * 实例字段声明的校验（components.md 输出 23）：只查这次新写或改过的声明，原样留着的不查。还原是补偿写入、不经校验，可能留下
+ * 这里不允许新写的组合（上限指着去掉的字段、两项同名）；整份重查的话，那样的一组之后什么都改不了。
+ * 返回这次新写或改过的声明的 id（调用方据此决定哪些字段的值要重核）。
+ */
+function declarationProblems(problems: Problem[], ref: ObjectRef, namespace: string, type: ComponentType, declared: readonly InstanceFieldDeclaration[], previous: readonly InstanceFieldDeclaration[]): ReadonlySet<string> {
+    const before = new Map(previous.map((field) => [field.id, field]));
+    const rewritten = declared.filter((field) => !sameJson(before.get(field.id), field));
+    const base = `init.data.${namespace}.declared`;
+    if (rewritten.length > 0 && !type.instanceFields) {
+        problems.push({code: "fields-not-declarable", ref, path: base, message: "this component type does not allow fields declared on an instance"});
+        return new Set(rewritten.map((field) => field.id));
+    }
+    // 同一个 id 比写入前多出来的那几条都是新写的，原样抄一份旧声明也算：按条数比，不按“和旧的那条一样不一样”比。
+    const count = (fields: readonly InstanceFieldDeclaration[]) => fields.reduce((counts, field) => counts.set(field.id, (counts.get(field.id) ?? 0) + 1), new Map<string, number>());
+    const had = count(previous);
+    const taken = new Set<string>();
+    for (const [id, now] of count(declared)) {
+        if (now <= (had.get(id) ?? 0) || (now === 1 && !type.fields.some((fixed) => fixed.id === id))) continue;
+        taken.add(id);
+        problems.push({code: "id-taken", ref, path: `${base}[${id}].id`, message: `field id "${id}" is already declared in this namespace`});
+    }
+    const active = effectiveFields(type, declared);
+    const isActive = (field: InstanceFieldDeclaration) => active.includes(field);
+    const exactIds = (fields: readonly FieldDeclaration[]) => new Set(fields.filter((field) => field.kind === "number" && field.precision !== "semantic").map((field) => field.id));
+    const exact = exactIds(active);
+    const reported = new Set<string>();
+    for (const field of rewritten) {
+        const path = `${base}[${field.id}]`;
+        const old = before.get(field.id);
+        const shape = fieldShapeProblem(field, path, true);
+        if (shape !== null) {
+            problems.push({code: "type-mismatch", ref, ...shape});
+            continue;
+        }
+        if (taken.has(field.id)) continue;
+        // 已有的声明（去掉了的也算）不改种类：旧的剧情变更对它的补丁会整条套不上。要换种类就加一个新字段。
+        if (old !== undefined && patchShape(old) !== patchShape(field)) {
+            problems.push({code: "field-redeclare-mismatch", ref, path, message: `field "${field.id}" is already declared as another kind; declare a new field instead`});
+            continue;
+        }
+        if (!isActive(field)) continue;
+        // 新写的、改了显示名的、刚恢复的：显示名在生效的字段里唯一。
+        if ((old === undefined || old.label !== field.label || old.removed === true) && active.some((other) => other !== field && other.label === field.label)) {
+            problems.push({code: "label-taken", ref, path: `${path}.label`, message: `another field in this namespace is already labelled "${field.label}"`});
+        }
+        if (typeof field.max === "string" && (old === undefined || old.max !== field.max || old.removed === true) && !exact.has(field.max)) {
+            reported.add(`${path}.max`);
+            problems.push({code: "field-referenced", ref, path: `${path}.max`, message: `max "${field.max}" is not an exact number field in effect in this namespace`});
+        }
+    }
+    // 这次写入让一个字段不再是生效的精确数（去掉、删掉声明）时，不能还有生效的声明拿它当上限；被固定字段盖住的那一条去掉了，
+    // 生效的还是固定的，不算。
+    for (const id of exactIds(effectiveFields(type, previous))) {
+        if (exact.has(id)) continue;
+        for (const holder of declared) {
+            const path = `${base}[${holder.id}].max`;
+            if (holder.max !== id || !isActive(holder) || reported.has(path)) continue;
+            problems.push({code: "field-referenced", ref, path, message: `field "${holder.id}" still uses "${id}" as its max`});
+        }
+    }
+    return new Set(rewritten.map((field) => field.id));
+}
+
+/** 决定旧补丁套不套得上的那几项：种类、精度、列表的键与子字段的种类。 */
+function patchShape(field: FieldDeclaration): string {
+    return stableStringify({kind: field.kind, precision: field.precision ?? "exact", keyedBy: field.keyedBy ?? null, item: (field.item ?? []).map((sub) => [sub.id, sub.kind, sub.precision ?? "exact"])});
+}
+
+/**
+ * 原样留着、可以不查的补丁的下标（revisions.md 输出 3）：字段被去掉、设定组被去掉或没启用以后，旧变更里对它的补丁不适用；
+ * 不放过它们的话这条变更就再也改不了别的地方。几条都满足才算：写入前这条变更已经是已写且生效的、安放（含所在的线）没变
+ * （`keptAsWritten`）；这处补丁按内容在旧列表里有一份对得上（多出来的重复照新写的查）；不适用的原因是这三种之一；而且不是
+ * 这次对这条变更本身的改动造成的：写入前它就不适用（`before` 给写入前这条变更的结果），或者这次改了它指着的那一组设定
+ * （`initChanged`，例如同一批去掉字段）。从同一条变更里拿掉“启用”那处补丁、让后面的补丁落空的，照新写的拒收。
+ */
+function toleratedPatches(previous: StoryChange | undefined, change: StoryChange, detail: ChangeResult | undefined, before: () => ChangeResult | undefined, initChanged: (at: Address) => boolean): ReadonlySet<number> {
+    const tolerated = new Set<number>();
+    if (!keptAsWritten(previous, change) || detail === undefined || !detail.applied) return tolerated;
+    const remaining = new Map<string, number[]>();
+    for (const [index, patch] of previous!.patches.entries()) {
+        const key = stableStringify(patch);
+        remaining.set(key, [...(remaining.get(key) ?? []), index]);
+    }
+    let earlier: ChangeResult | undefined | null = null;
+    for (const [index, patch] of change.patches.entries()) {
+        const was = remaining.get(stableStringify(patch))?.shift();
+        if (was === undefined) continue;
+        const result = detail.patches[index];
+        if (result === undefined || result === "applied") continue;
+        if (result.notApplicable !== "undeclared" && result.notApplicable !== "removed" && result.notApplicable !== "disabled") continue;
+        if (earlier === null) earlier = before();
+        const old = earlier?.applied === true ? earlier.patches[was] : undefined;
+        if ((old !== undefined && old !== "applied") || initChanged(patch.at)) tolerated.add(index);
+    }
+    return tolerated;
+}
+
+/** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16、23）。 */
 function validate(world: World, data: WorldData, lines: LineSet, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
     const problems: Problem[] = [];
     const {registry, chapterText} = world.options;
@@ -1326,10 +1426,14 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 problems.push({code: "component-version-unsupported", ref, path: `init.data.${namespace}`, message: "component version differs from the registered type"});
                 continue;
             }
-            const declaredProblem = nsData.declared === undefined ? null : fieldsProblem([...type.fields, ...nsData.declared], `init.data.${namespace}.declared`);
-            if (declaredProblem !== null) problems.push({code: "type-mismatch", ref, ...declaredProblem});
+            // “原样留着”是对同一个类型、同一个版本说的：这次把这一组改记成另一个类型或版本时，声明与值都按新写的整组查。
+            const kept = old !== undefined && old.type === nsData.type && old.version === nsData.version ? old : undefined;
+            const rewritten = declarationProblems(problems, ref, namespace, type, nsData.declared ?? [], kept?.declared ?? []);
             for (const field of effectiveFields(type, nsData.declared)) {
                 const value = nsData.fields[field.id] ?? null;
+                // 只核这次值变了或声明变了的字段（components.md 输出 23）：原样留着的值不合现在的声明时（类型改过字段、还原留下的组合）
+                // 不挡这一组别的修改。
+                if (kept !== undefined && !rewritten.has(field.id) && sameJson(kept.fields[field.id] ?? null, value)) continue;
                 const problem = valueProblem(field, value);
                 if (problem !== null) {
                     const redeclared = nsData.declared?.some((declared) => declared.id === field.id) === true && !(old?.declared ?? []).some((declared) => declared.id === field.id) && field.id in (old?.fields ?? {});
@@ -1403,6 +1507,14 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
             if (change.patches.length > 0) problems.push({code: "narration-with-patches", ref, path: "patches", message: "a narration only tells; it cannot change the world"});
             if (change.told.length === 0) problems.push({code: "narration-without-telling", ref, path: "told", message: "a narration needs at least one telling"});
         }
+        const detail = change.kind === "written" && change.status === "active" ? engineOfChange?.detail(id) : undefined;
+        const tolerated = toleratedPatches(world.object(ref) as StoryChange | undefined, change, detail, () => world.line(placedLine)?.engine.detail(id), (at) => {
+            const parsed = parsePath(at.path);
+            if (parsed?.root !== "namespace") return false;
+            const now = data.entries.get(at.entry)?.init.data[parsed.namespace];
+            const was = (world.object({kind: "entry", id: at.entry}) as Entry | undefined)?.init.data[parsed.namespace];
+            return !sameJson(now, was);
+        });
         for (const [index, patch] of change.patches.entries()) {
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
@@ -1412,7 +1524,8 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 const problem = blockProblem(blockSource);
                 if (problem !== null) problems.push({code: problem.code, ref, path: `patches[${String(index)}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
             }
-            if (typeof patch.value === "number" && patch.op !== "note") {
+            // 原样留着、已经不适用的补丁不再查依据：它没套上，前面的值也不是它当初算依据时的值。
+            if (typeof patch.value === "number" && patch.op !== "note" && !tolerated.has(index)) {
                 const basisProblem = checkBasis(patch, change, engineOfChange, data, chapterText, strictBasis);
                 if (basisProblem !== null) problems.push({...basisProblem, ref, path: `patches[${String(index)}]`});
             }
@@ -1431,14 +1544,13 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 problems.push({code: "not-appeared", ref, message: `entry "${entryId}" has not appeared at this placement`});
             }
         }
-        const detail = engineOfChange?.detail(id);
         if (detail === undefined) continue;
         if (!detail.applied) {
             problems.push({code: detail.reason, ref, path: detail.failedPatch >= 0 ? `patches[${String(detail.failedPatch)}]` : "patches", message: `change cannot apply at its placement (${detail.reason})`});
             continue;
         }
         for (const [index, result] of detail.patches.entries()) {
-            if (result === "applied") continue;
+            if (result === "applied" || tolerated.has(index)) continue;
             const why = result.notApplicable;
             const code = why === "disabled" || why === "removed" ? "component-disabled" : why === "undeclared" ? "unknown-field" : why;
             problems.push({code, ref, path: `patches[${String(index)}]`, message: `patch does not apply (${why})`});

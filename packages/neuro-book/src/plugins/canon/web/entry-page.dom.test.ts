@@ -9,10 +9,11 @@ import {join} from "node:path";
 
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {reactive} from "vue";
-import type {Component} from "vue";
+import {defineComponent, h, reactive, ref} from "vue";
+import type {Component, PropType} from "vue";
 
 import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
+import {Select} from "@notnotype/nb-ui/components";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -26,9 +27,10 @@ import {pageStandIn} from "../testing/page-stand-in";
 import {change, nextId, person, publish} from "../testing/world-fixtures";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
-import {CANON_COMPONENTS_POINT} from "../shared/contracts";
+import {CANON_COMPONENT_VIEWS_POINT, CANON_COMPONENTS_POINT} from "../shared/contracts";
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
+import type {ComponentViewContext} from "./component-views";
 import EntryPage from "./components/EntryPage.vue";
 import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
@@ -69,10 +71,10 @@ interface Opened {
     remount(): ReturnType<typeof mount>;
 }
 
-async function setup(project: readonly PluginDefinition[] = []): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
+async function setup(project: readonly PluginDefinition[] = [], browser: readonly PluginDefinition[] = []): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
     venue = await canonNodeWorld(tmp, {project});
     const editor = pageStandIn();
-    await venue.window("mine", [editor.plugin]);
+    await venue.window("mine", [editor.plugin, ...browser]);
     const other = await venue.window("other");
     const page = editor.page<EntryPageState>(ENTRY_PAGE);
     const component: Component = await page.load();
@@ -270,15 +272,41 @@ describe("条目页", () => {
         expect(wrapper.findAll("[data-change]").map((row) => row.text().replace(/\s+/gu, ""))).toEqual(["第2章买了书存款−300", "第1章领了工资存款+200"]);
 
         state.tab = "data:character";
-        // 内置人物的字段按声明的顺序列出；条目数据里没写的（身体、现在的样子、性格）是未知。
-        await waitUntil("人物的字段", () => wrapper.findAll("[data-field]").length === 6);
-        expect(wrapper.get("[data-field='character.样子']").text()).toContain("未知");
-        expect(wrapper.get("[data-field='character.外观']").text()).toContain("黑发");
-        expect(wrapper.get("[data-field='character.状态']").text()).toContain("未知");
+        // 人物分页用它的专门界面（输出 49）：条目数据里没写的（性别、身份等）写“填写”。
+        await waitUntil("人物的界面", () => wrapper.find("[data-character-card]").exists());
+        expect(wrapper.get("[data-fact='性别']").text()).toContain("填写");
+        expect(wrapper.get("[data-edit='character.性格']").text()).toContain("黑发");
+        expect(wrapper.get("[data-fact='身份']").text()).toContain("填写");
 
         state.tab = "data:panel";
         await waitUntil("面板的值卡与流水", () => wrapper.find("[data-card='panel.存款']").exists() && originRows(wrapper).length === 3);
         expect(wrapper.get("[data-card='panel.存款']").text()).toContain("900 元");
+    });
+
+    it("人物条目：种类登记的默认设定组排在“文字”前面、打开时先看人物；“添加一组设定”里适用于人物的排在前面（输出 9、38）", async () => {
+        // 一个不写适用种类的类型，id 排在内置的前面：没有按种类排时它会是下拉里的第一项。
+        const badge: PluginDefinition = {id: "a.test", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "a.test.badge", declaration: {label: "徽章", namespace: "badge", version: 1, fields: [{id: "图案", label: "图案", kind: "text"}]}}]};
+        const {other, open} = await setup([badge]);
+        const star = person("星瑕", {type: "人物"});
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        const tabs = () => wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
+        await waitUntil("分页", () => tabs().includes("文字") && tabs().some((tab) => tab.startsWith("情节")));
+        expect(tabs()).toEqual(["人物", "文字", "面板", "情节0"]);
+        await waitUntil("先看人物", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "人物");
+
+        wrapper.findComponent(EntryPage).vm.$emit("add-component");
+        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
+        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "徽章"))!;
+        expect(groups.props("options").map((option) => option.label)).toEqual(["形象", "徽章"]);
+
+        // 种类不是人物的条目：分页照旧，文字在前。
+        const item = person("魔杖", {type: "物品"});
+        const itemId = (await publish(other.canon, [item]))[item.id]!;
+        const other2 = await open(itemId);
+        const tabs2 = () => other2.wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
+        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().some((tab) => tab.startsWith("情节")));
+        expect(tabs2()).toEqual(["文字", "人物", "面板", "情节0"]);
     });
 
     it("别处发布以后原地更新，不出加载占位；找不到、已删除、未出场", async () => {
@@ -414,11 +442,13 @@ describe("读取次数", () => {
 
 describe("写入", () => {
     /** 点一个字段的“改”，等确认条出来。 */
+    /** 改一个值：通用字段表出页面顶上的确认条，人物、形象的专门界面在原处就地改（输出 51）；两处里面是同一份输入与预览。 */
+    const EDITOR = "[data-confirm-bar], [data-inline-editor]";
     const startEdit = async (wrapper: ReturnType<typeof mount>, path: string) => {
         await waitUntil(`${path} 的“改”`, () => wrapper.find(`[data-edit="${path}"]`).exists());
         await wrapper.get(`[data-edit="${path}"]`).trigger("click");
-        await waitUntil("确认条", () => wrapper.find("[data-confirm-bar]").exists());
-        return wrapper.get("[data-confirm-bar]");
+        await waitUntil("确认条或就地改", () => wrapper.find(EDITOR).exists());
+        return wrapper.get(EDITOR);
     };
     const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
 
@@ -430,27 +460,27 @@ describe("写入", () => {
         await waitUntil("值", () => wrapper.find("[data-value]").exists());
         state.tab = "data:character";
 
-        const bar = await startEdit(wrapper, "character.外观");
+        const bar = await startEdit(wrapper, "character.性格");
         expect(document.activeElement?.tagName).toBe("TEXTAREA");
         await bar.get("textarea").setValue("银发");
         await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
-        await waitUntil("值变了", () => wrapper.get("[data-field='character.外观']").text().includes("银发"));
-        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
-        expect(wrapper.get("[data-notice-bar]").text()).toContain("改外观");
-        await waitUntil("焦点回到“改”", () => document.activeElement?.getAttribute("data-edit") === "character.外观");
+        await waitUntil("值变了", () => wrapper.get("[data-edit='character.性格']").text().includes("银发"));
+        await waitUntil("编辑收起", () => !wrapper.find(EDITOR).exists());
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("改性格");
+        await waitUntil("焦点回到“改”", () => document.activeElement?.getAttribute("data-edit") === "character.性格");
 
-        // 取消与 Escape 一样收起确认条，焦点也回到那个“改”，不掉到页面外（输出 16、验收 11）。
-        await startEdit(wrapper, "character.外观");
+        // 取消与 Escape 一样收起编辑，焦点也回到那个值，不掉到页面外（输出 16、51，验收 11）。
+        await startEdit(wrapper, "character.性格");
         await buttonByText(wrapper, "取消")!.trigger("click");
-        await waitUntil("取消以后", () => !wrapper.find("[data-confirm-bar]").exists() && document.activeElement?.getAttribute("data-edit") === "character.外观");
-        const again = await startEdit(wrapper, "character.外观");
+        await waitUntil("取消以后", () => !wrapper.find(EDITOR).exists() && document.activeElement?.getAttribute("data-edit") === "character.性格");
+        const again = await startEdit(wrapper, "character.性格");
         await again.get("textarea").trigger("keydown", {key: "Escape"});
-        await waitUntil("Escape 以后", () => !wrapper.find("[data-confirm-bar]").exists() && document.activeElement?.getAttribute("data-edit") === "character.外观");
+        await waitUntil("Escape 以后", () => !wrapper.find(EDITOR).exists() && document.activeElement?.getAttribute("data-edit") === "character.性格");
 
         state.planned = true;
-        await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") !== undefined);
-        expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toBe("先关掉按计划");
+        await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.性格']").attributes("disabled") !== undefined);
+        expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先关掉按计划");
     });
 
     it("页头改名、改简介：确认条在页头之下，文字分页上也能改；保存后页头换了名字、顶上有提示", async () => {
@@ -487,14 +517,18 @@ describe("写入", () => {
 
         // 去掉人物这组设定：分页没了；再从“添加一组设定”加回来，标“恢复”，原来的数据还在。
         state.tab = "data:character";
-        await waitUntil("人物分页", () => wrapper.find("[data-field='character.外观']").exists());
+        await waitUntil("人物分页", () => wrapper.find("[data-edit='character.性格']").exists());
         // “更多”菜单是弹出层，这里直接发它选中后的事件；菜单本身的项在 EntryPage 的组件测试里。
         wrapper.findComponent(EntryPage).vm.$emit("remove-component");
         await waitUntil("确认对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("数据会保留") === true);
         [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "去掉")!.click();
         await waitUntil("人物分页没了", () => !wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
         wrapper.findComponent(EntryPage).vm.$emit("add-component");
-        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("恢复“人物”") === true);
+        // 可以加的不止一组（还有形象），缺省选中的是第一组：下拉里选“恢复‘人物’”。下拉是弹出层，这里直接发它选中后的事件。
+        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("添加一组设定") === true);
+        const groups = wrapper.findAllComponents(Select).find((select) => select.props("options").some((option) => option.label === "恢复“人物”"))!;
+        groups.vm.$emit("update:modelValue", "nbook.canon.person");
+        await waitUntil("选中要恢复的那一组", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("恢复“人物”") === true);
         [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "添加")!.click();
         await waitUntil("人物分页回来", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
 
@@ -775,14 +809,14 @@ describe("写入", () => {
         typeInto(area(wrapper), "第一块（我的）。\n\n第二块。");
         await waitUntil("有改动", () => wrapper.find("[data-text-dirty]").exists());
         // 别处改了这个条目的一个字段、又加了别的条目：主文字没人动，不问，提交以后都在。
-        await editElsewhere(other.canon, [{op: "set", at: {entry: id, path: "character.外观"}, value: "银发"}]);
+        await editElsewhere(other.canon, [{op: "set", at: {entry: id, path: "character.性格"}, value: "银发"}]);
         await publish(other.canon, [person("别人")]);
         await wrapper.get("[data-text-submit]").trigger("click");
         await waitUntil("发布了", async () => (await initText(other.canon, id))[0] === "第一块（我的）。\n\n第二块。");
         expect(await initText(other.canon, id)).toEqual(["第一块（我的）。\n\n第二块。"]);
         expect(document.body.querySelector("[data-text-conflicts]")).toBeNull();
         const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
-        expect(stored.ok && (stored.value.object as Entry).init.data.character?.fields.外观).toBe("银发");
+        expect(stored.ok && (stored.value.object as Entry).init.data.character?.fields.性格).toBe("银发");
         await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists());
 
         // 这回别处改的是主文字（多块的主文字提交以后是一块，id 还是第一块的）。
@@ -1023,15 +1057,16 @@ describe("写入", () => {
         const {wrapper, state} = await open(id);
         await waitUntil("页头", () => wrapper.find("h1").exists());
         state.tab = "data:character";
-        await waitUntil("态度", () => wrapper.find("[data-field='character.态度'] [data-value]").exists() || wrapper.find("[data-field='character.态度'] button").exists());
-        await wrapper.get("[data-field='character.态度'] button").trigger("click");
-        await waitUntil("记一句的表单", () => wrapper.find("[data-record-form]").exists());
-        expect(wrapper.findAll("[data-record-form] input")).toHaveLength(1);
-        const form = wrapper.get("[data-record-form]");
+        // 语义档的项点了展开细节（输出 51）：之前记下的各句与“记一句”。
+        await waitUntil("现在的状态", () => wrapper.find("[data-condition='现在的状态']").exists());
+        await wrapper.get("[data-condition='现在的状态']").trigger("click");
+        await waitUntil("记一句的表单", () => wrapper.find("[data-condition-detail] [data-record-form]").exists());
+        expect(wrapper.findAll("[data-condition-detail] [data-record-form] input")).toHaveLength(1);
+        const form = wrapper.get("[data-condition-detail] [data-record-form]");
         await form.get("input").setValue("对校长起了疑心");
         await form.trigger("submit");
         await waitUntil("记进去了", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("对校长起了疑心"));
-        await waitUntil("值后面多一句", () => wrapper.get("[data-field='character.态度']").text().includes("对校长起了疑心"));
+        await waitUntil("细节里多一句", () => wrapper.get("[data-condition-detail]").text().includes("对校长起了疑心"));
     });
 
     it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {
@@ -1069,23 +1104,24 @@ describe("写入", () => {
         const first = await open(id);
         await waitUntil("值", () => first.wrapper.find("[data-value]").exists());
         first.state.tab = "data:character";
-        const bar = await startEdit(first.wrapper, "character.外观");
+        const bar = await startEdit(first.wrapper, "character.性格");
         await bar.get("textarea").setValue("银发");
         await waitUntil("预览", () => first.wrapper.get("[data-confirm-preview]").text().includes("改初值"));
 
         first.wrapper.unmount();
         const again = first.remount();
-        await waitUntil("回来以后确认条还在", () => again.find("[data-confirm-bar] textarea").exists());
-        expect((again.get("[data-confirm-bar] textarea").element as HTMLTextAreaElement).value).toBe("银发");
+        await waitUntil("回来以后编辑还在", () => again.find("[data-inline-editor] textarea").exists());
+        expect((again.get("[data-inline-editor] textarea").element as HTMLTextAreaElement).value).toBe("银发");
 
         const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
         if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
         const entry = stored.value.object as Entry;
-        await publish(other.canon, [{...entry, init: {...entry.init, data: {...entry.init.data, character: {...entry.init.data.character!, fields: {...entry.init.data.character!.fields, 外观: "红发"}}}}}]);
-        await waitUntil("这个值刚刚变了", () => again.find("[data-confirm-bar] [role='alert']").exists() && again.get("[data-confirm-bar] [role='alert']").text().includes("这个值刚刚变了"));
-        await waitUntil("重新预览", () => again.get("[data-confirm-preview]").text().includes("改初值") && buttonByText(again, "保存")!.attributes("disabled") === undefined);
+        await publish(other.canon, [{...entry, init: {...entry.init, data: {...entry.init.data, character: {...entry.init.data.character!, fields: {...entry.init.data.character!.fields, 性格: "红发"}}}}}]);
+        await waitUntil("这个值刚刚变了", () => again.find("[data-inline-editor] [role='alert']").exists() && again.get("[data-inline-editor] [role='alert']").text().includes("这个值刚刚变了"));
+        // 就地改的那两行这时只写原因；保存在新的预览回来以后才可用。
+        await waitUntil("重新预览", () => buttonByText(again, "保存")!.attributes("disabled") === undefined);
         await buttonByText(again, "保存")!.trigger("click");
-        await waitUntil("写进去了", () => again.get("[data-field='character.外观']").text().includes("银发"));
+        await waitUntil("写进去了", () => again.get("[data-edit='character.性格']").text().includes("银发"));
     });
 
     it("别的调用方独占写入时“改”不可用，写着它申请时给的那句；它释放以后恢复", async () => {
@@ -1095,14 +1131,14 @@ describe("写入", () => {
         const {wrapper, state} = await open(id);
         await waitUntil("值", () => wrapper.find("[data-value]").exists());
         state.tab = "data:character";
-        await waitUntil("“改”", () => wrapper.find("[data-edit='character.外观']").exists());
+        await waitUntil("“改”", () => wrapper.find("[data-edit='character.性格']").exists());
 
         const lease = await other.canon.hold("第 3 章记账");
         if (!lease.ok) throw new Error(JSON.stringify(lease.failure));
-        await waitUntil("不可用", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") !== undefined);
-        expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toContain("第 3 章记账");
+        await waitUntil("不可用", () => wrapper.get("[data-edit='character.性格']").attributes("disabled") !== undefined);
+        expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toContain("第 3 章记账");
         await lease.value.release();
-        await waitUntil("恢复", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") === undefined);
+        await waitUntil("恢复", () => wrapper.get("[data-edit='character.性格']").attributes("disabled") === undefined);
     });
 
     it("填的字太长、一次调用装不下：确认条写“这次改动太大，分开改”，不能保存，填的字还在（输出 29）", async () => {
@@ -1112,12 +1148,12 @@ describe("写入", () => {
         const {wrapper, state} = await open(id);
         await waitUntil("值", () => wrapper.find("[data-value]").exists());
         state.tab = "data:character";
-        const bar = await startEdit(wrapper, "character.外观");
+        const bar = await startEdit(wrapper, "character.性格");
         const long = "长".repeat(Math.ceil(CANON_BUDGET_BYTES / 3) + 1);
         await bar.get("textarea").setValue(long);
-        await waitUntil("太大", () => wrapper.get("[data-confirm-bar]").text().includes("这次改动太大，分开改"), {timeoutMs: 10_000});
+        await waitUntil("太大", () => wrapper.get(EDITOR).text().includes("这次改动太大，分开改"), {timeoutMs: 10_000});
         expect(buttonByText(wrapper, "保存")!.attributes("disabled")).toBeDefined();
-        expect((wrapper.get("[data-confirm-bar] textarea").element as HTMLTextAreaElement).value).toBe(long);
+        expect((wrapper.get(`${EDITOR.split(", ")[1]} textarea`).element as HTMLTextAreaElement).value).toBe(long);
     });
 
     it("删除条目：确认以后标签留着、显示“这个条目已删除”，顶上有提示", async () => {
@@ -1158,5 +1194,256 @@ describe("世界只读（验收 8 的前一半）", () => {
         expect(wrapper.get("[data-edit='panel.存款']").attributes("disabled")).toBeDefined();
         // 按钮在没填的时候本来就不可用，看输入框：只读时连输入都不让填。
         expect(wrapper.findAll("[data-record-form] input").map((input) => input.attributes("disabled") !== undefined)).toEqual([true, true]);
+    });
+});
+
+describe("专门界面的接口（输出 51 与输入一节的 context）", () => {
+    /** 一种允许实例字段的类型“徽章”，与给它交的专门界面：每个字段一个值按钮，点了就地改；另把 context 的几项写在页上。 */
+    const BADGE = {label: "徽章", namespace: "badge", version: 1, instanceFields: true, fields: [{id: "图案", label: "图案", kind: "text", suggestions: ["龙", "虎"]}, {id: "介绍", label: "介绍", kind: "text"}]};
+    const project: PluginDefinition = {id: "test.badge", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "test.badge.card", declaration: BADGE}]};
+    /** 关掉 `editors` 时不挂 `FieldEditor`（退回确认条）；`twice` 时同一路径挂两份。 */
+    const editors = ref(true);
+    const twice = ref(false);
+    const BadgeView = defineComponent({
+        props: {context: {type: Object as PropType<ComponentViewContext>, required: true}},
+        setup(props) {
+            const anchors = ref<Record<string, HTMLElement | null>>({});
+            const result = ref("");
+            return () => {
+                const context = props.context;
+                const Editor = context.FieldEditor!;
+                return h("div", {"data-badge": ""}, [
+                    ...context.declarations.map((field) => h("div", {key: field.id, class: "relative"}, [
+                        h("button", {"data-edit": `badge.${field.id}`, ref: (element: unknown) => void (anchors.value[field.id] = element as HTMLElement | null), onClick: () => context.edit(field.id, {inline: true})}, String(context.fields[field.id]?.value ?? "填写")),
+                        editors.value ? h(Editor, {path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
+                        editors.value && twice.value ? h(Editor, {key: "second", path: field.id, anchor: anchors.value[field.id] ?? null}) : null,
+                    ])),
+                    h("p", {"data-other": ""}, ["nbook.canon.panel", "nbook.canon.look", "nbook.canon.person"].map((type) => context.other!(type).status).join("|")),
+                    h("p", {"data-editing": ""}, String(context.editing ?? "")),
+                    h("p", {"data-result": ""}, result.value),
+                    h("button", {"data-add-look": "", onClick: async () => void (result.value = JSON.stringify(await context.addComponent!("nbook.canon.look")))}, "加形象"),
+                    h("button", {"data-add-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldAdd!({label: "种族", kind: "text"})))}, "加种族"),
+                    h("button", {"data-add-taken": "", onClick: async () => {
+                        const outcome = await context.fieldAdd!({label: "图案", kind: "text"});
+                        result.value = outcome.ok ? "ok" : "refused";
+                    }}, "加重名"),
+                    h("button", {"data-remove-field": "", onClick: async () => void (result.value = JSON.stringify(await context.fieldRemove!("种族")))}, "去掉种族"),
+                    h("p", {"data-removed": ""}, (context.removedFields ?? []).map((field) => field.label).join("|")),
+                ]);
+            };
+        },
+    });
+    const browser: PluginDefinition = {
+        id: "test.badge",
+        entries: [{
+            id: "browser", location: "browser", activationEvents: ["onStartup"],
+            contributions: [{capability: CANON_COMPONENT_VIEWS_POINT, id: "test.badge.card", declaration: {title: "徽章", uses: ["nbook.canon.panel", "nbook.canon.look"]}}],
+            activate: () => ({contributions: {[CANON_COMPONENT_VIEWS_POINT]: {"test.badge.card": {load: () => Promise.resolve(BadgeView)}}}}),
+        }],
+    };
+
+    async function badgePage() {
+        editors.value = true;
+        twice.value = false;
+        const {other, open} = await setup([project], [browser]);
+        const star = person("星瑕");
+        star.init.data.badge = {type: "test.badge.card", version: 1, enabled: true, fields: {图案: "龙", 介绍: null}, declared: []};
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const opened = await open(id);
+        opened.state.tab = "data:badge";
+        await waitUntil("徽章的界面", () => opened.wrapper.find("[data-badge]").exists());
+        return {...opened, other, id};
+    }
+    const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor="${path}"]`);
+    const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
+
+    it("就地改：挂着编辑器时不出确认条，在浮层里改、保存；Escape 放弃；没挂编辑器时退回确认条；同一路径挂两份卸一份照旧", async () => {
+        const {wrapper, state} = await badgePage();
+        await wrapper.get("[data-edit='badge.图案']").trigger("click");
+        await waitUntil("浮层里的编辑器", () => editorOf("badge.图案") !== null);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        expect(wrapper.get("[data-editing]").text()).toBe("图案");
+        // 有建议值的文字：输入框加候选，值就是输入框里的字。
+        const input = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
+        input.value = "凤";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        [...editorOf("badge.图案")!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+        await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.图案']").text() === "凤" && editorOf("badge.图案") === null);
+        expect(state.edit).toBeNull();
+
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.介绍") !== null);
+        editorOf("badge.介绍")!.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("放弃了", () => state.edit === null && editorOf("badge.介绍") === null);
+
+        // 焦点不在输入框里时，落到页面上的 Escape（浮层自己的监听）也是放弃：下面组字那一段的否定断言靠它才有意义。
+        await wrapper.get("[data-edit='badge.图案']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.图案") !== null);
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("页面上的 Escape 放弃了", () => state.edit === null && editorOf("badge.图案") === null);
+
+        // 输入法组字中按 Escape 不算放弃。
+        await wrapper.get("[data-edit='badge.图案']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.图案") !== null);
+        const composing = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
+        composing.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        composing.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, isComposing: true}));
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, isComposing: true}));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(state.edit?.path).toBe("badge.图案");
+        composing.dispatchEvent(new CompositionEvent("compositionend", {bubbles: true}));
+        composing.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("组字结束后 Escape 放弃", () => state.edit === null);
+
+        editors.value = false;
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("确认条", () => wrapper.find("[data-confirm-bar]").exists());
+        await buttonByText(wrapper, "取消")!.trigger("click");
+
+        editors.value = true;
+        twice.value = true;
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("编辑器", () => document.body.querySelectorAll("[data-field-editor='badge.介绍']").length > 0);
+        twice.value = false;
+        await waitUntil("卸掉一份", () => document.body.querySelectorAll("[data-field-editor='badge.介绍']").length === 1);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+    });
+
+    it("就地改：保存在途时 Escape 与“取消”都不算放弃；这时点了另一个值，保存回来以后那一份留着；草稿所在的字段被去掉时草稿清掉，不退回确认条", async () => {
+        const {wrapper, state} = await badgePage();
+        await wrapper.get("[data-edit='badge.介绍']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.介绍") !== null);
+        const input = editorOf("badge.介绍")!.querySelector("input")!;
+        input.value = "一枚旧徽章";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改初值") === true);
+        const buttons = () => [...editorOf("badge.介绍")!.querySelectorAll("button")];
+        buttons().find((button) => button.textContent?.trim() === "保存")!.click();
+        // 保存的请求已经发出（`saving` 在点下去的同一刻就是真）：这时的 Escape 与“取消”都不放弃。
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        buttons().find((button) => button.textContent?.trim() === "取消")!.click();
+        expect(state.edit?.path).toBe("badge.介绍");
+        // 还在保存时点了“图案”：保存回来只收起“介绍”那一份，“图案”的编辑留着。
+        (wrapper.get("[data-edit='badge.图案']").element as HTMLButtonElement).click();
+        expect(state.edit?.path).toBe("badge.图案");
+        await waitUntil("保存了", () => wrapper.get("[data-edit='badge.介绍']").text() === "一枚旧徽章");
+        await waitUntil("“介绍”的编辑器收起", () => editorOf("badge.介绍") === null);
+        expect(state.edit?.path).toBe("badge.图案");
+        expect(editorOf("badge.图案")).not.toBeNull();
+        editorOf("badge.图案")!.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await waitUntil("放弃了“图案”", () => state.edit === null);
+
+        await wrapper.get("[data-add-field]").trigger("click");
+        await waitUntil("加上种族", () => wrapper.find("[data-edit='badge.种族']").exists());
+        await wrapper.get("[data-edit='badge.种族']").trigger("click");
+        await waitUntil("编辑器", () => editorOf("badge.种族") !== null);
+        await wrapper.get("[data-remove-field]").trigger("click");
+        await waitUntil("去掉了", () => wrapper.get("[data-removed]").text() === "种族");
+        expect(state.edit).toBeNull();
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+    });
+
+    it("context：别的组只认 uses 列了的，没加过、加上以后；加一项、重名被拒、去掉以后列在去掉过的里", async () => {
+        const {wrapper} = await badgePage();
+        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent");
+        await wrapper.get("[data-add-look]").trigger("click");
+        await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent");
+
+        await wrapper.get("[data-add-field]").trigger("click");
+        await waitUntil("加上种族", () => wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族"));
+        await wrapper.get("[data-add-taken]").trigger("click");
+        await waitUntil("重名被拒", () => wrapper.get("[data-result]").text() === "refused");
+        await wrapper.get("[data-remove-field]").trigger("click");
+        await waitUntil("去掉过的", () => wrapper.get("[data-removed]").text() === "种族");
+        expect(wrapper.findAll("[data-edit]").some((button) => button.attributes("data-edit") === "badge.种族")).toBe(false);
+    });
+});
+
+describe("人物与形象两个分页（输出 49 到 52）", () => {
+    const LOOK = {type: "nbook.canon.look", version: 1, enabled: true, declared: [], fields: {
+        立绘: {图片: "插图/星瑕.png", 说明: "立绘"},
+        外貌: null,
+        服装: [{id: "i1", label: "便装", 样子: "连帽衫", 图片: null}, {id: "i2", label: "学院制服", 样子: "藏青外套", 图片: null}],
+        现在穿的: "便装",
+    }};
+
+    it("立绘读自形象：有图时点了切到形象分页；没有形象这一组时“添加形象”，点了加上以后是“添加立绘”", async () => {
+        const {other, open} = await setup();
+        const withLook = person("星瑕");
+        withLook.init.data.look = structuredClone(LOOK);
+        const without = person("星瑾");
+        const ids = await publish(other.canon, [withLook, without]);
+        const first = await open(ids[withLook.id]!);
+        first.state.tab = "data:character";
+        await waitUntil("立绘", () => first.wrapper.find("[data-portrait='image'] [data-canon-image='插图/星瑕.png']").exists());
+        await first.wrapper.get("[data-portrait]").trigger("click");
+        await waitUntil("切到形象分页", () => first.state.tab === "data:look" && first.wrapper.find("[data-look-card]").exists());
+
+        const second = await open(ids[without.id]!);
+        second.state.tab = "data:character";
+        await waitUntil("添加形象", () => second.wrapper.find("[data-portrait='absent']").exists());
+        await second.wrapper.get("[data-portrait]").trigger("click");
+        await waitUntil("加上了形象", () => second.wrapper.find("[data-portrait='no-image']").exists());
+    });
+
+    it("形象分页：点某一套的“换上”，现在穿的的编辑里填好这一套、预选“剧情里变了”，保存以后在所选位置上换了，旁边写“第 2 章改过”", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.data.look = structuredClone(LOOK);
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:look";
+        await waitUntil("衣柜", () => wrapper.find("[data-put-on='i2']").exists());
+        expect(wrapper.get("[data-outfit='i1']").text()).toContain("穿着");
+        await wrapper.get("[data-put-on='i2']").trigger("click");
+        const editor = (): Element | null => document.body.querySelector("[data-field-editor='look.现在穿的']");
+        await waitUntil("现在穿的的编辑", () => editor()?.querySelector("input") !== null && editor()?.querySelector("input") !== undefined);
+        expect(editor()!.querySelector<HTMLInputElement>("[data-suggest-input] input")!.value).toBe("学院制服");
+        expect(state.edit).toMatchObject({path: "look.现在穿的", intent: "story", value: "学院制服"});
+        await waitUntil("预览", () => editor()?.querySelector("[data-confirm-preview]")?.textContent?.includes("记一条变更") === true);
+        [...editor()!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+        await waitUntil("换上了", () => wrapper.get("[data-outfit='i2']").text().includes("穿着") && wrapper.get("[data-fact='现在穿的']").text().includes("第 2 章改过"));
+    });
+
+    it("添加一项资料：点预设“种族”加上一项，是自己加的（行尾有“更多”），预设里不再列它", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("人物分页", () => wrapper.find("[data-add-field]").exists());
+        await wrapper.get("[data-add-field]").trigger("click");
+        await waitUntil("预设", () => document.body.querySelector("[data-preset='种族']") !== null);
+        (document.body.querySelector("[data-preset='种族']") as HTMLElement).click();
+        await waitUntil("加上了种族", () => wrapper.find("[data-fact='种族'] [data-more='种族']").exists());
+        expect(document.body.querySelector("[data-preset='种族']")).toBeNull();
+    });
+
+    it("现在的状态：点开是细节，点“改起点”时编辑层浮在它原处、细节收起，不出页面顶上的确认条", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("现在的状态", () => wrapper.find("[data-condition='现在的状态']").exists());
+        await wrapper.get("[data-condition='现在的状态']").trigger("click");
+        await waitUntil("细节", () => wrapper.find("[data-condition-detail] [data-edit='character.现在的状态']").exists());
+        await wrapper.get("[data-condition-detail] [data-edit='character.现在的状态']").trigger("click");
+        await waitUntil("编辑层", () => document.body.querySelector("[data-field-editor='character.现在的状态'] textarea") !== null);
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        await waitUntil("细节收起", () => !wrapper.find("[data-condition-detail]").exists());
+    });
+
+    it("自己加的列表（Agent 能加别的种类）卡片画不了：在人物分页下面的通用字段表里，不从这一页消失", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const character = star.init.data.character!;
+        star.init.data.character = {...character, declared: [{id: "随身物", label: "随身物", kind: "list", item: [{id: "说明", label: "说明", kind: "text"}]}], fields: {...character.fields, 随身物: [{id: "e1", label: "怀表", 说明: "旧的"}]}};
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "data:character";
+        await waitUntil("通用字段表", () => wrapper.find("[data-character-view] [data-field-table]").exists() && wrapper.get("[data-character-view] [data-field-table]").text().includes("怀表"));
+        expect(wrapper.find("[data-fact='随身物']").exists()).toBe(false);
     });
 });
