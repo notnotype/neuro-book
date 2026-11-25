@@ -130,3 +130,11 @@ Opus 那轮的修正已提交（`d4ae39ae5`，7 个文件）：处理表第 1、
 
 - 实现者定、主会话接受的：POST 授权端点不是表单类型回 404；令牌端点不是表单类型回 400 `invalid_request`（库自己回 415 且不是 RFC 6749 的形状，也免得换个编码绕过去掉 `resource` 那一步），去掉 `resource` 后重新编码表单（值不变，字面编码可能变）；请求体上限在白名单之前，白名单外的超大请求回 400；发现文档的签名算法用常量（启动检查保证表里只有这一种）；`LIB_BASE_PATH` 取合同包的 `IDENTITY_AUTH_PREFIX`；合同包 `claims_supported` 的静态类型原来推成 `never[]`，改成两组字面量的并集；发现文档缺用户信息、公钥、撤销地址时启动失败；HEAD 与 GET 比头时不算 `Date`、`X-Request-Id`；验收 2 合同只断言 404，“是本模块的 404”放包内。
 - 给 5b 的：授权端点的改写替掉 `mount.ts` 里 `authorizeEndpoint` 的那一行交库。库对带会话 Cookie 的授权 POST 做来源检查（没有 Origin 回 403），主会话定：POST 读成 `URLSearchParams` 后改成同样参数的 GET 请求交库（授权端点的 GET 本来就允许跨站，POST 不该多一道）。
+
+5b（授权端点的第 1 步与改写、续接与登录、确认页接口）已提交（`8d3e14d08`，19 个文件）：四个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，6 条变异都被抓到（续接留 `ba_param`、确认接口回库的原始地址两条只有包内抓得到：库照样收下、合同造不出那个时机）；主会话重跑通过。
+
+- 实现者定、主会话接受的：授权端点的逻辑在 `mount.ts` 的 `authorizeEndpoint`，没另建 `authorize.ts`；`resolveContinue` 是 async、多收一个 `secret`（库的验签是 async、用库上下文的密钥）；浏览器 `fetch` 发起授权时库回 200 加 JSON，一律改成 302 加改写后的 `Location`；POST 只读表单体、忽略查询串（与库一致）；确认接口遇到库的登录页或站点同意页时写成站点的绝对地址（schema 要 `^https?://`）；`IdentityOverrides` 加了 `wrapOAuthConsent`，产品不传，只给包内测试在“接口判完、库还没判”之间插入停用或改回调地址，交库的仍是真的库（不换判断，与 t07 用队列交错造时序同一类）；库错误页上码表之外的码归 `client_not_found` 并记 `identity.oauth_library_error_page`。
+- Spec 跟着补的：输出 14“再次同意时再发一个授权码，前一个不作废”（实测）。`prompt=consent` 对免确认的客户端也显示确认页，与输出 13 的“总显示”一致。
+- 给第 6 片的：`response_type=token` 时库把错误放在回调地址的片段里跳回（`#error=unsupported_response_type`），第 2 步要先挡；`prompt=select_account` 现在落到错误页兜底，第 2 步的 `prompt` 校验之后应碰不到。
+
+设计审查与第 2、3 片 omp 实现审查要的 `purge` 删 `sessionId` 为空的访问令牌，主会话单独提交（`121d6a8e5`）：包内用例在另一条连接上删会话行（外键置空令牌的 `sessionId`），跑 `purge` 后那个令牌 401、别的照用；变异（去掉这个条件）被抓到。账号包与使用方的测试与类型检查通过。
