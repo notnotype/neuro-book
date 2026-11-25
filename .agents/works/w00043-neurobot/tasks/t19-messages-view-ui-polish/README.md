@@ -63,7 +63,8 @@ updated: 2026-11-25
 
 ## 下一步
 
-- Spec（planned）已提交 dabe9cb6a；计划 [`plan.md`](plan.md) 第 1 稿写好，要点先给开发者看，确认后交设计审查（前端 Sonnet，布局记录与投影 omp `@review`）。
+- Spec（planned）已提交 dabe9cb6a；计划 [`plan.md`](plan.md) 第 1 稿（含测试分工与元素标记约定），开发者 2026-11-25 确认要点与“测试与业务并行”的分工（规则写进用户级 `~/.claude/CLAUDE.md`、仓库 `implementation-planning` 技能）。
+- 第 0 片：Work 分支快进到 master `2f8e6f696`，重新 `bun install`。计划设计审查在跑：布局部分 omp `@review`（接着提案审查的会话，说明 `/tmp/review-t19-plan/brief-layout.md`），前端部分 Sonnet（`brief-frontend.md`）。测试第 A 段已派 Sonnet：worktree `.worktree/w00043-t19-e2e`（分支 `w00043-t19/e2e`），说明 `/tmp/review-t19-e2e/segment-a.md`。
 - 写底层提案（右栏入口条竖排成侧轨、视图段、展开、位置限制、浮动），要点先给开发者看，再交 omp `@review` 审一轮（开发者要求改底层要 gpt 审）；之后写 Spec（planned）与 `plan.md`，在 Work worktree 实现。左右整列对调另开 Task。
 - 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者；开发者 2026-11-25 同意按归纳的方向出稿。
 - 评审板第 3 轮（取代第 2 轮两题）：`rail-kind` 甲 工作台的侧轨（推荐）对 乙 头像列留在视图里贴右边、无竖线、底色深一档；`list-switcher` A 锚在按钮旁的浮层（推荐）对 B 顶部居中的 QuickPick；附左右对调整窗稿（对调另开 Task）。稿面修了：接缝按相连画、聊天区铺满、当前会话改描边只突出一层、底部图标换成机器人与搜索列表。原图在本地 `shots/r3/`。
