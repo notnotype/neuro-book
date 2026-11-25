@@ -243,6 +243,8 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     - 冻住的只是这一项插槽的调用：里面的组件照常按自己的响应式依赖更新，交给子组件的插槽在子组件的渲染里调，那里面按 key 查宿主已删的数据会抛错；这时库补一条报错说明原因，原错误照常交给应用的错误处理。删数据与改 `contents`、改树要在同一次刷新里。
 156. **带着留着的内容离开的叶**：有输出 155 留着的内容项时，按输出 45 留着缩回的离开的叶，面板头（`leaf` 插槽）都停在最后一次渲染，不再调宿主的插槽，限制同输出 155；离开的叶按子树整组留，同一棵离开的子树里没有留着内容的叶也是。交换里滑出去的叶、没有留着的内容时的离开的叶（区域隐藏）照常渲染，插槽读到的仍是这一轮的（“时序与寿命”）。
 157. **内容层：拿起的内容：留住**：拿起的内容项这一轮不在 `contents` 里时（宿主的预览把来源摘掉了），网格留住它：实例不卸载，叶是拿起那一刻它所在的叶（之后的预览把它摆到别的叶上也不改），不活动，矩形照旧由 `placeLifted` 写；`lifted` 变成 null 之后按那时的 `contents` 处理，不在了就卸载。宿主要在摘掉它的那一次渲染里（或更早）给出 `lifted`：先摘掉、下一轮才给 `lifted` 的，网格没有可沿用的那一项，实例照常卸载。
+158. **开发模式：诊断没有出口**（planned）：开关同输出 151。`useGridHost` 没给 `onIssues` 的宿主在建立时警告一次：布局重算的诊断与被拒的提交会被丢掉。有意不收诊断的宿主给一个什么都不做的 `onIssues`。只看 `useGridHost` 的选项：直接用 `NestedGrid` 的宿主不在这一条里。库不把诊断本身打到控制台，开关开与关时 `onIssues` 收到的都一样。
+159. **开发模式：起拖时过渡还在走**（planned）：开关同输出 151。`NestedGrid` 的 `dragging` 从假变真的那一刻，布局过渡还在走时，警告一次：宿主的拖动会话起拖时没有调 `settleMotion()`，判定量到的是过渡中间的矩形。同一个 `NestedGrid` 只报一次。下面几种不算：宿主在 `dragging` 变真的同一次更新里改了布局、过渡是这次才开始的；系统减少动态效果（没有过渡）。实时布局的会话自己调 `settleMotion()`（[layout-drag](layout-drag.md) 输出 23）。
 
 ## 状态与转换
 
@@ -332,7 +334,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
 公开面：`package.json` 里每个子路径的入口（`./lab-sources` 只给应用的 Component Lab，不算）是一行一个名字的显式清单，入口里的名字就是公开面；文件里别的导出不是公开面，不承诺。`gesture-start`、`gesture-cancel` 的载荷类型是 `GridGestureStart` 与 `GridGestureCancellation`，字段见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md)；手势来源与取消原因的类型是 `SashGestureSource`、`SashGestureCancelReason`。
-开发模式：根入口的 `setLayoutDevChecks` 打开配置检查（输出 151）；它不读 `import.meta.env`，宿主在自己的开发构建里调。
+开发模式：根入口的 `setLayoutDevChecks` 打开配置检查（输出 151、158、159）；它不读 `import.meta.env`，宿主在自己的开发构建里调。
 CSS 变量：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-layout-*` 与各自的回退；README 的变量表只承诺其中主题级的一小批（颜色、圆角、阴影、时长、焦点），其余是内部名字，可以改名（输出 141）。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
 失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。

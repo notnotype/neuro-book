@@ -300,6 +300,7 @@ type TabRef =
 - 记录损坏、版本不支持：回落默认树并诊断，不阻塞外壳打开；原件保留。
 - 保存失败（写入失败、结果未知）：当前显示保留，状态栏“布局未保存”给出原因与重试、放弃；放弃回到已确认值，开着的编辑器标签不算在内（关掉的不回来，开着的留着，它们背后是打开的文档）。`editor.tabs` 保存失败同样显示，不自动重试，点重试才再试。
 - 呈现降级：只影响当前呈现，诊断写在外壳根上，不保存。
+- 网格的诊断与被拒的提交（[ui/nested-grid](nested-grid.md) 输出 139）记进窗口的诊断，事件 `workbench.grid`，消息里带码。放不下、空间没人吸收、收起或恢复没有空间、交换不成立，这几种是可以预期的降级，记 `debug`；落账之后通知抛出（`notify-failed`）记 `error`；被拒的提交与别的码记 `warn`。同一个问题持续时不重复记（nested-grid 输出 140）（planned）。
 - 视图加载失败、入口停止：按 [workbench.views](../workbench/views.md)，不拖垮外壳。
 - Escape、指针取消、失去捕获、失焦、页面隐藏或目标失效：结束拖放并清除反馈，不提交。
 
@@ -347,6 +348,7 @@ type TabRef =
 31. （planned）Given 底部面板没有容器、隐藏着，When 用“移动到”选“新容器（底部面板）”，Then 底部面板显示，里面是这个视图；When 再把它移走，Then 底部面板隐藏，其余面板的尺寸不变，记录保存成功，刷新后一样。
 32. Given 侧栏有两个容器，正在拖一个视图，When 用命令打开另一个容器里的视图，Then 这一场拖动取消，拖动本身零写入；侧栏已经切到命令指定的容器。
 33. Given 侧栏显示着两个分节的“项目”，放慢过渡，When 点活动栏另一个容器的入口、停在过渡中几个时刻，Then 卡片不动，上下的缝与右上、右下两个圆角外面一直是窗体底，内容整块竖着走、都在卡片里，活动栏一直和侧栏相连、角不换画法，按下的块和内容同时走；When 滚到一半再点回“项目”，Then 它从这一刻往回滚，两个容器的内容不叠，结束时两个分节原样。
+34. （planned）Given 窗口从 1440 缩到 590，When 读窗口的诊断（浏览器控制台），Then 有 `workbench.grid` 的 `over-constrained`，级别是 debug；整个过程没有 `workbench.grid` 的 warn 与 error。
 
 Smoke 入口：`e2e/workbench-containers.e2e.ts`、`e2e/workbench-dnd.e2e.ts`、`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`；生产构建下打开 `/?project=…`。
 
