@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t56-layout-docs-gaps
-status: planned
+status: done
 updated: 2026-11-25
 ---
 
