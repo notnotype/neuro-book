@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-search-settings-redesign
-status: active
+status: done
 updated: 2026-11-25
 ---
 
