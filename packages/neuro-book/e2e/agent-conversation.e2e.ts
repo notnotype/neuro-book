@@ -192,8 +192,10 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await expect(agentHead).toBeVisible();
     await expect(agentHead).toHaveAttribute("data-window-drag", "");
     await expect(page.locator(`[data-leaf="${target}"] [data-panel-head]`)).toHaveCount(0);
-    // 用鼠标浮出来：焦点就算被还到标题按钮上，它也不冒出来压住视图的头（只有键盘聚焦才显示）。
+    // 鼠标操作之后程序把焦点放到标题按钮上（外壳还焦点、关“移动到”菜单都这样做）：它不冒出来压住视图的头，只有键盘聚焦才显示。
     const title = ownHead.locator("[data-panel-tab]");
+    await title.evaluate((element) => element.focus());
+    await expect(title).toBeFocused();
     await expect(title).toHaveCSS("opacity", "0");
 
     /** 窗口卡片、内容与第一行的几何。 */
