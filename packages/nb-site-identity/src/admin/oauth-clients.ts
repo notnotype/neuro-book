@@ -38,7 +38,7 @@ import {IdentityFailure, readBody, readEmptyBody, readParams, readQuery} from ".
 import type {IdentityLog} from "../index";
 import type {LibAdapter} from "../login";
 import {requireSession} from "../middleware";
-import {checkRedirectUri} from "../oauth/clients";
+import {checkRedirectUri, redirectUrisOf} from "../oauth/clients";
 import {clientSecretHash, generateClientSecret} from "../oauth/client-secret";
 import {revokeOAuthForClient} from "../oauth/revoke";
 import type {Sessions} from "../session";
@@ -88,13 +88,6 @@ const CLIENT_COLUMNS = `o."id" AS id, o."clientId" AS clientId, o."name" AS name
 /** 公开客户端的认证方式是 `none`（计划 3.9）；登记只经本文件，别的认证方式只会是机密的 `client_secret_basic`。 */
 function typeOf(row: Pick<ClientRow, "tokenEndpointAuthMethod">): OAuthClientType {
     return row.tokenEndpointAuthMethod === "none" ? "public" : "confidential";
-}
-
-/** `redirectUris` 列是库写的 JSON 数组文本；不是字符串数组时是数据被别的写法改过，程序错误。 */
-function redirectUrisOf(text: string): string[] {
-    const value: unknown = JSON.parse(text);
-    if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("oauthClient.redirectUris is not a JSON array of strings");
-    return value as string[];
 }
 
 function itemOf(row: ClientRow): OAuthClientItem {

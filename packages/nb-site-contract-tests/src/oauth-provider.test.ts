@@ -1,21 +1,43 @@
 /**
  * 对外 OAuth 服务的黑盒合同（docs/specs/site/oauth-provider.md）：起真实的 `nb-site` 进程，扮演接入的第三方应用（`testing/oauth-client.ts`），
- * 只经 HTTP 看它。本文件现在覆盖输入表与输出 1 的可达端点、HEAD、输出 2 的发现文档、输出 6 的令牌端点（`resource`、请求体上限）、
- * 验收 2 的后一半与验收 6。
+ * 只经 HTTP 看它。本文件现在覆盖输入表与输出 1 的可达端点、HEAD、输出 2 的发现文档；输出 3 的授权请求（客户端与回调地址、错误页、
+ * 去掉 `resource` 与 `claims`、POST 发起、公开客户端的回环地址）、4 的登录续接、5 的确认、6 的令牌端点（`resource`、请求体上限）、
+ * 11 的 id_token、13 的 `prompt=login` 与 `prompt=consent`、14 的确认页接口；输出 8、9 里停用客户端与换密钥在授权与换码上看得到的
+ * 那一面；验收 1、2 的后一半、4、6、13、20 的前半。
  *
  * 本文件测不到、在账号包里的：白名单对库的全部端点逐个挡住（`oauth/mount.test.ts` 遍历库的端点表）；换码撞会话外键回
- * `invalid_grant`（要在库的两步之间删会话）；带 `resource` 换码时库那边有一行访问令牌（读库）。
+ * `invalid_grant`（要在库的两步之间删会话）；带 `resource` 换码时库那边有一行访问令牌（读库）；续接令牌与确认标识 10 分钟的
+ * 毫秒边界（库按系统时间签名，合同只拨得动模块的时钟，`oauth/continue.test.ts`）；确认页接口判完、库还没判之间改客户端
+ * （`oauth/consent-api.test.ts`）。
  *
- * 时间预算：起进程、建账号、登记客户端放在 `beforeAll` 里；用例只发请求。超出 200 毫秒的用例在旁边写明原因。
+ * 时间预算：起进程、建账号、登记共用的客户端放在 `beforeAll` 里；用例只发请求。超出 200 毫秒的用例在旁边写明原因：多数要登录，
+ * 登录要算一次密码哈希。拨模块时钟的用例各在自己的进程里：拨过的时钟让之后签出的续接令牌一出来就过期。
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
-import {DiscoveryDocument, IDENTITY_AUTH_PREFIX, IDENTITY_PATHS, OAUTH_ENDPOINT_PATHS, OIDC_DISCOVERY_PATHS} from "@notnotype/nb-site-identity-contract";
+import {createHash} from "node:crypto";
+
+import {
+    CONTINUE_PARAM,
+    DiscoveryDocument,
+    IDENTITY_AUTH_PREFIX,
+    IDENTITY_PATHS,
+    identityPath,
+    LoginResponse,
+    OAUTH_ENDPOINT_PATHS,
+    OAUTH_ERROR_PARAM,
+    OAUTH_REQUEST_PARAM,
+    OAuthAuthorizationResponse,
+    OAuthDecisionResponse,
+    OIDC_DISCOVERY_PATHS,
+    RotateSecretResponse,
+    type CreateOAuthClientRequest,
+} from "@notnotype/nb-site-identity-contract";
 
 import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login, SITE_ORIGIN, type CookieJar} from "./testing/identity";
-import {authorizationRequest, exchangeCode, fetchUserInfo, registerOAuthClient, siteFetch, step, verifyIdToken, type RegisteredClient, type SiteResponse} from "./testing/oauth-client";
+import {authorizationRequest, exchangeCode, fetchUserInfo, registerOAuthClient, siteFetch, step, verifyIdToken, type AuthorizationRequest, type RegisteredClient, type SiteResponse, type Step} from "./testing/oauth-client";
 import {useSiteSandbox, type SiteProcess} from "./testing/site";
 
 const sandbox = useSiteSandbox("nb-site-contract-tests oauth-provider.test.ts");
@@ -206,5 +228,392 @@ describe("对外 OAuth 的端点与发现文档（输入表、输出 1、2、6�
         const form = new URLSearchParams({grant_type: "authorization_code", code: "x", code_verifier: "y", redirect_uri: client.redirectUri, padding: "a".repeat(17 * 1024)});
         const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.token, {method: "POST", headers: {"Content-Type": FORM}, body: form.toString()});
         expect({status: response.status, body: JSON.parse(response.text) as unknown}).toEqual({status: 400, body: {error: "invalid_request"}});
+    });
+});
+
+const CLIENT_REDIRECT = "https://client.example/cb";
+
+/** 一个客户端的登记请求：缺省是机密、要确认的测试客户端。 */
+function clientBody(overrides: Partial<CreateOAuthClientRequest> = {}): CreateOAuthClientRequest {
+    return {name: "合同测试客户端", redirectUris: [CLIENT_REDIRECT], type: "confidential", skipConsent: false, ...overrides};
+}
+
+/** 跳转地址上某个查询参数；没有时抛错（用例接着要用它）。 */
+function paramOf(answer: Step, name: string): string {
+    const value = answer.location.searchParams.get(name);
+    if (value === null) throw new Error(`${answer.kind} redirect carries no ${name}`);
+    return value;
+}
+
+/** 授权端点的地址加上 `params`（表单 POST 用它作目标）。 */
+const AUTHORIZE_URL = `${SITE_ORIGIN}${OAUTH_ENDPOINT_PATHS.authorize}`;
+
+/** `access_token` 的 `at_hash`（OpenID Connect Core 3.1.3.6）：SHA-256 的左半，base64url。 */
+function atHash(accessToken: string): string {
+    return createHash("sha256").update(accessToken).digest().subarray(0, 16).toString("base64url");
+}
+
+/** 一个站点进程与在它上面已登录、已同意条款的管理员；`from` 每次给一个新的来源地址。 */
+interface FlowSite {
+    readonly site: SiteProcess;
+    readonly from: () => string;
+    /** 以 `jar` 登录并同意当前条款；不成功时抛错。 */
+    readonly signIn: (jar: CookieJar, username: string) => Promise<void>;
+}
+
+async function startFlowSite(admins: readonly string[]): Promise<FlowSite> {
+    const dataDir = await sandbox.dataDir();
+    for (const name of admins) await createAdmin(sandbox, dataDir, [name, `${name}@example.com`], PASSWORD);
+    const site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
+    let address = 0;
+    const from = () => `203.0.113.${String(++address % 250)}`;
+    const signIn = async (jar: CookieJar, username: string): Promise<void> => {
+        if ((await login(site.url, username, PASSWORD, {from: from(), jar})).status !== 200) throw new Error(`${username} could not sign in`);
+        const consented = await identityRequest(site.url, IDENTITY_PATHS.meConsent, {method: "POST", jar, from: from(), body: {termsVersion: TERMS_VERSION, overseasStorage: true}});
+        if (consented.status !== 200) throw new Error(`${username} could not consent`);
+    };
+    return {site, from, signIn};
+}
+
+describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、20 的前半）", () => {
+    let flow: FlowSite;
+    let site: SiteProcess;
+    let root: CookieJar;
+    let other: CookieJar;
+
+    const register = (overrides: Partial<CreateOAuthClientRequest> = {}): Promise<RegisteredClient> => registerOAuthClient(site.url, root, flow.from(), clientBody(overrides));
+
+    function showAuthorization(jar: CookieJar, request: string) {
+        return identityRequest(site.url, `${IDENTITY_PATHS.oauthAuthorization}?${new URLSearchParams({[OAUTH_REQUEST_PARAM]: request})}`, {jar, from: flow.from()});
+    }
+
+    function decide(jar: CookieJar, request: string, accept: boolean) {
+        return identityRequest(site.url, IDENTITY_PATHS.oauthAuthorization, {method: "POST", jar, from: flow.from(), body: {request, accept}});
+    }
+
+    /** 提交确认并回跳回地址；不是 200 或形状不对时抛错。 */
+    async function decidedRedirect(jar: CookieJar, request: string, accept: boolean): Promise<URL> {
+        const response = await decide(jar, request, accept);
+        if (response.status !== 200 || !Value.Check(OAuthDecisionResponse, response.body)) throw new Error(`deciding answered ${String(response.status)}: ${JSON.stringify(response.body)}`);
+        return new URL(response.body.redirectUrl);
+    }
+
+    /** 以 `jar` 发起授权并停在确认页，回确认标识。 */
+    async function consentRequest(jar: CookieJar, client: RegisteredClient, extra: Readonly<Record<string, string>> = {}): Promise<{readonly request: string; readonly authorization: AuthorizationRequest}> {
+        const authorization = authorizationRequest(client, extra);
+        const answer = await step(site.url, jar, authorization.url, client);
+        if (answer.kind !== "consent") throw new Error(`authorization ended at ${answer.kind}, not at the consent page`);
+        return {request: paramOf(answer, OAUTH_REQUEST_PARAM), authorization};
+    }
+
+    async function patchClient(client: RegisteredClient, body: unknown): Promise<void> {
+        const response = await identityRequest(site.url, identityPath.adminOAuthClient(client.clientId), {method: "PATCH", jar: root, from: flow.from(), body});
+        if (response.status !== 200) throw new Error(`patching the client answered ${String(response.status)}`);
+    }
+
+    beforeAll(async () => {
+        flow = await startFlowSite(["root", "other"]);
+        site = flow.site;
+        root = cookieJar();
+        other = cookieJar();
+        await flow.signIn(root, "root");
+        await flow.signIn(other, "other");
+    }, SETUP_TIMEOUT_MS);
+
+    // 超出预算：登录算一次密码哈希。
+    it("走完整流程：授权 → 登录 → 确认 → 换令牌 → 取用户信息；同一个授权码再换一次被拒（验收 1，输出 4、5、11、14）", async () => {
+        const client = await register();
+        const authorization = authorizationRequest(client);
+        const browser = cookieJar();
+        const toLogin = await step(site.url, browser, authorization.url, client);
+        expect(toLogin.kind).toBe("login");
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: browser, continue: paramOf(toLogin, CONTINUE_PARAM)});
+        expect({status: signedIn.status, shape: Value.Check(LoginResponse, signedIn.body)}).toEqual({status: 200, shape: true});
+        const continueUrl = (signedIn.body as LoginResponse).continueUrl;
+        if (continueUrl === undefined) throw new Error("the login answer has no continueUrl");
+
+        const toConsent = await step(site.url, browser, continueUrl, client);
+        expect(toConsent.kind).toBe("consent");
+        const request = paramOf(toConsent, OAUTH_REQUEST_PARAM);
+        const shown = await showAuthorization(browser, request);
+        expect({status: shown.status, shape: Value.Check(OAuthAuthorizationResponse, shown.body)}).toEqual({status: 200, shape: true});
+        const {scopes, ...rest} = shown.body as OAuthAuthorizationResponse;
+        expect({...rest, scopes: [...scopes].sort()}).toEqual({clientName: "合同测试客户端", redirectHost: "client.example", scopes: ["email", "openid", "profile"]});
+
+        const back = await decidedRedirect(browser, request, true);
+        expect({to: `${back.origin}${back.pathname}`, state: back.searchParams.get("state"), iss: back.searchParams.get("iss")}).toEqual({to: CLIENT_REDIRECT, state: authorization.state, iss: SITE_ORIGIN});
+        const code = back.searchParams.get("code");
+        if (code === null) throw new Error("the consent answer carries no code");
+        const exchanged = await exchangeCode(site.url, client, code, authorization.verifier);
+        expect(exchanged.status).toBe(200);
+        const tokens = JSON.parse(exchanged.text) as {access_token: string; id_token: string};
+        const info = await fetchUserInfo(site.url, tokens.access_token);
+        expect(info.status).toBe(200);
+        expect((JSON.parse(info.text) as {preferred_username?: unknown}).preferred_username).toBe("root");
+
+        const again = await exchangeCode(site.url, client, code, authorization.verifier);
+        expect({status: again.status, error: (JSON.parse(again.text) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_grant"});
+    });
+
+    // 超出预算：登录算一次密码哈希。
+    it("以表单 POST 发起：跨站 POST 不带会话 Cookie 先被带去登录，经继续地址回到确认、拿到授权码并换出令牌（验收 20 的前半）", async () => {
+        const client = await register();
+        const authorization = authorizationRequest(client);
+        const browser = cookieJar();
+        const toLogin = await step(site.url, browser, AUTHORIZE_URL, client, new URL(authorization.url).searchParams);
+        expect(toLogin.kind).toBe("login");
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: browser, continue: paramOf(toLogin, CONTINUE_PARAM)});
+        const continueUrl = (signedIn.body as LoginResponse).continueUrl;
+        if (continueUrl === undefined) throw new Error("the login answer has no continueUrl");
+        const toConsent = await step(site.url, browser, continueUrl, client);
+        expect(toConsent.kind).toBe("consent");
+        const back = await decidedRedirect(browser, paramOf(toConsent, OAUTH_REQUEST_PARAM), true);
+        const code = back.searchParams.get("code");
+        if (code === null) throw new Error("the consent answer carries no code");
+        expect([back.searchParams.get("state"), (await exchangeCode(site.url, client, code, authorization.verifier)).status]).toEqual([authorization.state, 200]);
+    });
+
+    it("带着会话的表单 POST 与 GET 一样到确认页（库不因它是 POST 另查来源）", async () => {
+        const client = await register();
+        const answer = await step(site.url, root, AUTHORIZE_URL, client, new URL(authorizationRequest(client).url).searchParams);
+        expect(answer.kind).toBe("consent");
+    });
+
+    it("客户端不对、回调地址不对：GET 与 POST 都不跳回客户端，到 /oauth/consent?error=（输出 3，验收 4）", async () => {
+        const client = await register();
+        const disabled = await register();
+        await patchClient(disabled, {disabled: true});
+        const cases: ReadonlyArray<readonly [label: string, client: RegisteredClient, extra: Readonly<Record<string, string>>, code: string]> = [
+            ["没有这个客户端", client, {client_id: "no-such-client"}, "client_not_found"],
+            ["停用了", disabled, {}, "client_not_found"],
+            ["改掉回调地址", client, {redirect_uri: "https://client.example/evil"}, "redirect_uri_invalid"],
+            ["换成别的站点", client, {redirect_uri: "https://evil.example/cb"}, "redirect_uri_invalid"],
+        ];
+        for (const [label, target, extra, code] of cases) {
+            const request = authorizationRequest(target, extra);
+            for (const answer of [await step(site.url, root, request.url, target), await step(site.url, root, AUTHORIZE_URL, target, new URL(request.url).searchParams)]) {
+                expect({label, kind: answer.kind, error: answer.location.searchParams.get(OAUTH_ERROR_PARAM)}).toEqual({label, kind: "error", error: code});
+            }
+        }
+    });
+
+    // 超出预算：登录算一次密码哈希。
+    it("登录之后改掉继续地址里的回调地址再继续：也到 /oauth/consent?error=redirect_uri_invalid（验收 4）", async () => {
+        const client = await register({skipConsent: true});
+        const browser = cookieJar();
+        const toLogin = await step(site.url, browser, authorizationRequest(client).url, client);
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: browser, continue: paramOf(toLogin, CONTINUE_PARAM)});
+        const continueUrl = new URL((signedIn.body as LoginResponse).continueUrl ?? "", SITE_ORIGIN);
+        continueUrl.searchParams.set("redirect_uri", "https://client.example/evil");
+        const answer = await step(site.url, browser, continueUrl.href, client);
+        expect({kind: answer.kind, error: answer.location.searchParams.get(OAUTH_ERROR_PARAM)}).toEqual({kind: "error", error: "redirect_uri_invalid"});
+    });
+
+    it("回调地址可信时别的错误跳回客户端：不带 openid 是 invalid_scope，带 state 与 iss（输出 3）", async () => {
+        const client = await register({skipConsent: true});
+        const request = authorizationRequest(client, {scope: "profile"});
+        const answer = await step(site.url, root, request.url, client);
+        expect({kind: answer.kind, error: answer.location.searchParams.get("error"), state: answer.location.searchParams.get("state"), iss: answer.location.searchParams.get("iss")}).toEqual({
+            kind: "redirect-back",
+            error: "invalid_scope",
+            state: request.state,
+            iss: SITE_ORIGIN,
+        });
+    });
+
+    it("claims 与 resource 被忽略：带要求 acr 的 claims、带不认得的 resource 照样拿到授权码，id_token 的 acr 仍是 0（输出 3、11）", async () => {
+        const client = await register({skipConsent: true});
+        const document = JSON.parse((await siteFetch(site.url, OIDC_DISCOVERY_PATHS[0])).text) as DiscoveryDocument;
+        const request = authorizationRequest(client, {claims: JSON.stringify({id_token: {acr: {essential: true, value: "1"}}}), resource: "https://unknown.example/api"});
+        const answer = await step(site.url, root, request.url, client);
+        const code = answer.location.searchParams.get("code");
+        if (answer.kind !== "redirect-back" || code === null) throw new Error(`authorization ended at ${answer.kind} (${answer.location.search})`);
+        const tokens = JSON.parse((await exchangeCode(site.url, client, code, request.verifier)).text) as {id_token: string};
+        expect((await verifyIdToken(site.url, tokens.id_token, document.jwks_uri)).payload.acr).toBe("0");
+    });
+
+    it("id_token 的字段：iss、sub 与用户信息相同、aud、iat、exp、auth_time、at_hash、acr 为 0、nonce 原样，不带资料字段（输出 11）", async () => {
+        const client = await register({skipConsent: true});
+        const document = JSON.parse((await siteFetch(site.url, OIDC_DISCOVERY_PATHS[0])).text) as DiscoveryDocument;
+        const request = authorizationRequest(client);
+        const answer = await step(site.url, root, request.url, client);
+        const tokens = JSON.parse((await exchangeCode(site.url, client, paramOf(answer, "code"), request.verifier)).text) as {access_token: string; id_token: string};
+        const {payload} = await verifyIdToken(site.url, tokens.id_token, document.jwks_uri);
+        const sub = (JSON.parse((await fetchUserInfo(site.url, tokens.access_token)).text) as {sub: string}).sub;
+        expect(Object.keys(payload).sort()).toEqual(["acr", "at_hash", "aud", "auth_time", "exp", "iat", "iss", "nonce", "sub"]);
+        expect({iss: payload.iss, sub: payload.sub, aud: payload.aud, acr: payload.acr, nonce: payload.nonce, atHash: payload.at_hash}).toEqual({
+            iss: document.issuer,
+            sub,
+            aud: client.clientId,
+            acr: "0",
+            nonce: request.nonce,
+            atHash: atHash(tokens.access_token),
+        });
+    });
+
+    it("同意过的范围再来不再确认，多要了范围时重新确认；prompt=consent 总显示确认页，免确认的客户端也是（输出 5、13）", async () => {
+        const client = await register();
+        const {request} = await consentRequest(root, client, {scope: "openid profile"});
+        expect((await decidedRedirect(root, request, true)).searchParams.get("code")).not.toBeNull();
+        expect((await step(site.url, root, authorizationRequest(client, {scope: "openid profile"}).url, client)).kind).toBe("redirect-back");
+        expect((await step(site.url, root, authorizationRequest(client, {scope: "openid profile email"}).url, client)).kind).toBe("consent");
+        expect((await step(site.url, root, authorizationRequest(client, {scope: "openid profile", prompt: "consent"}).url, client)).kind).toBe("consent");
+        const trusted = await register({skipConsent: true});
+        expect((await step(site.url, root, authorizationRequest(trusted, {prompt: "consent"}).url, trusted)).kind).toBe("consent");
+    });
+
+    // 超出预算：登录算一次密码哈希。
+    it("prompt=login 有会话也先去登录；登录后的继续地址不再要求登录，去那里拿到授权码（输出 4、13）", async () => {
+        const client = await register({skipConsent: true});
+        const browser = cookieJar();
+        await flow.signIn(browser, "root");
+        const toLogin = await step(site.url, browser, authorizationRequest(client, {prompt: "login"}).url, client);
+        expect(toLogin.kind).toBe("login");
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: browser, continue: paramOf(toLogin, CONTINUE_PARAM)});
+        const answer = await step(site.url, browser, (signedIn.body as LoginResponse).continueUrl ?? "", client);
+        expect({kind: answer.kind, code: answer.location.searchParams.has("code")}).toEqual({kind: "redirect-back", code: true});
+    });
+
+    // 超出预算：登录算一次密码哈希。
+    it("篡改的续接令牌：登录成功，响应不带继续地址（验收 13 的后一半）", async () => {
+        const client = await register({skipConsent: true});
+        const toLogin = await step(site.url, cookieJar(), authorizationRequest(client).url, client);
+        const token = paramOf(toLogin, CONTINUE_PARAM);
+        // 令牌对浏览器不透明；改中间的一个字符就是篡改。不改末尾：base64url 末尾那个字符的低位解码时丢掉，`A` 换成 `B` 解出来
+        // 一样，令牌照样合格。
+        const middle = Math.floor(token.length / 2);
+        const tampered = `${token.slice(0, middle)}${token[middle] === "A" ? "B" : "A"}${token.slice(middle + 1)}`;
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: cookieJar(), continue: tampered});
+        expect({status: signedIn.status, continueUrl: (signedIn.body as LoginResponse).continueUrl}).toEqual({status: 200, continueUrl: undefined});
+    });
+
+    it("确认标识：拒绝带 access_denied 跳回；同一个标识拒绝后再同意拿到码；别的账号提交时按他的会话算（输出 14）", async () => {
+        const client = await register();
+        const {request, authorization} = await consentRequest(root, client);
+        const denied = await decidedRedirect(root, request, false);
+        expect({to: `${denied.origin}${denied.pathname}`, error: denied.searchParams.get("error"), state: denied.searchParams.get("state")}).toEqual({to: CLIENT_REDIRECT, error: "access_denied", state: authorization.state});
+        const accepted = await decidedRedirect(root, request, true);
+        expect((await exchangeCode(site.url, client, accepted.searchParams.get("code") ?? "", authorization.verifier)).status).toBe(200);
+
+        const byOther = await decidedRedirect(other, request, true);
+        const tokens = JSON.parse((await exchangeCode(site.url, client, byOther.searchParams.get("code") ?? "", authorization.verifier)).text) as {access_token: string};
+        expect((JSON.parse((await fetchUserInfo(site.url, tokens.access_token)).text) as {preferred_username?: unknown}).preferred_username).toBe("other");
+    });
+
+    it("确认页打开之后客户端被停用：GET、同意、拒绝都回 404 client_not_found；回调地址被改得不再匹配：都回 400 redirect_uri_invalid（输出 14）", async () => {
+        const cases = [
+            ["停用", {disabled: true}, 404, "client_not_found"],
+            ["改回调地址", {redirectUris: ["https://client.example/new"]}, 400, "redirect_uri_invalid"],
+        ] as const;
+        for (const [label, change, status, code] of cases) {
+            const client = await register();
+            const {request} = await consentRequest(root, client);
+            await patchClient(client, change);
+            const expected = {status, body: {error: {code}}};
+            for (const [kind, response] of [
+                ["GET", await showAuthorization(root, request)],
+                ["同意", await decide(root, request, true)],
+                ["拒绝", await decide(root, request, false)],
+            ] as const) {
+                expect({label, kind, status: response.status, body: response.body}).toEqual({label, kind, ...expected});
+            }
+        }
+    });
+
+    it("公开客户端的 http 回环回调地址换了端口也能拿到授权码，并以 client_id 换出令牌（输出 3、6）", async () => {
+        const registered = await register({type: "public", redirectUris: ["http://127.0.0.1:8123/cb"], skipConsent: true});
+        // 本机应用每次起在不同的端口上（RFC 8252）。
+        const client: RegisteredClient = {...registered, redirectUri: "http://127.0.0.1:49152/cb"};
+        const request = authorizationRequest(client);
+        const answer = await step(site.url, root, request.url, client);
+        expect({kind: answer.kind, to: `${answer.location.origin}${answer.location.pathname}`}).toEqual({kind: "redirect-back", to: "http://127.0.0.1:49152/cb"});
+        expect((await exchangeCode(site.url, client, paramOf(answer, "code"), request.verifier)).status).toBe(200);
+        const localhost = authorizationRequest({...registered, redirectUri: "http://localhost:8123/cb"});
+        const rejected = await step(site.url, root, localhost.url, client);
+        expect({kind: rejected.kind, error: rejected.location.searchParams.get(OAUTH_ERROR_PARAM)}).toEqual({kind: "error", error: "redirect_uri_invalid"});
+    });
+
+    it("停用客户端：它的访问令牌调用户信息得 401，没用掉的授权码换码得 invalid_client（输出 8、16）", async () => {
+        const client = await register({skipConsent: true});
+        const used = authorizationRequest(client);
+        const tokens = JSON.parse((await exchangeCode(site.url, client, paramOf(await step(site.url, root, used.url, client), "code"), used.verifier)).text) as {access_token: string};
+        const pending = authorizationRequest(client);
+        const code = paramOf(await step(site.url, root, pending.url, client), "code");
+        await patchClient(client, {disabled: true});
+        expect((await fetchUserInfo(site.url, tokens.access_token)).status).toBe(401);
+        expect((JSON.parse((await exchangeCode(site.url, client, code, pending.verifier)).text) as {error?: unknown}).error).toBe("invalid_client");
+    });
+
+    it("换密钥后旧密钥换码得 invalid_client，新密钥换得出（输出 9）", async () => {
+        const client = await register({skipConsent: true});
+        const rotated = await identityRequest(site.url, identityPath.adminOAuthClientRotate(client.clientId), {method: "POST", jar: root, from: flow.from()});
+        expect({status: rotated.status, shape: Value.Check(RotateSecretResponse, rotated.body)}).toEqual({status: 200, shape: true});
+        const renewed: RegisteredClient = {...client, clientSecret: (rotated.body as RotateSecretResponse).clientSecret};
+        const first = authorizationRequest(client);
+        const firstCode = paramOf(await step(site.url, root, first.url, client), "code");
+        expect((JSON.parse((await exchangeCode(site.url, client, firstCode, first.verifier)).text) as {error?: unknown}).error).toBe("invalid_client");
+        const second = authorizationRequest(client);
+        expect((await exchangeCode(site.url, renewed, paramOf(await step(site.url, root, second.url, client), "code"), second.verifier)).status).toBe(200);
+    });
+});
+
+describe("id_token 的 auth_time（验收 13）", () => {
+    let flow: FlowSite;
+
+    beforeAll(async () => {
+        flow = await startFlowSite(["root"]);
+        await flow.signIn(cookieJar(), "root");
+    }, SETUP_TIMEOUT_MS);
+
+    // 超出预算：登录算一次密码哈希。
+    it("是续接的那次登录的时间，不是换码的时间", async () => {
+        const {site} = flow;
+        const root = cookieJar();
+        await flow.signIn(root, "root");
+        const client = await registerOAuthClient(site.url, root, flow.from(), clientBody({skipConsent: true}));
+        const browser = cookieJar();
+        const request = authorizationRequest(client);
+        const toLogin = await step(site.url, browser, request.url, client);
+        const before = await site.advanceClock(1);
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: browser, continue: paramOf(toLogin, CONTINUE_PARAM)});
+        const after = await site.advanceClock(1);
+        // 登录与换码之间拨过 5 分钟：auth_time 取自换码时的时间就落在登录的区间之外。
+        await site.advanceClock(5 * 60_000);
+        const answer = await step(site.url, browser, (signedIn.body as LoginResponse).continueUrl ?? "", client);
+        const tokens = JSON.parse((await exchangeCode(site.url, client, paramOf(answer, "code"), request.verifier)).text) as {id_token: string};
+        const document = JSON.parse((await siteFetch(site.url, OIDC_DISCOVERY_PATHS[0])).text) as DiscoveryDocument;
+        const authTime = (await verifyIdToken(site.url, tokens.id_token, document.jwks_uri)).payload.auth_time as number;
+        expect({authTime, inLogin: authTime >= Math.floor(before / 1000) && authTime <= Math.ceil(after / 1000)}).toEqual({authTime, inLogin: true});
+    });
+});
+
+describe("续接令牌与确认标识过了 10 分钟（验收 13、输出 14）", () => {
+    let flow: FlowSite;
+
+    beforeAll(async () => {
+        flow = await startFlowSite(["root"]);
+    }, SETUP_TIMEOUT_MS);
+
+    // 超出预算：登录算两次密码哈希。
+    it("登录成功、响应不带继续地址；确认页的 GET、同意、拒绝都回 410 authorization_expired", async () => {
+        const {site} = flow;
+        const root = cookieJar();
+        await flow.signIn(root, "root");
+        const client = await registerOAuthClient(site.url, root, flow.from(), clientBody());
+        const toLogin = await step(site.url, cookieJar(), authorizationRequest(client).url, client);
+        const toConsent = await step(site.url, root, authorizationRequest(client).url, client);
+        expect([toLogin.kind, toConsent.kind]).toEqual(["login", "consent"]);
+        const request = paramOf(toConsent, OAUTH_REQUEST_PARAM);
+        await site.advanceClock(10 * 60_000 + 1);
+
+        const signedIn = await login(site.url, "root", PASSWORD, {from: flow.from(), jar: cookieJar(), continue: paramOf(toLogin, CONTINUE_PARAM)});
+        expect({status: signedIn.status, continueUrl: (signedIn.body as LoginResponse).continueUrl}).toEqual({status: 200, continueUrl: undefined});
+        const expired = {status: 410, body: {error: {code: "authorization_expired"}}};
+        const shown = await identityRequest(site.url, `${IDENTITY_PATHS.oauthAuthorization}?${new URLSearchParams({[OAUTH_REQUEST_PARAM]: request})}`, {jar: root, from: flow.from()});
+        expect({status: shown.status, body: shown.body}).toEqual(expired);
+        for (const accept of [true, false]) {
+            const decided = await identityRequest(site.url, IDENTITY_PATHS.oauthAuthorization, {method: "POST", jar: root, from: flow.from(), body: {request, accept}});
+            expect({accept, status: decided.status, body: decided.body}).toEqual({accept, ...expired});
+        }
     });
 });

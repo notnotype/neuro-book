@@ -1,7 +1,8 @@
 /**
  * 挂载层（`oauth/mount.ts`）与发现文档（`oauth/discovery.ts`）经入口同样的挂法（`TestIdentity.request`）的可观察结果：只有
- * `site.oauth-provider` 输入表里的“方法加路径”可达，其余是本模块的 404；HEAD 只给公钥与发现文档；请求体上限；令牌端点只收表单、
- * 去掉 `resource`、撞会话外键回 `invalid_grant`。
+ * `site.oauth-provider` 输入表里的“方法加路径”可达，其余是本模块的 404；HEAD 只给公钥与发现文档；请求体上限；授权端点的第 1 步、
+ * 去掉 `resource` 与 `claims`、POST 与 GET 同一套、库的跳转改写（库的错误页不外露）；令牌端点只收表单、去掉 `resource`、撞会话外键
+ * 回 `invalid_grant`。
  *
  * 期望的可达清单照 Spec 的输入表写成字面量，不从 `LIBRARY_PUBLIC_ENDPOINTS` 取：守卫防的就是那张表被放宽。
  */
@@ -10,7 +11,17 @@ import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 import {Hono} from "hono";
 import {Value} from "typebox/value";
 
-import {DiscoveryDocument, IDENTITY_AUTH_PREFIX, OAUTH_ENDPOINT_PATHS, OIDC_DISCOVERY_PATHS} from "@notnotype/nb-site-identity-contract";
+import {
+    CreateOAuthClientResponse,
+    DiscoveryDocument,
+    IDENTITY_AUTH_PREFIX,
+    IDENTITY_PATHS,
+    identityPath,
+    OAUTH_ENDPOINT_PATHS,
+    OAUTH_PAGES,
+    OIDC_DISCOVERY_PATHS,
+} from "@notnotype/nb-site-identity-contract";
+
 
 import {TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, type TestIdentity} from "../testing/module";
@@ -114,7 +125,7 @@ describe("白名单", () => {
     it("社交回调只放开放了的上游、只收 GET", async () => {
         // 产品的装配还没有开放任何上游（配置在计划 3.12）；这里另建一个开放了 Google 的挂载层，挂法与入口相同。
         const app = new Hono();
-        app.route(IDENTITY_AUTH_PREFIX, createOAuthApp({auth: identity.assembly.auth, log: identity.log, socialProviders: ["google"]}));
+        app.route(IDENTITY_AUTH_PREFIX, createOAuthApp({auth: identity.assembly.auth, conn: identity.conn, siteOrigin: TEST_SITE_URL, log: identity.log, socialProviders: ["google"]}));
         const send = (method: string, provider: string) => app.fetch(new Request(`${TEST_SITE_URL}${IDENTITY_AUTH_PREFIX}/callback/${provider}`, {method}));
         // 开放了的上游交库：没有 state 时库把人带去它的错误页（这一步的改写在第 8 片）。
         expect((await send("GET", "google")).status).toBe(302);
@@ -178,6 +189,136 @@ describe("授权端点的 POST", () => {
             const response = await identity.request(OAUTH_ENDPOINT_PATHS.authorize, {method: "POST", headers, body});
             expect({contentType, status: response.status, body: await response.json()}).toEqual({contentType, status: 404, body: NOT_FOUND});
         }
+    });
+});
+
+describe("授权端点的判断与改写", () => {
+    /** 三种发起：浏览器导航的 GET、页面里 `fetch` 的 GET（库对它回 JSON 而不是 302）、表单 POST（别的站点发起）。 */
+    const KINDS = ["GET", "fetch", "POST"] as const;
+
+    function params(target: {readonly clientId: string}, extra: Readonly<Record<string, string>> = {}, redirectUri = TEST_REDIRECT_URI): URLSearchParams {
+        return new URLSearchParams({
+            response_type: "code",
+            client_id: target.clientId,
+            redirect_uri: redirectUri,
+            scope: "openid",
+            state: "s",
+            code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            code_challenge_method: "S256",
+            ...extra,
+        });
+    }
+
+    /** 发起授权，回状态与跳转的去处。都带 alice 的会话 Cookie：带着会话也不该跳回不可信的地址。 */
+    async function send(kind: (typeof KINDS)[number], query: URLSearchParams | string, headers: Readonly<Record<string, string>> = {cookie}): Promise<{readonly status: number; readonly location: string | null}> {
+        const response =
+            kind === "POST"
+                ? await identity.request(OAUTH_ENDPOINT_PATHS.authorize, {method: "POST", headers: {"content-type": FORM, origin: "https://client.example", ...headers}, body: query.toString()})
+                : await identity.request(`${OAUTH_ENDPOINT_PATHS.authorize}?${query}`, {headers: kind === "fetch" ? {"sec-fetch-mode": "cors", ...headers} : headers});
+        return {status: response.status, location: response.headers.get("location")};
+    }
+
+    const codeOf = (location: string | null, redirectUri = TEST_REDIRECT_URI): string | null =>
+        location?.startsWith(`${redirectUri}?`) === true ? new URL(location).searchParams.get("code") : null;
+
+    async function admin(): Promise<string> {
+        return (await identity.issue(await identity.addUser("root", {role: "admin", ...CONSENTED}))).cookie;
+    }
+
+    function adminSend(adminCookie: string, method: "POST" | "PATCH", path: string, body: unknown): Promise<Response> {
+        return identity.fetch(path, {method, headers: {origin: TEST_SITE_URL, "content-type": "application/json", cookie: adminCookie}, body: JSON.stringify(body)});
+    }
+
+    it("客户端不对、回调地址不对：不跳回客户端，三种发起都到本站错误页，库的错误页地址不出现（输出 3，验收 4）", async () => {
+        const disabled = await registerClient(identity, "admin2");
+        expect((await adminSend(await admin(), "PATCH", identityPath.adminOAuthClient(disabled.clientId), {disabled: true})).status).toBe(200);
+        const missingClient = params(client);
+        missingClient.delete("client_id");
+        const cases: ReadonlyArray<readonly [label: string, query: URLSearchParams | string, code: string]> = [
+            ["没有这个客户端", params({clientId: "no-such-client"}), "client_not_found"],
+            ["停用了", params(disabled), "client_not_found"],
+            ["没带客户端", missingClient, "client_not_found"],
+            ["客户端出现两次", `${params(client)}&client_id=${client.clientId}`, "client_not_found"],
+            ["回调地址没登记", params(client, {}, "https://client.example/other"), "redirect_uri_invalid"],
+            ["回调地址带了片段", params(client, {}, `${TEST_REDIRECT_URI}#`), "redirect_uri_invalid"],
+            ["回调地址出现两次", `${params(client)}&redirect_uri=${encodeURIComponent(TEST_REDIRECT_URI)}`, "redirect_uri_invalid"],
+        ];
+        for (const [label, query, code] of cases) {
+            for (const kind of KINDS) {
+                expect({label, kind, ...(await send(kind, query))}).toEqual({label, kind, status: 302, location: `${OAUTH_PAGES.consent}?error=${code}`});
+            }
+        }
+    });
+
+    it("回调地址可信时库判出的错误跳回客户端，带 state；fetch 发起也回 302，不是库的 JSON", async () => {
+        for (const kind of KINDS) {
+            const {status, location} = await send(kind, params(client, {scope: "profile"}));
+            const back = new URL(location ?? "");
+            expect({kind, status, to: `${back.origin}${back.pathname}`, error: back.searchParams.get("error"), state: back.searchParams.get("state")}).toEqual({
+                kind,
+                status: 302,
+                to: TEST_REDIRECT_URI,
+                error: "invalid_scope",
+                state: "s",
+            });
+        }
+    });
+
+    it("没有会话时三种发起都到 /login?continue=，不是库的签名参数地址", async () => {
+        for (const kind of KINDS) {
+            const {status, location} = await send(kind, params(client), {});
+            const page = new URL(location ?? "", TEST_SITE_URL);
+            expect({kind, status, path: page.pathname, params: [...page.searchParams.keys()]}).toEqual({kind, status: 302, path: OAUTH_PAGES.login, params: ["continue"]});
+        }
+    });
+
+    it("resource 与 claims 交库前去掉：不认得的 resource、不是 JSON 的 claims、要求 acr 的 claims，GET 与 POST 都拿到授权码（输出 3）", async () => {
+        const extras: ReadonlyArray<Readonly<Record<string, string>>> = [{resource: "https://unknown.example/api"}, {claims: "not-json"}, {claims: JSON.stringify({id_token: {acr: {essential: true, value: "1"}}})}];
+        for (const extra of extras) {
+            for (const kind of ["GET", "POST"] as const) {
+                const {location} = await send(kind, params(client, extra));
+                expect({extra, kind, code: codeOf(location) !== null}).toEqual({extra, kind, code: true});
+            }
+        }
+    });
+
+    it("授权请求带用户信息端点的 resource：换出的访问令牌仍不透明（库按 resource 会发 JWT）", async () => {
+        const verifier = "a".repeat(43);
+        const challenge = new Bun.CryptoHasher("sha256").update(verifier).digest("base64url");
+        const {location} = await send("GET", params(client, {resource: `${TEST_SITE_URL}${OAUTH_ENDPOINT_PATHS.userinfo}`, code_challenge: challenge}));
+        const code = codeOf(location);
+        if (code === null) throw new Error("expected a code");
+        const response = await exchangeViaMount({code, verifier});
+        expect(response.status).toBe(200);
+        expect(((await response.json()) as {access_token: string}).access_token.split(".")).toHaveLength(1);
+    });
+
+    it("POST 改成 GET 交库：带会话 Cookie 而不带 Origin、或 Origin 是别的站点，都与 GET 一样拿到授权码", async () => {
+        const noOrigin = await identity.request(OAUTH_ENDPOINT_PATHS.authorize, {method: "POST", headers: {"content-type": FORM, cookie}, body: params(client).toString()});
+        expect(codeOf(noOrigin.headers.get("location"))).not.toBeNull();
+        expect(codeOf((await send("POST", params(client))).location)).not.toBeNull();
+        // POST 时地址上的查询串不算：参数只看表单体（与库对 POST 只读体一致）。
+        const queryOnly = await identity.request(`${OAUTH_ENDPOINT_PATHS.authorize}?${params(client)}`, {method: "POST", headers: {"content-type": FORM, cookie}, body: ""});
+        expect(queryOnly.headers.get("location")).toBe(`${OAUTH_PAGES.consent}?error=client_not_found`);
+    });
+
+    it("公开客户端的 http 回环回调地址不比端口；主机、路径仍逐字比，localhost 与 127.0.0.1 不相等（输出 3）", async () => {
+        const created = await adminSend(await admin(), "POST", IDENTITY_PATHS.adminOAuthClients, {name: "本机应用", redirectUris: ["http://127.0.0.1:8123/cb"], type: "public", skipConsent: true});
+        expect(created.status).toBe(200);
+        const body = await created.json();
+        expect(Value.Check(CreateOAuthClientResponse, body)).toBe(true);
+        const publicClient = (body as CreateOAuthClientResponse).client;
+        for (const redirectUri of ["http://127.0.0.1:8123/cb", "http://127.0.0.1:49152/cb", "http://127.0.0.1/cb"]) {
+            const {location} = await send("GET", params(publicClient, {}, redirectUri));
+            expect({redirectUri, code: codeOf(location, redirectUri) !== null}).toEqual({redirectUri, code: true});
+        }
+        for (const redirectUri of ["http://localhost:8123/cb", "http://127.0.0.1:8123/other", "https://127.0.0.1:8123/cb"]) {
+            for (const kind of KINDS) {
+                expect({redirectUri, kind, ...(await send(kind, params(publicClient, {}, redirectUri)))}).toEqual({redirectUri, kind, status: 302, location: `${OAUTH_PAGES.consent}?error=redirect_uri_invalid`});
+            }
+        }
+        // 机密客户端（库的 `web`）照样逐字比：登记值没有端口变化的余地，换主机大小写也不算。
+        expect((await send("GET", params(client, {}, "https://CLIENT.example/cb"))).location).toBe(`${OAUTH_PAGES.consent}?error=redirect_uri_invalid`);
     });
 });
 

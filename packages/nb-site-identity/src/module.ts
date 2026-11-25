@@ -12,6 +12,8 @@ import type {IdentityConnection, IdentityTimers} from "./db/connection";
 import {HashLimiter, type FailureFloorTiming} from "./hash-limiter";
 import type {IdentityLog} from "./index";
 import {dummyPasswordHash} from "./login";
+import {type ConsentDecision} from "./oauth/consent-api";
+import {resolveContinue, type ContinueResolver} from "./oauth/continue";
 import {buildDiscoveryDocument, createWellKnownApp} from "./oauth/discovery";
 import {createOAuthApp} from "./oauth/mount";
 import {prepareSigningKey} from "./oauth/signing-key";
@@ -62,6 +64,8 @@ export interface IdentityOverrides {
     readonly hashTimers?: IdentityTimers;
     /** 包一层发会话：用来在库的事务开着时插入动作。 */
     readonly wrapIssueSession?: (issue: Sessions["issue"]) => Sessions["issue"];
+    /** 包一层确认页接口交库的那一步：用来在接口判完客户端、库还没判之间改客户端（`oauth/consent-api.ts`）。 */
+    readonly wrapOAuthConsent?: (decide: ConsentDecision) => ConsentDecision;
 }
 
 export interface IdentityAssembly {
@@ -91,8 +95,16 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     await prepareSigningKey({context, conn, jwtOptions: identityJwtOptions(options.siteUrl), log});
     // 发现文档里的签名算法以上一步的检查为前提，所以在它之后生成。
     const wellKnown = createWellKnownApp(await buildDiscoveryDocument(auth), log);
+    const siteOrigin = new URL(options.siteUrl).origin;
     // 社交上游的开关由配置给（计划 3.12），配置还没有这一项：都不开放，回调地址一律 404。
-    const oauth = createOAuthApp({auth, log, socialProviders: []});
+    const oauth = createOAuthApp({auth, conn, siteOrigin, log, socialProviders: []});
+    // 续接令牌与确认标识是库签名的参数，验签用库上下文的 `secret`（`oauth/continue.ts`）；10 分钟按模块时钟。
+    const {secret} = context;
+    const continueResolver: ContinueResolver = (token, consumer) => resolveContinue(token, clock.now(), consumer, secret);
+    const decide: ConsentDecision = async (accept, signedQuery, cookie) => {
+        const headers = new Headers(cookie === null ? {} : {cookie});
+        return (await auth.api.oauth2Consent({body: {accept, oauth_query: signedQuery}, headers})).url;
+    };
 
     const sessions = new Sessions({auth, conn, clock, sessionDays: config.sessionDays, termsVersion: config.termsVersion, log});
     const passwords = overrides.passwords ?? REAL_PASSWORD_FUNCTIONS;
@@ -104,7 +116,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     const issueSession = overrides.wrapIssueSession?.(issue) ?? issue;
     const site = createIdentityApp({
         sessions,
-        siteOrigin: new URL(options.siteUrl).origin,
+        siteOrigin,
         termsVersion: config.termsVersion,
         registrationOpen: config.registrationOpen,
         log,
@@ -121,6 +133,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             dummyHash,
             delay: overrides.loginDelay ?? ((ms) => Bun.sleep(ms)),
             failureFloor: overrides.failureFloor ?? {},
+            resolveContinue: continueResolver,
         },
         register: {
             conn,
@@ -143,6 +156,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
         adminInviteCodes: {sessions, conn, clock},
         audit: {sessions, conn},
         adminOAuthClients: {sessions, conn, clock, log, auth, adapter: context.adapter},
+        oauthConsent: {sessions, conn, clock, log, siteOrigin, secret, decide: overrides.wrapOAuthConsent?.(decide) ?? decide},
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。

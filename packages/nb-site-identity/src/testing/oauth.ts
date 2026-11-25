@@ -39,8 +39,13 @@ export function libraryRequest(identity: TestIdentity, path: string, init?: Requ
     return identity.assembly.auth.handler(new Request(`${TEST_SITE_URL}${LIB_BASE_PATH}${path}`, init));
 }
 
-/** 建一个管理员、以他的会话登记一个机密客户端（`client_secret_basic`，跳过确认）。 */
-export async function registerClient(identity: TestIdentity, name = "admin"): Promise<TestClient> {
+export interface TestClientOptions {
+    /** 缺省跳过确认；给 `false` 时授权会经确认页（`oauth/consent-api.ts`）。 */
+    readonly skipConsent?: boolean;
+}
+
+/** 建一个管理员、以他的会话登记一个机密客户端（`client_secret_basic`，缺省跳过确认）。`name` 是管理员的用户名。 */
+export async function registerClient(identity: TestIdentity, name = "admin", options: TestClientOptions = {}): Promise<TestClient> {
     const adminId = await identity.addUser(name, {role: "admin", ...CONSENTED});
     const {cookie} = await identity.issue(adminId);
     const created = await identity.assembly.auth.api.adminCreateOAuthClient({
@@ -49,7 +54,7 @@ export async function registerClient(identity: TestIdentity, name = "admin"): Pr
             client_name: "测试客户端",
             redirect_uris: [TEST_REDIRECT_URI],
             token_endpoint_auth_method: "client_secret_basic",
-            skip_consent: true,
+            skip_consent: options.skipConsent ?? true,
             scope: "openid profile email",
         },
     });

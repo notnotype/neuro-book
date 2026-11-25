@@ -109,9 +109,16 @@ export interface Step {
 /**
  * 以浏览器的身份 GET 一次 `url`（站点地址），不跟随跳转，按 `Location` 归类：跳回客户端的回调地址、站点的登录页、站点同意页、
  * 授权确认页（带确认标识）、授权确认页上的错误（带 `error`）。不是跳转或不在这五类里时抛错，错误里带状态与目标。
+ *
+ * 给了 `form` 时改为 POST：`url` 是授权端点，参数在表单体里，`Origin` 是客户端回调地址的 origin（客户端的页面提交的表单，
+ * `site.oauth-provider` 输出 3）。浏览器跨站 POST 不带站点的 `SameSite=Lax` 会话 Cookie，要模拟它就给一个空的 `jar`。
  */
-export async function step(processUrl: string, jar: CookieJar, url: string, client: RegisteredClient): Promise<Step> {
-    const response = await siteFetch(processUrl, url, {jar});
+export async function step(processUrl: string, jar: CookieJar, url: string, client: RegisteredClient, form?: URLSearchParams): Promise<Step> {
+    const init: SiteFetchInit =
+        form === undefined
+            ? {jar}
+            : {jar, method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded", Origin: new URL(client.redirectUri).origin}, body: form.toString()};
+    const response = await siteFetch(processUrl, url, init);
     const target = response.headers.get("location");
     if (response.status < 300 || response.status >= 400 || target === null) throw new Error(`${url} answered ${String(response.status)} without a redirect`);
     const location = new URL(target, SANDBOX_SITE_URL);
