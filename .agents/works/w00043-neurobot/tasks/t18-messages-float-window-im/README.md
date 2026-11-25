@@ -20,14 +20,15 @@ updated: 2026-11-25
 ## 开发者的决定
 
 1. 第 3 条按“浮动窗里自绘整个头、停靠不变”走（2026-11-25 答“同意”）；第 1 条直接做，第 2、3 条出静态稿，定了再写 Spec 与计划。
+2. 评审板第 1 轮（开发者 2026-11-25，两题都按推荐）：浮动窗的头用自绘头（列表栏通到顶，对话头那一行就是窗口头，“回到停靠”在右上角、排在“⋯”后面，两栏第一行等高）；bot 与会话的切换用标题式（没有横线，当前页靠字重与颜色区分，未读数跟在“Bot”后面，收起按钮在这一行右端）。
 
 ## 当前状态
 
 - 2026-11-25 经 nbdev 新建。
-- 评审板第 1 轮已发布（[`artifacts/review/index.html`](artifacts/review/index.html)，`06682d240`）：窗口头（现状、自绘头）与切换控件（现状的下划线标签、标题式、分段）两题，等开发者答。草稿在草稿 worktree `.worktree/w00043-t18-drafts`（分支 `w00043-t18/drafts`，不合并），Lab 组件 `MessagesWindow`。
+- 评审板第 1 轮（[`artifacts/review/index.html`](artifacts/review/index.html)，`06682d240`）两题已答，见决定 2。草稿在草稿 worktree `.worktree/w00043-t18-drafts`（分支 `w00043-t18/drafts`，不合并），Lab 组件 `MessagesWindow`。
 - 第 1 条尚未开工。
 
 ## 下一步
 
-- 读评审板的答复，记进“开发者的决定”；定了之后写 Spec（planned）与 `plan.md`。
+- 第 2、3 条：写 Spec（planned）与 `plan.md`，交开发者确认后实施。
 - 第 1 条：在 Work 的 worktree 里实现，先验证 `Splitter` 加挪动列表的做法。
