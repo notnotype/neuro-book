@@ -301,7 +301,7 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         expect(outcome(await sendReport(site.url, "daily", undefined, {body: over, headers: {"Content-Type": "text/plain"}}))).toEqual(invalid(null));
     });
 
-    it("C12 内容类型不是 application/json、不止一个媒体类型、或带压缩：400，field 为 null；带参数（含带引号的）与大小写不同的 application/json、identity 编码照收（输入一节，输出 12）", async () => {
+    it("C12 内容类型不是 application/json、不止一个媒体类型、参数的引号不闭合、或带压缩：400，field 为 null；带参数（含带引号的）与大小写不同的 application/json、identity 编码照收（输入一节，输出 12）", async () => {
         const rejected = await Promise.all(
             (
                 [
@@ -321,6 +321,9 @@ describe("写入口的回应（协议输出 1 到 9、11、12，Smoke）", () =>
         // 请求里有两个 Content-Type 头，第一个带参数。
         const twoHeaders = await sendRawReport(site.url, "daily", dailyReport(), ["Content-Type: application/json; charset=utf-8", "Content-Type: text/plain"]);
         expect(twoHeaders).toEqual(invalid(null));
+        // 第一个头的参数里引号没闭合：两个头合并之后，逗号与第二个类型都落在“引号里”。
+        const unclosedQuote = await sendRawReport(site.url, "daily", dailyReport(), ['Content-Type: application/json; foo="unclosed', "Content-Type: text/plain"]);
+        expect(unclosedQuote).toEqual(invalid(null));
 
         const accepted = await Promise.all(
             (
@@ -546,6 +549,8 @@ describe("原始上报到期删除（site.telemetry-ingest 输出 3，验收 1�
         await site.advanceClock(day * DAY_MS + 60_000 - (await serverNow(site)));
     }
 
+    // C15 守期限与重发状态。“删掉的内容不留在库文件与 WAL 里”的字节判据由包内的 `nb-site-telemetry/src/purge.test.ts` 负责：
+    // 这里只有一份上报，删除之前它不一定落在之后不会被覆盖的 WAL 帧里，把截断检查点换成被动检查点时这条照样通过。
     it("C15 保留 7 天：拨到第 7 天跑 purge，数据目录里还找得到上报编号、重发是重发；拨到第 8 天跑 purge，找不到、重发不是重发", async () => {
         const report = {...dailyReport(), reportId: newReportId()};
         const recorded = await sendReport(site.url, "daily", report);

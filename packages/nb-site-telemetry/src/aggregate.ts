@@ -36,8 +36,13 @@ export type AggregateSource = "daily" | "event";
 export const AGGREGATE_SOURCES: readonly AggregateSource[] = ["daily", "event"];
 
 export interface Aggregator {
-    /** 算一批；返回这一批的行数，0 表示已经追平。同步，自己是一个事务；出错时整批回滚，照原样抛出。 */
-    aggregateBatch(source: AggregateSource): number;
+    /**
+     * 算一批；返回这一批的行数，0 表示已经追平。同步，自己是一个事务；出错时整批回滚，照原样抛出。
+     *
+     * `through` 是这一批可取的最大编号，缺省不设上界。只有 `purge` 的“删除之前先聚合”给它（到期行里最大的编号）：
+     * 不设时一批不足 n 行会接着取截止日之后的行，那些行出错时整批回滚，到期的行随后照删，就没进聚合。
+     */
+    aggregateBatch(source: AggregateSource, through?: number): number;
     /** 游标：已经算进聚合的最后一行的编号。 */
     cursor(source: AggregateSource): number;
 }
@@ -120,11 +125,21 @@ type BatchParams = {
     readonly $overflow: string;
 };
 
+/** 选出一批的参数：`$from` 是游标，`$through` 是可取的最大编号。 */
+type SelectParams = {
+    readonly $from: number;
+    readonly $through: number;
+    readonly $limit: number;
+};
+
+/** `aggregateBatch` 没给上界时的 `$through`：大于任何一个编号（SQLite 的整数编号远小于它），等于不设上界。 */
+const NO_UPPER_BOUND = Number.MAX_SAFE_INTEGER;
+
 interface SourceStatements {
     /** 这一批：选出的行数与最后一行的编号。 */
-    readonly bounds: Statement<{rows: number; last: number | null}, [{$from: number; $limit: number}]>;
+    readonly bounds: Statement<{rows: number; last: number | null}, [SelectParams]>;
     /** 这一批里出现的（服务端日，版本），按首次出现的编号排。 */
-    readonly versions: Statement<{day: number; version: string}, [{$from: number; $limit: number}]>;
+    readonly versions: Statement<{day: number; version: string}, [SelectParams]>;
     readonly known: Statement<{version: string}, [{$day: number}]>;
     readonly writes: readonly Statement<unknown, [BatchParams]>[];
 }
@@ -138,10 +153,10 @@ export function createAggregator(db: Database, batchRows: number = AGGREGATE_BAT
     const writeCursor = db.query<unknown, [{$source: string; $last: number}]>("UPDATE telemetry_aggregate_cursor SET last_id = $last WHERE source = $source");
 
     const prepare = (source: AggregateSource): SourceStatements => {
-        const batch = `SELECT id, server_day, app_version FROM telemetry_${source}_raw WHERE id > $from ORDER BY id LIMIT $limit`;
+        const batch = `SELECT id, server_day, app_version FROM telemetry_${source}_raw WHERE id > $from AND id <= $through ORDER BY id LIMIT $limit`;
         return {
-            bounds: db.query<{rows: number; last: number | null}, [{$from: number; $limit: number}]>(`SELECT count(*) AS rows, max(id) AS last FROM (${batch})`),
-            versions: db.query<{day: number; version: string}, [{$from: number; $limit: number}]>(`SELECT server_day AS day, app_version AS version FROM (${batch}) GROUP BY server_day, app_version ORDER BY min(id)`),
+            bounds: db.query<{rows: number; last: number | null}, [SelectParams]>(`SELECT count(*) AS rows, max(id) AS last FROM (${batch})`),
+            versions: db.query<{day: number; version: string}, [SelectParams]>(`SELECT server_day AS day, app_version AS version FROM (${batch}) GROUP BY server_day, app_version ORDER BY min(id)`),
             known: db.query<{version: string}, [{$day: number}]>(KNOWN_VERSIONS[source]),
             writes: (source === "daily" ? DAILY_STATEMENTS : EVENT_STATEMENTS).map((sql) => db.query<unknown, [BatchParams]>(sql)),
         };
@@ -156,11 +171,11 @@ export function createAggregator(db: Database, batchRows: number = AGGREGATE_BAT
     };
 
     /** 这一批里要记成 `other` 的（服务端日，版本）：每一天先数已有的真实版本，新版本按首次出现的顺序占剩下的名额。 */
-    const overflowOf = (source: AggregateSource, from: number): [number, string][] => {
+    const overflowOf = (source: AggregateSource, select: SelectParams): [number, string][] => {
         const {versions, known} = statements[source];
         const admitted = new Map<number, Set<string>>();
         const overflow: [number, string][] = [];
-        for (const {day, version} of versions.all({$from: from, $limit: batchRows})) {
+        for (const {day, version} of versions.all(select)) {
             let seen = admitted.get(day);
             if (seen === undefined) {
                 seen = new Set(known.all({$day: day}).map((row) => row.version));
@@ -173,18 +188,19 @@ export function createAggregator(db: Database, batchRows: number = AGGREGATE_BAT
         return overflow;
     };
 
-    const batch = db.transaction((source: AggregateSource): number => {
+    const batch = db.transaction((source: AggregateSource, through: number): number => {
         const from = cursor(source);
         const {bounds, writes} = statements[source];
-        const {rows, last} = bounds.get({$from: from, $limit: batchRows}) ?? {rows: 0, last: null};
+        const select: SelectParams = {$from: from, $through: through, $limit: batchRows};
+        const {rows, last} = bounds.get(select) ?? {rows: 0, last: null};
         if (last === null) return 0;
-        const params: BatchParams = {$from: from, $to: last, $overflow: JSON.stringify(overflowOf(source, from))};
+        const params: BatchParams = {$from: from, $to: last, $overflow: JSON.stringify(overflowOf(source, select))};
         for (const write of writes) write.run(params);
         writeCursor.run({$source: source, $last: last});
         return rows;
     });
 
-    return {aggregateBatch: (source) => batch(source), cursor};
+    return {aggregateBatch: (source, through = NO_UPPER_BOUND) => batch(source, through), cursor};
 }
 
 /**

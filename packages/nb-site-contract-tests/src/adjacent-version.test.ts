@@ -10,7 +10,7 @@
  * 上报按收集清单第 1 版造：上一个版本只认识它发布时的清单，第 1 版是哪个版本都认识的。
  * 登录（验收 2 的“登录可用”）等账号模块有了接口（t07）再加进来。
  *
- * 时间预算：起停进程、跨进程的一串读写放在 `beforeAll` 里；用例只发请求、断言记下的结果。
+ * 时间预算与顺序：起停进程、跨进程的一串读写都放在 `beforeAll` 里；用例只断言记下的结果，不发请求，打乱顺序也不互相影响。
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
@@ -75,24 +75,31 @@ async function stopCleanly(site: SiteProcess, what: string): Promise<void> {
 }
 
 describe.skipIf(previous === undefined)(title, () => {
+    /**
+     * 一条有序的场景：交给上一个版本、它接着加聚合、重发与新记入、拨钟跑两个任务。后面的步骤会改变前面的前提（拨钟、
+     * 删掉本版本记入的那一份），所以每一步都在 `beforeAll` 里按顺序做、记下结果，用例只断言记下的结果，打乱用例的顺序
+     * （`--randomize`）也不受影响。
+     */
     describe("本版本迁移并写过的数据目录交给上一个版本", () => {
         let migrated: CommandResult;
         let recorded: IngestResponse;
         let aggregatedByCurrent: JsonResponse;
         let countByCurrent: number;
-        let report: Report;
         let site: SiteProcess;
         let ready: unknown;
         let recordedByPrevious: IngestResponse | undefined;
         let aggregatedByPrevious: JsonResponse | undefined;
         let countAfterPrevious: number | undefined;
+        let resentToPrevious: IngestResponse | undefined;
+        let newToPrevious: IngestResponse | undefined;
+        let jobsAfterRetention: {aggregate: JsonResponse; purge: JsonResponse; resent: IngestResponse} | undefined;
 
         beforeAll(async () => {
             const dataDir = await sandbox.dataDir();
             migrated = await sandbox.run("migrate", {dataDir});
             if (migrated.exitCode !== 0) throw new Error(`migrate with this version failed:\n${migrated.stderr}`);
             const current = await startReady({dataDir});
-            report = {...firstManifestReport(), appVersion: HANDOVER_APP_VERSION};
+            const report = {...firstManifestReport(), appVersion: HANDOVER_APP_VERSION};
             recorded = await sendReport(current.url, "daily", report);
             // 交出去的数据目录里要有本版本写过的聚合与推过的游标，上一个版本才走到“在已有的行上累加、从非 0 的游标往后取”。
             aggregatedByCurrent = await current.runJob("telemetry", "aggregate");
@@ -104,6 +111,22 @@ describe.skipIf(previous === undefined)(title, () => {
                 recordedByPrevious = await sendReport(site.url, "daily", {...firstManifestReport(), appVersion: HANDOVER_APP_VERSION});
                 aggregatedByPrevious = await site.runJob("telemetry", "aggregate");
                 countAfterPrevious = aggregatedDailyReports(dataDir, HANDOVER_APP_VERSION);
+            }
+            if (!withoutIngest) {
+                resentToPrevious = await sendReport(site.url, "daily", report);
+                newToPrevious = await sendReport(site.url, "daily", firstManifestReport());
+            }
+            if (!withoutIngest && !withoutJobs) {
+                const {serverDay} = recorded.body as {readonly serverDay: string};
+                const day = Date.parse(`${serverDay}T00:00:00Z`) / DAY_MS;
+                const now = await site.advanceClock(1);
+                // 拨到记入那天往后第 8 天的开头之后一分钟：超过最长的保留期 7 天（`site.telemetry-ingest` 的配置），这一串步骤跑多久都不会跨天。
+                await site.advanceClock((day + 8) * DAY_MS + 60_000 - now);
+                jobsAfterRetention = {
+                    aggregate: await site.runJob("telemetry", "aggregate"),
+                    purge: await site.runJob("telemetry", "purge"),
+                    resent: await sendReport(site.url, "daily", report),
+                };
             }
         }, SETUP_TIMEOUT_MS);
 
@@ -129,50 +152,51 @@ describe.skipIf(previous === undefined)(title, () => {
             });
         });
 
-        it.skipIf(withoutIngest)(`每日上报可用：重发本版本记入的那一份是重发，新的一份照常记入${noIngest}`, async () => {
+        it.skipIf(withoutIngest)(`每日上报可用：重发本版本记入的那一份是重发，新的一份照常记入${noIngest}`, () => {
             const {serverDay} = recorded.body as {readonly serverDay: string};
-            expect(outcome(await sendReport(site.url, "daily", report))).toEqual({status: 200, body: {serverDay, duplicate: true, dropped: []}});
-            expect(outcome(await sendReport(site.url, "daily", firstManifestReport()))).toMatchObject({status: 200, body: {duplicate: false, dropped: []}});
+            expect(resentToPrevious === undefined ? undefined : outcome(resentToPrevious)).toEqual({status: 200, body: {serverDay, duplicate: true, dropped: []}});
+            expect(newToPrevious === undefined ? undefined : outcome(newToPrevious)).toMatchObject({status: 200, body: {duplicate: false, dropped: []}});
         });
 
-        it.skipIf(withoutIngest || withoutJobs)(`统计的两个定时任务能跑：拨到第 8 天后 aggregate 与 purge 都回 200，本版本记入的那一份被删${noJobs}`, async () => {
-            const {serverDay} = recorded.body as {readonly serverDay: string};
-            const day = Date.parse(`${serverDay}T00:00:00Z`) / DAY_MS;
-            const now = await site.advanceClock(1);
-            // 拨到记入那天往后第 8 天的开头之后一分钟：超过最长的保留期 7 天（`site.telemetry-ingest` 的配置），用例跑多久都不会跨天。
-            await site.advanceClock((day + 8) * DAY_MS + 60_000 - now);
-            expect(outcome(await site.runJob("telemetry", "aggregate"))).toEqual({status: 200, body: {status: "done"}});
-            expect(outcome(await site.runJob("telemetry", "purge"))).toEqual({status: 200, body: {status: "done"}});
-            expect(outcome(await sendReport(site.url, "daily", report))).toMatchObject({status: 200, body: {duplicate: false}});
+        it.skipIf(withoutIngest || withoutJobs)(`统计的两个定时任务能跑：拨到第 8 天后 aggregate 与 purge 都回 200，本版本记入的那一份被删${noJobs}`, () => {
+            expect(
+                jobsAfterRetention === undefined
+                    ? undefined
+                    : {aggregate: outcome(jobsAfterRetention.aggregate), purge: outcome(jobsAfterRetention.purge), resent: outcome(jobsAfterRetention.resent)},
+            ).toEqual({
+                aggregate: {status: 200, body: {status: "done"}},
+                purge: {status: 200, body: {status: "done"}},
+                resent: {status: 200, body: expect.objectContaining({duplicate: false})},
+            });
         });
     });
 
+    /** 同上一组：每一步都在 `beforeAll` 里按顺序做，用例只断言记下的结果。 */
     describe.skipIf(withoutIngest)(`上一个版本先写、本版本迁移并写、再换回上一个版本${noIngest}`, () => {
-        let byPrevious: Report;
-        let byCurrent: Report;
         let first: IngestResponse;
         let migrated: CommandResult;
         let second: IngestResponse;
         let firstSeenByCurrent: IngestResponse;
-        let site: SiteProcess;
+        let backOnPrevious: {byPrevious: IngestResponse; byCurrent: IngestResponse};
 
         beforeAll(async () => {
             const dataDir = await sandbox.dataDir();
             // 上一个版本从空目录起：库由它自己的迁移建出来，里面是它写下的数据。
             const before = await startReady({dataDir, command: previous!});
-            byPrevious = firstManifestReport();
+            const byPrevious = firstManifestReport();
             first = await sendReport(before.url, "daily", byPrevious);
             await stopCleanly(before, "the previous version");
 
             migrated = await sandbox.run("migrate", {dataDir});
             if (migrated.exitCode !== 0) throw new Error(`migrate with this version failed:\n${migrated.stderr}`);
             const current = await startReady({dataDir});
-            byCurrent = firstManifestReport();
+            const byCurrent = firstManifestReport();
             second = await sendReport(current.url, "daily", byCurrent);
             firstSeenByCurrent = await sendReport(current.url, "daily", byPrevious);
             await stopCleanly(current, "this version");
 
-            site = await startReady({dataDir, command: previous!});
+            const site = await startReady({dataDir, command: previous!});
+            backOnPrevious = {byPrevious: await sendReport(site.url, "daily", byPrevious), byCurrent: await sendReport(site.url, "daily", byCurrent)};
         }, SETUP_TIMEOUT_MS);
 
         it("上一个版本记入的一份，本版本迁移之后认得出是重发；本版本记入的一份照常记入", () => {
@@ -182,9 +206,9 @@ describe.skipIf(previous === undefined)(title, () => {
             expect(outcome(second)).toMatchObject({status: 200, body: {duplicate: false}});
         });
 
-        it("换回上一个版本：两个版本各自记入的那一份重发都是 duplicate", async () => {
-            expect(outcome(await sendReport(site.url, "daily", byPrevious))).toMatchObject({status: 200, body: {duplicate: true}});
-            expect(outcome(await sendReport(site.url, "daily", byCurrent))).toMatchObject({status: 200, body: {duplicate: true}});
+        it("换回上一个版本：两个版本各自记入的那一份重发都是 duplicate", () => {
+            expect(outcome(backOnPrevious.byPrevious)).toMatchObject({status: 200, body: {duplicate: true}});
+            expect(outcome(backOnPrevious.byCurrent)).toMatchObject({status: 200, body: {duplicate: true}});
         });
     });
 });

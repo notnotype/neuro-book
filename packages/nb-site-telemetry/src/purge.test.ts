@@ -9,8 +9,9 @@ import {Database} from "bun:sqlite";
 import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
-import {aggregateAllNow, createAggregator} from "./aggregate";
+import {AGGREGATE_SOURCES, aggregateAllNow, createAggregator} from "./aggregate";
 import {DAY_MS} from "./days";
+import {lastExpiredSql} from "./purge";
 import {createTelemetryStore, isDbUnavailable} from "./store";
 import {createTestDbRoot, type TestDbRoot} from "./testing/db";
 import {createTestModule} from "./testing/module";
@@ -36,6 +37,11 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
         return error;
     }
     throw new Error("promise did not reject");
+}
+
+/** SQLite 错误的码名；不是 SQLite 的错误时为 undefined。 */
+function dbCodeOfError(error: unknown): unknown {
+    return (error as {code?: unknown} | undefined)?.code;
 }
 
 /** 数据目录里含 `needle` 的文件名（库文件、WAL、共享内存文件）。 */
@@ -97,6 +103,14 @@ describe("删除的边界", () => {
         expect(rawRows(db)).toEqual({daily: 0, event: 0});
         expect(aggregateTables(db)).toEqual(aggregateTables(only));
     });
+
+    it("找到期行里最大的编号走日索引，不扫原始表（扫表时 80 万行的冷库上停十几秒，计时不进单元测试，这里看查询计划）", () => {
+        const db = root.open();
+        for (const source of AGGREGATE_SOURCES) {
+            const plan = db.query<{detail: string}, [{$cutoff: number}]>(`EXPLAIN QUERY PLAN ${lastExpiredSql(source)}`).all({$cutoff: D});
+            expect(plan.map((step) => step.detail)).toEqual([expect.stringContaining(`USING COVERING INDEX telemetry_${source}_raw_server_day`)]);
+        }
+    });
 });
 
 describe("聚合出错时", () => {
@@ -152,9 +166,40 @@ describe("聚合出错时", () => {
         expect(error === undefined || isDbUnavailable(error)).toBe(false);
         expect(rawRows(db)).toEqual({daily: 0, event: 0});
         expect(db.query("SELECT events FROM telemetry_event_count").all()).toEqual([{events: 1}]);
-        expect(test.logs).toEqual([{level: "error", event: "telemetry.purge_unaggregated", fields: {daily: 3, event: 0, dbCode: "SQLITE_CONSTRAINT_TRIGGER"}}]);
+        expect(test.logs).toEqual([{level: "error", event: "telemetry.purge_unaggregated", fields: {dailyRows: 3, eventRows: 0, dbCode: "SQLITE_CONSTRAINT_TRIGGER"}}]);
         // 日志里没有上报编号。
         expect(JSON.stringify(test.logs)).not.toContain(reportId("x", 0));
+    });
+
+    it("游标行被删了（库照样可写）：照样删，没进聚合的份数记为未知，任务以失败结束", async () => {
+        const db = root.open();
+        const test = createTestModule(db);
+        const store = createTelemetryStore(db);
+        for (let i = 0; i < 2; i += 1) store.recordDaily(dailyRecord({reportId: reportId("m", i)}, D), dayAt(D));
+        store.recordEvent(eventRecord({reportId: reportId("n", 1)}, D), dayAt(D));
+        db.exec("DELETE FROM telemetry_aggregate_cursor WHERE source = 'daily'");
+
+        test.clock.set(dayAt(D + 8));
+        const error = await rejectionOf(test.run("purge"));
+        expect(error === undefined || isDbUnavailable(error)).toBe(false);
+        expect(rawRows(db)).toEqual({daily: 0, event: 0});
+        expect(db.query("SELECT events FROM telemetry_event_count").all()).toEqual([{events: 1}]);
+        expect(test.logs).toEqual([{level: "error", event: "telemetry.purge_unaggregated", fields: {dailyRows: null, eventRows: 0, dbCode: null}}]);
+    });
+
+    it("截止日之后的行在聚合时出错，不连累到期的行：到期的那份进了聚合再删，截止日之后的那份还在", async () => {
+        const db = root.open();
+        const test = createTestModule(db);
+        const store = createTelemetryStore(db);
+        store.recordDaily(dailyRecord({reportId: reportId("e", 1), appVersion: "7.3.4"}, D), dayAt(D));
+        store.recordDaily(dailyRecord({reportId: reportId("l", 1), appVersion: "9.1.2"}, D + 8), dayAt(D + 8));
+        // 只有截止日之后的那份在聚合时出错；两份不足一批，不设上界时会落进同一批、一起回滚。
+        db.exec("CREATE TEMP TRIGGER fail_late BEFORE INSERT ON main.telemetry_daily_count WHEN NEW.dimension = 'app_version' AND NEW.value = '9.1.2' BEGIN SELECT RAISE(ABORT, 'injected'); END");
+
+        test.clock.set(dayAt(D + 8));
+        await test.run("purge");
+        expect(rawRows(db).daily).toBe(1);
+        expect(db.query("SELECT value, reports FROM telemetry_daily_count WHERE dimension = 'app_version'").all()).toEqual([{value: "7.3.4", reports: 1}]);
     });
 });
 
@@ -174,6 +219,26 @@ describe("删掉的内容不留在文件里", () => {
 
         test.clock.set(dayAt(D + 8));
         await test.run("purge");
+        expect(filesContaining(root.dir, marker)).toEqual([]);
+    });
+
+    it("前一张表删完、后一张表的删除出错：照样截断检查点，前一张表删掉的编号不留在库文件与 WAL 里，任务以那个错误失败", async () => {
+        const db = root.open();
+        const test = createTestModule(db);
+        const marker = "purge-marker-delete-then-error-4d2e";
+        const store = createTelemetryStore(db);
+        store.recordDaily(dailyRecord({reportId: marker}, D), dayAt(D));
+        store.recordEvent(eventRecord({reportId: reportId("w", 1)}, D), dayAt(D));
+        await test.run("aggregate");
+        db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+        expect(filesContaining(root.dir, marker)).toContain("telemetry.db");
+        // 删立即事件时出错（约束类错误，不是“库一时用不了”）；每日上报排在前面，先删完、已提交。
+        db.exec("CREATE TEMP TRIGGER fail_event_delete BEFORE DELETE ON main.telemetry_event_raw BEGIN SELECT RAISE(ABORT, 'injected'); END");
+
+        test.clock.set(dayAt(D + 8));
+        const error = await rejectionOf(test.run("purge"));
+        expect(dbCodeOfError(error)).toBe("SQLITE_CONSTRAINT_TRIGGER");
+        expect(rawRows(db)).toEqual({daily: 0, event: 1});
         expect(filesContaining(root.dir, marker)).toEqual([]);
     });
 

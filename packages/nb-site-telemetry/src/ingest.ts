@@ -57,17 +57,21 @@ const DB_UNAVAILABLE_LOG_INTERVAL_MS = 60_000;
  *
  * `Content-Type` 只能有一个媒体类型：值里在引号之外出现逗号的不收。请求带了两个 `Content-Type` 头时，运行时把它们
  * 合并成一个逗号分隔的值交上来，所以这一条同时挡住“重复的头”；只看第一个分号之前时，
- * `application/json; charset=utf-8, text/plain` 会被收下。带引号的参数值里可以有逗号。
+ * `application/json; charset=utf-8, text/plain` 会被收下。带引号的参数值里可以有逗号；引号到末尾都没闭合的不收：
+ * 第一个头的参数里引号没闭合时，合并进来的逗号与第二个类型都落在“引号里”。
  */
 function acceptsReportBody(c: Context): boolean {
     const type = c.req.header("content-type");
-    if (type === undefined || hasUnquotedComma(type) || type.split(";", 1)[0]!.trim().toLowerCase() !== "application/json") return false;
+    if (type === undefined || !isSingleValue(type) || type.split(";", 1)[0]!.trim().toLowerCase() !== "application/json") return false;
     const encoding = c.req.header("content-encoding");
     return encoding === undefined || encoding.trim().toLowerCase() === "identity";
 }
 
-/** 头的值里有没有在带引号的字符串之外的逗号。引号里的 `\` 转义下一个字符（RFC 9110 的 quoted-string）。 */
-function hasUnquotedComma(value: string): boolean {
+/**
+ * 头的值是不是只有一个值：带引号的字符串之外没有逗号，引号都闭合了。引号里的 `\` 转义下一个字符（RFC 9110 的
+ * quoted-string）。
+ */
+function isSingleValue(value: string): boolean {
     let quoted = false;
     for (let index = 0; index < value.length; index += 1) {
         const char = value[index];
@@ -75,9 +79,9 @@ function hasUnquotedComma(value: string): boolean {
             if (char === "\\") index += 1;
             else if (char === '"') quoted = false;
         } else if (char === '"') quoted = true;
-        else if (char === ",") return true;
+        else if (char === ",") return false;
     }
-    return false;
+    return !quoted;
 }
 
 /**
