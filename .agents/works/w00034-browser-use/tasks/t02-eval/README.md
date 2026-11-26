@@ -33,6 +33,12 @@ updated: 2026-11-26
 - browser-use 的公开评测：BU Bench V1（100 个难任务）与 V2（200 个，公开在 browser-use/benchmark），按评分细则打分，用冻结的评判模型；它对比 Playwright MCP 等工具时用同一个云浏览器、同一个 Agent（[调研](../../research/2026-11-19-browser-agents-survey.md)“各家做法”与 browser-harness README）。
 - t01 已有三个小任务与假作家后台、browser-use 与 omp 的运行脚本（[`t01-design/experiments/`](../t01-design/experiments/)），可以作为起点。
 
+## 第一阶段
+
+- [实施计划](plan.md)（2026-11-26，第二稿）：第一稿经 Sonnet 审查，23 条（阻断 2、重要 14、建议 7）全部成立，按[处理记录](evidences/plan-review-disposition.txt)改（[报告](evidences/plan-review.txt)）。主要改动：取消改由 browser-use 自己到点收尾、网关去掉 10 秒空闲期限并只认登记过的假密钥、沙箱藏起用户总线且 Chrome 也进沙箱、编辑器源用 `localhost` 才跨站、上游失败单列为 `infra-error` 重跑、每题次数按 80% 功效算、正式运行前先试飞 24 次。
+- 准备：browser-use 1.0.6 的环境装在本地 `.local/agent/evals/browser/venv`；主工作区 `.env` 补了 `EXTREMELYCAT_API_KEY` 与 `EXTREMELYCAT_BASE_URL`（照 omp 的配置写入，没有打印）；两个 Gemini 的最小请求在 medium 与 high 档都回 200。
+- 代码在 worktree `.worktree/w00034-t02-eval`（分支 `feat/w00034-t02-eval`）。
+
 ## 下一步
 
-第二稿已确认（决定 5、6）。按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写计划，从第一阶段（browser-use 一边的基线）开始。
+按计划的切片实施；试飞后估算正式运行的费用，超过 50 美元先问开发者；正式运行的报表交开发者看过，再做后面的阶段（决定 6）。
