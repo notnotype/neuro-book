@@ -64,7 +64,7 @@ updated: 2026-11-24
 | [t07](tasks/t07-identity-core/README.md) | 账号核心：密码注册与登录、两种码、会话、资料、同意、管理与审计、限流（已完成，2026-11-25 合入 master） |
 | [t08](tasks/t08-social-login-and-oauth-provider/README.md) | 社交登录与对外 OAuth 服务（已完成，2026-11-26 合入 master） |
 | [t09](tasks/t09-frontend-design-review/README.md) | 前端设计评审（未开工） |
-| [t10](tasks/t10-frontend/README.md) | 前端实现（未开工） |
+| [t10](tasks/t10-frontend/README.md) | 前端实现（进行中：段 A 已合入，段 B 开工） |
 | [t11](tasks/t11-dashboard/README.md) | 统计看板（未开工） |
 | [t12](tasks/t12-legacy-import/README.md) | 旧站数据导入与切换演练（未开工） |
 | [t13](tasks/t13-deploy-and-cutover/README.md) | 部署与切换（未开工） |
