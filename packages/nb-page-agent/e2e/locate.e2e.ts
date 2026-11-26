@@ -59,6 +59,20 @@ test.describe("引用（输出 4）", () => {
     });
 });
 
+test.describe("引用：只在同一层里重找（输出 4）", () => {
+    test("稳定名与 key 相同的元素只在另一层里有时不重找，得 stale-ref 并把它列为候选", async ({page}) => {
+        await openFixture(page, `<button id="base" data-nb-target="demo.save" data-nb-key="k">保存</button>`);
+        const ref = refOf(await snapshotOk(page), "button", "保存");
+        await page.evaluate(() => {
+            document.getElementById("base")!.remove();
+            document.body.insertAdjacentHTML("beforeend", `<div role="dialog" aria-label="确认"><button id="other" data-nb-target="demo.save" data-nb-key="k">保存</button></div>`);
+        });
+        const result = await locate(page, {ref});
+        expect(result).toMatchObject({ok: false, code: "stale-ref"});
+        if (!result.ok) expect(result.details?.candidates?.map((candidate) => candidate.key)).toEqual(["k"]);
+    });
+});
+
 test.describe("定位（输出 5）", () => {
     test("稳定名加 key；角色加名字缺省不分大小写、折叠空白的子串匹配，exact 时精确", async ({page}) => {
         await openFixture(page, `
