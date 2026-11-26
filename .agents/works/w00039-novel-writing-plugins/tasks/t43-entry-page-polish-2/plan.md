@@ -11,7 +11,7 @@
 ## 技术选型
 
 - 分页切换的过渡：Vue `Transition`（`mode="out-in"`）加 CSS 位移与透明度，时长与缓动取 nb-ui 的动效令牌。否决 View Transitions（`element.startViewTransition` 只有 Chrome 147 以上有，且整页快照会盖住浮层，modern-web-guidance 的 `scoped-component-transitions`）。
-- 滚动条预留：`scrollbar-gutter: stable`（nb-ui 已有 `.nb-ui-scrollbar-stable`），Baseline 2024-12，桌面壳是 Chromium。否决 `OverlayScrollbar`（要给编辑区每个页面挂一个自绘滑块，只为预留宽度不值）。
+- 滚动条：编辑区的页面宿主挂 nb-ui `OverlayScrollbar`（同工作台视图），原生滚动条不画、不占宽度。实施中改的：原定 `scrollbar-gutter: stable`，S2 的 e2e 里剧情的“谁知道什么”在 1440 宽、两侧栏都开时掉成窄版（编辑区 643 像素，预留的滚动条位置让它小于表格要的 640），预留宽度会让每个页面一直少十来像素。
 - 原始数据的显示：应用已有的 `JsonViewer`（`packages/neuro-book/src/ui/`，折叠、等宽、只读）。
 - 添加设定组的浮层：nb-ui `Popover` 加 `Input` 与列表，照“弹出列表的共同合同”；不加拼音搜索的依赖。
 
@@ -46,7 +46,8 @@
 
 ### 编辑区的滚动容器（`editor/web/components/EditorGroup.vue`）
 
-- 页面宿主（`[data-editor-page]`）加 `.nb-ui-scrollbar-stable`。所有页面标签共用这一层，宽度不再随滚动条出现与否变。`EditorGroup.md` 记一句。
+- 页面宿主（`[data-editor-page]`）外面包一层定位的容器，旁边挂 `OverlayScrollbar`（实施中由预留滚动条位置改来，见技术选型）。所有页面标签共用这一层，宽度不再随滚动条出现与否变。`EditorGroup.md` 记一句。
+- 顺带修的 nb-ui `Tooltip`：提示本身不接指针，但 reka 在外面包的定位层照样接，盖住底下能点的东西，指针停在上面还让提示一直开着（S3 的 e2e 里活动栏“设定”的提示盖住了树第一行的箭头）。`styles.css` 给包着提示的那一层也写 `pointer-events: none`。
 
 ### 面板分页（`canon/web/components/PanelView.vue`、`PanelDataView.vue`）
 
