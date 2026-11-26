@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t05-writers-codex",
+    "artifactId": "review",
+    "answerId": "20261126T063241472Z-3af9d4fd",
+    "artifactVersion": 1,
+    "contentHash": "1bdff47cb8f463d89c481e6a167550b96ec0b0464bc85396f4a90181996a87d2",
+    "submittedAt": "2026-11-26T06:32:41.472Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "notes": "开发者在会话里说（2026-11-26）：这一版不太像产品介绍了。可以做两份：首页给搜索引擎进来的人，做得更像产品介绍；其他页面（例如书庭）自由发挥。"
+    },
+    "comments": {},
+    "note": null
+}

@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t01-demos",
+    "artifactId": "review",
+    "answerId": "20261126T031602709Z-3046d4ef",
+    "artifactVersion": 1,
+    "contentHash": "670acdf8dab7524d665f5c86f87ffc0abf1a82700df56a2566e19d858bee9a4e",
+    "submittedAt": "2026-11-26T03:16:00.452Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "cond": "test",
+        "agent-value": "json"
+    },
+    "comments": {
+        "agent-value": "为什么推荐写 json？好处坏处有哪些"
+    },
+    "note": null
+}

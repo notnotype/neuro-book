@@ -41,16 +41,31 @@ export interface PositionOption {
     readonly label: string;
 }
 
-const INITIAL = "initial";
+/** 位置选择里“最初”的值。 */
+export const INITIAL_POSITION = "initial";
+
+/** “在看”菜单里剧情进度的一章：序号、标题与开头、末尾两个位置的值（输出 7）。 */
+export interface PositionChapter {
+    readonly chapter: string;
+    readonly index: number;
+    readonly title: string | null;
+    readonly start: string;
+    readonly end: string;
+}
+
+/** 章表折成“在看”菜单的章：一章一行，开头与末尾的值同 `positionValue`。 */
+export function positionChapters(chapters: readonly ChapterRef[]): PositionChapter[] {
+    return chapters.map((chapter) => ({chapter: chapter.id, index: chapter.index, title: chapter.title, start: `${chapter.id}:start`, end: `${chapter.id}:end`}));
+}
 
 /** 位置选择的值：“初值”是 `initial`，章的开头、末尾是 `<章 id>:start`、`<章 id>:end`。 */
 export function positionValue(position: ReadPosition): string {
-    return position.kind === "initial" ? INITIAL : `${position.chapter}:${position.edge}`;
+    return position.kind === "initial" ? INITIAL_POSITION : `${position.chapter}:${position.edge}`;
 }
 
 /** `positionValue` 的反面；认不出的值得 null。 */
 export function positionFromValue(value: string): ReadPosition | null {
-    if (value === INITIAL) return {kind: "initial"};
+    if (value === INITIAL_POSITION) return {kind: "initial"};
     const split = value.lastIndexOf(":");
     const edge = value.slice(split + 1);
     if (split <= 0 || (edge !== "start" && edge !== "end")) return null;
@@ -70,7 +85,7 @@ export function positionExists(position: ReadPosition, chapters: readonly Chapte
 
 /** 依次是“初值”，然后每一章的开头、末尾。 */
 export function positionOptions(chapters: readonly ChapterRef[], text: CanonBoundText): PositionOption[] {
-    const options: PositionOption[] = [{value: INITIAL, label: text("position.initial")}];
+    const options: PositionOption[] = [{value: INITIAL_POSITION, label: text("position.initial")}];
     for (const chapter of chapters) {
         for (const edge of ["start", "end"] as const) {
             const label = chapter.title === null || chapter.title === ""
@@ -91,11 +106,13 @@ export function positionLabel(position: ReadPosition, chapters: readonly Chapter
 /** 一次安放写在界面上：“第 N 章”“前史”；没安放的写“未安放”。安放的章不在章表里时同样写“未安放”。 */
 export function placementLabel(at: Placement, chapters: readonly ChapterRef[], text: CanonBoundText): string {
     if (at.kind === "prehistory") return text("place.prehistory");
-    if (at.kind === "chapter") {
-        const chapter = chapters.find((item) => item.id === at.chapter);
-        if (chapter !== undefined) return text("place.chapter", {index: chapter.index});
-    }
-    return text("place.unscheduled");
+    return at.kind === "chapter" ? chapterLabel(at.chapter, chapters, text) : text("place.unscheduled");
+}
+
+/** 一章写在界面上：“第 N 章”；不在章表里时写“未安放”。 */
+export function chapterLabel(id: string, chapters: readonly ChapterRef[], text: CanonBoundText): string {
+    const chapter = chapters.find((item) => item.id === id);
+    return chapter === undefined ? text("place.unscheduled") : text("place.chapter", {index: chapter.index});
 }
 
 /** 字段旁的“第 N 章改过”“前史改过”“第 N 章核对过”（输出 10）。没有最近一次改动（只有初值）时为 null。 */

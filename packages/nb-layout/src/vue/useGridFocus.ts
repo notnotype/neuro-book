@@ -1,6 +1,9 @@
 /**
  * Grid 的焦点接线（docs/specs/ui/nested-grid.md 的“Tab 顺序”“移动焦点”）：把 `grid-focus.ts` 的走法接到一个 grid 根上。DOM 序与树序
  * 不一致时才接管 Tab，走出最后一项时把焦点放到边上的哨兵，由浏览器从那里移到 grid 外面，不按 DOM 序回到里面的别的块。
+ *
+ * 浮动窗的手柄层是网格根的直接子元素，DOM 里排在所有外框与内容之后（Spec 输出 113）。接管时它们也是站，排在最后、次序同 DOM：
+ * 与不接管时浏览器原生的次序一样，接不接管手柄都在同一处。它们不是叶（`leaf: false`）：F6 不落在手柄上，也不记成窗上次的焦点。
  */
 
 import {onBeforeUnmount, onMounted, ref} from "vue";
@@ -11,8 +14,15 @@ import {entryFocusTarget, moveTab, moveTabFromPress, noteFocus, registerGridFocu
 import type {GridFocusItems, GridFocusStop} from "./grid-focus";
 import type {RenderOrder} from "./useRenderOrder";
 
-export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly layers: Readonly<Ref<ReadonlyArray<GridLayerItem<unknown>>>>; readonly order: RenderOrder}) {
-    const {root, layers, order} = options;
+export function useGridFocus(options: {
+    readonly root: Readonly<Ref<HTMLElement | null>>;
+    /** 导航序（树序）的层：Tab 与 F6 按它走。 */
+    readonly layers: Readonly<Ref<ReadonlyArray<GridLayerItem<unknown>>>>;
+    readonly order: RenderOrder;
+    /** 浮动窗的手柄层，按 DOM 序；每个是一站，接在所有层的站之后。 */
+    readonly floatChrome?: () => ReadonlyArray<HTMLElement>;
+}) {
+    const {root, layers, order, floatChrome} = options;
     const enterSentinel = ref<HTMLElement | null>(null);
     const exitSentinel = ref<HTMLElement | null>(null);
 
@@ -35,6 +45,7 @@ export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement |
                 const element = elementOf(item.key);
                 if (element !== null) stops.push({elements: [element], leaf: item.kind === "leaf"});
             }
+            for (const element of floatChrome?.() ?? []) stops.push({elements: [element], leaf: false});
             return stops;
         },
     };

@@ -14,7 +14,7 @@ provideCanonText(props.scene);
 
 type CharacterScene = InstanceType<typeof CharacterViewDraft>["$props"]["scene"];
 type LookScene = InstanceType<typeof LookViewDraft>["$props"]["scene"];
-const POSITIONS = [{value: "initial", label: "初值"}, {value: "3:end", label: "第 3 章末尾"}];
+const CHAPTERS = [{chapter: "3", index: 3, title: null, start: "3:start", end: "3:end"}];
 const position = ref("3:end");
 const blank = computed(() => props.scene === "empty");
 /** 条目上有没有形象这一组：没有时没有它的分页。 */
@@ -34,7 +34,7 @@ const tabs = computed(() => [
             status="normal"
             :name="blank ? '新人物' : '星瑕'"
             :summary="blank ? '' : '前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住'"
-            :positions="POSITIONS"
+            :chapters="CHAPTERS"
             :position="position"
             :tabs="tabs"
             :tab="tab"

@@ -34,7 +34,7 @@ owners:
 | `GET users/:id` | 一个账号的资料、登录方式、会话数、注册时用的码与邀请人 |
 | `POST users/:id/ban`、`POST users/:id/unban` | 封禁、解封 |
 | `POST users/:id/role` | 改角色 |
-| `POST users/:id/revoke-sessions` | 结束它的全部会话（连同它名下的 OAuth 令牌，planned） |
+| `POST users/:id/revoke-sessions` | 结束它的全部会话（连同它名下的 OAuth 令牌） |
 | `POST users/:id/reset-password` | 重置密码 |
 | `GET registration-codes`、`POST registration-codes`、`PATCH registration-codes/:id` | 分页列出（列表里有码本身；可按一个筛选项筛，参数 `filter`，取值 `all`、`usable`、`exhausted_or_expired`、`disabled`：全部、可用、用完或过期、已停用）、发放、改备注或停用注册码 |
 | `GET invite-codes` | 分页列出全站的邀请码与使用次数 |
@@ -42,7 +42,7 @@ owners:
 
 注册码：可用次数（正整数或不限）、可选的过期时间、备注（至多 200 个字符）。
 
-分页列表的参数与响应，四个列表相同，[`site.oauth-provider`](oauth-provider.md) 的客户端列表也用这一套（planned）：
+分页列表的参数与响应，四个列表相同，[`site.oauth-provider`](oauth-provider.md) 的客户端列表也用这一套：
 
 | 参数 | 规则 |
 |---|---|
@@ -57,13 +57,13 @@ owners:
 ## 输出与可观察行为
 
 1. **权限。** 不是管理员的会话调这些接口回 `forbidden`；没有会话回 `unauthenticated`。处置在生效的那一刻再确认一次操作者：那时操作者的会话已经结束、已不是管理员或已被封禁，回 `unauthenticated`，处置不生效、不写审计。
-2. **封禁。** 封禁后该账号不能登录、已有会话全部失效（[`site.accounts`](accounts.md) 输出 6）。它名下已发出的 OAuth 访问令牌与没用掉的授权码全部失效（planned，[`site.oauth-provider`](oauth-provider.md) 输出 8）。解封后可以重新登录，不恢复旧会话与旧令牌。
-3. **改角色。** 角色改变后该账号的已有会话全部失效，它名下已发出的 OAuth 访问令牌与没用掉的授权码随之失效（planned）。
-4. **重置密码。** 响应里给出一个新密码，只出现这一次；该账号的旧密码不能再登录，已有会话全部失效，已发出的 OAuth 访问令牌与没用掉的授权码全部失效（planned）。新密码不进审计记录与日志。
+2. **封禁。** 封禁后该账号不能登录、已有会话全部失效（[`site.accounts`](accounts.md) 输出 6）。它名下已发出的 OAuth 访问令牌与没用掉的授权码全部失效（[`site.oauth-provider`](oauth-provider.md) 输出 8）。解封后可以重新登录，不恢复旧会话与旧令牌。
+3. **改角色。** 角色改变后该账号的已有会话全部失效，它名下已发出的 OAuth 访问令牌与没用掉的授权码随之失效。
+4. **重置密码。** 响应里给出一个新密码，只出现这一次；该账号的旧密码不能再登录，已有会话全部失效，已发出的 OAuth 访问令牌与没用掉的授权码全部失效。新密码不进审计记录与日志。
 5. **不能处置自己。** 管理员对自己的账号封禁、改角色回 `self_forbidden`；结束自己的全部会话、重置自己的密码不受此限。
 6. **最后一个管理员。** 处置在生效的那一刻仍要求操作者是未封禁的管理员（输出 1），又不能封禁或降级自己（输出 5），所以改角色与封禁不会让站里没有未封禁的管理员。
 7. **注册码。** 发放时生成一个不可猜的码；停用后不能再用于注册，已经用它注册的账号不受影响；列表里有每个码的已用次数、是否还能用。
-8. **审计。** 封禁、解封、改角色、结束会话、重置密码、发放与停用注册码、登记与改动 OAuth 客户端（planned）、命令行创建或重置管理员（[`site.operations`](operations.md) 输出 5，操作者记为命令行），每成功一次写一条审计记录；操作失败不写。只改注册码的备注不写审计。没有变化的处置（封禁已被封禁的账号、把角色改成原来的角色）照样成功、照样写。动作名是 `user.ban`、`user.unban`、`user.role`、`user.revoke_sessions`、`user.reset_password`、`registration_code.create`、`registration_code.disable`、`admin.cli_upsert`，以及 `oauth_client.create`、`oauth_client.update`、`oauth_client.rotate_secret`（planned）。动作的参数：改角色记旧角色与新角色，结束会话记结束的条数，发放注册码记可用次数与过期时间，命令行创建或重置管理员记是不是新建的，登记客户端记种类与是否免确认，改动客户端记改了哪些属性（`properties`：请求里带了的属性名，逗号分隔）（planned）；不记码、备注与客户端密钥。审计记录与它记的操作同时生效：不存在“操作生效了却没有记录”的情况。
+8. **审计。** 封禁、解封、改角色、结束会话、重置密码、发放与停用注册码、登记与改动 OAuth 客户端、命令行创建或重置管理员（[`site.operations`](operations.md) 输出 5，操作者记为命令行），每成功一次写一条审计记录；操作失败不写。只改注册码的备注不写审计。没有变化的处置（封禁已被封禁的账号、把角色改成原来的角色）照样成功、照样写。动作名是 `user.ban`、`user.unban`、`user.role`、`user.revoke_sessions`、`user.reset_password`、`registration_code.create`、`registration_code.disable`、`admin.cli_upsert`，以及 `oauth_client.create`、`oauth_client.update`、`oauth_client.rotate_secret`。动作的参数：改角色记旧角色与新角色，结束会话记结束的条数，发放注册码记可用次数与过期时间，命令行创建或重置管理员记是不是新建的，登记客户端记种类与是否免确认，改动客户端记改了哪些属性（`properties`：请求里带了的属性名，逗号分隔）；不记码、备注与客户端密钥。审计记录与它记的操作同时生效：不存在“操作生效了却没有记录”的情况。
 9. **列表稳定。** 分页列表按创建时间倒序、再按 id 倒序。带着 `anchor` 的请求只看基准那一刻已经存在的条目：之后新增的不进 `items`，也不计入 `total` 与 `counts`，所以同一次翻页过程中不因新增数据而重复出现同一条、页数也不变。不带 `anchor` 的请求以当时为基准并把它放进响应。条目的状态在翻页期间变了（例如被封禁后不再符合筛选项，或改了以后开始符合）时，后面的页按新状态算，可能少看到一条或重复看到一条。
 10. **页码越界。** `page` 超过最后一页时 `items` 为空、`total` 照常给出，不算错误。`page`、`pageSize` 不合规则或 `anchor` 的写法不对、或指向比现有条目都新的基准时回 `validation_failed`；列表是空的时给出的 `anchor` 也可以带回来翻页。
 
@@ -116,5 +116,5 @@ Smoke：合同测试包里的封禁与重置密码用例。
 
 - 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)、[ADR 0063](../../adr/0063-official-site-identity-own-routes-library-sessions.md)
 - 实现入口：[`packages/nb-site-identity/src/admin/users.ts`](../../../packages/nb-site-identity/src/admin/users.ts)
-- 合同测试：[`admin.test.ts`](../../../packages/nb-site-contract-tests/src/admin.test.ts)
+- 合同测试：[`admin.test.ts`](../../../packages/nb-site-contract-tests/src/admin.test.ts)、[`oauth-invalidation.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-invalidation.test.ts)
 - Smoke：[`admin.test.ts`](../../../packages/nb-site-contract-tests/src/admin.test.ts)

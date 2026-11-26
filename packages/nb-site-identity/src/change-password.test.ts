@@ -118,7 +118,7 @@ describe("有密码的账号（输出 6）", () => {
                 const fresh = await REAL_PASSWORD_FUNCTIONS.hash(password);
                 if (armed) {
                     armed = false;
-                    await target!.conn.write((tx) => endSession(tx, sessionId));
+                    await target!.conn.write((tx) => endSession(tx, sessionId, target!.clock.now()));
                 }
                 return fresh;
             },

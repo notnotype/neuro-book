@@ -1,6 +1,7 @@
 /**
  * 包内测试用的账号模块：真的 SQLite 文件（跑真实的迁移）、真的 Better Auth，只注入时钟与日志，以及 `IdentityOverrides` 里用例
- * 给的几样。子应用按入口的写法挂在 `IDENTITY_API_PREFIX` 下，请求走同一条路径。会话可以经登录建，也可以经 `issue` 直接发。不含断言。
+ * 给的几样。三个子应用按入口的写法挂在各自的前缀下（`nb-site-server` 的 `modules.ts`），请求走同一条路径。会话可以经登录建，也可以经
+ * `issue` 直接发。不含断言。
  *
  * 两处与产品不同的缺省，免得每条用例都真的等：失败下限与“先等 2 秒”的睡眠立即 resolve（时长照常计算，核对它们的用例自己注入
  * 记录调用的睡眠）。来源地址取请求头 `x-test-client-address`，没带时是 `203.0.113.1`：限流按来源计，用例要能换来源。
@@ -8,17 +9,18 @@
 
 import {Hono} from "hono";
 
-import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_AUTH_PREFIX} from "@notnotype/nb-site-identity-contract";
 
 import type {IdentityConfig} from "../config";
 import {IdentityConnection, type IdentityTimers} from "../db/connection";
 import {insertCredentialRow, insertUserRow, libDate} from "../db/library-rows";
 import {assembleIdentity, type IdentityAssembly, type IdentityJob, type IdentityOverrides} from "../module";
+import {WELL_KNOWN_PREFIX} from "../oauth/discovery";
 import {hashPassword} from "../password";
 import {createTestDbRoot, type TestDbRoot} from "./db";
-import {ManualClock, recordingLog, TEST_SECRET, TEST_SITE_URL} from "./library";
+import {ManualClock, recordingLog, TEST_SECRET, TEST_SITE_URL, TEST_TERMS_VERSION} from "./library";
 
-export const TEST_TERMS_VERSION = "2026-11-20";
+export {TEST_TERMS_VERSION};
 
 /** 会话 Cookie 的名字（`site.accounts` 输出 5；`auth.ts` 的 `cookiePrefix: "__Host-nbsite"` 下库给的）。 */
 export const SESSION_COOKIE = "__Host-nbsite.session_token";
@@ -30,6 +32,7 @@ export const TEST_CONFIG: IdentityConfig = {
     sessionDays: 30,
     hashConcurrency: 2,
     hashQueue: 64,
+    social: {},
 };
 
 export interface TestIdentity {
@@ -41,6 +44,8 @@ export interface TestIdentity {
     readonly assembly: IdentityAssembly;
     /** 经入口同样的挂法发一个请求；`path` 相对 `IDENTITY_API_PREFIX`。 */
     fetch(path: string, init?: RequestInit): Promise<Response>;
+    /** 同一个入口，`path` 从站点根起（标准端点、发现文档用）。 */
+    request(path: string, init?: RequestInit): Promise<Response>;
     /**
      * 建一个账号（模块的 SQL），回 id；`consent` 给了时另写一条同意记录；`password` 给了时用新格式存它的哈希，`passwordHash` 给了时
      * 原样存（旧站格式的样本）。两个都没给的账号没有密码。
@@ -70,6 +75,10 @@ export interface TestIdentityOptions {
     readonly timers?: IdentityTimers;
     /** 盖在本文件的缺省之上（见文件头）。 */
     readonly overrides?: IdentityOverrides;
+    /**
+     * 接着用前一个实例的数据目录（模拟重启）：不新建目录、不再迁移。前一个实例要先 `assembly.close()`；目录由最先建它的用例清理。
+     */
+    readonly root?: TestDbRoot;
 }
 
 /** 从一组 `Set-Cookie` 里取会话 Cookie 的 `名字=值`。 */
@@ -81,7 +90,7 @@ export function sessionCookieOf(setCookies: readonly string[]): string {
 
 /** 建一个测试用的模块；`cleanup` 由用例在 `afterEach` 里调 `root.cleanup()`。 */
 export async function createTestIdentity(name: string, options: TestIdentityOptions = {}): Promise<TestIdentity> {
-    const root = await createTestDbRoot(name);
+    const root = options.root ?? (await createTestDbRoot(name));
     const log = recordingLog();
     const conn = new IdentityConnection(root.open(), {log, ...(options.timers === undefined ? {} : {timers: options.timers})});
     const clock = new ManualClock(options.start ?? Date.now());
@@ -100,6 +109,8 @@ export async function createTestIdentity(name: string, options: TestIdentityOpti
     );
     const app = new Hono();
     app.route(IDENTITY_API_PREFIX, assembly.site);
+    app.route(IDENTITY_AUTH_PREFIX, assembly.oauth);
+    app.route(WELL_KNOWN_PREFIX, assembly.wellKnown);
     return {
         root,
         conn,
@@ -108,6 +119,7 @@ export async function createTestIdentity(name: string, options: TestIdentityOpti
         jobs,
         assembly,
         fetch: async (path, init) => app.fetch(new Request(`${TEST_SITE_URL}${IDENTITY_API_PREFIX}${path}`, init)),
+        request: async (path, init) => app.fetch(new Request(`${TEST_SITE_URL}${path}`, init)),
         addUser: async (username, userOptions = {}) => {
             const passwordHash = userOptions.passwordHash ?? (userOptions.password === undefined ? undefined : await hashPassword(userOptions.password));
             return conn.write((tx) => {

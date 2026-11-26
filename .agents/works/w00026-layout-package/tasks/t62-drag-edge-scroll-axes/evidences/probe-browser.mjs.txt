@@ -1,0 +1,133 @@
+// t62 探针：本机 Chrome（Playwright channel chrome）里量真实布局下的推荐接口。node browser.mjs
+import {chromium} from "playwright";
+
+const html = `<!doctype html><html><head><style>
+body { margin: 0; font: 13px system-ui; }
+.strip { position: absolute; top: 0; height: 32px; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; background: #eef; }
+.tab { flex: none; width: 80px; border-right: 1px solid #99a; }
+#s1 { left: 0; width: 300px; } #s2 { left: 304px; width: 296px; }
+#list { position: absolute; top: 60px; left: 0; width: 200px; height: 200px; overflow: auto; }
+#list div { height: 30px; }
+#hiddenx { position: absolute; top: 60px; left: 220px; width: 150px; height: 100px; overflow-x: hidden; overflow-y: auto; white-space: nowrap; }
+#smooth { position: absolute; top: 60px; left: 400px; width: 150px; height: 100px; overflow: auto; scroll-behavior: smooth; }
+#smooth div { height: 400px; }
+#overlay { position: absolute; top: 180px; left: 400px; width: 100px; height: 50px; overflow: overlay; }
+#nested { position: absolute; top: 300px; left: 0; width: 400px; max-height: 102px; overflow-x: hidden; overflow-y: auto; }
+#nested .row { display: flex; height: 34px; overflow-x: auto; scrollbar-width: none; }
+#nested .wrap { display: flex; flex-wrap: wrap; }
+#nested .wrap .tab, #nested .row .tab { height: 34px; }
+#feedback { position: fixed; left: 0; top: 0; width: 700px; height: 500px; pointer-events: none; }
+</style></head><body>
+<div id="s1" class="strip" data-scroll>${'<div class="tab"></div>'.repeat(8)}</div>
+<div id="s2" class="strip" data-scroll>${'<div class="tab"></div>'.repeat(8)}</div>
+<div id="list" data-scroll>${'<div>row</div>'.repeat(20)}</div>
+<div id="hiddenx" data-scroll>${'a very long file name that overflows the explorer width '.repeat(2)}<br>${'<br>x'.repeat(20)}</div>
+<div id="smooth" data-scroll><div></div></div>
+<div id="overlay"><div style="width:400px;height:200px"></div></div>
+<div id="nested" data-scroll><div class="row" data-scroll>${'<div class="tab"></div>'.repeat(8)}</div><div class="wrap">${'<div class="tab"></div>'.repeat(20)}</div></div>
+<div id="feedback" data-drag-feedback></div>
+</body></html>`;
+
+const browser = await chromium.launch({channel: "chrome", headless: true});
+const page = await browser.newPage({viewport: {width: 800, height: 600}});
+await page.setContent(html);
+
+const result = await page.evaluate(() => {
+    const EDGE = 24, MAX = 16;
+    const scrolls = (value) => value === "auto" || value === "scroll";
+    function targetOf(element) {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        const x = scrolls(style.overflowX), y = scrolls(style.overflowY);
+        const maxX = element.scrollWidth - element.clientWidth, maxY = element.scrollHeight - element.clientHeight;
+        return {id: element.id || element.className, rect: {left: box.left, top: box.top, right: box.right, bottom: box.bottom},
+            room: {left: x ? element.scrollLeft : 0, right: x ? maxX - element.scrollLeft : 0, up: y ? element.scrollTop : 0, down: y ? maxY - element.scrollTop : 0}};
+    }
+    function step(rect, point, axis) {
+        const [start, end, at, across, a0, a1] = axis === "y" ? [rect.top, rect.bottom, point.y, point.x, rect.left, rect.right] : [rect.left, rect.right, point.x, point.y, rect.top, rect.bottom];
+        if (across < a0 || across > a1 || end - start <= EDGE * 2) return 0;
+        if (at - start < EDGE) return -Math.ceil(Math.min(1, (EDGE - (at - start)) / EDGE) * MAX);
+        if (end - at < EDGE) return Math.ceil(Math.min(1, (EDGE - (end - at)) / EDGE) * MAX);
+        return 0;
+    }
+    function plan(targets, point) {
+        const pick = (axis) => {
+            for (const t of targets) {
+                const s = step(t.rect, point, axis);
+                if (s === 0) continue;
+                const room = axis === "x" ? (s < 0 ? t.room.left : t.room.right) : (s < 0 ? t.room.up : t.room.down);
+                if (room > 0) return {id: t.id, step: s};
+            }
+            return null;
+        };
+        return {x: pick("x"), y: pick("y")};
+    }
+    function topAt(point) {
+        for (const element of document.elementsFromPoint(point.x, point.y)) if (element.closest("[data-drag-feedback]") === null) return element;
+        return null;
+    }
+    // 宿主的回调：指针所在的、带 data-scroll 的容器，从里到外。
+    function containers(point) {
+        const out = [];
+        for (let at = topAt(point)?.closest("[data-scroll]") ?? null; at !== null; at = at.parentElement?.closest("[data-scroll]") ?? null) out.push(at);
+        return out;
+    }
+    const probe = (point) => {
+        const list = containers(point);
+        return {point, containers: list.map((e) => e.id || e.className), plan: plan(list.map(targetOf), point)};
+    };
+    const out = {};
+    const s1 = document.getElementById("s1"), s2 = document.getElementById("s2");
+    out.stripMetrics = [s1, s2].map((e) => ({id: e.id, scrollWidth: e.scrollWidth, clientWidth: e.clientWidth, overflowX: getComputedStyle(e).overflowX, overflowY: getComputedStyle(e).overflowY, scrollHeight: e.scrollHeight, clientHeight: e.clientHeight}));
+    out.s1RightEnd = probe({x: 295, y: 16});
+    out.s1LeftEndAtStart = probe({x: 4, y: 16});
+    out.s2LeftEnd = probe({x: 308, y: 16});
+    out.s2Middle = probe({x: 450, y: 16});
+    out.gapBetween = probe({x: 302, y: 16});
+    s2.scrollLeft = 100;
+    out.s2LeftEndScrolled = probe({x: 308, y: 16});
+    out.listBottom = probe({x: 100, y: 250});
+    out.listMiddle = probe({x: 100, y: 160});
+    const hidden = document.getElementById("hiddenx");
+    out.hiddenX = {scrollWidth: hidden.scrollWidth, clientWidth: hidden.clientWidth, overflowX: getComputedStyle(hidden).overflowX};
+    hidden.scrollLeft = 40;
+    out.hiddenX.scrollLeftAfterAssign = hidden.scrollLeft;
+    out.hiddenX.rightEnd = probe({x: 365, y: 110});
+    hidden.scrollLeft = 0;
+    const smooth = document.getElementById("smooth");
+    smooth.scrollTop = smooth.scrollTop + 16;
+    out.smoothAssign = smooth.scrollTop;
+    smooth.scrollBy({top: 16, behavior: "instant"});
+    out.smoothScrollByInstant = smooth.scrollTop;
+    out.overlayComputed = getComputedStyle(document.getElementById("overlay")).overflowX;
+    const nested = document.getElementById("nested");
+    nested.scrollTop = 20;
+    out.nestedMetrics = {listScrollHeight: nested.scrollHeight, listClientHeight: nested.clientHeight, rowScrollWidth: nested.querySelector(".row").scrollWidth, rowClientWidth: nested.querySelector(".row").clientWidth};
+    const nb = nested.getBoundingClientRect();
+    const rb = nested.querySelector(".row").getBoundingClientRect();
+    out.nestedRowRight = probe({x: rb.right - 6, y: (rb.top + rb.bottom) / 2});
+    out.nestedListBottom = probe({x: nb.left + 100, y: nb.bottom - 5});
+    out.nestedRowRightNearListTop = probe({x: rb.right - 6, y: Math.max(rb.top, nb.top) + 3});
+    // 越过元素的边：指针在外面，top 不在它里面，按 top 找容器时找不到（固定元素的宿主才有“越过边缘”）。
+    out.pastListBottom = probe({x: 100, y: 275});
+    return out;
+});
+console.log(JSON.stringify(result, null, 1));
+
+// 真的滚：rAF 里赋值后马上读，看看会不会被截到整数、到头时是否不变。
+const scrollFacts = await page.evaluate(async () => {
+    const s1 = document.getElementById("s1");
+    s1.scrollLeft = s1.scrollWidth - s1.clientWidth;
+    const atEnd = s1.scrollLeft;
+    s1.scrollLeft = atEnd + 10;
+    const afterPastEnd = s1.scrollLeft;
+    s1.scrollLeft = 0.4;
+    const fractional = s1.scrollLeft;
+    const events = [];
+    s1.addEventListener("scroll", () => events.push(performance.now()));
+    s1.scrollLeft = 30;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return {max: s1.scrollWidth - s1.clientWidth, atEnd, afterPastEnd, fractional, scrollEvents: events.length};
+});
+console.log("scrollFacts", JSON.stringify(scrollFacts));
+await browser.close();

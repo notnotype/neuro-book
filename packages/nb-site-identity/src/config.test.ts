@@ -21,7 +21,7 @@ describe("parseIdentityConfig", () => {
     it("只给两个必填项时其余取缺省值：注册开放、会话 30 天、哈希并发 2、排队 64", () => {
         expect(parseIdentityConfig(REQUIRED)).toEqual({
             ok: true,
-            config: {sessionSecret: SECRET, termsVersion: "2026-11-20", registrationOpen: true, sessionDays: 30, hashConcurrency: 2, hashQueue: 64},
+            config: {sessionSecret: SECRET, termsVersion: "2026-11-20", registrationOpen: true, sessionDays: 30, hashConcurrency: 2, hashQueue: 64, social: {}},
         });
         // 空串与没设一样。
         const empty = {...REQUIRED, NB_SITE_IDENTITY_REGISTRATION_OPEN: "", NB_SITE_IDENTITY_SESSION_DAYS: "", NB_SITE_IDENTITY_HASH_CONCURRENCY: "", NB_SITE_IDENTITY_HASH_QUEUE: ""};
@@ -89,6 +89,74 @@ describe("parseIdentityConfig", () => {
         expect(JSON.stringify(problems)).not.toContain(SECRET);
         // 只认这个前缀：别的库、名字里只是含有它的变量不算。
         expect(parseIdentityConfig({...REQUIRED, NOT_BETTER_AUTH_SECRET: "x", better_auth_secret: "x"}).ok).toBe(true);
+    });
+
+    it("上游的客户端 id 与密钥两项都给了才开放，地址取缺省的正式地址；密钥原样保留", () => {
+        const both = parseIdentityConfig({
+            ...REQUIRED,
+            NB_SITE_IDENTITY_GOOGLE_CLIENT_ID: "g-id",
+            NB_SITE_IDENTITY_GOOGLE_CLIENT_SECRET: SECRET,
+            NB_SITE_IDENTITY_GITHUB_CLIENT_ID: "gh-id",
+            NB_SITE_IDENTITY_GITHUB_CLIENT_SECRET: SECRET,
+        });
+        expect(both).toMatchObject({
+            ok: true,
+            config: {
+                social: {
+                    google: {clientId: "g-id", clientSecret: SECRET, issuer: "https://accounts.google.com"},
+                    github: {clientId: "gh-id", clientSecret: SECRET, url: "https://github.com", apiUrl: "https://api.github.com"},
+                },
+            },
+        });
+        const onlyGitHub = parseIdentityConfig({...REQUIRED, NB_SITE_IDENTITY_GITHUB_CLIENT_ID: "gh-id", NB_SITE_IDENTITY_GITHUB_CLIENT_SECRET: SECRET});
+        expect(onlyGitHub.ok && onlyGitHub.config.social).toEqual({github: {clientId: "gh-id", clientSecret: SECRET, url: "https://github.com", apiUrl: "https://api.github.com"}});
+    });
+
+    it("一个上游的 id 与密钥只给一项：报在没给的那个变量上，取值不进问题", () => {
+        expect(problemsOf({...REQUIRED, NB_SITE_IDENTITY_GOOGLE_CLIENT_ID: "g-id"})).toEqual([{name: "NB_SITE_IDENTITY_GOOGLE_CLIENT_SECRET", problem: "missing"}]);
+        const problems = problemsOf({...REQUIRED, NB_SITE_IDENTITY_GITHUB_CLIENT_SECRET: SECRET, NB_SITE_IDENTITY_GOOGLE_CLIENT_ID: "g-id", NB_SITE_IDENTITY_GOOGLE_CLIENT_SECRET: ""});
+        expect(problems).toEqual([
+            {name: "NB_SITE_IDENTITY_GOOGLE_CLIENT_SECRET", problem: "missing"},
+            {name: "NB_SITE_IDENTITY_GITHUB_CLIENT_ID", problem: "missing"},
+        ]);
+        expect(JSON.stringify(problems)).not.toContain(SECRET);
+    });
+
+    it("上游地址可换成本机回环的 http，结尾的 / 去掉、路径保留", () => {
+        const result = parseIdentityConfig({
+            ...REQUIRED,
+            NB_SITE_IDENTITY_GOOGLE_CLIENT_ID: "g-id",
+            NB_SITE_IDENTITY_GOOGLE_CLIENT_SECRET: SECRET,
+            NB_SITE_IDENTITY_GITHUB_CLIENT_ID: "gh-id",
+            NB_SITE_IDENTITY_GITHUB_CLIENT_SECRET: SECRET,
+            NB_SITE_IDENTITY_GOOGLE_ISSUER: "http://127.0.0.1:4100/google/",
+            NB_SITE_IDENTITY_GITHUB_URL: "http://localhost:4100/github",
+            NB_SITE_IDENTITY_GITHUB_API_URL: "http://[::1]:4100/github/api",
+        });
+        expect(result).toMatchObject({
+            ok: true,
+            config: {
+                social: {
+                    google: {issuer: "http://127.0.0.1:4100/google"},
+                    github: {url: "http://localhost:4100/github", apiUrl: "http://[::1]:4100/github/api"},
+                },
+            },
+        });
+        expect(parseIdentityConfig({...REQUIRED, NB_SITE_IDENTITY_GOOGLE_ISSUER: "https://issuer.example/tenant"}).ok).toBe(true);
+    });
+
+    it.each([
+        ["NB_SITE_IDENTITY_GOOGLE_ISSUER", "http://issuer.example", "not_https"],
+        ["NB_SITE_IDENTITY_GITHUB_URL", "http://127.0.0.2:4100", "not_https"],
+        ["NB_SITE_IDENTITY_GITHUB_API_URL", "http://localhost.example", "not_https"],
+        ["NB_SITE_IDENTITY_GOOGLE_ISSUER", "accounts.google.com", "bad_format"],
+        ["NB_SITE_IDENTITY_GOOGLE_ISSUER", "ftp://accounts.google.com", "bad_format"],
+        ["NB_SITE_IDENTITY_GITHUB_URL", "https://user:pw@github.com", "bad_format"],
+        ["NB_SITE_IDENTITY_GITHUB_URL", "https://github.com/?x=1", "bad_format"],
+        ["NB_SITE_IDENTITY_GITHUB_API_URL", "https://api.github.com/#x", "bad_format"],
+        ["NB_SITE_IDENTITY_GITHUB_API_URL", "https://api.github.com/?", "bad_format"],
+    ])("%s=%s 报 %s（上游没开放时也校验）", (name, value, problem) => {
+        expect(problemsOf({...REQUIRED, [name]: value})).toEqual([{name, problem}]);
     });
 
     it("问题收齐了一起报，只有变量名与问题词，不含取值", () => {

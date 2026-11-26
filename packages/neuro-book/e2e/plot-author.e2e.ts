@@ -1,7 +1,7 @@
 /**
  * 作者界面（剧情侧）在真实 Chrome 与生产构建上的验收（docs/specs/plot/author-ui.md 验收 1 到 6）：`scripts/canon-sample.ts --plot`
  * 生成带剧情数据的星瑕样本（经产品的世界宿主逐次发布），登记成项目 `book`；世界服务、剧情插件与项目子进程都是真的。用例只读，
- * 换线的那一条最后换回“跟着章”。等页面上可观察的变化，不按时长等。
+ * 换线的几条最后换回“按章节自动”。等页面上可观察的变化，不按时长等。
  */
 
 import {execFile} from "node:child_process";
@@ -62,8 +62,11 @@ const plotPage = (page: Page, table: "secrets" | "ledger" | "goals") => page.loc
 const entryPage = (page: Page) => page.locator("[data-entry-page]");
 const activeTabLabel = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]");
 const statusBar = (page: Page) => page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']");
-/** 状态栏的“在看：……”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
-const lineItem = (page: Page) => statusBar(page).getByRole("button").filter({hasText: /^在看：/u});
+/** 状态栏的“故事线：……”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
+const lineItem = (page: Page) => statusBar(page).getByRole("button").filter({hasText: /^故事线：/u});
+/** 页头的“在看”按钮与它的菜单（菜单传送到 body）。 */
+const viewPoint = (page: Page) => entryPage(page).locator("[data-view-point]");
+const viewMenu = (page: Page) => page.locator("[data-view-point-menu]");
 const secretRow = (page: Page, name: string) => plotPage(page, "secrets").locator("[data-secret-row]", {hasText: name});
 /** 表里一个人的那一格（按表头的名字取列）。 */
 async function personCell(page: Page, secret: string, person: string): Promise<Locator> {
@@ -92,7 +95,7 @@ async function openEntry(page: Page, name: string, parents: readonly string[]): 
     }
     await row(name).click();
     await expect(activeTabLabel(page)).toHaveText(name);
-    await expect(entryPage(page).locator("[data-position-trigger]")).toBeVisible();
+    await expect(viewPoint(page)).toBeVisible();
 }
 
 const entryTab = (page: Page, name: string) => entryPage(page).getByRole("tab", {name: new RegExp(`^${name}`, "u")});
@@ -149,8 +152,9 @@ test("验收 3：星瑾的条目页有知道什么、目标与态度、经历；
     await expect(knowing.locator("[data-knowing-row]", {hasText: "星瑕做过魔法少女"})).toContainText("忘了");
     await expect(knowing.getByRole("button", {name: /^改/u}).first()).toBeVisible();
 
-    await entryPage(page).locator("[data-position-trigger]").click();
-    await page.getByRole("menuitemradio", {name: /第 1 章末尾/u}).click();
+    await viewPoint(page).click();
+    await viewMenu(page).getByRole("radio", {name: /第 1 章末尾/u}).click();
+    await expect(viewMenu(page)).toHaveCount(0);
     await entryTab(page, "经历").click();
     const experience = entryPage(page).locator("[data-experience]");
     await expect(experience.locator("[data-experience-item]").first()).toBeVisible();
@@ -196,23 +200,64 @@ test("验收 5：状态栏选回溯线，状态栏写线名，谁知道什么与
     await open(page);
     await openTable(page, "谁知道什么");
     await expect(await personCell(page, "那几年哥哥是被软禁", "星瑾")).toContainText("信错了");
-    await expect(lineItem(page)).toHaveText("在看：跟着章");
+    await expect(lineItem(page)).toHaveText("故事线：按章节自动");
     let busy = await watchBusy(page);
     await pickLine(page, /重来的那个晚上/u);
-    await expect(lineItem(page)).toHaveText("在看：重来的那个晚上");
+    await expect(lineItem(page)).toHaveText("故事线：重来的那个晚上");
     await expect(await personCell(page, "那几年哥哥是被软禁", "星瑾")).toHaveText("知道");
     expect(await busy()).toBe(false);
 
-    // 星瑾的“知道什么”：子线上听星瑕说了；换回跟着章，回到信错了，同样不闪占位。
+    // 星瑾的“知道什么”：子线上听星瑕说了；换回按章节自动，回到信错了，同样不闪占位。
     await openEntry(page, "星瑾", ["人物"]);
     await entryTab(page, "知道什么").click();
     const row = entryPage(page).locator("[data-knowing-row]", {hasText: "那几年哥哥是被软禁"});
     await expect(row).toContainText("听星瑕说");
     busy = await watchBusy(page);
-    await pickLine(page, "跟着章");
-    await expect(lineItem(page)).toHaveText("在看：跟着章");
+    await pickLine(page, "按章节自动");
+    await expect(lineItem(page)).toHaveText("故事线：按章节自动");
     await expect(row).toContainText("信错了");
     expect(await busy()).toBe(false);
+});
+
+test("验收 5 的页头：作品有两条线时，在“在看”里选一条线，按钮写线名且固定看它，状态栏跟着；选“按章节自动”回来", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑾", ["人物"]);
+    const view = viewPoint(page);
+    // 有两条线时按钮在位置后面写线名；缺省按章节自动，不是固定看一条线。
+    await expect(view).toContainText("主线");
+    await expect(view).not.toHaveAttribute("data-pinned");
+    await expect(lineItem(page)).toHaveText("故事线：按章节自动");
+
+    await view.click();
+    const menu = viewMenu(page);
+    await expect(menu.locator("[data-line-option='']")).toHaveAttribute("aria-checked", "true");
+    await menu.locator("[data-line-option]").filter({hasText: "重来的那个晚上"}).click();
+    await expect(viewMenu(page)).toHaveCount(0);
+    await expect(view).toContainText("重来的那个晚上");
+    await expect(view).toHaveAttribute("data-pinned", "");
+    await expect(lineItem(page)).toHaveText("故事线：重来的那个晚上");
+
+    await view.click();
+    await viewMenu(page).locator("[data-line-option='']").click();
+    await expect(viewMenu(page)).toHaveCount(0);
+    await expect(view).not.toHaveAttribute("data-pinned");
+    await expect(lineItem(page)).toHaveText("故事线：按章节自动");
+});
+
+test("验收 5 的页头：作品里有计划中的情节时，“在看”菜单里有“算上计划中的情节”开关，拨开时菜单不关、按钮写“含计划”，拨回去不再写", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑾", ["人物"]);
+    const view = viewPoint(page);
+    await expect(view).not.toContainText("含计划");
+    await view.click();
+    const plan = viewMenu(page).locator("[data-view-point-plan]");
+    await expect(plan).toBeVisible();
+    await plan.getByRole("switch").click();
+    await expect(view).toContainText("含计划");
+    await expect(viewMenu(page)).toBeVisible();
+    await plan.getByRole("switch").click();
+    await expect(view).not.toContainText("含计划");
+    await expect(viewMenu(page)).toBeVisible();
 });
 
 /**

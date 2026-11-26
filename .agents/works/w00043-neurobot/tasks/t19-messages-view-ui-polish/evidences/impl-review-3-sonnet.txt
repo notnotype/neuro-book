@@ -1,0 +1,62 @@
+=== t19 片 3a、3b 实现审查（提交 5f793e7e8、f3814f396）===
+
+[1] 重要 | 焦点 | packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:178（及 layout-present.test.ts:350、WorkbenchShell.vue:752 的注释、WorkbenchShell.md:33）
+现象：`focusLandings` 只对 `region === "sidebar"` 无条件给出 `entry` 落点，右栏仍按“区域隐藏或收起时入口条缩没了，不算落点”排除。片 3b 之后右栏的入口在右轨上，右栏隐藏、拖到零时右轨留着（Spec 输出 50“在不在”），入口一直看得见，和侧栏同一类。
+为什么是问题：焦点在右栏分节里、右栏被隐藏（命令、标题栏按钮、快捷键）时，`recoverFocus` 的候选列表为空，焦点落到外壳根，而同样情形下侧栏会回到活动栏的入口（输出 16、42 的“焦点去向”）。layout-present.test.ts:350 现在断言 `focusLandings(隐藏的右栏…) 为 []`，是旧行为被固化，片 3b 没有改。
+核实：读 layout-present.ts:174-180 与测试 350 行；该测试在 f3814f396 里未被改动（`git show f3814f396 --stat` 没有 layout-present*）。未在浏览器里复现。
+建议：条件改成“sidebar 或 auxiliarybar 无条件；panel 才看 hidden/collapsed”（最好由“该区域的入口是不是在侧轨上”这一个事实决定，不再写区域名），同步改测试 350 行、类型注释与 WorkbenchShell.vue 752 行的注释。右栏“放不下被收走”时右轨也在，同样应该有落点。
+
+[2] 重要 | 切换容器的滚动方向 | WorkbenchShell.vue:618（`axis: region === "sidebar" ? "height" : "width"`）与注释 593、WorkbenchShell.md:30
+现象：右栏的入口搬到竖排的右轨后，`prepareRegionSwap` 仍把右栏的容器切换交换设成横向（`width`），只有侧栏是竖向。入口按钮在右轨上竖着排、按下的底块沿纵轴滑，内容却横着滚。
+为什么是问题：Spec 输出 42 对右栏“横着滚”的依据是“入口横着排，方向跟着入口”（WorkbenchShell.vue 593 行自己的注释也这样写）；入口方向变了，这条依据不成立。方向、先后（“排在后面的从下面进来”）会和入口的位置对不上。计划与 rail-states.md 没有提这件事，属于没有被任何一片登记的遗漏；片 3b 的提交说明也没写。Spec 输出 50“切换容器”只写“照输出 42 原地滚动”，没有指明右栏的方向。
+核实：读 WorkbenchShell.vue:590-625；grep 计划 plan.md 没有“滚”字涉及右栏的条目。
+建议：右栏改 `height`（按“入口带的方向”而不是区域名判：左轨、右轨都竖），更新注释与 Shell.md；Spec 输出 42 右栏那段需要同步改（交给开发者确认，因为它是行为合同）。若有意保留横滚，要在计划里记一句理由。
+
+[3] 建议 | freshlyJoined 两条侧轨串扰 | WorkbenchSurface.vue（`barJoinedKeys` 与 `watch(() => JSON.stringify(barJoinedKeys(cards.value))`，约 345-360 行）
+现象：`freshlyJoined` 是一个全局集合，每次任一侧轨的相连列表变化都整体重算：只收“这次从空变成非空”的那几条侧轨的列。左侧栏正在显示（freshlyJoined = 侧栏那几块、过渡未结束）时，右栏相连列表又变了（例如右栏同时显示、或右栏分节增减导致 key 变化），重算结果里侧栏那一条“上一次已非空”，被丢出集合；`capLeaves` 里这些叶不再满足 `freshlyJoined.has(id)`（显示方向不满足 `drawnAsBefore`），侧栏的“角接过去”画法在这一帧提前换成相连画法，圆角跳一下。
+为什么是问题：计划 3a 说“左右镜像是否完整、两条同时过渡时不串”；每条侧轨各自记前后的 key，却共用一个输出集合，只在“恰好两边同一帧都变”时才对。原来单条时“别的变化都清掉”是安全的，改成列表后这句话不再成立。
+核实：从代码推断（尚未写用例）：把 watch 回调按两步走一遍：第一步 `{sidebar:"S", rail:""}` ← `{sidebar:"", rail:""}` 得 fresh={S}；第二步 `{sidebar:"S", rail:"R"}` ← 第一步，得 fresh={R}，S 丢失。
+建议：每条侧轨各自保留自己的 fresh 集合（Map<barLeaf, Set>），只在自己的 key 从空变非空时置位、自己的过渡（该侧轨的叶都不再 shaped）结束时清；`capLeaves` 按叶所属侧轨查各自的集合。补一个 dom 或单元用例：左显示的过渡中右栏也变化。
+
+[4] 建议 | 方向键与“更多”菜单触发器 | WorkbenchToolStrip.vue `onKeydown`（约 183-193 行）与 DropdownMenu 触发器
+现象：`onKeydown` 在 nav 上冒泡收键，不看 `event.defaultPrevented`。“更多”按钮是 Reka `DropdownMenuTrigger as-child`：它自己在 keydown 里处理 ArrowDown——打开菜单并 preventDefault（node_modules/reka-ui/dist/DropdownMenu/DropdownMenuTrigger.js:55-62）。冒泡到 nav 后，`onKeydown` 又把焦点移到下一项。
+为什么是问题：左轨里“更多”之后还有底段的全局项（设置、同步等），所以在“更多”上按 ArrowDown，菜单打开的同时焦点被移到底段第一项，焦点与菜单状态竞争（菜单内容挂载后会抢焦点，但中间 `focusin` 已把 `lastItem` 记成底段项，Tab 停靠也被写到那一项上）。右轨没有底段，“更多”是最后一项，只表现为多一次无用的 focus。dom 测试是手工 dispatch 的 keydown，经不到 Reka 的触发器处理，所以没覆盖。
+核实：读 Reka 源码 55-62 行；未在浏览器里复现，影响面从代码推断。
+建议：`onKeydown` 开头加 `if (event.defaultPrevented) return`，并对带 `data-tool-more` 的目标让出 ArrowDown（Reka 已处理）；补一条用例：真实挂载 `DropdownMenu`、在“更多”上按 ArrowDown，断言菜单开且焦点没被移走。
+
+[5] 建议 | 接缝短线的标记值改了，没登记到测试约定 | WorkbenchSurface.vue `barSeamOf`；packages/neuro-book/e2e/workbench-containers.e2e.ts:822
+现象：`data-shell-join-seam` 的值从 `""` 变成 `"end"`（活动栏）、`"start"`（右轨）。e2e 第 822 行 `toHaveAttribute("data-shell-join-seam", "")` 会失败；plan.md“测试分工”的元素标记表（152-188 行）里没有这个属性，另一个子代理迁移 e2e 时没有依据。
+为什么是问题：测试约定表是两边共同遵守的合同；值的变化只写在 WorkbenchSurface.md 与代码里。
+核实：grep `data-shell-join-seam`（e2e 802、822、936 行）。
+建议：在 plan.md“测试分工”补一行 `data-shell-join-seam="start|end"`（值是线在侧轨的哪一头），或值保持空串、方向另用一个属性，避免改既有合同；提醒子代理改 822 行。
+
+[6] 建议 | 注释错位与过期文案 | WorkbenchSurface.vue 约 831-840 行；WorkbenchShell.md 16、29、30 行；WorkbenchShell.vue 641-646、593 行；WorkbenchToolStrip.md 菜单键一行
+现象：(a) 3a 在“面板的角接过去的这段（`capOf`）……”那段注释和它描述的 `[data-shell-cap]` 规则之间插进了 `[data-shell-join-seam="start"]` 的规则，注释现在贴在错误的规则上。(b) WorkbenchShell.md 还写“右栏、底部面板的入口条”“右栏与活动栏的图标入口……合计”“右栏、底部面板横着滚”；Shell.vue 的 `stripEntries` 注释仍写“右栏的入口是图标”。(c) WorkbenchToolStrip.md 仍写“菜单键时坐标是入口右上角”，代码里右轨是左上角（`rect.left`）。
+为什么是问题：违反“注释写代码里看不出来的东西且不过期”的仓库规则，读者会按旧模型理解。
+建议：把 start 的规则挪到短线规则（`[data-shell-join-seam]::after`）紧后面；逐条改上面几处文档与注释。
+
+[7] 建议 | `panelWidths` 缓存 | WorkbenchShell.vue:349-359
+现象：`panelWidths` 按面板 id 记“最近一次不为零的宽”，只增不删；`headWidthOf` 的读与写发生在渲染期（函数被模板调用）。与旁边 `stripWidths`（按区域，至多三项）不同，key 是面板 id，分节被删除、搬走后条目一直留着。另外同一个文件里 `viewActionsOf`（约 262 行）读宽度没有缓存，区域隐藏过渡中同一块面板的“头接管”与“标题动作预算”用的是两种宽。
+为什么是问题：长期会话里 id 随机的分节反复创建会慢慢累积（量小）；两处宽度口径不一致时，区域收起的过渡中，动作按钮预算按 0 宽收进“⋯”、头却按旧宽画三列，过渡里会抖一下。
+核实：读 WorkbenchShell.vue 255-275、340-365 行。
+建议：在文档变化时按 `doc.value.panels` 清掉不存在的 id；或让 `viewActionsOf` 也用 `headWidthOf`。
+
+[8] 建议 | Lab 场景文案 | packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:533
+现象：场景 `right-english` 的标签写“(390 wide)”，但没有任何东西把画布设成 390 宽（宽度是 URL 的 `vp=` 或画布本身决定）；场景还是只有一个侧轨组件，不是计划里“英文 390”的整页。
+为什么是问题：场景标签对不上实际，读者会以为它在 390 宽下验证了提示朝左不溢出。
+建议：去掉“(390 wide)”，或在 `input` 里按其他场景的做法给画布尺寸。
+
+--- 汇总 ---
+阻断 0，重要 2（[1] 右栏隐藏时焦点落点缺右轨入口；[2] 右栏容器切换的滚动方向仍是横向），建议 6（[3]-[8]）。
+已跑：WorkbenchToolStrip、WorkbenchRegionStrip 的 dom 测试，adjacency、drag-geometry、locales 的单测，tsconfig.web.json 的 vue-tsc，均通过。
+没有发现问题的重点项：adjacency.ts 的左右镜像（含 maximizedCardEdges）；sashStyleOf 的 cap 翻边；拖放 bandElement、measureBands、start 的区域判定与 bandsAfterCollapse 竖向分支（逻辑与测试一致）；去掉图标变体后的样式、文案残留（只剩 e2e 里的旧选择器，属另一子代理的迁移）；moveGridFocus 与 roving 的配合（tabbable 只认 tabindex=0 的那一项，lastFocused 在 focusin 时已同步）。
+
+=== 处理（主会话，2026-11-26，修正提交 13364cb00）===
+[1] 成立，改：`focusLandings` 按 `entriesOnRail(region)`（侧栏、右栏的入口在侧轨上）无条件给入口落点；测试改成隐藏的右栏落到右轨入口；Shell 的注释与 .md 同步。
+[2] 成立，改：交换的方向按 `entriesOnRail`，右栏竖着滚；Spec ui/workbench-layout 输出 42 右栏那段改成“同侧栏”。没在真实页面上点（产品默认右栏只有一个容器），留给段 B 的切换容器用例。
+[3] 成立，改：`freshlyJoined` 改成按侧轨各记一份，只在那条侧轨自己的列表变了、或它那一列的过渡结束时清。没补用例：要在 dom 里让两条侧轨同时过渡，得驱动 NestedGrid 的按卡片裁，代价高；Lab e2e 的角接过去用例照旧覆盖单条。
+[4] 成立，改：`onKeydown` 跳过已 `defaultPrevented` 的键；dom 用例改测同一条规则（项自己处理过的键），“更多”要真实布局才出现。变异时失败。
+[5] 成立，改：plan.md 测试约定表补 `data-shell-join-seam="end"/"start"`，段 B 改 workbench-containers 的空串断言。
+[6] 成立，改：Surface 里 start 规则挪到短线规则后、注释写侧轨；Shell.md 的入口条、图标入口、滚动方向、右轨条目；Shell.vue 的 stripEntries 注释；ToolStrip.md 的菜单键坐标。
+[7] 部分成立，改：`viewActionsOf` 改用 `headWidthOf`，两处同一个宽；缓存按文档里还在的面板删。
+[8] 成立，改：去掉场景标签里的“(390 wide)”。

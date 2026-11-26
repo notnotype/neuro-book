@@ -1,0 +1,244 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "version": 4,
+    "supersedes": 3,
+    "action": "publish",
+    "kind": "design",
+    "title": "条目页的页头、分页与保存提示",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f92cf8392e212143e6305211767846c540f369660766ef635790d1ca5ef5489d",
+    "files": [
+        "index.html",
+        "r1/charactercard-phone.webp",
+        "r1/current.webp",
+        "r1/rail-filled-640.webp",
+        "r1/rail-filled.webp",
+        "r1/tabs-filled-640.webp",
+        "r1/tabs-filled.webp",
+        "r1/tabs-name-hover.webp",
+        "r1/tabs-new.webp",
+        "r1/tabs-notice.webp",
+        "r1/tabs-plan.webp",
+        "r1/tabs-position.webp",
+        "r2/ed-compact-age.webp",
+        "r2/ed-compact-height.webp",
+        "r2/ed-compact-personality.webp",
+        "r2/ed-compact-where.webp",
+        "r2/ed-glass.webp",
+        "r2/ed-inline-age.webp",
+        "r2/ed-inline-height.webp",
+        "r2/ed-inline-personality.webp",
+        "r2/ed-inline-where.webp",
+        "r2/ed-outcome-age.webp",
+        "r2/ed-outcome-height.webp",
+        "r2/ed-outcome-where.webp",
+        "r2/ed-solid.webp",
+        "r2/now-age.webp",
+        "r2/now-gender.webp",
+        "r2/now-line.webp",
+        "r2/now-position.webp",
+        "r2/vp-labeled-line-menu.webp",
+        "r2/vp-labeled-menu.webp",
+        "r2/vp-labeled-phone.webp",
+        "r2/vp-labeled.webp",
+        "r2/vp-merged-menu.webp",
+        "r2/vp-merged-phone.webp",
+        "r2/vp-merged-pinned.webp",
+        "r2/vp-merged.webp",
+        "r2/vp-timeline-phone.webp",
+        "r2/vp-timeline-pinned.webp",
+        "r2/vp-timeline-plan.webp",
+        "r2/vp-timeline.webp"
+    ],
+    "questions": [
+        {
+            "id": "tab-layout",
+            "type": "single",
+            "label": "分页横排还是竖排？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 横排，设定组与文字在前、经历与情节在后"
+                },
+                {
+                    "value": "rail",
+                    "label": "B 宽时在内容左边竖排，窄了换回横排"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "row"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notice",
+            "type": "single",
+            "label": "保存后的提示要不要自己收起？",
+            "options": [
+                {
+                    "value": "auto",
+                    "label": "A 6 秒后自己收起，指着或焦点在里面时不收"
+                },
+                {
+                    "value": "stay",
+                    "label": "B 留到关掉或有新的一条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "auto"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "initial-word",
+            "type": "single",
+            "label": "“初值”改叫什么？",
+            "options": [
+                {
+                    "value": "story-start",
+                    "label": "A 故事开始前"
+                },
+                {
+                    "value": "before-story",
+                    "label": "B 开篇前"
+                },
+                {
+                    "value": "first-setting",
+                    "label": "C 初始设定"
+                },
+                {
+                    "value": "keep",
+                    "label": "D 不改，仍叫初值"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "story-start"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "view-point",
+            "type": "single",
+            "label": "页头“看的是哪条线、哪个时间点”用哪种做法？",
+            "options": [
+                {
+                    "value": "merged",
+                    "label": "A 合成一个“在看”"
+                },
+                {
+                    "value": "labeled",
+                    "label": "B 两个控件，同一种样子、各带名字"
+                },
+                {
+                    "value": "timeline",
+                    "label": "C 时间条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "merged"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "edit-style",
+            "type": "single",
+            "label": "改一个值用哪种编辑控件？",
+            "options": [
+                {
+                    "value": "compact",
+                    "label": "A 紧凑浮层，意图写成落点"
+                },
+                {
+                    "value": "outcome",
+                    "label": "B 浮层里两项写成结果"
+                },
+                {
+                    "value": "inline",
+                    "label": "C 原地展开，不弹浮层"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "outcome"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "long-text",
+            "type": "single",
+            "label": "长文字（性格、背景这类）改的时候盖在上面，还是在原处展开？",
+            "options": [
+                {
+                    "value": "overlay",
+                    "label": "A 浮层盖在这一段上"
+                },
+                {
+                    "value": "in-flow",
+                    "label": "B 在原处展开，下面让开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "in-flow"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "edit-surface",
+            "type": "single",
+            "label": "编辑浮层用不透明的面，还是和菜单一样的玻璃？",
+            "options": [
+                {
+                    "value": "solid",
+                    "label": "A 不透明"
+                },
+                {
+                    "value": "glass",
+                    "label": "B 玻璃（现在的样子）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "solid"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T04:34:08.859Z"
+}

@@ -1,0 +1,158 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "产品介绍首页：分节脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "1f8f791ceeb5724d54cd3f3e2d61b3f0fd33d7908cfcdc3d82407c423f0bc284",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "visual",
+                    "label": "照这版出视觉稿"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方向不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "visual"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "e1",
+                    "label": "e1 写长篇小说的工作区，记得住你笔下的整个世界。"
+                },
+                {
+                    "value": "e2",
+                    "label": "e2 把长篇写完：正文、设定与 AI 搭档，在同一个窗口里。"
+                },
+                {
+                    "value": "e3",
+                    "label": "e3 每一个世界，都从一行字开始。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "e1"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一节要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "script-r2",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "prototype",
+                    "label": "照这版做原型"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方向不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "prototype"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "hero-motion",
+            "type": "multi",
+            "label": "首屏动画先做哪几种原型？",
+            "options": [
+                {
+                    "value": "unfold",
+                    "label": "A 书展开成工作台"
+                },
+                {
+                    "value": "gild",
+                    "label": "B 金线勾出工作台"
+                },
+                {
+                    "value": "assemble",
+                    "label": "C 工作台自己搭起来"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "unfold"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "notes-r2",
+            "type": "text",
+            "label": "哪一幕、哪一步要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T06:49:29.923Z"
+}

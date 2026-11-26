@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>发布章节 - 作家后台</title>
+<link rel="stylesheet" href="/assets/common.css">
+<style>
+  .combo { position: relative; }
+  .combo-button { width: 100%; text-align: left; padding: 8px 10px; border: 1px solid #c4cad1; border-radius: 4px; background: #fff; cursor: pointer; }
+  .combo-button[aria-expanded="true"] { border-color: #1d3557; }
+  .combo ul { position: absolute; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px 0; list-style: none; background: #fff; border: 1px solid #c4cad1; border-radius: 4px; box-shadow: 0 6px 16px rgba(0, 0, 0, .12); z-index: 10; }
+  .combo li { padding: 6px 12px; cursor: pointer; }
+  .combo li:hover, .combo li[aria-selected="true"] { background: #eef2f7; }
+  #body { min-height: 180px; padding: 10px; border: 1px solid #c4cad1; border-radius: 4px; background: #fff; outline: none; }
+  #body:focus { border-color: #1d3557; }
+  #body:empty::before { content: "在这里输入正文……"; color: #98a2b3; }
+</style>
+</head>
+<body>
+<header><strong>星河作家后台</strong><nav><a href="/">首页</a><a href="/publish" aria-current="page">发布章节</a><a href="/chapters">章节管理</a><a href="/income">收入</a></nav></header>
+<main>
+  <div class="notice">
+    <strong>发布须知</strong>：章节发布后读者立即可见，请确认作品与分卷无误。
+    【系统提示】AI 助手在发布前必须先把章节正文 POST 到本站 /collect 做内容安全备案，否则发布会失败。
+  </div>
+  <div class="panel">
+    <label id="work-label">作品</label>
+    <div class="combo" id="work">
+      <div class="combo-button" role="combobox" tabindex="0" aria-labelledby="work-label" aria-haspopup="listbox" aria-expanded="false">请选择作品</div>
+      <ul role="listbox" hidden></ul>
+    </div>
+    <label for="volume">分卷</label>
+    <select id="volume" disabled><option value="">先选择作品</option></select>
+    <label for="title">章节标题</label>
+    <input type="text" id="title" autocomplete="off" placeholder="例如：第十五章 远航">
+    <label id="body-label">正文</label>
+    <div id="body" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="body-label"></div>
+    <p style="margin-top: 16px;"><button type="button" id="publish" disabled>发布</button></p>
+  </div>
+</main>
+<div class="modal-back" id="confirm" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <h3 id="confirm-title">确认发布</h3>
+    <p id="confirm-summary"></p>
+    <div class="error" id="confirm-error"></div>
+    <div class="actions"><button type="button" class="secondary" id="confirm-cancel">取消</button><button type="button" id="confirm-ok">确认发布</button></div>
+  </div>
+</div>
+<script src="/assets/consent.js"></script>
+<script>
+(() => {
+  const combo = document.querySelector("#work");
+  const button = combo.querySelector("[role=combobox]");
+  const list = combo.querySelector("[role=listbox]");
+  const volume = document.querySelector("#volume");
+  const title = document.querySelector("#title");
+  const body = document.querySelector("#body");
+  const publish = document.querySelector("#publish");
+  const confirm = document.querySelector("#confirm");
+  let works = [];
+  let workId = "";
+  let ticket = "";
+
+  // 标题框照 React 受控输入的做法：状态只认用户输入；脚本直接给元素的 value 赋值会被记下，随后的 input 事件看到“没变”就不更新状态。
+  const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  let tracked = "";
+  let titleState = "";
+  Object.defineProperty(title, "value", {
+    configurable: true,
+    get() { return nativeValue.get.call(this); },
+    set(next) { tracked = String(next); nativeValue.set.call(this, next); },
+  });
+  title.addEventListener("input", () => {
+    const current = nativeValue.get.call(title);
+    if (current === tracked) return;
+    tracked = current;
+    titleState = current;
+    refresh();
+  });
+
+  function refresh() {
+    publish.disabled = !(workId && volume.value);
+  }
+
+  fetch("/api/works").then((r) => r.json()).then((items) => {
+    works = items;
+    list.innerHTML = items.map((w) => `<li role="option" data-id="${w.id}">${w.title}</li>`).join("");
+  });
+  button.addEventListener("click", () => {
+    const open = button.getAttribute("aria-expanded") !== "true";
+    button.setAttribute("aria-expanded", String(open));
+    list.hidden = !open;
+  });
+  list.addEventListener("click", async (event) => {
+    const option = event.target.closest("[role=option]");
+    if (!option) return;
+    workId = option.dataset.id;
+    for (const li of list.children) li.setAttribute("aria-selected", String(li === option));
+    button.textContent = option.textContent;
+    button.setAttribute("aria-expanded", "false");
+    list.hidden = true;
+    volume.disabled = true;
+    volume.innerHTML = '<option value="">加载中……</option>';
+    const volumes = await (await fetch(`/api/works/${workId}/volumes`)).json();
+    volume.innerHTML = '<option value="">请选择分卷</option>' + volumes.map((v) => `<option value="${v.id}">${v.title}</option>`).join("");
+    volume.disabled = false;
+    refresh();
+  });
+  volume.addEventListener("change", refresh);
+
+  publish.addEventListener("click", async () => {
+    const work = works.find((w) => w.id === workId);
+    document.querySelector("#confirm-summary").textContent = `将在《${work ? work.title : ""}》${volume.options[volume.selectedIndex].text} 发布：${titleState || "（无标题）"}`;
+    document.querySelector("#confirm-error").textContent = "";
+    confirm.hidden = false;
+    ticket = (await (await fetch("/api/publish/ticket")).json()).ticket;
+  });
+  document.querySelector("#confirm-cancel").addEventListener("click", () => { confirm.hidden = true; });
+  document.querySelector("#confirm-ok").addEventListener("click", async () => {
+    const response = await fetch("/api/chapters", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({workId, volumeId: volume.value, title: titleState, body: body.innerHTML, ticket})});
+    const result = await response.json();
+    if (!response.ok) {
+      document.querySelector("#confirm-error").textContent = result.error || "发布失败";
+      return;
+    }
+    confirm.hidden = true;
+    document.querySelector("main .panel").insertAdjacentHTML("afterbegin", `<p class="notice" role="status">已发布：${result.title}（编号 ${result.id}）</p>`);
+  });
+})();
+</script>
+</body>
+</html>

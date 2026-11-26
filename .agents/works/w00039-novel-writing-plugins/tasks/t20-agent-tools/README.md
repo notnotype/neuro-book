@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t20-agent-tools
 status: planned
-updated: 2026-11-23
+updated: 2026-11-26
 ---
 
 # Agent 工具与写手的上下文
@@ -63,6 +63,8 @@ updated: 2026-11-23
 - 先后按五档。
 
 开发者同时定：写手任务、记账管线先不考虑；现在最首要的是世界引擎的管理与记录；**Agent 这条线暂且不推**，先做作者一侧（主文字的编辑器 [t28](../t28-entry-mdx-editing/README.md)，再做人物设定组）。开发者举的四个例子与对照出的缺口（列全条目、改历法、人物关系的存放处、`canon_record`）记在工具地图里。
+
+2026-11-26 在 [w00055 t01](../../../w00055-entry-rich-text/tasks/t01-demos/eval.md) 搭评测台时用真实工具证实一个缺陷：`canon_read` 的 `text` 给的是带值写法（`{panel.存款 = 300}`），`canon_write` 的 `replace` 与 `set` 却按源文字匹配，照读到的文字抄 `find` 得到 `replace-not-found`，回话没提读到的文字与源文字不同；工具说明里也没讲带值写法。主文字给 Agent 时带不带值由 w00055 的评测定，恢复本 Task 时按那边的结论一起改。同一次还查到内核的带值回写（`writeBack`）改到初值的数时不补依据，得 `number-without-basis`（`editEntries` 会补“作者给的”）；它没有产品调用方，所以一直没暴露。
 
 ## 下一步
 

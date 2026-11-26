@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t04-words-to-worlds-scheme",
+    "artifactId": "review",
+    "answerId": "20261126T061217250Z-6a49df67",
+    "artifactVersion": 1,
+    "contentHash": "129980851f49e0e03bf6e6ffcb110999b97348da4c656644b192a41cebc3e056",
+    "submittedAt": "2026-11-26T06:12:17.250Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "script": "drop"
+    },
+    "comments": {
+        "script": "开发者在会话里答（2026-11-26）：三个版本都不太行；整体像在照着旧首页再做，要重新做；例子要换，不用断臂的例子；现有的 NovelAI 场景图不能直接拿来用；基调改用 w00050 t06 契约仪式页的史诗、神圣、西幻气氛，尤其是书的设计（不复制）。"
+    },
+    "note": null
+}

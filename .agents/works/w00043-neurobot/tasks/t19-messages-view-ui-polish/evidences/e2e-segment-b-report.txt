@@ -1,0 +1,96 @@
+w00043 t19 测试第 B 段交付报告
+分支 w00043-t19/e2e（worktree .worktree/w00043-t19-e2e），不 push。
+
+一、合并结果
+- 开头 `git merge feat/w00043-neurobot`：无冲突；中途又合一次（带来 9a3aec88a 片 5 前端审查修正），也无冲突。无需 bun install。
+
+二、提交
+- 2602d38d3 test(e2e): 侧轨最终标记与右栏入口移到右轨，迁移依赖旧入口条与逐入口 Tab 的用例
+- 905de3129 test(e2e): 右轨视图段的展开、预算、轨宽手柄、意图、切换容器、键盘、焦点交接、拒收区与位置限制（样例庚），第 A 段的实时布局与浮动窗选点修正
+- b5400d9c6 Merge branch 'feat/w00043-neurobot' into w00043-t19/e2e
+- c21f57525 test(e2e): 右轨展开按钮太窄时看 aria-description，意图不漂移只比右栏区域与当前容器分节的宽度
+- 6ec445b6f test(e2e): 迁移右轨后的卡片顶、左轨范围、最大化时右轨不被盖住、菜单项名与拆分后重量的矩形
+
+三、迁移清单（文件:用例 -> 改了什么）
+辅助函数 support/side-rail.ts
+- 入口条选择器 `[data-rail-entries]` -> `[data-tool-band]`；barEntry 限定在 `[data-rail="sidebar"]`（两条轨都有入口带与指示）。
+- expectNoFeedback(page, where?) 加可选标签；新增 pickUpLive（等 `data-drag-feel=live`）。
+workbench-side-rail.e2e.ts（第 A 段）
+- 拒收区用例删去（改到新文件按 `[data-rail-segment][data-drop-refuse]` 测）；拿起改用 pickUpLive；焦点断言改成键盘聚焦加 Enter（入口 mousedown.prevent，鼠标点不聚焦）；浮动窗用例改为依次浮出并用 inside(panel) 扫空点；命令直传用例加“被拒的命令后 settledWrites 等于 writes”。
+workbench-containers.e2e.ts
+- 左轨相关选择器全部限定 `[data-rail=sidebar]`；接缝短线 `data-shell-join-seam` 的值改按 "end"（左轨）；右栏横入口条用例改成右轨入口带用例（含新增的右轨拖入、最大化时右轨不被盖住）；卡片顶比较改取 `[data-shell-card="<分节id>"]`；被最大化的右轨卡片宽 46（不相连）；“来源收起之后”先等 `[data-swap]` 清零再拿起。
+workbench-shell.e2e.ts
+- 右栏空了的用例、F6 用例按右轨改；菜单项“浮动打开”改“浮动”。
+workbench-views.e2e.ts
+- `.workbench-tool-strip__entries` 限定 `[data-rail=sidebar]`；右栏卡片圆角那条只取左三分之一窗口宽里带 `data-shell-join="end"` 的卡片（右栏分节也带这个标记）。
+workbench-live-drag / workbench-dnd / workbench-titlebar / files-explorer / lab-workbench-surface
+- 入口条与左轨范围的标记迁移；files-explorer:871 拆出新组后第一组矩形变了，左缘落点改按拆分后的矩形取（原来用拆分前量的 firstBody，落到中央）；lab-workbench-surface:343 最大化时右轨不被盖住，被最大化面板右缝是相邻半缝（右 padding 2，与右轨卡片之间留 4 像素相邻缝），断言改成这个值。
+
+四、新用例（workbench-side-rail-segment.e2e.ts，21 条；用例 -> Spec 条目 -> 依赖标记）
+1 展开、收起 -> layout 输出 50 展开、views 输出 21 -> nav[data-rail-state]、[data-rail-expand][aria-expanded]、[data-shell-card=rail:auxiliarybar]、data-sample-rail-expanded
+2 展开状态按容器记 -> 输出 50 展开 -> 同上
+3 预算与窗口太窄 -> 验收 36、输出 50 预算 -> data-rail-too-narrow、aria-description “窗口太窄”（可访问名仍是“展开”）
+4 轨宽手柄拖动、触界即停、松手一次提交 -> 输出 50 轨宽手柄 -> [data-rail-handle][role=separator]、aria-valuenow
+5 手柄拖动中 Esc 取消 -> 同上
+6 手柄键盘（方向键 10、Home、双击）-> 同上
+7 意图不漂移 -> 验收 35 -> 布局记录 panels.auxiliarybar.rail
+8 切换容器同宽（竖着滚）-> 输出 42、50 -> data-swap
+9 切换容器异宽（走一次布局过渡）-> 输出 50
+10 右轨键盘（一个 Tab 停靠、方向键、Home、End）-> 输出 22、50 焦点与读屏
+11 左轨键盘 -> 输出 22、50
+12 F6 一站 -> 输出 18、50
+13 焦点交接（不掉到 body）-> 输出 50
+14 视图加载失败 -> 输出 50 展开（见六的疑问 1）
+15 加载骨架 -> 输出 50（观察用例：骨架实际观察到 2 帧，样例庚加载立刻完成，用 MutationObserver 逮住；annotation skeleton-observed=2）-> data-rail-loading
+16 拒收区 main、foot -> 输出 50 落点 -> [data-rail-segment][data-drop-refuse]
+17 别的视图进样例庚的容器没有落点 -> views 输出 22
+18 样例庚到侧栏、底部面板没有落点 -> views 输出 22
+19 往样例庚的浮动窗加标签没有落点 -> views 输出 22
+20 命令直传也拒绝（样例庚版）-> views 输出 22
+21 “移动到”菜单没有这些目标 -> views 输出 22
+（共 21 条，拒收区那条的 test 调用写在 for 循环里，grep 数得 20 行 test(；以文件为准。）
+用到的受限测试视图：test.sample-views/with-rail 与 rail-bounds 开关，data-sample-rail-item / data-sample-rail-foot / data-sample-rail / data-sample-rail-expanded。
+
+五、最后一次运行结果
+范围：第 A 段与迁移过的 10 个文件，分两次跑（NB_E2E_WIDE 已写理由）：
+- 第一批（segment、containers、shell、views、files-explorer、lab-workbench-surface）：148 条，142 过 6 败；其中 lab-workbench-surface:343 与 files-explorer:871 是用例写错，已改并单独重跑通过。修后计 144 过 4 败。
+- 第二批（side-rail、live-drag、dnd、titlebar）：82 条，78 过 4 败（都是预期失败）。
+- 合计 230 条：222 过 8 败。
+
+失败逐条（文件:行 / 现象 / 归类 / 依据）
+1 workbench-views.e2e.ts:227 右栏拖到零后刷新、从零往外拉 / 拉出 220 像素时样例丁一直 data-visible=false / 产品缺陷 / 探针：右栏拖到零后，往外拉，样例丁的分节卡片 left 停在 1390（与右轨卡片同一个 left）、宽长到 173 就不再长，卡片伸到右轨底下和窗口外，视图一直不可见；刷新前的同一手势没问题。右栏按预算收起，意图为 0 时拉出的呈现位置不对（片 5 预算与右轨的叠加）。
+2 workbench-containers.e2e.ts:1761 有面板最大化时右轨入口带上没有落点 / 拖资源管理器标签落到右轨入口之间、入口上都没有 data-drop-kind；Spec 输出 13、50 写最大化时右轨不被盖住、入口带仍是落点 / 产品缺陷 / 探针对照：同一手势、同样的指示模式、不最大化时在入口之间得到 data-drop-kind=new-container；最大化后在入口之间与入口的 20%、50%、80% 处、第二个入口处都没有。
+3 workbench-shell.e2e.ts:322 右栏拖空后把消息拖回去 / 拖动没有开始 / 预期失败（消息视图，归第 C 段与片 7）/ 浮动窗里消息视图自绘头压住了标签按钮：标签按钮 `[data-panel-tab]` 中心处 elementFromPoint 是一个 lucide-menu 图标，按下后 data-workbench-dragging 为空。片 7 重写消息视图后复测。
+4-7 workbench-side-rail.e2e.ts:372、399、441、487 四条消息视图相关的位置限制用例 / 预期失败：消息视图 nbook.agent.conversation 在产品里还没有 confinedTo: auxiliarybar（只有 sdk 与 shared 的 schema），它仍可搬进侧栏；等片 7 声明限制。同一合同的样例庚版（新用例 17 到 21）全部通过，说明关卡本身在工作。
+8 files-explorer.e2e.ts:629 标签右键菜单项被盖住 3 个 / 原有失败（同 memory 里 files-explorer:634 一类，那时是 2 个，行号与数目随版本漂移）；本分支没改这条用例；未在 master 上逐条对照。
+
+本批已确认的环境与偶发（单独重跑或下一轮通过）：files-explorer:151（动画 off 与 enter）、workbench-shell 的 Lab 812（.workbench-surface-fixture 找不到）在第 3 轮失败、第 4 轮通过，负载 11 到 14 下偶发。
+
+六、产品缺陷与需要产品加的标记；给主会话的疑问
+产品缺陷（只报告）
+1 见上面 1：右栏拖到零后往外拉的呈现位置。
+2 见上面 2：别的面板最大化时右轨入口带没有落点（对照得到手势本身没问题）。
+3 消息视图未声明 confinedTo（预期，片 7）；浮动窗里消息视图的自绘头盖住标签按钮（可能是片 7 的内容，请确认）。
+已在合并进来的提交中修复：9a3aec88a 修了轨宽手柄拖动中 Esc 不生效（第 3 轮之前确认的缺陷）。
+需要产品加的标记：没有额外标记需要加。
+疑问（Spec 没说，用例按现状写成观察，不当缺陷）
+1 视图加载失败：右轨仍保持展开、视图段空着、没有骨架；Spec 的“加载失败”没写右轨怎么呈现。现用例只断言布局记录的意图不变、骨架不留、视图区显示“视图加载失败”。要不要收起请定。
+2 切换容器两端轨宽不同时，过渡期间 [data-swap] 帧存在（17 帧），Spec 只说“走一次布局过渡”，没有断言 0 帧。
+3 被最大化的右轨卡片宽 46（不再与右栏相连），用例按 46 写。
+
+七、没覆盖的（与原清单相比）
+- 视图段在浮动窗里、消息视图本身的用例：不在本段。
+- 最大化与焦点跟随在入口条里、入口条头对齐、头落在头上、编辑组最大化、验收 35 里浮动窗高度台阶、焦点在收起的列表里时的交接：迁移时没有对应的新结构可测，没补。
+
+八、产物
+- 日志与 JSON：/tmp/review-t19-e2e/b-run4.log、b-run4.json、b-run6.log、b-run6.json、b-tsc5.log；失败清洗文本 b-run3-fail.txt。
+- 类型检查 vue-tsc -p tsconfig.browser-test.json 通过，git diff --check 通过，没有残留的 zz-probe 文件。
+
+九、主会话的处理（2026-11-26）
+- 分支 w00043-t19/e2e 只改了 e2e 与辅助函数，快进并入 feat/w00043-neurobot（6ec445b6f）。
+- 缺陷 1（views:227 刷新后从零拉出）成立，产品缺陷：投影选项无条件读 railState；railState 跟着视图实例的加载状态重算、每次是新对象，视图在从零拉出的手势中加载时投影换了一份，打断网格手势（编辑组不让、分节叶停在 0，卡片按内容撑出到右轨下）。改为投影只读预算的两个数（收着时 null，数不变交回上一份），1037f2f9d。改前该用例失败、改后通过。
+- 缺陷 2（containers:1761 最大化时右轨入口带无落点）不成立：Spec 输出 45 写“有面板最大化时不接收”，产品照此实现；用例改成断言没有落点、松手零写入、不开浮动窗，1037f2f9d。
+- 疑问 1（加载失败时右轨）：代码已按收着呈现（acceptRailBounds 对加载失败给 null），Spec 输出 50 的列举补上“加载失败”（ed3ad6615）；用例加断言 data-rail-state=collapsed，去掉加载失败那一支的变异被抓住。
+- 疑问 2（异宽切换的 data-swap 帧）、3（最大化时右轨卡片 46）：按现状观察，片 8 处理异宽切换时再定。
+- 顺带：segment:793 先取记录后等写入落定，有竞态（--repeat-each=3 失败 1 次），改为先等落定再取、比整份记录，--repeat-each=5 全过。
+- 复跑：segment 全文件 21 条、views:227、containers:1746 通过。

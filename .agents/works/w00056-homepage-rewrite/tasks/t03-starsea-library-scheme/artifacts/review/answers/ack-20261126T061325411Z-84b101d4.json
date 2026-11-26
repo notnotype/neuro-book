@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t03-starsea-library-scheme",
+    "artifactId": "review",
+    "ackId": "20261126T061325411Z-84b101d4",
+    "answers": [
+        "20261126T061211434Z-b78c14f5"
+    ],
+    "through": "20261126T061211434Z-b78c14f5",
+    "included": [
+        ".agents/works/w00056-homepage-rewrite/tasks/t03-starsea-library-scheme/README.md"
+    ],
+    "ackedAt": "2026-11-26T06:13:25.411Z"
+}

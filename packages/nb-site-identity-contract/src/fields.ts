@@ -142,3 +142,16 @@ export const RegistrationCodeNote = Type.String({pattern: REGISTRATION_CODE_NOTE
 
 /** 账号、会话、码、审计记录的数字 id（`site.accounts` 副作用与数据：一经分配不变、不重用）。 */
 export const Id = Type.Integer({minimum: 1});
+
+/**
+ * 续接令牌（`site.oauth-provider` 输出 4、12，`site.accounts` 输出 4、11）：登录、注册、补交同意与社交发起的请求可带的 `continue`。
+ * 对调用方不透明，原样带回。schema 只要求是字符串，不限长度、不限写法：令牌被篡改、过期或太长都是“不合格”，
+ * Spec 要的是照常登录、响应不带继续地址，不是 `validation_failed`；长度由服务端解令牌时判，整个请求体另有 16 KiB 的上限。
+ */
+export const ContinueToken = Type.String();
+
+/**
+ * 继续地址（登录、注册、补交同意的响应里的 `continueUrl`）：站内地址，以单个 `/` 开头。拒收 `//host`、`/\host` 与带协议的写法：
+ * 浏览器把这两种开头当作别的主机（协议相对地址），页面照着去就离开了站点。
+ */
+export const ContinueUrl = Type.String({pattern: "^/(?![/\\\\])"});

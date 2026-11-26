@@ -1,0 +1,88 @@
+# w00043 t19 片 7 实现审查（6ec445b6f..f3d59240f）
+
+## 1. [重要][正确性] 收着时按高度截项少算 12 像素：每个“刚好放得下”的高度上，最后一项被裁掉一截
+位置：/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-agent-ui/src/messages-segment-fit.ts:25-43（slots 的算式），AgentMessagesSegment.vue:56-62、.acv-segment__main 的样式（padding-block: 4px）
+现象：fitSegment 把输入高度当“内容盒”，按 n 项需要 40n-4+9（SEGMENT_ITEM_STEP*n - 4 + SEGMENT_DIVIDER）算。实际有两处对不上：
+ (a) useLayoutExtent 量的是 clientHeight，含 padding（它自己的 .md 写着“包含内边距、不含边框：拿它给自己的内容排版时，要扣掉内边距”），而 .acv-segment__main 有 padding-block: 4px，上下共 8；
+ (b) 短线是 flex 的一个子项，它和相邻项之间多出一个 4px 的 gap，“最后一项后面没有 gap 所以补回 4”的前提不成立：n 个按钮加 1 条短线共 n+1 个子项、n 个 gap，总高 36n + 4n + 9 = 40n + 9，不是 40n + 5。
+合计需要 40n + 17，函数在 height = 40n + 5 就判定能放 n 项，差 12px。
+如何核实：我用 headless Chrome 把同样的 CSS（main 的 padding-block 4、gap 4、行高 36、短线 1px 加 margin-block 4）摆 n=3/5/8 项，量 clientHeight：137 / 217 / 337，而测试里的 heightFor(n) 给 125 / 205 / 325，各差 12。探针在 /tmp/review-t19-impl-7/probe/fit.html。也就是 fitSegment 单测里每一个“正好放得下”的用例（heightFor）在真实布局里都放不下，最后一项被 overflow-y 裁掉（scrollbar-width: none，用户看不到滚动条），只有 roving 聚焦到它时才滚出来。单测只对着自己的常量，没人对过真实布局，所以没发现。
+为什么是问题：Spec 输出 57 写“随高度只在末尾增减”，用户看到的是最后一个会话方块半截；侧轨本来就在高度紧时才触发截项，这个误差恰好落在最常见的“刚好不够”区间。
+建议：把 12 做成有名字的常量（padding 8 + 短线两侧 gap 4），或让 main 的 padding 改到外层、量内容盒；同时把 heightFor 换成从真实 DOM 量出来的数（e2e 里按 data-strip-* 数量对 main 的 clientHeight 做一次对照），避免常量与 CSS 各写一份。
+
+## 2. [重要][正确性] 注释与 .md 写“换位置时 Vue 只搬节点，列表的滚动与搜索框的焦点不丢”，在浏览器里不成立
+位置：AgentMessagesSegment.vue:4-6（文件头注释）、AgentMessages.vue:3-6、AgentMessages.md“rail 与 edge 之间换的是同一个视图段实例……展开着的列表、搜索词与滚动位置不丢”、AgentMessagesSegment.md 相应段
+现象：Teleport 的 `to` 变了（侧轨换元素、rail 与 edge 之间切换会改 disabled 与 to）时 Vue 用 insertBefore 把子树移到新位置（Vue 3.5.39 的 runtime-dom 里没有 moveBefore）。浏览器里 insertBefore 一个已在文档里的节点等于先移除再插入：焦点丢，滚动位置归零。
+如何核实：headless Chrome 探针 /tmp/review-t19-impl-7/probe/focus.html：input 聚焦后把它的父节点 append 到别处，document.activeElement 不再是 input（focusAfterMove=false）；滚动容器 scrollTop 100 的，被 append 到新父节点后变 0（scrollAfterMove=0）。结果：focusBefore=true focusAfterMove=false scrollBefore=100 scrollAfterMove=0。happy-dom 的 dom 测试不会重现这一点，所以测试没有暴露。
+为什么是问题：Spec views.md 输出 21 写“视图负责列表内控件的身份、滚动与选中，换位置后自己恢复”——换位置后恢复是视图的责任，这里指望 Vue 搬节点就保住，实际两样都丢。触发路径：右轨换容器再切回（工作台给新的 main/foot 元素）、rail↔edge（浮成窗再停靠）。丢失的是展开着的列表的滚动与搜索框焦点（搜索词因为在宿主里保留了，列表还是原样画出来，但滚动回顶）。placement 经 none 回来时更彻底：v-if 的 aside 与 Segment 整个卸载重挂，Segment 自己的 pendingFocus、brokenAvatars 状态也一并没了。
+建议：要么承认不保，改文档与注释（“搜索词保留，滚动与焦点不保”，并在换位置前后各记一次再恢复：换位置前记 listRef 的 scrollTop 与焦点所在页，nextTick 后恢复）；要么在 Teleport 位置变化的 watch 里做恢复。至少把注释里那句断言改掉，否则后来的人会信它。
+
+## 3. [重要][正确性] 打开 bot 后“焦点交给聊天输入框”在盖层 inert 期间给不上，之后没人补（从代码推断，未在真实运行时复现）
+位置：/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:117-142（revealAndFocus、openContact）、:177-189（模板里 :inert="cover !== null"）；contact-opener.ts 的 openContact
+现象：openContact 在第一个 await 之前就把 pending 设上（盖层出现，聊天区 inert），随后 `await provider.open(id)`（远程）、`await host.open(sessionId)` 才清 pending。revealAndFocus 并行地 `await props.reveal()`，成功后 `focusComposer()`（nextTick 里调 conversationRef.focusComposer()）。reveal 只是一条命令执行，通常比取主对话的远程调用快，所以给焦点时盖层还在、输入框在 inert 子树里，focus() 无效；pending 清掉之后没有任何地方再给一次焦点。
+为什么是问题：Spec 输出 57“打开”写“打开之后焦点交给聊天输入框”。点侧轨里的 bot 头像是这条路径的主入口（点一个当前没开着的 bot 必经 pending）；只有“当前已开着它的主对话”的早退路径才给得上。newSession 同理：`host.act({type:"session.create"})` 不等落定，sessionId 还是 null 且 tab 为 bot 时 pickBot 盖层把聊天区 inert。
+如何核实：e2e 里点一个不是当前的 bot，等聊天出现后断言 document.activeElement 是输入框；或在 MessagesHost 的 dom 测试里把 provider.open 做成可控的 Promise，先 resolve reveal 再 resolve open，看焦点。目前 messages-model.test.ts 与 dom 测试都没覆盖这条宿主逻辑（见第 8 条）。
+建议改法：揭示完成后把“要给焦点”记成宿主状态，等 cover 变 null（且是最后一次揭示）再 focusComposer；即 `pendingFocus = seq`，watch(cover, …) 里在 cover===null 且 seq===reveals 时给。
+
+## 4. [重要][界面] 圆点的描边读了不存在的宿主变量 `--skin-activitybar-background`，真实变量是 `--skin-activitybar-surface`
+位置：AgentMessagesSegment.vue 的 `.acv-segment__dot { border: 2px solid var(--skin-activitybar-background, var(--bg-panel)) }`；/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-agent-ui/src/vue/style-tokens.dom.test.ts:58（hostVars 里登记了同名变量）；AgentMessagesSegment.md“按钮的颜色跟着……-background”
+现象：工作台只定义 `--skin-activitybar-surface`（packages/neuro-book/src/ui/theme/skin-vars.ts:26，WorkbenchToolStrip.vue:417 `background: var(--skin-activitybar-surface, var(--panel-surface))`，web/styles.css:214 在 window-backdrop 下设成 transparent）。没有任何地方写 `--skin-activitybar-background`，所以这里永远落到 `--bg-panel`。
+为什么是问题：圆点描边的用意是“抠出”头像与右轨背景的边（描边色应等于轨底色）。皮肤改了轨底色、或开了窗口背景（轨底 transparent）时，描边色仍是 `--bg-panel`，圆点周围出一圈对不上的色环。fallback 也不一样：轨自己的缺省是 `--panel-surface`，这里是 `--bg-panel`。style-tokens 测试把这个不存在的变量登记进 hostVars，让“读了没人定义的变量”的检查失效。
+如何核实：grep -rn "skin-activitybar-background" packages 只有这三处；grep "skin-activitybar-surface" 有工作台的定义与使用。
+建议改法：改成 `var(--skin-activitybar-surface, var(--panel-surface))`，hostVars 与 .md 同步改名。
+
+## 5. [重要][正确性] 浮动窗（edge）一侧的合同有三处没接上：宿主从不给 `--acv-segment-inset-top`、没有收起手段、计划里的 `data-float-rail` 没有
+位置：MessagesHost.vue:70-72（ownHeadStyle 只给 `--acv-head-height`、`--acv-head-inset-end`）；AgentMessages.vue:100-108；AgentMessagesSegment.vue（没有 request(false) 的入口）；plan.md 元素标记约定表第 179 行
+现象：(a) AgentMessages 在 edge 时靠 `padding-top: var(--acv-segment-inset-top, 0px)` 给“回到停靠”让出顶格，Spec 输出 57“顶格让给回到停靠”、输出 21“最上面与自绘头同高的一格留空”。全仓只有 AgentMessages 读它，没有宿主写它：真实浮动窗里视图段第一项会被“回到停靠”盖住。应在 ownHeadStyle 里写 `--acv-segment-inset-top: ${MESSAGES_HEAD_BAND}px`。(b) edge 里没有展开按钮，也没有别的收起入口：点“全部 bot”展开（request(true)）后，展开着时 openPage 只切页，`request(false)` 没有调用点，浮动窗里展开了就收不回去（Esc 明确“不收起”）。(c) plan 约定的 `data-float-rail`（浮动窗里视图画的视图段根）没有出现在代码里，第 C 段的 e2e 照约定写会找不到。
+影响范围：当前工作台还没有产生 `{kind: "window"}`（WorkbenchShell 只 setPlacement rail 与 none），所以今天只有 Lab 能走到 edge；不修的话浮动窗的那一片接上时才暴露，属于潜在问题，但这三处都是视图一端的责任。
+如何核实：grep -rn "acv-segment-inset-top" packages（只有读没有写）；grep -rn "data-float-rail" packages 无命中；grep "request(" MessagesHost.vue 只有 request(true)。
+建议改法：写 inset 变量、给 edge 的视图段一个收起的办法（Spec 没写就把它列为待决定交开发者，不要悄悄缺着）、在 edge 的 aside 上写 data-float-rail。
+
+## 6. [建议][界面] 状态变化的过渡有缺口：当前 bot 竖条与当前会话描边是瞬变；底段按下态用了强调色，与侧轨底段的约定不一致
+位置：AgentMessagesSegment.vue：`.acv-segment__bar`（v-if 渲染，只有 background-color 的过渡，只对 weak 切换生效）、`.acv-segment__item--session` 与 `[aria-current="true"]` 的 box-shadow（`.acv-segment__item` 的 transition 只列 background-color、color，--session 规则没有重写 transition）、`.acv-segment__item[aria-pressed="true"]`
+现象与依据：
+ (a) 点另一个 bot 时，竖条在旧行瞬间消失、新行瞬间出现，没有任何过渡；换当前会话时描边是 inset box-shadow，不在 transition 列表里，也是瞬变。过渡只在 weak 切换时对竖条颜色生效。仓库约定“状态变化要过渡”（开发者 11-23 指出反复犯），Spec 评审时也列了“竖条与描边的颜色过渡”。工作台入口的按下底块是滑动的，同一条侧轨里两种当前态一个滑一个跳。
+ (b) WorkbenchToolStrip.vue 里底段切换按钮按下的约定写明（552 行注释）：“灰底、正文色，不用强调色；强调色只给上段的视图”。这里底段两个按钮展开且在对应页时 `color: var(--skin-activitybar-active, var(--accent-text))`，用了强调色，与同条侧轨里别的底段按钮不一致。
+建议改法：(a) 竖条常驻 DOM、用 opacity 或 transform 过渡（或把当前态改成每个头像行自带的伪元素、颜色/透明度过渡），描边加 box-shadow 到 transition 列表；(b) 改成 `var(--skin-activitybar-active, var(--text-main))`。
+
+## 7. [建议][界面] 默认暗色里 `--accent-main` 与 `--status-warning` 同为 #f59e0b：汇总徽标“有等你处理时 warning 色”看不出来；弱描边对比度约 1.85:1
+位置：AgentMessagesSegment.vue 的 `.acv-segment__count[data-messages-summary-waiting]`、`[data-rail-weak] …`；颜色定义 /home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-ui/src/colorway/presets.ts:79,88
+现象：dark 预设里 accent-main 与 status-warning 都是 #f59e0b，未读数字徽标和“有等你处理”的汇总徽标是同色同形（都是数字徽标），区别只剩背景色而这两个色相同，等于看不出（bot 行的圆点与数字形状不同，没问题；问题只在底段汇总徽标：既有未读又有等你处理时，等你处理这个信息在默认主题里不可见）。弱描边 `--border-strong` #4e4e54 对 #252529 约 1.85:1（按 WCAG 相对亮度算），“当前”退到几乎看不见，只剩 aria-current 给读屏；Spec 要求“弱”，但低于 3:1 的非文本对比建议至少写进 .md 作为已知取舍。
+建议改法：汇总徽标有等你处理时在数字徽标之外加一个形状差异（例如旁边加 warning 圆点，或换成圆点覆盖数字角），不靠颜色单独区分；Lab 里加一个“只有等你处理”与“既有未读又等你处理”的底段场景，并在默认暗色与一个亮色主题下看。
+
+## 8. [建议][测试] 宿主一端与几条协议没有测试，现有 dom 测试跑不到浏览器才有的行为
+- MessagesHost 的 revealAndFocus（先选后揭示、只有最后一次给焦点）、listRequest 的取走与换代、cover 的 inert 与焦点（第 3 条）没有任何单测或 dom 测试；messages-model.test.ts 只测 watchRecent 与最近会话。这些靠第 C 段 e2e 才会碰到，建议至少给 MessagesHost 加一份用桩 ViewContext 的 dom 测试，把 reveal 与 provider.open 做成可控 Promise。
+- AgentMessages.dom.test.ts 的“从侧轨换到右边缘”断言“同一份列表搬过来、搜索词不丢”，在 happy-dom 里 DOM 搬动不会丢焦点与滚动，所以第 2 条的缺陷测不出来；测试名与注释却把它写成“不丢”。应把这条改为“搜索词不丢（宿主持有）”，焦点与滚动留给 e2e 或在组件里做恢复后再断言。
+- 没有覆盖：侧轨给了新的 main/foot 元素（换容器再切回）时 Teleport 去处更新；focusSearch 记下后在列表挂上之前收起则作废（Segment.md 写了这条协议）；未读超过 99 写“99+”；只有等你处理时底段是圆点；联系人加载失败时 bot 一组为空、短线仍画。
+- pendingFocus 只在 expanded 由真变假时清（AgentMessagesSegment.vue:104-106）；“请求 done 之后展开又立刻没了（窗口变窄）”这类 expanded 从没变真的路径，记下的那一页留着，之后用户手动点展开按钮会被抢焦点到搜索框。可以给 pendingFocus 绑上宿主的 request 序号，或在 focusSearch 调用处同一 tick 内没挂上就作废。
+
+## 9. [建议][代码质量] 去掉收起按钮后留下的死代码与过期文字
+- AgentMessagesList 的插槽 `switch-end`（AgentMessagesList.vue:30、126；.md 第 12、54-55 行；dom 测试“切换行的右端是插槽”）全仓没有使用方，列表的收起按钮已经没了。注释“右端留给外框的收起按钮”（AgentMessagesList.vue:185）、.md“不压到右端的按钮”也已过期。应删掉插槽与那条测试，或写明谁会用。
+- packages/neuro-book/src/plugins/agent/web/messages-head.ts 里 MESSAGES_HEAD_BAND 的注释仍写“也等于列表切换行缺省的高度”：列表切换行现在写死 40px（`--acv-head-height` 已不再读），关联已断。
+- MessagesHost.vue:111-114 `showList`：`await rail.request(true)` 没有 catch。ViewRail.request 在 handle 抛错时交回失败的 Promise（view-rail.ts 注释写明），这里 `void showList(page)` 出去就成了未处理的 rejection，没有诊断。至少 catch 后给一条诊断。
+- 英文 `messages.moreBots`: "{{count}} more bots" 在 count=1 时是“1 more bots”（当前 bot 顶替位置时 more 可以是 1，见 fitSegment 的 keepCurrent）；要么 more 恒 ≥2（当前项顶替时不算进 more 的减法），要么文案走复数。
+
+## 未发现问题的方面
+- Teleport 的 `to` 在元素引用不变时不会重搬（AgentMessages 的 targets 是 computed，仅 placement 对象变时才重算；view-rail.ts 对同一对元素再写不换引用）。
+- data-rail-item 加在 Tooltip（reka TooltipTrigger as-child）里的 button 上，属性直接落在 button 上，roving 的 tabindex 写在 DOM 上、Vue 不绑 tabindex 所以重渲染不会覆盖。
+- 收着时 `useLayoutExtent` 量的是工具条 main 里 `.acv-segment__main` 这一层：它是 `flex: 1 1 0; min-height: 0`，在工具条 `main`（flex 列、自己滚）里撑满剩余高度，不是随内容长高，所以量到的是真实可用高度，没有“内容撑高后永不截”的反馈回路；问题只在第 1 条的常数。
+- placement 改 none 时 aside 的 v-if 为假，视图段整体卸载，Teleport 里的内容被收干净。
+- MessagesHost 的 noNewSession 只在 MessagesHost 传给 ConversationHost，编辑区页面与书房面板用的 ConversationHost 调用点不受影响；head.claim 在 view-head.ts 里本来就是 ref(true)，setup 里再写一次无副作用；titleAction 空操作使 ConversationHost 的 ownList 为假，不开自己的下拉。
+- watchRecent 的定时器在 shown 变假、卸载时都被停掉；单测覆盖了。
+- 命令“搜索会话”经 `listRequest` 的 shallowRef 交接：宿主 `immediate: true` 的 watch 保证视图后挂上时也取得到；requestViewRail 只看文档里的 rail.viewId，不依赖 placement，所以首次挂上就请求也不会因 placement 还是 none 被拒。
+- 类型检查（nb-agent-ui：tsc 与 vue-tsc）通过；messages-segment-fit.test.ts、AgentMessages.dom.test.ts、style-tokens.dom.test.ts 共 32 条通过。
+
+## 计数
+阻断 0；重要 5（第 1、2、3、4、5 条）；建议 4（第 6、7、8、9 条，第 8、9 条各含多个子项）。共 9 条。
+
+## 主会话的处理（2026-11-26，修正提交 49ab9a56d）
+
+1. 成立，改：fitSegment 按 clientHeight 算（n 项要 n×40 + 9 + 8），常量 SEGMENT_PADDING；单测的高度取审查在浏览器里量的 137/217/337。
+2. 成立，部分改：文档与注释不再承诺搬动后焦点与滚动不丢。恢复挪到片 6：今天只有停靠与浮动互换会搬视图段（换容器是整个卸载重挂），片 6 在浏览器里能测。
+3. 成立，改：揭示成功后记下“要给焦点”，等盖层撤掉再给；打开失败、没有模型时作废。由第 C 段 e2e 覆盖（点不是当前的 bot 后焦点在输入框）。
+4. 成立，改：--skin-activitybar-surface，缺省 --panel-surface；样式检查的宿主变量同步改名。
+5. 部分改：宿主自绘头时写 --acv-segment-inset-top，edge 一栏写 data-float-rail。浮动窗里怎么收起挪到片 6，按 Spec 输出 51 定。
+6. 成立，改：竖条常驻、透明度过渡，描边加 box-shadow 过渡；底段按下改正文色。
+7. 部分改：汇总里有等你处理时换方角，不只靠颜色；加 Lab 场景 collapsed-waiting-only。弱描边低对比是 Spec 要的“弱”，读屏按 aria-current，写进 .md。
+8. 部分：dom 测试标题改准（只断言搜索词还在）；宿主的揭示与焦点、listRequest 交第 C 段 e2e。pendingFocus 在“done 之后展开从没变真”的路径留着：只在同一刻窗口又变窄时出现，不加机制（窄场景）。
+9. 成立，改：删 switch-end 插槽与测试、过期注释；showList 的 request 失败经插件的诊断出口记一条；“+N”在 bot 只剩一个位置时连当前 bot 一起收进去，more 总不小于 2。

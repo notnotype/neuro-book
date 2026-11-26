@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>正文编辑器</title>
+<style>
+  body { margin: 0; font: 14px/1.65 system-ui, "Noto Sans CJK SC", sans-serif; }
+  .bar { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid #e2e8ee; background: #f7f9fb; }
+  #text { min-height: 170px; padding: 10px 12px; outline: none; }
+  #text:empty::before { content: "写点什么……"; color: #9aa5b1; }
+  button { padding: 4px 12px; border: 1px solid #2f6f8f; border-radius: 4px; background: #2f6f8f; color: #fff; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="bar"><b>正文</b><span style="flex: 1;"></span><span id="status" style="color: #6b7785;"></span><button type="button" id="save">保存草稿</button></div>
+<div id="text" contenteditable="true" role="textbox" aria-multiline="true" aria-label="正文"></div>
+<script>
+document.querySelector("#save").addEventListener("click", async () => {
+  const response = await fetch("/api/drafts", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text: document.querySelector("#text").innerHTML})});
+  const result = await response.json();
+  if (!response.ok) { document.querySelector("#status").textContent = result.error || "保存失败"; return; }
+  document.querySelector("#status").textContent = "已保存";
+  parent.postMessage({type: "nb-draft", draftId: result.draftId, ticket: result.ticket}, "{{main}}");
+});
+</script>
+</body>
+</html>

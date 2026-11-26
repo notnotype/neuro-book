@@ -1,0 +1,94 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t03-starsea-library-scheme",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "方案 B 星海书庭《书庭的一夜》：分场脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "664074b6eb512089042d7643ff127f64d46081f9199083b40ceefbaabcaf242a",
+    "files": [
+        "index.html",
+        "r1/I02.webp",
+        "r1/S01.webp",
+        "r1/S02.webp",
+        "r1/S03.webp",
+        "r1/S04.webp"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "storyboard",
+                    "label": "照这版出分镜"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方案不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "storyboard"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "b1",
+                    "label": "b1 万言星海里，有一颗是你的。"
+                },
+                {
+                    "value": "b2",
+                    "label": "b2 你写下的每一行，都有人在读。"
+                },
+                {
+                    "value": "b3",
+                    "label": "b3 欢迎来到忆星书庭。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "b1"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一场要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T05:17:14.044Z"
+}

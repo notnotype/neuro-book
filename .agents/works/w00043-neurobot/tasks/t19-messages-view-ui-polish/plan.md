@@ -17,14 +17,11 @@
 
 ### `packages/nb-workbench-layout/src/`（布局文档与投影，纯 TS）
 
-- `layout-doc.ts`（类型的主人）：`LayoutAnchor` 加 `rail?: {[containerId]: {expanded?: true; width?: number}}`，`LayoutFloat` 加 `rail?: {expanded?: true; width?: number}`；`sameLayoutShape` 比较它们。**每个会新建或重建锚、浮动窗记录的函数逐个写明 `rail` 的去向**，并各有一条单测：
-  - 原样保留：模板应用、`stripDynamicTabs` / `carryDynamicTabs`（放弃恢复）、`movePanelToEdge` 与其它重建面板记录的操作（只改归属的不动 `rail`）。
-  - 转移：`floatTab` / `openFloatPanel` 浮出时把锚上该容器的项带到新窗；整窗停靠、`dockFloat` 归位时带回锚上；`moveContainerTo` 换区时跟着容器走，进了不支持侧轨的区域就丢掉。
-  - 清掉：重置位置、容器没有成员被删时只清那个容器的项。
+- `layout-doc.ts`（类型的主人）：`PanelRecord` 加 `rail?: {[containerId]: RailIntent}`（只在锚上），`LayoutFloat` 加 `rail?: RailIntent`，`RailIntent = {expanded?: true; width?: number}`；`sameLayoutShape` 比较它们。**去向在一处结算**：所有结构操作的出口 `finish` 调 `settleRails(original, next)`，规则是意图跟着它的东西走：锚上容器 C 的项在 C 最后一个分节去了别的区域时搬到那边的锚，C 唯一的视图浮成新窗时搬到窗上；窗上的项在窗的标签回到树里某个容器时写回那个容器的锚。这样浮出、归位、整容器换区域、拖放、模板与放弃恢复走同一条规则，不在各操作里各写一份，以后加的操作也自动覆盖。`setContainerEntries` 删掉入口时一起去掉它的项；`setContainerRail`、`setFloatRail` 是写入口（回到原状返回原对象）。容器的“重置”由 store 的 `resetContainer` 在搬回后清掉这一项。（片 1 已做：`5815d0a08`。）
 - `layout-doc-validate.ts`：解码结果从“成功或失败”扩成“成功（归一后的文档加非致命诊断）或失败”。`rail` 只认 `true` 与有限正数，坏值在那一项上缺省并记一条诊断，不让整份失效；store 的 `usableDoc` 用归一后的文档，诊断按现有的诊断出口记一次，不标成未读或损坏，下次写入时写回归一后的值。
 - 保留 id：`presented-ids.ts` 的 `collidesWithPresentedIds` 加 `rail:auxiliarybar`（同时查树节点 id 与 `panels` 的键）。应用生成的 id 不会是这种写法；手写出撞名 id 的旧记录读入时按现有规则拒收、回落缺省布局、不覆盖原记录，记为已知限制。
 - `layout-project.ts`：遍历规范 `body` 横向分支时，在右栏一列外侧插入右轨叶（右栏有成员容器才插），和其它孩子一起参加过滤、单子塌陷与缝计算；叶形同条叶（`fixed`、缝 0、厚度来自选项回调），但不是文档的条；底部面板旧的 `[入口条, 内层]` 包装按 id 前缀单独判。投影选项新增：每条侧轨此刻的有效厚度、右栏这一次的**呈现宽度覆盖**（预算的结果）。`presentationCollapse` 降级前先按收着算展开的侧轨。
-- `intent-writeback.ts`：**预算覆盖不能写进意图**（审查 L3 用真实模块复现：覆盖把右栏分节压到 352 后，任何默认 `apply` 前的 `rebaseForOperation` 把 352 写成意图，容器移走再移回，编辑区从 652 变成 990）。投影结果标出被覆盖的节点（与 `fixedNodesOf` 同一处），`rebaseForOperation` 与 `applyGestureCommit` 跳过它们的派生尺寸，按覆盖前的意图回写；右轨叶不在文档里，自然不回写。
+- `intent-writeback.ts`：不改。**预算覆盖不能写进意图**（审查 L3）：覆盖只加在右栏的区域节点上，它和编辑区并排、保留像素，结构操作前的回写本来就不写保留像素的节点，所以覆盖不会变成意图；GPT 复现的漂移是把覆盖放在区域里按比例分的分节上。由投影模块头的注释写明这条约束，`rail-budget.test.ts` 用工作台真实的缺省布局与投影选项做“压着时容器搬走再搬回，解除后编辑区与右栏回到压之前”，变异（回写不冻结保留像素的节点）时失败。（片 2 已做。）
 
 ### `packages/neuro-book/src/plugins/workbench/web/state/`（工作台的状态与约束）
 
@@ -98,10 +95,10 @@
 | 3a | 外壳的相连与角：双侧相连、角接过去的镜像、最大化避让；右轨是空壳 | `adjacency.test`、Lab 的 `WorkbenchSurface` dom 与 `lab-workbench-surface` e2e（主会话跑，只这一个文件） |
 | 3b | 侧轨组件（内部版式、roving、右轨用它）、右栏横入口条去掉、接管标题区改按面板头宽、拖放按轴、F6 | dom 测试；类型检查覆盖 e2e |
 | 4 | 位置限制：声明、关卡函数与所有提交路径、默认建树与补位、读入归整、落点拒绝区、测试视图的声明 | 单测：对真实 store 的普通拖放、入口相邻并入、入口跨区搬移、`moveView` 两种目标、`moveContainerTo`、多视图浮窗逐项归位、单标签浮出、重置，逐个断言拒绝零写入；含审查用 Bun 复现的相邻入口并入 |
-| 5 | 视图段接口与借用、`railOf`、加载骨架、展开按钮、轨宽手柄、揭示通道、焦点交接、测试视图的视图段 | 单测与 dom（真实 `Teleport` 的借用与撤回、`request` 的三种结果与先后） |
-| 6 | 浮动：顶格归位、矩形与夹取、浮动窗轨宽手势、程序宽度过渡、空叶离场保留、公开入口 | nb-layout 单测与 `NestedGrid.dom.test.ts`；`bun run --cwd packages/nb-layout api:check` |
-| 7 | 消息视图：组件重写、列表的搜索词与 Esc、Lab、宿主接线、最近会话查询与刷新、去掉旧物、命令 | nb-agent-ui dom；宿主的 dom 或集成用例（新建后最近会话立即出现、归档后消失、筛选不影响） |
-| 8 | 过渡与性能：`layout-frames.ts` 加场景、与 0b 的基线对比；真实页面逐帧看首中末帧 | 见“验证” |
+| 5 | 视图段接口与借用、`railOf`、加载骨架、展开按钮、轨宽手柄、揭示通道、焦点交接、测试视图的视图段；把预算接进 store（快速审查留下的两条：手势回写跳过被预算覆盖的区域宽度、`presentationCollapse` 用收着的基线选项） | 单测与 dom（真实 `Teleport` 的借用与撤回、`request` 的三种结果与先后）；真实手势往返（拖编辑区与右栏的分隔线，意图不写覆盖）；窄窗下拒绝展开不换成收走右栏 |
+| 6 | 浮动：顶格归位、矩形与夹取、浮动窗轨宽手势、程序宽度过渡、空叶离场保留、公开入口；视图段在停靠与浮动之间搬动后恢复焦点与列表的滚动（views 输出 21），浮动窗里视图段的收起办法（按输出 51，片 7 审查第 2、5 条） | nb-layout 单测与 `NestedGrid.dom.test.ts`；`bun run --cwd packages/nb-layout api:check` |
+| 7 | 消息视图：组件重写、列表的搜索词与 Esc、Lab、宿主接线、最近会话查询与刷新、去掉旧物、命令；揭示通道（片 5 挪来，使用者是消息视图的打开与新建） | nb-agent-ui dom；宿主的 dom 或集成用例（新建后最近会话立即出现、归档后消失、筛选不影响） |
+| 8 | 两端轨宽不同时切换容器走整次布局过渡（片 5 挪来）；过渡与性能：`layout-frames.ts` 加场景、与 0b 的基线对比；真实页面逐帧看首中末帧 | 见“验证” |
 
 片 3b 到片 7 之间，`agent-conversation` 里按旧宽窄版式写的用例会失败（旧 `AgentMessages` 还在、入口条已去），归为预期，片 7 后由子代理改写。
 
@@ -174,6 +171,7 @@
 | `data-rail-joined` | 侧轨的根 | 和区域卡片相连时有、不相连时没有（不写 `"false"`） |
 | `data-tool-band`、`data-tool-entry="<容器 id>"` + `aria-pressed`、`data-tool-indicator`、`data-tool-more`、`data-tool-merge` | 入口带（两条侧轨同名） | 入口、按下、底块、更多、并入高亮。右栏旧条的 `data-region-entry` 不再用于右栏 |
 | `data-rail-item` | 工具条里每个可聚焦项 | roving 的成员 |
+| `data-shell-join-seam="end"` / `"start"` | 和区域相连的侧轨卡片 | 接缝短线画在侧轨的哪一头：左轨在右头（`end`），右轨在左头（`start`）。片 3a 前是空串，`workbench-containers` 里按空串断言的要改 |
 | `data-rail-segment="main"` / `"foot"` + `data-drop-refuse` | 视图段的两个位置 | 工作台给视图的元素；松手是取消 |
 | `data-rail-loading` | `main` 里 | 视图加载中的骨架 |
 | `data-rail-expand` + `aria-expanded` | 展开按钮 | 窗口太窄时另有 `data-rail-too-narrow` |
@@ -187,6 +185,8 @@
 | `data-messages-open="bot"` / `"sessions"` + `aria-pressed` | 底段两个按钮 | 展开且在对应页时按下 |
 | `data-messages-summary` | “全部 bot”的汇总徽标 | 有等你处理时另有 `data-messages-summary-waiting` |
 | `data-messages-list-panel`、`data-messages-switch` | 展开后的列表与切换行（沿用现名） | |
+
+**受限的测试视图**：`test.sample-views.rail`（样例庚，右栏，`confinedTo: "auxiliarybar"`）只在页面开关 `test.sample-views/with-rail` 为 `"1"` 时贡献，插件创建时读，用 `addInitScript` 在加载前写；不开时右栏只有样例丁，别的用例不受影响。片 5 再给它加视图段。
 
 去掉的旧标记：右栏的 `[data-region-strip=auxiliarybar]` 横入口条与条里的 `data-region-entry`、`data-region-indicator`（底部面板的 `panel` 保留）、段 A 用过的 `data-rail-entries`（改用 `data-tool-band`）、消息视图的 `data-messages-toggle`、`data-messages-strip`、`data-messages-collapse`、`data-messages-tab`、`data-messages-layout` 的 `wide`/`narrow`。
 

@@ -48,7 +48,7 @@ type DragSessionHandle<S, D> = {
 };
 
 ### experimental interface DragSessionOptions
-引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState
+引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState, GridDropPoint
 引用（没导出）：DragActivation
 interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
@@ -64,7 +64,10 @@ interface DragSessionOptions<S, D, R> {
     sampled?(): void;
     readonly scroll?: "reevaluate" | "withdraw";
     readonly autoScroll?: {
-        readonly element: HTMLElement;
+        containers(query: {
+            readonly point: GridDropPoint;
+            readonly top: Element | null;
+        }): ReadonlyArray<HTMLElement>;
         readonly edgePx?: number;
         readonly maxStepPx?: number;
     };
@@ -120,16 +123,17 @@ attrs:
   → <div>（inheritAttrs: false）
 
 ### experimental component FloatWindowHandles
-引用：GridExtent, GridRect
+引用：GridExtent, GridRect, LayoutFloatResize
 props:
-  max: GridExtent
+  area?: GridRect | undefined = undefined
+  max?: GridExtent | undefined = undefined
   min: GridExtent
   moveIconClass?: string | undefined = ""
   rect: GridRect
 attrs:
   → 根元素
 events:
-  commit(rect: GridRect)
+  commit(rect: GridRect, direction: LayoutFloatResize)
   move(position: { readonly x: number; readonly y: number; })
   preview(rect: GridRect | null)
 
@@ -344,6 +348,7 @@ attrs:
 events:
   content-parked(key: string)
   extent(extent: GridExtent | null)
+  float-raise(id: string)
   gesture-cancel(info: GridGestureCancellation)
   gesture-end(commit: GridGestureCommit)
   gesture-start(info: GridGestureStart)
@@ -358,6 +363,7 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  leafRect: (id: string) => GridRect | null
   motionMs: () => number
   moving: boolean
   origin: () => { x: number; y: number; }

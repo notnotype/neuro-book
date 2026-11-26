@@ -1,0 +1,76 @@
+# w00037 t08 第 8 到 10 片实现审查（omp）
+
+审查范围：`0f942f893..ae385153d`；合同以主工作区的 Spec 与 Task 决定为准。
+
+运行证据目录：`/tmp/review-w00037-t08-impl3/lab-omp/`。下列实验经过本站挂载层与 Better Auth 1.7.27，Google、GitHub 使用仿真上游。
+
+### 1. 封禁与社交登录交错会留下解封后自动生效的会话
+
+- **严重程度：重要；类别：不变量。**
+- **位置** `packages/nb-site-identity/src/auth.ts:295-318,330-331`，`node_modules/better-auth/dist/plugins/admin/admin.mjs:33-50`，`node_modules/better-auth/dist/db/with-hooks.mjs:7-30`。
+- **影响** 管理员钩子的封禁查询与社交会话插入分开取锁。封禁事务可以在中间完成，删尽已有会话后，回调再为该账号写入新会话。`site.admin` 输出 2 要求解封后重新登录，实际这枚 Cookie 在解封后直接生效。
+- **核实** `ban-race.txt`：经实际管理路由封禁时让 Google 登录回调并发完成。封禁回 200，回调 302 到 `/` 并发会话 Cookie，库里仍有 1 条会话。同一 Cookie 在封禁时的 `whoami` 是 `anonymous`，解封回 200 后是 `authenticated`。
+- **建议：** 把社交会话发放改成模块控制的单一事务，在持锁状态重判 `banned` 再插入；不要在发会话前单加一次独立查询。回归用例应断言封禁后没有残留会话，解封也不能让并发回调的 Cookie 生效。
+
+### 6. Google 发现文档缺少 JWKS 地址时仍接受未经验证的 ID Token
+
+- **严重程度：重要。类别：安全与性能。**
+- **位置** `packages/nb-site-identity/src/social/providers.ts:39-56`，`node_modules/better-auth/dist/plugins/generic-oauth/index.mjs:77-85,137-167,286-294`。
+- **影响** 计划的实现审查处理第 1 条保留 Google discovery 来验签和检查 nonce。缺 `jwks_uri` 时，端点仍可用就会注册该上游，`fetchUserInfo` 改读未经验签、受众和 nonce 检查的 ID Token，注册钩子仍采纳其上游邮箱验证标记。
+- **核实** `discovery.txt` 两组走同一仿真上游，授权端签出的 ID Token 所用 nonce 与完整配置下本次流程绑定的值不同。完整发现文档取公钥 1 次，回 `/register?social_error=social_failed`，未建号、用码 0 次。只删去 `jwks_uri` 时取公钥 0 次，回 `/`、发会话、建号且用码 1 次。证据覆盖仿真上游的 nonce 校验降级。
+- **建议** 给 Google 配 `requireIdTokenVerification: true`，并把因 `issuer` 或 `jwks_uri` 不可用而无法装配提供方的发起失败映射到输出 11 的 503 `unavailable`。补用例，要求缺验签配置时无账号、会话或扣码副作用。
+
+### 7. 解绑会移除无密码账号最后一种可用的登录方式
+
+- **严重程度：重要。类别：正确性。**
+- **位置** `packages/nb-site-identity/src/social/identities.ts:82-90`，`packages/nb-site-identity/src/social/start.ts:140-144`。
+- **影响** 解绑把停用上游的历史关联算作登录方式。输出 11 规定停用上游不能发起登录，留下这种关联无法满足输出 16 的「至少还剩一种登录方式」。用户一旦登出或会话到期，便无法自行登录或设置密码。
+- **核实** `last-method.txt`：Google 注册、关联 GitHub 后，复用数据库以仅开放 GitHub 的配置重建挂载实例。解绑 GitHub 回 200，列表只剩 Google，`hasPassword=false`。登出后 GitHub 回跳 `social_not_registered`，Google 发起回 403 `provider_disabled`。
+- **建议** 在当前解绑写事务中按密码和配置仍开放的剩余身份判断 `last_login_method`，列表继续列停用上游的历史关联。回归用例应断言删除唯一可用方式回 409，目标关联仍在。
+
+### 2. 在途社交注册在配置变化后仍能完成；生效时点未明确
+
+- **严重程度：建议。类别：正确性（配置生效时点）。**
+- **位置** `packages/nb-site-identity/src/social/start.ts:127-137,145-150`，`packages/nb-site-identity/src/social/hooks.ts:98-119`。
+- **影响** 注册开关和条款版本只在发起时校验。重启关闭注册后，尚在 10 分钟有效期内的旧流程仍可建号、扣码。升级条款后，旧流程仍可写入旧版同意，让用户刚注册就落入同意门槛。输出 13 规定在发起时校验，未定义这两项配置变动如何影响在途流程。
+- **核实** `restart-closed.txt`：保留 state Cookie、仿真上游回调与 SQLite，切换配置重建挂载实例。关闭注册后新发起回 403 `registration_closed`，旧回调成功建号并扣码 1 次。升级条款后新发起回 403 `consent_required`，旧回调仍建号、扣码 1 次且写入旧版，`GET me` 为 `consentRequired=true`。
+- **建议** 在 `site.accounts` 明定变更的生效时点，并加入跨重启合同用例。若开关与新条款即时生效，在回调的建号事务前复核，失败时不扣码。
+
+### 5. 注册命中已关联身份时，三个分支返回了别的错误码（含原第 4 条）
+
+- **严重程度：建议。类别：正确性（错误码）。**
+- **位置** `packages/nb-site-identity/src/social/hooks.ts:54-61,71-88,98-108`，`packages/nb-site-identity/src/register.ts:132-147`，`node_modules/better-auth/dist/api/routes/callback.mjs:137-139`，`node_modules/better-auth/dist/plugins/admin/admin.mjs:33-50`。
+- **影响** 输出 13 与开发者决定要求已关联身份的注册回 `identity_taken`，提示去登录页。GitHub 无主邮箱时，库先以 `email_not_found` 拒绝，站点回 `social_email_missing`。封禁账号先被库的会话钩子拒绝，结果为 `social_failed`。在同一个新上游身份的两个回调并发时，落败的一方还可能回 `email_taken`，把身份冲突报成邮箱冲突。
+- **核实** `existing.txt`：同一已关联 GitHub 身份依次得到 `identity_taken`、去掉主邮箱后的 `social_email_missing`、封禁后的 `social_failed`，均未发会话且总用码为 0。`concurrent-register.txt`：两个同一 Google `sub`、不同用户名的流程持各自 state 回调，注册码原有 2 次额度，最终只建 1 个账号、扣 1 次，落败方回 `email_taken`。
+- **建议** 在取到可信的稳定上游 ID 后、库的邮箱及建会话检查前判断注册意图的身份占用，建号事务内也复核。补三个用例，保持不同上游身份撞邮箱时仍回 `email_taken`。
+
+### 8. 回调已有 `error` 参数，值为空时仍能完成注册
+
+- **严重程度：建议。类别：正确性（回调错误边界）。**
+- **位置** `packages/nb-site-identity/src/social/callback.ts:168-193`，`node_modules/better-auth/dist/api/routes/callback.mjs:79-97`。
+- **影响** OMP 设计审查处理第 9b 条规定，来址带 `error` 就以地址里的值分类，除 `access_denied` 外回 `social_failed`。库把空串当作没有错误，站点又只在收到库的失败响应后检查非空的 `error`，因此混合回调会发会话并扣码。
+- **核实** `error-param.txt`：正常的仿真 Google 注册回调带有效授权码和发起浏览器的 state Cookie，另外携带空的 `error` 值。实际 302 到 `/`，建 1 个账号、发会话并用码 1 次。
+- **建议** 进库前按参数是否存在区分上游错误路径。错误路径保留库对 state 的检查和清理，并确保无法进入换码建号路径。补空值和重复值用例，断言落点与无账号、会话、用码副作用。
+
+## 已处理与合并的条目
+
+### 3. 社交注册可写入不符合邮箱合同的地址（撤回，Opus 第 5 条已安排修正）
+
+`email-contract.txt`、`email-unicode.txt` 补了挂载层证据：两个样本均注册成功，返回的 `me` 未通过 `MeResponse` 校验。主工作区计划已明确按 `social_email_missing` 拒绝，见「实现审查（第 8 到 10 片）的处理」第 5 条。
+
+### 4. 并发注册同一上游身份时落败方回 `email_taken`（并入第 5 条）
+
+## 未发现问题的方面
+
+- 回调字段与流程边界：查询串超过 8192 时在认领前被拒。错浏览器与重放回 `social_state_invalid`。认领时 SQLite 写锁超时回 503 `unavailable`，释放写锁后原回调能重试成功并只扣码 1 次。见 `callback-params.txt`、`locked-db.txt` 及合同基线。
+- 注册的事务边界：账号、上游关联、补充资料、同意和用码同事务。按计划 3.10，会话在提交后插入。`session-failure.txt` 中仅会话插入失败时，账号和 1 次用码已提交，重试注册回 422，同一上游身份随后可以登录。
+- 初始密码：`password-oauth.txt` 中设密回 200，当前会话仍是 `authenticated`，另一会话转为 `anonymous`，设密前的访问令牌请求 UserInfo 回 401，旧授权码换码回 400 `invalid_grant`。设密前 UserInfo 的 `email_verified` 为 `false`。
+- 合同基线在 `packages/nb-site-contract-tests` 运行 `bun test src/accounts-social.test.ts src/accounts-identities.test.ts src/accounts-register.test.ts src/accounts-me.test.ts src/oauth-provider.test.ts`。`contract.txt` 记录 92 通过、0 失败、600 次断言，耗时 46.34 秒。本轮运行证据限于挂载层仿真上游和合同进程。
+
+## 汇总
+
+- 阻断 0 条。
+- 重要 3 条（1、6、7）。
+- 建议 3 条（2、5、8）。
+
+有效发现：1、6、7、2、5、8

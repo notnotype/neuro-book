@@ -24,6 +24,8 @@
  * 上下文）调 `read`、`write`，要求上下文里的序号等于当前事务的序号、且连接确实在事务里，才直接在这个事务里执行（`bun:sqlite`
  * 在已有事务里用保存点），不再取锁，随这个事务一起提交或回滚。不单信库自己的异步上下文：它会跟着 `setTimeout`、不等待的 Promise
  * 漏到事务之外，那时库仍以为在事务里（设计审查第 9 条）。
+ * 另一个入口 `joinLibTransaction(fn)` 加入库自己开的事务：只给库在自己的事务里调到的钩子用（社交注册的建用户、建账号前钩子，
+ * `social/hooks.ts`），模块的路由仍只经 `withLibTransaction` 开事务。它在本模块的上下文里放的序号同样经上面的核对。
  *
  * 调用方要守的约束，与守着每一条的东西：
  * 1. 事务里只做数据库的事：算哈希、等限流、读请求体都在事务之外，`withLibTransaction` 的回调里不 `await` 数据库以外的东西。
@@ -107,6 +109,22 @@ export function isDbUnavailable(error: unknown): boolean {
         if (layer instanceof IdentityDbUnavailableError) return true;
         if (layer instanceof SQLiteError && UNAVAILABLE_PRIMARY_CODES.has(layer.errno & 0xff)) return true;
     }
+    return false;
+}
+
+/** 错误（或它 `cause` 链上的某一层）是不是 SQLite 的外键约束失败：按扩展结果码的名字认，不看文字。 */
+export function isForeignKeyViolation(error: unknown): boolean {
+    for (const layer of causeChain(error)) if (layer instanceof SQLiteError && layer.code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+    return false;
+}
+
+/**
+ * 插入会话时撞上的是不是“被封禁的账号插不进会话”的触发器（`0004_session_ban_guard.sql`）：按扩展结果码
+ * `SQLITE_CONSTRAINT_TRIGGER` 认，不看说明文字。只凭码认得出，是因为 `session` 表上只有这一个触发器（`schema.test.ts` 核对）；
+ * 调用方要自己确定出错的就是插会话那一步（别的表上的触发器报同一个码）。
+ */
+export function isBannedSessionInsert(error: unknown): boolean {
+    for (const layer of causeChain(error)) if (layer instanceof SQLiteError && layer.code === "SQLITE_CONSTRAINT_TRIGGER") return true;
     return false;
 }
 
@@ -300,6 +318,15 @@ class QueuedSqliteAdapter extends SqliteAdapter {
     }
 }
 
+/**
+ * 库是不是说这次调用在它的事务里（库的异步上下文）。给库调到的钩子判断走哪条（w00037 t08 计划 3.3）：社交注册时库在自己的事务里调
+ * 建账号前钩子，钩子要加入那个事务；社交关联时库不在事务里调它，钩子用普通的 `write`。只信库的上下文判“是不是”，加入时另有本模块
+ * 的序号核对：库的上下文会漏到事务之外（文件头的“重入”）。
+ */
+export async function inLibraryTransaction(): Promise<boolean> {
+    return (await getCurrentDBAdapterAsyncLocalStorage()).getStore()?.isTransactionActive === true;
+}
+
 const isThenable = (value: unknown): value is PromiseLike<unknown> =>
     (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as {then?: unknown}).then === "function";
 
@@ -315,6 +342,11 @@ export class IdentityConnection {
     #seq = 0;
     #activeTx: number | null = null;
     #closing: Promise<void> | undefined;
+    /**
+     * 库的事务上下文对象（库每开一个事务建一个新的，`runWithTransaction`）到第一次经它加入时方言的事务序号。事务结束之后这个对象
+     * 仍可能被漏出去的活儿带着、仍说在事务里，序号一比就认得出它不属于正开着的事务（`joinLibTransaction`）。
+     */
+    readonly #joinedContexts = new WeakMap<object, number>();
 
     constructor(db: Database, options: IdentityConnectionOptions) {
         this.#db = db;
@@ -358,6 +390,31 @@ export class IdentityConnection {
             if (seq === null || !this.#db.inTransaction) throw new IdentityQueueMisuseError("withLibTransaction did not get a transaction from the identity dialect");
             return this.#frames.run({kind: "lib", seq}, fn);
         });
+    }
+
+    /**
+     * 加入库自己开着的事务：库在它的事务里调到的钩子用（文件头的“重入”）。回调里的 `read`、`write` 直接在那个事务里执行，随它
+     * 提交或回滚。要求：没有本模块的标记（已在当前的库事务里时直接执行 `fn`）；库说在事务里；方言确有一个正开着的事务；库的这个
+     * 事务上下文对象以前加入过的话，当时的序号与现在的相同。不满足时抛 `IdentityQueueMisuseError`，`fn` 不执行。
+     *
+     * 第一次加入时记下的序号就是“这个上下文属于哪个事务”的依据：钩子在库开事务之后、库的第一条写之前被调到，那时只可能是自己的
+     * 事务开着。一个上下文第一次加入就是在事务结束之后（从没加入过的事务里漏出去的活儿）时认不出来，钩子没有这样的写法。
+     */
+    async joinLibTransaction<T>(fn: () => Promise<T>): Promise<T> {
+        const frame = this.#frames.getStore();
+        if (frame !== undefined) {
+            if (this.#inCurrentLibTransaction(frame)) return fn();
+            throw new IdentityQueueMisuseError("joinLibTransaction called outside the transaction its async context belongs to");
+        }
+        const context = (await getCurrentDBAdapterAsyncLocalStorage()).getStore();
+        if (context?.isTransactionActive !== true) throw new IdentityQueueMisuseError("joinLibTransaction called outside a library transaction");
+        // 上面的 await 之后同步判到 `#frames.run`：其间没有让出，事务的状态不会变。
+        const seq = this.#activeTx;
+        if (seq === null || !this.#db.inTransaction) throw new IdentityQueueMisuseError("joinLibTransaction found no open transaction on the identity dialect");
+        const joined = this.#joinedContexts.get(context);
+        if (joined === undefined) this.#joinedContexts.set(context, seq);
+        else if (joined !== seq) throw new IdentityQueueMisuseError("joinLibTransaction called from a library transaction context that has already ended");
+        return this.#frames.run({kind: "lib", seq}, fn);
     }
 
     /** 交给 `betterAuth({database})` 的配置。每次调用给一个新的方言对象，状态都在本对象上。 */

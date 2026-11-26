@@ -24,12 +24,16 @@ const mountNotices = (props: Record<string, unknown>) => {
 const button = (root: ReturnType<typeof mountNotices>, scope: string, name: string) => root.get(scope).findAll("button").find((item) => item.text() === name || item.attributes("aria-label") === name)!;
 
 describe("PageNotices", () => {
-    it("没有提示时读屏的 status 也在；作者那一行写标题，查看详情、还原、关闭各发各的", async () => {
+    it("没有提示时读屏的 status 也在；作者那一行写标题、给了位置时写“记在某处”，查看详情、还原、关闭各发各的", async () => {
         const wrapper = mountNotices({});
         expect(wrapper.find("[role='status']").exists()).toBe(true);
         expect(wrapper.find("[data-notice-bar]").exists()).toBe(false);
         await wrapper.setProps({notice: {revision: "r1", title: "改外观"}});
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改外观");
+        expect(wrapper.find("[data-notice-where]").exists()).toBe(false);
+        await wrapper.setProps({notice: {revision: "r1", title: "改外观", where: "第 3 章"}});
+        expect(wrapper.get("[data-notice-where]").text()).toBe("记在第 3 章");
+        await wrapper.setProps({notice: {revision: "r1", title: "改外观"}});
         await button(wrapper, "[data-notice-bar]", "查看详情").trigger("click");
         await button(wrapper, "[data-notice-bar]", "还原").trigger("click");
         await button(wrapper, "[data-notice-bar]", "关闭").trigger("click");

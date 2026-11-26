@@ -68,15 +68,37 @@ function indicatorAt(orientation: GridOrientation, boundary: number, container: 
 }
 
 /**
+ * 末个可用成员（下标 `lastIndex`）之后的插入位插到谁前面：紧跟它的有效成员整个落在内容盒沿主轴的终点之外
+ * 时是它，否则 `null`（追加）。只看紧跟的那一个，不往后找：紧跟的若是换行到下一行的成员，它才是真正的后继，
+ * 跳过它去认更后面滚出去的，放下的位置又会和线对不上。
+ */
+function trailingSuccessor(orientation: GridOrientation, members: readonly GridDropMember[], lastIndex: number, container: GridDropRect): string | null {
+    for (let index = lastIndex + 1; index < members.length; index += 1) {
+        const member = members[index] as GridDropMember;
+        if (!isGridDropRect(member.rect)) {
+            continue;
+        }
+        const beyondEnd = orientation === "horizontal" ? member.rect.left >= container.right : member.rect.top >= container.bottom;
+        return beyondEnd ? member.id : null;
+    }
+    return null;
+}
+
+/**
  * 列表插入锚点：只承诺「插到谁前面」和**一个插入位一条线**。
  *
  * 列表没有边缘带（条目高亮由调用方按 `beforeId` 自己画），只有插入位，所以三处指针区间归一到同一条线：
  * 前一成员的后半、成员之间的间隙、后一成员的前半都插到后一成员之前；间隙能容纳线时，线居中放在
  * 两成员之间，两侧等距留白；没有足够间隙或没有前一可见成员时贴后一成员前缘。跨度取后者的可见矩形。
  *
- * 尾缘同理只有一种画法：越过最后一个可用成员就是追加，线贴**末个可用成员的后缘**（它被容器裁掉的部分
- * 不参与画线，夹紧后不会跳到容器尽头的空白），跨度取该成员的可见矩形。只有**真正没有成员**（`members`
- * 为空）时没有可贴的成员，线才落到**内容盒前缘**、跨度取内容盒本身（空列表只剩一个插入位，线标在列表起点）。
+ * 尾缘同理只有一种画法：越过最后一个可用成员，线贴**末个可用成员的后缘**（它被容器裁掉的部分
+ * 不参与画线，夹紧后不会跳到容器尽头的空白），跨度取该成员的可见矩形。插到谁前面看 `members` 里紧跟它的
+ * 那个有效成员：它整个落在内容盒**沿主轴的终点之外**（滚出去了）时插到它前面，线画在哪它就落在哪；否则
+ * （后面没有成员、后面的矩形都无效，或紧跟的那个只在交叉轴上被裁掉、在前端之外）是追加，`beforeId` 为
+ * `null`。交叉轴上被裁掉的不算后继：那是换行到下一行之类的布局，哪一行接哪一行由调用方的行模型定。
+ * 前端滚出去的成员不用另管：指针在首个可见成员前半时插到它前面，它们本来就都在前面。
+ * 只有**真正没有成员**（`members` 为空）时没有可贴的成员，线才落到**内容盒前缘**、跨度取内容盒本身
+ * （空列表只剩一个插入位，线标在列表起点）。
  *
  * `edgeGap`（默认 0）只退让**首尾两条外侧线**：首个可用成员之前，线起点取「可见前缘 − edgeGap − 线厚」，
  * 线尾因此离成员前缘正好 `edgeGap`；末个可用成员之后，线起点取「可见后缘 + edgeGap」。成员之间的间隙仍
@@ -125,8 +147,9 @@ export function resolveListInsertion(input: {
     let lastRight = 0;
     let lastBottom = 0;
     let hasLast = false;
+    let lastIndex = -1;
 
-    for (const member of members) {
+    for (const [index, member] of members.entries()) {
         if (!isGridDropRect(member.rect)) {
             continue;
         }
@@ -158,6 +181,7 @@ export function resolveListInsertion(input: {
         lastRight = right;
         lastBottom = bottom;
         hasLast = true;
+        lastIndex = index;
     }
 
     if (!hasLast) {
@@ -166,7 +190,7 @@ export function resolveListInsertion(input: {
     }
     const last = {left: lastLeft, top: lastTop, right: lastRight, bottom: lastBottom};
     return {
-        beforeId: null,
+        beforeId: trailingSuccessor(orientation, members, lastIndex, containerRect),
         // 末个可用成员之后：线起点在可见后缘之外再退一个 `edgeGap`（0 时就是后缘本身，既有行为），
         // 后缘离内容盒终点不够时和其它插入位一样由 `indicatorAt` 夹紧。
         indicator: indicatorAt(orientation, (horizontal ? last.right : last.bottom) + edgeGap, containerRect, last),

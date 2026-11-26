@@ -1,0 +1,19 @@
+bun test v1.4.4 (38afee6c8)
+
+geometry.test.ts:
+23 现状 800 宽的窗、600 宽区域、keep=窗大小 → {"x":-200,"y":50,"width":600,"height":300}
+23 现状 desk 从 x=300 起，传 desk 当尺寸 → {"x":100,"y":10,"width":200,"height":100} （桌面示例的 deskClamp 得 {"x":300,"y":10,"width":200,"height":100} ）
+24 现状 x=500 宽 300、800 宽桌面、右拉 +900、max=桌面尺寸 → {"x":500,"y":100,"width":800,"height":200} 右缘 1300
+25 dpr 1 desk 叶 {"x":335,"y":0,"width":331,"height":600}
+25 dpr 1.25 desk 叶 {"x":335.2,"y":0,"width":331.2,"height":600}
+25 dpr 1.5 desk 叶 {"x":335.3333333333333,"y":0,"width":330.6666666666667,"height":600}
+推荐 23 与今天逐个相同的随机样本数 11817
+推荐 23 800 宽的窗、600 宽区域 → {"x":0,"y":50,"width":600,"height":300}
+推荐 23 示例单测： {"x":400,"y":40,"width":420,"height":300} {"x":300,"y":0,"width":400,"height":200}
+推荐 24 对照 20000 个样本，不同 0 个
+推荐 24 右缘起点在区域外：往外 {"x":900,"y":100,"width":300,"height":200} 往里 {"x":900,"y":100,"width":250,"height":200}
+
+ 9 pass
+ 0 fail
+ 101823 expect() calls
+Ran 9 tests across 1 file. [191.00ms]

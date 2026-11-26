@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>搜索 - 长书网</title>
+<link rel="stylesheet" href="/assets/reader.css">
+</head>
+<body>
+<header><strong>长书网</strong><nav><a href="/rank">月票榜</a><a href="/search" aria-current="page">搜索</a><a href="/shelf">我的书架</a></nav></header>
+<main>
+  <div class="card">
+    <form class="search" id="form"><input type="search" id="q" placeholder="书名或作者" aria-label="搜索"><button type="submit">搜索</button></form>
+  </div>
+  <div class="card" id="results" hidden></div>
+</main>
+<script>
+(() => {
+  const results = document.querySelector("#results");
+  document.querySelector("#form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const q = document.querySelector("#q").value.trim();
+    const items = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
+    results.hidden = false;
+    // 详情在新标签页打开。
+    results.innerHTML = items.length === 0 ? "<p>没有找到相关的书。</p>" : items.map((b) => `<a class="result" href="/book/${b.id}" target="_blank" rel="noopener"><div class="title">${b.title}</div><div style="color: #8a7d70;">${b.author}</div></a>`).join("");
+  });
+})();
+</script>
+</body>
+</html>

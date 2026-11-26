@@ -45,7 +45,7 @@ updated: 2026-11-19
 | Task | 内容 | 状态 |
 |---|---|---|
 | [t01](tasks/t01-design/README.md) | 设计：引擎、浏览器配置与登录态、对外操作的确认、域名范围 | 调研与实测完成，开发者定了 8 条，余下在 w00052 之后接着定 |
-| [t02](tasks/t02-eval/README.md) | 浏览器 Agent 的评测体系 | 未开工 |
+| [t02](tasks/t02-eval/README.md) | 浏览器 Agent 的评测体系 | 完成：第一阶段（本地假站 8 题、browser-use 一边）已合入；后面的阶段以后再优化时做 |
 
 ## 前置
 

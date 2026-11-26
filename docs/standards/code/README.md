@@ -19,6 +19,7 @@
 | `.agents/works/w00005-novel-understanding-spike/tasks/t02-novel-memory-model-design/viewer-v6.template.html` | [`common.md`](common.md)、[`frontend.md`](frontend.md) |
 | `.agents/works/w00005-novel-understanding-spike/tasks/t02-novel-memory-model-design/scripts/**/*.ts`、`.agents/works/w00005-novel-understanding-spike/tasks/t03-extraction-pipeline-design/scripts/**/*.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`scripts/typescript.md`](scripts/typescript.md) |
 | `.agents/works/w00005-novel-understanding-spike/tasks/t03-extraction-pipeline-design/evidences/v6/**/*.json` | [`data-formats.md`](data-formats.md) |
+| `packages/neuro-book/evals/**`（开发用的评测：运行器、假站、两边执行者的适配；`.ts`、`.html`、`.py`） | [`common.md`](common.md)；`.ts` 追加 [`languages/typescript.md`](languages/typescript.md)、[`scripts/typescript.md`](scripts/typescript.md)，`.html` 追加 [`frontend.md`](frontend.md) |
 | `.agents/works/w00034-browser-use/tasks/*/experiments/**`（实验脚本与假站点：`.ts`、`.py`、`.sh`、`.html`） | [`common.md`](common.md)；`.ts` 追加 [`languages/typescript.md`](languages/typescript.md)、[`scripts/typescript.md`](scripts/typescript.md)，`.sh` 追加 [`scripts/bash.md`](scripts/bash.md)，`.html` 追加 [`frontend.md`](frontend.md) |
 | `.agents/skills/**/*.md` | [`common.md`](common.md)、[`.agents/skills/README.md`](../../../.agents/skills/README.md) |
 | `.json`、`.yaml`、`.yml` 配置 | 对应领域规范，再追加 [`data-formats.md`](data-formats.md) |

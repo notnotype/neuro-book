@@ -1,13 +1,14 @@
 import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
-import {h, nextTick, ref} from "vue";
+import {computed, defineComponent, h, nextTick, ref} from "vue";
 import NestedGrid from "./NestedGrid.vue";
+import FloatWindowHandles from "./FloatWindowHandles.vue";
 import LeavingHost from "./test-fixtures/LeavingHost.vue";
 import {moveGridFocus} from "./grid-focus";
 import {LAYOUT_TEXT_KEY, layoutCatalogTranslate} from "./text";
 import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
-import type {GridLeafShape} from "../grid-rects";
+import {clampFloatRect, placeGrid, type GridLeafShape, type GridRect} from "../grid-rects";
 
 /**
  * 递归渲染层的行为用例：树 → 面板 px + 叶插槽 + 一次会话的指针/键盘提交。
@@ -2009,6 +2010,185 @@ describe("NestedGrid 浮动窗", () => {
         expect(Number(frame.style.zIndex)).toBeGreaterThan(below);
     });
 
+    /** 四扇窗，notes 在最底下、files 在最上面；每扇一个内容项。 */
+    const FOUR = ["notes", "calc", "clock", "files"].map((id, index) => ({id, rect: {x: 40 + index * 100, y: 40, width: 300, height: 200}}));
+    const FOUR_CONTENTS = FOUR.map((float) => ({key: float.id, leaf: float.id, insetTop: 32, active: true}));
+    const chromeIds = (wrapper: VueWrapper): string[] => [...wrapper.element.children].flatMap((child) => ((child as HTMLElement).dataset.floatChrome === undefined ? [] : [(child as HTMLElement).dataset.floatChrome as string]));
+
+    it("抬升最底下那扇（输出 103）：手柄层也不搬节点，按钮里的焦点还在；层级照旧跟着 floats", async () => {
+        const wrapper = mountFloats({floats: FOUR, contents: FOUR_CONTENTS});
+        await wrapper.setProps({floats: FOUR});
+        const chromes = FOUR.map((float) => wrapper.get(`[data-float-chrome="${float.id}"]`).element);
+        // 换一个插槽：手柄层里放一个能聚焦的按钮。
+        const button = document.createElement("button");
+        chromes[0]?.appendChild(button);
+        button.focus();
+        expect(document.activeElement).toBe(button);
+        await wrapper.setProps({floats: [...FOUR.slice(1), FOUR[0]]});
+        await nextTick();
+        expect(chromeIds(wrapper)).toEqual(["notes", "calc", "clock", "files"]);
+        expect(FOUR.map((float) => wrapper.get(`[data-float-chrome="${float.id}"]`).element)).toEqual(chromes);
+        expect(document.activeElement).toBe(button);
+        const z = (id: string): number => Number((wrapper.get(`[data-float-chrome="${id}"]`).element as HTMLElement).style.zIndex);
+        expect(z("notes")).toBeGreaterThan(z("files"));
+        // 新开的窗排在它在 floats 里前一扇的手柄之后；关掉的拿走，剩下的次序不变。
+        const extra = {id: "extra", rect: {x: 0, y: 0, width: 100, height: 100}};
+        await wrapper.setProps({floats: [...FOUR.slice(1), FOUR[0], extra].filter((float) => float.id !== "calc")});
+        expect(chromeIds(wrapper)).toEqual(["notes", "extra", "clock", "files"]);
+    });
+
+    it("抬升不改导航序（输出 101、103）：叠放换了，Tab 不接管；树换位接管时，aria-owns 里窗还按出现的次序", async () => {
+        const wrapper = mountFloats({floats: FOUR, contents: FOUR_CONTENTS});
+        const raised = [...FOUR.slice(1), FOUR[0]];
+        await wrapper.setProps({floats: raised});
+        // DOM 序没变，导航序也没变：浏览器原生的 Tab，根上没有 aria-owns。
+        expect(wrapper.element.getAttribute("aria-owns")).toBeNull();
+        const swapped = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "b", ref: "b", size: {width: 499, height: 0}},
+            {kind: "leaf", id: "a", ref: "a", size: {width: 500, height: 0}},
+        ]}, {sashSize: SASH});
+        await wrapper.setProps({node: swapped.root(), layout: swapped.layout(CONTAINER)});
+        const idOf = (selector: string) => wrapper.get(selector).attributes("id");
+        const windows = FOUR.flatMap((float) => [idOf(`[data-leaf="${float.id}"]`), idOf(`[data-content="${float.id}"]`)]);
+        expect(wrapper.element.getAttribute("aria-owns")?.split(" ").slice(-windows.length)).toEqual(windows);
+    });
+
+    describe("抬升的请求（输出 173）", () => {
+        const handlesSlot = ({id, rect}: {id: string; rect: GridRect}) => h(FloatWindowHandles, {key: id, rect, min: {width: 100, height: 60}});
+        const inner = createGrid<string>({kind: "leaf", id: "inner", ref: "inner"}, {sashSize: SASH});
+
+        function mountRaising() {
+            const g = grid();
+            const wrapper = mount(NestedGrid, {
+                attachTo: attachContainer(),
+                props: {node: g.root(), layout: g.layout(CONTAINER), floats: FOUR, contents: FOUR_CONTENTS},
+                slots: {
+                    leaf: ({node}: {node: {id: string}}) => h("div", {class: "leaf-body", "data-body": node.id}, node.id),
+                    // calc 的正文里嵌一个网格；clock 的正文里有一个能聚焦的按钮。
+                    content: ({contentKey}: {contentKey: string}) => contentKey === "calc"
+                        ? h(NestedGrid, {node: inner.root(), layout: inner.layout({width: 300, height: 168})}, {leaf: () => h("div", {class: "inner-body"}, "inner")})
+                        : h("button", {"data-in": contentKey}, contentKey),
+                    "float-chrome": handlesSlot,
+                },
+            });
+            wrappers.push(wrapper);
+            // happy-dom 没有指针捕获。
+            for (const handle of wrapper.findAll("[data-float-handle]")) (handle.element as HTMLElement).setPointerCapture = () => undefined;
+            return wrapper;
+        }
+        const press = (element: Element, button = 0) => element.dispatchEvent(Object.assign(new MouseEvent("pointerdown", {bubbles: true, cancelable: true, button}), {pointerId: 1, pointerType: "mouse", isPrimary: true}));
+
+        it("按在外框、内容、手柄（手柄阻止冒泡）、嵌在内容里的网格上都发，任何指针键都算；最上面的不发", () => {
+            const wrapper = mountRaising();
+            const raised = (): string[] => (wrapper.emitted("float-raise") ?? []).map(([id]) => id as string);
+            press(wrapper.get("[data-body=\"notes\"]").element);
+            press(wrapper.get("[data-in=\"notes\"]").element, 2);
+            expect(raised()).toEqual(["notes", "notes"]);
+            // 手柄在 pointerdown 里阻止冒泡并把焦点给自己：按下（捕获阶段）发一次，焦点进入又发一次（这里宿主没有改次序）。
+            press(wrapper.get("[data-float-chrome=\"notes\"] [data-float-handle=\"bottom-right\"]").element);
+            expect(raised()).toEqual(["notes", "notes", "notes", "notes"]);
+            press(wrapper.get(".inner-body").element);
+            expect(raised().at(-1)).toBe("calc");
+            const count = raised().length;
+            press(wrapper.get("[data-body=\"files\"]").element);
+            press(wrapper.get("[data-float-chrome=\"files\"] [data-float-handle=\"left\"]").element);
+            // 树里的叶不是窗。
+            press(wrapper.get("[data-body=\"a\"]").element);
+            expect(raised()).toHaveLength(count);
+        });
+
+        it("焦点进入后面的窗时发，进入最上面的不发", () => {
+            const wrapper = mountRaising();
+            (wrapper.get("[data-in=\"clock\"]").element as HTMLElement).focus();
+            (wrapper.get("[data-in=\"files\"]").element as HTMLElement).focus();
+            (wrapper.get("[data-float-chrome=\"notes\"] [data-float-move-handle]").element as HTMLElement).focus();
+            expect(wrapper.emitted("float-raise")).toEqual([["clock"], ["notes"]]);
+        });
+    });
+
+    describe("叶此刻的矩形（输出 174）", () => {
+        it("等于同一份 placeGrid 的结果；浮动窗与不存在的 id 是 null；最大化时是盖住的外接矩形", async () => {
+            // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+            const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+            // test-lint-allow spy: 同上，桩布局盒的高
+            const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+            onTestFinished(() => {
+                width.mockRestore();
+                height.mockRestore();
+            });
+            const g = grid();
+            const wrapper = mountFloats({});
+            await wrapper.setProps({revision: 1});
+            const exposed = wrapper.vm as unknown as {leafRect(id: string): GridRect | null};
+            const placed = placeGrid(g.root()!, g.layout(CONTAINER), CONTAINER, window.devicePixelRatio);
+            const rectOf = (id: string) => placed.items.find((item) => item.kind === "leaf" && item.node.id === id)?.rect;
+            expect(exposed.leafRect("a")).toEqual(rectOf("a")!);
+            expect(exposed.leafRect("b")).toEqual(rectOf("b")!);
+            expect(exposed.leafRect("f")).toBeNull();
+            expect(exposed.leafRect("nope")).toBeNull();
+            await wrapper.setProps({maximized: {leaf: "b", exclude: []}});
+            expect(exposed.leafRect("b")).toEqual({x: 0, y: 0, width: CONTAINER.width, height: CONTAINER.height});
+        });
+
+        it("手势预览中跟着预览", async () => {
+            const grid = nestedGrid();
+            const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+            stubLayout(wrapper);
+            await nextTick();
+            const exposed = wrapper.vm as unknown as {leafRect(id: string): GridRect | null};
+            expect(exposed.leafRect("left")?.width).toBe(300);
+            const rootSash = wrapper.get<HTMLElement>("[data-sash=\"root:0\"]").element;
+            rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+            rootSash.dispatchEvent(pointerEvent("pointermove", 420, 80));
+            await settleFrame();
+            expect(exposed.leafRect("left")).toEqual(frameRect(wrapper, "left"));
+            expect(exposed.leafRect("left")?.width).toBe(420);
+            rootSash.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+            rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80));
+        });
+
+        it("在宿主的计算属性里读：窗由叶的矩形夹出来，叶变了窗跟着变，不会转个不停", async () => {
+            // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+            const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+            // test-lint-allow spy: 同上，桩布局盒的高
+            const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+            onTestFinished(() => {
+                width.mockRestore();
+                height.mockRestore();
+            });
+            const wide = grid();
+            const narrow = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: {width: 200, height: 0}},
+                {kind: "leaf", id: "b", ref: "b", size: {width: 799, height: 0}},
+            ]}, {sashSize: SASH});
+            // 布局在宿主外面算好：渲染函数里每次新算一份，本身就会让读了它的计算属性每轮都变。
+            const current = ref({root: wide.root(), layout: wide.layout(CONTAINER)});
+            const warnings: string[] = [];
+            const Host = defineComponent({
+                setup() {
+                    const view = ref<{leafRect(id: string): GridRect | null} | null>(null);
+                    // 窗（x 在 0）夹进叶 b：b 从哪里开始，窗就在哪里。
+                    const floats = computed(() => {
+                        const desk = view.value?.leafRect("b") ?? null;
+                        return [{id: "f", rect: desk === null ? FLOAT.rect : clampFloatRect({...FLOAT.rect, x: 0}, desk)}];
+                    });
+                    return () => h(NestedGrid, {ref: view, node: current.value.root, layout: current.value.layout, floats: floats.value}, {leaf: ({node}: {node: {id: string}}) => h("div", node.id)});
+                },
+            });
+            const wrapper = mount(Host, {attachTo: attachContainer(), global: {config: {warnHandler: (message: string) => warnings.push(message)}}});
+            wrappers.push(wrapper);
+            await nextTick();
+            await nextTick();
+            const left = () => Number.parseFloat((wrapper.get("[data-leaf=\"f\"]").element as HTMLElement).style.left);
+            expect(left()).toBe(501);
+            current.value = {root: narrow.root(), layout: narrow.layout(CONTAINER)};
+            await nextTick();
+            await nextTick();
+            expect(left()).toBe(201);
+            expect(warnings).toEqual([]);
+        });
+    });
+
     it("浮动窗不按卡片形状裁（输出 55）：新开的窗在过渡里，外框没有 clip-path，也不在 `shapedLeaves` 里", async () => {
         // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
         const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
@@ -2056,6 +2236,160 @@ describe("NestedGrid 浮动窗", () => {
         expect(wrapper.findAll("[data-moving]")).toHaveLength(0);
         expect(wrapper.get("[data-leaf=\"f\"]").attributes("data-float-gesture")).toBe("move");
         expect(wrapper.get("[data-content=\"x\"]").attributes("data-float-gesture")).toBe("move");
+    });
+
+    /** 外框、内容、手柄里带过渡标记的（选择器）。 */
+    const movingParts = (wrapper: VueWrapper): string[] => ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"].filter((selector) => wrapper.get(selector).attributes("data-moving") !== undefined);
+    const ALL_PARTS = ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"];
+
+    it("宿主标了 animate 的窗只改矩形：外框、内容与手柄走布局过渡；不标的照旧不过渡（输出 105）", async () => {
+        const plain = mountFloats({});
+        plain.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await plain.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, width: 500}}]});
+        expect(movingParts(plain)).toEqual([]);
+
+        const marked = mountFloats({floats: [{...FLOAT, animate: true}]});
+        marked.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        // 挂载后量到的盒晚一拍到，那一次算容器变了（不过渡）：先让它过去。
+        await marked.setProps({floats: [{...FLOAT, animate: true}]});
+        await marked.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, width: 500}, animate: true}]});
+        expect(movingParts(marked)).toEqual(ALL_PARTS);
+        expect((marked.get("[data-leaf=\"f\"]").element as HTMLElement).style.width).toBe("500px");
+    });
+
+    it("标了 animate 也不过渡：带着 gesture；手势撤掉与矩形变化在同一次渲染里（缩放、拖动的提交）；刚放开的窗", async () => {
+        const marked = {...FLOAT, animate: true};
+        const wrapper = mountFloats({floats: [marked]});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await wrapper.setProps({floats: [marked]});
+        await wrapper.setProps({floats: [{...marked, rect: {...FLOAT.rect, width: 400}, gesture: "resize"}]});
+        expect(movingParts(wrapper)).toEqual([]);
+        await wrapper.setProps({floats: [{...marked, rect: {...FLOAT.rect, width: 420}}]});
+        expect(movingParts(wrapper)).toEqual([]);
+
+        const released = mountFloats({floats: [marked]});
+        released.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await released.setProps({floats: [marked]});
+        const grid = released.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        grid.placeFloat("f", {x: 30, y: 20});
+        grid.placeFloat("f", null);
+        await released.setProps({floats: [{...marked, rect: {...FLOAT.rect, x: 130, y: 70}}]});
+        expect(movingParts(released)).toEqual([]);
+        // 对照：放开的那一次用掉之后，再改矩形照常过渡。
+        await released.setProps({floats: [{...marked, rect: {...FLOAT.rect, x: 130, y: 70, width: 500}}]});
+        expect(movingParts(released)).toEqual(ALL_PARTS);
+    });
+
+    it("同一次发布里 A 松手停在拖到的位置、B 标了 animate 改宽：B 过渡，A 的外框、内容、手柄不带过渡标记、直接画在新位置（输出 105、172）", async () => {
+        const other = {id: "g", rect: {x: 500, y: 70, width: 200, height: 180}};
+        const wrapper = mountFloats({floats: [FLOAT, other]});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await wrapper.setProps({floats: [FLOAT, other]});
+        await wrapper.setProps({floats: [{...FLOAT, gesture: "move"}, other]});
+        const grid = wrapper.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        grid.placeFloat("f", {x: 205, y: 40});
+        grid.placeFloat("f", null);
+        await wrapper.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, x: 305, y: 90}, animate: true}, {...other, rect: {...other.rect, width: 280}, animate: true}]});
+        // 写新矩形的那一次渲染。
+        expect(movingParts(wrapper)).toEqual([]);
+        for (const selector of ALL_PARTS) expect((wrapper.get(selector).element as HTMLElement).style.left).toBe("305px");
+        expect(["[data-leaf=\"g\"]", "[data-float-chrome=\"g\"]"].filter((selector) => wrapper.get(selector).attributes("data-moving") !== undefined)).toHaveLength(2);
+        expect((wrapper.get("[data-leaf=\"g\"]").element as HTMLElement).style.width).toBe("280px");
+    });
+
+    it("同一次发布里 A 松手停在拖到的位置、树里长出一块新叶：新叶过渡，A 不带过渡标记（输出 105、172）", async () => {
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎，量到 0 时新叶没有尺寸
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const wrapper = mountFloats({});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await wrapper.setProps({revision: 1});
+        await wrapper.setProps({floats: [{...FLOAT, gesture: "move"}]});
+        const grid = wrapper.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        grid.placeFloat("f", {x: 205, y: 40});
+        grid.placeFloat("f", null);
+        // 新叶 c 带着内容：它的起点经内容层改了渲染层，同一轮刷新里判定会再跑一次。
+        const grown = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 400, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 299, height: 0}},
+            {kind: "leaf", id: "c", ref: "c", size: {width: 299, height: 0}},
+        ]}, {sashSize: SASH});
+        await wrapper.setProps({node: grown.root(), layout: grown.layout(CONTAINER), contents: [{key: "x", leaf: "f", insetTop: 32, active: true}, {key: "y", leaf: "c", insetTop: 32, active: true}], floats: [{...FLOAT, rect: {...FLOAT.rect, x: 305, y: 90}}]});
+        expect(wrapper.get("[data-leaf=\"a\"]").attributes("data-moving")).toBeDefined();
+        expect(movingParts(wrapper)).toEqual([]);
+        for (const selector of ALL_PARTS) expect((wrapper.get(selector).element as HTMLElement).style.left).toBe("305px");
+    });
+
+    describe("松手的起点（输出 172）：宿主分两次发布，都在下一帧之前", () => {
+        /** 窗 f 回到树里，排在 b 后面。 */
+        const docked = () => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 400, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 299, height: 0}},
+            {kind: "leaf", id: "f", ref: "f", size: {width: 299, height: 0}},
+        ]}, {sashSize: SASH});
+        const OFFSET = {x: 205, y: 40};
+        const dockedLeft = (): string => {
+            const grid = docked();
+            return `${String(placeGrid(grid.root()!, grid.layout(CONTAINER), CONTAINER, 1).items.find((item) => item.kind === "leaf" && item.node.id === "f")!.rect.x)}px`;
+        };
+
+        /** 拿起 f、挪 `OFFSET`、松手（`placeFloat(f, null)`）；返回网格。宿主还没发布任何变化。 */
+        async function dragAndRelease() {
+            // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎，量到 0 时回到树里的叶没有尺寸
+            const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+            // test-lint-allow spy: 同上，桩布局盒的高
+            const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+            onTestFinished(() => {
+                width.mockRestore();
+                height.mockRestore();
+            });
+            const wrapper = mountFloats({});
+            wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+            await wrapper.setProps({revision: 1});
+            await wrapper.setProps({floats: [{...FLOAT, gesture: "move"}]});
+            const grid = wrapper.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+            grid.placeFloat("f", OFFSET);
+            grid.placeFloat("f", null);
+            return wrapper;
+        }
+        const parts = (wrapper: VueWrapper) => ["[data-leaf=\"f\"]", "[data-content=\"x\"]"].map((selector) => wrapper.get(selector).element as HTMLElement);
+
+        it("先撤手势、再放回树里：外框与内容从松手处出发，不从按下之前的位置", async () => {
+            const wrapper = await dragAndRelease();
+            await wrapper.setProps({floats: [FLOAT]});
+            const g = docked();
+            await wrapper.setProps({node: g.root(), layout: g.layout(CONTAINER), floats: []});
+            // 用起点的那一次渲染：不带过渡标记，画在记录矩形加松手的偏移上。
+            for (const part of parts(wrapper)) {
+                expect(part.style.left).toBe(`${String(FLOAT.rect.x + OFFSET.x)}px`);
+                expect(part.hasAttribute("data-moving")).toBe(false);
+            }
+            // 下一次渲染写终点、带上标记（起点在 `nextTick` 里清，再渲染一次）。
+            await nextTick();
+            await nextTick();
+            for (const part of parts(wrapper)) {
+                expect(part.style.left).toBe(dockedLeft());
+                expect(part.hasAttribute("data-moving")).toBe(true);
+            }
+        });
+
+        it("先发布整窗移动的结果、再放回树里：从移动后的矩形出发，偏移不再加一次", async () => {
+            const wrapper = await dragAndRelease();
+            const moved = {...FLOAT, rect: {...FLOAT.rect, x: FLOAT.rect.x + OFFSET.x, y: FLOAT.rect.y + OFFSET.y}};
+            await wrapper.setProps({floats: [moved]});
+            const g = docked();
+            await wrapper.setProps({node: g.root(), layout: g.layout(CONTAINER), floats: []});
+            // 没有起点：外框还挂着、画在移动后的矩形上，这一次就带着标记写终点，从那里滑过去。
+            for (const part of parts(wrapper)) {
+                expect(part.style.left).toBe(dockedLeft());
+                expect(part.hasAttribute("data-moving")).toBe(true);
+            }
+        });
     });
 });
 

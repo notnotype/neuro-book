@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
+import {dockedLeaves, enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, releaseStarts, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
 import type {GridContentPlacement, GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import {planSwap, swapTouchesBand} from "../grid-swap";
 import type {GridSwap, GridSwapBand} from "../grid-swap";
@@ -39,6 +39,8 @@ export interface GridMotionFrame {
     readonly bandNow?: ReadonlyArray<number>;
     /** 正在别的过渡里的叶（节点 id）：长出来、缩回去的。 */
     readonly busy?: ReadonlySet<string>;
+    /** 刚放开的浮动窗（id 到松手时的偏移，`releaseStarts`）：由 `NestedGrid` 的 `placeFloat(id, null)` 记下，下一帧之前的一次判定用，用完即清。 */
+    readonly released?: ReadonlyMap<string, {readonly x: number; readonly y: number}>;
 }
 
 /** 上一次判定时记下的事实：判容器尺寸、缩放与手势收尾要比它。 */
@@ -69,6 +71,8 @@ export interface GridMotionMove {
     readonly rightAnchored: ReadonlySet<string>;
     /** 这一轮降到零的叶（节点 id，`shrinkingLeaves`）。 */
     readonly shrinking: ReadonlySet<string>;
+    /** 这一轮从浮动窗回到树里的叶（外框的 `key`，`dockedLeaves`）。 */
+    readonly docked: ReadonlySet<string>;
     /** 此刻为零的叶（节点 id）：上一轮在缩的叶仍在这里面的接着缩。 */
     readonly zero: ReadonlySet<string>;
     /** 宿主去掉、留到过渡结束的内容项（`leavingContents`），含上一轮留下、叶仍在缩回去的。 */
@@ -130,6 +134,8 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const flying = flyingContents(frame.items, frame.previous);
     const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
     const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
+    // 刚放开的窗从松手处出发（输出 172）：最后并进起点，在 `kept` 之后，不影响跟外框与保持尺寸的判定。
+    const released = frame.released === undefined ? new Map<string, GridRect>() : releaseStarts(frame.items, frame.previous, frame.released);
     // 上一轮还在缩回去的叶（`input.items` 里带 `leaving` 的）：这一轮又有别的变化时接着留着缩完，不然它缩到一半就没了。回到树里的、这一轮重新判成离开的不算。
     const present = new Set([...frame.items, ...leaving].map((item) => item.key));
     const still = input.items.filter((item): item is GridLeavingItem => item.kind !== "content" && item.leaving === true && !present.has(item.key));
@@ -142,13 +148,14 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const stillContents = input.items.filter((item): item is GridContentPlacement => item.kind === "content" && item.leaving === true && !present.has(item.key) && !freshKeys.has(item.key));
     const move: GridMotionMove = {
         kind: "move",
-        entering: new Map([...entering, ...kept]),
+        entering: new Map([...entering, ...kept, ...released]),
         following,
         flying,
         leaving: [...still, ...leaving],
         keptSize: new Set(kept.keys()),
         rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
         shrinking,
+        docked: dockedLeaves(frame.items, frame.previous),
         zero,
         leavingContents: withTheirLeaves([...stillContents, ...fresh], [...still, ...leaving], zero),
     };
@@ -187,6 +194,12 @@ export function useGridMotion(options: {
     const moving = ref(false);
     /** 新项第一帧的矩形；下一轮写终点，过渡才启动。 */
     const growing = shallowRef<ReadonlyMap<string, GridRect>>(new Map());
+    /**
+     * 回到树里、这一次渲染用着起点（在 `growing` 里）的浮动窗外框（`key`）：这一次照旧画成浮动窗，和 `growing` 同一刻清掉。
+     * 用起点的那一次渲染不带过渡标记（`NestedGrid` 的 `structureMoving`），这时摘掉浮动窗的样子，投影与圆角就一下子没了（输出 110）；
+     * 下一次写终点时带着标记摘，才随过渡淡去。松手的起点（`releaseStarts`）是这样的；框架按钮的停靠没有起点，同一次渲染里摘、带标记，不进这里。
+     */
+    const docking = shallowRef<ReadonlySet<string>>(new Set());
     /** 内容跟着外框逐帧变化的叶；只在过渡中有。 */
     const following = shallowRef<ReadonlySet<string>>(new Set());
     /** 正飞过别的面板的叶与内容项；只在过渡中有。 */
@@ -245,6 +258,7 @@ export function useGridMotion(options: {
         void nextTick(() => {
             void options.root.value?.offsetWidth;
             growing.value = new Map();
+            docking.value = new Set();
         });
     }
 
@@ -256,6 +270,7 @@ export function useGridMotion(options: {
         inRound = false;
         landing.clear();
         growing.value = new Map();
+        docking.value = new Set();
         following.value = new Set();
         flying.value = new Set();
         leaving.value = [];
@@ -293,6 +308,7 @@ export function useGridMotion(options: {
         // （CSS 过渡里终点没变就接着走），下一帧写新终点时从此刻的位置反向，不跳。所以不用读 DOM 取当前位置；起点不再是上一轮的终点时这条就不成立了。
         // 交换是例外：起点是读到的此刻位置（`bandOffsets`），写起点的那一帧不带过渡标记，进行中的过渡就停在那里，下一帧整条带重新开始一段完整的过渡。
         growing.value = entering;
+        docking.value = new Set([...move.docked].filter((key) => entering.has(key)));
         flushGrowingStart();
     }
 
@@ -359,6 +375,7 @@ export function useGridMotion(options: {
     return {
         moving,
         growing,
+        docking,
         following,
         flying,
         leaving,

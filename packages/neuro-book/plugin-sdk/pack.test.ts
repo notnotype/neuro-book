@@ -7,7 +7,7 @@
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
 import {existsSync} from "node:fs";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -17,7 +17,7 @@ import {moduleExports} from "@notnotype/neuro-book-test-support/module-exports";
 import {manifestFormat} from "../src/plugin-platform-profile";
 
 import {AUTHOR_PACKAGES} from "./dependencies";
-import {buildSdk, clearPreviousSdk} from "./pack";
+import {assertOutsideLibraryTypes, buildSdk, clearPreviousSdk} from "./pack";
 import type {BuiltSdk} from "./pack";
 import {authorDirectory} from "./testing/author";
 import {registeredFactory, runFactory} from "./testing/browser-artifact";
@@ -249,6 +249,24 @@ describe("生成的 SDK 包", () => {
         await writeFile(join(other, "package.json"), JSON.stringify({name: "my-project"}));
         await expect(buildSdk(other)).rejects.toThrow("不清理");
         expect(await readdir(other)).toEqual(["package.json"]);
+    });
+
+    it("输出目录是声明的临时目录或在它里面（含经符号链接的别名）：构建前拒绝，什么都不写；兄弟目录照常", async () => {
+        // 默认的临时目录：拒绝在任何写入之前，输出目录不会被建出来。
+        const inside = join(fileURLToPath(new URL("../dist/.sdk-types", import.meta.url)), "author-output");
+        await expect(buildSdk(inside)).rejects.toThrow("声明的临时目录");
+        expect(existsSync(inside)).toBe(false);
+        // 换一个临时目录测别名：`alias` 是指向 `real` 的符号链接，经它给的输出目录真实位置在临时目录里。
+        const real = join(tmp, "overlap/real");
+        await mkdir(real, {recursive: true});
+        await symlink(real, join(tmp, "overlap/alias"));
+        const scratch = join(real, ".sdk-types");
+        for (const out of [scratch, join(scratch, "nested/out"), join(tmp, "overlap/alias/.sdk-types"), join(tmp, "overlap/alias/.sdk-types/out")]) {
+            await expect(assertOutsideLibraryTypes(out, scratch)).rejects.toThrow("声明的临时目录");
+        }
+        for (const out of [join(real, "plugin-sdk"), join(real, ".sdk-types-other"), real]) {
+            await assertOutsideLibraryTypes(out, scratch);
+        }
     });
 
     it("仓库外的作者项目用普通 tsconfig 类型检查通过，声明文件本身也检查（不跳过库文件），单文件组件里的 SDK 组件有类型", async () => {

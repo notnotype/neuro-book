@@ -1,0 +1,36 @@
+w00055 t02 写计划前的调研摘要（2026-11-26，两个只读子代理 Haiku 加主会话核实）
+
+一、要换写法的文件（不截断的搜索，2026-11-26 master）
+命令：grep -rlP '(?<!\$)\{(ref\("|panel\.|character\.|look\.|identity\.|rel\.|att\.|text\[)' packages/nb-canon packages/neuro-book/src/plugins/canon packages/neuro-book/src/plugins/plot packages/neuro-book/src/plugins/lab packages/neuro-book/scripts packages/neuro-book/e2e packages/neuro-book/src/server packages/neuro-book/.dev-sample docs/specs --exclude-dir=node_modules | grep -v lab/web/drafts
+另用“任意 命名空间.字段”的宽模式在同样的目录里复查，没有多出文件；nb-canon 的 tests/fixtures 下没有带表达式的主文字。
+packages/nb-canon/scripts/scale.ts
+packages/nb-canon/src/sample/xingxia-prototype.json
+packages/nb-canon/tests/rendering.test.ts
+packages/nb-canon/tests/worldlines.test.ts
+packages/neuro-book/e2e/canon-write.e2e.ts
+packages/neuro-book/scripts/perf/canon-scale.ts
+packages/neuro-book/src/plugins/canon/entry-language.test.ts
+packages/neuro-book/src/plugins/canon/testing/world-fixtures.ts
+packages/neuro-book/src/plugins/canon/web/components/EntryTextEditor.dom.test.ts
+packages/neuro-book/src/plugins/canon/web/components/EntryTextEditor.md
+packages/neuro-book/src/plugins/canon/web/components/entry-text-editor.ts
+packages/neuro-book/src/plugins/canon/web/entry-language.ts
+packages/neuro-book/src/plugins/canon/web/entry-page.dom.test.ts
+packages/neuro-book/src/plugins/canon/web/receipt-page.dom.test.ts
+packages/neuro-book/src/plugins/lab/web/fixtures/index.ts
+packages/neuro-book/src/plugins/plot/core/brief/brief.test.ts
+packages/neuro-book/src/plugins/plot/core/brief/gate.test.ts
+packages/neuro-book/src/plugins/plot/core/brief/secrecy.test.ts
+packages/neuro-book/src/plugins/plot/testing/brief-world.ts
+不入库、不迁移：packages/neuro-book/.dev-sample/mist-clockwork-city/（开发样例，本机生成，git 不跟踪；按新写法重新生成）。
+文档：docs/specs/canon/rendering.md（随 Spec 改写）。
+
+二、谁在用主文字的解析与渲染（packages/ 下非测试代码，不含 neuro-book-legacy）
+- 写入检查：nb-canon world/world.ts 的 blockProblem（初值的块；addBlock、replaceBlock、set 写 text[…]）。
+- 给作者的渲染：canon 插件 render（audience author）→ web/components/EntryPageHost.vue → EntryText.vue 递归画 mdast 加 canonValue、canonComputed、canonPlaceholder、canonRef、canonImage；点值只展开来历。预览 web/text-preview.ts 调 renderSource（250 毫秒停顿、5 万字符上限）。
+- 编辑：EntryTextEditor.vue，输入框由宿主注入 editor 插件的 CodeInput（Monaco），退路 PlainSourceInput；web/entry-language.ts 只做 Monarch 着色；“插入”由 EntryPageHost 给 {label, snippet}，snippet 现在是 `{命名空间.字段}`。提交走 editEntries（text-drafts.ts、text-whole.ts，整篇写进第一块）。
+- 给 Agent：backend/agent-tools.ts 的 canon_read（show text → render audience agent）；canon_write 改文字的入口是 create 的 text、addBlock、set 与 replace（find、with）写 text[块]。writeBack 只在 shared/contracts.ts 的契约与 backend/remote.ts 的转发里，产品里没有调用方。
+- 纯文字：只有 plot/core/brief/gate.ts 的 blocks() 用 renderPlain 的 reads、mentions、problems 扣整块（appearance.ts、parts.ts 用它的结果）。plot 的 checks 不碰主文字。
+- Component 的 agentView：只在 schema 与登记里，没有插件用。
+- 样本：xingxia-prototype.json 的主文字 103 个 source、110 处表达式（77 处单地址、22 处 ref、11 处同一句比较三元式），没有 <Ref>、<Image>、注释。
+- 设定组分页：canon.component-views 贡献点；人物（CharacterView）、形象（LookView）布局写死，面板（PanelDataView）按声明画，其余用 FieldsDataView。

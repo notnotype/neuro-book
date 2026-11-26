@@ -1,0 +1,96 @@
+# w00043 t19 片 1、2、4 实现审查（Opus，审查 worktree 13364cb00，实现 worktree HEAD 同为 13364cb00）
+
+## 1. 读入归整在 computed 里生成随机 id：每次重算 doc，被归整的分节换一个新 id
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：packages/neuro-book/src/plugins/workbench/web/state/default-tree.ts:151（`settlePlacements(..., createLayoutPolicy())`）；placement.ts:79、86（`moveTabToEdge(..., policy)`）；layout-constraints.ts:221（`newId` 是 `p-`/`b-` 加 `crypto.randomUUID()`）
+- 现象：`reconcileViews` 由 store 的 `doc` computed 调用（layout-doc-store.ts:130）。`settlePlacements` 把受限视图从多标签浮动窗拆回右栏时走 `moveTabToEdge` 的“拆出新面板”分支，新面板 id 取自 `createLayoutPolicy().newId`，是随机 UUID；目标区域只剩锚时 `placeLeaf` 还会新建一个随机 id 的分支。读入后、第一次写入前，每次 `doc` 重算（视图目录或容器目录再交一次，启动时插件陆续交视图就是这样）都得到一份新 id 的文档。placement.ts 头注释说“容器 id 由受限视图定，每次读入算出同一个，`reconcileViews` 是 computed 里调的，不能每次生成新 id”，只做到了容器 id；同一个函数里补位那段（default-tree.ts:166-168）特意用 `freeId(sectionIdBase(viewId))`、`regionBranchBase(region)` 定 id，新代码没沿用。
+- 为什么是问题：呈现树、`presented`、`currentPanel`、`focusedPanel`、`maximized`、浮动窗预览、e2e 的 `data-leaf` 都按面板 id 认人。id 每次重算都变，这块面板在 DOM 里被当成新叶重挂（视图内容重建、焦点丢失），`currentPanel` 指向已不存在的 id，第一次 `apply` 的 `rebased()` 用上一轮 id 的 `presented` 回写。用户从旧版升级、消息视图正和别的视图同在一个浮动窗里时就会碰到，片 4 的读入用例没有覆盖浮动窗这条路。
+- 如何核实（真实 store 与 SQLite，脚本 /tmp/review-t19-impl-124/exp/determinism.test.ts，在 packages/neuro-book 下 `bun test <它>`）：不受限目录下把 test.side 浮出、把 test.rail 并进同一个窗、存盘；新窗口按受限目录打开，读出 test.rail 所在面板 `p-bddaa3b4-…`；再 `acceptViewCatalog(new Map(CONFINED))`（内容相同的新目录），读出的是 `p-7193592e-…`，两份文档不是同一个对象，`field.queue` 为 0（没有写盘，所以每次打开、每次重算都不同）。
+- 建议改法：settlePlacements 用和补位一样的确定性策略：`newId` 按 `sectionIdBase(viewId)`、`regionBranchBase(region)` 经 `freeId` 取（可以把 default-tree 里那段 policy 抽成函数共用）；在 placement.test.ts 的读入组加一条“多标签浮窗里的受限视图读入后再交一次目录，文档里的面板 id 不变”。
+
+## 2. Spec 说“重置位置”清掉侧轨意图，实际清掉的只有容器的“重置”；唯一带侧轨的受限视图走得到的那个“重置位置”把意图原样带回
+- 严重程度：重要
+- 类别：正确性（违反合同）
+- 位置：layout-doc-store.ts:556-561（`resetContainer` 清 `rail`）；layout-doc-store.ts:528-537 `moveView`（视图的“重置位置”，`moveTargetItem` 的 `reset` 项，文字键 `views.resetLocation`）不清；Spec ui/workbench-layout.md 输出 50“展开”：“……浮出（带到浮动窗记录）、归位（带回锚上）、重置位置（清掉这一项）”
+- 现象：“重置位置”在输出 23 里是视图的菜单项（`move-view` 到声明的容器）；容器的是输出 44 的“重置”。实现只在容器的“重置”上清。可受限视图的容器离不开右栏（片 4 的关卡拒绝 `moveContainer`/`resetContainer` 去别的区域），`canResetContainer` 对它恒为假，所以那条清除路径对唯一会有视图段的视图永远走不到；它浮出后菜单里唯一的目标是视图的“重置位置”，执行后意图由 `settleRails` 的浮动窗分支写回锚上，原样保留。
+- 为什么是问题：Spec 的“重置位置清掉这一项”对这个视图不成立；用户想把展开的侧轨恢复缺省，只能先手动收起再拖回缺省宽度。片 1 的单测与 store 用例只测了 `resetContainer`。
+- 如何核实（真实 store，/tmp/review-t19-impl-124/exp/reset.test.ts）：右栏锚上给 `view:test.rail` 写 `{expanded: true, width: 300}`，`floatTab` 浮出；`moveTargetsFor(store, "test.rail")` 只有 `["reset:view:test.rail"]`；执行它后锚上仍是 `{"view:test.rail":{"expanded":true,"width":300}}`。
+- 建议改法：先定 Spec 的“重置位置”指哪个：若指视图的“重置位置”，在 `moveView` 的 reset 目标（`moveTargetItem` 的 `reset` 项，或给 `MoveViewTarget` 加一个 reset 标记）提交里，归位后对目标容器调 `setContainerRail(..., null)`；若只指容器的“重置”，改 Spec 的措辞并说明受限视图没有清除入口。任一种都补一条真实 store 用例。
+
+## 3. 命令面板“移动视图”第一步为了筛视图，把每个视图的每个目标都整次试算一遍：25 个视图约 1.1 秒，同步阻塞
+- 严重程度：重要
+- 类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts:110（`movable = [...catalog.keys()].filter(... moveTargetsFor(store, viewId)?.length > 0)`）、:102-106（`moveTargetsFor` 对每个目标调 `permitsMoveView`）
+- 现象：`permitsMoveView` 每次都跑一整次 `moveViewOperation`（`placeInContainer`：`moveTabToEdge` 深拷贝文档并 `finish`，再 `showContainer`：`settleContainers` 三个区域、`setPanelHidden`、`setActiveContainer`），再过 `admitted`（`fitsSkeleton`、又一遍 `settleContainers`、两遍 `placementViolations`）。第一步只要知道“有没有至少一个目标”，却对所有视图算出完整的过滤后列表。目录里只要有受限视图之外的视图，这些试算都照跑（没有 `hasConfinedViews` 那样的短路）。
+- 为什么是问题：命令面板打开前主线程卡住；视图越多越慢（视图数乘目标数，目标数又随容器数增长）。片 4 之前这一步只是读 `moveTargetsOf`，不试算。
+- 如何核实（真实 store，/tmp/review-t19-impl-124/exp/perf.test.ts）：24 个普通视图加 1 个受限视图的默认布局，`moveTargetsFor` 对全部视图跑一遍：收下 624 个目标，用时 1119.7 ms（当时负载 12.4，空闲时估计减半，仍是数百毫秒）。
+- 建议改法：第一步改用 `some` 短路（找到一个收下的目标就停），或在目录没有受限视图时直接用 `moveTargetsOf` 的结果；更根本的是只对“可能被位置限制拒绝的目标”试算：来源是受限视图、或目标容器是受限视图的隐式容器，其余目标位置限制不可能拒绝（关卡只拒“多出来的违反”）。
+
+## 4. “预算覆盖不会写进意图”只对结构操作前的回写成立；手势落账会把被覆盖的宽写进意图，覆盖对隐藏或拖到零的区域也照加
+- 严重程度：建议（store 还没接上覆盖，片 5 接线前要定）
+- 类别：不变量 / 文档
+- 位置：packages/nb-workbench-layout/src/layout-project.ts:15-19（模块说明“意图回写本来就不写保留像素的节点”）、:244-247（覆盖按 `node.id === auxiliary.node.id` 无条件加）；intent-writeback.ts:41（`applyGestureCommit` 只跳过“这次没动的”保留像素节点）；Spec 验收 35
+- 现象：`rebaseForOperation` 冻结全部保留像素节点，所以 rail-budget.test.ts 的结构往返用例成立；但 `applyGestureCommit` 只冻结前后没变的保留像素节点，拖右栏与编辑区之间那条分隔线时右栏节点变了，写进意图的是覆盖后的呈现宽加拖动量。覆盖也不看区域是否隐藏、拖到零：从零拉回时网格回到的“意图”就是覆盖宽。
+- 为什么是问题：计划第 2 稿把 L3 的防线写成“回写本来就不写保留像素的节点”，实际只覆盖一个入口。验收 35 列了“拖右栏与编辑区的分隔线”一步、要求之后右栏宽度意图不变；照现在的写法，覆盖期间这一拖会把压过的宽固化成意图（侧轨收起后右栏不回到压之前）。验收 35 这句本身也和“拖这条线就是改右栏宽”冲突，需要 Spec 先说清覆盖期间这一拖改的是什么。
+- 如何核实（直接调真实投影与回写，覆盖在 store 里还没接，属于从代码推断后的函数级复现；脚本 /tmp/review-t19-impl-124/exp/gesture.test.ts）：工作台缺省布局、`regionWidth: {auxiliarybar: 300}`，右栏意图 400、呈现 300；造一次右栏变宽 20 的手势调 `applyGestureCommit`，右栏意图变成 320。
+- 建议改法：片 5 接线前二选一写进计划与 Spec：覆盖期间区域那条分隔线不可拖（或拖的是轨宽）；或手势落账时把被覆盖的区域节点按“呈现减覆盖差值”换算回意图。投影里覆盖只在区域可见（未隐藏、未拖到零、未收走）时加。模块说明改成准确的范围，rail-budget.test.ts 加手势落账那一条。
+
+## 5. 位置限制在落点反馈上和别的拒绝不一致：键盘仍停在全被拒的入口带上；指针在被拒的面板落点上是“没有落点”而不是“禁止”
+- 严重程度：建议
+- 类别：正确性（候选与提交共用一份规则的合同）
+- 位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:973-975（键盘区域：`bar` 列出全部入口带，只按几何 `barStops` 过滤）、:790-794（`stopsOf` 对入口带不判落点）、:664-665 与 :724（`dropFor` 被关卡拒绝时返回 null，`dropAt` 转成 `NOT_JUDGED`）
+- 现象：键盘拿起受限视图时，侧栏的入口带、底部面板的入口条照样作为区域列出、有停点，每个停点经 `entryDrop` 的关卡都是 null，Enter 什么也不做。Spec 输出 50 写“键盘拿起的候选只停入口带”、views 输出 22 写“候选、预览与提交共用一份规则”，键盘的面板候选过滤了（:966），入口带没过滤。指针移到受限视图被拒的分节边上时，`resolveLayoutDrop` 先选中了落点，关卡再拒，得到 `{drop: null, rejected: false}`，光标不是“禁止”；接受矩阵拒绝时走的是 `layoutDropOverPanel` 那条、`rejected: true`。
+- 为什么是问题：键盘用户要 Tab 经过一整条没有一个可落位置的区域；指针用户看不到“这里不能放”，和接受矩阵拒绝的手感不同。都不会写错文档（store 的关卡兜底）。
+- 如何核实：读代码（DOM 路径未在浏览器里跑，标“从代码推断”）。`grep -n "const bar = barAccepts" layout-drag.ts` 看到入口带不经关卡；`dropFor` 的 `if (!result.ok) return null;` 与 `dropAt` 的 `if (drop === null) return NOT_JUDGED;`。
+- 建议改法：键盘区域对入口带也按 `entryDrop` 的关卡筛停点（或整条区域没有收下的停点就不列）；`dropFor` 区分“关卡拒绝”与“算不出”，前者返回 `{drop: null, rejected: true}`。段 B 的 e2e 覆盖键盘候选时一起断言。
+
+## 6. 测试缺口：拖放与菜单这一侧的关卡没有任何单测或 dom 测试；读入归整没测浮动窗；settleRails 的浮动窗合并分支没测
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts（5 处 `guardPlacement`、键盘候选的过滤）、commands/view-commands.ts:102-106（`moveTargetsFor` 的过滤）、components/WorkbenchShell.vue:657、666（入口菜单的 `permitsMoveContainer`）；placement.test.ts 的“读入归整”组；layout-doc.ts:563-568（窗并进别的窗时带意图）
+- 现象：`grep -rl "guardPlacement\|hasConfinedViews\|moveTargetsFor\|permitsMove" src` 在测试文件里只命中 placement.test.ts（只测 store 的提交出口与 `permits*`）。拿掉 layout-drag.ts 的全部关卡、`moveTargetsFor` 的 filter 或 Shell 里的两处 `permitsMoveContainer`，现有单测与 dom 测试都不会失败；计划把它们记在 e2e 段 A，但工作分支上还没有用 `withRail` 开关的 e2e（`grep -rl withRail e2e` 为空）。读入归整的两条用例里受限视图都在单标签分节里，没有覆盖“和别的视图同在一个浮动窗”（第 1 条的随机 id 就出在这条路）；layout-doc-rail.test.ts 没有“带意图的窗并进另一个窗”与“窗的标签落进已有意图的容器”两种情况。
+- 为什么是问题：计划“验收映射”把 views 22 的候选与预览一致性交给单测与 e2e，现在单测只守住提交；菜单列出会被拒的项、预览显示会被拒的落点这类回归没有东西会报。
+- 如何核实：上面的 grep；或在仓库外复制 layout-drag.ts 删掉关卡后对照跑工作台 dom 测试（本次没跑，只做了 grep）。
+- 建议改法：placement.test.ts 加读入“多标签浮窗里的受限视图”一条（同时断言 id 稳定）；加一个不经 DOM 的用例，对同一个受限目录比较 `moveTargetsFor` 的结果与逐项 `moveView` 的结果一致；拖放侧由段 B 的 e2e 覆盖指针落点、键盘候选、入口菜单，派发说明里点名这几处。
+
+## 7. 关卡按“视图 id 多没多”判：受限视图一旦已在违反名单里，之后让它更糟、或把别的视图塞进它容器的操作都放行
+- 严重程度：建议
+- 类别：不变量
+- 位置：packages/neuro-book/src/plugins/workbench/web/state/placement.ts:52-56（`before` 与 `added` 都是视图 id 的集合）
+- 现象：`guardPlacement` 只看“结果里有没有操作前没有的违反视图 id”。读入归整某一步被库拒绝（`moveTabToEdge` 超出节点上限、`sectionLanding` 为 null）而留下违反时，这个 id 已在 `before` 里：此后把受限视图拖进侧栏、并进别人的多标签窗、把第三个视图移进它的隐式容器，都不会被拒。README 记了“只拒新增的违反”的取舍（为了归整失败时布局不被锁死），但粒度是“视图”，不是“违反的样子”。
+- 为什么是问题：取舍要防的是“锁死”，不需要放行“更糟”；现在一个受限视图卡在违反状态时，位置限制对它整个失效。触发条件少见（要归整失败），所以只记建议。
+- 如何核实：读代码；可用 `guardPlacement(base, {ok: true, doc: next}, catalog)` 对一份 test.rail 已在多标签窗里的 base，再把 test.panel 移进 `view:test.rail` 的结果判一次，返回 ok（本次没跑）。
+- 建议改法：比较“违反的样子”而不是 id：例如对每个受限视图取 `(所在面板的标签集合, 所在区域, 隐式容器里的陌生视图集合)`，操作前后这份签名变了且结果仍违反就拒；只有“变得合法”或“没碰它”才放行。
+
+## 8. 几处边界与入口：写入口不校验宽度；`setFloatRail` 没导出也没测；预算不看区域自己的最小宽；修复诊断在记录整份没用时照报
+- 严重程度：建议
+- 类别：代码质量 / 正确性
+- 位置：nb-workbench-layout/src/layout-doc.ts:810-818、831-833（`setContainerRail`/`railIntentOf` 原样收 `width`）、:820-829（`setFloatRail`）与 index.ts:44；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:156-168（`railBudget`）；layout-doc-store.ts:112-117（`recordRepairs`）
+- 现象与理由：
+  - `setContainerRail` 收 `NaN`、负数、`Infinity` 照写，读入时才被修掉并报诊断；读入只认有限正数，写入口应同一条规则（片 5 的手柄与键盘都会经它）。
+  - `setFloatRail` 是导出函数但 index.ts 没导出、entry.test.ts 没登记、没有单测；工作台按包边界只能经入口用，片 6 用到时才会发现。
+  - `railBudget` 的 `fromRegion = R − chatMinimum`，没取区域此刻的最小宽（`panelConstraints` 按视图声明给）；视图声明的最小宽大于 `chatMinimum` 时，`regionWidth` 会低于区域最小值，求解器夹回最小值后编辑组被压过最小、触发放不下收走。Spec 的算法只写了聊天下限，属于 Spec 没覆盖的输入。
+  - `recordRepairs` 只看 `field.base` 通不通过校验：记录合法但不合骨架（回落默认布局、`outsideSkeleton` 为真）时，外壳根同时写“已用默认布局”和“已按缺省读：……”，后一条说的值其实没被用上。另外 `recordProblem`、`outsideSkeleton`、`recordRepairs`、`readStored` 各自对同一个 `field.base` 全量校验一次，可以共用一个 computed。
+- 如何核实：读代码；`grep -n setFloatRail packages/nb-workbench-layout/src/index.ts` 无结果。
+- 建议改法：写入口对 `width` 做同读入一样的检查（不合格返回 `rejected`）；导出 `setFloatRail` 并补一条往返用例，或在片 6 之前删掉；`railBudget` 的区域可让量取 `R − max(chatMinimum, 区域最小宽)`，并在 Spec 的预算条目补一句；`recordRepairs` 在 `local` 不是读入的那份时为空。
+
+## 9. `confinedTo` 实际对所有插件开放，和“位置限制只给内置视图”的决定不一致，偏离没有记进 Spec 或 README
+- 严重程度：建议
+- 类别：文档
+- 位置：packages/neuro-book/src/plugins/workbench/shared/views.ts:84-89（注释“第三方插件照样写进声明也只限制它自己的视图，所以登记时不按发布者拒”）、:127-129；Spec workbench/views.md 输出 22（“内置视图的声明可以带”）；README“下一步”片 4 条只写了“SDK 的 `view()` 不收”
+- 现象：声明 schema 与登记校验不按发布者拦，任何插件直接写贡献对象就能用；e2e 的 `test.sample-views` 就是这么用的。开发者 2026-11-25 的决定是只给内置视图。
+- 为什么是问题：限制只约束声明方自己的视图，风险不大，但这是合同上的偏离：第三方用上之后再收回就是破坏性改动；Spec 与实现说法不同，读 Spec 的人会以为登记时会拒。
+- 建议改法：要么登记时按发布者（内置与测试插件）放行、其余拒绝；要么把“登记不拦、SDK 不公开”写进 Spec 输出 22 与 README 的偏离记录，交开发者知悉。
+
+## 7 补充核实
+- 已跑（/tmp/review-t19-impl-124/exp/guard.test.ts，真实库函数与关卡，base 来自不受限目录下的真实 store）：test.rail 与 test.side 同在一个浮动窗，`placementViolations(base)` 为 `["test.rail"]`；把 test.panel 用 `moveTabToEdge` 放进 `view:test.rail`，`guardPlacement(base, moved, CONFINED).ok` 为 true。产品里这样的 base 只在读入归整失败时出现（正常读入会先被 `settlePlacements` 修掉），严重程度仍是建议。
+
+## 检查过、没有发现问题的点（不计数）
+- 所有改归属的写入都经 `apply` 的 `admitted`：`local.value` 只在 `apply`、`commitGesture`（只改尺寸、收起、显隐）、`discard`（经 `reconcileViews` 归整）与打开时写；`editor-panels.ts` 的 `host.apply` 与 `EditorAreaFixture` 也经 `apply`；接受矩阵让视图标签进不了编辑组，编辑器路径碰不到受限视图。
+- 拖放侧判的是未经 `settleContainers` 的结果：`settleContainers` 只改锚的 `entries`、`activeContainer`、隐藏，`placementViolations` 不读这些字段，两边判定一致。`permits` 用 `doc.value`、`apply` 用 `rebased()`，只差尺寸，判定一致；`newContainerIn` 的随机容器 id 不影响判定。
+- `settleRails`：真实 store 上浮出、回到停靠、整容器搬到底部面板再“重置”、视图移进侧栏新容器，意图去向都符合计划（/tmp/review-t19-impl-124/exp/rails-store.test.ts）；`railHolderOf` 在 `moveContainerTo` 的中间态按 `current` 留在原处，最后一节过去才搬；没有结构操作绕过 `finish`（`setSiblingShares`、`stripDynamicTabs` 不改归属）。存盘后重读 `recordRepairs` 为空。
+- `railBudget` 与 Spec 输出 50 预算条目逐项对过（`Se` 取了 `max(0, ·)`，比 Spec 更保守，结果不变）；投影的右轨叶在 `body` 里右栏之后、两侧缝 0，`assignByParent` 给它 `fixed`、不配收起策略；保留 id 同时查节点 id 与 `panels` 的键。
+
+## 各级数量
+- 阻断 0；重要 3（第 1、2、3 条）；建议 6（第 4、5、6、7、8、9 条）。有效发现编号：1–9，没有撤回或收窄的条目。

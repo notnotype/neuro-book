@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-social-login-and-oauth-provider
-status: planned
-updated: 2026-11-24
+status: done
+updated: 2026-11-26
 ---
 
 # 社交登录与对外 OAuth 服务
@@ -15,7 +15,7 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 
 ## 当前状态
 
-未开工：开发者 2026-11-24 要求先把 ADR、Task 与文档写好，开工等他的指示。
+已完成（2026-11-26）：十片与三轮实现审查（第 2、3 片，第 4 到 7 片，第 8 到 10 片，各 Opus 加 omp）、晋升前逐句核对的修正都在分支 `feat/w00037-t08-social-oauth` 上，经 Work 分支（`c49dadfc7`，先并进了 master）合入 master（`a81b85b5e`）；`site.oauth-provider` 晋升 implemented，`site.accounts` 与 `site.admin` 里 t08 的 planned 标记已去掉（`7f6969cf1`；留导入码的次数与注册页预填邀请码两句，归 t12、t10）。上线前要开发者在 Google、GitHub 注册 OAuth 应用。
 
 范围：Google 与 GitHub 登录（通用 OAuth 插件、照真实形状的仿真上游、先填后跳的注册顺序、邮箱撞号、关联与解绑），对外 OAuth 服务（可达端点的精确清单、客户端登记、授权码加 PKCE、授权确认、令牌与用户信息、随账号失效），库私有的续接协议与回调错误包进自家接口。
 
@@ -87,7 +87,7 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 
 ## 下一步
 
-Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），主会话审过、写进 `site.oauth-provider` 与 `site.accounts`、`site.admin` 后，按高风险后端做设计审查（Opus 先审，omp 在后台）。
+无。留给别的 Task 的：前端的社交登录、注册、关联与解绑页面，以及授权确认页、站点同意页（t10，失败码见合同包的 `SOCIAL_ERROR_CODES`）；部署时配 Google、GitHub 的客户端 id 与密钥（开发者的账号注册）。
 
 ## 实施进度
 
@@ -169,3 +169,42 @@ Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、
 - 重放：登录意图第一次回调成功时库删掉自己的 state 行，第二次在库那里就落到 `social_state_invalid`；本站的认领是第二道，只有“另一个浏览器先用掉”那条用例分得出两道。
 - 没做的：回调查询串的长度上限（计划 3.6：超过时落点页带 `social_state_invalid`），交给第 9 片。
 - 给第 9 片的：注册要接 `start.ts` 的 `register` 分支、`FlowPayload` 的注册内容、`callback.ts` 的 `succeed` 对 `newUser` 的落点、`hooks.ts` 里 `inLibraryTransaction()` 为真的分支（改成 `joinLibTransaction`，加 `user.create.before`、`session.create.before` 的注册检查）；`providers.ts` 记进帧里的 `upstream.emailVerified` 给注册钩子拒未验证的邮箱；`link.test` 的“会话晚结束”与两条并发用例按库的两步排队卡时序，注册路径若改变库的步数要回头核。
+
+第 9 片（社交注册）的第一个子代理读完材料后因 Opus 周额度用完中断，没留下改动；额度重置后重派。已提交，两个提交：`be054a682`（9a：`joinLibTransaction`；`register.ts` 拆出扣码、复核占用、写资料几个函数，密码注册与社交注册共用；建用户前钩子扣码、建账号前钩子写资料并经 `claimUpstreamName` 认上游名字、建会话前钩子拒已关联的身份；发起与回调的注册分支；回调查询串上限，13 个文件）、`0529d318e`（9b：合同的社交注册一组、验收 14 的两种先后、查询串上限的用例，5 个文件）。本片五个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，5 条变异都被抓到；主会话重跑本片五个包通过。实现者跑 `--with-consumers` 时 neuro-book 包有两条在负载 12 以上超时，单独重跑都过，本片没碰那个包。
+
+- 实现者定、主会话接受的：社交注册建出的账号不存上游头像（与密码注册一致）；“扣码改用普通 `write`”那条变异由队列的误用检查先挡住（库的事务里不带帧直接 `write` 被拒），回滚用例跟着失败。
+- 实测出、Spec 跟着改的：上游的邮箱没验证过、又等于已有账号的邮箱时，库按邮箱找人那一步早于钩子，结果是 `email_taken`（`site.accounts` 输出 14 写明先于 `social_email_missing`）；回调查询串的 8192 上限写进时序一节。
+- 给第 10 片的：社交注册的账号没有密码，解绑的 `last_login_method` 要算进去；`me/identities` 读到的上游名字是注册时的原样写法；`account.create.before` 按 `inLibraryTransaction()` 分注册与关联；关联与注册的排队用例依赖库在事务之前查两次库（升级清单“社交注册的先后”）。
+
+第 10 片（上游身份的列表与解绑、没有密码的账号的合同用例、Smoke 标注、升级清单核齐）已提交（`ae385153d`，12 个文件）：四个包的测试与类型检查、`governance:check`、`docs:check` 都过，合同测试连跑 3 遍都过、没有留下进程，2 条变异都被抓到；另做的“数剩下的登录方式挪到写事务之前”只有包内并发用例抓得到。主会话重跑时负载 23，`operations.test.ts` 的创建管理员 10 秒没跑完（算密码哈希）并连带收口失败，负载降到 7 后单独重跑该文件，54 条全过，归为负载。
+
+- 升级清单核对：实现者用脚本逐行查“用例”一列点名的文件与用例名，前后都没有缺的（只核名字，没核条数）；对着计划 3.15 补了四行（`updateUserInfoOnLink` 与 `overrideUserInfo` 缺省关、一次性检查、同一上游可关联多个身份由约束限成一个、上游身份的存法），改了三行，修了三处引用不存在行名的注释。计划验收映射里的“同一个码并发换四次”原来没有用例，本片补在 `provider.test.ts`。
+- Spec 跟着补的：`site.accounts` 输出 24（列表按关联的先后；解绑不是自己的上游身份的 id 回 `not_found`，含密码那一行的 id）。
+- 晋升时要补的：两份 Spec 的证据一节要指向 Smoke 标在的 `oauth-provider.test.ts`、`accounts-social.test.ts` 与新的 `accounts-identities.test.ts`（代码合入 master 之后再写，免得链接不存在）。
+
+第 8 到 10 片的实现审查（处理见计划文末“实现审查（第 8 到 10 片）的处理”）：Opus 那 5 条的修正已提交（`be09202c9`，10 个文件）：发起时库没有这个上游（`PROVIDER_NOT_FOUND`，按码判）回 503 `unavailable`；登录意图的社交发起在调库之前计入登录的来源地址计数，与密码登录共用额度；社交注册的邮箱不合本站规则时同没验证过；`identities.ts` 与 `0003` 注明导入要写名字行；包内补三个回调并发到认领。实现者自报：五个目标包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过，4 条变异都被抓到；`test:affected --with-consumers` 选中 28 个包，被它自己的 50 分钟上限截停在最后 5 个，dev-panel、nb-host、nb-story 有几条 5 秒超时（负载 12 到 27，与本次改动无关）。发起被 `provider_disabled` 或 `validation_failed` 拒掉的不计入限流，同密码登录“字段不合格的请求不计入”。omp 那 3 条要改的接着修（fix4），两次修正合在一起由主会话重跑验证。
+
+omp 那 3 条的修正已提交（`0dc6d182d`，14 个文件）：
+- 封禁与建会话交错：新加迁移 `0004`，`session` 表插入前的触发器拒绝被封禁账号的会话（只看 `banned = 1`；`banExpires` 恒为空，触发器拿不到模块时钟，将来加封禁到期要重写它）。社交回调按 `SQLITE_CONSTRAINT_TRIGGER` 认出、落到 `account_banned`；`session` 表上只能有这一个触发器，`schema.test.ts` 核对。密码登录与注册本来在自己的写事务里复核，触发器对它们是第二道。实现者列了“建会话的路 × 封禁落在哪一步”的表，只有社交登录、社交注册在“查与插之间”那格改前会留下会话；社交注册那格没有单独用例，与社交登录同一个触发器、同一个 catch。
+- Google 配 `requireIdTokenVerification`：发现文档缺 issuer 或 `jwks_uri` 时库不建这个上游，发起回 503 `unavailable`；仿真上游加了 `omitJwksUri`。
+- 解绑只数密码与所在上游开放着的其它身份，列表照旧。
+- 实现者自报：账号与站点各包的测试与类型检查都过，`governance:check` 过，合同测试连跑 3 遍各 334 条都过，4 条变异都被抓到。`--with-consumers` 带进来的别的包有 5 项失败，都与本次无关：dev-panel 的 herdr 与 nb-story 的子进程超时在 master 上也失败，nb-markdown 与 neuro-book 的几条单独重跑通过；`ProvidersPage.dom.test.ts` 在分支上失败、master 上通过，因为分支起点之后 master 改过 models 插件，合入前变基后复核。
+- 社交注册意图下被封禁时，码随情形不同：已关联的旧账号被封时是 `social_failed`，不建号、不扣码；刚建的账号在库建会话之前被封时是 `account_banned`，账号与扣码已提交（账号确实建成了）。不统一，写进 `site.accounts` 输出 13。
+
+主会话在 `0dc6d182d` 上重跑（负载降到 2 后）：五个目标包的测试与类型检查都过，合同测试 334、账号模块 598、账号合同包 113、站点服务 156，没有失败。
+
+晋升前逐句核对（Opus，[`evidences/promotion-check-opus.txt`](evidences/promotion-check-opus.txt)）：`site.oauth-provider` 全文与另两份 Spec 带“（planned）”的句子。
+- 没实现 2 句：`site.accounts` 输出 18 的旧站码保留次数与期限（t12）、注册页预填邀请码（前端），标记留着。
+- 与字面不一致 4 处。三处改了 Spec 措辞：只有开放了的上游的回调可达；回环主机不分大小写；`identity_taken`、`identity_exists` 只作跳转参数，挪出 409 那行。另一处改实现：用户信息 401 的 `WWW-Authenticate` 带着库的 DPoP 质询，去掉。
+- 没有测试 26 句（PKCE 必须、码过期、`max_age` 补交、RFC 6750 错误码、存储副作用等），连同 DPoP 一起交给 fix5 补。
+- `site.accounts` 的 Smoke 补了社交注册。
+
+fix5 已提交（`a2a759944`，13 个文件），主会话收尾一个（`1a8cb8004`）：
+- 用户信息端点回 401 时 `WWW-Authenticate` 只留 `Bearer` 质询：按 RFC 7235 的结构拆头，保留 RFC 6750 的 `error`，拆不出时只回 `Bearer` 并记 warn。
+- 26 句缺测试的都补了用例。T11（建签名钥撞写锁）只确认了 `start_failed`，撞在哪一步是读代码推断的；T12 靠把会话行的到期改到系统时间之前，因为库按系统时间判。
+- 补出来与 Spec 字面不一致的三处，按实测改了 Spec：
+  - 不带 PKCE 校验值回 `invalid_request`，校验值不对或不带时码都不被用掉（主会话把两条用例补到断言之后照常换出）；
+  - 不带令牌时 401 的质询里不带错误码，只在响应体（RFC 6750 第 3.1 节）；
+  - 注册意图下已关联的账号在库查过封禁之后被封，落点仍是 `identity_taken`，因为注册意图在建会话之前就拒了旧账号（主会话把实现者留在仓库外的交错用例改成这个断言放回）。
+- 变异 5 条都被抓到。T8 的变异造不出来（`max_age` 是库在跳转前去掉的），用 T10 代替。
+- 主会话在 `1a8cb8004` 上重跑：五个目标包的测试与类型检查都过（合同测试 344、账号模块 608、合同包 113、站点服务 156），`governance:check` 过。

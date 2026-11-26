@@ -112,11 +112,27 @@
 - 被盖住的叶与它的内容不可交互（`inert`）；`exclude` 里的叶不算被盖住，被外接矩形罩住时也不加 `inert`。
 - 最大化期间所有分隔线不画、不能拖。
 
-`dragging` 为真时宿主的拖动在进行（不论内容拿没拿起），离开的叶不留着缩回去。`gesturing` 为真时宿主自己的尺寸手势在进行（网格之外的手柄改了约束或固定尺寸）：布局的变化跟手、不过渡，变回假的那一次也不过渡，同网格自己的分隔线手势预览。开发模式开关打开时，`dragging` 变真的那一刻还有布局过渡在走（宿主起拖时没调 `settleMotion()`），警告一次；同一次更新里改了布局、过渡是这次才开始的不算。`lifted`（`{key}`）拿起一个内容项（实时布局：拖动时别的面板按预览即时让位，拿起的内容做成卡片跟着指针）：不接指针，外层是一列（`lifted-head` 加内层）。落进已有的叶时，那块叶上一帧显示着的内容留在卡片下面（`inert`、不接指针），过渡结束才停放，卡片长的一路叶不空；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处，`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--nb-layout-card-radius`、`--nb-layout-card-shadow`。这一项这一轮不在 `contents` 里时（宿主的预览把来源摘掉了）网格自己留住它，叶是拿起那一刻它所在的叶，实例不卸载（记录与读取方式见 `useHeldLifted.ts` 的文件头）；宿主要在摘掉它的那一次渲染里（或更早）给出 `lifted`。expose 的 `origin()` 是网格根的左上角（视口坐标），`motionMs()` 是网格元素上的布局过渡时长（减少动效时是 0），实时布局的会话从它们取。
+`dragging` 为真时宿主的拖动在进行（不论内容拿没拿起），离开的叶不留着缩回去。`gesturing` 为真时宿主自己的尺寸手势在进行（网格之外的手柄改了约束或固定尺寸）：布局的变化跟手、不过渡，变回假的那一次也不过渡，同网格自己的分隔线手势预览。开发模式开关打开时，`dragging` 变真的那一刻还有布局过渡在走（宿主起拖时没调 `settleMotion()`），警告一次；同一次更新里改了布局、过渡是这次才开始的不算。`lifted`（`{key}`）拿起一个内容项（实时布局：拖动时别的面板按预览即时让位，拿起的内容做成卡片跟着指针）：不接指针，外层是一列（`lifted-head` 加内层）。落进已有的叶时，那块叶上一帧显示着的内容留在卡片下面（`inert`、不接指针），过渡结束才停放，卡片长的一路叶不空；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处，`floats` 属性整场不变。`null` 之后、下一帧之前发布的变化里，窗从松手处出发（见下面“整窗移动的做法”）。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--nb-layout-card-radius`、`--nb-layout-card-shadow`。这一项这一轮不在 `contents` 里时（宿主的预览把来源摘掉了）网格自己留住它，叶是拿起那一刻它所在的叶，实例不卸载（记录与读取方式见 `useHeldLifted.ts` 的文件头）；宿主要在摘掉它的那一次渲染里（或更早）给出 `lifted`。expose 的 `origin()` 是网格根的左上角（视口坐标），`motionMs()` 是网格元素上的布局过渡时长（减少动效时是 0），实时布局的会话从它们取。
 
-`floats`（`{id, rect, gesture?}`）是浮动窗。窗回到树里时叶的 id 不变，外框就从窗的位置过渡回去；摘掉 `data-float` 的那一刻外框还带着 `data-moving`，窗的投影、底色与圆角跟着过渡掉。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)）。
+`floats`（`{id, rect, gesture?, animate?}`）是浮动窗。窗回到树里时叶的 id 不变，外框就从窗的位置过渡回去；摘掉 `data-float` 的那一刻外框还带着 `data-moving`，窗的投影、底色与圆角跟着过渡掉。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)）。
 
-焦点：DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`，Tab 走出一块时由组件按树序接管，内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管，走出最后一项时离开这个 grid。`moveGridFocus(container, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过，嵌套时内层先走、走到头交给外层，最外层绕回。完整规则见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“Tab”“移动焦点”“读屏顺序”几条。
+- 矩形变化：只有窗的矩形变了不过渡（移动、缩放是手势）。宿主给这扇窗标 `animate: true` 时，它的矩形变化算布局变化、走布局过渡，例如最大化与还原；这一次或上一次渲染里它带着 `gesture`、或这次变化是松手放开时照旧不过渡。标了的窗每次矩形变化都走完整的布局时长（`--nb-layout-motion-layout`），所以只标在要动的那一次上，别一直标着：键盘移动每按一下都要滑完一整段。
+
+- 层叠：`floats` 后面的压在前面的上面，层级写在 `z-index` 上。换次序只改层级，外框、内容与手柄层都不搬节点，手柄里的焦点与指针捕获不丢。窗之间的导航次序（Tab、`moveGridFocus` 与读屏）和手柄层的 DOM 次序都是出现的次序：还在的保持相对次序，新开的窗排在它在 `floats` 里前一扇之后，不是叠放次序，所以焦点进窗引起的抬升不改 Tab 往哪走。
+- 抬升：指针在一扇窗上按下（外框、内容、手柄层，含嵌在里面的网格；任何指针键），或焦点进入它，它又不是 `floats` 的最后一个时，网格发 `float-raise`（窗的 id）。按下在捕获阶段判，手柄在 `pointerdown` 里阻止冒泡也收得到。网格不改次序：宿主把这扇窗挪到 `floats` 末尾。宿主不想按焦点抬升时，不接这个事件、自己在外层听按下。
+- 某块树里的叶此刻摆在哪：expose 的 `leafRect(id)`，例如浮动窗要夹在“桌面”那块叶里。见下面 expose 的说明。
+
+### 整窗移动的做法
+
+库不给整窗移动的组合函数：工作台那样的宿主里，整窗拖动是一场多来源拖动会话里的一种来源，用不了一份独立的移动会话。做法是三步：
+
+1. 拖动会话（[`useDragSession`](drag-session.md)）的 `resolve` 里按指针算出窗的位置（夹取用 `clampFloatRect`），再 `placeFloat(id, 偏移)` 让窗跟手；`floats` 整场不变，只把这扇窗标上 `gesture: "move"`。
+2. `commit` 里先 `placeFloat(id, null)`，再在同一拍里发布结果：改窗的矩形，或者把窗放回树里、并进别的叶。网格记着最后一次的偏移，`null` 之后、下一帧之前发布的变化里，要过渡的部分（回到树里的外框、换了叶的内容）从松手时画着的位置出发；窗还是浮动窗、矩形就是拖到的位置时不过渡。
+3. 取消（`onEnd` 不是 `committed`）时只 `placeFloat(id, null)`，什么都不发布：窗回到原处，记下的偏移下一帧就清掉。
+
+宿主在下一帧之后才发布（例如等一次异步提交）时，过渡照旧从记录矩形出发，窗会先跳回按下之前的位置再飞。
+
+焦点：DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`，Tab 走出一块时由组件按树序接管，内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管，走出最后一项时离开这个 grid。Tab 的次序是：树里的叶与分隔线按树的先后，然后各扇浮动窗的外框与正文，最后是各扇窗的手柄层（`float-chrome`，次序同上），接不接管都一样；手柄层不是 `moveGridFocus` 的落点。`moveGridFocus(container, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过，嵌套时内层先走、走到头交给外层，最外层绕回。完整规则见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“Tab”“移动焦点”“读屏顺序”几条。
 
 根、外框与内容都不接焦点：点在空白处时焦点落到 `body`，挂在网格根上的快捷键这时收不到。要在网格里接快捷键，宿主把键挂在 `window` 上，或给承载盒加 `tabindex="-1"`、按下时聚焦它。
 
@@ -187,7 +203,7 @@ type NestedGridProps = {
     lifted?: {key: string} | null;
     /** 宿主的拖动进行中（不论内容拿没拿起）：离开的叶立即消失，不留着缩回去。默认 false。 */
     dragging?: boolean;
-    /** 浮动窗：不在树里的叶，后面的压在前面的上面；矩形相对网格根，只有矩形变了不过渡。默认没有。 */
+    /** 浮动窗：不在树里的叶，后面的压在前面的上面；矩形相对网格根，只有矩形变了不过渡（标了 animate 的过渡）；按下或焦点进入后面的窗时发 float-raise。默认没有。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 data-sash-kind，宿主据此给不同的线不同的颜色；默认不写。 */
     sashKind?: (sash: {branch: string; before: string; after: string}) => string | undefined;
@@ -217,8 +233,8 @@ type NestedGridProps = {
  * leave 是宿主把它从 contents 去掉时怎样：缺省 "unmount" 当即卸载，"retain" 在它的叶缩回去时留到过渡结束（见“过渡”）。
  */
 type GridContentInput = {key: string; leaf: string; insetTop: number; active: boolean; leave?: "unmount" | "retain"};
-/** 浮动窗：rect 相对网格根；gesture 是手势进行中（跟手、不过渡；move 还不接指针，判定才看得到底下）。 */
-type GridFloatInput = {id: string; rect: GridRect; gesture?: "move" | "resize"};
+/** 浮动窗：rect 相对网格根；gesture 是手势进行中（跟手、不过渡；move 还不接指针，判定才看得到底下）；animate 是这扇窗的矩形变化走布局过渡（见“浮动窗”）。 */
+type GridFloatInput = {id: string; rect: GridRect; gesture?: "move" | "resize"; animate?: boolean};
 /** 叶画成的卡片：inset 上右下左的内缩、radius 四个角（CSS 长度）；fill 是形状伸出外框（内缩为负）时伸出去那部分的颜色。 */
 type GridLeafShape = {inset: [string, string, string, string]; radius: [string, string, string, string]; fill?: string};
 
@@ -240,6 +256,8 @@ type NestedGridEmits = {
     (event: "content-parked", key: string): void;
     /** 量到的根盒：挂载后量到就同步发、两轴变了才再发；卸载前发 null。`useGridHost` 的整包里带着接它的处理。 */
     (event: "extent", extent: GridExtent | null): void;
+    /** 指针在一扇浮动窗上按下（捕获阶段）或焦点进入它，它又不在最上面：宿主把它挪到 floats 末尾。已在最上面不发。 */
+    (event: "float-raise", id: string): void;
 };
 
 type NestedGridSlots = {
@@ -258,7 +276,9 @@ type NestedGridSlots = {
 };
 ```
 
-Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 五个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少，`origin()` 是网格根的左上角（视口坐标），`motionMs()` 是网格元素上的布局过渡时长（减少动效时是 0）。
+Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 六个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少，`origin()` 是网格根的左上角（视口坐标），`motionMs()` 是网格元素上的布局过渡时长（减少动效时是 0），`leafRect(id)` 是树里这块叶此刻的矩形。
+
+`leafRect(id)` 交回树里这块叶此刻的矩形（相对网格根，CSS px）：与网格渲染用的是同一份摆放，手势预览中是预览的，最大化时最大化的那块是盖住的外接矩形，取整与网格相同；不给过渡的中间帧。浮动窗、离开中还画着的叶、不存在的 id 交回 null。在计算属性里调用，摆放变了会重算。它只看树、不看 `floats`，所以宿主可以拿它算 `floats`（把窗夹进某块叶）而不会转个不停；同理，传给网格的 `layout` 要是发布出来的那一份，别在渲染函数里每次新算一份。
 
 expose 的读数：
 

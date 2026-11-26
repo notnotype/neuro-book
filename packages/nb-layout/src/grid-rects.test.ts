@@ -288,4 +288,75 @@ describe("浮动窗的矩形", () => {
         expect(resizeFloatRect(RECT, {width: -1, height: -1}, {x: 1000, y: 1000}, bounds)).toEqual({x: 100 + 460 - 200, y: 80 + 340 - 100, width: 200, height: 100});
         expect(resizeFloatRect(RECT, {width: 1, height: 0}, {x: 1000, y: 0}, bounds)).toEqual({...RECT, width: 600});
     });
+
+    it("夹取进带原点的区域（ui/nested-grid 输出 175）：区域不从 0 开始时窗夹在区域里；只给宽高时原点是 0", () => {
+        // 桌面左边有一块 400 宽的平铺窗：窗被夹在它的右边，不落进平铺窗里。
+        const desk = {x: 400, y: 0, width: 800, height: 600};
+        expect(clampFloatRect({x: 40, y: 40, width: 420, height: 300}, desk)).toEqual({x: 400, y: 40, width: 420, height: 300});
+        expect(clampFloatRect({x: 2000, y: 900, width: 420, height: 300}, desk)).toEqual({x: 780, y: 300, width: 420, height: 300});
+        // 窗比区域大：缩到区域，贴着区域的左上角。
+        expect(clampFloatRect({x: 340, y: 10, width: 480, height: 300}, {x: 300, y: 0, width: 400, height: 200})).toEqual({x: 300, y: 0, width: 400, height: 200});
+        // 原点也作用于 `keep`：留在区域里的是头那一截。
+        expect(clampFloatRect({x: 1300, y: -50, width: 420, height: 300}, desk, {width: 80, height: 32})).toEqual({x: 1120, y: 0, width: 420, height: 300});
+        expect(clampFloatRect({x: 40, y: 40, width: 420, height: 300}, {width: 800, height: 600})).toEqual({x: 40, y: 40, width: 420, height: 300});
+    });
+
+    it("夹取不给 keep（ui/nested-grid 输出 175）：整扇窗留在区域里", () => {
+        expect(clampFloatRect({...RECT, x: 790, y: 590}, {width: 800, height: 600})).toEqual({...RECT, x: 340, y: 260});
+        expect(clampFloatRect({...RECT, x: -900, y: -40}, {width: 800, height: 600})).toEqual({...RECT, x: 0, y: 0});
+    });
+
+    it("夹取的 keep 超过窗缩后的尺寸（ui/nested-grid 输出 175）：按缩后的尺寸算，比区域大的窗不被推出区域", () => {
+        const wide = {x: 100, y: 50, width: 800, height: 300};
+        expect(clampFloatRect(wide, {width: 600, height: 400}, {width: 800, height: 300})).toEqual({x: 0, y: 50, width: 600, height: 300});
+        expect(clampFloatRect({...wide, height: 500}, {width: 600, height: 400}, {width: 80, height: 600})).toEqual({x: 100, y: 0, width: 600, height: 400});
+    });
+
+    describe("缩放的边界（ui/nested-grid 输出 176）", () => {
+        const area = {x: 100, y: 0, width: 500, height: 400};
+        const min = {width: 100, height: 60};
+        const start = {x: 150, y: 20, width: 300, height: 200};
+
+        it("四个方向：跟着指针的边停在区域边上，对边不动", () => {
+            expect(resizeFloatRect(start, {width: 1, height: 0}, {x: 1000, y: 0}, {min, area})).toEqual({...start, width: 450});
+            expect(resizeFloatRect(start, {width: -1, height: 0}, {x: -1000, y: 0}, {min, area})).toEqual({...start, x: 100, width: 350});
+            expect(resizeFloatRect(start, {width: 0, height: 1}, {x: 0, y: 1000}, {min, area})).toEqual({...start, height: 380});
+            expect(resizeFloatRect(start, {width: 0, height: -1}, {x: 0, y: -1000}, {min, area})).toEqual({...start, y: 0, height: 220});
+            // 没碰到边界时与不给区域相同。
+            expect(resizeFloatRect(start, {width: 1, height: 1}, {x: 40, y: 10}, {min, area})).toEqual({...start, width: 340, height: 210});
+        });
+
+        it("等于先缩放、再与区域求交（起点在区域里）", () => {
+            // 左边拉出区域：不限时是 {50, 20, 400, 200}，与区域求交得 {100, 20, 350, 200}。
+            expect(resizeFloatRect(start, {width: -1, height: 0}, {x: -100, y: 0}, {min, area})).toEqual({x: 100, y: 20, width: 350, height: 200});
+            // 右下角拉出区域：不限时是 {400, 300, 300, 200}，求交得 {400, 300, 200, 100}。
+            expect(resizeFloatRect({x: 400, y: 300, width: 150, height: 80}, {width: 1, height: 1}, {x: 150, y: 120}, {min, area})).toEqual({x: 400, y: 300, width: 200, height: 100});
+        });
+
+        it("起点就在区域外的边：往外不再变大，往里照常，不往里跳", () => {
+            const outside = {x: 400, y: 100, width: 300, height: 200};
+            expect(resizeFloatRect(outside, {width: 1, height: 0}, {x: 50, y: 0}, {min, area})).toEqual(outside);
+            expect(resizeFloatRect(outside, {width: 1, height: 0}, {x: -50, y: 0}, {min, area})).toEqual({...outside, width: 250});
+            const leftOut = {x: 50, y: 100, width: 300, height: 200};
+            expect(resizeFloatRect(leftOut, {width: -1, height: 0}, {x: -30, y: 0}, {min, area})).toEqual(leftOut);
+            expect(resizeFloatRect(leftOut, {width: -1, height: 0}, {x: 30, y: 0}, {min, area})).toEqual({...leftOut, x: 80, width: 270});
+        });
+
+        it("方向为 0 的轴照搬起点：比最小尺寸还小、超出区域都不改", () => {
+            // 起点是夹进矮桌面之后的呈现矩形，高 40 比最小高 60 还小：横拖右边时高度不撑回 60。
+            const squeezed = {x: 150, y: 20, width: 300, height: 40};
+            expect(resizeFloatRect(squeezed, {width: 1, height: 0}, {x: 30, y: 25}, {min, area})).toEqual({...squeezed, width: 330});
+            expect(resizeFloatRect({...squeezed, width: 80}, {width: 0, height: 1}, {x: 25, y: 30}, {min, area})).toEqual({...squeezed, width: 80, height: 70});
+            // 起点的下边已在区域外：竖向不动时也不往里收。
+            const tall = {x: 150, y: 300, width: 300, height: 200};
+            expect(resizeFloatRect(tall, {width: -1, height: 0}, {x: -20, y: 0}, {min, max: {width: 600, height: 150}, area})).toEqual({...tall, x: 130, width: 320});
+        });
+
+        it("最小尺寸优先；max 与 area 取小；不给 max 时不限", () => {
+            const narrow = {x: 140, y: 0, width: 320, height: 400};
+            expect(resizeFloatRect(start, {width: 1, height: 0}, {x: 0, y: 0}, {min: {width: 400, height: 60}, area: narrow})).toEqual({...start, width: 400});
+            expect(resizeFloatRect(start, {width: 1, height: 0}, {x: 1000, y: 0}, {min, max: {width: 320, height: 400}, area})).toEqual({...start, width: 320});
+            expect(resizeFloatRect(start, {width: 1, height: 1}, {x: 5000, y: 5000}, {min})).toEqual({...start, width: 5300, height: 5200});
+        });
+    });
 });

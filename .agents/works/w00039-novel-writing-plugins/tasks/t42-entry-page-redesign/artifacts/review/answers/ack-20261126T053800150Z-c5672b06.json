@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "ackId": "20261126T053800150Z-c5672b06",
+    "answers": [
+        "20261126T053719086Z-be284343"
+    ],
+    "through": "20261126T053719086Z-be284343",
+    "included": [
+        ".agents/works/w00039-novel-writing-plugins/tasks/t42-entry-page-redesign/README.md"
+    ],
+    "ackedAt": "2026-11-26T05:38:00.150Z"
+}

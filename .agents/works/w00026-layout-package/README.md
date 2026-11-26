@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00026-layout-package
 issueId: null
 status: active
-updated: 2026-11-22
+updated: 2026-11-26
 ---
 
 # 布局工具独立成包
@@ -129,8 +129,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
 - 已知问题（2026-11-18，t26 片 5 验证时发现，master 的 `ba3de16c6` 上同样有）：负载 9 到 10 时，编辑器标签实时布局快速拖到正文右边缘停下，预览有时停在“来源收起”，不换成拆分，松手也没拆（`editor-area.e2e.ts:2171`、`2207`，各重复 6 次约失败 1 次）。从代码推断与“来源收起后指针再动才重判”有关：指针在收起之前就停了。没有排 Task，要修时另建。
-- 已知问题（2026-11-19，t40 设计审查发现，分支之前就有）：nb-layout 的 `resizeBranches` 落账时，把被压缩、这次没动的保留像素节点的意图写成压缩值，窄窗口里经分隔条 Enter 收起一块面板，放宽后旁边那块永久少一截。工作台不受影响（回写经 L2 的 `frozen`）。修法要改 Enter 的语义，交开发者定（[待确认清单](pending-confirmations.md)），没有排 Task。
-- 已知问题（2026-11-18，t30 实现审查第 10 条，分支之前就有）：nb-layout 的结构操作与快照恢复对 16 层深度的计法差一层：结构操作把根算第 1 层，恢复从 0 数起，17 层的快照能恢复、恢复后连拆分都被拒，18 层才被恢复拒绝。改恢复的阈值前要先定已能读到的 17 层快照怎么办。没有排 Task。
+- 已知问题（2026-11-19，t40 设计审查发现，分支之前就有；2026-11-25 t59 修了显式收起与展开这一路，只剩拖动落账，写进 `ui/nested-grid` 的已知限制）：nb-layout 的 `resizeBranches` 落账时，把被压缩、这次没动的保留像素节点的意图写成压缩值，窄窗口里经分隔条 Enter 收起一块面板，放宽后旁边那块永久少一截。工作台不受影响（回写经 L2 的 `frozen`）。修法要改 Enter 的语义，交开发者定（[待确认清单](pending-confirmations.md)），没有排 Task。
+- 已知问题（2026-11-18，t30 实现审查第 10 条，分支之前就有；2026-11-25 t58 已修，两边都按根算第 1 层）：nb-layout 的结构操作与快照恢复对 16 层深度的计法差一层：结构操作把根算第 1 层，恢复从 0 数起，17 层的快照能恢复、恢复后连拆分都被拒，18 层才被恢复拒绝。改恢复的阈值前要先定已能读到的 17 层快照怎么办。没有排 Task。
 
 2026-11-23：开发者定 nb-layout 可以首发、`ui/nested-grid` 与 `ui/layout-drag` 可以晋升；t48 的两件按推荐定（0.x 期间全部 `@experimental`，`@stable` 由 nb-layout 自己定）。两份 Spec 先逐句核对再晋升（[t54](tasks/t54-spec-promotion/README.md)，与 t48 并行）；t48 写第 3 稿，实施完再按发布手册首发 nb-layout。
 
@@ -148,11 +148,17 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-25 开发者同意按推荐顺序做 t50 摩擦记录的后续：[t56 说明补齐](tasks/t56-layout-docs-gaps/README.md)（第 5 组）→ [t57 网格诊断有出口](tasks/t57-grid-diagnostics/README.md)（工作台接 `issues` 并入第 4 组）→ [t58 结构操作能试做](tasks/t58-grid-structure-trial/README.md)（第 1 组）→ [t59 收起与展开的语义](tasks/t59-collapse-semantics/README.md)（第 2 组）；第 3、6 组不做。四个 Task 都改 `grid.md` 与 `grid.ts` 一带，串行。工作方式也是开发者这天定的：编码派 coder 子代理，主会话写计划、审 diff、自己跑验证并合入；每个 Task 不再单独做计划审查与实现审查，四个做完后把整段提交范围一次交 omp 审查。
 
+2026-11-26：t56 到 t59 都已完成并合入 master（t56 说明补齐、[t57](tasks/t57-grid-diagnostics/README.md) 网格诊断出口、[t58](tasks/t58-grid-structure-trial/README.md) 结构操作可试做、[t59](tasks/t59-collapse-semantics/README.md) 收起与展开的语义统一）；整段交 omp 一次实现审查，重要 1 条（`clone` 的选项）已改（[报告](tasks/t59-collapse-semantics/evidences/impl-review-omp-t56-t59.txt)）。nb-layout 0.3.0 由开发者本机发布，registry 冒烟通过。
+
+2026-11-26：开发者定 w00026 收尾。还标着进行中的 t03、t20、t21、t22、t24 核对后都已合入，标为完成；t11、t12（开发者 11-06 定这一轮不做）搁置。下面“后续”里的各项不排进本 Work，以后要做另开 Work 或 Task。两个草稿 worktree（t02、t45，草稿分支不合并）留着，没有删。
+
 ## 后续
 
-- 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
+- （2026-11-26 t64 已修）插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
 - 插件 SDK 只导出 `NestedGrid` 组件，不导出 `createGrid` 与宿主工具，插件建不出网格（t39 设计审查第 9 条）。要不要给插件开放网格宿主（`createGrid`、`useGridHost` 一起，放哪个子路径、兼容承诺多大）另行决定。
 - ADR 0054 第 10 条的另两项（主题级 CSS 变量、README 的 `data-*` 表）没有机检（t48 只做了 `@stable` 符号那一项）。
 - nb-layout 的后续改进：t50 [摩擦记录](tasks/t50-example-app/friction.md)开头的六组里，第 5、4、1、2 组排成 t56 到 t59；第 3 组（浮动窗的几何接口）等有浮动窗的使用方再定，第 6 组按需。
 - 工作台不接 `WorkbenchSurface` 的 `issues`，产品里网格的诊断与被拒的提交都静默丢掉（`useGridHost.md` 说它是诊断的唯一出口；t55 调研 app 的顺便发现 1）。开发者 2026-11-23 定：接到诊断出口，另开 Task，不放进 t55；2026-11-25 排成 [t57](tasks/t57-grid-diagnostics/README.md)。
+- 工作台的标签条拖到两端不会自己滚（2026-11-26 t62 只给库与标签编组示例做了横向、按指针挑容器的边缘滚动）：接工作台要先解决实时布局拿起时冻结标签条量取、`live.unmoved`/`sticky` 假定内容不动、`TabStrip` 的 `reveal` 与边缘滚动的配合，草稿条目（`ui/workbench-layout` 一条输出、一条验收）在 [t62 计划](tasks/t62-drag-edge-scroll-axes/plan.md)。没有排 Task。
+- （2026-11-26 t65 已修）已知问题（2026-11-26 t60 浏览器探针发现，从探针推断分支之前就有）：把浮动窗拖回树里停靠（工作台）或贴边平铺（桌面示例）时，松手后第一帧投影与圆角就没了，只有位置在过渡，不合 `ui/nested-grid` 输出 110 的“投影、底色与圆角随过渡淡去”；框架按钮“回到停靠”那条路径的 e2e 是过的。t60 试过在起点那次渲染保留 `data-float`，浏览器里不起作用，已撤掉。要查 CSS 过渡在起点表那次强制布局之后为什么不接投影与圆角。没有排 Task。
 - API 报告列出 9 个类型与 1 个值“由公开名字引到、没有导出”（`GridPlacement` 一族、`GridRestoreReport`、`DragStops`、`DragActivation`、`dropKindData`）：要不要导出，等有使用方时再定。

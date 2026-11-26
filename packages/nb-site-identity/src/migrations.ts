@@ -8,6 +8,9 @@
  */
 
 import init from "../migrations/0001_init.sql" with {type: "text"};
+import oauth from "../migrations/0002_oauth.sql" with {type: "text"};
+import social from "../migrations/0003_social.sql" with {type: "text"};
+import sessionBanGuard from "../migrations/0004_session_ban_guard.sql" with {type: "text"};
 
 export interface IdentityMigration {
     /** 去掉 `.sql` 的文件名，例如 `0001_init`；写进库里的迁移账本，发布后不能改。 */
@@ -15,4 +18,9 @@ export interface IdentityMigration {
     readonly sql: string;
 }
 
-export const identityMigrations: readonly IdentityMigration[] = [{id: "0001_init", sql: init}];
+export const identityMigrations: readonly IdentityMigration[] = [
+    {id: "0001_init", sql: init},
+    {id: "0002_oauth", sql: oauth},
+    {id: "0003_social", sql: social},
+    {id: "0004_session_ban_guard", sql: sessionBanGuard},
+];

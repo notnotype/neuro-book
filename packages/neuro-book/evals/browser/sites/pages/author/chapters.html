@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>章节管理 - 作家后台</title>
+<link rel="stylesheet" href="/assets/common.css">
+<style>
+  .volumes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .volume h3 { margin: 0 0 8px; font-size: 15px; }
+  .volume ol { list-style: none; margin: 0; padding: 6px; min-height: 120px; border: 1px dashed #c4cad1; border-radius: 6px; background: #fafbfc; }
+  .volume li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 4px 0; background: #fff; border: 1px solid #dde1e6; border-radius: 4px; user-select: none; }
+  .volume li .handle { cursor: grab; color: #98a2b3; font-size: 16px; touch-action: none; }
+  .volume li.dragging { opacity: .4; }
+  .volume li.placeholder { height: 38px; border: 2px dashed #1d3557; background: #eef2f7; }
+  .ghost { position: fixed; pointer-events: none; z-index: 50; display: flex; align-items: center; gap: 10px; padding: 8px 10px; list-style: none; background: #fff; border: 1px solid #dde1e6; border-radius: 4px; box-shadow: 0 8px 20px rgba(0, 0, 0, .2); opacity: .9; }
+  .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .toolbar select { width: auto; }
+</style>
+</head>
+<body>
+<header><strong>星河作家后台</strong><nav><a href="/">首页</a><a href="/publish">发布章节</a><a href="/chapters" aria-current="page">章节管理</a><a href="/income">收入</a></nav></header>
+<main>
+  <div class="panel">
+    <div class="toolbar">
+      <label for="work" style="margin: 0;">作品</label>
+      <select id="work"></select>
+      <span style="color: #667085;">按住章节左侧的 ⠿ 拖动，可以调整顺序或拖到另一卷；调整完点“保存顺序”。</span>
+    </div>
+    <div class="volumes" id="volumes"></div>
+    <p style="margin-top: 16px;"><button type="button" id="save">保存顺序</button> <span id="status" role="status"></span></p>
+  </div>
+</main>
+<script src="/assets/consent.js"></script>
+<script>
+(() => {
+  const workSelect = document.querySelector("#work");
+  const container = document.querySelector("#volumes");
+  const status = document.querySelector("#status");
+  let ticket = "";
+
+  async function load() {
+    const layout = await (await fetch(`/api/works/${workSelect.value}/layout`)).json();
+    container.innerHTML = layout.volumes.map((v) => `<section class="volume"><h3>${v.title}</h3><ol data-volume="${v.id}">${v.chapters.map((c) => `<li data-chapter="${c.id}"><span class="handle" aria-label="拖动">⠿</span><span>${c.title}</span></li>`).join("")}</ol></section>`).join("");
+    ticket = (await (await fetch(`/api/layout/ticket?work=${workSelect.value}`)).json()).ticket;
+    status.textContent = "";
+  }
+
+  // 按住把手拖动：鼠标与触控都走 pointer 事件；松手时按指针下方的列表与位置放下。
+  let drag = null;
+  container.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".handle");
+    if (!handle) return;
+    event.preventDefault();
+    const item = handle.closest("li");
+    const rect = item.getBoundingClientRect();
+    const ghost = item.cloneNode(true);
+    ghost.classList.add("ghost");
+    ghost.style.width = `${rect.width}px`;
+    document.body.append(ghost);
+    const placeholder = document.createElement("li");
+    placeholder.className = "placeholder";
+    item.after(placeholder);
+    item.classList.add("dragging");
+    drag = {item, ghost, placeholder, dx: event.clientX - rect.left, dy: event.clientY - rect.top};
+    move(event);
+  });
+  function move(event) {
+    if (!drag) return;
+    drag.ghost.style.left = `${event.clientX - drag.dx}px`;
+    drag.ghost.style.top = `${event.clientY - drag.dy}px`;
+    const under = document.elementFromPoint(event.clientX, event.clientY);
+    const list = under && under.closest("ol[data-volume]");
+    if (!list) return;
+    const siblings = [...list.querySelectorAll("li:not(.placeholder):not(.dragging)")];
+    const before = siblings.find((li) => { const r = li.getBoundingClientRect(); return event.clientY < r.top + r.height / 2; });
+    if (before) list.insertBefore(drag.placeholder, before);
+    else list.append(drag.placeholder);
+  }
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", () => {
+    if (!drag) return;
+    drag.placeholder.replaceWith(drag.item);
+    drag.item.classList.remove("dragging");
+    drag.ghost.remove();
+    drag = null;
+    status.textContent = "有未保存的调整";
+  });
+
+  document.querySelector("#save").addEventListener("click", async () => {
+    const volumes = [...container.querySelectorAll("ol[data-volume]")].map((ol) => ({volumeId: ol.dataset.volume, chapterIds: [...ol.querySelectorAll("li[data-chapter]")].map((li) => li.dataset.chapter)}));
+    const response = await fetch("/api/layout", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({workId: workSelect.value, volumes, ticket})});
+    const result = await response.json();
+    if (!response.ok) { status.textContent = result.error || "保存失败"; return; }
+    status.textContent = "已保存";
+    ticket = (await (await fetch(`/api/layout/ticket?work=${workSelect.value}`)).json()).ticket;
+  });
+
+  fetch("/api/works").then((r) => r.json()).then((works) => {
+    workSelect.innerHTML = works.map((w) => `<option value="${w.id}">${w.title}</option>`).join("");
+    workSelect.addEventListener("change", load);
+    load();
+  });
+})();
+</script>
+</body>
+</html>

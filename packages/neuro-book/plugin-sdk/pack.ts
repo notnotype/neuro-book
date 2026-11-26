@@ -23,12 +23,13 @@
  * `release:smoke` 从生成的目录另打、验过的那份（`scripts/release/`）。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`，最后一行打印 tarball 的路径。输出目录只在不存在、
- * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝。
+ * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝；是声明的临时目录 `dist/.sdk-types/` 或在它里面时也拒绝。
  */
 
 import {execFile} from "node:child_process";
 import {existsSync} from "node:fs";
-import {chmod, cp, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, cp, mkdir, readdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
+import {createRequire} from "node:module";
 import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
@@ -400,7 +401,107 @@ export function tagLayoutComponents(declarations: string, layoutEntry: string): 
     return text;
 }
 
+/** 工作区各包所在的目录：库声明的临时目录照它的布局放各包的声明。 */
+const packagesRoot = resolve(packageRoot, "..");
+/** 库声明的临时目录，用完删掉；每次构建先清空，同一个检出里不能同时跑两次 SDK 构建。 */
+const LIBRARY_TYPES = join(packageRoot, "dist/.sdk-types");
+
+/** 路径的真实位置：不存在的部分接在最近一个存在的上级的真实路径后面（输出目录与临时目录在构建前多半都还不存在）。 */
+async function realLocation(path: string): Promise<string> {
+    const absolute = resolve(path);
+    if (existsSync(absolute)) return realpath(absolute);
+    const parent = dirname(absolute);
+    return parent === absolute ? absolute : join(await realLocation(parent), basename(absolute));
+}
+
+/**
+ * 输出目录不能是声明的临时目录或在它里面：生成声明前后都要整个删掉临时目录，会连带删掉已经写好的产物。按真实路径比，
+ * 经符号链接给的别名也拦下。在写、删任何东西之前调。`scratch` 只在测试里换。
+ */
+export async function assertOutsideLibraryTypes(outDir: string, scratch = LIBRARY_TYPES): Promise<void> {
+    const [out, types] = await Promise.all([realLocation(outDir), realLocation(scratch)]);
+    if (isInside(out, types)) throw new Error(`输出目录 ${outDir} 在声明的临时目录 ${scratch} 里面，构建会把它删掉；换一个输出目录`);
+}
+
+/**
+ * 库入口的声明：先用 vue-tsc 一次出全部声明（一个程序、固定顺序），再只打包这些 `.d.ts`，同 nb-layout 的
+ * `scripts/pack.ts`。不用 `rolldown-plugin-dts` 的 `vue: true` 直接出：它按文件被处理的先后给字面量类型编号，组件属性在
+ * 类型字面量里的先后每次构建不一样（w00026 t64），发布计划比整个 tarball，整轮重跑就会误报。
+ *
+ * vue-tsc 输出的声明原样保留 `nbook/*` 与各包子路径这些说明符，打包时同一张路径映射（`typePaths()`）改指到临时目录里的
+ * 声明；指回源码的话，打包插件会把源码当输入读进来。
+ */
+async function buildLibraryDeclarations(outDir: string): Promise<void> {
+    await rm(LIBRARY_TYPES, {recursive: true, force: true});
+    await mkdir(LIBRARY_TYPES, {recursive: true});
+    // 成功、失败都删临时目录：失败时留下的配置带着检出的绝对路径。清理本身失败不盖掉构建的错误，只打一条诊断。
+    try {
+        await emitLibraryDeclarations(outDir);
+    } finally {
+        await rm(LIBRARY_TYPES, {recursive: true, force: true}).catch((error: unknown) => {
+            console.warn(`删不掉 SDK 声明的临时目录 ${LIBRARY_TYPES}（下次构建开始时会先清空它）`, error);
+        });
+    }
+}
+
+/** `buildLibraryDeclarations` 的主体：在已清空的临时目录里出声明、打包到 `outDir`。 */
+async function emitLibraryDeclarations(outDir: string): Promise<void> {
+    const sourcePaths = Object.entries(typePaths()).map(([key, [target]]) => [key, resolve(packageRoot, target!)] as const);
+    // vue-tsc 只认 tsconfig 文件，路径映射是算出来的，所以在临时目录里写一份继承 `tsconfig.web.json` 的配置。入口用 `files`
+    // 列出：web 配置的 `exclude` 排除了 `agent.ts` 这两个只在服务端的入口。`rootDir` 写死成各包所在的目录，声明在临时
+    // 目录里的布局不随程序拉进了哪些包变化。`noCheck` 只跳过语义检查，语法错误与声明输出的错误照样报、照样让构建失败：
+    // 类型检查是 `typecheck` 的事；`agent.ts` 这两个入口经 nb-harness 用到 `node:crypto`，web 配置里没有 Node 的类型，
+    // 也不能为此加上（Node 与 Bun 的全局类型会改变推断出来、写进声明的类型，作者的项目里没有它们）。
+    const tsconfig = join(LIBRARY_TYPES, "tsconfig.json");
+    await writeFile(tsconfig, `${JSON.stringify({
+        extends: join(packageRoot, "tsconfig.web.json"),
+        compilerOptions: {
+            noEmit: false,
+            noCheck: true,
+            declaration: true,
+            emitDeclarationOnly: true,
+            rootDir: packagesRoot,
+            outDir: LIBRARY_TYPES,
+            paths: Object.fromEntries(sourcePaths.map(([key, source]) => [key, [source]])),
+        },
+        files: Object.values(ENTRIES),
+        include: [],
+    }, null, 4)}\n`);
+    const vueTsc = createRequire(import.meta.url).resolve("vue-tsc/bin/vue-tsc.js");
+    // 用 Node 跑：vue-tsc 靠改写 TypeScript 的模块加载认出 `.vue`，在 Bun 里跑时认不出（每个 `.vue` 导入都报 TS2307）。
+    const child = Bun.spawn(["node", vueTsc, "-p", tsconfig], {cwd: packageRoot, stdout: "pipe", stderr: "pipe"});
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    if (code !== 0) throw new Error(`生成 SDK 的声明时 vue-tsc 失败，退出码 ${code}\n${stdout}${stderr}`);
+    const declarationOf = (source: string): string => join(LIBRARY_TYPES, relative(packagesRoot, source)).replace(/\.ts$/u, ".d.ts");
+    // 打包时的当前目录取临时目录里应用包的位置：`//#region` 注释写的是声明相对它的路径，与源码相对应用包的路径一样，
+    // 不带临时目录的名字。
+    const typesCwd = join(LIBRARY_TYPES, relative(packagesRoot, packageRoot));
+    const logs: string[] = [];
+    await rolldown({
+        cwd: typesCwd,
+        // 入口名带 `.d`：`dtsInput` 时插件按这个认出声明入口，产物名是 `<名>.d.ts`。
+        input: Object.fromEntries(Object.entries(ENTRIES).map(([name, source]) => [`${name}.d`, declarationOf(source)])),
+        external: PEERS,
+        plugins: [dts({
+            cwd: typesCwd,
+            dtsInput: true,
+            emitDtsOnly: true,
+            // 用 TypeScript 的解析：它读这里给的路径映射；缺省的 oxc 解析只读 tsconfig 文件。
+            resolver: "tsc",
+            tsconfig: false,
+            compilerOptions: {paths: Object.fromEntries(sourcePaths.map(([key, source]) => [key, [declarationOf(source)]]))},
+        })],
+        onLog: (level, log) => {
+            logs.push(`${level}: ${log.code ?? ""} ${log.message}`);
+        },
+        output: {dir: outDir},
+        checks: {pluginTimings: false},
+    });
+    if (logs.length > 0) throw new Error(`打包 SDK 的声明时有警告：\n${logs.join("\n")}`);
+}
+
 export async function buildSdk(outDir: string): Promise<BuiltSdk> {
+    await assertOutsideLibraryTypes(outDir);
     await clearPreviousSdk(outDir);
     // 先写下带包名的清单：中途失败留下的半成品下次照样被认作上次生成的 SDK、能清掉重建。最后会被完整的清单覆盖。
     await mkdir(outDir, {recursive: true});
@@ -424,15 +525,7 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
     await rm(join(outDir, "unused.css"), {force: true});
     const libraryNotices = await viteLicenseNotices(join(outDir, ".vite/license.json"), join(repoRoot, "node_modules"));
     await rm(join(outDir, ".vite"), {recursive: true});
-    await rolldown({
-        cwd: packageRoot,
-        input: ENTRIES,
-        external: PEERS,
-        plugins: [dts({cwd: packageRoot, tsconfig: "tsconfig.web.json", compilerOptions: {paths: typePaths()}, vue: true, emitDtsOnly: true})],
-        output: {dir: outDir},
-        // 生成声明本来就慢（vue-tsc），不报插件耗时。
-        checks: {pluginTimings: false},
-    });
+    await buildLibraryDeclarations(outDir);
     // nb-ui 的模板类型补充（aria-attributes.ts：任何组件都接受 ARIA 属性与 role，补 aria-description）是一段 `vue` 的
     // 模块增强，入口经 `import type {}` 引它；打平声明时这条空的类型导入被丢掉，增强也跟着没了。原样插回组件声明，
     // 放在末尾那条导出列表之前，去掉源码里让它成为模块的 `export {}`（声明文件本身已经是模块）。

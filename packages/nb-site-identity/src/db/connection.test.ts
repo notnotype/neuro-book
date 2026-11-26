@@ -29,7 +29,7 @@ beforeEach(async () => {
     timers = new ManualTimers();
     log = recordingLog();
     conn = new IdentityConnection(root.open(), {log, timers});
-    lib = await createTestAuth(conn.libDatabase()).$context;
+    lib = await createTestAuth(conn).$context;
     adapter = lib.adapter;
 });
 
@@ -273,6 +273,74 @@ describe("用错了的立即失败，不挂起、不写入", () => {
         expect(callbackRan).toBe(false);
         expect(timers.pending).toBe(0);
         expect(committedIdentifiers()).toEqual([]);
+    });
+});
+
+describe("加入库自己开的事务（joinLibTransaction）", () => {
+    it("库在自己的事务里调到的代码经它 write：随库的事务提交或回滚", async () => {
+        const committed = runWithTransaction(adapter, async () => {
+            await libWrite("lib-1");
+            await conn.joinLibTransaction(() => conn.write(moduleInsert("module-1")));
+            // 同一个库事务里再加入一次（社交注册的两个钩子）。
+            await conn.joinLibTransaction(() => conn.write(moduleInsert("module-1b")));
+        });
+        expect((await settle(committed)).ok).toBe(true);
+
+        const rolledBack = runWithTransaction(adapter, async () => {
+            await libWrite("lib-2");
+            await conn.joinLibTransaction(() => conn.write(moduleInsert("module-2")));
+            throw new Rollback();
+        });
+        expect(failure(await settle(rolledBack))).toBeInstanceOf(Rollback);
+        expect(committedIdentifiers()).toEqual(["lib-1", "module-1", "module-1b"]);
+    });
+
+    it("已在 withLibTransaction 开的事务里时直接执行，随它提交", async () => {
+        const outcome = await settle(conn.withLibTransaction(adapter, () => conn.joinLibTransaction(() => conn.write(moduleInsert("joined")))));
+        expect(outcome.ok).toBe(true);
+        expect(committedIdentifiers()).toEqual(["joined"]);
+    });
+
+    it("不在任何库事务里调：程序错误，回调不执行", async () => {
+        let callbackRan = false;
+        const outcome = await settle(
+            conn.joinLibTransaction(async () => {
+                callbackRan = true;
+                await conn.write(moduleInsert("outside"));
+            }),
+        );
+        expect(failure(outcome)).toBeInstanceOf(IdentityQueueMisuseError);
+        expect(callbackRan).toBe(false);
+        expect(committedIdentifiers()).toEqual([]);
+    });
+
+    it("库的事务结束之后漏出来的活儿经它加入另一个开着的库事务：程序错误，不落进那个事务", async () => {
+        const firstEnded = gate();
+        let late!: Promise<unknown>;
+        await runWithTransaction(adapter, async () => {
+            await conn.joinLibTransaction(() => conn.write(moduleInsert("first")));
+            late = new Promise((resolve) => {
+                // test-lint-allow fixed-wait: 不是等待，是用 setTimeout 把活儿派生出去（约束 2），它何时执行由下面的 gate 决定
+                setTimeout(() => {
+                    resolve(firstEnded.promise.then(() => conn.joinLibTransaction(() => conn.write(moduleInsert("late")))));
+                }, 0);
+            });
+        });
+        const inside = gate();
+        const finish = gate();
+        // 漏出来的活儿带着上一个事务的库上下文，库仍说“在事务里”；这时另一个库事务正开着，方言也确在事务里。
+        const second = runWithTransaction(adapter, async () => {
+            await libWrite("second");
+            inside.open();
+            await finish.promise;
+        });
+        await inside.promise;
+        firstEnded.open();
+        const outcome = await settle(late);
+        expect(failure(outcome)).toBeInstanceOf(IdentityQueueMisuseError);
+        finish.open();
+        await second;
+        expect(committedIdentifiers()).toEqual(["first", "second"]);
     });
 });
 

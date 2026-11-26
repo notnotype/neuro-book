@@ -40,6 +40,9 @@ describe("保存后的提示", () => {
         expect(sent[0]).toMatchObject({tone: "success", message: "记了一笔", sticky: false, action: {label: {kind: "text", ns: "nbook.canon", key: "notice.receipt"}}});
         sent[0]!.action!.run();
         expect(opened).toEqual(["r2"]);
+        // 带了位置的，通知里同样写出记在哪。
+        notices.show({revision: "r3", title: "改年龄", where: "最初"});
+        expect(sent[1]).toMatchObject({message: {kind: "text", ns: "nbook.canon", key: "notice.withWhere", params: {title: "改年龄", where: "最初"}}});
     });
 
     it("两个页面挂着时，卸载其中一个仍算有页面在前台", () => {

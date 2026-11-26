@@ -132,7 +132,9 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = page.locator("[data-field-editor=\"character.性格\"]");
     await bar.getByRole("textbox").fill("银白长发");
-    await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    // 空作品没有章，看着的是最初：没有意图那一行，预览没有别的变化时不写，也不写写回哪里。
+    await expect(bar.locator("[data-edit-intent]")).toHaveCount(0);
+    await expect(bar).not.toContainText("改最初的值");
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("银白长发");
 
@@ -215,8 +217,8 @@ test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点�
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await expect(textSource(page)).toHaveCount(1);
-    // 空作品没有章、也没有计划：时间点不出，编辑期间也就没有要锁的（有章时锁住由 entry-page 的 dom 测试守着，输出 46）。
-    await expect(entryPage(page).locator("[data-position-picker]")).toHaveCount(0);
+    // 空作品没有章、也没有计划：“在看”不出，编辑期间也就没有要锁的（有章时见本文件最后一条）。
+    await expect(entryPage(page).locator("[data-view-point]")).toHaveCount(0);
     await focusSource(page);
     await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
@@ -421,7 +423,7 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"><chapter id="1" title="入学"/></binder>');
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    const position = entryPage(page).locator("[data-position-trigger]");
+    const position = entryPage(page).locator("[data-view-point]");
     await expect(position).toContainText("第 1 章末尾");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
@@ -429,8 +431,13 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await page.keyboard.press("Control+End");
     await page.keyboard.type("（第 1 章里改的）");
     await expect(entryPage(page).locator('[data-text-saved="saved"]')).toBeVisible();
+    // 有没提交的主文字时“在看”锁着：根上有标记、按钮与前后一步都不可用（输出 46）。
+    await expect(entryPage(page).locator("[data-view-point-locked]")).toHaveCount(1);
+    await expect(position).toBeDisabled();
+    await expect(entryPage(page).locator("[data-view-point-prev]")).toBeDisabled();
+    await expect(entryPage(page).locator("[data-view-point-next]")).toBeDisabled();
 
-    // 活页夹里拿掉这一章；等世界看到（没有章了，只剩故事开始前一个位置，时间点不再出）再刷新。
+    // 活页夹里拿掉这一章；等世界看到（没有章了，只剩“最初”一个位置，“在看”不再出）再刷新。
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"></binder>');
     await expect(position).toHaveCount(0);
     await open(page);

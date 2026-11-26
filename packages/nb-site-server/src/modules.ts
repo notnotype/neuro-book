@@ -4,7 +4,7 @@
  */
 
 import {createAdminCommand, createIdentityModule, identityMigrations, parseIdentityConfig, type IdentityConfig} from "@notnotype/nb-site-identity";
-import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_AUTH_PREFIX} from "@notnotype/nb-site-identity-contract";
 import {createTelemetryModule, parseTelemetryConfig, prepareTelemetryBackupCopy, TELEMETRY_INGEST_PREFIX, telemetryMigrations, type TelemetryConfig} from "@notnotype/nb-site-telemetry";
 import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
 
@@ -28,7 +28,15 @@ const identity = {
         // “问身份”（`site.accounts` 输出 7；t07 计划 3.11）跟着这个实例走：统计模块（t11）要的是这里的 `module.whoami`，接上时在
         // 同一次装配里从实例上取。不记进本文件的模块级变量：那样进程里后建的实例会盖掉先建的，实例关闭之后也还指着它（实现审查
         // 第 6 条）。拆成两个进程时，同一个形状就是对 `whoami` 端点的 `fetch`。
-        return {mounts: [{surface: "site", prefix: IDENTITY_API_PREFIX, app: module.site}], close: () => module.close()};
+        // 三个前缀互不重叠（计划 3.13）：自家接口、库的对外端点（白名单在 `module.oauth` 里）、两份发现文档。
+        return {
+            mounts: [
+                {surface: "site", prefix: IDENTITY_API_PREFIX, app: module.site},
+                {surface: "site", prefix: IDENTITY_AUTH_PREFIX, app: module.oauth},
+                {surface: "site", prefix: "/.well-known", app: module.wellKnown},
+            ],
+            close: () => module.close(),
+        };
     },
     commands: [createAdminCommand],
 } satisfies SiteModule<IdentityConfig>;

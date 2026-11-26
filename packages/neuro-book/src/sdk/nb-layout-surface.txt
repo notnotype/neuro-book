@@ -39,16 +39,17 @@ attrs:
   → <div>（inheritAttrs: false）
 
 ### experimental component FloatWindowHandles
-引用：GridExtent, GridRect
+引用：GridExtent, GridRect, LayoutFloatResize
 props:
-  max: GridExtent
+  area?: GridRect | undefined = undefined
+  max?: GridExtent | undefined = undefined
   min: GridExtent
   moveIconClass?: string | undefined = ""
   rect: GridRect
 attrs:
   → 根元素
 events:
-  commit(rect: GridRect)
+  commit(rect: GridRect, direction: LayoutFloatResize)
   move(position: { readonly x: number; readonly y: number; })
   preview(rect: GridRect | null)
 
@@ -138,6 +139,7 @@ interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
     readonly gesture?: "move" | "resize";
+    readonly animate?: boolean;
 }
 
 ### experimental type GridGestureCancellation
@@ -294,6 +296,12 @@ interface GridSwapWindow {
     ];
 }
 
+### experimental interface LayoutFloatResize
+interface LayoutFloatResize {
+    readonly width: -1 | 0 | 1;
+    readonly height: -1 | 0 | 1;
+}
+
 ### experimental component NestedGrid
 引用：GridContentInput, GridExtent, GridFailure, GridFloatInput, GridGestureCancellation, GridGestureCommit, GridGesturePreview, GridGestureStart, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridLeafShape, GridNode, GridRect, GridSwap
 props:
@@ -319,6 +327,7 @@ attrs:
 events:
   content-parked(key: string)
   extent(extent: GridExtent | null)
+  float-raise(id: string)
   gesture-cancel(info: GridGestureCancellation)
   gesture-end(commit: GridGestureCommit)
   gesture-start(info: GridGestureStart)
@@ -333,6 +342,7 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  leafRect: (id: string) => GridRect | null
   motionMs: () => number
   moving: boolean
   origin: () => { x: number; y: number; }

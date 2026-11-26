@@ -12,13 +12,20 @@ defineOptions({name: "FloatWindowHandles"});
 const props = withDefaults(defineProps<{
     rect: GridRect;
     min: GridExtent;
-    max: GridExtent;
+    /** 尺寸上限；不给时不限。 */
+    max?: GridExtent;
+    /** 缩放的边界（相对网格根）：跟着指针的边不越过它，起点就在外面的边不再往外（`resizeFloatRect` 的 `bounds.area`）。指针与键盘缩放都按它。 */
+    area?: GridRect;
     moveIconClass?: string;
-}>(), {moveIconClass: ""});
+}>(), {max: undefined, area: undefined, moveIconClass: ""});
 
 const emit = defineEmits<{
     (event: "preview", rect: GridRect | null): void;
-    (event: "commit", rect: GridRect): void;
+    /**
+     * 松手（或键盘缩放一步）的结果。指针松手时先发 `preview(null)` 再发这个，在同一个同步段里。`direction` 是这次动的边（键盘缩放是右下角）；
+     * `rect` 从已夹取的呈现矩形算起，没动的那一轴也是夹过的值，要保住记录的宿主只取 `direction` 不为 0 的轴。
+     */
+    (event: "commit", rect: GridRect, direction: LayoutFloatResize): void;
     /** 键盘移动：只有位置。大小要留给宿主：窗被夹着时 `rect` 是夹过的，不能写回。 */
     (event: "move", position: {readonly x: number; readonly y: number}): void;
 }>();
@@ -47,7 +54,7 @@ const KEY_STEP = 10;
 const KEY_STEP_FINE = 1;
 const ARROWS: Readonly<Record<string, {readonly x: number; readonly y: number}>> = {ArrowLeft: {x: -1, y: 0}, ArrowRight: {x: 1, y: 0}, ArrowUp: {x: 0, y: -1}, ArrowDown: {x: 0, y: 1}};
 
-const bounds = computed(() => ({min: props.min, max: props.max}));
+const bounds = computed(() => ({min: props.min, ...(props.max === undefined ? {} : {max: props.max}), ...(props.area === undefined ? {} : {area: props.area})}));
 const resizing = shallowRef<{readonly pointer: number; readonly direction: LayoutFloatResize; readonly start: GridRect; readonly from: {readonly x: number; readonly y: number}; current: GridRect} | null>(null);
 
 function onPointerDown(event: PointerEvent, handle: Handle): void {
@@ -74,7 +81,7 @@ function finish(commit: boolean): void {
     resizing.value = null;
     emit("preview", null);
     // 没动就没有要提交的：窗被夹着时 `rect` 是夹过的，单击手柄不该写回。
-    if (commit && active.current !== active.start) emit("commit", active.current);
+    if (commit && active.current !== active.start) emit("commit", active.current, active.direction);
 }
 
 function onPointerUp(event: PointerEvent): void {
@@ -92,7 +99,7 @@ function onKeydown(event: KeyboardEvent, kind: "resize" | "move"): void {
     const step = event.shiftKey ? KEY_STEP_FINE : KEY_STEP;
     const delta = {x: arrow.x * step, y: arrow.y * step};
     if (kind === "move") emit("move", {x: props.rect.x + delta.x, y: props.rect.y + delta.y});
-    else emit("commit", resizeFloatRect(props.rect, CORNER.direction, delta, bounds.value));
+    else emit("commit", resizeFloatRect(props.rect, CORNER.direction, delta, bounds.value), CORNER.direction);
     event.preventDefault();
     event.stopPropagation();
 }

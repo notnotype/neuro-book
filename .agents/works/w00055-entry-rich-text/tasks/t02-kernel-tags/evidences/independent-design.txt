@@ -1,0 +1,245 @@
+w00055 t02 内核换标签：独立技术设计（只读调研，2026-11-26）
+实验脚本都在 /tmp/w00055-t02-indep/（一次性，不进仓库）：e1-raw.ts、entry-grammar.ts、e2-mask.ts、e3-pure.ts、pure-marked.ts、e4-random.ts、e5-roundtrip.ts。
+每条结论后标【实验】或【推断】。【实验】都用的是仓库里的 marked 17.0.6，以及 nb-markdown 的 coreSyntax（经 createMarkdownLanguage 组装）。
+
+== 0. 结论先行 ==
+- 位置不从 marked 要。先用自己的词法在原文上找出全部 `<大写名 …>` 标签，偏移在这一步就是准的。再把每个标签换成等长的哨兵（`<` + 私用区的首位字 + 私用区数字 + `>`）交给 marked。
+  marked 只回答一件事：每个标签落在哪里（活的标签、代码里、转义了、链接地址里、原样 HTML 里）。分完词以后，把哨兵逐字还原进全部词法单元。
+  这条流程（预词法 → 遮罩 → marked → 还原）就是“共用的文法”，内核与编辑器都走它。【实验】
+- 遮罩顺带修了一个不遮罩就有的缺陷：表格里写 `<If test="a || b">`，GFM 先按 `|` 切单元格，标签被切开，多出的单元格被静默丢掉。遮罩后正常。【实验 E1/E2】
+- 共用的 marked 配置不带 Tiptap 也能拼出来：只用 marked、marked-cjk-friendly 与 nb-markdown 已是纯 TS 的 tags.ts、markdown-dialect.ts。
+  在 nb-markdown 的 19 份编解码语料加 1 份条目样例上，词法单元与 coreSyntax 语言逐字相同（20/20）。打包后 61 KB（压缩后 16 KB），不含 tiptap、prosemirror。
+  对照：现在的 MDX 链（syntax.ts 的闭包）是 400 KB、压缩后 116 KB。【实验 E3】
+- 推荐：marked 配置从 nb-markdown 里拆成一个纯 TS 子路径，遮罩的机制也放在那里（通用）。条目标签的词法、If 的分词规则、表达式解析放 nb-canon 新的纯子路径 `./grammar`。
+  给作者的渲染，内核给“源文 + 按标签序号的值表”，前端用同一份文法自己画。writeBack 与注记协议整个删掉。
+
+== 1. 共用的文法放在哪 ==
+要共用的是两层：
+- 层一，通用的 Markdown 词法：Marked 实例、core 的三个扩展（marked-cjk-friendly、doubleTildeOnly、htmlInline）、原样语法的 marked 扩展、TrackingLexer，加上“原子遮罩”的钩子。
+- 层二，条目专有：标签词法、V/If/ElseIf/Else/Ref/Image 的分词扩展、落点分类、表达式解析、带值写法的去值。
+
+现状【推断】：
+- coreSyntax 与 createRawSyntax 把 marked 扩展和 Tiptap 节点写在同一个文件里。core/index.ts 顶部引 10 个 @tiptap 模块，raw/index.ts 引 @tiptap/core。
+- boundary.test.ts 规定纯入口对 marked 只许 `import type`。
+- 拆分要动的地方：新增 2 到 3 个纯文件（core 的 marked 部分、raw 的 marked 部分、建 Marked 与 TrackingLexer）。core/index.ts、raw/index.ts、language.ts 改成从这几个文件引。boundary.test.ts 加一条规则：新子路径运行时许引 marked、marked-cjk-friendly、entities。
+- E3 证明这样拆出来的结果与现在逐字相同；把 E3 写成仓库里的测试，就能守住两边不分叉。
+
+三个候选（数字按 package.json 与 exports 数，【推断】）：
+A. 放 nb-markdown 的新纯子路径（例如 `./marked`），条目层放 nb-canon 的 `./grammar`。
+   - 新公开导出：nb-markdown 多 1 个已发布的 npm 子路径（约 4 个名字：createMarked、coreMarkedExtensions、rawMarkedExtension、lexWithAtoms），`MarkdownSyntax` 多 1 个可选字段 `atoms`；nb-canon 多 1 个私有子路径。
+   - 使用者多装：nb-canon 加 1 个工作区依赖（nb-markdown），传递 17 个运行时依赖（nb-ui、12 个 @tiptap、yaml 等）与 vue、typescript 两个 peer。同时去掉 micromark 链的 9 个，acorn 留下（见附）。
+     nb-canon 是 private，现在只在工作区里用，实际多装 0 个；打包只进纯子路径，由边界测试守住。
+     后端引 nb-markdown 纯入口已有先例：bots/backend/summary.ts、stickers/backend/editor.ts。
+   - 已知缺陷说明：要写。nb-canon 的 AGENTS 与 monorepo-boundaries 写明“依赖闭包带 Tiptap 与 vue peer，只引纯子路径”；nb-markdown README 写明 `./marked` 带 marked 的类型、随 marked 升级可能不兼容（`./language` 已有同样的说明）。
+B. 层一放 nb-canon（`./grammar` 连同 marked 配置）。
+   - 新公开导出：nb-canon 多 1 个私有子路径；nb-markdown 只多 `atoms` 字段。
+   - 使用者多装：nb-canon 加 marked、marked-cjk-friendly、entities，共 3 个。
+   - 已知缺陷说明：必须写，而且是真缺陷。nb-markdown 已发布，nb-canon 是 private，nb-markdown 不能反过来依赖 nb-canon，所以 marked 配置只能各留一份（doubleTildeOnly、htmlInline、原样语法要手工同步），章节编辑器与条目内核会慢慢分叉。不推荐。
+C. 新建只放层一的小包（例如 `@notnotype/nb-marked`），nb-markdown 与 nb-canon 都依赖它。
+   - 新公开导出：多 1 个已发布的 npm 包，1 个入口（约 4 个名字）。nb-markdown 的 coreSyntax 改从它引，nb-story 随发布的工作区包从 9 个变 10 个（ADR 0029、0052 的清单、发布冒烟都要改）。
+   - 使用者多装：nb-canon 加 1 个包，连同 marked、marked-cjk-friendly 共 3 个，没有 Tiptap；nb-markdown 的使用者多装 1 个小包。
+   - 已知缺陷说明：不用另写。
+推荐 A。
+- marked 配置本来就是 nb-markdown 方言的一部分，A 让它只有一个所有者；纯入口给后端用已有先例；成本最小。
+- 换成 C 的条件：nb-canon 将来要发布，或者依赖闭包里的 Tiptap 成了问题。两者都没有记录在案的计划。
+- 条目层放 nb-canon 而不放 nb-markdown：V/If 的语义（地址、三值逻辑、保密）属于内核；nb-markdown 不认作品方案。
+- 浏览器要能引 `@notnotype/nb-canon/grammar`（编辑器与阅读视图要用），应用的 architecture.test.ts 要放行这个子路径。
+  marked 是 ESM，现在“Vite 开发模式加载不了主入口依赖”那条限制应当不再适用于它；实施时在开发服务里实测一次。【推断】
+
+== 2. 位置：怎样拿到可靠的偏移 ==
+不遮罩时为什么不行【实验 E1】：
+- 列表续行去掉了 2 个空格，引用去掉了 `> `：行内文字不是原文的切片，按叶子的 raw 回搜会定位错。
+- 表格里 `<If test="a || b">` 被切成 `<If test="a` 一个单元格，后面的内容被丢掉。
+- CRLF 被 marked 归成 LF，顶层 raw 拼接起来不等于原文。
+
+做法（entry-grammar.ts，【实验 E2/E4/E5】）：
+1. 词法 lexTags。
+   - 候选：`<\/?[A-Z][A-Za-z0-9]*` 后面紧跟空白、`/` 或 `>`。所以 `Map<K, V>` 的 `<K,` 不是候选，`List<V>` 的 `<V>` 是候选。
+   - 属性只认 `名="值"`：值里不能有 `"` 与换行；标签不能跨行；名字区分大小写。
+   - 不复用 markdown-dialect 的 parseAttributes：它把名字改小写、解码实体、收单引号与不带引号的值，与“属性值用双引号”的约定不同。
+   - 写不完整的候选也遮罩（只遮 `<名` 那几个字）：落在代码里、或前面有转义的算字面，否则报 `tag-malformed`，带偏移。
+     例如行内代码里的 `<V of=`、`\<V of="a` 放行，正文 `评级 <A 的` 拒收，要写成 `\<A`。【实验 E2】
+   - 除 If 外，开标签到同名闭标签之间没有 `<` 的，整体是一个原子（带值的 V、带描述的登记标签）。
+     例：表格里描述带 `*`、`|`、反引号的 StatBar 仍是一个活标签。【实验 E2】
+   - 词法与登记表无关（凡是大写名都认），解析结果因此可以继续按源文缓存；登记表只在检查与渲染时用。
+2. 遮罩 mask：每个标签换成 `<` + 首位字（U+E000 到 U+E0FF）+ 数字（U+E100 起）+ `>`，与原文等长；首位字也带数字。
+   - 长度、换行、行首缩进都不变，首尾的 `<`、`>` 仍是标点，强调的左右侧判断不变。
+   - 身份只靠“首位字加数字”这一串认：`\<` 被吃成转义、链接的尖括号地址被剥掉尖括号以后，串还在，照样认得出。
+   - 上限：3 个字的标签（`<V>`）能区分 256 个序号，4 个字的能区分 256×6143 个；超出时报写入错误 `too-many-tags`，不抛异常。
+   - 原文里本来就有私用区字的拒收（`reserved-char`）。
+3. marked 加两条扩展：
+   - 行内的 entryTag：`<If>` 在同一段行内文字里找配对的 `</If>`，同层的 ElseIf、Else 切分支，各分支用 inlineTokens 分词。
+   - 块级的 entryIfBlock：`<If>`、`<ElseIf/>`、`<Else/>`、`</If>` 各自独占一行，各分支用 blockTokens 分词。在列表项、引用里也能用。
+   - 标签表挂在词法器实例上（实验里是模块级变量；嵌套的 lex 会互相覆盖）。
+4. 分类 classify：走一遍词法单元，给每个标签记一个去处：live（活的）；literal:code、literal:text（转义或别的单元里的文字）、literal:link（链接地址、标题）、literal:image（图片说明）、literal:html；orphan（孤立的 Else、ElseIf、`</If>`）；unclosed（没闭合的 `<If>`）。
+   硬不变量：每个标签要么正好一次 live，要么全是 literal。没出现（lost）、既 live 又 literal、orphan、unclosed 都是结构错，按词法给的偏移报行列。
+5. 还原 unmask：把每串首位字加数字换回原文 `<`、`>` 之间的字。等长、序号唯一，所以逐字还原。
+   E2 的 33 个例子还原后顶层 raw 拼接都等于原文（CRLF 归一后）；E4 的 9000 份随机文档都没有残留的私用字。
+
+实验结果：
+- E2 的 33 个例子落点全对（上面几条之外）：
+  - live：列表（含嵌套）、引用（含懒续行）、表格（含 `a || b` 与转义的 `\|`）、标题、强调两侧（`中**<V/>**文`）、块级 If（含在列表项里）；
+  - 字面：行内代码、围栏代码、缩进代码里的标签；转义的 `\<V`；链接标题；尖括号地址；引用定义；图片说明；`<div>` 里；脚注定义；`$…$`；
+  - 结构错：跨段的 If、被粗体切开的 If、孤立的 Else。
+- E4：随机拼的文档（强调、代码、转义、引用、列表、表格竖线、脚注、数学、裸网址、HTML 混排），种子 1、2、3 各 3000 份，共约 3.3 万个标签。
+  与“不遮罩、标签当原样 HTML”对照，种子 1 不一致 0 个，种子 2、3 共 3 个，丢失 0。
+  不一致的都是同一种：引用里的懒续行以标签开头时，不遮罩算 HTML 块开头、引用到此结束；遮罩后不算，懒续行继续（那一例里标签因此落进跨行的代码）。
+  这是遮罩有意改的语义：标签不是 HTML。编辑器走同一条流程就一致。
+- 行列：
+  - 标签与表达式的行列由原文偏移直接算（表达式的偏移 = 属性值在原文里的起点 + 值内的列），不受 CRLF 影响。
+  - 标签以外的问题（原样 HTML、脚注这类不放行的写法）没有偏移。建议写入时把 CRLF 归成 LF 再检查与存储（主文字不是文件，编辑器与 Agent 都只产 LF）。
+    这样顶层单元的 raw 依次累加就能给出这个单元起始的行（E2 已验证拼接等于原文），列按单元内首次出现定位，算作尽力而为；只有标签以外的写法错误走这条路。【推断】
+- 编辑器要得到同样的结果，nb-markdown 的 createMarkdownLanguage 要接受语法模块给的 `atoms`（在原文上找原子的函数）。
+  lexer().lex 先遮罩、分词，再还原全部字符串字段；编解码器按偏移从原文切 raw 的做法不受影响，因为等长。
+  这是 nb-markdown 唯一要改的行为接口，由 nb-markdown 自己的语料测试守住“没有 atoms 时逐字不变”。【推断】
+
+== 3. 给作者的渲染：前端怎么拿到值（本节都是【推断】）==
+候选：
+甲. 内核给语法树（现在的做法，mdast 加 canon 节点）。
+   - 换成 marked 后，树就是词法单元。词法单元不是稳定的合同：各层都带 raw，有内部字段，随 marked 升级会变。
+   - Spec 输出 16 已经记过：带全位置的 mdast 是源文的十几到四十倍。
+   - 富文本编辑器不管怎样都要源文与编解码器，阅读与编辑就成了两条画法，迟早不一致。
+乙. 内核给源文加按标签序号的值表，前端用同一份文法自己画（推荐）。
+   - 每块给 `{id, source, values: [{tag: 序号, …}], error?}`。
+   - 值表的项：V 给地址、条目、显示名、原始值、显示文字，未知、不完整、读不到及原因；If 与 ElseIf 给判断的结果（真、假、null）与生效的分支序号（或 null）；
+     Ref 给当时的名字、是否删了；Image 给路径与说明；登记的标签给各个地址属性的值与描述文字；没登记的标签给一条“需要插件”的说明。
+   - 前端对 source 跑同一条流程，得到同样的序号（同一份代码，结果确定），节点视图按序号取值。
+   - 阅读视图可以用编辑器的只读模式，或按词法单元画，二者用同一个 schema。
+   - 预览没提交的源文字（输出 16）就是“给源文、回值表”，不用再裁剪位置。
+丙. 内核给 HTML：编辑器用不了，还要另做清理防注入。不考虑。
+乙的代价：
+- 前端要装上层一与层二的文法：层一压缩后约 16 KB（E3 实测），标签词法几 KB，留 acorn 的话再加 34 KB（实测，见附）。
+- 值表按序号对应，所以前后端的文法版本必须一致。它们随同一份应用构建发布，现在满足；远程连接（nb-host）两端同版本的前提照旧。
+
+== 4. 写入检查的白名单与保密关卡（除注明外都是【推断】）==
+放行的 Markdown 词法单元：
+- paragraph、heading、list 与 list_item（含任务项）、blockquote、code（围栏与缩进）、codespan、hr、table；
+- strong、em、del（只认 `~~`，CJK 友好的规则）；
+- link（行内、引用式、尖括号地址、裸网址）、image、def、br、escape、text、space；
+- 本文法的 entryTag、entryIf。
+拒收（新码 `unsupported-markdown`，按第 2 节的办法给行列）：
+- rawHtmlBlock、rawHtmlInline、html 注释、htmlMark（`<strong>`）、htmlBreak（`<br>`）、footnoteDef、footnoteRef、mathBlock、mathInline，以及以后加进语言、不在名单里的任何单元类型（失败关闭）。
+- 旧内核同样不收 HTML，所以这一条不收紧。脚注与数学原来在 micromark 下是普通文字，现在会被拒收，迁移时要看样本里有没有（第 6 节的对照会报出来）。
+- `a < b`、单个 `~`、任务项、裸网址，现在都按 marked 的读法放行。【推断】
+标签（只对 live 的检查）：
+- V：`of`（地址），或 `entry` 加 `of`，或 `expr`（表达式），必须自闭合。
+- If、ElseIf：`test`（表达式）。
+- Ref：`id`。
+- Image：`src`（作品内路径），或 `of`（地址），加 `alt`。
+- 登记的标签：按登记的属性表查；不认的属性报 `unknown-tag`。
+- 程序生成的装饰属性（第 5 节）出现在存储的源文里也报 `unknown-tag`，免得哪个入口漏了去值、把值写进源文。
+- 表达式与地址解析失败报 `forbidden-syntax`，带属性值内的列。`<V expr>` 不引用任何字段时仍报 `no-field-expression`。
+没登记的大写标签：
+- 写入时报 `unknown-tag`，例外是同一块的上一版源文里已经有一模一样的标签文字：卸了插件以后再改这一块，标签原样保留（决定 4）。
+- 给作者显示“需要插件”，给 Agent 原样，不带描述。
+- 纯文字报新问题 `unknown-tag`，因为读了什么不知道；gate.ts 见到任何问题就扣整块，不用改。【推断】
+字面的标签（代码里、转义的）：
+- 放行，照原文显示，不当作值，是作者写给人看的字面。
+- 落在链接地址、链接标题、图片说明、原样 HTML、脚注、数学里的，写入时报 `tag-not-live`：这几处不是作者能看出“这是字面”的地方，而且大多所在的写法本身就被拒收。
+保密关卡（rendering 输出 15）：
+- reads 与 mentions 按词法得到的全部标签静态地算，不管是 live 还是字面。
+  If 的 test 与各分支都算，这与旧三元式的 check 收全部引用一致。
+  字面的 Ref 也算进 mentions。
+- 这样代码、转义、以后新加的不透明容器都吞不掉依赖。代价是代码里写着标签时会多扣，这很少见。
+- 没登记的标签记 problem；写不完整的候选（放行的只有代码里与转义的）属性读不全、不知道读了谁，纯文字整块报 `syntax`。
+- 结果：t38 说的“不透明容器吞掉条目写法、简报从扣整块变成放行原文”在这个设计下不会发生。【推断，静态收集的做法由 E2 的分类结果支撑】
+- 过渡期再加一道防线：块里出现旧写法 `{ref(` 或 `{名字.` 时，写入拒收（`legacy-expression`），渲染当作出错的块、纯文字报 `syntax`。
+  `{` 不是标签，没有偏移，判不了在不在代码里，所以不分内外。否则没迁移到的旧块会把 `{ref("e9").panel.秘密}` 当普通文字送进简报。
+
+== 5. Agent 的读与写 ==
+带值写法（程序加的属性用保留的英文名，只加在内置标签上；登记的标签自己的属性不受影响，例如 StatBar 的 label）：
+- `<V of="panel.魔力">3110</V>`；显示名与 id 不同：`<V of="panel.m2" label="魔力">3110</V>`；
+  不完整：`… incomplete="c7 constraint-violated">`；读不到：`<V of="panel.魔力" unavailable="面板第 3 章起生效">null</V>`。
+- `<V entry="e2" of="panel.好感度">80</V>`；`<V expr="panel.魔力上限 - panel.魔力">8890</V>`；百分比：`"40%"`。
+- 值写成 JSON，其中的 `<` 写成 JSON 的 Unicode 转义（反斜杠 u003c）。所以带值的 V 从开标签到 `</V>` 之间没有 `<`，词法把它整体认成一个原子，遮罩后值里的 `` ` ``、`*` 碰不到 Markdown。【实验 E5】
+- `<If test="panel.魔力 >= 1000" value="true">还能变身。<ElseIf test="…" value="false" />…<Else />魔力不够变身。</If>`。
+  每个 test 带结果（true、false、null）；生效的分支是第一个 true，前面出现 null 时整个 If 未知；没生效的分支照原文给（Agent 可以改字）。
+- `<Ref id="e12" name="星瑾" />`、`<Image of="character.立绘[原身].图片" alt="…" path="assets/星瑕/原身.png" />` 照现在的做法。
+- 登记的标签：`<StatBar of="panel.魔力" max="panel.魔力上限" label="魔力">魔力 3110/12000（26%）</StatBar>`，开闭标签之间是给模型的描述，描述里的 `<` 写成 `&lt;`（去值时整段丢掉，不用解码）。
+- 出错的块：给原样源文与“出错”标记，带诊断（不变）。
+- 用法说明（各标签怎么写、登记标签的 usage）进 canon_read 的工具说明，不进每次的结果。
+去值：
+- 规则：
+  - 带值的 V 换回自闭合，去掉 label、incomplete、unavailable；
+  - If、ElseIf 去掉 value；Ref 去掉 name；Image 去掉 path；
+  - 登记的标签去掉开闭之间的描述，换回自闭合；
+  - 只动 live 的标签，代码里的字面原样。
+- 写入时把标签规范成 `<名 属性="…" />`：属性顺序不变，单个空格，自闭合写 ` />`。有了这一条，“去值(带值渲染(源文)) === 源文”逐字成立。
+- E5：随机文档（含代码、转义、If、Ref、值里带反引号、星号与 `<`）种子 7、8 共 2947 份，往返全部逐字相同，带值文字的落点分类与源文完全一致。【实验 E5】
+入口【推断】：
+- nb-canon 主入口出一个纯函数 `stripAgentText(text) → {source} | {problem}`，由 canon 插件的 agent-tools 在 translate 里调用。
+- 五处要用：create 的 text、addBlock 的 text、set 的 value 与 replace 的 find、with（field 是 `text[块]` 时；agent-names.ts 的 resolveField 放行 `text[…]`）。
+- replace 改成在“带值文字的空间”里做：
+  1. 按读取的位置与实际模式给这一块做带值渲染；
+  2. find 在渲染结果里必须恰好出现一次，换成 with；
+  3. 整块去值；
+  4. 用 `set` 写到 `text[块]`，`read` 写旧源文（现有的 value-conflict 照常起作用）。
+  这样 find 跨标签、只抄了半个带值标签也能对上；改坏标签时去值或写入检查会报行列。
+- Agent 在文字里改了值：去值以后重新渲染，带值 V 的内容按序号逐个对照。不一致时，建议在工具结果里加一句“文字里的值不写入，当前是 …，改值用 set”，照常写入（决定 3 说的是“去掉值再写”）；要不要改成拒收，交开发者。
+- 存储层兜底：装饰属性与带内容的 V 报 `unknown-tag`（第 4 节），漏了去值的入口也写不进去。
+writeBack 删掉【推断】：
+- render/writeback.ts 的 writeBack、scanAnnotations、annotation；render.ts 的注记写法；canonWorldContract 的 writeBack 与 remote.ts 的转发。在 packages/ 下（不含测试）只搜到契约、转发与内核自己，没搜到别的调用方。
+- Spec 输出 9、10、12、13、14 与失败码 computed-edited、annotation-mismatch、conflicting-values、planned-not-writable 一起改写或删掉。
+- world/text-blocks.ts 里同名的 writeBack 是文字的路由，保留。
+
+== 6. 已有数据的迁移 ==
+- 转换器 `convertLegacyBlock(source) → {source} | {problem, line, column}` 放 nb-canon 的 `src/render/legacy/`。
+  它用旧的 parseBlock（micromark 链挪成 devDependencies）拿表达式的精确偏移，再按偏移拼接。
+  迁移完（第 7 节 S6）连同 micromark 链一起删掉。
+  样本、测试与 fixture 用一个一次性脚本改写；样本 JSON 改完重新生成，不手改。
+- 写法对照：
+  - `{addr}` → `<V of="addr" />`；`{ref("e2").ns.f}` → `<V entry="e2" of="ns.f" />`；
+  - `{text[b1]}` → `<V of="text[b1]" />`（仍报 quoted-block）；
+  - 其余表达式 → `<V expr="…" />`：字符串字面量换成单引号；字面量里有 `'` 写 `\'`，有 ASCII `"` 时转换器报错、人工改。属性值里不能有 `"`，中文正文用“”。
+  - 三元式只在表达式的顶层转：`c ? x : y` → `<If test="c">X<Else />Y</If>`。
+    分支是字符串字面量时，写成按 Markdown 转义过的正文；别的写成 `<V expr|of>`；else 支还是三元式时接成 ElseIf；then 支是三元式时嵌套一层 If。
+    三元式出现在运算里面（`(c ? 1 : 2) + 3`）时报错、人工改。
+    样本 110 处里 11 处三元式全是“比较 ? 字面量 : 字面量”，77 处单地址、22 处带 ref。Spec 场景 5 里分支是引用的那种只在测试里有。
+  - `{/* 注释 */}` 去掉，并报告条数；新写法没有注释（原样 HTML 注释被拒收）。
+  - `<Image src={单地址}>` → `<Image of=…>`；`alt={表达式}` 报错（旧的本来就记 raw-value）。
+  - 旧源文里的 `\{` 原样保留：`\{` 在 CommonMark 里就是 `{`，显示不变。
+- 未知的判断：旧的三元式在判断未知时整体显示“未知”。为了对照能逐字一致，新的 If 在判断未知时纯文字也写“未知”，给作者的显示另定。读不到时照旧报 unavailable。
+- 验证：先拍旧实现的快照（S0），之后逐块对照。
+  - 对样本世界的若干章与线、两种模式，取旧实现的纯文字（text、reads、mentions、problems）、给作者的显示文字序列、给 Agent 的值序列（地址加 JSON）。
+  - 新实现在转换后的块上取同样的东西，要求 reads、mentions、problems、值序列全部相同。
+    三元式例外：旧的值是选出的字符串，新的是 test 的真假，这类只比纯文字。
+  - 纯文字只许出现登记过的读法差异，每条写明原因（t38 的清单：`a < b`、自动链接、缩进代码、单个波浪线、任务项、中文强调的边角）。
+  - 对照测试在 S6 删旧解析器之前跑完，结果存证据。
+- 真实作品：如果开发者的作品里已经有用旧写法的世界，要另做一次“系统修订”整体转换，进修订日志可撤销；没有的话只改样本与测试。这要问开发者。【推断】
+
+== 附：表达式解析与标签登记（内核侧，除注明外都是【推断】）==
+- 表达式解析：推荐留 acorn（基线），在现有的 check、evaluate、memberReference 上扩节点表，不手写。
+  - ADR 0038 没有写为什么用 acorn：它是随 MDX 链（mdxjs）带进来的。
+  - 留下的好处：稳定的第三方库；现有的白名单与求值直接沿用；迁移对照也用同一个解析器。
+  - 要加的：BinaryExpression 加 `+ - * / %`；UnaryExpression 的 `-` 放开到任意操作数；CallExpression 放行 7 个函数名；用 parseExpressionAt 并核对整段属性值都被读完。错误的列 = 属性值的起点 + acorn 给的位置。
+  - 代价：浏览器端多 120 KB、压缩后 34 KB（实测）。JS 语义漏进来的风险，由节点白名单挡住（ASI 只在语句层面出现，与单个表达式无关）。
+  - 手写 Pratt 解析器（约 200 行）只在体积成了问题时再考虑。
+- 函数与运算继续按三值逻辑：任一参数未知，结果就未知；除以 0 与 percent 的整体为 0 时结果未知；round 的位数只收整数字面量。
+  函数名进保留名，命名空间不能用这些名字（保留名只增不减）。
+- 登记：`EntryTagDefinition {name, attributes: {名: "address" | "expr" | "literal"}, reads?: 地址[], describe: 模板, usage: 文字}`，随 Component 的登记一起进 ComponentRegistry 那一层。
+  - 要求“同一组登记，结果逐字相同”，所以 describe 不用插件的函数，用一段条目主文字模板：其中 `$属性名` 换成标签上的属性值，再按纯文字渲染。
+    这样前后端结果一致，模板读到的字段也能静态地收进 reads。
+  - 不带属性的标签（`<StatusBar />`）的 reads 写在登记里。界面怎么画在后面的 Task 做。
+  - 现有的 Component `agentView` 也是 MDX 字段，应用里没有使用方（grep 为空），一起换成新写法。
+
+== 7. 切片与每片的验证 ==
+S0 快照：用旧实现按第 6 节的口径拍样本世界与全部 fixture 的输出，存成测试数据。验证：快照测试在当前 master 上通过。
+S1 Spec 与 ADR：改写 canon/rendering.md（文法、白名单、带值写法、去值、值表、新码），新 ADR 取代 0038 的决策 1 与 3，workspace/markdown-syntaxes 补 atoms 字段。
+  按高风险设计审查（Opus 先审，omp 的 @review 在后台）。
+S2 nb-markdown 拆出纯 `./marked` 子路径，加 atoms 钩子。
+  验证：E3 写成测试（词法单元逐字相同），nb-markdown 的 bun run test、typecheck，boundary.test 新规则，没有 atoms 时全部语料测试不变。
+S3 nb-canon `./grammar`：标签词法、遮罩、两个扩展、分类、还原、表达式解析、规范写法、stripAgentText。
+  验证：E2 的例子做成表驱动测试；E4 随机对照与 E5 往返用 fast-check 写成性质测试（不 lost、往返逐字、每个标签恰好一个去处）；
+  对“字面不当 live”“分类失败关闭”做变异检查；tests/architecture.test.ts 改成纯子路径的闭包只到 marked 与 nb-markdown 的纯文件。
+S4 内核换上新文法：parseBlock、写入检查（新码）、求值（函数与三值）、renderPlain、带值渲染、作者的值表与 renderSource；删 writeBack 与注记；旧写法防线。
+  验证：rendering.test.ts 按新 Spec 重写（真实 World），edits 与 differential 测试照跑；nb-canon 包内 bun test 与 typecheck。
+S5 迁移：转换器加一次性脚本，改样本 JSON、nb-canon 测试、应用的 canon 与 plot 的测试数据与 fixture。
+  验证：对 S0 快照逐块对照（第 6 节），差异逐条登记；plot 的 brief 测试（gate 扣块）照过。
+S6 应用接入：agent-tools 的去值与带值空间里的 replace，canon_read 与 canon_write 的说明；契约删 writeBack；EntryText 改成“源文 + 值表”的画法；
+  Monaco 的 entry-language 规则改成标签；architecture.test 放行 grammar 子路径；删旧解析器与 micromark 链的依赖。
+  验证：test:affected --since master，受影响的 canon 与 plot 的 dom 测试与 e2e（实际文件在计划里列），开发服务上点一遍条目页。
+S7 登记表的内核侧（第 4 节决定 4）：登记、属性检查、reads、describe 模板、没登记的保留规则。
+  验证：登记一个测试标签走一遍作者、Agent、纯文字三种渲染与 gate；卸掉登记以后旧块原样保留、写入时例外成立。
+顺序理由：先拆 nb-markdown 再做文法，文法从第一天起就在真的共用配置上跑；迁移在删旧解析器之前做完，对照才有参照；登记表最后做，不挡主线。
+- 每片都是高风险后端（文法、数据格式、保密）：S1、S3、S4 收口各交一次审查。
+- E4 已经报过的那类语义差异（行首标签不再算 HTML 块开头）写进 Spec 的“读法变化”。

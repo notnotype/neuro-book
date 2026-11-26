@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {HTMLAttributes} from "vue";
-import {computed, nextTick, ref, useAttrs} from "vue";
+import {computed, nextTick, ref, useAttrs, watch} from "vue";
 import DropdownMenu from "../popup/DropdownMenu.vue";
 import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
 import {useUiText} from "../../text-port";
@@ -130,6 +130,82 @@ function selectHidden(value: string): void {
         select(item);
     }
 }
+
+// ── 横向滚动（overflow="scroll"，同名 .md） ─────────────────────────────────
+
+/**
+ * 选中项不在标签栏的可见范围里时，把标签栏滚到刚好露出它；它比标签栏还宽时对齐左边。只动标签栏自己的 scrollLeft：
+ * `scrollIntoView` 会连带滚动外层的页面。点到的、方向键聚焦到的本来就在范围里，不动；用得上的是刚挂上、标签栏变窄与消费方
+ * 换了选中（例如新加的一页排在后面）。
+ */
+function revealSelected(smooth: boolean): void {
+    const list = tablistRef.value;
+    if (adaptive.value || list === null) return;
+    const tab = Array.from(list.querySelectorAll<HTMLElement>("[role='tab']")).find((element) => element.dataset.tabValue === props.modelValue);
+    if (tab === undefined) return;
+    const box = list.getBoundingClientRect();
+    const rect = tab.getBoundingClientRect();
+    const delta = rect.left < box.left || rect.width >= box.width ? rect.left - box.left : rect.right > box.right ? rect.right - box.right : 0;
+    if (Math.abs(delta) < 1) return;
+    // 外层有 CSS zoom 时（Component Lab 的画布）矩形是缩放后的像素，scrollLeft 是缩放前的。
+    const scale = box.width > 0 ? list.offsetWidth / box.width : 1;
+    const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    list.scrollTo({left: list.scrollLeft + delta * scale, behavior: smooth && !reduced ? "smooth" : "instant"});
+}
+// 刚挂上与标签栏的宽度变了（窗口变窄、转屏）时直接到位：没有起点可滑。只看宽度，高度变了不动。跟着标签栏元素走：`overflow`
+// 在 scroll 与 adapt 之间换时根元素换了，旧的观察撤掉。
+/**
+ * 两头渐隐：某一头还有看不见的标签时，那一头淡出 24px（不画滚动条，靠它看出还能滑）。滚动、标签栏变宽变窄、标签增减时重算。
+ */
+const fadeStart = ref(false);
+const fadeEnd = ref(false);
+function updateFade(): void {
+    const list = tablistRef.value;
+    if (adaptive.value || list === null) {
+        fadeStart.value = false;
+        fadeEnd.value = false;
+        return;
+    }
+    const room = list.scrollWidth - list.clientWidth;
+    fadeStart.value = room > 1 && list.scrollLeft > 1;
+    fadeEnd.value = room > 1 && list.scrollLeft < room - 1;
+}
+watch(() => props.items, updateFade, {flush: "post", deep: true});
+
+watch([tablistRef, adaptive], ([list, adapting], _previous, onCleanup) => {
+    if (list === null || adapting) return;
+    revealSelected(false);
+    updateFade();
+    if (typeof ResizeObserver !== "function") return;
+    let width = list.clientWidth;
+    const observer = new ResizeObserver(() => {
+        updateFade();
+        if (list.clientWidth === width) return;
+        width = list.clientWidth;
+        revealSelected(false);
+    });
+    observer.observe(list);
+    onCleanup(() => observer.disconnect());
+}, {flush: "post", immediate: true});
+// 只在选中项变了、或选中的那一项刚出现在列表里时看；别的更新（例如计数变了）不看，免得滑到别处看标签时被拽回来。
+watch(() => (props.items.some((item) => item.value === props.modelValue) ? props.modelValue : null), (value) => {
+    if (value !== null) revealSelected(true);
+}, {flush: "post"});
+
+/**
+ * 标签栏不画滚动条（经典滚动条出现时占一条高度，放不下与放得下时标签栏高矮不同、推开下面的内容），所以鼠标滚轮在标签栏上
+ * 竖着滚时改成横着滑；已经滑到那一头时不拦，照常滚外层。触控板的横向滑动与 Shift+滚轮本来就是横向的，不动。
+ */
+function handleWheel(event: WheelEvent): void {
+    const list = event.currentTarget as HTMLElement;
+    if (event.ctrlKey || event.deltaX !== 0 || event.deltaY === 0) return;
+    const room = list.scrollWidth - list.clientWidth;
+    if (room <= 0) return;
+    if ((event.deltaY < 0 && list.scrollLeft <= 0) || (event.deltaY > 0 && list.scrollLeft >= room - 1)) return;
+    event.preventDefault();
+    // deltaMode 1 是按行（Firefox 的鼠标滚轮），一行折成 16 像素。
+    list.scrollLeft += event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+}
 </script>
 
 <template>
@@ -195,7 +271,7 @@ function selectHidden(value: string): void {
             <span :class="tabBoxClass" data-measure-more>{{ moreText }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
         </div>
     </div>
-    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">
+    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="nb-ui-tabs-scroll flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" :data-fade-start="fadeStart ? '' : undefined" :data-fade-end="fadeEnd ? '' : undefined" @keydown="handleKeydown" @wheel="handleWheel" @scroll="updateFade">
         <button
             v-for="item in props.items"
             :key="item.value"
@@ -231,5 +307,21 @@ function selectHidden(value: string): void {
     visibility: hidden;
     pointer-events: none;
     white-space: nowrap;
+}
+/* 横向滚动的标签栏不画滚动条：经典滚动条会占一条高度（见 handleWheel）。比宿主根上 `.nb-ui-scrollbar-thin` 的零特异性规则优先。 */
+.nb-ui-tabs-scroll {
+    scrollbar-width: none;
+}
+.nb-ui-tabs-scroll::-webkit-scrollbar {
+    display: none;
+}
+.nb-ui-tabs-scroll[data-fade-end] {
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.nb-ui-tabs-scroll[data-fade-start] {
+    mask-image: linear-gradient(to right, transparent, #000 24px);
+}
+.nb-ui-tabs-scroll[data-fade-start][data-fade-end] {
+    mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
 }
 </style>

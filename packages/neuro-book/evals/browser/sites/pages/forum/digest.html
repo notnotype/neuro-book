@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>安全验证 - 灯下论坛</title>
+<link rel="stylesheet" href="/assets/forum.css">
+<style>
+  .track { position: relative; width: 320px; height: 40px; margin: 16px 0; border-radius: 20px; background: #dfe6ec; }
+  .knob { position: absolute; left: 0; top: 0; width: 40px; height: 40px; border-radius: 20px; background: #2f6f8f; cursor: grab; touch-action: none; }
+</style>
+</head>
+<body>
+<header><strong>灯下论坛</strong><nav><a href="/">版块</a><a href="/digest">精华区</a></nav></header>
+<main>
+  <div class="box">
+    <h2 style="margin-top: 0;">安全验证</h2>
+    <p>访问精华区需要先完成验证：按住圆钮，拖到最右边。</p>
+    <div class="track" id="track"><div class="knob" id="knob"></div></div>
+    <p id="message" class="muted" role="status"></p>
+  </div>
+</main>
+<script>
+(() => {
+  const knob = document.querySelector("#knob");
+  const track = document.querySelector("#track");
+  let start = null;
+  knob.addEventListener("pointerdown", (event) => { start = event.clientX - knob.offsetLeft; knob.setPointerCapture(event.pointerId); });
+  knob.addEventListener("pointermove", (event) => {
+    if (start === null) return;
+    knob.style.left = `${Math.max(0, Math.min(track.clientWidth - knob.clientWidth, event.clientX - start))}px`;
+  });
+  knob.addEventListener("pointerup", async () => {
+    if (start === null) return;
+    start = null;
+    const response = await fetch("/api/digest/verify", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({offset: knob.offsetLeft})});
+    const result = await response.json();
+    document.querySelector("#message").textContent = result.message;
+    knob.style.left = "0px";
+  });
+})();
+</script>
+</body>
+</html>

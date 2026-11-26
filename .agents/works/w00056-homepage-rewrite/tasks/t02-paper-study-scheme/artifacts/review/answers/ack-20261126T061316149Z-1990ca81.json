@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t02-paper-study-scheme",
+    "artifactId": "review",
+    "ackId": "20261126T061316149Z-1990ca81",
+    "answers": [
+        "20261126T061206117Z-08157606"
+    ],
+    "through": "20261126T061206117Z-08157606",
+    "included": [
+        ".agents/works/w00056-homepage-rewrite/tasks/t02-paper-study-scheme/README.md"
+    ],
+    "ackedAt": "2026-11-26T06:13:16.149Z"
+}
