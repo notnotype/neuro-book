@@ -27,3 +27,10 @@ F7 不接栈溢出 KILLED
 F8 式子遇换行不退出 KILLED
 F9 等号两边可有空格 KILLED
 F10 链接吞掉标签 KILLED
+
+## 复核后补的（506123dd5）
+R1 整篇读照样从块中间截 KILLED
+R2 不接栈溢出 KILLED
+R3 去值后不比上限 KILLED
+R4 交回的不先比长度 KILLED
+R5 出错的块也去值 SURVIVED（公开入口写不进出错的块，工具测试造不出；只有纯函数用例，记为已知缺口）
