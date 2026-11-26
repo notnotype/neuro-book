@@ -94,6 +94,10 @@ export function parseExpression(text: string): ExpressionResult {
 
 /** 解析一个地址（`V` 的 `of`）：只许一条不带 `ref` 的成员访问链。 */
 export function parseAddress(text: string): {readonly ok: true; readonly path: string} | {readonly ok: false; readonly error: ExpressionError} {
+    // 先按存下来的地址的写法读（`panel.list[true]`、`text[default]` 这类元素 id 是 JS 的字面量或关键字，式子的写法读不了）；读不了
+    // 再按式子的成员访问链读（`att.态度['e1'].称呼`）。
+    const stored = parsePath(text.trim());
+    if (stored !== null) return {ok: true, path: formatPath(stored)};
     const parsed = parseNode(text);
     if ("error" in parsed) return {ok: false, error: parsed.error};
     const reference = parsed.node.type === "MemberExpression" ? memberReference(parsed.node) : null;
@@ -205,8 +209,10 @@ const halfAway = (value: number): number => Math.sign(value) * Math.round(Math.a
 /** 运算结果按 15 位有效数字去掉二进制的尾差（`0.1 + 0.2` 得 `0.3`）；只用于显示与比较，不存。不是有限数的得未知。 */
 function finite(value: number): number | null {
     if (!Number.isFinite(value)) return null;
+    // 最大的有限数按 15 位写出再读回会溢出成无穷：那时留原值。
     const rounded = Number(value.toPrecision(15));
-    return Object.is(rounded, -0) ? 0 : rounded;
+    const kept = Number.isFinite(rounded) ? rounded : value;
+    return Object.is(kept, -0) ? 0 : kept;
 }
 
 /** 三值逻辑的求值（输出 5）：null 是未知。全部字段引用都会取一次，不完整与读不到的标记按出现的先后取第一个。 */

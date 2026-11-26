@@ -45,7 +45,9 @@ describe("标签的落点（输出 17）", () => {
         ["泛型的尖括号：`<K,` 不是标签，`<V>` 是", "`Map<K, V>` 与 `List<V>`", ["<V> code"]],
         ["属性值里的 `<V` 不另算", "<If test=\"panel.名字 == '<V of=bad />'\">有<Else />无</If>", ["<If test=\"panel.名字 == '<V of=bad />'\"> live", "<Else /> live", "</If> live"]],
         ["写坏的：正文、代码里、转义的", "他说 <V of=\"panel.a\" 没写完 `<V of=` \\<V of=\"b", ["<V prose", "<V code", "<V escaped"]],
-        ["带值的 V 与带描述的标签整体算一个", "<V of=\"panel.a\" label=\"魔力\">3110</V> <StatBar of=\"panel.魔力\">魔力 *3* | `x</StatBar>", ["<V of=\"panel.a\" label=\"魔力\">3110</V> live", "<StatBar of=\"panel.魔力\">魔力 *3* | `x</StatBar> live"]],
+        ["带值的 V 与带描述的标签整体算一个", "<V of=\"panel.a\" label=\"魔力\">3110</V> <StatBar of=\"panel.魔力\">魔力 *3* | x</StatBar>", ["<V of=\"panel.a\" label=\"魔力\">3110</V> live", "<StatBar of=\"panel.魔力\">魔力 *3* | x</StatBar> live"]],
+        // 配成一个之前不知道落点：开闭标签有一个转义了、中间有反引号时各算各的，中间的强调与代码照常读（S3 审查）。
+        ["字面的开闭标签不配成一个", "`<V of=\"panel.a\">` **粗** `</V>` 与 \\<V of=\"panel.a\"> **粗** \\</V> 与 <V of=\"panel.a\">1\\</V>", ["<V of=\"panel.a\"> code", "</V> code", "<V of=\"panel.a\"> escaped", "</V> escaped", "<V of=\"panel.a\"> live", "</V> escaped"]],
         ["HTML 的强调与换行不是标签", "<STRONG>甲</STRONG> <Br> <EM>乙</EM>", []],
     ];
     for (const [name, source, expected] of cases) it(name, () => expect(placesOf(source)).toEqual([...expected]));
@@ -100,6 +102,8 @@ describe("写入检查（输出 1、19）", () => {
         ["标签在链接与图片说明里", "[文](<V of=\"panel.a\" />) ![<V of=\"panel.b\" />](x.png)", ["tag-not-live@<V of=", "tag-not-live@<V of="]],
         ["链接标题里转义的完整标签也算标签", "[链](u \"写法 \\<V of=\"panel.a\" />\")", ["tag-not-live@<V of="]],
         ["链接与引用定义里不成标签的 `<A` 是文字；写坏的内置标签照正文的判据", "[链](u \"评级 <A 级\") [x](https://a.com/<A/b)\n\n[r]: u \"评级 <A 级\"\n\n[链](u \"<V of=\"panel.a 没写完\")", ["tag-malformed@<V of="]],
+        ["表格某行的单元格比表头多", "| a |\n|---|\n| <Ref id=\"e2\" /> | 多余 |", ["unsupported-markdown@| a |\n"]],
+        ["引用里的问题不记到后文同样的块上", "> <!-- 注\n> 释 -->\n\n正文\n\n<!-- 注\n释 -->", ["unsupported-markdown@<!-- 注", "unsupported-markdown@<!-- 注"]],
         ["近似的写法：单引号、不加引号、等号两边有空格", "<V of='panel.a' /> <V of=panel.a /> <V of = \"panel.a\" /> <Ref id='e2' />", ["tag-malformed@<V of=", "tag-malformed@<V of=", "tag-malformed@<V of ", "tag-malformed@<Ref i"]],
     ];
     for (const [name, source, expected] of cases) it(name, () => expect(codesOf(source)).toEqual([...expected]));
@@ -143,7 +147,7 @@ describe("写入检查（输出 1、19）", () => {
 });
 
 describe("式子（输出 2、5）", () => {
-    const fields: Readonly<Record<string, unknown>> = {"panel.a": 3110, "panel.b": 12000, "panel.zero": 0, "panel.name": "星瑕", "panel.flag": true, "panel.none": null, "round.计数": 3};
+    const fields: Readonly<Record<string, unknown>> = {"panel.max": Number.MAX_VALUE, "panel.a": 3110, "panel.b": 12000, "panel.zero": 0, "panel.name": "星瑕", "panel.flag": true, "panel.none": null, "round.计数": 3};
     const resolve = (reference: FieldReference): Resolved<string> =>
         reference.path === "panel.gone" ? {value: null, unavailable: "未启用"} : reference.path === "panel.part" ? {value: 1, incomplete: "c7 constraint-violated"} : {value: fields[reference.path] ?? null};
     const value = (text: string): unknown => {
@@ -175,6 +179,7 @@ describe("式子（输出 2、5）", () => {
         ["round(panel.a, -2)", 3100],
         ["percent(-1 + panel.zero, 8)", "-13%"],
         ["percent(panel.zero - 0.01, 8)", "0%"],
+        ["panel.max * 1", Number.MAX_VALUE],
         // 未知按三值逻辑传。
         ["-panel.none", null],
         ["-panel.name", null],
@@ -235,6 +240,11 @@ describe("式子（输出 2、5）", () => {
         expect(parseAddress("text[b1]")).toEqual({ok: true, path: "text[b1]"});
         expect(parseAddress("entry.name")).toEqual({ok: true, path: "entry.name"});
         expect(parseAddress("round.计数")).toEqual({ok: true, path: "round.计数"});
+        // 存下来的地址里元素 id 可以是 JS 的字面量与关键字：照地址的写法读。
+        expect(parseAddress("panel.list[true]")).toEqual({ok: true, path: "panel.list[true]"});
+        expect(parseAddress("text[default]")).toEqual({ok: true, path: "text[default]"});
+        expect(parseAddress("panel.list[null].name")).toEqual({ok: true, path: "panel.list[null].name"});
+        expect(parseAddress("att.态度['e1'].称呼")).toEqual({ok: true, path: "att.态度[e1].称呼"});
         expect(parseAddress("panel.a + 1").ok).toBe(false);
     });
 });

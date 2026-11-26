@@ -8,4 +8,4 @@
 export {ATOM_CAPACITY, atomAt, createLexing, isAtomIdentity, lexAtoms, PLACEHOLDER_SOURCE, placeholderAt} from "./lexing";
 export {nextMatch} from "../language/syntax/tags";
 export type {Atom, AtomPlacement, AtomSpan, LexedAtoms, Lexing, MarkdownLexing} from "./lexing";
-export {coreLexing, isBreakOnlyHtml} from "./core";
+export {cellCount, coreLexing, isBreakOnlyHtml} from "./core";

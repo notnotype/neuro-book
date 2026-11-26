@@ -3,11 +3,11 @@
  * “没登记的标签在这个条目的主文字里已经有了”这条例外要看条目，由调用方用问题里的标签序号判断（`unknown-tag` 带 `excusable`）。
  */
 
-import {isBreakOnlyHtml} from "@notnotype/nb-markdown/marked";
+import {cellCount, isBreakOnlyHtml} from "@notnotype/nb-markdown/marked";
 import type {Token} from "marked";
 
 import {hasField, parseAddress, parseExpression} from "./expression";
-import {childLists, type EntryTag, type GrammarProblem, type ParsedEntryText} from "./parse";
+import {childLists, entryAtomSpans, type EntryTag, type GrammarProblem, type ParsedEntryText} from "./parse";
 
 export interface CheckOptions {
     /** 登记的标签名（属性表在 t04 加）：这些名字的活的标签放行，写坏的报 `tag-malformed`。 */
@@ -37,25 +37,36 @@ const ALLOWED_TOKENS: ReadonlySet<string> = new Set([
     "link", "image", "def", "escape", "text", "space", "br", "htmlMark", "htmlBreak", "entryTag", "entryIf",
 ]);
 
+/** 表格有一行的单元格比表头多：GFM 丢掉多出的，编辑器把整张表读成原样块（不让多出的字丢掉），条目里的标签两边就读得不一样。 */
+function tableOverflows(token: Token): boolean {
+    if (token.type !== "table") return false;
+    const header = (token as unknown as {header: unknown[]}).header.length;
+    return token.raw.split("\n").slice(2).some((line) => cellCount(line, entryAtomSpans(line)) > header);
+}
+
 /**
- * 白名单以外的单元与它们在原文里的起点：顶层按 `raw` 依次累加（拼起来等于原文），里层在外层的起点之后找自己的 `raw`，找不到就用
- * 外层的起点（尽力而为：列表、引用去了前缀的行找不到）。条件的单元在 `tokens` 与 `branches` 里各出现一次，按单元去重。
+ * 白名单以外的单元与它们在原文里的起点：顶层按 `raw` 依次累加（拼起来等于原文），里层在外层的范围里找自己的 `raw`，找不到就用
+ * 它第一行的位置，再找不到用外层的起点（尽力而为），都不越过外层去后文里找。
  */
-function unsupportedTokens(parsed: ParsedEntryText): Array<{token: Token; offset: number}> {
-    const found: Array<{token: Token; offset: number}> = [];
-    const seen = new Set<Token>();
-    const visit = (tokens: readonly Token[], from: number, top: boolean): void => {
+function unsupportedTokens(parsed: ParsedEntryText): Array<{token: Token; offset: number; reason: string}> {
+    const found: Array<{token: Token; offset: number; reason: string}> = [];
+    const visit = (tokens: readonly Token[], from: number, to: number, top: boolean): void => {
         let cursor = from;
         for (const token of tokens) {
             const at = top ? cursor : parsed.source.indexOf(token.raw, cursor);
-            const offset = at < 0 ? cursor : at;
-            if (!seen.has(token) && !ALLOWED_TOKENS.has(token.type) && !(token.type === "html" && isBreakOnlyHtml(token.raw))) found.push({token, offset});
-            seen.add(token);
-            for (const child of childLists(token)) visit(child, offset, false);
-            if (at >= 0) cursor = offset + token.raw.length;
+            const inside = at >= 0 && at + token.raw.length <= to;
+            // 整段找不到（引用、列表去了各行的前缀）时，用它的第一行在外层的范围里找起点。
+            const firstLine = token.raw.split("\n")[0] ?? "";
+            const lineAt = inside || firstLine === "" ? -1 : parsed.source.indexOf(firstLine, cursor);
+            const offset = inside ? at : lineAt >= 0 && lineAt + firstLine.length <= to ? lineAt : cursor;
+            if (!ALLOWED_TOKENS.has(token.type) && !(token.type === "html" && isBreakOnlyHtml(token.raw))) found.push({token, offset, reason: `${token.type === "html" ? "raw HTML or an HTML comment" : token.type} is not supported in entry text`});
+            else if (tableOverflows(token)) found.push({token, offset, reason: "a table row has more cells than the header; Markdown drops the extra cells"});
+            const end = inside ? at + token.raw.length : to;
+            for (const child of childLists(token)) visit(child, offset, end, false);
+            if (inside) cursor = end;
         }
     };
-    visit(parsed.tokens, 0, true);
+    visit(parsed.tokens, 0, parsed.source.length, true);
     return found;
 }
 
@@ -132,7 +143,7 @@ export function checkEntryText(parsed: ParsedEntryText, options: CheckOptions = 
     const registered = options.registered ?? new Set<string>();
     const problems: CheckProblem[] = [...parsed.problems];
     if (parsed.tokens.length > 0 || parsed.problems.length === 0) {
-        for (const {token, offset} of unsupportedTokens(parsed)) problems.push({code: "unsupported-markdown", offset, message: `${token.type === "html" ? "raw HTML or an HTML comment" : token.type} is not supported in entry text`});
+        for (const {offset, reason} of unsupportedTokens(parsed)) problems.push({code: "unsupported-markdown", offset, message: reason});
     }
     for (const tag of parsed.tags) {
         if (tag.place === "live") problems.push(...tagProblems(tag, registered));

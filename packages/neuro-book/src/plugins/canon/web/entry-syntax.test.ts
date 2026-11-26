@@ -54,6 +54,7 @@ describe("编辑器与内核读法一致（输出 21）", () => {
         ["行首是标签的一行不是 HTML 块", "<V of=\"panel.a\" /> 开头\n\n<Ref id=\"e2\" />"],
         ["标题与私用区的字", `# 标题 <V of="panel.a" />\n\n甲${String.fromCharCode(0xe000)}乙`],
         ["表格单元格里的行内代码写着带 `||` 的条件", "| 名 |\n| --- |\n| `<If test=\"a || b\">` 与 <V of=\"panel.a\" /> |"],
+        ["表格单元格里转义的标签带 `||`，与带标点、实体的转义标签", "| 一 | 二 |\n| --- | --- |\n| \\<V expr=\"panel.a || panel.b\" /> | <Ref id=\"e2\" /> |\n\n\\<Image src=\"a.png\" alt=\"*粗* 与 `code`\" />"],
     ];
     for (const [name, source] of cases) {
         it(name, () => {

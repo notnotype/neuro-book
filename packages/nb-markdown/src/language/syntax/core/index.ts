@@ -20,7 +20,7 @@ import {StarterKit} from "@tiptap/starter-kit";
 import {decodeHTMLStrict} from "entities";
 import type {Token, Tokens} from "marked";
 
-import {coreLexing, isBreakOnlyHtml} from "../../../marked/core";
+import {cellCount, coreLexing, isBreakOnlyHtml} from "../../../marked/core";
 import {CODE_EXCLUSIVE} from "../types";
 import type {MarkdownSyntax, ReadContext, TokenReader} from "../types";
 import {coreWriters} from "./write";
@@ -318,22 +318,6 @@ const blockReaders: Readonly<Record<string, TokenReader>> = {
     },
 };
 
-/**
- * 表格一行的单元格数，按 GFM 的切法：没转义的 `|` 分隔，行首行尾的 `|` 不算。原子（`atoms`，按 `line` 里的位置）里的 `|` 不算：
- * 分词时原子换成了占位，`marked` 不在那里切。
- */
-function cellCount(line: string, atoms: ReadonlyArray<{readonly from: number; readonly to: number}>): number {
-    const lead = line.length - line.trimStart().length;
-    const row = line.trim();
-    if (row === "") return 0;
-    const inAtom = (index: number): boolean => atoms.some((atom) => index + lead >= atom.from && index + lead < atom.to);
-    let count = 1;
-    for (let index = 0; index < row.length; index += 1) {
-        if (row[index] === "\\") index += 1;
-        else if (row[index] === "|" && index !== 0 && index !== row.length - 1 && !inAtom(index)) count += 1;
-    }
-    return count;
-}
 
 /**
  * 页面上的链接元素保留哪些地址：Tiptap 默认只留 `http:` 这类常见方案与相对地址，别的写成空 `href`。作品里的文件

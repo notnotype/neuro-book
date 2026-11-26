@@ -52,6 +52,13 @@ const ATTRIBUTE_START = /[ \t]+[A-Za-z_][A-Za-z0-9_-]*[ \t]*=/uy;
 const TAIL = /[ \t]*(\/?)>/uy;
 const CLOSE_TAIL = /[ \t]*>/uy;
 
+/** `<` 前面有奇数个反斜杠：写成了 `\<`。 */
+export function escapedAt(source: string, at: number): boolean {
+    let count = 0;
+    for (let index = at - 1; index >= 0 && source[index] === "\\"; index -= 1) count += 1;
+    return count % 2 === 1;
+}
+
 const stickyAt = (pattern: RegExp, source: string, at: number): RegExpExecArray | null => {
     pattern.lastIndex = at;
     return pattern.exec(source);
@@ -90,12 +97,15 @@ export function lexTags(source: string): LexedTag[] {
         const selfClosing = !closing && tail[1] === "/";
         let kind: TagKind = closing ? "close" : selfClosing ? "self" : "open";
         let content: LexedTag["content"] = null;
-        if (kind === "open" && name !== "If") {
-            // 开标签后面到下一个 `<` 或换行之前没有别的标签：那个 `<` 正好是同名的闭标签时，连同中间的内容算一个。
+        if (kind === "open" && name !== "If" && !escapedAt(source, start)) {
+            // 开标签后面到下一个 `<` 或换行之前没有别的标签：那个 `<` 正好是没转义的同名闭标签、中间没有反引号时，连同中间的内容算一个
+            // （带值的 `V`、带描述的登记标签）。配成一个之前还不知道落点，所以只配不会是字面的：开闭标签有一个转义了、中间有反引号
+            // （两个行内代码之间）时各算各的，不然中间的强调、代码会被当成内容吞掉（w00055 t02 S3 审查）。程序写的值与描述里没有反引号
+            // （`agentJson`、`escapeDecoration` 转义了它）。
             let next = end;
-            while (next < source.length && source[next] !== "<" && source[next] !== "\n" && source[next] !== "\r") next += 1;
+            while (next < source.length && source[next] !== "<" && source[next] !== "\n" && source[next] !== "\r" && source[next] !== "`") next += 1;
             const closeName = next + 2 + name.length;
-            if (source.startsWith(`</${name}`, next)) {
+            if (source.startsWith(`</${name}`, next) && !escapedAt(source, next)) {
                 const closeTail = stickyAt(CLOSE_TAIL, source, closeName);
                 if (closeTail !== null) {
                     content = {start: end, end: next};
@@ -131,15 +141,18 @@ export function tagText(name: string, attributes: ReadonlyArray<readonly [string
  * 带值写法因此总能按本文件的词法读回。去值时整段丢掉，不用解码。
  */
 export function escapeDecoration(text: string): string {
-    return text.replace(/&/gu, "&amp;").replace(/"/gu, "&quot;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/\r\n|\r|\n/gu, " ");
+    return text.replace(/&/gu, "&amp;").replace(/"/gu, "&quot;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/`/gu, "&#96;").replace(/\r\n|\r|\n/gu, " ");
 }
 
-/** `<` 的 JSON 转义：反斜杠、`u003c`。这样写是为了不在源码里留下会被工具改写的转义序列。 */
-const ESCAPED_LESS_THAN = `${String.fromCharCode(92)}u003c`;
+/** JSON 的转义：反斜杠、`u` 加四位十六进制。这样拼是为了不在源码里留下会被工具改写的转义序列。 */
+const unicodeEscape = (char: string): string => `${String.fromCharCode(92)}u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
 
-/** `V` 的值写成 JSON（输出 8）：其中的 `<` 写成 JSON 的转义，开标签到 `</V>` 之间就没有 `<`，词法把带值的 `V` 整体认成一个。 */
+/**
+ * `V` 的值写成 JSON（输出 8）：其中的 `<` 与反引号写成 JSON 的转义。开标签到 `</V>` 之间没有 `<`、反引号，词法把带值的 `V` 整体认成
+ * 一个（见 `lexTags` 的配对）。
+ */
 export function agentJson(value: unknown): string {
-    return (JSON.stringify(value ?? null) ?? "null").replace(/</gu, ESCAPED_LESS_THAN);
+    return (JSON.stringify(value ?? null) ?? "null").replace(/[<`]/gu, unicodeEscape);
 }
 
 /** 写入之前的规范化（输出 1）：去掉开头的 BOM，换行规范成 LF。 */

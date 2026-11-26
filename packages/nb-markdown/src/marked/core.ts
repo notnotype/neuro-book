@@ -64,3 +64,20 @@ const ONLY_BREAKS = /^(?:[ \t]*<br\s*\/?>)+[ \t]*\n*$/iu;
 
 /** 块级 `html` 单元是不是只有 `<br>`（核心语法读成只有换行的段落；条目的写入检查按同一个判断放行）。 */
 export const isBreakOnlyHtml = (raw: string): boolean => ONLY_BREAKS.test(raw);
+
+/**
+ * 表格一行的单元格数，按 GFM 的切法：没转义的 `|` 分隔，行首行尾的 `|` 不算。原子（`atoms`，按 `line` 里的位置）里的 `|` 不算：
+ * 分词时原子换成了占位，`marked` 不在那里切。
+ */
+export function cellCount(line: string, atoms: ReadonlyArray<{readonly from: number; readonly to: number}>): number {
+    const lead = line.length - line.trimStart().length;
+    const row = line.trim();
+    if (row === "") return 0;
+    const inAtom = (index: number): boolean => atoms.some((atom) => index + lead >= atom.from && index + lead < atom.to);
+    let count = 1;
+    for (let index = 0; index < row.length; index += 1) {
+        if (row[index] === "\\") index += 1;
+        else if (row[index] === "|" && index !== 0 && index !== row.length - 1 && !inAtom(index)) count += 1;
+    }
+    return count;
+}

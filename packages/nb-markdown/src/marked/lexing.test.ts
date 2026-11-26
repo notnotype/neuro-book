@@ -156,6 +156,15 @@ describe("不带编辑器的词法", () => {
         expect(atomsOf(tokens)).toEqual(["First a", "Second bb", "Third ccc"]);
     });
 
+    it("同一个私用区的字用同一个占位：引用式链接的标签里有它时照样接得上定义；定义表的键也还原", () => {
+        const lexing = createLexing([tagModule(), coreLexing]);
+        const lexer = lexing.lexer();
+        const tokens = lexer.lex(`[看][甲${String.fromCharCode(0xe000)}]\n\n[甲${String.fromCharCode(0xe000)}]: /ok`);
+        const link = flatten(tokens).find((token) => token.type === "link") as unknown as {href: string} | undefined;
+        expect(link?.href).toBe("/ok");
+        expect(Object.keys(lexer.tokens.links)).toEqual([`甲${String.fromCharCode(0xe000)}`]);
+    });
+
     it("模块给的范围跨行时分词失败", () => {
         const crossing: MarkdownLexing = {name: "crossing", atoms: () => [{from: 0, to: 5}]};
         expect(() => createLexing([crossing, coreLexing]).lexer().lex("ab\ncdef")).toThrow("crosses a line");

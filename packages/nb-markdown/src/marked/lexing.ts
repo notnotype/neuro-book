@@ -80,7 +80,10 @@ const PLACEHOLDER = /[\ue000-\uf76f]\uf8fe*/gu;
 
 const tables = new WeakMap<object, ReadonlyMap<string, Atom>>();
 
-/** 分词期间按占位的身份字查回原子：模块的分词规则在 `this.lexer` 上调用。不在遮罩的分词里、或不是身份字时返回 undefined。 */
+/**
+ * 分词期间按占位的身份字查回原子：模块的分词规则在 `this.lexer` 上调用。不在遮罩的分词里、或不是身份字时返回 undefined。
+ * 查回的 `source` 是原文，不要放进词法单元的字符串字段：分完词还原时它里面的私用区字会被当成占位再换一遍；单元里记偏移或序号。
+ */
 export function atomAt(lexer: object, identity: string): Atom | undefined {
     return tables.get(lexer)?.get(identity);
 }
@@ -116,27 +119,38 @@ function mask(source: string, modules: ReadonlyArray<NonNullable<MarkdownLexing[
         if (index > 0 && span.from < (spans[index - 1] as AtomSpan).to) throw new Error(`atom spans overlap at ${String(span.from)}`);
         if (span.to <= span.from || /[\r\n]/u.test(source.slice(span.from, span.to))) throw new Error(`atom span at ${String(span.from)} is empty or crosses a line`);
     }
-    // 原文里的私用区字：不在模块给的范围里的，各自作为一个原子。
-    const all: AtomSpan[] = [];
-    let cursor = 0;
-    const takePrivateUse = (until: number): void => {
-        PRIVATE_USE.lastIndex = cursor;
-        for (let matched = PRIVATE_USE.exec(source); matched !== null && matched.index < until; matched = PRIVATE_USE.exec(source)) all.push({from: matched.index, to: matched.index + 1});
-    };
-    for (const span of spans) {
-        takePrivateUse(span.from);
-        all.push(span);
-        cursor = span.to;
+    // 原文里的私用区字：不在模块给的范围里的也换掉（不然会与占位相混）。全篇只扫一遍，与排好的范围合并（逐个范围向后找是平方级）。
+    // 同一个字用同一个身份字：引用式链接的标签按字比较，定义与用到它的两处要换成同一个字（w00055 t02 S3 审查）。
+    const all: Array<AtomSpan & {readonly char?: string}> = [];
+    let next = 0;
+    for (const matched of source.matchAll(PRIVATE_USE)) {
+        while (next < spans.length && (spans[next] as AtomSpan).to <= matched.index) all.push(spans[next++] as AtomSpan);
+        const covering = spans[next];
+        if (covering !== undefined && covering.from <= matched.index) continue;
+        all.push({from: matched.index, to: matched.index + 1, char: matched[0]});
     }
-    takePrivateUse(source.length);
+    while (next < spans.length) all.push(spans[next++] as AtomSpan);
     if (all.length === 0) return {kind: "none"};
-    if (all.length > ATOM_CAPACITY) return {kind: "over-capacity", count: all.length};
+    // 每个原子的身份字：范围各占一个，私用区的字按字共用。个数超过上限时不遮罩。
+    const byChar = new Map<string, string>();
+    const assigned: string[] = [];
+    let count = 0;
+    for (const span of all) {
+        let identity = span.char === undefined ? undefined : byChar.get(span.char);
+        if (identity === undefined) {
+            identity = String.fromCharCode(IDENTITY_BASE + Math.min(count, ATOM_CAPACITY));
+            count += 1;
+            if (span.char !== undefined) byChar.set(span.char, identity);
+        }
+        assigned.push(identity);
+    }
+    if (count > ATOM_CAPACITY) return {kind: "over-capacity", count};
     const table = new Map<string, Atom>();
     const parts: string[] = [];
     let at = 0;
-    all.forEach((span, index) => {
-        const identity = String.fromCharCode(IDENTITY_BASE + index);
-        table.set(identity, {index, from: span.from, to: span.to, source: source.slice(span.from, span.to)});
+    all.forEach((span, position) => {
+        const identity = assigned[position] as string;
+        if (!table.has(identity)) table.set(identity, {index: table.size, from: span.from, to: span.to, source: source.slice(span.from, span.to)});
         parts.push(source.slice(at, span.from), identity, FILLER.repeat(span.to - span.from - 1));
         at = span.to;
     });
@@ -163,7 +177,18 @@ function unmask(tokens: readonly Token[], table: ReadonlyMap<string, Atom>, link
         return value;
     };
     walk(tokens);
-    if (links !== undefined) walk(links);
+    if (links !== undefined) {
+        // 定义表的键是规范化过的标签，也带着占位。
+        const record = links as Record<string, unknown>;
+        for (const key of Object.keys(record)) {
+            const restored = restore(key);
+            if (restored !== key) {
+                record[restored] = record[key];
+                delete record[key];
+            }
+        }
+        walk(links);
+    }
 }
 
 /** 一个原子落在哪：带着它的字段（`raw`、`text`、`href`、`title`…）、这个字段所在的词法单元，与外面各层的词法单元（由外到内）。 */

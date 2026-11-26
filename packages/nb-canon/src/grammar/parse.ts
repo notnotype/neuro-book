@@ -10,7 +10,7 @@
 import {atomAt, coreLexing, createLexing, lexAtoms, nextMatch, PLACEHOLDER_SOURCE, placeholderAt, type AtomPlacement, type MarkdownLexing} from "@notnotype/nb-markdown/marked";
 import type {MarkedExtension, Token} from "marked";
 
-import {atomSpanOf, lexTags, type LexedTag} from "./tags";
+import {atomSpanOf, escapedAt, lexTags, type LexedTag} from "./tags";
 
 /**
  * 一个标签的去处：
@@ -111,12 +111,8 @@ export const entryLexing: MarkdownLexing = {
 
 const lexing = createLexing([entryLexing, coreLexing]);
 
-/** 写成 `\<`：`<` 前面有奇数个反斜杠。 */
-function escapedAt(source: string, start: number): boolean {
-    let count = 0;
-    for (let index = start - 1; index >= 0 && source[index] === "\\"; index -= 1) count += 1;
-    return count % 2 === 1;
-}
+/** 条目的词法在一段文字里认出的原子范围（写入检查数表格的单元格用，与编辑器的读法同一份）。 */
+export const entryAtomSpans = (text: string) => lexing.atomSpans(text);
 
 const CODE = new Set(["code", "codespan"]);
 const TEXT = new Set(["text", "escape"]);

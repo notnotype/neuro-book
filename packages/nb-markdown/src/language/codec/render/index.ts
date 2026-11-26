@@ -18,7 +18,7 @@ export function renderBlock(language: MarkdownLanguage, node: PMNode, options: W
             options: current,
             definitions,
             prepared: <T>(syntax: string) => prepared.get(syntax) as T | undefined,
-            escape: (text, place = {}) => escapeText(text, {lineStart: false, lineEnd: false, before: "", after: "", place, full: current.escape === "full", definitions, atomEscape: language.atomEscape}),
+            escape: (text, place = {}) => escapeText(text, {lineStart: false, lineEnd: false, before: "", after: "", place, full: current.escape === "full", definitions, atomEscape: language.atomEscape, atomSpans: (text: string) => language.atomSpans(text)}),
             atomEscape: language.atomEscape,
             atomSpans: (text: string) => language.atomSpans(text),
             style: <T>(target: {readonly attrs: Readonly<Record<string, unknown>>}) => (current.styles === "canonical" ? null : ((target.attrs.markdown as T | undefined) ?? null)),
