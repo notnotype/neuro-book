@@ -2375,9 +2375,9 @@ function canonEntryPageFixtures() {
                     {id: "not-appeared", label: "到这里还没出场", input: {props: {positions, notAppeared: true}, model: {position: "1:end", planned: false}}},
                     {id: "gone", label: "原来选的那一章不在了", input: {props: {positions, positionGone: true}, model: {position: "3:end", planned: false}}},
                     {id: "locked", label: "有没提交的主文字：锁着", input: {props: {positions, canPlan: true, locked: "先提交或放弃正在写的主文字"}, model: {position: "3:end", planned: true}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Initial state"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
                     // 位置带长章标题、英文：标记截断，390 宽不撑出横向滚动。
-                    {id: "long-title-english", label: "英文、长章标题、还没出场", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "12:end", label: "End of chapter 12: The Long Road Home Begins"}], notAppeared: true}, model: {position: "12:end", planned: false}}},
+                    {id: "long-title-english", label: "英文、长章标题、还没出场", input: {props: {positions: [{value: "initial", label: "Initial state"}, {value: "12:end", label: "End of chapter 12: The Long Road Home Begins"}], notAppeared: true}, model: {position: "12:end", planned: false}}},
                 ];
             })(),
             load: async () => (await import("./PositionPickerFixture.vue")).default,

@@ -20,6 +20,9 @@ async function visibleInStrip(tab: Locator): Promise<boolean> {
     });
 }
 
+// 无头 Chrome 缺省藏起滚动条（--hide-scrollbars），量不出经典滚动条占的高度：这一份放出来（`use` 的启动参数只能写在文件顶层）。
+test.use({launchOptions: {ignoreDefaultArgs: ["--hide-scrollbars"]}});
+
 const tablist = (page: Page): Locator => page.locator("[data-fixture-strip] [role='tablist']");
 
 test("挂上时选中的是最后一个：标签栏直接滚到露出它", async ({page}) => {
@@ -64,4 +67,29 @@ test("宽时选中最后一个，标签栏变窄以后它仍在看得见的范�
     await page.locator("[data-fixture-width]").click();
     await expect.poll(() => list.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     await expect.poll(() => visibleInStrip(last)).toBe(true);
+});
+
+test("标签栏不画滚动条：放不下与放得下时一样高", async ({page}) => {
+    await gotoScene(page, "first");
+    const list = tablist(page);
+    await expect.poll(() => list.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    const narrow = await list.evaluate((element) => element.offsetHeight);
+    await page.locator("[data-fixture-width]").click();
+    await expect.poll(() => list.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await list.evaluate((element) => element.offsetHeight)).toBe(narrow);
+});
+
+test("鼠标滚轮在标签栏上竖着滚：标签栏横着滑、外层不动；滑到头以后照常滚外层", async ({page}) => {
+    await gotoScene(page, "first");
+    const outer = page.locator("[data-fixture-outer]");
+    const list = tablist(page);
+    const box = (await list.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 60);
+    await expect.poll(() => list.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    expect(await outer.evaluate((element) => element.scrollTop)).toBe(0);
+
+    await list.evaluate((element) => element.scrollTo({left: element.scrollWidth, behavior: "instant"}));
+    await page.mouse.wheel(0, 60);
+    await expect.poll(() => outer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 });

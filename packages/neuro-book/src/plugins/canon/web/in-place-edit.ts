@@ -132,7 +132,8 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     const recheck = shallowRef(false);
     const saving = shallowRef(false);
     const locked = shallowRef(false);
-    // 最近一次预览给出的写回位置，保存成功时交给提示。保存发的输入与那次预览相同，世界版本变了会先重取预览，所以这就是这次写回的位置。
+    // 最近一次预览给出的写回位置，保存成功时交给提示。预览收起或作废时清掉；填的值、意图、读取位置与世界版本变了都会重取预览，
+    // 所以保存时它对应的就是这次发出的输入。
     let previewedWhere: string | undefined;
     /**
      * 预览还没回来时按了保存（短项的回车，输出 51）：先把预览立刻发出去，回来以后除了这个值本身没有别的变化（`impactIsQuiet`）就保存；
@@ -156,6 +157,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
 
     const resetFeedback = (): void => {
         preview.value = null;
+        previewedWhere = undefined;
         error.value = "";
         recheck.value = false;
         locked.value = false;
@@ -172,8 +174,10 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         } else if (route.kind === "patch") {
             const read = await options.call("object", {ref: {kind: "change", id: route.change}});
             const change = read.ok ? (read.value.object as {readonly text?: string; readonly at?: Placement} | null) : null;
-            where = change?.at === undefined ? undefined : options.place(change.at);
-            routeText = text("edit.routePatch", {place: where ?? "", text: change?.text ?? ""});
+            const place = change?.at === undefined ? "" : options.place(change.at);
+            // 没安放的（只在计划里的）那一笔不说记在哪：“记在未安放”读不通。
+            where = change?.at === undefined || change.at.kind === "unscheduled" ? undefined : place;
+            routeText = text("edit.routePatch", {place, text: change?.text ?? ""});
         } else if (route.kind === "change") {
             where = options.place(route.at);
             routeText = text("edit.routeChange", {position: where});
@@ -203,6 +207,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         const input = inputOf(draft);
         if (input === null) {
             preview.value = null;
+        previewedWhere = undefined;
             previewing.value = false;
             return;
         }
@@ -223,6 +228,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         }
         saveWhenPreviewed = false;
         preview.value = null;
+        previewedWhere = undefined;
         applyFailure(draft, result.failure);
     };
 
@@ -257,7 +263,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     // 填的值、意图变了：停一下再预览。
     watch(() => {
         const draft = options.draft();
-        return draft === null ? null : JSON.stringify([draft.path, draft.value, draft.intent, draft.read]);
+        return draft === null ? null : JSON.stringify([draft.path, draft.value, draft.intent, draft.read, options.position()]);
     }, (key) => {
         if (key === null) return;
         schedulePreview();

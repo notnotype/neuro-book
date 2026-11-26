@@ -310,7 +310,7 @@ test("验收 11：只用键盘改一个值：走到值、Enter、填、Tab 到�
 async function horizontalScrolls(root: Locator): Promise<string[]> {
     return root.first().evaluate((element) => {
         const scrolls = (node: Element) => ["auto", "scroll"].includes(getComputedStyle(node).overflowX);
-        const candidates = [element, ...element.querySelectorAll("*")].filter((node) => node === element || (scrolls(node) && node.getAttribute("role") !== "tablist"));
+        const candidates = [element, ...element.querySelectorAll("*")].filter((node) => node === element || (scrolls(node) && node.getAttribute("aria-label") !== "条目的分页"));
         for (let up = element.parentElement; up !== null; up = up.parentElement) {
             if (!scrolls(up)) continue;
             candidates.push(up);

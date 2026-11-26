@@ -524,6 +524,25 @@ describe("写入", () => {
         expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先不算计划");
     });
 
+    it("确认条开着时换了时间点：预览按新的位置重取，保存后的提示写新的那一章", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:character";
+        state.position = "1:end";
+        const bar = await startEdit(wrapper, "character.性格");
+        await bar.get("textarea").setValue("银发");
+        state.edit = {...state.edit!, intent: "story"};
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("在第 1 章记一条变更"));
+        state.position = "2:end";
+        await waitUntil("新的预览", () => wrapper.get("[data-confirm-preview]").text().includes("在第 2 章记一条变更"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("提示", () => wrapper.find("[data-notice-where]").exists());
+        expect(wrapper.get("[data-notice-where]").text()).toBe("记在第 2 章");
+    });
+
     it("页头改名、改简介：点名字本身在原处出浮层（与短项同一种），不出确认条；保存后页头换了名字、有提示，焦点回到名字", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
