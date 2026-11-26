@@ -159,8 +159,11 @@ const instances = useViewInstances({
 
 // ── 视图段（docs/specs/workbench/views.md 输出 21，docs/specs/ui/workbench-layout.md 输出 50）─────────────────
 
-/** store 按它判当前容器有没有视图段：声明了、交付着、实例没有渲染出错。 */
-props.layout.actions.acceptRailBounds((viewId) => (instances.instances.get(viewId)?.status === "render-failed" ? null : props.views.railOf?.(viewId) ?? null));
+/** store 按它判当前容器有没有视图段：声明了、交付着、实例没有加载失败或渲染出错（失败时展开出来是一栏空白）。 */
+props.layout.actions.acceptRailBounds((viewId) => {
+    const status = instances.instances.get(viewId)?.status;
+    return status === "render-failed" || status === "load-failed" ? null : props.views.railOf?.(viewId) ?? null;
+});
 
 /** 视图段此刻借给谁：右栏当前容器恰有一节、是这个视图（`state.rail`）。 */
 const railOwner = computed(() => state.value.rail?.viewId ?? null);
@@ -206,7 +209,8 @@ const railSegment = computed((): ToolStripSegment | null => {
         tooNarrow: rail.tooNarrow,
         loading: status === "loading",
         width: rail.expanded ? rail.width : rail.requested,
-        bounds: rail.bounds,
+        // 手柄触界即停在预算给得出的地方（`limit`）：拖过去的那段落账就是意图比呈现宽（输出 50 的“轨宽手柄”）。
+        bounds: {minimum: rail.bounds.minimum, maximum: Math.max(rail.bounds.minimum, Math.min(rail.bounds.maximum, rail.limit ?? rail.bounds.maximum)), width: rail.bounds.width},
         revision: layoutStructureKey(doc.value),
         handleDisabled: state.value.maximized !== null,
         labels: {expand: message("shell.rail.expand"), collapse: message("shell.rail.collapse"), tooNarrow: message("shell.rail.tooNarrow"), handle: message("shell.rail.handle")},
@@ -1111,6 +1115,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :projection="layout.actions.renderedPresentation()"
                 :lifted="liftedCard"
                 :dragging="dragSource !== null"
+                :gesturing="state.railPreview !== null"
                 :floats="layout.actions.floats()"
                 :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"

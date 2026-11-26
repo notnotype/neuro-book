@@ -25,7 +25,7 @@ import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainer
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
 import {guardPlacement} from "./placement";
-import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints, railBaseline, railBudget} from "./layout-constraints";
+import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints, railBaseline, railBudget, railLimit} from "./layout-constraints";
 import {SHELL_RAIL_WIDTH} from "../shell/sizes";
 import type {ViewRailBounds} from "../../shared/contracts";
 import {effectiveVisibleTabs, mergedSections, regionOccupied, viewKey} from "./layout-present";
@@ -58,6 +58,8 @@ export interface RailState {
     readonly width: number;
     readonly requested: number;
     readonly regionWidth?: number;
+    /** 展开着时这一刻最多能展开到多宽（`railLimit`）：轨宽手柄按它触界即停。 */
+    readonly limit?: number;
 }
 
 /** 展开请求的结果（views.md 输出 21 的 `request`，工作台这一侧）：`too-narrow` 时意图不改。 */
@@ -205,9 +207,10 @@ function defineLayoutDocStore(bound: boolean) {
             const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, railPreview.value ?? intent?.width ?? bounds.width));
             const collapsed: RailState = {container, viewId, bounds, expanded: false, tooNarrow: false, width: SHELL_RAIL_WIDTH, requested};
             if (bounds === null || intent?.expanded !== true) return collapsed;
-            const budget = budgetFor(current, requested, bounds);
-            if (budget === null || budget.result === "too-narrow") return {...collapsed, tooNarrow: true};
-            return {...collapsed, expanded: true, width: budget.width, ...(budget.regionWidth === undefined ? {} : {regionWidth: budget.regionWidth})};
+            const budgeted = budgetFor(current, requested, bounds);
+            if (budgeted === null || budgeted.budget.result === "too-narrow") return {...collapsed, tooNarrow: true};
+            const {budget, limit} = budgeted;
+            return {...collapsed, expanded: true, width: budget.width, limit, ...(budget.regionWidth === undefined ? {} : {regionWidth: budget.regionWidth})};
         });
         /** 按收着的投影求一次布局，取基线、算预算；窗口尺寸还不知道、找不到编辑组时是 null（不能展开）。 */
         function budgetFor(of: LayoutDoc, request: number, bounds: ViewRailBounds) {
@@ -215,7 +218,7 @@ function defineLayoutDocStore(bound: boolean) {
             if (area === null) return null;
             const collapsedProjection = projectLayoutDoc(of, optionsOf(of, false));
             const baseline = railBaseline(of, collapsedProjection, createGrid<string>(collapsedProjection.input, {sashSize: collapsedProjection.sashSize}).layout(area));
-            return baseline === null ? null : railBudget({baseline, request, segment: bounds});
+            return baseline === null ? null : {budget: railBudget({baseline, request, segment: bounds}), limit: railLimit(baseline, bounds)};
         }
         const optionsFor = (of: LayoutDoc): LayoutProjectionOptions => optionsOf(of, true);
         const projectionOptions = computed(() => optionsFor(doc.value));
@@ -391,7 +394,7 @@ function defineLayoutDocStore(bound: boolean) {
         };
 
         return {
-            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, recordRepairs, rail: railState},
+            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, recordRepairs, rail: railState, railPreview},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -657,8 +660,8 @@ function defineLayoutDocStore(bound: boolean) {
                     const intent = record.rail?.[container] ?? {};
                     if (expanded) {
                         const bounds = soleRailBounds(current, container);
-                        const budget = bounds === null ? null : budgetFor(current, Math.min(bounds.maximum, Math.max(bounds.minimum, intent.width ?? bounds.width)), bounds);
-                        if (budget === null || budget.result === "too-narrow") return {ok: true, result: "too-narrow"};
+                        const budgeted = bounds === null ? null : budgetFor(current, Math.min(bounds.maximum, Math.max(bounds.minimum, intent.width ?? bounds.width)), bounds);
+                        if (budgeted === null || budgeted.budget.result === "too-narrow") return {ok: true, result: "too-narrow"};
                         maximized.value = null;
                     }
                     const next = {...(expanded ? {expanded: true as const} : {}), ...(intent.width === undefined ? {} : {width: intent.width})};

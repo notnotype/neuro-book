@@ -180,6 +180,8 @@ export function useViewInstances(options: {
         renderError: (viewId, generation, message) => {
             const instance = instances.get(viewId);
             if (instance === undefined || instance.generation !== generation) return;
+            // 视图段随出错的这一代退休：外壳按就绪的实例分发，出错的实例拿不到控制，旧控制的位置不收回的话视图还往右轨里送。
+            retireRail(viewId);
             Object.assign(instance, {status: "render-failed", error: message});
         },
         retryEntry: async (viewId) => {

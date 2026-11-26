@@ -38,7 +38,8 @@ export function createViewRail(context: ViewContext, handle: (expanded: boolean)
     const rail: ViewRail = {
         placement,
         expanded,
-        request: (wanted) => Promise.resolve(retired ? "revoked" : handle(wanted)),
+        // 构造函数里同步调 `handle`（同步判定、同步提交，按调用顺序），它抛错时交回失败的 Promise，不在视图的调用处同步抛。
+        request: (wanted) => new Promise((resolve) => resolve(retired ? "revoked" : handle(wanted))),
     };
     attachViewRail(context, rail);
     return {

@@ -3,7 +3,7 @@
  * 放不下收进“更多”、拖动与指示块要真实布局，在 e2e 里。
  */
 
-import {mount} from "@vue/test-utils";
+import {enableAutoUnmount, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 import {nextTick} from "vue";
 
@@ -15,6 +15,8 @@ const entry = (id: string, label: string, count?: number): ToolStripEntry => ({i
 afterEach(() => {
     document.body.innerHTML = "";
 });
+// 每条用例挂的组件在清空 body 之前卸载（vitest 的 afterEach 后登记的先跑）：留着的组件里有动画帧回调，等动画帧的用例会让它们在已清空的 body 里重画。
+enableAutoUnmount(afterEach);
 
 describe("WorkbenchToolStrip", () => {
     it("入口有计数时图标右上角画角标、读屏名称是“标题 数”；没有计数不画；超过 99 写 99+", () => {
@@ -112,11 +114,12 @@ describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md �
 
         await wrapper.setProps({segment: segment({expanded: true})});
         expect(wrapper.get("nav").attributes("data-rail-state")).toBe("expanded");
-        expect([wrapper.get("[data-rail-expand]").attributes("aria-expanded"), wrapper.get("[data-rail-expand]").attributes("aria-label")]).toEqual(["true", "收起"]);
+        // 名称不随状态变，状态只在 `aria-expanded`；悬停写这一下会做什么（收起）。
+        expect([wrapper.get("[data-rail-expand]").attributes("aria-expanded"), wrapper.get("[data-rail-expand]").attributes("aria-label")]).toEqual(["true", "展开"]);
         expect(wrapper.get("[data-rail-handle]").attributes()).toMatchObject({"role": "separator", "aria-valuenow": "260", "aria-valuemin": "200", "aria-valuemax": "420", "aria-label": "调整侧轨宽度"});
 
         await wrapper.setProps({segment: segment({tooNarrow: true})});
-        expect(wrapper.get("[data-rail-expand]").attributes()).toMatchObject({"aria-expanded": "false", "aria-label": "窗口太窄", "data-rail-too-narrow": ""});
+        expect(wrapper.get("[data-rail-expand]").attributes()).toMatchObject({"aria-expanded": "false", "aria-label": "展开", "aria-description": "窗口太窄", "data-rail-too-narrow": ""});
         await wrapper.setProps({segment: segment({loading: true})});
         expect(wrapper.find("[data-rail-segment='main'] [data-rail-loading]").exists()).toBe(true);
 
@@ -140,6 +143,33 @@ describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md �
         expect(wrapper.emitted("segment-width-commit")).toHaveLength(4);
         await wrapper.setProps({segment: segment({expanded: true, handleDisabled: true})});
         expect(wrapper.find("[data-rail-handle]").exists()).toBe(false);
+    });
+
+    it("轨宽手柄的指针：按下拿到焦点，拖动只发预览、触界即停，松手提交一次；Esc 整场取消、撤回预览、不提交", async () => {
+        const wrapper = mountRail(segment({expanded: true, width: 300}));
+        const element = wrapper.get("[data-rail-handle]").element as HTMLElement;
+        const pointer = (type: string, clientX: number) => element.dispatchEvent(new PointerEvent(type, {pointerId: 1, button: 0, clientX, bubbles: true, cancelable: true}));
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+        pointer("pointerdown", 500);
+        expect(document.activeElement).toBe(element);
+        // 右轨的手柄在左边：往左 40 是变宽 40；再往左拖过上限 420 停在 420。
+        pointer("pointermove", 460);
+        await frame();
+        pointer("pointermove", 300);
+        await frame();
+        expect(wrapper.emitted("segment-width-preview")?.map(([width]) => width)).toEqual([340, 420]);
+        expect(element.getAttribute("aria-valuenow")).toBe("420");
+        pointer("pointerup", 300);
+        expect(wrapper.emitted("segment-width-commit")).toEqual([[420]]);
+        expect(wrapper.emitted("segment-width-preview")?.at(-1)).toEqual([null]);
+
+        pointer("pointerdown", 500);
+        pointer("pointermove", 450);
+        await frame();
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        pointer("pointerup", 450);
+        expect(wrapper.emitted("segment-width-commit")).toHaveLength(1);
+        expect(wrapper.emitted("segment-width-preview")?.at(-1)).toEqual([null]);
     });
 
     it("焦点在视图段里、视图段被收起：焦点所在的项还在就留着；被视图拆掉了交给展开按钮", async () => {

@@ -293,6 +293,7 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
         :data-rail="region"
         :data-rail-state="segment?.expanded === true ? 'expanded' : 'collapsed'"
         :data-rail-segment-host="segment === null ? undefined : ''"
+        data-drop-refuse
         :data-rail-joined="joined ? '' : undefined"
         @focusin="onFocusIn"
         @keydown="onKeydown"
@@ -347,7 +348,8 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
                 <IconButton
                     size="lg"
                     :icon-class="segment.expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'"
-                    :aria-label="segmentText"
+                    :aria-label="segment.labels.expand"
+                    :aria-description="segment.tooNarrow ? segment.labels.tooNarrow : undefined"
                     :aria-expanded="segment.expanded"
                     :data-rail-too-narrow="segment.tooNarrow ? '' : undefined"
                     data-rail-expand
@@ -551,6 +553,21 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
 .workbench-tool-strip .workbench-tool-strip__item--pressed {
     background: var(--skin-activitybar-hover, var(--bg-hover));
     color: var(--skin-activitybar-active, var(--text-main));
+}
+
+/*
+ * 收着时各段是贴窗口外缘的 48 一列：展开、收起的过渡里叶宽还在变，居中的话入口列会跟着宽度漂到中间，收起时先跳一下。
+ */
+.workbench-tool-strip:not([data-rail-state="expanded"]) > * {
+    max-width: 48px;
+}
+
+.workbench-tool-strip--sidebar:not([data-rail-state="expanded"]) {
+    align-items: flex-start;
+}
+
+.workbench-tool-strip--auxiliarybar:not([data-rail-state="expanded"]) {
+    align-items: flex-end;
 }
 
 /*

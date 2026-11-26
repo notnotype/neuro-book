@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<{
     lifted?: {readonly key: string} | null;
     /** 拖动进行中：网格不留着离开的叶缩回去（`NestedGrid` 的 `dragging`）。 */
     dragging?: boolean;
+    /** 宿主自己的尺寸手势进行中（侧轨的轨宽手柄）：布局跟手、不过渡（`NestedGrid` 的 `gesturing`）。 */
+    gesturing?: boolean;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /**
@@ -50,7 +52,7 @@ const props = withDefaults(defineProps<{
      * 内容裁在这一列的卡片里，滑走的与换上来的之间隔一条缝。
      */
     swap?: Omit<GridSwap, "gap" | "window"> | null;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), ownHeads: () => new Map<string, number>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), ownHeads: () => new Map<string, number>(), slotPanel: null, lifted: null, dragging: false, gesturing: false, floats: () => [], swap: null});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -642,6 +644,7 @@ defineExpose({
             :contents="contents"
             :lifted="lifted"
             :dragging="dragging"
+            :gesturing="gesturing"
             :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
