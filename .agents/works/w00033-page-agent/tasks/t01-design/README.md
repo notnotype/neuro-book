@@ -47,4 +47,4 @@ updated: 2026-11-26
 
 ## 下一步
 
-第二稿之后开发者定了决定 10 到 17，按它们改成[设计稿](design.md)第三稿。下一步：第二轮设计审查（改动面大：界面目录、引导的等待协议、截图上传、上游改动），处理完按 implementation-planning 写计划，开工前先做设计稿列的 8 个实验。
+第二稿之后开发者定了决定 10 到 17，按它们改成第三稿。第二轮审查（第三稿）：Opus 19 条（阻断 1、重要 11、建议 7，[报告](evidences/design-review-r2-opus.txt)）、omp 25 条（[报告](evidences/design-review-r2-omp.txt)）、Sonnet 17 条（阻断 1、重要 11、建议 5，[报告](evidences/design-review-r2-sonnet.txt)）。发现反复落在第二批的动作与租约、运行与会话的寿命、引导等待的跨进程收口、界面目录的多步路径，按[处理记录](evidences/design-review-r2-disposition.txt)收窄成[设计稿](design.md)第四稿：只设计第一批（快照、界面目录、截图、引导），第二批另开 Task；等用户改为服务端向窗口订阅；去掉不等的高亮、租约与 Esc 结束引导；界面目录第一版只收设置、视图与固定入口上的命令。
